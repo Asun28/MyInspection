@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  legacy 全量备份规则（API < 31，Android 12 以下走此路径而非 data_extraction_rules.xml）：
+  同样排除整个私有目录，与 data_extraction_rules.xml 的立场一致（见该文件注释）。
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+</full-backup-content>

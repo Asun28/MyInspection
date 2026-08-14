@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+（API 31+）数据抽取规则：把全部 app 私有数据从「云备份」与「设备间转移」两条通道都排除。
+  见 CLAUDE.md 隐私硬边界（Privacy Act 2020）——租客照片/联系方式等敏感数据唯一出口是本 app 自己的加密
+  SAF 归档，绝不许经系统层任何备份/转移通道流出。android:allowBackup="false" 只关掉云备份，不覆盖 Android 12+
+  的设备间转移（D2D），须显式声明本规则才能同时排除。domain="root" + path="." = 排除整个私有目录。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

@@ -69,7 +69,7 @@
 ### 5.1 非 Python/npm 生态依赖清单覆盖缺口（advisory-only）
 `scripts\check-licenses.ps1` 只**扫描**（自动识别许可证文本并分类）PyPI（`pyproject.toml`）与 npm
 （`frontend/package.json`）两个生态；若仓库还存在其它生态的依赖清单（`go.mod`/`Cargo.toml`/`Gemfile`/
-`composer.json`/`pubspec.yaml`/`pom.xml`/`build.gradle` 等），探针会把它登记为「覆盖缺口」——**这不代表你
+`composer.json`/`pubspec.yaml`/`pom.xml` 等），探针会把它登记为「覆盖缺口」——**这不代表你
 必须用 Python**，只是提醒该生态没有对应的自动扫描器，需要人工或其原生工具核验，不能让「零覆盖」被误读成
 「已核验合规」。
 
@@ -79,6 +79,13 @@
   Ruby → `license_finder`；多语言通用 → `license_finder`（支持多生态）、`FOSSA`、`ScanCode Toolkit`。
 - 核验完成后把结果按 §3/§4 表格式逐项登记；脚本本身**不会**自动清除该告警（它不感知人工核验结果，
   这是刻意的 fail-safe，避免「装了扫描工具但没人看结果」的假绿）。
+
+**Gradle（T0-TOOLCHAIN 起）当前 = 人工核验 + 覆盖缺口告警**：Gradle 生态的探针与其余各条不同——不是固定
+查根级 `build.gradle`，而是**递归**扫全仓（排除 `.gradle/`、`build/` 等缓存产物目录），逐一列出发现的
+`build.gradle`/`build.gradle.kts` 相对路径。这只解决「探针够不着嵌套清单」，**不是**扫描器：不解析依赖坐标、
+不识别许可、不接 Maven/Gradle 元数据。每加/升级一个 Gradle 依赖仍须**人工**核验许可（如下载对应
+`.pom`/`.aar` 直读 `<licenses>` 或 `META-INF/.../aar-metadata.properties`）并按 §3 表登记；接入真正的 Gradle
+许可扫描器/CI 强制 allowlist 是选型活，独立走 `specs/tech-debt-tracker.md` 的 TD2。
 
 ## 6. 例外
 任何 §1 例外必须：书面记录理由 + 法务签字 + 写入本表。无记录即视为违规。

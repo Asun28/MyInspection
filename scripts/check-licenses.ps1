@@ -114,12 +114,24 @@ $otherManifests = @(
   @{ file = 'composer.json'; eco = 'PHP (composer.json)' }
   @{ file = 'pubspec.yaml';  eco = 'Dart/Flutter (pubspec.yaml)' }
   @{ file = 'pom.xml';       eco = 'Java/Maven (pom.xml)' }
-  @{ file = 'build.gradle';  eco = 'Gradle (build.gradle)' }
 )
 $otherHits = @($otherManifests | Where-Object { Test-Path (Join-Path $RepoRoot $_.file) })
 foreach ($m in $otherHits) {
   $coverageGap += "$($m.eco)：检测到依赖清单但本闸无对应许可扫描器——零覆盖≠合规（按 docs/LICENSE-POLICY.md 人工核验该生态依赖，或接入扫描器）。"
 }
+
+# Gradle：递归发现——上面固定路径表只查**根级** build.gradle，够不着本仓嵌套的
+# android/{app,core}/build.gradle.kts、android/build.gradle.kts，对整条 Android 依赖图零覆盖却报 PASS
+# （L165 同型失效：断言面窄于契约）。改递归 glob，排除 .gradle/ 与 build/ 等缓存产物目录（避免把生成物
+# 目录里偶然同名的文件当成源清单误报）。
+$gradleHits = @(Get-ChildItem -Path $RepoRoot -Recurse -File -Include 'build.gradle', 'build.gradle.kts' -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -notmatch '[\\/](\.gradle|build)[\\/]' })
+if ($gradleHits) {
+  $gradleRel = ($gradleHits | ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) }) -join ', '
+  $coverageGap += "Gradle（检出 Gradle 依赖清单：$gradleRel）：本闸无对应许可扫描器——零覆盖≠合规（按 docs/LICENSE-POLICY.md 人工核验该生态依赖，或接入扫描器）。"
+  $otherHits += $gradleHits
+}
+
 if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单。" }
 
 Write-Host ""
