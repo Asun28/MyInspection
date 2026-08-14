@@ -1485,3 +1485,11 @@
 - rule: **凡是「有引导才收紧」的闸，退出码永远不是证据，判定行才是**：DoD 收 verify 时必须抓那句哨兵（如 Android 闸的「Android :core check 全绿」），抓不到就是没跑。手跑 verify 验某张卡的产物时，跑**worktree 那份**（`pwsh -File <WorktreeRoot>\<id>\scripts\verify.ps1`），别在主检出跑——$RepoRoot 跟着脚本位置走。注：harness 自身是对的（`task.ps1` ship 用 `Join-Path $Wt scripts/verify.ps1`、DoD 在 `Push-Location $Wt` 下跑），这坑只在**人/agent 手跑**时出现；给子代理写验收步骤时尤其容易写错方向（本条即编排者自己写错被哨兵断言抓回来的）。
 - enforced_by: 
 - refs: 
+
+## L208
+- date: 2026-08-15 ｜ tags: android,gradle,environment,subagent,windows ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 同一台机器上，装环境的那个 agent 报「JDK/SDK 装好、gradlew 全绿」，但**别的会话/别的子代理/编排者自己**跑同一条 gradle 命令却红：或报 `JAVA_HOME is not set`/`location of your Java installation`，或报 `gradlew.bat is not recognized`。看起来像装机没成功或产物有问题，实则两者都不是。
+- root_cause: 两个独立机制叠在一起：①`setx` 写的是**用户级注册表**，只对**此后新建**的进程生效——装环境那个 agent 在自己会话里另外设了 `$env:JAVA_HOME` 所以它是绿的，而**早于 setx 启动**的会话（编排者的 shell、并行的兄弟子代理）进程环境里根本没有，且不会自动刷新；②Claude Code 的 shell 会话带**进程级** `NoDefaultCurrentDirectoryInExePath=1`（HKLM/HKCU 均无此项，非本机真实设置），于是 `cmd /c "gradlew.bat …"` 这种**裸文件名**依赖「当前目录参与 exe 搜索」的写法直接找不到文件——真实终端/CI 无此变量，故本地红、CI 绿，最容易被误判成产物坏。
+- rule: 本仓任何要跑 Android 构建的会话/子代理，开头先显式注入，别指望继承：`$env:JAVA_HOME=(Get-ItemProperty HKCU:\Environment).JAVA_HOME; $env:ANDROID_HOME=(Get-ItemProperty HKCU:\Environment).ANDROID_HOME; $env:PATH="$env:JAVA_HOME\bin;$env:PATH"`（当前值：C:\Android\jdk-17 / C:\Android）。调 wrapper 一律写 `.\gradlew.bat` 显式相对路径，不写裸 `gradlew.bat`。诊断顺序：先 `"[$env:JAVA_HOME]"` 与 `$env:NoDefaultCurrentDirectoryInExePath` 各看一眼，再怀疑构建产物——把环境差异排除掉之前，别去改任何 build 文件。
+- enforced_by: 
+- refs: 
