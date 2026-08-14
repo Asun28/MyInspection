@@ -420,7 +420,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>CI verify <span class="file">verify.ps1 · ci.yml</span></h3>
-              <p>确定性 CI 闸：ubuntu-latest（pwsh 预装 · 省 2× 分钟 · 可改 windows/matrix）、无网络、无密钥。job 名 verify，含占位「闸门 2」接 e2e。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
+              <p>确定性 CI 闸：<strong>windows-latest</strong>（T0-TOOLCHAIN 起：Android/Gradle 闸与开发机同源、以确定性换 2× 计费分钟）、无密钥；网络仅限引导步（setup-java / setup-android / 一次在线 <code>gradlew build</code> 预热缓存），此后各闸恒 <code>--offline</code>。job 名 verify，含占位「闸门 2」接 e2e。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
             </div>
           </article>
           <article class="node c-sub" tabindex="0" data-rel="quality" data-self="licenses">

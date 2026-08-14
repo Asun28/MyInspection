@@ -47,7 +47,11 @@ T0-TOOLCHAIN 的宪章是「本机工具链 + `android/` 骨架空编译绿」�
    只有「非零 **且** 命中指定断言文本」才算数（L165：变异本身也会撒谎，非零可能来自语法坏/更早的闸抢先中断）。
    ③ 发现逻辑的**每个分支**各自被变异覆盖（T0 六轮 finding #6c：只变异了 `libs.versions.toml` 一支，
    `build.gradle{,.kts}` 那一支从未被证明在测）。
-5. `docs/LICENSE-POLICY.md` §3 落已核验的 Gradle 直接依赖许可表（DeepSeek 出表 + 编排者复核 testng POM，
+5. **`verify.ps1` 的 gradlew 调用改显式路径**（T0 合并后实测）：现为 `cmd /c 'gradlew.bat …'`，**裸文件名**依赖
+   「当前目录参与 exe 搜索」这一可被关闭的行为——Claude Code 的 shell 会话带进程级 `NoDefaultCurrentDirectoryInExePath=1`
+   （已核：HKLM/HKCU 注册表均无此项，非本机真实设置），该形态下直接 `'gradlew.bat' is not recognized`。改
+   `cmd /c '.\gradlew.bat …'`（或等价显式路径）即免疫，真实终端/CI 行为不变。**同属本卡「verify 确定性」主题，不是新范围。**
+6. `docs/LICENSE-POLICY.md` §3 落已核验的 Gradle 直接依赖许可表（DeepSeek 出表 + 编排者复核 testng POM，
    见 `findings.md`）。**`aar-metadata.properties` 不是许可证据**——它记 `minCompileSdk` 等构建要求，与许可无关，勿再引用。
 
 ## 编排者仲裁：约 220 个传递坐标未审计（T0 第 4/5/6 轮同一争点）

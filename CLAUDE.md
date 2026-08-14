@@ -69,10 +69,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 <!-- 随 R5 文档同步更新。 -->
-需求已收口 + **设计已定稿**（3 方讨论 Claude Fable 5 / DeepSeek V4 Pro / Codex GPT-5.6 → `docs/adr/0001–0004`，2026-08-14）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；计划真相源 `_local/PLAN.md`；任务已拆卡 `specs/tasks/`，**模型/effort 路由总表 = `docs/TASK-BOARD.md`**。未开工。下一步：
-① 用户签认：ADR-0002（备份设计推翻需求 §11 一处[定]）+ TASK-BOARD「待用户定」清单（含房产现状问题）；
-② `T0-TOOLCHAIN`（本机零 Android 工具链，已核）；
-③ 按 board 波次逐卡施工（`scripts/task.ps1`，评审 R3 = gpt-5.6-sol）。
+需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**26 张**），模型路由总表 `docs/TASK-BOARD.md`。
+
+**W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
+> 评审途中拆出新卡 **`T0-GATE-HARDENING`**（许可闸递归发现 + verify 确定性 + 两枚闸门自测 + 许可政策），承接被撤销的三次破例，见该卡「拆分依据」与仲裁段。
+
+下一步：① `T0-GATE-HARDENING`；② **W1 并行**：`T1-SCHEMA-CORE`（★冻结点）与 `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）；③ 之后按 board 波次推进。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）

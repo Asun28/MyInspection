@@ -2,7 +2,7 @@
 id: T0-TOOLCHAIN
 title: 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧
 depends_on: []
-status: todo
+status: merged
 branch: T0-TOOLCHAIN
 worktree: C:\wt\T0-TOOLCHAIN
 allow_paths:
