@@ -11,6 +11,7 @@ allow_paths:
   - scripts/check-licenses.ps1
   - docs/LICENSE-POLICY.md
   - scripts/verify.ps1
+  - scripts/selftest.ps1
 forbid:
   - 未授权的运行期出站网络（Gradle 首次拉依赖属引导步、允许；此后 verify 恒 --offline）
   - 改动冻结契约 / 写登录态 / 自动发布
@@ -61,6 +62,16 @@ R3 连续两轮指出：`scripts/check-licenses.ps1` 的「其它生态清单探
 - **要做**：给 line 98 那一处 gradlew 调用补 `--no-daemon`（与卡片 prose、CLAUDE.md「命令」节口径一致）。
 - **不做**：verify.ps1 的任何其它改动（闸门结构、闸 2 占位、uv/前端分支一律不碰）。
 - **附加闸**：同上，`selftest.ps1` 须全绿且不得弱化断言（15f(a) 一类常设断言若与本改动冲突，报告我，别改断言）。
+
+## 卡片修订 2026-08-15 之三（编排者裁决 · R3 第四轮 finding #3）
+第四轮指出：本卡改了两处**闸门行为**（check-licenses 递归发现 · verify.ps1 `--no-daemon`），却一枚测试都没配——
+两处改动**整段删掉**，既有 CoreModuleTest 与 verify 照样绿。这正是本仓 Tier-1 铁律 **L165** 说的失效形态
+（守卫没被人看着红过 = 不算数）。把它推给技术债 = 明知违反自家必须层铁律还合并，对后面 24 张卡是坏先例；
+另开一张卡又要为约 20 行断言走整套 R1–R5，而 T0 卡着全部依赖。故**第三次破例**纳入 `scripts/selftest.ps1`，范围**只有两枚断言**：
+- **要做**：① 嵌套 Gradle 清单发现（**须含 `libs.versions.toml`**，见同轮 finding #2）的**行为断言**——夹具里放一个嵌套清单，
+  跑 check-licenses 须报「检出」；② `verify.ps1` 的 Android 闸调用**含 `--no-daemon`** 的断言。
+  **两枚各配一枚单句删除变异**：删掉被测那一句，断言必须变红（且非零退出须**确实来自该断言**、不是语法坏或更早的闸抢先中断 —— L165 的判据分类器要求）。变异结果贴进报告。
+- **不做**：selftest 的任何其它改动；不重构既有闸；**绝不为了让它绿而弱化任何既有断言**。
 
 ## 评审者读到的是**工作树里的卡**（R3 第三轮 finding #1 的根因 · 见 TD3）
 本卡在施工中被修订过两次，而修订按 L18 只落 master、不进功能分支——于是 `review.ps1` 交给评审者的工作树里
