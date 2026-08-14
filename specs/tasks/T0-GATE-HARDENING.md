@@ -18,9 +18,9 @@ forbid:
 non_goals:
   - 逐坐标自动许可扫描 / CI 强制 allowlist（TD2 独立卡）
   - 手工审计全部约 220 个传递坐标（见仲裁：义务绑定在**分发**，不在骨架卡）
-dod_command: pwsh -NoProfile -File scripts\selftest.ps1
+dod_command: pwsh -NoProfile -Command "if (-not ((pwsh -NoProfile -File scripts/check-licenses.ps1 | Select-String -SimpleMatch 'libs.versions.toml') -and (Select-String -Path scripts/verify.ps1 -Pattern '--no-daemon' -SimpleMatch))) { exit 1 }"
 dod_exit: 0
-dod_assert: selftest 全绿；新增两枚断言各自的单句删除变异**确实变红且非零来自该断言**（分类器判据，L165）；check-licenses.ps1 对本仓输出「检出 Gradle 依赖清单」并含 libs.versions.toml；verify.ps1 的 Android 闸调用含 --no-daemon
+dod_assert: check-licenses 实跑输出里点名 libs.versions.toml（行为断言，非源码文本）；verify.ps1 的 Android 闸调用含 --no-daemon。**另须（评审沙箱外、本机 + CI 强制）**：`pwsh -NoProfile -File scripts\selftest.ps1` 全绿，且新增两枚断言各自的单句删除变异**确实变红、非零确实来自该断言**（分类器判据，L165）——变异红/绿证据贴进卡片记录。重型套件按 L60/L62 不进 dod_command（评审沙箱不保证可复跑）。
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: docs/DELIVERY-CHAINS.md 与 docs/scaffold-architecture.html 的 CI 形态描述（T0 改了 runner）+ TASK-BOARD 备注（R5）
