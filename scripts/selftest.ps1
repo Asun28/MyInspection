@@ -5254,13 +5254,18 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     if ($abOut -notmatch 'TD66-STD-BASELINE') { Fail '种子缺陷 17ab：从被审树跑 review.ps1（$PSScriptRoot 落在 $WorktreePath 内）未发出「评审逻辑本体由被审树提供」的来源告警（哨兵 TD66-STD-BASELINE）——逻辑本体来源告警缺失/漂移（TD66 纵深防御子项）。'; $abFail = $true }
     if (-not $abFail) { Write-Host '  17ab R3 判定标准基线锁：FrozenPaths 从基线解析（被审分支清空自身副本仍不能弱化冻结标准）+ 逻辑本体来源告警 OK' -ForegroundColor Green }
 
-    # 17ac. check-licenses.ps1 嵌套 Gradle 清单发现须含 libs.versions.toml（T0-TOOLCHAIN R3 四轮 finding #2/#3）：
+    # 17ac. check-licenses.ps1 嵌套 Gradle 清单发现须含 libs.versions.toml（T0-TOOLCHAIN R3 四/五轮 finding #2/#3/#6）：
     #   递归探针原表只固定查根级 build.gradle，够不着嵌套的 build.gradle(.kts)/libs.versions.toml（版本目录，
-    #   依赖坐标实际 pin 处）。本子闸用**行为夹具**证明修复非 vacuous：临时夹具仓（含被测 check-licenses 与其
-    #   _config/_encoding 依赖）+ 一层嵌套目录里**只放 libs.versions.toml**（不放 build.gradle(.kts)，
-    #   避免「靠别的文件类型带过」的假阳性）。跑 check-licenses.ps1，断言输出报「检出」且**点名该文件**。
-    #   变异：删掉 Include 列表里的 'libs.versions.toml' 一项，同一夹具重跑须转为「未检出」，且退出码仍为 0
-    #   （分类判据：exit≠0 说明变异引入了别的故障、不是「悄悄漏检」，判据不纯净——L165 的判据分类器要求）。
+    #   依赖坐标实际 pin 处）。R3 五轮指出上一版判据太松（`$out -match 'libs.versions.toml'` 只要该文件名
+    #   **在输出任意处**出现就算过——若把「检出 Gradle 依赖清单」这句契约文案本身改掉/删掉，文件名仍可能残留在
+    #   别处（如注释/别的告警），判据照样绿，是 mutation survivor）。改为**锚定同一行**：先找含契约短语
+    #   「检出 Gradle 依赖清单」的那一行输出，断言**该行**同时含文件名——两者绑在同一条 coverageGap 消息里，
+    #   不能分离满足。
+    #   两枚变异各证一种失效模式：① 从 Include 列表删掉 'libs.versions.toml'（发现机制本身失效）→ 该夹具里
+    #   没有别的 Gradle 清单可顶替，契约行应整句消失；② 保留 Include、只篡改契约短语文案本身（如替换成任意
+    #   别的字符串，模拟「代码还在跑、但契约措辞被改掉」）→ 契约行同样应消失，即使文件名仍残留在输出别处
+    #   （这正是旧判据会漏判、新判据不会的分界点）。两枚变异退出码都应仍为 0（分类判据：非零退出说明变异引入了
+    #   别的故障，不是「契约文案/发现机制悄悄失效」，判据不纯净——L165 的判据分类器要求）。
     $fx4 = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-gradlediscovery-$PID"
     if (Test-Path $fx4) { Remove-Item -Recurse -Force $fx4 }
     try {
@@ -5270,28 +5275,49 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       Copy-Item (Join-Path $RepoRoot 'scripts/_config.ps1')        (Join-Path $fx4Scripts '_config.ps1')
       Copy-Item (Join-Path $RepoRoot 'scripts/_encoding.ps1')      (Join-Path $fx4Scripts '_encoding.ps1')
       Set-Content (Join-Path $fx4Nested 'libs.versions.toml') "[versions]`nfoo = `"1.0`"`n" -Encoding utf8
+      $mutPath4 = Join-Path $fx4Scripts 'check-licenses.ps1'
+      $wordingNeedle4 = '检出 Gradle 依赖清单'
+      $includeNeedle4 = "'build.gradle', 'build.gradle.kts', 'libs.versions.toml'"
 
-      $fx4Out = & pwsh -NoProfile -File (Join-Path $fx4Scripts 'check-licenses.ps1') 2>&1 | Out-String
-      $fx4Exit = $LASTEXITCODE
-      if ($fx4Exit -ne 0 -or $fx4Out -notmatch [regex]::Escape('libs.versions.toml')) {
-        Fail "闸17ac：check-licenses.ps1 未在夹具里检出嵌套 libs.versions.toml（exit=$fx4Exit，输出未点名该文件）——递归发现对版本目录仍是盲区。"
+      function Get-Fx4DetectLine([string]$out) {
+        return ($out -split "`n") | Where-Object { $_ -match [regex]::Escape($wordingNeedle4) } | Select-Object -First 1
+      }
+
+      $fx4Out = & pwsh -NoProfile -File $mutPath4 2>&1 | Out-String
+      $fx4Line = Get-Fx4DetectLine $fx4Out
+      if ($LASTEXITCODE -ne 0 -or -not $fx4Line -or $fx4Line -notmatch [regex]::Escape('libs.versions.toml')) {
+        Fail "闸17ac：check-licenses.ps1 未在夹具里检出嵌套 libs.versions.toml（exit=$LASTEXITCODE，契约行=$fx4Line）——递归发现对版本目录仍是盲区。"
       } else {
-        $mutPath4 = Join-Path $fx4Scripts 'check-licenses.ps1'
-        $mutContent4 = Get-Content $mutPath4 -Raw
-        $needle4 = "'build.gradle', 'build.gradle.kts', 'libs.versions.toml'"
-        if (-not $mutContent4.Contains($needle4)) {
-          Fail "闸17ac：变异锚点未命中（Include 列表字面量变了？找 `"$needle4`"）——无法证明断言非 vacuous。"
+        $origContent4 = Get-Content $mutPath4 -Raw
+        if (-not $origContent4.Contains($includeNeedle4)) {
+          Fail "闸17ac：变异①锚点未命中（Include 列表字面量变了？找 `"$includeNeedle4`"）——无法证明断言非 vacuous。"
+        } elseif (-not $origContent4.Contains($wordingNeedle4)) {
+          Fail "闸17ac：变异②锚点未命中（契约短语字面量变了？找 `"$wordingNeedle4`"）——无法证明断言非 vacuous。"
         } else {
-          $mutContent4 = $mutContent4.Replace($needle4, "'build.gradle', 'build.gradle.kts'")
-          Set-Content $mutPath4 $mutContent4 -Encoding utf8 -NoNewline
-          $fx4MutOut = & pwsh -NoProfile -File $mutPath4 2>&1 | Out-String
-          $fx4MutExit = $LASTEXITCODE
-          if ($fx4MutExit -ne 0) {
-            Fail "闸17ac 变异判据：删除 libs.versions.toml 后 check-licenses.ps1 非零退出（exit=$fx4MutExit）——非「悄悄漏检」而是别的故障，判据不纯净。尾段=$($fx4MutOut.Substring([Math]::Max(0,$fx4MutOut.Length-400)))"
-          } elseif ($fx4MutOut -match [regex]::Escape('libs.versions.toml')) {
-            Fail '闸17ac 变异判据：删除 Include 项后仍检出 libs.versions.toml——变异未生效，断言可能是 vacuous pass（未真正测到该代码路径）。'
+          # 变异①：去掉 Include 项（发现机制本身失效）。
+          Set-Content $mutPath4 ($origContent4.Replace($includeNeedle4, "'build.gradle', 'build.gradle.kts'")) -Encoding utf8 -NoNewline
+          $mut1Out = & pwsh -NoProfile -File $mutPath4 2>&1 | Out-String
+          $mut1Exit = $LASTEXITCODE
+          $mut1Line = Get-Fx4DetectLine $mut1Out
+          if ($mut1Exit -ne 0) {
+            Fail "闸17ac 变异①判据：删除 Include 项后 check-licenses.ps1 非零退出（exit=$mut1Exit）——非「悄悄漏检」而是别的故障，判据不纯净。"
+          } elseif ($mut1Line) {
+            Fail '闸17ac 变异①判据：删除 Include 项后契约行仍出现——变异未生效，断言可能是 vacuous pass。'
           } else {
-            Write-Host '  17ac check-licenses.ps1 嵌套发现含 libs.versions.toml OK（夹具检出该文件；变异删除 Include 项后 exit 仍 0 但不再检出——判据纯净：漏检非故障）' -ForegroundColor Green
+            # 变异②：还原 Include、改契约短语文案本身。
+            Set-Content $mutPath4 ($origContent4.Replace($wordingNeedle4, 'FOUND-STUFF-PLACEHOLDER')) -Encoding utf8 -NoNewline
+            $mut2Out = & pwsh -NoProfile -File $mutPath4 2>&1 | Out-String
+            $mut2Exit = $LASTEXITCODE
+            $mut2Line = Get-Fx4DetectLine $mut2Out
+            if ($mut2Exit -ne 0) {
+              Fail "闸17ac 变异②判据：篡改契约短语后 check-licenses.ps1 非零退出（exit=$mut2Exit）——判据不纯净。"
+            } elseif ($mut2Line) {
+              Fail '闸17ac 变异②判据：篡改契约短语后仍能按原短语找到契约行——变异未生效。'
+            } elseif ($mut2Out -notmatch [regex]::Escape('libs.versions.toml')) {
+              Fail '闸17ac 变异②判据：篡改契约短语后文件名连输出里都不出现了——变异破坏了不该碰的部分，判据不纯净（应只改文案、不改发现结果）。'
+            } else {
+              Write-Host '  17ac check-licenses.ps1 嵌套发现含 libs.versions.toml OK（夹具检出该文件、判据锚定同一行；变异①删 Include 项与变异②篡改契约文案均正确转红，且文件名残留在输出不会瞒过判据——判据纯净）' -ForegroundColor Green
+            }
           }
         }
       }
@@ -5299,36 +5325,62 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       Remove-Item -Recurse -Force $fx4 -ErrorAction SilentlyContinue
     }
 
-    # 17ad. verify.ps1 的 Android 闸 gradlew 调用须含 --no-daemon（T0-TOOLCHAIN R3 三/四轮 finding #5/#3）：
+    # 17ad. verify.ps1 的 Android 闸 gradlew 调用须含 --no-daemon（T0-TOOLCHAIN R3 三/四/五轮 finding #5/#3/#6）：
     #   卡片 prose 与 CLAUDE.md「命令」节都写着 --offline --no-daemon，此前脚本漏了 --no-daemon（残留 daemon 复用致
-    #   非确定性，现场实证=本机曾有 760s CPU 的残留 daemon）。词法断言须锚定到**实际调用那一行**（`& cmd /c '...'`），
-    #   不能被文件任意位置一句注释里出现的 --no-daemon 字样蒙混。变异：临时副本删掉该 flag，重跑同一判定函数，
-    #   须转为专属原因 flag-missing（而非锚点丢失等旁的原因——L165 的判据分类器要求）。
+    #   非确定性，现场实证=本机曾有 760s CPU 的残留 daemon）。R3 五轮指出上一版用原始文本行正则、未锚定「可执行」，
+    #   若把该行整句注释掉（`# & cmd /c '...'`）纯文本正则仍会命中、判定仍报 ok——是 mutation survivor。
+    #   改用**真 AST**（同 17p2 手法）：解析 verify.ps1，找 `CommandAst` 里命令名恰为 `cmd`
+    #   （`GetCommandName() -eq 'cmd'`）且节点原文含 `gradlew.bat` 的节点——**注释天生不产生 AST 节点**，
+    #   一旦整句被注释掉，FindAll 直接零命中，无需额外判断「是不是注释」。
+    #   两枚变异各证一种失效模式并要求专属分类：① 只删 `--no-daemon` 这个 flag（节点仍在，判据须报 flag-missing）；
+    #   ② 把整句注释掉（节点消失，判据须报 anchor-missing）——二者原因码不同，混淆即判据不纯净。
     function Test-VerifyNoDaemon17ad([string]$path) {
-      $lines = Get-Content $path
-      $idx = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match "& cmd /c 'gradlew\.bat" } | Select-Object -First 1
-      if ($null -eq $idx) { return @{ ok = $false; reason = 'anchor-missing' } }
-      if ($lines[$idx] -notmatch '--no-daemon') { return @{ ok = $false; reason = 'flag-missing'; line = $lines[$idx] } }
+      $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+      $cmds = @($ast.FindAll({
+        param($n)
+        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'cmd' -and $n.Extent.Text -match 'gradlew\.bat'
+      }, $true))
+      if ($cmds.Count -eq 0) { return @{ ok = $false; reason = 'anchor-missing' } }
+      $target = $cmds[0]
+      if ($target.Extent.Text -notmatch '--no-daemon') { return @{ ok = $false; reason = 'flag-missing'; text = $target.Extent.Text } }
       return @{ ok = $true }
     }
     $vfyPath17ad = Join-Path $RepoRoot 'scripts/verify.ps1'
     $r17ad = Test-VerifyNoDaemon17ad $vfyPath17ad
     if (-not $r17ad.ok) {
-      Fail "闸17ad：verify.ps1 的 gradlew 调用行缺 --no-daemon 或锚点未命中（reason=$($r17ad.reason)$(if($r17ad.line){"，当前行：$($r17ad.line.Trim())"})）——与卡片 prose/CLAUDE.md 命令节口径漂移。"
+      Fail "闸17ad：verify.ps1 的 gradlew 调用行缺 --no-daemon 或锚点未命中（reason=$($r17ad.reason)$(if($r17ad.text){"，节点原文：$($r17ad.text)"})）——与卡片 prose/CLAUDE.md 命令节口径漂移。"
     } else {
-      $mutFile17ad = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-verify-nodaemon-mut-$PID.ps1"
-      (Get-Content $vfyPath17ad -Raw) -replace ' --no-daemon', '' | Set-Content $mutFile17ad -Encoding utf8 -NoNewline
-      try {
-        $rMut17ad = Test-VerifyNoDaemon17ad $mutFile17ad
-        if ($rMut17ad.ok) {
-          Fail '闸17ad 变异判据：删除 --no-daemon 后判定函数仍报 ok——变异未生效或判据是 vacuous pass。'
-        } elseif ($rMut17ad.reason -ne 'flag-missing') {
-          Fail "闸17ad 变异判据：删除后失败原因是 $($rMut17ad.reason)，不是预期的 flag-missing——判据不纯净（可能锚点本身被误伤）。"
-        } else {
-          Write-Host '  17ad verify.ps1 gradlew 调用含 --no-daemon OK（正例通过；变异删除该 flag 后同一判定函数正确转红=flag-missing，非锚点丢失/其它故障）' -ForegroundColor Green
+      $vfyLines17ad = Get-Content $vfyPath17ad
+      $gwIdx17ad = 0..($vfyLines17ad.Count - 1) | Where-Object { $vfyLines17ad[$_] -match "cmd /c 'gradlew\.bat" } | Select-Object -First 1
+      if ($null -eq $gwIdx17ad) {
+        Fail '闸17ad：定位不到 gradlew 调用所在行号，无法构造变异（源码结构变了？）。'
+      } else {
+        $mutFileFlag17ad = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-verify-nodaemon-mutflag-$PID.ps1"
+        $mutFileComment17ad = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-verify-nodaemon-mutcomment-$PID.ps1"
+        try {
+          # 变异①：只删 flag，行仍可执行。
+          (Get-Content $vfyPath17ad -Raw) -replace ' --no-daemon', '' | Set-Content $mutFileFlag17ad -Encoding utf8 -NoNewline
+          $rMutFlag17ad = Test-VerifyNoDaemon17ad $mutFileFlag17ad
+          # 变异②：整句注释掉。
+          $linesMutComment17ad = [System.Collections.ArrayList]::new($vfyLines17ad)
+          $linesMutComment17ad[$gwIdx17ad] = $linesMutComment17ad[$gwIdx17ad] -replace '^(\s*)&', '$1#&'
+          Set-Content $mutFileComment17ad $linesMutComment17ad -Encoding utf8
+          $rMutComment17ad = Test-VerifyNoDaemon17ad $mutFileComment17ad
+
+          if ($rMutFlag17ad.ok) {
+            Fail '闸17ad 变异①判据：删除 --no-daemon 后判定函数仍报 ok——变异未生效或判据是 vacuous pass。'
+          } elseif ($rMutFlag17ad.reason -ne 'flag-missing') {
+            Fail "闸17ad 变异①判据：删除 flag 后失败原因是 $($rMutFlag17ad.reason)，不是预期的 flag-missing——判据不纯净（锚点被误伤）。"
+          } elseif ($rMutComment17ad.ok) {
+            Fail '闸17ad 变异②判据：整句注释掉后判定函数仍报 ok——原始文本正则残留、AST 未真正生效，或注释被解析成了节点。'
+          } elseif ($rMutComment17ad.reason -ne 'anchor-missing') {
+            Fail "闸17ad 变异②判据：注释掉后失败原因是 $($rMutComment17ad.reason)，不是预期的 anchor-missing——判据不纯净。"
+          } else {
+            Write-Host '  17ad verify.ps1 gradlew 调用含 --no-daemon OK（AST 锚定 cmd 命令节点；变异①删 flag 转 flag-missing、变异②整句注释掉转 anchor-missing，两种失效各自分类正确、不混淆）' -ForegroundColor Green
+          }
+        } finally {
+          Remove-Item $mutFileFlag17ad, $mutFileComment17ad -ErrorAction SilentlyContinue
         }
-      } finally {
-        Remove-Item $mutFile17ad -ErrorAction SilentlyContinue
       }
     }
 

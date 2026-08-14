@@ -37,12 +37,16 @@
 
 > 随开发把每个依赖登记到下表（脚本只覆盖 PyPI/npm，覆盖不到模型权重/数据/字体/素材——这些**逐项**人工登记）。
 
-### 3.1 android/（T0-TOOLCHAIN，2026-08-15 逐坐标人工核验）
+### 3.1 android/（T0-TOOLCHAIN，2026-08-15）
 
-`android/gradle/libs.versions.toml` 的全部依赖坐标（含 Gradle 插件与构建期传递依赖，见下表最后几行）
-逐一下载对应 `.pom` 直读其 `<licenses>` 元素核验（**不用** `aar-metadata.properties`——该文件记录
-`minCompileSdk`/AGP 版本等构建期要求，不是许可信息；compileSdk 相容性核验见 `libs.versions.toml` 头注，
-两类核验证据不混用）。
+**核验范围的老实话**：下表覆盖`libs.versions.toml` 里**直接声明**的坐标 + kotlin-test-testng 那条链上
+逐层核验过的传递依赖（testng/jsr305/jcommander/jquery，见该条目登记）。它**不是**完整 SBOM——实测
+`:app:dependencies --configuration releaseRuntimeClasspath` 会解出**243 个**唯一坐标（含 androidx.lifecycle:*
+系列、androidx.room:\*、androidx.sqlite:\*、kotlinx-coroutines-\*、org.jetbrains:annotations、org.jspecify:jspecify、
+com.google.guava:listenablefuture 等本表未逐一列出的传递依赖），逐条下载 POM 核验属**扫描器工作量**，不是
+T0-TOOLCHAIN 一张卡该做的事——这正是 TD2（独立卡）要接的活。本表 + 下方弱信号合起来是**当前证据水位**，
+不是「已证全洁净」的断言。**不用** `aar-metadata.properties` 当许可证据——该文件记录 `minCompileSdk`/AGP
+版本等构建期要求，不是许可信息；compileSdk 相容性核验见 `libs.versions.toml` 头注，两类核验证据不混用。
 
 | 坐标 | 版本 | 许可 | 证据 |
 |---|---|---|---|
@@ -68,11 +72,17 @@
 | plugin: app.cash.sqldelight | 2.3.2 | Apache-2.0 | plugins.gradle.org .../app.cash.sqldelight.gradle.plugin/2.3.2/...pom |
 | Gradle 发行版（构建工具本身，非依赖坐标） | 9.7.0 | Apache-2.0 | raw.githubusercontent.com/gradle/gradle/v9.7.0/LICENSE（已实测 HTTP 200，Apache-2.0 全文） |
 
-**结论**：以上全部 compile/runtime/test 依赖（含传递依赖）均为宽松许可（Apache-2.0 / MIT / 一个未指名具体
-变体的 BSD License）。**无 GPL/AGPL/SSPL/EPL，也无非商用许可进最终 classpath**。特别记一条具体事实而非泛泛
-保证：`junit:junit` 在 `testng:7.5.1` 的 POM 里标了 `<optional>true</optional>`，本仓依赖目录未显式声明它，
-故 Gradle/Maven 默认不解析、不会出现在任何 classpath 上（实测 `:core:dependencies --configuration
-testRuntimeClasspath` 零 junit 节点，见 `android/gradle/libs.versions.toml` 该条目注释）。
+**结论（按核验范围如实分级，不外推到未核验部分）**：
+- **已逐坐标核验**（上表全部行）：均为宽松许可（Apache-2.0 / MIT / 一个未指名具体变体的 BSD License）。
+  特别记一条具体事实而非泛泛保证：`junit:junit` 在 `testng:7.5.1` 的 POM 里标了 `<optional>true</optional>`，
+  本仓依赖目录未显式声明它，故 Gradle/Maven 默认不解析、不会出现在任何 classpath 上（实测
+  `:core:dependencies --configuration testRuntimeClasspath` 零 junit 节点）。
+- **未逐坐标核验**（`:app:dependencies --configuration releaseRuntimeClasspath` 解出的其余约 220 个传递
+  坐标）：**弱信号、非证据**——全部落在 `androidx.*`（Google）、`org.jetbrains.kotlin*`/`org.jetbrains.kotlinx*`
+  （JetBrains）、`com.google.*`（Guava/AutoValue）、`app.cash.sqldelight`（Square）几个众所周知的 Apache-2.0
+  发布方命名空间下；对整棵树的坐标字符串做过一次 `gpl|nonfree|non-commercial|commons-clause` 关键词扫，
+  零命中。这**不构成许可核验**，只是「没有明显红旗」——真要闭合这个缺口是 TD2 的 Gradle 扫描器该做的事，
+  下次升级/新增任一 Gradle 依赖前，或本项目变 public 前，都不能拿这条弱信号顶替逐坐标核验。
 
 ### 3.2 其它（示例）
 
