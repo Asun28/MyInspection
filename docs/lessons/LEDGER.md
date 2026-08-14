@@ -1437,3 +1437,11 @@
 - rule: 主线程自己轮询取结果：node "<codex 插件 cache>/scripts/codex-companion.mjs" status <task-id> 到 completed，再 result <task-id> 取全文；长任务（gpt-5.6 高档 5–10 分钟）用其它并行工作填等待，不要重复派新子代理去问
 - enforced_by: 
 - refs: 
+
+## L202
+- date: 2026-08-15 ｜ tags: orchestration,subagent,review,task-loop ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 派子代理跑整张任务卡时，它的收尾消息说「ship 还在后台跑」，但同一时刻 .review/<id>.json 里 R3 裁决已经写好且是 block——照它的自述等下去会白等一个已经结束的相位。
+- root_cause: 子代理的自述是它对自己动作的叙述，不是 harness 的状态；task.ps1 的相位状态本来就落在磁盘工件上（.review/<id>.json 的 verdict+sha、worktree 是否存在、卡片 status 字段、master 的 git log），子代理并不去读这些，它只是复述自己最后一次调用的印象。
+- rule: 编排多卡时，任务卡的进度只认磁盘工件、不认子代理的叙述：读 .review/<id>.json（verdict + sha 必须等于被审 tip）、git worktree list、卡片 status、git log 主检出。子代理报「还在跑/已完成」一律先落地核这四样再决定下一步；裁决是 block 就直接带着 findings 原文 SendMessage 让它返工，别重派新代理（重派丢上下文、还会重跑一遍已过的闸）。
+- enforced_by: 
+- refs: 
