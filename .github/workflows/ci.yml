@@ -138,10 +138,15 @@ jobs:
       - name: Setup Gradle (dependency cache across CI runs)
         if: ${{ hashFiles('android/gradlew.bat') != '' }}
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-        # 无 with: 块——该 action 在 pinned SHA（v6.3.0）的 action.yml 里已不存在 build-root-directory 输入
-        # （核验：raw.githubusercontent.com/gradle/actions/9c971963.../setup-gradle/action.yml，全部 inputs 逐行确认）；
+        # 核验 raw.githubusercontent.com/gradle/actions/9c971963.../setup-gradle/action.yml 全部 inputs：
+        # 该 pinned SHA 已不存在 build-root-directory 输入，其余用 with: 块显式声明（T0-TOOLCHAIN R3 finding）。
         # 它只负责在 job 级别配置 ~/.gradle 缓存，不关心子目录——真正的 gradlew 调用目录由下一步的
         # working-directory: android 决定，无需也无法通过本 action 指定构建根。
+        with:
+          # cache-provider 默认 'enhanced'——action.yml 原文即写明它是「full-featured commercial caching
+          # service (gradle-actions-caching)」，需另行接受 Gradle 商业条款，触本仓宽松许可红线。'basic' 是
+          # action.yml 原文所述的开源实现，落地为标准 GitHub Actions cache（同本文件其它三方 action 的许可口径）。
+          cache-provider: basic
 
       - name: Gradle online build (warms cache for verify.ps1's --offline gate)
         if: ${{ hashFiles('android/gradlew.bat') != '' }}
