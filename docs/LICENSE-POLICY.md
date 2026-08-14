@@ -33,9 +33,48 @@
   ⚠️ **进程外/子进程边界只豁免 LGPL、不豁免 GPL**——GPL 触发点是**分发**，随商用产品分发 GPL 二进制即触发义务、与跨不跨进程无关。
 - **OpenRAIL-M 等"负责任 AI"许可**：允许商用但带**基于用途的行为限制**且须向下游传递——**需逐案评估**并把限制写入用户协议；默认标黄，非自动通过。
 
-## 3. 当前依赖核验（项目特定 · 待填）
+## 3. 当前依赖核验（项目特定）
 
 > 随开发把每个依赖登记到下表（脚本只覆盖 PyPI/npm，覆盖不到模型权重/数据/字体/素材——这些**逐项**人工登记）。
+
+### 3.1 android/（T0-TOOLCHAIN，2026-08-15 逐坐标人工核验）
+
+`android/gradle/libs.versions.toml` 的全部依赖坐标（含 Gradle 插件与构建期传递依赖，见下表最后几行）
+逐一下载对应 `.pom` 直读其 `<licenses>` 元素核验（**不用** `aar-metadata.properties`——该文件记录
+`minCompileSdk`/AGP 版本等构建期要求，不是许可信息；compileSdk 相容性核验见 `libs.versions.toml` 头注，
+两类核验证据不混用）。
+
+| 坐标 | 版本 | 许可 | 证据 |
+|---|---|---|---|
+| com.android.tools.build:gradle (AGP) | 9.3.1 | Apache-2.0 | dl.google.com .../gradle/9.3.1/gradle-9.3.1.pom |
+| androidx.compose:compose-bom | 2026.06.01 | Apache-2.0 | dl.google.com .../compose-bom/2026.06.01/compose-bom-2026.06.01.pom |
+| androidx.compose.ui:ui, :ui-tooling, :ui-tooling-preview | 1.11.4 | Apache-2.0 | dl.google.com .../compose/ui/\<artifact\>/1.11.4/\<artifact\>-1.11.4.pom |
+| androidx.compose.material3:material3 | 1.4.0 | Apache-2.0 | dl.google.com .../material3/1.4.0/material3-1.4.0.pom |
+| androidx.activity:activity-compose | 1.10.0 | Apache-2.0 | dl.google.com .../activity-compose/1.10.0/activity-compose-1.10.0.pom |
+| androidx.camera:camera-core | 1.5.3 | Apache-2.0 + BSD License（POM 未标具体 BSD 变体，随附第三方组件 libyuv） | dl.google.com .../camera-core/1.5.3/camera-core-1.5.3.pom |
+| androidx.camera:camera-camera2, :camera-lifecycle, :camera-view | 1.5.3 | Apache-2.0 | dl.google.com .../camera/\<artifact\>/1.5.3/\<artifact\>-1.5.3.pom |
+| androidx.exifinterface:exifinterface | 1.4.2 | Apache-2.0 | dl.google.com .../exifinterface/1.4.2/exifinterface-1.4.2.pom |
+| org.jetbrains.kotlinx:kotlinx-serialization-json | 1.11.0 | Apache-2.0 | repo1.maven.org .../kotlinx-serialization-json/1.11.0/...pom |
+| app.cash.sqldelight:runtime, :sqlite-driver, :android-driver | 2.3.2 | Apache-2.0 | repo1.maven.org .../app/cash/sqldelight/\<artifact\>/2.3.2/...pom |
+| androidx.work:work-runtime-ktx | 2.11.2 | Apache-2.0 | dl.google.com .../work-runtime-ktx/2.11.2/...pom |
+| org.jetbrains.kotlin:kotlin-test | 2.4.10 | Apache-2.0 | repo1.maven.org .../kotlin-test/2.4.10/kotlin-test-2.4.10.pom |
+| org.jetbrains.kotlin:kotlin-test-testng | 2.4.10 | Apache-2.0 | repo1.maven.org .../kotlin-test-testng/2.4.10/...pom |
+| org.testng:testng（传递） | 7.5.1 | Apache-2.0 | repo1.maven.org .../testng/7.5.1/testng-7.5.1.pom |
+| com.google.code.findbugs:jsr305（传递） | 3.0.1 | Apache-2.0 | repo1.maven.org .../jsr305/3.0.1/jsr305-3.0.1.pom |
+| com.beust:jcommander（传递） | 1.78 | Apache-2.0 | repo1.maven.org .../jcommander/1.78/jcommander-1.78.pom |
+| org.webjars:jquery（传递，runtime scope，testng HTML 报告用） | 3.5.1 | MIT | repo1.maven.org .../jquery/3.5.1/jquery-3.5.1.pom |
+| plugins: com.android.application / .library | 9.3.1 | Apache-2.0 | 同 AGP 那份 POM |
+| plugins: org.jetbrains.kotlin.{jvm,android,plugin.compose,plugin.serialization} | 2.4.10 | Apache-2.0 | repo1.maven.org .../kotlin-gradle-plugin/2.4.10/...pom |
+| plugin: app.cash.sqldelight | 2.3.2 | Apache-2.0 | plugins.gradle.org .../app.cash.sqldelight.gradle.plugin/2.3.2/...pom |
+| Gradle 发行版（构建工具本身，非依赖坐标） | 9.7.0 | Apache-2.0 | raw.githubusercontent.com/gradle/gradle/v9.7.0/LICENSE（已实测 HTTP 200，Apache-2.0 全文） |
+
+**结论**：以上全部 compile/runtime/test 依赖（含传递依赖）均为宽松许可（Apache-2.0 / MIT / 一个未指名具体
+变体的 BSD License）。**无 GPL/AGPL/SSPL/EPL，也无非商用许可进最终 classpath**。特别记一条具体事实而非泛泛
+保证：`junit:junit` 在 `testng:7.5.1` 的 POM 里标了 `<optional>true</optional>`，本仓依赖目录未显式声明它，
+故 Gradle/Maven 默认不解析、不会出现在任何 classpath 上（实测 `:core:dependencies --configuration
+testRuntimeClasspath` 零 junit 节点，见 `android/gradle/libs.versions.toml` 该条目注释）。
+
+### 3.2 其它（示例）
 
 | 依赖 | 许可 | 结论 |
 |---|---|---|
@@ -82,10 +121,12 @@
 
 **Gradle（T0-TOOLCHAIN 起）当前 = 人工核验 + 覆盖缺口告警**：Gradle 生态的探针与其余各条不同——不是固定
 查根级 `build.gradle`，而是**递归**扫全仓（排除 `.gradle/`、`build/` 等缓存产物目录），逐一列出发现的
-`build.gradle`/`build.gradle.kts` 相对路径。这只解决「探针够不着嵌套清单」，**不是**扫描器：不解析依赖坐标、
-不识别许可、不接 Maven/Gradle 元数据。每加/升级一个 Gradle 依赖仍须**人工**核验许可（如下载对应
-`.pom`/`.aar` 直读 `<licenses>` 或 `META-INF/.../aar-metadata.properties`）并按 §3 表登记；接入真正的 Gradle
-许可扫描器/CI 强制 allowlist 是选型活，独立走 `specs/tech-debt-tracker.md` 的 TD2。
+`build.gradle`/`build.gradle.kts`/`libs.versions.toml`（版本目录，依赖坐标实际 pin 处）相对路径。这只解决
+「探针够不着嵌套清单」，**不是**扫描器：不解析依赖坐标、不识别许可、不接 Maven/Gradle 元数据。每加/升级一个
+Gradle 依赖仍须**人工**核验许可——**正确做法是下载对应坐标的 `.pom` 直读其 `<licenses>` 元素**（`.aar` 内的
+`META-INF/.../aar-metadata.properties` 记录的是 `minCompileSdk`/AGP 版本等构建期要求，**不是许可信息**，
+不可当许可证据用）——并按 §3 表登记；接入真正的 Gradle 许可扫描器/CI 强制 allowlist 是选型活，独立走
+`specs/tech-debt-tracker.md` 的 TD2。
 
 ## 6. 例外
 任何 §1 例外必须：书面记录理由 + 法务签字 + 写入本表。无记录即视为违规。

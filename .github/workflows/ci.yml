@@ -1,8 +1,9 @@
 name: ci
 
 # 确定性验收闸门（R2）。作为默认分支规则集的必需状态检查 `verify`（有 GitHub Pro/public 时）。
-# 仅跑纯确定性、无网络的最小闭环 —— 与本机 verify.ps1 同义。
-# 若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
+# 最终的 E2E verify gate 步骤本身纯确定性、离线 —— 与本机 verify.ps1 同义。其余步骤（Sync deps / License
+# gate 的扫描器获取 / T0-TOOLCHAIN 起新增的 Gradle online build）按需联网装配工具链/依赖，同产品运行时联网正交
+# （见各步骤自身注释）。若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
 # 触发分支同时覆盖 main 与 master：scaffold 自身默认分支是 master（见 selftest 闸⑮/L38），
 # gh-bootstrap 推 main；任一默认分支下 PR CI 都会触发，避开「主分支名漂移→CI 静默不跑」。
 #
@@ -39,9 +40,9 @@ concurrency:
 jobs:
   verify:                      # ← job 名即必需检查的 context 名
     # windows-latest（T0-TOOLCHAIN 起改自 ubuntu-latest）：scripts/verify.ps1 的 Android 闸硬编码
-    # `cmd /c 'gradlew.bat --offline -q :core:check'`（Windows 专属调用；scripts/ 不在本卡 allow_paths、
-    # 不得改）——android/gradlew.bat 一旦入库，ubuntu-latest 上 `cmd` 命令不存在，该行会直接崩溃工作流。
-    # 原 ubuntu-latest 注释已预留「需 Windows 专属行为改 windows-latest」的退出路径，本卡即命中该条件。
+    # `cmd /c 'gradlew.bat --offline --no-daemon -q :core:check'`（Windows 专属调用）——android/gradlew.bat
+    # 一旦入库，ubuntu-latest 上 `cmd` 命令不存在，该行会直接崩溃工作流。原 ubuntu-latest 注释已预留
+    # 「需 Windows 专属行为改 windows-latest」的退出路径，本卡即命中该条件（verify.ps1 现已在本卡 allow_paths 内）。
     # 成本：Windows Actions 分钟计费 2×，以确定性换成本，符合本仓「宁多花分钟不留假绿」的一贯取舍。
     runs-on: windows-latest
     timeout-minutes: 20
