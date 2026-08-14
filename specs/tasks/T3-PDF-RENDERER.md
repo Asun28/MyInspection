@@ -15,7 +15,7 @@ forbid:
   - 引入 PDF 三方库（iText=AGPL 禁；平台 PdfDocument 足够，ADR-0003）
 non_goals:
   - 报告结构/分页（composer 已定）；分享/云盘上传（生成后落私有目录 + SAF 另存交 T5-BACKUP-IO 同类机制）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
 dod_assert: assembleDebug 绿、composer 黄金测试仍绿；真机出两版 PDF（房东/房客）人工核：中文字形完整（DroidSansFallback 生效）、80 照 fixture 内存不 OOM（spike 参数内）、附录图编号回链正确、页脚哈希与 DB data_hash 一致——核验记录附 PR
 review_gate: codex {verdict:pass}

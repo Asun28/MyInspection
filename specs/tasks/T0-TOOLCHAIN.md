@@ -34,7 +34,7 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注（R5）
 - 装法（choco 优先，winget 备选）：`choco install temurin17 -y`；SDK 用 Google commandline-tools（下载 zip 解到 C:\Android\cmdline-tools\latest），`sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"`，接受 licenses。**用 setx 设用户级 ANDROID_HOME 与 JAVA_HOME**（worktree 里没有 local.properties，全靠环境变量）。
 - 工程形态（ADR-0001）：目录 `android/`（selftest $RootAllow 已登记）。`settings.gradle.kts` 含 `:core`、`:app`。`:core` = `kotlin("jvm")`，包根 `nz.myinspection.core`，禁 android import。`:app` = 最小 Compose Activity（空屏即可），包根 `nz.myinspection.app`，minSdk 26 / target 35。
 - **本卡一次性 pin 全项目依赖目录** `android/gradle/libs.versions.toml`（后续卡只动源码目录、不再碰构建文件，避免并行卡 allow_paths 撞车）：Kotlin 2.x、AGP、Compose BOM、activity-compose、CameraX、androidx.exifinterface、kotlinx-serialization-json、SQLDelight 2.x（runtime + sqlite-driver(JVM 测试) + android-driver）、WorkManager、kotlin.test。全部 Apache-2.0/MIT；**JUnit=EPL 属测试期依赖**——跑 `pwsh -File scripts\check-licenses.ps1` 核口径，被拒即改纯 kotlin.test 断言。
-- 引导时在线 `gradlew build` 一次填依赖缓存（用户级 ~/.gradle，worktree 共享）；此后 `scripts/verify.ps1` 的 Android 闸执行 `cmd /c gradlew.bat --offline --no-daemon -q :core:check` 必须全绿。
+- 引导时在线 `gradlew build` 一次填依赖缓存（用户级 ~/.gradle，worktree 共享）；此后 `scripts/verify.ps1` 的 Android 闸执行 `cmd /c gradlew.bat --offline --no-daemon -q :core:check` 必须全绿（该处已 `Push-Location` 进 `android/`，故无 `-p android`）。
 - CI：`.github/workflows/ci.yml` 的 verify job 加 `actions/setup-java`（temurin 17）+ `android-actions/setup-android`（或 sdkmanager 步）+ gradle 缓存；**PR 侧不加 path filter**（必需检查约束，见 CLAUDE.md CI 节）。
 - `:core:check` 任务链 = test（+后续卡挂上的 SQLDelight verifySqlDelightMigration）；本卡先保证空工程下 check 绿。
 
@@ -96,7 +96,7 @@ R3 连续两轮指出：`scripts/check-licenses.ps1` 的「其它生态清单探
 ```powershell
 pwsh -NoProfile -File scripts\verify.ps1
 ```
-- 期望退出码 0；断言见 dod_assert。另人工核：`cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug` 绿（装机包能出）。
+- 期望退出码 0；断言见 dod_assert。另人工核：`cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug` 绿（装机包能出）。
 
 ## 执行建议（TASK-BOARD）
 首选 Sonnet 5 · max（本机装环境，交互性强，宜在 Claude Code 会话内执行）；备选 Opus 5。难度 M。执行者须把本卡「上下文包」整段读入再动手。

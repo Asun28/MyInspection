@@ -14,7 +14,7 @@ forbid:
 non_goals:
   - Ingoing/Exit/Annual 内容（T6-TEMPLATES-REST）
   - 短语库（T2-PHRASELIB）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.content.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.content.*"
 dod_exit: 0
 dod_assert: routine-v1.json 过引擎全量校验；项数在 80–120；stable_id 全唯一；每项双语齐全；每房间有 ROOM_PANORAMA 项；照 docs/research/ 调研报告的房间/条目覆盖清单无缺漏
 review_gate: codex {verdict:pass}

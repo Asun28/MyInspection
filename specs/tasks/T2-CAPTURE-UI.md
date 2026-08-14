@@ -16,7 +16,7 @@ forbid:
 non_goals:
   - ghost overlay 与历史条（T3-HISTORY-COMPARE 在本卡骨架上加）
   - 报告/导出入口（T3/T5 各卡）；平板/横屏适配（单手竖屏优先）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
 dod_exit: 0
 dod_assert: assembleDebug 绿 + capture 核测试仍全绿（UI 未旁路核心规则）；真机人工冒烟记录（走完一个两房间 fixture 巡检：状态大按钮/短语一点即入/听写入备注/房间全景强制提示/项目级不利发现强制拍照提示/杀进程恢复到同房间）附 PR
 review_gate: codex {verdict:pass}

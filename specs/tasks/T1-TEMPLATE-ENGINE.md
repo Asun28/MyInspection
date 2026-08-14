@@ -17,7 +17,7 @@ forbid:
 non_goals:
   - 真实模板内容（T2-ROUTINE-CONTENT / T6-TEMPLATES-REST；本卡只带一个最小 fixture 模板）
   - 采集状态机（T2-CAPTURE-CORE）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.template.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.template.*"
 dod_exit: 0
 dod_assert: fixture 模板加载→校验→入库（template_version + check_item_def）往返绿；stable_id 重复/枚举越界/缺双语文案三类坏 fixture 被拒且错误信息点名条目；版本升级对齐规则（同 stable_id 改文案=沿用、新增项=新 id）有测试
 review_gate: codex {verdict:pass}

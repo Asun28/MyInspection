@@ -14,7 +14,7 @@ forbid:
   - 明文中间文件；跳过 manifest 校验的恢复路径
 non_goals:
   - 合并式恢复（v1 整包替换，ADR-0002）；口令找回（不存在，格式层无后门）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.backup.restore.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.backup.restore.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
 dod_assert: 恢复状态机 JVM 测试绿（staging 展开→逐文件哈希校验→全对才 commit 替换；任一败=原库原文件不动；中途杀进程重启后残留 staging 被安全清理）；assembleDebug 绿；真机冒烟：SAF 选 Drive/OneDrive 或本地树→手动整包导出→「清库」→恢复全回来；自动导出在 finalize 后触发一次，记录附 PR
 review_gate: codex {verdict:pass}

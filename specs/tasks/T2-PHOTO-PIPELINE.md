@@ -15,7 +15,7 @@ forbid:
 non_goals:
   - 相机 UI（T2-CAPTURE-UI）；ghost overlay（T3-HISTORY-COMPARE）
   - 批量导入分配界面（v1 单项导入为主，批量列 v1.1）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.*"
 dod_exit: 0
 dod_assert: 路径派生纯函数测试绿（photos/{propertyId}/{inspectionId}/{photoId}.jpg，禁手拼路径）；SHA-256 与去重逻辑测试绿（同哈希复用资产、只建关联）；EXIF 8 方向（含镜像）转正矩阵测试绿（JVM 侧用矩阵数学断言，位图操作薄壳放 :app）
 review_gate: codex {verdict:pass}

@@ -50,7 +50,7 @@ T0-TOOLCHAIN 的宪章是「本机工具链 + `android/` 骨架空编译绿」�
 5. **`verify.ps1` 的 gradlew 调用改显式路径**（T0 合并后实测）：现为 `cmd /c 'gradlew.bat …'`，**裸文件名**依赖
    「当前目录参与 exe 搜索」这一可被关闭的行为——Claude Code 的 shell 会话带进程级 `NoDefaultCurrentDirectoryInExePath=1`
    （已核：HKLM/HKCU 注册表均无此项，非本机真实设置），该形态下直接 `'gradlew.bat' is not recognized`。改
-   `cmd /c '.\gradlew.bat …'`（或等价显式路径）即免疫，真实终端/CI 行为不变。**同属本卡「verify 确定性」主题，不是新范围。**
+   `cmd /c '.\gradlew.bat …'`（或等价显式路径）即免疫（注：verify.ps1 已 `Push-Location` 进 `android/`，故**不需要** `-p android`——那是从仓库根跑时才要的），真实终端/CI 行为不变。**同属本卡「verify 确定性」主题，不是新范围。**
 6. `docs/LICENSE-POLICY.md` §3 落已核验的 Gradle 直接依赖许可表（DeepSeek 出表 + 编排者复核 testng POM，
    见 `findings.md`）。**`aar-metadata.properties` 不是许可证据**——它记 `minCompileSdk` 等构建要求，与许可无关，勿再引用。
 

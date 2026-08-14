@@ -14,7 +14,7 @@ forbid:
   - 短语进模板文件混编（短语库独立文件，与检查项模板分开演进）
 non_goals:
   - 选择器 UI（T2-CAPTURE-UI 消费）；用户自定义短语管理界面（v1.1）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.phrase.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.phrase.*"
 dod_exit: 0
 dod_assert: phrases-v1.json 过校验（双语齐全、分类合法、无重复）；按分类/按检查项上下文查询接口测试绿；种子 ≥ 60 条且覆盖全部分类
 review_gate: codex {verdict:pass}

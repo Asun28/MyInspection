@@ -14,7 +14,7 @@ forbid:
   - 绕过 finalized_at IS NULL 谓词的写路径
 non_goals:
   - UI（T2-CAPTURE-UI）；finalize 事务（T3-FINALIZE）；历史对比查询（T3-HISTORY-COMPARE）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
 dod_exit: 0
 dod_assert: 建巡检（按类型解析 previous/baseline 双轨引用）→ 逐项置状态/备注 → 房间粒度保存 → 进程死亡模拟（新仓储实例）后恢复到同一房间进度，全链 JVM 测试绿；两级拍照规则完备性计算（哪些项还缺强制照片）测试绿
 review_gate: codex {verdict:pass}
