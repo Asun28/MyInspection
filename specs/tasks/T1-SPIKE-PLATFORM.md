@@ -15,7 +15,7 @@ forbid:
 non_goals:
   - 生产级 UI/架构（一个 debug Activity 串四项探测即可）
   - 照片入库/数据模型（读写 app 私有目录裸文件即可）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Test-Path docs/spike/PLATFORM-SPIKE.md)) { exit 1 }
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Test-Path docs/spike/PLATFORM-SPIKE.md)) { exit 1 }
 dod_exit: 0
 dod_assert: assembleDebug 绿；docs/spike/PLATFORM-SPIKE.md 存在且四节各有真机结论（成立/降级 + 截图或参数记录）；overlay 结论明确二选一：ghost overlay 成立 / 降级「拍完并排比对」
 review_gate: codex {verdict:pass}
@@ -35,6 +35,19 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注 + 若降级须改 T3-HISTOR
 - **④PDF 压力**：用 `android.graphics.pdf.PdfDocument` 循环渲染 80 张占位图（BitmapFactory inSampleSize 降采样、逐页 recycle）+ 一页中英混排文本（**打包 DroidSansFallback.ttf 试字形**，Typeface.createFromAsset）；记录峰值内存与耗时。为 T3-PDF-RENDERER 提供参数。
 - 设备 = 用户本人手机（USB 调试）；执行者产出 APK + 操作指引，真机步骤由用户按指引点按，结论回填报告（人工环节，写清「请用户做什么、看什么」）。
 - 报告模板（四节各含：做法 / 真机结果 / 结论二值 / 给正式卡的参数）。
+
+## 卡片修订 2026-08-15（施工中实测 · `dod_command` 补 `-p android`）
+原 `dod_command` 写作 `cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug`，
+**不可运行**：Gradle 的 project dir 取自**当前工作目录**、而非 wrapper 脚本自身位置，
+而相位命令的 cwd 是仓库根/worktree 根（那里没有 settings 文件），故恒报
+`Directory '<repo root>' does not contain a Gradle build` 并退出 1——
+即「DoD 永远红，且红的原因不是测试失败」。实测：原式 exit 1；补 `-p android` 后 exit 0。
+**修订范围只有一件事**：在 `gradlew.bat` 后加 `-p android`。
+
+> **同型缺陷遍及 `specs/tasks/` 全部 26 张卡**（`T1-CANON-HASH` / `T1-SCHEMA-CORE` / `T2-*` / `T3-*` …
+> 每张的 `dod_command` 都是同一形态），另 `CLAUDE.md`「命令」节与 `T0-TOOLCHAIN` 第 99 行的人工核验命令
+> 同样如此。`scripts/verify.ps1` 不受影响（它 `Push-Location android` 后再调，cwd 正确）。
+> 本次**只改本卡**（改全量属跨卡 meta 手术，须编排者裁决），其余登记待扫——见交接报告。
 
 ## 验收
 见 dod_command / dod_assert。
