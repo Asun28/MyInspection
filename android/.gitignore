@@ -1,0 +1,18 @@
+# android/.gitignore — Gradle/Android 构建产物与机器本地文件（不入库）。
+# 落在 android/ 内（allow_paths 范围），不动仓库根 .gitignore（本卡 allow_paths 不含根文件）。
+
+# 机器本地 SDK 路径（人各不同，永不提交；ANDROID_HOME 环境变量为准）
+local.properties
+
+# Gradle / AGP 构建产物
+.gradle/
+build/
+*/build/
+.kotlin/
+captures/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store

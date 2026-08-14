@@ -1,0 +1,70 @@
+# android/gradle/libs.versions.toml — 全项目依赖目录唯一真相源（T0-TOOLCHAIN 一次性 pin，见 CLAUDE.md 命名/文件放置约定）。
+# 后续任务卡只改源码目录，不再碰本文件（避免并行卡 allow_paths 撞车）。
+#
+# 版本来源：Gradle 取 services.gradle.org/versions/current；AGP 取 dl.google.com maven-metadata +
+# developer.android.com/build/kotlin-support（AGP 9.3.1 要求 Gradle>=9.5.0/JDK17；Kotlin 2.4 系兼容 AGP>=8.5.2）；
+# 其余 androidx / SQLDelight 取各自 maven-metadata 最新 stable 版。
+#
+# **compileSdk 地板约束（load-bearing）**：本项目 compileSdk 钉 35（见 android/app/build.gradle.kts），故
+# Compose BOM / activity-compose / CameraX 必须选 minCompileSdk<=35 的版本——已实测（下载 .aar，读
+# META-INF/com/android/build/gradle/aar-metadata.properties 的 minCompileSdk 字段）：composeBom=2026.06.01
+# （ui-android/runtime-android=1.11.4、material3-android=1.4.0）、activityCompose=1.10.0、cameraX=1.5.3。
+# **各生态更新版本常把 minCompileSdk 地板悄悄抬到 36/37**（如 composeBom 2026.08.00 / activity 1.13.0 /
+# cameraX 1.6.1 均已如此）——升级前须对候选版本重跑同一 .aar 核验，不可只凭 maven-metadata 的「最新」判断。
+
+[versions]
+kotlin = "2.4.10"
+agp = "9.3.1"
+composeBom = "2026.06.01"
+activityCompose = "1.10.0"
+cameraX = "1.5.3"
+exifinterface = "1.4.2"
+kotlinxSerializationJson = "1.11.0"
+sqldelight = "2.3.2"
+workManager = "2.11.2"
+
+[libraries]
+# Compose（版本随 BOM 对齐，逐条不单独钉版本号）
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+
+# CameraX
+camera-core = { module = "androidx.camera:camera-core", version.ref = "cameraX" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "cameraX" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "cameraX" }
+camera-view = { module = "androidx.camera:camera-view", version.ref = "cameraX" }
+
+# EXIF（导入照片旋转 / 拍摄时间处理，需求 §关键不变量）
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
+
+# 序列化（模板/合规配置 JSON）
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+
+# SQLDelight（:core 纯 JVM 用 sqlite-driver 跑测试/JVM 侧；:app 用 android-driver）
+sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-driver-sqlite = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+sqldelight-driver-android = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
+
+# WorkManager（48h 通知/后台调度）
+work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workManager" }
+
+# 测试运行器用 TestNG（Apache-2.0），不用 kotlin-test-junit——后者传递拉 junit:junit（EPL-1.0，
+# docs/LICENSE-POLICY.md 禁列）。许可链：kotlin-test-testng → testng（均 Apache-2.0）→ jcommander（Apache-2.0）；
+# testng POM 里的 junit 依赖标 `<optional>true</optional>`，Gradle 默认不传递解析、不进最终 classpath
+# （实测 :core:dependencies --configuration testRuntimeClasspath 零 junit 节点）。kotlin.test 断言 API
+# 不随运行器变（@Test/assertEquals 照常），只需 tasks.test { useTestNG() }。
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlin-test-testng = { module = "org.jetbrains.kotlin:kotlin-test-testng", version.ref = "kotlin" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

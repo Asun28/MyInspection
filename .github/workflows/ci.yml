@@ -1,8 +1,9 @@
 name: ci
 
 # 确定性验收闸门（R2）。作为默认分支规则集的必需状态检查 `verify`（有 GitHub Pro/public 时）。
-# 仅跑纯确定性、无网络的最小闭环 —— 与本机 verify.ps1 同义。
-# 若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
+# 最终的 E2E verify gate 步骤本身纯确定性、离线 —— 与本机 verify.ps1 同义。其余步骤（Sync deps / License
+# gate 的扫描器获取 / T0-TOOLCHAIN 起新增的 Gradle online build）按需联网装配工具链/依赖，同产品运行时联网正交
+# （见各步骤自身注释）。若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
 # 触发分支同时覆盖 main 与 master：scaffold 自身默认分支是 master（见 selftest 闸⑮/L38），
 # gh-bootstrap 推 main；任一默认分支下 PR CI 都会触发，避开「主分支名漂移→CI 静默不跑」。
 #
@@ -14,7 +15,9 @@ name: ci
 # 加 push 触发把直推纳入事后检测：败即显式变红 + 通知；防泄露闸尤其需要事后可见（发现了才能轮换）。
 # push 前的真强制另有两层，都不由本文件承担：本地 pre-push 钩子（`gh-bootstrap.ps1` 装载，只覆盖
 # 装了钩子的克隆）；服务端规则集（需 Pro/public，用户决策）。**加严（加触发/断言）无需 HARNESS-REVIEW**
-# （非对称守则只约束放松/删除）。成本：ubuntu ~25s ≈ 1 个计费分钟/次推送。
+# （非对称守则只约束放松/删除）。成本：T0-TOOLCHAIN 前 ubuntu ~25s ≈ 1 个计费分钟/次推送；Android 闸
+# 落地后（见下 runs-on 注）单次显著更长（在线 gradlew build 预热依赖缓存）且 windows 计费 2×——
+# 以确定性换成本，见下方 runs-on 处注释。
 on:
   push:
     branches: [main, master]
@@ -36,10 +39,15 @@ concurrency:
 
 jobs:
   verify:                      # ← job 名即必需检查的 context 名
-    # ubuntu-latest：pwsh 预装、本仓 CI 脚本（check-cards/check-secrets/verify）已在 Linux 验证全绿
-    # （check-secrets 对隐藏点文件加 -Force 后跨 OS 一致），省每个下游 2× Windows Actions 分钟、贴近多数部署目标。
-    # 需 Windows 专属行为改 windows-latest，或 matrix: { os: [ubuntu-latest, windows-latest] } + runs-on: ${{ matrix.os }}。
-    runs-on: ubuntu-latest
+    # windows-latest（T0-TOOLCHAIN 起改自 ubuntu-latest）：scripts/verify.ps1 的 Android 闸硬编码
+    # `cmd /c 'gradlew.bat --offline -q :core:check'`（Windows 专属调用，不含 --no-daemon——该项加固曾短暂
+    # 破例进本卡 allow_paths，R3 第六轮后随「撤销三次破例、拆卡」一并撤销，归还 T0-GATE-HARDENING，
+    # scripts/verify.ps1 现已不在本卡 allow_paths 内）——android/gradlew.bat 一旦入库，ubuntu-latest 上
+    # `cmd` 命令不存在，该行会直接崩溃工作流。原 ubuntu-latest 注释已预留「需 Windows 专属行为改
+    # windows-latest」的退出路径，本卡即命中该条件。daemon 非确定性缺口改在 android/gradle.properties
+    # 用 `org.gradle.daemon=false` 项目级堵（见该文件注释），不依赖调用方是否带 --no-daemon。
+    # 成本：Windows Actions 分钟计费 2×，以确定性换成本，符合本仓「宁多花分钟不留假绿」的一贯取舍。
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       # 三方 Action 一律钉 40-hex commit SHA（非可变 major tag）——tag 可被上游移动/劫持，钉 SHA 后
@@ -110,6 +118,48 @@ jobs:
           # fail-closed（同 check-secrets，TD56/TD-119）：许可闸脚本缺失即非零退出，不 skip-as-pass。
           $f = 'scripts/check-licenses.ps1'
           if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
+
+      - name: Setup Java (Temurin 17)
+        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          # platform-tools + 与卡片 T0-TOOLCHAIN 的供给（provisioning）契约同口径的 compileSdk/build-tools（35，见
+          # android/app/build.gradle.kts 的 compileSdk=35 注释与 android/gradle/libs.versions.toml 的
+          # Compose BOM/activity-compose 版本核验记录：均已锁定到 minCompileSdk<=35 的实测版本）。
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Setup Gradle (dependency cache across CI runs)
+        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        # 核验 raw.githubusercontent.com/gradle/actions/9c971963.../setup-gradle/action.yml 全部 inputs：
+        # 该 pinned SHA 已不存在 build-root-directory 输入，其余用 with: 块显式声明（T0-TOOLCHAIN R3 finding）。
+        # 它只负责在 job 级别配置 ~/.gradle 缓存，不关心子目录——真正的 gradlew 调用目录由下一步的
+        # working-directory: android 决定，无需也无法通过本 action 指定构建根。
+        with:
+          # cache-provider 默认 'enhanced'——action.yml 原文即写明它是「full-featured commercial caching
+          # service (gradle-actions-caching)」，需另行接受 Gradle 商业条款，触本仓宽松许可红线。'basic' 是
+          # action.yml 原文所述的开源实现，落地为标准 GitHub Actions cache（同本文件其它三方 action 的许可口径）。
+          cache-provider: basic
+
+      - name: Gradle online build (warms cache for verify.ps1's --offline gate)
+        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        shell: pwsh
+        working-directory: android
+        # CI 跑者每次都是新机（即便 setup-gradle 恢复了跨 run 缓存，依赖清单一变仍可能缓存未命中）——
+        # 这一步显式在线跑一次完整 build 填充 ~/.gradle 依赖缓存，之后 verify.ps1 的 Android 闸才能 --offline 全绿
+        # （与本机开发者「一次性引导 online build，此后 --offline」同一套逻辑，见 T0-TOOLCHAIN 卡片正文）。
+        # --no-daemon 显式声明（防御深度；android/gradle.properties 的 org.gradle.daemon=false 已项目级兜底，
+        # 此处显式加同一保证不依赖读者记住那份配置——T0-TOOLCHAIN R3 第七轮 finding #1）。
+        run: |
+          cmd /c gradlew.bat --no-daemon build
+          if ($LASTEXITCODE -ne 0) { Write-Error "gradlew build failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
 
       - name: E2E verify gate
         shell: pwsh

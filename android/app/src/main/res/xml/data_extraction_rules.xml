@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+（API 31+）数据抽取规则：把全部 app 私有数据从「云备份」与「设备间转移」两条通道都排除。
+  见 CLAUDE.md 隐私硬边界（Privacy Act 2020）——租客照片/联系方式等敏感数据唯一出口是本 app 自己的加密
+  SAF 归档，绝不许经系统层任何备份/转移通道流出。android:allowBackup="false" 只关掉云备份，不覆盖 Android 12+
+  的设备间转移（D2D），须显式声明本规则才能同时排除。
+
+  domain="root" 不等于「全部私有存储」——官方 schema 把 file/database/sharedpref/external 列为与 root 平级、
+  彼此独立的域（如 external 对应 getExternalFilesDir()，本项目照片/音频计划落点，见 CLAUDE.md 架构大图「照片/音频存
+  文件系统」），device_* 系列另对应 device-protected storage。故逐一显式排除全部 9 个域（宁可过度排除——
+  没有任何场景需要租客数据经 Google 的备份/转移通道离开设备），而非只信 root 覆盖一切。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>
