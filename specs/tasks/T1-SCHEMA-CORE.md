@@ -72,8 +72,8 @@ cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --test
 ```
 - 退出码 0；断言见 dod_assert。
 - **`-p android` 是本卡对原 dod_command 的必要修正**：`gradlew.bat` 不 `cd` 进自身目录，`task.ps1` 相位命令固定在
-  worktree 根跑（`Push-Location $Wt`），原命令 `android\gradlew.bat ...`（无 `-p`）会让 Gradle 把 worktree 根当项目目录、
-  报 "does not contain a Gradle build"——实测复现（从主检出/worktree 根两处均如此），与实现质量无关，任何卡都会撞。
+  worktree 根跑（`Push-Location $Wt`）——若不显式传 `-p android`，Gradle 会把 worktree 根当项目目录、报
+  "does not contain a Gradle build"——实测复现（从主检出/worktree 根两处均如此），与实现质量无关，任何卡都会撞。
   加 `-p android` 显式指定项目目录后修复，已验证 RED 与 GREEN 均可达。
 - **`android/core/build.gradle.kts` 窄幅纳入 allow_paths**：该文件现有注释原文写明"数据库 schema 由后续卡
   T1-SCHEMA-CORE 挂 sqldelight{} 配置块，本卡只 pin 依赖"——应用 `alias(libs.plugins.sqldelight)` + 配置
