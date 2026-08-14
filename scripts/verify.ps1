@@ -88,6 +88,21 @@ if ($feBootstrapped -and (Get-Command npm -ErrorAction SilentlyContinue)) {
   Write-Warning '⚠️ 前端闸未引导，跳过——npm install 后 verify 会收紧。'
 }
 
+# Android/Gradle 闸（本项目主实现面）：android/gradlew.bat 在（Gradle 工程已引导）才跑并计红；未引导 → 优雅跳过。
+# 测试面 = :core 纯 JVM 单测/静检（确定性；--offline 保证闸内绝不联网拉依赖——依赖缓存由引导卡先在线 build 一次填充，
+# 缓存缺料即非零计红，fail-closed，同上方 uv --no-sync 立场）。JDK 缺失时 gradlew 自身非零 → 同样计红。
+$gwBat = Join-Path $RepoRoot 'android/gradlew.bat'
+if (Test-Path $gwBat) {
+  Push-Location (Join-Path $RepoRoot 'android')
+  try {
+    & cmd /c 'gradlew.bat --offline -q :core:check'
+    if ($LASTEXITCODE -ne 0) { Write-Warning "Android :core check 失败（退出码 $LASTEXITCODE；JDK 缺失/依赖缓存缺料/测试红均计红）"; $failed = $true }
+    else { Write-Host 'Android :core check 全绿。' }
+  } finally { Pop-Location }
+} else {
+  Write-Host '无 android/gradlew.bat，跳过 Android 闸（Gradle 工程未引导时正常；T0 引导卡落地后本闸自动收紧）。'
+}
+
 # --- 闸门 2：集成 / e2e 闭环（项目特定）---
 Step '闸门 2/2：集成 / e2e 闭环（确定性 / 离线 / 可复现）'
 # TODO（项目特定）：接集成/e2e——确定性 env + CLI 直跑 + 产物强校验 + fail-closed；接法见 docs/DELIVERY-OPS.md。

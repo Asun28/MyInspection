@@ -654,6 +654,7 @@ $RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime
 $RootAllow  = @(
   '.claude', '.github', 'docs', 'scripts', 'specs', '_local',        # 工作流交付目录 + 本地工作区
   'backend', 'frontend', 'prompts', 'context', 'data',              # 标准软件 + AI 应用骨架（下游填充内容）
+  'android',                                                        # 本项目：Android Gradle 工程（ADR-0001）
   'configs', 'tests',
   '.env.example', '.gitattributes', '.gitignore', 'LICENSE', '.mcp.json',
   'AGENTS.md', 'CLAUDE.md', 'CLAUDE.template.md', 'TEMPLATE-README.md', 'CHANGELOG.md',
@@ -2876,6 +2877,8 @@ $l86Docs = @(
 $nFail = $false
 foreach ($rel in $l86Docs) {
   $p = Join-Path $RepoRoot $rel
+  # 下游豁免（同 8.0c/11b 手法）：TEMPLATE-README.md 属元仓专属物（-Cleanup/-Retrofit 不下发），已初始化下游缺席是预期而非漂移。
+  if ($rel -eq 'TEMPLATE-README.md' -and $isPostInit -and -not (Test-Path $p)) { Write-Host '  15n：TEMPLATE-README.md 不存在（已初始化下游，元仓专属物），该面跳过。' -ForegroundColor DarkGray; continue }
   if (-not (Test-Path $p)) { Fail "闸15n：$rel 不存在（相位命令指引失去真相源？）。"; $nFail = $true; continue }
   if ((Get-Content $p -Raw) -notmatch 'L86-WT') { Fail "闸15n：$rel 未提示 L86-WT 守卫——它仍可能教「在 worktree 内跑 scripts\task.ps1 相位命令」，而该动作现已被 fail-closed 拒（TD-238 文档漂移）。"; $nFail = $true }
 }
@@ -6842,6 +6845,9 @@ if (-not $fail) { Write-Host '  17aa(7) 行为：-Local + 远端限定/错配-Ba
 if (-not $fail) {
   if (-not $IsWindows) {
     Write-Host '  17aa(8) gh.ps1 行为夹具仅 Windows 执行；非 Windows 由 Windows CI 覆盖。' -ForegroundColor DarkGray
+  # 下游豁免（同 15n/8.0c 手法）：本夹具复用元仓真卡 T11-R3-BASELINE（活位或冷存均可），已初始化下游不带元仓卡库——缺席即跳过而非崩整跑（TD74 同类）。
+  } elseif (-not ((Test-Path (Join-Path $RepoRoot 'specs/tasks/T11-R3-BASELINE.md')) -or (Test-Path (Join-Path $RepoRoot 'specs/archive/tasks/T11-R3-BASELINE.md')))) {
+    Write-Host '  17aa(8) 跳过：复用的真卡 T11-R3-BASELINE 不存在（已初始化下游无元仓卡库；该行为闸由元仓侧覆盖）。' -ForegroundColor DarkGray
   } else {
     $r8Root = Join-Path ([System.IO.Path]::GetTempPath()) ("st17aa8_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     $r8SavedPath = $env:PATH; $r8SavedMode = $env:GH_MOCK_BASE_MODE; $r8SavedRoot = $env:GH_MOCK_ROOT

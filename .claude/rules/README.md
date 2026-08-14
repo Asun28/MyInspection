@@ -15,5 +15,6 @@ paths: .claude/rules/**
 ## 现有 rule
 | 文件 | paths | 指向 |
 |---|---|---|
-| `python.md` | `backend/**/*.py` | `CLAUDE.md`「代码与接口命名」Python 节 |
-| `frontend.md` | `frontend/**/*.{ts,tsx}` | `frontend/README.md` 5 道闸 + design tokens 真相源 |
+| `kotlin.md` | `android/**/*.{kt,kts}` | ADR-0001/0003 模块红线 + 冻结物 + Kotlin 风格 |
+
+（`python.md`、`frontend.md` 已删——技术路线定为原生 Kotlin+Compose（ADR-0001），无 Python 后端、无 Web 前端。）

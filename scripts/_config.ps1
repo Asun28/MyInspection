@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   脚手架的**唯一项目配置点**。新项目只改这一个文件（或跑 init-scaffold.ps1 自动填）。
@@ -81,14 +81,14 @@ $script:ScaffoldConfig = @{
   # 优先级：review.ps1 的 -Model/-Effort 参数 > 本两项 > 后端自身默认（留空即后者，保「空配置仍可跑」）。
   # L26 工具无关：换 ReviewCommand 后端后，本两项只经 $env:REVIEW_MODEL / $env:REVIEW_EFFORT 透传，
   # 由该后端自行解释（不做 codex 的枚举校验——别人的档位命名不归 codex 管）。
-  ReviewModel = ''
+  ReviewModel = 'gpt-5.6-sol'
 
   # 推理档位。留空 '' => 后端默认。**合法值随模型而异**，本仓刻意不硬编码枚举：
   #   实测（2026-07-10，codex-cli 0.144.1）gpt-5.6-sol / -luna 接受 max、却**拒** minimal，
   #   而 API 的通用参数报错又把 minimal 列为合法——两者不同源，任何静态列表都会误拒/误放。
   # 填错即评审者启动失败 → 写不出裁决 → review.ps1 既有 fail-closed 路径 block（控制台可见后端原文报错）。
   # 本仓 PR 常触及闸/评审者本体（高风险面），故取 high。
-  ReviewEffort = ''
+  ReviewEffort = 'high'
 
   # R3 评审者超时秒数。留空/0 => review.ps1 内建 600s。
   # 优先级：review.ps1 的 -TimeoutSec 参数 > 本项 > 内建 600s。

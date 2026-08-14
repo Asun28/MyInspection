@@ -1413,3 +1413,27 @@
 - rule: 目标目录名含大写时别硬碰：在临时目录用全小写名跑生成器（npx create-next-app@latest <tmp>\<lowercase-name> ...），跑完把除 node_modules 外的全部条目（含 .git 与点文件）Move-Item 到真实目标目录，再在目标目录跑一次 npm install（跨盘搬 node_modules 比重装慢得多）。生成的 package.json name 保持小写 slug、与目录名不一致无妨。加 --yes 免交互提示
 - enforced_by: none（下游一次性建仓动作，元仓无闸可挂；失败是 fail-fast 且信息明确）
 - refs: 
+
+## L199
+- date: 2026-08-14 ｜ tags: tar,git-bash,windows,path ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Git Bash 里 tar -xf C:/...tar（或 -C D:/...）报 tar: Cannot connect to C: resolve failed
+- root_cause: GNU tar 把带盘符的 Windows 路径按远程语法 host:path 解析，冒号前盘符被当远程主机名；pwsh 下 Windows 自带 bsdtar 无此行为，同一命令换 shell 即崩
+- rule: 在 Git Bash 里给 tar 传含盘符路径一律改 POSIX 形态（/c/... /d/...）或加 --force-local；git archive -o 不受影响（git 自行解析路径），只有 tar 的 -f/-C 参数中招
+- enforced_by: 
+- refs: 
+
+## L200
+- date: 2026-08-14 ｜ tags: selftest,诊断,失败遮蔽 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: selftest 排障绕路：真失败与建议性 lint 都打 WARNING 难分；修完首批失败重跑才暴露新崩溃（17aa(8) 藏在 if (-not $fail) 后，前面全绿才首次执行）；夹具终止性错误直接中断整跑、连「结论」行都不打
+- root_cause: Fail() 实现为 Write-Warning + $script:fail 标志，与建议性 Write-Warning 同貌；部分后置闸以 -not $fail 门控形成失败遮蔽；夹具在 ErrorActionPreference=Stop 下抛终止异常即弃整跑
+- rule: selftest 排障固定三步：①先看尾部「结论 selftest: PASS|FAIL」，无结论行=中途崩溃、按最后输出定位行号；②失败清单用 Select-String WARNING 收集（剔除标注「建议性」的 lint 行）；③每修一批必须重跑到 PASS 为止——门控闸在前面转绿后才首次执行，一轮清单不是全集
+- enforced_by: 
+- refs: 
+
+## L201
+- date: 2026-08-14 ｜ tags: codex,subagent,多模型编排 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 经 Agent 工具派 codex:codex-rescue 讨论任务，结果只回「Codex Task started in background as task-<id>」；再让该子代理去取结果被拒——它按设计是一次性转发器，禁调 status/result/轮询
+- root_cause: codex 插件把 rescue 子代理定义为单发 forwarder（skill 明文禁 status/result/cancel）；后台 codex 任务的取结果责任在主线程，子代理无法被消息扩权
+- rule: 主线程自己轮询取结果：node "<codex 插件 cache>/scripts/codex-companion.mjs" status <task-id> 到 completed，再 result <task-id> 取全文；长任务（gpt-5.6 高档 5–10 分钟）用其它并行工作填等待，不要重复派新子代理去问
+- enforced_by: 
+- refs: 

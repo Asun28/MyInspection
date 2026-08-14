@@ -21,6 +21,8 @@
 |---|---|---|---|---|---|---|
 | _示例_ | 2026-06-15 | `backend/app/...` | 直接拼路径，未经 `core/storage.py` 派生（违反关键不变量） | major | open | — |
 
+| TD1 | 2026-08-14 | `scripts/selftest.ps1`(闸15n · 闸17aa(8)) | **对上游脚手架 bug 的本地补丁 ×2，待回搬**：①15n 把 `TEMPLATE-README.md` 硬列为 L86-WT 权威面，但该文件属元仓专属物（`-Cleanup`/`-Retrofit` 不下发）——已初始化下游必红；②17aa(8) 夹具硬依赖元仓真卡 `specs/tasks/T11-R3-BASELINE.md`（活位或 archive），下游缺卡时 Get-Content 直接终止整跑（且它藏在 `if (-not $fail)` 后，前面全绿才暴露）。二者同为上游 TD74「无 CI 支路测生成下游」的实例。后果：本仓 selftest.ps1 与上游漂移，backfill 对照须带上这两块 diff / 修法：把 `$isPostInit` 跳过（15n）与缺卡跳过（17aa(8)）两补丁回搬上游元仓 / 可测：下游（无 TEMPLATE-README、无 T11 卡）selftest 全绿、元仓两面仍必查 / 前置：无 | minor | open | — |
+
 
 
 

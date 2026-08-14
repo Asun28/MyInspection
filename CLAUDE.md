@@ -68,8 +68,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > rule 只放**指针**（不复制命名表正文，免双源漂移）；只用项目级 `.claude/rules/`，别用用户级 `~/.claude/rules/`（其 paths 有 bug）。详见 `.claude/rules/README.md`。
 
 ## 当前阶段
-<!-- TODO：一句话写当前进度 / 已合并的卡 / 下一步。随 R5 文档同步更新。 -->
-（脚手架就绪。用 `.claude/workflows/` 的 plan-forge 把计划拆成 `specs/tasks/*.md`，再用 `scripts/task.ps1` 逐卡施工。）
+<!-- 随 R5 文档同步更新。 -->
+需求已收口 + **设计已定稿**（3 方讨论 Claude Fable 5 / DeepSeek V4 Pro / Codex GPT-5.6 → `docs/adr/0001–0004`，2026-08-14）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；计划真相源 `_local/PLAN.md`；任务已拆卡 `specs/tasks/`，**模型/effort 路由总表 = `docs/TASK-BOARD.md`**。未开工。下一步：
+① 用户签认：ADR-0002（备份设计推翻需求 §11 一处[定]）+ TASK-BOARD「待用户定」清单（含房产现状问题）；
+② `T0-TOOLCHAIN`（本机零 Android 工具链，已核）；
+③ 按 board 波次逐卡施工（`scripts/task.ps1`，评审 R3 = gpt-5.6-sol）。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
@@ -132,37 +135,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 命令（Windows / PowerShell）
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
-- 装环境（若 Python 后端）：`scripts\setup.ps1`（或 `uv venv --python 3.13 .venv; uv sync`）
+- Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流脚本自检**（改 `scripts/*.ps1` / `.claude/hooks/*.ps1` 后）：`pwsh -File scripts\selftest.ps1`（来自脚手架、随下游保留；push/PR 也由 `.github/workflows/scaffold-selftest.yml` 在 CI 跑）
+- **工作流脚本自检**（改 `scripts/*.ps1` / `.claude/hooks/*.ps1` 后）：`pwsh -File scripts\selftest.ps1`（**17 闸**总自检；来自脚手架、随下游保留；push/PR 也由 `.github/workflows/scaffold-selftest.yml` 在 CI 跑）
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
-- 全部测试：`uv run python -m pytest backend/tests -q`
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
-> ⚠️ 本机 `uv run <console-script>`（`uv run pytest` / `uv run uvicorn`）在 Windows 可能报 `Failed to canonicalize script path`——改用 `uv run python -m <module>`（见 L16）。
 
 ## 架构大图
-<!-- TODO：一段话 + 一张「路径→职责」表。示例骨架： -->
+单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 系统听写 / 短语库备注 → 生成双版本 PDF 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
+
 | 路径 | 职责 |
 |---|---|
-| `backend/app/providers/` | 契约 + 注册表 + mock/real |
-| `backend/app/core/` | config / storage / db |
-| `backend/app/...` | … |
+| `docs/inspection-app-requirements.md` | **需求真相源**（[定]=已决定 / [待]=需确认 / [验]=需 spike） |
+| `docs/adr/0001–0004` + `docs/TASK-BOARD.md` | 设计决策 + 任务/模型路由总表（状态以卡为准） |
+| `android/core/` | **纯 JVM 领域**：model / db(SQLDelight ★) / template / compliance / report / backup / canon ★ |
+| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写 · PdfDocument 渲染 · WorkManager |
+| `configs/compliance/` | 可更新的 NZ 合规规则配置（不硬编码；schema 含 entryPurpose，ADR-0004） |
+| `prompts/remediation/` | LLM prompt + 「检查项 → 建议」种子对照表（需求 §9） |
+| `data/templates/` | 巡检模板内容真相源（四类、双语、带版本号；构建期拷入 assets） |
+| `docs/research/` | 竞品 UX 调研（Opus 5 产出，喂采集 UI 与模板内容卡） |
 
 ## 硬边界（不可违反）
-<!-- TODO：按你产品填。下面是商用项目的常见基线，按需保留/删改： -->
-- 无平台自动发布、不写任何登录态；`.env` 与认证文件 **永不入库**。
-- 全部代码为本项目**原创实现**。
-- **敏感面无人值守不动**：认证/计费/数据迁移/生产配置等高危路径登记进 `scripts/_config.ps1` 的 `FrozenPaths`（`guard-frozen` 钩子拒改）；要动走版本评审 + 人在环确认。
-- **依赖许可（商用硬规则，见 `docs/LICENSE-POLICY.md`）**：禁用 GPL/AGPL/SSPL 等 copyleft 与任何
-  non-commercial/research-only 代码·权重·数据·素材；仅用 MIT/BSD/Apache 等宽松；LGPL 仅限进程外/动态调用。每加依赖跑 `check-licenses.ps1`。
-- （可选）测试/verify/CI 默认走确定性/离线路径（如全 mock、禁出站网络、不依赖 GPU）——若设此边界，由 `conftest.py` autouse fixture + `verify.ps1` 显式强制。
+- **永不做**（需求 §1 写死，防范围蔓延）：租金/账务 · 房客筛选/背调 · 工单派发 · 房源广告 · 押金托管 · **任何账号体系** · **任何服务端功能** · 多用户/权限 · 模板编辑器 UI。
+- **local-first**：数据（SQLite + 照片/音频文件）永在本地；唯一联网点 = remediation 时调 LLM API（自己的 key，可完全跳过）；不做云账号、不做遥测。app **自己不发送**通知（只生成 + 一键复制，人工发送后回记存档）。
+- **合规校验为阻断闸、不可关闭、不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。
+- **LLM 建议只进房东版**报告；定位 = 提示 + 分级（NZS 4306 思路）+ 建议找谁，**不做诊断/处方/成本估算**；报告必带免责声明。
+- 隐私（Privacy Act 2020）：备份包**必加密**（含租客照片/联系方式）；租客数据设明确保留期限 + 可一键清理；`.env` 与密钥永不入库。
+- 测试/verify/CI 走确定性/离线路径（LLM 调用全 mock，禁出站网络）。
+- **依赖许可（见 `docs/LICENSE-POLICY.md`）**：禁 GPL/AGPL/SSPL 等 copyleft 与 non-commercial 素材；仅 MIT/BSD/Apache 等宽松；每加依赖跑 `check-licenses.ps1`。
 
 ## 关键不变量
-<!-- TODO：按你项目填。常见模式： -->
-- 契约 `backend/app/providers/contract.py`（或你的等价物）**冻结**，演进走版本评审；冻结清单登记在 `scripts/_config.ps1` FrozenPaths。
-- 运行时路径**只经** `backend/app/core/storage.py` 派生，禁各处拼路径。
-- 切换 mock/real **只改** `registry.py`，不动调用方。
-- 配置只经 `backend/app/core/config.py`（或你的等价物）**单点读入并注入**；业务码**禁散读** `os.environ`/`os.getenv`。
+- **检查项 ID 稳定**：历史对齐只靠 ID、不靠名字；模板带版本号——改措辞不改 ID，加项给新 ID（需求 §4）。
+- 主键一律 **UUIDv7**（禁自增整数——同步时是死局）；每表带 `updated_at`（UTC）+ `deleted_at`（软删除）。
+- 照片/音频存**文件系统**，DB 只存相对路径 + 内容哈希，**禁 BLOB**。导入照片必存：EXIF 拍摄时间（与巡检时间分开）+ 来源标记（`camera`/`imported`）+ 内容哈希防重；**复制不移动**原文件，EXIF 旋转必须处理。
+- **finalize 后原始条目只读**，只允许追加带独立时间戳的「补充说明」；导出 PDF 页脚写入该次巡检数据哈希（自证未事后修改）。
+- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 的 Ingoing）；**Exit 默认对照 baseline**、不是上次 Routine。
+- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。
+- schema/迁移与合规校验引擎落地后登记进 `scripts/_config.ps1` FrozenPaths（`guard-frozen` 钩子拒改），演进走版本评审。
 
 ## 经验铁律（必须加载 · Tier 1 · 封顶 10 条）
 > 自净化经验系统的**必须层**：踩过且会复发的硬坑，每轮都在上下文里，**同样问题不再重导**。
@@ -206,6 +215,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **effort 杠杆**：例行模型在环步骤跑低 effort（Fable 低 effort 常超旧模型 xhigh），最吃能力的活才 xhigh；**循环/重试体内封顶 high**——xhigh 只给一次性评审/最难单点，别放进 loop 反复烧。
 - **交接**：Sonnet→Opus 遇真歧义 / 重大决策 / 两次没修好的 bug；Opus→Sonnet 计划已清、活变机械；Fable→Opus 撞真难逆架构判断、Fable→Sonnet 把规格清晰子任务派子代理，活长成多卡弧则 Opus/Sonnet→Fable 上交。solo 时先按 Opus 想、再按 Sonnet 做，活超单会话/多卡就升 Fable 自驱。
 - **独立评审闸仍是 codex R3**（第二独立模型，非 Opus 自评 · L26；实现见 `review.ps1`）。**子代理模型路由按任务性质选档，别一档到底**：`gpt-5.6-sol` = 商用级实现 · 架构决策 · 安全评审 · 终审（**R3 合并闸即钉此档**，安全面不降档）；`gpt-5.6-terra` = 仓库探索 · 文档通读 · 大体量只读消化（配合上条「只回传结论、不灌主上下文」）。**不设小模型快档**：小模型核验深度不适配闸门/安全面，小而明确的活留 Sonnet 低 effort，或仍走 `gpt-5.6-sol`。派工形态（含 Windows 上 `.ps1` shim 坑）见 `docs/DELIVERY-CHAINS.md`「Codex 子代理派工」。
+- **本项目执行舰队（性价比路由；每卡首选/备选/effort 的真相源 = `docs/TASK-BOARD.md`）**：DeepSeek V4 Pro = 默认工作马（规格清晰/机械卡，最高性价比）；Opus 5 = 设计重/新颖单点（相机、PDF composer、加密格式）；Sonnet 5（max effort）= 标准 Compose 界面/中档逻辑；GPT-5.6 Terra = 中档替补 + 大体量只读消化；GPT-5.6 Luna Max = 轻档内容/交叉复核；**GPT-5.6 Sol = R3 评审席（`_config.ps1` 已钉），原则上不作同卡作者，保评审独立**。执行时把卡内「上下文包」整段喂给执行模型。
 - **模型专属提示词细则（按需 Read，非每轮常驻）**：给某个具体 Claude 模型调提示 / 写它面向的 skill·hook·rubric 时，**指名 Read** `docs/references/claude-<model>-prompting-llms.txt`（`opus-5` / `sonnet-5` / `fable-5`；`opus-4-8` = 回退兜底档，配回退链或排查换模型作答时读）+ 跨模型 `claude-prompting-best-practices-llms.txt`；Console 侧模板/改进器见 `claude-prompting-tools-llms.txt`。这是「动态按对应模型加载对应提示词」的落地——静态 vendored、按需取，随模型出新版刷新（索引见 `docs/references/README.md`）。会话式改 prompt 入口见 `.claude/skills/improve-prompt`（贴 prompt 即改）。
 
 ## 工作准则
