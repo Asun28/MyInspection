@@ -7468,6 +7468,104 @@ exit 0
   }
 }
 
+# ── 17aa/17bb（T0-GATE-HARDENING）：许可闸 Gradle 清单递归发现（含 libs.versions.toml）+ verify.ps1
+#   --no-daemon，各配单句删除变异（对应卡片 dod_assert ①②）。①覆盖两个独立分支（libs.versions.toml /
+#   build.gradle{,.kts}）——T0-TOOLCHAIN 六轮评审 finding #6c：此前只变异了 libs.versions.toml 一支，
+#   build.gradle{,.kts} 那一支从未被证明在测。变异对象一律不是生产文件本体：17aa 用**真实生产脚本旁的临时
+#   同目录副本**（scripts/.st17aa-mutant-$PID.ps1，$PSScriptRoot 落在真实 scripts/，故 $RepoRoot 解析到
+#   真实仓根、扫到真实 android/ 树，行为与 dod_command 一致），17bb 全程只在内存字符串上操作、从不写盘。
+#   L196：上一位 agent 曾在「变异后、还原前」被杀死，现场留过一次真实缺陷；本闸结尾另核两个真实源文件的
+#   SHA256 全程未变，纵深防御。
+$realCLPath = Join-Path $RepoRoot 'scripts/check-licenses.ps1'
+$realVfPath = Join-Path $RepoRoot 'scripts/verify.ps1'
+$realCLHashBefore = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
+$realVfHashBefore = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
+
+# 17aa. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异）
+$mutantCL = Join-Path $RepoRoot "scripts/.st17aa-mutant-$PID.ps1"
+try {
+  Copy-Item -LiteralPath $realCLPath -Destination $mutantCL -Force
+  $baseOut = & pwsh -NoProfile -File $mutantCL 2>&1 | Out-String
+  if ($baseOut -notmatch [regex]::Escape('libs.versions.toml')) {
+    Fail "17aa 基线：真实运行未点名 libs.versions.toml——递归发现分支①未生效或 android/gradle/libs.versions.toml 缺失，无从继续变异测试。`n输出=$baseOut"
+  } elseif ($baseOut -notmatch [regex]::Escape('build.gradle.kts')) {
+    Fail "17aa 基线：真实运行未点名 build.gradle.kts——递归发现分支②未生效，无从继续变异测试。`n输出=$baseOut"
+  } else {
+    Write-Host '  17aa 基线（GREEN）：真实运行同时点名 libs.versions.toml 与 build.gradle.kts OK' -ForegroundColor Green
+    $origLines = Get-Content -LiteralPath $mutantCL
+    # 规整化基线（重要）：Get-Content/Set-Content 往返不是字节级恒等（换行符/末尾换行处理有别于原始 Copy-Item
+    # 字节），直接拿 Copy-Item 落地时的哈希当「还原目标」会对每次变异都假红。改为「先用 Set-Content 写一遍原始
+    # 行数组、以这次写出的字节为准」，令后续「变异→还原」用的是同一枝 Set-Content 编码路径，哈希才可比。
+    Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
+    $origHash = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
+
+    # 分支①变异：删掉 libs.versions.toml 那一行（单句删除）。
+    $idxA = @(0..($origLines.Count - 1) | Where-Object { $origLines[$_] -match [regex]::Escape("-Filter 'libs.versions.toml'") })
+    if ($idxA.Count -ne 1) {
+      Fail "17aa(A) 前置：源码里含 -Filter 'libs.versions.toml' 的行数=$($idxA.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移，需回头核对行文本。"
+    } else {
+      $mutA = @(for ($i = 0; $i -lt $origLines.Count; $i++) { if ($i -ne $idxA[0]) { $origLines[$i] } })
+      Set-Content -LiteralPath $mutantCL -Value $mutA -Encoding utf8
+      $outA = & pwsh -NoProfile -File $mutantCL 2>&1 | Out-String
+      Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
+      $hashA = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
+      if ($hashA -ne $origHash) { Fail "17aa(A) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashA）——mutant 副本未干净还原（副本非生产文件，但仍须核验闭环完整）。" }
+      elseif ($outA -match [regex]::Escape('libs.versions.toml')) { Fail "种子缺陷 17aa(A)：删掉 libs.versions.toml 递归发现那一行后，真实运行仍点名 libs.versions.toml——分支①未被真正测到（vacuous mutation）。`n输出=$outA" }
+      elseif ($outA -notmatch [regex]::Escape('build.gradle.kts')) { Fail "17aa(A) 分类器：删掉分支①那一行后，分支②的 build.gradle.kts 也消失了——说明红不是分支①单独造成（两分支未真正独立，或运行整体崩溃，L165）。`n输出=$outA" }
+      else { Write-Host '  17aa(A) libs.versions.toml 发现分支：单句删除变异后红（消失）、分支②仍绿（build.gradle.kts 仍点名）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
+    }
+
+    # 分支②变异：删掉 build.gradle/build.gradle.kts 那一行（单句删除）。
+    $idxB = @(0..($origLines.Count - 1) | Where-Object { $origLines[$_] -match [regex]::Escape("-Include 'build.gradle', 'build.gradle.kts'") })
+    if ($idxB.Count -ne 1) {
+      Fail "17aa(B) 前置：源码里含 -Include 'build.gradle', 'build.gradle.kts' 的行数=$($idxB.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移。"
+    } else {
+      $mutB = @(for ($i = 0; $i -lt $origLines.Count; $i++) { if ($i -ne $idxB[0]) { $origLines[$i] } })
+      Set-Content -LiteralPath $mutantCL -Value $mutB -Encoding utf8
+      $outB = & pwsh -NoProfile -File $mutantCL 2>&1 | Out-String
+      Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
+      $hashB = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
+      if ($hashB -ne $origHash) { Fail "17aa(B) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashB）——mutant 副本未干净还原。" }
+      elseif ($outB -match [regex]::Escape('build.gradle')) { Fail "种子缺陷 17aa(B)：删掉 build.gradle{,.kts} 递归发现那一行后，真实运行仍点名 build.gradle——分支②未被真正测到（vacuous mutation）。`n输出=$outB" }
+      elseif ($outB -notmatch [regex]::Escape('libs.versions.toml')) { Fail "17aa(B) 分类器：删掉分支②那一行后，分支①的 libs.versions.toml 也消失了——说明红不是分支②单独造成（两分支未真正独立，或运行整体崩溃，L165）。`n输出=$outB" }
+      else { Write-Host '  17aa(B) build.gradle{,.kts} 发现分支：单句删除变异后红（消失）、分支①仍绿（libs.versions.toml 仍点名）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
+    }
+  }
+} finally {
+  Remove-Item -LiteralPath $mutantCL -Force -ErrorAction SilentlyContinue
+  if (Test-Path $mutantCL) { Fail "17aa 收尾：临时同目录副本 $mutantCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
+}
+
+# 17bb. verify.ps1 的 Android 闸调用含 --no-daemon（源码断言，纯文本、不执行整套 Gradle 构建——避免 R3
+#   沙箱不保证可复跑的重型套件，L60/L62；判据与卡片 dod_command 同形态）。变异全程只在内存字符串上操作、
+#   从不写回磁盘——比「写→还原→核 SHA256」更强的保证：真实 verify.ps1 连一次写操作都没经历过。
+$vfOrigLines = Get-Content -LiteralPath $realVfPath
+$vfIdx = @(0..($vfOrigLines.Count - 1) | Where-Object { $vfOrigLines[$_] -match [regex]::Escape('--no-daemon') })
+if ($vfIdx.Count -ne 1) {
+  Fail "17bb 前置：verify.ps1 里含 --no-daemon 的行数=$($vfIdx.Count)（期望恰好 1）——断言定位不唯一，或该 flag 尚未落地。"
+} else {
+  $vfMut = @(for ($i = 0; $i -lt $vfOrigLines.Count; $i++) { if ($i -ne $vfIdx[0]) { $vfOrigLines[$i] } })
+  if ($vfMut.Count -ne ($vfOrigLines.Count - 1)) {
+    Fail "17bb 分类器：变异后行数=$($vfMut.Count)，期望恰好比原文件少 1 行（$($vfOrigLines.Count - 1)）——变异不是干净的单句删除。"
+  } elseif (($vfMut -join "`n") -match [regex]::Escape('--no-daemon')) {
+    Fail '种子缺陷 17bb：删掉那一行后 --no-daemon 仍能在文本里找到——断言未真正定位到该 flag（vacuous mutation）。'
+  } else {
+    Write-Host '  17bb verify.ps1 --no-daemon：真实文件恰好 1 处命中（GREEN）、单句删除该行后文本消失（RED，纯内存操作，磁盘上的 verify.ps1 从未被写入）OK' -ForegroundColor Green
+  }
+}
+# DoD 判据镜像：与卡片 dod_command 的 Select-String 用同一形态直接核真实文件（只读），证两者判的是同一处命中。
+if (-not (Select-String -Path $realVfPath -Pattern '--no-daemon' -SimpleMatch -Quiet)) {
+  Fail "DoD 判据镜像：Select-String -Path verify.ps1 -Pattern '--no-daemon' -SimpleMatch 未命中——与 dod_command 的判据不一致。"
+}
+
+# ── 收尾：真实生产文件全程未被写入（纵深防御，L196）——check-licenses.ps1 只曾在临时同目录副本上变异，
+#    verify.ps1 全程只读，两者 SHA256 理应与本闸开始前逐字不变。──
+$realCLHashAfter = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
+$realVfHashAfter = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
+if ($realCLHashAfter -ne $realCLHashBefore) { Fail "17aa/17bb 收尾：真实 scripts/check-licenses.ps1 的 SHA256 在本闸前后不一致（前=$realCLHashBefore，后=$realCLHashAfter）——变异测试意外写到了生产文件本体，而非只碰临时副本（L196）。" }
+elseif ($realVfHashAfter -ne $realVfHashBefore) { Fail "17aa/17bb 收尾：真实 scripts/verify.ps1 的 SHA256 在本闸前后不一致（前=$realVfHashBefore，后=$realVfHashAfter）——理应全程只读却被写入（L196）。" }
+else { Write-Host '  17aa/17bb 收尾：真实 check-licenses.ps1 / verify.ps1 两份生产文件 SHA256 全程未变 OK（L196 纵深防御）' -ForegroundColor Green }
+
 Step '结论'
 if ($fail) { Write-Host 'selftest: FAIL' -ForegroundColor Red; exit 1 }
 Write-Host 'selftest: PASS' -ForegroundColor Green

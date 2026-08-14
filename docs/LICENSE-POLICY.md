@@ -33,15 +33,46 @@
   ⚠️ **进程外/子进程边界只豁免 LGPL、不豁免 GPL**——GPL 触发点是**分发**，随商用产品分发 GPL 二进制即触发义务、与跨不跨进程无关。
 - **OpenRAIL-M 等"负责任 AI"许可**：允许商用但带**基于用途的行为限制**且须向下游传递——**需逐案评估**并把限制写入用户协议；默认标黄，非自动通过。
 
-## 3. 当前依赖核验（项目特定 · 待填）
+## 3. 当前依赖核验（项目特定）
 
-> 随开发把每个依赖登记到下表（脚本只覆盖 PyPI/npm，覆盖不到模型权重/数据/字体/素材——这些**逐项**人工登记）。
+> 随开发把每个依赖登记到下表（脚本只覆盖 PyPI/npm，覆盖不到模型权重/数据/字体/素材/Gradle——这些**逐项**人工登记）。
+> 本项目无 PyPI/npm 依赖（原生 Kotlin + Compose，ADR-0001）；下表登记 Gradle 生态。
 
 | 依赖 | 许可 | 结论 |
 |---|---|---|
 | _(示例)_ FastAPI | MIT | ✅ |
 | _(示例)_ uvicorn | BSD-3 | ✅ |
 | … | … | … |
+
+### 3.1 Android/Gradle 直接依赖（`android/gradle/libs.versions.toml`，已核验）
+
+> `check-licenses.ps1` 只扫 PyPI/npm，覆盖不到 Gradle（见 §5.1）；本表是**人工核验**，对准每条坐标的**发布方主库
+> LICENSE 文件 / Maven POM `<licenses>` 块**（非 README 措辞、非 `aar-metadata.properties`——后者记
+> `minCompileSdk` 等构建要求，与许可无关，见 T0-TOOLCHAIN 第 4 轮评审纠正）。同一发布方（同一 monorepo/组织）
+> 下的多个坐标共用同一份 LICENSE 依据，逐条列出坐标、依据只列一次代表性来源。
+
+| Gradle 坐标（前缀） | 许可 | 结论 | 依据 |
+|---|---|---|---|
+| `androidx.compose:*`（compose-bom/ui/ui-tooling/ui-tooling-preview/material3）、`androidx.activity:activity-compose`、`androidx.camera:*`（core/camera2/lifecycle/view）、`androidx.exifinterface:exifinterface`、`androidx.work:work-runtime-ktx` | Apache-2.0 | ✅ | androidx monorepo `LICENSE.txt`（`android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/LICENSE.txt`） |
+| `org.jetbrains.kotlinx:kotlinx-serialization-json` | Apache-2.0 | ✅ | `github.com/Kotlin/kotlinx.serialization` `LICENSE.txt` |
+| `app.cash.sqldelight:runtime` / `sqlite-driver` / `android-driver`，及同名 Gradle 插件 `app.cash.sqldelight` | Apache-2.0 | ✅ | `github.com/cashapp/sqldelight` `LICENSE.txt` |
+| `org.jetbrains.kotlin:kotlin-test` / `kotlin-test-testng`，及 Kotlin Gradle 插件（`kotlin-jvm`/`kotlin-android`/`kotlin-compose`/`kotlin-serialization`） | Apache-2.0 | ✅ | `github.com/JetBrains/kotlin` `license/LICENSE.txt` |
+| `org.testng:testng`（经 `kotlin-test-testng` 引入，测试运行器；替代 EPL-1.0 的 JUnit，见 toml 内注释） | Apache-2.0 | ✅ | `testng-7.5.1.pom`（编排者独立复核）；其 `junit:junit:4.13.2` 依赖标 `optional=true`，Gradle 不解析进最终 classpath（实测 `:core:dependencies --configuration testRuntimeClasspath` 零 junit 节点） |
+| `com.android.tools.build:gradle`（AGP，`com.android.application`/`com.android.library` 插件） | Apache-2.0 | ✅ | `dl.google.com` 该坐标 POM `<licenses>` 块（`The Apache Software License, Version 2.0`） |
+| Gradle 构建工具本体（非 Maven 坐标依赖，`gradle/wrapper/gradle-wrapper.properties` 钉版） | Apache-2.0 | ✅（构建期工具，未随产品分发） | gradle.org 许可声明；wrapper `distributionSha256Sum` 已由编排者独立核验匹配官方发布 |
+
+### 3.2 Android/Gradle 传递依赖：约 220 个坐标未逐一核验（已知缺口，非合规声明）
+
+- **现状**：上表只覆盖 `libs.versions.toml` 声明的**直接**坐标；`:core:dependencies` 实际解析出的**传递闭包
+  约 220 个坐标**，当前**未逐一核验**其许可。这是真实缺口，不粉饰。
+- **为什么不在本卡补齐**：手工审 220 个坐标的表格在下次依赖变动即过期；正确解法是自动化扫描器（**TD2**，
+  独立选型卡，见 `specs/tech-debt-tracker.md`），而非在骨架/闸门加固卡里手工堆表格造成假的"已核验"观感。
+- **风险绑定到触发点**：GPL 系 copyleft 的义务触发点是**分发**（见 §1.1）；本项目当前**无任何发布路径**
+  （发布相关卡排在 T7 之后），故该缺口暂不构成当前的合规违规。但**发布前必须清零**——见
+  `docs/RELEASE-CHECKLIST.md`「质量」节的阻断项。
+- **不是自动豁免**：AGPL/SSPL/EUPL/非商用等触发点与分发无关的许可类别（§1.1 表）即便在传递依赖中出现，
+  也不因"未发布"而被豁免——TD2 的扫描器落地前，`android/` 子树的这一风险敞口持续存在，接入 CI 强制前只能
+  作为已知缺口管理。
 
 ## 4. 模型权重 / 数据 / 素材核验（项目特定 · 待填）
 

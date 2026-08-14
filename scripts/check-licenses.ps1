@@ -114,13 +114,42 @@ $otherManifests = @(
   @{ file = 'composer.json'; eco = 'PHP (composer.json)' }
   @{ file = 'pubspec.yaml';  eco = 'Dart/Flutter (pubspec.yaml)' }
   @{ file = 'pom.xml';       eco = 'Java/Maven (pom.xml)' }
-  @{ file = 'build.gradle';  eco = 'Gradle (build.gradle)' }
 )
 $otherHits = @($otherManifests | Where-Object { Test-Path (Join-Path $RepoRoot $_.file) })
 foreach ($m in $otherHits) {
   $coverageGap += "$($m.eco)：检测到依赖清单但本闸无对应许可扫描器——零覆盖≠合规（按 docs/LICENSE-POLICY.md 人工核验该生态依赖，或接入扫描器）。"
 }
-if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单。" }
+if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单（Go/Rust/根 npm/Ruby/PHP/Dart/Maven）。" }
+
+# === Gradle 清单递归发现（T0-GATE-HARDENING item1）===
+# 只 glob 仓根 build.gradle{,.kts} 会漏掉嵌套子模块清单（T0-TOOLCHAIN 六轮评审 finding #2：卡片点名的
+# android/gradle/libs.versions.toml 就是这样被漏掉的，「能报出来」只是因为当时恰好还有别的构建脚本存在）。
+# 故对 Gradle 单独做递归发现，覆盖两个独立分支：① libs.versions.toml（Gradle 版本目录）② build.gradle /
+# build.gradle.kts（传统构建脚本）。排除 .gradle/、build/ 等缓存/产物目录，以及 node_modules/.git。
+#
+# fail-closed（T0-TOOLCHAIN finding #4）：递归枚举出错（子树不可读等）**不得**被 -ErrorAction SilentlyContinue
+# 吞掉——吞掉后「没扫到」会被当成「没有清单」，-Strict 照样过，闸在看不见时反而变安静。故用 -ErrorAction Stop
+# + try/catch，枚举错误显式记一条 coverage gap，绝不静默降级为「未发现」。
+Write-Host "=== Gradle 清单递归发现探针 ===" -ForegroundColor Cyan
+$gradleSkipDirs = @('.gradle', 'build', 'node_modules', '.git')
+function Test-GradlePathSkipped([string]$FullName) {
+  $rel = $FullName.Substring($RepoRoot.Length).TrimStart('\', '/') -replace '\\', '/'
+  $segs = $rel -split '/'
+  return [bool]($segs | Where-Object { $gradleSkipDirs -contains $_ })
+}
+$gradleHits = @()
+$gradleErrs = @()
+# 分支①：libs.versions.toml（Gradle 版本目录，卡片点名的目标）——单独一行，便于单句删除变异独立覆盖本分支。
+try { $gradleHits += @(Get-ChildItem -Path $RepoRoot -Recurse -File -ErrorAction Stop -Filter 'libs.versions.toml' | Where-Object { -not (Test-GradlePathSkipped $_.FullName) }) } catch { $gradleErrs += "libs.versions.toml 递归枚举失败：$($_.Exception.Message)" }
+# 分支②：build.gradle / build.gradle.kts（传统构建脚本）——单独一行，便于单句删除变异独立覆盖本分支。
+try { $gradleHits += @(Get-ChildItem -Path $RepoRoot -Recurse -File -ErrorAction Stop -Include 'build.gradle', 'build.gradle.kts' | Where-Object { -not (Test-GradlePathSkipped $_.FullName) }) } catch { $gradleErrs += "build.gradle{,.kts} 递归枚举失败：$($_.Exception.Message)" }
+foreach ($e in $gradleErrs) { $coverageGap += "Gradle：$e ——枚举出错不等于没有清单，零覆盖≠合规（fail-closed，勿静默吞掉）。" }
+if ($gradleHits.Count -gt 0) {
+  $gradleNames = @($gradleHits | ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) -replace '\\', '/' } | Sort-Object -Unique)
+  $coverageGap += "Gradle：检测到 $($gradleNames.Count) 个清单（$($gradleNames -join ', ')）但本闸无对应许可扫描器——按 docs/LICENSE-POLICY.md §3.1/§3.2 人工核验该生态依赖（直接依赖已核验登记，约 220 个传递坐标未审计，见 TD2），或接入扫描器。"
+} elseif (-not $gradleErrs) {
+  Write-Host "  未发现 Gradle 清单（含 libs.versions.toml / build.gradle{,.kts}）。"
+}
 
 Write-Host ""
 if ($coverageGap) { Write-Host "覆盖缺口（-Strict 下视为失败；零覆盖≠合规）：" -ForegroundColor Yellow; $coverageGap | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow } }
