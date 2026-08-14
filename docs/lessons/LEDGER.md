@@ -1477,3 +1477,11 @@
 - rule: 把 check-cards 的「allow_paths > 5」告警当**停止信号**而非噪音：在 R3 循环中**第二次**想为「评审提出的范围外缺陷」扩 allow_paths 时就停手——改为**拆卡**（新卡 depends_on 本卡，把那部分连同已写好的修复与仲裁整体迁过去），别扩第三次。判据：如果新纳入的路径构成一个**能独立评审的子系统**（而非本卡产出的同一单元），它就该是另一张卡。拆卡不是逃避评审——原卡回归宪章后 diff 变小、评审面收敛，被迁走的部分在自己的卡里照样过全套闸。已有 L113（评审中发现的既有系统缺陷开新卡）管「该不该修」，本条管「修在哪张卡、扩到第几次该收手」。
 - enforced_by: 
 - refs: 
+
+## L207
+- date: 2026-08-15 ｜ tags: verify,dod,vacuous-pass,worktree,task-loop ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: verify.ps1 退出 0，被当成 DoD 绿——实际那道闸**根本没跑**。T0-TOOLCHAIN 现场：在**主检出**跑 `pwsh -File scripts\verify.ps1`，因主检出还没有 android/（骨架只在卡分支的 worktree 里），Android 闸打印「无 android/gradlew.bat，跳过」后照样 exit 0；若照退出码收下，一张「让 Android 工程编译绿」的卡就会拿着一次什么都没编译的 exit 0 过关。
+- root_cause: verify.ps1 的各生态闸都是**有引导才收紧**（Python/前端/Android 同构）：目标物不在就优雅跳过并继续，跳过与通过**退出码完全相同**。而 $RepoRoot 由脚本自身位置派生——同一份命令在主检出跑和在 worktree 跑，判的是两棵不同的树。卡分支的产物只存在于 worktree，于是「在主检出手跑 verify」必然跳过该卡真正要验的那道闸。
+- rule: **凡是「有引导才收紧」的闸，退出码永远不是证据，判定行才是**：DoD 收 verify 时必须抓那句哨兵（如 Android 闸的「Android :core check 全绿」），抓不到就是没跑。手跑 verify 验某张卡的产物时，跑**worktree 那份**（`pwsh -File <WorktreeRoot>\<id>\scripts\verify.ps1`），别在主检出跑——$RepoRoot 跟着脚本位置走。注：harness 自身是对的（`task.ps1` ship 用 `Join-Path $Wt scripts/verify.ps1`、DoD 在 `Push-Location $Wt` 下跑），这坑只在**人/agent 手跑**时出现；给子代理写验收步骤时尤其容易写错方向（本条即编排者自己写错被哨兵断言抓回来的）。
+- enforced_by: 
+- refs: 
