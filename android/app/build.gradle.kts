@@ -1,6 +1,9 @@
 // :app — Android 薄壳：Compose UI · CameraX · SAF · 听写 · PdfDocument 渲染 · WorkManager（见 CLAUDE.md 架构大图）。
 import com.android.build.api.artifact.SingleArtifact
 import org.w3c.dom.Element
+import org.xml.sax.InputSource
+import java.io.StringReader
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 plugins {
@@ -110,7 +113,40 @@ androidComponents {
             inputs.file(dataExtractionRules)
             inputs.file(backupRules)
             doLast {
-                val dbf = DocumentBuilderFactory.newInstance()
+                // XXE 加固（T0-TOOLCHAIN R3 finding）：默认 DocumentBuilderFactory 在 JDK 17 上会解析外部
+                // DTD/实体——三份待解析 XML 虽出自本仓受控目录，但供应链投毒/误改仍可能在其中植入恶意 DOCTYPE，
+                // 届时离线 gradlew build 期间即可被诱发任意文件读取/出站网络请求，直接破本仓「测试/CI 走确定性/
+                // 离线路径，禁出站网络」硬边界（CLAUDE.md）。按 OWASP XXE 防御清单：全面拒绝 DOCTYPE 声明
+                // （最强项，覆盖内部/外部实体两类）+ 显式关闭外部 DTD/schema/XInclude/实体展开，多层兜底。
+                val dbf = DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                    setFeature("http://xml.org/sax/features/external-general-entities", false)
+                    setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                    setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+                    setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+                    setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+                    isXIncludeAware = false
+                    isExpandEntityReferences = false
+                }
+
+                // XXE 回归探针：确认上面的加固真生效、不是摆设注释（同 L165 精神——断言须配一枚能让它翻红的
+                // 变异）。探针实体指向的路径本就不存在，测试只断言「解析器在碰到 <!DOCTYPE 那一刻就拒绝」，
+                // 不依赖该路径真实存在/可达（disallow-doctype-decl=true 会抢在任何实体解析尝试之前抛出），
+                // 离线可跑、跨平台一致。三份真实 XML 均无 DOCTYPE 声明，加固不影响它们的正常解析。
+                val maliciousXml = """
+                    <?xml version="1.0"?>
+                    <!DOCTYPE probe [<!ENTITY xxe SYSTEM "file:///xxe-hardening-probe-should-never-resolve">]>
+                    <probe>&xxe;</probe>
+                """.trimIndent()
+                val rejectedMaliciousDoctype = try {
+                    dbf.newDocumentBuilder().parse(InputSource(StringReader(maliciousXml)))
+                    false
+                } catch (e: Exception) {
+                    true
+                }
+                check(rejectedMaliciousDoctype) {
+                    "XML 解析器未拒绝 DOCTYPE/外部实体——XXE 加固失效（见本 doLast 开头 dbf 的 setFeature/setAttribute）"
+                }
 
                 val manifestRoot = dbf.newDocumentBuilder().parse(mergedManifest.get().asFile).documentElement
                 val applicationEl = childElement(manifestRoot, "application")
