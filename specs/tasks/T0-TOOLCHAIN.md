@@ -8,10 +8,6 @@ worktree: C:\wt\T0-TOOLCHAIN
 allow_paths:
   - android/
   - .github/workflows/ci.yml
-  - scripts/check-licenses.ps1
-  - docs/LICENSE-POLICY.md
-  - scripts/verify.ps1
-  - scripts/selftest.ps1
 forbid:
   - 未授权的运行期出站网络（Gradle 首次拉依赖属引导步、允许；此后 verify 恒 --offline）
   - 改动冻结契约 / 写登录态 / 自动发布
@@ -22,7 +18,7 @@ non_goals:
   - 签名/发布配置（T7 后按需）
 dod_command: pwsh -NoProfile -File scripts\verify.ps1
 dod_exit: 0
-dod_assert: verify 输出含「Android :core check 全绿」（闸从「跳过」变「收紧」）；android/gradlew.bat 存在；:core 与 :app 空编译绿；check-licenses.ps1 输出**检出 Gradle 依赖清单**（不再是「未发现其它生态依赖清单」）；gradle-wrapper.properties 含 distributionSha256Sum
+dod_assert: verify 输出含「Android :core check 全绿」（闸从「跳过」变「收紧」）；android/gradlew.bat 存在；:core 与 :app 空编译绿；gradle-wrapper.properties 含 distributionSha256Sum（校验和已由编排者对 services.gradle.org 发布值复核）
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注（R5）
@@ -42,7 +38,18 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注（R5）
 - CI：`.github/workflows/ci.yml` 的 verify job 加 `actions/setup-java`（temurin 17）+ `android-actions/setup-android`（或 sdkmanager 步）+ gradle 缓存；**PR 侧不加 path filter**（必需检查约束，见 CLAUDE.md CI 节）。
 - `:core:check` 任务链 = test（+后续卡挂上的 SQLDelight verifySqlDelightMigration）；本卡先保证空工程下 check 绿。
 
-## 卡片修订 2026-08-15（编排者裁决 · R3 第二轮 finding #2）
+## 卡片修订 2026-08-15 之四（编排者裁决 · R3 第六轮 · **撤销前三次破例，拆卡**）
+**以下三次 allow_paths 破例全部作废**，`scripts/check-licenses.ps1` · `scripts/verify.ps1` · `scripts/selftest.ps1` ·
+`docs/LICENSE-POLICY.md` 移出本卡，改由新卡 **`T0-GATE-HARDENING`**（depends_on: T0-TOOLCHAIN）承接。
+理由：三次破例各自都讲得通，**累加起来**却把「本机工具链 + 骨架空编译绿」这张卡变成了「骨架 + 许可闸手术 +
+闸门自测 + verify 确定性 + 许可政策」两个子系统；`check-cards` 的「6 条 > 5，卡可能过大」告警是对的。
+评审面每轮变大 ⇒ 轮次不收敛（六轮，且第 4/5/6 轮的多数 finding 落在**破例带进来的那部分**，不在骨架本身）。
+**本卡回归宪章**：`android/` + `.github/workflows/ci.yml`，其余交下一张卡。
+下文两段修订（之一/之二/之三）**仅作历史记录**，其授权已由本段撤销；实施内容与仲裁已迁入 `T0-GATE-HARDENING`。
+- R3 第六轮 finding #7（`docs/DELIVERY-CHAINS.md` / `docs/scaffold-architecture.html` 仍写旧 CI 形态）
+  **不进本卡 diff**：文档同步按 R5 在**合并后于 master 落实**（本卡 `doc_sync` 字段的既定路径），非分支内改动。
+
+## 卡片修订 2026-08-15（编排者裁决 · R3 第二轮 finding #2）【已被「之四」撤销 · 仅存档】
 R3 连续两轮指出：`scripts/check-licenses.ps1` 的「其它生态清单探针」只按**固定路径**找 `build.gradle(.kts)`，
 够不着本项目的**嵌套**清单（`android/app|core/build.gradle.kts`、`android/gradle/libs.versions.toml`），
 于是对整个 Android 依赖图**零覆盖却报 PASS**。本卡一次性 pin 全项目 ~20 个依赖，而 CLAUDE.md 硬边界写死

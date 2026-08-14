@@ -1461,3 +1461,11 @@
 - rule: 施工中修订了任务卡，下次 ship 前先把 master 合进卡分支（git -C <worktree> merge master），让工作树的卡与 base 一致——评审者才看得到新 allow_paths 与修订说明。判据口径：**allow_paths 的权威永远是 base ref 上那份卡**，工作树那份只是副本。凡遇「评审者报越界 vs 范围闸 PASS」冲突，先 git show master:specs/tasks/<id>.md 与 git -C <wt> show HEAD:specs/tasks/<id>.md 对比两份卡，确认是陈旧副本再驳回，别回退改动。注：-SkipRed 的卡合并 master 无 RED 证据可被打乱，L148 的顺序禁忌不适用；有 RED 证据的卡仍按 L148 走。
 - enforced_by: 
 - refs: 
+
+## L205
+- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 多条 finding 的**修复轮**本身引入新缺陷：T0-TOOLCHAIN 第三轮修完 3 条，第四轮报 5 条，其中 4 条是**第三轮修复自己带进来的**（策略文档留占位表、递归发现漏掉卡片点名的 libs.versions.toml、许可闸新代码 -ErrorAction SilentlyContinue 变 fail-open、ci.yml 注释与新行为矛盾且断言了一件已不成立的事）。轮次于是不收敛，每轮都还有真缺陷可报。
+- root_cause: task-loop 的「R3 前置自检」(步骤 4.6) 明文只建议**首轮**做，之后「直接对着 R3 给的具体 reason 改」。但一次修 3–5 条 finding 的修复轮，diff 面积常大于首轮实现本身，且修复者处在「让评审者满意」的心态里、按条修不看整体——新代码不再被任何人当新代码审。评审者每轮只报当轮最刺眼的一处（L97），于是新引入的缺陷要到下一轮才浮出，形成轮次通胀。
+- rule: 把「本地对抗式自检」的触发条件从「首轮」改为「首轮 + 任何一次改了 3 条以上 finding 的修复轮」：修完先派 fresh-context 子代理（或换一个模型）只对**本轮修复 diff** 按 rubric 复核一遍，重点问三件事——新加的错误处理是不是 fail-open？卡片/文档里点名的目标是不是全都真被覆盖到（别只覆盖一部分就报成功）？改动文件自身的注释与文案还成立吗（L97）？再 ship。多花一次本地循环，换掉一轮 push+评审等待。
+- enforced_by: 
+- refs: 
