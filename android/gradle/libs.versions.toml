@@ -1,0 +1,64 @@
+# android/gradle/libs.versions.toml — 全项目依赖目录唯一真相源（T0-TOOLCHAIN 一次性 pin，见 CLAUDE.md 命名/文件放置约定）。
+# 后续任务卡只改源码目录，不再碰本文件（避免并行卡 allow_paths 撞车）。
+# 每个版本均于 2026-08-15 对照官方 maven-metadata.xml / Gradle-AGP-Kotlin 官方兼容表核验（非凭记忆写死）：
+#   - Gradle 9.7.0：services.gradle.org/versions/current（当前 stable）
+#   - AGP 9.3.1：dl.google.com AGP maven-metadata（最新非 alpha/beta/rc 版）；develop.android.com/build/releases/agp-9-3-0-release-notes
+#     要求 Gradle >= 9.5.0（9.7.0 满足）、JDK 17
+#   - Kotlin 2.4.10：repo1.maven.org kotlin-gradle-plugin maven-metadata（最新非 RC/Beta 版）；
+#     developer.android.com/build/kotlin-support 兼容表：Kotlin 2.4 系要求 AGP >= 8.5.2（9.3.1 落在范围内，2.3 系上限 8.13 不含 9.x）
+#   - Compose BOM 2026.08.00：dl.google.com androidx.compose:compose-bom maven-metadata（最新 stable）
+#   - SQLDelight 2.3.2：repo1.maven.org app.cash.sqldelight:gradle-plugin maven-metadata + context7 官方文档示例
+#   - 其余 androidx 库（activity-compose / camera / exifinterface / work）均取各自 maven-metadata 的最新 stable（非 alpha/beta/rc）版本
+
+[versions]
+kotlin = "2.4.10"
+agp = "9.3.1"
+composeBom = "2026.08.00"
+activityCompose = "1.13.0"
+cameraX = "1.6.1"
+exifinterface = "1.4.2"
+kotlinxSerializationJson = "1.11.0"
+sqldelight = "2.3.2"
+workManager = "2.11.2"
+
+[libraries]
+# Compose（版本随 BOM 对齐，逐条不单独钉版本号）
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+
+# CameraX
+camera-core = { module = "androidx.camera:camera-core", version.ref = "cameraX" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "cameraX" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "cameraX" }
+camera-view = { module = "androidx.camera:camera-view", version.ref = "cameraX" }
+
+# EXIF（导入照片旋转 / 拍摄时间处理，需求 §关键不变量）
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
+
+# 序列化（模板/合规配置 JSON）
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+
+# SQLDelight（:core 纯 JVM 用 sqlite-driver 跑测试/JVM 侧；:app 用 android-driver）
+sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
+sqldelight-driver-sqlite = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+sqldelight-driver-android = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
+
+# WorkManager（48h 通知/后台调度）
+work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workManager" }
+
+# 测试（kotlin.test 版本随 Kotlin 插件；JUnit=EPL 属禁列，见 docs/LICENSE-POLICY.md，本项目一律用 kotlin.test）
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
