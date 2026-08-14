@@ -40,9 +40,12 @@ concurrency:
 jobs:
   verify:                      # ← job 名即必需检查的 context 名
     # windows-latest（T0-TOOLCHAIN 起改自 ubuntu-latest）：scripts/verify.ps1 的 Android 闸硬编码
-    # `cmd /c 'gradlew.bat --offline --no-daemon -q :core:check'`（Windows 专属调用）——android/gradlew.bat
-    # 一旦入库，ubuntu-latest 上 `cmd` 命令不存在，该行会直接崩溃工作流。原 ubuntu-latest 注释已预留
-    # 「需 Windows 专属行为改 windows-latest」的退出路径，本卡即命中该条件（verify.ps1 现已在本卡 allow_paths 内）。
+    # `cmd /c 'gradlew.bat --offline -q :core:check'`（Windows 专属调用，不含 --no-daemon——该项加固曾短暂
+    # 破例进本卡 allow_paths，R3 第六轮后随「撤销三次破例、拆卡」一并撤销，归还 T0-GATE-HARDENING，
+    # scripts/verify.ps1 现已不在本卡 allow_paths 内）——android/gradlew.bat 一旦入库，ubuntu-latest 上
+    # `cmd` 命令不存在，该行会直接崩溃工作流。原 ubuntu-latest 注释已预留「需 Windows 专属行为改
+    # windows-latest」的退出路径，本卡即命中该条件。daemon 非确定性缺口改在 android/gradle.properties
+    # 用 `org.gradle.daemon=false` 项目级堵（见该文件注释），不依赖调用方是否带 --no-daemon。
     # 成本：Windows Actions 分钟计费 2×，以确定性换成本，符合本仓「宁多花分钟不留假绿」的一贯取舍。
     runs-on: windows-latest
     timeout-minutes: 20
@@ -147,8 +150,10 @@ jobs:
         # CI 跑者每次都是新机（即便 setup-gradle 恢复了跨 run 缓存，依赖清单一变仍可能缓存未命中）——
         # 这一步显式在线跑一次完整 build 填充 ~/.gradle 依赖缓存，之后 verify.ps1 的 Android 闸才能 --offline 全绿
         # （与本机开发者「一次性引导 online build，此后 --offline」同一套逻辑，见 T0-TOOLCHAIN 卡片正文）。
+        # --no-daemon 显式声明（防御深度；android/gradle.properties 的 org.gradle.daemon=false 已项目级兜底，
+        # 此处显式加同一保证不依赖读者记住那份配置——T0-TOOLCHAIN R3 第七轮 finding #1）。
         run: |
-          cmd /c gradlew.bat build
+          cmd /c gradlew.bat --no-daemon build
           if ($LASTEXITCODE -ne 0) { Write-Error "gradlew build failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
 
       - name: E2E verify gate
