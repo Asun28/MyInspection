@@ -95,7 +95,7 @@ $gwBat = Join-Path $RepoRoot 'android/gradlew.bat'
 if (Test-Path $gwBat) {
   Push-Location (Join-Path $RepoRoot 'android')
   try {
-    & cmd /c 'gradlew.bat --offline --no-daemon -q :core:check'
+    & cmd /c 'gradlew.bat --offline -q :core:check'
     if ($LASTEXITCODE -ne 0) { Write-Warning "Android :core check 失败（退出码 $LASTEXITCODE；JDK 缺失/依赖缓存缺料/测试红均计红）"; $failed = $true }
     else { Write-Host 'Android :core check 全绿。' }
   } finally { Pop-Location }
