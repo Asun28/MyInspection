@@ -50,15 +50,21 @@
 
 > **调研已回流**（docs/research/synthesis.md + 3 篇深挖）：官方 NZ 巡检表成为 Routine 模板骨架；二值主评级 UI（存储枚举不变）、照片隐私标记、物业级条目抑制、封面卷积/出处页脚等已并入相应卡上下文包；ghost overlay 确认为全品类空白（唯一差异化确认）。
 
-## 待用户定（开工前 / 开工中可补）
-1. **签认 ADR-0002**：备份设计推翻需求 §11 一处[定]（「数据目录指向云盘同步文件夹」在 Android 不成立 → SAF 加密导出）。3 方一致，但[定]的变更须你点头。
-2. **房产现状**（需求问了两次没答案）：现有几套？自住还是出租？→ 出租中 ⇒ Ingoing 模板优先级提到 Routine 前（基线补不回来）。
-3. **租客数据保留期**：建议「租约结束后 12 个月，可一键清理」（Privacy Principle 9 只说 not longer than necessary，无固定期限）。定个数即可。
-4. **年检评级 5 态**：Codex 修正——3 档分不出「查过且健康」与「没查」，改为 NO_ISSUE/MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT/N_A。默认按 5 态做，可否决。
-5. **s48(2)(c) 复检语义**（不阻塞开工）：向 Tenancy Services/持牌人士确认「查验已约定维修」是否占 4 周限额；确认后只改配置（ADR-0004）。
+## 用户已定（2026-08-15 签认，下列为**执行契约**，执行模型按此做，勿再问）
+1. ✅ **ADR-0002 已签认**：备份 = app 私有存储 + SAF 加密归档导出；需求 §11 那处[定]以 ADR-0002 为准。T5 线解锁。
+2. ✅ **房产现状 = 2 套以上，部分在租**。两条硬后果：
+   - **既有租约补不回 Ingoing** ⇒ schema 必须支持「把某次 Routine 指定为该 tenancy 的基线」（详见 T1-SCHEMA-CORE 上下文包新增段），Exit 对照 `tenancy.baseline_inspection_id` 而非「必有 Ingoing」的假设；
+   - 多物业是**常态不是边缘**：物业切换/按物业筛选是 v1 面（T2-CAPTURE-UI 与 T5-BACKUP-IO 的「按物业导出」照 ADR-0002 已含）。
+3. ✅ **租客数据保留期 = 租约结束后 12 个月**（对**联系方式**）：`tenant_name`/`contact` 到期一键清空（置 NULL，**不删行**——证据链要留）；**照片/报告/哈希无限期保留**（Rentals Act s123A 的 12 个月是**法定下限**、非上限，押金争议实务按 Limitation Act 更久）。落地卡 = T5-RETENTION。
+4. ✅ **年检评级 5 态**（NO_ISSUE/MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT/NOT_APPLICABLE）——用户未否决，按 5 态做。
+7. ✅ **不做** Condition/Cleanliness 全量双刻度：v1 = 单刻度 + Exit/Ingoing 房间级清洁条目（已在卡内）。
+8. ✅ **不做** 缺陷责任方/费用字段：v1 只保留 Exit 的 `wear_or_damage` 三态。
+
+> 3/7/8 是 **T1-SCHEMA-CORE 冻结前**必须落定的项，现已落定 ⇒ 该卡可开工，无待定阻塞。
+
+## 仍待定（不阻塞当前波次）
+5. **s48(2)(c) 复检语义**：向 Tenancy Services/持牌人士确认「查验已约定维修」是否占 4 周限额；确认后只改配置（ADR-0004），不改码。
 6. **Remediation 用哪家 LLM/key**（T7 前定即可；接口做成 provider 可换）。
-7. （可选·调研启发）**Condition/Cleanliness 全量双刻度**（Inventory Hive 模式；法律依据 wear-tear 适用状况不适用清洁）——v1 按已定单刻度 + Exit/Ingoing 房间级清洁条目；要全量双刻度请在 T1-SCHEMA 冻结前说。
-8. （可选·调研启发）缺陷**责任方/费用字段**（Landlord/Tenant/Investigate + 金额，全场竞品标配）——v1 只有 Exit 的 wear_or_damage 三态；要费用卷积请说（影响 schema+composer）。
 
 ## 已由 3 方讨论定稿（原[待] → 已定）
 技术栈原生 Kotlin+Compose（ADR-0001）· 租赁评级 4 档 · Exit 独立 wear/damage 三态且仅差异项 · 两级拍照规则（N_A 不逼拍照）· UI 英文单语 + 报告平行双语 · finalize 锁定+哈希页脚 · SQLDelight/自研 UUIDv7/canonical 规范（ADR-0003）。

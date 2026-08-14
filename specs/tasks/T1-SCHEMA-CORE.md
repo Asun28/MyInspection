@@ -33,7 +33,7 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
 ## 上下文包（执行模型必读）
 - **表清单与不变量（每表：TEXT 主键存 canonical 小写 UUIDv7 · updated_at UTC epoch 毫秒 · deleted_at 可空软删）**：
   - property（address、kind：RENTAL/OWNER_OCCUPIED、is_boarding_house 影响时段规则）
-  - tenancy（property_id、start/end 毫秒、tenant_name/contact——受保留期策略管辖）
+  - tenancy（property_id、start/end 毫秒、tenant_name/contact **均可空**、baseline_inspection_id 可空）——见下「用户已签认决策」两条
   - template_version（type：ROUTINE/INGOING/EXIT/ANNUAL、version、content_hash）——**被任何巡检引用后不可变**（先例：templateSnapshot 语义；我们以不可变版本行等价实现，报告多年后须可一致重渲）
   - check_item_def（template_version_id、stable_id TEXT ★历史对齐唯一键、area、room、双语文案 en/zh、allowed_statuses）
   - inspection（type、tenancy_id 可空(自住)、scheduled_at、previous_inspection_id、baseline_inspection_id（**双轨：时间前次 ≠ tenancy 的 Ingoing**）、status：DRAFT/FINALIZED、finalized_at、data_hash）
@@ -50,6 +50,17 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
 - 迁移：SQLDelight `.sqm` 显式编号；本卡产出 1.sqm 基线 + `verifySqlDelightMigration` 挂 :core:check。**合并后本目录冻结**——后续加表 = 新 .sqm + 版本评审。
 - finalize 只读强制在 SQL 层预埋：所有 UPDATE/DELETE inspection/inspection_item 的 query 恒带 `finalized_at IS NULL`（或 join 到 DRAFT 巡检）；测试写一例「对 FINALIZED 行 update 计 0 行」。
 - 照片哈希/EXIF 语义只建列不写逻辑（T2-PHOTO-PIPELINE 实现）。
+
+### 用户已签认决策（2026-08-15 · TASK-BOARD「用户已定」#2/#3/#7/#8 · 冻结前必须落进本卡 schema）
+- **既有租约没有 Ingoing，基线要能后指定**（用户实况：2 套以上物业、部分已在租 ⇒ Ingoing 永远补不回来）。落法：
+  `tenancy.baseline_inspection_id`（可空，逻辑外键 → inspection.id）= 该 tenancy 的**权威基线指针**，默认在建 Ingoing 时写入，
+  也允许把某次 Routine 指定为基线（app 存量租约的唯一出路）。**Exit 的对照方一律读这一列**，不得假设「必有 type=INGOING 的巡检」。
+  与 `inspection.baseline_inspection_id`（那一列是**该次巡检当时**用的基线快照）双轨并存、语义不同：tenancy 上的是**当前指针**（可改），
+  inspection 上的是**历史事实**（写死不改）。测试须含一例：tenancy 无 Ingoing、指定 Routine 为基线后 Exit 能解析到它。
+- **租客联系方式保留期 = 租约结束后 12 个月，到期置 NULL 不删行**。故 `tenant_name`/`contact` 必须**可空**，
+  且清理是 `UPDATE ... SET tenant_name=NULL, contact=NULL`，**绝不 DELETE tenancy 行**——照片/报告/哈希是法定证据（Rentals Act s123A
+  的 12 个月是**下限**），删行会切断 inspection → tenancy → property 的证据链。本卡只建列 + 保证可空；清理逻辑归 T5-RETENTION。
+- **不做**：Condition/Cleanliness 全量双刻度（#7）、缺陷责任方/费用字段（#8）。别自作主张加这两组列——加了就得走版本评审才能删。
 
 ## 禁止 / 非目标
 见 front-matter。
