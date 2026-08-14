@@ -11,13 +11,14 @@ allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/model/
   - android/core/src/main/kotlin/nz/myinspection/core/db/
   - android/core/src/test/kotlin/nz/myinspection/core/
+  - android/core/build.gradle.kts   # 窄幅修订：仅应用/配置 T0 已 pin 的 sqldelight 插件块，不新增依赖，见下方「验收」说明
 forbid:
-  - 碰 android/app/（并行卡领地）与构建文件（依赖已由 T0 全量 pin）
+  - 碰 android/app/（并行卡领地）；build.gradle.kts 里新增/升级依赖版本（依赖已由 T0 全量 pin，本卡只挂 sqldelight{} 配置块——core/build.gradle.kts 自身注释即预留此项）
   - 自增整数主键（硬边界：UUIDv7）
 non_goals:
   - canonical 哈希（T1-CANON-HASH）与模板加载（T1-TEMPLATE-ENGINE）
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
 dod_assert: 全表建表/查询编译过；UUIDv7 六项测试（固定向量/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结）全绿；verifySqlDelightMigration 挂进 :core:check 且绿
 review_gate: codex {verdict:pass}
@@ -67,9 +68,17 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
 
 ## 验收
 ```powershell
-cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
+cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 ```
 - 退出码 0；断言见 dod_assert。
+- **`-p android` 是本卡对原 dod_command 的必要修正**：`gradlew.bat` 不 `cd` 进自身目录，`task.ps1` 相位命令固定在
+  worktree 根跑（`Push-Location $Wt`），原命令 `android\gradlew.bat ...`（无 `-p`）会让 Gradle 把 worktree 根当项目目录、
+  报 "does not contain a Gradle build"——实测复现（从主检出/worktree 根两处均如此），与实现质量无关，任何卡都会撞。
+  加 `-p android` 显式指定项目目录后修复，已验证 RED 与 GREEN 均可达。
+- **`android/core/build.gradle.kts` 窄幅纳入 allow_paths**：该文件现有注释原文写明"数据库 schema 由后续卡
+  T1-SCHEMA-CORE 挂 sqldelight{} 配置块，本卡只 pin 依赖"——应用 `alias(libs.plugins.sqldelight)` + 配置
+  `sqldelight { databases { create(...) { packageName...; verifyMigrations... } } }` 是本卡产出（.sq 文件）能编译、
+  DoD 能跑的必要前提，且不引入任何新依赖版本（libs.versions.toml 不动）。原卡遗漏此文件属疏漏，非范围蔓延。
 
 ## 执行建议（TASK-BOARD）
 首选 DeepSeek V4 Pro · high；备选 Sonnet 5 max；**冻结前 Opus 5 抽审一遍 schema**（列/索引/软删唯一性），R3 仍 Sol。难度 H（地基卡，宁慢勿错）。
