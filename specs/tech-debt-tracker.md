@@ -21,6 +21,8 @@
 |---|---|---|---|---|---|---|
 | _示例_ | 2026-06-15 | `backend/app/...` | 直接拼路径，未经 `core/storage.py` 派生（违反关键不变量） | major | open | — |
 
+| TD2 | 2026-08-15 | `scripts/check-licenses.ps1`(其它生态清单探针 · line ~117) | **Gradle 生态零覆盖却报 PASS（假绿）**：探针只按固定文件名找 `build.gradle` / `build.gradle.kts` 等，够不着本项目实际布局的**嵌套**清单（`android/app/build.gradle.kts`、`android/core/build.gradle.kts`、`android/gradle/libs.versions.toml`），于是「未发现其它生态依赖清单」→ 连覆盖缺口告警都不发，整个 Android 依赖图从未被许可闸看过一眼。T0-TOOLCHAIN 的 R3（GPT-5.6 Sol）实证：`kotlin-test-junit` 传递拉 `junit:junit:4.13.2`(EPL-1.0，禁列) 一路穿过许可闸，靠人肉评审才拦下。后果：许可闸对本项目**主实现面**恒假绿，下一个引入 copyleft 传递依赖的卡不会被机检拦住 / 修法：探针改递归发现（`Get-ChildItem -Recurse -Include build.gradle,build.gradle.kts,libs.versions.toml`，排除 .gradle 缓存与 build 输出），并把 Gradle 生态从「无扫描器→告警」升级为真扫描（`gradlew :core:dependencies` 解析坐标 + 许可查表），最低限度也要让它命中后进 `$coverageGap` / 可测：在本仓跑 `check-licenses.ps1` 须输出「检测到 Gradle 依赖清单」而非「未发现其它生态依赖清单」；植入一枚 EPL 传递依赖的变异须让 `-Strict` 非零退出 / 前置：T0-TOOLCHAIN 合并（`android/` 存在才有清单可扫） | major | open | — |
+
 | TD1 | 2026-08-14 | `scripts/selftest.ps1`(闸15n · 闸17aa(8)) | **对上游脚手架 bug 的本地补丁 ×2，待回搬**：①15n 把 `TEMPLATE-README.md` 硬列为 L86-WT 权威面，但该文件属元仓专属物（`-Cleanup`/`-Retrofit` 不下发）——已初始化下游必红；②17aa(8) 夹具硬依赖元仓真卡 `specs/tasks/T11-R3-BASELINE.md`（活位或 archive），下游缺卡时 Get-Content 直接终止整跑（且它藏在 `if (-not $fail)` 后，前面全绿才暴露）。二者同为上游 TD74「无 CI 支路测生成下游」的实例。后果：本仓 selftest.ps1 与上游漂移，backfill 对照须带上这两块 diff / 修法：把 `$isPostInit` 跳过（15n）与缺卡跳过（17aa(8)）两补丁回搬上游元仓 / 可测：下游（无 TEMPLATE-README、无 T11 卡）selftest 全绿、元仓两面仍必查 / 前置：无 | minor | open | — |
 
 
