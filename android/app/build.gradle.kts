@@ -66,19 +66,31 @@ dependencies {
 }
 
 // 合并清单 + 备份/D2D 排除规则回归检查（隐私硬边界，见 res/xml/{data_extraction_rules,backup_rules}.xml 注释）。
-// 不只查合并清单里三个属性名是否在场（那样删光 XML 里的 <exclude> 仍会绿），改**解析** XML 文件本身，断言
-// 两个文件、data_extraction_rules.xml 的 <cloud-backup>/<device-transfer> 两条通道，各自真列出全部必须域。
+// 两处均**解析**而非子串匹配（T0-TOOLCHAIN R3 finding #6a/#6b）：
+//   #6a：合并清单不再只查三个属性名是否在场（注释里出现同名字符串也会满足）——改解析 <application> 元素，
+//        断言三个属性的**精确值**（allowBackup=false、fullBackupContent=@xml/backup_rules、
+//        dataExtractionRules=@xml/data_extraction_rules），而不只是「存在」。
+//   #6b：排除规则不再只查 domain 是否出现——改断言 domain **与** path 的精确配对（要求 path="."，即整个
+//        该域），把 27 个 path="." 收窄成任何更窄路径都会被判缺失。
 // non_goals 禁 Robolectric/仪器测试，改读文件断言，挂进 :app:check。
+data class BackupExclude(val domain: String, val path: String)
+
 val requiredBackupDomains = listOf(
     "root", "file", "database", "sharedpref", "external",
     "device_root", "device_file", "device_database", "device_sharedpref",
 )
+val requiredBackupExcludes = requiredBackupDomains.map { BackupExclude(it, ".") }.toSet()
+val requiredApplicationAttrs = mapOf(
+    "android:allowBackup" to "false",
+    "android:fullBackupContent" to "@xml/backup_rules",
+    "android:dataExtractionRules" to "@xml/data_extraction_rules",
+)
 
-fun excludedDomains(scope: Element): Set<String> =
+fun excludedDomains(scope: Element): Set<BackupExclude> =
     (0 until scope.childNodes.length)
         .mapNotNull { scope.childNodes.item(it) as? Element }
         .filter { it.tagName == "exclude" }
-        .map { it.getAttribute("domain") }
+        .map { BackupExclude(it.getAttribute("domain"), it.getAttribute("path")) }
         .toSet()
 
 fun childElement(root: Element, tag: String): Element =
@@ -98,27 +110,28 @@ androidComponents {
             inputs.file(dataExtractionRules)
             inputs.file(backupRules)
             doLast {
-                val manifestText = mergedManifest.get().asFile.readText()
-                val requiredAttrs = listOf(
-                    "android:allowBackup=\"false\"",
-                    "android:fullBackupContent=",
-                    "android:dataExtractionRules=",
-                )
-                val missingAttrs = requiredAttrs.filterNot { manifestText.contains(it) }
-                check(missingAttrs.isEmpty()) { "合并清单缺少备份/D2D 排除属性：$missingAttrs" }
-
                 val dbf = DocumentBuilderFactory.newInstance()
+
+                val manifestRoot = dbf.newDocumentBuilder().parse(mergedManifest.get().asFile).documentElement
+                val applicationEl = childElement(manifestRoot, "application")
+                val badAttrs = requiredApplicationAttrs.filterNot { (name, expected) ->
+                    applicationEl.getAttribute(name) == expected
+                }
+                check(badAttrs.isEmpty()) {
+                    "合并清单 <application> 属性值不符（期望 $requiredApplicationAttrs，未命中：$badAttrs）"
+                }
+
                 val extractionRoot = dbf.newDocumentBuilder().parse(dataExtractionRules.asFile).documentElement
                 for (channel in listOf("cloud-backup", "device-transfer")) {
                     val found = excludedDomains(childElement(extractionRoot, channel))
-                    val missing = requiredBackupDomains - found
-                    check(missing.isEmpty()) { "data_extraction_rules.xml 的 <$channel> 缺排除域：$missing" }
+                    val missing = requiredBackupExcludes - found
+                    check(missing.isEmpty()) { "data_extraction_rules.xml 的 <$channel> 缺排除域/路径配对：$missing" }
                 }
 
                 val backupRoot = dbf.newDocumentBuilder().parse(backupRules.asFile).documentElement
                 val foundBackup = excludedDomains(backupRoot)
-                val missingBackup = requiredBackupDomains - foundBackup
-                check(missingBackup.isEmpty()) { "backup_rules.xml 缺排除域：$missingBackup" }
+                val missingBackup = requiredBackupExcludes - foundBackup
+                check(missingBackup.isEmpty()) { "backup_rules.xml 缺排除域/路径配对：$missingBackup" }
             }
         }
         tasks.named("check") { dependsOn(manifestCheck) }
