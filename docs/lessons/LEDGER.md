@@ -1453,3 +1453,11 @@
 - rule: 核验非自己敲的改动时，git status --porcelain 与 git diff --stat 一起看，别只看后者：?? 开头的行就是闸门和评审都看不见的部分。新建文件类的改动（新资源、新 .sq、新源文件）尤其要显式确认已 staged 再 ship；ship 前一句 git -C <worktree> status --porcelain 若还有 ?? 行，先判断它该进本卡还是该删，不要放着不管。
 - enforced_by: 
 - refs: 
+
+## L204
+- date: 2026-08-15 ｜ tags: review,scope-gate,task-loop,worktree,orchestration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 评审者报「越界：某文件不在 allow_paths」，但同一次 ship 的范围闸对**同一 sha 的同一 diff** 判 PASS。两个机制结论相反，且评审者的措辞极像真缺陷（点名文件+引用 allow_paths），很容易被信以为真而去回退正确的改动。
+- root_cause: 两者读的是**两份不同的卡**：范围闸按设计从 base ref 取卡原文（防分支自扩 allow_paths），而 review.ps1 把**工作树**交给评审者——卡若在施工中被修订，按 L18 修订只落 master、不进功能分支，工作树里就永远是开卡时那份旧卡。于是评审者拿旧 allow_paths 判新 diff。已登记 TD3（修法=让 review.ps1 也从 base ref 取卡）。
+- rule: 施工中修订了任务卡，下次 ship 前先把 master 合进卡分支（git -C <worktree> merge master），让工作树的卡与 base 一致——评审者才看得到新 allow_paths 与修订说明。判据口径：**allow_paths 的权威永远是 base ref 上那份卡**，工作树那份只是副本。凡遇「评审者报越界 vs 范围闸 PASS」冲突，先 git show master:specs/tasks/<id>.md 与 git -C <wt> show HEAD:specs/tasks/<id>.md 对比两份卡，确认是陈旧副本再驳回，别回退改动。注：-SkipRed 的卡合并 master 无 RED 证据可被打乱，L148 的顺序禁忌不适用；有 RED 证据的卡仍按 L148 走。
+- enforced_by: 
+- refs: 
