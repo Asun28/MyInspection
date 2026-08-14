@@ -7,10 +7,10 @@ plugins {
 
 android {
     namespace = "nz.myinspection.app"
-    // compileSdk 走当前 AGP 9.3.1 支持的最高位（37）：pin 的 Compose BOM 2026.08.00 / activity-compose 1.13.0 /
-    // androidx.core 1.18.0 等库要求编译期至少 compileSdk 36-37（编译期常态领先于 targetSdk，不影响运行时行为）。
-    // targetSdk 仍按卡片要求钉 35（见下 defaultConfig，运行时兼容行为以此为准）。
-    compileSdk = 37
+    // compileSdk 按卡片钉死 35（与 targetSdk 一致，见下 defaultConfig）：libs.versions.toml 已把
+    // Compose BOM / activity-compose 锁定到实测 minCompileSdk<=35 的版本（2026.06.01 / 1.10.0），
+    // 不再需要抬高 compileSdk 迁就更新库版本（R3 首轮 block：SDK 地板须与卡片一致，见该文件注释核验记录）。
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "nz.myinspection.app"

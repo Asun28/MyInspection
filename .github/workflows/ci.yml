@@ -126,15 +126,18 @@ jobs:
         if: ${{ hashFiles('android/gradlew.bat') != '' }}
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
-          # platform-tools + 与 android/gradle/libs.versions.toml 同口径的 compileSdk/build-tools（见 :app/build.gradle.kts
-          # compileSdk=37 注释：pin 的 Compose BOM/androidx 要求编译期 API >= 36-37，targetSdk 仍钉 35）。
-          packages: 'platform-tools platforms;android-37 build-tools;37.0.0'
+          # platform-tools + 与卡片 T0-TOOLCHAIN 的供给（provisioning）契约同口径的 compileSdk/build-tools（35，见
+          # android/app/build.gradle.kts 的 compileSdk=35 注释与 android/gradle/libs.versions.toml 的
+          # Compose BOM/activity-compose 版本核验记录：均已锁定到 minCompileSdk<=35 的实测版本）。
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Setup Gradle (dependency cache across CI runs)
         if: ${{ hashFiles('android/gradlew.bat') != '' }}
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-        with:
-          build-root-directory: android
+        # 无 with: 块——该 action 在 pinned SHA（v6.3.0）的 action.yml 里已不存在 build-root-directory 输入
+        # （核验：raw.githubusercontent.com/gradle/actions/9c971963.../setup-gradle/action.yml，全部 inputs 逐行确认）；
+        # 它只负责在 job 级别配置 ~/.gradle 缓存，不关心子目录——真正的 gradlew 调用目录由下一步的
+        # working-directory: android 决定，无需也无法通过本 action 指定构建根。
 
       - name: Gradle online build (warms cache for verify.ps1's --offline gate)
         if: ${{ hashFiles('android/gradlew.bat') != '' }}

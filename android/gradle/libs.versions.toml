@@ -1,21 +1,38 @@
 # android/gradle/libs.versions.toml — 全项目依赖目录唯一真相源（T0-TOOLCHAIN 一次性 pin，见 CLAUDE.md 命名/文件放置约定）。
 # 后续任务卡只改源码目录，不再碰本文件（避免并行卡 allow_paths 撞车）。
-# 每个版本均于 2026-08-15 对照官方 maven-metadata.xml / Gradle-AGP-Kotlin 官方兼容表核验（非凭记忆写死）：
+# 每个版本均于 2026-08-15 对照官方 maven-metadata.xml / 官方兼容表 / 实际 AAR 元数据核验（非凭记忆写死）：
 #   - Gradle 9.7.0：services.gradle.org/versions/current（当前 stable）
 #   - AGP 9.3.1：dl.google.com AGP maven-metadata（最新非 alpha/beta/rc 版）；develop.android.com/build/releases/agp-9-3-0-release-notes
 #     要求 Gradle >= 9.5.0（9.7.0 满足）、JDK 17
 #   - Kotlin 2.4.10：repo1.maven.org kotlin-gradle-plugin maven-metadata（最新非 RC/Beta 版）；
 #     developer.android.com/build/kotlin-support 兼容表：Kotlin 2.4 系要求 AGP >= 8.5.2（9.3.1 落在范围内，2.3 系上限 8.13 不含 9.x）
-#   - Compose BOM 2026.08.00：dl.google.com androidx.compose:compose-bom maven-metadata（最新 stable）
-#   - SQLDelight 2.3.2：repo1.maven.org app.cash.sqldelight:gradle-plugin maven-metadata + context7 官方文档示例
-#   - 其余 androidx 库（activity-compose / camera / exifinterface / work）均取各自 maven-metadata 的最新 stable（非 alpha/beta/rc）版本
+#   - Compose BOM 2026.06.01 / activityCompose 1.10.0：卡片钉死 compileSdk=35（见 android/app/build.gradle.kts），
+#     故**不能**用 dl.google.com 上最新 stable（2026.08.00 / 1.13.0——其 compose-ui-android 1.12.0 需 compileSdk>=37、
+#     activity 1.13.0 需 compileSdk>=36，R3 首轮 block 命中）。核验分两步、均为**实证**而非文档摘要（后者曾把 BOM↔
+#     库版本映射张冠李戴）：① 下载候选库 .aar 实测 META-INF/com/android/build/gradle/aar-metadata.properties 的
+#     minCompileSdk 字段——compose-ui-android 1.11.4 → 35；compose-runtime-android 1.11.4 → 34；material3-android
+#     1.4.0 → 35；activity-compose/activity 1.10.0 → 35；androidx.core:core 1.15.0 → 35（均 ≤35）；② 直接抓取
+#     compose-bom 候选版本自身的 POM（<dependencyManagement> 明文列出成员库版本），逐一比对确认某 BOM 号确实
+#     整批锁定这组已验证版本——**2026.06.01** 的 POM 里 ui-android/runtime-android=1.11.4、material3-android=1.4.0，
+#     三者与①核验对象完全一致，故取此 BOM 号（其后无 2026.07.x，2026.08.00 即数据点①中触发 compileSdk 地板的坏版）。
+#     结论：AGP/Kotlin/Gradle 三者无需降级（根因是 Compose/activity 单独的 compileSdk 地板要求，不是 AGP 版本问题）。
+#   - SQLDelight 2.3.2：repo1.maven.org app.cash.sqldelight:gradle-plugin maven-metadata + context7 官方文档示例；
+#     实测 android-driver 2.3.2 的 aar-metadata minCompileSdk=35，与 compileSdk=35 相容。
+#   - CameraX：maven-metadata 最新 stable 1.6.1 的 camera-core/camera2/lifecycle/view/video/camera2-pipe 全系
+#     minCompileSdk=36（实测 .aar，见 android app:checkDebugAarMetadata 首次全量 build 报错列表六条，R3 二轮修复时
+#     发现——首轮只核过 Compose/activity，未逐一核 CameraX，是本次修复过程本身的一个教训）。改钉 **1.5.3**
+#     （1.5.x 系末版）：camera-core/camera2/lifecycle/view 实测 minCompileSdk 均=35，相容 compileSdk=35。
+#   - exifinterface 1.4.2：实测 minCompileSdk=34，相容。
+#   - work-runtime(-ktx) 2.11.2：实测 minCompileSdk=35，相容。
+#   - 以上四类均用同一方法核验：下载候选 .aar 直读 META-INF/com/android/build/gradle/aar-metadata.properties 的
+#     minCompileSdk 字段（比对文档摘要更可靠，见上 Compose BOM 注释同一教训）。
 
 [versions]
 kotlin = "2.4.10"
 agp = "9.3.1"
-composeBom = "2026.08.00"
-activityCompose = "1.13.0"
-cameraX = "1.6.1"
+composeBom = "2026.06.01"
+activityCompose = "1.10.0"
+cameraX = "1.5.3"
 exifinterface = "1.4.2"
 kotlinxSerializationJson = "1.11.0"
 sqldelight = "2.3.2"
@@ -50,9 +67,17 @@ sqldelight-driver-android = { module = "app.cash.sqldelight:android-driver", ver
 # WorkManager（48h 通知/后台调度）
 work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workManager" }
 
-# 测试（kotlin.test 版本随 Kotlin 插件；JUnit=EPL 属禁列，见 docs/LICENSE-POLICY.md，本项目一律用 kotlin.test）
+# 测试（kotlin.test 版本随 Kotlin 插件）。运行器**不用** kotlin-test-junit：它传递拉 junit:junit:4.13.2（EPL-1.0，
+# 见 docs/LICENSE-POLICY.md 禁列），R3 首轮 block 命中（:core:dependencies --configuration testRuntimeClasspath
+# 实测证实）。改用 kotlin-test-testng（Apache-2.0）+ TestNG 运行器：核验其整条依赖链许可——
+# kotlin-test-testng:2.4.10 自身 Apache-2.0；其 POM 声明依赖 org.testng:testng:7.5.1（Apache-2.0）；
+# testng 7.5.1 的非 optional 依赖 jsr305:3.0.1（Apache-2.0）/ jcommander:1.78（Apache-2.0）/
+# webjars:jquery:3.5.1（MIT，runtime scope，HTML 报告用）均宽松许可；testng POM 里唯一的 junit:junit:4.13.2
+# 引用标了 `<optional>true</optional>`（Gradle/Maven 默认不传递解析 optional 依赖，不会进最终 classpath，
+# 已用同一条 --configuration testRuntimeClasspath 命令实测确认零 junit 节点）。kotlin.test 断言 API 不变
+# （@Test/assertEquals 与运行器无关），只需 build.gradle.kts 换依赖 + tasks.test { useTestNG() }。
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
-kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+kotlin-test-testng = { module = "org.jetbrains.kotlin:kotlin-test-testng", version.ref = "kotlin" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

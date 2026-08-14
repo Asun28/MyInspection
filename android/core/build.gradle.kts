@@ -14,7 +14,13 @@ dependencies {
     implementation(libs.sqldelight.runtime)
 
     testImplementation(libs.kotlin.test)
-    testImplementation(libs.kotlin.test.junit)
+    // 运行器用 TestNG（Apache-2.0）不用 kotlin-test-junit：后者传递拉 junit:junit（EPL-1.0，许可禁列）。
+    // 见 libs.versions.toml 该条目注释的完整许可核验链路。
+    testImplementation(libs.kotlin.test.testng)
     // JVM SQLite driver 供后续卡在 :core 单测里跑数据库迁移校验（Robolectric/仪器测试之外的确定性路径）
     testImplementation(libs.sqldelight.driver.sqlite)
+}
+
+tasks.test {
+    useTestNG()
 }
