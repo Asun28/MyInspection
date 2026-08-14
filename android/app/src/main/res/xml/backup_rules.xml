@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   legacy 全量备份规则（API < 31，Android 12 以下走此路径而非 data_extraction_rules.xml）：
-  同样排除整个私有目录，与 data_extraction_rules.xml 的立场一致（见该文件注释）。
+  与该文件立场一致（见其注释）——逐一显式排除全部 9 个域，不只信 root 覆盖一切。
 -->
 <full-backup-content>
     <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+    <exclude domain="device_root" path="." />
+    <exclude domain="device_file" path="." />
+    <exclude domain="device_database" path="." />
+    <exclude domain="device_sharedpref" path="." />
 </full-backup-content>
