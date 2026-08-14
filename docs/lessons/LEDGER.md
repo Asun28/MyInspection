@@ -1445,3 +1445,11 @@
 - rule: 编排多卡时，任务卡的进度只认磁盘工件、不认子代理的叙述：读 .review/<id>.json（verdict + sha 必须等于被审 tip）、git worktree list、卡片 status、git log 主检出。子代理报「还在跑/已完成」一律先落地核这四样再决定下一步；裁决是 block 就直接带着 findings 原文 SendMessage 让它返工，别重派新代理（重派丢上下文、还会重跑一遍已过的闸）。
 - enforced_by: 
 - refs: 
+
+## L203
+- date: 2026-08-15 ｜ tags: scope-gate,review,git,subagent,verification ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 子代理「修好了」的改动里含**新建文件**（如 android/app/src/main/res/xml/data_extraction_rules.xml），但它一直没 git add；此时 git diff / diff --stat 全看不到这个文件，范围闸与 R3 评审也看不到——manifest 指向一个提交里根本不存在的资源，却能一路走到 ship。
+- root_cause: git diff 只比对已追踪文件；未追踪文件既不在 diff 里，也不在 task.ps1 范围闸的改动清单里（清单由 git diff 求值），R3 拿到的 diff 同样为空。L157 立的习惯是「落盘改动先 git diff --stat 对账」，而该习惯对新建文件恰好是盲的——核验手段本身窄于契约（L165 同型）。
+- rule: 核验非自己敲的改动时，git status --porcelain 与 git diff --stat 一起看，别只看后者：?? 开头的行就是闸门和评审都看不见的部分。新建文件类的改动（新资源、新 .sq、新源文件）尤其要显式确认已 staged 再 ship；ship 前一句 git -C <worktree> status --porcelain 若还有 ?? 行，先判断它该进本卡还是该删，不要放着不管。
+- enforced_by: 
+- refs: 
