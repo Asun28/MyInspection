@@ -1,0 +1,175 @@
+# claude-opus-5-prompting-llms.txt — 给 Opus 5 写提示词的模型专属细则
+
+> 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5
+> (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
+> 精炼子集（非原样拷贝）。模型出新版/行为变了就刷新本文件（过时的 reference 比没有更糟）。上次对照上游校核：2026-07-25。
+> 跨模型通用技巧不在这——见 claude-prompting-best-practices-llms.txt。
+> 官方页共 8 段推荐提示语，本文件**逐条收录**（均为要照字面喂给模型才生效的短片段，按最小引用保留）：①简洁冗长度 ②长 system prompt 尾部提醒 ③进度更新节奏
+> ④写盘产物长度 ⑤任务范围收窄 ⑥子代理上限 ⑦纠正旁白降噪 ⑧关思考时的复合缓解。
+> 在本脚手架里：Opus 5（`claude-opus-5`）= 想 / 架构 / 评审（见 CLAUDE.md 模型分工节）。以下是把它调准的杠杆。
+>
+> **`claude-opus-4-8-prompting-llms.txt` 仍在，且不是废档——它是兜底席位。** Fable 5 与 Opus 5 **都**带安全
+> 分类器，官方默认回退路由**按拒答类目**把请求改道到当时推荐的兜底模型，官方示例里选中的就是 Opus 4.8
+> （**示例非契约，映射会变——读响应的 `fallback` 块**，见下方「拒答与回退」节）。
+> 官方 Opus 5 页是**相对 4.8 的差异页**；本篇只写 Opus 5 侧，4.8 页仍成立而本页未复述的内容
+> （设计/前端家风、computer use）**指过去、不复制**（两页同文防重复）。
+
+## 强项与 API 要点
+- 定位：复杂 **agentic 编码**与企业级工作，长程 agentic 任务尤强。**在既有 Opus 4.8 提示词上开箱即用**——
+  迁移不必重写，只需按下方「五处反转」体检一遍。
+- **agentic 编码**：多文件特性、大型重构、端到端交付最强；**会做完整个任务而不是留 stub/占位**。
+  最佳用法 = **一次把完整任务规格给全，然后放手让它跑**（别挤牙膏式多回合补充）。
+- **代码评审 / 找 bug**：precision 与 recall 双高，单遍就能捞到真 bug，且多出来的发现多为真问题而非误报。
+  **低 effort 下准确度仍在**——支持「评审时快跑一遍 + 事后再细跑一遍」的两段式。
+- **低 effort 效率**：`low`/`medium` 用零头的 token 与延迟换到强质量。**从默认 `high` 起步**，按自己的 eval 调；
+  质量守得住就大方用 `low`/`medium` 当成本/延迟的主控杠杆，最吃力的编码与 agentic 活才上 `xhigh`。
+  **从旧模型抄来的 effort 默认值要在自己的 eval 上重跑一遍 effort sweep。**
+- **视觉**：图表/文档/图示理解、UI 与前端视觉复刻都强。**为旧模型调的视觉侧提示词绕法要重新验证**——多半已不需要。
+  视觉最强形态 = 给它工具去迭代分析/裁剪/视觉自检，**工具比单纯加 thinking 更划算**。
+- **长上下文**：1M token 窗口既是**默认也是上限**；指令遵循、工具调用、推理在整窗内保持一致。
+- **办公/文档**：能生成含非平凡公式的多表 spreadsheet 与结构良好的 slide deck。要守特定样式/模板就在提示里写清。
+- **多代理协调**：擅长带子代理团队，writer-verifier 模式有效，少见互相覆盖对方工作。成本敏感就设派工上限（见下）。
+- **API 要点**：thinking **默认开启**；**只有 effort ≤ `high` 才允许关 thinking**。迁移细节见官方 migration guide
+  （Opus 4.8 → Opus 5 段）。
+
+## 五处相对 Opus 4.8 的反转（迁移体检清单 · 本文件最高价值段）
+> 为 4.8 写的提示词多数照跑无碍，但**下面这几条在 4.8 上是对的、在 Opus 5 上会反过来伤你**。
+> 拿旧 prompt 迁移时先扫这张表——这些是**要删/要反向写**的，不是要加的。
+
+| # | Opus 4.8 的行为与对策 | Opus 5 的行为与对策（反转） |
+|---|---|---|
+| 1 | thinking **默认关**，要显式开 | thinking **默认开**；且**只有 effort ≤ high 才关得掉** |
+| 2 | 生成子代理**偏少**，要提示鼓励它派 | **更爱派**子代理；要显式设**上限**、限定何时才值得派 |
+| 3 | 长 agentic 轨迹自带好节奏的进度更新（当时建议**删掉**你的「每 N 次工具调用汇报一次」脚手架） | **旁白偏多**、每条消息更长；要显式**把节奏调低** |
+| 4 | **字面化遵循**：不把一条指令悄悄泛化，不臆测没提的需求（对策 = 显式声明适用范围） | **会自行扩范围**、加没要求的步骤、自行判断任务「该是什么」；对策 = 显式**收窄** |
+| 5 | 编码/agentic **起步就 `xhigh`**，智能敏感任务最低 `high` | **起步用默认 `high`**，`low`/`medium` 大方用，`xhigh` 留给最吃力的活 |
+
+**外加一条最反直觉的：删掉「验证」脚手架。** Opus 5 **不用你说就会自检**。提示词里若有
+「非平凡任务最后加一步验证」「用子代理验证一遍」「double-check your answer」「回答前再核一遍」这类指令，
+**删掉**——它们在 Opus 5 上造成**过度验证**，白烧 token 且不提升质量。同理，harness 层为旧模型加的独立验证步骤也该撤。
+（本仓语境：这条只管**提示词层**的自检指令；`selftest.ps1` / `dod_command` / R3 那种**确定性机检闸**是另一回事，照留不误。）
+
+## 拒答与回退（最容易被漏掉的一条：Opus 5 自己也会拒）
+> 上游：`/docs/en/build-with-claude/refusals-and-fallback`。核校 2026-07-26。
+- **Fable 5 与 Opus 5 都带安全分类器**，被拒不是报错而是一个正常响应，`stop_reason: "refusal"`。
+  `stop_details` 里 `category` 命中的政策面、`explanation` 给人读的说明——**`explanation` 文本不稳定，
+  只展示、别解析**；**两者都可能为 `null`**（拒答不映射到具名类目时），那是正常永久值、不是占位；
+  且 `stop_details` 在**非 refusal 的一切 stop_reason 下恒为 `null`**。
+  ⇒ **判分支只判 `stop_reason == "refusal"` 本身**，别判 `content`、别判内层 `stop_details` 字段。
+- **拒答可能中途到达**：先流出部分输出再拒。两种情形都要把**已到的部分输出当不完整、丢弃**。
+  计费：拒答在任何输出之前到达则**不计费**（`content` 为空，token 计入 `usage` 但不收费；仍占速率限额）；
+  中途拒答按正常费率计已流出的输入与输出。
+- **拒答类目（官方表共 5 个）**：`cyber`（恶意软件/漏洞开发等；**良性安全工作也可能触发**）·
+  `bio`（危险实验方法等；**有益生命科学工作也可能触发**）· `frontier_llm`（协助开发竞品模型、受商用条款限制；
+  **良性 ML 工作也可能触发**）· `reasoning_extraction`（要求模型把内部推理复述进正文——要结构化推理改用
+  adaptive thinking）· `general_harms`（被判定有害的领域；**良性工作有时也会触发**）。
+- **回退（别把某一档硬编码成「那个兜底」）**：`fallbacks: "default"`（beta 头 `server-side-fallback-2026-07-01`）
+  让 API **按类目**改道到 Anthropic **当时推荐**的兜底模型；**该类目无推荐兜底则拒答维持**。
+  官方把这套推荐描述为**按模型、按类目**，且明说用 `"default"` 的好处正是**推荐变化时你不必自己维护清单**
+  ——所以**不存在「X 一律回退到 Y」这种全局映射**。官方示例里默认路由选中的是 `claude-opus-4-8`
+  （响应含 `"to": {"model": "claude-opus-4-8"}`），**那是一个示例、不是契约**。
+  响应本身会指明实际作答的模型、并以 `fallback` 内容块标出交接——**代码要读那个返回值来判断接手的是谁**，
+  别按假设写死。也可自带最多 3 个模型的清单，但用 `"default"` 就不必随推荐变化自己维护。
+- **对本脚手架的含义**：Opus 4.8 篇留着不是历史包袱——它是**当前官方示例中被选中的兜底档**，
+  **配回退链、或排查「怎么突然是另一个模型答的」时**要读它（真接手时那一档的行为按 4.8 的杠杆走：
+  thinking 默认关、字面遵循、子代理偏少、起步 xhigh）。但**别把「4.8 = 兜底」写死进代码或契约**，按上条读返回值。
+- 计费与缓存另见上游 `fallback-credit`（避免重试时为 prompt cache 付两次）。
+
+## effort
+- **起点 = 默认 `high`**，然后按你自己的 eval 往下调。
+- `low` / `medium`：**主要的成本与延迟控制杠杆**，质量守得住就大方用（这是相对旧 Opus 最大的用法变化）。
+- `xhigh`：留给要求高的编码与 agentic 工作。
+- 从旧模型继承的 effort 默认值 **必须在自己的 eval 上重跑 sweep**，别照抄。
+- 注意 effort 控的是**思考量**、不是**说话量**——降 effort 不能可靠地让回复变短，要短就直接提示（见下节）。
+
+## 冗长度（对话可见回复）
+- Opus 5 面向用户的默认回复**比历代 Opus 都长**。要控制长度只能**显式提示**。
+- 短短一条简洁指令就有效。面向用户的多轮产品可用（官方原文）：
+  ```
+  Keep responses focused, brief, and concise. Keep disclaimers and caveats short, and spend most of the response on the main answer. When asked to explain something, give a high-level summary unless an in-depth explanation is specifically requested.
+  ```
+- **长 system prompt 里再在尾部补一条短提醒**（官方原文）：
+  ```
+  <tone_preference>
+  Keep outputs reasonably concise.
+  </tone_preference>
+  ```
+
+## 写盘产物长度（4.8 页没有的新维度）
+- 与对话冗长度**分开的另一件事**：它**写到磁盘**的文件（报告、Markdown 文档、总结）也常比旧模型长。
+- 产品里若含 Claude 撰写的文档，加一条长度校准（官方原文）：
+  ```
+  Match the length of written documents to what the task needs: cover the substance, but do not pad with filler sections, redundant summaries, or boilerplate.
+  ```
+
+## 面向用户的进度更新（旁白）
+- agentic 工作中**很爱旁白**：动手前先宣告要做什么，单条消息也比旧模型长。它**吃「怎么跟用户说话」的明确指导**。
+- 要**调低**旁白，就把你想要的节奏与形状描述出来（官方原文）：
+  ```
+  Before your first tool call, say in one sentence what you're about to do. While working, give a brief update only when you find something important or change direction. When you finish, lead with the outcome: your first sentence should answer "what happened" or "what did you find," with supporting detail after it for readers who want it.
+  ```
+- 要**调高**或换风格，同一杠杆反向用：明确描述更新该长什么样并给例子。
+  **正面示例（「像这样说」）比禁令（「别这样说」）有效。**
+
+## 任务范围与过度验证
+- **删验证指令**（见上「五处反转」外加条）：它自带自检，你再写一遍只会过度验证。
+- 它也会**自行扩范围**——加没要求的步骤、按自己的判断重新定义任务该是什么。窄任务要显式收窄（官方原文）：
+  ```
+  Deliver what was asked, at the scope intended. Make routine judgment calls yourself, and check in only when different readings of the request would lead to materially different work. If the request seems mistaken or a better approach exists, say so in a sentence and continue with the task as asked rather than quietly narrowing, widening, or transforming it. Finish the whole task, and stop short of actions that are clearly beyond what was asked.
+  ```
+
+## 子代理派工上限
+- 比旧模型**更爱派子代理**。派工在真正独立、够大的活上划算，但用在小任务上会**成倍放大成本与耗时**。
+- harness 支持子代理就明确写清哪些场景才值得派，或设**确定性上限**（官方原文）：
+  ```
+  Delegate to a subagent only for large tasks that are genuinely independent and parallelizable, such as a wide multi-file investigation. Do not delegate work you can finish yourself in a handful of tool calls, and do not use subagents to verify or double-check your own work. If one subagent can complete the task, use one rather than several, and keep spawn counts low.
+  ```
+
+## 自我纠正与纠正旁白
+- 不用提示就能抓住并修正自己的错。**别写「double-check your answer」「回答前再核一遍」**——与它自身行为叠加，只加成本不加质量。
+- 它**比旧模型更爱旁白式地纠正自己先前的说法**，面向用户的产品里这很碍事。要把纠正限制在真正要紧的（官方原文）：
+  ```
+  Only correct an earlier statement when the error would change the user's code, conclusions, or decisions. State corrections plainly and briefly, then continue the task. For slips that change nothing for the user, make the fix and move on without noting it.
+  ```
+
+## 关 thinking 时的两个 artifact
+> 前提：thinking 默认开，且**只有 effort ≤ `high` 才关得掉**。
+> **首选缓解永远是「别关 thinking，用低 effort 控成本」**——多数任务上「开 thinking + `low` effort」比「关 thinking + 同等成本」表现更好。
+
+- **工具调用漏成正文**：关 thinking 时偶尔会把 tool call **写进面向用户的文本**而不发结构化 `tool_use` 块。
+  该回合正常结束、调用从未执行；agentic 循环里这段漏出的文本还会**留在对话历史里继续影响后续回合**。
+  搜索这类**工具密集**负载最容易中招。
+- **内部 XML 标签漏进输出**：关 thinking 时可能把 `<thinking>` 等内部标签吐进可见回复。
+  **若你的 system prompt 里有「不要思考 / 不要推理」这类规则，删掉**——那种指令**会加重**标签泄漏。
+- 必须保持关 thinking 的集成，用这一条复合指令同时缓解两者（官方原文）：
+  ```
+  When you use a tool, you may say a brief sentence first. If no tool can express what the user asked for, say so instead of guessing. Do not include internal or system XML tags in your response.
+  ```
+- **别点名 thinking 标签**——指名道姓的写法比上面这种泛化写法**更没效**。
+
+## 代码评审 harness（承自 Opus 4.8 页 · Opus 5 页以「能力提升」形式复述了同一坑）
+- Opus 5 评审 precision/recall 双高，单遍就捞真 bug。**但**评审提示里若写了「只报高危」「保守点」「别挑刺」，
+  它会**忠实照做**、报得更少（是 harness 效应，不是能力退化）。官方 Opus 5 页的原话是：
+  **让它全报，过滤放到单独一遍去做。**
+- 修法 = 把「发现」与「过滤」分离，发现阶段只求覆盖（承自 4.8 页原文，Opus 5 上同样适用）：
+  ```
+  Report every issue you find, including ones you are uncertain about or consider low-severity. Do not filter for importance or confidence at this stage - a separate verification step will do that. Your goal here is coverage: it is better to surface a finding that later gets filtered out than to silently drop a real bug. For each finding, include your confidence level and an estimated severity so a downstream filter can rank them.
+  ```
+- 若必须单遍自过滤，把门槛写**具体**（「可能导致错误行为/测试失败/误导结果的 bug；只略过纯风格/命名偏好」），
+  别用「重要」这类定性词。
+- 本仓语境：R3 合并闸的评审后端是 codex（第二独立模型 · L26），这条管的是**任何**评审提示的写法，包括派 Claude 做评审时。
+
+## 设计 / 前端默认（**正文在 4.8 篇，此处只留指针**）
+> Opus 5 页只说「UI 与前端视觉复刻强、**为旧模型调的视觉侧绕法要重新验证**（多半已不需要）」，
+> **没有**复述 4.8 那套「奶白家风」的具体默认，也没说它已变。故本篇不复制正文——
+> **完整 AEFRM 具体设计规格、4 方向先选再建、`<frontend_aesthetics>` 片段一律见
+> `claude-opus-4-8-prompting-llms.txt`「设计/前端默认」节**（`claude-sonnet-5-prompting-llms.txt` 也指向那里，
+> 三页同文防重复）。
+> **用法**：先按 4.8 的破法试；若发现 Opus 5 家风已变，刷新的是 4.8 篇那一节还是本篇，取决于上游届时怎么写。
+- Opus 5 侧确定的新增只有视觉那条，见下方「视觉与 computer use」节。
+- 本脚手架前端链见 frontend-design skill / frontend/README 5 闸。
+
+## 视觉与 computer use
+- 视觉最强形态是**给工具**去迭代分析、裁剪、视觉自检——**工具比单纯加 thinking 更划算**。
+- 为旧模型调的**视觉侧提示词绕法要重新验证**——多半已不需要。
+- computer use 分辨率：Opus 5 页未复述，**见 `claude-opus-4-8-prompting-llms.txt`「computer use」节**（不复制）。

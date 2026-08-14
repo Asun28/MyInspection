@@ -1,0 +1,31 @@
+# claude-prompting-tools-llms.txt — Console 侧提示词工具（生成器 / 模板变量 / 改进器）
+
+> 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-tools
+> (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
+> 精炼子集（非原样拷贝）。这是 Claude Console 里辅助「起草→加模板变量→改进现有提示」的工具链，
+> 与 agentic「工具使用」提示不同——后者见 claude-prompting-best-practices-llms.txt 的「工具使用」节。
+
+## Prompt generator（提示生成器）
+- 解决「空白页问题」：引导 Claude 按最佳实践生成贴合你任务的高质量提示模板，作为迭代起点。
+- 兼容所有模型（含扩展思考）。Console 直接可用；想看底层元提示见 Anthropic metaprompt Colab（需 API key）。
+
+## Prompt templates & variables（模板与变量）
+- API 调用通常 = **固定内容**（跨交互不变的指令/上下文）+ **可变内容**（用户输入、RAG 检索、会话历史、其他调用喂回的工具结果）。
+- 模板用**占位符**表示动态部分；Console 里用「双层大括号包住变量名」的语法标注，便于快速换值测试。
+  （注意：本脚手架 init-scaffold.ps1 也用同样的「双大括号 TOKEN」语法做下游替换——那是**另一套机制**，别混。写本仓 *.txt reference 时**避免**写出双大括号占位符字面量，见 docs/references/README.md 末注 + selftest 闸 ⑤。）
+- 何时用：提示的任何部分会在别的调用里重复时。收益：一致性、效率（只换变量）、可测性、可扩展、版本控制（只跟踪核心部分）。
+- 进阶：把变量用 XML 标签包裹（`<text>...</text>`）结构更清晰。
+- 示例（下方 `<text>` 代表 Console 里那个双大括号变量）：`Translate this text from English to Spanish: <text>`
+- Console 工具都基于此：生成器决定需要哪些变量并纳入模板；改进器保留你所有变量；评估工具靠分离固定/可变部分来测试与版本化。
+
+## Prompt improver（提示改进器）
+- 对复杂、要求高准确度的任务，自动分析并增强现有提示，使其更稳健。
+- 输入：一份提示模板；（可选但推荐）当前输出问题的反馈、示例输入与理想输出。
+- 4 步：① 抽取模板里的示例 → ② 生成带清晰分区+XML 标签的结构化草稿 → ③ 加/精炼详细 CoT 推理指令 → ④ 更新示例以示范新推理过程。
+- 产出模板含：详细 CoT 指令、XML 分区、标准化「输入→逐步推理→输出」示例、策略性 prefill。
+- 何时用：复杂需详细推理、准确性重于速度、当前输出需大改时。**代价**：产出更长、更彻底但更慢——延迟/成本敏感场景用更简单的提示。
+- 没有示例？用 Test Case Generator 生成样例输入、取 Claude 回答、改成理想输出、再回填。
+- 排错：示例没出现→检查 XML 格式且置于首个 user 消息开头；CoT 太啰嗦→加输出长度/详略指令；推理步骤不合需求→改 steps 段。
+
+## 与本脚手架的关系
+- 这些是 Console/API 侧的**提示工程作坊**工具，非本仓运行时链。写本仓的 skill/hook/评审 rubric 提示时，可借「模板=固定+可变、XML 分区、CoT、few-shot」这套方法论；但本仓的提示落地在 .claude/skills/**、.claude/hooks/*.ps1、docs/QUALITY-RUBRIC.md 等处，不经 Console。

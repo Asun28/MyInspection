@@ -1,0 +1,104 @@
+﻿#requires -Version 7
+<#
+.SYNOPSIS
+  验收总闸门：确定性、可复现地跑通项目最小闭环。CI `verify` 必需检查同义。
+
+.DESCRIPTION
+  分级把关，随实现进度自然收紧（脚手架期优雅通过，避免空脚本误判失败）：
+    闸门 1：ruff + pytest + 前端 check/test —— 有引导才收紧：pyproject.toml 在才跑 ruff/pytest
+            （ruff 经 uv run --no-sync 离线跑；pytest exit 5 未收集到视为通过）；frontend/package.json 与
+            node_modules 同在才跑前端检查（未 npm install 只警不挡；已引导而 npm 缺 → fail-closed 红）。
+            未引导缺件一律优雅跳过，绝不误红。
+    闸门 2：集成 / e2e 闭环 —— 项目特定，接法见 docs/DELIVERY-OPS.md。硬边界：确定性（测试/CI 默认走可复现
+            路径如 mock provider，不依赖外部服务/网络/GPU）；离线纵深（靠「无出站需求 + 子进程不下载」共同保证，
+            不靠单个可被关闭的环境标志）；关键 fail-closed（缺料即失败/显式跳过，绝不静默回退到不合规路径）。
+
+.EXAMPLE
+  pwsh -File scripts\verify.ps1
+#>
+[CmdletBinding()]
+param()
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）：verify 按退出码判 uv/pytest/npm 非零；缺失（hermetic 单文件测试）即 fail-open 退回原行为
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+Set-Location $RepoRoot
+
+function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
+$failed = $false
+
+# --- 闸门 1：静态检查 + 单元测试（ruff / pytest / 前端 check+test，有引导才收紧）---
+Step '闸门 1/2：静态检查 + 契约/单元测试（ruff / pytest / 前端 check+test）'
+$hasPyproject = Test-Path "$RepoRoot/pyproject.toml"
+$hasUv = [bool](Get-Command uv -ErrorAction SilentlyContinue)
+
+# ruff：pyproject.toml 在（Python 后端已引导）且 uv 可用才跑——「linter 兜底」常设化（命名/静态检查红即 fail）。
+# --no-sync：不隐式创建/同步环境（verify 保持离线，闸内绝不联网装依赖）；ruff 由引导步 uv sync 的 dev 组供好，
+# 环境缺料即非零计红（fail-closed），不静默下载。selftest 闸 15f(a) 常设断言本调用含 --no-sync。
+if ($hasPyproject -and $hasUv) {
+  & uv run --no-sync ruff check .
+  if ($LASTEXITCODE -ne 0) { Write-Warning 'ruff lint 失败（命名/静态检查红）'; $failed = $true }
+  else { Write-Host 'ruff lint 全绿。' }
+} elseif ($hasPyproject) {
+  # TD43：已引导（pyproject.toml 在）但 uv 缺席——镜像前端分支（:80-82）的 fail-closed 先例，
+  # 绝不静默跳过成绿（否则零 lint 却报 PASS，违反本文件 line 17 的 fail-closed 自称）。
+  Write-Warning 'pyproject.toml 在场但 uv 不在 PATH——fail-closed 计红（装 uv 后重跑；ruff 未跑）。'
+  $failed = $true
+} else {
+  Write-Host '无 pyproject.toml，跳过 ruff（非 Python 项目正常）。'
+}
+
+# pytest：以 pyproject.toml（项目清单）存在为门，而非仅 uv 在 PATH——
+# 否则「机器装了 uv 但项目未引导 Python」时 uv run 落到无 pytest 的裸解释器，误红 No module named pytest。
+if (-not $hasPyproject) {
+  Write-Host '无 pyproject.toml，跳过 pytest（Python 后端未引导 / 非 Python 项目正常；改成你的测试命令）。'
+} elseif (-not $hasUv) {
+  # TD43：同上——已引导但 uv 缺席须 fail-closed，不得静默跳过成绿（零测试却报 PASS）。
+  Write-Warning 'pyproject.toml 在场但 uv 不在 PATH——fail-closed 计红（装 uv 后重跑；pytest 未跑）。'
+  $failed = $true
+} elseif ((Test-Path "$RepoRoot/backend/tests") -or (Test-Path "$RepoRoot/tests")) {
+  $testDir = if (Test-Path "$RepoRoot/backend/tests") { 'backend/tests' } else { 'tests' }
+  & uv run python -m pytest $testDir -q
+  $code = $LASTEXITCODE
+  if ($code -eq 5) { Write-Host '尚未收集到用例（脚手架期），视为通过。' }
+  elseif ($code -ne 0) { Write-Warning "pytest 失败（退出码 $code）"; $failed = $true }
+  else { Write-Host 'pytest 全绿。' }
+} else { Write-Host '无测试目录，跳过（非 Python 项目请改成你的测试命令）。' }
+
+# 前端 check/test：package.json 与 node_modules 同时在（已引导）才跑并计红；
+# package.json 在而 node_modules 缺 → 闸 2 风格警告、不挡（保 CI 绿；worktree ship 路径 task.ps1 start 已 npm install，自然收紧）；
+# 两者皆无（如仅 *.example）→ 静默跳过。已引导而 npm 不在 PATH → fail-closed 计红（缺料即失败，绝不静默降级为跳过）。
+$fePkg = Test-Path "$RepoRoot/frontend/package.json"
+$feBootstrapped = $fePkg -and (Test-Path "$RepoRoot/frontend/node_modules")
+if ($feBootstrapped -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+  Push-Location "$RepoRoot/frontend"
+  try {
+    & npm run check
+    if ($LASTEXITCODE -ne 0) { Write-Warning '前端 npm run check 失败（lint/typecheck 红）'; $failed = $true }
+    else { Write-Host '前端 npm run check 全绿。' }
+    & npm run test
+    if ($LASTEXITCODE -ne 0) { Write-Warning '前端 npm run test 失败'; $failed = $true }
+    else { Write-Host '前端 npm run test 全绿。' }
+  } finally { Pop-Location }
+} elseif ($feBootstrapped) {
+  Write-Warning '前端已引导（package.json + node_modules 在）但 npm 不在 PATH——fail-closed 计红（装 npm 后重跑）。'
+  $failed = $true
+} elseif ($fePkg) {
+  Write-Warning '⚠️ 前端闸未引导，跳过——npm install 后 verify 会收紧。'
+}
+
+# --- 闸门 2：集成 / e2e 闭环（项目特定）---
+Step '闸门 2/2：集成 / e2e 闭环（确定性 / 离线 / 可复现）'
+# TODO（项目特定）：接集成/e2e——确定性 env + CLI 直跑 + 产物强校验 + fail-closed；接法见 docs/DELIVERY-OPS.md。
+# 占位未接时**别静默假绿**：醒目 WARNING 提醒「CI 绿 ≠ 装起来能跑」，但脚手架期仍不 fail（exit 0）。
+$gate2Pending = $true   # TODO：接好 e2e 闭环后置 $false（并把上面的真校验填进来）
+if ($gate2Pending) {
+  Write-Warning '⚠️ 闸门2（集成/e2e）未接 —— CI 绿 ≠ 装起来能跑；接法见 docs/DELIVERY-OPS.md。'
+}
+
+Step '结论'
+if ($failed) { Write-Host 'verify: FAIL' -ForegroundColor Red; exit 1 }
+$gate2Note = if ($gate2Pending) { '（闸门2 占位未接）' } else { '' }
+Write-Host "verify: PASS$gate2Note（注：随实现，闸门会自动收紧到完整闭环）" -ForegroundColor Green
+exit 0

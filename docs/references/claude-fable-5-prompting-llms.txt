@@ -1,0 +1,92 @@
+# claude-fable-5-prompting-llms.txt — 给 Fable 5（与 Mythos 5）写提示词的模型专属细则
+
+> 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5
+> (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
+> 精炼子集（非原样拷贝）。模型出新版/行为变了就刷新本文件。上次对照上游校核：2026-07-03。
+> 跨模型通用技巧见 claude-prompting-best-practices-llms.txt。
+> 官方页共 15 段推荐提示语（14 段提示 + 1 段 send_to_user 工具 JSON 定义），本文件全数原文收录：
+> ①防过度规划 ②高 effort 防过度工程 ③简洁先结果 ④检查点 ⑤进度实证 ⑥行为边界 ⑦子代理委派
+> ⑧记忆笔记 ⑨记忆引导 ⑩自主运行提醒 ⑪上下文安抚 ⑫给原因模板 ⑬可读性补丁 ⑭send_to_user 定义 ⑮send_to_user 触发语。
+> 定位：Fable 5 吃「以前太复杂/太长/太模糊」的活——耗人时/天/周的端到端工作。用它啃最难的活才见其价值范围；只拿简单负载测会低估它。
+
+## 安全分类器 / 回退（迁移前必读）
+- Fable 5 跑安全分类器，针对：进攻性网络安全（写 exploit/恶意软件/攻击工具）、生物与生命科学（实验方法、分子机制）、抽取模型的摘要思考。良性网安/有益生科任务也可能误触。
+- 被拒会返回 `stop_reason: "refusal"`。配**服务端/客户端回退到 Opus 4.8** 自动改道（4.8 是官方默认路由的兜底档，**别改成 Opus 5**——Opus 5 自己也带分类器、也会拒）。
+- Fable 5 不用于进攻性网安或生科工作。
+
+## 更长的单回合（最大的适配点）
+- 难任务单请求在高 effort 下可跑好几分钟，自主运行可延续数小时。**迁移前调好客户端超时、流式、进度指示**，考虑把 harness 改成异步查进度（如定时任务）而非阻塞等待。
+- 模糊任务防过度规划：
+  `When you have enough information to act, act. Do not re-derive facts already established in the conversation, re-litigate a decision the user has already made, or narrate options you will not pursue in user-facing messages. If you are weighing a choice, give a recommendation, not an exhaustive survey. This does not apply to thinking blocks.`
+
+## effort（主控杠杆）
+- `high` 为多数任务默认；`xhigh` 给最吃能力的；`medium`/`low` 给例行活。**低 effort 仍很强，常超过旧模型的 xhigh**。任务能完成但偏慢，或想更快更交互 → 降 effort。
+- 高 effort 上防止未经请求的整理/重构：
+  `Don't add features, refactor, or introduce abstractions beyond what the task requires. A bug fix doesn't need surrounding cleanup and a one-shot operation usually doesn't need a helper. Don't design for hypothetical future requirements: do the simplest thing that works well. Avoid premature abstraction and half-finished implementations. Don't add error handling, fallbacks, or validation for scenarios that cannot happen. Trust internal code and framework guarantees. Only validate at system boundaries (user input, external APIs). Don't use feature flags or backwards-compatibility shims when you can just change the code.`
+
+## 强指令遵循（一句顶一串）
+- 指令遵循强到「一句简短指令」即可steer多数行为，无需逐条列举。
+- 简洁（一句抵一堆反模式）：
+  `Lead with the outcome. Your first sentence after finishing should answer "what happened" or "what did you find": the thing the user would ask for if they said "just give me the TLDR." Supporting detail and reasoning come after. Being readable and being concise are different things, and readability matters more. The way to keep output short is to be selective about what you include (drop details that don't change what the reader would do next), not to compress the writing into fragments, abbreviations, arrow chains like A → B → fails, or jargon.`
+- 检查点（只在真需要你时停）：
+  `Pause for the user only when the work genuinely requires them: a destructive or irreversible action, a real scope change, or input that only they can provide. If you hit one of these, ask and end the turn, rather than ending on a promise.`
+
+## 给长自主运行「兜底事实」（几乎消除虚构进度）
+- `Before reporting progress, audit each claim against a tool result from this session. Only report work you can point to evidence for; if something is not yet verified, say so explicitly. Report outcomes faithfully: if tests fail, say so with the output; if a step was skipped, say that; when something is done and verified, state it plainly without hedging.`
+
+## 划定边界（防未经请求的动作）
+- `When the user is describing a problem, asking a question, or thinking out loud rather than requesting a change, the deliverable is your assessment. Report your findings and stop. Don't apply a fix until they ask for one. Before running a command that changes system state (restarts, deletes, config edits), check that the evidence actually supports that specific action. A signal that pattern-matches to a known failure may have a different cause.`
+
+## 并行子代理
+- 比旧模型更主动派子代理。多用、给「何时该委派」的明确引导、编排者与子代理间优先异步通信。长寿子代理跨子任务保留上下文，省时省钱（缓存读）。
+  `Delegate independent subtasks to subagents and keep working while they run. Intervene if a subagent goes off track or is missing relevant context.`
+
+## 记忆系统（与本脚手架 lessons 系统天然契合）
+- Fable 5 能记录并引用过往运行的经验时表现尤佳。给它一处写笔记（一个 Markdown 文件即可）：
+  `Store one lesson per file with a one-line summary at the top. Record corrections and confirmed approaches alike, including why they mattered. Don't save what the repo or chat history already records; update an existing note rather than creating a duplicate; delete notes that turn out to be wrong.`
+- 本仓落地点 = scripts/lessons.ps1 + docs/lessons/*（自净化经验系统）。从历史引导记忆：
+  `Reflect on the previous sessions we've had together. Use subagents to identify core themes and lessons, and store them in [X]. Make sure you know to reference [X] for future use.`
+
+## 罕见的提前停止（长会话深处）
+- 偶尔以「I'll now run X」纯文本表意收尾却不发对应工具调用，或已足够却停下要许可。「continue / go ahead and do it end to end」即可。自主管线加 system reminder：
+  `You are operating autonomously. The user is not watching in real time and cannot answer questions mid-task, so asking "Want me to…?" or "Shall I…?" will block the work. For reversible actions that follow from the original request, proceed without asking. Offering follow-ups after the task is done is fine; asking permission after already discussing with the user before doing the work is not. Before ending your turn, check your last paragraph. If it is a plan, an analysis, a question, a list of next steps, or a promise about work you have not done ("I'll…", "let me know when…"), do that work now with tool calls. End your turn only when the task is complete or you are blocked on input only the user can provide.`
+
+## 罕见的上下文预算焦虑
+- 超长会话里偶尔建议开新会话/交接/自行删减，多由 harness 展示剩余 token 倒计时触发。**尽量别把上下文预算数值暴露给模型**。若必须显示，加安抚：
+  `You have ample context remaining. Do not stop, summarize, or suggest a new session on account of context limits. Continue the work.`
+
+## 给「原因」而非只给「请求」
+- 懂了意图它表现更好。特别是跨多工作流的长运行代理：
+  `I'm working on [the larger task] for [who it's for]. They need [what the output enables]. With that in mind: [request].`
+
+## 与用户沟通的可读性
+- 大量工具调用/大工作上下文里，收尾易写成密集箭头链/深实现细节/引用用户没看到的思考。官方沟通风格补丁（原文照录）：
+  ```
+  Terse shorthand is fine between tool calls (that's you thinking out loud, and brevity there is good). Your final summary is different: it's for a reader who didn't see any of that.
+  If you've been working for a while without the user watching (overnight, across many tool calls, since they last spoke), your final message is their first look at any of it. Write it as a re-grounding, not a continuation of your working thread: the outcome first, then the one or two things you need from them, each explained as if new. The vocabulary you built up while working is yours, not theirs; leave it behind unless you re-introduce it.
+  When you write the summary at the end, drop the working shorthand. Write complete sentences. Spell out terms. Don't use arrow chains, hyphen-stacked compounds, or labels you made up earlier. When you mention files, commits, flags, or other identifiers, give each one its own plain-language clause. Open with the outcome: one sentence on what happened or what you found. Then the supporting detail. If you have to choose between short and clear, choose clear.
+  ```
+
+## send_to_user 工具（长异步代理）
+- 给代理一条「不结束回合就把用户必须原样看到的内容呈现出来」的路子（部分交付物/对用户中途提问的直接回答/带具体数字的进度）。工具输入永不被摘要，内容原样抵达。仅定义不够——必须在 system prompt 里配 elicitation 语，否则它很少调。
+  官方工具定义（UI 直接渲染 input、返回简单 ack；工具输入永不被摘要）：
+  ```
+  {
+    "name": "send_to_user",
+    "description": "Display a message directly to the user. Use this for progress updates, partial results, or content the user must see exactly as written before the task finishes.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "message": { "type": "string", "description": "The content to display to the user." }
+      },
+      "required": ["message"]
+    }
+  }
+  ```
+  elicitation（必配，否则它很少调；勿用于叙述/推理类内容）：`Between tool calls, when you have content the user must read verbatim (a partial deliverable, a direct answer to their question), call the send_to_user tool with that content. Use send_to_user only for user-facing content, not for narration or reasoning.`
+
+## 推荐的 harness 改动
+- **从难度上限起步**：挑比你会派给旧模型更难的活，让它 scope、提澄清问、执行。
+- **长运行里让自校验显式**：独立、新上下文的 verifier 子代理通常优于自我批评。`Establish a method for checking your own work at an interval of [X] as you build. Run this every [X interval], verifying your work with subagents against the specification.`
+- **重构旧提示/skill**：为旧模型写的 skill 常对 Fable 5 过度规定、会降质。审查并考虑删掉旧指令，看默认表现是否更好。
+- **别让它在回复里复述推理**：让模型 echo/转录/解释其内部推理为正文，会触发 `reasoning_extraction` 拒答类、抬高回退到 Opus 4.8 的比例。迁移时审查 skill/system prompt 里的「展示你的思考」类指令；需要推理可见性就读 adaptive thinking 的结构化 thinking 块 + 用 send_to_user 呈现进度。

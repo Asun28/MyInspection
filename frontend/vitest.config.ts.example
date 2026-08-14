@@ -1,0 +1,16 @@
+// vitest.config.ts — 拷掉 .example 后缀即用。
+// 单元/组件测试的最小确定性配置:globals(免 import describe/it)、jsdom(组件)或 node(纯函数)、共享 setup。
+// 任务卡 dod_command 跑:  npm test   (=> vitest run,非 watch,退出码即闸 0/1)
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    globals: true,
+    // 组件渲染用 'jsdom';若全是纯函数可降到 'node'(更快、零浏览器仿真)。
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
+    // 确定性:无 watch、固定单次运行。CI/dod_command 用 `vitest run`(见 package.json scripts.test)。
+    clearMocks: true,
+    restoreMocks: true,
+  },
+})

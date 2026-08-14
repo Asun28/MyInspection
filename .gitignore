@@ -1,0 +1,72 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Env & secrets — NEVER commit
+.env
+*.env
+!.env.example
+*storage_state*.json
+auth/
+.secrets/
+.review/
+
+# 本地工作文档 / 内部计划与研究记录 —— 一律放 _local/（永不入库）
+_local/
+# 模型系统提示 / 模型输出转储 —— 规范家在 _local/models/（见 CLAUDE.md「本地模型产物」）。
+# 下面兜底：即便某模型转储误落仓库根，也不入库、不被 init 扫描下发。匹配 CLAUDE-<x>.md（含 CLAUDE-<x>-<y>.md），
+# 不波及真正的 CLAUDE.md / CLAUDE.template.md（CLAUDE 后无连字符）。
+CLAUDE-*.md
+# planning-with-files 三件套（hook 按 cwd 读取，必须留在根目录；gitignored）
+task_plan.md
+findings.md
+progress.md
+# 设计/内部文档约定后缀（放这里即不会被公开）
+*.internal.md
+*.local.md
+*.private.md
+NOTES.md
+TODO.local.md
+
+# dev worktrees live OUTSIDE the repo at <WorktreeRoot>\<TaskId> (see docs/DEVOPS-WORKFLOW.md)
+
+# Runtime artifacts —— 运行时产物仅本地，永不入库（按你项目的运行时目录名调整）
+runtime/
+
+# 本地数据 / 向量索引 / 嵌入缓存 —— 保留目录骨架，忽略大文件内容。
+# 需入库的小型样例用 `git add -f` 显式纳入。
+data/*
+!data/README.md
+
+# 防泄露：核心数据库 / 密钥 / 凭据 —— 变 public 前最易连数据/凭据一起公开（见 docs/SECURITY.md）。
+# 注：gitignore 只对**未追踪**文件生效；已被追踪的文件须 `git rm --cached`。变 public 前跑 check-secrets.ps1 -Strict。
+# 确需入库小型样例库（如脱敏 fixture）用 `git add -f` 显式纳入；上面的 !.env.example / !data/README.md 负向规则保持生效。
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.duckdb
+*.mdb
+*.key
+*.pem
+*.pfx
+*.p12
+*.keystore
+id_rsa*
+*credentials*.json
+service-account*.json
+*.secret
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

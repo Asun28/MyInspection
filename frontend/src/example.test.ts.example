@@ -1,0 +1,27 @@
+// src/example.test.ts — 拷掉 .example 后缀即用。
+// 最小 Vitest 单元测试样板:纯函数 + 固定时钟。复制此模式写真实单测。
+// 确定性:纯函数无 I/O、无随机、无真实时间(时钟已在 vitest.setup.ts 冻结)。
+import { describe, it, expect } from 'vitest'
+
+// 被测纯函数示例(下游换成真实模块的 import)。
+function greet(name: string): string {
+  return `hello, ${name}`
+}
+
+// 依赖「当前时间」的函数:因 setup 冻结了系统时钟,结果在每次运行/每个平台都相同。
+function todayIso(): string {
+  return new Date().toISOString()
+}
+
+describe('greet', () => {
+  it('拼接问候语', () => {
+    expect(greet('your-app')).toBe('hello, your-app')
+  })
+})
+
+describe('todayIso', () => {
+  it('用冻结的固定时钟,跨运行确定', () => {
+    // vitest.setup.ts 把时钟固定在 2026-01-01T00:00:00Z。
+    expect(todayIso()).toBe('2026-01-01T00:00:00.000Z')
+  })
+})

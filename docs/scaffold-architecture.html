@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>脚手架架构 + 流程 · Scaffold Architecture &amp; Flow</title>
+<!--
+  TOKEN SYSTEM (stated per frontend-design / taste-skill discipline)
+  ──────────────────────────────────────────────────────────────────
+  Subject grounding: this is the dev-workflow SCAFFOLD itself (the meta layer),
+  visualized for the human who maintains it. Two views on one page (tabs):
+    VIEW 1 = ARCHITECTURE  (layered subsystems + relationship constellation)
+    VIEW 2 = FLOW          (end-to-end idea→ship timeline, compact)
+
+  House voice continuity: deliberately echoes the existing control-tower diagram
+  (docs/idea-to-plan-diagram.html), reusing the same desaturated steel-blue base,
+  same Space Grotesk + Space Mono type roles, same ＋−× method trio and ⛳
+  mint human-gate lamp. This page is the static structure DIAGRAM that the
+  control-tower page is the dynamic timeline OF.
+
+  Aesthetic family: "ops console schematic / system map", a deep steel board on
+  which subsystems sit as raised cells inside labeled layers, and a constellation
+  of relationship lines connects them. NOT one of the three banned AI looks
+  (no cream+serif+terracotta; no near-black+single-acid-neon; no generic
+  hairline broadsheet): the base is desaturated steel-blue, the accent is spent
+  in exactly one place per view.
+
+  Palette (6 named hex), SHARED with the control-tower system:
+    --ink     #0e1622  deep steel base (board ground, not pure black)
+    --panel   #16202e  raised cell / panel
+    --line    #2a3a4f  structural rule / borders
+    --fog     #93a4bb  muted body text (passes AA on panel)
+    --paper   #eaf1f9  headings / high-contrast text
+    --signal  #38e1b0  the gate / verify lamp (mint) and primary accent
+  Method trio (carried over, used as layer accents, NOT a 4th hue each):
+    --add #5ea8ff (＋ funnel)  --sub #ffb454 (− quality)  --mul #c08bff (× self-heal)
+
+  Type roles (2 + caption), SHARED:
+    Display/headings: "Space Grotesk" (compact technical grotesque; not Inter, not serif)
+    Body/CN: system sans stack (reads well for Chinese-primary copy)
+    Data/labels/filenames: "Space Mono" (operator + path register)
+
+  Layout concept: ARCHITECTURE is a vertical stack of LAYER bands (config →
+  funnel → execution → quality → self-heal → design → post-merge → memory),
+  each band holding subsystem cells; a relationship rail down the left ties
+  _config to everything and shows the cross-layer wires. FLOW is a single
+  compact horizontal-on-desktop / vertical-on-mobile timeline of stages with ⛳.
+
+  SIGNATURE ELEMENT (the one memory point, distinct from the control-tower spine):
+    GLOWING SUBSYSTEM NODES + a live RELATIONSHIP CONSTELLATION. Hovering or
+    focusing any subsystem cell dims the board and lights up only that cell and
+    its related cells/edges (data-rel groups), so the structure's wiring becomes
+    legible on demand. The control-tower page's memory point is the colored
+    left-margin spine; THIS page's memory point is the interactive node-and-wire
+    constellation. One loud thing; the rest of the board stays quiet steel.
+
+  Aesthetic risk taken: a hover-driven "light up the related subsystems" graph
+  on a dense board risks reading busy. Mitigated by keeping the whole board
+  monochrome steel at rest, spending glow only on the hovered group, and
+  degrading the entire highlight system to a static legible board under
+  prefers-reduced-motion (no dimming, no transitions). The payoff is that the
+  cross-layer relationships (the actual thesis of an architecture diagram) are
+  shown, not just told.
+
+  Quality floor: responsive mobile→desktop, :focus-visible outlines, reduced-motion
+  honored, WCAG AA contrast, no em-dashes anywhere, no fake metrics, no localStorage.
+  Self-contained: inline CSS, exactly one Google Fonts <link>, vanilla JS only.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0e1622; --panel:#16202e; --panel-2:#1b2738; --line:#2a3a4f;
+    --fog:#93a4bb; --fog-bright:#b9c7da; --paper:#eaf1f9; --signal:#38e1b0;
+    --add:#5ea8ff; --sub:#ffb454; --mul:#c08bff;
+    --display:"Space Grotesk",system-ui,sans-serif;
+    --body:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:"Space Mono",ui-monospace,"Cascadia Code",monospace;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{
+    margin:0; background:
+      radial-gradient(900px 620px at 86% -10%, rgba(94,168,255,.10), transparent 60%),
+      radial-gradient(760px 520px at -6% 14%, rgba(56,225,176,.07), transparent 55%),
+      var(--ink);
+    color:var(--fog); font-family:var(--body); line-height:1.55;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  a{color:var(--signal)}
+  .wrap{max-width:1160px; margin:0 auto; padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 80px}
+  .skip{position:absolute; left:-9999px; top:0}
+  .skip:focus{position:static; display:inline-block; margin-bottom:12px; color:var(--signal)}
+
+  /* ── header ── */
+  header{margin-bottom:clamp(22px,4vw,40px)}
+  .kicker{font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--signal); display:inline-flex; align-items:center; gap:.55em; margin:0 0 16px}
+  .kicker::before{content:""; width:26px; height:1px; background:var(--signal); display:inline-block}
+  h1{font-family:var(--display); color:var(--paper); font-weight:600;
+    font-size:clamp(27px,5.2vw,50px); line-height:1.05; letter-spacing:-.02em; margin:0}
+  h1 .en{display:block; color:var(--fog); font-weight:400; font-size:clamp(13px,2vw,17px);
+    letter-spacing:.01em; margin-top:10px}
+  .lede{max-width:66ch; font-size:clamp(14px,1.6vw,16px); color:var(--fog-bright); margin:16px 0 0}
+  .lede b{color:var(--paper); font-weight:600}
+
+  /* ── tabs ── */
+  .tabs{display:inline-flex; gap:4px; margin:24px 0 0; padding:4px; border:1px solid var(--line);
+    border-radius:99px; background:rgba(22,32,46,.6)}
+  .tab{font-family:var(--display); font-weight:600; font-size:14px; color:var(--fog-bright);
+    background:none; border:0; cursor:pointer; padding:9px 18px; border-radius:99px; letter-spacing:.01em}
+  .tab .t-en{font-family:var(--mono); font-weight:400; font-size:11px; color:var(--fog); margin-left:7px}
+  .tab[aria-selected="true"]{background:var(--signal); color:var(--ink)}
+  .tab[aria-selected="true"] .t-en{color:rgba(14,22,34,.75)}
+  .tab:hover:not([aria-selected="true"]){color:var(--paper)}
+
+  .view{margin-top:clamp(22px,3.5vw,36px)}
+  .view[hidden]{display:none}
+
+  /* ── shared chips / legend ── */
+  .tier-row{display:flex; flex-wrap:wrap; gap:8px; margin:0 0 22px}
+  .tier-chip{font-family:var(--mono); font-size:11.5px; color:var(--fog-bright);
+    border:1px solid var(--line); border-radius:99px; padding:4px 12px; background:rgba(14,22,34,.5);
+    display:inline-flex; gap:7px; align-items:baseline}
+  .tier-chip b{font-weight:700}
+  .tier-chip.t0 b{color:var(--fog-bright)} .tier-chip.t1 b{color:var(--add)} .tier-chip.t2 b{color:var(--mul)}
+
+  /* ════════════════ VIEW 1 · ARCHITECTURE ════════════════ */
+  .board{position:relative; display:grid; gap:12px}
+
+  /* layer band */
+  .layer{position:relative; border:1px solid var(--line); border-radius:var(--r);
+    background:linear-gradient(180deg, rgba(22,32,46,.7), rgba(22,32,46,.45));
+    padding:14px clamp(12px,2vw,18px) 16px; padding-left:clamp(54px,7vw,72px)}
+  /* layer rail spine (left) */
+  .layer::before{content:""; position:absolute; left:clamp(20px,3vw,28px); top:16px; bottom:16px;
+    width:3px; border-radius:3px; background:var(--layer-accent,var(--line)); opacity:.7}
+  .layer.config{--layer-accent:var(--signal)}
+  .layer.funnel{--layer-accent:var(--add)}
+  .layer.exec{--layer-accent:var(--fog)}
+  .layer.quality{--layer-accent:var(--sub)}
+  .layer.heal{--layer-accent:var(--mul)}
+  .layer.design{--layer-accent:var(--add)}
+  .layer.post{--layer-accent:var(--signal)}
+  .layer.memory{--layer-accent:var(--fog)}
+
+  .layer-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; margin-bottom:12px}
+  .layer-name{font-family:var(--display); color:var(--paper); font-weight:600;
+    font-size:clamp(15px,2vw,19px); letter-spacing:-.01em}
+  .layer-en{font-family:var(--mono); font-size:11.5px; color:var(--fog)}
+  .layer-tier{font-family:var(--mono); font-size:10.5px; color:var(--fog); margin-left:auto;
+    border:1px solid var(--line); border-radius:99px; padding:1px 9px; white-space:nowrap}
+  .layer-tier.t1{color:var(--add); border-color:rgba(94,168,255,.4)}
+  .layer-tier.t2{color:var(--mul); border-color:rgba(192,139,255,.4)}
+
+  .cells{display:grid; gap:10px; grid-template-columns:1fr}
+  @media(min-width:640px){ .cells{grid-template-columns:1fr 1fr} }
+  @media(min-width:920px){ .cells.three{grid-template-columns:1fr 1fr 1fr} }
+
+  /* SUBSYSTEM NODE = the signature glowing cell */
+  .node{position:relative; border:1px solid var(--line); border-radius:11px;
+    background:rgba(14,22,34,.5); padding:13px 14px; cursor:default;
+    transition:border-color .25s ease, box-shadow .25s ease, opacity .25s ease, transform .25s ease}
+  .node:focus-visible{outline:2px solid var(--signal); outline-offset:3px}
+  .node .n-dot{position:absolute; left:14px; top:16px; width:8px; height:8px; border-radius:99px;
+    background:var(--node-c,var(--fog)); box-shadow:0 0 0 0 var(--node-c,var(--fog)); transition:box-shadow .25s ease}
+  .node .n-body{padding-left:18px}
+  .node h3{font-family:var(--display); color:var(--paper); font-weight:600; font-size:14px; margin:0 0 4px;
+    display:flex; flex-wrap:wrap; gap:6px 8px; align-items:baseline}
+  .node h3 .file{font-family:var(--mono); font-size:11px; color:var(--node-c,var(--signal)); font-weight:400}
+  .node p{margin:0; font-size:12.5px; color:var(--fog-bright)}
+  .node .rel-tag{display:inline-block; margin-top:8px; font-family:var(--mono); font-size:10px;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--fog); border:1px solid var(--line);
+    border-radius:99px; padding:2px 8px}
+  /* per-node accent (inherits layer where set) */
+  .node.c-signal{--node-c:var(--signal)} .node.c-add{--node-c:var(--add)}
+  .node.c-sub{--node-c:var(--sub)} .node.c-mul{--node-c:var(--mul)} .node.c-fog{--node-c:var(--fog-bright)}
+
+  /* hover/focus constellation: light the active group, dim the rest */
+  @media (prefers-reduced-motion: no-preference){
+    .board.lit .node:not(.on){opacity:.34}
+    .board.lit .layer:not(.has-on)::before{opacity:.22}
+    .node.on{border-color:var(--node-c,var(--signal));
+      box-shadow:0 0 0 1px var(--node-c,var(--signal)), 0 8px 30px -10px var(--node-c,var(--signal));
+      transform:translateY(-1px)}
+    .node.on .n-dot{box-shadow:0 0 0 5px color-mix(in srgb, var(--node-c,var(--signal)) 22%, transparent)}
+  }
+  /* reduced-motion: no dimming, static legible board, just a quiet focus ring already covered */
+  @media (prefers-reduced-motion: reduce){
+    .node{transition:none}
+    .node.on{border-color:var(--node-c,var(--signal))}
+  }
+
+  /* relationship caption strip under the board */
+  .rel-key{margin-top:18px; border:1px dashed var(--line); border-radius:var(--r);
+    background:rgba(14,22,34,.35); padding:14px clamp(12px,2vw,18px)}
+  .rel-key h4{font-family:var(--display); color:var(--paper); font-weight:600; font-size:13.5px; margin:0 0 6px}
+  .rel-key p{margin:0; font-size:12.5px; color:var(--fog-bright)}
+  .rel-key .hint{font-family:var(--mono); font-size:11px; color:var(--fog); margin-top:8px}
+  .rel-list{display:grid; gap:7px; margin:10px 0 0; grid-template-columns:1fr}
+  @media(min-width:720px){ .rel-list{grid-template-columns:1fr 1fr} }
+  .rel-list li{list-style:none; font-size:12.5px; color:var(--fog-bright); display:flex; gap:9px; align-items:baseline}
+  .rel-list b{color:var(--paper); font-weight:600}
+  .wire{flex:0 0 auto; width:22px; height:0; border-top:2px solid var(--signal); margin-top:9px; border-radius:2px}
+  .wire.add{border-color:var(--add)} .wire.sub{border-color:var(--sub)} .wire.mul{border-color:var(--mul)} .wire.fog{border-color:var(--fog)}
+
+  /* ════════════════ VIEW 2 · FLOW ════════════════ */
+  .flow{position:relative}
+  .flow-rail{display:grid; gap:12px}
+  .fstage{position:relative; border:1px solid var(--line); border-radius:var(--r);
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    padding:15px 16px 15px clamp(58px,8vw,76px); box-shadow:0 16px 38px -28px rgba(0,0,0,.8)}
+  .fstage .fnode{position:absolute; left:clamp(12px,2vw,18px); top:15px; width:42px; height:42px;
+    border-radius:12px; display:grid; place-items:center; font-family:var(--display); font-weight:700;
+    font-size:22px; color:var(--ink); border:3px solid var(--ink);
+    box-shadow:0 0 0 1px var(--line), 0 8px 18px rgba(0,0,0,.4)}
+  .fnode.add{background:var(--add)} .fnode.sub{background:var(--sub)} .fnode.mul{background:var(--mul)}
+  .fnode.run{background:var(--fog)} .fnode.verify{background:var(--signal)}
+  .fnode.idea{background:var(--panel-2); color:var(--paper); border-color:var(--line); font-size:18px}
+  .fhead{display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 12px}
+  .fname{font-family:var(--display); color:var(--paper); font-weight:600; font-size:clamp(15px,2.2vw,19px); letter-spacing:-.01em}
+  .fen{font-family:var(--mono); font-size:11.5px; color:var(--fog)}
+  .ftier{margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--fog);
+    border:1px solid var(--line); border-radius:99px; padding:1px 9px; white-space:nowrap}
+  .ftier.t0{color:var(--fog-bright)} .ftier.t1{color:var(--add); border-color:rgba(94,168,255,.4)}
+  .ftier.t2{color:var(--mul); border-color:rgba(192,139,255,.4)}
+  .fbody{margin:6px 0 0; font-size:13px; color:var(--fog-bright)}
+  .fbody code{font-family:var(--mono); color:var(--paper); font-size:12px}
+  .fchain{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px}
+  .fchain .lnk{font-family:var(--mono); font-size:11.5px; color:var(--fog-bright); white-space:nowrap}
+  .fchain .lnk b{color:var(--paper)}
+  .fchain .sep{color:var(--line)}
+  /* connector tick between stages */
+  .ftick{position:relative; height:14px}
+  .ftick::before{content:"▼"; position:absolute; left:clamp(28px,4.1vw,36px); top:-2px;
+    transform:translateX(-50%); color:var(--fog); font-size:12px}
+
+  /* ⛳ human gate, reused voice */
+  .gate{display:flex; align-items:center; gap:11px; margin:11px 0 0; padding:9px 13px;
+    border-radius:10px; background:rgba(56,225,176,.07); border:1px solid rgba(56,225,176,.32)}
+  .gate .flag{font-size:16px; line-height:1; filter:saturate(1.2)}
+  .gate .lbl{font-family:var(--display); font-weight:600; color:var(--signal); font-size:13px}
+  .gate .sub{color:var(--fog); font-size:12px}
+
+  /* milestone (idea / product / shipped) */
+  .fmile{border-style:dashed; text-align:center; background:rgba(147,164,187,.05)}
+  .fmile.start{background:transparent}
+  .fmile.ship{border-style:solid; border-color:rgba(56,225,176,.4); background:rgba(56,225,176,.06)}
+  .fmile.product{border-style:solid; border-color:rgba(147,164,187,.4); background:rgba(147,164,187,.06)}
+  .fmile .fhead{justify-content:center}
+  .fmile.start .fnode, .fmile .fnode{position:static; margin:0 auto 8px}
+
+  footer{margin-top:42px; padding-top:20px; border-top:1px solid var(--line);
+    font-family:var(--mono); font-size:12px; color:var(--fog); display:flex; flex-wrap:wrap; gap:6px 18px}
+  *:focus-visible{outline:2px solid var(--signal); outline-offset:2px; border-radius:4px}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳到主内容 skip to content</a>
+<div class="wrap">
+
+  <header>
+    <p class="kicker">脚手架内部结构 · 给维护它的人看</p>
+    <h1>脚手架架构 + 流程
+      <span class="en">Scaffold Architecture &amp; Flow · subsystems, relationships, and the end-to-end timeline</span>
+    </h1>
+    <p class="lede">这套开发脚手架不是线性管线，而是<b>分层 + 子系统 + 关系连线</b>的系统。下面第一视图画出八层结构与它们之间的关键接线（<b>悬停或聚焦任一子系统</b>，看它点亮相关节点）；第二视图把它压成一条端到端时间线。配色与 ＋−× 方法主线沿用同仓的「控制塔」总图。</p>
+
+    <div class="tabs" role="tablist" aria-label="两个视图">
+      <button class="tab" id="tab-arch" role="tab" aria-selected="true" aria-controls="view-arch">架构图<span class="t-en">architecture</span></button>
+      <button class="tab" id="tab-flow" role="tab" aria-selected="false" aria-controls="view-flow">流程图<span class="t-en">flow</span></button>
+    </div>
+  </header>
+
+  <main id="main">
+
+  <!-- ══════════ VIEW 1 · ARCHITECTURE ══════════ -->
+  <section class="view" id="view-arch" role="tabpanel" aria-labelledby="tab-arch">
+
+    <div class="tier-row" aria-label="档位示意：各层从哪一档启用">
+      <span class="tier-chip t0"><b>T0 极简</b> 只执行闭环 + 卡/经验/CI</span>
+      <span class="tier-chip t1"><b>T1 标准</b> + 漏斗 + 质量闸 + 收口</span>
+      <span class="tier-chip t2"><b>T2 完整</b> + 前端 + 心跳 + 合并之后</span>
+    </div>
+
+    <div class="board" id="board">
+
+      <!-- LAYER: config -->
+      <section class="layer config">
+        <div class="layer-head">
+          <span class="layer-name">配置层</span>
+          <span class="layer-en">single config point</span>
+        </div>
+        <div class="cells">
+          <article class="node c-signal" tabindex="0" data-rel="config" data-self="config">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>唯一配置点 <span class="file">scripts/_config.ps1</span></h3>
+              <p>GhAccount · FrozenPaths · ProjectTier · PythonVersion · ScaffoldVersion 等项目级常量集中于此；每个脚本与钩子 dot-source 它取值，绝不硬编码。</p>
+              <span class="rel-tag">喂养全部脚本</span>
+            </div>
+          </article>
+          <article class="node c-signal" tabindex="0" data-rel="config" data-self="guard">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>账号守卫 + 冻结守卫 <span class="file">_guard.ps1 · guard-frozen</span></h3>
+              <p>GhAccount 空则 fail-closed 拒一切 gh 写操作；FrozenPaths 经 PreToolUse 钩子拒编辑。两者都只读 _config，配置留空仍优雅降级。</p>
+              <span class="rel-tag">从 _config 取规则</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: funnel -->
+      <section class="layer funnel">
+        <div class="layer-head">
+          <span class="layer-name">前置漏斗 · 想法 → 计划</span>
+          <span class="layer-en">idea to plan front funnel</span>
+          <span class="layer-tier t1">T1+</span>
+        </div>
+        <div class="cells three">
+          <article class="node c-add" tabindex="0" data-rel="funnel plan" data-self="shape">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>shape-idea <span class="file">1-brief</span></h3>
+              <p>发散→收敛：加法找真痛点，减法 KANO/MoSCoW 定 MVP。产出一页简报，人只在闸口定方向。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="funnel plan" data-self="scout">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>scout-options <span class="file">2-options</span></h3>
+              <p>造轮子前先看已有什么：多角度并行搜 + 对抗核验，选地基，决策落 docs/adr。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="funnel plan" data-self="grill">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>grill-design <span class="file">3-plan 前</span></h3>
+              <p>写计划前对设计决策交互式拷问：一次一问、给推荐、消解依赖，提升一次过审率。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="funnel plan cards" data-self="forge">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>plan-forge <span class="file">plan-forge.mjs</span></h3>
+              <p>8 透镜审计计划 + 多裁判对抗核验，裁决通过才投影任务卡。计划是唯一真相源。</p>
+              <span class="rel-tag">投影 → 任务卡</span>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="funnel cards" data-self="decompose">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>decompose-cards <span class="file">specs/tasks/*.md</span></h3>
+              <p>把计划拆成带依赖的任务卡，守 id / 依赖 / DoD / allow-paths；卡是计划的薄投影。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: execution -->
+      <section class="layer exec">
+        <div class="layer-head">
+          <span class="layer-name">执行闭环</span>
+          <span class="layer-en">single-card loop R1-R5</span>
+        </div>
+        <div class="cells">
+          <article class="node c-fog" tabindex="0" data-rel="exec cards quality" data-self="task">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>task-loop <span class="file">task.ps1 R1-R5</span></h3>
+              <p>每张卡一个 agent、一棵 git worktree，并行跑：worktree → TDD（red 证据）→ 剪枝 → 许可 / 防泄露闸 → 第二模型评审 → PR → 合并 → 文档同步。无远端 / 无 Codex 时 <code>-Local</code> 本地完成。</p>
+              <span class="rel-tag">消费任务卡</span>
+            </div>
+          </article>
+          <article class="node c-fog" tabindex="0" data-rel="exec" data-self="worktree">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>worktree 并行窗口 <span class="file">WorktreeRoot</span></h3>
+              <p>冻结点卡先合，其余卡在各自 worktree 并行推进互不阻塞。根目录由 _config 配置。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: quality gates -->
+      <section class="layer quality">
+        <div class="layer-head">
+          <span class="layer-name">质量闸 · 确定性</span>
+          <span class="layer-en">deterministic gates</span>
+        </div>
+        <div class="cells three">
+          <article class="node c-sub" tabindex="0" data-rel="quality cards" data-self="checkcards">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>check-cards <span class="file">check-cards.ps1</span></h3>
+              <p>校验任务卡：id=文件名、status 枚举、branch/worktree 不漂移、dod_command / allow_paths 完整、拒卡文占位符 token 字面量（L61/TD111）。</p>
+            </div>
+          </article>
+          <article class="node c-sub" tabindex="0" data-rel="quality cards" data-self="checkscope">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>范围闸 <span class="file">_scope.ps1 · check-scope.ps1</span></h3>
+              <p>改动是否全在卡 allow_paths 内：段级前缀匹配（非字符前缀）、含通配符的 allow 条目字面保真、禁改名折叠、CJK 路径不 C-quote；越界与不可判（allow 取不到 / 基线不可解析 / diff 失败）皆 fail-closed。判定核由 ship 内联闸与独立入口 <code>check-scope.ps1</code> 共用——后者给「已推送状态的手工恢复」序列一条有退出码的命令（CI 没有范围闸，那条序列此前只是散文）。</p>
+              <span class="rel-tag">一枚核 · 两个入口</span>
+            </div>
+          </article>
+          <article class="node c-sub" tabindex="0" data-rel="quality codex" data-self="review">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>第二评审 · 独立模型 <span class="file">review.ps1</span></h3>
+              <p>按 QUALITY-RUBRIC 判、反自我开脱、不确定即 block；写审分离的第二独立模型（当前 = codex）。fail-closed 新鲜度守卫：评审者非零退出 / 裁决 sha≠HEAD / 旧裁决未刷新即 block。状态名取自 _config 的 ReviewStatusContext（可换后端，不再硬编码）。模型与推理档位同样取自 _config（ReviewModel / ReviewEffort，留空=后端默认），免疫用户级 ~/.codex/config.toml 被 GUI 改写而使合并闸静默失效。阻断态可诊断（TD96）：「跑完了但读不出可用裁决」拆成四态，各带 ASCII 状态码与恢复路由（rubric §5），分类器拒答那态把评审者原文另存 .review/(分支名).raw.txt；裁决存不下来即 block；裁决产物叶子、.review 或其任一祖先是重解析点时即拒（启动与唤起前各判一次，检出后零产物操作、不唤起评审者）。</p>
+              <span class="rel-tag">独立于写码模型</span>
+            </div>
+          </article>
+          <article class="node c-sub" tabindex="0" data-rel="quality" data-self="verify">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>CI verify <span class="file">verify.ps1 · ci.yml</span></h3>
+              <p>确定性 CI 闸：ubuntu-latest（pwsh 预装 · 省 2× 分钟 · 可改 windows/matrix）、无网络、无密钥。job 名 verify，含占位「闸门 2」接 e2e。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
+            </div>
+          </article>
+          <article class="node c-sub" tabindex="0" data-rel="quality" data-self="licenses">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>商用许可闸 <span class="file">check-licenses.ps1</span></h3>
+              <p>扫 PyPI / npm 许可，把不兼容许可挡在合并前。</p>
+            </div>
+          </article>
+          <article class="node c-sub" tabindex="0" data-rel="quality post" data-self="secrets">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>防泄露闸 <span class="file">check-secrets.ps1</span></h3>
+              <p>敏感模式集单一真相源；查已追踪敏感文件 + 硬编码密钥（snake_case / 无引号 / UTF-16）。已接入 task.ps1 ship（提交后、推送前阻断）；变 public 前 -Strict 扫历史须全绿。</p>
+            </div>
+          </article>
+          <article class="node c-sub" tabindex="0" data-rel="quality" data-self="selftest">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>元仓总自检 <span class="file">selftest.ps1</span></h3>
+              <p>17 闸一把跑全：语法 / 经验 / 模板哨兵 / token 覆盖 / 裁决漂移 / 交叉链接 / 计数一致 / 动态 E2E / 种子缺陷（拿已知坏输入验证每道闸真会拦）等，本仓的「verify」。约 12 闸测的是随下游保留的生产脚本（task.ps1/review.ps1/...），init 不再删它，元仓专属子闸检测到已初始化会自跳过（TD15）。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: self-healing / heartbeat -->
+      <section class="layer heal">
+        <div class="layer-head">
+          <span class="layer-name">自净化 · 心跳</span>
+          <span class="layer-en">self-purification &amp; heartbeat</span>
+        </div>
+        <div class="cells three">
+          <article class="node c-mul" tabindex="0" data-rel="heal harness" data-self="lessons">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>经验系统 <span class="file">lessons.ps1</span></h3>
+              <p>三层：铁律（封顶）→ 主题文件 → LEDGER（append-only 真相源）。blocking 经验须填 enforced_by；judgment 喂 HARNESS-REVIEW。</p>
+            </div>
+          </article>
+          <article class="node c-mul" tabindex="0" data-rel="heal" data-self="triage">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>心跳 triage <span class="file">triage.ps1</span></h3>
+              <p>只读扫各子系统（经验晋升 / 技术债 / 活跃卡 / 交接 / 封顶 / harness / effectiveness / worktree）→ 收件箱。只发现不行动，恒退出 0。</p>
+              <span class="rel-tag">只读扫各子系统</span>
+            </div>
+          </article>
+          <article class="node c-mul" tabindex="0" data-rel="heal harness" data-self="harness">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>HARNESS-REVIEW <span class="file">做减法</span></h3>
+              <p>模型升级 / 闸门长期零命中时逐闸 stress-test「这道闸假设的『模型做不到』还成立吗」，一次只删一道。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: design / frontend -->
+      <section class="layer design">
+        <div class="layer-head">
+          <span class="layer-name">设计 / 前端层</span>
+          <span class="layer-en">design &amp; frontend</span>
+          <span class="layer-tier t2">T2 多页</span>
+        </div>
+        <div class="cells three">
+          <article class="node c-add" tabindex="0" data-rel="design" data-self="fedesign">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>frontend-design <span class="file">路由卡</span></h3>
+              <p>UI 设计路由：按需指向 taste-skill / 可装 MIT 插件 / 内置 skill，自带通用设计纪律。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="design" data-self="taste">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>taste-skill <span class="file">vendored MIT</span></h3>
+              <p>反 slop 前端：紧凑 token 系统、避开三种 AI 默认脸、一个 signature 元素、起飞前检查。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="design plan cards" data-self="feflow">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>frontend-flow <span class="file">串联驱动卡</span></h3>
+              <p>T2 前端生成闭环：流程卡 → 喂 plan-forge 投卡、意图卡 → grill-design 拷问。不重造引擎。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0" data-rel="design" data-self="tokens">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>design tokens 真相源 <span class="file">frontend/</span></h3>
+              <p>风格落「tokens / theme」单一真相源（最能改 React 栈），配 frontend/ 骨架 5 闸；可视化路由 pencil MCP。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: discipline & utility skills -->
+      <section class="layer">
+        <div class="layer-head">
+          <span class="layer-name">纪律 &amp; 工具 skill</span>
+          <span class="layer-en">discipline &amp; utility skills</span>
+        </div>
+        <div class="cells three">
+          <article class="node c-add" tabindex="0">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>database-design <span class="file">原创纪律卡</span></h3>
+              <p>关系型 schema 设计纪律：配 plan-forge data-model lens + rubric#13 + docs/lessons/database.md。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>ponytail · ponytail-review <span class="file">vendored MIT</span></h3>
+              <p>双高度极简：设计层 YAGNI 透镜（写测试前）+ 代码层过度工程审查（diff / 全仓两模式）。</p>
+            </div>
+          </article>
+          <article class="node c-add" tabindex="0">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>webapp-testing · mcp-builder · skill-creator <span class="file">内置 pointer 卡</span></h3>
+              <p>真跑浏览器验收 UI · 把能力做成 MCP 工具 · 加/改本仓 skill（各自指向上游内置 skill）。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: post-merge -->
+      <section class="layer post">
+        <div class="layer-head">
+          <span class="layer-name">合并之后 · opt-in</span>
+          <span class="layer-en">post-merge: verify, close-out, release</span>
+          <span class="layer-tier t1">T1+</span>
+        </div>
+        <div class="cells three">
+          <article class="node c-signal" tabindex="0" data-rel="post" data-self="eval">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>eval 方法论 <span class="file">docs/EVAL.md · opt-in</span></h3>
+              <p>确定性 exit-0/1 eval 标准（四维：前端行为 / 后端 MCP / 安全 / 功能）。LLM-judge 留上游不当闸；不带 runner，下游自接 CI。</p>
+            </div>
+          </article>
+          <article class="node c-signal" tabindex="0" data-rel="post" data-self="release">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>发布前收口清单 <span class="file">RELEASE-CHECKLIST.md</span></h3>
+              <p>整合已有闸 + 授权认证自查（IDOR / 会话固定 / token 存储 / CSRF）+ 可观测 + 灰度 / 回滚。小项目取子集。</p>
+            </div>
+          </article>
+          <article class="node c-signal" tabindex="0" data-rel="post" data-self="delivery">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>DELIVERY-OPS <span class="file">方法论 · opt-in</span></h3>
+              <p>集成 / e2e · 结构化日志 · 灰度 / flag · CD 部署 / 回滚。工具无关，脚手架永不自动发布。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYER: handoff / memory -->
+      <section class="layer memory">
+        <div class="layer-head">
+          <span class="layer-name">交接 / 记忆</span>
+          <span class="layer-en">handoff &amp; memory</span>
+        </div>
+        <div class="cells">
+          <article class="node c-fog" tabindex="0" data-rel="memory" data-self="handoff">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>会话交接闸 <span class="file">handoff.ps1</span></h3>
+              <p>介质 = cwd 三件套 task_plan / findings / progress；check 校验 progress 末尾 HANDOFF 块（字段全填、不含模糊措辞）。</p>
+            </div>
+          </article>
+          <article class="node c-fog" tabindex="0" data-rel="memory" data-self="planning">
+            <span class="n-dot" aria-hidden="true"></span>
+            <div class="n-body">
+              <h3>文件化规划 <span class="file">planning-with-files</span></h3>
+              <p>Manus 式三件套跟踪多步任务，跨会话接力；SessionStart 钩子到岗即见交接指针。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+    </div><!-- /board -->
+
+    <div class="rel-key" aria-label="关键关系连线说明">
+      <h4>关键关系连线 · key wires</h4>
+      <p>架构的真相在接线，不在盒子。悬停或键盘聚焦任一子系统会点亮它的关系组：</p>
+      <ul class="rel-list">
+        <li><span class="wire" aria-hidden="true"></span><span><b>_config 喂所有脚本</b>：唯一配置点向上贯穿每一层，留空即各守卫优雅降级。</span></li>
+        <li><span class="wire add" aria-hidden="true"></span><span><b>plan-forge → 任务卡 → task-loop</b>：计划投影成卡，卡被执行闭环消费。</span></li>
+        <li><span class="wire mul" aria-hidden="true"></span><span><b>lessons ↔ HARNESS-REVIEW</b>：judgment 经验喂减法评审，评审结果再回流经验库。</span></li>
+        <li><span class="wire mul" aria-hidden="true"></span><span><b>triage 只读扫各子系统</b>：心跳横切所有层，只发现、不行动、恒退出 0。</span></li>
+        <li><span class="wire sub" aria-hidden="true"></span><span><b>codex = 第二独立模型</b>：写码与评审分离，review.ps1 的裁决独立于实现模型。</span></li>
+        <li><span class="wire add" aria-hidden="true"></span><span><b>frontend-flow → plan-forge / grill-design</b>：前端不另造引擎，复用漏斗的拷问与投影。</span></li>
+      </ul>
+      <p class="hint">提示：移开指针 / 移走焦点即恢复全局视图；偏好减少动态时不做明暗切换，盒子始终全可读。</p>
+    </div>
+  </section>
+
+  <!-- ══════════ VIEW 2 · FLOW ══════════ -->
+  <section class="view" id="view-flow" role="tabpanel" aria-labelledby="tab-flow" hidden>
+
+    <div class="tier-row" aria-label="档位走到哪">
+      <span class="tier-chip t0"><b>T0</b> 跳过漏斗，只到「可运行产品」</span>
+      <span class="tier-chip t1"><b>T1</b> 全链到「上线 · 已验收」</span>
+      <span class="tier-chip t2"><b>T2</b> 全链 + 前端 + 合并之后</span>
+    </div>
+
+    <div class="flow">
+      <div class="flow-rail">
+
+        <section class="fstage fmile start">
+          <div class="fnode idea" aria-hidden="true">◇</div>
+          <div class="fhead"><span class="fname">一句话想法</span><span class="fen">one line idea</span></div>
+        </section>
+        <div class="ftick" aria-hidden="true"></div>
+
+        <section class="fstage">
+          <div class="fnode add" aria-hidden="true">＋</div>
+          <div class="fhead"><span class="fname">漏斗 3 步 · 想法 → 计划</span><span class="fen">shape → scout → grill → plan-forge</span><span class="ftier t1">T1+</span></div>
+          <p class="fbody">发散找痛点 → 收敛定 MVP → 选地基 → 拷问设计 → 8 透镜审计投影任务卡。机器搜集打分投影，不替你拍板。</p>
+          <div class="gate"><span class="flag" aria-hidden="true">⛳</span>
+            <div><span class="lbl">人批方向 / brief / ADR / 计划</span> <span class="sub">每步闸口由人定方向</span></div></div>
+        </section>
+        <div class="ftick" aria-hidden="true"></div>
+
+        <section class="fstage">
+          <div class="fnode sub" aria-hidden="true">−</div>
+          <div class="fhead"><span class="fname">任务卡</span><span class="fen">specs/tasks/*.md</span></div>
+          <p class="fbody">计划的薄投影：带依赖与 MoSCoW 优先级，<code>check-cards</code> 守 id / DoD / allow-paths。T0 直接从这里写卡开干。</p>
+        </section>
+        <div class="ftick" aria-hidden="true"></div>
+
+        <section class="fstage">
+          <div class="fnode run" aria-hidden="true">▶</div>
+          <div class="fhead"><span class="fname">task-loop · 开工执行</span><span class="fen">R1-R5 · 每卡一个 agent</span></div>
+          <p class="fbody">并行窗口：每卡一棵 worktree 跑完整闭环（整链 fail-closed：非零即停、不确定即 block）。绕过 ship 主路的手工恢复用 <code>check-scope</code> 补回范围闸那一步。</p>
+          <div class="fchain" aria-label="单卡闭环 R1 到 R5">
+            <span class="lnk"><b>R1</b> worktree</span><span class="sep">›</span>
+            <span class="lnk"><b>R2</b> TDD · red 证据</span><span class="sep">›</span>
+            <span class="lnk">剪枝</span><span class="sep">›</span>
+            <span class="lnk">许可 / 防泄露闸</span><span class="sep">›</span>
+            <span class="lnk"><b>R3</b> 第二模型评审</span><span class="sep">›</span>
+            <span class="lnk">PR / 合并 · 或 -Local</span><span class="sep">›</span>
+            <span class="lnk"><b>R5</b> 文档同步</span>
+          </div>
+        </section>
+        <div class="ftick" aria-hidden="true"></div>
+
+        <section class="fstage fmile product">
+          <div class="fnode run" aria-hidden="true">✦</div>
+          <div class="fhead"><span class="fname" style="color:var(--paper)">可运行产品</span><span class="fen">running product</span><span class="ftier t0">T0 到此即可</span></div>
+        </section>
+        <div class="ftick" aria-hidden="true"></div>
+
+        <section class="fstage">
+          <div class="fnode verify" aria-hidden="true">✓</div>
+          <div class="fhead"><span class="fname">验收 → 收口 → 防泄露</span><span class="fen">eval → release-checklist → check-secrets</span><span class="ftier t1">T1+</span></div>
+          <p class="fbody">跑起来不等于做完：按 <code>EVAL.md</code> 方法论自评完成度 → <code>RELEASE-CHECKLIST</code> 收口 → 变 public 前 <code>check-secrets -Strict</code> 须全绿。</p>
+          <div class="gate"><span class="flag" aria-hidden="true">⛳</span>
+            <div><span class="lbl">人批发布</span> <span class="sub">三闸全绿后由人定上线</span></div></div>
+        </section>
+        <div class="ftick" aria-hidden="true"></div>
+
+        <section class="fstage fmile ship">
+          <div class="fnode verify" aria-hidden="true">★</div>
+          <div class="fhead"><span class="fname" style="color:var(--signal)">上线 · 已验收</span><span class="fen">shipped &amp; verified</span><span class="ftier t2">T2 + 合并之后</span></div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  </main>
+
+  <footer>
+    <span>真相源 source: CLAUDE.md 交付链表</span>
+    <span>动态总图 timeline: docs/idea-to-plan-diagram.html</span>
+    <span>RSI: perspiration 自动化 · direction 归人</span>
+  </footer>
+</div>
+
+<script>
+  // Vanilla, no storage, no framework.
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ── Tab switching ──
+    var tabs = [document.getElementById('tab-arch'), document.getElementById('tab-flow')];
+    var views = { 'view-arch': document.getElementById('view-arch'), 'view-flow': document.getElementById('view-flow') };
+    function select(tab){
+      tabs.forEach(function(t){
+        var on = (t === tab);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        var v = views[t.getAttribute('aria-controls')];
+        if(v){ v.hidden = !on; }
+      });
+    }
+    tabs.forEach(function(t, i){
+      t.addEventListener('click', function(){ select(t); });
+      t.addEventListener('keydown', function(e){
+        if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+          e.preventDefault();
+          var next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+          next.focus(); select(next);
+        }
+      });
+    });
+
+    // ── Signature: relationship constellation ──
+    // Hover/focus a node -> light its data-rel group, dim the rest.
+    // Under reduced motion we keep the board fully legible (no dimming), only
+    // the focus ring (CSS) marks the active cell.
+    var board = document.getElementById('board');
+    if(!board) return;
+    var nodes = Array.prototype.slice.call(board.querySelectorAll('.node'));
+
+    function relSet(node){
+      return (node.getAttribute('data-rel') || '').split(/\s+/).filter(Boolean);
+    }
+    function light(active){
+      if(reduce){
+        // static mode: only mark the active node, no global dimming
+        nodes.forEach(function(n){ n.classList.toggle('on', n === active); });
+        return;
+      }
+      var rels = relSet(active);
+      board.classList.add('lit');
+      nodes.forEach(function(n){
+        var share = relSet(n).some(function(r){ return rels.indexOf(r) !== -1; });
+        n.classList.toggle('on', n === active || share);
+      });
+      // mark which layers contain a lit node (to keep their rail bright)
+      board.querySelectorAll('.layer').forEach(function(layer){
+        layer.classList.toggle('has-on', !!layer.querySelector('.node.on'));
+      });
+    }
+    function clearLight(){
+      board.classList.remove('lit');
+      nodes.forEach(function(n){ n.classList.remove('on'); });
+      board.querySelectorAll('.layer').forEach(function(l){ l.classList.remove('has-on'); });
+    }
+
+    nodes.forEach(function(n){
+      n.addEventListener('mouseenter', function(){ light(n); });
+      n.addEventListener('mouseleave', clearLight);
+      n.addEventListener('focus', function(){ light(n); });
+      n.addEventListener('blur', clearLight);
+    });
+  })();
+</script>
+</body>
+</html>

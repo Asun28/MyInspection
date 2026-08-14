@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# 闸 2 · 接口单一真相源：后端 OpenAPI/JSON-Schema → 前端 TS 类型。
+# 拷掉 .example 后缀即用。前端只 import 这里生成的类型,禁止手写后端字段 → 字段名物理上无法漂移。
+# 在 CI / 构建期跑;生成物 src/types/api.ts 可 gitignore(每次重生成)。
+set -euo pipefail
+
+SCHEMA="${1:-../backend/openapi.json}"   # 后端导出的 OpenAPI(或 JSON-Schema)
+OUT="${2:-src/types/api.ts}"
+
+if [ ! -f "$SCHEMA" ]; then
+  echo "[gen-api-types] 找不到后端 schema: $SCHEMA" >&2
+  echo "  让后端先导出 OpenAPI(FastAPI: app.openapi();其它框架按需),或改第 1 参数指向它。" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$OUT")"
+npx openapi-typescript "$SCHEMA" -o "$OUT"
+echo "[gen-api-types] 已生成 $OUT —— 前端只 import 此文件的类型,勿手写后端字段。"

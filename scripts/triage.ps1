@@ -1,0 +1,394 @@
+﻿#requires -Version 7
+<#
+.SYNOPSIS
+  脚手架的「心跳」(heartbeat)：按节律(cadence)对本仓做一次**只读、离线、确定性**的扫描，
+  发现「待办信号」汇成 triage 收件箱——把 loop-engineering 的「自动发现 + 分诊」机械化，
+  让人/agent 只需读收件箱、决定**做哪件**，而非手动巡检各子系统。
+
+.DESCRIPTION
+  动机（addy osmani《Loop Engineering》组件①「the heartbeat」+ Anthropic《Recursive Self-Improvement》
+  「把 perspiration 自动化、人保留 direction-setting」）：脚手架原本全是**按需**触发（task start/ship/cleanup），
+  缺一个定期**发现**待办的回路。本脚本扫描既有子系统的本地信号（**不打网络/不调 gh**，纯文件解析）：
+    - lessons-promote : LEDGER 里仍在 ledger 层、却已达晋升门槛（recurrence≥2 或 severity=blocking）的经验
+    - tech-debt-open  : specs/tech-debt-tracker.md 里 status=open 的债项（持续小额还债的待还队列）
+    - cards-active    : specs/tasks/*.md 里 status=in-progress|in-review 的在飞卡（可能待续/待评审）
+    - handoff-open    : cwd 若有 progress.md，其 HANDOFF STATUS≠done/handoff-ready（交接未收口）；
+                        另查 in-progress|in-review 卡的 worktree 内 progress.md（主检出续接不再对 worktree 交接失明）
+    - lessons-cap     : 必须层（CLAUDE.md 经验铁律）逼近/达到封顶（该做减法了，见 HARNESS-REVIEW）
+    - harness-refresh : judgment 经验累积达门槛——该双向自我改进（删旧闸 + 主动搜更优工具/方法纳新，见 HARNESS-REVIEW / L26）
+    - effectiveness   : _local/effectiveness-ledger.jsonl 里各闸拦截计数——喂 HARNESS-REVIEW 据计数+ship 次数做减法（TD2；TD9 分母经 review 否决，见 ADR 0003）
+    - worktree-orphan : WorktreeRoot 下卡已 merged 却没拆的残留 worktree（cleanup 漏跑 / 半合并遗留，TD3）
+  每信号产出一条 finding（severity + 一行 what + 建议的下一步命令），汇成 markdown 收件箱。
+  **只发现、不行动**：绝不写仓内被跟踪文件、绝不 git/gh 写操作；act 走既有交付链
+  （task-loop skill / lessons promote / 开卡偿还 / handoff check）。退出码恒 0（reporter，非闸门）。
+
+  收件箱默认写到 _local/triage-inbox.md（gitignored，运行时态）。无 _config 依赖也能跑（优雅降级）。
+
+.PARAMETER Verb     scan（扫描并写收件箱+打印摘要） | list（只打印上次收件箱，不重扫） |
+                    selfcheck（探针 4 的 hermetic 自检：临时夹具、输出断言，见该段头注）。默认 scan。
+.PARAMETER OutFile  收件箱路径（默认 _local/triage-inbox.md）。
+.PARAMETER NoWrite  只报不写（selftest 干跑用：核验扫描在默认配置下不抛异常）。
+.PARAMETER Quiet    静默：仅退出码与一行计数，不打印 finding 明细。
+.EXAMPLE
+  pwsh -File scripts\triage.ps1                 # 扫描，写 _local/triage-inbox.md
+.EXAMPLE
+  pwsh -File scripts\triage.ps1 scan -NoWrite   # 只报不写（selftest 用）
+.EXAMPLE
+  pwsh -File scripts\triage.ps1 selfcheck       # 探针 4 自检（末行 'triage selfcheck: PASS' 即绿）
+#>
+[CmdletBinding()]
+param(
+  [Parameter(Position = 0)][ValidateSet('scan', 'list', 'selfcheck')][string]$Verb = 'scan',
+  [string]$OutFile,
+  [switch]$NoWrite,
+  [switch]$Quiet
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
+. (Join-Path $PSScriptRoot '_cards.ps1')
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+# _config 仅取 LessonsMustCap；缺失/留空亦能跑（fail-safe 默认）。
+$MustCap = 10
+try {
+  . (Join-Path $PSScriptRoot '_config.ps1')
+  if ($ScaffoldConfig -and $ScaffoldConfig.LessonsMustCap) { $MustCap = [int]$ScaffoldConfig.LessonsMustCap }
+} catch { }
+
+if (-not $OutFile) { $OutFile = Join-Path $RepoRoot '_local/triage-inbox.md' }
+
+$Ledger    = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
+$TechDebt  = Join-Path $RepoRoot 'specs/tech-debt-tracker.md'
+$TasksDir  = Join-Path $RepoRoot 'specs/tasks'
+$ClaudeMd  = Join-Path $RepoRoot 'CLAUDE.md'
+
+# finding 累加器：每条 = @{ probe; severity(blocking|major|minor); what; next }
+$findings = [System.Collections.Generic.List[object]]::new()
+function Add-Finding($probe, $severity, $what, $next) {
+  $findings.Add([pscustomobject]@{ probe = $probe; severity = $severity; what = $what; next = $next })
+}
+
+# 只认**末尾**的 HANDOFF 块（同 handoff.ps1 Read-Block 契约）：progress.md 若被误 append 新块而非
+# 原地编辑，[regex]::Match 的懒惰首匹配会读到过期首块——TD57/TD-120。返回 Match 对象或 $null。
+function Get-LastHandoffBlock([string]$text) {
+  $ms = [regex]::Matches($text, '(?s)<!--\s*HANDOFF:START\s*-->(.*?)<!--\s*HANDOFF:END\s*-->')
+  if ($ms.Count -gt 0) { return $ms[$ms.Count - 1] } else { return $null }
+}
+
+# ── 探针 1：lessons-promote（LEDGER 里仍在 ledger 层却已达晋升门槛）──
+function Invoke-ProbeLessons {
+  if (-not (Test-Path $Ledger)) { return }
+  $raw = Get-Content $Ledger -Raw
+  $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d)') | Where-Object { $_ -match '^L\d' }
+  foreach ($b in $blocks) {
+    $id   = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
+    $tier = ([regex]::Match($b, 'tier:\s*(\w+)')).Groups[1].Value
+    $sev  = ([regex]::Match($b, 'severity:\s*(\w+)')).Groups[1].Value
+    $recM = [regex]::Match($b, 'recurrence:\s*(\d+)')
+    $rec  = if ($recM.Success) { [int]$recM.Groups[1].Value } else { 0 }
+    # 只盯**未经分层（ledger）**且达客观门槛者；ondemand/must 已是有意安置，不打扰。
+    if ($tier -eq 'ledger' -and ($rec -ge 2 -or $sev -eq 'blocking')) {
+      $why = if ($sev -eq 'blocking') { "severity=blocking" } else { "recurrence=$rec" }
+      Add-Finding 'lessons-promote' 'major' `
+        "$id 仍在总账层却已达晋升门槛（$why）——经验未沉淀为按需/必须层，下次仍可能重导。" `
+        "pwsh -File scripts\lessons.ps1 promote $id"
+    }
+  }
+}
+
+# ── 探针 2：tech-debt-open（status=open 的债项）──
+# 分列助手 Split-TdRow 共享自 _cards.ps1。
+function Invoke-ProbeTechDebt {
+  if (-not (Test-Path $TechDebt)) { return }
+  $lines = Get-Content $TechDebt
+  # 状态列位置从表头行（首列字面 'id'）动态定位「状态」文本所在列，不再硬编码 5——
+  # 防表结构调整时静默错位；表头缺失/改名时兜底回旧默认位置（fail-safe，非致命 reporter）。
+  $statusIdx = 5
+  foreach ($line in $lines) {
+    if ($line -notmatch '^\s*\|') { continue }
+    $cells = Split-TdRow $line
+    if ($cells.Count -ge 1 -and $cells[0] -eq 'id') {
+      $idx = [array]::IndexOf($cells, '状态')
+      if ($idx -ge 0) { $statusIdx = $idx }
+      break
+    }
+  }
+  foreach ($line in $lines) {
+    if ($line -notmatch '^\s*\|') { continue }
+    $cells = Split-TdRow $line
+    if ($cells.Count -lt 2) { continue }
+    $id = $cells[0]
+    # 跳过表头、分隔行、示例行
+    if ($id -match '^-+$' -or $id -eq 'id' -or $id -match '示例|example') { continue }
+    if ($cells.Count -le $statusIdx) {
+      # 列数不足状态列位置：曾静默 continue（漏检不可见）——改 fail-loud 警告，指名该债项，
+      # 但仍不阻断心跳（reporter 契约恒 exit 0）。
+      Write-Warning "triage tech-debt 探针：债项 $id 行结构异常（列数 $($cells.Count) ≤ 状态列索引 $statusIdx）——已警告而非静默跳过，请检查该行是否有未转义的竖线字符或缺列。"
+      continue
+    }
+    $status = $cells[$statusIdx]
+    # 大小写不敏感前缀匹配（PowerShell -match 默认不区分大小写）：覆盖 Open / open (partial) 等
+    # 变体，不再要求与 'open' 精确相等。
+    if ($status -match '^open') {
+      Add-Finding 'tech-debt-open' 'major' `
+        "技术债 $id 未还（$($cells[2])）：$($cells[3])" `
+        "转卡偿还（specs\tasks\<id>.md）或记 ADR（docs\adr\）接受，并在 tech-debt-tracker 改 status。"
+    }
+  }
+}
+
+# ── 探针 3：cards-active（在飞卡）──
+function Invoke-ProbeCards {
+  if (-not (Test-Path $TasksDir)) { return }
+  $cards = Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne '_TEMPLATE.md'
+  foreach ($c in $cards) {
+    $fm = Get-FrontMatter (Get-Content $c.FullName -Raw)
+    if (-not $fm) { continue }
+    $status = ([regex]::Match($fm, '(?m)^status\s*:\s*(.*?)\s*$')).Groups[1].Value
+    $id = [IO.Path]::GetFileNameWithoutExtension($c.FullName)
+    if ($status -eq 'in-progress') {
+      Add-Finding 'cards-active' 'minor' "卡 $id 在施工（in-progress）——确认未被中断遗留。" "pwsh -File scripts\task.ps1 -TaskId $id -Phase ship"
+    } elseif ($status -eq 'in-review') {
+      Add-Finding 'cards-active' 'minor' "卡 $id 待评审（in-review）——R3 闸门可能未收口。" "pwsh -File scripts\review.ps1（或重跑 task.ps1 ship）"
+    }
+  }
+}
+
+# ── 探针 4：handoff-open（cwd 交接未收口 + 在飞卡 worktree 内的交接未收口）──
+# 交接曾严格 cwd 视角：主检出续接时看不见卡 worktree 里写的 HANDOFF。故对 in-progress|in-review 卡
+# 额外查 <WorktreeRoot>\<id>\progress.md；worktree 即当前 cwd 时跳过（防重复发现）。配置留空/WorktreeRoot 异常
+# 时 try/catch 优雅跳过（同探针 9）。仍是 reporter：只读、恒退出 0、零 gh 写。
+function Invoke-ProbeHandoff {
+  $cwd = (Get-Location).Path.TrimEnd('\', '/')
+  $prog = Join-Path $cwd 'progress.md'
+  if (Test-Path $prog) {
+    $m = Get-LastHandoffBlock (Get-Content $prog -Raw)
+    if ($m) {
+      $status = ([regex]::Match($m.Groups[1].Value, '(?m)^\s*STATUS:\s*(.*?)\s*$')).Groups[1].Value
+      if ($status -and $status -notin @('done', 'handoff-ready')) {
+        Add-Finding 'handoff-open' 'major' "cwd 交接未收口（STATUS=$status）——下个 session 续接前须填好 HANDOFF 块。" "pwsh -File scripts\handoff.ps1 check"
+      }
+    }
+  }
+  try {
+    $wtRoot = Get-ScaffoldWorktreeRoot
+    if (-not $wtRoot -or -not (Test-Path $TasksDir)) { return }
+    $cards = Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne '_TEMPLATE.md'
+    foreach ($c in $cards) {
+      $fm = Get-FrontMatter (Get-Content $c.FullName -Raw)
+      if (-not $fm) { continue }
+      $status = ([regex]::Match($fm, '(?m)^status\s*:\s*(.*?)\s*$')).Groups[1].Value
+      if ($status -notin @('in-progress', 'in-review')) { continue }
+      $id = [IO.Path]::GetFileNameWithoutExtension($c.FullName)
+      $wtDir = (Join-Path $wtRoot $id).TrimEnd('\', '/')
+      if ($wtDir -eq $cwd) { continue }   # worktree 即当前 cwd → 上方已查，跳过防重复发现
+      $wtProg = Join-Path $wtDir 'progress.md'
+      if (-not (Test-Path $wtProg)) { continue }
+      $wm = Get-LastHandoffBlock (Get-Content $wtProg -Raw)
+      if (-not $wm) { continue }
+      $wtStatus = ([regex]::Match($wm.Groups[1].Value, '(?m)^\s*STATUS:\s*(.*?)\s*$')).Groups[1].Value
+      if ($wtStatus -and $wtStatus -notin @('done', 'handoff-ready')) {
+        Add-Finding 'handoff-open' 'major' `
+          "卡 $id 的 worktree 交接未收口（STATUS=$wtStatus）——主检出续接前先读它的 HANDOFF 块。" `
+          "pwsh -File scripts\handoff.ps1 show -Path $wtProg"
+      }
+    }
+  } catch { return }
+}
+
+# ── 探针 5：lessons-cap（必须层逼近/达封顶）──
+function Invoke-ProbeCap {
+  if (-not (Test-Path $ClaudeMd)) { return }
+  $sec = [regex]::Match((Get-Content $ClaudeMd -Raw), '(?s)## 经验铁律.*?(?=\n## |\z)').Value
+  $n = ([regex]::Matches($sec, '(?m)^\s*-\s+\*\*')).Count
+  if ($n -ge $MustCap) {
+    Add-Finding 'lessons-cap' 'minor' "必须层经验已 $n/$MustCap（达封顶）——再加铁律前须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层。"
+  }
+}
+
+# ── 探针 6：harness-refresh（judgment 经验累积 → 该双向自我改进：删旧闸 + 主动搜更优工具/方法纳新）──
+# self-improvement 的另一极：HARNESS-REVIEW 不只"做减法删闸门"，也"做加法/替换——搜更优工具/方法纳入"（L26）。
+# judgment 经验是"方向/工具品味可能更优"的标记；累积到门槛即提醒走双向复审。reporter，非闸门。
+function Invoke-ProbeRefresh {
+  if (-not (Test-Path $Ledger)) { return }
+  $raw = Get-Content $Ledger -Raw
+  $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d)') | Where-Object { $_ -match '^L\d' }
+  $jud = @($blocks | Where-Object { $_ -match '(?m)kind:\s*judgment' })
+  if ($jud.Count -ge 3) {
+    Add-Finding 'harness-refresh' 'minor' `
+      "judgment 经验已积累 $($jud.Count) 条——self-improvement 宜双向：删旧闸 + 主动搜更优工具/方法纳新。" `
+      "走 docs\HARNESS-REVIEW.md：逐条复审 judgment（方向品味是否提升）+ 评估更优工具/方法替换（见 L26：方法论优先于工具）。"
+  }
+}
+
+# ── 探针 8：effectiveness（效果账本：各 ship 闸的真实拦截计数 → 喂 HARNESS-REVIEW 据计数 + ship 次数做减法）──
+# task.ps1 ship 真拦截时写 _local/effectiveness-ledger.jsonl（TD2）：拦截记一行 {gate}。本探针只**汇总暴露各闸拦截数**，
+# 不算比率（denominator/ship 次数靠 git/PR history 人工判，非账本内——见 ADR 0003：denominator 探针化被 review 否决）、
+# 不替你判减法（0 拦截≠该删：可能沉默防护，HARNESS-REVIEW 的活）。
+# fail-safe：任何坏行（非对象 / 缺 gate / 非法 JSON）一律跳过——绝不让一行坏数据崩掉心跳（退出码须恒 0）。
+function Invoke-ProbeEffectiveness {
+  # 账本路径可被 $env:SCAFFOLD_EFFECTIVENESS_LEDGER 覆盖——仅供 selftest 12b 注入隔离临时账本（hermetic，不碰生产 _local 文件）。
+  $ledger = if ($env:SCAFFOLD_EFFECTIVENESS_LEDGER) { $env:SCAFFOLD_EFFECTIVENESS_LEDGER } else { Join-Path $RepoRoot '_local/effectiveness-ledger.jsonl' }
+  if (-not (Test-Path $ledger)) { return }
+  $byGate = @{}; $total = 0
+  foreach ($line in (Get-Content $ledger -ErrorAction SilentlyContinue)) {
+    if (-not ($line -and $line.Trim())) { continue }
+    $t = $line.Trim()
+    if (-not $t.StartsWith('{')) { continue }   # 只认对象行 {…}：数组 [..]/标量/null/空串先按开头字符筛掉（治单元素数组 [{…}] 被管道解包误计）
+    $g = $null
+    try {
+      $o = $t | ConvertFrom-Json
+      # 整段 try/catch 是 **load-bearing 兜底**（勿收窄回只裹 ConvertFrom-Json，会重现 ADR 0003 崩溃）：
+      # `{not json` 解析抛、空对象 `{}` 在 strict-mode 下 .PSObject.Properties.Name 访问也抛——都靠它 catch→跳过。
+      if (($o -is [System.Management.Automation.PSCustomObject]) -and ($o.PSObject.Properties.Name -contains 'gate')) { $g = $o.gate }
+    } catch { continue }
+    if (-not $g) { continue }
+    if ($byGate.ContainsKey($g)) { $byGate[$g]++ } else { $byGate[$g] = 1 }
+    $total++
+  }
+  if ($total -lt 1) { return }
+  $known = @('dod', 'license', 'secrets', 'review')
+  $breakdown = ($known | ForEach-Object { $c = if ($byGate.ContainsKey($_)) { $byGate[$_] } else { 0 }; "${_}:$c" }) -join ' '
+  $zero = @($known | Where-Object { -not $byGate.ContainsKey($_) })
+  $zeroNote = if ($zero.Count) { "；0 拦截（须结合 ship 次数判沉默防护）：$($zero -join ', ')" } else { '' }
+  Add-Finding 'effectiveness' 'minor' `
+    "效果账本：$total 次闸拦截（$breakdown）$zeroNote——喂 HARNESS-REVIEW 据各闸拦截数 + ship 次数（看 history）做减法判断。" `
+    "读 _local\effectiveness-ledger.jsonl；走 docs\HARNESS-REVIEW.md：多次 ship 仍 0 拦截的闸才是减法候选（denominator 看 git/PR history）。"
+}
+
+# ── 探针 9：worktree-orphan（卡已 merged 却 worktree 没拆 → cleanup 漏跑 / 半合并遗留）──
+# 治盲点#3（ship 非原子；被中断/漏 cleanup 会留残留 worktree，triage 此前看不到）。纯文件：列 WorktreeRoot 下目录，
+# 对每个 <TaskId> 看本仓 specs/tasks/<TaskId>.md——status=merged 还留着 = 该拆没拆。无对应卡的目录跳过
+# （WorktreeRoot 可能跨项目共享，避免误报他仓 worktree）。WorktreeRoot 不存在即跳过。reporter 非闸门。
+function Invoke-ProbeOrphanWorktree {
+  $wtRoot = $null
+  try { $wtRoot = Get-ScaffoldWorktreeRoot } catch { return }
+  if (-not $wtRoot -or -not (Test-Path $wtRoot)) { return }
+  foreach ($d in (Get-ChildItem -Path $wtRoot -Directory -ErrorAction SilentlyContinue)) {
+    $card = Join-Path $TasksDir "$($d.Name).md"
+    if (-not (Test-Path $card)) { $card = Join-Path $RepoRoot "specs/archive/tasks/$($d.Name).md" }   # 卡可能已归档（merged → specs/archive/tasks/，见 archive.ps1）——续查冷存，别对已归档的 merged 卡漏报孤儿 worktree
+    if (-not (Test-Path $card)) { continue }   # 两处都无对应卡 → 可能是他仓 worktree，跳过避免误报
+    $fm = Get-FrontMatter (Get-Content $card -Raw)
+    if (-not $fm) { continue }
+    $status = ([regex]::Match($fm, '(?m)^status\s*:\s*(.*?)\s*$')).Groups[1].Value
+    if ($status -eq 'merged') {
+      Add-Finding 'worktree-orphan' 'major' `
+        "卡 $($d.Name) 已 merged 却仍留 worktree（$($d.FullName)）——cleanup 漏跑 / 半合并遗留。" `
+        "确认无未推改动后：pwsh -File scripts\task.ps1 -TaskId $($d.Name) -Phase cleanup"
+    }
+  }
+}
+
+# ── selfcheck：探针 4（handoff-open 跨 worktree）的 hermetic 自检（R3 rubric #6：新逻辑须有自证测试）──
+# 夹具全建在系统临时目录、finally 清理——绝不读写真仓/真 worktree/_local（对齐 selftest 12b 的 hermetic 模式）。
+# 恪守 reporter 契约「退出码恒 0」（本卡 forbid）：核验以**输出断言**为准（同 selftest 12b 对探针 8 的
+# 'dod:1' 输出断言模式）——全绿打印末行 'triage selfcheck: PASS'；任一断言失败则逐条打印 'FAIL <原因>'
+# 且**无** PASS 行。常设接线（selftest 12c 断言输出含 'selfcheck: PASS'）属 selftest.ps1，另卡收编。
+if ($Verb -eq 'selfcheck') {
+  $fxRoot = Join-Path ([IO.Path]::GetTempPath()) "scaffold-triage-selfcheck-$PID"
+  $fails = [System.Collections.Generic.List[string]]::new()
+  try {
+    # 夹具：4 张卡覆盖四态——A in-progress+未收口(须报) / B in-review+blocked(须报) / C todo(须忽略) / D in-progress+已收口(须忽略)
+    $fxCards = Join-Path $fxRoot 'cards'; $fxWt = Join-Path $fxRoot 'wt'; $fxCwd = Join-Path $fxRoot 'cwd'
+    New-Item -ItemType Directory -Force $fxCards, $fxCwd | Out-Null
+    foreach ($t in @(
+        @{ id = 'T8-SC-A'; card = 'in-progress'; handoff = 'in-progress' },
+        @{ id = 'T8-SC-B'; card = 'in-review';   handoff = 'blocked' },
+        @{ id = 'T8-SC-C'; card = 'todo';        handoff = 'in-progress' },
+        @{ id = 'T8-SC-D'; card = 'in-progress'; handoff = 'handoff-ready' })) {
+      Set-Content -Path (Join-Path $fxCards "$($t.id).md") -Value "---`nid: $($t.id)`nstatus: $($t.card)`n---" -Encoding utf8
+      $d = Join-Path $fxWt $t.id
+      New-Item -ItemType Directory -Force $d | Out-Null
+      Set-Content -Path (Join-Path $d 'progress.md') -Value "<!-- HANDOFF:START -->`nSTATUS: $($t.handoff)`n<!-- HANDOFF:END -->" -Encoding utf8
+    }
+    $TasksDir = $fxCards                                   # 注入：探针读脚本作用域 $TasksDir（仅本进程；selfcheck 打印后即退出）
+    function Get-ScaffoldWorktreeRoot { $fxWt }            # 注入：影蔽 _config 的 worktree 根，指向夹具
+    # 用例 1：主检出视角（cwd ≠ 任何 worktree）→ 恰报 A、B 两条，next 均为 handoff.ps1 show -Path <该 worktree progress.md>
+    $findings.Clear(); Push-Location $fxCwd
+    try { Invoke-ProbeHandoff } finally { Pop-Location }
+    $hits = @($findings | Where-Object probe -eq 'handoff-open')
+    if ($hits.Count -ne 2) { $fails.Add("用例1 期望 2 条 handoff-open（in-progress+in-review），实得 $($hits.Count)") }
+    if (-not ($hits | Where-Object { $_.next -match 'handoff\.ps1 show -Path .*T8-SC-A' })) { $fails.Add('用例1 缺 in-progress 卡（A）的 show -Path 指针') }
+    if (-not ($hits | Where-Object { $_.next -match 'handoff\.ps1 show -Path .*T8-SC-B' })) { $fails.Add('用例1 缺 in-review 卡（B）的 show -Path 指针') }
+    # 用例 2：cwd = 卡 A 的 worktree → A 走 cwd 探针（next=check），跨 worktree 项对 A 必须去重
+    $findings.Clear(); Push-Location (Join-Path $fxWt 'T8-SC-A')
+    try { Invoke-ProbeHandoff } finally { Pop-Location }
+    if (@($findings | Where-Object { $_.next -match 'show -Path .*T8-SC-A' }).Count -ne 0) { $fails.Add('用例2 worktree=cwd 未去重（A 被跨 worktree 重复上报）') }
+    if (@($findings | Where-Object { $_.next -eq 'pwsh -File scripts\handoff.ps1 check' }).Count -ne 1) { $fails.Add('用例2 期望恰 1 条 cwd handoff-open（next=check）') }
+    # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
+    Remove-Item function:Get-ScaffoldWorktreeRoot
+    $findings.Clear(); Push-Location $fxCwd
+    try { Invoke-ProbeHandoff } catch { $fails.Add("用例3 配置缺失时抛异常：$($_.Exception.Message)") } finally { Pop-Location }
+    if (@($findings).Count -ne 0) { $fails.Add('用例3 配置缺失仍产出发现（应整段优雅跳过）') }
+  } catch {
+    $fails.Add("selfcheck 夹具/执行异常：$($_.Exception.Message)")
+  } finally {
+    Remove-Item $fxRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  if ($fails.Count) {
+    foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
+    Write-Host 'triage selfcheck: FAIL'
+  } else {
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree：检出 in-progress/in-review · 忽略 todo/已收口 · cwd 去重 · 缺配置优雅跳过）' -ForegroundColor Green
+  }
+  exit 0
+}
+
+if ($Verb -eq 'list') {
+  if (Test-Path $OutFile) { Get-Content $OutFile -Raw | Write-Host }
+  else { Write-Host "（尚无收件箱：先 pwsh -File scripts\triage.ps1 scan）" -ForegroundColor DarkGray }
+  exit 0
+}
+
+# --- scan ---
+Invoke-ProbeLessons
+Invoke-ProbeTechDebt
+Invoke-ProbeCards
+Invoke-ProbeHandoff
+Invoke-ProbeCap
+Invoke-ProbeRefresh
+Invoke-ProbeEffectiveness
+Invoke-ProbeOrphanWorktree
+
+$order = @{ blocking = 0; major = 1; minor = 2 }
+$sorted = $findings | Sort-Object @{ Expression = { $order[$_.severity] } }, probe
+$ts = (Get-Date -Format 'yyyy-MM-dd HH:mm')   # 注：脚本运行时取，非 LLM 编造
+
+# 组装 markdown 收件箱
+$sb = [System.Text.StringBuilder]::new()
+[void]$sb.AppendLine('# Triage 收件箱（脚手架心跳）')
+[void]$sb.AppendLine('')
+[void]$sb.AppendLine("> 生成: $ts ｜ 信号 $($findings.Count) 条。**只发现不行动**——act 走既有交付链（task-loop / lessons promote / 开卡 / handoff）。")
+[void]$sb.AppendLine('> 标准/动机见 docs/LOOP-ENGINEERING.md。本文件 gitignored、每次 scan 覆盖。')
+[void]$sb.AppendLine('')
+if ($findings.Count -eq 0) {
+  [void]$sb.AppendLine('无待办信号 ✓（各子系统已收口）。')
+} else {
+  foreach ($f in $sorted) {
+    [void]$sb.AppendLine("- **[$($f.severity)] $($f.probe)** — $($f.what)")
+    [void]$sb.AppendLine("  - → $($f.next)")
+  }
+}
+$inbox = $sb.ToString()
+
+if (-not $NoWrite) {
+  $dir = Split-Path -Parent $OutFile
+  if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+  Set-Content -Path $OutFile -Value $inbox -Encoding utf8
+}
+
+if (-not $Quiet) {
+  $rel = $OutFile.Replace($RepoRoot + '\', '')
+  if ($findings.Count -eq 0) {
+    Write-Host "triage: 无待办信号 ✓" -ForegroundColor Green
+  } else {
+    Write-Host "triage: $($findings.Count) 条待办信号" -ForegroundColor Yellow
+    foreach ($f in $sorted) { Write-Host ("  [{0,-8}] {1,-15} {2}" -f $f.severity, $f.probe, $f.what) }
+  }
+  if (-not $NoWrite) { Write-Host "  收件箱 → $rel" -ForegroundColor DarkGray }
+} else {
+  Write-Host "triage: $($findings.Count) 条信号"
+}
+exit 0

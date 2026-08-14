@@ -1,0 +1,22 @@
+# backend/conftest.py — pytest 全局 fixture（拷掉 .example 即用）。
+# 角色：把 frontend/README.md「离线 fail-closed + 固定时钟」的确定性铁律落到后端测试。
+# 闸 4 的机械底座：测试里零真实网络、时间冻结——LLM/视觉只在上游帮写测试，绝不进闸内。
+import socket
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _block_network(monkeypatch):
+    """fail-closed：任何测试里的真实出站连接直接报错，逼你 mock/fake 掉 HTTP/LLM 客户端。"""
+
+    def _deny(*_args, **_kwargs):
+        raise RuntimeError("测试内禁止真实网络（闸 4 离线 fail-closed）——请 mock 该客户端。")
+
+    monkeypatch.setattr(socket.socket, "connect", _deny)
+
+
+@pytest.fixture
+def frozen_now():
+    """确定性时钟：返回固定时间戳；业务代码应注入 clock 而非直接 datetime.now()。"""
+    return 1_700_000_000  # 固定 epoch 秒；测试断言可复现

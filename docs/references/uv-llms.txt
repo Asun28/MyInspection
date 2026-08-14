@@ -1,0 +1,40 @@
+# uv — Python 包/项目管理器（Astral）· agent 参考摘要
+
+> 用途：给 agent 在上下文里就能查 uv 的**本项目实际惯用法**，而非凭记忆。
+> 维护：升级 uv 大版本后核对并刷新本文件（过时的参考比没有更糟）。
+> 来源：Astral 官方文档 https://docs.astral.sh/uv/ —— 本文件是**为本脚手架提炼的子集**，非完整文档。
+> 范围：聚焦本仓 `pyproject.toml.example` + `scripts` 用到的命令与 Windows 坑；其余请查官方文档。
+
+## 是什么
+uv 是用 Rust 写的高速 Python 包管理器与项目工具，替代 pip / pip-tools / virtualenv / pyenv 的常见用途。
+单一二进制，跨平台。核心概念：项目由 `pyproject.toml` 描述，依赖锁定在 `uv.lock`（应入库），
+虚拟环境默认在项目根 `.venv/`（应 gitignore）。
+
+## 安装（参考；本机若已装则跳过）
+- Windows（PowerShell）：`irm https://astral.sh/uv/install.ps1 | iex`
+- 或经 pipx / scoop / winget。装后 `uv --version` 验证。
+
+## 核心命令（本脚手架常用）
+- `uv venv --python 3.13 .venv` — 按指定 Python 版本建虚拟环境（版本取自 `scripts/_config.ps1` PythonVersion）。
+- `uv sync` — 按 `pyproject.toml` + `uv.lock` 安装/对齐依赖到 `.venv`（无 lock 则解析并生成）。
+- `uv sync --frozen` — 严格按 `uv.lock` 安装，不更新 lock（CI / 确定性场景用）。
+- `uv add <pkg>` / `uv add --dev <pkg>` — 加运行期 / 开发依赖（自动更新 pyproject + lock）。加完跑 `scripts/check-licenses.ps1`。
+- `uv remove <pkg>` — 移除依赖。
+- `uv lock` — 仅重解析并刷新 `uv.lock`，不安装。
+- `uv run <cmd>` — 在项目环境内跑命令（自动确保环境已同步）。
+- `uv pip ...` — pip 兼容子命令（应急；项目优先用上面的工作流）。
+
+## Windows 坑（本仓经验，必读）
+- **[L16] 别用 `uv run <console-script>`**：`uv run uvicorn ...` / `uv run pytest ...` 在 Windows 常报
+  `Failed to canonicalize script path`。**改用模块入口**：`uv run python -m uvicorn ...` / `uv run python -m pytest ...`。
+- venv 激活非必需：`uv run python -m <module>` 不需先 activate；脚本里优先这种调用，避免激活态依赖。
+- 路径用正斜杠或 PowerShell 原生路径；经 Bash 工具调用易吞反斜杠（见 L17）——`.py`/`uv` 调用一律走 PowerShell 工具。
+
+## 锁定与可复现
+- `uv.lock` **入库**（确定性 CI 的前提）；`.venv/` **不入库**（gitignored）。
+- CI（`.github/workflows/ci.yml`）用 `uv sync --frozen` + `uv run python -m pytest`，保证无网络漂移。
+- Python 版本钉在 `pyproject.toml` 的 `requires-python` 与 `_config.ps1` PythonVersion，两处保持一致。
+
+## 不在本摘要内（按需查官方文档）
+工作区(workspaces)、可编辑安装、构建后端配置、`uv tool`(全局工具)、`uv python`(解释器管理) 的细节——
+https://docs.astral.sh/uv/ 。本项目用不到的特性别引入（见 L11 反工具蔓延）。

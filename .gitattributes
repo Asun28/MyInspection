@@ -1,0 +1,32 @@
+# 统一行尾：仓库内一律 LF，消除 Windows autocrlf 造成的 CRLF 抖动。
+# pwsh7 / python / node / git 在 Windows 下均能正确处理 LF；CI 跑 windows-latest 亦然。
+* text=auto eol=lf
+
+# 显式文本类型（保险）
+*.ps1   text eol=lf
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.toml  text eol=lf
+*.srt   text eol=lf
+
+# 二进制（不转行尾、不 diff）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.mov binary
+*.wav binary
+*.mp3 binary
+*.pdf binary
+*.zip binary
+*.db binary
+*.sqlite binary

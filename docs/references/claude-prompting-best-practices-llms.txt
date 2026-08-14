@@ -1,0 +1,377 @@
+# claude-prompting-best-practices-llms.txt — 跨模型通用提示词工程
+
+> 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices
+> (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
+> 精炼子集（正文提炼非原样；官方示例已原样收录，见各节末「官方示例（原样收录）」）。适用于所有当前 Claude 模型（官方页列举：Fable 5 · Mythos 5 · Opus 5 · **Opus 4.8**（仍在列，兼作拒答回退兜底档）· Opus 4.7 · Opus 4.6 · Sonnet 5 · Sonnet 4.6 · Haiku 4.5）。上次对照上游校核：2026-07-27。
+> 模型专属差异见 claude-<model>-prompting-llms.txt。工具/模板 Console 侧见 claude-prompting-tools-llms.txt。
+
+## 通用原则
+- **清晰直接**：把 Claude 当聪明但缺你上下文的新员工。要「超出基本」的行为就显式要求，别指望从含糊提示里推断。黄金律：把提示拿给缺上下文的同事读，他会困惑 Claude 也会。顺序重要时用编号步骤。
+- **加动机/上下文**：解释「为什么」比干命令有效（例：「会被 TTS 朗读，所以别用省略号」远胜「NEVER use ellipses」）。Claude 会从解释里泛化。
+- **用示例（few-shot）**：3–5 个最佳。要相关（贴近真用例）、多样（覆盖边界、别让它学到无意的模式）、结构化（`<example>` 包裹，多个用 `<examples>`）。
+- **用 XML 标签结构化**：混合指令/上下文/示例/输入时，各包一类标签（`<instructions>` `<context>` `<input>`）减少误读。标签名一致、有层级就嵌套。
+- **给角色**：system prompt 里一句角色设定就能聚焦行为与语气。
+- **长上下文（20k+ token）**：长文/数据放**顶部**、查询/指令/示例放其后（末尾提问最多可提升 30% 质量）；多文档用 `<document>`+`<source>`+`<document_content>` 结构；让它**先摘引相关原文到 `<quotes>` 再作答**以穿透噪声。
+- **模型自我认知**：需要它自报身份/给模型串时明说，如 `The current model is Claude Opus 5. The exact model string is claude-opus-5.`（**换代时这类示例要跟着改**——官方页已从 4.8 改到 5，本仓漏改过一次，见 L166）
+
+### 官方示例（原样收录）
+- 清晰直接（弱 → 强；此例同时是「迁移要点」修饰语提质的官方例）：
+  - Less effective: `Create an analytics dashboard`
+  - More effective: `Create an analytics dashboard. Include as many relevant features and interactions as possible. Go beyond the basics to create a fully-featured implementation.`
+- 加动机（弱 → 强）：
+  - Less effective: `NEVER use ellipses`
+  - More effective: `Your response will be read aloud by a text-to-speech engine, so never use ellipses since the text-to-speech engine will not know how to pronounce them.`
+- 角色设定（system 一句话即聚焦）：`You are a helpful coding assistant specializing in Python.`
+- 多文档结构（长文置顶、查询殿后；注：`{{ … }}` 占位符内侧空格为避开本仓 selftest token 闸所加，官方原文无空格）：
+```
+<documents>
+  <document index="1">
+    <source>annual_report_2023.pdf</source>
+    <document_content>
+      {{ ANNUAL_REPORT }}
+    </document_content>
+  </document>
+  <document index="2">
+    <source>competitor_analysis_q2.xlsx</source>
+    <document_content>
+      {{ COMPETITOR_ANALYSIS }}
+    </document_content>
+  </document>
+</documents>
+
+Analyze the annual report and competitor analysis. Identify strategic advantages and recommend Q3 focus areas.
+```
+- 先摘引后作答（quote extraction；占位符空格同上注）：
+```
+You are an AI physician's assistant. Your task is to help doctors diagnose possible patient illnesses.
+
+<documents>
+  <document index="1">
+    <source>patient_symptoms.txt</source>
+    <document_content>
+      {{ PATIENT_SYMPTOMS }}
+    </document_content>
+  </document>
+  <document index="2">
+    <source>patient_records.txt</source>
+    <document_content>
+      {{ PATIENT_RECORDS }}
+    </document_content>
+  </document>
+  <document index="3">
+    <source>patient01_appt_history.txt</source>
+    <document_content>
+      {{ PATIENT01_APPOINTMENT_HISTORY }}
+    </document_content>
+  </document>
+</documents>
+
+Find quotes from the patient records and appointment history that are relevant to diagnosing the patient's reported symptoms. Place these in <quotes> tags. Then, based on these quotes, list all information that would help the doctor diagnose the patient's symptoms. Place your diagnostic information in <info> tags.
+```
+- 模型自我认知（两段官方原文）：
+  - `The assistant is Claude, created by Anthropic. The current model is Claude Opus 5.`
+  - `When an LLM is needed, please default to Claude Opus 5 unless the user requests otherwise. The exact model string for Claude Opus 5 is claude-opus-5.`
+
+## 输出与格式
+- 新模型更简洁、更口语、更少捧场，可能跳过工具后的总结。想要可见性：`After completing a task that involves tool use, provide a quick summary of the work you've done.`
+- **说「做什么」而非「别做什么」**：不用「Do not use markdown」，用「Write in smoothly flowing prose paragraphs.」或 XML 格式指示 `<smoothly_flowing_prose_paragraphs>`。
+- **让提示风格贴近目标输出风格**（提示里少 markdown → 输出少 markdown）。控 markdown/列表见下方官方示例 `<avoid_excessive_markdown_and_bullet_points>` 整段。
+- **LaTeX**：新模型数学默认 LaTeX；要纯文本就明说「Do not use LaTeX/MathJax/markup；用 / * ^ 表示除乘幂」。
+- **prefill 已移除**（当前模型在末个 assistant 回合 prefill 返回 400）。替代：Structured Outputs、直接指令去前言（`Respond directly without preamble.`）、XML 标签、工具调用；续写把上下文移到 user 回合。
+
+### 官方示例（原样收录）
+- 正向格式指令三式：
+  - Instead of: `Do not use markdown in your response`
+  - Try: `Your response should be composed of smoothly flowing prose paragraphs.`
+  - 或 XML 指示：`Write the prose sections of your response in <smoothly_flowing_prose_paragraphs> tags.`
+- 控 markdown/列表整段（system prompt 可直接用）：
+````
+<avoid_excessive_markdown_and_bullet_points>
+When writing reports, documents, technical explanations, analyses, or any long-form
+content, write in clear, flowing prose using complete paragraphs and sentences. Use
+standard paragraph breaks for organization and reserve markdown primarily for `inline
+code`, code blocks (```...```), and simple headings (## and ###). Avoid using **bold**
+and *italics*.
+
+DO NOT use ordered lists (1. ...) or unordered lists (*) unless: a) you're presenting
+truly discrete items where a list format is the best option, or b) the user explicitly
+requests a list or ranking
+
+Instead of listing items with bullets or numbers, incorporate them naturally into
+sentences. This guidance applies especially to technical writing. Using prose instead of
+excessive formatting will improve user satisfaction. NEVER output a series of overly
+short bullet points.
+
+Your goal is readable, flowing text that guides the reader naturally through ideas
+rather than fragmenting information into isolated points.
+</avoid_excessive_markdown_and_bullet_points>
+````
+- 关 LaTeX（纯文本数学）：
+```
+Format your response in plain text only. Do not use LaTeX, MathJax, or any markup
+notation such as \( \), $, or \frac{}{}. Write all math expressions using standard text
+characters (e.g., "/" for division, "*" for multiplication, and "^" for exponents).
+```
+- 文档/演示生成：
+```
+Create a professional presentation on [topic]. Include thoughtful design elements,
+visual hierarchy, and engaging animations where appropriate.
+```
+- 去前言（prefill 替代，放 system prompt）：`Respond directly without preamble. Do not start with phrases like 'Here is...', 'Based on...', etc.`
+- 续写（prefill 替代，放 user 回合）：`Your previous response was interrupted and ended with [previous_response]. Continue from where you left off.`
+- 前端美学（源页「Capability-specific tips · Frontend design」的反 "AI slop" system prompt；本仓对应 frontend-design / taste-skill）：
+```
+<frontend_aesthetics>
+You tend to converge toward generic, "on distribution" outputs. In frontend design, this
+creates what users call the "AI slop" aesthetic. Avoid this: make creative, distinctive
+frontends that surprise and delight.
+
+Focus on:
+- Typography: Choose fonts that are beautiful, unique, and interesting. Avoid generic
+fonts like Arial and Inter; opt instead for distinctive choices that elevate the
+frontend's aesthetics.
+- Color & Theme: Commit to a cohesive aesthetic. Use CSS variables for consistency.
+Dominant colors with sharp accents outperform timid, evenly-distributed palettes. Draw
+from IDE themes and cultural aesthetics for inspiration.
+- Motion: Use animations for effects and micro-interactions. Prioritize CSS-only
+solutions for HTML. Use Motion library for React when available. Focus on high-impact
+moments: one well-orchestrated page load with staggered reveals (animation-delay)
+creates more delight than scattered micro-interactions.
+- Backgrounds: Create atmosphere and depth rather than defaulting to solid colors. Layer
+CSS gradients, use geometric patterns, or add contextual effects that match the overall
+aesthetic.
+
+Avoid generic AI-generated aesthetics:
+- Overused font families (Inter, Roboto, Arial, system fonts)
+- Clichéd color schemes (particularly purple gradients on white backgrounds)
+- Predictable layouts and component patterns
+- Cookie-cutter design that lacks context-specific character
+
+Interpret creatively and make unexpected choices that feel genuinely designed for the
+context. Vary between light and dark themes, different fonts, different aesthetics. You
+still tend to converge on common choices (Space Grotesk, for example) across
+generations. Avoid this: it is critical that you think outside the box!
+</frontend_aesthetics>
+```
+
+## 工具使用（agentic 提示层）
+- **要动作就明确**：「suggest some changes」→ 只会建议；「Change this function」/「Make these edits」→ 会动手。
+- 更主动：`<default_to_action>By default, implement changes rather than only suggesting them. If the user's intent is unclear, infer the most useful likely action and proceed, using tools to discover missing details instead of guessing.</default_to_action>`
+- 更保守：`<do_not_act_before_instructions>Do not jump into implementation or change files unless clearly instructed... default to providing information, research, and recommendations. Only proceed when the user explicitly requests.</do_not_act_before_instructions>`
+- **新模型对 system prompt 更敏感，会过度触发**：把「CRITICAL: You MUST use this tool when...」降回「Use this tool when...」。
+- **并行工具调用**：独立调用并行发。要最大化：`<use_parallel_tool_calls>If you intend to call multiple tools and there are no dependencies between them, make all independent calls in parallel... if some depend on previous calls to inform parameters, call sequentially. Never use placeholders or guess missing parameters.</use_parallel_tool_calls>`
+
+### 官方示例（原样收录）
+- 要动作要明确（弱 → 强）：
+  - 只会建议：`Can you suggest some changes to improve this function?`
+  - 会动手：`Change this function to improve its performance.` 或 `Make these edits to the authentication flow.`
+- `<default_to_action>` 完整原文（上文速览为节选）：
+```
+<default_to_action>
+By default, implement changes rather than only suggesting them. If the user's intent is
+unclear, infer the most useful likely action and proceed, using tools to discover any
+missing details instead of guessing. Try to infer the user's intent about whether a tool
+call (e.g., file edit or read) is intended or not, and act accordingly.
+</default_to_action>
+```
+- `<do_not_act_before_instructions>` 完整原文：
+```
+<do_not_act_before_instructions>
+Do not jump into implementation or change files unless clearly instructed to make
+changes. When the user's intent is ambiguous, default to providing information, doing
+research, and providing recommendations rather than taking action. Only proceed with
+edits, modifications, or implementations when the user explicitly requests them.
+</do_not_act_before_instructions>
+```
+- `<use_parallel_tool_calls>` 完整原文：
+```
+<use_parallel_tool_calls>
+If you intend to call multiple tools and there are no dependencies between the tool
+calls, make all of the independent tool calls in parallel. Prioritize calling tools
+simultaneously whenever the actions can be done in parallel rather than sequentially.
+For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into
+context at the same time. Maximize use of parallel tool calls where possible to increase
+speed and efficiency. However, if some tool calls depend on previous calls to inform
+dependent values like the parameters, do NOT call these tools in parallel and instead
+call them sequentially. Never use placeholders or guess missing parameters in tool
+calls.
+</use_parallel_tool_calls>
+```
+- 压低并行（改走顺序执行）：`Execute operations sequentially with brief pauses between each step to ensure stability.`
+
+## 思考与推理
+- **过度思考控制**：把「Default to using [tool]」换成「Use [tool] when it would enhance your understanding」；删掉「If in doubt, use [tool]」这类过度提示；实在压不住就降 effort。提交并坚持一个方案：`When deciding how to approach a problem, choose an approach and commit to it. Avoid revisiting decisions unless new information directly contradicts your reasoning.`
+- **adaptive thinking**（当前模型）由 effort + 查询复杂度共同标定；内部评测优于旧 extended thinking。`budget_tokens` 在当前模型返回 400——用 effort + max_tokens。
+- **优先通用指令而非规定步骤**（"think thoroughly" 常胜手写步骤）；few-shot 里用 `<thinking>` 标签示范推理模式；thinking 关时用 `<thinking>`/`<answer>` 手动 CoT；让它**自查**：`Before you finish, verify your answer against [test criteria].`
+- 注：thinking 关时旧 Opus 对「think」一词敏感，可换「consider/evaluate/reason through」。
+
+### 官方示例（原样收录）
+- 选定方案并坚持（完整原文，上文速览为节选）：
+```
+When you're deciding how to approach a problem, choose an approach and commit to it.
+Avoid revisiting decisions unless you encounter new information that directly
+contradicts your reasoning. If you're weighing two approaches, pick one and see it
+through. You can always course-correct later if the chosen approach fails.
+```
+- 工具结果后反思（引导 interleaved thinking）：
+```
+After receiving tool results, carefully reflect on their quality and determine optimal
+next steps before proceeding. Use your thinking to plan and iterate based on this new
+information, and then take the best next action.
+```
+- 压低 adaptive thinking 触发频率（大/复杂 system prompt 下想得太频时）：
+```
+Extended thinking adds latency and should only be used when it will meaningfully improve
+answer quality - typically for problems that require multi-step reasoning. When in
+doubt, respond directly.
+```
+
+## Agentic 系统
+- **长程状态跟踪 / 多上下文窗**：靠增量进展维持定向。跨窗工作流：首窗建框架（写测试/setup 脚本），后续窗迭代 todo；测试存结构化（tests.json，且「不可删改测试」）；建 init.sh 起服务/跑测/lint；清窗时**新开窗常优于 compaction**（模型极擅从文件系统发现状态），并prescriptive地指路（`pwd`、读 progress.txt/tests.json/git log）；给验证工具（Playwright MCP / computer use）。
+- **context awareness**（Sonnet 5/4.6/4.5、Haiku 4.5 能追踪剩余 token 预算）。harness 会压缩/存盘时告诉它别因预算提前收尾：`Your context window will be automatically compacted... do not stop tasks early due to token budget concerns. As you approach your limit, save progress and state to memory... Never artificially stop early.`
+- **状态管理**：结构化数据用 JSON、进度笔记用自由文本、用 git 记状态与检查点、强调增量。
+- **自主 vs 安全**：要它对难逆动作先确认：`Consider the reversibility and potential impact of your actions... for actions that are hard to reverse, affect shared systems, or could be destructive, ask the user before proceeding.`（举例：删文件/分支、drop table、rm -rf、git push --force / reset --hard、改共享设施；别用 --no-verify 绕安全检查）。
+- **研究**：给成功标准、要求跨源核实、结构化推进（发展多个竞争假设、记置信度、周期性自我批评、维护假设树/研究笔记）。
+- **子代理编排**：原生会编排、按需委派。过度使用时给边界：`Use subagents when tasks can run in parallel, require isolated context, or involve independent workstreams. For simple tasks, sequential operations, single-file edits, or tasks needing shared context, work directly.`
+- **链式提示**：多步多在内部完成；需要检视中间产物/固定管线时才显式链，最常见是自校正（draft → review vs criteria → refine，各为独立调用）。
+- **减少建文件**：`If you create any temporary new files, scripts, or helper files for iteration, clean up these files by removing them at the end of the task.`
+- **过度构建**（Opus 4.5/4.6 倾向）：`Avoid over-engineering. Only make changes directly requested or clearly necessary... A bug fix doesn't need surrounding code cleaned up... Don't add error handling for scenarios that can't happen... Don't create abstractions for one-time operations.`（呼应本仓通用编码纪律 3/4 与 ponytail）
+- **别只为过测试/硬编码**：`Please write a high-quality, general-purpose solution using the standard tools available. Do not create helper scripts or workarounds... Implement a solution that works for all valid inputs, not just the test cases. Tests verify correctness, not define the solution. If any tests are incorrect, inform me rather than working around them.`
+- **减少幻觉（agentic 编码）**：`<investigate_before_answering>Never speculate about code you have not opened. If the user references a specific file, you MUST read the file before answering... Never make claims about code before investigating unless you are certain.</investigate_before_answering>`（呼应本仓纪律 1「读后写」）
+
+### 官方示例（原样收录）
+- harness 会压缩/存盘时防提前收尾（完整原文，上文速览为节选）：
+```
+Your context window will be automatically compacted as it approaches its limit, allowing
+you to continue working indefinitely from where you left off. Therefore, do not stop
+tasks early due to token budget concerns. As you approach your token budget limit, save
+your current progress and state to memory before the context window refreshes. Always be
+as persistent and autonomous as possible and complete tasks fully, even if the end of
+your budget is approaching. Never artificially stop any task early regardless of the
+context remaining.
+```
+- 多窗工作流·测试不可删改提醒句：`It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality.`
+- 多窗工作流·新窗起步 prescriptive 三句：
+  - `Call pwd; you can only read and write files in this directory.`
+  - `Review progress.txt, tests.json, and the git logs.`
+  - `Manually run through a fundamental integration test before moving on to implementing new features.`
+- 用满输出上下文（长任务防烂尾）：
+```
+This is a very long task, so it may be beneficial to plan out your work clearly. It's
+encouraged to spend your entire output context working on the task - just make sure you
+don't run out of context with significant uncommitted work. Continue working
+systematically until you have completed this task.
+```
+- 状态跟踪双载体示例（tests.json + progress.txt）：
+```
+// Structured state file (tests.json)
+{
+  "tests": [
+    { "id": 1, "name": "authentication_flow", "status": "passing" },
+    { "id": 2, "name": "user_management", "status": "failing" },
+    { "id": 3, "name": "api_endpoints", "status": "not_started" }
+  ],
+  "total": 200,
+  "passing": 150,
+  "failing": 25,
+  "not_started": 25
+}
+
+// Progress notes (progress.txt)
+Session 3 progress:
+- Fixed authentication token validation
+- Updated user model to handle edge cases
+- Next: investigate user_management test failures (test #2)
+- Note: Do not remove tests as this could lead to missing functionality
+```
+- 难逆动作先确认（完整原文）：
+```
+Consider the reversibility and potential impact of your actions. You are encouraged to
+take local, reversible actions like editing files or running tests, but for actions that
+are hard to reverse, affect shared systems, or could be destructive, ask the user before
+proceeding.
+
+Examples of actions that warrant confirmation:
+- Destructive operations: deleting files or branches, dropping database tables, rm -rf
+- Hard to reverse operations: git push --force, git reset --hard, amending published commits
+- Operations visible to others: pushing code, commenting on PRs/issues, sending
+messages, modifying shared infrastructure
+
+When encountering obstacles, do not use destructive actions as a shortcut. For example,
+don't bypass safety checks (e.g. --no-verify) or discard unfamiliar files that may be
+in-progress work.
+```
+- 结构化研究（完整原文）：
+```
+Search for this information in a structured way. As you gather data, develop several
+competing hypotheses. Track your confidence levels in your progress notes to improve
+calibration. Regularly self-critique your approach and plan. Update a hypothesis tree or
+research notes file to persist information and provide transparency. Break down this
+complex research task systematically.
+```
+- 子代理边界（完整原文）：
+```
+Use subagents when tasks can run in parallel, require isolated context, or involve
+independent workstreams that don't need to share state. For simple tasks, sequential
+operations, single-file edits, or tasks where you need to maintain context across steps,
+work directly rather than delegating.
+```
+- 反过度构建（完整原文）：
+```
+Avoid over-engineering. Only make changes that are directly requested or clearly
+necessary. Keep solutions simple and focused:
+
+- Scope: Don't add features, refactor code, or make "improvements" beyond what was
+asked. A bug fix doesn't need surrounding code cleaned up. A simple feature doesn't need
+extra configurability.
+
+- Documentation: Don't add docstrings, comments, or type annotations to code you didn't
+change. Only add comments where the logic isn't self-evident.
+
+- Defensive coding: Don't add error handling, fallbacks, or validation for scenarios
+that can't happen. Trust internal code and framework guarantees. Only validate at system
+boundaries (user input, external APIs).
+
+- Abstractions: Don't create helpers, utilities, or abstractions for one-time
+operations. Don't design for hypothetical future requirements. The right amount of
+complexity is the minimum needed for the current task.
+```
+- 通用解而非过测试（完整原文）：
+```
+Please write a high-quality, general-purpose solution using the standard tools
+available. Do not create helper scripts or workarounds to accomplish the task more
+efficiently. Implement a solution that works correctly for all valid inputs, not just
+the test cases. Do not hard-code values or create solutions that only work for specific
+test inputs. Instead, implement the actual logic that solves the problem generally.
+
+Focus on understanding the problem requirements and implementing the correct algorithm.
+Tests are there to verify correctness, not to define the solution. Provide a principled
+implementation that follows best practices and software design principles.
+
+If the task is unreasonable or infeasible, or if any of the tests are incorrect, please
+inform me rather than working around them. The solution should be robust, maintainable,
+and extendable.
+```
+- `<investigate_before_answering>` 完整原文：
+```
+<investigate_before_answering>
+Never speculate about code you have not opened. If the user references a specific file,
+you MUST read the file before answering. Make sure to investigate and read relevant
+files BEFORE answering questions about the codebase. Never make any claims about code
+before investigating unless you are certain of the correct answer - give grounded and
+hallucination-free answers.
+</investigate_before_answering>
+```
+
+## 迁移要点（从更早世代）
+- 具体描述期望行为；用修饰语提质提量；显式请求动画/交互；thinking 配置改 adaptive+effort；弃 prefill；调回反懒惰提示（新模型更主动、易过度触发）。
+
+## 术语速查（源：platform.claude.com/docs/en/about-claude/glossary）
+- **context window**：模型生成时能回看引用的文本量（工作记忆），区别于训练语料。
+- **pretraining / fine-tuning / RLHF**：预训练=大规模无标注语料学「预测下一词」（不擅长听指令）；微调=用附加数据继续训练以贴合领域/风格；RLHF=按人类偏好排序反馈强化，Claude 由此成为助手。
+- **HHH**：helpful（尽力完成任务）/ honest（准确、不幻觉、承认局限）/ harmless（不冒犯、拒绝危险请求并解释）。
+- **tokens**：模型最小处理单元，Claude 约 3.5 英文字符/token（随语言浮动）。
+- **temperature**：采样随机性；高=多样有创意，低=保守确定。**注意：temp=0 也不完全确定**——同输入跨 API 调用仍可能不同输出（一方与三方推理皆然）→ 确定性闸别指望 temp=0 兜底。
+- **latency / TTFT**：整体响应延迟 / 首 token 时间（交互式应用的关键体验指标）。
+- **RAG**：运行时检索外部知识入上下文再生成——降低对记忆的依赖、提升事实性与可引用性；效果取决于检索质量。
+- **MCP / MCP connector**：为 LLM 提供上下文的开放协议（AI 的 USB-C）/ Messages API 直连 MCP 服务器的能力（免自建客户端）。

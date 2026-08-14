@@ -1,0 +1,18 @@
+{
+  "//": "拷掉 .example 后缀即用。strict + noEmit 给闸 1 的 `tsc --noEmit` 用：前后端字段对不上即编译期红。按框架(React/Vue/Svelte)增 jsx/lib。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "*.ts", "*.tsx"],
+  "exclude": ["node_modules", "dist"]
+}

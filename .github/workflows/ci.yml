@@ -1,0 +1,120 @@
+name: ci
+
+# 确定性验收闸门（R2）。作为默认分支规则集的必需状态检查 `verify`（有 GitHub Pro/public 时）。
+# 仅跑纯确定性、无网络的最小闭环 —— 与本机 verify.ps1 同义。
+# 若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
+# 触发分支同时覆盖 main 与 master：scaffold 自身默认分支是 master（见 selftest 闸⑮/L38），
+# gh-bootstrap 推 main；任一默认分支下 PR CI 都会触发，避开「主分支名漂移→CI 静默不跑」。
+#
+# **push 也触发（不只 pull_request）——这是「事后检测层」，不是 push 前强制闸**：
+# 分支规则集需要 GitHub Pro 或 public 仓才能强制必需状态检查（见上「有 GitHub Pro/public 时」；
+# 私有免费档 rules API 403），故本工作流**无法阻止**任何直推落到默认分支——它在提交已落地之后才跑。
+# 但此前更糟：只有 pull_request 触发时，直推提交**连事后检查都没有**——secret-leak / 许可 / verify
+# 对这些提交从未跑过（`scaffold-selftest.yml` 早已 push+PR 双触发，本文件此前只有 PR，二者不对称）。
+# 加 push 触发把直推纳入事后检测：败即显式变红 + 通知；防泄露闸尤其需要事后可见（发现了才能轮换）。
+# push 前的真强制另有两层，都不由本文件承担：本地 pre-push 钩子（`gh-bootstrap.ps1` 装载，只覆盖
+# 装了钩子的克隆）；服务端规则集（需 Pro/public，用户决策）。**加严（加触发/断言）无需 HARNESS-REVIEW**
+# （非对称守则只约束放松/删除）。成本：ubuntu ~25s ≈ 1 个计费分钟/次推送。
+on:
+  push:
+    branches: [main, master]
+    # 纯文档推送不触发（用户裁定 2026-07-29）：push 侧本就是「事后检测层」（见上），推送**只含**
+    # .md / docs/ 时跳过省 CI 分钟；混合推送（含任一非文档文件）仍全跑。**pull_request 侧刻意不过滤**——
+    # PR 是强制层；且下游把本 job 设为规则集必需检查时，path filter 会让 doc-only PR 永远停在
+    # 「Expected — waiting for status」（GitHub 必需检查 + path filter 不相容的已知坑）。
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:                      # ← job 名即必需检查的 context 名
+    # ubuntu-latest：pwsh 预装、本仓 CI 脚本（check-cards/check-secrets/verify）已在 Linux 验证全绿
+    # （check-secrets 对隐藏点文件加 -Force 后跨 OS 一致），省每个下游 2× Windows Actions 分钟、贴近多数部署目标。
+    # 需 Windows 专属行为改 windows-latest，或 matrix: { os: [ubuntu-latest, windows-latest] } + runs-on: ${{ matrix.os }}。
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # 三方 Action 一律钉 40-hex commit SHA（非可变 major tag）——tag 可被上游移动/劫持，钉 SHA 后
+      # 每个下游 CI 跑的都是审计过的确定字节（TD56/TD-119）。尾注版本号仅供人读；升级由 dependabot/renovate
+      # 提 PR 刷新 SHA（selftest 闸 8.2a 机检两份工作流所有 uses: 均为 40-hex SHA）。
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Validate task cards
+        shell: pwsh
+        run: |
+          $f = 'scripts/check-cards.ps1'
+          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Host 'check-cards.ps1 absent; skipping' }
+
+      - name: Setup Python
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'   # init 替换；与 scripts/_config.ps1 PythonVersion 对齐
+
+      - name: Install uv
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+
+      - name: Sync deps
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        shell: pwsh
+        # --frozen：用已提交的 uv.lock，**不**在 CI 里改解析 → 确定性（治「裸 uv sync 可变 lock → 非确定性解析」）。
+        # 前提：把 uv.lock 提交进仓库（最佳实践）。无 lock 时本步会明确报错，而非静默漂移。
+        run: uv sync --frozen 2>&1 | Write-Host
+
+      # 若项目分发 ffmpeg（见 docs/LICENSE-POLICY.md 附录 A），在此 provision 官方 LGPL 构建并设
+      # IMAGEIO_FFMPEG_EXE（属 CI 工具链装配，非产品运行时联网）。模板默认不含该步骤。
+
+      - name: Pytest (no-network)
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        shell: pwsh
+        env:
+          APP_ENV: ci
+        run: |
+          if (Test-Path backend/tests) { $d = 'backend/tests' } elseif (Test-Path tests) { $d = 'tests' } else { $d = '' }
+          if ($d) {
+            uv run python -m pytest $d -q
+            if ($LASTEXITCODE -eq 5) { Write-Host 'no tests collected yet'; exit 0 }
+            exit $LASTEXITCODE
+          } else { Write-Host 'no tests dir yet'; exit 0 }
+
+      - name: Secret-leak gate
+        shell: pwsh
+        # 每 PR 跑**普通**扫描（追踪文件名 + 内容硬编码密钥）即捕获活密钥——这是 push 前要拦的核心面。
+        # **不加 -Strict**：-Strict 会物化整个 `git log --all -p`（>5MB 即把「历史截断」警告升级为致命），
+        # 令任何有较长历史、或历史中曾误提交过凭据的下游在**每个 PR**都因截断/历史而红——与
+        # 「-Strict = 变 public 前的一次性闸」的文档定位矛盾。变 public 前再单独跑
+        # `check-secrets.ps1 -Strict`（见 docs/SECURITY.md / docs/RELEASE-CHECKLIST.md）。
+        run: |
+          # fail-closed：脚本缺失即非零退出，不 skip-as-pass。否则「删掉 check-secrets.ps1」的 PR 恰好让
+          # required `verify` 闸无条件绿——正是它该拦的那种改动（TD56/TD-119；selftest 闸 8.2b 机检）。
+          $f = 'scripts/check-secrets.ps1'
+          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-secrets.ps1 missing (gate removed?)'; exit 1 }
+
+      - name: License gate
+        shell: pwsh
+        # 每 PR 跑商用许可闸（PyPI/npm 禁列扫描，见 docs/LICENSE-POLICY.md）——服务端兜底，
+        # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。非零退出即失败（命中禁列许可）。
+        # 无依赖清单（无 pyproject.toml / frontend/package.json，如脚手架元仓）时脚本自身优雅通过——干跑恒绿；
+        # 有清单的下游仓才实扫：扫描器（pip-licenses / license-checker）按需联网获取，
+        # 属 CI 工具链装配、由下游 CI 环境自担，非产品运行时联网（同上 ffmpeg provision 的定位）。
+        run: |
+          # fail-closed（同 check-secrets，TD56/TD-119）：许可闸脚本缺失即非零退出，不 skip-as-pass。
+          $f = 'scripts/check-licenses.ps1'
+          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
+
+      - name: E2E verify gate
+        shell: pwsh
+        run: |
+          $f = 'scripts/verify.ps1'
+          if ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) {
+            pwsh -NoProfile -File $f
+          } else { Write-Host 'verify.ps1 still placeholder; skipping' }

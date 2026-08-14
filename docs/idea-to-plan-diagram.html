@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>想法 → 计划 → 上线 · 端到端全景 | Idea → Plan → Ship</title>
+<!--
+  TOKEN SYSTEM (stated per frontend-design discipline)
+  ────────────────────────────────────────────────────
+  Aesthetic family: "mission-ops control tower" — a deep slate console where an
+  autonomous machine runs the work and a human punctuates it at gates. NOT one of
+  the three banned AI looks (no cream+serif+terracotta, no near-black+single-acid,
+  no generic hairline broadsheet): the base is a desaturated steel-blue, and the
+  page carries TWO purposeful accents plus a tri-color method spine — boldness is
+  spent in exactly one place (the spine), everything else stays quiet.
+
+  Palette (6 named hex) — UNCHANGED from the original control-tower system:
+    --ink     #0e1622  deep steel base (console ground, not pure black)
+    --panel   #16202e  raised panel
+    --line    #2a3a4f  structural rule / borders
+    --fog     #93a4bb  muted body text (passes AA on panel)
+    --paper   #eaf1f9  primary headings / high-contrast text
+    --signal  #38e1b0  the "human-approves" gate accent (mint signal lamp)
+  Method-spine trio (the ONE signature, color-coded through-line) — UNCHANGED:
+    --add     #5ea8ff  ① 想法 = DIVERGE / 做加法  (＋)
+    --sub     #ffb454  ② 需求 = CONVERGE / 做减法  (−)
+    --mul     #c08bff  ③ 设计 = 做乘法            (×)
+
+  v0.15 ADDITION (reuses existing palette, introduces NO new color):
+    The funnel no longer stops at "可运行产品". The spine continues PAST the
+    product into a "合并之后 · 验收→收口→发布" segment (eval dashboard →
+    release checklist → leak-guard before going public → ship). This post-product
+    stretch reuses --signal (mint) as its through-line color, because that segment
+    is dominated by verification/approval (the mint = "verified / approved" lamp);
+    it deliberately does NOT add a fourth method color, keeping the ＋−× spine the
+    sole signature. The execution panel also carries a FRONTEND BRANCH (dashed
+    sub-rail in --fog) for the T2 complex-multipage path (frontend-flow). A small
+    TIER legend (T0/T1/T2) maps each tier to how far down the spine it travels —
+    rendered as quiet --line pills, no new hue.
+
+  Type roles (2 + caption) — UNCHANGED:
+    Display/headings: "Space Grotesk" (compact technical grotesque; not Inter, not serif)
+    Body/CN: system sans stack (clean, reads well for Chinese-primary copy)
+    Data/labels/filenames: "Space Mono" (operator + path register)
+
+  Layout concept: a single vertical "ops feed" — phases are panels stacked top→bottom,
+  the method spine runs down the left margin as a continuous ＋ − × ribbon that now
+  extends into a mint verification tail, and ⛳ human-gates are physical pucks that
+  interrupt the flow between/within phases.
+
+  Signature element: the left-margin SPINE — a continuous add→subtract→multiply→
+  (verify) ribbon whose operator glyph and color shift as the funnel narrows then
+  fans into the post-merge verification tail. It is the memorable through-line and
+  the thesis (AI runs; human only approves at ⛳).
+  Aesthetic risk: a tri-color coded spine plus a verification tail could read busy —
+  mitigated by keeping the entire rest of the page monochrome steel, so the spine is
+  the only loud thing, and the tail reuses the existing mint rather than a new hue.
+  It fits an AI-native pipeline because the subject IS a sequence of machine stages
+  punctuated by gates; the spine literally draws the "machine works / human approves"
+  rhythm from a one-line idea all the way to shipped + verified.
+
+  Quality floor: responsive mobile→desktop, :focus-visible outlines, reduced-motion
+  honored, WCAG AA contrast, no em-dashes in body copy, no fake metrics.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0e1622; --panel:#16202e; --panel-2:#1b2738; --line:#2a3a4f;
+    --fog:#93a4bb; --fog-bright:#b9c7da; --paper:#eaf1f9; --signal:#38e1b0;
+    --add:#5ea8ff; --sub:#ffb454; --mul:#c08bff;
+    --display:"Space Grotesk",system-ui,sans-serif;
+    --body:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:"Space Mono",ui-monospace,"Cascadia Code",monospace;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{
+    margin:0; background:
+      radial-gradient(900px 600px at 85% -8%, rgba(94,168,255,.10), transparent 60%),
+      radial-gradient(700px 500px at -5% 12%, rgba(192,139,255,.07), transparent 55%),
+      var(--ink);
+    color:var(--fog); font-family:var(--body); line-height:1.55;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  a{color:var(--signal)}
+  .wrap{max-width:1100px; margin:0 auto; padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 80px}
+
+  /* ── header ── */
+  header{margin-bottom:clamp(28px,5vw,52px)}
+  .kicker{font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--signal); display:inline-flex; align-items:center; gap:.55em; margin:0 0 18px}
+  .kicker::before{content:""; width:26px; height:1px; background:var(--signal); display:inline-block}
+  h1{font-family:var(--display); color:var(--paper); font-weight:600;
+    font-size:clamp(28px,5.4vw,52px); line-height:1.04; letter-spacing:-.02em; margin:0 0 6px}
+  h1 .en{display:block; color:var(--fog); font-weight:400; font-size:clamp(13px,2.1vw,18px);
+    letter-spacing:.01em; margin-top:10px}
+  .lede{max-width:64ch; font-size:clamp(14px,1.6vw,16px); color:var(--fog-bright); margin:18px 0 0}
+  .lede b{color:var(--paper); font-weight:600}
+
+  /* ── method legend (the spine, explained up top) ── */
+  .legend{display:grid; grid-template-columns:1fr; gap:10px; margin:26px 0 0;
+    border:1px solid var(--line); border-radius:var(--r); padding:16px; background:rgba(22,32,46,.55)}
+  @media(min-width:720px){ .legend{grid-template-columns:repeat(3,1fr)} }
+  .meth{display:flex; gap:12px; align-items:flex-start}
+  .glyph{flex:0 0 auto; width:38px; height:38px; border-radius:10px; display:grid; place-items:center;
+    font-family:var(--display); font-weight:700; font-size:22px; color:var(--ink)}
+  .glyph.add{background:var(--add)} .glyph.sub{background:var(--sub)} .glyph.mul{background:var(--mul)}
+  .meth-t{font-family:var(--display); color:var(--paper); font-weight:600; font-size:14px}
+  .meth-s{font-size:12.5px; color:var(--fog); margin-top:2px}
+  .meth b{color:var(--fog-bright)}
+
+  /* ── tier legend (T0/T1/T2 = how far down the spine) ── */
+  .tiers{display:grid; grid-template-columns:1fr; gap:8px; margin:14px 0 0;
+    border:1px solid var(--line); border-radius:var(--r); padding:14px 16px; background:rgba(22,32,46,.4)}
+  @media(min-width:720px){ .tiers{grid-template-columns:repeat(3,1fr)} }
+  .tier{display:flex; gap:10px; align-items:baseline}
+  .tier-id{font-family:var(--mono); font-weight:700; font-size:12px; color:var(--paper);
+    border:1px solid var(--line); border-radius:99px; padding:2px 9px; flex:0 0 auto; background:rgba(14,22,34,.6)}
+  .tier-s{font-size:12.5px; color:var(--fog)}
+  .tier-s b{color:var(--fog-bright)}
+
+  /* ── the ops feed: spine + phases ── */
+  .feed{position:relative; margin-top:clamp(30px,5vw,48px)}
+  /* continuous spine line: ＋ add → − sub → × mul → (mint) verify tail */
+  .feed::before{content:""; position:absolute; left:23px; top:6px; bottom:36px; width:3px;
+    border-radius:3px;
+    background:linear-gradient(180deg,
+      var(--add) 0%, var(--add) 20%, var(--sub) 24%,
+      var(--sub) 42%, var(--mul) 46%, var(--mul) 66%,
+      var(--fog) 70%, var(--fog) 78%, var(--signal) 82%, var(--signal) 100%);
+    opacity:.55}
+  @media(min-width:760px){ .feed::before{left:31px} }
+
+  .stage{position:relative; padding-left:64px; margin-bottom:14px}
+  @media(min-width:760px){ .stage{padding-left:80px} }
+
+  /* spine node = operator puck */
+  .node{position:absolute; left:0; top:18px; width:48px; height:48px; border-radius:13px;
+    display:grid; place-items:center; font-family:var(--display); font-weight:700; font-size:26px;
+    color:var(--ink); border:3px solid var(--ink); box-shadow:0 0 0 1px var(--line), 0 8px 20px rgba(0,0,0,.4)}
+  @media(min-width:760px){ .node{left:8px} }
+  .node.add{background:var(--add)} .node.sub{background:var(--sub)}
+  .node.mul{background:var(--mul)} .node.run{background:var(--fog); color:var(--ink)}
+  .node.verify{background:var(--signal); color:var(--ink); font-size:22px}
+  .node.idea{background:var(--panel-2); color:var(--paper); border-color:var(--line); font-size:20px}
+
+  /* panels */
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid var(--line); border-radius:var(--r); padding:clamp(16px,2.5vw,26px);
+    box-shadow:0 18px 40px -28px rgba(0,0,0,.8)}
+  .panel.start{background:transparent; border-style:dashed; text-align:center; padding:14px}
+  .panel.start .ph-name{justify-content:center}
+
+  .ph-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin-bottom:4px}
+  .ph-no{font-family:var(--mono); font-size:12px; color:var(--signal); letter-spacing:.16em}
+  .ph-name{font-family:var(--display); color:var(--paper); font-weight:600;
+    font-size:clamp(18px,2.6vw,24px); letter-spacing:-.01em; display:flex; gap:10px; align-items:baseline}
+  .ph-en{font-family:var(--mono); font-size:12.5px; color:var(--fog)}
+  .ph-by{margin-left:auto; font-size:12px; color:var(--fog); font-family:var(--mono)}
+  .ph-by .ai{color:var(--add)}
+  .ph-tier{font-family:var(--mono); font-size:11px; color:var(--fog); border:1px solid var(--line);
+    border-radius:99px; padding:1px 8px; margin-left:8px}
+
+  /* sub-steps inside a phase */
+  .steps{display:grid; gap:14px; margin-top:18px}
+  @media(min-width:680px){ .steps.two{grid-template-columns:1fr 1fr} }
+  .step{border:1px solid var(--line); border-radius:11px; padding:15px 16px; background:rgba(14,22,34,.45)}
+  .step-tag{font-family:var(--mono); font-size:11.5px; letter-spacing:.12em; text-transform:uppercase;
+    display:inline-flex; gap:7px; align-items:center; padding:3px 9px; border-radius:99px;
+    border:1px solid var(--line); margin-bottom:10px}
+  .step-tag.add{color:var(--add); border-color:rgba(94,168,255,.4); background:rgba(94,168,255,.08)}
+  .step-tag.sub{color:var(--sub); border-color:rgba(255,180,84,.4); background:rgba(255,180,84,.08)}
+  .step-tag.mul{color:var(--mul); border-color:rgba(192,139,255,.4); background:rgba(192,139,255,.08)}
+  .step-tag.signal{color:var(--signal); border-color:rgba(56,225,176,.4); background:rgba(56,225,176,.08)}
+  .step h3{font-family:var(--display); color:var(--paper); font-weight:600; font-size:15px; margin:0 0 6px}
+  .step p{margin:0; font-size:13.5px; color:var(--fog-bright)}
+  .step .arrow{color:var(--fog); font-family:var(--mono)}
+  .out{font-family:var(--mono); font-size:12px; color:var(--signal)}
+
+  /* generic phase body for single-block phases */
+  .body p{margin:0 0 10px; font-size:14px; color:var(--fog-bright)}
+  .body p:last-child{margin-bottom:0}
+  .pill-row{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 4px}
+  .pill{font-family:var(--mono); font-size:11.5px; color:var(--fog-bright);
+    border:1px solid var(--line); border-radius:99px; padding:4px 11px; background:rgba(14,22,34,.5)}
+
+  /* ⛳ human gate row */
+  .gate{display:flex; align-items:center; gap:12px; margin:16px 0 2px; padding:11px 14px;
+    border-radius:11px; background:rgba(56,225,176,.07); border:1px solid rgba(56,225,176,.32)}
+  .gate .flag{font-size:18px; line-height:1; filter:saturate(1.2)}
+  .gate .lbl{font-family:var(--display); font-weight:600; color:var(--signal); font-size:13.5px}
+  .gate .sub{color:var(--fog); font-size:12.5px}
+  .gate.tight{margin-top:10px}
+  .gates-2{display:grid; gap:10px}
+  @media(min-width:680px){ .gates-2{grid-template-columns:1fr 1fr} }
+
+  /* output marker that sits ON the spine between phases */
+  .output{position:relative; padding-left:64px; margin:6px 0 18px}
+  @media(min-width:760px){ .output{padding-left:80px} }
+  .output::before{content:"▼"; position:absolute; left:14px; top:-1px; color:var(--fog); font-size:14px}
+  @media(min-width:760px){ .output::before{left:22px} }
+  .output .o-row{display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px}
+  .output .o-lbl{font-size:12px; color:var(--fog); text-transform:uppercase; letter-spacing:.14em; font-family:var(--mono)}
+  .file{font-family:var(--mono); font-size:12.5px; color:var(--paper);
+    border:1px solid var(--line); border-left:3px solid var(--signal); border-radius:7px;
+    padding:5px 10px; background:rgba(14,22,34,.7)}
+
+  /* execution row chain */
+  .chain{display:flex; flex-wrap:wrap; gap:7px; margin-top:14px}
+  .lnk{font-family:var(--mono); font-size:12px; color:var(--fog-bright); white-space:nowrap}
+  .lnk b{color:var(--paper); font-weight:700}
+  .sep{color:var(--line)}
+  .worktree-note{margin-top:14px; font-size:13px; color:var(--fog); border-top:1px dashed var(--line); padding-top:12px}
+  .worktree-note b{color:var(--paper)}
+
+  /* frontend branch = dashed sub-rail inside the execution panel */
+  .branch{margin-top:16px; padding:14px 16px; border:1px dashed var(--line); border-left:3px solid var(--fog);
+    border-radius:11px; background:rgba(14,22,34,.4)}
+  .branch-head{font-family:var(--mono); font-size:11.5px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--fog-bright); margin-bottom:8px; display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+  .branch-head .ph-tier{margin-left:0}
+  .branch p{margin:0; font-size:13px; color:var(--fog-bright)}
+  .branch code{font-family:var(--mono); color:var(--paper); font-size:12.5px}
+
+  /* post-product verification chain: numbered mint steps */
+  .vsteps{display:grid; gap:12px; margin-top:18px}
+  .vstep{display:flex; gap:13px; align-items:flex-start; border:1px solid var(--line);
+    border-left:3px solid var(--signal); border-radius:11px; padding:14px 16px; background:rgba(14,22,34,.45)}
+  .vnum{flex:0 0 auto; width:26px; height:26px; border-radius:8px; display:grid; place-items:center;
+    font-family:var(--display); font-weight:700; font-size:14px; color:var(--ink); background:var(--signal)}
+  .vstep h3{font-family:var(--display); color:var(--paper); font-weight:600; font-size:14.5px; margin:0 0 4px;
+    display:flex; flex-wrap:wrap; gap:8px; align-items:baseline}
+  .vstep h3 .vfile{font-family:var(--mono); font-size:12px; color:var(--signal); font-weight:400}
+  .vstep p{margin:0; font-size:13px; color:var(--fog-bright)}
+
+  footer{margin-top:40px; padding-top:20px; border-top:1px solid var(--line);
+    font-family:var(--mono); font-size:12px; color:var(--fog); display:flex; flex-wrap:wrap; gap:6px 18px}
+  footer a:focus-visible, .skip:focus-visible{outline:2px solid var(--signal); outline-offset:3px}
+  *:focus-visible{outline:2px solid var(--signal); outline-offset:2px; border-radius:4px}
+
+  /* reveal (reduced-motion-respecting) */
+  .stage,.output{opacity:1}
+  @media (prefers-reduced-motion: no-preference){
+    .reveal{opacity:0; transform:translateY(14px); transition:opacity .5s ease, transform .5s cubic-bezier(.16,1,.3,1)}
+    .reveal.in{opacity:1; transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="kicker">控制塔 · AI 跑全程，人只在 ⛳ 闸口定方向</p>
+    <h1>想法 → 计划 → 上线
+      <span class="en">Idea → Plan → Ship · the full pipeline, front funnel to shipped &amp; verified</span>
+    </h1>
+    <p class="lede">一句话想法怎样一步步变成可开工的任务卡、并行跑成可运行产品，再经验收、收口、防泄露后上线。机器做搜集、打分、投影、验收，<b>不替你拍板</b>。下方左缘那条会变色的脊柱，就是贯穿全程的方法主线：<b>＋ 加法 → − 减法 → × 乘法</b>，最后汇入一段薄荷色的<b>验收尾段</b>。</p>
+
+    <div class="legend" aria-label="三段方法论 / the three-method spine">
+      <div class="meth">
+        <div class="glyph add" aria-hidden="true">＋</div>
+        <div><div class="meth-t">① 想法 · 做加法</div><div class="meth-s">DIVERGE 发散：<b>探索</b>，找真痛点，不过早收敛</div></div>
+      </div>
+      <div class="meth">
+        <div class="glyph sub" aria-hidden="true">−</div>
+        <div><div class="meth-t">② 需求 · 做减法</div><div class="meth-s">CONVERGE 收敛：<b>定义</b>，KANO/MoSCoW 砍到 MVP</div></div>
+      </div>
+      <div class="meth">
+        <div class="glyph mul" aria-hidden="true">×</div>
+        <div><div class="meth-t">③ 设计 · 做乘法</div><div class="meth-s">模块化·扁平化·去中心化，<b>右尺寸</b>反过度工程</div></div>
+      </div>
+    </div>
+
+    <div class="tiers" aria-label="规模档位 / how far down the spine each tier travels">
+      <div class="tier">
+        <span class="tier-id">T0</span>
+        <span class="tier-s">极简：跳过整个漏斗，<b>只「开工 → 可运行产品」</b></span>
+      </div>
+      <div class="tier">
+        <span class="tier-id">T1</span>
+        <span class="tier-s">标准：全链 = 3 步漏斗 → 开工 → 产品 → <b>eval / 收口 / 防泄露</b> → 上线</span>
+      </div>
+      <div class="tier">
+        <span class="tier-id">T2</span>
+        <span class="tier-s">完整：全链 + <b>前端分支</b>(frontend-flow) + <b>合并之后</b>(DELIVERY-OPS) + 心跳</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="feed">
+
+    <!-- start -->
+    <section class="stage reveal">
+      <div class="node idea" aria-hidden="true">◇</div>
+      <div class="panel start">
+        <div class="ph-head" style="justify-content:center">
+          <span class="ph-name">一句话想法</span>
+          <span class="ph-en">one line idea</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PHASE 1 -->
+    <section class="stage reveal">
+      <div class="node add" aria-hidden="true">＋</div>
+      <article class="panel">
+        <div class="ph-head">
+          <span class="ph-no">第 1 步</span>
+          <span class="ph-name">Shape · 塑形 <span class="ph-en">1-brief</span></span>
+          <span class="ph-by"><span class="ai">AI</span> shape-idea skill</span>
+        </div>
+        <p style="margin:0; font-size:14px; color:var(--fog-bright)">把模糊想法先发散找真痛点，再收敛定 MVP，落成一页「做什么 / 为什么」的简报。</p>
+
+        <div class="steps two">
+          <div class="step">
+            <span class="step-tag add" aria-hidden="true">＋ 做加法 · explore</span>
+            <h3>① 发散 DIVERGE</h3>
+            <p>AI 并行调研：痛点 · JTBD · 竞品 · 跨域类比 · What-if <span class="arrow">→</span> 机会地图（不少于 5 个迥异角度）。</p>
+          </div>
+          <div class="step">
+            <span class="step-tag sub" aria-hidden="true">− 做减法 · define</span>
+            <h3>② 收敛 CONVERGE</h3>
+            <p>AI 用 KANO / MoSCoW 排序 <span class="arrow">→</span> 砍伪需求 <span class="arrow">→</span> MVP <span class="arrow">→</span> 用户故事 + 验收（Given / When / Then）。</p>
+          </div>
+        </div>
+
+        <div class="gates-2">
+          <div class="gate"><span class="flag" aria-hidden="true">⛳</span>
+            <div><span class="lbl">人选方向</span> <span class="sub">挑哪些角度有感觉</span></div></div>
+          <div class="gate"><span class="flag" aria-hidden="true">⛳</span>
+            <div><span class="lbl">人批 brief</span> <span class="sub">批准后才进下一步</span></div></div>
+        </div>
+      </article>
+    </section>
+    <div class="output reveal">
+      <div class="o-row"><span class="o-lbl">产出</span><span class="file">_local/1-brief.md</span></div>
+    </div>
+
+    <!-- PHASE 2 -->
+    <section class="stage reveal">
+      <div class="node sub" aria-hidden="true">−</div>
+      <article class="panel">
+        <div class="ph-head">
+          <span class="ph-no">第 2 步</span>
+          <span class="ph-name">Scout · 选型 <span class="ph-en">2-options</span></span>
+          <span class="ph-by"><span class="ai">AI</span> scout-options.mjs</span>
+        </div>
+        <p style="margin:0; font-size:14px; color:var(--fog-bright)">从零造轮子之前，先看世界上已有什么能用，多 agent 并行搜并对抗核验，给出地基推荐。</p>
+
+        <div class="pill-row" aria-label="五个并行搜索角度">
+          <span class="pill">品类 category</span>
+          <span class="pill">关键词 keyword</span>
+          <span class="pill">生态 ecosystem</span>
+          <span class="pill">前人工程 prior-art</span>
+          <span class="pill">顶会 SOTA papers</span>
+        </div>
+        <div class="body" style="margin-top:12px">
+          <p>5 角度并行搜 <span class="arrow" style="font-family:var(--mono)">→</span> 逐候选按硬规则（许可 / 离线 / 确定性）对抗核验 <span class="arrow" style="font-family:var(--mono)">→</span> 决策矩阵 + 推荐。都不合适时会明确建议从零做。</p>
+        </div>
+
+        <div class="gate tight"><span class="flag" aria-hidden="true">⛳</span>
+          <div><span class="lbl">人批 ADR</span> <span class="sub">批准这条永久决策记录，才定地基</span></div></div>
+      </article>
+    </section>
+    <div class="output reveal">
+      <div class="o-row"><span class="o-lbl">产出</span>
+        <span class="file">_local/2-options.md</span>
+        <span class="file">docs/adr/NNNN-*.md</span></div>
+    </div>
+
+    <!-- PHASE 3 -->
+    <section class="stage reveal">
+      <div class="node mul" aria-hidden="true">×</div>
+      <article class="panel">
+        <div class="ph-head">
+          <span class="ph-no">第 3 步</span>
+          <span class="ph-name">Plan · 计划 <span class="ph-en">3-plan</span></span>
+          <span class="ph-by"><span class="ai">AI</span> grill-design + plan-forge.mjs</span>
+        </div>
+        <p style="margin:0; font-size:14px; color:var(--fog-bright)">先把设计决策拷问清楚，再把简报扩写成计划，由规划引擎审计、投影成带依赖关系的任务卡。计划是唯一真相源，任务卡是它的薄投影。</p>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step-tag mul" aria-hidden="true">× 写计划前 · grill-design</span>
+            <h3>设计决策交互式拷问</h3>
+            <p>沿设计决策树<b style="color:var(--fog-bright)">一次一问 · 每问给推荐 · 消解依赖</b>，把数据模型 / 契约 / 状态机 / 模块边界 / 错误路径敲定，再落 PLAN <span class="arrow">→</span> 减少 plan-forge 的 fix-first 往返。</p>
+          </div>
+          <div class="step">
+            <span class="step-tag mul" aria-hidden="true">× 做乘法 · 8 lenses</span>
+            <h3>plan-forge.mjs 8 透镜审计</h3>
+            <p>PLAN-TEMPLATE 扩写 <span class="arrow">→</span> 8 个 lens 审计（含 ③ module-design：模块化 / 扁平化 / 去中心化做乘法 + 反过度工程右尺寸）<span class="arrow">→</span> 多裁判对抗核验 <span class="arrow">→</span> 裁决。</p>
+          </div>
+          <div class="step">
+            <span class="step-tag mul" aria-hidden="true">× project → audit</span>
+            <h3>投影任务卡 → 卡审</h3>
+            <p>裁决通过后投影成任务卡 <span class="arrow">→</span> decompose-cards 卡审：守 id、依赖、DoD、allow-paths。</p>
+          </div>
+        </div>
+
+        <div class="gate tight"><span class="flag" aria-hidden="true">⛳</span>
+          <div><span class="lbl">人批计划 / 卡</span> <span class="sub">批准后任务卡才进开工窗口</span></div></div>
+      </article>
+    </section>
+    <div class="output reveal">
+      <div class="o-row"><span class="o-lbl">产出</span>
+        <span class="file">specs/tasks/*.md</span>
+        <span class="pill">带 MoSCoW 优先级</span></div>
+    </div>
+
+    <!-- EXECUTION -->
+    <section class="stage reveal">
+      <div class="node run" aria-hidden="true">▶</div>
+      <article class="panel">
+        <div class="ph-head">
+          <span class="ph-no">开工执行</span>
+          <span class="ph-name">task-loop <span class="ph-en">R1–R5</span></span>
+          <span class="ph-by"><span class="ai">AI</span> 每卡一个 agent</span>
+        </div>
+        <p style="margin:0; font-size:14px; color:var(--fog-bright)">并行窗口：每张卡一个 AI agent，各占一棵 git worktree，并行跑完整闭环。</p>
+
+        <div class="chain" aria-label="单卡闭环 R1 到 R5">
+          <span class="lnk"><b>R1</b> worktree</span><span class="sep">›</span>
+          <span class="lnk"><b>R2</b> TDD 先测</span><span class="sep">›</span>
+          <span class="lnk">ponytail / simplify</span><span class="sep">›</span>
+          <span class="lnk"><b>R4</b> 剪枝</span><span class="sep">›</span>
+          <span class="lnk">安全闸</span><span class="sep">›</span>
+          <span class="lnk"><b>R3</b> Codex 评审</span><span class="sep">›</span>
+          <span class="lnk">PR</span><span class="sep">›</span>
+          <span class="lnk">合并</span><span class="sep">›</span>
+          <span class="lnk"><b>R5</b> 文档同步</span>
+        </div>
+        <p class="worktree-note"><b>冻结点卡先合</b>，其余卡在各自 worktree 里并行推进，互不阻塞。</p>
+
+        <!-- frontend branch (T2) -->
+        <div class="branch" aria-label="前端分支 frontend-flow">
+          <div class="branch-head">前端分支 · frontend-flow <span class="ph-tier">T2 · 复杂多页前端</span></div>
+          <p>复杂多页前端走串联驱动卡，把现有件串成四段：<b style="color:var(--fog-bright)">流程卡（页面地图）</b>→喂 <code>plan-forge</code> 投卡 ·
+            <b style="color:var(--fog-bright)">意图卡（单页目标）</b>→<code>grill-design</code> 拷问敲定 ·
+            生成→<code>pencil MCP</code> / Claude Design 高保真 + <code>frontend-design</code> / <code>taste-skill</code> 局部改 ·
+            验证过的区块→回流 <code>context/frontend-assets/</code>。不重造引擎；简单单页直接 frontend-design + pencil。</p>
+        </div>
+      </article>
+    </section>
+
+    <!-- product -->
+    <section class="stage reveal">
+      <div class="node run" aria-hidden="true">✦</div>
+      <div class="panel start" style="border-style:solid; border-color:rgba(147,164,187,.4); background:rgba(147,164,187,.06)">
+        <div class="ph-head" style="justify-content:center">
+          <span class="ph-name" style="color:var(--paper)">可运行产品</span>
+          <span class="ph-en">running product</span>
+          <span class="ph-tier">T0 到此即可</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- POST-PRODUCT: verify → close out → ship -->
+    <section class="stage reveal">
+      <div class="node verify" aria-hidden="true">✓</div>
+      <article class="panel">
+        <div class="ph-head">
+          <span class="ph-no">合并之后</span>
+          <span class="ph-name">验收 → 收口 → 发布 <span class="ph-en">verify · close-out · release</span></span>
+          <span class="ph-by"><span class="ai">AI</span> 跑闸 · 人批发布</span>
+        </div>
+        <p style="margin:0; font-size:14px; color:var(--fog-bright)">产品跑起来不等于做完。三道确定性收口闸把「可运行」推到「可上线」。</p>
+
+        <div class="vsteps">
+          <div class="vstep">
+            <div class="vnum" aria-hidden="true">1</div>
+            <div>
+              <h3>eval 方法论 <span class="vfile">docs/EVAL.md · opt-in</span></h3>
+              <p>确定性 exit-0/1 eval 标准（点击→路由 / MCP 契约 / 安全闸 / 功能黄金集）；LLM-judge 留上游、不当闸。本仓不带 runner，下游按标准自建、自接 CI。</p>
+            </div>
+          </div>
+          <div class="vstep">
+            <div class="vnum" aria-hidden="true">2</div>
+            <div>
+              <h3>发布前收口清单 <span class="vfile">docs/RELEASE-CHECKLIST.md</span></h3>
+              <p>可勾选清单：整合已有闸（防泄露 / verify）+ 授权认证自查（越权 IDOR / 会话固定 / token 存储 / CSRF / 密码哈希）+ 可观测（结构化日志 / 脱敏）+ 灰度 / 回滚。小项目取子集。</p>
+            </div>
+          </div>
+          <div class="vstep">
+            <div class="vnum" aria-hidden="true">3</div>
+            <div>
+              <h3>变 public 前防泄露闸 <span class="vfile">check-secrets.ps1 -Strict</span></h3>
+              <p>核心数据库 / 密钥 / 凭据须<b style="color:var(--fog-bright)">既被 gitignore、又未被 git 追踪</b>（已追踪文件 gitignore 救不了 → <code style="font-family:var(--mono);color:var(--paper)">git rm --cached</code>）。<code style="font-family:var(--mono);color:var(--paper)">-Strict</code> 须全绿才可变 public。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="gate tight"><span class="flag" aria-hidden="true">⛳</span>
+          <div><span class="lbl">人批发布</span> <span class="sub">三闸全绿后由人定上线</span></div></div>
+
+        <p class="worktree-note">合并之后的交付 / 运维方法论（集成 / e2e · 结构化日志 · 灰度 / flag · CD 部署 / 回滚）见 <span style="color:var(--paper)">docs/DELIVERY-OPS.md</span>（T2 · opt-in）。<b>脚手架永不自动发布</b>，CD 由下游接线。</p>
+      </article>
+    </section>
+
+    <!-- shipped -->
+    <section class="stage reveal">
+      <div class="node verify" aria-hidden="true">★</div>
+      <div class="panel start" style="border-style:solid; border-color:rgba(56,225,176,.4); background:rgba(56,225,176,.06)">
+        <div class="ph-head" style="justify-content:center">
+          <span class="ph-name" style="color:var(--signal)">上线 · 已验收</span>
+          <span class="ph-en">shipped &amp; verified</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>源文档 source: docs/IDEA-TO-PLAN.md</span>
+    <span>方法 harvest: obra/Superpowers · garrytan/gstack</span>
+    <span>RSI: perspiration 自动化 · direction 归人</span>
+  </footer>
+</div>
+
+<script>
+  // Reduced-motion-respecting reveal. If user prefers reduced motion, do nothing
+  // (panels are already fully visible via base CSS).
+  (function(){
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var els = document.querySelectorAll('.reveal');
+    if(reduce || !('IntersectionObserver' in window)){
+      els.forEach(function(e){ e.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    }, {threshold:0.12, rootMargin:'0px 0px -8% 0px'});
+    els.forEach(function(e){ io.observe(e); });
+  })();
+</script>
+</body>
+</html>

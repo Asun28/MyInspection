@@ -1,0 +1,91 @@
+# claude-opus-4-8-prompting-llms.txt — 给 Opus 4.8 写提示词的模型专属细则
+
+> 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-4-8
+> (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
+> 精炼子集（非原样拷贝）。模型出新版/行为变了就刷新本文件（过时的 reference 比没有更糟）。上次对照上游校核：2026-07-26（上游页面仍在线、未废弃）。
+> 跨模型通用技巧不在这——见 claude-prompting-best-practices-llms.txt。
+> 官方页共 9 段推荐提示语，本文件**逐条覆盖**：①简洁冗长度 ②低 effort 多步推理 ③思考降频
+> ④暖语气 ⑤子代理边界 ⑥AEFRM 具体设计规格（**唯一改写为要点骨架 + 链接**，因其为整份 brief、超出功能必要引用长度）
+> ⑦4 方向先选再建 ⑧frontend_aesthetics ⑨评审覆盖优先。除⑥外均为**要照字面喂给模型才生效**的短片段，按最小引用保留。
+> **在本脚手架里 Opus 4.8 = 兜底席位（fallback seat），不是日常档。** 日常 Opus 角色（想/架构/评审）
+> 已交给 Opus 5，见 `claude-opus-5-prompting-llms.txt`；但 4.8 **没有退休**：Fable 5 与 Opus 5 **都**带安全
+> 分类器、都会返回 `stop_reason: "refusal"`，而官方默认路由（`fallbacks: "default"`）按拒答**类目**把请求改道到
+> **当时推荐**的兜底模型——官方示例里被选中的就是 Opus 4.8（`"to": {"model": "claude-opus-4-8"}`）。
+> **注意那是示例不是契约**：推荐按模型、按类目而定且会变，**代码要读响应里实际作答的模型 / `fallback` 块**，
+> 别把「回退 = 4.8」写死。类目共 5 个：`cyber` / `bio` / `frontier_llm` / `reasoning_extraction` / `general_harms`，
+> 其中 cyber、bio、frontier_llm、general_harms 官方均注明**良性工作也可能触发**——这条路径不是只有恶意请求才走得到。
+> **何时读本篇**：配回退链、或排查「怎么突然是另一个模型答的」时。日常调提示读 Opus 5 篇。
+> 以下是把 4.8 调准的杠杆（同时也是它作为兜底档接手请求时的实际行为）。
+
+## 强项与 API 要点
+- 强项：长程 agentic 工作、知识工作、视觉、记忆类任务。
+- API 要点：**1M 上下文窗默认开启**；支持 **mid-conversation system messages**（会中注入自方指令的
+  正道——配合「自己的指令别放 tool result」，见 claude-guardrails-llms.txt 间接注入节）；
+  采样参数与 refusal stop 细节见官方 docs。
+
+## 冗长度（verbosity）
+- 按任务复杂度自动校准长度：简单查询短、开放分析长。别指望固定风格。
+- 要更简洁：`Provide concise, focused responses. Skip non-essential context, and keep examples minimal.`
+- 正面示例（"这样简洁地说"）比负面禁令（"不要啰嗦"）更有效。
+
+## effort（最重要的杠杆，比任何旧 Opus 都关键）
+- 编码/agentic 起步用 `xhigh`；智能敏感任务最低 `high`。
+- `max`：可能有增益但收益递减，偶尔过度思考；`medium`：省成本换智能；`low`：仅限短、限定、低智能需求的活。
+- 严格遵守 effort，尤其低端——`low`/`medium` 只做被要求的事，复杂任务在 `low` 有欠思考风险。
+- 见到复杂问题上推理变浅 → **抬 effort 到 high/xhigh，别靠提示词绕**。
+- 必须留在 low 求延迟时，加针对性引导：`This task involves multi-step reasoning. Think carefully through the problem before responding.`
+- 跑 `max`/`xhigh` 时把 max output token 调大（起步 64k），给它跨子代理/工具调用留出思考+行动空间。
+
+## thinking
+- 默认关闭，除非显式 `thinking: {type: "adaptive"}`。触发行为可提示引导。
+- 大/复杂 system prompt 会让它思考偏多；要压：`Thinking adds latency and should only be used when it will meaningfully improve answer quality — typically for problems that require multi-step reasoning. When in doubt, respond directly.`
+
+## 工具触发
+- 偏好推理甚于调工具（多数场景更好）。想要更多工具使用 → **抬 effort**（high/xhigh 在 agentic 搜索/编码里明显更多用工具），或在提示里明确「何时、为何、如何」用某工具。
+
+## 面向用户的进度更新
+- 长 agentic 轨迹里自带高质量、规律的更新。若你有「每 3 次工具调用汇报一次」这类脚手架，**删掉试试**。要调更新形态就明确描述并给例子。
+
+## 字面化指令遵循（literal instruction following）
+- 严格按字面理解，不会把一条指令悄悄泛化到其他项，也不臆测你没提的需求。低 effort 尤甚。
+- 要广泛应用某指令 → **显式声明范围**：`Apply this formatting to every section, not just the first one.`
+
+## 语气/文风
+- 倾向直接、有观点、少「捧场式」措辞、少 emoji。产品需要特定嗓音就针对新基线重调风格提示，如：`Use a warm, collaborative tone. Acknowledge the user's framing before answering.`
+
+## 子代理生成
+- 默认生成更少子代理，可提示引导。示例：
+  `Do not spawn a subagent for work you can complete directly in a single response (e.g. refactoring a function you can already see). Spawn multiple subagents in the same turn when fanning out across items or reading multiple files.`
+
+## 设计/前端默认
+- 有强设计直觉，但有固定「家风」：暖奶白底(~#F4F1EA)、衬线标题(Georgia/Fraunces/Playfair)、斜体强调词、赤陶/琥珀点缀。适合编辑/招待/作品集，但仪表盘/开发工具/金融/医疗/企业应用会「不对味」。
+- 该默认很顽固。泛泛说「别用奶白/干净点」只会换到另一个固定色板，不产生多样性。两个可靠办法：
+  1. **给具体替代规格**（模型精确照做）——写清色板 hex、字体、圆角、间距、动效、区块结构。
+     官方示例是一份「AEFRM 补剂品牌桌面落地页」的完整 brief；**本仓不整段转载**（见本目录 README
+     「来源与引用基准」第 2 条），完整原文见上方源链接的 *Design and frontend defaults* 节。
+     它之所以有效，靠的是下面这套**骨架**——照它写你自己的 brief 即可：
+     - **一句话氛围**：冷调单色，淡银灰渐深至蓝灰与近黑，如蒙雾金属面；整体克制、有结构感。
+     - **贯穿全页的色调系统** + **明确色板 hex 列表**（该例给 5 个值），并**显式禁止**另引亮色强调色。
+     - **布局**：清晰横向分区 + 居中定宽容器；卡片/按钮/输入/媒体框**统一 4px 圆角**；留白慷慨。
+     - **排版**：方正棱角化 sans-serif，字距比常规更宽（标题与导航尤甚）；大号大写标题，正文短而稀疏。
+     - **区块顺序**：hero（强产品陈述 + 一段支撑文案 + 产品占位框）→ 3–4 块 benefit grid → 配方/成分 → CTA。
+     - **交互**：按钮扁平精确，hover 只微调亮度与边框对比（该例用 `transition: all 160ms ease out`），不做夸张动效。
+     **可迁移的写法要点**：氛围形容 + 显式禁止项 + 具体 hex/字体/圆角/间距/动效时长 + 区块顺序——
+     缺任何一项它就回落到默认家风。
+  2. **让它先出选项再建**：`Before building, propose 4 distinct visual directions tailored to this brief (each as: bg hex / accent hex / typeface — one-line rationale). Ask the user to pick one, then implement only that direction.`
+- 比旧模型需要更少反 AI-slop 提示。这段仍有用：
+  `<frontend_aesthetics>NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white or dark backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character. Use unique fonts, cohesive colors and themes, and animations for effects and micro-interactions.</frontend_aesthetics>`
+- 本脚手架前端链见 frontend-design skill / frontend/README 5 闸。
+
+## 交互式编码产品
+- 交互式（多轮用户回合）比自主单回合用更多 token（回合后推理更多），换来长程连贯与编码力。
+- 最大化性能+省 token：用 `xhigh`/`high`、加自主特性（auto 模式）、减少所需人类交互——**首个回合就把任务/意图/约束讲全**。歧义/欠说明的渐进多回合会降 token 效率、有时降性能。
+
+## 代码评审 harness（对本仓 R3/评审很重要）
+- Opus 4.8 找 bug 更强（recall+precision 都升）。但若你的评审提示写了「只报高危」「保守」「别挑刺」，它会**更忠实地照做**——同样深挖，却把更多发现判为低于你的门槛而不报，表现为 recall 下降（是 harness 效应，非能力退化）。
+- 修法：把「发现」与「过滤」分离，发现阶段只求覆盖：
+  `Report every issue you find, including ones you are uncertain about or consider low-severity. Do not filter for importance or confidence at this stage - a separate verification step will do that. Your goal here is coverage: it is better to surface a finding that later gets filtered out than to silently drop a real bug. For each finding, include your confidence level and an estimated severity so a downstream filter can rank them.`
+- 若必须单遍自过滤，把门槛写**具体**（「可能导致错误行为/测试失败/误导结果的 bug；只略过纯风格/命名偏好」），别用「重要」这类定性词。
+
+## computer use
+- 跨分辨率工作，上限 2576px / 3.75MP。1080p 通常是性能/成本的好平衡；成本敏感可 720p / 1366×768。

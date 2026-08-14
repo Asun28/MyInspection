@@ -1,0 +1,57 @@
+# claude-sonnet-5-prompting-llms.txt — 给 Sonnet 5 写提示词的模型专属细则
+
+> 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-sonnet-5
+> (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
+> 精炼子集（非原样拷贝）。模型出新版/行为变了就刷新本文件。上次对照上游校核：2026-07-03。
+> 跨模型通用技巧见 claude-prompting-best-practices-llms.txt。
+> 官方页共 8 段推荐提示语，本文件全数收录：①简洁冗长度 ②低 effort 多步推理 ③思考降频 ④暖语气
+> ⑤AEFRM 具体设计规格（**要点骨架**见 claude-opus-4-8 文件设计节，原文在官方页；三页同文防重复）⑥4 方向先选再建
+> ⑦frontend_aesthetics ⑧评审覆盖优先。
+> 在本脚手架里：Sonnet 5（`claude-sonnet-5`）= 实现/验证（见 CLAUDE.md 模型分工节）。以下是把它调准的杠杆。
+
+## 强项
+- 编码与 agentic 任务。
+
+## 冗长度
+- 按任务复杂度校准长度。要更简洁：`Provide concise, focused responses. Skip non-essential context, and keep examples minimal.`（正面示例 > 负面禁令）
+
+## effort 与 thinking
+- effort 默认 `high`；最难的编码/agentic 抬 `xhigh`；`max` = 不设 token 花销约束的绝对上限。
+- 跨模型/跨档基准对比按「观测到的思考长度」对齐，别按 effort 名字（同名档位在不同模型上智能不等值）。
+- 严格遵守 effort，低端尤甚（low/medium 只做被要求的，复杂任务 low 有欠思考风险）。浅推理 → 抬 effort，别绕。
+- **adaptive thinking 默认开启**——请求不带 `thinking` 字段即按 adaptive 跑。彻底关：`thinking: {type: "disabled"}`。
+- 想压 token/延迟：优先试「**开思考 + 更低 effort**」而非直接关思考（关思考还会降低工具触发，见下）。
+- `max_tokens` 是「思考+正文」的硬上限——为思考留足余量，否则长任务可能「几乎全是思考+被截断的答案+stop_reason: max_tokens」。抬 max_tokens 或降到 medium 可解。
+- **新 tokenizer 对同样文本产出的 token 明显更多（约 +30%）**——沿用旧配置的 max_tokens 可能截断等价输出，需重估。
+- 手动 extended thinking（`budget_tokens`）**已移除，传了返回 400**。用 adaptive thinking + effort 替代。
+- 思考偏多要压：`Thinking adds latency and should only be used when it will meaningfully improve answer quality, typically for problems that require multi-step reasoning. When in doubt, respond directly.`
+
+## 采样参数（新硬约束）
+- **temperature / top_p / top_k 设非默认值 → 返回 400**。接入时别传这些参数；用 system prompt 引导语气与多样性，别靠 temperature。
+
+## 工具触发
+- 默认高度 agentic：主动调工具、跑自校验循环。**thinking 关闭时不太会去调工具**——依赖工具调用就在 system prompt 里加明确 nudge。抬 effort 也增工具使用。
+
+## 面向用户进度更新
+- 自带高质量规律更新。有「每 N 次工具调用汇报」的脚手架可删。要调形态就明确描述+给例子。
+
+## 字面化指令遵循
+- 严格按字面，不泛化、不臆测。要广泛应用 → 显式声明范围：`Apply this formatting to every section, not just the first one.`
+
+## 语气/文风
+- 新基线下长文文风会漂移；产品依赖特定嗓音就针对新基线重调风格提示，如：
+  `Use a warm, collaborative tone. Acknowledge the user's framing before answering.`
+
+## 设计/前端默认
+- 开放式前端会落入固定家风，对仪表盘/开发工具/金融/医疗/企业不对味。破法同 Opus（具体规格的要点骨架见 claude-opus-4-8-prompting-llms.txt 设计节）：**给具体替代规格**，或 **先出选项再建**（temperature 不可用，这是产生设计多样性的推荐法）：
+  `Before building, propose 4 distinct visual directions tailored to this brief (each as: bg hex / accent hex / typeface, plus a one-line rationale). Ask the user to pick one, then implement only that direction.`
+- 反 AI-slop 片段：`<frontend_aesthetics>NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white or dark backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character. Use unique fonts, cohesive colors and themes, and animations for effects and micro-interactions.</frontend_aesthetics>`
+
+## 交互式编码 / 代码评审
+- 交互式编码：用 xhigh/high、加 auto 模式、减人类交互、首回合把任务讲全。
+- 代码评审 recall 下降多为 harness 效应（忠实执行「只报高危」）。用覆盖优先提示：
+  `Report every issue you find, including ones you are uncertain about or consider low-severity. Do not filter for importance or confidence at this stage - a separate verification step will do that. Your goal here is coverage: it is better to surface a finding that later gets filtered out than to silently drop a real bug. For each finding, include your confidence level and an estimated severity so a downstream filter can rank them.`
+- 若必须单遍自过滤：把门槛写**具体**（「可能导致错误行为/测试失败/误导结果的 bug；只略过纯风格/命名偏好」），别用「重要」这类定性词。改评审提示后拿一小撮 eval/测试用例验证 recall/F1 再放量。
+
+## computer use
+- 支持 `computer_20251124`。上限 2576px / 3.75MP；1080p 好平衡，成本敏感 720p / 1366×768。

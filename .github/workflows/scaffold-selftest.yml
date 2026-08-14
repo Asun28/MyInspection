@@ -1,0 +1,57 @@
+name: scaffold-selftest
+
+# selftest.ps1 的 CI（脚手架工作流自检，17 闸）。与 ci.yml（业务码 CI：pytest/verify）**分离**——
+# TD15：本工作流随下游保留（init -Cleanup/-Retrofit 不再删除），因 selftest.ps1 约 12/17 闸测的是
+# 会下发的生产脚本（task.ps1/review.ps1/check-cards.ps1/...），下游可继续拿它当自己的工作流自检；
+# 元仓专属子检查（模板哨兵/占位符/token 覆盖/init 干跑）在 selftest.ps1 内检测到「已初始化」会自动跳过。
+# 触发分支同覆盖 main 与 master（同 ci.yml 的理由：避开「主分支名漂移→CI 静默不跑」，见 ci.yml 头注）。
+# 注：windows runner 计 2× Actions 分钟；node/git 预装，故闸 ①(.mjs)/⑧/⑮ 都能真跑，PSScriptAnalyzer 未装时闸 ⑦ 自跳过。
+# 跨 OS：matrix 同时跑 windows + ubuntu（pwsh 在 ubuntu 上预装），**两者皆硬闸**——selftest 已在
+# Linux 验证全绿（闸⑨/⑪ 的 '/'→'\' 已移除；check-secrets 对隐藏点文件 .env.example/.gitignore 加 -Force）。任一 OS 红即挡合并。
+on:
+  push:
+    branches: [main, master]
+    # push 侧只在 selftest 的**权威面**变化时跑（正向 paths，同本地必跑口径「脚本/钩子/工作流/
+    # 模板结构」+ 闸所读的 configs；`!**.md` 延续「纯文档不触发」裁定）。理由：17 闸测的是
+    # scripts/钩子/工作流/configs，backend/tests 等业务码推送与其无关却曾整跑 windows(2×)+ubuntu
+    # matrix——ci.yml（pytest/secret-leak/许可）对那些推送仍全跑，事后检测层不失守。
+    # **PR 侧刻意不过滤**，防「必需状态检查 + path filter 不相容」卡死 doc-only PR。代价同前：
+    # 文档契约闸对纯文档**直推**无 CI 兜底——ship PR 路径与本地 selftest 仍全覆盖
+    # （用户裁定 2026-07-29 晨：doc-skip；同日晚：正向收窄，砍无关推送的重复 CI 分钟）。
+    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!**.md']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scaffold-selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    # 两 OS 皆硬闸：selftest 已在 Windows + Linux 验证全绿；任一红即挡合并。
+    timeout-minutes: 20
+    steps:
+      # 三方 Action 钉 40-hex commit SHA（非可变 tag），同 ci.yml（TD56/TD-119；selftest 闸 8.2a 机检）。
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # Provision PSScriptAnalyzer：CI 是唯一能装它的环境。装上后 selftest 闸⑦（lint）才真跑——否则模块缺失
+      # 即 skip-as-pass，Error 级 lint 回归静默合并（TD56/TD-119）。配合 selftest 闸⑦ 的 $env:CI 缺模块即 Fail
+      # 守卫：本步若被删/装失败，CI 下闸⑦ 会 fail-loud 而非静默跳过。本步不显式传 -StrictLint——TD77：
+      # selftest.ps1 已在元仓自身（$isPostInit 为假）默认把 Warning 也当失败，此步继承该默认值即可；
+      # 已初始化的下游项目仍保持 opt-in，不对下游自有脚本施加新的告警严格性。
+      - name: Provision PSScriptAnalyzer (lint gate must not skip-as-pass in CI)
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+
+      - name: Scaffold self-test (all gates)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/selftest.ps1
