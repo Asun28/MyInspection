@@ -8,16 +8,19 @@ worktree: C:\wt\T0-TOOLCHAIN
 allow_paths:
   - android/
   - .github/workflows/ci.yml
+  - scripts/check-licenses.ps1
+  - docs/LICENSE-POLICY.md
 forbid:
   - 未授权的运行期出站网络（Gradle 首次拉依赖属引导步、允许；此后 verify 恒 --offline）
   - 改动冻结契约 / 写登录态 / 自动发布
+  - scripts/ 下除 check-licenses.ps1 外的任何脚本（见下「卡片修订 2026-08-15」）
 non_goals:
   - 任何业务代码（schema/UI/相机都不在本卡）
   - Robolectric / Compose UI 测试基建（计划明拒，v1 不做）
   - 签名/发布配置（T7 后按需）
 dod_command: pwsh -NoProfile -File scripts\verify.ps1
 dod_exit: 0
-dod_assert: verify 输出含「Android :core check 全绿」（闸从「跳过」变「收紧」）；android/gradlew.bat 存在；:core 与 :app 空编译绿
+dod_assert: verify 输出含「Android :core check 全绿」（闸从「跳过」变「收紧」）；android/gradlew.bat 存在；:core 与 :app 空编译绿；check-licenses.ps1 输出**检出 Gradle 依赖清单**（不再是「未发现其它生态依赖清单」）；gradle-wrapper.properties 含 distributionSha256Sum
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注（R5）
@@ -37,8 +40,20 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注（R5）
 - CI：`.github/workflows/ci.yml` 的 verify job 加 `actions/setup-java`（temurin 17）+ `android-actions/setup-android`（或 sdkmanager 步）+ gradle 缓存；**PR 侧不加 path filter**（必需检查约束，见 CLAUDE.md CI 节）。
 - `:core:check` 任务链 = test（+后续卡挂上的 SQLDelight verifySqlDelightMigration）；本卡先保证空工程下 check 绿。
 
+## 卡片修订 2026-08-15（编排者裁决 · R3 第二轮 finding #2）
+R3 连续两轮指出：`scripts/check-licenses.ps1` 的「其它生态清单探针」只按**固定路径**找 `build.gradle(.kts)`，
+够不着本项目的**嵌套**清单（`android/app|core/build.gradle.kts`、`android/gradle/libs.versions.toml`），
+于是对整个 Android 依赖图**零覆盖却报 PASS**。本卡一次性 pin 全项目 ~20 个依赖，而 CLAUDE.md 硬边界写死
+「每加依赖跑 check-licenses.ps1」——闸看不见这一面，等于该边界从第 1 张卡起就是**假绿**（L165 同型：
+断言面窄于契约、契约撤掉也照绿）。故**破例**把 `scripts/check-licenses.ps1` 纳入 allow_paths，范围**严格限定**：
+- **要做**：探针改**递归发现**（排除 `.gradle/`、`build/` 等缓存/产物目录），使本仓跑出「检出 Gradle 依赖清单」
+  并按既有语义进 `$coverageGap`（正常运行告警、`-Strict` 失败）；`docs/LICENSE-POLICY.md` 同步记一段
+  「Gradle 生态当前=人工核验 + 覆盖缺口告警」（DocSyncMap 已把二者绑定，改脚本必须同步改文档）。
+- **不做**（留 TD2 走独立卡）：完整的 Gradle 许可扫描器 / CI 强制 allowlist / 逐坐标许可查表。那是选型活，不是 T0 的副本。
+- **附加闸**：动了 `scripts/` 就必须 `pwsh -NoProfile -File scripts\selftest.ps1` 全绿；**不得**为了让它绿而弱化任何既有断言。
+
 ## 禁止
-- 把 SDK/JDK 装进仓库目录；密钥/证书入库；改 scripts/（verify 已提前接好，本卡不动 harness 脚本）。
+- 把 SDK/JDK 装进仓库目录；密钥/证书入库；改 `scripts/` 下除 `check-licenses.ps1` 外的任何脚本（verify 已提前接好）。
 
 ## 非目标
 见 front-matter non_goals。
