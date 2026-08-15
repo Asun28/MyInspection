@@ -20,7 +20,7 @@ non_goals:
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
-dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
+dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 逐字段参与相等性一例全绿；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定、photo.softDelete 受 finalize 守卫 + orphanedContentHashes 排除 FINALIZED 证据）各一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight/ 登记进 scripts/_config.ps1 FrozenPaths（R5）
@@ -29,7 +29,8 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
 # T1-SCHEMA-CORE
 
 ## 产出
-`.sq` 全量 schema（真相源）+ 生成的类型化 Kotlin 访问层 + 自研 UUIDv7 + 迁移基线 + 纯 JVM 测试（JdbcSqliteDriver 内存库）。
+`.sq` 全量 schema（真相源）+ 生成的类型化 Kotlin 访问层 + 自研 UUIDv7 + 迁移基线 + `core/model/` 不可变快照类型
+（`InspectionSnapshot`/`SupplementSnapshot`，T1-CANON-HASH 哈希域的输入形状）+ 纯 JVM 测试（JdbcSqliteDriver 内存库）。
 
 ## 上下文包（执行模型必读）
 - **表清单与不变量（每表：TEXT 主键存 canonical 小写 UUIDv7 · created_at + updated_at UTC epoch 毫秒 ·
@@ -56,10 +57,10 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   - room_instance（inspection_id、room_key（模板房间键，如 BEDROOM）、instance_no、display_label（如 "Bedroom 2 / 次卧"））——**调研修正（docs/research/opensource-indie.md 要点 6）**：房间是实例不是模板常量，多卧室同 stable_id 不得冲突；ODK/Fulcrum 先例收敛
   - inspection_item（inspection_id、room_instance_id、stable_id、status TEXT（枚举按模板类型校验在 :core 层）、note、wear_or_damage 可空：FAIR_WEAR/DAMAGE/UNDETERMINED（仅 Exit 且与 Ingoing 有差异））；唯一键 (inspection_id, room_instance_id, stable_id)
   - photo（inspection_item_id 可空 + room_instance_id（room 级全景挂实例）、rel_path、content_hash、exif_time_ms 可空、source：CAMERA/IMPORTED、**privacy_flag**（含租客物品标记——NZ OPC 判例风险，报告可排除；docs/research/synthesis.md「照片隐私」））
-  - property_item_override（property_id、stable_id、suppressed）——「本物业不存在此项」永久抑制（zInspector `Ø` 先例：模板现场自愈，免每次 N_A；synthesis 建议 #4）
+  - property_item_override（property_id、stable_id、suppressed）——「本物业不存在此项」永久抑制（zInspector `Ø` 先例：模板现场自愈，免每次 N_A；synthesis 建议 #4）；`setSuppressed` 可逆切换（T2-CAPTURE-CORE「抑制/恢复用例本卡提供」，其 allow_paths 不含 core/db/）
   - audio（inspection_item_id、rel_path、content_hash）
   - supplement（inspection_id、created_at、text、prev_hash——finalize 哈希链，append-only）
-  - notice（inspection_id、full_text 全文快照、generated_at、sent_via、sent_at、lead_hours、validation_snapshot）
+  - notice（inspection_id、full_text 全文快照、generated_at、sent_via、sent_at、lead_hours、validation_snapshot）——`recordDelivery` 回记送达且一次性锁定（T4-NOTICES「回记送达后提前量重算并锁定」，其 allow_paths 不含 core/db/）
   - phrase_entry（en、zh、category、sort、**applies_to_statuses** 可空（如 wear 类只在 FAIR 时推荐）、
     **shortcut** 可空（如 "FWT" 快捷展开））——两个可空字段为 T2-PHRASELIB 所需；其 allow_paths 也不含
     core/db/，同 tenancy.purged_at 一样的理由由本卡建列
@@ -75,7 +76,11 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   标量子查询返回 NULL、`NULL IS NULL` 为真会误判通过，EXISTS 要求父行真的存在；`inspection_item`/`photo`
   的 guard 还要多验一层归属（room_instance 真属于该 inspection、inspection_item 真属于该 room_instance），
   防止借用别的巡检/房间的 id 拼出跨链路数据。`supplement` 是唯一的 append-only 例外（本就设计成 finalize
-  后仍可写）。每条守卫至少各一例「对 FINALIZED 行/缺失父行/错配父行操作计 0 行」。
+  后仍可写）。每条守卫至少各一例「对 FINALIZED 行/缺失父行/错配父行操作计 0 行」。同一条 finalize 守卫
+  也套在两条后补的写路径上：`inspection_item.updateWearOrDamageIfDraft`（T2-CAPTURE-CORE 差异判定后写入）
+  与 `photo.softDelete`（T2-PHOTO-PIPELINE 去关联/孤儿清理链路前半步）——后者还带来一个免费推论：
+  `orphanedContentHashes` 不需要另写"排除 FINALIZED 巡检"的特判，因为那类 content_hash 永远至少有一行
+  活跃记录、天然不会被判定为孤儿。
 - **软删除唯一性一律用部分唯一索引**（`CREATE UNIQUE INDEX … WHERE deleted_at IS NULL`），**不用表级
   `UNIQUE(业务键, deleted_at)`**：SQLite 的 `UNIQUE` 把 `NULL` 视为互不相等，`deleted_at` 恒为 `NULL` 的
   活跃行之间表级约束形同虚设、根本拦不住重复。
@@ -154,16 +159,14 @@ cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --test
   check-secrets 加按文件豁免 / 快照改存非 `.db` 后缀——与证明用的变异：改一处 `.sq` 却不配对写 `.sqm`，
   `:core:check` 必须转红）；影响面小——version 1 零 .sqm 本就无迁移可验，真正开始起作用是从第一次
   加表/改列（第一份 .sqm）起，届时需先还清 TD4 才能开工。
-- **待编排者裁决（未在本卡实现，未验证足够到能自行决定）**：R3 评审指出 `specs/tasks/T1-CANON-HASH.md` 的
-  "API 形态"一节写着 `fun canonicalJson(snapshot: InspectionSnapshot): String`，并注明"输入是 model 层不可变
-  数据类（**T1-SCHEMA-CORE 已定义**）"——但本卡（T1-SCHEMA-CORE）原文从未提过 `InspectionSnapshot`/
-  `SupplementSnapshot` 这两个类型，是两张卡之间的规划期契约缺口，不是本次 diff 引入的缺陷。T1-CANON-HASH
-  的哈希域字段（供将来落这两个 model 用）已在它自己卡片里完整列出。本卡未动手实现，原因：①
-  非目标里明文排除"canonical 哈希（T1-CANON-HASH）"，替它把这两个不可变数据类的形状定下来算不算越界，
-  没有把握；② 猜错形状比不做更坏——T1-CANON-HASH 真正开工时再对，返工成本远小于现在武断定型然后事后
-  发现字段/嵌套结构不对。`core/model/` 已在 allow_paths 内、目前是空的，就是留给这两个类型的位置。
-  处置建议二选一，请编排者定：（a）T1-CANON-HASH 卡自己建这两个 model（已知道自己要的确切形状）；
-  （b）另开一张窄卡在 T1-SCHEMA-CORE 之后、T1-CANON-HASH 之前把这两个类型定下来。
+- **`core/model/` 已按上方两条编排者裁决落地**：`InspectionSnapshot`（+ 嵌套的 `PropertySnapshot`/
+  `TenancySnapshot`/`TemplateSnapshot`/`InspectionItemSnapshot`/`PhotoSnapshot`/`AudioSnapshot`）与
+  `SupplementSnapshot`，字段逐一对齐 T1-CANON-HASH 的哈希域清单，一个不多——排序（items 按模板序、
+  photos/audios 按 UUID 序）留给调用方，本卡只定形状不做排序。四条下游查询（`inspection_item.
+  updateWearOrDamageIfDraft`、`property_item_override.{setSuppressed,selectByPropertyAndStableId}`、
+  `notice.recordDelivery`、`photo.{softDelete,orphanedContentHashes}`）已加到对应 .sq 文件，均带
+  finalize 守卫（`property_item_override` 除外——它跨巡检生效，不属于任何单次巡检的只读快照）+
+  自证测试。
 
 ## 执行建议（TASK-BOARD）
 首选 DeepSeek V4 Pro · high；备选 Sonnet 5 max；**冻结前 Opus 5 抽审一遍 schema**（列/索引/软删唯一性），R3 仍 Sol。难度 H（地基卡，宁慢勿错）。
