@@ -234,11 +234,11 @@ class DbInvariantsTest {
             tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, created_at = now, updated_at = now,
         )
 
-        database.tenancyQueries.purgeContactInfo(updated_at = now + 1, id = tenancyId)
+        database.tenancyQueries.purgeContactInfo(purged_at = now + 1, updated_at = now + 1, id = tenancyId)
 
         val purged = database.tenancyQueries.selectById(tenancyId).executeAsOne()
         assertNull(purged.tenant_name, "tenant_name must be cleared")
         assertNull(purged.contact, "contact must be cleared")
-        assertEquals(now + 1, purged.purged_at, "purged_at must never be left NULL after a purge — it is bound to the same value as updated_at")
+        assertEquals(now + 1, purged.purged_at, "purged_at must be recorded for a real purge call")
     }
 }

@@ -41,9 +41,12 @@ WHERE id = :id;
 
 -- 保留期清理的机械执行面（T5-RETENTION 的 allow_paths 不含 core/db/，只能调用本卡已生成的 API）：
 -- 置空联系方式 + 标记 purged_at，绝不 DELETE 行——巡检/照片/报告哈希链仍是法定证据。何时/是否清理归
--- T5-RETENTION。purged_at 复用 :updated_at 而非单独可空参数——单独参数能传 NULL 进去，造出「联系方式
--- 已清空但 purged_at 仍是 NULL」的自相矛盾态；updated_at 非空，复用它令这条路径类型层面就不可能传 NULL。
+-- T5-RETENTION。`AND :purged_at IS NOT NULL` 是**运行期** WHERE 守卫，不是编译期类型保证——曾以为
+-- 复用 `:updated_at` 能让这条路径"类型层面不可能传 NULL"，SQLDelight 2.3.2 按参数名在整条语句里出现
+-- 的所有位置推断可空性，绑到可空列（purged_at）的那一次用法会把生成的 Kotlin 参数类型拉回 `Long?`，
+-- 假设是错的（实测核验，已改正）。传 NULL 时整条 UPDATE 是 0 行、不落地——不会出现"联系方式已清空但
+-- purged_at 仍是 NULL"的自相矛盾态。
 purgeContactInfo:
 UPDATE tenancy
-SET tenant_name = NULL, contact = NULL, purged_at = :updated_at, updated_at = :updated_at
-WHERE id = :id;
+SET tenant_name = NULL, contact = NULL, purged_at = :purged_at, updated_at = :updated_at
+WHERE id = :id AND :purged_at IS NOT NULL;

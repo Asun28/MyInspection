@@ -13,8 +13,8 @@ CREATE TABLE photo (
 );
 
 CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
--- content_hash 打头的索引：orphanedContentHashes 按 content_hash 做无 room_instance 范围限定的
--- 全表自关联查找，idx_photo_active 以 room_instance_id 打头覆盖不到这个访问模式。
+-- content_hash 打头的索引：orphanedAssets 按 content_hash 做无 room_instance 范围限定的全表自关联
+-- 查找，idx_photo_active 以 room_instance_id 打头覆盖不到这个访问模式。
 CREATE INDEX idx_photo_content_hash ON photo (content_hash);
 
 -- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库唯一会让同一张照片内容永远不能合法出现
@@ -52,7 +52,7 @@ WHERE room_instance_id = :room_instance_id AND deleted_at IS NULL;
 -- 去关联/软删（T2-PHOTO-PIPELINE 孤儿清理链路的前半步：一份物理资产多处关联，去重复用后原关联要能
 -- 撤销；其 allow_paths 不含 core/db/）。finalize 只读强制同样适用——FINALIZED 巡检下的照片不得软删，
 -- 理由同 insert 侧（否则巡检证据能被事后抽走，破坏 data_hash 锁定的快照）。这条守卫还带来一个免费的
--- 推论，见 orphanedContentHashes 的注释。
+-- 推论，见 orphanedAssets 的注释。
 softDelete:
 UPDATE photo
 SET deleted_at = :deleted_at, updated_at = :deleted_at
@@ -64,12 +64,15 @@ WHERE id = :id
     WHERE ri.id = photo.room_instance_id AND i.finalized_at IS NULL
   );
 
--- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」）：返回当前没有任何活跃行
--- 引用的 content_hash——这些哈希对应的物理文件不再被任何证据依赖，可以安全删磁盘文件。"finalize 过的
--- 巡检照片永不清"不需要在这里另写特判：softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类
+-- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）：返回
+-- content_hash + rel_path——只回 content_hash 曾经是个坑：调用方拿到孤儿哈希后，selectByRoomInstance
+-- 要求已知 room_instance_id 且天生排除软删行（孤儿行恰好就是软删的那些），根本查不回物理文件路径，
+-- 清理用例无从下手（R3 评审指出，已改正）。DISTINCT 两列而非只 DISTINCT content_hash：同一哈希若曾
+-- 落到过不同 rel_path（多份物理副本），每个路径都要能被清理，不能只删其中一份。"finalize 过的巡检
+-- 照片永不清"不需要在这里另写特判：softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类
 -- content_hash 永远至少有一行活跃记录，天然不会出现在这份孤儿列表里。
-orphanedContentHashes:
-SELECT DISTINCT p1.content_hash
+orphanedAssets:
+SELECT DISTINCT p1.content_hash, p1.rel_path
 FROM photo p1
 WHERE p1.deleted_at IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM photo p2 WHERE p2.content_hash = p1.content_hash AND p2.deleted_at IS NULL);
