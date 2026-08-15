@@ -57,7 +57,7 @@
 | `org.jetbrains.kotlinx:kotlinx-serialization-json` | Apache-2.0 | ✅ | `github.com/Kotlin/kotlinx.serialization` `LICENSE.txt` |
 | `app.cash.sqldelight:runtime` / `sqlite-driver` / `android-driver`，及同名 Gradle 插件 `app.cash.sqldelight` | Apache-2.0 | ✅ | `github.com/cashapp/sqldelight` `LICENSE.txt` |
 | `org.jetbrains.kotlin:kotlin-test` / `kotlin-test-testng`，及 Kotlin Gradle 插件（`kotlin-jvm`/`kotlin-android`/`kotlin-compose`/`kotlin-serialization`） | Apache-2.0 | ✅ | `github.com/JetBrains/kotlin` `license/LICENSE.txt` |
-| `org.testng:testng`（经 `kotlin-test-testng` 引入，测试运行器；替代 EPL-1.0 的 JUnit，见 toml 内注释） | Apache-2.0 | ✅ | `testng-7.5.1.pom`（编排者独立复核）；其 `junit:junit:4.13.2` 依赖标 `optional=true`，Gradle 不解析进最终 classpath（实测 `:core:dependencies --configuration testRuntimeClasspath` 零 junit 节点） |
+| `org.testng:testng`（经 `kotlin-test-testng` 引入，测试运行器；替代 EPL-1.0 的 JUnit，见 toml 内注释） | Apache-2.0 | ✅ | **实测解析版本** `testng:7.0.0`（`:core:dependencies --configuration testRuntimeClasspath` 输出所示，非 Maven Central 上的最新版——早前文档误引了 `7.5.1.pom`，R3 评审纠正）；`testng-7.0.0.pom` `<licenses>` 块 = `Apache Version 2.0, January 2004`；其 `junit:junit:4.12` 依赖标 `<optional>true</optional>`，Gradle 不解析进最终 classpath（实测同一条 `:core:dependencies` 输出零 junit 节点）——**版本号以实测解析结果为准，不是 POM 里写的最新版**，核验证据须对准"实际会被打进产物的那个版本"，同 `docs/LICENSE-POLICY.md` 附录 A 对 ffmpeg 的"对准确切二进制"要求同一纪律 |
 | `com.android.tools.build:gradle`（AGP，`com.android.application`/`com.android.library` 插件） | Apache-2.0 | ✅ | `dl.google.com` 该坐标 POM `<licenses>` 块（`The Apache Software License, Version 2.0`） |
 | Gradle 构建工具本体（非 Maven 坐标依赖，`gradle/wrapper/gradle-wrapper.properties` 钉版） | Apache-2.0 | ✅（构建期工具，未随产品分发） | gradle.org 许可声明；wrapper `distributionSha256Sum` 已由编排者独立核验匹配官方发布 |
 

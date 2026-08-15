@@ -7473,12 +7473,13 @@ exit 0
 #   build.gradle{,.kts}）——T0-TOOLCHAIN 六轮评审 finding #6c：此前只变异了 libs.versions.toml 一支，
 #   build.gradle{,.kts} 那一支从未被证明在测。
 #   （原命名 17aa/17bb 与既有 17aa TD68 远端基线评审套件撞号，改名 17cc/17dd——R3 dimension #11。）
-#   变异分类器改用**真实子进程**，且**脚本自身退出码**与**needle 有无**分开捕获、两者都须满足才采信
-#   （R3 round-2 dimension #6）：早前把脚本管进 Select-String、只看外层包装的退出码——若脚本本身在打印完
-#   控制组文本后于**别处**崩溃（与本次变异无关），也会呈现"needle 消失"的假象、被误判成精确命中该分支。
-#   现要求 mutant 脚本自身 exit 0（证明它正常跑完全程，不是半路崩掉），needle 有无才是变异专属信号——
-#   两者都满足才算数（早前 round-1 已从"只判文本"改进到"子进程退出码"，但退出码取的是包装层、不是脚本本体，
-#   本轮把它拆成脚本本体退出码 + 文本内容两个独立信号）。
+#   变异分类器改用**独立子进程 + 专属断言标记**（R3 round-4 dimension #6，卡片 dod_assert 字面要求：
+#   「变异脚本须带判据分类器——只有『非零 且 命中指定断言文本』才算数」）：早前几轮虽已引入子进程，
+#   但断言本体（needle 有无的判断）仍在 selftest 自己进程内做字符串比较，子进程只用来证"脚本本体没崩"，
+#   不满足"判据本身是子进程级非零退出"这条字面要求。现改为 `Invoke-MarkerAssertion`：**在子进程内部**
+#   完成"取内容 → 查 needle → 打印专属 MARKER 字面量 → 按结果退出 0/1"整套判断，外层只读子进程的
+#   退出码与它打印的 MARKER 文本——变异被"杀死"的证据 = 该子进程本身非零退出、且其 stdout 含
+#   本次断言专属的 MARKER（不是任意 nonzero、不是任意文本，是"这一句断言"的）。
 #   变异对象一律不是生产文件本体：17cc 用**真实生产脚本旁的临时同目录副本**（scripts/.st17cc-mutant-$PID.ps1，
 #   $PSScriptRoot 落在真实 scripts/，故 $RepoRoot 解析到真实仓根、扫到真实 android/ 树，行为与 dod_command
 #   一致），17dd 全程只在内存/临时暂存文件上操作、从不写回真实 verify.ps1。
@@ -7489,11 +7490,17 @@ $realVfPath = Join-Path $RepoRoot 'scripts/verify.ps1'
 $realCLHashBefore = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
 $realVfHashBefore = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
 
-# 判据函数：真实子进程独立运行 $ScriptPath（不与 Select-String 管道合并退出码），分开返回
-# ① 脚本自身的退出码（须 0=正常跑完全程，非本次变异 ⇒ 不应致崩溃）② 完整输出文本（供逐一核 needle 有无）。
-function Test-CheckLicensesOutput([string]$ScriptPath) {
-  $out = & pwsh -NoProfile -File $ScriptPath 2>&1 | Out-String
-  return [PSCustomObject]@{ ScriptExit = $LASTEXITCODE; Output = $out }
+# 统一判据：独立子进程内部完成「取内容 → 查 needle → 打印专属 MARKER → 按结果退出」，外层只读子进程的
+# 退出码 + stdout（不在 selftest 自己进程内二次判断 needle）。$GetContentCmd 是取内容的命令行片段字符串，
+# 会原样拼进子进程脚本——跑脚本用 "& pwsh -NoProfile -File '<path>' 2>&1 | Out-String"，纯读文件用
+# "Get-Content -LiteralPath '<path>' -Raw"。命中→打印 "MARKER:<id>:PRESENT" 退出 0；未命中→打印
+# "MARKER:<id>:ABSENT" 退出 1（这就是卡片要的「非零」）。$MarkerId 须每条断言各自唯一，防止两条断言的
+# 判据串混着看（R3 round-4 dimension #6：「命中指定断言文本」指的是**这一条**断言专属的文本）。
+function Invoke-MarkerAssertion([string]$GetContentCmd, [string]$Needle, [string]$MarkerId) {
+  $needleEsc = $Needle.Replace("'", "''")
+  $child = "`$c = $GetContentCmd`nif (`$c.Contains('$needleEsc')) { Write-Output 'MARKER:${MarkerId}:PRESENT'; exit 0 } else { Write-Output 'MARKER:${MarkerId}:ABSENT'; exit 1 }"
+  $stdout = & pwsh -NoProfile -Command $child
+  return [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($stdout -join "`n") }
 }
 
 # 判据用的 needle 一律取「成功清单里出现的完整相对路径」，不用裸文件名（R3 round-3 dimension #6）：
@@ -7501,27 +7508,23 @@ function Test-CheckLicensesOutput([string]$ScriptPath) {
 # 删掉发现那一行后，若该行同时也是"生成这条错误文案"的来源（try/catch 一体，删了就两者都不产生），
 # 裸文件名判据仍可能因为**别的巧合**（如错误文案本身）继续满足，无法确证判据测的是"成功清单"而不是
 # "任何提到该词的文本"。改用**完整相对路径**（如 android/gradle/libs.versions.toml）：该串只会出现在
-# 成功清单的路径列表里，错误文案只含裸文件名（不含 android/ 前缀），两者不可能混淆。GREEN 基线另显式断言
-# 输出**不含**"递归枚举失败"字样，排除"看似命中、实为枚举失败巧合命中"的假阳性。
+# 成功清单的路径列表里，错误文案只含裸文件名（不含 android/ 前缀），两者不可能混淆。
 $needleA = 'android/gradle/libs.versions.toml'
 $needleB = 'android/core/build.gradle.kts'
-$enumFailMarker = '递归枚举失败'
 
-# 17cc. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异，判据=脚本自身退出码 + 完整路径 needle 有无）
+# 17cc. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异，判据=独立子进程非零退出 + 专属 MARKER）
 $mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
   Copy-Item -LiteralPath $realCLPath -Destination $mutantCL -Force
-  $base = Test-CheckLicensesOutput $mutantCL
-  if ($base.ScriptExit -ne 0) {
-    Fail "17cc 基线：未变异副本自身退出 $($base.ScriptExit)（期望 0=正常跑完）——副本本身已不健康，无从继续变异测试。"
-  } elseif ($base.Output.Contains($enumFailMarker)) {
-    Fail "17cc 基线：未变异副本输出含「$enumFailMarker」——真实 android/ 树上不应有枚举错误，环境异常，无从继续变异测试。"
-  } elseif (-not $base.Output.Contains($needleA)) {
-    Fail "17cc 基线：未变异副本正常退出 0，但输出未见完整路径 $needleA——递归发现分支①未生效或该文件缺失，无从继续变异测试。"
-  } elseif (-not $base.Output.Contains($needleB)) {
-    Fail "17cc 基线：未变异副本正常退出 0，但输出未见完整路径 $needleB——递归发现分支②未生效，无从继续变异测试。"
+  $mutantRunCmd = "& pwsh -NoProfile -File '$mutantCL' 2>&1 | Out-String"
+  $baseA = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleA -MarkerId 'GRADLE-A-BASE'
+  $baseB = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleB -MarkerId 'GRADLE-B-BASE'
+  if ($baseA.Exit -ne 0 -or $baseA.StdOut -notmatch 'MARKER:GRADLE-A-BASE:PRESENT') {
+    Fail "17cc 基线：未变异副本对 needle『$needleA』的判据子进程退出 $($baseA.Exit)、stdout=$($baseA.StdOut)（期望 exit 0 + PRESENT）——递归发现分支①未生效或该文件缺失，无从继续变异测试。"
+  } elseif ($baseB.Exit -ne 0 -or $baseB.StdOut -notmatch 'MARKER:GRADLE-B-BASE:PRESENT') {
+    Fail "17cc 基线：未变异副本对 needle『$needleB』的判据子进程退出 $($baseB.Exit)、stdout=$($baseB.StdOut)（期望 exit 0 + PRESENT）——递归发现分支②未生效，无从继续变异测试。"
   } else {
-    Write-Host "  17cc 基线（GREEN）：未变异副本自身退出 0，输出同时含完整路径 $needleA 与 $needleB、且不含「$enumFailMarker」OK" -ForegroundColor Green
+    Write-Host "  17cc 基线（GREEN）：未变异副本对 $needleA / $needleB 两条判据子进程均 exit 0 + PRESENT OK" -ForegroundColor Green
     $origLines = Get-Content -LiteralPath $mutantCL
     # 规整化基线（重要）：Get-Content/Set-Content 往返不是字节级恒等（换行符/末尾换行处理有别于原始 Copy-Item
     # 字节），直接拿 Copy-Item 落地时的哈希当「还原目标」会对每次变异都假红。改为「先用 Set-Content 写一遍原始
@@ -7536,14 +7539,14 @@ try {
     } else {
       $mutA = @(for ($i = 0; $i -lt $origLines.Count; $i++) { if ($i -ne $idxA[0]) { $origLines[$i] } })
       Set-Content -LiteralPath $mutantCL -Value $mutA -Encoding utf8
-      $rA = Test-CheckLicensesOutput $mutantCL
+      $rA_self = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleA -MarkerId 'GRADLE-A-MUT'
+      $rA_ctrl = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleB -MarkerId 'GRADLE-A-MUT-CTRL'
       Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
       $hashA = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
       if ($hashA -ne $origHash) { Fail "17cc(A) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashA）——mutant 副本未干净还原（副本非生产文件，但仍须核验闭环完整）。" }
-      elseif ($rA.ScriptExit -ne 0) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，mutant 脚本自身退出 $($rA.ScriptExit)（期望 0）——脚本崩溃了而不是分支①的发现结果消失，红的原因不对（L165：非零可能来自语法坏/更早的闸抢先中断，须先证脚本本体仍正常跑完）。" }
-      elseif ($rA.Output.Contains($needleA)) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，脚本正常退出 0 但输出仍含完整路径 $needleA——分支①未被真正测到（vacuous mutation）。" }
-      elseif (-not $rA.Output.Contains($needleB)) { Fail "17cc(A) 分类器：删掉分支①那一行后，脚本正常退出 0 但分支②的完整路径 $needleB 也从输出消失了——红不是分支①单独造成（两分支未真正独立，L165）。" }
-      else { Write-Host "  17cc(A) libs.versions.toml 发现分支：单句删除变异后脚本仍正常退出 0、完整路径 $needleA 从输出消失（RED）、$needleB 仍在输出里（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green }
+      elseif ($rA_self.Exit -eq 0 -or $rA_self.StdOut -notmatch 'MARKER:GRADLE-A-MUT:ABSENT') { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，判据子进程退出 $($rA_self.Exit)、stdout=$($rA_self.StdOut)（期望 exit 非零 + ABSENT）——分支①未被真正测到（vacuous mutation，卡片 dod_assert 字面要求：非零且命中指定断言文本）。" }
+      elseif ($rA_ctrl.Exit -ne 0 -or $rA_ctrl.StdOut -notmatch 'MARKER:GRADLE-A-MUT-CTRL:PRESENT') { Fail "17cc(A) 分类器：删掉分支①那一行后，分支②控制组判据子进程退出 $($rA_ctrl.Exit)、stdout=$($rA_ctrl.StdOut)（期望仍 exit 0 + PRESENT）——红不是分支①单独造成（两分支未真正独立，L165）。" }
+      else { Write-Host "  17cc(A) libs.versions.toml 发现分支：单句删除变异后判据子进程 exit 非零 + ABSENT（RED，真正的『非零且命中断言文本』杀死信号）、控制组子进程仍 exit 0 + PRESENT（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green }
     }
 
     # 分支②变异：删掉 build.gradle/build.gradle.kts 那一行（单句删除）。
@@ -7553,14 +7556,14 @@ try {
     } else {
       $mutB = @(for ($i = 0; $i -lt $origLines.Count; $i++) { if ($i -ne $idxB[0]) { $origLines[$i] } })
       Set-Content -LiteralPath $mutantCL -Value $mutB -Encoding utf8
-      $rB = Test-CheckLicensesOutput $mutantCL
+      $rB_self = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleB -MarkerId 'GRADLE-B-MUT'
+      $rB_ctrl = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleA -MarkerId 'GRADLE-B-MUT-CTRL'
       Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
       $hashB = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
       if ($hashB -ne $origHash) { Fail "17cc(B) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashB）——mutant 副本未干净还原。" }
-      elseif ($rB.ScriptExit -ne 0) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，mutant 脚本自身退出 $($rB.ScriptExit)（期望 0）——脚本崩溃了而不是分支②的发现结果消失，红的原因不对（L165）。" }
-      elseif ($rB.Output.Contains($needleB)) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，脚本正常退出 0 但输出仍含完整路径 $needleB——分支②未被真正测到（vacuous mutation）。" }
-      elseif (-not $rB.Output.Contains($needleA)) { Fail "17cc(B) 分类器：删掉分支②那一行后，脚本正常退出 0 但分支①的完整路径 $needleA 也从输出消失了——红不是分支②单独造成（两分支未真正独立，L165）。" }
-      else { Write-Host "  17cc(B) build.gradle{,.kts} 发现分支：单句删除变异后脚本仍正常退出 0、完整路径 $needleB 从输出消失（RED）、$needleA 仍在输出里（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green }
+      elseif ($rB_self.Exit -eq 0 -or $rB_self.StdOut -notmatch 'MARKER:GRADLE-B-MUT:ABSENT') { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，判据子进程退出 $($rB_self.Exit)、stdout=$($rB_self.StdOut)（期望 exit 非零 + ABSENT）——分支②未被真正测到（vacuous mutation）。" }
+      elseif ($rB_ctrl.Exit -ne 0 -or $rB_ctrl.StdOut -notmatch 'MARKER:GRADLE-B-MUT-CTRL:PRESENT') { Fail "17cc(B) 分类器：删掉分支②那一行后，分支①控制组判据子进程退出 $($rB_ctrl.Exit)、stdout=$($rB_ctrl.StdOut)（期望仍 exit 0 + PRESENT）——红不是分支②单独造成（两分支未真正独立，L165）。" }
+      else { Write-Host "  17cc(B) build.gradle{,.kts} 发现分支：单句删除变异后判据子进程 exit 非零 + ABSENT（RED）、控制组子进程仍 exit 0 + PRESENT（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green }
     }
   }
 } finally {
@@ -7673,21 +7676,26 @@ try {
       $mutReparseLines = $reparseLines.Clone()
       $mutReparseLines[$reparseGuardIdx[0]] = $reparseLines[$reparseGuardIdx[0]].Replace('(-not $isReparse) -and ', '')
       Set-Content -LiteralPath $mutantReparseCL -Value $mutReparseLines -Encoding utf8
+      # 同 17cc(A/B)/17dd 的判据形态：子进程内部完成"追没追进联接"的判断，打印专属 MARKER 后按结果退出——
+      # 守卫在场（未泄漏）= MARKER:...:PRESENT + exit 0；守卫失效（泄漏）= MARKER:...:ABSENT + exit 1
+      # （nonzero，卡片要的"杀死"信号）。变异（弱化守卫）后期望看到 ABSENT + 非零，证明本闸真会栽（R3 round-4
+      # dimension #6：判据须是子进程非零退出 + 专属断言文本，不能只看一个裸退出码）。
       $probeLines = @(
         'Set-StrictMode -Version Latest', "`$ErrorActionPreference = 'Stop'",
         ". '$mutantReparseCL' -AsLibrary",
         "`$h = @(Find-GradleManifests -Root '$fxReparseRoot' -Names @('build.gradle'))",
         "`$leaked = @(`$h | Where-Object { `$_.StartsWith('$fxOutside') -or `$_.StartsWith('$reparseLinkPath') })",
-        'if ($leaked.Count -gt 0) { exit 0 } else { exit 1 }'
+        "if (`$leaked.Count -gt 0) { Write-Output 'MARKER:REPARSE-GUARD-MUT:ABSENT'; exit 1 } else { Write-Output 'MARKER:REPARSE-GUARD-MUT:PRESENT'; exit 0 }"
       )
       Set-Content -LiteralPath $reparseProbeScript -Value $probeLines -Encoding utf8
-      & pwsh -NoProfile -File $reparseProbeScript
+      $probeStdOut = & pwsh -NoProfile -File $reparseProbeScript
       $probeExit = $LASTEXITCODE
+      $probeStdOutText = ($probeStdOut -join "`n")
       Set-Content -LiteralPath $mutantReparseCL -Value $reparseLines -Encoding utf8
       $reparseMutHash = (Get-FileHash -LiteralPath $mutantReparseCL -Algorithm SHA256).Hash
       if ($reparseMutHash -ne $reparseOrigHash) { Fail "17cc(reparse-mut) 变异还原后 SHA256 不符（原=$reparseOrigHash，还原后=$reparseMutHash）——mutant 副本未干净还原。" }
-      elseif ($probeExit -ne 0) { Fail "种子缺陷 17cc(reparse-mut)：弱化 ReparsePoint 守卫子句后，独立子进程里的 Find-GradleManifests 仍未追进联接目标（探测子进程 exit=$probeExit，期望 0=追进去了）——本闸的行为断言测不出"忘了写/被删掉守卫"这类回归（vacuous coverage，R3 round-3 dimension #6④）。" }
-      else { Write-Host '  17cc(reparse-mut) 守卫失效变异 OK（弱化判据后独立子进程确实追进了联接目标，证本闸真能抓到"忘了挡 ReparsePoint"的回归）' -ForegroundColor Green }
+      elseif ($probeExit -eq 0 -or $probeStdOutText -notmatch 'MARKER:REPARSE-GUARD-MUT:ABSENT') { Fail "种子缺陷 17cc(reparse-mut)：弱化 ReparsePoint 守卫子句后，探测子进程退出 $probeExit、stdout=$probeStdOutText（期望 exit 非零 + ABSENT=追进去了）——本闸的行为断言测不出"忘了写/被删掉守卫"这类回归（vacuous coverage，卡片 dod_assert 字面要求）。" }
+      else { Write-Host '  17cc(reparse-mut) 守卫失效变异 OK（弱化判据后探测子进程 exit 非零 + ABSENT，证本闸真能抓到"忘了挡 ReparsePoint"的回归）' -ForegroundColor Green }
     }
   }
 } finally {
@@ -7730,36 +7738,32 @@ else { Write-Host '  17cc(strict) coverage gap → -Strict 下真失败 OK（不
 # 17dd. verify.ps1 的 Android 闸调用含 --no-daemon（源码断言，纯文本、不执行整套 Gradle 构建——避免 R3
 #   沙箱不保证可复跑的重型套件，L60/L62）。断言**锚定到完整调用行**（.\gradlew.bat + --offline + --no-daemon
 #   + :core:check 同一行），不是裸子串「--no-daemon」——裸子串会被同文件里提到该 flag 的注释满足，也保护不到
-#   T0-GATE-HARDENING item5 新加的显式相对路径（R3 dimension #6）。判据同 17cc，改用**真实子进程**镜像
-#   dod_command 字面结构，取进程退出码。变异写到临时暂存文件（不是真实 verify.ps1），比「写→还原→核 SHA256」
-#   更强的保证：真实 verify.ps1 全程只读、连一次写操作都没经历过。
+#   T0-GATE-HARDENING item5 新加的显式相对路径（R3 dimension #6）。判据同 17cc，用 Invoke-MarkerAssertion——
+#   独立子进程内部完成判断并打印专属 MARKER，外层只读退出码 + MARKER（R3 round-4 dimension #6）。变异写到
+#   临时暂存文件（不是真实 verify.ps1），比「写→还原→核 SHA256」更强的保证：真实 verify.ps1 全程只读、
+#   连一次写操作都没经历过。
 $vfInvocationLiteral = '.\gradlew.bat --offline --no-daemon -q :core:check'
 $vfOrigLines = Get-Content -LiteralPath $realVfPath
 $vfIdx = @(0..($vfOrigLines.Count - 1) | Where-Object { $vfOrigLines[$_] -match [regex]::Escape($vfInvocationLiteral) })
 if ($vfIdx.Count -ne 1) {
   Fail "17dd 前置：verify.ps1 里含完整调用行「$vfInvocationLiteral」的行数=$($vfIdx.Count)（期望恰好 1）——断言定位不唯一，或该调用形态尚未落地/已漂移。"
 } else {
-  # -SimpleMatch 把 -Pattern 当**字面量**（非正则），故这里绝不能 [regex]::Escape——那是给正则模式转义用的，
-  # 套进 -SimpleMatch 反而会去找带反斜杠转义符的错误文本、永远命中不了真实行（曾在此踩过一次，见下方基线自检）。
-  # 只需为拼进 -Command 的单引号字符串转义内嵌单引号（本字面量当前不含单引号，仍按通用写法处理，防未来改动踩坑）。
-  $vfLiteralForCmd = $vfInvocationLiteral.Replace("'", "''")
   $vfScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17dd-verify-$PID.ps1"
   try {
     Set-Content -LiteralPath $vfScratch -Value $vfOrigLines -Encoding utf8
-    & pwsh -NoProfile -Command "if (-not (Select-String -Path '$vfScratch' -Pattern '$vfLiteralForCmd' -SimpleMatch)) { exit 1 } else { exit 0 }"
-    $vfBaseExit = $LASTEXITCODE
-    if ($vfBaseExit -ne 0) {
-      Fail "17dd 基线：dod 式子进程判据对未变异暂存副本判「未命中完整调用行」（退出=$vfBaseExit，期望 0）——判据本身与文件内容不一致，需排查。"
+    $vfReadCmd = "Get-Content -LiteralPath '$vfScratch' -Raw"
+    $vfBase = Invoke-MarkerAssertion -GetContentCmd $vfReadCmd -Needle $vfInvocationLiteral -MarkerId 'VERIFY-NODAEMON-BASE'
+    if ($vfBase.Exit -ne 0 -or $vfBase.StdOut -notmatch 'MARKER:VERIFY-NODAEMON-BASE:PRESENT') {
+      Fail "17dd 基线：未变异暂存副本的判据子进程退出 $($vfBase.Exit)、stdout=$($vfBase.StdOut)（期望 exit 0 + PRESENT）——判据本身与文件内容不一致，需排查。"
     } else {
       $vfMut = @(for ($i = 0; $i -lt $vfOrigLines.Count; $i++) { if ($i -ne $vfIdx[0]) { $vfOrigLines[$i] } })
       if ($vfMut.Count -ne ($vfOrigLines.Count - 1)) {
         Fail "17dd 分类器：变异后行数=$($vfMut.Count)，期望恰好比原文件少 1 行（$($vfOrigLines.Count - 1)）——变异不是干净的单句删除。"
       } else {
         Set-Content -LiteralPath $vfScratch -Value $vfMut -Encoding utf8
-        & pwsh -NoProfile -Command "if (-not (Select-String -Path '$vfScratch' -Pattern '$vfLiteralForCmd' -SimpleMatch)) { exit 1 } else { exit 0 }"
-        $vfMutExit = $LASTEXITCODE
-        if ($vfMutExit -ne 1) { Fail "种子缺陷 17dd：删掉完整调用行后，dod 式子进程判据仍退出 $vfMutExit（期望 1=未命中）——断言未真正定位到该调用（vacuous mutation，R3 dimension #6：判据须是真实子进程非零退出）。" }
-        else { Write-Host '  17dd verify.ps1 --no-daemon：锚定完整调用行（.\gradlew.bat --offline --no-daemon -q :core:check），dod 式子进程判据基线退出 0（GREEN）、单句删除变异后退出 1（RED），真实 verify.ps1 全程只读 OK' -ForegroundColor Green }
+        $vfMutResult = Invoke-MarkerAssertion -GetContentCmd $vfReadCmd -Needle $vfInvocationLiteral -MarkerId 'VERIFY-NODAEMON-MUT'
+        if ($vfMutResult.Exit -eq 0 -or $vfMutResult.StdOut -notmatch 'MARKER:VERIFY-NODAEMON-MUT:ABSENT') { Fail "种子缺陷 17dd：删掉完整调用行后，判据子进程退出 $($vfMutResult.Exit)、stdout=$($vfMutResult.StdOut)（期望 exit 非零 + ABSENT）——断言未真正定位到该调用（vacuous mutation，卡片 dod_assert 字面要求：非零且命中指定断言文本）。" }
+        else { Write-Host '  17dd verify.ps1 --no-daemon：锚定完整调用行（.\gradlew.bat --offline --no-daemon -q :core:check），判据子进程基线 exit 0 + PRESENT（GREEN）、单句删除变异后 exit 非零 + ABSENT（RED，真正的杀死信号），真实 verify.ps1 全程只读 OK' -ForegroundColor Green }
       }
     }
   } finally {
