@@ -7496,19 +7496,32 @@ function Test-CheckLicensesOutput([string]$ScriptPath) {
   return [PSCustomObject]@{ ScriptExit = $LASTEXITCODE; Output = $out }
 }
 
-# 17cc. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异，判据=脚本自身退出码 + needle 有无）
+# 判据用的 needle 一律取「成功清单里出现的完整相对路径」，不用裸文件名（R3 round-3 dimension #6）：
+# 枚举失败的错误文案是 "libs.versions.toml 递归枚举失败：…"，裸文件名 'libs.versions.toml' 是它的子串——
+# 删掉发现那一行后，若该行同时也是"生成这条错误文案"的来源（try/catch 一体，删了就两者都不产生），
+# 裸文件名判据仍可能因为**别的巧合**（如错误文案本身）继续满足，无法确证判据测的是"成功清单"而不是
+# "任何提到该词的文本"。改用**完整相对路径**（如 android/gradle/libs.versions.toml）：该串只会出现在
+# 成功清单的路径列表里，错误文案只含裸文件名（不含 android/ 前缀），两者不可能混淆。GREEN 基线另显式断言
+# 输出**不含**"递归枚举失败"字样，排除"看似命中、实为枚举失败巧合命中"的假阳性。
+$needleA = 'android/gradle/libs.versions.toml'
+$needleB = 'android/core/build.gradle.kts'
+$enumFailMarker = '递归枚举失败'
+
+# 17cc. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异，判据=脚本自身退出码 + 完整路径 needle 有无）
 $mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
   Copy-Item -LiteralPath $realCLPath -Destination $mutantCL -Force
   $base = Test-CheckLicensesOutput $mutantCL
   if ($base.ScriptExit -ne 0) {
     Fail "17cc 基线：未变异副本自身退出 $($base.ScriptExit)（期望 0=正常跑完）——副本本身已不健康，无从继续变异测试。"
-  } elseif (-not $base.Output.Contains('libs.versions.toml')) {
-    Fail "17cc 基线：未变异副本正常退出 0，但输出未点名 libs.versions.toml——递归发现分支①未生效或 android/gradle/libs.versions.toml 缺失，无从继续变异测试。"
-  } elseif (-not $base.Output.Contains('build.gradle.kts')) {
-    Fail "17cc 基线：未变异副本正常退出 0，但输出未点名 build.gradle.kts——递归发现分支②未生效，无从继续变异测试。"
+  } elseif ($base.Output.Contains($enumFailMarker)) {
+    Fail "17cc 基线：未变异副本输出含「$enumFailMarker」——真实 android/ 树上不应有枚举错误，环境异常，无从继续变异测试。"
+  } elseif (-not $base.Output.Contains($needleA)) {
+    Fail "17cc 基线：未变异副本正常退出 0，但输出未见完整路径 $needleA——递归发现分支①未生效或该文件缺失，无从继续变异测试。"
+  } elseif (-not $base.Output.Contains($needleB)) {
+    Fail "17cc 基线：未变异副本正常退出 0，但输出未见完整路径 $needleB——递归发现分支②未生效，无从继续变异测试。"
   } else {
-    Write-Host '  17cc 基线（GREEN）：未变异副本自身退出 0，输出同时点名 libs.versions.toml 与 build.gradle.kts OK' -ForegroundColor Green
+    Write-Host "  17cc 基线（GREEN）：未变异副本自身退出 0，输出同时含完整路径 $needleA 与 $needleB、且不含「$enumFailMarker」OK" -ForegroundColor Green
     $origLines = Get-Content -LiteralPath $mutantCL
     # 规整化基线（重要）：Get-Content/Set-Content 往返不是字节级恒等（换行符/末尾换行处理有别于原始 Copy-Item
     # 字节），直接拿 Copy-Item 落地时的哈希当「还原目标」会对每次变异都假红。改为「先用 Set-Content 写一遍原始
@@ -7527,10 +7540,10 @@ try {
       Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
       $hashA = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
       if ($hashA -ne $origHash) { Fail "17cc(A) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashA）——mutant 副本未干净还原（副本非生产文件，但仍须核验闭环完整）。" }
-      elseif ($rA.ScriptExit -ne 0) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，mutant 脚本自身退出 $($rA.ScriptExit)（期望 0）——脚本崩溃了而不是"分支①的发现结果消失"，红的原因不对（L165：非零可能来自语法坏/更早的闸抢先中断，须先证脚本本体仍正常跑完）。" }
-      elseif ($rA.Output.Contains('libs.versions.toml')) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，脚本正常退出 0 但输出仍点名 libs.versions.toml——分支①未被真正测到（vacuous mutation）。" }
-      elseif (-not $rA.Output.Contains('build.gradle.kts')) { Fail "17cc(A) 分类器：删掉分支①那一行后，脚本正常退出 0 但分支②的 build.gradle.kts 也从输出消失了——红不是分支①单独造成（两分支未真正独立，L165）。" }
-      else { Write-Host '  17cc(A) libs.versions.toml 发现分支：单句删除变异后脚本仍正常退出 0、libs.versions.toml 从输出消失（RED）、build.gradle.kts 仍在输出里（GREEN）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
+      elseif ($rA.ScriptExit -ne 0) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，mutant 脚本自身退出 $($rA.ScriptExit)（期望 0）——脚本崩溃了而不是分支①的发现结果消失，红的原因不对（L165：非零可能来自语法坏/更早的闸抢先中断，须先证脚本本体仍正常跑完）。" }
+      elseif ($rA.Output.Contains($needleA)) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，脚本正常退出 0 但输出仍含完整路径 $needleA——分支①未被真正测到（vacuous mutation）。" }
+      elseif (-not $rA.Output.Contains($needleB)) { Fail "17cc(A) 分类器：删掉分支①那一行后，脚本正常退出 0 但分支②的完整路径 $needleB 也从输出消失了——红不是分支①单独造成（两分支未真正独立，L165）。" }
+      else { Write-Host "  17cc(A) libs.versions.toml 发现分支：单句删除变异后脚本仍正常退出 0、完整路径 $needleA 从输出消失（RED）、$needleB 仍在输出里（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green }
     }
 
     # 分支②变异：删掉 build.gradle/build.gradle.kts 那一行（单句删除）。
@@ -7544,10 +7557,10 @@ try {
       Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
       $hashB = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
       if ($hashB -ne $origHash) { Fail "17cc(B) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashB）——mutant 副本未干净还原。" }
-      elseif ($rB.ScriptExit -ne 0) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，mutant 脚本自身退出 $($rB.ScriptExit)（期望 0）——脚本崩溃了而不是"分支②的发现结果消失"，红的原因不对（L165）。" }
-      elseif ($rB.Output.Contains('build.gradle.kts') -or $rB.Output -match [regex]::Escape('build.gradle）')) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，脚本正常退出 0 但输出仍点名 build.gradle——分支②未被真正测到（vacuous mutation）。" }
-      elseif (-not $rB.Output.Contains('libs.versions.toml')) { Fail "17cc(B) 分类器：删掉分支②那一行后，脚本正常退出 0 但分支①的 libs.versions.toml 也从输出消失了——红不是分支②单独造成（两分支未真正独立，L165）。" }
-      else { Write-Host '  17cc(B) build.gradle{,.kts} 发现分支：单句删除变异后脚本仍正常退出 0、build.gradle.kts 从输出消失（RED）、libs.versions.toml 仍在输出里（GREEN）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
+      elseif ($rB.ScriptExit -ne 0) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，mutant 脚本自身退出 $($rB.ScriptExit)（期望 0）——脚本崩溃了而不是分支②的发现结果消失，红的原因不对（L165）。" }
+      elseif ($rB.Output.Contains($needleB)) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，脚本正常退出 0 但输出仍含完整路径 $needleB——分支②未被真正测到（vacuous mutation）。" }
+      elseif (-not $rB.Output.Contains($needleA)) { Fail "17cc(B) 分类器：删掉分支②那一行后，脚本正常退出 0 但分支①的完整路径 $needleA 也从输出消失了——红不是分支②单独造成（两分支未真正独立，L165）。" }
+      else { Write-Host "  17cc(B) build.gradle{,.kts} 发现分支：单句删除变异后脚本仍正常退出 0、完整路径 $needleB 从输出消失（RED）、$needleA 仍在输出里（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green }
     }
   }
 } finally {
@@ -7590,15 +7603,23 @@ try {
 # 17cc(reparse). 目录联接/符号链接（ReparsePoint）绝不下钻（R3 round-2 dimension #10：手写栈式遍历此前
 #   会把每个子目录无条件 push 进栈，含 reparse point——联接若指向仓外目录，扫描范围可能溢出仓外；联接若
 #   自引用/循环，遍历不终止）。夹具：$fxReparseRoot/inside/link-out 是一个指向**仓外**独立临时目录
-#   $fxOutside 的目录联接，$fxOutside 下放一个 decoy build.gradle。断言：命中集合里绝不出现 $fxOutside
-#   下的任何路径（证联接从未被追进去），且 $fxReparseRoot/inside 下的正常（非链接）子树仍被正确发现
-#   （证剪枝没有连累正常路径）。Windows 建目录联接免管理员；建不出时优雅降级为源码静态兜底（防止在
-#   受限环境里连"有没有写这段防护"都测不到）。
+#   $fxOutside 的目录联接，$fxOutside 下放一个 decoy build.gradle。
+#   R3 round-3 dimension #6 三处收紧：① Get-ChildItem 报告的 FullName 是"枚举时给的目录路径 + 子项名"，
+#   若剪枝失效、真的下钻进了联接，报告的是**联接别名路径**（$reparseLinkPath\build.gradle），不是物理目标
+#   路径（$fxOutside\build.gradle）——原判据只查物理目标前缀，联接失效时永远命中不了，判据整个是空转的。
+#   现在两个前缀（别名 + 物理目标）都拒。② 加精确命中数断言（须恰好 1 个），不只是"没有泄漏 + 有内部命中"
+#   两个独立条件的并集（那样若剪枝产生了别的意外命中也测不出）。③ 无法建目录联接时的静态兜底，原先只是
+#   裸文本 `-match 'ReparsePoint'`——本卡自己在注释里写了这个词，注释本身就能让它假绿；改成先 Parser.ParseFile
+#   拿 token 流、剔除 Comment 类 token 后只在**非注释 token**里找，注释单独出现绝不可能满足。
+#   ④（新增）守卫失效变异：把判据里的 `(-not $isReparse) -and ` 从源码副本删掉，证明"如果有人真把这段
+#   守卫删了"，本闸的行为断言确实会抓到（vacuous 检查的反面：不是"测了但测不出"，是"真的会栽"）。
 $fxReparseRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-$PID"
 $fxOutside = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-outside-$PID"
 if (Test-Path $fxReparseRoot) { Remove-Item -Recurse -Force $fxReparseRoot }
 if (Test-Path $fxOutside) { Remove-Item -Recurse -Force $fxOutside }
 $reparseLinkPath = Join-Path $fxReparseRoot 'inside/link-out'
+$mutantReparseCL = Join-Path $RepoRoot "scripts/.st17cc-reparse-mutant-$PID.ps1"
+$reparseProbeScript = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-probe-$PID.ps1"
 try {
   New-Item -ItemType Directory -Force (Join-Path $fxReparseRoot 'inside') | Out-Null
   Set-Content (Join-Path $fxReparseRoot 'inside/build.gradle') 'inside' -Encoding utf8
@@ -7611,19 +7632,62 @@ try {
     $canJunction = [bool]($linkItem -and (($linkItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0))
   } catch { $canJunction = $false }
   if (-not $canJunction) {
-    $clSrcReparse = Get-Content -LiteralPath $realCLPath -Raw
-    if ($clSrcReparse -notmatch 'ReparsePoint') { Fail '17cc(reparse) 静态兜底：check-licenses.ps1 源码未见 ReparsePoint 判据字面量——剪枝逻辑可能未落地（本机/本用户无法建目录联接，只能退化到源码静态核验）。' }
-    else { Write-Host '  17cc(reparse) 半覆盖：本机/本用户无法建目录联接（非本卡缺陷），已退化为源码静态核验 ReparsePoint 判据在场 OK' -ForegroundColor DarkGray }
+    # 静态兜底：Parser 出 token 流、剔除 Comment 类 token，只在非注释 token 里找 ReparsePoint 字面量——
+    # 注释本身（如本段头注）不计入，故"只有注释提了这个词"不能让本闸假绿（R3 round-3 dimension #6）。
+    $reparseTokens = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($realCLPath, [ref]$reparseTokens, [ref]$null) | Out-Null
+    $nonCommentReparseHits = @($reparseTokens | Where-Object { $_.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment -and $_.Text -match 'ReparsePoint' })
+    if ($nonCommentReparseHits.Count -eq 0) { Fail '17cc(reparse) 静态兜底：check-licenses.ps1 的非注释 token 里未见 ReparsePoint 判据——剪枝逻辑可能未落地或已被删（本机/本用户无法建目录联接，只能退化到源码静态核验；注释单独出现不算数）。' }
+    else { Write-Host '  17cc(reparse) 半覆盖：本机/本用户无法建目录联接（非本卡缺陷），已退化为 token 级静态核验——ReparsePoint 判据在**非注释**代码中确认在场（注释单独出现不计入）OK' -ForegroundColor DarkGray }
   } else {
     $reparseHits = @(Find-GradleManifests -Root $fxReparseRoot -Names @('build.gradle'))
-    $leakedHits = @($reparseHits | Where-Object { $_.StartsWith($fxOutside) })
+    # 两个前缀都拒：联接若被追进去，Get-ChildItem 报告的是**别名路径**（经由 $reparseLinkPath 枚举出的
+    # FullName），不是物理目标路径——只查物理目标前缀会让判据永远命中不了、空转（R3 round-3 dimension #6①）。
+    $leakedHits = @($reparseHits | Where-Object { $_.StartsWith($fxOutside) -or $_.StartsWith($reparseLinkPath) })
     $insideHit = Join-Path $fxReparseRoot 'inside/build.gradle'
     if ($leakedHits.Count -gt 0) {
-      Fail "种子缺陷 17cc(reparse)：Find-GradleManifests 经目录联接追进了链接目标 $fxOutside（命中 $($leakedHits -join ', ')）——未跳过 ReparsePoint，可能扫出仓外或经自引用联接死循环（R3 round-2 dimension #10）。"
-    } elseif ($reparseHits -notcontains $insideHit) {
-      Fail "17cc(reparse)：期望仍能发现未被链接遮蔽的正常子树 $insideHit，实得 $($reparseHits -join ', ')——剪枝把正常子树也误伤了。"
+      Fail "种子缺陷 17cc(reparse)：Find-GradleManifests 经目录联接追进了链接（命中 $($leakedHits -join ', ')，物理目标=$fxOutside / 别名路径=$reparseLinkPath 两者之一）——未跳过 ReparsePoint，可能扫出仓外或经自引用联接死循环（R3 round-2 dimension #10）。"
+    } elseif ($reparseHits.Count -ne 1 -or $reparseHits[0] -ne $insideHit) {
+      Fail "17cc(reparse)：期望恰好 1 个命中（$insideHit），实得 $($reparseHits.Count) 个（$($reparseHits -join ', ')）——精确命中数不符，剪枝可能误伤或漏判了别的路径（R3 round-3 dimension #6②：不能只查"没泄漏+有内部命中"两个独立条件，须锁精确集合）。"
     } else {
-      Write-Host "  17cc(reparse) 目录联接（ReparsePoint）从未被追进 OK（链接目标 $fxOutside 下的 decoy 未被扫入，仓内正常子树 inside/build.gradle 仍正确发现）" -ForegroundColor Green
+      Write-Host "  17cc(reparse) 目录联接（ReparsePoint）从未被追进 OK（恰好 1 个命中=$insideHit；链接别名路径与物理目标路径均未出现）" -ForegroundColor Green
+    }
+
+    # 守卫失效变异（R3 round-3 dimension #6④）：源码副本里把 `(-not $isReparse) -and ` 删掉，子进程 dot-source
+    # 该变异副本 -AsLibrary 后对同一夹具重跑 Find-GradleManifests，断言**现在会**追进联接——证明本闸的行为
+    # 断言不是"不管有没有守卫都恒 OK"的摆设，真把守卫削弱了就真栽。变异对象仍是临时同目录副本，不碰生产文件；
+    # 探测在**独立子进程**里跑，不在当前 selftest 进程内 dot-source（避免污染本进程后续测试要用的
+    # Find-GradleManifests/Get-GradleCoverageGaps 定义）。
+    Copy-Item -LiteralPath $realCLPath -Destination $mutantReparseCL -Force
+    $reparseLines = Get-Content -LiteralPath $mutantReparseCL
+    # 规整化基线（同 17cc(A/B) 的教训）：Get-Content/Set-Content 往返不是字节级恒等，直接拿 Copy-Item
+    # 落地时的哈希当「还原目标」会假红。先用 Set-Content 写一遍原始行数组，后续「变异→还原」用同一枝
+    # 编码路径写回，哈希才可比。
+    Set-Content -LiteralPath $mutantReparseCL -Value $reparseLines -Encoding utf8
+    $guardMarker = '(-not $isReparse) -and ($SkipDirs -notcontains $e.Name)'
+    $reparseGuardIdx = @(0..($reparseLines.Count - 1) | Where-Object { $reparseLines[$_] -match [regex]::Escape($guardMarker) })
+    if ($reparseGuardIdx.Count -ne 1) {
+      Fail "17cc(reparse-mut) 前置：源码里含守卫子句「$guardMarker」的行数=$($reparseGuardIdx.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移。"
+    } else {
+      $reparseOrigHash = (Get-FileHash -LiteralPath $mutantReparseCL -Algorithm SHA256).Hash
+      $mutReparseLines = $reparseLines.Clone()
+      $mutReparseLines[$reparseGuardIdx[0]] = $reparseLines[$reparseGuardIdx[0]].Replace('(-not $isReparse) -and ', '')
+      Set-Content -LiteralPath $mutantReparseCL -Value $mutReparseLines -Encoding utf8
+      $probeLines = @(
+        'Set-StrictMode -Version Latest', "`$ErrorActionPreference = 'Stop'",
+        ". '$mutantReparseCL' -AsLibrary",
+        "`$h = @(Find-GradleManifests -Root '$fxReparseRoot' -Names @('build.gradle'))",
+        "`$leaked = @(`$h | Where-Object { `$_.StartsWith('$fxOutside') -or `$_.StartsWith('$reparseLinkPath') })",
+        'if ($leaked.Count -gt 0) { exit 0 } else { exit 1 }'
+      )
+      Set-Content -LiteralPath $reparseProbeScript -Value $probeLines -Encoding utf8
+      & pwsh -NoProfile -File $reparseProbeScript
+      $probeExit = $LASTEXITCODE
+      Set-Content -LiteralPath $mutantReparseCL -Value $reparseLines -Encoding utf8
+      $reparseMutHash = (Get-FileHash -LiteralPath $mutantReparseCL -Algorithm SHA256).Hash
+      if ($reparseMutHash -ne $reparseOrigHash) { Fail "17cc(reparse-mut) 变异还原后 SHA256 不符（原=$reparseOrigHash，还原后=$reparseMutHash）——mutant 副本未干净还原。" }
+      elseif ($probeExit -ne 0) { Fail "种子缺陷 17cc(reparse-mut)：弱化 ReparsePoint 守卫子句后，独立子进程里的 Find-GradleManifests 仍未追进联接目标（探测子进程 exit=$probeExit，期望 0=追进去了）——本闸的行为断言测不出"忘了写/被删掉守卫"这类回归（vacuous coverage，R3 round-3 dimension #6④）。" }
+      else { Write-Host '  17cc(reparse-mut) 守卫失效变异 OK（弱化判据后独立子进程确实追进了联接目标，证本闸真能抓到"忘了挡 ReparsePoint"的回归）' -ForegroundColor Green }
     }
   }
 } finally {
@@ -7633,6 +7697,9 @@ try {
   if (Test-Path $reparseLinkPath) { & cmd /c "rmdir `"$reparseLinkPath`"" 2>$null }
   Remove-Item -Recurse -Force $fxReparseRoot -ErrorAction SilentlyContinue
   Remove-Item -Recurse -Force $fxOutside -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $mutantReparseCL -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $reparseProbeScript -Force -ErrorAction SilentlyContinue
+  if (Test-Path $mutantReparseCL) { Fail "17cc(reparse-mut) 收尾：临时同目录副本 $mutantReparseCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
 }
 
 # 17cc(enum-err). 枚举出错 → 两分支各自记一条 coverage gap（不静默吞掉，fail-closed，T0-TOOLCHAIN finding #4）。
