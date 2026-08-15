@@ -71,6 +71,17 @@ $script:ScaffoldConfig = @{
   # 在两处重复的魔法字面量」。留空 '' => 回退向后兼容默认 'codex-review'；换非 codex 后端可改名（如 'r3-review'）。
   ReviewStatusContext = ''
 
+  # ── R3 轮次上限（治「评审无上限循环」）──
+  # CLAUDE.md 早有明文：「maker 与 checker 同一争点两轮互不认可即停、排队人裁」。此前只是文档里的话、无机检，
+  # 实测跑成 T0-TOOLCHAIN 9 轮 / T0-GATE-HARDENING 12 轮 / T1-SCHEMA-CORE 9 轮（_local/effectiveness-ledger.jsonl）,
+  # 19 小时 3 张卡 30 次 block、零产品代码。本项把那条规则变成闸：同一分支累计 block 达此数后 review.ps1
+  # **不再唤起评审者**，直接转人裁。
+  # **它不是放行阀**：到顶后仍写 block 裁决、仍 exit 1、绝不产出 pass、绝不合并——只是停止烧评审时间
+  # （配合 ReviewTimeoutSec=3600，每轮最坏 1 小时，无上限循环的代价是以小时计的）。
+  # 人裁完（改卡 non_goals / 越界发现开新卡 / 认下并修）后 review.ps1 -ResetRounds 清零再跑。
+  # 0 = 不封顶（回到旧行为）。
+  ReviewRoundCap = 2
+
   # ── R3 评审模型 / 推理档位（当前默认后端 codex 的启动参数）──
   # ReviewModel 非空 = 项目**接管**评审者启动：review.ps1 额外传 --ignore-user-config，
   # 整份用户级 ~/.codex/config.toml（model / service_tier / mcp_servers / notify / 沙箱 / 插件）都不参与，
