@@ -31,7 +31,7 @@
 `init-scaffold.ps1` 是把以上全部「就地变成下游项目」的一次性脚本：填 `_config` → 全仓替换 token → 重命名 `CLAUDE.template.md`→`CLAUDE.md`（删 TEMPLATE-NOTE 块）→ 可选 `-WithPython` / `-Cleanup` / `-Retrofit`（接入既有仓，token 替换只扫脚手架自有路径）。**改了 token、模板文件名、或 `_config` 字段，必须同步改它。**
 
 ## selftest 17 闸明细
-速览只说「17 闸总自检」；逐闸明细（语法 / lessons check / 模板哨兵 / 占位符 / token 覆盖 / 裁决 schema / PSScriptAnalyzer / init 干跑 / .claude 完整性 / 任务卡 / 交叉链接 / 心跳 / 防泄露 / 计数一致 / 动态 E2E / L-id 引用 / 种子缺陷）是 `scripts/selftest.ps1` 头注的真相源——读那里，避免双源漂移。
+默认 `scripts/selftest.ps1` 在三份独立仓库快照中并行跑 `core`（闸 1–14+16）、`workflow`（闸 15）、`seeded`（闸 17），任一分片非零则聚合非零；CI 在 Windows/Ubuntu 上均跑齐三分片。逐闸明细（语法 / lessons check / 模板哨兵 / 占位符 / token 覆盖 / 裁决 schema / PSScriptAnalyzer / init 干跑 / .claude 完整性 / 任务卡 / 交叉链接 / 心跳 / 防泄露 / 计数一致 / 动态 E2E / L-id 引用 / 种子缺陷）是 `scripts/selftest.ps1` 头注的真相源——读那里，避免双源漂移。
 
 ## Codex 子代理派工（模型路由 + 调用形态）
 > R3 合并闸与「临时派 Codex 干活 / 拿第二意见」共用同一个 codex CLI，但**该用哪个模型随任务性质变**。

@@ -100,6 +100,8 @@
        dot-source check-licenses.ps1 -AsLibrary 直测 Scan：Distributes=$false 只降**纯 GPL**（分发触发），AGPL(网络)/SSPL(SaaS)/EUPL(通信)/非商用(用途) 仍致命、LGPL 恒黄牌（C21 · T6-LICENSE-DISTRIBUTES）；17q handoff check 存活性——合法存活基线放行、WORKTREE 路径/BRANCH 不存在即拒续接（C31 · T6-HANDOFF-VALIDATE）；17r R3 评审 prompt 注入卡片前中和 verdict 样式 token——夹具卡 review_gate 携该字面量、stub 后端捕获送达 prompt，断言送达文本已 redacted（TD35 · T7-REVIEW-PROMPT-HYGIENE）。缺 git 跳过。
 
   下游项目 init 后本脚本随之保留（TD15）——继续用它当自己的工作流自检；元仓专属子检查已自动跳过。
+.PARAMETER Shard  运行分片：all（默认，并行聚合 core/workflow/seeded）、core（闸 1–14+16）、
+  workflow（闸 15）、seeded（闸 17）。任一子进程非零时 all 非零退出。
 .PARAMETER StrictLint  PSScriptAnalyzer 的 Warning 也视为失败（未显式传参时的默认值见 TD77：元仓自身
   ($isPostInit 为假) 自动置真、已初始化下游仍是 Warning 建议性的旧默认；显式传 -StrictLint / -StrictLint:$false
   恒覆盖该默认，含在元仓自身也能用 -StrictLint:$false 退回建议性）。
@@ -107,13 +109,175 @@
   pwsh -File scripts\selftest.ps1
 .EXAMPLE
   pwsh -File scripts\selftest.ps1 -StrictLint
+.EXAMPLE
+  pwsh -File scripts\selftest.ps1 -Shard workflow
 #>
 [CmdletBinding()]
-param([switch]$StrictLint)
+param(
+  [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
+  [switch]$StrictLint
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# 分片子进程可能没有交互控制台；若沿用 Windows OEM 编码，中文哨兵/路径会在嵌套
+# pwsh 日志中变字节，导致断言假红。入口先与其它生产脚本一样钉 UTF-8/native 语义。
+try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }
+
+# 纯函数：聚合器必须 fail-closed，只有所有分片均为 0 才返回 0。闸 8.2e 直测此函数，
+# 而默认 all 路径实际用它裁决进程退出码，避免「并行了但吞掉红分片」。
+function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
+  if (@($ExitCodes | Where-Object { $_ -ne 0 }).Count -gt 0) { return 1 }
+  return 0
+}
+
+# CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
+function Test-SelftestCiMatrixContract([string]$WorkflowText) {
+  $matrix = [regex]::Match($WorkflowText, '(?ms)^\s{6}matrix:\s*\r?\n(?<body>.*?)(?=^\s{4}runs-on:)')
+  if (-not $matrix.Success -or $matrix.Groups['body'].Value -match '(?m)^\s*exclude\s*:') { return $false }
+  if ($WorkflowText -notmatch '(?m)^\s{4}runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}\s*$') { return $false }
+  $pairs = @([regex]::Matches($matrix.Groups['body'].Value, '(?m)^\s{10}- os:\s*(windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard:\s*(core|workflow|seeded)\s*$') |
+    ForEach-Object { "$($_.Groups[1].Value)/$($_.Groups[2].Value)" })
+  $expected = @('ubuntu-latest/core', 'ubuntu-latest/seeded', 'ubuntu-latest/workflow', 'windows-latest/core', 'windows-latest/seeded', 'windows-latest/workflow')
+  return (($pairs.Count -eq $expected.Count) -and ((@($pairs | Sort-Object -Unique) -join ',') -eq ($expected -join ',')))
+}
+
+function Test-SelftestCiWiringContract([string]$WorkflowText) {
+  if (-not (Test-SelftestCiMatrixContract $WorkflowText)) { return $false }
+  if ($WorkflowText -notmatch '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$') { return $false }
+  if ($WorkflowText -notmatch "(?ms)- name: Provision PSScriptAnalyzer.*?\n\s*if:\s*matrix\.shard == 'core'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*Install-Module PSScriptAnalyzer") { return $false }
+  return $true
+}
+
+function New-SelftestSnapshot {
+  param(
+    [Parameter(Mandatory)][string]$SourceRoot,
+    [Parameter(Mandatory)][string]$SnapshotRoot,
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][object]$GitExe
+  )
+  & $GitExe.Source clone --quiet --no-hardlinks $SourceRoot $SnapshotRoot
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name clone 独立仓库快照。" }
+  & $GitExe.Source -C $SnapshotRoot show-ref --verify --quiet refs/heads/master
+  if ($LASTEXITCODE -ne 0) {
+    & $GitExe.Source -C $SnapshotRoot show-ref --verify --quiet refs/remotes/origin/master
+    if ($LASTEXITCODE -eq 0) {
+      & $GitExe.Source -C $SnapshotRoot branch master refs/remotes/origin/master *> $null
+      if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 建立本地 master 基线。" }
+    }
+  }
+
+  # --no-renames 把 rename 展开成旧路径删除 + 新路径复制，防 clone 中残留旧文件。
+  $tracked = @(& $GitExe.Source -C $SourceRoot -c core.quotepath=false diff --name-only --no-renames HEAD)
+  if ($LASTEXITCODE -ne 0) { throw "无法读取 selftest 分片 $Name 的已跟踪工作树差异。" }
+  $untracked = @(& $GitExe.Source -C $SourceRoot -c core.quotepath=false ls-files --others --exclude-standard)
+  if ($LASTEXITCODE -ne 0) { throw "无法读取 selftest 分片 $Name 的未跟踪工作树差异。" }
+  $deleted = @(& $GitExe.Source -C $SourceRoot -c core.quotepath=false diff --name-only --diff-filter=D --no-renames HEAD)
+  if ($LASTEXITCODE -ne 0) { throw "无法读取 selftest 分片 $Name 的删除路径。" }
+  foreach ($relative in $deleted) {
+    $path = Join-Path $SnapshotRoot $relative
+    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop }
+    if (Test-Path -LiteralPath $path) { throw "selftest 分片 $Name 的删除路径仍存在：$relative" }
+  }
+  foreach ($relative in @($tracked + $untracked | Sort-Object -Unique)) {
+    $source = Join-Path $SourceRoot $relative
+    if (-not (Test-Path -LiteralPath $source)) { continue }
+    $destination = Join-Path $SnapshotRoot $relative
+    New-Item -ItemType Directory -Force (Split-Path -Parent $destination) -ErrorAction Stop | Out-Null
+    Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $destination)) { throw "selftest 分片 $Name 未复制工作树路径：$relative" }
+  }
+  return $SnapshotRoot
+}
+
+function Start-SelftestShard {
+  param([string]$PwshExe, [string]$SnapshotRoot, [string]$Name, [bool]$ForwardStrictLint, [bool]$StrictLintValue, [switch]$Quiet)
+  $psi = [System.Diagnostics.ProcessStartInfo]::new()
+  $psi.FileName = $PwshExe
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.WorkingDirectory = $SnapshotRoot
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+  $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+  foreach ($arg in @('-NoProfile', '-File', (Join-Path $SnapshotRoot 'scripts/selftest.ps1'), '-Shard', $Name)) { [void]$psi.ArgumentList.Add($arg) }
+  if ($ForwardStrictLint) { [void]$psi.ArgumentList.Add("-StrictLint:`$$($StrictLintValue.ToString().ToLowerInvariant())") }
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $psi
+  if (-not $Quiet) { Write-Host "`n===== starting selftest shard: $Name =====" -ForegroundColor Cyan }
+  if (-not $process.Start()) { throw "无法启动 selftest 分片 $Name。" }
+  return [PSCustomObject]@{ Name = $Name; Process = $process; StdOut = $process.StandardOutput.ReadToEndAsync(); StdErr = $process.StandardError.ReadToEndAsync() }
+}
+
+function Complete-SelftestShard {
+  param([object]$Child, [switch]$Quiet)
+  $Child.Process.WaitForExit()
+  $stdout = $Child.StdOut.GetAwaiter().GetResult().TrimEnd()
+  $stderr = $Child.StdErr.GetAwaiter().GetResult().TrimEnd()
+  if (-not $Quiet) {
+    Write-Host "`n===== completed selftest shard: $($Child.Name) (exit $($Child.Process.ExitCode)) =====" -ForegroundColor Cyan
+    if ($stdout) { Write-Host $stdout }
+    if ($stderr) { Write-Host $stderr -ForegroundColor Red }
+  }
+  return $Child.Process.ExitCode
+}
+
+# 默认入口只编排生命周期；快照、启动、收集各由上面单责 helper 处理。
+function Invoke-SelftestAll {
+  param([Parameter(Mandatory)][string]$SourceRoot, [bool]$ForwardStrictLint = $false, [bool]$StrictLintValue = $false, [switch]$Quiet)
+  $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
+  $gitExe = Get-Command git -ErrorAction SilentlyContinue
+  $repoIsGit = $false
+  if ($gitExe) {
+    & $gitExe.Source -C $SourceRoot rev-parse --verify HEAD *> $null
+    $repoIsGit = ($LASTEXITCODE -eq 0)
+  }
+  if (-not $repoIsGit) { throw 'selftest(all) 需要带 HEAD 的 Git 工作树；非 Git 目录请显式运行 -Shard core/workflow/seeded。' }
+  $aggregateRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-all-$PID-$([guid]::NewGuid().ToString('N'))"
+  $children = @()
+  $aggregateExit = 1
+  try {
+    New-Item -ItemType Directory -Force $aggregateRoot -ErrorAction Stop | Out-Null
+    # seeded 最长：其快照完成即启动，再准备其它快照；仍须三进程越过 8.2e barrier 才能绿。
+    foreach ($name in @('seeded', 'workflow', 'core')) {
+      $snapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot $name) -Name $name -GitExe $gitExe
+      $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -Quiet:$Quiet
+    }
+    $exitCodes = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
+    $aggregateExit = Get-SelftestAggregateExitCode -ExitCodes $exitCodes
+    if (-not $Quiet) {
+      if ($aggregateExit -ne 0) {
+        Write-Host "selftest(all): FAIL (exit codes: $($exitCodes -join ', '))" -ForegroundColor Red
+        Write-Host 'selftest: FAIL' -ForegroundColor Red
+      } else {
+        Write-Host 'selftest(all): PASS' -ForegroundColor Green
+        Write-Host 'selftest: PASS' -ForegroundColor Green
+      }
+    }
+  } finally {
+    foreach ($child in $children) {
+      if (-not $child.Process.HasExited) { try { $child.Process.Kill($true) } catch { } }
+      $child.Process.Dispose()
+    }
+    if (Test-Path -LiteralPath $aggregateRoot) { Remove-Item -LiteralPath $aggregateRoot -Recurse -Force -ErrorAction Stop }
+  }
+  return $aggregateExit
+}
+
+# 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
+if ($Shard -ne 'all') {
+  $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+  $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
+  if (-not (Test-SelftestCiWiringContract $preflightWorkflow)) { throw 'selftest CI 分片接线契约不完整。' }
+  if (Test-SelftestCiWiringContract $withoutCoreMutation) { throw 'selftest CI 接线契约未检出“删除全部 core 组合”变异。' }
+}
+
+if ($Shard -eq 'all') {
+  $aggregateExit = Invoke-SelftestAll -SourceRoot $RepoRoot -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent
+  exit $aggregateExit
+}
 # TD15：本脚本随下游保留（不再被 init -Cleanup/-Retrofit 删除），因约 12/17 闸测的是会下发的生产脚本
 # （task.ps1/review.ps1/check-cards.ps1/check-secrets.ps1/lessons.ps1/triage.ps1/guard-frozen.ps1...）。
 # 少数闸只测「从模板生成下游」这条元仓专属路径（模板哨兵/占位符/token 覆盖/init 干跑冒烟），已初始化的
@@ -132,6 +296,8 @@ $StrictLint = Resolve-StrictLintDefault -IsPostInit $isPostInit -ParamBound $PSB
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 $fail = $false
 function Fail($m) { Write-Warning $m; $script:fail = $true }
+$RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime', '.pytest_cache', '.ruff_cache', '.mypy_cache')  # 运行时/工具产物：存在即忽略，非交付物
+$executedGateGroups = [System.Collections.Generic.List[string]]::new()
 
 # T44-W6FIXTURES
 function New-InitSmokeCopy([string]$LeafName) {
@@ -164,6 +330,8 @@ function New-ShipFixtureCard([string]$Root, [string]$Id, [string]$Title, [string
   return (Join-Path $Root "wt/$Id")
 }
 
+if ($Shard -eq 'core') {
+[void]$executedGateGroups.Add('core:1-14')
 # --- 1. PowerShell 语法 ---
 Step '1/17 PowerShell 语法（ParseFile）'
 $ps1 = @(Get-ChildItem -Path (Join-Path $RepoRoot 'scripts') -Filter *.ps1 -Recurse) +
@@ -376,14 +544,17 @@ try {
   } finally { Pop-Location }
 } finally { Remove-Item -Recurse -Force $cjkTmp -ErrorAction SilentlyContinue }
 # 1g：OutputEncoding 覆盖对称（TD54/TD-117 breadth）——所有写中文 stdout 的入口脚本 dot-source _encoding.ps1（前奏统一设 UTF-8 输出）；
-#     所有写 stdout 的钩子就地设 [Console]::OutputEncoding（钩子保持自包含 fail-open、不跨目录 dot-source 前奏，与其既有 InputEncoding pin 同风格）。selftest.ps1 自身刻意不入列（已在各子进程捕获点就地钉编码，全局前奏对其无净收益且动验收闸风险高）。
-$encScripts = @('task.ps1', 'review.ps1', 'check-secrets.ps1', 'verify.ps1', 'gh-bootstrap.ps1', 'handoff.ps1', 'lessons.ps1', 'triage.ps1', 'check-cards.ps1', 'check-scope.ps1', 'check-licenses.ps1', 'init-scaffold.ps1')
+#     所有写 stdout 的钩子就地设 [Console]::OutputEncoding（钩子保持自包含 fail-open、不跨目录 dot-source 前奏，与其既有 InputEncoding pin 同风格）。
+#     selftest.ps1 的 all 子进程会捕获中文输出，也必须在入口 dot-source 前奏，避免 Windows OEM 解码假红。
+$encScripts = @('selftest.ps1', 'task.ps1', 'review.ps1', 'check-secrets.ps1', 'verify.ps1', 'gh-bootstrap.ps1', 'handoff.ps1', 'lessons.ps1', 'triage.ps1', 'check-cards.ps1', 'check-scope.ps1', 'check-licenses.ps1', 'init-scaffold.ps1')
 $g1ok = $true
 foreach ($s in $encScripts) {
   # init-scaffold.ps1 在仓库根（非 scripts/，见 $RootAllow / 闸①的 $RepoRoot 解析），其余在 scripts/。
   $sp = if ($s -eq 'init-scaffold.ps1') { Join-Path $RepoRoot $s } else { Join-Path $PSScriptRoot $s }
   if (-not (Test-Path $sp)) { Fail "1g TD54：$s 不存在。"; $g1ok = $false; continue }
-  if ((Get-Content -LiteralPath $sp -Raw) -notmatch '_encoding\.ps1') { Fail "1g TD54：$s 未 dot-source _encoding.ps1（OutputEncoding 覆盖缺口）。"; $g1ok = $false }
+  $spRaw = Get-Content -LiteralPath $sp -Raw
+  $hasPrelude = if ($s -eq 'selftest.ps1') { $spRaw -match "(?m)^try \{ \. \(Join-Path \`$PSScriptRoot '_encoding\.ps1'\) \} catch \{ \}\s*$" } else { $spRaw -match '_encoding\.ps1' }
+  if (-not $hasPrelude) { Fail "1g TD54：$s 未 dot-source _encoding.ps1（OutputEncoding 覆盖缺口）。"; $g1ok = $false }
 }
 $encHookDir = Join-Path (Split-Path $PSScriptRoot -Parent) '.claude/hooks'
 $encHooks = @('route-new-work.ps1', 'guard-frozen.ps1', 'handoff-resume.ps1', 'handoff-reminder.ps1', 'lessons-reminder.ps1')
@@ -650,7 +821,6 @@ else {
 #   动机：模型系统提示/输出转储（如各模型的 CLAUDE-<x>.md）以往散落在仓库根，既被 init 扫描下发，
 #   又得在下面冒烟里逐名 skip 才不污染——治本是把「允许的顶层条目」白名单化，新增即须显式登记。
 #   规范：此类本地模型产物一律放 _local/models/（gitignored），绝不落根。新增正当顶层文件 => 加进 $RootAllow。
-$RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime', '.pytest_cache', '.ruff_cache', '.mypy_cache')  # 运行时/工具产物：存在即忽略，非交付物
 $RootAllow  = @(
   '.claude', '.github', 'docs', 'scripts', 'specs', '_local',        # 工作流交付目录 + 本地工作区
   'backend', 'frontend', 'prompts', 'context', 'data',              # 标准软件 + AI 应用骨架（下游填充内容）
@@ -741,6 +911,104 @@ foreach ($wf in $wfFiles) {
   }
 }
 if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 两份工作流均在 push + pull_request（main+master）触发 OK' -ForegroundColor Green }
+
+# 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
+# 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
+$selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
+  Fail '8.2e：scaffold-selftest.yml 的 2 OS×3 分片、runner、脚本参数或 lint 依赖接线不完整。'
+} elseif ((Get-SelftestAggregateExitCode @(0, 0, 0)) -ne 0 -or (Get-SelftestAggregateExitCode @(0, 1, 0)) -ne 1) {
+  Fail '8.2e：selftest all 聚合器未 fail-closed（全绿须 0，任一红须 1）。'
+} else {
+  $missingPairMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: ubuntu-latest\s*\r?\n\s{12}shard: seeded\s*\r?\n?', '', 1)
+  $excludeMutation = $selftestWorkflow -replace '(?m)^(\s{8}include:\s*)$', "`$1`n        exclude:`n          - os: ubuntu-latest`n            shard: seeded"
+  $runnerMutation = $selftestWorkflow -replace '(?m)^\s{4}runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}\s*$', '    runs-on: windows-latest'
+  $allCoreMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
+  $runShardMutation = $selftestWorkflow -replace '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$', '        run: pwsh -NoProfile -File scripts/selftest.ps1'
+  $lintConditionMutation = $selftestWorkflow -replace "(?m)^\s*if:\s*matrix\.shard == 'core'\s*$", "        if: matrix.shard == 'workflow'"
+  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation)) {
+    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件变异。'
+  }
+
+  $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
+  $aggLogs = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-logs-$PID-$([guid]::NewGuid().ToString('N'))"
+  $aggTempPattern = "scaffold-selftest-all-$PID-*"
+  $aggRootsBefore = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Directory -Filter $aggTempPattern -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+  $oldFailShard = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_FAIL_SHARD', 'Process')
+  $oldLogRoot = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_LOG_ROOT', 'Process')
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $aggFixture 'scripts'), $aggLogs | Out-Null
+    @'
+param([string]$Shard = 'all', [switch]$StrictLint)
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$overlayOk = (Test-Path (Join-Path $root 'renamed.txt')) -and
+  (-not (Test-Path (Join-Path $root 'old.txt'))) -and
+  (-not (Test-Path (Join-Path $root 'deleted.txt'))) -and
+  (Test-Path (Join-Path $root 'untracked.txt'))
+$strictBound = $PSBoundParameters.ContainsKey('StrictLint')
+"$Shard|$strictBound|$($StrictLint.IsPresent)|$overlayOk" | Set-Content (Join-Path $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT "$Shard.txt")
+if (-not $overlayOk) { exit 23 }
+$readyRoot = Join-Path $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT 'ready'
+New-Item -ItemType Directory -Force $readyRoot | Out-Null
+'' | Set-Content (Join-Path $readyRoot "$Shard.ready")
+$deadline = [DateTime]::UtcNow.AddSeconds(5)
+while (@(Get-ChildItem $readyRoot -File).Count -lt 3) {
+  if ([DateTime]::UtcNow -ge $deadline) { exit 29 }
+  Start-Sleep -Milliseconds 20
+}
+if ($env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -eq $Shard) { exit 17 }
+exit 0
+'@ | Set-Content (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
+    'old' | Set-Content (Join-Path $aggFixture 'old.txt')
+    'delete' | Set-Content (Join-Path $aggFixture 'deleted.txt')
+    & git -C $aggFixture init -q; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture git init failed' }
+    & git -C $aggFixture symbolic-ref HEAD refs/heads/master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture master failed' }
+    & git -C $aggFixture add -A; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture add failed' }
+    & git -C $aggFixture -c user.email='s@l' -c user.name='s' commit -q -m base; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture commit failed' }
+    & git -C $aggFixture mv old.txt renamed.txt; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture rename failed' }
+    Remove-Item -LiteralPath (Join-Path $aggFixture 'deleted.txt') -Force -ErrorAction Stop
+    'untracked' | Set-Content (Join-Path $aggFixture 'untracked.txt')
+
+    $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $aggLogs
+    $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = 'workflow'
+    $probeFail = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $true -Quiet
+    $probeLogs = @(Get-ChildItem $aggLogs -File)
+    $probeLogLines = @($probeLogs | ForEach-Object { Get-Content $_.FullName -Raw })
+    if ($probeFail -ne 1 -or $probeLogs.Count -ne 3 -or @($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|True$' }).Count -gt 0) {
+      Fail '8.2e：all 聚合器 stub 夹具未证明三进程并发 barrier、dirty overlay、StrictLint 转发或失败传播。'
+    }
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue
+    $probePass = Invoke-SelftestAll -SourceRoot $aggFixture -Quiet
+    $probeUnboundLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
+    if ($probePass -ne 0 -or @($probeUnboundLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|False\|False\|True$' }).Count -gt 0) {
+      Fail '8.2e：all 聚合器三分片全绿或未绑定 StrictLint 语义不正确。'
+    }
+
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -Quiet
+    $probeFalseLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
+    if ($probeFalse -ne 0 -or @($probeFalseLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|False\|True$' }).Count -gt 0) {
+      Fail '8.2e：all 聚合器未保真转发显式 -StrictLint:$false（须 bound=true、IsPresent=false）。'
+    }
+    Remove-Item -LiteralPath (Join-Path $aggFixture '.git') -Recurse -Force -ErrorAction Stop
+    $nonGitBlocked = $false
+    try { [void](Invoke-SelftestAll -SourceRoot $aggFixture -Quiet) }
+    catch {
+      if ($_.Exception.Message -match '需要带 HEAD 的 Git 工作树') { $nonGitBlocked = $true }
+      else { throw }
+    }
+    if (-not $nonGitBlocked) { Fail '8.2e：all 聚合器在非 Git 目录未于复制任何内容前 fail-closed。' }
+    $aggRootsAfter = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Directory -Filter $aggTempPattern -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    if (@(Compare-Object $aggRootsBefore $aggRootsAfter).Count -ne 0) { Fail '8.2e：all 聚合器留下了临时快照目录。' }
+  } catch { Fail "8.2e：all 聚合器 hermetic 夹具异常：$($_.Exception.Message)" }
+  finally {
+    if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
+    if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
+    Remove-Item -LiteralPath $aggFixture, $aggLogs -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  if (-not $fail) { Write-Host '  8.2e 6 组合 CI 接线 + 变异 + all 聚合器并发/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
+}
 
 if ($isPostInit) {
   Write-Host '  init 干跑冒烟（-Cleanup / -Retrofit 两路）跳过——已初始化，本闸只测「从模板生成下游」这条元仓专属路径。' -ForegroundColor DarkGray
@@ -2441,6 +2709,10 @@ else {
   }
 }
 
+}
+
+if ($Shard -eq 'workflow') {
+[void]$executedGateGroups.Add('workflow:15')
 # --- 15. 动态 E2E 冒烟：真跑 task.ps1 start + ship -Local，断言工作流真能跑通（静态闸抓不到的回归）---
 # 治本 L38/L39：语法/schema/init 干跑都是**静态**闸，抓不到「只有真跑工作流才暴露」的 bug——
 # 例如 task.ps1 曾把 worktree 基线分支硬编码成 'main'，默认分支为 master 的仓库一跑就炸。
@@ -4340,6 +4612,10 @@ if (-not $gitJ) {
   }
 }
 
+}
+
+if ($Shard -eq 'core') {
+[void]$executedGateGroups.Add('core:16')
 # --- 16. L-id 引用完整性：根入口文档 + .claude/skills + docs 里的 L<n> 经验引用须存在于 LEDGER ---
 # 治本 L29：交叉链接闸（⑪）只校验文件路径，不管 LEDGER 的 L<n> 引用；写错/写旧 id 把读者导向错误经验，无闸可拦。
 # 此闸从 LEDGER 机数已定义 id，扫 skills/docs 的 L<n> 引用（排除 path:Lnn 行号、Lnn-mm 行段等代码引用形态），存在性机检；
@@ -4371,6 +4647,10 @@ else {
   else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个已定义 id，引用均存在于 LEDGER）" }
 }
 
+}
+
+if ($Shard -eq 'seeded') {
+[void]$executedGateGroups.Add('seeded:17')
 # --- 17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂已知坏输入，断言它确实 BLOCK ---
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
@@ -7808,7 +8088,19 @@ if ($realCLHashAfter -ne $realCLHashBefore) { Fail "17cc/17dd 收尾：真实 sc
 elseif ($realVfHashAfter -ne $realVfHashBefore) { Fail "17cc/17dd 收尾：真实 scripts/verify.ps1 的 SHA256 在本闸前后不一致（前=$realVfHashBefore，后=$realVfHashAfter）——理应全程只读却被写入（L196）。" }
 else { Write-Host '  17cc/17dd 收尾：真实 check-licenses.ps1 / verify.ps1 两份生产文件 SHA256 全程未变 OK（L196 纵深防御）' -ForegroundColor Green }
 
-Step '结论'
+}
+
+$expectedGateGroups = @(switch ($Shard) {
+  'core' { 'core:1-14'; 'core:16' }
+  'workflow' { 'workflow:15' }
+  'seeded' { 'seeded:17' }
+})
+if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
+  Fail "分片执行组不完整：Shard=$Shard，实际=$($executedGateGroups -join ',')，期望=$($expectedGateGroups -join ',')。"
+} else { Write-Host "  分片执行组：$($expectedGateGroups -join ',') OK" -ForegroundColor Green }
+
+Step "结论 [$Shard]"
 if ($fail) { Write-Host 'selftest: FAIL' -ForegroundColor Red; exit 1 }
+Write-Host "selftest($Shard): PASS" -ForegroundColor Green
 Write-Host 'selftest: PASS' -ForegroundColor Green
 exit 0
