@@ -20,7 +20,7 @@ non_goals:
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
-dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via 传 NULL 不落地不锁行、photo.softDelete 受 finalize 守卫 + orphanedContentHashes 排除 FINALIZED 证据）各至少一例全绿；notice 的 sent_via/sent_at CHECK 约束两种错配组合各一例必报错，scheduled_at 快照独立存储一例全绿；supplement 的 prev_hash 非空锚定 inspection.data_hash + chain_hash 落库一例全绿，同 created_at 两行按 id 兜底排序确定一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
+dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式一例全绿、传 NULL purged_at 不落地不腐坏行一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via/sent_at 任一传 NULL 均不落地不锁行、photo.softDelete 受 finalize 守卫 + orphanedAssets 返回 content_hash+rel_path 且排除 FINALIZED 证据）各至少一例全绿；notice 的 sent_via/sent_at CHECK 约束两种错配组合各一例必报错，scheduled_at 快照独立存储一例全绿；supplement 的 prev_hash 非空锚定 inspection.data_hash + chain_hash 落库一例全绿，同 created_at 两行按 id 兜底排序确定一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight/ 登记进 scripts/_config.ps1 FrozenPaths（R5）
@@ -163,6 +163,21 @@ R3 第四轮指出四处缺失的机械查询。**裁决：补，但每条须能
   只建新关联"是否意味着多行共享同一 `rel_path`）本卡尚未读到足够文字来确定，猜返回形状与猜 model 字段是
   同一种风险。已按 T2-PHOTO-PIPELINE 自己已生成的 API（`content_hash` → 各活跃行的 `rel_path`）留一条现成
   退路：它拿到孤儿 `content_hash` 后自己 `selectByRoomInstance`/新增窄查询即可取 `rel_path`，不必本卡代劳。
+
+## 卡片修订 2026-08-15 之四（R3 第七轮 · 两项：一项证明上条驳回的退路是假的，一项是本卡自己的事实错误）
+- **`orphanedContentHashes` 撤回上条驳回，改名 `orphanedAssets` 直接返回 `content_hash, rel_path`**：
+  上条给的"退路"（拿到孤儿 content_hash 后自己 `selectByRoomInstance` 查 rel_path）经评审指出**根本不成立**——
+  `selectByRoomInstance` 需要已知 `room_instance_id`（调用方从一个孤儿 content_hash 并不知道它曾挂在哪个
+  room_instance 下），且该查询天生排除软删行，而孤儿行恰恰全部是软删的，两条理由任一条就足以让这条"退路"
+  查不到任何东西。这不是"评审偏好 vs 卡文出处"的分歧，是**我自己提的替代方案有真实缺陷**，故直接采纳：
+  返回值改 `DISTINCT content_hash, rel_path`（同一哈希曾落到不同 rel_path 时逐条列出，全部要能被清理）。
+- **修正一处事实错误：SQLDelight 2.3.2 不支持"复用非空列参数让另一处可空列绑定也变非空"这个技巧**——
+  `notice.recordDelivery` 与 `tenancy.purgeContactInfo` 先前都写了"复用 `:updated_at` 令 sent_at/purged_at
+  在类型层面不可能传 NULL"，**实测生成代码证明这是错的**：SQLDelight 按参数名在整条语句里出现的**所有**
+  绑定位置推断可空性，只要其中一次绑到可空列，生成的 Kotlin 参数类型就是 `Long?`，不会因为同一参数**也**
+  绑过非空列而变成 `Long`。已改正：两条查询都改回各自独立的可空参数 + 运行期 WHERE 三/二重拒绝（`:sent_at
+  IS NOT NULL`/`:purged_at IS NOT NULL`），如实反映"这是运行期守卫、不是编译期保证"，不再声称类型层面的
+  保证。这是本卡自己没有"按实测核验、不凭记忆"这条纪律执行到位的一处，R5.5 复盘时入账 lessons。
 
 ## 禁止 / 非目标
 见 front-matter。
