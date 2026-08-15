@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [switch]$Strict,     # -Strict 时 LGPL/OpenRAIL 等黄牌也算失败
-  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 复用；镜像 check-secrets.ps1 -AsLibrary）
+  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测复用；镜像 check-secrets.ps1 -AsLibrary）
 )
 
 Set-StrictMode -Version Latest
