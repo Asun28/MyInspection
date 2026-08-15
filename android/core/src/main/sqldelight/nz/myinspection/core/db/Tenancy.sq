@@ -9,6 +9,7 @@ CREATE TABLE tenancy (
     contact TEXT,
     baseline_inspection_id TEXT, -- 逻辑外键 -> inspection.id；该 tenancy 的权威基线指针（可后指定，见用户已签认决策）
     purged_at INTEGER, -- 可空：保留期清理（T5-RETENTION）执行时间戳；NULL=尚未清理
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
@@ -18,8 +19,8 @@ CREATE INDEX idx_tenancy_baseline_inspection ON tenancy (baseline_inspection_id)
 
 -- purged_at 不在插入列里，与 deleted_at 同理——新建的租约恒未清理，交给 SQLite 的空列默认值（NULL）。
 insert:
-INSERT INTO tenancy (id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id, updated_at)
-VALUES (:id, :property_id, :start_ms, :end_ms, :tenant_name, :contact, :baseline_inspection_id, :updated_at);
+INSERT INTO tenancy (id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id, created_at, updated_at)
+VALUES (:id, :property_id, :start_ms, :end_ms, :tenant_name, :contact, :baseline_inspection_id, :created_at, :updated_at);
 
 selectById:
 SELECT *
@@ -38,11 +39,11 @@ UPDATE tenancy
 SET baseline_inspection_id = :baseline_inspection_id, updated_at = :updated_at
 WHERE id = :id;
 
--- 保留期清理的机械执行面（T5-RETENTION 的 allow_paths 不含 core/db/，无法自己加查询，只能调用本卡
--- 已生成的 API）：置空联系方式 + 标记 purged_at，绝不 DELETE 行——巡检/照片/报告哈希链仍是法定证据。
--- 是否/何时清理的判断逻辑（到期计算、确认对话框）归 T5-RETENTION，这里只提供动作本身。幂等：对已
--- 清理过的行重复调用只是把 purged_at 刷新为新时间戳，不会产生错误状态。
+-- 保留期清理的机械执行面（T5-RETENTION 的 allow_paths 不含 core/db/，只能调用本卡已生成的 API）：
+-- 置空联系方式 + 标记 purged_at，绝不 DELETE 行——巡检/照片/报告哈希链仍是法定证据。何时/是否清理归
+-- T5-RETENTION。purged_at 复用 :updated_at 而非单独可空参数——单独参数能传 NULL 进去，造出「联系方式
+-- 已清空但 purged_at 仍是 NULL」的自相矛盾态；updated_at 非空，复用它令这条路径类型层面就不可能传 NULL。
 purgeContactInfo:
 UPDATE tenancy
-SET tenant_name = NULL, contact = NULL, purged_at = :purged_at, updated_at = :updated_at
+SET tenant_name = NULL, contact = NULL, purged_at = :updated_at, updated_at = :updated_at
 WHERE id = :id;

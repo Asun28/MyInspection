@@ -37,7 +37,7 @@ class DbReferentialIntegrityTest {
     fun `room_instance insert against a nonexistent inspection affects zero rows`() {
         val affected = database.roomInstanceQueries.insert(
             id = uuid.next(), inspection_id = uuid.next() /* never inserted */, room_key = "BEDROOM",
-            instance_no = 1, display_label = "Bedroom 1", updated_at = now,
+            instance_no = 1, display_label = "Bedroom 1", created_at = now, updated_at = now,
         ).value
         assertEquals(0L, affected, "a room_instance can never attach to an inspection id that does not exist")
     }
@@ -51,7 +51,7 @@ class DbReferentialIntegrityTest {
 
         val affected = database.inspectionItemQueries.insert(
             id = uuid.next(), inspection_id = uuid.next() /* never inserted */, room_instance_id = roomInstanceId,
-            stable_id = "wall.paint", status = "GOOD", note = null, wear_or_damage = null, updated_at = now,
+            stable_id = "wall.paint", status = "GOOD", note = null, wear_or_damage = null, created_at = now, updated_at = now,
         ).value
         assertEquals(0L, affected, "an inspection_item can never attach to an inspection id that does not exist")
     }
@@ -67,7 +67,7 @@ class DbReferentialIntegrityTest {
         // room_instance genuinely exists and is active, but belongs to inspection B, not A.
         val affected = database.inspectionItemQueries.insert(
             id = uuid.next(), inspection_id = inspectionA, room_instance_id = roomInstanceOfB,
-            stable_id = "wall.paint", status = "GOOD", note = null, wear_or_damage = null, updated_at = now,
+            stable_id = "wall.paint", status = "GOOD", note = null, wear_or_damage = null, created_at = now, updated_at = now,
         ).value
         assertEquals(0L, affected, "an inspection_item must not be able to borrow a room_instance from a different inspection")
     }
@@ -77,7 +77,7 @@ class DbReferentialIntegrityTest {
         val affected = database.photoQueries.insert(
             id = uuid.next(), inspection_item_id = null, room_instance_id = uuid.next() /* never inserted */,
             rel_path = "a.jpg", content_hash = "hash1", exif_time_ms = null, source = "CAMERA",
-            privacy_flag = 0, updated_at = now,
+            privacy_flag = 0, created_at = now, updated_at = now,
         ).value
         assertEquals(0L, affected, "a photo can never attach to a room_instance id that does not exist")
     }
@@ -95,7 +95,7 @@ class DbReferentialIntegrityTest {
         val affected = database.photoQueries.insert(
             id = uuid.next(), inspection_item_id = itemInRoomA, room_instance_id = roomB,
             rel_path = "a.jpg", content_hash = "hash1", exif_time_ms = null, source = "CAMERA",
-            privacy_flag = 0, updated_at = now,
+            privacy_flag = 0, created_at = now, updated_at = now,
         ).value
         assertEquals(0L, affected, "a photo must not be able to claim an inspection_item that belongs to a different room_instance")
     }
@@ -104,7 +104,7 @@ class DbReferentialIntegrityTest {
     fun `audio insert against a nonexistent inspection_item affects zero rows`() {
         val affected = database.audioQueries.insert(
             id = uuid.next(), inspection_item_id = uuid.next() /* never inserted */, rel_path = "a.m4a",
-            content_hash = "hash1", updated_at = now,
+            content_hash = "hash1", created_at = now, updated_at = now,
         ).value
         assertEquals(0L, affected, "audio can never attach to an inspection_item id that does not exist")
     }

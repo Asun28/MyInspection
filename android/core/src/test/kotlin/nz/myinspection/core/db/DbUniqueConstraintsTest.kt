@@ -46,9 +46,9 @@ class DbUniqueConstraintsTest {
 
     @Test
     fun `template_version rejects a second active row for the same type+version`() {
-        database.templateVersionQueries.insert(id = uuid.next(), type = "ROUTINE", version = 1, content_hash = "h1", updated_at = now)
+        database.templateVersionQueries.insert(id = uuid.next(), type = "ROUTINE", version = 1, content_hash = "h1", created_at = now, updated_at = now)
         assertUniqueViolation {
-            database.templateVersionQueries.insert(id = uuid.next(), type = "ROUTINE", version = 1, content_hash = "h2", updated_at = now)
+            database.templateVersionQueries.insert(id = uuid.next(), type = "ROUTINE", version = 1, content_hash = "h2", created_at = now, updated_at = now)
         }
     }
 
@@ -58,13 +58,13 @@ class DbUniqueConstraintsTest {
         database.checkItemDefQueries.insert(
             id = uuid.next(), template_version_id = templateVersionId, stable_id = "wall.paint",
             area = "Bedroom", room = "BEDROOM", text_en = "Wall paint", text_zh = "墙面油漆",
-            allowed_statuses = "[\"GOOD\",\"FAIR\",\"POOR\",\"NOT_APPLICABLE\"]", photo_rule = null, sort = 1, updated_at = now,
+            allowed_statuses = "[\"GOOD\",\"FAIR\",\"POOR\",\"NOT_APPLICABLE\"]", photo_rule = null, sort = 1, created_at = now, updated_at = now,
         )
         assertUniqueViolation {
             database.checkItemDefQueries.insert(
                 id = uuid.next(), template_version_id = templateVersionId, stable_id = "wall.paint",
                 area = "Bedroom", room = "BEDROOM", text_en = "dup", text_zh = "dup",
-                allowed_statuses = "[]", photo_rule = null, sort = 2, updated_at = now,
+                allowed_statuses = "[]", photo_rule = null, sort = 2, created_at = now, updated_at = now,
             )
         }
     }
@@ -76,12 +76,12 @@ class DbUniqueConstraintsTest {
         val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         database.roomInstanceQueries.insert(
             id = uuid.next(), inspection_id = inspectionId, room_key = "BEDROOM", instance_no = 1,
-            display_label = "Bedroom 1", updated_at = now,
+            display_label = "Bedroom 1", created_at = now, updated_at = now,
         )
         assertUniqueViolation {
             database.roomInstanceQueries.insert(
                 id = uuid.next(), inspection_id = inspectionId, room_key = "BEDROOM", instance_no = 1,
-                display_label = "dup", updated_at = now,
+                display_label = "dup", created_at = now, updated_at = now,
             )
         }
     }
@@ -96,7 +96,7 @@ class DbUniqueConstraintsTest {
         assertUniqueViolation {
             database.inspectionItemQueries.insert(
                 id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
-                stable_id = "wall.paint", status = "POOR", note = null, wear_or_damage = null, updated_at = now,
+                stable_id = "wall.paint", status = "POOR", note = null, wear_or_damage = null, created_at = now, updated_at = now,
             )
         }
     }
@@ -110,13 +110,13 @@ class DbUniqueConstraintsTest {
         database.photoQueries.insert(
             id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,
             rel_path = "a.jpg", content_hash = "hash1", exif_time_ms = null, source = "CAMERA",
-            privacy_flag = 0, updated_at = now,
+            privacy_flag = 0, created_at = now, updated_at = now,
         )
         assertUniqueViolation {
             database.photoQueries.insert(
                 id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,
                 rel_path = "b.jpg", content_hash = "hash1", exif_time_ms = null, source = "CAMERA",
-                privacy_flag = 0, updated_at = now,
+                privacy_flag = 0, created_at = now, updated_at = now,
             )
         }
     }
@@ -124,9 +124,9 @@ class DbUniqueConstraintsTest {
     @Test
     fun `property_item_override rejects a second active row for the same property+stable_id`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
-        database.propertyItemOverrideQueries.insert(id = uuid.next(), property_id = propertyId, stable_id = "wall.paint", suppressed = 1, updated_at = now)
+        database.propertyItemOverrideQueries.insert(id = uuid.next(), property_id = propertyId, stable_id = "wall.paint", suppressed = 1, created_at = now, updated_at = now)
         assertUniqueViolation {
-            database.propertyItemOverrideQueries.insert(id = uuid.next(), property_id = propertyId, stable_id = "wall.paint", suppressed = 1, updated_at = now)
+            database.propertyItemOverrideQueries.insert(id = uuid.next(), property_id = propertyId, stable_id = "wall.paint", suppressed = 1, created_at = now, updated_at = now)
         }
     }
 }

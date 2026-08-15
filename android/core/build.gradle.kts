@@ -12,17 +12,10 @@ kotlin {
 // T1-SCHEMA-CORE：.sq 是全量 schema 真相源（version 1 = 零 .sqm，SQLDelight 官方约定「first schema
 // version is 1」——.sqm 按「迁移起点版本号」命名，v1 本身无需迁移文件；未来加表/改列才落新 .sqm）。
 //
-// `verifyMigrations` 故意不开（卡片原 dod_assert 要求的「verifySqlDelightMigration 挂进 :core:check 且绿」
-// 在本项目做不到，非实现质量问题，实测核验如下）：该检查需要 `schemaOutputDirectory` 指向的一份**已提交**
-// `<version>.db` 快照作对照基线——留空 schemaOutputDirectory 时 GenerateSchemaTask 根本不注册、verify 任务
-// 运行期报「requires a database file to be present」；一旦显式配置并生成该快照，它就是一个真实 SQLite 文件，
-// 被 `scripts/check-secrets.ps1` 的防泄露闸按文件名模式（`\.db$`，硬编码、无例外机制）判「已追踪的敏感文件」
-// 无条件拦停——已实测复现（生成 1.db → git add -f 纳入 → check-secrets: FAIL 1 项致命）。.gitignore 里
-// `确需入库…用 git add -f` 那条注释对这份文件不成立：check-secrets 的拦截独立于 gitignore、无豁免旁路，
-// 且 scripts/ 属并行卡领地本卡不可改。故此把 verifyMigrations 基础设施推迟到「本项目防泄露闸支持按文件登记
-// 例外」或「改存非 .db 扩展名的快照」之后再开——登记为 TD4（specs/tech-debt-tracker.md），见卡片正文「验收」说明。
-// 影响面很小：本卡 schema 是 version 1（零 .sqm），漂移检测原本就无事可检；真正开始咬合是从第一次加表/
-// 改列（第一份 .sqm）起，到那时须先还清 TD4 才能开工，不阻塞当下。
+// `verifyMigrations` 故意不开：它需要一份已提交的 `<version>.db` 快照作对照基线，而
+// `scripts/check-secrets.ps1` 无条件 fatal-block 任何被追踪的 `*.db` 文件、无按文件豁免机制——两者结构性
+// 不兼容，非本卡实现问题。完整复现步骤与两条候选修法见 TD4（specs/tech-debt-tracker.md）与卡片「验收」说明。
+// 影响面很小：version 1 零 .sqm 本无迁移可验，真正开始起作用是第一次加表/改列（第一份 .sqm）起，届时先还清 TD4。
 sqldelight {
     databases {
         create("MyInspectionDatabase") {

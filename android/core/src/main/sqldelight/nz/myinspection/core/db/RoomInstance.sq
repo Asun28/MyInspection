@@ -6,6 +6,7 @@ CREATE TABLE room_instance (
     room_key TEXT NOT NULL, -- 模板房间键，如 BEDROOM
     instance_no INTEGER NOT NULL,
     display_label TEXT NOT NULL, -- 如 "Bedroom 2 / 次卧"
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
@@ -22,8 +23,8 @@ CREATE UNIQUE INDEX idx_room_instance_active ON room_instance (inspection_id, ro
 -- 用 EXISTS 而非「标量子查询 IS NULL」：inspection_id 若指向一个根本不存在的巡检，标量子查询返回
 -- NULL，`NULL IS NULL` 为真，guard 反而放行——那是孤儿行的口子。EXISTS 要求父行**真的存在**且是 DRAFT。
 insert:
-INSERT INTO room_instance (id, inspection_id, room_key, instance_no, display_label, updated_at)
-SELECT :id, :inspection_id, :room_key, :instance_no, :display_label, :updated_at
+INSERT INTO room_instance (id, inspection_id, room_key, instance_no, display_label, created_at, updated_at)
+SELECT :id, :inspection_id, :room_key, :instance_no, :display_label, :created_at, :updated_at
 WHERE EXISTS (SELECT 1 FROM inspection WHERE id = :inspection_id AND finalized_at IS NULL);
 
 selectById:

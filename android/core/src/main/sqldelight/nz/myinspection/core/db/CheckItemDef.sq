@@ -10,6 +10,7 @@ CREATE TABLE check_item_def (
     photo_rule TEXT, -- 可空：ROOM_PANORAMA / ADVERSE_ONLY（T1-TEMPLATE-ENGINE 模板 JSON 字段同名），NULL=该项无强制拍照要求
     sort INTEGER NOT NULL, -- 模板内显式顺序号——T1-CANON-HASH 的哈希域要求 items[] 按"模板序"排列，
     -- 不能依赖插入顺序或行 id 排序（那不是确定性的、也不是模板作者定义的顺序）
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
@@ -22,8 +23,8 @@ CREATE TABLE check_item_def (
 CREATE UNIQUE INDEX idx_check_item_def_active ON check_item_def (template_version_id, stable_id) WHERE deleted_at IS NULL;
 
 insert:
-INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, photo_rule, sort, updated_at)
-VALUES (:id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :photo_rule, :sort, :updated_at);
+INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, photo_rule, sort, created_at, updated_at)
+VALUES (:id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :photo_rule, :sort, :created_at, :updated_at);
 
 selectById:
 SELECT *

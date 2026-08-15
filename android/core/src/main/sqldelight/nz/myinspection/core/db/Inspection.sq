@@ -13,6 +13,7 @@ CREATE TABLE inspection (
     status TEXT NOT NULL, -- DRAFT / FINALIZED
     finalized_at INTEGER,
     data_hash TEXT, -- finalize 时写入；导出 PDF 页脚写入该哈希，自证未事后修改
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER,
     -- status 与 finalized_at/data_hash 必须联动一致：DRAFT 时两者都还没有值，FINALIZED 时两者都必须有值。
@@ -31,8 +32,8 @@ CREATE INDEX idx_inspection_previous ON inspection (previous_inspection_id);
 CREATE INDEX idx_inspection_baseline ON inspection (baseline_inspection_id);
 
 insert:
-INSERT INTO inspection (id, type, property_id, tenancy_id, template_version_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, updated_at)
-VALUES (:id, :type, :property_id, :tenancy_id, :template_version_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :updated_at);
+INSERT INTO inspection (id, type, property_id, tenancy_id, template_version_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, created_at, updated_at)
+VALUES (:id, :type, :property_id, :tenancy_id, :template_version_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :created_at, :updated_at);
 
 selectById:
 SELECT *

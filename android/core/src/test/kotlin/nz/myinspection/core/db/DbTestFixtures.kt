@@ -9,7 +9,7 @@ internal object DbTestFixtures {
 
     fun insertProperty(db: MyInspectionDatabase, uuid: Uuid7Generator, now: Long = NOW): String {
         val id = uuid.next()
-        db.propertyQueries.insert(id = id, address = "12 Test St", kind = "RENTAL", is_boarding_house = 0, updated_at = now)
+        db.propertyQueries.insert(id = id, address = "12 Test St", kind = "RENTAL", is_boarding_house = 0, created_at = now, updated_at = now)
         return id
     }
 
@@ -21,7 +21,7 @@ internal object DbTestFixtures {
         now: Long = NOW,
     ): String {
         val id = uuid.next()
-        db.templateVersionQueries.insert(id = id, type = type, version = version, content_hash = "hash-$id", updated_at = now)
+        db.templateVersionQueries.insert(id = id, type = type, version = version, content_hash = "hash-$id", created_at = now, updated_at = now)
         return id
     }
 
@@ -50,6 +50,7 @@ internal object DbTestFixtures {
             status = "DRAFT",
             finalized_at = null,
             data_hash = null,
+            created_at = now,
             updated_at = now,
         )
         return id
@@ -66,7 +67,7 @@ internal object DbTestFixtures {
         val id = uuid.next()
         db.roomInstanceQueries.insert(
             id = id, inspection_id = inspectionId, room_key = roomKey, instance_no = instanceNo,
-            display_label = "Bedroom", updated_at = now,
+            display_label = "Bedroom", created_at = now, updated_at = now,
         )
         return id
     }
@@ -83,7 +84,7 @@ internal object DbTestFixtures {
         val id = uuid.next()
         db.inspectionItemQueries.insert(
             id = id, inspection_id = inspectionId, room_instance_id = roomInstanceId, stable_id = stableId,
-            status = status, note = null, wear_or_damage = null, updated_at = now,
+            status = status, note = null, wear_or_damage = null, created_at = now, updated_at = now,
         )
         return id
     }

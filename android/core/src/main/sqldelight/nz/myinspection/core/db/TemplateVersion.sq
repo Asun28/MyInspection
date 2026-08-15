@@ -3,6 +3,7 @@ CREATE TABLE template_version (
     type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
     version INTEGER NOT NULL,
     content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（T1-CANON-HASH 产出，本卡只建列）
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
@@ -16,8 +17,8 @@ CREATE TABLE template_version (
 CREATE UNIQUE INDEX idx_template_version_active ON template_version (type, version) WHERE deleted_at IS NULL;
 
 insert:
-INSERT INTO template_version (id, type, version, content_hash, updated_at)
-VALUES (:id, :type, :version, :content_hash, :updated_at);
+INSERT INTO template_version (id, type, version, content_hash, created_at, updated_at)
+VALUES (:id, :type, :version, :content_hash, :created_at, :updated_at);
 
 selectById:
 SELECT *

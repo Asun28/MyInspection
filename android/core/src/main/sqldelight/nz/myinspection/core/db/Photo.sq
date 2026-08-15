@@ -7,6 +7,7 @@ CREATE TABLE photo (
     exif_time_ms INTEGER, -- 拍摄时间（与巡检时间分开记录）
     source TEXT NOT NULL, -- CAMERA / IMPORTED
     privacy_flag INTEGER NOT NULL, -- 0/1；含租客物品标记（NZ OPC 判例风险），报告可据此排除
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
@@ -20,14 +21,12 @@ CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
 -- UNIQUE(...,deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，表级约束拦不住活跃行重复。
 CREATE UNIQUE INDEX idx_photo_active ON photo (room_instance_id, content_hash) WHERE deleted_at IS NULL;
 
--- finalize 只读强制（关键不变量）：巡检 FINALIZED 后不得再挂新照片，否则 data_hash 锁定的快照会被
--- 事后追加内容破坏。照片没有直接的 inspection_id 列，经 room_instance 两跳查父巡检的 finalized_at；
--- 用 EXISTS+JOIN 而非嵌套标量子查询——room_instance_id 若指向不存在的行，标量子查询链会返回 NULL，
--- `NULL IS NULL` 为真、guard 反而放行（孤儿行的口子）。第二个条件校验 inspection_item_id（若提供）
--- 真的属于同一个 room_instance，不能是从别的房间借来的 id。
+-- finalize 只读强制（关键不变量），EXISTS 理由见 RoomInstance.sq 同名注释。照片没有直接的 inspection_id
+-- 列，经 room_instance 两跳查父巡检的 finalized_at；第二个条件校验 inspection_item_id（若提供）真的
+-- 属于同一个 room_instance，不能是从别的房间借来的 id。
 insert:
-INSERT INTO photo (id, inspection_item_id, room_instance_id, rel_path, content_hash, exif_time_ms, source, privacy_flag, updated_at)
-SELECT :id, :inspection_item_id, :room_instance_id, :rel_path, :content_hash, :exif_time_ms, :source, :privacy_flag, :updated_at
+INSERT INTO photo (id, inspection_item_id, room_instance_id, rel_path, content_hash, exif_time_ms, source, privacy_flag, created_at, updated_at)
+SELECT :id, :inspection_item_id, :room_instance_id, :rel_path, :content_hash, :exif_time_ms, :source, :privacy_flag, :created_at, :updated_at
 WHERE EXISTS (
   SELECT 1 FROM room_instance ri
   JOIN inspection i ON i.id = ri.inspection_id

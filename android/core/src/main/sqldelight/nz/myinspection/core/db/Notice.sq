@@ -2,7 +2,7 @@ CREATE TABLE notice (
     id TEXT NOT NULL PRIMARY KEY,
     inspection_id TEXT NOT NULL, -- 逻辑外键 -> inspection.id
     full_text TEXT NOT NULL, -- 全文快照
-    generated_at INTEGER NOT NULL,
+    generated_at INTEGER NOT NULL, -- 一行 notice 恒在生成的那一刻插入，兼作行创建时间，不另设 created_at
     sent_via TEXT, -- 可空：生成后尚未发送；app 自己不发送，人工发送后回记
     sent_at INTEGER,
     lead_hours INTEGER NOT NULL, -- 提前量小时数；≥48 且 ≤14 天的上下限校验归 T4-COMPLIANCE-ENGINE

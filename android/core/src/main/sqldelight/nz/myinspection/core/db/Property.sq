@@ -3,13 +3,14 @@ CREATE TABLE property (
     address TEXT NOT NULL,
     kind TEXT NOT NULL, -- RENTAL / OWNER_OCCUPIED
     is_boarding_house INTEGER NOT NULL, -- 0/1；影响巡检时段规则（08:00-19:00，寄宿公寓 08:00-18:00）
+    created_at INTEGER NOT NULL, -- 行创建时间；updated_at 会被后续修改覆盖，创建历史单靠它不可恢复
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
 
 insert:
-INSERT INTO property (id, address, kind, is_boarding_house, updated_at)
-VALUES (:id, :address, :kind, :is_boarding_house, :updated_at);
+INSERT INTO property (id, address, kind, is_boarding_house, created_at, updated_at)
+VALUES (:id, :address, :kind, :is_boarding_house, :created_at, :updated_at);
 
 selectById:
 SELECT *

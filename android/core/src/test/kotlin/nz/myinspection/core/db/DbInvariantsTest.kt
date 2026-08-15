@@ -87,7 +87,7 @@ class DbInvariantsTest {
 
         val affected = database.inspectionItemQueries.insert(
             id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
-            stable_id = "ceiling.paint", status = "GOOD", note = null, wear_or_damage = null, updated_at = now + 2,
+            stable_id = "ceiling.paint", status = "GOOD", note = null, wear_or_damage = null, created_at = now + 2, updated_at = now + 2,
         ).value
 
         assertEquals(0L, affected, "inserting a new item under a FINALIZED inspection must affect 0 rows")
@@ -99,7 +99,7 @@ class DbInvariantsTest {
 
         val affected = database.roomInstanceQueries.insert(
             id = uuid.next(), inspection_id = inspectionId, room_key = "KITCHEN", instance_no = 1,
-            display_label = "Kitchen", updated_at = now + 2,
+            display_label = "Kitchen", created_at = now + 2, updated_at = now + 2,
         ).value
 
         assertEquals(0L, affected, "inserting a new room instance under a FINALIZED inspection must affect 0 rows")
@@ -114,7 +114,7 @@ class DbInvariantsTest {
         val affected = database.photoQueries.insert(
             id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,
             rel_path = "late.jpg", content_hash = "latehash", exif_time_ms = null, source = "CAMERA",
-            privacy_flag = 0, updated_at = now + 2,
+            privacy_flag = 0, created_at = now + 2, updated_at = now + 2,
         ).value
 
         assertEquals(0L, affected, "inserting a new photo under a FINALIZED inspection must affect 0 rows")
@@ -128,7 +128,7 @@ class DbInvariantsTest {
 
         val affected = database.audioQueries.insert(
             id = uuid.next(), inspection_item_id = itemId, rel_path = "late.m4a", content_hash = "latehash",
-            updated_at = now + 2,
+            created_at = now + 2, updated_at = now + 2,
         ).value
 
         assertEquals(0L, affected, "inserting new audio under a FINALIZED inspection must affect 0 rows")
@@ -163,7 +163,7 @@ class DbInvariantsTest {
                 id = uuid.next(), type = "ROUTINE", property_id = propertyId, tenancy_id = null,
                 template_version_id = templateVersionId, scheduled_at = now, previous_inspection_id = null,
                 baseline_inspection_id = null, status = "FINALIZED", finalized_at = null, data_hash = null,
-                updated_at = now,
+                created_at = now, updated_at = now,
             )
         }
         assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK constraint violation, got: ${ex.message}")
@@ -178,7 +178,7 @@ class DbInvariantsTest {
                 id = uuid.next(), type = "ROUTINE", property_id = propertyId, tenancy_id = null,
                 template_version_id = templateVersionId, scheduled_at = now, previous_inspection_id = null,
                 baseline_inspection_id = null, status = "BOGUS", finalized_at = null, data_hash = null,
-                updated_at = now,
+                created_at = now, updated_at = now,
             )
         }
         assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK constraint violation, got: ${ex.message}")
@@ -192,7 +192,7 @@ class DbInvariantsTest {
         // 既有租约：app 装机时租约已在进行中，从未建过 Ingoing 巡检（真实用户情形，见 findings.md #2）。
         database.tenancyQueries.insert(
             id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = null,
-            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, updated_at = now,
+            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, created_at = now, updated_at = now,
         )
         val routineInspectionId = DbTestFixtures.insertDraftInspection(
             database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, now = now,
@@ -223,5 +223,22 @@ class DbInvariantsTest {
             exit.baseline_inspection_id,
             "EXIT must resolve its baseline via the tenancy pointer, not assume an INGOING inspection exists",
         )
+    }
+
+    @Test
+    fun `purgeContactInfo clears contact fields, keeps the row, and always records a timestamp`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val tenancyId = uuid.next()
+        database.tenancyQueries.insert(
+            id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = now,
+            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, created_at = now, updated_at = now,
+        )
+
+        database.tenancyQueries.purgeContactInfo(updated_at = now + 1, id = tenancyId)
+
+        val purged = database.tenancyQueries.selectById(tenancyId).executeAsOne()
+        assertNull(purged.tenant_name, "tenant_name must be cleared")
+        assertNull(purged.contact, "contact must be cleared")
+        assertEquals(now + 1, purged.purged_at, "purged_at must never be left NULL after a purge — it is bound to the same value as updated_at")
     }
 }
