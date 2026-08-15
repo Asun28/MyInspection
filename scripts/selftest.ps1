@@ -54,7 +54,7 @@
    15. 动态 E2E 冒烟：临时目录里 git init（刻意把默认分支设成 master≠main）→ 写最小卡 → check-cards →
        task.ps1 -Phase start，断言能从「当前分支」建出 worktree 且 exit 0；再 ship -Local 全链到合并提交，
        并对 ship 两道确定性闸种子缺陷断言必拦（15c verify 红 / 15d 越界改动，均须记效果账本）；
-       15e：元仓真 verify.ps1 干跑断言优雅降级 exit 0（不需 git，锁「装了 uv 无 pyproject 误红」类回归）；
+       15e：真实 verify.ps1 在隔离裸项目中干跑，断言优雅降级 exit 0（不需 git，锁「装了 uv 无 pyproject 误红」类回归）；
        15f：stub uv/npm 夹具自证收紧路径——pyproject 在则 ruff 经 --no-sync 被真调（离线证据）、前端引导后
        check/test 真跑且非零传导为 verify 红（防假绿）；15g：RED-first 闸种子缺陷（TD36）——伪造空 .red 证据经内容校验被识破、-SkipRed 旁路落账本 gate=skip-red、GREEN dod 下 -Phase red 必抛、sha 与当前 HEAD 不符的陈旧/伪造证据必拦（TD63 item3）；15h：cleanup 脏树守卫（TD47）——脏树无 -Force 须拒（零删除）、脏树 +-Force 放行、干净树正路径不误伤；
        15i：ship push 失败护栏（TD44）——git push 静默失败须在 push 步 fail-fast abort（含 token、非零退出），不得续跑到 gh/合并陈旧远端 head。专抓静态闸
@@ -3880,12 +3880,24 @@ if (-not $gitRC) {
   }
 }
 
-# 15e. 元仓真 verify.ps1 干跑断言（T2-VERIFY-LINT 常设自证）：本仓无 pyproject.toml、frontend/ 仅 *.example，
-#   verify 各步以「项目清单文件存在」为门，须全部优雅跳过并 exit 0——锁「uv 在 PATH 而无 pyproject 时误跑 pytest 误红」类降级回归。
-#   与机器无关（uv/npm 在不在场都走跳过分支），亦不需 git，故置于闸 15 的 git 条件之外。
-& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/verify.ps1') *> $null
-if ($LASTEXITCODE -ne 0) { Fail "闸15e：元仓 verify.ps1 干跑非零退出（$LASTEXITCODE）——降级路径回归（无 pyproject/前端未引导时须优雅跳过、exit 0）。" }
-else { Write-Host '  15e 元仓 verify 干跑 OK（无 pyproject/前端未引导 → 优雅降级 exit 0）' -ForegroundColor Green }
+# 15e. 真实 verify.ps1 裸项目干跑（T2-VERIFY-LINT 常设自证）：只复制被测脚本到隔离目录，故 Python、前端、
+#   Android 均确定未引导；各步须优雅跳过并 exit 0——锁「uv 在 PATH 而无 pyproject 时误跑 pytest 误红」类回归。
+#   不得直接在 $RepoRoot 跑：项目后来新增的任一清单会收紧 verify，使此“裸项目”用例随 runner 工具链漂移。
+$verifyBareRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-verify-bare-$PID"
+try {
+  New-Item -ItemType Directory -Force (Join-Path $verifyBareRoot 'scripts') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $verifyBareRoot 'scripts/verify.ps1') -Force
+  if ((Test-Path (Join-Path $verifyBareRoot 'pyproject.toml')) -or
+      (Test-Path (Join-Path $verifyBareRoot 'frontend/package.json')) -or
+      (Test-Path (Join-Path $verifyBareRoot 'android/gradlew.bat'))) {
+    Fail '闸15e：未引导裸项目夹具被 Python/前端/Android 清单污染——结果会依赖 runner 工具链。'
+  }
+  & pwsh -NoProfile -File (Join-Path $verifyBareRoot 'scripts/verify.ps1') *> $null
+  if ($LASTEXITCODE -ne 0) { Fail "闸15e：真实 verify.ps1 在裸项目干跑非零退出（$LASTEXITCODE）——未引导时须优雅跳过、exit 0。" }
+  else { Write-Host '  15e 真实 verify 裸项目干跑 OK（Python/前端/Android 均未引导 → 优雅降级 exit 0）' -ForegroundColor Green }
+} finally {
+  Remove-Item -LiteralPath $verifyBareRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # 15l. TaskId 绑定期校验（TD50/TD-113）：start 外的相（red/ship/cleanup）此前拿未净化 -TaskId 拼 $Wt/$Card 路径，
 #   cleanup 更 `Remove-Item -Recurse -Force $Wt`——路径穿越面。修法=参数上 [ValidatePattern] 绑定期即校验，全相统一。
