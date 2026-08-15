@@ -104,6 +104,27 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   仍是 NULL」这种自相矛盾、无法区分"从未清理"的状态；updated_at 非空，复用它令这条路径类型层面不可能传 NULL。
 - **不做**：Condition/Cleanliness 全量双刻度（#7）、缺陷责任方/费用字段（#8）。别自作主张加这两组列——加了就得走版本评审才能删。
 
+## 卡片修订 2026-08-15（编排者裁决 · R3 两轮同一争点 · model 层类型归属）
+争点：R3 两轮要求本卡在 `core/model/` 定义 `InspectionSnapshot`/`SupplementSnapshot`；执行者以「本卡卡文没点名要它、
+且 T1-CANON-HASH 是本卡 non_goal」两次拒绝。按「同一争点两轮不认可即人裁」，**编排者裁决：R3 对，本卡建这两个类型**。
+依据不是卡文措辞，而是**两张卡的 allow_paths**：
+- 本卡 allow_paths **含** `android/core/src/main/kotlin/nz/myinspection/core/model/`（且至今未被本卡任何产出使用——
+  该路径当初就是为此分配的）；
+- `T1-CANON-HASH` 的 allow_paths **只有** `core/canon/`（main+test），并在 forbid 明写「碰 db/template 包」，
+  它**无权**在 `core/model/` 建类型；其卡文亦写明输入是「model 层不可变数据类（T1-SCHEMA-CORE 已定义）」。
+⇒ 若本卡不建，CANON-HASH 开工即撞墙，只能再破例扩 allow_paths（正是 L206 要避免的）。
+**形状不是猜**：字段 = `T1-CANON-HASH` 的**哈希域**（ADR-0003 明确排除 `updated_at` / 文件路径 / UI 态 / LLM 建议）。
+按那份清单一一对应，**不多加一个字段**——多出来的字段进了哈希域就是错，没进就是死代码。
+`core/model/` **不进** FrozenPaths（本卡只冻 `sqldelight/`），故类型日后可随 CANON-HASH 实测调整，不必一次到位到完美。
+
+## 卡片修订 2026-08-15 之二（编排者裁决 · 下游卡要的 db 查询归本卡提供）
+R3 第四轮指出四处缺失的机械查询。**裁决：补，但每条须能指到**要求它的那张卡的原文**——**
+理由是结构性的：`core/db/` 归本卡，而要用这些查询的下游卡 allow_paths **不含** `core/db/`
+（已核：`T2-PHOTO-PIPELINE` 只有 `core/media/` + `app/media/`，其卡文却明写「提供 `orphanedAssets()` 查询 + 清理用例」）。
+本卡不提供 ⇒ 下游卡要么被卡死、要么被迫破例写进**已冻结**目录。四条：
+`inspection_item.wear_or_damage` 更新 · `property_item_override` 取消抑制/恢复 · `notice` 记录 `sent_via`/`sent_at` ·
+`photo` 软删 + `orphanedAssets()`。**无出处的不要加**——臆想的查询是死代码，且冻结后删不掉。
+
 ## 禁止 / 非目标
 见 front-matter。
 
