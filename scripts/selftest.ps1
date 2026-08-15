@@ -7468,12 +7468,17 @@ exit 0
   }
 }
 
-# ── 17aa/17bb（T0-GATE-HARDENING）：许可闸 Gradle 清单递归发现（含 libs.versions.toml）+ verify.ps1
-#   --no-daemon，各配单句删除变异（对应卡片 dod_assert ①②）。①覆盖两个独立分支（libs.versions.toml /
+# ── 17cc/17dd（T0-GATE-HARDENING，R3 round-1 修复）：许可闸 Gradle 清单递归发现（含 libs.versions.toml）+
+#   verify.ps1 --no-daemon，各配单句删除变异（对应卡片 dod_assert ①②）。①覆盖两个独立分支（libs.versions.toml /
 #   build.gradle{,.kts}）——T0-TOOLCHAIN 六轮评审 finding #6c：此前只变异了 libs.versions.toml 一支，
-#   build.gradle{,.kts} 那一支从未被证明在测。变异对象一律不是生产文件本体：17aa 用**真实生产脚本旁的临时
-#   同目录副本**（scripts/.st17aa-mutant-$PID.ps1，$PSScriptRoot 落在真实 scripts/，故 $RepoRoot 解析到
-#   真实仓根、扫到真实 android/ 树，行为与 dod_command 一致），17bb 全程只在内存字符串上操作、从不写盘。
+#   build.gradle{,.kts} 那一支从未被证明在测。
+#   （原命名 17aa/17bb 与既有 17aa TD68 远端基线评审套件撞号，改名 17cc/17dd——R3 dimension #11。）
+#   变异分类器现改用**真实子进程**、镜像卡片 dod_command 的字面结构（`if (-not (...)) { exit 1 } else
+#   { exit 0 }`），取**进程退出码**当红/绿判据，不再只在 selftest 自己进程内比较字符串（R3 dimension #6：
+#   之前只判文本消失、从不查子进程退出码，若脚本半途崩溃导致文本"恰好"也消失，会被误判成精确命中该分支）。
+#   变异对象一律不是生产文件本体：17cc 用**真实生产脚本旁的临时同目录副本**（scripts/.st17cc-mutant-$PID.ps1，
+#   $PSScriptRoot 落在真实 scripts/，故 $RepoRoot 解析到真实仓根、扫到真实 android/ 树，行为与 dod_command
+#   一致），17dd 全程只在内存/临时暂存文件上操作、从不写回真实 verify.ps1。
 #   L196：上一位 agent 曾在「变异后、还原前」被杀死，现场留过一次真实缺陷；本闸结尾另核两个真实源文件的
 #   SHA256 全程未变，纵深防御。
 $realCLPath = Join-Path $RepoRoot 'scripts/check-licenses.ps1'
@@ -7481,17 +7486,26 @@ $realVfPath = Join-Path $RepoRoot 'scripts/verify.ps1'
 $realCLHashBefore = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
 $realVfHashBefore = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
 
-# 17aa. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异）
-$mutantCL = Join-Path $RepoRoot "scripts/.st17aa-mutant-$PID.ps1"
+# 镜像卡片 dod_command 字面结构的判据函数：对**真实子进程**判「$ScriptPath 跑出的输出里有没有 $NeedleText」，
+# 返回该子进程自己的退出码（0=命中/1=未命中），不是 selftest 进程内的字符串比较（R3 dimension #6）。
+function Test-DodStyleTextPresence([string]$ScriptPath, [string]$NeedleText) {
+  $escaped = $NeedleText.Replace("'", "''")
+  & pwsh -NoProfile -Command "if (-not ((pwsh -NoProfile -File '$ScriptPath' | Select-String -SimpleMatch '$escaped'))) { exit 1 } else { exit 0 }"
+  return $LASTEXITCODE
+}
+
+# 17cc. Gradle 清单递归发现行为断言（真实 android/ 树；两分支各自变异，判据=真实子进程退出码）
+$mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
   Copy-Item -LiteralPath $realCLPath -Destination $mutantCL -Force
-  $baseOut = & pwsh -NoProfile -File $mutantCL 2>&1 | Out-String
-  if ($baseOut -notmatch [regex]::Escape('libs.versions.toml')) {
-    Fail "17aa 基线：真实运行未点名 libs.versions.toml——递归发现分支①未生效或 android/gradle/libs.versions.toml 缺失，无从继续变异测试。`n输出=$baseOut"
-  } elseif ($baseOut -notmatch [regex]::Escape('build.gradle.kts')) {
-    Fail "17aa 基线：真实运行未点名 build.gradle.kts——递归发现分支②未生效，无从继续变异测试。`n输出=$baseOut"
+  $baseExitA = Test-DodStyleTextPresence $mutantCL 'libs.versions.toml'
+  $baseExitB = Test-DodStyleTextPresence $mutantCL 'build.gradle.kts'
+  if ($baseExitA -ne 0) {
+    Fail "17cc 基线：dod 式判据对未变异副本判「未点名 libs.versions.toml」（子进程退出=$baseExitA，期望 0）——递归发现分支①未生效或 android/gradle/libs.versions.toml 缺失，无从继续变异测试。"
+  } elseif ($baseExitB -ne 0) {
+    Fail "17cc 基线：dod 式判据对未变异副本判「未点名 build.gradle.kts」（子进程退出=$baseExitB，期望 0）——递归发现分支②未生效，无从继续变异测试。"
   } else {
-    Write-Host '  17aa 基线（GREEN）：真实运行同时点名 libs.versions.toml 与 build.gradle.kts OK' -ForegroundColor Green
+    Write-Host '  17cc 基线（GREEN）：dod 式子进程判据对 libs.versions.toml 与 build.gradle.kts 均退出 0（命中）OK' -ForegroundColor Green
     $origLines = Get-Content -LiteralPath $mutantCL
     # 规整化基线（重要）：Get-Content/Set-Content 往返不是字节级恒等（换行符/末尾换行处理有别于原始 Copy-Item
     # 字节），直接拿 Copy-Item 落地时的哈希当「还原目标」会对每次变异都假红。改为「先用 Set-Content 写一遍原始
@@ -7500,57 +7514,139 @@ try {
     $origHash = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
 
     # 分支①变异：删掉 libs.versions.toml 那一行（单句删除）。
-    $idxA = @(0..($origLines.Count - 1) | Where-Object { $origLines[$_] -match [regex]::Escape("-Filter 'libs.versions.toml'") })
+    $idxA = @(0..($origLines.Count - 1) | Where-Object { $origLines[$_] -match [regex]::Escape("-Names @('libs.versions.toml')") })
     if ($idxA.Count -ne 1) {
-      Fail "17aa(A) 前置：源码里含 -Filter 'libs.versions.toml' 的行数=$($idxA.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移，需回头核对行文本。"
+      Fail "17cc(A) 前置：源码里含 -Names @('libs.versions.toml') 的行数=$($idxA.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移，需回头核对行文本。"
     } else {
       $mutA = @(for ($i = 0; $i -lt $origLines.Count; $i++) { if ($i -ne $idxA[0]) { $origLines[$i] } })
       Set-Content -LiteralPath $mutantCL -Value $mutA -Encoding utf8
-      $outA = & pwsh -NoProfile -File $mutantCL 2>&1 | Out-String
+      $mutExitA_self = Test-DodStyleTextPresence $mutantCL 'libs.versions.toml'
+      $mutExitA_other = Test-DodStyleTextPresence $mutantCL 'build.gradle.kts'
       Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
       $hashA = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
-      if ($hashA -ne $origHash) { Fail "17aa(A) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashA）——mutant 副本未干净还原（副本非生产文件，但仍须核验闭环完整）。" }
-      elseif ($outA -match [regex]::Escape('libs.versions.toml')) { Fail "种子缺陷 17aa(A)：删掉 libs.versions.toml 递归发现那一行后，真实运行仍点名 libs.versions.toml——分支①未被真正测到（vacuous mutation）。`n输出=$outA" }
-      elseif ($outA -notmatch [regex]::Escape('build.gradle.kts')) { Fail "17aa(A) 分类器：删掉分支①那一行后，分支②的 build.gradle.kts 也消失了——说明红不是分支①单独造成（两分支未真正独立，或运行整体崩溃，L165）。`n输出=$outA" }
-      else { Write-Host '  17aa(A) libs.versions.toml 发现分支：单句删除变异后红（消失）、分支②仍绿（build.gradle.kts 仍点名）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
+      if ($hashA -ne $origHash) { Fail "17cc(A) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashA）——mutant 副本未干净还原（副本非生产文件，但仍须核验闭环完整）。" }
+      elseif ($mutExitA_self -ne 1) { Fail "种子缺陷 17cc(A)：删掉 libs.versions.toml 递归发现那一行后，dod 式子进程判据仍退出 $mutExitA_self（期望 1=未命中）——分支①未被真正测到（vacuous mutation，R3 dimension #6：判据须是真实子进程非零退出）。" }
+      elseif ($mutExitA_other -ne 0) { Fail "17cc(A) 分类器：删掉分支①那一行后，分支②判据也变成退出 $mutExitA_other（期望仍 0=命中）——说明红不是分支①单独造成（两分支未真正独立，或运行整体崩溃，L165）。" }
+      else { Write-Host '  17cc(A) libs.versions.toml 发现分支：单句删除变异后 dod 式子进程判据退出 1（RED）、分支②判据仍退出 0（GREEN）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
     }
 
     # 分支②变异：删掉 build.gradle/build.gradle.kts 那一行（单句删除）。
-    $idxB = @(0..($origLines.Count - 1) | Where-Object { $origLines[$_] -match [regex]::Escape("-Include 'build.gradle', 'build.gradle.kts'") })
+    $idxB = @(0..($origLines.Count - 1) | Where-Object { $origLines[$_] -match [regex]::Escape("-Names @('build.gradle', 'build.gradle.kts')") })
     if ($idxB.Count -ne 1) {
-      Fail "17aa(B) 前置：源码里含 -Include 'build.gradle', 'build.gradle.kts' 的行数=$($idxB.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移。"
+      Fail "17cc(B) 前置：源码里含 -Names @('build.gradle', 'build.gradle.kts') 的行数=$($idxB.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移。"
     } else {
       $mutB = @(for ($i = 0; $i -lt $origLines.Count; $i++) { if ($i -ne $idxB[0]) { $origLines[$i] } })
       Set-Content -LiteralPath $mutantCL -Value $mutB -Encoding utf8
-      $outB = & pwsh -NoProfile -File $mutantCL 2>&1 | Out-String
+      $mutExitB_self = Test-DodStyleTextPresence $mutantCL 'build.gradle.kts'
+      $mutExitB_other = Test-DodStyleTextPresence $mutantCL 'libs.versions.toml'
       Set-Content -LiteralPath $mutantCL -Value $origLines -Encoding utf8
       $hashB = (Get-FileHash -LiteralPath $mutantCL -Algorithm SHA256).Hash
-      if ($hashB -ne $origHash) { Fail "17aa(B) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashB）——mutant 副本未干净还原。" }
-      elseif ($outB -match [regex]::Escape('build.gradle')) { Fail "种子缺陷 17aa(B)：删掉 build.gradle{,.kts} 递归发现那一行后，真实运行仍点名 build.gradle——分支②未被真正测到（vacuous mutation）。`n输出=$outB" }
-      elseif ($outB -notmatch [regex]::Escape('libs.versions.toml')) { Fail "17aa(B) 分类器：删掉分支②那一行后，分支①的 libs.versions.toml 也消失了——说明红不是分支②单独造成（两分支未真正独立，或运行整体崩溃，L165）。`n输出=$outB" }
-      else { Write-Host '  17aa(B) build.gradle{,.kts} 发现分支：单句删除变异后红（消失）、分支①仍绿（libs.versions.toml 仍点名）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
+      if ($hashB -ne $origHash) { Fail "17cc(B) 变异还原后 SHA256 不符（原=$origHash，还原后=$hashB）——mutant 副本未干净还原。" }
+      elseif ($mutExitB_self -ne 1) { Fail "种子缺陷 17cc(B)：删掉 build.gradle{,.kts} 递归发现那一行后，dod 式子进程判据仍退出 $mutExitB_self（期望 1=未命中）——分支②未被真正测到（vacuous mutation，R3 dimension #6）。" }
+      elseif ($mutExitB_other -ne 0) { Fail "17cc(B) 分类器：删掉分支②那一行后，分支①判据也变成退出 $mutExitB_other（期望仍 0=命中）——说明红不是分支②单独造成（两分支未真正独立，或运行整体崩溃，L165）。" }
+      else { Write-Host '  17cc(B) build.gradle{,.kts} 发现分支：单句删除变异后 dod 式子进程判据退出 1（RED）、分支①判据仍退出 0（GREEN）、副本已还原且 SHA256 一致 OK' -ForegroundColor Green }
     }
   }
 } finally {
   Remove-Item -LiteralPath $mutantCL -Force -ErrorAction SilentlyContinue
-  if (Test-Path $mutantCL) { Fail "17aa 收尾：临时同目录副本 $mutantCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
+  if (Test-Path $mutantCL) { Fail "17cc 收尾：临时同目录副本 $mutantCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
 }
 
-# 17bb. verify.ps1 的 Android 闸调用含 --no-daemon（源码断言，纯文本、不执行整套 Gradle 构建——避免 R3
-#   沙箱不保证可复跑的重型套件，L60/L62；判据与卡片 dod_command 同形态）。变异全程只在内存字符串上操作、
-#   从不写回磁盘——比「写→还原→核 SHA256」更强的保证：真实 verify.ps1 连一次写操作都没经历过。
-$vfOrigLines = Get-Content -LiteralPath $realVfPath
-$vfIdx = @(0..($vfOrigLines.Count - 1) | Where-Object { $vfOrigLines[$_] -match [regex]::Escape('--no-daemon') })
-if ($vfIdx.Count -ne 1) {
-  Fail "17bb 前置：verify.ps1 里含 --no-daemon 的行数=$($vfIdx.Count)（期望恰好 1）——断言定位不唯一，或该 flag 尚未落地。"
+# 17cc(prune). 排除目录真正「下钻前剪枝」，非「枚举后过滤」（R3 dimension #17：先前 Get-ChildItem -Recurse
+#   仍会真的进入 .gradle/build/node_modules/.git 再事后丢弃结果，大型/不可读的被排除子树照样被遍历）。
+#   用会对被排除目录名抛错的桩 -Enumerator：若剪枝失效、真的下钻进这些目录，桩会抛出可辨认的异常；
+#   剪枝真正生效时桩永不会被这些目录调用，函数正常返回。合成小夹具，不碰真实 android/ 树体积。
+. $realCLPath -AsLibrary
+$fxPrune = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-prune-$PID"
+if (Test-Path $fxPrune) { Remove-Item -Recurse -Force $fxPrune }
+try {
+  New-Item -ItemType Directory -Force (Join-Path $fxPrune 'real') | Out-Null
+  Set-Content (Join-Path $fxPrune 'real/build.gradle') 'real' -Encoding utf8
+  foreach ($skip in @('.gradle', 'build', 'node_modules', '.git')) {
+    New-Item -ItemType Directory -Force (Join-Path $fxPrune "$skip/decoy") | Out-Null
+    Set-Content (Join-Path $fxPrune "$skip/decoy/build.gradle") 'decoy' -Encoding utf8
+  }
+  $throwIfExcluded = {
+    param($d)
+    $leaf = Split-Path -Leaf $d
+    if (@('.gradle', 'build', 'node_modules', '.git') -contains $leaf) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
+    Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop
+  }
+  try {
+    $pruneHits = @(Find-GradleManifests -Root $fxPrune -Names @('build.gradle') -Enumerator $throwIfExcluded)
+    if ($pruneHits.Count -ne 1 -or $pruneHits[0] -ne (Join-Path $fxPrune 'real/build.gradle')) {
+      Fail "17cc(prune)：期望只发现 real/build.gradle 一个命中，实得 $($pruneHits.Count) 个（$($pruneHits -join ', ')）。"
+    } else {
+      Write-Host '  17cc(prune) 排除目录下钻前剪枝 OK（.gradle/build/node_modules/.git 从未被枚举器碰过，非枚举后过滤；只发现 real/build.gradle）' -ForegroundColor Green
+    }
+  } catch {
+    Fail "种子缺陷 17cc(prune)：$($_.Exception.Message) —— Find-GradleManifests 真的下钻进了被排除目录（先枚举全树、再事后过滤的旧行为回归）。"
+  }
+} finally { Remove-Item -Recurse -Force $fxPrune -ErrorAction SilentlyContinue }
+
+# 17cc(enum-err). 枚举出错 → 两分支各自记一条 coverage gap（不静默吞掉，fail-closed，T0-TOOLCHAIN finding #4）。
+#   用恒抛错的桩 -Enumerator（不必真造 Windows ACL 不可读目录——省掉平台特定性与「变异未彻底还原」的清理风险），
+#   直测 Get-GradleCoverageGaps：两分支各自 try/catch，各自应贡献一条含分支专属前缀的 gap 文案。
+$throwAlways = { param($d) throw 'SIMULATED-ENUM-ERROR' }
+$enumErrGaps = @(Get-GradleCoverageGaps -Root (Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-enumerr-$PID") -Enumerator $throwAlways)
+if ($enumErrGaps.Count -ne 2) {
+  Fail "种子缺陷 17cc(enum-err)：枚举全程抛错时应各分支各记 1 条 gap（共 2 条），实得 $($enumErrGaps.Count) 条：$($enumErrGaps -join ' | ')——枚举错误未被两个分支各自捕获记账（可能被静默吞掉）。"
+} elseif (-not (@($enumErrGaps) -match 'libs\.versions\.toml 递归枚举失败') -or -not (@($enumErrGaps) -match 'build\.gradle\{,\.kts\} 递归枚举失败')) {
+  Fail "种子缺陷 17cc(enum-err)：2 条 gap 里未见两个分支各自的失败前缀文案（实得：$($enumErrGaps -join ' | ')）——不是两个分支各自 fail-closed 记账。"
 } else {
-  $vfMut = @(for ($i = 0; $i -lt $vfOrigLines.Count; $i++) { if ($i -ne $vfIdx[0]) { $vfOrigLines[$i] } })
-  if ($vfMut.Count -ne ($vfOrigLines.Count - 1)) {
-    Fail "17bb 分类器：变异后行数=$($vfMut.Count)，期望恰好比原文件少 1 行（$($vfOrigLines.Count - 1)）——变异不是干净的单句删除。"
-  } elseif (($vfMut -join "`n") -match [regex]::Escape('--no-daemon')) {
-    Fail '种子缺陷 17bb：删掉那一行后 --no-daemon 仍能在文本里找到——断言未真正定位到该 flag（vacuous mutation）。'
-  } else {
-    Write-Host '  17bb verify.ps1 --no-daemon：真实文件恰好 1 处命中（GREEN）、单句删除该行后文本消失（RED，纯内存操作，磁盘上的 verify.ps1 从未被写入）OK' -ForegroundColor Green
+  Write-Host '  17cc(enum-err) 枚举出错 → 两分支各自记 1 条 coverage gap（不静默吞掉）OK' -ForegroundColor Green
+}
+
+# 17cc(strict). coverage gap → -Strict 下真失败（真实仓根，不是合成夹具）：Gradle 清单永远缺扫描器（本卡
+#   刻意不建，见卡片仲裁），故真实仓根跑一次不带 -Strict（PASS/exit 0）、一次带 -Strict（FAIL/exit 1）——
+#   证「有 coverage gap 时 -Strict 真会让整条闸失败」不是纸面承诺（R3 dimension #6，与 17cc(enum-err) 的
+#   单测互补：enum-err 证「枚举出错→gap」，本例证「gap（含 Gradle 清单本身产生的）→ -Strict 下 exit 1」）。
+& pwsh -NoProfile -File $realCLPath *> $null
+$strictProbeExit0 = $LASTEXITCODE
+& pwsh -NoProfile -File $realCLPath -Strict *> $null
+$strictProbeExit1 = $LASTEXITCODE
+if ($strictProbeExit0 -ne 0) { Fail "17cc(strict)：不带 -Strict 的真实运行退出 $strictProbeExit0（期望 0）——本仓当前不应有致命许可命中，环境是否变了？" }
+elseif ($strictProbeExit1 -ne 1) { Fail "种子缺陷 17cc(strict)：带 -Strict 的真实运行退出 $strictProbeExit1（期望 1）——Gradle 清单已发现但无扫描器本应是覆盖缺口，-Strict 下理应致命，未生效。" }
+else { Write-Host '  17cc(strict) coverage gap → -Strict 下真失败 OK（不带 -Strict exit 0 / 带 -Strict exit 1，真实仓根）' -ForegroundColor Green }
+
+# 17dd. verify.ps1 的 Android 闸调用含 --no-daemon（源码断言，纯文本、不执行整套 Gradle 构建——避免 R3
+#   沙箱不保证可复跑的重型套件，L60/L62）。断言**锚定到完整调用行**（.\gradlew.bat + --offline + --no-daemon
+#   + :core:check 同一行），不是裸子串「--no-daemon」——裸子串会被同文件里提到该 flag 的注释满足，也保护不到
+#   T0-GATE-HARDENING item5 新加的显式相对路径（R3 dimension #6）。判据同 17cc，改用**真实子进程**镜像
+#   dod_command 字面结构，取进程退出码。变异写到临时暂存文件（不是真实 verify.ps1），比「写→还原→核 SHA256」
+#   更强的保证：真实 verify.ps1 全程只读、连一次写操作都没经历过。
+$vfInvocationLiteral = '.\gradlew.bat --offline --no-daemon -q :core:check'
+$vfOrigLines = Get-Content -LiteralPath $realVfPath
+$vfIdx = @(0..($vfOrigLines.Count - 1) | Where-Object { $vfOrigLines[$_] -match [regex]::Escape($vfInvocationLiteral) })
+if ($vfIdx.Count -ne 1) {
+  Fail "17dd 前置：verify.ps1 里含完整调用行「$vfInvocationLiteral」的行数=$($vfIdx.Count)（期望恰好 1）——断言定位不唯一，或该调用形态尚未落地/已漂移。"
+} else {
+  # -SimpleMatch 把 -Pattern 当**字面量**（非正则），故这里绝不能 [regex]::Escape——那是给正则模式转义用的，
+  # 套进 -SimpleMatch 反而会去找带反斜杠转义符的错误文本、永远命中不了真实行（曾在此踩过一次，见下方基线自检）。
+  # 只需为拼进 -Command 的单引号字符串转义内嵌单引号（本字面量当前不含单引号，仍按通用写法处理，防未来改动踩坑）。
+  $vfLiteralForCmd = $vfInvocationLiteral.Replace("'", "''")
+  $vfScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17dd-verify-$PID.ps1"
+  try {
+    Set-Content -LiteralPath $vfScratch -Value $vfOrigLines -Encoding utf8
+    & pwsh -NoProfile -Command "if (-not (Select-String -Path '$vfScratch' -Pattern '$vfLiteralForCmd' -SimpleMatch)) { exit 1 } else { exit 0 }"
+    $vfBaseExit = $LASTEXITCODE
+    if ($vfBaseExit -ne 0) {
+      Fail "17dd 基线：dod 式子进程判据对未变异暂存副本判「未命中完整调用行」（退出=$vfBaseExit，期望 0）——判据本身与文件内容不一致，需排查。"
+    } else {
+      $vfMut = @(for ($i = 0; $i -lt $vfOrigLines.Count; $i++) { if ($i -ne $vfIdx[0]) { $vfOrigLines[$i] } })
+      if ($vfMut.Count -ne ($vfOrigLines.Count - 1)) {
+        Fail "17dd 分类器：变异后行数=$($vfMut.Count)，期望恰好比原文件少 1 行（$($vfOrigLines.Count - 1)）——变异不是干净的单句删除。"
+      } else {
+        Set-Content -LiteralPath $vfScratch -Value $vfMut -Encoding utf8
+        & pwsh -NoProfile -Command "if (-not (Select-String -Path '$vfScratch' -Pattern '$vfLiteralForCmd' -SimpleMatch)) { exit 1 } else { exit 0 }"
+        $vfMutExit = $LASTEXITCODE
+        if ($vfMutExit -ne 1) { Fail "种子缺陷 17dd：删掉完整调用行后，dod 式子进程判据仍退出 $vfMutExit（期望 1=未命中）——断言未真正定位到该调用（vacuous mutation，R3 dimension #6：判据须是真实子进程非零退出）。" }
+        else { Write-Host '  17dd verify.ps1 --no-daemon：锚定完整调用行（.\gradlew.bat --offline --no-daemon -q :core:check），dod 式子进程判据基线退出 0（GREEN）、单句删除变异后退出 1（RED），真实 verify.ps1 全程只读 OK' -ForegroundColor Green }
+      }
+    }
+  } finally {
+    Remove-Item -LiteralPath $vfScratch -Force -ErrorAction SilentlyContinue
+    if (Test-Path $vfScratch) { Fail "17dd 收尾：临时暂存文件 $vfScratch 未能删除——请手动清理，避免残留。" }
   }
 }
 # DoD 判据镜像：与卡片 dod_command 的 Select-String 用同一形态直接核真实文件（只读），证两者判的是同一处命中。
@@ -7562,9 +7658,9 @@ if (-not (Select-String -Path $realVfPath -Pattern '--no-daemon' -SimpleMatch -Q
 #    verify.ps1 全程只读，两者 SHA256 理应与本闸开始前逐字不变。──
 $realCLHashAfter = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
 $realVfHashAfter = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
-if ($realCLHashAfter -ne $realCLHashBefore) { Fail "17aa/17bb 收尾：真实 scripts/check-licenses.ps1 的 SHA256 在本闸前后不一致（前=$realCLHashBefore，后=$realCLHashAfter）——变异测试意外写到了生产文件本体，而非只碰临时副本（L196）。" }
-elseif ($realVfHashAfter -ne $realVfHashBefore) { Fail "17aa/17bb 收尾：真实 scripts/verify.ps1 的 SHA256 在本闸前后不一致（前=$realVfHashBefore，后=$realVfHashAfter）——理应全程只读却被写入（L196）。" }
-else { Write-Host '  17aa/17bb 收尾：真实 check-licenses.ps1 / verify.ps1 两份生产文件 SHA256 全程未变 OK（L196 纵深防御）' -ForegroundColor Green }
+if ($realCLHashAfter -ne $realCLHashBefore) { Fail "17cc/17dd 收尾：真实 scripts/check-licenses.ps1 的 SHA256 在本闸前后不一致（前=$realCLHashBefore，后=$realCLHashAfter）——变异测试意外写到了生产文件本体，而非只碰临时副本（L196）。" }
+elseif ($realVfHashAfter -ne $realVfHashBefore) { Fail "17cc/17dd 收尾：真实 scripts/verify.ps1 的 SHA256 在本闸前后不一致（前=$realVfHashBefore，后=$realVfHashAfter）——理应全程只读却被写入（L196）。" }
+else { Write-Host '  17cc/17dd 收尾：真实 check-licenses.ps1 / verify.ps1 两份生产文件 SHA256 全程未变 OK（L196 纵深防御）' -ForegroundColor Green }
 
 Step '结论'
 if ($fail) { Write-Host 'selftest: FAIL' -ForegroundColor Red; exit 1 }
