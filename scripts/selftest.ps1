@@ -100,7 +100,7 @@
        dot-source check-licenses.ps1 -AsLibrary 直测 Scan：Distributes=$false 只降**纯 GPL**（分发触发），AGPL(网络)/SSPL(SaaS)/EUPL(通信)/非商用(用途) 仍致命、LGPL 恒黄牌（C21 · T6-LICENSE-DISTRIBUTES）；17q handoff check 存活性——合法存活基线放行、WORKTREE 路径/BRANCH 不存在即拒续接（C31 · T6-HANDOFF-VALIDATE）；17r R3 评审 prompt 注入卡片前中和 verdict 样式 token——夹具卡 review_gate 携该字面量、stub 后端捕获送达 prompt，断言送达文本已 redacted（TD35 · T7-REVIEW-PROMPT-HYGIENE）。缺 git 跳过。
 
   下游项目 init 后本脚本随之保留（TD15）——继续用它当自己的工作流自检；元仓专属子检查已自动跳过。
-.PARAMETER Shard  运行分片：all（默认，并行聚合 core/workflow/seeded）、core（闸 1–14+16）、
+.PARAMETER Shard  运行分片：all（默认聚合 core/workflow/seeded；两个长分片先并行、短 core 错峰加入）、core（闸 1–14+16）、
   workflow（闸 15）、seeded（闸 17）。任一子进程非零时 all 非零退出。
 .PARAMETER StrictLint  PSScriptAnalyzer 的 Warning 也视为失败（未显式传参时的默认值见 TD77：元仓自身
   ($isPostInit 为假) 自动置真、已初始化下游仍是 Warning 建议性的旧默认；显式传 -StrictLint / -StrictLint:$false
@@ -192,7 +192,15 @@ function New-SelftestSnapshot {
 }
 
 function Start-SelftestShard {
-  param([string]$PwshExe, [string]$SnapshotRoot, [string]$Name, [bool]$ForwardStrictLint, [bool]$StrictLintValue, [switch]$Quiet)
+  param(
+    [string]$PwshExe,
+    [string]$SnapshotRoot,
+    [string]$Name,
+    [bool]$ForwardStrictLint,
+    [bool]$StrictLintValue,
+    [System.Diagnostics.ProcessPriorityClass]$PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal,
+    [switch]$Quiet
+  )
   $psi = [System.Diagnostics.ProcessStartInfo]::new()
   $psi.FileName = $PwshExe
   $psi.UseShellExecute = $false
@@ -208,6 +216,10 @@ function Start-SelftestShard {
   $process.StartInfo = $psi
   if (-not $Quiet) { Write-Host "`n===== starting selftest shard: $Name =====" -ForegroundColor Cyan }
   if (-not $process.Start()) { throw "无法启动 selftest 分片 $Name。" }
+  if ($PriorityClass -ne [System.Diagnostics.ProcessPriorityClass]::Normal) {
+    # 降低优先级是墙钟优化，不是正确性前提；受限 runner 若不允许设置，仍继续并由总时限暴露退化。
+    try { $process.PriorityClass = $PriorityClass } catch { }
+  }
   return [PSCustomObject]@{ Name = $Name; Process = $process; StdOut = $process.StandardOutput.ReadToEndAsync(); StdErr = $process.StandardError.ReadToEndAsync() }
 }
 
@@ -226,7 +238,13 @@ function Complete-SelftestShard {
 
 # 默认入口只编排生命周期；快照、启动、收集各由上面单责 helper 处理。
 function Invoke-SelftestAll {
-  param([Parameter(Mandatory)][string]$SourceRoot, [bool]$ForwardStrictLint = $false, [bool]$StrictLintValue = $false, [switch]$Quiet)
+  param(
+    [Parameter(Mandatory)][string]$SourceRoot,
+    [bool]$ForwardStrictLint = $false,
+    [bool]$StrictLintValue = $false,
+    [ValidateRange(0, 300)][int]$CoreDelaySeconds = 75,
+    [switch]$Quiet
+  )
   $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
   $gitExe = Get-Command git -ErrorAction SilentlyContinue
   $repoIsGit = $false
@@ -240,11 +258,15 @@ function Invoke-SelftestAll {
   $aggregateExit = 1
   try {
     New-Item -ItemType Directory -Force $aggregateRoot -ErrorAction Stop | Out-Null
-    # seeded 最长：其快照完成即启动，再准备其它快照；仍须三进程越过 8.2e barrier 才能绿。
-    foreach ($name in @('seeded', 'workflow', 'core')) {
+    # 两个长分片先占用 CPU/磁盘；短 core 在热路径过后低优先级加入。Windows 上三者同时冷启动会把
+    # 两个关键路径从约 250s 拖到约 390s。CI 仍把三分片放在独立 runner，此错峰只作用于本地 all。
+    foreach ($name in @('seeded', 'workflow')) {
       $snapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot $name) -Name $name -GitExe $gitExe
       $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -Quiet:$Quiet
     }
+    $coreSnapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot 'core') -Name 'core' -GitExe $gitExe
+    if ($CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
+    $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $coreSnapshot -Name 'core' -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -PriorityClass BelowNormal -Quiet:$Quiet
     $exitCodes = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
     $aggregateExit = Get-SelftestAggregateExitCode -ExitCodes $exitCodes
     if (-not $Quiet) {
@@ -950,9 +972,14 @@ $strictBound = $PSBoundParameters.ContainsKey('StrictLint')
 if (-not $overlayOk) { exit 23 }
 $readyRoot = Join-Path $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT 'ready'
 New-Item -ItemType Directory -Force $readyRoot | Out-Null
-'' | Set-Content (Join-Path $readyRoot "$Shard.ready")
+if ($Shard -eq 'core' -and
+    (-not (Test-Path (Join-Path $readyRoot 'seeded.ready')) -or
+     -not (Test-Path (Join-Path $readyRoot 'workflow.ready')))) { exit 31 }
+[DateTime]::UtcNow.Ticks | Set-Content (Join-Path $readyRoot "$Shard.ready")
 $deadline = [DateTime]::UtcNow.AddSeconds(5)
-while (@(Get-ChildItem $readyRoot -File).Count -lt 3) {
+while ($Shard -ne 'core' -and
+       (-not (Test-Path (Join-Path $readyRoot 'seeded.ready')) -or
+        -not (Test-Path (Join-Path $readyRoot 'workflow.ready')))) {
   if ([DateTime]::UtcNow -ge $deadline) { exit 29 }
   Start-Sleep -Milliseconds 20
 }
@@ -971,22 +998,24 @@ exit 0
 
     $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $aggLogs
     $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = 'workflow'
-    $probeFail = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $true -Quiet
+    $probeFail = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $true -CoreDelaySeconds 1 -Quiet
     $probeLogs = @(Get-ChildItem $aggLogs -File)
     $probeLogLines = @($probeLogs | ForEach-Object { Get-Content $_.FullName -Raw })
-    if ($probeFail -ne 1 -or $probeLogs.Count -ne 3 -or @($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|True$' }).Count -gt 0) {
-      Fail '8.2e：all 聚合器 stub 夹具未证明三进程并发 barrier、dirty overlay、StrictLint 转发或失败传播。'
+    $readyTicks = @(@('seeded', 'workflow', 'core') | ForEach-Object { [long](Get-Content (Join-Path $aggLogs "ready/$_.ready") -Raw) })
+    $coreStaggerMs = [TimeSpan]::FromTicks($readyTicks[2] - [math]::Max($readyTicks[0], $readyTicks[1])).TotalMilliseconds
+    if ($probeFail -ne 1 -or $probeLogs.Count -ne 3 -or $coreStaggerMs -lt 700 -or @($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|True$' }).Count -gt 0) {
+      Fail '8.2e：all 聚合器 stub 夹具未证明长分片并发、core 错峰、dirty overlay、StrictLint 转发或失败传播。'
     }
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue
-    $probePass = Invoke-SelftestAll -SourceRoot $aggFixture -Quiet
+    $probePass = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 1 -Quiet
     $probeUnboundLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
     if ($probePass -ne 0 -or @($probeUnboundLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|False\|False\|True$' }).Count -gt 0) {
       Fail '8.2e：all 聚合器三分片全绿或未绑定 StrictLint 语义不正确。'
     }
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
-    $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -Quiet
+    $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -CoreDelaySeconds 1 -Quiet
     $probeFalseLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
     if ($probeFalse -ne 0 -or @($probeFalseLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|False\|True$' }).Count -gt 0) {
       Fail '8.2e：all 聚合器未保真转发显式 -StrictLint:$false（须 bound=true、IsPresent=false）。'
@@ -1007,7 +1036,7 @@ exit 0
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
     Remove-Item -LiteralPath $aggFixture, $aggLogs -Recurse -Force -ErrorAction SilentlyContinue
   }
-  if (-not $fail) { Write-Host '  8.2e 6 组合 CI 接线 + 变异 + all 聚合器并发/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
+  if (-not $fail) { Write-Host '  8.2e 6 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
 }
 
 if ($isPostInit) {

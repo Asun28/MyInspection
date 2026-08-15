@@ -441,7 +441,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>元仓总自检 <span class="file">selftest.ps1</span></h3>
-              <p>17 闸一把跑全：默认把 core（1–14+16）、workflow（15）、seeded（17）放入三份独立仓库快照并行执行，任一分片非零即总闸非零；CI 在 Windows/Ubuntu 上均跑齐三分片。检查包括语法 / 经验 / 模板哨兵 / token 覆盖 / 裁决漂移 / 交叉链接 / 计数一致 / 动态 E2E / 种子缺陷（拿已知坏输入验证每道闸真会拦）等，是本仓的「verify」。约 12 闸测的是随下游保留的生产脚本（task.ps1/review.ps1/...），init 不再删它，元仓专属子闸检测到已初始化会自跳过（TD15）。</p>
+              <p>17 闸一把跑全：默认把 core（1–14+16）、workflow（15）、seeded（17）放入三份独立仓库快照；两个长分片先并行，短 core 在 75 秒后以低优先级错峰加入，避免 Windows 冷启动资源竞争。任一分片非零即总闸非零；CI 的分片使用独立 runner，在 Windows/Ubuntu 上均跑齐。检查包括语法 / 经验 / 模板哨兵 / token 覆盖 / 裁决漂移 / 交叉链接 / 计数一致 / 动态 E2E / 种子缺陷（拿已知坏输入验证每道闸真会拦）等，是本仓的「verify」。约 12 闸测的是随下游保留的生产脚本（task.ps1/review.ps1/...），init 不再删它，元仓专属子闸检测到已初始化会自跳过（TD15）。</p>
             </div>
           </article>
         </div>
