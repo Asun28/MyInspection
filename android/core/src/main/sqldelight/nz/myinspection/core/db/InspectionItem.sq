@@ -7,13 +7,22 @@ CREATE TABLE inspection_item (
     note TEXT,
     wear_or_damage TEXT, -- FAIR_WEAR / DAMAGE / UNDETERMINED；仅 Exit 且与 Ingoing 有差异时填
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER,
-    UNIQUE (inspection_id, room_instance_id, stable_id, deleted_at)
+    deleted_at INTEGER
 );
 
+-- 部分唯一索引而非表级 UNIQUE(...,deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，deleted_at
+-- 恒为 NULL 的活跃行之间表级约束形同虚设、拦不住重复（R3 评审指出，本卡此前的通病，已改正）。
+CREATE UNIQUE INDEX idx_inspection_item_active ON inspection_item (inspection_id, room_instance_id, stable_id) WHERE deleted_at IS NULL;
+-- room_instance_id 作为查询/关联键需要自己的可用最左索引（上面那条唯一索引以 inspection_id 打头，
+-- 不覆盖单独按 room_instance_id 查找的场景）。
+CREATE INDEX idx_inspection_item_room_instance ON inspection_item (room_instance_id);
+
+-- finalize 只读强制（关键不变量）：巡检 FINALIZED 后不得再挂新检查项，否则 data_hash 锁定的快照会被
+-- 事后追加内容破坏。INSERT…SELECT…WHERE 守卫，未命中 0 行受影响（INSERT…VALUES 语法无法带 WHERE）。
 insert:
 INSERT INTO inspection_item (id, inspection_id, room_instance_id, stable_id, status, note, wear_or_damage, updated_at)
-VALUES (:id, :inspection_id, :room_instance_id, :stable_id, :status, :note, :wear_or_damage, :updated_at);
+SELECT :id, :inspection_id, :room_instance_id, :stable_id, :status, :note, :wear_or_damage, :updated_at
+WHERE (SELECT finalized_at FROM inspection WHERE id = :inspection_id) IS NULL;
 
 selectById:
 SELECT *

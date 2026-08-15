@@ -8,21 +8,26 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * 两条 CLAUDE.md 关键不变量的 JVM 内存库回归测试（JdbcSqliteDriver in-memory，非 mock）：
- *  1. finalize 后原始条目只读：对 FINALIZED 巡检下的 inspection_item 做 UPDATE 必须 0 行受影响
- *     （inspection_item 自身没有 finalized_at 列，闸门须 join/子查询父 inspection）。
- *  2. 既有租约没有 Ingoing 时，可把某次 Routine 巡检后指定为该 tenancy 的基线
- *     （用户已签认决策，见 specs/tasks/T1-SCHEMA-CORE.md「用户已签认决策」）。
+ * CLAUDE.md 关键不变量的 JVM 内存库回归测试（JdbcSqliteDriver in-memory，非 mock）：
+ *  1. finalize 后原始条目只读：对 FINALIZED 巡检既不能 UPDATE 既有 inspection_item，
+ *     也不能 INSERT 新的 inspection_item/room_instance/photo/audio（R3 评审指出本卡最初只守了
+ *     update 侧——insert 侧不守，FINALIZED 后仍能悄悄塞新内容，一样会让 data_hash 锁定的快照失真）。
+ *     supplement 是唯一的 append-only 例外，不适用此闸。
+ *  2. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线，且真建一个 EXIT 巡检、
+ *     经这个指针解析出同一个 Routine（不是只测指针本身被设对了——那样测不出 Exit 侧是否仍在假设
+ *     "必有 INGOING"，R3 评审指出的缺口）。
  */
 class DbInvariantsTest {
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var database: MyInspectionDatabase
+    private lateinit var uuid: Uuid7Generator
 
     @BeforeTest
     fun setUp() {
         driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         MyInspectionDatabase.Schema.create(driver)
         database = MyInspectionDatabase(driver)
+        uuid = Uuid7Generator()
     }
 
     @AfterTest
@@ -30,62 +35,24 @@ class DbInvariantsTest {
         driver.close()
     }
 
-    private fun insertProperty(id: String, now: Long) {
-        database.propertyQueries.insert(
-            id = id,
-            address = "12 Test St",
-            kind = "RENTAL",
-            is_boarding_house = 0,
-            updated_at = now,
-        )
+    private val now = DbTestFixtures.NOW
+
+    private fun setUpFinalizedInspectionWithItem(): Triple<String, String, String> {
+        DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, now = now)
+        database.inspectionQueries.finalizeIfDraft(finalized_at = now + 1, data_hash = "deadbeef", updated_at = now + 1, id = inspectionId).value
+        return Triple(inspectionId, roomInstanceId, itemId)
     }
 
     @Test
     fun `update against a finalized inspection affects zero rows`() {
-        val uuid = Uuid7Generator()
-        val propertyId = uuid.next()
-        val inspectionId = uuid.next()
-        val roomInstanceId = uuid.next()
-        val itemId = uuid.next()
-        val now = 1_700_000_000_000L
-
-        insertProperty(propertyId, now)
-        database.inspectionQueries.insert(
-            id = inspectionId,
-            type = "ROUTINE",
-            tenancy_id = null,
-            scheduled_at = now,
-            previous_inspection_id = null,
-            baseline_inspection_id = null,
-            status = "FINALIZED",
-            finalized_at = now,
-            data_hash = "deadbeef",
-            updated_at = now,
-        )
-        database.roomInstanceQueries.insert(
-            id = roomInstanceId,
-            inspection_id = inspectionId,
-            room_key = "BEDROOM",
-            instance_no = 1,
-            display_label = "Bedroom 1",
-            updated_at = now,
-        )
-        database.inspectionItemQueries.insert(
-            id = itemId,
-            inspection_id = inspectionId,
-            room_instance_id = roomInstanceId,
-            stable_id = "wall.paint",
-            status = "GOOD",
-            note = null,
-            wear_or_damage = null,
-            updated_at = now,
-        )
+        val (_, _, itemId) = setUpFinalizedInspectionWithItem()
 
         val affected = database.inspectionItemQueries.updateStatusIfDraft(
-            status = "POOR",
-            note = "changed after finalize",
-            updated_at = now + 1,
-            id = itemId,
+            status = "POOR", note = "changed after finalize", updated_at = now + 2, id = itemId,
         ).value
 
         assertEquals(0L, affected, "updating an item under a FINALIZED inspection must affect 0 rows")
@@ -95,50 +62,13 @@ class DbInvariantsTest {
 
     @Test
     fun `update against a draft inspection succeeds`() {
-        val uuid = Uuid7Generator()
-        val propertyId = uuid.next()
-        val inspectionId = uuid.next()
-        val roomInstanceId = uuid.next()
-        val itemId = uuid.next()
-        val now = 1_700_000_000_000L
-
-        insertProperty(propertyId, now)
-        database.inspectionQueries.insert(
-            id = inspectionId,
-            type = "ROUTINE",
-            tenancy_id = null,
-            scheduled_at = now,
-            previous_inspection_id = null,
-            baseline_inspection_id = null,
-            status = "DRAFT",
-            finalized_at = null,
-            data_hash = null,
-            updated_at = now,
-        )
-        database.roomInstanceQueries.insert(
-            id = roomInstanceId,
-            inspection_id = inspectionId,
-            room_key = "BEDROOM",
-            instance_no = 1,
-            display_label = "Bedroom 1",
-            updated_at = now,
-        )
-        database.inspectionItemQueries.insert(
-            id = itemId,
-            inspection_id = inspectionId,
-            room_instance_id = roomInstanceId,
-            stable_id = "wall.paint",
-            status = "GOOD",
-            note = null,
-            wear_or_damage = null,
-            updated_at = now,
-        )
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, now = now)
 
         val affected = database.inspectionItemQueries.updateStatusIfDraft(
-            status = "POOR",
-            note = "changed while draft",
-            updated_at = now + 1,
-            id = itemId,
+            status = "POOR", note = "changed while draft", updated_at = now + 1, id = itemId,
         ).value
 
         assertEquals(1L, affected, "updating an item under a DRAFT inspection must succeed")
@@ -147,39 +77,70 @@ class DbInvariantsTest {
     }
 
     @Test
-    fun `finalizeIfDraft is a one-shot guard on inspection itself`() {
-        val uuid = Uuid7Generator()
-        val propertyId = uuid.next()
-        val inspectionId = uuid.next()
-        val now = 1_700_000_000_000L
+    fun `insert of a new inspection_item into a finalized inspection affects zero rows`() {
+        val (inspectionId, roomInstanceId, _) = setUpFinalizedInspectionWithItem()
 
-        insertProperty(propertyId, now)
-        database.inspectionQueries.insert(
-            id = inspectionId,
-            type = "ROUTINE",
-            tenancy_id = null,
-            scheduled_at = now,
-            previous_inspection_id = null,
-            baseline_inspection_id = null,
-            status = "DRAFT",
-            finalized_at = null,
-            data_hash = null,
-            updated_at = now,
-        )
+        val affected = database.inspectionItemQueries.insert(
+            id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
+            stable_id = "ceiling.paint", status = "GOOD", note = null, wear_or_damage = null, updated_at = now + 2,
+        ).value
+
+        assertEquals(0L, affected, "inserting a new item under a FINALIZED inspection must affect 0 rows")
+    }
+
+    @Test
+    fun `insert of a new room_instance into a finalized inspection affects zero rows`() {
+        val (inspectionId, _, _) = setUpFinalizedInspectionWithItem()
+
+        val affected = database.roomInstanceQueries.insert(
+            id = uuid.next(), inspection_id = inspectionId, room_key = "KITCHEN", instance_no = 1,
+            display_label = "Kitchen", updated_at = now + 2,
+        ).value
+
+        assertEquals(0L, affected, "inserting a new room instance under a FINALIZED inspection must affect 0 rows")
+    }
+
+    @Test
+    fun `insert of a new photo into a finalized inspection affects zero rows`() {
+        // room_instance created before finalize (legitimate pre-finalize content); the guard is on the
+        // photo insert itself, resolved two hops up through room_instance -> inspection.finalized_at.
+        val (_, roomInstanceId, _) = setUpFinalizedInspectionWithItem()
+
+        val affected = database.photoQueries.insert(
+            id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,
+            rel_path = "late.jpg", content_hash = "latehash", exif_time_ms = null, source = "CAMERA",
+            privacy_flag = 0, updated_at = now + 2,
+        ).value
+
+        assertEquals(0L, affected, "inserting a new photo under a FINALIZED inspection must affect 0 rows")
+    }
+
+    @Test
+    fun `insert of a new audio into a finalized inspection affects zero rows`() {
+        // inspection_item created before finalize; the guard is on the audio insert itself, resolved
+        // two hops up through inspection_item -> inspection.finalized_at.
+        val (_, _, itemId) = setUpFinalizedInspectionWithItem()
+
+        val affected = database.audioQueries.insert(
+            id = uuid.next(), inspection_item_id = itemId, rel_path = "late.m4a", content_hash = "latehash",
+            updated_at = now + 2,
+        ).value
+
+        assertEquals(0L, affected, "inserting new audio under a FINALIZED inspection must affect 0 rows")
+    }
+
+    @Test
+    fun `finalizeIfDraft is a one-shot guard on inspection itself`() {
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
 
         val firstFinalize = database.inspectionQueries.finalizeIfDraft(
-            finalized_at = now + 1,
-            data_hash = "abc123",
-            updated_at = now + 1,
-            id = inspectionId,
+            finalized_at = now + 1, data_hash = "abc123", updated_at = now + 1, id = inspectionId,
         ).value
         assertEquals(1L, firstFinalize, "finalizing a DRAFT inspection must succeed exactly once")
 
         val secondFinalize = database.inspectionQueries.finalizeIfDraft(
-            finalized_at = now + 2,
-            data_hash = "should-not-land",
-            updated_at = now + 2,
-            id = inspectionId,
+            finalized_at = now + 2, data_hash = "should-not-land", updated_at = now + 2, id = inspectionId,
         ).value
         assertEquals(0L, secondFinalize, "re-finalizing an already FINALIZED inspection must affect 0 rows")
 
@@ -188,48 +149,43 @@ class DbInvariantsTest {
     }
 
     @Test
-    fun `tenancy with no Ingoing can designate a Routine inspection as its baseline`() {
-        val uuid = Uuid7Generator()
-        val propertyId = uuid.next()
+    fun `tenancy with no Ingoing can designate a Routine inspection as its baseline, and an EXIT resolves it`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
         val tenancyId = uuid.next()
-        val routineInspectionId = uuid.next()
-        val now = 1_700_000_000_000L
-
-        insertProperty(propertyId, now)
         // 既有租约：app 装机时租约已在进行中，从未建过 Ingoing 巡检（真实用户情形，见 findings.md #2）。
         database.tenancyQueries.insert(
-            id = tenancyId,
-            property_id = propertyId,
-            start_ms = now - 86_400_000L,
-            end_ms = null,
-            tenant_name = "J Doe",
-            contact = "j@example.com",
-            baseline_inspection_id = null,
-            updated_at = now,
+            id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = null,
+            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, updated_at = now,
         )
-        database.inspectionQueries.insert(
-            id = routineInspectionId,
-            type = "ROUTINE",
-            tenancy_id = tenancyId,
-            scheduled_at = now,
-            previous_inspection_id = null,
-            baseline_inspection_id = null,
-            status = "DRAFT",
-            finalized_at = null,
-            data_hash = null,
-            updated_at = now,
+        val routineInspectionId = DbTestFixtures.insertDraftInspection(
+            database, uuid, templateVersionId, tenancyId = tenancyId, now = now,
         )
 
         val before = database.tenancyQueries.selectById(tenancyId).executeAsOne()
         assertNull(before.baseline_inspection_id, "no baseline designated yet")
 
         database.tenancyQueries.updateBaselineInspection(
-            baseline_inspection_id = routineInspectionId,
-            updated_at = now + 1,
-            id = tenancyId,
+            baseline_inspection_id = routineInspectionId, updated_at = now + 1, id = tenancyId,
         )
 
-        val after = database.tenancyQueries.selectById(tenancyId).executeAsOne()
-        assertEquals(routineInspectionId, after.baseline_inspection_id, "Routine inspection must resolve as the tenancy baseline")
+        val afterDesignation = database.tenancyQueries.selectById(tenancyId).executeAsOne()
+        assertEquals(routineInspectionId, afterDesignation.baseline_inspection_id, "Routine inspection must resolve as the tenancy baseline")
+
+        // 真建一个 EXIT 巡检，其 baseline_inspection_id 从 tenancy 指针解析写入（模拟 T2/T3 应用层在建
+        // EXIT 时会做的事：读 tenancy.baseline_inspection_id，不假设存在 type=INGOING 的巡检）。
+        val exitInspectionId = DbTestFixtures.insertDraftInspection(
+            database, uuid, templateVersionId, tenancyId = tenancyId, type = "EXIT",
+            previousInspectionId = routineInspectionId,
+            baselineInspectionId = afterDesignation.baseline_inspection_id,
+            now = now + 2,
+        )
+
+        val exit = database.inspectionQueries.selectById(exitInspectionId).executeAsOne()
+        assertEquals(
+            routineInspectionId,
+            exit.baseline_inspection_id,
+            "EXIT must resolve its baseline via the tenancy pointer, not assume an INGOING inspection exists",
+        )
     }
 }

@@ -8,20 +8,29 @@ CREATE TABLE photo (
     source TEXT NOT NULL, -- CAMERA / IMPORTED
     privacy_flag INTEGER NOT NULL, -- 0/1；含租客物品标记（NZ OPC 判例风险），报告可据此排除
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER,
-    -- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库 UNIQUE(content_hash) 会让同一张照片
-    -- 内容永远不能合法出现在两次不同巡检里（例如同一处缺陷在 Ingoing 与 Exit 分别拍到时，字节偶然相同；
-    -- 或用户有意把同一张参考图导入两个不同巡检的同一检查项）——这是 DeepSeek 草稿里全局唯一约束的缺陷
-    -- （见卡片"defect #6"）。收窄到 room_instance（本就落在单次巡检之内）后，仍能拦住 T2-PHOTO-PIPELINE
-    -- 最常见的误用场景——同一批导入被重复拖入同一房间两次。
-    UNIQUE (room_instance_id, content_hash, deleted_at)
+    deleted_at INTEGER
 );
 
 CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
 
+-- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库唯一会让同一张照片内容永远不能合法出现
+-- 在两次不同巡检里（例如同一处缺陷在 Ingoing 与 Exit 分别拍到时，字节偶然相同；或用户有意把同一张
+-- 参考图导入两个不同巡检的同一检查项）——这是 DeepSeek 草稿里全局唯一约束的缺陷（见卡片"defect #6"）。
+-- 收窄到 room_instance（本就落在单次巡检之内）后，仍能拦住 T2-PHOTO-PIPELINE 最常见的误用场景——同一批
+-- 导入被重复拖入同一房间两次。用部分唯一索引而非表级 UNIQUE(...,deleted_at)：理由同其它表的部分索引注释
+-- （SQLite 的 UNIQUE 把 NULL 视为互不相等，表级约束拦不住活跃行重复，R3 评审指出，已改正）。
+CREATE UNIQUE INDEX idx_photo_active ON photo (room_instance_id, content_hash) WHERE deleted_at IS NULL;
+
+-- finalize 只读强制（关键不变量）：巡检 FINALIZED 后不得再挂新照片，否则 data_hash 锁定的快照会被
+-- 事后追加内容破坏。照片没有直接的 inspection_id 列，经 room_instance 两跳查父巡检的 finalized_at。
 insert:
 INSERT INTO photo (id, inspection_item_id, room_instance_id, rel_path, content_hash, exif_time_ms, source, privacy_flag, updated_at)
-VALUES (:id, :inspection_item_id, :room_instance_id, :rel_path, :content_hash, :exif_time_ms, :source, :privacy_flag, :updated_at);
+SELECT :id, :inspection_item_id, :room_instance_id, :rel_path, :content_hash, :exif_time_ms, :source, :privacy_flag, :updated_at
+WHERE (
+  SELECT finalized_at FROM inspection WHERE id = (
+    SELECT inspection_id FROM room_instance WHERE id = :room_instance_id
+  )
+) IS NULL;
 
 selectById:
 SELECT *

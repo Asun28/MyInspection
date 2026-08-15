@@ -12,9 +12,17 @@ CREATE TABLE room_instance (
 
 CREATE INDEX idx_room_instance_inspection ON room_instance (inspection_id);
 
+-- 同一巡检内 (room_key, instance_no) 不得有两行活跃记录（否则 "BEDROOM #1" 是哪个实例就不确定）。
+-- 部分唯一索引，理由同 TemplateVersion.sq / CheckItemDef.sq 的部分索引注释（NULL 在 UNIQUE 里互不相等）。
+CREATE UNIQUE INDEX idx_room_instance_active ON room_instance (inspection_id, room_key, instance_no) WHERE deleted_at IS NULL;
+
+-- finalize 只读强制（关键不变量）：巡检 FINALIZED 后不得再挂新房间实例，否则 data_hash 锁定的快照
+-- 会被事后追加内容破坏。用 INSERT…SELECT…WHERE 做守卫（INSERT…VALUES 语法无法带 WHERE）；
+-- 未命中时 0 行受影响，与 inspection_item.updateStatusIfDraft 的 0 行语义一致。
 insert:
 INSERT INTO room_instance (id, inspection_id, room_key, instance_no, display_label, updated_at)
-VALUES (:id, :inspection_id, :room_key, :instance_no, :display_label, :updated_at);
+SELECT :id, :inspection_id, :room_key, :instance_no, :display_label, :updated_at
+WHERE (SELECT finalized_at FROM inspection WHERE id = :inspection_id) IS NULL;
 
 selectById:
 SELECT *

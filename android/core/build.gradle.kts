@@ -20,9 +20,9 @@ kotlin {
 // 无条件拦停——已实测复现（生成 1.db → git add -f 纳入 → check-secrets: FAIL 1 项致命）。.gitignore 里
 // `确需入库…用 git add -f` 那条注释对这份文件不成立：check-secrets 的拦截独立于 gitignore、无豁免旁路，
 // 且 scripts/ 属并行卡领地本卡不可改。故此把 verifyMigrations 基础设施推迟到「本项目防泄露闸支持按文件登记
-// 例外」或「改存非 .db 扩展名的快照」之后再开——见卡片正文「验收」说明与 specs/tech-debt-tracker.md。
+// 例外」或「改存非 .db 扩展名的快照」之后再开——登记为 TD4（specs/tech-debt-tracker.md），见卡片正文「验收」说明。
 // 影响面很小：本卡 schema 是 version 1（零 .sqm），漂移检测原本就无事可检；真正开始咬合是从第一次加表/
-// 改列（第一份 .sqm）起，到那时再解决快照落库问题即可，不阻塞当下。
+// 改列（第一份 .sqm）起，到那时须先还清 TD4 才能开工，不阻塞当下。
 sqldelight {
     databases {
         create("MyInspectionDatabase") {

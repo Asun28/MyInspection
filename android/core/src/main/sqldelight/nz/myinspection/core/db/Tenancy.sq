@@ -13,6 +13,7 @@ CREATE TABLE tenancy (
 );
 
 CREATE INDEX idx_tenancy_property ON tenancy (property_id);
+CREATE INDEX idx_tenancy_baseline_inspection ON tenancy (baseline_inspection_id);
 
 insert:
 INSERT INTO tenancy (id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id, updated_at)

@@ -8,13 +8,16 @@ CREATE TABLE check_item_def (
     text_zh TEXT NOT NULL,
     allowed_statuses TEXT NOT NULL, -- 合法评级枚举集合（JSON 编码字符串）；按模板类型的校验逻辑在 :core 层（T1-TEMPLATE-ENGINE）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER,
-    -- 软删除唯一性落在业务键（template_version_id, stable_id），不落主键——主键本身已唯一，
-    -- 在 PK 上叠 UNIQUE(id, deleted_at) 是纯噪音（DeepSeek 草稿的通病，本卡不沿用）。
-    UNIQUE (template_version_id, stable_id, deleted_at)
+    deleted_at INTEGER
 );
 
 -- 被任何巡检引用后不可变：本卡故意不提供 update 查询。
+
+-- 软删除唯一性落在业务键（template_version_id, stable_id），不落主键——主键本身已唯一，
+-- 在 PK 上叠一个 UNIQUE 是纯噪音（DeepSeek 草稿的通病，本卡不沿用）。用**部分唯一索引**而非表级
+-- UNIQUE(..., deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，deleted_at 恒为 NULL 的活跃行之间
+-- 表级约束形同虚设，拦不住重复（R3 评审指出，本卡此前的通病，已改正）。
+CREATE UNIQUE INDEX idx_check_item_def_active ON check_item_def (template_version_id, stable_id) WHERE deleted_at IS NULL;
 
 insert:
 INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, updated_at)

@@ -4,9 +4,12 @@ CREATE TABLE property_item_override (
     stable_id TEXT NOT NULL, -- 对齐 check_item_def.stable_id
     suppressed INTEGER NOT NULL, -- 0/1；"本物业不存在此项"永久抑制（zInspector Ø 先例：模板现场自愈）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER,
-    UNIQUE (property_id, stable_id, deleted_at)
+    deleted_at INTEGER
 );
+
+-- 部分唯一索引而非表级 UNIQUE(...,deleted_at)：理由同其它表的部分索引注释（SQLite 的 UNIQUE 把 NULL
+-- 视为互不相等，表级约束拦不住活跃行重复，R3 评审指出，已改正）。
+CREATE UNIQUE INDEX idx_property_item_override_active ON property_item_override (property_id, stable_id) WHERE deleted_at IS NULL;
 
 insert:
 INSERT INTO property_item_override (id, property_id, stable_id, suppressed, updated_at)

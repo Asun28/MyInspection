@@ -18,6 +18,22 @@ object SystemClockMs : ClockMs {
 }
 
 /**
+ * 随机位源：每次 `next()` 调用，[Uuid7Generator] 从这里取 64 位随机值、按需只用低 N 位——
+ * 换新计数器种子（42 位）取一次，rand_b 低 32 位再取一次。生产默认 [SecureUuid7Random]；
+ * 测试注入固定序列，让"固定向量"测试能对完整 128 位输出逐字节断言，而不只测时间戳前缀
+ * （R3 评审指出：只测前缀 = rand_a/rand_b 打包逻辑从未被验证过）。
+ */
+fun interface Uuid7RandomSource {
+    fun nextLong(): Long
+}
+
+/** 生产默认随机源：JVM `SecureRandom`（卡片已定，ADR-0003）。 */
+object SecureUuid7Random : Uuid7RandomSource {
+    private val secureRandom = SecureRandom()
+    override fun nextLong(): Long = secureRandom.nextLong()
+}
+
+/**
  * RFC 9562 UUIDv7 自研生成器（ADR-0003，2-1 决；不用第三方库，见卡片"若评审判不可靠可换
  * `uuid-creator`(MIT) 的 `getTimeOrderedEpoch()`"备选）。
  *
@@ -27,14 +43,17 @@ object SystemClockMs : ClockMs {
  *  - bytes[8]     高 2 位 = variant 10；其余位 + bytes[9..15] = rand_b（62 位）
  *
  * 单调性：同一观测毫秒内（含时钟回拨后冻结的那个毫秒），不重新随机化 rand_a/rand_b 的高位，而是
- * 把它们当作一个 42 位计数器递增（RFC 9562 "Method 1: Fixed-Length Dedicated Counter"）——只用 12 位
- * rand_a 做计数器在同毫秒内快速批量生成时会在数千次内环绕、产生非单调值（真实 bug，非假设），42 位
- * 计数器把环绕推到不可能在任何真实同毫秒批次触达的量级。计数器之外的低位仍每次取新鲜随机数，保持
- * 不可预测性。时钟回拨：若观测时间早于上次记录的时间戳，冻结在上次时间戳（不倒退）。
+ * 把它们当作一个 42 位计数器递增（RFC 9562 "Method 1: Fixed-Length Dedicated Counter"）。
+ * **计数器耗尽处理**（R3 评审指出的真实 bug，已修正）：计数器种子是随机取的 42 位值，若恰好取到
+ * 贴近上限的起点，同毫秒内递增几次就会越过 [COUNTER_MASK]——旧实现对此取模环绕，会把计数器绕回
+ * 一个更小的值，产出的 UUID 反而变小，破坏单调性。改法：递增会越界时，不环绕，而是把内部记录的
+ * 时间戳前推 1ms 并换一枚新种子——序列依旧严格递增；真实时钟追上后自然接续，不产生可观测的错误。
+ * 计数器之外的低位每次调用都取新鲜随机数，保持不可预测性。时钟回拨：若观测时间早于上次记录的时间戳，
+ * 冻结在上次时间戳（不倒退，卡片已定语义）。
  */
 class Uuid7Generator(
     private val clock: ClockMs = SystemClockMs,
-    private val random: SecureRandom = SecureRandom(),
+    private val randomSource: Uuid7RandomSource = SecureUuid7Random,
 ) {
     private data class State(val timestampMs: Long, val counter: Long)
 
@@ -46,11 +65,19 @@ class Uuid7Generator(
             val prev = last.get()
             val observedMs = clock.nowMs()
             // 时钟回拨=沿用上一时间戳（冻结语义，卡片已定）。
-            val timestampMs = if (observedMs > prev.timestampMs) observedMs else prev.timestampMs
-            val counter = if (timestampMs == prev.timestampMs) {
-                (prev.counter + 1) and COUNTER_MASK
+            var timestampMs = if (observedMs > prev.timestampMs) observedMs else prev.timestampMs
+            val counter: Long
+            if (timestampMs == prev.timestampMs) {
+                val incremented = prev.counter + 1
+                if (incremented > COUNTER_MASK) {
+                    // 计数器耗尽：前推 1ms + 换新种子，绝不环绕（环绕=非单调，真实 bug 见上方文档）。
+                    timestampMs += 1
+                    counter = randomSource.nextLong() and COUNTER_MASK
+                } else {
+                    counter = incremented
+                }
             } else {
-                random.nextLong() and COUNTER_MASK
+                counter = randomSource.nextLong() and COUNTER_MASK
             }
             val candidate = State(timestampMs, counter)
             if (last.compareAndSet(prev, candidate)) {
@@ -75,7 +102,7 @@ class Uuid7Generator(
 
         // 计数器低 30 位构成 rand_b 的高 30 位；rand_b 剩余 32 位每次取新鲜随机数。
         val counterLow30 = counter and COUNTER_LOW_MASK
-        val freshRandom32 = random.nextInt().toLong() and 0xFFFFFFFFL
+        val freshRandom32 = randomSource.nextLong() and 0xFFFFFFFFL
         val randB = (counterLow30 shl 32) or freshRandom32 // 62 有效位
 
         bytes[8] = (0x80 or ((randB ushr 56).toInt() and 0x3F)).toByte() // variant 10 + 高 6 位

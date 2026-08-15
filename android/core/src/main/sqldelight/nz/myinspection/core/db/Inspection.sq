@@ -2,6 +2,10 @@ CREATE TABLE inspection (
     id TEXT NOT NULL PRIMARY KEY,
     type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
     tenancy_id TEXT, -- 可空：自住物业（OWNER_OCCUPIED）无租约
+    template_version_id TEXT NOT NULL, -- 逻辑外键 -> template_version.id；该次巡检当时用的**具体**模板版本
+    -- （不可变行，见 TemplateVersion.sq）——没有这一列就只能靠 inspection_item.stable_id 反推，
+    -- 但 stable_id 本身不带版本号，多年后无法确定当时到底是哪一版模板内容，canonical 哈希/报告重渲会失真
+    -- （R3 评审指出，本卡此前的缺口，已改正）。
     scheduled_at INTEGER NOT NULL,
     previous_inspection_id TEXT, -- 逻辑外键 -> inspection.id；时间上的前一次巡检（≠ baseline，双轨分开存）
     baseline_inspection_id TEXT, -- 逻辑外键 -> inspection.id；该次巡检当时用的基线快照（历史事实，写死不改）
@@ -13,10 +17,13 @@ CREATE TABLE inspection (
 );
 
 CREATE INDEX idx_inspection_tenancy ON inspection (tenancy_id);
+CREATE INDEX idx_inspection_template_version ON inspection (template_version_id);
+CREATE INDEX idx_inspection_previous ON inspection (previous_inspection_id);
+CREATE INDEX idx_inspection_baseline ON inspection (baseline_inspection_id);
 
 insert:
-INSERT INTO inspection (id, type, tenancy_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, updated_at)
-VALUES (:id, :type, :tenancy_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :updated_at);
+INSERT INTO inspection (id, type, tenancy_id, template_version_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, updated_at)
+VALUES (:id, :type, :tenancy_id, :template_version_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :updated_at);
 
 selectById:
 SELECT *
