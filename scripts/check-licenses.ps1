@@ -56,21 +56,22 @@ function Scan($name, $license) {
 # -Enumerator 可注入（默认即真实 Get-ChildItem）：测试用它换成会对指定目录抛错的桩，
 # 不必真的靠 Windows ACL 拒绝读权限去模拟「子树不可读」（省掉 icacls 的平台特定性与清理风险）。
 # 名称级排除适用于任意深度的缓存/产物/机密目录；路径级排除只针对仓库 ignore 契约里的特定位置，避免把业务树中
-# 同名目录一并跳过。两份列表共同覆盖根 .gitignore 与 android/.gitignore 的目录型条目。
+# 同名目录一并跳过。三组规则共同覆盖根 .gitignore 与 android/.gitignore 的目录型条目。
 $gradleSkipDirs = @(
   '.gradle', 'build', 'node_modules', '.git',                                  # 既有：Gradle/前端产物缓存 + VCS 元数据
   '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache',       # Python 工具链缓存
-  'dist',                                                                       # 前端构建产物（frontend/dist/）
   '.review', '_local', 'runtime',                                              # 本仓运行时/评审/内部产物（CLAUDE.md 约定，均 gitignored）
   'auth', '.secrets',                                                          # 机密目录——不该下钻
   '.idea', '.vscode'                                                           # IDE 本地配置
 )
-$gradleSkipRelativePaths = @('data', 'android/.kotlin', 'android/captures', 'android/.cxx')
+$gradleSkipRelativePaths = @('data', 'frontend/dist')
+$gradleAndroidSkipDirs = @('.kotlin', 'captures', '.cxx')
 function Find-GradleManifests {
   param(
     [Parameter(Mandatory)][string]$Root,
     [string[]]$SkipDirs = $gradleSkipDirs,
     [string[]]$SkipRelativePaths = $gradleSkipRelativePaths,
+    [string[]]$AndroidSkipDirs = $gradleAndroidSkipDirs,
     [Parameter(Mandatory)][string[]]$Names,
     [scriptblock]$Enumerator = { param($d) Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop }
   )
@@ -86,7 +87,8 @@ function Find-GradleManifests {
         # 不影响它旁边正常子树的发现。
         $isReparse = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
         $relativePath = [System.IO.Path]::GetRelativePath($Root, $e.FullName).Replace('\', '/')
-        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name) -and ($SkipRelativePaths -notcontains $relativePath)) { $stack.Push($e.FullName) }
+        $isAndroidLocal = $relativePath.StartsWith('android/') -and ($AndroidSkipDirs -contains $e.Name)
+        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name) -and ($SkipRelativePaths -notcontains $relativePath) -and (-not $isAndroidLocal)) { $stack.Push($e.FullName) }
       } elseif ($Names -contains $e.Name) {
         $found.Add($e.FullName)
       }

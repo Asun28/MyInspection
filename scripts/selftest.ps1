@@ -7482,22 +7482,26 @@ $realVfHashBefore = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Ha
 # 独立子进程内部完成判断。脚本块固定，路径/needle/marker 全走 -Args 参数数组；含撇号或空格的合法路径不会进入
 # PowerShell 源码文本，避免解析失败与命令注入。
 function Invoke-MarkerAssertion(
-  [ValidateSet('RunScript', 'ReadFile')][string]$Mode,
+  [ValidateSet('RunScript', 'ReadFile', 'GradleLibrary')][string]$Mode,
   [string]$SourcePath,
   [string]$Needle,
-  [string]$MarkerId
+  [string]$MarkerId,
+  [string]$ProbeRoot = ''
 ) {
   $child = {
-    param([string]$ChildMode, [string]$ChildSourcePath, [string]$ChildNeedle, [string]$ChildMarkerId)
+    param([string]$ChildMode, [string]$ChildSourcePath, [string]$ChildNeedle, [string]$ChildMarkerId, [string]$ChildProbeRoot)
     $c = if ($ChildMode -eq 'RunScript') {
       & pwsh -NoProfile -File $ChildSourcePath 2>&1 | Out-String
+    } elseif ($ChildMode -eq 'GradleLibrary') {
+      . $ChildSourcePath -AsLibrary
+      Get-GradleCoverageGaps -Root $ChildProbeRoot | Out-String
     } else {
       Get-Content -LiteralPath $ChildSourcePath -Raw
     }
     if ($c.Contains($ChildNeedle)) { Write-Output "MARKER:${ChildMarkerId}:PRESENT"; exit 0 }
     Write-Output "MARKER:${ChildMarkerId}:ABSENT"; exit 1
   }
-  $stdout = & pwsh -NoProfile -Command $child -Args @($Mode, $SourcePath, $Needle, $MarkerId)
+  $stdout = & pwsh -NoProfile -Command $child -Args @($Mode, $SourcePath, $Needle, $MarkerId, $ProbeRoot)
   return [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($stdout -join "`n") }
 }
 # 核验判据结果是否吻合期望（exit 0 + PRESENT，或 exit 非零 + ABSENT）；不吻合即 Fail 并返回 $false。
@@ -7558,8 +7562,8 @@ $needleB = 'android/core/build.gradle.kts'
 $mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
   Copy-Item -LiteralPath $realCLPath -Destination $mutantCL -Force
-  $baseA = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $needleA -MarkerId 'GRADLE-A-BASE'
-  $baseB = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $needleB -MarkerId 'GRADLE-B-BASE'
+  $baseA = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $needleA -MarkerId 'GRADLE-A-BASE' -ProbeRoot $RepoRoot
+  $baseB = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $needleB -MarkerId 'GRADLE-B-BASE' -ProbeRoot $RepoRoot
   $baseOk = (Test-MarkerResult $baseA 'GRADLE-A-BASE' $true "17cc 基线（$needleA，递归发现分支①未生效或该文件缺失）") -and
             (Test-MarkerResult $baseB 'GRADLE-B-BASE' $true "17cc 基线（$needleB，递归发现分支②未生效）")
   if ($baseOk) {
@@ -7574,8 +7578,8 @@ try {
       $selfMarker = "GRADLE-$($case.Id)-MUT"; $ctrlMarker = "GRADLE-$($case.Id)-MUT-CTRL"
       $probe = {
         [PSCustomObject]@{
-          Self = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker
-          Ctrl = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker
+          Self = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker -ProbeRoot $RepoRoot
+          Ctrl = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
         }
       }.GetNewClosure()
       $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
@@ -7600,11 +7604,13 @@ if (Test-Path $fxPrune) { Remove-Item -Recurse -Force $fxPrune }
 try {
   New-Item -ItemType Directory -Force (Join-Path $fxPrune 'real') | Out-Null
   Set-Content (Join-Path $fxPrune 'real/build.gradle') 'real' -Encoding utf8
-  # 夹具期望集必须独立于生产列表；否则删除生产项时，夹具与 oracle 会同步缩小并假绿。名称级缓存可在任意
-  # 深度出现；路径级产物只排除仓根 data/ 与 android 的本地产物目录。
-  $expectedSkipNames = @('.gradle', 'build', 'node_modules', '.git', '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache', 'dist', '.review', '_local', 'runtime', 'auth', '.secrets', '.idea', '.vscode')
-  $expectedSkipPaths = @('data', 'android/.kotlin', 'android/captures', 'android/.cxx')
-  $broadPathSkips = @($expectedSkipPaths | ForEach-Object { Split-Path -Leaf $_ } | Where-Object { $gradleSkipDirs -contains $_ })
+  # 夹具期望集必须独立于生产列表；否则删除生产项时，夹具与 oracle 会同步缩小并假绿。全局名称级缓存可在任意
+  # 深度出现；路径级产物只排除仓根 data/ 与 frontend/dist/；android/.gitignore 的未锚定目录型规则
+  # 则在 android/ 之下任意深度生效，但不得伤及其它树中同名的业务目录。
+  $expectedSkipNames = @('.gradle', 'build', 'node_modules', '.git', '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache', '.review', '_local', 'runtime', 'auth', '.secrets', '.idea', '.vscode')
+  $expectedSkipPaths = @('data', 'frontend/dist')
+  $expectedAndroidSkipNames = @('.kotlin', 'captures', '.cxx')
+  $broadPathSkips = @((@($expectedSkipPaths | ForEach-Object { Split-Path -Leaf $_ }) + $expectedAndroidSkipNames) | Where-Object { $gradleSkipDirs -contains $_ })
   if ($broadPathSkips.Count -gt 0) { Fail "17cc(prune)：路径级 ignore 被错误扩大成全局名称排除：$($broadPathSkips -join ', ')。" }
   foreach ($skip in $expectedSkipNames) {
     New-Item -ItemType Directory -Force (Join-Path $fxPrune "$skip/decoy") | Out-Null
@@ -7614,19 +7620,33 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $fxPrune "$skip/decoy") | Out-Null
     Set-Content (Join-Path $fxPrune "$skip/decoy/build.gradle") 'decoy' -Encoding utf8
   }
+  foreach ($skip in $expectedAndroidSkipNames) {
+    $nested = "android/feature/deep/$skip"
+    New-Item -ItemType Directory -Force (Join-Path $fxPrune "$nested/decoy") | Out-Null
+    Set-Content (Join-Path $fxPrune "$nested/decoy/build.gradle") 'decoy' -Encoding utf8
+  }
+  # 同名目录在规则作用域外必须被扫到：dist 只排 frontend/dist，captures 只排 android 子树。
+  $allowedRelativeHits = @('real/build.gradle', 'android/dist/build.gradle', 'other/captures/build.gradle')
+  foreach ($allowed in $allowedRelativeHits) {
+    New-Item -ItemType Directory -Force (Split-Path -Parent (Join-Path $fxPrune $allowed)) | Out-Null
+    Set-Content (Join-Path $fxPrune $allowed) 'allowed' -Encoding utf8
+  }
   $throwIfExcluded = {
     param($d)
     $leaf = Split-Path -Leaf $d
     $relative = [System.IO.Path]::GetRelativePath($fxPrune, $d).Replace('\', '/')
-    if (($expectedSkipNames -contains $leaf) -or ($expectedSkipPaths -contains $relative)) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
+    $isAndroidLocal = $relative.StartsWith('android/') -and ($expectedAndroidSkipNames -contains $leaf)
+    if (($expectedSkipNames -contains $leaf) -or ($expectedSkipPaths -contains $relative) -or $isAndroidLocal) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
     Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop
   }.GetNewClosure()
   try {
     $pruneHits = @(Find-GradleManifests -Root $fxPrune -Names @('build.gradle') -Enumerator $throwIfExcluded)
-    if ($pruneHits.Count -ne 1 -or $pruneHits[0] -ne (Join-Path $fxPrune 'real/build.gradle')) {
-      Fail "17cc(prune)：期望只发现 real/build.gradle 一个命中，实得 $($pruneHits.Count) 个（$($pruneHits -join ', ')）。"
+    $actualRelativeHits = @($pruneHits | ForEach-Object { [System.IO.Path]::GetRelativePath($fxPrune, $_).Replace('\', '/') } | Sort-Object)
+    $expectedRelativeHits = @($allowedRelativeHits | Sort-Object)
+    if (($actualRelativeHits -join '|') -ne ($expectedRelativeHits -join '|')) {
+      Fail "17cc(prune)：期望发现作用域外的 $($expectedRelativeHits -join ', ')，实得 $($actualRelativeHits -join ', ')。"
     } else {
-      Write-Host "  17cc(prune) 独立 ignore 契约全部剪枝 OK（名称 $($expectedSkipNames.Count) 项 + 路径 $($expectedSkipPaths.Count) 项；只发现 real/build.gradle）" -ForegroundColor Green
+      Write-Host "  17cc(prune) 独立 ignore 契约全部剪枝 OK（全局名称 $($expectedSkipNames.Count) 项 + 精确路径 $($expectedSkipPaths.Count) 项 + Android 子树名称 $($expectedAndroidSkipNames.Count) 项）" -ForegroundColor Green
     }
   } catch {
     Fail "种子缺陷 17cc(prune)：$($_.Exception.Message) —— Find-GradleManifests 真的下钻进了被排除目录（先枚举全树、再事后过滤的旧行为回归）。"
@@ -7729,10 +7749,17 @@ if ($enumErrGaps.Count -ne 2) {
 # 17cc(strict). coverage gap → -Strict 下真失败（真实仓根）：Gradle 清单永远缺扫描器（本卡刻意不建，见卡片
 # 仲裁），故不带 -Strict 应 exit 0、带 -Strict 应 exit 1——证「有 coverage gap 时 -Strict 真会让整条闸失败」
 # 不是纸面承诺（与 17cc(enum-err) 互补：那边证「枚举出错→gap」，这里证「gap→-Strict 下 exit 1」）。
-& pwsh -NoProfile -File $realCLPath *> $null
-$strictProbeExit0 = $LASTEXITCODE
-& pwsh -NoProfile -File $realCLPath -Strict *> $null
-$strictProbeExit1 = $LASTEXITCODE
+$strictSavedPath = $env:PATH
+try {
+  # 严格模式仍需验证真实进程退出码，但把 PATH 限定为 pwsh 自身目录，避免触发宿主机上的
+  # uv/npx/pip-licenses 及其网络、缓存或全局环境；这两次运行只承载 gap → -Strict 退出码契约。
+  $strictPwsh = (Get-Command pwsh -ErrorAction Stop).Source
+  $env:PATH = Split-Path -Parent $strictPwsh
+  & $strictPwsh -NoProfile -File $realCLPath *> $null
+  $strictProbeExit0 = $LASTEXITCODE
+  & $strictPwsh -NoProfile -File $realCLPath -Strict *> $null
+  $strictProbeExit1 = $LASTEXITCODE
+} finally { $env:PATH = $strictSavedPath }
 if ($strictProbeExit0 -ne 0) { Fail "17cc(strict)：不带 -Strict 的真实运行退出 $strictProbeExit0（期望 0）——本仓当前不应有致命许可命中，环境是否变了？" }
 elseif ($strictProbeExit1 -ne 1) { Fail "种子缺陷 17cc(strict)：带 -Strict 的真实运行退出 $strictProbeExit1（期望 1）——Gradle 清单已发现但无扫描器本应是覆盖缺口，-Strict 下理应致命，未生效。" }
 else { Write-Host '  17cc(strict) coverage gap → -Strict 下真失败 OK（不带 -Strict exit 0 / 带 -Strict exit 1，真实仓根）' -ForegroundColor Green }
