@@ -35,7 +35,8 @@
 
 ## 3. 当前依赖核验（项目特定）
 
-> 随开发把每个依赖登记到下表（脚本只覆盖 PyPI/npm，覆盖不到模型权重/数据/字体/素材/Gradle——这些**逐项**人工登记）。
+> 随开发把每个依赖登记到下表（脚本的**自动许可扫描**只覆盖 PyPI/npm；Gradle 只探测清单并报告覆盖缺口；
+> 模型权重/数据/字体/素材/Gradle 许可仍须**逐项**人工登记）。
 > 本项目无 PyPI/npm 依赖（原生 Kotlin + Compose，ADR-0001）；下表登记 Gradle 生态。
 
 | 依赖 | 许可 | 结论 |
@@ -44,16 +45,17 @@
 | _(示例)_ uvicorn | BSD-3 | ✅ |
 | … | … | … |
 
-### 3.1 Android/Gradle 直接依赖（`android/gradle/libs.versions.toml`，已核验）
+### 3.1 Android/Gradle 已核验坐标与构建工具（非完整传递闭包）
 
-> `check-licenses.ps1` 只扫 PyPI/npm，覆盖不到 Gradle（见 §5.1）；本表是**人工核验**，对准每条坐标的**发布方主库
+> `check-licenses.ps1` 的**自动许可扫描**只覆盖 PyPI/npm，Gradle 部分仅发现清单并报覆盖缺口（见 §5.1）；
+> 本表是**人工核验**，对准每条坐标的**发布方主库
 > LICENSE 文件 / Maven POM `<licenses>` 块**（非 README 措辞、非 `aar-metadata.properties`——后者记
 > `minCompileSdk` 等构建要求，与许可无关，见 T0-TOOLCHAIN 第 4 轮评审纠正）。同一发布方（同一 monorepo/组织）
 > 下的多个坐标共用同一份 LICENSE 依据，逐条列出坐标、依据只列一次代表性来源。
 
-| Gradle 坐标（前缀） | 许可 | 结论 | 依据 |
+| 坐标 / 构建组件 | 许可 | 结论 | 依据 |
 |---|---|---|---|
-| **androidx 三个不同 group**（同 monorepo，共享同一 LICENSE，逐条列出真实坐标防误读成同一 group 通配）：`androidx.compose:compose-bom`；`androidx.compose.ui:ui` / `androidx.compose.ui:ui-tooling` / `androidx.compose.ui:ui-tooling-preview`；`androidx.compose.material3:material3`；`androidx.activity:activity-compose`；`androidx.camera:camera-core` / `androidx.camera:camera-camera2` / `androidx.camera:camera-lifecycle` / `androidx.camera:camera-view`；`androidx.exifinterface:exifinterface`；`androidx.work:work-runtime-ktx` | Apache-2.0 | ✅ | androidx monorepo `LICENSE.txt`（`android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/LICENSE.txt`） |
+| **androidx 七个不同 group**（同 monorepo，共享同一 LICENSE，逐条列出真实坐标防误读成同一 group 通配）：`androidx.compose:compose-bom`；`androidx.compose.ui:ui` / `androidx.compose.ui:ui-tooling` / `androidx.compose.ui:ui-tooling-preview`；`androidx.compose.material3:material3`；`androidx.activity:activity-compose`；`androidx.camera:camera-core` / `androidx.camera:camera-camera2` / `androidx.camera:camera-lifecycle` / `androidx.camera:camera-view`；`androidx.exifinterface:exifinterface`；`androidx.work:work-runtime-ktx` | Apache-2.0 | ✅ | androidx monorepo `LICENSE.txt`（`android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/LICENSE.txt`） |
 | `org.jetbrains.kotlinx:kotlinx-serialization-json` | Apache-2.0 | ✅ | `github.com/Kotlin/kotlinx.serialization` `LICENSE.txt` |
 | `app.cash.sqldelight:runtime` / `sqlite-driver` / `android-driver`，及同名 Gradle 插件 `app.cash.sqldelight` | Apache-2.0 | ✅ | `github.com/cashapp/sqldelight` `LICENSE.txt` |
 | `org.jetbrains.kotlin:kotlin-test` / `kotlin-test-testng`，及 Kotlin Gradle **插件 ID**（`libs.versions.toml` 里 `kotlin-jvm`/`kotlin-android`/`kotlin-compose`/`kotlin-serialization` 只是目录别名，真实 id 分别是）`org.jetbrains.kotlin.jvm` / `org.jetbrains.kotlin.android` / `org.jetbrains.kotlin.plugin.compose` / `org.jetbrains.kotlin.plugin.serialization` | Apache-2.0 | ✅ | `github.com/JetBrains/kotlin` `license/LICENSE.txt` |
@@ -63,8 +65,9 @@
 
 ### 3.2 Android/Gradle 传递依赖：约 220 个坐标未逐一核验（已知缺口，非合规声明）
 
-- **现状**：上表只覆盖 `libs.versions.toml` 声明的**直接**坐标；`:core:dependencies` 实际解析出的**传递闭包
-  约 220 个坐标**，当前**未逐一核验**其许可。这是真实缺口，不粉饰。
+- **现状**：上表覆盖 `libs.versions.toml` 声明的直接坐标，以及明确列出的 TestNG、AGP 和 Gradle
+  构建工具；它**不是完整传递闭包**。`:core:dependencies` 实际解析出的传递闭包约 220 个坐标，
+  当前**未逐一核验**其许可。这是真实缺口，不粉饰。
 - **为什么不在本卡补齐**：手工审 220 个坐标的表格在下次依赖变动即过期；正确解法是自动化扫描器——已登记为
   **TD2**（见 `specs/tech-debt-tracker.md`），而非在骨架/闸门加固卡里手工堆表格造成假的"已核验"观感。
 - **TD2 当前状态**：`carded`，指向 `specs/tasks/T0-LICENSE-SCANNER.md`——该卡负责把这约 220 个坐标从
@@ -89,14 +92,14 @@
 | _(待填)_ | | | |
 | `docs/references/claude-*-llms.txt`（7 份，vendored 第三方**文档**提炼件） | n/a（非代码） | © Anthropic，公开文档、**无再分发授权** | ⚖️ **按最小引用保留，非再分发**：正文自行提炼（中文改写 + 本仓注解），仅保留**要照字面喂给模型才生效**的功能性提示语短片段并逐条标注出处；超出功能必要长度的整块示例改写为要点 + 链接（已执行：4.8 篇 AEFRM 整份 brief）。逐条基准见 `docs/references/README.md`「来源与引用基准」，每份文件头注含源 URL + © + 校核日期。**本判断是工程约束非法律意见**——若本仓或下游要**对外分发**含本目录的产物，须法务复核 |
 
-> **为什么单列这一行**：本目录不是依赖、不是权重，是**第三方文档的提炼件**，`check-licenses.ps1` 的 PyPI/npm 扫描覆盖不到（§5.1 生态缺口的一个具体实例），故按 §4「逐项人工登记」在此登记。新增任何 vendored 文档类 reference 时**在此追加一行**。
+> **为什么单列这一行**：本目录不是依赖、不是权重，是**第三方文档的提炼件**，`check-licenses.ps1` 的自动许可扫描覆盖不到（§5.1 生态缺口的一个具体实例），故按 §4「逐项人工登记」在此登记。新增任何 vendored 文档类 reference 时**在此追加一行**。
 
 **运行时机器闸（可选模式）**：若项目接入真实模型权重，建议落一个 `require_clean_weights(model_id)` 运行时闸——
 未登记为商用洁净的 `model_id` 即 fail-closed 拒绝（默认拒绝），与授权闸并列为推理前置。
 
 ## 5. 核验流程（每次加依赖）
 1. 跑 `pwsh -File scripts\check-licenses.ps1`（扫描后端 venv + 前端 node_modules 的许可，命中禁列即非零退出）。
-2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（脚本只覆盖 PyPI/npm）。
+2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（自动许可扫描只覆盖 PyPI/npm）。
 3. Codex 评审闸门会阻断疑似 copyleft/非商用片段。
 4. 真实模型子环境跑 `pip-licenses` **全审**：GPL 硬禁（声明但未 import 的可卸）；LGPL 仅进程隔离/动态可留；UNKNOWN 元数据逐个核实际许可。
 
@@ -128,7 +131,7 @@
 
 **参考来源清单（仅流程/能力，未碰源码）— 待填**：公开的「〈某类产品〉」功能与交互流程（公开页面/演示级别）· 公开的技术**概念**（教科书/公开文档级别）· 开源**许可证原文**（用于合规判定，非功能借用）。以上均为公开、非源码层面的参照；任何具体实现均为本项目独立编写。新增来源时在此追加登记，保持可审计。
 
-**审计闭环**：PR 走 codex 评审（`scripts/review.ps1`）对照改动是否含可疑外来源码片段 · `scripts/check-licenses.ps1` 扫 PyPI/npm 命中禁列即 fail-closed · 安全约定见 `docs/SECURITY.md`。上述第 3 条 LGPL 构建的逐步核验（含 `-buildconf` 比对与 SHA-256 校验）见**附录 A**。
+**审计闭环**：PR 走 codex 评审（`scripts/review.ps1`）对照改动是否含可疑外来源码片段 · `scripts/check-licenses.ps1` 自动扫描 PyPI/npm 许可、并对其它生态清单报覆盖缺口 · 安全约定见 `docs/SECURITY.md`。上述第 3 条 LGPL 构建的逐步核验（含 `-buildconf` 比对与 SHA-256 校验）见**附录 A**。
 
 ---
 
