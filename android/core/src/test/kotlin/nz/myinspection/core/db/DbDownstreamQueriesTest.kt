@@ -270,6 +270,41 @@ class DbDownstreamQueriesTest {
     }
 
     @Test
+    fun `orphanedAssets judges liveness per (content_hash, rel_path), not by content_hash alone`() {
+        // Same content_hash, two different physical files (two different rel_path values) — a real
+        // scenario this schema explicitly allows (dedup is scoped per room_instance, not global).
+        // One path's row gets soft-deleted while the other path's row stays active. Matching liveness
+        // by content_hash alone would let the still-active path "cover for" the deleted one, leaking
+        // the orphaned file at path A forever (the exact bug this test pins).
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
+        val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
+
+        val photoAtPathA = uuid.next()
+        database.photoQueries.insert(
+            id = photoAtPathA, inspection_item_id = null, room_instance_id = roomA, rel_path = "photos/path-a.jpg",
+            content_hash = "shared-hash", exif_time_ms = null, source = "CAMERA", privacy_flag = 0, created_at = now, updated_at = now,
+        )
+        database.photoQueries.insert(
+            id = uuid.next(), inspection_item_id = null, room_instance_id = roomB, rel_path = "photos/path-b.jpg",
+            content_hash = "shared-hash", exif_time_ms = null, source = "CAMERA", privacy_flag = 0, created_at = now, updated_at = now,
+        )
+        database.photoQueries.softDelete(deleted_at = now + 1, id = photoAtPathA).value
+
+        val orphans = database.photoQueries.orphanedAssets().executeAsList()
+        assertTrue(
+            orphans.any { it.content_hash == "shared-hash" && it.rel_path == "photos/path-a.jpg" },
+            "the deleted path must be reported orphaned even though the same content_hash still has an active row at a different path",
+        )
+        assertTrue(
+            orphans.none { it.content_hash == "shared-hash" && it.rel_path == "photos/path-b.jpg" },
+            "the still-active path must never be reported orphaned",
+        )
+    }
+
+    @Test
     fun `purgeContactInfo with a null purged_at affects zero rows and does not corrupt the row`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val tenancyId = uuid.next()

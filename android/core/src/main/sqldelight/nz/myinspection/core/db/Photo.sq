@@ -67,12 +67,18 @@ WHERE id = :id
 -- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）：返回
 -- content_hash + rel_path——只回 content_hash 曾经是个坑：调用方拿到孤儿哈希后，selectByRoomInstance
 -- 要求已知 room_instance_id 且天生排除软删行（孤儿行恰好就是软删的那些），根本查不回物理文件路径，
--- 清理用例无从下手（R3 评审指出，已改正）。DISTINCT 两列而非只 DISTINCT content_hash：同一哈希若曾
--- 落到过不同 rel_path（多份物理副本），每个路径都要能被清理，不能只删其中一份。"finalize 过的巡检
--- 照片永不清"不需要在这里另写特判：softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类
--- content_hash 永远至少有一行活跃记录，天然不会出现在这份孤儿列表里。
+-- 清理用例无从下手。资产身份 = (content_hash, rel_path) 这一对，不是单独 content_hash——同一哈希若曾
+-- 落到过不同 rel_path（多份物理副本），每个路径是独立的磁盘文件，各自的存活要各自判：NOT EXISTS 子
+-- 查询原来只按 content_hash 匹配活跃行，会让"哈希 H 在路径 A 已软删、但哈希 H 在路径 B 仍活跃"这种
+-- 情况整条被当成"哈希还活着"而放过——路径 A 那份物理文件永远漏判、删不掉（R3 评审指出，已改正：子
+-- 查询按 content_hash **和** rel_path 一起匹配）。"finalize 过的巡检照片永不清"不需要在这里另写特判：
+-- softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类 (content_hash, rel_path) 组合永远至少
+-- 有一行活跃记录，天然不会出现在这份孤儿列表里。
 orphanedAssets:
 SELECT DISTINCT p1.content_hash, p1.rel_path
 FROM photo p1
 WHERE p1.deleted_at IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM photo p2 WHERE p2.content_hash = p1.content_hash AND p2.deleted_at IS NULL);
+  AND NOT EXISTS (
+    SELECT 1 FROM photo p2
+    WHERE p2.content_hash = p1.content_hash AND p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL
+  );
