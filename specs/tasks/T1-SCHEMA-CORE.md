@@ -20,7 +20,7 @@ non_goals:
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
-dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via 传 NULL 不落地不锁行、photo.softDelete 受 finalize 守卫 + orphanedContentHashes 排除 FINALIZED 证据）各至少一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
+dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via 传 NULL 不落地不锁行、photo.softDelete 受 finalize 守卫 + orphanedContentHashes 排除 FINALIZED 证据）各至少一例全绿；notice 的 sent_via/sent_at CHECK 约束两种错配组合各一例必报错，scheduled_at 快照独立存储一例全绿；supplement 的 prev_hash 非空锚定 inspection.data_hash + chain_hash 落库一例全绿，同 created_at 两行按 id 兜底排序确定一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight/ 登记进 scripts/_config.ps1 FrozenPaths（R5）
@@ -59,8 +59,12 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   - photo（inspection_item_id 可空 + room_instance_id（room 级全景挂实例）、rel_path、content_hash、exif_time_ms 可空、source：CAMERA/IMPORTED、**privacy_flag**（含租客物品标记——NZ OPC 判例风险，报告可排除；docs/research/synthesis.md「照片隐私」））
   - property_item_override（property_id、stable_id、suppressed）——「本物业不存在此项」永久抑制（zInspector `Ø` 先例：模板现场自愈，免每次 N_A；synthesis 建议 #4）；`setSuppressed` 可逆切换（T2-CAPTURE-CORE「抑制/恢复用例本卡提供」，其 allow_paths 不含 core/db/）
   - audio（inspection_item_id、rel_path、content_hash）
-  - supplement（inspection_id、created_at、text、prev_hash——finalize 哈希链，append-only）
-  - notice（inspection_id、full_text 全文快照、generated_at、sent_via、sent_at、lead_hours、validation_snapshot）——`recordDelivery` 回记送达且一次性锁定（T4-NOTICES「回记送达后提前量重算并锁定」，其 allow_paths 不含 core/db/）
+  - supplement（inspection_id、created_at、text、prev_hash **不可空**（链首锚 inspection.data_hash，不是
+    "没有上一条"）、**chain_hash** 不可空（T3-FINALIZE 用 T1-CANON-HASH 的 supplementChainHash 算出、写入；
+    没有这一列，链尾/单条记录的哈希无处核对）——finalize 哈希链，append-only
+  - notice（inspection_id、full_text 全文快照、generated_at、**scheduled_at** 快照（T4-NOTICES dod_assert
+    明文「存档记录含…预定巡检时间…」）、sent_via、sent_at（两者 CHECK 同生共死）、lead_hours、
+    validation_snapshot）——`recordDelivery` 回记送达且一次性锁定（T4-NOTICES「回记送达后提前量重算并锁定」，其 allow_paths 不含 core/db/）
   - phrase_entry（en、zh、category、sort、**applies_to_statuses** 可空（如 wear 类只在 FAIR 时推荐）、
     **shortcut** 可空（如 "FWT" 快捷展开））——两个可空字段为 T2-PHRASELIB 所需；其 allow_paths 也不含
     core/db/，同 tenancy.purged_at 一样的理由由本卡建列
@@ -134,6 +138,31 @@ R3 第四轮指出四处缺失的机械查询。**裁决：补，但每条须能
 本卡不提供 ⇒ 下游卡要么被卡死、要么被迫破例写进**已冻结**目录。四条：
 `inspection_item.wear_or_damage` 更新 · `property_item_override` 取消抑制/恢复 · `notice` 记录 `sent_via`/`sent_at` ·
 `photo` 软删 + `orphanedAssets()`。**无出处的不要加**——臆想的查询是死代码，且冻结后删不掉。
+
+## 卡片修订 2026-08-15 之三（R3 第六轮 · 六项发现，四项实现两项按裁决驳回）
+逐条按"能否指到具体要求它的卡文"核验（同上一条裁决的同一标准），而非照单全收：
+- **实现（均已指到出处）**：① `supplement` 加 `chain_hash`（T3-FINALIZE 原文"prev_hash = 上一条 chain_hash"——
+  没有这一列，"上一条 chain_hash"就无处可读；顺带把 `prev_hash` 改回 NOT NULL——T1-CANON-HASH 原文
+  "prev_hash(1) = inspection.data_hash"，链首**有**值，不是没有上一条）；② `notice` 加 `scheduled_at` 快照列
+  （T4-NOTICES dod_assert 原文明文列"存档记录含…预定巡检时间…"）；③ `notice` 加 CHECK 约束令
+  `sent_via`/`sent_at` 必须同为 NULL 或同为非 NULL（insert 路径原本能绕过 recordDelivery 的一次性锁，直接
+  插入不一致状态——结构性缺口，不需要额外卡文出处，是本卡自己该守的完整性）；④ `check_item_def`/
+  `phrase_entry`/`supplement` 三处 `ORDER BY` 加 `id` 兜底排序键（sort/created_at 都不保证唯一，同值时
+  SQLite 不保证顺序稳定——T1-CANON-HASH 的整个存在理由就是确定性序列化，这条不需要额外出处，属于
+  本卡对自己已经声明的"确定性"承诺的基本兑现）；`photo` 加 `content_hash` 打头索引（`orphanedContentHashes`
+  自身查询模式要求，不需要外部卡文佐证）。
+- **驳回（评审给的理由是真实关切，但没有可指认的卡文出处，且第一条直接抵触编排者已下的裁决）**：
+  ① `InspectionSnapshot` 加房间/检查项/照片的归属标识与 `privacy_flag`——**编排者已就这同一个类型明确裁决
+  "字段 = T1-CANON-HASH 的哈希域…按那份清单一一对应，不多加一个字段"**，而 T1-CANON-HASH 那份哈希域清单
+  原文就是 `items[]（stable_id/status/note/wear_or_damage）`/`photos[]（content_hash/source/exif_time_ms/
+  room 级标记）`/`audios[]（content_hash）`，没有归属 id、没有 `privacy_flag`。评审的关切（重新分配证据能否
+  在保持 data_hash 不变的情况下篡改报告）是否成立，取决于 T1-CANON-HASH 打算怎么序列化这些嵌套列表——那是
+  它自己的设计决策，不该由本卡越权替它把哈希域改大；`core/model/` 已明确不冻结，正是留给 T1-CANON-HASH
+  落地时按实测校正的余地。② `orphanedContentHashes` 返回 `rel_path`——T2-PHOTO-PIPELINE 原文只说"提供
+  `orphanedAssets()` 查询 + 清理用例"，没有指定返回形状；而它自己的"去重"机制细节（"复用既有 photo 资产、
+  只建新关联"是否意味着多行共享同一 `rel_path`）本卡尚未读到足够文字来确定，猜返回形状与猜 model 字段是
+  同一种风险。已按 T2-PHOTO-PIPELINE 自己已生成的 API（`content_hash` → 各活跃行的 `rel_path`）留一条现成
+  退路：它拿到孤儿 `content_hash` 后自己 `selectByRoomInstance`/新增窄查询即可取 `rel_path`，不必本卡代劳。
 
 ## 禁止 / 非目标
 见 front-matter。
