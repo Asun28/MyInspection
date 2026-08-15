@@ -179,6 +179,15 @@ R3 第四轮指出四处缺失的机械查询。**裁决：补，但每条须能
   IS NOT NULL`/`:purged_at IS NOT NULL`），如实反映"这是运行期守卫、不是编译期保证"，不再声称类型层面的
   保证。这是本卡自己没有"按实测核验、不凭记忆"这条纪律执行到位的一处，R5.5 复盘时入账 lessons。
 
+## 卡片修订 2026-08-15 之五（R3 第八轮 · orphanedAssets 判活粒度错了，是上条改动自己引入的真 bug）
+`orphanedAssets` 的 `NOT EXISTS` 只按 `content_hash` 判断"是否还有活跃引用"，但同一哈希允许落在多个不同
+`rel_path`（上条改动自己承认的前提）——`(hash H, 路径 A)` 软删、`(hash H, 路径 B)` 仍活跃时，旧写法看到
+"哈希 H 还有活跃行"就整条放过，路径 A 那份物理文件永远判不成孤儿、永久漏删。这不是卡文出处问题，是上条
+修 rel_path 时没有把资产身份的定义（`content_hash` + `rel_path` 一对，不是单独 `content_hash`）贯彻到
+`NOT EXISTS` 的匹配条件里——只改了 SELECT 的返回列，没改 WHERE 的判活逻辑，两处对"什么算同一份资产"的
+理解不一致。改法：`NOT EXISTS` 子查询同时匹配 `content_hash` 和 `rel_path`。新增用例：同一哈希两个不同
+路径、一个软删一个活跃，断言只有被软删的那个路径出现在孤儿列表里。
+
 ## 禁止 / 非目标
 见 front-matter。
 
