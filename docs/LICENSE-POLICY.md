@@ -53,10 +53,10 @@
 
 | Gradle 坐标（前缀） | 许可 | 结论 | 依据 |
 |---|---|---|---|
-| `androidx.compose:*`（compose-bom/ui/ui-tooling/ui-tooling-preview/material3）、`androidx.activity:activity-compose`、`androidx.camera:*`（core/camera2/lifecycle/view）、`androidx.exifinterface:exifinterface`、`androidx.work:work-runtime-ktx` | Apache-2.0 | ✅ | androidx monorepo `LICENSE.txt`（`android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/LICENSE.txt`） |
+| **androidx 三个不同 group**（同 monorepo，共享同一 LICENSE，逐条列出真实坐标防误读成同一 group 通配）：`androidx.compose:compose-bom`；`androidx.compose.ui:ui` / `androidx.compose.ui:ui-tooling` / `androidx.compose.ui:ui-tooling-preview`；`androidx.compose.material3:material3`；`androidx.activity:activity-compose`；`androidx.camera:camera-core` / `androidx.camera:camera-camera2` / `androidx.camera:camera-lifecycle` / `androidx.camera:camera-view`；`androidx.exifinterface:exifinterface`；`androidx.work:work-runtime-ktx` | Apache-2.0 | ✅ | androidx monorepo `LICENSE.txt`（`android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/LICENSE.txt`） |
 | `org.jetbrains.kotlinx:kotlinx-serialization-json` | Apache-2.0 | ✅ | `github.com/Kotlin/kotlinx.serialization` `LICENSE.txt` |
 | `app.cash.sqldelight:runtime` / `sqlite-driver` / `android-driver`，及同名 Gradle 插件 `app.cash.sqldelight` | Apache-2.0 | ✅ | `github.com/cashapp/sqldelight` `LICENSE.txt` |
-| `org.jetbrains.kotlin:kotlin-test` / `kotlin-test-testng`，及 Kotlin Gradle 插件（`kotlin-jvm`/`kotlin-android`/`kotlin-compose`/`kotlin-serialization`） | Apache-2.0 | ✅ | `github.com/JetBrains/kotlin` `license/LICENSE.txt` |
+| `org.jetbrains.kotlin:kotlin-test` / `kotlin-test-testng`，及 Kotlin Gradle **插件 ID**（`libs.versions.toml` 里 `kotlin-jvm`/`kotlin-android`/`kotlin-compose`/`kotlin-serialization` 只是目录别名，真实 id 分别是）`org.jetbrains.kotlin.jvm` / `org.jetbrains.kotlin.android` / `org.jetbrains.kotlin.plugin.compose` / `org.jetbrains.kotlin.plugin.serialization` | Apache-2.0 | ✅ | `github.com/JetBrains/kotlin` `license/LICENSE.txt` |
 | `org.testng:testng`（经 `kotlin-test-testng` 引入，测试运行器；替代 EPL-1.0 的 JUnit，见 toml 内注释） | Apache-2.0 | ✅ | **实测解析版本** `testng:7.0.0`（`:core:dependencies --configuration testRuntimeClasspath` 输出所示，非 Maven Central 上的最新版——早前文档误引了 `7.5.1.pom`，R3 评审纠正）；`testng-7.0.0.pom` `<licenses>` 块 = `Apache Version 2.0, January 2004`；其 `junit:junit:4.12` 依赖标 `<optional>true</optional>`，Gradle 不解析进最终 classpath（实测同一条 `:core:dependencies` 输出零 junit 节点）——**版本号以实测解析结果为准，不是 POM 里写的最新版**，核验证据须对准"实际会被打进产物的那个版本"，同 `docs/LICENSE-POLICY.md` 附录 A 对 ffmpeg 的"对准确切二进制"要求同一纪律 |
 | `com.android.tools.build:gradle`（AGP，`com.android.application`/`com.android.library` 插件） | Apache-2.0 | ✅ | `dl.google.com` 该坐标 POM `<licenses>` 块（`The Apache Software License, Version 2.0`） |
 | Gradle 构建工具本体（非 Maven 坐标依赖，`gradle/wrapper/gradle-wrapper.properties` 钉版） | Apache-2.0 | ✅（构建期工具，未随产品分发） | gradle.org 许可声明；wrapper `distributionSha256Sum` 已由编排者独立核验匹配官方发布 |
@@ -66,15 +66,17 @@
 - **现状**：上表只覆盖 `libs.versions.toml` 声明的**直接**坐标；`:core:dependencies` 实际解析出的**传递闭包
   约 220 个坐标**，当前**未逐一核验**其许可。这是真实缺口，不粉饰。
 - **为什么不在本卡补齐**：手工审 220 个坐标的表格在下次依赖变动即过期；正确解法是自动化扫描器——已登记为
-  **TD2**（见 `specs/tech-debt-tracker.md`，如实反映当前状态：`open`，尚未派生独立选型/实现卡），而非在
-  骨架/闸门加固卡里手工堆表格造成假的"已核验"观感。**登记 TD2 只是记账，不是已分配的解决路径**——扫描器
-  何时立项、由谁承接仍待后续排期，本卡不越权代排。
+  **TD2**（见 `specs/tech-debt-tracker.md`），而非在骨架/闸门加固卡里手工堆表格造成假的"已核验"观感。
+- **TD2 当前状态**：`open`，尚未派生独立选型/实现卡——**登记只是记账，不是已分配的解决路径**。卡片原仲裁段
+  期望把它推进到"carded 指向扫描器卡"，但那一步须新建任务卡 + 改 `specs/tech-debt-tracker.md`，均在
+  本卡 `allow_paths` 之外；本卡按仲裁的"不越权代排"原则如实记录现状，"从 open 推进到 carded"留给
+  拥有对应改写权限的后续会话/编排者裁定——本文件不因此假装该缺口已有分配路径。
 - **风险绑定到触发点**：GPL 系 copyleft 的义务触发点是**分发**（见 §1.1）；本项目当前**无任何发布路径**
   （发布相关卡排在 T7 之后），故该缺口暂不构成当前的合规违规。但**发布前必须清零**——见
   `docs/RELEASE-CHECKLIST.md`「质量」节的阻断项。
 - **不是自动豁免**：AGPL/SSPL/EUPL/非商用等触发点与分发无关的许可类别（§1.1 表）即便在传递依赖中出现，
   也不因"未发布"而被豁免——TD2 对应的扫描器立项与落地前，`android/` 子树的这一风险敞口持续存在，接入 CI
-  强制前只能作为已知缺口管理（见 `specs/tech-debt-tracker.md` 的 TD2 条目取最新状态，本文件不复述其状态字面量以防双源漂移）。
+  强制前只能作为已知缺口管理。
 
 ## 4. 模型权重 / 数据 / 素材核验（项目特定 · 待填）
 
