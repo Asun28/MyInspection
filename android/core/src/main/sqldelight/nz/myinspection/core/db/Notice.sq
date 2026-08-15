@@ -29,9 +29,14 @@ WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
 
 -- 回记送达（T4-NOTICES 流程最后一步：生成→复制→用户自行发送→回 app 记送达方式+时刻；其 allow_paths
 -- 不含 core/db/）。lead_hours 重算与 validation_snapshot 更新的逻辑归 T4-NOTICES，本卡只给机械写路径。
--- `AND sent_at IS NULL` 令这一步一次性——T4-NOTICES dod_assert 原文"回记送达后提前量重算并锁定"，
--- 锁定语义落在这条 WHERE 上：已回记过的 notice 再调用一次是 0 行受影响，不会覆盖第一次的送达记录。
+-- 两层守卫，缺一不可：① `sent_at IS NULL`（现有行未回记过）令这一步一次性——T4-NOTICES dod_assert 原文
+-- "回记送达后提前量重算并锁定"；② `:sent_via IS NOT NULL`——sent_via/sent_at 两列本身可空（生成后尚未
+-- 送达时就是 NULL），若不挡住调用方传 NULL，一次「误传空值」的调用会通过守卫①、把行标记成"已处理"却
+-- 没真的记下送达方式，之后想补录真值的调用反而会被守卫①拦住（sent_at 已非空）——事故就锁死在错误状态里
+-- 出不来了。sent_at 干脆复用 :updated_at（同一时刻，同 Tenancy.sq purgeContactInfo 复用 :updated_at 的
+-- 理由）：updated_at 列本身非空，复用它令 sent_at 在类型层面就不可能传 NULL，只有 sent_via 还需要①②
+-- 两条 WHERE 兜底。
 recordDelivery:
 UPDATE notice
-SET sent_via = :sent_via, sent_at = :sent_at, lead_hours = :lead_hours, validation_snapshot = :validation_snapshot, updated_at = :updated_at
-WHERE id = :id AND sent_at IS NULL;
+SET sent_via = :sent_via, sent_at = :updated_at, lead_hours = :lead_hours, validation_snapshot = :validation_snapshot, updated_at = :updated_at
+WHERE id = :id AND sent_at IS NULL AND :sent_via IS NOT NULL;

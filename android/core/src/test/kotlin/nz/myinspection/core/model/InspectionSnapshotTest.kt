@@ -73,11 +73,43 @@ class InspectionSnapshotTest {
     }
 
     @Test
+    fun `every tenancy field participates in equality`() {
+        val base = TenancySnapshot(id = "t-1", startMs = 100L, endMs = 200L)
+        assertNotEquals(base, base.copy(id = "t-2"))
+        assertNotEquals(base, base.copy(startMs = 101L))
+        assertNotEquals(base, base.copy(endMs = null))
+    }
+
+    @Test
+    fun `every template field participates in equality`() {
+        val base = TemplateSnapshot(id = "tv-1", type = "EXIT", version = 1, contentHash = "hash-a")
+        assertNotEquals(base, base.copy(id = "tv-2"))
+        assertNotEquals(base, base.copy(type = "ROUTINE"))
+        assertNotEquals(base, base.copy(version = 2))
+        assertNotEquals(base, base.copy(contentHash = "hash-b"))
+    }
+
+    @Test
+    fun `every inspection item field participates in equality`() {
+        val base = InspectionItemSnapshot(stableId = "wall.paint", status = "POOR", note = "scuffed", wearOrDamage = "DAMAGE")
+        assertNotEquals(base, base.copy(stableId = "ceiling.paint"))
+        assertNotEquals(base, base.copy(status = "GOOD"))
+        assertNotEquals(base, base.copy(note = null))
+        assertNotEquals(base, base.copy(wearOrDamage = null))
+    }
+
+    @Test
     fun `every photo field participates in equality`() {
         val base = PhotoSnapshot(contentHash = "h1", source = "CAMERA", exifTimeMs = 1L, isRoomLevel = false)
         assertNotEquals(base, base.copy(contentHash = "h2"))
         assertNotEquals(base, base.copy(source = "IMPORTED"))
         assertNotEquals(base, base.copy(exifTimeMs = null))
         assertNotEquals(base, base.copy(isRoomLevel = true))
+    }
+
+    @Test
+    fun `the audio field participates in equality`() {
+        val base = AudioSnapshot(contentHash = "h1")
+        assertNotEquals(base, base.copy(contentHash = "h2"))
     }
 }

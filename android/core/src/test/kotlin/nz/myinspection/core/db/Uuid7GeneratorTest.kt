@@ -109,8 +109,14 @@ class Uuid7GeneratorTest {
         val second = generator.next()
 
         assertTrue(second > first, "counter overflow must still yield a strictly greater id, never wrap to a smaller one")
-        val firstTsHex = first.substring(0, 8) + first.substring(9, 13)
-        val secondTsHex = second.substring(0, 8) + second.substring(9, 13)
-        assertTrue(secondTsHex > firstTsHex, "counter exhaustion must bump the internal timestamp forward by 1ms, not wrap")
+        assertEquals(
+            decodeTimestampMs(first) + 1,
+            decodeTimestampMs(second),
+            "counter exhaustion must bump the internal timestamp forward by exactly 1ms, not wrap and not drift by more than one",
+        )
     }
+
+    /** 从 UUID 字符串解出其 48 位毫秒时间戳（前 12 个十六进制字符，跨第一道分隔符）。 */
+    private fun decodeTimestampMs(uuid: String): Long =
+        (uuid.substring(0, 8) + uuid.substring(9, 13)).toLong(16)
 }

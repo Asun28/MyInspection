@@ -77,30 +77,57 @@ class DbDownstreamQueriesTest {
         assertEquals(overrideId, restored.id, "restore reuses the existing row rather than inserting a new one")
     }
 
-    @Test
-    fun `notice recordDelivery locks after the first call`() {
-        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
-        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+    private fun insertUnsentNotice(inspectionId: String): String {
         val noticeId = uuid.next()
         database.noticeQueries.insert(
             id = noticeId, inspection_id = inspectionId, full_text = "48h notice text", generated_at = now,
             sent_via = null, sent_at = null, lead_hours = 72, validation_snapshot = "{\"pass\":true}", updated_at = now,
         )
+        return noticeId
+    }
+
+    @Test
+    fun `notice recordDelivery locks after the first call`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val noticeId = insertUnsentNotice(inspectionId)
 
         val firstRecord = database.noticeQueries.recordDelivery(
-            sent_via = "EMAIL", sent_at = now + 1, lead_hours = 50, validation_snapshot = "{\"pass\":true}", updated_at = now + 1, id = noticeId,
+            sent_via = "EMAIL", lead_hours = 50, validation_snapshot = "{\"pass\":true}", updated_at = now + 1, id = noticeId,
         ).value
         assertEquals(1L, firstRecord, "the first delivery record must succeed")
 
         val secondRecord = database.noticeQueries.recordDelivery(
-            sent_via = "SMS", sent_at = now + 2, lead_hours = 40, validation_snapshot = "{\"pass\":false}", updated_at = now + 2, id = noticeId,
+            sent_via = "SMS", lead_hours = 40, validation_snapshot = "{\"pass\":false}", updated_at = now + 2, id = noticeId,
         ).value
         assertEquals(0L, secondRecord, "delivery is locked after the first record — a second call must affect 0 rows")
 
         val row = database.noticeQueries.selectById(noticeId).executeAsOne()
         assertEquals("EMAIL", row.sent_via, "the second call must not overwrite the first delivery record")
         assertEquals(50L, row.lead_hours)
+        assertEquals(now + 1, row.sent_at, "sent_at must equal the updated_at bound at the moment of delivery")
+    }
+
+    @Test
+    fun `notice recordDelivery with a null sent_via affects zero rows and does not lock the row`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val noticeId = insertUnsentNotice(inspectionId)
+
+        val nullAttempt = database.noticeQueries.recordDelivery(
+            sent_via = null, lead_hours = 50, validation_snapshot = "{\"pass\":true}", updated_at = now + 1, id = noticeId,
+        ).value
+        assertEquals(0L, nullAttempt, "a NULL sent_via must not be accepted as a valid delivery record")
+
+        val stillUnsent = database.noticeQueries.selectById(noticeId).executeAsOne()
+        assertNull(stillUnsent.sent_at, "a rejected NULL attempt must not lock the row — a real delivery record must still be possible afterwards")
+
+        val realRecord = database.noticeQueries.recordDelivery(
+            sent_via = "EMAIL", lead_hours = 50, validation_snapshot = "{\"pass\":true}", updated_at = now + 2, id = noticeId,
+        ).value
+        assertEquals(1L, realRecord, "a real delivery record must still succeed after a rejected NULL attempt")
     }
 
     @Test
