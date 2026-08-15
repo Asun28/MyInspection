@@ -1,0 +1,31 @@
+CREATE TABLE check_item_def (
+    id TEXT NOT NULL PRIMARY KEY,
+    template_version_id TEXT NOT NULL, -- 逻辑外键 -> template_version.id
+    stable_id TEXT NOT NULL, -- ★历史对齐唯一键：改措辞不改 ID，加项给新 ID（需求 §4）
+    area TEXT NOT NULL,
+    room TEXT NOT NULL, -- 模板层房间分组（如 BEDROOM）；区别于 room_instance.room_key（巡检层的实例）
+    text_en TEXT NOT NULL,
+    text_zh TEXT NOT NULL,
+    allowed_statuses TEXT NOT NULL, -- 合法评级枚举集合（JSON 编码字符串）；按模板类型的校验逻辑在 :core 层（T1-TEMPLATE-ENGINE）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- 软删除唯一性落在业务键（template_version_id, stable_id），不落主键——主键本身已唯一，
+    -- 在 PK 上叠 UNIQUE(id, deleted_at) 是纯噪音（DeepSeek 草稿的通病，本卡不沿用）。
+    UNIQUE (template_version_id, stable_id, deleted_at)
+);
+
+-- 被任何巡检引用后不可变：本卡故意不提供 update 查询。
+
+insert:
+INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, updated_at)
+VALUES (:id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :updated_at);
+
+selectById:
+SELECT *
+FROM check_item_def
+WHERE id = :id;
+
+selectByTemplateVersion:
+SELECT *
+FROM check_item_def
+WHERE template_version_id = :template_version_id AND deleted_at IS NULL;

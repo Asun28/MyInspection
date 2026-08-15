@@ -1,0 +1,26 @@
+CREATE TABLE audio (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_item_id TEXT NOT NULL, -- 逻辑外键 -> inspection_item.id
+    rel_path TEXT NOT NULL, -- 相对路径；文件系统存储，DB 禁 BLOB
+    content_hash TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+-- 原始音频永远保留（关键不变量：识别会失败，换模型后可重跑历史音频）：本卡故意不提供 delete 查询。
+
+CREATE INDEX idx_audio_inspection_item ON audio (inspection_item_id);
+
+insert:
+INSERT INTO audio (id, inspection_item_id, rel_path, content_hash, updated_at)
+VALUES (:id, :inspection_item_id, :rel_path, :content_hash, :updated_at);
+
+selectById:
+SELECT *
+FROM audio
+WHERE id = :id;
+
+selectByInspectionItem:
+SELECT *
+FROM audio
+WHERE inspection_item_id = :inspection_item_id AND deleted_at IS NULL;

@@ -1,0 +1,36 @@
+-- property_id / baseline_inspection_id 均为逻辑外键（项目默认，见 .claude/skills/database-design；非物理
+-- REFERENCES：既避免 SQLite 建表顺序对物理 FK 的隐性依赖，也匹配软删除父行仍需被子行合法引用的语义）。
+CREATE TABLE tenancy (
+    id TEXT NOT NULL PRIMARY KEY,
+    property_id TEXT NOT NULL, -- 逻辑外键 -> property.id
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER,
+    tenant_name TEXT, -- 可空：保留期（租约结束 12 个月）到期后置 NULL（T5-RETENTION），绝不删行
+    contact TEXT,
+    baseline_inspection_id TEXT, -- 逻辑外键 -> inspection.id；该 tenancy 的权威基线指针（可后指定，见用户已签认决策）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+CREATE INDEX idx_tenancy_property ON tenancy (property_id);
+
+insert:
+INSERT INTO tenancy (id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id, updated_at)
+VALUES (:id, :property_id, :start_ms, :end_ms, :tenant_name, :contact, :baseline_inspection_id, :updated_at);
+
+selectById:
+SELECT *
+FROM tenancy
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM tenancy
+WHERE deleted_at IS NULL;
+
+-- 既有租约没有 Ingoing 时，把某次 Routine 巡检指定为该 tenancy 的基线（用户已签认决策，见卡片正文）。
+-- Exit 的对照方一律读这一列，不得假设「必有 type=INGOING 的巡检」。
+updateBaselineInspection:
+UPDATE tenancy
+SET baseline_inspection_id = :baseline_inspection_id, updated_at = :updated_at
+WHERE id = :id;

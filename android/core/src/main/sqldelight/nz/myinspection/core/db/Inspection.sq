@@ -1,0 +1,36 @@
+CREATE TABLE inspection (
+    id TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
+    tenancy_id TEXT, -- 可空：自住物业（OWNER_OCCUPIED）无租约
+    scheduled_at INTEGER NOT NULL,
+    previous_inspection_id TEXT, -- 逻辑外键 -> inspection.id；时间上的前一次巡检（≠ baseline，双轨分开存）
+    baseline_inspection_id TEXT, -- 逻辑外键 -> inspection.id；该次巡检当时用的基线快照（历史事实，写死不改）
+    status TEXT NOT NULL, -- DRAFT / FINALIZED
+    finalized_at INTEGER,
+    data_hash TEXT, -- finalize 时写入；导出 PDF 页脚写入该哈希，自证未事后修改
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+CREATE INDEX idx_inspection_tenancy ON inspection (tenancy_id);
+
+insert:
+INSERT INTO inspection (id, type, tenancy_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, updated_at)
+VALUES (:id, :type, :tenancy_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :updated_at);
+
+selectById:
+SELECT *
+FROM inspection
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM inspection
+WHERE deleted_at IS NULL;
+
+-- finalize 只读强制（关键不变量）：guard 就是这条语句本身——只有当前仍是 DRAFT（finalized_at IS NULL）
+-- 才允许把它标记为 FINALIZED；对已 FINALIZED 的行重复调用必须 0 行受影响（幂等安全阀，防止 finalized_at 被覆盖）。
+finalizeIfDraft:
+UPDATE inspection
+SET status = 'FINALIZED', finalized_at = :finalized_at, data_hash = :data_hash, updated_at = :updated_at
+WHERE id = :id AND finalized_at IS NULL;

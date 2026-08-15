@@ -1,0 +1,28 @@
+CREATE TABLE notice (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL, -- 逻辑外键 -> inspection.id
+    full_text TEXT NOT NULL, -- 全文快照
+    generated_at INTEGER NOT NULL,
+    sent_via TEXT, -- 可空：生成后尚未发送；app 自己不发送，人工发送后回记
+    sent_at INTEGER,
+    lead_hours INTEGER NOT NULL, -- 提前量小时数；≥48 且 ≤14 天的上下限校验归 T4-COMPLIANCE-ENGINE
+    validation_snapshot TEXT NOT NULL, -- 生成时的合规校验结果快照（JSON）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+CREATE INDEX idx_notice_inspection ON notice (inspection_id);
+
+insert:
+INSERT INTO notice (id, inspection_id, full_text, generated_at, sent_via, sent_at, lead_hours, validation_snapshot, updated_at)
+VALUES (:id, :inspection_id, :full_text, :generated_at, :sent_via, :sent_at, :lead_hours, :validation_snapshot, :updated_at);
+
+selectById:
+SELECT *
+FROM notice
+WHERE id = :id;
+
+selectByInspection:
+SELECT *
+FROM notice
+WHERE inspection_id = :inspection_id AND deleted_at IS NULL;

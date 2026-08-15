@@ -1,0 +1,22 @@
+CREATE TABLE property (
+    id TEXT NOT NULL PRIMARY KEY,
+    address TEXT NOT NULL,
+    kind TEXT NOT NULL, -- RENTAL / OWNER_OCCUPIED
+    is_boarding_house INTEGER NOT NULL, -- 0/1；影响巡检时段规则（08:00-19:00，寄宿公寓 08:00-18:00）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+insert:
+INSERT INTO property (id, address, kind, is_boarding_house, updated_at)
+VALUES (:id, :address, :kind, :is_boarding_house, :updated_at);
+
+selectById:
+SELECT *
+FROM property
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM property
+WHERE deleted_at IS NULL;

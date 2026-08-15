@@ -1,0 +1,34 @@
+CREATE TABLE photo (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_item_id TEXT, -- 可空：room 级全景照片只挂 room_instance，不属于具体检查项
+    room_instance_id TEXT NOT NULL, -- 逻辑外键 -> room_instance.id
+    rel_path TEXT NOT NULL, -- 相对路径；文件系统存储实体文件，DB 禁 BLOB（关键不变量）
+    content_hash TEXT NOT NULL, -- 内容哈希，防重复导入
+    exif_time_ms INTEGER, -- 拍摄时间（与巡检时间分开记录）
+    source TEXT NOT NULL, -- CAMERA / IMPORTED
+    privacy_flag INTEGER NOT NULL, -- 0/1；含租客物品标记（NZ OPC 判例风险），报告可据此排除
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库 UNIQUE(content_hash) 会让同一张照片
+    -- 内容永远不能合法出现在两次不同巡检里（例如同一处缺陷在 Ingoing 与 Exit 分别拍到时，字节偶然相同；
+    -- 或用户有意把同一张参考图导入两个不同巡检的同一检查项）——这是 DeepSeek 草稿里全局唯一约束的缺陷
+    -- （见卡片"defect #6"）。收窄到 room_instance（本就落在单次巡检之内）后，仍能拦住 T2-PHOTO-PIPELINE
+    -- 最常见的误用场景——同一批导入被重复拖入同一房间两次。
+    UNIQUE (room_instance_id, content_hash, deleted_at)
+);
+
+CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
+
+insert:
+INSERT INTO photo (id, inspection_item_id, room_instance_id, rel_path, content_hash, exif_time_ms, source, privacy_flag, updated_at)
+VALUES (:id, :inspection_item_id, :room_instance_id, :rel_path, :content_hash, :exif_time_ms, :source, :privacy_flag, :updated_at);
+
+selectById:
+SELECT *
+FROM photo
+WHERE id = :id;
+
+selectByRoomInstance:
+SELECT *
+FROM photo
+WHERE room_instance_id = :room_instance_id AND deleted_at IS NULL;

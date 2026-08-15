@@ -1,0 +1,28 @@
+CREATE TABLE supplement (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL, -- 逻辑外键 -> inspection.id
+    created_at INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    prev_hash TEXT, -- 可空：链首一条没有上一条；finalize 后仅允许追加带独立时间戳的补充说明
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+-- append-only（finalize 哈希链，关键不变量）：本卡故意不提供 update 查询。
+
+CREATE INDEX idx_supplement_inspection ON supplement (inspection_id);
+
+insert:
+INSERT INTO supplement (id, inspection_id, created_at, text, prev_hash, updated_at)
+VALUES (:id, :inspection_id, :created_at, :text, :prev_hash, :updated_at);
+
+selectById:
+SELECT *
+FROM supplement
+WHERE id = :id;
+
+selectByInspection:
+SELECT *
+FROM supplement
+WHERE inspection_id = :inspection_id AND deleted_at IS NULL
+ORDER BY created_at ASC;

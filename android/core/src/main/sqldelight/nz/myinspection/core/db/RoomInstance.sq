@@ -1,0 +1,27 @@
+-- 房间是实例不是模板常量（docs/research/opensource-indie.md 要点 6）：多卧室同 stable_id 不得冲突，
+-- 靠 instance_no 消歧（如 BEDROOM #1 / BEDROOM #2）。
+CREATE TABLE room_instance (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL, -- 逻辑外键 -> inspection.id
+    room_key TEXT NOT NULL, -- 模板房间键，如 BEDROOM
+    instance_no INTEGER NOT NULL,
+    display_label TEXT NOT NULL, -- 如 "Bedroom 2 / 次卧"
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+CREATE INDEX idx_room_instance_inspection ON room_instance (inspection_id);
+
+insert:
+INSERT INTO room_instance (id, inspection_id, room_key, instance_no, display_label, updated_at)
+VALUES (:id, :inspection_id, :room_key, :instance_no, :display_label, :updated_at);
+
+selectById:
+SELECT *
+FROM room_instance
+WHERE id = :id;
+
+selectByInspection:
+SELECT *
+FROM room_instance
+WHERE inspection_id = :inspection_id AND deleted_at IS NULL;

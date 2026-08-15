@@ -1,0 +1,23 @@
+CREATE TABLE property_item_override (
+    id TEXT NOT NULL PRIMARY KEY,
+    property_id TEXT NOT NULL, -- 逻辑外键 -> property.id
+    stable_id TEXT NOT NULL, -- 对齐 check_item_def.stable_id
+    suppressed INTEGER NOT NULL, -- 0/1；"本物业不存在此项"永久抑制（zInspector Ø 先例：模板现场自愈）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    UNIQUE (property_id, stable_id, deleted_at)
+);
+
+insert:
+INSERT INTO property_item_override (id, property_id, stable_id, suppressed, updated_at)
+VALUES (:id, :property_id, :stable_id, :suppressed, :updated_at);
+
+selectById:
+SELECT *
+FROM property_item_override
+WHERE id = :id;
+
+selectByProperty:
+SELECT *
+FROM property_item_override
+WHERE property_id = :property_id AND deleted_at IS NULL;

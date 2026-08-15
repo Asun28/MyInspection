@@ -1,0 +1,24 @@
+CREATE TABLE phrase_entry (
+    id TEXT NOT NULL PRIMARY KEY,
+    en TEXT NOT NULL,
+    zh TEXT NOT NULL,
+    category TEXT NOT NULL,
+    sort INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+insert:
+INSERT INTO phrase_entry (id, en, zh, category, sort, updated_at)
+VALUES (:id, :en, :zh, :category, :sort, :updated_at);
+
+selectById:
+SELECT *
+FROM phrase_entry
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM phrase_entry
+WHERE deleted_at IS NULL
+ORDER BY sort ASC;

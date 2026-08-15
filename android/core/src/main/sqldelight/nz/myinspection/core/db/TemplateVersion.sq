@@ -1,0 +1,25 @@
+CREATE TABLE template_version (
+    id TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（T1-CANON-HASH 产出，本卡只建列）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+-- 被任何巡检引用后不可变（templateSnapshot 语义等价实现）：本卡故意不提供 update 查询，
+-- 报告多年后须可一致重渲，改措辞/加项一律走新版本行，不改旧行。
+
+insert:
+INSERT INTO template_version (id, type, version, content_hash, updated_at)
+VALUES (:id, :type, :version, :content_hash, :updated_at);
+
+selectById:
+SELECT *
+FROM template_version
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM template_version
+WHERE deleted_at IS NULL;
