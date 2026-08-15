@@ -70,7 +70,11 @@ function Find-GradleManifests {
     $dir = $stack.Pop()
     foreach ($e in (& $Enumerator $dir)) {
       if ($e.PSIsContainer) {
-        if ($SkipDirs -notcontains $e.Name) { $stack.Push($e.FullName) }
+        # R3 round-2 dimension #10（确定性）：目录联接/符号链接（ReparsePoint）绝不下钻——
+        # 否则可能扫出仓外（联接指向仓外目录），或经自引用联接死循环（不终止）。只跳过它本身，
+        # 不影响它旁边正常子树的发现。
+        $isReparse = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name)) { $stack.Push($e.FullName) }
       } elseif ($Names -contains $e.Name) {
         $found.Add($e.FullName)
       }
