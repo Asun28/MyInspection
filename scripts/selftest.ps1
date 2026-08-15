@@ -7573,22 +7573,26 @@ if (Test-Path $fxPrune) { Remove-Item -Recurse -Force $fxPrune }
 try {
   New-Item -ItemType Directory -Force (Join-Path $fxPrune 'real') | Out-Null
   Set-Content (Join-Path $fxPrune 'real/build.gradle') 'real' -Encoding utf8
-  foreach ($skip in @('.gradle', 'build', 'node_modules', '.git')) {
+  # 夹具与判据一律读 $gradleSkipDirs（上面 dot-source $realCLPath -AsLibrary 带出的**同一份**生产列表），不
+  # 自行硬编码副本——R3 finding（本卡合并后首轮）：先前硬编码只列 4 项，check-licenses.ps1 扩到 12 项后
+  # 本测试仍只夹具/断言那 4 项，新增的 8 项（.venv/__pycache__/.pytest_cache/.ruff_cache/.mypy_cache/dist/
+  # .review/_local/runtime/auth/.secrets/.idea/.vscode）从未被证明真的被剪枝。单一真相源杜绝再次漂移。
+  foreach ($skip in $gradleSkipDirs) {
     New-Item -ItemType Directory -Force (Join-Path $fxPrune "$skip/decoy") | Out-Null
     Set-Content (Join-Path $fxPrune "$skip/decoy/build.gradle") 'decoy' -Encoding utf8
   }
   $throwIfExcluded = {
     param($d)
     $leaf = Split-Path -Leaf $d
-    if (@('.gradle', 'build', 'node_modules', '.git') -contains $leaf) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
+    if ($gradleSkipDirs -contains $leaf) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
     Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop
-  }
+  }.GetNewClosure()
   try {
     $pruneHits = @(Find-GradleManifests -Root $fxPrune -Names @('build.gradle') -Enumerator $throwIfExcluded)
     if ($pruneHits.Count -ne 1 -or $pruneHits[0] -ne (Join-Path $fxPrune 'real/build.gradle')) {
       Fail "17cc(prune)：期望只发现 real/build.gradle 一个命中，实得 $($pruneHits.Count) 个（$($pruneHits -join ', ')）。"
     } else {
-      Write-Host '  17cc(prune) 排除目录下钻前剪枝 OK（.gradle/build/node_modules/.git 从未被枚举器碰过；只发现 real/build.gradle）' -ForegroundColor Green
+      Write-Host "  17cc(prune) 排除目录下钻前剪枝 OK（`$gradleSkipDirs 全部 $($gradleSkipDirs.Count) 项——$($gradleSkipDirs -join '/')——均从未被枚举器碰过；只发现 real/build.gradle）" -ForegroundColor Green
     }
   } catch {
     Fail "种子缺陷 17cc(prune)：$($_.Exception.Message) —— Find-GradleManifests 真的下钻进了被排除目录（先枚举全树、再事后过滤的旧行为回归）。"

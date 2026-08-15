@@ -55,7 +55,17 @@ function Scan($name, $license) {
 #   判断目录名是否在排除表——被排除目录从不会被 push 进栈，根本不会被枚举到）──
 # -Enumerator 可注入（默认即真实 Get-ChildItem）：测试用它换成会对指定目录抛错的桩，
 # 不必真的靠 Windows ACL 拒绝读权限去模拟「子树不可读」（省掉 icacls 的平台特定性与清理风险）。
-$gradleSkipDirs = @('.gradle', 'build', 'node_modules', '.git')
+# R3 round-1 finding（本卡合并后首轮）：先前只排除 .gradle/build/node_modules/.git，仍会下钻进其它本仓约定的
+# 本地缓存/产物/机密目录（见 .gitignore）——这些目录内容因机器而异、非确定性地改变 -Strict 结果与遍历成本，
+# 且 .secrets/auth/ 属机密目录，扫描器不该下钻进去。名单逐项对应 .gitignore 的目录型条目（非文件型 *.db 等）。
+$gradleSkipDirs = @(
+  '.gradle', 'build', 'node_modules', '.git',                                  # 既有：Gradle/前端产物缓存 + VCS 元数据
+  '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache',       # Python 工具链缓存
+  'dist',                                                                       # 前端构建产物（frontend/dist/）
+  '.review', '_local', 'runtime',                                              # 本仓运行时/评审/内部产物（CLAUDE.md 约定，均 gitignored）
+  'auth', '.secrets',                                                          # 机密目录——不该下钻
+  '.idea', '.vscode'                                                           # IDE 本地配置
+)
 function Find-GradleManifests {
   param(
     [Parameter(Mandatory)][string]$Root,
