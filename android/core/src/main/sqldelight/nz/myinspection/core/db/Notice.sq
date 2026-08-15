@@ -3,19 +3,28 @@ CREATE TABLE notice (
     inspection_id TEXT NOT NULL, -- 逻辑外键 -> inspection.id
     full_text TEXT NOT NULL, -- 全文快照
     generated_at INTEGER NOT NULL, -- 一行 notice 恒在生成的那一刻插入，兼作行创建时间，不另设 created_at
+    scheduled_at INTEGER NOT NULL, -- 生成时刻的巡检预定时间快照——T4-NOTICES dod_assert 原文"存档记录含…
+    -- 预定巡检时间…"明文要求；不能只读 inspection.scheduled_at 现查，那样巡检改期后旧通知的送达期审计
+    -- 依据会跟着变，破坏"存快照非模板 id"的同一条纪律（需求 §10）。
     sent_via TEXT, -- 可空：生成后尚未发送；app 自己不发送，人工发送后回记
     sent_at INTEGER,
     lead_hours INTEGER NOT NULL, -- 提前量小时数；≥48 且 ≤14 天的上下限校验归 T4-COMPLIANCE-ENGINE
     validation_snapshot TEXT NOT NULL, -- 生成时的合规校验结果快照（JSON）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- 送达两列必须同生共死：都为 NULL（未送达）或都非 NULL（已送达）。没有这条，insert 就能绕过
+    -- recordDelivery 的一次性锁，直接插进 sent_at 有值但 sent_via 是 NULL 的坏状态，永久留在审计记录里。
+    CHECK (
+        (sent_via IS NULL AND sent_at IS NULL)
+        OR (sent_via IS NOT NULL AND sent_at IS NOT NULL)
+    )
 );
 
 CREATE INDEX idx_notice_inspection ON notice (inspection_id);
 
 insert:
-INSERT INTO notice (id, inspection_id, full_text, generated_at, sent_via, sent_at, lead_hours, validation_snapshot, updated_at)
-VALUES (:id, :inspection_id, :full_text, :generated_at, :sent_via, :sent_at, :lead_hours, :validation_snapshot, :updated_at);
+INSERT INTO notice (id, inspection_id, full_text, generated_at, scheduled_at, sent_via, sent_at, lead_hours, validation_snapshot, updated_at)
+VALUES (:id, :inspection_id, :full_text, :generated_at, :scheduled_at, :sent_via, :sent_at, :lead_hours, :validation_snapshot, :updated_at);
 
 selectById:
 SELECT *

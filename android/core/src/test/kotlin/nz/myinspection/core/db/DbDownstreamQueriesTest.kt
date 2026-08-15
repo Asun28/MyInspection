@@ -5,6 +5,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -77,11 +78,12 @@ class DbDownstreamQueriesTest {
         assertEquals(overrideId, restored.id, "restore reuses the existing row rather than inserting a new one")
     }
 
-    private fun insertUnsentNotice(inspectionId: String): String {
+    private fun insertUnsentNotice(inspectionId: String, scheduledAt: Long = now + 200_000L): String {
         val noticeId = uuid.next()
         database.noticeQueries.insert(
             id = noticeId, inspection_id = inspectionId, full_text = "48h notice text", generated_at = now,
-            sent_via = null, sent_at = null, lead_hours = 72, validation_snapshot = "{\"pass\":true}", updated_at = now,
+            scheduled_at = scheduledAt, sent_via = null, sent_at = null, lead_hours = 72,
+            validation_snapshot = "{\"pass\":true}", updated_at = now,
         )
         return noticeId
     }
@@ -128,6 +130,86 @@ class DbDownstreamQueriesTest {
             sent_via = "EMAIL", lead_hours = 50, validation_snapshot = "{\"pass\":true}", updated_at = now + 2, id = noticeId,
         ).value
         assertEquals(1L, realRecord, "a real delivery record must still succeed after a rejected NULL attempt")
+    }
+
+    @Test
+    fun `notice scheduled_at is stored as its own independent snapshot`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val snapshotScheduledAt = now + 999_000L
+
+        val noticeId = insertUnsentNotice(inspectionId, scheduledAt = snapshotScheduledAt)
+
+        val row = database.noticeQueries.selectById(noticeId).executeAsOne()
+        assertEquals(
+            snapshotScheduledAt,
+            row.scheduled_at,
+            "scheduled_at must be its own stored column, not derived live from inspection.scheduled_at at read time",
+        )
+    }
+
+    @Test
+    fun `notice rejects a mismatched sent_via+sent_at pair at insert time`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+
+        val sentAtOnly = assertFailsWith<Exception>("sent_at set with sent_via NULL must violate the CHECK constraint") {
+            database.noticeQueries.insert(
+                id = uuid.next(), inspection_id = inspectionId, full_text = "t", generated_at = now,
+                scheduled_at = now + 1000L, sent_via = null, sent_at = now, lead_hours = 72,
+                validation_snapshot = "{}", updated_at = now,
+            )
+        }
+        assertTrue(sentAtOnly.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK violation, got: ${sentAtOnly.message}")
+
+        val sentViaOnly = assertFailsWith<Exception>("sent_via set with sent_at NULL must violate the CHECK constraint") {
+            database.noticeQueries.insert(
+                id = uuid.next(), inspection_id = inspectionId, full_text = "t", generated_at = now,
+                scheduled_at = now + 1000L, sent_via = "EMAIL", sent_at = null, lead_hours = 72,
+                validation_snapshot = "{}", updated_at = now,
+            )
+        }
+        assertTrue(sentViaOnly.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK violation, got: ${sentViaOnly.message}")
+    }
+
+    @Test
+    fun `supplement prev_hash anchors to the inspection data_hash and stores its own chain_hash`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        database.inspectionQueries.finalizeIfDraft(finalized_at = now + 1, data_hash = "inspection-data-hash", updated_at = now + 1, id = inspectionId).value
+
+        val supplementId = uuid.next()
+        database.supplementQueries.insert(
+            id = supplementId, inspection_id = inspectionId, created_at = now + 2, text = "landlord to fix gate latch",
+            prev_hash = "inspection-data-hash", chain_hash = "chain-hash-1", updated_at = now + 2,
+        )
+
+        val row = database.supplementQueries.selectById(supplementId).executeAsOne()
+        assertEquals("inspection-data-hash", row.prev_hash, "the first supplement's prev_hash must anchor to the inspection's data_hash, not be NULL")
+        assertEquals("chain-hash-1", row.chain_hash, "chain_hash must be a real stored column so a later verifyChain has something to check against")
+    }
+
+    @Test
+    fun `supplement selectByInspection breaks created_at ties deterministically by id`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        database.inspectionQueries.finalizeIfDraft(finalized_at = now + 1, data_hash = "d0", updated_at = now + 1, id = inspectionId).value
+
+        // Two supplements inserted with the *same* created_at millisecond — sort must not depend on
+        // insertion order or SQLite's unspecified tie-handling; it must be deterministic by id.
+        val sameMoment = now + 2
+        val idA = uuid.next()
+        val idB = uuid.next()
+        val (first, second) = if (idA < idB) idA to idB else idB to idA
+        database.supplementQueries.insert(id = second, inspection_id = inspectionId, created_at = sameMoment, text = "second by id", prev_hash = "d0", chain_hash = "c2", updated_at = sameMoment)
+        database.supplementQueries.insert(id = first, inspection_id = inspectionId, created_at = sameMoment, text = "first by id", prev_hash = "d0", chain_hash = "c1", updated_at = sameMoment)
+
+        val ordered = database.supplementQueries.selectByInspection(inspectionId).executeAsList()
+        assertEquals(listOf(first, second), ordered.map { it.id }, "tied created_at values must break ties by id, deterministically")
     }
 
     @Test

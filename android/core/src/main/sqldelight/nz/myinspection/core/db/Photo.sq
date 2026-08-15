@@ -13,6 +13,9 @@ CREATE TABLE photo (
 );
 
 CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
+-- content_hash 打头的索引：orphanedContentHashes 按 content_hash 做无 room_instance 范围限定的
+-- 全表自关联查找，idx_photo_active 以 room_instance_id 打头覆盖不到这个访问模式。
+CREATE INDEX idx_photo_content_hash ON photo (content_hash);
 
 -- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库唯一会让同一张照片内容永远不能合法出现
 -- 在两次不同巡检里（例如同一处缺陷在 Ingoing 与 Exit 分别拍到时，字节偶然相同；或用户有意把同一张

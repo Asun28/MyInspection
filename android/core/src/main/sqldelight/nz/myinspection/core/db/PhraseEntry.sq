@@ -20,8 +20,10 @@ SELECT *
 FROM phrase_entry
 WHERE id = :id;
 
+-- `, id` tie-breaker：理由同 CheckItemDef.sq 的同名注释——sort 不保证互不相同，短语显示顺序虽不进
+-- canonical 哈希域，但确定性排序仍是一致体验/可测试性的基本要求，顺手一并改正。
 selectActive:
 SELECT *
 FROM phrase_entry
 WHERE deleted_at IS NULL
-ORDER BY sort ASC;
+ORDER BY sort ASC, id ASC;

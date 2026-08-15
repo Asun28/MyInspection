@@ -31,8 +31,10 @@ SELECT *
 FROM check_item_def
 WHERE id = :id;
 
+-- `, id` tie-breaker：sort 不保证互不相同，单靠它排序在两行同 sort 时顺序不确定——T1-CANON-HASH
+-- 的哈希域要求 items[] 按确定的"模板序"排列，同值必须有次级排序键兜底确定性。
 selectByTemplateVersion:
 SELECT *
 FROM check_item_def
 WHERE template_version_id = :template_version_id AND deleted_at IS NULL
-ORDER BY sort ASC;
+ORDER BY sort ASC, id ASC;
