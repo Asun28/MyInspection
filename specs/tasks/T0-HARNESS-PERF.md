@@ -1,6 +1,6 @@
 ---
 id: T0-HARNESS-PERF
-title: 横切优化 selftest 与 CI 墙钟时间（约 280 行 harness/测试改动）
+title: 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness/测试改动）
 depends_on: [T0-GATE-HARDENING]
 status: in-review
 branch: T0-HARNESS-PERF
@@ -21,7 +21,7 @@ non_goals:
   - 优化 R3 模型评审耗时
 dod_command: if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch 'function Invoke-SelftestAll') -and (Select-String -Path .github/workflows/scaffold-selftest.yml -SimpleMatch 'shard: seeded'))) { exit 1 }
 dod_exit: 0
-dod_assert: core 分片退出 0；8.2e 证明 2 OS×3 分片显式接线、矩阵变异必红、all 聚合器并发 barrier、Git/非 Git 快照、失败传播、StrictLint 转发及清理。完整 all 另须退出 0；无竞争同机样本不高于 300 秒。
+dod_assert: core 分片退出 0；8.2e 证明 2 OS×3 分片显式接线、runner/矩阵变异必红、all 聚合器并发 barrier、Git 快照、非 Git fail-closed、失败传播、StrictLint 三态及清理。完整 all 另须退出 0；无竞争同机样本不高于 300 秒。
 review_gate: codex {verdict:pass}
 hygiene: 聚合器与 CI 接线均用行为/变异夹具锁定，冗余断言经 R4 检视
 doc_sync: CLAUDE.md、docs/DELIVERY-CHAINS.md、docs/scaffold-architecture.html
@@ -31,7 +31,7 @@ doc_sync: CLAUDE.md、docs/DELIVERY-CHAINS.md、docs/scaffold-architecture.html
 
 ## 产出与尺寸声明
 
-这是横切 harness 性能卡，明确批准约 280 行生产/回归测试改动，范围限于 selftest 分片聚合、CI 接线与三份权威说明。当前顺序基线为 552.4 秒；目标是在不减少任何闸门或 OS 覆盖的前提下，把默认本地墙钟降到 300 秒以内。
+这是横切 harness 性能卡，明确批准约 300 行生产/回归测试改动，范围限于 selftest 分片聚合、CI 接线与三份权威说明。当前顺序基线为 552.4 秒；目标是在不减少任何闸门或 OS 覆盖的前提下，把默认本地墙钟降到 300 秒以内。
 
 ## 验收
 
