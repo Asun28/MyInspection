@@ -1517,3 +1517,11 @@
 - rule: 判「这活归哪张卡」时，**先比两张卡的 allow_paths，再读卡文**：谁的 allow_paths 覆盖那个路径、谁就负责建；若某卡 allow_paths 里有一条**从未被其产出使用**的路径，那通常正是规划时给它留的位置，别当冗余。**推论（冻结点卡尤其重要）**：下游卡的 allow_paths 若不含被冻结目录，则它们卡文点名要的 API（查询/类型）**必须由拥有该目录的那张卡一次提供**——否则下游要么卡死、要么被迫破例写进冻结目录（L206 的复发路径）。补这类 API 时**每条都要能指到要求它的那张卡的原文**，指不出就不加：冻结后删不掉的臆想 API 比缺失更贵。
 - enforced_by: 
 - refs: 
+
+## L212
+- date: 2026-08-15 ｜ tags: cards,scope,planning,review,orchestration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 一张卡卡在评审上反复三轮，争的却不是实现：评审说「卡里承诺的 X 没做」，执行者说「X 的落点不在我 allow_paths 里，我做不了」——两边都对。T0-GATE-HARDENING 实测：仲裁段写了「TD2 置 carded」「变异证据贴进卡片记录」，而这两件事的落点（tech-debt 表、新卡、**卡自身**）全在 allow_paths 之外，白烧三轮。
+- root_cause: 写卡的人（编排者）把**只能在 master 上做的动作**写进了一张 feature 卡的义务里。按 L18，卡片元数据（卡文 / tech-debt 表 / 新建卡）一律只落 master、不进功能分支；于是这类义务从被写下的那一刻起就无解——执行者若照做，产物会混进本卡 diff 被范围闸拦下，或逼着再破例扩 allow_paths（L206 复发）。评审只看「卡说了什么 vs diff 做了什么」，不会替你发现这条义务本身不可能完成。
+- rule: 写完一张卡的 `dod_assert` / `doc_sync` / 仲裁段后，**逐条对着自己的 allow_paths 过一遍**：这条义务要动哪个文件？该文件在 allow_paths 里吗？不在就必须当场二选一——① 把落点改到 allow_paths 内；② 在卡里**显式写明「此项由编排者在 master 完成，不属本卡 diff」**。**默认属于 master 侧的三类**：卡文自身、`specs/tech-debt-tracker.md`、新建任务卡。另：`-Local` ship 无 PR 无 CI，凡「贴进 PR / 引用 CI 产物」的证据要求都不成立，证据落点只能是「执行者交报告 → 编排者 R5 在 master 追加」。
+- enforced_by: 
+- refs: 
