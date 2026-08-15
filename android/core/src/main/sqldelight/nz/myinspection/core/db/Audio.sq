@@ -13,15 +13,17 @@ CREATE INDEX idx_audio_inspection_item ON audio (inspection_item_id);
 
 -- finalize 只读强制（关键不变量）：巡检 FINALIZED 后不得再挂新音频，否则 data_hash 锁定的快照会被
 -- 事后追加内容破坏（原始音频本身"永远保留"是不同的不变量——那条管的是不删旧的，这条管的是不加新的）。
--- 音频没有直接的 inspection_id 列，经 inspection_item 两跳查父巡检的 finalized_at。
+-- 音频没有直接的 inspection_id 列，经 inspection_item 两跳查父巡检的 finalized_at；用 EXISTS+JOIN 而非
+-- 嵌套标量子查询——inspection_item_id 若指向不存在的行，标量子查询链会返回 NULL，`NULL IS NULL` 为真、
+-- guard 反而放行（孤儿行的口子）。
 insert:
 INSERT INTO audio (id, inspection_item_id, rel_path, content_hash, updated_at)
 SELECT :id, :inspection_item_id, :rel_path, :content_hash, :updated_at
-WHERE (
-  SELECT finalized_at FROM inspection WHERE id = (
-    SELECT inspection_id FROM inspection_item WHERE id = :inspection_item_id
-  )
-) IS NULL;
+WHERE EXISTS (
+  SELECT 1 FROM inspection_item ii
+  JOIN inspection i ON i.id = ii.inspection_id
+  WHERE ii.id = :inspection_item_id AND i.finalized_at IS NULL
+);
 
 selectById:
 SELECT *

@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * RFC 9562 UUIDv7 契约测试（T1-SCHEMA-CORE dod_assert 六项 + R3 评审要求的第七项计数器耗尽回归）：
+ * RFC 9562 UUIDv7 契约测试（七项）：
  * 固定向量（全 128 位逐字节）/ version 位 / variant 位 / 唯一性 / 同毫秒非降序 / 时钟回拨冻结 / 计数器耗尽不环绕。
  *
  * L165：断言面必须恰好等于被测契约。固定向量与时钟回拨两项都靠注入 [ClockMs]（+ 固定向量额外注入
@@ -135,9 +135,8 @@ class Uuid7GeneratorTest {
 
     @Test
     fun `counter exhaustion within a frozen millisecond advances time instead of wrapping`() {
-        // R3 评审指出的真实 bug：计数器种子若恰好取到 COUNTER_MASK（42 位全 1），同毫秒内下一次递增
-        // 会越界；旧实现对此取模环绕，产出的第二枚 UUID 反而比第一枚小，破坏单调性。这里显式把种子钉在
-        // 上限，确定性地触发这条此前从未被走到的分支。
+        // 计数器种子若恰好取到 COUNTER_MASK（42 位全 1），同毫秒内下一次递增会越界；这里显式把种子钉在
+        // 上限，确定性地触发耗尽分支（不环绕，见 Uuid7Generator 文档）。
         val fixedMs = 1_734_000_000_000L
         val maxCounterSeed = 0x3FFFFFFFFFFL // 42 位全 1，即 COUNTER_MASK 本身
         val generator = Uuid7Generator(

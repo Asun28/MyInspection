@@ -1,11 +1,12 @@
 CREATE TABLE inspection (
     id TEXT NOT NULL PRIMARY KEY,
     type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
+    property_id TEXT NOT NULL, -- 逻辑外键 -> property.id；每次巡检恒属于某处物业，即便自住（无租约）也要能
+    -- 追溯到具体物业——tenancy_id 可空时没有其它路径能关联 property，历史/canonical 快照会失联。
     tenancy_id TEXT, -- 可空：自住物业（OWNER_OCCUPIED）无租约
-    template_version_id TEXT NOT NULL, -- 逻辑外键 -> template_version.id；该次巡检当时用的**具体**模板版本
+    template_version_id TEXT NOT NULL, -- 逻辑外键 -> template_version.id；该次巡检当时用的具体模板版本
     -- （不可变行，见 TemplateVersion.sq）——没有这一列就只能靠 inspection_item.stable_id 反推，
-    -- 但 stable_id 本身不带版本号，多年后无法确定当时到底是哪一版模板内容，canonical 哈希/报告重渲会失真
-    -- （R3 评审指出，本卡此前的缺口，已改正）。
+    -- 但 stable_id 不带版本号，多年后无法确定当时是哪一版模板内容，canonical 哈希/报告重渲会失真。
     scheduled_at INTEGER NOT NULL,
     previous_inspection_id TEXT, -- 逻辑外键 -> inspection.id；时间上的前一次巡检（≠ baseline，双轨分开存）
     baseline_inspection_id TEXT, -- 逻辑外键 -> inspection.id；该次巡检当时用的基线快照（历史事实，写死不改）
@@ -13,17 +14,25 @@ CREATE TABLE inspection (
     finalized_at INTEGER,
     data_hash TEXT, -- finalize 时写入；导出 PDF 页脚写入该哈希，自证未事后修改
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- status 与 finalized_at/data_hash 必须联动一致：DRAFT 时两者都还没有值，FINALIZED 时两者都必须有值。
+    -- 结构性约束（不是触发器/业务逻辑），拦住「FINALIZED 却没时间戳/哈希」或「未知 status 值」这类无效状态，
+    -- 而不是靠调用方自律。
+    CHECK (
+        (status = 'DRAFT' AND finalized_at IS NULL AND data_hash IS NULL)
+        OR (status = 'FINALIZED' AND finalized_at IS NOT NULL AND data_hash IS NOT NULL)
+    )
 );
 
+CREATE INDEX idx_inspection_property ON inspection (property_id);
 CREATE INDEX idx_inspection_tenancy ON inspection (tenancy_id);
 CREATE INDEX idx_inspection_template_version ON inspection (template_version_id);
 CREATE INDEX idx_inspection_previous ON inspection (previous_inspection_id);
 CREATE INDEX idx_inspection_baseline ON inspection (baseline_inspection_id);
 
 insert:
-INSERT INTO inspection (id, type, tenancy_id, template_version_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, updated_at)
-VALUES (:id, :type, :tenancy_id, :template_version_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :updated_at);
+INSERT INTO inspection (id, type, property_id, tenancy_id, template_version_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, updated_at)
+VALUES (:id, :type, :property_id, :tenancy_id, :template_version_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :updated_at);
 
 selectById:
 SELECT *

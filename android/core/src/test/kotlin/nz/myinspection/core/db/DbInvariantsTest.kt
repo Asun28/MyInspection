@@ -5,17 +5,21 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * CLAUDE.md 关键不变量的 JVM 内存库回归测试（JdbcSqliteDriver in-memory，非 mock）：
  *  1. finalize 后原始条目只读：对 FINALIZED 巡检既不能 UPDATE 既有 inspection_item，
- *     也不能 INSERT 新的 inspection_item/room_instance/photo/audio（R3 评审指出本卡最初只守了
- *     update 侧——insert 侧不守，FINALIZED 后仍能悄悄塞新内容，一样会让 data_hash 锁定的快照失真）。
- *     supplement 是唯一的 append-only 例外，不适用此闸。
- *  2. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线，且真建一个 EXIT 巡检、
+ *     也不能 INSERT 新的 inspection_item/room_instance/photo/audio；supplement 是唯一的
+ *     append-only 例外，不适用此闸。
+ *  2. inspection 的 status/finalized_at/data_hash 三者必须联动一致（结构性 CHECK 约束）。
+ *  3. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线，且真建一个 EXIT 巡检、
  *     经这个指针解析出同一个 Routine（不是只测指针本身被设对了——那样测不出 Exit 侧是否仍在假设
- *     "必有 INGOING"，R3 评审指出的缺口）。
+ *     "必有 INGOING"）。
+ *
+ * 引用完整性的缺失/错配父行测试（EXISTS 守卫拦孤儿行/跨巡检串接数据）另见 DbReferentialIntegrityTest。
  */
 class DbInvariantsTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -38,9 +42,9 @@ class DbInvariantsTest {
     private val now = DbTestFixtures.NOW
 
     private fun setUpFinalizedInspectionWithItem(): Triple<String, String, String> {
-        DbTestFixtures.insertProperty(database, uuid, now)
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
         val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, now = now)
         database.inspectionQueries.finalizeIfDraft(finalized_at = now + 1, data_hash = "deadbeef", updated_at = now + 1, id = inspectionId).value
@@ -62,8 +66,9 @@ class DbInvariantsTest {
 
     @Test
     fun `update against a draft inspection succeeds`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
         val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, now = now)
 
@@ -131,8 +136,9 @@ class DbInvariantsTest {
 
     @Test
     fun `finalizeIfDraft is a one-shot guard on inspection itself`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
 
         val firstFinalize = database.inspectionQueries.finalizeIfDraft(
             finalized_at = now + 1, data_hash = "abc123", updated_at = now + 1, id = inspectionId,
@@ -149,6 +155,36 @@ class DbInvariantsTest {
     }
 
     @Test
+    fun `inspection rejects a FINALIZED row with no finalized_at or data_hash`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val ex = assertFailsWith<Exception>("an incomplete FINALIZED state must violate the CHECK constraint") {
+            database.inspectionQueries.insert(
+                id = uuid.next(), type = "ROUTINE", property_id = propertyId, tenancy_id = null,
+                template_version_id = templateVersionId, scheduled_at = now, previous_inspection_id = null,
+                baseline_inspection_id = null, status = "FINALIZED", finalized_at = null, data_hash = null,
+                updated_at = now,
+            )
+        }
+        assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK constraint violation, got: ${ex.message}")
+    }
+
+    @Test
+    fun `inspection rejects an unknown status value`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val ex = assertFailsWith<Exception>("an unrecognised status must violate the CHECK constraint") {
+            database.inspectionQueries.insert(
+                id = uuid.next(), type = "ROUTINE", property_id = propertyId, tenancy_id = null,
+                template_version_id = templateVersionId, scheduled_at = now, previous_inspection_id = null,
+                baseline_inspection_id = null, status = "BOGUS", finalized_at = null, data_hash = null,
+                updated_at = now,
+            )
+        }
+        assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK constraint violation, got: ${ex.message}")
+    }
+
+    @Test
     fun `tenancy with no Ingoing can designate a Routine inspection as its baseline, and an EXIT resolves it`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
@@ -159,7 +195,7 @@ class DbInvariantsTest {
             tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, updated_at = now,
         )
         val routineInspectionId = DbTestFixtures.insertDraftInspection(
-            database, uuid, templateVersionId, tenancyId = tenancyId, now = now,
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, now = now,
         )
 
         val before = database.tenancyQueries.selectById(tenancyId).executeAsOne()
@@ -175,7 +211,7 @@ class DbInvariantsTest {
         // 真建一个 EXIT 巡检，其 baseline_inspection_id 从 tenancy 指针解析写入（模拟 T2/T3 应用层在建
         // EXIT 时会做的事：读 tenancy.baseline_inspection_id，不假设存在 type=INGOING 的巡检）。
         val exitInspectionId = DbTestFixtures.insertDraftInspection(
-            database, uuid, templateVersionId, tenancyId = tenancyId, type = "EXIT",
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "EXIT",
             previousInspectionId = routineInspectionId,
             baselineInspectionId = afterDesignation.baseline_inspection_id,
             now = now + 2,

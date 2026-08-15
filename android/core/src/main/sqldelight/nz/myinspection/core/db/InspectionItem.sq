@@ -11,7 +11,7 @@ CREATE TABLE inspection_item (
 );
 
 -- 部分唯一索引而非表级 UNIQUE(...,deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，deleted_at
--- 恒为 NULL 的活跃行之间表级约束形同虚设、拦不住重复（R3 评审指出，本卡此前的通病，已改正）。
+-- 恒为 NULL 的活跃行之间表级约束形同虚设、拦不住重复。
 CREATE UNIQUE INDEX idx_inspection_item_active ON inspection_item (inspection_id, room_instance_id, stable_id) WHERE deleted_at IS NULL;
 -- room_instance_id 作为查询/关联键需要自己的可用最左索引（上面那条唯一索引以 inspection_id 打头，
 -- 不覆盖单独按 room_instance_id 查找的场景）。
@@ -19,10 +19,15 @@ CREATE INDEX idx_inspection_item_room_instance ON inspection_item (room_instance
 
 -- finalize 只读强制（关键不变量）：巡检 FINALIZED 后不得再挂新检查项，否则 data_hash 锁定的快照会被
 -- 事后追加内容破坏。INSERT…SELECT…WHERE 守卫，未命中 0 行受影响（INSERT…VALUES 语法无法带 WHERE）。
+-- 两个 EXISTS 缺一不可：① 父 inspection 必须真的存在且是 DRAFT（标量子查询 IS NULL 在父行不存在时会
+-- 误判通过——NULL IS NULL 为真——那是孤儿行的口子）；② room_instance_id 必须真的属于这同一个
+-- inspection_id，不能是从别的巡检借来的 id（否则能造出「检查项挂在 A 巡检、房间实例却属于 B 巡检」的
+-- 跨巡检串接数据）。
 insert:
 INSERT INTO inspection_item (id, inspection_id, room_instance_id, stable_id, status, note, wear_or_damage, updated_at)
 SELECT :id, :inspection_id, :room_instance_id, :stable_id, :status, :note, :wear_or_damage, :updated_at
-WHERE (SELECT finalized_at FROM inspection WHERE id = :inspection_id) IS NULL;
+WHERE EXISTS (SELECT 1 FROM inspection WHERE id = :inspection_id AND finalized_at IS NULL)
+  AND EXISTS (SELECT 1 FROM room_instance WHERE id = :room_instance_id AND inspection_id = :inspection_id);
 
 selectById:
 SELECT *
@@ -34,9 +39,8 @@ SELECT *
 FROM inspection_item
 WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
 
--- finalize 只读强制（关键不变量）：inspection_item 自身没有 finalized_at 列，闸门须子查询父 inspection——
--- 这正是 DeepSeek 草稿里 `WHERE inspection_id = ? AND finalized_at IS NULL` 编不出来的那个 bug（该列根本
--- 不在这张表上）。对 FINALIZED 巡检下的条目做 UPDATE 必须 0 行受影响。
+-- finalize 只读强制（关键不变量）：inspection_item 自身没有 finalized_at 列，闸门须子查询父 inspection。
+-- 对 FINALIZED 巡检下的条目做 UPDATE 必须 0 行受影响。
 updateStatusIfDraft:
 UPDATE inspection_item
 SET status = :status, note = :note, updated_at = :updated_at

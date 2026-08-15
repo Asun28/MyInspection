@@ -4,13 +4,15 @@ CREATE TABLE phrase_entry (
     zh TEXT NOT NULL,
     category TEXT NOT NULL,
     sort INTEGER NOT NULL,
+    applies_to_statuses TEXT, -- 可空：JSON 编码的评级枚举子集（如仅 FAIR 时推荐）；NULL=不限状态，任何状态都可用
+    shortcut TEXT, -- 可空：输入快捷键（如 "FWT" → 展开为整条短语），T2-PHRASELIB 数据层字段同名
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
 
 insert:
-INSERT INTO phrase_entry (id, en, zh, category, sort, updated_at)
-VALUES (:id, :en, :zh, :category, :sort, :updated_at);
+INSERT INTO phrase_entry (id, en, zh, category, sort, applies_to_statuses, shortcut, updated_at)
+VALUES (:id, :en, :zh, :category, :sort, :applies_to_statuses, :shortcut, :updated_at);
 
 selectById:
 SELECT *

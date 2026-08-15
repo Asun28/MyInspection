@@ -20,8 +20,7 @@ object SystemClockMs : ClockMs {
 /**
  * 随机位源：每次 `next()` 调用，[Uuid7Generator] 从这里取 64 位随机值、按需只用低 N 位——
  * 换新计数器种子（42 位）取一次，rand_b 低 32 位再取一次。生产默认 [SecureUuid7Random]；
- * 测试注入固定序列，让"固定向量"测试能对完整 128 位输出逐字节断言，而不只测时间戳前缀
- * （R3 评审指出：只测前缀 = rand_a/rand_b 打包逻辑从未被验证过）。
+ * 测试注入固定序列，让"固定向量"测试能对完整 128 位输出逐字节断言，不止时间戳前缀。
  */
 fun interface Uuid7RandomSource {
     fun nextLong(): Long
@@ -44,12 +43,11 @@ object SecureUuid7Random : Uuid7RandomSource {
  *
  * 单调性：同一观测毫秒内（含时钟回拨后冻结的那个毫秒），不重新随机化 rand_a/rand_b 的高位，而是
  * 把它们当作一个 42 位计数器递增（RFC 9562 "Method 1: Fixed-Length Dedicated Counter"）。
- * **计数器耗尽处理**（R3 评审指出的真实 bug，已修正）：计数器种子是随机取的 42 位值，若恰好取到
- * 贴近上限的起点，同毫秒内递增几次就会越过 [COUNTER_MASK]——旧实现对此取模环绕，会把计数器绕回
- * 一个更小的值，产出的 UUID 反而变小，破坏单调性。改法：递增会越界时，不环绕，而是把内部记录的
- * 时间戳前推 1ms 并换一枚新种子——序列依旧严格递增；真实时钟追上后自然接续，不产生可观测的错误。
- * 计数器之外的低位每次调用都取新鲜随机数，保持不可预测性。时钟回拨：若观测时间早于上次记录的时间戳，
- * 冻结在上次时间戳（不倒退，卡片已定语义）。
+ * **计数器耗尽处理**：计数器种子是随机取的 42 位值，若恰好取到贴近上限的起点，同毫秒内递增几次就会
+ * 越过 [COUNTER_MASK]。对此**绝不环绕**（环绕会把计数器绕回一个更小的值、产出的 UUID 反而变小，破坏
+ * 单调性）——递增越界时，把内部记录的时间戳前推 1ms 并换一枚新种子，序列依旧严格递增；真实时钟追上后
+ * 自然接续，不产生可观测的错误。计数器之外的低位每次调用都取新鲜随机数，保持不可预测性。时钟回拨：
+ * 若观测时间早于上次记录的时间戳，冻结在上次时间戳（不倒退，卡片已定语义）。
  */
 class Uuid7Generator(
     private val clock: ClockMs = SystemClockMs,
@@ -129,7 +127,7 @@ class Uuid7Generator(
     }
 
     private companion object {
-        /** 48 位毫秒时间戳掩码。用变量掩码而非超出 Long 范围的字面量（见草稿的溢出坑，本卡明确修正）。 */
+        /** 48 位毫秒时间戳掩码。 */
         const val TIMESTAMP_MASK = 0xFFFFFFFFFFFFL
         /** 42 位单调计数器掩码：12 位 rand_a + 30 位 rand_b 高段。 */
         const val COUNTER_MASK = 0x3FFFFFFFFFFL

@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 /**
  * 软删除唯一性一律用**部分唯一索引**（`CREATE UNIQUE INDEX … WHERE deleted_at IS NULL`），不用表级
  * `UNIQUE(业务键, deleted_at)`：SQLite 的 `UNIQUE` 把 `NULL` 视为互不相等，`deleted_at` 恒为 `NULL` 的
- * 活跃行之间表级约束形同虚设、根本拦不住重复（R3 评审指出，本卡最初六张表全部踩了这个坑，已改正）。
+ * 活跃行之间表级约束形同虚设、根本拦不住重复。
  *
  * 这里对每一条部分唯一索引都验证：插入两行拥有相同业务键的**活跃**记录，第二行必须被数据库真实拒绝
  * （不是"看起来对"——SQLite 抛出的约束异常里带 `UNIQUE constraint failed`，逐条核对这句话，防止某条
@@ -58,21 +58,22 @@ class DbUniqueConstraintsTest {
         database.checkItemDefQueries.insert(
             id = uuid.next(), template_version_id = templateVersionId, stable_id = "wall.paint",
             area = "Bedroom", room = "BEDROOM", text_en = "Wall paint", text_zh = "墙面油漆",
-            allowed_statuses = "[\"GOOD\",\"FAIR\",\"POOR\",\"NOT_APPLICABLE\"]", updated_at = now,
+            allowed_statuses = "[\"GOOD\",\"FAIR\",\"POOR\",\"NOT_APPLICABLE\"]", photo_rule = null, sort = 1, updated_at = now,
         )
         assertUniqueViolation {
             database.checkItemDefQueries.insert(
                 id = uuid.next(), template_version_id = templateVersionId, stable_id = "wall.paint",
                 area = "Bedroom", room = "BEDROOM", text_en = "dup", text_zh = "dup",
-                allowed_statuses = "[]", updated_at = now,
+                allowed_statuses = "[]", photo_rule = null, sort = 2, updated_at = now,
             )
         }
     }
 
     @Test
     fun `room_instance rejects a second active row for the same inspection+room_key+instance_no`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         database.roomInstanceQueries.insert(
             id = uuid.next(), inspection_id = inspectionId, room_key = "BEDROOM", instance_no = 1,
             display_label = "Bedroom 1", updated_at = now,
@@ -87,8 +88,9 @@ class DbUniqueConstraintsTest {
 
     @Test
     fun `inspection_item rejects a second active row for the same inspection+room_instance+stable_id`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
         DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, now = now)
         assertUniqueViolation {
@@ -101,8 +103,9 @@ class DbUniqueConstraintsTest {
 
     @Test
     fun `photo rejects a second active row for the same room_instance+content_hash`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, templateVersionId, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
         database.photoQueries.insert(
             id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,

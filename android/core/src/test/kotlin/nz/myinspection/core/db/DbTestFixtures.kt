@@ -25,10 +25,11 @@ internal object DbTestFixtures {
         return id
     }
 
-    /** 建一间 DRAFT 巡检（自带 template_version 引用），返回其 id。 */
+    /** 建一间 DRAFT 巡检（自带 property + template_version 引用），返回其 id。 */
     fun insertDraftInspection(
         db: MyInspectionDatabase,
         uuid: Uuid7Generator,
+        propertyId: String,
         templateVersionId: String,
         tenancyId: String? = null,
         type: String = "ROUTINE",
@@ -40,6 +41,7 @@ internal object DbTestFixtures {
         db.inspectionQueries.insert(
             id = id,
             type = type,
+            property_id = propertyId,
             tenancy_id = tenancyId,
             template_version_id = templateVersionId,
             scheduled_at = now,
