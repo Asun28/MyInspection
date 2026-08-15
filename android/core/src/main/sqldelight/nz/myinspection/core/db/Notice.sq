@@ -26,3 +26,12 @@ selectByInspection:
 SELECT *
 FROM notice
 WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
+
+-- 回记送达（T4-NOTICES 流程最后一步：生成→复制→用户自行发送→回 app 记送达方式+时刻；其 allow_paths
+-- 不含 core/db/）。lead_hours 重算与 validation_snapshot 更新的逻辑归 T4-NOTICES，本卡只给机械写路径。
+-- `AND sent_at IS NULL` 令这一步一次性——T4-NOTICES dod_assert 原文"回记送达后提前量重算并锁定"，
+-- 锁定语义落在这条 WHERE 上：已回记过的 notice 再调用一次是 0 行受影响，不会覆盖第一次的送达记录。
+recordDelivery:
+UPDATE notice
+SET sent_via = :sent_via, sent_at = :sent_at, lead_hours = :lead_hours, validation_snapshot = :validation_snapshot, updated_at = :updated_at
+WHERE id = :id AND sent_at IS NULL;

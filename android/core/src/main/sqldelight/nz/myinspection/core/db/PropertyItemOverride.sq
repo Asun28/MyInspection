@@ -25,3 +25,19 @@ selectByProperty:
 SELECT *
 FROM property_item_override
 WHERE property_id = :property_id AND deleted_at IS NULL;
+
+-- 点查（property_id, stable_id）这条活跃记录是否已存在——T2-CAPTURE-CORE 的抑制/恢复用例（其
+-- allow_paths 不含 core/db/）靠这个决定该 insert 新行还是 setSuppressed 已有行（唯一索引不允许两条
+-- 活跃行并存，见上）。
+selectByPropertyAndStableId:
+SELECT *
+FROM property_item_override
+WHERE property_id = :property_id AND stable_id = :stable_id AND deleted_at IS NULL;
+
+-- 抑制/恢复：切换 suppressed。恢复 = 置 0，不是软删这一行——"本物业不存在此项"是可逆状态（用户可能
+-- 先误抑制、后发现物业确有该项），不是一次性事件；这也是为什么这条查询不带 finalize 守卫——
+-- property_item_override 挂在 property 下、跨巡检生效，不属于任何单次巡检的只读快照。
+setSuppressed:
+UPDATE property_item_override
+SET suppressed = :suppressed, updated_at = :updated_at
+WHERE id = :id;

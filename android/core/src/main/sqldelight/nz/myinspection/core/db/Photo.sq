@@ -45,3 +45,28 @@ selectByRoomInstance:
 SELECT *
 FROM photo
 WHERE room_instance_id = :room_instance_id AND deleted_at IS NULL;
+
+-- 去关联/软删（T2-PHOTO-PIPELINE 孤儿清理链路的前半步：一份物理资产多处关联，去重复用后原关联要能
+-- 撤销；其 allow_paths 不含 core/db/）。finalize 只读强制同样适用——FINALIZED 巡检下的照片不得软删，
+-- 理由同 insert 侧（否则巡检证据能被事后抽走，破坏 data_hash 锁定的快照）。这条守卫还带来一个免费的
+-- 推论，见 orphanedContentHashes 的注释。
+softDelete:
+UPDATE photo
+SET deleted_at = :deleted_at, updated_at = :deleted_at
+WHERE id = :id
+  AND deleted_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM room_instance ri
+    JOIN inspection i ON i.id = ri.inspection_id
+    WHERE ri.id = photo.room_instance_id AND i.finalized_at IS NULL
+  );
+
+-- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」）：返回当前没有任何活跃行
+-- 引用的 content_hash——这些哈希对应的物理文件不再被任何证据依赖，可以安全删磁盘文件。"finalize 过的
+-- 巡检照片永不清"不需要在这里另写特判：softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类
+-- content_hash 永远至少有一行活跃记录，天然不会出现在这份孤儿列表里。
+orphanedContentHashes:
+SELECT DISTINCT p1.content_hash
+FROM photo p1
+WHERE p1.deleted_at IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM photo p2 WHERE p2.content_hash = p1.content_hash AND p2.deleted_at IS NULL);
