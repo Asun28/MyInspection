@@ -7479,12 +7479,25 @@ $realVfPath = Join-Path $RepoRoot 'scripts/verify.ps1'
 $realCLHashBefore = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
 $realVfHashBefore = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
 
-# 独立子进程内部完成判断；$GetContentCmd 原样拼进子进程脚本（跑脚本用
-# "& pwsh -NoProfile -File '<path>' 2>&1 | Out-String"，读文件用 "Get-Content -LiteralPath '<path>' -Raw"）。
-function Invoke-MarkerAssertion([string]$GetContentCmd, [string]$Needle, [string]$MarkerId) {
-  $needleEsc = $Needle.Replace("'", "''")
-  $child = "`$c = $GetContentCmd`nif (`$c.Contains('$needleEsc')) { Write-Output 'MARKER:${MarkerId}:PRESENT'; exit 0 } else { Write-Output 'MARKER:${MarkerId}:ABSENT'; exit 1 }"
-  $stdout = & pwsh -NoProfile -Command $child
+# 独立子进程内部完成判断。脚本块固定，路径/needle/marker 全走 -Args 参数数组；含撇号或空格的合法路径不会进入
+# PowerShell 源码文本，避免解析失败与命令注入。
+function Invoke-MarkerAssertion(
+  [ValidateSet('RunScript', 'ReadFile')][string]$Mode,
+  [string]$SourcePath,
+  [string]$Needle,
+  [string]$MarkerId
+) {
+  $child = {
+    param([string]$ChildMode, [string]$ChildSourcePath, [string]$ChildNeedle, [string]$ChildMarkerId)
+    $c = if ($ChildMode -eq 'RunScript') {
+      & pwsh -NoProfile -File $ChildSourcePath 2>&1 | Out-String
+    } else {
+      Get-Content -LiteralPath $ChildSourcePath -Raw
+    }
+    if ($c.Contains($ChildNeedle)) { Write-Output "MARKER:${ChildMarkerId}:PRESENT"; exit 0 }
+    Write-Output "MARKER:${ChildMarkerId}:ABSENT"; exit 1
+  }
+  $stdout = & pwsh -NoProfile -Command $child -Args @($Mode, $SourcePath, $Needle, $MarkerId)
   return [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($stdout -join "`n") }
 }
 # 核验判据结果是否吻合期望（exit 0 + PRESENT，或 exit 非零 + ABSENT）；不吻合即 Fail 并返回 $false。
@@ -7497,6 +7510,21 @@ function Test-MarkerResult($Result, [string]$MarkerId, [bool]$ExpectPresent, [st
   }
   return $true
 }
+
+# 参数化子进程的路径安全回归：同一份含撇号路径分别走 RunScript / ReadFile，两路都必须命中。
+$quotedProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-o'brien-$PID"
+try {
+  New-Item -ItemType Directory -Force $quotedProbeRoot | Out-Null
+  $quotedProbeScript = Join-Path $quotedProbeRoot "probe script.ps1"
+  Set-Content -LiteralPath $quotedProbeScript -Value "Write-Output 'QUOTED-PATH-OK'" -Encoding utf8
+  $quotedRun = Invoke-MarkerAssertion -Mode RunScript -SourcePath $quotedProbeScript -Needle 'QUOTED-PATH-OK' -MarkerId 'QUOTED-RUN'
+  $quotedRead = Invoke-MarkerAssertion -Mode ReadFile -SourcePath $quotedProbeScript -Needle 'QUOTED-PATH-OK' -MarkerId 'QUOTED-READ'
+  if ((Test-MarkerResult $quotedRun 'QUOTED-RUN' $true '17cc quoted-path RunScript') -and
+      (Test-MarkerResult $quotedRead 'QUOTED-READ' $true '17cc quoted-path ReadFile')) {
+    Write-Host '  17cc 参数化子进程安全接收含撇号/空格路径 OK（RunScript + ReadFile）' -ForegroundColor Green
+  }
+} finally { Remove-Item -Recurse -Force $quotedProbeRoot -ErrorAction SilentlyContinue }
+
 # 单句删除变异：定位唯一命中行、变异、跑 $Probe、还原、核 SHA256 未漂移（L196：同回合内完成）。
 function Invoke-LineDeletionMutation([string]$Path, [string[]]$OrigLines, [string]$LineMarker, [scriptblock]$Probe) {
   $idx = @(0..($OrigLines.Count - 1) | Where-Object { $OrigLines[$_] -match [regex]::Escape($LineMarker) })
@@ -7530,9 +7558,8 @@ $needleB = 'android/core/build.gradle.kts'
 $mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
   Copy-Item -LiteralPath $realCLPath -Destination $mutantCL -Force
-  $mutantRunCmd = "& pwsh -NoProfile -File '$mutantCL' 2>&1 | Out-String"
-  $baseA = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleA -MarkerId 'GRADLE-A-BASE'
-  $baseB = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $needleB -MarkerId 'GRADLE-B-BASE'
+  $baseA = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $needleA -MarkerId 'GRADLE-A-BASE'
+  $baseB = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $needleB -MarkerId 'GRADLE-B-BASE'
   $baseOk = (Test-MarkerResult $baseA 'GRADLE-A-BASE' $true "17cc 基线（$needleA，递归发现分支①未生效或该文件缺失）") -and
             (Test-MarkerResult $baseB 'GRADLE-B-BASE' $true "17cc 基线（$needleB，递归发现分支②未生效）")
   if ($baseOk) {
@@ -7547,8 +7574,8 @@ try {
       $selfMarker = "GRADLE-$($case.Id)-MUT"; $ctrlMarker = "GRADLE-$($case.Id)-MUT-CTRL"
       $probe = {
         [PSCustomObject]@{
-          Self = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $case.Target -MarkerId $selfMarker
-          Ctrl = Invoke-MarkerAssertion -GetContentCmd $mutantRunCmd -Needle $case.Control -MarkerId $ctrlMarker
+          Self = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker
+          Ctrl = Invoke-MarkerAssertion -Mode RunScript -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker
         }
       }.GetNewClosure()
       $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
@@ -7573,18 +7600,25 @@ if (Test-Path $fxPrune) { Remove-Item -Recurse -Force $fxPrune }
 try {
   New-Item -ItemType Directory -Force (Join-Path $fxPrune 'real') | Out-Null
   Set-Content (Join-Path $fxPrune 'real/build.gradle') 'real' -Encoding utf8
-  # 夹具与判据一律读 $gradleSkipDirs（上面 dot-source $realCLPath -AsLibrary 带出的**同一份**生产列表），不
-  # 自行硬编码副本——R3 finding（本卡合并后首轮）：先前硬编码只列 4 项，check-licenses.ps1 扩到 12 项后
-  # 本测试仍只夹具/断言那 4 项，新增的 8 项（.venv/__pycache__/.pytest_cache/.ruff_cache/.mypy_cache/dist/
-  # .review/_local/runtime/auth/.secrets/.idea/.vscode）从未被证明真的被剪枝。单一真相源杜绝再次漂移。
-  foreach ($skip in $gradleSkipDirs) {
+  # 夹具期望集必须独立于生产列表；否则删除生产项时，夹具与 oracle 会同步缩小并假绿。名称级缓存可在任意
+  # 深度出现；路径级产物只排除仓根 data/ 与 android 的本地产物目录。
+  $expectedSkipNames = @('.gradle', 'build', 'node_modules', '.git', '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache', 'dist', '.review', '_local', 'runtime', 'auth', '.secrets', '.idea', '.vscode')
+  $expectedSkipPaths = @('data', 'android/.kotlin', 'android/captures', 'android/.cxx')
+  $broadPathSkips = @($expectedSkipPaths | ForEach-Object { Split-Path -Leaf $_ } | Where-Object { $gradleSkipDirs -contains $_ })
+  if ($broadPathSkips.Count -gt 0) { Fail "17cc(prune)：路径级 ignore 被错误扩大成全局名称排除：$($broadPathSkips -join ', ')。" }
+  foreach ($skip in $expectedSkipNames) {
+    New-Item -ItemType Directory -Force (Join-Path $fxPrune "$skip/decoy") | Out-Null
+    Set-Content (Join-Path $fxPrune "$skip/decoy/build.gradle") 'decoy' -Encoding utf8
+  }
+  foreach ($skip in $expectedSkipPaths) {
     New-Item -ItemType Directory -Force (Join-Path $fxPrune "$skip/decoy") | Out-Null
     Set-Content (Join-Path $fxPrune "$skip/decoy/build.gradle") 'decoy' -Encoding utf8
   }
   $throwIfExcluded = {
     param($d)
     $leaf = Split-Path -Leaf $d
-    if ($gradleSkipDirs -contains $leaf) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
+    $relative = [System.IO.Path]::GetRelativePath($fxPrune, $d).Replace('\', '/')
+    if (($expectedSkipNames -contains $leaf) -or ($expectedSkipPaths -contains $relative)) { throw "PRUNE-VIOLATION: enumerator invoked on excluded dir $d" }
     Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop
   }.GetNewClosure()
   try {
@@ -7592,7 +7626,7 @@ try {
     if ($pruneHits.Count -ne 1 -or $pruneHits[0] -ne (Join-Path $fxPrune 'real/build.gradle')) {
       Fail "17cc(prune)：期望只发现 real/build.gradle 一个命中，实得 $($pruneHits.Count) 个（$($pruneHits -join ', ')）。"
     } else {
-      Write-Host "  17cc(prune) 排除目录下钻前剪枝 OK（`$gradleSkipDirs 全部 $($gradleSkipDirs.Count) 项——$($gradleSkipDirs -join '/')——均从未被枚举器碰过；只发现 real/build.gradle）" -ForegroundColor Green
+      Write-Host "  17cc(prune) 独立 ignore 契约全部剪枝 OK（名称 $($expectedSkipNames.Count) 项 + 路径 $($expectedSkipPaths.Count) 项；只发现 real/build.gradle）" -ForegroundColor Green
     }
   } catch {
     Fail "种子缺陷 17cc(prune)：$($_.Exception.Message) —— Find-GradleManifests 真的下钻进了被排除目录（先枚举全树、再事后过滤的旧行为回归）。"
@@ -7608,13 +7642,12 @@ try {
 # 判据空转；并要求恰好 1 个命中（不止查"无泄漏+有内部命中"两个独立条件的并集）。另配守卫失效变异：
 # 源码副本里把 ReparsePoint 判据从条件中删掉，证明"如果有人真删了这段守卫"，本闸的行为断言确实会栽
 # （不是"不管有没有守卫都恒 OK"的摆设）。
-$fxReparseRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-$PID"
-$fxOutside = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-outside-$PID"
+$fxReparseRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-o'brien-$PID"
+$fxOutside = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-outside-o'brien-$PID"
 if (Test-Path $fxReparseRoot) { Remove-Item -Recurse -Force $fxReparseRoot }
 if (Test-Path $fxOutside) { Remove-Item -Recurse -Force $fxOutside }
 $reparseLinkPath = Join-Path $fxReparseRoot 'inside/link-out'
 $mutantReparseCL = Join-Path $RepoRoot "scripts/.st17cc-reparse-mutant-$PID.ps1"
-$reparseProbeScript = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-probe-$PID.ps1"
 try {
   New-Item -ItemType Directory -Force (Join-Path $fxReparseRoot 'inside') | Out-Null
   Set-Content (Join-Path $fxReparseRoot 'inside/build.gradle') 'inside' -Encoding utf8
@@ -7653,15 +7686,17 @@ try {
         $mutReparseLines = $reparseLines.Clone()
         $mutReparseLines[$reparseGuardIdx[0]] = $reparseLines[$reparseGuardIdx[0]].Replace('(-not $isReparse) -and ', '')
         Set-Content -LiteralPath $mutantReparseCL -Value $mutReparseLines -Encoding utf8
-        $probeLines = @(
-          'Set-StrictMode -Version Latest', "`$ErrorActionPreference = 'Stop'",
-          ". '$mutantReparseCL' -AsLibrary",
-          "`$h = @(Find-GradleManifests -Root '$fxReparseRoot' -Names @('build.gradle'))",
-          "`$leaked = @(`$h | Where-Object { `$_.StartsWith('$fxOutside') -or `$_.StartsWith('$reparseLinkPath') })",
-          "if (`$leaked.Count -gt 0) { Write-Output 'MARKER:REPARSE-GUARD-MUT:ABSENT'; exit 1 } else { Write-Output 'MARKER:REPARSE-GUARD-MUT:PRESENT'; exit 0 }"
-        )
-        Set-Content -LiteralPath $reparseProbeScript -Value $probeLines -Encoding utf8
-        $probeStdOut = & pwsh -NoProfile -File $reparseProbeScript
+        $reparseProbe = {
+          param([string]$LibraryPath, [string]$ProbeRoot, [string]$OutsidePath, [string]$LinkPath)
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          . $LibraryPath -AsLibrary
+          $h = @(Find-GradleManifests -Root $ProbeRoot -Names @('build.gradle'))
+          $leaked = @($h | Where-Object { $_.StartsWith($OutsidePath) -or $_.StartsWith($LinkPath) })
+          if ($leaked.Count -gt 0) { Write-Output 'MARKER:REPARSE-GUARD-MUT:ABSENT'; exit 1 }
+          Write-Output 'MARKER:REPARSE-GUARD-MUT:PRESENT'; exit 0
+        }
+        $probeStdOut = & pwsh -NoProfile -Command $reparseProbe -Args @($mutantReparseCL, $fxReparseRoot, $fxOutside, $reparseLinkPath)
         $rp = [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($probeStdOut -join "`n") }
         Set-Content -LiteralPath $mutantReparseCL -Value $reparseLines -Encoding utf8
         if (Test-MarkerResult $rp 'REPARSE-GUARD-MUT' $false '种子缺陷 17cc(reparse-mut)：弱化 ReparsePoint 守卫子句后（vacuous coverage：本闸测不出"忘了写/被删掉守卫"这类回归）') {
@@ -7675,7 +7710,6 @@ try {
   Remove-Item -Recurse -Force $fxReparseRoot -ErrorAction SilentlyContinue
   Remove-Item -Recurse -Force $fxOutside -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $mutantReparseCL -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $reparseProbeScript -Force -ErrorAction SilentlyContinue
   if (Test-Path $mutantReparseCL) { Fail "17cc(reparse-mut) 收尾：临时同目录副本 $mutantReparseCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
 }
 
@@ -7713,18 +7747,17 @@ $vfIdx = @(0..($vfOrigLines.Count - 1) | Where-Object { $vfOrigLines[$_] -match 
 if ($vfIdx.Count -ne 1) {
   Fail "17dd 前置：verify.ps1 里含完整调用行「$vfInvocationLiteral」的行数=$($vfIdx.Count)（期望恰好 1）——断言定位不唯一，或该调用形态尚未落地/已漂移。"
 } else {
-  $vfScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17dd-verify-$PID.ps1"
+    $vfScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17dd-verify-o'brien-$PID.ps1"
   try {
     Set-Content -LiteralPath $vfScratch -Value $vfOrigLines -Encoding utf8
-    $vfReadCmd = "Get-Content -LiteralPath '$vfScratch' -Raw"
-    $vfBase = Invoke-MarkerAssertion -GetContentCmd $vfReadCmd -Needle $vfInvocationLiteral -MarkerId 'VERIFY-NODAEMON-BASE'
+    $vfBase = Invoke-MarkerAssertion -Mode ReadFile -SourcePath $vfScratch -Needle $vfInvocationLiteral -MarkerId 'VERIFY-NODAEMON-BASE'
     if (Test-MarkerResult $vfBase 'VERIFY-NODAEMON-BASE' $true '17dd 基线（判据本身与文件内容不一致，需排查）') {
       $vfMut = @(for ($i = 0; $i -lt $vfOrigLines.Count; $i++) { if ($i -ne $vfIdx[0]) { $vfOrigLines[$i] } })
       if ($vfMut.Count -ne ($vfOrigLines.Count - 1)) {
         Fail "17dd 分类器：变异后行数=$($vfMut.Count)，期望恰好比原文件少 1 行（$($vfOrigLines.Count - 1)）——变异不是干净的单句删除。"
       } else {
         Set-Content -LiteralPath $vfScratch -Value $vfMut -Encoding utf8
-        $vfMutResult = Invoke-MarkerAssertion -GetContentCmd $vfReadCmd -Needle $vfInvocationLiteral -MarkerId 'VERIFY-NODAEMON-MUT'
+        $vfMutResult = Invoke-MarkerAssertion -Mode ReadFile -SourcePath $vfScratch -Needle $vfInvocationLiteral -MarkerId 'VERIFY-NODAEMON-MUT'
         if (Test-MarkerResult $vfMutResult 'VERIFY-NODAEMON-MUT' $false '种子缺陷 17dd：删掉完整调用行后（vacuous mutation：断言未真正定位到该调用）') {
           Write-Host '  17dd verify.ps1 --no-daemon：锚定完整调用行，判据子进程基线 exit 0 + PRESENT（GREEN）、单句删除变异后 exit 非零 + ABSENT（RED），真实 verify.ps1 全程只读 OK' -ForegroundColor Green
         }

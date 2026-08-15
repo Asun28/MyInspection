@@ -55,9 +55,8 @@ function Scan($name, $license) {
 #   判断目录名是否在排除表——被排除目录从不会被 push 进栈，根本不会被枚举到）──
 # -Enumerator 可注入（默认即真实 Get-ChildItem）：测试用它换成会对指定目录抛错的桩，
 # 不必真的靠 Windows ACL 拒绝读权限去模拟「子树不可读」（省掉 icacls 的平台特定性与清理风险）。
-# R3 round-1 finding（本卡合并后首轮）：先前只排除 .gradle/build/node_modules/.git，仍会下钻进其它本仓约定的
-# 本地缓存/产物/机密目录（见 .gitignore）——这些目录内容因机器而异、非确定性地改变 -Strict 结果与遍历成本，
-# 且 .secrets/auth/ 属机密目录，扫描器不该下钻进去。名单逐项对应 .gitignore 的目录型条目（非文件型 *.db 等）。
+# 名称级排除适用于任意深度的缓存/产物/机密目录；路径级排除只针对仓库 ignore 契约里的特定位置，避免把业务树中
+# 同名目录一并跳过。两份列表共同覆盖根 .gitignore 与 android/.gitignore 的目录型条目。
 $gradleSkipDirs = @(
   '.gradle', 'build', 'node_modules', '.git',                                  # 既有：Gradle/前端产物缓存 + VCS 元数据
   '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache',       # Python 工具链缓存
@@ -66,10 +65,12 @@ $gradleSkipDirs = @(
   'auth', '.secrets',                                                          # 机密目录——不该下钻
   '.idea', '.vscode'                                                           # IDE 本地配置
 )
+$gradleSkipRelativePaths = @('data', 'android/.kotlin', 'android/captures', 'android/.cxx')
 function Find-GradleManifests {
   param(
     [Parameter(Mandatory)][string]$Root,
     [string[]]$SkipDirs = $gradleSkipDirs,
+    [string[]]$SkipRelativePaths = $gradleSkipRelativePaths,
     [Parameter(Mandatory)][string[]]$Names,
     [scriptblock]$Enumerator = { param($d) Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop }
   )
@@ -84,7 +85,8 @@ function Find-GradleManifests {
         # 否则可能扫出仓外（联接指向仓外目录），或经自引用联接死循环（不终止）。只跳过它本身，
         # 不影响它旁边正常子树的发现。
         $isReparse = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
-        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name)) { $stack.Push($e.FullName) }
+        $relativePath = [System.IO.Path]::GetRelativePath($Root, $e.FullName).Replace('\', '/')
+        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name) -and ($SkipRelativePaths -notcontains $relativePath)) { $stack.Push($e.FullName) }
       } elseif ($Names -contains $e.Name) {
         $found.Add($e.FullName)
       }
