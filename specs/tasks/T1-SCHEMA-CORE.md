@@ -20,7 +20,7 @@ non_goals:
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
-dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 逐字段参与相等性一例全绿；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定、photo.softDelete 受 finalize 守卫 + orphanedContentHashes 排除 FINALIZED 证据）各一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
+dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via 传 NULL 不落地不锁行、photo.softDelete 受 finalize 守卫 + orphanedContentHashes 排除 FINALIZED 证据）各至少一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight/ 登记进 scripts/_config.ps1 FrozenPaths（R5）
@@ -108,6 +108,11 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   `purged_at` 复用 `:updated_at` 而非单独的可空参数——单独参数能传 NULL，造出「联系方式已清空但 purged_at
   仍是 NULL」这种自相矛盾、无法区分"从未清理"的状态；updated_at 非空，复用它令这条路径类型层面不可能传 NULL。
 - **不做**：Condition/Cleanliness 全量双刻度（#7）、缺陷责任方/费用字段（#8）。别自作主张加这两组列——加了就得走版本评审才能删。
+- **`notice.recordDelivery` 同样有 purgeContactInfo 那类"可空参数能骗过一次性锁"的坑**（R3 五轮评审指出，
+  已改正）：`sent_via`/`sent_at` 两列本身可空，若守卫只看现有行的 `sent_at IS NULL`、不管调用方**传入的值**，
+  一次误传 `NULL` 的调用会通过守卫、把行标成"已处理"却没真送达，之后想补录真值反被同一条守卫拦死。改法：
+  `sent_at` 复用 `:updated_at`（同 purgeContactInfo 的手法，类型层面不可能传 NULL）；`sent_via` 额外加
+  `WHERE :sent_via IS NOT NULL`，传 NULL 时整条 UPDATE 是 0 行、不落地、不锁行，之后仍可补录真值。
 
 ## 卡片修订 2026-08-15（编排者裁决 · R3 两轮同一争点 · model 层类型归属）
 争点：R3 两轮要求本卡在 `core/model/` 定义 `InspectionSnapshot`/`SupplementSnapshot`；执行者以「本卡卡文没点名要它、
