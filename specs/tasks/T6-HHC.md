@@ -15,7 +15,7 @@ forbid:
   - 把 HHC 快照伪装成法定合规证明（输出注明「自查快照，非法定评估」+ 免责声明）
 non_goals:
   - HHC 法定计算器（加热容量计算等，v2 再议——本版 = 检查项快照）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.hhc.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.hhc.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
 dod_assert: 五项子模块（加热/绝缘/通风/水汽侵入与排水/挡风）各有检查项且可独立出快照 PDF（复用 composer/renderer 管线的子报告形态）；日常巡检复核点（地板下绝缘未破坏/抽风扇运转/地面防潮层完好）在 Routine 模板引用同 stable_id（跨模板同项对齐测试）；assembleDebug 绿
 review_gate: codex {verdict:pass}

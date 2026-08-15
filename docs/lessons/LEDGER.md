@@ -1493,3 +1493,19 @@
 - rule: 本仓任何要跑 Android 构建的会话/子代理，开头先显式注入，别指望继承：`$env:JAVA_HOME=(Get-ItemProperty HKCU:\Environment).JAVA_HOME; $env:ANDROID_HOME=(Get-ItemProperty HKCU:\Environment).ANDROID_HOME; $env:PATH="$env:JAVA_HOME\bin;$env:PATH"`（当前值：C:\Android\jdk-17 / C:\Android）。调 wrapper 一律写 `.\gradlew.bat` 显式相对路径，不写裸 `gradlew.bat`。诊断顺序：先 `"[$env:JAVA_HOME]"` 与 `$env:NoDefaultCurrentDirectoryInExePath` 各看一眼，再怀疑构建产物——把环境差异排除掉之前，别去改任何 build 文件。
 - enforced_by: 
 - refs: 
+
+## L209
+- date: 2026-08-15 ｜ tags: gradle,dod,task-loop,worktree,cards ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片 `dod_command` 写 `cmd /c android\gradlew.bat …` 时，DoD **永远红**且红的原因与测试无关：`Directory 'C:\wt\<id>' does not contain a Gradle build.`（exit 1）。本仓 24 张卡全中——一路写到 T7，谁先跑谁先撞。
+- root_cause: Gradle 的 project dir 取自**当前工作目录**，不是 wrapper 脚本自身所在目录；而 `task.ps1` 的 red/ship 相位固定 `Push-Location $Wt`（worktree 根），那里没有 settings.gradle.kts。于是「路径写全了」给人一种会自动定位的错觉——`android\gradlew.bat` 只是找到了那个 .bat，Gradle 仍在 worktree 根找工程。
+- rule: **从仓库/worktree 根跑 gradle 一律显式 `-p android`**：`cmd /c android\gradlew.bat -p android …`。判据：命令的 cwd 是不是 `android/`——是（如 `verify.ps1` 已 `Push-Location` 进去）就**不要**加 `-p`，否则必须加。新开卡写 `dod_command` 时照抄既有卡即可；改这类横切写法要一次扫齐所有卡（L97），但**只改可执行的那几行**，别动引用旧命令的叙述性文字（见 L210）。
+- enforced_by: 
+- refs: 
+
+## L210
+- date: 2026-08-15 ｜ tags: bulk-edit,docs,regex,verification ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 跨文件 find-replace 修一处命令写法，改动数与预期吻合（27 文件 / 32 处），但其中 7 处是错的：把**引用旧命令的叙述文字**也改了——包括两处「原命令曾是 X」的历史记录（改后自相矛盾：`gradlew.bat -p android ...`（无 `-p`））、一处文件存在性断言（变成「android/gradlew.bat -p android 存在」）、以及描述 `verify.ps1` 内部调用的段落（那里 cwd 已在 android/，本就不该加）。
+- root_cause: 同一个字面量在文档里有**两种身份**：①要被执行的命令（该改）；②被引用的文本——历史记录 / 反例 / 别处代码的摘抄（不该改，改了就是篡改记录或制造矛盾）。正则只认字面量、不认身份。而 L157 的对账手段是「实际改动数 == 预期行数」，本例**数量恰好吻合**，所以对账通过、错误照样溜过去。
+- rule: find-replace 扫文档后，**逐条读被改的行并判定身份**，别只对账数量：把 `git diff -U0` 的所有 `+` 行拉出来，逐行问「这是要执行的命令，还是在引用/记录某个命令？」引用类一律回退。写正则时优先锚定可执行上下文（如只匹配 `^dod_command:` 开头的行）而不是裸字面量。**历史记录段（「原为 X」「曾是 X」「修订前」）是只读的**——它们描述过去的状态，被 sweep 改写后既误导人也毁掉审计轨迹。
+- enforced_by: 
+- refs: 

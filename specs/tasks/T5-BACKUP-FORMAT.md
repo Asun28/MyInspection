@@ -15,7 +15,7 @@ forbid:
 non_goals:
   - SAF/WorkManager IO 与恢复落刀（T5-BACKUP-IO；本卡纯格式层，流进流出）
   - 合并式恢复（v1 整包替换，ADR-0002）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.backup.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.backup.*"
 dod_exit: 0
 dod_assert: 往返测试绿（构造数据集→加密归档→解密展开→逐文件 SHA-256 与 manifest 全对）；错口令报「口令错」不崩溃；篡改任一字节（头/密文/尾）被 GCM tag 或 manifest 校验拒收；按物业过滤导出只含该物业资产；格式头字段（magic/版本/盐/迭代数/nonce）齐全且测试锚定
 review_gate: codex {verdict:pass}

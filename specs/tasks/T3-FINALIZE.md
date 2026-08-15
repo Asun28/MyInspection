@@ -13,7 +13,7 @@ forbid:
   - finalize 后任何原始条目可变路径（append-only Supplement 是唯一出口）
 non_goals:
   - 报告生成（composer 消费 finalize 后快照）；补充说明 UI（并入 T3-HISTORY-COMPARE 或后续微卡）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.finalize.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.finalize.*"
 dod_exit: 0
 dod_assert: finalize 事务测试绿（缺强制照片/缺状态 → 拒并列清单；通过 → finalized_at+data_hash 原子写入）；finalize 后写原条目计 0 行（谓词强制）；Supplement 链测试绿（prev_hash 锚 data_hash、逐条链接、乱序插入被拒）；重复 finalize 幂等拒绝
 review_gate: codex {verdict:pass}

@@ -37,7 +37,7 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注 + 若降级须改 T3-HISTOR
 - 报告模板（四节各含：做法 / 真机结果 / 结论二值 / 给正式卡的参数）。
 
 ## 卡片修订 2026-08-15（施工中实测 · `dod_command` 补 `-p android`）
-原 `dod_command` 写作 `cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug`，
+原 `dod_command` 写作 `cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug`（无 `-p`），
 **不可运行**：Gradle 的 project dir 取自**当前工作目录**、而非 wrapper 脚本自身位置，
 而相位命令的 cwd 是仓库根/worktree 根（那里没有 settings 文件），故恒报
 `Directory '<repo root>' does not contain a Gradle build` 并退出 1——

@@ -15,7 +15,7 @@ forbid:
   - 提供任何关闭/绕过开关（阻断不可关闭、不进设置——本身就是验收断言）
 non_goals:
   - 通知文本生成与存档（T4-NOTICES）；work-check 用途的放行语义（ADR-0004：schema 留门、本版不启用）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.compliance.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.compliance.*"
 dod_exit: 0
 dod_assert: 需求 §10 全部规则各有正/反测试：4 周 Routine 限额（Ingoing/Exit 不计入·按类型分流）、通知提前量 ≥48h 且 ≤14d、时段 08:00–19:00（寄宿 18:00）、「双方同意也拦」场景；DST 转换日（NZ 9 月底进/4 月初出）边界用例绿；规则来自 configs/compliance/nz-rules-v1.json，改配置数值测试即变（引擎无字面量）
 review_gate: codex {verdict:pass}

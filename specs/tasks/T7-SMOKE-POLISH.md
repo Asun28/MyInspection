@@ -13,7 +13,7 @@ forbid:
   - 借「微修」夹带能力级新功能（捆绑卡例外只覆盖同类小修——文案/边距/空态/错误信息）
 non_goals:
   - 新功能；性能优化专项（有数据再立卡）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:check; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Test-Path docs/SMOKE-CHECKLIST.md)) { exit 1 }; pwsh -NoProfile -File scripts\verify.ps1
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Test-Path docs/SMOKE-CHECKLIST.md)) { exit 1 }; pwsh -NoProfile -File scripts\verify.ps1
 dod_exit: 0
 dod_assert: docs/SMOKE-CHECKLIST.md 存在且含全流程条目（建物业→Ingoing→Routine（草稿恢复/杀进程）→拍照 overlay→听写/短语→finalize→双版 PDF→通知生成回记→备份导出→清库恢复→保留期清理），每条有真机勾选结果；发现的缺陷逐条列出并标注（本卡内修 / 立新卡）；verify 全绿
 review_gate: codex {verdict:pass}

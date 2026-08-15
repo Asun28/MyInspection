@@ -16,7 +16,7 @@ forbid:
   - 改既有 routine-v1 的 stable_id（v1 定稿后 id 永不改）
 non_goals:
   - 模板编辑器 UI（永不做）；whisper 语音（v2）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.content.rest.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.content.rest.*"
 dod_exit: 0
 dod_assert: 三模板过引擎校验+完备性测试（双语/唯一/photoRule/枚举按类型——ANNUAL 用 5 态）；INGOING 与 EXIT 条目 stable_id 对齐（Exit 差异计算的前提，测试断言两模板 stable_id 集合一致）；建 EXIT 无该 tenancy Ingoing 基线时产出强警告标记（不阻断——「在租补不回来，下租客补上」需求 §3）
 review_gate: codex {verdict:pass}

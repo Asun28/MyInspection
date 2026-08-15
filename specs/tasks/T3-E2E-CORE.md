@@ -27,7 +27,7 @@ doc_sync: CLAUDE.md 当前阶段（verify 收紧为完整闭环）（R5）
 `core/e2e` 端到端 JVM 测试（真模板内容、内存 DB、临时文件系统）+ `scripts/verify.ps1` 闸门 2 接线。
 
 ## 上下文包（执行模型必读）
-- 这是计划 §2 的「最小可验收闭环」变闸时刻：verify.ps1 里 `$gate2Pending` 置 false，闸门 2 执行 `cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"`，非零即 verify FAIL（fail-closed，别静默跳过——verify 文件头立场）。
+- 这是计划 §2 的「最小可验收闭环」变闸时刻：verify.ps1 里 `$gate2Pending` 置 false，闸门 2 执行 `cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"`，非零即 verify FAIL（fail-closed，别静默跳过——verify 文件头立场）。
 - verify.ps1 属 harness 脚本：改动仅限闸门 2 那一段 TODO 区（别动闸门 1 与 Android 闸已有逻辑）；改后 `pwsh -File scripts\selftest.ps1` 必须仍 PASS（工作流自检纪律，CLAUDE.md 命令节）。
 - e2e 数据构造复用各卡公开 API（不开测试后门）；照片=临时目录写假 JPEG 字节+真 SHA-256（管线 API）；断言三源一致：PDF plan 页脚哈希 / DB data_hash / 测试内独立 canonicalJson+sha256 重算。
 

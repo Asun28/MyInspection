@@ -15,7 +15,7 @@ forbid:
   - 差异对比 PDF / 只读历史报告查看器 / 照片自动比对（需求 §6 明确不做）
 non_goals:
   - 冷启动前 1–2 次巡检历史为空——接受，不造假数据填充（需求 §6）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.history.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.history.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
 dod_assert: 历史解析测试绿（按 stable_id 对齐取前 N 次状态/备注/照片引用；Exit 模式默认 baseline=tenancy Ingoing、Routine 默认 previous；模板版本变更后按 alignHistory 交集对齐）；assembleDebug 绿；真机冒烟：走查某项见上次状态与缩略图、左右滑看更早、拍照页 overlay 半透明历史照可对位（或按 spike 结论走并排比对降级），记录附 PR
 review_gate: codex {verdict:pass}

@@ -16,7 +16,7 @@ forbid:
   - key 入库/入代码（EncryptedSharedPreferences 或等价本机存储）
 non_goals:
   - 成本估算（需求 §9 明确不做）；多 provider 聚合 UI（provider 接口可换即可）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.remediation.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.remediation.*"
 dod_exit: 0
 dod_assert: mock provider 测试绿：种子表命中项直出建议；LLM 响应经措辞门（禁处方式动词表——「更换/维修 X」拒，重写为「建议联系持牌 XX 评估」形态；NZS 4306 分级枚举强制）；网络失败/跳过 → 报告优雅无建议节（不报错不占位）；payload 最小化测试（只送不利发现项的 stable_id/状态/备注，不送租客 PII/照片）
 review_gate: codex {verdict:pass}

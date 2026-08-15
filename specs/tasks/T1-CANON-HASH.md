@@ -15,7 +15,7 @@ forbid:
 non_goals:
   - finalize 事务本身（T3-FINALIZE 消费本卡产出）
   - 备份 manifest 组装（T5-BACKUP-FORMAT 复用本序列化器）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.canon.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.canon.*"
 dod_exit: 0
 dod_assert: 黄金向量测试全绿（固定输入→固定 canonical 串→固定 SHA-256 十六进制）；键乱序输入产同一哈希；NFC 归一生效（组合字符两种编码产同一哈希）；排除域字段变化不改哈希
 review_gate: codex {verdict:pass}

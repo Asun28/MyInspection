@@ -14,7 +14,7 @@ forbid:
   - 清理破坏 finalize 哈希可复验性（哈希域刻意不含租客联系方式——T1-CANON 契约；清理只动联系方式与照片保留策略允许的部分）
 non_goals:
   - 自动定时清理（v1 手动一键，先给用户控制权）；照片匿名化处理（整删或保留，不做修图）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.retention.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat --offline --no-daemon -q :app:assembleDebug
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.retention.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
 dod_assert: 到期计算测试绿（租约结束 + 保留期（默认 12 个月，配置常量，待用户定数）→列出可清理 tenancy）；一键清理 = 联系方式字段置空 + 标记 purged_at，巡检/照片/报告证据默认保留（跨年证据立场）；清理后 verifyChain/data_hash 复验仍绿（测试断言）；设置页显示各 tenancy 保留状态
 review_gate: codex {verdict:pass}

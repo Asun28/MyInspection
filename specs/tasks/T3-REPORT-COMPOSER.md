@@ -14,7 +14,7 @@ forbid:
   - 房客版包含 remediation/内部判断字段（版本分离在 composer 层强制）
 non_goals:
   - PDF 字节输出（T3-PDF-RENDERER）；LLM 建议内容（T7-REMEDIATION 注入房东版插槽）
-dod_command: cmd /c android\gradlew.bat --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
 dod_assert: 黄金布局树测试绿（固定巡检 fixture → 固定 DocumentPlan：页数/块序列/图槽位）；80 照 fixture 分页无溢出/无孤行；房东版含建议插槽+紧急度、房客版仅客观节；双语行配对（en 行+zh 行成对不拆页）；页脚含 data_hash 与免责声明槽
 review_gate: codex {verdict:pass}
