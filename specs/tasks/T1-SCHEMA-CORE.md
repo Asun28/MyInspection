@@ -20,7 +20,7 @@ non_goals:
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
-dod_assert: 全表建表/查询编译过；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
+dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式且 purged_at 恒非空一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight/ 登记进 scripts/_config.ps1 FrozenPaths（R5）
@@ -32,7 +32,13 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
 `.sq` 全量 schema（真相源）+ 生成的类型化 Kotlin 访问层 + 自研 UUIDv7 + 迁移基线 + 纯 JVM 测试（JdbcSqliteDriver 内存库）。
 
 ## 上下文包（执行模型必读）
-- **表清单与不变量（每表：TEXT 主键存 canonical 小写 UUIDv7 · updated_at UTC epoch 毫秒 · deleted_at 可空软删）**：
+- **表清单与不变量（每表：TEXT 主键存 canonical 小写 UUIDv7 · created_at + updated_at UTC epoch 毫秒 ·
+  deleted_at 可空软删）**：`created_at` 是本卡在 CLAUDE.md「关键不变量」显式列的 updated_at+deleted_at
+  之上**额外补的**——updated_at 会被后续修改覆盖，没有 created_at 单靠它恢复不出创建历史。**明确不加**
+  `created_by`/`updated_by` 等 actor 字段：本 app 单用户、无账号体系（CLAUDE.md 硬边界「永不做…任何账号
+  体系」），记录"是谁改的"在只有一个用户的设备上没有意义，加了就是死重量。supplement 已有 created_at
+  （领域字段本就是这个含义，不重复加）；notice.generated_at 同理身兼两职（一行 notice 恒在生成的那一刻
+  插入），也不重复加。
   - property（address、kind：RENTAL/OWNER_OCCUPIED、is_boarding_house 影响时段规则）
   - tenancy（property_id、start/end 毫秒、tenant_name/contact **均可空**、baseline_inspection_id 可空、
     **purged_at** 可空——T5-RETENTION「一键清理=置空联系方式+标记 purged_at」需要，其 allow_paths 不含
@@ -58,7 +64,9 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
     **shortcut** 可空（如 "FWT" 快捷展开））——两个可空字段为 T2-PHRASELIB 所需；其 allow_paths 也不含
     core/db/，同 tenancy.purged_at 一样的理由由本卡建列
 - 评级枚举（存 TEXT，合法值由模板类型定）：租赁 GOOD/FAIR/POOR/NOT_APPLICABLE；年检 5 态 NO_ISSUE/MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT/NOT_APPLICABLE（ADR-0003/讨论修正）。
-- **UUIDv7 自研**（ADR-0003，2-1 决）：RFC 9562——48 位 epoch 毫秒 + ver 0111 + 12 位 rand_a + variant 10 + 62 位 rand_b；SecureRandom；42 位单调计数器保同毫秒单调，**耗尽时前推 1ms 换种子而非环绕**（环绕会把计数器绕回更小的值、产出的 UUID 反而变小，破坏单调性）；时钟回拨=沿用上一时间戳（冻结语义）。测试照 dod_assert 七项（含计数器耗尽回归、固定向量全 128 位断言）。若评审判不可靠，swap `uuid-creator`(MIT) `getTimeOrderedEpoch()` 为一行级改动。
+- **UUIDv7 自研**（ADR-0003，2-1 决）：RFC 9562——48 位 epoch 毫秒 + ver 0111 + 12 位 rand_a + variant 10 + 62 位 rand_b；SecureRandom；42 位单调计数器保同毫秒单调，**耗尽时前推 1ms 换种子而非环绕**（环绕会把计数器绕回更小的值、产出的 UUID 反而变小，破坏单调性）；时钟回拨=沿用上一时间戳（冻结语义）。测试照 dod_assert 七项（含计数器耗尽回归、固定向量全 128 位断言）；固定向量的期望值用 Python（与 Kotlin
+生产代码无关的独立语言/路径）算出后硬编码成字面量，不是同一套位布局公式在 Kotlin 里抄两遍再自证——那样两处
+共享同一个理解错误（如字节序搞反）会一起测过。若评审判不可靠，swap `uuid-creator`(MIT) `getTimeOrderedEpoch()` 为一行级改动。
 - 迁移：SQLDelight `.sqm` 显式编号；version 1（本卡）按 SQLDelight 官方约定零 .sqm 文件（"first schema version is 1"，`.sqm` 命名的是"迁移起点版本号"，v1 无前序版本可迁）。`verifyMigrations` 本卡**未开**——见「验收」说明，已登记 TD4。**合并后本目录冻结**——后续加表 = 新 .sqm + 版本评审，届时须先还清 TD4。
 - finalize 只读强制在 SQL 层预埋，**update 与 insert 两侧都要守**（否则 FINALIZED 后仍能悄悄插入新
   inspection_item/room_instance/photo/audio，一样会破坏快照）：所有 UPDATE query 恒带 `finalized_at IS NULL`
@@ -92,6 +100,8 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   且清理是 `UPDATE ... SET tenant_name=NULL, contact=NULL`，**绝不 DELETE tenancy 行**——照片/报告/哈希是法定证据（Rentals Act s123A
   的 12 个月是**下限**），删行会切断 inspection → tenancy → property 的证据链。本卡建列（含 `purged_at`）+
   机械查询 `purgeContactInfo`（置空联系方式 + 打时间戳，不判断该不该清）；何时/是否清理的判断与确认 UI 归 T5-RETENTION。
+  `purged_at` 复用 `:updated_at` 而非单独的可空参数——单独参数能传 NULL，造出「联系方式已清空但 purged_at
+  仍是 NULL」这种自相矛盾、无法区分"从未清理"的状态；updated_at 非空，复用它令这条路径类型层面不可能传 NULL。
 - **不做**：Condition/Cleanliness 全量双刻度（#7）、缺陷责任方/费用字段（#8）。别自作主张加这两组列——加了就得走版本评审才能删。
 
 ## 禁止 / 非目标
