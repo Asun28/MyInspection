@@ -37,3 +37,13 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 core/canon/ 登记进 FrozenPath
 
 ## 验收 / 执行建议
 dod 见 front-matter。首选 DeepSeek V4 Pro · high；备选 Opus 5；Terra 对黄金向量独立复算一遍（交叉复核）。难度 H（契约卡）。
+
+## 执行记录（R2–R4，供评审）
+- 2026-08-16 R2：RED 先行——4 文件 14 测试对 TODO 桩全红（证据 `.review/T1-CANON-HASH.red`）→ 实现后 GREEN（DoD 退出 0，14/14）。
+- **黄金向量独立性**：期望 canonical 串与 SHA-256 由独立 Python 实现（json.dumps sort_keys + NFC 归一 + hashlib sha256）预先计算后写死进测试；Kotlin 实现首跑即与之全量吻合。被断言字符串中组合字符/控制符一律 \uXXXX ASCII 转义（L165）。
+- **R4 变异证明 7/7 全中**（判据分类器：非零退出 且 命中指定失败集 且 判别测试保持绿；逐枚还原后文件 SHA256 与基线一致）：
+  M1 去 NFC(值)→3 项 NFC 测试红 · M2 去 NFC(键)→键冲突测试红 · M3 去键排序→排序+3 黄金向量红 ·
+  M4 链序对调→链黄金向量红 · M5 投影键改名→向量 1/2 红（向量 3 空 items 保持绿=判别项）·
+  M6 投影泄漏 updated_at→排除域+3 向量红 · M7 去整数闸→拒非整数红（Long 极值保持绿=判别项）。
+- **hygiene 结论**：14 测试各有独立击杀变异，无 mutation-survivor 冗余可剪。
+- 设计取值备注：tenancy 投影键名按卡文哈希域清单取 `start`/`end`（非 start_ms/end_ms——photos 的 `exif_time_ms` 卡文即带单位，两处均照卡文原文）；可空字段显式序列化为 null（缺席与为空必须可区分，形状唯一）。
