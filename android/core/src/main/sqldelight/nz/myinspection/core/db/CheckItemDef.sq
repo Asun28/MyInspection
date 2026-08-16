@@ -15,7 +15,14 @@ CREATE TABLE check_item_def (
     deleted_at INTEGER
 );
 
--- 被任何巡检引用后不可变：本卡故意不提供 update 查询。
+-- 被任何巡检引用后不可变。**不提供 update 查询是不够的**：本表的行是 template_version 的**子行**，
+-- 往已被引用的版本里 insert 一条新 stable_id，等于在不改 version、不改 content_hash 的前提下改掉了
+-- 那一版的实际内容——直接破「历史对齐只靠 stable_id + 模板版本」这条关键不变量（多年后报告重渲会失真）。
+-- 故 insert 自带守卫（见下）：父版本须存在且未软删，且该版本**尚未被任何巡检引用**。
+-- 引用判定**不过滤 inspection.deleted_at**：软删的巡检其报告仍须可一致重渲，同样锁死该版本。
+-- （本卡未提供 inspection 软删查询，故这一支目前不可达、也无法从公开查询面测到——它是为将来加软删时
+-- 预留的正确默认，不是已被证明的保证。）
+-- 加项一律走新 template_version 行（需求 §4「改措辞不改 ID，加项给新 ID」）。
 
 -- 软删除唯一性落在业务键（template_version_id, stable_id），不落主键——主键本身已唯一。
 -- 用部分唯一索引而非表级 UNIQUE(..., deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，deleted_at
@@ -24,7 +31,9 @@ CREATE UNIQUE INDEX idx_check_item_def_active ON check_item_def (template_versio
 
 insert:
 INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, photo_rule, sort, created_at, updated_at)
-VALUES (:id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :photo_rule, :sort, :created_at, :updated_at);
+SELECT :id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :photo_rule, :sort, :created_at, :updated_at
+WHERE EXISTS (SELECT 1 FROM template_version WHERE id = :template_version_id AND deleted_at IS NULL)
+  AND NOT EXISTS (SELECT 1 FROM inspection WHERE template_version_id = :template_version_id);
 
 selectById:
 SELECT *

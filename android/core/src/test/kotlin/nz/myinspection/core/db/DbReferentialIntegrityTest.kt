@@ -108,4 +108,50 @@ class DbReferentialIntegrityTest {
         ).value
         assertEquals(0L, affected, "audio can never attach to an inspection_item id that does not exist")
     }
+
+    private fun insertCheckItemDef(templateVersionId: String, stableId: String): Long =
+        database.checkItemDefQueries.insert(
+            id = uuid.next(), template_version_id = templateVersionId, stable_id = stableId,
+            area = "INTERIOR", room = "BEDROOM", text_en = "Walls", text_zh = "墙面",
+            allowed_statuses = """["GOOD","FAIR","POOR"]""", photo_rule = null, sort = 1,
+            created_at = now, updated_at = now,
+        ).value
+
+    /**
+     * 模板版本「被任何巡检引用后不可变」——**光「不提供 update 查询」拦不住**：check_item_def 是
+     * template_version 的子行，往已被引用的版本里 insert 一条新 stable_id，等于在 version 与
+     * content_hash 都不变的前提下改掉了那一版的实际内容，破坏「历史对齐只靠 stable_id + 模板版本」
+     * 这条关键不变量（多年后按当时模板重渲报告会失真）。故 insert 自带守卫。
+     *
+     * 三例必须成组读：前两例证明守卫拦得住，第三例证明它**不是把一切都拦住**——少了第三例，一个恒
+     * 返回 0 行的坏守卫也能让前两例全绿（L165：断言面要恰好等于被测契约）。
+     */
+    @Test
+    fun `check_item_def insert against a nonexistent template_version affects zero rows`() {
+        val affected = insertCheckItemDef(uuid.next() /* never inserted */, "wall.paint")
+        assertEquals(0L, affected, "a check_item_def can never attach to a template_version id that does not exist")
+    }
+
+    @Test
+    fun `check_item_def insert into a template_version already referenced by an inspection affects zero rows`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        // 版本先被一次巡检引用——此刻起该版本的内容就是历史事实，不能再变。
+        DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+
+        val affected = insertCheckItemDef(templateVersionId, "wall.paint")
+        assertEquals(
+            0L, affected,
+            "once an inspection references a template_version, adding an item would change that version's contents " +
+                "without changing its version number or content_hash",
+        )
+    }
+
+    @Test
+    fun `check_item_def insert into an unreferenced template_version affects one row`() {
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+
+        val affected = insertCheckItemDef(templateVersionId, "wall.paint")
+        assertEquals(1L, affected, "loading a template must still work before any inspection references that version")
+    }
 }
