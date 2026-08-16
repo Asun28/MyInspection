@@ -188,6 +188,31 @@ R3 第四轮指出四处缺失的机械查询。**裁决：补，但每条须能
 理解不一致。改法：`NOT EXISTS` 子查询同时匹配 `content_hash` 和 `rel_path`。新增用例：同一哈希两个不同
 路径、一个软删一个活跃，断言只有被软删的那个路径出现在孤儿列表里。
 
+## 卡片修订 2026-08-16 之六（R3 第九轮 · 「引用后不可变」只做了一半，insert 侧全无守卫）
+`CheckItemDef.sq` 的注释写「被任何巡检引用后不可变：本卡故意不提供 update 查询」，但 **不提供 update 拦不住
+insert**。check_item_def 是 `template_version` 的**子行**：巡检引用某版本之后，仍可往该版本 insert 一条新
+`stable_id`，于是 `version` 与 `content_hash` 都不变、那一版的**实际内容**却变了。这破的是 CLAUDE.md 关键
+不变量里的「历史对齐只靠 ID + 模板版本」——多年后按「当时那一版模板」重渲报告会与原件不符。卡是 ★冻结点，
+这个洞冻进去以后再改代价极高，故本轮修掉。
+
+改法沿用 `InspectionItem.sq` / `Audio.sq` 已有的 `INSERT … SELECT … WHERE EXISTS` 形态，不新造写法：父版本须
+存在且未软删，且该版本**尚未被任何巡检引用**。引用判定不过滤 `inspection.deleted_at`（软删巡检的报告仍须可
+一致重渲）——但**本卡未提供 inspection 软删查询，该分支不可达也测不到**，卡文与代码注释都已如实标注它是
+「为将来预留的默认」而非已证明的保证。
+
+**三例成组**（缺一即可被假守卫蒙混）：父行缺失 → 0 行 · 已被引用 → 0 行 · **未被引用 → 1 行**。第三例排除
+「恒返回 0 行的坏守卫」也能让前两例全绿的假通过（L165）。
+
+**单句删除变异证明**（L165：守卫要配一枚能让它翻红的变异，且须带判据分类器）：摘掉 `AND NOT EXISTS (…)`
+那一行后重跑 `DbReferentialIntegrityTest` —— `tests=9 failures=1 errors=0`，失败的**恰好**是「already
+referenced → 0 行」那一例，消息为 `java.lang.AssertionError: … expected [0] but found [1]`（真断言失败，
+非 SQL 语法坏、非运行时异常），其余 8 例含另两条 check_item_def 用例全绿（证明变异是外科式的）。变异后按
+`git checkout --` 还原，SHA256 与变异前一致（L196）。
+
+**关于 RED-first**：本卡原始 TDD 周期的 RED 证据在 sha `9b590c9`，本轮是**已绿代码上的 remediation**，
+造不出新的 RED 相，故 ship 用 `-SkipRed` 并记账。上面那枚变异证明比 RED 相更强：它证明的是「新断言在守卫
+缺席时确实红，且红在指定断言上」，而不只是「某次运行退出码非零」。
+
 ## 禁止 / 非目标
 见 front-matter。
 

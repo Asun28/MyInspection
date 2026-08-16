@@ -69,12 +69,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 <!-- 随 R5 文档同步更新。 -->
-需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**26 张**），模型路由总表 `docs/TASK-BOARD.md`。
+需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**28 张**），模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
 > 评审途中拆出新卡 **`T0-GATE-HARDENING`**（许可闸递归发现 + verify 确定性 + 两枚闸门自测 + 许可政策），承接被撤销的三次破例，见该卡「拆分依据」与仲裁段。
 
-下一步：① `T0-GATE-HARDENING`；② **W1 并行**：`T1-SCHEMA-CORE`（★冻结点）与 `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）；③ 之后按 board 波次推进。
+**W1 首个产品卡已合并**：`T1-SKELETON-E2E` **merged**（2026-08-16，master `19fd908`，R3 pass 于第 **2** 轮）——
+一次性 walking skeleton（建巡检→加一项→拍一张→SAF 导出一页 PDF），4 文件 258 行、零新依赖、只在 `:app/skeleton/`。
+**它是可抛弃代码**，`T2-CAPTURE-UI` 落地时整包删。真机走查产出三条产品反馈，已按归属记进该卡（画质→`T2-PHOTO-PIPELINE`
+· UI→`T2-CAPTURE-UI` · ghost overlay→`T3-HISTORY-COMPARE`），**不回流本卡**。
+
+**同日两处流程收口**（起因：19 小时 3 张卡 30 次 R3 block、零产品代码）：
+① **R3 轮次封顶** `ReviewRoundCap = 2`（`scripts/_config.ps1`）——到顶不唤起评审者，1 秒出 `[R3-ROUND-CAP]` 转人裁；
+**不是放行阀**（仍 block、仍非零退出），只止损（`ReviewTimeoutSec=3600`，每轮最坏 1 小时）。计数器随 worktree 生灭，
+`review.ps1 -ResetRounds` 清零。恢复路由见 `docs/QUALITY-RUBRIC.md` §5。
+② **rubric 加两条立场**：block 理由必须在本卡内可修（要动 `allow_paths` 之外或 `non_goals` 之内 → 记 `[FOLLOW-UP]`、不 block）；
+维度按**卡片自己声明的 DoD** 判（spike/骨架卡声明的验收即满足 #6）。
+
+**仓库已 public**：`https://github.com/Asun28/MyInspection`（`origin` 为唯一 remote，MIT）。`-Local` 不再是唯一选项，PR 流程可用。
+⚠️ `T1-SCHEMA-CORE` **推送/合并前**须先摘掉 `android/core/src/main/sqldelight/databases/1.db`——它在该分支两个提交里、
+但**不在 tip tree**，故 **squash 合并即可完全绕开**，无须改写历史（squash 亦是 `gh-bootstrap` 给远端配的策略）。
+
+下一步：① `T1-SCHEMA-CORE`（★冻结点，卡着下游 5 张，R3 已到第 8 轮——按新封顶规则该转人裁）；
+② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，待追认）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）；
+④ 之后按 board 波次推进。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
@@ -103,7 +121,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 与 `scaffold-selftest.yml` 均 **push + pull_request**（`[main, master]`；selftest 闸 **8.2d** 锁死此形态）。push 侧各带路径过滤——`ci.yml` 用 `paths-ignore: ['**.md', 'docs/**']`（**纯文档直推不触发**，混合推送仍全跑），`scaffold-selftest.yml` 进一步**正向 `paths` 只扫权威面**（scripts/.claude/.github/configs，非 .md）——业务码推送不再空跑 selftest matrix（windows 计 2× 分钟）；**PR 侧刻意不过滤**（必需状态检查 + path filter 不相容，doc-only PR 会永远停在 Expected）。
+- **CI 触发形态**：`ci.yml` 与 `scaffold-selftest.yml` 均 **push + pull_request**（`[main, master]`；selftest 闸 **8.2d** 锁死此形态）。push 侧各带路径过滤——`ci.yml` 用 `paths-ignore: ['**.md', 'docs/**']`（**纯文档直推不触发**，混合推送仍全跑），`scaffold-selftest.yml` 进一步**正向 `paths` 只扫权威面**（scripts/.claude/.github/configs，非 .md）——业务码推送不再空跑 selftest matrix；它在每个 OS 上并行跑 `core/workflow/seeded` 三分片（合计 3 分片 × Windows/Ubuntu 2 OS，任一红即红，闸 **8.2e** 锁死接线；Windows job 各计 2× 分钟）；**PR 侧刻意不过滤**（必需状态检查 + path filter 不相容，doc-only PR 会永远停在 Expected）。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -139,7 +157,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流脚本自检**（改 `scripts/*.ps1` / `.claude/hooks/*.ps1` 后）：`pwsh -File scripts\selftest.ps1`（**17 闸**总自检；来自脚手架、随下游保留；push/PR 也由 `.github/workflows/scaffold-selftest.yml` 在 CI 跑）
+- **工作流脚本自检**（改 `scripts/*.ps1` / `.claude/hooks/*.ps1` 后）：`pwsh -File scripts\selftest.ps1`（默认聚合 `core/workflow/seeded`：两个长分片先并行、短 `core` 错峰低优先级加入，仍是**17 闸**总自检；排障可单跑 `-Shard <name>`；来自脚手架、随下游保留；push/PR 也由 `.github/workflows/scaffold-selftest.yml` 在 CI 跑）
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 

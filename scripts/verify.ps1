@@ -91,11 +91,16 @@ if ($feBootstrapped -and (Get-Command npm -ErrorAction SilentlyContinue)) {
 # Android/Gradle 闸（本项目主实现面）：android/gradlew.bat 在（Gradle 工程已引导）才跑并计红；未引导 → 优雅跳过。
 # 测试面 = :core 纯 JVM 单测/静检（确定性；--offline 保证闸内绝不联网拉依赖——依赖缓存由引导卡先在线 build 一次填充，
 # 缓存缺料即非零计红，fail-closed，同上方 uv --no-sync 立场）。JDK 缺失时 gradlew 自身非零 → 同样计红。
+# 不留守护进程的 no-daemon flag（T0-GATE-HARDENING item3，与 CLAUDE.md「命令」节口径一致）：残留 Gradle
+# daemon 曾累计 800+ 秒 CPU，破坏 verify 的确定性/可复现——每次跑一个不留后台进程的一次性 JVM（flag 拼写见下方调用行）。
+# .\gradlew.bat 显式相对路径（T0-GATE-HARDENING item5）：裸文件名依赖「当前目录参与 exe 搜索」，Claude Code 的
+# shell 会话带进程级 NoDefaultCurrentDirectoryInExePath=1 时该行为被关闭，裸 'gradlew.bat' 会报
+# "is not recognized"——显式路径免疫此环境差异，真实终端/CI 行为不变。
 $gwBat = Join-Path $RepoRoot 'android/gradlew.bat'
 if (Test-Path $gwBat) {
   Push-Location (Join-Path $RepoRoot 'android')
   try {
-    & cmd /c 'gradlew.bat --offline -q :core:check'
+    & cmd /c '.\gradlew.bat --offline --no-daemon -q :core:check'
     if ($LASTEXITCODE -ne 0) { Write-Warning "Android :core check 失败（退出码 $LASTEXITCODE；JDK 缺失/依赖缓存缺料/测试红均计红）"; $failed = $true }
     else { Write-Host 'Android :core check 全绿。' }
   } finally { Pop-Location }

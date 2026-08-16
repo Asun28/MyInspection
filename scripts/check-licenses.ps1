@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [switch]$Strict,     # -Strict 时 LGPL/OpenRAIL 等黄牌也算失败
-  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 复用；镜像 check-secrets.ps1 -AsLibrary）
+  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测复用；镜像 check-secrets.ps1 -AsLibrary）
 )
 
 Set-StrictMode -Version Latest
@@ -49,7 +49,80 @@ function Scan($name, $license) {
   if ($license -match $forbidden) { $script:bad += "$name => $license"; return }
 }
 
-# ── 库模式：正则/Scan/Distributes 已定义，就此返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p dot-source 复用）──
+# ── Gradle 清单发现（库导出区，供 selftest dot-source 直测——修正 R3 finding：先前用
+#   Get-ChildItem -Recurse 再 Where-Object 后置过滤，仍会**真的下钻进** .gradle/build/node_modules/.git
+#   再丢弃结果，大型/不可读的被排除子树照样被遍历、可能产生假的枚举失败。改成手写栈式遍历，在**下钻前**
+#   判断目录名是否在排除表——被排除目录从不会被 push 进栈，根本不会被枚举到）──
+# -Enumerator 可注入（默认即真实 Get-ChildItem）：测试用它换成会对指定目录抛错的桩，
+# 不必真的靠 Windows ACL 拒绝读权限去模拟「子树不可读」（省掉 icacls 的平台特定性与清理风险）。
+# 名称级排除适用于任意深度的缓存/产物/机密目录；路径级排除只针对仓库 ignore 契约里的特定位置，避免把业务树中
+# 同名目录一并跳过。三组规则共同覆盖根 .gitignore 与 android/.gitignore 的目录型条目。
+$gradleSkipDirs = @(
+  '.gradle', 'build', 'node_modules', '.git',                                  # 既有：Gradle/前端产物缓存 + VCS 元数据
+  '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache',       # Python 工具链缓存
+  '.review', '_local', 'runtime',                                              # 本仓运行时/评审/内部产物（CLAUDE.md 约定，均 gitignored）
+  'auth', '.secrets',                                                          # 机密目录——不该下钻
+  '.idea', '.vscode'                                                           # IDE 本地配置
+)
+$gradleSkipRelativePaths = @('data', 'frontend/dist')
+$gradleAndroidSkipDirs = @('.kotlin', 'captures', '.cxx')
+function Find-GradleManifests {
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [string[]]$SkipDirs = $gradleSkipDirs,
+    [string[]]$SkipRelativePaths = $gradleSkipRelativePaths,
+    [string[]]$AndroidSkipDirs = $gradleAndroidSkipDirs,
+    [Parameter(Mandatory)][string[]]$Names,
+    [scriptblock]$Enumerator = { param($d) Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop }
+  )
+  $found = [System.Collections.Generic.List[string]]::new()
+  $stack = [System.Collections.Generic.Stack[string]]::new()
+  $stack.Push($Root)
+  while ($stack.Count -gt 0) {
+    $dir = $stack.Pop()
+    foreach ($e in (& $Enumerator $dir)) {
+      if ($e.PSIsContainer) {
+        # R3 round-2 dimension #10（确定性）：目录联接/符号链接（ReparsePoint）绝不下钻——
+        # 否则可能扫出仓外（联接指向仓外目录），或经自引用联接死循环（不终止）。只跳过它本身，
+        # 不影响它旁边正常子树的发现。
+        $isReparse = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+        $relativePath = [System.IO.Path]::GetRelativePath($Root, $e.FullName).Replace('\', '/')
+        $isAndroidLocal = $relativePath.StartsWith('android/') -and ($AndroidSkipDirs -contains $e.Name)
+        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name) -and ($SkipRelativePaths -notcontains $relativePath) -and (-not $isAndroidLocal)) { $stack.Push($e.FullName) }
+      } elseif ($Names -contains $e.Name) {
+        $found.Add($e.FullName)
+      }
+    }
+  }
+  return $found
+}
+
+# Gradle 覆盖缺口构建（库导出区，供 selftest dot-source 直测枚举失败→coverage gap 的映射，不必真跑整份
+# 脚本）：两个分支各自 try/catch、单独一行，便于单句删除变异独立覆盖；-Enumerator 透传给 Find-GradleManifests。
+function Get-GradleCoverageGaps {
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [scriptblock]$Enumerator = { param($d) Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop }
+  )
+  $hits = @(); $errs = @()
+  # 分支①：libs.versions.toml（Gradle 版本目录，卡片点名的目标）——单独一行，便于单句删除变异独立覆盖本分支。
+  try { $hits += @(Find-GradleManifests -Root $Root -Names @('libs.versions.toml') -Enumerator $Enumerator) } catch { $errs += "libs.versions.toml 递归枚举失败：$($_.Exception.Message)" }
+  # 分支②：build.gradle / build.gradle.kts（传统构建脚本）——单独一行，便于单句删除变异独立覆盖本分支。
+  try { $hits += @(Find-GradleManifests -Root $Root -Names @('build.gradle', 'build.gradle.kts') -Enumerator $Enumerator) } catch { $errs += "build.gradle{,.kts} 递归枚举失败：$($_.Exception.Message)" }
+  $gaps = @()
+  # fail-closed（T0-TOOLCHAIN finding #4）：枚举出错**不得**被吞掉——吞掉后「没扫到」会被当成「没有清单」，
+  # -Strict 照样过，闸在看不见时反而变安静。枚举错误显式记一条 coverage gap，绝不静默降级为「未发现」。
+  foreach ($e in $errs) { $gaps += "Gradle：$e ——枚举出错不等于没有清单，零覆盖≠合规（fail-closed，勿静默吞掉）。" }
+  if ($hits.Count -gt 0) {
+    # Find-GradleManifests 返回的是路径**字符串**（非 FileInfo），直接 .Substring，不取 .FullName。
+    $names = @($hits | ForEach-Object { $_.Substring($Root.Length + 1) -replace '\\', '/' } | Sort-Object -Unique)
+    $gaps += "Gradle：检测到 $($names.Count) 个清单（$($names -join ', ')）但本闸无对应许可扫描器——按 docs/LICENSE-POLICY.md §3.1/§3.2 人工核验该生态依赖（直接依赖已核验登记，约 220 个传递坐标未审计，见 TD2），或接入扫描器。"
+  }
+  return $gaps
+}
+
+# ── 库模式：正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 已定义，就此返回——
+#    不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测 dot-source 复用）──
 if ($AsLibrary) { return }
 
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
@@ -114,13 +187,23 @@ $otherManifests = @(
   @{ file = 'composer.json'; eco = 'PHP (composer.json)' }
   @{ file = 'pubspec.yaml';  eco = 'Dart/Flutter (pubspec.yaml)' }
   @{ file = 'pom.xml';       eco = 'Java/Maven (pom.xml)' }
-  @{ file = 'build.gradle';  eco = 'Gradle (build.gradle)' }
 )
 $otherHits = @($otherManifests | Where-Object { Test-Path (Join-Path $RepoRoot $_.file) })
 foreach ($m in $otherHits) {
   $coverageGap += "$($m.eco)：检测到依赖清单但本闸无对应许可扫描器——零覆盖≠合规（按 docs/LICENSE-POLICY.md 人工核验该生态依赖，或接入扫描器）。"
 }
-if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单。" }
+if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单（Go/Rust/根 npm/Ruby/PHP/Dart/Maven）。" }
+
+# === Gradle 清单递归发现（T0-GATE-HARDENING item1）===
+# 只 glob 仓根 build.gradle{,.kts} 会漏掉嵌套子模块清单（T0-TOOLCHAIN 六轮评审 finding #2：卡片点名的
+# android/gradle/libs.versions.toml 就是这样被漏掉的，「能报出来」只是因为当时恰好还有别的构建脚本存在）。
+# 覆盖两个独立分支：① libs.versions.toml（Gradle 版本目录）② build.gradle / build.gradle.kts（传统构建脚本）。
+# 排除 .gradle/、build/ 等缓存/产物目录，以及 node_modules/.git——Get-GradleCoverageGaps/Find-GradleManifests
+# （库导出区）在**下钻前**剪枝，从不真的进入这些目录，且递归枚举出错 fail-closed 记一条 coverage gap（不静默吞掉）。
+Write-Host "=== Gradle 清单递归发现探针 ===" -ForegroundColor Cyan
+$gradleGapsBefore = $coverageGap.Count
+$coverageGap += (Get-GradleCoverageGaps -Root $RepoRoot)
+if ($coverageGap.Count -eq $gradleGapsBefore) { Write-Host "  未发现 Gradle 清单（含 libs.versions.toml / build.gradle{,.kts}）。" }
 
 Write-Host ""
 if ($coverageGap) { Write-Host "覆盖缺口（-Strict 下视为失败；零覆盖≠合规）：" -ForegroundColor Yellow; $coverageGap | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow } }

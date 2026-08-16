@@ -41,7 +41,8 @@ param(
   [string]$Model,
   [string]$Effort = '',
   [switch]$LocalBase,   # -Local 工作流：合并目标是**本地** <base>（非 origin/<base>）——优先本地解析基线（TD68 / R3 PR#102 三轮）
-  [int]$TimeoutSec = 0
+  [int]$TimeoutSec = 0,
+  [switch]$ResetRounds  # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
 )
 
 Set-StrictMode -Version Latest
@@ -101,6 +102,23 @@ function Assert-VerdictPathSafe([string]$Path, [string]$When, [string]$Consequen
 $verdictPath = Join-Path $reviewDir "$branchSafe.json"
 Assert-VerdictPathSafe -Path $verdictPath -When 'at startup, before any artifact was created' -Consequence 'Nothing was created, written, or deleted, and the reviewer was not invoked.'
 New-Item -ItemType Directory -Force $reviewDir | Out-Null
+
+# ── R3 轮次计数（_config.ps1 ReviewRoundCap）的落点与清零 ──
+# 计数落 .review/<branch>.rounds（与裁决同目录、gitignored、随 worktree 生灭），过同一道链接判据。
+# **-ResetRounds 是独立操作**：清零后立即 exit 0，不评审。早退在此（-SkipReview / codex 缺失 等提前退出**之前**），
+# 否则组合使用时它会排在那些 exit 之后 → 静默 no-op（本轮实测踩到：`-ResetRounds -SkipReview` 什么都没清）。
+$roundsPath = Join-Path $reviewDir "$branchSafe.rounds"
+$roundsUnsafe = Test-ScaffoldPathUnsafe -Path $roundsPath -StopAt $WorktreePath
+if ($ResetRounds) {
+  # 复用既有状态码（不新增契约面）：这与 <branch>.json 的情形同类——.review 内的产物路径或其祖先是链接。
+  if ($roundsUnsafe) {
+    Write-Host "  [R3-REVIEW-DIR-UNSAFE] The round-counter path '$roundsPath' (or one of its ancestors, including the .review directory) is a symbolic link or reparse point, so deleting through it would reach outside the worktree. Refusing to reset the counter; nothing was deleted. Treat this as a tampering signal: find out who placed that link in the reviewed worktree." -ForegroundColor Red
+    exit 1
+  }
+  Remove-Item -LiteralPath $roundsPath -Force -ErrorAction SilentlyContinue
+  Write-Host "R3 轮次计数已清零（$branch）——人裁已完成，本卡重新计轮。未做评审，请另跑一次 review/ship。" -ForegroundColor Yellow
+  exit 0
+}
 
 # 规范化裁决落盘（单一写法；selftest 闸 ⑥ 机检下面这行裁决哈希表结构 ↔ verdict.schema.json）。
 $script:VerdictWriteFailed = $false
@@ -439,6 +457,27 @@ function Invoke-ReviewerWithTimeout {
 # 删同样会跟随链接（会删掉工作树之外的同名文件），故与写用同一道判据。
 # **这是把路径交给评审者之前的最后一次判断**：入口守卫判的是启动那一刻，两者之间的窗口由本处兜住。
 # 检出不安全时**不能只是「我不删」然后照样把它设成 `$env:REVIEW_OUT`**——那等于让评审者替我们写出去（R3 r16）。
+# ── R3 轮次上限（_config.ps1 ReviewRoundCap，默认 2）──
+# 治「`不确定→block` + 无上限轮次 = 活锁」：CLAUDE.md 的「同一争点两轮互不认可即停、排队人裁」此前只是
+# 文档里的话、无机检，实测跑成 9/12/9 轮。到顶后**不唤起评审者**，写 block 裁决并 exit 1 转人裁。
+# **这不是放行阀**：不产出 pass、不合并；只停止烧评审（每轮最坏 ReviewTimeoutSec=3600s）。
+# 计数器（$roundsPath / $roundsUnsafe 在上方 .review 建好处一并定义）是**节流器不是安全控制**：
+# 读不出 / 坏值 / 路径不安全一律当 0——宁可多评一轮，不可少评一轮。
+$reviewRoundCap = if ($ScaffoldConfig.ContainsKey('ReviewRoundCap')) { [int]$ScaffoldConfig.ReviewRoundCap } else { 2 }
+$roundsSoFar = 0
+if ((-not $roundsUnsafe) -and (Test-Path -LiteralPath $roundsPath)) {
+  $rawRounds = (Get-Content -LiteralPath $roundsPath -Raw -ErrorAction SilentlyContinue)
+  if ("$rawRounds" -match '^\s*(\d+)\s*$') { $roundsSoFar = [int]$Matches[1] }
+}
+if (($reviewRoundCap -gt 0) -and ($roundsSoFar -ge $reviewRoundCap)) {
+  Write-Host "  [R3-ROUND-CAP] 本分支已累计 $roundsSoFar 次 R3 block，达上限 $reviewRoundCap（_config.ps1 ReviewRoundCap）。不再唤起评审者，转人裁。" -ForegroundColor Yellow
+  Write-Host "  人裁三选一：① 发现落在本卡 allow_paths 之外或 non_goals 之内 → 开新卡承接，不改本卡；② 发现属实 → 修，然后 review.ps1 -ResetRounds 清零重跑；③ 卡本身过大 → 拆卡。" -ForegroundColor Yellow
+  Write-Host "  上一轮裁决原文：$verdictPath ｜ 评审者原始回复：$(Join-Path $reviewDir "$branchSafe.raw.txt")" -ForegroundColor DarkGray
+  Write-Verdict 'block' @("[R3-ROUND-CAP] This branch has accumulated $roundsSoFar R3 block verdicts, reaching the cap of $reviewRoundCap (scripts/_config.ps1 ReviewRoundCap). The reviewer was NOT invoked this run and nothing is approved: blocking (fail-closed). Repeated rounds on one card are a livelock signal, not a quality signal - a human must adjudicate. Three routes: (1) if the finding lies outside this card's allow_paths or inside its non_goals, open a follow-up card instead of amending this one; (2) if the finding is real, fix it and re-run with -ResetRounds; (3) if the card itself is too large, split it. Never bypass the gate with --no-verify.")
+  Write-Host '裁决: block（轮次上限，转人裁）' -ForegroundColor Red
+  exit 1
+}
+
 Assert-VerdictPathSafe -Path $verdictPath -When 'immediately before invoking the reviewer' -Consequence 'The .review directory may already exist from earlier in this run, but no further artifact operation occurred and the reviewer was not invoked.'
 Remove-Item $verdictPath -ErrorAction SilentlyContinue
 # ── stale-raw 治理（R3 r17）──：`<branch>.raw.txt` 是稳定路径，上一轮的残留会在本轮没产出原文时
@@ -637,6 +676,18 @@ if ($script:VerdictWriteFailed) {
 }
 
 $ok = $verdict -eq 'pass'
+# ── 轮次计数递增（只在 block 时；pass 即结束，无需计数）──
+# 计的是**本分支累计 block 次数**，含走到这里的基础设施类 block（超时 / 裁决坏 JSON / 落盘失败）——连续两次
+# 任何原因过不去都值得人看一眼，而升级的代价只是人跑一次 -ResetRounds。
+# **更早的 exit 不计数**（基线不可解析、codex 缺失、路径判为链接等在此之前 exit）：那些是环境问题，不该消耗人裁额度，
+# 且计数器此时可能尚未定义。少计 = 多评一轮，安全方向正确。写失败只告警不改判：它是节流器、不是安全控制。
+# **写点自己重判链接**（不能复用启动时算的 $roundsUnsafe）：启动判的是那一刻，本写发生在评审**之后**——
+# 评审期间才被植入的 junction 会让这次写跟着链接落到工作树之外（selftest 闸 17t(t19) 实测抓到本处回归：
+# 目标目录里多出 <branch>.rounds）。既有各产物写点都是这个形态，此处对齐。
+if ((-not $ok) -and (-not (Test-ScaffoldPathUnsafe -Path $roundsPath -StopAt $WorktreePath))) {
+  try { Set-Content -LiteralPath $roundsPath -Value ([string]($roundsSoFar + 1)) -Encoding utf8 -ErrorAction Stop }
+  catch { Write-Warning "R3 轮次计数写入失败（'$roundsPath'）：$($_.Exception.Message)。本轮 block 未计入，下轮仍会唤起评审者。" }
+}
 Write-Host ("裁决: {0}" -f $verdict) -ForegroundColor ($(if ($ok) { 'Green' } else { 'Red' }))
 if (-not $ok) { $reasons | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
 

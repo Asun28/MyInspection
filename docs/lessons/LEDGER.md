@@ -1525,3 +1525,11 @@
 - rule: 写完一张卡的 `dod_assert` / `doc_sync` / 仲裁段后，**逐条对着自己的 allow_paths 过一遍**：这条义务要动哪个文件？该文件在 allow_paths 里吗？不在就必须当场二选一——① 把落点改到 allow_paths 内；② 在卡里**显式写明「此项由编排者在 master 完成，不属本卡 diff」**。**默认属于 master 侧的三类**：卡文自身、`specs/tech-debt-tracker.md`、新建任务卡。另：`-Local` ship 无 PR 无 CI，凡「贴进 PR / 引用 CI 产物」的证据要求都不成立，证据落点只能是「执行者交报告 → 编排者 R5 在 master 追加」。
 - enforced_by: 
 - refs: 
+
+## L213
+- date: 2026-08-15 ｜ tags: subagent,orchestration,context,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 长跑子代理在跑到很大上下文后被 watchdog 判定 stalled 并杀掉（本项目两次：T0-TOOLCHAIN 那个约 726k token / 403 次工具调用，T0-GATE-HARDENING 那个约 856k / 848 次；第三个到 911k 时也已进同一区间）。表现是「no progress for 600s，stream watchdog did not recover」，不是任务本身出错——工作往往已基本完成。
+- root_cause: 一个子代理跑完整张卡的多轮评审弧时，上下文单调增长（每轮 diff + 评审原文 + 构建日志都留在里面），到某个量级后就容易卡死。这不是模型不会做，是**把一张卡的全部历史都堆在一个上下文里**这个形态本身撑不住；而重要产物（变异红/绿证据、评审往复的结论）若只存在于那个上下文里，agent 一死就一起没了。
+- rule: **别复活将死的大上下文子代理，退役它、用干净上下文重派**：新 brief 只给「已核验的磁盘事实 + 剩下要做的几步 + 已关闭的仲裁」，别让它重走历史。前提是**产物必须落盘、不许只活在 agent 脑子里**——证据交给编排者由其在 master 追加（L212）、状态一律从磁盘工件读（L202）、handoff 三件套随时可续（docs/HANDOFF.md）。运行期兆头：工具调用数上百、token 逼近百万即视为高危，主动在下一个自然断点（一次 ship 结束/一轮评审结束）换人，别等 watchdog。**换人前先按 L196 核一遍有没有变异残留**——被杀在「植入后、还原前」的树看起来只是 M，肉眼分不出。
+- enforced_by: 
+- refs: 

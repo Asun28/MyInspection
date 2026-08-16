@@ -25,6 +25,7 @@
 - [ ] 关键能力完成度达标 —— **✅DONE**（NOT-DONE 项已确认可接受或已补；按 `docs/EVAL.md` 方法论自评，opt-in，若已接自有 eval runner/CI 则据其确定性报告核对）。
 - [ ] `pwsh scripts\verify.ps1` 通过（确定性 / 离线最小闭环）。
 - [ ] `pwsh scripts\check-licenses.ps1`（变 public / 正式发布前加 `-Strict`）—— 依赖许可合规：无 GPL/AGPL/SSPL/非商用等**禁列**；黄牌（LGPL/OpenRAIL/MPL）已人工确认用途/链接方式；模型权重 / 数据 / 字体 / 素材另按 `docs/LICENSE-POLICY.md` 政策表登记。
+- [ ] **Gradle 传递依赖许可全量核验通过**（阻断项，T0-GATE-HARDENING 仲裁）—— `android/` 子树约 220 个传递坐标当前未逐一核验（见 `docs/LICENSE-POLICY.md` §3.2）。**触发点澄清**：GPL 系纯 copyleft 的义务触发点是**分发**；但 AGPL/SSPL/EUPL/非商用/研究限等触发点与分发无关，即便当前未分发也不豁免（见 `docs/LICENSE-POLICY.md` §1.1/§3.2「不是自动豁免」）——这些坐标一旦在传递依赖中现身须立即处理，不得拖到发布前才查。**`-Strict` 退出码不能替你判定本项是否完成**：`check-licenses.ps1` 不扫 Gradle 生态，只要仓内存在 Gradle 清单就恒报覆盖缺口，故完成人工核验（下面②）之后 `-Strict` 依旧会退出 1——这是设计使然、不是待修的 bug，本项必须在本清单**人工勾选**判定，两选一即满足：① 接入自动扫描器（TD2）跑过全量传递依赖坐标并记录结果；② 人工逐条核验并登记进 `docs/LICENSE-POLICY.md` §3（此后 `-Strict` 报出的 Gradle 覆盖缺口视为已知且已审计，不代表未完成）。两者选一，未清零前不得分发（打包 APK 对外分发 / 变 public 均算分发）。
 - [ ] 集成 / e2e 覆盖**主流程**（不只单元测试；接法见 `docs/DELIVERY-OPS.md`，verify 闸门2 已接非占位）。
 - [ ] 根 `LICENSE` 的 copyright holder 已替换为你的法律实体（脚手架默认是**专有占位**，含上游账号名），或明确确认沿用占位；若分发，确认 bundle 的第三方 MIT 件（`.claude/skills/ponytail`、`taste-skill`）各自的 `LICENSE`/`NOTICE` 仍随附保留（根 LICENSE 的「All Rights Reserved」**不覆盖**这些第三方件）。
 
