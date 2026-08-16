@@ -55,12 +55,58 @@ class InspectionSnapshotTest {
         assertNotEquals(base, base.copy(audios = emptyList()))
     }
 
+    /**
+     * 相等性测试**证明不了形状**：给任何一个快照类型加一个带默认值的字段，上面每一条 `copy` 断言照样全绿，
+     * 而哈希域已经悄悄变了。租客联系方式那条尤其要害——原先只断言「三参数能构造成功」，可**多出一个带默认值
+     * 的第四参数时三参数构造同样成功**，它证明不了缺席。
+     *
+     * 故按字段逐一钉死形状。`declaredFields` 对 data class 返回主构造函数字段，**按声明顺序**。
+     * **本断言不覆盖引用类型的可空性**（`String?` 与 `String` 在 Java 侧同为 `String`）；基本类型可空则装箱
+     * （`Long` vs `long`、`Boolean` vs `boolean`），那一类反而被覆盖到了。这个边界是实测结论，不是遗漏。
+     */
+    private fun assertExactShape(type: Class<*>, expected: List<String>) {
+        val actual = type.declaredFields.map { "${it.name}:${it.type.simpleName}" }
+        assertEquals(
+            expected, actual,
+            "${type.simpleName} 的字段集合就是 T1-CANON-HASH 的哈希域形状：多一个、少一个、改名或改类型都会静默" +
+                "改变哈希结果。若这是有意的形状变更，同步改这里与 T1-CANON-HASH 的黄金向量。",
+        )
+    }
+
     @Test
-    fun `tenancy contact fields have no home in TenancySnapshot`() {
-        // 哈希域明文排除租客联系方式（保留期清理不得破坏哈希可复验性）——这里没有反射黑魔法能测
-        // "某字段不存在"，但至少证明 TenancySnapshot 只用 id/start/end 三个字段就能完整构造。
-        val tenancy = TenancySnapshot(id = "t-1", startMs = 0L, endMs = null)
-        assertEquals("t-1", tenancy.id)
+    fun `every snapshot type has exactly the declared hash-domain shape`() {
+        assertExactShape(
+            InspectionSnapshot::class.java,
+            listOf(
+                "id:String", "type:String", "tenancyId:String", "scheduledAt:long", "finalizedAt:Long",
+                "previousInspectionId:String", "baselineInspectionId:String",
+                "property:PropertySnapshot", "tenancy:TenancySnapshot", "template:TemplateSnapshot",
+                "items:List", "photos:List", "audios:List",
+            ),
+        )
+        assertExactShape(
+            PropertySnapshot::class.java,
+            listOf("id:String", "address:String", "kind:String", "isBoardingHouse:boolean"),
+        )
+        // 租客联系方式（tenant_name / contact）必须不在这里：它们若进哈希域，保留期清理一执行就会让历史
+        // 报告的哈希再也复验不出来，而这份清理是 Privacy Act 2020 下的硬要求。
+        assertExactShape(
+            TenancySnapshot::class.java,
+            listOf("id:String", "startMs:long", "endMs:Long"),
+        )
+        assertExactShape(
+            TemplateSnapshot::class.java,
+            listOf("id:String", "type:String", "version:long", "contentHash:String"),
+        )
+        assertExactShape(
+            InspectionItemSnapshot::class.java,
+            listOf("stableId:String", "status:String", "note:String", "wearOrDamage:String"),
+        )
+        assertExactShape(
+            PhotoSnapshot::class.java,
+            listOf("contentHash:String", "source:String", "exifTimeMs:Long", "isRoomLevel:boolean"),
+        )
+        assertExactShape(AudioSnapshot::class.java, listOf("contentHash:String"))
     }
 
     @Test
