@@ -103,16 +103,24 @@ class RoutineContentTest {
             assertEquals(expectedRoom, item.room, "$id should belong to room $expectedRoom, found ${item.room}")
         }
 
-        // 7 点烟雾报警器声明（官方表照抄）：从模板**实际派生**出的 GEN-SMOKE-* 条目集合须恰好等于
-        // 这 7 点，不多不少——只断言"这些 id 存在"不够，多余/被替换的声明点不会被上面按 id 点名的
-        // 断言发现（它们只查"要求的 id 是否在场"，反向的"在场的 id 是否都是要求的"漏判）。
+        // 7 点烟雾报警器声明：MB_TEN0004_10/25 表格第 2 页原文核对（2026-08-16 抓取官方可填 PDF
+        // 逐字核验，见 PR 记录），断言**一对一 stableId → 官方英文声明**的精确文案，不是只判存在——
+        // 只判「这些 id 存在」不够：文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
+        val expectedSmokeText = mapOf(
+            "GEN-SMOKE-BEDROOM-01" to "There is at least one working smoke alarm in each bedroom, or within three metres of each bedroom's door - this applies to any room a person might reasonably sleep in",
+            "GEN-SMOKE-STOREY-01" to "If there is more than one storey or level, there is at least one working smoke alarm on each storey or level, even if no one sleeps there",
+            "GEN-SMOKE-CARAVAN-01" to "If there is a caravan, sleep-out or similar, there is at least one working smoke alarm in it",
+            "GEN-SMOKE-EXPIRY-01" to "None of the smoke alarms has passed the manufacturer's expiry or recommended replacement date",
+            "GEN-SMOKE-BATTERY-01" to "All new or replacement smoke alarms installed from 1 July 2016 onward are long-life photoelectric smoke alarms with a total battery life of at least eight years when installed, or a hard-wired smoke alarm system, and meet the product standards in the Residential Tenancies (Smoke Alarms and Insulation) Regulations 2016",
+            "GEN-SMOKE-INSTALL-01" to "All smoke alarms are properly installed by the landlord or their agent in accordance with the manufacturer's instructions",
+            "GEN-SMOKE-WORKING-01" to "All smoke alarms are working at the start of the tenancy, including having working batteries",
+        )
         val actualSmokeIds = items.filter { it.room == "GENERAL" && it.stableId.startsWith("GEN-SMOKE-") }
             .map { it.stableId }.toSet()
-        val expectedSmokeIds = setOf(
-            "GEN-SMOKE-POS-01", "GEN-SMOKE-TYPE-01", "GEN-SMOKE-POWER-01", "GEN-SMOKE-TEST-01",
-            "GEN-SMOKE-EXPIRY-01", "GEN-SMOKE-OBSTRUCT-01", "GEN-SMOKE-COUNT-01",
-        )
-        assertEquals(expectedSmokeIds, actualSmokeIds, "official form's smoke-alarm declaration must be exactly these 7 points, no more, no fewer")
+        assertEquals(expectedSmokeText.keys, actualSmokeIds, "official form's smoke-alarm declaration must be exactly these 7 points, no more, no fewer")
+        for ((id, expectedText) in expectedSmokeText) {
+            assertEquals(expectedText, byId.getValue(id).textEn, "$id textEn must match the MB_TEN0004_10/25 smoke-alarm declaration")
+        }
 
         // Healthy Homes 日常复核点：与官方表天然重合的四项（地板下/天花绝缘、厨房与浴室抽风、防潮布），
         // 文案须点名 Healthy Homes 以便未来 T6-HHC 按同 stableId 承接。
