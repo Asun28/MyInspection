@@ -9,6 +9,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.format.ResolverStyle
+import nz.myinspection.core.media.ExifSubSecond
 
 /**
  * ExifInterface 读取薄壳（androidx.exifinterface 1.4.2，见 libs.versions.toml pin；`TAG_OFFSET_TIME_ORIGINAL`
@@ -64,22 +65,8 @@ object PhotoExifReader {
             }
         } ?: ZoneId.systemDefault()
         val baseMillis = local.atZone(zone).toInstant().toEpochMilli()
-        return baseMillis + parseSubSecondMillis(exif.getAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL))
-    }
-
-    /**
-     * EXIF `SubSecTime*` 是「秒后小数部分」的十进制数字串，**不是**定长毫秒field：`"5"` 与 `"500"` 同表
-     * 0.5 秒（500ms），`"1234"` 表 0.1234 秒（截断到 123ms）——按数字串长度换算，而非直接当毫秒数用
-     * （那样 `"5"` 会被误当成 5ms，差了整整两个数量级）。非数字/空/null 一律记 0（无可用亚秒精度，不影响
-     * 秒级时间戳本身）。
-     */
-    private fun parseSubSecondMillis(subSec: String?): Long {
-        if (subSec.isNullOrEmpty() || !subSec.all(Char::isDigit)) return 0L
-        val numerator = subSec.toLongOrNull() ?: return 0L
-        var millis = numerator
-        var digits = subSec.length
-        while (digits < 3) { millis *= 10; digits++ }
-        while (digits > 3) { millis /= 10; digits-- }
-        return millis
+        // 亚秒解析（"SubSecTime* 是数字串、不是定长毫秒 field"及溢出防护）是纯字符串→数字逻辑，判定
+        // 都在 :core 的 ExifSubSecond 里做、并有边界向量测试钉住；这里只管把 EXIF 字符串标签递过去。
+        return baseMillis + ExifSubSecond.parseMillis(exif.getAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL))
     }
 }
