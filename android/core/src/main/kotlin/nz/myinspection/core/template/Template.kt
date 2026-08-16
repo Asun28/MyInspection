@@ -1,6 +1,7 @@
 package nz.myinspection.core.template
 
 import kotlinx.serialization.Serializable
+import java.util.Collections
 
 /**
  * 模板 JSON 的数据类即 schema（卡片 T1-TEMPLATE-ENGINE）。一类型一文件，形如：
@@ -66,16 +67,22 @@ class LoadedTemplate internal constructor(
  * `template_version.type`、`check_item_def.photo_rule` 各有 CHECK，写进去才不会被数据库拒；
  * 评级域 schema 刻意不约束（`inspection_item.status` 无 CHECK，合法值随模板类型而变），
  * 所以它只在这里成文，是 :core 层唯一的判据。
+ *
+ * 三个集合都包成不可变：Kotlin 的 `Set` 只是**只读视图**，`setOf(…)` 底下是 `LinkedHashSet`，
+ * 强转回 `MutableSet` 就能改——而这三个是进程级共享的判据，被改一次，之后所有模板的校验结论都跟着变。
+ * 用 `unmodifiableSet(linkedSetOf(…))` 而非 `java.util.Set.of`：后者迭代序未定义，这里要留住书写顺序。
  */
 object TemplateDomains {
     /** 出租三类模板的四档评级（需求 §4 / 卡片上下文包）。 */
-    val RENTAL_STATUSES: Set<String> = setOf("GOOD", "FAIR", "POOR", "NOT_APPLICABLE")
+    val RENTAL_STATUSES: Set<String> =
+        Collections.unmodifiableSet(linkedSetOf("GOOD", "FAIR", "POOR", "NOT_APPLICABLE"))
 
     /** 年检模板的五态评级（TASK-BOARD「用户已定」第 4 条）。 */
-    val ANNUAL_STATUSES: Set<String> = setOf("NO_ISSUE", "MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT", "NOT_APPLICABLE")
+    val ANNUAL_STATUSES: Set<String> =
+        Collections.unmodifiableSet(linkedSetOf("NO_ISSUE", "MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT", "NOT_APPLICABLE"))
 
     /** 拍照规则封闭域，与 `check_item_def.photo_rule` 的 CHECK 同集（NULL 另表示"无要求"）。 */
-    val PHOTO_RULES: Set<String> = setOf("ROOM_PANORAMA", "ADVERSE_ONLY")
+    val PHOTO_RULES: Set<String> = Collections.unmodifiableSet(linkedSetOf("ROOM_PANORAMA", "ADVERSE_ONLY"))
 
     /**
      * 该模板类型允许的评级集合；类型本身越界时返回 null（判不了域，调用方须跳过评级检查）。

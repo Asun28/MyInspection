@@ -52,6 +52,20 @@ class TemplateAlignmentTest {
     }
 
     @Test
+    fun `the three sets iterate in template order, not sorted order`() {
+        // 用刻意非字典序的 id：Set 的相等判定不看顺序，只有逐个 toList 才能钉住"迭代序 = 模板序"
+        // 这条对外承诺（历史对比按它渲染，漂移了没人会立刻发现）。
+        val v1 = template("ROUTINE", 1, "B-KEPT" to "b", "A-KEPT" to "a", "Z-GONE" to "z", "M-GONE" to "m")
+        val v2 = template("ROUTINE", 2, "B-KEPT" to "b", "A-KEPT" to "a", "Z-NEW" to "z", "M-NEW" to "m")
+
+        val alignment = alignHistory(v1, v2)
+
+        assertEquals(listOf("B-KEPT", "A-KEPT"), alignment.carriedOver.toList())
+        assertEquals(listOf("Z-NEW", "M-NEW"), alignment.added.toList())
+        assertEquals(listOf("Z-GONE", "M-GONE"), alignment.removed.toList())
+    }
+
+    @Test
     fun `aligning across template types is rejected`() {
         // stable_id 只在同一类模板内有意义；跨类型对齐会返回"旧版全移除 + 新版全新增"这种
         // 看着成立、实则荒谬的结果，历史对比会据此把所有项都判成新增。

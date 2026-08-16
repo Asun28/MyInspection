@@ -2,7 +2,10 @@ package nz.myinspection.core.template
 
 import kotlinx.serialization.json.Json
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
+import java.util.Collections
 
 /**
  * 模板校验失败。[errors] 是**本次发现的全部问题**（不是第一个）：内容卡有 80–120 条项目，
@@ -27,11 +30,13 @@ object TemplateLoader {
      * 未知字段**不忽略**（kotlinx 默认严格）：`textZH` 这种拼错的键必须当场报错，而不是
      * 静默变成空文案，再由校验器报一句让人摸不着头脑的 "textZh is blank"。
      *
+     * @throws java.nio.charset.CharacterCodingException 字节不是合法 UTF-8
+     * @throws kotlinx.serialization.SerializationException JSON 语法错误或出现未知字段
      * @throws TemplateValidationException 校验不通过（携带全部问题）
      */
     fun load(input: InputStream): LoadedTemplate {
         val bytes = input.readBytes()
-        val template = Json.decodeFromString(Template.serializer(), bytes.toString(Charsets.UTF_8))
+        val template = freeze(Json.decodeFromString(Template.serializer(), decodeUtf8Strict(bytes)))
         val errors = validate(template)
         if (errors.isNotEmpty()) throw TemplateValidationException(errors)
         return LoadedTemplate(template = template, contentHash = sha256Hex(bytes))
@@ -84,6 +89,30 @@ object TemplateLoader {
         }
         return errors
     }
+
+    /**
+     * 严格 UTF-8 解码：坏字节**抛异常**，不替换成 U+FFFD。
+     *
+     * `ByteArray.toString(UTF_8)` 走的是替换策略——一份被截断/损坏的模板会"加载成功"，
+     * 文案里带着替换字符进库，而 content_hash 记的是真实字节：库里的内容与文件对不上，且没人会知道。
+     */
+    private fun decodeUtf8Strict(bytes: ByteArray): String =
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+
+    /**
+     * 把解析出来的集合包成不可变。kotlinx 反序列化产出的是 `ArrayList`，Kotlin 的 `List` 只是只读**视图**，
+     * 强转回 `MutableList` 就能改——而 [LoadedTemplate] 的立身之本是"内容与 contentHash 对得上"，
+     * 一份哈希完还能被改的模板等于没有哈希。
+     */
+    private fun freeze(template: Template): Template = template.copy(
+        items = Collections.unmodifiableList(
+            template.items.map { it.copy(allowedStatuses = Collections.unmodifiableList(it.allowedStatuses)) },
+        ),
+    )
 
     private fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

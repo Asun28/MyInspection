@@ -7,6 +7,7 @@ import nz.myinspection.core.db.ClockMs
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.db.SystemClockMs
 import nz.myinspection.core.db.Uuid7Generator
+import java.util.Collections
 
 /**
  * 把一份已加载的模板落进 `template_version` + `check_item_def`，以及反向读回。
@@ -84,17 +85,21 @@ class TemplateStore(
      */
     fun read(templateVersionId: String): Template? {
         val version = db.templateVersionQueries.selectById(templateVersionId).executeAsOneOrNull() ?: return null
-        val items = db.checkItemDefQueries.selectByTemplateVersion(templateVersionId).executeAsList().map { row ->
-            TemplateItem(
-                stableId = row.stable_id,
-                area = row.area,
-                room = row.room,
-                textEn = row.text_en,
-                textZh = row.text_zh,
-                allowedStatuses = Json.decodeFromString(STATUSES, row.allowed_statuses),
-                photoRule = row.photo_rule,
-            )
-        }
+        // 读回的集合同样包成不可变，与 [TemplateLoader.load] 的产物一致——否则"从库里读的模板"
+        // 比"从文件读的模板"多一条可被强转改写的口子，同一个类型两种保证是更难查的坑。
+        val items = Collections.unmodifiableList(
+            db.checkItemDefQueries.selectByTemplateVersion(templateVersionId).executeAsList().map { row ->
+                TemplateItem(
+                    stableId = row.stable_id,
+                    area = row.area,
+                    room = row.room,
+                    textEn = row.text_en,
+                    textZh = row.text_zh,
+                    allowedStatuses = Collections.unmodifiableList(Json.decodeFromString(STATUSES, row.allowed_statuses)),
+                    photoRule = row.photo_rule,
+                )
+            },
+        )
         return Template(type = version.type, version = version.version.toInt(), items = items)
     }
 

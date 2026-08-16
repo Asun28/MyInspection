@@ -7,6 +7,8 @@ import nz.myinspection.core.template.TemplateTestFixtures.RENTAL_STATUSES
 import nz.myinspection.core.template.TemplateTestFixtures.item
 import nz.myinspection.core.template.TemplateTestFixtures.routineTemplate
 import nz.myinspection.core.template.TemplateTestFixtures.template
+import kotlinx.serialization.SerializationException
+import java.nio.charset.CharacterCodingException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -64,6 +66,38 @@ class TemplateLoaderTest {
     }
 
     @Test
+    fun `malformed UTF-8 bytes are rejected rather than silently replaced`() {
+        // 把多字节字符的首字节改成 0xFF（UTF-8 里非法的前导字节），模拟被截断/损坏的模板文件。
+        // 替换式解码会让它"加载成功"、文案带着 U+FFFD 进库，而 content_hash 记的是真实字节——
+        // 库里的内容与文件对不上，且没有任何一处会报错。
+        val corrupted = GOLDEN_JSON.toByteArray()
+        corrupted[corrupted.indexOfFirst { byte -> byte.toInt() and 0x80 != 0 }] = 0xFF.toByte()
+
+        assertFailsWith<CharacterCodingException> { TemplateLoader.load(corrupted.inputStream()) }
+    }
+
+    @Test
+    fun `an unknown field is rejected rather than silently ignored`() {
+        // 大小写拼错的键（textZH）：若被忽略，textZh 会取空默认值，作者只会看到一句
+        // "textZh is blank" 而完全看不出真正的病因是键名拼错。
+        val typo =
+            """{"stableId":"KIT-BENCH-01","area":"INTERIOR","room":"KITCHEN","textEn":"Bench","textZH":"台面","allowedStatuses":$RENTAL_STATUSES,"photoRule":null}"""
+
+        assertFailsWith<SerializationException> { load(template(items = listOf(typo))) }
+    }
+
+    @Test
+    fun `the loaded template's collections cannot be mutated through a cast`() {
+        val loaded = load(routineTemplate())
+
+        // Kotlin 的 List/Set 只是只读视图；哈希算完还能被改的模板，等于没有哈希。
+        assertFailsWith<UnsupportedOperationException> { (loaded.template.items as MutableList).removeAt(0) }
+        assertFailsWith<UnsupportedOperationException> { (loaded.template.items[0].allowedStatuses as MutableList).clear() }
+        // 判据集合是进程级共享的：被改一次，之后所有模板的校验结论都跟着变。
+        assertFailsWith<UnsupportedOperationException> { (TemplateDomains.RENTAL_STATUSES as MutableSet).clear() }
+    }
+
+    @Test
     fun `duplicate stable ids are rejected and the error names the duplicated id`() {
         // 第二条只改了措辞——正是"改措辞不改 id"被误用成"复制一条改文案"的形态。
         val json = template(items = listOf(item(), item(textEn = "Bench tops", textZh = "台面")))
@@ -91,6 +125,24 @@ class TemplateLoaderTest {
             listOf("template: unknown type ROUTIN", "KIT-BENCH-01: allowedStatuses is empty"),
             errorsOf(template(type = "ROUTIN", items = listOf(item(allowedStatuses = "[]")))),
         )
+    }
+
+    @Test
+    fun `all three rental template types share the four-state domain`() {
+        // 逐个类型真加载一遍：只测 ROUTINE 的话，把 allowedStatusesFor 里 INGOING 或 EXIT 那一支删掉，
+        // 测试照样全绿——而那会让整类模板在加载时被判成"未知类型"。
+        for (type in listOf("ROUTINE", "INGOING", "EXIT")) {
+            assertEquals(
+                listOf("GOOD", "FAIR", "POOR", "NOT_APPLICABLE"),
+                load(template(type = type)).template.items.single().allowedStatuses,
+                "$type 应认出租四态",
+            )
+            assertEquals(
+                listOf("KIT-BENCH-01: status NO_ISSUE is not allowed for template type $type"),
+                errorsOf(template(type = type, items = listOf(item(allowedStatuses = """["NO_ISSUE"]""")))),
+                "$type 不该认年检态",
+            )
+        }
     }
 
     @Test
