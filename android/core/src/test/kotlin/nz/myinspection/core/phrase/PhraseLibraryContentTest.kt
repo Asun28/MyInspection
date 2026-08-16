@@ -17,6 +17,13 @@ import kotlin.test.fail
  *
  * 文件由 `android/core/build.gradle.kts` 的 test resources srcDir 注册（`data/templates/`，
  * T2-ROUTINE-CONTENT 落地），走 classpath 读取，不随 Gradle 工作目录漂移。
+ *
+ * **独立第二模型复核记录**（卡片强制项；记录随 diff 走，因 R3 评审者只读 diff、不读 PR 描述——L227）：
+ * 复核模型 DeepSeek V4 Pro（deepseek-rescue，替代默认 Luna Max，未接入本 harness 时按卡片工具无关条款
+ * 允许的席位替代），2026-08-16，逐条复读全部 66 条短语（en/zh 对应关系、客观中性表述、分类归属、
+ * appliesToStatuses 取值合理性、是否近似复制第三方/官方文本、跨条目重复）。发现 1 处问题并已修正：
+ * `Item not present at this property` 原译文以"该物业不适用此项"重新表述成检查状态，偏离英文的物品
+ * 视角，改译"本物业没有该物品"。其余 65 条无阻断问题。
  */
 class PhraseLibraryContentTest {
 
@@ -118,6 +125,19 @@ class PhraseLibraryContentTest {
         assertTrue(
             fairSuggestions.none { it.category == "cleaning" || it.category == "hhc" },
             "suggestFor should not surface cleaning/hhc phrases (separate axes; browse via phrasesFor instead)",
+        )
+    }
+
+    @Test
+    fun `a phrase that presumes a positive verdict is not suggested for an adverse status`() {
+        // "No issues noted" 的措辞本身就是一个 GOOD 结论；appliesToStatuses 若漏标（或被误删），
+        // 它会跟着任何评级一起被推荐——包括 POOR，产生自相矛盾的建议。同理扫过全部种子内容
+        // （condition-general 的 "Not accessible..." 与全部 8 条 hhc 正面表述），本用例只需钉住
+        // 最容易被复发触碰的一条：suggestFor 的真实输出里，"No issues noted" 不得出现在 POOR 结果中。
+        val poorSuggestions = loadPhrases().suggestFor("KIT-FRIDGE-01", "POOR")
+        assertTrue(
+            poorSuggestions.none { it.en == "No issues noted" },
+            "a phrase declaring no issues must not surface as a suggestion for a POOR item",
         )
     }
 }

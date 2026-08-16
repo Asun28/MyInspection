@@ -40,7 +40,7 @@ class LoadedPhraseLibrary private constructor(val library: PhraseLibrary) {
     }
 
     /**
-     * 按当前评级推荐短语（卡片原文「按状态过滤推荐」——过滤维度是 [status]）。
+     * 按当前评级推荐短语。**v1 契约：过滤维度只有 [status]**（卡片原文「按状态过滤推荐」）。
      *
      * 只在**条件评级轴**内的分类参与：[SUGGESTABLE_CATEGORIES]（condition-general/wear/damage/
      * action-needed）都随 GOOD/FAIR/POOR 评级本身变化；`cleaning`（清洁与状况是两条独立的评估轴，
@@ -48,15 +48,11 @@ class LoadedPhraseLibrary private constructor(val library: PhraseLibrary) {
      * 复核点强绑定具体检查项，不该对"任意项、这个评级"都推荐——一间卧室评 FAIR 不该跳出"抽风扇
      * 运作正常"这类与卧室无关的话）**不**参与；两者各自的短语走 [phrasesFor] 按分类浏览取得。
      *
-     * [stableId] 在 v1 只承担调用约定（强制调用方绑定到具体某一项，不允许在不知道正给哪一项做
-     * 推荐的情况下调用），不参与过滤——它是**架构边界**，不是漏做：判定"这个 stableId 是否真实存在
-     * / 属于哪个分类"要求知道调用方**当前用的是哪一版模板**（同一 stableId 在不同 `template_version`
-     * 下是否存在、语义都可能不同），那需要读 `TemplateStore`/DB，而短语库刻意是**纯 JSON、模板版本
-     * 无关**的独立文件（forbid：短语不与模板文件混编，与检查项模板分开演进）——带上这层查找会让
-     * 两个本该独立演进的文件相互耦合。持有"当前模板 + 当前巡检"两者的层是 :app 侧选择器 UI，
-     * 而选择器 UI 正是本卡 non_goals 显式排除、留给 T2-CAPTURE-UI 的范围；真要做 stableId 存在性
-     * 校验，天然该长在那一层（它能交叉核对已加载的模板），不该在这个纯 JVM、无状态的加载器里
-     * 假装自己知道"当前巡检用的是哪份模板"。[status] 必须落在 [PhraseDomains.STATUSES] 内
+     * [stableId] 是为消费端 **item-context 预留的接口缝**：强制调用方绑定到具体某一项、不允许在
+     * 不知道正给哪一项做推荐的情况下调用，但 v1 不参与过滤。item→分类映射需要模板内容数据
+     * （不在短语库这份纯 JSON、模板版本无关的独立文件范围内——短语与模板分开演进）且属选择器
+     * 逻辑（消费端 T2-CAPTURE-UI 的范围），故 v1 只做非空校验，把真正的 item-context 关联留给
+     * 持有"当前模板 + 当前巡检"两者的调用方。[status] 必须落在 [PhraseDomains.STATUSES] 内
      * （含空白）：拼错的评级值当场报错，而不是静默只返回通用短语、让调用方以为过滤生效了。
      *
      * 返回按 (分类, sort) 排序，同 sort 值内保留原数组序（同上 stable-sort 理由）。
