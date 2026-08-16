@@ -103,6 +103,12 @@ class RoutineContentTest {
             assertEquals(expectedRoom, item.room, "$id should belong to room $expectedRoom, found ${item.room}")
         }
 
+        // 官方表 KITCHEN/DINING 的 Refrigerator、LAUNDRY 的 Washing machine 是"检查该电器本身
+        // 状况/运行"，不是"检查摆放它的空间/接口"——stableId 存在且落对房间不够，文案若被
+        // 悄悄换成只查空间/接口，等于漏检了供应电器的实际状况，membership+room 两道断言都测不出。
+        assertTrue(byId.getValue("KIT-FRIDGE-01").textEn.contains("condition"), "KIT-FRIDGE-01 must check the refrigerator's own condition, not just its space/connection")
+        assertTrue(byId.getValue("LDY-WASHER-01").textEn.contains("condition"), "LDY-WASHER-01 must check the washing machine's own condition, not just its space/connection")
+
         // 7 点烟雾报警器声明：内容对齐 Residential Tenancies (Smoke Alarms and Insulation) Regulations
         // 2016 规定的 7 项事实要求（卧室 3 米范围 / 每层至少一个 / 房车-独立睡屋 / 制造商到期日 /
         // 2016-07-01 起 8 年电池或硬连线 / 按说明安装 / 租期开始时确认正常），但**文案系本卡独立撰写**，
@@ -112,7 +118,7 @@ class RoutineContentTest {
         // 断言**一对一 stableId → 本卡撰写文案**的精确文案，不是只判存在——只判「这些 id 存在」不够：
         // 文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
         val expectedSmokeText = mapOf(
-            "GEN-SMOKE-BEDROOM-01" to "Working smoke alarm present in every bedroom, or within 3m of the bedroom door",
+            "GEN-SMOKE-BEDROOM-01" to "Working smoke alarm present in every bedroom or other sleeping space, or within 3m of its door",
             "GEN-SMOKE-STOREY-01" to "Working smoke alarm present on every storey / level of the property, including levels with no bedrooms",
             "GEN-SMOKE-CARAVAN-01" to "Any on-site caravan, sleep-out or similar structure has its own working smoke alarm",
             "GEN-SMOKE-EXPIRY-01" to "No smoke alarm has exceeded its manufacturer expiry / replacement date",
