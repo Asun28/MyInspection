@@ -20,7 +20,7 @@ non_goals:
   - 任何 DAO 之上的业务逻辑（采集状态机归 T2-CAPTURE-CORE）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.model.*"
 dod_exit: 0
-dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式一例全绿、传 NULL purged_at 不落地不腐坏行一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via/sent_at 任一传 NULL 均不落地不锁行、photo.softDelete 受 finalize 守卫 + orphanedAssets 返回 content_hash+rel_path 且排除 FINALIZED 证据）各至少一例全绿；notice 的 sent_via/sent_at CHECK 约束两种错配组合各一例必报错，scheduled_at 快照独立存储一例全绿；supplement 的 prev_hash 非空锚定 inspection.data_hash + chain_hash 落库一例全绿，同 created_at 两行按 id 兜底排序确定一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
+dod_assert: 全表建表/查询编译过（含每表 created_at，actor 字段明确不加）；UUIDv7 七项测试（固定向量全 128 位/version 位/variant 位/唯一性/同毫秒非降序/时钟回拨冻结/计数器耗尽不环绕，固定向量期望值系独立语言算出的字面量）全绿；finalize 只读闸覆盖 update 与 insert 两侧（inspection_item/room_instance/photo/audio）各一例全绿，insert 侧 guard 用 EXISTS 证父行存在且归属正确（非「标量子查询 IS NULL」，那对不存在的父行会误判通过）、缺失/错配父行各至少一例；inspection 的 status/finalized_at/data_hash 三态一致性由 CHECK 约束保证、非法组合与未知 status 各一例必报错；EXIT 巡检经 tenancy 基线指针解析（非假设 INGOING 存在）一例全绿；tenancy.purgeContactInfo 清联系方式一例全绿、传 NULL purged_at 不落地不腐坏行一例全绿；软删除唯一性用部分唯一索引（非表级 UNIQUE+deleted_at，SQLite NULL 不互等）、每条各一例重复插入必报错；core/model/ 的 InspectionSnapshot/SupplementSnapshot 每一个嵌套类型逐字段参与相等性各一例全绿（不是只测顶层）；计数器耗尽回归断言前推**恰好** 1ms（解码时间戳比较，非只判"更大"）；四条下游查询（wear_or_damage 更新受 finalize 守卫、property_item_override 同行切换抑制/恢复、notice.recordDelivery 一次性锁定且 sent_via/sent_at 任一传 NULL 均不落地不锁行、photo.softDelete 受 finalize 守卫且传 NULL deleted_at 不落地 + orphanedAssets **按 rel_path 判活并只返回 rel_path**，且同一路径被活跃行引用时永不上报——含「活跃行属 FINALIZED 巡检且哈希不同」一例）各至少一例全绿；notice 的 sent_via/sent_at CHECK 约束两种错配组合各一例必报错，scheduled_at 快照独立存储一例全绿；supplement 的 prev_hash 非空锚定 inspection.data_hash + chain_hash 落库一例全绿，同 created_at 两行按 id 兜底排序确定一例全绿。verifyMigrations 本卡未开——见下方「验收」说明的实测原因（与 check-secrets 防泄露闸冲突），已登记 TD4，非本卡实现质量问题
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight/ 登记进 scripts/_config.ps1 FrozenPaths（R5）
@@ -82,9 +82,12 @@ doc_sync: CLAUDE.md 当前阶段；合并后把 android/core/src/main/sqldelight
   防止借用别的巡检/房间的 id 拼出跨链路数据。`supplement` 是唯一的 append-only 例外（本就设计成 finalize
   后仍可写）。每条守卫至少各一例「对 FINALIZED 行/缺失父行/错配父行操作计 0 行」。同一条 finalize 守卫
   也套在两条后补的写路径上：`inspection_item.updateWearOrDamageIfDraft`（T2-CAPTURE-CORE 差异判定后写入）
-  与 `photo.softDelete`（T2-PHOTO-PIPELINE 去关联/孤儿清理链路前半步）——后者还带来一个免费推论：
-  `orphanedContentHashes` 不需要另写"排除 FINALIZED 巡检"的特判，因为那类 content_hash 永远至少有一行
-  活跃记录、天然不会被判定为孤儿。
+  与 `photo.softDelete`（T2-PHOTO-PIPELINE 去关联/孤儿清理链路前半步）。
+  **`orphanedAssets` 按 `rel_path` 判活、只返回 `rel_path`**（改名 + 改判据，见「修订之十」）：清理任务删的是
+  一个路径，而 schema 不保证「一路径一哈希」，故判定粒度必须与删除粒度一致。
+  由此才有那条推论——FINALIZED 巡检的照片不能软删，其 `rel_path` 恒有活跃行、不会被判成孤儿，故无需另写
+  "排除 FINALIZED"的特判。**注意这条推论此前是按 `(content_hash, rel_path)` 说的，那样是错的**：
+  finalized 的若是 `(H2, P)`、被报孤儿的是 `(H1, P)`，删的仍是同一个物理文件。
 - **软删除唯一性一律用部分唯一索引**（`CREATE UNIQUE INDEX … WHERE deleted_at IS NULL`），**不用表级
   `UNIQUE(业务键, deleted_at)`**：SQLite 的 `UNIQUE` 把 `NULL` 视为互不相等，`deleted_at` 恒为 `NULL` 的
   活跃行之间表级约束形同虚设、根本拦不住重复。
