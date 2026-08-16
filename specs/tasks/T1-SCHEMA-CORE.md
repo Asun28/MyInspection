@@ -240,6 +240,32 @@ non-boolean privacy_flag`，消息 `Expected an exception … but was completed 
 
 DoD 全量：`tests` 合计 62（db 45 + model 10 + uuid 7），`failures=0 errors=0`。
 
+## 卡片修订 2026-08-16 之八（R3 第十一轮 · 去重复用没有 DB 入口）+ 编排者人裁记录
+**发现成立**：T2-PHOTO-PIPELINE 的去重链路（「哈希已存在就复用该资产、只建新关联」）在本卡的查询面上**没有入口**——
+`selectByRoomInstance` 要求已知 room_instance_id（去重时恰恰还不知道），`orphanedAssets` 只回软删行。而该卡
+`allow_paths` 不含 `core/db/`，本目录合并后又进 `FrozenPaths`，届时它连加一条查询都要走版本评审。
+本卡「修订之二」早已裁决「下游卡要的 db 查询归本卡提供」，`dod_assert` 里也已有「四条下游查询」——这是第五条，同一口径。
+补 `selectActiveAssetsByContentHash`（返回 `rel_path`，按 `rel_path` 升序）。
+
+**排序键取 `rel_path` 而非 `created_at`**：DISTINCT 之后 rel_path 两两不等、顺序恒定；`created_at` 会撞值，
+撞值时同一输入两次运行可能复用到**不同的物理文件**，下游 canonical 哈希要的确定性就没了。
+
+**写测试时浮出来的真实去重模型（值得记进卡）**：`idx_photo_active` 的唯一性**有意收窄到单个 room_instance**
+（见 Photo.sq 该索引注释：同一照片内容跨巡检合法出现——同一缺陷在 Ingoing 与 Exit 各拍一次、同一张参考图
+导入两个巡检）。所以「一个哈希、多份物理路径」**只在跨房间成立**，而那正是本查询要服务的跨巡检复用场景。
+测试遂用三个房间，贴住真实用法。存活粒度与 `orphanedAssets` 对齐：只要还有活跃关联指向某路径，它就仍可复用；
+最后一条关联被软删的那一刻它退出复用池，而 `orphanedAssets` 必须在同一刻报告它——测试把这两条一起断言，
+**两条查询互为对照，不各说各话**。
+
+### 编排者人裁（R3 轮次闸首次触发）
+本轮结束时 `.review/T1-SCHEMA-CORE.rounds` 计数为 **2**，达 `ReviewRoundCap`——下一次 ship 将不再唤起评审者、
+直接 `[R3-ROUND-CAP]` 转人裁。人裁在此完成，走 rubric §5 的**路由 (2)「发现属实 → 修，然后 -ResetRounds 重跑」**：
+上述发现在 allow_paths 内、不在 non_goals 内、且与本卡既有裁决同口径，故认下并已修。
+
+**但十一轮的真正结论是这张卡太大了**（路由 (3) 的证据，只是现在不宜再拆）：「全量 schema、13 张表、还是 ★冻结点」
+本就该按表族拆成 2–3 张。近三轮发现（引用后可变、封闭域无 CHECK、去重无入口）**条条属实且互不相关**——
+这不是评审者挑刺，是一张卡里塞了太多可独立评审的单元。**后续冻结点卡按表族拆**，别再出现单卡十一轮。
+
 ## 禁止 / 非目标
 见 front-matter。
 
