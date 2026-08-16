@@ -11,6 +11,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import nz.myinspection.core.canon.canonicalJson
 import nz.myinspection.core.canon.sha256Hex
+import nz.myinspection.core.capture.InspectionRepository
 import nz.myinspection.core.db.ClockMs
 import nz.myinspection.core.db.DbTestFixtures
 import nz.myinspection.core.db.MyInspectionDatabase
@@ -18,7 +19,7 @@ import nz.myinspection.core.db.Uuid7Generator
 
 /**
  * [FinalizeInspectionUseCase]：ADR-0003 事务序端到端（① 完备性 → ② 物化快照 → ③ 哈希 → ④ 原子写），
- * 加卡文点名的进攻性测试（对已 FINALIZED 巡检直接调写接口 → 0 行）与重复 finalize 幂等拒绝。
+ * 加对已 FINALIZED 巡检直接调写接口（0 行）与重复 finalize 幂等拒绝的进攻性测试。
  */
 class FinalizeInspectionUseCaseTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -150,6 +151,69 @@ class FinalizeInspectionUseCaseTest {
             created_at = now + 2, updated_at = now + 2,
         ).value
         assertEquals(0L, insertAffected, "inserting a new item under a FINALIZED inspection must affect 0 rows")
+    }
+
+    /**
+     * 上一条测试只钉住冻结 schema 那条 SQL 谓词本身；这条测试通过 `core/capture` 的真实公开写入口
+     * （[InspectionRepository.setItemStatus]、[InspectionRepository.setWearOrDamage]，各自的
+     * `check(affected == 1L) { ... }`）证明两条闸都生效：对已 FINALIZED 的巡检调用，都必须显式抛出，
+     * 不是把 0 行悄悄吞掉，且写之前的 status/note/wear_or_damage 事后原样未动。
+     */
+    @Test
+    fun `both InspectionRepository writers explicitly reject writes against a finalized inspection`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val ingoingTemplateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "INGOING", version = 1, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, ingoingTemplateVersionId, stableId = "wall.paint", room = "BEDROOM",
+            photoRule = null, sort = 1, type = "INGOING", now = now,
+        )
+        val exitTemplateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "EXIT", version = 1, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, exitTemplateVersionId, stableId = "wall.paint", room = "BEDROOM",
+            photoRule = null, sort = 1, type = "EXIT", now = now,
+        )
+        val tenancyId = FinalizeTestFixtures.insertTenancy(database, uuid, propertyId, startMs = now, now = now)
+
+        // INGOING：走查、finalize——建 INGOING 时 tenancy.baseline_inspection_id 已自动指向它。
+        val ingoingRepo = InspectionRepository(database, uuid, fixedClock(now))
+        val ingoing = ingoingRepo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplateVersionId, scheduledAt = now)
+        ingoingRepo.setItemStatus(ingoing.inspectionId, ingoing.roomInstanceIds.single(), "wall.paint", status = "GOOD", note = null)
+        assertIs<FinalizeOutcome.Finalized>(
+            FinalizeInspectionUseCase(database, DbCompletenessChecker(database), fixedClock(now + 1)).finalize(ingoing.inspectionId),
+        )
+
+        // EXIT：与基线状态不同（GOOD -> POOR，wear_or_damage 才有东西可差异判定），走查、finalize。
+        val exitRepo = InspectionRepository(database, uuid, fixedClock(now + 2))
+        val exit = exitRepo.createInspection("EXIT", propertyId, tenancyId, exitTemplateVersionId, scheduledAt = now + 2)
+        exitRepo.setItemStatus(exit.inspectionId, exit.roomInstanceIds.single(), "wall.paint", status = "POOR", note = "scuffed corner")
+        assertIs<FinalizeOutcome.Finalized>(
+            FinalizeInspectionUseCase(database, DbCompletenessChecker(database), fixedClock(now + 3)).finalize(exit.inspectionId),
+        )
+        val exitItem = database.inspectionItemQueries.selectByInspection(exit.inspectionId).executeAsOne()
+
+        // 攻击 1：对已 FINALIZED 的 EXIT 巡检再调 setItemStatus。
+        val statusError = assertFailsWith<IllegalStateException> {
+            exitRepo.setItemStatus(exit.inspectionId, exit.roomInstanceIds.single(), "wall.paint", status = "FAIR", note = "tampered")
+        }
+        assertTrue(
+            statusError.message!!.contains("finalize guard rejected the write"),
+            "unexpected exception message, test may no longer be discriminating the right failure: ${statusError.message}",
+        )
+
+        // 攻击 2：对同一巡检调 setWearOrDamage——基线存在、已 FINALIZED、状态确有差异，写本身仍被闸拒绝。
+        val wearError = assertFailsWith<IllegalStateException> {
+            exitRepo.setWearOrDamage(exit.inspectionId, exitItem.id, "DAMAGE")
+        }
+        assertTrue(
+            wearError.message!!.contains("finalize guard rejected the write"),
+            "unexpected exception message, test may no longer be discriminating the right failure: ${wearError.message}",
+        )
+
+        // 两次攻击都没有留下任何痕迹。
+        val unchanged = database.inspectionItemQueries.selectByInspection(exit.inspectionId).executeAsOne()
+        assertEquals("POOR", unchanged.status)
+        assertEquals("scuffed corner", unchanged.note)
+        assertEquals(null, unchanged.wear_or_damage)
     }
 
     /**

@@ -60,9 +60,8 @@ data class CompletenessResult(
  *
  * **单连接是 v1 契约**：上面的回滚判别测试证明的是单连接事务语义（本用例、`SupplementChainService`
  * 皆同一连接、同一线程顺序执行）。跨连接的入列/锁竞争语义——比如一个 `CompletenessPort` 实现绑定了
- * 另一个连接——不在这份契约内，已登记 **TD10**（`specs/tech-debt-tracker.md`，多连接 DB 契约）：待
- * :app 装配层真的需要多连接时，跟着一个可行的测试驱动方式一起定义；在那之前，评审不得以多连接场景
- * block 单连接卡。
+ * 另一个连接——不在这份契约内，已登记 **TD10**（`specs/tech-debt-tracker.md`，多连接 DB 契约），待
+ * :app 装配层真的需要多连接时跟着一个可行的测试驱动方式一起定义。
  */
 fun interface CompletenessPort {
     fun check(inspectionId: String): CompletenessResult
@@ -88,7 +87,7 @@ fun interface CompletenessPort {
  *    + 项目级 ADVERSE_ONLY 两级规则，权威定义与"不利发现"分类域都在 capture）。
  * 3. **不利发现缺备注**——委派给 [nz.myinspection.core.capture.computeMissingNotes]（需求 §5「不利发现
  *    强制备注」，与两级拍照规则各自独立生效，权威同样在 capture）。
- * 4. **不利发现分类器本身必须完备（fail-closed），这不是"重新校验状态合法性"的第二道闸**：状态字符串
+ * 4. **状态域成员校验本身必须完备（fail-closed），这不是"重新校验状态合法性"的第二道闸**：状态字符串
  *    合不合法（是否落在 `TemplateDomains.allowedStatusesFor(type)` 域内）由 `core/capture` 的写入口
  *    （`setItemStatus`，落实 `T1-TEMPLATE-ENGINE` 的评级域契约）在唯一铸造点把关，本类不重复这道闸
  *    （同 `L220`：不变量活在铸造点，不在下游层层复查）。但 `computeMissingPhotos`/`computeMissingNotes`
@@ -160,9 +159,9 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
                     continue
                 }
                 recordedItems[def.stable_id] = RecordedItem(status = existing.status, note = existing.note)
-                // 不利发现分类器的完备性是 finalize 自己的闸，独立于委派给 capture 的判定跑一遍（见类
-                // 顶部说明第 4 条）——不管 capture 那两个函数对这一项会判成什么，域外状态照样单独报出。
-                if (classifyAdverseness(inspection.type, existing.status) == Adverseness.UNCLASSIFIABLE) {
+                // 状态域成员校验是 finalize 自己的闸，独立于委派给 capture 的判定跑一遍（见类顶部说明
+                // 第 4 条）——不管 capture 那两个函数对这一项会判成什么，域外状态照样单独报出。
+                if (!isInDomain(inspection.type, existing.status)) {
                     invalidStatus += MissingItem(room.id, def.stable_id)
                 } else if (existing.status !in allowedStatusesByStableId.getValue(def.stable_id)) {
                     // 域内合法、但超出这一项自己的子集——与上面那条互斥（域外必已在子集外，不会两边都报）。
@@ -217,29 +216,17 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
         )
     }
 
-    private enum class Adverseness { ADVERSE, NOT_ADVERSE, UNCLASSIFIABLE }
-
     private companion object {
         private val ALLOWED_STATUSES_SERIALIZER = ListSerializer(String.serializer())
-
-        // 租赁四档（nz.myinspection.core.template.TemplateDomains.RENTAL_STATUSES）的不利发现 =
-        // FAIR/POOR；年检五态（ANNUAL_STATUSES）的不利发现 = MONITOR/MAINTENANCE_ITEM/
-        // SIGNIFICANT_DEFECT。NOT_APPLICABLE 与 GOOD/NO_ISSUE 不逼拍，不在这两个集合里——两个域的
-        // 完整划分（这两个集合 ∪ 各自的非不利子集 == 冻结域）由 DbCompletenessCheckerTest 断言钉死。
-        val RENTAL_ADVERSE = setOf("FAIR", "POOR")
-        val ANNUAL_ADVERSE = setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT")
 
         /**
          * 域直接取自冻结的 [TemplateDomains]（与分类表测试同一个真相源，不手抄一份副本）：状态不在该
          * 巡检类型的合法域内——不管是 core/capture 的铸造闸出于某种原因没拦住，还是数据被绕过谓词直连
-         * SQL 腐坏——分类器都不得默默判"非不利"，必须显式报告分类不出来。
+         * SQL 腐坏——都不得默默放行，必须显式报告分类不出来。类型本身越界（`allowedStatusesFor` 返回
+         * null）同样判不在域内，不默认落到某一个具体域。
          */
-        fun classifyAdverseness(inspectionType: String, status: String): Adverseness {
-            val domain = if (inspectionType == "ANNUAL") TemplateDomains.ANNUAL_STATUSES else TemplateDomains.RENTAL_STATUSES
-            if (status !in domain) return Adverseness.UNCLASSIFIABLE
-            val adverseSet = if (inspectionType == "ANNUAL") ANNUAL_ADVERSE else RENTAL_ADVERSE
-            return if (status in adverseSet) Adverseness.ADVERSE else Adverseness.NOT_ADVERSE
-        }
+        fun isInDomain(inspectionType: String, status: String): Boolean =
+            status in (TemplateDomains.allowedStatusesFor(inspectionType) ?: emptySet())
 
         /** `check_item_def.allowed_statuses` 的编码同 `TemplateStore`：JSON 字符串数组。 */
         fun decodeAllowedStatuses(raw: String): List<String> = Json.decodeFromString(ALLOWED_STATUSES_SERIALIZER, raw)

@@ -32,19 +32,12 @@ sealed interface FinalizeOutcome {
  * ①-④ 全程在一个 `database.transactionWithResult { }` 里：完备性校验/快照物化必须读到与最终写入
  * 同一个一致的数据库状态，否则会出现"校验时读到 A、写入时数据库已是 B"的 TOCTOU 窗口。
  *
- * 对默认实现（[CompletenessPort] 的 [DbCompletenessChecker]）而言，①-③ 全是读或纯内存计算，本方法
- * 在到达④之前不写库；④是单条 `UPDATE … WHERE finalized_at IS NULL` 语句——它的 WHERE 子句同时兼任
- * "再核一次仍是 DRAFT"与"写入"，两者是同一条语句、没有可插入失败的中间窗口。但 [CompletenessPort]
- * 是调用方可换的接口，不保证每个实现都只读——即便某个实现在①里产生了写副作用，事务边界仍然兜底：
- * 该写会随后续任一步的异常一起回滚（见 `FinalizeInspectionUseCaseTest` 的
- * "if a seam inside the transaction throws after writing..." 用例）。
- *
- * **不变量精确表述为**：任何拒绝路径都不会留下 seam 的写副作用被提交——`completeness.check()` 跑完之后
- * 才到达的拒绝路径一律 `rollback`（[CompletenessResult] 不完整、`finalizeIfDraft` 未命中都在此列，
- * 因为此时"完备性检查的实现违反契约写了东西"与"另一个合法调用者抢先 finalize 了同一行"从事务内部看
- * 不出区别，都必须撤销到底）；而更早的两条 `return`（`inspectionId` 查无此巡检、该巡检早已
- * FINALIZED）发生在 `completeness.check()` 被调用之前，此时事务里还没有任何写发生过，没有东西
- * 需要撤销——用 `return` 而非 `rollback` 不是疏漏，是因为它们先于一切写入。
+ * 不变量：任何拒绝路径都不留下已提交的写副作用。`completeness.check()` 跑完之后才到达的拒绝路径
+ * （[CompletenessResult] 不完整、`finalizeIfDraft` 未命中）一律 `rollback`——`check()` 契约上只读，
+ * 但类型系统拦不住实现方违反它，`rollback` 让这两条路径与异常路径同样干净（见
+ * `FinalizeInspectionUseCaseTest` 的 "if a seam inside the transaction throws after writing..." 用例）。
+ * 更早的两条 `return`（`inspectionId` 查无此巡检、该巡检早已 FINALIZED）发生在 `completeness.check()`
+ * 之前，此时事务里还没有任何写，无需撤销。
  */
 class FinalizeInspectionUseCase(
     private val database: MyInspectionDatabase,

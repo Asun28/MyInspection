@@ -15,10 +15,10 @@ import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.db.Uuid7Generator
 
 /**
- * 哈希可复验性（卡文 dod_assert）：`data_hash` 只覆盖 [nz.myinspection.core.model.InspectionSnapshot]
- * 的哈希域（ADR-0003）。排除域字段（如 `updated_at`）事后改动不得影响复算结果；哈希域字段一旦被绕过
- * finalize 谓词直接改库（测试用驱动原生 execute 模拟，dod_assert 已认可），复算必须与落库的 `data_hash`
- * 对不上——这正是它写进 PDF 页脚"自证未被事后修改"的意义所在。
+ * 哈希可复验性：`data_hash` 只覆盖 [nz.myinspection.core.model.InspectionSnapshot] 的哈希域
+ * （ADR-0003）。排除域字段（如 `updated_at`）事后改动不得影响复算结果；哈希域字段一旦被绕过 finalize
+ * 谓词直接改库（测试用驱动原生 execute 模拟），复算必须与落库的 `data_hash` 对不上——这正是它写进
+ * PDF 页脚"自证未被事后修改"的意义所在。
  */
 class HashReverificationTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -64,7 +64,7 @@ class HashReverificationTest {
         val finalized = assertIs<FinalizeOutcome.Finalized>(useCase.finalize(ready.inspectionId))
 
         // status 是哈希域字段（items[].status）。inspection_item.updateStatusIfDraft 会被 finalize 谓词
-        // 挡下（0 行），故用驱动原生 execute 直接改库，模拟"绕过谓词的腐坏"（卡文 dod_assert 已明确认可）。
+        // 挡下（0 行），故用驱动原生 execute 直接改库，模拟"绕过谓词的腐坏"。
         driver.execute(null, "UPDATE inspection_item SET status = 'POOR' WHERE id = '${ready.itemId}'", 0)
 
         val recomputed = recompute(ready.inspectionId, finalized.finalizedAt)

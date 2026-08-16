@@ -17,8 +17,8 @@ import nz.myinspection.core.model.SupplementSnapshot
 /**
  * [SupplementChainService]：finalize 后唯一允许的追加写路径。链锚定在 `inspection.data_hash`
  * （T1-CANON-HASH「prev_hash(1) = inspection.data_hash」），逐条 `chain_hash` 延链，[verifyChain]
- * 可复验、可检出直连 SQL 模拟的腐坏（Supplement.sq 本就不提供 update 查询，append-only 是关键不变量，
- * 故"腐坏"只能靠测试直连驱动模拟，卡文 dod_assert 已明确认可这条路径）。
+ * 可复验、可检出腐坏（`Supplement.sq` 本就不提供 update 查询，append-only 是关键不变量，故腐坏只能
+ * 靠测试直连驱动模拟）。
  */
 class SupplementChainServiceTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -200,7 +200,7 @@ class SupplementChainServiceTest {
         val added = assertIs<AddSupplementOutcome.Added>(service.addSupplement(inspectionId, "original text"))
 
         // Supplement.sq 故意不提供 update 查询（append-only）；模拟"有人绕过谓词直接改库文件"只能走
-        // 驱动的原生 execute，卡文 dod_assert 已明确认可这条测试路径。
+        // 驱动的原生 execute。
         driver.execute(null, "UPDATE supplement SET text = 'TAMPERED' WHERE id = '${added.id}'", 0)
 
         val verification = service.verifyChain(inspectionId)

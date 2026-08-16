@@ -144,48 +144,17 @@ class DbCompletenessCheckerTest {
     }
 
     /**
-     * ADVERSE_ONLY 的"不利发现"分类表——这两个集合按定义须与 [DbCompletenessChecker] 私有的
-     * `RENTAL_ADVERSE`/`ANNUAL_ADVERSE` 一致，但**不从生产代码读取**（那样自己抄自己，测不出实现改错）。
-     * 结构安全网见下面两条"partition exactly covers"测试：域外的幻造标签（比如误写 "N_A"）进不了这两个
-     * 集合——它们必须是 [TemplateDomains.RENTAL_STATUSES]/[TemplateDomains.ANNUAL_STATUSES] 的子集且
-     * 与各自的非不利子集**并集恰好等于冻结域**，域将来新增一个标签，这条并集断言会先红，逼着这里更新。
-     */
-    private val RENTAL_ADVERSE_LABELS = setOf("FAIR", "POOR")
-    private val RENTAL_NON_ADVERSE_LABELS = setOf("GOOD", "NOT_APPLICABLE")
-    private val ANNUAL_ADVERSE_LABELS = setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT")
-    private val ANNUAL_NON_ADVERSE_LABELS = setOf("NO_ISSUE", "NOT_APPLICABLE")
-
-    @Test
-    fun `the adverse-vs-not partition exactly covers the frozen RENTAL_STATUSES domain`() {
-        assertEquals(
-            TemplateDomains.RENTAL_STATUSES,
-            RENTAL_ADVERSE_LABELS + RENTAL_NON_ADVERSE_LABELS,
-            "every label in the frozen rental domain must be classified as adverse or not — " +
-                "a domain change (add/rename/remove a status) must update this partition",
-        )
-        assertTrue((RENTAL_ADVERSE_LABELS intersect RENTAL_NON_ADVERSE_LABELS).isEmpty())
-    }
-
-    @Test
-    fun `the adverse-vs-not partition exactly covers the frozen ANNUAL_STATUSES domain`() {
-        assertEquals(
-            TemplateDomains.ANNUAL_STATUSES,
-            ANNUAL_ADVERSE_LABELS + ANNUAL_NON_ADVERSE_LABELS,
-            "every label in the frozen annual domain must be classified as adverse or not — " +
-                "a domain change (add/rename/remove a status) must update this partition",
-        )
-        assertTrue((ANNUAL_ADVERSE_LABELS intersect ANNUAL_NON_ADVERSE_LABELS).isEmpty())
-    }
-
-    /**
-     * 按上面的分类表，逐一核对 [DbCompletenessChecker] 对 [TemplateDomains.RENTAL_STATUSES]/
-     * [TemplateDomains.ANNUAL_STATUSES] **每一个**标签的实际判定——status 直接来自冻结域的迭代，
-     * 不是手抄的字符串字面量，故不存在"域外幻造标签"这类拼写漂移的空间。
+     * 域内每一个合法标签都必须被判定"域内合法"，不被误报进 [CompletenessResult.itemsWithInvalidStatus]
+     * 或 [CompletenessResult.itemsWithDisallowedStatus]——status 直接来自冻结域
+     * [TemplateDomains.RENTAL_STATUSES]/[TemplateDomains.ANNUAL_STATUSES] 的迭代，不是手抄的字符串
+     * 字面量，故不存在"域外幻造标签"这类拼写漂移的空间。ADVERSE_ONLY 的拍照/备注路由（哪些评级需要
+     * 照片/备注）是 capture 的权威判定，由本类下面 `ADVERSE_ONLY rule is satisfied...` 等用例覆盖，
+     * 不是这条测试要管的。
      */
     @Test
-    fun `ADVERSE_ONLY classification matches the partition for every status in both frozen domains`() {
+    fun `every status in both frozen domains is accepted as domain-valid`() {
         var caseIndex = 0
-        fun assertCase(inspectionType: String, status: String, adverse: Boolean) {
+        fun assertAccepted(inspectionType: String, status: String) {
             val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
             val templateVersionId = DbTestFixtures.insertTemplateVersion(
                 database, uuid, type = inspectionType, version = (++caseIndex).toLong(), now = now,
@@ -193,32 +162,30 @@ class DbCompletenessCheckerTest {
             val stableId = "item.$caseIndex"
             FinalizeTestFixtures.insertCheckItemDef(
                 database, uuid, templateVersionId, stableId = stableId, room = "BEDROOM",
-                photoRule = "ADVERSE_ONLY", sort = 1, type = inspectionType, now = now,
+                sort = 1, type = inspectionType, now = now,
             )
             val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = inspectionType, now = now)
             val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
             DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = stableId, status = status, now = now)
 
             val result = DbCompletenessChecker(database).check(inspectionId)
-            val expected = if (adverse) listOf(MissingItem(roomInstanceId, stableId)) else emptyList()
-            assertEquals(expected, result.itemsMissingMandatoryPhoto, "inspectionType=$inspectionType status=$status")
-            assertTrue(result.itemsWithInvalidStatus.isEmpty(), "every legal domain status must classify cleanly, not as invalid: $status")
+            assertTrue(result.itemsWithInvalidStatus.isEmpty(), "inspectionType=$inspectionType status=$status must classify as domain-valid")
+            assertTrue(result.itemsWithDisallowedStatus.isEmpty(), "inspectionType=$inspectionType status=$status is within this item's own allowed_statuses (full domain, no override)")
         }
 
         for (status in TemplateDomains.RENTAL_STATUSES) {
-            assertCase("ROUTINE", status, adverse = status in RENTAL_ADVERSE_LABELS)
+            assertAccepted("ROUTINE", status)
         }
         for (status in TemplateDomains.ANNUAL_STATUSES) {
-            assertCase("ANNUAL", status, adverse = status in ANNUAL_ADVERSE_LABELS)
+            assertAccepted("ANNUAL", status)
         }
     }
 
     /**
-     * fail-closed 的另一半：一个不在冻结域内的状态字符串（`Supplement.sq` 式的直连 SQL 腐坏模拟，
-     * 卡文 dod_assert 已明确认可这条路径——`inspection_item.status` 本身无 CHECK，`updateStatusIfDraft`
-     * 也不校验域，故这类腐坏在当前 schema 下并非无法触达，只是不该被这层分类器悄悄当"非不利"放行）。
-     * 分类不出来必须显式报告，而不是让 ADVERSE_ONLY 的分类退化成"能匹配上不利集合才算数、匹配不上就
-     * 放行"——那正是 fail-open。
+     * fail-closed 的另一半：一个不在冻结域内的状态字符串（`inspection_item.status` 本身无 CHECK、
+     * `updateStatusIfDraft` 也不校验域，故这类腐坏在当前 schema 下并非无法触达，只是不该被这层分类器
+     * 悄悄当"非不利"放行）。分类不出来必须显式报告，而不是让 ADVERSE_ONLY 的分类退化成"能匹配上不利
+     * 集合才算数、匹配不上就放行"——那正是 fail-open。
      */
     @Test
     fun `an ADVERSE_ONLY item with a status outside the frozen domain is reported as invalid, blocking finalize`() {

@@ -6,9 +6,9 @@ import nz.myinspection.core.db.Uuid7Generator
 import nz.myinspection.core.template.TemplateDomains
 
 /**
- * finalize 卡自己的测试夹具，补 [DbTestFixtures]（`nz.myinspection.core.db`，本卡 `allow_paths` 之外，
- * 不可编辑）没有覆盖的几张表：`check_item_def` / `tenancy` / `photo` / `audio` / `property_item_override`。
- * `internal`——两个包同属 :core 测试编译单元，`DbTestFixtures` 本身也是这样跨包复用的。
+ * finalize 自己的测试夹具，补 [DbTestFixtures]（属 `nz.myinspection.core.db` 包，不在此包）没有覆盖的
+ * 几张表：`check_item_def` / `tenancy` / `photo` / `audio` / `property_item_override`。`internal`——
+ * 两个包同属 :core 测试编译单元，`DbTestFixtures` 本身也是这样跨包复用的。
  */
 internal object FinalizeTestFixtures {
 

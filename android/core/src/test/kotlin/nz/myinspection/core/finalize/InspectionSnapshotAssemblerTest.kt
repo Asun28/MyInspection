@@ -122,8 +122,8 @@ class InspectionSnapshotAssemblerTest {
         assertEquals(expected, actual)
         assertEquals(GOLDEN_HASH_1, sha256Hex(canonicalJson(actual)), "independently precomputed golden hash must match — see class KDoc for derivation")
 
-        // 乱序装配对照（TD5 修法原文明确要求）：手动把 items[] 倒过来，canonical 哈希必须不同——
-        // 顺序是哈希域的一部分，不是装配细节。
+        // 乱序装配对照：手动把 items[] 倒过来，canonical 哈希必须不同——顺序是哈希域的一部分，不是
+        // 装配细节。
         val shuffledHash = sha256Hex(canonicalJson(actual.copy(items = actual.items.reversed())))
         assertNotEquals(GOLDEN_HASH_1, shuffledHash, "items[] 顺序必须参与哈希")
     }
