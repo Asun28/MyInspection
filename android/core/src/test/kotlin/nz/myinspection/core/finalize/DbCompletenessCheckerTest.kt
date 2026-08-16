@@ -87,6 +87,29 @@ class DbCompletenessCheckerTest {
         assertTrue(afterPhoto.itemsMissingMandatoryPhoto.isEmpty())
     }
 
+    /**
+     * ROOM_PANORAMA 是房间级要求，独立于该房间下具体哪一项是否已作答——同一次 `check()` 必须
+     * 同时报出"缺状态"与"缺房间照片"，不能让用户先补完状态、重跑一次 finalize 才发现还缺照片
+     * （T1-TEMPLATE-ENGINE 修过的同一类"校验器提前 return"缺陷，见 CompletenessPort 顶部说明）。
+     */
+    @Test
+    fun `ROOM_PANORAMA deficiency is reported in the same pass as a missing-status item, not gated behind it`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "room.panorama", room = "BEDROOM",
+            photoRule = "ROOM_PANORAMA", sort = 1, now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+        // 房间已建，room.panorama 既没人作答，也没有房间级照片。
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(listOf(MissingItem(roomInstanceId, "room.panorama")), result.itemsMissingStatus)
+        assertEquals(listOf(MissingItem(roomInstanceId, "room.panorama")), result.itemsMissingMandatoryPhoto)
+    }
+
     @Test
     fun `ADVERSE_ONLY rule only requires a photo when the answered status is adverse for the inspection type`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)

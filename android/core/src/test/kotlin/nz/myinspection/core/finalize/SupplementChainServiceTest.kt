@@ -101,6 +101,29 @@ class SupplementChainServiceTest {
         assertEquals(1, database.supplementQueries.selectByInspection(inspectionId).executeAsList().size)
     }
 
+    /**
+     * 同毫秒也必须拒（R3 round 1 指出的真缺陷）：`id` 是 UUIDv7，同一毫秒内两条纪录的相对大小取决于
+     * 各自生成时的计数器/随机位，与它们的实际链接顺序（谁的 `prev_hash` 指向谁）无关。若允许
+     * `now == tip.created_at`，`Supplement.sq` 的 `ORDER BY created_at ASC, id ASC` 读回序就可能把
+     * 新纪录排到 tip 前面，而新纪录的 `prev_hash` 却指向 tip——`verifyChain` 会在一条从未真正断裂的链上
+     * 报错。这里用两个**不同的 [SupplementChainService] 实例**（各自一个新 `Uuid7Generator`，避免依赖
+     * 同一生成器的计数器巧合递增）在同一毫秒各插一条，第二条必须被拒。
+     */
+    @Test
+    fun `a supplement whose timestamp exactly equals the chain tip is rejected, not just an earlier one`() {
+        val inspectionId = finalizeMinimalInspection(clockAt = now + 100)
+        val sameInstant = now + 200
+
+        val firstService = SupplementChainService(database, Uuid7Generator(), ClockMs { sameInstant })
+        assertIs<AddSupplementOutcome.Added>(firstService.addSupplement(inspectionId, "first at T"))
+
+        val secondService = SupplementChainService(database, Uuid7Generator(), ClockMs { sameInstant })
+        val outcome = secondService.addSupplement(inspectionId, "second at the exact same T")
+
+        assertIs<AddSupplementOutcome.RejectedOutOfOrder>(outcome)
+        assertEquals(1, database.supplementQueries.selectByInspection(inspectionId).executeAsList().size)
+    }
+
     @Test
     fun `verifyChain reports NotFinalized on a DRAFT inspection`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)

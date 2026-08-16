@@ -5,6 +5,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -126,7 +127,7 @@ class FinalizeInspectionUseCaseTest {
     }
 
     @Test
-    fun `after finalize, direct writes against the original items affect zero rows`() {
+    fun `after finalize, direct writes against the original items are 0 rows at the SQL layer, and requireOriginalEntryWritten turns that into an explicit failure at the use-case layer`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
         val useCase = FinalizeInspectionUseCase(database, DbCompletenessChecker(database), fixedClock(now + 1))
         assertIs<FinalizeOutcome.Finalized>(useCase.finalize(ready.inspectionId))
@@ -135,6 +136,11 @@ class FinalizeInspectionUseCaseTest {
             status = "POOR", note = "tampered", updated_at = now + 2, id = ready.itemId,
         ).value
         assertEquals(0L, updateAffected, "writing to an item under a FINALIZED inspection must affect 0 rows")
+        // 卡文：「本卡在用例层再挡一道」——裸的 0 行不是本卡对这条纪律的兑现，调用方必须把它转成显式错误
+        // 才算挡住；requireOriginalEntryWritten 就是这道闸，直接调写接口对 FINALIZED 巡检 → 抛出。
+        assertFailsWith<FinalizedInspectionReadOnlyException> {
+            requireOriginalEntryWritten(updateAffected, "update item status")
+        }
 
         val insertAffected = database.inspectionItemQueries.insert(
             id = uuid.next(), inspection_id = ready.inspectionId, room_instance_id = ready.roomInstanceId,
@@ -142,6 +148,50 @@ class FinalizeInspectionUseCaseTest {
             created_at = now + 2, updated_at = now + 2,
         ).value
         assertEquals(0L, insertAffected, "inserting a new item under a FINALIZED inspection must affect 0 rows")
+        assertFailsWith<FinalizedInspectionReadOnlyException> {
+            requireOriginalEntryWritten(insertAffected, "insert new item")
+        }
+    }
+
+    @Test
+    fun `requireOriginalEntryWritten is transparent to a legitimate DRAFT write`() {
+        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
+
+        val affected = database.inspectionItemQueries.updateStatusIfDraft(
+            status = "POOR", note = "still drafting", updated_at = now + 1, id = ready.itemId,
+        ).value
+
+        // 不抛——合法写路径对这道闸完全透明。
+        requireOriginalEntryWritten(affected, "update item status")
+        assertEquals(1L, affected)
+    }
+
+    @Test
+    fun `if the inspection is finalized by a racing write during the completeness check, finalize rejects cleanly instead of throwing`() {
+        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
+        // 模拟"读完备性之后、写 finalized_at 之前，另一条路径抢先把同一巡检 finalize 了"这类竞态窗口：
+        // 用一个在被调用时产生写副作用的假 CompletenessPort，在单线程里确定性地复现该窗口，不依赖真实
+        // 多线程——单一 JDBC 连接的 in-memory driver 不保证真并发访问的确定性行为（见 SQLDelight 文档
+        // "in-memory drivers have a single connection, concurrent access will be blocked"），真拿两个线程
+        // 去撞同一个连接只会验证 JDBC 驱动的锁行为，验不出 finalize 自己的事务边界对不对。
+        val racingCompleteness = CompletenessPort { inspectionId ->
+            val raceAffected = database.inspectionQueries.finalizeIfDraft(
+                finalized_at = now + 1, data_hash = "raced-in-first", updated_at = now + 1, id = inspectionId,
+            ).value
+            check(raceAffected == 1L) { "race fixture itself failed to land" }
+            CompletenessResult(itemsMissingStatus = emptyList(), itemsMissingMandatoryPhoto = emptyList())
+        }
+        val useCase = FinalizeInspectionUseCase(database, racingCompleteness, fixedClock(now + 500))
+
+        val outcome = useCase.finalize(ready.inspectionId)
+
+        assertIs<FinalizeOutcome.RejectedAlreadyFinalized>(
+            outcome,
+            "the transaction's own re-check at write time must see the racing write and return cleanly, not throw",
+        )
+        val row = database.inspectionQueries.selectById(ready.inspectionId).executeAsOne()
+        assertEquals("raced-in-first", row.data_hash, "the racing write inside the transaction must be the one that stuck")
+        assertEquals(now + 1, row.finalized_at)
     }
 
     @Test

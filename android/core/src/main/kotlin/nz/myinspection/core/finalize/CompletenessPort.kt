@@ -41,11 +41,15 @@ fun interface CompletenessPort {
  *    "还没有人给它定状态"，因为 `inspection_item` 是**答题表**，行存在即代表已作答（DB 层 `status`
  *    虽是 `NOT NULL`，但那约束的是"已作答的行必须有值"，不是"每个应答项都已作答"——后者才是这里要判的）。
  * 2. **缺强制照片**（两级规则，语义来自 `check_item_def.photo_rule`）：
- *    - `ROOM_PANORAMA`：该房间下存在一条此规则的已答项时，要求该房间实例至少有一张房间级照片
- *      （`photo.inspection_item_id IS NULL`）。
- *    - `ADVERSE_ONLY`：该项已答且评级落在"不利发现"集合时，要求该项至少有一张项目级照片
- *      （`photo.inspection_item_id = 该项 id`）。"不利发现"集合按巡检类型区分（ANNUAL 用三档缺陷分级，
- *      其余用租赁四档），取值搬自 `T2-CAPTURE-CORE` 卡文已定的规则表。
+ *    - `ROOM_PANORAMA`：**房间级要求，与该房间下具体哪一项是否已作答无关**——只要该房间存在此规则
+ *      的适用项，就要求该房间实例至少有一张房间级照片（`photo.inspection_item_id IS NULL`）；即使该项
+ *      本身还没人作答（同时出现在"缺状态"清单里），照片缺失也必须**在同一次判定里一并报出**，不能等
+ *      用户先补完状态、finalize 第二次才发现还缺照片——那正是"一次报全"的校验器承诺提前 return 的
+ *      老毛病（`T1-TEMPLATE-ENGINE` 修过的同一类缺陷）。
+ *    - `ADVERSE_ONLY`：这条规则的适用性**依赖该项的评级**，评级只有已作答才存在——故只在该项已作答
+ *      且评级落在"不利发现"集合时才判（未作答的项已经进了"缺状态"清单，等它有了状态再判照片是否缺，
+ *      这个依赖是规则定义本身决定的，不是提前 return 的疏漏）。"不利发现"集合按巡检类型区分（ANNUAL
+ *      用三档缺陷分级，其余用租赁四档），取值搬自 `T2-CAPTURE-CORE` 卡文已定的规则表。
  *
  * 两类问题都用 [MissingItem] 报告，`stableId` 取自模板项定义、`roomInstanceId` 取自房间实例，
  * 与"缺状态"清单同形状，UI 侧可以统一渲染。
@@ -77,25 +81,24 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
 
         for (room in roomInstances) {
             val applicableDefs = checkItemDefs.filter { it.room == room.room_key && it.stable_id !in suppressedStableIds }
+            val roomPhotos = photosByRoom[room.id].orEmpty()
+
+            // ROOM_PANORAMA 独立于逐项作答状态判定一次：房间要不要全景照片，不取决于该房间下哪一项
+            // 已经/还没有作答。
+            val roomPanoramaDefs = applicableDefs.filter { it.photo_rule == "ROOM_PANORAMA" }
+            if (roomPanoramaDefs.isNotEmpty() && roomPhotos.none { it.inspection_item_id == null }) {
+                roomPanoramaDefs.forEach { missingPhoto += MissingItem(room.id, it.stable_id) }
+            }
+
             for (def in applicableDefs) {
                 val existing = existingByKey[room.id to def.stable_id]
                 if (existing == null) {
                     missingStatus += MissingItem(room.id, def.stable_id)
                     continue
                 }
-                val roomPhotos = photosByRoom[room.id].orEmpty()
-                when (def.photo_rule) {
-                    "ROOM_PANORAMA" -> {
-                        val hasPanorama = roomPhotos.any { it.inspection_item_id == null }
-                        if (!hasPanorama) missingPhoto += MissingItem(room.id, def.stable_id)
-                    }
-                    "ADVERSE_ONLY" -> {
-                        if (isAdverseStatus(inspection.type, existing.status)) {
-                            val hasItemPhoto = roomPhotos.any { it.inspection_item_id == existing.id }
-                            if (!hasItemPhoto) missingPhoto += MissingItem(room.id, def.stable_id)
-                        }
-                    }
-                    else -> Unit // NULL = 无强制拍照要求
+                if (def.photo_rule == "ADVERSE_ONLY" && isAdverseStatus(inspection.type, existing.status)) {
+                    val hasItemPhoto = roomPhotos.any { it.inspection_item_id == existing.id }
+                    if (!hasItemPhoto) missingPhoto += MissingItem(room.id, def.stable_id)
                 }
             }
         }

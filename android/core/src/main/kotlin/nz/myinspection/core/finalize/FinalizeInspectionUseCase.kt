@@ -32,29 +32,33 @@ sealed interface FinalizeOutcome {
  * ④ 同一 DB 事务写 `finalized_at` + `data_hash`（[MyInspectionDatabase.inspectionQueries] 的
  *    `finalizeIfDraft` 本身即"仅当仍是 DRAFT 才成功"的一次性守卫，见 `Inspection.sq`）。
  *
- * 步骤 ①②③ 全是读 + 纯计算，本身不写库——真正的写只有步骤④这一条 UPDATE 语句，天然原子。
- * `database.transaction { }` 仍然包一层（而不是直接裸调 `finalizeIfDraft`）是与 `TemplateStore.persist()`
- * 保持同一纪律：写库这一步就该显式在事务边界内，即便当前只有一条语句。
+ * **①-④ 全程在同一个 `database.transactionWithResult { }` 里**：DRAFT 判定、完备性校验、快照物化、
+ * 哈希计算、最终写入必须读到同一个一致的数据库状态，否则会出现"完备性校验时读到 A、真正写入时数据库
+ * 已经是 B"的 TOCTOU 窗口——`data_hash` 覆盖的快照与落库时刻的真实数据就此对不上。单一 SQLite 连接的
+ * 写事务本身就会序列化任何试图在窗口期插入的另一次写（见 SQLDelight 文档："in-memory drivers have
+ * a single connection, concurrent access will be blocked"），但把校验/物化留在事务外仍会让*读*停留在
+ * 事务开始前的旧快照——包起来才是真正堵死这条缝，而不是只指望连接层面的串行化。
  *
- * `finalizeIfDraft` 影响行数必为 1：本方法开头已经原子地（单线程同步调用、单一 DB 连接、
- * local-first 单进程应用，见 ADR-0001/0002）读过 `finalized_at IS NULL` 才走到这里，中间只有纯读
- * 与纯计算、没有让出执行权的挂起点，不存在别的调用能在这两步之间插进来改写同一行。若这个不变量真被
- * 打破（比如未来误引入协程/多连接），`check` 会当场炸出来，而不是悄悄把一次真正的异常状态报成看似
- * 合理的"已 FINALIZED"——那种伪装成功的错误更难查（同 `TemplateStore.persist` 对 `check_item_def`
- * 插入结果的处理纪律）。
+ * 事务末尾用 `finalizeIfDraft` 的影响行数**再核一次**「仍是 DRAFT」——不是因为不信任前面已经查过的
+ * `row.finalized_at`，而是这次核验发生在同一事务内、紧贴写入前，能兜住"事务内某次内部调用（比如
+ * [CompletenessPort] 的实现产生了写副作用）已经把这一行变成 FINALIZED"的情形；命中时**干净返回**
+ * `RejectedAlreadyFinalized`，不用 `check()` 断言炸出一个看起来像 bug 的异常——那类真正的竞态不是程序
+ * 错误，是两个调用者都在合法地尝试 finalize 同一份数据，后到者理应拿到一个可处理的业务结果。
  */
 class FinalizeInspectionUseCase(
     private val database: MyInspectionDatabase,
     private val completeness: CompletenessPort,
     private val clock: ClockMs = SystemClockMs,
 ) {
-    fun finalize(inspectionId: String): FinalizeOutcome {
+    fun finalize(inspectionId: String): FinalizeOutcome = database.transactionWithResult {
         val row = database.inspectionQueries.selectById(inspectionId).executeAsOneOrNull()
-            ?: return FinalizeOutcome.RejectedNotFound
-        if (row.finalized_at != null) return FinalizeOutcome.RejectedAlreadyFinalized
+            ?: return@transactionWithResult FinalizeOutcome.RejectedNotFound
+        if (row.finalized_at != null) return@transactionWithResult FinalizeOutcome.RejectedAlreadyFinalized
 
         val completenessResult = completeness.check(inspectionId)
-        if (!completenessResult.isComplete) return FinalizeOutcome.RejectedIncomplete(completenessResult)
+        if (!completenessResult.isComplete) {
+            return@transactionWithResult FinalizeOutcome.RejectedIncomplete(completenessResult)
+        }
 
         // finalizedAt 必须在算哈希之前定下来：data_hash 覆盖的快照本身含 finalizedAt 字段（哈希域，
         // 见 InspectionSnapshot 顶部说明），写库时必须用同一个值，否则哈希与落库的 finalized_at 对不上。
@@ -62,17 +66,16 @@ class FinalizeInspectionUseCase(
         val snapshot = InspectionSnapshotAssembler.assemble(database, inspectionId, finalizedAt)
         val dataHash = sha256Hex(canonicalJson(snapshot))
 
-        database.transaction {
-            val affected = database.inspectionQueries.finalizeIfDraft(
-                finalized_at = finalizedAt,
-                data_hash = dataHash,
-                updated_at = finalizedAt,
-                id = inspectionId,
-            ).value
-            check(affected == 1L) {
-                "finalizeIfDraft affected $affected rows for $inspectionId despite the DRAFT check above (guard rejected the write)"
-            }
+        val affected = database.inspectionQueries.finalizeIfDraft(
+            finalized_at = finalizedAt,
+            data_hash = dataHash,
+            updated_at = finalizedAt,
+            id = inspectionId,
+        ).value
+        if (affected == 1L) {
+            FinalizeOutcome.Finalized(dataHash = dataHash, finalizedAt = finalizedAt)
+        } else {
+            FinalizeOutcome.RejectedAlreadyFinalized
         }
-        return FinalizeOutcome.Finalized(dataHash = dataHash, finalizedAt = finalizedAt)
     }
 }
