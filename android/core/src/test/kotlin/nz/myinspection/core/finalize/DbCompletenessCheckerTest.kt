@@ -89,6 +89,39 @@ class DbCompletenessCheckerTest {
     }
 
     /**
+     * 两个 `room_key` 相同的房间实例（`instance_no` 分别 1/2——唯一索引是 `(inspection_id, room_key,
+     * instance_no)`，不是单纯 `room_key`，故这两行今天就能合法共存），只有其中一个缺全景照片：
+     * 判定必须按房间**实例**身份区分，只报那一个缺的、不能因为共享 room_key 就把另一个已合规的实例也
+     * 误报成缺。回归 R3 round 10 抓到的粒度退化——`computeMissingPhotos` 的 `MissingRoomPhoto` 本就带
+     * `roomInstanceId`，之前的实现把它降级成只按 `roomKey` 匹配，等于丢弃了 capture 已经算好的实例级
+     * 精度。
+     */
+    @Test
+    fun `two room instances sharing a room_key are judged independently for the panorama requirement`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "room.panorama", room = "BEDROOM",
+            photoRule = "ROOM_PANORAMA", sort = 1, now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
+        val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomA, stableId = "room.panorama", now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomB, stableId = "room.panorama", now = now)
+        // 只给 roomA 补房间级照片；roomB 仍缺。
+        FinalizeTestFixtures.insertRoomLevelPhoto(database, uuid, roomA, now = now)
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(
+            listOf(MissingItem(roomB, "room.panorama")),
+            result.itemsMissingMandatoryPhoto,
+            "only the instance actually missing its panorama photo should be reported, not both instances of the shared room_key",
+        )
+    }
+
+    /**
      * ROOM_PANORAMA 是房间级要求，独立于该房间下具体哪一项是否已作答——同一次 `check()` 必须
      * 同时报出"缺状态"与"缺房间照片"，不能让用户先补完状态、重跑一次 finalize 才发现还缺照片
      * （T1-TEMPLATE-ENGINE 修过的同一类"校验器提前 return"缺陷，见 CompletenessPort 顶部说明）。

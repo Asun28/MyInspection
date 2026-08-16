@@ -174,15 +174,19 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             )
         }
 
-        // 委派：房间级/项目级拍照完备性权威在 capture。ROOM_PANORAMA 缺口 capture 只按房间粒度报
-        // （MissingRoomPhoto 没有 stableId），本类沿用既有的逐项报告粒度——把"这间房缺全景"展开成该房间
-        // 下每一条 ROOM_PANORAMA 项定义各一条 MissingItem，判定本身（缺不缺）仍是 capture 算出来的，
-        // 这里只做输出粒度的映射，不是重新判定。
+        // 委派：房间级/项目级拍照完备性权威在 capture。ROOM_PANORAMA 缺口 capture 按房间**实例**粒度报
+        // （MissingRoomPhoto 带 roomInstanceId，不只是 roomKey），本类沿用既有的逐项报告粒度——把"这个
+        // 房间实例缺全景"展开成该实例下每一条 ROOM_PANORAMA 项定义各一条 MissingItem，判定本身（缺不缺）
+        // 仍是 capture 算出来的，这里只做输出粒度的映射，不是重新判定。**必须按 roomInstanceId 匹配、
+        // 不能退化成按 room_key 匹配**：同一 room_key 今天已可对应多个 room_instance（唯一索引是
+        // `(inspection_id, room_key, instance_no)`，不是单纯 `room_key`——T2-ROOM-REPEATABLE 落地前，
+        // 现有 mint 点固定写 `instance_no = 1` 故实际不会出现，但索引本身已允许），按 room_key 匹配会把
+        // "只有其中一个实例缺全景"误报成"两个实例都缺"。
         val photoCompleteness = computeMissingPhotos(inspection.type, roomSnapshots)
-        val missingPanoramaRoomKeys = photoCompleteness.missingRoomPanoramas.mapTo(mutableSetOf()) { it.roomKey }
+        val missingPanoramaRoomInstanceIds = photoCompleteness.missingRoomPanoramas.mapTo(mutableSetOf()) { it.roomInstanceId }
         val missingPhoto = mutableListOf<MissingItem>()
         for (room in roomInstances) {
-            if (room.room_key !in missingPanoramaRoomKeys) continue
+            if (room.id !in missingPanoramaRoomInstanceIds) continue
             checkItemDefs.filter { it.room == room.room_key && it.stable_id !in suppressedStableIds && it.photo_rule == "ROOM_PANORAMA" }
                 .forEach { missingPhoto += MissingItem(room.id, it.stable_id) }
         }
