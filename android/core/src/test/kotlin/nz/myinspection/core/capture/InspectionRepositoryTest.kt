@@ -115,15 +115,49 @@ class InspectionRepositoryTest {
     }
 
     @Test
-    fun `an unresolvable tenancy id is reported distinctly from a missing baseline pointer`() {
+    fun `createInspection throws when the tenancy id does not exist`() {
+        // 调用方传错 tenancy id 是调用方错误，须当场炸——不是"这处物业没有基线"这一合法业务态
+        // （Codex R3 round 1：此前会静默把悬空引用写进 inspection.tenancy_id）。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
         val bogusTenancyId = uuid.next() // 从未插入 tenancy 表
 
-        val created = repo.createInspection("EXIT", propertyId, bogusTenancyId, templateId, scheduledAt = now)
+        assertFailsWith<IllegalStateException> {
+            repo.createInspection("EXIT", propertyId, bogusTenancyId, templateId, scheduledAt = now)
+        }
+        assertTrue(database.inspectionQueries.selectActive().executeAsList().isEmpty(), "must not persist a dangling reference")
+    }
 
-        assertNull(created.baselineInspectionId)
-        assertEquals(NoBaselineReason.TENANCY_NOT_FOUND, created.noBaselineReason)
+    @Test
+    fun `createInspection throws when the property id does not exist`() {
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val bogusPropertyId = uuid.next()
+
+        assertFailsWith<IllegalStateException> {
+            repo.createInspection("ROUTINE", bogusPropertyId, null, templateId, scheduledAt = now)
+        }
+    }
+
+    @Test
+    fun `createInspection throws when the template version id does not exist`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val bogusTemplateId = uuid.next()
+
+        assertFailsWith<IllegalStateException> {
+            repo.createInspection("ROUTINE", propertyId, null, bogusTemplateId, scheduledAt = now)
+        }
+    }
+
+    @Test
+    fun `createInspection throws when type does not match the template version's own type`() {
+        // 否则会拿 EXIT 的评级域校验 ROUTINE 巡检的项（或反之）——状态合法性检查会判错
+        // （Codex R3 round 1）。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val exitTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
+
+        assertFailsWith<IllegalArgumentException> {
+            repo.createInspection("ROUTINE", propertyId, null, exitTemplate, scheduledAt = now)
+        }
     }
 
     @Test
@@ -226,6 +260,33 @@ class InspectionRepositoryTest {
         assertEquals(1, rows.size, "second write must update, not duplicate, the row")
         assertEquals("FAIR", rows.single().status)
         assertEquals("chip in bench", rows.single().note)
+    }
+
+    @Test
+    fun `setItemStatus throws when the room instance does not match the item's own room key`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        val bedroomId = created.roomInstanceIds[1]
+
+        // KIT-BENCH-01 属于 KITCHEN，故意递一个 BEDROOM 的 room_instance_id。
+        assertFailsWith<IllegalArgumentException> {
+            repo.setItemStatus(created.inspectionId, bedroomId, "KIT-BENCH-01", "GOOD", null)
+        }
+        assertTrue(database.inspectionItemQueries.selectByInspection(created.inspectionId).executeAsList().isEmpty())
+    }
+
+    @Test
+    fun `setItemStatus throws for a stable id currently suppressed for the property`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        val kitchenRoomId = created.roomInstanceIds.first()
+        repo.setItemSuppression(propertyId, "KIT-BENCH-01", suppressed = true)
+
+        assertFailsWith<IllegalArgumentException> {
+            repo.setItemStatus(created.inspectionId, kitchenRoomId, "KIT-BENCH-01", "GOOD", null)
+        }
     }
 
     @Test
@@ -388,6 +449,36 @@ class InspectionRepositoryTest {
 
         assertEquals(WearOrDamageOutcome.Written, outcome)
         assertEquals("DAMAGE", database.inspectionItemQueries.selectById(itemId).executeAsOne().wear_or_damage)
+    }
+
+    @Test
+    fun `setWearOrDamage throws when the item belongs to a different inspection`() {
+        // 拿一个属于另一次（还是 DRAFT 的 ROUTINE）巡检的 itemId，套一个恰好是 EXIT 且有基线的
+        // inspectionId——两者此前各自独立解析、从未互相核对（Codex R3 round 1）。
+        val (exitId, _) = setUpExitWithBaseline(baselineStatus = "GOOD")
+
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val otherTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val other = repo.createInspection("ROUTINE", propertyId, null, otherTemplate, scheduledAt = now)
+        repo.setItemStatus(other.inspectionId, other.roomInstanceIds.first(), "KIT-BENCH-01", "POOR", "note")
+        val foreignItemId = database.inspectionItemQueries.selectByInspection(other.inspectionId).executeAsList().single().id
+
+        assertFailsWith<IllegalArgumentException> {
+            repo.setWearOrDamage(exitId, foreignItemId, "DAMAGE")
+        }
+    }
+
+    @Test
+    fun `reverting status back to the baseline value clears a previously written wear_or_damage`() {
+        val (exitId, roomId) = setUpExitWithBaseline(baselineStatus = "GOOD")
+        repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "POOR", "scratched")
+        val itemId = database.inspectionItemQueries.selectByInspection(exitId).executeAsList().single().id
+        assertEquals(WearOrDamageOutcome.Written, repo.setWearOrDamage(exitId, itemId, "DAMAGE"))
+
+        // 状态改回与基线一致——之前那条 DAMAGE 分类的前提（"有差异"）已经不成立，不能悄悄留着。
+        repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "GOOD", null)
+
+        assertNull(database.inspectionItemQueries.selectById(itemId).executeAsOne().wear_or_damage)
     }
 
     @Test
