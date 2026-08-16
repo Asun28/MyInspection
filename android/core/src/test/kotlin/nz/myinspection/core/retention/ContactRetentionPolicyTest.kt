@@ -37,8 +37,8 @@ class ContactRetentionPolicyTest {
     @Test
     fun `expiry clamps Feb 29 to Feb 28 across a real 12-month leap-year boundary`() {
         // 2024（闰年）2024-02-29T00:00:00 NZDT + 12 个月：2025 不是闰年，2 月只有 28 天，java.time 的
-        // plusMonths 夹紧到月末而非溢出到 3 月 1 日——这条必须是真 12 个月跨界（此前误用 1 个月路径
-        // 顶替，测不出「12 个月」这个契约本身是否也正确夹紧，R3 已指出并要求补上）。
+        // plusMonths 夹紧到月末而非溢出到 3 月 1 日——必须走真 12 个月跨界，1 个月的替代路径测不出
+        // 「12 个月」这个契约本身是否也正确夹紧（闰年偏移量与 1 个月不同，二者不是同一条断言）。
         val feb29_2024 = 1_709_118_000_000L // 2024-02-29T00:00:00 NZDT
         val feb28_2025 = 1_740_654_000_000L // 2025-02-28T00:00:00 NZDT（夹紧，非溢出到 3 月 1 日）
         assertEquals(feb28_2025, contactExpiryMs(feb29_2024))
@@ -60,6 +60,7 @@ class ContactRetentionPolicyTest {
         val status = statusOf(row(endMs = null), nowMs = Long.MAX_VALUE)
         assertEquals(ContactRetentionState.ACTIVE_TENANCY, status.state)
         assertEquals(null, status.contactExpiresAtMs)
+        assertEquals(false, status.isPurgeable, "ACTIVE_TENANCY must never show the purge button")
     }
 
     @Test
@@ -69,6 +70,7 @@ class ContactRetentionPolicyTest {
         val status = statusOf(row(endMs = end), nowMs = expiresAt - 1L)
         assertEquals(ContactRetentionState.AWAITING_EXPIRY, status.state)
         assertEquals(expiresAt, status.contactExpiresAtMs)
+        assertEquals(false, status.isPurgeable, "AWAITING_EXPIRY must never show the purge button")
     }
 
     @Test
@@ -77,6 +79,7 @@ class ContactRetentionPolicyTest {
         val expiresAt = contactExpiryMs(end)
         val status = statusOf(row(endMs = end), nowMs = expiresAt)
         assertEquals(ContactRetentionState.PURGEABLE, status.state)
+        assertEquals(true, status.isPurgeable, "PURGEABLE is the only state that shows the irreversible purge button")
     }
 
     @Test
@@ -85,6 +88,7 @@ class ContactRetentionPolicyTest {
         val end = 1_700_000_000_000L
         val status = statusOf(row(endMs = end, purgedAt = end + 1L), nowMs = end + 1L)
         assertEquals(ContactRetentionState.PURGED, status.state)
+        assertEquals(false, status.isPurgeable, "PURGED must never show the purge button again")
     }
 
     @Test

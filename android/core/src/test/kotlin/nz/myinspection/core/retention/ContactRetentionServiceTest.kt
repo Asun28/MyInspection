@@ -43,8 +43,8 @@ class ContactRetentionServiceTest {
         endMs: Long?,
         tenantName: String = "J Doe",
         contact: String = "j@example.com",
+        id: String = uuid.next(),
     ): String {
-        val id = uuid.next()
         db.tenancyQueries.insert(
             id = id, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = endMs,
             tenant_name = tenantName, contact = contact, baseline_inspection_id = null,
@@ -71,6 +71,48 @@ class ContactRetentionServiceTest {
         assertEquals(ContactRetentionState.ACTIVE_TENANCY, byId.getValue(ongoing).state)
         assertEquals(ContactRetentionState.PURGEABLE, byId.getValue(expired).state)
         assertEquals(ContactRetentionState.AWAITING_EXPIRY, byId.getValue(recent).state)
+    }
+
+    @Test
+    fun `listStatuses sorts by tenancyId lexically, not by SQLite's physical insertion order`() {
+        // 上一条测试的 id 都来自 Uuid7Generator（单调递增），插入序与字典序天然重合——删掉
+        // ContactRetentionService.listStatuses 里的 sortedBy 那条测试也不会翻红。这里故意反过来插入
+        // （字典序更大的先插），逼 SQLite 的物理返回序（近似插入序）与字典序相反，sortedBy 缺席时
+        // 断言必败。
+        val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
+        insertTenancy(propertyId, endMs = null, id = "zz-tenancy")
+        insertTenancy(propertyId, endMs = null, id = "aa-tenancy")
+        insertTenancy(propertyId, endMs = null, id = "mm-tenancy")
+
+        val service = ContactRetentionService(db, ClockMs { now })
+
+        assertEquals(
+            listOf("aa-tenancy", "mm-tenancy", "zz-tenancy"),
+            service.listStatuses().map { it.tenancyId },
+        )
+    }
+
+    @Test
+    fun `listStatuses returns a list that rejects element replacement through a MutableList cast`() {
+        // 用 .set() 而非 .add()/.clear()：Kotlin `sortedBy` 对 size<=1 的输入走 listOf(单元素) 分支
+        // （java.util.Collections.singletonList，本就拒一切结构性改动），size>1 时走 array.asList()
+        // 分支（java.util.Arrays 的固定长度视图，同样拒 add/remove/clear，但**放行 .set()**）——
+        // 两个分支单靠 add/clear 都测不出 ContactRetentionService.kt 里那层 Collections.unmodifiableList
+        // 是否真的在起作用。.set() 是唯一能把两者分开的操作：不裹一层时它会静默成功、真的把返回值的第
+        // 一个元素换掉。
+        val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
+        insertTenancy(propertyId, endMs = null, id = "aa-tenancy")
+        insertTenancy(propertyId, endMs = null, id = "bb-tenancy")
+        val service = ContactRetentionService(db, ClockMs { now })
+
+        val statuses = service.listStatuses()
+        val before = statuses.toList()
+
+        assertFailsWith<UnsupportedOperationException> {
+            @Suppress("UNCHECKED_CAST")
+            (statuses as MutableList<TenancyRetentionStatus>)[0] = statuses[1]
+        }
+        assertEquals(before, statuses, "a rejected mutation attempt must leave the list unchanged")
     }
 
     @Test

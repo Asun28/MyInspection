@@ -17,7 +17,10 @@ import java.time.ZoneId
 const val CONTACT_RETENTION_MONTHS: Long = 12L
 
 /**
- * 联系方式到期时间点 = tenancy 结束时间 + [months] 个**民用日历月**，按 Pacific/Auckland 计算。
+ * 联系方式到期时间点 = tenancy 结束时间 + [CONTACT_RETENTION_MONTHS] 个**民用日历月**，按
+ * Pacific/Auckland 计算。**不留可覆盖参数**：卡片契约是单点常量，一个从未被任何调用方传过非默认值
+ * 的 `months` 形参只是无人验证的投机灵活性——一旦悄悄传偏就与常量本身分道扬镳而无测试能察觉，
+ * 比没有这个参数更危险。
  *
  * 存储格式（UTC epoch 毫秒入库）与「日历月」这个民用概念该按哪个时区算，是两件不同的事——`.claude/
  * rules/kotlin.md` 的「时间一律 UTC epoch 毫秒入库；展示层才转 Pacific/Auckland」管的是前者（存储/展示
@@ -32,7 +35,7 @@ const val CONTACT_RETENTION_MONTHS: Long = 12L
  * 用日历月而非固定天数：月长不一致，12 个日历月与 360/365 固定天数在跨闰年/大小月时会差出几天——
  * 这是应用自己承诺的清理策略窗口，算错几天就是没兑现承诺。
  */
-fun contactExpiryMs(tenancyEndMs: Long, months: Long = CONTACT_RETENTION_MONTHS): Long =
-    Instant.ofEpochMilli(tenancyEndMs).atZone(NZ_CIVIL_ZONE).plusMonths(months).toInstant().toEpochMilli()
+fun contactExpiryMs(tenancyEndMs: Long): Long =
+    Instant.ofEpochMilli(tenancyEndMs).atZone(NZ_CIVIL_ZONE).plusMonths(CONTACT_RETENTION_MONTHS).toInstant().toEpochMilli()
 
 private val NZ_CIVIL_ZONE: ZoneId = ZoneId.of("Pacific/Auckland")

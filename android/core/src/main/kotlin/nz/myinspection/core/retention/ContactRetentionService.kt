@@ -24,8 +24,10 @@ class ContactRetentionService(
         val sorted = db.tenancyQueries.selectActive().executeAsList()
             .map { statusOf(it, now) }
             .sortedBy { it.tenancyId }
-        // sortedBy 底层是真实 ArrayList 强转成 List——不裹一层就能被调用方转回 MutableList 改写
-        // 返回值（本仓已知的一类缺陷，同 TemplateStore.read() 对读回集合的处理）。
+        // sortedBy 的返回值只挡结构性改动（add/remove/clear）——底层要么是定长的 Arrays.asList()
+        // 视图，要么（单元素时）是 singletonList，两者都仍放行 .set() 原地换元素。不裹一层，调用方
+        // 转回 MutableList 后 `.set(i, 别的 status)` 会静默成功（本仓已知的一类缺陷，同
+        // TemplateStore.read() 对读回集合的处理）。
         return Collections.unmodifiableList(sorted)
     }
 

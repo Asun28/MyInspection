@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import nz.myinspection.core.retention.CONTACT_RETENTION_MONTHS
 import nz.myinspection.core.retention.ContactRetentionState
 import nz.myinspection.core.retention.TenancyRetentionStatus
 
@@ -44,9 +45,13 @@ fun RetentionSettingsScreen(
     ) {
         Text("Tenant contact retention", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Contact details can be cleared 12 months after a tenancy ends. Inspection records, photos " +
-                "and reports are kept indefinitely, independently of this — longer than the Residential " +
-                "Tenancies Act's 12-month minimum, since they may still be needed as deposit-dispute evidence.",
+            // 第一个数字来自 CONTACT_RETENTION_MONTHS（本 app 的清理策略，可能改）；第二个「12-month
+            // minimum」是 RTA s123A 的法定证据保留下限——两个数字今天恰好相同，但含义不同、不应共用
+            // 同一处字面量（改本 app 策略不该悄悄改写这句法律事实陈述，反之亦然）。
+            "Contact details can be cleared $CONTACT_RETENTION_MONTHS months after a tenancy ends. " +
+                "Inspection records, photos and reports are kept indefinitely, independently of this — " +
+                "longer than the Residential Tenancies Act's 12-month minimum, since they may still be " +
+                "needed as deposit-dispute evidence.",
             style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -88,7 +93,7 @@ private fun RetentionRow(status: TenancyRetentionStatus, onRequestPurge: () -> U
 
 private fun statusLabel(state: ContactRetentionState): String = when (state) {
     ContactRetentionState.ACTIVE_TENANCY -> "Tenancy ongoing — retention not started"
-    ContactRetentionState.AWAITING_EXPIRY -> "Within the 12-month contact retention window"
+    ContactRetentionState.AWAITING_EXPIRY -> "Within the $CONTACT_RETENTION_MONTHS-month contact retention window"
     ContactRetentionState.PURGEABLE -> "Retention window elapsed — eligible to clear"
     ContactRetentionState.PURGED -> "Contact info cleared"
 }
