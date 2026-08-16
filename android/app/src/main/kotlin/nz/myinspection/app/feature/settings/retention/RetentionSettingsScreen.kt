@@ -1,0 +1,131 @@
+package nz.myinspection.app.feature.settings.retention
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import nz.myinspection.core.retention.ContactRetentionState
+import nz.myinspection.core.retention.TenancyRetentionStatus
+
+/**
+ * 设置页保留区块：展示各活跃 tenancy 的联系方式保留状态 + 到期后一键清理入口。
+ *
+ * 纯展示 + 本地确认态；真实数据（[nz.myinspection.core.retention.ContactRetentionService]）与导航
+ * 入口由调用方注入/挂接——那部分依赖 Activity/DB 生命周期，留给把设置页整体接进 app 的后续任务卡。
+ */
+@Composable
+fun RetentionSettingsScreen(
+    statuses: List<TenancyRetentionStatus>,
+    onPurge: (tenancyId: String) -> Unit,
+) {
+    var pendingPurge by remember { mutableStateOf<TenancyRetentionStatus?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Tenant contact retention", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Contact details are kept for at least 12 months after a tenancy ends (Residential Tenancies " +
+                "Act s123A), then can be cleared. Inspection records, photos and reports are always kept.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        if (statuses.isEmpty()) {
+            Text("No tenancies on record.", style = MaterialTheme.typography.bodyMedium)
+        }
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(statuses, key = { it.tenancyId }) { status ->
+                RetentionRow(status = status, onRequestPurge = { pendingPurge = status })
+            }
+        }
+    }
+
+    pendingPurge?.let { status ->
+        PurgeConfirmDialog(
+            status = status,
+            onConfirm = {
+                onPurge(status.tenancyId)
+                pendingPurge = null
+            },
+            onDismiss = { pendingPurge = null },
+        )
+    }
+}
+
+@Composable
+private fun RetentionRow(status: TenancyRetentionStatus, onRequestPurge: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(status.tenantName ?: "Tenancy ${status.tenancyId.take(8)}", style = MaterialTheme.typography.titleMedium)
+            Text(statusLabel(status.state), style = MaterialTheme.typography.bodyMedium)
+            if (status.isPurgeable) {
+                Button(onClick = onRequestPurge) { Text("Clear contact info") }
+            }
+        }
+    }
+}
+
+private fun statusLabel(state: ContactRetentionState): String = when (state) {
+    ContactRetentionState.ACTIVE_TENANCY -> "Tenancy ongoing — retention not started"
+    ContactRetentionState.AWAITING_EXPIRY -> "Within the 12-month retention floor"
+    ContactRetentionState.PURGEABLE -> "Retention period elapsed — eligible to clear"
+    ContactRetentionState.PURGED -> "Contact info cleared"
+}
+
+/**
+ * type-to-confirm：必须原样敲出当前 tenant name 才点亮「Clear」——清理在 core 层是不可逆的
+ * （`tenant_name`/`contact` 被 UPDATE 成 NULL，没有撤销路径），所以这是唯一的确认手段，没有
+ * 「再想想」式的二次弹窗。
+ */
+@Composable
+private fun PurgeConfirmDialog(
+    status: TenancyRetentionStatus,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var typed by remember { mutableStateOf("") }
+    val expected = status.tenantName.orEmpty()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clear contact info?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "This permanently clears the tenant name and contact details for this tenancy. " +
+                        "Inspection records, photos and reports are not affected.",
+                )
+                Text("Type \"$expected\" to confirm.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(value = typed, onValueChange = { typed = it }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm, enabled = expected.isNotEmpty() && typed == expected) {
+                Text("Clear contact info")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
