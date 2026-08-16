@@ -287,6 +287,23 @@ DoD 全量：`tests` 合计 62（db 45 + model 10 + uuid 7），`failures=0 erro
 
 两条修复各配 NULL 正例（未发送的通知、被拒后仍可重试的软删），防约束把合法空值一并挡掉。65 测试全绿。
 
+## 卡片修订 2026-08-16 之十（R3 第十二轮 · orphanedAssets 判活粒度与删除粒度不一致 = 数据丢失）
+`orphanedAssets` 按 `(content_hash, rel_path)` 判死活，但**清理任务删的是一个路径**。schema 里没有任何约束
+保证「一个 rel_path 只对应一个 content_hash」——唯一索引管的是 `(room_instance_id, content_hash)`，不管路径。
+于是软删的 `(H1, P)` 与活跃的 `(H2, P)` 并存时，`P` 被报成孤儿，**而它仍被活跃行引用**，照报告删下去即数据丢失。
+
+**这同时推翻了本文件既有的一段论证**：原注释称「finalize 过的照片不能软删，故其 (hash, path) 组合恒有活跃行、
+不会进孤儿列表」。在 H1/H2 形状下，finalized 的是 `(H2, P)`、被报孤儿的是 `(H1, P)`，删的是同一个物理文件——
+巡检证据照样没。改为**按 `rel_path` 判活**后该论证重新成立，且这次是**因为判定粒度与删除粒度对齐**，
+不是因为哈希碰巧不撞。返回值一并收敛为 `rel_path`（清理只需路径；哈希侧问题由 `selectActiveAssetsByContentHash`
+回答，各司其职），三处调用点同步更新。
+
+**单句变异证明**：把旧的 `p2.content_hash = p1.content_hash AND` 判活条件塞回去后重跑
+`DbDownstreamQueriesTest` —— `tests=15 failures=1 errors=0`，失败的**恰好**是新增的
+`orphanedAssets never reports a path that a finalized inspection still references under a different hash`，
+消息为该用例自己的断言原文（非语法坏、非运行时异常）。`git checkout --` 还原后 SHA256 与变异前一致。
+新回归刻意把后果顶到最严重：活跃行属于 **FINALIZED 巡检**且哈希不同。66 测试全绿。
+
 ## 禁止 / 非目标
 见 front-matter。
 
