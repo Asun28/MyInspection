@@ -45,8 +45,8 @@ fun RetentionSettingsScreen(
         Text("Tenant contact retention", style = MaterialTheme.typography.titleLarge)
         Text(
             "Contact details can be cleared 12 months after a tenancy ends. Inspection records, photos " +
-                "and reports are always kept, independently of this — they are separately required to be " +
-                "kept as evidence under the Residential Tenancies Act.",
+                "and reports are kept indefinitely, independently of this — longer than the Residential " +
+                "Tenancies Act's 12-month minimum, since they may still be needed as deposit-dispute evidence.",
             style = MaterialTheme.typography.bodyMedium,
         )
 

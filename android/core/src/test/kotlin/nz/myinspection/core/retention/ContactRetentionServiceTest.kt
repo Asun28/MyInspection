@@ -90,6 +90,22 @@ class ContactRetentionServiceTest {
     }
 
     @Test
+    fun `purge succeeds exactly at the expiry instant — the boundary is inclusive here too`() {
+        // statusOf's `nowMs >= expiresAtMs` boundary is covered in ContactRetentionPolicyTest, but
+        // purge() carries its own separate `now < expiresAtMs` rejection check (ContactRetentionService.kt) —
+        // a `<` -> `<=` mutation there would survive every other test in this file (they all use clock
+        // values well past or well before the boundary), so the boundary needs its own direct proof here.
+        val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
+        val endMs = now - 400L * 24 * 60 * 60 * 1000L
+        val tenancyId = insertTenancy(propertyId, endMs = endMs)
+        val service = ContactRetentionService(db, ClockMs { contactExpiryMs(endMs) })
+
+        val result = service.purge(tenancyId)
+
+        assertEquals(ContactRetentionState.PURGED, result.state)
+    }
+
+    @Test
     fun `purge on tenancy A never touches tenancy B, even under the same property`() {
         val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
         val a = insertTenancy(propertyId, endMs = expiredEndMs(), tenantName = "A", contact = "a@example.com")
