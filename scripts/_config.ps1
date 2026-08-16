@@ -37,7 +37,14 @@ $script:ScaffoldConfig = @{
   # 示例（取消注释并改成你项目的冻结文件）：
   #   'backend/app/providers/contract\.py',
   #   'backend/app/schemas/manifest',
-  FrozenPaths = @()
+  # T1-SCHEMA-CORE 合并后冻结（该卡 doc_sync 明列本步；卡内多处注释亦以「本目录合并后即进 FrozenPaths」
+  # 为前提解释了为什么下游卡要的查询必须由该卡预先提供）。此后加表/改列/加查询 = 新 .sqm + 版本评审，
+  # 且须先还清 TD4（verifyMigrations 与防泄露闸冲突，故该卡未开）。
+  # **只冻 sqldelight/**：`core/model/` 的快照类型刻意不冻——T1-CANON-HASH 落地时若发现哈希域形状需微调，
+  # 那是正常演进（该形状已由 InspectionSnapshotTest 的逐字段断言钉住，改动不会静默发生）。
+  FrozenPaths = @(
+    'android/core/src/main/sqldelight/'
+  )
 
   # T38-DOCDRIFT：源脚本变更时须同步触及的权威文档（仓库相对、正斜杠正则；空表 => 不启用）。
   DocSyncMap = @{

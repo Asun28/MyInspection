@@ -90,9 +90,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ⚠️ `T1-SCHEMA-CORE` **推送/合并前**须先摘掉 `android/core/src/main/sqldelight/databases/1.db`——它在该分支两个提交里、
 但**不在 tip tree**，故 **squash 合并即可完全绕开**，无须改写历史（squash 亦是 `gh-bootstrap` 给远端配的策略）。
 
-下一步：① `T1-SCHEMA-CORE`（★冻结点，卡着下游 5 张，R3 已到第 8 轮——按新封顶规则该转人裁）；
-② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，待追认）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）；
-④ 之后按 board 波次推进。
+**★冻结点已合并**：`T1-SCHEMA-CORE` **merged**（2026-08-16，master `fcdc88d`，R3 pass 于第 **17** 轮）——13 表全量
+schema + UUIDv7 + `core/model/` 快照类型 + 70 个 JVM 测试。合并后 `android/core/src/main/sqldelight/` 已登记进
+`_config.ps1` FrozenPaths（实测 `guard-frozen` 拒绝就地编辑）：**此后加表/改列/加查询 = 新 `.sqm` + 版本评审，
+且须先还清 TD4**（`verifyMigrations` 与防泄露闸冲突）。`core/model/` **刻意不冻**——T1-CANON-HASH 落地时哈希域
+形状若需微调属正常演进，形状已由 `InspectionSnapshotTest` 的逐字段断言钉住，不会静默改变。
+> 17 轮里修掉 **9 个真缺陷**（6 个配单句删除变异证明），含两个数据丢失级（孤儿清理会删掉仍被引用的物理文件；
+> 已被引用的模板版本仍可加项）、一个确定性级（`items[]` 无全序 ⇒ 同数据两个 `data_hash`，而该哈希是 PDF 页脚的
+> 防篡改自证）、一个隐私级（`privacy_flag` 无 CHECK ⇒ 含租客物品的照片绕过排除查询进报告）。
+> **结论两条并存**：这些洞赶在冻结前抓到了，值；但 17 轮也证明「全量 schema + 13 表 + 冻结点」当初就该按表族拆成
+> 2–3 张——**后续冻结点卡按表族拆**（详见该卡「修订之十一」的编排者自评）。
+
+**下游 5 张卡已解锁**：`T1-CANON-HASH` · `T1-TEMPLATE-ENGINE` · `T2-PHOTO-PIPELINE` · `T2-CAPTURE-CORE` · `T5-RETENTION`。
+
+下一步：① 按 board 推 W1 剩余（`T1-CANON-HASH` / `T1-TEMPLATE-ENGINE` 可并行）；
+② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，待追认）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）

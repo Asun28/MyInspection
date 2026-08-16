@@ -3,7 +3,7 @@ id: T1-SCHEMA-CORE
 title: SQLDelight 全量 schema + UUIDv7 + 基线迁移 + JVM 测试（★冻结点）
 depends_on: [T0-TOOLCHAIN]
 parallelizable_with: [T1-SPIKE-PLATFORM]
-status: todo
+status: merged
 branch: T1-SCHEMA-CORE
 worktree: C:\wt\T1-SCHEMA-CORE
 allow_paths:
