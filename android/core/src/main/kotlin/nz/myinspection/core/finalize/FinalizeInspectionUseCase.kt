@@ -44,6 +44,20 @@ sealed interface FinalizeOutcome {
  * [CompletenessPort] 的实现产生了写副作用）已经把这一行变成 FINALIZED"的情形；命中时**干净返回**
  * `RejectedAlreadyFinalized`，不用 `check()` 断言炸出一个看起来像 bug 的异常——那类真正的竞态不是程序
  * 错误，是两个调用者都在合法地尝试 finalize 同一份数据，后到者理应拿到一个可处理的业务结果。
+ *
+ * **结构论证（`dod_assert`「任一步败=全回滚」为何在这份实现里不需要一条"注入中途失败"的测试）**：
+ * ①-③（DRAFT 判定读、[CompletenessPort]、[InspectionSnapshotAssembler.assemble]、
+ * `canonicalJson`+`sha256Hex`）**全部**是读或纯内存计算，本方法内没有任何一条语句在到达④之前写库——
+ * 逐行核对：④之前唯一出现的 DB 调用只有 `selectById`（读）与 `completeness.check()`（其默认实现
+ * [DbCompletenessChecker] 同样只读，见其源码）。④本身是**单条** `UPDATE … WHERE finalized_at IS
+ * NULL` 语句——SQLite 对单条语句的执行本就原子（要么整条生效要么整条不生效，不存在"半条 UPDATE"），
+ * 而这条语句的 WHERE 子句正是"再核一次仍是 DRAFT"与"写入"的**同一次判定**，两者之间没有第二条语句、
+ * 没有可被中途打断的窗口。因此：①-③里任一步抛异常，传播出 `transactionWithResult { }` 时**没有任何
+ * 已写的东西需要回滚**（本就什么都没写）；④要么整条落地（`affected == 1L`）要么整条不落地
+ * （`affected == 0L`，判定为 `RejectedAlreadyFinalized`）。"任一步败=全回滚"在这个结构下是**由结构
+ * 保证**而非需要一条"在写到一半时注入失败"的测试去证明——没有"写到一半"这个状态可注入。
+ * 若将来这里演变成④本身拆成多条语句（比如同一事务内还要写别的表），届时必须补一条"步骤④内某条
+ * 语句失败时前面几条语句已落的写会被回滚"的测试；当前不补是因为没有这样的语句序列可测，不是遗漏。
  */
 class FinalizeInspectionUseCase(
     private val database: MyInspectionDatabase,
