@@ -139,7 +139,7 @@ class ContactRetentionServiceTest {
     }
 
     @Test
-    fun `purge rejects a tenancy still inside the retention floor, and writes nothing`() {
+    fun `purge rejects a tenancy still inside the contact retention window, and writes nothing`() {
         val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
         val tenancyId = insertTenancy(propertyId, endMs = now - 1_000L)
         val service = ContactRetentionService(db, ClockMs { now })

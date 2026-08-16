@@ -48,7 +48,7 @@ class ContactRetentionPolicyTest {
     }
 
     @Test
-    fun `a tenancy inside the retention floor is AWAITING_EXPIRY`() {
+    fun `a tenancy inside the contact retention window is AWAITING_EXPIRY`() {
         val end = 1_700_000_000_000L
         val expiresAt = contactExpiryMs(end)
         val status = statusOf(row(endMs = end), nowMs = expiresAt - 1L)
@@ -65,7 +65,7 @@ class ContactRetentionPolicyTest {
     }
 
     @Test
-    fun `a purged tenancy is PURGED even if it would otherwise still be inside the retention floor`() {
+    fun `a purged tenancy is PURGED even if it would otherwise still be inside the contact retention window`() {
         // purged_at 优先于到期判断：现实中不会发生（清理前必先过期），但状态派生不该依赖调用顺序假设。
         val end = 1_700_000_000_000L
         val status = statusOf(row(endMs = end, purgedAt = end + 1L), nowMs = end + 1L)

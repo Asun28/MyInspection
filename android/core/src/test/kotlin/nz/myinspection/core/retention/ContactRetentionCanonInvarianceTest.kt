@@ -73,7 +73,7 @@ class ContactRetentionCanonInvarianceTest {
         val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(db, uuid, type = "EXIT", now = now)
         val tenancyId = uuid.next()
-        val endMs = now - 400L * 24 * 60 * 60 * 1000L // 显然已过 12 个日历月的保留期下限
+        val endMs = now - 400L * 24 * 60 * 60 * 1000L // 显然已过 12 个日历月的联系方式清理策略窗口
         db.tenancyQueries.insert(
             id = tenancyId, property_id = propertyId, start_ms = endMs - 1_000L, end_ms = endMs,
             tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null,

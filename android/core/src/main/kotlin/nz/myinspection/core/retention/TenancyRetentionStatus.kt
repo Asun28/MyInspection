@@ -7,7 +7,7 @@ enum class ContactRetentionState {
     /** 租约尚未结束（`end_ms` 为 NULL）——保留期尚未开始计时。 */
     ACTIVE_TENANCY,
 
-    /** 租约已结束，联系方式仍在法定保留期内。 */
+    /** 租约已结束，联系方式仍在配置的清理策略窗口内（见 [CONTACT_RETENTION_MONTHS]）。 */
     AWAITING_EXPIRY,
 
     /** 保留期已过、联系方式尚未清理——可执行一键清理。 */

@@ -44,8 +44,9 @@ fun RetentionSettingsScreen(
     ) {
         Text("Tenant contact retention", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Contact details are kept for at least 12 months after a tenancy ends (Residential Tenancies " +
-                "Act s123A), then can be cleared. Inspection records, photos and reports are always kept.",
+            "Contact details can be cleared 12 months after a tenancy ends. Inspection records, photos " +
+                "and reports are always kept, independently of this — they are separately required to be " +
+                "kept as evidence under the Residential Tenancies Act.",
             style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -87,15 +88,18 @@ private fun RetentionRow(status: TenancyRetentionStatus, onRequestPurge: () -> U
 
 private fun statusLabel(state: ContactRetentionState): String = when (state) {
     ContactRetentionState.ACTIVE_TENANCY -> "Tenancy ongoing — retention not started"
-    ContactRetentionState.AWAITING_EXPIRY -> "Within the 12-month retention floor"
-    ContactRetentionState.PURGEABLE -> "Retention period elapsed — eligible to clear"
+    ContactRetentionState.AWAITING_EXPIRY -> "Within the 12-month contact retention window"
+    ContactRetentionState.PURGEABLE -> "Retention window elapsed — eligible to clear"
     ContactRetentionState.PURGED -> "Contact info cleared"
 }
 
 /**
- * type-to-confirm：必须原样敲出当前 tenant name 才点亮「Clear」——清理在 core 层是不可逆的
- * （`tenant_name`/`contact` 被 UPDATE 成 NULL，没有撤销路径），所以这是唯一的确认手段，没有
- * 「再想想」式的二次弹窗。
+ * type-to-confirm：必须原样敲出确认词才点亮「Clear」——清理在 core 层是不可逆的（`tenant_name`/
+ * `contact` 被 UPDATE 成 NULL，没有撤销路径），所以这是唯一的确认手段，没有「再想想」式的二次弹窗。
+ *
+ * 确认词优先取 `tenant_name`，但它是可空列（`tenancy.tenant_name`，见 Tenancy.sq）——若为空，
+ * 落回 tenancyId 全量文本。不这样做的话，一个联系方式本就缺失租客姓名的 tenancy 会永远等到一个
+ * 空字符串当确认词，按钮永远点不亮，这条 tenancy 的联系方式就再也清不掉了。
  */
 @Composable
 private fun PurgeConfirmDialog(
@@ -104,7 +108,7 @@ private fun PurgeConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     var typed by remember { mutableStateOf("") }
-    val expected = status.tenantName.orEmpty()
+    val expected = status.tenantName?.takeIf { it.isNotBlank() } ?: status.tenancyId
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -120,7 +124,7 @@ private fun PurgeConfirmDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onConfirm, enabled = expected.isNotEmpty() && typed == expected) {
+            Button(onClick = onConfirm, enabled = typed == expected) {
                 Text("Clear contact info")
             }
         },
