@@ -1,0 +1,78 @@
+package nz.myinspection.core.finalize
+
+import nz.myinspection.core.canon.canonicalJson
+import nz.myinspection.core.canon.sha256Hex
+import nz.myinspection.core.db.ClockMs
+import nz.myinspection.core.db.MyInspectionDatabase
+import nz.myinspection.core.db.SystemClockMs
+
+/**
+ * `finalize()` 的可能结局。拒绝态一律显式返回、不抛异常——完备性不达标或重复 finalize 是正常业务流程
+ * 会遇到的情形，不是程序错误。
+ */
+sealed interface FinalizeOutcome {
+    /** 完备性通过、快照已物化、`finalized_at`+`data_hash` 已原子写入。 */
+    data class Finalized(val dataHash: String, val finalizedAt: Long) : FinalizeOutcome
+
+    /** 完备性未过：逐项清单原样透出，UI 据此告诉用户还差哪几项。 */
+    data class RejectedIncomplete(val result: CompletenessResult) : FinalizeOutcome
+
+    /** 该巡检早已 FINALIZED（幂等拒绝——重复调用不覆盖原有 `data_hash`）。 */
+    data object RejectedAlreadyFinalized : FinalizeOutcome
+
+    /** `inspectionId` 查无此巡检。 */
+    data object RejectedNotFound : FinalizeOutcome
+}
+
+/**
+ * finalize 事务（ADR-0003 事务序）：① 完备性校验（[CompletenessPort]，缺则拒并列逐项清单）
+ * ② 物化 [nz.myinspection.core.model.InspectionSnapshot]（唯一装配正门 [InspectionSnapshotAssembler]）
+ * ③ `data_hash = sha256Hex(canonicalJson(snapshot))` ④ 同一事务写 `finalized_at`+`data_hash`。
+ *
+ * ①-④ 全程在一个 `database.transactionWithResult { }` 里：完备性校验/快照物化必须读到与最终写入
+ * 同一个一致的数据库状态，否则会出现"校验时读到 A、写入时数据库已是 B"的 TOCTOU 窗口。
+ *
+ * 不变量：任何拒绝路径都不留下已提交的写副作用。`completeness.check()` 跑完之后才到达的拒绝路径
+ * （[CompletenessResult] 不完整、`finalizeIfDraft` 未命中）一律 `rollback`——`check()` 契约上只读，
+ * 但类型系统拦不住实现方违反它，`rollback` 让这两条路径与异常路径同样干净（见
+ * `FinalizeInspectionUseCaseTest` 的 "if a seam inside the transaction throws after writing..." 用例）。
+ * 更早的两条 `return`（`inspectionId` 查无此巡检、该巡检早已 FINALIZED）发生在 `completeness.check()`
+ * 之前，此时事务里还没有任何写，无需撤销。
+ */
+class FinalizeInspectionUseCase(
+    private val database: MyInspectionDatabase,
+    private val completeness: CompletenessPort,
+    private val clock: ClockMs = SystemClockMs,
+) {
+    fun finalize(inspectionId: String): FinalizeOutcome = database.transactionWithResult {
+        val row = database.inspectionQueries.selectById(inspectionId).executeAsOneOrNull()
+            ?: return@transactionWithResult FinalizeOutcome.RejectedNotFound
+        if (row.finalized_at != null) return@transactionWithResult FinalizeOutcome.RejectedAlreadyFinalized
+
+        val completenessResult = completeness.check(inspectionId)
+        if (!completenessResult.isComplete) {
+            // rollback，不是 return：completeness.check() 的契约要求只读（见 CompletenessPort KDoc），
+            // 但契约违反不由类型系统拦截——若某个实现真的写了东西又报"不完整"，rollback 让这条拒绝路径
+            // 与异常路径同样干净，不留下任何已写的东西，而不是指望"契约写了就一定照办"。
+            rollback(FinalizeOutcome.RejectedIncomplete(completenessResult))
+        }
+
+        // finalizedAt 须在算哈希前定下来：data_hash 覆盖的快照含 finalizedAt 字段（哈希域），写库时
+        // 必须用同一个值。
+        val finalizedAt = clock.nowMs()
+        val snapshot = InspectionSnapshotAssembler.assemble(database, inspectionId, finalizedAt)
+        val dataHash = sha256Hex(canonicalJson(snapshot))
+
+        val affected = database.inspectionQueries.finalizeIfDraft(
+            finalized_at = finalizedAt,
+            data_hash = dataHash,
+            updated_at = finalizedAt,
+            id = inspectionId,
+        ).value
+        if (affected == 1L) {
+            FinalizeOutcome.Finalized(dataHash = dataHash, finalizedAt = finalizedAt)
+        } else {
+            rollback(FinalizeOutcome.RejectedAlreadyFinalized)
+        }
+    }
+}

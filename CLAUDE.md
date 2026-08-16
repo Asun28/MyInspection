@@ -145,19 +145,28 @@ nonce 前缀/口令校验值）+ **分块 AES-256-GCM** 密文体（内含 zip�
 > 字节相等」那道闸已覆盖）当场删除、**1 个测试太弱**、**1 枚变异选错靶**；改完后续三批 23+3+4 全杀。
 > 卡片写的「Terra 复读格式头」由 **DeepSeek V4 Pro 独立复读**代替（Terra 未接线；L26 标准=独立非 Claude 复读）。
 
-**W2 并行窗口已收（2026-08-17 凌晨，编排会话：7 卡并行、5 合 2 悬）**：`T2-ROUTINE-CONTENT`（83 项双语模板，9 轮 R3，
+**W2 并行窗口已收（2026-08-17 凌晨，编排会话：7 卡并行、6 合 1 悬）**：`T2-ROUTINE-CONTENT`（83 项双语模板，9 轮 R3，
 含一次 must-block 许可命中：官方表逐字转写违反 Tenancy Services 再利用条款，改独立措辞）· `T2-CAPTURE-CORE`（76 测试，
 7 轮）· `T2-PHRASELIB`（66 短语，L227：**R3 评审者只读 diff、看不见 PR body**——证据须落 diff 内）· `T5-RETENTION`
-（Pacific/Auckland 民历月算术依 ADR-0004，非 UTC）均 **merged**；`T5-BACKUP-FORMAT` 见上方第四冻结点。**两卡悬置待用户裁**：
-① `T2-PHOTO-PIPELINE`（PR #6，:core DoD 面自第 1 轮起零挑战，5 轮 block 全落 :app 薄壳硬化深度——选项见 progress.md 决策简报）；
-② `T3-FINALIZE`（PR #7，13 轮，48 测试全绿，唯一悬点 = 评审者三度要求 finalize 层重验 per-item allowed_statuses、
-流程仲裁三度按 mint-point/L220 驳回——纯架构哲学分歧：A 实现该检查（推荐）/ B 维持驳回并越过评审 / C 改 rubric）。
-过程沉淀：L205 晋 Tier-1（修复轮也须对抗自检）· L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 ·
-TD9（selftest 可诊断性+load-flake）· TD10（多连接契约仲裁：**评审不得再以多连接证明 block 单连接卡**）· TD12/TD13。
+（Pacific/Auckland 民历月算术依 ADR-0004，非 UTC）均 **merged**；`T5-BACKUP-FORMAT` 见上方第四冻结点。**一卡悬置待用户裁**：
+`T2-PHOTO-PIPELINE`（PR #6，:core DoD 面自第 1 轮起零挑战，5 轮 block 全落 :app 薄壳硬化深度——选项见 progress.md 决策简报）。
+
+**`T3-FINALIZE` merged**（2026-08-17，master `a5a71ed`，PR #7，15 轮 R3 后合并，48 测试）——finalize 用例
+（完备性校验 → canonical 快照装配 → data_hash 落库 → 只读强制）+ Supplement 追加哈希链。**唯一悬点由用户裁定收口**：
+`DbCompletenessChecker` 是否该在 finalize 闸重验逐项 `allowed_statuses`——评审同一诉求三度提出（round 5/12/13 各按
+mint-point/L220 驳回），第三次触发本仓「两轮争议转人裁」规则，用户裁**选项 A（实现该检查）**：per-item 合法性铸造点
+仍在 `core/capture`（`setItemStatus`），finalize 闸再核一次是防御纵深而非重复劳动，新增
+`CompletenessResult.itemsWithDisallowedStatus`。裁后重新评审又拦两条真发现：① `DbCompletenessChecker` 自己的
+`classifyAdverseness`/`Adverseness` 三态分类器是仅论战胜利者留下的重复权威（ADVERSE/NOT_ADVERSE 从未被消费，只有
+UNCLASSIFIABLE 影响结果）——评审用本仓自己的单一真相源原则反打回来，删成 `isInDomain` 纯布尔判定；② finalize 只读
+强制此前只证明了冻结 SQL 谓词本身，没证明真实公开写入口（`InspectionRepository.setItemStatus`/`setWearOrDamage`）
+真的会显式拒写——补一条经真实 INGOING→EXIT 巡检链路的集成测试。过程沉淀：L205 晋 Tier-1（修复轮也须对抗自检）·
+L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 · TD9（selftest 可诊断性+load-flake）· **TD5 → paid**
+（本 PR 为偿还指针）· TD10（多连接契约仲裁：**评审不得再以多连接证明 block 单连接卡**）· TD12/TD13。
 
 **当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T2-ROOM-REPEATABLE`（须先还清 TD4）· `T4-COMPLIANCE-ENGINE`
-（依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture，均已合——关键路径下一站，
-但依赖 T3-FINALIZE 合并后的快照装配正门与 TD5 黄金测试，建议先裁掉 FINALIZE 悬点）。
+（依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture+finalize，均已合——
+关键路径下一站，快照装配正门与 TD5 黄金测试已随 T3-FINALIZE 落地，可直接开工）。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
 block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**
@@ -169,8 +178,8 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
 > 三轮 block 的同一根因是「重构完 narration 还停在上一版形状」（L224）与「新断言没有能打到它的变异——
 > 短路顺序下靠前的断言会掩护靠后的」（L225）；另有 L226（拼装文件时 PS7 的 `-Encoding utf8` 静默抹掉 BOM）。
 
-下一步：① **用户裁两张悬置卡**（T2-PHOTO-PIPELINE 三选一 · T3-FINALIZE A/B/C，简报见 progress.md）；
-② 裁毕进 **W3**（`T3-REPORT-COMPOSER`★ 为关键路径头牌）或继续 W2 余卡（`T5-BACKUP-IO` 等，一卡一会话）；
+下一步：① **用户裁 `T2-PHOTO-PIPELINE`**（三选一，简报见 progress.md）；
+② 进 **W3**（`T3-REPORT-COMPOSER`★ 已解锁、为关键路径头牌）或继续 W2 余卡（`T5-BACKUP-IO` 等，一卡一会话）；
 ③ `T0-LICENSE-SCANNER`（偿还 TD2；落地即解锁 `docs/RELEASE-CHECKLIST.md` 的 Gradle 发布阻断项与 `-Strict` 退出 0）；
 ④ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
 
