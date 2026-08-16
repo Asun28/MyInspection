@@ -7979,6 +7979,107 @@ try {
   }
 } finally { Remove-Item -Recurse -Force $fxPrune -ErrorAction SilentlyContinue }
 
+# 17cc(case). 路径比较的大小写语义必须跟随文件系统（T0-GATE-FIXFORWARD · T0-GATE-HARDENING 事后 R3 block ①）。
+#   病因：`-contains`/`-notcontains` 恒**不敏感**，而同一行的 `StartsWith('android/')` 恒**敏感**——一行两套语义。
+#   后果双向：Linux（敏感）上被追踪的 `Build/`、`Data/` 被当成 ignore 的 `build/`、`data` **静默剪掉**（漏扫，
+#   而"没扫到"会被当成"没有清单"，正是本闸 fail-closed 要根除的形态）；Windows（不敏感）上 `Android/` 前缀
+#   又匹配不上 `android/`，该剪的 `.kotlin` 反而没剪。
+#   夹具两平台**同一份**，只造"错大小写"变体——正确大小写那支已由 17cc(prune) 覆盖，不重复造（R4）。
+#   期望集按 OS 分：**同一棵树在敏感/不敏感文件系统上本就该给出不同的正确答案**，这不是平台妥协。
+#   （Windows 上 `build/` 与 `Build/` 根本无法并存，"两平台同写法"的夹具在此不可能，别去造。）
+$fxCase = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-case-$PID"
+$mutantCaseCL = Join-Path $RepoRoot "scripts/.st17cc-case-mutant-$PID.ps1"
+if (Test-Path $fxCase) { Remove-Item -Recurse -Force $fxCase }
+try {
+  # 五个调用点各配一个"错大小写"探针：SkipDirs / SkipRelativePaths / AndroidSkipDirs+android 前缀 / Names，
+  # 外加一个正确大小写的对照（证夹具本身可被发现，排除"整棵树都没扫到"的假绿）。
+  $caseProbes = @(
+    @{ Rel = 'Build/x/build.gradle';                    Axis = 'SkipDirs（名称级排除）' }
+    @{ Rel = 'Data/x/build.gradle';                     Axis = 'SkipRelativePaths（路径级排除）' }
+    @{ Rel = 'Android/deep/.kotlin/x/build.gradle';     Axis = 'android/ 前缀 + AndroidSkipDirs' }
+    @{ Rel = 'names/BUILD.GRADLE';                      Axis = 'Names（清单文件名）' }
+    @{ Rel = 'keep/build.gradle';                       Axis = '对照（正确大小写，两平台恒命中）' }
+  )
+  foreach ($p in $caseProbes) {
+    New-Item -ItemType Directory -Force (Split-Path -Parent (Join-Path $fxCase $p.Rel)) | Out-Null
+    Set-Content (Join-Path $fxCase $p.Rel) 'case-probe' -Encoding utf8
+  }
+  # 不敏感文件系统（Windows/macOS）：错大小写 == 正确大小写，故三条排除全部生效、BUILD.GRADLE 算清单。
+  # 敏感文件系统（Linux/CI）：错大小写 ≠ 被 ignore 的那个，故三条排除都不该生效、BUILD.GRADLE 不算清单。
+  $caseInsensitiveFs = ($IsWindows -or $IsMacOS)
+  $expectedCaseHits = @(if ($caseInsensitiveFs) {
+      'keep/build.gradle'; 'names/BUILD.GRADLE'
+    } else {
+      'Android/deep/.kotlin/x/build.gradle'; 'Build/x/build.gradle'; 'Data/x/build.gradle'; 'keep/build.gradle'
+    }) | Sort-Object
+  $fsLabel = if ($caseInsensitiveFs) { '不敏感（Windows/macOS）' } else { '敏感（Linux）' }
+
+  # ① 比较器单元判据：两种模式各自的答案必须相反，且缺省值须与本机文件系统一致。
+  $unitOrdinal = Test-GradleNameEquals -Left 'Build' -Right 'build' -Comparison ([System.StringComparison]::Ordinal)
+  $unitIgnore = Test-GradleNameEquals -Left 'Build' -Right 'build' -Comparison ([System.StringComparison]::OrdinalIgnoreCase)
+  $unitDefault = Test-GradleNameEquals -Left 'Build' -Right 'build'
+  if ($unitOrdinal -or (-not $unitIgnore)) {
+    Fail "种子缺陷 17cc(case-unit)：Test-GradleNameEquals 两种 StringComparison 下答案未相反（Ordinal=$unitOrdinal，OrdinalIgnoreCase=$unitIgnore）——比较器没有真正把大小写语义参数化。"
+  } elseif ($unitDefault -ne $caseInsensitiveFs) {
+    Fail "种子缺陷 17cc(case-unit)：Test-GradleNameEquals 的缺省比较模式与本机文件系统不符（缺省判 'Build' -eq 'build' 得 $unitDefault，本机文件系统大小写$fsLabel）——缺省值没跟随 OS。"
+  } else {
+    Write-Host "  17cc(case-unit) 比较器两模式答案相反、缺省跟随本机文件系统（$fsLabel）OK" -ForegroundColor Green
+  }
+
+  # ② 端到端判据：一棵树、五个轴，命中集必须**逐字等于**本平台的期望集（不是"包含/不包含"的宽断言，L165）。
+  $caseHits = @(Find-GradleManifests -Root $fxCase -Names @('build.gradle', 'build.gradle.kts', 'libs.versions.toml'))
+  $actualCaseHits = @($caseHits | ForEach-Object { [System.IO.Path]::GetRelativePath($fxCase, $_).Replace('\', '/') } | Sort-Object)
+  if (($actualCaseHits -join '|') -ne ($expectedCaseHits -join '|')) {
+    Fail "种子缺陷 17cc(case)：本机文件系统大小写$fsLabel，期望命中集 [$($expectedCaseHits -join ', ')]，实得 [$($actualCaseHits -join ', ')]——路径比较的大小写语义与文件系统不一致（五个调用点里至少一个仍在用恒不敏感的 -contains 或恒敏感的 StartsWith）。"
+  } else {
+    Write-Host "  17cc(case) 五个调用点大小写语义全部跟随文件系统 OK（$fsLabel；命中集逐字等于期望集，$($expectedCaseHits.Count) 项）" -ForegroundColor Green
+
+    # ③ 变异：把比较器缺省值改成**本平台的错误语义**（不敏感机器上改成恒敏感，敏感机器上改成恒不敏感），
+    #    证②真的在测这条语义。注意不能两平台用同一枚变异——恒不敏感在 Windows 上本就是正确答案、杀不掉；
+    #    恒敏感在 Linux 上同理。故变异按 OS 取"与本机相反"的那一个，两平台各自都能真杀死。
+    Copy-Item -LiteralPath $realCLPath -Destination $mutantCaseCL -Force
+    $caseLines = Get-Content -LiteralPath $mutantCaseCL
+    Set-Content -LiteralPath $mutantCaseCL -Value $caseLines -Encoding utf8   # 规整化（同 17cc 主体）。
+    # 还原基线取**规整化之后**的副本哈希，不是生产文件哈希：Get-Content/Set-Content 往返非字节级恒等
+    # （行尾/末尾换行会变），拿生产文件当基线会恒判"未干净还原"。同 Invoke-LineDeletionMutation 的取法。
+    $caseBaselineHash = (Get-FileHash -LiteralPath $mutantCaseCL -Algorithm SHA256).Hash
+    $caseMarker = '$gradlePathComparison = if ($IsWindows -or $IsMacOS)'
+    $wrongComparison = if ($caseInsensitiveFs) { '[System.StringComparison]::Ordinal' } else { '[System.StringComparison]::OrdinalIgnoreCase' }
+    $caseIdx = @(0..($caseLines.Count - 1) | Where-Object { $caseLines[$_] -match [regex]::Escape($caseMarker) })
+    if ($caseIdx.Count -ne 1) {
+      Fail "17cc(case-mut) 前置：源码里含比较器缺省定义「$caseMarker」的行数=$($caseIdx.Count)（期望恰好 1）——变异定位不唯一，源码可能已漂移。"
+    } else {
+      $mutCaseLines = $caseLines.Clone()
+      $mutCaseLines[$caseIdx[0]] = "`$gradlePathComparison = $wrongComparison"
+      Set-Content -LiteralPath $mutantCaseCL -Value $mutCaseLines -Encoding utf8
+      # 内联不经 GetNewClosure()：$LASTEXITCODE 需取子进程调用后的新鲜值（同 17cc(reparse-mut) 的注记）。
+      $caseProbe = {
+        param([string]$LibraryPath, [string]$ProbeRoot, [string]$Expected)
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = 'Stop'
+        . $LibraryPath -AsLibrary
+        $h = @(Find-GradleManifests -Root $ProbeRoot -Names @('build.gradle', 'build.gradle.kts', 'libs.versions.toml'))
+        $rel = @($h | ForEach-Object { [System.IO.Path]::GetRelativePath($ProbeRoot, $_).Replace('\', '/') } | Sort-Object) -join '|'
+        if ($rel -eq $Expected) { Write-Output 'MARKER:GRADLE-CASE-MUT:PRESENT'; exit 0 }
+        Write-Output 'MARKER:GRADLE-CASE-MUT:ABSENT'; exit 1
+      }
+      $caseStdOut = & pwsh -NoProfile -Command $caseProbe -Args @($mutantCaseCL, $fxCase, ($expectedCaseHits -join '|'))
+      $cp = [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($caseStdOut -join "`n") }
+      Set-Content -LiteralPath $mutantCaseCL -Value $caseLines -Encoding utf8
+      $caseRestoredHash = (Get-FileHash -LiteralPath $mutantCaseCL -Algorithm SHA256).Hash
+      if ($caseRestoredHash -ne $caseBaselineHash) {
+        Fail "17cc(case-mut) 收尾：变异副本还原后 SHA256 与规整化基线不符（还原后=$caseRestoredHash，基线=$caseBaselineHash）——mutant 未干净还原（L196）。"
+      } elseif (Test-MarkerResult $cp 'GRADLE-CASE-MUT' $false "种子缺陷 17cc(case-mut)：把比较器缺省值改成 $wrongComparison（本平台的错误语义）后（vacuous coverage：本闸测不出「大小写语义与文件系统不符」这类回归）") {
+        Write-Host "  17cc(case-mut) 缺省语义变异 OK（改成 $wrongComparison 后探测子进程 exit 非零 + ABSENT，证②真在测这条语义、副本已还原）" -ForegroundColor Green
+      }
+    }
+  }
+} finally {
+  Remove-Item -Recurse -Force $fxCase -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $mutantCaseCL -Force -ErrorAction SilentlyContinue
+  if (Test-Path $mutantCaseCL) { Fail "17cc(case-mut) 收尾：临时同目录副本 $mutantCaseCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
+}
+
 # 17cc(reparse). 目录联接/符号链接（ReparsePoint）绝不下钻——联接若指向仓外目录，扫描范围可能溢出仓外；
 # 联接若自引用/循环，遍历不终止。夹具：$fxReparseRoot/inside/link-out 指向**仓外**独立临时目录 $fxOutside
 # （放一个 decoy build.gradle）。New-ScaffoldReparseLink 跨平台建链（symlink 优先、Windows 退回 junction），
@@ -8020,7 +8121,8 @@ try {
       Copy-Item -LiteralPath $realCLPath -Destination $mutantReparseCL -Force
       $reparseLines = Get-Content -LiteralPath $mutantReparseCL
       Set-Content -LiteralPath $mutantReparseCL -Value $reparseLines -Encoding utf8   # 规整化（同上）。
-      $guardMarker = '(-not $isReparse) -and ($SkipDirs -notcontains $e.Name)'
+      # 注意：本 marker 是生产那一行的**字面副本**，生产行改写时必须同步改这里（否则定位不唯一 → 本闸 fail-closed 报"源码已漂移"）。
+      $guardMarker = '(-not $isReparse) -and (-not (Test-GradleNameInList -List $SkipDirs -Value $e.Name))'
       # 不用 GetNewClosure() 包这段：脚本块一旦 GetNewClosure()，$LASTEXITCODE 这类自动变量会在建闭包那一刻
       # 就被"冻结"进闭包私有作用域，闭包体内真正跑的 & pwsh 子进程更新的是外层动态作用域的 $LASTEXITCODE，
       # 闭包读到的却还是冻结时的旧值（曾在此踩过一次：leak 判据打印对了 ABSENT，退出码却读成陈旧的 0）。
@@ -8126,12 +8228,59 @@ if (-not (Select-String -Path $realVfPath -Pattern '--no-daemon' -SimpleMatch -Q
   Fail "DoD 判据镜像：Select-String -Path verify.ps1 -Pattern '--no-daemon' -SimpleMatch 未命中——与 dod_command 的判据不一致。"
 }
 
+# 17ee（T0-GATE-FIXFORWARD · 事后 R3 block ②）：发布清单的 Gradle 阻断项只有**一条**解锁路径。
+#   病因：第 27 项要求 `-Strict` 通过，紧邻的第 28 项却写「人工核验②走完 -Strict 依旧退出 1，是设计使然」——
+#   两项相邻互斥，发布者要么在闸红着时勾选（正是 fail-closed 要根除的习惯），要么永远被挡。人裁：删掉②，
+#   解锁点唯一 = 扫描器（T0-LICENSE-SCANNER）落地。**「无矛盾」的判据不是"两项都能勾"，而是"两项由同一个动作解锁"。**
+#   判据锚 ASCII 哨兵（L165：本地化文案只给人读，编码链一变即假红/假绿），并配两枚变异：删行 / 把②写回来。
+$realRcPath = Join-Path $RepoRoot 'docs/RELEASE-CHECKLIST.md'
+$realRcHashBefore = (Get-FileHash -LiteralPath $realRcPath -Algorithm SHA256).Hash
+$rcSentinel = '[GRADLE-LIC-SCANNER-ONLY]'
+$rcAltMarker = '②'
+$rcOrigLines = Get-Content -LiteralPath $realRcPath
+$rcIdx = @(0..($rcOrigLines.Count - 1) | Where-Object { $rcOrigLines[$_].Contains($rcSentinel) })
+if ($rcIdx.Count -ne 1) {
+  Fail "种子缺陷 17ee 前置：docs/RELEASE-CHECKLIST.md 里含哨兵「$rcSentinel」的行数=$($rcIdx.Count)（期望恰好 1）——Gradle 阻断项的单一解锁契约未落地或已漂移。"
+} elseif (-not $rcOrigLines[$rcIdx[0]].Contains('T0-LICENSE-SCANNER')) {
+  Fail "种子缺陷 17ee：Gradle 阻断项未指名唯一解锁点 T0-LICENSE-SCANNER——只删掉替代②但不说清「那怎样才算完成」，等于把发布者留在无路可走的状态。"
+} elseif ($rcOrigLines[$rcIdx[0]].Contains($rcAltMarker)) {
+  Fail "种子缺陷 17ee：Gradle 阻断项里仍出现「$rcAltMarker」——第二条替代解锁路径被写回来了，第 27/28 两项将再次互斥（事后 R3 block ② 的原病）。"
+} else {
+  # 两枚变异都写到临时暂存副本，真实 RELEASE-CHECKLIST.md 全程只读。
+  $rcScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17ee-checklist-$PID.md"
+  try {
+    # 变异 A（单句删除）：删掉整条阻断项 → 哨兵消失，闸必红。
+    $rcMutA = @(for ($i = 0; $i -lt $rcOrigLines.Count; $i++) { if ($i -ne $rcIdx[0]) { $rcOrigLines[$i] } })
+    Set-Content -LiteralPath $rcScratch -Value $rcMutA -Encoding utf8
+    $rcSurvivedA = @(Get-Content -LiteralPath $rcScratch | Where-Object { $_.Contains($rcSentinel) }).Count -eq 1
+    # 变异 B（契约回归）：把替代②原样写回该行 → 闸必红（这枚才是真正守住本次人裁的那一枚）。
+    $rcMutB = $rcOrigLines.Clone()
+    $rcMutB[$rcIdx[0]] = $rcOrigLines[$rcIdx[0]] + ' 两者选一即满足：' + $rcAltMarker + ' 人工逐条核验并登记进 docs/LICENSE-POLICY.md §3。'
+    Set-Content -LiteralPath $rcScratch -Value $rcMutB -Encoding utf8
+    $rcScratchLines = Get-Content -LiteralPath $rcScratch
+    $rcBIdx = @(0..($rcScratchLines.Count - 1) | Where-Object { $rcScratchLines[$_].Contains($rcSentinel) })
+    $rcSurvivedB = ($rcBIdx.Count -eq 1) -and (-not $rcScratchLines[$rcBIdx[0]].Contains($rcAltMarker))
+    if ($rcSurvivedA) {
+      Fail '种子缺陷 17ee(mut-A)：删掉整条 Gradle 阻断项后哨兵判据仍成立（vacuous mutation：判据没真定位到那一行）。'
+    } elseif ($rcSurvivedB) {
+      Fail "种子缺陷 17ee(mut-B)：把替代「$rcAltMarker」写回该行后本闸仍判通过（vacuous coverage：本闸拦不住「人工替代被写回来」这条真实回归，而它正是事后 R3 block ② 的原病）。"
+    } else {
+      Write-Host "  17ee 发布清单 Gradle 阻断项单一解锁（哨兵 $rcSentinel + 指名 T0-LICENSE-SCANNER + 无第二条替代）OK；删行变异与「$rcAltMarker」回写变异双双被杀，真实清单全程只读" -ForegroundColor Green
+    }
+  } finally {
+    Remove-Item -LiteralPath $rcScratch -Force -ErrorAction SilentlyContinue
+    if (Test-Path $rcScratch) { Fail "17ee 收尾：临时暂存文件 $rcScratch 未能删除——请手动清理，避免残留。" }
+  }
+}
+
 # ── 收尾：真实生产文件全程未被写入（纵深防御，L196）——check-licenses.ps1 只曾在临时同目录副本上变异，
 #    verify.ps1 全程只读，两者 SHA256 理应与本闸开始前逐字不变。──
 $realCLHashAfter = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
 $realVfHashAfter = (Get-FileHash -LiteralPath $realVfPath -Algorithm SHA256).Hash
+$realRcHashAfter = (Get-FileHash -LiteralPath $realRcPath -Algorithm SHA256).Hash
 if ($realCLHashAfter -ne $realCLHashBefore) { Fail "17cc/17dd 收尾：真实 scripts/check-licenses.ps1 的 SHA256 在本闸前后不一致（前=$realCLHashBefore，后=$realCLHashAfter）——变异测试意外写到了生产文件本体，而非只碰临时副本（L196）。" }
 elseif ($realVfHashAfter -ne $realVfHashBefore) { Fail "17cc/17dd 收尾：真实 scripts/verify.ps1 的 SHA256 在本闸前后不一致（前=$realVfHashBefore，后=$realVfHashAfter）——理应全程只读却被写入（L196）。" }
+elseif ($realRcHashAfter -ne $realRcHashBefore) { Fail "17ee 收尾：真实 docs/RELEASE-CHECKLIST.md 的 SHA256 在本闸前后不一致（前=$realRcHashBefore，后=$realRcHashAfter）——理应全程只读却被写入（L196）。" }
 else { Write-Host '  17cc/17dd 收尾：真实 check-licenses.ps1 / verify.ps1 两份生产文件 SHA256 全程未变 OK（L196 纵深防御）' -ForegroundColor Green }
 
 }
