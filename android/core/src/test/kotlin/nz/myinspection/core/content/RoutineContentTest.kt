@@ -44,6 +44,24 @@ class RoutineContentTest {
     }
 
     @Test
+    fun `template identity is pinned to ROUTINE v1`() {
+        // 类型/版本本身没有被任何内容断言覆盖：把 type 改成 INGOING/EXIT 或 version 改成 2，
+        // 引擎校验与上面的项数/双语/唯一性断言照样全绿——这两个字段只有这里在盯。
+        val template = loadRoutine().template
+        assertEquals("ROUTINE", template.type)
+        assertEquals(1, template.version)
+    }
+
+    @Test
+    fun `every stable id follows the room-object-two-digit-sequence convention`() {
+        // 卡片命名约定：房间缩写-对象-两位序号，恰三段。曾把 GEN-SMOKE-BEDROOM-01 这类四段 id
+        // 悄悄放行过一轮（R3 round 5 拦下）——本测试钉死"恰两个连字符"，不靠肉眼逐条数。
+        val idPattern = Regex("^[A-Z]{2,4}-[A-Z0-9]+-\\d{2}$")
+        val bad = loadRoutine().template.items.map { it.stableId }.filterNot { idPattern.matches(it) }
+        assertTrue(bad.isEmpty(), "stableIds must follow ROOM-OBJECT-NN (exactly two hyphens): $bad")
+    }
+
+    @Test
     fun `every stable id is unique`() {
         val ids = loadRoutine().template.items.map { it.stableId }
         val duplicated = ids.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
@@ -118,25 +136,31 @@ class RoutineContentTest {
         // 断言**一对一 stableId → 本卡撰写文案**的精确文案，不是只判存在——只判「这些 id 存在」不够：
         // 文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
         val expectedSmokeText = mapOf(
-            "GEN-SMOKE-BEDROOM-01" to "Working smoke alarm present in every bedroom or other sleeping space, or within 3m of its door",
-            "GEN-SMOKE-STOREY-01" to "Working smoke alarm present on every storey / level of the property, including levels with no bedrooms",
-            "GEN-SMOKE-CARAVAN-01" to "Any on-site caravan, sleep-out or similar structure has its own working smoke alarm",
-            "GEN-SMOKE-EXPIRY-01" to "No smoke alarm has exceeded its manufacturer expiry / replacement date",
-            "GEN-SMOKE-BATTERY-01" to "Smoke alarms installed since 1 July 2016 are long-life photoelectric (minimum 8-year battery life) or hardwired, meeting the current regulatory product standard",
-            "GEN-SMOKE-INSTALL-01" to "Smoke alarms installed by the landlord / agent according to manufacturer instructions",
-            "GEN-SMOKE-WORKING-01" to "All smoke alarms confirmed working, including battery condition, at tenancy start",
+            "GEN-SMOKEBED-01" to "Smoke alarm coverage in bedrooms and other sleeping spaces (within 3m of door)",
+            "GEN-SMOKELVL-01" to "Smoke alarm coverage on each storey / level of the property",
+            "GEN-SMOKECRV-01" to "Smoke alarm coverage in any on-site caravan, sleep-out or similar structure",
+            "GEN-SMOKEXPY-01" to "Smoke alarm expiry / manufacturer replacement date",
+            "GEN-SMOKEBAT-01" to "Smoke alarm type and battery life (alarms installed since 1 July 2016)",
+            "GEN-SMOKEINS-01" to "Smoke alarm installation method (landlord / agent, per manufacturer instructions)",
+            "GEN-SMOKEWRK-01" to "Smoke alarm operating condition, including battery, at tenancy start",
         )
-        val actualSmokeIds = items.filter { it.room == "GENERAL" && it.stableId.startsWith("GEN-SMOKE-") }
+        val actualSmokeIds = items.filter { it.room == "GENERAL" && it.stableId.startsWith("GEN-SMOKE") }
             .map { it.stableId }.toSet()
         assertEquals(expectedSmokeText.keys, actualSmokeIds, "the smoke-alarm declaration group must be exactly these 7 points, no more, no fewer")
         for ((id, expectedText) in expectedSmokeText) {
             assertEquals(expectedText, byId.getValue(id).textEn, "$id textEn drifted from its authored content")
         }
 
-        // Healthy Homes 日常复核点：与官方表天然重合的四项（地板下/天花绝缘、厨房与浴室抽风、防潮布），
-        // 文案须点名 Healthy Homes 以便未来 T6-HHC 按同 stableId 承接。
-        for (id in listOf("GEN-INSUL-01", "GEN-MOIST-01", "KIT-VENT-01", "BTH-VENT-01")) {
-            assertTrue(byId.getValue(id).textEn.contains("Healthy Homes"), "$id should read as a Healthy Homes checkpoint")
-        }
+        // Healthy Homes 日常复核点：与官方表天然重合的四项。只判"提到 Healthy Homes 字样"不够——
+        // 文案若被换成别的意思、只留标签，单纯的 contains("Healthy Homes") 测不出（R3 round 5 拦下：
+        // KIT-VENT-01/BTH-VENT-01 当时只说"排风"未说"运行"）。逐项断言其实质内容 + 标签两者都在。
+        val insul = byId.getValue("GEN-INSUL-01").textEn
+        assertTrue(insul.contains("insulation") && insul.contains("Healthy Homes"), "GEN-INSUL-01 must describe insulation condition and read as a Healthy Homes checkpoint")
+        val moist = byId.getValue("GEN-MOIST-01").textEn
+        assertTrue(moist.contains("moisture barrier") && moist.contains("Healthy Homes"), "GEN-MOIST-01 must describe moisture barrier condition and read as a Healthy Homes checkpoint")
+        val kitVent = byId.getValue("KIT-VENT-01").textEn
+        assertTrue(kitVent.contains("operation") && kitVent.contains("Healthy Homes"), "KIT-VENT-01 must describe fan operation and read as a Healthy Homes checkpoint")
+        val bthVent = byId.getValue("BTH-VENT-01").textEn
+        assertTrue(bthVent.contains("operation") && bthVent.contains("Healthy Homes"), "BTH-VENT-01 must describe fan operation and read as a Healthy Homes checkpoint")
     }
 }
