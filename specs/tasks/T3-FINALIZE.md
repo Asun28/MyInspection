@@ -3,7 +3,7 @@ id: T3-FINALIZE
 title: finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链
 depends_on: [T1-CANON-HASH]
 parallelizable_with: [T2-CAPTURE-UI, T3-REPORT-COMPOSER]
-status: todo
+status: merged
 branch: T3-FINALIZE
 worktree: C:\wt\T3-FINALIZE
 allow_paths:

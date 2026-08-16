@@ -1685,3 +1685,11 @@
 - rule: 产品策略常量与外部法规数字凑巧相同时，每一处提及都要点名「谁在说话」——"我们的策略是 N 个月" 还是 "法律的下限/要求是 M 个月"，N==M 也不得省略这层区分，绝不用"受该法规约束/该法规要求"描述本 app 自己可配置的常量。修复一类误述后，逐句重读整段上下文（不只是 grep 关键词），确认没有换了个说法的同型残留。
 - enforced_by: none（暂无机检；R3 codex-review 兜底，T5-RETENTION PR#11 round 1→round 2 连续两次实证）
 - refs: 
+
+## L233
+- date: 2026-08-17 ｜ tags: review,r3,adjudication,architecture,cost-benefit ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 评审对同一架构点（要求 finalize 层逐项重验 allowed_statuses）连续三次原样提出，均以引用先例（mint-point/L220）驳回；第三次触发本仓两轮争议转人裁规则，用户裁定实现该检查（选项 A），理由是数据早已被解码在手、边际实现成本已趋近于零——纯架构立场在这个具体场景下输给了便宜的防御纵深
+- root_cause: 每次驳回只重申先例本身（不变量活在铸造点），没有重新核算这次具体场景下实现的边际成本是否已经变了——round 14 时逐项 allowed_statuses 其实已经因为另一个理由（喂给 capture 的 ItemDef）被解码在手，加一个 else-if 分支即可，这一事实在 round 5 最初驳回时并不成立（当时甚至还没有这份解码），但驳回话术三轮未变
+- rule: 评审对同一架构点第二次提出时，先别急着复述上一次的先例式驳回——显式重算一遍当下实现它的边际成本（数据是否已在手/层是否已存在/依赖是否已合并），成本判断随场景漂移、不随裁决次数固定；若成本已经很低，向人裁推荐便宜实现而不是死守纯架构立场撑到第三次；裁决落地后把用户选的选项与理由记进卡/PR，这是判断类经验、不做机械闸
+- enforced_by: 
+- refs: T3-FINALIZE PR #7 round 5/12/13 三次提出、round 14 用户裁选项 A；关联 L220（不变量活在铸造点）
