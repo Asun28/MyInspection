@@ -166,14 +166,27 @@ class FinalizeInspectionUseCaseTest {
         assertEquals(1L, affected)
     }
 
+    /**
+     * 用一个在被调用时产生写副作用的假 [CompletenessPort]，在单线程里**确定性地**复现"读完备性之后、
+     * 写 finalized_at 之前，另一条路径抢先把同一巡检 finalize 了"这一步的处理逻辑：`finalizeIfDraft`
+     * 的 `affected != 1` 分支必须干净返回 `RejectedAlreadyFinalized`，不能让不变量断言炸出一个看起来
+     * 像 bug 的异常。
+     *
+     * **本测试证明不了"必须包成一个事务"这件事本身**（R3 round 2 的准确指出）：单一 JDBC 连接上任何
+     * 调用本就严格顺序执行，`database.transactionWithResult { }` 这层包装摘掉后，这条测试照样通过——
+     * 它验的是 affected-check 分支的正确性，不是跨连接隔离语义。真正区分"包成一个事务"与"不包"的，
+     * 只有**跨连接**并发写同一行时的锁/隔离行为，单连接测不出来。
+     *
+     * 曾尝试过用两个真实连接（SQLite 具名内存库 + `cache=shared`）+ 两个真实线程构造这类测试，
+     * 但当前 pinned 的 sqlite-jdbc 在共享缓存模式下对表级锁冲突直接抛
+     * `SQLITE_LOCKED_SHAREDCACHE`——即便设置了 `busy_timeout` 也不等待重试（这是该驱动的已知限制，
+     * 不是 `finalize()` 的代码缺陷）；继续按这条路径走下去，要么引入手工重试/退避逻辑把复杂度带出本卡
+     * 范围，要么产出一个真实存在锁竞争时会间歇失败的测试——两者都比"暂不测跨连接场景"更坏。
+     * 这条差距如实登记为技术债（TD10，`specs/tech-debt-tracker.md`），不假装它已经被下面这条测试证明了。
+     */
     @Test
     fun `if the inspection is finalized by a racing write during the completeness check, finalize rejects cleanly instead of throwing`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
-        // 模拟"读完备性之后、写 finalized_at 之前，另一条路径抢先把同一巡检 finalize 了"这类竞态窗口：
-        // 用一个在被调用时产生写副作用的假 CompletenessPort，在单线程里确定性地复现该窗口，不依赖真实
-        // 多线程——单一 JDBC 连接的 in-memory driver 不保证真并发访问的确定性行为（见 SQLDelight 文档
-        // "in-memory drivers have a single connection, concurrent access will be blocked"），真拿两个线程
-        // 去撞同一个连接只会验证 JDBC 驱动的锁行为，验不出 finalize 自己的事务边界对不对。
         val racingCompleteness = CompletenessPort { inspectionId ->
             val raceAffected = database.inspectionQueries.finalizeIfDraft(
                 finalized_at = now + 1, data_hash = "raced-in-first", updated_at = now + 1, id = inspectionId,

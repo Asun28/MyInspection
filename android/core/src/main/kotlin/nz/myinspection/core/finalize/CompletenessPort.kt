@@ -58,7 +58,12 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
 
     override fun check(inspectionId: String): CompletenessResult {
         val inspection = database.inspectionQueries.selectById(inspectionId).executeAsOne()
+        // `room_instance.selectByInspection` 没有 ORDER BY（该查询在 sqldelight/ 冻结物里，不可改）——
+        // SQLite 对无序查询的行序不作任何契约保证，直接拿来喂进下面按房间遍历产出的 missingStatus/
+        // missingPhoto 两份清单，会让清单顺序系于一个未定义行为（R3 round 2 指出）。按稳定键显式重排，
+        // 使两份清单的顺序在同一份数据上跨进程/跨 SQLite 版本恒定。
         val roomInstances = database.roomInstanceQueries.selectByInspection(inspectionId).executeAsList()
+            .sortedBy { it.id }
         val checkItemDefs = database.checkItemDefQueries
             .selectByTemplateVersion(inspection.template_version_id)
             .executeAsList()

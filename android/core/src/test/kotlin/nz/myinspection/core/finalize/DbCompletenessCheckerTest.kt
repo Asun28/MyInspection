@@ -179,4 +179,31 @@ class DbCompletenessCheckerTest {
         assertTrue(result.isComplete, "suppressed stable_id must not surface as a missing item")
         assertEquals(emptyList(), result.itemsMissingStatus)
     }
+
+    /**
+     * `room_instance.selectByInspection`（冻结物，不可改）没有 `ORDER BY`——SQLite 对无序查询的行序
+     * 不作任何契约保证（R3 round 2 指出）。这条断言两个房间的缺项清单都按 `room_instance.id` 升序，
+     * 与 `check()` 内部实际观察到的任何原始行序无关（是回归钉子而非能造出反例的差异测试：房间实例
+     * 的生成序恒等于 id 序，构造不出"生成序与 id 序相反"的夹具来独立验证——不同于 photo/audio 那两条
+     * 有房间/条目两根独立轴可以错开）。
+     */
+    @Test
+    fun `missing-item lists across multiple rooms are ordered by room_instance id`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 1, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
+        val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
+        check(roomA < roomB) { "UUIDv7 生成序假设不成立，夹具需要重新设计" }
+        // 两间房都没人回答 wall.paint。
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(
+            listOf(MissingItem(roomA, "wall.paint"), MissingItem(roomB, "wall.paint")),
+            result.itemsMissingStatus,
+            "list order must follow room_instance.id ascending, not whatever unspecified order SQLite happened to return",
+        )
+    }
 }
