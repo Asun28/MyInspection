@@ -9,6 +9,16 @@ kotlin {
     jvmToolchain(17)
 }
 
+// T2-ROUTINE-CONTENT：模板内容真相源在仓库根 `data/templates/`（`.gitignore` 排除，内容文件按
+// `git add -f` 显式入库，见该目录 README.md）。这里只把它注册为 **test** resources srcDir——不是
+// main/assets：构建期把模板拷进 Android assets 是后续 UI 卡的活，本卡只需测试能读到这份 JSON。
+// 测试通过 `getResourceAsStream("/routine-v1.json")` 走 classpath 读取，不随 Gradle 工作目录漂移。
+sourceSets {
+    test {
+        resources.srcDir("../../data/templates")
+    }
+}
+
 // T1-SCHEMA-CORE：.sq 是全量 schema 真相源（version 1 = 零 .sqm，SQLDelight 官方约定「first schema
 // version is 1」——.sqm 按「迁移起点版本号」命名，v1 本身无需迁移文件；未来加表/改列才落新 .sqm）。
 //

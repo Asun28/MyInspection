@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [switch]$Strict,     # -Strict 时 LGPL/OpenRAIL 等黄牌也算失败
-  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测复用；镜像 check-secrets.ps1 -AsLibrary）
+  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Test-GradleNameEquals/Test-GradleNameInList/Test-GradlePathPrefix/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p、Gradle 发现单测与卡片 dod_command 复用；镜像 check-secrets.ps1 -AsLibrary）
 )
 
 Set-StrictMode -Version Latest
@@ -57,6 +57,49 @@ function Scan($name, $license) {
 # 不必真的靠 Windows ACL 拒绝读权限去模拟「子树不可读」（省掉 icacls 的平台特定性与清理风险）。
 # 名称级排除适用于任意深度的缓存/产物/机密目录；路径级排除只针对仓库 ignore 契约里的特定位置，避免把业务树中
 # 同名目录一并跳过。三组规则共同覆盖根 .gitignore 与 android/.gitignore 的目录型条目。
+#
+# **大小写语义必须跟随文件系统**（T0-GATE-FIXFORWARD · T0-GATE-HARDENING 事后 R3 block ①）：PowerShell 的
+# `-contains`/`-notcontains` 恒**不敏感**，而 `String.StartsWith(string)` 恒**敏感**——先前一行里两套语义并存。
+# 在 Linux（敏感）上，被追踪的 `Build/`、`Data/` 会被当成 ignore 的 `build/`、`data` **静默剪掉**：而"没扫到"
+# 会被下游当成"没有清单"，闸在看不见时反而变安静，正是本闸 fail-closed 立意要根除的形态。反向在 Windows
+# （不敏感）上，`Android/` 前缀匹配不上 `android/`，该剪的 `.kotlin` 反而没剪。故下面所有路径/名称比较**只经
+# 这三个比较器** Test-GradleNameEquals / Test-GradleNameInList / Test-GradlePathPrefix（前缀比较也在内——
+# 裸 $path.StartsWith(prefix) 是恒敏感的，把它留在外面就等于把病灶留了一半），缺省语义统一由
+# $gradlePathComparison 按 OS 决定。由 selftest 17cc(case) 的 OS 分支夹具 + 每个比较器各自的删除变异
+# + 缺省语义替换变异钉住（任一被摘掉或缺省改成本平台的错误语义即必红）。
+# **已知简化（刻意，非疏漏）**：按 OS 判定而非按卷探测。macOS 的 APFS/HFS+ 缺省不敏感但**可格式化为敏感**，
+# Windows 亦可开启按目录的大小写敏感标志——这两种少数配置下本缺省会偏保守（同 Linux 的过剪风险）。
+# 不做运行期卷探测：本仓 CI 只有 windows-latest + ubuntu-latest 两个矩阵点，探测要为每个 $Root 做一次
+# 建文件/改大小写的 I/O，成本与复杂度都换不回等值的正确性。需要时调用方可显式传 -Comparison 覆盖缺省
+# （三个比较器都收该参数，selftest 17cc(case) 的判据子进程正是这样对每个比较器两模式直测的）。
+$gradlePathComparison = if ($IsWindows -or $IsMacOS) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+function Test-GradleNameEquals {
+  param(
+    [Parameter(Mandatory)][AllowEmptyString()][string]$Left,
+    [Parameter(Mandatory)][AllowEmptyString()][string]$Right,
+    [System.StringComparison]$Comparison = $gradlePathComparison
+  )
+  return [string]::Equals($Left, $Right, $Comparison)
+}
+function Test-GradleNameInList {
+  param(
+    [string[]]$List,
+    [Parameter(Mandatory)][AllowEmptyString()][string]$Value,
+    [System.StringComparison]$Comparison = $gradlePathComparison
+  )
+  foreach ($item in $List) { if (Test-GradleNameEquals -Left $item -Right $Value -Comparison $Comparison) { return $true } }
+  return $false
+}
+# 前缀比较也必须走同一缺省语义：裸 $path.StartsWith('android/') 是**恒大小写敏感**的，与上面两个
+# 比较器不同源，正是"一行之内两套语义"的病灶本身。收进具名函数后，五个调用点共用同一个 $gradlePathComparison。
+function Test-GradlePathPrefix {
+  param(
+    [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+    [Parameter(Mandatory)][string]$Prefix,
+    [System.StringComparison]$Comparison = $gradlePathComparison
+  )
+  return $Path.StartsWith($Prefix, $Comparison)
+}
 $gradleSkipDirs = @(
   '.gradle', 'build', 'node_modules', '.git',                                  # 既有：Gradle/前端产物缓存 + VCS 元数据
   '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache',       # Python 工具链缓存
@@ -85,12 +128,20 @@ function Find-GradleManifests {
         # R3 round-2 dimension #10（确定性）：目录联接/符号链接（ReparsePoint）绝不下钻——
         # 否则可能扫出仓外（联接指向仓外目录），或经自引用联接死循环（不终止）。只跳过它本身，
         # 不影响它旁边正常子树的发现。
-        $isReparse = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
         $relativePath = [System.IO.Path]::GetRelativePath($Root, $e.FullName).Replace('\', '/')
-        $isAndroidLocal = $relativePath.StartsWith('android/') -and ($AndroidSkipDirs -contains $e.Name)
-        if ((-not $isReparse) -and ($SkipDirs -notcontains $e.Name) -and ($SkipRelativePaths -notcontains $relativePath) -and (-not $isAndroidLocal)) { $stack.Push($e.FullName) }
-      } elseif ($Names -contains $e.Name) {
-        $found.Add($e.FullName)
+        # 四道剪枝守卫与文件收集**刻意各占一行**（而非合成一个长 -and 链 / elseif 条件）：每行都要能被 selftest
+        # 的**单句删除变异**独立击杀（L165：每道守卫配一枚变异，它红了才算数）。合成一行时删任一子句都会连坐
+        # 其余几道，变异只能证明"整行在"、证明不了"这一道在"。写法上也让"删掉某道守卫"必然表现为**命中集变化**
+        # （而不是崩在未定义变量或语法上），故判据是行为差异、不是异常。
+        # 守卫①用**替换**变异而非删除（删掉它 $skip 未定义 → 崩在 StrictMode，证明不了守卫语义）；②③④与
+        # 收集行各配一枚**单句删除**变异。见 selftest 17cc(reparse-mut) 与 17cc(case-mut/*)。
+        $skip = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)   # 守卫①：目录联接/符号链接绝不下钻（否则可能扫出仓外，或经自引用联接死循环）
+        if (-not $skip) { $skip = Test-GradleNameInList -List $SkipDirs -Value $e.Name }                     # 守卫②：名称级排除（任意深度的缓存/产物/机密目录）
+        if (-not $skip) { $skip = Test-GradleNameInList -List $SkipRelativePaths -Value $relativePath }      # 守卫③：路径级排除（只针对 ignore 契约里的确切位置）
+        if (-not $skip) { $skip = (Test-GradlePathPrefix -Path $relativePath -Prefix 'android/') -and (Test-GradleNameInList -List $AndroidSkipDirs -Value $e.Name) }   # 守卫④：android/ 子树内的本地产物目录
+        if (-not $skip) { $stack.Push($e.FullName) }
+      } else {
+        if (Test-GradleNameInList -List $Names -Value $e.Name) { $found.Add($e.FullName) }   # 收集：清单文件名匹配（同样单占一行，供 17cc(case-mut/names) 删除变异）
       }
     }
   }
@@ -116,7 +167,10 @@ function Get-GradleCoverageGaps {
   if ($hits.Count -gt 0) {
     # Find-GradleManifests 返回的是路径**字符串**（非 FileInfo），直接 .Substring，不取 .FullName。
     $names = @($hits | ForEach-Object { $_.Substring($Root.Length + 1) -replace '\\', '/' } | Sort-Object -Unique)
-    $gaps += "Gradle：检测到 $($names.Count) 个清单（$($names -join ', ')）但本闸无对应许可扫描器——按 docs/LICENSE-POLICY.md §3.1/§3.2 人工核验该生态依赖（直接依赖已核验登记，约 220 个传递坐标未审计，见 TD2），或接入扫描器。"
+    # 措辞与 docs/RELEASE-CHECKLIST.md 的 [GRADLE-LIC-SCANNER-ONLY] 阻断项保持同一口径：发布阻断项的**唯一**
+    # 解锁路径是扫描器（T0-LICENSE-SCANNER）。此处不再提"人工核验"作为替代——否则与该项相邻的 `-Strict` 必过项
+    # 互斥（事后 R3 block ②）。直接依赖的人工登记仍在 §3.1，但它不解锁本缺口。
+    $gaps += "Gradle：检测到 $($names.Count) 个清单（$($names -join ', ')）但本闸无对应许可扫描器——约 220 个传递坐标未审计（见 docs/LICENSE-POLICY.md §3.2 与 TD2）。唯一解锁路径 = 接入扫描器（specs/tasks/T0-LICENSE-SCANNER.md）；它落地前本缺口保持发布阻断（docs/RELEASE-CHECKLIST.md）。"
   }
   return $gaps
 }
