@@ -18,9 +18,16 @@ CREATE TABLE photo (
 );
 
 CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
--- content_hash 打头的索引：orphanedAssets 按 content_hash 做无 room_instance 范围限定的全表自关联
--- 查找，idx_photo_active 以 room_instance_id 打头覆盖不到这个访问模式。
+-- content_hash 打头的索引，现在的消费者是 **selectActiveAssetsByContentHash**（去重复用：按哈希找活跃资产，
+-- 不带 room_instance 范围限定）。idx_photo_active 以 room_instance_id 打头，覆盖不到这个访问模式。
 CREATE INDEX idx_photo_content_hash ON photo (content_hash);
+-- rel_path 打头的**部分**索引，消费者是 orphanedAssets 的相关子查询
+-- `NOT EXISTS (… p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL)`。
+-- 判活粒度从 content_hash 改成 rel_path 后（见下方 orphanedAssets 注释），上面那条 content_hash 索引就不
+-- 再服务这个访问模式了；没有本索引，SQLite 只能对**每一条软删行**扫一遍活跃行，清理退化成 O(软删 × 活跃)。
+-- 取部分索引（`WHERE deleted_at IS NULL`）而非全量：子查询只找活跃行，索引里不必装软删行；
+-- 同时这也让谓词与索引条件完全吻合，SQLite 可直接用它满足子查询。
+CREATE INDEX idx_photo_active_rel_path ON photo (rel_path) WHERE deleted_at IS NULL;
 
 -- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库唯一会让同一张照片内容永远不能合法出现
 -- 在两次不同巡检里（例如同一处缺陷在 Ingoing 与 Exit 分别拍到时，字节偶然相同；或用户有意把同一张
@@ -80,7 +87,8 @@ WHERE id = :id
 -- 届时它连加一条查询都要走版本评审。既有两条都不顶用——selectByRoomInstance 要求已知 room_instance_id
 -- （去重时恰恰还不知道要挂到哪），orphanedAssets 只回软删行（去重要的是**活着**的那些）。
 -- 返回 rel_path 而非整行：调用方要的是「那份物理文件在磁盘哪儿」，好把新关联指向它。
--- **同一哈希可能有多个活跃 rel_path**（多份物理副本，资产身份是 content_hash + rel_path 一对，见下方注释）——
+-- **同一哈希可能有多个活跃 rel_path**：唯一索引只保证「同一 room_instance 内哈希不重复」，跨房间/跨巡检
+-- 的同内容照片是合法的（同一缺陷在 Ingoing 与 Exit 各拍一次），各自是磁盘上独立的文件——
 -- 全部返回，调用方取第一条即可。**排序键取 rel_path 而非 created_at**：DISTINCT 之后 rel_path 两两不等，
 -- 顺序恒定；created_at 会撞值，撞值时顺序不定，同一输入两次运行可能复用到不同的物理文件（下游 canonical
 -- 哈希要求确定性，这种漂移会让同一份数据算出两个结果）。
@@ -90,25 +98,14 @@ FROM photo
 WHERE content_hash = :content_hash AND deleted_at IS NULL
 ORDER BY rel_path ASC;
 
--- 【2026-08-16 更正 · R3 第十二轮】**判死活只看 rel_path，不看 content_hash**，返回值也收敛成 rel_path。
--- 理由：清理任务的删除目标是**一个物理文件路径**，而 schema 里没有任何约束保证「一个 rel_path 只对应一个
--- content_hash」（唯一索引管的是 (room_instance_id, content_hash)，不管路径）。按 (hash, path) 这一对判活时，
--- 软删行 (H1, P) 与活跃行 (H2, P) 并存就会让 P 被报成孤儿——**而 P 仍被活跃行引用，删掉即数据丢失**。
--- 这同时推翻了下面原有的那段推论：「finalize 过的照片不能软删，故其 (hash, path) 组合恒有活跃行、不会进
--- 孤儿列表」——finalized 的若是 (H2, P)、被报孤儿的是 (H1, P)，删的仍是同一个物理文件，巡检证据照样没。
--- 按路径判活后该推论重新成立，且这次是**因为判定粒度与删除粒度对齐**，不是因为哈希碰巧不撞。
--- 不再返回 content_hash：清理只需要路径；哈希侧的查询是 selectActiveAssetsByContentHash，各司其职。
---
--- 【历史】下面这段是本查询演进的原始注记，保留以免后人重走：返回
--- content_hash + rel_path——只回 content_hash 曾经是个坑：调用方拿到孤儿哈希后，selectByRoomInstance
--- 要求已知 room_instance_id 且天生排除软删行（孤儿行恰好就是软删的那些），根本查不回物理文件路径，
--- 清理用例无从下手。资产身份 = (content_hash, rel_path) 这一对，不是单独 content_hash——同一哈希若曾
--- 落到过不同 rel_path（多份物理副本），每个路径是独立的磁盘文件，各自的存活要各自判：NOT EXISTS 子
--- 查询原来只按 content_hash 匹配活跃行，会让"哈希 H 在路径 A 已软删、但哈希 H 在路径 B 仍活跃"这种
--- 情况整条被当成"哈希还活着"而放过——路径 A 那份物理文件永远漏判、删不掉（R3 评审指出，已改正：子
--- 查询按 content_hash **和** rel_path 一起匹配）。"finalize 过的巡检照片永不清"不需要在这里另写特判：
--- softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类 (content_hash, rel_path) 组合永远至少
--- 有一行活跃记录，天然不会出现在这份孤儿列表里。
+-- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）。
+-- **判死活只看 rel_path，返回值也只有 rel_path。** 清理任务删的是**一个物理文件路径**，而 schema 里
+-- 没有任何约束保证「一个 rel_path 只对应一个 content_hash」——唯一索引管的是 (room_instance_id,
+-- content_hash)，不管路径。若按 (hash, path) 这一对判活，软删行 (H1, P) 与活跃行 (H2, P) 并存时 P 会被
+-- 报成孤儿，**而 P 仍被活跃行引用，删掉即数据丢失**；活跃行若属 FINALIZED 巡检，丢的就是巡检证据。
+-- 判定粒度与删除粒度对齐后，才有那条推论：softDelete 禁止软删 FINALIZED 巡检下的照片，故其 rel_path
+-- 恒有活跃行、不会进孤儿列表，无需另写「排除 FINALIZED」的特判。
+-- 不返回 content_hash：清理只需要路径；哈希侧的问题由 selectActiveAssetsByContentHash 回答。
 orphanedAssets:
 SELECT DISTINCT p1.rel_path
 FROM photo p1

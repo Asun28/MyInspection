@@ -241,7 +241,7 @@ class DbDownstreamQueriesTest {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
 
-        // Draft inspection: photo gets soft-deleted -> its (content_hash, rel_path) becomes orphaned.
+        // Draft inspection: photo gets soft-deleted -> its rel_path has no active row left, so it orphans.
         val draftInspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         val draftRoomId = DbTestFixtures.insertRoomInstance(database, uuid, draftInspectionId, now = now)
         val orphanPhotoId = uuid.next()
