@@ -218,6 +218,62 @@ class DbCompletenessCheckerTest {
     }
 
     /**
+     * 独立对照模板算出"应有哪些房间"，不从 `room_instance` 现有的行反推——两间房的模板里，一间从未被
+     * 实例化（模拟建巡检时的房间实例化环节漏掉了它），必须点名报出，而不是被"现状即基准"的循环判定
+     * 悄悄放过。
+     */
+    @Test
+    fun `a template room that was never instantiated is reported as missing, by name`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 1, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "bench.top", room = "KITCHEN", sort = 2, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        // 只建了 BEDROOM；KITCHEN 一间房实例都没有，即便它在模板里有一个未被抑制的项。
+        DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(listOf("KITCHEN"), result.roomsMissingInstance)
+        assertTrue(!result.isComplete, "a missing room must make the inspection incomplete")
+    }
+
+    @Test
+    fun `an inspection with every template room instantiated has no missing rooms`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 1, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "bench.top", room = "KITCHEN", sort = 2, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+        DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "KITCHEN", instanceNo = 1, now = now)
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(emptyList(), result.roomsMissingInstance)
+    }
+
+    /**
+     * 房间下**每一项**都被本物业抑制时（"这个物业没有车库"），该房间不建实例是正常态，不该被报成
+     * "缺房间"——这与上面「独立对照模板」的原则并不矛盾：抑制过滤先于房间推导发生，被抑制的项根本
+     * 不参与"这间房该不该存在"的判断。
+     */
+    @Test
+    fun `a room whose every item is suppressed and has no instance is not reported as missing`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "garage.door", room = "GARAGE", sort = 1, now = now)
+        FinalizeTestFixtures.insertPropertyItemOverride(database, uuid, propertyId, stableId = "garage.door", suppressed = true, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        // GARAGE 一个 room_instance 都没建——该物业没有车库，这是预期状态，不是遗漏。
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(emptyList(), result.roomsMissingInstance)
+        assertTrue(result.isComplete)
+    }
+
+    /**
      * `room_instance.selectByInspection`（冻结物，不可改）没有 `ORDER BY`。这里用显式 id（绕开
      * [Uuid7Generator]）把"插入顺序"与"id 顺序"故意错开——先插入 id 更大的房间，再插入 id 更小的
      * 房间，这样若实现没有显式排序，输出会先出插入序第一的那间（id 更大），与断言的 id 升序相反，

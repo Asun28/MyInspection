@@ -9,12 +9,18 @@ data class MissingItem(val roomInstanceId: String, val stableId: String)
 
 /**
  * 完备性校验结果：finalize 前置闸的判定输出，逐项清单直接喂给 UI（"哪几项还没做完"）。
+ *
+ * [roomsMissingInstance]：模板要求（至少一项未被抑制）却连 `room_instance` 都没有的房间键——整间房
+ * 从未被走查过，是"缺项"里最强的一种，理应与逐项清单一起报给 UI（"哪个房间没做"，不只是"哪个检查项没做"）。
+ * 默认空列表，方便只关心逐项判定的调用方（如测试里的假 `CompletenessPort`）不必每次都显式传。
  */
 data class CompletenessResult(
     val itemsMissingStatus: List<MissingItem>,
     val itemsMissingMandatoryPhoto: List<MissingItem>,
+    val roomsMissingInstance: List<String> = emptyList(),
 ) {
-    val isComplete: Boolean get() = itemsMissingStatus.isEmpty() && itemsMissingMandatoryPhoto.isEmpty()
+    val isComplete: Boolean
+        get() = itemsMissingStatus.isEmpty() && itemsMissingMandatoryPhoto.isEmpty() && roomsMissingInstance.isEmpty()
 }
 
 /**
@@ -49,8 +55,15 @@ fun interface CompletenessPort {
 }
 
 /**
- * [CompletenessPort] 的 DB 直查默认实现。判定两件事：
+ * [CompletenessPort] 的 DB 直查默认实现。判定三件事：
  *
+ * 0. **缺房间实例**：模板里存在至少一个未被抑制项的房间键，却在 `room_instance` 里一行都找不到——
+ *    这整间房从未被建过、更谈不上"走查完了"。房间实例化是 `core/capture`（`InspectionRepository`）
+ *    在建巡检时一次性做完的事件，此后没有任何写路径会再补建/校验它——不像"缺状态"判定天然覆盖"这项
+ *    压根没答"（逐项判定按模板定义驱动，答题表里没有对应行就是缺），"这间房压根没建"如果只按
+ *    `room_instance` 现有的行去推它自己"该有哪些房间"，就是拿现状去验证现状（同一份数据既当输入
+ *    又当基准，circular），任何缺失的房间都会被这份自证悄悄放过。finalize 是"没有遗漏"这个承诺的
+ *    最后一道闸，故在此独立对照模板重新推导"应该有哪些房间"，不信任上游已经建好。
  * 1. **缺状态**：对每个活跃房间实例，模板里该房间类型下所有未被 `property_item_override` 永久抑制的项，
  *    若在 `inspection_item` 里还没有对应行——该项还没有人作答（`inspection_item` 是答题表，行存在
  *    即已作答）。
@@ -61,7 +74,14 @@ fun interface CompletenessPort {
  *    - `ADVERSE_ONLY`：依赖该项的评级（只有已作答才有），故只在已作答且评级属"不利发现"时才判。
  *      "不利发现"集合按巡检类型区分（ANNUAL 用三档缺陷分级，其余用租赁四档）。
  *
- * 两类问题都用 [MissingItem] 报告，UI 侧可以统一渲染。
+ * **"至少一个 room_instance" 是当前语义的完整形态，不是简化**：`repeatable`（同一房间键多实例，如两间
+ * 卧室）标记已被人裁排除在模板 JSON 之外（`T1-TEMPLATE-ENGINE` non_goals，见 `T2-ROOM-REPEATABLE`），
+ * 故当前每个模板房间键至多对应一个 `room_instance`——"≥1"与"恰好 1"在今天等价。`T2-ROOM-REPEATABLE`
+ * 落地、房间键可对应多实例后，这条检查须重新评估：那时"缺房间"可能要变成"数量不足"（对照物业房型数），
+ * 而不再是单纯的"存在性"判定。
+ *
+ * 三类问题分别用 [MissingItem]/[MissingItem]/房间键字符串报告，UI 侧可以统一渲染成"哪几项 + 哪几间房
+ * 还没做完"。
  */
 class DbCompletenessChecker(private val database: MyInspectionDatabase) : CompletenessPort {
 
@@ -78,6 +98,15 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             .executeAsList()
             .filter { it.suppressed == 1L }
             .mapTo(mutableSetOf()) { it.stable_id }
+
+        // 模板要求（至少一项未被抑制）却一个 room_instance 都没有的房间键——独立对照模板算出"应有哪些
+        // 房间"，不从 room_instance 现有的行反推，否则漏建的房间永远不会被这份判定看见。
+        val instantiatedRoomKeys = roomInstances.mapTo(mutableSetOf()) { it.room_key }
+        val roomsMissingInstance = checkItemDefs
+            .filter { it.stable_id !in suppressedStableIds }
+            .map { it.room }
+            .toSortedSet()
+            .filterNot { it in instantiatedRoomKeys }
 
         val existingItems = database.inspectionItemQueries.selectByInspection(inspectionId).executeAsList()
         val existingByKey = existingItems.associateBy { it.room_instance_id to it.stable_id }
@@ -112,7 +141,11 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             }
         }
 
-        return CompletenessResult(itemsMissingStatus = missingStatus, itemsMissingMandatoryPhoto = missingPhoto)
+        return CompletenessResult(
+            itemsMissingStatus = missingStatus,
+            itemsMissingMandatoryPhoto = missingPhoto,
+            roomsMissingInstance = roomsMissingInstance,
+        )
     }
 
     private companion object {
