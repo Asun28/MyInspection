@@ -79,11 +79,17 @@ class TemplateLoaderTest {
     }
 
     @Test
-    fun `an item with no allowed status is rejected`() {
+    fun `an item with no allowed status is rejected regardless of the template type`() {
         // 空集不是"随便填"而是"填不了"：采集时这一项没有任何合法评级可选，整条项目形同哑弹。
         assertEquals(
             listOf("KIT-BENCH-01: allowedStatuses is empty"),
             errorsOf(template(items = listOf(item(allowedStatuses = "[]")))),
+        )
+
+        // 类型拼错时只有"这个评级在不在域内"判不了；空集与类型无关，不该被类型这条错误顺带吞掉。
+        assertEquals(
+            listOf("template: unknown type ROUTIN", "KIT-BENCH-01: allowedStatuses is empty"),
+            errorsOf(template(type = "ROUTIN", items = listOf(item(allowedStatuses = "[]")))),
         )
     }
 
@@ -134,11 +140,11 @@ class TemplateLoaderTest {
     }
 
     @Test
-    fun `a blank stable id is rejected by position because it cannot be named`() {
-        // 同一条上再叠一个缺陷（textEn 也空）：点不了名的条目**只**报位置这一条，
-        // 不再往下喷 " : textEn is blank" 这种让人无从下手的行。
+    fun `a blank stable id is reported by position, and that item's other defects still surface`() {
+        // 同一条上再叠一个缺陷（textEn 也空）：点不了名就按位置标注，其余检查照跑——
+        // 「一次报全」不能因为某条缺了身份就打折，否则作者修完这条才看见下一条。
         assertEquals(
-            listOf("item[1]: stableId is blank"),
+            listOf("item[1]: stableId is blank", "item[1]: textEn is blank"),
             errorsOf(template(items = listOf(item(), item(stableId = " ", textEn = "")))),
         )
     }

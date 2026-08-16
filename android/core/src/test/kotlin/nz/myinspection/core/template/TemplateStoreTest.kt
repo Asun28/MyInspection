@@ -1,5 +1,8 @@
 package nz.myinspection.core.template
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import nz.myinspection.core.db.ClockMs
 import nz.myinspection.core.db.MyInspectionDatabase
@@ -103,21 +106,46 @@ class TemplateStoreTest {
 
     @Test
     fun `a failure part-way through leaves no half template behind`() {
-        // 刻意绕开 TemplateLoader 直接造一份带重复 stable_id 的模板（校验器本来会拦下它）：
-        // 只有这样才能让**第二条**项定义在数据库层撞唯一索引，从而检验"版本行 + 前面几条项定义"
-        // 是否被回滚。半份模板比整体失败坏得多：报告静默少项，而那一版的 (type, version)
-        // 已被占住，正确的重灌再也进不来。
-        val duplicated = Template(
-            type = "ROUTINE",
-            version = 7,
-            items = listOf(
-                TemplateItem(stableId = "KIT-BENCH-01", area = "INTERIOR", room = "KITCHEN", textEn = "a", textZh = "甲", allowedStatuses = listOf("GOOD")),
-                TemplateItem(stableId = "KIT-BENCH-01", area = "INTERIOR", room = "KITCHEN", textEn = "b", textZh = "乙", allowedStatuses = listOf("GOOD")),
-            ),
-        )
+        // 在**第二条**项定义上注入驱动级失败（磁盘/连接在写到一半时出错——校验拦不住的那类），
+        // 检验"版本行 + 已写入的前几条项定义"是否整体回滚。半份模板比整体失败坏得多：
+        // 报告会静默少项，而那一版的 (type, version) 已被唯一索引占住，正确的重灌再也进不来。
+        val failing = FailOnSecondItemInsert(driver)
+        val storeOnFailingDriver = TemplateStore(MyInspectionDatabase(failing), Uuid7Generator(), ClockMs { now })
 
-        assertFailsWith<Exception> { store.persist(LoadedTemplate(duplicated, contentHash = "deadbeef")) }
+        assertFailsWith<IllegalStateException> { storeOnFailingDriver.persist(loadRoutine()) }
 
         assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
+    }
+
+    @Test
+    fun `persist refuses a template that would not pass validation`() {
+        // LoadedTemplate 的构造器是 internal：模块外造不出，只有 :core 内（含本测试）能故意造一份非法的。
+        // 持久化边界仍自己再校验一次——数据库里不该出现引擎自己会拒的模板，哪怕它是从模块内递进来的。
+        val invalid = LoadedTemplate(Template(type = "ROUTINE", version = 1, items = emptyList()), contentHash = "deadbeef")
+
+        val ex = assertFailsWith<TemplateValidationException> { store.persist(invalid) }
+
+        assertEquals(listOf("template: items is empty"), ex.errors)
+        assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
+    }
+}
+
+/**
+ * 在第 2 条 `check_item_def` INSERT 上抛异常的驱动包装：唯一目的是把"写到一半失败"变成可测事件。
+ * 其余成员一律委托（`by delegate`），故除注入点外行为与真驱动完全一致。
+ */
+private class FailOnSecondItemInsert(private val delegate: SqlDriver) : SqlDriver by delegate {
+    private var itemInserts = 0
+
+    override fun execute(
+        identifier: Int?,
+        sql: String,
+        parameters: Int,
+        binders: (SqlPreparedStatement.() -> Unit)?,
+    ): QueryResult<Long> {
+        if (sql.contains("INSERT INTO check_item_def") && ++itemInserts == 2) {
+            throw IllegalStateException("injected driver failure on the 2nd item definition")
+        }
+        return delegate.execute(identifier, sql, parameters, binders)
     }
 }

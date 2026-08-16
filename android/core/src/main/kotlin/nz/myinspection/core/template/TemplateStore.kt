@@ -11,7 +11,9 @@ import nz.myinspection.core.db.Uuid7Generator
 /**
  * 把一份已加载的模板落进 `template_version` + `check_item_def`，以及反向读回。
  *
- * 只收 [LoadedTemplate]——它只可能来自 [TemplateLoader.load]，即**已校验**；故这里不重复校验。
+ * 只收 [LoadedTemplate]（构造器 internal，模块外造不出），**且仍在入库前自己再校验一次**：
+ * 来源保证管的是"这份东西打哪来"，持久化边界管的是"数据库里不该出现引擎自己会拒的模板"，
+ * 两者不互相替代——:core 内任何一处将来手搓一个 [Template] 递进来，也过不去这道闸。
  */
 class TemplateStore(
     private val db: MyInspectionDatabase,
@@ -27,8 +29,13 @@ class TemplateStore(
      *
      * 同一 (type, version) 已有活跃行时抛 UNIQUE 约束异常，**不吞**：那正是「同版本号不同内容」
      * 要被人看见的时刻。
+     *
+     * @throws TemplateValidationException 模板过不了 [TemplateLoader.validate]（一行都不写）
      */
     fun persist(loaded: LoadedTemplate): String {
+        val errors = TemplateLoader.validate(loaded.template)
+        if (errors.isNotEmpty()) throw TemplateValidationException(errors)
+
         val versionId = uuid.next()
         val now = clock.nowMs()
         db.transaction {

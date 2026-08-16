@@ -46,8 +46,17 @@ data class TemplateItem(
     val photoRule: String? = null,
 )
 
-/** 解析结果：模板文档 + 该文件**字节**的 SHA-256（入 `template_version.content_hash`）。 */
-data class LoadedTemplate(
+/**
+ * 解析结果：模板文档 + 该文件**字节**的 SHA-256（入 `template_version.content_hash`）。
+ *
+ * 构造器是 `internal`：模块外（:app 及任何下游）**造不出**这个类型，只能从 [TemplateLoader.load] 拿——
+ * 于是"入库的模板必经校验、content_hash 必是那份文件真实字节的哈希"这条来源保证在类型层面成立，
+ * 而不是只写在注释里。:core 内的测试仍造得出（同模块），故意造非法值去驱动持久层的失败路径；
+ * [TemplateStore.persist] 因此**仍会自己再校验一次**，不把来源保证当免检牌。
+ *
+ * 刻意不是 `data class`：`copy()` 会绕过构造器可见性，让模块外能拿一份合法结果 copy 出一个假 hash。
+ */
+class LoadedTemplate internal constructor(
     val template: Template,
     val contentHash: String,
 )

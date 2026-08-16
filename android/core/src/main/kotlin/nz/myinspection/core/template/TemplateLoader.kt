@@ -41,13 +41,14 @@ object TemplateLoader {
      * 校验一份已解析的模板，返回全部问题；空列表 = 通过。内容卡的 DoD 直接拿它当闸。
      *
      * 发出顺序是契约的一部分（作者从上往下改）：先模板层，再按 items 数组序逐条，
-     * 同一条内按 身份(duplicate) → 文案(blank) → 评级域 → 拍照规则。
+     * 同一条内按 身份(blank/duplicate) → 文案(blank) → 评级域 → 拍照规则。
      */
     fun validate(template: Template): List<String> {
         val errors = mutableListOf<String>()
 
-        // 类型越界时评级域**判不了**（[TemplateDomains.allowedStatusesFor] 返回 null）。此时跳过每条项目的
-        // 评级检查：否则一个拼错的 type 会让 120 条项目各喷一串 "status … is not allowed"，把真正的病因淹掉。
+        // 类型越界时**只有评级域**判不了（[TemplateDomains.allowedStatusesFor] 返回 null），故只跳过
+        // 「这个评级在不在域内」这一项检查：否则一个拼错的 type 会让 120 条项目各喷一串
+        // "status … is not allowed"，把真正的病因淹掉。与类型无关的检查（含 allowedStatuses 空集）照跑。
         val allowedStatuses = TemplateDomains.allowedStatusesFor(template.type)
         if (allowedStatuses == null) errors += "template: unknown type ${template.type}"
         if (template.version < 1) errors += "template: version must be >= 1"
@@ -56,26 +57,29 @@ object TemplateLoader {
         val seenStableIds = mutableSetOf<String>()
         template.items.forEachIndexed { index, item ->
             // stable_id 空 = 这条项目没有身份：历史对齐只认它，空值会让该项在每次版本升级里都对不上。
-            // 既然点不了名，就按位置报，并跳过这条的其余检查（用 " : textEn is blank" 之类点名没有意义）。
+            // 点不了名就按**位置**标注，其余检查照跑到底——「一次报全」是本校验器对内容卡的承诺，
+            // 不能因为某条缺了身份，就把它剩下的毛病藏到下一轮才让作者看见。
+            val label = if (item.stableId.isBlank()) "item[$index]" else item.stableId
             if (item.stableId.isBlank()) {
-                errors += "item[$index]: stableId is blank"
-                return@forEachIndexed
+                errors += "$label: stableId is blank"
+            } else if (!seenStableIds.add(item.stableId)) {
+                errors += "$label: duplicate stableId"
             }
-            val id = item.stableId
-            if (!seenStableIds.add(id)) errors += "$id: duplicate stableId"
-            if (item.area.isBlank()) errors += "$id: area is blank"
-            if (item.room.isBlank()) errors += "$id: room is blank"
-            if (item.textEn.isBlank()) errors += "$id: textEn is blank"
-            if (item.textZh.isBlank()) errors += "$id: textZh is blank"
-            if (allowedStatuses != null) {
-                if (item.allowedStatuses.isEmpty()) errors += "$id: allowedStatuses is empty"
+            if (item.area.isBlank()) errors += "$label: area is blank"
+            if (item.room.isBlank()) errors += "$label: room is blank"
+            if (item.textEn.isBlank()) errors += "$label: textEn is blank"
+            if (item.textZh.isBlank()) errors += "$label: textZh is blank"
+            if (item.allowedStatuses.isEmpty()) {
+                // 空集与模板类型无关（哪一类都不允许"一个合法评级都没有"），故不在下面的域判分支里。
+                errors += "$label: allowedStatuses is empty"
+            } else if (allowedStatuses != null) {
                 item.allowedStatuses.filterNot { it in allowedStatuses }.forEach { status ->
-                    errors += "$id: status $status is not allowed for template type ${template.type}"
+                    errors += "$label: status $status is not allowed for template type ${template.type}"
                 }
             }
             val photoRule = item.photoRule
             if (photoRule != null && photoRule !in TemplateDomains.PHOTO_RULES) {
-                errors += "$id: unknown photoRule $photoRule"
+                errors += "$label: unknown photoRule $photoRule"
             }
         }
         return errors
