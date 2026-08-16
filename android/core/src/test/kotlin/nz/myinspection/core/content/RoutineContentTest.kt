@@ -11,10 +11,18 @@ import kotlin.test.fail
 /**
  * `data/templates/routine-v1.json` 内容完备性测试（T2-ROUTINE-CONTENT DoD）。
  *
- * 语法/域校验（未知字段、评级域、拍照规则域、必填非空、stableId 唯一）已由
- * [TemplateLoader.validate]（T1-TEMPLATE-ENGINE）逐条覆盖——本类**不重复**那些用例，只测
- * 内容卡自己的契约：项数区间、每房间恰一张 ROOM_PANORAMA、按调研清单的房间/条目覆盖。
- * 引擎抛出的校验错误一律在 [loadRoutine] 里转成可读的 `fail`，帮内容作者一次看全问题。
+ * 语法/域校验（未知字段、评级域、拍照规则域、必填非空、stableId 唯一）由
+ * [TemplateLoader.validate]（T1-TEMPLATE-ENGINE）逐条覆盖，经 [loadRoutine] 转成可读 `fail`——
+ * 本类只加内容卡自己的契约，engine 已判定的一律不重复断言。加的契约：
+ * - 模板身份（type/version 锁定）与 stableId 命名约定（房间-对象-两位序号）；
+ * - 项数区间、房间清单与每房间恰一张 ROOM_PANORAMA；
+ * - 按调研清单的房间/条目覆盖——骨架必需项的存在与房间归属、冰箱/洗衣机检查对象本身（而非
+ *   其摆放空间）、7 点烟雾报警器声明、Healthy Homes 四项日常复核点。
+ *
+ * 这些覆盖断言一律用**逐字文案**（`assertEquals`），不用子串/关键词判定：内容作者随手改一个词、
+ * 或把判断句换成中性标签时漏掉了原有事实，逐字断言会立刻报出旧文案与新文案的差异；子串判定
+ * 容易被"关键词还在、意思已经变了"的改动骗过（如 `contains("condition")` 挡不住把检查对象从
+ * "电器本身"悄悄换成"电器接口"，只要新文案里仍带 "condition" 一词）。
  *
  * 文件由 `android/core/build.gradle.kts` 的 test resources srcDir 注册（`data/templates/`），
  * 走 classpath 读取，不随 Gradle 工作目录漂移。
@@ -33,7 +41,8 @@ class RoutineContentTest {
 
     @Test
     fun `routine-v1 json passes full engine validation`() {
-        // loadRoutine() 本身即断言：validate() 非空清单会在这里 fail，带着全部错误文案。
+        // loadRoutine() 本身即断言：validate() 非空清单会在这里 fail，带着全部错误文案
+        // （含 stableId 唯一性、双语非空——engine 已判定，本类不另开重复用例）。
         loadRoutine()
     }
 
@@ -46,7 +55,7 @@ class RoutineContentTest {
     @Test
     fun `template identity is pinned to ROUTINE v1`() {
         // 类型/版本本身没有被任何内容断言覆盖：把 type 改成 INGOING/EXIT 或 version 改成 2，
-        // 引擎校验与上面的项数/双语/唯一性断言照样全绿——这两个字段只有这里在盯。
+        // 引擎校验与其余内容断言照样全绿——这两个字段只有这里在盯。
         val template = loadRoutine().template
         assertEquals("ROUTINE", template.type)
         assertEquals(1, template.version)
@@ -54,24 +63,10 @@ class RoutineContentTest {
 
     @Test
     fun `every stable id follows the room-object-two-digit-sequence convention`() {
-        // 卡片命名约定：房间缩写-对象-两位序号，恰三段。曾把 GEN-SMOKE-BEDROOM-01 这类四段 id
-        // 悄悄放行过一轮（R3 round 5 拦下）——本测试钉死"恰两个连字符"，不靠肉眼逐条数。
+        // 卡片命名约定：房间缩写-对象-两位序号，恰三段（两个连字符），不靠肉眼逐条数。
         val idPattern = Regex("^[A-Z]{2,4}-[A-Z0-9]+-\\d{2}$")
         val bad = loadRoutine().template.items.map { it.stableId }.filterNot { idPattern.matches(it) }
         assertTrue(bad.isEmpty(), "stableIds must follow ROOM-OBJECT-NN (exactly two hyphens): $bad")
-    }
-
-    @Test
-    fun `every stable id is unique`() {
-        val ids = loadRoutine().template.items.map { it.stableId }
-        val duplicated = ids.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
-        assertEquals(emptySet(), duplicated, "duplicate stableId(s): $duplicated")
-    }
-
-    @Test
-    fun `every item has non-blank English and Chinese text`() {
-        val blanks = loadRoutine().template.items.filter { it.textEn.isBlank() || it.textZh.isBlank() }.map { it.stableId }
-        assertTrue(blanks.isEmpty(), "items missing bilingual text: $blanks")
     }
 
     @Test
@@ -88,7 +83,7 @@ class RoutineContentTest {
     }
 
     @Test
-    fun `coverage matches the researched NZ official form skeleton, no gaps`() {
+    fun `every required stableId from the researched skeleton exists and belongs to its expected room`() {
         val items = loadRoutine().template.items
         val byId = items.associateBy { it.stableId }
 
@@ -109,7 +104,7 @@ class RoutineContentTest {
             for (obj in listOf("CUPBD", "SINK", "OVEN", "FRIDGE", "VENT")) put("KIT-$obj-01", "KITCHEN-DINING")
             for (obj in listOf("MIRROR", "BATH", "SHOWER", "BASIN", "TOILET", "VENT")) put("BTH-$obj-01", "BATHROOM")
             for (obj in listOf("WASHER", "TUB")) put("LDY-$obj-01", "LAUNDRY")
-            // GENERAL：官方表 8 项 + 水表读数
+            // GENERAL：官方表 8 项 + 水表读数（烟雾报警器 7 项另有专门测试覆盖 id/房间/文案三者）
             for (obj in listOf("BIN", "LOCK", "GARAGE", "GROUNDS", "KEYS", "INSUL", "GUTTER", "MOIST", "METER")) {
                 put("GEN-$obj-01", "GENERAL")
             }
@@ -120,27 +115,29 @@ class RoutineContentTest {
             val item = byId[id] ?: fail("missing required item $id (expected room $expectedRoom)")
             assertEquals(expectedRoom, item.room, "$id should belong to room $expectedRoom, found ${item.room}")
         }
+    }
 
+    @Test
+    fun `refrigerator and washing machine items check the appliance's own condition`() {
         // 官方表 KITCHEN/DINING 的 Refrigerator、LAUNDRY 的 Washing machine 是"检查该电器本身
-        // 状况/运行"，不是"检查摆放它的空间/接口"——stableId 存在且落对房间不够，文案若被
-        // 悄悄换成只查空间/接口，等于漏检了供应电器的实际状况，membership+room 两道断言都测不出。
-        assertTrue(byId.getValue("KIT-FRIDGE-01").textEn.contains("condition"), "KIT-FRIDGE-01 must check the refrigerator's own condition, not just its space/connection")
-        assertTrue(byId.getValue("LDY-WASHER-01").textEn.contains("condition"), "LDY-WASHER-01 must check the washing machine's own condition, not just its space/connection")
+        // 状况/运行"，不是"检查摆放它的空间/接口"。逐字断言：子串判 contains("condition") 挡不住
+        // 文案被换成"Refrigerator connection condition"这类关键词命中、检查对象却仍是空间/接口的改动。
+        val byId = loadRoutine().template.items.associateBy { it.stableId }
+        assertEquals("Refrigerator condition and operation", byId.getValue("KIT-FRIDGE-01").textEn)
+        assertEquals("Washing machine condition and operation", byId.getValue("LDY-WASHER-01").textEn)
+    }
 
-        // 7 点烟雾报警器声明：内容对齐 Residential Tenancies (Smoke Alarms and Insulation) Regulations
-        // 2016 规定的 7 项事实要求（卧室 3 米范围 / 每层至少一个 / 房车-独立睡屋 / 制造商到期日 /
-        // 2016-07-01 起 8 年电池或硬连线 / 按说明安装 / 租期开始时确认正常），但**文案系本卡独立撰写**，
-        // 不逐字复制 tenancy.govt.nz 官方表 MB_TEN0004 的措辞——该站版权声明明示「商业性复用需书面授权」
-        // （https://www.tenancy.govt.nz/copyright，R3 round 3 拦住的许可风险）；受保护的是官方选择的具体
-        // 表达，不是法规本身的事实要求，故换一套独立措辞完整保留全部事实点即规避复制风险。
-        // 断言**一对一 stableId → 本卡撰写文案**的精确文案，不是只判存在——只判「这些 id 存在」不够：
-        // 文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
-        //
-        // 精确文案断言本身也有个坑（R3 round 6 抓到，round 5 引入）：把判断句改成中性标签时，
-        // 若把事实一并简化掉，"exact-string oracle" 只会原样锁死那份被简化过的文案——测试照样绿，
-        // 因为它锁的是"作者写了什么"而不是"作者该写什么"。GEN-SMOKEBAT-01 当时简化掉了光电式/
-        // 8 年电池/硬连线/达标这四项事实，GEN-SMOKELVL-01 简化掉了"含无卧室楼层"——均已在此还原，
-        // 且已逐条自查其余 8 项同类改写（无遗漏）。
+    @Test
+    fun `the smoke-alarm declaration group is exactly these 7 authored points, verbatim`() {
+        val items = loadRoutine().template.items
+        val byId = items.associateBy { it.stableId }
+
+        // 7 点烟雾报警器声明：内容对齐 Residential Tenancies (Smoke Alarms and Insulation)
+        // Regulations 2016 规定的 7 项事实要求（卧室/其他睡眠空间 3 米范围内 / 每层含无卧室楼层 /
+        // 房车-独立睡屋 / 制造商到期日 / 2016-07-01 起长效光电或硬连线且达标 / 按说明安装 /
+        // 租期开始时含电池确认正常）。文案系本卡独立撰写、不逐字复制 tenancy.govt.nz 官方表
+        // MB_TEN0004 的措辞——该站版权声明明示商业性复用需书面授权，受保护的是官方选择的具体
+        // 表达而非法规本身的事实要求，故换一套独立措辞完整保留全部事实点以规避复制风险。
         val expectedSmokeText = mapOf(
             "GEN-SMOKEBED-01" to "Smoke alarm coverage in bedrooms and other sleeping spaces (within 3m of door)",
             "GEN-SMOKELVL-01" to "Smoke alarm coverage on each storey / level of the property, including levels with no bedrooms",
@@ -150,23 +147,26 @@ class RoutineContentTest {
             "GEN-SMOKEINS-01" to "Smoke alarm installation method (landlord / agent, per manufacturer instructions)",
             "GEN-SMOKEWRK-01" to "Smoke alarm operating condition, including battery, at tenancy start",
         )
+        // 逐字文案断言：只判「这些 id 存在」不够——文案被替换成别的（哪怕格式相似）不会被单纯的
+        // membership 断言发现；只判「含某关键词」也不够——事实被简化掉、关键词还在照样通过。
         val actualSmokeIds = items.filter { it.room == "GENERAL" && it.stableId.startsWith("GEN-SMOKE") }
             .map { it.stableId }.toSet()
         assertEquals(expectedSmokeText.keys, actualSmokeIds, "the smoke-alarm declaration group must be exactly these 7 points, no more, no fewer")
         for ((id, expectedText) in expectedSmokeText) {
             assertEquals(expectedText, byId.getValue(id).textEn, "$id textEn drifted from its authored content")
         }
+    }
 
-        // Healthy Homes 日常复核点：与官方表天然重合的四项。只判"提到 Healthy Homes 字样"不够——
-        // 文案若被换成别的意思、只留标签，单纯的 contains("Healthy Homes") 测不出（R3 round 5 拦下：
-        // KIT-VENT-01/BTH-VENT-01 当时只说"排风"未说"运行"）。逐项断言其实质内容 + 标签两者都在。
-        val insul = byId.getValue("GEN-INSUL-01").textEn
-        assertTrue(insul.contains("insulation") && insul.contains("Healthy Homes"), "GEN-INSUL-01 must describe insulation condition and read as a Healthy Homes checkpoint")
-        val moist = byId.getValue("GEN-MOIST-01").textEn
-        assertTrue(moist.contains("moisture barrier") && moist.contains("Healthy Homes"), "GEN-MOIST-01 must describe moisture barrier condition and read as a Healthy Homes checkpoint")
-        val kitVent = byId.getValue("KIT-VENT-01").textEn
-        assertTrue(kitVent.contains("operation") && kitVent.contains("Healthy Homes"), "KIT-VENT-01 must describe fan operation and read as a Healthy Homes checkpoint")
-        val bthVent = byId.getValue("BTH-VENT-01").textEn
-        assertTrue(bthVent.contains("operation") && bthVent.contains("Healthy Homes"), "BTH-VENT-01 must describe fan operation and read as a Healthy Homes checkpoint")
+    @Test
+    fun `Healthy Homes checkpoints describe their actual content, verbatim`() {
+        // Healthy Homes 日常复核点：与官方表天然重合的四项（地板下/天花绝缘、防潮布、厨房与浴室
+        // 抽风运行）。逐字断言：子串判 contains("operation") 挡不住文案被换成"Oven operation
+        // (Healthy Homes)"这类关键词命中、检查主体却错误的改动；文案须点名 Healthy Homes 以便
+        // 未来 T6-HHC 按同 stableId 承接。
+        val byId = loadRoutine().template.items.associateBy { it.stableId }
+        assertEquals("Ceiling & underfloor insulation condition (Healthy Homes)", byId.getValue("GEN-INSUL-01").textEn)
+        assertEquals("Ground moisture barrier condition (Healthy Homes)", byId.getValue("GEN-MOIST-01").textEn)
+        assertEquals("Ventilation / range hood extraction fan operation (Healthy Homes)", byId.getValue("KIT-VENT-01").textEn)
+        assertEquals("Ventilation / extractor fan operation (Healthy Homes)", byId.getValue("BTH-VENT-01").textEn)
     }
 }
