@@ -24,17 +24,25 @@ data class CompletenessResult(
  *
  * [DbCompletenessChecker] 是本卡自带的默认实现——只用当前已冻结的 schema 做出一个自洽、可测的判定，
  * 让本卡在没有 capture-core 时也能独立成立。它对"不利发现"的分类是从 `T2-CAPTURE-CORE` 卡文已定的
- * 规则表搬来的临时复制，两边独立演进时可能出现分歧——待 R5 登记为技术债（两个已知残留问题：①这份
- * 分类表与 capture-core 未来的权威实现分道扬镳的风险；②:app 装配层是否需要多连接访问同一 DB——这既
- * 决定了 `FinalizeInspectionUseCase`/`SupplementChainService` 的单事务包装能否覆盖真实并发场景，
- * 也决定了下面这条实现约束能否被机检：实现方须通过调用方注入的 [MyInspectionDatabase] 读写，才能
- * 加入调用方那个事务；若实现方拿自己的连接，`transactionWithResult` 的原子性对它不生效）。
+ * 规则表搬来的临时复制，两边独立演进时可能出现分歧——待 R5 登记为技术债。
  *
- * **实现约束**：实现必须只通过 [FinalizeInspectionUseCase] 传入的同一个 [MyInspectionDatabase] 读写
- * （不得持有/打开自己的连接）——只有这样才能加入调用方已开启的事务。默认实现 [DbCompletenessChecker]
- * 满足这一点（构造器收的就是调用方传入的同一个 `database`），并由回滚判别测试
- * （`FinalizeInspectionUseCaseTest`「if a seam inside the transaction throws after writing...」）证实：
- * 该测试的假实现同样通过同一个 `database` 写入，写入确实随事务一起回滚。
+ * **`check()` 逻辑上只读**：完备性判定不应产生任何写副作用；写是契约违反，不是受支持的用法。类型系统
+ * 拦不住实现方在 `check()` 里写库，故 [FinalizeInspectionUseCase] 把每一条完备性判定后的拒绝路径都用
+ * `rollback` 而非普通返回收尾——一个违反契约、真的写了东西又报"不完整"的实现，它的写会随这条拒绝路径
+ * 一起被撤销，不会留下痕迹（由 `FinalizeInspectionUseCaseTest`「if a seam inside the transaction throws
+ * after writing...」及「a write performed during a rejected completeness check is rolled back...」两条
+ * 用例证实，后者专测"正常返回 RejectedIncomplete"这条路径，前者测异常路径）。
+ *
+ * **实现约束**：若实现确需读写（合规实现不应该），必须只通过 [FinalizeInspectionUseCase] 传入的同一个
+ * [MyInspectionDatabase]（不得持有/打开自己的连接）——只有这样才能加入调用方已开启的事务，`rollback`
+ * 才管得到它。默认实现 [DbCompletenessChecker] 满足这一点（构造器收的就是调用方传入的同一个
+ * `database`），且本身不写。
+ *
+ * **单连接是 v1 契约**：上面的回滚判别测试证明的是单连接事务语义（本用例、`SupplementChainService`
+ * 皆同一连接、同一线程顺序执行）。跨连接的入列/锁竞争语义——比如一个 `CompletenessPort` 实现绑定了
+ * 另一个连接——不在这份契约内，已登记 **TD10**（`specs/tech-debt-tracker.md`，多连接 DB 契约）：待
+ * :app 装配层真的需要多连接时，跟着一个可行的测试驱动方式一起定义；在那之前，评审不得以多连接场景
+ * block 单连接卡。
  */
 fun interface CompletenessPort {
     fun check(inspectionId: String): CompletenessResult

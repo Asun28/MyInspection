@@ -203,6 +203,40 @@ class FinalizeInspectionUseCaseTest {
         assertEquals("DRAFT", row.status, "the inspection itself must remain untouched")
     }
 
+    /**
+     * [CompletenessPort] 契约要求 `check()` 只读（见其 KDoc）——但一个违反契约的实现若真的写了东西，
+     * 又通过**正常返回**（不是异常）报"不完整"，这条路径不同于上面那条：`return@transactionWithResult`
+     * 正常返回本会让 `transactionWithResult` **提交**整个事务，写副作用不会随异常回滚机制被撤销。
+     * 这正是 `rollback(rejected)`（而非 `return rejected`）存在的理由——同一个假 `CompletenessPort`，
+     * 这次不抛异常、只是老老实实报"缺东西"，写入照样必须被撤销，调用方也照样拿到 `RejectedIncomplete`。
+     */
+    @Test
+    fun `a write performed during a rejected completeness check is rolled back even when the port returns normally`() {
+        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
+        val poisonId = uuid.next()
+        val poisonedButNormalCompleteness = CompletenessPort { inspectionId ->
+            database.supplementQueries.insert(
+                id = poisonId, inspection_id = inspectionId, created_at = now, text = "should not survive either",
+                prev_hash = "0".repeat(64), chain_hash = "2".repeat(64), updated_at = now,
+            )
+            CompletenessResult(
+                itemsMissingStatus = listOf(MissingItem(ready.roomInstanceId, "still.missing")),
+                itemsMissingMandatoryPhoto = emptyList(),
+            )
+        }
+        val useCase = FinalizeInspectionUseCase(database, poisonedButNormalCompleteness, fixedClock(now + 1))
+
+        val outcome = useCase.finalize(ready.inspectionId)
+
+        assertIs<FinalizeOutcome.RejectedIncomplete>(outcome, "the rejection result must still reach the caller")
+        assertNull(
+            database.supplementQueries.selectById(poisonId).executeAsOneOrNull(),
+            "a write made during a normally-returning-but-rejected completeness check must be rolled back too",
+        )
+        val row = database.inspectionQueries.selectById(ready.inspectionId).executeAsOne()
+        assertEquals("DRAFT", row.status)
+    }
+
     @Test
     fun `if the inspection is finalized by a racing write during the completeness check, finalize rejects cleanly instead of throwing`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)

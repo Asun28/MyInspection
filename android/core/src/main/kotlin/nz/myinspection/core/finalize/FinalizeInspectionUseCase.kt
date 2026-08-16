@@ -54,7 +54,10 @@ class FinalizeInspectionUseCase(
 
         val completenessResult = completeness.check(inspectionId)
         if (!completenessResult.isComplete) {
-            return@transactionWithResult FinalizeOutcome.RejectedIncomplete(completenessResult)
+            // rollback，不是 return：completeness.check() 的契约要求只读（见 CompletenessPort KDoc），
+            // 但契约违反不由类型系统拦截——若某个实现真的写了东西又报"不完整"，rollback 让这条拒绝路径
+            // 与异常路径同样干净，不留下任何已写的东西，而不是指望"契约写了就一定照办"。
+            rollback(FinalizeOutcome.RejectedIncomplete(completenessResult))
         }
 
         // finalizedAt 须在算哈希前定下来：data_hash 覆盖的快照含 finalizedAt 字段（哈希域），写库时
