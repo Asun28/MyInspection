@@ -135,12 +135,18 @@ class RoutineContentTest {
         // 表达，不是法规本身的事实要求，故换一套独立措辞完整保留全部事实点即规避复制风险。
         // 断言**一对一 stableId → 本卡撰写文案**的精确文案，不是只判存在——只判「这些 id 存在」不够：
         // 文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
+        //
+        // 精确文案断言本身也有个坑（R3 round 6 抓到，round 5 引入）：把判断句改成中性标签时，
+        // 若把事实一并简化掉，"exact-string oracle" 只会原样锁死那份被简化过的文案——测试照样绿，
+        // 因为它锁的是"作者写了什么"而不是"作者该写什么"。GEN-SMOKEBAT-01 当时简化掉了光电式/
+        // 8 年电池/硬连线/达标这四项事实，GEN-SMOKELVL-01 简化掉了"含无卧室楼层"——均已在此还原，
+        // 且已逐条自查其余 8 项同类改写（无遗漏）。
         val expectedSmokeText = mapOf(
             "GEN-SMOKEBED-01" to "Smoke alarm coverage in bedrooms and other sleeping spaces (within 3m of door)",
-            "GEN-SMOKELVL-01" to "Smoke alarm coverage on each storey / level of the property",
+            "GEN-SMOKELVL-01" to "Smoke alarm coverage on each storey / level of the property, including levels with no bedrooms",
             "GEN-SMOKECRV-01" to "Smoke alarm coverage in any on-site caravan, sleep-out or similar structure",
             "GEN-SMOKEXPY-01" to "Smoke alarm expiry / manufacturer replacement date",
-            "GEN-SMOKEBAT-01" to "Smoke alarm type and battery life (alarms installed since 1 July 2016)",
+            "GEN-SMOKEBAT-01" to "Smoke alarm type and battery life for alarms installed since 1 July 2016 (long-life photoelectric, minimum 8-year battery, or hardwired; meets the current regulatory product standard)",
             "GEN-SMOKEINS-01" to "Smoke alarm installation method (landlord / agent, per manufacturer instructions)",
             "GEN-SMOKEWRK-01" to "Smoke alarm operating condition, including battery, at tenancy start",
         )
