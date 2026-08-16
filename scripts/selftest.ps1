@@ -5549,9 +5549,14 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
 '@.Trim()
     $cAb = (Get-Content $cfgAb -Raw)
     $cAb = $cAb.Replace("ReviewCommand = ''", $reviewCmdAb)
-    $cAb = $cAb.Replace("FrozenPaths = @()", "FrozenPaths = @('frozen/t32demo')")   # 基线声明一条冻结契约标准
+    # 基线声明一条冻结契约标准。**整块替换赋值、不匹配某个具体取值**：原写法是
+    # `.Replace("FrozenPaths = @()", …)`，只在生产 _config 恰好为空数组时命中——项目一旦真的冻结了什么
+    # （T1-SCHEMA-CORE 合并时即如此），夹具就静默失配、本闸随之变红，而红的是夹具不是被测契约。
+    # 正则吃掉 `FrozenPaths = @( … )` 的任意排版（单行/多行皆可；数组体内只有带引号的路径，不含右括号）。
+    $cAb = $cAb -replace "(?m)^[ \t]*FrozenPaths\s*=\s*@\([^)]*\)", "  FrozenPaths = @('frozen/t32demo')"
     if (-not $cAb.Contains('[Console]::In.ReadToEnd()')) { Fail '闸17ab：捕获 prompt 的 ReviewCommand stub 未注入（_config 行格式变了？.Replace 没命中）。' }
-    if (-not $cAb.Contains("FrozenPaths = @('frozen/t32demo')")) { Fail '闸17ab：基线 FrozenPaths 条目未注入（_config 的 FrozenPaths = @() 行格式变了？.Replace 没命中）——测的不再是「被审分支清空自身副本仍不能弱化基线冻结标准」。' }
+    if (-not $cAb.Contains("FrozenPaths = @('frozen/t32demo')")) { Fail '闸17ab：基线 FrozenPaths 条目未注入（_config 的 FrozenPaths 赋值行形态超出正则覆盖？）——测的不再是「被审分支清空自身副本仍不能弱化基线冻结标准」。' }
+    if ($cAb -match "(?m)^[ \t]*FrozenPaths\s*=\s*@\([^)]*\)[\s\S]*^[ \t]*FrozenPaths\s*=\s*@\(") { Fail '闸17ab：_config 里出现了多处 FrozenPaths 赋值，整块替换会同时改到它们——夹具语义不再单一，先修配置再跑。' }
     Set-Content $cfgAb $cAb -NoNewline -Encoding utf8
     New-ReviewFixtureRepo $sab 'feat-fz'
     # 被审分支在**自己的** _config 里把 FrozenPaths 清空为 @()（弱化自己被判的冻结契约标准）。
