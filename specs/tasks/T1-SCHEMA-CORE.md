@@ -266,6 +266,27 @@ DoD 全量：`tests` 合计 62（db 45 + model 10 + uuid 7），`failures=0 erro
 本就该按表族拆成 2–3 张。近三轮发现（引用后可变、封闭域无 CHECK、去重无入口）**条条属实且互不相关**——
 这不是评审者挑刺，是一张卡里塞了太多可独立评审的单元。**后续冻结点卡按表族拆**，别再出现单卡十一轮。
 
+## 卡片修订 2026-08-16 之九（R3 第十二轮 · 两条都是**同类第二处**，根因是没做类扫描）
+两条发现——`notice.sent_via` 封闭域无 CHECK、`photo.softDelete` 收 NULL 撞 NOT NULL——**都不是新类**：
+前者与「之七」刚修的九条同类，后者与本卡早已为 `tenancy.purgeContactInfo` 修过的 NULL 守卫同类（测试都还在）。
+**根因是执行者按评审者点名的文件逐一改，没有自己先扫全类**，违反 L97。多打的这一轮账要记在这里。
+
+**本轮改为先扫全类再动手，且扫描口径是「读生成的 Kotlin」而非推理**（Notice.sq recordDelivery 注释里
+记着一次实测教训：曾以为参数在类型层面不可空，读生成代码才发现假设是错的）。两类的扫描结论：
+
+- **封闭域**：全库只剩 `notice.sent_via` 一处。它上一轮漏网是因为**域定义不在列注释里、在需求方卡片里**
+  （`T4-NOTICES.md`「记录送达方式（SMS/EMAIL/LETTER 枚举）」）——按列注释写的扫描天然看不见它。
+  原有 CHECK 只保证 sent_via/sent_at 同生共死，从不约束值本身，而这个值落在**送达审计记录**里，
+  正是 48h 提前量合规的举证材料。NULL 仍合法（已生成未发送）。
+- **可空参数写坏 NOT NULL 列**：全库只有 `photo.softDelete` 一处真实例。其参数同时绑可空的 `deleted_at`
+  与 NOT NULL 的 `updated_at`，故生成为 `Long?`；传 NULL 时 WHERE 全过、UPDATE 真执行、写 `updated_at`
+  时抛**未受控异常**，而本族约定是「守卫不过＝0 行、可重试」。按 `purgeContactInfo` 同款守卫修正。
+  **其余为何安全（记下来，免得下次重推）**：`setSuppressed` / `updateWearOrDamageIfDraft` 形参本就非空；
+  `recordDelivery` / `purgeContactInfo` 已有 `IS NOT NULL` 守卫且有测试；`finalizeIfDraft` 传 NULL 撞 CHECK
+  抛错是**卡里明文规定的行为**，不是缺陷。
+
+两条修复各配 NULL 正例（未发送的通知、被拒后仍可重试的软删），防约束把合法空值一并挡掉。65 测试全绿。
+
 ## 禁止 / 非目标
 见 front-matter。
 
