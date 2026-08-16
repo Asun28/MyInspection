@@ -213,6 +213,33 @@ referenced → 0 行」那一例，消息为 `java.lang.AssertionError: … expe
 造不出新的 RED 相，故 ship 用 `-SkipRed` 并记账。上面那枚变异证明比 RED 相更强：它证明的是「新断言在守卫
 缺席时确实红，且红在指定断言上」，而不只是「某次运行退出码非零」。
 
+## 卡片修订 2026-08-16 之七（R3 第十轮 · 封闭域只写在注释里，没落成 CHECK）
+七张表的列注释声明了封闭枚举（`property.kind` / `is_boarding_house`、`template_version.type`、
+`inspection.type`、`check_item_def.photo_rule`、`inspection_item.wear_or_damage`、`photo.source` /
+`privacy_flag`、`property_item_override.suppressed`），但生成的 API 收任意 String/Long——注释拦不住任何东西。
+而 `inspection.status` **早就有** CHECK：同一份 schema 里两套标准。卡是 ★冻结点，事后补约束要走迁移，故落齐。
+
+**这些列都载重，不是形式主义**：`is_boarding_house` 决定巡检时段上限（19:00 / 18:00），是**不可关闭的合规闸**
+的输入；`inspection.type` 决定「4 周内不得重复 Routine，Ingoing/Exit 不计入」的分流，未知 type 从这条法律上限
+的两侧同时溜走；`privacy_flag` 决定报告是否排除该照片，一个 `2` 就能让含租客物品的照片绕过所有 `= 1` 的排除
+查询进入报告（NZ OPC 判例风险）；`photo_rule` / `suppressed` 的未知值分别被静默读成「无拍照要求」「未抑制」。
+
+**两处刻意不加**（代码注释里同样写明）：`inspection_item.status`——合法评级随模板类型而变，校验归 `:core`，
+卡文明确如此（评审者本人亦如此要求）；`allowed_statuses`——JSON 编码的集合，不是标量域。
+
+**测试写法上的坑（差点假绿）**：`check_item_def` / `inspection_item` / `photo` 的 insert 现为
+`INSERT…SELECT…WHERE EXISTS`，**守卫滤掉的行根本走不到 CHECK**——父行没备齐时插入只是 0 行、不抛异常，
+`assertFailsWith` 会以「没抛＝约束不存在」的**相反理由**变红（或在别的写法下假绿）。故每例先备齐合法父行，
+只把被测那一列换成非法值；两个可空域（`photo_rule` / `wear_or_damage`）各配一条 **NULL 正例**，
+防约束把合法的空值一并挡掉。
+
+**单句删除变异证明**（取风险最高的 `privacy_flag`）：摘掉 `CHECK (privacy_flag IN (0, 1))` 后重跑
+`DbInvariantsTest` —— `tests=18 failures=1 errors=0`，失败的**恰好**是 `photo rejects an unknown source and a
+non-boolean privacy_flag`，消息 `Expected an exception … but was completed successfully`（即「摘掉约束就放行」
+这条契约本身），其余 17 例全绿。`git checkout --` 还原后 SHA256 与变异前一致（L196）。
+
+DoD 全量：`tests` 合计 62（db 45 + model 10 + uuid 7），`failures=0 errors=0`。
+
 ## 禁止 / 非目标
 见 front-matter。
 
