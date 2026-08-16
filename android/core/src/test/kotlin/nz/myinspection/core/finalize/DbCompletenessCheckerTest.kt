@@ -92,9 +92,8 @@ class DbCompletenessCheckerTest {
      * 两个 `room_key` 相同的房间实例（`instance_no` 分别 1/2——唯一索引是 `(inspection_id, room_key,
      * instance_no)`，不是单纯 `room_key`，故这两行今天就能合法共存），只有其中一个缺全景照片：
      * 判定必须按房间**实例**身份区分，只报那一个缺的、不能因为共享 room_key 就把另一个已合规的实例也
-     * 误报成缺。回归 R3 round 10 抓到的粒度退化——`computeMissingPhotos` 的 `MissingRoomPhoto` 本就带
-     * `roomInstanceId`，之前的实现把它降级成只按 `roomKey` 匹配，等于丢弃了 capture 已经算好的实例级
-     * 精度。
+     * 误报成缺——`computeMissingPhotos` 的 `MissingRoomPhoto` 本就带 `roomInstanceId`，按它匹配而不是
+     * 降级成 `roomKey` 匹配，才不会丢弃 capture 已经算好的实例级精度。
      */
     @Test
     fun `two room instances sharing a room_key are judged independently for the panorama requirement`() {
@@ -194,7 +193,7 @@ class DbCompletenessCheckerTest {
             val stableId = "item.$caseIndex"
             FinalizeTestFixtures.insertCheckItemDef(
                 database, uuid, templateVersionId, stableId = stableId, room = "BEDROOM",
-                photoRule = "ADVERSE_ONLY", sort = 1, now = now,
+                photoRule = "ADVERSE_ONLY", sort = 1, type = inspectionType, now = now,
             )
             val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = inspectionType, now = now)
             val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)

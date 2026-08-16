@@ -128,9 +128,8 @@ class FinalizeInspectionUseCaseTest {
 
     /**
      * finalize 只读强制的**真正**用例层实现在 `core/capture`（`InspectionRepository.setItemStatus`，
-     * `check(statusAffected == 1L) { ... }`，`android/core/src/main/kotlin/nz/myinspection/core/capture/
-     * InspectionRepository.kt:225-230`）——那是原始条目实际的写入口，"非 1 行→显式抛出"这道闸长在那里
-     * 才对得上真实调用路径。本卡这里不重复那道闸（`core/finalize` 自己不拥有任何写原始条目的用例），
+     * `check(statusAffected == 1L) { ... }`）——那是原始条目实际的写入口，"非 1 行→显式抛出"这道闸长在
+     * 那里才对得上真实调用路径。本卡这里不重复那道闸（`core/finalize` 自己不拥有任何写原始条目的用例），
      * 只钉住冻结 schema 那条 SQL 谓词本身的行为：对 FINALIZED 巡检直接写 `inspection_item`（无论
      * UPDATE 还是 INSERT）必须落地为 0 行，这是本卡 DoD 依赖的事实、也是 capture 那道闸能生效的前提。
      */
@@ -228,9 +227,8 @@ class FinalizeInspectionUseCaseTest {
      * 同一个事务内，"完备性检查违反契约写了东西"与"另一个合法调用者抢先 finalize 了同一行"，从事务
      * 内部看不出区别——都是"①之后、④真正落地之前，数据库状态已经不是①-③读到的那个了"。故④的
      * `affected != 1L` 分支同样要 `rollback`，不能让完备性检查里的同事务写副作用（不论出于什么原因）
-     * 在一个整体被拒绝的 finalize() 调用里侥幸留下来。这条测试断言的因此是"该写不落地"，不是（旧版本
-     * 断言过的）"该写落地"——旧断言把"同一事务内的副作用"误当成了"另一个连接的真实并发赢家"，而两者在
-     * 单连接单事务下并无可观察的区别（真正的跨连接场景见 TD10）。
+     * 在一个整体被拒绝的 finalize() 调用里侥幸留下来："同一事务内的副作用"与"另一个连接的真实并发
+     * 赢家"在单连接单事务下并无可观察的区别（真正的跨连接场景见 TD10），故这条测试断言该写不落地。
      */
     @Test
     fun `if the final guarded write sees a same-transaction side effect from the completeness seam, the whole transaction rolls back`() {

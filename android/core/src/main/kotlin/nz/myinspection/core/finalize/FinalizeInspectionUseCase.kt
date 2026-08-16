@@ -37,8 +37,7 @@ sealed interface FinalizeOutcome {
  * "再核一次仍是 DRAFT"与"写入"，两者是同一条语句、没有可插入失败的中间窗口。但 [CompletenessPort]
  * 是调用方可换的接口，不保证每个实现都只读——即便某个实现在①里产生了写副作用，事务边界仍然兜底：
  * 该写会随后续任一步的异常一起回滚（见 `FinalizeInspectionUseCaseTest` 的
- * "if a seam inside the transaction throws after writing..." 用例，已用移除事务包装的变异验证过
- * 这条测试确实会因此变红）。
+ * "if a seam inside the transaction throws after writing..." 用例）。
  *
  * **不变量精确表述为**：任何拒绝路径都不会留下 seam 的写副作用被提交——`completeness.check()` 跑完之后
  * 才到达的拒绝路径一律 `rollback`（[CompletenessResult] 不完整、`finalizeIfDraft` 未命中都在此列，

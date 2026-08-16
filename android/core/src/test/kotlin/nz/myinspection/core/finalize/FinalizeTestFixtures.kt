@@ -3,6 +3,7 @@ package nz.myinspection.core.finalize
 import nz.myinspection.core.db.DbTestFixtures
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.db.Uuid7Generator
+import nz.myinspection.core.template.TemplateDomains
 
 /**
  * finalize 卡自己的测试夹具，补 [DbTestFixtures]（`nz.myinspection.core.db`，本卡 `allow_paths` 之外，
@@ -11,7 +12,12 @@ import nz.myinspection.core.db.Uuid7Generator
  */
 internal object FinalizeTestFixtures {
 
-    /** `check_item_def.insert` 带守卫：父版本须存在、且**尚未被任何巡检引用**——故须先于建巡检调用。 */
+    /**
+     * `check_item_def.insert` 带守卫：父版本须存在、且**尚未被任何巡检引用**——故须先于建巡检调用。
+     * `allowed_statuses` 按 [type] 从冻结域 [TemplateDomains.allowedStatusesFor] 取值，不是写死的常量——
+     * 调用方若给 ANNUAL 型模板版本建项却不传 `type = "ANNUAL"`，夹具就会给出与其实际类型域不符的
+     * `allowed_statuses`，与真实建模路径（T1-TEMPLATE-ENGINE 的加载期校验）不符。
+     */
     fun insertCheckItemDef(
         db: MyInspectionDatabase,
         uuid: Uuid7Generator,
@@ -20,13 +26,16 @@ internal object FinalizeTestFixtures {
         room: String = "BEDROOM",
         photoRule: String? = null,
         sort: Long = 1,
+        type: String = "ROUTINE",
         now: Long = DbTestFixtures.NOW,
     ): String {
         val id = uuid.next()
+        val allowedStatuses = checkNotNull(TemplateDomains.allowedStatusesFor(type)) { "unknown inspection type: $type" }
         db.checkItemDefQueries.insert(
             id = id, template_version_id = templateVersionId, stable_id = stableId, area = "INTERIOR",
             room = room, text_en = "Item $stableId", text_zh = "项目 $stableId",
-            allowed_statuses = """["GOOD","FAIR","POOR","NOT_APPLICABLE"]""", photo_rule = photoRule, sort = sort,
+            allowed_statuses = allowedStatuses.joinToString(prefix = "[", postfix = "]") { "\"$it\"" },
+            photo_rule = photoRule, sort = sort,
             created_at = now, updated_at = now,
         )
         return id
