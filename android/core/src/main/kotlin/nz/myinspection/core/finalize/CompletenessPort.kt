@@ -1,6 +1,7 @@
 package nz.myinspection.core.finalize
 
 import nz.myinspection.core.db.MyInspectionDatabase
+import nz.myinspection.core.template.TemplateDomains
 
 /**
  * 指向房间实例内一个具体检查项（未必已在 `inspection_item` 落库——「缺状态」的项恰恰还没有那一行）。
@@ -12,15 +13,20 @@ data class MissingItem(val roomInstanceId: String, val stableId: String)
  *
  * [roomsMissingInstance]：模板要求（至少一项未被抑制）却连 `room_instance` 都没有的房间键——整间房
  * 从未被走查过，是"缺项"里最强的一种，理应与逐项清单一起报给 UI（"哪个房间没做"，不只是"哪个检查项没做"）。
- * 默认空列表，方便只关心逐项判定的调用方（如测试里的假 `CompletenessPort`）不必每次都显式传。
+ * [itemsWithInvalidStatus]：`ADVERSE_ONLY` 判定遇到一个不在冻结域内的评级字符串——不是"这个状态是否
+ * 合法"这层校验的第二道闸（那层的权威在 `core/capture` 的写入口，见 [DbCompletenessChecker] 顶部说明），
+ * 而是"不利发现分类器本身对它能不能给出确定答案"——分类不出来就不能悄悄当成"非不利"放行。
+ * 两者默认空列表，方便只关心逐项判定的调用方（如测试里的假 `CompletenessPort`）不必每次都显式传。
  */
 data class CompletenessResult(
     val itemsMissingStatus: List<MissingItem>,
     val itemsMissingMandatoryPhoto: List<MissingItem>,
     val roomsMissingInstance: List<String> = emptyList(),
+    val itemsWithInvalidStatus: List<MissingItem> = emptyList(),
 ) {
     val isComplete: Boolean
-        get() = itemsMissingStatus.isEmpty() && itemsMissingMandatoryPhoto.isEmpty() && roomsMissingInstance.isEmpty()
+        get() = itemsMissingStatus.isEmpty() && itemsMissingMandatoryPhoto.isEmpty() &&
+            roomsMissingInstance.isEmpty() && itemsWithInvalidStatus.isEmpty()
 }
 
 /**
@@ -80,8 +86,17 @@ fun interface CompletenessPort {
  * 落地、房间键可对应多实例后，这条检查须重新评估：那时"缺房间"可能要变成"数量不足"（对照物业房型数），
  * 而不再是单纯的"存在性"判定。
  *
- * 三类问题分别用 [MissingItem]/[MissingItem]/房间键字符串报告，UI 侧可以统一渲染成"哪几项 + 哪几间房
- * 还没做完"。
+ * **`ADVERSE_ONLY` 分类器本身必须完备（fail-closed），这不是"重新校验状态合法性"的第二道闸**：
+ * 状态字符串合不合法（是否落在 `TemplateDomains.allowedStatusesFor(type)` 域内）由 `core/capture` 的
+ * 写入口（`setItemStatus`，落实 `T1-TEMPLATE-ENGINE` 的评级域契约）在唯一铸造点把关，本类不重复这道闸
+ * （同 `L220`：不变量活在铸造点，不在下游层层复查）。但"不利发现"分类是本类**自己**运行的判定——分类器
+ * 若对一个不在冻结域内的状态字符串默默判"非不利"，那就是分类器本身漏判成 complete（fail-open），
+ * 与"漏建的房间被现状自证悄悄放过"是同一类缺陷，不是要不要重开合法性闸的问题。故域外状态归入
+ * [CompletenessResult.itemsWithInvalidStatus]，域直接取自 [TemplateDomains]（与
+ * `DbCompletenessCheckerTest` 的分类表同一个真相源，不会各说各话）。
+ *
+ * 四类问题分别用 [MissingItem]/[MissingItem]/房间键字符串/[MissingItem] 报告，UI 侧可以统一渲染成
+ * "哪几项 + 哪几间房还没做完"。
  */
 class DbCompletenessChecker(private val database: MyInspectionDatabase) : CompletenessPort {
 
@@ -118,6 +133,7 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
 
         val missingStatus = mutableListOf<MissingItem>()
         val missingPhoto = mutableListOf<MissingItem>()
+        val invalidStatus = mutableListOf<MissingItem>()
 
         for (room in roomInstances) {
             val applicableDefs = checkItemDefs.filter { it.room == room.room_key && it.stable_id !in suppressedStableIds }
@@ -134,9 +150,15 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
                     missingStatus += MissingItem(room.id, def.stable_id)
                     continue
                 }
-                if (def.photo_rule == "ADVERSE_ONLY" && isAdverseStatus(inspection.type, existing.status)) {
-                    val hasItemPhoto = roomPhotos.any { it.inspection_item_id == existing.id }
-                    if (!hasItemPhoto) missingPhoto += MissingItem(room.id, def.stable_id)
+                if (def.photo_rule == "ADVERSE_ONLY") {
+                    when (classifyAdverseness(inspection.type, existing.status)) {
+                        Adverseness.UNCLASSIFIABLE -> invalidStatus += MissingItem(room.id, def.stable_id)
+                        Adverseness.ADVERSE -> {
+                            val hasItemPhoto = roomPhotos.any { it.inspection_item_id == existing.id }
+                            if (!hasItemPhoto) missingPhoto += MissingItem(room.id, def.stable_id)
+                        }
+                        Adverseness.NOT_ADVERSE -> Unit
+                    }
                 }
             }
         }
@@ -145,8 +167,11 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             itemsMissingStatus = missingStatus,
             itemsMissingMandatoryPhoto = missingPhoto,
             roomsMissingInstance = roomsMissingInstance,
+            itemsWithInvalidStatus = invalidStatus,
         )
     }
+
+    private enum class Adverseness { ADVERSE, NOT_ADVERSE, UNCLASSIFIABLE }
 
     private companion object {
         // 租赁四档（nz.myinspection.core.template.TemplateDomains.RENTAL_STATUSES）的不利发现 =
@@ -156,7 +181,16 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
         val RENTAL_ADVERSE = setOf("FAIR", "POOR")
         val ANNUAL_ADVERSE = setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT")
 
-        fun isAdverseStatus(inspectionType: String, status: String): Boolean =
-            status in if (inspectionType == "ANNUAL") ANNUAL_ADVERSE else RENTAL_ADVERSE
+        /**
+         * 域直接取自冻结的 [TemplateDomains]（与分类表测试同一个真相源，不手抄一份副本）：状态不在该
+         * 巡检类型的合法域内——不管是 core/capture 的铸造闸出于某种原因没拦住，还是数据被绕过谓词直连
+         * SQL 腐坏——分类器都不得默默判"非不利"，必须显式报告分类不出来。
+         */
+        fun classifyAdverseness(inspectionType: String, status: String): Adverseness {
+            val domain = if (inspectionType == "ANNUAL") TemplateDomains.ANNUAL_STATUSES else TemplateDomains.RENTAL_STATUSES
+            if (status !in domain) return Adverseness.UNCLASSIFIABLE
+            val adverseSet = if (inspectionType == "ANNUAL") ANNUAL_ADVERSE else RENTAL_ADVERSE
+            return if (status in adverseSet) Adverseness.ADVERSE else Adverseness.NOT_ADVERSE
+        }
     }
 }

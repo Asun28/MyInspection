@@ -170,6 +170,7 @@ class DbCompletenessCheckerTest {
             val result = DbCompletenessChecker(database).check(inspectionId)
             val expected = if (adverse) listOf(MissingItem(roomInstanceId, stableId)) else emptyList()
             assertEquals(expected, result.itemsMissingMandatoryPhoto, "inspectionType=$inspectionType status=$status")
+            assertTrue(result.itemsWithInvalidStatus.isEmpty(), "every legal domain status must classify cleanly, not as invalid: $status")
         }
 
         for (status in TemplateDomains.RENTAL_STATUSES) {
@@ -178,6 +179,35 @@ class DbCompletenessCheckerTest {
         for (status in TemplateDomains.ANNUAL_STATUSES) {
             assertCase("ANNUAL", status, adverse = status in ANNUAL_ADVERSE_LABELS)
         }
+    }
+
+    /**
+     * fail-closed 的另一半：一个不在冻结域内的状态字符串（`Supplement.sq` 式的直连 SQL 腐坏模拟，
+     * 卡文 dod_assert 已明确认可这条路径——`inspection_item.status` 本身无 CHECK，`updateStatusIfDraft`
+     * 也不校验域，故这类腐坏在当前 schema 下并非无法触达，只是不该被这层分类器悄悄当"非不利"放行）。
+     * 分类不出来必须显式报告，而不是让 ADVERSE_ONLY 的分类退化成"能匹配上不利集合才算数、匹配不上就
+     * 放行"——那正是 fail-open。
+     */
+    @Test
+    fun `an ADVERSE_ONLY item with a status outside the frozen domain is reported as invalid, blocking finalize`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "ROUTINE", now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM",
+            photoRule = "ADVERSE_ONLY", sort = 1, now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = "ROUTINE", now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+        val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "wall.paint", status = "GOOD", now = now)
+        // 绕过谓词直连 SQL，把状态改成一个不在 RENTAL_STATUSES 域内的字符串——updateStatusIfDraft 本身
+        // 不校验域，故这条腐坏路径在当前 schema 下是可触达的，不是纯假设场景。
+        driver.execute(null, "UPDATE inspection_item SET status = 'BOGUS_STATUS' WHERE id = '$itemId'", 0)
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(listOf(MissingItem(roomInstanceId, "wall.paint")), result.itemsWithInvalidStatus)
+        assertTrue(result.itemsMissingMandatoryPhoto.isEmpty(), "an unclassifiable status is reported once, not doubled into the photo list too")
+        assertTrue(!result.isComplete, "an invalid status must block finalize")
     }
 
     @Test
