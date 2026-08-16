@@ -1637,3 +1637,19 @@
 - rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装
 - enforced_by: 
 - refs: 
+
+## L227
+- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片要求把独立第二模型复核记录/证据附进 PR（如 T2-PHRASELIB 的 deepseek-rescue 复核记录），写进 PR body 后 R3 仍以「未见证据」block——两轮均如此
+- root_cause: scripts/review.ps1 只把 git diff 喂给 codex 评审者（見 gh pr comment 用于回贴结果，全脚本无 gh pr view/--json body 读 PR 描述的调用），PR body/描述从未进入评审者的上下文；凡卡片要求「记录进 PR」的证据，只写 PR body 对 R3 不可见，等同没写
+- rule: 凡卡片/rubric 要求评审者能看到的证据（如独立复核记录），必须落进 diff 本身能读到的位置：改动文件的 KDoc/注释、或 commit message 正文（review.ps1 喂给评审者的是 diff，commit message 是否随 diff 一并喂入需按 review.ps1 实际实现核实，不确定时优先落文件内注释，最可靠）；PR body/描述只对人类可见，别指望它进 R3 评审上下文
+- enforced_by: 
+- refs: 
+
+## L228
+- date: 2026-08-17 ｜ tags: design,completeness,gates,fail-closed ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: W2 三处同类缺陷全靠 R3 才抓到：capture 的 adverse 状态表手抄漏真值、finalize 完备性检查从 room_instance 现存行推导应查房间集（整房缺失=静默通过）、finalize 分类器对未知 status 落空成「非不利→无需照片」
+- root_cause: 把「门」写成偏函数：检查宇宙从现存数据推导（查什么=有什么，循环论证）、分类分支不全（未知值落进默认分支=fail-open）。门的语义恰恰是最后一道，它 fail-open 就没有下一道了
+- rule: 完备性/合规/分类「门」必须全函数且 fail-closed：①检查宇宙从契约源（模板/冻结域常量）推导，绝不从被检数据推导；②枚举分类必须穷尽+未分类值显式判「缺陷/不完整」，禁落默认分支；③域常量单一真相源（生产与测试同源派生，防手抄漂移）。T4-COMPLIANCE-ENGINE（阻断闸引擎）落地时此条为设计前置
+- enforced_by: 
+- refs: 
