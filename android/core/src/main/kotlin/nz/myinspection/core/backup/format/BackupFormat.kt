@@ -102,8 +102,20 @@ sealed class BackupException(message: String, cause: Throwable? = null) : IOExce
 /** 结构/字段非法：不是备份包、版本读不懂、manifest 形态不对、写入方给的声明自相矛盾。 */
 class BackupFormatException(message: String, cause: Throwable? = null) : BackupException(message, cause)
 
-/** 口令错。**无口令找回**（无服务端，ADR-0002），格式层也不留后门。 */
+/**
+ * 口令不对——**或者头里的盐/迭代数/校验值被改过**。这两件事在密码学上不可区分：口令校验值是由
+ * 「口令 + 头里的盐与迭代数」算出来的，改任何一样都得到同一个「对不上」。本层不假装能分辨，
+ * 只给出一个可行动的信号（让用户重输口令）；若口令确实没错，那就是包坏了，改用别的备份。
+ * **无口令找回**（无服务端，ADR-0002），格式层也不留后门。
+ */
 class WrongPassphraseException(message: String) : BackupException(message)
+
+/**
+ * 读取来源那侧的 IO 故障（SAF 授权被收回、文件被拔走、网络盘断线）。
+ * 与 [BackupSinkException] 对称，**刻意不属于 [BackupException]**：把来源故障报成「备份包损坏」，
+ * 会让用户以为备份废了而去删掉一份其实完好的包。
+ */
+class BackupSourceException(message: String, cause: Throwable) : IOException(message, cause)
 
 /** 包损坏或被篡改：GCM tag 失败、块被重排/丢失/截断、包内容与 manifest 不符。 */
 class BackupCorruptException(message: String, cause: Throwable? = null) : BackupException(message, cause)
@@ -197,6 +209,24 @@ internal fun readAtMost(input: InputStream, limit: Int): ByteArray {
         collected.write(buffer, 0, read)
     }
     return collected.toByteArray()
+}
+
+/**
+ * 把调用方的输入流包一层，好让**来源的 IO 故障**（SAF 授权被收回、盘断线）与**包本身损坏**分得开。
+ * 不包的话，两者都以 [IOException] 冒出来，读取器只能一律归为「包损坏」——那是会让用户删掉好备份的误诊。
+ */
+internal class SourceInputStream(private val delegate: InputStream) : InputStream() {
+    override fun read(): Int = guard { delegate.read() }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int = guard { delegate.read(b, off, len) }
+
+    private inline fun guard(block: () -> Int): Int = try {
+        block()
+    } catch (e: BackupSourceException) {
+        throw e
+    } catch (e: IOException) {
+        throw BackupSourceException("读取备份包来源失败（是来源那侧的 IO 故障，不是包坏了）", e)
+    }
 }
 
 /** 读满整个缓冲区或读到流尾，返回实际读到的字节数（[InputStream.readNBytes] 要 Android API 33，不能用）。 */

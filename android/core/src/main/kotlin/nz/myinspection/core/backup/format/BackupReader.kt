@@ -35,30 +35,41 @@ interface BackupSink {
 object BackupReader {
 
     fun read(input: InputStream, passphrase: CharArray, sink: BackupSink): BackupManifest {
+        // 来源流先包一层：来源那侧的 IO 故障从此带着自己的类型冒出去，不会被误诊成「包损坏」。
+        val source = SourceInputStream(input)
         try {
-            val header = BackupHeader.readFrom(input)
+            val header = BackupHeader.readFrom(source)
             val derived = deriveKeyAndVerifier(passphrase, header.salt, header.kdfIterations)
             try {
-                // 口令校验值先判：这样「口令错」不必等到最后一块 tag 失败才知道，
-                // 也不会与「包被改过」混成同一句报错。
+                // 口令校验值先判：口令错不必等到第一块 tag 失败才知道。**它判不出「口令错」还是
+                // 「头被改过」**——校验值是「口令 + 头里的盐与迭代数」算出来的，改任何一样都得到同一个
+                // 「对不上」（[WrongPassphraseException] 的文档写明了这层歧义）。头的真伪要等第一块
+                // GCM tag（AAD = 整个头）才有定论，那时错的已经是密文侧的诊断了。
                 if (!MessageDigest.isEqual(derived.verifier, header.passphraseVerifier)) {
-                    throw WrongPassphraseException("口令错：无法用该口令打开此备份包（本格式无口令找回，ADR-0002）")
+                    throw WrongPassphraseException("口令错，或包头被改动过（两者不可区分）：无法打开此备份包。本格式无口令找回（ADR-0002）")
                 }
-                return expand(input, header, derived.key, sink)
+                return expand(source, header, derived.key, sink)
             } finally {
                 derived.wipe()
             }
+        } catch (e: BackupSourceException) {
+            throw e // 来源那侧的故障，不是包的问题
         } catch (e: BackupSinkException) {
-            throw e // 调用方的故障，不是包的问题
+            throw e // 调用方落盘那侧的故障，同上
         } catch (e: BackupException) {
             throw e
         } catch (e: IOException) {
             throw BackupCorruptException("备份包读取失败（截断 / 损坏 / 完整性校验未过）", e)
         } catch (e: GeneralSecurityException) {
             throw BackupCorruptException("备份包完整性校验未过：GCM tag 不匹配（内容被改动过，或口令对应的是另一份包）", e)
-        } catch (e: RuntimeException) {
-            // 解压链对损坏输入抛的是未受检异常（如 ZipInputStream 的 IllegalArgumentException("MALFORMED")）。
-            // 敌意输入绝不允许以原始形态冒到 UI（DoD：不崩溃）——一律归为「包损坏」，cause 保留供诊断。
+        } catch (e: IllegalArgumentException) {
+            // 解压链对损坏输入抛的是未受检异常（ZipInputStream 遇坏条目名抛 IllegalArgumentException("MALFORMED")，
+            // Inflater/canon 亦然）。**只收这三类已知的解析失败**——NPE 之类是本层自己的 bug，
+            // 让它原样冒出去，别被「包损坏」盖住（DoD 要的是敌意输入不崩溃，不是所有异常都改名）。
+            throw BackupCorruptException("备份包损坏（解析时抛出 ${e.javaClass.simpleName}）", e)
+        } catch (e: IllegalStateException) {
+            throw BackupCorruptException("备份包损坏（解析时抛出 ${e.javaClass.simpleName}）", e)
+        } catch (e: IndexOutOfBoundsException) {
             throw BackupCorruptException("备份包损坏（解析时抛出 ${e.javaClass.simpleName}）", e)
         }
     }
@@ -104,37 +115,46 @@ object BackupReader {
 
     private fun extract(zip: ZipInputStream, file: BackupFileEntry, sink: BackupSink) {
         val target = sinkCall("打开 ${file.relPath}") { sink.openFile(file) }
-        var verified = false
         try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(BackupFormat.COPY_BUFFER_BYTES)
-            var total = 0L
-            while (true) {
-                val read = zip.read(buffer)
-                if (read < 0) break
-                if (read == 0) continue
-                total += read
-                if (total > file.sizeBytes) {
-                    // 越界的字节一个都不交给调用方：声明 4 字节、实塞 4 MiB 的解压炸弹必须在这里停手，
-                    // 而不是先写满磁盘再说哈希不对。
-                    throw BackupCorruptException("包内文件比 manifest 声明的大：${file.relPath} 声明 ${file.sizeBytes} 字节")
-                }
-                digest.update(buffer, 0, read)
-                if (target != null) sinkCall("写入 ${file.relPath}") { target.write(buffer, 0, read) }
-            }
-            if (total != file.sizeBytes) {
-                throw BackupCorruptException("包内文件字节数与 manifest 不符：${file.relPath} 声明 ${file.sizeBytes}，实得 $total")
-            }
-            val actual = toHexLower(digest.digest())
-            if (actual != file.sha256) {
-                throw BackupCorruptException("包内文件 SHA-256 与 manifest 不符：${file.relPath}")
-            }
-            verified = true
-        } finally {
+            copyVerified(zip, target, file)
+        } catch (primary: Throwable) {
+            // 失败路径也要关，但 close 自己再炸时**不得吞掉**首因——挂成 suppressed，两条线索都留给诊断。
             if (target != null) {
-                // 成功路径上的 close 失败必须冒出去（没 flush 成功 = 数据没落地）；失败路径上只求释放资源。
-                if (verified) sinkCall("关闭 ${file.relPath}") { target.close() } else runCatching { target.close() }
+                try {
+                    target.close()
+                } catch (closeFailure: Throwable) {
+                    primary.addSuppressed(closeFailure)
+                }
             }
+            throw primary
+        }
+        // 成功路径上的 close 失败必须冒出去：没 flush 成功 = 数据其实没落地。
+        if (target != null) sinkCall("关闭 ${file.relPath}") { target.close() }
+    }
+
+    private fun copyVerified(zip: ZipInputStream, target: OutputStream?, file: BackupFileEntry) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(BackupFormat.COPY_BUFFER_BYTES)
+        var total = 0L
+        while (true) {
+            val read = zip.read(buffer)
+            if (read < 0) break
+            if (read == 0) continue
+            total += read
+            if (total > file.sizeBytes) {
+                // 越界的字节一个都不交给调用方：声明 4 字节、实塞 4 MiB 的解压炸弹必须在这里停手，
+                // 而不是先写满磁盘再说哈希不对。
+                throw BackupCorruptException("包内文件比 manifest 声明的大：${file.relPath} 声明 ${file.sizeBytes} 字节")
+            }
+            digest.update(buffer, 0, read)
+            if (target != null) sinkCall("写入 ${file.relPath}") { target.write(buffer, 0, read) }
+        }
+        if (total != file.sizeBytes) {
+            throw BackupCorruptException("包内文件字节数与 manifest 不符：${file.relPath} 声明 ${file.sizeBytes}，实得 $total")
+        }
+        val actual = toHexLower(digest.digest())
+        if (actual != file.sha256) {
+            throw BackupCorruptException("包内文件 SHA-256 与 manifest 不符：${file.relPath}")
         }
     }
 

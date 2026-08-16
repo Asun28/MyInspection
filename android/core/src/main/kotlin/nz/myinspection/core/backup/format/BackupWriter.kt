@@ -30,8 +30,11 @@ object BackupWriter {
     /**
      * 写出一份备份包，返回实际写进包里的 manifest。
      *
+     * **迭代数与熵源在生产入口上不可配置**：能被传进 1 次迭代或一个可预测的 `SecureRandom` 的公开 API，
+     * 等于把「租客数据必须被真正加密」这条要求交给每个调用点自觉。要弱化只能走 internal 的 [writeWith]
+     * 测试缝（卡片允许测试用小迭代数——迭代数写在头里，故读侧不受影响）。
+     *
      * @param scope 数据集范围；按物业导出时只有该物业的资产 + 库级资产进包。
-     * @param kdfIterations PBKDF2 迭代数（写进头，故测试用小迭代数是合法的）。
      */
     fun write(
         out: OutputStream,
@@ -40,7 +43,26 @@ object BackupWriter {
         createdAtMs: Long,
         appVersion: String,
         files: List<BackupSourceFile>,
-        kdfIterations: Int = BackupFormat.DEFAULT_KDF_ITERATIONS,
+    ): BackupManifest = writeWith(
+        out = out,
+        passphrase = passphrase,
+        scope = scope,
+        createdAtMs = createdAtMs,
+        appVersion = appVersion,
+        files = files,
+        kdfIterations = BackupFormat.DEFAULT_KDF_ITERATIONS,
+        random = SecureRandom(),
+    )
+
+    /** 测试缝：只有 :core 模块内部（含测试源集）能调，用来把迭代数压到小值、或钉住熵源。 */
+    internal fun writeWith(
+        out: OutputStream,
+        passphrase: CharArray,
+        scope: BackupScope,
+        createdAtMs: Long,
+        appVersion: String,
+        files: List<BackupSourceFile>,
+        kdfIterations: Int,
         random: SecureRandom = SecureRandom(),
     ): BackupManifest {
         checkSources(files)

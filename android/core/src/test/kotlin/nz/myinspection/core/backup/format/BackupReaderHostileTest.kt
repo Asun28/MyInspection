@@ -114,6 +114,18 @@ class BackupReaderHostileTest {
     }
 
     @Test
+    fun `a close failure during a failed extraction is kept as a suppressed diagnostic`() {
+        // 出错时也得把 sink 关掉，但 close 自己再炸时不能盖掉首因——两条线索都要留给诊断，
+        // 否则「为什么恢复失败」只剩下后发生的那一个。
+        val lying = manifestOf(BackupFileEntry("db.sqlite", db.size.toLong(), sha256Of(ByteArray(64) { 7 })))
+        val failure = assertFailsWith<BackupCorruptException> {
+            read(buildArchive(lying, listOf("db.sqlite" to db)), RecordingSink(failOnClose = true))
+        }
+        assertEquals(1, failure.suppressed.size, "close 的失败必须挂成 suppressed，不得被吞")
+        assertTrue(failure.suppressed[0] is java.io.IOException)
+    }
+
+    @Test
     fun `an entry shorter than its declared size is rejected`() {
         val lying = manifestOf(BackupFileEntry("db.sqlite", 64, sha256Of(db)))
         assertFailsWith<BackupCorruptException> { read(buildArchive(lying, listOf("db.sqlite" to db.copyOf(32)))) }

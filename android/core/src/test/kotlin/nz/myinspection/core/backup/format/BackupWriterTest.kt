@@ -24,7 +24,7 @@ class BackupWriterTest {
         iterations: Int = TEST_ITERATIONS,
         out: ByteArrayOutputStream = ByteArrayOutputStream(),
     ): ByteArray {
-        BackupWriter.write(out, passphrase, scope, createdAt, "1.4.2", files, iterations)
+        BackupWriter.writeWith(out, passphrase, scope, createdAt, "1.4.2", files, iterations)
         return out.toByteArray()
     }
 
@@ -60,6 +60,17 @@ class BackupWriterTest {
         assertFailsWith<BackupException> {
             BackupReader.read(ByteArrayInputStream(out.toByteArray()), TEST_PASSPHRASE, RecordingSink())
         }
+    }
+
+    @Test
+    fun `the public writer cannot be configured below the approved kdf strength`() {
+        // 公开入口刻意没有迭代数/熵源参数（可配置版是 internal 测试缝）。这条断言钉住它写出来的头
+        // 确实带着批准的强度——否则「加密备份」这句承诺就落在每个调用点的自觉上。
+        val out = ByteArrayOutputStream()
+        BackupWriter.write(out, TEST_PASSPHRASE, BackupScope.Full, createdAt, "1.4.2", listOf(sourceFile("db.sqlite", db)))
+        val header = BackupHeader.decode(out.toByteArray().copyOf(BackupFormat.HEADER_BYTES))
+        assertEquals(BackupFormat.DEFAULT_KDF_ITERATIONS, header.kdfIterations)
+        assertEquals(210_000, BackupFormat.DEFAULT_KDF_ITERATIONS)
     }
 
     @Test

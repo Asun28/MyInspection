@@ -38,7 +38,7 @@ class BackupRoundTripTest {
         passphrase: CharArray = TEST_PASSPHRASE,
     ): Pair<ByteArray, BackupManifest> {
         val out = ByteArrayOutputStream()
-        val manifest = BackupWriter.write(
+        val manifest = BackupWriter.writeWith(
             out = out,
             passphrase = passphrase,
             scope = scope,
@@ -173,7 +173,7 @@ class BackupRoundTripTest {
                 super.close()
             }
         }
-        BackupWriter.write(out, TEST_PASSPHRASE, BackupScope.Full, createdAt, "1.4.2", dataset(), TEST_ITERATIONS)
+        BackupWriter.writeWith(out, TEST_PASSPHRASE, BackupScope.Full, createdAt, "1.4.2", dataset(), TEST_ITERATIONS)
         assertFalse(out.closed, "写入器不得关闭调用方的输出流")
 
         val input = object : ByteArrayInputStream(out.toByteArray()) {

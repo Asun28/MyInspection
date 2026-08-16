@@ -37,6 +37,7 @@ internal fun sourceFile(relPath: String, bytes: ByteArray, owner: String? = null
 internal class RecordingSink(
     private val skipFiles: Set<String> = emptySet(),
     private val failOn: String? = null,
+    private val failOnClose: Boolean = false,
 ) : BackupSink {
     var manifest: BackupManifest? = null
     var manifestCalls = 0
@@ -68,6 +69,7 @@ internal class RecordingSink(
             override fun close() {
                 closed.add(relPath)
                 files[relPath] = bytes.toByteArray()
+                if (failOnClose) throw java.io.IOException("关闭时落盘失败（模拟调用方 IO 故障）")
             }
         }
     }

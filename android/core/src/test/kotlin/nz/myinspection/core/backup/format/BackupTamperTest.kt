@@ -25,7 +25,7 @@ class BackupTamperTest {
 
     private fun archive(): ByteArray {
         val out = ByteArrayOutputStream()
-        BackupWriter.write(
+        BackupWriter.writeWith(
             out = out,
             passphrase = TEST_PASSPHRASE,
             scope = BackupScope.Full,
@@ -56,16 +56,71 @@ class BackupTamperTest {
     }
 
     @Test
-    fun `flipping any single byte anywhere in the archive is rejected`() {
+    fun `flipping any single byte anywhere in the archive is rejected with the right diagnosis`() {
+        // 「一律被拒」还不够：**拒的理由也必须对**，否则「口令错」与「包被改过」这两种诊断名存实亡
+        // （前者叫用户重输口令，后者叫他换一份备份）。这里逐字段钉死，布局见 BackupHeaderTest 的黄金串。
         val original = archive()
         for (offset in original.indices) {
             val tampered = original.copyOf()
             tampered[offset] = (tampered[offset].toInt() xor 0x01).toByte()
-            assertFailsWith<BackupException>("偏移 $offset 的单比特翻转被静默接受了") {
+            val failure = assertFailsWith<BackupException>("偏移 $offset 的单比特翻转被静默接受了") {
                 BackupReader.read(ByteArrayInputStream(tampered), TEST_PASSPHRASE, RecordingSink())
             }
+            assertEquals(
+                expectedRejection(offset),
+                failure::class,
+                "偏移 $offset（${fieldAt(offset)}）被拒了，但诊断不对",
+            )
         }
         assertTrue(original.size > BackupFormat.HEADER_BYTES + 16, "样本须同时覆盖头、密文与 GCM tag")
+    }
+
+    private fun fieldAt(offset: Int): String = when (offset) {
+        in 0..7 -> "magic"
+        in 8..9 -> "format_version"
+        in 10..11 -> "kdf_id"
+        12 -> "kdf_iterations 最高字节"
+        in 13..15 -> "kdf_iterations 低字节"
+        in 16..31 -> "salt"
+        in 32..38 -> "nonce_prefix"
+        in 39..46 -> "passphrase_verifier"
+        else -> "密文体"
+    }
+
+    private fun expectedRejection(offset: Int) = when (offset) {
+        // 头的自描述字段：结构上就读不下去（翻转最高字节会把迭代数顶到上界之外，同属结构非法）。
+        in 0..12 -> BackupFormatException::class
+        // 盐 / 迭代数低位 / 校验值：三者都参与口令校验值的计算，改哪个都得到同一个「对不上」——
+        // 与「口令真的错了」在密码学上不可区分，所以只能报同一种，这正是 WrongPassphraseException 文档里的那层歧义。
+        in 13..31, in 39..46 -> WrongPassphraseException::class
+        // nonce 前缀不参与派生，故校验值照样对得上；错的是解密，由第一块的 GCM tag 抓住。
+        else -> BackupCorruptException::class
+    }
+
+    @Test
+    fun `a failing source stream is reported as a source error not as a corrupt archive`() {
+        // SAF 授权被收回 / 盘断线是**来源**那侧的故障。把它报成「备份包损坏」，用户会去删掉一份其实完好的备份。
+        val original = archive()
+        val flaky = object : java.io.InputStream() {
+            private val inner = ByteArrayInputStream(original)
+            private var served = 0
+
+            override fun read(): Int {
+                val one = ByteArray(1)
+                return if (read(one, 0, 1) < 0) -1 else one[0].toInt() and 0xFF
+            }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (served >= BackupFormat.HEADER_BYTES) throw IOException("SAF 授权被收回（模拟来源 IO 故障）")
+                val read = inner.read(b, off, minOf(len, BackupFormat.HEADER_BYTES - served))
+                if (read > 0) served += read
+                return read
+            }
+        }
+        val failure = assertFailsWith<BackupSourceException> {
+            BackupReader.read(flaky, TEST_PASSPHRASE, RecordingSink())
+        }
+        assertTrue(failure.cause is IOException)
     }
 
     @Test
@@ -93,7 +148,7 @@ class BackupTamperTest {
             files += sourceFile("photos/2026/p" + i.toString().padStart(4, '0') + ".jpg", byteArrayOf(i.toByte()), owner = "prop-A")
         }
         val out = ByteArrayOutputStream()
-        BackupWriter.write(out, TEST_PASSPHRASE, BackupScope.Full, createdAt, "1.4.2", files, TEST_ITERATIONS)
+        BackupWriter.writeWith(out, TEST_PASSPHRASE, BackupScope.Full, createdAt, "1.4.2", files, TEST_ITERATIONS)
         val archive = out.toByteArray()
 
         val sink = RecordingSink()
