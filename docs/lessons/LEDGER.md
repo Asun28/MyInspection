@@ -1607,12 +1607,12 @@
 - refs: 
 
 ## L223
-- date: 2026-08-16 ｜ tags: content-authoring,license,primary-source,exact-string-oracle,regulatory-text ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: T2-ROUTINE-CONTENT 卡：9 轮 R3 才合并（原计划 1-2 轮）
+- date: 2026-08-16 ｜ tags: content-authoring,license,primary-source,exact-string-oracle,regulatory-text ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: T2-ROUTINE-CONTENT 卡：9 轮 R3 才合并（原计划 1-2 轮）；T2-PHRASELIB 卡：line 37 译文把中性的 "staining" 转写成暗示主动渗漏的"渗水痕迹"，R3 一轮点出即改正
 - symptom: 法规衍生声明/合规勾选类条目（如 7 点烟雾报警器声明）从调研摘要转写时，同一条目家族连续 4 轮 R3 block：先凭印象编造具体数值（10 年电池，官方实为 8 年）且遗漏声明点（房车/安装方式）；改成逐字抄官方表又撞版权（tenancy.govt.nz 商业复用需书面授权）；改成独立措辞的中性标签时又把法定事实压缩掉（8年电池/光电式/硬连线/达标四项、storey 的"含无卧室楼层"、bedroom 的 in-room-OR-3m 替代结构逐次丢失）；每次都被 exact-string oracle 原样锁死那份错误文案，测试全绿。
 - root_cause: 法规衍生条目对措辞精度要求远高于普通检查项——每个 or/each/every/within/minimum 都是法律意义上的替代关系或范围边界；无论是为了简洁还是为了避版权而做的转写，天然倾向丢弃这类连接词/限定词。exact-string 断言只证明"文案没有意外漂移"，证明不了"文案本身是对的"——它把作者写错的内容和写对的内容钉得一样死，测试绿≠内容对。
 - rule: ① 法规衍生的声明/勾选类条目，撰写前必须先取得逐条主文本（官方表 PDF 或立法原文，而非调研摘要的转述关键词）逐句核对再动笔，不得凭摘要"合理推断"数值/日期/替代关系。② 若主文本受版权保护（commercial reuse 需书面授权），改独立措辞时逐条二次核对：每个 or/each/every/within/minimum 等替代词/限定词必须原样保留其逻辑结构，只许换外壳词汇、不许压缩逻辑（含"中性化改写去掉判断句"时）。③ exact-string oracle 只锁"稳定"不锁"正确"；写完仍须回主文本逐句复核，不能靠"测试绿了"自证内容对——mutation-proof 只证明断言在测，不证明断言值本身无误。
-- enforced_by: none（暂无机检；R3 codex-review 人工/第二模型评审兜底，见 T2-ROUTINE-CONTENT PR#5 连续 4 轮实证）
-- refs: 
+- enforced_by: none（暂无机检；R3 codex-review 人工/第二模型评审兜底，见 T2-ROUTINE-CONTENT PR#5 连续 4 轮实证；T2-PHRASELIB PR#10 line 37 复发一例）
+- refs: T2-PHRASELIB PR#10（damage 分类短语译文精度漂移，同类根因）
 
 ## L224
 - date: 2026-08-16 ｜ tags: review,tests,refactor ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
