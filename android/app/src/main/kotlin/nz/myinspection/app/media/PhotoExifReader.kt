@@ -2,6 +2,7 @@ package nz.myinspection.app.media
 
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.time.DateTimeException
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -43,7 +44,15 @@ object PhotoExifReader {
             return null
         }
         val offsetRaw = exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL)
-        val zone = offsetRaw?.let { runCatching { ZoneOffset.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
+        // 只捕获 ZoneOffset.of 文档化会抛的 DateTimeException（offset 字符串格式不符）——不用
+        // runCatching 兜一切：那样连"这段代码本身有 bug"的异常都会被悄悄当成"offset 解析失败"处理掉。
+        val zone = offsetRaw?.let {
+            try {
+                ZoneOffset.of(it)
+            } catch (e: DateTimeException) {
+                null
+            }
+        } ?: ZoneId.systemDefault()
         return local.atZone(zone).toInstant().toEpochMilli()
     }
 }

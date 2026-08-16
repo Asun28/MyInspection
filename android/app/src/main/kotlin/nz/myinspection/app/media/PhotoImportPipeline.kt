@@ -1,6 +1,7 @@
 package nz.myinspection.app.media
 
 import android.graphics.BitmapFactory
+import android.util.Log
 import java.io.File
 import java.io.InputStream
 import java.security.DigestInputStream
@@ -17,8 +18,7 @@ data class PhotoImportResult(val plan: PhotoIngestPlan, val exifTimeMs: Long?)
  * 文件）、**边拷贝边对原始字节求 SHA-256**（`DigestInputStream` 包一层，单次读流即完成拷贝+摘要，不再
  * 额外把整份文件读进内存二次求哈希——大图片也不会因此撑爆内存）→ 去重命中则丢弃临时副本、只建新关联；
  * 未命中则按临时副本自身的 EXIF orientation 转正烘焙、编码后落到派生路径。**最终存储的永远是转正后的
- * 版本，无论来源**，临时副本用后即删（best-effort：删除失败只留一份多余的临时缓存文件，不是证据丢失，
- * 不值得为此把整条导入流程判失败）。
+ * 版本，无论来源**，临时副本用后即删。
  *
  * [activeAssetLookup] 同 [CameraPhotoIngestPipeline]：按本函数内部算出的（原始字节）contentHash 调用，
  * 不接调用方预查的结果——原因同上，调用方在拿到本函数产出的哈希前不可能知道该查哪个哈希。
@@ -26,6 +26,8 @@ data class PhotoImportResult(val plan: PhotoIngestPlan, val exifTimeMs: Long?)
  * （见卡片 `non_goals`：批量导入分配界面）；本函数只接一个已打开的输入流，并负责关闭它。
  */
 object PhotoImportPipeline {
+    private const val TAG = "PhotoImportPipeline"
+
     fun ingest(
         sourceStream: InputStream,
         tempDir: File,
@@ -35,11 +37,16 @@ object PhotoImportPipeline {
         mediaRoot: File,
         activeAssetLookup: (contentHash: String) -> List<String>,
     ): PhotoImportResult {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val tempFile = DigestInputStream(sourceStream, digest).use { digesting ->
-            MediaFileStore.copyInto(digesting, tempDir, "$photoId.import.tmp")
-        }
+        // tempFile 的路径在进 try 之前就算好（纯函数、不摸磁盘）——不依赖 DigestInputStream.use{} 的
+        // 返回值。这样即便 use{} 内部关闭 sourceStream 时抛异常（此时 copyInto 早已把文件写完/发布到
+        // 这个路径），下面的 finally 仍认得这个路径、能把它清掉；若改成"tempFile = use{...}的返回值"，
+        // 关流异常会让整条赋值语句失败，try/finally 都进不去，已落盘的临时文件就此永久孤儿。
+        val tempFile = MediaFileStore.resolve(tempDir, "$photoId.import.tmp")
         try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            DigestInputStream(sourceStream, digest).use { digesting ->
+                MediaFileStore.copyInto(digesting, tempDir, "$photoId.import.tmp")
+            }
             val contentHash = ContentHash.hex(digest.digest())
             val exifTimeMs = PhotoExifReader.readExifTimeMs(tempFile)
             val plan = PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash))
@@ -53,7 +60,9 @@ object PhotoImportPipeline {
             }
             return PhotoImportResult(plan, exifTimeMs)
         } finally {
-            tempFile.delete()
+            if (tempFile.exists() && !tempFile.delete()) {
+                Log.w(TAG, "failed to delete import temp file ${tempFile.path}")
+            }
         }
     }
 }

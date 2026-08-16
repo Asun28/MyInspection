@@ -8,14 +8,16 @@ import nz.myinspection.core.media.OrphanFileDeleter
  * 该删哪些相对路径（FINALIZED 巡检证据结构性永不入选，见其 KDoc），这里把判定结果真正落成磁盘删除。
  * 目标本就不存在也算成功（幂等——两次清理跑到同一条孤儿记录不该报错）。
  *
- * [MediaFileStore.resolve] 会在包含性校验不过时抛 `IllegalArgumentException`（也可能在极端环境下因
- * `canonicalFile` 触发 `IOException`）——本类是一个良好公民的 [OrphanFileDeleter] 实现，自己把这类异常
- * 转成 `false` 而不是让它冒泡出去（[OrphanedAssetCleanup.run] 对注入的 deleter 也有一层兜底，两道防线
- * 独立生效，同本卡「命名空间闸 + 根包含性闸各管各的」一贯做法）。
+ * 不在这里吞异常：[OrphanFileDeleter] 的契约允许实现抛 `IOException`/`SecurityException`（`resolve`
+ * 的 `canonicalFile` 在极端环境下可能触发前者；`exists`/`delete` 在受限环境下可能触发后者），由
+ * [OrphanedAssetCleanup.run] 统一捕获、保留原因写进 `FailedDeletion.cause`——异常处理只在一处，不重复、
+ * 不吞掉调用方本该看到的原因。`resolve` 的包含性校验若失败会抛 `IllegalArgumentException`：对一条已过
+ * [nz.myinspection.core.media.MediaPaths.isPhotoRelPathShape] 命名空间闸的路径理论上不可达，属契约违反
+ * 而非环境性失败，同样不在此处捕获（该冒泡就冒泡，别把真 bug 悄悄埋成一次"删除失败"）。
  */
 class PhotoAssetCleanupExecutor(private val mediaRoot: File) : OrphanFileDeleter {
-    override fun delete(relPath: String): Boolean = runCatching {
+    override fun delete(relPath: String): Boolean {
         val target = MediaFileStore.resolve(mediaRoot, relPath)
-        !target.exists() || target.delete()
-    }.getOrDefault(false)
+        return !target.exists() || target.delete()
+    }
 }
