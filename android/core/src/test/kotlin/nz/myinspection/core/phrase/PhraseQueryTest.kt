@@ -56,7 +56,7 @@ class PhraseQueryTest {
     }
 
     @Test
-    fun `suggestFor filters by status within the condition-axis categories, universal phrases always included`() {
+    fun `suggestFor filters by status across every category, universal phrases always included`() {
         val loaded = load(
             library(
                 phrases = listOf(
@@ -74,23 +74,25 @@ class PhraseQueryTest {
     }
 
     @Test
-    fun `suggestFor excludes cleaning and hhc even when they are universal (appliesToStatuses null)`() {
-        // cleaning/hhc 是与"条件评级"无关的独立轴（见 suggestFor KDoc）：即便它们的短语没有
-        // appliesToStatuses 限制，也不该被任意评级的推荐列表捞进来——这两条只经 phrasesFor 浏览取得。
+    fun `suggestFor includes cleaning and hhc phrases like any other category (v1 filters by status only)`() {
+        // v1 契约只有一个过滤维度——status；分类不参与过滤，故 cleaning/hhc 的短语与其它分类
+        // 一视同仁：appliesToStatuses 为 null 即任意评级入选，非 null 就按值匹配。
         val loaded = load(
             library(
                 phrases = listOf(
                     phrase(en = "condition-universal", category = "condition-general", sort = 0, appliesToStatuses = null, shortcut = null),
                     phrase(en = "cleaning-universal", category = "cleaning", sort = 0, appliesToStatuses = null, shortcut = null),
-                    phrase(en = "hhc-universal", category = "hhc", sort = 0, appliesToStatuses = null, shortcut = null),
+                    phrase(en = "hhc-good-only", category = "hhc", sort = 0, appliesToStatuses = """["GOOD"]""", shortcut = null),
                 ),
             ),
         )
 
-        assertEquals(listOf("condition-universal"), loaded.suggestFor("ITEM-1", "FAIR").map { it.en })
-        // 两个被排除的分类仍可经 phrasesFor 按分类取得——排除的是"跨分类推荐"，不是"短语本身不可用"。
-        assertEquals(listOf("cleaning-universal"), loaded.phrasesFor("cleaning").map { it.en })
-        assertEquals(listOf("hhc-universal"), loaded.phrasesFor("hhc").map { it.en })
+        // 字典序 cleaning < condition-general < hhc；GOOD 查询三条全中，FAIR 查询排除 hhc-good-only。
+        assertEquals(
+            listOf("cleaning-universal", "condition-universal", "hhc-good-only"),
+            loaded.suggestFor("ITEM-1", "GOOD").map { it.en },
+        )
+        assertEquals(listOf("cleaning-universal", "condition-universal"), loaded.suggestFor("ITEM-1", "FAIR").map { it.en })
     }
 
     @Test

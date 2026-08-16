@@ -40,13 +40,11 @@ class LoadedPhraseLibrary private constructor(val library: PhraseLibrary) {
     }
 
     /**
-     * 按当前评级推荐短语。**v1 契约：过滤维度只有 [status]**（卡片原文「按状态过滤推荐」）。
-     *
-     * 只在**条件评级轴**内的分类参与：[SUGGESTABLE_CATEGORIES]（condition-general/wear/damage/
-     * action-needed）都随 GOOD/FAIR/POOR 评级本身变化；`cleaning`（清洁与状况是两条独立的评估轴，
-     * 需求 synthesis #3——把清洁短语塞进按状况评级推荐的列表会文不对题）与 `hhc`（Healthy Homes
-     * 复核点强绑定具体检查项，不该对"任意项、这个评级"都推荐——一间卧室评 FAIR 不该跳出"抽风扇
-     * 运作正常"这类与卧室无关的话）**不**参与；两者各自的短语走 [phrasesFor] 按分类浏览取得。
+     * 按当前评级推荐短语，跨全部分类。**v1 契约：过滤维度只有 [status]**（卡片原文「按状态过滤
+     * 推荐」即完整定义，不叠加任何分类子集）：[Phrase.appliesToStatuses] 为 null（不限评级）或
+     * 包含 [status] 的短语入选，不论 [Phrase.category]。内容层面按状态精度分工——正面结论类短语
+     * （如"未见异常"）标 `GOOD`、负面结论类标其对应评级、真正跨评级通用的（如"无其他说明，请参见
+     * 随附照片"）留 null，靠 appliesToStatuses 本身而非分类把关。
      *
      * [stableId] 是为消费端 **item-context 预留的接口缝**：强制调用方绑定到具体某一项、不允许在
      * 不知道正给哪一项做推荐的情况下调用，但 v1 不参与过滤。item→分类映射需要模板内容数据
@@ -61,7 +59,6 @@ class LoadedPhraseLibrary private constructor(val library: PhraseLibrary) {
         require(stableId.isNotBlank()) { "stableId must not be blank" }
         require(status in PhraseDomains.STATUSES) { "unknown status: $status" }
         return library.phrases
-            .filter { it.category in SUGGESTABLE_CATEGORIES }
             .filter { phrase -> phrase.appliesToStatuses?.let { status in it } ?: true }
             .sortedWith(compareBy({ it.category }, { it.sort }))
     }
@@ -156,15 +153,6 @@ object PhraseLoader {
 
 // 文件级 private：[LoadedPhraseLibrary.parse] 与 [PhraseLoader] 都要用；同 TemplateLoader.kt 的理由，
 // Kotlin 的 private 成员只对所属类可见，private 顶层声明才是"本文件可见"。
-
-/**
- * 参与 [LoadedPhraseLibrary.suggestFor] 的分类子集（见该函数 KDoc 的完整理由）：
- * condition-general/wear/damage/action-needed 随 GOOD/FAIR/POOR 评级本身变化，是"条件评级轴"；
- * `cleaning`/`hhc` 各自是独立轴，混进"任意项、这个评级"的推荐列表会文不对题，只经 [LoadedPhraseLibrary.phrasesFor]
- * 按分类浏览取得。
- */
-private val SUGGESTABLE_CATEGORIES: Set<String> =
-    Collections.unmodifiableSet(linkedSetOf("condition-general", "wear", "damage", "action-needed"))
 
 /**
  * 严格 UTF-8 解码：坏字节**抛异常**，不替换成 U+FFFD（同 `TemplateLoader.kt` 的

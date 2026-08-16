@@ -122,10 +122,11 @@ class PhraseLibraryContentTest {
             fairSuggestions.any { it.appliesToStatuses != null && "FAIR" !in it.appliesToStatuses!! },
             "no phrase restricted to a different status should be suggested for FAIR",
         )
-        assertTrue(
-            fairSuggestions.none { it.category == "cleaning" || it.category == "hhc" },
-            "suggestFor should not surface cleaning/hhc phrases (separate axes; browse via phrasesFor instead)",
-        )
+        // v1 只按 status 过滤，不按分类：cleaning 短语都是 appliesToStatuses=null（清洁与状况评级
+        // 是两条独立轴，需求 synthesis #3），故理应与其它通用短语一起出现在 FAIR 结果里；
+        // hhc 短语全部限定 GOOD（正面结论类文案），理应被 FAIR 查询排除——用真实数据钉住两头。
+        assertTrue(fairSuggestions.any { it.category == "cleaning" }, "cleaning phrases are universal and must surface for FAIR too")
+        assertTrue(fairSuggestions.none { it.category == "hhc" }, "GOOD-only hhc phrases must not surface for FAIR")
     }
 
     @Test
