@@ -31,6 +31,9 @@ interface BackupSink {
  *
  * 拒收的每一种形态都有明确异常：口令错 [WrongPassphraseException]、结构非法 [BackupFormatException]、
  * 被改过/被截断/与 manifest 不符 [BackupCorruptException]、调用方自己 IO 失败 [BackupSinkException]。
+ *
+ * **交付的权威只有 manifest**：本读取器按 zip 的 local header 流式读，**刻意不读也不信中央目录**
+ * （理由与冻结契约见 [BackupFormat] 的「zip 容器的地位」一节）。任何未来实现都必须照此办理。
  */
 object BackupReader {
 

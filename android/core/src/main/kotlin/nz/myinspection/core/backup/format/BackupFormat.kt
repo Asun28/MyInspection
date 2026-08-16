@@ -28,6 +28,19 @@ import java.text.Normalizer
  * 都被 GCM tag 认证**——重排、丢块、截断、追加都会当场 tag 失败。
  * 这仍然只是**组合 javax.crypto 标准件**（AES/GCM/NoPadding + PBKDF2WithHmacSHA256 + SecureRandom），
  * 没有自研密码学原语，也没有新增依赖（卡片 forbid）。
+ *
+ * ## ★ zip 容器的地位：运输信封，其自描述元数据**非规范性**（冻结契约的一部分）
+ *
+ * 包内的 zip 只是认证加密层**内部**的运输信封。它的中央目录（central directory）与 EOCD
+ * **不是规范的一部分**：读取器按 local header 流式读，**`manifest.json` 是包内容的唯一权威**——
+ * 只有它声明过、且逐字节核过 `rel_path` / `size_bytes` / SHA-256、并通过双向完备性检查
+ * （包内不得有未声明的条目、manifest 声明的条目不得缺失）的文件才会被交付。
+ *
+ * **禁止任何未来实现去信任中央目录。** 这条不是省事，是把 zip 历来的
+ * 「local header 与 central directory 各说各话」歧义面（Android APK 的 Master Key 类问题）**永久封死**：
+ * 只要权威只有一个，两个解析器就不可能对「包里有哪些条目」得出不同答案。
+ * 相应地，尾部被删/被插入垃圾/被追加明文的包**会被接受**（它们都带合法 GCM tag，只有握有口令的人造得出，
+ * 且尾部字节永远不会被交付）——这是**有意的**契约，由 `BackupZipTailTest` 逐形态钉住，不是没人看过的默认。
  */
 object BackupFormat {
     /** 明文头魔数（ASCII 8 字节）。 */
