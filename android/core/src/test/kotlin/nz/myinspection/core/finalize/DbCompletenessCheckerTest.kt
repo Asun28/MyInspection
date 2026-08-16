@@ -230,6 +230,35 @@ class DbCompletenessCheckerTest {
         assertTrue(satisfied.itemsMissingMandatoryPhoto.isEmpty())
     }
 
+    /**
+     * 需求 §5「不利发现强制备注」——权威在 `core/capture` 的 `computeMissingNotes`，本类只是委派。
+     * POOR（不利发现）+ 已补拍强制照片，但备注仍空白：必须仍被拒，且拒的理由是"缺备注"而不是被误判成
+     * "缺照片"（照片那关已经过了）。补上备注（哪怕是短语库那种一点即得的短句）后完备。
+     */
+    @Test
+    fun `an adverse item with the required photo but a blank note is rejected for the missing note, not the photo`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "EXIT", now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM",
+            photoRule = "ADVERSE_ONLY", sort = 1, now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = "EXIT", now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+        val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "wall.paint", status = "POOR", now = now)
+        FinalizeTestFixtures.insertItemPhoto(database, uuid, roomInstanceId, itemId, now = now)
+
+        val withBlankNote = DbCompletenessChecker(database).check(inspectionId)
+        assertEquals(listOf(MissingItem(roomInstanceId, "wall.paint")), withBlankNote.itemsMissingNote)
+        assertTrue(withBlankNote.itemsMissingMandatoryPhoto.isEmpty(), "the photo requirement is already satisfied; only the note is missing")
+        assertTrue(!withBlankNote.isComplete)
+
+        database.inspectionItemQueries.updateStatusIfDraft(status = "POOR", note = "scuffed corner, needs repainting", updated_at = now + 1, id = itemId)
+        val withNote = DbCompletenessChecker(database).check(inspectionId)
+        assertTrue(withNote.itemsMissingNote.isEmpty())
+        assertTrue(withNote.isComplete)
+    }
+
     @Test
     fun `a suppressed property item is excluded from completeness entirely`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)

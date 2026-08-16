@@ -40,12 +40,12 @@ sealed interface FinalizeOutcome {
  * "if a seam inside the transaction throws after writing..." 用例，已用移除事务包装的变异验证过
  * 这条测试确实会因此变红）。
  *
- * **每一条拒绝路径都 `rollback`，不留任何例外**：同一个事务里，"完备性检查的实现违反契约写了东西"
- * 与"另一个合法调用者抢先 finalize 了同一行"这两种情形从事务内部看不出区别——都是"①之后、④真正
- * 落地之前，数据库状态已经不是①-③读到的那个了"。因此④的两个分支都不用普通 `return`：`affected == 1L`
- * 正常返回（提交）；`affected != 1L` 与①-③里任何一条拒绝路径一样用 `rollback`——同一个不变量
- * （事务内所有写副作用只在真正 Finalized 时才提交，其余任何结局都撤销到底）统一适用，不分是哪一步
- * 触发的拒绝。
+ * **不变量精确表述为**：任何拒绝路径都不会留下 seam 的写副作用被提交——`completeness.check()` 跑完之后
+ * 才到达的拒绝路径一律 `rollback`（[CompletenessResult] 不完整、`finalizeIfDraft` 未命中都在此列，
+ * 因为此时"完备性检查的实现违反契约写了东西"与"另一个合法调用者抢先 finalize 了同一行"从事务内部看
+ * 不出区别，都必须撤销到底）；而更早的两条 `return`（`inspectionId` 查无此巡检、该巡检早已
+ * FINALIZED）发生在 `completeness.check()` 被调用之前，此时事务里还没有任何写发生过，没有东西
+ * 需要撤销——用 `return` 而非 `rollback` 不是疏漏，是因为它们先于一切写入。
  */
 class FinalizeInspectionUseCase(
     private val database: MyInspectionDatabase,
