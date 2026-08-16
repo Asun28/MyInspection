@@ -42,8 +42,13 @@ $script:ScaffoldConfig = @{
   # 且须先还清 TD4（verifyMigrations 与防泄露闸冲突，故该卡未开）。
   # **只冻 sqldelight/**：`core/model/` 的快照类型刻意不冻——T1-CANON-HASH 落地时若发现哈希域形状需微调，
   # 那是正常演进（该形状已由 InspectionSnapshotTest 的逐字段断言钉住，改动不会静默发生）。
+  # T1-CANON-HASH 合并后冻结（该卡 doc_sync 明列本步）：canonical JSON 序列化器 + 哈希 + 快照投影是
+  # finalize 哈希与备份 manifest 的共用地基，任何字节级行为变化都会改写历史 data_hash 的可复验性。
+  # 演进走版本评审；黄金向量（含测试）一并冻结——测试就是契约本体。
   FrozenPaths = @(
-    'android/core/src/main/sqldelight/'
+    'android/core/src/main/sqldelight/',
+    'android/core/src/main/kotlin/nz/myinspection/core/canon/',
+    'android/core/src/test/kotlin/nz/myinspection/core/canon/'
   )
 
   # T38-DOCDRIFT：源脚本变更时须同步触及的权威文档（仓库相对、正斜杠正则；空表 => 不启用）。

@@ -1557,3 +1557,11 @@
 - rule: 两全法：照常提交后做变异证明；ship 前核远端分支不存在（git -C <wt> fetch --prune + rev-parse --verify origin/<branch> 无输出），然后 git -C <wt> reset --soft <RED证据sha> 把提交折回暂存区再跑 ship，让 ship 自己落提交腿。勿重跑 -Phase red（绿码产不出真 RED）、勿 -SkipRed 绕闸（那是无法重现 RED 的补救场景专用）
 - enforced_by: 
 - refs: 
+
+## L217
+- date: 2026-08-16 ｜ tags: android,core,api-level,art,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 block：java.util.HexFormat 在 :core 里编译、JVM 测试全绿，但它要 Android API 34 而 app minSdk 26 未配 desugaring——装机后 API 26-33 直接崩；该 API 还是本地 advisory 评审当作「清理改进」建议进来的
+- root_cause: :core 纯 JVM 只是测试形态，运行载体是 ART——JDK API 可用性由 Android API level 决定，不由 jvmToolchain/编译通过决定；JVM 侧闸门（编译+单测）对这类缺陷全盲
+- rule: 在 :core 引入任何 java.*/javax.* 新 API 前，先查该 API 的 Android API level 与 desugaring 清单，低于 minSdk（26）就不用；advisory 评审者给的「换成新 JDK API」类清理建议同样要过这道检查再采纳，它们在 JVM 上永远看起来无害
+- enforced_by: 
+- refs: 

@@ -3,7 +3,7 @@ id: T1-CANON-HASH
 title: canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点）
 depends_on: [T1-SCHEMA-CORE]
 parallelizable_with: [T1-TEMPLATE-ENGINE]
-status: todo
+status: merged
 branch: T1-CANON-HASH
 worktree: C:\wt\T1-CANON-HASH
 allow_paths:

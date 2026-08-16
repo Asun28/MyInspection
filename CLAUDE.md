@@ -101,10 +101,22 @@ schema + UUIDv7 + `core/model/` 快照类型 + 70 个 JVM 测试。合并后 `an
 > **结论两条并存**：这些洞赶在冻结前抓到了，值；但 17 轮也证明「全量 schema + 13 表 + 冻结点」当初就该按表族拆成
 > 2–3 张——**后续冻结点卡按表族拆**（详见该卡「修订之十一」的编排者自评）。
 
-**下游 5 张卡已解锁**：`T1-CANON-HASH` · `T1-TEMPLATE-ENGINE` · `T2-PHOTO-PIPELINE` · `T2-CAPTURE-CORE` · `T5-RETENTION`。
+**★第二冻结点已合并**：`T1-CANON-HASH` **merged**（2026-08-16，master `4681e69`，R3 pass 于第 **2** 轮）——
+`core/canon/` canonical JSON 序列化器（RFC 8785 风格：UTF-16 码元键序 + NFC 归一 + 整数规范拼写 + 良构 Unicode
+强制——lone surrogate 会被 UTF-8 静默换 '?' 致两串同哈希，故直接拒绝）+ SHA-256 + 快照投影 + supplement 哈希链 +
+4 组黄金向量（20 个 JVM 测试）。**黄金向量三方独立复算一致**（执行侧独立 Python 预计算 / DeepSeek 交叉复核 /
+Sol 评审时自行复算），**14 枚单点变异逐一击杀**（判据分类器 + SHA 还原核验，记录见卡）。合并后 canon 主/测试
+目录已登记 FrozenPaths（**黄金向量测试即契约本体，一并冻结**）；演进走版本评审。方法论沉淀：步骤 4.6 本地自检
+先吃掉 10 条发现（省一轮 R3 往返），R3 首轮仍抓到 2 条真问题（`HexFormat` 需 Android API 34 而 minSdk 26；
+键序测试纯 ASCII 区分不了 UTF-16 码元序与码点序）——**`:core` 纯 JVM 只是测试形态，运行载体是 ART，
+JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层机检归 T3-FINALIZE）/ TD6（Supplement.sq
+注释哈希域指向）已登记 tracker。
 
-下一步：① 按 board 推 W1 剩余（`T1-CANON-HASH` / `T1-TEMPLATE-ENGINE` 可并行）；
-② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，待追认）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
+**当前已解锁待做**：`T1-TEMPLATE-ENGINE`（W1 剩余）· `T2-PHOTO-PIPELINE` · `T5-RETENTION`（依 schema）·
+`T5-BACKUP-FORMAT` · `T3-FINALIZE`（依 canon，已就绪）；`T2-CAPTURE-CORE` 待 TEMPLATE-ENGINE。
+
+下一步：① 按 board 推 `T1-TEMPLATE-ENGINE`（W1 收尾），随后进 W2 并行窗口；
+② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，post-hoc R3 已 block ×2 且经复核属实，待用户裁决 fix-forward）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
