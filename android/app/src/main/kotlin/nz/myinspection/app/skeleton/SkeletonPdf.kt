@@ -14,8 +14,9 @@ import java.time.format.DateTimeFormatter
  * 刻意不做（见卡片 non_goals）：不分页、不排版引擎、无双版本（房东/房客）、无 CJK 字体嵌入、
  * 无页脚数据哈希、无免责声明。真实渲染器是 T3-REPORT-COMPOSER + T3-PDF-RENDERER 的产出。
  *
- * 中文能否正常出字取决于设备默认字体，本卡不管——真机走查时看得见字即可，看不见也不是本卡的活
- * （字体嵌入在 T3-PDF-RENDERER，见其卡的 DroidSansFallback 断言）。
+ * DoD 要求真机走查时**看得见**检查项文字与其状态——这条不打折。只有 CJK **字形**（中文标签在缺字体的
+ * 设备上可能出方框）不归本卡：字体嵌入是 T3-PDF-RENDERER 的活（见其卡的 DroidSansFallback 断言）。
+ * 两者别混：「状态文字必须画出来」是本卡的义务，「中文字形一定渲染得出」不是。
  */
 object SkeletonPdf {
 
