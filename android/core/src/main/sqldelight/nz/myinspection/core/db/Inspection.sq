@@ -1,0 +1,56 @@
+CREATE TABLE inspection (
+    id TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
+    property_id TEXT NOT NULL, -- 逻辑外键 -> property.id；每次巡检恒属于某处物业，即便自住（无租约）也要能
+    -- 追溯到具体物业——tenancy_id 可空时没有其它路径能关联 property，历史/canonical 快照会失联。
+    tenancy_id TEXT, -- 可空：自住物业（OWNER_OCCUPIED）无租约
+    template_version_id TEXT NOT NULL, -- 逻辑外键 -> template_version.id；该次巡检当时用的具体模板版本
+    -- （不可变行，见 TemplateVersion.sq）——没有这一列就只能靠 inspection_item.stable_id 反推，
+    -- 但 stable_id 不带版本号，多年后无法确定当时是哪一版模板内容，canonical 哈希/报告重渲会失真。
+    scheduled_at INTEGER NOT NULL,
+    previous_inspection_id TEXT, -- 逻辑外键 -> inspection.id；时间上的前一次巡检（≠ baseline，双轨分开存）
+    baseline_inspection_id TEXT, -- 逻辑外键 -> inspection.id；该次巡检当时用的基线快照（历史事实，写死不改）
+    status TEXT NOT NULL, -- DRAFT / FINALIZED
+    finalized_at INTEGER,
+    data_hash TEXT, -- finalize 时写入；导出 PDF 页脚写入该哈希，自证未事后修改
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- status 与 finalized_at/data_hash 必须联动一致：DRAFT 时两者都还没有值，FINALIZED 时两者都必须有值。
+    -- 结构性约束（不是触发器/业务逻辑），拦住「FINALIZED 却没时间戳/哈希」或「未知 status 值」这类无效状态，
+    -- 而不是靠调用方自律。
+    -- type 同样是封闭域（四类，对齐 template_version.type）。合规闸按 type 分流——「4 周内不得重复 Routine，
+    -- Ingoing/Exit 不计入」——一个未知 type 会从这条法律上限的两侧同时溜走：既不算 Routine、也不在豁免名单里。
+    CHECK (type IN ('ROUTINE', 'INGOING', 'EXIT', 'ANNUAL')),
+    CHECK (
+        (status = 'DRAFT' AND finalized_at IS NULL AND data_hash IS NULL)
+        OR (status = 'FINALIZED' AND finalized_at IS NOT NULL AND data_hash IS NOT NULL)
+    )
+);
+
+CREATE INDEX idx_inspection_property ON inspection (property_id);
+CREATE INDEX idx_inspection_tenancy ON inspection (tenancy_id);
+CREATE INDEX idx_inspection_template_version ON inspection (template_version_id);
+CREATE INDEX idx_inspection_previous ON inspection (previous_inspection_id);
+CREATE INDEX idx_inspection_baseline ON inspection (baseline_inspection_id);
+
+insert:
+INSERT INTO inspection (id, type, property_id, tenancy_id, template_version_id, scheduled_at, previous_inspection_id, baseline_inspection_id, status, finalized_at, data_hash, created_at, updated_at)
+VALUES (:id, :type, :property_id, :tenancy_id, :template_version_id, :scheduled_at, :previous_inspection_id, :baseline_inspection_id, :status, :finalized_at, :data_hash, :created_at, :updated_at);
+
+selectById:
+SELECT *
+FROM inspection
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM inspection
+WHERE deleted_at IS NULL;
+
+-- finalize 只读强制（关键不变量）：guard 就是这条语句本身——只有当前仍是 DRAFT（finalized_at IS NULL）
+-- 才允许把它标记为 FINALIZED；对已 FINALIZED 的行重复调用必须 0 行受影响（幂等安全阀，防止 finalized_at 被覆盖）。
+finalizeIfDraft:
+UPDATE inspection
+SET status = 'FINALIZED', finalized_at = :finalized_at, data_hash = :data_hash, updated_at = :updated_at
+WHERE id = :id AND finalized_at IS NULL;

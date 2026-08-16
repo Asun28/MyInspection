@@ -1,0 +1,34 @@
+CREATE TABLE template_version (
+    id TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（由 T1-CANON-HASH 算出并写入；此处只建列）
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- type 是封闭域（四类模板，需求 §4）。它参与 idx_template_version_active 的唯一性判定：
+    -- 一个拼错的 'ROUTIN' 会被当成第五类，静默绕开「同一 (type, version) 只有一行活跃」的约束。
+    CHECK (type IN ('ROUTINE', 'INGOING', 'EXIT', 'ANNUAL'))
+);
+
+-- 被任何巡检引用后不可变（templateSnapshot 语义等价实现）：故意不提供 update 查询，
+-- 报告多年后须可一致重渲，改措辞/加项一律走新版本行，不改旧行。
+
+-- 同一 (type, version) 不得有两行活跃记录（否则哪一行是"权威版本 N"就变得不确定）。
+-- 用部分唯一索引而非表级 UNIQUE(...,deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，
+-- deleted_at 恒为 NULL 时表级约束形同虚设、根本拦不住重复活跃行。
+CREATE UNIQUE INDEX idx_template_version_active ON template_version (type, version) WHERE deleted_at IS NULL;
+
+insert:
+INSERT INTO template_version (id, type, version, content_hash, created_at, updated_at)
+VALUES (:id, :type, :version, :content_hash, :created_at, :updated_at);
+
+selectById:
+SELECT *
+FROM template_version
+WHERE id = :id;
+
+selectActive:
+SELECT *
+FROM template_version
+WHERE deleted_at IS NULL;

@@ -1,0 +1,55 @@
+CREATE TABLE notice (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL, -- 逻辑外键 -> inspection.id
+    full_text TEXT NOT NULL, -- 全文快照
+    generated_at INTEGER NOT NULL, -- 一行 notice 恒在生成的那一刻插入，兼作行创建时间，不另设 created_at
+    scheduled_at INTEGER NOT NULL, -- 生成时刻的巡检预定时间快照——T4-NOTICES dod_assert 原文"存档记录含…
+    -- 预定巡检时间…"明文要求；不能只读 inspection.scheduled_at 现查，那样巡检改期后旧通知的送达期审计
+    -- 依据会跟着变，破坏"存快照非模板 id"的同一条纪律（需求 §10）。
+    sent_via TEXT, -- 可空：生成后尚未发送；app 自己不发送，人工发送后回记
+    sent_at INTEGER,
+    lead_hours INTEGER NOT NULL, -- 提前量小时数；≥48 且 ≤14 天的上下限校验归 T4-COMPLIANCE-ENGINE
+    validation_snapshot TEXT NOT NULL, -- 生成时的合规校验结果快照（JSON）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- 送达两列必须同生共死：都为 NULL（未送达）或都非 NULL（已送达）。没有这条，insert 就能绕过
+    -- recordDelivery 的一次性锁，直接插进 sent_at 有值但 sent_via 是 NULL 的坏状态，永久留在审计记录里。
+    CHECK (
+        (sent_via IS NULL AND sent_at IS NULL)
+        OR (sent_via IS NOT NULL AND sent_at IS NOT NULL)
+    ),
+    -- sent_via 是封闭域，域定义在需求方卡片：T4-NOTICES「回 app 记录送达方式（SMS/EMAIL/LETTER 枚举）」。
+    -- 上面那条 CHECK 只管「两列同生共死」，管不住写进去的是什么——一个 'txt' 会永久留在**送达审计记录**里，
+    -- 而这份记录正是 48h 提前量合规的举证材料。可空是合法状态（生成后尚未发送），故 NULL 单独放行。
+    CHECK (sent_via IS NULL OR sent_via IN ('SMS', 'EMAIL', 'LETTER'))
+);
+
+CREATE INDEX idx_notice_inspection ON notice (inspection_id);
+
+insert:
+INSERT INTO notice (id, inspection_id, full_text, generated_at, scheduled_at, sent_via, sent_at, lead_hours, validation_snapshot, updated_at)
+VALUES (:id, :inspection_id, :full_text, :generated_at, :scheduled_at, :sent_via, :sent_at, :lead_hours, :validation_snapshot, :updated_at);
+
+selectById:
+SELECT *
+FROM notice
+WHERE id = :id;
+
+selectByInspection:
+SELECT *
+FROM notice
+WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
+
+-- 回记送达（流程最后一步：生成→复制→用户自行发送→回 app 记送达方式+时刻）。
+-- lead_hours 重算与 validation_snapshot 更新的逻辑归通知层（T4-NOTICES），此处只提供机械写路径。
+-- 三层 WHERE 守卫，缺一不可，且全是**运行期**守卫、不是编译期类型保证——SQLDelight 2.3.2 按参数名在
+-- 整条语句里出现的所有位置推断可空性，`:updated_at` 若也拿去绑一个可空列，生成的 Kotlin 参数类型仍是
+-- `Long?`（实测核验：曾以为复用 `:updated_at` 能让 sent_at "类型层面不可能传 NULL"，生成代码显示这个
+-- 假设是错的，已改正——教训见 docs/lessons）。改用各自独立参数 + WHERE 三重拒绝：① `sent_at IS NULL`
+-- （现有行未回记过）令这一步一次性——T4-NOTICES dod_assert 原文"回记送达后提前量重算并锁定"；
+-- ② `:sent_via IS NOT NULL`；③ `:sent_at IS NOT NULL`——任一为 NULL 时整条 UPDATE 是 0 行、不落地、
+-- 不触发守卫①的锁，之后仍可用真值重试。
+recordDelivery:
+UPDATE notice
+SET sent_via = :sent_via, sent_at = :sent_at, lead_hours = :lead_hours, validation_snapshot = :validation_snapshot, updated_at = :updated_at
+WHERE id = :id AND sent_at IS NULL AND :sent_via IS NOT NULL AND :sent_at IS NOT NULL;

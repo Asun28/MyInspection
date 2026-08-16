@@ -1,0 +1,29 @@
+CREATE TABLE phrase_entry (
+    id TEXT NOT NULL PRIMARY KEY,
+    en TEXT NOT NULL,
+    zh TEXT NOT NULL,
+    category TEXT NOT NULL,
+    sort INTEGER NOT NULL,
+    applies_to_statuses TEXT, -- 可空：JSON 编码的评级枚举子集（如仅 FAIR 时推荐）；NULL=不限状态，任何状态都可用
+    shortcut TEXT, -- 可空：输入快捷键（如 "FWT" → 展开为整条短语），T2-PHRASELIB 数据层字段同名
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+insert:
+INSERT INTO phrase_entry (id, en, zh, category, sort, applies_to_statuses, shortcut, created_at, updated_at)
+VALUES (:id, :en, :zh, :category, :sort, :applies_to_statuses, :shortcut, :created_at, :updated_at);
+
+selectById:
+SELECT *
+FROM phrase_entry
+WHERE id = :id;
+
+-- `, id` tie-breaker：理由同 CheckItemDef.sq 的同名注释——sort 不保证互不相同，短语显示顺序虽不进
+-- canonical 哈希域，但确定性排序仍是一致体验/可测试性的基本要求，顺手一并改正。
+selectActive:
+SELECT *
+FROM phrase_entry
+WHERE deleted_at IS NULL
+ORDER BY sort ASC, id ASC;

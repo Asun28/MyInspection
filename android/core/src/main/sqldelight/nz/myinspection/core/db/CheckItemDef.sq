@@ -1,0 +1,53 @@
+CREATE TABLE check_item_def (
+    id TEXT NOT NULL PRIMARY KEY,
+    template_version_id TEXT NOT NULL, -- 逻辑外键 -> template_version.id
+    stable_id TEXT NOT NULL, -- ★历史对齐唯一键：改措辞不改 ID，加项给新 ID（需求 §4）
+    area TEXT NOT NULL,
+    room TEXT NOT NULL, -- 模板层房间分组（如 BEDROOM）；区别于 room_instance.room_key（巡检层的实例）
+    text_en TEXT NOT NULL,
+    text_zh TEXT NOT NULL,
+    allowed_statuses TEXT NOT NULL, -- 合法评级枚举集合（JSON 编码字符串）；按模板类型的校验逻辑在 :core 层（T1-TEMPLATE-ENGINE）
+    photo_rule TEXT, -- 可空：ROOM_PANORAMA / ADVERSE_ONLY（T1-TEMPLATE-ENGINE 模板 JSON 字段同名），NULL=该项无强制拍照要求
+    sort INTEGER NOT NULL, -- 模板内显式顺序号——T1-CANON-HASH 的哈希域要求 items[] 按"模板序"排列，
+    -- 不能依赖插入顺序或行 id 排序（那不是确定性的、也不是模板作者定义的顺序）
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- photo_rule 是封闭域 + 可空（NULL = 无强制拍照要求）。采集层按它算「还缺哪些强制照片」的完备性，
+    -- 一个未知值既不匹配 ROOM_PANORAMA 也不匹配 ADVERSE_ONLY，会被静默当成"无要求"，漏掉该拍的照片。
+    -- **不约束 allowed_statuses**：那是 JSON 编码的集合，合法值随模板类型而变，校验属 :core（T1-TEMPLATE-ENGINE）。
+    CHECK (photo_rule IS NULL OR photo_rule IN ('ROOM_PANORAMA', 'ADVERSE_ONLY'))
+);
+
+-- 被任何巡检引用后不可变。**不提供 update 查询是不够的**：本表的行是 template_version 的**子行**，
+-- 往已被引用的版本里 insert 一条新 stable_id，等于在不改 version、不改 content_hash 的前提下改掉了
+-- 那一版的实际内容——直接破「历史对齐只靠 stable_id + 模板版本」这条关键不变量（多年后报告重渲会失真）。
+-- 故 insert 自带守卫（见下）：父版本须存在且未软删，且该版本**尚未被任何巡检引用**。
+-- 引用判定**不过滤 inspection.deleted_at**：软删的巡检其报告仍须可一致重渲，同样锁死该版本。
+-- （当前没有 inspection 软删查询，故这一支不可达、也无法从公开查询面测到——它是为将来加软删时
+-- 预留的正确默认，不是已被证明的保证。）
+-- 加项一律走新 template_version 行（需求 §4「改措辞不改 ID，加项给新 ID」）。
+
+-- 软删除唯一性落在业务键（template_version_id, stable_id），不落主键——主键本身已唯一。
+-- 用部分唯一索引而非表级 UNIQUE(..., deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，deleted_at
+-- 恒为 NULL 的活跃行之间表级约束形同虚设，拦不住重复。
+CREATE UNIQUE INDEX idx_check_item_def_active ON check_item_def (template_version_id, stable_id) WHERE deleted_at IS NULL;
+
+insert:
+INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, photo_rule, sort, created_at, updated_at)
+SELECT :id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :photo_rule, :sort, :created_at, :updated_at
+WHERE EXISTS (SELECT 1 FROM template_version WHERE id = :template_version_id AND deleted_at IS NULL)
+  AND NOT EXISTS (SELECT 1 FROM inspection WHERE template_version_id = :template_version_id);
+
+selectById:
+SELECT *
+FROM check_item_def
+WHERE id = :id;
+
+-- `, id` tie-breaker：sort 不保证互不相同，单靠它排序在两行同 sort 时顺序不确定——T1-CANON-HASH
+-- 的哈希域要求 items[] 按确定的"模板序"排列，同值必须有次级排序键兜底确定性。
+selectByTemplateVersion:
+SELECT *
+FROM check_item_def
+WHERE template_version_id = :template_version_id AND deleted_at IS NULL
+ORDER BY sort ASC, id ASC;

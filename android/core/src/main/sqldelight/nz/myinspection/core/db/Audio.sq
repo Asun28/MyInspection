@@ -1,0 +1,35 @@
+CREATE TABLE audio (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_item_id TEXT NOT NULL, -- 逻辑外键 -> inspection_item.id
+    rel_path TEXT NOT NULL, -- 相对路径；文件系统存储，DB 禁 BLOB
+    content_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+-- 原始音频永远保留（关键不变量：识别会失败，换模型后可重跑历史音频）：故意不提供 delete 查询。
+
+CREATE INDEX idx_audio_inspection_item ON audio (inspection_item_id);
+
+-- finalize 只读强制（关键不变量），EXISTS 理由见 RoomInstance.sq 同名注释（原始音频"永远保留"是不同的
+-- 不变量——那条管不删旧的，这条管不加新的）。音频没有直接的 inspection_id 列，经 inspection_item 两跳
+-- 查父巡检的 finalized_at。
+insert:
+INSERT INTO audio (id, inspection_item_id, rel_path, content_hash, created_at, updated_at)
+SELECT :id, :inspection_item_id, :rel_path, :content_hash, :created_at, :updated_at
+WHERE EXISTS (
+  SELECT 1 FROM inspection_item ii
+  JOIN inspection i ON i.id = ii.inspection_id
+  WHERE ii.id = :inspection_item_id AND i.finalized_at IS NULL
+);
+
+selectById:
+SELECT *
+FROM audio
+WHERE id = :id;
+
+selectByInspectionItem:
+SELECT *
+FROM audio
+WHERE inspection_item_id = :inspection_item_id AND deleted_at IS NULL;

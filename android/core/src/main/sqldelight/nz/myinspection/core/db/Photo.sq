@@ -1,0 +1,116 @@
+CREATE TABLE photo (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_item_id TEXT, -- 可空：room 级全景照片只挂 room_instance，不属于具体检查项
+    room_instance_id TEXT NOT NULL, -- 逻辑外键 -> room_instance.id
+    rel_path TEXT NOT NULL, -- 相对路径；文件系统存储实体文件，DB 禁 BLOB（关键不变量）
+    content_hash TEXT NOT NULL, -- 内容哈希，防重复导入
+    exif_time_ms INTEGER, -- 拍摄时间（与巡检时间分开记录）
+    source TEXT NOT NULL, -- CAMERA / IMPORTED
+    privacy_flag INTEGER NOT NULL, -- 0/1；含租客物品标记（NZ OPC 判例风险），报告可据此排除
+    created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    -- 两列都是封闭域，且都载重：source 区分现场拍摄与事后导入（证据可信度，需求「导入照片必存来源标记」）；
+    -- privacy_flag 决定报告是否排除该照片（含租客物品，NZ OPC 判例风险）。**privacy_flag 尤其危险**——
+    -- 一个 `2` 落库，任何 `flag = 1` 的排除查询都会漏掉它，含租客物品的照片就这样进了报告。
+    CHECK (source IN ('CAMERA', 'IMPORTED')),
+    CHECK (privacy_flag IN (0, 1))
+);
+
+CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
+-- content_hash 打头的索引，现在的消费者是 **selectActiveAssetsByContentHash**（去重复用：按哈希找活跃资产，
+-- 不带 room_instance 范围限定）。idx_photo_active 以 room_instance_id 打头，覆盖不到这个访问模式。
+CREATE INDEX idx_photo_content_hash ON photo (content_hash);
+-- rel_path 打头的**部分**索引，消费者是 orphanedAssets 的相关子查询
+-- `NOT EXISTS (… p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL)`。
+-- 判活粒度从 content_hash 改成 rel_path 后（见下方 orphanedAssets 注释），上面那条 content_hash 索引就不
+-- 再服务这个访问模式了；没有本索引，SQLite 只能对**每一条软删行**扫一遍活跃行，清理退化成 O(软删 × 活跃)。
+-- 取部分索引（`WHERE deleted_at IS NULL`）而非全量：子查询只找活跃行，索引里不必装软删行；
+-- 同时这也让谓词与索引条件完全吻合，SQLite 可直接用它满足子查询。
+CREATE INDEX idx_photo_active_rel_path ON photo (rel_path) WHERE deleted_at IS NULL;
+
+-- 去重范围有意收窄到「同一 room_instance 内」而非全库：全库唯一会让同一张照片内容永远不能合法出现
+-- 在两次不同巡检里（例如同一处缺陷在 Ingoing 与 Exit 分别拍到时，字节偶然相同；或用户有意把同一张
+-- 参考图导入两个不同巡检的同一检查项）。收窄到 room_instance（本就落在单次巡检之内）后，仍能拦住
+-- T2-PHOTO-PIPELINE 最常见的误用场景——同一批导入被重复拖入同一房间两次。用部分唯一索引而非表级
+-- UNIQUE(...,deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，表级约束拦不住活跃行重复。
+CREATE UNIQUE INDEX idx_photo_active ON photo (room_instance_id, content_hash) WHERE deleted_at IS NULL;
+
+-- finalize 只读强制（关键不变量），EXISTS 理由见 RoomInstance.sq 同名注释。照片没有直接的 inspection_id
+-- 列，经 room_instance 两跳查父巡检的 finalized_at；第二个条件校验 inspection_item_id（若提供）真的
+-- 属于同一个 room_instance，不能是从别的房间借来的 id。
+insert:
+INSERT INTO photo (id, inspection_item_id, room_instance_id, rel_path, content_hash, exif_time_ms, source, privacy_flag, created_at, updated_at)
+SELECT :id, :inspection_item_id, :room_instance_id, :rel_path, :content_hash, :exif_time_ms, :source, :privacy_flag, :created_at, :updated_at
+WHERE EXISTS (
+  SELECT 1 FROM room_instance ri
+  JOIN inspection i ON i.id = ri.inspection_id
+  WHERE ri.id = :room_instance_id AND i.finalized_at IS NULL
+) AND (
+  :inspection_item_id IS NULL
+  OR EXISTS (SELECT 1 FROM inspection_item WHERE id = :inspection_item_id AND room_instance_id = :room_instance_id)
+);
+
+selectById:
+SELECT *
+FROM photo
+WHERE id = :id;
+
+selectByRoomInstance:
+SELECT *
+FROM photo
+WHERE room_instance_id = :room_instance_id AND deleted_at IS NULL;
+
+-- 去关联/软删（T2-PHOTO-PIPELINE 孤儿清理链路的前半步：一份物理资产多处关联，去重复用后原关联要能
+-- 撤销）。finalize 只读强制同样适用——FINALIZED 巡检下的照片不得软删，
+-- 理由同 insert 侧（否则巡检证据能被事后抽走，破坏 data_hash 锁定的快照）。这条守卫还带来一个免费的
+-- 推论，见 orphanedAssets 的注释。
+-- `:deleted_at IS NOT NULL` 与 tenancy.purgeContactInfo 同款守卫，且**不是多余的**：本参数同时绑
+-- `deleted_at`（可空列）与 `updated_at`（NOT NULL 列），按 SQLDelight 2.3.2 的按名推断（Notice.sq
+-- recordDelivery 注释里那条实测教训），生成的 Kotlin 形参是 `Long?`——传 NULL 时 WHERE 三条全过、
+-- UPDATE 真的执行，然后在写 updated_at 时撞 NOT NULL、抛出**未受控异常**，而本族查询的约定是
+-- 「守卫不过＝0 行、不落地、可重试」。加上这一句即回归族内一致。
+softDelete:
+UPDATE photo
+SET deleted_at = :deleted_at, updated_at = :deleted_at
+WHERE id = :id
+  AND deleted_at IS NULL
+  AND :deleted_at IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM room_instance ri
+    JOIN inspection i ON i.id = ri.inspection_id
+    WHERE ri.id = photo.room_instance_id AND i.finalized_at IS NULL
+  );
+
+-- 按内容哈希查**活跃**资产（T2-PHOTO-PIPELINE 去重链路的前半步：「哈希已存在就复用该资产、只建新关联」）。
+-- 查询落在本目录而非消费方模块，理由同 orphanedAssets：本目录合并后即冻结（FrozenPaths），
+-- 届时新增查询须走版本评审。既有两条都不顶用——selectByRoomInstance 要求已知 room_instance_id
+-- （去重时恰恰还不知道要挂到哪），orphanedAssets 只回软删行（去重要的是**活着**的那些）。
+-- 返回 rel_path 而非整行：调用方要的是「那份物理文件在磁盘哪儿」，好把新关联指向它。
+-- **同一哈希可能有多个活跃 rel_path**：唯一索引只保证「同一 room_instance 内哈希不重复」，跨房间/跨巡检
+-- 的同内容照片是合法的（同一缺陷在 Ingoing 与 Exit 各拍一次），各自是磁盘上独立的文件——
+-- 全部返回，调用方取第一条即可。**排序键取 rel_path 而非 created_at**：DISTINCT 之后 rel_path 两两不等，
+-- 顺序恒定；created_at 会撞值，撞值时顺序不定，同一输入两次运行可能复用到不同的物理文件（下游 canonical
+-- 哈希要求确定性，这种漂移会让同一份数据算出两个结果）。
+selectActiveAssetsByContentHash:
+SELECT DISTINCT rel_path
+FROM photo
+WHERE content_hash = :content_hash AND deleted_at IS NULL
+ORDER BY rel_path ASC;
+
+-- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）。
+-- **判死活只看 rel_path，返回值也只有 rel_path。** 清理任务删的是**一个物理文件路径**，而 schema 里
+-- 没有任何约束保证「一个 rel_path 只对应一个 content_hash」——唯一索引管的是 (room_instance_id,
+-- content_hash)，不管路径。若按 (hash, path) 这一对判活，软删行 (H1, P) 与活跃行 (H2, P) 并存时 P 会被
+-- 报成孤儿，**而 P 仍被活跃行引用，删掉即数据丢失**；活跃行若属 FINALIZED 巡检，丢的就是巡检证据。
+-- 判定粒度与删除粒度对齐后，才有那条推论：softDelete 禁止软删 FINALIZED 巡检下的照片，故其 rel_path
+-- 恒有活跃行、不会进孤儿列表，无需另写「排除 FINALIZED」的特判。
+-- 不返回 content_hash：清理只需要路径；哈希侧的问题由 selectActiveAssetsByContentHash 回答。
+orphanedAssets:
+SELECT DISTINCT p1.rel_path
+FROM photo p1
+WHERE p1.deleted_at IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM photo p2
+    WHERE p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL
+  );
