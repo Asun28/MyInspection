@@ -62,4 +62,29 @@ class PhotoIngestTest {
         val writeNew = assertIs<PhotoIngestPlan.WriteNewAsset>(planAllBad)
         assertEquals(MediaPaths.photoRelPath("prop-1", "insp-1", "photo-1"), writeNew.relPath, "no valid candidate must fall through to WriteNewAsset, not reuse the corrupted entry")
     }
+
+    @Test
+    fun `verifyReuseExists keeps ReuseExistingAsset when the asset actually exists`() {
+        val plan = PhotoIngestPlan.ReuseExistingAsset(relPath = "photos/prop-1/insp-0/existing.jpg", contentHash = "hash-a")
+        val verified = PhotoIngest.verifyReuseExists(plan, "prop-1", "insp-1", "photo-1") { true }
+        assertEquals(plan, verified, "an existing reuse target must be left unchanged")
+    }
+
+    @Test
+    fun `verifyReuseExists falls back to WriteNewAsset when the DB row lied and the file is gone`() {
+        val plan = PhotoIngestPlan.ReuseExistingAsset(relPath = "photos/prop-1/insp-0/gone.jpg", contentHash = "hash-a")
+        val verified = PhotoIngest.verifyReuseExists(plan, "prop-1", "insp-1", "photo-1") { false }
+        val writeNew = assertIs<PhotoIngestPlan.WriteNewAsset>(verified)
+        assertEquals(MediaPaths.photoRelPath("prop-1", "insp-1", "photo-1"), writeNew.relPath, "fallback path must go through the single derivation point")
+        assertEquals("hash-a", writeNew.contentHash, "the content hash must survive the fallback — it's still the same content, just needing a fresh file")
+    }
+
+    @Test
+    fun `verifyReuseExists never probes existence for a plan that is already WriteNewAsset`() {
+        val plan = PhotoIngestPlan.WriteNewAsset(relPath = MediaPaths.photoRelPath("prop-1", "insp-1", "photo-1"), contentHash = "hash-a")
+        var probed = false
+        val verified = PhotoIngest.verifyReuseExists(plan, "prop-1", "insp-1", "photo-1") { probed = true; true }
+        assertEquals(plan, verified)
+        assertEquals(false, probed, "no reuse candidate to verify — the existence check must not be invoked at all")
+    }
 }

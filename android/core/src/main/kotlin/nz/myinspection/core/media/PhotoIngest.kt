@@ -37,4 +37,30 @@ object PhotoIngest {
             )
         }
     }
+
+    /**
+     * [plan] 只判定"该不该复用"，不摸文件系统——真正的物理文件可能已经不在了（被孤儿清理回收、或从未
+     * 真正落地过的半成品记录），这种情况下 DB 行说了谎，继续当作可复用资产会让这次 ingest 悄悄丢掉字节
+     * （关联指向一个不存在的文件，photo 行看着正常，报告/UI 却打不开图）。
+     *
+     * 本函数在 [plan] 已判定复用之后再补一道存在性校验：[assetExists] 由调用方注入（:core 不摸文件系统，
+     * 同 [OrphanFileDeleter] 的注入纪律），只在 [plan] 判定为 [PhotoIngestPlan.ReuseExistingAsset] 时才会
+     * 被调用——已经是 [PhotoIngestPlan.WriteNewAsset] 的分支不需要探测任何文件是否存在，不做多余调用。
+     * 校验不过时退化为「新内容」，路径仍走 [MediaPaths.photoRelPath] 这唯一派生点重新算，不手拼。
+     */
+    fun verifyReuseExists(
+        plan: PhotoIngestPlan,
+        propertyId: String,
+        inspectionId: String,
+        photoId: String,
+        assetExists: (relPath: String) -> Boolean,
+    ): PhotoIngestPlan =
+        if (plan is PhotoIngestPlan.ReuseExistingAsset && !assetExists(plan.relPath)) {
+            PhotoIngestPlan.WriteNewAsset(
+                relPath = MediaPaths.photoRelPath(propertyId, inspectionId, photoId),
+                contentHash = plan.contentHash,
+            )
+        } else {
+            plan
+        }
 }

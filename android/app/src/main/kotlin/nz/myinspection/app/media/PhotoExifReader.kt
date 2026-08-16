@@ -29,11 +29,21 @@ object PhotoExifReader {
         ExifInterface(file).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
 
     /**
-     * 读拍摄时间（需求 §5：与巡检时间分开存），毫秒 epoch。EXIF `DateTimeOriginal` 本身无时区信息——
-     * **确定性回退策略**：`TAG_OFFSET_TIME_ORIGINAL`（EXIF 2.31+，"+HH:MM"/"-HH:MM"）若存在且能解析，
-     * 按它定的时区解释，与设备当前时区无关（同一张图任何设备读出同一个 epoch）；缺失或格式不符时才回退
-     * 设备当前时区——这一支本就依赖运行环境、不承诺跨设备确定性，仅为「无 offset 时也总能给个时间戳」兜底。
-     * `DateTimeOriginal` 标签缺失或格式不符一律返回 null——调用方据此判定「无拍摄时间可用」，不当异常抛出中断导入。
+     * 读拍摄时间（需求 §5：与巡检时间分开存），毫秒 epoch。EXIF `DateTimeOriginal` 本身无时区信息，
+     * `SubSecTimeOriginal`（若存在）补足到毫秒精度。
+     *
+     * **确定性约束（久性声明，改动此函数前先读）**：`TAG_OFFSET_TIME_ORIGINAL`（EXIF 2.31+，
+     * "+HH:MM"/"-HH:MM"）存在且能解析时，按它定的时区解释——同一张图，任何设备、任何时刻读出同一个
+     * epoch，与运行设备当前时区无关。**只有** offset 标签缺失或格式不符时才退回
+     * `ZoneId.systemDefault()`——这一支本就依赖运行环境，不承诺跨设备/跨时刻确定性，只是「没有 offset
+     * 信息时也总能给出一个时间戳」的兜底，不是主路径。`DateTimeOriginal` 标签缺失或格式不符一律返回
+     * null——调用方据此判定「无拍摄时间可用」，不当异常抛出中断导入。
+     *
+     * 未采用 androidx.exifinterface 1.4.2 自带的 `getDateTimeOriginal()`：实测反编译该方法（同版本 aar
+     * 内 `ExifInterface.class`），其内部把 `DateTimeOriginal` 按固定 UTC 时区解析后，再把 offset 差值
+     * **累加**上去而非用于修正——对 "+13:00" 这类正偏移会把结果推离真实 UTC 瞬间，语义与本函数要的
+     * 「本地墙钟时间 + 时区 → 正确 UTC 瞬间」不同。故本函数自行用 `java.time`（`LocalDateTime` +
+     * `ZoneOffset`/`ZoneId`）实现，语义可自证、不依赖对该内部实现细节的信任。
      */
     fun readExifTimeMs(file: File): Long? {
         val exif = ExifInterface(file)
@@ -53,6 +63,23 @@ object PhotoExifReader {
                 null
             }
         } ?: ZoneId.systemDefault()
-        return local.atZone(zone).toInstant().toEpochMilli()
+        val baseMillis = local.atZone(zone).toInstant().toEpochMilli()
+        return baseMillis + parseSubSecondMillis(exif.getAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL))
+    }
+
+    /**
+     * EXIF `SubSecTime*` 是「秒后小数部分」的十进制数字串，**不是**定长毫秒field：`"5"` 与 `"500"` 同表
+     * 0.5 秒（500ms），`"1234"` 表 0.1234 秒（截断到 123ms）——按数字串长度换算，而非直接当毫秒数用
+     * （那样 `"5"` 会被误当成 5ms，差了整整两个数量级）。非数字/空/null 一律记 0（无可用亚秒精度，不影响
+     * 秒级时间戳本身）。
+     */
+    private fun parseSubSecondMillis(subSec: String?): Long {
+        if (subSec.isNullOrEmpty() || !subSec.all(Char::isDigit)) return 0L
+        val numerator = subSec.toLongOrNull() ?: return 0L
+        var millis = numerator
+        var digits = subSec.length
+        while (digits < 3) { millis *= 10; digits++ }
+        while (digits > 3) { millis /= 10; digits-- }
+        return millis
     }
 }

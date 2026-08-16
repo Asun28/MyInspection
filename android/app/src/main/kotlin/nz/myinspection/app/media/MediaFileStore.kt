@@ -91,10 +91,11 @@ object MediaFileStore {
     }
 
     /** 临时文件清理失败不是证据丢失（缓存目录里多一份 `.tmp`），但也不能悄悄看不见——写 logcat 警告
-     * （:app 尚无常驻结构化日志框架，`Log.w` 是零新依赖的最小可见性手段）。 */
+     * （:app 尚无常驻结构化日志框架，`Log.w` 是零新依赖的最小可见性手段）。`op=`/`path=`/`result=`
+     * 键值对格式固定、可 grep，不是自由散文——出问题时能从 logcat 直接筛出同一操作的所有记录。 */
     private fun deleteTemp(file: File) {
         if (file.exists() && !file.delete()) {
-            Log.w(TAG, "failed to delete temp file ${file.path}")
+            Log.w(TAG, "op=deleteTemp path=${file.path} result=failed")
         }
     }
 }
