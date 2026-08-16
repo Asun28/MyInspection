@@ -72,49 +72,52 @@ class RoutineContentTest {
     @Test
     fun `coverage matches the researched NZ official form skeleton, no gaps`() {
         val items = loadRoutine().template.items
-        val ids = items.map { it.stableId }.toSet()
-
-        // 每房间重复条目组（官方表 Wall-Doors / Lights-Power points / Floors-Coverings / Windows /
-        // Blinds-Curtains 五组，本卡按各组内命名的两个子部件分开落项——见 stableId 命名）。
-        for (roomPrefix in listOf("LNG", "KIT", "BTH", "LDY", "BED")) {
-            for (obj in listOf("WALL", "DOOR", "LIGHT", "POWER", "FLOOR", "COVER", "WIN", "BLIND")) {
-                assertTrue("$roomPrefix-$obj-01" in ids, "missing repeated-group item $roomPrefix-$obj-01")
-            }
-        }
-
-        // 房间专属条目
-        assertTrue("LNG-HEATER-01" in ids, "missing lounge heater item")
-        for (obj in listOf("CUPBD", "SINK", "OVEN", "FRIDGE", "VENT")) {
-            assertTrue("KIT-$obj-01" in ids, "missing kitchen-specific item KIT-$obj-01")
-        }
-        for (obj in listOf("MIRROR", "BATH", "SHOWER", "BASIN", "TOILET", "VENT")) {
-            assertTrue("BTH-$obj-01" in ids, "missing bathroom-specific item BTH-$obj-01")
-        }
-        for (obj in listOf("WASHER", "TUB")) {
-            assertTrue("LDY-$obj-01" in ids, "missing laundry-specific item LDY-$obj-01")
-        }
-
-        // GENERAL：官方表 8 项 + 7 点烟雾报警器声明（照抄官方表）+ 水表读数
-        for (obj in listOf("BIN", "LOCK", "GARAGE", "GROUNDS", "KEYS", "INSUL", "GUTTER", "MOIST", "METER")) {
-            assertTrue("GEN-$obj-01" in ids, "missing general item GEN-$obj-01")
-        }
-        val smokeObjs = listOf("SMOKE-POS", "SMOKE-TYPE", "SMOKE-POWER", "SMOKE-TEST", "SMOKE-EXPIRY", "SMOKE-OBSTRUCT", "SMOKE-COUNT")
-        for (obj in smokeObjs) {
-            assertTrue("GEN-$obj-01" in ids, "missing smoke-alarm declaration item GEN-$obj-01")
-        }
-        assertEquals(7, smokeObjs.size, "official form's smoke-alarm declaration has exactly 7 points")
-
-        // Exterior 围护细分（调研补充，非官方表原生条目）
-        for (obj in listOf("CLAD", "ROOF", "FOUND", "FENCE", "PATH", "SEAL")) {
-            assertTrue("EXT-$obj-01" in ids, "missing exterior item EXT-$obj-01")
-        }
-
-        // Healthy Homes 日常复核点：与官方表天然重合的三项（地板下/天花绝缘、抽风扇、防潮布），
-        // 文案须点名 Healthy Homes 以便未来 T6-HHC 按同 stableId 承接（非本卡断言其存在，只断言可辨识）。
         val byId = items.associateBy { it.stableId }
-        assertTrue(byId.getValue("GEN-INSUL-01").textEn.contains("Healthy Homes"), "GEN-INSUL-01 should read as a Healthy Homes checkpoint")
-        assertTrue(byId.getValue("GEN-MOIST-01").textEn.isNotBlank(), "GEN-MOIST-01 (ground moisture barrier) missing")
-        assertTrue(byId.getValue("KIT-VENT-01").textEn.contains("Healthy Homes"), "KIT-VENT-01 should read as a Healthy Homes checkpoint")
-        assertTrue(byId.getValue("BTH-VENT-01").textEn.contains("Healthy Homes"), "BTH-VENT-01 should read as a Healthy Homes checkpoint")
+
+        // 每个必需 stableId 不仅要存在，还必须落在指定房间——只判 membership 的话，一条项目被
+        // 错挪进另一个房间（如 KIT-SINK-01 挪去 BATHROOM）不会被发现，id 仍在整份 ids 集合里。
+        val requiredIdToRoom = buildMap {
+            for ((prefix, room) in listOf(
+                "LNG" to "LOUNGE", "KIT" to "KITCHEN-DINING", "BTH" to "BATHROOM",
+                "LDY" to "LAUNDRY", "BED" to "BEDROOM",
+            )) {
+                // 官方表 Wall-Doors / Lights-Power points / Floors-Coverings / Windows / Blinds-Curtains
+                // 五组，本卡按各组内命名的两个子部件分开落项——见 stableId 命名。
+                for (obj in listOf("WALL", "DOOR", "LIGHT", "POWER", "FLOOR", "COVER", "WIN", "BLIND")) {
+                    put("$prefix-$obj-01", room)
+                }
+            }
+            put("LNG-HEATER-01", "LOUNGE")
+            for (obj in listOf("CUPBD", "SINK", "OVEN", "FRIDGE", "VENT")) put("KIT-$obj-01", "KITCHEN-DINING")
+            for (obj in listOf("MIRROR", "BATH", "SHOWER", "BASIN", "TOILET", "VENT")) put("BTH-$obj-01", "BATHROOM")
+            for (obj in listOf("WASHER", "TUB")) put("LDY-$obj-01", "LAUNDRY")
+            // GENERAL：官方表 8 项 + 水表读数
+            for (obj in listOf("BIN", "LOCK", "GARAGE", "GROUNDS", "KEYS", "INSUL", "GUTTER", "MOIST", "METER")) {
+                put("GEN-$obj-01", "GENERAL")
+            }
+            // Exterior 围护细分（调研补充，非官方表原生条目）
+            for (obj in listOf("CLAD", "ROOF", "FOUND", "FENCE", "PATH", "SEAL")) put("EXT-$obj-01", "EXTERIOR")
+        }
+        for ((id, expectedRoom) in requiredIdToRoom) {
+            val item = byId[id] ?: fail("missing required item $id (expected room $expectedRoom)")
+            assertEquals(expectedRoom, item.room, "$id should belong to room $expectedRoom, found ${item.room}")
+        }
+
+        // 7 点烟雾报警器声明（官方表照抄）：从模板**实际派生**出的 GEN-SMOKE-* 条目集合须恰好等于
+        // 这 7 点，不多不少——只断言"这些 id 存在"不够，多余/被替换的声明点不会被上面按 id 点名的
+        // 断言发现（它们只查"要求的 id 是否在场"，反向的"在场的 id 是否都是要求的"漏判）。
+        val actualSmokeIds = items.filter { it.room == "GENERAL" && it.stableId.startsWith("GEN-SMOKE-") }
+            .map { it.stableId }.toSet()
+        val expectedSmokeIds = setOf(
+            "GEN-SMOKE-POS-01", "GEN-SMOKE-TYPE-01", "GEN-SMOKE-POWER-01", "GEN-SMOKE-TEST-01",
+            "GEN-SMOKE-EXPIRY-01", "GEN-SMOKE-OBSTRUCT-01", "GEN-SMOKE-COUNT-01",
+        )
+        assertEquals(expectedSmokeIds, actualSmokeIds, "official form's smoke-alarm declaration must be exactly these 7 points, no more, no fewer")
+
+        // Healthy Homes 日常复核点：与官方表天然重合的四项（地板下/天花绝缘、厨房与浴室抽风、防潮布），
+        // 文案须点名 Healthy Homes 以便未来 T6-HHC 按同 stableId 承接。
+        for (id in listOf("GEN-INSUL-01", "GEN-MOIST-01", "KIT-VENT-01", "BTH-VENT-01")) {
+            assertTrue(byId.getValue(id).textEn.contains("Healthy Homes"), "$id should read as a Healthy Homes checkpoint")
+        }
     }
 }
