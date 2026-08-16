@@ -103,23 +103,28 @@ class RoutineContentTest {
             assertEquals(expectedRoom, item.room, "$id should belong to room $expectedRoom, found ${item.room}")
         }
 
-        // 7 点烟雾报警器声明：MB_TEN0004_10/25 表格第 2 页原文核对（2026-08-16 抓取官方可填 PDF
-        // 逐字核验，见 PR 记录），断言**一对一 stableId → 官方英文声明**的精确文案，不是只判存在——
-        // 只判「这些 id 存在」不够：文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
+        // 7 点烟雾报警器声明：内容对齐 Residential Tenancies (Smoke Alarms and Insulation) Regulations
+        // 2016 规定的 7 项事实要求（卧室 3 米范围 / 每层至少一个 / 房车-独立睡屋 / 制造商到期日 /
+        // 2016-07-01 起 8 年电池或硬连线 / 按说明安装 / 租期开始时确认正常），但**文案系本卡独立撰写**，
+        // 不逐字复制 tenancy.govt.nz 官方表 MB_TEN0004 的措辞——该站版权声明明示「商业性复用需书面授权」
+        // （https://www.tenancy.govt.nz/copyright，R3 round 3 拦住的许可风险）；受保护的是官方选择的具体
+        // 表达，不是法规本身的事实要求，故换一套独立措辞完整保留全部事实点即规避复制风险。
+        // 断言**一对一 stableId → 本卡撰写文案**的精确文案，不是只判存在——只判「这些 id 存在」不够：
+        // 文案被替换成别的（哪怕格式相似）不会被单纯的 membership 断言发现。
         val expectedSmokeText = mapOf(
-            "GEN-SMOKE-BEDROOM-01" to "There is at least one working smoke alarm in each bedroom, or within three metres of each bedroom's door - this applies to any room a person might reasonably sleep in",
-            "GEN-SMOKE-STOREY-01" to "If there is more than one storey or level, there is at least one working smoke alarm on each storey or level, even if no one sleeps there",
-            "GEN-SMOKE-CARAVAN-01" to "If there is a caravan, sleep-out or similar, there is at least one working smoke alarm in it",
-            "GEN-SMOKE-EXPIRY-01" to "None of the smoke alarms has passed the manufacturer's expiry or recommended replacement date",
-            "GEN-SMOKE-BATTERY-01" to "All new or replacement smoke alarms installed from 1 July 2016 onward are long-life photoelectric smoke alarms with a total battery life of at least eight years when installed, or a hard-wired smoke alarm system, and meet the product standards in the Residential Tenancies (Smoke Alarms and Insulation) Regulations 2016",
-            "GEN-SMOKE-INSTALL-01" to "All smoke alarms are properly installed by the landlord or their agent in accordance with the manufacturer's instructions",
-            "GEN-SMOKE-WORKING-01" to "All smoke alarms are working at the start of the tenancy, including having working batteries",
+            "GEN-SMOKE-BEDROOM-01" to "Working smoke alarm present in every bedroom, or within 3m of the bedroom door",
+            "GEN-SMOKE-STOREY-01" to "Working smoke alarm present on every storey / level of the property, including levels with no bedrooms",
+            "GEN-SMOKE-CARAVAN-01" to "Any on-site caravan, sleep-out or similar structure has its own working smoke alarm",
+            "GEN-SMOKE-EXPIRY-01" to "No smoke alarm has exceeded its manufacturer expiry / replacement date",
+            "GEN-SMOKE-BATTERY-01" to "Smoke alarms installed since 1 July 2016 are long-life photoelectric (minimum 8-year battery life) or hardwired, meeting the current regulatory product standard",
+            "GEN-SMOKE-INSTALL-01" to "Smoke alarms installed by the landlord / agent according to manufacturer instructions",
+            "GEN-SMOKE-WORKING-01" to "All smoke alarms confirmed working, including battery condition, at tenancy start",
         )
         val actualSmokeIds = items.filter { it.room == "GENERAL" && it.stableId.startsWith("GEN-SMOKE-") }
             .map { it.stableId }.toSet()
-        assertEquals(expectedSmokeText.keys, actualSmokeIds, "official form's smoke-alarm declaration must be exactly these 7 points, no more, no fewer")
+        assertEquals(expectedSmokeText.keys, actualSmokeIds, "the smoke-alarm declaration group must be exactly these 7 points, no more, no fewer")
         for ((id, expectedText) in expectedSmokeText) {
-            assertEquals(expectedText, byId.getValue(id).textEn, "$id textEn must match the MB_TEN0004_10/25 smoke-alarm declaration")
+            assertEquals(expectedText, byId.getValue(id).textEn, "$id textEn drifted from its authored content")
         }
 
         // Healthy Homes 日常复核点：与官方表天然重合的四项（地板下/天花绝缘、厨房与浴室抽风、防潮布），
