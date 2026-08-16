@@ -341,6 +341,26 @@ DoD 全量：`tests` 合计 62（db 45 + model 10 + uuid 7），`failures=0 erro
 
 67 测试全绿。
 
+## 卡片修订 2026-08-16 之十三（R3 第十五轮 · 相等性测不出形状，而形状就是哈希域）
+八个快照类型只有「逐字段参与相等性」的测试——**给任何一个加一个带默认值的字段，全部相等性断言照样绿，
+而 T1-CANON-HASH 的哈希域已经悄悄变了**。最尖锐的是租客联系方式那条：它声称验证「联系方式不在快照里」，
+实际只验证了「三参数构造成功」，而**多出一个带默认值的第四参数时三参数构造同样成功**——证明不了缺席。
+该测试的注释自己写着「这里没有反射黑魔法能测某字段不存在」；有的，`declaredFields` 就是。
+
+八个类型现各自钉死 `name:JavaType` 有序列表。**边界写明而非默认**：引用类型的可空性**不覆盖**
+（`String?` 与 `String` 在 Java 侧同为 `String`），可空基本类型**覆盖**（装箱成 `Long`/`Boolean`，
+与 `long`/`boolean` 可区分）——实测结论，不是遗漏。
+
+两处排除项就地附理由（因为它们最可能被将来的改动无意撤销）：
+租客联系方式必须留在外面，否则 Privacy Act 的保留期清理一执行，**历史报告的哈希将永远无法复验**；
+`SupplementSnapshot` 必须只有 `createdAt`+`text`——`id` 是随机 UUID 与内容无关、`inspectionId` 在
+「某次巡检下的链」里冗余、`prevHash` 是 `supplementChainHash(prev, s)` 的另一个入参而非本条内容。
+
+**变异证明**：给 `AudioSnapshot` 加 `sneakyExtra: String = "default"` 后，
+`every snapshot type has exactly the declared hash-domain shape` 变红，消息为
+`expected [contentHash:String] but found [contentHash:String, sneakyExtra:String]`，
+**而全部相等性用例保持绿**——这正是本轮要补的那个洞。还原后 SHA256 一致。68 测试全绿。
+
 ## 禁止 / 非目标
 见 front-matter。
 
