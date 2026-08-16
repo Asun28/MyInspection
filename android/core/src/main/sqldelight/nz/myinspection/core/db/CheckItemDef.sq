@@ -12,7 +12,11 @@ CREATE TABLE check_item_def (
     -- 不能依赖插入顺序或行 id 排序（那不是确定性的、也不是模板作者定义的顺序）
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- photo_rule 是封闭域 + 可空（NULL = 无强制拍照要求）。采集层按它算「还缺哪些强制照片」的完备性，
+    -- 一个未知值既不匹配 ROOM_PANORAMA 也不匹配 ADVERSE_ONLY，会被静默当成"无要求"，漏掉该拍的照片。
+    -- **不约束 allowed_statuses**：那是 JSON 编码的集合，合法值随模板类型而变，校验属 :core（T1-TEMPLATE-ENGINE）。
+    CHECK (photo_rule IS NULL OR photo_rule IN ('ROOM_PANORAMA', 'ADVERSE_ONLY'))
 );
 
 -- 被任何巡检引用后不可变。**不提供 update 查询是不够的**：本表的行是 template_version 的**子行**，

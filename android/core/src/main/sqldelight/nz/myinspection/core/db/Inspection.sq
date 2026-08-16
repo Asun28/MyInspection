@@ -19,6 +19,9 @@ CREATE TABLE inspection (
     -- status 与 finalized_at/data_hash 必须联动一致：DRAFT 时两者都还没有值，FINALIZED 时两者都必须有值。
     -- 结构性约束（不是触发器/业务逻辑），拦住「FINALIZED 却没时间戳/哈希」或「未知 status 值」这类无效状态，
     -- 而不是靠调用方自律。
+    -- type 同样是封闭域（四类，对齐 template_version.type）。合规闸按 type 分流——「4 周内不得重复 Routine，
+    -- Ingoing/Exit 不计入」——一个未知 type 会从这条法律上限的两侧同时溜走：既不算 Routine、也不在豁免名单里。
+    CHECK (type IN ('ROUTINE', 'INGOING', 'EXIT', 'ANNUAL')),
     CHECK (
         (status = 'DRAFT' AND finalized_at IS NULL AND data_hash IS NULL)
         OR (status = 'FINALIZED' AND finalized_at IS NOT NULL AND data_hash IS NOT NULL)

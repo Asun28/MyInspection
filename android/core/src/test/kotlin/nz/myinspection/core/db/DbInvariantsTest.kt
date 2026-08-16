@@ -169,6 +169,140 @@ class DbInvariantsTest {
         assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "expected a CHECK constraint violation, got: ${ex.message}")
     }
 
+    /**
+     * 封闭域必须由 CHECK 兑现，而不是只写在列注释里——生成的 API 收任意 String/Long，注释拦不住任何东西，
+     * 且 schema 是 ★冻结点，事后补约束要走迁移（R3 第九轮 finding）。
+     *
+     * **这几张表的 insert 带 EXISTS 守卫（INSERT…SELECT），守卫滤掉的行根本走不到 CHECK**——若父行没建好，
+     * 插入只是 0 行、不抛异常，测试就会以「没抛=约束不存在」的相反理由假绿。故下面每例都先备齐合法父行，
+     * 只把被测那一列换成非法值。
+     */
+    private fun assertCheckViolation(what: String, block: () -> Unit) {
+        val ex = assertFailsWith<Exception>("$what must violate a CHECK constraint") { block() }
+        assertTrue(
+            ex.message.orEmpty().contains("CHECK", ignoreCase = true),
+            "expected a CHECK constraint violation for $what, got: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `property rejects an unknown kind and a non-boolean boarding-house flag`() {
+        assertCheckViolation("an unrecognised property kind") {
+            database.propertyQueries.insert(
+                id = uuid.next(), address = "12 Test St", kind = "BOGUS", is_boarding_house = 0,
+                created_at = now, updated_at = now,
+            )
+        }
+        assertCheckViolation("a boarding-house flag outside 0/1") {
+            database.propertyQueries.insert(
+                id = uuid.next(), address = "12 Test St", kind = "RENTAL", is_boarding_house = 2,
+                created_at = now, updated_at = now,
+            )
+        }
+    }
+
+    @Test
+    fun `template_version rejects an unknown type`() {
+        assertCheckViolation("an unrecognised template type") {
+            database.templateVersionQueries.insert(
+                id = uuid.next(), type = "ROUTIN", version = 1, content_hash = "h",
+                created_at = now, updated_at = now,
+            )
+        }
+    }
+
+    @Test
+    fun `inspection rejects an unknown type`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        assertCheckViolation("an unrecognised inspection type") {
+            database.inspectionQueries.insert(
+                id = uuid.next(), type = "BOGUS", property_id = propertyId, tenancy_id = null,
+                template_version_id = templateVersionId, scheduled_at = now, previous_inspection_id = null,
+                baseline_inspection_id = null, status = "DRAFT", finalized_at = null, data_hash = null,
+                created_at = now, updated_at = now,
+            )
+        }
+    }
+
+    @Test
+    fun `check_item_def rejects an unknown photo_rule but accepts NULL`() {
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        assertCheckViolation("an unrecognised photo_rule") {
+            database.checkItemDefQueries.insert(
+                id = uuid.next(), template_version_id = templateVersionId, stable_id = "wall.paint",
+                area = "INTERIOR", room = "BEDROOM", text_en = "Walls", text_zh = "墙面",
+                allowed_statuses = """["GOOD"]""", photo_rule = "BOGUS", sort = 1,
+                created_at = now, updated_at = now,
+            )
+        }
+        // NULL 是合法的「无强制拍照要求」，约束不得把它一并挡掉。
+        val affected = database.checkItemDefQueries.insert(
+            id = uuid.next(), template_version_id = templateVersionId, stable_id = "wall.paint",
+            area = "INTERIOR", room = "BEDROOM", text_en = "Walls", text_zh = "墙面",
+            allowed_statuses = """["GOOD"]""", photo_rule = null, sort = 1,
+            created_at = now, updated_at = now,
+        ).value
+        assertEquals(1L, affected, "photo_rule NULL means 'no mandatory photo' and must remain insertable")
+    }
+
+    @Test
+    fun `inspection_item rejects an unknown wear_or_damage but accepts NULL`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+
+        assertCheckViolation("an unrecognised wear_or_damage classification") {
+            database.inspectionItemQueries.insert(
+                id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
+                stable_id = "wall.paint", status = "GOOD", note = null, wear_or_damage = "BOGUS",
+                created_at = now, updated_at = now,
+            )
+        }
+        // NULL = 非 Exit 或与 Ingoing 无差异，必须仍可插入。
+        val affected = database.inspectionItemQueries.insert(
+            id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
+            stable_id = "wall.trim", status = "GOOD", note = null, wear_or_damage = null,
+            created_at = now, updated_at = now,
+        ).value
+        assertEquals(1L, affected, "wear_or_damage NULL is the normal non-Exit case and must remain insertable")
+    }
+
+    @Test
+    fun `photo rejects an unknown source and a non-boolean privacy_flag`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+
+        assertCheckViolation("an unrecognised photo source") {
+            database.photoQueries.insert(
+                id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,
+                rel_path = "a.jpg", content_hash = "h", exif_time_ms = null, source = "SCANNER",
+                privacy_flag = 0, created_at = now, updated_at = now,
+            )
+        }
+        assertCheckViolation("a privacy_flag outside 0/1") {
+            database.photoQueries.insert(
+                id = uuid.next(), inspection_item_id = null, room_instance_id = roomInstanceId,
+                rel_path = "b.jpg", content_hash = "h", exif_time_ms = null, source = "CAMERA",
+                privacy_flag = 2, created_at = now, updated_at = now,
+            )
+        }
+    }
+
+    @Test
+    fun `property_item_override rejects a non-boolean suppressed flag`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        assertCheckViolation("a suppressed flag outside 0/1") {
+            database.propertyItemOverrideQueries.insert(
+                id = uuid.next(), property_id = propertyId, stable_id = "wall.paint", suppressed = 2,
+                created_at = now, updated_at = now,
+            )
+        }
+    }
+
     @Test
     fun `inspection rejects an unknown status value`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)

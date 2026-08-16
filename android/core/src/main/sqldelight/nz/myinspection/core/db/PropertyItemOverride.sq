@@ -5,7 +5,10 @@ CREATE TABLE property_item_override (
     suppressed INTEGER NOT NULL, -- 0/1；"本物业不存在此项"永久抑制（zInspector Ø 先例：模板现场自愈）
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- suppressed 是布尔域。抑制查询按 `suppressed = 1` 匹配，一个 `2` 既不抑制也不恢复——
+    -- 该项会永远以「未抑制」的样子出现在走查清单里，而调用方以为自己已经关掉了它。
+    CHECK (suppressed IN (0, 1))
 );
 
 -- 部分唯一索引而非表级 UNIQUE(...,deleted_at)：SQLite 的 UNIQUE 把 NULL 视为互不相等，表级约束

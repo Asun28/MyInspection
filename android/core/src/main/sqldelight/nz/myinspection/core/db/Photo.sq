@@ -9,7 +9,12 @@ CREATE TABLE photo (
     privacy_flag INTEGER NOT NULL, -- 0/1；含租客物品标记（NZ OPC 判例风险），报告可据此排除
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- 两列都是封闭域，且都载重：source 区分现场拍摄与事后导入（证据可信度，需求「导入照片必存来源标记」）；
+    -- privacy_flag 决定报告是否排除该照片（含租客物品，NZ OPC 判例风险）。**privacy_flag 尤其危险**——
+    -- 一个 `2` 落库，任何 `flag = 1` 的排除查询都会漏掉它，含租客物品的照片就这样进了报告。
+    CHECK (source IN ('CAMERA', 'IMPORTED')),
+    CHECK (privacy_flag IN (0, 1))
 );
 
 CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);

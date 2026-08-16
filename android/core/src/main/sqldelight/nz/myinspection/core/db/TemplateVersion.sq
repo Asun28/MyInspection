@@ -5,7 +5,10 @@ CREATE TABLE template_version (
     content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（T1-CANON-HASH 产出，本卡只建列）
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- type 是封闭域（四类模板，需求 §4）。它参与 idx_template_version_active 的唯一性判定：
+    -- 一个拼错的 'ROUTIN' 会被当成第五类，静默绕开「同一 (type, version) 只有一行活跃」的约束。
+    CHECK (type IN ('ROUTINE', 'INGOING', 'EXIT', 'ANNUAL'))
 );
 
 -- 被任何巡检引用后不可变（templateSnapshot 语义等价实现）：本卡故意不提供 update 查询，

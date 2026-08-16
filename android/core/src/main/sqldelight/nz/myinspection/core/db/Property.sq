@@ -5,7 +5,12 @@ CREATE TABLE property (
     is_boarding_house INTEGER NOT NULL, -- 0/1；影响巡检时段规则（08:00-19:00，寄宿公寓 08:00-18:00）
     created_at INTEGER NOT NULL, -- 行创建时间；updated_at 会被后续修改覆盖，创建历史单靠它不可恢复
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- 上面两列的注释声明的是**封闭域**，但生成的 API 收任意 String/Long——不落成 CHECK，注释就只是注释。
+    -- is_boarding_house 尤其载重：它决定巡检时段上限（19:00 vs 18:00），是不可关闭的合规闸的输入；
+    -- 一个 `2` 落库就能让该闸的判断失去意义。schema 冻结后补约束要走迁移，故在此一次落齐。
+    CHECK (kind IN ('RENTAL', 'OWNER_OCCUPIED')),
+    CHECK (is_boarding_house IN (0, 1))
 );
 
 insert:
