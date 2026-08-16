@@ -361,6 +361,39 @@ DoD 全量：`tests` 合计 62（db 45 + model 10 + uuid 7），`failures=0 erro
 `expected [contentHash:String] but found [contentHash:String, sneakyExtra:String]`，
 **而全部相等性用例保持绿**——这正是本轮要补的那个洞。还原后 SHA256 一致。68 测试全绿。
 
+## 卡片修订 2026-08-16 之十四（R3 第十六轮 · items[] 无全序＝data_hash 不确定；**停止条件首次触发并奏效**）
+**发现（真·schema 设计缺陷，非卫生问题）**：`check_item_def.sort` 不是全序键——同一 `stable_id` 可合法落在
+多个 `room_instance` 上（活跃唯一索引 = `(inspection_id, room_instance_id, stable_id)`），两个不同 `stable_id`
+也允许共用一个 `sort`。并列项顺序无定义 ⇒ 主卧 `wall.paint`=GOOD、次卧 `wall.paint`=POOR 两种序列都合法 ⇒
+**同样的数据算出两个 data_hash**。而该哈希写进 PDF 页脚、作用是「自证未事后修改」——它不确定，自证即为空。
+
+**编排者按既定规则停手、交用户裁决**（本卡此前记录的停止条件：「出现 schema 设计层面的新缺陷时停下来问」）。
+两条修法都会改动冻结点契约，故不自行选择：
+- **A**：不改快照形状，把排序契约收紧为全序 `(sort, room_instance_id, stable_id)` + 提供有序查询。
+- **B**：给 `InspectionItemSnapshot` 加房间标识——改哈希域形状，牵动 T1-CANON-HASH 黄金向量。
+
+**用户选 A**（2026-08-16）。已按 A 实现：新增 `inspection_item.selectByInspectionInTemplateOrder`；
+排序键留在投影之外，与 `photos[]`/`audios[]` 用外部 UUID 定序同一做法，**快照形状不变**，「修订之十三」
+钉下的形状断言继续有效。
+
+**LEFT JOIN 而非 JOIN**（本轮自行加固，非评审要求）：内连接会把「`stable_id` 在该模板版本无定义」的条目
+静默丢出结果集——**删掉一条 `check_item_def` 就能让某个条目从哈希里消失**，那是可利用的漏洞而非数据清洁。
+外连接保留之（`sort` 为 NULL，SQLite ASC 排最前，位置仍确定），配独立回归。
+
+**第二条发现是执行者上一轮自己的 bug**：形状断言依赖 `Class.getDeclaredFields()` 的返回顺序，而 JVM 规范
+**不保证**该顺序——合规但重排字段的工具链会让它在源码未变时变红（假确定性）。改为比较排序后的集合；
+字段顺序本也不该是契约（canonical JSON 由 T1-CANON-HASH 自行定序），要守的是「哪些字段在」。
+
+**变异证明**：从 `ORDER BY` 摘掉 `ii.room_instance_id` 后，顺序由 `A/a, A/b, B/a, B/b` 变成
+`A/a, B/a, A/b, B/b`——兜底键确实承重。70 测试全绿。
+
+### 本轮两条操作教训（已进 lessons 候选）
+1. **变异证明前必须先提交**：`git checkout -- <file>` 恢复到 HEAD，会把该文件里**未提交的新工作**一并抹掉，
+   不只是变异。本轮即因此丢失整条新查询，靠 L196 的「还原后核 SHA256」当场发现（`restored=False`）。
+2. **守卫返回 0 行而不抛异常 ⇒ 不看返回值的调用点静默失败**：夹具先建巡检、后定义模板项，被
+   `check_item_def` 的引用后不可变守卫连拒三次，症状却在几十行外伪装成「排序实现有问题」。
+   夹具的每一步前提都要断言影响行数，让前提坏时报「夹具坏了」。
+
 ## 禁止 / 非目标
 见 front-matter。
 
