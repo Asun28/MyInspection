@@ -29,9 +29,8 @@ SELECT *
 FROM property_item_override
 WHERE property_id = :property_id AND deleted_at IS NULL;
 
--- 点查（property_id, stable_id）这条活跃记录是否已存在——T2-CAPTURE-CORE 的抑制/恢复用例（其
--- allow_paths 不含 core/db/）靠这个决定该 insert 新行还是 setSuppressed 已有行（唯一索引不允许两条
--- 活跃行并存，见上）。
+-- 点查（property_id, stable_id）这条活跃记录是否已存在——采集层的抑制/恢复用例靠这个决定
+-- 该 insert 新行还是 setSuppressed 已有行（唯一索引不允许两条活跃行并存，见上）。
 selectByPropertyAndStableId:
 SELECT *
 FROM property_item_override

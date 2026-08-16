@@ -31,7 +31,7 @@ class Uuid7GeneratorTest {
     @Test
     fun `fixed vector - full 128-bit output is byte-exact`() {
         // 时间戳 1734000000000ms + 计数器种子 0x0ABCDEF0123 + rand_b 低 32 位 0x11223344，
-        // 按 RFC 9562 位布局用 Python 独立算出的期望值（脚本见本卡交付说明，不在本文件重复）。
+        // 按 RFC 9562 位布局用 Python 独立算出的期望值——刻意不是同一套 Kotlin 公式抄两遍自证。
         val fixedMs = 1_734_000_000_000L
         val counterSeed = 0x0ABCDEF0123L
         val lowRandomSeed = 0x11223344L

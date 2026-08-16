@@ -11,12 +11,11 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 为下游卡补的机械查询（R3 二轮评审要求，编排者裁决：每条须能指到具体需求方卡片的原文，见
- * specs/tasks/T1-SCHEMA-CORE.md「验收」说明）：
- *  - inspection_item.updateWearOrDamageIfDraft（T2-CAPTURE-CORE，allow_paths 不含 core/db/）
- *  - property_item_override.setSuppressed / selectByPropertyAndStableId（T2-CAPTURE-CORE，同上）
- *  - notice.recordDelivery（T4-NOTICES，同上）
- *  - photo.softDelete / orphanedAssets / selectActiveAssetsByContentHash（T2-PHOTO-PIPELINE，同上）
+ * 机械写/查路径，供上层模块调用；判断逻辑都不在这里，只有守卫与确定性：
+ *  - inspection_item.updateWearOrDamageIfDraft（消费方：采集层）
+ *  - property_item_override.setSuppressed / selectByPropertyAndStableId（采集层）
+ *  - notice.recordDelivery（通知层）
+ *  - photo.softDelete / orphanedAssets / selectActiveAssetsByContentHash（照片管线）
  */
 class DbDownstreamQueriesTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -303,7 +302,7 @@ class DbDownstreamQueriesTest {
     }
 
     /**
-     * 反向的那一半（R3 第十二轮）：删除目标是**路径**，而 schema 不保证「一个 rel_path 只对应一个
+     * 反向的那一半：删除目标是**路径**，而 schema 不保证「一个 rel_path 只对应一个
      * content_hash」——唯一索引管的是 (room_instance_id, content_hash)，不管路径。按 (hash, path) 判活时，
      * 软删的 (H1, P) 会让 P 被报成孤儿，尽管活跃的 (H2, P) 还指着同一个物理文件；清理任务照报告删下去，
      * 就把仍在用的文件删了。让活跃行属于 **FINALIZED 巡检**，把后果顶到最严重：巡检证据被抹掉，
@@ -396,7 +395,7 @@ class DbDownstreamQueriesTest {
     /**
      * T2-PHOTO-PIPELINE 去重链路的前半步：「哈希已存在就复用该资产、只建新关联」。既有两条查询都不顶用——
      * selectByRoomInstance 要求已知 room_instance_id（去重时恰恰还不知道要挂到哪），orphanedAssets 只回
-     * 软删行（去重要的是活着的那些）。该卡 allow_paths 不含 core/db/，且本目录合并后进 FrozenPaths。
+     * 软删行（去重要的是活着的那些）。
      *
      * 一个用例覆四件事：**全部活跃路径都回**、**顺序确定**、**软删的不回**、**复用后不重复计数**。
      * 插入顺序刻意与期望顺序相反（先 path-b 后 path-a），否则「按 rel_path 排序」和「按插入顺序返回」

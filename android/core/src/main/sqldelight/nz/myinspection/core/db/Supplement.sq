@@ -6,13 +6,13 @@ CREATE TABLE supplement (
     prev_hash TEXT NOT NULL, -- 链上一环的 chain_hash；首条锚 inspection.data_hash（T1-CANON-HASH「prev_hash(1) = inspection.data_hash」），
     -- 不是"链首没有上一条"——每一条都有确定的 prev_hash，只是首条的值来自 inspection 而非另一条 supplement。
     chain_hash TEXT NOT NULL, -- 本行的链哈希 = SHA-256(canonical(本行) + prev_hash)，T1-CANON-HASH 的 supplementChainHash
-    -- 算出、T3-FINALIZE 写入（本卡只建列，不算哈希——非目标）。没有这一列，链尾/单条记录的哈希无处可核对，
-    -- verifyChain 拿不到"这一行当时算出的哈希应该是多少"这个锚点（R3 评审指出，已改正）。
+    -- 算出、T3-FINALIZE 写入（此处只建列，不算哈希）。没有这一列，链尾/单条记录的哈希无处可核对，
+    -- verifyChain 拿不到"这一行当时算出的哈希应该是多少"这个锚点。
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER
 );
 
--- append-only（finalize 哈希链，关键不变量）：本卡故意不提供 update 查询。
+-- append-only（finalize 哈希链，关键不变量）：故意不提供 update 查询。
 
 CREATE INDEX idx_supplement_inspection ON supplement (inspection_id);
 
@@ -27,7 +27,7 @@ WHERE id = :id;
 
 -- `, id` 是必要的第二排序键，不是装饰：ORDER BY 单靠 created_at（毫秒精度）在两条同毫秒插入时排序
 -- 不确定（SQLite 不保证同值的输出顺序稳定），链校验/canonical 序列化要求确定性，同值必须有 tie-breaker
--- （R3 评审指出，CheckItemDef/PhraseEntry 的排序查询同样的坑一并改正，见各自文件）。
+-- （同一条纪律适用于 CheckItemDef / PhraseEntry 的排序查询，见各自文件）。
 selectByInspection:
 SELECT *
 FROM supplement

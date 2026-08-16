@@ -49,8 +49,8 @@ SET status = :status, note = :note, updated_at = :updated_at
 WHERE id = :id
   AND inspection_id IN (SELECT id FROM inspection WHERE finalized_at IS NULL);
 
--- T2-CAPTURE-CORE（其 allow_paths 不含 core/db/）：「wear_or_damage 仅 EXIT 且该项与 baseline 状态有
--- 差异时可写（差异计算本卡实现）」——差异判断与写入时机归 T2-CAPTURE-CORE，本卡只给机械写路径 + 同一条
+-- 机械写路径：「wear_or_damage 仅 EXIT 且该项与 baseline 状态有
+-- 差异时可写」——差异判断与写入时机归采集层（T2-CAPTURE-CORE），此处只提供写路径 + 同一条
 -- finalize 守卫。独立于 updateStatusIfDraft：status 在走查全程写，wear_or_damage 只在差异判定后才写，
 -- 两者时机不同，合并成一条查询会强迫调用方每次都传全部字段。
 updateWearOrDamageIfDraft:

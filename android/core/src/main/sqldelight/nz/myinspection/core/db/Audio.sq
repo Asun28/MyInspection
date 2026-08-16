@@ -8,7 +8,7 @@ CREATE TABLE audio (
     deleted_at INTEGER
 );
 
--- 原始音频永远保留（关键不变量：识别会失败，换模型后可重跑历史音频）：本卡故意不提供 delete 查询。
+-- 原始音频永远保留（关键不变量：识别会失败，换模型后可重跑历史音频）：故意不提供 delete 查询。
 
 CREATE INDEX idx_audio_inspection_item ON audio (inspection_item_id);
 

@@ -2,7 +2,7 @@ CREATE TABLE template_version (
     id TEXT NOT NULL PRIMARY KEY,
     type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
     version INTEGER NOT NULL,
-    content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（T1-CANON-HASH 产出，本卡只建列）
+    content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（由 T1-CANON-HASH 算出并写入；此处只建列）
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER,
@@ -11,7 +11,7 @@ CREATE TABLE template_version (
     CHECK (type IN ('ROUTINE', 'INGOING', 'EXIT', 'ANNUAL'))
 );
 
--- 被任何巡检引用后不可变（templateSnapshot 语义等价实现）：本卡故意不提供 update 查询，
+-- 被任何巡检引用后不可变（templateSnapshot 语义等价实现）：故意不提供 update 查询，
 -- 报告多年后须可一致重渲，改措辞/加项一律走新版本行，不改旧行。
 
 -- 同一 (type, version) 不得有两行活跃记录（否则哪一行是"权威版本 N"就变得不确定）。

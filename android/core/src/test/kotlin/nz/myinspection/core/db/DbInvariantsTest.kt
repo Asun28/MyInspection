@@ -171,7 +171,7 @@ class DbInvariantsTest {
 
     /**
      * 封闭域必须由 CHECK 兑现，而不是只写在列注释里——生成的 API 收任意 String/Long，注释拦不住任何东西，
-     * 且 schema 是 ★冻结点，事后补约束要走迁移（R3 第九轮 finding）。
+     * 且 schema 冻结后补约束要走迁移。
      *
      * **这几张表的 insert 带 EXISTS 守卫（INSERT…SELECT），守卫滤掉的行根本走不到 CHECK**——若父行没建好，
      * 插入只是 0 行、不抛异常，测试就会以「没抛=约束不存在」的相反理由假绿。故下面每例都先备齐合法父行，

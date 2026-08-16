@@ -33,6 +33,66 @@ class DbReferentialIntegrityTest {
 
     private val now = DbTestFixtures.NOW
 
+    /**
+     * 四张挂在巡检下的子表都用 `INSERT…SELECT…WHERE EXISTS` 守卫。**下面所有「affects zero rows」用例，
+     * 一个恒返回 0 行的坏守卫全都能过**——正路径必须单独钉住，否则整组拒绝断言证明不了任何东西（L165）。
+     * 一次覆四张表：合法 DRAFT 链路下各插一行，断言影响 1 行**且真能读回来**（只断言 1 行不足以排除
+     * 「写进去但落到别的行/别的链路」）。
+     */
+    @Test
+    fun `all four guarded child inserts succeed and are retrievable on a draft inspection`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+
+        val roomInstanceId = uuid.next()
+        assertEquals(
+            1L,
+            database.roomInstanceQueries.insert(
+                id = roomInstanceId, inspection_id = inspectionId, room_key = "BEDROOM", instance_no = 1,
+                display_label = "Bedroom 1", created_at = now, updated_at = now,
+            ).value,
+            "a room_instance under a DRAFT inspection must actually insert",
+        )
+
+        val itemId = uuid.next()
+        assertEquals(
+            1L,
+            database.inspectionItemQueries.insert(
+                id = itemId, inspection_id = inspectionId, room_instance_id = roomInstanceId,
+                stable_id = "wall.paint", status = "GOOD", note = null, wear_or_damage = null,
+                created_at = now, updated_at = now,
+            ).value,
+            "an inspection_item under a DRAFT inspection must actually insert",
+        )
+
+        val photoId = uuid.next()
+        assertEquals(
+            1L,
+            database.photoQueries.insert(
+                id = photoId, inspection_item_id = itemId, room_instance_id = roomInstanceId,
+                rel_path = "photos/a.jpg", content_hash = "h", exif_time_ms = null, source = "CAMERA",
+                privacy_flag = 0, created_at = now, updated_at = now,
+            ).value,
+            "a photo under a DRAFT inspection must actually insert",
+        )
+
+        val audioId = uuid.next()
+        assertEquals(
+            1L,
+            database.audioQueries.insert(
+                id = audioId, inspection_item_id = itemId, rel_path = "audio/a.m4a",
+                content_hash = "h", created_at = now, updated_at = now,
+            ).value,
+            "audio under a DRAFT inspection must actually insert",
+        )
+
+        // 读回来，确认落的是这条链路而不是别处。
+        assertEquals(itemId, database.inspectionItemQueries.selectById(itemId).executeAsOne().id)
+        assertEquals(roomInstanceId, database.photoQueries.selectById(photoId).executeAsOne().room_instance_id)
+        assertEquals(itemId, database.audioQueries.selectById(audioId).executeAsOne().inspection_item_id)
+    }
+
     @Test
     fun `room_instance insert against a nonexistent inspection affects zero rows`() {
         val affected = database.roomInstanceQueries.insert(

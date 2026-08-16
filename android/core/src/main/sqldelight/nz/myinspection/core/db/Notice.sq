@@ -40,8 +40,8 @@ SELECT *
 FROM notice
 WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
 
--- 回记送达（T4-NOTICES 流程最后一步：生成→复制→用户自行发送→回 app 记送达方式+时刻；其 allow_paths
--- 不含 core/db/）。lead_hours 重算与 validation_snapshot 更新的逻辑归 T4-NOTICES，本卡只给机械写路径。
+-- 回记送达（流程最后一步：生成→复制→用户自行发送→回 app 记送达方式+时刻）。
+-- lead_hours 重算与 validation_snapshot 更新的逻辑归通知层（T4-NOTICES），此处只提供机械写路径。
 -- 三层 WHERE 守卫，缺一不可，且全是**运行期**守卫、不是编译期类型保证——SQLDelight 2.3.2 按参数名在
 -- 整条语句里出现的所有位置推断可空性，`:updated_at` 若也拿去绑一个可空列，生成的 Kotlin 参数类型仍是
 -- `Long?`（实测核验：曾以为复用 `:updated_at` 能让 sent_at "类型层面不可能传 NULL"，生成代码显示这个
