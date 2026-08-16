@@ -3,7 +3,7 @@ id: T5-BACKUP-FORMAT
 title: 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点）
 depends_on: [T1-CANON-HASH]
 parallelizable_with: [T2-ROUTINE-CONTENT, T2-PHOTO-PIPELINE, T2-CAPTURE-CORE, T2-PHRASELIB]
-status: todo
+status: merged
 branch: T5-BACKUP-FORMAT
 worktree: C:\wt\T5-BACKUP-FORMAT
 allow_paths:

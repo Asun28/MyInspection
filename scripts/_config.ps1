@@ -49,7 +49,15 @@ $script:ScaffoldConfig = @{
   # 就是内容卡（T2-ROUTINE-CONTENT / T6-TEMPLATES-REST）与采集层共同依赖的契约，改字段=改所有已发布模板的
   # 可读性。加载器/入库器/对齐器**刻意不冻**：那是实现，可以演进，形态已由 26 个测试逐条钉住。
   # 注：`T2-ROOM-REPEATABLE` 要往这份 schema 加房间定义，其第一步就是本条冻结的版本评审（该卡已写明）。
+  # T5-BACKUP-FORMAT 合并后冻结（该卡 doc_sync 明列本步）：**格式是跨年契约**——今年导出的备份包必须能被
+  # 未来任意版本读回，所以 47 字节明文头的逐字节布局、manifest 的 canonical JSON 形态、分块 AEAD 的
+  # nonce 构造（前缀‖块序号‖final 标志）与 AAD 绑定，改一个字节就是改契约。
+  # **主/测试目录一并冻结**：黄金锚点（头的十六进制布局、manifest 黄金串、公开 RFC 7914 的 PBKDF2 向量、
+  # zip 尾部契约）即契约本体，测试就是规范的可执行副本。演进 = 新 format_version + 版本评审。
+  # 注：`core/backup/` 下将来的**非格式层**（如 T5-BACKUP-IO 的 SAF 适配）不在此列，只冻 `format/`。
   FrozenPaths = @(
+    'android/core/src/main/kotlin/nz/myinspection/core/backup/format/',
+    'android/core/src/test/kotlin/nz/myinspection/core/backup/format/',
     'android/core/src/main/sqldelight/',
     'android/core/src/main/kotlin/nz/myinspection/core/canon/',
     'android/core/src/test/kotlin/nz/myinspection/core/canon/',

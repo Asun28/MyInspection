@@ -3,7 +3,7 @@ id: T2-PHRASELIB
 title: 双语短语库种子内容 + 查询接口
 depends_on: [T1-TEMPLATE-ENGINE]
 parallelizable_with: [T2-ROUTINE-CONTENT, T2-PHOTO-PIPELINE, T2-CAPTURE-CORE]
-status: todo
+status: merged
 branch: T2-PHRASELIB
 worktree: C:\wt\T2-PHRASELIB
 allow_paths:

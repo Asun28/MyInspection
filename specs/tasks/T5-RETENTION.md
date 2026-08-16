@@ -3,7 +3,7 @@ id: T5-RETENTION
 title: 租客数据保留期 + 一键清理（Privacy Act 2020）
 depends_on: [T1-SCHEMA-CORE]
 parallelizable_with: [T4-NOTICES, T4-SCHEDULE]
-status: todo
+status: merged
 branch: T5-RETENTION
 worktree: C:\wt\T5-RETENTION
 allow_paths:
