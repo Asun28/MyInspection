@@ -51,7 +51,7 @@ class CompletenessTest {
     @Test
     fun `a room with no panorama requirement is photo-satisfied without any room photo`() {
         val r = room(items = listOf(itemDef("BED-WALL-01")), recorded = mapOf("BED-WALL-01" to RecordedItem("GOOD", null)))
-        val progress = computeRoomProgress(r)
+        val progress = computeRoomProgress("ROUTINE", r)
         assertEquals(1, progress.totalItems)
         assertEquals(1, progress.completedItems)
         assertEquals(false, progress.requiresRoomPanorama)
@@ -66,7 +66,7 @@ class CompletenessTest {
             recorded = mapOf("KIT-ROOM-01" to RecordedItem("GOOD", null)),
             roomPhotoCount = 0,
         )
-        val progress = computeRoomProgress(r)
+        val progress = computeRoomProgress("ROUTINE", r)
         assertTrue(progress.requiresRoomPanorama)
         assertEquals(false, progress.hasRoomPanorama)
         assertEquals(false, progress.isComplete)
@@ -79,7 +79,7 @@ class CompletenessTest {
             recorded = mapOf("KIT-ROOM-01" to RecordedItem("GOOD", null)),
             roomPhotoCount = 1,
         )
-        assertTrue(computeRoomProgress(r).hasRoomPanorama)
+        assertTrue(computeRoomProgress("ROUTINE", r).hasRoomPanorama)
     }
 
     @Test
@@ -88,10 +88,44 @@ class CompletenessTest {
             items = listOf(itemDef("A"), itemDef("B"), itemDef("C")),
             recorded = mapOf("A" to RecordedItem("GOOD", null)),
         )
-        val progress = computeRoomProgress(r)
+        val progress = computeRoomProgress("ROUTINE", r)
         assertEquals(3, progress.totalItems)
         assertEquals(1, progress.completedItems)
         assertEquals(false, progress.isComplete)
+    }
+
+    @Test
+    fun `an adverse-status item without a note does not count as completed`() {
+        // 卡片正文「status 为不利发现时 note 非空才算该项完成」——这条规则必须同时体现在房间/整体进度上，
+        // 不能只体现在 computeMissingNotes 那一份独立清单里（否则两处对"完成"的判断会互相矛盾）。
+        val r = room(items = listOf(itemDef("KIT-BENCH-01")), recorded = mapOf("KIT-BENCH-01" to RecordedItem("FAIR", null)))
+        val progress = computeRoomProgress("ROUTINE", r)
+        assertEquals(0, progress.completedItems)
+        assertEquals(false, progress.isComplete)
+    }
+
+    @Test
+    fun `an adverse-status item with a note counts as completed`() {
+        val r = room(items = listOf(itemDef("KIT-BENCH-01")), recorded = mapOf("KIT-BENCH-01" to RecordedItem("FAIR", "chip")))
+        assertEquals(1, computeRoomProgress("ROUTINE", r).completedItems)
+    }
+
+    @Test
+    fun `a non-adverse status counts as completed without any note`() {
+        val r = room(items = listOf(itemDef("KIT-BENCH-01")), recorded = mapOf("KIT-BENCH-01" to RecordedItem("GOOD", null)))
+        assertEquals(1, computeRoomProgress("ROUTINE", r).completedItems)
+    }
+
+    @Test
+    fun `the note-required rule uses the annual adverse set for annual inspections`() {
+        val r = room(items = listOf(itemDef("ROOF-01")), recorded = mapOf("ROOF-01" to RecordedItem("MONITOR", null)))
+        assertEquals(0, computeRoomProgress("ANNUAL", r).completedItems, "MONITOR is annual-adverse and needs a note")
+
+        val withNote = room(items = listOf(itemDef("ROOF-01")), recorded = mapOf("ROOF-01" to RecordedItem("MONITOR", "watch")))
+        assertEquals(1, computeRoomProgress("ANNUAL", withNote).completedItems)
+
+        val nonAdverse = room(items = listOf(itemDef("ROOF-01")), recorded = mapOf("ROOF-01" to RecordedItem("NO_ISSUE", null)))
+        assertEquals(1, computeRoomProgress("ANNUAL", nonAdverse).completedItems, "NO_ISSUE is not annual-adverse")
     }
 
     // ---- computeMissingPhotos ----

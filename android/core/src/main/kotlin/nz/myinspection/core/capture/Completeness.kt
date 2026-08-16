@@ -73,15 +73,26 @@ data class PhotoCompleteness(
     val isComplete: Boolean get() = missingRoomPanoramas.isEmpty() && missingItemPhotos.isEmpty()
 }
 
-/** 单房间进度：房间级全景要求满足当且仅当该房间不要求全景，或已有 >=1 张房间级照片。 */
-fun computeRoomProgress(room: RoomSnapshot): RoomProgress {
+/**
+ * 单房间进度：房间级全景要求满足当且仅当该房间不要求全景，或已有 >=1 张房间级照片。
+ *
+ * **`completedItems` 把「不利发现强制备注」计入完成判定**（卡片正文「status 为不利发现时 note 非空
+ * 才算该项完成」）：一项已记录状态但落在不利发现域内、备注仍空白，不算完成——不止是 [computeMissingNotes]
+ * 单独报出来这一份缺口，房间/整体进度也必须如实显示"没做完"，两处不能有一处判完成一处判未完成。
+ */
+fun computeRoomProgress(type: String, room: RoomSnapshot): RoomProgress {
     val requiresPanorama = room.items.any { it.photoRule == PHOTO_RULE_ROOM_PANORAMA }
+    val adverse = AdverseStatuses.forType(type)
+    val completedItems = room.items.count { def ->
+        val recorded = room.recordedItems[def.stableId] ?: return@count false
+        recorded.status !in adverse || !recorded.note.isNullOrBlank()
+    }
     return RoomProgress(
         roomInstanceId = room.roomInstanceId,
         roomKey = room.roomKey,
         displayLabel = room.displayLabel,
         totalItems = room.items.size,
-        completedItems = room.items.count { room.recordedItems.containsKey(it.stableId) },
+        completedItems = completedItems,
         requiresRoomPanorama = requiresPanorama,
         hasRoomPanorama = !requiresPanorama || room.roomPhotoCount >= 1,
     )

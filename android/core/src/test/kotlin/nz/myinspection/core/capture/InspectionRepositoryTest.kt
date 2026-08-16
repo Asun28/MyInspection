@@ -161,6 +161,45 @@ class InspectionRepositoryTest {
     }
 
     @Test
+    fun `createInspection throws when the tenancy belongs to a different property`() {
+        val propertyA = DbTestFixtures.insertProperty(database, uuid)
+        val propertyB = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
+        val tenancyOnB = CaptureTestFixtures.insertTenancy(database, uuid, propertyB)
+
+        assertFailsWith<IllegalArgumentException> {
+            repo.createInspection("EXIT", propertyA, tenancyOnB, templateId, scheduledAt = now)
+        }
+        assertTrue(database.inspectionQueries.selectActive().executeAsList().isEmpty())
+    }
+
+    @Test
+    fun `creating an INGOING with no existing baseline assigns itself as the tenancy's baseline`() {
+        // 不经手工调 tenancyQueries.updateBaselineInspection——建 INGOING 这一动作本身就该把指针立起来
+        // （需求 §6「baseline_inspection = 该 tenancy 的 Ingoing」，Codex R3 round 2）。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
+
+        val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+
+        assertEquals(ingoing.inspectionId, database.tenancyQueries.selectById(tenancyId).executeAsOne().baseline_inspection_id)
+    }
+
+    @Test
+    fun `a second INGOING never overwrites an already-assigned baseline`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
+
+        val first = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+        now += 1_000
+        repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+
+        assertEquals(first.inspectionId, database.tenancyQueries.selectById(tenancyId).executeAsOne().baseline_inspection_id)
+    }
+
+    @Test
     fun `baseline resolves from the tenancy's own baseline pointer`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
@@ -229,6 +268,43 @@ class InspectionRepositoryTest {
 
         val roomKeysInOrder = created.roomInstanceIds.map { database.roomInstanceQueries.selectById(it).executeAsOne().room_key }
         assertEquals(listOf("KITCHEN", "BEDROOM"), roomKeysInOrder)
+    }
+
+    @Test
+    fun `restoring a suppressed item during an in-progress draft creates the missing room instance`() {
+        // BEDROOM 的唯一项在建巡检时已被抑制——巡检创建时只得到 KITCHEN。随后在这次巡检仍是 DRAFT 期间
+        // 恢复该项：完备性查询立刻会把它算作活跃（天然不看创建时快照），但没有房间可挂就无法记录，
+        // 空洞地报"整间都完成"（Codex R3 round 2）。恢复必须把缺的房间补上，让这项真能被记录。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        assertEquals(1, created.roomInstanceIds.size, "BEDROOM must not exist yet")
+
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = false)
+
+        val rooms = database.roomInstanceQueries.selectByInspection(created.inspectionId).executeAsList()
+        val bedroom = rooms.singleOrNull { it.room_key == "BEDROOM" }
+        assertTrue(bedroom != null, "restoring must create the missing BEDROOM room instance for this draft")
+
+        // 而且这间房现在真能被记录——不是补了一行摆设。
+        repo.setItemStatus(created.inspectionId, bedroom!!.id, "BED-WALL-01", "GOOD", null)
+        assertTrue(repo.walkProgress(created.inspectionId).rooms.single { it.roomKey == "BEDROOM" }.isComplete)
+    }
+
+    @Test
+    fun `restoring an item does not create a room instance for an already-finalized inspection`() {
+        // 抑制/恢复跨巡检永久生效，但已 FINALIZED 的巡检快照写死不改——恢复不得往它头上补房间。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        CaptureTestFixtures.finalize(database, created.inspectionId, now)
+
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = false)
+
+        val rooms = database.roomInstanceQueries.selectByInspection(created.inspectionId).executeAsList()
+        assertTrue(rooms.none { it.room_key == "BEDROOM" })
     }
 
     // ---- 状态写入合法性 ----
@@ -327,6 +403,19 @@ class InspectionRepositoryTest {
     }
 
     @Test
+    fun `walk progress does not count an adverse item without a note as completed`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        val kitchenRoomId = created.roomInstanceIds.first()
+
+        repo.setItemStatus(created.inspectionId, kitchenRoomId, "KIT-BENCH-01", "FAIR", null)
+
+        val kitchen = repo.walkProgress(created.inspectionId).rooms.single { it.roomKey == "KITCHEN" }
+        assertEquals(0, kitchen.completedItems, "an adverse status with no note must not count as completed")
+    }
+
+    @Test
     fun `walk progress becomes complete once every item is set and the required room photo exists`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
@@ -353,6 +442,26 @@ class InspectionRepositoryTest {
 
         val missing = repo.missingPhotos(created.inspectionId)
         assertEquals(listOf(MissingRoomPhoto(created.roomInstanceIds[0], "KITCHEN")), missing.missingRoomPanoramas)
+    }
+
+    @Test
+    fun `a real item-linked photo row clears the adverse-only item gap through the repository`() {
+        // 端到端：真插一条 photo(inspection_item_id = 该项的行 id) 并核对 missingPhotos 真的不再报它——
+        // 只测纯函数（CompletenessTest）测不到 loadRoomSnapshots 里 photo.inspection_item_id → stable_id
+        // 这段真实 DB 关联逻辑本身可能被改坏（Codex R3 round 2）。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        val kitchenRoomId = created.roomInstanceIds.first()
+        repo.setItemStatus(created.inspectionId, kitchenRoomId, "KIT-BENCH-01", "POOR", "note")
+        val itemId = database.inspectionItemQueries.selectByInspection(created.inspectionId).executeAsList()
+            .single { it.stable_id == "KIT-BENCH-01" }.id
+
+        assertEquals(listOf(MissingItemPhoto(kitchenRoomId, "KIT-BENCH-01")), repo.missingPhotos(created.inspectionId).missingItemPhotos)
+
+        CaptureTestFixtures.insertRoomPhoto(database, uuid, kitchenRoomId, inspectionItemId = itemId)
+
+        assertTrue(repo.missingPhotos(created.inspectionId).missingItemPhotos.isEmpty())
     }
 
     @Test
@@ -479,6 +588,21 @@ class InspectionRepositoryTest {
         repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "GOOD", null)
 
         assertNull(database.inspectionItemQueries.selectById(itemId).executeAsOne().wear_or_damage)
+    }
+
+    @Test
+    fun `an idempotent status write with the same status preserves an existing wear_or_damage classification`() {
+        // 只改备注、状态原地不动的幂等自动保存——不得把仍然有效的 EXIT 分类悄悄删掉（Codex R3 round 2；
+        // 与上一个测试互补：那个测的是"真的变了要清"，这个测的是"没变就不能清"）。
+        val (exitId, roomId) = setUpExitWithBaseline(baselineStatus = "GOOD")
+        repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "POOR", "scratched")
+        val itemId = database.inspectionItemQueries.selectByInspection(exitId).executeAsList().single().id
+        assertEquals(WearOrDamageOutcome.Written, repo.setWearOrDamage(exitId, itemId, "DAMAGE"))
+
+        // 房间粒度自动保存再次写同一个 POOR——只是路过这间房、状态没变。
+        repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "POOR", "scratched, more detail")
+
+        assertEquals("DAMAGE", database.inspectionItemQueries.selectById(itemId).executeAsOne().wear_or_damage)
     }
 
     @Test

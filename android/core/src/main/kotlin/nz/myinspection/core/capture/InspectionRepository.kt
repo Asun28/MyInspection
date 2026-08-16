@@ -104,6 +104,11 @@ class InspectionRepository(
         val tenancy = tenancyId?.let {
             checkNotNull(db.tenancyQueries.selectById(it).executeAsOneOrNull()) { "no such tenancy: $it" }
         }
+        if (tenancy != null) {
+            require(tenancy.property_id == propertyId) {
+                "tenancy $tenancyId belongs to property ${tenancy.property_id}, not $propertyId"
+            }
+        }
 
         val now = clock.nowMs()
         val previousId = resolvePrevious(propertyId, type, scheduledAt)
@@ -128,6 +133,14 @@ class InspectionRepository(
                 created_at = now,
                 updated_at = now,
             )
+            // 建 INGOING 时，若该 tenancy 尚无基线指针，把这次 INGOING 自身立成基线（需求 §6「baseline_inspection
+            // = 该 tenancy 的 Ingoing」）。**不覆盖已有指针**——一个 tenancy 只能有一个权威基线，重复建 INGOING
+            // 不应该悄悄把基线换掉；"没有 Ingoing 时改指某次 Routine" 那条例外路径仍走 tenancy.updateBaselineInspection
+            // 的既有机制，非本卡自动化范围（见 Tenancy.sq 注释）。这条 INGOING 自身的 baseline_inspection_id 列
+            // 仍解析为 null（上面 resolveBaseline 在指针更新前就已算出）——它不需要引用自己。
+            if (type == "INGOING" && tenancy != null && tenancy.baseline_inspection_id == null) {
+                db.tenancyQueries.updateBaselineInspection(baseline_inspection_id = inspectionId, updated_at = now, id = tenancy.id)
+            }
             roomKeys.forEach { roomKey ->
                 val roomInstanceId = uuid.next()
                 val affected = db.roomInstanceQueries.insert(
@@ -194,20 +207,30 @@ class InspectionRepository(
         val existing = db.inspectionItemQueries.selectByInspection(inspectionId).executeAsList()
             .find { it.room_instance_id == roomInstanceId && it.stable_id == stableId }
 
-        val affected = if (existing != null) {
-            val statusAffected = db.inspectionItemQueries.updateStatusIfDraft(
-                status = status, note = note, updated_at = now, id = existing.id,
-            ).value
-            check(statusAffected == 1L) {
-                "inspection_item write affected $statusAffected rows for '$stableId' (finalize guard rejected the write)"
+        var affected = 0L
+        if (existing != null) {
+            // 同一房间的状态+wear_or_damage 清理须原子——两条语句之间不能被 finalize/另一次 autosave 插进来
+            // （Codex R3 round 2：非事务化的读-判-写序列可能留下与当前状态不一致的 wear_or_damage）。
+            db.transaction {
+                val statusAffected = db.inspectionItemQueries.updateStatusIfDraft(
+                    status = status, note = note, updated_at = now, id = existing.id,
+                ).value
+                check(statusAffected == 1L) {
+                    "inspection_item write affected $statusAffected rows for '$stableId' (finalize guard rejected the write)"
+                }
+                affected = if (existing.status != status) {
+                    // 状态**真的变了**，此前记录的 wear_or_damage 分类即失效——它的合法性绑定在"此刻与基线有
+                    // 差异"这一判断上（见 setWearOrDamage），状态变了这个判断要重新做，不能让旧分类悄悄挂着
+                    // （Codex R3 round 1）。用已存在的 updateWearOrDamageIfDraft 清空即可，无需新增查询。
+                    // **状态未变时绝不清空**（Codex R3 round 2：否则一次只改备注、状态原地不动的幂等自动保存
+                    // 会把一条仍然有效的 EXIT 分类悄悄删掉）。
+                    db.inspectionItemQueries.updateWearOrDamageIfDraft(wear_or_damage = null, updated_at = now, id = existing.id).value
+                } else {
+                    statusAffected
+                }
             }
-            // 状态一变，此前记录的 wear_or_damage 分类即失效——它的合法性绑定在"此刻与基线有差异"这一
-            // 判断上（见 setWearOrDamage），状态变了这个判断要重新做，不能让旧分类悄悄挂着（Codex R3
-            // round 1 抓到的真缺陷：写差异分类 → 状态改回与基线一致 → wear_or_damage 仍停在旧值）。
-            // 用已存在的 updateWearOrDamageIfDraft 清空即可，无需新增查询（冻结面不可改）。
-            db.inspectionItemQueries.updateWearOrDamageIfDraft(wear_or_damage = null, updated_at = now, id = existing.id).value
         } else {
-            db.inspectionItemQueries.insert(
+            affected = db.inspectionItemQueries.insert(
                 id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
                 stable_id = stableId, status = status, note = note, wear_or_damage = null,
                 created_at = now, updated_at = now,
@@ -237,28 +260,49 @@ class InspectionRepository(
         if (inspection.type != "EXIT") return WearOrDamageOutcome.NotExitType
         val baselineId = inspection.baseline_inspection_id ?: return WearOrDamageOutcome.NoBaseline
 
-        val item = checkNotNull(db.inspectionItemQueries.selectById(itemId).executeAsOneOrNull()) {
-            "no such inspection_item: $itemId"
-        }
-        require(item.inspection_id == inspectionId) {
-            "inspection_item $itemId belongs to inspection ${item.inspection_id}, not $inspectionId"
-        }
-        val baselineItem = db.inspectionItemQueries.selectByInspection(baselineId).executeAsList()
-            .find { it.stable_id == item.stable_id } ?: return WearOrDamageOutcome.NoBaselineItem
-        if (baselineItem.status == item.status) return WearOrDamageOutcome.NoDifference
+        // 取项 → 核对归属 → 取基线项 → 比较 → 写，整段包进一个事务：这是一条"读-判-写"序列，中途若被另一次
+        // setItemStatus 插进来改了 item.status，写下去的分类就可能已经对不上当时的判断
+        // （Codex R3 round 2）。用外层可变量带出结果——`db.transaction{}` 是 Unit 返回体，同 createInspection
+        // 用 roomInstanceIds 变量带结果的写法一致。
+        var outcome: WearOrDamageOutcome = WearOrDamageOutcome.Written
+        db.transaction {
+            val item = checkNotNull(db.inspectionItemQueries.selectById(itemId).executeAsOneOrNull()) {
+                "no such inspection_item: $itemId"
+            }
+            require(item.inspection_id == inspectionId) {
+                "inspection_item $itemId belongs to inspection ${item.inspection_id}, not $inspectionId"
+            }
+            val baselineItem = db.inspectionItemQueries.selectByInspection(baselineId).executeAsList()
+                .find { it.stable_id == item.stable_id }
+            if (baselineItem == null) {
+                outcome = WearOrDamageOutcome.NoBaselineItem
+                return@transaction
+            }
+            if (baselineItem.status == item.status) {
+                outcome = WearOrDamageOutcome.NoDifference
+                return@transaction
+            }
 
-        val affected = db.inspectionItemQueries.updateWearOrDamageIfDraft(
-            wear_or_damage = wearOrDamage, updated_at = now, id = itemId,
-        ).value
-        check(affected == 1L) {
-            "wear_or_damage write affected $affected rows for $itemId (finalize guard rejected the write)"
+            val affected = db.inspectionItemQueries.updateWearOrDamageIfDraft(
+                wear_or_damage = wearOrDamage, updated_at = now, id = itemId,
+            ).value
+            check(affected == 1L) {
+                "wear_or_damage write affected $affected rows for $itemId (finalize guard rejected the write)"
+            }
         }
-        return WearOrDamageOutcome.Written
+        return outcome
     }
 
     /**
      * 物业级条目抑制/恢复（「本物业不存在此项」，跨巡检永久生效直到显式恢复）。恢复 = 置 suppressed=0，
      * 不是软删这一行——见 PropertyItemOverride.sq 的同名注释，该状态本就可逆。
+     *
+     * **恢复时补建缺失的 room_instance**（Codex R3 round 2 抓到的真缺陷）：若某房间的唯一项在建巡检时
+     * 已被抑制，该房间当时不会被实例化（见 [activeRoomKeysInOrder]）；此后若在**该巡检仍是 DRAFT 期间**
+     * 恢复这项，完备性查询会立刻把它算作"活跃"（天然不看创建时快照，见 `activeCheckItemDefs`），但没有
+     * 房间可挂——[setItemStatus] 无 room_instance 可传，这条项事实上无法被记录，`WalkProgress.isComplete`
+     * 却因为"压根没这间房"而空洞为真。故恢复时为每个当前仍是 DRAFT 的巡检补建缺失的房间实例，
+     * 抑制则不需要对称处理——抑制不使已建好的房间/条目消失，只是让"新建巡检"与"完备性查询"以后不再计入它。
      */
     fun setItemSuppression(propertyId: String, stableId: String, suppressed: Boolean) {
         val now = clock.nowMs()
@@ -273,6 +317,30 @@ class InspectionRepository(
                 suppressed = if (suppressed) 1L else 0L, created_at = now, updated_at = now,
             )
         }
+        if (!suppressed) {
+            ensureRoomInstancesForRestoredItem(propertyId, stableId, now)
+        }
+    }
+
+    /** [setItemSuppression] 恢复路径的补建逻辑——见其 KDoc。逐个仍是 DRAFT 的巡检检查并按需补一间。 */
+    private fun ensureRoomInstancesForRestoredItem(propertyId: String, stableId: String, now: Long) {
+        db.inspectionQueries.selectActive().executeAsList()
+            .filter { it.property_id == propertyId && it.status == "DRAFT" }
+            .forEach { inspection ->
+                val def = db.checkItemDefQueries.selectByTemplateVersion(inspection.template_version_id).executeAsList()
+                    .find { it.stable_id == stableId } ?: return@forEach
+                val alreadyInstantiated = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
+                    .any { it.room_key == def.room }
+                if (!alreadyInstantiated) {
+                    val affected = db.roomInstanceQueries.insert(
+                        id = uuid.next(), inspection_id = inspection.id, room_key = def.room,
+                        instance_no = 1, display_label = def.room, created_at = now, updated_at = now,
+                    ).value
+                    check(affected == 1L) {
+                        "room_instance insert affected $affected rows for restored room '${def.room}' (guard rejected the write)"
+                    }
+                }
+            }
     }
 
     /** 整次巡检的走查进度（房间粒度）。无状态查询——process-death 恢复即"再查一次"。 */
@@ -281,7 +349,7 @@ class InspectionRepository(
             "no such inspection: $inspectionId"
         }
         val rooms = loadRoomSnapshots(inspection)
-        return WalkProgress(inspectionId, rooms.map { computeRoomProgress(it) })
+        return WalkProgress(inspectionId, rooms.map { computeRoomProgress(inspection.type, it) })
     }
 
     /** 两级拍照完备性：哪些房间还缺全景照、哪些不利发现项还缺项目照。 */
