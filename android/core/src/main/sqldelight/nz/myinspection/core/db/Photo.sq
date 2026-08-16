@@ -69,6 +69,21 @@ WHERE id = :id
     WHERE ri.id = photo.room_instance_id AND i.finalized_at IS NULL
   );
 
+-- 按内容哈希查**活跃**资产（T2-PHOTO-PIPELINE 去重链路的前半步：「哈希已存在就复用该资产、只建新关联」）。
+-- 归本卡提供的理由同 orphanedAssets：那张卡的 allow_paths 不含 core/db/，且本目录合并后即进 FrozenPaths，
+-- 届时它连加一条查询都要走版本评审。既有两条都不顶用——selectByRoomInstance 要求已知 room_instance_id
+-- （去重时恰恰还不知道要挂到哪），orphanedAssets 只回软删行（去重要的是**活着**的那些）。
+-- 返回 rel_path 而非整行：调用方要的是「那份物理文件在磁盘哪儿」，好把新关联指向它。
+-- **同一哈希可能有多个活跃 rel_path**（多份物理副本，资产身份是 content_hash + rel_path 一对，见下方注释）——
+-- 全部返回，调用方取第一条即可。**排序键取 rel_path 而非 created_at**：DISTINCT 之后 rel_path 两两不等，
+-- 顺序恒定；created_at 会撞值，撞值时顺序不定，同一输入两次运行可能复用到不同的物理文件（下游 canonical
+-- 哈希要求确定性，这种漂移会让同一份数据算出两个结果）。
+selectActiveAssetsByContentHash:
+SELECT DISTINCT rel_path
+FROM photo
+WHERE content_hash = :content_hash AND deleted_at IS NULL
+ORDER BY rel_path ASC;
+
 -- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）：返回
 -- content_hash + rel_path——只回 content_hash 曾经是个坑：调用方拿到孤儿哈希后，selectByRoomInstance
 -- 要求已知 room_instance_id 且天生排除软删行（孤儿行恰好就是软删的那些），根本查不回物理文件路径，

@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  *  - inspection_item.updateWearOrDamageIfDraft（T2-CAPTURE-CORE，allow_paths 不含 core/db/）
  *  - property_item_override.setSuppressed / selectByPropertyAndStableId（T2-CAPTURE-CORE，同上）
  *  - notice.recordDelivery（T4-NOTICES，同上）
- *  - photo.softDelete / orphanedAssets（T2-PHOTO-PIPELINE，同上）
+ *  - photo.softDelete / orphanedAssets / selectActiveAssetsByContentHash（T2-PHOTO-PIPELINE，同上）
  */
 class DbDownstreamQueriesTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -325,5 +325,88 @@ class DbDownstreamQueriesTest {
         val purged = database.tenancyQueries.selectById(tenancyId).executeAsOne()
         assertNull(purged.tenant_name)
         assertEquals(now + 2, purged.purged_at)
+    }
+
+    /**
+     * T2-PHOTO-PIPELINE 去重链路的前半步：「哈希已存在就复用该资产、只建新关联」。既有两条查询都不顶用——
+     * selectByRoomInstance 要求已知 room_instance_id（去重时恰恰还不知道要挂到哪），orphanedAssets 只回
+     * 软删行（去重要的是活着的那些）。该卡 allow_paths 不含 core/db/，且本目录合并后进 FrozenPaths。
+     *
+     * 一个用例覆四件事：**全部活跃路径都回**、**顺序确定**、**软删的不回**、**复用后不重复计数**。
+     * 插入顺序刻意与期望顺序相反（先 path-b 后 path-a），否则「按 rel_path 排序」和「按插入顺序返回」
+     * 两种实现都能让断言通过——排序那句就没被测到（L165）。
+     */
+    @Test
+    fun `selectActiveAssetsByContentHash returns active paths in deterministic order and excludes soft-deleted ones`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        // 三个房间：idx_photo_active 把去重唯一性限定在**单个 room_instance 内**（有意如此，见 Photo.sq
+        // 该索引注释：同一照片内容跨巡检/跨房间合法出现）。所以「同哈希、多物理路径」只可能跨房间成立，
+        // 而那正是 T2-PHOTO-PIPELINE 要的跨巡检复用场景——同一房间内塞两次同哈希反而该被唯一索引拦下。
+        val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
+        val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
+        val roomC = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "KITCHEN", instanceNo = 1, now = now)
+
+        fun addPhoto(roomInstanceId: String, relPath: String, hash: String): String {
+            val id = uuid.next()
+            val affected = database.photoQueries.insert(
+                id = id, inspection_item_id = null, room_instance_id = roomInstanceId,
+                rel_path = relPath, content_hash = hash, exif_time_ms = null, source = "CAMERA",
+                privacy_flag = 0, created_at = now, updated_at = now,
+            ).value
+            assertEquals(1L, affected, "fixture photo $relPath must actually be inserted")
+            return id
+        }
+
+        // 同一哈希两份物理副本（分属两个房间），**倒序插入**；外加一份无关哈希，证明查询按哈希收敛。
+        // path-b 全程保持活跃：它是上面「最后一条关联被删后仍幸存的复用目标」那条断言的对照物。
+        addPhoto(roomA, "photos/path-b.jpg", "shared-hash")
+        val firstAssociationAtPathA = addPhoto(roomB, "photos/path-a.jpg", "shared-hash")
+        addPhoto(roomA, "photos/unrelated.jpg", "other-hash")
+
+        assertEquals(
+            listOf("photos/path-a.jpg", "photos/path-b.jpg"),
+            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            "every active path for the hash must come back, ordered by rel_path rather than by insertion order",
+        )
+        assertEquals(
+            emptyList(),
+            database.photoQueries.selectActiveAssetsByContentHash("no-such-hash").executeAsList(),
+            "an unknown hash must return nothing, so the caller imports a fresh file instead of reusing a wrong one",
+        )
+
+        // 复用：第三个房间的新关联指向查回来的同一份物理文件（跨房间才不撞 idx_photo_active）。
+        // DISTINCT 必须把它折叠掉，否则调用方会以为磁盘上有两份。
+        val reusedPath = database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList().first()
+        val reuseAssociation = addPhoto(roomC, reusedPath, "shared-hash")
+        assertEquals(
+            listOf("photos/path-a.jpg", "photos/path-b.jpg"),
+            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            "reusing an asset adds an association, not a physical file — the distinct path set must not grow",
+        )
+
+        // 存活粒度与 orphanedAssets 一致：路径的死活看 (content_hash, rel_path) 这一对**是否还有活跃行**。
+        // path-a 此刻有两条关联（原始 + 复用），删掉其中一条，那份物理文件仍被引用，必须继续可复用。
+        database.photoQueries.softDelete(deleted_at = now + 1, id = firstAssociationAtPathA)
+        assertEquals(
+            listOf("photos/path-a.jpg", "photos/path-b.jpg"),
+            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            "dropping one of two associations must not retire the physical file the other one still points at",
+        )
+
+        // 而把某个路径的**最后一条**活跃关联删掉后，它不得再被当成可复用目标（否则新关联会指向已被清理的文件）。
+        database.photoQueries.softDelete(deleted_at = now + 2, id = reuseAssociation)
+        assertEquals(
+            listOf("photos/path-b.jpg"),
+            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            "a path whose last active association is gone must stop being offered for reuse",
+        )
+        // 与 orphanedAssets 的口径对上：刚退出复用池的那份物理文件，正是它该报告的孤儿。
+        assertTrue(
+            database.photoQueries.orphanedAssets().executeAsList()
+                .any { it.content_hash == "shared-hash" && it.rel_path == "photos/path-a.jpg" },
+            "the path that just left the reuse pool is exactly what orphanedAssets must hand to the cleanup job",
+        )
     }
 }
