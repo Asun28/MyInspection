@@ -2,7 +2,7 @@
 id: T0-HARNESS-PERF
 title: 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness/测试改动）
 depends_on: [T0-GATE-HARDENING]
-status: in-review
+status: merged
 branch: T0-HARNESS-PERF
 worktree: C:\wt\T0-HARNESS-PERF
 allow_paths:

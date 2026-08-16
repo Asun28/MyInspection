@@ -2,7 +2,7 @@
 id: T0-GATE-HARDENING
 title: 许可闸看得见 Gradle + verify 确定性 + 两枚闸门自测（从 T0-TOOLCHAIN 拆出）
 depends_on: [T0-TOOLCHAIN]
-status: todo
+status: merged
 branch: T0-GATE-HARDENING
 worktree: C:\wt\T0-GATE-HARDENING
 allow_paths:
@@ -27,6 +27,23 @@ doc_sync: docs/DELIVERY-CHAINS.md 与 docs/scaffold-architecture.html 的 CI 形
 ---
 
 # T0-GATE-HARDENING
+
+## 合并状态与事后 R3（2026-08-16 登记）
+
+**已合并于 `5ba3319`，但走的是非常规路径**：绕开 `task.ps1 ship` 直接合并，`-SkipRed` ×2（RED-first 闸显式跳过），
+**合并前 R3 从未跑过**。事后补跑的 R3（基线 `premerge-t0gh` = `f9f06bf`，被审 tip `a97de47`，裁决存于
+`C:\wt\T0-GATE-HARDENING\.review\T0-GATE-HARDENING.json`）判 **block**，两条理由**经独立复核均属实**：
+
+1. 路径比较大小写语义不一致（`-contains` 不敏感 vs `StartsWith('android/')` 敏感）⇒ Linux 上 `Build/`、`Data/`
+   等被追踪目录被静默剪掉——恰好是本卡产出 #2 要根除的「闸在看不见时反而变安静」形态；
+2. `docs/RELEASE-CHECKLIST.md:27-28` 两项相邻却互相矛盾，人工核验替代②走完 `-Strict` 仍恒退出 1，无绿色发布路径。
+
+**用户已裁：fix-forward，不 revert**（revert 会连带撤掉已被 17cc/17dd 变异判据证明有效的递归发现 / fail-closed /
+`--no-daemon` / ReparsePoint 守卫）。承接卡 = **`specs/tasks/T0-GATE-FIXFORWARD.md`**，人工核验替代②按人裁删除。
+
+> **`-SkipRed` 的债有多大，说准确**：它跳过的是 `task.ps1 -Phase red` 这道工作流闸，**不是证据**——
+> 本卡两枚断言的单句删除变异做在 selftest 本体里（17cc 变异 A/B + reparse-mut、17dd），每次跑 selftest 都在
+> 重新证明它们承重（master 实测 `-Shard seeded` exit 0 / 330 秒）。故承接卡**不需要**回头补测这两枚。
 
 ## 为什么单独成卡（拆分依据）
 T0-TOOLCHAIN 的宪章是「本机工具链 + `android/` 骨架空编译绿」。R3 连续六轮把它推着长出了

@@ -16,10 +16,14 @@
 
 效果档说明：effort 值为执行 harness 通用档（low/medium/high/max）；「难度」= 该卡对模型能力的真实要求（S 机械 / M 中档 / H 难 / H+ 最难）。
 
-## 总表（29 卡 · 波次 = 依赖拓扑；同波卡可并行，allow_paths 互不重叠）
+## 总表（31 卡 · 波次 = 依赖拓扑；同波卡可并行，allow_paths 互不重叠）
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 内容交叉复核 |
 |---|---|---|---|---|---|---|---|
 | W0 | T0-TOOLCHAIN | JDK17+SDK+`android/` Gradle 骨架空编译绿+verify/ci 收紧 | — | M | Sonnet 5 · max | Opus 5 | — |
+| W0 | T0-GATE-HARDENING | 许可闸递归发现+verify 确定性+两枚闸门自测（拆自 T0-TOOLCHAIN） | T0-TOOLCHAIN | M | Sonnet 5 · max | DeepSeek V4 Pro | —（事后 R3 block ×2 → 见 T0-GATE-FIXFORWARD） |
+| W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | — |
+| W0 | T0-GATE-FIXFORWARD | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径 | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | —（**三张 T0 卡共用 selftest.ps1，须串行**：HARNESS-PERF → 本卡 → LICENSE-SCANNER） |
+| W0 | T0-LICENSE-SCANNER | Gradle 逐坐标许可机检（偿还 TD2，落地即解锁发布阻断项） | T0-GATE-HARDENING | M | DeepSeek V4 Pro · high | Sonnet 5 max | — |
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | —（人工真机验收） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | 冻结前 Opus 5 抽审 |
 | W1 | T1-SPIKE-PLATFORM | 真机可行性 ×4：overlay/离线听写/SAF/80 照 PDF 压力 | T0 | H | Opus 5 · max | Sonnet 5 max | —（人工真机验收） |
