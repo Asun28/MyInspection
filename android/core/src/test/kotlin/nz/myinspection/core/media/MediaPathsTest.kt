@@ -3,6 +3,8 @@ package nz.myinspection.core.media
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * 存储布局唯一派生点（关键不变量：全仓禁手拼路径）。断言精确串形而非子串，
@@ -43,5 +45,24 @@ class MediaPathsTest {
         assertFailsWith<IllegalArgumentException> {
             MediaPaths.photoRelPath(propertyId = "", inspectionId = "insp-1", photoId = "photo-1")
         }
+    }
+
+    @Test
+    fun `isPhotoRelPathShape accepts exactly what photoRelPath derives`() {
+        val derived = MediaPaths.photoRelPath(propertyId = "prop-1", inspectionId = "insp-1", photoId = "photo-1")
+        assertTrue(MediaPaths.isPhotoRelPathShape(derived))
+    }
+
+    @Test
+    fun `isPhotoRelPathShape rejects a path outside the photos namespace, a wrong segment count, a wrong extension, and a traversal segment`() {
+        // A corrupted/cross-table orphan row could carry any of these — the cleanup path must refuse
+        // every one of them, not just the ones that also happen to escape the media root.
+        assertFalse(MediaPaths.isPhotoRelPathShape("audio/x/y/z.m4a"), "wrong top-level namespace")
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/a.jpg"), "too few segments (missing property/inspection)")
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/a/b/c/d.jpg"), "too many segments")
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/a/b/c.png"), "wrong extension")
+        assertFalse(MediaPaths.isPhotoRelPathShape("."), "must not resolve to the media root itself")
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/../b/c.jpg"), "a segment that is itself a traversal token, even with the right segment count")
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/a/b/c.JPG"), "extension case must match exactly (photoRelPath always emits lowercase .jpg)")
     }
 }
