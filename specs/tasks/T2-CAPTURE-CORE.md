@@ -3,7 +3,7 @@ id: T2-CAPTURE-CORE
 title: 采集领域核：巡检生命周期状态机 + 房间粒度草稿自动保存仓储（:core）
 depends_on: [T1-TEMPLATE-ENGINE]
 parallelizable_with: [T2-ROUTINE-CONTENT, T2-PHOTO-PIPELINE, T2-PHRASELIB]
-status: todo
+status: merged
 branch: T2-CAPTURE-CORE
 worktree: C:\wt\T2-CAPTURE-CORE
 allow_paths:
