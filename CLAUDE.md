@@ -69,12 +69,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 <!-- 随 R5 文档同步更新。 -->
-需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**26 张**），模型路由总表 `docs/TASK-BOARD.md`。
+需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**28 张**），模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
 > 评审途中拆出新卡 **`T0-GATE-HARDENING`**（许可闸递归发现 + verify 确定性 + 两枚闸门自测 + 许可政策），承接被撤销的三次破例，见该卡「拆分依据」与仲裁段。
 
-下一步：① `T0-GATE-HARDENING`；② **W1 并行**：`T1-SCHEMA-CORE`（★冻结点）与 `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）；③ 之后按 board 波次推进。
+**W1 首个产品卡已合并**：`T1-SKELETON-E2E` **merged**（2026-08-16，master `19fd908`，R3 pass 于第 **2** 轮）——
+一次性 walking skeleton（建巡检→加一项→拍一张→SAF 导出一页 PDF），4 文件 258 行、零新依赖、只在 `:app/skeleton/`。
+**它是可抛弃代码**，`T2-CAPTURE-UI` 落地时整包删。真机走查产出三条产品反馈，已按归属记进该卡（画质→`T2-PHOTO-PIPELINE`
+· UI→`T2-CAPTURE-UI` · ghost overlay→`T3-HISTORY-COMPARE`），**不回流本卡**。
+
+**同日两处流程收口**（起因：19 小时 3 张卡 30 次 R3 block、零产品代码）：
+① **R3 轮次封顶** `ReviewRoundCap = 2`（`scripts/_config.ps1`）——到顶不唤起评审者，1 秒出 `[R3-ROUND-CAP]` 转人裁；
+**不是放行阀**（仍 block、仍非零退出），只止损（`ReviewTimeoutSec=3600`，每轮最坏 1 小时）。计数器随 worktree 生灭，
+`review.ps1 -ResetRounds` 清零。恢复路由见 `docs/QUALITY-RUBRIC.md` §5。
+② **rubric 加两条立场**：block 理由必须在本卡内可修（要动 `allow_paths` 之外或 `non_goals` 之内 → 记 `[FOLLOW-UP]`、不 block）；
+维度按**卡片自己声明的 DoD** 判（spike/骨架卡声明的验收即满足 #6）。
+
+**仓库已 public**：`https://github.com/Asun28/MyInspection`（`origin` 为唯一 remote，MIT）。`-Local` 不再是唯一选项，PR 流程可用。
+⚠️ `T1-SCHEMA-CORE` **推送/合并前**须先摘掉 `android/core/src/main/sqldelight/databases/1.db`——它在该分支两个提交里、
+但**不在 tip tree**，故 **squash 合并即可完全绕开**，无须改写历史（squash 亦是 `gh-bootstrap` 给远端配的策略）。
+
+下一步：① `T1-SCHEMA-CORE`（★冻结点，卡着下游 5 张，R3 已到第 8 轮——按新封顶规则该转人裁）；
+② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，待追认）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）；
+④ 之后按 board 波次推进。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）

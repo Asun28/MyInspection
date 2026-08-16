@@ -3,7 +3,7 @@ id: T1-SKELETON-E2E
 title: 一次性走通骨架：建巡检 → 加一项 → 拍一张 → 导出一份 PDF（真机可见，用完即弃）
 depends_on: [T0-TOOLCHAIN]
 parallelizable_with: [T1-SCHEMA-CORE, T0-LICENSE-SCANNER]   # 与 T1-SPIKE-PLATFORM 不可并行：它认领整个 android/app/src/main/，两卡都要往 AndroidManifest.xml 注册 Activity
-status: todo
+status: merged
 branch: T1-SKELETON-E2E
 worktree: C:\wt\T1-SKELETON-E2E
 allow_paths:
