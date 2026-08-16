@@ -28,7 +28,7 @@ doc_sync: TASK-BOARD 备注（R5）
 `core/capture`：InspectionRepository（建/读/写/房间粒度保存）+ 走查进度模型 + 拍照完备性规则 + 双轨基线解析。
 
 ## 上下文包（执行模型必读）
-- **建巡检时解析双轨引用**（需求 §6）：previous_inspection = 同物业同类型时间上前一次；baseline_inspection = 该 tenancy 的 Ingoing（Exit 用；无 Ingoing 则空并标记「无基线」——Ingoing/Exit 配对约束的强提示归 T6，但字段语义本卡落定）。ANNUAL 的 previous = 上次年检。
+- **建巡检时解析双轨引用**（需求 §6）：previous_inspection = 同物业同类型时间上前一次；baseline_inspection = 该 tenancy 的 Ingoing（Exit 用；无 Ingoing 则空并标记「无基线」——Ingoing/Exit 配对约束的强提示归 T6，但字段语义本卡落定）。ANNUAL 的 previous = 上次年检。**澄清（2026-08-16 R3 仲裁）**：双轨引用对**所有**巡检类型统一解析入库——baseline 字段语义 = 创建时刻该 tenancy 基线的快照，「Exit 用」指 EXIT 是主要**消费者**、非唯一持有者；按类型条件置空不属本卡契约。
 - **草稿自动保存粒度 = 房间**（需求 §5）：每完成一个房间的操作即持久化；模型上房间完成度 = 该房间全部项有状态 + ROOM_PANORAMA 照片已拍。进程死亡恢复 = 从 DB 重建进度（测试用新建仓储实例模拟）。
 - **两级拍照规则**（讨论修正版）：房间级 ROOM_PANORAMA 1–2 张强制；项目级仅**不利发现**强制（租赁 FAIR/POOR；年检 MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT；**N_A 与 GOOD/NO_ISSUE 不逼拍**）。产出 `missingPhotos(inspection)` 完备性查询给 UI 与 finalize 校验共用。
 - **不利发现强制备注**（TurboTenant 规则，[adopt·可否决]，调研要点 4）：status 为不利发现时 note 非空才算该项完成（短语库一点即满足，成本近零）；并入完备性查询 `missingNotes(inspection)`。
