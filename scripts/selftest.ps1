@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   脚手架自检（本元仓的「verify」）：本仓交付物就是这些脚本/钩子/模板本身，故需要一个
@@ -7844,6 +7844,15 @@ function Test-MarkerResult($Result, [string]$MarkerId, [bool]$ExpectPresent, [st
   return $true
 }
 
+# 判据失败码的**锚定**匹配（本轮 R3 发现）：`[regex]::Escape` 只转义元字符、**并不锚定**——裸子串匹配会让
+# `ABSENT-CANON` 被 `ABSENT-CANONICAL` 这类后缀形态白拿分，等于"红在别的子断言上"仍被记为杀死。
+# 锚到「行首 MARKER:<id>:<码> + 边界」，边界只允许行尾或 `(`（后者是刻意保留的诊断括号，如
+# `ABSENT-HITSET(got=…)`）。凡按专属失败码分类的变异一律走本函数，不再各写一份裸匹配。
+function Test-MarkerCode([string]$StdOut, [string]$MarkerId, [string]$Code) {
+  $pattern = '(?m)^MARKER:' + [regex]::Escape($MarkerId) + ':' + [regex]::Escape($Code) + '(\(|\s*$)'
+  return ($StdOut -match $pattern)
+}
+
 # 参数化子进程的路径安全回归：同一份含撇号路径分别走 RunScript / ReadFile，两路都必须命中。
 $quotedProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-o'brien-$PID"
 try {
@@ -7987,8 +7996,14 @@ try {
 #   后果双向：Linux（敏感）上被追踪的 `Build/`、`Data/` 被当成 ignore 的 `build/`、`data` **静默剪掉**（漏扫，
 #   而"没扫到"会被当成"没有清单"，正是本闸 fail-closed 要根除的形态）；Windows（不敏感）上 `Android/` 前缀
 #   又匹配不上 `android/`，该剪的 `.kotlin` 反而没剪。
-#   夹具每个轴造**一对**探针（错大小写 + 正确大小写），两支放在**不同父目录**下——Windows 同一目录内
+#   夹具每个轴造**一对**探针（错大小写 + 正确大小写），尽量放在**不同父目录**下——Windows 同一目录内
 #   `build/` 与 `Build/` 无法并存（New-Item 只会返回既有那个），换父目录即可让两支在两个平台都存在。
+#   **例外（刻意接受）**：`android/` 前缀那一轴的两支父目录名本身只差大小写（`Android/` vs `android/`），
+#   在 Windows 上必然坍缩成同一个物理目录（先建的那个定名），故该轴的"两支并存"只在 Linux 成立。
+#   这不影响判据正确性：Windows 上两支都该被剪、期望集里本来就都没有它们；Linux 上两支才分立并各自出现在
+#   期望集里。因此 **Linux 那条分支在 Windows 上无法端到端复现**，只能靠 CI 的 ubuntu 腿真跑
+#   （守卫④三条路径的判定已按 Ordinal 逐条核过：Android/... 前缀不匹配→发现、android/...→剪、
+#   android/deep2/.KOTLIN 名不匹配→发现）。
 #     · 错大小写那支：期望**随平台不同**（不敏感 → 被剪；敏感 → 被发现），钉住"语义跟随文件系统"。
 #     · 正确大小写那支：两平台都该被剪，是**删除变异的靶**——删掉某道守卫它就冒出来，于是变异在两个平台
 #       **都**能被杀死（只有错大小写探针时，删守卫在其中一个平台恰好不改变结果，变异会假幸存）。
@@ -8097,6 +8112,11 @@ try {
          Marker = 'if (Test-GradleNameInList -List $Names -Value $e.Name) { $found.Add($e.FullName) }' }
       @{ Id = 'equals'; Code = 'ABSENT-EQUALS-MODES'; Label = 'Test-GradleNameEquals 的比较本体'
          Marker = 'return [string]::Equals($Left, $Right, $Comparison)' }
+      # LIST-MODES 必须有一枚**只打中它**的变异：删 Test-GradleNameEquals 的本体会让判据在更早的
+      # EQUALS-MODES 就退出，LIST-MODES 那条断言永远走不到，等于没被证明在测（本轮 R3 的发现）。
+      # 删这一行只让 InList 恒 $false、Equals 本体完好，故判据必然停在 LIST-MODES。
+      @{ Id = 'list'; Code = 'ABSENT-LIST-MODES'; Label = 'Test-GradleNameInList 的遍历比较本体'
+         Marker = 'foreach ($item in $List) { if (Test-GradleNameEquals -Left $item -Right $Value -Comparison $Comparison) { return $true } }' }
       @{ Id = 'prefix'; Code = 'ABSENT-PREFIX-MODES'; Label = 'Test-GradlePathPrefix 的比较本体'
          Marker = 'return $Path.StartsWith($Prefix, $Comparison)' }
     )
@@ -8107,7 +8127,7 @@ try {
       if (-not $m.Ok) { Fail "17cc(case-mut/$($cm.Id))：$($m.Reason)"; continue }
       if (-not (Test-MarkerResult $m.Result $mMarkerId $false "种子缺陷 17cc(case-mut/$($cm.Id))：删掉「$($cm.Label)」后（vacuous coverage：本闸测不出这道守卫/这条语义被摘掉的回归）")) { continue }
       # 分类器：不只要"非零 + ABSENT"，还要红在**它该红的那一条**上——否则一枚变异可能因别的子断言先失败而假杀。
-      if ($m.Result.StdOut -notmatch [regex]::Escape("MARKER:${mMarkerId}:$($cm.Code)")) {
+      if (-not (Test-MarkerCode $m.Result.StdOut $mMarkerId $cm.Code)) {
         Fail "17cc(case-mut/$($cm.Id)) 分类器：变异确实变红，但失败码不是预期的 $($cm.Code)（实得 stdout=$($m.Result.StdOut)）——红在了别的子断言上，本枚变异并未证明它针对的那条断言在测。"
       } else {
         Write-Host "  17cc(case-mut/$($cm.Id)) $($cm.Label)：单句删除后判据子进程 exit 非零 + $($cm.Code)（RED，红在该红的那条上）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green
@@ -8128,7 +8148,7 @@ try {
       if ($defRestored -ne $defBaselineHash) {
         Fail "17cc(case-mut/default) 收尾：变异副本还原后 SHA256 与规整化基线不符（还原后=$defRestored，基线=$defBaselineHash）——mutant 未干净还原（L196）。"
       } elseif (Test-MarkerResult $defRes 'GRADLE-CASE-MUT-DEFAULT' $false "种子缺陷 17cc(case-mut/default)：把比较器缺省值替换成 $wrongComparison（本平台的错误语义）后（vacuous coverage：本闸测不出「缺省语义与文件系统不符」这类回归）") {
-        if ($defRes.StdOut -notmatch [regex]::Escape('MARKER:GRADLE-CASE-MUT-DEFAULT:ABSENT-UNIT-DEFAULT')) {
+        if (-not (Test-MarkerCode $defRes.StdOut 'GRADLE-CASE-MUT-DEFAULT' 'ABSENT-UNIT-DEFAULT')) {
           Fail "17cc(case-mut/default) 分类器：变异确实变红，但失败码不是预期的 ABSENT-UNIT-DEFAULT（实得 stdout=$($defRes.StdOut)）——红在了别的子断言上。"
         } else {
           Write-Host "  17cc(case-mut/default) 比较器缺省语义 → $wrongComparison：替换后判据子进程 exit 非零 + ABSENT-UNIT-DEFAULT（RED，红在该红的那条上）、副本已还原 OK" -ForegroundColor Green
@@ -8149,8 +8169,9 @@ try {
 # 注释单独出现不算数。命中集合须同时拒绝别名路径（$reparseLinkPath）与物理目标路径（$fxOutside）两个前缀
 # ——联接若被追进去，Get-ChildItem 报告的是"枚举时给的目录路径"即别名路径，只查物理目标前缀会永远命中不了、
 # 判据空转；并要求恰好 1 个命中（不止查"无泄漏+有内部命中"两个独立条件的并集）。另配守卫失效变异：
-# 源码副本里把 ReparsePoint 判据从条件中删掉，证明"如果有人真删了这段守卫"，本闸的行为断言确实会栽
-# （不是"不管有没有守卫都恒 OK"的摆设）。
+# 源码副本里把守卫①整条赋值**替换**成恒 `$false`（该守卫自 T0-GATE-FIXFORWARD 起是独占一行的赋值，
+# 删掉它会让 $skip 未定义而崩在 StrictMode，那是崩溃杀、证明不了守卫语义，故此处用替换而非删除），
+# 证明"如果有人真弱化了这段守卫"，本闸的行为断言确实会栽（不是"不管有没有守卫都恒 OK"的摆设）。
 $fxReparseRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-o'brien-$PID"
 $fxOutside = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-reparse-outside-o'brien-$PID"
 if (Test-Path $fxReparseRoot) { Remove-Item -Recurse -Force $fxReparseRoot }
@@ -8352,7 +8373,7 @@ try {
       $rmRes = [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($rmOut -join "`n") }
       if (-not (Test-MarkerResult $rmRes $rmMarkerId $false "种子缺陷 17ee(mut/$($rm.Id))：$($rm.Label)后（vacuous coverage：本闸测不出这条回归）")) { continue }
       # 分类器：不只要"非零 + ABSENT"，还要红在**它该红的那一条**上——否则一枚变异可能因别的子断言先失败而假杀。
-      if ($rmRes.StdOut -notmatch [regex]::Escape("MARKER:${rmMarkerId}:$($rm.Code)")) {
+      if (-not (Test-MarkerCode $rmRes.StdOut $rmMarkerId $rm.Code)) {
         Fail "17ee(mut/$($rm.Id)) 分类器：变异确实变红，但失败码不是预期的 $($rm.Code)（实得 stdout=$($rmRes.StdOut)）——红在了别的子断言上，本枚变异并未证明它针对的那条断言在测。"
       } else {
         Write-Host "  17ee(mut/$($rm.Id)) $($rm.Label)：判据子进程 exit 非零 + $($rm.Code)（RED，红在该红的那条上）OK" -ForegroundColor Green

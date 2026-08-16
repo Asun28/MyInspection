@@ -63,13 +63,15 @@ function Scan($name, $license) {
 # 在 Linux（敏感）上，被追踪的 `Build/`、`Data/` 会被当成 ignore 的 `build/`、`data` **静默剪掉**：而"没扫到"
 # 会被下游当成"没有清单"，闸在看不见时反而变安静，正是本闸 fail-closed 立意要根除的形态。反向在 Windows
 # （不敏感）上，`Android/` 前缀匹配不上 `android/`，该剪的 `.kotlin` 反而没剪。故下面所有路径/名称比较**只经
-# 单一比较器** Test-GradleNameEquals / Test-GradleNameInList，缺省语义由 $gradlePathComparison 按 OS 决定。
-# 由 selftest 17cc(case) 的 OS 分支夹具 + 缺省语义变异钉住（改成本平台的错误语义即必红）。
+# 这三个比较器** Test-GradleNameEquals / Test-GradleNameInList / Test-GradlePathPrefix（前缀比较也在内——
+# 裸 $path.StartsWith(prefix) 是恒敏感的，把它留在外面就等于把病灶留了一半），缺省语义统一由
+# $gradlePathComparison 按 OS 决定。由 selftest 17cc(case) 的 OS 分支夹具 + 每个比较器各自的删除变异
+# + 缺省语义替换变异钉住（任一被摘掉或缺省改成本平台的错误语义即必红）。
 # **已知简化（刻意，非疏漏）**：按 OS 判定而非按卷探测。macOS 的 APFS/HFS+ 缺省不敏感但**可格式化为敏感**，
 # Windows 亦可开启按目录的大小写敏感标志——这两种少数配置下本缺省会偏保守（同 Linux 的过剪风险）。
 # 不做运行期卷探测：本仓 CI 只有 windows-latest + ubuntu-latest 两个矩阵点，探测要为每个 $Root 做一次
 # 建文件/改大小写的 I/O，成本与复杂度都换不回等值的正确性。需要时调用方可显式传 -Comparison 覆盖缺省
-# （Test-GradleNameEquals / Test-GradleNameInList 都收该参数，selftest 17cc(case-unit) 正是这样两模式直测的）。
+# （三个比较器都收该参数，selftest 17cc(case) 的判据子进程正是这样对每个比较器两模式直测的）。
 $gradlePathComparison = if ($IsWindows -or $IsMacOS) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
 function Test-GradleNameEquals {
   param(
