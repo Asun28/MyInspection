@@ -41,6 +41,9 @@ class InspectionRepositoryTest {
 
     private fun freshRepository(): InspectionRepository = InspectionRepository(database, uuid, ClockMs { now })
 
+    /** 直接读 `inspection` 行本身——校验双轨引用等真的落了库，不是只活在返回的 DTO 里。 */
+    private fun storedInspection(inspectionId: String) = database.inspectionQueries.selectById(inspectionId).executeAsOne()
+
     // ---- 双轨引用解析 ----
 
     @Test
@@ -53,6 +56,9 @@ class InspectionRepositoryTest {
         assertNull(created.previousInspectionId)
         assertNull(created.baselineInspectionId)
         assertEquals(NoBaselineReason.NO_TENANCY, created.noBaselineReason)
+        val row = storedInspection(created.inspectionId)
+        assertNull(row.previous_inspection_id)
+        assertNull(row.baseline_inspection_id)
     }
 
     @Test
@@ -67,6 +73,7 @@ class InspectionRepositoryTest {
         val second = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
 
         assertEquals(first.inspectionId, second.previousInspectionId)
+        assertEquals(first.inspectionId, storedInspection(second.inspectionId).previous_inspection_id)
     }
 
     @Test
@@ -79,6 +86,7 @@ class InspectionRepositoryTest {
         val second = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
 
         assertNull(second.previousInspectionId)
+        assertNull(storedInspection(second.inspectionId).previous_inspection_id)
     }
 
     @Test
@@ -94,9 +102,11 @@ class InspectionRepositoryTest {
 
         val exitOnA = repo.createInspection("EXIT", propertyA, null, exitTemplate, scheduledAt = now)
         assertNull(exitOnA.previousInspectionId, "different type must not resolve as previous")
+        assertNull(storedInspection(exitOnA.inspectionId).previous_inspection_id)
 
         val routineOnB = repo.createInspection("ROUTINE", propertyB, null, routineTemplate, scheduledAt = now)
         assertNull(routineOnB.previousInspectionId, "different property must not resolve as previous")
+        assertNull(storedInspection(routineOnB.inspectionId).previous_inspection_id)
     }
 
     @Test
@@ -112,6 +122,7 @@ class InspectionRepositoryTest {
         val earlier = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
 
         assertNull(earlier.previousInspectionId)
+        assertNull(storedInspection(earlier.inspectionId).previous_inspection_id)
     }
 
     @Test
@@ -212,6 +223,7 @@ class InspectionRepositoryTest {
         val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)
 
         assertEquals(ingoing.inspectionId, exit.baselineInspectionId)
+        assertEquals(ingoing.inspectionId, storedInspection(exit.inspectionId).baseline_inspection_id)
     }
 
     @Test
@@ -224,6 +236,7 @@ class InspectionRepositoryTest {
 
         assertNull(exit.baselineInspectionId)
         assertEquals(NoBaselineReason.NO_INGOING, exit.noBaselineReason)
+        assertNull(storedInspection(exit.inspectionId).baseline_inspection_id)
     }
 
     @Test
@@ -240,6 +253,7 @@ class InspectionRepositoryTest {
         val routine = repo.createInspection("ROUTINE", propertyId, tenancyId, routineTemplate, scheduledAt = now)
 
         assertEquals(ingoing.inspectionId, routine.baselineInspectionId)
+        assertEquals(ingoing.inspectionId, storedInspection(routine.inspectionId).baseline_inspection_id)
     }
 
     @Test
@@ -254,6 +268,7 @@ class InspectionRepositoryTest {
         val annual = repo.createInspection("ANNUAL", propertyId, tenancyId, annualTemplate, scheduledAt = now)
 
         assertEquals(ingoing.inspectionId, annual.baselineInspectionId)
+        assertEquals(ingoing.inspectionId, storedInspection(annual.inspectionId).baseline_inspection_id)
     }
 
     @Test
@@ -270,6 +285,7 @@ class InspectionRepositoryTest {
         val second = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
 
         assertEquals(first.inspectionId, second.baselineInspectionId)
+        assertEquals(first.inspectionId, storedInspection(second.inspectionId).baseline_inspection_id)
         assertEquals(first.inspectionId, database.tenancyQueries.selectById(tenancyId).executeAsOne().baseline_inspection_id)
     }
 
@@ -374,6 +390,36 @@ class InspectionRepositoryTest {
             repo.setItemSuppression(bogusPropertyId, "BED-WALL-01", suppressed = true)
         }
         assertTrue(database.propertyItemOverrideQueries.selectByProperty(bogusPropertyId).executeAsList().isEmpty())
+    }
+
+    @Test
+    fun `suppression and restoration are scoped to their own property, never leaking to another`() {
+        val propertyA = DbTestFixtures.insertProperty(database, uuid)
+        val propertyB = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+
+        // 两处物业都先抑制 BED-WALL-01，各自建一次巡检——此刻两条巡检都只有 KITCHEN。
+        repo.setItemSuppression(propertyA, "BED-WALL-01", suppressed = true)
+        repo.setItemSuppression(propertyB, "BED-WALL-01", suppressed = true)
+        val createdA = repo.createInspection("ROUTINE", propertyA, null, templateId, scheduledAt = now)
+        val createdB = repo.createInspection("ROUTINE", propertyB, null, templateId, scheduledAt = now)
+        assertEquals(1, database.roomInstanceQueries.selectByInspection(createdA.inspectionId).executeAsList().size)
+        assertEquals(1, database.roomInstanceQueries.selectByInspection(createdB.inspectionId).executeAsList().size)
+
+        // 只恢复 A：A 的草稿该补房间；B 的抑制状态与草稿都不该被碰——恢复路径按 property_id 过滤
+        // （ensureRoomInstancesForRestoredItem），这条测试直接证明那个过滤条件真的在起作用。
+        repo.setItemSuppression(propertyA, "BED-WALL-01", suppressed = false)
+
+        assertEquals(
+            setOf("KITCHEN", "BEDROOM"),
+            database.roomInstanceQueries.selectByInspection(createdA.inspectionId).executeAsList().map { it.room_key }.toSet(),
+        )
+        assertEquals(
+            listOf("KITCHEN"),
+            database.roomInstanceQueries.selectByInspection(createdB.inspectionId).executeAsList().map { it.room_key },
+        )
+        val bOverride = database.propertyItemOverrideQueries.selectByProperty(propertyB).executeAsList().single { it.stable_id == "BED-WALL-01" }
+        assertEquals(1L, bOverride.suppressed, "restoring A must not touch B's override row")
     }
 
     // ---- 状态写入合法性 ----
@@ -620,6 +666,30 @@ class InspectionRepositoryTest {
     }
 
     @Test
+    fun `setWearOrDamage treats an unfinalized baseline as no baseline`() {
+        // 基线指针在建 INGOING 时就自动指派（见 createInspection），但没有随之要求那次 INGOING 已 FINALIZED——
+        // 拿一份仍可能被继续改的草稿去算"与基线的差异"没有意义。指针在但未 finalize 时，本方法把它当
+        // 卡片正文的"无基线"标记处理，不是另立第五种结果。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
+        val exitTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
+
+        val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+        // 故意不 finalize：ingoing 仍是 DRAFT，但已经通过自动指派成了 tenancy 的基线指针。
+        now += 1_000
+        val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)
+        assertEquals(ingoing.inspectionId, exit.baselineInspectionId, "sanity: EXIT's own baseline pointer is set")
+        repo.setItemStatus(exit.inspectionId, exit.roomInstanceIds.first(), "KIT-BENCH-01", "POOR", "note")
+        val itemId = database.inspectionItemQueries.selectByInspection(exit.inspectionId).executeAsList().single().id
+
+        val outcome = repo.setWearOrDamage(exit.inspectionId, itemId, "DAMAGE")
+
+        assertEquals(WearOrDamageOutcome.NoBaseline, outcome)
+        assertNull(database.inspectionItemQueries.selectById(itemId).executeAsOne().wear_or_damage)
+    }
+
+    @Test
     fun `setWearOrDamage rejects when the current status matches the baseline`() {
         val (exitId, roomId) = setUpExitWithBaseline(baselineStatus = "GOOD")
         repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "GOOD", null)
@@ -705,5 +775,85 @@ class InspectionRepositoryTest {
 
         val outcome = repo.setWearOrDamage(exit.inspectionId, itemId, "DAMAGE")
         assertEquals(WearOrDamageOutcome.NoBaselineItem, outcome)
+    }
+
+    // ---- 时间戳出自注入的 Clock，不是系统时钟 ----
+
+    @Test
+    fun `createInspection persists created_at and updated_at from the injected clock`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+
+        val inspectionRow = storedInspection(created.inspectionId)
+        assertEquals(now, inspectionRow.created_at)
+        assertEquals(now, inspectionRow.updated_at)
+        val roomRow = database.roomInstanceQueries.selectById(created.roomInstanceIds.first()).executeAsOne()
+        assertEquals(now, roomRow.created_at)
+        assertEquals(now, roomRow.updated_at)
+    }
+
+    @Test
+    fun `setItemStatus persists updated_at from the injected clock and never changes created_at on update`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        val kitchenRoomId = created.roomInstanceIds.first()
+
+        repo.setItemStatus(created.inspectionId, kitchenRoomId, "KIT-BENCH-01", "GOOD", null)
+        val firstRow = database.inspectionItemQueries.selectByInspection(created.inspectionId).executeAsList().single()
+        assertEquals(now, firstRow.created_at)
+        assertEquals(now, firstRow.updated_at)
+
+        now += 1_000
+        repo.setItemStatus(created.inspectionId, kitchenRoomId, "KIT-BENCH-01", "FAIR", "chip")
+        val secondRow = database.inspectionItemQueries.selectByInspection(created.inspectionId).executeAsList().single()
+        assertEquals(firstRow.created_at, secondRow.created_at, "created_at must not change on update")
+        assertEquals(now, secondRow.updated_at)
+    }
+
+    @Test
+    fun `setWearOrDamage persists updated_at from the injected clock`() {
+        val (exitId, roomId) = setUpExitWithBaseline(baselineStatus = "GOOD")
+        repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "POOR", "scratched")
+        val itemId = database.inspectionItemQueries.selectByInspection(exitId).executeAsList().single().id
+
+        now += 1_000
+        repo.setWearOrDamage(exitId, itemId, "DAMAGE")
+
+        assertEquals(now, database.inspectionItemQueries.selectById(itemId).executeAsOne().updated_at)
+    }
+
+    @Test
+    fun `setItemSuppression persists created_at and updated_at from the injected clock`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
+        val row = database.propertyItemOverrideQueries.selectByProperty(propertyId).executeAsList().single()
+        assertEquals(now, row.created_at)
+        assertEquals(now, row.updated_at)
+
+        now += 1_000
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = false)
+        val updatedRow = database.propertyItemOverrideQueries.selectByProperty(propertyId).executeAsList().single()
+        assertEquals(row.created_at, updatedRow.created_at, "created_at must not change on update")
+        assertEquals(now, updatedRow.updated_at)
+    }
+
+    @Test
+    fun `a room instance created by the restore path persists created_at and updated_at from the injected clock`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+
+        now += 1_000
+        repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = false)
+
+        val bedroom = database.roomInstanceQueries.selectByInspection(created.inspectionId).executeAsList().single { it.room_key == "BEDROOM" }
+        assertEquals(now, bedroom.created_at)
+        assertEquals(now, bedroom.updated_at)
     }
 }

@@ -2,6 +2,7 @@ package nz.myinspection.core.capture
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -29,21 +30,28 @@ class CompletenessTest {
     // ---- AdverseStatuses ----
 
     @Test
-    fun `rental types share the same adverse set`() {
-        val expected = setOf("FAIR", "POOR")
-        assertEquals(expected, AdverseStatuses.forType("ROUTINE"))
-        assertEquals(expected, AdverseStatuses.forType("INGOING"))
-        assertEquals(expected, AdverseStatuses.forType("EXIT"))
+    fun `rental types share the same adverse predicate`() {
+        for (type in listOf("ROUTINE", "INGOING", "EXIT")) {
+            assertTrue(AdverseStatuses.isAdverse(type, "FAIR"), "$type/FAIR should be adverse")
+            assertTrue(AdverseStatuses.isAdverse(type, "POOR"), "$type/POOR should be adverse")
+            assertFalse(AdverseStatuses.isAdverse(type, "GOOD"), "$type/GOOD should not be adverse")
+            assertFalse(AdverseStatuses.isAdverse(type, "NOT_APPLICABLE"), "$type/NOT_APPLICABLE should not be adverse")
+        }
     }
 
     @Test
-    fun `annual has its own adverse set excluding NO_ISSUE and NOT_APPLICABLE`() {
-        assertEquals(setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT"), AdverseStatuses.forType("ANNUAL"))
+    fun `annual has its own adverse predicate excluding NO_ISSUE and NOT_APPLICABLE`() {
+        assertTrue(AdverseStatuses.isAdverse("ANNUAL", "MONITOR"))
+        assertTrue(AdverseStatuses.isAdverse("ANNUAL", "MAINTENANCE_ITEM"))
+        assertTrue(AdverseStatuses.isAdverse("ANNUAL", "SIGNIFICANT_DEFECT"))
+        assertFalse(AdverseStatuses.isAdverse("ANNUAL", "NO_ISSUE"))
+        assertFalse(AdverseStatuses.isAdverse("ANNUAL", "NOT_APPLICABLE"))
     }
 
     @Test
-    fun `an unknown type has an empty adverse set`() {
-        assertTrue(AdverseStatuses.forType("BOGUS").isEmpty())
+    fun `an unknown type is never adverse`() {
+        assertFalse(AdverseStatuses.isAdverse("BOGUS", "FAIR"))
+        assertFalse(AdverseStatuses.isAdverse("BOGUS", "MONITOR"))
     }
 
     // ---- computeRoomProgress ----

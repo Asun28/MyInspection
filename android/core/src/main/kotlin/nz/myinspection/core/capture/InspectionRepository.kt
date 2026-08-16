@@ -38,7 +38,7 @@ sealed class WearOrDamageOutcome {
     /** 该巡检不是 EXIT 类型——`wear_or_damage` 仅 EXIT 可写（需求 §6 / 卡片正文）。 */
     object NotExitType : WearOrDamageOutcome()
 
-    /** 该巡检没有可用基线（tenancy 无、或 tenancy 尚未指定 baseline_inspection_id）。 */
+    /** 该巡检没有可用基线（tenancy 无、tenancy 尚未指定 baseline_inspection_id、或基线巡检尚未 FINALIZED）。 */
     object NoBaseline : WearOrDamageOutcome()
 
     /** 基线巡检里没有同 stable_id 的已记录项——差异无从计算。 */
@@ -258,6 +258,13 @@ class InspectionRepository(
      *
      * [itemId] 必须真的属于 [inspectionId]——两者各自独立解析，若不核对，调用方能拿一个属于**另一次**
      * 巡检的 itemId，搭配一个恰好是 EXIT 且有基线的 inspectionId，把 wear_or_damage 写进毫不相干的条目。
+     *
+     * **基线巡检必须已 FINALIZED，否则视同无基线**：`baseline_inspection_id` 指针在建巡检时即写入（见
+     * [createInspection]），但指向的那次巡检当时可能仍是 DRAFT、其条目状态还会继续改。拿一份仍在变化的
+     * 草稿去算"与基线的差异"没有意义——差异算出来的下一刻，基线本身就可能又变了，写进去的分类会静默
+     * 过期。故未 FINALIZED 的基线在这里等同卡片正文的"无基线"标记：拒写，不是另立第五种结果。这与"建
+     * INGOING 时立即指派基线指针"这条不变量并不冲突——指针语义不变（历史事实、写死不改），只是**消费方**
+     * （本方法）多一层"必须已定型"的前提。
      */
     fun setWearOrDamage(inspectionId: String, itemId: String, wearOrDamage: String): WearOrDamageOutcome {
         require(wearOrDamage in WEAR_OR_DAMAGE_VALUES) { "unknown wear_or_damage value: '$wearOrDamage'" }
@@ -268,10 +275,17 @@ class InspectionRepository(
         if (inspection.type != "EXIT") return WearOrDamageOutcome.NotExitType
         val baselineId = inspection.baseline_inspection_id ?: return WearOrDamageOutcome.NoBaseline
 
-        // 取项 → 核对归属 → 取基线项 → 比较 → 写整段包进一个事务（理由同 [createInspection]）；
-        // 用外层可变量带出结果，因为 `db.transaction{}` 是 Unit 返回体。
+        // 取基线巡检 → 核对已 FINALIZED → 取项 → 核对归属 → 取基线项 → 比较 → 写整段包进一个事务
+        // （理由同 [createInspection]）；用外层可变量带出结果，因为 `db.transaction{}` 是 Unit 返回体。
         var outcome: WearOrDamageOutcome = WearOrDamageOutcome.Written
         db.transaction {
+            val baselineInspection = checkNotNull(db.inspectionQueries.selectById(baselineId).executeAsOneOrNull()) {
+                "baseline inspection $baselineId referenced by $inspectionId does not exist"
+            }
+            if (baselineInspection.finalized_at == null) {
+                outcome = WearOrDamageOutcome.NoBaseline
+                return@transaction
+            }
             val item = checkNotNull(db.inspectionItemQueries.selectById(itemId).executeAsOneOrNull()) {
                 "no such inspection_item: $itemId"
             }

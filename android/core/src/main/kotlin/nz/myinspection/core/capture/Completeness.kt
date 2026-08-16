@@ -6,16 +6,23 @@ internal const val PHOTO_RULE_ADVERSE_ONLY = "ADVERSE_ONLY"
 
 /**
  * 各模板类型的「不利发现」评级域（卡片上下文包「两级拍照规则」/「不利发现强制备注」共用同一份域）。
- * 出租三类共享同一集合；年检另有五态里的三个不利档；未知类型返回空集——调用方据此天然不触发任何强制。
+ * 出租三类共享同一集合；年检另有五态里的三个不利档；未知类型永不触发任何强制。
+ *
+ * **只暴露谓词，不暴露集合**：早前版本有一个返回 `Set<String>` 的 `forType`，调用方能把它强转成
+ * `MutableSet` 改写这份进程级共享判据（同 `core/template/Template.kt` 的 `TemplateDomains` 已修过的
+ * 那一类缺陷——T1-TEMPLATE-ENGINE 早前也踩过"只读集合非真不可变，强转回去仍可改"）。这里换一种做法：
+ * 底下两个集合本就 `private`，唯一的公开出口 [isAdverse] 只返回 `Boolean`，没有集合引用可拿去强转，
+ * 这条口子从结构上就不存在，不必再靠 `Collections.unmodifiableSet` 兜底。
  */
 object AdverseStatuses {
     private val RENTAL_ADVERSE: Set<String> = setOf("FAIR", "POOR")
     private val ANNUAL_ADVERSE: Set<String> = setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT")
 
-    fun forType(type: String): Set<String> = when (type) {
-        "ROUTINE", "INGOING", "EXIT" -> RENTAL_ADVERSE
-        "ANNUAL" -> ANNUAL_ADVERSE
-        else -> emptySet()
+    /** [status] 对 [type] 而言是否落在「不利发现」域内。 */
+    fun isAdverse(type: String, status: String): Boolean = when (type) {
+        "ROUTINE", "INGOING", "EXIT" -> status in RENTAL_ADVERSE
+        "ANNUAL" -> status in ANNUAL_ADVERSE
+        else -> false
     }
 }
 
@@ -82,10 +89,9 @@ data class PhotoCompleteness(
  */
 fun computeRoomProgress(type: String, room: RoomSnapshot): RoomProgress {
     val requiresPanorama = room.items.any { it.photoRule == PHOTO_RULE_ROOM_PANORAMA }
-    val adverse = AdverseStatuses.forType(type)
     val completedItems = room.items.count { def ->
         val recorded = room.recordedItems[def.stableId] ?: return@count false
-        recorded.status !in adverse || !recorded.note.isNullOrBlank()
+        !AdverseStatuses.isAdverse(type, recorded.status) || !recorded.note.isNullOrBlank()
     }
     return RoomProgress(
         roomInstanceId = room.roomInstanceId,
@@ -108,12 +114,11 @@ fun computeMissingPhotos(type: String, rooms: List<RoomSnapshot>): PhotoComplete
         room.items.any { it.photoRule == PHOTO_RULE_ROOM_PANORAMA } && room.roomPhotoCount < 1
     }.map { MissingRoomPhoto(it.roomInstanceId, it.roomKey) }
 
-    val adverse = AdverseStatuses.forType(type)
     val missingItems = rooms.flatMap { room ->
         room.items.filter { it.photoRule == PHOTO_RULE_ADVERSE_ONLY }.mapNotNull { def ->
             val recorded = room.recordedItems[def.stableId] ?: return@mapNotNull null
             val hasPhoto = (room.itemPhotoCounts[def.stableId] ?: 0) >= 1
-            if (recorded.status in adverse && !hasPhoto) MissingItemPhoto(room.roomInstanceId, def.stableId) else null
+            if (AdverseStatuses.isAdverse(type, recorded.status) && !hasPhoto) MissingItemPhoto(room.roomInstanceId, def.stableId) else null
         }
     }
     return PhotoCompleteness(missingRooms, missingItems)
@@ -124,11 +129,10 @@ fun computeMissingPhotos(type: String, rooms: List<RoomSnapshot>): PhotoComplete
  * 与两级拍照规则各自独立生效。空白字符串同样视为未备注（`isNullOrBlank`）。
  */
 fun computeMissingNotes(type: String, rooms: List<RoomSnapshot>): List<MissingNote> {
-    val adverse = AdverseStatuses.forType(type)
     return rooms.flatMap { room ->
         room.items.mapNotNull { def ->
             val recorded = room.recordedItems[def.stableId] ?: return@mapNotNull null
-            if (recorded.status in adverse && recorded.note.isNullOrBlank()) {
+            if (AdverseStatuses.isAdverse(type, recorded.status) && recorded.note.isNullOrBlank()) {
                 MissingNote(room.roomInstanceId, def.stableId)
             } else {
                 null
