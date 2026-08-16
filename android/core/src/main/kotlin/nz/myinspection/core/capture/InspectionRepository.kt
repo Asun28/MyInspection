@@ -303,9 +303,9 @@ class InspectionRepository(
      * 物业级条目抑制/恢复（「本物业不存在此项」，跨巡检永久生效直到显式恢复）。恢复 = 置 suppressed=0，
      * 不是软删这一行——见 PropertyItemOverride.sq 的同名注释，该状态本就可逆。
      *
-     * [stableId] 必须是某个模板版本里真实定义过的项（跨模板校验，不绑定某一版本——见
-     * [stableIdIsKnownToAnyTemplate]）：一个拼错/伪造的 stable_id 若放行，会铸出一条谁都匹配不到、
-     * 只占着索引位的死 override 行。
+     * [propertyId] 与 [stableId] 都先校验存在——`property_item_override` 是逻辑外键（schema 不强制），
+     * 一个不存在的 property_id 或未曾出现在任何模板版本里的 stable_id 若放行，都会铸出一条谁都匹配不到、
+     * 只占着索引位的死 override 行（[stableId] 跨模板校验，不绑定某一版本——见 [stableIdIsKnownToAnyTemplate]）。
      *
      * **恢复时补建缺失的 room_instance**：若某房间的唯一项在建巡检时已被抑制，该房间当时不会被实例化
      * （见 [activeRoomKeysInOrder]）；此后若在**该巡检仍是 DRAFT 期间**恢复这项，完备性查询会立刻把它
@@ -319,6 +319,9 @@ class InspectionRepository(
     fun setItemSuppression(propertyId: String, stableId: String, suppressed: Boolean) {
         val now = clock.nowMs()
         db.transaction {
+            checkNotNull(db.propertyQueries.selectById(propertyId).executeAsOneOrNull()) {
+                "no such property: $propertyId"
+            }
             require(stableIdIsKnownToAnyTemplate(stableId)) {
                 "stable_id '$stableId' is not defined in any template version"
             }
@@ -419,9 +422,10 @@ class InspectionRepository(
 
     /**
      * `room_instance.selectByInspection`（冻结查询）没有 ORDER BY，返回顺序由 SQLite 的查询计划决定
-     * （实测：常走 `idx_room_instance_active`，按 room_key 字典序而非插入/模板序）——[WalkProgress.rooms]
-     * 因此**不承诺**模板序。需要模板序时用 [CreatedInspection.roomInstanceIds]（仓储在内存里按模板序
-     * 组装的那份）。
+     * （实测：常走 `idx_room_instance_active`，按 room_key 字典序而非插入/模板序），故本方法**在 Kotlin
+     * 侧显式排序**——[WalkProgress.rooms] 及两条完备性查询的房间顺序因此**保证**等于模板序（同
+     * [activeRoomKeysInOrder] 的口径），不随 SQLite 查询计划或进程重启而漂移；同一房间键不会在活跃行里
+     * 重复（`idx_room_instance_active` 唯一索引），故这里的排序键已构成全序，无需再加 tie-breaker。
      *
      * 整份读组在一个事务里完成（理由同 [createInspection]）：definitions/room_instances/items/photos
      * 四组各自独立的 SELECT 必须出自同一个数据库状态——这份快照正是 [missingPhotos]/[missingNotes] 共用
@@ -432,6 +436,7 @@ class InspectionRepository(
         db.transaction {
             val defsByRoom = activeCheckItemDefs(inspection.property_id, inspection.template_version_id)
                 .groupBy { it.room }
+            val roomOrder = activeRoomKeysInOrder(inspection.property_id, inspection.template_version_id)
             val roomInstances = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
             val items = db.inspectionItemQueries.selectByInspection(inspection.id).executeAsList()
 
@@ -457,7 +462,7 @@ class InspectionRepository(
                     roomPhotoCount = roomPhotoCount,
                     itemPhotoCounts = itemPhotoCounts,
                 )
-            }
+            }.sortedBy { roomOrder.indexOf(it.roomKey) }
         }
         return snapshots
     }

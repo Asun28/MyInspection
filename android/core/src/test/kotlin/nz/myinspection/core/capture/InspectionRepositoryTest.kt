@@ -226,6 +226,53 @@ class InspectionRepositoryTest {
         assertEquals(NoBaselineReason.NO_INGOING, exit.noBaselineReason)
     }
 
+    @Test
+    fun `baseline resolves uniformly for ROUTINE, not just EXIT`() {
+        // 澄清后的契约（specs/tasks/T2-CAPTURE-CORE.md，R3 仲裁）：baseline 对所有巡检类型统一解析入库，
+        // EXIT 只是主要消费者，不是唯一持有者。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
+        val routineTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "ROUTINE")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
+
+        val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+        now += 1_000
+        val routine = repo.createInspection("ROUTINE", propertyId, tenancyId, routineTemplate, scheduledAt = now)
+
+        assertEquals(ingoing.inspectionId, routine.baselineInspectionId)
+    }
+
+    @Test
+    fun `baseline resolves uniformly for ANNUAL, not just EXIT`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
+        val annualTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "ANNUAL")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
+
+        val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+        now += 1_000
+        val annual = repo.createInspection("ANNUAL", propertyId, tenancyId, annualTemplate, scheduledAt = now)
+
+        assertEquals(ingoing.inspectionId, annual.baselineInspectionId)
+    }
+
+    @Test
+    fun `a second INGOING resolves its own baseline to the first, without the tenancy pointer moving`() {
+        // 补 "a second INGOING never overwrites an already-assigned baseline" 遗漏的一面：那个测的是
+        // tenancy 指针不被覆盖，这个测的是第二次 INGOING **自己**这一行的 baseline_inspection_id
+        // 也按统一规则解析——此时 tenancy 已有基线（第一次 INGOING），第二次理应读到那个值。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
+
+        val first = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+        now += 1_000
+        val second = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
+
+        assertEquals(first.inspectionId, second.baselineInspectionId)
+        assertEquals(first.inspectionId, database.tenancyQueries.selectById(tenancyId).executeAsOne().baseline_inspection_id)
+    }
+
     // ---- 房间实例化 ----
 
     @Test
@@ -317,6 +364,18 @@ class InspectionRepositoryTest {
         assertTrue(database.propertyItemOverrideQueries.selectByProperty(propertyId).executeAsList().isEmpty())
     }
 
+    @Test
+    fun `setItemSuppression throws for a property id that does not exist`() {
+        // 对称于 stable_id 校验：一个不存在的 property_id 若放行，同样会铸出一条死 override 行。
+        CaptureTestFixtures.insertRoutineTemplate(database, uuid) // 定义 KIT-ROOM-01/KIT-BENCH-01/BED-WALL-01
+        val bogusPropertyId = uuid.next()
+
+        assertFailsWith<IllegalStateException> {
+            repo.setItemSuppression(bogusPropertyId, "BED-WALL-01", suppressed = true)
+        }
+        assertTrue(database.propertyItemOverrideQueries.selectByProperty(bogusPropertyId).executeAsList().isEmpty())
+    }
+
     // ---- 状态写入合法性 ----
 
     @Test
@@ -388,6 +447,18 @@ class InspectionRepositoryTest {
     }
 
     // ---- 走查进度 / process-death 恢复 ----
+
+    @Test
+    fun `walk progress rooms are ordered by template order, not database natural order`() {
+        // 本夹具模板序是 KITCHEN,BEDROOM；`room_instance` 冻结查询按 idx_room_instance_active 的字典序
+        // 回表则是 BEDROOM,KITCHEN（room_instances 相关测试的既有发现）——这条测试直接证明
+        // loadRoomSnapshots 的 Kotlin 侧排序修正了它，而不是恰好凑对。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+
+        assertEquals(listOf("KITCHEN", "BEDROOM"), repo.walkProgress(created.inspectionId).rooms.map { it.roomKey })
+    }
 
     @Test
     fun `walk progress reflects partial completion and a fresh repository instance sees the same state`() {
