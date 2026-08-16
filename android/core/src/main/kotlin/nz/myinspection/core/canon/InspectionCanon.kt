@@ -1,7 +1,6 @@
 package nz.myinspection.core.canon
 
 import java.security.MessageDigest
-import java.util.HexFormat
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -25,9 +24,15 @@ import nz.myinspection.core.model.TenancySnapshot
  */
 fun canonicalJson(snapshot: InspectionSnapshot): String = CanonicalJson.serialize(snapshot.toJson())
 
-/** SHA-256(UTF-8 bytes) 的小写十六进制——data_hash 进 PDF 页脚自证报告未被事后修改。 */
-fun sha256Hex(s: String): String =
-    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8)))
+/**
+ * SHA-256(UTF-8 bytes) 的小写十六进制——data_hash 进 PDF 页脚自证报告未被事后修改。
+ * 刻意不用 java.util.HexFormat：它在 Android 上要 API 34，而 app minSdk 26 且未配 desugaring——
+ * :core 虽按纯 JVM 模块测试，运行时载体是 ART，JDK API 可用性按 Android API level 判。
+ */
+fun sha256Hex(s: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+}
 
 private val SHA256_HEX = Regex("[0-9a-f]{64}")
 

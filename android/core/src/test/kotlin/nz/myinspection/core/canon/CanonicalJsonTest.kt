@@ -85,6 +85,16 @@ class CanonicalJsonTest {
     }
 
     @Test
+    fun `key order is UTF-16 code units not code points`() {
+        // U+10000（代理对，首码元 D800）在 UTF-16 码元序下排在 U+E000（单码元）之前；码点序恰好相反。
+        // 这一对键让「UTF-16 码元序」这个冻结比较器契约自校验——纯 ASCII 键区分不了两种序。
+        val astralKey = StringBuilder().appendCodePoint(0x10000).toString()
+        val bmpKey = 0xE000.toChar().toString()
+        val obj = buildJsonObject { put(bmpKey, 2); put(astralKey, 1) }
+        assertEquals("{\"" + astralKey + "\":1,\"" + bmpKey + "\":2}", CanonicalJson.serialize(obj))
+    }
+
+    @Test
     fun `astral pairs serialize raw and pin the golden hash`() {
         // U+1F600（合法代理对）不转义、按 UTF-8 原样输出；期望哈希由独立 Python 实现预先算出。
         // 全 ASCII 源码构造（appendCodePoint），防编码链坑。
