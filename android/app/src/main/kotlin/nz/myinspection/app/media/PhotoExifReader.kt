@@ -7,6 +7,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.format.ResolverStyle
 
 /**
  * ExifInterface 读取薄壳（androidx.exifinterface 1.4.2，见 libs.versions.toml pin；`TAG_OFFSET_TIME_ORIGINAL`
@@ -14,7 +15,13 @@ import java.time.format.DateTimeParseException
  * :core 只认整型 orientation 与毫秒时间戳，本层负责把 EXIF 的字符串标签转成这两种形状。
  */
 object PhotoExifReader {
-    private val EXIF_DATETIME_PATTERN: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
+    // uuuu（proleptic year，非 yyyy 的 year-of-era）配 ResolverStyle.STRICT：默认 SMART 解析会把
+    // 「2月30日」这类不存在的日历日静默挪成合法日期再放行——那样"格式不符返回 null"的承诺对这类坏值
+    // 就是假的（会悄悄存一个被挪动过的错误时间戳，而不是如实报告"读不出"）。STRICT 让这类输入直接抛
+    // DateTimeParseException，走下面既有的「解析失败 → null」分支。
+    private val EXIF_DATETIME_PATTERN: DateTimeFormatter = DateTimeFormatter
+        .ofPattern("uuuu:MM:dd HH:mm:ss")
+        .withResolverStyle(ResolverStyle.STRICT)
 
     /** 读 `TAG_ORIENTATION`；缺失/损坏一律回退 `ORIENTATION_NORMAL`（getAttributeInt 的 defaultValue 语义）。 */
     fun readOrientation(file: File): Int =

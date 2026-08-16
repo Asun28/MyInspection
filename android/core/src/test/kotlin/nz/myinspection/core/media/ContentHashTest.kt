@@ -37,4 +37,11 @@ class ContentHashTest {
         val flipped = bytes.copyOf().also { it[0] = it[0].inc() }
         assertNotEquals(first, ContentHash.sha256Hex(flipped), "flipping one byte must change the digest")
     }
+
+    @Test
+    fun `hex formats raw digest bytes identically to sha256Hex, so a streaming caller's digest matches`() {
+        val digestBytes = java.security.MessageDigest.getInstance("SHA-256").digest("abc".toByteArray(Charsets.US_ASCII))
+        assertEquals(ContentHash.sha256Hex("abc".toByteArray(Charsets.US_ASCII)), ContentHash.hex(digestBytes))
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", ContentHash.hex(digestBytes))
+    }
 }

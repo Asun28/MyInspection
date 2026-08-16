@@ -97,7 +97,9 @@ class OrphanedAssetCleanupTest {
         val deleterCalls = mutableListOf<String>()
         val cleanup = OrphanedAssetCleanup(database) { relPath -> deleterCalls.add(relPath); true }
 
-        assertEquals(listOf("photos/orphan.jpg"), cleanup.run(), "run() must report exactly the paths it deleted")
+        val result = cleanup.run()
+        assertEquals(listOf("photos/orphan.jpg"), result.deleted, "run() must report exactly the paths it deleted")
+        assertEquals(emptyList(), result.failed)
         assertEquals(
             listOf("photos/orphan.jpg"),
             deleterCalls,
@@ -106,7 +108,7 @@ class OrphanedAssetCleanupTest {
     }
 
     @Test
-    fun `run reports only the paths whose deleter call actually reported success`() {
+    fun `run splits deleted from failed instead of silently dropping a failed deletion`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
         val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
@@ -125,13 +127,19 @@ class OrphanedAssetCleanupTest {
         orphan("photos/delete-fails.jpg", "hash-2")
 
         // Simulates a real filesystem failure (permission denied, already gone via a race, etc.) on one
-        // of the two — run() must not report it as deleted just because it was a member of the pending set.
+        // of the two — a caller must be able to see WHICH path failed, not just a shorter success list.
         val cleanup = OrphanedAssetCleanup(database) { relPath -> relPath != "photos/delete-fails.jpg" }
 
+        val result = cleanup.run()
         assertEquals(
-            setOf("photos/deletes-ok.jpg"),
-            cleanup.run().toSet(),
-            "a path whose deleter call returns false must be excluded from the reported result, not silently counted as cleaned up",
+            listOf("photos/deletes-ok.jpg"),
+            result.deleted,
+            "a path whose deleter call returns false must be excluded from `deleted`, not silently counted as cleaned up",
+        )
+        assertEquals(
+            listOf("photos/delete-fails.jpg"),
+            result.failed,
+            "a failed deletion must surface in `failed` with its own path — not vanish, leaving the caller unable to log/retry/alert on it",
         )
     }
 }
