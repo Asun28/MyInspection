@@ -1463,7 +1463,7 @@
 - refs: 
 
 ## L205
-- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
 - symptom: R3 多条 finding 的**修复轮**本身引入新缺陷：T0-TOOLCHAIN 第三轮修完 3 条，第四轮报 5 条，其中 4 条是**第三轮修复自己带进来的**（策略文档留占位表、递归发现漏掉卡片点名的 libs.versions.toml、许可闸新代码 -ErrorAction SilentlyContinue 变 fail-open、ci.yml 注释与新行为矛盾且断言了一件已不成立的事）。轮次于是不收敛，每轮都还有真缺陷可报。
 - root_cause: task-loop 的「R3 前置自检」(步骤 4.6) 明文只建议**首轮**做，之后「直接对着 R3 给的具体 reason 改」。但一次修 3–5 条 finding 的修复轮，diff 面积常大于首轮实现本身，且修复者处在「让评审者满意」的心态里、按条修不看整体——新代码不再被任何人当新代码审。评审者每轮只报当轮最刺眼的一处（L97），于是新引入的缺陷要到下一轮才浮出，形成轮次通胀。
 - rule: 把「本地对抗式自检」的触发条件从「首轮」改为「首轮 + 任何一次改了 3 条以上 finding 的修复轮」：修完先派 fresh-context 子代理（或换一个模型）只对**本轮修复 diff** 按 rubric 复核一遍，重点问三件事——新加的错误处理是不是 fail-open？卡片/文档里点名的目标是不是全都真被覆盖到（别只覆盖一部分就报成功）？改动文件自身的注释与文案还成立吗（L97）？再 ship。多花一次本地循环，换掉一轮 push+评审等待。
@@ -1587,5 +1587,53 @@
 - symptom: 同一条不变量（content_hash 必是源字节的 SHA-256）被评审从两个不同角度先后攻破：第 1 轮「LoadedTemplate 构造器可被模块内任意代码调用」，第 4 轮「persist 把调用方递进来的 contentHash 原样写库」。每轮都按当轮说法补一道运行期校验，下一轮就换个角度再来。
 - root_cause: 不变量是用约定+注释维持的：类型允许构造出违反它的值，于是每一个能构造该值的入口都是一个新的攻击面，补校验只是逐个堵入口，入口数量却由类型形状决定。
 - rule: 当同一不变量被从第二个角度攻破时，别再加校验——把违反态做成不可表达：构造器私有 + 唯一工厂只收「源数据」并在内部算出派生值（本例 LoadedTemplate.parse(bytes) 自己解码/校验/哈希，调用方递不进 hash），这样违规不是被运行期拒绝而是写不出来。随后务必回头删掉因此变成不可达的那些运行期校验：留着就是无法用单句删除变异证明的守卫，正是 L165 要禁的东西。
+- enforced_by: 
+- refs: 
+
+## L221
+- date: 2026-08-16 ｜ tags: sqlite,jdbc,concurrency,testing ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 两个独立 JdbcSqliteDriver 连接指向同一个 SQLite 具名内存库(cache=shared)并发写同一行，即便两边都设置了 PRAGMA busy_timeout，仍立刻抛 SQLITE_LOCKED_SHAREDCACHE 而不是等待重试
+- root_cause: pinned 的 xerial sqlite-jdbc 驱动对共享缓存模式下的表级锁冲突不支持/未启用 unlock-notify 回调，busy_timeout 只覆盖常规文件锁(SQLITE_BUSY)，不覆盖共享缓存的 SQLITE_LOCKED
+- rule: 用真实多连接/多线程验证 SQLite 事务边界前，先用小规模 spike 验证该驱动在 cache=shared 模式下的锁行为；若命中 SQLITE_LOCKED_SHAREDCACHE 且无退避重试预算，改用单线程 + 注入副作用的确定性模拟来测逻辑分支正确性，把跨连接隔离语义的证明留作已登记的技术债，不要为了塞下一个真并发测试而牺牲 CI 确定性
+- enforced_by: 
+- refs: 
+
+## L222
+- date: 2026-08-16 ｜ tags: sqlite,sqldelight,testing,ordering ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 两个 InspectionRepositoryTest 断言房间顺序时假红：期望 [KITCHEN,BEDROOM]（模板/插入序）却实得 [BEDROOM,KITCHEN]
+- root_cause: 冻结查询 room_instance.selectByInspection 无 ORDER BY；该表恰有覆盖 WHERE(inspection_id)+分区条件(deleted_at IS NULL) 的唯一索引 idx_room_instance_active(inspection_id, room_key, instance_no)，SQLite 查询计划选择走该索引，返回顺序变成按 room_key 字典序，而非插入/rowid 序——同类坑对任何"无 ORDER BY 的 SELECT"查询都成立，不止这一张表
+- rule: 断言依赖顺序的测试，先看被测查询是否显式 ORDER BY；没有就不能假设插入序或任何序——若产出本身在内存里按需要的序组装（如仓储层自己维护的 id 列表），断言走那份而非重新 SELECT；若必须验证 DB 侧顺序，用主键点查逐个取值而非依赖批量 SELECT 的隐式返回序
+- enforced_by: 
+- refs: 
+
+## L223
+- date: 2026-08-16 ｜ tags: content-authoring,license,primary-source,exact-string-oracle,regulatory-text ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: T2-ROUTINE-CONTENT 卡：9 轮 R3 才合并（原计划 1-2 轮）
+- symptom: 法规衍生声明/合规勾选类条目（如 7 点烟雾报警器声明）从调研摘要转写时，同一条目家族连续 4 轮 R3 block：先凭印象编造具体数值（10 年电池，官方实为 8 年）且遗漏声明点（房车/安装方式）；改成逐字抄官方表又撞版权（tenancy.govt.nz 商业复用需书面授权）；改成独立措辞的中性标签时又把法定事实压缩掉（8年电池/光电式/硬连线/达标四项、storey 的"含无卧室楼层"、bedroom 的 in-room-OR-3m 替代结构逐次丢失）；每次都被 exact-string oracle 原样锁死那份错误文案，测试全绿。
+- root_cause: 法规衍生条目对措辞精度要求远高于普通检查项——每个 or/each/every/within/minimum 都是法律意义上的替代关系或范围边界；无论是为了简洁还是为了避版权而做的转写，天然倾向丢弃这类连接词/限定词。exact-string 断言只证明"文案没有意外漂移"，证明不了"文案本身是对的"——它把作者写错的内容和写对的内容钉得一样死，测试绿≠内容对。
+- rule: ① 法规衍生的声明/勾选类条目，撰写前必须先取得逐条主文本（官方表 PDF 或立法原文，而非调研摘要的转述关键词）逐句核对再动笔，不得凭摘要"合理推断"数值/日期/替代关系。② 若主文本受版权保护（commercial reuse 需书面授权），改独立措辞时逐条二次核对：每个 or/each/every/within/minimum 等替代词/限定词必须原样保留其逻辑结构，只许换外壳词汇、不许压缩逻辑（含"中性化改写去掉判断句"时）。③ exact-string oracle 只锁"稳定"不锁"正确"；写完仍须回主文本逐句复核，不能靠"测试绿了"自证内容对——mutation-proof 只证明断言在测，不证明断言值本身无误。
+- enforced_by: none（暂无机检；R3 codex-review 人工/第二模型评审兜底，见 T2-ROUTINE-CONTENT PR#5 连续 4 轮实证）
+- refs: 
+
+## L224
+- date: 2026-08-16 ｜ tags: review,tests,refactor ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 重构测试/守卫结构后连续多轮 R3 block，每轮都在点名 stale 注释、失效的库导出清单、死变量、以及描述上一版形状的失败文案；实现本身是对的
+- root_cause: 改结构时只改了代码路径，narration（注释/头注/失败文案/导出清单/变量清理）留在上一版形状；评审者按 rubric #16 逐轮点名，一轮只点最刺眼的一批
+- rule: 每次结构性重构后，在自查阶段把「随结构一起改的面」当清单逐条过：①被改文件自身的注释与头注 ②库导出/参数清单（-AsLibrary 之类）③失败文案与总结行 ④因重构变成死代码的变量 ⑤引用旧标识符的注释。用 grep 找旧标识符（改名前的函数名/gate 名/变量名）确认零残留，再交付
+- enforced_by: 
+- refs: 
+
+## L225
+- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 给判据新增一条断言并配了变异，评审仍判「该断言无变异可达」——变异确实变红了，但红在更靠前的另一条断言上
+- root_cause: 同一判据里多条断言是短路顺序执行的，靠前的断言会掩护靠后的：删掉底层函数本体时，靠前的断言先失败并退出，靠后那条永远走不到，于是它并未被证明在测
+- rule: 每条断言都要一枚只打中它的变异：靶点选「只会让这条断言失败、不影响更靠前断言」的那一行（如只删遍历循环、保留比较本体）。并且每枚变异必须声明它的期望失败码，判据按码锚定匹配——[regex]::Escape 只转义元字符不锚定，裸子串会让 ABSENT-CANON 被 ABSENT-CANONICAL 白拿分
+- enforced_by: 
+- refs: 
+
+## L226
+- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
+- root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
+- rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装
 - enforced_by: 
 - refs: 

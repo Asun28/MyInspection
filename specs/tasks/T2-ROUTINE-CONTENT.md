@@ -3,7 +3,7 @@ id: T2-ROUTINE-CONTENT
 title: Routine 双语模板内容（80–120 项）+ schema 校验绿
 depends_on: [T1-TEMPLATE-ENGINE]
 parallelizable_with: [T2-PHOTO-PIPELINE, T2-CAPTURE-CORE, T2-PHRASELIB]
-status: todo
+status: merged
 branch: T2-ROUTINE-CONTENT
 worktree: C:\wt\T2-ROUTINE-CONTENT
 allow_paths:
@@ -41,7 +41,7 @@ srcDir 注册当卡即有测试盯住，不再是无主构建配置。
 另注：`data/*` 被 `.gitignore` 排除，`routine-v1.json` 入库须 `git add -f`（同 `data/templates/README.md`）。
 
 ## 上下文包（执行模型必读）
-- **这是抄写+编纂卡：抄错不报错，故双模复核强制**（Codex 风险 #5）——作者产出后由 Luna Max 逐项复读（英文措辞、中文对应、条目归属房间是否合理），复核记录附 PR。
+- **这是抄写+编纂卡：抄错不报错，故双模复核强制**（Codex 风险 #5）——作者产出后由**独立第二模型**（非同作者、非 Claude）逐项复读（英文措辞、中文对应、条目归属房间是否合理），复核记录附 PR。复核席位按 L26 工具无关：当前默认 Luna Max，**未接入本 harness 时以其他独立模型（如 DeepSeek / MiMo）替代**，替代须在 PR 记录中显式标注（2026-08-16 编排会话裁定：deepseek-rescue 替代成立，评审按「独立第二模型复核已做」判，不追字面模型名）。
 - 结构/字段语义见 `data/templates/README.md`（T1-TEMPLATE-ENGINE 产出）与该卡上下文包。
 - **权威骨架 = NZ 官方 Property Inspection Report 表**（MB_TEN0004_10/25，调研 synthesis「官方模板即默认模板」节）：房间 LOUNGE/KITCHEN-DINING/BATHROOM/LAUNDRY/BEDROOM（repeatable）/GENERAL；每房间重复条目组（Wall-Doors/Lights-Power points/Floors-Coverings/Windows/Blinds-Curtains）+ 房间专属（Kitchen: Cupboards/Sinks-Benches/Oven/Refrigerator/Ventilation；Bathroom: Mirror-Cabinet/Bath/Shower/Basin/Toilet/Ventilation；Laundry: Washing machine/Wash tub；Lounge: Heater）；GENERAL 含 Rubbish bins/Locks/Garage-Carport/Grounds/Keys supplied 数量/Insulation/Gutters-downpipes/Ground moisture barrier。**另加：7 点烟雾报警器声明条目组（官方表照抄）+ 水表读数记录项**。在官方表之上按调研补充 Exterior 围护细分与 Healthy Homes 日常复核点（地板下绝缘未破坏/抽风扇运转/防潮布完好——与 T6-HHC 同 stable_id）。
 - 竞品模板（docs/research/ 各篇）只作条目措辞与覆盖度交叉核对，不推翻官方骨架。
@@ -50,4 +50,4 @@ srcDir 注册当卡即有测试盯住，不再是无主构建配置。
 
 ## 验收 / 执行建议
 dod 见 front-matter（内容完备性测试 = 房间清单/项数区间/双语/唯一性断言，写进 content 测试包）。
-首选 DeepSeek V4 Pro · medium；备选 Luna Max；**复核 Luna Max 强制**。难度 S（量大但机械）。
+首选 DeepSeek V4 Pro · medium；备选 Luna Max；**独立第二模型复核强制**（席位默认 Luna Max，不可用时按上文替代规则）。难度 S（量大但机械）。

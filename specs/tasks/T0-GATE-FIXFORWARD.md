@@ -2,7 +2,7 @@
 id: T0-GATE-FIXFORWARD
 title: 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径（T0-GATE-HARDENING 事后 R3 两条 block 的 fix-forward）
 depends_on: [T0-GATE-HARDENING]
-status: todo
+status: merged
 branch: T0-GATE-FIXFORWARD
 worktree: C:\wt\T0-GATE-FIXFORWARD
 allow_paths:
@@ -171,6 +171,49 @@ pwsh -NoProfile -File scripts\selftest.ps1
   **不**证明 `Find-GradleManifests` 真的调用了它。原因是这个 bug 在 Windows 上**行为不可观测**
   （Windows 下大小写不敏感本来就是正确语义）。「五个调用点真的改用了它」由 17cc 的 OS 分支夹具 +
   单句删除变异承担——这是本卡测试面的重心，别只让 dod_command 绿了就交卷。
+
+## 变异证据（R5 · 编排者在 master 追加 · 合并于 `6f255d3`，PR #4）
+
+`pwsh -NoProfile -File scripts\selftest.ps1` 全绿（三分片，359 秒）。**12 枚变异逐一击杀，每枚红在它自己的
+专属失败码上**（锚定匹配，非裸子串）：
+
+| 枚 | 靶（单句删除，除注明外） | 期望失败码 | 结果 |
+|---|---|---|---|
+| case-mut/guard2 | 守卫② SkipDirs 名称级排除 | `ABSENT-HITSET` | RED ✓ |
+| case-mut/guard3 | 守卫③ SkipRelativePaths 路径级排除 | `ABSENT-HITSET` | RED ✓ |
+| case-mut/guard4 | 守卫④ android/ 前缀 + AndroidSkipDirs | `ABSENT-HITSET` | RED ✓ |
+| case-mut/names | Names 清单文件名收集行 | `ABSENT-HITSET` | RED ✓ |
+| case-mut/equals | `Test-GradleNameEquals` 比较本体 | `ABSENT-EQUALS-MODES` | RED ✓ |
+| case-mut/list | `Test-GradleNameInList` 遍历本体 | `ABSENT-LIST-MODES` | RED ✓ |
+| case-mut/prefix | `Test-GradlePathPrefix` 比较本体 | `ABSENT-PREFIX-MODES` | RED ✓ |
+| case-mut/default | 比较器缺省语义（**替换**，非删除） | `ABSENT-UNIT-DEFAULT` | RED ✓ |
+| 17ee/sentinel | 删掉整条 Gradle 阻断项 | `ABSENT-SENTINEL` | RED ✓ |
+| 17ee/unlock | 抹掉 T0-LICENSE-SCANNER 指名 | `ABSENT-UNLOCK` | RED ✓ |
+| 17ee/altnumbered | 写回带序号的人工替代 | `ABSENT-CANON` | RED ✓ |
+| 17ee/altprose | 写入**不带序号**的散文替代 | `ABSENT-CANON` | RED ✓ |
+| 17cc/reparse-mut | 守卫① ReparsePoint（**替换**成 `$false`） | ABSENT | RED ✓（既有闸，随守卫拆行同步改） |
+
+**两枚只能替换、不能删除**（并非偷懒）：守卫①与比较器缺省行删掉后变量未定义，子进程崩在 StrictMode ——
+那是"崩溃杀"，证明不了守卫/语义本身在测。替换成错误语义才是行为杀。
+
+**覆盖边界（诚实声明）**：Windows 上 `Android/` 与 `android/` 坍缩成同一物理目录，故 **Linux 那条期望集
+无法在 Windows 端到端复现**；本卡以「守卫④三条路径在 Ordinal 下逐条判定」做了谓词级核验
+（`Android/…` 前缀不匹配→发现 · `android/…`→剪 · `android/deep2/.KOTLIN` 名不匹配→发现），
+真端到端跑在 CI 的 ubuntu-latest 腿。
+
+## R3 四轮记录（3 次 block、12 条发现，全部属实，零争议）
+
+| 轮 | 裁决 | 发现要点 |
+|---|---|---|
+| 1 | block ×2 | 变异是**替换**而非卡片要求的单句删除；`case-unit` 无变异；前缀调用点仍裸调 `String.StartsWith`。**且 17ee 的两枚"变异"在父进程重算了一份等价谓词、根本没跑真闸**——删掉真断言照样绿（vacuous mutation） |
+| 2 | block ×5 | 违反本卡 `non_goals` 另造了一套 mutate/restore 循环（应复用 `Invoke-LineDeletionMutation`）；**AndroidSkipDirs 的大小写从未被变化**（两支都是精确 `.kotlin`，反转该调用点在两平台都幸存）；分类器未按枚存期望码；17ee 把「无第二解锁路径」等同于「不含字形②」（散文替代可绕过）；一批 stale 注释与 4 个死变量 |
+| 3 | block ×4 | `LIST-MODES` 断言无变异可达（`equals` 变异更早退出）；三处"精确"分类器用 `[regex]::Escape` **并未锚定**；**selftest.ps1 的 UTF-8 BOM 被静默抹掉**（拼装文件时 `Set-Content -Encoding utf8` 在 PS7 不写 BOM，且触发 `PSUseBOMForUnicodeEncodedFile`）；3 条 stale 注释 |
+| 4 | **pass** | `reasons: []` |
+
+**复盘（写给下一张同类卡）**：三轮 block 的**同一个根因**是「重构完，narration 还停在上一版形状」——
+注释、失败文案、库导出清单、变量清理都要**随结构一起改**，而不是等评审逐轮点名。第二个根因是
+「新增一条断言却没给它配能打到它的变异」：断言之间有**短路顺序**，靠前的断言会掩护靠后的，
+故每条断言都要一枚**只打中它**的变异（见 `list` 那一枚）。
 
 ## 执行建议
 
