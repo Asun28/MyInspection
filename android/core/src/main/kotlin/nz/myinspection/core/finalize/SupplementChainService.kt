@@ -16,10 +16,14 @@ sealed interface AddSupplementOutcome {
     data object RejectedNotFound : AddSupplementOutcome
 
     /**
-     * 新纪录的时间戳不晚于链上最后一条——`id`（UUIDv7）在同一毫秒内的相对大小与实际链接顺序无关，
-     * 若允许 `now == tip.created_at`，读回序（`ORDER BY created_at ASC, id ASC`）可能把新纪录排到
-     * 它自己 `prev_hash` 指向的那条之前，让 [verifyChain] 在一条从未真正断裂的链上报错。故要求
-     * 严格晚于（`now > tip.created_at`），同毫秒也拒。
+     * 新纪录的时间戳不晚于链上最后一条**或**（链尚为空时）不晚于 `inspection.finalized_at`——
+     * 后者补的是链首窗口：finalize 之后、追加第一条 supplement 之前，若时钟被拨回到 `finalized_at`
+     * 及更早，`created_at` 就会落在 finalize 之前，破坏"补充说明只能追加在 finalize 之后"这条不变量
+     * （需求 §5），且这条 supplement 的时间戳会先于它自己声称补充说明的那次巡检本身。
+     *
+     * 同毫秒也拒，不只是"更早"：`id`（UUIDv7）在同一毫秒内的相对大小与实际链接顺序无关，若允许
+     * `now == 锚点时间`，读回序（`ORDER BY created_at ASC, id ASC`）可能把新纪录排到它自己 `prev_hash`
+     * 指向的那条之前，让 [verifyChain] 在一条从未真正断裂的链上报错。故两种情形都要求严格晚于。
      */
     data object RejectedOutOfOrder : AddSupplementOutcome
 }
@@ -59,9 +63,12 @@ class SupplementChainService(
         val existing = database.supplementQueries.selectByInspection(inspectionId).executeAsList()
         val tip = existing.lastOrNull()
         val prev = tip?.chain_hash ?: dataHash
+        // 链首（tip 为 null）的时序锚点是 finalized_at 本身，不是链尾——finalized_at 非空由上面
+        // dataHash 非空已经保证（CHECK 约束联动），!! 只是把这份保证转述给类型系统。
+        val anchorAt = tip?.created_at ?: inspection.finalized_at!!
 
         val now = clock.nowMs()
-        if (tip != null && now <= tip.created_at) {
+        if (now <= anchorAt) {
             return@transactionWithResult AddSupplementOutcome.RejectedOutOfOrder
         }
 

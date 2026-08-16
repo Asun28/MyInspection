@@ -26,7 +26,7 @@ internal object FinalizeTestFixtures {
         db.checkItemDefQueries.insert(
             id = id, template_version_id = templateVersionId, stable_id = stableId, area = "INTERIOR",
             room = room, text_en = "Item $stableId", text_zh = "项目 $stableId",
-            allowed_statuses = """["GOOD","FAIR","POOR","N_A"]""", photo_rule = photoRule, sort = sort,
+            allowed_statuses = """["GOOD","FAIR","POOR","NOT_APPLICABLE"]""", photo_rule = photoRule, sort = sort,
             created_at = now, updated_at = now,
         )
         return id

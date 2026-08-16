@@ -124,6 +124,29 @@ class SupplementChainServiceTest {
         assertEquals(1, database.supplementQueries.selectByInspection(inspectionId).executeAsList().size)
     }
 
+    /**
+     * 链首（还没有任何 supplement）时的时序锚点是 `inspection.finalized_at` 本身，不是链尾——链尾
+     * 要等第一条落地才存在。这里模拟时钟在 finalize 之后被拨回：finalize 于 `now+100`，第一条
+     * supplement 却尝试用 `now+50`（早于 finalized_at）与 `now+100`（等于 finalized_at）两个时间戳，
+     * 都必须被拒；`now+101`（严格晚于）才允许落地。
+     */
+    @Test
+    fun `the first supplement is rejected if its timestamp does not strictly postdate finalized_at`() {
+        val inspectionId = finalizeMinimalInspection(clockAt = now + 100)
+
+        val beforeFinalize = SupplementChainService(database, uuid, ClockMs { now + 50 })
+        assertIs<AddSupplementOutcome.RejectedOutOfOrder>(beforeFinalize.addSupplement(inspectionId, "clock rolled back before finalize"))
+
+        val exactlyAtFinalize = SupplementChainService(database, uuid, ClockMs { now + 100 })
+        assertIs<AddSupplementOutcome.RejectedOutOfOrder>(exactlyAtFinalize.addSupplement(inspectionId, "clock exactly at finalize"))
+
+        assertEquals(0, database.supplementQueries.selectByInspection(inspectionId).executeAsList().size, "neither rejected attempt may land a row")
+
+        val afterFinalize = SupplementChainService(database, uuid, ClockMs { now + 101 })
+        val outcome = afterFinalize.addSupplement(inspectionId, "genuinely after finalize")
+        assertIs<AddSupplementOutcome.Added>(outcome)
+    }
+
     @Test
     fun `verifyChain reports NotFinalized on a DRAFT inspection`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)

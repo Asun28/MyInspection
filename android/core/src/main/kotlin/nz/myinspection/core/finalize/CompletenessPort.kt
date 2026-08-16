@@ -25,8 +25,16 @@ data class CompletenessResult(
  * [DbCompletenessChecker] 是本卡自带的默认实现——只用当前已冻结的 schema 做出一个自洽、可测的判定，
  * 让本卡在没有 capture-core 时也能独立成立。它对"不利发现"的分类是从 `T2-CAPTURE-CORE` 卡文已定的
  * 规则表搬来的临时复制，两边独立演进时可能出现分歧——待 R5 登记为技术债（两个已知残留问题：①这份
- * 分类表与 capture-core 未来的权威实现分道扬镳的风险；②:app 装配层是否需要多连接访问同一 DB，
- * 决定了 `FinalizeInspectionUseCase`/`SupplementChainService` 的单事务包装能否覆盖真实并发场景）。
+ * 分类表与 capture-core 未来的权威实现分道扬镳的风险；②:app 装配层是否需要多连接访问同一 DB——这既
+ * 决定了 `FinalizeInspectionUseCase`/`SupplementChainService` 的单事务包装能否覆盖真实并发场景，
+ * 也决定了下面这条实现约束能否被机检：实现方须通过调用方注入的 [MyInspectionDatabase] 读写，才能
+ * 加入调用方那个事务；若实现方拿自己的连接，`transactionWithResult` 的原子性对它不生效）。
+ *
+ * **实现约束**：实现必须只通过 [FinalizeInspectionUseCase] 传入的同一个 [MyInspectionDatabase] 读写
+ * （不得持有/打开自己的连接）——只有这样才能加入调用方已开启的事务。默认实现 [DbCompletenessChecker]
+ * 满足这一点（构造器收的就是调用方传入的同一个 `database`），并由回滚判别测试
+ * （`FinalizeInspectionUseCaseTest`「if a seam inside the transaction throws after writing...」）证实：
+ * 该测试的假实现同样通过同一个 `database` 写入，写入确实随事务一起回滚。
  */
 fun interface CompletenessPort {
     fun check(inspectionId: String): CompletenessResult
@@ -100,8 +108,10 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
     }
 
     private companion object {
-        // 租赁四档的不利发现 = FAIR/POOR；年检三档缺陷分级的不利发现 = MONITOR/MAINTENANCE_ITEM/
-        // SIGNIFICANT_DEFECT。N_A 与 GOOD/NO_ISSUE 不逼拍，不在这两个集合里。
+        // 租赁四档（nz.myinspection.core.template.TemplateDomains.RENTAL_STATUSES）的不利发现 =
+        // FAIR/POOR；年检五态（ANNUAL_STATUSES）的不利发现 = MONITOR/MAINTENANCE_ITEM/
+        // SIGNIFICANT_DEFECT。NOT_APPLICABLE 与 GOOD/NO_ISSUE 不逼拍，不在这两个集合里——两个域的
+        // 完整划分（这两个集合 ∪ 各自的非不利子集 == 冻结域）由 DbCompletenessCheckerTest 断言钉死。
         val RENTAL_ADVERSE = setOf("FAIR", "POOR")
         val ANNUAL_ADVERSE = setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT")
 

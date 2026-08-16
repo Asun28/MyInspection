@@ -9,6 +9,7 @@ import kotlin.test.assertTrue
 import nz.myinspection.core.db.DbTestFixtures
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.db.Uuid7Generator
+import nz.myinspection.core.template.TemplateDomains
 
 /**
  * [DbCompletenessChecker]：finalize 的默认完备性判定（本卡自带的 [CompletenessPort] 实现）。
@@ -111,41 +112,71 @@ class DbCompletenessCheckerTest {
     }
 
     /**
-     * Table-driven：ADVERSE_ONLY 的"不利发现"分类须逐一覆盖每一个声明过的评级（正例+反例），
-     * 抽样几个测不出漏掉 FAIR/MONITOR/MAINTENANCE_ITEM，也测不出误把 N_A/NO_ISSUE 划进不利发现。
+     * ADVERSE_ONLY 的"不利发现"分类表——这两个集合按定义须与 [DbCompletenessChecker] 私有的
+     * `RENTAL_ADVERSE`/`ANNUAL_ADVERSE` 一致，但**不从生产代码读取**（那样自己抄自己，测不出实现改错）。
+     * 结构安全网见下面两条"partition exactly covers"测试：域外的幻造标签（比如误写 "N_A"）进不了这两个
+     * 集合——它们必须是 [TemplateDomains.RENTAL_STATUSES]/[TemplateDomains.ANNUAL_STATUSES] 的子集且
+     * 与各自的非不利子集**并集恰好等于冻结域**，域将来新增一个标签，这条并集断言会先红，逼着这里更新。
+     */
+    private val RENTAL_ADVERSE_LABELS = setOf("FAIR", "POOR")
+    private val RENTAL_NON_ADVERSE_LABELS = setOf("GOOD", "NOT_APPLICABLE")
+    private val ANNUAL_ADVERSE_LABELS = setOf("MONITOR", "MAINTENANCE_ITEM", "SIGNIFICANT_DEFECT")
+    private val ANNUAL_NON_ADVERSE_LABELS = setOf("NO_ISSUE", "NOT_APPLICABLE")
+
+    @Test
+    fun `the adverse-vs-not partition exactly covers the frozen RENTAL_STATUSES domain`() {
+        assertEquals(
+            TemplateDomains.RENTAL_STATUSES,
+            RENTAL_ADVERSE_LABELS + RENTAL_NON_ADVERSE_LABELS,
+            "every label in the frozen rental domain must be classified as adverse or not — " +
+                "a domain change (add/rename/remove a status) must update this partition",
+        )
+        assertTrue((RENTAL_ADVERSE_LABELS intersect RENTAL_NON_ADVERSE_LABELS).isEmpty())
+    }
+
+    @Test
+    fun `the adverse-vs-not partition exactly covers the frozen ANNUAL_STATUSES domain`() {
+        assertEquals(
+            TemplateDomains.ANNUAL_STATUSES,
+            ANNUAL_ADVERSE_LABELS + ANNUAL_NON_ADVERSE_LABELS,
+            "every label in the frozen annual domain must be classified as adverse or not — " +
+                "a domain change (add/rename/remove a status) must update this partition",
+        )
+        assertTrue((ANNUAL_ADVERSE_LABELS intersect ANNUAL_NON_ADVERSE_LABELS).isEmpty())
+    }
+
+    /**
+     * 按上面的分类表，逐一核对 [DbCompletenessChecker] 对 [TemplateDomains.RENTAL_STATUSES]/
+     * [TemplateDomains.ANNUAL_STATUSES] **每一个**标签的实际判定——status 直接来自冻结域的迭代，
+     * 不是手抄的字符串字面量，故不存在"域外幻造标签"这类拼写漂移的空间。
      */
     @Test
-    fun `ADVERSE_ONLY classification covers every declared status for both inspection types`() {
-        data class Case(val inspectionType: String, val status: String, val adverse: Boolean)
-        val cases = listOf(
-            Case("ROUTINE", "GOOD", adverse = false),
-            Case("ROUTINE", "FAIR", adverse = true),
-            Case("ROUTINE", "POOR", adverse = true),
-            Case("ROUTINE", "N_A", adverse = false),
-            Case("ANNUAL", "NO_ISSUE", adverse = false),
-            Case("ANNUAL", "MONITOR", adverse = true),
-            Case("ANNUAL", "MAINTENANCE_ITEM", adverse = true),
-            Case("ANNUAL", "SIGNIFICANT_DEFECT", adverse = true),
-            Case("ANNUAL", "N_A", adverse = false),
-        )
-
-        for ((index, case) in cases.withIndex()) {
+    fun `ADVERSE_ONLY classification matches the partition for every status in both frozen domains`() {
+        var caseIndex = 0
+        fun assertCase(inspectionType: String, status: String, adverse: Boolean) {
             val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
             val templateVersionId = DbTestFixtures.insertTemplateVersion(
-                database, uuid, type = case.inspectionType, version = (index + 1).toLong(), now = now,
+                database, uuid, type = inspectionType, version = (++caseIndex).toLong(), now = now,
             )
-            val stableId = "item.$index"
+            val stableId = "item.$caseIndex"
             FinalizeTestFixtures.insertCheckItemDef(
                 database, uuid, templateVersionId, stableId = stableId, room = "BEDROOM",
                 photoRule = "ADVERSE_ONLY", sort = 1, now = now,
             )
-            val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = case.inspectionType, now = now)
+            val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = inspectionType, now = now)
             val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
-            DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = stableId, status = case.status, now = now)
+            DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = stableId, status = status, now = now)
 
             val result = DbCompletenessChecker(database).check(inspectionId)
-            val expected = if (case.adverse) listOf(MissingItem(roomInstanceId, stableId)) else emptyList()
-            assertEquals(expected, result.itemsMissingMandatoryPhoto, "case: $case")
+            val expected = if (adverse) listOf(MissingItem(roomInstanceId, stableId)) else emptyList()
+            assertEquals(expected, result.itemsMissingMandatoryPhoto, "inspectionType=$inspectionType status=$status")
+        }
+
+        for (status in TemplateDomains.RENTAL_STATUSES) {
+            assertCase("ROUTINE", status, adverse = status in RENTAL_ADVERSE_LABELS)
+        }
+        for (status in TemplateDomains.ANNUAL_STATUSES) {
+            assertCase("ANNUAL", status, adverse = status in ANNUAL_ADVERSE_LABELS)
         }
     }
 
