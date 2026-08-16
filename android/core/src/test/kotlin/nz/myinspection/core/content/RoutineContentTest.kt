@@ -139,10 +139,10 @@ class RoutineContentTest {
         // MB_TEN0004 的措辞——该站版权声明明示商业性复用需书面授权，受保护的是官方选择的具体
         // 表达而非法规本身的事实要求，故换一套独立措辞完整保留全部事实点以规避复制风险。
         val expectedSmokeText = mapOf(
-            "GEN-SMOKEBED-01" to "Smoke alarm coverage in bedrooms and other sleeping spaces (within 3m of door)",
+            "GEN-SMOKEBED-01" to "Smoke alarm coverage inside each bedroom or other sleeping space, or within 3m of its door",
             "GEN-SMOKELVL-01" to "Smoke alarm coverage on each storey / level of the property, including levels with no bedrooms",
             "GEN-SMOKECRV-01" to "Smoke alarm coverage in any on-site caravan, sleep-out or similar structure",
-            "GEN-SMOKEXPY-01" to "Smoke alarm expiry / manufacturer replacement date",
+            "GEN-SMOKEXPY-01" to "Smoke alarm expiry or recommended replacement date (per manufacturer)",
             "GEN-SMOKEBAT-01" to "Smoke alarm type and battery life for alarms installed since 1 July 2016 (long-life photoelectric, minimum 8-year battery, or hardwired; meets the current regulatory product standard)",
             "GEN-SMOKEINS-01" to "Smoke alarm installation method (landlord / agent, per manufacturer instructions)",
             "GEN-SMOKEWRK-01" to "Smoke alarm operating condition, including battery, at tenancy start",
