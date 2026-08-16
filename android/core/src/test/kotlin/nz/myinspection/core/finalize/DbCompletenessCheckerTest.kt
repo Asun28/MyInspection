@@ -218,6 +218,25 @@ class DbCompletenessCheckerTest {
     }
 
     /**
+     * 反例：一条 `suppressed=0` 的 override 行——不是"没有 override"，是"曾经/仍然有一条 override 记录，
+     * 只是当前值是恢复态"（`setSuppressed` 的恢复路径正是置 0，不是软删这一行）。只判"是否存在 override
+     * 行"而不看它的 `suppressed` 值，会把这种恢复态误当成仍在抑制——该项其实必须照常出现在缺状态清单里。
+     */
+    @Test
+    fun `a property_item_override with suppressed=0 does not exclude the item`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "garage.door", room = "GARAGE", sort = 1, now = now)
+        FinalizeTestFixtures.insertPropertyItemOverride(database, uuid, propertyId, stableId = "garage.door", suppressed = false, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "GARAGE", now = now)
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(listOf(MissingItem(roomInstanceId, "garage.door")), result.itemsMissingStatus, "a restored (unsuppressed) override must not hide the item")
+    }
+
+    /**
      * 独立对照模板算出"应有哪些房间"，不从 `room_instance` 现有的行反推——两间房的模板里，一间从未被
      * 实例化（模拟建巡检时的房间实例化环节漏掉了它），必须点名报出，而不是被"现状即基准"的循环判定
      * 悄悄放过。

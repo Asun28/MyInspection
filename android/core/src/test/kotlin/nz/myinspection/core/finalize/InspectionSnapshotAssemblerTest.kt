@@ -120,12 +120,77 @@ class InspectionSnapshotAssemblerTest {
         val actual = InspectionSnapshotAssembler.assemble(database, inspectionId, finalizedAt = finalizedAt)
 
         assertEquals(expected, actual)
-        assertEquals(GOLDEN_HASH, sha256Hex(canonicalJson(actual)), "independently precomputed golden hash must match — see class KDoc for derivation")
+        assertEquals(GOLDEN_HASH_1, sha256Hex(canonicalJson(actual)), "independently precomputed golden hash must match — see class KDoc for derivation")
 
         // 乱序装配对照（TD5 修法原文明确要求）：手动把 items[] 倒过来，canonical 哈希必须不同——
         // 顺序是哈希域的一部分，不是装配细节。
         val shuffledHash = sha256Hex(canonicalJson(actual.copy(items = actual.items.reversed())))
-        assertNotEquals(GOLDEN_HASH, shuffledHash, "items[] 顺序必须参与哈希")
+        assertNotEquals(GOLDEN_HASH_1, shuffledHash, "items[] 顺序必须参与哈希")
+    }
+
+    /**
+     * 第二组黄金向量：钉住第一组从未走到的分支——`previous_inspection_id`/`baseline_inspection_id`
+     * 非空、`is_boarding_house=1`、一张**项目级**（不是房间级）`IMPORTED`（不是 `CAMERA`）且
+     * `exif_time_ms` 为 null 的照片。若第一组的字面量把这些字段悄悄钉死成"恒为 null/false/CAMERA/非空
+     * EXIF"，把它们改错也不会被抓到——两组合起来才覆盖这几个字段各自的两个分支。
+     *
+     * `GOLDEN_HASH_2` 的推导方式与 `GOLDEN_HASH_1` 相同（同一段 KDoc 描述的方法论）：canonical JSON
+     * 串按 `InspectionCanon.kt`/`CanonicalJson.kt` 的规则手工拼出，独立用 Python 算出 SHA-256，不是从
+     * 本测试的运行结果反填。
+     */
+    @Test
+    fun `a second golden fixture pins the opposite branches of nullable and boolean canonical fields`() {
+        val propertyId = "golden-prop-0002"
+        val tenancyId = "golden-ten-0002"
+        val templateVersionId = "golden-tpl-0002"
+        val inspectionId = "golden-insp-0002"
+
+        database.propertyQueries.insert(
+            id = propertyId, address = "7 King St", kind = "RENTAL", is_boarding_house = 1, created_at = now, updated_at = now,
+        )
+        database.tenancyQueries.insert(
+            id = tenancyId, property_id = propertyId, start_ms = now - 2_000_000, end_ms = now + 60_000_000,
+            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, created_at = now, updated_at = now,
+        )
+        database.templateVersionQueries.insert(
+            id = templateVersionId, type = "ROUTINE", version = 1, content_hash = "golden-template-hash-2", created_at = now, updated_at = now,
+        )
+        FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "smoke.alarm", room = "HALLWAY", sort = 1, now = now)
+        database.inspectionQueries.insert(
+            id = inspectionId, type = "ROUTINE", property_id = propertyId, tenancy_id = tenancyId, template_version_id = templateVersionId,
+            scheduled_at = now, previous_inspection_id = "golden-insp-0000", baseline_inspection_id = "golden-insp-history",
+            status = "DRAFT", finalized_at = null, data_hash = null, created_at = now, updated_at = now,
+        )
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "HALLWAY", now = now)
+        val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "smoke.alarm", status = "GOOD", now = now)
+        // 项目级、IMPORTED、exif_time_ms=null——与第一组向量的房间级/CAMERA/非空 EXIF 恰好相反。
+        database.photoQueries.insert(
+            id = "golden-photo-0002", inspection_item_id = itemId, room_instance_id = roomInstanceId,
+            rel_path = "imported.jpg", content_hash = "imported-photo-hash", exif_time_ms = null, source = "IMPORTED",
+            privacy_flag = 0, created_at = now, updated_at = now,
+        )
+
+        val finalizedAt = now + 200_000
+        val expected = InspectionSnapshot(
+            id = inspectionId,
+            type = "ROUTINE",
+            tenancyId = tenancyId,
+            scheduledAt = now,
+            finalizedAt = finalizedAt,
+            previousInspectionId = "golden-insp-0000",
+            baselineInspectionId = "golden-insp-history",
+            property = PropertySnapshot(id = propertyId, address = "7 King St", kind = "RENTAL", isBoardingHouse = true),
+            tenancy = TenancySnapshot(id = tenancyId, startMs = now - 2_000_000, endMs = now + 60_000_000),
+            template = TemplateSnapshot(id = templateVersionId, type = "ROUTINE", version = 1, contentHash = "golden-template-hash-2"),
+            items = listOf(InspectionItemSnapshot(stableId = "smoke.alarm", status = "GOOD", note = null, wearOrDamage = null)),
+            photos = listOf(PhotoSnapshot(contentHash = "imported-photo-hash", source = "IMPORTED", exifTimeMs = null, isRoomLevel = false)),
+            audios = emptyList(),
+        )
+
+        val actual = InspectionSnapshotAssembler.assemble(database, inspectionId, finalizedAt = finalizedAt)
+
+        assertEquals(expected, actual)
+        assertEquals(GOLDEN_HASH_2, sha256Hex(canonicalJson(actual)), "independently precomputed golden hash must match — see this test's KDoc for derivation")
     }
 
     private companion object {
@@ -134,7 +199,10 @@ class InspectionSnapshotAssemblerTest {
          * Python 的 `hashlib.sha256`。改动这个常量前须重新独立推导，不得从 `sha256Hex(canonicalJson(...))`
          * 的实际运行结果反填。
          */
-        const val GOLDEN_HASH = "93d0a2bac296b1d64a50e6e618b0456967064cb8af333bb648736bfa756dc9cc"
+        const val GOLDEN_HASH_1 = "93d0a2bac296b1d64a50e6e618b0456967064cb8af333bb648736bfa756dc9cc"
+
+        /** 同上，方法论见"a second golden fixture..."用例的 KDoc。 */
+        const val GOLDEN_HASH_2 = "10f16cc429b8b23e75af63cf30eb822c97d42f589511188535d26d72d725ca77"
     }
 
     @Test

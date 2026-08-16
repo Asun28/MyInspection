@@ -51,6 +51,13 @@ class SupplementChainServiceTest {
         return ready.inspectionId
     }
 
+    /** 全库 supplement 行数——`RejectedNotFound` 断言"确实什么都没写"要看全库，不能只看一个（不存在的）
+     * inspectionId 下的清单（那样恒为空，测不出"根本没走到 insert"）。 */
+    private fun countSupplements(): Long =
+        driver.executeQuery(null, "SELECT COUNT(*) FROM supplement", { cursor ->
+            app.cash.sqldelight.db.QueryResult.Value(if (cursor.next().value) cursor.getLong(0)!! else 0L)
+        }, 0).value
+
     @Test
     fun `addSupplement on a DRAFT inspection is rejected`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
@@ -145,6 +152,28 @@ class SupplementChainServiceTest {
         val afterFinalize = SupplementChainService(database, uuid, ClockMs { now + 101 })
         val outcome = afterFinalize.addSupplement(inspectionId, "genuinely after finalize")
         assertIs<AddSupplementOutcome.Added>(outcome)
+    }
+
+    @Test
+    fun `addSupplement on an unknown inspection id is rejected as not found and writes nothing`() {
+        // 一间已 FINALIZED 的巡检作对照——证明"没写"不是因为全库本来就空，而是这次调用真的没落地。
+        finalizeMinimalInspection(clockAt = now + 100)
+        val before = countSupplements()
+        val service = SupplementChainService(database, uuid, ClockMs { now + 200 })
+
+        val outcome = service.addSupplement(uuid.next(), "orphaned note")
+
+        assertIs<AddSupplementOutcome.RejectedNotFound>(outcome)
+        assertEquals(before, countSupplements(), "a not-found rejection must not insert any row, anywhere")
+    }
+
+    @Test
+    fun `verifyChain on an unknown inspection id reports NotFound`() {
+        finalizeMinimalInspection(clockAt = now + 100)
+
+        val verification = SupplementChainService(database, uuid).verifyChain(uuid.next())
+
+        assertIs<ChainVerification.NotFound>(verification)
     }
 
     @Test

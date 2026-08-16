@@ -153,6 +153,30 @@ class FinalizeInspectionUseCaseTest {
         }
     }
 
+    /**
+     * `requireOriginalEntryWritten` 的守卫是 `affected != 1L`，不是弱化过的 `affected == 0L`——后者会
+     * 放行任何 >=2 行的批量写，而"一次调用改了不止一行"同样是需要显式报错的异常状态（正常路径按主键
+     * 精确匹配单行，`affected` 恒为 0 或 1）。这里用一条真实命中两行的原生 SQL UPDATE（同一巡检下两个
+     * 检查项，按 `inspection_id` 批量匹配）造出 `affected = 2`，而不是直接摆一个字面量 `2L`——否则测不出
+     * "这个值真的可能在生产里出现"，只测得出函数本身接不接受任意 Long。
+     */
+    @Test
+    fun `requireOriginalEntryWritten rejects a genuine multi-row write, not just zero`() {
+        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
+        DbTestFixtures.insertInspectionItem(
+            database, uuid, ready.inspectionId, ready.roomInstanceId, stableId = "second.item", now = now,
+        )
+
+        val batchAffected = driver.execute(
+            null, "UPDATE inspection_item SET note = 'batch' WHERE inspection_id = '${ready.inspectionId}'", 0,
+        ).value
+        assertEquals(2L, batchAffected, "fixture must actually touch two rows for this test to mean anything")
+
+        assertFailsWith<OriginalEntryWriteRejectedException> {
+            requireOriginalEntryWritten(batchAffected, "batch update")
+        }
+    }
+
     @Test
     fun `requireOriginalEntryWritten is transparent to a legitimate DRAFT write`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
