@@ -174,28 +174,40 @@ class OrphanedAssetCleanupTest {
     }
 
     @Test
-    fun `run catches an IOException from the deleter, preserves it as the cause, and still completes the batch`() {
+    fun `run catches an IOException from the deleter, preserves it as the cause, and processes a LATER path afterwards`() {
+        // pendingDeletions() sorts by rel_path (L222) — the throwing path is named to sort BEFORE the
+        // successful one ("a-throws" < "z-deletes-ok"), so a mutant that catches the exception and then
+        // stops the loop (`break` instead of falling through to the next iteration) cannot fake a pass by
+        // having already processed the only successful item before the exception. `deleterCalls` also
+        // pins invocation order, so a mutant that reorders/skips silently still fails.
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
         val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
         val roomId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
 
-        orphanIn(roomId, "photos/prop-1/insp-1/deletes-ok.jpg", "hash-ok")
-        orphanIn(roomId, "photos/prop-1/insp-1/throws.jpg", "hash-throws")
+        orphanIn(roomId, "photos/prop-1/insp-1/a-throws.jpg", "hash-throws")
+        orphanIn(roomId, "photos/prop-1/insp-1/z-deletes-ok.jpg", "hash-ok")
 
         val thrown = IOException("simulated disk error")
+        val deleterCalls = mutableListOf<String>()
         val cleanup = OrphanedAssetCleanup(database) { relPath ->
-            if (relPath == "photos/prop-1/insp-1/throws.jpg") throw thrown else true
+            deleterCalls.add(relPath)
+            if (relPath == "photos/prop-1/insp-1/a-throws.jpg") throw thrown else true
         }
 
         val result = cleanup.run()
         assertEquals(
-            listOf("photos/prop-1/insp-1/deletes-ok.jpg"),
+            listOf("photos/prop-1/insp-1/a-throws.jpg", "photos/prop-1/insp-1/z-deletes-ok.jpg"),
+            deleterCalls,
+            "the deleter must actually be invoked for the LATER path too — not skipped because an earlier one threw",
+        )
+        assertEquals(
+            listOf("photos/prop-1/insp-1/z-deletes-ok.jpg"),
             result.deleted,
-            "an exception on one path must not prevent a later path in the same batch from being processed",
+            "the later path, sorted after the one that threw, must still be processed and reported as deleted",
         )
         val failure = result.failed.single()
-        assertEquals("photos/prop-1/insp-1/throws.jpg", failure.relPath)
+        assertEquals("photos/prop-1/insp-1/a-throws.jpg", failure.relPath)
         assertEquals(thrown, failure.cause, "the exact thrown exception must be preserved, not discarded or replaced")
         assertEquals(emptyList(), result.rejected)
     }
