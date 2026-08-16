@@ -84,6 +84,12 @@ class InspectionRepository(
      * 不预先创建 `inspection_item` 行：项目行在 [setItemStatus] 首次写入时才产生（`inspection_item.status`
      * 是 NOT NULL 列，创建时没有值可填；走查进度改用"该房间应有项数 vs 已记录项数"的计数比较，见
      * [computeRoomProgress]），这样也天然满足"进程死亡恢复"——没有中间态需要另外持久化。
+     *
+     * **双轨引用解析 + 房间键枚举也在事务内做**（Codex R3 round 3）：这两步都是"读了再决定写什么"——
+     * 挪进事务前，`resolvePrevious`/`resolveBaseline`/`activeRoomKeysInOrder` 读到的是事务开始前那一刻
+     * 的快照，若同一连接上另一次调用在此期间插了一条改变这些查询结果的行，写下去的 previous/baseline/
+     * 房间集合就已经对不上事务提交时的真实状态。挪进去后，读与写在同一个 `db.transaction{}` 边界内，
+     * 本仓储唯一的连接（[MyInspectionDatabase]）序列化了同连接上的并发调用，读到的即将要写的这一份。
      */
     fun createInspection(
         type: String,
@@ -111,13 +117,15 @@ class InspectionRepository(
         }
 
         val now = clock.nowMs()
-        val previousId = resolvePrevious(propertyId, type, scheduledAt)
-        val baseline = resolveBaseline(tenancy)
         val inspectionId = uuid.next()
-        val roomKeys = activeRoomKeysInOrder(propertyId, templateVersionId)
+        var previousId: String? = null
+        var baseline = BaselineResolution(null, null)
         val roomInstanceIds = mutableListOf<String>()
 
         db.transaction {
+            previousId = resolvePrevious(propertyId, type, scheduledAt)
+            baseline = resolveBaseline(tenancy)
+
             db.inspectionQueries.insert(
                 id = inspectionId,
                 type = type,
@@ -138,10 +146,18 @@ class InspectionRepository(
             // 不应该悄悄把基线换掉；"没有 Ingoing 时改指某次 Routine" 那条例外路径仍走 tenancy.updateBaselineInspection
             // 的既有机制，非本卡自动化范围（见 Tenancy.sq 注释）。这条 INGOING 自身的 baseline_inspection_id 列
             // 仍解析为 null（上面 resolveBaseline 在指针更新前就已算出）——它不需要引用自己。
-            if (type == "INGOING" && tenancy != null && tenancy.baseline_inspection_id == null) {
-                db.tenancyQueries.updateBaselineInspection(baseline_inspection_id = inspectionId, updated_at = now, id = tenancy.id)
+            // **在事务内重新点查 tenancy 而非用外层已解析的 [tenancy]**（Codex R3 round 3）：外层那份是入参校验期
+            // 读的快照，两次并发 createInspection 调用都可能各自观察到"尚无基线"，若都用各自的旧快照判断就会
+            // 各写一次、后写者悄悄覆盖先写者——同连接内事务序列化后，这里必须读事务当下的真实值。
+            if (type == "INGOING" && tenancy != null) {
+                val freshTenancy = checkNotNull(db.tenancyQueries.selectById(tenancy.id).executeAsOneOrNull()) {
+                    "tenancy ${tenancy.id} disappeared mid-transaction"
+                }
+                if (freshTenancy.baseline_inspection_id == null) {
+                    db.tenancyQueries.updateBaselineInspection(baseline_inspection_id = inspectionId, updated_at = now, id = tenancy.id)
+                }
             }
-            roomKeys.forEach { roomKey ->
+            activeRoomKeysInOrder(propertyId, templateVersionId).forEach { roomKey ->
                 val roomInstanceId = uuid.next()
                 val affected = db.roomInstanceQueries.insert(
                     id = roomInstanceId,
@@ -182,43 +198,45 @@ class InspectionRepository(
      * （`def.room`），否则一个传错的 room_instance_id 能把条目写进错误的房间，完备性/进度计算会静默算错；
      * ② [stableId] 不得是本物业**当前**被抑制的项——被抑制的项不出现在任何完备性查询里（见
      * `activeCheckItemDefs`），写入它只会产生一条谁都看不见、却仍占着 id 的幽灵记录。
+     *
+     * **全程一个事务**（Codex R3 round 3）：查 inspection/def/suppression/room_instance/existing 这几步
+     * 此前都在事务外，与后面的写分属两段——同连接上若被另一次调用插在读与写之间，②的抑制判断、
+     * "existing 是否存在"的判断都可能读到已经过期的状态。挪进同一个 `db.transaction{}` 后，本方法对
+     * 同连接上的其它调用而言是不可分割的一步：判断依据与写入结果保证出自同一个数据库状态。
      */
     fun setItemStatus(inspectionId: String, roomInstanceId: String, stableId: String, status: String, note: String?) {
         val now = clock.nowMs()
-        val inspection = checkNotNull(db.inspectionQueries.selectById(inspectionId).executeAsOneOrNull()) {
-            "no such inspection: $inspectionId"
-        }
-        val def = checkNotNull(
-            db.checkItemDefQueries.selectByTemplateVersion(inspection.template_version_id).executeAsList()
-                .find { it.stable_id == stableId },
-        ) { "stable_id '$stableId' not defined in template version ${inspection.template_version_id}" }
-        require(stableId !in suppressedStableIds(inspection.property_id)) {
-            "stable_id '$stableId' is currently suppressed for property ${inspection.property_id}"
-        }
-        val roomInstance = checkNotNull(db.roomInstanceQueries.selectById(roomInstanceId).executeAsOneOrNull()) {
-            "no such room_instance: $roomInstanceId"
-        }
-        require(roomInstance.room_key == def.room) {
-            "room_instance $roomInstanceId is '${roomInstance.room_key}', but '$stableId' belongs to room '${def.room}'"
-        }
-        val allowed = Json.decodeFromString(STATUSES, def.allowed_statuses)
-        require(status in allowed) { "status '$status' not allowed for '$stableId' (allowed: $allowed)" }
+        db.transaction {
+            val inspection = checkNotNull(db.inspectionQueries.selectById(inspectionId).executeAsOneOrNull()) {
+                "no such inspection: $inspectionId"
+            }
+            val def = checkNotNull(
+                db.checkItemDefQueries.selectByTemplateVersion(inspection.template_version_id).executeAsList()
+                    .find { it.stable_id == stableId },
+            ) { "stable_id '$stableId' not defined in template version ${inspection.template_version_id}" }
+            require(stableId !in suppressedStableIds(inspection.property_id)) {
+                "stable_id '$stableId' is currently suppressed for property ${inspection.property_id}"
+            }
+            val roomInstance = checkNotNull(db.roomInstanceQueries.selectById(roomInstanceId).executeAsOneOrNull()) {
+                "no such room_instance: $roomInstanceId"
+            }
+            require(roomInstance.room_key == def.room) {
+                "room_instance $roomInstanceId is '${roomInstance.room_key}', but '$stableId' belongs to room '${def.room}'"
+            }
+            val allowed = Json.decodeFromString(STATUSES, def.allowed_statuses)
+            require(status in allowed) { "status '$status' not allowed for '$stableId' (allowed: $allowed)" }
 
-        val existing = db.inspectionItemQueries.selectByInspection(inspectionId).executeAsList()
-            .find { it.room_instance_id == roomInstanceId && it.stable_id == stableId }
+            val existing = db.inspectionItemQueries.selectByInspection(inspectionId).executeAsList()
+                .find { it.room_instance_id == roomInstanceId && it.stable_id == stableId }
 
-        var affected = 0L
-        if (existing != null) {
-            // 同一房间的状态+wear_or_damage 清理须原子——两条语句之间不能被 finalize/另一次 autosave 插进来
-            // （Codex R3 round 2：非事务化的读-判-写序列可能留下与当前状态不一致的 wear_or_damage）。
-            db.transaction {
+            val affected = if (existing != null) {
                 val statusAffected = db.inspectionItemQueries.updateStatusIfDraft(
                     status = status, note = note, updated_at = now, id = existing.id,
                 ).value
                 check(statusAffected == 1L) {
                     "inspection_item write affected $statusAffected rows for '$stableId' (finalize guard rejected the write)"
                 }
-                affected = if (existing.status != status) {
+                if (existing.status != status) {
                     // 状态**真的变了**，此前记录的 wear_or_damage 分类即失效——它的合法性绑定在"此刻与基线有
                     // 差异"这一判断上（见 setWearOrDamage），状态变了这个判断要重新做，不能让旧分类悄悄挂着
                     // （Codex R3 round 1）。用已存在的 updateWearOrDamageIfDraft 清空即可，无需新增查询。
@@ -228,16 +246,16 @@ class InspectionRepository(
                 } else {
                     statusAffected
                 }
+            } else {
+                db.inspectionItemQueries.insert(
+                    id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
+                    stable_id = stableId, status = status, note = note, wear_or_damage = null,
+                    created_at = now, updated_at = now,
+                ).value
             }
-        } else {
-            affected = db.inspectionItemQueries.insert(
-                id = uuid.next(), inspection_id = inspectionId, room_instance_id = roomInstanceId,
-                stable_id = stableId, status = status, note = note, wear_or_damage = null,
-                created_at = now, updated_at = now,
-            ).value
-        }
-        check(affected == 1L) {
-            "inspection_item write affected $affected rows for '$stableId' (finalize guard rejected the write)"
+            check(affected == 1L) {
+                "inspection_item write affected $affected rows for '$stableId' (finalize guard rejected the write)"
+            }
         }
     }
 
@@ -303,22 +321,29 @@ class InspectionRepository(
      * 房间可挂——[setItemStatus] 无 room_instance 可传，这条项事实上无法被记录，`WalkProgress.isComplete`
      * 却因为"压根没这间房"而空洞为真。故恢复时为每个当前仍是 DRAFT 的巡检补建缺失的房间实例，
      * 抑制则不需要对称处理——抑制不使已建好的房间/条目消失，只是让"新建巡检"与"完备性查询"以后不再计入它。
+     *
+     * **override 写入 + 补房间在同一个事务里**（Codex R3 round 3）：此前是两段独立的读-写——建巡检可能
+     * 在两者之间插进来，读到"已抑制"却在补房间的扫描发生前就已提交，落出"该巡检已建好、但缺这间房"的
+     * 同一个洞；抑制/恢复本身连续调用两次也可能各自的唯一索引点查撞车。挪进一个事务后，override 的
+     * upsert 与逐个 DRAFT 巡检的补房间扫描对同连接上的其它调用而言是一步。
      */
     fun setItemSuppression(propertyId: String, stableId: String, suppressed: Boolean) {
         val now = clock.nowMs()
-        val existing = db.propertyItemOverrideQueries.selectByPropertyAndStableId(propertyId, stableId).executeAsOneOrNull()
-        if (existing != null) {
-            db.propertyItemOverrideQueries.setSuppressed(
-                suppressed = if (suppressed) 1L else 0L, updated_at = now, id = existing.id,
-            )
-        } else {
-            db.propertyItemOverrideQueries.insert(
-                id = uuid.next(), property_id = propertyId, stable_id = stableId,
-                suppressed = if (suppressed) 1L else 0L, created_at = now, updated_at = now,
-            )
-        }
-        if (!suppressed) {
-            ensureRoomInstancesForRestoredItem(propertyId, stableId, now)
+        db.transaction {
+            val existing = db.propertyItemOverrideQueries.selectByPropertyAndStableId(propertyId, stableId).executeAsOneOrNull()
+            if (existing != null) {
+                db.propertyItemOverrideQueries.setSuppressed(
+                    suppressed = if (suppressed) 1L else 0L, updated_at = now, id = existing.id,
+                )
+            } else {
+                db.propertyItemOverrideQueries.insert(
+                    id = uuid.next(), property_id = propertyId, stable_id = stableId,
+                    suppressed = if (suppressed) 1L else 0L, created_at = now, updated_at = now,
+                )
+            }
+            if (!suppressed) {
+                ensureRoomInstancesForRestoredItem(propertyId, stableId, now)
+            }
         }
     }
 
@@ -395,36 +420,45 @@ class InspectionRepository(
      * （实测：常走 `idx_room_instance_active`，按 room_key 字典序而非插入/模板序）——[WalkProgress.rooms]
      * 因此**不承诺**模板序。需要模板序时用 [CreatedInspection.roomInstanceIds]（仓储在内存里按模板序
      * 组装的那份）。
+     *
+     * **整份读组在一个事务里完成**（Codex R3 round 3）：definitions/room_instances/items/photos 是四组
+     * 各自独立的 SELECT；此前无事务包裹时，同连接上若被另一次写调用插在其中两组之间，装出来的这份
+     * `RoomSnapshot` 列表可能一半读到旧状态、一半读到新状态（"撕裂读"）——而这份快照正是
+     * [missingPhotos]/[missingNotes] 共用的完备性依据。包进事务后，四组查询对同连接上的写入是原子的一份。
      */
     private fun loadRoomSnapshots(inspection: Inspection): List<RoomSnapshot> {
-        val defsByRoom = activeCheckItemDefs(inspection.property_id, inspection.template_version_id)
-            .groupBy { it.room }
-        val roomInstances = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
-        val items = db.inspectionItemQueries.selectByInspection(inspection.id).executeAsList()
+        var snapshots: List<RoomSnapshot> = emptyList()
+        db.transaction {
+            val defsByRoom = activeCheckItemDefs(inspection.property_id, inspection.template_version_id)
+                .groupBy { it.room }
+            val roomInstances = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
+            val items = db.inspectionItemQueries.selectByInspection(inspection.id).executeAsList()
 
-        return roomInstances.mapNotNull { ri ->
-            val roomDefs = defsByRoom[ri.room_key] ?: return@mapNotNull null
-            val roomItems = items.filter { it.room_instance_id == ri.id }
-            val recordedItems = roomItems.associate { it.stable_id to RecordedItem(it.status, it.note) }
-            val itemIdToStableId = roomItems.associate { it.id to it.stable_id }
+            snapshots = roomInstances.mapNotNull { ri ->
+                val roomDefs = defsByRoom[ri.room_key] ?: return@mapNotNull null
+                val roomItems = items.filter { it.room_instance_id == ri.id }
+                val recordedItems = roomItems.associate { it.stable_id to RecordedItem(it.status, it.note) }
+                val itemIdToStableId = roomItems.associate { it.id to it.stable_id }
 
-            val roomPhotos = db.photoQueries.selectByRoomInstance(ri.id).executeAsList()
-            val roomPhotoCount = roomPhotos.count { it.inspection_item_id == null }
-            val itemPhotoCounts = roomPhotos
-                .mapNotNull { p -> p.inspection_item_id?.let { itemIdToStableId[it] } }
-                .groupingBy { it }
-                .eachCount()
+                val roomPhotos = db.photoQueries.selectByRoomInstance(ri.id).executeAsList()
+                val roomPhotoCount = roomPhotos.count { it.inspection_item_id == null }
+                val itemPhotoCounts = roomPhotos
+                    .mapNotNull { p -> p.inspection_item_id?.let { itemIdToStableId[it] } }
+                    .groupingBy { it }
+                    .eachCount()
 
-            RoomSnapshot(
-                roomInstanceId = ri.id,
-                roomKey = ri.room_key,
-                displayLabel = ri.display_label,
-                items = roomDefs.map { ItemDef(it.stable_id, it.photo_rule, Json.decodeFromString(STATUSES, it.allowed_statuses)) },
-                recordedItems = recordedItems,
-                roomPhotoCount = roomPhotoCount,
-                itemPhotoCounts = itemPhotoCounts,
-            )
+                RoomSnapshot(
+                    roomInstanceId = ri.id,
+                    roomKey = ri.room_key,
+                    displayLabel = ri.display_label,
+                    items = roomDefs.map { ItemDef(it.stable_id, it.photo_rule, Json.decodeFromString(STATUSES, it.allowed_statuses)) },
+                    recordedItems = recordedItems,
+                    roomPhotoCount = roomPhotoCount,
+                    itemPhotoCounts = itemPhotoCounts,
+                )
+            }
         }
+        return snapshots
     }
 
     /** previous_inspection = 同物业、同类型、时间上严格前一次**已 FINALIZED** 的巡检（ANNUAL 同规则=上次年检）。 */
