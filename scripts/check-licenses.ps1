@@ -88,6 +88,16 @@ function Test-GradleNameInList {
   foreach ($item in $List) { if (Test-GradleNameEquals -Left $item -Right $Value -Comparison $Comparison) { return $true } }
   return $false
 }
+# 前缀比较也必须走同一缺省语义：裸 $path.StartsWith('android/') 是**恒大小写敏感**的，与上面两个
+# 比较器不同源，正是"一行之内两套语义"的病灶本身。收进具名函数后，五个调用点共用同一个 $gradlePathComparison。
+function Test-GradlePathPrefix {
+  param(
+    [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+    [Parameter(Mandatory)][string]$Prefix,
+    [System.StringComparison]$Comparison = $gradlePathComparison
+  )
+  return $Path.StartsWith($Prefix, $Comparison)
+}
 $gradleSkipDirs = @(
   '.gradle', 'build', 'node_modules', '.git',                                  # 既有：Gradle/前端产物缓存 + VCS 元数据
   '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache',       # Python 工具链缓存
@@ -116,10 +126,16 @@ function Find-GradleManifests {
         # R3 round-2 dimension #10（确定性）：目录联接/符号链接（ReparsePoint）绝不下钻——
         # 否则可能扫出仓外（联接指向仓外目录），或经自引用联接死循环（不终止）。只跳过它本身，
         # 不影响它旁边正常子树的发现。
-        $isReparse = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
         $relativePath = [System.IO.Path]::GetRelativePath($Root, $e.FullName).Replace('\', '/')
-        $isAndroidLocal = $relativePath.StartsWith('android/', $gradlePathComparison) -and (Test-GradleNameInList -List $AndroidSkipDirs -Value $e.Name)
-        if ((-not $isReparse) -and (-not (Test-GradleNameInList -List $SkipDirs -Value $e.Name)) -and (-not (Test-GradleNameInList -List $SkipRelativePaths -Value $relativePath)) -and (-not $isAndroidLocal)) { $stack.Push($e.FullName) }
+        # 四道剪枝守卫**刻意各占一行**（而非合成一个长 -and 链）：每行都要能被 selftest 的**单句删除变异**
+        # 独立击杀（L165：每道守卫配一枚删除变异，它红了才算数）。合成一行时删任一子句都会连坐其余三道，
+        # 变异只能证明"整行在"、证明不了"这一道在"。写法上也让"删掉某道守卫"必然表现为**多扫出东西**
+        # （而不是崩在未定义变量上），故判据是行为差异、不是异常。
+        $skip = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)   # 守卫①：目录联接/符号链接绝不下钻（否则可能扫出仓外，或经自引用联接死循环）
+        if (-not $skip) { $skip = Test-GradleNameInList -List $SkipDirs -Value $e.Name }                     # 守卫②：名称级排除（任意深度的缓存/产物/机密目录）
+        if (-not $skip) { $skip = Test-GradleNameInList -List $SkipRelativePaths -Value $relativePath }      # 守卫③：路径级排除（只针对 ignore 契约里的确切位置）
+        if (-not $skip) { $skip = (Test-GradlePathPrefix -Path $relativePath -Prefix 'android/') -and (Test-GradleNameInList -List $AndroidSkipDirs -Value $e.Name) }   # 守卫④：android/ 子树内的本地产物目录
+        if (-not $skip) { $stack.Push($e.FullName) }
       } elseif (Test-GradleNameInList -List $Names -Value $e.Name) {
         $found.Add($e.FullName)
       }
