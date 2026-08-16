@@ -1391,10 +1391,10 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
-- rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释
+- rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
 - enforced_by: 
 - refs: 
 
@@ -1607,12 +1607,12 @@
 - refs: 
 
 ## L223
-- date: 2026-08-16 ｜ tags: content-authoring,license,primary-source,exact-string-oracle,regulatory-text ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: T2-ROUTINE-CONTENT 卡：9 轮 R3 才合并（原计划 1-2 轮）；T2-PHRASELIB 卡：line 37 译文把中性的 "staining" 转写成暗示主动渗漏的"渗水痕迹"，R3 一轮点出即改正
+- date: 2026-08-16 ｜ tags: content-authoring,license,primary-source,exact-string-oracle,regulatory-text ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: T2-ROUTINE-CONTENT 卡：9 轮 R3 才合并（原计划 1-2 轮）
 - symptom: 法规衍生声明/合规勾选类条目（如 7 点烟雾报警器声明）从调研摘要转写时，同一条目家族连续 4 轮 R3 block：先凭印象编造具体数值（10 年电池，官方实为 8 年）且遗漏声明点（房车/安装方式）；改成逐字抄官方表又撞版权（tenancy.govt.nz 商业复用需书面授权）；改成独立措辞的中性标签时又把法定事实压缩掉（8年电池/光电式/硬连线/达标四项、storey 的"含无卧室楼层"、bedroom 的 in-room-OR-3m 替代结构逐次丢失）；每次都被 exact-string oracle 原样锁死那份错误文案，测试全绿。
 - root_cause: 法规衍生条目对措辞精度要求远高于普通检查项——每个 or/each/every/within/minimum 都是法律意义上的替代关系或范围边界；无论是为了简洁还是为了避版权而做的转写，天然倾向丢弃这类连接词/限定词。exact-string 断言只证明"文案没有意外漂移"，证明不了"文案本身是对的"——它把作者写错的内容和写对的内容钉得一样死，测试绿≠内容对。
 - rule: ① 法规衍生的声明/勾选类条目，撰写前必须先取得逐条主文本（官方表 PDF 或立法原文，而非调研摘要的转述关键词）逐句核对再动笔，不得凭摘要"合理推断"数值/日期/替代关系。② 若主文本受版权保护（commercial reuse 需书面授权），改独立措辞时逐条二次核对：每个 or/each/every/within/minimum 等替代词/限定词必须原样保留其逻辑结构，只许换外壳词汇、不许压缩逻辑（含"中性化改写去掉判断句"时）。③ exact-string oracle 只锁"稳定"不锁"正确"；写完仍须回主文本逐句复核，不能靠"测试绿了"自证内容对——mutation-proof 只证明断言在测，不证明断言值本身无误。
-- enforced_by: none（暂无机检；R3 codex-review 人工/第二模型评审兜底，见 T2-ROUTINE-CONTENT PR#5 连续 4 轮实证；T2-PHRASELIB PR#10 line 37 复发一例）
-- refs: T2-PHRASELIB PR#10（damage 分类短语译文精度漂移，同类根因）
+- enforced_by: none（暂无机检；R3 codex-review 人工/第二模型评审兜底，见 T2-ROUTINE-CONTENT PR#5 连续 4 轮实证）
+- refs: 
 
 ## L224
 - date: 2026-08-16 ｜ tags: review,tests,refactor ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -1652,4 +1652,36 @@
 - root_cause: 把「门」写成偏函数：检查宇宙从现存数据推导（查什么=有什么，循环论证）、分类分支不全（未知值落进默认分支=fail-open）。门的语义恰恰是最后一道，它 fail-open 就没有下一道了
 - rule: 完备性/合规/分类「门」必须全函数且 fail-closed：①检查宇宙从契约源（模板/冻结域常量）推导，绝不从被检数据推导；②枚举分类必须穷尽+未分类值显式判「缺陷/不完整」，禁落默认分支；③域常量单一真相源（生产与测试同源派生，防手抄漂移）。T4-COMPLIANCE-ENGINE（阻断闸引擎）落地时此条为设计前置
 - enforced_by: 
+- refs: 
+
+## L229
+- date: 2026-08-17 ｜ tags: testing,fixtures,compression,framing ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 1 MiB 周期性字节经 deflate 压到几百字节，多块归档塌缩成单块——跨块/跨帧路径的测试静默退化成单块路径，帧边界代码零覆盖而测试全绿
+- root_cause: 可压缩测试数据经压缩层后体积骤减，测试以为在测多帧实际只剩一帧；帧边界 bug 藏在从未执行的分支里
+- rule: 测试必须跨帧/跨块边界时，用固定种子的不可压缩字节（如 seeded Random 字节流），并断言实际产生的块/帧数 ≥ 2
+- enforced_by: 
+- refs: 
+
+## L230
+- date: 2026-08-17 ｜ tags: crypto,streaming,aead,backup,android ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 按卡面设计 AES-256-GCM(CipherOutputStream) 单体流式加密归档：JDK17 SunJCE 解密态 update(1MiB) 释放 0 字节、全量缓存至 doFinal；Android Conscrypt AEAD 走 EVP_AEAD_CTX_seal/open 双向单发——GB 级照片库解密即 OOM，「流式」承诺实测不成立
+- root_cause: AEAD 认证语义要求 tag 校验前不得释放明文，实现层缓冲整段密文到 doFinal 是正确行为不是 bug；任何「边解密边放明文」的单体 GCM 变体都在 tag 校验前释放未认证明文，密码学上不可接受。单体 AEAD 与流式解密结构性互斥
+- rule: 凡格式承诺恒定内存/流式，密文体必须分块 AEAD（STREAM 构造：定长明文块+逐块 tag+nonce 带块序号与终块标志+AAD 绑头，age/Tink 先例）。设计前先实测目标平台 Cipher.update() 的释放行为，别按 API 形状想当然
+- enforced_by: core/backup 格式冻结契约测试（分块 STREAM 构造+格式头由测试钉死；目录已入 FrozenPaths，guard-frozen 拒就地改）
+- refs: 
+
+## L231
+- date: 2026-08-17 ｜ tags: timezone,dst,civil-calendar,date-math,nz-jurisdiction,adr-precedent ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: T5-RETENTION 卡：多消耗 1 轮 R3（round 3 of reset）
+- symptom: 按 NZ 法域民用日历计算保留期到期点（tenancy 结束 + 12 个日历月），实现用 ZoneOffset.UTC 算 plusMonths；理由援引仓库既有规则「时间一律 UTC epoch 毫秒入库；展示层才转 Pacific/Auckland」（.claude/rules/kotlin.md L11）。R3 指出该规则管的是存储/展示格式，不是「日历月」这个民用概念该按哪个时区算——同一 UTC 瞬间在 NZDT/NZST 两侧解读出的本地日历日期不同，用 UTC 算月份边界在跨夏令时切换处会悄悄偏移最多 1 小时；配套测试当时只覆盖同季节（无 DST）日期，测不出这条偏差。
+- root_cause: 「时间戳按 UTC 存储/展示层转本地」（序列化格式决策）与「民用日历日期边界该按哪个时区解出」（计算语义决策）是两件独立的事，但因为同一句规则里两个时区词挨在一起，写实现时把前者的结论顺手套用到了后者；本项目其实已有同类问题的先例判断——ADR-0004 给合规引擎的日期窗口（4 周 Routine 限额/48h-14d 通知窗/巡检时段）明确钉了 Pacific/Auckland + DST 边界测试，动笔前没先去查这条先例。
+- rule: 涉 NZ 法域民用日历边界（月/周/日翻转、DST 切换）的计算，一律用真实 ZoneId（如 ZoneId.of("Pacific/Auckland")），不得用 ZoneOffset.UTC 顶替——存储格式（UTC epoch ms）与计算时区是两个独立决策，别用前者的规则文本证成后者。动笔前先搜同类既有先例（本仓即 ADR-0004）。测试必须至少一条真实跨 DST 边界的日期（如 4 月初/9 月末附近），只用同季节日期会两种实现都通过、测不出偏差。
+- enforced_by: none（暂无机检；R3 codex-review 兜底，T5-RETENTION PR#11 round 3 实证）
+- refs: 
+
+## L232
+- date: 2026-08-17 ｜ tags: legal-wording,documentation,attribution,precedent-citation,retention ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: T5-RETENTION 卡：多消耗 2 轮 R3（round 1 与 round 2 各命中一次）
+- symptom: 文档/注释/UI 文案援引外部法条（RTA s123A）为本 app 自己的策略常量（联系方式清理期=12 个月）背书时，把「本 app 选的策略值」写成了「该法条本身规定的数字」——第一轮 R3 扫全文件改正后，措辞仍留了一个更隐蔽的同型误述（"数据无限期保留……系 RTA 要求"，暗示法律强制无限期，而法条只定了 12 个月下限）；同一类混淆在同一张卡里被 R3 连续抓到两次。
+- root_cause: 本 app 的策略常量数值与外部法条数字今天恰好相同（12 个月），这层「巧合对齐」诱使叙述在两者间随手搭因果——一句"这是法定要求"改完，附近句子仍在暗示另一件事也是法定要求；单轮 grep 扫「关键词是否出现」抓不出这种改写后残留的同型误述，必须逐句读语义。
+- rule: 产品策略常量与外部法规数字凑巧相同时，每一处提及都要点名「谁在说话」——"我们的策略是 N 个月" 还是 "法律的下限/要求是 M 个月"，N==M 也不得省略这层区分，绝不用"受该法规约束/该法规要求"描述本 app 自己可配置的常量。修复一类误述后，逐句重读整段上下文（不只是 grep 关键词），确认没有换了个说法的同型残留。
+- enforced_by: none（暂无机检；R3 codex-review 兜底，T5-RETENTION PR#11 round 1→round 2 连续两次实证）
 - refs: 
