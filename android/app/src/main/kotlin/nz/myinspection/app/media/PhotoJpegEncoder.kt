@@ -7,9 +7,14 @@ import java.io.ByteArrayOutputStream
 object PhotoJpegEncoder {
     private const val QUALITY = 92
 
+    /**
+     * @throws IllegalStateException 若 `Bitmap.compress` 报告失败（返回 false）——绝不能把空/半份字节当作
+     *   有效证据放行下去，那样一份看似正常的 photo 行背后会是一张打不开的图。
+     */
     fun encode(bitmap: Bitmap): ByteArray =
         ByteArrayOutputStream().use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+            val ok = bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+            check(ok) { "Bitmap.compress reported failure — refusing to hash/persist a partial JPEG" }
             out.toByteArray()
         }
 }
