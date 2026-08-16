@@ -109,13 +109,31 @@ class TemplateStoreTest {
         // 在**第二条**项定义上注入驱动级失败（磁盘/连接在写到一半时出错——校验拦不住的那类），
         // 检验"版本行 + 已写入的前几条项定义"是否整体回滚。半份模板比整体失败坏得多：
         // 报告会静默少项，而那一版的 (type, version) 已被唯一索引占住，正确的重灌再也进不来。
-        val failing = FailOnSecondItemInsert(driver)
-        val storeOnFailingDriver = TemplateStore(MyInspectionDatabase(failing), Uuid7Generator(), ClockMs { now })
+        val storeOnFailingDriver = storeOn(ItemInsertFault.Mode.THROW)
 
         assertFailsWith<IllegalStateException> { storeOnFailingDriver.persist(loadRoutine()) }
 
         assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
     }
+
+    @Test
+    fun `an item definition that writes zero rows aborts the whole persist`() {
+        // `check_item_def.insert` 是带 WHERE EXISTS 守卫的 INSERT…SELECT：前提不满足时**0 行、不报错**（L215）。
+        // 让驱动如实返回 0 行（而不是抛异常）——这是那条守卫真实的失败形态，也是 persist 里
+        // `affected == 1L` 检查唯一能被触发的路径。少了这道检查，模板会静默少一条项目。
+        val storeOnFailingDriver = storeOn(ItemInsertFault.Mode.RETURN_ZERO_ROWS)
+
+        val ex = assertFailsWith<IllegalStateException> { storeOnFailingDriver.persist(loadRoutine()) }
+
+        assertTrue(
+            ex.message.orEmpty().contains("affected 0 rows"),
+            "expected the affected-rows guard to fire, got: ${ex.message}",
+        )
+        assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
+    }
+
+    private fun storeOn(mode: ItemInsertFault.Mode): TemplateStore =
+        TemplateStore(MyInspectionDatabase(ItemInsertFault(driver, mode)), Uuid7Generator(), ClockMs { now })
 
     @Test
     fun `persist refuses a template that would not pass validation`() {
@@ -131,10 +149,17 @@ class TemplateStoreTest {
 }
 
 /**
- * 在第 2 条 `check_item_def` INSERT 上抛异常的驱动包装：唯一目的是把"写到一半失败"变成可测事件。
+ * 在第 2 条 `check_item_def` INSERT 上注入故障的驱动包装：把"写到一半出问题"变成可测事件。
+ * 两种形态对应两类真实失败——[Mode.THROW] = 驱动/磁盘报错；[Mode.RETURN_ZERO_ROWS] = SQL 执行成功
+ * 但 WHERE EXISTS 守卫未命中、**0 行受影响且不报错**（L215 那类静默失败）。
  * 其余成员一律委托（`by delegate`），故除注入点外行为与真驱动完全一致。
  */
-private class FailOnSecondItemInsert(private val delegate: SqlDriver) : SqlDriver by delegate {
+private class ItemInsertFault(
+    private val delegate: SqlDriver,
+    private val mode: Mode,
+) : SqlDriver by delegate {
+    enum class Mode { THROW, RETURN_ZERO_ROWS }
+
     private var itemInserts = 0
 
     override fun execute(
@@ -144,7 +169,10 @@ private class FailOnSecondItemInsert(private val delegate: SqlDriver) : SqlDrive
         binders: (SqlPreparedStatement.() -> Unit)?,
     ): QueryResult<Long> {
         if (sql.contains("INSERT INTO check_item_def") && ++itemInserts == 2) {
-            throw IllegalStateException("injected driver failure on the 2nd item definition")
+            when (mode) {
+                Mode.THROW -> throw IllegalStateException("injected driver failure on the 2nd item definition")
+                Mode.RETURN_ZERO_ROWS -> return QueryResult.Value(0L)
+            }
         }
         return delegate.execute(identifier, sql, parameters, binders)
     }

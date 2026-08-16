@@ -66,8 +66,9 @@ class TemplateStore(
                 ).value
                 // `check_item_def.insert` 是带 WHERE EXISTS 守卫的 INSERT…SELECT：前提不满足时**0 行、不报错**
                 // （L215）。当前构造下前提恒成立——版本行就是同一事务刚插的、还没有任何巡检引用它——
-                // 故这一支不可达；留着是因为它一旦可达（比如将来允许往既有版本追加项），静默少行的代价是
-                // 报告悄悄缺项。同 CheckItemDef.sq 里那条"为将来预留的正确默认"注释。
+                // 但"守卫没命中"是这条 SQL 真实存在的返回形态，一旦它可达（比如将来允许往既有版本追加项），
+                // 静默少行的代价是报告悄悄缺项。故不靠"目前不可达"免检：TemplateStoreTest 用注入驱动
+                // 让这条 INSERT 如实返回 0 行，把本检查与随之而来的整体回滚都钉住。
                 check(affected == 1L) {
                     "check_item_def insert affected $affected rows for ${item.stableId} (guard rejected the write)"
                 }
