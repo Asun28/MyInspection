@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [switch]$Strict,     # -Strict 时 LGPL/OpenRAIL 等黄牌也算失败
-  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测复用；镜像 check-secrets.ps1 -AsLibrary）
+  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Test-GradleNameEquals/Test-GradleNameInList/Test-GradlePathPrefix/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p、Gradle 发现单测与卡片 dod_command 复用；镜像 check-secrets.ps1 -AsLibrary）
 )
 
 Set-StrictMode -Version Latest
@@ -127,17 +127,19 @@ function Find-GradleManifests {
         # 否则可能扫出仓外（联接指向仓外目录），或经自引用联接死循环（不终止）。只跳过它本身，
         # 不影响它旁边正常子树的发现。
         $relativePath = [System.IO.Path]::GetRelativePath($Root, $e.FullName).Replace('\', '/')
-        # 四道剪枝守卫**刻意各占一行**（而非合成一个长 -and 链）：每行都要能被 selftest 的**单句删除变异**
-        # 独立击杀（L165：每道守卫配一枚删除变异，它红了才算数）。合成一行时删任一子句都会连坐其余三道，
-        # 变异只能证明"整行在"、证明不了"这一道在"。写法上也让"删掉某道守卫"必然表现为**多扫出东西**
-        # （而不是崩在未定义变量上），故判据是行为差异、不是异常。
+        # 四道剪枝守卫与文件收集**刻意各占一行**（而非合成一个长 -and 链 / elseif 条件）：每行都要能被 selftest
+        # 的**单句删除变异**独立击杀（L165：每道守卫配一枚变异，它红了才算数）。合成一行时删任一子句都会连坐
+        # 其余几道，变异只能证明"整行在"、证明不了"这一道在"。写法上也让"删掉某道守卫"必然表现为**命中集变化**
+        # （而不是崩在未定义变量或语法上），故判据是行为差异、不是异常。
+        # 守卫①用**替换**变异而非删除（删掉它 $skip 未定义 → 崩在 StrictMode，证明不了守卫语义）；②③④与
+        # 收集行各配一枚**单句删除**变异。见 selftest 17cc(reparse-mut) 与 17cc(case-mut/*)。
         $skip = [bool]($e.Attributes -band [System.IO.FileAttributes]::ReparsePoint)   # 守卫①：目录联接/符号链接绝不下钻（否则可能扫出仓外，或经自引用联接死循环）
         if (-not $skip) { $skip = Test-GradleNameInList -List $SkipDirs -Value $e.Name }                     # 守卫②：名称级排除（任意深度的缓存/产物/机密目录）
         if (-not $skip) { $skip = Test-GradleNameInList -List $SkipRelativePaths -Value $relativePath }      # 守卫③：路径级排除（只针对 ignore 契约里的确切位置）
         if (-not $skip) { $skip = (Test-GradlePathPrefix -Path $relativePath -Prefix 'android/') -and (Test-GradleNameInList -List $AndroidSkipDirs -Value $e.Name) }   # 守卫④：android/ 子树内的本地产物目录
         if (-not $skip) { $stack.Push($e.FullName) }
-      } elseif (Test-GradleNameInList -List $Names -Value $e.Name) {
-        $found.Add($e.FullName)
+      } else {
+        if (Test-GradleNameInList -List $Names -Value $e.Name) { $found.Add($e.FullName) }   # 收集：清单文件名匹配（同样单占一行，供 17cc(case-mut/names) 删除变异）
       }
     }
   }
