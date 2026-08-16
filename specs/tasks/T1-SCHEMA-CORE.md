@@ -341,7 +341,8 @@ cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --test
   `SupplementSnapshot`，字段逐一对齐 T1-CANON-HASH 的哈希域清单，一个不多——排序（items 按模板序、
   photos/audios 按 UUID 序）留给调用方，本卡只定形状不做排序。四条下游查询（`inspection_item.
   updateWearOrDamageIfDraft`、`property_item_override.{setSuppressed,selectByPropertyAndStableId}`、
-  `notice.recordDelivery`、`photo.{softDelete,orphanedContentHashes}`）已加到对应 .sq 文件，均带
+  `notice.recordDelivery`、`photo.{softDelete,orphanedAssets}`，另加第五条 `photo.selectActiveAssetsByContentHash`
+  （去重复用，修订之八））已加到对应 .sq 文件，均带
   finalize 守卫（`property_item_override` 除外——它跨巡检生效，不属于任何单次巡检的只读快照）+
   自证测试。
 
