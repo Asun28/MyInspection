@@ -1533,3 +1533,19 @@
 - rule: **别复活将死的大上下文子代理，退役它、用干净上下文重派**：新 brief 只给「已核验的磁盘事实 + 剩下要做的几步 + 已关闭的仲裁」，别让它重走历史。前提是**产物必须落盘、不许只活在 agent 脑子里**——证据交给编排者由其在 master 追加（L212）、状态一律从磁盘工件读（L202）、handoff 三件套随时可续（docs/HANDOFF.md）。运行期兆头：工具调用数上百、token 逼近百万即视为高危，主动在下一个自然断点（一次 ship 结束/一轮评审结束）换人，别等 watchdog。**换人前先按 L196 核一遍有没有变异残留**——被杀在「植入后、还原前」的树看起来只是 M，肉眼分不出。
 - enforced_by: 
 - refs: 
+
+## L214
+- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
+- symptom: 单句删除变异跑完后用 git checkout -- <file> 还原，结果该文件里**未提交的新工作**连同变异一起消失；还原核查报 restored=False，但代码已经没了。本轮丢掉的是一整条新增查询及其注释。
+- root_cause: git checkout -- <path> 恢复的是 HEAD/索引版本，不是"变异前的磁盘内容"。前几轮都是先提交再变异所以无恙；这次省了提交那一步，"还原"就等于"丢弃未提交改动"。
+- rule: 变异证明前**先提交**被测文件（或先复制一份、从副本还原）；还原后必须核 SHA256 与变异前一致——本轮正是这道核查当场发现了丢失，没有它会带着空文件继续跑。
+- enforced_by: none（变异是临时脚本、无常驻闸；靠 L196 既有的"还原后核 SHA256"纪律当场发现）
+- refs: 
+
+## L215
+- date: 2026-08-16 ｜ tags: sqldelight,testing,fixtures ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 一轮 R3 + 一次错误方向的排查
+- symptom: 排序测试报「顺序错了」，实为测试夹具里三条 check_item_def.insert 全被守卫拒绝、一条定义都没落，LEFT JOIN 全取 NULL sort。症状出现在几十行外，且伪装成"被测实现有问题"，诊断方向一开始就是错的。
+- root_cause: 本仓的 INSERT…SELECT…WHERE EXISTS 守卫**不抛异常、只返回 0 行**（这是有意设计：守卫不过=不落地、可重试）。于是任何不检查返回值的调用点都会静默失败，而测试夹具建立的恰恰是别的断言的前提——前提没了，断言就在报另一件事。
+- rule: 测试夹具的每一步写操作都断言影响行数（如 assertEquals(1L, ...insert(...).value, "fixture: ...")），让前提失败时报"夹具坏了"而不是"被测逻辑错了"。同理适用于任何调用这族守卫查询的生产代码。
+- enforced_by: none（无法机检"夹具是否检查返回值"；靠本条 + 评审维度 #6 假测试）
+- refs: 
