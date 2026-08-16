@@ -1367,7 +1367,7 @@
 - refs: 
 
 ## L193
-- date: 2026-08-03 ｜ tags: verification,harness,stop-rule,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-03 ｜ tags: verification,harness,stop-rule,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 给「区间收窄」做变异判别时，离线脚本报「FE00–FE0F 收窄成 FE00 测不出」，但独立复核显示 U+FE0F 属 `Mn`、不被 `\p{Cf}`/`\p{Cc}` 命中、也不落任何代理对分支——**两个结论直接矛盾**。连查三次没定位到脚本哪一层出错（疑似字符类字面量/转义层）
 - root_cause: **（2026-08-03 重建判别器后更正——原先记的「疑似字符类字面量/转义层」是当场的猜测，实测证伪）**真因是判别器**只模拟了链条的前一半**：它跑完「实现侧剥不可见字符」就去查**字面** `[R3-`，而载荷本就写成 `[R`+不可见字符+`3-`，字面比对**在任何实现下都扫不到** ⇒ 它对每一种收窄都回答「测不出」。断言侧真正的判据是**再剥一次后的渲染等价形态**，那一段被漏掉了。故这与「U+FE0F 属 `Mn`」的复核结论根本不在同一层，两者从未真的矛盾。**这就是 L185 的同型坑长在判别器上**：一条永远不可能成立的比对
 - rule: **判别工具与被测实现互相矛盾时，先停下修工具，别继续产证据**——此时产出的任何「变异 OK / 覆盖完整」都是无效证据，比没有更坏（会被写进卡当作已验）。具体防线：① 判别脚本一律从**被测文件里读出真实模式**再操作，不在测试侧另抄一份；② 一切不可见码位只写转义形态、源码里绝不嵌真字符——**但光这么说不够**：实测**写文件的工具本身**会把源码里 反斜杠-u-四位十六进制 的字面形态**自动换成真字符**，故转义形态要**用代码拼**（如 `[char]92 + 'u'`）让该字面形态根本不出现在源码里，并在用它之前**断言靶串真能在被测文件里找到**（找不到就是本枚作废，不是「测不出」）；③ 判别脚本自己要有 sanity case（已知必命中/必不命中各一），它先绿了才信它的结论；④ **判别器必须模拟到断言点那一层**，不能只模拟被测实现就下结论——少模拟一段，得到的必然是「哪儿都测不出」这种假阴性
@@ -1548,4 +1548,12 @@
 - root_cause: 本仓的 INSERT…SELECT…WHERE EXISTS 守卫**不抛异常、只返回 0 行**（这是有意设计：守卫不过=不落地、可重试）。于是任何不检查返回值的调用点都会静默失败，而测试夹具建立的恰恰是别的断言的前提——前提没了，断言就在报另一件事。
 - rule: 测试夹具的每一步写操作都断言影响行数（如 assertEquals(1L, ...insert(...).value, "fixture: ...")），让前提失败时报"夹具坏了"而不是"被测逻辑错了"。同理适用于任何调用这族守卫查询的生产代码。
 - enforced_by: none（无法机检"夹具是否检查返回值"；靠本条 + 评审维度 #6 假测试）
+- refs: 
+
+## L216
+- date: 2026-08-16 ｜ tags: ship,tdd,red-evidence,task-loop ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: ship 在 RED 证据闸被拒：证据 sha=分支起点，而 worktree 在实现后有手工提交（为满足 L214 变异前先提交），HEAD 前移致证据被判陈旧
+- root_cause: ship saga 自带「提交」腿并要求 RED 证据 sha == 当前 HEAD——L214（变异证明前先提交防丢工作）与该闸在单卡流程里天然冲突；两条纪律都对，冲突点只在 ship 时刻的 HEAD 位置
+- rule: 两全法：照常提交后做变异证明；ship 前核远端分支不存在（git -C <wt> fetch --prune + rev-parse --verify origin/<branch> 无输出），然后 git -C <wt> reset --soft <RED证据sha> 把提交折回暂存区再跑 ship，让 ship 自己落提交腿。勿重跑 -Phase red（绿码产不出真 RED）、勿 -SkipRed 绕闸（那是无法重现 RED 的补救场景专用）
+- enforced_by: 
 - refs: 
