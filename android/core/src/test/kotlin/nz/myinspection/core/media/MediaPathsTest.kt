@@ -47,6 +47,34 @@ class MediaPathsTest {
         }
     }
 
+    // 下面三条各自只打一个守卫子句（反斜杠 / 空白 / 单点）——每条都是"删掉那一句就变绿"的那个缺口的
+    // 唯一杀手：空串向量杀不掉 isNotBlank→isNotEmpty，".." 向量杀不掉 `value != "."`，
+    // 正斜杠向量杀不掉 `!value.contains('\\')`。派生侧与形状侧各断一次，两条链路都不能漏。
+
+    @Test
+    fun `rejects a segment containing a backslash, which Windows-side callers would read as a separator`() {
+        assertFailsWith<IllegalArgumentException> {
+            MediaPaths.photoRelPath(propertyId = "prop\\1", inspectionId = "insp-1", photoId = "photo-1")
+        }
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/prop\\1/insp-1/photo-1.jpg"), "a backslash segment must not pass the shape gate")
+    }
+
+    @Test
+    fun `rejects a whitespace-only segment, not just an empty one`() {
+        assertFailsWith<IllegalArgumentException> {
+            MediaPaths.photoRelPath(propertyId = "   ", inspectionId = "insp-1", photoId = "photo-1")
+        }
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/   /insp-1/photo-1.jpg"), "a whitespace-only segment must not pass the shape gate")
+    }
+
+    @Test
+    fun `rejects a single-dot segment, not just a double-dot one`() {
+        assertFailsWith<IllegalArgumentException> {
+            MediaPaths.photoRelPath(propertyId = ".", inspectionId = "insp-1", photoId = "photo-1")
+        }
+        assertFalse(MediaPaths.isPhotoRelPathShape("photos/./insp-1/photo-1.jpg"), "a single-dot segment must not pass the shape gate")
+    }
+
     @Test
     fun `isPhotoRelPathShape accepts exactly what photoRelPath derives`() {
         val derived = MediaPaths.photoRelPath(propertyId = "prop-1", inspectionId = "insp-1", photoId = "photo-1")

@@ -1,36 +1,51 @@
 package nz.myinspection.core.media
 
 /**
- * 导入前置校验的判定结果：[Rejected] 携带实际尺寸与阈值，供 :app 侧构造一条具名的、**不可重试**的
- * 导入失败结果（同一份文件永远会再次被拒——不是环境性失败，重试没有意义，同 CLAUDE.md「错误分
- * retryable/non-retryable」）。
+ * [ImportBounds.check] 的判定结果。两种拒绝都**不可重试**——同一份文件与同一个预算永远得到同一个结论
+ * （CLAUDE.md「错误分 retryable/non-retryable」）。
  */
 sealed interface ImportBoundsResult {
     data object Accepted : ImportBoundsResult
-    data class Rejected(val width: Int, val height: Int, val limitPixels: Long) : ImportBoundsResult
+
+    /** 转正烘焙+编码所需的瞬时内存 [requiredBytes] 超出本次可用预算 [budgetBytes]。 */
+    data class Rejected(val width: Int, val height: Int, val requiredBytes: Long, val budgetBytes: Long) : ImportBoundsResult
+
+    /** 取不到正的图像边界（`BitmapFactory` 的 `inJustDecodeBounds` 对非图片/损坏文件给出 -1）。 */
+    data class Undecodable(val width: Int, val height: Int) : ImportBoundsResult
 }
 
 /**
- * 导入前置校验：宽×高像素总数超过 [MAX_IMPORT_PIXELS] 时拒绝，防止 :app 侧在真正分配位图内存前就已
- * 注定 OOM。**这是进程存活底线，不是显示/UX 尺寸策略**——「导入前提示用户确认/降采样后再导入」那类
- * 交互属 T2-CAPTURE-UI 的导入流程（见 tech-debt-tracker 登记），本函数只管「继续解码这份文件会不会
- * 大概率炸掉进程」这一件事，判定结果只有"接受"或"拒绝"两种，不做中间的自动降质处理（本卡上下文包已定
- * 「不做有损降采样」，见 [nz.myinspection.app.media.PhotoImportPipeline] KDoc）。
- *
- * **阈值取值依据**：转正烘焙路径瞬时最多同时持有两份 ARGB_8888 位图（[nz.myinspection.app.media.PhotoOrientationBaker]
- * 对 EXIF orientation 2–8 会额外新分配一份转正后的位图，与原图同时存活到编码完成），每像素 4 字节。
- * `MAX_IMPORT_PIXELS = 40_000_000`（40MP）时两份位图峰值 = 40,000,000 × 4 × 2 = 320,000,000 字节
- * （约 305 MiB）——仍处于常见 Android 单进程堆上限的危险区，但明显超出主流手机相机默认拍摄输出
- * （旗舰后置主摄默认模式多在 12–16MP，50MP+ 只在专门的高像素模式下出现且非默认），合法巡检证据照片
- * 不太可能触达此值；触达大概率是异常输入（超大扫描件/拼接图/损坏文件）。
+ * 解码前置校验：按**字节预算**判定「继续解码这份图会不会撑爆进程」，是进程存活底线，不是显示尺寸策略。
+ * 预算由调用方按设备实际堆余量注入（:app 的 `PhotoMemoryBudget`），不写死像素上限——固定阈值在小堆设备
+ * 上仍会 OOM、在大堆设备上又白拒合法证据。相机与导入两条管线在编码那一刻都同时持有源位图与转正位图外加
+ * 编码缓冲（见 [PEAK_BYTES_PER_PIXEL]），故共用同一套判定。超限的 UX 属 T2-CAPTURE-UI（已登记技术债）。
  */
 object ImportBounds {
-    const val MAX_IMPORT_PIXELS: Long = 40_000_000L
+    /** `Bitmap.Config.ARGB_8888` 每像素字节数。 */
+    const val BYTES_PER_PIXEL: Long = 4
 
-    fun check(width: Int, height: Int): ImportBoundsResult {
+    /** 编码那一刻同时存活的位图数：源位图 + 转正烘焙新分配的那份（源位图由其属主在编码之后才回收）。 */
+    const val CONCURRENT_BITMAPS: Long = 2
+
+    /** JPEG 编码缓冲的每像素预留：q92 照片输出经验上 ≤ 1 B/px，`ByteArrayOutputStream` 扩容瞬间新旧两份数组并存，取 2。 */
+    const val ENCODER_BYTES_PER_PIXEL: Long = 2
+
+    /** 单像素峰值 = 两份位图 + 编码缓冲。 */
+    const val PEAK_BYTES_PER_PIXEL: Long = BYTES_PER_PIXEL * CONCURRENT_BITMAPS + ENCODER_BYTES_PER_PIXEL
+
+    /** 该尺寸解码+烘焙+编码的峰值字节数；超出 `Long` 表示范围时饱和到 [Long.MAX_VALUE]（仍是"远超任何预算"）。 */
+    fun requiredBytes(width: Int, height: Int): Long {
         val pixels = width.toLong() * height.toLong()
-        return if (pixels > MAX_IMPORT_PIXELS) {
-            ImportBoundsResult.Rejected(width = width, height = height, limitPixels = MAX_IMPORT_PIXELS)
+        return if (pixels > Long.MAX_VALUE / PEAK_BYTES_PER_PIXEL) Long.MAX_VALUE else pixels * PEAK_BYTES_PER_PIXEL
+    }
+
+    fun check(width: Int, height: Int, budgetBytes: Long): ImportBoundsResult {
+        if (width <= 0 || height <= 0) return ImportBoundsResult.Undecodable(width, height)
+        // 比较写成"像素数 vs 预算/单像素"而非"所需字节 vs 预算"：Int 上界的两条边相乘已达 4.6e18，
+        // 再乘单像素字节会溢出 Long 变负数，一张荒谬大的图反而会被判为"装得下"。
+        val pixels = width.toLong() * height.toLong()
+        return if (pixels > budgetBytes / PEAK_BYTES_PER_PIXEL) {
+            ImportBoundsResult.Rejected(width, height, requiredBytes(width, height), budgetBytes)
         } else {
             ImportBoundsResult.Accepted
         }

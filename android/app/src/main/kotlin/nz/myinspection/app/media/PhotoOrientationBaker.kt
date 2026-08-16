@@ -5,10 +5,9 @@ import android.graphics.Matrix
 import nz.myinspection.core.media.ExifOrientation
 
 /**
- * 转正烘焙薄壳：把 :core [ExifOrientation] 算出的参数表接到 android.graphics.Matrix 上——
- * postScale 与 postRotate 均为「后乘」，调用顺序即施加顺序，与 OrientationTransform 的 KDoc 约定一致
- * （先 flipHorizontal 再 rotationDegrees）。`Bitmap.createBitmap(src,...,matrix,true)` 会按变换后的
- * 边界自动重新平移，无需本层再算平移量。
+ * 转正烘焙薄壳：把 :core [ExifOrientation] 的参数表接到 `Matrix` 上。post* 是后乘，调用顺序即施加顺序
+ * （先 flipHorizontal 再 rotationDegrees，与 `OrientationTransform` 的约定一致）。已正的图原样返回、
+ * 不新分配——调用方据此判断该不该回收返回值。
  */
 object PhotoOrientationBaker {
     fun bake(source: Bitmap, exifOrientation: Int): Bitmap {

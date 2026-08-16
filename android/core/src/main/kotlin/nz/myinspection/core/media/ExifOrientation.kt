@@ -6,11 +6,9 @@ package nz.myinspection.core.media
  * 3=Rotate 180 / 4=Mirror vertical / 5=Mirror horizontal and rotate 270 CW / 6=Rotate 90 CW /
  * 7=Mirror horizontal and rotate 90 CW / 8=Rotate 270 CW）。
  *
- * [flipHorizontal] 恒先施加，[rotationDegrees]（顺时针）随后施加——对应 android.graphics.Matrix 的
- * `postScale(-1f, 1f)` 接 `postRotate(deg)`（Matrix 的 post* 是后乘：先调的变换先作用在点上，与本类型的
- * 施加顺序一致）。4/5/7 三档用「mirror + rotate」复合表示纯 mirror-vertical / transpose / transverse
- * 语义——与 EXIF 官方各自的单一动作描述是同一个变换矩阵的两种等价写法（ExifOrientationTest 用矩阵乘法
- * 逐条验证）。
+ * [flipHorizontal] 恒先施加、[rotationDegrees]（顺时针）随后——对应 `Matrix.postScale(-1f, 1f)` 接
+ * `postRotate(deg)`。4/5/7 三档以「mirror + rotate」复合表示纯 mirror-vertical / transpose / transverse，
+ * 与 EXIF 官方的单一动作描述是同一矩阵的等价写法（ExifOrientationTest 用矩阵乘法逐条验证）。
  */
 data class OrientationTransform(val rotationDegrees: Int, val flipHorizontal: Boolean)
 
