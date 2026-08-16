@@ -38,9 +38,14 @@ sealed interface FinalizeOutcome {
  * 是调用方可换的接口，不保证每个实现都只读——即便某个实现在①里产生了写副作用，事务边界仍然兜底：
  * 该写会随后续任一步的异常一起回滚（见 `FinalizeInspectionUseCaseTest` 的
  * "if a seam inside the transaction throws after writing..." 用例，已用移除事务包装的变异验证过
- * 这条测试确实会因此变红）。故"任一步败=全回滚"由事务边界保证，不依赖①-③"不写库"这条假设；
- * ④要么整条落地（`affected == 1L`）要么整条不落地（判定为 `RejectedAlreadyFinalized`，不当成异常
- * 抛出——两个调用者都在合法地尝试 finalize 同一份数据，后到者理应拿到一个可处理的业务结果）。
+ * 这条测试确实会因此变红）。
+ *
+ * **每一条拒绝路径都 `rollback`，不留任何例外**：同一个事务里，"完备性检查的实现违反契约写了东西"
+ * 与"另一个合法调用者抢先 finalize 了同一行"这两种情形从事务内部看不出区别——都是"①之后、④真正
+ * 落地之前，数据库状态已经不是①-③读到的那个了"。因此④的两个分支都不用普通 `return`：`affected == 1L`
+ * 正常返回（提交）；`affected != 1L` 与①-③里任何一条拒绝路径一样用 `rollback`——同一个不变量
+ * （事务内所有写副作用只在真正 Finalized 时才提交，其余任何结局都撤销到底）统一适用，不分是哪一步
+ * 触发的拒绝。
  */
 class FinalizeInspectionUseCase(
     private val database: MyInspectionDatabase,
@@ -75,7 +80,7 @@ class FinalizeInspectionUseCase(
         if (affected == 1L) {
             FinalizeOutcome.Finalized(dataHash = dataHash, finalizedAt = finalizedAt)
         } else {
-            FinalizeOutcome.RejectedAlreadyFinalized
+            rollback(FinalizeOutcome.RejectedAlreadyFinalized)
         }
     }
 }

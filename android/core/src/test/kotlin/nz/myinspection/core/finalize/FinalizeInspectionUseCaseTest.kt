@@ -237,12 +237,20 @@ class FinalizeInspectionUseCaseTest {
         assertEquals("DRAFT", row.status)
     }
 
+    /**
+     * 同一个事务内，"完备性检查违反契约写了东西"与"另一个合法调用者抢先 finalize 了同一行"，从事务
+     * 内部看不出区别——都是"①之后、④真正落地之前，数据库状态已经不是①-③读到的那个了"。故④的
+     * `affected != 1L` 分支同样要 `rollback`，不能让完备性检查里的同事务写副作用（不论出于什么原因）
+     * 在一个整体被拒绝的 finalize() 调用里侥幸留下来。这条测试断言的因此是"该写不落地"，不是（旧版本
+     * 断言过的）"该写落地"——旧断言把"同一事务内的副作用"误当成了"另一个连接的真实并发赢家"，而两者在
+     * 单连接单事务下并无可观察的区别（真正的跨连接场景见 TD10）。
+     */
     @Test
-    fun `if the inspection is finalized by a racing write during the completeness check, finalize rejects cleanly instead of throwing`() {
+    fun `if the final guarded write sees a same-transaction side effect from the completeness seam, the whole transaction rolls back`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
         val racingCompleteness = CompletenessPort { inspectionId ->
             val raceAffected = database.inspectionQueries.finalizeIfDraft(
-                finalized_at = now + 1, data_hash = "raced-in-first", updated_at = now + 1, id = inspectionId,
+                finalized_at = now + 1, data_hash = "should-not-survive", updated_at = now + 1, id = inspectionId,
             ).value
             check(raceAffected == 1L) { "race fixture itself failed to land" }
             CompletenessResult(itemsMissingStatus = emptyList(), itemsMissingMandatoryPhoto = emptyList())
@@ -253,11 +261,12 @@ class FinalizeInspectionUseCaseTest {
 
         assertIs<FinalizeOutcome.RejectedAlreadyFinalized>(
             outcome,
-            "the transaction's own re-check at write time must see the racing write and return cleanly, not throw",
+            "the final guard's own 0-affected-rows result must return cleanly, not throw",
         )
         val row = database.inspectionQueries.selectById(ready.inspectionId).executeAsOne()
-        assertEquals("raced-in-first", row.data_hash, "the racing write inside the transaction must be the one that stuck")
-        assertEquals(now + 1, row.finalized_at)
+        assertEquals("DRAFT", row.status, "the same-transaction write inside the completeness seam must be rolled back too")
+        assertNull(row.finalized_at)
+        assertNull(row.data_hash)
     }
 
     @Test
