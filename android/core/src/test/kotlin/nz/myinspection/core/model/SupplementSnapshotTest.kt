@@ -21,9 +21,11 @@ class SupplementSnapshotTest {
      */
     @Test
     fun `SupplementSnapshot carries exactly createdAt and text`() {
+        // 比较排序后的集合：JVM 规范不保证 declaredFields 的顺序，断言顺序会造出假确定性（同
+        // InspectionSnapshotTest.assertExactShape 的说明）。要守的是「哪些字段在」。
         assertEquals(
             listOf("createdAt:long", "text:String"),
-            SupplementSnapshot::class.java.declaredFields.map { "${it.name}:${it.type.simpleName}" },
+            SupplementSnapshot::class.java.declaredFields.map { "${it.name}:${it.type.simpleName}" }.sorted(),
             "链哈希域只含内容本身；id / inspectionId / prevHash 一旦混入，chain_hash 会静默改变",
         )
     }

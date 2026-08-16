@@ -9,8 +9,11 @@ package nz.myinspection.core.model
  * - property 快照：id/address/kind/isBoardingHouse
  * - tenancy 快照：id/start/end（**不含**租客联系方式——保留期清理不得破坏哈希可复验性）
  * - template：id/type/version/contentHash
- * - items[]：stableId/status/note/wearOrDamage，按模板序（[InspectionItemSnapshot] 调用方需自行按
- *   check_item_def.sort 排好序再传入——本卡只定义形状，不做排序）
+ * - items[]：stableId/status/note/wearOrDamage，按 **(check_item_def.sort, room_instance_id, stable_id)**
+ *   这个**全序**排列。`sort` 单独用不够——同一 stable_id 可合法落在多个 room_instance 上，模板里两个
+ *   stable_id 也允许共用一个 sort；并列项顺序一旦无定义，同样的数据会算出不同的 data_hash。
+ *   排序由 `inspection_item.selectByInspectionInTemplateOrder` 提供，调用方直接按其返回顺序投影即可
+ *   （排序键本身不进快照，同 photos[]/audios[] 用外部 UUID 定序的做法）。
  * - photos[]：contentHash/source/exifTimeMs/是否房间级，按 UUID 序（同上，调用方自行排序）
  * - audios[]：contentHash，按 UUID 序
  *

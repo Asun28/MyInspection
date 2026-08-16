@@ -41,6 +41,31 @@ SELECT *
 FROM inspection_item
 WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
 
+-- 快照投影用的**全序**查询。canonical 哈希要求同样的数据每次算出同样的 items[]，而
+-- `check_item_def.sort` **不是全序键**：同一 stable_id 可以合法地落在多个 room_instance 上
+-- （活跃唯一索引是 (inspection_id, room_instance_id, stable_id)，见上），两条的 sort 值相同；
+-- 模板里两个不同 stable_id 也允许共用一个 sort。这些并列项谁先谁后一旦无定义，data_hash 就会漂移——
+-- 而那个哈希写进 PDF 页脚，作用正是「自证未事后修改」，它不确定则该自证为空。
+-- 排序键 = (sort, room_instance_id, stable_id)：第一段给模板序（报告须按模板顺序读），后两段只做
+-- 确定性兜底；三段合起来在活跃行上唯一（即上面那条唯一索引去掉恒定的 inspection_id）。
+-- 房间标识**不进** InspectionItemSnapshot——排序键留在投影之外，与 photos[]/audios[] 用外部 UUID
+-- 定序是同一做法，故快照形状不变。
+--
+-- **LEFT JOIN 而非 JOIN**：内连接会把「stable_id 在该模板版本里找不到定义」的条目**静默丢出结果集**，
+-- 于是删掉一条 check_item_def 就能让某个条目从哈希里消失——那是可被利用的漏洞，不是数据清洁。
+-- 外连接把这类条目保留下来（`cid.sort` 为 NULL，SQLite 的 ASC 把 NULL 排在最前，仍是确定的位置），
+-- 让它进哈希、进报告，异常由上层发现，而不是在这里被抹掉。
+selectByInspectionInTemplateOrder:
+SELECT ii.*
+FROM inspection_item ii
+JOIN inspection i ON i.id = ii.inspection_id
+LEFT JOIN check_item_def cid
+  ON cid.template_version_id = i.template_version_id
+  AND cid.stable_id = ii.stable_id
+  AND cid.deleted_at IS NULL
+WHERE ii.inspection_id = :inspection_id AND ii.deleted_at IS NULL
+ORDER BY cid.sort ASC, ii.room_instance_id ASC, ii.stable_id ASC;
+
 -- finalize 只读强制（关键不变量）：inspection_item 自身没有 finalized_at 列，闸门须子查询父 inspection。
 -- 对 FINALIZED 巡检下的条目做 UPDATE 必须 0 行受影响。
 updateStatusIfDraft:

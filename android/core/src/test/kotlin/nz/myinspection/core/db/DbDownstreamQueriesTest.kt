@@ -60,6 +60,91 @@ class DbDownstreamQueriesTest {
         assertEquals("DAMAGE", database.inspectionItemQueries.selectById(itemId).executeAsOne().wear_or_damage, "the FINALIZED value must be untouched")
     }
 
+    /**
+     * items[] 的顺序就是 canonical 哈希的输入顺序，所以它必须是**全序**。`check_item_def.sort` 单独用
+     * 不够：同一 stable_id 可合法落在多个 room_instance 上，模板里两个 stable_id 也允许共用一个 sort。
+     *
+     * 夹具刻意把两个兜底键都压到并列上——**四条 item 的 sort 全部相同**，两两之间只能靠
+     * room_instance_id 或 stable_id 分出先后——并且**按期望顺序的完全倒序插入**，
+     * 否则「真的排了序」和「碰巧按插入顺序返回」两种实现都能让断言通过（L165）。
+     * 另加一条 sort 更小、但房间与 stable_id 都排在最后的条目，证明 sort 仍是第一优先级、没被兜底键盖过。
+     */
+    @Test
+    fun `selectByInspectionInTemplateOrder is a total order over sort then room then stable_id`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+
+        // **模板项必须先于巡检建**：check_item_def.insert 拒绝往已被任何巡检引用的版本里加项
+        // （见 CheckItemDef.sq 的守卫）。顺序反了的话每次 insert 都是 0 行、一条定义都不落，
+        // LEFT JOIN 全取 NULL sort，排序退化成只按 room+stable_id——而且是**静默**的，
+        // 所以每条定义都断言影响 1 行，让前提出错时当场报「夹具坏了」而不是报「排序错了」。
+        fun defineItem(stableId: String, sort: Long) {
+            val affected = database.checkItemDefQueries.insert(
+                id = uuid.next(), template_version_id = templateVersionId, stable_id = stableId,
+                area = "INTERIOR", room = "BEDROOM", text_en = stableId, text_zh = stableId,
+                allowed_statuses = """["GOOD","POOR"]""", photo_rule = null, sort = sort,
+                created_at = now, updated_at = now,
+            ).value
+            assertEquals(1L, affected, "fixture: definition $stableId must land before any inspection references this version")
+        }
+        defineItem("a.item", 5)
+        defineItem("b.item", 5)   // 与 a.item 同 sort：只能靠 stable_id 分先后
+        defineItem("z.first", 1)  // sort 最小，但房间与 stable_id 都排最后
+
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+
+        // UUIDv7 单调：先建的房间 id 更小，故 roomA < roomB 是确定的。
+        val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
+        val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
+        assertTrue(roomA < roomB, "fixture assumption: UUIDv7 ids are monotonic, so the first room sorts first")
+
+        // 完全倒序插入。
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomB, stableId = "b.item", now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomB, stableId = "a.item", now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomA, stableId = "b.item", now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomA, stableId = "a.item", now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomB, stableId = "z.first", now = now)
+
+        val ordered = database.inspectionItemQueries.selectByInspectionInTemplateOrder(inspectionId)
+            .executeAsList().map { (if (it.room_instance_id == roomA) "A" else "B") + "/" + it.stable_id }
+
+        assertEquals(
+            listOf("B/z.first", "A/a.item", "A/b.item", "B/a.item", "B/b.item"),
+            ordered,
+            "sort comes first, then room_instance_id, then stable_id — insertion order must not show through",
+        )
+    }
+
+    /**
+     * 内连接会把「stable_id 在该模板版本里没有定义」的条目静默丢出结果集——那样删掉一条 check_item_def
+     * 就能让某个条目从 data_hash 里消失。外连接把它留下（sort 为 NULL，SQLite 的 ASC 排最前），
+     * 让异常进哈希、由上层发现，而不是在这里被抹掉。
+     */
+    @Test
+    fun `an item whose definition is missing still appears in template order`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+
+        // 同上：定义必须先于巡检落，否则守卫拒绝、这条测试会退化成「两条都没定义」而不是「一条有一条没有」。
+        val defined = database.checkItemDefQueries.insert(
+            id = uuid.next(), template_version_id = templateVersionId, stable_id = "defined.item",
+            area = "INTERIOR", room = "BEDROOM", text_en = "d", text_zh = "d",
+            allowed_statuses = """["GOOD"]""", photo_rule = null, sort = 1, created_at = now, updated_at = now,
+        ).value
+        assertEquals(1L, defined, "fixture: the defined item's definition must actually land")
+
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomId, stableId = "defined.item", now = now)
+        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomId, stableId = "orphan.item", now = now)
+
+        assertEquals(
+            listOf("orphan.item", "defined.item"),
+            database.inspectionItemQueries.selectByInspectionInTemplateOrder(inspectionId).executeAsList().map { it.stable_id },
+            "an item with no matching definition must stay in the projection (NULL sort first), never be dropped from the hash",
+        )
+    }
+
     @Test
     fun `property_item_override can be suppressed then restored via the same row`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)

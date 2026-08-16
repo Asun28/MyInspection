@@ -60,14 +60,17 @@ class InspectionSnapshotTest {
      * 而哈希域已经悄悄变了。租客联系方式那条尤其要害——原先只断言「三参数能构造成功」，可**多出一个带默认值
      * 的第四参数时三参数构造同样成功**，它证明不了缺席。
      *
-     * 故按字段逐一钉死形状。`declaredFields` 对 data class 返回主构造函数字段，**按声明顺序**。
+     * 故按字段逐一钉死形状。**比较的是集合（各自排序后），不是 `declaredFields` 的返回顺序**——
+     * JVM 规范**不保证** `getDeclaredFields()` 的顺序，依赖它会让一个合规但重排字段的工具链在源码没变的
+     * 情况下把这条测试弄红（假确定性）。字段顺序本也不该是契约：canonical JSON 由 T1-CANON-HASH 自己定序，
+     * 这里要守的是「**哪些字段在**」。
      * **本断言不覆盖引用类型的可空性**（`String?` 与 `String` 在 Java 侧同为 `String`）；基本类型可空则装箱
      * （`Long` vs `long`、`Boolean` vs `boolean`），那一类反而被覆盖到了。这个边界是实测结论，不是遗漏。
      */
     private fun assertExactShape(type: Class<*>, expected: List<String>) {
-        val actual = type.declaredFields.map { "${it.name}:${it.type.simpleName}" }
+        val actual = type.declaredFields.map { "${it.name}:${it.type.simpleName}" }.sorted()
         assertEquals(
-            expected, actual,
+            expected.sorted(), actual,
             "${type.simpleName} 的字段集合就是 T1-CANON-HASH 的哈希域形状：多一个、少一个、改名或改类型都会静默" +
                 "改变哈希结果。若这是有意的形状变更，同步改这里与 T1-CANON-HASH 的黄金向量。",
         )
