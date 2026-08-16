@@ -9,6 +9,7 @@ worktree: C:\wt\T2-ROUTINE-CONTENT
 allow_paths:
   - data/templates/routine-v1.json
   - android/core/src/test/kotlin/nz/myinspection/core/content/
+  - android/core/build.gradle.kts
 forbid:
   - 改模板引擎/schema 迁就内容（内容错就改内容）
 non_goals:
@@ -31,6 +32,11 @@ doc_sync: TASK-BOARD 备注（R5）
 `T1-TEMPLATE-ENGINE` 的上下文包允许它改 `android/core/build.gradle.kts`「把 `data/templates/` 注册为测试 resources srcDir」，但该卡**未动用**——它在 `data/templates/` 下只放得了 `README.md`，注册一个没有模板文件的 srcDir 等于落一段没有测试盯住的构建配置（详见该卡「实现说明」段）。于是本卡的 `core/content/` 测试要读 `data/templates/routine-v1.json`，只有两条路，**开卡时二选一并写进本卡**：
 1. 把 `android/core/build.gradle.kts` 加进本卡 `allow_paths`，注册 srcDir，测试走 `getResourceAsStream("/routine-v1.json")`（推荐：路径不随工作目录漂移）；
 2. 测试按相对路径读（`:core` 的 Gradle test 工作目录 = `android/core`，故为 `../../data/templates/routine-v1.json`），不动构建文件。
+
+**已定（2026-08-16 开卡时，W2 编排会话）**：走**选项 1**——`android/core/build.gradle.kts` 已入本卡 `allow_paths`；
+在其 `sourceSets` 把 `data/templates/` 注册为 **test resources srcDir**（只 test、不进 main/assets——构建期拷 assets 归后续 UI 卡），
+测试用 `getResourceAsStream("/routine-v1.json")` 读取。理由照本节推荐：类路径读取不随 Gradle 工作目录漂移，且本卡就带模板文件落地，
+srcDir 注册当卡即有测试盯住，不再是无主构建配置。
 
 另注：`data/*` 被 `.gitignore` 排除，`routine-v1.json` 入库须 `git add -f`（同 `data/templates/README.md`）。
 
