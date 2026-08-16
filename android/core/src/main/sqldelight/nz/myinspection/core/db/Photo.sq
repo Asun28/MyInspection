@@ -90,7 +90,16 @@ FROM photo
 WHERE content_hash = :content_hash AND deleted_at IS NULL
 ORDER BY rel_path ASC;
 
--- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）：返回
+-- 【2026-08-16 更正 · R3 第十二轮】**判死活只看 rel_path，不看 content_hash**，返回值也收敛成 rel_path。
+-- 理由：清理任务的删除目标是**一个物理文件路径**，而 schema 里没有任何约束保证「一个 rel_path 只对应一个
+-- content_hash」（唯一索引管的是 (room_instance_id, content_hash)，不管路径）。按 (hash, path) 这一对判活时，
+-- 软删行 (H1, P) 与活跃行 (H2, P) 并存就会让 P 被报成孤儿——**而 P 仍被活跃行引用，删掉即数据丢失**。
+-- 这同时推翻了下面原有的那段推论：「finalize 过的照片不能软删，故其 (hash, path) 组合恒有活跃行、不会进
+-- 孤儿列表」——finalized 的若是 (H2, P)、被报孤儿的是 (H1, P)，删的仍是同一个物理文件，巡检证据照样没。
+-- 按路径判活后该推论重新成立，且这次是**因为判定粒度与删除粒度对齐**，不是因为哈希碰巧不撞。
+-- 不再返回 content_hash：清理只需要路径；哈希侧的查询是 selectActiveAssetsByContentHash，各司其职。
+--
+-- 【历史】下面这段是本查询演进的原始注记，保留以免后人重走：返回
 -- content_hash + rel_path——只回 content_hash 曾经是个坑：调用方拿到孤儿哈希后，selectByRoomInstance
 -- 要求已知 room_instance_id 且天生排除软删行（孤儿行恰好就是软删的那些），根本查不回物理文件路径，
 -- 清理用例无从下手。资产身份 = (content_hash, rel_path) 这一对，不是单独 content_hash——同一哈希若曾
@@ -101,10 +110,10 @@ ORDER BY rel_path ASC;
 -- softDelete 已经禁止对 FINALIZED 巡检下的照片软删，所以这类 (content_hash, rel_path) 组合永远至少
 -- 有一行活跃记录，天然不会出现在这份孤儿列表里。
 orphanedAssets:
-SELECT DISTINCT p1.content_hash, p1.rel_path
+SELECT DISTINCT p1.rel_path
 FROM photo p1
 WHERE p1.deleted_at IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM photo p2
-    WHERE p2.content_hash = p1.content_hash AND p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL
+    WHERE p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL
   );

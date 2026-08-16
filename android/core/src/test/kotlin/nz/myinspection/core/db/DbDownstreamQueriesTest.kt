@@ -237,7 +237,7 @@ class DbDownstreamQueriesTest {
     }
 
     @Test
-    fun `orphanedAssets lists content_hash+rel_path with zero active rows and never a finalized inspection's asset`() {
+    fun `orphanedAssets lists rel_paths with zero active rows and never a finalized inspection's asset`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
 
@@ -262,15 +262,13 @@ class DbDownstreamQueriesTest {
         database.inspectionQueries.finalizeIfDraft(finalized_at = now + 11, data_hash = "h", updated_at = now + 11, id = finalInspectionId).value
 
         val orphans = database.photoQueries.orphanedAssets().executeAsList()
-        assertEquals(1, orphans.size, "only the fully-unreferenced asset is orphaned")
-        assertEquals("orphan-hash", orphans.single().content_hash)
-        assertEquals("photos/orphan.jpg", orphans.single().rel_path, "the caller must be able to recover the physical file path to delete, not just the hash")
-        assertTrue(orphans.none { it.content_hash == "finalized-hash" }, "a finalized inspection's photo asset must never be reported as orphaned")
+        assertEquals(listOf("photos/orphan.jpg"), orphans, "only the fully-unreferenced path is orphaned, and the caller gets the physical file to delete")
+        assertTrue(orphans.none { it == "photos/kept.jpg" }, "a finalized inspection's photo asset must never be reported as orphaned")
         assertNotNull(database.photoQueries.selectById(orphanPhotoId).executeAsOne().deleted_at)
     }
 
     @Test
-    fun `orphanedAssets judges liveness per (content_hash, rel_path), not by content_hash alone`() {
+    fun `orphanedAssets judges liveness per rel_path, so a shared hash cannot cover for a deleted path`() {
         // Same content_hash, two different physical files (two different rel_path values) — a real
         // scenario this schema explicitly allows (dedup is scoped per room_instance, not global).
         // One path's row gets soft-deleted while the other path's row stays active. Matching liveness
@@ -295,12 +293,51 @@ class DbDownstreamQueriesTest {
 
         val orphans = database.photoQueries.orphanedAssets().executeAsList()
         assertTrue(
-            orphans.any { it.content_hash == "shared-hash" && it.rel_path == "photos/path-a.jpg" },
+            orphans.contains("photos/path-a.jpg"),
             "the deleted path must be reported orphaned even though the same content_hash still has an active row at a different path",
         )
         assertTrue(
-            orphans.none { it.content_hash == "shared-hash" && it.rel_path == "photos/path-b.jpg" },
+            orphans.none { it == "photos/path-b.jpg" },
             "the still-active path must never be reported orphaned",
+        )
+    }
+
+    /**
+     * 反向的那一半（R3 第十二轮）：删除目标是**路径**，而 schema 不保证「一个 rel_path 只对应一个
+     * content_hash」——唯一索引管的是 (room_instance_id, content_hash)，不管路径。按 (hash, path) 判活时，
+     * 软删的 (H1, P) 会让 P 被报成孤儿，尽管活跃的 (H2, P) 还指着同一个物理文件；清理任务照报告删下去，
+     * 就把仍在用的文件删了。让活跃行属于 **FINALIZED 巡检**，把后果顶到最严重：巡检证据被抹掉，
+     * 而卡里原本的论证（「finalized 的照片不能软删，故其资产恒有活跃行」）在这个形状下正好失效。
+     */
+    @Test
+    fun `orphanedAssets never reports a path that a finalized inspection still references under a different hash`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+
+        // 草稿巡检里 (H1, P) 被软删。
+        val draftInspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val draftRoomId = DbTestFixtures.insertRoomInstance(database, uuid, draftInspectionId, now = now)
+        val deletedRowAtSharedPath = uuid.next()
+        database.photoQueries.insert(
+            id = deletedRowAtSharedPath, inspection_item_id = null, room_instance_id = draftRoomId,
+            rel_path = "photos/shared-path.jpg", content_hash = "hash-1", exif_time_ms = null,
+            source = "CAMERA", privacy_flag = 0, created_at = now, updated_at = now,
+        )
+        assertEquals(1L, database.photoQueries.softDelete(deleted_at = now + 1, id = deletedRowAtSharedPath).value)
+
+        // 另一次巡检里 (H2, **同一个 P**) 仍活跃，且该巡检已 finalize——证据不可再动。
+        val finalInspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now + 10)
+        val finalRoomId = DbTestFixtures.insertRoomInstance(database, uuid, finalInspectionId, now = now + 10)
+        database.photoQueries.insert(
+            id = uuid.next(), inspection_item_id = null, room_instance_id = finalRoomId,
+            rel_path = "photos/shared-path.jpg", content_hash = "hash-2", exif_time_ms = null,
+            source = "CAMERA", privacy_flag = 0, created_at = now + 10, updated_at = now + 10,
+        )
+        database.inspectionQueries.finalizeIfDraft(finalized_at = now + 11, data_hash = "h", updated_at = now + 11, id = finalInspectionId)
+
+        assertTrue(
+            database.photoQueries.orphanedAssets().executeAsList().none { it == "photos/shared-path.jpg" },
+            "a path still referenced by an active row must never be handed to the cleanup job, whatever hash that row carries",
         )
     }
 
@@ -415,7 +452,7 @@ class DbDownstreamQueriesTest {
             "reusing an asset adds an association, not a physical file — the distinct path set must not grow",
         )
 
-        // 存活粒度与 orphanedAssets 一致：路径的死活看 (content_hash, rel_path) 这一对**是否还有活跃行**。
+        // 存活粒度与 orphanedAssets 一致：路径的死活看**该 rel_path 是否还有活跃行**。
         // path-a 此刻有两条关联（原始 + 复用），删掉其中一条，那份物理文件仍被引用，必须继续可复用。
         database.photoQueries.softDelete(deleted_at = now + 1, id = firstAssociationAtPathA)
         assertEquals(
@@ -433,8 +470,7 @@ class DbDownstreamQueriesTest {
         )
         // 与 orphanedAssets 的口径对上：刚退出复用池的那份物理文件，正是它该报告的孤儿。
         assertTrue(
-            database.photoQueries.orphanedAssets().executeAsList()
-                .any { it.content_hash == "shared-hash" && it.rel_path == "photos/path-a.jpg" },
+            database.photoQueries.orphanedAssets().executeAsList().contains("photos/path-a.jpg"),
             "the path that just left the reuse pool is exactly what orphanedAssets must hand to the cleanup job",
         )
     }
