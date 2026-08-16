@@ -81,6 +81,13 @@ class PhraseLoaderTest {
     }
 
     @Test
+    fun `a missing sort is rejected while an explicit zero is accepted`() {
+        // Int 没有天然的"空"值：0 本身合法，故漏抄这个键必须走独立的 null 信号，而不是被 0 默认值悄悄吞掉。
+        assertEquals(listOf("phrase[0]: sort is missing"), errorsOf(library(phrases = listOf(phrase(sort = null)))))
+        assertEquals(0, load(library(phrases = listOf(phrase(sort = 0)))).library.phrases.single().sort)
+    }
+
+    @Test
     fun `an unknown category is rejected and the error names the phrase and the value`() {
         assertEquals(
             listOf("phrase[0]: unknown category wearx"),
@@ -167,6 +174,38 @@ class PhraseLoaderTest {
             listOf(
                 "phrase[0]: en is blank",
                 "phrase[1]: unknown category wearx",
+            ),
+            errorsOf(json),
+        )
+    }
+
+    @Test
+    fun `a single phrase with every kind of defect reports them in the documented intra-entry order`() {
+        // 一条基线合法短语（占 phrase[0]，供第二条的重复检测有靶可指），第二条同时踩中除
+        // "自身 en 空白"外的每一类检查——en 留空会让 duplicate-en 检查跳过（该检查只在 en 非空时跑），
+        // 两者互斥，故用"en 与基线重复"而非"en 留空"来同时验证 duplicate-en 与其余五类。
+        val json = library(
+            phrases = listOf(
+                phrase(en = "Fair wear and tear", shortcut = "\"FWT\""),
+                phrase(
+                    en = "Fair wear and tear",
+                    zh = "",
+                    category = "wearx",
+                    sort = null,
+                    appliesToStatuses = """["EXCELLENT"]""",
+                    shortcut = "\"FWT\"",
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "phrase[1]: zh is blank",
+                "phrase[1]: sort is missing",
+                "phrase[1]: unknown category wearx",
+                "phrase[1]: status EXCELLENT is not a recognized rating value",
+                "phrase[1]: duplicate en text (same as phrase[0])",
+                "phrase[1]: duplicate shortcut FWT (same as phrase[0])",
             ),
             errorsOf(json),
         )

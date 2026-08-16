@@ -13,7 +13,9 @@ internal object PhraseTestFixtures {
         en: String = "Fair wear and tear",
         zh: String = "正常损耗",
         category: String = "wear",
-        sort: Int = 0,
+        // 可空且默认非 null：多数用例传字面量 Int（隐式转宽为 Int?），只有专门测"漏抄 sort"的
+        // 用例显式传 null 才会省掉这个键——同 appliesToStatuses/shortcut 的省略约定。
+        sort: Int? = 0,
         appliesToStatuses: String? = """["FAIR"]""",
         shortcut: String? = "\"FWT\"",
     ): String {
@@ -21,8 +23,8 @@ internal object PhraseTestFixtures {
             "\"en\":\"$en\"",
             "\"zh\":\"$zh\"",
             "\"category\":\"$category\"",
-            "\"sort\":$sort",
         )
+        if (sort != null) fields += "\"sort\":$sort"
         if (appliesToStatuses != null) fields += "\"appliesToStatuses\":$appliesToStatuses"
         if (shortcut != null) fields += "\"shortcut\":$shortcut"
         return "{${fields.joinToString(",")}}"

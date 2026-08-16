@@ -101,7 +101,11 @@ class PhraseLibraryContentTest {
         assertTrue(wearPhrases.isNotEmpty(), "wear category should have seed phrases")
         assertTrue(wearPhrases.any { it.shortcut == "FWT" }, "FWT-shortcut phrase should surface via phrasesFor(\"wear\")")
 
-        val fairSuggestions = loaded.suggestFor("KIT-BENCH-01", "FAIR")
+        // "KIT-FRIDGE-01" is a real stableId from data/templates/routine-v1.json (T2-ROUTINE-CONTENT):
+        // suggestFor doesn't look stableId up (see its KDoc — no item->category mapping exists in
+        // this card's scope), but a content-completeness test should still call it with an id that
+        // genuinely identifies a real check item, not an arbitrary placeholder string.
+        val fairSuggestions = loaded.suggestFor("KIT-FRIDGE-01", "FAIR")
         assertTrue(fairSuggestions.isNotEmpty(), "FAIR should have at least one suggested phrase")
         assertTrue(
             fairSuggestions.all { it.appliesToStatuses == null || "FAIR" in it.appliesToStatuses!! },
@@ -110,6 +114,10 @@ class PhraseLibraryContentTest {
         assertFalse(
             fairSuggestions.any { it.appliesToStatuses != null && "FAIR" !in it.appliesToStatuses!! },
             "no phrase restricted to a different status should be suggested for FAIR",
+        )
+        assertTrue(
+            fairSuggestions.none { it.category == "cleaning" || it.category == "hhc" },
+            "suggestFor should not surface cleaning/hhc phrases (separate axes; browse via phrasesFor instead)",
         )
     }
 }

@@ -56,7 +56,7 @@ class PhraseQueryTest {
     }
 
     @Test
-    fun `suggestFor filters by status across every category, universal phrases always included`() {
+    fun `suggestFor filters by status within the condition-axis categories, universal phrases always included`() {
         val loaded = load(
             library(
                 phrases = listOf(
@@ -69,8 +69,28 @@ class PhraseQueryTest {
 
         // 排序按 (category, sort)：categories 按字典序为 condition-general < damage < wear,
         // 故两次查询里 "universal"（condition-general）都排在前面。
-        assertEquals(listOf("universal", "fair-only"), loaded.suggestFor("KIT-BENCH-01", "FAIR").map { it.en })
-        assertEquals(listOf("universal", "poor-only"), loaded.suggestFor("KIT-BENCH-01", "POOR").map { it.en })
+        assertEquals(listOf("universal", "fair-only"), loaded.suggestFor("ITEM-1", "FAIR").map { it.en })
+        assertEquals(listOf("universal", "poor-only"), loaded.suggestFor("ITEM-1", "POOR").map { it.en })
+    }
+
+    @Test
+    fun `suggestFor excludes cleaning and hhc even when they are universal (appliesToStatuses null)`() {
+        // cleaning/hhc 是与"条件评级"无关的独立轴（见 suggestFor KDoc）：即便它们的短语没有
+        // appliesToStatuses 限制，也不该被任意评级的推荐列表捞进来——这两条只经 phrasesFor 浏览取得。
+        val loaded = load(
+            library(
+                phrases = listOf(
+                    phrase(en = "condition-universal", category = "condition-general", sort = 0, appliesToStatuses = null, shortcut = null),
+                    phrase(en = "cleaning-universal", category = "cleaning", sort = 0, appliesToStatuses = null, shortcut = null),
+                    phrase(en = "hhc-universal", category = "hhc", sort = 0, appliesToStatuses = null, shortcut = null),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("condition-universal"), loaded.suggestFor("ITEM-1", "FAIR").map { it.en })
+        // 两个被排除的分类仍可经 phrasesFor 按分类取得——排除的是"跨分类推荐"，不是"短语本身不可用"。
+        assertEquals(listOf("cleaning-universal"), loaded.phrasesFor("cleaning").map { it.en })
+        assertEquals(listOf("hhc-universal"), loaded.phrasesFor("hhc").map { it.en })
     }
 
     @Test
@@ -87,7 +107,7 @@ class PhraseQueryTest {
 
         assertEquals(
             listOf("damage-1", "wear-0", "wear-1"),
-            loaded.suggestFor("KIT-BENCH-01", "FAIR").map { it.en },
+            loaded.suggestFor("ITEM-1", "FAIR").map { it.en },
         )
     }
 
@@ -100,6 +120,15 @@ class PhraseQueryTest {
     @Test
     fun `suggestFor rejects a blank status`() {
         val loaded = load(library())
-        assertFailsWith<IllegalArgumentException> { loaded.suggestFor("KIT-BENCH-01", "") }
+        assertFailsWith<IllegalArgumentException> { loaded.suggestFor("ITEM-1", "") }
+    }
+
+    @Test
+    fun `suggestFor rejects a status outside the recognized rating domain instead of silently returning universal phrases only`() {
+        // 拼错的评级值（如 "GOOD " 多个空格，或 "EXCELLENT" 这类不存在的等级）不该静默通过并
+        // 只返回通用短语——那样调用方会以为过滤生效了，实则每一条 appliesToStatuses 限定的短语
+        // 都被误判为不匹配。
+        val loaded = load(library())
+        assertFailsWith<IllegalArgumentException> { loaded.suggestFor("ITEM-1", "EXCELLENT") }
     }
 }

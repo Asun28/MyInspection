@@ -28,8 +28,14 @@ data class Phrase(
     val zh: String = "",
     /** 六选一封闭域，见 [PhraseDomains.CATEGORIES]。 */
     val category: String = "",
-    /** 同分类内的显示序（`phrase_entry.sort`，DB 层显式列，见该表 `ORDER BY sort ASC, id ASC` 注释）。 */
-    val sort: Int = 0,
+    /**
+     * 同分类内的显示序（`phrase_entry.sort`，DB 层显式列，见该表 `ORDER BY sort ASC, id ASC` 注释）。
+     * 必填字段，但**可空**——同 [en]/[zh] 用空串标记"漏抄"不同，`Int` 没有天然的"空"值，`0` 本身
+     * 就是合法的排序位，无法用来区分"作者真写了 0"和"作者漏写这个键"。故用 `null` 当漏抄信号，
+     * 由 [PhraseLoader.validate] 显式判定并点名（"sort is missing"），而不是让漏写静默退化成 0
+     * 参与排序——那样的错位只会在真实排序结果里表现为"这条莫名排到最前"，没人会往漏字段上想。
+     */
+    val sort: Int? = null,
     /** 可空：该短语只在这些评级下推荐（如 wear 类只在 FAIR）；null = 不限评级，任何状态都可用。 */
     val appliesToStatuses: List<String>? = null,
     /** 可空：输入快捷键（如 "FWT" → 展开为整条短语），备注输入框命中即展开（UI 消费见 T2-CAPTURE-UI）。 */

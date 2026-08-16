@@ -40,18 +40,32 @@ class LoadedPhraseLibrary private constructor(val library: PhraseLibrary) {
     }
 
     /**
-     * 按当前评级推荐短语，跨全部分类（卡片原文「按状态过滤推荐」——过滤维度是 [status]，
-     * 不是分类）：短语库本身不含"检查项 stableId → 分类"的对照表（那张表不存在于任何数据源，
-     * 建它属于另一张卡的范围），故 [stableId] 在 v1 只承担调用约定——强制调用方绑定到具体某一项，
-     * 不允许在不知道正给哪一项做推荐的情况下调用；真正的过滤条件只有 [status]：
-     * [Phrase.appliesToStatuses] 为 null（不限评级）或包含 [status] 的短语入选。
+     * 按当前评级推荐短语（卡片原文「按状态过滤推荐」——过滤维度是 [status]）。
+     *
+     * 只在**条件评级轴**内的分类参与：[SUGGESTABLE_CATEGORIES]（condition-general/wear/damage/
+     * action-needed）都随 GOOD/FAIR/POOR 评级本身变化；`cleaning`（清洁与状况是两条独立的评估轴，
+     * 需求 synthesis #3——把清洁短语塞进按状况评级推荐的列表会文不对题）与 `hhc`（Healthy Homes
+     * 复核点强绑定具体检查项，不该对"任意项、这个评级"都推荐——一间卧室评 FAIR 不该跳出"抽风扇
+     * 运作正常"这类与卧室无关的话）**不**参与；两者各自的短语走 [phrasesFor] 按分类浏览取得。
+     *
+     * [stableId] 在 v1 只承担调用约定（强制调用方绑定到具体某一项，不允许在不知道正给哪一项做
+     * 推荐的情况下调用），不参与过滤——它是**架构边界**，不是漏做：判定"这个 stableId 是否真实存在
+     * / 属于哪个分类"要求知道调用方**当前用的是哪一版模板**（同一 stableId 在不同 `template_version`
+     * 下是否存在、语义都可能不同），那需要读 `TemplateStore`/DB，而短语库刻意是**纯 JSON、模板版本
+     * 无关**的独立文件（forbid：短语不与模板文件混编，与检查项模板分开演进）——带上这层查找会让
+     * 两个本该独立演进的文件相互耦合。持有"当前模板 + 当前巡检"两者的层是 :app 侧选择器 UI，
+     * 而选择器 UI 正是本卡 non_goals 显式排除、留给 T2-CAPTURE-UI 的范围；真要做 stableId 存在性
+     * 校验，天然该长在那一层（它能交叉核对已加载的模板），不该在这个纯 JVM、无状态的加载器里
+     * 假装自己知道"当前巡检用的是哪份模板"。[status] 必须落在 [PhraseDomains.STATUSES] 内
+     * （含空白）：拼错的评级值当场报错，而不是静默只返回通用短语、让调用方以为过滤生效了。
      *
      * 返回按 (分类, sort) 排序，同 sort 值内保留原数组序（同上 stable-sort 理由）。
      */
     fun suggestFor(stableId: String, status: String): List<Phrase> {
         require(stableId.isNotBlank()) { "stableId must not be blank" }
-        require(status.isNotBlank()) { "status must not be blank" }
+        require(status in PhraseDomains.STATUSES) { "unknown status: $status" }
         return library.phrases
+            .filter { it.category in SUGGESTABLE_CATEGORIES }
             .filter { phrase -> phrase.appliesToStatuses?.let { status in it } ?: true }
             .sortedWith(compareBy({ it.category }, { it.sort }))
     }
@@ -85,7 +99,7 @@ object PhraseLoader {
      * 校验一份已解析的短语库，返回全部问题；空列表 = 通过。内容卡的 DoD 直接拿它当闸。
      *
      * 发出顺序是契约的一部分：先库层，再按 phrases 数组序逐条，同一条内按
-     * 文案(blank) → 分类域 → 评级域 → 重复(en/shortcut)。
+     * 文案(blank) → sort(missing) → 分类域 → 评级域 → 重复(en/shortcut)。
      */
     fun validate(library: PhraseLibrary): List<String> {
         val errors = mutableListOf<String>()
@@ -103,16 +117,8 @@ object PhraseLoader {
 
             if (phrase.en.isBlank()) errors += "$label: en is blank"
             if (phrase.zh.isBlank()) errors += "$label: zh is blank"
+            if (phrase.sort == null) errors += "$label: sort is missing"
             if (phrase.category !in PhraseDomains.CATEGORIES) errors += "$label: unknown category ${phrase.category}"
-
-            if (phrase.en.isNotBlank()) {
-                val firstIndex = firstIndexByEn[phrase.en]
-                if (firstIndex != null) {
-                    errors += "$label: duplicate en text (same as phrase[$firstIndex])"
-                } else {
-                    firstIndexByEn[phrase.en] = index
-                }
-            }
 
             val applies = phrase.appliesToStatuses
             if (applies != null) {
@@ -122,6 +128,15 @@ object PhraseLoader {
                     applies.filterNot { it in PhraseDomains.STATUSES }.forEach { status ->
                         errors += "$label: status $status is not a recognized rating value"
                     }
+                }
+            }
+
+            if (phrase.en.isNotBlank()) {
+                val firstIndex = firstIndexByEn[phrase.en]
+                if (firstIndex != null) {
+                    errors += "$label: duplicate en text (same as phrase[$firstIndex])"
+                } else {
+                    firstIndexByEn[phrase.en] = index
                 }
             }
 
@@ -145,6 +160,15 @@ object PhraseLoader {
 
 // 文件级 private：[LoadedPhraseLibrary.parse] 与 [PhraseLoader] 都要用；同 TemplateLoader.kt 的理由，
 // Kotlin 的 private 成员只对所属类可见，private 顶层声明才是"本文件可见"。
+
+/**
+ * 参与 [LoadedPhraseLibrary.suggestFor] 的分类子集（见该函数 KDoc 的完整理由）：
+ * condition-general/wear/damage/action-needed 随 GOOD/FAIR/POOR 评级本身变化，是"条件评级轴"；
+ * `cleaning`/`hhc` 各自是独立轴，混进"任意项、这个评级"的推荐列表会文不对题，只经 [LoadedPhraseLibrary.phrasesFor]
+ * 按分类浏览取得。
+ */
+private val SUGGESTABLE_CATEGORIES: Set<String> =
+    Collections.unmodifiableSet(linkedSetOf("condition-general", "wear", "damage", "action-needed"))
 
 /**
  * 严格 UTF-8 解码：坏字节**抛异常**，不替换成 U+FFFD（同 `TemplateLoader.kt` 的

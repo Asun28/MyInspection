@@ -7,7 +7,7 @@
     { "en": "No visible defects observed", "zh": "未观察到可见缺陷", "category": "condition-general", "sort": 3, "appliesToStatuses": ["GOOD"] },
     { "en": "Functions as intended", "zh": "功能正常", "category": "condition-general", "sort": 4, "appliesToStatuses": ["GOOD"] },
     { "en": "Item not present at this property", "zh": "本物业没有该物品", "category": "condition-general", "sort": 5, "appliesToStatuses": ["NOT_APPLICABLE"] },
-    { "en": "Not accessible for inspection at this visit", "zh": "本次巡检未能进入检查", "category": "condition-general", "sort": 6 },
+    { "en": "Not accessible for inspection at this visit", "zh": "本次巡检未能进入该处检查", "category": "condition-general", "sort": 6 },
     { "en": "Condition unchanged since the tenancy began", "zh": "自租期开始以来状况未变", "category": "condition-general", "sort": 7 },
     { "en": "Recently replaced or renewed", "zh": "近期已更换或翻新", "category": "condition-general", "sort": 8, "appliesToStatuses": ["GOOD"] },
     { "en": "No odour or moisture concerns identified", "zh": "未发现异味或潮湿问题", "category": "condition-general", "sort": 9, "appliesToStatuses": ["GOOD"] },
@@ -64,13 +64,13 @@
     { "en": "Photographed for the record; no immediate action required", "zh": "已拍照存档；目前无需立即处理", "category": "action-needed", "sort": 8, "appliesToStatuses": ["FAIR"] },
     { "en": "Escalated as a priority item", "zh": "已列为优先处理事项", "category": "action-needed", "sort": 9, "appliesToStatuses": ["POOR"] },
 
-    { "en": "Ceiling insulation appears intact with no visible gaps or damage", "zh": "天花绝缘层完好，未见明显缝隙或破损", "category": "hhc", "sort": 0 },
-    { "en": "Underfloor insulation appears intact with no visible gaps or damage", "zh": "地板下绝缘层完好，未见明显缝隙或破损", "category": "hhc", "sort": 1 },
+    { "en": "Ceiling insulation appears intact with no visible gaps or damage", "zh": "天花绝缘层外观完好，未见明显缝隙或破损", "category": "hhc", "sort": 0 },
+    { "en": "Underfloor insulation appears intact with no visible gaps or damage", "zh": "地板下绝缘层外观完好，未见明显缝隙或破损", "category": "hhc", "sort": 1 },
     { "en": "Ground moisture barrier is in place and appears undamaged", "zh": "防潮布已铺设，且未见明显破损", "category": "hhc", "sort": 2 },
-    { "en": "Guttering and downpipes appear clear and directing water away from the building", "zh": "檐槽与落水管畅通，能将雨水排离建筑物", "category": "hhc", "sort": 3 },
+    { "en": "Guttering and downpipes appear clear and directing water away from the building", "zh": "从外观看，檐槽与落水管畅通，能将雨水排离建筑物", "category": "hhc", "sort": 3 },
     { "en": "Extraction fan operates and vents to the outside", "zh": "抽风扇运作正常，并排至室外", "category": "hhc", "sort": 4 },
     { "en": "Window or door opening provides the required ventilation for this room", "zh": "本房间的门窗开口提供了所需的通风", "category": "hhc", "sort": 5 },
-    { "en": "Fixed heater appears to meet the minimum heating capacity for this room", "zh": "固定式加热器的加热能力符合本房间最低要求", "category": "hhc", "sort": 6 },
+    { "en": "Fixed heater appears to meet the minimum heating capacity for this room", "zh": "固定式加热器的加热能力看起来符合本房间最低要求", "category": "hhc", "sort": 6 },
     { "en": "No unreasonable gaps identified around doors or windows", "zh": "门窗周围未发现不合理缝隙", "category": "hhc", "sort": 7 }
   ]
 }
