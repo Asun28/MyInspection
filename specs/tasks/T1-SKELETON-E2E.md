@@ -56,11 +56,19 @@ T1-SCHEMA-CORE → T1-CANON-HASH → T3-FINALIZE → T3-REPORT-COMPOSER → T3-P
 
 1. 建一次巡检（内存对象，一个地址字符串 + 时间戳，**不落库**）
 2. 加一个检查项：一行文字 + 三选一状态（好 / 一般 / 差）
-3. 拍一张照（CameraX 或系统相机 intent，二选一，怎么简单怎么来），存进 app 私有目录
+3. 拍一张照：`ActivityResultContracts.TakePicturePreview()`，拿系统相机返回的**缩略图 Bitmap**，只在内存里
 4. 点导出：用 `android.graphics.pdf.PdfDocument` 画一页 —— 标题、地址、时间、那一行检查项及其状态、那张照片
-5. 把 PDF 落到 app 私有目录并用系统 viewer 打开（`ACTION_VIEW` + FileProvider）
+5. 经 SAF `ActivityResultContracts.CreateDocument("application/pdf")` 让用户自选落点写出；成功/失败用 Toast 报
 
-`MainActivity` 只加一个入口按钮跳进去，原有内容不动。
+`MainActivity` 的根内容直接换成骨架界面（原内容是个空 `Box`，没有值得保留的东西）。
+
+> **本节 2026-08-16 按 L212 更正**（R3 第 1 轮三条 #7 命中的都是这里）。原文要求「照片存进 app 私有目录」
+> 「PDF 落私有目录 + `ACTION_VIEW` 打开」「MainActivity 只加入口按钮、原有内容不动」——**前两条在本卡
+> `allow_paths` 内做不到**：让相机写入私有文件、或把私有 PDF 交给外部 viewer，都要 FileProvider，而
+> FileProvider 要 `android/app/src/main/res/xml/file_paths.xml`，那在 `T2-CAPTURE-UI` 的 allow_paths 里。
+> 卡的义务必须在它自己的 allow_paths 内可达（L212），故改成缩略图 + SAF：**更少代码、零权限、零
+> FileProvider，且 SAF 本就是 ADR-0002 定的导出方式**。第三条（入口按钮）是给一个空屏加一层无意义的跳转，
+> 一并去掉。全分辨率落盘是 `T2-PHOTO-PIPELINE` 的活，不是本卡的。
 
 ## 禁止
 
@@ -86,6 +94,20 @@ cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebu
 - 机检断言：`assembleDebug` 绿，产出 `android/app/build/outputs/apk/debug/app-debug.apk`
 - 人工断言（真机，约 5 分钟，结果贴 PR / 卡片记录）：装机 → 建巡检 → 加一项并置状态 → 拍一张 →
   导出 → 打开 PDF，**PDF 里同时看得见那行检查项状态和那张照片**。
+
+### 真机走查证据（2026-08-16，用户在自己的 Android 机上跑完）
+
+装机 → 建巡检 → 加一项并置状态 → 拍一张 → SAF 导出 → 打开 PDF，**六步全通**；PDF 里检查项文字、状态、
+照片三者都看得见（用户原话：「basic is working」）。走查同时提出三条产品反馈，**均不属本卡、已各有归属卡**，
+按 rubric §0「不得给卡加范围」记为 follow-up、不在本卡处理：
+
+| 反馈 | 归属卡 | 为何不在本卡修 |
+|---|---|---|
+| 照片画质差（`TakePicturePreview` 只给缩略图） | `T2-PHOTO-PIPELINE` | 全分辨率要 FileProvider → `res/xml/file_paths.xml`，在 T2-CAPTURE-UI 的 allow_paths 里 |
+| UI/UX 粗糙 | `T2-CAPTURE-UI` | 本卡 `non_goals` 明列「任何 UI 打磨（能点就行，丑无所谓）」 |
+| 拍照时背景没有历史照片（ghost overlay） | `T3-HISTORY-COMPARE`（可行性在 `T1-SPIKE-PLATFORM` 探测①） | 需历史数据 + overlay，两者都在下游 |
+
+这三条正是本卡存在的理由：**10 分钟真机点完拿到具体产品反馈**，而按原依赖链要穿过 9 张卡才看得见第一份 PDF。
 
 ### 关于 RED-first
 
