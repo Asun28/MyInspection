@@ -44,3 +44,16 @@ doc_sync: CLAUDE.md 当前阶段；合并后模板 JSON schema 视同契约（�
 
 ## 验收 / 执行建议
 dod 见 front-matter。首选 DeepSeek V4 Pro · high；备选 Sonnet 5 max。难度 M。
+
+## 评审仲裁：房间 `repeatable` 标记不在本卡（R3 第 2 轮）
+上下文包里「房间定义带 `repeatable` 标记」这一句**不落在本卡**，独立成 `T2-ROOM-REPEATABLE`。R3 第 1 轮该评审者自己判它为 `[FOLLOW-UP]`（理由即「可能需要改动本卡 allow_paths 之外、且已冻结的持久层 schema」），第 2 轮升级为 block；仲裁维持第 1 轮判断，理由：
+
+- **存不下**：`check_item_def` 只有 item 级 `room` 列，无房间定义表、无 repeatable 列；`sqldelight/` 自 `fcdc88d` 起冻结，加表/加列须走新 `.sqm` + 版本评审——在本卡 `allow_paths` 之外，且 TD4 未还清前无从校验迁移。
+- **半落地更坏**：只往模板 JSON 加 `rooms[]` 而不持久化，等于在一张**冻结点卡**里新造一条「入库静默丢字段」的路径——正是 T1-SCHEMA-CORE 用 17 轮清掉的缺陷类。
+- 本卡 front-matter 的 `dod_assert` 未包含 repeatable；按 rubric §0「按卡片自己声明的 DoD 判」，它不构成本卡的验收缺口。
+
+本卡上下文包给出的模板 JSON 形态 `{ type, version, items: [...] }` 也没有 `rooms[]` 段——这与上述仲裁一致。
+
+## 实现说明：`build.gradle.kts` 的允许项未动用
+上下文包允许改 `android/core/build.gradle.kts`「只为把 `data/templates/` 注册为测试 resources srcDir」。本卡未动用该允许：本卡 `allow_paths` 在 `data/templates/` 下只放得了 `README.md`，注册后该 srcDir 里没有任何模板文件可供测试加载，等于落一段没有测试盯住的构建配置。fixture 因此内联在测试源码里（每个坏 fixture 只与好 fixture 差一处，断言面恰好等于被测规则）。
+**后果需下游承接**：`T2-ROUTINE-CONTENT` 要写 `data/templates/routine-v1.json` 并在 `core/content/` 测试里加载它，而它的 `allow_paths` 不含构建文件——开卡时须补 `android/core/build.gradle.kts`（注册 srcDir），或在卡内明确用相对路径读取。
