@@ -95,6 +95,18 @@ fun interface CompletenessPort {
  *    函数对同一项的（对它们自己而言正确、但对 finalize 不够）判断。域直接取自 [TemplateDomains]（与
  *    `DbCompletenessCheckerTest` 的分类表同一个真相源，不会各说各话）。
  *
+ *    **范围明确排除：逐项精确到"这个 status 在不在这一项自己的 `allowed_statuses` 子集里"**（比第 4 条
+ *    的类型域更细一档）——`check()` 里确实解码了每条 `check_item_def.allowed_statuses`（供
+ *    [nz.myinspection.core.capture.ItemDef] 用），但只喂给 capture 的两个委派函数，不在本类里再拿它验证
+ *    `existing.status`。这条子集校验的铸造点同样在 `core/capture` 的
+ *    `InspectionRepository.setItemStatus`（`require(status in allowed) { ... }`，`android/core/src/main/
+ *    kotlin/nz/myinspection/core/capture/InspectionRepository.kt:218-219`），与第 4 条是**同一类**
+ *    "已在铸造点验证、不在此重复"的判断，不是第 4 条那种"分类器自身完备性"的例外——第 4 条修的是
+ *    finalize **自己已经在跑**的分类器（`classifyAdverseness`）对域外值的盲区，这里若要修则是**新开**一
+ *    道逐项合法性闸，与铸造点重复。**本条已被评审第二次提出（第一次见本卡 PR round 5、同一铸造点引用、
+ *    同一 `L220` 依据，判定 declined）；按项目 R3 两轮规则，第三次原样重提将转人裁、不再由评审自行反复
+ *    要求本类修改。**
+ *
  * 五类问题分别用 [MissingItem]/[MissingItem]/房间键字符串/[MissingItem]/[MissingItem] 报告，UI 侧可以
  * 统一渲染。
  */

@@ -126,8 +126,16 @@ class FinalizeInspectionUseCaseTest {
         assertEquals(first.finalizedAt, row.finalized_at)
     }
 
+    /**
+     * finalize 只读强制的**真正**用例层实现在 `core/capture`（`InspectionRepository.setItemStatus`，
+     * `check(statusAffected == 1L) { ... }`，`android/core/src/main/kotlin/nz/myinspection/core/capture/
+     * InspectionRepository.kt:225-230`）——那是原始条目实际的写入口，"非 1 行→显式抛出"这道闸长在那里
+     * 才对得上真实调用路径。本卡这里不重复那道闸（`core/finalize` 自己不拥有任何写原始条目的用例），
+     * 只钉住冻结 schema 那条 SQL 谓词本身的行为：对 FINALIZED 巡检直接写 `inspection_item`（无论
+     * UPDATE 还是 INSERT）必须落地为 0 行，这是本卡 DoD 依赖的事实、也是 capture 那道闸能生效的前提。
+     */
     @Test
-    fun `after finalize, direct writes against the original items are 0 rows at the SQL layer, and requireOriginalEntryWritten turns that into an explicit failure at the use-case layer`() {
+    fun `after finalize, direct writes against the original items affect 0 rows at the SQL layer`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
         val useCase = FinalizeInspectionUseCase(database, DbCompletenessChecker(database), fixedClock(now + 1))
         assertIs<FinalizeOutcome.Finalized>(useCase.finalize(ready.inspectionId))
@@ -136,11 +144,6 @@ class FinalizeInspectionUseCaseTest {
             status = "POOR", note = "tampered", updated_at = now + 2, id = ready.itemId,
         ).value
         assertEquals(0L, updateAffected, "writing to an item under a FINALIZED inspection must affect 0 rows")
-        // 卡文：「本卡在用例层再挡一道」——裸的 0 行不是本卡对这条纪律的兑现，调用方必须把它转成显式错误
-        // 才算挡住；requireOriginalEntryWritten 就是这道闸，直接调写接口对 FINALIZED 巡检 → 抛出。
-        assertFailsWith<OriginalEntryWriteRejectedException> {
-            requireOriginalEntryWritten(updateAffected, "update item status")
-        }
 
         val insertAffected = database.inspectionItemQueries.insert(
             id = uuid.next(), inspection_id = ready.inspectionId, room_instance_id = ready.roomInstanceId,
@@ -148,46 +151,6 @@ class FinalizeInspectionUseCaseTest {
             created_at = now + 2, updated_at = now + 2,
         ).value
         assertEquals(0L, insertAffected, "inserting a new item under a FINALIZED inspection must affect 0 rows")
-        assertFailsWith<OriginalEntryWriteRejectedException> {
-            requireOriginalEntryWritten(insertAffected, "insert new item")
-        }
-    }
-
-    /**
-     * `requireOriginalEntryWritten` 的守卫是 `affected != 1L`，不是弱化过的 `affected == 0L`——后者会
-     * 放行任何 >=2 行的批量写，而"一次调用改了不止一行"同样是需要显式报错的异常状态（正常路径按主键
-     * 精确匹配单行，`affected` 恒为 0 或 1）。这里用一条真实命中两行的原生 SQL UPDATE（同一巡检下两个
-     * 检查项，按 `inspection_id` 批量匹配）造出 `affected = 2`，而不是直接摆一个字面量 `2L`——否则测不出
-     * "这个值真的可能在生产里出现"，只测得出函数本身接不接受任意 Long。
-     */
-    @Test
-    fun `requireOriginalEntryWritten rejects a genuine multi-row write, not just zero`() {
-        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
-        DbTestFixtures.insertInspectionItem(
-            database, uuid, ready.inspectionId, ready.roomInstanceId, stableId = "second.item", now = now,
-        )
-
-        val batchAffected = driver.execute(
-            null, "UPDATE inspection_item SET note = 'batch' WHERE inspection_id = '${ready.inspectionId}'", 0,
-        ).value
-        assertEquals(2L, batchAffected, "fixture must actually touch two rows for this test to mean anything")
-
-        assertFailsWith<OriginalEntryWriteRejectedException> {
-            requireOriginalEntryWritten(batchAffected, "batch update")
-        }
-    }
-
-    @Test
-    fun `requireOriginalEntryWritten is transparent to a legitimate DRAFT write`() {
-        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
-
-        val affected = database.inspectionItemQueries.updateStatusIfDraft(
-            status = "POOR", note = "still drafting", updated_at = now + 1, id = ready.itemId,
-        ).value
-
-        // 不抛——合法写路径对这道闸完全透明。
-        requireOriginalEntryWritten(affected, "update item status")
-        assertEquals(1L, affected)
     }
 
     /**
