@@ -46,21 +46,48 @@ class InspectionSnapshotAssemblerTest {
     }
 
     /**
-     * 跨层黄金测试（TD5）：预期快照完全独立于被测装配器手写构造，不是从 [InspectionSnapshotAssembler]
-     * 的输出反推出来的。按夹具已知的每一个字段值独立拼出 `expected`，与装配器的真实输出做完整
-     * data class 相等——字段映射错了、遗漏了、items[] 顺序错了，三类缺陷任一种都会让这条断言红。
+     * 跨层黄金测试（TD5 的登记修法：DB 夹具 → 正门查询 → 投影 → data_hash 钉黄金值 + 乱序装配对照）。
+     *
+     * 两层证据，缺一不可：
+     * 1. **字段级**——`expected` 完全独立于被测装配器手写构造，按夹具已知的每一个字段值拼出，与装配器
+     *    真实输出做完整 data class 相等；字段映射错了/遗漏了/items[] 顺序错了，这条断言先红，且比对错在
+     *    哪个字段（比纯哈希比对更好诊断）。
+     * 2. **哈希级**——`GOLDEN_HASH` 不是本测试算出来的：canonical JSON 串按 `InspectionCanon.kt` 的
+     *    投影规则（键名/嵌套形状）与 `CanonicalJson.kt` 的序列化规则（键按 UTF-16 排序、无空白、显式
+     *    null）手工拼出，独立用 Python（`json.dumps(sort_keys=True, separators=(',',':'))` + `hashlib.
+     *    sha256`）算出十六进制哈希，写死在这里——与 T1-CANON-HASH 黄金向量同一方法论（GoldenVectorTest.kt
+     *    顶部注释）。字段相等测不出的"装配器与 canon 层同时改错却恰好还相等"这类协同漂移，独立算出的
+     *    字面量测得出：改任一侧（键名/排序/转义/字段值），这个常量都不会跟着变。
+     *
+     * 所有直接决定哈希的实体（inspection/property/tenancy/template_version）用**字面量 id**（不走
+     * `uuid.next()`）——运行时随机 id 会让"黄金值"这个概念本身失效（同一断言每次跑值都不同）。
+     * check_item_def/room_instance/inspection_item 的**自身** id 不进快照投影，仍可用现有夹具自动生成。
      */
     @Test
-    fun `assembled snapshot matches an independently hand-built expectation, field by field and in template order (TD5)`() {
-        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
-        val tenancyId = FinalizeTestFixtures.insertTenancy(database, uuid, propertyId, startMs = now - 5_000, endMs = now + 5_000, now = now)
-        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "EXIT", now = now)
+    fun `assembled snapshot matches an independently precomputed golden hash, and an independently hand-built expectation (TD5)`() {
+        val propertyId = "golden-prop-0001"
+        val tenancyId = "golden-ten-0001"
+        val templateVersionId = "golden-tpl-0001"
+        val inspectionId = "golden-insp-0001"
+
+        database.propertyQueries.insert(
+            id = propertyId, address = "12 Test St", kind = "RENTAL", is_boarding_house = 0, created_at = now, updated_at = now,
+        )
+        database.tenancyQueries.insert(
+            id = tenancyId, property_id = propertyId, start_ms = now - 1_000_000, end_ms = now + 50_000_000,
+            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, created_at = now, updated_at = now,
+        )
+        database.templateVersionQueries.insert(
+            id = templateVersionId, type = "EXIT", version = 1, content_hash = "golden-template-hash", created_at = now, updated_at = now,
+        )
         // sort 与创建顺序刻意错开：wall.paint 的模板序在前（sort=1），但下面先建 ceiling 的 check_item_def，
         // 且下面 inspection_item 的插入顺序同样与模板序相反——插入序、创建序都不能被误当成装配序。
         FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "ceiling.paint", room = "BEDROOM", sort = 2, now = now)
         FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 1, now = now)
-        val inspectionId = DbTestFixtures.insertDraftInspection(
-            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "EXIT", now = now,
+        database.inspectionQueries.insert(
+            id = inspectionId, type = "EXIT", property_id = propertyId, tenancy_id = tenancyId, template_version_id = templateVersionId,
+            scheduled_at = now, previous_inspection_id = null, baseline_inspection_id = null, status = "DRAFT",
+            finalized_at = null, data_hash = null, created_at = now, updated_at = now,
         )
         val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
         DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "ceiling.paint", status = "GOOD", now = now)
@@ -69,18 +96,18 @@ class InspectionSnapshotAssemblerTest {
         FinalizeTestFixtures.insertRoomLevelPhoto(database, uuid, roomInstanceId, contentHash = "panorama-hash", now = now)
         FinalizeTestFixtures.insertAudio(database, uuid, wallItemId, contentHash = "audio-hash", now = now)
 
-        val templateRow = database.templateVersionQueries.selectById(templateVersionId).executeAsOne()
+        val finalizedAt = now + 100_000
         val expected = InspectionSnapshot(
             id = inspectionId,
             type = "EXIT",
             tenancyId = tenancyId,
             scheduledAt = now,
-            finalizedAt = now + 1,
+            finalizedAt = finalizedAt,
             previousInspectionId = null,
             baselineInspectionId = null,
             property = PropertySnapshot(id = propertyId, address = "12 Test St", kind = "RENTAL", isBoardingHouse = false),
-            tenancy = TenancySnapshot(id = tenancyId, startMs = now - 5_000, endMs = now + 5_000),
-            template = TemplateSnapshot(id = templateVersionId, type = "EXIT", version = 1, contentHash = templateRow.content_hash),
+            tenancy = TenancySnapshot(id = tenancyId, startMs = now - 1_000_000, endMs = now + 50_000_000),
+            template = TemplateSnapshot(id = templateVersionId, type = "EXIT", version = 1, contentHash = "golden-template-hash"),
             // 模板序：wall（sort=1）先，ceiling（sort=2）后——与上面插入序、check_item_def 创建序都相反。
             items = listOf(
                 InspectionItemSnapshot(stableId = "wall.paint", status = "FAIR", note = "scuffed", wearOrDamage = null),
@@ -90,15 +117,24 @@ class InspectionSnapshotAssemblerTest {
             audios = listOf(AudioSnapshot(contentHash = "audio-hash")),
         )
 
-        val actual = InspectionSnapshotAssembler.assemble(database, inspectionId, finalizedAt = now + 1)
+        val actual = InspectionSnapshotAssembler.assemble(database, inspectionId, finalizedAt = finalizedAt)
 
         assertEquals(expected, actual)
+        assertEquals(GOLDEN_HASH, sha256Hex(canonicalJson(actual)), "independently precomputed golden hash must match — see class KDoc for derivation")
 
-        // 顺序确实是哈希域的一部分（补充证据，非替代上面的字段级黄金比对）：把 items[] 手动倒过来，
-        // canonical 哈希必须不同。
-        val correctOrderHash = sha256Hex(canonicalJson(actual))
+        // 乱序装配对照（TD5 修法原文明确要求）：手动把 items[] 倒过来，canonical 哈希必须不同——
+        // 顺序是哈希域的一部分，不是装配细节。
         val shuffledHash = sha256Hex(canonicalJson(actual.copy(items = actual.items.reversed())))
-        assertNotEquals(correctOrderHash, shuffledHash, "items[] 顺序必须参与哈希")
+        assertNotEquals(GOLDEN_HASH, shuffledHash, "items[] 顺序必须参与哈希")
+    }
+
+    private companion object {
+        /**
+         * 独立算出（不是本测试跑出来的）：canonical JSON 串按上面 KDoc 描述的固定夹具手工拼出，喂给
+         * Python 的 `hashlib.sha256`。改动这个常量前须重新独立推导，不得从 `sha256Hex(canonicalJson(...))`
+         * 的实际运行结果反填。
+         */
+        const val GOLDEN_HASH = "93d0a2bac296b1d64a50e6e618b0456967064cb8af333bb648736bfa756dc9cc"
     }
 
     @Test
