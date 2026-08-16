@@ -23,8 +23,10 @@ data class MissingItem(val roomInstanceId: String, val stableId: String)
  * 从未被走查过，是"缺项"里最强的一种。[itemsMissingNote]：不利发现却备注空白（`core/capture` 的
  * `computeMissingNotes`，需求 §5「不利发现强制备注」）。[itemsWithInvalidStatus]：`ADVERSE_ONLY`/
  * 不利发现分类遇到一个不在冻结域内的评级字符串——分类不出来就不能悄悄当成"非不利"放行（见
- * [DbCompletenessChecker] 顶部说明）。三者默认空列表，方便只关心逐项判定的调用方（如测试里的假
- * `CompletenessPort`）不必每次都显式传。
+ * [DbCompletenessChecker] 顶部说明）。[itemsWithDisallowedStatus]：状态在冻结类型域内、但不在这一项
+ * 自己的 `allowed_statuses` 子集里——`core/capture` 的写入口已校验同一条件，这里是 finalize 闸上的
+ * 第二道防线。四者默认空列表，方便只关心逐项判定的调用方（如测试里的假 `CompletenessPort`）不必每次
+ * 都显式传。
  */
 data class CompletenessResult(
     val itemsMissingStatus: List<MissingItem>,
@@ -32,10 +34,12 @@ data class CompletenessResult(
     val roomsMissingInstance: List<String> = emptyList(),
     val itemsWithInvalidStatus: List<MissingItem> = emptyList(),
     val itemsMissingNote: List<MissingItem> = emptyList(),
+    val itemsWithDisallowedStatus: List<MissingItem> = emptyList(),
 ) {
     val isComplete: Boolean
         get() = itemsMissingStatus.isEmpty() && itemsMissingMandatoryPhoto.isEmpty() &&
-            roomsMissingInstance.isEmpty() && itemsWithInvalidStatus.isEmpty() && itemsMissingNote.isEmpty()
+            roomsMissingInstance.isEmpty() && itemsWithInvalidStatus.isEmpty() && itemsMissingNote.isEmpty() &&
+            itemsWithDisallowedStatus.isEmpty()
 }
 
 /**
@@ -66,7 +70,7 @@ fun interface CompletenessPort {
 
 /**
  * [CompletenessPort] 的默认实现——`core/capture`（`T2-CAPTURE-CORE`）权威完备性函数的**适配器**，
- * 组合 finalize 自己才拥有的三项检查（0/1/4；2/3 委派给 capture）。判定五件事：
+ * 组合 finalize 自己才拥有的四项检查（0/1/4/5；2/3 委派给 capture）。判定六件事：
  *
  * 0. **缺房间实例**（finalize 自有，capture 不管）：模板里存在至少一个未被抑制项的房间键，却在
  *    `room_instance` 里一行都找不到——`core/capture`（`InspectionRepository`）在建巡检时按模板房间键
@@ -94,16 +98,12 @@ fun interface CompletenessPort {
  *    [CompletenessResult.itemsWithInvalidStatus]、`isComplete` 整体仍为 false，不依赖 capture 那两个
  *    函数对同一项的（对它们自己而言正确、但对 finalize 不够）判断。域直接取自 [TemplateDomains]（与
  *    `DbCompletenessCheckerTest` 的分类表同一个真相源，不会各说各话）。
+ * 5. **逐项 `allowed_statuses` 子集校验**：`core/capture` 的写入口已在铸造点校验同一条件
+ *    （`InspectionRepository.setItemStatus` 的 `require(status in allowed)`）；本类在 finalize 闸再核
+ *    一次，是铸造点之外的第二道防线，守护即将写入报告的既成证据，不是重复劳动。
  *
- *    **范围明确排除逐项 `allowed_statuses` 子集校验**（`check_item_def.allowed_statuses` 是其模板类型域
- *    的子集，比第 4 条的类型域判定更细一档）——`check()` 解码每条 `check_item_def.allowed_statuses`
- *    仅为喂给 [nz.myinspection.core.capture.ItemDef]（供 capture 的两个委派函数使用），不在本类里再拿它
- *    验证 `existing.status`。per-item 状态合法性的铸造点同样在 `core/capture` 的
- *    `InspectionRepository.setItemStatus`（`require(status in allowed) { ... }`）——与第 4 条同属"已在
- *    铸造点验证、不在此重复"，不是第 4 条那种"finalize 自己已经在跑的分类器需要 fail-closed 补全"的例外。
- *
- * 五类问题分别用 [MissingItem]/[MissingItem]/房间键字符串/[MissingItem]/[MissingItem] 报告，UI 侧可以
- * 统一渲染。
+ * 六类问题分别用 [MissingItem]/[MissingItem]/房间键字符串/[MissingItem]/[MissingItem]/[MissingItem]
+ * 报告，UI 侧可以统一渲染。
  */
 class DbCompletenessChecker(private val database: MyInspectionDatabase) : CompletenessPort {
 
@@ -141,14 +141,16 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
 
         val missingStatus = mutableListOf<MissingItem>()
         val invalidStatus = mutableListOf<MissingItem>()
+        val disallowedStatus = mutableListOf<MissingItem>()
         val roomSnapshots = mutableListOf<RoomSnapshot>()
 
         for (room in roomInstances) {
             val applicableDefs = checkItemDefs.filter { it.room == room.room_key && it.stable_id !in suppressedStableIds }
             val roomPhotos = photosByRoom[room.id].orEmpty()
 
+            val allowedStatusesByStableId = applicableDefs.associate { it.stable_id to decodeAllowedStatuses(it.allowed_statuses) }
             val itemDefs = applicableDefs.map { def ->
-                ItemDef(stableId = def.stable_id, photoRule = def.photo_rule, allowedStatuses = decodeAllowedStatuses(def.allowed_statuses))
+                ItemDef(stableId = def.stable_id, photoRule = def.photo_rule, allowedStatuses = allowedStatusesByStableId.getValue(def.stable_id))
             }
             val recordedItems = mutableMapOf<String, RecordedItem>()
             for (def in applicableDefs) {
@@ -162,6 +164,9 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
                 // 顶部说明第 4 条）——不管 capture 那两个函数对这一项会判成什么，域外状态照样单独报出。
                 if (classifyAdverseness(inspection.type, existing.status) == Adverseness.UNCLASSIFIABLE) {
                     invalidStatus += MissingItem(room.id, def.stable_id)
+                } else if (existing.status !in allowedStatusesByStableId.getValue(def.stable_id)) {
+                    // 域内合法、但超出这一项自己的子集——与上面那条互斥（域外必已在子集外，不会两边都报）。
+                    disallowedStatus += MissingItem(room.id, def.stable_id)
                 }
             }
             val roomPhotoCount = roomPhotos.count { it.inspection_item_id == null }
@@ -208,6 +213,7 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             roomsMissingInstance = roomsMissingInstance,
             itemsWithInvalidStatus = invalidStatus,
             itemsMissingNote = missingNote,
+            itemsWithDisallowedStatus = disallowedStatus,
         )
     }
 

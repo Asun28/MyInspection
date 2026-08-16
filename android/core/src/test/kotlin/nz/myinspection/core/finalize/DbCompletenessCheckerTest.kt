@@ -242,6 +242,42 @@ class DbCompletenessCheckerTest {
         assertTrue(!result.isComplete, "an invalid status must block finalize")
     }
 
+    /**
+     * 域内合法、但超出这一项自己 `allowed_statuses` 子集的状态——`core/capture` 的铸造点
+     * （`InspectionRepository.setItemStatus` 的 `require(status in allowed)`）本会拒绝这次写，故只能
+     * 用直连 SQL 腐坏模拟（同上一条用例的路径，本类不持有能产生这个状态的合法写接口）。这与上面那条
+     * "域外状态"用例的区别：`POOR` 本身是 `RENTAL_STATUSES` 域内合法评级，只是不在这一项自己收窄过的
+     * 子集（`["GOOD","NOT_APPLICABLE"]`）里，故报进 [CompletenessResult.itemsWithDisallowedStatus]、
+     * 不是 [CompletenessResult.itemsWithInvalidStatus]（两者互斥）。
+     */
+    @Test
+    fun `a status legal for the inspection type but outside this item's own allowed_statuses subset is rejected by name`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "ROUTINE", now = now)
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM",
+            photoRule = null, sort = 1, type = "ROUTINE",
+            allowedStatusesOverride = listOf("GOOD", "NOT_APPLICABLE"), now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = "ROUTINE", now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+        val itemId = DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "wall.paint", status = "GOOD", now = now)
+
+        // 正对照：GOOD 既在类型域也在这一项自己的子集里——完备。
+        val beforeCorruption = DbCompletenessChecker(database).check(inspectionId)
+        assertTrue(beforeCorruption.itemsWithDisallowedStatus.isEmpty())
+        assertTrue(beforeCorruption.isComplete)
+
+        // POOR 是 RENTAL_STATUSES 域内合法评级，但不在这一项收窄过的 ["GOOD","NOT_APPLICABLE"] 里——
+        // capture 的铸造点会拒绝这次写，故直连 SQL 腐坏（同上一条用例的路径）。
+        driver.execute(null, "UPDATE inspection_item SET status = 'POOR' WHERE id = '$itemId'", 0)
+
+        val afterCorruption = DbCompletenessChecker(database).check(inspectionId)
+        assertEquals(listOf(MissingItem(roomInstanceId, "wall.paint")), afterCorruption.itemsWithDisallowedStatus)
+        assertTrue(afterCorruption.itemsWithInvalidStatus.isEmpty(), "a type-domain-legal status must not also appear as domain-invalid")
+        assertTrue(!afterCorruption.isComplete, "a per-item-disallowed status must block finalize")
+    }
+
     @Test
     fun `ADVERSE_ONLY rule is satisfied once an evidence photo is attached to the flagged item`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)

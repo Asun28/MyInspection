@@ -14,9 +14,11 @@ internal object FinalizeTestFixtures {
 
     /**
      * `check_item_def.insert` 带守卫：父版本须存在、且**尚未被任何巡检引用**——故须先于建巡检调用。
-     * `allowed_statuses` 按 [type] 从冻结域 [TemplateDomains.allowedStatusesFor] 取值，不是写死的常量——
-     * 调用方若给 ANNUAL 型模板版本建项却不传 `type = "ANNUAL"`，夹具就会给出与其实际类型域不符的
-     * `allowed_statuses`，与真实建模路径（T1-TEMPLATE-ENGINE 的加载期校验）不符。
+     * `allowed_statuses` 默认按 [type] 从冻结域 [TemplateDomains.allowedStatusesFor] 取值（该类型全域，
+     * 不是写死的常量）——调用方若给 ANNUAL 型模板版本建项却不传 `type = "ANNUAL"`，夹具就会给出与其
+     * 实际类型域不符的 `allowed_statuses`，与真实建模路径（T1-TEMPLATE-ENGINE 的加载期校验）不符。
+     * [allowedStatusesOverride] 非空时改用该子集——用于构造"该项自己的允许范围比其类型域更窄"的夹具
+     * （真实建模路径里 T1-TEMPLATE-ENGINE 允许逐项收窄，[type] 给出的永远是全域上限）。
      */
     fun insertCheckItemDef(
         db: MyInspectionDatabase,
@@ -27,10 +29,12 @@ internal object FinalizeTestFixtures {
         photoRule: String? = null,
         sort: Long = 1,
         type: String = "ROUTINE",
+        allowedStatusesOverride: List<String>? = null,
         now: Long = DbTestFixtures.NOW,
     ): String {
         val id = uuid.next()
-        val allowedStatuses = checkNotNull(TemplateDomains.allowedStatusesFor(type)) { "unknown inspection type: $type" }
+        val allowedStatuses = allowedStatusesOverride
+            ?: checkNotNull(TemplateDomains.allowedStatusesFor(type)) { "unknown inspection type: $type" }
         db.checkItemDefQueries.insert(
             id = id, template_version_id = templateVersionId, stable_id = stableId, area = "INTERIOR",
             room = room, text_en = "Item $stableId", text_zh = "项目 $stableId",
