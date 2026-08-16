@@ -33,7 +33,7 @@ doc_sync: TASK-BOARD 备注（R5）
 - 种子来源：竞品调研 `docs/research/` 的常用 condition 措辞 + NZ condition report 惯用语；措辞客观中性（房客版报告会引用备注，别写内部判断——需求 §8 报告分版立场）。
 - 查询接口：`phrasesFor(category)` + `suggestFor(stableId, status)`（按状态过滤推荐）；纯 :core，数据经与模板同构的 resources 加载路径。
 - 可选字段 `shortcut`（如 "FWT" → "Fair wear and tear / 正常损耗"——Property Inspect Dictionary 先例，docs/research/property-inspect.md H.2）：备注输入框命中 shortcut 即展开；数据层本卡带上，UI 消费在 T2-CAPTURE-UI 顺手接（不接也不算失败）。
-- 双模复核：Luna Max 逐条复读双语对应与客观性。
+- 双模复核：**独立第二模型**（非同作者、非 Claude）逐条复读双语对应与客观性。席位按 L26 工具无关：默认 Luna Max，未接入本 harness 时以其他独立模型（如 DeepSeek / MiMo）替代并在 PR 记录标注（同 T2-ROUTINE-CONTENT 2026-08-16 仲裁：评审按「独立第二模型复核已做」判，不追字面模型名）。
 
 ## 验收 / 执行建议
 dod 见 front-matter。首选 DeepSeek V4 Pro · low；备选/复核 Luna Max。难度 S。

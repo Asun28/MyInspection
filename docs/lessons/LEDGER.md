@@ -1463,7 +1463,7 @@
 - refs: 
 
 ## L205
-- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
 - symptom: R3 多条 finding 的**修复轮**本身引入新缺陷：T0-TOOLCHAIN 第三轮修完 3 条，第四轮报 5 条，其中 4 条是**第三轮修复自己带进来的**（策略文档留占位表、递归发现漏掉卡片点名的 libs.versions.toml、许可闸新代码 -ErrorAction SilentlyContinue 变 fail-open、ci.yml 注释与新行为矛盾且断言了一件已不成立的事）。轮次于是不收敛，每轮都还有真缺陷可报。
 - root_cause: task-loop 的「R3 前置自检」(步骤 4.6) 明文只建议**首轮**做，之后「直接对着 R3 给的具体 reason 改」。但一次修 3–5 条 finding 的修复轮，diff 面积常大于首轮实现本身，且修复者处在「让评审者满意」的心态里、按条修不看整体——新代码不再被任何人当新代码审。评审者每轮只报当轮最刺眼的一处（L97），于是新引入的缺陷要到下一轮才浮出，形成轮次通胀。
 - rule: 把「本地对抗式自检」的触发条件从「首轮」改为「首轮 + 任何一次改了 3 条以上 finding 的修复轮」：修完先派 fresh-context 子代理（或换一个模型）只对**本轮修复 diff** 按 rubric 复核一遍，重点问三件事——新加的错误处理是不是 fail-open？卡片/文档里点名的目标是不是全都真被覆盖到（别只覆盖一部分就报成功）？改动文件自身的注释与文案还成立吗（L97）？再 ship。多花一次本地循环，换掉一轮 push+评审等待。
@@ -1587,5 +1587,21 @@
 - symptom: 同一条不变量（content_hash 必是源字节的 SHA-256）被评审从两个不同角度先后攻破：第 1 轮「LoadedTemplate 构造器可被模块内任意代码调用」，第 4 轮「persist 把调用方递进来的 contentHash 原样写库」。每轮都按当轮说法补一道运行期校验，下一轮就换个角度再来。
 - root_cause: 不变量是用约定+注释维持的：类型允许构造出违反它的值，于是每一个能构造该值的入口都是一个新的攻击面，补校验只是逐个堵入口，入口数量却由类型形状决定。
 - rule: 当同一不变量被从第二个角度攻破时，别再加校验——把违反态做成不可表达：构造器私有 + 唯一工厂只收「源数据」并在内部算出派生值（本例 LoadedTemplate.parse(bytes) 自己解码/校验/哈希，调用方递不进 hash），这样违规不是被运行期拒绝而是写不出来。随后务必回头删掉因此变成不可达的那些运行期校验：留着就是无法用单句删除变异证明的守卫，正是 L165 要禁的东西。
+- enforced_by: 
+- refs: 
+
+## L221
+- date: 2026-08-16 ｜ tags: sqlite,jdbc,concurrency,testing ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 两个独立 JdbcSqliteDriver 连接指向同一个 SQLite 具名内存库(cache=shared)并发写同一行，即便两边都设置了 PRAGMA busy_timeout，仍立刻抛 SQLITE_LOCKED_SHAREDCACHE 而不是等待重试
+- root_cause: pinned 的 xerial sqlite-jdbc 驱动对共享缓存模式下的表级锁冲突不支持/未启用 unlock-notify 回调，busy_timeout 只覆盖常规文件锁(SQLITE_BUSY)，不覆盖共享缓存的 SQLITE_LOCKED
+- rule: 用真实多连接/多线程验证 SQLite 事务边界前，先用小规模 spike 验证该驱动在 cache=shared 模式下的锁行为；若命中 SQLITE_LOCKED_SHAREDCACHE 且无退避重试预算，改用单线程 + 注入副作用的确定性模拟来测逻辑分支正确性，把跨连接隔离语义的证明留作已登记的技术债，不要为了塞下一个真并发测试而牺牲 CI 确定性
+- enforced_by: 
+- refs: 
+
+## L222
+- date: 2026-08-16 ｜ tags: sqlite,sqldelight,testing,ordering ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 两个 InspectionRepositoryTest 断言房间顺序时假红：期望 [KITCHEN,BEDROOM]（模板/插入序）却实得 [BEDROOM,KITCHEN]
+- root_cause: 冻结查询 room_instance.selectByInspection 无 ORDER BY；该表恰有覆盖 WHERE(inspection_id)+分区条件(deleted_at IS NULL) 的唯一索引 idx_room_instance_active(inspection_id, room_key, instance_no)，SQLite 查询计划选择走该索引，返回顺序变成按 room_key 字典序，而非插入/rowid 序——同类坑对任何"无 ORDER BY 的 SELECT"查询都成立，不止这一张表
+- rule: 断言依赖顺序的测试，先看被测查询是否显式 ORDER BY；没有就不能假设插入序或任何序——若产出本身在内存里按需要的序组装（如仓储层自己维护的 id 列表），断言走那份而非重新 SELECT；若必须验证 DB 侧顺序，用主键点查逐个取值而非依赖批量 SELECT 的隐式返回序
 - enforced_by: 
 - refs: 

@@ -3,7 +3,7 @@ id: T2-ROUTINE-CONTENT
 title: Routine 双语模板内容（80–120 项）+ schema 校验绿
 depends_on: [T1-TEMPLATE-ENGINE]
 parallelizable_with: [T2-PHOTO-PIPELINE, T2-CAPTURE-CORE, T2-PHRASELIB]
-status: todo
+status: merged
 branch: T2-ROUTINE-CONTENT
 worktree: C:\wt\T2-ROUTINE-CONTENT
 allow_paths:
