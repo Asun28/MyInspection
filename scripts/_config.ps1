@@ -45,10 +45,15 @@ $script:ScaffoldConfig = @{
   # T1-CANON-HASH 合并后冻结（该卡 doc_sync 明列本步）：canonical JSON 序列化器 + 哈希 + 快照投影是
   # finalize 哈希与备份 manifest 的共用地基，任何字节级行为变化都会改写历史 data_hash 的可复验性。
   # 演进走版本评审；黄金向量（含测试）一并冻结——测试就是契约本体。
+  # T1-TEMPLATE-ENGINE 合并后冻结（该卡 doc_sync 明列本步）：**只冻 Template.kt**——模板 JSON 的形态
+  # 就是内容卡（T2-ROUTINE-CONTENT / T6-TEMPLATES-REST）与采集层共同依赖的契约，改字段=改所有已发布模板的
+  # 可读性。加载器/入库器/对齐器**刻意不冻**：那是实现，可以演进，形态已由 26 个测试逐条钉住。
+  # 注：`T2-ROOM-REPEATABLE` 要往这份 schema 加房间定义，其第一步就是本条冻结的版本评审（该卡已写明）。
   FrozenPaths = @(
     'android/core/src/main/sqldelight/',
     'android/core/src/main/kotlin/nz/myinspection/core/canon/',
-    'android/core/src/test/kotlin/nz/myinspection/core/canon/'
+    'android/core/src/test/kotlin/nz/myinspection/core/canon/',
+    'android/core/src/main/kotlin/nz/myinspection/core/template/Template\.kt'
   )
 
   # T38-DOCDRIFT：源脚本变更时须同步触及的权威文档（仓库相对、正斜杠正则；空表 => 不启用）。

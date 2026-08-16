@@ -69,7 +69,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 <!-- 随 R5 文档同步更新。 -->
-需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**28 张**），模型路由总表 `docs/TASK-BOARD.md`。
+需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/`（**29 张**），模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
 > 评审途中拆出新卡 **`T0-GATE-HARDENING`**（许可闸递归发现 + verify 确定性 + 两枚闸门自测 + 许可政策），承接被撤销的三次破例，见该卡「拆分依据」与仲裁段。
@@ -112,10 +112,26 @@ Sol 评审时自行复算），**14 枚单点变异逐一击杀**（判据分类
 JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层机检归 T3-FINALIZE）/ TD6（Supplement.sq
 注释哈希域指向）已登记 tracker。
 
-**当前已解锁待做**：`T1-TEMPLATE-ENGINE`（W1 剩余）· `T2-PHOTO-PIPELINE` · `T5-RETENTION`（依 schema）·
-`T5-BACKUP-FORMAT` · `T3-FINALIZE`（依 canon，已就绪）；`T2-CAPTURE-CORE` 待 TEMPLATE-ENGINE。
+**★第三冻结点已合并**：`T1-TEMPLATE-ENGINE` **merged**（2026-08-16，master `72ec5e6`，**5 轮 R3 后经人裁合并**）——
+`core/template/`：模板 JSON schema（`Template`/`TemplateItem`/`TemplateDomains`）+ 加载校验器 + 入库读回 +
+`alignHistory`（按 stable_id 出 沿用/新增/移除 三份清单）+ `data/templates/README.md`（内容作者指南）。
+**26 个 JVM 测试、18 枚单点变异逐一击杀**（判据分类器 + 每枚还原后核 SHA）。合并后 `template/Template.kt`
+已登记 FrozenPaths（模板 JSON 形态即契约，改=版本评审）；加载器/入库器**不冻**（实现可演进，形态由测试钉住）。
+> 5 轮里修掉 **7 个真缺陷**：`LoadedTemplate` 可伪造（我自己的测试就是证据）· 校验器承诺"一次报全"却提前返回 ·
+> 只读集合非不可变（哈希算完仍可强转改写）· `toString(UTF_8)` 静默替换坏字节（库里内容与文件对不上而无人知）·
+> INGOING/EXIT 分支从未被加载过（删掉照样绿）· `affected == 1` 守卫无任何测试能让它红 · `content_hash` 由调用方
+> 随手递入。**修法两次都是把不变量做进类型**：`LoadedTemplate` 构造器私有、唯一出生点 `parse(bytes)` 只收字节，
+> 于是"合法模板配假哈希入库"这条路不是被运行期拦下，而是写不出来——`persist` 的重复校验遂成死代码，一并删掉。
+> **争点经人裁**：房间 `repeatable` 标记被评审者连提 4 轮（其自己第 1 轮判为 `[FOLLOW-UP]`），因持久化它须改
+> 已冻结的 `sqldelight/`、只加 JSON 字段又会造出"入库静默丢字段"路径，故拆出 `T2-ROOM-REPEATABLE`
+> （已进 board + 本卡 `non_goals`），用户裁定按此办并授权合并。
+> **同工作树并发事故**：另一会话（刚合完 T1-CANON-HASH）依陈旧 handoff 也开了本卡、在同一 worktree 改文件，
+> 撞在变异批中途——靠变异脚本的 SHA 基线守卫当场停住（L196 生效），未污染任何提交。
 
-下一步：① 按 board 推 `T1-TEMPLATE-ENGINE`（W1 收尾），随后进 W2 并行窗口；
+**当前已解锁待做**：`T2-PHOTO-PIPELINE` · `T2-CAPTURE-CORE` · `T2-ROUTINE-CONTENT` · `T2-PHRASELIB`（依 template）·
+`T5-RETENTION`（依 schema）· `T5-BACKUP-FORMAT` · `T3-FINALIZE`（依 canon）· `T2-ROOM-REPEATABLE`（须先还清 TD4）。
+
+下一步：① 进 **W2 并行窗口**（上列 allow_paths 互不重叠者可同时开；**一卡一会话，别两个会话开同一张卡**）；
 ② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，post-hoc R3 已 block ×2 且经复核属实，待用户裁决 fix-forward）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
 
 ## 权威文档（按序读）

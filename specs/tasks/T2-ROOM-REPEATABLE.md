@@ -39,6 +39,13 @@ T1-TEMPLATE-ENGINE 的 R3 评审两轮都点到这一项：第 1 轮该评审者
 ## 禁止
 见 front-matter。特别地：动冻结的 `sqldelight/` 目录**必须**以「本卡 = 该版本评审」的形式显式声明，并先还清 TD4。
 
+## 两处冻结物都要过版本评审（开卡第一步）
+本卡要改的两个面**都已冻结**（`scripts/_config.ps1` FrozenPaths，`guard-frozen` 钩子会当场拒绝就地编辑）：
+- `android/core/src/main/sqldelight/`（T1-SCHEMA-CORE 起）——房间定义表/列走**新 `.sqm`**，且须先还清 TD4；
+- `android/core/src/main/kotlin/nz/myinspection/core/template/Template.kt`（T1-TEMPLATE-ENGINE 起）——模板 JSON 形态即契约，加 `rooms[]` 段就是改它。
+
+故本卡第一步是**版本评审本身**：把变更提案连同两处影响面报给用户，取得放行后再从 FrozenPaths 临时摘除对应条目、落改动、合并后重新登记。**不要绕过 `guard-frozen`**。
+
 ## 非目标（本卡刻意不做的能力）
 见 front-matter：不做采集期的实例化状态机，不写真实模板内容。
 

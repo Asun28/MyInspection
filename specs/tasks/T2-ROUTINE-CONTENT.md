@@ -27,6 +27,13 @@ doc_sync: TASK-BOARD 备注（R5）
 ## 产出
 `data/templates/routine-v1.json`：NZ 租赁 Routine 巡检模板正文（80–120 项、双语、带 photoRule），过引擎校验 + 内容完备性测试。
 
+## 开卡前须先定一件事：测试怎么读到这份 json
+`T1-TEMPLATE-ENGINE` 的上下文包允许它改 `android/core/build.gradle.kts`「把 `data/templates/` 注册为测试 resources srcDir」，但该卡**未动用**——它在 `data/templates/` 下只放得了 `README.md`，注册一个没有模板文件的 srcDir 等于落一段没有测试盯住的构建配置（详见该卡「实现说明」段）。于是本卡的 `core/content/` 测试要读 `data/templates/routine-v1.json`，只有两条路，**开卡时二选一并写进本卡**：
+1. 把 `android/core/build.gradle.kts` 加进本卡 `allow_paths`，注册 srcDir，测试走 `getResourceAsStream("/routine-v1.json")`（推荐：路径不随工作目录漂移）；
+2. 测试按相对路径读（`:core` 的 Gradle test 工作目录 = `android/core`，故为 `../../data/templates/routine-v1.json`），不动构建文件。
+
+另注：`data/*` 被 `.gitignore` 排除，`routine-v1.json` 入库须 `git add -f`（同 `data/templates/README.md`）。
+
 ## 上下文包（执行模型必读）
 - **这是抄写+编纂卡：抄错不报错，故双模复核强制**（Codex 风险 #5）——作者产出后由 Luna Max 逐项复读（英文措辞、中文对应、条目归属房间是否合理），复核记录附 PR。
 - 结构/字段语义见 `data/templates/README.md`（T1-TEMPLATE-ENGINE 产出）与该卡上下文包。

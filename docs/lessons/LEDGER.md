@@ -1565,3 +1565,27 @@
 - rule: 在 :core 引入任何 java.*/javax.* 新 API 前，先查该 API 的 Android API level 与 desugaring 清单，低于 minSdk（26）就不用；advisory 评审者给的「换成新 JDK API」类清理建议同样要过这道检查再采纳，它们在 JVM 上永远看起来无害
 - enforced_by: 
 - refs: 
+
+## L218
+- date: 2026-08-16 ｜ tags: worktree,concurrency,multi-session,coordination ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 两个会话同时在同一张卡的 worktree 里改码：A 会话按新 R3 verdict 开始修复，B 会话（早前驱动该卡、仍存活）正在跑变异批——A 读到的文件内容其实是 B 植入变异的中间态，A 的编辑随后又被 B 的变异还原（git checkout）静默抹掉；四个文件的 mtime 在同一分钟内交错
+- root_cause: 「每卡一棵 worktree」隔离的是卡与卡，隔不开同一张卡的两个会话；卡的所有权没有显式声明，谁都能续接。verdict/counter 等状态落在 worktree 里，两个会话都会对同一个 block 各自启动修复
+- rule: 动手改任何 worktree 前先核「是否已有活跃写者」：看目标文件 mtime 是否新于自己最后一次操作、git status 里是否有非本会话产生的 M；有迹象即停，问用户哪个会话持有这张卡。接手已有分支/worktree 的卡时，此检查是续接第一步（与 L196 的 SHA 核对同拍做）。被判出局的一方：残留编辑核实清零后完全撤手，不做任何「顺手帮忙」的写操作
+- enforced_by: 
+- refs: 
+
+## L219
+- date: 2026-08-16 ｜ tags: review,r3,scope,adjudication ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 同一条发现连报 4 轮（第 1 轮该评审者自己标的是 [FOLLOW-UP]，第 2 轮起升级为 block）。把仲裁结论写进卡正文一段、又写进 front-matter non_goals 一条之后，随后 3 轮仍原样重报；因为每轮还夹带 1 条真发现，看起来像在推进，实则那一条永远不会消。
+- root_cause: 该发现要改的是本卡 allow_paths 之外的冻结物（sqldelight/ schema），按 rubric §0「never enlarge the card」本就不构成本卡的 block 理由——但评审者并不受该条约束地重报，而卡片文本对它只是参考输入、不是硬约束，所以改卡说服不了它。轮次封顶 ReviewRoundCap 正是为此设的停点。
+- rule: 同一发现被重报第 2 次且修法要动 allow_paths 之外（尤其冻结物）时立刻停：开承接卡 + 把仲裁写进卡（为后人留证据，不指望说服评审者），然后走人裁合并——gh pr merge --squash --match-head-commit <headSha>，合并前按 L92 复核 PR baseRefName==base、head 未前移、diff 里闸门/评审者文件无删减，并跑一次 check-scope -ExpectTip/-ExpectBase。别靠反复 -ResetRounds 刷轮次去等它改口。
+- enforced_by: 
+- refs: 
+
+## L220
+- date: 2026-08-16 ｜ tags: design,invariant,kotlin,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 同一条不变量（content_hash 必是源字节的 SHA-256）被评审从两个不同角度先后攻破：第 1 轮「LoadedTemplate 构造器可被模块内任意代码调用」，第 4 轮「persist 把调用方递进来的 contentHash 原样写库」。每轮都按当轮说法补一道运行期校验，下一轮就换个角度再来。
+- root_cause: 不变量是用约定+注释维持的：类型允许构造出违反它的值，于是每一个能构造该值的入口都是一个新的攻击面，补校验只是逐个堵入口，入口数量却由类型形状决定。
+- rule: 当同一不变量被从第二个角度攻破时，别再加校验——把违反态做成不可表达：构造器私有 + 唯一工厂只收「源数据」并在内部算出派生值（本例 LoadedTemplate.parse(bytes) 自己解码/校验/哈希，调用方递不进 hash），这样违规不是被运行期拒绝而是写不出来。随后务必回头删掉因此变成不可达的那些运行期校验：留着就是无法用单句删除变异证明的守卫，正是 L165 要禁的东西。
+- enforced_by: 
+- refs: 
