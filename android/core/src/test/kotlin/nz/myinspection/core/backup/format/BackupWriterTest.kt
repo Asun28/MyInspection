@@ -86,12 +86,44 @@ class BackupWriterTest {
     }
 
     @Test
-    fun `the database snapshot must be a library level asset`() {
-        // 按物业过滤会把带 owner 的 db.sqlite 滤掉，写出一份没有数据库的包——那种包一旦拿去恢复就是清库。
-        assertFailsWith<BackupFormatException> {
+    fun `ownership must match the area for every area`() {
+        // 归属不能靠调用方随手填：一张 owner=null 的照片会混进**每一个**按物业包，
+        // 而一份带 owner 的 configs 会从别的物业包里凭空消失；带 owner 的 db.sqlite 更会被过滤掉，
+        // 写出一份没有数据库的包（拿去恢复就是清库）。四个区域逐一钉死。
+        assertFailsWith<BackupFormatException>("db.sqlite 带 owner") {
             write(listOf(BackupSourceFile(BackupFileEntry("db.sqlite", db.size.toLong(), sha256Of(db)), "prop-A") { ByteArrayInputStream(db) }))
         }
-        assertFailsWith<BackupFormatException> { write(listOf(sourceFile("photos/a.jpg", photo, "prop-A"))) }
+        assertFailsWith<BackupFormatException>("configs 带 owner") {
+            write(
+                listOf(
+                    sourceFile("db.sqlite", db),
+                    BackupSourceFile(BackupFileEntry("configs/compliance/nz.json", photo.size.toLong(), sha256Of(photo)), "prop-A") { ByteArrayInputStream(photo) },
+                ),
+            )
+        }
+        for (relPath in listOf("photos/a.jpg", "audio/a.m4a")) {
+            assertFailsWith<BackupFormatException>(relPath) {
+                write(listOf(sourceFile("db.sqlite", db), sourceFile(relPath, photo, owner = null)))
+            }
+        }
+        // 正对照：区域与归属一致时照常写出。
+        val archive = write(
+            listOf(
+                sourceFile("db.sqlite", db),
+                sourceFile("configs/compliance/nz.json", photo),
+                sourceFile("photos/a.jpg", photo, "prop-A"),
+                sourceFile("audio/a.m4a", photo, "prop-A"),
+            ),
+        )
+        val sink = RecordingSink()
+        assertEquals(4, BackupReader.read(ByteArrayInputStream(archive), TEST_PASSPHRASE, sink).files.size)
+    }
+
+    @Test
+    fun `the writer refuses a manifest the reader would reject`() {
+        // 每条目都合法、合起来越界，就会产出一份「本版自己读不回来」的包。写侧必须先自查同一个上限。
+        assertEquals(BackupFormat.MAX_MANIFEST_BYTES, checkManifestSize(ByteArray(BackupFormat.MAX_MANIFEST_BYTES)).size)
+        assertFailsWith<BackupFormatException> { checkManifestSize(ByteArray(BackupFormat.MAX_MANIFEST_BYTES + 1)) }
     }
 
     @Test

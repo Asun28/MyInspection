@@ -68,6 +68,8 @@ object BackupWriter {
         checkSources(files)
         val selected = files.filter { scope.includes(it.ownerPropertyId) }
         val manifest = BackupManifest.create(createdAtMs, appVersion, scope, selected.map { it.entry })
+        // 写侧自查上限**在写出任何字节之前**：否则会产出一份「本版自己读不回来」的包。
+        val manifestBytes = checkManifestSize(manifest.toBytes())
         val bySource = selected.associateBy { it.entry.relPath }
 
         val salt = ByteArray(BackupFormat.SALT_BYTES).also(random::nextBytes)
@@ -86,7 +88,7 @@ object BackupWriter {
             out.write(headerBytes)
             val zip = ZipOutputStream(ChunkedGcmOutputStream(out, derived.key, noncePrefix, headerBytes))
             zip.putNextEntry(entryOf(BackupFormat.MANIFEST_ENTRY, createdAtMs))
-            zip.write(manifest.toBytes())
+            zip.write(manifestBytes)
             zip.closeEntry()
             for (file in manifest.files) {
                 zip.putNextEntry(entryOf(file.relPath, createdAtMs))
@@ -110,9 +112,17 @@ object BackupWriter {
             if (file.ownerPropertyId != null && file.ownerPropertyId.isEmpty()) {
                 throw BackupFormatException("库级资产请用 null 表示，不要用空串（$relPath）")
             }
-            if (relPath == BackupFormat.DB_ENTRY && file.ownerPropertyId != null) {
+            // 归属必须与区域一致，否则范围过滤形同虚设（判定单一真相源见 [isLibraryAsset]）。
+            if (isLibraryAsset(relPath)) {
+                if (file.ownerPropertyId != null) {
+                    throw BackupFormatException(
+                        "$relPath 是库级资产，owner 必须为 null（实得 ${file.ownerPropertyId}）：" +
+                            "v1 的 DB 快照恒为整库、合规配置对全库生效，范围只由 manifest.scope 标记",
+                    )
+                }
+            } else if (file.ownerPropertyId == null) {
                 throw BackupFormatException(
-                    "${BackupFormat.DB_ENTRY} 必须是库级资产（owner=null）：v1 的 DB 快照恒为整库，范围只由 manifest.scope 标记",
+                    "$relPath 属于某个物业，必须声明 owner：owner=null 会让它混进**每一个**按物业包",
                 )
             }
             if (!seen.add(relPath)) throw BackupFormatException("源清单里有重复 rel_path：$relPath")

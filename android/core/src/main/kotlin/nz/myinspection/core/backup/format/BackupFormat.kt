@@ -83,8 +83,14 @@ object BackupFormat {
     /** 包内数据库快照的条目名（v1 恢复语义 = 整包替换，故它是必需条目）。 */
     const val DB_ENTRY = "db.sqlite"
 
+    const val PHOTOS_AREA = "photos/"
+
+    const val AUDIO_AREA = "audio/"
+
+    const val CONFIGS_AREA = "configs/"
+
     /** 除 [DB_ENTRY] 外，包内文件只能落在这几个顶层区域；加区域 = 新 format_version。 */
-    val FILE_AREAS: List<String> = listOf("photos/", "audio/", "configs/")
+    val FILE_AREAS: List<String> = listOf(PHOTOS_AREA, AUDIO_AREA, CONFIGS_AREA)
 
     /** manifest 会整份进内存（它是元数据），故对敌意输入设硬上限。 */
     const val MAX_MANIFEST_BYTES = 64 * 1024 * 1024
@@ -173,6 +179,28 @@ internal fun checkRelPath(path: String): String {
         reject("顶层区域不在白名单 ${BackupFormat.DB_ENTRY} / ${BackupFormat.FILE_AREAS.joinToString("、")}")
     }
     return path
+}
+
+/**
+ * 归属由**区域**决定，不由调用方随手填：`db.sqlite` 与 `configs/` 对全库生效（owner 必须为 null），
+ * `photos/` 与 `audio/` 必属某个物业（owner 必须非 null）。不钉死这条，按物业过滤就是一句空话——
+ * 一张 owner=null 的照片会混进**每一个**按物业包，而一份带 owner 的 configs 会从别的物业包里凭空消失。
+ */
+internal fun isLibraryAsset(relPath: String): Boolean =
+    relPath == BackupFormat.DB_ENTRY || relPath.startsWith(BackupFormat.CONFIGS_AREA)
+
+/**
+ * 写侧的 manifest 上限自查：读侧对 manifest 有 [BackupFormat.MAX_MANIFEST_BYTES] 的硬上限，
+ * 写侧不自查就会产出「本版自己读不回来」的包——每条目都合法，合起来却越界。
+ */
+internal fun checkManifestSize(encoded: ByteArray): ByteArray {
+    if (encoded.size > BackupFormat.MAX_MANIFEST_BYTES) {
+        throw BackupFormatException(
+            "manifest 编码后 ${encoded.size} 字节，超过上限 ${BackupFormat.MAX_MANIFEST_BYTES}：" +
+                "这样的包同版本读取器会拒收，请分批导出",
+        )
+    }
+    return encoded
 }
 
 /** manifest 里的自由文本字段（app_version / property_id）：非空、不超长、NFC、无控制字符。 */

@@ -75,6 +75,18 @@ internal class RecordingSink(
     }
 }
 
+/** 剧本化熵源：把「随机」变成确定的字节流，好让「熵去了哪里」成为可断言的事实而非概率。 */
+internal class ScriptedRandom(private val script: ByteArray) : java.security.SecureRandom() {
+    private var position = 0
+
+    override fun nextBytes(bytes: ByteArray) {
+        for (i in bytes.indices) {
+            bytes[i] = script[position % script.size]
+            position++
+        }
+    }
+}
+
 /** 计数式源流：证明写入器是按块读源、而不是把整份文件读进内存。 */
 internal class CountingInputStream(private val delegate: InputStream) : InputStream() {
     var readCalls = 0

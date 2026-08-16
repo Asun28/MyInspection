@@ -7,7 +7,6 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -153,14 +152,18 @@ class BackupRoundTripTest {
     }
 
     @Test
-    fun `every archive gets a fresh salt and nonce`() {
-        // 同一密钥重用 nonce 会摧毁 GCM 的安全性；salt 复用会让口令预算被跨包摊薄。
-        val (first, _) = writeArchive()
-        val (second, _) = writeArchive()
-        val h1 = BackupHeader.decode(first.copyOf(BackupFormat.HEADER_BYTES))
-        val h2 = BackupHeader.decode(second.copyOf(BackupFormat.HEADER_BYTES))
-        assertNotEquals(toHexLower(h1.salt), toHexLower(h2.salt))
-        assertNotEquals(toHexLower(h1.noncePrefix), toHexLower(h2.noncePrefix))
+    fun `the writer draws the salt and then the nonce prefix from the entropy source`() {
+        // 「跑两次、断言两次不一样」是概率性断言，CI 闸不该赌。改成钉住确定性的那件事：
+        // 每写一个包都向熵源要**新的** 16 字节盐、紧接着 7 字节 nonce 前缀，并原样进头。
+        // （同一密钥重用 nonce 会摧毁 GCM；盐复用会让口令预算被跨包摊薄——这两条靠「每次都取新的」保证。）
+        val script = ByteArray(BackupFormat.SALT_BYTES + BackupFormat.NONCE_PREFIX_BYTES) { (it + 1).toByte() }
+        val out = ByteArrayOutputStream()
+        BackupWriter.writeWith(
+            out, TEST_PASSPHRASE, BackupScope.Full, createdAt, "1.4.2", dataset(), TEST_ITERATIONS, ScriptedRandom(script),
+        )
+        val header = BackupHeader.decode(out.toByteArray().copyOf(BackupFormat.HEADER_BYTES))
+        assertEquals("0102030405060708090a0b0c0d0e0f10", toHexLower(header.salt), "盐 = 熵源的头 16 字节")
+        assertEquals("11121314151617", toHexLower(header.noncePrefix), "nonce 前缀 = 紧接着的 7 字节")
     }
 
     @Test
