@@ -13,6 +13,11 @@ import nz.myinspection.core.media.PhotoIngestPlan
  * 校验）→ 新内容才落盘。位图解码本身不在本函数控制范围（[capturedBitmap] 已是调用方解码好的产物，其
  * 尺寸限幅属相机/采集 UI 层），本函数只负责回收自己新分配出来的中间位图。
  *
+ * **不受 [nz.myinspection.core.media.ImportBounds] 约束**：那道前置校验只管「导入路径」（
+ * [PhotoImportPipeline]）——设备摄像头传感器分辨率本身就是硬件上限（消费级手机主摄多在数千万像素级、
+ * 远不到需要拒绝解码的规模），相机路径也从不做 [PhotoImportPipeline] 那种「先读边界再决定解不解码」的
+ * 前置探测，[capturedBitmap] 已经是调用方解码好的产物，本函数无从提前拒绝。
+ *
  * [activeAssetLookup] 是对 `photo.selectActiveAssetsByContentHash` 的查询函数，**按本函数内部算出的
  * contentHash 调用**——不能反过来让调用方预先查好再传一份 List：调用方那时还不知道烘焙后字节的哈希是
  * 什么（哈希只在烘焙+编码之后才算得出来），预查等于逼调用方自己重实现一遍烘焙/编码来猜哈希，猜错了
@@ -29,11 +34,17 @@ object CameraPhotoIngestPipeline {
         mediaRoot: File,
         activeAssetLookup: (contentHash: String) -> List<String>,
     ): PhotoIngestPlan {
-        val baked = PhotoOrientationBaker.bake(capturedBitmap, exifOrientation)
-        val bytes = PhotoJpegEncoder.encode(baked)
-        // baked 若是 bake() 新分配的位图（非原样返回 capturedBitmap），编码完字节即可回收——
-        // capturedBitmap 本身不是本函数分配的，调用方仍可能持有它做别的用途（如预览），不在此回收。
-        if (baked !== capturedBitmap) baked.recycle()
+        var baked: Bitmap? = null
+        val bytes: ByteArray
+        try {
+            baked = PhotoOrientationBaker.bake(capturedBitmap, exifOrientation)
+            bytes = PhotoJpegEncoder.encode(baked)
+        } finally {
+            // baked 若是 bake() 新分配的位图（非原样返回 capturedBitmap），无论上面 encode 是否抛出都要
+            // 回收——capturedBitmap 本身不是本函数分配的，调用方仍可能持有它做别的用途（如预览），
+            // 不在此回收；bake() 本身抛出时 baked 仍是 null，没有对象需要回收。
+            if (baked != null && baked !== capturedBitmap) baked.recycle()
+        }
         val contentHash = ContentHash.sha256Hex(bytes)
         val candidatePlan = PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash))
         val plan = PhotoIngest.verifyReuseExists(candidatePlan, propertyId, inspectionId, photoId) { relPath ->
