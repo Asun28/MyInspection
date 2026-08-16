@@ -115,7 +115,7 @@ JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层�
 **★第三冻结点已合并**：`T1-TEMPLATE-ENGINE` **merged**（2026-08-16，master `72ec5e6`，**5 轮 R3 后经人裁合并**）——
 `core/template/`：模板 JSON schema（`Template`/`TemplateItem`/`TemplateDomains`）+ 加载校验器 + 入库读回 +
 `alignHistory`（按 stable_id 出 沿用/新增/移除 三份清单）+ `data/templates/README.md`（内容作者指南）。
-**26 个 JVM 测试、18 枚单点变异逐一击杀**（判据分类器 + 每枚还原后核 SHA）。合并后 `template/Template.kt`
+**29 个 JVM 测试、18 枚单点变异逐一击杀**（判据分类器 + 每枚还原后核 SHA）。合并后 `template/Template.kt`
 已登记 FrozenPaths（模板 JSON 形态即契约，改=版本评审）；加载器/入库器**不冻**（实现可演进，形态由测试钉住）。
 > 5 轮里修掉 **7 个真缺陷**：`LoadedTemplate` 可伪造（我自己的测试就是证据）· 校验器承诺"一次报全"却提前返回 ·
 > 只读集合非不可变（哈希算完仍可强转改写）· `toString(UTF_8)` 静默替换坏字节（库里内容与文件对不上而无人知）·
