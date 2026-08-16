@@ -292,6 +292,34 @@ class DbInvariantsTest {
         }
     }
 
+    /**
+     * sent_via 的域定义在需求方卡片（T4-NOTICES：SMS/EMAIL/LETTER），不在本列注释里——所以上一轮按列注释
+     * 扫描封闭域时它被漏掉了。这条测试连同 CHECK 一起补上。NULL 是合法的「尚未发送」，必须仍可插入。
+     */
+    @Test
+    fun `notice rejects an unknown sent_via but accepts the unsent NULL state`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+
+        assertCheckViolation("an unrecognised delivery method") {
+            database.noticeQueries.insert(
+                id = uuid.next(), inspection_id = inspectionId, full_text = "notice", generated_at = now,
+                scheduled_at = now + 172_800_000L, sent_via = "CARRIER_PIGEON", sent_at = now,
+                lead_hours = 48, validation_snapshot = "{}", updated_at = now,
+            )
+        }
+        database.noticeQueries.insert(
+            id = uuid.next(), inspection_id = inspectionId, full_text = "notice", generated_at = now,
+            scheduled_at = now + 172_800_000L, sent_via = null, sent_at = null,
+            lead_hours = 48, validation_snapshot = "{}", updated_at = now,
+        )
+        assertEquals(
+            1, database.noticeQueries.selectByInspection(inspectionId).executeAsList().size,
+            "a generated-but-unsent notice (both delivery columns NULL) must remain insertable",
+        )
+    }
+
     @Test
     fun `property_item_override rejects a non-boolean suppressed flag`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)

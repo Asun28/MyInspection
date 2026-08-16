@@ -17,7 +17,11 @@ CREATE TABLE notice (
     CHECK (
         (sent_via IS NULL AND sent_at IS NULL)
         OR (sent_via IS NOT NULL AND sent_at IS NOT NULL)
-    )
+    ),
+    -- sent_via 是封闭域，域定义在需求方卡片：T4-NOTICES「回 app 记录送达方式（SMS/EMAIL/LETTER 枚举）」。
+    -- 上面那条 CHECK 只管「两列同生共死」，管不住写进去的是什么——一个 'txt' 会永久留在**送达审计记录**里，
+    -- 而这份记录正是 48h 提前量合规的举证材料。可空是合法状态（生成后尚未发送），故 NULL 单独放行。
+    CHECK (sent_via IS NULL OR sent_via IN ('SMS', 'EMAIL', 'LETTER'))
 );
 
 CREATE INDEX idx_notice_inspection ON notice (inspection_id);

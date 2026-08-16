@@ -58,11 +58,17 @@ WHERE room_instance_id = :room_instance_id AND deleted_at IS NULL;
 -- 撤销；其 allow_paths 不含 core/db/）。finalize 只读强制同样适用——FINALIZED 巡检下的照片不得软删，
 -- 理由同 insert 侧（否则巡检证据能被事后抽走，破坏 data_hash 锁定的快照）。这条守卫还带来一个免费的
 -- 推论，见 orphanedAssets 的注释。
+-- `:deleted_at IS NOT NULL` 与 tenancy.purgeContactInfo 同款守卫，且**不是多余的**：本参数同时绑
+-- `deleted_at`（可空列）与 `updated_at`（NOT NULL 列），按 SQLDelight 2.3.2 的按名推断（Notice.sq
+-- recordDelivery 注释里那条实测教训），生成的 Kotlin 形参是 `Long?`——传 NULL 时 WHERE 三条全过、
+-- UPDATE 真的执行，然后在写 updated_at 时撞 NOT NULL、抛出**未受控异常**，而本族查询的约定是
+-- 「守卫不过＝0 行、不落地、可重试」。加上这一句即回归族内一致。
 softDelete:
 UPDATE photo
 SET deleted_at = :deleted_at, updated_at = :deleted_at
 WHERE id = :id
   AND deleted_at IS NULL
+  AND :deleted_at IS NOT NULL
   AND EXISTS (
     SELECT 1 FROM room_instance ri
     JOIN inspection i ON i.id = ri.inspection_id

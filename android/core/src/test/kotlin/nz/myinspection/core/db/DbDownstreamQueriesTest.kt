@@ -328,6 +328,35 @@ class DbDownstreamQueriesTest {
     }
 
     /**
+     * softDelete 的形参是 `Long?`（该参数同时绑可空的 deleted_at 与 NOT NULL 的 updated_at，SQLDelight
+     * 按名推断即取可空）。传 NULL 时若无守卫，WHERE 全过、UPDATE 真执行、写 updated_at 时撞 NOT NULL 抛
+     * 未受控异常——而本族查询的约定是「守卫不过＝0 行、不落地、可重试」（同 purgeContactInfo 的 NULL 用例）。
+     */
+    @Test
+    fun `photo softDelete with a null deleted_at affects zero rows and leaves the row active`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        val photoId = uuid.next()
+        database.photoQueries.insert(
+            id = photoId, inspection_item_id = null, room_instance_id = roomInstanceId,
+            rel_path = "photos/a.jpg", content_hash = "h", exif_time_ms = null, source = "CAMERA",
+            privacy_flag = 0, created_at = now, updated_at = now,
+        )
+
+        val nullAttempt = database.photoQueries.softDelete(deleted_at = null, id = photoId).value
+        assertEquals(0L, nullAttempt, "a NULL deleted_at must be refused as zero rows, not raise a NOT NULL failure")
+
+        val stillActive = database.photoQueries.selectByRoomInstance(roomInstanceId).executeAsList()
+        assertEquals(1, stillActive.size, "the rejected NULL attempt must leave the photo active")
+        assertEquals(now, stillActive.single().updated_at, "a refused call must not touch updated_at either")
+
+        val realDelete = database.photoQueries.softDelete(deleted_at = now + 1, id = photoId).value
+        assertEquals(1L, realDelete, "a real soft delete must still succeed after a refused NULL attempt")
+    }
+
+    /**
      * T2-PHOTO-PIPELINE 去重链路的前半步：「哈希已存在就复用该资产、只建新关联」。既有两条查询都不顶用——
      * selectByRoomInstance 要求已知 room_instance_id（去重时恰恰还不知道要挂到哪），orphanedAssets 只回
      * 软删行（去重要的是活着的那些）。该卡 allow_paths 不含 core/db/，且本目录合并后进 FrozenPaths。
