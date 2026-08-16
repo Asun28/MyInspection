@@ -102,7 +102,7 @@ class SupplementChainServiceTest {
     }
 
     /**
-     * 同毫秒也必须拒（R3 round 1 指出的真缺陷）：`id` 是 UUIDv7，同一毫秒内两条纪录的相对大小取决于
+     * 同毫秒也必须拒：`id` 是 UUIDv7，同一毫秒内两条纪录的相对大小取决于
      * 各自生成时的计数器/随机位，与它们的实际链接顺序（谁的 `prev_hash` 指向谁）无关。若允许
      * `now == tip.created_at`，`Supplement.sq` 的 `ORDER BY created_at ASC, id ASC` 读回序就可能把
      * 新纪录排到 tip 前面，而新纪录的 `prev_hash` 却指向 tip——`verifyChain` 会在一条从未真正断裂的链上
@@ -154,5 +154,25 @@ class SupplementChainServiceTest {
         val verification = service.verifyChain(inspectionId)
         val broken = assertIs<ChainVerification.Broken>(verification)
         assertEquals(added.id, broken.supplementId)
+    }
+
+    /**
+     * `verifyChain` 的两处比对（`prev_hash != prev` 与 `chain_hash` 重算不符）各自独立，上面那条测试
+     * 只走到了后者（腐坏 `text` 会连带算出的 `chain_hash` 就已经对不上）；这里单独腐坏 `prev_hash`
+     * 本身（`chain_hash` 保持不变），确认 `prev_hash` 衔接检查独立生效，不是靠 `chain_hash` 检查顺带
+     * 兜底的。
+     */
+    @Test
+    fun `verifyChain detects a corrupted prev_hash on a later row even when its own chain_hash is untouched`() {
+        val inspectionId = finalizeMinimalInspection(clockAt = now + 100)
+        val service = SupplementChainService(database, uuid, sequenceClock(now + 200, now + 300))
+        service.addSupplement(inspectionId, "first")
+        val second = assertIs<AddSupplementOutcome.Added>(service.addSupplement(inspectionId, "second"))
+
+        driver.execute(null, "UPDATE supplement SET prev_hash = '${"f".repeat(64)}' WHERE id = '${second.id}'", 0)
+
+        val verification = service.verifyChain(inspectionId)
+        val broken = assertIs<ChainVerification.Broken>(verification)
+        assertEquals(second.id, broken.supplementId)
     }
 }

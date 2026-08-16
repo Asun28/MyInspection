@@ -138,7 +138,7 @@ class FinalizeInspectionUseCaseTest {
         assertEquals(0L, updateAffected, "writing to an item under a FINALIZED inspection must affect 0 rows")
         // 卡文：「本卡在用例层再挡一道」——裸的 0 行不是本卡对这条纪律的兑现，调用方必须把它转成显式错误
         // 才算挡住；requireOriginalEntryWritten 就是这道闸，直接调写接口对 FINALIZED 巡检 → 抛出。
-        assertFailsWith<FinalizedInspectionReadOnlyException> {
+        assertFailsWith<OriginalEntryWriteRejectedException> {
             requireOriginalEntryWritten(updateAffected, "update item status")
         }
 
@@ -148,7 +148,7 @@ class FinalizeInspectionUseCaseTest {
             created_at = now + 2, updated_at = now + 2,
         ).value
         assertEquals(0L, insertAffected, "inserting a new item under a FINALIZED inspection must affect 0 rows")
-        assertFailsWith<FinalizedInspectionReadOnlyException> {
+        assertFailsWith<OriginalEntryWriteRejectedException> {
             requireOriginalEntryWritten(insertAffected, "insert new item")
         }
     }
@@ -167,23 +167,42 @@ class FinalizeInspectionUseCaseTest {
     }
 
     /**
-     * 用一个在被调用时产生写副作用的假 [CompletenessPort]，在单线程里**确定性地**复现"读完备性之后、
-     * 写 finalized_at 之前，另一条路径抢先把同一巡检 finalize 了"这一步的处理逻辑：`finalizeIfDraft`
-     * 的 `affected != 1` 分支必须干净返回 `RejectedAlreadyFinalized`，不能让不变量断言炸出一个看起来
-     * 像 bug 的异常。
+     * 用一个在被调用时产生写副作用的假 [CompletenessPort]，确定性地复现"读完备性之后、写
+     * `finalized_at` 之前，另一条路径抢先把同一巡检 finalize 了"：`finalizeIfDraft` 的
+     * `affected != 1` 分支必须干净返回 `RejectedAlreadyFinalized`，不能让调用方看到一个未处理的异常。
      *
-     * **本测试证明不了"必须包成一个事务"这件事本身**（R3 round 2 的准确指出）：单一 JDBC 连接上任何
-     * 调用本就严格顺序执行，`database.transactionWithResult { }` 这层包装摘掉后，这条测试照样通过——
-     * 它验的是 affected-check 分支的正确性，不是跨连接隔离语义。真正区分"包成一个事务"与"不包"的，
-     * 只有**跨连接**并发写同一行时的锁/隔离行为，单连接测不出来。
-     *
-     * 曾尝试过用两个真实连接（SQLite 具名内存库 + `cache=shared`）+ 两个真实线程构造这类测试，
-     * 但当前 pinned 的 sqlite-jdbc 在共享缓存模式下对表级锁冲突直接抛
-     * `SQLITE_LOCKED_SHAREDCACHE`——即便设置了 `busy_timeout` 也不等待重试（这是该驱动的已知限制，
-     * 不是 `finalize()` 的代码缺陷）；继续按这条路径走下去，要么引入手工重试/退避逻辑把复杂度带出本卡
-     * 范围，要么产出一个真实存在锁竞争时会间歇失败的测试——两者都比"暂不测跨连接场景"更坏。
-     * 这条差距如实登记为技术债（TD10，`specs/tech-debt-tracker.md`），不假装它已经被下面这条测试证明了。
+     * 本测试用单个 JDBC 连接确定性地驱动这条分支，不代表"跨连接并发写同一行"的锁/隔离行为——那需要
+     * 真正独立的两个连接，已知 pinned 的 sqlite-jdbc 在 `cache=shared` 模式下对表级锁冲突直接抛
+     * `SQLITE_LOCKED_SHAREDCACHE`（不响应 `busy_timeout`，是驱动限制而非代码缺陷，见 lesson L221），
+     * 该差距待 R5 登记为技术债，此处不重复展开。下面这条测试改用同连接内的写副作用来证明事务边界本身
+     * 生效：一个抛异常前先写一行的 [CompletenessPort]，其写入必须随异常一起被回滚。
      */
+    @Test
+    fun `if a seam inside the transaction throws after writing, that write is rolled back with the transaction`() {
+        val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
+        val poisonId = uuid.next()
+        // 通过同一个 database 对象在事务内先写一行、再抛异常——只有当 finalize() 的整个流程真的共享
+        // 同一个事务时，这行写才会随异常一起回滚；若 transactionWithResult 被摘掉换成裸调用，这行写
+        // 会独立提交、在异常抛出后依然存在。
+        val poisonedCompleteness = CompletenessPort {
+            database.supplementQueries.insert(
+                id = poisonId, inspection_id = ready.inspectionId, created_at = now, text = "should not survive",
+                prev_hash = "0".repeat(64), chain_hash = "1".repeat(64), updated_at = now,
+            )
+            throw RuntimeException("simulated failure after a side-effect write, before the final write")
+        }
+        val useCase = FinalizeInspectionUseCase(database, poisonedCompleteness, fixedClock(now + 1))
+
+        assertFailsWith<RuntimeException> { useCase.finalize(ready.inspectionId) }
+
+        assertNull(
+            database.supplementQueries.selectById(poisonId).executeAsOneOrNull(),
+            "a write made earlier in the same transaction must be rolled back when a later step throws",
+        )
+        val row = database.inspectionQueries.selectById(ready.inspectionId).executeAsOne()
+        assertEquals("DRAFT", row.status, "the inspection itself must remain untouched")
+    }
+
     @Test
     fun `if the inspection is finalized by a racing write during the completeness check, finalize rejects cleanly instead of throwing`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
@@ -210,8 +229,8 @@ class FinalizeInspectionUseCaseTest {
     @Test
     fun `the completeness check is a swappable port, not hard-wired to the default DB implementation`() {
         val ready = FinalizeTestFixtures.buildMinimalCompleteInspection(database, uuid, now)
-        // 一个总说"还缺东西"的假实现，证明 FinalizeInspectionUseCase 真的只依赖接口——这正是留给
-        // T2-CAPTURE-CORE 未来接管的集成缝（见 CompletenessPort 顶部说明与 TD9）。
+        // 一个总说"还缺东西"的假实现，证明 FinalizeInspectionUseCase 真的只依赖接口，不依赖
+        // DbCompletenessChecker 的具体实现（见 CompletenessPort 顶部说明的集成缝）。
         val alwaysIncomplete = CompletenessPort {
             CompletenessResult(
                 itemsMissingStatus = listOf(MissingItem(ready.roomInstanceId, "injected.missing")),

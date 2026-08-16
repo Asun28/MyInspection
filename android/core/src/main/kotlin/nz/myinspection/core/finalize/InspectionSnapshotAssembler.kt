@@ -10,21 +10,19 @@ import nz.myinspection.core.model.TemplateSnapshot
 import nz.myinspection.core.model.TenancySnapshot
 
 /**
- * `InspectionSnapshot` 的**唯一装配正门**（还清 TD5：`specs/tech-debt-tracker.md`）。
+ * `InspectionSnapshot` 的唯一装配正门（还清 TD5，`specs/tech-debt-tracker.md`）。
  *
- * ADR-0003 与 `core/model/InspectionSnapshot` 都要求 `items[]`/`photos[]`/`audios[]` 按确定的全序排列，
- * 但排序键本身不进快照——这意味着"用了哪条查询、按什么顺序拼数组"这件事**只存在于调用纪律里，canon 层
- * 验证不了**。TD5 指出的风险正是：未来任何第二条装配路径（备份复验、报告重渲等）如果不经过这个函数、
- * 自己重新拼一遍，只要顺序稍有出入，同一份数据就会算出第二个 `data_hash`——那个哈希写进 PDF 页脚自证
- * 未被事后修改，不确定性一旦存在，自证就是空的。
+ * `items[]`/`photos[]`/`audios[]` 需按确定的全序排列（ADR-0003），但排序键本身不进快照——"用了哪条
+ * 查询、按什么顺序拼数组"只存在于调用纪律里，canon 层验证不了。任何第二条装配路径（备份复验、报告
+ * 重渲等）若不经过这个函数、自己重新拼一遍，顺序一旦有出入，同一份数据就会算出第二个 `data_hash`。
  *
- * 因此：**任何需要 `InspectionSnapshot` 的调用方都必须经过这个函数**，不得自己重新查询/排序拼装。
- * - `items[]` 顺序 = `inspection_item.selectByInspectionInTemplateOrder` 的返回顺序（模板序 + 确定性兜底，
- *   见该查询注释）——不额外排序，直接按行序号投影。
- * - `photos[]`/`audios[]` 顺序 = 按 `id`（UUIDv7，字符串序）升序（`InspectionSnapshot` 顶部说明的约定）。
+ * 因此：任何需要 `InspectionSnapshot` 的调用方都必须经过这个函数。
+ * - `items[]` 顺序 = `inspection_item.selectByInspectionInTemplateOrder` 的返回顺序（模板序 + 确定性
+ *   兜底），不额外排序。
+ * - `photos[]`/`audios[]` 顺序 = 按 `id`（UUIDv7，字符串序）升序。
  *
- * `finalizedAt` 由调用方传入而非从库里读：finalize 用例在**决定**好即将写入的 `finalized_at` 之后、
- * 真正写库之前，需要先用同一个值算出 `data_hash`（自引用，值一致即自洽），故不能从尚未更新的行读回。
+ * `finalizedAt` 由调用方传入而非从库里读：finalize 用例决定好即将写入的值之后、写库之前，需要先用
+ * 同一个值算出 `data_hash`（自引用，值一致即自洽）。
  */
 object InspectionSnapshotAssembler {
 

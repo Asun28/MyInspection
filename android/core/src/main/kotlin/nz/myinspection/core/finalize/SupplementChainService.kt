@@ -11,18 +11,15 @@ import nz.myinspection.core.model.SupplementSnapshot
 sealed interface AddSupplementOutcome {
     data class Added(val id: String, val chainHash: String) : AddSupplementOutcome
 
-    /** 巡检还是 DRAFT——补充说明只能追加在 finalize **之后**（需求 §5：finalize 后只可追加）。 */
+    /** 巡检还是 DRAFT——补充说明只能追加在 finalize 之后（需求 §5）。 */
     data object RejectedNotFinalized : AddSupplementOutcome
     data object RejectedNotFound : AddSupplementOutcome
 
     /**
-     * 新补充说明的时间戳**不晚于**链上最后一条——若放行，读回顺序（`Supplement.sq` 的
-     * `ORDER BY created_at ASC, id ASC`）可能把它排到已写死的 `prev_hash` 指向的那条**之前**，
-     * 于是 [verifyChain] 会在一个从未真正断裂的链上报错。**同毫秒也必须拒**，不只是"更早"：
-     * `id` 是 UUIDv7，同一毫秒内的排序取决于各自 [Uuid7Generator] 实例当时的计数器/随机位，
-     * 与两条 supplement 实际的链接顺序（谁的 `prev_hash` 指向谁）没有任何保证关系——`now == tip.created_at`
-     * 时新纪录的 id 完全可能小于 tip 的 id，读回序就会先出新纪录、后出 tip，而新纪录的 `prev_hash` 却
-     * 指向 tip，链看起来从中间断开。故要求严格晚于（`now > tip.created_at`），不接受相等。
+     * 新纪录的时间戳不晚于链上最后一条——`id`（UUIDv7）在同一毫秒内的相对大小与实际链接顺序无关，
+     * 若允许 `now == tip.created_at`，读回序（`ORDER BY created_at ASC, id ASC`）可能把新纪录排到
+     * 它自己 `prev_hash` 指向的那条之前，让 [verifyChain] 在一条从未真正断裂的链上报错。故要求
+     * 严格晚于（`now > tip.created_at`），同毫秒也拒。
      */
     data object RejectedOutOfOrder : AddSupplementOutcome
 }
@@ -38,10 +35,9 @@ sealed interface ChainVerification {
 }
 
 /**
- * Supplement 追加哈希链（需求 §5）：`addSupplement` 写入、`verifyChain` 复验，供报告/备份复用
- * （T3-REPORT-COMPOSER / T5-BACKUP-FORMAT 消费，本卡只提供纯函数级的可复用实现）。
+ * Supplement 追加哈希链（需求 §5）：`addSupplement` 写入、`verifyChain` 复验，供报告/备份复用。
  *
- * 哈希算法本身消费 `core/canon` 的 [supplementChainHash]（冻结物，只读不改）：
+ * 哈希算法消费 `core/canon` 的 [supplementChainHash]（冻结物）：
  * `chain_hash(n) = SHA-256(canonical({createdAt, text}) + prev_hash)`，`prev_hash(1) = inspection.data_hash`。
  */
 class SupplementChainService(
@@ -50,17 +46,14 @@ class SupplementChainService(
     private val clock: ClockMs = SystemClockMs,
 ) {
     /**
-     * 读锚点/链尾 → 校验时序 → 算哈希 → 插入，全程在一个 `transactionWithResult` 里：读链尾与插入
-     * 之间若不加事务边界，两个并发调用者能读到同一个链尾、各自算出以它为 `prev_hash` 的新纪录再各自
-     * 插入——链就此分叉成两条互不相连的支线，而 `Supplement.sq` 没有任何 UNIQUE 约束能拦住这种分叉
-     * （append-only 表本就不设约束防止重复 `prev_hash`）。包成一个事务后，单一连接的写事务会把第二个
-     * 调用者的整个"读链尾→插入"序列**串行化**在第一个调用者提交之后，它读到的链尾自然是最新的。
+     * 读链尾 → 校验时序 → 算哈希 → 插入，全程在一个事务里：不加事务边界的话，两个并发调用者能读到
+     * 同一个链尾、各自插入以它为 `prev_hash` 的新纪录，链就此分叉成两条互不相连的支线（append-only
+     * 表没有约束能拦住这种分叉）。
      */
     fun addSupplement(inspectionId: String, text: String): AddSupplementOutcome = database.transactionWithResult {
         val inspection = database.inspectionQueries.selectById(inspectionId).executeAsOneOrNull()
             ?: return@transactionWithResult AddSupplementOutcome.RejectedNotFound
-        // status/finalized_at/data_hash 三者联动一致是 schema CHECK 约束（Inspection.sq）——data_hash
-        // 非空即已 FINALIZED，不必再查一次 status 列。
+        // status/finalized_at/data_hash 三者联动一致是 schema CHECK 约束——data_hash 非空即已 FINALIZED。
         val dataHash = inspection.data_hash ?: return@transactionWithResult AddSupplementOutcome.RejectedNotFinalized
 
         val existing = database.supplementQueries.selectByInspection(inspectionId).executeAsList()
@@ -89,7 +82,7 @@ class SupplementChainService(
 
     /**
      * 从 `inspection.data_hash`（链的锚点）开始逐条重算 `chain_hash` 并比对 `prev_hash` 衔接，
-     * 任一条对不上即报告那一条的 id 并停止（不掩盖具体哪一环断了）。
+     * 任一条对不上即报告那一条的 id 并停止。
      */
     fun verifyChain(inspectionId: String): ChainVerification {
         val inspection = database.inspectionQueries.selectById(inspectionId).executeAsOneOrNull()

@@ -46,10 +46,9 @@ class InspectionSnapshotAssemblerTest {
     }
 
     /**
-     * 跨层黄金测试（TD5）：预期快照**完全独立于被测装配器手写构造**——不是从 [InspectionSnapshotAssembler]
-     * 的输出反推出来的（R3 round 1 指出：仅拿输出与"输出的乱序副本"互相比较，测不出投影本身漏字段/错映射，
-     * 只测得出"顺序变了哈希会变"）。这里按夹具已知的每一个字段值独立拼出 `expected`，与装配器的真实输出做
-     * **完整 data class 相等**——字段映射错了、遗漏了、items[] 顺序错了，三类缺陷任一种都会让这条断言红。
+     * 跨层黄金测试（TD5）：预期快照完全独立于被测装配器手写构造，不是从 [InspectionSnapshotAssembler]
+     * 的输出反推出来的。按夹具已知的每一个字段值独立拼出 `expected`，与装配器的真实输出做完整
+     * data class 相等——字段映射错了、遗漏了、items[] 顺序错了，三类缺陷任一种都会让这条断言红。
      */
     @Test
     fun `assembled snapshot matches an independently hand-built expectation, field by field and in template order (TD5)`() {

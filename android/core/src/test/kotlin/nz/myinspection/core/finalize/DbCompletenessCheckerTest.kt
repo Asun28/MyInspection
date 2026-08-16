@@ -11,8 +11,8 @@ import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.db.Uuid7Generator
 
 /**
- * [DbCompletenessChecker]：finalize 的默认完备性判定（本卡自带的 [CompletenessPort] 实现，
- * 集成缝见 TD9）。逐条覆盖"缺状态"、两级拍照规则的"缺照片"、抑制项被跳过、以及全部满足时判完备。
+ * [DbCompletenessChecker]：finalize 的默认完备性判定（本卡自带的 [CompletenessPort] 实现）。
+ * 逐条覆盖"缺状态"、两级拍照规则的"缺照片"、抑制项被跳过、以及全部满足时判完备。
  */
 class DbCompletenessCheckerTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -110,24 +110,47 @@ class DbCompletenessCheckerTest {
         assertEquals(listOf(MissingItem(roomInstanceId, "room.panorama")), result.itemsMissingMandatoryPhoto)
     }
 
+    /**
+     * Table-driven：ADVERSE_ONLY 的"不利发现"分类须逐一覆盖每一个声明过的评级（正例+反例），
+     * 抽样几个测不出漏掉 FAIR/MONITOR/MAINTENANCE_ITEM，也测不出误把 N_A/NO_ISSUE 划进不利发现。
+     */
     @Test
-    fun `ADVERSE_ONLY rule only requires a photo when the answered status is adverse for the inspection type`() {
-        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
-        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "ROUTINE", now = now)
-        FinalizeTestFixtures.insertCheckItemDef(
-            database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM",
-            photoRule = "ADVERSE_ONLY", sort = 1, now = now,
+    fun `ADVERSE_ONLY classification covers every declared status for both inspection types`() {
+        data class Case(val inspectionType: String, val status: String, val adverse: Boolean)
+        val cases = listOf(
+            Case("ROUTINE", "GOOD", adverse = false),
+            Case("ROUTINE", "FAIR", adverse = true),
+            Case("ROUTINE", "POOR", adverse = true),
+            Case("ROUTINE", "N_A", adverse = false),
+            Case("ANNUAL", "NO_ISSUE", adverse = false),
+            Case("ANNUAL", "MONITOR", adverse = true),
+            Case("ANNUAL", "MAINTENANCE_ITEM", adverse = true),
+            Case("ANNUAL", "SIGNIFICANT_DEFECT", adverse = true),
+            Case("ANNUAL", "N_A", adverse = false),
         )
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = "ROUTINE", now = now)
-        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
-        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "wall.paint", status = "GOOD", now = now)
 
-        val goodResult = DbCompletenessChecker(database).check(inspectionId)
-        assertTrue(goodResult.itemsMissingMandatoryPhoto.isEmpty(), "GOOD is not adverse for a rental template; no photo required")
+        for ((index, case) in cases.withIndex()) {
+            val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val templateVersionId = DbTestFixtures.insertTemplateVersion(
+                database, uuid, type = case.inspectionType, version = (index + 1).toLong(), now = now,
+            )
+            val stableId = "item.$index"
+            FinalizeTestFixtures.insertCheckItemDef(
+                database, uuid, templateVersionId, stableId = stableId, room = "BEDROOM",
+                photoRule = "ADVERSE_ONLY", sort = 1, now = now,
+            )
+            val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = case.inspectionType, now = now)
+            val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", now = now)
+            DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = stableId, status = case.status, now = now)
+
+            val result = DbCompletenessChecker(database).check(inspectionId)
+            val expected = if (case.adverse) listOf(MissingItem(roomInstanceId, stableId)) else emptyList()
+            assertEquals(expected, result.itemsMissingMandatoryPhoto, "case: $case")
+        }
     }
 
     @Test
-    fun `ADVERSE_ONLY rule rejects a POOR rental item with no evidence photo`() {
+    fun `ADVERSE_ONLY rule is satisfied once an evidence photo is attached to the flagged item`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "EXIT", now = now)
         FinalizeTestFixtures.insertCheckItemDef(
@@ -144,23 +167,6 @@ class DbCompletenessCheckerTest {
         FinalizeTestFixtures.insertItemPhoto(database, uuid, roomInstanceId, itemId, now = now)
         val satisfied = DbCompletenessChecker(database).check(inspectionId)
         assertTrue(satisfied.itemsMissingMandatoryPhoto.isEmpty())
-    }
-
-    @Test
-    fun `ADVERSE_ONLY rule uses the annual three-tier defect set, not the rental four grades`() {
-        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
-        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "ANNUAL", now = now)
-        FinalizeTestFixtures.insertCheckItemDef(
-            database, uuid, templateVersionId, stableId = "smoke.alarm", room = "HALLWAY",
-            photoRule = "ADVERSE_ONLY", sort = 1, now = now,
-        )
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, type = "ANNUAL", now = now)
-        val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "HALLWAY", now = now)
-        // "POOR" isn't a valid annual-tier label; annual adverse = MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT.
-        DbTestFixtures.insertInspectionItem(database, uuid, inspectionId, roomInstanceId, stableId = "smoke.alarm", status = "SIGNIFICANT_DEFECT", now = now)
-
-        val missing = DbCompletenessChecker(database).check(inspectionId)
-        assertEquals(listOf(MissingItem(roomInstanceId, "smoke.alarm")), missing.itemsMissingMandatoryPhoto)
     }
 
     @Test
@@ -181,29 +187,36 @@ class DbCompletenessCheckerTest {
     }
 
     /**
-     * `room_instance.selectByInspection`（冻结物，不可改）没有 `ORDER BY`——SQLite 对无序查询的行序
-     * 不作任何契约保证（R3 round 2 指出）。这条断言两个房间的缺项清单都按 `room_instance.id` 升序，
-     * 与 `check()` 内部实际观察到的任何原始行序无关（是回归钉子而非能造出反例的差异测试：房间实例
-     * 的生成序恒等于 id 序，构造不出"生成序与 id 序相反"的夹具来独立验证——不同于 photo/audio 那两条
-     * 有房间/条目两根独立轴可以错开）。
+     * `room_instance.selectByInspection`（冻结物，不可改）没有 `ORDER BY`。这里用显式 id（绕开
+     * [Uuid7Generator]）把"插入顺序"与"id 顺序"故意错开——先插入 id 更大的房间，再插入 id 更小的
+     * 房间，这样若实现没有显式排序，输出会先出插入序第一的那间（id 更大），与断言的 id 升序相反，
+     * 才是能造出反例的差异测试（不是插入序恰好等于 id 序的巧合钉子）。
      */
     @Test
-    fun `missing-item lists across multiple rooms are ordered by room_instance id`() {
+    fun `missing-item lists across multiple rooms are ordered by room_instance id, not insertion order`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
         FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 1, now = now)
         val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
-        val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
-        val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
-        check(roomA < roomB) { "UUIDv7 生成序假设不成立，夹具需要重新设计" }
+        val largeId = "zzzzzzzz-0000-7000-8000-000000000001"
+        val smallId = "00000000-0000-7000-8000-000000000002"
+        // 先插入 id 更大的房间，再插入 id 更小的房间——插入序与 id 序相反。
+        database.roomInstanceQueries.insert(
+            id = largeId, inspection_id = inspectionId, room_key = "BEDROOM", instance_no = 1,
+            display_label = "Bedroom 1", created_at = now, updated_at = now,
+        )
+        database.roomInstanceQueries.insert(
+            id = smallId, inspection_id = inspectionId, room_key = "BEDROOM", instance_no = 2,
+            display_label = "Bedroom 2", created_at = now, updated_at = now,
+        )
         // 两间房都没人回答 wall.paint。
 
         val result = DbCompletenessChecker(database).check(inspectionId)
 
         assertEquals(
-            listOf(MissingItem(roomA, "wall.paint"), MissingItem(roomB, "wall.paint")),
+            listOf(MissingItem(smallId, "wall.paint"), MissingItem(largeId, "wall.paint")),
             result.itemsMissingStatus,
-            "list order must follow room_instance.id ascending, not whatever unspecified order SQLite happened to return",
+            "list order must follow room_instance.id ascending, not insertion order",
         )
     }
 }
