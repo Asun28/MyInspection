@@ -116,8 +116,7 @@ class InspectionRepositoryTest {
 
     @Test
     fun `createInspection throws when the tenancy id does not exist`() {
-        // 调用方传错 tenancy id 是调用方错误，须当场炸——不是"这处物业没有基线"这一合法业务态
-        // （Codex R3 round 1：此前会静默把悬空引用写进 inspection.tenancy_id）。
+        // 调用方传错 tenancy id 是调用方错误，须当场炸——不是"这处物业没有基线"这一合法业务态。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
         val bogusTenancyId = uuid.next() // 从未插入 tenancy 表
@@ -150,8 +149,7 @@ class InspectionRepositoryTest {
 
     @Test
     fun `createInspection throws when type does not match the template version's own type`() {
-        // 否则会拿 EXIT 的评级域校验 ROUTINE 巡检的项（或反之）——状态合法性检查会判错
-        // （Codex R3 round 1）。
+        // 否则会拿 EXIT 的评级域校验 ROUTINE 巡检的项（或反之）——状态合法性检查会判错。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val exitTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
 
@@ -176,7 +174,7 @@ class InspectionRepositoryTest {
     @Test
     fun `creating an INGOING with no existing baseline assigns itself as the tenancy's baseline`() {
         // 不经手工调 tenancyQueries.updateBaselineInspection——建 INGOING 这一动作本身就该把指针立起来
-        // （需求 §6「baseline_inspection = 该 tenancy 的 Ingoing」，Codex R3 round 2）。
+        // （需求 §6「baseline_inspection = 该 tenancy 的 Ingoing」）。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
         val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId, baselineInspectionId = null)
@@ -274,7 +272,7 @@ class InspectionRepositoryTest {
     fun `restoring a suppressed item during an in-progress draft creates the missing room instance`() {
         // BEDROOM 的唯一项在建巡检时已被抑制——巡检创建时只得到 KITCHEN。随后在这次巡检仍是 DRAFT 期间
         // 恢复该项：完备性查询立刻会把它算作活跃（天然不看创建时快照），但没有房间可挂就无法记录，
-        // 空洞地报"整间都完成"（Codex R3 round 2）。恢复必须把缺的房间补上，让这项真能被记录。
+        // 空洞地报"整间都完成"。恢复必须把缺的房间补上，让这项真能被记录。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
         repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
@@ -305,6 +303,18 @@ class InspectionRepositoryTest {
 
         val rooms = database.roomInstanceQueries.selectByInspection(created.inspectionId).executeAsList()
         assertTrue(rooms.none { it.room_key == "BEDROOM" })
+    }
+
+    @Test
+    fun `setItemSuppression throws for a stable id that is not defined in any template`() {
+        // 一个拼错/伪造的 stable_id 若放行，会铸出一条谁都匹配不到、只占着索引位的死 override 行。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        CaptureTestFixtures.insertRoutineTemplate(database, uuid) // 定义 KIT-ROOM-01/KIT-BENCH-01/BED-WALL-01
+
+        assertFailsWith<IllegalArgumentException> {
+            repo.setItemSuppression(propertyId, "NO-SUCH-ITEM-01", suppressed = true)
+        }
+        assertTrue(database.propertyItemOverrideQueries.selectByProperty(propertyId).executeAsList().isEmpty())
     }
 
     // ---- 状态写入合法性 ----
@@ -448,7 +458,7 @@ class InspectionRepositoryTest {
     fun `a real item-linked photo row clears the adverse-only item gap through the repository`() {
         // 端到端：真插一条 photo(inspection_item_id = 该项的行 id) 并核对 missingPhotos 真的不再报它——
         // 只测纯函数（CompletenessTest）测不到 loadRoomSnapshots 里 photo.inspection_item_id → stable_id
-        // 这段真实 DB 关联逻辑本身可能被改坏（Codex R3 round 2）。
+        // 这段真实 DB 关联逻辑本身可能被改坏。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
         val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
@@ -563,7 +573,7 @@ class InspectionRepositoryTest {
     @Test
     fun `setWearOrDamage throws when the item belongs to a different inspection`() {
         // 拿一个属于另一次（还是 DRAFT 的 ROUTINE）巡检的 itemId，套一个恰好是 EXIT 且有基线的
-        // inspectionId——两者此前各自独立解析、从未互相核对（Codex R3 round 1）。
+        // inspectionId——两者各自独立解析，若不核对就能把 wear_or_damage 写进毫不相干的条目。
         val (exitId, _) = setUpExitWithBaseline(baselineStatus = "GOOD")
 
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
@@ -592,8 +602,8 @@ class InspectionRepositoryTest {
 
     @Test
     fun `an idempotent status write with the same status preserves an existing wear_or_damage classification`() {
-        // 只改备注、状态原地不动的幂等自动保存——不得把仍然有效的 EXIT 分类悄悄删掉（Codex R3 round 2；
-        // 与上一个测试互补：那个测的是"真的变了要清"，这个测的是"没变就不能清"）。
+        // 只改备注、状态原地不动的幂等自动保存——不得把仍然有效的 EXIT 分类悄悄删掉
+        // （与上一个测试互补：那个测的是"真的变了要清"，这个测的是"没变就不能清"）。
         val (exitId, roomId) = setUpExitWithBaseline(baselineStatus = "GOOD")
         repo.setItemStatus(exitId, roomId, "KIT-BENCH-01", "POOR", "scratched")
         val itemId = database.inspectionItemQueries.selectByInspection(exitId).executeAsList().single().id

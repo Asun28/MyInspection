@@ -55,13 +55,15 @@ sealed class WearOrDamageOutcome {
  * 进程内状态要恢复）。
  *
  * **房间实例化的当前范围**：模板契约里的 `repeatable` 房间标记 + 物业房型数尚未落地——那是
- * `specs/tasks/T2-ROOM-REPEATABLE.md` 的产出，其 **own** `non_goals` 明文写着「采集期真正实例化
- * room_instance 的状态机（T2-CAPTURE-CORE 消费本卡产出）」，即由**那张卡**先把 `repeatable` 标记
- * 落进模板 JSON + schema（须先过版本评审，动的是本卡 `allow_paths` 之外、已冻结的
- * `android/core/src/main/sqldelight/` 与 `template/Template.kt`），本卡再消费。在其落地前，
- * 本仓储按模板 `check_item_def.room` 出现的**每个不同房间键实例化一个 room_instance**
- * （`instance_no = 1`，`display_label` = 房间键本身），即"单例房间"这一子集——多卧室/多卫生间的
- * 多实例支持留给 T2-ROOM-REPEATABLE 落地后的后续演进，不在**本卡** `dod_assert` 范围内。
+ * `specs/tasks/T2-ROOM-REPEATABLE.md` 的产出，其 own `non_goals` 明文写着「采集期真正实例化
+ * room_instance 的状态机（T2-CAPTURE-CORE 消费本卡产出）」，即由那张卡先把 `repeatable` 标记落进模板
+ * JSON + schema（须先过版本评审，动的是本卡 `allow_paths` 之外、已冻结的 `sqldelight/` 与
+ * `template/Template.kt`），本卡再消费。在其落地前，本仓储按模板 `check_item_def.room` 出现的**每个
+ * 不同房间键实例化一个 room_instance**（`instance_no = 1`，`display_label` = 房间键本身），即"单例房间"
+ * 这一子集——多卧室/多卫生间的多实例支持留给 T2-ROOM-REPEATABLE 落地后的后续演进。
+ *
+ * **本仓储只有一个数据库连接**：每个公开方法内部的读（判断依据）与写都包在同一个 `db.transaction{}` 里，
+ * 这样该方法对同连接上的其它调用而言是不可分割的一步——判断依据与写入结果保证出自同一个数据库状态。
  */
 class InspectionRepository(
     private val db: MyInspectionDatabase,
@@ -73,23 +75,18 @@ class InspectionRepository(
      * `inspection` 行 → 按模板房间键（排除本物业当前 suppressed 的项后）实例化 `room_instance`。
      * 单事务——半份巡检（有巡检行、房间缺几间）比整体失败更坏。
      *
-     * **入参校验先于任何写入**（Codex R3 round 1 抓到的真缺陷）：property/template_version/tenancy
-     * 都是逻辑外键（schema 不强制），一个拿错的 id 若不拦，要么静默造出零房间的空壳巡检
-     * （模板 id 不存在——`activeRoomKeysInOrder` 查不到任何项定义，`WalkProgress.isComplete` 会因
-     * "没有房间等于全部房间都完成"而**空洞为真**），要么把一条悬空引用写进 `inspection.tenancy_id`
-     * （tenancy id 不存在——后续按这条巡检反查 tenancy 会失败，且 [resolveBaseline] 会把"调用方传错 id"
-     * 误判成"这处物业没有基线"这一正常业务态）。`template_version.type` 与入参 `type` 不一致同样必须
-     * 拦——否则用 EXIT 的评级域校验 ROUTINE 巡检的项，或反之，状态合法性检查会判错。
+     * **入参校验先于任何写入**：property/template_version/tenancy 都是逻辑外键（schema 不强制）——
+     * 放行错误 id 会静默造出零房间的空壳巡检（模板 id 不存在，`activeRoomKeysInOrder` 查不到任何项定义，
+     * `WalkProgress.isComplete` 因"没有房间"而空洞为真），或写进一条悬空引用（tenancy id 不存在，且会被
+     * [resolveBaseline] 误判成"这处物业没有基线"这一正常业务态）。`template_version.type` 与入参 `type`
+     * 不一致同样必须拦，否则状态合法性检查会用错评级域判定。
      *
      * 不预先创建 `inspection_item` 行：项目行在 [setItemStatus] 首次写入时才产生（`inspection_item.status`
      * 是 NOT NULL 列，创建时没有值可填；走查进度改用"该房间应有项数 vs 已记录项数"的计数比较，见
      * [computeRoomProgress]），这样也天然满足"进程死亡恢复"——没有中间态需要另外持久化。
      *
-     * **双轨引用解析 + 房间键枚举也在事务内做**（Codex R3 round 3）：这两步都是"读了再决定写什么"——
-     * 挪进事务前，`resolvePrevious`/`resolveBaseline`/`activeRoomKeysInOrder` 读到的是事务开始前那一刻
-     * 的快照，若同一连接上另一次调用在此期间插了一条改变这些查询结果的行，写下去的 previous/baseline/
-     * 房间集合就已经对不上事务提交时的真实状态。挪进去后，读与写在同一个 `db.transaction{}` 边界内，
-     * 本仓储唯一的连接（[MyInspectionDatabase]）序列化了同连接上的并发调用，读到的即将要写的这一份。
+     * baseline 字段对**所有**巡检类型统一解析入库——它是创建时刻该 tenancy 基线的快照，EXIT 是主要
+     * **消费者**（[setWearOrDamage]），非唯一持有者；按类型条件置空不属本卡契约（见卡片正文澄清）。
      */
     fun createInspection(
         type: String,
@@ -123,8 +120,16 @@ class InspectionRepository(
         val roomInstanceIds = mutableListOf<String>()
 
         db.transaction {
+            // tenancy 在事务内重新点查一次而非复用入参校验期读到的 [tenancy]：baseline 的解析与下面
+            // "是否需要把这次 INGOING 立成基线"的判断必须出自同一份、事务当下的真实状态，两处若各用
+            // 各的快照会互相矛盾。
+            val freshTenancy = tenancy?.let {
+                checkNotNull(db.tenancyQueries.selectById(it.id).executeAsOneOrNull()) {
+                    "tenancy ${it.id} disappeared mid-transaction"
+                }
+            }
             previousId = resolvePrevious(propertyId, type, scheduledAt)
-            baseline = resolveBaseline(tenancy)
+            baseline = resolveBaseline(freshTenancy)
 
             db.inspectionQueries.insert(
                 id = inspectionId,
@@ -142,20 +147,12 @@ class InspectionRepository(
                 updated_at = now,
             )
             // 建 INGOING 时，若该 tenancy 尚无基线指针，把这次 INGOING 自身立成基线（需求 §6「baseline_inspection
-            // = 该 tenancy 的 Ingoing」）。**不覆盖已有指针**——一个 tenancy 只能有一个权威基线，重复建 INGOING
+            // = 该 tenancy 的 Ingoing」）。不覆盖已有指针——一个 tenancy 只能有一个权威基线，重复建 INGOING
             // 不应该悄悄把基线换掉；"没有 Ingoing 时改指某次 Routine" 那条例外路径仍走 tenancy.updateBaselineInspection
             // 的既有机制，非本卡自动化范围（见 Tenancy.sq 注释）。这条 INGOING 自身的 baseline_inspection_id 列
             // 仍解析为 null（上面 resolveBaseline 在指针更新前就已算出）——它不需要引用自己。
-            // **在事务内重新点查 tenancy 而非用外层已解析的 [tenancy]**（Codex R3 round 3）：外层那份是入参校验期
-            // 读的快照，两次并发 createInspection 调用都可能各自观察到"尚无基线"，若都用各自的旧快照判断就会
-            // 各写一次、后写者悄悄覆盖先写者——同连接内事务序列化后，这里必须读事务当下的真实值。
-            if (type == "INGOING" && tenancy != null) {
-                val freshTenancy = checkNotNull(db.tenancyQueries.selectById(tenancy.id).executeAsOneOrNull()) {
-                    "tenancy ${tenancy.id} disappeared mid-transaction"
-                }
-                if (freshTenancy.baseline_inspection_id == null) {
-                    db.tenancyQueries.updateBaselineInspection(baseline_inspection_id = inspectionId, updated_at = now, id = tenancy.id)
-                }
+            if (type == "INGOING" && freshTenancy != null && freshTenancy.baseline_inspection_id == null) {
+                db.tenancyQueries.updateBaselineInspection(baseline_inspection_id = inspectionId, updated_at = now, id = freshTenancy.id)
             }
             activeRoomKeysInOrder(propertyId, templateVersionId).forEach { roomKey ->
                 val roomInstanceId = uuid.next()
@@ -193,16 +190,11 @@ class InspectionRepository(
      * 用 [require]/[checkNotNull] 当场炸；已 FINALIZED 巡检上的写入被 SQL 层 `finalized_at IS NULL`
      * 守卫拒绝（0 行），[check] 把它转成显式失败，不静默吞掉。
      *
-     * **两条额外的调用方契约校验**（Codex R3 round 1 抓到的真缺陷——冻结的 `inspection_item.insert`
-     * 只守「同一巡检」，不守下面两条）：① [roomInstanceId] 必须真的属于 [stableId] 定义所在的房间键
-     * （`def.room`），否则一个传错的 room_instance_id 能把条目写进错误的房间，完备性/进度计算会静默算错；
-     * ② [stableId] 不得是本物业**当前**被抑制的项——被抑制的项不出现在任何完备性查询里（见
-     * `activeCheckItemDefs`），写入它只会产生一条谁都看不见、却仍占着 id 的幽灵记录。
-     *
-     * **全程一个事务**（Codex R3 round 3）：查 inspection/def/suppression/room_instance/existing 这几步
-     * 此前都在事务外，与后面的写分属两段——同连接上若被另一次调用插在读与写之间，②的抑制判断、
-     * "existing 是否存在"的判断都可能读到已经过期的状态。挪进同一个 `db.transaction{}` 后，本方法对
-     * 同连接上的其它调用而言是不可分割的一步：判断依据与写入结果保证出自同一个数据库状态。
+     * **两条调用方契约校验**（冻结的 `inspection_item.insert` 只守「同一巡检」，不覆盖下面两条）：
+     * ① [roomInstanceId] 必须真的属于 [stableId] 定义所在的房间键（`def.room`），否则一个传错的
+     * room_instance_id 能把条目写进错误的房间，完备性/进度计算会静默算错；② [stableId] 不得是本物业
+     * **当前**被抑制的项——被抑制的项不出现在任何完备性查询里（见 `activeCheckItemDefs`），写入它只会
+     * 产生一条谁都看不见、却仍占着 id 的幽灵记录。
      */
     fun setItemStatus(inspectionId: String, roomInstanceId: String, stableId: String, status: String, note: String?) {
         val now = clock.nowMs()
@@ -237,11 +229,11 @@ class InspectionRepository(
                     "inspection_item write affected $statusAffected rows for '$stableId' (finalize guard rejected the write)"
                 }
                 if (existing.status != status) {
-                    // 状态**真的变了**，此前记录的 wear_or_damage 分类即失效——它的合法性绑定在"此刻与基线有
-                    // 差异"这一判断上（见 setWearOrDamage），状态变了这个判断要重新做，不能让旧分类悄悄挂着
-                    // （Codex R3 round 1）。用已存在的 updateWearOrDamageIfDraft 清空即可，无需新增查询。
-                    // **状态未变时绝不清空**（Codex R3 round 2：否则一次只改备注、状态原地不动的幂等自动保存
-                    // 会把一条仍然有效的 EXIT 分类悄悄删掉）。
+                    // 状态真的变了时，此前记录的 wear_or_damage 分类即失效——其合法性绑定在"此刻与基线有
+                    // 差异"这一判断上（见 [setWearOrDamage]），状态变了这个判断要重新做，不能让旧分类
+                    // 悄悄挂着。用已存在的 updateWearOrDamageIfDraft 清空即可，无需新增查询。
+                    // 状态未变时绝不清空——否则一次只改备注、状态原地不动的幂等自动保存会把一条仍然
+                    // 有效的 EXIT 分类悄悄删掉。
                     db.inspectionItemQueries.updateWearOrDamageIfDraft(wear_or_damage = null, updated_at = now, id = existing.id).value
                 } else {
                     statusAffected
@@ -264,10 +256,8 @@ class InspectionRepository(
      * （差异按 stable_id 对齐比较 status，卡片正文已定）。四种非成功态都是合法结果，不是异常——
      * 调用方（UI）据此渲染相应提示，不需要 try/catch。
      *
-     * [itemId] 必须真的属于 [inspectionId]（Codex R3 round 1 抓到的真缺陷：两者此前各自独立解析，
-     * 从未互相核对——调用方能拿一个属于**另一次**巡检的 itemId，搭一个恰好是 EXIT 且有基线的
-     * inspectionId，把 wear_or_damage 写进一条毫不相干的条目，且该条目所属巡检自己的 finalize 守卫
-     * 与本次判断完全脱钩）。
+     * [itemId] 必须真的属于 [inspectionId]——两者各自独立解析，若不核对，调用方能拿一个属于**另一次**
+     * 巡检的 itemId，搭配一个恰好是 EXIT 且有基线的 inspectionId，把 wear_or_damage 写进毫不相干的条目。
      */
     fun setWearOrDamage(inspectionId: String, itemId: String, wearOrDamage: String): WearOrDamageOutcome {
         require(wearOrDamage in WEAR_OR_DAMAGE_VALUES) { "unknown wear_or_damage value: '$wearOrDamage'" }
@@ -278,10 +268,8 @@ class InspectionRepository(
         if (inspection.type != "EXIT") return WearOrDamageOutcome.NotExitType
         val baselineId = inspection.baseline_inspection_id ?: return WearOrDamageOutcome.NoBaseline
 
-        // 取项 → 核对归属 → 取基线项 → 比较 → 写，整段包进一个事务：这是一条"读-判-写"序列，中途若被另一次
-        // setItemStatus 插进来改了 item.status，写下去的分类就可能已经对不上当时的判断
-        // （Codex R3 round 2）。用外层可变量带出结果——`db.transaction{}` 是 Unit 返回体，同 createInspection
-        // 用 roomInstanceIds 变量带结果的写法一致。
+        // 取项 → 核对归属 → 取基线项 → 比较 → 写整段包进一个事务（理由同 [createInspection]）；
+        // 用外层可变量带出结果，因为 `db.transaction{}` 是 Unit 返回体。
         var outcome: WearOrDamageOutcome = WearOrDamageOutcome.Written
         db.transaction {
             val item = checkNotNull(db.inspectionItemQueries.selectById(itemId).executeAsOneOrNull()) {
@@ -315,21 +303,25 @@ class InspectionRepository(
      * 物业级条目抑制/恢复（「本物业不存在此项」，跨巡检永久生效直到显式恢复）。恢复 = 置 suppressed=0，
      * 不是软删这一行——见 PropertyItemOverride.sq 的同名注释，该状态本就可逆。
      *
-     * **恢复时补建缺失的 room_instance**（Codex R3 round 2 抓到的真缺陷）：若某房间的唯一项在建巡检时
-     * 已被抑制，该房间当时不会被实例化（见 [activeRoomKeysInOrder]）；此后若在**该巡检仍是 DRAFT 期间**
-     * 恢复这项，完备性查询会立刻把它算作"活跃"（天然不看创建时快照，见 `activeCheckItemDefs`），但没有
-     * 房间可挂——[setItemStatus] 无 room_instance 可传，这条项事实上无法被记录，`WalkProgress.isComplete`
-     * 却因为"压根没这间房"而空洞为真。故恢复时为每个当前仍是 DRAFT 的巡检补建缺失的房间实例，
-     * 抑制则不需要对称处理——抑制不使已建好的房间/条目消失，只是让"新建巡检"与"完备性查询"以后不再计入它。
+     * [stableId] 必须是某个模板版本里真实定义过的项（跨模板校验，不绑定某一版本——见
+     * [stableIdIsKnownToAnyTemplate]）：一个拼错/伪造的 stable_id 若放行，会铸出一条谁都匹配不到、
+     * 只占着索引位的死 override 行。
      *
-     * **override 写入 + 补房间在同一个事务里**（Codex R3 round 3）：此前是两段独立的读-写——建巡检可能
-     * 在两者之间插进来，读到"已抑制"却在补房间的扫描发生前就已提交，落出"该巡检已建好、但缺这间房"的
-     * 同一个洞；抑制/恢复本身连续调用两次也可能各自的唯一索引点查撞车。挪进一个事务后，override 的
-     * upsert 与逐个 DRAFT 巡检的补房间扫描对同连接上的其它调用而言是一步。
+     * **恢复时补建缺失的 room_instance**：若某房间的唯一项在建巡检时已被抑制，该房间当时不会被实例化
+     * （见 [activeRoomKeysInOrder]）；此后若在**该巡检仍是 DRAFT 期间**恢复这项，完备性查询会立刻把它
+     * 算作"活跃"（天然不看创建时快照，见 `activeCheckItemDefs`），但没有房间可挂——[setItemStatus] 无
+     * room_instance 可传，这条项事实上无法被记录，`WalkProgress.isComplete` 却因"压根没这间房"而空洞
+     * 为真。故恢复时为每个当前仍是 DRAFT 的巡检补建缺失的房间实例，抑制则不需要对称处理——抑制不使
+     * 已建好的房间/条目消失，只是让"新建巡检"与"完备性查询"以后不再计入它。
+     *
+     * override 写入与补房间在同一个事务里（理由同 [createInspection]）。
      */
     fun setItemSuppression(propertyId: String, stableId: String, suppressed: Boolean) {
         val now = clock.nowMs()
         db.transaction {
+            require(stableIdIsKnownToAnyTemplate(stableId)) {
+                "stable_id '$stableId' is not defined in any template version"
+            }
             val existing = db.propertyItemOverrideQueries.selectByPropertyAndStableId(propertyId, stableId).executeAsOneOrNull()
             if (existing != null) {
                 db.propertyItemOverrideQueries.setSuppressed(
@@ -416,15 +408,24 @@ class InspectionRepository(
             .filterNot { it.stable_id in suppressedStableIds(propertyId) }
 
     /**
+     * 该 stable_id 是否曾出现在**任意**模板版本的项定义里。跨模板校验而非绑定某一版本——物业没有
+     * 固定的单一模板（不同巡检类型各自的模板版本各异，且抑制常常发生在该物业第一次巡检之前），
+     * 只要求这个 id 是系统里真实存在过的模板项，不是拼错/伪造的字符串。
+     */
+    private fun stableIdIsKnownToAnyTemplate(stableId: String): Boolean =
+        db.templateVersionQueries.selectActive().executeAsList().any { tv ->
+            db.checkItemDefQueries.selectByTemplateVersion(tv.id).executeAsList().any { it.stable_id == stableId }
+        }
+
+    /**
      * `room_instance.selectByInspection`（冻结查询）没有 ORDER BY，返回顺序由 SQLite 的查询计划决定
      * （实测：常走 `idx_room_instance_active`，按 room_key 字典序而非插入/模板序）——[WalkProgress.rooms]
      * 因此**不承诺**模板序。需要模板序时用 [CreatedInspection.roomInstanceIds]（仓储在内存里按模板序
      * 组装的那份）。
      *
-     * **整份读组在一个事务里完成**（Codex R3 round 3）：definitions/room_instances/items/photos 是四组
-     * 各自独立的 SELECT；此前无事务包裹时，同连接上若被另一次写调用插在其中两组之间，装出来的这份
-     * `RoomSnapshot` 列表可能一半读到旧状态、一半读到新状态（"撕裂读"）——而这份快照正是
-     * [missingPhotos]/[missingNotes] 共用的完备性依据。包进事务后，四组查询对同连接上的写入是原子的一份。
+     * 整份读组在一个事务里完成（理由同 [createInspection]）：definitions/room_instances/items/photos
+     * 四组各自独立的 SELECT 必须出自同一个数据库状态——这份快照正是 [missingPhotos]/[missingNotes] 共用
+     * 的完备性依据，撕裂读会让它一半旧一半新。
      */
     private fun loadRoomSnapshots(inspection: Inspection): List<RoomSnapshot> {
         var snapshots: List<RoomSnapshot> = emptyList()
@@ -472,8 +473,8 @@ class InspectionRepository(
     /**
      * baseline_inspection = 该 tenancy 的权威基线指针（`tenancy.baseline_inspection_id`），历史事实、
      * 写死不改。收**已解析的行**而非 id——tenancy 是否存在是 [createInspection] 的入参校验职责
-     * （调用方传错 id 是调用方错误，须当场炸，不是"无基线"这一合法业务态），本函数只负责从一个
-     * **已知存在**的 tenancy（或没有 tenancy）里读出基线指针。
+     * （调用方传错 id 是调用方错误，须当场炸，不是"无基线"这一合法业务态）；调用方须传入事务内新鲜
+     * 读到的那一份（见 [createInspection] 的 `freshTenancy`），本函数只负责从中读出基线指针。
      */
     private fun resolveBaseline(tenancy: Tenancy?): BaselineResolution {
         if (tenancy == null) return BaselineResolution(null, NoBaselineReason.NO_TENANCY)
