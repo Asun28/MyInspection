@@ -1613,3 +1613,27 @@
 - rule: ① 法规衍生的声明/勾选类条目，撰写前必须先取得逐条主文本（官方表 PDF 或立法原文，而非调研摘要的转述关键词）逐句核对再动笔，不得凭摘要"合理推断"数值/日期/替代关系。② 若主文本受版权保护（commercial reuse 需书面授权），改独立措辞时逐条二次核对：每个 or/each/every/within/minimum 等替代词/限定词必须原样保留其逻辑结构，只许换外壳词汇、不许压缩逻辑（含"中性化改写去掉判断句"时）。③ exact-string oracle 只锁"稳定"不锁"正确"；写完仍须回主文本逐句复核，不能靠"测试绿了"自证内容对——mutation-proof 只证明断言在测，不证明断言值本身无误。
 - enforced_by: none（暂无机检；R3 codex-review 人工/第二模型评审兜底，见 T2-ROUTINE-CONTENT PR#5 连续 4 轮实证）
 - refs: 
+
+## L224
+- date: 2026-08-16 ｜ tags: review,tests,refactor ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 重构测试/守卫结构后连续多轮 R3 block，每轮都在点名 stale 注释、失效的库导出清单、死变量、以及描述上一版形状的失败文案；实现本身是对的
+- root_cause: 改结构时只改了代码路径，narration（注释/头注/失败文案/导出清单/变量清理）留在上一版形状；评审者按 rubric #16 逐轮点名，一轮只点最刺眼的一批
+- rule: 每次结构性重构后，在自查阶段把「随结构一起改的面」当清单逐条过：①被改文件自身的注释与头注 ②库导出/参数清单（-AsLibrary 之类）③失败文案与总结行 ④因重构变成死代码的变量 ⑤引用旧标识符的注释。用 grep 找旧标识符（改名前的函数名/gate 名/变量名）确认零残留，再交付
+- enforced_by: 
+- refs: 
+
+## L225
+- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 给判据新增一条断言并配了变异，评审仍判「该断言无变异可达」——变异确实变红了，但红在更靠前的另一条断言上
+- root_cause: 同一判据里多条断言是短路顺序执行的，靠前的断言会掩护靠后的：删掉底层函数本体时，靠前的断言先失败并退出，靠后那条永远走不到，于是它并未被证明在测
+- rule: 每条断言都要一枚只打中它的变异：靶点选「只会让这条断言失败、不影响更靠前断言」的那一行（如只删遍历循环、保留比较本体）。并且每枚变异必须声明它的期望失败码，判据按码锚定匹配——[regex]::Escape 只转义元字符不锚定，裸子串会让 ABSENT-CANON 被 ABSENT-CANONICAL 白拿分
+- enforced_by: 
+- refs: 
+
+## L226
+- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
+- root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
+- rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装
+- enforced_by: 
+- refs: 

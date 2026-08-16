@@ -128,11 +128,39 @@ JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层�
 > **同工作树并发事故**：另一会话（刚合完 T1-CANON-HASH）依陈旧 handoff 也开了本卡、在同一 worktree 改文件，
 > 撞在变异批中途——靠变异脚本的 SHA 基线守卫当场停住（L196 生效），未污染任何提交。
 
+**★第四冻结点已合并**：`T5-BACKUP-FORMAT` **merged**（2026-08-16，master `efedcfb`，R3 pass 于第 **4** 轮，
+其中两次经人裁）——`core/backup/format/`：47 字节明文头（magic `MYINSPBK`/format_version/kdf_id/迭代数/盐/
+nonce 前缀/口令校验值）+ **分块 AES-256-GCM** 密文体（内含 zip：`manifest.json` 首条目 + `db.sqlite` +
+`photos/**`·`audio/**`·`configs/**`）+ manifest（canonical JSON 复用已冻结的 core/canon）+ 写读两侧逐文件
+复核 SHA-256 与双向完备性。**84 个 JVM 测试、30 枚单点变异逐一击杀**（判据分类器 + 每枚还原后核 SHA）。
+合并后 `core/backup/format/` 主/测试目录已登记 FrozenPaths（格式锚点测试即契约本体，一并冻结）。
+> **两处偏离卡片草图，均经人裁写进卡片「格式评审记录」**：① 密文体是**分块 AEAD**而非一路 CipherOutputStream
+> ——JCE/Conscrypt 的 AEAD 会把整份密文缓冲到 `doFinal`（实测 JDK 17 SunJCE：解密 `update(1 MiB)` 交出 **0 字节**），
+> 与卡片自己的硬不变量「GB 级照片、恒定内存」冲突；且任何「边解密边交明文」的单发变体都会在验 tag 前
+> 交出未认证字节。分块后 nonce = 前缀‖块序号‖final 标志、AAD = 整个头，于是**块序/块数/末块身份**全被 tag 认证。
+> ② zip 容器 = 认证加密层内的**运输信封**，其 CD/EOCD **非规范性**、**manifest 是唯一权威**，
+> **禁止未来实现信任 CD**（永久封死 local/CD 歧义面）。二者仍只组合 javax.crypto 标准件、零新依赖。
+> **口令做 NFC 归一**（不同输入法的 NFD 口令否则永远打不开自己的备份，而本格式无口令找回）。
+> R4 变异首轮 21/25，4 枚存活各暴露一处真问题：**2 个冗余守卫**（目录条目预检、未知键预检——「canonical
+> 字节相等」那道闸已覆盖）当场删除、**1 个测试太弱**、**1 枚变异选错靶**；改完后续三批 23+3+4 全杀。
+> 卡片写的「Terra 复读格式头」由 **DeepSeek V4 Pro 独立复读**代替（Terra 未接线；L26 标准=独立非 Claude 复读）。
+
 **当前已解锁待做**：`T2-PHOTO-PIPELINE` · `T2-CAPTURE-CORE` · `T2-ROUTINE-CONTENT` · `T2-PHRASELIB`（依 template）·
-`T5-RETENTION`（依 schema）· `T5-BACKUP-FORMAT` · `T3-FINALIZE`（依 canon）· `T2-ROOM-REPEATABLE`（须先还清 TD4）。
+`T5-RETENTION`（依 schema）· `T5-BACKUP-IO`（依 backup-format）· `T3-FINALIZE`（依 canon）· `T2-ROOM-REPEATABLE`（须先还清 TD4）。
+
+**T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
+block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**
+（2026-08-16，master `6f255d3`，PR #4，R3 pass 于第 **4** 轮）——许可闸五个路径比较调用点统一走 OS 感知比较器
+（`Test-GradleNameEquals`/`Test-GradleNameInList`/`Test-GradlePathPrefix`），发布清单 Gradle 阻断项收敛为
+**单一解锁路径**（人裁：删掉人工核验替代，唯一解锁 = `T0-LICENSE-SCANNER` 落地），12 枚变异各自按专属失败码击杀。
+> 病根值得记住：`-contains` 恒**不敏感**、`String.StartsWith(string)` 恒**敏感**，一行之内两套语义 ⇒ Linux/CI 上
+> 被追踪的 `Build/`、`Data/` 被当成 ignore 的小写目录**静默剪掉**——漏扫是静默的，闸在看不见时反而变安静。
+> 三轮 block 的同一根因是「重构完 narration 还停在上一版形状」（L224）与「新断言没有能打到它的变异——
+> 短路顺序下靠前的断言会掩护靠后的」（L225）；另有 L226（拼装文件时 PS7 的 `-Encoding utf8` 静默抹掉 BOM）。
 
 下一步：① 进 **W2 并行窗口**（上列 allow_paths 互不重叠者可同时开；**一卡一会话，别两个会话开同一张卡**）；
-② `T0-GATE-HARDENING`（**注**：其合并 `5ba3319` 未经 `task.ps1 ship`，post-hoc R3 已 block ×2 且经复核属实，待用户裁决 fix-forward）；③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
+② `T0-LICENSE-SCANNER`（偿还 TD2；它落地即解锁 `docs/RELEASE-CHECKLIST.md` 的 Gradle 发布阻断项与 `-Strict` 退出 0）；
+③ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
 
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
