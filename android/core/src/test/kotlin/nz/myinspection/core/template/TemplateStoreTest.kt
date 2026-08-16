@@ -52,15 +52,14 @@ class TemplateStoreTest {
     }
 
     @Test
-    fun `persist records the type, version and content hash on template_version`() {
-        val loaded = loadRoutine()
-
-        val versionId = store.persist(loaded)
+    fun `persist records the type, version and timestamp on template_version`() {
+        // content_hash 那一列另有专测（见「the stored content hash is the SHA-256 of the source bytes」），
+        // 这里不重复断言，免得两处测同一件事、剪枝时分不清哪条才是它的真正守卫。
+        val versionId = store.persist(loadRoutine())
 
         val row = database.templateVersionQueries.selectById(versionId).executeAsOne()
         assertEquals("ROUTINE", row.type)
         assertEquals(1L, row.version)
-        assertEquals(loaded.contentHash, row.content_hash)
         assertEquals(now, row.created_at)
     }
 
@@ -136,15 +135,16 @@ class TemplateStoreTest {
         TemplateStore(MyInspectionDatabase(ItemInsertFault(driver, mode)), Uuid7Generator(), ClockMs { now })
 
     @Test
-    fun `persist refuses a template that would not pass validation`() {
-        // LoadedTemplate 的构造器是 internal：模块外造不出，只有 :core 内（含本测试）能故意造一份非法的。
-        // 持久化边界仍自己再校验一次——数据库里不该出现引擎自己会拒的模板，哪怕它是从模块内递进来的。
-        val invalid = LoadedTemplate(Template(type = "ROUTINE", version = 1, items = emptyList()), contentHash = "deadbeef")
+    fun `the stored content hash is the SHA-256 of the source bytes`() {
+        // 端到端钉住那条不变量：字节 → load → persist → 库里那一列。
+        // LoadedTemplate 的构造器是 private、唯一出生点只收字节，所以"拿一份合法模板配个随手写的哈希入库"
+        // 这条路根本不存在——它不是被运行期拦下的，而是写不出来（编译不过）。
+        val versionId = store.persist(TemplateLoader.load(TemplateTestFixtures.GOLDEN_JSON.byteInputStream()))
 
-        val ex = assertFailsWith<TemplateValidationException> { store.persist(invalid) }
-
-        assertEquals(listOf("template: items is empty"), ex.errors)
-        assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
+        assertEquals(
+            TemplateTestFixtures.GOLDEN_SHA256,
+            database.templateVersionQueries.selectById(versionId).executeAsOne().content_hash,
+        )
     }
 }
 

@@ -16,6 +16,37 @@ class TemplateValidationException(val errors: List<String>) :
     IllegalArgumentException("template validation failed: ${errors.joinToString("; ")}")
 
 /**
+ * 解析结果：模板文档 + 该模板**自己那份字节**的 SHA-256（入 `template_version.content_hash`）。
+ *
+ * 构造器 `private`，唯一出生点是 [parse]——它**只收字节**，模板与哈希都由同一份字节算出，
+ * 调用方递不进来一个 contentHash。这条不变量（content_hash 必是源字节的 SHA-256）因此由**类型**
+ * 保证，而不是靠注释或调用纪律：它是「同版本号不同内容」静默漂移的唯一检出手段，一旦哈希可以
+ * 被随手填，那道检出就只是看起来存在。
+ *
+ * 刻意不是 `data class`：`copy()` 会绕过构造器可见性，让持有者从一份合法结果 copy 出一个假 hash。
+ */
+class LoadedTemplate private constructor(
+    val template: Template,
+    val contentHash: String,
+) {
+    internal companion object {
+        /**
+         * 唯一出生点：字节 → 严格 UTF-8 解码 → 解析 → 冻结集合 → 校验 → 连同这份字节的哈希封装。
+         *
+         * @throws java.nio.charset.CharacterCodingException 字节不是合法 UTF-8
+         * @throws kotlinx.serialization.SerializationException JSON 语法错误或出现未知字段
+         * @throws TemplateValidationException 校验不通过（携带全部问题）
+         */
+        fun parse(bytes: ByteArray): LoadedTemplate {
+            val template = freeze(Json.decodeFromString(Template.serializer(), decodeUtf8Strict(bytes)))
+            val errors = TemplateLoader.validate(template)
+            if (errors.isNotEmpty()) throw TemplateValidationException(errors)
+            return LoadedTemplate(template = template, contentHash = sha256Hex(bytes))
+        }
+    }
+}
+
+/**
  * 模板加载器：读 InputStream → 解析 → 校验 → [LoadedTemplate]。纯 JVM，不碰 android assets
  * （:app 侧后续自己开 assets 流喂进来）。
  */
@@ -34,13 +65,7 @@ object TemplateLoader {
      * @throws kotlinx.serialization.SerializationException JSON 语法错误或出现未知字段
      * @throws TemplateValidationException 校验不通过（携带全部问题）
      */
-    fun load(input: InputStream): LoadedTemplate {
-        val bytes = input.readBytes()
-        val template = freeze(Json.decodeFromString(Template.serializer(), decodeUtf8Strict(bytes)))
-        val errors = validate(template)
-        if (errors.isNotEmpty()) throw TemplateValidationException(errors)
-        return LoadedTemplate(template = template, contentHash = sha256Hex(bytes))
-    }
+    fun load(input: InputStream): LoadedTemplate = LoadedTemplate.parse(input.readBytes())
 
     /**
      * 校验一份已解析的模板，返回全部问题；空列表 = 通过。内容卡的 DoD 直接拿它当闸。
@@ -89,31 +114,34 @@ object TemplateLoader {
         }
         return errors
     }
-
-    /**
-     * 严格 UTF-8 解码：坏字节**抛异常**，不替换成 U+FFFD。
-     *
-     * `ByteArray.toString(UTF_8)` 走的是替换策略——一份被截断/损坏的模板会"加载成功"，
-     * 文案里带着替换字符进库，而 content_hash 记的是真实字节：库里的内容与文件对不上，且没人会知道。
-     */
-    private fun decodeUtf8Strict(bytes: ByteArray): String =
-        Charsets.UTF_8.newDecoder()
-            .onMalformedInput(CodingErrorAction.REPORT)
-            .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(bytes))
-            .toString()
-
-    /**
-     * 把解析出来的集合包成不可变。kotlinx 反序列化产出的是 `ArrayList`，Kotlin 的 `List` 只是只读**视图**，
-     * 强转回 `MutableList` 就能改——而 [LoadedTemplate] 的立身之本是"内容与 contentHash 对得上"，
-     * 一份哈希完还能被改的模板等于没有哈希。
-     */
-    private fun freeze(template: Template): Template = template.copy(
-        items = Collections.unmodifiableList(
-            template.items.map { it.copy(allowedStatuses = Collections.unmodifiableList(it.allowedStatuses)) },
-        ),
-    )
-
-    private fun sha256Hex(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }
+
+// 下面三个是**文件级 private**（不是 TemplateLoader 的成员）：[LoadedTemplate.parse] 与 [TemplateLoader]
+// 都要用，而 Kotlin 的 private 成员只对所属类可见、private 顶层声明才是"本文件可见"。
+
+/**
+ * 严格 UTF-8 解码：坏字节**抛异常**，不替换成 U+FFFD。
+ *
+ * `ByteArray.toString(UTF_8)` 走的是替换策略——一份被截断/损坏的模板会"加载成功"，
+ * 文案里带着替换字符进库，而 content_hash 记的是真实字节：库里的内容与文件对不上，且没人会知道。
+ */
+private fun decodeUtf8Strict(bytes: ByteArray): String =
+    Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString()
+
+/**
+ * 把解析出来的集合包成不可变。kotlinx 反序列化产出的是 `ArrayList`，Kotlin 的 `List` 只是只读**视图**，
+ * 强转回 `MutableList` 就能改——而 [LoadedTemplate] 的立身之本是"内容与 contentHash 对得上"，
+ * 一份哈希完还能被改的模板等于没有哈希。
+ */
+private fun freeze(template: Template): Template = template.copy(
+    items = Collections.unmodifiableList(
+        template.items.map { it.copy(allowedStatuses = Collections.unmodifiableList(it.allowedStatuses)) },
+    ),
+)
+
+private fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

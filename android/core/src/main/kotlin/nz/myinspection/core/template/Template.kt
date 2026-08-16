@@ -48,21 +48,6 @@ data class TemplateItem(
 )
 
 /**
- * 解析结果：模板文档 + 该文件**字节**的 SHA-256（入 `template_version.content_hash`）。
- *
- * 构造器是 `internal`：模块外（:app 及任何下游）**造不出**这个类型，只能从 [TemplateLoader.load] 拿——
- * 于是"入库的模板必经校验、content_hash 必是那份文件真实字节的哈希"这条来源保证在类型层面成立，
- * 而不是只写在注释里。:core 内的测试仍造得出（同模块），故意造非法值去驱动持久层的失败路径；
- * [TemplateStore.persist] 因此**仍会自己再校验一次**，不把来源保证当免检牌。
- *
- * 刻意不是 `data class`：`copy()` 会绕过构造器可见性，让模块外能拿一份合法结果 copy 出一个假 hash。
- */
-class LoadedTemplate internal constructor(
-    val template: Template,
-    val contentHash: String,
-)
-
-/**
  * 模板里各封闭域的真相源。这些集合与 SQLDelight schema 的 CHECK 约束**必须一致**——
  * `template_version.type`、`check_item_def.photo_rule` 各有 CHECK，写进去才不会被数据库拒；
  * 评级域 schema 刻意不约束（`inspection_item.status` 无 CHECK，合法值随模板类型而变），

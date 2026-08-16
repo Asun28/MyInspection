@@ -12,9 +12,9 @@ import java.util.Collections
 /**
  * 把一份已加载的模板落进 `template_version` + `check_item_def`，以及反向读回。
  *
- * 只收 [LoadedTemplate]（构造器 internal，模块外造不出），**且仍在入库前自己再校验一次**：
- * 来源保证管的是"这份东西打哪来"，持久化边界管的是"数据库里不该出现引擎自己会拒的模板"，
- * 两者不互相替代——:core 内任何一处将来手搓一个 [Template] 递进来，也过不去这道闸。
+ * 只收 [LoadedTemplate]。它的构造器是 private、唯一出生点 [LoadedTemplate.parse] 只收字节，
+ * 所以到达这里的东西**必然**已过校验、且 contentHash **必然**是它自己那份源字节的 SHA-256——
+ * 这里因此不再重复校验：那会是一段永不触发、也无法写出测试的死代码（同 R3 对无测试守卫的判定）。
  */
 class TemplateStore(
     private val db: MyInspectionDatabase,
@@ -30,13 +30,8 @@ class TemplateStore(
      *
      * 同一 (type, version) 已有活跃行时抛 UNIQUE 约束异常，**不吞**：那正是「同版本号不同内容」
      * 要被人看见的时刻。
-     *
-     * @throws TemplateValidationException 模板过不了 [TemplateLoader.validate]（一行都不写）
      */
     fun persist(loaded: LoadedTemplate): String {
-        val errors = TemplateLoader.validate(loaded.template)
-        if (errors.isNotEmpty()) throw TemplateValidationException(errors)
-
         val versionId = uuid.next()
         val now = clock.nowMs()
         db.transaction {
