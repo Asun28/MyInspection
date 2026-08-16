@@ -1,7 +1,7 @@
 package nz.myinspection.core.retention
 
 import java.time.Instant
-import java.time.ZoneOffset
+import java.time.ZoneId
 
 /**
  * 联系方式清理策略窗口：租约结束后 12 个月，用户已签认（`docs/TASK-BOARD.md`「用户已定」#3）。
@@ -17,9 +17,22 @@ import java.time.ZoneOffset
 const val CONTACT_RETENTION_MONTHS: Long = 12L
 
 /**
- * 联系方式到期时间点 = tenancy 结束时间 + [months] 个日历月，按 UTC 计算（入库时间戳一律 UTC epoch
- * 毫秒，展示层才转 Pacific/Auckland）。用日历月而非固定天数：月长不一致，12 个日历月与 360/365 固定
- * 天数在跨闰年/大小月时会差出几天——这是应用自己承诺的清理策略窗口，算错几天就是没兑现承诺。
+ * 联系方式到期时间点 = tenancy 结束时间 + [months] 个**民用日历月**，按 Pacific/Auckland 计算。
+ *
+ * 存储格式（UTC epoch 毫秒入库）与「日历月」这个民用概念该按哪个时区算，是两件不同的事——`.claude/
+ * rules/kotlin.md` 的「时间一律 UTC epoch 毫秒入库；展示层才转 Pacific/Auckland」管的是前者（存储/展示
+ * 格式），不是后者。本项目对「NZ 法域下的民用日历日期边界」已有先例：`docs/adr/0004-compliance-rules-
+ * config.md` 决策 #1 给合规引擎的日期窗口（4 周 Routine 限额/48h-14d 通知窗/巡检时段）钉的时区正是
+ * Pacific/Auckland（含 DST 边界测试）——保留期到期点属于同一类问题（NZ 用户会按当地民用日历理解的
+ * 日期边界），故按同一先例办，不用 UTC。用 `ZoneOffset.UTC` 算「日历月」会在跨 NZDT/NZST 夏令时边界时
+ * 悄悄偏移最多 1 小时（`ZonedDateTime.plusMonths` 在真实时区上保持本地墙钟时刻不变、自动按目标日期的
+ * DST 状态重新解出 UTC 偏移；`ZoneOffset.UTC` 没有夏令时，只会机械保持 UTC 墙钟时刻不变，二者在
+ * DST 变更附近会给出不同的 UTC 瞬间）——见 [ContactRetentionPolicyTest] 的 DST 边界测试。
+ *
+ * 用日历月而非固定天数：月长不一致，12 个日历月与 360/365 固定天数在跨闰年/大小月时会差出几天——
+ * 这是应用自己承诺的清理策略窗口，算错几天就是没兑现承诺。
  */
 fun contactExpiryMs(tenancyEndMs: Long, months: Long = CONTACT_RETENTION_MONTHS): Long =
-    Instant.ofEpochMilli(tenancyEndMs).atZone(ZoneOffset.UTC).plusMonths(months).toInstant().toEpochMilli()
+    Instant.ofEpochMilli(tenancyEndMs).atZone(NZ_CIVIL_ZONE).plusMonths(months).toInstant().toEpochMilli()
+
+private val NZ_CIVIL_ZONE: ZoneId = ZoneId.of("Pacific/Auckland")

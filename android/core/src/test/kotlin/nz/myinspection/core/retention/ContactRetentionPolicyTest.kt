@@ -22,22 +22,37 @@ class ContactRetentionPolicyTest {
         purged_at = purgedAt, created_at = 0L, updated_at = 0L, deleted_at = null,
     )
 
+    // 以下三条金值独立算自 .NET `TimeZoneInfo`（"New Zealand Standard Time"），与生产实现走的
+    // java.time/tzdata 是两条独立路径的交叉复算（同 T1-CANON-HASH 黄金向量法），不是拿实现自证实现。
+
     @Test
-    fun `expiry is exactly 12 calendar months after tenancy end, not a fixed day count`() {
-        // 2023-01-15T00:00:00Z + 12 个月 = 2024-01-15T00:00:00Z（相差 365 天，含一个平年）。
-        val end = 1_673_740_800_000L // 2023-01-15T00:00:00Z
-        val expected = 1_705_276_800_000L // 2024-01-15T00:00:00Z
+    fun `expiry is exactly 12 calendar months later in NZ civil time, in a season with no DST either side`() {
+        // 2023-06-15T00:00:00 NZST（冬季，UTC+12）+ 12 个月 = 2024-06-15T00:00:00 NZST（同季节、同偏移，
+        // 隔离出「纯 12 个月」这一条契约，不与 DST 混在一起断言）。
+        val end = 1_686_744_000_000L // 2023-06-15T00:00:00 NZST
+        val expected = 1_718_366_400_000L // 2024-06-15T00:00:00 NZST
         assertEquals(expected, contactExpiryMs(end))
     }
 
     @Test
-    fun `expiry clamps to the shorter month when the end date has no matching day 12 months later`() {
-        // 2023-01-31 + 12 个月 = 2024-01-31（本例两侧月长相同，另用闰年 2 月钉夹紧语义）：
-        // 2023-08-31 + 12 个月理论上落在 2024-08-31，月长相同不夹紧；改用 2024-01-31 + 1 个月
-        // 验证 java.time 的夹紧行为（Feb 只有 29 天）。
-        val jan31_2024 = 1_706_659_200_000L // 2024-01-31T00:00:00Z
-        val feb29_2024 = 1_709_164_800_000L // 2024-02-29T00:00:00Z（夹紧到月末，而非溢出到 3 月 2 日）
-        assertEquals(feb29_2024, contactExpiryMs(jan31_2024, months = 1L))
+    fun `expiry clamps Feb 29 to Feb 28 across a real 12-month leap-year boundary`() {
+        // 2024（闰年）2024-02-29T00:00:00 NZDT + 12 个月：2025 不是闰年，2 月只有 28 天，java.time 的
+        // plusMonths 夹紧到月末而非溢出到 3 月 1 日——这条必须是真 12 个月跨界（此前误用 1 个月路径
+        // 顶替，测不出「12 个月」这个契约本身是否也正确夹紧，R3 已指出并要求补上）。
+        val feb29_2024 = 1_709_118_000_000L // 2024-02-29T00:00:00 NZDT
+        val feb28_2025 = 1_740_654_000_000L // 2025-02-28T00:00:00 NZDT（夹紧，非溢出到 3 月 1 日）
+        assertEquals(feb28_2025, contactExpiryMs(feb29_2024))
+    }
+
+    @Test
+    fun `expiry crosses the NZDT to NZST daylight-saving transition at the correct civil instant`() {
+        // 2020-04-04T12:00 NZDT（当年 DST 4-05 才结束，此刻仍 UTC+13）+ 12 个月，civil 上该落在
+        // 2021-04-04T12:00——但 2021 年 DST 已于当天凌晨结束，12:00 那一刻已是 NZST（UTC+12）。
+        // 用真实时区（Pacific/Auckland）算日历月会自动按目标日期重新解出正确偏移，保持本地墙钟时刻
+        // 12:00 不变；若退化成 ZoneOffset.UTC（没有夏令时），机械保持 UTC 墙钟时刻不变，会偏出 1 小时。
+        val start = 1_585_954_800_000L // 2020-04-04T12:00:00 NZDT (UTC+13)
+        val expected = 1_617_494_400_000L // 2021-04-04T12:00:00 NZST (UTC+12)
+        assertEquals(expected, contactExpiryMs(start))
     }
 
     @Test
