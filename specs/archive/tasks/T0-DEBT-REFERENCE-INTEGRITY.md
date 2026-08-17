@@ -2,7 +2,7 @@
 id: T0-DEBT-REFERENCE-INTEGRITY
 title: Authority TD reference integrity (repay TD16)
 depends_on: [T0-GATE-FIXFORWARD]
-status: todo
+status: merged
 branch: T0-DEBT-REFERENCE-INTEGRITY
 worktree: C:\wt\T0-DEBT-REFERENCE-INTEGRITY
 allow_paths:

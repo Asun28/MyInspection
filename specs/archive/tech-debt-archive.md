@@ -1,0 +1,11 @@
+# 技术债归档（cold storage · paid/accepted）
+
+> `specs/tech-debt-tracker.md` 的**冷存**：status 已 `paid`/`accepted` 的债项整行搬到此处（append-only，保留完整还债轨迹=机构记忆），
+> 让活追踪器只留 `open`/`carded` 的热行、每轮扫描/每张新卡不再吞整段已还历史。
+> 精简索引见 `tech-debt-index.md`（一行一条、可 grep）；需某条完整还债指针时来此按 id 查。
+> 本文件与索引由 `scripts/archive.ps1` 生成/维护，勿手工编辑。
+
+| id | 发现日 | 位置 | 偏离了什么（债） | 严重度 | 状态 | 偿还指针 |
+|---|---|---|---|---|---|---|
+| TD5 | 2026-08-16 | `core/canon`(canonicalJson 数组序前置) ↔ `inspection_item.selectByInspectionInTemplateOrder` | **canonical 数组序契约在 canon 层不可验证也不可重建**：ADR-0003/卡文规定 items 按模板全序、photos/audios 按 UUID 序，但排序键与 UUID 都不进快照（round-16 用户已决=选项 A：保形状、排序归查询层），canonicalJson 只按调用方给定顺序哈希——「投影必须走 selectByInspectionInTemplateOrder」目前只存在于注释里，无跨层机检。后果：T3-FINALIZE 之外的未来装配路径（备份复验等）若用不同顺序装同一份数据会得到第二个 data_hash，round-16 修掉的缺陷类在装配层复发；canon 合并即冻结，不能事后补排序 / 修法：T3-FINALIZE 落地时加跨层黄金测试（DB 夹具 → 正门查询 → 投影 → data_hash 钉黄金值 + 乱序装配对照）并把「快照装配唯一正门」写进该卡 DoD / 可测：同一夹具乱序装配产出不同 canonical 串、正门装配 data_hash 与黄金值相等 / 前置：T3-FINALIZE 开工 | major | paid | PR #7（master `a5a71ed`）——`InspectionSnapshotAssembler` 落成唯一装配正门（KDoc 自证「还清 TD5」）；`InspectionSnapshotAssemblerTest.kt` 两组独立预计算黄金向量（GOLDEN_HASH_1/2，覆盖各字段两分支）+ 乱序装配对照断言 canonical 哈希必变 |
+| TD16 | 2026-08-17 | `docs/SECURITY.md` §4、`docs/IDEA-TO-PLAN.md` L82、`scripts/_config.ps1` L146、`docs/LOOP-ENGINEERING.md` L36/L108、`docs/QUALITY-RUBRIC.md` L86/L90、`scripts/review.ps1` L295–299 ↔ `specs/tech-debt-tracker.md` | **权威 TD 交叉引用已漂移或失效**：前三处把单人账号／组织治理指向 TD14，但 TD14 现为媒体落盘↔入库原子性；LOOP-ENGINEERING 把 R3 非确定性 carve-out 指向 TD1，但 TD1 是上游 selftest 补丁；QUALITY-RUBRIC 指向不存在的 TD96，review.ps1 指向不存在的 TD83。后果：安全、治理与 R3 处置的读者会被导向无关或不存在的债项，无法可靠追溯正确的修复路径 / 修法：在一张专属文档／脚本同步卡中逐处重新确认权威承接项后替换为正确、存在的 TD 或稳定章节指针，并扫全权威 docs/scripts 内同类 `TD<n>` 引用；不得与 TD21 合卡 / 可测：静态夹具钉住这六处的 source→target 映射，仓库扫描确认每个 TD 引用都存在且语义对应；把任一已修引用改回 `TD14`、`TD1`、`TD96` 或 `TD83` 的单句变异须令检查失败 / 前置：无；单独新 worktree | minor | paid | PR #12（master `e8bf550`）——六个权威文件内九个 source→target 引用逐处校正；seeded 闸以 code/path/reference 分类击杀 9 枚回退变异；Sol R3 pass |
