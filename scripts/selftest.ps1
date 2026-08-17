@@ -5799,12 +5799,39 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
           if ($acReadParseErrors -and $acReadParseErrors.Count -gt 0) {
             Fail "闸17ac(read-fault)(setup)：mutant review 不可解析：$($acReadParseErrors[0].Message)——非语义 RED 不能算 read-fault mutation death。"
           } else {
-            $acReadOut = (& pwsh -NoProfile -File $acReadReviewPath -WorktreePath $sac -Base master 2>&1 | Out-String)
-            $acReadExit = $LASTEXITCODE
-            if ($acReadExit -eq 0 -or -not $acReadOut.Contains('[TD3-BASE-CARD-READ-FAILED]')) {
-              Fail "种子缺陷 17ac(read-fault)：base card exists but its git show was made to fail; review exited $acReadExit / omitted [TD3-BASE-CARD-READ-FAILED] and may have fallen back to the worktree. Operational read failure must block, not masquerade as card absence."
+            $acReadHead = (& git -C $sac rev-parse HEAD 2>$null | Out-String).Trim()
+            $acReadHeadExit = $LASTEXITCODE
+            $acReadVerdictPath = Join-Path $sac '.review/feat-cardbase.json'
+            $acReadSentinel = '[TD3-BASE-CARD-READ-FAILED]'
+            $acReadOldPassMarker = 'STALE-TD3-READ-FAULT-OLD-PASS'
+            New-Item -ItemType Directory -Force (Split-Path $acReadVerdictPath -Parent) | Out-Null
+            (@{ verdict = 'pass'; reasons = @($acReadOldPassMarker); sha = '0000000000000000000000000000000000000000'; branch = 'stale-branch' } | ConvertTo-Json -Compress) |
+              Set-Content -LiteralPath $acReadVerdictPath -Encoding utf8
+            $acReadPreseed = Get-Content -LiteralPath $acReadVerdictPath -Raw -ErrorAction SilentlyContinue
+            if ($acReadHeadExit -ne 0 -or -not $acReadHead -or -not $acReadPreseed -or -not $acReadPreseed.Contains($acReadOldPassMarker)) {
+              Fail '闸17ac(read-fault)(setup)：未能在已知 HEAD 下预置可识别的旧 pass verdict——不能声称随后是 fresh replacement。'
             } else {
-              Write-Host '  17ac(read-fault) existing base card + failed git show → fail-closed sentinel OK' -ForegroundColor Green
+              $acReadOut = (& pwsh -NoProfile -File $acReadReviewPath -WorktreePath $sac -Base master 2>&1 | Out-String)
+              $acReadExit = $LASTEXITCODE
+              $acReadVerdictText = Get-Content -LiteralPath $acReadVerdictPath -Raw -ErrorAction SilentlyContinue
+              $acReadVerdict = $null
+              try { if ($acReadVerdictText) { $acReadVerdict = $acReadVerdictText | ConvertFrom-Json } } catch { }
+              $acReadFailures = @()
+              if ($acReadExit -eq 0) { $acReadFailures += 'review exited 0' }
+              if (-not $acReadOut.Contains($acReadSentinel)) { $acReadFailures += "console omitted $acReadSentinel" }
+              if (-not $acReadVerdict) { $acReadFailures += 'no replacement verdict JSON' }
+              else {
+                if ("$($acReadVerdict.verdict)" -cne 'block') { $acReadFailures += "verdict=$($acReadVerdict.verdict), not block" }
+                if (@($acReadVerdict.reasons | Where-Object { ([string]$_).Contains($acReadSentinel) }).Count -eq 0) { $acReadFailures += "reasons omitted $acReadSentinel" }
+                if ($acReadVerdictText.Contains($acReadOldPassMarker)) { $acReadFailures += 'old pass marker survived' }
+                if ("$($acReadVerdict.sha)" -cne $acReadHead) { $acReadFailures += "sha=$($acReadVerdict.sha), want current $acReadHead" }
+                if ("$($acReadVerdict.branch)" -cne 'feat-cardbase') { $acReadFailures += "branch=$($acReadVerdict.branch), want feat-cardbase" }
+              }
+              if ($acReadFailures.Count) {
+                Fail "种子缺陷 17ac(read-fault)：base card exists but its git show was made to fail; the stale pass must be freshly replaced by normalized block evidence (actual: $($acReadFailures -join '; '))."
+              } else {
+                Write-Host '  17ac(read-fault) failed git show → stale pass freshly replaced by normalized TD3 block verdict OK' -ForegroundColor Green
+              }
             }
           }
         } finally {
@@ -5835,12 +5862,39 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
           if ($acProbeParseErrors -and $acProbeParseErrors.Count -gt 0) {
             Fail "闸17ac(probe-fault)(setup)：mutant review 不可解析：$($acProbeParseErrors[0].Message)——非语义 RED 不能算 probe-fault mutation death。"
           } else {
-            $acProbeOut = (& pwsh -NoProfile -File $acProbeReviewPath -WorktreePath $sac -Base master 2>&1 | Out-String)
-            $acProbeExit = $LASTEXITCODE
-            if ($acProbeExit -eq 0 -or -not $acProbeOut.Contains('[TD3-BASE-CARD-PROBE-FAILED]')) {
-              Fail "种子缺陷 17ac(probe-fault)：only the base-card ls-tree probe was made invalid, but review exited $acProbeExit / omitted [TD3-BASE-CARD-PROBE-FAILED]. Probe failure must block rather than use the worktree fallback."
+            $acProbeHead = (& git -C $sac rev-parse HEAD 2>$null | Out-String).Trim()
+            $acProbeHeadExit = $LASTEXITCODE
+            $acProbeVerdictPath = Join-Path $sac '.review/feat-cardbase.json'
+            $acProbeSentinel = '[TD3-BASE-CARD-PROBE-FAILED]'
+            $acProbeOldPassMarker = 'STALE-TD3-PROBE-FAULT-OLD-PASS'
+            New-Item -ItemType Directory -Force (Split-Path $acProbeVerdictPath -Parent) | Out-Null
+            (@{ verdict = 'pass'; reasons = @($acProbeOldPassMarker); sha = '0000000000000000000000000000000000000000'; branch = 'stale-branch' } | ConvertTo-Json -Compress) |
+              Set-Content -LiteralPath $acProbeVerdictPath -Encoding utf8
+            $acProbePreseed = Get-Content -LiteralPath $acProbeVerdictPath -Raw -ErrorAction SilentlyContinue
+            if ($acProbeHeadExit -ne 0 -or -not $acProbeHead -or -not $acProbePreseed -or -not $acProbePreseed.Contains($acProbeOldPassMarker)) {
+              Fail '闸17ac(probe-fault)(setup)：未能在已知 HEAD 下预置可识别的旧 pass verdict——不能声称随后是 fresh replacement。'
             } else {
-              Write-Host '  17ac(probe-fault) invalid card-only ls-tree → fail-closed sentinel OK' -ForegroundColor Green
+              $acProbeOut = (& pwsh -NoProfile -File $acProbeReviewPath -WorktreePath $sac -Base master 2>&1 | Out-String)
+              $acProbeExit = $LASTEXITCODE
+              $acProbeVerdictText = Get-Content -LiteralPath $acProbeVerdictPath -Raw -ErrorAction SilentlyContinue
+              $acProbeVerdict = $null
+              try { if ($acProbeVerdictText) { $acProbeVerdict = $acProbeVerdictText | ConvertFrom-Json } } catch { }
+              $acProbeFailures = @()
+              if ($acProbeExit -eq 0) { $acProbeFailures += 'review exited 0' }
+              if (-not $acProbeOut.Contains($acProbeSentinel)) { $acProbeFailures += "console omitted $acProbeSentinel" }
+              if (-not $acProbeVerdict) { $acProbeFailures += 'no replacement verdict JSON' }
+              else {
+                if ("$($acProbeVerdict.verdict)" -cne 'block') { $acProbeFailures += "verdict=$($acProbeVerdict.verdict), not block" }
+                if (@($acProbeVerdict.reasons | Where-Object { ([string]$_).Contains($acProbeSentinel) }).Count -eq 0) { $acProbeFailures += "reasons omitted $acProbeSentinel" }
+                if ($acProbeVerdictText.Contains($acProbeOldPassMarker)) { $acProbeFailures += 'old pass marker survived' }
+                if ("$($acProbeVerdict.sha)" -cne $acProbeHead) { $acProbeFailures += "sha=$($acProbeVerdict.sha), want current $acProbeHead" }
+                if ("$($acProbeVerdict.branch)" -cne 'feat-cardbase') { $acProbeFailures += "branch=$($acProbeVerdict.branch), want feat-cardbase" }
+              }
+              if ($acProbeFailures.Count) {
+                Fail "种子缺陷 17ac(probe-fault)：only the base-card ls-tree probe was made invalid; the stale pass must be freshly replaced by normalized block evidence (actual: $($acProbeFailures -join '; '))."
+              } else {
+                Write-Host '  17ac(probe-fault) failed card-only ls-tree → stale pass freshly replaced by normalized TD3 block verdict OK' -ForegroundColor Green
+              }
             }
           }
         } finally {

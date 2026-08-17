@@ -306,7 +306,11 @@ $cardRelPath = "specs/tasks/$branchSafe.md"
 $cardProbe = (& git -C $WorktreePath ls-tree --name-only $baseRef -- $cardRelPath 2>$null | Out-String).Trim()
 $cardProbeExit = $LASTEXITCODE
 if ($cardProbeExit -ne 0) {
-  throw "[TD3-BASE-CARD-PROBE-FAILED] git ls-tree could not confirm '$cardRelPath' at resolved baseline '$baseRef' (exit=$cardProbeExit); refusing worktree fallback."
+  $cardProbeReason = "[TD3-BASE-CARD-PROBE-FAILED] git ls-tree could not confirm '$cardRelPath' at resolved baseline '$baseRef' (exit=$cardProbeExit); refusing worktree fallback."
+  Write-Verdict 'block' @($cardProbeReason)
+  Write-Host "  $cardProbeReason" -ForegroundColor Red
+  Write-Host '裁决: block（任务卡基线探测失败）' -ForegroundColor Red
+  exit 1
 }
 $card = ''
 $cardSrc = "base:$baseRef"
@@ -314,7 +318,11 @@ if ($cardProbe) {
   $card = (& git -C $WorktreePath show "${baseRef}:$cardRelPath" 2>$null | Out-String).Trim()
   $cardReadExit = $LASTEXITCODE
   if ($cardReadExit -ne 0) {
-    throw "[TD3-BASE-CARD-READ-FAILED] git show failed for confirmed base card '$cardRelPath' at '$baseRef' (exit=$cardReadExit); refusing worktree fallback."
+    $cardReadReason = "[TD3-BASE-CARD-READ-FAILED] git show failed for confirmed base card '$cardRelPath' at '$baseRef' (exit=$cardReadExit); refusing worktree fallback."
+    Write-Verdict 'block' @($cardReadReason)
+    Write-Host "  $cardReadReason" -ForegroundColor Red
+    Write-Host '裁决: block（任务卡基线读取失败）' -ForegroundColor Red
+    exit 1
   }
 }
 if (-not $card) {
