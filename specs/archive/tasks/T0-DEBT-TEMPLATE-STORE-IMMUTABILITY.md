@@ -2,7 +2,7 @@
 id: T0-DEBT-TEMPLATE-STORE-IMMUTABILITY
 title: Prove TemplateStore read results reject element replacement (repay TD13)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-TEMPLATE-STORE-IMMUTABILITY
 worktree: C:\wt\T0-DEBT-TEMPLATE-STORE-IMMUTABILITY
 allow_paths:
