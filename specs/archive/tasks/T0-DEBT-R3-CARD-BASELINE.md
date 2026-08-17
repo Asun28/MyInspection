@@ -2,7 +2,7 @@
 id: T0-DEBT-R3-CARD-BASELINE
 title: Align R3 task-card authority with the pinned base (repay TD3)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-R3-CARD-BASELINE
 worktree: C:\wt\T0-DEBT-R3-CARD-BASELINE
 allow_paths:
