@@ -46,6 +46,10 @@
 
 | TD13 | 2026-08-17 | `core/template/TemplateStore.kt`(`read()` 返回值) | **`Collections.unmodifiableList` 包一层但无自证测试**：`TemplateStore.read()` 把读回的 `items` 包进 `Collections.unmodifiableList` 防调用方强转 `MutableList` 改写返回值（同类硬化见 `core/retention/ContactRetentionService.listStatuses()`），但没有测试断言这一层真的拒绝改写——摘掉这行 wrap，`TemplateStoreTest` 全绿照样通过。后果：这条防线是否仍在起作用无人验证，未来重构时可能被悄悄删掉而无红灯 / 修法：仿 `ContactRetentionServiceTest`「rejects element replacement through a MutableList cast」的写法补一条（≥2 元素、用 `.set()` 而非 `.add()/.clear()`——`sortedBy`/普通 `map` 的返回值对单元素或未排序场景可能已经结构性拒绝 add/remove，只有 `.set()` 能真正区分「有无这层 wrap」，见 L165/T5-RETENTION 实证）/ 可测：删掉 `Collections.unmodifiableList` 调用，新测试须翻红 / 前置：无 | minor | open | — |
 
+| TD16 | 2026-08-17 | `docs/SECURITY.md` §4、`docs/IDEA-TO-PLAN.md` L82、`scripts/_config.ps1` L146、`docs/LOOP-ENGINEERING.md` L36/L108、`docs/QUALITY-RUBRIC.md` L86/L90、`scripts/review.ps1` L295–299 ↔ `specs/tech-debt-tracker.md` | **权威 TD 交叉引用已漂移或失效**：前三处把单人账号／组织治理指向 TD14，但 TD14 现为媒体落盘↔入库原子性；LOOP-ENGINEERING 把 R3 非确定性 carve-out 指向 TD1，但 TD1 是上游 selftest 补丁；QUALITY-RUBRIC 指向不存在的 TD96，review.ps1 指向不存在的 TD83。后果：安全、治理与 R3 处置的读者会被导向无关或不存在的债项，无法可靠追溯正确的修复路径 / 修法：在一张专属文档／脚本同步卡中逐处重新确认权威承接项后替换为正确、存在的 TD 或稳定章节指针，并扫全权威 docs/scripts 内同类 `TD<n>` 引用；不得与 TD21 合卡 / 可测：静态夹具钉住这六处的 source→target 映射，仓库扫描确认每个 TD 引用都存在且语义对应；把任一已修引用改回 `TD14`、`TD1`、`TD96` 或 `TD83` 的单句变异须令检查失败 / 前置：无；单独新 worktree | minor | carded | `specs/tasks/T0-DEBT-REFERENCE-INTEGRITY.md` |
+
+| TD21 | 2026-08-17 | `CLAUDE.md`「当前阶段」任务卡总数 ↔ `specs/tasks/T*.md` | **任务卡库存数已失真**：CLAUDE.md 写「29 张」，发现时 `579c45e` 的 `specs/tasks/` 已有 31 张真实 `T*.md` 卡（`_TEMPLATE.md` 不计），且偿还债务的新卡会继续增长。后果：编排、容量判断和进度叙述会持续少算任务卡，造成错误的并行／剩余工作判断 / 修法：在一张专属文档同步卡中移除易漂移的手写库存数，或将声明与真实 `T*.md` 卡数确定性绑定；不得与 TD16 合卡 / 可测：新增或归档一张真实卡而不同步权威声明时检查须失败；若移除手写数，则检查须确认权威文档不再宣称静态库存 / 前置：无；单独新 worktree | minor | open | — |
+
 
 
 
