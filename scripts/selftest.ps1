@@ -4796,7 +4796,7 @@ if ($Shard -eq 'seeded') {
 # --- 17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂已知坏输入，断言它确实 BLOCK ---
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
-Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威）'
+Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威 / 17hh 已归档卡入站路径）'
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   Write-Host '  git 未安装，跳过种子缺陷闸（离线/无 git 环境正常）。' -ForegroundColor DarkGray
 } else {
@@ -9109,6 +9109,136 @@ if (-not $authorityBase.Ok) {
     Write-Host '  17ff TD16 权威 TD 引用：九个 source→target 映射可解析；9 枚逐处变异按 code/path/reference 分类击杀 OK' -ForegroundColor Green
   } finally {
     Remove-Item -LiteralPath $authorityScratch -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+# 17hh（TD22）：归档 merged 卡后，三个具名非归档来源必须改指向 archive 路径；不把此债扩成全仓历史链接扫描。
+$archivedCardRefRules = @(
+  @{ Id='claude-toolchain'; Path='CLAUDE.md'; Anchor='Android 工程（T0-TOOLCHAIN 落地后）'; Before=0; After=0; LiveRef='specs/tasks/T0-TOOLCHAIN.md'; ArchiveRef='specs/archive/tasks/T0-TOOLCHAIN.md' }
+  @{ Id='adr-backup-format'; Path='docs/adr/0002-local-data-saf-encrypted-backup.md'; Anchor='分块 AES-256-GCM（STREAM 构造）'; Before=0; After=0; LiveRef='specs/tasks/T5-BACKUP-FORMAT.md'; ArchiveRef='specs/archive/tasks/T5-BACKUP-FORMAT.md' }
+  @{ Id='capture-baseline'; Path='android/core/src/test/kotlin/nz/myinspection/core/capture/InspectionRepositoryTest.kt'; Anchor='澄清后的契约'; Before=0; After=0; LiveRef='specs/tasks/T2-CAPTURE-CORE.md'; ArchiveRef='specs/archive/tasks/T2-CAPTURE-CORE.md' }
+)
+function Get-ArchivedCardSourceSegment([string]$Root, [object]$Rule) {
+  $path = Join-Path $Root $Rule.Path
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    return [pscustomobject]@{ Ok=$false; Code="MISSING-SOURCE:$($Rule.Id)"; Path=$Rule.Path; Reference=$Rule.Anchor; Target=$Rule.ArchiveRef; Lines=$null; Start=-1; End=-1; Segment='' }
+  }
+  $lines = @([System.IO.File]::ReadAllText($path) -split '\r?\n')
+  $hits = @(for ($i=0; $i -lt $lines.Count; $i++) { if ($lines[$i].Contains($Rule.Anchor)) { $i } })
+  if ($hits.Count -ne 1) {
+    return [pscustomobject]@{ Ok=$false; Code="AMBIGUOUS-SOURCE:$($Rule.Id)"; Path=$Rule.Path; Reference=$Rule.Anchor; Target=$Rule.ArchiveRef; Lines=$lines; Start=-1; End=-1; Segment='' }
+  }
+  $start = [Math]::Max(0, $hits[0] - $Rule.Before)
+  $end = [Math]::Min($lines.Count - 1, $hits[0] + $Rule.After)
+  return [pscustomobject]@{ Ok=$true; Code='PRESENT'; Path=$Rule.Path; Reference=$Rule.ArchiveRef; Target=$Rule.ArchiveRef; Lines=$lines; Start=$start; End=$end; Segment=($lines[$start..$end] -join "`n") }
+}
+function Test-ArchivedCardReferenceSet([string]$Root, [object[]]$Rules) {
+  foreach ($rule in $Rules) {
+    $source = Get-ArchivedCardSourceSegment $Root $rule
+    if (-not $source.Ok) { return $source }
+    if ($source.Segment.Contains($rule.LiveRef)) {
+      return [pscustomobject]@{ Ok=$false; Code="FORBIDDEN-LIVE-PATH:$($rule.Id)"; Path=$rule.Path; Reference=$rule.LiveRef; Target=$rule.ArchiveRef }
+    }
+    if (([regex]::Matches($source.Segment, [regex]::Escape($rule.ArchiveRef))).Count -ne 1) {
+      return [pscustomobject]@{ Ok=$false; Code="MISSING-ARCHIVE-PATH:$($rule.Id)"; Path=$rule.Path; Reference=$rule.ArchiveRef; Target=$rule.ArchiveRef }
+    }
+    $targetPath = Join-Path $Root $rule.ArchiveRef
+    $targetItem = Get-Item -LiteralPath $targetPath -Force -ErrorAction SilentlyContinue
+    $isRegularFile = $targetItem -and -not $targetItem.PSIsContainer -and
+      (($targetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)
+    if (-not $isRegularFile) {
+      return [pscustomobject]@{ Ok=$false; Code="UNRESOLVED-TARGET:$($rule.Id)"; Path=$rule.Path; Reference=$rule.ArchiveRef; Target=$rule.ArchiveRef }
+    }
+  }
+  return [pscustomobject]@{ Ok=$true; Code='PRESENT'; Path=''; Reference=''; Target='' }
+}
+
+$archivedCardBase = Test-ArchivedCardReferenceSet $RepoRoot $archivedCardRefRules
+if (-not $archivedCardBase.Ok) {
+  Fail "[TD22-ARCHIVED-CARD-REF] code=$($archivedCardBase.Code) path=$($archivedCardBase.Path) reference=$($archivedCardBase.Reference) target=$($archivedCardBase.Target)"
+} else {
+  $archiveLifecycleRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17hh-archive-lifecycle-$PID"
+  $archiveRefScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17hh-archive-refs-$PID"
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $archiveLifecycleRoot 'specs/tasks'), (Join-Path $archiveLifecycleRoot 'docs') | Out-Null
+    $fixtureTracker = @(
+      '# TD22 fixture', '',
+      '| id | 发现日 | 位置 | 偏离了什么（债） | 严重度 | 状态 | 偿还指针 |',
+      '|---|---|---|---|---|---|---|',
+      '| _示例_ | 2026-06-15 | `x/y` | 示例 | minor | open | — |'
+    ) -join "`n"
+    Set-Content -LiteralPath (Join-Path $archiveLifecycleRoot 'specs/tech-debt-tracker.md') -Value $fixtureTracker -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $archiveLifecycleRoot 'specs/tasks/TA1.md') -Value "---`nid: TA1`ntitle: lifecycle`nstatus: merged`n---" -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $archiveLifecycleRoot 'docs/inbound.md') -Value 'TA1 evidence: specs/tasks/TA1.md' -Encoding utf8
+    $fixtureRule = @{ Id='fixture-ta1'; Path='docs/inbound.md'; Anchor='TA1 evidence:'; Before=0; After=0; LiveRef='specs/tasks/TA1.md'; ArchiveRef='specs/archive/tasks/TA1.md' }
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'archive.ps1') -RepoRoot $archiveLifecycleRoot -Quiet *> $null
+    $fixtureArchiveExit = $LASTEXITCODE
+    $fixtureOld = Test-ArchivedCardReferenceSet $archiveLifecycleRoot @($fixtureRule)
+    if ($fixtureArchiveExit -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $archiveLifecycleRoot $fixtureRule.ArchiveRef) -PathType Leaf) -or (Test-Path -LiteralPath (Join-Path $archiveLifecycleRoot 'specs/tasks/TA1.md'))) {
+      Fail "17hh(lifecycle)：archive.ps1 未把 merged TA1 从 live 目录移到 archive（exit=$fixtureArchiveExit）。"
+    } elseif ($fixtureOld.Ok -or $fixtureOld.Code -ne 'FORBIDDEN-LIVE-PATH:fixture-ta1' -or $fixtureOld.Path -ne $fixtureRule.Path -or $fixtureOld.Reference -ne $fixtureRule.LiveRef -or $fixtureOld.Target -ne $fixtureRule.ArchiveRef) {
+      Fail "17hh(lifecycle/old)：期望 code=FORBIDDEN-LIVE-PATH:fixture-ta1 path=$($fixtureRule.Path) reference=$($fixtureRule.LiveRef) target=$($fixtureRule.ArchiveRef)，实得 code=$($fixtureOld.Code) path=$($fixtureOld.Path) reference=$($fixtureOld.Reference) target=$($fixtureOld.Target)。"
+    } else {
+      $fixtureInbound = Join-Path $archiveLifecycleRoot $fixtureRule.Path
+      [System.IO.File]::WriteAllText($fixtureInbound, ([System.IO.File]::ReadAllText($fixtureInbound).Replace($fixtureRule.LiveRef, $fixtureRule.ArchiveRef)), [Text.UTF8Encoding]::new($false))
+      $fixtureFixed = Test-ArchivedCardReferenceSet $archiveLifecycleRoot @($fixtureRule)
+      if (-not $fixtureFixed.Ok) {
+        Fail "17hh(lifecycle/fixed)：改指 archive 后仍失败：code=$($fixtureFixed.Code) path=$($fixtureFixed.Path) reference=$($fixtureFixed.Reference) target=$($fixtureFixed.Target)。"
+      } else { Write-Host '  17hh(lifecycle) merged TA1 移入 archive 后旧入站路径失败、archive 路径通过 OK' -ForegroundColor Green }
+    }
+
+    foreach ($rule in $archivedCardRefRules) {
+      foreach ($rel in @($rule.Path, $rule.ArchiveRef)) {
+        $dst = Join-Path $archiveRefScratch $rel
+        New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $RepoRoot $rel) -Destination $dst -Force
+      }
+    }
+    $scratchBase = Test-ArchivedCardReferenceSet $archiveRefScratch $archivedCardRefRules
+    if (-not $scratchBase.Ok) {
+      Fail "17hh(mut) 前置：scratch 基线失败 code=$($scratchBase.Code) path=$($scratchBase.Path) reference=$($scratchBase.Reference) target=$($scratchBase.Target)。"
+    } else {
+      $typeRule = $archivedCardRefRules[0]
+      $typeTarget = Join-Path $archiveRefScratch $typeRule.ArchiveRef
+      $typeTargetBytes = [System.IO.File]::ReadAllBytes($typeTarget)
+      Remove-Item -LiteralPath $typeTarget -Force
+      New-Item -ItemType Directory -Force $typeTarget | Out-Null
+      $typeMutant = Test-ArchivedCardReferenceSet $archiveRefScratch $archivedCardRefRules
+      Remove-Item -LiteralPath $typeTarget -Recurse -Force
+      [System.IO.File]::WriteAllBytes($typeTarget, $typeTargetBytes)
+      $expectedTypeCode = "UNRESOLVED-TARGET:$($typeRule.Id)"
+      if ($typeMutant.Ok -or $typeMutant.Code -ne $expectedTypeCode -or $typeMutant.Path -ne $typeRule.Path -or $typeMutant.Reference -ne $typeRule.ArchiveRef -or $typeMutant.Target -ne $typeRule.ArchiveRef) {
+        Fail "17hh(mut/target-type) 分类器：archive 目标变目录后期望 code=$expectedTypeCode path=$($typeRule.Path) reference=$($typeRule.ArchiveRef) target=$($typeRule.ArchiveRef)，实得 code=$($typeMutant.Code) path=$($typeMutant.Path) reference=$($typeMutant.Reference) target=$($typeMutant.Target)。"
+      } else { Write-Host '  17hh(mut/target-type) archive 目标非普通文件时按 UNRESOLVED-TARGET 精确失败 OK' -ForegroundColor Green }
+
+      foreach ($rule in $archivedCardRefRules) {
+        $source = Get-ArchivedCardSourceSegment $archiveRefScratch $rule
+        $target = Join-Path $archiveRefScratch $rule.Path
+        $baselineBytes = [System.IO.File]::ReadAllBytes($target)
+        $baselineHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($baselineBytes))
+        $hits = ([regex]::Matches($source.Segment, [regex]::Escape($rule.ArchiveRef))).Count
+        if ($hits -ne 1) {
+          Fail "17hh(mut/$($rule.Id)) 前置：archive 路径在唯一锚定片段中出现 $hits 次，期望恰好 1 次。"
+          continue
+        }
+        for ($lineIndex=$source.Start; $lineIndex -le $source.End; $lineIndex++) {
+          $source.Lines[$lineIndex] = $source.Lines[$lineIndex].Replace($rule.ArchiveRef, $rule.LiveRef)
+        }
+        [System.IO.File]::WriteAllText($target, ($source.Lines -join "`n"), [Text.UTF8Encoding]::new($false))
+        $mutant = Test-ArchivedCardReferenceSet $archiveRefScratch $archivedCardRefRules
+        [System.IO.File]::WriteAllBytes($target, $baselineBytes)
+        $restoredHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+        $expectedCode = "FORBIDDEN-LIVE-PATH:$($rule.Id)"
+        if ($restoredHash -ne $baselineHash) {
+          Fail "17hh(mut/$($rule.Id)) 收尾：scratch 还原后 SHA256 不一致（前=$baselineHash，后=$restoredHash）。"
+        } elseif ($mutant.Ok -or $mutant.Code -ne $expectedCode -or $mutant.Path -ne $rule.Path -or $mutant.Reference -ne $rule.LiveRef -or $mutant.Target -ne $rule.ArchiveRef) {
+          Fail "17hh(mut/$($rule.Id)) 分类器：期望 code=$expectedCode path=$($rule.Path) reference=$($rule.LiveRef) target=$($rule.ArchiveRef)，实得 code=$($mutant.Code) path=$($mutant.Path) reference=$($mutant.Reference) target=$($mutant.Target)。"
+        } else { Write-Host "  17hh(mut/$($rule.Id)) 旧 live 路径回归被精确分类，scratch SHA256 还原一致 OK" -ForegroundColor Green }
+      }
+      Write-Host '  17hh TD22 三个具名入站路径均指向非 reparse 的 archive 普通文件；三枚变异按 code/path/reference/target 分类击杀 OK' -ForegroundColor Green
+    }
+  } finally {
+    Remove-Item -LiteralPath $archiveLifecycleRoot, $archiveRefScratch -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
 
