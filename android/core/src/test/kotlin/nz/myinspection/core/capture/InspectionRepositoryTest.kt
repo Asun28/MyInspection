@@ -241,7 +241,7 @@ class InspectionRepositoryTest {
 
     @Test
     fun `baseline resolves uniformly for ROUTINE, not just EXIT`() {
-        // 澄清后的契约（specs/tasks/T2-CAPTURE-CORE.md，R3 仲裁）：baseline 对所有巡检类型统一解析入库，
+        // 澄清后的契约（specs/archive/tasks/T2-CAPTURE-CORE.md，R3 仲裁）：baseline 对所有巡检类型统一解析入库，
         // EXIT 只是主要消费者，不是唯一持有者。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
