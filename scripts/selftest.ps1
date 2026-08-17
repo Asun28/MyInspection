@@ -7986,13 +7986,18 @@ try {
           Ctrl = & $invokeMarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
         }
       }.GetNewClosure()
-      $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
+      try {
+        Remove-Item Function:Invoke-MarkerAssertion -ErrorAction Stop
+        $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
+      } finally {
+        Set-Item Function:Invoke-MarkerAssertion -Value $invokeMarkerAssertion -ErrorAction Stop
+      }
       if (-not $m.Ok) { Fail "17cc($($case.Id))：$($m.Reason)"; continue }
       $selfOk = Test-MarkerResult $m.Result.Self $selfMarker $false "种子缺陷 17cc($($case.Id))：删掉$($case.Label)那一行后（vacuous mutation，卡片 dod_assert 字面要求：非零且命中指定断言文本）"
       if (-not $selfOk) { continue }
       $ctrlOk = Test-MarkerResult $m.Result.Ctrl $ctrlMarker $true "17cc($($case.Id)) 分类器：删掉$($case.Label)那一行后，控制组判据（两分支须真正独立，L165）"
       if (-not $ctrlOk) { continue }
-      Write-Host "  17cc($($case.Id)) $($case.Label)：单句删除变异后判据子进程 exit 非零 + ABSENT（RED，真正的杀死信号）、控制组仍 exit 0 + PRESENT（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green
+      Write-Host "  17cc($($case.Id)) $($case.Label)：外层 Invoke-MarkerAssertion 解绑后，真实 A/B probe 仍给出目标 exit 非零 + ABSENT、控制组 exit 0 + PRESENT，副本已还原且 SHA256 一致 OK（TD23）" -ForegroundColor Green
     }
   }
 } finally {
