@@ -50,6 +50,8 @@
 
 | TD22 | 2026-08-17 | `scripts/archive.ps1`(L328–338) ↔ `CLAUDE.md` L247、`docs/adr/0002-local-data-saf-encrypted-backup.md` L13、`android/core/src/test/kotlin/nz/myinspection/core/capture/InspectionRepositoryTest.kt` L244 | **归档移动 merged 卡却未维护入站具体卡路径**：`52d95f5` 将 `T0-TOOLCHAIN`、`T5-BACKUP-FORMAT`、`T2-CAPTURE-CORE` 分别以 R100 从 `specs/tasks/<id>.md` 移到 `specs/archive/tasks/<id>.md`，但三处仍引用旧路径；旧路径均缺失、归档目标均存在。后果：权威命令说明、ADR 格式评审追溯和测试契约注释都导向不存在的卡，读者无法取得冻结证据 / 修法：专属卡中将三处改指向对应 archive 路径，并在 `scripts/selftest.ps1` 加确定性入站卡路径完整性检查；只查具名已归档卡的旧活路径、排除 `specs/archive/` 冻结内容，不能由 archive 脚本静默重写引用 / 可测：夹具归档 `TA1` 后，非归档面引用 `specs/tasks/TA1.md` 须按 path/reference 失败，改为 archive 路径才通过；把三处实址逐一变异回旧路径均须翻红 / 前置：无；单独新 worktree | minor | open | — |
 
+| TD23 | 2026-08-17 | `scripts/selftest.ps1` 17cc 的 `$probe = { Invoke-MarkerAssertion … }.GetNewClosure()` ↔ `Invoke-LineDeletionMutation` | **17cc 变异探针依赖闭包外脚本作用域中的函数名解析，R3 只读评审宿主不保证该绑定可见**：同一 `pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded` 在常规 ship 宿主通过，但 Sol R3 两次在 17cc A/B probe 处报 `Invoke-MarkerAssertion` 未识别并 exit 1；最小隔离复现也表明，closure 创建后移除函数绑定即失败，而显式捕获 `${function:Invoke-MarkerAssertion}` 后仍通过。后果：同一提交按执行宿主得到相反的自检结论，R3 无法可重复复核 DoD，且无关卡会被假 block / 修法：用专属 harness 卡把 17cc A/B probe 改为显式携带或调用可在独立闭包（或等价隔离作用域）中可靠解析的断言器，不削弱现有 marker、A/B control 或 SHA 还原证明 / 可测：断言实际 A/B mutation probe 在「闭包建成后外层函数绑定不可见」的隔离夹具仍给出既有 expected marker/exit，并在常规与 R3 可用的 no-profile host 上 `selftest -Shard seeded` exit 0 / 前置：必须先偿还再重跑 TD21 的 R3；不得与 TD21 合卡，必须使用全新独立 worktree | major | carded | `specs/tasks/T0-DEBT-SEEDED-CLOSURE-SCOPE.md` |
+
 
 
 
