@@ -2,7 +2,7 @@
 id: T0-DEBT-CASE-PROBE-CLOSURE-SCOPE
 title: Make 17cc case mutation probes host-independent (repay TD25)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-CASE-PROBE-CLOSURE-SCOPE
 worktree: C:\wt\T0-DEBT-CASE-PROBE-CLOSURE-SCOPE
 allow_paths:
