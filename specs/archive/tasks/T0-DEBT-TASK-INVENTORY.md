@@ -2,7 +2,7 @@
 id: T0-DEBT-TASK-INVENTORY
 title: Remove hand-maintained task-card inventory (repay TD21)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-TASK-INVENTORY
 worktree: C:\wt\T0-DEBT-TASK-INVENTORY
 allow_paths:
