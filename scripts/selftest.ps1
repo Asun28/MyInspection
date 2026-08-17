@@ -97,7 +97,7 @@
        （T4-GUARD-HYGIENE ⑨）；17o pre-push 安装行为 hermetic 多情形——honoring core.hooksPath（自定义目录落点、~ 家目录展开、不误写 .git/hooks）、
        链接工作树落主仓公共 hooks（非 .git/worktrees/<name>/hooks）、既有钩子备份为 .local 并链式（执行断言证 args+stdin 转交、含无 shebang 的 sh 回退）、
        备份名冲突不覆盖且仍装守卫且两钩子均执行、幂等重跑不重复备份（C05 · T6-HOOK-CHAIN，经 git --git-path hooks 解析）；17p 许可闸 Distributes 降级——
-       dot-source check-licenses.ps1 -AsLibrary 直测 Scan：Distributes=$false 只降**纯 GPL**（分发触发），AGPL(网络)/SSPL(SaaS)/EUPL(通信)/非商用(用途) 仍致命、LGPL 恒黄牌（C21 · T6-LICENSE-DISTRIBUTES）；17q handoff check 存活性——合法存活基线放行、WORKTREE 路径/BRANCH 不存在即拒续接（C31 · T6-HANDOFF-VALIDATE）；17r R3 评审 prompt 注入卡片前中和 verdict 样式 token——夹具卡 review_gate 携该字面量、stub 后端捕获送达 prompt，断言送达文本已 redacted（TD35 · T7-REVIEW-PROMPT-HYGIENE）。缺 git 跳过。
+       dot-source check-licenses.ps1 -AsLibrary 直测 Scan：Distributes=$false 只降**纯 GPL**（分发触发），AGPL(网络)/SSPL(SaaS)/EUPL(通信)/非商用(用途) 仍致命、LGPL 恒黄牌（C21 · T6-LICENSE-DISTRIBUTES）；17q handoff check 存活性——合法存活基线放行、WORKTREE 路径/BRANCH 不存在即拒续接（C31 · T6-HANDOFF-VALIDATE）；17r R3 评审 prompt 注入卡片前中和 verdict 样式 token——夹具卡 review_gate 携该字面量、stub 后端捕获送达 prompt，断言送达文本已 redacted（TD35 · T7-REVIEW-PROMPT-HYGIENE）；17ac R3 卡片权威——diff/card/rubric/FrozenPaths 同钉一个不可变基线 OID，区分 absent/empty，并在 reviewer 前拒 tree/symlink/gitlink。缺 git 跳过。
 
   下游项目 init 后本脚本随之保留（TD15）——继续用它当自己的工作流自检；元仓专属子检查已自动跳过。
 .PARAMETER Shard  运行分片：all（默认聚合 core/workflow/seeded；两个长分片先并行、短 core 错峰加入）、core（闸 1–14+16）、
@@ -4796,7 +4796,7 @@ if ($Shard -eq 'seeded') {
 # --- 17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂已知坏输入，断言它确实 BLOCK ---
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
-Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt verdict-token 中和 + nonce 数据栅栏 + 运行期裁决 schema 强制）'
+Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威）'
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   Write-Host '  git 未安装，跳过种子缺陷闸（离线/无 git 环境正常）。' -ForegroundColor DarkGray
 } else {
@@ -5634,7 +5634,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     }
 
     # 17ab (TD66-STD-BASELINE). R3 判定标准基线锁——rubric 之外的 FrozenPaths 也须从基线解析：
-    #   R3 的「被审分支改不动评判自己的标准」此前只对 docs/QUALITY-RUBRIC.md 成立（git show $baseRef: 基线锁）。
+    #   R3 的「被审分支改不动评判自己的标准」此前只对 docs/QUALITY-RUBRIC.md 成立（git show $baseOid: 不可变基线锁）。
     #   同属判定标准的 FrozenPaths 由 review.ps1 的 $PSScriptRoot/_config.ps1 载入——ship -Local / 手动在被审检出内
     #   跑 review.ps1 时 $PSScriptRoot=被审树，被审分支遂能在自己的 _config 里清空 FrozenPaths、令冻结子句不再声明
     #   「别碰冻结契约 X」。夹具：基线 master 的 _config 声明 FrozenPaths=@('frozen/t32demo')、被审分支 feat-fz 把它
@@ -5677,13 +5677,13 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     # review.ps1 用 $frozen 拼出（$frozen 空则整条子句为空），故它含 token ⟺ 冻结面确实从基线解析到了该条目。
     $abClause = '触碰冻结契约/ schema（frozen/t32demo'
     if (-not $abPrompt) { Fail '闸17ab：夹具未捕获送达 prompt（stub 结构变了 / review.ps1 提前失败？）——无从断言 FrozenPaths 基线锁。'; $abFail = $true }
-    elseif (-not $abPrompt.Contains($abClause)) { Fail '种子缺陷 17ab：被审分支 feat-fz 把自己 _config 的 FrozenPaths 清空为 @()，送达评审 prompt 的冻结子句遂不含基线声明的 frozen/t32demo——FrozenPaths 未从基线（git show master:scripts/_config.ps1）解析、而取自 $PSScriptRoot=被审树的弱化副本（TD66：被审分支改得动被判的冻结契约标准，rubric 已基线锁、FrozenPaths 没有）。'; $abFail = $true }
+    elseif (-not $abPrompt.Contains($abClause)) { Fail '种子缺陷 17ab：被审分支 feat-fz 把自己 _config 的 FrozenPaths 清空为 @()，送达评审 prompt 的冻结子句遂不含基线声明的 frozen/t32demo——FrozenPaths 未从已钉死 OID（git show <baseOid>:scripts/_config.ps1）解析、而取自 $PSScriptRoot=被审树的弱化副本（TD66：被审分支改得动被判的冻结契约标准，rubric 已钉 OID、FrozenPaths 没有）。'; $abFail = $true }
     if ($abOut -notmatch 'TD66-STD-BASELINE') { Fail '种子缺陷 17ab：从被审树跑 review.ps1（$PSScriptRoot 落在 $WorktreePath 内）未发出「评审逻辑本体由被审树提供」的来源告警（哨兵 TD66-STD-BASELINE）——逻辑本体来源告警缺失/漂移（TD66 纵深防御子项）。'; $abFail = $true }
     if (-not $abFail) { Write-Host '  17ab R3 判定标准基线锁：FrozenPaths 从基线解析（被审分支清空自身副本仍不能弱化冻结标准）+ 逻辑本体来源告警 OK' -ForegroundColor Green }
 
-    # 17ac (TD3). R3 的卡片权威也必须与确定性 scope gate 一样钉在已解析基线：
-    #   卡在分支 fork 后由 master 修订时，review branch 仍保留旧卡。`git diff master...HEAD` 从共同祖先到
-    #   review branch，故**不含** master 后来的修订或 branch 仍持有的旧卡；这让整个 captured prompt 都可严判
+    # 17ac (TD3). R3 的卡片权威也必须与确定性 scope gate 一样钉在一次解析出的不可变基线 OID：
+    #   卡在分支 fork 后由基线分支修订时，review branch 仍保留旧卡。`git diff $acBaseOid...HEAD` 从共同祖先到
+    #   review branch，故**不含**已钉死基线提交的修订或 branch 仍持有的旧卡；这让整个 captured prompt 都可严判
     #   「含修订 base 全卡、零旧 scope」。旧的 worktree-first 行为会把 stale card 注入【本卡声明】段，必须 RED。
     $sac = Join-Path $sd 'ac'
     Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $sac -Recurse -Force
@@ -5707,9 +5707,9 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       'non_goals:', '  - STALE-WORKTREE-NONGOAL-SENTINEL', '---', '# STALE-WORKTREE-CARD-SENTINEL') -join "`n" |
       Set-Content $acCardPath -Encoding utf8
     New-ReviewFixtureRepo $sac 'feat-cardbase'
-    # master-side amendment happens after the review branch forks; the branch must keep the stale, conflicting contract.
+    # The base-side amendment happens after the review branch forks; the branch must keep the stale contract.
     & git -C $sac checkout -q master
-    @('---', 'id: feat-cardbase', 'title: amended full card pinned on master', 'status: todo',
+    @('---', 'id: feat-cardbase', 'title: amended full card on selected base commit', 'status: todo',
       'allow_paths:', '  - BASE-CARD-SCOPE-SENTINEL', 'forbid:', '  - BASE-CARD-FORBID-SENTINEL',
       'non_goals:', '  - BASE-CARD-NONGOAL-SENTINEL', 'diagnosis:', '  root_cause: BASE-CARD-DIAG-SENTINEL',
       '  same_class: BASE-CARD-SAMECLASS-SENTINEL', 'dod_assert: BASE-CARD-DOD-ASSERT-SENTINEL', '---',
@@ -5728,20 +5728,20 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     $acChangeExit = $LASTEXITCODE
     $acSetupBad = $false
     if ($acBaseAmendExit -ne 0 -or $acBaseOidExit -ne 0 -or $acBaseOid -notmatch '^[0-9a-f]{40}$' -or $acBranchCheckoutExit -ne 0 -or $acChangeExit -ne 0) {
-      Fail "闸17ac(setup)：base amendment / OID / branch checkout / review change 任一步失败（base=$acBaseAmendExit oid=$acBaseOidExit/$acBaseOid branch=$acBranchCheckoutExit change=$acChangeExit）——夹具未建立「master 已修订、review branch 仍 stale」形态。"
+      Fail "闸17ac(setup)：base amendment / OID / branch checkout / review change 任一步失败（base=$acBaseAmendExit oid=$acBaseOidExit/$acBaseOid branch=$acBranchCheckoutExit change=$acChangeExit）——夹具未建立「已钉死基线提交含修订、review branch 仍 stale」形态。"
       $acSetupBad = $true
     }
-    $acBaseCard = (& git -C $sac show 'master:specs/tasks/feat-cardbase.md' 2>$null | Out-String)
+    $acBaseCard = (& git -C $sac show "${acBaseOid}:specs/tasks/feat-cardbase.md" 2>$null | Out-String)
     $acBaseCardExit = $LASTEXITCODE
     $acBranchCard = Get-Content $acCardPath -Raw -ErrorAction SilentlyContinue
-    $acCardDiff = (& git -C $sac diff master...HEAD -- 'specs/tasks/feat-cardbase.md' 2>$null | Out-String)
+    $acCardDiff = (& git -C $sac diff "$acBaseOid...HEAD" -- 'specs/tasks/feat-cardbase.md' 2>$null | Out-String)
     $acBaseMarkers = @('BASE-CARD-SCOPE-SENTINEL', 'BASE-CARD-FORBID-SENTINEL', 'BASE-CARD-NONGOAL-SENTINEL',
       'BASE-CARD-DIAG-SENTINEL', 'BASE-CARD-SAMECLASS-SENTINEL', 'BASE-CARD-DOD-ASSERT-SENTINEL',
       'BASE-CARD-FULL-SENTINEL', 'BASE-CARD-ACCEPTANCE-SENTINEL')
     $acStaleMarkers = @('STALE-WORKTREE-SCOPE-SENTINEL', 'STALE-WORKTREE-FORBID-SENTINEL',
       'STALE-WORKTREE-NONGOAL-SENTINEL', 'STALE-WORKTREE-CARD-SENTINEL')
     if ($acBaseCardExit -ne 0 -or @($acBaseMarkers | Where-Object { -not $acBaseCard.Contains($_) }).Count -gt 0) {
-      Fail '闸17ac(setup)：master 未持有可识别的 amended full card——本例不再能证明 R3 从 pinned base 取卡。'
+      Fail '闸17ac(setup)：已钉死基线 OID 未持有可识别的 amended full card——本例不再能证明 R3 从 pinned base 取卡。'
       $acSetupBad = $true
     }
     $acStaleMissingFromBranch = @($acStaleMarkers | Where-Object { -not $acBranchCard.Contains($_) })
@@ -5751,7 +5751,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     }
     $acStaleInDiff = @($acStaleMarkers | Where-Object { $acCardDiff.Contains($_) })
     if ($acStaleInDiff.Count -gt 0) {
-      Fail "闸17ac(setup)：stale card marker 泄入 master...HEAD diff（$($acStaleInDiff -join ',')）——全 prompt 的 stale-card 零出现断言将不再只测【本卡声明】来源。"
+      Fail "闸17ac(setup)：stale card marker 泄入 $acBaseOid...HEAD diff（$($acStaleInDiff -join ',')）——全 prompt 的 stale-card 零出现断言将不再只测【本卡声明】来源。"
       $acSetupBad = $true
     }
     $acBaseWins = $false
@@ -5777,7 +5777,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
           $acCardContentGreen = ($acFailures.Count -eq 0)
           if (-not $acPrompt.Contains("TASK_CARD_SOURCE=base:$acBaseOid")) { $acFailures += "missing immutable base OID task-card source label (want $acBaseOid)" }
           if ($acFailures.Count) {
-            Fail "种子缺陷 17ac：$($acFailures -join '；')。master 已有修改后的完整任务卡时，review.ps1 必须经 git show master:specs/tasks/feat-cardbase.md 注入它，而不是读取 review branch 的 stale 副本；同时输出任务卡来源标签。"
+            Fail "种子缺陷 17ac：$($acFailures -join '；')。基线引用解析为 $acBaseOid 后，review.ps1 必须经 git show ${acBaseOid}:specs/tasks/feat-cardbase.md 注入完整卡，而不是再次解引用 master 或读取 review branch 的 stale 副本；同时输出 OID 来源标签。"
           } else {
             Write-Host '  17ac R3 task-card authority：amended pinned-base full card injected、stale worktree scope absent、source label OK' -ForegroundColor Green
           }
@@ -5804,8 +5804,8 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         # 17ac(probe-fault): a failing exact base-card probe is an operational failure, not confirmed absence.
         [pscustomobject]@{
           Label = 'probe-fault'; Target = 'exact card ls-tree probe'; Fault = 'probe error'
-          Needle = 'git -C $WorktreePath ls-tree --name-only $baseOid -- $cardRelPath'
-          Mutant = 'git -C $WorktreePath ls-tree-td3-card-probe-fault --name-only $baseOid -- $cardRelPath'
+          Needle = 'git -C $WorktreePath -c core.quotepath=false ls-tree $baseOid -- $cardRelPath'
+          Mutant = 'git -C $WorktreePath -c core.quotepath=false ls-tree-td3-card-probe-fault $baseOid -- $cardRelPath'
           Sentinel = '[TD3-BASE-CARD-PROBE-FAILED]'; OldPassMarker = 'STALE-TD3-PROBE-FAULT-OLD-PASS'
           FailureDescription = 'only the base-card ls-tree probe was made invalid'; SuccessDescription = 'failed card-only ls-tree'
         }
@@ -5882,7 +5882,8 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       if (-not $cAcf.Contains('[Console]::In.ReadToEnd()')) { Fail '闸17ac(fallback)：捕获 prompt 的 ReviewCommand stub 未注入（_config 行格式变了？.Replace 没命中）。' }
       Set-Content $cfgAcf $cAcf -NoNewline -Encoding utf8
       New-ReviewFixtureRepo $sacf 'feat-cardfallback'
-      & git -C $sacf cat-file -e 'master:specs/tasks/feat-cardfallback.md' 2>$null
+      $acfBaseOid = (& git -C $sacf rev-parse 'master^{commit}' 2>$null | Out-String).Trim()
+      & git -C $sacf cat-file -e "${acfBaseOid}:specs/tasks/feat-cardfallback.md" 2>$null
       $acfAbsentExit = $LASTEXITCODE
       $acfCardPath = Join-Path $sacf 'specs/tasks/feat-cardfallback.md'
       @('---', 'id: feat-cardfallback', 'title: card first introduced on review branch', 'status: todo',
@@ -5894,8 +5895,8 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       & git -C $sacf -c user.email='s@l' -c user.name='s' commit -q -m 'branch card' *> $null
       $acfCommitExit = $LASTEXITCODE
       $acFallbackGreen = $false
-      if ($acfAbsentExit -eq 0 -or $acfCommitExit -ne 0) {
-        Fail "闸17ac(fallback)(setup)：base card absence / branch commit 前置不成立（cat-file=$acfAbsentExit commit=$acfCommitExit）——不能把 worktree fallback 当作已证明。"
+      if ($acfBaseOid -notmatch '^[0-9a-f]{40}$' -or $acfAbsentExit -eq 0 -or $acfCommitExit -ne 0) {
+        Fail "闸17ac(fallback)(setup)：pinned base OID / card absence / branch commit 前置不成立（oid=$acfBaseOid cat-file=$acfAbsentExit commit=$acfCommitExit）——不能把 worktree fallback 当作已证明。"
       } else {
         & pwsh -NoProfile -File (Join-Path $sacf 'scripts/review.ps1') -WorktreePath $sacf -Base master *> $null
         $acfExit = $LASTEXITCODE
@@ -5965,6 +5966,80 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         }
       }
       if (-not $fail) { Write-Host '  17ac(state-table) tracked-empty fallback + absent/empty provenance matrix OK' -ForegroundColor Green }
+
+      # 17ac(object-type). A base task-card path is authoritative only when it is a regular blob.
+      # Trees, symbolic links, and gitlinks must block before the reviewer sees attacker-controlled substitute text.
+      $acObjectCases = @(
+        [pscustomobject]@{ Tag = 'tree'; Mode = '040000'; Type = 'tree' },
+        [pscustomobject]@{ Tag = 'symlink'; Mode = '120000'; Type = 'blob' },
+        [pscustomobject]@{ Tag = 'gitlink'; Mode = '160000'; Type = 'commit' }
+      )
+      foreach ($acObjectCase in $acObjectCases) {
+        $acObjectRoot = Join-Path $sd "ac-object-$($acObjectCase.Tag)"
+        Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $acObjectRoot -Recurse -Force
+        $acObjectCfgPath = Join-Path $acObjectRoot 'scripts/_config.ps1'
+        $acObjectCfg = (Get-Content $acObjectCfgPath -Raw).Replace("ReviewCommand = ''", $reviewCmdAc)
+        if (-not $acObjectCfg.Contains('[Console]::In.ReadToEnd()')) { Fail "闸17ac(object/$($acObjectCase.Tag))(setup)：prompt capture stub 未注入。" }
+        Set-Content $acObjectCfgPath $acObjectCfg -NoNewline -Encoding utf8
+        $acObjectBranch = "feat-cardobject-$($acObjectCase.Tag)"
+        $acObjectRel = "specs/tasks/$acObjectBranch.md"
+        $acObjectPath = Join-Path $acObjectRoot $acObjectRel
+        New-ReviewFixtureRepo $acObjectRoot $acObjectBranch
+        & git -C $acObjectRoot checkout -q master
+        switch ($acObjectCase.Tag) {
+          'tree' {
+            New-Item -ItemType Directory -Force $acObjectPath | Out-Null
+            Set-Content (Join-Path $acObjectPath 'child.txt') 'TREE-CARD-SUBSTITUTE' -Encoding utf8
+            & git -C $acObjectRoot add -- $acObjectRel 2>$null
+          }
+          'symlink' {
+            $acObjectBlob = ("SYMLINK-CARD-SUBSTITUTE" | & git -C $acObjectRoot hash-object -w --stdin | Out-String).Trim()
+            & git -C $acObjectRoot update-index --add --cacheinfo "120000,$acObjectBlob,$acObjectRel" 2>$null
+          }
+          'gitlink' {
+            $acObjectCommit = (& git -C $acObjectRoot rev-parse 'HEAD^{commit}' 2>$null | Out-String).Trim()
+            & git -C $acObjectRoot update-index --add --cacheinfo "160000,$acObjectCommit,$acObjectRel" 2>$null
+          }
+        }
+        $acObjectIndexExit = $LASTEXITCODE
+        & git -C $acObjectRoot -c user.email='s@l' -c user.name='s' commit -q -m "invalid base card $($acObjectCase.Tag)" *> $null
+        $acObjectBaseExit = $LASTEXITCODE
+        $acObjectBaseOid = (& git -C $acObjectRoot rev-parse 'HEAD^{commit}' 2>$null | Out-String).Trim()
+        $acObjectEntry = (& git -C $acObjectRoot -c core.quotepath=false ls-tree $acObjectBaseOid -- $acObjectRel 2>$null | Out-String).Trim()
+        & git -C $acObjectRoot checkout -q $acObjectBranch
+        Set-Content (Join-Path $acObjectRoot 'CHANGED.txt') "review $($acObjectCase.Tag)" -Encoding utf8
+        & git -C $acObjectRoot -c user.email='s@l' -c user.name='s' add -- CHANGED.txt 2>$null
+        & git -C $acObjectRoot -c user.email='s@l' -c user.name='s' commit -q -m "review $($acObjectCase.Tag)" *> $null
+        $acObjectBranchExit = $LASTEXITCODE
+        $acObjectHead = (& git -C $acObjectRoot rev-parse 'HEAD^{commit}' 2>$null | Out-String).Trim()
+        $acObjectSentinel = '[TD3-BASE-CARD-OBJECT-INVALID]'
+        $acObjectOut = (& pwsh -NoProfile -File (Join-Path $acObjectRoot 'scripts/review.ps1') -WorktreePath $acObjectRoot -Base master 2>&1 | Out-String)
+        $acObjectExit = $LASTEXITCODE
+        $acObjectVerdictPath = Join-Path $acObjectRoot ".review/$acObjectBranch.json"
+        $acObjectPromptPath = "$acObjectVerdictPath.prompt.txt"
+        $acObjectVerdictText = Get-Content -LiteralPath $acObjectVerdictPath -Raw -ErrorAction SilentlyContinue
+        $acObjectVerdict = $null
+        try { if ($acObjectVerdictText) { $acObjectVerdict = $acObjectVerdictText | ConvertFrom-Json } } catch { }
+        $acObjectFailures = @()
+        $acObjectEntryPrefix = "$($acObjectCase.Mode) $($acObjectCase.Type) "
+        if ($acObjectIndexExit -ne 0 -or $acObjectBaseExit -ne 0 -or $acObjectBranchExit -ne 0 -or $acObjectBaseOid -notmatch '^[0-9a-f]{40}$') { $acObjectFailures += "fixture exits/OID index=$acObjectIndexExit base=$acObjectBaseExit branch=$acObjectBranchExit oid=$acObjectBaseOid" }
+        $acObjectEntryPattern = '^' + [regex]::Escape($acObjectEntryPrefix) + '[0-9a-f]{40}\t' + [regex]::Escape($acObjectRel) + '$'
+        if ($acObjectEntry -notmatch $acObjectEntryPattern) { $acObjectFailures += "base entry=$acObjectEntry, want exact $($acObjectCase.Mode)/$($acObjectCase.Type) at $acObjectRel" }
+        if ($acObjectExit -eq 0) { $acObjectFailures += 'review exited 0' }
+        if (-not $acObjectOut.Contains($acObjectSentinel)) { $acObjectFailures += "console omitted $acObjectSentinel" }
+        if (Test-Path -LiteralPath $acObjectPromptPath) { $acObjectFailures += 'reviewer was invoked' }
+        if (-not $acObjectVerdict) { $acObjectFailures += 'no normalized verdict JSON' }
+        else {
+          if ("$($acObjectVerdict.verdict)" -cne 'block') { $acObjectFailures += "verdict=$($acObjectVerdict.verdict), not block" }
+          if (@($acObjectVerdict.reasons | Where-Object { ([string]$_).Contains($acObjectSentinel) }).Count -eq 0) { $acObjectFailures += "reasons omitted $acObjectSentinel" }
+          if ("$($acObjectVerdict.sha)" -cne $acObjectHead) { $acObjectFailures += "sha=$($acObjectVerdict.sha), want $acObjectHead" }
+          if ("$($acObjectVerdict.branch)" -cne $acObjectBranch) { $acObjectFailures += "branch=$($acObjectVerdict.branch), want $acObjectBranch" }
+        }
+        if ($acObjectFailures.Count) {
+          Fail "种子缺陷 17ac(object/$($acObjectCase.Tag))：non-regular base card must block before reviewer invocation ($($acObjectFailures -join '; '))."
+        }
+      }
+      if (-not $fail) { Write-Host '  17ac(object-type) tree/symlink/gitlink base-card entries fail closed before reviewer invocation OK' -ForegroundColor Green }
 
       # 17ac(moving-ref). Advance master deterministically immediately after review's first merge-base returns.
       # A review that keeps dereferencing the symbolic ref will then mix an old merge-base with moved diff/card/rubric/frozen inputs.
@@ -7633,7 +7708,7 @@ if (-not $fail) {
   if ($revText -notmatch 'Resolve-ScaffoldBaseRef') { Fail '17aa(6)：review.ps1 未经 Resolve-ScaffoldBaseRef 解析基线（TD68 共享点被绕过）。' }
   if ($taskText -notmatch 'Resolve-ScaffoldBaseRef') { Fail '17aa(6)：task.ps1 的范围闸未经 Resolve-ScaffoldBaseRef 解析基线——同 TD68 的本地-基线 bug 会复发（R3 PR #102 指出）。' }
   if ($taskText -match 'diff --name-only "\$Base\.\.\.HEAD"') { Fail '17aa(6)：task.ps1 范围闸仍用本地 $Base 算 diff（应为 $scopeBaseRef）——TD68 未在确定性范围闸修复。' }
-  if ($revText -match 'diff "\$Base\.\.\.HEAD"') { Fail '17aa(6)：review.ps1 仍用本地 $Base 算 diff（应为 $baseRef）。' }
+  if ($revText -match 'diff "\$Base\.\.\.HEAD"') { Fail '17aa(6)：review.ps1 仍用本地 $Base 算 diff（应为一次解析出的不可变 $baseOid）。' }
   # -Local 工作流须把「本地为合并目标」的信号透传到两处（R3 PR#102 三轮）：task 范围闸 -PreferLocal:$Local、
   # task→review 传 -LocalBase、review 把 -LocalBase 透传给解析器。任一漏传，-Local 就会误对照 origin。
   if ($taskText -notmatch 'Resolve-ScaffoldBaseRef[^\r\n]*-PreferLocal:\$Local') { Fail '17aa(6)：task.ps1 范围闸未按 -PreferLocal:$Local 解析——-Local ship 会误对照 origin，把前次本地合并的文件当越界。' }

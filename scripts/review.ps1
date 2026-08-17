@@ -281,8 +281,8 @@ function Protect-FenceMarkers([string]$s) {
 # 在「什么都没看到」的情况下给出 pass（fail-open）。故先验共同祖先，再逐个 diff 调用查退出码。
 $mergeBase = (& git -C $WorktreePath merge-base "$baseOid" HEAD 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
-  Write-Verdict 'block' @("Review baseline '$baseRef' and HEAD share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
-  Write-Host "裁决: block（基线 $baseRef 与 HEAD 无共同祖先，无法算 diff）" -ForegroundColor Red
+  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and HEAD share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
+  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与 HEAD 无共同祖先，无法算 diff）" -ForegroundColor Red
   exit 1
 }
 $diff = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --stat | Out-String).Trim()
@@ -290,7 +290,7 @@ $diffStatExit = $LASTEXITCODE
 $diffBody = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --unified=3 | Out-String)
 $diffBodyExit = $LASTEXITCODE
 if ($diffStatExit -ne 0 -or $diffBodyExit -ne 0) {
-  Write-Verdict 'block' @("git diff against baseline '$baseRef' failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.")
+  Write-Verdict 'block' @("git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.")
   Write-Host "裁决: block（git diff 失败：--stat=$diffStatExit / --unified=$diffBodyExit）" -ForegroundColor Red
   exit 1
 }
@@ -308,14 +308,14 @@ $diffBody = Protect-FenceMarkers $diffBody
 # 结论收口为 paid（T12 是实际解法），T14 卡未实现即撤销。
 # 卡片是「本卡显式批准范围」（allow_paths / forbid / 边界例外）的权威来源——评审须据卡判定，
 # 避免对卡内已声明的 opt-in 例外（如构建期联网 / 可选 GPU）误判（见 prompt 内「本卡声明」）。
-# TD3：scope gate 已从 $baseRef 取卡；R3 必须用同一份已钉死的完整卡，不能让 review branch 的旧副本覆盖
-# master 后的范围修订。基线无该卡（分支新建卡）或其内容为空时，才保留 worktree fallback 兼容路径。
+# TD3：scope gate 已从不可变基线提交取卡；R3 必须用同一份 $baseOid 上的完整卡，不能让 review branch 的旧副本覆盖
+# $baseOid 所代表提交之后的范围修订。基线无该卡（分支新建卡）或其内容为空时，才保留 worktree fallback 兼容路径。
 # $branchSafe 与裁决文件名同源，避免含 / 的分支在 specs/tasks 下走成另一条路径（TD63 item2）。
 $cardRelPath = "specs/tasks/$branchSafe.md"
-$cardProbe = (& git -C $WorktreePath ls-tree --name-only $baseOid -- $cardRelPath 2>$null | Out-String).Trim()
+$cardProbe = (& git -C $WorktreePath -c core.quotepath=false ls-tree $baseOid -- $cardRelPath 2>$null | Out-String).Trim()
 $cardProbeExit = $LASTEXITCODE
 if ($cardProbeExit -ne 0) {
-  $cardProbeReason = "[TD3-BASE-CARD-PROBE-FAILED] git ls-tree could not confirm '$cardRelPath' at resolved baseline '$baseRef' (exit=$cardProbeExit); refusing worktree fallback."
+  $cardProbeReason = "[TD3-BASE-CARD-PROBE-FAILED] git ls-tree could not inspect '$cardRelPath' at pinned baseline '$baseOid' (resolved from '$baseRef'; exit=$cardProbeExit); refusing worktree fallback."
   Write-Verdict 'block' @($cardProbeReason)
   Write-Host "  $cardProbeReason" -ForegroundColor Red
   Write-Host '裁决: block（任务卡基线探测失败）' -ForegroundColor Red
@@ -324,10 +324,21 @@ if ($cardProbeExit -ne 0) {
 $card = ''
 $baseCardState = 'absent'
 if ($cardProbe) {
+  $cardObjectPattern = '^(?<mode>\d{6})\s+(?<type>\S+)\s+(?<oid>(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64}))\t' + [regex]::Escape($cardRelPath) + '$'
+  $cardObject = [regex]::Match($cardProbe, $cardObjectPattern)
+  $cardObjectValid = $cardObject.Success -and ($cardObject.Groups['mode'].Value -in @('100644', '100755')) -and ($cardObject.Groups['type'].Value -ceq 'blob')
+  if (-not $cardObjectValid) {
+    $cardObjectActual = if ($cardObject.Success) { "$($cardObject.Groups['mode'].Value)/$($cardObject.Groups['type'].Value)" } else { 'unparseable' }
+    $cardObjectReason = "[TD3-BASE-CARD-OBJECT-INVALID] '$cardRelPath' at pinned baseline '$baseOid' is $cardObjectActual; only a regular 100644/100755 blob is an authoritative task card. Refusing reviewer invocation and worktree fallback."
+    Write-Verdict 'block' @($cardObjectReason)
+    Write-Host "  $cardObjectReason" -ForegroundColor Red
+    Write-Host '裁决: block（任务卡基线对象类型无效）' -ForegroundColor Red
+    exit 1
+  }
   $card = (& git -C $WorktreePath show "${baseOid}:$cardRelPath" 2>$null | Out-String).Trim()
   $cardReadExit = $LASTEXITCODE
   if ($cardReadExit -ne 0) {
-    $cardReadReason = "[TD3-BASE-CARD-READ-FAILED] git show failed for confirmed base card '$cardRelPath' at '$baseRef' (exit=$cardReadExit); refusing worktree fallback."
+    $cardReadReason = "[TD3-BASE-CARD-READ-FAILED] git show failed for confirmed regular base card '$cardRelPath' at pinned baseline '$baseOid' (resolved from '$baseRef'; exit=$cardReadExit); refusing worktree fallback."
     Write-Verdict 'block' @($cardReadReason)
     Write-Host "  $cardReadReason" -ForegroundColor Red
     Write-Host '裁决: block（任务卡基线读取失败）' -ForegroundColor Red
@@ -373,7 +384,7 @@ $card = $card -replace '(?i)[''"`]?\bverdict\b[''"`]?\s*[:=：]\s*[''"`]?(pass|b
 $card = Protect-FenceMarkers $card
 
 # 冻结物清单：判定标准的「冻结契约」这一半，故**从基线解析**（TD66-STD-BASELINE：镜像下方 rubric 的
-# git show $baseRef: 基线锁，使被审分支在 -Local/手动路径下改不动自己被判的冻结标准）。
+# git show $baseOid: 不可变基线锁，使被审分支在 -Local/手动路径下改不动自己被判的冻结标准）。
 # 基线无 _config / 解析失败 => 回退 $PSScriptRoot 的值（同 rubric 的工作树回退语义）。空数组 => 不强调冻结面。
 $frozenFromBase = Get-BaselineFrozenPaths -GitDir $WorktreePath -BaseRef $baseOid
 if ($null -ne $frozenFromBase) {
@@ -387,7 +398,7 @@ $frozenClause = if ($frozen.Count -gt 0) {
 } else { '' }
 
 # 评审 rubric（权威来源 docs/QUALITY-RUBRIC.md）。注入判定标准，避免「自由心证」与「自我开脱」（见该文件 §0）。
-# 评审者完整性：rubric 是「判 reviewee 的标准」，故**从基线读**（git show $baseRef:…，优先 origin/<base>），不读工作树副本——
+# 评审者完整性：rubric 是「判 reviewee 的标准」，故**从已钉死提交读**（git show $baseOid:…；$baseRef 仅保留诊断），不读工作树副本——
 # 否则 reviewee 能在被审分支就地改 docs/QUALITY-RUBRIC.md 削弱评判自己的标准（提示注入硬化只挡正文文本，挡不住「标准本身被换掉」）。
 # 回退：基线无该文件时（新项目首卡 / rubric 尚未并入基线）才退回工作树副本——此时尚无「既有标准」可被削弱。
 # fail-closed：两处都取不到 => 评审退化为无标准的「自由心证」=> 直接 block（不静默放行）。
@@ -399,7 +410,7 @@ if (-not $rubric) {
   if (Test-Path $rubricPath) { $rubric = (Get-Content $rubricPath -Raw).Trim(); $rubricSrc = 'worktree (基线无此文件，回退)' }
 }
 if (-not $rubric) {
-  Write-Verdict 'block' @("评审 rubric 取不到（基线 $baseRef 与工作树均无 docs/QUALITY-RUBRIC.md）：缺判定标准则评审退化为自由心证，按 fail-closed 阻断。")
+  Write-Verdict 'block' @("评审 rubric 取不到（已钉死基线 $baseOid〔源引用 $baseRef〕与工作树均无 docs/QUALITY-RUBRIC.md）：缺判定标准则评审退化为自由心证，按 fail-closed 阻断。")
   Write-Host '裁决: block（QUALITY-RUBRIC.md 缺失，无判定标准）' -ForegroundColor Red
   exit 1
 }
