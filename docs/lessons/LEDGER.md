@@ -1693,3 +1693,19 @@
 - rule: 评审对同一架构点第二次提出时，先别急着复述上一次的先例式驳回——显式重算一遍当下实现它的边际成本（数据是否已在手/层是否已存在/依赖是否已合并），成本判断随场景漂移、不随裁决次数固定；若成本已经很低，向人裁推荐便宜实现而不是死守纯架构立场撑到第三次；裁决落地后把用户选的选项与理由记进卡/PR，这是判断类经验、不做机械闸
 - enforced_by: 
 - refs: T3-FINALIZE PR #7 round 5/12/13 三次提出、round 14 用户裁选项 A；关联 L220（不变量活在铸造点）
+
+## L234
+- date: 2026-08-17 ｜ tags: testing,kotlin,testng ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: TestNG 下测试类实例跨测试方法复用：类字段里的可变状态（调用记录 list / 计数器）不重置就跨方法污染，表现为荒诞断言失败（"expected [] but found [上一个测试的路径]"），且失败的是无辜的那个方法
+- root_cause: JUnit 每个测试方法新建实例，TestNG 默认复用同一个实例；本仓 :core 全部用 TestNG（JUnit=EPL 禁列），照 JUnit 直觉写的 `private val calls = mutableListOf()` 于是变成跨方法共享
+- rule: 测试类里任何可变字段（调用记录/计数器/序号）一律在 @BeforeTest 里显式重置，不靠"新实例"假设；断言看到别的测试的数据先怀疑实例复用，别去改被测代码
+- enforced_by: 
+- refs: 
+
+## L235
+- date: 2026-08-17 ｜ tags: powershell,tooling,false-green ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: pwsh -File script.ps1 -Only M1,M2,M3 传进去的是**一个字符串** "M1,M2,M3" 而非数组：`$Only -contains 'M1'` 恒 false，脚本一条不跑、退出 0，打印 "KILLED 0 / 0" 看着像成功（假绿）
+- root_cause: -File 模式下所有参数按字面字符串传递，不做 PowerShell 语法解析（数组字面量、变量、逗号都不展开）；-Command 才解析。另：把 "-File" 当搜索词传给脚本会被解析成参数名而报 "A parameter cannot be found"
+- rule: -File 调用的脚本若收列表，脚本内自己 `-split ','' `；且列表型参数过滤后若命中 0 条必须 throw 而不是静默跑空——"0 项处理 + exit 0" 是假绿的标准形态
+- enforced_by: 
+- refs: 
