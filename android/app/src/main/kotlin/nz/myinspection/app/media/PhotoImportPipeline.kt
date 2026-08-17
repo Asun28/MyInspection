@@ -25,7 +25,10 @@ import nz.myinspection.core.media.PhotoTarget
  * **不做有损降采样**：证据分辨率决策属消费端（卡片上下文包「缩略图交给消费端按需降采样」）；装不下的
  * 文件出路是具名拒绝，不是静默压小。
  *
- * SAF 选文件（把用户挑的 Uri 打开成 [sourceStream]）属采集 UI 层；本函数只接一个已打开的流，并负责关闭它。
+ * SAF 选文件（把用户挑的 Uri 打开成 [sourceStream]）属采集 UI 层；本函数只接一个已打开的流，并负责关闭
+ * 它——**从函数入口就建立所有权**（最外层 `finally` 显式 `close()`，覆盖 [resolvePathContext] 与临时路径
+ * 解析这些发生在任何真正读流之前、也可能失败的步骤），不是等到真正开始拷贝时才用 `use{}` 包一层——
+ * 那样如果更早的步骤先失败，函数会在流从未进入任何 `use{}`/`try` 的情况下直接抛出，流永远不会被关闭。
  */
 object PhotoImportPipeline {
     private const val TAG = "PhotoImportPipeline"
@@ -40,52 +43,66 @@ object PhotoImportPipeline {
         activeAssetLookup: (contentHash: String) -> List<String>,
         budgetBytes: Long = PhotoMemoryBudget.transientBytes(),
     ): PhotoIngestOutcome {
-        // 存储路径的物业/巡检上下文从 [target] 反查 DB，不由调用方另传——见 resolvePathContext。
-        val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
-        // tempFile 的路径在进 try 之前就算好（纯函数、不摸磁盘）：若 use{} 关流时抛异常（此时文件早已
-        // 写完并发布到这个路径），finally 仍认得它、能清掉；若改成"use{} 的返回值"，那份已落盘的临时
-        // 文件就此永久孤儿。
-        val tempFile = MediaFileStore.resolve(tempDir, "$photoId.import.tmp")
         try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            DigestInputStream(sourceStream, digest).use { digesting ->
-                MediaFileStore.copyInto(digesting, tempDir, "$photoId.import.tmp")
-            }
-            val contentHash = ContentHash.hex(digest.digest())
-            val exifTimeMs = PhotoExifReader.readExifTimeMs(tempFile)
-            val plan = PhotoIngest.verifyReuseExists(
-                PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash)),
-                propertyId,
-                inspectionId,
-                photoId,
-            ) { relPath -> MediaFileStore.resolve(mediaRoot, relPath).exists() }
+            // 存储路径的物业/巡检上下文从 [target] 反查 DB，不由调用方另传——见 resolvePathContext。
+            val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
+            // 每次调用一个独立命名的临时文件（同 MediaFileStore 内部临时文件的唯一性来源
+            // File.createTempFile）——同一 photoId 并发重试若共用一个确定性文件名，一次调用的 finally
+            // 删除会把另一次仍在读的文件从磁盘上抽走。
+            val scratchRelPath = uniqueScratchRelPath(tempDir, photoId)
+            val tempFile = MediaFileStore.resolve(tempDir, scratchRelPath)
+            try {
+                val digest = MessageDigest.getInstance("SHA-256")
+                MediaFileStore.copyInto(DigestInputStream(sourceStream, digest), tempDir, scratchRelPath)
+                val contentHash = ContentHash.hex(digest.digest())
+                val exifTimeMs = PhotoExifReader.readExifTimeMs(tempFile)
+                val plan = PhotoIngest.verifyReuseExists(
+                    PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash)),
+                    propertyId,
+                    inspectionId,
+                    photoId,
+                ) { relPath -> MediaFileStore.resolve(mediaRoot, relPath).exists() }
 
-            if (plan is PhotoIngestPlan.WriteNewAsset) {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(tempFile.path, bounds)
-                ImportBounds.check(bounds.outWidth, bounds.outHeight, budgetBytes)
-                    .rejectionOrNull()
-                    ?.let { return it }
+                if (plan is PhotoIngestPlan.WriteNewAsset) {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(tempFile.path, bounds)
+                    ImportBounds.check(bounds.outWidth, bounds.outHeight, budgetBytes)
+                        .rejectionOrNull()
+                        ?.let { return it }
 
-                val orientation = PhotoExifReader.readOrientation(tempFile)
-                var decoded: Bitmap? = null
-                var baked: Bitmap? = null
-                try {
-                    // 边界读得出、真解码却回 null：文件在两次读之间被改坏，或格式只有边界可读——具名拒绝，不崩。
-                    decoded = BitmapFactory.decodeFile(tempFile.path)
-                        ?: return PhotoIngestOutcome.RejectedUndecodable(bounds.outWidth, bounds.outHeight)
-                    baked = PhotoOrientationBaker.bake(decoded, orientation)
-                    MediaFileStore.writeNewAsset(mediaRoot, plan.relPath, PhotoJpegEncoder.encode(baked))
-                } finally {
-                    if (baked != null && baked !== decoded) baked.recycle()
-                    decoded?.recycle()
+                    val orientation = PhotoExifReader.readOrientation(tempFile)
+                    var decoded: Bitmap? = null
+                    var baked: Bitmap? = null
+                    try {
+                        // 边界读得出、真解码却回 null：文件在两次读之间被改坏，或格式只有边界可读——具名拒绝，不崩。
+                        decoded = BitmapFactory.decodeFile(tempFile.path)
+                            ?: return PhotoIngestOutcome.RejectedUndecodable(bounds.outWidth, bounds.outHeight)
+                        baked = PhotoOrientationBaker.bake(decoded, orientation)
+                        MediaFileStore.writeNewAsset(mediaRoot, plan.relPath, PhotoJpegEncoder.encode(baked))
+                    } finally {
+                        if (baked != null && baked !== decoded) baked.recycle()
+                        decoded?.recycle()
+                    }
+                }
+                return recorder.recordLanded(plan, photoId, target, PhotoSource.IMPORTED, exifTimeMs, mediaRoot)
+            } finally {
+                if (!MediaFileStore.deleteIfPresent(tempFile)) {
+                    Log.w(TAG, "op=deleteImportTemp photoId=$photoId path=${tempFile.path} result=failed")
                 }
             }
-            return recorder.recordLanded(plan, photoId, target, PhotoSource.IMPORTED, exifTimeMs, mediaRoot)
         } finally {
-            if (!MediaFileStore.deleteIfPresent(tempFile)) {
-                Log.w(TAG, "op=deleteImportTemp photoId=$photoId path=${tempFile.path} result=failed")
-            }
+            sourceStream.close()
         }
+    }
+
+    /**
+     * 借 [File.createTempFile] 的真随机唯一性铸一个**名字**（不是长期持有的文件）：立即建档又立即删除，
+     * 只借它的唯一性保证，真正的写入交给 [MediaFileStore.copyInto] 自己的临时文件+发布流程。
+     */
+    private fun uniqueScratchRelPath(tempDir: File, photoId: String): String {
+        tempDir.mkdirs()
+        val reserved = File.createTempFile("$photoId-", ".import.tmp", tempDir)
+        reserved.delete()
+        return reserved.name
     }
 }

@@ -85,8 +85,10 @@ class PhotoAssociationRecorder(
         exifTimeMs: Long?,
         discard: NewAssetDiscard,
     ): PhotoAssociationResult {
-        val now = clock.nowMs()
         val affected = try {
+            // clock.nowMs() 在 try 内：本函数是"落盘之后的入库半步"（KDoc），字节在调用前已落定——时钟本身
+            // 抛出也不能跳过下面的补偿，否则一次时钟故障就留下一份 orphanedAssets() 永远发现不了的文件。
+            val now = clock.nowMs()
             db.photoQueries.insert(
                 id = photoId,
                 inspection_item_id = target.inspectionItemId,
@@ -100,7 +102,7 @@ class PhotoAssociationRecorder(
                 updated_at = now,
             ).value
         } catch (e: Exception) {
-            if (!compensate(plan, discard)) {
+            if (!compensate(plan, photoId, discard)) {
                 e.addSuppressed(IllegalStateException("compensation failed, ${plan.relPath} is now untracked"))
             }
             throw e
@@ -114,30 +116,34 @@ class PhotoAssociationRecorder(
         }
         return PhotoAssociationResult.RejectedByGuard(
             relPath = plan.relPath,
-            orphanedFileRemains = !compensate(plan, discard),
+            orphanedFileRemains = !compensate(plan, photoId, discard),
         )
     }
 
     /**
      * 撤销本次新落的字节，返回"没留下无主文件"。三种情况**不删**：
      *  - 复用既有资产：本次没写任何字节，那份文件属于别的关联；
-     *  - **仍有活跃行引用这个 rel_path**：同 [photoId] 重试时，先到的那次已把行写成、字节也已发布到同一个
-     *    路径，本次 insert 撞主键失败——删下去就是删掉赢家（可能已 FINALIZED）正在引用的证据。判据用冻结的
-     *    `selectActiveAssetsByContentHash`：内容相同故哈希相同，赢家那行的 rel_path 必在返回里；
-     *  - [discard] 自己抛了异常：文件系统层的失败（`canonicalFile`/`delete` 可抛 IOException/SecurityException）
-     *    不能变成 record 的异常出口，否则守卫拒绝这条正常结果会被一个 IO 异常顶掉。记为"撤销失败"。
+     *  - **[photoId] 自己那行仍活跃、且指向这个 rel_path**：同 photoId 重试时，先到的那次已把行写成、字节
+     *    也已发布到同一个路径——rel_path 由 `(propertyId, inspectionId, photoId)` 决定，**不看内容哈希**，
+     *    两次不同哈希的重试算出的是**同一个**路径。判据直接 `selectById(photoId)`，**不按内容哈希判活**：
+     *    schema 不保证同一 rel_path 下所有行哈希相同，按哈希查会在哈希不同的重试里漏判，把仍被赢家引用的
+     *    路径当成"没人挡着"删掉（赢家若已 FINALIZED，删的就是巡检证据）。**安全性不对称、故意偏向漏删**：
+     *    查不到活跃同 id 行才视为"未被引用"去尝试撤销，留下的孤儿文件仍可被 `orphanedAssets()` 回收，
+     *    误删的 FINALIZED 证据不可恢复；
+     *  - **liveness 查询或 [discard] 本身抛出异常**：两者共享同一个 try/catch——文件系统/DB 层的失败都不能
+     *    变成 `record` 的异常出口（会顶掉真正的主异常，见 [record] 的 catch 块），一律记为"撤销失败"。
      */
-    private fun compensate(plan: PhotoIngestPlan, discard: NewAssetDiscard): Boolean = when (plan) {
+    private fun compensate(plan: PhotoIngestPlan, photoId: String, discard: NewAssetDiscard): Boolean = when (plan) {
         is PhotoIngestPlan.ReuseExistingAsset -> true
-        is PhotoIngestPlan.WriteNewAsset ->
-            if (plan.relPath in db.photoQueries.selectActiveAssetsByContentHash(plan.contentHash).executeAsList()) {
+        is PhotoIngestPlan.WriteNewAsset -> try {
+            val winner = db.photoQueries.selectById(photoId).executeAsOneOrNull()
+            if (winner != null && winner.deleted_at == null && winner.rel_path == plan.relPath) {
                 true
             } else {
-                try {
-                    discard.discard(plan.relPath)
-                } catch (e: Exception) {
-                    false
-                }
+                discard.discard(plan.relPath)
             }
+        } catch (e: Exception) {
+            false
+        }
     }
 }

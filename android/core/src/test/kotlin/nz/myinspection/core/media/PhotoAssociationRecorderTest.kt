@@ -307,6 +307,74 @@ class PhotoAssociationRecorderTest {
     }
 
     @Test
+    fun `a same-photoId retry with a DIFFERENT content hash still never discards the file the winning row references`() {
+        // rel_path is derived from (propertyId, inspectionId, photoId) alone, not from content — two
+        // different-hash attempts with the same photoId collide on the SAME path. A hash-keyed liveness
+        // check would look up the RETRY's hash (which the winner does not carry) and wrongly conclude
+        // nothing references the path, deleting bytes the winner still references.
+        val fixture = draftFixture()
+        val photoId = uuid.next()
+        val winningPlan = newPlan(fixture, photoId, "hash-winner")
+        recorder.record(winningPlan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardOk)
+        discardCalls.clear()
+
+        val retryPlan = newPlan(fixture, photoId, "hash-retry-different")
+        assertEquals(winningPlan.relPath, retryPlan.relPath, "fixture assumption: rel_path is content-independent")
+
+        assertFailsWith<Exception> {
+            recorder.record(retryPlan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardOk)
+        }
+
+        assertEquals(emptyList(), discardCalls, "the winner's rel_path must survive even though its content_hash differs from this retry's")
+        assertEquals(winningPlan.relPath, database.photoQueries.selectById(photoId).executeAsOne().rel_path)
+    }
+
+    @Test
+    fun `a throwing clock still triggers compensation for the already-landed bytes`() {
+        val fixture = draftFixture()
+        val photoId = uuid.next()
+        val plan = newPlan(fixture, photoId, "hash-a")
+        val recorderWithBrokenClock = PhotoAssociationRecorder(database, ClockMs { throw IllegalStateException("clock broke") })
+
+        assertFailsWith<IllegalStateException> {
+            recorderWithBrokenClock.record(plan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardOk)
+        }
+        assertEquals(listOf(plan.relPath), discardCalls, "a clock failure before the insert must not leave the already-landed bytes untracked")
+    }
+
+    @Test
+    fun `a compensation whose own liveness query fails does not replace the original insert failure`() {
+        // Isolated driver/db so the shared fields (and the class-level tearDown that closes them) are
+        // untouched — this test deliberately breaks its OWN driver mid-test.
+        val sabotageDriver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        MyInspectionDatabase.Schema.create(sabotageDriver)
+        val sabotageDb = MyInspectionDatabase(sabotageDriver)
+        val sabotageUuid = Uuid7Generator()
+        val sabotageRecorder = PhotoAssociationRecorder(sabotageDb, ClockMs { RECORDED_AT })
+
+        val propertyId = DbTestFixtures.insertProperty(sabotageDb, sabotageUuid)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(sabotageDb, sabotageUuid, version = 1)
+        val inspectionId = DbTestFixtures.insertDraftInspection(sabotageDb, sabotageUuid, propertyId, templateVersionId)
+        val roomInstanceId = DbTestFixtures.insertRoomInstance(sabotageDb, sabotageUuid, inspectionId)
+        val photoId = sabotageUuid.next()
+        val plan = PhotoIngestPlan.WriteNewAsset(
+            relPath = MediaPaths.photoRelPath(propertyId, inspectionId, photoId),
+            contentHash = "hash-a",
+        )
+
+        sabotageDriver.close() // every subsequent query (the insert AND compensate's selectById) now fails
+
+        val thrown = assertFailsWith<Exception> {
+            sabotageRecorder.record(plan, photoId, PhotoTarget(roomInstanceId), PhotoSource.IMPORTED, null, discardOk)
+        }
+        // The propagated exception must still be the INSERT failure — compensate()'s own selectById query
+        // failing for the same underlying reason must not replace it, only attach as a suppressed cause.
+        val suppressed = assertIs<IllegalStateException>(thrown.suppressed.single())
+        assertEquals("compensation failed, ${plan.relPath} is now untracked", suppressed.message)
+        assertEquals(emptyList(), discardCalls, "discard must never even be attempted once the liveness query itself fails")
+    }
+
+    @Test
     fun `resolvePathContext derives property and inspection from the room, so a caller cannot mismatch them`() {
         val fixture = draftFixture()
         val other = draftFixture(roomKey = "KITCHEN")
