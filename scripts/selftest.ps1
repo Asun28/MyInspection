@@ -8970,15 +8970,17 @@ $realRcHashBefore = (Get-FileHash -LiteralPath $realRcPath -Algorithm SHA256).Ha
 $rcSentinel = '[GRADLE-LIC-SCANNER-ONLY]'
 # 规范项文本的 SHA-256（UTF-8 字节，行尾已由 Get-Content 剥离）。改这一项的措辞 → 同步改这里，二者是一对。
 $rcCanonHash = '393B47C7368F09856CF6F3890EEBC4C6CBB6B46CF815176CA17E3D62A9C64FB8'
+$rcEditorWarning = '<!-- 编辑本项的任何字符都须同步更新 scripts/selftest.ps1 的 17ee $rcCanonHash，并重跑 pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded。 -->'
 $rcOrigLines = Get-Content -LiteralPath $realRcPath
 # 内联不经 GetNewClosure()：$LASTEXITCODE 需取子进程调用后的新鲜值（同 17cc(reparse-mut) 的注记）。
 $rcProbe = {
-  param([string]$ChecklistPath, [string]$Sentinel, [string]$CanonHash, [string]$MarkerId)
+  param([string]$ChecklistPath, [string]$Sentinel, [string]$CanonHash, [string]$EditorWarning, [string]$MarkerId)
   Set-StrictMode -Version Latest
   $ErrorActionPreference = 'Stop'
   $lines = @(Get-Content -LiteralPath $ChecklistPath)
   $idx = @(0..($lines.Count - 1) | Where-Object { $lines[$_].Contains($Sentinel) })
   if ($idx.Count -ne 1) { Write-Output "MARKER:${MarkerId}:ABSENT-SENTINEL(count=$($idx.Count))"; exit 1 }
+  if ($idx[0] -eq 0 -or $lines[$idx[0] - 1] -cne $EditorWarning) { Write-Output "MARKER:${MarkerId}:ABSENT-EDITOR-WARNING"; exit 1 }
   $item = $lines[$idx[0]]
   if (-not $item.Contains('T0-LICENSE-SCANNER')) { Write-Output "MARKER:${MarkerId}:ABSENT-UNLOCK"; exit 1 }
   $actual = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($item))).Replace('-', '')
@@ -8988,9 +8990,9 @@ $rcProbe = {
 $rcScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17ee-checklist-$PID.md"
 try {
   # 基线：真实清单直接过判据（本闸的真断言就是这一次调用）。
-  $rcBaseOut = & pwsh -NoProfile -Command $rcProbe -Args @($realRcPath, $rcSentinel, $rcCanonHash, 'RC-GATE-BASE')
+  $rcBaseOut = & pwsh -NoProfile -Command $rcProbe -Args @($realRcPath, $rcSentinel, $rcCanonHash, $rcEditorWarning, 'RC-GATE-BASE')
   $rcBase = [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($rcBaseOut -join "`n") }
-  if (Test-MarkerResult $rcBase 'RC-GATE-BASE' $true "种子缺陷 17ee：发布清单的 Gradle 阻断项未满足单一解锁契约（哨兵「$rcSentinel」恰好 1 处 + 指名 T0-LICENSE-SCANNER + 规范文本 SHA-256 == $rcCanonHash；措辞被改过就要连同本闸的期望哈希一起显式更新）") {
+  if (Test-MarkerResult $rcBase 'RC-GATE-BASE' $true "种子缺陷 17ee：发布清单的 Gradle 阻断项未满足单一解锁契约（哨兵「$rcSentinel」恰好 1 处 + 紧邻编辑警示 + 指名 T0-LICENSE-SCANNER + 规范文本 SHA-256 == $rcCanonHash；措辞被改过就要连同本闸的期望哈希一起显式更新）") {
     $rcIdx = @(0..($rcOrigLines.Count - 1) | Where-Object { $rcOrigLines[$_].Contains($rcSentinel) })
     # 三类变异：删整项 / 抹掉唯一解锁点 / **加一条第二解锁路径**。第三类刻意造两个形态——带序号字形「②」的，
     # 与**完全不带序号、纯散文**的——后者正是"不含②"式弱断言拦不住的那种改写，规范文本哈希能一并抓住。
@@ -9009,7 +9011,7 @@ try {
     foreach ($rm in $rcMutations) {
       Set-Content -LiteralPath $rcScratch -Value $rm.Lines -Encoding utf8
       $rmMarkerId = "RC-GATE-MUT-$($rm.Id.ToUpperInvariant())"
-      $rmOut = & pwsh -NoProfile -Command $rcProbe -Args @($rcScratch, $rcSentinel, $rcCanonHash, $rmMarkerId)
+      $rmOut = & pwsh -NoProfile -Command $rcProbe -Args @($rcScratch, $rcSentinel, $rcCanonHash, $rcEditorWarning, $rmMarkerId)
       $rmRes = [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($rmOut -join "`n") }
       if (-not (Test-MarkerResult $rmRes $rmMarkerId $false "种子缺陷 17ee(mut/$($rm.Id))：$($rm.Label)后（vacuous coverage：本闸测不出这条回归）")) { continue }
       # 分类器：不只要"非零 + ABSENT"，还要红在**它该红的那一条**上——否则一枚变异可能因别的子断言先失败而假杀。
@@ -9019,7 +9021,18 @@ try {
         Write-Host "  17ee(mut/$($rm.Id)) $($rm.Label)：判据子进程 exit 非零 + $($rm.Code)（RED，红在该红的那条上）OK" -ForegroundColor Green
       }
     }
-    Write-Host "  17ee 发布清单 Gradle 阻断项单一解锁（哨兵 $rcSentinel + 指名 T0-LICENSE-SCANNER + 规范文本 SHA-256 钉死）OK；4 枚变异（删项 / 抹解锁点 / 带序号替代 / 不带序号散文替代）各自按专属失败码分类被杀，真实清单全程只读" -ForegroundColor Green
+    $rcWarningDeletedLines = @(for ($i = 0; $i -lt $rcOrigLines.Count; $i++) { if ($i -ne ($rcIdx[0] - 1)) { $rcOrigLines[$i] } })
+    Set-Content -LiteralPath $rcScratch -Value $rcWarningDeletedLines -Encoding utf8
+    $rcWarningMutOut = & pwsh -NoProfile -Command $rcProbe -Args @($rcScratch, $rcSentinel, $rcCanonHash, $rcEditorWarning, 'RC-GATE-MUT-EDITOR-WARNING')
+    $rcWarningMut = [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($rcWarningMutOut -join "`n") }
+    if (Test-MarkerResult $rcWarningMut 'RC-GATE-MUT-EDITOR-WARNING' $false '种子缺陷 17ee(mut/editor-warning)：只删紧邻编辑警示后（vacuous coverage：本闸测不出警示消失）') {
+      if (-not (Test-MarkerCode $rcWarningMut.StdOut 'RC-GATE-MUT-EDITOR-WARNING' 'ABSENT-EDITOR-WARNING')) {
+        Fail "17ee(mut/editor-warning) 分类器：变异确实变红，但失败码不是预期的 ABSENT-EDITOR-WARNING（实得 stdout=$($rcWarningMut.StdOut)）——红在了别的子断言上，本枚变异并未证明它针对的紧邻编辑警示在测。"
+      } else {
+        Write-Host '  17ee(mut/editor-warning) 只删紧邻编辑警示：判据子进程 exit 非零 + ABSENT-EDITOR-WARNING（RED，红在该红的那条上）OK' -ForegroundColor Green
+      }
+    }
+    Write-Host "  17ee 发布清单 Gradle 阻断项单一解锁（哨兵 $rcSentinel + 紧邻编辑警示 + 指名 T0-LICENSE-SCANNER + 规范文本 SHA-256 钉死）OK；原有 4 枚变异（删项 / 抹解锁点 / 带序号替代 / 不带序号散文替代）与编辑警示删除变异各自按专属失败码分类被杀，真实清单全程只读" -ForegroundColor Green
   }
 } finally {
   Remove-Item -LiteralPath $rcScratch -Force -ErrorAction SilentlyContinue
