@@ -7977,12 +7977,13 @@ try {
       @{ Id = 'A'; Label = 'libs.versions.toml 发现分支'; LineMarker = "-Names @('libs.versions.toml')"; Target = $needleA; Control = $needleB }
       @{ Id = 'B'; Label = 'build.gradle{,.kts} 发现分支'; LineMarker = "-Names @('build.gradle', 'build.gradle.kts')"; Target = $needleB; Control = $needleA }
     )
+    $invokeMarkerAssertion = ${function:Invoke-MarkerAssertion}
     foreach ($case in $cases) {
       $selfMarker = "GRADLE-$($case.Id)-MUT"; $ctrlMarker = "GRADLE-$($case.Id)-MUT-CTRL"
       $probe = {
         [PSCustomObject]@{
-          Self = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker -ProbeRoot $RepoRoot
-          Ctrl = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
+          Self = & $invokeMarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker -ProbeRoot $RepoRoot
+          Ctrl = & $invokeMarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
         }
       }.GetNewClosure()
       $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
