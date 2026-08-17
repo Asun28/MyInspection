@@ -54,7 +54,7 @@
 - 必须经 PR 合并；必需状态检查：`verify`（CI）+ `codex-review`（本地 Codex 裁决）。
 - 仅 squash 合并、合并后删分支、禁止强推与删除 main。
 - free+private 不支持服务端规则集 → 由客户端 `review.ps1` 退出码 + task-loop skill 强制（见 docs/lessons L3）。
-- **诚实边界（这是「自律工具」，非防篡改控制）**：`codex-review` 状态由**提交者自己的 gh token**回贴（legacy Statuses API，无 GitHub App / `integration_id`），故任何有写权限的协作者都能**伪造**该状态；且规则集 `required_approving_review_count=0` 表示**无人工审批兜底**。对**单人个人账号**（脚手架的设计定位）这没问题——它把第二模型评审当作纪律辅助；但在**多协作者/组织**场景，这不构成可审计的防篡改门禁。需要真门禁者应改用 GitHub App 出具状态 + 至少 1 个 CODEOWNERS 人工审批（属 org/team 模式的范围扩展，非本脚手架默认；见 `specs/tech-debt-tracker.md` TD14）。
+- **诚实边界（这是「自律工具」，非防篡改控制）**：`codex-review` 状态由**提交者自己的 gh token**回贴（legacy Statuses API，无 GitHub App / `integration_id`），故任何有写权限的协作者都能**伪造**该状态；且规则集 `required_approving_review_count=0` 表示**无人工审批兜底**。对**单人个人账号**（脚手架的设计定位）这没问题——它把第二模型评审当作纪律辅助；但在**多协作者/组织**场景，这不构成可审计的防篡改门禁。需要真门禁者应改用 GitHub App 出具状态 + 至少 1 个 CODEOWNERS 人工审批（属 org/team 模式的范围扩展，非本脚手架默认；治理边界以本节为准）。
 
 ## 5. 依赖许可（商用）
 - 硬规则见 `docs/LICENSE-POLICY.md`：**禁** GPL/AGPL/SSPL 等 copyleft 与任何 non-commercial/research-only

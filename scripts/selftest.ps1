@@ -8386,6 +8386,92 @@ try {
   if (Test-Path $rcScratch) { Fail "17ee 收尾：临时暂存文件 $rcScratch 未能删除——请手动清理，避免残留。" }
 }
 
+# 17ff（TD16）：下游项目的权威文档不得把上游脚手架 TD 编号误解析为本项目 tracker 的同号债项。
+# 按「唯一 source anchor → 该处 reference → 可解析 target」验证九个实际引用，而不是只在整文件搜到任一正确字面量。
+$authorityRefRules = @(
+  @{ Id='security-org'; Path='docs/SECURITY.md'; Anchor='需要真门禁者应改用'; Before=0; After=0; Expected='治理边界以本节为准'; Mutant='见 `specs/tech-debt-tracker.md` TD14'; Forbidden=@('specs/tech-debt-tracker.md` TD14'); TargetPath='docs/SECURITY.md'; TargetAnchor='## 4. main 分支保护' }
+  @{ Id='idea-org'; Path='docs/IDEA-TO-PLAN.md'; Anchor='T2 的「团队 / 合规」'; Before=0; After=0; Expected='见 `docs/SECURITY.md` §4'; Mutant='见 `docs/SECURITY.md` §4 与 `specs/tech-debt-tracker.md` TD14'; Forbidden=@('specs/tech-debt-tracker.md` TD14'); TargetPath='docs/SECURITY.md'; TargetAnchor='## 4. main 分支保护' }
+  @{ Id='config-org'; Path='scripts/_config.ps1'; Anchor='git 层控制仍锁单个人账号'; Before=0; After=0; Expected='见 _guard.ps1 + docs/SECURITY.md §4'; Mutant='见 _guard.ps1 + docs/SECURITY.md §4 + tech-debt TD14'; Forbidden=@('tech-debt TD14'); TargetPath='docs/SECURITY.md'; TargetAnchor='## 4. main 分支保护' }
+  @{ Id='loop-r3-primary'; Path='docs/LOOP-ENGINEERING.md'; Anchor='**唯一 carve-out 是 R3**'; Before=0; After=1; Expected='见 `docs/QUALITY-RUBRIC.md` §0）'; Mutant='见 `docs/QUALITY-RUBRIC.md` §0 与 `specs/tech-debt-tracker.md` TD1）'; Forbidden=@('specs/tech-debt-tracker.md` TD1'); TargetPath='docs/QUALITY-RUBRIC.md'; TargetAnchor='## 0. Reviewer stance' }
+  @{ Id='loop-r3-recap'; Path='docs/LOOP-ENGINEERING.md'; Anchor='**修法 = 既有确定性闸**'; Before=0; After=0; Expected='carve-out 见本文件上文与 `docs/QUALITY-RUBRIC.md` §0'; Mutant='carve-out 见 `specs/tech-debt-tracker.md` TD1'; Forbidden=@('specs/tech-debt-tracker.md` TD1'); TargetPath='docs/QUALITY-RUBRIC.md'; TargetAnchor='## 0. Reviewer stance' }
+  @{ Id='rubric-upstream-en'; Path='docs/QUALITY-RUBRIC.md'; Anchor='The `[R3-NO-VERDICT-JSON]` reason does **not** inline'; Before=0; After=0; Expected='upstream scaffold TD96'; Mutant='the hardening card referenced in `specs/tech-debt-tracker.md` under TD96'; Forbidden=@('specs/tech-debt-tracker.md` under TD96'); TargetPath=''; TargetAnchor='' }
+  @{ Id='rubric-upstream-zh'; Path='docs/QUALITY-RUBRIC.md'; Anchor='`[R3-NO-VERDICT-JSON]` 的 reason **不内联**'; Before=0; After=0; Expected='上游脚手架的 TD96'; Mutant='tracker 的 TD96'; Forbidden=@('tracker 的 TD96'); TargetPath=''; TargetAnchor='' }
+  @{ Id='review-upstream-primary'; Path='scripts/review.ps1'; Anchor='任务卡的合法 `review_gate:`'; Before=0; After=0; Expected='upstream scaffold TD83'; Mutant='TD83'; Forbidden=@('（TD83）'); TargetPath=''; TargetAnchor='' }
+  @{ Id='review-upstream-recap'; Path='scripts/review.ps1'; Anchor='故 diff 路径**不需要**'; Before=0; After=1; Expected='该上游债项按此'; Mutant='TD83 按此'; Forbidden=@('TD83 按此','specs/tech-debt-tracker.md TD83'); TargetPath=''; TargetAnchor='' }
+)
+function Get-AuthoritySourceSegment([string]$Root, [object]$Rule) {
+  $path = Join-Path $Root $Rule.Path
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Ok=$false; Code="MISSING-SOURCE:$($Rule.Id)"; Path=$Rule.Path; Reference=$Rule.Anchor; Text=''; Lines=$null; Start=-1; End=-1 } }
+  $text = [System.IO.File]::ReadAllText($path)
+  $lines = @($text -split '\r?\n')
+  $hits = @(for ($i=0; $i -lt $lines.Count; $i++) { if ($lines[$i].Contains($Rule.Anchor)) { $i } })
+  if ($hits.Count -ne 1) { return [pscustomobject]@{ Ok=$false; Code="AMBIGUOUS-SOURCE:$($Rule.Id)"; Path=$Rule.Path; Reference=$Rule.Anchor; Text=$text; Lines=$lines; Start=-1; End=-1 } }
+  $start = [Math]::Max(0, $hits[0] - $Rule.Before)
+  $end = [Math]::Min($lines.Count - 1, $hits[0] + $Rule.After)
+  return [pscustomobject]@{ Ok=$true; Code='PRESENT'; Path=$Rule.Path; Reference=$Rule.Expected; Text=$text; Lines=$lines; Start=$start; End=$end; Segment=($lines[$start..$end] -join "`n") }
+}
+function Test-AuthorityReferenceSet([string]$Root, [object[]]$Rules) {
+  foreach ($rule in $Rules) {
+    $source = Get-AuthoritySourceSegment $Root $rule
+    if (-not $source.Ok) { return $source }
+    foreach ($forbidden in $rule.Forbidden) {
+      if ($source.Segment.Contains($forbidden)) { return [pscustomobject]@{ Ok=$false; Code="FORBIDDEN:$($rule.Id)"; Path=$rule.Path; Reference=$forbidden } }
+    }
+    if (-not $source.Segment.Contains($rule.Expected)) { return [pscustomobject]@{ Ok=$false; Code="MISSING-TARGET:$($rule.Id)"; Path=$rule.Path; Reference=$rule.Expected } }
+    if ($rule.TargetPath) {
+      $target = Join-Path $Root $rule.TargetPath
+      if (-not (Test-Path -LiteralPath $target -PathType Leaf) -or -not [System.IO.File]::ReadAllText($target).Contains($rule.TargetAnchor)) {
+        return [pscustomobject]@{ Ok=$false; Code="UNRESOLVED-TARGET:$($rule.Id)"; Path=$rule.Path; Reference="$($rule.TargetPath) $($rule.TargetAnchor)" }
+      }
+    }
+  }
+  return [pscustomobject]@{ Ok=$true; Code='PRESENT'; Path=''; Reference='' }
+}
+$authorityBase = Test-AuthorityReferenceSet $RepoRoot $authorityRefRules
+if (-not $authorityBase.Ok) {
+  Fail "17ff TD16 权威引用：$($authorityBase.Code) path=$($authorityBase.Path) reference=$($authorityBase.Reference)——source→target 映射失效。"
+} else {
+  $authorityScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17ff-authority-$PID"
+  try {
+    foreach ($rule in $authorityRefRules) {
+      $src = Join-Path $RepoRoot $rule.Path
+      $dst = Join-Path $authorityScratch $rule.Path
+      New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+      Copy-Item -LiteralPath $src -Destination $dst -Force
+    }
+    foreach ($rule in $authorityRefRules) {
+      $target = Join-Path $authorityScratch $rule.Path
+      $baselineBytes = [System.IO.File]::ReadAllBytes($target)
+      $baselineHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($baselineBytes))
+      $source = Get-AuthoritySourceSegment $authorityScratch $rule
+      $hits = ([regex]::Matches($source.Segment, [regex]::Escape($rule.Expected))).Count
+      if ($hits -ne 1) {
+        Fail "17ff(mut/$($rule.Id)) 前置：目标标记出现 $hits 次，期望恰好 1 次——变异定位不唯一。"
+        continue
+      }
+      for ($lineIndex = $source.Start; $lineIndex -le $source.End; $lineIndex++) {
+        $source.Lines[$lineIndex] = $source.Lines[$lineIndex].Replace($rule.Expected, $rule.Mutant)
+      }
+      [System.IO.File]::WriteAllText($target, ($source.Lines -join "`n"), [Text.UTF8Encoding]::new($false))
+      $mutant = Test-AuthorityReferenceSet $authorityScratch $authorityRefRules
+      [System.IO.File]::WriteAllBytes($target, $baselineBytes)
+      $restoredHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+      $expectedCode = "FORBIDDEN:$($rule.Id)"
+      $expectedReference = $rule.Forbidden[0]
+      if ($restoredHash -ne $baselineHash) {
+        Fail "17ff(mut/$($rule.Id)) 收尾：scratch 还原后 SHA256 不一致（前=$baselineHash，后=$restoredHash）。"
+      } elseif ($mutant.Ok -or $mutant.Code -ne $expectedCode -or $mutant.Path -ne $rule.Path -or $mutant.Reference -ne $expectedReference) {
+        Fail "17ff(mut/$($rule.Id)) 分类器：期望 code=$expectedCode path=$($rule.Path) reference=$expectedReference，实得 code=$($mutant.Code) path=$($mutant.Path) reference=$($mutant.Reference)。"
+      } else {
+        Write-Host "  17ff(mut/$($rule.Id)) 旧引用回归：$expectedCode path=$($mutant.Path) reference=$($mutant.Reference)，scratch SHA256 还原一致 OK" -ForegroundColor Green
+      }
+    }
+    Write-Host '  17ff TD16 权威 TD 引用：九个 source→target 映射可解析；9 枚逐处变异按 code/path/reference 分类击杀 OK' -ForegroundColor Green
+  } finally {
+    Remove-Item -LiteralPath $authorityScratch -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 # ── 收尾：真实生产文件全程未被写入（纵深防御，L196）——check-licenses.ps1 只曾在临时同目录副本上变异，
 #    verify.ps1 与 docs/RELEASE-CHECKLIST.md 全程只读，三者 SHA256 理应与本闸开始前逐字不变。──
 $realCLHashAfter = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash
