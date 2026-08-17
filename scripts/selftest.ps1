@@ -2740,6 +2740,107 @@ else {
 
 }
 
+if ($Shard -eq 'seeded') {
+# 17gg（TD21）：CLAUDE 当前阶段只指向活卡/归档真相源，不手抄会随 create/archive 立即漂移的库存数字。
+# 只解析「当前阶段」内同时含 `任务卡` + `specs/tasks/` 的唯一库存句；历史交付叙事里的任务卡数量不属于库存、不得误伤。
+function Test-CurrentStageTaskInventory([string]$Root) {
+  $path = Join-Path $Root 'CLAUDE.md'
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Ok=$false; Code='[TD21-MISSING-CLAUDE]'; Path='CLAUDE.md'; Reference='CLAUDE.md' } }
+  $text = [System.IO.File]::ReadAllText($path)
+  $section = [regex]::Match($text, '(?ms)^## 当前阶段\s*\r?\n(?<body>.*?)(?=^##\s|\z)')
+  if (-not $section.Success) { return [pscustomobject]@{ Ok=$false; Code='[TD21-MISSING-CURRENT-STAGE]'; Path='CLAUDE.md'; Reference='## 当前阶段' } }
+  $lines = @([regex]::Matches($section.Groups['body'].Value, '(?m)^[^\r\n]*任务卡[^\r\n]*`specs/tasks/`[^\r\n]*$'))
+  if ($lines.Count -ne 1) { return [pscustomobject]@{ Ok=$false; Code='[TD21-AMBIGUOUS-INVENTORY-SOURCE]'; Path='CLAUDE.md'; Reference='任务卡 `specs/tasks/`' } }
+  $line = $lines[0].Value
+  $sentences = @([regex]::Split($line, '[。！？!?；;]+|\.(?=\s|$)') | Where-Object { $_.Contains('任务卡') -and $_.Contains('`specs/tasks/`') })
+  if ($sentences.Count -ne 1) { return [pscustomobject]@{ Ok=$false; Code='[TD21-AMBIGUOUS-INVENTORY-SENTENCE]'; Path='CLAUDE.md'; Reference='任务卡 `specs/tasks/`' } }
+  $sentence = $sentences[0]
+  $staticClaim = [regex]::Match($sentence, '(?i)(?<claim>(?:\d+|\{\{\s*[a-z_][a-z0-9_]*\s*\}\})(?:\*\*)?\s*(?:张(?:任务卡|活卡|卡)?|个\s*(?:任务卡|活卡)|(?:(?:active|live|open|pending|unmerged)\s+)?(?:task[- ]?)?cards?\b))')
+  if ($staticClaim.Success) { return [pscustomobject]@{ Ok=$false; Code='[TD21-STATIC-TASK-INVENTORY]'; Path='CLAUDE.md'; Reference=$staticClaim.Groups['claim'].Value } }
+  if (-not $sentence.Contains('`specs/archive/tasks/`')) { return [pscustomobject]@{ Ok=$false; Code='[TD21-MISSING-ARCHIVE-AUTHORITY]'; Path='CLAUDE.md'; Reference='specs/archive/tasks/' } }
+  if (-not (Test-Path -LiteralPath (Join-Path $Root 'specs/tasks') -PathType Container)) { return [pscustomobject]@{ Ok=$false; Code='[TD21-UNRESOLVED-LIVE-AUTHORITY]'; Path='CLAUDE.md'; Reference='specs/tasks/' } }
+  if (-not (Test-Path -LiteralPath (Join-Path $Root 'specs/archive/tasks') -PathType Container)) { return [pscustomobject]@{ Ok=$false; Code='[TD21-UNRESOLVED-ARCHIVE-AUTHORITY]'; Path='CLAUDE.md'; Reference='specs/archive/tasks/' } }
+  return [pscustomobject]@{ Ok=$true; Code='PRESENT'; Path='CLAUDE.md'; Reference='' }
+}
+Step '17gg/17 TD21 任务卡库存真相源（当前阶段禁静态计数）'
+$taskInventoryBase = Test-CurrentStageTaskInventory $RepoRoot
+if (-not $taskInventoryBase.Ok) {
+  Fail "17gg TD21：$($taskInventoryBase.Code) path=$($taskInventoryBase.Path) reference=$($taskInventoryBase.Reference)"
+} else {
+  $taskInventoryScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17gg-task-inventory-$PID"
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $taskInventoryScratch 'specs/tasks') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $taskInventoryScratch 'specs/archive/tasks') | Out-Null
+    $scratchClaude = Join-Path $taskInventoryScratch 'CLAUDE.md'
+    $baselineBytes = [System.IO.File]::ReadAllBytes((Join-Path $RepoRoot 'CLAUDE.md'))
+    $baselineHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($baselineBytes))
+    $baselineText = [Text.Encoding]::UTF8.GetString($baselineBytes)
+    $baselineNewline = if ($baselineText.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $baselineSection = [regex]::Match($baselineText, '(?ms)^## 当前阶段\s*\r?\n(?<body>.*?)(?=^##\s|\z)')
+    $baselineAuthorityPattern = '(?m)^[^\r\n]*任务卡[^\r\n]*`specs/tasks/`[^\r\n]*$'
+    $baselineAuthorityCount = if ($baselineSection.Success) { [regex]::Matches($baselineSection.Groups['body'].Value, $baselineAuthorityPattern).Count } else { 0 }
+    if ($baselineAuthorityCount -ne 1) {
+      Fail '17gg(mut) 前置：Current Stage 任务卡锚点不唯一，无法做单句库存变异。'
+    } else {
+      $baselineSectionText = $baselineSection.Value
+      $baselineAuthorityLine = [regex]::Match($baselineSection.Groups['body'].Value, $baselineAuthorityPattern).Value
+      $inventoryMutants = @(
+        [pscustomobject]@{ Id='compact-static'; Replacement='任务卡（**999 张**） `specs/tasks/`'; Expected='999 张' },
+        [pscustomobject]@{ Id='classifier-static'; Replacement='共 999 个任务卡 `specs/tasks/`'; Expected='999 个任务卡' },
+        [pscustomobject]@{ Id='english-static'; Replacement='任务卡（999 cards） `specs/tasks/`'; Expected='999 cards' },
+        [pscustomobject]@{ Id='english-active-static'; Replacement='任务卡（999 active cards） `specs/tasks/`'; Expected='999 active cards' },
+        [pscustomobject]@{ Id='dynamic-placeholder'; Replacement='任务卡（{{task_count}} 张） `specs/tasks/`'; Expected='{{task_count}} 张' },
+        [pscustomobject]@{ Id='alternate-placeholder'; Replacement='任务卡（{{live_task_count}} 张） `specs/tasks/`'; Expected='{{live_task_count}} 张' }
+      )
+      $inventoryMutantsOk = $true
+      foreach ($case in $inventoryMutants) {
+        $mutantSection = $baselineSectionText.Replace('任务卡 `specs/tasks/`', $case.Replacement)
+        $mutantText = $baselineText.Substring(0, $baselineSection.Index) + $mutantSection + $baselineText.Substring($baselineSection.Index + $baselineSection.Length)
+        [System.IO.File]::WriteAllText($scratchClaude, $mutantText, [Text.UTF8Encoding]::new($false))
+        $mutant = Test-CurrentStageTaskInventory $taskInventoryScratch
+        if ($mutant.Ok -or $mutant.Code -ne '[TD21-STATIC-TASK-INVENTORY]' -or $mutant.Path -ne 'CLAUDE.md' -or $mutant.Reference -ne $case.Expected) {
+          $inventoryMutantsOk = $false
+          Fail "17gg(mut/$($case.Id)) 分类器：期望 [TD21-STATIC-TASK-INVENTORY] path=CLAUDE.md reference=$($case.Expected)，实得 code=$($mutant.Code) path=$($mutant.Path) reference=$($mutant.Reference)。"
+        }
+      }
+      $historicalSection = $baselineSectionText.Replace($baselineAuthorityLine, 'W0 通过 3 张任务卡完成交付。' + $baselineAuthorityLine)
+      $historicalText = $baselineText.Substring(0, $baselineSection.Index) + $historicalSection + $baselineText.Substring($baselineSection.Index + $baselineSection.Length)
+      [System.IO.File]::WriteAllText($scratchClaude, $historicalText, [Text.UTF8Encoding]::new($false))
+      $historical = Test-CurrentStageTaskInventory $taskInventoryScratch
+      if (-not $historical.Ok) {
+        $inventoryMutantsOk = $false
+        Fail "17gg(history-control) 负例：历史交付计数不得当作当前库存，实得 code=$($historical.Code) path=$($historical.Path) reference=$($historical.Reference)。"
+      }
+      $cardboardSection = $baselineSectionText.Replace($baselineAuthorityLine, $baselineAuthorityLine.Replace('任务卡 `specs/tasks/`', '任务卡旁有 3 cardboard labels，`specs/tasks/`'))
+      $cardboardText = $baselineText.Substring(0, $baselineSection.Index) + $cardboardSection + $baselineText.Substring($baselineSection.Index + $baselineSection.Length)
+      [System.IO.File]::WriteAllText($scratchClaude, $cardboardText, [Text.UTF8Encoding]::new($false))
+      $cardboard = Test-CurrentStageTaskInventory $taskInventoryScratch
+      if (-not $cardboard.Ok) {
+        $inventoryMutantsOk = $false
+        Fail "17gg(cardboard-control) 负例：cardboard 不是 card 库存词，实得 code=$($cardboard.Code) path=$($cardboard.Path) reference=$($cardboard.Reference)。"
+      }
+      $outsideText = $baselineText + $baselineNewline + '## TD21 段外控制' + $baselineNewline + '任务卡 `specs/tasks/` 共 888 张。' + $baselineNewline
+      [System.IO.File]::WriteAllText($scratchClaude, $outsideText, [Text.UTF8Encoding]::new($false))
+      $outside = Test-CurrentStageTaskInventory $taskInventoryScratch
+      if (-not $outside.Ok) {
+        $inventoryMutantsOk = $false
+        Fail "17gg(outside-control) 负例：Current Stage 段外重复指针不得影响库存句，实得 code=$($outside.Code) path=$($outside.Path) reference=$($outside.Reference)。"
+      }
+      [System.IO.File]::WriteAllBytes($scratchClaude, $baselineBytes)
+      $restoredHash = (Get-FileHash -LiteralPath $scratchClaude -Algorithm SHA256).Hash
+      if ($restoredHash -ne $baselineHash) {
+        Fail "17gg(mut) 收尾：scratch CLAUDE.md 还原后 SHA256 不一致（前=$baselineHash，后=$restoredHash）。"
+      } elseif ($inventoryMutantsOk) {
+        Write-Host '  17gg TD21 Current Stage 库存句无计数；六枚 section-span 变异被分类击杀，同栏历史计数/cardboard 与段外重复指针三枚负例放行，scratch SHA256 还原一致 OK' -ForegroundColor Green
+      }
+    }
+  } finally {
+    Remove-Item -LiteralPath $taskInventoryScratch -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+}
+
 if ($Shard -eq 'workflow') {
 [void]$executedGateGroups.Add('workflow:15')
 # --- 15. 动态 E2E 冒烟：真跑 task.ps1 start + ship -Local，断言工作流真能跑通（静态闸抓不到的回归）---
