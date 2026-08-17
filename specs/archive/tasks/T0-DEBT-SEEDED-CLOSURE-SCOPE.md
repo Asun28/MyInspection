@@ -2,7 +2,7 @@
 id: T0-DEBT-SEEDED-CLOSURE-SCOPE
 title: Make seeded mutation closures self-contained (repay TD23)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-SEEDED-CLOSURE-SCOPE
 worktree: C:\wt\T0-DEBT-SEEDED-CLOSURE-SCOPE
 allow_paths:
@@ -44,4 +44,3 @@ Make the existing 17cc A/B mutation probe independent of ambient function-name l
 - Keeping the fix in TD21: violates one-debt/one-card traceability.
 - Weakening TD21 to a focused command: hides a real seeded-host portability defect.
 - Replacing the 17cc mutation suite: unnecessary and risks losing existing license-scanner evidence.
-
