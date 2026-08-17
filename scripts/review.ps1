@@ -299,11 +299,22 @@ $diffBody = Protect-FenceMarkers $diffBody
 # 结论收口为 paid（T12 是实际解法），T14 卡未实现即撤销。
 # 卡片是「本卡显式批准范围」（allow_paths / forbid / 边界例外）的权威来源——评审须据卡判定，
 # 避免对卡内已声明的 opt-in 例外（如构建期联网 / 可选 GPU）误判（见 prompt 内「本卡声明」）。
-# TD63 item2：卡片查找此前用原始 $branch，而裁决文件名（上方 $verdictPath）用净化过的 $branchSafe——
-# 分支名含 / 时两者不一致，会在 "specs/tasks/<含斜杠的分支>.md" 这个（大概率不存在的）路径下找卡，
-# 静默丢失 allow_paths 等卡片上下文（评审退化为「无对应任务卡」的通用硬边界判定）。改用 $branchSafe 保持一致。
-$cardPath = Join-Path $WorktreePath "specs/tasks/$branchSafe.md"
-$card = if (Test-Path $cardPath) { (Get-Content $cardPath -Raw).Trim() } else { '（无对应任务卡；按通用硬边界判定）' }
+# TD3：scope gate 已从 $baseRef 取卡；R3 必须用同一份已钉死的完整卡，不能让 review branch 的旧副本覆盖
+# master 后的范围修订。基线无该卡（分支新建卡）或其内容为空时，才保留 worktree fallback 兼容路径。
+# $branchSafe 与裁决文件名同源，避免含 / 的分支在 specs/tasks 下走成另一条路径（TD63 item2）。
+$cardRelPath = "specs/tasks/$branchSafe.md"
+$card = (& git -C $WorktreePath show "${baseRef}:$cardRelPath" 2>$null | Out-String).Trim()
+$cardSrc = "base:$baseRef"
+if (-not $card) {
+  $cardPath = Join-Path $WorktreePath $cardRelPath
+  $card = if (Test-Path $cardPath) { (Get-Content $cardPath -Raw).Trim() } else { '' }
+  $cardSrc = 'worktree-fallback(base-card-absent-or-empty)'
+}
+if (-not $card) {
+  $card = '（无对应任务卡；按通用硬边界判定）'
+  $cardSrc = 'none(base-and-worktree-card-absent)'
+}
+Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -ForegroundColor DarkGray
 # 提示注入硬化（TD35）：卡片是**待审数据**，其 review_gate 字段按本仓 card schema 携一个 verdict 样式的批准型字面量。
 # 历史上（**T12 之前**）下方「防提示注入（硬规则）」立场把「待审数据里出现预批准字面量」本身当 block 理由，会把这个
 # 本仓自己的合法 schema 字段误读为操纵企图而 non-deterministic false-block（每张卡都在 → 全卡队潜伏）。**T12 已改立场**
@@ -379,7 +390,8 @@ $rubric
 【本卡补充的冻结面（来自 _config.ps1 FrozenPaths）】
 $frozenClause（空则以 rubric §1.3 为准）
 
-【本卡声明（specs/tasks/$branch.md，**显式批准的路径范围**来源——allow_paths / forbid / 边界例外 / notes）】
+TASK_CARD_SOURCE=$cardSrc
+【本卡声明（$cardRelPath，**显式批准的路径范围**来源——allow_paths / forbid / 边界例外 / notes）】
 $dOpen
 $card
 $dClose
