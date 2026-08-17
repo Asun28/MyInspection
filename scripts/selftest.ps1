@@ -7896,38 +7896,6 @@ function New-ScaffoldReparseLink([string]$LinkPath, [string]$TargetPath) {
 $needleA = 'android/gradle/libs.versions.toml'
 $needleB = 'android/core/build.gradle.kts'
 
-# 17cc(scope)（TD23）：生产 A/B probe 必须显式携带断言器；GetNewClosure 不得依赖创建者作用域里仍有同名函数。
-$selftestSource = [System.IO.File]::ReadAllText($PSCommandPath)
-$captureNeedle = '$invokeMarkerAssertion = $' + '{function:Invoke-MarkerAssertion}'
-$selfCallNeedle = 'Self = &' + ' $invokeMarkerAssertion -Mode GradleLibrary'
-$ctrlCallNeedle = 'Ctrl = &' + ' $invokeMarkerAssertion -Mode GradleLibrary'
-if (([regex]::Matches($selftestSource, [regex]::Escape($captureNeedle))).Count -ne 1 -or
-    ([regex]::Matches($selftestSource, [regex]::Escape($selfCallNeedle))).Count -ne 1 -or
-    ([regex]::Matches($selftestSource, [regex]::Escape($ctrlCallNeedle))).Count -ne 1) {
-  Fail '[TD23-CLOSURE-SCOPE] path=scripts/selftest.ps1 reference=17cc/A-B-probe：断言器未被唯一显式捕获并由 Self/Ctrl 两支调用。'
-} else {
-  function Invoke-TD23IsolationAssertion([string]$Needle, [string]$MarkerId) {
-    $present = $Needle -eq 'control'
-    return [pscustomobject]@{ Exit = $(if ($present) { 0 } else { 1 }); StdOut = "MARKER:${MarkerId}:$(if ($present) { 'PRESENT' } else { 'ABSENT' })" }
-  }
-  $td23Assertion = ${function:Invoke-TD23IsolationAssertion}
-  $td23SelfMarker = 'TD23-SELF'; $td23CtrlMarker = 'TD23-CTRL'
-  $td23Probe = {
-    [pscustomobject]@{
-      Self = & $td23Assertion -Needle 'self' -MarkerId $td23SelfMarker
-      Ctrl = & $td23Assertion -Needle 'control' -MarkerId $td23CtrlMarker
-    }
-  }.GetNewClosure()
-  Remove-Item Function:Invoke-TD23IsolationAssertion -ErrorAction Stop
-  $td23Result = & $td23Probe
-  if ($td23Result.Self.Exit -eq 0 -or -not (Test-MarkerCode $td23Result.Self.StdOut $td23SelfMarker 'ABSENT') -or
-      $td23Result.Ctrl.Exit -ne 0 -or -not (Test-MarkerCode $td23Result.Ctrl.StdOut $td23CtrlMarker 'PRESENT')) {
-    Fail "[TD23-CLOSURE-SCOPE] path=scripts/selftest.ps1 reference=17cc/isolation-fixture：外层函数解绑后 marker/exit 漂移（self=$($td23Result.Self | ConvertTo-Json -Compress)，ctrl=$($td23Result.Ctrl | ConvertTo-Json -Compress)）。"
-  } else {
-    Write-Host '  17cc(scope) 显式捕获断言器；外层函数解绑后 Self=ABSENT/exit1、Ctrl=PRESENT/exit0 OK（TD23）' -ForegroundColor Green
-  }
-}
-
 # 17cc. Gradle 清单递归发现（真实 android/ 树；两分支各自单句删除变异，数据驱动共用同一套判据/变异机制）
 $mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
@@ -7953,13 +7921,18 @@ try {
           Ctrl = & $invokeMarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
         }
       }.GetNewClosure()
-      $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
+      try {
+        Remove-Item Function:Invoke-MarkerAssertion -ErrorAction Stop
+        $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
+      } finally {
+        Set-Item Function:Invoke-MarkerAssertion -Value $invokeMarkerAssertion -ErrorAction Stop
+      }
       if (-not $m.Ok) { Fail "17cc($($case.Id))：$($m.Reason)"; continue }
       $selfOk = Test-MarkerResult $m.Result.Self $selfMarker $false "种子缺陷 17cc($($case.Id))：删掉$($case.Label)那一行后（vacuous mutation，卡片 dod_assert 字面要求：非零且命中指定断言文本）"
       if (-not $selfOk) { continue }
       $ctrlOk = Test-MarkerResult $m.Result.Ctrl $ctrlMarker $true "17cc($($case.Id)) 分类器：删掉$($case.Label)那一行后，控制组判据（两分支须真正独立，L165）"
       if (-not $ctrlOk) { continue }
-      Write-Host "  17cc($($case.Id)) $($case.Label)：单句删除变异后判据子进程 exit 非零 + ABSENT（RED，真正的杀死信号）、控制组仍 exit 0 + PRESENT（GREEN）、副本已还原且 SHA256 一致 OK" -ForegroundColor Green
+      Write-Host "  17cc($($case.Id)) $($case.Label)：外层 Invoke-MarkerAssertion 解绑后，真实 A/B probe 仍给出目标 exit 非零 + ABSENT、控制组 exit 0 + PRESENT，副本已还原且 SHA256 一致 OK（TD23）" -ForegroundColor Green
     }
   }
 } finally {
