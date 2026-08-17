@@ -27,8 +27,13 @@ object ImportBounds {
     /** 编码那一刻同时存活的位图数：源位图 + 转正烘焙新分配的那份（源位图由其属主在编码之后才回收）。 */
     const val CONCURRENT_BITMAPS: Long = 2
 
-    /** JPEG 编码缓冲的每像素预留：q92 照片输出经验上 ≤ 1 B/px，`ByteArrayOutputStream` 扩容瞬间新旧两份数组并存，取 2。 */
-    const val ENCODER_BYTES_PER_PIXEL: Long = 2
+    /**
+     * JPEG 编码缓冲的每像素预留。**这是有依据的余量，不是可证明的上界**：q92 照片输出经验上 ≤ 1 B/px，
+     * 而 `ByteArrayOutputStream` 会同时持有一份可能已过度扩容的底层数组（最坏约 2×）与 `toByteArray()`
+     * 复制出的第二份，故取 4。真正消除这一项要把编码直接流式写到目标文件（边写边摘要），不再在内存里
+     * 攒完整份字节——那是两条管线字节流向的改动，不在本卡范围。
+     */
+    const val ENCODER_BYTES_PER_PIXEL: Long = 4
 
     /** 单像素峰值 = 两份位图 + 编码缓冲。 */
     const val PEAK_BYTES_PER_PIXEL: Long = BYTES_PER_PIXEL * CONCURRENT_BITMAPS + ENCODER_BYTES_PER_PIXEL

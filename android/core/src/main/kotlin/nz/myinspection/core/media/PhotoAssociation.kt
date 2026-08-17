@@ -17,9 +17,14 @@ data class PhotoTarget(
     val privacyFlag: Boolean = false,
 )
 
+/** 新资产的存储路径上下文，唯一来源是 [PhotoAssociationRecorder.resolvePathContext]（不由调用方自带）。 */
+data class PhotoPathContext(val propertyId: String, val inspectionId: String)
+
 /**
  * 撤销本次 ingest 刚落下的那份字节（补偿动作），由 :app 注入——:core 不摸文件系统。
- * **契约**：目标已不在也算撤销成功（幂等）；撤不掉返回 `false`，不抛异常。
+ * **契约**：目标已不在也算撤销成功（幂等）；撤不掉返回 `false`。允许抛文件系统异常
+ * （`canonicalFile`/`delete` 的 IOException/SecurityException），[PhotoAssociationRecorder] 一律按
+ * "撤销失败"处理——补偿路径不得成为 record 的异常出口。
  */
 fun interface NewAssetDiscard {
     fun discard(relPath: String): Boolean
@@ -50,6 +55,23 @@ class PhotoAssociationRecorder(
     private val db: MyInspectionDatabase,
     private val clock: ClockMs = SystemClockMs,
 ) {
+    /**
+     * 派生存储路径要用的物业/巡检 id，**从 [roomInstanceId] 反查 DB 得到**，不收调用方另给一份。
+     *
+     * 路径由 (propertyId, inspectionId, photoId) 决定、关联行由 [PhotoTarget] 决定，两者若各自由调用方
+     * 传入，一次传错就能把 B 房间的照片写进 A 巡检的目录——文件位置与 DB 归属从此对不上，而两边各自看着
+     * 都合法。让唯一权威落在 DB 这一侧，这条错配就不再可表达（同 T1-TEMPLATE-ENGINE 把不变量做进类型的改法）。
+     */
+    fun resolvePathContext(roomInstanceId: String): PhotoPathContext {
+        val room = checkNotNull(db.roomInstanceQueries.selectById(roomInstanceId).executeAsOneOrNull()) {
+            "no such room_instance: $roomInstanceId"
+        }
+        val inspection = checkNotNull(db.inspectionQueries.selectById(room.inspection_id).executeAsOneOrNull()) {
+            "room_instance $roomInstanceId references a missing inspection ${room.inspection_id}"
+        }
+        return PhotoPathContext(propertyId = inspection.property_id, inspectionId = inspection.id)
+    }
+
     /**
      * [photoId] 同时是新行主键与 [PhotoIngestPlan.WriteNewAsset] 路径里的文件名段（调用方须传新 UUIDv7）。
      * 守卫之外的异常（主键/唯一索引冲突等）同样先补偿再原样冒泡——那是调用链有 bug 或撞上并发写入，
@@ -96,9 +118,26 @@ class PhotoAssociationRecorder(
         )
     }
 
-    /** 撤销本次新落的字节；复用路径没有可撤销的东西，恒报"没留下垃圾"、且**绝不调用** [discard]。 */
+    /**
+     * 撤销本次新落的字节，返回"没留下无主文件"。三种情况**不删**：
+     *  - 复用既有资产：本次没写任何字节，那份文件属于别的关联；
+     *  - **仍有活跃行引用这个 rel_path**：同 [photoId] 重试时，先到的那次已把行写成、字节也已发布到同一个
+     *    路径，本次 insert 撞主键失败——删下去就是删掉赢家（可能已 FINALIZED）正在引用的证据。判据用冻结的
+     *    `selectActiveAssetsByContentHash`：内容相同故哈希相同，赢家那行的 rel_path 必在返回里；
+     *  - [discard] 自己抛了异常：文件系统层的失败（`canonicalFile`/`delete` 可抛 IOException/SecurityException）
+     *    不能变成 record 的异常出口，否则守卫拒绝这条正常结果会被一个 IO 异常顶掉。记为"撤销失败"。
+     */
     private fun compensate(plan: PhotoIngestPlan, discard: NewAssetDiscard): Boolean = when (plan) {
-        is PhotoIngestPlan.WriteNewAsset -> discard.discard(plan.relPath)
         is PhotoIngestPlan.ReuseExistingAsset -> true
+        is PhotoIngestPlan.WriteNewAsset ->
+            if (plan.relPath in db.photoQueries.selectActiveAssetsByContentHash(plan.contentHash).executeAsList()) {
+                true
+            } else {
+                try {
+                    discard.discard(plan.relPath)
+                } catch (e: Exception) {
+                    false
+                }
+            }
     }
 }

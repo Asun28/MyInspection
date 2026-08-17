@@ -7,38 +7,38 @@ import kotlin.test.assertIs
 /**
  * 预算边界向量。**budget/required 全部写死为字面量、不由 [ImportBounds] 自己的常量算出**——否则把
  * `CONCURRENT_BITMAPS` 从 2 改成 1 这类变异会同时移动断言两侧，测试照样绿（L165）。
- * 4000 x 3000 = 12,000,000 px；峰值 10 B/px（两份 ARGB 位图 8 + 编码缓冲 2）= 120,000,000 字节。
+ * 4000 x 3000 = 12,000,000 px；峰值 12 B/px（两份 ARGB 位图 8 + 编码缓冲余量 4）= 144,000,000 字节。
  */
 class ImportBoundsTest {
     @Test
     fun `the peak-per-pixel model is two ARGB bitmaps plus the encoder buffer`() {
-        assertEquals(10L, ImportBounds.PEAK_BYTES_PER_PIXEL, "4 B/px x 2 concurrent bitmaps + 2 B/px encoder buffer")
-        assertEquals(120_000_000L, ImportBounds.requiredBytes(width = 4000, height = 3000))
+        assertEquals(12L, ImportBounds.PEAK_BYTES_PER_PIXEL, "4 B/px x 2 concurrent bitmaps + 4 B/px encoder allowance")
+        assertEquals(144_000_000L, ImportBounds.requiredBytes(width = 4000, height = 3000))
     }
 
     @Test
     fun `a budget exactly equal to the requirement accepts`() {
         assertEquals(
             ImportBoundsResult.Accepted,
-            ImportBounds.check(width = 4000, height = 3000, budgetBytes = 120_000_000L),
+            ImportBounds.check(width = 4000, height = 3000, budgetBytes = 144_000_000L),
         )
     }
 
     @Test
     fun `one byte less than the requirement rejects`() {
         val rejected = assertIs<ImportBoundsResult.Rejected>(
-            ImportBounds.check(width = 4000, height = 3000, budgetBytes = 119_999_999L),
+            ImportBounds.check(width = 4000, height = 3000, budgetBytes = 143_999_999L),
         )
         assertEquals(4000, rejected.width)
         assertEquals(3000, rejected.height)
-        assertEquals(120_000_000L, rejected.requiredBytes)
-        assertEquals(119_999_999L, rejected.budgetBytes, "the budget in force must be reported, not a hard-coded limit")
+        assertEquals(144_000_000L, rejected.requiredBytes)
+        assertEquals(143_999_999L, rejected.budgetBytes, "the budget in force must be reported, not a hard-coded limit")
     }
 
     @Test
     fun `one pixel more than the exactly-fitting budget rejects`() {
         assertIs<ImportBoundsResult.Rejected>(
-            ImportBounds.check(width = 4001, height = 3000, budgetBytes = 120_000_000L),
+            ImportBounds.check(width = 4001, height = 3000, budgetBytes = 144_000_000L),
         )
     }
 

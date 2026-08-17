@@ -25,8 +25,6 @@ object CameraPhotoIngestPipeline {
     fun ingest(
         capturedBitmap: Bitmap,
         exifOrientation: Int,
-        propertyId: String,
-        inspectionId: String,
         photoId: String,
         mediaRoot: File,
         target: PhotoTarget,
@@ -38,6 +36,9 @@ object CameraPhotoIngestPipeline {
         ImportBounds.check(capturedBitmap.width, capturedBitmap.height, budgetBytes)
             .rejectionOrNull()
             ?.let { return it }
+
+        // 存储路径的物业/巡检上下文从 [target] 反查 DB，不由调用方另传——见 resolvePathContext。
+        val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
 
         var baked: Bitmap? = null
         val bytes: ByteArray

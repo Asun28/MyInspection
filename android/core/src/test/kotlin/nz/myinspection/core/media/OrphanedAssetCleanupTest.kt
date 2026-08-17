@@ -231,6 +231,40 @@ class OrphanedAssetCleanupTest {
     }
 
     @Test
+    fun `a path that regains an active reference mid-run is never deleted`() {
+        // pendingDeletions() 是一份快照。删第一条的过程中，去重复用可能给后面某条路径挂上新的活跃关联
+        // （PhotoIngest 的 ReuseExistingAsset 分支）——注入的 deleter 正好是一个确定性的交错点：在它里面
+        // 让 b.jpg 重新被引用，循环走到 b.jpg 时必须发现它已不是孤儿、放手不删。
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+
+        orphanIn(roomId, "photos/prop-1/insp-1/a.jpg", "hash-a")
+        orphanIn(roomId, "photos/prop-1/insp-1/b.jpg", "hash-b")
+
+        val deleterCalls = mutableListOf<String>()
+        val cleanup = OrphanedAssetCleanup(database) { relPath ->
+            deleterCalls.add(relPath)
+            if (relPath == "photos/prop-1/insp-1/a.jpg") {
+                insertPhoto(roomId, "photos/prop-1/insp-1/b.jpg", "hash-readopted", now + 5)
+            }
+            true
+        }
+
+        val result = cleanup.run()
+        assertEquals(listOf("photos/prop-1/insp-1/a.jpg"), result.deleted)
+        assertEquals(listOf("photos/prop-1/insp-1/b.jpg"), result.readopted, "重新被引用的路径要单独报告，不能混进 deleted/failed")
+        assertEquals(
+            listOf("photos/prop-1/insp-1/a.jpg"),
+            deleterCalls,
+            "deleter 绝不能被 b.jpg 调到——它此刻已被一条活跃行引用，删掉即证据丢失",
+        )
+        assertEquals(emptyList(), result.failed)
+        assertEquals(emptyList(), result.rejected)
+    }
+
+    @Test
     fun `run lets an exception outside the deleter contract propagate rather than silently absorbing it`() {
         // Anything other than IOException/SecurityException is not a "this one deletion failed" signal —
         // it is a bug in the deleter, and must surface loudly rather than being folded into `failed`.

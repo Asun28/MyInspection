@@ -33,8 +33,6 @@ object PhotoImportPipeline {
     fun ingest(
         sourceStream: InputStream,
         tempDir: File,
-        propertyId: String,
-        inspectionId: String,
         photoId: String,
         mediaRoot: File,
         target: PhotoTarget,
@@ -42,6 +40,8 @@ object PhotoImportPipeline {
         activeAssetLookup: (contentHash: String) -> List<String>,
         budgetBytes: Long = PhotoMemoryBudget.transientBytes(),
     ): PhotoIngestOutcome {
+        // 存储路径的物业/巡检上下文从 [target] 反查 DB，不由调用方另传——见 resolvePathContext。
+        val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
         // tempFile 的路径在进 try 之前就算好（纯函数、不摸磁盘）：若 use{} 关流时抛异常（此时文件早已
         // 写完并发布到这个路径），finally 仍认得它、能清掉；若改成"use{} 的返回值"，那份已落盘的临时
         // 文件就此永久孤儿。

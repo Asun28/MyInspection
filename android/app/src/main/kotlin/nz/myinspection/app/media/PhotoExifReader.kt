@@ -2,6 +2,7 @@ package nz.myinspection.app.media
 
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.io.IOException
 import java.time.DateTimeException
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -23,9 +24,20 @@ object PhotoExifReader {
         .ofPattern("uuuu:MM:dd HH:mm:ss")
         .withResolverStyle(ResolverStyle.STRICT)
 
-    /** 读 `TAG_ORIENTATION`；缺失/损坏一律回退 `ORIENTATION_NORMAL`（getAttributeInt 的 defaultValue 语义）。 */
+    /** 读 `TAG_ORIENTATION`；标签缺失、元数据损坏、文件根本打不开，一律回退 `ORIENTATION_NORMAL`。 */
     fun readOrientation(file: File): Int =
-        ExifInterface(file).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        exifOrNull(file)?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            ?: ExifInterface.ORIENTATION_NORMAL
+
+    /**
+     * `ExifInterface(File)` 对非图片/损坏文件会抛 [IOException]——那类输入的归宿是边界闸给出的具名拒绝
+     * （`RejectedUndecodable`），不是从 EXIF 读取处炸出一个异常打断整条 ingest。只吞这一种：其余异常照抛。
+     */
+    private fun exifOrNull(file: File): ExifInterface? = try {
+        ExifInterface(file)
+    } catch (e: IOException) {
+        null
+    }
 
     /**
      * 读拍摄时间（需求 §5：与巡检时间分开存），毫秒 epoch。EXIF `DateTimeOriginal` 本身无时区信息，
@@ -41,7 +53,7 @@ object PhotoExifReader {
      * UTC 瞬间。本函数自行用 `java.time` 实现「本地墙钟 + 时区 → UTC 瞬间」，语义可自证。
      */
     fun readExifTimeMs(file: File): Long? {
-        val exif = ExifInterface(file)
+        val exif = exifOrNull(file) ?: return null
         val raw = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: return null
         val local = try {
             LocalDateTime.parse(raw, EXIF_DATETIME_PATTERN)

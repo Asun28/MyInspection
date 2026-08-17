@@ -1,11 +1,13 @@
 package nz.myinspection.core.media
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import java.io.IOException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import nz.myinspection.core.db.ClockMs
@@ -28,6 +30,7 @@ class PhotoAssociationRecorderTest {
     private val discardCalls = mutableListOf<String>()
     private val discardOk = NewAssetDiscard { relPath -> discardCalls.add(relPath); true }
     private val discardFails = NewAssetDiscard { relPath -> discardCalls.add(relPath); false }
+    private val discardThrows = NewAssetDiscard { relPath -> discardCalls.add(relPath); throw IOException("simulated disk failure") }
 
     /** `template_version` 有 UNIQUE(type, version)，同一个测试类里建多间巡检要各给一个版本号。 */
     private var nextTemplateVersion = 0L
@@ -254,6 +257,68 @@ class PhotoAssociationRecorderTest {
         }
         val suppressed = assertIs<IllegalStateException>(thrown.suppressed.single())
         assertEquals("compensation failed, ${plan.relPath} is now untracked", suppressed.message)
+    }
+
+    @Test
+    fun `a same-photoId retry never discards the file the winning row already references`() {
+        // 同一个 photoId 重试：先到的那次已把行写成、字节也已发布到同一个路径（rel_path 由 photoId 派生）。
+        // 本次 insert 撞主键失败，若照常补偿就是删掉赢家正在引用的证据——赢家若已 FINALIZED，删的就是巡检证据。
+        val fixture = draftFixture()
+        val photoId = uuid.next()
+        val plan = newPlan(fixture, photoId, "hash-a")
+        recorder.record(plan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardOk)
+        discardCalls.clear()
+
+        assertFailsWith<Exception> {
+            recorder.record(plan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardOk)
+        }
+
+        assertEquals(emptyList(), discardCalls, "该路径仍有活跃行引用，补偿必须放手——删下去就是删掉赢家的证据")
+        assertEquals(plan.relPath, database.photoQueries.selectById(photoId).executeAsOne().rel_path)
+    }
+
+    @Test
+    fun `a discard that throws is reported as a failed compensation, not raised out of a guard rejection`() {
+        val fixture = draftFixture()
+        finalize(fixture.inspectionId)
+        val photoId = uuid.next()
+        val plan = newPlan(fixture, photoId, "hash-a")
+
+        val result = recorder.record(plan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardThrows)
+
+        assertEquals(PhotoAssociationResult.RejectedByGuard(plan.relPath, orphanedFileRemains = true), result)
+        assertEquals(listOf(plan.relPath), discardCalls)
+    }
+
+    @Test
+    fun `a discard that throws on the exception path does not replace the original failure`() {
+        val fixture = draftFixture()
+        val incumbentId = uuid.next()
+        recorder.record(newPlan(fixture, incumbentId, "racing-hash"), incumbentId, PhotoTarget(fixture.roomInstanceId), PhotoSource.CAMERA, null, discardOk)
+
+        val photoId = uuid.next()
+        val plan = newPlan(fixture, photoId, "racing-hash")
+
+        val thrown = assertFailsWith<Exception> {
+            recorder.record(plan, photoId, PhotoTarget(fixture.roomInstanceId), PhotoSource.IMPORTED, null, discardThrows)
+        }
+        assertFalse(thrown is IOException, "冒泡的必须仍是入库失败本身，不是补偿动作的 IO 异常")
+        assertIs<IllegalStateException>(thrown.suppressed.single())
+    }
+
+    @Test
+    fun `resolvePathContext derives property and inspection from the room, so a caller cannot mismatch them`() {
+        val fixture = draftFixture()
+        val other = draftFixture(roomKey = "KITCHEN")
+
+        val context = recorder.resolvePathContext(fixture.roomInstanceId)
+        assertEquals(PhotoPathContext(fixture.propertyId, fixture.inspectionId), context)
+        assertEquals(
+            PhotoPathContext(other.propertyId, other.inspectionId),
+            recorder.resolvePathContext(other.roomInstanceId),
+            "另一个房间必须解析到它自己的巡检，而不是上一个的",
+        )
+        assertFailsWith<IllegalStateException> { recorder.resolvePathContext("no-such-room") }
     }
 
     private companion object {
