@@ -7896,6 +7896,38 @@ function New-ScaffoldReparseLink([string]$LinkPath, [string]$TargetPath) {
 $needleA = 'android/gradle/libs.versions.toml'
 $needleB = 'android/core/build.gradle.kts'
 
+# 17cc(scope)（TD23）：生产 A/B probe 必须显式携带断言器；GetNewClosure 不得依赖创建者作用域里仍有同名函数。
+$selftestSource = [System.IO.File]::ReadAllText($PSCommandPath)
+$captureNeedle = '$invokeMarkerAssertion = $' + '{function:Invoke-MarkerAssertion}'
+$selfCallNeedle = 'Self = &' + ' $invokeMarkerAssertion -Mode GradleLibrary'
+$ctrlCallNeedle = 'Ctrl = &' + ' $invokeMarkerAssertion -Mode GradleLibrary'
+if (([regex]::Matches($selftestSource, [regex]::Escape($captureNeedle))).Count -ne 1 -or
+    ([regex]::Matches($selftestSource, [regex]::Escape($selfCallNeedle))).Count -ne 1 -or
+    ([regex]::Matches($selftestSource, [regex]::Escape($ctrlCallNeedle))).Count -ne 1) {
+  Fail '[TD23-CLOSURE-SCOPE] path=scripts/selftest.ps1 reference=17cc/A-B-probe：断言器未被唯一显式捕获并由 Self/Ctrl 两支调用。'
+} else {
+  function Invoke-TD23IsolationAssertion([string]$Needle, [string]$MarkerId) {
+    $present = $Needle -eq 'control'
+    return [pscustomobject]@{ Exit = $(if ($present) { 0 } else { 1 }); StdOut = "MARKER:${MarkerId}:$(if ($present) { 'PRESENT' } else { 'ABSENT' })" }
+  }
+  $td23Assertion = ${function:Invoke-TD23IsolationAssertion}
+  $td23SelfMarker = 'TD23-SELF'; $td23CtrlMarker = 'TD23-CTRL'
+  $td23Probe = {
+    [pscustomobject]@{
+      Self = & $td23Assertion -Needle 'self' -MarkerId $td23SelfMarker
+      Ctrl = & $td23Assertion -Needle 'control' -MarkerId $td23CtrlMarker
+    }
+  }.GetNewClosure()
+  Remove-Item Function:Invoke-TD23IsolationAssertion -ErrorAction Stop
+  $td23Result = & $td23Probe
+  if ($td23Result.Self.Exit -eq 0 -or -not (Test-MarkerCode $td23Result.Self.StdOut $td23SelfMarker 'ABSENT') -or
+      $td23Result.Ctrl.Exit -ne 0 -or -not (Test-MarkerCode $td23Result.Ctrl.StdOut $td23CtrlMarker 'PRESENT')) {
+    Fail "[TD23-CLOSURE-SCOPE] path=scripts/selftest.ps1 reference=17cc/isolation-fixture：外层函数解绑后 marker/exit 漂移（self=$($td23Result.Self | ConvertTo-Json -Compress)，ctrl=$($td23Result.Ctrl | ConvertTo-Json -Compress)）。"
+  } else {
+    Write-Host '  17cc(scope) 显式捕获断言器；外层函数解绑后 Self=ABSENT/exit1、Ctrl=PRESENT/exit0 OK（TD23）' -ForegroundColor Green
+  }
+}
+
 # 17cc. Gradle 清单递归发现（真实 android/ 树；两分支各自单句删除变异，数据驱动共用同一套判据/变异机制）
 $mutantCL = Join-Path $RepoRoot "scripts/.st17cc-mutant-$PID.ps1"
 try {
@@ -7912,12 +7944,13 @@ try {
       @{ Id = 'A'; Label = 'libs.versions.toml 发现分支'; LineMarker = "-Names @('libs.versions.toml')"; Target = $needleA; Control = $needleB }
       @{ Id = 'B'; Label = 'build.gradle{,.kts} 发现分支'; LineMarker = "-Names @('build.gradle', 'build.gradle.kts')"; Target = $needleB; Control = $needleA }
     )
+    $invokeMarkerAssertion = ${function:Invoke-MarkerAssertion}
     foreach ($case in $cases) {
       $selfMarker = "GRADLE-$($case.Id)-MUT"; $ctrlMarker = "GRADLE-$($case.Id)-MUT-CTRL"
       $probe = {
         [PSCustomObject]@{
-          Self = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker -ProbeRoot $RepoRoot
-          Ctrl = Invoke-MarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
+          Self = & $invokeMarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Target -MarkerId $selfMarker -ProbeRoot $RepoRoot
+          Ctrl = & $invokeMarkerAssertion -Mode GradleLibrary -SourcePath $mutantCL -Needle $case.Control -MarkerId $ctrlMarker -ProbeRoot $RepoRoot
         }
       }.GetNewClosure()
       $m = Invoke-LineDeletionMutation -Path $mutantCL -OrigLines $origLines -LineMarker $case.LineMarker -Probe $probe
