@@ -2773,10 +2773,14 @@ if (-not $taskInventoryBase.Ok) {
     $baselineHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($baselineBytes))
     $baselineText = [Text.Encoding]::UTF8.GetString($baselineBytes)
     $baselineNewline = if ($baselineText.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $baselineAuthorityLine = [regex]::Match($baselineText, '(?m)^[^\r\n]*任务卡[^\r\n]*`specs/tasks/`[^\r\n]*$')
-    if (([regex]::Matches($baselineText, '任务卡 `specs/tasks/`')).Count -ne 1 -or (-not $baselineAuthorityLine.Success)) {
+    $baselineSection = [regex]::Match($baselineText, '(?ms)^## 当前阶段\s*\r?\n(?<body>.*?)(?=^##\s|\z)')
+    $baselineAuthorityPattern = '(?m)^[^\r\n]*任务卡[^\r\n]*`specs/tasks/`[^\r\n]*$'
+    $baselineAuthorityCount = if ($baselineSection.Success) { [regex]::Matches($baselineSection.Groups['body'].Value, $baselineAuthorityPattern).Count } else { 0 }
+    if ($baselineAuthorityCount -ne 1) {
       Fail '17gg(mut) 前置：Current Stage 任务卡锚点不唯一，无法做单句库存变异。'
     } else {
+      $baselineSectionText = $baselineSection.Value
+      $baselineAuthorityLine = [regex]::Match($baselineSection.Groups['body'].Value, $baselineAuthorityPattern).Value
       $inventoryMutants = @(
         [pscustomobject]@{ Id='compact-static'; Replacement='任务卡（**999 张**） `specs/tasks/`'; Expected='999 张' },
         [pscustomobject]@{ Id='classifier-static'; Replacement='共 999 个任务卡 `specs/tasks/`'; Expected='999 个任务卡' },
@@ -2786,7 +2790,8 @@ if (-not $taskInventoryBase.Ok) {
       )
       $inventoryMutantsOk = $true
       foreach ($case in $inventoryMutants) {
-        $mutantText = $baselineText.Replace('任务卡 `specs/tasks/`', $case.Replacement)
+        $mutantSection = $baselineSectionText.Replace('任务卡 `specs/tasks/`', $case.Replacement)
+        $mutantText = $baselineText.Substring(0, $baselineSection.Index) + $mutantSection + $baselineText.Substring($baselineSection.Index + $baselineSection.Length)
         [System.IO.File]::WriteAllText($scratchClaude, $mutantText, [Text.UTF8Encoding]::new($false))
         $mutant = Test-CurrentStageTaskInventory $taskInventoryScratch
         if ($mutant.Ok -or $mutant.Code -ne '[TD21-STATIC-TASK-INVENTORY]' -or $mutant.Path -ne 'CLAUDE.md' -or $mutant.Reference -ne $case.Expected) {
@@ -2794,19 +2799,27 @@ if (-not $taskInventoryBase.Ok) {
           Fail "17gg(mut/$($case.Id)) 分类器：期望 [TD21-STATIC-TASK-INVENTORY] path=CLAUDE.md reference=$($case.Expected)，实得 code=$($mutant.Code) path=$($mutant.Path) reference=$($mutant.Reference)。"
         }
       }
-      $historicalText = $baselineText.Replace($baselineAuthorityLine.Value, $baselineAuthorityLine.Value + $baselineNewline + 'W0 通过 3 张任务卡完成交付。')
+      $historicalSection = $baselineSectionText.Replace($baselineAuthorityLine, $baselineAuthorityLine + $baselineNewline + 'W0 通过 3 张任务卡完成交付。')
+      $historicalText = $baselineText.Substring(0, $baselineSection.Index) + $historicalSection + $baselineText.Substring($baselineSection.Index + $baselineSection.Length)
       [System.IO.File]::WriteAllText($scratchClaude, $historicalText, [Text.UTF8Encoding]::new($false))
       $historical = Test-CurrentStageTaskInventory $taskInventoryScratch
       if (-not $historical.Ok) {
         $inventoryMutantsOk = $false
         Fail "17gg(history-control) 负例：历史交付计数不得当作当前库存，实得 code=$($historical.Code) path=$($historical.Path) reference=$($historical.Reference)。"
       }
+      $outsideText = $baselineText + $baselineNewline + '## TD21 段外控制' + $baselineNewline + '任务卡 `specs/tasks/` 共 888 张。' + $baselineNewline
+      [System.IO.File]::WriteAllText($scratchClaude, $outsideText, [Text.UTF8Encoding]::new($false))
+      $outside = Test-CurrentStageTaskInventory $taskInventoryScratch
+      if (-not $outside.Ok) {
+        $inventoryMutantsOk = $false
+        Fail "17gg(outside-control) 负例：Current Stage 段外重复指针不得影响库存句，实得 code=$($outside.Code) path=$($outside.Path) reference=$($outside.Reference)。"
+      }
       [System.IO.File]::WriteAllBytes($scratchClaude, $baselineBytes)
       $restoredHash = (Get-FileHash -LiteralPath $scratchClaude -Algorithm SHA256).Hash
       if ($restoredHash -ne $baselineHash) {
         Fail "17gg(mut) 收尾：scratch CLAUDE.md 还原后 SHA256 不一致（前=$baselineHash，后=$restoredHash）。"
       } elseif ($inventoryMutantsOk) {
-        Write-Host '  17gg TD21 Current Stage 库存句无计数；中英静态/分类词静态/两种动态占位五枚变异被分类击杀，历史任务卡交付计数负例放行，scratch SHA256 还原一致 OK' -ForegroundColor Green
+        Write-Host '  17gg TD21 Current Stage 库存句无计数；五枚 section-span 变异被分类击杀，历史交付计数与段外重复指针两枚负例放行，scratch SHA256 还原一致 OK' -ForegroundColor Green
       }
     }
   } finally {
