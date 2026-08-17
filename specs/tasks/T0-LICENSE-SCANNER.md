@@ -10,8 +10,9 @@ allow_paths:
   - scripts/selftest.ps1
   - docs/LICENSE-POLICY.md
   - configs/licenses/
+  - .github/workflows/ci.yml
 forbid:
-  - android/ 与 .github/（非本卡领地）
+  - android/（非本卡领地）
   - 为过闸弱化任何既有断言
   - 把「未知许可」默认放行（必须 fail-closed：查不到即视为不合规，人工登记豁免才放行）
 non_goals:
@@ -19,7 +20,7 @@ non_goals:
   - 前端 / PyPI 生态的扫描器（各自生态另说）
 dod_command: pwsh -NoProfile -Command "if (-not ((pwsh -NoProfile -File scripts/check-licenses.ps1 | Select-String -SimpleMatch 'org.testng:testng') -and (pwsh -NoProfile -File scripts/check-licenses.ps1) )) { exit 1 }"
 dod_exit: 0
-dod_assert: check-licenses 实跑输出中**逐坐标**列出已解析的 Gradle 依赖及其许可（至少含 org.testng:testng 一行，证明传递坐标真被解析而不只是直接依赖）；植入一枚禁列许可（如 EPL/GPL）的假坐标夹具后 `-Strict` **必非零退出且指名该坐标**；查不到许可的坐标计为不合规而非放行。三条各配单句删除变异，变异须「非零 **且** 命中指定断言文本」（L165 分类器）
+dod_assert: check-licenses 实跑输出中**逐坐标**列出已解析的 Gradle 依赖及其许可（至少含 org.testng:testng 一行，证明传递坐标真被解析而不只是直接依赖）；植入一枚禁列许可（如 EPL/GPL）的假坐标夹具后 `-Strict` **必非零退出且指名该坐标**；查不到许可的坐标计为不合规而非放行。三条各配单句删除变异，变异须「非零 **且** 命中指定断言文本」（L165 分类器）。CI 的 license gate 必须位于 JDK/Android/Gradle setup 与在线 cache warm-up 之后，再执行离线扫描；fresh runner 不得因闸顺序而必红。除这项排序外不改 CI 行为。
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: docs/LICENSE-POLICY.md §3 改为「机检覆盖」并删除人工表的临时说明；specs/tech-debt-tracker.md 把 TD2 置 paid（R5）
@@ -42,6 +43,7 @@ doc_sync: docs/LICENSE-POLICY.md §3 改为「机检覆盖」并删除人工表�
    （每条须写明坐标、许可、证据 URL、登记人/日期）。**查不到 ≠ 通过**——未知即不合规。
 3. 判定口径沿用 `docs/LICENSE-POLICY.md`：宽松（MIT/BSD/Apache 等）放行；GPL/AGPL/SSPL/EPL/non-commercial 致命。
 4. 输出可读报告 + 非零退出语义与现有闸一致（正常运行告警、`-Strict` 失败）。
+5. CI 先完成 JDK/Android/Gradle setup 与在线 build 缓存预热，再跑本扫描器的离线依赖解析；扫描器本身仍不得联网。
 
 ## 上下文包
 - 现成起点：`findings.md` 里已有编排者复核过的直接依赖许可表（DeepSeek 出表 + testng POM 经编排者独立复核），
