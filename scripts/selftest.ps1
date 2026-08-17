@@ -8193,6 +8193,7 @@ try {
     $out = & pwsh -NoProfile -Command $Body -Args $ArgList
     return [PSCustomObject]@{ Exit = $LASTEXITCODE; StdOut = ($out -join "`n") }
   }
+  $invokeCaseProbe = ${function:Invoke-CaseProbe}
   $caseProbeArgs = { param([string]$MarkerId) @($mutantCaseCL, $fxCase, ($expectedCaseHits -join '|'), $MarkerId) + $caseTail }.GetNewClosure()
 
   Copy-Item -LiteralPath $realCLPath -Destination $mutantCaseCL -Force
@@ -8229,8 +8230,20 @@ try {
     )
     foreach ($cm in $caseMutations) {
       $mMarkerId = "GRADLE-CASE-MUT-$($cm.Id.ToUpperInvariant())"
-      $probe = { Invoke-CaseProbe -Body $caseProbe -ArgList (& $caseProbeArgs $mMarkerId) }.GetNewClosure()
-      $m = Invoke-LineDeletionMutation -Path $mutantCaseCL -OrigLines $caseLines -LineMarker $cm.Marker -Probe $probe
+      $probe = {
+        try {
+          & $invokeCaseProbe -Body $caseProbe -ArgList (& $caseProbeArgs $mMarkerId)
+        } catch {
+          Fail "[TD25-CLOSURE-SCOPE] 17cc(case-mut/$($cm.Id))：移除 ambient Invoke-CaseProbe 后真实 probe 未保留其 marker/exit 判据。"
+          [PSCustomObject]@{ Exit = 1; StdOut = "TD25-CLOSURE-SCOPE: $($_.Exception.Message)" }
+        }
+      }.GetNewClosure()
+      try {
+        if ($cm.Id -eq 'guard2') { Remove-Item Function:Invoke-CaseProbe -ErrorAction Stop }
+        $m = Invoke-LineDeletionMutation -Path $mutantCaseCL -OrigLines $caseLines -LineMarker $cm.Marker -Probe $probe
+      } finally {
+        if ($cm.Id -eq 'guard2') { Set-Item Function:Invoke-CaseProbe -Value $invokeCaseProbe -ErrorAction Stop }
+      }
       if (-not $m.Ok) { Fail "17cc(case-mut/$($cm.Id))：$($m.Reason)"; continue }
       if (-not (Test-MarkerResult $m.Result $mMarkerId $false "种子缺陷 17cc(case-mut/$($cm.Id))：删掉「$($cm.Label)」后（vacuous coverage：本闸测不出这道守卫/这条语义被摘掉的回归）")) { continue }
       # 分类器：不只要"非零 + ABSENT"，还要红在**它该红的那一条**上——否则一枚变异可能因别的子断言先失败而假杀。
