@@ -303,8 +303,20 @@ $diffBody = Protect-FenceMarkers $diffBody
 # master 后的范围修订。基线无该卡（分支新建卡）或其内容为空时，才保留 worktree fallback 兼容路径。
 # $branchSafe 与裁决文件名同源，避免含 / 的分支在 specs/tasks 下走成另一条路径（TD63 item2）。
 $cardRelPath = "specs/tasks/$branchSafe.md"
-$card = (& git -C $WorktreePath show "${baseRef}:$cardRelPath" 2>$null | Out-String).Trim()
+$cardProbe = (& git -C $WorktreePath ls-tree --name-only $baseRef -- $cardRelPath 2>$null | Out-String).Trim()
+$cardProbeExit = $LASTEXITCODE
+if ($cardProbeExit -ne 0) {
+  throw "[TD3-BASE-CARD-PROBE-FAILED] git ls-tree could not confirm '$cardRelPath' at resolved baseline '$baseRef' (exit=$cardProbeExit); refusing worktree fallback."
+}
+$card = ''
 $cardSrc = "base:$baseRef"
+if ($cardProbe) {
+  $card = (& git -C $WorktreePath show "${baseRef}:$cardRelPath" 2>$null | Out-String).Trim()
+  $cardReadExit = $LASTEXITCODE
+  if ($cardReadExit -ne 0) {
+    throw "[TD3-BASE-CARD-READ-FAILED] git show failed for confirmed base card '$cardRelPath' at '$baseRef' (exit=$cardReadExit); refusing worktree fallback."
+  }
+}
 if (-not $card) {
   $cardPath = Join-Path $WorktreePath $cardRelPath
   $card = if (Test-Path $cardPath) { (Get-Content $cardPath -Raw).Trim() } else { '' }
