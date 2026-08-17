@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 6 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 7 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -11,3 +11,4 @@
 | TD21 | minor | paid | `CLAUDE.md`「当前阶段」任务卡总数 ↔ `specs/tasks/T*.md` | **任务卡库存数已失真**：CLAUDE.md 写「29 张」，发现时 `579c45e` 的 `specs/tasks/` 已有 31 张真实 `T*.md` 卡（`_TEMPLATE.md` 不计），且偿还债务的新卡会继续增长。后果：… |
 | TD25 | major | paid | `scripts/selftest.ps1` 17cc(case-mut) 的 `$probe = { Invoke-… | **case mutation 闭包仍依赖宿主的动态函数名解析**：同一 seeded 分片以 `pwsh -NoProfile -File` 运行通过，但以真实评审可用的 `pwsh -NoProfile -Command '& .\s… |
 | TD3 | major | paid | `scripts/review.ps1`(交给评审者的工作树) ↔ `scripts/_scope.ps1`(读 ba… | **评审者与范围闸读的是两份不同的卡，冲突时评审者恒输出假「越界」block**：范围闸按设计从 **base ref** 取卡原文（`git show <base>:specs/tasks/<id>.md`，防分支自扩 allow_pa… |
+| TD22 | minor | paid | `scripts/archive.ps1`(L328–338) ↔ `CLAUDE.md` L247、`docs/ad… | **归档移动 merged 卡却未维护入站具体卡路径**：`52d95f5` 将 `T0-TOOLCHAIN`、`T5-BACKUP-FORMAT`、`T2-CAPTURE-CORE` 分别以 R100 从 `specs/tasks/<i… |

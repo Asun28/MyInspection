@@ -2,7 +2,7 @@
 id: T0-DEBT-ARCHIVED-CARD-PATHS
 title: Repair inbound references to archived task cards (repay TD22)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-ARCHIVED-CARD-PATHS
 worktree: C:\wt\T0-DEBT-ARCHIVED-CARD-PATHS
 allow_paths:

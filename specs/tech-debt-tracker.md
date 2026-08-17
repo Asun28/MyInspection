@@ -46,7 +46,6 @@
 
 
 
-| TD22 | 2026-08-17 | `scripts/archive.ps1`(L328–338) ↔ `CLAUDE.md` L247、`docs/adr/0002-local-data-saf-encrypted-backup.md` L13、`android/core/src/test/kotlin/nz/myinspection/core/capture/InspectionRepositoryTest.kt` L244 | **归档移动 merged 卡却未维护入站具体卡路径**：`52d95f5` 将 `T0-TOOLCHAIN`、`T5-BACKUP-FORMAT`、`T2-CAPTURE-CORE` 分别以 R100 从 `specs/tasks/<id>.md` 移到 `specs/archive/tasks/<id>.md`，但三处仍引用旧路径；旧路径均缺失、归档目标均存在。后果：权威命令说明、ADR 格式评审追溯和测试契约注释都导向不存在的卡，读者无法取得冻结证据 / 修法：专属卡中将三处改指向对应 archive 路径，并在 `scripts/selftest.ps1` 加确定性入站卡路径完整性检查；只查具名已归档卡的旧活路径、排除 `specs/archive/` 冻结内容，不能由 archive 脚本静默重写引用 / 可测：夹具归档 `TA1` 后，非归档面引用 `specs/tasks/TA1.md` 须按 path/reference 失败，改为 archive 路径才通过；把三处实址逐一变异回旧路径均须翻红 / 前置：无；单独新 worktree | minor | carded | `specs/tasks/T0-DEBT-ARCHIVED-CARD-PATHS.md` |
 
 | TD24 | 2026-08-17 | `Photo.sq` `selectActiveAssetsByContentHash` → `PhotoIngest.plan()` ↔ `BackupSourceFile.ownerPropertyId` | **照片按内容哈希全局复用，却要求备份源为单一物业 owner**：查询不按物业过滤，`PhotoIngest` 也只校验路径形状；现有 recorder 测试已允许 B 物业照片复用 A 物业的同一 `rel_path`。但 `BackupSourceFile.ownerPropertyId` 是标量：该物理文件标 A 会从 B 的物业包排除，标 B 会从 A 排除，重复列出同一路径又被拒，因而无法忠实表达两个物业的资产闭包。后果：未来 `T5-BACKUP-IO` 可能漏导一方照片或伪造 owner 语义 / 修法：专属媒体债卡把物理去重限制为同一物业；跨物业同 hash 走现有 `WriteNewAsset`，保留同物业复用；先只读检测历史共享路径并明确兼容决策，不改冻结备份格式 / 可测：A 路径作为 B 候选必须写入 B 新路径；同物业仍复用；recorder 后不同物业不得共享 `rel_path`；删除物业成员过滤时测试翻红 / 前置：已合并 `T2-PHOTO-PIPELINE`；必须在 `T5-BACKUP-IO` 前独立偿还，不得与 TD12/TD14/TD15 合卡；全新 worktree | major | open | — |
 
