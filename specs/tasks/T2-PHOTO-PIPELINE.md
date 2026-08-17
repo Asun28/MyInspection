@@ -3,7 +3,7 @@ id: T2-PHOTO-PIPELINE
 title: 照片管线：存储布局 + EXIF 转正（8 向）+ 内容哈希去重 + 导入
 depends_on: [T1-SCHEMA-CORE]
 parallelizable_with: [T2-ROUTINE-CONTENT, T2-CAPTURE-CORE, T2-PHRASELIB]
-status: todo
+status: merged
 branch: T2-PHOTO-PIPELINE
 worktree: C:\wt\T2-PHOTO-PIPELINE
 allow_paths:

@@ -1709,3 +1709,11 @@
 - rule: -File 调用的脚本若收列表，脚本内自己 `-split ','' `；且列表型参数过滤后若命中 0 条必须 throw 而不是静默跑空——"0 项处理 + exit 0" 是假绿的标准形态
 - enforced_by: 
 - refs: 
+
+## L236
+- date: 2026-08-17 ｜ tags: mutation,L165 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 在 OrphanedAssetCleanup.run() 上验证"单条 deleter 异常不得中断整批"这一叙事性主张时，用了一枚"整段移除 try/catch"的变异证明它——该变异确实使测试变红，但红的理由是"异常直接冒泡"，并不区分"catch 后正确 continue 到下一项"与"catch 后错误 break/return 提前退出整批"这两种同样会让粗糙变异变红的实现。R3 指出：测试夹具里唯一的成功项排在会抛异常的项之前（按 rel_path 排序），因此哪怕实现在 catch 里错误地 break，抛异常项之前已处理的那一项仍会被计入结果，测试照样通过——"批处理在异常后继续"这句主张从未被真正验证过。
+- root_cause: 变异证明的靶点选错了粒度：要证的契约是"continue vs break"（异常之后是否继续处理后续项），选用的变异却是"移除整个异常处理机制"——后者只能验证到"有没有 catch"，验证不到"catch 之后控制流具体怎么走"。L165 讲的"断言面必须恰好等于被测契约"在这里的推论是：变异的靶点粒度也必须恰好等于被测契约的粒度，比契约更粗的变异（删掉整个机制）只能证明比契约更弱的主张。
+- rule: verifying a "continues past X" claim requires ordering the fixture so a later item exists AFTER the exception-causing item, then mutating specifically the post-catch control flow (e.g. insert an explicit break/return in the catch body) — not just deleting the whole catch/guard. A coarse "remove the whole mechanism" mutation only proves "the mechanism exists", never "the mechanism has the specific narrow behavior claimed". Rule of thumb: before trusting a mutation kill, ask "what is the minimal code change that would also turn this test red — does that minimal change match the actual claim in the test name/comment, or is it a stronger regression the test happens to also catch?"
+- enforced_by: 
+- refs: T2-PHOTO-PIPELINE round 5 block (codex): OrphanedAssetCleanupTest 的批处理连续性测试用倒序 fixture 重写 + break 变异重新证明；L165 同族（断言面/变异粒度必须恰好等于契约，这里把"粒度"从断言延伸到变异靶点本身）
