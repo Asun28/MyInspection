@@ -52,6 +52,20 @@ class TemplateStoreTest {
     }
 
     @Test
+    fun `read items reject element replacement through a mutable list cast`() {
+        val versionId = store.persist(loadRoutine())
+        val read = store.read(versionId) ?: error("persisted template must be readable")
+        val beforeReplacement = read.items.toList()
+        val mutableItems = read.items as MutableList<TemplateItem>
+
+        assertFailsWith<UnsupportedOperationException> {
+            mutableItems[0] = mutableItems[1]
+        }
+
+        assertEquals(beforeReplacement, read.items)
+    }
+
+    @Test
     fun `persist records the type, version and timestamp on template_version`() {
         // content_hash 那一列另有专测（见「the stored content hash is the SHA-256 of the source bytes」），
         // 这里不重复断言，免得两处测同一件事、剪枝时分不清哪条才是它的真正守卫。
