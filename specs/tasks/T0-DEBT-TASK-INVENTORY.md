@@ -18,7 +18,7 @@ non_goals:
 diagnosis:
   root_cause: CLAUDE.md copied a point-in-time card count into long-lived authority prose even though card creation and cold-storage archiving change both the live count and its denominator.
   same_class: Scan authoritative project guidance for numeric task-card inventory claims; the stale Current Stage sentence is the only such inventory claim, while historical delivery counts are event records rather than inventory.
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded
 dod_exit: 0
 dod_assert: CLAUDE.md Current Stage retains the live task-card authority pointer but contains no static task-card inventory claim; a controlled fixture that inserts a numeric inventory is rejected with [TD21-STATIC-TASK-INVENTORY].
 review_gate: codex {verdict:pass}
@@ -36,7 +36,7 @@ The regression gate must inspect only the Current Stage task-inventory sentence,
 
 ## File-level implementation plan
 
-1. Add the focused core-shard check and controlled static-count mutation, then capture RED through `task.ps1 -Phase red`.
+1. Add the focused seeded-shard check and controlled static-count mutation, then capture RED through `task.ps1 -Phase red`.
 2. Remove only the stale numeric inventory from the Current Stage sentence while retaining the live/archive truth-source pointers.
 3. Run the core shard, normal project verification, and R3 ship.
 
@@ -45,3 +45,7 @@ The regression gate must inspect only the Current Stage task-inventory sentence,
 - Recomputing the count during R5: remains a second truth source and becomes stale on the next card lifecycle event.
 - Counting live plus archived cards: the denominator is still prose-defined and changes whenever archive policy changes.
 - Combining the three broken post-archive paths: that is separately registered TD22 and requires its own card/worktree.
+
+## Card amendment after first RED
+
+The initial core-shard placement exposed TD22's independent broken-link failure, making TD21 GREEN depend on another debt. The DoD and focused fixture therefore move unchanged to the seeded shard; TD22 remains out of scope and gets its own worktree.
