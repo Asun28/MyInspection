@@ -15,6 +15,8 @@ forbid:
 non_goals:
   - 相机 UI（T2-CAPTURE-UI）；ghost overlay（T3-HISTORY-COMPARE）
   - 批量导入分配界面（v1 单项导入为主，批量列 v1.1）
+  - 跨 FS+DB 的**共享临界区**式真原子性（要动已冻结的 sqldelight/ + app/ 调度接线；用户 2026-08-17 裁定 → TD14）
+  - 编码字节上界的**形式证明**（要把 JPEG 改成边写盘边摘要、重构两条管线字节流向；用户 2026-08-17 裁定 → TD15）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.*"
 dod_exit: 0
 dod_assert: 路径派生纯函数测试绿（photos/{propertyId}/{inspectionId}/{photoId}.jpg，禁手拼路径）；SHA-256 与去重逻辑测试绿（同哈希复用资产、只建关联）；EXIF 8 方向（含镜像）转正矩阵测试绿（JVM 侧用矩阵数学断言，位图操作薄壳放 :app）
@@ -39,3 +41,23 @@ doc_sync: TASK-BOARD 备注（R5）
 ## 验收 / 执行建议
 dod 见 front-matter；:app 薄壳另以 `:app:assembleDebug` 编译绿佐证（评审核）。
 首选 Sonnet 5 · max（android 位图/EXIF 细节多）；备选 DeepSeek V4 Pro。难度 M。
+
+## 用户裁决 2026-08-17（R3 触轮次上限后转人裁 · 选项①：合并 + 两条登记为 TD）
+R3 在第 9 轮触到 `ReviewRoundCap`（2/2），按 `docs/QUALITY-RUBRIC.md` §5 转人裁。用户裁定**选项①**：
+本卡合并，剩余两条评审意见登记为技术债、由后续卡偿还。
+
+**裁决依据（非「差不多了」，是 rubric §0 的口径）**：这两条的修法**都落在本卡 `allow_paths` 之外或已冻结面上**——
+① 共享临界区要动**已冻结**的 `sqldelight/`（且 `OrphanedAssetCleanup` 的 WorkManager 接线在 `app/` 调度侧、
+不在本卡三条 allow_paths 内）；② 编码字节上界的证明要把 JPEG 改成边写盘边摘要，是跨 `core/media`+`app/media`
+两侧的字节流向重构。按 §0「不得给卡加范围」，**它们是 `[FOLLOW-UP]`、不构成本卡的 block 理由**，
+已各自记为 **TD14 / TD15** 并同时写进上方 `non_goals`。
+
+**已在本卡内封死的部分不受此裁决影响**（即：不是把问题整个推走）：两条具体的丢数据路径已各自封死——
+补偿绝不删仍被活跃行引用的路径（同 photoId 重试时赢家那行正引用它，判据是已冻结的
+`selectActiveAssetsByContentHash`），复用路径本次不写字节故永不补偿；编码预算余量已从 2 提到 4 B/px
+覆盖 `ByteArrayOutputStream` 底层数组 + `toByteArray()` 复制，注释亦已如实改口为「有依据的余量、
+**不是**可证明上界」。TD14/TD15 记的是**剩下的那部分**，不是全部。
+
+**合并时的证据水位**：`:core:check` + `:app:assembleDebug` 全绿 · media 套件全绿 · **24/24 变异逐一击杀**
+（判据分类器 = 非零**且**命中指定测试名才算 KILLED，每枚跑完核 SHA 回基线，L165/L196）·
+范围闸 27 文件全在 allow_paths 内 · 许可闸 PASS（Gradle 覆盖缺口 = 既有 TD2）· 防泄露闸 PASS。
