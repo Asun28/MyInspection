@@ -2,7 +2,7 @@
 id: T0-DEBT-RELEASE-CHECKLIST-HASH-GUARD
 title: Document and prove the release-checklist hash coupling (repay TD11)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-RELEASE-CHECKLIST-HASH-GUARD
 worktree: C:\wt\T0-DEBT-RELEASE-CHECKLIST-HASH-GUARD
 allow_paths:
