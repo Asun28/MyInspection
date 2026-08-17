@@ -8386,6 +8386,67 @@ try {
   if (Test-Path $rcScratch) { Fail "17ee 收尾：临时暂存文件 $rcScratch 未能删除——请手动清理，避免残留。" }
 }
 
+# 17ff（TD16）：下游项目的权威文档不得把上游脚手架 TD 编号误解析为本项目 tracker 的同号债项。
+# 项目级指导改用稳定章节指针；确属上游历史的编号必须显式标成 upstream scaffold，不能再伪装成本地 tracker 行。
+$authorityRefRules = @(
+  @{ Id = 'security-org'; Path = 'docs/SECURITY.md'; Required = '治理边界以本节为准'; Forbidden = 'specs/tech-debt-tracker.md` TD14' }
+  @{ Id = 'idea-org'; Path = 'docs/IDEA-TO-PLAN.md'; Required = '见 `docs/SECURITY.md` §4）。org/team'; Forbidden = 'specs/tech-debt-tracker.md` TD14' }
+  @{ Id = 'config-org'; Path = 'scripts/_config.ps1'; Required = '见 _guard.ps1 + docs/SECURITY.md §4）。'; Forbidden = 'tech-debt TD14' }
+  @{ Id = 'loop-r3'; Path = 'docs/LOOP-ENGINEERING.md'; Required = '见 `docs/QUALITY-RUBRIC.md` §0）'; Forbidden = 'specs/tech-debt-tracker.md` TD1' }
+  @{ Id = 'rubric-upstream'; Path = 'docs/QUALITY-RUBRIC.md'; Required = 'upstream scaffold TD96'; Forbidden = 'specs/tech-debt-tracker.md` under TD96' }
+  @{ Id = 'review-upstream'; Path = 'scripts/review.ps1'; Required = 'upstream scaffold TD83'; Forbidden = 'specs/tech-debt-tracker.md TD83' }
+)
+function Test-AuthorityReferenceSet([string]$Root, [object[]]$Rules) {
+  foreach ($rule in $Rules) {
+    $path = Join-Path $Root $rule.Path
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Ok = $false; Code = "MISSING-FILE:$($rule.Id)" } }
+    $text = [System.IO.File]::ReadAllText($path)
+    if ($text.Contains($rule.Forbidden)) { return [pscustomobject]@{ Ok = $false; Code = "FORBIDDEN:$($rule.Id)" } }
+    if (-not $text.Contains($rule.Required)) { return [pscustomobject]@{ Ok = $false; Code = "MISSING-TARGET:$($rule.Id)" } }
+  }
+  return [pscustomobject]@{ Ok = $true; Code = 'PRESENT' }
+}
+$authorityBase = Test-AuthorityReferenceSet $RepoRoot $authorityRefRules
+if (-not $authorityBase.Ok) {
+  Fail "17ff TD16 权威引用：$($authorityBase.Code)——权威文档仍把上游 TD 编号误指向本项目 tracker，或缺稳定本地章节／显式 upstream 标记。"
+} else {
+  $authorityScratch = Join-Path ([System.IO.Path]::GetTempPath()) "st17ff-authority-$PID"
+  try {
+    foreach ($rule in $authorityRefRules) {
+      $src = Join-Path $RepoRoot $rule.Path
+      $dst = Join-Path $authorityScratch $rule.Path
+      New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+      Copy-Item -LiteralPath $src -Destination $dst -Force
+    }
+    foreach ($rule in $authorityRefRules) {
+      $target = Join-Path $authorityScratch $rule.Path
+      $baselineBytes = [System.IO.File]::ReadAllBytes($target)
+      $baselineHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($baselineBytes))
+      $text = [Text.Encoding]::UTF8.GetString($baselineBytes)
+      $hits = ([regex]::Matches($text, [regex]::Escape($rule.Required))).Count
+      if ($hits -ne 1) {
+        Fail "17ff(mut/$($rule.Id)) 前置：目标标记出现 $hits 次，期望恰好 1 次——变异定位不唯一。"
+        continue
+      }
+      [System.IO.File]::WriteAllText($target, $text.Replace($rule.Required, $rule.Forbidden), [Text.UTF8Encoding]::new($false))
+      $mutant = Test-AuthorityReferenceSet $authorityScratch $authorityRefRules
+      [System.IO.File]::WriteAllBytes($target, $baselineBytes)
+      $restoredHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+      $expectedCode = "FORBIDDEN:$($rule.Id)"
+      if ($restoredHash -ne $baselineHash) {
+        Fail "17ff(mut/$($rule.Id)) 收尾：scratch 还原后 SHA256 不一致（前=$baselineHash，后=$restoredHash）。"
+      } elseif ($mutant.Ok -or $mutant.Code -ne $expectedCode) {
+        Fail "17ff(mut/$($rule.Id)) 分类器：期望 $expectedCode，实得 $($mutant.Code)——变异未红在目标引用。"
+      } else {
+        Write-Host "  17ff(mut/$($rule.Id)) 旧本地 TD 指向回归：$expectedCode，scratch SHA256 还原一致 OK" -ForegroundColor Green
+      }
+    }
+    Write-Host '  17ff TD16 权威 TD 引用：项目指导走稳定章节，上游历史显式 namespaced；6 枚定向变异逐一击杀 OK' -ForegroundColor Green
+  } finally {
+    Remove-Item -LiteralPath $authorityScratch -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 # ── 收尾：真实生产文件全程未被写入（纵深防御，L196）——check-licenses.ps1 只曾在临时同目录副本上变异，
 #    verify.ps1 与 docs/RELEASE-CHECKLIST.md 全程只读，三者 SHA256 理应与本闸开始前逐字不变。──
 $realCLHashAfter = (Get-FileHash -LiteralPath $realCLPath -Algorithm SHA256).Hash

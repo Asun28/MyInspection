@@ -143,7 +143,7 @@ $script:ScaffoldConfig = @{
   # ── 项目规模档位（软提示）──：建议「跳过哪些交付链」，治「小项目被全套流程拖慢」。
   # T0 极简（脚本/玩具/一次性）· T1 标准（多数项目）· T2 完整（大/长周期/团队/合规）。
   # 注：T2 的「团队/合规」指**项目复杂度**（更重流程/审计），非「脚手架提供多人组织治理」——
-  #   git 层控制仍锁单个人账号（见 _guard.ps1 + docs/SECURITY.md §4 + tech-debt TD14）。
+  #   git 层控制仍锁单个人账号（见 _guard.ps1 + docs/SECURITY.md §4）。
   # 纯软提示：AI/人据此裁剪流程；**不做强制机制、不做 init 物理裁剪**。按规模档位表见 docs/IDEA-TO-PLAN.md。
   ProjectTier = 'T1'
 

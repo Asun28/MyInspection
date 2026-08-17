@@ -292,11 +292,11 @@ $diffBodyNote = if ($diffTruncated) { "`n…（diff 正文超 $diffCap 字符已
 # 注入前中和 diff 里任何栅栏形态标记（diff 正文亦 attacker 可控）。
 $diff = Protect-FenceMarkers $diff
 $diffBody = Protect-FenceMarkers $diffBody
-# 注：任务卡的合法 `review_gate:` 字段在**diff 正文**里对评审者可见（TD83）。当初曾计划另开卡（T14）按
+# 注：任务卡的合法 `review_gate:` 字段在**diff 正文**里对评审者可见（upstream scaffold TD83）。当初曾计划另开卡（T14）按
 # @@ hunk 坐标解析 front-matter 边界做精确中和，但 T12（见下方「T12」注释）已用**立场**从根上关掉了这个
 # false-block 风险——待审数据里出现裁决字面量，无论走 $card 还是 diffBody，存在本身都不再是 block/reason 的依据。
-# 故 diff 路径**不需要**、也**不应该**再做文本中和（会连累真 hunk 被误伤致盲，见下方 T12 注释）；TD83 按此
-# 结论收口为 paid（T12 是实际解法），T14 卡未实现即撤销。见 specs/tech-debt-tracker.md TD83 行。
+# 故 diff 路径**不需要**、也**不应该**再做文本中和（会连累真 hunk 被误伤致盲，见下方 T12 注释）；该上游债项按此
+# 结论收口为 paid（T12 是实际解法），T14 卡未实现即撤销。
 # 卡片是「本卡显式批准范围」（allow_paths / forbid / 边界例外）的权威来源——评审须据卡判定，
 # 避免对卡内已声明的 opt-in 例外（如构建期联网 / 可选 GPU）误判（见 prompt 内「本卡声明」）。
 # TD63 item2：卡片查找此前用原始 $branch，而裁决文件名（上方 $verdictPath）用净化过的 $branchSafe——

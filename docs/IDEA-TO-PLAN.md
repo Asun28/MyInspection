@@ -79,7 +79,7 @@
 | **T2 完整** | 大 / 长周期 / 团队 / 合规 | + 前端闭环（frontend-flow 串 frontend-design / taste-skill / pencil）+ post-merge（DELIVERY-OPS：集成/e2e·可观测·灰度·CD）+ 心跳（triage）+ 全套对抗。 | 全链 + 前端分支 + 合并之后交付/运维层 |
 
 > 档位是「**建议跳过哪些链**」，AI/人按项目规模裁；`_config.ProjectTier` 只是软提示，不做强制机制、不做物理裁剪。
-> **注**：T2 的「团队 / 合规」指**项目复杂度**（更重的流程 / 审计需求），**不**代表脚手架提供多人组织治理——git 层账号守卫仍锁**单个人账号**、R3 状态可被任何写权限者伪造（见 `docs/SECURITY.md` §4 与 `specs/tech-debt-tracker.md` TD14）。org/team 治理是范围外、须 ADR 扩展。
+> **注**：T2 的「团队 / 合规」指**项目复杂度**（更重的流程 / 审计需求），**不**代表脚手架提供多人组织治理——git 层账号守卫仍锁**单个人账号**、R3 状态可被任何写权限者伪造（见 `docs/SECURITY.md` §4）。org/team 治理是范围外、须 ADR 扩展。
 
 ## 一眼看懂
 
