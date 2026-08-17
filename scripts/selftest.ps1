@@ -2778,6 +2778,7 @@ if (-not $taskInventoryBase.Ok) {
       $inventoryMutants = @(
         [pscustomobject]@{ Id='compact-static'; Replacement='任务卡（**999 张**） `specs/tasks/`'; Expected='999 张' },
         [pscustomobject]@{ Id='classifier-static'; Replacement='共 999 个任务卡 `specs/tasks/`'; Expected='999 个任务卡' },
+        [pscustomobject]@{ Id='english-static'; Replacement='任务卡（999 cards） `specs/tasks/`'; Expected='999 cards' },
         [pscustomobject]@{ Id='dynamic-placeholder'; Replacement='任务卡（{{task_count}} 张） `specs/tasks/`'; Expected='{{task_count}} 张' }
       )
       $inventoryMutantsOk = $true
@@ -2794,7 +2795,7 @@ if (-not $taskInventoryBase.Ok) {
       if ($restoredHash -ne $baselineHash) {
         Fail "17gg(mut) 收尾：scratch CLAUDE.md 还原后 SHA256 不一致（前=$baselineHash，后=$restoredHash）。"
       } elseif ($inventoryMutantsOk) {
-        Write-Host '  17gg TD21 Current Stage 无库存计数；紧凑静态/分类词静态/动态占位三枚变异按 code/path/reference 击杀且 scratch SHA256 还原一致 OK' -ForegroundColor Green
+        Write-Host '  17gg TD21 Current Stage 无库存计数；中英静态/分类词静态/动态占位四枚变异按 code/path/reference 击杀且 scratch SHA256 还原一致 OK' -ForegroundColor Green
       }
     }
   } finally {
