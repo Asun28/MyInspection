@@ -2,7 +2,7 @@
 id: T0-DEBT-R3-MOVING-REF-UNIX
 title: Repair the 17ac Unix moving-ref git shim with a quoted absolute target (repay TD27)
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-R3-MOVING-REF-UNIX
 worktree: C:\wt\T0-DEBT-R3-MOVING-REF-UNIX
 allow_paths:

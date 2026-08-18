@@ -67,7 +67,6 @@
 
 
 
-| TD27 | 2026-08-18 | `scripts/selftest.ps1`（17ac(moving-ref) Unix git shim） | **17ac(moving-ref) 的 Unix `git` shim 在 Ubuntu 将 `$PSScriptRoot` 展开为空**：PR #20 Ubuntu seeded job `95566561516` 报 `/git-shim.ps1` 未识别，随后的 `master` 未推进使所有 `PINNED-*` sentinel 均缺失。后果：该 immutable-base/moving-ref 防回归证明在 Unix 未成功执行，并以误导性的 TD3 失败阻塞无关 PR。修法：专属卡中为无扩展名的 POSIX shim 传入经 PowerShell 安全引用的绝对 `git-shim.ps1` 路径，或改由稳定的脚本位置机制解析；保留 Windows wrapper，禁止依赖当前 Ubuntu 下为空的 `$PSScriptRoot`。可测：Linux hosted `-Shard seeded` 中 17ac 在第一次 `merge-base` 后确实推进 `master`，并验证 prompt/card/rubric/frozen inputs 均取原 OID；删除或破坏 shim 路径的单句变异必须点名 17ac 失败；Windows 与 Ubuntu seeded 均绿。前置：无；须新建独立 worktree 与专属卡，不得与 TD2 许可扫描或其他在飞改动搭车。 | major | open | — |
 
 <!-- 新债项追加到上表。偿还时改 status + 填指针；勿删行（保留还债轨迹）。 -->
 
