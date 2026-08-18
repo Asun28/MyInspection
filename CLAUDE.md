@@ -210,7 +210,7 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 与 `scaffold-selftest.yml` 均 **push + pull_request**（`[main, master]`；selftest 闸 **8.2d** 锁死此形态）。push 侧各带路径过滤——`ci.yml` 用 `paths-ignore: ['**.md', 'docs/**']`（**纯文档直推不触发**，混合推送仍全跑），`scaffold-selftest.yml` 进一步**正向 `paths` 只扫权威面**（scripts/.claude/.github/configs，非 .md）——业务码推送不再空跑 selftest matrix；它在每个 OS 上并行跑 `core/workflow/seeded` 三分片（合计 3 分片 × Windows/Ubuntu 2 OS，任一红即红，闸 **8.2e** 锁死接线；Windows job 各计 2× 分钟）；**PR 侧刻意不过滤**（必需状态检查 + path filter 不相容，doc-only PR 会永远停在 Expected）。
+- **CI 触发形态**：`ci.yml` 与 `scaffold-selftest.yml` 均 **push + pull_request**（`[main, master]`；selftest 闸 **8.2d** 锁死此形态）。`ci.yml` 的 push 用 `paths-ignore: ['**.md', 'docs/**']`（纯文档直推不触发，混合推送仍全跑），PR 不过滤，因为 `verify` 是支持的规则集必需检查。`scaffold-selftest.yml` 的 push/PR 则都用正向 `paths` 只扫非 Markdown 权威面（scripts/.claude/.github/configs）——它的 shard job 名不在支持的必需检查中，普通业务码 PR 因此不会空跑 selftest matrix，也不会留下 Expected 状态；命中权威面时仍在每个 OS 并行跑 `core/workflow/seeded` 三分片（3 分片 × Windows/Ubuntu 2 OS，任一红即红，闸 **8.2e** 锁死接线；Windows job 各计 2× 分钟）。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
