@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 9 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 10 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -14,3 +14,4 @@
 | TD22 | minor | paid | `scripts/archive.ps1`(L328–338) ↔ `CLAUDE.md` L247、`docs/ad… | **归档移动 merged 卡却未维护入站具体卡路径**：`52d95f5` 将 `T0-TOOLCHAIN`、`T5-BACKUP-FORMAT`、`T2-CAPTURE-CORE` 分别以 R100 从 `specs/tasks/<i… |
 | TD13 | minor | paid | `core/template/TemplateStore.kt`(`read()` 返回值) | **`Collections.unmodifiableList` 包一层但无自证测试**：`TemplateStore.read()` 把读回的 `items` 包进 `Collections.unmodifiableList` 防调用方… |
 | TD11 | minor | paid | `scripts/selftest.ps1` 闸 17ee（`$rcCanonHash`）+ `docs/RELEAS… | **发布清单那一项被整行 SHA-256 钉死**（T0-GATE-FIXFORWARD 的人裁产物）：「不含第二条解锁路径」这个契约无法用模式穷举散文替代（评审实证：不带序号的「或完成人工核验后即可勾选」绕过任何字形断言），故改钉规范文… |
+| TD27 | major | paid | `scripts/selftest.ps1`（17ac(moving-ref) Unix git shim） | **17ac(moving-ref) 的 Unix `git` shim 在 Ubuntu 将 `$PSScriptRoot` 展开为空**：PR #20 Ubuntu seeded job `95566561516` 报 `/git-s… |
