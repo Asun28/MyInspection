@@ -5433,6 +5433,13 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       $got = Test-LicVerdict $c.d $c.lic
       if ($got -ne $c.want) { Fail "种子缺陷 17p：Distributes=$($c.d) 下 '$($c.lic)' 判为 $got，应为 $($c.want)（$($c.why)）——C21 法务边界回归。"; $pFail = $true }
     }
+    $escapedDiagnosticTail = Get-GradleDiagnosticTail -Output @('prefix\nAuthorization: Bearer REDACT_ME\nsimulated Gradle failure detail\n')
+    if ($escapedDiagnosticTail -notmatch '\[REDACTED\]' -or
+        $escapedDiagnosticTail -match 'REDACT_ME' -or
+        $escapedDiagnosticTail -notmatch 'simulated Gradle failure detail') {
+      Fail "种子缺陷 17p：Unix PowerShell 把 stderr 包成含字面 \\n 的单字符串时，诊断尾段必须先恢复行边界再脱敏且保留末行；实得=$escapedDiagnosticTail。"
+      $pFail = $true
+    }
     if (-not $pFail) { Write-Host '  17p 许可闸 Distributes 降级 OK（不分发只降纯 GPL；AGPL/SSPL/EUPL/非商用仍致命；LGPL 恒黄牌）' -ForegroundColor Green }
 
     # 17p2. 许可闸 JSON 解析失败 catch 块须记 coverageGap（TD-211 · TD81 · T22-LICENSE-PARSE-GAP）：

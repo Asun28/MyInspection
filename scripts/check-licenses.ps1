@@ -552,8 +552,13 @@ function Get-GradleDiagnosticTail {
     [ValidateRange(200, 10000)][int]$MaxChars = 2000
   )
 
-  $sanitized = @($Output | ForEach-Object {
-    $line = [regex]::Replace("$_", "`e\[[0-?]*[ -/]*[@-~]", '')
+  $expandedLines = @($Output | ForEach-Object {
+    $raw = "$_"
+    $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
+    $raw -split '\r?\n'
+  })
+  $sanitized = @($expandedLines | ForEach-Object {
+    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '')
     $line = [regex]::Replace($line, '(?i)\bAuthorization\s*[:=]\s*(?:Bearer\s+)?\S+', 'Authorization: [REDACTED]')
     $line = [regex]::Replace($line, '(?i)\b(token|password|secret|api[-_]?key)\s*[:=]\s*\S+', '$1=[REDACTED]')
     $line = [regex]::Replace($line, '(?i)(https?://)[^/\s:@]+:[^@\s/]+@', '$1[REDACTED]@')
