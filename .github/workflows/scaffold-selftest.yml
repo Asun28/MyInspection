@@ -9,19 +9,16 @@ name: scaffold-selftest
 # core(1–14+16) / workflow(15) / seeded(17) 三分片并行，任一分片红即该 OS 矩阵红；不减少闸或跨 OS 覆盖。
 # 跨 OS：matrix 同时跑 windows + ubuntu（pwsh 在 ubuntu 上预装），**两者皆硬闸**——selftest 已在
 # Linux 验证全绿（闸⑨/⑪ 的 '/'→'\' 已移除；check-secrets 对隐藏点文件 .env.example/.gitignore 加 -Force）。任一 OS 红即挡合并。
+# push/PR 均只在 selftest 的非 Markdown 权威面变化时跑（scripts/.claude/.github/configs）。
+# 17 闸测的是这些脚手架面，普通业务码与纯文档不启动 2 OS × 3 分片；ci.yml 的 verify 仍独立运行。
+# 支持的规则集只要求 verify + R3 状态，不要求本工作流的 shard job 名，故跳过不会留下 Expected 状态。
 on:
   push:
     branches: [main, master]
-    # push 侧只在 selftest 的**权威面**变化时跑（正向 paths，同本地必跑口径「脚本/钩子/工作流/
-    # 模板结构」+ 闸所读的 configs；`!**.md` 延续「纯文档不触发」裁定）。理由：17 闸测的是
-    # scripts/钩子/工作流/configs，backend/tests 等业务码推送与其无关却曾整跑 windows(2×)+ubuntu
-    # matrix——ci.yml（pytest/secret-leak/许可）对那些推送仍全跑，事后检测层不失守。
-    # **PR 侧刻意不过滤**，防「必需状态检查 + path filter 不相容」卡死 doc-only PR。代价同前：
-    # 文档契约闸对纯文档**直推**无 CI 兜底——ship PR 路径与本地 selftest 仍全覆盖
-    # （用户裁定 2026-07-29 晨：doc-skip；同日晚：正向收窄，砍无关推送的重复 CI 分钟）。
     paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!**.md']
   pull_request:
     branches: [main, master]
+    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!**.md']
   workflow_dispatch: {}
 
 permissions:
