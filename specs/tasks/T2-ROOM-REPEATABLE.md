@@ -1,7 +1,7 @@
 ---
 id: T2-ROOM-REPEATABLE
 title: 房间可重复性（repeatable）落进模板契约与 schema：BEDROOM 1..N 不再靠代码硬编码
-depends_on: [T1-TEMPLATE-ENGINE]
+depends_on: [T1-TEMPLATE-ENGINE, T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST]
 status: todo
 branch: T2-ROOM-REPEATABLE
 worktree: C:\wt\T2-ROOM-REPEATABLE

@@ -1,7 +1,7 @@
 ---
 id: T3-HISTORY-COMPARE
 title: 历史对比：采集页历史条（前次状态/备注/缩略图/左右滑）+ ghost overlay 集成 + 双轨基线
-depends_on: [T2-CAPTURE-UI, T1-SPIKE-PLATFORM]
+depends_on: [T2-CAPTURE-UI, T1-SPIKE-PLATFORM, T2-REPEATABLE-ROOM-RUNTIME]
 parallelizable_with: [T3-PDF-RENDERER, T5-BACKUP-IO]
 status: todo
 branch: T3-HISTORY-COMPARE
