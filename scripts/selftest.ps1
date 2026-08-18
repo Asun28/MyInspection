@@ -9069,20 +9069,21 @@ try {
   Fail "种子缺陷 17cc(scanner/platform-wrapper)：Gradle wrapper 选择器不存在或抛错——必须可独立验证 Windows/Unix 路径；$($_.Exception.Message)"
 }
 
-function Set-ScannerFixtureReport([string]$ReportLine) {
+function Set-ScannerFixtureReport([string[]]$ReportLine) {
   # cmd.exe treats an unescaped > in a report as redirection; escape it only in the batch fixture.
   # The POSIX wrapper must receive the original Gradle text, including the literal -> resolution marker.
-  $windowsReportLine = $ReportLine.Replace('>', '^>')
+  $windowsBody = @($ReportLine | ForEach-Object { "echo $($_.Replace('>', '^>'))" })
+  $unixBody = @($ReportLine | ForEach-Object { "printf '%s\n' '$_'" })
   Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
-    "echo $windowsReportLine",
+    $windowsBody,
     'exit /b 0'
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
     '#!/bin/sh',
     'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
-    "printf '%s\n' '$ReportLine'",
+    $unixBody,
     'exit 0'
   )
 }
@@ -9159,8 +9160,9 @@ function Invoke-ScannerFixture([string]$ScriptPath, [switch]$Strict) {
   return [PSCustomObject]@{ Exit = $LASTEXITCODE; Text = ($out -join "`n") }
 }
 try {
-  New-Item -ItemType Directory -Force $scannerFixtureScripts, (Join-Path $scannerFixtureAndroid 'gradle') | Out-Null
+  New-Item -ItemType Directory -Force $scannerFixtureScripts, (Join-Path $scannerFixtureAndroid 'gradle/wrapper') | Out-Null
   Copy-Item -LiteralPath $realCLPath, (Join-Path $RepoRoot 'scripts/_config.ps1'), (Join-Path $RepoRoot 'scripts/_encoding.ps1') -Destination $scannerFixtureScripts
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'android/gradle/wrapper/gradle-wrapper.properties') -Destination (Join-Path $scannerFixtureAndroid 'gradle/wrapper/gradle-wrapper.properties')
   Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'gradle/libs.versions.toml') -Encoding utf8 -Value '[versions]'
   Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'build.gradle.kts') -Encoding utf8 -Value 'plugins {}'
   Set-ScannerFixturePom 'org.testng:testng:7.0.0' 'Apache License, Version 2.0'
@@ -9173,6 +9175,32 @@ try {
     Set-ScannerFixtureOverrides $null
 
     Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+    $scannerUnprovisioned = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $unprovisionedCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerUnprovisioned.Exit -eq 0 -or $scannerUnprovisioned.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $unprovisionedCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-offline)：wrapper distribution 未预置时必须在启动 wrapper 前 fail-closed，且点名 GRADLE-WRAPPER-OFFLINE；实得 exit=$($scannerUnprovisioned.Exit) calls=$($unprovisionedCalls.Count)；输出=$($scannerUnprovisioned.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-offline) wrapper distribution 缺失时零启动、fail-closed OK' -ForegroundColor Green
+    }
+
+    # 与 gradle-wrapper.jar PathAssembler 相同的 URL MD5 → unsigned base36 目录键；测试侧独立算期望值，
+    # 不复用生产 helper，避免生产 helper 与测试一起写错仍自洽假绿。
+    $fixtureDistributionUrl = 'https://services.gradle.org/distributions/gradle-9.7.0-bin.zip'
+    $fixtureHashBytes = [Security.Cryptography.MD5]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($fixtureDistributionUrl))
+    [Array]::Reverse($fixtureHashBytes)
+    $fixtureHashNumber = [Numerics.BigInteger]::new(@($fixtureHashBytes + [byte]0))
+    $fixtureHashAlphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
+    $fixtureHash = ''
+    while ($fixtureHashNumber -gt 0) {
+      $fixtureHash = $fixtureHashAlphabet[[int]($fixtureHashNumber % 36)] + $fixtureHash
+      $fixtureHashNumber = [Numerics.BigInteger]::Divide($fixtureHashNumber, 36)
+    }
+    $fixtureDistributionDir = Join-Path $scannerFixtureGradleHome "wrapper/dists/gradle-9.7.0-bin/$fixtureHash"
+    $fixtureDistributionBin = Join-Path $fixtureDistributionDir 'gradle-9.7.0/bin'
+    New-Item -ItemType Directory -Force $fixtureDistributionBin | Out-Null
+    New-Item -ItemType File -Force (Join-Path $fixtureDistributionDir 'gradle-9.7.0-bin.zip.ok'), (Join-Path $fixtureDistributionBin 'gradle'), (Join-Path $fixtureDistributionBin 'gradle.bat') | Out-Null
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
     $unixWrapperText = Get-Content -LiteralPath $scannerFixtureUnixWrapper -Raw
     if (-not $unixWrapperText.Contains("printf '%s\n' '+--- org.testng:testng:7.0.0'") -or $unixWrapperText.Contains("printf '%s\\n'")) {
       Fail '种子缺陷 17cc(scanner/platform-wrapper-newline)：Unix fixture 必须让 printf 解释单个 \n 为换行；双反斜杠会把字面量 \n 拼进 GAV、令全部 POM 查找假红。'
@@ -9207,6 +9235,52 @@ try {
       Fail "种子缺陷 17cc(scanner/resolved-version)：Gradle requested 0.9 -> resolved 1.0 时必须只以已解析 fixture.resolve:redirect:1.0 查 POM/报告且 -Strict 通过；实得 exit=$($scannerResolved.Exit)；输出=$($scannerResolved.Text)。"
     } else {
       Write-Host '  17cc(scanner/resolved-version) requested -> resolved 版本只按 resolved GAV 查 POM/报告 OK' -ForegroundColor Green
+    }
+
+    $versionlessCoordinate = 'fixture.versionless:edge:1.0'
+    $richCoordinate = 'fixture.rich:edge:1.0'
+    Set-ScannerFixturePom $versionlessCoordinate 'Apache License, Version 2.0'
+    Set-ScannerFixturePom $richCoordinate 'Apache License, Version 2.0'
+    Set-ScannerFixtureReport @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- fixture.versionless:edge -> 1.0',
+      '+--- fixture.rich:edge:{strictly 1.0} -> 1.0 (c)'
+    )
+    $scannerMixedResolved = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerMixedResolved.Exit -ne 0 -or $scannerMixedResolved.Text -notmatch 'fixture\.versionless:edge:1\.0' -or $scannerMixedResolved.Text -notmatch 'fixture\.rich:edge:1\.0') {
+      Fail "种子缺陷 17cc(scanner/mixed-resolved)：versionless 与 rich selector 边必须与同图普通边一起按 resolved GAV 扫描；实得 exit=$($scannerMixedResolved.Exit)；输出=$($scannerMixedResolved.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/mixed-resolved) versionless + rich selector + 普通边逐一解析 OK' -ForegroundColor Green
+    }
+
+    $notResolvedCoordinate = 'fixture.unresolved:not-resolved:1.0'
+    $failedCoordinate = 'fixture.unresolved:failed:1.0'
+    Set-ScannerFixturePom $notResolvedCoordinate 'Apache License, Version 2.0'
+    Set-ScannerFixturePom $failedCoordinate 'Apache License, Version 2.0'
+    Set-ScannerFixtureReport @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- fixture.unresolved:not-resolved:1.0 (n)',
+      '+--- fixture.unresolved:failed:1.0 FAILED'
+    )
+    $scannerMixedUnresolved = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerMixedUnresolved.Exit -eq 0 -or $scannerMixedUnresolved.Text -notmatch 'fixture\.unresolved:not-resolved:1\.0.*\[GRADLE-UNRESOLVED\]' -or $scannerMixedUnresolved.Text -notmatch 'fixture\.unresolved:failed:1\.0.*\[GRADLE-UNRESOLVED\]') {
+      Fail "种子缺陷 17cc(scanner/mixed-unresolved)：同图有普通边时，(n)/FAILED 外部边仍必须逐条以完整 GAV + GRADLE-UNRESOLVED fail-closed；实得 exit=$($scannerMixedUnresolved.Exit)；输出=$($scannerMixedUnresolved.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/mixed-unresolved) (n) + FAILED 与普通边混合时逐条完整 GAV + GRADLE-UNRESOLVED fail-closed OK' -ForegroundColor Green
+    }
+
+    $unrecognizedEdgeCoordinate = 'fixture.unrecognized:edge:1.0'
+    Set-ScannerFixturePom $unrecognizedEdgeCoordinate 'Apache License, Version 2.0'
+    Set-ScannerFixtureReport @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- fixture.unrecognized:edge:1.0 ->',
+      '+--- malformed external edge'
+    )
+    $scannerUnrecognizedEdge = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerUnrecognizedEdge.Exit -eq 0 -or $scannerUnrecognizedEdge.Text -notmatch 'fixture\.unrecognized:edge:1\.0.*\[GRADLE-PARSE\]' -or $scannerUnrecognizedEdge.Text -notmatch 'malformed external edge.*\[GRADLE-PARSE\]') {
+      Fail "种子缺陷 17cc(scanner/unrecognized-edge)：无法辨认的非 project Gradle 依赖边不得被普通节点掩盖；带 GAV 的坏尾部与非 GAV 外部边都必须以 GRADLE-PARSE fail-closed；实得 exit=$($scannerUnrecognizedEdge.Exit)；输出=$($scannerUnrecognizedEdge.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/unrecognized-edge) 带 GAV 的坏尾部 + 非 GAV 外部边均以 GRADLE-PARSE fail-closed OK' -ForegroundColor Green
     }
 
     Set-ScannerFixtureReport '+--- fixture.epl:copyleft:1.0'
@@ -9373,6 +9447,27 @@ try {
       Write-Host '  17cc(scanner/declared-name-canonical) declared_license 映射不可把 canonical license 设为禁列 OK' -ForegroundColor Green
     }
 
+    foreach ($unsafeFallbackCanonical in @(
+      @{ Id = 'forbidden'; License = 'Eclipse Public License 1.0' },
+      @{ Id = 'yellow'; License = 'LGPL-2.1' },
+      @{ Id = 'unknown'; License = 'Mystery License' }
+    )) {
+      $unsafeFallbackCanonicalCoordinate = "fixture.override:unsafe-fallback-$($unsafeFallbackCanonical.Id):1.0"
+      Set-ScannerFixturePomWithoutLicense $unsafeFallbackCanonicalCoordinate
+      Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$unsafeFallbackCanonicalCoordinate","license":"$($unsafeFallbackCanonical.License)","evidence_url":"https://example.invalid/fallback-$($unsafeFallbackCanonical.Id)","registered_by":"selftest","registered_on":"2026-08-18"}
+]
+"@
+      Set-ScannerFixtureReport "+--- $unsafeFallbackCanonicalCoordinate"
+      $scannerUnsafeFallbackCanonical = Invoke-ScannerFixture $scannerFixtureScript
+      if ($scannerUnsafeFallbackCanonical.Exit -eq 0 -or $scannerUnsafeFallbackCanonical.Text -notmatch [regex]::Escape($unsafeFallbackCanonicalCoordinate) -or $scannerUnsafeFallbackCanonical.Text -notmatch 'GRADLE-OVERRIDE') {
+        Fail "种子缺陷 17cc(scanner/fallback-canonical-$($unsafeFallbackCanonical.Id))：POM 缺失元数据回退的 canonical license 必须是政策允许的完整宽松许可；$($unsafeFallbackCanonical.License) 即使普通模式也必须以 GRADLE-OVERRIDE fail-closed，实得 exit=$($scannerUnsafeFallbackCanonical.Exit)；输出=$($scannerUnsafeFallbackCanonical.Text)。"
+      } else {
+        Write-Host "  17cc(scanner/fallback-canonical-$($unsafeFallbackCanonical.Id)) 缺失元数据回退不可把 canonical license 设为 $($unsafeFallbackCanonical.License)（普通模式 fail-closed）OK" -ForegroundColor Green
+      }
+    }
+
     $overrideCoordinate = 'fixture.override:approved:1.0'
     Set-ScannerFixturePomWithoutLicense $overrideCoordinate
     Set-ScannerFixtureOverrides @"
@@ -9458,7 +9553,7 @@ try {
     }
     try {
       $scannerMutationCases = @(
-        @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add($coordinate)' },
+        @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add("$($module):$resolvedVersion")' },
         @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' }
       )

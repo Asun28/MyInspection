@@ -286,15 +286,15 @@ function Get-GradleExceptionMap {
         RegisteredBy = [string]$record.registered_by
         RegisteredOn = [string]$record.registered_on
       }
+      # 两种例外路径都只登记 §2 的精确宽松 canonical；例外绝不能把黄牌、禁列或未知许可降级放行。
+      if ((Get-GradleLicenseClassification -License $entry.License) -ne 'permissive') {
+        throw "例外记录的 license 必须是政策允许的完整宽松许可：$coordinate"
+      }
       $bucket = $empty[$coordinate]
       if ($null -eq $declaredLicense) {
         if ($null -ne $bucket.Fallback) { throw "坐标重复、缺失元数据回退有歧义：$coordinate" }
         $bucket.Fallback = $entry
       } else {
-        # 有效 POM 的名称映射只可落到 §2 的精确宽松许可，绝不把 EPL/GPL/LGPL/未知文本登记成“canonical”。
-        if ((Get-GradleLicenseClassification -License $entry.License) -ne 'permissive') {
-          throw "declared_license 映射的 license 必须是政策允许的完整宽松许可：$coordinate"
-        }
         if ($bucket.DeclaredLicenses.ContainsKey($declaredLicense)) {
           throw "坐标 + declared_license 重复、映射有歧义：$coordinate / $declaredLicense"
         }
@@ -405,16 +405,41 @@ function Get-GradleCoordinatesFromDependencyOutput {
   param([AllowEmptyCollection()][object[]]$Output)
 
   $coordinates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  $errors = [System.Collections.Generic.List[string]]::new()
   foreach ($line in $Output) {
-    # Gradle 树边只接收 Maven GAV；`project :core` 等仓内项目并非第三方坐标，不会冒充 POM 依赖。
+    # Gradle 树边只接收 Maven GAV；`project :core` 等仓内项目并非第三方坐标。
+    # 其余任何无法辨认的边都是覆盖缺口，必须 fail-closed，不得被同图的正常 GAV 掩盖。
     $plain = [regex]::Replace([string]$line, "`e\[[0-?]*[ -/]*[@-~]", '')
-    if ($plain -match '^\s*(?:\|\s*)*(?:\+---|\\---)\s+([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^\s()]+)(?:\s+->\s+([^\s()]+))?') {
-      $resolvedVersion = if ([string]::IsNullOrWhiteSpace($Matches[4])) { $Matches[3] } else { $Matches[4] }
-      $coordinate = "$($Matches[1]):$($Matches[2]):$resolvedVersion"
-      [void]$coordinates.Add($coordinate)
+    if ($plain -notmatch '^\s*(?:\|\s*)*(?:\+---|\\---)\s+(?<body>.+?)\s*$') { continue }
+    $body = $Matches.body
+    if ($body -match '^project\s+') { continue }
+    if ($body -notmatch '^(?<group>[A-Za-z0-9_.-]+):(?<artifact>[A-Za-z0-9_.-]+)(?<tail>.*)$') {
+      $errors.Add("无法判定 Gradle 外部依赖边：$body [GRADLE-PARSE]")
+      continue
     }
+    $module = "$($Matches.group):$($Matches.artifact)"
+    $tail = $Matches.tail
+
+    if ($body -match '(?:^|\s)(?:FAILED|\(n\))(?:\s|$)') {
+      $errors.Add("$module => Gradle 报告为未解析边：$body [GRADLE-UNRESOLVED]")
+      continue
+    }
+
+    $resolvedVersion = $null
+    if ($tail -match '^(?::.*?)?\s+->\s+(?<resolved>[A-Za-z0-9_.+~-]+)(?:\s+\((?:c|\*)\))*\s*$') {
+      $resolvedVersion = $Matches.resolved
+    } elseif ($tail -match '^:(?<resolved>[A-Za-z0-9_.+~-]+)(?:\s+\((?:c|\*)\))*\s*$') {
+      $resolvedVersion = $Matches.resolved
+    } else {
+      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$body [GRADLE-PARSE]")
+      continue
+    }
+    [void]$coordinates.Add("$($module):$resolvedVersion")
   }
-  return @($coordinates | Sort-Object)
+  return [PSCustomObject]@{
+    Coordinates = @($coordinates | Sort-Object)
+    Errors = @($errors)
+  }
 }
 
 function Add-GradleLicenseFinding {
@@ -471,6 +496,54 @@ function Get-GradleWrapperPath {
   return (Join-Path $AndroidRoot $(if ($UseWindows) { 'gradlew.bat' } else { 'gradlew' }))
 }
 
+function Get-GradleWrapperDistributionState {
+  param(
+    [Parameter(Mandatory)][string]$AndroidRoot,
+    [Parameter(Mandatory)][string]$GradleUserHome
+  )
+
+  $propertiesPath = Join-Path $AndroidRoot 'gradle/wrapper/gradle-wrapper.properties'
+  if (-not (Test-Path -LiteralPath $propertiesPath -PathType Leaf)) {
+    return [PSCustomObject]@{ Ready = $false; Detail = "找不到 wrapper properties：$propertiesPath" }
+  }
+  $urlLines = @(Get-Content -LiteralPath $propertiesPath | Where-Object { $_ -match '^\s*distributionUrl=' })
+  if ($urlLines.Count -ne 1) {
+    return [PSCustomObject]@{ Ready = $false; Detail = "distributionUrl 必须恰好一条：$propertiesPath" }
+  }
+  $urlText = $urlLines[0].Substring($urlLines[0].IndexOf('=') + 1).Trim().Replace('\:', ':')
+  [uri]$distributionUri = $null
+  if (-not [uri]::TryCreate($urlText, [UriKind]::Absolute, [ref]$distributionUri)) {
+    return [PSCustomObject]@{ Ready = $false; Detail = "distributionUrl 不是绝对 URL：$urlText" }
+  }
+  $zipName = [IO.Path]::GetFileName($distributionUri.AbsolutePath)
+  if ($zipName -notmatch '^(?<distribution>gradle-(?<version>.+?)-(?:bin|all))\.zip$') {
+    return [PSCustomObject]@{ Ready = $false; Detail = "无法从 distributionUrl 判定 Gradle 发行版：$urlText" }
+  }
+  $distributionName = $Matches.distribution
+  $installName = "gradle-$($Matches.version)"
+
+  $hashBytes = [Security.Cryptography.MD5]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($urlText))
+  [Array]::Reverse($hashBytes)
+  $hashNumber = [Numerics.BigInteger]::new(@($hashBytes + [byte]0))
+  $alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
+  $urlHash = ''
+  while ($hashNumber -gt 0) {
+    $urlHash = $alphabet[[int]($hashNumber % 36)] + $urlHash
+    $hashNumber = [Numerics.BigInteger]::Divide($hashNumber, 36)
+  }
+
+  $distributionDir = Join-Path $GradleUserHome "wrapper/dists/$distributionName/$urlHash"
+  $okPath = Join-Path $distributionDir "$zipName.ok"
+  $binDir = Join-Path $distributionDir "$installName/bin"
+  $ready = (Test-Path -LiteralPath $okPath -PathType Leaf) -and
+    (Test-Path -LiteralPath (Join-Path $binDir 'gradle') -PathType Leaf) -and
+    (Test-Path -LiteralPath (Join-Path $binDir 'gradle.bat') -PathType Leaf)
+  return [PSCustomObject]@{
+    Ready = $ready
+    Detail = if ($ready) { $distributionDir } else { "wrapper distribution 未预置完成：$distributionDir" }
+  }
+}
+
 function Invoke-GradleLicenseScan {
   param([Parameter(Mandatory)][string]$Root)
 
@@ -478,6 +551,13 @@ function Invoke-GradleLicenseScan {
   $wrapper = Get-GradleWrapperPath -AndroidRoot $androidRoot
   if (-not (Test-Path -LiteralPath $wrapper)) {
     Add-GradleNonCompliance "Gradle 清单存在但找不到 wrapper：$wrapper [GRADLE-SUBPROCESS]"
+    return
+  }
+
+  $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
+  $distribution = Get-GradleWrapperDistributionState -AndroidRoot $androidRoot -GradleUserHome $gradleUserHome
+  if (-not $distribution.Ready) {
+    Add-GradleNonCompliance "$($distribution.Detail)；为保持许可闸离线，先由 CI/setup 预置 pinned distribution，再重跑扫描 [GRADLE-WRAPPER-OFFLINE]"
     return
   }
 
@@ -501,8 +581,12 @@ function Invoke-GradleLicenseScan {
       Add-GradleNonCompliance "$($target.Label) => Gradle 子进程退出 $gradleExit [GRADLE-SUBPROCESS]"
       continue
     }
-    $parsed = @(Get-GradleCoordinatesFromDependencyOutput -Output $output)
-    if ($parsed.Count -eq 0) {
+    $parseResult = Get-GradleCoordinatesFromDependencyOutput -Output $output
+    foreach ($parseError in $parseResult.Errors) {
+      Add-GradleNonCompliance "$($target.Label) => $parseError"
+    }
+    $parsed = @($parseResult.Coordinates)
+    if ($parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0) {
       Add-GradleNonCompliance "$($target.Label) => Gradle 输出没有可解析的已解析 GAV [GRADLE-PARSE]"
       continue
     }
@@ -516,7 +600,6 @@ function Invoke-GradleLicenseScan {
 
   if ($coordinatesByConfiguration.Count -eq 0) { return }
   Write-Host "  已从四张 Gradle 已解析图取得 $($coordinatesByConfiguration.Count) 个唯一 GAV（离线、去重、按坐标排序）："
-  $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
   foreach ($coordinate in @($coordinatesByConfiguration.Keys | Sort-Object)) {
     $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $gradleUserHome
     $configurations = @($coordinatesByConfiguration[$coordinate] | Sort-Object)
