@@ -29,6 +29,7 @@ $ErrorActionPreference = 'Stop'
 # 既匹配缩写（GPL/AGPL），也匹配**拼写全称**（Affero / General Public License）——治「分类器只给全称、
 # 元数据无缩写 → GPL 依赖漏判」；(?<!Lesser )General Public License 让 LGPL 全称不误入禁列。
 $forbidden = 'AGPL|(?<!L)GPL|SSPL|EUPL|EPL|Eclipse Public License|CC-?BY-?NC|non-?commercial|research[ -]?only|Affero|(?<!Lesser )General Public License'
+$nonDowngradableForbidden = 'AGPL|Affero|SSPL|EUPL|EPL|Eclipse Public License|CC-?BY-?NC|non-?commercial|research[ -]?only'
 $yellow    = 'LGPL|OpenRAIL|RAIL|MPL|Lesser General Public License'
 # Gradle 的 POM 许可不是任意文本即可放行：只承认政策 §2 已明确允许的**完整名称**。每个模式均锚定
 # 首尾，并先统一空白/大小写；不能让 `Mystery Apache License`、`Unknown MPL-like` 等带关键词的未知文本
@@ -61,16 +62,18 @@ $bad = @(); $warn = @(); $coverageGap = @()
 
 function Scan($name, $license) {
   if ([string]::IsNullOrWhiteSpace($license)) { $script:warn += "$name => 许可缺失/未知（-Strict 下视为不合规）"; return }
-  # 先判黄牌（LGPL/OpenRAIL/MPL 可接受路径），再判禁列，避免 LGPL 误入禁列
-  if ($license -match $yellow -and $license -notmatch 'AGPL|Affero|(?<!L)GPL|SSPL|EUPL|non-?commercial') {
+  # 禁列先于任何降级。唯一例外是不分发时的纯 GPL；AGPL/EPL/SSPL/EUPL/非商用等绝不因混入黄牌文本而绕过。
+  if ($license -match $forbidden) {
+    $mayDowngradePlainGpl = -not $script:Distributes -and $license -match $gplPlain -and $license -notmatch $nonDowngradableForbidden
+    if (-not $mayDowngradePlainGpl) { $script:bad += "$name => $license"; return } # shared fatal-before-downgrade
+  }
+  if ($license -match $yellow) {
     $script:warn += "$name => $license（黄牌：需人工确认用途/链接方式）"; return
   }
   # C21：项目声明不分发（Distributes=$false）时，**纯 GPL**（分发触发型 copyleft）降为黄牌而非致命——不分发则 GPL 分发义务不触发。
-  # 严格排除 AGPL/Affero(网络触发)、SSPL(SaaS 触发)、EUPL(分发+通信触发)、非商用/研究限(用途触发)：这些与分发无关、仍致命。
-  if (-not $script:Distributes -and $license -match $gplPlain -and $license -notmatch 'AGPL|Affero|SSPL|EUPL|non-?commercial|research[ -]?only|CC-?BY-?NC') {
+  if (-not $script:Distributes -and $license -match $gplPlain) {
     $script:warn += "$name => $license（黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false] → copyleft 分发触发点未命中；须人工确认确实不分发/不随产品交付二进制，AGPL/SaaS/网络提供除外。变 public 前用 -Strict 复核）"; return
   }
-  if ($license -match $forbidden) { $script:bad += "$name => $license"; return }
 }
 
 function Test-GradleNormalizedLicense([Parameter(Mandatory)][string]$NormalizedLicense, [Parameter(Mandatory)][string[]]$Patterns) {
@@ -189,9 +192,9 @@ function Find-GradleManifests {
   return $found
 }
 
-# Gradle 覆盖缺口构建（库导出区，供 selftest dot-source 直测枚举失败→coverage gap 的映射，不必真跑整份
+# Gradle 发现结果构建（库导出区，供 selftest dot-source 直测枚举失败→发现错误的映射，不必真跑整份
 # 脚本）：两个分支各自 try/catch、单独一行，便于单句删除变异独立覆盖；-Enumerator 透传给 Find-GradleManifests。
-function Get-GradleCoverageGaps {
+function Get-GradleDiscoveryResults {
   param(
     [Parameter(Mandatory)][string]$Root,
     [scriptblock]$Enumerator = { param($d) Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop }
@@ -201,19 +204,17 @@ function Get-GradleCoverageGaps {
   try { $hits += @(Find-GradleManifests -Root $Root -Names @('libs.versions.toml') -Enumerator $Enumerator) } catch { $errs += "libs.versions.toml 递归枚举失败：$($_.Exception.Message)" }
   # 分支②：build.gradle / build.gradle.kts（传统构建脚本）——单独一行，便于单句删除变异独立覆盖本分支。
   try { $hits += @(Find-GradleManifests -Root $Root -Names @('build.gradle', 'build.gradle.kts') -Enumerator $Enumerator) } catch { $errs += "build.gradle{,.kts} 递归枚举失败：$($_.Exception.Message)" }
-  $gaps = @()
-  # fail-closed（T0-TOOLCHAIN finding #4）：枚举出错**不得**被吞掉——吞掉后「没扫到」会被当成「没有清单」，
-  # -Strict 照样过，闸在看不见时反而变安静。枚举错误显式记一条 coverage gap，绝不静默降级为「未发现」。
-  foreach ($e in $errs) { $gaps += "Gradle：$e ——枚举出错不等于没有清单，零覆盖≠合规（fail-closed，勿静默吞掉）。" }
+  $results = @()
+  # fail-closed（T0-TOOLCHAIN finding #4）：枚举出错**不得**被吞掉——吞掉后「没扫到」会被当成「没有清单」。
+  # 枚举错误显式返回，主流程把它转换成 [GRADLE-DISCOVERY] 阻断项，绝不静默降级为「未发现」。
+  foreach ($e in $errs) { $results += "Gradle：$e ——枚举出错不等于没有清单，零覆盖≠合规（fail-closed，勿静默吞掉）。" }
   if ($hits.Count -gt 0) {
     # Find-GradleManifests 返回的是路径**字符串**（非 FileInfo），直接 .Substring，不取 .FullName。
     $names = @($hits | ForEach-Object { $_.Substring($Root.Length + 1) -replace '\\', '/' } | Sort-Object -Unique)
-    # 措辞与 docs/RELEASE-CHECKLIST.md 的 [GRADLE-LIC-SCANNER-ONLY] 阻断项保持同一口径：发布阻断项的**唯一**
-    # 解锁路径是扫描器（T0-LICENSE-SCANNER）。此处不再提"人工核验"作为替代——否则与该项相邻的 `-Strict` 必过项
-    # 互斥（事后 R3 block ②）。直接依赖的人工登记仍在 §3.1，但它不解锁本缺口。
-    $gaps += "Gradle：检测到 $($names.Count) 个清单（$($names -join ', ')）但本闸无对应许可扫描器——约 220 个传递坐标未审计（见 docs/LICENSE-POLICY.md §3.2 与 TD2）。唯一解锁路径 = 接入扫描器（specs/tasks/T0-LICENSE-SCANNER.md）；它落地前本缺口保持发布阻断（docs/RELEASE-CHECKLIST.md）。"
+    # 清单命中只是启动真实 classpath 扫描器的发现回执，不是覆盖缺口。
+    $results += "Gradle：检测到 $($names.Count) 个清单（$($names -join ', ')）。"
   }
-  return $gaps
+  return $results
 }
 
 # ── Gradle 已解析依赖许可证扫描（TD2）────────────────────────────────────
@@ -544,6 +545,33 @@ function Get-GradleWrapperDistributionState {
   }
 }
 
+function Get-GradleDiagnosticTail {
+  param(
+    [AllowEmptyCollection()][object[]]$Output,
+    [ValidateRange(1, 100)][int]$MaxLines = 20,
+    [ValidateRange(200, 10000)][int]$MaxChars = 2000
+  )
+
+  $sanitized = @($Output | ForEach-Object {
+    $line = [regex]::Replace("$_", "`e\[[0-?]*[ -/]*[@-~]", '')
+    $line = [regex]::Replace($line, '(?i)\bAuthorization\s*[:=]\s*(?:Bearer\s+)?\S+', 'Authorization: [REDACTED]')
+    $line = [regex]::Replace($line, '(?i)\b(token|password|secret|api[-_]?key)\s*[:=]\s*\S+', '$1=[REDACTED]')
+    $line = [regex]::Replace($line, '(?i)(https?://)[^/\s:@]+:[^@\s/]+@', '$1[REDACTED]@')
+    if (-not [string]::IsNullOrWhiteSpace($line)) { $line.Trim() }
+  } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+  if ($sanitized.Count -eq 0) { return '<no output>' }
+
+  $truncated = $sanitized.Count -gt $MaxLines
+  $tail = (@($sanitized | Select-Object -Last $MaxLines) -join ' | ')
+  $marker = '[TRUNCATED] '
+  if ($tail.Length -gt $MaxChars) {
+    $truncated = $true
+    $tail = $tail.Substring($tail.Length - ($MaxChars - $marker.Length))
+  }
+  if ($truncated) { return "$marker$tail" }
+  return $tail
+}
+
 function Invoke-GradleLicenseScan {
   param([Parameter(Mandatory)][string]$Root)
 
@@ -578,7 +606,8 @@ function Invoke-GradleLicenseScan {
       continue
     }
     if ($gradleExit -ne 0) {
-      Add-GradleNonCompliance "$($target.Label) => Gradle 子进程退出 $gradleExit [GRADLE-SUBPROCESS]"
+      $diagnosticTail = Get-GradleDiagnosticTail -Output $output
+      Add-GradleNonCompliance "$($target.Label) => Gradle 子进程退出 $gradleExit；输出尾段=$diagnosticTail [GRADLE-SUBPROCESS]"
       continue
     }
     $parseResult = Get-GradleCoordinatesFromDependencyOutput -Output $output
@@ -622,7 +651,7 @@ function Invoke-GradleLicenseScan {
   }
 }
 
-# ── 库模式：正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 已定义，就此返回——
+# ── 库模式：正则/Scan/Distributes/Find-GradleManifests/Get-GradleDiscoveryResults 已定义，就此返回——
 #    不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测 dot-source 复用）──
 if ($AsLibrary) { return }
 
@@ -675,10 +704,9 @@ if ((Test-Path $pkg) -and (Get-Command npx -ErrorAction SilentlyContinue)) {
   $coverageGap += '前端：有 frontend/package.json 但 npx 不可用，未能扫描许可——零覆盖不等于合规。'
 } else { Write-Host "  跳过：无 frontend/package.json（无前端）。" }
 
-# === 未覆盖的依赖清单探针（C20：治「非 Python/前端项目零扫描却 PASS」的假绿）===
-# 本闸只扫 PyPI(pyproject.toml) 与 npm(frontend/package.json)。若仓库存在**其它生态的依赖清单**而无对应扫描器，
-# 零覆盖**不等于**合规——登记为覆盖缺口（正常运行告警、-Strict 失败），绝不让一个有依赖清单的项目无条件 PASS。
-# 这是个**硬 ship 闸**：静默 PASS（零扫描）比没有闸更危险——它给了一个虚假的「commercial-safe」信号。
+# === 其它未覆盖生态依赖清单探针（C20：治「已支持生态之外零扫描却 PASS」的假绿）===
+# 本闸已扫描 PyPI、frontend npm 与 Gradle 已解析 classpath。若仓库存在其它生态的依赖清单而无对应扫描器，
+# 零覆盖不等于合规：登记为覆盖缺口，普通模式告警，-Strict 失败。
 Write-Host "=== 其它生态依赖清单覆盖探针 ===" -ForegroundColor Cyan
 $otherManifests = @(
   @{ file = 'go.mod';        eco = 'Go (go.mod)' }
@@ -699,7 +727,7 @@ if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单（Go/Rust
 # 发现仍复用既有的安全递归器（它会在下钻前跳过缓存/联接）；但“发现了 Gradle”不再登记 advisory
 # coverage gap，而是立即扫描真实 classpath。发现错误同样是合规失败，不能让错误伪装成“没有清单”。
 Write-Host "=== Gradle 已解析依赖许可证扫描 ===" -ForegroundColor Cyan
-$gradleDiscovery = @(Get-GradleCoverageGaps -Root $RepoRoot)
+$gradleDiscovery = @(Get-GradleDiscoveryResults -Root $RepoRoot)
 $gradleDiscoveryErrors = @($gradleDiscovery | Where-Object { $_ -match '递归枚举失败' })
 $gradleDiscoveryHits = @($gradleDiscovery | Where-Object { $_ -match '检测到 .* 个清单' })
 foreach ($discoveryError in $gradleDiscoveryErrors) {
@@ -714,9 +742,9 @@ if ($gradleDiscoveryHits.Count -gt 0 -and $gradleDiscoveryErrors.Count -eq 0) {
 Write-Host ""
 if ($coverageGap) { Write-Host "覆盖缺口（-Strict 下视为失败；零覆盖≠合规）：" -ForegroundColor Yellow; $coverageGap | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow } }
 if ($warn) { Write-Host "黄牌（人工确认，见 docs/LICENSE-POLICY.md §2/§4）：" -ForegroundColor Yellow; $warn | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow } }
-if ($bad)  { Write-Host "禁列命中（违反商用许可政策 §1）：" -ForegroundColor Red;  $bad  | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
+if ($bad)  { Write-Host "阻断项（禁列许可 / 扫描或元数据不合规）：" -ForegroundColor Red;  $bad  | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
 
-if ($bad.Count -gt 0)                       { Write-Host "`n结论：FAIL（发现禁用许可）" -ForegroundColor Red; exit 1 }
+if ($bad.Count -gt 0)                       { Write-Host "`n结论：FAIL（发现许可或依赖扫描不合规）" -ForegroundColor Red; exit 1 }
 if ($Strict -and $warn.Count)               { Write-Host "`n结论：FAIL（-Strict：黄牌未清）" -ForegroundColor Red; exit 1 }
 if ($Strict -and $coverageGap.Count)        { Write-Host "`n结论：FAIL（-Strict：有依赖清单却零覆盖，装好工具后重扫）" -ForegroundColor Red; exit 1 }
 if ($coverageGap.Count) { Write-Host "`n结论：PASS（无禁用许可），但**有覆盖缺口**（见上）——变 public / 正式发布前请 -Strict 重跑。" -ForegroundColor Yellow; exit 0 }

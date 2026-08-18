@@ -112,7 +112,7 @@
 3. Codex 评审闸门会阻断疑似 copyleft/非商用片段。
 4. 真实模型子环境跑 `pip-licenses` **全审**：GPL 硬禁（声明但未 import 的可卸）；LGPL 仅进程隔离/动态可留；UNKNOWN 元数据逐个核实际许可。
 
-### 5.1 非 Python/npm 生态依赖清单覆盖缺口（advisory-only）
+### 5.1 其它未接入扫描器的生态依赖清单覆盖缺口（advisory-only）
 `scripts\check-licenses.ps1` 自动扫描 PyPI（`pyproject.toml`）、npm（`frontend/package.json`）和 Gradle
 （见 §3.2）；若仓库还存在其它生态的依赖清单（`go.mod`/`Cargo.toml`/`Gemfile`/`composer.json`/
 `pubspec.yaml`/`pom.xml` 等），探针会把它登记为「覆盖缺口」——**这不代表你

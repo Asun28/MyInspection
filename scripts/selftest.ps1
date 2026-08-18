@@ -909,7 +909,7 @@ elseif (-not $fail) { Write-Host '  8.2b ci.yml 安全关键闸缺脚本 fail-cl
 
 # 8.2b2（TD2）：Gradle 许可扫描本身必须离线，fresh runner 先完成 JDK/Android/Gradle setup 与 online build
 # 预热才有 POM/解析缓存可读。只允许移动既有 License gate，不能借排序之名改掉任何 fail-closed 内容：以
-# c826 基线的 UTF-8/LF 块哈希钉住字节。再造“把原块移回 warm-up 前”的单一位置变异，证明断言真会红。
+# 校正后的规范 UTF-8/LF 块哈希钉住字节。再造“把原块移回 warm-up 前”的单一位置变异，证明断言真会红。
 function Test-LicenseGateAfterGradleWarmup([string]$WorkflowText) {
   $license = [regex]::Match($WorkflowText, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
   $warmup = [regex]::Match($WorkflowText, '(?m)^      - name: Gradle online build \(warms cache for verify\.ps1''s --offline gate\)\s*$')
@@ -921,7 +921,7 @@ function Test-LicenseGateAfterGradleWarmup([string]$WorkflowText) {
   }
   $canonicalBlock = (($license.Value -replace "`r`n", "`n") -replace "`r", "`n").TrimEnd("`n") + "`n"
   $actualHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonicalBlock)))
-  return ($actualHash -ceq '3D410072133DBADF13C72C0DEB18F715CB047513D1720C528E5EBE6A32CB3A20' -and
+  return ($actualHash -ceq '95C793589286FC04086C94EC31E3AAD50C863DF10EEAA6848DC3F11FD41D51EE' -and
           $license.Index -gt $warmup.Index -and $license.Index -lt $e2e.Index)
 }
 $licenseGateMatch82 = [regex]::Match($ciText82, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
@@ -934,7 +934,7 @@ if (-not (Test-LicenseGateAfterGradleWarmup $ciText82)) {
   if (Test-LicenseGateAfterGradleWarmup $wrongOrder82) {
     Fail '8.2b2 TD2：把未改的 License gate 单独移回 Gradle online warm-up 之前后断言仍通过——排序检查是 vacuous。'
   } else {
-    Write-Host '  8.2b2 TD2 License gate 保持基线 SHA-256，位于 JDK/Android/Gradle setup + online warm-up 后、E2E 前；逆向移动变异被检出 OK' -ForegroundColor Green
+    Write-Host '  8.2b2 TD2 License gate 保持校正规范块 SHA-256，位于 JDK/Android/Gradle setup + online warm-up 后、E2E 前；逆向移动变异被检出 OK' -ForegroundColor Green
   }
 }
 
@@ -5418,6 +5418,9 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       @{ d = $false; lic = 'GNU Affero General Public License';want = 'bad';  why = 'Affero 全称网络触发——不分发也致命' }
       @{ d = $false; lic = 'SSPL-1.0';                         want = 'bad';  why = 'SSPL SaaS 触发——不分发也致命' }
       @{ d = $false; lic = 'EUPL-1.2';                         want = 'bad';  why = 'EUPL 分发+通信触发——保守仍致命' }
+      @{ d = $true;  lic = 'EPL-2.0';                          want = 'bad';  why = 'EPL 恒属禁列' }
+      @{ d = $true;  lic = 'MPL-2.0 OR EPL-2.0';               want = 'bad';  why = '黄牌与 EPL 混合时禁列优先，绝不降级' }
+      @{ d = $false; lic = 'GPL-3.0 OR EPL-2.0';               want = 'bad';  why = '不分发只降纯 GPL；混入 EPL 仍致命' }
       @{ d = $false; lic = 'non-commercial';                   want = 'bad';  why = '非商用限用途——与分发无关，仍致命' }
       @{ d = $false; lic = 'CC-BY-NC-4.0';                     want = 'bad';  why = 'CC-BY-NC 限用途——仍致命' }
       # LGPL 两档均黄牌（既有路径不受 Distributes 影响）
@@ -8489,7 +8492,7 @@ function Invoke-MarkerAssertion(
       & pwsh -NoProfile -File $ChildSourcePath 2>&1 | Out-String
     } elseif ($ChildMode -eq 'GradleLibrary') {
       . $ChildSourcePath -AsLibrary
-      Get-GradleCoverageGaps -Root $ChildProbeRoot | Out-String
+      Get-GradleDiscoveryResults -Root $ChildProbeRoot | Out-String
     } else {
       Get-Content -LiteralPath $ChildSourcePath -Raw
     }
@@ -9028,17 +9031,17 @@ try {
   if (Test-Path $mutantReparseCL) { Fail "17cc(reparse-mut) 收尾：临时同目录副本 $mutantReparseCL 未能删除——请手动清理，避免 git status 出现 ?? 残留。" }
 }
 
-# 17cc(enum-err). 枚举出错 → 两分支各自记一条 coverage gap（fail-closed，不静默吞掉）。用恒抛错的桩
-# -Enumerator（不必真造 Windows ACL 不可读目录），直测 Get-GradleCoverageGaps：两分支各自 try/catch，
-# 各自应贡献一条含分支专属前缀的 gap 文案。
+# 17cc(enum-err). 枚举出错 → 两分支各自返回一条发现错误（主流程 fail-closed，不静默吞掉）。用恒抛错的桩
+# -Enumerator（不必真造 Windows ACL 不可读目录），直测 Get-GradleDiscoveryResults：两分支各自 try/catch，
+# 各自应贡献一条含分支专属前缀的错误文案。
 $throwAlways = { param($d) throw "SIMULATED-ENUM-ERROR for $d" }
-$enumErrGaps = @(Get-GradleCoverageGaps -Root (Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-enumerr-$PID") -Enumerator $throwAlways)
-if ($enumErrGaps.Count -ne 2) {
-  Fail "种子缺陷 17cc(enum-err)：枚举全程抛错时应各分支各记 1 条 gap（共 2 条），实得 $($enumErrGaps.Count) 条：$($enumErrGaps -join ' | ')——枚举错误未被两个分支各自捕获记账（可能被静默吞掉）。"
-} elseif (-not (@($enumErrGaps) -match 'libs\.versions\.toml 递归枚举失败') -or -not (@($enumErrGaps) -match 'build\.gradle\{,\.kts\} 递归枚举失败')) {
-  Fail "种子缺陷 17cc(enum-err)：2 条 gap 里未见两个分支各自的失败前缀文案（实得：$($enumErrGaps -join ' | ')）——不是两个分支各自 fail-closed 记账。"
+$enumErrResults = @(Get-GradleDiscoveryResults -Root (Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-enumerr-$PID") -Enumerator $throwAlways)
+if ($enumErrResults.Count -ne 2) {
+  Fail "种子缺陷 17cc(enum-err)：枚举全程抛错时应各分支各记 1 条发现错误（共 2 条），实得 $($enumErrResults.Count) 条：$($enumErrResults -join ' | ')——枚举错误未被两个分支各自捕获记账（可能被静默吞掉）。"
+} elseif (-not (@($enumErrResults) -match 'libs\.versions\.toml 递归枚举失败') -or -not (@($enumErrResults) -match 'build\.gradle\{,\.kts\} 递归枚举失败')) {
+  Fail "种子缺陷 17cc(enum-err)：2 条错误里未见两个分支各自的失败前缀文案（实得：$($enumErrResults -join ' | ')）——不是两个分支各自 fail-closed 记账。"
 } else {
-  Write-Host '  17cc(enum-err) 枚举出错 → 两分支各自记 1 条 coverage gap（不静默吞掉）OK' -ForegroundColor Green
+  Write-Host '  17cc(enum-err) 枚举出错 → 两分支各自返回 1 条发现错误（主流程阻断，不静默吞掉）OK' -ForegroundColor Green
 }
 
 # 17cc(scanner). Gradle 许可扫描器必须读取**真实解析报告**、从缓存 POM 取许可，并让未知许可 fail-closed。
@@ -9088,16 +9091,21 @@ function Set-ScannerFixtureReport([string[]]$ReportLine) {
   )
 }
 function Set-ScannerFixtureFailure([int]$ExitCode) {
+  $longPrefix = 'x' * 2200
   Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
-    'echo simulated Gradle failure 1>&2',
+    "echo prefix-$longPrefix 1>&2",
+    'echo Authorization: Bearer REDACT_ME 1>&2',
+    'echo simulated Gradle failure detail 1>&2',
     "exit /b $ExitCode"
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
     '#!/bin/sh',
     'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
-    'echo simulated Gradle failure >&2',
+    "printf '%s\\n' 'prefix-$longPrefix' >&2",
+    "printf '%s\\n' 'Authorization: Bearer REDACT_ME' >&2",
+    "printf '%s\\n' 'simulated Gradle failure detail' >&2",
     "exit $ExitCode"
   )
 }
@@ -9502,10 +9510,22 @@ try {
 
     Set-ScannerFixtureFailure 42
     $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
-    if ($scannerGradleFailure.Exit -eq 0 -or $scannerGradleFailure.Text -notmatch ':core:runtimeClasspath') {
-      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed 并点名首个配置 :core:runtimeClasspath，实得 exit=$($scannerGradleFailure.Exit)；输出=$($scannerGradleFailure.Text)。"
+    $gradleFailureLines = @($scannerGradleFailure.Text -split "`n" | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]' })
+    $gradleFailureDiagnosticsBounded = $gradleFailureLines.Count -gt 0 -and -not ($gradleFailureLines | Where-Object { $_.Length -gt 2200 })
+    if ($scannerGradleFailure.Exit -eq 0 -or
+        $scannerGradleFailure.Text -notmatch ':core:runtimeClasspath' -or
+        $scannerGradleFailure.Text -notmatch '\[GRADLE-SUBPROCESS\]' -or
+        $scannerGradleFailure.Text -notmatch 'simulated Gradle failure detail' -or
+        $scannerGradleFailure.Text -match 'REDACT_ME' -or
+        $scannerGradleFailure.Text -notmatch '\[REDACTED\]' -or
+        $scannerGradleFailure.Text -notmatch '\[TRUNCATED\]' -or
+        -not $gradleFailureDiagnosticsBounded -or
+        $scannerGradleFailure.Text -notmatch '阻断项（禁列许可 / 扫描或元数据不合规）' -or
+        $scannerGradleFailure.Text -notmatch 'FAIL（发现许可或依赖扫描不合规）' -or
+        $scannerGradleFailure.Text -match '发现禁用许可') {
+      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed，保留有界脱敏尾段并使用通用不合规结论；实得 exit=$($scannerGradleFailure.Exit) bounded=$gradleFailureDiagnosticsBounded；输出=$($scannerGradleFailure.Text)。"
     } else {
-      Write-Host '  17cc(scanner/gradle-exit) Gradle 子进程失败 fail-closed 且点名配置 OK' -ForegroundColor Green
+      Write-Host '  17cc(scanner/gradle-exit) Gradle 子进程失败 fail-closed，诊断尾段有界脱敏且结论准确 OK' -ForegroundColor Green
     }
 
     Set-ScannerFixtureReport 'no resolved Gradle coordinate here'
@@ -9546,6 +9566,21 @@ try {
           $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.unknown:missing:1\.0' -and $result.Text -match '\[GRADLE-METADATA\]'
           $code = 'ABSENT-UNKNOWN-BLOCK'
         }
+        'shared-fatal' {
+          . $ScriptPath -AsLibrary
+          $cases = @(
+            @{ Distributes = $true;  License = 'EPL-2.0' },
+            @{ Distributes = $true;  License = 'MPL-2.0 OR EPL-2.0' },
+            @{ Distributes = $false; License = 'GPL-3.0 OR EPL-2.0' }
+          )
+          $present = $true
+          foreach ($case in $cases) {
+            $script:bad = @(); $script:warn = @(); $script:Distributes = $case.Distributes
+            Scan 'fixture.shared' $case.License
+            if ($script:bad.Count -ne 1 -or $script:warn.Count -ne 0) { $present = $false }
+          }
+          $code = 'ABSENT-SCAN-EPL-MIXED-BLOCK'
+        }
         default { throw "未知 scanner mutation scenario: $Scenario" }
       }
       $word = if ($present) { 'PRESENT' } else { $code }
@@ -9556,6 +9591,7 @@ try {
         @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add("$($module):$resolvedVersion")' },
         @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' }
+        @{ Id = 'shared-fatal'; Scenario = 'shared-fatal'; Code = 'ABSENT-SCAN-EPL-MIXED-BLOCK'; Label = '共享 Scan 禁列先于降级'; Marker = '$script:bad += "$name => $license"; return } # shared fatal-before-downgrade' }
       )
       foreach ($mutationCase in $scannerMutationCases) {
         $mutationMarkerId = "GRADLE-SCANNER-MUT-$($mutationCase.Id.ToUpperInvariant())"

@@ -151,11 +151,11 @@ jobs:
 
       - name: License gate
         shell: pwsh
-        # 每 PR 跑商用许可闸（PyPI/npm 禁列扫描，见 docs/LICENSE-POLICY.md）——服务端兜底，
-        # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。非零退出即失败（命中禁列许可）。
-        # 无依赖清单（无 pyproject.toml / frontend/package.json，如脚手架元仓）时脚本自身优雅通过——干跑恒绿；
-        # 有清单的下游仓才实扫：扫描器（pip-licenses / license-checker）按需联网获取，
-        # 属 CI 工具链装配、由下游 CI 环境自担，非产品运行时联网（同上 ffmpeg provision 的定位）。
+        # 每 PR 跑商用许可闸（PyPI/npm + Gradle 已解析 classpath，见 docs/LICENSE-POLICY.md）——服务端兜底，
+        # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。禁列许可或 Gradle 解析/元数据失败均非零退出。
+        # 无受支持清单（pyproject.toml / frontend/package.json / Gradle 清单）时脚本自身优雅通过；
+        # PyPI/npm 扫描器可按需联网装配；Gradle 扫描仅复用上一步在线 build 预热的缓存，并以 --offline --no-daemon 运行。
+        # 两者均属 CI 工具链装配，非产品运行时联网。
         run: |
           # fail-closed（同 check-secrets，TD56/TD-119）：许可闸脚本缺失即非零退出，不 skip-as-pass。
           $f = 'scripts/check-licenses.ps1'
