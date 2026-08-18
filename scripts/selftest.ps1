@@ -8973,7 +8973,7 @@ function Set-ScannerFixtureReport([string]$ReportLine) {
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
     '#!/bin/sh',
     'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
-    "printf '%s\\n' '$ReportLine'",
+    "printf '%s\n' '$ReportLine'",
     'exit 0'
   )
 }
@@ -9064,6 +9064,10 @@ try {
     Set-ScannerFixtureOverrides $null
 
     Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+    $unixWrapperText = Get-Content -LiteralPath $scannerFixtureUnixWrapper -Raw
+    if (-not $unixWrapperText.Contains("printf '%s\n' '+--- org.testng:testng:7.0.0'") -or $unixWrapperText.Contains("printf '%s\\n'")) {
+      Fail '种子缺陷 17cc(scanner/platform-wrapper-newline)：Unix fixture 必须让 printf 解释单个 \n 为换行；双反斜杠会把字面量 \n 拼进 GAV、令全部 POM 查找假红。'
+    }
     $scannerSafe = Invoke-ScannerFixture $scannerFixtureScript -Strict
     $expectedGradleCalls = @(
       @{ Project = ':core:dependencies'; Configuration = 'runtimeClasspath' },
