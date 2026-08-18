@@ -462,11 +462,20 @@ function Add-GradleLicenseFinding {
   }
 }
 
+function Get-GradleWrapperPath {
+  param(
+    [Parameter(Mandatory)][string]$AndroidRoot,
+    [bool]$UseWindows = $IsWindows
+  )
+
+  return (Join-Path $AndroidRoot $(if ($UseWindows) { 'gradlew.bat' } else { 'gradlew' }))
+}
+
 function Invoke-GradleLicenseScan {
   param([Parameter(Mandatory)][string]$Root)
 
   $androidRoot = Join-Path $Root 'android'
-  $wrapper = Join-Path $androidRoot 'gradlew.bat'
+  $wrapper = Get-GradleWrapperPath -AndroidRoot $androidRoot
   if (-not (Test-Path -LiteralPath $wrapper)) {
     Add-GradleNonCompliance "Gradle 清单存在但找不到 wrapper：$wrapper [GRADLE-SUBPROCESS]"
     return
@@ -477,7 +486,12 @@ function Invoke-GradleLicenseScan {
   $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
   foreach ($target in $gradleLicenseConfigurations) {
     try {
-      $output = @(& $wrapper -p $androidRoot --offline --no-daemon "$($target.Project):dependencies" --configuration $target.Configuration 2>&1)
+      if ($IsWindows) {
+        $output = @(& $wrapper -p $androidRoot --offline --no-daemon "$($target.Project):dependencies" --configuration $target.Configuration 2>&1)
+      } else {
+        # android/gradlew is intentionally tracked mode 100644; use sh instead of mutating its mode in a license gate.
+        $output = @(& sh $wrapper -p $androidRoot --offline --no-daemon "$($target.Project):dependencies" --configuration $target.Configuration 2>&1)
+      }
       $gradleExit = $LASTEXITCODE
     } catch {
       Add-GradleNonCompliance "$($target.Label) => Gradle 子进程启动失败：$($_.Exception.Message) [GRADLE-SUBPROCESS]"

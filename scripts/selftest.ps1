@@ -2878,7 +2878,7 @@ if ($Shard -eq 'workflow') {
 # 治本 L38/L39：语法/schema/init 干跑都是**静态**闸，抓不到「只有真跑工作流才暴露」的 bug——
 # 例如 task.ps1 曾把 worktree 基线分支硬编码成 'main'，默认分支为 master 的仓库一跑就炸。
 # 15a：临时仓默认分支设成 master（≠ main）真跑 task.ps1 -Phase start，断言从「当前分支」建出 worktree。
-# 15b：再跑 ship -Local（评审/verify 均走确定性 stub、离线），断言 DoD→verify→范围→许可→密钥→合并整条编排过、产出合并提交——
+# 15b：再跑 ship -Local（评审/verify/许可均走确定性 stub、离线），断言 DoD→verify→范围→许可→密钥→合并整条编排过、产出合并提交——
 #      治「ship 全链此前零动态覆盖，glue bug 只在下游首卡才炸」。缺 git 优雅跳过；自带临时 WorktreeRoot，绝不动元仓 / 真实 WorktreeRoot（默认 `C:\wt`，见 `_config.ps1`）。
 # 15c/15d：ship 两道确定性闸的种子缺陷（17 系模式）：verify 红（exit 1）必拦、卡外改动必拦，且均须写效果账本
 #      （gate=verify / gate=scope）——否则「必拦」只是声称，账本无记录还会被 HARNESS-REVIEW 读作死闸。
@@ -2913,10 +2913,12 @@ if (-not $git) {
     $cfg = $cfg.Replace("ReviewCommand = ''", "ReviewCommand = 'pwsh -NoProfile -File $stubPath'")
     if ($cfg -notmatch 'review-stub') { Fail '闸15b：ReviewCommand pass-stub 未注入（_config 的 ReviewCommand 行格式变了？.Replace 没命中）——否则 ship-loop 静默退化：CI 跳过评审、本地撞真 codex（非确定/联网），覆盖悄悄缩水。' }
     Set-Content $cfgPath $cfg -NoNewline -Encoding utf8
-    # verify 亦走确定性 stub（同 review pass-stub 之理：真 verify.ps1 视机器态收紧——pyproject/前端引导后会真跑 ruff/pytest/npm，
+    # verify 与许可闸亦走确定性 stub（同 review pass-stub 之理：真 verify.ps1 视机器态收紧——pyproject/前端引导后会真跑 ruff/pytest/npm，
     # 会让本闸随机器环境漂移；「verify 红必拦」由 15c 种子缺陷专测，元仓真 verify 的降级路径由 15e 干跑断言）。
+    # 真实 Gradle 许可扫描需要宿主 JDK/缓存；它由 15o 的工作树许可闸和 17cc 的完整 scanner fixture 覆盖。
     # 注入在 e2e base 提交**之前** → stub 进基线、worktree 继承之，不进 ship diff、不扰 15b/15d 的范围闸。
     Set-Content (Join-Path $e2e 'scripts/verify.ps1') 'exit 0' -Encoding utf8
+    Set-Content (Join-Path $e2e 'scripts/check-licenses.ps1') 'exit 0' -Encoding utf8
     # 建临时 git 仓，并**刻意**把默认分支设成 master（≠ main）：若 task.ps1 再硬编码 'main'，此闸必红。
     & git -C $e2e init -q
     & git -C $e2e symbolic-ref HEAD refs/heads/master                 # 版本无关地强制默认分支 = master
@@ -2924,6 +2926,10 @@ if (-not $git) {
     & git -C $e2e config user.name  'selftest'
     & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' add -A 2>$null
     & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'e2e base' *> $null
+    $baseLicenseStub = (& git -C $e2e show 'HEAD:scripts/check-licenses.ps1' 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $baseLicenseStub -cne 'exit 0') {
+      Fail '闸15b：check-licenses.ps1 的确定性 stub 未进入 E2E 基线提交——ship 会误跑宿主 Gradle/JDK/缓存态，跨平台编排覆盖失真。'
+    }
     # 写一张最小合法卡（满足 check-cards：id=文件名 / status 枚举 / dod_command / allow_paths）。
     $cardDir = Join-Path $e2e 'specs/tasks'
     New-Item -ItemType Directory -Force $cardDir | Out-Null
@@ -2944,7 +2950,7 @@ if (-not $git) {
     # 15b. ship -Local 全链冒烟（治本盲点：start 之外，「装起来之后」的 ship 编排——DoD→verify→范围闸→许可闸→
     #   密钥闸→R3→-Local 合并——此前零动态覆盖；正是 L39「静态绿≠工作流真能跑」要堵的面）。在 worktree 里造一处真改动
     #   （否则 --no-ff 合并为空、无合并提交可断言），跑 ship -Local -SkipRed，断言 exit 0 且产出合并提交。
-    #   离线确定性：评审/verify 走上面的 stub（非真 codex/机器态）；许可闸无 pyproject 跳过；账号守卫 -Local 跳过。
+    #   离线确定性：评审/verify/许可走上面的基线 stub（非真 codex/机器态）；真实工作树许可闸与完整 scanner 分别由 15o/17cc 覆盖；账号守卫 -Local 跳过。
     if (-not $fail -and (Test-Path $wtDir)) {
       Set-Content (Join-Path $wtDir 'README.md') 'e2e ship-loop smoke change' -Encoding utf8   # allow_paths 内的真改动
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
@@ -8937,23 +8943,52 @@ $scannerFixtureScripts = Join-Path $scannerFixtureRoot 'scripts'
 $scannerFixtureAndroid = Join-Path $scannerFixtureRoot 'android'
 $scannerFixtureGradleHome = Join-Path $scannerFixtureRoot 'gradle-home'
 $scannerFixtureScript = Join-Path $scannerFixtureScripts 'check-licenses.ps1'
-$scannerFixtureWrapper = Join-Path $scannerFixtureAndroid 'gradlew.bat'
+$scannerFixtureWindowsWrapper = Join-Path $scannerFixtureAndroid 'gradlew.bat'
+$scannerFixtureUnixWrapper = Join-Path $scannerFixtureAndroid 'gradlew'
 $scannerFixtureOverrides = Join-Path $scannerFixtureRoot 'configs/licenses/gradle-exceptions.json'
 $scannerFixtureCallLog = Join-Path $scannerFixtureRoot 'gradle-calls.log'
+
+# TD2 Linux regression: Gradle's generated Unix wrapper is mode 100644 in this repository, so production must
+# select gradlew.bat only on Windows and invoke gradlew through sh elsewhere (never chmod the checked-in wrapper).
+# Exercise both selections directly so the Windows runner also catches a future Unix-path regression.
+try {
+  $selectedWindowsWrapper = Get-GradleWrapperPath -AndroidRoot $scannerFixtureAndroid -UseWindows $true
+  $selectedUnixWrapper = Get-GradleWrapperPath -AndroidRoot $scannerFixtureAndroid -UseWindows $false
+  if ($selectedWindowsWrapper -cne $scannerFixtureWindowsWrapper -or $selectedUnixWrapper -cne $scannerFixtureUnixWrapper) {
+    Fail "种子缺陷 17cc(scanner/platform-wrapper)：Windows 必须选择 gradlew.bat、Unix 必须选择 gradlew（实得 Windows=$selectedWindowsWrapper；Unix=$selectedUnixWrapper）。"
+  } else {
+    Write-Host '  17cc(scanner/platform-wrapper) Windows 选择 gradlew.bat、Unix 选择 gradlew（后者由 sh 运行，不改 git mode）OK' -ForegroundColor Green
+  }
+} catch {
+  Fail "种子缺陷 17cc(scanner/platform-wrapper)：Gradle wrapper 选择器不存在或抛错——必须可独立验证 Windows/Unix 路径；$($_.Exception.Message)"
+}
+
 function Set-ScannerFixtureReport([string]$ReportLine) {
-  Set-Content -LiteralPath $scannerFixtureWrapper -Encoding ascii -Value @(
+  Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
     "echo $ReportLine",
     'exit /b 0'
   )
+  Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
+    '#!/bin/sh',
+    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
+    "printf '%s\\n' '$ReportLine'",
+    'exit 0'
+  )
 }
 function Set-ScannerFixtureFailure([int]$ExitCode) {
-  Set-Content -LiteralPath $scannerFixtureWrapper -Encoding ascii -Value @(
+  Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
     'echo simulated Gradle failure 1>&2',
     "exit /b $ExitCode"
+  )
+  Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
+    '#!/bin/sh',
+    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
+    'echo simulated Gradle failure >&2',
+    "exit $ExitCode"
   )
 }
 function Set-ScannerFixturePom(
