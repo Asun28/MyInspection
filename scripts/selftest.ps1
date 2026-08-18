@@ -6087,12 +6087,20 @@ exit $realExit
 '@
       $acMoveShimScript = Join-Path $acMoveShim 'git-shim.ps1'
       Set-Content $acMoveShimScript $acMoveShimBody -Encoding utf8
+      # Keep the two platform wrappers in one local emitter. TD27's forced-POSIX probe below passes an
+      # independently located absolute shim path; only the extensionless POSIX body embeds that safe literal.
+      function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
+        if ($UseWindows) {
+          return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
+        }
+        $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
+        return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
+      }
+      $acMoveWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $acMoveShimScript -UseWindows $IsWindows
       if ($IsWindows) {
-        @('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n" |
-          Set-Content (Join-Path $acMoveShim 'git.ps1') -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $acMoveShim 'git.ps1') -Value $acMoveWrapperBody -Encoding utf8
       } else {
-        @('#!/usr/bin/env pwsh', '& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n" |
-          Set-Content (Join-Path $acMoveShim 'git') -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $acMoveShim 'git') -Value $acMoveWrapperBody -Encoding utf8
         & chmod +x (Join-Path $acMoveShim 'git')
       }
       $acMoveSavedPath = $env:PATH
@@ -8500,6 +8508,104 @@ function Invoke-LineDeletionMutation([string]$Path, [string[]]$OrigLines, [strin
   $newHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
   if ($newHash -ne $origHash) { return [PSCustomObject]@{ Ok = $false; Reason = "变异还原后 SHA256 不符（原=$origHash，还原后=$newHash）——mutant 副本未干净还原。" } }
   return [PSCustomObject]@{ Ok = $true; Result = $probeResult }
+}
+
+# TD27: run the emitted non-Windows body through pwsh on every host. The target marker deliberately includes
+# both forwarded arguments, while the semantic result turns a missing invocation into one exact failure code.
+function Invoke-Td27PosixShimProbe([string]$HarnessPath, [string]$ExpectedReceipt, [string]$MarkerId) {
+  $raw = (& pwsh -NoProfile -File $HarnessPath 'td27-sentinel-one' 'td27-sentinel-two' 2>&1 | Out-String)
+  $rawExit = $LASTEXITCODE
+  $present = $rawExit -eq 0 -and $raw.Contains($ExpectedReceipt)
+  $code = if ($present) { 'PRESENT' } else { 'ABSENT-TD27-POSIX-INVOKE' }
+  $semanticExit = if ($present) { 0 } else { 1 }
+  return [PSCustomObject]@{ Exit = $semanticExit; StdOut = "MARKER:${MarkerId}:$code`nRAW_EXIT=$rawExit`n$raw"; RawExit = $rawExit; Raw = $raw }
+}
+
+if ($Shard -eq 'seeded') {
+  # 17ac(TD27). Force the extensionless POSIX body through pwsh even on Windows. The shim target deliberately
+  # lives in a different directory with whitespace and an apostrophe, so PSScriptRoot/current-directory fallback
+  # cannot accidentally pass. The real Linux shebang+chmod path remains covered by 17ac(moving-ref) above.
+  $td27ProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17ac-td27-$PID"
+  try {
+    $td27WrapperRoot = Join-Path $td27ProbeRoot 'wrapper separate'
+    $td27TargetRoot = Join-Path $td27ProbeRoot "target o'brien separate"
+    $td27ControlHarness = Join-Path $td27WrapperRoot 'git-control.ps1'
+    $td27MutantHarness = Join-Path $td27WrapperRoot 'git-mutant.ps1'
+    $td27TargetShim = Join-Path $td27TargetRoot 'git-shim.ps1'
+    $td27Receipt = 'TD27-POSIX-SHIM:td27-sentinel-one|td27-sentinel-two'
+    New-Item -ItemType Directory -Force $td27WrapperRoot, $td27TargetRoot | Out-Null
+    @'
+$received = [string]::Join('|', [string[]]$args)
+if ($received -ceq 'td27-sentinel-one|td27-sentinel-two') {
+  Write-Output 'TD27-POSIX-SHIM:td27-sentinel-one|td27-sentinel-two'
+  exit 0
+}
+Write-Error "unexpected TD27 arguments: $received"
+exit 41
+'@ | Set-Content -LiteralPath $td27TargetShim -Encoding utf8
+
+    $td27SetupFailures = @()
+    if (-not (Test-Path -LiteralPath $td27TargetShim)) { $td27SetupFailures += 'target git-shim.ps1 was not created' }
+    if ((Split-Path -Parent $td27TargetShim) -ceq $td27WrapperRoot) { $td27SetupFailures += 'target and wrapper directories are not separate' }
+    if (-not $td27TargetShim.Contains(' ') -or -not $td27TargetShim.Contains("'")) { $td27SetupFailures += 'target path lacks required whitespace/apostrophe coverage' }
+    if (Test-Path -LiteralPath (Join-Path $td27WrapperRoot 'git-shim.ps1')) { $td27SetupFailures += 'wrapper directory unexpectedly contains a local git-shim.ps1' }
+    if (-not (Get-Command Get-AcMoveGitWrapperBody -ErrorAction SilentlyContinue)) { $td27SetupFailures += '17ac wrapper emitter is unavailable in seeded scope' }
+    if ($td27SetupFailures.Count) {
+      Fail "闸17ac(td27-posix-shim)(setup)：$($td27SetupFailures -join '; ')——不能把缺目标/同目录/缺 emitter 误记为 TD27 语义 RED。"
+    } else {
+      $td27PosixBody = Get-AcMoveGitWrapperBody -ShimScript $td27TargetShim -UseWindows $false
+      Set-Content -LiteralPath $td27ControlHarness -Value $td27PosixBody -Encoding utf8
+      $td27ParseErrors = $null
+      [void][System.Management.Automation.Language.Parser]::ParseFile($td27ControlHarness, [ref]$null, [ref]$td27ParseErrors)
+      if ($td27ParseErrors.Count -ne 0) {
+        Fail "闸17ac(td27-posix-shim)(setup)：emitted POSIX harness is not parseable ($($td27ParseErrors[0].Message))——parser failure is not TD27 behavior evidence。"
+      } else {
+        $td27Control = Invoke-Td27PosixShimProbe -HarnessPath $td27ControlHarness -ExpectedReceipt $td27Receipt -MarkerId 'TD27-POSIX-CONTROL'
+        if (-not (Test-MarkerResult $td27Control 'TD27-POSIX-CONTROL' $true "种子缺陷 17ac(td27-posix-shim)：forced POSIX body must invoke absolute target=$td27TargetShim (wrapper=$td27WrapperRoot) and forward both sentinels")) {
+          # This is the intended initial RED: the old PSScriptRoot body resolves only beside the harness, not at the target.
+          if ($td27PosixBody.Contains('$PSScriptRoot/git-shim.ps1')) {
+            Write-Warning "TD27-POSIX-SHIM RED confirmed: emitted body still uses PSScriptRoot while target is separate ($td27TargetShim)."
+          }
+        } else {
+          Set-Content -LiteralPath $td27MutantHarness -Value $td27PosixBody -Encoding utf8
+          $td27MutantLines = Get-Content -LiteralPath $td27MutantHarness
+          # Invoke-LineDeletionMutation restores a line array; normalize the disposable fixture to that shape first.
+          Set-Content -LiteralPath $td27MutantHarness -Value $td27MutantLines -Encoding utf8
+          $td27MutantLines = Get-Content -LiteralPath $td27MutantHarness
+          $td27InvocationLines = @($td27MutantLines | Where-Object { $_ -match '^&\s+.*@args\s*$' })
+          if ($td27InvocationLines.Count -ne 1) {
+            Fail "闸17ac(td27-posix-shim-mut)(setup)：emitted POSIX invocation line count=$($td27InvocationLines.Count) (expected 1)——不能把定位漂移记为 deletion mutation death。"
+          } else {
+            $td27MutationProbe = {
+              $mutantParseErrors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile($td27MutantHarness, [ref]$null, [ref]$mutantParseErrors)
+              if ($mutantParseErrors.Count -ne 0) {
+                return [PSCustomObject]@{ Exit = 1; StdOut = "MARKER:TD27-POSIX-MUT:SETUP-PARSE($($mutantParseErrors[0].Message))"; RawExit = -1 }
+              }
+              $result = Invoke-Td27PosixShimProbe -HarnessPath $td27MutantHarness -ExpectedReceipt $td27Receipt -MarkerId 'TD27-POSIX-MUT'
+              if ($result.RawExit -ne 0) {
+                return [PSCustomObject]@{ Exit = 1; StdOut = "MARKER:TD27-POSIX-MUT:SETUP-RUNTIME(raw-exit=$($result.RawExit))`n$($result.Raw)"; RawExit = $result.RawExit }
+              }
+              return $result
+            }.GetNewClosure()
+            $td27Mutation = Invoke-LineDeletionMutation -Path $td27MutantHarness -OrigLines $td27MutantLines -LineMarker $td27InvocationLines[0] -Probe $td27MutationProbe
+            if (-not $td27Mutation.Ok) {
+              Fail "闸17ac(td27-posix-shim-mut)(setup)：$($td27Mutation.Reason)"
+            } elseif (-not (Test-MarkerResult $td27Mutation.Result 'TD27-POSIX-MUT' $false '种子缺陷 17ac(td27-posix-shim-mut)：deleting the one POSIX invocation must make the forced probe nonzero')) {
+              # Test-MarkerResult already records the exact observed marker/exit.
+            } elseif (-not (Test-MarkerCode $td27Mutation.Result.StdOut 'TD27-POSIX-MUT' 'ABSENT-TD27-POSIX-INVOKE')) {
+              Fail "种子缺陷 17ac(td27-posix-shim-mut)：deletion became nonzero without exact ABSENT-TD27-POSIX-INVOKE classification (stdout=$($td27Mutation.Result.StdOut))——generic crash is not mutation death。"
+            } else {
+              Write-Host '  17ac(td27-posix-shim) forced POSIX absolute apostrophe/space target + exact forwarded sentinels OK; one-line deletion is nonzero ABSENT-TD27-POSIX-INVOKE and restores fixture SHA OK' -ForegroundColor Green
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    Remove-Item -LiteralPath $td27ProbeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $td27ProbeRoot) { Fail "闸17ac(td27-posix-shim) 收尾：temporary fixture $td27ProbeRoot was not removed。" }
+  }
 }
 # 建目录联接/符号链接，跨平台优先符号链接（Linux 免权限即可用；Windows 无 Dev Mode/管理员会失败）——
 # 失败则退回目录联接（Windows 免管理员）。两者都建不出时返回 $false（调用方须优雅退化，R3 round-5 dimension
