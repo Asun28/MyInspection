@@ -1,12 +1,14 @@
 ---
 id: T2-CAPTURE-UI
-title: Compose 走查界面：房间导航 + 大按钮状态 + 备注（短语/听写）+ 两级拍照接入
-depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM]
+title: Field Ledger Compose 走查：房间导航 + 状态/证据 + 备注/拍照
+depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T2-FIELD-LEDGER-THEME, T2-REPEATABLE-ROOM-RUNTIME]
 parallelizable_with: [T3-REPORT-COMPOSER, T3-FINALIZE]
 status: todo
 branch: T2-CAPTURE-UI
 worktree: C:\wt\T2-CAPTURE-UI
 allow_paths:
+  - android/app/src/main/kotlin/nz/myinspection/app/MainActivity.kt
+  - android/app/src/main/kotlin/nz/myinspection/app/skeleton/
   - android/app/src/main/kotlin/nz/myinspection/app/feature/
   - android/app/src/main/kotlin/nz/myinspection/app/media/camera/
   - android/app/src/main/res/
@@ -16,9 +18,9 @@ forbid:
 non_goals:
   - ghost overlay 与历史条（T3-HISTORY-COMPARE 在本卡骨架上加）
   - 报告/导出入口（T3/T5 各卡）；平板/横屏适配（单手竖屏优先）
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
 dod_exit: 0
-dod_assert: assembleDebug 绿 + capture 核测试仍全绿（UI 未旁路核心规则）；真机人工冒烟记录（走完一个两房间 fixture 巡检：状态大按钮/短语一点即入/听写入备注/房间全景强制提示/项目级不利发现强制拍照提示/杀进程恢复到同房间）附 PR
+dod_assert: app 主题/语义单测 + assembleDebug + capture 核测试全绿（UI 未旁路核心规则）；真机走完一个两房间 fixture：Field Ledger 固定主题、状态大按钮、短语/听写、全景与不利发现拍照提示、杀进程恢复；记录附 PR
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: TASK-BOARD 备注（R5）
@@ -40,6 +42,7 @@ doc_sync: TASK-BOARD 备注（R5）
 - 草稿：每房间退出/切换即触发 `:core` 房间粒度保存；进程死亡恢复由核保证，UI 只需重进时读进度。
 - 视觉基调：工具型、素色高对比、日光下可读；参考 `docs/research/` 调研的 [adopt] 项（若报告尚未就位，按上述铁律即可，不阻塞）。
 - ViewModel 只做状态流转发（StateFlow 包 :core 查询），无业务分支——评审会按「UI 未旁路核心规则」查。
+- **Field Ledger 生产化**：以 `context/DESIGN.md` 为视觉真相源，落固定的 Material 3 `ColorScheme`/`Typography`/`Shapes`（禁 capture 动态取壁纸色）；明确 light/dark 策略并在 app root 应用。删除一次性 `skeleton/`，`MainActivity` 只挂真实根界面。自定义 evidence rail 合并 TalkBack 语义，状态/照片/历史均有文本标签；“需注意”细分用可见 sheet，长按只可作快捷方式。
 
 ## 验收 / 执行建议
 dod 见 front-matter；人工冒烟清单条目写进 PR 描述。
