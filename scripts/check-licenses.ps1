@@ -1,22 +1,23 @@
 ﻿#requires -Version 7
 <#
 .SYNOPSIS
-  依赖许可证守卫（商用）：扫描后端 PyPI 依赖与前端 npm 依赖的许可，命中禁列即非零退出。
-  规则见 docs\LICENSE-POLICY.md。覆盖 PyPI/npm；模型权重/数据/字体/素材需人工按政策表登记。
+  依赖许可证守卫（商用）：扫描后端 PyPI、前端 npm 与 Gradle 已解析 classpath 的许可；禁列及 Gradle
+  元数据/子进程/POM 失败均非零退出。规则见 docs\LICENSE-POLICY.md；模型权重/数据/字体/素材仍须人工登记。
 
 .DESCRIPTION
   - 后端：优先 `uv run --with pip-licenses`（在项目环境内内省到项目实际安装依赖）；无 uv 时尝试 `pip-licenses`，再无则跳过并告警。
   - 前端：若有 frontend\package.json，用 `npx --yes license-checker --json`。
-  - 禁列（正则，大小写不敏感）：GPL / AGPL / SSPL / EUPL / CC-BY-NC / non-?commercial / research[- ]only。
+  - Gradle：离线解析 app debug/release runtime、core runtime/testRuntime 四张图，从缓存 POM 或受控精确豁免取许可。
+  - 禁列（正则，大小写不敏感）：GPL / AGPL / SSPL / EUPL / EPL / CC-BY-NC / non-?commercial / research[- ]only。
   - LGPL/OpenRAIL/MPL 单独标黄（进程外 CLI / 文件级 copyleft 等隔离用法可接受；其它需人工确认）。
-  - 退出码：发现禁列=1；仅黄=0（带告警）；干净=0。
+  - 退出码：发现禁列或 Gradle 未知/损坏元数据=1；仅黄=0（带告警）；干净=0。
 .EXAMPLE
   pwsh -File scripts\check-licenses.ps1
 #>
 [CmdletBinding()]
 param(
   [switch]$Strict,     # -Strict 时 LGPL/OpenRAIL 等黄牌也算失败
-  [switch]$AsLibrary   # 库模式：只定义正则/Scan/Distributes/Test-GradleNameEquals/Test-GradleNameInList/Test-GradlePathPrefix/Find-GradleManifests/Get-GradleCoverageGaps 即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p、Gradle 发现单测与卡片 dod_command 复用；镜像 check-secrets.ps1 -AsLibrary）
+  [switch]$AsLibrary   # 库模式：只定义许可/Gradle 发现与扫描辅助函数即返回——不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p/17cc 复用；镜像 check-secrets.ps1 -AsLibrary）
 )
 
 Set-StrictMode -Version Latest
@@ -27,8 +28,31 @@ $ErrorActionPreference = 'Stop'
 # 禁列：负向后顾 (?<!L)GPL 确保 LGPL 不被 GPL 命中；AGPL 显式列入禁列。
 # 既匹配缩写（GPL/AGPL），也匹配**拼写全称**（Affero / General Public License）——治「分类器只给全称、
 # 元数据无缩写 → GPL 依赖漏判」；(?<!Lesser )General Public License 让 LGPL 全称不误入禁列。
-$forbidden = 'AGPL|(?<!L)GPL|SSPL|EUPL|CC-?BY-?NC|non-?commercial|research[ -]?only|Affero|(?<!Lesser )General Public License'
+$forbidden = 'AGPL|(?<!L)GPL|SSPL|EUPL|EPL|Eclipse Public License|CC-?BY-?NC|non-?commercial|research[ -]?only|Affero|(?<!Lesser )General Public License'
 $yellow    = 'LGPL|OpenRAIL|RAIL|MPL|Lesser General Public License'
+# Gradle 的 POM 许可不是任意文本即可放行：只承认政策 §2 已明确允许的**完整名称**。每个模式均锚定
+# 首尾，并先统一空白/大小写；不能让 `Mystery Apache License`、`Unknown MPL-like` 等带关键词的未知文本
+# 借 substring 通过。PyPI/npm 继续沿用既有较宽的 Scan 行为；此收紧仅适用于 TD2 的 Gradle 元数据路径。
+$gradlePermissiveLicensePatterns = @(
+  '^(?:THE )?APACHE(?: SOFTWARE)?(?: LICENSE)?(?:,? VERSION)?[- ]?2(?:\.0)?(?:,? JANUARY 2004)?$',
+  '^(?:THE )?MIT(?: LICENSE)?$',
+  '^(?:THE |NEW )?BSD[- ]?(?:2|3)[- ]?CLAUSE(?: LICENSE)?$',
+  '^ISC(?: LICENSE)?$',
+  '^(?:THE )?UNLICENSE$',
+  '^0BSD$',
+  '^PYTHON[- ]?2\.0(?: LICENSE)?$'
+)
+$gradleYellowLicensePatterns = @(
+  '^LGPL[- ]?(?:2(?:\.0|\.1)?|3(?:\.0)?)$',
+  '^(?:GNU )?LESSER GENERAL PUBLIC LICENSE(?:,? VERSION)? ?(?:2(?:\.0|\.1)?|3(?:\.0)?)$',
+  '^(?:CREATIVEML )?OPEN ?RAIL-M(?: LICENSE)?$',
+  '^MOZILLA PUBLIC LICENSE(?:,? VERSION)? ?2\.0$',
+  '^MPL[- ]?2\.0$'
+)
+$gradlePlainGplPatterns = @(
+  '^GPL[- ]?(?:2(?:\.0)?|3(?:\.0)?)$',
+  '^(?:GNU )?GENERAL PUBLIC LICENSE(?:,? VERSION)? ?(?:2(?:\.0)?|3(?:\.0)?)$'
+)
 # 纯 GPL（分发触发型 copyleft）：缩写严格排除 L(GPL)/A(GPL)；全称严格排除 Lesser/Affero 前缀。
 # 仅用于 Distributes=$false 的降级判定——只降**分发触发**的纯 GPL，绝不碰 AGPL/Affero(网络)/其它触发点。
 $gplPlain  = '(?<!L)(?<!A)GPL|(?<!Lesser )(?<!Affero )General Public License'
@@ -47,6 +71,23 @@ function Scan($name, $license) {
     $script:warn += "$name => $license（黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false] → copyleft 分发触发点未命中；须人工确认确实不分发/不随产品交付二进制，AGPL/SaaS/网络提供除外。变 public 前用 -Strict 复核）"; return
   }
   if ($license -match $forbidden) { $script:bad += "$name => $license"; return }
+}
+
+function Test-GradleNormalizedLicense([Parameter(Mandatory)][string]$NormalizedLicense, [Parameter(Mandatory)][string[]]$Patterns) {
+  foreach ($pattern in $Patterns) {
+    if ($NormalizedLicense -cmatch $pattern) { return $true }
+  }
+  return $false
+}
+
+function Get-GradleLicenseClassification([Parameter(Mandatory)][string]$License) {
+  $normalized = [regex]::Replace($License.Trim().ToUpperInvariant(), '\s+', ' ')
+  if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePlainGplPatterns) { return 'plain-gpl' }
+  # 禁列刻意保持广匹配：不明文本只要出现 GPL/EPL/非商用等风险信号，就宁可拒绝而不降级。
+  if ($License -match $forbidden) { return 'forbidden' }
+  if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradleYellowLicensePatterns) { return 'yellow' }
+  if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePermissiveLicensePatterns) { return 'permissive' }
+  return 'unknown'
 }
 
 # ── Gradle 清单发现（库导出区，供 selftest dot-source 直测——修正 R3 finding：先前用
@@ -175,6 +216,315 @@ function Get-GradleCoverageGaps {
   return $gaps
 }
 
+# ── Gradle 已解析依赖许可证扫描（TD2）────────────────────────────────────
+# 不读 version catalog 推断依赖：只解析 Gradle `dependencies` 对实际 classpath 的输出。四张图覆盖交付
+# Android app 的 debug/release runtime 与 core 的 runtime/testRuntime（后者包含 TestNG）。所有调用离线，
+# 使“本机缓存里有什么”成为可复验输入，而不在扫描时联网改变解析结果。
+$gradleLicenseConfigurations = @(
+  [PSCustomObject]@{ Project = ':core'; Configuration = 'runtimeClasspath'; Label = ':core:runtimeClasspath' },
+  [PSCustomObject]@{ Project = ':core'; Configuration = 'testRuntimeClasspath'; Label = ':core:testRuntimeClasspath' },
+  [PSCustomObject]@{ Project = ':app'; Configuration = 'debugRuntimeClasspath'; Label = ':app:debugRuntimeClasspath' },
+  [PSCustomObject]@{ Project = ':app'; Configuration = 'releaseRuntimeClasspath'; Label = ':app:releaseRuntimeClasspath' }
+)
+
+function Add-GradleNonCompliance {
+  param([Parameter(Mandatory)][string]$Message)
+  $script:bad += "[GRADLE] $Message"
+}
+
+function Get-GradleExceptionMap {
+  param([Parameter(Mandatory)][string]$Path)
+
+  $empty = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return [PSCustomObject]@{ Entries = $empty; Error = $null }
+  }
+
+  try {
+    $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+    if ($raw.TrimStart() -notmatch '^\[') { throw '顶层必须是 JSON 数组。' }
+    $records = @($raw | ConvertFrom-Json -AsHashtable -Depth 16 -ErrorAction Stop)
+    foreach ($record in $records) {
+      if ($record -isnot [System.Collections.IDictionary]) { throw '数组项必须是对象。' }
+      foreach ($field in $record.Keys) {
+        if ($field -notin @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
+          throw "记录含不支持字段 $field。"
+        }
+      }
+      foreach ($field in @('coordinate', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
+        if (-not $record.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$record[$field])) {
+          throw "记录缺少必填字段 $field。"
+        }
+      }
+      $coordinate = [string]$record.coordinate
+      if ($coordinate -notmatch '^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+~-]+$') {
+        throw "坐标不是精确 GAV：$coordinate"
+      }
+      $evidenceUrl = [string]$record.evidence_url
+      [uri]$uri = $null
+      if (-not [uri]::TryCreate($evidenceUrl, [System.UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -notin @('http', 'https')) {
+        throw "evidence_url 必须是绝对 http(s) URL：$coordinate"
+      }
+      [datetime]$registeredOn = [datetime]::MinValue
+      if (-not [datetime]::TryParseExact([string]$record.registered_on, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$registeredOn)) {
+        throw "registered_on 必须是 yyyy-MM-dd：$coordinate"
+      }
+      $declaredLicense = $null
+      if ($record.ContainsKey('declared_license')) {
+        $declaredLicense = [string]$record.declared_license
+        if ([string]::IsNullOrWhiteSpace($declaredLicense)) { throw "declared_license 不能为空：$coordinate" }
+      }
+      if (-not $empty.ContainsKey($coordinate)) {
+        $empty.Add($coordinate, [PSCustomObject]@{
+          Fallback = $null
+          DeclaredLicenses = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+        })
+      }
+      $entry = [PSCustomObject]@{
+        License = [string]$record.license
+        EvidenceUrl = $evidenceUrl
+        RegisteredBy = [string]$record.registered_by
+        RegisteredOn = [string]$record.registered_on
+      }
+      $bucket = $empty[$coordinate]
+      if ($null -eq $declaredLicense) {
+        if ($null -ne $bucket.Fallback) { throw "坐标重复、缺失元数据回退有歧义：$coordinate" }
+        $bucket.Fallback = $entry
+      } else {
+        # 有效 POM 的名称映射只可落到 §2 的精确宽松许可，绝不把 EPL/GPL/LGPL/未知文本登记成“canonical”。
+        if ((Get-GradleLicenseClassification -License $entry.License) -ne 'permissive') {
+          throw "declared_license 映射的 license 必须是政策允许的完整宽松许可：$coordinate"
+        }
+        if ($bucket.DeclaredLicenses.ContainsKey($declaredLicense)) {
+          throw "坐标 + declared_license 重复、映射有歧义：$coordinate / $declaredLicense"
+        }
+        $bucket.DeclaredLicenses.Add($declaredLicense, $entry)
+      }
+    }
+    return [PSCustomObject]@{ Entries = $empty; Error = $null }
+  } catch {
+    return [PSCustomObject]@{ Entries = $empty; Error = "[GRADLE-OVERRIDE] $($_.Exception.Message)" }
+  }
+}
+
+function Get-GradleCachedPomInfo {
+  param(
+    [Parameter(Mandatory)][string]$Coordinate,
+    [Parameter(Mandatory)][string]$GradleUserHome
+  )
+
+  $parts = $Coordinate.Split(':')
+  if ($parts.Count -ne 3) {
+    return [PSCustomObject]@{ State = 'Error'; Detail = '坐标不是 GAV。'; Licenses = @(); Paths = @() }
+  }
+  $group = $parts[0]; $artifact = $parts[1]; $version = $parts[2]
+  $coordinateRoot = Join-Path $GradleUserHome "caches\modules-2\files-2.1\$group\$artifact\$version"
+  if (-not (Test-Path -LiteralPath $coordinateRoot)) {
+    return [PSCustomObject]@{ State = 'Missing'; Detail = '缓存中没有 POM。'; Licenses = @(); Paths = @() }
+  }
+
+  try {
+    $pomPaths = @(
+      Get-ChildItem -LiteralPath $coordinateRoot -Directory -ErrorAction Stop |
+        ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Filter "$artifact-$version.pom" -File -ErrorAction Stop } |
+        Sort-Object -Property FullName
+    )
+  } catch {
+    return [PSCustomObject]@{ State = 'Error'; Detail = "读取缓存 POM 失败：$($_.Exception.Message)"; Licenses = @(); Paths = @() }
+  }
+  if ($pomPaths.Count -eq 0) {
+    return [PSCustomObject]@{ State = 'Missing'; Detail = '缓存目录中没有 POM。'; Licenses = @(); Paths = @() }
+  }
+
+  $licenses = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  $licenseSignatures = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  $missingLicensePaths = [System.Collections.Generic.List[string]]::new()
+  foreach ($pomPath in $pomPaths) {
+    try {
+      # POM 是缓存中的不可信输入：禁止 DTD/外部实体、显式断开 resolver，扫描器绝不因读取元数据而出网。
+      $readerSettings = [System.Xml.XmlReaderSettings]::new()
+      $readerSettings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit
+      $readerSettings.XmlResolver = $null
+      $readerSettings.MaxCharactersFromEntities = 0
+      $reader = [System.Xml.XmlReader]::Create($pomPath.FullName, $readerSettings)
+      try {
+        $pom = [System.Xml.XmlDocument]::new()
+        $pom.XmlResolver = $null
+        $pom.Load($reader)
+      } finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+      }
+      $project = $pom.DocumentElement
+      if ($null -eq $project -or $project.LocalName -ne 'project') { throw '缺少 project 根元素。' }
+      $groupNode = $project.SelectSingleNode('./*[local-name()="groupId"]')
+      $parent = $project.SelectSingleNode('./*[local-name()="parent"]')
+      $declaredGroup = if ($null -eq $groupNode) { '' } else { [string]$groupNode.InnerText }
+      $parentGroupNode = if ($null -eq $parent) { $null } else { $parent.SelectSingleNode('./*[local-name()="groupId"]') }
+      if ([string]::IsNullOrWhiteSpace($declaredGroup) -and $null -ne $parentGroupNode) { $declaredGroup = [string]$parentGroupNode.InnerText }
+      $artifactNode = $project.SelectSingleNode('./*[local-name()="artifactId"]')
+      $declaredArtifact = if ($null -eq $artifactNode) { '' } else { [string]$artifactNode.InnerText }
+      $versionNode = $project.SelectSingleNode('./*[local-name()="version"]')
+      $declaredVersion = if ($null -eq $versionNode) { '' } else { [string]$versionNode.InnerText }
+      $parentVersionNode = if ($null -eq $parent) { $null } else { $parent.SelectSingleNode('./*[local-name()="version"]') }
+      if ([string]::IsNullOrWhiteSpace($declaredVersion) -and $null -ne $parentVersionNode) { $declaredVersion = [string]$parentVersionNode.InnerText }
+      if ([string]::IsNullOrWhiteSpace($declaredGroup) -or [string]::IsNullOrWhiteSpace($declaredArtifact) -or [string]::IsNullOrWhiteSpace($declaredVersion)) {
+        throw 'POM 缺少可验证的 GAV。'
+      }
+      if ($declaredGroup -cne $group -or $declaredArtifact -cne $artifact -or $declaredVersion -cne $version) {
+        throw "POM GAV 不匹配（声明 $declaredGroup`:$declaredArtifact`:$declaredVersion，期望 $Coordinate）。"
+      }
+      $licenseNodes = @($project.SelectNodes('./*[local-name()="licenses"]/*[local-name()="license"]'))
+      $pomLicenses = @($licenseNodes | ForEach-Object {
+        $nameNode = $_.SelectSingleNode('./*[local-name()="name"]')
+        if ($null -ne $nameNode) { [string]$nameNode.InnerText }
+      } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+      if ($pomLicenses.Count -eq 0) {
+        $missingLicensePaths.Add($pomPath.FullName)
+        continue
+      }
+      $normalizedLicenses = @($pomLicenses | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
+      [void]$licenseSignatures.Add(($normalizedLicenses -join "`u{001F}"))
+      foreach ($license in $normalizedLicenses) { [void]$licenses.Add($license) }
+    } catch {
+      return [PSCustomObject]@{ State = 'Error'; Detail = "POM 解析/校验失败（$($pomPath.FullName)）：$($_.Exception.Message)"; Licenses = @(); Paths = @($pomPaths.FullName) }
+    }
+  }
+  if ($missingLicensePaths.Count -gt 0) {
+    if ($licenses.Count -gt 0) {
+      return [PSCustomObject]@{ State = 'Error'; Detail = '同一 GAV 的缓存 POM 副本混有缺失与已声明许可证，不能安全回退豁免。'; Licenses = @(); Paths = @($pomPaths.FullName) }
+    }
+    return [PSCustomObject]@{ State = 'MissingLicense'; Detail = '所有缓存 POM 均未声明 license/name。'; Licenses = @(); Paths = @($pomPaths.FullName) }
+  }
+  if ($licenseSignatures.Count -ne 1) {
+    return [PSCustomObject]@{ State = 'Error'; Detail = '同一 GAV 的缓存 POM 副本声明了冲突许可证，不能任选其一。'; Licenses = @(); Paths = @($pomPaths.FullName) }
+  }
+  return [PSCustomObject]@{ State = 'Valid'; Detail = $null; Licenses = @($licenses | Sort-Object); Paths = @($pomPaths.FullName) }
+}
+
+function Get-GradleCoordinatesFromDependencyOutput {
+  param([AllowEmptyCollection()][object[]]$Output)
+
+  $coordinates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  foreach ($line in $Output) {
+    # Gradle 树边只接收 Maven GAV；`project :core` 等仓内项目并非第三方坐标，不会冒充 POM 依赖。
+    $plain = [regex]::Replace([string]$line, "`e\[[0-?]*[ -/]*[@-~]", '')
+    if ($plain -match '^\s*(?:\|\s*)*(?:\+---|\\---)\s+([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([^\s()]+)(?:\s+->\s+([^\s()]+))?') {
+      $resolvedVersion = if ([string]::IsNullOrWhiteSpace($Matches[4])) { $Matches[3] } else { $Matches[4] }
+      $coordinate = "$($Matches[1]):$($Matches[2]):$resolvedVersion"
+      [void]$coordinates.Add($coordinate)
+    }
+  }
+  return @($coordinates | Sort-Object)
+}
+
+function Add-GradleLicenseFinding {
+  param(
+    [Parameter(Mandatory)][string]$Coordinate,
+    [Parameter(Mandatory)][string[]]$Licenses,
+    [Parameter(Mandatory)][string]$Source,
+    [Parameter(Mandatory)][string[]]$Configurations,
+    [AllowNull()][object]$DeclaredLicenseMappings = $null
+  )
+
+  $licenseText = $Licenses -join '; '
+  Write-Host "  - $Coordinate => $licenseText [$Source; configurations: $($Configurations -join ', ')]"
+  foreach ($license in $Licenses) {
+    $classification = Get-GradleLicenseClassification -License $license
+    if ($classification -eq 'plain-gpl') {
+      if (-not $script:Distributes) {
+        $script:warn += "$Coordinate => $license（Gradle 黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false]；变 public 前用 -Strict 复核）"
+      } else {
+        Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]"
+      }
+      continue
+    }
+    if ($classification -eq 'forbidden') {
+      Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification
+      continue
+    }
+    if ($classification -eq 'yellow') {
+      $script:warn += "$Coordinate => $license（Gradle 黄牌：需人工确认用途/链接方式）"
+      continue
+    }
+    if ($classification -eq 'unknown') {
+      if ($null -ne $DeclaredLicenseMappings -and $DeclaredLicenseMappings.ContainsKey($license)) {
+        $mapping = $DeclaredLicenseMappings[$license]
+        # Get-GradleExceptionMap 已限定 canonical 只可为 permissive；这里保留纵深检查，避免未来调用点绕过解析器。
+        if ((Get-GradleLicenseClassification -License $mapping.License) -ne 'permissive') {
+          Add-GradleNonCompliance "$Coordinate => declared_license 映射的非允许 canonical '$($mapping.License)' [GRADLE-OVERRIDE]"
+        } else {
+          Write-Host "    exact declared-license mapping: '$license' => $($mapping.License) [override $($mapping.EvidenceUrl), $($mapping.RegisteredBy) $($mapping.RegisteredOn)]"
+        }
+      } else {
+        Add-GradleNonCompliance "$Coordinate => 未被政策识别的许可 '$license' [GRADLE-UNKNOWN]"
+      }
+    }
+  }
+}
+
+function Invoke-GradleLicenseScan {
+  param([Parameter(Mandatory)][string]$Root)
+
+  $androidRoot = Join-Path $Root 'android'
+  $wrapper = Join-Path $androidRoot 'gradlew.bat'
+  if (-not (Test-Path -LiteralPath $wrapper)) {
+    Add-GradleNonCompliance "Gradle 清单存在但找不到 wrapper：$wrapper [GRADLE-SUBPROCESS]"
+    return
+  }
+
+  $exceptions = Get-GradleExceptionMap -Path (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
+  if ($null -ne $exceptions.Error) { Add-GradleNonCompliance $exceptions.Error }
+  $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+  foreach ($target in $gradleLicenseConfigurations) {
+    try {
+      $output = @(& $wrapper -p $androidRoot --offline --no-daemon "$($target.Project):dependencies" --configuration $target.Configuration 2>&1)
+      $gradleExit = $LASTEXITCODE
+    } catch {
+      Add-GradleNonCompliance "$($target.Label) => Gradle 子进程启动失败：$($_.Exception.Message) [GRADLE-SUBPROCESS]"
+      continue
+    }
+    if ($gradleExit -ne 0) {
+      Add-GradleNonCompliance "$($target.Label) => Gradle 子进程退出 $gradleExit [GRADLE-SUBPROCESS]"
+      continue
+    }
+    $parsed = @(Get-GradleCoordinatesFromDependencyOutput -Output $output)
+    if ($parsed.Count -eq 0) {
+      Add-GradleNonCompliance "$($target.Label) => Gradle 输出没有可解析的已解析 GAV [GRADLE-PARSE]"
+      continue
+    }
+    foreach ($coordinate in $parsed) {
+      if (-not $coordinatesByConfiguration.ContainsKey($coordinate)) {
+        $coordinatesByConfiguration.Add($coordinate, [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal))
+      }
+      [void]$coordinatesByConfiguration[$coordinate].Add($target.Label)
+    }
+  }
+
+  if ($coordinatesByConfiguration.Count -eq 0) { return }
+  Write-Host "  已从四张 Gradle 已解析图取得 $($coordinatesByConfiguration.Count) 个唯一 GAV（离线、去重、按坐标排序）："
+  $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
+  foreach ($coordinate in @($coordinatesByConfiguration.Keys | Sort-Object)) {
+    $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $gradleUserHome
+    $configurations = @($coordinatesByConfiguration[$coordinate] | Sort-Object)
+    $exceptionBucket = if ($exceptions.Entries.ContainsKey($coordinate)) { $exceptions.Entries[$coordinate] } else { $null }
+    if ($pom.State -eq 'Error') {
+      Add-GradleNonCompliance "$coordinate => $($pom.Detail) [GRADLE-POM]"
+      continue
+    }
+    if ($pom.State -in @('Missing', 'MissingLicense')) {
+      if ($null -ne $exceptionBucket -and $null -ne $exceptionBucket.Fallback) {
+        $exception = $exceptionBucket.Fallback
+        Add-GradleLicenseFinding -Coordinate $coordinate -Licenses @($exception.License) -Source "override $($exception.EvidenceUrl), $($exception.RegisteredBy) $($exception.RegisteredOn)" -Configurations $configurations
+      } else {
+        Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"
+      }
+      continue
+    }
+    $declaredLicenseMappings = if ($null -ne $exceptionBucket) { $exceptionBucket.DeclaredLicenses } else { $null }
+    Add-GradleLicenseFinding -Coordinate $coordinate -Licenses $pom.Licenses -Source 'cached POM' -Configurations $configurations -DeclaredLicenseMappings $declaredLicenseMappings
+  }
+}
+
 # ── 库模式：正则/Scan/Distributes/Find-GradleManifests/Get-GradleCoverageGaps 已定义，就此返回——
 #    不 Set-Location/不扫描/不触 git/不 exit（供 selftest 17p 与 Gradle 发现单测 dot-source 复用）──
 if ($AsLibrary) { return }
@@ -248,16 +598,21 @@ foreach ($m in $otherHits) {
 }
 if (-not $otherHits) { Write-Host "  未发现其它生态依赖清单（Go/Rust/根 npm/Ruby/PHP/Dart/Maven）。" }
 
-# === Gradle 清单递归发现（T0-GATE-HARDENING item1）===
-# 只 glob 仓根 build.gradle{,.kts} 会漏掉嵌套子模块清单（T0-TOOLCHAIN 六轮评审 finding #2：卡片点名的
-# android/gradle/libs.versions.toml 就是这样被漏掉的，「能报出来」只是因为当时恰好还有别的构建脚本存在）。
-# 覆盖两个独立分支：① libs.versions.toml（Gradle 版本目录）② build.gradle / build.gradle.kts（传统构建脚本）。
-# 排除 .gradle/、build/ 等缓存/产物目录，以及 node_modules/.git——Get-GradleCoverageGaps/Find-GradleManifests
-# （库导出区）在**下钻前**剪枝，从不真的进入这些目录，且递归枚举出错 fail-closed 记一条 coverage gap（不静默吞掉）。
-Write-Host "=== Gradle 清单递归发现探针 ===" -ForegroundColor Cyan
-$gradleGapsBefore = $coverageGap.Count
-$coverageGap += (Get-GradleCoverageGaps -Root $RepoRoot)
-if ($coverageGap.Count -eq $gradleGapsBefore) { Write-Host "  未发现 Gradle 清单（含 libs.versions.toml / build.gradle{,.kts}）。" }
+# === Gradle 已解析依赖许可证扫描（TD2）===
+# 发现仍复用既有的安全递归器（它会在下钻前跳过缓存/联接）；但“发现了 Gradle”不再登记 advisory
+# coverage gap，而是立即扫描真实 classpath。发现错误同样是合规失败，不能让错误伪装成“没有清单”。
+Write-Host "=== Gradle 已解析依赖许可证扫描 ===" -ForegroundColor Cyan
+$gradleDiscovery = @(Get-GradleCoverageGaps -Root $RepoRoot)
+$gradleDiscoveryErrors = @($gradleDiscovery | Where-Object { $_ -match '递归枚举失败' })
+$gradleDiscoveryHits = @($gradleDiscovery | Where-Object { $_ -match '检测到 .* 个清单' })
+foreach ($discoveryError in $gradleDiscoveryErrors) {
+  Add-GradleNonCompliance "$discoveryError [GRADLE-DISCOVERY]"
+}
+if ($gradleDiscoveryHits.Count -gt 0 -and $gradleDiscoveryErrors.Count -eq 0) {
+  Invoke-GradleLicenseScan -Root $RepoRoot
+} elseif ($gradleDiscoveryHits.Count -eq 0 -and $gradleDiscoveryErrors.Count -eq 0) {
+  Write-Host "  未发现 Gradle 清单（含 libs.versions.toml / build.gradle{,.kts}）。"
+}
 
 Write-Host ""
 if ($coverageGap) { Write-Host "覆盖缺口（-Strict 下视为失败；零覆盖≠合规）：" -ForegroundColor Yellow; $coverageGap | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow } }

@@ -107,18 +107,6 @@ jobs:
           $f = 'scripts/check-secrets.ps1'
           if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-secrets.ps1 missing (gate removed?)'; exit 1 }
 
-      - name: License gate
-        shell: pwsh
-        # 每 PR 跑商用许可闸（PyPI/npm 禁列扫描，见 docs/LICENSE-POLICY.md）——服务端兜底，
-        # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。非零退出即失败（命中禁列许可）。
-        # 无依赖清单（无 pyproject.toml / frontend/package.json，如脚手架元仓）时脚本自身优雅通过——干跑恒绿；
-        # 有清单的下游仓才实扫：扫描器（pip-licenses / license-checker）按需联网获取，
-        # 属 CI 工具链装配、由下游 CI 环境自担，非产品运行时联网（同上 ffmpeg provision 的定位）。
-        run: |
-          # fail-closed（同 check-secrets，TD56/TD-119）：许可闸脚本缺失即非零退出，不 skip-as-pass。
-          $f = 'scripts/check-licenses.ps1'
-          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
-
       - name: Setup Java (Temurin 17)
         if: ${{ hashFiles('android/gradlew.bat') != '' }}
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -160,6 +148,18 @@ jobs:
         run: |
           cmd /c gradlew.bat --no-daemon build
           if ($LASTEXITCODE -ne 0) { Write-Error "gradlew build failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+
+      - name: License gate
+        shell: pwsh
+        # 每 PR 跑商用许可闸（PyPI/npm 禁列扫描，见 docs/LICENSE-POLICY.md）——服务端兜底，
+        # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。非零退出即失败（命中禁列许可）。
+        # 无依赖清单（无 pyproject.toml / frontend/package.json，如脚手架元仓）时脚本自身优雅通过——干跑恒绿；
+        # 有清单的下游仓才实扫：扫描器（pip-licenses / license-checker）按需联网获取，
+        # 属 CI 工具链装配、由下游 CI 环境自担，非产品运行时联网（同上 ffmpeg provision 的定位）。
+        run: |
+          # fail-closed（同 check-secrets，TD56/TD-119）：许可闸脚本缺失即非零退出，不 skip-as-pass。
+          $f = 'scripts/check-licenses.ps1'
+          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
 
       - name: E2E verify gate
         shell: pwsh

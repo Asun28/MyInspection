@@ -907,6 +907,37 @@ $exitOnes82 = ([regex]::Matches($ciText82, 'exit 1\b')).Count
 if ($exitOnes82 -lt 2) { Fail "8.2b TD56/TD-119：ci.yml 中 'exit 1' 出现 $exitOnes82 次（预期 ≥2：check-secrets/check-licenses 各一）——fail-closed 分支可能只 Write-Error 未真正非零退出。" }
 elseif (-not $fail) { Write-Host '  8.2b ci.yml 安全关键闸缺脚本 fail-closed（exit 1）OK' -ForegroundColor Green }
 
+# 8.2b2（TD2）：Gradle 许可扫描本身必须离线，fresh runner 先完成 JDK/Android/Gradle setup 与 online build
+# 预热才有 POM/解析缓存可读。只允许移动既有 License gate，不能借排序之名改掉任何 fail-closed 内容：以
+# c826 基线的 UTF-8/LF 块哈希钉住字节。再造“把原块移回 warm-up 前”的单一位置变异，证明断言真会红。
+function Test-LicenseGateAfterGradleWarmup([string]$WorkflowText) {
+  $license = [regex]::Match($WorkflowText, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
+  $warmup = [regex]::Match($WorkflowText, '(?m)^      - name: Gradle online build \(warms cache for verify\.ps1''s --offline gate\)\s*$')
+  $e2e = [regex]::Match($WorkflowText, '(?m)^      - name: E2E verify gate\s*$')
+  if (-not $license.Success -or -not $warmup.Success -or -not $e2e.Success) { return $false }
+  foreach ($setupName in @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)')) {
+    $setup = [regex]::Match($WorkflowText, "(?m)^      - name: $([regex]::Escape($setupName))\s*`$")
+    if (-not $setup.Success -or $setup.Index -ge $warmup.Index) { return $false }
+  }
+  $canonicalBlock = (($license.Value -replace "`r`n", "`n") -replace "`r", "`n").TrimEnd("`n") + "`n"
+  $actualHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonicalBlock)))
+  return ($actualHash -ceq '3D410072133DBADF13C72C0DEB18F715CB047513D1720C528E5EBE6A32CB3A20' -and
+          $license.Index -gt $warmup.Index -and $license.Index -lt $e2e.Index)
+}
+$licenseGateMatch82 = [regex]::Match($ciText82, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
+if (-not (Test-LicenseGateAfterGradleWarmup $ciText82)) {
+  Fail '8.2b2 TD2：License gate 未保持基线字节或未严格位于 JDK/Android/Gradle setup + online warm-up 之后、E2E verify 之前——fresh runner 的离线 Gradle POM 扫描会因顺序必红，或 gate 内容被改动。'
+} else {
+  $withoutLicense82 = $ciText82.Remove($licenseGateMatch82.Index, $licenseGateMatch82.Length)
+  $warmupAfterRemoval82 = [regex]::Match($withoutLicense82, '(?m)^      - name: Gradle online build \(warms cache for verify\.ps1''s --offline gate\)\s*$')
+  $wrongOrder82 = $withoutLicense82.Insert($warmupAfterRemoval82.Index, $licenseGateMatch82.Value)
+  if (Test-LicenseGateAfterGradleWarmup $wrongOrder82) {
+    Fail '8.2b2 TD2：把未改的 License gate 单独移回 Gradle online warm-up 之前后断言仍通过——排序检查是 vacuous。'
+  } else {
+    Write-Host '  8.2b2 TD2 License gate 保持基线 SHA-256，位于 JDK/Android/Gradle setup + online warm-up 后、E2E 前；逆向移动变异被检出 OK' -ForegroundColor Green
+  }
+}
+
 # 8.2c scaffold-selftest.yml 须在 CI provision PSScriptAnalyzer，使 lint 闸⑦ 在唯一能装它的环境里真跑
 #   （配合闸⑦ 的 $env:CI 缺模块即 Fail 守卫，见上）。断言 provisioning 步骤在位（非本文件、无自引用）。
 $stText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
@@ -8898,23 +8929,422 @@ if ($enumErrGaps.Count -ne 2) {
   Write-Host '  17cc(enum-err) 枚举出错 → 两分支各自记 1 条 coverage gap（不静默吞掉）OK' -ForegroundColor Green
 }
 
-# 17cc(strict). coverage gap → -Strict 下真失败（真实仓根）：Gradle 清单永远缺扫描器（本卡刻意不建，见卡片
-# 仲裁），故不带 -Strict 应 exit 0、带 -Strict 应 exit 1——证「有 coverage gap 时 -Strict 真会让整条闸失败」
-# 不是纸面承诺（与 17cc(enum-err) 互补：那边证「枚举出错→gap」，这里证「gap→-Strict 下 exit 1」）。
-$strictSavedPath = $env:PATH
+# 17cc(scanner). Gradle 许可扫描器必须读取**真实解析报告**、从缓存 POM 取许可，并让未知许可 fail-closed。
+# 夹具仅伪造外部 Gradle/POM 边界；被测件始终是完整的 check-licenses.ps1。三个 case 各守一条卡片契约：
+# 已解析的 TestNG 坐标逐坐标报告、禁列 EPL 在 -Strict 下点名、无 POM 的坐标即使非 Strict 也点名拒绝。
+$scannerFixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17cc-scanner-$PID"
+$scannerFixtureScripts = Join-Path $scannerFixtureRoot 'scripts'
+$scannerFixtureAndroid = Join-Path $scannerFixtureRoot 'android'
+$scannerFixtureGradleHome = Join-Path $scannerFixtureRoot 'gradle-home'
+$scannerFixtureScript = Join-Path $scannerFixtureScripts 'check-licenses.ps1'
+$scannerFixtureWrapper = Join-Path $scannerFixtureAndroid 'gradlew.bat'
+$scannerFixtureOverrides = Join-Path $scannerFixtureRoot 'configs/licenses/gradle-exceptions.json'
+$scannerFixtureCallLog = Join-Path $scannerFixtureRoot 'gradle-calls.log'
+function Set-ScannerFixtureReport([string]$ReportLine) {
+  Set-Content -LiteralPath $scannerFixtureWrapper -Encoding ascii -Value @(
+    '@echo off',
+    'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
+    "echo $ReportLine",
+    'exit /b 0'
+  )
+}
+function Set-ScannerFixtureFailure([int]$ExitCode) {
+  Set-Content -LiteralPath $scannerFixtureWrapper -Encoding ascii -Value @(
+    '@echo off',
+    'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
+    'echo simulated Gradle failure 1>&2',
+    "exit /b $ExitCode"
+  )
+}
+function Set-ScannerFixturePom(
+  [string]$Coordinate,
+  [string[]]$LicenseName,
+  [string]$PomGroup = '',
+  [string]$PomArtifact = '',
+  [string]$PomVersion = '',
+  [string]$CacheLeaf = 'fixture'
+) {
+  $parts = $Coordinate.Split(':')
+  if ([string]::IsNullOrWhiteSpace($PomGroup)) { $PomGroup = $parts[0] }
+  if ([string]::IsNullOrWhiteSpace($PomArtifact)) { $PomArtifact = $parts[1] }
+  if ([string]::IsNullOrWhiteSpace($PomVersion)) { $PomVersion = $parts[2] }
+  $pomDir = Join-Path $scannerFixtureGradleHome ("caches\\modules-2\\files-2.1\\$($parts[0])\\$($parts[1])\\$($parts[2])\\$CacheLeaf")
+  New-Item -ItemType Directory -Force $pomDir | Out-Null
+  $licenseLines = @($LicenseName | ForEach-Object { "    <license><name>$_</name></license>" })
+  Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value @(
+    '<project>',
+    "  <groupId>$PomGroup</groupId>",
+    "  <artifactId>$PomArtifact</artifactId>",
+    "  <version>$PomVersion</version>",
+    '  <licenses>',
+    $licenseLines,
+    '  </licenses>',
+    '</project>'
+  )
+}
+function Set-ScannerFixtureBrokenPom([string]$Coordinate) {
+  $parts = $Coordinate.Split(':')
+  $pomDir = Join-Path $scannerFixtureGradleHome ("caches\\modules-2\\files-2.1\\$($parts[0])\\$($parts[1])\\$($parts[2])\\fixture")
+  New-Item -ItemType Directory -Force $pomDir | Out-Null
+  Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value '<project><licenses>'
+}
+function Set-ScannerFixturePomWithoutLicense([string]$Coordinate, [string]$CacheLeaf = 'fixture') {
+  $parts = $Coordinate.Split(':')
+  $pomDir = Join-Path $scannerFixtureGradleHome ("caches\\modules-2\\files-2.1\\$($parts[0])\\$($parts[1])\\$($parts[2])\\$CacheLeaf")
+  New-Item -ItemType Directory -Force $pomDir | Out-Null
+  Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value @(
+    '<project>',
+    "  <groupId>$($parts[0])</groupId>",
+    "  <artifactId>$($parts[1])</artifactId>",
+    "  <version>$($parts[2])</version>",
+    '</project>'
+  )
+}
+function Set-ScannerFixtureOverrides([AllowNull()][string]$Json) {
+  # PowerShell parameter binding may coerce caller-supplied $null to an empty string for [string]; both spellings
+  # mean “no exception file” in this fixture. Empty itself is deliberately not an override JSON test input.
+  if ([string]::IsNullOrEmpty($Json)) {
+    Remove-Item -LiteralPath $scannerFixtureOverrides -Force -ErrorAction SilentlyContinue
+    return
+  }
+  New-Item -ItemType Directory -Force (Split-Path -Parent $scannerFixtureOverrides) | Out-Null
+  Set-Content -LiteralPath $scannerFixtureOverrides -Encoding utf8 -Value $Json
+}
+function Invoke-ScannerFixture([string]$ScriptPath, [switch]$Strict) {
+  $out = if ($Strict) { & pwsh -NoProfile -File $ScriptPath -Strict 2>&1 } else { & pwsh -NoProfile -File $ScriptPath 2>&1 }
+  return [PSCustomObject]@{ Exit = $LASTEXITCODE; Text = ($out -join "`n") }
+}
 try {
-  # 严格模式仍需验证真实进程退出码，但把 PATH 限定为 pwsh 自身目录，避免触发宿主机上的
-  # uv/npx/pip-licenses 及其网络、缓存或全局环境；这两次运行只承载 gap → -Strict 退出码契约。
-  $strictPwsh = (Get-Command pwsh -ErrorAction Stop).Source
-  $env:PATH = Split-Path -Parent $strictPwsh
-  & $strictPwsh -NoProfile -File $realCLPath *> $null
-  $strictProbeExit0 = $LASTEXITCODE
-  & $strictPwsh -NoProfile -File $realCLPath -Strict *> $null
-  $strictProbeExit1 = $LASTEXITCODE
-} finally { $env:PATH = $strictSavedPath }
-if ($strictProbeExit0 -ne 0) { Fail "17cc(strict)：不带 -Strict 的真实运行退出 $strictProbeExit0（期望 0）——本仓当前不应有致命许可命中，环境是否变了？" }
-elseif ($strictProbeExit1 -ne 1) { Fail "种子缺陷 17cc(strict)：带 -Strict 的真实运行退出 $strictProbeExit1（期望 1）——Gradle 清单已发现但无扫描器本应是覆盖缺口，-Strict 下理应致命，未生效。" }
-else { Write-Host '  17cc(strict) coverage gap → -Strict 下真失败 OK（不带 -Strict exit 0 / 带 -Strict exit 1，真实仓根）' -ForegroundColor Green }
+  New-Item -ItemType Directory -Force $scannerFixtureScripts, (Join-Path $scannerFixtureAndroid 'gradle') | Out-Null
+  Copy-Item -LiteralPath $realCLPath, (Join-Path $RepoRoot 'scripts/_config.ps1'), (Join-Path $RepoRoot 'scripts/_encoding.ps1') -Destination $scannerFixtureScripts
+  Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'gradle/libs.versions.toml') -Encoding utf8 -Value '[versions]'
+  Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'build.gradle.kts') -Encoding utf8 -Value 'plugins {}'
+  Set-ScannerFixturePom 'org.testng:testng:7.0.0' 'Apache License, Version 2.0'
+  Set-ScannerFixturePom 'fixture.epl:copyleft:1.0' 'Eclipse Public License 1.0'
+  $savedFixtureGradleHome = $env:GRADLE_USER_HOME
+  $savedFixtureCallLog = $env:GRADLE_CALL_LOG
+  try {
+    $env:GRADLE_USER_HOME = $scannerFixtureGradleHome
+    $env:GRADLE_CALL_LOG = $scannerFixtureCallLog
+    Set-ScannerFixtureOverrides $null
+
+    Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+    $scannerSafe = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $expectedGradleCalls = @(
+      @{ Project = ':core:dependencies'; Configuration = 'runtimeClasspath' },
+      @{ Project = ':core:dependencies'; Configuration = 'testRuntimeClasspath' },
+      @{ Project = ':app:dependencies'; Configuration = 'debugRuntimeClasspath' },
+      @{ Project = ':app:dependencies'; Configuration = 'releaseRuntimeClasspath' }
+    )
+    $actualGradleCalls = if (Test-Path $scannerFixtureCallLog) { @(Get-Content -LiteralPath $scannerFixtureCallLog) } else { @() }
+    $missingGradleCalls = @($expectedGradleCalls | Where-Object {
+      $expected = $_
+      @($actualGradleCalls | Where-Object { $_.Contains($expected.Project) -and $_.Contains($expected.Configuration) }).Count -eq 0
+    })
+    $nonOfflineCalls = @($actualGradleCalls | Where-Object { -not $_.Contains('--offline') -or -not $_.Contains('--no-daemon') })
+    if ($scannerSafe.Exit -ne 0 -or $scannerSafe.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache') {
+      Fail "种子缺陷 17cc(scanner/pom)：缓存 POM 中 Apache 的 org.testng:testng:7.0.0 应在 -Strict 下逐坐标报告且 exit 0，实得 exit=$($scannerSafe.Exit)；输出=$($scannerSafe.Text)。"
+    } elseif ($actualGradleCalls.Count -ne $expectedGradleCalls.Count -or $missingGradleCalls.Count -gt 0 -or $nonOfflineCalls.Count -gt 0) {
+      Fail "种子缺陷 17cc(scanner/configs)：应恰好离线解析 core runtime/TestNG + app debug/release runtime 四张图；实际调用=$($actualGradleCalls -join ' | ')；缺=$($missingGradleCalls | ForEach-Object { "$($_.Project)/$($_.Configuration)" } | Join-String -Separator ',')；未带 --offline/--no-daemon=$($nonOfflineCalls -join ' | ')。"
+    } else {
+      Write-Host '  17cc(scanner/pom+configs) TestNG 缓存 POM/逐坐标报告 + core/runtime/TestNG 与 app/debug/release 四图 + --offline/--no-daemon OK' -ForegroundColor Green
+    }
+
+    $resolvedCoordinate = 'fixture.resolve:redirect:1.0'
+    Set-ScannerFixturePom $resolvedCoordinate 'Apache License, Version 2.0'
+    # cmd.exe 把裸 > 当重定向；插入 caret 只影响 batch 解析，scanner 实际收到的 Gradle 文本仍是 `->`。
+    Set-ScannerFixtureReport '+--- fixture.resolve:redirect:0.9 -^> 1.0'
+    $scannerResolved = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerResolved.Exit -ne 0 -or $scannerResolved.Text -notmatch 'fixture\.resolve:redirect:1\.0.*Apache' -or $scannerResolved.Text -match 'fixture\.resolve:redirect:0\.9') {
+      Fail "种子缺陷 17cc(scanner/resolved-version)：Gradle requested 0.9 -> resolved 1.0 时必须只以已解析 fixture.resolve:redirect:1.0 查 POM/报告且 -Strict 通过；实得 exit=$($scannerResolved.Exit)；输出=$($scannerResolved.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/resolved-version) requested -> resolved 版本只按 resolved GAV 查 POM/报告 OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureReport '+--- fixture.epl:copyleft:1.0'
+    $scannerEpl = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerEpl.Exit -eq 0 -or $scannerEpl.Text -notmatch 'fixture\.epl:copyleft:1\.0') {
+      Fail "种子缺陷 17cc(scanner/epl)：缓存 POM 中 EPL 的 fixture.epl:copyleft:1.0 在 -Strict 下必须非零且点名坐标，实得 exit=$($scannerEpl.Exit)；输出=$($scannerEpl.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/epl) 禁列 EPL 坐标在 -Strict 下非零且点名 OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureReport '+--- fixture.unknown:missing:1.0'
+    $scannerUnknown = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerUnknown.Exit -eq 0 -or $scannerUnknown.Text -notmatch 'fixture\.unknown:missing:1\.0') {
+      Fail "种子缺陷 17cc(scanner/unknown)：无 POM 且无豁免的 fixture.unknown:missing:1.0 即使非 Strict 也必须非零且点名坐标，实得 exit=$($scannerUnknown.Exit)；输出=$($scannerUnknown.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/unknown) 缺失许可在非 Strict 下仍非零且点名 OK' -ForegroundColor Green
+    }
+
+    $unknownLicenseCoordinate = 'fixture.unknown:license:1.0'
+    Set-ScannerFixturePom $unknownLicenseCoordinate 'Mystery License'
+    Set-ScannerFixtureReport "+--- $unknownLicenseCoordinate"
+    $scannerUnknownLicense = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerUnknownLicense.Exit -eq 0 -or $scannerUnknownLicense.Text -notmatch 'fixture\.unknown:license:1\.0' -or $scannerUnknownLicense.Text -notmatch 'GRADLE-UNKNOWN') {
+      Fail "种子缺陷 17cc(scanner/unknown-license)：缓存 POM 的未识别 Mystery License 即使非 Strict 也必须非零、点名 fixture.unknown:license:1.0 且分类为 GRADLE-UNKNOWN；实得 exit=$($scannerUnknownLicense.Exit)；输出=$($scannerUnknownLicense.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/unknown-license) 未识别 POM 许可在非 Strict 下仍 fail-closed 且点名 OK' -ForegroundColor Green
+    }
+
+    $knownYellowCoordinate = 'fixture.yellow:lgpl:2.1'
+    Set-ScannerFixturePom $knownYellowCoordinate 'LGPL-2.1'
+    Set-ScannerFixtureReport "+--- $knownYellowCoordinate"
+    $scannerKnownYellow = Invoke-ScannerFixture $scannerFixtureScript
+    $scannerKnownYellowStrict = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerKnownYellow.Exit -ne 0 -or $scannerKnownYellowStrict.Exit -eq 0 -or $scannerKnownYellow.Text -match 'GRADLE-UNKNOWN') {
+      Fail "种子缺陷 17cc(scanner/yellow-exact)：精确 LGPL-2.1 应在普通模式黄牌通过、-Strict 非零，且不得误判为未知；普通=$($scannerKnownYellow.Exit) strict=$($scannerKnownYellowStrict.Exit)；输出=$($scannerKnownYellow.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/yellow-exact) 精确 LGPL-2.1 普通黄牌通过、-Strict 非零 OK' -ForegroundColor Green
+    }
+
+    foreach ($adversarialLicense in @(
+      @{ Coordinate = 'fixture.adversarial:apache:1.0'; License = 'Mystery Apache License' },
+      @{ Coordinate = 'fixture.adversarial:lgpl:1.0'; License = 'Mystery LGPL-ish' },
+      @{ Coordinate = 'fixture.adversarial:mpl:1.0'; License = 'Unknown MPL-like' }
+    )) {
+      Set-ScannerFixturePom $adversarialLicense.Coordinate $adversarialLicense.License
+      Set-ScannerFixtureReport "+--- $($adversarialLicense.Coordinate)"
+      $scannerAdversarial = Invoke-ScannerFixture $scannerFixtureScript
+      if ($scannerAdversarial.Exit -eq 0 -or $scannerAdversarial.Text -notmatch [regex]::Escape($adversarialLicense.Coordinate) -or $scannerAdversarial.Text -notmatch 'GRADLE-UNKNOWN') {
+        Fail "种子缺陷 17cc(scanner/unknown-substring)：含已知关键词但不是完整许可名的 '$($adversarialLicense.License)' 必须在普通模式以 GRADLE-UNKNOWN 点名拒绝 $($adversarialLicense.Coordinate)；实得 exit=$($scannerAdversarial.Exit)；输出=$($scannerAdversarial.Text)。"
+      } else {
+        Write-Host "  17cc(scanner/unknown-substring) '$($adversarialLicense.License)' 不借关键词放行，普通模式 fail-closed OK" -ForegroundColor Green
+      }
+    }
+
+    $mismatchCoordinate = 'fixture.mismatch:artifact:1.0'
+    Set-ScannerFixturePom $mismatchCoordinate 'Apache License, Version 2.0' 'wrong.group'
+    Set-ScannerFixtureReport "+--- $mismatchCoordinate"
+    $scannerMismatch = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerMismatch.Exit -eq 0 -or $scannerMismatch.Text -notmatch 'fixture\.mismatch:artifact:1\.0' -or $scannerMismatch.Text -notmatch 'GAV') {
+      Fail "种子缺陷 17cc(scanner/gav)：缓存路径与 POM 自声明 GAV 不一致必须 fail-closed 且点名 fixture.mismatch:artifact:1.0，实得 exit=$($scannerMismatch.Exit)；输出=$($scannerMismatch.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/gav) 缓存 POM GAV 不一致 fail-closed 且点名 OK' -ForegroundColor Green
+    }
+
+    $versionMismatchCoordinate = 'fixture.mismatch:version:1.0'
+    Set-ScannerFixturePom $versionMismatchCoordinate 'Apache License, Version 2.0' -PomVersion '9.9.9'
+    Set-ScannerFixtureReport "+--- $versionMismatchCoordinate"
+    $scannerVersionMismatch = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerVersionMismatch.Exit -eq 0 -or $scannerVersionMismatch.Text -notmatch 'fixture\.mismatch:version:1\.0' -or $scannerVersionMismatch.Text -notmatch 'GAV') {
+      Fail "种子缺陷 17cc(scanner/gav-version)：缓存路径与 POM 自声明 version 不一致必须 fail-closed 且点名 fixture.mismatch:version:1.0；实得 exit=$($scannerVersionMismatch.Exit)；输出=$($scannerVersionMismatch.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/gav-version) 缓存 POM version 不一致 fail-closed 且点名 OK' -ForegroundColor Green
+    }
+
+    $brokenPomCoordinate = 'fixture.broken:pom:1.0'
+    Set-ScannerFixtureBrokenPom $brokenPomCoordinate
+    Set-ScannerFixtureReport "+--- $brokenPomCoordinate"
+    $scannerBrokenPom = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerBrokenPom.Exit -eq 0 -or $scannerBrokenPom.Text -notmatch 'fixture\.broken:pom:1\.0' -or $scannerBrokenPom.Text -notmatch 'POM') {
+      Fail "种子缺陷 17cc(scanner/pom-parse)：损坏 POM 必须 fail-closed 且点名 fixture.broken:pom:1.0，实得 exit=$($scannerBrokenPom.Exit)；输出=$($scannerBrokenPom.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/pom-parse) 损坏 POM fail-closed 且点名 OK' -ForegroundColor Green
+    }
+
+    $mixedPomCoordinate = 'fixture.multicopy:mixed:1.0'
+    Set-ScannerFixturePomWithoutLicense $mixedPomCoordinate -CacheLeaf 'no-license-copy'
+    Set-ScannerFixturePom $mixedPomCoordinate 'Apache License, Version 2.0' -CacheLeaf 'licensed-copy'
+    Set-ScannerFixtureReport "+--- $mixedPomCoordinate"
+    $scannerMixedPom = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerMixedPom.Exit -eq 0 -or $scannerMixedPom.Text -notmatch 'fixture\.multicopy:mixed:1\.0' -or $scannerMixedPom.Text -notmatch 'GRADLE-POM') {
+      Fail "种子缺陷 17cc(scanner/pom-mixed)：同 GAV 的无许可/Apache 双缓存副本不得被人工豁免或任选一份放行，必须 fail-closed 且点名 fixture.multicopy:mixed:1.0；实得 exit=$($scannerMixedPom.Exit)；输出=$($scannerMixedPom.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/pom-mixed) 同 GAV 缺失/已声明许可证双缓存副本 fail-closed 且点名 OK' -ForegroundColor Green
+    }
+
+    $conflictingPomCoordinate = 'fixture.multicopy:conflict:1.0'
+    Set-ScannerFixturePom $conflictingPomCoordinate 'Apache License, Version 2.0' -CacheLeaf 'apache-copy'
+    Set-ScannerFixturePom $conflictingPomCoordinate 'MIT License' -CacheLeaf 'mit-copy'
+    Set-ScannerFixtureReport "+--- $conflictingPomCoordinate"
+    $scannerConflictingPom = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerConflictingPom.Exit -eq 0 -or $scannerConflictingPom.Text -notmatch 'fixture\.multicopy:conflict:1\.0' -or $scannerConflictingPom.Text -notmatch 'GRADLE-POM') {
+      Fail "种子缺陷 17cc(scanner/pom-conflict)：同 GAV 的 Apache/MIT 双缓存副本不得任选一份放行，必须 fail-closed 且点名 fixture.multicopy:conflict:1.0；实得 exit=$($scannerConflictingPom.Exit)；输出=$($scannerConflictingPom.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/pom-conflict) 同 GAV 冲突许可证双缓存副本 fail-closed 且点名 OK' -ForegroundColor Green
+    }
+
+    $declaredNameOverrideCoordinate = 'fixture.override:declared-name:1.0'
+    Set-ScannerFixturePom $declaredNameOverrideCoordinate 'BSD License'
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$declaredNameOverrideCoordinate","declared_license":"BSD License","license":"BSD-3-Clause","evidence_url":"https://example.invalid/libyuv","registered_by":"selftest","registered_on":"2026-08-18"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $declaredNameOverrideCoordinate"
+    $scannerDeclaredNameOverride = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerDeclaredNameOverride.Exit -ne 0 -or $scannerDeclaredNameOverride.Text -notmatch 'fixture\.override:declared-name:1\.0' -or $scannerDeclaredNameOverride.Text -notmatch 'BSD-3-Clause') {
+      Fail "种子缺陷 17cc(scanner/declared-name-override)：有效 POM 的未知名称仅可由完全匹配的 declared_license 映射到政策允许的 canonical license；实得 exit=$($scannerDeclaredNameOverride.Exit)；输出=$($scannerDeclaredNameOverride.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/declared-name-override) 有效 POM 未知名称的精确 GAV+名称映射仅映射到允许 canonical 许可 OK' -ForegroundColor Green
+    }
+
+    $declaredNameMismatchCoordinate = 'fixture.override:declared-mismatch:1.0'
+    Set-ScannerFixturePom $declaredNameMismatchCoordinate 'BSD License'
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$declaredNameMismatchCoordinate","declared_license":"BSD License Alias","license":"BSD-3-Clause","evidence_url":"https://example.invalid/libyuv","registered_by":"selftest","registered_on":"2026-08-18"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $declaredNameMismatchCoordinate"
+    $scannerDeclaredNameMismatch = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerDeclaredNameMismatch.Exit -eq 0 -or $scannerDeclaredNameMismatch.Text -notmatch 'fixture\.override:declared-mismatch:1\.0' -or $scannerDeclaredNameMismatch.Text -notmatch 'GRADLE-UNKNOWN') {
+      Fail "种子缺陷 17cc(scanner/declared-name-exact)：declared_license 必须与有效 POM 的未知名称逐字匹配；相近名称不得放行，实得 exit=$($scannerDeclaredNameMismatch.Exit)；输出=$($scannerDeclaredNameMismatch.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/declared-name-exact) 有效 POM 映射名称不精确时仍以 GRADLE-UNKNOWN fail-closed OK' -ForegroundColor Green
+    }
+
+    $forbiddenMappedCoordinate = 'fixture.override:forbidden-wins:1.0'
+    Set-ScannerFixturePom $forbiddenMappedCoordinate @('BSD License', 'Eclipse Public License 1.0')
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$forbiddenMappedCoordinate","declared_license":"BSD License","license":"BSD-3-Clause","evidence_url":"https://example.invalid/libyuv","registered_by":"selftest","registered_on":"2026-08-18"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $forbiddenMappedCoordinate"
+    $scannerForbiddenMapped = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerForbiddenMapped.Exit -eq 0 -or $scannerForbiddenMapped.Text -notmatch 'fixture\.override:forbidden-wins:1\.0' -or $scannerForbiddenMapped.Text -notmatch 'GRADLE-FORBIDDEN') {
+      Fail "种子缺陷 17cc(scanner/declared-name-forbidden)：有效 POM 含 EPL 时，即使另一未知名称有精确映射也必须以 GRADLE-FORBIDDEN 阻断；实得 exit=$($scannerForbiddenMapped.Exit)；输出=$($scannerForbiddenMapped.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/declared-name-forbidden) 已映射的未知名称绝不掩盖同 POM 的 EPL 禁列命中 OK' -ForegroundColor Green
+    }
+
+    $unsafeCanonicalCoordinate = 'fixture.override:unsafe-canonical:1.0'
+    Set-ScannerFixturePom $unsafeCanonicalCoordinate 'BSD License'
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$unsafeCanonicalCoordinate","declared_license":"BSD License","license":"Eclipse Public License 1.0","evidence_url":"https://example.invalid/libyuv","registered_by":"selftest","registered_on":"2026-08-18"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $unsafeCanonicalCoordinate"
+    $scannerUnsafeCanonical = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerUnsafeCanonical.Exit -eq 0 -or $scannerUnsafeCanonical.Text -notmatch 'GRADLE-OVERRIDE') {
+      Fail "种子缺陷 17cc(scanner/declared-name-canonical)：declared_license 映射的 canonical license 必须是政策允许的完整名称，禁列 canonical 值的记录必须以 GRADLE-OVERRIDE fail-closed；实得 exit=$($scannerUnsafeCanonical.Exit)；输出=$($scannerUnsafeCanonical.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/declared-name-canonical) declared_license 映射不可把 canonical license 设为禁列 OK' -ForegroundColor Green
+    }
+
+    $overrideCoordinate = 'fixture.override:approved:1.0'
+    Set-ScannerFixturePomWithoutLicense $overrideCoordinate
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$overrideCoordinate","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $overrideCoordinate"
+    $scannerOverride = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerOverride.Exit -ne 0 -or $scannerOverride.Text -notmatch 'fixture\.override:approved:1\.0' -or $scannerOverride.Text -notmatch 'override') {
+      Fail "种子缺陷 17cc(scanner/override)：POM 无 licenses 时仅完整、精确 GAV 的人工豁免可回退为 Apache 且 -Strict 通过，实得 exit=$($scannerOverride.Exit)；输出=$($scannerOverride.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/override) POM 无 licenses 时完整精确 GAV 豁免作为回退 OK' -ForegroundColor Green
+    }
+
+    foreach ($invalidOverride in @(
+      @{ Id = 'malformed-json'; Json = '[{"coordinate":' },
+      @{ Id = 'wildcard'; Json = '[{"coordinate":"fixture.override:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'missing-field'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'duplicate'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/one","registered_by":"selftest","registered_on":"2026-08-18"},{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/two","registered_by":"selftest","registered_on":"2026-08-18"}]' }
+    )) {
+      Set-ScannerFixtureOverrides $invalidOverride.Json
+      Set-ScannerFixtureReport "+--- $overrideCoordinate"
+      $invalidResult = Invoke-ScannerFixture $scannerFixtureScript
+      if ($invalidResult.Exit -eq 0 -or $invalidResult.Text -notmatch 'GRADLE-OVERRIDE') {
+        Fail "种子缺陷 17cc(scanner/override-$($invalidOverride.Id))：通配/必填字段缺失/重复坐标的豁免表必须 fail-closed 并输出 GRADLE-OVERRIDE，实得 exit=$($invalidResult.Exit)；输出=$($invalidResult.Text)。"
+      } else {
+        Write-Host "  17cc(scanner/override-$($invalidOverride.Id)) 非精确或不完整/歧义豁免 fail-closed OK" -ForegroundColor Green
+      }
+    }
+    Set-ScannerFixtureOverrides $null
+
+    Set-ScannerFixtureFailure 42
+    $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerGradleFailure.Exit -eq 0 -or $scannerGradleFailure.Text -notmatch ':core:runtimeClasspath') {
+      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed 并点名首个配置 :core:runtimeClasspath，实得 exit=$($scannerGradleFailure.Exit)；输出=$($scannerGradleFailure.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/gradle-exit) Gradle 子进程失败 fail-closed 且点名配置 OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureReport 'no resolved Gradle coordinate here'
+    $scannerGradleParse = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerGradleParse.Exit -eq 0 -or $scannerGradleParse.Text -notmatch ':core:runtimeClasspath') {
+      Fail "种子缺陷 17cc(scanner/gradle-parse)：无可解析 GAV 的 Gradle 报告必须 fail-closed 并点名首个配置 :core:runtimeClasspath，实得 exit=$($scannerGradleParse.Exit)；输出=$($scannerGradleParse.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/gradle-parse) 无可解析 GAV fail-closed 且点名配置 OK' -ForegroundColor Green
+    }
+
+    # 卡片的三条核心行为各配一个**单句删除**变异。判据和被测扫描器都在独立的 fixture 副本中运行：
+    # 基线必须 exit 0 + PRESENT；变异后必须非零 + ABSENT，并且再由专属失败码确认红在该红的断言上。
+    # 不能只看“脚本异常”或任意 nonzero，否则一条别的失败会把空转断言伪装成已杀死的变异。
+    $scannerMutationScript = Join-Path $scannerFixtureScripts 'check-licenses-mutant.ps1'
+    Copy-Item -LiteralPath $scannerFixtureScript -Destination $scannerMutationScript -Force
+    $scannerMutationLines = Get-Content -LiteralPath $scannerMutationScript
+    Set-Content -LiteralPath $scannerMutationScript -Value $scannerMutationLines -Encoding utf8
+    $scannerMutationLines = Get-Content -LiteralPath $scannerMutationScript
+    function Invoke-ScannerMutationProbe([string]$ScriptPath, [string]$Scenario, [string]$MarkerId) {
+      Set-ScannerFixtureOverrides $null
+      switch ($Scenario) {
+        'testng' {
+          Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $hits = [regex]::Matches($result.Text, '(?m)^\s*-\s+org\.testng:testng:7\.0\.0\s+=>').Count
+          $present = $result.Exit -eq 0 -and $hits -eq 1 -and $result.Text -match 'org\.testng:testng:7\.0\.0.*Apache'
+          $code = 'ABSENT-TESTNG-REPORT'
+        }
+        'epl' {
+          Set-ScannerFixtureReport '+--- fixture.epl:copyleft:1.0'
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.epl:copyleft:1\.0' -and $result.Text -match '\[GRADLE-FORBIDDEN\]'
+          $code = 'ABSENT-EPL-BLOCK'
+        }
+        'unknown' {
+          Set-ScannerFixtureReport '+--- fixture.unknown:missing:1.0'
+          $result = Invoke-ScannerFixture $ScriptPath
+          $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.unknown:missing:1\.0' -and $result.Text -match '\[GRADLE-METADATA\]'
+          $code = 'ABSENT-UNKNOWN-BLOCK'
+        }
+        default { throw "未知 scanner mutation scenario: $Scenario" }
+      }
+      $word = if ($present) { 'PRESENT' } else { $code }
+      return [PSCustomObject]@{ Exit = if ($present) { 0 } else { 1 }; StdOut = "MARKER:$MarkerId`:$word" }
+    }
+    try {
+      $scannerMutationCases = @(
+        @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add($coordinate)' },
+        @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
+        @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' }
+      )
+      foreach ($mutationCase in $scannerMutationCases) {
+        $mutationMarkerId = "GRADLE-SCANNER-MUT-$($mutationCase.Id.ToUpperInvariant())"
+        $baseMutationResult = Invoke-ScannerMutationProbe -ScriptPath $scannerMutationScript -Scenario $mutationCase.Scenario -MarkerId $mutationMarkerId
+        if (-not (Test-MarkerResult $baseMutationResult $mutationMarkerId $true "17cc(scanner-mut/$($mutationCase.Id)) 基线")) { continue }
+        $probe = {
+          Invoke-ScannerMutationProbe -ScriptPath $scannerMutationScript -Scenario $mutationCase.Scenario -MarkerId $mutationMarkerId
+        }.GetNewClosure()
+        $mutation = Invoke-LineDeletionMutation -Path $scannerMutationScript -OrigLines $scannerMutationLines -LineMarker $mutationCase.Marker -Probe $probe
+        if (-not $mutation.Ok) {
+          Fail "17cc(scanner-mut/$($mutationCase.Id))：$($mutation.Reason)"
+        } elseif (-not (Test-MarkerResult $mutation.Result $mutationMarkerId $false "种子缺陷 17cc(scanner-mut/$($mutationCase.Id))：删掉「$($mutationCase.Label)」后判据未变红（vacuous mutation）")) {
+          continue
+        } elseif (-not (Test-MarkerCode $mutation.Result.StdOut $mutationMarkerId $mutationCase.Code)) {
+          Fail "17cc(scanner-mut/$($mutationCase.Id)) 分类器：变异虽非零但失败码不是 $($mutationCase.Code)（stdout=$($mutation.Result.StdOut)）——未证红在本卡指定断言上。"
+        } else {
+          Write-Host "  17cc(scanner-mut/$($mutationCase.Id)) $($mutationCase.Label)：单句删除后判据子进程 exit 非零 + $($mutationCase.Code)（RED，红在该红的断言上）、副本 SHA256 已还原 OK" -ForegroundColor Green
+        }
+      }
+    } finally {
+      Set-ScannerFixtureOverrides $null
+      Remove-Item -LiteralPath $scannerMutationScript -Force -ErrorAction SilentlyContinue
+      if (Test-Path $scannerMutationScript) { Fail "17cc(scanner-mut) 收尾：临时 mutant $scannerMutationScript 未能删除——请手动清理。" }
+    }
+  } finally {
+    $env:GRADLE_USER_HOME = $savedFixtureGradleHome
+    $env:GRADLE_CALL_LOG = $savedFixtureCallLog
+  }
+} finally {
+  Remove-Item -LiteralPath $scannerFixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+  if (Test-Path $scannerFixtureRoot) { Fail "17cc(scanner) 收尾：临时夹具 $scannerFixtureRoot 未能删除——请手动清理，避免残留。" }
+}
 
 # 17dd. verify.ps1 的 Android 闸调用含 --no-daemon（源码断言，纯文本、不执行整套 Gradle 构建——避免 R3
 # 沙箱不保证可复跑的重型套件，L60/L62）。断言锚定到完整调用行（.\gradlew.bat + --offline + --no-daemon +

@@ -1,0 +1,24 @@
+[
+  {
+    "coordinate": "androidx.camera:camera-core:1.5.3",
+    "declared_license": "BSD License",
+    "license": "BSD-3-Clause",
+    "evidence_url": "https://chromium.googlesource.com/libyuv/libyuv/+/f2ac6db694d1e5b0af1d7b05dc431e0e455fe228/README.chromium",
+    "registered_by": "asun28",
+    "registered_on": "2026-08-18"
+  },
+  {
+    "coordinate": "com.google.auto.value:auto-value-annotations:1.6.3",
+    "license": "Apache-2.0",
+    "evidence_url": "https://raw.githubusercontent.com/google/auto/cee66e1081668d30d7e1c9892efa759e851f22f0/LICENSE.txt",
+    "registered_by": "asun28",
+    "registered_on": "2026-08-18"
+  },
+  {
+    "coordinate": "com.google.guava:listenablefuture:1.0",
+    "license": "Apache-2.0",
+    "evidence_url": "https://raw.githubusercontent.com/google/guava/bbf9295088d668c06e573cea03f01375985c1814/COPYING",
+    "registered_by": "asun28",
+    "registered_on": "2026-08-18"
+  }
+]
