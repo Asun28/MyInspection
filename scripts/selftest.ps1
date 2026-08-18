@@ -8964,10 +8964,13 @@ try {
 }
 
 function Set-ScannerFixtureReport([string]$ReportLine) {
+  # cmd.exe treats an unescaped > in a report as redirection; escape it only in the batch fixture.
+  # The POSIX wrapper must receive the original Gradle text, including the literal -> resolution marker.
+  $windowsReportLine = $ReportLine.Replace('>', '^>')
   Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
-    "echo $ReportLine",
+    "echo $windowsReportLine",
     'exit /b 0'
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
@@ -9091,8 +9094,8 @@ try {
 
     $resolvedCoordinate = 'fixture.resolve:redirect:1.0'
     Set-ScannerFixturePom $resolvedCoordinate 'Apache License, Version 2.0'
-    # cmd.exe 把裸 > 当重定向；插入 caret 只影响 batch 解析，scanner 实际收到的 Gradle 文本仍是 `->`。
-    Set-ScannerFixtureReport '+--- fixture.resolve:redirect:0.9 -^> 1.0'
+    # Batch wrapper escapes > internally; both fixture wrappers must emit the same Gradle `->` text.
+    Set-ScannerFixtureReport '+--- fixture.resolve:redirect:0.9 -> 1.0'
     $scannerResolved = Invoke-ScannerFixture $scannerFixtureScript -Strict
     if ($scannerResolved.Exit -ne 0 -or $scannerResolved.Text -notmatch 'fixture\.resolve:redirect:1\.0.*Apache' -or $scannerResolved.Text -match 'fixture\.resolve:redirect:0\.9') {
       Fail "种子缺陷 17cc(scanner/resolved-version)：Gradle requested 0.9 -> resolved 1.0 时必须只以已解析 fixture.resolve:redirect:1.0 查 POM/报告且 -Strict 通过；实得 exit=$($scannerResolved.Exit)；输出=$($scannerResolved.Text)。"
