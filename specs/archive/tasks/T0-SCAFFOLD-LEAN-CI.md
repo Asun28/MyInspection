@@ -4,7 +4,7 @@ title: Stop launching scaffold-only CI shards for ordinary product pull requests
 depends_on: [T0-HARNESS-PERF]
 plan_ref: _local/PLAN.md#71-scaffold-lean-ci-cost-plan-2026-08-18
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-SCAFFOLD-LEAN-CI
 worktree: C:\wt\T0-SCAFFOLD-LEAN-CI
 allow_paths:
@@ -44,6 +44,7 @@ Make `scaffold-selftest` run on pull requests only when its existing non-Markdow
 - Those PRs still generated 60 scaffold workflow runs and 360 shard-job launches.
 - `T0-HARNESS-PERF` already reduced local full selftest time by about 55%; avoiding irrelevant launches is now the lower-complexity optimization.
 - R3 remains unchanged because the same PR cohort demonstrates that it caught material licence, privacy, data-loss, determinism, legal-wording, and test-validity defects.
+- PR #22 merged at `f976d0f` after a zero-finding R3 pass. Because it changed `.github/**`, GitHub started one `scaffold-selftest` workflow with all six existing jobs, confirming the included-path behavior remained intact. No product-only PR existed after the merge yet, so the zero-launch side is recorded by the exact path-filter contract rather than claimed as a post-merge observation.
 
 ## Implementation constraint
 
