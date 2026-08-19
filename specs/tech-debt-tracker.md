@@ -42,7 +42,6 @@
 
 | TD14 | 2026-08-17 | `core/media/`(落盘↔入库) + `app/media/`(清理调度) | **跨 FS+DB 的真原子性未做**：落盘在前、入库在后，入库失败靠补偿撤销刚写的字节。两条具体丢数据路径已在 T2-PHOTO-PIPELINE 内各自封死（补偿绝不删仍被活跃行引用的路径——同 photoId 重试时赢家那行正引用它，判据为已冻结的 `selectActiveAssetsByContentHash`；复用路径本次不写字节故永不补偿），但**共享临界区**这个架构级解法未做。后果：极端交错下仍可能出现「字节在盘、行不在库」的孤儿（由 `OrphanedAssetCleanup` 兜底，而它至今**没有生产调度器**）/ 修法：要么给两侧共享临界区（须动**已冻结**的 `sqldelight/`，走版本评审），要么把 `OrphanedAssetCleanup` 接上 WorkManager 定期跑（`app/` 调度接线不在本卡 allow_paths 内）。**注意 TD10 仲裁：不得再以多连接场景 block 单连接卡** / 可测：接线后须有「入库失败→字节被撤销 或 被清理任务回收」的端到端用例 / 前置：无（但动 sqldelight 须先还 TD4） | major | open | — |
 
-| TD15 | 2026-08-17 | `core/media/`(JPEG 编码内存预算) | **编码字节上界是「有依据的余量」而非可证明上界**：预算余量已从 2 B/px 提到 4 B/px 以覆盖 `ByteArrayOutputStream` 底层数组 + `toByteArray()` 复制，注释也已如实改口（不再自称 upper bound）。后果：病理输入（超高熵图像）理论上仍可能超出余量而 OOM，`RejectedTooLarge` 可重试语义能兜住一部分但非证明 / 修法：**不在内存攒整份 JPEG**——边编码边写盘、边摘要，上界随之消失；属两条管线的字节流向重构，跨 `core/media` 与 `app/media` 两侧 / 可测：重构后以合成高熵图跑，堆占用不随图像尺寸线性攒整份字节 / 前置：无 | minor | carded | `specs/tasks/T2-PHOTO-STREAMING-ENCODE.md` |
 
 
 

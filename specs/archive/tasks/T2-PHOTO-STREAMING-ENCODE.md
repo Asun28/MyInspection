@@ -2,7 +2,7 @@
 id: T2-PHOTO-STREAMING-ENCODE
 title: 照片流式编码：去掉整份 JPEG ByteArray 内存峰值（偿还 TD15）
 depends_on: [T2-PHOTO-PIPELINE]
-status: todo
+status: merged
 branch: T2-PHOTO-STREAMING-ENCODE
 worktree: C:\wt\T2-PHOTO-STREAMING-ENCODE
 allow_paths:
@@ -36,3 +36,12 @@ doc_sync: TD15 状态与 TASK-BOARD 备注（R5）
 
 ## 验收
 见 front-matter。首选 Sonnet 5 · max；备选 GPT-5.6 Terra · high。难度 M。
+
+## 合并记录
+
+PR #29 以 master `c8f3b63` squash 合并；最终功能提交为 `a952763`。相机与导入均通过同一
+`VerifiedAssetWorkflow` 把 JPEG 单次编码到摘要化临时文件，关闭后逐块复读核验 size/SHA，再按既有
+no-overwrite publish → DB 补偿契约落定。相机 `content_hash` 仍取最终 JPEG，导入仍取原始 source bytes。
+4096²/16 MiB 高熵真实文件夹具、digest-finalization/verification-read 故障、发布/记录顺序与清理变异均通过；
+卡片 DoD、verify、范围、许可、secrets 全绿。R3 首轮要求把源码字符串证据升级为生产共用的可执行 seam，
+补强后第二轮 `pass`。TD15 已偿还。
