@@ -525,7 +525,6 @@ function Get-GradleCoordinatesFromDependencyOutput {
     $displayBody = $body
     $displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge
     if ($body -match '^project\s+') {
-      $projectBody = $body
       if ($body -match "^project\s+$projectSelectorPattern(?:\s+\((?:c|\*)\))*\s+->\s+(?<resolved>.+)$") {
         $body = $Matches.resolved.Trim() # project external substitution target
         if ($body -match $internalProjectPattern) { continue }
