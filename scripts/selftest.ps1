@@ -156,6 +156,19 @@ function Get-WorkflowOnBlockText([string]$WorkflowText) {
   return $onBlock.Groups['body'].Value
 }
 
+function Get-WorkflowMappingKeys([string]$Text, [string]$Indent) {
+  $indentPattern = [regex]::Escape($Indent)
+  $keyMatches = [regex]::Matches($Text, "(?m)^${indentPattern}(?:(?<plain>[A-Za-z_][A-Za-z0-9_-]*)|'(?<single>[^']+)'|`"(?<double>[^`"]+)`")\s*:")
+  return @($keyMatches | ForEach-Object {
+    foreach ($groupName in @('plain', 'single', 'double')) {
+      if ($_.Groups[$groupName].Success) {
+        $_.Groups[$groupName].Value
+        break
+      }
+    }
+  })
+}
+
 function Test-MainMasterWorkflowTrigger([string]$WorkflowText, [string]$Trigger) {
   $onBlockText = Get-WorkflowOnBlockText $WorkflowText
   if ($null -eq $onBlockText) { return $false }
@@ -165,10 +178,12 @@ function Test-MainMasterWorkflowTrigger([string]$WorkflowText, [string]$Trigger)
 function Test-ScaffoldSelftestTriggerContract([string]$WorkflowText) {
   $onBlockText = Get-WorkflowOnBlockText $WorkflowText
   if ($null -eq $onBlockText) { return $false }
-  $events = @([regex]::Matches($onBlockText, '(?m)^  (?<name>[A-Za-z_][A-Za-z0-9_-]*)\s*:') | ForEach-Object { $_.Groups['name'].Value })
+  $events = @(Get-WorkflowMappingKeys $onBlockText '  ')
   if ($events.Count -ne 2 -or (@($events | Sort-Object -Unique) -join ',') -ne 'push,workflow_dispatch') { return $false }
   $pushBlock = [regex]::Match($onBlockText, '(?ms)^  push:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*\s*:|\z)')
   if (-not $pushBlock.Success) { return $false }
+  $pushSelectors = @(Get-WorkflowMappingKeys $pushBlock.Groups['body'].Value '    ')
+  if ($pushSelectors.Count -ne 2 -or (@($pushSelectors | Sort-Object -Unique) -join ',') -ne 'branches,paths') { return $false }
   if ($pushBlock.Groups['body'].Value -notmatch '(?m)^    branches:\s*\[\s*main\s*,\s*master\s*\]\s*$') { return $false }
   if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*$") { return $false }
   if ($onBlockText -notmatch '(?m)^  workflow_dispatch:\s*\{\}\s*$') { return $false }
@@ -963,9 +978,32 @@ if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
 $pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
 $pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
 $scheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  schedule:`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$quotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request': {}`n  workflow_dispatch: {}"
+$doubleQuotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request`": {}`n  workflow_dispatch: {}"
+$quotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request_target': {}`n  workflow_dispatch: {}"
+$doubleQuotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request_target`": {}`n  workflow_dispatch: {}"
+$quotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'schedule':`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$doubleQuotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"schedule`":`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$tagsMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags: ['**']"
+$tagsIgnoreMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags-ignore: ['release/**']"
 $missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
 $alteredPathsMutation82 = $scaffoldTriggerText82 -replace "'configs/\*\*'", "'android/**'"
-$acceptedTriggerMutations82 = @($pullRequestTriggerMutation82, $pullRequestTargetMutation82, $scheduleMutation82, $missingPathsMutation82, $alteredPathsMutation82 | Where-Object { Test-ScaffoldSelftestTriggerContract $_ })
+$acceptedTriggerMutations82 = @(
+  $pullRequestTriggerMutation82,
+  $pullRequestTargetMutation82,
+  $scheduleMutation82,
+  $quotedPullRequestMutation82,
+  $doubleQuotedPullRequestMutation82,
+  $quotedPullRequestTargetMutation82,
+  $doubleQuotedPullRequestTargetMutation82,
+  $quotedScheduleMutation82,
+  $doubleQuotedScheduleMutation82,
+  $tagsMutation82,
+  $tagsIgnoreMutation82,
+  $missingPathsMutation82,
+  $alteredPathsMutation82 |
+    Where-Object { Test-ScaffoldSelftestTriggerContract $_ }
+)
 if ($acceptedTriggerMutations82.Count -gt 0) {
   $trigMissing82 = $true
   Fail "8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。"
