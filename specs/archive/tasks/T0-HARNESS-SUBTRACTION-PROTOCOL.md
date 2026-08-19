@@ -4,7 +4,7 @@ title: 为常驻 harness 文本增加量化、可回滚的减负协议
 depends_on: []
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: [T0-R3-DIFF-BUDGET,T0-LESSONS-COLD-RECALL]
-status: todo
+status: merged
 branch: T0-HARNESS-SUBTRACTION-PROTOCOL
 worktree: C:\wt\T0-HARNESS-SUBTRACTION-PROTOCOL
 allow_paths:
@@ -37,3 +37,7 @@ doc_sync: none；本卡自身即权威方法文档
 3. 一组一个 commit，允许独立 revert。
 4. 最终验收必须跑完整套件，并回放近期真实卡确认指针可达。
 5. 每组记录前后字节/行数；质量下降即回滚并标记 load-bearing。
+
+## 合并记录
+
+PR #24 以 `e971ef8` squash 合并；DoD、verify、范围、许可、防泄露与 R3 全绿，R3 零发现。实现仅向 `docs/HARNESS-REVIEW.md` 增加 15 行协议文本，未执行任何实际删减或改变脚本行为。
