@@ -51,10 +51,20 @@ if ($Suite -eq 'diagnostics') {
     $keyText -ceq "$credentialName=[REDACTED]" -and $keyText -notmatch [regex]::Escape($credentialCanary)
   ) '[DIAG-KEY] secret-like key value was not redacted'
 
+  $credentialKeyName = 'credential' + 's'
+  $credentialKeyText = Get-GradleDiagnosticTail -Output @("$credentialKeyName=$credentialCanary") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $credentialKeyText -ceq "$credentialKeyName=[REDACTED]" -and $credentialKeyText -notmatch [regex]::Escape($credentialCanary)
+  ) '[DIAG-CREDENTIAL-KEY] credential-like key value was not redacted'
+
   $windowsPathCases = @(
     @{ Input = 'failed at C:\Users\alice\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
     @{ Input = 'failed at C:\Users\Alice Smith\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
-    @{ Input = 'failed at file:///C:/Users/alice/private/pom.xml'; Expected = 'failed at file:///[USER_HOME]/private/pom.xml' }
+    @{ Input = 'failed at file:///C:/Users/alice/private/pom.xml'; Expected = 'failed at file:///[USER_HOME]/private/pom.xml' },
+    @{ Input = 'failed at C:\Users\Alice Smith'; Expected = 'failed at [USER_HOME]' },
+    @{ Input = 'failed at C:\Users\Alice Smith: denied'; Expected = 'failed at [USER_HOME]: denied' },
+    @{ Input = 'failed at C:\Users\Alice Smith|denied'; Expected = 'failed at [USER_HOME]|denied' },
+    @{ Input = 'failed at file:///C:/Users/Alice Smith'; Expected = 'failed at file:///[USER_HOME]' }
   )
   foreach ($pathCase in $windowsPathCases) {
     $windowsPathText = Get-GradleDiagnosticTail -Output @($pathCase.Input) -MaxLines 2 -MaxChars 400
@@ -69,7 +79,12 @@ if ($Suite -eq 'diagnostics') {
     @{ Input = 'failed at /home/alice: permission denied'; Expected = 'failed at [USER_HOME]: permission denied' },
     @{ Input = 'failed at /Users/alice/Library/cache/pom.xml'; Expected = 'failed at [USER_HOME]/Library/cache/pom.xml' },
     @{ Input = 'failed at /root/.gradle/caches/pom.xml'; Expected = 'failed at [USER_HOME]/.gradle/caches/pom.xml' },
-    @{ Input = 'failed at file:///home/alice/.gradle/caches/pom.xml'; Expected = 'failed at file://[USER_HOME]/.gradle/caches/pom.xml' }
+    @{ Input = 'failed at file:///home/alice/.gradle/caches/pom.xml'; Expected = 'failed at file://[USER_HOME]/.gradle/caches/pom.xml' },
+    @{ Input = 'failed at /home/Alice Smith'; Expected = 'failed at [USER_HOME]' },
+    @{ Input = 'failed at /Users/Alice Smith'; Expected = 'failed at [USER_HOME]' },
+    @{ Input = 'failed at /Users/Alice Smith|denied'; Expected = 'failed at [USER_HOME]|denied' },
+    @{ Input = 'failed at file:///home/Alice Smith'; Expected = 'failed at file://[USER_HOME]' },
+    @{ Input = 'failed at file:///Users/Alice Smith'; Expected = 'failed at file://[USER_HOME]' }
   )
   foreach ($pathCase in $unixPathCases) {
     $pathText = Get-GradleDiagnosticTail -Output @($pathCase.Input) -MaxLines 2 -MaxChars 400
@@ -234,6 +249,33 @@ if ($Suite -eq 'diagnostics') {
     $longEntry.Length -le 1070
   ) "[DIAG-GAV-PRESERVATION] bounded diagnostic lost exact GAV/category or exceeded the sink bound: $longEntry"
 
+  $script:bad = @()
+  $boundedCoordinate = "$(('g' * 500)):artifact:1.0"
+  Add-GradleNonCompliance "$boundedCoordinate => prefix-$('x' * 1400)-tail [GRADLE-POM]"
+  $boundedCoordinateEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+  Assert-Diagnostics (
+    $boundedCoordinateEntry.StartsWith("[GRADLE] $boundedCoordinate => [TRUNCATED] ") -and
+    $boundedCoordinateEntry.EndsWith('-tail [GRADLE-POM]') -and
+    $boundedCoordinateEntry.Length -le 1040
+  ) "[DIAG-GAV-TOTAL-BOUND] coordinate escaped the diagnostic character budget: $($boundedCoordinateEntry.Length)"
+
+  $script:bad = @()
+  $oversizedCoordinate = "$(('g' * 3000)):artifact:1.0"
+  Add-GradleNonCompliance "$oversizedCoordinate => tail [GRADLE-PARSE]"
+  $oversizedCoordinateEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+  Assert-Diagnostics (
+    $oversizedCoordinateEntry.Length -le 1040 -and $oversizedCoordinateEntry.EndsWith('tail [GRADLE-PARSE]')
+  ) "[DIAG-GAV-TOTAL-BOUND] oversized coordinate produced an unbounded diagnostic: $($oversizedCoordinateEntry.Length)"
+
+  $script:bad = @()
+  $multilineCoordinate = 'fixture.multiline:artifact:1.0'
+  Add-GradleNonCompliance "$multilineCoordinate => first`nsecond [GRADLE-FAKE] tail [GRADLE-POM]"
+  $multilineCoordinateEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+  Assert-Diagnostics (
+    $multilineCoordinateEntry -ceq "[GRADLE] $multilineCoordinate => [TRUNCATED] second [REDACTED-CATEGORY] tail [GRADLE-POM]" -and
+    $multilineCoordinateEntry -notmatch '[\r\n]'
+  ) "[DIAG-GAV-NEWLINE] multiline detail lost exact GAV/category preservation: $multilineCoordinateEntry"
+
   if ($failures.Count -gt 0) {
     foreach ($failure in $failures) { Write-Error $failure -ErrorAction Continue }
     exit 1
@@ -256,19 +298,19 @@ if ($Suite -eq 'diagnostics') {
       },
       @{
         Name = 'key-redaction'
-        From = '    $line = [regex]::Replace($line, ''(?i)(?<lead>^|[^A-Za-z0-9_.-])["'''']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'''']?(?:\s*[:=]\s*|\s+).*$'', ''${lead}${key}=[REDACTED]'') # credential redaction: key'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<lead>^|[^A-Za-z0-9_.-])["'''']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'''']?(?:\s*[:=]\s*|\s+).*$'', ''${lead}${key}=[REDACTED]'') # credential redaction: key'
         To = '    $line = $line # credential redaction: key'
-        Expected = '[DIAG-KEY]'
+        Expected = '[DIAG-CREDENTIAL-KEY]'
       },
       @{
         Name = 'windows-user-home'
-        From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/\s|:;,)\]]+)(?=[\\/]|[:;,)\]\s]|$)'', ''[USER_HOME]'') # diagnostic Windows user-home redaction'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/|:;,)\]\r\n]+)(?=[\\/]|[|:;,)\]]|$)'', ''[USER_HOME]'') # diagnostic Windows user-home redaction'
         To = '    $line = $line # diagnostic Windows user-home redaction'
         Expected = '[DIAG-WINDOWS-HOME]'
       },
       @{
         Name = 'unix-user-home'
-        From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/\s|:;,)\]]+)|Users/(?:[^/|]+(?=/)|[^/\s|:;,)\]]+)|root)(?=/|[:;,)\]\s]|$)'', ''[USER_HOME]'') # diagnostic Unix user-home redaction'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)'', ''[USER_HOME]'') # diagnostic Unix user-home redaction'
         To = '    $line = $line # diagnostic Unix user-home redaction'
         Expected = '[DIAG-UNIX-HOME]'
       },
@@ -316,9 +358,27 @@ if ($Suite -eq 'diagnostics') {
       },
       @{
         Name = 'exact-gav-preservation'
-        From = '    $coordinatePrefix = "$($Matches.coordinate) => " # diagnostic exact-GAV preservation'
+        From = '    $coordinatePrefix = "$($coordinateMatch.Groups[''coordinate''].Value) => " # diagnostic exact-GAV preservation'
         To = '    $coordinatePrefix = '''' # diagnostic exact-GAV preservation'
         Expected = '[DIAG-GAV-PRESERVATION]'
+      },
+      @{
+        Name = 'gav-total-bound'
+        From = '    $detailBudget = [Math]::Max($minimumDiagnosticChars, $auditMaxChars - $coordinatePrefix.Length) # diagnostic coordinate-inclusive bound'
+        To = '    $detailBudget = $auditMaxChars # diagnostic coordinate-inclusive bound'
+        Expected = '[DIAG-GAV-TOTAL-BOUND]'
+      },
+      @{
+        Name = 'gav-oversized-coordinate-bound'
+        From = '    if ($coordinatePrefix.Length -le ($auditMaxChars - $minimumDiagnosticChars)) { # diagnostic oversized-coordinate bound'
+        To = '    if ($true) { # diagnostic oversized-coordinate bound'
+        Expected = '[DIAG-GAV-TOTAL-BOUND]'
+      },
+      @{
+        Name = 'gav-multiline-preservation'
+        From = '  $coordinateMatch = [regex]::Match($Value, ''^(?<coordinate>[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)\s*=>\s*(?<rest>.*)$'', [System.Text.RegularExpressions.RegexOptions]::Singleline) # diagnostic multiline-GAV preservation'
+        To = '  $coordinateMatch = [regex]::Match($Value, ''^(?<coordinate>[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)\s*=>\s*(?<rest>.*)$'') # diagnostic multiline-GAV preservation'
+        Expected = '[DIAG-GAV-NEWLINE]'
       },
       @{
         Name = 'graph-presenter-route'

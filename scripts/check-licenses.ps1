@@ -290,12 +290,18 @@ function Assert-GradleMetadataScalar {
 function Get-GradleAuditText {
   param([AllowEmptyString()][string]$Value)
 
+  $auditMaxChars = 1000
+  $minimumDiagnosticChars = 200
   $coordinatePrefix = ''
-  if ($Value -match '^(?<coordinate>[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)\s*=>\s*(?<rest>.*)$') {
-    $coordinatePrefix = "$($Matches.coordinate) => " # diagnostic exact-GAV preservation
-    $Value = $Matches.rest
+  $coordinateMatch = [regex]::Match($Value, '^(?<coordinate>[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)\s*=>\s*(?<rest>.*)$', [System.Text.RegularExpressions.RegexOptions]::Singleline) # diagnostic multiline-GAV preservation
+  if ($coordinateMatch.Success) {
+    $coordinatePrefix = "$($coordinateMatch.Groups['coordinate'].Value) => " # diagnostic exact-GAV preservation
+    if ($coordinatePrefix.Length -le ($auditMaxChars - $minimumDiagnosticChars)) { # diagnostic oversized-coordinate bound
+      $detailBudget = [Math]::Max($minimumDiagnosticChars, $auditMaxChars - $coordinatePrefix.Length) # diagnostic coordinate-inclusive bound
+      return "$coordinatePrefix$(Get-GradleDiagnosticTail -Output @($coordinateMatch.Groups['rest'].Value) -MaxLines 1 -MaxChars $detailBudget)"
+    }
   }
-  return "$coordinatePrefix$(Get-GradleDiagnosticTail -Output @($Value) -MaxLines 1 -MaxChars 1000)"
+  return Get-GradleDiagnosticTail -Output @($Value) -MaxLines 1 -MaxChars $auditMaxChars
 }
 
 function Add-GradleMetadataNonCompliance {
@@ -941,10 +947,10 @@ function Get-GradleDiagnosticTail {
     $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
     $line = [regex]::Replace($line, '[\p{Cc}\p{Cf}]', ' ') # diagnostic control/format normalization
     $line = [regex]::Replace($line, '(?i)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@', '${scheme}[REDACTED]@') # credential redaction: URI userinfo
-    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/\s|:;,)\]]+)(?=[\\/]|[:;,)\]\s]|$)', '[USER_HOME]') # diagnostic Windows user-home redaction
-    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/\s|:;,)\]]+)|Users/(?:[^/|]+(?=/)|[^/\s|:;,)\]]+)|root)(?=/|[:;,)\]\s]|$)', '[USER_HOME]') # diagnostic Unix user-home redaction
+    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/|:;,)\]\r\n]+)(?=[\\/]|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Windows user-home redaction
+    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Unix user-home redaction
     $line = [regex]::Replace($line, '(?i)\bAuthorization["'']?(?:\s*[:=]\s*|\s+).*$', 'Authorization: [REDACTED]') # credential redaction: authorization
-    $line = [regex]::Replace($line, '(?i)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?(?:\s*[:=]\s*|\s+).*$', '${lead}${key}=[REDACTED]') # credential redaction: key
+    $line = [regex]::Replace($line, '(?i)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?(?:\s*[:=]\s*|\s+).*$', '${lead}${key}=[REDACTED]') # credential redaction: key
     if (-not [string]::IsNullOrWhiteSpace($line)) { $line.Trim() }
   } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($sanitized.Count -eq 0) { return '<no output>' }
