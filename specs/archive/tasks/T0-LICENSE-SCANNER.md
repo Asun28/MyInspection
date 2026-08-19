@@ -2,7 +2,7 @@
 id: T0-LICENSE-SCANNER
 title: Gradle 已解析坐标图合同提取与离线图套件（TD2 收口卡 1/4）
 depends_on: [T0-GATE-HARDENING]
-status: todo
+status: merged
 branch: T0-LICENSE-SCANNER
 worktree: C:\wt\T0-LICENSE-SCANNER
 allow_paths:
@@ -59,3 +59,7 @@ PR #20 已于 master `b0a76d0` 合并，包含 TD2 的端到端初版。它是�
 ## 根因诊断
 
 旧卡同时拥有 Gradle 图、POM 策略、诊断安全、CI 和文档，导致 PR #20 净变更 2,422 行、R3 首屏只能覆盖约三分之一。这里按消费者边界切出第一段，不把“已经写完”当作继续合卡的理由。
+
+## 合并记录
+
+PR #25 以 master `035df10` squash 合并；最终实现提交为 `66f0544`。graph 专用套件覆盖 23 个语义变异，真实离线扫描解析 4 张批准图、150 个唯一 GAV，并经正式 R3 零发现通过。PR #20 / `b0a76d0` 仍是 TD2 端到端初版事实基线；本卡仅完成四卡收口中的第 1 张，TD2 保持 `carded`，下一张为 `T0-LICENSE-POLICY`。
