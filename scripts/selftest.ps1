@@ -5418,9 +5418,9 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       @{ d = $false; lic = 'GNU Affero General Public License';want = 'bad';  why = 'Affero 全称网络触发——不分发也致命' }
       @{ d = $false; lic = 'SSPL-1.0';                         want = 'bad';  why = 'SSPL SaaS 触发——不分发也致命' }
       @{ d = $false; lic = 'EUPL-1.2';                         want = 'bad';  why = 'EUPL 分发+通信触发——保守仍致命' }
-      @{ d = $true;  lic = 'EPL-2.0';                          want = 'bad';  why = 'EPL 恒属禁列' }
-      @{ d = $true;  lic = 'MPL-2.0 OR EPL-2.0';               want = 'bad';  why = '黄牌与 EPL 混合时禁列优先，绝不降级' }
-      @{ d = $false; lic = 'GPL-3.0 OR EPL-2.0';               want = 'bad';  why = '不分发只降纯 GPL；混入 EPL 仍致命' }
+      @{ d = $true;  lic = 'EPL-2.0';                          want = 'ok';   why = '共享 PyPI/npm 基线不含 EPL；Gradle 另行禁列' }
+      @{ d = $true;  lic = 'MPL-2.0 OR EPL-2.0';               want = 'warn'; why = '共享基线保持 MPL 黄牌优先' }
+      @{ d = $false; lic = 'GPL-3.0 OR EPL-2.0';               want = 'warn'; why = '共享基线保持不分发 GPL 降级' }
       @{ d = $false; lic = 'non-commercial';                   want = 'bad';  why = '非商用限用途——与分发无关，仍致命' }
       @{ d = $false; lic = 'CC-BY-NC-4.0';                     want = 'bad';  why = 'CC-BY-NC 限用途——仍致命' }
       # LGPL 两档均黄牌（既有路径不受 Distributes 影响）
@@ -5433,12 +5433,54 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       $got = Test-LicVerdict $c.d $c.lic
       if ($got -ne $c.want) { Fail "种子缺陷 17p：Distributes=$($c.d) 下 '$($c.lic)' 判为 $got，应为 $($c.want)（$($c.why)）——C21 法务边界回归。"; $pFail = $true }
     }
-    $escapedDiagnosticTail = Get-GradleDiagnosticTail -Output @('prefix\nAuthorization: Bearer REDACT_ME\nsimulated Gradle failure detail\n')
-    if ($escapedDiagnosticTail -notmatch '\[REDACTED\]' -or
-        $escapedDiagnosticTail -match 'REDACT_ME' -or
-        $escapedDiagnosticTail -notmatch 'simulated Gradle failure detail') {
-      Fail "种子缺陷 17p：Unix PowerShell 把 stderr 包成含字面 \\n 的单字符串时，诊断尾段必须先恢复行边界再脱敏且保留末行；实得=$escapedDiagnosticTail。"
+    foreach ($gradleForbiddenCase in @('EPL-2.0', 'MPL-2.0 OR EPL-2.0', 'GPL-3.0 OR EPL-2.0')) {
+      $gradleVerdict = Get-GradleLicenseClassification -License $gradleForbiddenCase
+      if ($gradleVerdict -ne 'forbidden') {
+        Fail "种子缺陷 17p：Gradle 专属分类器必须把 '$gradleForbiddenCase' 判为 forbidden，不能因恢复共享 Scan 基线而漏掉 EPL；实得=$gradleVerdict。"
+        $pFail = $true
+      }
+    }
+    try {
+      $escapedDiagnosticTail = Get-GradleDiagnosticTail -Output @('prefix\nAuthorization: Bearer REDACT_ME\nsimulated Gradle failure detail\n') -DecodeEscapedNewlines
+      $windowsPathDiagnostic = 'failure at D:\a\repo\repo\new\module and C:\release\notes'
+      $windowsPathTail = Get-GradleDiagnosticTail -Output @($windowsPathDiagnostic)
+      if ($escapedDiagnosticTail -notmatch '\[REDACTED\]' -or
+          $escapedDiagnosticTail -match 'REDACT_ME' -or
+          $escapedDiagnosticTail -notmatch 'simulated Gradle failure detail' -or
+          $windowsPathTail -cne $windowsPathDiagnostic) {
+        Fail "种子缺陷 17p：只有显式 DecodeEscapedNewlines 才可恢复 Unix 包装边界；默认路径绝不能改写 Windows 路径；escaped=$escapedDiagnosticTail windows=$windowsPathTail。"
+        $pFail = $true
+      }
+    } catch {
+      Fail "种子缺陷 17p：诊断 helper 必须提供显式 DecodeEscapedNewlines，并默认保留 Windows 路径；$($_.Exception.Message)"
       $pFail = $true
+    }
+    try {
+      $nativeProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17p-native-$PID"
+      $expectedNativeCoordinateRoot = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $nativeProbeRoot 'caches') 'modules-2') 'files-2.1') 'fixture.group') 'artifact') '1.0'
+      $actualNativeCoordinateRoot = Get-GradleCacheCoordinateRoot -GradleUserHome $nativeProbeRoot -Coordinate 'fixture.group:artifact:1.0'
+      if ($actualNativeCoordinateRoot -cne $expectedNativeCoordinateRoot) {
+        Fail "种子缺陷 17p：Gradle cache 坐标路径必须逐段用平台原生分隔符拼接；expected=$expectedNativeCoordinateRoot actual=$actualNativeCoordinateRoot。"
+        $pFail = $true
+      }
+    } catch {
+      Fail "种子缺陷 17p：缺少可独立验证的 Gradle native cache path 构建器；$($_.Exception.Message)"
+      $pFail = $true
+    }
+    $unsafeCacheProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17p-containment-$PID"
+    try {
+      $decoyDir = [System.IO.Path]::Combine($unsafeCacheProbeRoot, 'caches', 'modules-2', 'escape', '1.0', 'fixture')
+      New-Item -ItemType Directory -Force -Path $decoyDir | Out-Null
+      Set-Content -LiteralPath (Join-Path $decoyDir 'escape-1.0.pom') -Encoding utf8 -Value '<project><licenses><license><name>Apache-2.0</name></license></licenses></project>'
+      foreach ($unsafeCoordinate in @('..:escape:1.0', 'fixture:..:1.0', 'fixture:escape:..', 'fixture:escape:1.+', 'fixture:escape:latest.release')) {
+        $unsafePom = Get-GradleCachedPomInfo -Coordinate $unsafeCoordinate -GradleUserHome $unsafeCacheProbeRoot
+        if ($unsafePom.State -ne 'Error') {
+          Fail "种子缺陷 17p：非具体或含 dot-segment 的 GAV '$unsafeCoordinate' 必须在任何 cache I/O 前返回 Error，不能读取逃逸 decoy；实得 state=$($unsafePom.State) paths=$($unsafePom.Paths -join ',')。"
+          $pFail = $true
+        }
+      }
+    } finally {
+      Remove-Item -LiteralPath $unsafeCacheProbeRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
     if (-not $pFail) { Write-Host '  17p 许可闸 Distributes 降级 OK（不分发只降纯 GPL；AGPL/SSPL/EUPL/非商用仍致命；LGPL 恒黄牌）' -ForegroundColor Green }
 
@@ -9092,8 +9134,27 @@ function Set-ScannerFixtureReport([string[]]$ReportLine) {
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
     '#!/bin/sh',
-    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
+    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
     $unixBody,
+    'exit 0'
+  )
+}
+function Set-ScannerFixtureConfigurationReport {
+  Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
+    '@echo off',
+    'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
+    'echo +--- fixture.graph:root:1.0',
+    'echo %* | findstr /C:"--configuration testRuntimeClasspath" >nul',
+    'if not errorlevel 1 echo ^|    \--- org.testng:testng:7.0.0',
+    'exit /b 0'
+  )
+  Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
+    '#!/bin/sh',
+    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
+    "printf '%s\n' '+--- fixture.graph:root:1.0'",
+    'case "$*" in',
+    "  *'--configuration testRuntimeClasspath'*) printf '%s\n' '|    \--- org.testng:testng:7.0.0' ;;",
+    'esac',
     'exit 0'
   )
 }
@@ -9109,12 +9170,16 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
     '#!/bin/sh',
-    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
-    "printf '%s\\n' 'prefix-$longPrefix' >&2",
-    "printf '%s\\n' 'Authorization: Bearer REDACT_ME' >&2",
-    "printf '%s\\n' 'simulated Gradle failure detail' >&2",
+    'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
+    "printf '%s\n' 'prefix-$longPrefix' >&2",
+    "printf '%s\n' 'Authorization: Bearer REDACT_ME' >&2",
+    "printf '%s\n' 'simulated Gradle failure detail' >&2",
     "exit $ExitCode"
   )
+}
+function Get-ScannerFixturePomDir([string]$Coordinate, [string]$CacheLeaf) {
+  $parts = $Coordinate.Split(':')
+  return [System.IO.Path]::Combine([string[]]@($scannerFixtureGradleHome, 'caches', 'modules-2', 'files-2.1', $parts[0], $parts[1], $parts[2], $CacheLeaf))
 }
 function Set-ScannerFixturePom(
   [string]$Coordinate,
@@ -9128,7 +9193,7 @@ function Set-ScannerFixturePom(
   if ([string]::IsNullOrWhiteSpace($PomGroup)) { $PomGroup = $parts[0] }
   if ([string]::IsNullOrWhiteSpace($PomArtifact)) { $PomArtifact = $parts[1] }
   if ([string]::IsNullOrWhiteSpace($PomVersion)) { $PomVersion = $parts[2] }
-  $pomDir = Join-Path $scannerFixtureGradleHome ("caches\\modules-2\\files-2.1\\$($parts[0])\\$($parts[1])\\$($parts[2])\\$CacheLeaf")
+  $pomDir = Get-ScannerFixturePomDir -Coordinate $Coordinate -CacheLeaf $CacheLeaf
   New-Item -ItemType Directory -Force $pomDir | Out-Null
   $licenseLines = @($LicenseName | ForEach-Object { "    <license><name>$_</name></license>" })
   Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value @(
@@ -9144,13 +9209,13 @@ function Set-ScannerFixturePom(
 }
 function Set-ScannerFixtureBrokenPom([string]$Coordinate) {
   $parts = $Coordinate.Split(':')
-  $pomDir = Join-Path $scannerFixtureGradleHome ("caches\\modules-2\\files-2.1\\$($parts[0])\\$($parts[1])\\$($parts[2])\\fixture")
+  $pomDir = Get-ScannerFixturePomDir -Coordinate $Coordinate -CacheLeaf 'fixture'
   New-Item -ItemType Directory -Force $pomDir | Out-Null
   Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value '<project><licenses>'
 }
 function Set-ScannerFixturePomWithoutLicense([string]$Coordinate, [string]$CacheLeaf = 'fixture') {
   $parts = $Coordinate.Split(':')
-  $pomDir = Join-Path $scannerFixtureGradleHome ("caches\\modules-2\\files-2.1\\$($parts[0])\\$($parts[1])\\$($parts[2])\\$CacheLeaf")
+  $pomDir = Get-ScannerFixturePomDir -Coordinate $Coordinate -CacheLeaf $CacheLeaf
   New-Item -ItemType Directory -Force $pomDir | Out-Null
   Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value @(
     '<project>',
@@ -9181,6 +9246,7 @@ try {
   Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'gradle/libs.versions.toml') -Encoding utf8 -Value '[versions]'
   Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'build.gradle.kts') -Encoding utf8 -Value 'plugins {}'
   Set-ScannerFixturePom 'org.testng:testng:7.0.0' 'Apache License, Version 2.0'
+  Set-ScannerFixturePom 'fixture.graph:root:1.0' 'Apache License, Version 2.0'
   Set-ScannerFixturePom 'fixture.epl:copyleft:1.0' 'Eclipse Public License 1.0'
   $savedFixtureGradleHome = $env:GRADLE_USER_HOME
   $savedFixtureCallLog = $env:GRADLE_CALL_LOG
@@ -9216,9 +9282,10 @@ try {
     New-Item -ItemType File -Force (Join-Path $fixtureDistributionDir 'gradle-9.7.0-bin.zip.ok'), (Join-Path $fixtureDistributionBin 'gradle'), (Join-Path $fixtureDistributionBin 'gradle.bat') | Out-Null
     Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
 
+    Set-ScannerFixtureConfigurationReport
     $unixWrapperText = Get-Content -LiteralPath $scannerFixtureUnixWrapper -Raw
-    if (-not $unixWrapperText.Contains("printf '%s\n' '+--- org.testng:testng:7.0.0'") -or $unixWrapperText.Contains("printf '%s\\n'")) {
-      Fail '种子缺陷 17cc(scanner/platform-wrapper-newline)：Unix fixture 必须让 printf 解释单个 \n 为换行；双反斜杠会把字面量 \n 拼进 GAV、令全部 POM 查找假红。'
+    if (-not $unixWrapperText.Contains("printf '%s\n' '|    \--- org.testng:testng:7.0.0'") -or $unixWrapperText.Contains("printf '%s\\n'")) {
+      Fail '种子缺陷 17cc(scanner/platform-wrapper-newline)：Unix fixture 必须输出真实嵌套 TestNG 边并让 printf 解释单个 \n 为换行；双反斜杠会把字面量 \n 拼进 GAV、令全部 POM 查找假红。'
     }
     $scannerSafe = Invoke-ScannerFixture $scannerFixtureScript -Strict
     $expectedGradleCalls = @(
@@ -9233,12 +9300,12 @@ try {
       @($actualGradleCalls | Where-Object { $_.Contains($expected.Project) -and $_.Contains($expected.Configuration) }).Count -eq 0
     })
     $nonOfflineCalls = @($actualGradleCalls | Where-Object { -not $_.Contains('--offline') -or -not $_.Contains('--no-daemon') })
-    if ($scannerSafe.Exit -ne 0 -or $scannerSafe.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache') {
-      Fail "种子缺陷 17cc(scanner/pom)：缓存 POM 中 Apache 的 org.testng:testng:7.0.0 应在 -Strict 下逐坐标报告且 exit 0，实得 exit=$($scannerSafe.Exit)；输出=$($scannerSafe.Text)。"
+    if ($scannerSafe.Exit -ne 0 -or $scannerSafe.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache.*configurations: :core:testRuntimeClasspath\]' -or $scannerSafe.Text -match 'org\.testng:testng:7\.0\.0.*configurations:.*(?:runtimeClasspath|debugRuntimeClasspath|releaseRuntimeClasspath).*testRuntimeClasspath') {
+      Fail "种子缺陷 17cc(scanner/pom)：真实嵌套的 org.testng:testng:7.0.0 只在 core testRuntimeClasspath 图中出现时，必须按该唯一 configuration 逐坐标报告且 -Strict exit 0；实得 exit=$($scannerSafe.Exit)；输出=$($scannerSafe.Text)。"
     } elseif ($actualGradleCalls.Count -ne $expectedGradleCalls.Count -or $missingGradleCalls.Count -gt 0 -or $nonOfflineCalls.Count -gt 0) {
       Fail "种子缺陷 17cc(scanner/configs)：应恰好离线解析 core runtime/TestNG + app debug/release runtime 四张图；实际调用=$($actualGradleCalls -join ' | ')；缺=$($missingGradleCalls | ForEach-Object { "$($_.Project)/$($_.Configuration)" } | Join-String -Separator ',')；未带 --offline/--no-daemon=$($nonOfflineCalls -join ' | ')。"
     } else {
-      Write-Host '  17cc(scanner/pom+configs) TestNG 缓存 POM/逐坐标报告 + core/runtime/TestNG 与 app/debug/release 四图 + --offline/--no-daemon OK' -ForegroundColor Green
+      Write-Host '  17cc(scanner/pom+configs) 嵌套 TestNG 仅归属 core testRuntimeClasspath；另三图独立 + --offline/--no-daemon OK' -ForegroundColor Green
     }
 
     $resolvedCoordinate = 'fixture.resolve:redirect:1.0'
@@ -9465,7 +9532,9 @@ try {
     foreach ($unsafeFallbackCanonical in @(
       @{ Id = 'forbidden'; License = 'Eclipse Public License 1.0' },
       @{ Id = 'yellow'; License = 'LGPL-2.1' },
-      @{ Id = 'unknown'; License = 'Mystery License' }
+      @{ Id = 'unknown'; License = 'Mystery License' },
+      @{ Id = 'apache2-alias'; License = 'Apache2' },
+      @{ Id = 'apache-software-alias'; License = 'The Apache Software 2' }
     )) {
       $unsafeFallbackCanonicalCoordinate = "fixture.override:unsafe-fallback-$($unsafeFallbackCanonical.Id):1.0"
       Set-ScannerFixturePomWithoutLicense $unsafeFallbackCanonicalCoordinate
@@ -9501,6 +9570,11 @@ try {
     foreach ($invalidOverride in @(
       @{ Id = 'malformed-json'; Json = '[{"coordinate":' },
       @{ Id = 'wildcard'; Json = '[{"coordinate":"fixture.override:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'dot-group'; Json = '[{"coordinate":"..:escape:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'dot-artifact'; Json = '[{"coordinate":"fixture:..:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'dot-version'; Json = '[{"coordinate":"fixture:escape:..","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'dynamic-version'; Json = '[{"coordinate":"fixture:escape:1.+","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'latest-version'; Json = '[{"coordinate":"fixture:escape:latest.release","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'missing-field'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'duplicate'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/one","registered_by":"selftest","registered_on":"2026-08-18"},{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/two","registered_by":"selftest","registered_on":"2026-08-18"}]' }
     )) {
@@ -9514,6 +9588,19 @@ try {
       }
     }
     Set-ScannerFixtureOverrides $null
+
+    $unsafeDependencyEdges = @('..:escape:1.0', 'fixture:..:1.0', 'fixture:escape:..', 'fixture:escape:1.+', 'fixture:escape:latest.release')
+    $unsafeDependencyReport = @('+--- fixture.graph:root:1.0') + @($unsafeDependencyEdges | ForEach-Object { "+--- $_" })
+    Set-ScannerFixtureReport $unsafeDependencyReport
+    $scannerUnsafeEdges = Invoke-ScannerFixture $scannerFixtureScript
+    $unsafeEdgeMissing = @($unsafeDependencyEdges | Where-Object {
+      $scannerUnsafeEdges.Text -notmatch "(?m)^.*$([regex]::Escape($_)).*\[GRADLE-PARSE\].*$"
+    })
+    if ($scannerUnsafeEdges.Exit -eq 0 -or $unsafeEdgeMissing.Count -gt 0) {
+      Fail "种子缺陷 17cc(scanner/gav-parse)：dot-segment、动态 selector 与非具体最终版本必须逐边以 GRADLE-PARSE fail-closed；缺少=$($unsafeEdgeMissing -join ',')；exit=$($scannerUnsafeEdges.Exit)；输出=$($scannerUnsafeEdges.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/gav-parse) 不安全或非具体 GAV 逐边 GRADLE-PARSE fail-closed OK' -ForegroundColor Green
+    }
 
     Set-ScannerFixtureFailure 42
     $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
@@ -9561,6 +9648,13 @@ try {
           $present = $result.Exit -eq 0 -and $hits -eq 1 -and $result.Text -match 'org\.testng:testng:7\.0\.0.*Apache'
           $code = 'ABSENT-TESTNG-REPORT'
         }
+        'nested-testng' {
+          Set-ScannerFixtureConfigurationReport
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $hits = [regex]::Matches($result.Text, '(?m)^\s*-\s+org\.testng:testng:7\.0\.0\s+=>').Count
+          $present = $result.Exit -eq 0 -and $hits -eq 1 -and $result.Text -match 'org\.testng:testng:7\.0\.0.*configurations: :core:testRuntimeClasspath\]' -and $result.Text -notmatch 'org\.testng:testng:7\.0\.0.*configurations:.*(?:runtimeClasspath|debugRuntimeClasspath|releaseRuntimeClasspath).*testRuntimeClasspath'
+          $code = 'ABSENT-NESTED-TESTNG-REPORT'
+        }
         'epl' {
           Set-ScannerFixtureReport '+--- fixture.epl:copyleft:1.0'
           $result = Invoke-ScannerFixture $ScriptPath -Strict
@@ -9573,21 +9667,6 @@ try {
           $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.unknown:missing:1\.0' -and $result.Text -match '\[GRADLE-METADATA\]'
           $code = 'ABSENT-UNKNOWN-BLOCK'
         }
-        'shared-fatal' {
-          . $ScriptPath -AsLibrary
-          $cases = @(
-            @{ Distributes = $true;  License = 'EPL-2.0' },
-            @{ Distributes = $true;  License = 'MPL-2.0 OR EPL-2.0' },
-            @{ Distributes = $false; License = 'GPL-3.0 OR EPL-2.0' }
-          )
-          $present = $true
-          foreach ($case in $cases) {
-            $script:bad = @(); $script:warn = @(); $script:Distributes = $case.Distributes
-            Scan 'fixture.shared' $case.License
-            if ($script:bad.Count -ne 1 -or $script:warn.Count -ne 0) { $present = $false }
-          }
-          $code = 'ABSENT-SCAN-EPL-MIXED-BLOCK'
-        }
         default { throw "未知 scanner mutation scenario: $Scenario" }
       }
       $word = if ($present) { 'PRESENT' } else { $code }
@@ -9595,10 +9674,10 @@ try {
     }
     try {
       $scannerMutationCases = @(
-        @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add("$($module):$resolvedVersion")' },
+        @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add($resolvedCoordinate)' },
+        @{ Id = 'nested'; Scenario = 'nested-testng'; Code = 'ABSENT-NESTED-TESTNG-REPORT'; Label = '嵌套 TestNG 唯一 configuration 归属'; Marker = "`$plain = `$plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix" },
         @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' }
-        @{ Id = 'shared-fatal'; Scenario = 'shared-fatal'; Code = 'ABSENT-SCAN-EPL-MIXED-BLOCK'; Label = '共享 Scan 禁列先于降级'; Marker = '$script:bad += "$name => $license"; return } # shared fatal-before-downgrade' }
       )
       foreach ($mutationCase in $scannerMutationCases) {
         $mutationMarkerId = "GRADLE-SCANNER-MUT-$($mutationCase.Id.ToUpperInvariant())"

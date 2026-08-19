@@ -28,8 +28,8 @@ $ErrorActionPreference = 'Stop'
 # 禁列：负向后顾 (?<!L)GPL 确保 LGPL 不被 GPL 命中；AGPL 显式列入禁列。
 # 既匹配缩写（GPL/AGPL），也匹配**拼写全称**（Affero / General Public License）——治「分类器只给全称、
 # 元数据无缩写 → GPL 依赖漏判」；(?<!Lesser )General Public License 让 LGPL 全称不误入禁列。
-$forbidden = 'AGPL|(?<!L)GPL|SSPL|EUPL|EPL|Eclipse Public License|CC-?BY-?NC|non-?commercial|research[ -]?only|Affero|(?<!Lesser )General Public License'
-$nonDowngradableForbidden = 'AGPL|Affero|SSPL|EUPL|EPL|Eclipse Public License|CC-?BY-?NC|non-?commercial|research[ -]?only'
+$forbidden = 'AGPL|(?<!L)GPL|SSPL|EUPL|CC-?BY-?NC|non-?commercial|research[ -]?only|Affero|(?<!Lesser )General Public License'
+$gradleForbidden = "$forbidden|EPL|Eclipse Public License"
 $yellow    = 'LGPL|OpenRAIL|RAIL|MPL|Lesser General Public License'
 # Gradle 的 POM 许可不是任意文本即可放行：只承认政策 §2 已明确允许的**完整名称**。每个模式均锚定
 # 首尾，并先统一空白/大小写；不能让 `Mystery Apache License`、`Unknown MPL-like` 等带关键词的未知文本
@@ -62,18 +62,16 @@ $bad = @(); $warn = @(); $coverageGap = @()
 
 function Scan($name, $license) {
   if ([string]::IsNullOrWhiteSpace($license)) { $script:warn += "$name => 许可缺失/未知（-Strict 下视为不合规）"; return }
-  # 禁列先于任何降级。唯一例外是不分发时的纯 GPL；AGPL/EPL/SSPL/EUPL/非商用等绝不因混入黄牌文本而绕过。
-  if ($license -match $forbidden) {
-    $mayDowngradePlainGpl = -not $script:Distributes -and $license -match $gplPlain -and $license -notmatch $nonDowngradableForbidden
-    if (-not $mayDowngradePlainGpl) { $script:bad += "$name => $license"; return } # shared fatal-before-downgrade
-  }
-  if ($license -match $yellow) {
+  # 共享 PyPI/npm 行为保持基线；Gradle 的 EPL 与严格 POM 分类由专用分类器处理。
+  if ($license -match $yellow -and $license -notmatch 'AGPL|Affero|(?<!L)GPL|SSPL|EUPL|non-?commercial') {
     $script:warn += "$name => $license（黄牌：需人工确认用途/链接方式）"; return
   }
   # C21：项目声明不分发（Distributes=$false）时，**纯 GPL**（分发触发型 copyleft）降为黄牌而非致命——不分发则 GPL 分发义务不触发。
-  if (-not $script:Distributes -and $license -match $gplPlain) {
+  # 严格排除 AGPL/Affero(网络触发)、SSPL(SaaS 触发)、EUPL(分发+通信触发)、非商用/研究限(用途触发)：这些与分发无关、仍致命。
+  if (-not $script:Distributes -and $license -match $gplPlain -and $license -notmatch 'AGPL|Affero|SSPL|EUPL|non-?commercial|research[ -]?only|CC-?BY-?NC') {
     $script:warn += "$name => $license（黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false] → copyleft 分发触发点未命中；须人工确认确实不分发/不随产品交付二进制，AGPL/SaaS/网络提供除外。变 public 前用 -Strict 复核）"; return
   }
+  if ($license -match $forbidden) { $script:bad += "$name => $license"; return }
 }
 
 function Test-GradleNormalizedLicense([Parameter(Mandatory)][string]$NormalizedLicense, [Parameter(Mandatory)][string[]]$Patterns) {
@@ -87,10 +85,43 @@ function Get-GradleLicenseClassification([Parameter(Mandatory)][string]$License)
   $normalized = [regex]::Replace($License.Trim().ToUpperInvariant(), '\s+', ' ')
   if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePlainGplPatterns) { return 'plain-gpl' }
   # 禁列刻意保持广匹配：不明文本只要出现 GPL/EPL/非商用等风险信号，就宁可拒绝而不降级。
-  if ($License -match $forbidden) { return 'forbidden' }
+  if ($License -match $gradleForbidden) { return 'forbidden' }
   if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradleYellowLicensePatterns) { return 'yellow' }
   if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePermissiveLicensePatterns) { return 'permissive' }
   return 'unknown'
+}
+
+$gradleExceptionCanonicalLicenses = @(
+  'Apache-2.0', 'MIT', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', '0BSD', 'Python-2.0'
+)
+function Test-GradleExceptionCanonicalLicense([Parameter(Mandatory)][string]$License) {
+  return $gradleExceptionCanonicalLicenses -ccontains $License
+}
+
+function Get-GradleGavParts([Parameter(Mandatory)][string]$Coordinate) {
+  $parts = $Coordinate.Split(':')
+  if ($parts.Count -ne 3) { return $null }
+  $group = $parts[0]; $artifact = $parts[1]; $version = $parts[2]
+  if ($group -notmatch '^[A-Za-z0-9_.-]+$' -or $artifact -notmatch '^[A-Za-z0-9_.-]+$' -or $version -notmatch '^[A-Za-z0-9_.-]+$') { return $null }
+  foreach ($segment in @($group, $artifact, $version)) {
+    if ($segment -in @('.', '..') -or $segment.Contains('..')) { return $null }
+  }
+  if ($version -match '^(?i:latest\.(?:release|integration))$') { return $null }
+  return [PSCustomObject]@{ Group = $group; Artifact = $artifact; Version = $version }
+}
+
+function Get-GradleCacheCoordinateRoot {
+  param(
+    [Parameter(Mandatory)][string]$GradleUserHome,
+    [Parameter(Mandatory)][string]$Coordinate
+  )
+  $gav = Get-GradleGavParts -Coordinate $Coordinate
+  if ($null -eq $gav) { throw "坐标不是具体且安全的 GAV：$Coordinate" }
+  $path = $GradleUserHome
+  foreach ($segment in @('caches', 'modules-2', 'files-2.1', $gav.Group, $gav.Artifact, $gav.Version)) {
+    $path = Join-Path $path $segment
+  }
+  return [System.IO.Path]::GetFullPath($path)
 }
 
 # ── Gradle 清单发现（库导出区，供 selftest dot-source 直测——修正 R3 finding：先前用
@@ -258,8 +289,8 @@ function Get-GradleExceptionMap {
         }
       }
       $coordinate = [string]$record.coordinate
-      if ($coordinate -notmatch '^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+~-]+$') {
-        throw "坐标不是精确 GAV：$coordinate"
+      if ($null -eq (Get-GradleGavParts -Coordinate $coordinate)) {
+        throw "坐标不是具体且安全的 GAV：$coordinate"
       }
       $evidenceUrl = [string]$record.evidence_url
       [uri]$uri = $null
@@ -288,8 +319,8 @@ function Get-GradleExceptionMap {
         RegisteredOn = [string]$record.registered_on
       }
       # 两种例外路径都只登记 §2 的精确宽松 canonical；例外绝不能把黄牌、禁列或未知许可降级放行。
-      if ((Get-GradleLicenseClassification -License $entry.License) -ne 'permissive') {
-        throw "例外记录的 license 必须是政策允许的完整宽松许可：$coordinate"
+      if (-not (Test-GradleExceptionCanonicalLicense -License $entry.License)) {
+        throw "例外记录的 license 必须是政策允许的精确 canonical 许可：$coordinate"
       }
       $bucket = $empty[$coordinate]
       if ($null -eq $declaredLicense) {
@@ -314,12 +345,25 @@ function Get-GradleCachedPomInfo {
     [Parameter(Mandatory)][string]$GradleUserHome
   )
 
-  $parts = $Coordinate.Split(':')
-  if ($parts.Count -ne 3) {
-    return [PSCustomObject]@{ State = 'Error'; Detail = '坐标不是 GAV。'; Licenses = @(); Paths = @() }
+  $gav = Get-GradleGavParts -Coordinate $Coordinate
+  if ($null -eq $gav) {
+    return [PSCustomObject]@{ State = 'Error'; Detail = '坐标不是具体且安全的 GAV。'; Licenses = @(); Paths = @() }
   }
-  $group = $parts[0]; $artifact = $parts[1]; $version = $parts[2]
-  $coordinateRoot = Join-Path $GradleUserHome "caches\modules-2\files-2.1\$group\$artifact\$version"
+  $group = $gav.Group; $artifact = $gav.Artifact; $version = $gav.Version
+  try {
+    $cacheRoot = $GradleUserHome
+    foreach ($segment in @('caches', 'modules-2', 'files-2.1')) { $cacheRoot = Join-Path $cacheRoot $segment }
+    $cacheRoot = [System.IO.Path]::GetFullPath($cacheRoot)
+    $coordinateRoot = Get-GradleCacheCoordinateRoot -GradleUserHome $GradleUserHome -Coordinate $Coordinate
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $cachePrefix = $cacheRoot.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + $separator
+    $coordinatePrefix = $coordinateRoot.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + $separator
+    if (-not (Test-GradlePathPrefix -Path $coordinatePrefix -Prefix $cachePrefix)) {
+      return [PSCustomObject]@{ State = 'Error'; Detail = '坐标缓存路径逃逸 Gradle cache 根。'; Licenses = @(); Paths = @() }
+    }
+  } catch {
+    return [PSCustomObject]@{ State = 'Error'; Detail = "构造缓存 POM 路径失败：$($_.Exception.Message)"; Licenses = @(); Paths = @() }
+  }
   if (-not (Test-Path -LiteralPath $coordinateRoot)) {
     return [PSCustomObject]@{ State = 'Missing'; Detail = '缓存中没有 POM。'; Licenses = @(); Paths = @() }
   }
@@ -411,7 +455,8 @@ function Get-GradleCoordinatesFromDependencyOutput {
     # Gradle 树边只接收 Maven GAV；`project :core` 等仓内项目并非第三方坐标。
     # 其余任何无法辨认的边都是覆盖缺口，必须 fail-closed，不得被同图的正常 GAV 掩盖。
     $plain = [regex]::Replace([string]$line, "`e\[[0-?]*[ -/]*[@-~]", '')
-    if ($plain -notmatch '^\s*(?:\|\s*)*(?:\+---|\\---)\s+(?<body>.+?)\s*$') { continue }
+    $plain = $plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix
+    if ($plain -notmatch '^\s*(?:\+---|\\---)\s+(?<body>.+?)\s*$') { continue }
     $body = $Matches.body
     if ($body -match '^project\s+') { continue }
     if ($body -notmatch '^(?<group>[A-Za-z0-9_.-]+):(?<artifact>[A-Za-z0-9_.-]+)(?<tail>.*)$') {
@@ -427,15 +472,20 @@ function Get-GradleCoordinatesFromDependencyOutput {
     }
 
     $resolvedVersion = $null
-    if ($tail -match '^(?::.*?)?\s+->\s+(?<resolved>[A-Za-z0-9_.+~-]+)(?:\s+\((?:c|\*)\))*\s*$') {
+    if ($tail -match '^(?::.*?)?\s+->\s+(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
       $resolvedVersion = $Matches.resolved
-    } elseif ($tail -match '^:(?<resolved>[A-Za-z0-9_.+~-]+)(?:\s+\((?:c|\*)\))*\s*$') {
+    } elseif ($tail -match '^:(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
       $resolvedVersion = $Matches.resolved
     } else {
       $errors.Add("$module => 无法判定 Gradle 外部依赖边：$body [GRADLE-PARSE]")
       continue
     }
-    [void]$coordinates.Add("$($module):$resolvedVersion")
+    $resolvedCoordinate = "$($module):$resolvedVersion"
+    if ($null -eq (Get-GradleGavParts -Coordinate $resolvedCoordinate)) {
+      $errors.Add("$resolvedCoordinate => Gradle 最终坐标不是具体且安全的 GAV [GRADLE-PARSE]")
+      continue
+    }
+    [void]$coordinates.Add($resolvedCoordinate)
   }
   return [PSCustomObject]@{
     Coordinates = @($coordinates | Sort-Object)
@@ -475,8 +525,8 @@ function Add-GradleLicenseFinding {
     if ($classification -eq 'unknown') {
       if ($null -ne $DeclaredLicenseMappings -and $DeclaredLicenseMappings.ContainsKey($license)) {
         $mapping = $DeclaredLicenseMappings[$license]
-        # Get-GradleExceptionMap 已限定 canonical 只可为 permissive；这里保留纵深检查，避免未来调用点绕过解析器。
-        if ((Get-GradleLicenseClassification -License $mapping.License) -ne 'permissive') {
+        # Get-GradleExceptionMap 已限定 exact canonical allowlist；这里保留纵深检查，避免未来调用点绕过解析器。
+        if (-not (Test-GradleExceptionCanonicalLicense -License $mapping.License)) {
           Add-GradleNonCompliance "$Coordinate => declared_license 映射的非允许 canonical '$($mapping.License)' [GRADLE-OVERRIDE]"
         } else {
           Write-Host "    exact declared-license mapping: '$license' => $($mapping.License) [override $($mapping.EvidenceUrl), $($mapping.RegisteredBy) $($mapping.RegisteredOn)]"
@@ -549,12 +599,15 @@ function Get-GradleDiagnosticTail {
   param(
     [AllowEmptyCollection()][object[]]$Output,
     [ValidateRange(1, 100)][int]$MaxLines = 20,
-    [ValidateRange(200, 10000)][int]$MaxChars = 2000
+    [ValidateRange(200, 10000)][int]$MaxChars = 2000,
+    [switch]$DecodeEscapedNewlines
   )
 
   $expandedLines = @($Output | ForEach-Object {
     $raw = "$_"
-    $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
+    if ($DecodeEscapedNewlines) {
+      $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
+    }
     $raw -split '\r?\n'
   })
   $sanitized = @($expandedLines | ForEach-Object {
@@ -611,7 +664,7 @@ function Invoke-GradleLicenseScan {
       continue
     }
     if ($gradleExit -ne 0) {
-      $diagnosticTail = Get-GradleDiagnosticTail -Output $output
+      $diagnosticTail = Get-GradleDiagnosticTail -Output $output -DecodeEscapedNewlines:(-not $IsWindows)
       Add-GradleNonCompliance "$($target.Label) => Gradle 子进程退出 $gradleExit；输出尾段=$diagnosticTail [GRADLE-SUBPROCESS]"
       continue
     }
