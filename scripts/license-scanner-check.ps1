@@ -53,6 +53,12 @@ $parserCases = @(
     ErrorCodes = @()
   },
   @{
+    Name = 'selected-targets'
+    Lines = @('+--- old.group:old-artifact:1.0 -> project :core', '\--- old.group:old-artifact:1.0 -> new.group:new-artifact:2.0')
+    Coordinates = @('new.group:new-artifact:2.0')
+    ErrorCodes = @()
+  },
+  @{
     Name = 'unresolved-and-malformed'
     Lines = @('+--- fixture.unresolved:artifact:1.0 (n)', '+--- project :source ->', '\--- malformed external edge')
     Coordinates = @()
@@ -78,6 +84,8 @@ foreach ($case in $parserCases) {
 # Break caught: graph collection must be independently consumable by policy code. It must execute
 # exactly the four approved configurations offline and return resolved GAVs with their provenance.
 $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "license-graph-$PID-$([guid]::NewGuid().ToString('N'))"
+$hadGradleUserHome = Test-Path Env:GRADLE_USER_HOME
+$savedGradleUserHome = $env:GRADLE_USER_HOME
 try {
   $androidRoot = Join-Path $fixtureRoot 'android'
   $gradleHome = Join-Path $fixtureRoot 'gradle-home'
@@ -115,13 +123,15 @@ try {
   }
   $invoker = {
     param([string]$Command, [string[]]$Arguments)
-    $invocations.Add([PSCustomObject]@{ Command = $Command; Arguments = @($Arguments) })
+    $invocations.Add([PSCustomObject]@{ Command = $Command; Arguments = @($Arguments); GradleUserHome = $env:GRADLE_USER_HOME })
     $configurationIndex = [Array]::IndexOf($Arguments, '--configuration')
     $configuration = if ($configurationIndex -ge 0) { $Arguments[$configurationIndex + 1] } else { '' }
     [PSCustomObject]@{ ExitCode = 0; Output = @($reports[$configuration]) }
   }.GetNewClosure()
 
   try {
+    $ambientColdHome = Join-Path $fixtureRoot 'ambient-cold-gradle-home'
+    $env:GRADLE_USER_HOME = $ambientColdHome
     $graphResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     $resolvedCoordinates = @($graphResult.Resolved | ForEach-Object Coordinate)
     Assert-Graph ($graphResult.Errors.Count -eq 0) "graph collector returned errors: $($graphResult.Errors | ConvertTo-Json -Compress)"
@@ -147,11 +157,13 @@ try {
       })
       Assert-Graph ($matchingCall.Count -eq 1) "Windows graph call for $configuration was not exact"
       if ($matchingCall.Count -eq 1) {
+        Assert-Graph ($matchingCall[0].GradleUserHome -ceq $gradleHome) "Windows $configuration did not bind preflighted GradleUserHome"
         Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq '--offline' }).Count -eq 1) "Windows $configuration call omitted --offline"
         Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq '--no-daemon' }).Count -eq 1) "Windows $configuration call omitted --no-daemon"
         Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq $expectedConfigurations[$configuration] }).Count -eq 1) "Windows $configuration used wrong Gradle project task"
       }
     }
+    Assert-Graph ($env:GRADLE_USER_HOME -ceq $ambientColdHome) "graph collector did not restore ambient GradleUserHome"
 
     # Break caught: the repository's POSIX wrapper is mode 100644, so Unix must invoke it through sh.
     $invocations.Clear()
@@ -181,6 +193,19 @@ try {
     foreach ($errorRecord in $failureResult.Errors) {
       Assert-Graph ($errorRecord.Code -ceq 'GRADLE-SUBPROCESS' -and $errorRecord.ExitCode -eq 42) "nonzero Gradle error lost code/exit"
     }
+
+    # A warm ambient cache must not authorize a different, cold caller-supplied cache.
+    $coldGradleHome = Join-Path $fixtureRoot 'caller-cold-gradle-home'
+    New-Item -ItemType Directory -Force -Path $coldGradleHome | Out-Null
+    Copy-Item -LiteralPath (Join-Path $gradleHome 'wrapper') -Destination (Join-Path $coldGradleHome 'wrapper') -Recurse
+    $env:GRADLE_USER_HOME = $gradleHome
+    $invocations.Clear()
+    $mismatchedCacheResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $coldGradleHome -UseWindows $true -Invoker $invoker
+    Assert-Graph (
+      $mismatchedCacheResult.Errors.Count -eq 1 -and $mismatchedCacheResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
+    ) "cold caller cache with warm ambient cache did not return GRADLE-CACHE-OFFLINE"
+    Assert-Graph ($invocations.Count -eq 0) "cold caller cache with warm ambient cache still started $($invocations.Count) wrapper calls"
+    Assert-Graph ($env:GRADLE_USER_HOME -ceq $gradleHome) "cold-cache preflight changed ambient GradleUserHome"
 
     # Break caught: an absent native dependency cache must fail before any wrapper process starts.
     Remove-Item -LiteralPath $nativeCacheRoot -Recurse -Force
@@ -240,6 +265,8 @@ try {
     Assert-Graph $false "resolved graph API failed: $($_.Exception.Message)"
   }
 } finally {
+  if ($hadGradleUserHome) { $env:GRADLE_USER_HOME = $savedGradleUserHome }
+  else { Remove-Item Env:GRADLE_USER_HOME -ErrorAction SilentlyContinue }
   if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
 }
 
@@ -274,6 +301,18 @@ if (-not $SkipMutations) {
       From = '        if ($body -match $internalProjectPattern) { continue }'
       To = '        if ($false) { continue }'
       Expected = 'parser/project-boundary returned wrong error codes'
+    },
+    @{
+      Name = 'selected-project-target'
+      From = '      if ($selectedTarget -match $internalProjectPattern) { continue } # selected internal project target'
+      To = '      if ($false) { continue } # selected internal project target'
+      Expected = 'parser/selected-targets returned wrong error codes'
+    },
+    @{
+      Name = 'selected-module-target'
+      From = '        $body = $selectedTarget # selected external module target'
+      To = '        continue # selected external module target'
+      Expected = 'parser/selected-targets returned wrong GAVs'
     },
     @{
       Name = 'deduplication'
@@ -352,6 +391,12 @@ if (-not $SkipMutations) {
       From = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness'
       To = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 # native cache readiness'
       Expected = 'missing native metadata did not return GRADLE-CACHE-OFFLINE'
+    },
+    @{
+      Name = 'gradle-user-home-binding'
+      From = '    $env:GRADLE_USER_HOME = $GradleUserHome # bind preflighted cache to child'
+      To = '    $env:GRADLE_USER_HOME = $savedGradleUserHome # bind preflighted cache to child'
+      Expected = 'did not bind preflighted GradleUserHome'
     },
     @{
       Name = 'subprocess-exit'

@@ -524,6 +524,16 @@ function Get-GradleCoordinatesFromDependencyOutput {
     $body = $Matches.body
     $displayBody = $body
     $displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge
+    if ($body -match '^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[^\s]+\s+->\s+(?<selected>.+)$') {
+      $selectedTarget = $Matches.selected.Trim()
+      if ($selectedTarget -match $internalProjectPattern) { continue } # selected internal project target
+      if ($selectedTarget -match '^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:') {
+        $body = $selectedTarget # selected external module target
+      } elseif ($selectedTarget -match '^project\s+') {
+        $errors.Add("无法判定 Gradle 选中 project 目标：$displayBody [GRADLE-PARSE]")
+        continue
+      }
+    }
     if ($body -match '^project\s+') {
       if ($body -match "^project\s+$projectSelectorPattern(?:\s+\((?:c|\*)\))*\s+->\s+(?<resolved>.+)$") {
         $body = $Matches.resolved.Trim() # project external substitution target
@@ -792,47 +802,55 @@ function Get-GradleResolvedGraphs {
     return [PSCustomObject]@{ Resolved = @(); Errors = @($errors) }
   }
 
-  foreach ($target in $gradleLicenseConfigurations) {
-    $gradleArguments = @('-p', $androidRoot, '--offline', '--no-daemon', "$($target.Project):dependencies", '--configuration', $target.Configuration) # graph offline invocation
-    $command = if ($UseWindows) { $wrapper } else { 'sh' } # platform wrapper selection
-    $commandArguments = if ($UseWindows) { $gradleArguments } else { @($wrapper) + $gradleArguments } # POSIX wrapper via sh
-    try {
-      if ($null -eq $Invoker) {
-        $output = @(& $command @commandArguments 2>&1)
-        $gradleExit = $LASTEXITCODE
-      } else {
-        $invocation = & $Invoker $command ([string[]]$commandArguments)
-        if ($null -eq $invocation -or $null -eq $invocation.PSObject.Properties['ExitCode'] -or $null -eq $invocation.PSObject.Properties['Output']) {
-          throw 'Gradle invoker 必须返回 ExitCode 与 Output。'
+  $hadGradleUserHome = Test-Path Env:GRADLE_USER_HOME
+  $savedGradleUserHome = $env:GRADLE_USER_HOME
+  try {
+    $env:GRADLE_USER_HOME = $GradleUserHome # bind preflighted cache to child
+    foreach ($target in $gradleLicenseConfigurations) {
+      $gradleArguments = @('-p', $androidRoot, '--offline', '--no-daemon', "$($target.Project):dependencies", '--configuration', $target.Configuration) # graph offline invocation
+      $command = if ($UseWindows) { $wrapper } else { 'sh' } # platform wrapper selection
+      $commandArguments = if ($UseWindows) { $gradleArguments } else { @($wrapper) + $gradleArguments } # POSIX wrapper via sh
+      try {
+        if ($null -eq $Invoker) {
+          $output = @(& $command @commandArguments 2>&1)
+          $gradleExit = $LASTEXITCODE
+        } else {
+          $invocation = & $Invoker $command ([string[]]$commandArguments)
+          if ($null -eq $invocation -or $null -eq $invocation.PSObject.Properties['ExitCode'] -or $null -eq $invocation.PSObject.Properties['Output']) {
+            throw 'Gradle invoker 必须返回 ExitCode 与 Output。'
+          }
+          $output = @($invocation.Output)
+          $gradleExit = [int]$invocation.ExitCode
         }
-        $output = @($invocation.Output)
-        $gradleExit = [int]$invocation.ExitCode
+      } catch {
+        $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $target.Label; ExitCode = $null; Detail = $_.Exception.Message })
+        continue
       }
-    } catch {
-      $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $target.Label; ExitCode = $null; Detail = $_.Exception.Message })
-      continue
-    }
-    if ($gradleExit -ne 0) { # graph nonzero subprocess guard
-      $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $target.Label; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance
-      continue
-    }
+      if ($gradleExit -ne 0) { # graph nonzero subprocess guard
+        $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $target.Label; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance
+        continue
+      }
 
-    $parseResult = Get-GradleCoordinatesFromDependencyOutput -Output $output
-    foreach ($parseError in $parseResult.Errors) {
-      $code = if ($parseError -match '\[(GRADLE-[A-Z-]+)\]\s*$') { $Matches[1] } else { 'GRADLE-PARSE' }
-      $errors.Add([PSCustomObject]@{ Code = $code; Configuration = $target.Label; ExitCode = $null; Detail = $parseError })
-    }
-    $parsed = @($parseResult.Coordinates)
-    if ($parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0) {
-      $errors.Add([PSCustomObject]@{ Code = 'GRADLE-PARSE'; Configuration = $target.Label; ExitCode = $null; Detail = 'Gradle 输出没有可解析的已解析 GAV' })
-      continue
-    }
-    foreach ($coordinate in $parsed) {
-      if (-not $coordinatesByConfiguration.ContainsKey($coordinate)) {
-        $coordinatesByConfiguration.Add($coordinate, [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal))
+      $parseResult = Get-GradleCoordinatesFromDependencyOutput -Output $output
+      foreach ($parseError in $parseResult.Errors) {
+        $code = if ($parseError -match '\[(GRADLE-[A-Z-]+)\]\s*$') { $Matches[1] } else { 'GRADLE-PARSE' }
+        $errors.Add([PSCustomObject]@{ Code = $code; Configuration = $target.Label; ExitCode = $null; Detail = $parseError })
       }
-      [void]$coordinatesByConfiguration[$coordinate].Add($target.Label)
+      $parsed = @($parseResult.Coordinates)
+      if ($parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0) {
+        $errors.Add([PSCustomObject]@{ Code = 'GRADLE-PARSE'; Configuration = $target.Label; ExitCode = $null; Detail = 'Gradle 输出没有可解析的已解析 GAV' })
+        continue
+      }
+      foreach ($coordinate in $parsed) {
+        if (-not $coordinatesByConfiguration.ContainsKey($coordinate)) {
+          $coordinatesByConfiguration.Add($coordinate, [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal))
+        }
+        [void]$coordinatesByConfiguration[$coordinate].Add($target.Label)
+      }
     }
+  } finally {
+    if ($hadGradleUserHome) { $env:GRADLE_USER_HOME = $savedGradleUserHome }
+    else { Remove-Item Env:GRADLE_USER_HOME -ErrorAction SilentlyContinue }
   }
 
   $resolved = @($coordinatesByConfiguration.Keys | Sort-Object | ForEach-Object {
