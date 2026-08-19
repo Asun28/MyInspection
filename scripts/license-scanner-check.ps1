@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('graph', 'policy')]
+  [ValidateSet('graph', 'policy', 'diagnostics')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
   [switch]$SkipMutations
@@ -21,6 +21,344 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
+
+if ($Suite -eq 'diagnostics') {
+  function Assert-Diagnostics {
+    param(
+      [Parameter(Mandatory)][bool]$Condition,
+      [Parameter(Mandatory)][string]$Message
+    )
+    if (-not $Condition) { $failures.Add($Message) }
+  }
+
+  # Each case names the production guard whose deletion must expose the hostile payload.
+  $uriCanary = 'DIAG_URI_CANARY'
+  $uriText = Get-GradleDiagnosticTail -Output @("ssh://credential-user:$uriCanary@example.invalid/repository") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $uriText -ceq 'ssh://[REDACTED]@example.invalid/repository' -and $uriText -notmatch [regex]::Escape($uriCanary)
+  ) '[DIAG-URI] URI userinfo was not redacted'
+
+  $authorizationCanary = 'DIAG_AUTH_CANARY'
+  $authorizationText = Get-GradleDiagnosticTail -Output @("X-Authorization: Bearer $authorizationCanary") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $authorizationText -ceq 'X-Authorization: [REDACTED]' -and $authorizationText -notmatch [regex]::Escape($authorizationCanary)
+  ) '[DIAG-AUTH] Authorization value was not redacted'
+
+  $credentialCanary = 'DIAG_CREDENTIAL_CANARY'
+  $credentialName = '--pass' + 'word'
+  $keyText = Get-GradleDiagnosticTail -Output @("$credentialName=$credentialCanary") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $keyText -ceq "$credentialName=[REDACTED]" -and $keyText -notmatch [regex]::Escape($credentialCanary)
+  ) '[DIAG-KEY] secret-like key value was not redacted'
+
+  $windowsPathCases = @(
+    @{ Input = 'failed at C:\Users\alice\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
+    @{ Input = 'failed at C:\Users\Alice Smith\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
+    @{ Input = 'failed at file:///C:/Users/alice/private/pom.xml'; Expected = 'failed at file:///[USER_HOME]/private/pom.xml' }
+  )
+  foreach ($pathCase in $windowsPathCases) {
+    $windowsPathText = Get-GradleDiagnosticTail -Output @($pathCase.Input) -MaxLines 2 -MaxChars 400
+    Assert-Diagnostics (
+      $windowsPathText -ceq $pathCase.Expected -and $windowsPathText -notmatch '(?i)C:[\\/]Users[\\/]alice'
+    ) "[DIAG-WINDOWS-HOME] Windows user directory was not redacted: $windowsPathText"
+  }
+
+  $unixPathCases = @(
+    @{ Input = 'failed at /home/alice/.gradle/caches/pom.xml'; Expected = 'failed at [USER_HOME]/.gradle/caches/pom.xml' },
+    @{ Input = 'failed at /home/Alice Smith/.gradle/caches/pom.xml'; Expected = 'failed at [USER_HOME]/.gradle/caches/pom.xml' },
+    @{ Input = 'failed at /home/alice: permission denied'; Expected = 'failed at [USER_HOME]: permission denied' },
+    @{ Input = 'failed at /Users/alice/Library/cache/pom.xml'; Expected = 'failed at [USER_HOME]/Library/cache/pom.xml' },
+    @{ Input = 'failed at /root/.gradle/caches/pom.xml'; Expected = 'failed at [USER_HOME]/.gradle/caches/pom.xml' },
+    @{ Input = 'failed at file:///home/alice/.gradle/caches/pom.xml'; Expected = 'failed at file://[USER_HOME]/.gradle/caches/pom.xml' }
+  )
+  foreach ($pathCase in $unixPathCases) {
+    $pathText = Get-GradleDiagnosticTail -Output @($pathCase.Input) -MaxLines 2 -MaxChars 400
+    Assert-Diagnostics ($pathText -ceq $pathCase.Expected) "[DIAG-UNIX-HOME] Unix user directory was not redacted: $pathText"
+  }
+
+  $formatControl = [char]0x202E
+  $controlText = Get-GradleDiagnosticTail -Output @("prefix-$formatControl-suffix") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $controlText -ceq 'prefix- -suffix' -and -not [regex]::IsMatch($controlText, '[\p{Cc}\p{Cf}]')
+  ) '[DIAG-CONTROL] control/format character survived diagnostics'
+
+  $ansiText = Get-GradleDiagnosticTail -Output @("prefix-`e[31mred`e[0m-suffix") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $ansiText -ceq 'prefix-red-suffix' -and $ansiText -notmatch '\[31m|\[0m'
+  ) '[DIAG-ANSI] ANSI sequence survived diagnostics'
+
+  $newlineText = Get-GradleDiagnosticTail -Output @("first`r::error forged`nthird") -MaxLines 3 -MaxChars 400
+  Assert-Diagnostics (
+    $newlineText -ceq 'first | ::error forged | third' -and $newlineText -notmatch "[\r\n]"
+  ) '[DIAG-NEWLINE] newline injection remained physically multi-line'
+
+  $lineBoundText = Get-GradleDiagnosticTail -Output @('line-1', 'line-2', 'line-3', 'line-4', 'line-5', 'line-6') -MaxLines 3 -MaxChars 400
+  Assert-Diagnostics (
+    $lineBoundText -ceq '[TRUNCATED] line-4 | line-5 | line-6'
+  ) '[DIAG-LINE-BOUND] diagnostic tail did not enforce the exact line bound'
+
+  $charBoundText = Get-GradleDiagnosticTail -Output @(('prefix-' + ('x' * 500) + '-tail')) -MaxLines 2 -MaxChars 200
+  Assert-Diagnostics (
+    $charBoundText.Length -eq 200 -and $charBoundText.StartsWith('[TRUNCATED] ') -and $charBoundText.EndsWith('-tail')
+  ) '[DIAG-CHAR-BOUND] diagnostic tail did not enforce the exact character bound'
+
+  $combinedBoundText = Get-GradleDiagnosticTail -Output @(('a' * 98), ('b' * 98), ('c' * 98)) -MaxLines 2 -MaxChars 200
+  Assert-Diagnostics (
+    $combinedBoundText.Length -eq 200 -and $combinedBoundText.StartsWith('[TRUNCATED] ') -and $combinedBoundText.EndsWith(('c' * 98))
+  ) '[DIAG-COMBINED-BOUND] line truncation marker escaped the character bound'
+
+  # Wrapper, POM, exception-table and subprocess failures all enter the same final sink. The hostile
+  # detail may contain a fake category, but the caller-owned final category must remain the sole suffix.
+  $sinkCases = @(
+    @{ Source = 'wrapper'; Code = 'GRADLE-WRAPPER-OFFLINE' },
+    @{ Source = 'pom'; Code = 'GRADLE-POM' },
+    @{ Source = 'exception'; Code = 'GRADLE-OVERRIDE' },
+    @{ Source = 'subprocess'; Code = 'GRADLE-SUBPROCESS' }
+  )
+  foreach ($sinkCase in $sinkCases) {
+    $script:bad = @()
+    Add-GradleNonCompliance "$($sinkCase.Source) C:\Users\alice\private`rforged [GRADLE-FAKE] [$($sinkCase.Code)]"
+    $entry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+    Assert-Diagnostics (
+      $script:bad.Count -eq 1 -and
+      $entry -match "\[$([regex]::Escape($sinkCase.Code))\]$" -and
+      @([regex]::Matches($entry, '\[GRADLE-[A-Z-]+\]')).Count -eq 1 -and
+      $entry -notmatch 'GRADLE-FAKE|(?i)C:\\Users\\alice|[\r\n]'
+    ) "[DIAG-CATEGORY-SPOOF] $($sinkCase.Source) did not preserve one caller-owned category through the common sink: $entry"
+  }
+
+  # Integration proof: keep the real graph/policy collectors and their production presenters. Only the
+  # external Gradle process is replaced by a complete ExitCode+Output invoker so the suite stays offline.
+  $graphWriter = Get-Command Write-GradleGraphDiagnostics -ErrorAction SilentlyContinue
+  $policyWriter = Get-Command Write-GradlePolicyDiagnostics -ErrorAction SilentlyContinue
+  Assert-Diagnostics ($null -ne $graphWriter -and $null -ne $policyWriter) '[DIAG-ENTRY-POINTS] production graph/policy presenters are not independently testable'
+  if ($null -ne $graphWriter -and $null -ne $policyWriter) {
+    $userHome = [Environment]::GetFolderPath('UserProfile')
+    $entryRoot = Join-Path $userHome ".license-diagnostics-$PID-$([guid]::NewGuid().ToString('N'))"
+    try {
+      $exceptionDir = Join-Path $entryRoot 'configs/licenses'
+      New-Item -ItemType Directory -Force -Path $exceptionDir | Out-Null
+      $exceptionCanary = 'DIAG_EXCEPTION_CANARY'
+      $exceptionField = 'to' + 'ken=' + $exceptionCanary
+      $exceptionJson = '[{"coordinate":"fixture.exception:item:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/evidence","registered_by":"fixture","registered_on":"2026-08-20","' + $exceptionField + '":"x"}]'
+      [System.IO.File]::WriteAllText((Join-Path $exceptionDir 'gradle-exceptions.json'), $exceptionJson, [System.Text.UTF8Encoding]::new($false))
+
+      # Real Invoke path: missing wrapper plus malformed exception schema must each reach the common sink.
+      $script:bad = @(); $script:warn = @()
+      Invoke-GradleLicenseScan -Root $entryRoot
+      $wrapperEntries = @($script:bad | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]$' })
+      $exceptionEntries = @($script:bad | Where-Object { $_ -match '\[GRADLE-OVERRIDE\]$' })
+      $entryText = $script:bad -join "`n"
+      Assert-Diagnostics (
+        $wrapperEntries.Count -eq 1 -and $exceptionEntries.Count -eq 1 -and
+        $entryText -notmatch [regex]::Escape($userHome) -and
+        $entryText -notmatch [regex]::Escape($exceptionCanary)
+      ) "[DIAG-ENTRY-WRAPPER-EXCEPTION] real Invoke path bypassed redaction/category preservation: $entryText"
+
+      # Real POM policy path: an external license name containing a secret-like value remains unknown,
+      # but its coordinate/code survive while the value is redacted.
+      $pomCoordinate = 'fixture.diagnostics:pom-entry:1.0'
+      $gradleHome = Join-Path $entryRoot 'gradle-home'
+      $pomDir = Join-Path (Get-GradleCacheCoordinateRoot -GradleUserHome $gradleHome -Coordinate $pomCoordinate) 'fixture-hash'
+      New-Item -ItemType Directory -Force -Path $pomDir | Out-Null
+      $pomCanary = 'DIAG_POM_CANARY'
+      $pomLicense = ('pass' + 'word=' + $pomCanary)
+      $pomXml = '<project><modelVersion>4.0.0</modelVersion><groupId>fixture.diagnostics</groupId><artifactId>pom-entry</artifactId><version>1.0</version><licenses><license><name>' + $pomLicense + '</name></license></licenses></project>'
+      [System.IO.File]::WriteAllText((Join-Path $pomDir 'pom-entry-1.0.pom'), $pomXml, [System.Text.UTF8Encoding]::new($false))
+      $pomResolved = @([PSCustomObject]@{ Coordinate = $pomCoordinate; Configurations = @(':core:testRuntimeClasspath') })
+      $pomPolicy = Get-GradleLicensePolicyResult -Resolved $pomResolved -GradleUserHome $gradleHome -ExceptionPath (Join-Path $entryRoot 'missing-exceptions.json')
+      $script:bad = @(); $script:warn = @()
+      Write-GradlePolicyDiagnostics -Policy $pomPolicy -Resolved $pomResolved
+      $pomEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+      Assert-Diagnostics (
+        $script:bad.Count -eq 1 -and $pomEntry.StartsWith("[GRADLE] $pomCoordinate => ") -and
+        $pomEntry -match '\[GRADLE-UNKNOWN\]$' -and $pomEntry -notmatch [regex]::Escape($pomCanary)
+      ) "[DIAG-ENTRY-POM] real POM policy path bypassed the common sink or changed category: $pomEntry"
+
+      # Real graph collector path with only the slow child process replaced.
+      $androidRoot = Join-Path $entryRoot 'android'
+      $wrapperDir = Join-Path $androidRoot 'gradle/wrapper'
+      $distributionDir = Join-Path $gradleHome 'wrapper/dists/gradle-9.7.0-bin/d4tj7w02tcgubx9zk9hbippn6'
+      $distributionRoot = Join-Path $distributionDir 'gradle-9.7.0'
+      $nativeArtifactRoot = Join-Path $gradleHome 'caches/modules-2/files-2.1/fixture.group/fixture-artifact/1.0/fixture-hash'
+      $nativeMetadataRoot = Join-Path $gradleHome 'caches/modules-2/metadata-2.107'
+      foreach ($directory in @($wrapperDir, (Join-Path $distributionRoot 'lib'), (Join-Path $distributionRoot 'bin'), $nativeArtifactRoot, $nativeMetadataRoot)) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+      }
+      Set-Content -LiteralPath (Join-Path $wrapperDir 'gradle-wrapper.properties') -Encoding utf8 -Value 'distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.0-bin.zip'
+      foreach ($file in @(
+        (Join-Path $androidRoot 'gradlew.bat'),
+        (Join-Path $distributionDir 'gradle-9.7.0-bin.zip.ok'),
+        (Join-Path $distributionRoot 'lib/gradle-launcher-9.7.0.jar'),
+        (Join-Path $distributionRoot 'bin/gradle'),
+        (Join-Path $distributionRoot 'bin/gradle.bat'),
+        (Join-Path $nativeArtifactRoot 'fixture-artifact-1.0.pom'),
+        (Join-Path $nativeMetadataRoot 'module-metadata.bin')
+      )) { Set-Content -LiteralPath $file -Encoding utf8 -Value 'fixture' }
+      $subprocessCanary = 'DIAG_SUBPROCESS_CANARY'
+      $failureInvoker = {
+        param([string]$Command, [string[]]$Arguments)
+        [PSCustomObject]@{
+          ExitCode = 42
+          Output = @("ssh://user:$subprocessCanary@example.invalid/repo", "C:\Users\alice\private`r::error forged")
+        }
+      }.GetNewClosure()
+      $graphResult = Get-GradleResolvedGraphs -Root $entryRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $failureInvoker
+      $script:bad = @(); $script:warn = @()
+      Write-GradleGraphDiagnostics -Errors $graphResult.Errors -DecodeEscapedNewlines $false
+      $subprocessText = $script:bad -join "`n"
+      Assert-Diagnostics (
+        $graphResult.Errors.Count -eq 4 -and $script:bad.Count -eq 4 -and
+        @($script:bad | Where-Object { $_ -match '退出 42；' -and $_ -match '\[GRADLE-SUBPROCESS\]$' }).Count -eq 4 -and
+        $subprocessText -notmatch [regex]::Escape($subprocessCanary) -and
+        $subprocessText -notmatch '(?i)C:\\Users\\alice|[\r]'
+      ) "[DIAG-ENTRY-SUBPROCESS] real graph subprocess path bypassed redaction or changed error semantics: $subprocessText"
+    } finally {
+      if (Test-Path -LiteralPath $entryRoot) { Remove-Item -LiteralPath $entryRoot -Recurse -Force }
+    }
+  }
+
+  $script:bad = @()
+  $missingCategoryRejected = $false
+  try { Add-GradleNonCompliance 'detail without a caller-owned category' } catch { $missingCategoryRejected = $true }
+  Assert-Diagnostics ($missingCategoryRejected -and $script:bad.Count -eq 0) '[DIAG-CATEGORY-REQUIRED] uncategorized diagnostic entered the final sink'
+
+  $script:bad = @()
+  $longCoordinate = 'fixture.group:fixture-artifact:1.2.3'
+  Add-GradleNonCompliance "$longCoordinate => prefix-$('x' * 1400)-tail [GRADLE-POM]"
+  $longEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+  Assert-Diagnostics (
+    $script:bad.Count -eq 1 -and
+    $longEntry.StartsWith("[GRADLE] $longCoordinate => [TRUNCATED] ") -and
+    $longEntry.EndsWith('-tail [GRADLE-POM]') -and
+    $longEntry.Length -le 1070
+  ) "[DIAG-GAV-PRESERVATION] bounded diagnostic lost exact GAV/category or exceeded the sink bound: $longEntry"
+
+  if ($failures.Count -gt 0) {
+    foreach ($failure in $failures) { Write-Error $failure -ErrorAction Continue }
+    exit 1
+  }
+
+  if (-not $SkipMutations) {
+    $source = Get-Content -LiteralPath $ScannerPath -Raw
+    $diagnosticMutationCases = @(
+      @{
+        Name = 'uri-redaction'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@'', ''${scheme}[REDACTED]@'') # credential redaction: URI userinfo'
+        To = '    $line = $line # credential redaction: URI userinfo'
+        Expected = '[DIAG-URI]'
+      },
+      @{
+        Name = 'authorization-redaction'
+        From = '    $line = [regex]::Replace($line, ''(?i)\bAuthorization["'''']?(?:\s*[:=]\s*|\s+).*$'', ''Authorization: [REDACTED]'') # credential redaction: authorization'
+        To = '    $line = $line # credential redaction: authorization'
+        Expected = '[DIAG-AUTH]'
+      },
+      @{
+        Name = 'key-redaction'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<lead>^|[^A-Za-z0-9_.-])["'''']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'''']?(?:\s*[:=]\s*|\s+).*$'', ''${lead}${key}=[REDACTED]'') # credential redaction: key'
+        To = '    $line = $line # credential redaction: key'
+        Expected = '[DIAG-KEY]'
+      },
+      @{
+        Name = 'windows-user-home'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/\s|:;,)\]]+)(?=[\\/]|[:;,)\]\s]|$)'', ''[USER_HOME]'') # diagnostic Windows user-home redaction'
+        To = '    $line = $line # diagnostic Windows user-home redaction'
+        Expected = '[DIAG-WINDOWS-HOME]'
+      },
+      @{
+        Name = 'unix-user-home'
+        From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/\s|:;,)\]]+)|Users/(?:[^/|]+(?=/)|[^/\s|:;,)\]]+)|root)(?=/|[:;,)\]\s]|$)'', ''[USER_HOME]'') # diagnostic Unix user-home redaction'
+        To = '    $line = $line # diagnostic Unix user-home redaction'
+        Expected = '[DIAG-UNIX-HOME]'
+      },
+      @{
+        Name = 'ansi-redaction'
+        From = '    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '''') # diagnostic ANSI redaction'
+        To = '    $line = "$_" # diagnostic ANSI redaction'
+        Expected = '[DIAG-ANSI]'
+      },
+      @{
+        Name = 'control-normalization'
+        From = '    $line = [regex]::Replace($line, ''[\p{Cc}\p{Cf}]'', '' '') # diagnostic control/format normalization'
+        To = '    $line = $line # diagnostic control/format normalization'
+        Expected = '[DIAG-CONTROL]'
+      },
+      @{
+        Name = 'line-bound'
+        From = '  $tail = (@($sanitized | Select-Object -Last $MaxLines) -join '' | '') # diagnostic line bound'
+        To = '  $tail = (@($sanitized) -join '' | '') # diagnostic line bound'
+        Expected = '[DIAG-LINE-BOUND]'
+      },
+      @{
+        Name = 'character-bound'
+        From = '  if ($tail.Length -gt $payloadMax) { # diagnostic character bound'
+        To = '  if ($false) { # diagnostic character bound'
+        Expected = '[DIAG-CHAR-BOUND]'
+      },
+      @{
+        Name = 'marker-inclusive-bound'
+        From = '  $payloadMax = if ($truncated) { $MaxChars - $marker.Length } else { $MaxChars } # diagnostic marker-inclusive bound'
+        To = '  $payloadMax = $MaxChars # diagnostic marker-inclusive bound'
+        Expected = '[DIAG-COMBINED-BOUND]'
+      },
+      @{
+        Name = 'category-spoof'
+        From = '  $safeDetail = [regex]::Replace($safeDetail, ''(?i)\[GRADLE-[A-Z-]+\]'', ''[REDACTED-CATEGORY]'') # diagnostic category spoof guard'
+        To = '  $safeDetail = $safeDetail # diagnostic category spoof guard'
+        Expected = '[DIAG-CATEGORY-SPOOF]'
+      },
+      @{
+        Name = 'category-required'
+        From = '  if (-not $categoryMatch.Success) { throw ''Gradle diagnostic missing caller-owned [GRADLE-*] category.'' } # diagnostic category required guard'
+        To = '  if ($false) { throw ''Gradle diagnostic missing caller-owned [GRADLE-*] category.'' } # diagnostic category required guard'
+        Expected = '[DIAG-CATEGORY-REQUIRED]'
+      },
+      @{
+        Name = 'exact-gav-preservation'
+        From = '    $coordinatePrefix = "$($Matches.coordinate) => " # diagnostic exact-GAV preservation'
+        To = '    $coordinatePrefix = '''' # diagnostic exact-GAV preservation'
+        Expected = '[DIAG-GAV-PRESERVATION]'
+      },
+      @{
+        Name = 'graph-presenter-route'
+        From = '  Write-GradleGraphDiagnostics -Errors $graph.Errors -DecodeEscapedNewlines:(-not $IsWindows) # unified graph diagnostic route'
+        To = '  $null = $graph.Errors # unified graph diagnostic route'
+        Expected = '[DIAG-ENTRY-WRAPPER-EXCEPTION]'
+      },
+      @{
+        Name = 'policy-presenter-route'
+        From = '  Write-GradlePolicyDiagnostics -Policy $policy -Resolved $graph.Resolved # unified policy diagnostic route'
+        To = '  $null = $policy # unified policy diagnostic route'
+        Expected = '[DIAG-ENTRY-WRAPPER-EXCEPTION]'
+      }
+    )
+
+    foreach ($mutationCase in $diagnosticMutationCases) {
+      $matches = [regex]::Matches($source, [regex]::Escape($mutationCase.From)).Count
+      if ($matches -ne 1) {
+        Write-Error "[DIAGNOSTICS-MUTATION] $($mutationCase.Name) target count=$matches"
+        exit 1
+      }
+      $mutantPath = Join-Path $PSScriptRoot ".license-diagnostics-$PID-$($mutationCase.Name).ps1"
+      try {
+        [System.IO.File]::WriteAllText($mutantPath, $source.Replace($mutationCase.From, $mutationCase.To), [System.Text.UTF8Encoding]::new($false))
+        $mutationOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite diagnostics -ScannerPath $mutantPath -SkipMutations 2>&1 | Out-String)
+        $mutationExit = $LASTEXITCODE
+        if ($mutationExit -eq 0 -or $mutationOutput -notmatch [regex]::Escape($mutationCase.Expected)) {
+          Write-Error "[DIAGNOSTICS-MUTATION] $($mutationCase.Name) did not fail on its semantic inverse (exit=$mutationExit; output=$mutationOutput)"
+          exit 1
+        }
+      } finally {
+        if (Test-Path -LiteralPath $mutantPath) { Remove-Item -LiteralPath $mutantPath -Force }
+      }
+    }
+    Write-Host "license-scanner-check(diagnostics mutations): PASS ($($diagnosticMutationCases.Count))"
+  }
+
+  Write-Host 'license-scanner-check(diagnostics): PASS'
+  exit 0
+}
 
 if ($Suite -eq 'policy') {
   function Assert-Policy {
