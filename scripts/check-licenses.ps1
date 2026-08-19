@@ -550,7 +550,7 @@ function Get-GradleCoordinatesFromDependencyOutput {
 
     $resolvedVersion = $null
     if ($tail -match '^(?:\s+|:[^\s].*?\s+)->\s+(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
-      $resolvedVersion = $Matches.resolved
+      $resolvedVersion = $Matches.resolved # selected version after replacement
     } elseif ($tail -match '^:(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
       $resolvedVersion = $Matches.resolved
     } else {
@@ -766,12 +766,25 @@ function Get-GradleResolvedGraphs {
     return [PSCustomObject]@{ Resolved = @(); Errors = @($errors) }
   }
 
-  $nativeCacheRoot = $GradleUserHome
-  foreach ($segment in @('caches', 'modules-2', 'files-2.1')) { $nativeCacheRoot = Join-Path $nativeCacheRoot $segment }
+  $modulesCacheRoot = $GradleUserHome
+  foreach ($segment in @('caches', 'modules-2')) { $modulesCacheRoot = Join-Path $modulesCacheRoot $segment }
+  $nativeCacheRoot = Join-Path $modulesCacheRoot 'files-2.1'
   $nativeCacheReady = $false
   try {
     if (Test-Path -LiteralPath $nativeCacheRoot -PathType Container) {
-      $nativeCacheReady = @(Get-ChildItem -LiteralPath $nativeCacheRoot -Directory -Force -ErrorAction Stop | Select-Object -First 1).Count -eq 1
+      $cachedArtifact = @(Get-ChildItem -LiteralPath $nativeCacheRoot -File -Recurse -Force -ErrorAction Stop | Where-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($nativeCacheRoot, $_.FullName)
+        @($relativePath -split '[\\/]').Count -ge 5 -and $_.Length -gt 0
+      } | Select-Object -First 1)
+      $metadataReady = $false
+      foreach ($metadataRoot in @(Get-ChildItem -LiteralPath $modulesCacheRoot -Directory -Force -ErrorAction Stop | Where-Object { $_.Name -match '^metadata-2\.\d+$' })) {
+        $moduleMetadata = Get-Item -LiteralPath (Join-Path $metadataRoot.FullName 'module-metadata.bin') -Force -ErrorAction SilentlyContinue
+        if ($null -ne $moduleMetadata -and $moduleMetadata.Length -gt 0) {
+          $metadataReady = $true
+          break
+        }
+      }
+      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness
     }
   } catch { $nativeCacheReady = $false }
   if (-not $nativeCacheReady) { # graph native cache zero-start guard
@@ -781,7 +794,7 @@ function Get-GradleResolvedGraphs {
 
   foreach ($target in $gradleLicenseConfigurations) {
     $gradleArguments = @('-p', $androidRoot, '--offline', '--no-daemon', "$($target.Project):dependencies", '--configuration', $target.Configuration) # graph offline invocation
-    $command = if ($UseWindows) { $wrapper } else { 'sh' }
+    $command = if ($UseWindows) { $wrapper } else { 'sh' } # platform wrapper selection
     $commandArguments = if ($UseWindows) { $gradleArguments } else { @($wrapper) + $gradleArguments } # POSIX wrapper via sh
     try {
       if ($null -eq $Invoker) {

@@ -32,9 +32,12 @@ $constraintResult = Get-GradleCoordinatesFromDependencyOutput -Output @(
 $constraintCoordinates = @($constraintResult.Coordinates)
 Assert-Graph ($constraintResult.Errors.Count -eq 0) "constraint fixture produced parser errors: $($constraintResult.Errors -join ' | ')"
 Assert-Graph (
+  @($constraintCoordinates | Where-Object { $_ -ceq 'fixture.constraint:only:1.0' }).Count -eq 0
+) "constraint-only row entered resolved GAV set: $($constraintCoordinates -join ', ')"
+Assert-Graph (
   $constraintCoordinates.Count -eq 1 -and
   $constraintCoordinates[0] -ceq 'fixture.actual:node:2.0'
-) "constraint-only row entered resolved GAV set: $($constraintCoordinates -join ', ')"
+) "resolved duplicate GAV was not deduplicated: $($constraintCoordinates -join ', ')"
 
 $parserCases = @(
   @{
@@ -54,6 +57,12 @@ $parserCases = @(
     Lines = @('+--- fixture.unresolved:artifact:1.0 (n)', '+--- project :source ->', '\--- malformed external edge')
     Coordinates = @()
     ErrorCodes = @('GRADLE-UNRESOLVED', 'GRADLE-PARSE', 'GRADLE-PARSE')
+  },
+  @{
+    Name = 'non-concrete'
+    Lines = @('+--- fixture.invalid:artifact:..', '\--- fixture.invalid:artifact:latest.release')
+    Coordinates = @()
+    ErrorCodes = @('GRADLE-PARSE', 'GRADLE-PARSE')
   }
 )
 foreach ($case in $parserCases) {
@@ -75,11 +84,15 @@ try {
   $wrapperDir = Join-Path $androidRoot 'gradle/wrapper'
   $distributionDir = Join-Path $gradleHome 'wrapper/dists/gradle-9.7.0-bin/d4tj7w02tcgubx9zk9hbippn6'
   $distributionRoot = Join-Path $distributionDir 'gradle-9.7.0'
+  $nativeCacheRoot = Join-Path $gradleHome 'caches/modules-2/files-2.1'
+  $nativeArtifactRoot = Join-Path $nativeCacheRoot 'fixture.group/fixture-artifact/1.0/fixture-hash'
+  $nativeMetadataRoot = Join-Path $gradleHome 'caches/modules-2/metadata-2.107'
   foreach ($directory in @(
     $wrapperDir,
     (Join-Path $distributionRoot 'lib'),
     (Join-Path $distributionRoot 'bin'),
-    (Join-Path $gradleHome 'caches/modules-2/files-2.1/fixture.group')
+    $nativeArtifactRoot,
+    $nativeMetadataRoot
   )) { New-Item -ItemType Directory -Force -Path $directory | Out-Null }
   Set-Content -LiteralPath (Join-Path $wrapperDir 'gradle-wrapper.properties') -Encoding utf8 -Value 'distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.0-bin.zip'
   foreach ($file in @(
@@ -88,7 +101,9 @@ try {
     (Join-Path $distributionDir 'gradle-9.7.0-bin.zip.ok'),
     (Join-Path $distributionRoot 'lib/gradle-launcher-9.7.0.jar'),
     (Join-Path $distributionRoot 'bin/gradle'),
-    (Join-Path $distributionRoot 'bin/gradle.bat')
+    (Join-Path $distributionRoot 'bin/gradle.bat'),
+    (Join-Path $nativeArtifactRoot 'fixture-artifact-1.0.pom'),
+    (Join-Path $nativeMetadataRoot 'module-metadata.bin')
   )) { Set-Content -LiteralPath $file -Encoding utf8 -Value 'fixture' }
 
   $invocations = [System.Collections.Generic.List[object]]::new()
@@ -168,7 +183,7 @@ try {
     }
 
     # Break caught: an absent native dependency cache must fail before any wrapper process starts.
-    Remove-Item -LiteralPath (Join-Path $gradleHome 'caches/modules-2/files-2.1') -Recurse -Force
+    Remove-Item -LiteralPath $nativeCacheRoot -Recurse -Force
     $invocations.Clear()
     $missingCacheResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     Assert-Graph (
@@ -177,8 +192,7 @@ try {
     Assert-Graph ($invocations.Count -eq 0) "missing native cache still started $($invocations.Count) wrapper calls"
 
     # Break caught: an empty files-2.1 directory is not a warmed native dependency cache.
-    $emptyCacheRoot = Join-Path $gradleHome 'caches/modules-2/files-2.1'
-    New-Item -ItemType Directory -Force -Path $emptyCacheRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $nativeCacheRoot | Out-Null
     $invocations.Clear()
     $emptyCacheResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     Assert-Graph (
@@ -186,8 +200,35 @@ try {
     ) "empty native cache did not return GRADLE-CACHE-OFFLINE"
     Assert-Graph ($invocations.Count -eq 0) "empty native cache still started $($invocations.Count) wrapper calls"
 
+    # A directory-only Maven cache shape is still cold: no resolved artifact/POM was cached.
+    New-Item -ItemType Directory -Force -Path $nativeArtifactRoot | Out-Null
+    $invocations.Clear()
+    $emptyArtifactResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
+    Assert-Graph (
+      $emptyArtifactResult.Errors.Count -eq 1 -and $emptyArtifactResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
+    ) "empty artifact subtree did not return GRADLE-CACHE-OFFLINE"
+    Assert-Graph ($invocations.Count -eq 0) "empty artifact subtree still started $($invocations.Count) wrapper calls"
+
+    # Cached files without Gradle's module-resolution metadata cannot prove an offline graph is ready.
+    Set-Content -LiteralPath (Join-Path $nativeArtifactRoot 'fixture-artifact-1.0.pom') -Encoding utf8 -Value 'fixture'
+    Remove-Item -LiteralPath $nativeMetadataRoot -Recurse -Force
+    $invocations.Clear()
+    $missingMetadataResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
+    Assert-Graph (
+      $missingMetadataResult.Errors.Count -eq 1 -and $missingMetadataResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
+    ) "missing native metadata did not return GRADLE-CACHE-OFFLINE"
+    Assert-Graph ($invocations.Count -eq 0) "missing native metadata still started $($invocations.Count) wrapper calls"
+
+    New-Item -ItemType Directory -Force -Path $nativeMetadataRoot | Out-Null
+    $invocations.Clear()
+    $emptyMetadataResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
+    Assert-Graph (
+      $emptyMetadataResult.Errors.Count -eq 1 -and $emptyMetadataResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
+    ) "empty native metadata did not return GRADLE-CACHE-OFFLINE"
+    Assert-Graph ($invocations.Count -eq 0) "empty native metadata still started $($invocations.Count) wrapper calls"
+
     # Existing wrapper readiness remains a graph boundary: missing completion marker is zero-start.
-    New-Item -ItemType Directory -Force -Path (Join-Path $emptyCacheRoot 'fixture.group') | Out-Null
+    Set-Content -LiteralPath (Join-Path $nativeMetadataRoot 'module-metadata.bin') -Encoding utf8 -Value 'fixture'
     Remove-Item -LiteralPath (Join-Path $distributionDir 'gradle-9.7.0-bin.zip.ok') -Force
     $invocations.Clear()
     $missingDistributionResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
@@ -215,6 +256,36 @@ if (-not $SkipMutations) {
       From = '    if ($body -match ''\s+\(c\)\s*$'') { continue } # exclude Gradle constraint-only edge'
       To = '    if ($false) { continue } # exclude Gradle constraint-only edge'
       Expected = 'constraint-only row entered resolved GAV set'
+    },
+    @{
+      Name = 'concrete-gav'
+      From = '    if ($null -eq (Get-GradleGavParts -Coordinate $resolvedCoordinate)) {'
+      To = '    if ($false) {'
+      Expected = 'parser/non-concrete returned wrong GAVs'
+    },
+    @{
+      Name = 'direct-project'
+      From = '        continue # direct internal Gradle project edge'
+      To = '        $body = $body # direct internal Gradle project edge'
+      Expected = 'parser/project-boundary returned wrong error codes'
+    },
+    @{
+      Name = 'redirected-internal-project'
+      From = '        if ($body -match $internalProjectPattern) { continue }'
+      To = '        if ($false) { continue }'
+      Expected = 'parser/project-boundary returned wrong error codes'
+    },
+    @{
+      Name = 'deduplication'
+      From = '  $coordinates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)'
+      To = '  $coordinates = [System.Collections.Generic.List[string]]::new()'
+      Expected = 'resolved duplicate GAV was not deduplicated'
+    },
+    @{
+      Name = 'selected-version'
+      From = '      $resolvedVersion = $Matches.resolved # selected version after replacement'
+      To = '      $resolvedVersion = ($tail -replace ''^:'', '''' -replace ''\s+->.*$'', '''') # selected version after replacement'
+      Expected = 'parser/resolved-version returned wrong GAVs'
     },
     @{
       Name = 'project-external'
@@ -253,6 +324,12 @@ if (-not $SkipMutations) {
       Expected = 'did not pass gradlew as sh argv[0]'
     },
     @{
+      Name = 'windows-wrapper'
+      From = '  return (Join-Path $AndroidRoot $(if ($UseWindows) { ''gradlew.bat'' } else { ''gradlew'' }))'
+      To = '  return (Join-Path $AndroidRoot ''gradlew'')'
+      Expected = 'Windows graph call for runtimeClasspath was not exact'
+    },
+    @{
       Name = 'wrapper-preflight'
       From = '  if (-not $distribution.Ready) { # graph wrapper zero-start guard'
       To = '  if ($false) { # graph wrapper zero-start guard'
@@ -263,6 +340,18 @@ if (-not $SkipMutations) {
       From = '  if (-not $nativeCacheReady) { # graph native cache zero-start guard'
       To = '  if ($false) { # graph native cache zero-start guard'
       Expected = 'missing native cache'
+    },
+    @{
+      Name = 'cache-artifact-readiness'
+      From = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness'
+      To = '      $nativeCacheReady = $metadataReady # native cache readiness'
+      Expected = 'empty artifact subtree did not return GRADLE-CACHE-OFFLINE'
+    },
+    @{
+      Name = 'cache-metadata-readiness'
+      From = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness'
+      To = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 # native cache readiness'
+      Expected = 'missing native metadata did not return GRADLE-CACHE-OFFLINE'
     },
     @{
       Name = 'subprocess-exit'

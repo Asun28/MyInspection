@@ -9574,6 +9574,10 @@ try {
     Remove-Item -LiteralPath $fixtureExtraDistributionRoot -Recurse -Force
     Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
 
+    $fixtureNativeMetadata = Join-Path $scannerFixtureGradleHome 'caches/modules-2/metadata-2.107'
+    New-Item -ItemType Directory -Force $fixtureNativeMetadata | Out-Null
+    Set-Content -LiteralPath (Join-Path $fixtureNativeMetadata 'module-metadata.bin') -Encoding utf8 -Value 'fixture'
+
     Set-ScannerFixtureReport $scannerInternalProjectReport
     $scannerInternalProjects = Invoke-ScannerFixture $scannerFixtureScript -Strict
     if ($scannerInternalProjects.Exit -ne 0 -or $scannerInternalProjects.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache') {
