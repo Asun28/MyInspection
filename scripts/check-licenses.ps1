@@ -399,6 +399,18 @@ function Get-GradlePomSingletonNode {
   return $(if ($nodes.Count -eq 1) { $nodes[0] } else { $null })
 }
 
+function Get-GradlePomRequiredScalarText {
+  param(
+    [AllowNull()][System.Xml.XmlNode]$Node,
+    [Parameter(Mandatory)][string]$Field
+  )
+
+  if ($null -eq $Node -or [string]::IsNullOrWhiteSpace([string]$Node.InnerText)) { throw "POM $Field 缺失或为空。" } # POM required scalar guard
+  $value = [string]$Node.InnerText
+  Assert-GradleMetadataScalar -Field "POM $Field" -Value $value # POM required scalar safety guard
+  return $value
+}
+
 function Get-GradleCachedPomInfo {
   param(
     [Parameter(Mandatory)][string]$Coordinate,
@@ -464,16 +476,18 @@ function Get-GradleCachedPomInfo {
       $groupNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'groupId'
       $parent = Get-GradlePomSingletonNode -Parent $project -LocalName 'parent'
       $declaredGroup = if ($null -eq $groupNode) { '' } else { [string]$groupNode.InnerText }
-      $parentGroupNode = if ($null -eq $parent) { $null } else { Get-GradlePomSingletonNode -Parent $parent -LocalName 'groupId' }
-      $parentArtifactNode = if ($null -eq $parent) { $null } else { Get-GradlePomSingletonNode -Parent $parent -LocalName 'artifactId' }
-      if ($null -ne $parent -and ($null -eq $parentArtifactNode -or [string]::IsNullOrWhiteSpace([string]$parentArtifactNode.InnerText))) { throw 'POM parent 缺少 artifactId。' }
-      if ([string]::IsNullOrWhiteSpace($declaredGroup) -and $null -ne $parentGroupNode) { $declaredGroup = [string]$parentGroupNode.InnerText }
+      $parentGroup = ''; $parentVersion = ''
+      if ($null -ne $parent) {
+        $parentGroup = Get-GradlePomRequiredScalarText -Node (Get-GradlePomSingletonNode -Parent $parent -LocalName 'groupId') -Field 'parent/groupId'
+        [void](Get-GradlePomRequiredScalarText -Node (Get-GradlePomSingletonNode -Parent $parent -LocalName 'artifactId') -Field 'parent/artifactId')
+        $parentVersion = Get-GradlePomRequiredScalarText -Node (Get-GradlePomSingletonNode -Parent $parent -LocalName 'version') -Field 'parent/version'
+      }
+      if ([string]::IsNullOrWhiteSpace($declaredGroup) -and -not [string]::IsNullOrWhiteSpace($parentGroup)) { $declaredGroup = $parentGroup }
       $artifactNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'artifactId'
       $declaredArtifact = if ($null -eq $artifactNode) { '' } else { [string]$artifactNode.InnerText }
       $versionNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'version'
       $declaredVersion = if ($null -eq $versionNode) { '' } else { [string]$versionNode.InnerText }
-      $parentVersionNode = if ($null -eq $parent) { $null } else { Get-GradlePomSingletonNode -Parent $parent -LocalName 'version' }
-      if ([string]::IsNullOrWhiteSpace($declaredVersion) -and $null -ne $parentVersionNode) { $declaredVersion = [string]$parentVersionNode.InnerText }
+      if ([string]::IsNullOrWhiteSpace($declaredVersion) -and -not [string]::IsNullOrWhiteSpace($parentVersion)) { $declaredVersion = $parentVersion }
       Assert-GradleMetadataScalar -Field 'POM groupId' -Value $declaredGroup
       Assert-GradleMetadataScalar -Field 'POM artifactId' -Value $declaredArtifact
       Assert-GradleMetadataScalar -Field 'POM version' -Value $declaredVersion
@@ -483,7 +497,8 @@ function Get-GradleCachedPomInfo {
       if ($declaredGroup -cne $group -or $declaredArtifact -cne $artifact -or $declaredVersion -cne $version) {
         throw "POM GAV 不匹配（声明 $declaredGroup`:$declaredArtifact`:$declaredVersion，期望 $Coordinate）。"
       }
-      $licenseNodes = @($project.SelectNodes('./*[local-name()="licenses"]/*[local-name()="license"]'))
+      $licensesNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'licenses'
+      $licenseNodes = if ($null -eq $licensesNode) { @() } else { @($licensesNode.SelectNodes('./*[local-name()="license"]')) }
       $pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
       foreach ($licenseNode in $licenseNodes) {
         $nameNode = Get-GradlePomSingletonNode -Parent $licenseNode -LocalName 'name'
