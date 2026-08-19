@@ -150,6 +150,23 @@ function Test-SelftestCiWiringContract([string]$WorkflowText) {
   return $true
 }
 
+function Test-MainMasterWorkflowTrigger([string]$WorkflowText, [string]$Trigger) {
+  return ($WorkflowText -match "(?m)^  $([regex]::Escape($Trigger)):\s*\r?\n\s+branches:\s*\[\s*main\s*,\s*master\s*\]")
+}
+
+function Test-ScaffoldSelftestTriggerContract([string]$WorkflowText) {
+  $onBlock = [regex]::Match($WorkflowText, '(?ms)^on:\s*\r?\n(?<body>.*?)(?=^[^\s#])')
+  if (-not $onBlock.Success) { return $false }
+  $events = @([regex]::Matches($onBlock.Groups['body'].Value, '(?m)^  (?<name>[A-Za-z_][A-Za-z0-9_-]*)\s*:') | ForEach-Object { $_.Groups['name'].Value })
+  if ($events.Count -ne 2 -or (@($events | Sort-Object -Unique) -join ',') -ne 'push,workflow_dispatch') { return $false }
+  $pushBlock = [regex]::Match($onBlock.Groups['body'].Value, '(?ms)^  push:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*\s*:|\z)')
+  if (-not $pushBlock.Success) { return $false }
+  if ($pushBlock.Groups['body'].Value -notmatch '(?m)^    branches:\s*\[\s*main\s*,\s*master\s*\]\s*$') { return $false }
+  if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*$") { return $false }
+  if ($onBlock.Groups['body'].Value -notmatch '(?m)^  workflow_dispatch:\s*\{\}\s*$') { return $false }
+  return $true
+}
+
 function New-SelftestSnapshot {
   param(
     [Parameter(Mandatory)][string]$SourceRoot,
@@ -915,24 +932,32 @@ if ($stText82 -notmatch 'Install-Module\s+PSScriptAnalyzer') {
 }
 elseif (-not $fail) { Write-Host '  8.2c scaffold-selftest.yml provision PSScriptAnalyzer OK' -ForegroundColor Green }
 
-# 8.2d 两份工作流须**同时**在 push 与 pull_request（main+master）触发。分支规则集要 GitHub Pro 或 public 仓
-#   才能强制「必需状态检查」（私有免费仓 `gh api repos/.../rules/branches/<b>` 返回 403），push 后的工作流
-#   是**事后检测层、非 push 前强制**（见 ci.yml 头注）；但只有 pull_request 触发时，直推默认分支的提交
-#   **连这层事后检测都不跑**——ci.yml 的 check-cards/check-secrets/check-licenses/verify 对其从未执行。
-#   本断言守「检测覆盖不回退」：防「删掉 push: 又静默回到只 PR 触发」的回归；不声称、也不能提供 push 前拦截。
+# 8.2d 产品 CI 是 PR + 默认分支 push 硬闸；完整 scaffold selftest 是默认分支合并后/手动 canary，
+#   明确不进入 PR 关键路径。任务卡 DoD 与 R3 负责合并前的本卡验证，避免无关历史 harness 闸反复阻塞产品推进。
 $trigMissing82 = $false
-foreach ($wf in $wfFiles) {
-  $wfPath = Join-Path $RepoRoot $wf
-  if (-not (Test-Path $wfPath)) { continue }   # 缺失已由 8.2a 报错
-  $wfText82 = Get-Content $wfPath -Raw
-  foreach ($trig in @('push', 'pull_request')) {
-    if ($wfText82 -notmatch "(?m)^  ${trig}:\s*\r?\n\s+branches:\s*\[\s*main\s*,\s*master\s*\]") {
-      $trigMissing82 = $true
-      Fail "8.2d：$wf 缺 '${trig}:' 触发（或其 branches 非 [main, master]）——私有免费档无 push 前强制，事后检测是直推提交的唯一检查层；缺 push: 触发即让直推连事后检测都不跑（见 ci.yml 头注）。"
-    }
+$ciTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
+foreach ($trig in @('push', 'pull_request')) {
+  if (-not (Test-MainMasterWorkflowTrigger $ciTriggerText82 $trig)) {
+    $trigMissing82 = $true
+    Fail "8.2d：ci.yml 缺 '${trig}:' 触发（或其 branches 非 [main, master]）。"
   }
 }
-if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 两份工作流均在 push + pull_request（main+master）触发 OK' -ForegroundColor Green }
+$scaffoldTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
+  $trigMissing82 = $true
+  Fail '8.2d：scaffold-selftest.yml 必须只在 main/master push 与 workflow_dispatch 运行，且不得含 pull_request——完整 harness 不进入 PR 关键路径。'
+}
+$pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
+$pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
+$scheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  schedule:`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
+$alteredPathsMutation82 = $scaffoldTriggerText82 -replace "'configs/\*\*'", "'android/**'"
+$acceptedTriggerMutations82 = @($pullRequestTriggerMutation82, $pullRequestTargetMutation82, $scheduleMutation82, $missingPathsMutation82, $alteredPathsMutation82 | Where-Object { Test-ScaffoldSelftestTriggerContract $_ })
+if ($acceptedTriggerMutations82.Count -gt 0) {
+  $trigMissing82 = $true
+  Fail "8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。"
+}
+if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅 post-merge/manual OK' -ForegroundColor Green }
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
