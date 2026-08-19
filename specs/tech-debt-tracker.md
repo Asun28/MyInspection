@@ -3,8 +3,11 @@
 > **动机**（OpenAI《Harness Engineering》核心实践之一）：把技术债当**持续的小额还款**，而非**周期性大修**。
 > 每发现一处「能跑但偏离既定模式/契约」的地方，**立刻登记**——不要等它攒成大重构。
 >
-> **形态**：本表 append-only（只追加、改状态，不删行）。每条债项最终应转成一张任务卡（`specs/tasks/<id>.md`）偿还，
-> 或在 `docs/adr/` 记一条「有意接受此债」的决定。
+> **形态**：本表 append-only（只追加、改状态，不删行）。**TD 是登记/验收单元，不是 PR 大小单位**：每条债项进入
+> `carded` 前必须先 decomposition，按依赖投影成 **1–N 张**各自可一次评审、一次验证的任务卡（`specs/tasks/<id>.md`）。
+> 只有整项债本来就满足「一个可评审/可验证单元」时才允许 N=1；不得为了“一债一卡”把多个解析器、策略、平台、
+> CI/文档面塞进一个 PR。偿还指针在同一格列 card set/依赖顺序；**全部子卡 merge 且 TD 总验收通过后**才置 `paid`。
+> 另一条闭合路线是在 `docs/adr/` 记一条「有意接受此债」的决定。
 > **热/冷分离（省上下文 · TD86）**：本活表只留 `open`/`carded` 的**在飞**债项；`paid`/`accepted` 的**已闭合**整行由
 > `scripts/archive.ps1` 搬到 `specs/archive/tech-debt-archive.md`（append-only 语义在归档侧延续、轨迹不丢）+ 精简索引
 > `specs/archive/tech-debt-index.md`（一行一条、可 grep）。查已还债项来龙去脉：先 grep 索引、再按 id 取归档整行；
@@ -14,7 +17,7 @@
 > WHO 与根因归解决层（卡的 `diagnosis`）——细则与样板见 `specs/README.md`「技术债的一行怎么写」。
 
 ## 状态枚举
-`open`（已登记待还） · `carded`（已开卡偿还，注明卡 id） · `paid`（已还清，注明 PR/commit） · `accepted`（有意接受，注明 ADR）
+`open`（已登记待还，或 decomposition 尚未完成） · `carded`（已完成 decomposition，注明 1–N 张卡及依赖顺序） · `paid`（全部子卡已合并且 TD 总验收通过，注明各 PR/commit） · `accepted`（有意接受，注明 ADR）
 
 ## 债项
 | id | 发现日 | 位置 | 偏离了什么（债） | 严重度 | 状态 | 偿还指针 |

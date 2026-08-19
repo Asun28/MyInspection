@@ -193,6 +193,7 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
 7. `docs/HANDOFF.md` — 会话交接标准（planning-with-files 三件套 + 零歧义 HANDOFF 块；和 AI agent 跨 session 接力的硬契约）
 8. `docs/QUALITY-RUBRIC.md` — R3 Codex 评审的判定 rubric（反「自我夸奖/自我开脱」：不确定即 block、每条 reason 给证据）
 9. `docs/HARNESS-REVIEW.md` — 随模型变强**给脚手架做减法**的仪式（逐闸门 stress-test 其假设）
+   - 配套解读：`docs/HARNESS-LIFECYCLE-AND-R3-DIAGNOSIS.md` — 本项目需求→设计/技术债→任务卡→R1–R5→PR/merge 的逐步说明，以及 PR #20 的 R3 耗时证据与改进点；**非第二真相源**，冲突时仍以本索引中的权威合同/脚本为准
 10. `docs/references/` — 喂给 agent 的依赖文档层：**静态** `*-llms.txt` +（当前默认）**动态** Context7 MCP（按**实际 pinned 版本**取实时 API 文档，治「模型幻觉过时/错版本 API」；根 `.mcp.json` 已声明）；「不在上下文里=对 agent 不存在」。索引/用法见 `docs/references/README.md`；自带 `uv-llms.txt`
 11. `specs/tech-debt-tracker.md` — 技术债追踪（持续小额还债，非周期大修）
 12. `docs/PROJECT-BRIEF-TEMPLATE.md` — 产品简报模板（规划上游：what/why；由 `shape-idea` skill 即漏斗第一步产出，照 `docs/PLAN-TEMPLATE.md` 手工扩写成 PLAN）
