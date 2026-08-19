@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-CRITICAL-PATH
 title: 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-CRITICAL-PATH
 worktree: C:\wt\T0-DEBT-SELFTEST-CRITICAL-PATH
 allow_paths:
