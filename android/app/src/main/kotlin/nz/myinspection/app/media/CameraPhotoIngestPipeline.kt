@@ -9,6 +9,7 @@ import nz.myinspection.core.media.PhotoIngest
 import nz.myinspection.core.media.PhotoIngestPlan
 import nz.myinspection.core.media.PhotoSource
 import nz.myinspection.core.media.PhotoTarget
+import nz.myinspection.core.media.VerifiedAssetWorkflow
 
 /**
  * 相机路径（卡片上下文包「拍摄保存」）：预算闸 → 转正烘焙 → JPEG q92 重编码 → 对**烘焙后字节**求
@@ -41,34 +42,35 @@ object CameraPhotoIngestPipeline {
         val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
 
         var baked: Bitmap? = null
-        val staged = try {
+        return try {
             val bakedBitmap = PhotoOrientationBaker.bake(capturedBitmap, exifOrientation)
             baked = bakedBitmap
-            MediaFileStore.stageVerifiedAsset(
-                mediaRoot,
-                MediaPaths.photoRelPath(propertyId, inspectionId, photoId),
-            ) { output ->
-                PhotoJpegEncoder.encodeInto(bakedBitmap, output)
-            }
+            VerifiedAssetWorkflow.encodeStagePublishRecord(
+                target = MediaFileStore.resolve(
+                    mediaRoot,
+                    MediaPaths.photoRelPath(propertyId, inspectionId, photoId),
+                ),
+                input = bakedBitmap,
+                encoder = PhotoJpegEncoder,
+                plan = { staged ->
+                    // 相机路径的 content_hash 是已烘焙、已重编码的最终 JPEG，不是源 Bitmap 的像素摘要。
+                    val contentHash = staged.digest.sha256
+                    PhotoIngest.verifyReuseExists(
+                        PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash)),
+                        propertyId,
+                        inspectionId,
+                        photoId,
+                    ) { relPath -> MediaFileStore.resolve(mediaRoot, relPath).exists() }
+                },
+                shouldPublish = { plan -> plan is PhotoIngestPlan.WriteNewAsset },
+                publish = { staged, plan -> MediaFileStore.publishStaged(staged, mediaRoot, plan.relPath) },
+                record = { plan ->
+                    recorder.recordLanded(plan, photoId, target, PhotoSource.CAMERA, capturedAtMs, mediaRoot)
+                },
+            )
         } finally {
             // [capturedBitmap] 属调用方（可能还要拿去做预览），只回收 bake() 新分配的那份。
             if (baked != null && baked !== capturedBitmap) baked.recycle()
-        }
-
-        return MediaFileStore.useStaged(staged) {
-            // 相机路径的 content_hash 是已烘焙、已重编码的最终 JPEG，不是源 Bitmap 的像素摘要。
-            val contentHash = staged.digest.sha256
-            val plan = PhotoIngest.verifyReuseExists(
-                PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash)),
-                propertyId,
-                inspectionId,
-                photoId,
-            ) { relPath -> MediaFileStore.resolve(mediaRoot, relPath).exists() }
-
-            if (plan is PhotoIngestPlan.WriteNewAsset) {
-                MediaFileStore.publishStaged(staged, mediaRoot, plan.relPath)
-            }
-            recorder.recordLanded(plan, photoId, target, PhotoSource.CAMERA, capturedAtMs, mediaRoot)
         }
     }
 }

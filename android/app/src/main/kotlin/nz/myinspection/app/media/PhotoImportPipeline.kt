@@ -14,6 +14,7 @@ import nz.myinspection.core.media.PhotoIngest
 import nz.myinspection.core.media.PhotoIngestPlan
 import nz.myinspection.core.media.PhotoSource
 import nz.myinspection.core.media.PhotoTarget
+import nz.myinspection.core.media.VerifiedAssetWorkflow
 
 /**
  * 导入路径（卡片上下文包「导入」）：复制原字节到临时私有文件（硬边界：导入=复制，不移动用户原始文件）、
@@ -83,20 +84,27 @@ object PhotoImportPipeline {
                         decoded = decodedBitmap
                         val bakedBitmap = PhotoOrientationBaker.bake(decodedBitmap, orientation)
                         baked = bakedBitmap
-                        val staged = MediaFileStore.stageVerifiedAsset(mediaRoot, newAssetPlan.relPath) { output ->
-                            PhotoJpegEncoder.encodeInto(bakedBitmap, output)
-                        }
-                        return MediaFileStore.useStaged(staged) {
-                            MediaFileStore.publishStaged(staged, mediaRoot, newAssetPlan.relPath)
-                            recorder.recordLanded(
-                                newAssetPlan,
-                                photoId,
-                                target,
-                                PhotoSource.IMPORTED,
-                                exifTimeMs,
-                                mediaRoot,
-                            )
-                        }
+                        return VerifiedAssetWorkflow.encodeStagePublishRecord(
+                            target = MediaFileStore.resolve(mediaRoot, newAssetPlan.relPath),
+                            input = bakedBitmap,
+                            encoder = PhotoJpegEncoder,
+                            // Import dedupe/DB semantics intentionally keep the source-byte hash computed above.
+                            plan = { newAssetPlan },
+                            shouldPublish = { true },
+                            publish = { staged, planned ->
+                                MediaFileStore.publishStaged(staged, mediaRoot, planned.relPath)
+                            },
+                            record = { planned ->
+                                recorder.recordLanded(
+                                    planned,
+                                    photoId,
+                                    target,
+                                    PhotoSource.IMPORTED,
+                                    exifTimeMs,
+                                    mediaRoot,
+                                )
+                            },
+                        )
                     } finally {
                         if (baked != null && baked !== decoded) baked.recycle()
                         decoded?.recycle()

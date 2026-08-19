@@ -14,11 +14,11 @@ class StagedFile internal constructor(
  * Writes one producer pass into a sibling temporary file and verifies the closed file before returning it. This class
  * never publishes the final target: callers retain their existing no-overwrite/publish and DB-compensation policies.
  */
-object StreamFileStager {
-    fun stage(target: File, producer: (OutputStream) -> Unit): StagedFile = stageWith(target, producer)
+object StreamFileStager : VerifiedAssetStager {
+    override fun stage(target: File, producer: (OutputStream) -> Unit): StagedFile = stageWith(target, producer)
 
     /** Runs [action] while owning the staged temp's final cleanup. A cleanup failure is never silently ignored. */
-    fun <T> useAndDiscard(staged: StagedFile, action: () -> T): T = useAndDiscardWith(staged, action)
+    override fun <T> useAndDiscard(staged: StagedFile, action: () -> T): T = useAndDiscardWith(staged, action)
 
     /** Internal fault seam: the real file lifecycle stays intact while tests can inject write/read/delete failures. */
     internal fun stageWith(
@@ -26,14 +26,16 @@ object StreamFileStager {
         producer: (OutputStream) -> Unit,
         openOutput: (File) -> OutputStream = { file -> file.outputStream() },
         openInput: (File) -> InputStream = { file -> file.inputStream() },
+        writeAndClose: (OutputStream, (OutputStream) -> Unit) -> StreamDigest = StreamDigests::writeAndClose,
+        verify: (InputStream, StreamDigest) -> Unit = StreamDigests::verify,
         delete: (File) -> Boolean = { file -> file.delete() || !file.exists() },
     ): StagedFile {
         val parent = checkNotNull(target.parentFile) { "staged target has no parent: ${target.path}" }
         parent.mkdirs()
         val temp = File.createTempFile("${target.name}-", ".tmp", parent)
         try {
-            val expected = StreamDigests.writeAndClose(openOutput(temp), producer)
-            openInput(temp).use { input -> StreamDigests.verify(input, expected) }
+            val expected = writeAndClose(openOutput(temp), producer)
+            openInput(temp).use { input -> verify(input, expected) }
             return StagedFile(temp, expected)
         } catch (primary: Throwable) {
             try {

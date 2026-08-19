@@ -15,7 +15,17 @@ data class StreamDigest(val sha256: String, val sizeBytes: Long)
 object StreamDigests {
     private const val VERIFY_BUFFER_BYTES = 16 * 1024
 
-    fun writeAndClose(output: OutputStream, producer: (OutputStream) -> Unit): StreamDigest {
+    fun writeAndClose(output: OutputStream, producer: (OutputStream) -> Unit): StreamDigest =
+        writeAndCloseWith(output, producer) { digest, sizeBytes ->
+            StreamDigest(sha256 = ContentHash.hex(digest.digest()), sizeBytes = sizeBytes)
+        }
+
+    /** Test seam for a failure after the writer has closed but before a staged file can be verified or published. */
+    internal fun writeAndCloseWith(
+        output: OutputStream,
+        producer: (OutputStream) -> Unit,
+        finish: (MessageDigest, Long) -> StreamDigest,
+    ): StreamDigest {
         val digest = MessageDigest.getInstance("SHA-256")
         val counted = CountingDigestOutputStream(output, digest)
         var primary: Throwable? = null
@@ -33,7 +43,7 @@ object StreamDigests {
                 failure.addSuppressed(closeFailure)
             }
         }
-        return StreamDigest(sha256 = ContentHash.hex(digest.digest()), sizeBytes = counted.sizeBytes)
+        return finish(digest, counted.sizeBytes)
     }
 
     /** The caller owns [input] and closes it after this bounded verification read. */

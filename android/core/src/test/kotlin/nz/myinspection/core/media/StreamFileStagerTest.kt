@@ -2,6 +2,7 @@ package nz.myinspection.core.media
 
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
 import kotlin.test.Test
@@ -86,6 +87,51 @@ class StreamFileStagerTest {
         }
 
         assertSame(closeFailure, thrown)
+        assertNoPublishedOrTempFile(directory, target)
+    }
+
+    @Test
+    fun `digest finalization failure through the stager cleans temp and keeps its primary over cleanup failure`() = inTempDir { directory ->
+        val target = File(directory, "photo.jpg")
+        val primary = IllegalStateException("digest finalization failed")
+        var outputClosed = false
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            StreamFileStager.stageWith(
+                target = target,
+                producer = { it.write(1) },
+                openOutput = { file -> CloseTrackingOutputStream(file.outputStream()) { outputClosed = true } },
+                writeAndClose = { output, producer ->
+                    StreamDigests.writeAndCloseWith(output, producer) { _, _ -> throw primary }
+                },
+                delete = ::deleteThenReportFailure,
+            )
+        }
+
+        assertSame(primary, thrown)
+        assertTrue(outputClosed, "digest finalization happens only after the staging stream closes")
+        assertEquals(1, thrown.suppressed.size)
+        assertTrue(thrown.suppressed.single().message.orEmpty().contains("temporary file"))
+        assertNoPublishedOrTempFile(directory, target)
+    }
+
+    @Test
+    fun `verification read failure through the stager cleans temp and keeps its primary over cleanup failure`() = inTempDir { directory ->
+        val target = File(directory, "photo.jpg")
+        val primary = IllegalStateException("verification read failed")
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            StreamFileStager.stageWith(
+                target = target,
+                producer = { it.write(1) },
+                openInput = { file -> ReadFailingInputStream(file.inputStream(), primary) },
+                delete = ::deleteThenReportFailure,
+            )
+        }
+
+        assertSame(primary, thrown)
+        assertEquals(1, thrown.suppressed.size)
+        assertTrue(thrown.suppressed.single().message.orEmpty().contains("temporary file"))
         assertNoPublishedOrTempFile(directory, target)
     }
 
@@ -197,5 +243,33 @@ class StreamFileStagerTest {
             target.close()
             throw failure
         }
+    }
+
+    private class CloseTrackingOutputStream(
+        private val target: OutputStream,
+        private val onClose: () -> Unit,
+    ) : OutputStream() {
+        override fun write(value: Int) = target.write(value)
+
+        override fun close() {
+            target.close()
+            onClose()
+        }
+    }
+
+    private class ReadFailingInputStream(
+        private val target: InputStream,
+        private val failure: IllegalStateException,
+    ) : InputStream() {
+        override fun read(): Int = throw failure
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw failure
+
+        override fun close() = target.close()
+    }
+
+    private fun deleteThenReportFailure(file: File): Boolean {
+        assertTrue(file.delete(), "the injected cleanup still removes the temporary file")
+        return false
     }
 }
