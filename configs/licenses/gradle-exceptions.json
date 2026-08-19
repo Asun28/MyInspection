@@ -3,7 +3,7 @@
     "coordinate": "androidx.camera:camera-core:1.5.3",
     "declared_license": "BSD License",
     "license": "BSD-3-Clause",
-    "evidence_url": "https://dl.google.com/dl/android/maven2/androidx/camera/camera-core/1.5.3/camera-core-1.5.3.pom",
+    "evidence_url": "https://android.googlesource.com/platform/external/libyuv/+/9ac065f6219f6a1c7d000be0673133947e8e5fe7/LICENSE",
     "registered_by": "asun28",
     "registered_on": "2026-08-19"
   },
