@@ -8,6 +8,7 @@ worktree: C:\wt\T0-LICENSE-SCANNER
 allow_paths:
   - scripts/check-licenses.ps1
   - scripts/license-scanner-check.ps1
+  - scripts/selftest.ps1
 forbid:
   - android/（本卡只读取 Gradle 结果，不改产品或构建定义）
   - 联网补下载 wrapper、依赖、POM 或许可元数据
@@ -20,7 +21,7 @@ dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite grap
 dod_exit: 0
 dod_assert: 四张批准的 Gradle classpath 图在 offline 模式下各执行一次；只产出已解析的 concrete group:artifact:version，排除项目节点、约束行、重复项和被替换旧版本。Windows 选 gradlew.bat，Unix 由 sh 执行 gradlew；wrapper distribution 或 native cache 未预置时零启动并 fail-closed。逐项配删除/替换变异，必须命中 graph 专属断言。
 review_gate: codex {verdict:pass}
-hygiene: graph 套件独立于全量 selftest 可在 R3 沙箱快速复跑；只保留能击杀坐标解析、配置范围、offline preflight 或平台 wrapper 变异的测试
+hygiene: graph 套件独立于全量 selftest 可在 R3 沙箱快速复跑；selftest 只同步既有 `(c)` 旧断言与现有 mutation 定位，不新增 graph fixture；专用套件只保留能击杀坐标解析、配置范围、offline preflight 或平台 wrapper 变异的测试
 doc_sync: 本卡记录 PR #20 已合并基线与自身 PR 证据；TD2 保持 carded，不得提前 paid
 ---
 
@@ -53,7 +54,7 @@ PR #20 已于 master `b0a76d0` 合并，包含 TD2 的端到端初版。它是�
 
 ## 验收
 
-运行 front matter 的 `dod_command`。评审还要确认本卡相对 base 的净 diff 不含 POM/exception policy、通用诊断 hardening、CI 或文档同步。
+运行 front matter 的 `dod_command`。评审还要确认本卡相对 base 的净 diff 不含 POM/exception policy、通用诊断 hardening、CI 或文档同步；`selftest.ps1` 只能删除与新 graph 合同冲突的旧 `(c)` 期望并保持旧 mutation 可运行。
 
 ## 根因诊断
 
