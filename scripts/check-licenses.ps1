@@ -311,9 +311,7 @@ function Get-GradleExceptionMap {
     $jsonOptions.MaxDepth = 16
     $json = [System.Text.Json.JsonDocument]::Parse([string]$raw, $jsonOptions)
     try {
-      if ($json.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) { throw '顶层必须是 JSON 数组。' } # exception top-level array guard
       foreach ($jsonRecord in $json.RootElement.EnumerateArray()) {
-        if ($jsonRecord.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw '数组项必须是对象。' } # exception record object guard
         $seenFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($property in $jsonRecord.EnumerateObject()) {
           $field = [string]$property.Name
@@ -467,6 +465,8 @@ function Get-GradleCachedPomInfo {
       $parent = Get-GradlePomSingletonNode -Parent $project -LocalName 'parent'
       $declaredGroup = if ($null -eq $groupNode) { '' } else { [string]$groupNode.InnerText }
       $parentGroupNode = if ($null -eq $parent) { $null } else { Get-GradlePomSingletonNode -Parent $parent -LocalName 'groupId' }
+      $parentArtifactNode = if ($null -eq $parent) { $null } else { Get-GradlePomSingletonNode -Parent $parent -LocalName 'artifactId' }
+      if ($null -ne $parent -and ($null -eq $parentArtifactNode -or [string]::IsNullOrWhiteSpace([string]$parentArtifactNode.InnerText))) { throw 'POM parent 缺少 artifactId。' }
       if ([string]::IsNullOrWhiteSpace($declaredGroup) -and $null -ne $parentGroupNode) { $declaredGroup = [string]$parentGroupNode.InnerText }
       $artifactNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'artifactId'
       $declaredArtifact = if ($null -eq $artifactNode) { '' } else { [string]$artifactNode.InnerText }

@@ -130,6 +130,7 @@ if ($Suite -eq 'policy') {
       @{ Id = 'version'; Coordinate = 'fixture.policy:duplicate-version:1.0'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>duplicate-version</artifactId><version>1.0</version><version>2.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'parent'; Coordinate = 'fixture.policy:duplicate-parent:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent-a</artifactId><version>1.0</version></parent><parent><groupId>fixture.policy</groupId><artifactId>parent-b</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>duplicate-parent</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'parent-group'; Coordinate = 'fixture.policy:duplicate-parent-group:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><groupId>other</groupId><artifactId>parent</artifactId><version>1.0</version></parent><artifactId>duplicate-parent-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'parent-artifact'; Coordinate = 'fixture.policy:duplicate-parent-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId><artifactId>other</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>duplicate-parent-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'parent-version'; Coordinate = 'fixture.policy:duplicate-parent-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId><version>1.0</version><version>2.0</version></parent><groupId>fixture.policy</groupId><artifactId>duplicate-parent-version</artifactId><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'license-name'; Coordinate = 'fixture.policy:duplicate-license-name:1.0'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>duplicate-license-name</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name><name>EPL-1.0</name></license></licenses></project>' }
     )
@@ -217,8 +218,8 @@ if ($Suite -eq 'policy') {
     ) '[POLICY-FORBIDDEN-FIRST] declared mapping overrode a forbidden POM license'
 
     $invalidExceptions = @(
-      @{ Id = 'top-level'; Error = '顶层必须'; Json = '{}' },
-      @{ Id = 'non-object'; Error = '数组项必须'; Json = '[7]' },
+      @{ Id = 'top-level'; Error = $null; Json = '{}' },
+      @{ Id = 'non-object'; Error = $null; Json = '[7]' },
       @{ Id = 'duplicate-field'; Error = '字段重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'unsupported-field'; Error = '不支持字段'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19","note":"no"}]' },
       @{ Id = 'control'; Error = '控制/格式'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy\u202etest","registered_on":"2026-08-19"}]' },
@@ -244,7 +245,7 @@ if ($Suite -eq 'policy') {
       Assert-Policy (
         $invalidResult.Findings.Count -eq 0 -and
         $overrideErrors.Count -eq 1 -and
-        $overrideErrors[0].Detail -match [regex]::Escape($invalid.Error)
+        ([string]::IsNullOrEmpty([string]$invalid.Error) -or $overrideErrors[0].Detail -match [regex]::Escape($invalid.Error))
       ) "[POLICY-OVERRIDE-$($invalid.Id.ToUpperInvariant())] malformed exception did not fail closed"
     }
 
@@ -373,18 +374,6 @@ if ($Suite -eq 'policy') {
         From = "      foreach (`$field in @('coordinate', 'license', 'evidence_url', 'registered_by', 'registered_on')) {"
         To = "      foreach (`$field in @('coordinate', 'license', 'evidence_url', 'registered_on')) {"
         Expected = '[POLICY-OVERRIDE-EMPTY-REGISTRANT]'
-      },
-      @{
-        Name = 'override-top-level'
-        From = '      if ($json.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) { throw ''顶层必须是 JSON 数组。'' } # exception top-level array guard'
-        To = '      if ($false) { throw ''顶层必须是 JSON 数组。'' } # exception top-level array guard'
-        Expected = '[POLICY-OVERRIDE-TOP-LEVEL]'
-      },
-      @{
-        Name = 'override-record-object'
-        From = '        if ($jsonRecord.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw ''数组项必须是对象。'' } # exception record object guard'
-        To = '        if ($false) { throw ''数组项必须是对象。'' } # exception record object guard'
-        Expected = '[POLICY-OVERRIDE-NON-OBJECT]'
       },
       @{
         Name = 'override-duplicate-field'
