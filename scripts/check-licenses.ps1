@@ -936,21 +936,43 @@ function Get-GradleDiagnosticTail {
     [switch]$DecodeEscapedNewlines
   )
 
+  function Protect-GradleDiagnosticRecord {
+    param([AllowEmptyString()][string]$Value)
+
+    $Value = [regex]::Replace($Value, '(?is)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*:[^/]*@', '${scheme}[REDACTED]@') # diagnostic multiline URI boundary
+    $Value = [regex]::Replace($Value, '(?im)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*@', '${scheme}[REDACTED]@')
+    $Value = [regex]::Replace($Value, '(?is)\bAuthorization["'']?(?:[ \t]*[:=][ \t]*|[ \t]+).*', 'Authorization: [REDACTED]')
+    $Value = [regex]::Replace($Value, '(?is)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?[ \t]*[:=].*', '${lead}${key}=[REDACTED]')
+    return $Value
+  }
+
+  $configuredUserHomes = @(
+    [Environment]::GetFolderPath('UserProfile'),
+    [Environment]::GetEnvironmentVariable('USERPROFILE'),
+    [Environment]::GetEnvironmentVariable('HOME')
+  ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
+
   $expandedLines = @($Output | ForEach-Object {
     $raw = "$_"
     if ($DecodeEscapedNewlines) {
       $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
     }
+    $raw = Protect-GradleDiagnosticRecord -Value $raw # diagnostic record credential boundary
     $raw -split '\r\n|\n|\r'
   })
   $sanitized = @($expandedLines | ForEach-Object {
     $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
     $line = [regex]::Replace($line, '[\p{Cc}\p{Cf}]', ' ') # diagnostic control/format normalization
-    $line = [regex]::Replace($line, '(?i)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@', '${scheme}[REDACTED]@') # credential redaction: URI userinfo
     $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/|:;,)\]\r\n]+)(?=[\\/]|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Windows user-home redaction
     $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Unix user-home redaction
-    $line = [regex]::Replace($line, '(?i)\bAuthorization["'']?(?:\s*[:=]\s*|\s+).*$', 'Authorization: [REDACTED]') # credential redaction: authorization
-    $line = [regex]::Replace($line, '(?i)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?(?:\s*[:=]\s*|\s+).*$', '${lead}${key}=[REDACTED]') # credential redaction: key
+    foreach ($configuredUserHome in $configuredUserHomes) {
+      $trimmedUserHome = "$configuredUserHome".TrimEnd([char[]]@('/', '\'))
+      $homeVariants = @($trimmedUserHome, ($trimmedUserHome -replace '\\', '/'), ($trimmedUserHome -replace '/', '\')) | Sort-Object -Unique
+      foreach ($homeVariant in $homeVariants) {
+        if ([string]::IsNullOrWhiteSpace($homeVariant)) { continue }
+        $line = [regex]::Replace($line, [regex]::Escape($homeVariant) + '(?=[\\/]|[|:;,)\]\s]|$)', '[USER_HOME]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) # diagnostic configured user-home redaction
+      }
+    }
     if (-not [string]::IsNullOrWhiteSpace($line)) { $line.Trim() }
   } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($sanitized.Count -eq 0) { return '<no output>' }

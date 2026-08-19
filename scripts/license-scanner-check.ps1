@@ -57,6 +57,32 @@ if ($Suite -eq 'diagnostics') {
     $credentialKeyText -ceq "$credentialKeyName=[REDACTED]" -and $credentialKeyText -notmatch [regex]::Escape($credentialCanary)
   ) '[DIAG-CREDENTIAL-KEY] credential-like key value was not redacted'
 
+  $recordCanary = 'DIAG_RECORD_CANARY'
+  $recordKeyName = 'pass' + 'word'
+  $recordCredentialCases = @(
+    @{ Input = "Authorization:`nBearer $recordCanary"; Expected = 'Authorization: [REDACTED]' },
+    @{ Input = "Authorization: Bearer`n$recordCanary"; Expected = 'Authorization: [REDACTED]' },
+    @{ Input = "Authorization: Bearer prefix`n$recordCanary"; Expected = 'Authorization: [REDACTED]' },
+    @{ Input = "Authorization: Bearer prefix`nmiddle`n$recordCanary"; Expected = 'Authorization: [REDACTED]' },
+    @{ Input = "$recordKeyName=`r`n$recordCanary"; Expected = "$recordKeyName=[REDACTED]" },
+    @{ Input = "$recordKeyName=prefix`n$recordCanary"; Expected = "$recordKeyName=[REDACTED]" },
+    @{ Input = "$recordKeyName=prefix`nmiddle`n$recordCanary"; Expected = "$recordKeyName=[REDACTED]" },
+    @{ Input = "ssh://user:`n$recordCanary@example.invalid/repository"; Expected = 'ssh://[REDACTED]@example.invalid/repository' },
+    @{ Input = "ssh://user:prefix`n$recordCanary@example.invalid/repository"; Expected = 'ssh://[REDACTED]@example.invalid/repository' },
+    @{ Input = "ssh://user:prefix`nmiddle`n$recordCanary@example.invalid/repository"; Expected = 'ssh://[REDACTED]@example.invalid/repository' },
+    @{ Input = "ssh://first@second:$recordCanary@example.invalid/repository"; Expected = 'ssh://[REDACTED]@example.invalid/repository' }
+  )
+  foreach ($recordCase in $recordCredentialCases) {
+    $recordText = Get-GradleDiagnosticTail -Output @($recordCase.Input) -MaxLines 3 -MaxChars 400
+    Assert-Diagnostics (
+      $recordText -ceq $recordCase.Expected -and $recordText -notmatch [regex]::Escape($recordCanary)
+    ) "[DIAG-RECORD-CREDENTIAL] composed credential record leaked or split before redaction: $recordText"
+  }
+  $ordinaryRecordText = Get-GradleDiagnosticTail -Output @("https://user`nordinary@example.invalid/repository") -MaxLines 3 -MaxChars 400
+  Assert-Diagnostics (
+    $ordinaryRecordText -ceq 'https://user | ordinary@example.invalid/repository'
+  ) "[DIAG-RECORD-BOUNDARY] ordinary next line was consumed as URI userinfo: $ordinaryRecordText"
+
   $windowsPathCases = @(
     @{ Input = 'failed at C:\Users\alice\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
     @{ Input = 'failed at C:\Users\Alice Smith\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
@@ -89,6 +115,25 @@ if ($Suite -eq 'diagnostics') {
   foreach ($pathCase in $unixPathCases) {
     $pathText = Get-GradleDiagnosticTail -Output @($pathCase.Input) -MaxLines 2 -MaxChars 400
     Assert-Diagnostics ($pathText -ceq $pathCase.Expected) "[DIAG-UNIX-HOME] Unix user directory was not redacted: $pathText"
+  }
+
+  $configuredHomeCases = @(
+    @{ EnvName = 'USERPROFILE'; Home = 'D:\Profiles\Alice Smith'; Input = 'failed at D:\Profiles\Alice Smith\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
+    @{ EnvName = 'USERPROFILE'; Home = '\\server\profiles\Alice Smith'; Input = 'failed at \\server\profiles\Alice Smith\private\pom.xml'; Expected = 'failed at [USER_HOME]\private\pom.xml' },
+    @{ EnvName = 'HOME'; Home = '/var/home/Alice Smith'; Input = 'failed at /var/home/Alice Smith/private/pom.xml'; Expected = 'failed at [USER_HOME]/private/pom.xml' },
+    @{ EnvName = 'HOME'; Home = '/srv/users/Alice Smith'; Input = 'failed at file:///srv/users/Alice Smith/private/pom.xml'; Expected = 'failed at file://[USER_HOME]/private/pom.xml' }
+  )
+  foreach ($configuredHomeCase in $configuredHomeCases) {
+    $oldConfiguredHome = [Environment]::GetEnvironmentVariable($configuredHomeCase.EnvName)
+    try {
+      [Environment]::SetEnvironmentVariable($configuredHomeCase.EnvName, $configuredHomeCase.Home)
+      $configuredHomeText = Get-GradleDiagnosticTail -Output @($configuredHomeCase.Input) -MaxLines 2 -MaxChars 400
+      Assert-Diagnostics (
+        $configuredHomeText -ceq $configuredHomeCase.Expected
+      ) "[DIAG-CONFIGURED-HOME] configured user directory was not redacted: $configuredHomeText"
+    } finally {
+      [Environment]::SetEnvironmentVariable($configuredHomeCase.EnvName, $oldConfiguredHome)
+    }
   }
 
   $formatControl = [char]0x202E
@@ -285,22 +330,16 @@ if ($Suite -eq 'diagnostics') {
     $source = Get-Content -LiteralPath $ScannerPath -Raw
     $diagnosticMutationCases = @(
       @{
-        Name = 'uri-redaction'
-        From = '    $line = [regex]::Replace($line, ''(?i)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@'', ''${scheme}[REDACTED]@'') # credential redaction: URI userinfo'
-        To = '    $line = $line # credential redaction: URI userinfo'
-        Expected = '[DIAG-URI]'
+        Name = 'record-credential-redaction'
+        From = '    $raw = Protect-GradleDiagnosticRecord -Value $raw # diagnostic record credential boundary'
+        To = '    $raw = $raw # diagnostic record credential boundary'
+        Expected = '[DIAG-RECORD-CREDENTIAL]'
       },
       @{
-        Name = 'authorization-redaction'
-        From = '    $line = [regex]::Replace($line, ''(?i)\bAuthorization["'''']?(?:\s*[:=]\s*|\s+).*$'', ''Authorization: [REDACTED]'') # credential redaction: authorization'
-        To = '    $line = $line # credential redaction: authorization'
-        Expected = '[DIAG-AUTH]'
-      },
-      @{
-        Name = 'key-redaction'
-        From = '    $line = [regex]::Replace($line, ''(?i)(?<lead>^|[^A-Za-z0-9_.-])["'''']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'''']?(?:\s*[:=]\s*|\s+).*$'', ''${lead}${key}=[REDACTED]'') # credential redaction: key'
-        To = '    $line = $line # credential redaction: key'
-        Expected = '[DIAG-CREDENTIAL-KEY]'
+        Name = 'record-uri-boundary'
+        From = '    $Value = [regex]::Replace($Value, ''(?is)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*:[^/]*@'', ''${scheme}[REDACTED]@'') # diagnostic multiline URI boundary'
+        To = '    $Value = [regex]::Replace($Value, ''(?is)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/]*@'', ''${scheme}[REDACTED]@'') # diagnostic multiline URI boundary'
+        Expected = '[DIAG-RECORD-BOUNDARY]'
       },
       @{
         Name = 'windows-user-home'
@@ -313,6 +352,12 @@ if ($Suite -eq 'diagnostics') {
         From = '    $line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)'', ''[USER_HOME]'') # diagnostic Unix user-home redaction'
         To = '    $line = $line # diagnostic Unix user-home redaction'
         Expected = '[DIAG-UNIX-HOME]'
+      },
+      @{
+        Name = 'configured-user-home'
+        From = '      $line = [regex]::Replace($line, [regex]::Escape($homeVariant) + ''(?=[\\/]|[|:;,)\]\s]|$)'', ''[USER_HOME]'', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) # diagnostic configured user-home redaction'
+        To = '      $line = $line # diagnostic configured user-home redaction'
+        Expected = '[DIAG-CONFIGURED-HOME]'
       },
       @{
         Name = 'ansi-redaction'
