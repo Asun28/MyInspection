@@ -86,8 +86,8 @@ function Get-GradleLicenseClassification([Parameter(Mandatory)][string]$License)
   $riskNormalized = $normalized.Replace('LICENCE', 'LICENSE')
   $riskNormalized = [regex]::Replace($riskNormalized, '[-_/]+', ' ')
   $riskNormalized = [regex]::Replace($riskNormalized, '\s+', ' ').Trim()
-  $plainGplRisk = '^(?:GPL|(?:GNU )?GENERAL PUBLIC LICENSE)(?: VERSION| V)? ?(?:2(?:\.0)?|3(?:\.0)?)$'
-  if ((Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePlainGplPatterns) -or $riskNormalized -cmatch $plainGplRisk) { return 'plain-gpl' }
+  $plainGplRisk = '^(?:(?:GNU )?GPL|(?:GNU )?GENERAL PUBLIC LICENSE)(?:,? VERSION| V)? ?(?:2(?:\.0)?|3(?:\.0)?)(?: (?:ONLY|OR LATER)| ?\+)?$'
+  if ((Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePlainGplPatterns) -or $riskNormalized -cmatch $plainGplRisk) { return 'plain-gpl' } # pure GPL suffix classification
   # 禁列刻意保持广匹配：不明文本只要出现 GPL/EPL/非商用等风险信号，就宁可拒绝而不降级。
   $forbiddenRisk = '(?:^| )(?:AGPL|SSPL|EUPL|EPL)(?: |$)|CC BY NC|NON COMMERCIAL|RESEARCH(?: USE)? ONLY|AFFERO|SERVER SIDE PUBLIC LICENSE|EUROPEAN UNION PUBLIC LICENSE|ECLIPSE PUBLIC LICENSE|(?<!LESSER )GENERAL PUBLIC LICENSE'
   if ($License -match $gradleForbidden -or $riskNormalized -cmatch $forbiddenRisk) { return 'forbidden' }
@@ -409,7 +409,7 @@ function Get-GradleCachedPomInfo {
     return [PSCustomObject]@{ State = 'Missing'; Detail = '缓存目录中没有 POM。'; Licenses = @(); Paths = @() }
   }
 
-  $licenses = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  $licenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
   $licenseSignatures = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
   $missingLicensePaths = [System.Collections.Generic.List[string]]::new()
   foreach ($pomPath in $pomPaths) {
@@ -447,17 +447,19 @@ function Get-GradleCachedPomInfo {
         throw "POM GAV 不匹配（声明 $declaredGroup`:$declaredArtifact`:$declaredVersion，期望 $Coordinate）。"
       }
       $licenseNodes = @($project.SelectNodes('./*[local-name()="licenses"]/*[local-name()="license"]'))
-      $pomLicenses = @($licenseNodes | ForEach-Object {
-        $nameNode = $_.SelectSingleNode('./*[local-name()="name"]')
-        if ($null -ne $nameNode) { [string]$nameNode.InnerText }
-      } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+      $pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+      foreach ($licenseNode in $licenseNodes) {
+        $nameNode = $licenseNode.SelectSingleNode('./*[local-name()="name"]')
+        $licenseName = if ($null -eq $nameNode) { '' } else { [string]$nameNode.InnerText }
+        if ([string]::IsNullOrWhiteSpace($licenseName)) { throw 'POM 中每个已声明 license 都必须有非空 name。' } # require every declared license name
+        [void]$pomLicenses.Add($licenseName) # preserve exact POM license text
+      }
       if ($pomLicenses.Count -eq 0) {
         $missingLicensePaths.Add($pomPath.FullName)
         continue
       }
-      $normalizedLicenses = @($pomLicenses | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
-      [void]$licenseSignatures.Add(($normalizedLicenses -join "`u{001F}"))
-      foreach ($license in $normalizedLicenses) { [void]$licenses.Add($license) }
+      [void]$licenseSignatures.Add((@($pomLicenses) -join "`u{001F}"))
+      foreach ($license in $pomLicenses) { [void]$licenses.Add($license) }
     } catch {
       return [PSCustomObject]@{ State = 'Error'; Detail = "POM 解析/校验失败（$($pomPath.FullName)）：$($_.Exception.Message)"; Licenses = @(); Paths = @($pomPaths.FullName) }
     }
@@ -471,7 +473,7 @@ function Get-GradleCachedPomInfo {
   if ($licenseSignatures.Count -ne 1) {
     return [PSCustomObject]@{ State = 'Error'; Detail = '同一 GAV 的缓存 POM 副本声明了冲突许可证，不能任选其一。'; Licenses = @(); Paths = @($pomPaths.FullName) }
   }
-  return [PSCustomObject]@{ State = 'Valid'; Detail = $null; Licenses = @($licenses | Sort-Object); Paths = @($pomPaths.FullName) }
+  return [PSCustomObject]@{ State = 'Valid'; Detail = $null; Licenses = @($licenses); Paths = @($pomPaths.FullName) }
 }
 
 function Get-GradleCoordinatesFromDependencyOutput {

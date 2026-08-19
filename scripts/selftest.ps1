@@ -5448,6 +5448,17 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
       @{ License = 'European Union Public Licence 1.2';  Want = 'forbidden' },
       @{ License = 'Eclipse Public Licence 2.0';         Want = 'forbidden' },
       @{ License = 'GNU General Public Licence v3';      Want = 'plain-gpl' },
+      @{ License = 'GPL-2.0-only';                       Want = 'plain-gpl' },
+      @{ License = 'GPL-2.0-or-later';                   Want = 'plain-gpl' },
+      @{ License = 'GPL-3.0-only';                       Want = 'plain-gpl' },
+      @{ License = 'GPL-3.0-or-later';                   Want = 'plain-gpl' },
+      @{ License = 'GPL-2.0+';                           Want = 'plain-gpl' },
+      @{ License = 'GPL-3.0+';                           Want = 'plain-gpl' },
+      @{ License = 'GNU General Public License Version 2 only'; Want = 'plain-gpl' },
+      @{ License = 'GNU General Public Licence v3 or later';    Want = 'plain-gpl' },
+      @{ License = 'AGPL-3.0-only';                      Want = 'forbidden' },
+      @{ License = 'GPL-4.0-only';                       Want = 'forbidden' },
+      @{ License = 'Mystery GPL-2.0-only';               Want = 'forbidden' },
       @{ License = 'LGPL-2.1-only';                      Want = 'yellow' },
       @{ License = 'LGPL-2.1-or-later';                  Want = 'yellow' }
     )) {
@@ -5456,6 +5467,29 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         Fail "种子缺陷 17p：Gradle 风险许可别名 '$($gradleRiskCase.License)' 必须先判为 $($gradleRiskCase.Want)，不得以 unknown 进入 declared_license 映射；实得=$gradleRiskVerdict。"
         $pFail = $true
       }
+    }
+    $savedGradleDistributes = $script:Distributes
+    try {
+      foreach ($plainGplForm in @(
+        'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later', 'GPL-2.0+', 'GPL-3.0+',
+        'GNU General Public License Version 2 only', 'GNU General Public Licence v3 or later'
+      )) {
+        $script:bad = @(); $script:warn = @(); $script:Distributes = $false
+        Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @($plainGplForm) -Source 'fixture' -Configurations @(':app:runtimeClasspath')
+        if ($script:bad.Count -ne 0 -or $script:warn.Count -ne 1) {
+          Fail "种子缺陷 17p：不分发模式下纯 GPL 形式 '$plainGplForm' 必须走 plain-gpl 警告分支；bad=$($script:bad.Count) warn=$($script:warn.Count)。"
+          $pFail = $true
+        }
+        $script:bad = @(); $script:warn = @(); $script:Distributes = $true
+        Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @($plainGplForm) -Source 'fixture' -Configurations @(':app:runtimeClasspath')
+        if ($script:bad.Count -ne 1 -or $script:warn.Count -ne 0) {
+          Fail "种子缺陷 17p：分发模式下纯 GPL 形式 '$plainGplForm' 必须阻断；bad=$($script:bad.Count) warn=$($script:warn.Count)。"
+          $pFail = $true
+        }
+      }
+    } finally {
+      $script:Distributes = $savedGradleDistributes
+      $script:bad = @(); $script:warn = @()
     }
     try {
       foreach ($redactionCase in @(
@@ -9257,7 +9291,8 @@ function Set-ScannerFixturePom(
   [string]$PomGroup = '',
   [string]$PomArtifact = '',
   [string]$PomVersion = '',
-  [string]$CacheLeaf = 'fixture'
+  [string]$CacheLeaf = 'fixture',
+  [switch]$IncludeNamelessLicense
 ) {
   $parts = $Coordinate.Split(':')
   if ([string]::IsNullOrWhiteSpace($PomGroup)) { $PomGroup = $parts[0] }
@@ -9266,6 +9301,7 @@ function Set-ScannerFixturePom(
   $pomDir = Get-ScannerFixturePomDir -Coordinate $Coordinate -CacheLeaf $CacheLeaf
   New-Item -ItemType Directory -Force $pomDir | Out-Null
   $licenseLines = @($LicenseName | ForEach-Object { "    <license><name>$_</name></license>" })
+  if ($IncludeNamelessLicense) { $licenseLines += '    <license><url>https://example.invalid/nameless</url></license>' }
   Set-Content -LiteralPath (Join-Path $pomDir "$($parts[1])-$($parts[2]).pom") -Encoding utf8 -Value @(
     '<project>',
     "  <groupId>$PomGroup</groupId>",
@@ -9727,6 +9763,64 @@ try {
       Write-Host '  17cc(scanner/declared-name-override) 有效 POM 未知名称的精确 GAV+名称映射仅映射到允许 canonical 许可 OK' -ForegroundColor Green
     }
 
+    foreach ($invalidPomNameCase in @(
+      @{ Coordinate = 'fixture.pom:blank-license-name:1.0'; Names = @('Apache License, Version 2.0', '   '); Nameless = $false },
+      @{ Coordinate = 'fixture.pom:missing-license-name:1.0'; Names = @('Apache License, Version 2.0'); Nameless = $true }
+    )) {
+      Set-ScannerFixturePom $invalidPomNameCase.Coordinate $invalidPomNameCase.Names -IncludeNamelessLicense:$invalidPomNameCase.Nameless
+      Set-ScannerFixtureOverrides $null
+      Set-ScannerFixtureReport "+--- $($invalidPomNameCase.Coordinate)"
+      $scannerInvalidPomName = Invoke-ScannerFixture $scannerFixtureScript
+      if ($scannerInvalidPomName.Exit -eq 0 -or $scannerInvalidPomName.Text -notmatch [regex]::Escape($invalidPomNameCase.Coordinate) -or $scannerInvalidPomName.Text -notmatch 'GRADLE-POM') {
+        Fail "种子缺陷 17cc(scanner/pom-license-name-required)：每个已声明 POM license 都必须有非空 name；$($invalidPomNameCase.Coordinate) 必须 GRADLE-POM fail-closed；实得 exit=$($scannerInvalidPomName.Exit)；输出=$($scannerInvalidPomName.Text)。"
+      }
+    }
+
+    $whitespaceLicenseCoordinate = 'fixture.override:whitespace-name:1.0'
+    Set-ScannerFixturePom $whitespaceLicenseCoordinate ' Mystery License '
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$whitespaceLicenseCoordinate","declared_license":" Mystery License ","license":"Apache-2.0","evidence_url":"https://example.invalid/whitespace-exact","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $whitespaceLicenseCoordinate"
+    $scannerWhitespaceExact = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerWhitespaceExact.Exit -ne 0 -or $scannerWhitespaceExact.Text -notmatch "exact declared-license mapping: ' Mystery License ' => Apache-2\.0") {
+      Fail "种子缺陷 17cc(scanner/pom-license-name-verbatim)：POM name 与 declared_license 含相同首尾空格时必须逐字匹配并保留原文；实得 exit=$($scannerWhitespaceExact.Exit)；输出=$($scannerWhitespaceExact.Text)。"
+    }
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$whitespaceLicenseCoordinate","declared_license":"Mystery License","license":"Apache-2.0","evidence_url":"https://example.invalid/whitespace-trimmed","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+    $scannerWhitespaceTrimmed = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerWhitespaceTrimmed.Exit -eq 0 -or $scannerWhitespaceTrimmed.Text -notmatch 'GRADLE-UNKNOWN' -or $scannerWhitespaceTrimmed.Text -match 'exact declared-license mapping') {
+      Fail "种子缺陷 17cc(scanner/pom-license-name-verbatim)：trimmed declared_license 不得匹配带首尾空格的原始 POM name；实得 exit=$($scannerWhitespaceTrimmed.Exit)；输出=$($scannerWhitespaceTrimmed.Text)。"
+    }
+
+    $caseDistinctLicenseCoordinate = 'fixture.override:case-distinct-names:1.0'
+    Set-ScannerFixturePom $caseDistinctLicenseCoordinate @('Mystery License', 'mystery license')
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$caseDistinctLicenseCoordinate","declared_license":"Mystery License","license":"Apache-2.0","evidence_url":"https://example.invalid/case-upper","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $caseDistinctLicenseCoordinate"
+    $scannerCaseDistinctPartial = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerCaseDistinctPartial.Exit -eq 0 -or $scannerCaseDistinctPartial.Text -notmatch "mystery license.*GRADLE-UNKNOWN") {
+      Fail "种子缺陷 17cc(scanner/pom-license-name-ordinal)：大小写不同的 POM names 必须保留为两项；仅映射一项时另一项须 GRADLE-UNKNOWN；实得 exit=$($scannerCaseDistinctPartial.Exit)；输出=$($scannerCaseDistinctPartial.Text)。"
+    }
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$caseDistinctLicenseCoordinate","declared_license":"Mystery License","license":"Apache-2.0","evidence_url":"https://example.invalid/case-upper","registered_by":"selftest","registered_on":"2026-08-19"},
+  {"coordinate":"$caseDistinctLicenseCoordinate","declared_license":"mystery license","license":"Apache-2.0","evidence_url":"https://example.invalid/case-lower","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+    $scannerCaseDistinctComplete = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerCaseDistinctComplete.Exit -ne 0 -or [regex]::Matches($scannerCaseDistinctComplete.Text, 'exact declared-license mapping:').Count -ne 2) {
+      Fail "种子缺陷 17cc(scanner/pom-license-name-ordinal)：大小写不同的两个 POM names 各自精确映射后必须通过且报告两条映射；实得 exit=$($scannerCaseDistinctComplete.Exit)；输出=$($scannerCaseDistinctComplete.Text)。"
+    }
+
     $riskyDeclaredCases = @(
       @{ Id = 'cc-by-nc'; License = 'CC BY-NC 4.0' },
       @{ Id = 'non-commercial'; License = 'Non Commercial License' },
@@ -9976,6 +10070,56 @@ try {
           $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.override:risk-alias:1\.0.*\[GRADLE-FORBIDDEN\]' -and $result.Text -notmatch 'exact declared-license mapping'
           $code = 'ABSENT-RISK-ALIAS-BLOCK'
         }
+        'gpl-suffix' {
+          $escapedScriptPath = $ScriptPath.Replace("'", "''")
+          $probeText = @"
+. '$escapedScriptPath' -AsLibrary
+`$script:bad = @(); `$script:warn = @(); `$script:Distributes = `$false
+Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @('GPL-2.0-or-later') -Source 'mutation' -Configurations @(':core:runtimeClasspath')
+if (`$script:bad.Count -eq 0 -and `$script:warn.Count -eq 1) { exit 0 }
+exit 1
+"@
+          $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
+          $probeExit = $LASTEXITCODE
+          $present = $probeExit -eq 0
+          $code = 'ABSENT-GPL-SUFFIX-DOWNGRADE'
+        }
+        'pom-name-required' {
+          $coordinate = 'fixture.pom:blank-license-name:1.0'
+          Set-ScannerFixturePom $coordinate @('Apache License, Version 2.0', '   ')
+          Set-ScannerFixtureOverrides $null
+          Set-ScannerFixtureReport "+--- $coordinate"
+          $result = Invoke-ScannerFixture $ScriptPath
+          $present = $result.Exit -ne 0 -and $result.Text -match [regex]::Escape($coordinate) -and $result.Text -match 'GRADLE-POM'
+          $code = 'ABSENT-POM-NAME-GUARD'
+        }
+        'pom-name-verbatim' {
+          $coordinate = 'fixture.override:whitespace-name:1.0'
+          Set-ScannerFixturePom $coordinate ' Mystery License '
+          Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$coordinate","declared_license":" Mystery License ","license":"Apache-2.0","evidence_url":"https://example.invalid/whitespace-exact","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+          Set-ScannerFixtureReport "+--- $coordinate"
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $present = $result.Exit -eq 0 -and $result.Text -match "exact declared-license mapping: ' Mystery License ' => Apache-2\.0"
+          $code = 'ABSENT-POM-NAME-VERBATIM'
+        }
+        'pom-name-ordinal' {
+          $coordinate = 'fixture.override:case-distinct-names:1.0'
+          Set-ScannerFixturePom $coordinate @('Mystery License', 'mystery license')
+          Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$coordinate","declared_license":"Mystery License","license":"Apache-2.0","evidence_url":"https://example.invalid/case-upper","registered_by":"selftest","registered_on":"2026-08-19"},
+  {"coordinate":"$coordinate","declared_license":"mystery license","license":"Apache-2.0","evidence_url":"https://example.invalid/case-lower","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+          Set-ScannerFixtureReport "+--- $coordinate"
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $present = $result.Exit -eq 0 -and [regex]::Matches($result.Text, 'exact declared-license mapping:').Count -eq 2
+          $code = 'ABSENT-POM-NAME-ORDINAL'
+        }
         'diagnostic-redaction' {
           Set-ScannerFixtureFailure 42
           $result = Invoke-ScannerFixture $ScriptPath
@@ -10147,6 +10291,10 @@ try {
         @{ Id = 'nested'; Scenario = 'nested-testng'; Code = 'ABSENT-NESTED-TESTNG-REPORT'; Label = '嵌套 TestNG 唯一 configuration 归属'; Marker = "`$plain = `$plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix" },
         @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
         @{ Id = 'risk-alias'; Scenario = 'risk-alias'; Code = 'ABSENT-RISK-ALIAS-BLOCK'; Label = '风险许可别名先于精确映射阻断'; Marker = 'if ($License -match $gradleForbidden -or $riskNormalized -cmatch $forbiddenRisk) { return ''forbidden'' }' },
+        @{ Id = 'gpl-suffix'; Scenario = 'gpl-suffix'; Code = 'ABSENT-GPL-SUFFIX-DOWNGRADE'; Label = '纯 GPL 后缀进入不分发降级分支'; Marker = '# pure GPL suffix classification' },
+        @{ Id = 'pom-name-required'; Scenario = 'pom-name-required'; Code = 'ABSENT-POM-NAME-GUARD'; Label = '每个 POM license 均须非空 name'; Marker = '# require every declared license name' },
+        @{ Id = 'pom-name-verbatim'; Scenario = 'pom-name-verbatim'; Code = 'ABSENT-POM-NAME-VERBATIM'; Label = 'POM license name 原文保真'; Marker = '# preserve exact POM license text' },
+        @{ Id = 'pom-name-ordinal'; Scenario = 'pom-name-ordinal'; Code = 'ABSENT-POM-NAME-ORDINAL'; Label = 'POM license names Ordinal 去重排序'; Marker = '$pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)' },
         @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '# credential redaction: authorization' },
         @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '# credential redaction: key' },
         @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
