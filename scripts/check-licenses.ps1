@@ -110,6 +110,7 @@ function Get-GradleGavParts([Parameter(Mandatory)][string]$Coordinate) {
   $group = $parts[0]; $artifact = $parts[1]; $version = $parts[2]
   if ($group -notmatch '^[A-Za-z0-9_.-]+$' -or $artifact -notmatch '^[A-Za-z0-9_.-]+$' -or $version -notmatch '^[A-Za-z0-9_.-]+$') { return $null }
   foreach ($segment in @($group, $artifact, $version)) {
+    if ($segment.Length -gt 255) { return $null } # GAV segment length guard
     if ($segment -in @('.', '..') -or $segment.Contains('..')) { return $null }
   }
   if ($version -match '^(?i:latest\.(?:release|integration))$') { return $null }
@@ -121,7 +122,7 @@ function Get-GradleCacheCoordinateRoot {
     [Parameter(Mandatory)][string]$GradleUserHome,
     [Parameter(Mandatory)][string]$Coordinate
   )
-  $gav = Get-GradleGavParts -Coordinate $Coordinate
+  $gav = Get-GradleGavParts -Coordinate $Coordinate # cache coordinate shared GAV guard
   if ($null -eq $gav) { throw "坐标不是具体且安全的 GAV：$Coordinate" }
   $path = $GradleUserHome
   foreach ($segment in @('caches', 'modules-2', 'files-2.1', $gav.Group, $gav.Artifact, $gav.Version)) {
@@ -433,7 +434,7 @@ function Get-GradleCachedPomInfo {
     [Parameter(Mandatory)][string]$GradleUserHome
   )
 
-  $gav = Get-GradleGavParts -Coordinate $Coordinate
+  $gav = Get-GradleGavParts -Coordinate $Coordinate # cached POM shared GAV guard
   if ($null -eq $gav) {
     return [PSCustomObject]@{ State = 'Error'; Detail = '坐标不是具体且安全的 GAV。'; Licenses = @(); Paths = @() }
   }
