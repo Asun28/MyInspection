@@ -3,9 +3,9 @@
     "coordinate": "androidx.camera:camera-core:1.5.3",
     "declared_license": "BSD License",
     "license": "BSD-3-Clause",
-    "evidence_url": "https://chromium.googlesource.com/libyuv/libyuv/+/f2ac6db694d1e5b0af1d7b05dc431e0e455fe228/README.chromium",
+    "evidence_url": "https://dl.google.com/dl/android/maven2/androidx/camera/camera-core/1.5.3/camera-core-1.5.3.pom",
     "registered_by": "asun28",
-    "registered_on": "2026-08-18"
+    "registered_on": "2026-08-19"
   },
   {
     "coordinate": "com.google.auto.value:auto-value-annotations:1.6.3",

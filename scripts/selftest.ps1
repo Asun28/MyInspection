@@ -9146,6 +9146,8 @@ function Set-ScannerFixtureConfigurationReport {
     'echo +--- fixture.graph:root:1.0',
     'echo %* | findstr /C:"--configuration testRuntimeClasspath" >nul',
     'if not errorlevel 1 echo ^|    \--- org.testng:testng:7.0.0',
+    'echo %* | findstr /C:"--configuration kotlinCompilerClasspath" >nul',
+    'if not errorlevel 1 echo +--- fixture.tool:compiler-only:1.0',
     'exit /b 0'
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
@@ -9154,6 +9156,9 @@ function Set-ScannerFixtureConfigurationReport {
     "printf '%s\n' '+--- fixture.graph:root:1.0'",
     'case "$*" in',
     "  *'--configuration testRuntimeClasspath'*) printf '%s\n' '|    \--- org.testng:testng:7.0.0' ;;",
+    'esac',
+    'case "$*" in',
+    "  *'--configuration kotlinCompilerClasspath'*) printf '%s\n' '+--- fixture.tool:compiler-only:1.0' ;;",
     'esac',
     'exit 0'
   )
@@ -9302,10 +9307,10 @@ try {
     $nonOfflineCalls = @($actualGradleCalls | Where-Object { -not $_.Contains('--offline') -or -not $_.Contains('--no-daemon') })
     if ($scannerSafe.Exit -ne 0 -or $scannerSafe.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache.*configurations: :core:testRuntimeClasspath\]' -or $scannerSafe.Text -match 'org\.testng:testng:7\.0\.0.*configurations:.*(?:runtimeClasspath|debugRuntimeClasspath|releaseRuntimeClasspath).*testRuntimeClasspath') {
       Fail "种子缺陷 17cc(scanner/pom)：真实嵌套的 org.testng:testng:7.0.0 只在 core testRuntimeClasspath 图中出现时，必须按该唯一 configuration 逐坐标报告且 -Strict exit 0；实得 exit=$($scannerSafe.Exit)；输出=$($scannerSafe.Text)。"
-    } elseif ($actualGradleCalls.Count -ne $expectedGradleCalls.Count -or $missingGradleCalls.Count -gt 0 -or $nonOfflineCalls.Count -gt 0) {
+    } elseif ($actualGradleCalls.Count -ne $expectedGradleCalls.Count -or $missingGradleCalls.Count -gt 0 -or $nonOfflineCalls.Count -gt 0 -or $actualGradleCalls -match 'kotlinCompilerClasspath' -or $scannerSafe.Text -match 'fixture\.tool:compiler-only:1\.0') {
       Fail "种子缺陷 17cc(scanner/configs)：应恰好离线解析 core runtime/TestNG + app debug/release runtime 四张图；实际调用=$($actualGradleCalls -join ' | ')；缺=$($missingGradleCalls | ForEach-Object { "$($_.Project)/$($_.Configuration)" } | Join-String -Separator ',')；未带 --offline/--no-daemon=$($nonOfflineCalls -join ' | ')。"
     } else {
-      Write-Host '  17cc(scanner/pom+configs) 嵌套 TestNG 仅归属 core testRuntimeClasspath；另三图独立 + --offline/--no-daemon OK' -ForegroundColor Green
+      Write-Host '  17cc(scanner/pom+configs) 嵌套 TestNG 仅归属 core testRuntimeClasspath；另三图独立；编译器工具图哨兵被明确排除；--offline/--no-daemon OK' -ForegroundColor Green
     }
 
     $resolvedCoordinate = 'fixture.resolve:redirect:1.0'
@@ -9575,6 +9580,7 @@ try {
       @{ Id = 'dot-version'; Json = '[{"coordinate":"fixture:escape:..","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'dynamic-version'; Json = '[{"coordinate":"fixture:escape:1.+","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'latest-version'; Json = '[{"coordinate":"fixture:escape:latest.release","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'case-collision'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","License":"Eclipse Public License 2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'missing-field'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'duplicate'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/one","registered_by":"selftest","registered_on":"2026-08-18"},{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/two","registered_by":"selftest","registered_on":"2026-08-18"}]' }
     )) {

@@ -276,10 +276,13 @@ function Get-GradleExceptionMap {
     $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
     if ($raw.TrimStart() -notmatch '^\[') { throw '顶层必须是 JSON 数组。' }
     $records = @($raw | ConvertFrom-Json -AsHashtable -Depth 16 -ErrorAction Stop)
+    $allowedFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on') |
+      ForEach-Object { [void]$allowedFields.Add($_) }
     foreach ($record in $records) {
       if ($record -isnot [System.Collections.IDictionary]) { throw '数组项必须是对象。' }
       foreach ($field in $record.Keys) {
-        if ($field -notin @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
+        if (-not $allowedFields.Contains([string]$field)) {
           throw "记录含不支持字段 $field。"
         }
       }

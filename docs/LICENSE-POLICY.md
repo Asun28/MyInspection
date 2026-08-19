@@ -5,8 +5,10 @@
 > （若你的项目是开源/内部工具，可放宽 §1，但保留「无 non-commercial、来源洁净、许可明确」三条。）
 
 ## 1. 绝对禁止（任一即拒）
-- **Copyleft 传染性许可**：GPL-2.0 / GPL-3.0 / AGPL-3.0 / LGPL（静态链接情形）/ SSPL / EUPL / EPL-1.0 / EPL-2.0 等——
+- **Copyleft 传染性许可**：GPL-2.0 / GPL-3.0 / AGPL-3.0 / LGPL（静态链接情形）/ SSPL / EUPL 等——
   会要求本项目源码以同等条款开源，与商用专有冲突。
+- **Android/Gradle 的 EPL-1.0 / EPL-2.0**：由 §3.2 的 Gradle 分类器按禁列许可阻断。现有 PyPI/npm
+  共享扫描器保留原行为，本卡未把 EPL 自动阻断扩展到这两个明确排除的生态；在后续专卡补齐前须人工复核。
 - **非商用条款**：任何 "non-commercial" / "research only" / CC-BY-**NC** / "仅学术研究" 的代码、模型权重、数据集或素材。
 - **缺失许可**：无明确 LICENSE 文件、许可不明、或"保留所有权利"但未授权使用的第三方代码。
 - **来源不洁**：疑似抄袭、镜像他人专有源码、或训练数据明显侵权的模型。
@@ -58,7 +60,7 @@
 | `org.jetbrains.kotlinx:kotlinx-serialization-json` | Apache-2.0 | ✅ | `github.com/Kotlin/kotlinx.serialization` `LICENSE.txt` |
 | `app.cash.sqldelight:runtime` / `sqlite-driver` / `android-driver`，及同名 Gradle 插件 `app.cash.sqldelight` | Apache-2.0 | ✅ | `github.com/cashapp/sqldelight` `LICENSE.txt` |
 | `org.jetbrains.kotlin:kotlin-test` / `kotlin-test-testng`，及 Kotlin Gradle **插件 ID**（`libs.versions.toml` 里 `kotlin-jvm`/`kotlin-android`/`kotlin-compose`/`kotlin-serialization` 只是目录别名，真实 id 分别是）`org.jetbrains.kotlin.jvm` / `org.jetbrains.kotlin.android` / `org.jetbrains.kotlin.plugin.compose` / `org.jetbrains.kotlin.plugin.serialization` | Apache-2.0 | ✅ | `github.com/JetBrains/kotlin` `license/LICENSE.txt` |
-| `androidx.camera:camera-core:1.5.3` 的 POM 额外声明 `BSD License` | BSD-3-Clause（与 POM 内 Apache-2.0 并列） | ✅（**仅此精确 GAV + POM 名称映射**） | 该 POM 的 license URL 指向不可变 libyuv 快照 `https://chromium.googlesource.com/libyuv/libyuv/+/f2ac6db694d1e5b0af1d7b05dc431e0e455fe228/README.chromium`，其 `License: BSD-3-Clause`；登记见 `configs/licenses/gradle-exceptions.json`，不把笼统 `BSD License` 设为全局白名单。 |
+| `androidx.camera:camera-core:1.5.3` 的 POM 额外声明 `BSD License` | BSD-3-Clause（与 POM 内 Apache-2.0 并列） | ✅（**仅此精确 GAV + POM 名称映射**） | Google Maven 的不可变精确 GAV POM 本身是发布方证据：`https://dl.google.com/dl/android/maven2/androidx/camera/camera-core/1.5.3/camera-core-1.5.3.pom`。它只声明宽泛的 `BSD License`，并链接可变的 libyuv `main`；这里把该精确记录保守规范化为条款更多、同属 §2 宽松准入的 BSD-3-Clause，**不声称** POM 钉住某个 libyuv 源码快照，也不把笼统名称设为全局白名单。登记见 `configs/licenses/gradle-exceptions.json`。 |
 | `com.google.auto.value:auto-value-annotations:1.6.3` | Apache-2.0 | ✅（POM 无 `<licenses>` 的精确回退） | 已缓存的该精确坐标 POM 只有 Apache-2.0 头注、无 `<licenses>`；发布方 `auto-value-1.6.3` 快照 `cee66e1081668d30d7e1c9892efa759e851f22f0` 的 `LICENSE.txt`：`https://raw.githubusercontent.com/google/auto/cee66e1081668d30d7e1c9892efa759e851f22f0/LICENSE.txt`；登记见 `configs/licenses/gradle-exceptions.json`。 |
 | `com.google.guava:listenablefuture:1.0` | Apache-2.0 | ✅（POM 无 `<licenses>` 的精确回退） | 已缓存的该精确坐标 POM 无 `<licenses>`，其父为 `guava-parent:26.0-android`；Guava v26.0 快照 `bbf9295088d668c06e573cea03f01375985c1814` 的 `COPYING`：`https://raw.githubusercontent.com/google/guava/bbf9295088d668c06e573cea03f01375985c1814/COPYING`；登记见 `configs/licenses/gradle-exceptions.json`。 |
 | `org.testng:testng`（经 `kotlin-test-testng` 引入，测试运行器；替代 EPL-1.0 的 JUnit，见 toml 内注释） | Apache-2.0 | ✅ | **实测解析版本** `testng:7.0.0`（`:core:dependencies --configuration testRuntimeClasspath` 输出所示，非 Maven Central 上的最新版——早前文档误引了 `7.5.1.pom`，R3 评审纠正）；`testng-7.0.0.pom` `<licenses>` 块 = `Apache Version 2.0, January 2004`；其 `junit:junit:4.12` 依赖标 `<optional>true</optional>`，Gradle 不解析进最终 classpath（实测同一条 `:core:dependencies` 输出零 junit 节点）——**版本号以实测解析结果为准，不是 POM 里写的最新版**，核验证据须对准"实际会被打进产物的那个版本"，同 `docs/LICENSE-POLICY.md` 附录 A 对 ffmpeg 的"对准确切二进制"要求同一纪律 |
@@ -70,6 +72,10 @@
 - **解析范围**：脚本离线运行 `:core` 的 `runtimeClasspath` 与 `testRuntimeClasspath`，以及 `:app` 的
   `debugRuntimeClasspath` 与 `releaseRuntimeClasspath`；后者确保交付 app 的两条 runtime 图被覆盖，前者保留
   TestNG 测试图。它从 Gradle 实际解析输出取 GAV，绝不把 `libs.versions.toml` 的字面声明当作传递闭包。
+- **范围边界**：四张图之外的 `kotlinCompilerClasspath*`、`kotlinCompilerPluginClasspath*`、
+  `androidLintTool`/`*LintChecksClasspath`、SQLDelight `*DialectClasspath`/`*IntellijEnv`/`*MigrationEnv`、
+  `unified-test-platform-*` 与 Android/unit-test 专用图是构建期工具或未随 app 分发的测试图，不纳入本卡的
+  交付闭包。它们的直接构建组件仍按 §3.1 人工登记；若未来随交付物分发，须另卡扩展自动扫描范围。
 - **证据与输出**：每个唯一 GAV 只报告一次（按坐标稳定排序），并列出命中的 configuration；许可证来自本机
   Gradle 缓存的对应 POM。POM 的自声明 GAV 必须与缓存路径/已解析坐标一致，POM 解析失败、无许可证、未识别
   的许可证名或无 POM 都会立即失败，**即使未传 `-Strict`**。
