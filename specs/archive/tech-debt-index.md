@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 10 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 11 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -15,3 +15,4 @@
 | TD13 | minor | paid | `core/template/TemplateStore.kt`(`read()` 返回值) | **`Collections.unmodifiableList` 包一层但无自证测试**：`TemplateStore.read()` 把读回的 `items` 包进 `Collections.unmodifiableList` 防调用方… |
 | TD11 | minor | paid | `scripts/selftest.ps1` 闸 17ee（`$rcCanonHash`）+ `docs/RELEAS… | **发布清单那一项被整行 SHA-256 钉死**（T0-GATE-FIXFORWARD 的人裁产物）：「不含第二条解锁路径」这个契约无法用模式穷举散文替代（评审实证：不带序号的「或完成人工核验后即可勾选」绕过任何字形断言），故改钉规范文… |
 | TD27 | major | paid | `scripts/selftest.ps1`（17ac(moving-ref) Unix git shim） | **17ac(moving-ref) 的 Unix `git` shim 在 Ubuntu 将 `$PSScriptRoot` 展开为空**：PR #20 Ubuntu seeded job `95566561516` 报 `/git-s… |
+| TD135 | major | paid | `scripts/check-licenses.ps1` 的 `Get-GradleGavParts` ↔ 图解析 /… | **已接纳 Gradle/Maven GAV 的每段无长度上限，和诊断的“exact GAV + 总行有界”合同互相冲突**：当前共享验证器只校验字符集、三段数和路径遍历；任意长的 group/artifact/version 仍可进入解… |

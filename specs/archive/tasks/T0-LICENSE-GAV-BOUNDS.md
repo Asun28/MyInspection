@@ -2,7 +2,7 @@
 id: T0-LICENSE-GAV-BOUNDS
 title: Gradle/Maven GAV 分段上界与有界诊断契约（TD135；TD2 4/5）
 depends_on: [T0-LICENSE-DIAGNOSTICS]
-status: todo
+status: merged
 branch: T0-LICENSE-GAV-BOUNDS
 worktree: C:\wt\T0-LICENSE-GAV-BOUNDS
 allow_paths:
@@ -54,3 +54,7 @@ PR #27 的 R3 轮次封顶和人裁不改变 graph 接纳语义；本卡在该�
 ## 非目标
 
 本卡不修诊断脱敏或 CI 接线，也不对超界值作截断后继续扫描；超界必须被视为不安全、不可解析的 GAV。
+
+## 合并记录
+
+PR #28 以 master `f61f586` squash 合并；最终实现提交为 `5ef8dd5`。`gav-bounds` 专用套件证明三段 255 精确保留、任一段 256 在共享边界 fail-closed、最大 GAV 连同 caller-owned category 留在 1,000 字符信封内，并以长度、缓存、POM、exception、graph 五枚语义变异逐一击杀绕过。graph/policy 回归分别 23/30 mutations 通过，真实 strict 离线扫描覆盖 150 个唯一 GAV，`verify`、范围、许可、secrets 与 R3 均通过。TD135 已偿还；TD2 完成第 4/5 张卡，保持 `carded`，下一张为 `T0-LICENSE-CI-INTEGRATION`。

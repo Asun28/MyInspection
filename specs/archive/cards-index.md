@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 30 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 31 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -20,6 +20,7 @@
 | T0-HARNESS-PERF | merged | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness/测试改动） |
 | T0-HARNESS-SUBTRACTION-PROTOCOL | merged | 为常驻 harness 文本增加量化、可回滚的减负协议 |
 | T0-LICENSE-DIAGNOSTICS | merged | Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/5） |
+| T0-LICENSE-GAV-BOUNDS | merged | Gradle/Maven GAV 分段上界与有界诊断契约（TD135；TD2 4/5） |
 | T0-LICENSE-POLICY | merged | Gradle POM 许可策略合同与 exact-GAV 专用套件（TD2 收口卡 2/4） |
 | T0-LICENSE-SCANNER | merged | Gradle 已解析坐标图合同提取与离线图套件（TD2 收口卡 1/4） |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
