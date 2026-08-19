@@ -36,9 +36,11 @@ doc_sync: docs/LICENSE-POLICY.md §3 改为「机检覆盖」并删除人工表�
 这就是那张卡。**在还清它之前，`docs/RELEASE-CHECKLIST.md` 的「Gradle 传递依赖许可全量核验通过」是发布阻断项。**
 
 ## 产出
-1. 从 Gradle 真实解析结果取坐标（如 `.\gradlew.bat -p android :core:dependencies --configuration runtimeClasspath`
-   等各 configuration，或等价的依赖报告任务），解析成 `group:artifact:version` 列表——**不是**读 `libs.versions.toml`
-   的字面量（那只有直接依赖，正是 TD2 的盲区）。
+1. 从 Gradle 真实解析结果取坐标；解析范围固定为 `:core` 的 `runtimeClasspath` / `testRuntimeClasspath` 与
+   `:app` 的 `debugRuntimeClasspath` / `releaseRuntimeClasspath`，解析成 `group:artifact:version` 列表——**不是**读
+   `libs.versions.toml` 的字面量（那只有直接依赖，正是 TD2 的盲区）。这四张图是本卡批准的交付/测试运行时闭包，
+   **并非所有可解析 configuration**；编译器/插件、lint、IDE/dialect/migration、UTP、instrumentation、test-fixture
+   等构建期或未随 app 分发的图依 `docs/LICENSE-POLICY.md` §3.1 人工证据管理，不得为过 R3 任意扩大扫描范围。
 2. 逐坐标判定许可：优先 POM 的 `<licenses>` 块；取不到再回落到已登记的**人工豁免表** `configs/licenses/`
    （每条须写明坐标、许可、证据 URL、登记人/日期）。**查不到 ≠ 通过**——未知即不合规。
 3. 判定口径沿用 `docs/LICENSE-POLICY.md`：宽松（MIT/BSD/Apache 等）放行；GPL/AGPL/SSPL/EPL/non-commercial 致命。
