@@ -6,11 +6,14 @@ status: todo
 branch: T0-DEBT-SELFTEST-CRITICAL-PATH
 worktree: C:\wt\T0-DEBT-SELFTEST-CRITICAL-PATH
 allow_paths:
+  - .github/workflows/ci.yml
   - .github/workflows/scaffold-selftest.yml
   - scripts/selftest.ps1
   - CLAUDE.md
+  - docs/DELIVERY-CHAINS.md
   - docs/DEVOPS-WORKFLOW.md
   - docs/LOOP-ENGINEERING.md
+  - docs/scaffold-architecture.html
   - specs/tech-debt-tracker.md
 forbid:
   - 弱化或移除 ci.yml 的 push/pull_request 产品验证
@@ -25,7 +28,7 @@ dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core
 dod_exit: 0
 dod_assert: ci.yml 仍在 main/master 的 push 与 pull_request 运行；scaffold-selftest.yml 只在 main/master push 与 workflow_dispatch 运行且明确拒绝 pull_request；完整 2 OS × 3 shard 矩阵保持不变；仅把 pull_request 触发加回 scratch workflow 的单点变异会被 8.2d 指名拒绝
 review_gate: codex {verdict:pass}
-hygiene: 只改触发契约、对应自测与两处权威流程说明；不引入路由/聚合抽象（R4）
+hygiene: 本卡是触发规则横切同步，所有 allow_paths 都是同一规则的既有权威面；只改触发契约、对应自测与说明，不引入路由/聚合抽象（R4）
 doc_sync: 注册期 TD9 为 carded；R5 改回 open 并在偿还指针记录本卡已消除 PR 关键路径耦合，剩余可诊断性与 post-merge load-flake 继续单独偿还
 ---
 
