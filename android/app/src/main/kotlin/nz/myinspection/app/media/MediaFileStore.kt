@@ -3,10 +3,13 @@ package nz.myinspection.app.media
 import android.util.Log
 import java.io.File
 import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import nz.myinspection.core.media.NewAssetDiscard
+import nz.myinspection.core.media.StagedFile
 import nz.myinspection.core.media.StreamCompare
+import nz.myinspection.core.media.StreamFileStager
 
 /**
  * 文件 IO 薄壳：:core 只产出/消费相对路径，根路径由 :app 运行时注入。本层只做「相对路径 + 根 → 绝对
@@ -28,29 +31,47 @@ object MediaFileStore {
         return candidate
     }
 
-    /** 落一份新资产：create→write→publish 全程一个 try/finally，任何一步失败都清掉临时文件。 */
-    fun writeNewAsset(root: File, relPath: String, bytes: ByteArray): File {
+    /**
+     * JPEG 生产者只写入随机临时同级文件；[StreamFileStager] 在返回前已关闭并逐块复读校验精确大小和摘要。
+     * 发布仍由调用方在数据库记录前用 [publishStaged] 执行，保留既有的不覆盖语义和补偿责任边界。
+     */
+    internal fun stageVerifiedAsset(
+        root: File,
+        relPath: String,
+        producer: (OutputStream) -> Unit,
+    ): StagedFile {
         val target = resolve(root, relPath)
-        target.parentFile?.mkdirs()
-        val temp = createTempSibling(target)
-        try {
-            temp.writeBytes(bytes)
-            return publish(temp, target)
-        } finally {
-            deleteTemp(temp)
-        }
+        return StreamFileStager.stage(target, producer)
     }
+
+    /** Runs [action] with deterministic staged-temp cleanup; a primary action error remains primary on cleanup fault. */
+    internal fun <T> useStaged(staged: StagedFile, action: () -> T): T =
+        StreamFileStager.useAndDiscard(staged, action)
+
+    /** Publishes a previously closed and verified staged file through the unchanged no-overwrite move policy. */
+    internal fun publishStaged(staged: StagedFile, root: File, relPath: String): File =
+        publish(staged.file, resolve(root, relPath))
 
     /** 导入=复制，不移动用户原始文件（硬边界）。调用方负责关闭 [source]。 */
     fun copyInto(source: InputStream, root: File, relPath: String): File {
         val target = resolve(root, relPath)
         target.parentFile?.mkdirs()
         val temp = createTempSibling(target)
+        var copyPrimary: Throwable? = null
         try {
             temp.outputStream().use { out -> source.copyTo(out) }
             return publish(temp, target)
+        } catch (failure: Throwable) {
+            copyPrimary = failure
+            throw failure
         } finally {
-            deleteTemp(temp)
+            try {
+                deleteTemp(temp)
+            } catch (cleanupFailure: Throwable) {
+                val failure = copyPrimary
+                if (failure == null) throw cleanupFailure
+                failure.addSuppressed(cleanupFailure)
+            }
         }
     }
 
