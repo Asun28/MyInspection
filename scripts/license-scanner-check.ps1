@@ -252,6 +252,20 @@ try {
     ) "empty native metadata did not return GRADLE-CACHE-OFFLINE"
     Assert-Graph ($invocations.Count -eq 0) "empty native metadata still started $($invocations.Count) wrapper calls"
 
+    # Gradle 9.7 consumes metadata-2.107; a populated older format is not an offline-ready native cache.
+    Remove-Item -LiteralPath $nativeMetadataRoot -Recurse -Force
+    $staleMetadataRoot = Join-Path $gradleHome 'caches/modules-2/metadata-2.106'
+    New-Item -ItemType Directory -Force -Path $staleMetadataRoot | Out-Null
+    Set-Content -LiteralPath (Join-Path $staleMetadataRoot 'module-metadata.bin') -Encoding utf8 -Value 'stale fixture'
+    $invocations.Clear()
+    $staleMetadataResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
+    Assert-Graph (
+      $staleMetadataResult.Errors.Count -eq 1 -and $staleMetadataResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
+    ) "stale native metadata format did not return GRADLE-CACHE-OFFLINE"
+    Assert-Graph ($invocations.Count -eq 0) "[GRAPH-STALE-METADATA-STARTED] stale native metadata format still started $($invocations.Count) wrapper calls"
+    Remove-Item -LiteralPath $staleMetadataRoot -Recurse -Force
+    New-Item -ItemType Directory -Force -Path $nativeMetadataRoot | Out-Null
+
     # Existing wrapper readiness remains a graph boundary: missing completion marker is zero-start.
     Set-Content -LiteralPath (Join-Path $nativeMetadataRoot 'module-metadata.bin') -Encoding utf8 -Value 'fixture'
     Remove-Item -LiteralPath (Join-Path $distributionDir 'gradle-9.7.0-bin.zip.ok') -Force
@@ -391,6 +405,12 @@ if (-not $SkipMutations) {
       From = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness'
       To = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 # native cache readiness'
       Expected = 'missing native metadata did not return GRADLE-CACHE-OFFLINE'
+    },
+    @{
+      Name = 'cache-metadata-version'
+      From = "      `$metadataRoot = Join-Path `$modulesCacheRoot 'metadata-2.107' # Gradle 9.7 native metadata format"
+      To = "      `$metadataRoot = @(Get-ChildItem -LiteralPath `$modulesCacheRoot -Directory -Force -ErrorAction Stop | Where-Object { `$_.Name -match '^metadata-2\.`\d+`$' } | Select-Object -First 1).FullName # Gradle 9.7 native metadata format"
+      Expected = '[GRAPH-STALE-METADATA-STARTED]'
     },
     @{
       Name = 'gradle-user-home-binding'

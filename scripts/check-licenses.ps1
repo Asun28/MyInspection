@@ -787,12 +787,10 @@ function Get-GradleResolvedGraphs {
         @($relativePath -split '[\\/]').Count -ge 5 -and $_.Length -gt 0
       } | Select-Object -First 1)
       $metadataReady = $false
-      foreach ($metadataRoot in @(Get-ChildItem -LiteralPath $modulesCacheRoot -Directory -Force -ErrorAction Stop | Where-Object { $_.Name -match '^metadata-2\.\d+$' })) {
-        $moduleMetadata = Get-Item -LiteralPath (Join-Path $metadataRoot.FullName 'module-metadata.bin') -Force -ErrorAction SilentlyContinue
-        if ($null -ne $moduleMetadata -and $moduleMetadata.Length -gt 0) {
-          $metadataReady = $true
-          break
-        }
+      $metadataRoot = Join-Path $modulesCacheRoot 'metadata-2.107' # Gradle 9.7 native metadata format
+      $moduleMetadata = Get-Item -LiteralPath (Join-Path $metadataRoot 'module-metadata.bin') -Force -ErrorAction SilentlyContinue
+      if ($null -ne $moduleMetadata -and $moduleMetadata.Length -gt 0) {
+        $metadataReady = $true
       }
       $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness
     }
