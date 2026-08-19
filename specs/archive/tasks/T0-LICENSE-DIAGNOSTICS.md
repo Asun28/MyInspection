@@ -2,7 +2,7 @@
 id: T0-LICENSE-DIAGNOSTICS
 title: Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/5）
 depends_on: [T0-LICENSE-POLICY]
-status: todo
+status: merged
 branch: T0-LICENSE-DIAGNOSTICS
 worktree: C:\wt\T0-LICENSE-DIAGNOSTICS
 allow_paths:
@@ -45,7 +45,7 @@ PR #20 已在 master `b0a76d0` 合入部分 sanitizer，但并未形成统一出
 
 ## R3 轮次封顶与人裁边界
 
-PR #27 的 R3 已达 round cap，待人裁。本卡只拥有诊断出口的脱敏、有界、抗注入与失败语义；不得修改
+PR #27 的 R3 达到 round cap 后已按仓库规则完成人裁并合并。本卡只拥有诊断出口的脱敏、有界、抗注入与失败语义；不得修改
 `Get-GradleGavParts`、图接纳/拒绝、缓存路径、POM 身份或 exception key。超长 GAV 同时要求 exact GAV 与固定诊断上界的
 合同冲突已登记为 TD135 follow-up，由随后 `T0-LICENSE-GAV-BOUNDS` 的共享解析边界解决；本卡不以修改 graph 接纳语义来解决该冲突。
 
@@ -56,3 +56,7 @@ Round 2 后，PR #27 head `a750056` 已修复真实的 multiline credential/conf
 ## 根因诊断
 
 PR #20 多轮 R3 在 parser/policy 尚变化时反复追日志泄露和平台差异，reviewer 每轮都要重读同一大文件。本卡把诊断作为单独安全边界，允许一次集中评审。
+
+## 合并记录
+
+PR #27 以 master `e3b52c7` squash 合并；最终实现提交为 `a750056`。diagnostics 专用套件覆盖 18 个语义变异，graph/policy 回归套件分别覆盖 23/30 个变异，真实 strict 离线扫描覆盖 150 个唯一 GAV，`verify`、`check-secrets` 与 PR CI 均通过。R3 达到 `ReviewRoundCap=2` 后按仓库恢复路由转人裁：单条输出记录内一旦识别到 credential、Authorization 或 userinfo 前缀，其 continuation 按安全优先整体脱敏；超长 GAV 的 exact+bound 合同则登记为 TD135，由后续 `T0-LICENSE-GAV-BOUNDS` 独立偿还。TD2 完成第 3/5 张卡，保持 `carded`。
