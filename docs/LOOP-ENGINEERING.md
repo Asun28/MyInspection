@@ -31,6 +31,8 @@
 | ② developer feedback（人看当前产品、指挥方向：加什么特性 / UI 哪不行 / 流程怎么改） | 数十分钟–小时 | 人 | 判断，非闸 | 想法→计划漏斗 · 心跳 `triage` · 理解债闸 · `docs/HARNESS-REVIEW.md` · handoff | 齐备，但**散在五份文档**、此前从未被命名为「一层」 |
 | ③ external feedback（几个朋友试用 → alpha 用户 → 产线 A/B） | 天–周 | 真实用户 | 线上信号 | `docs/DELIVERY-OPS.md`（opt-in 占位）· `docs/EVAL.md` GROW | **薄，且是有意的**——见下 |
 
+完整 17 闸 scaffold selftest 是默认分支合并后/手动 canary，不是产品 PR 的合并硬闸；PR 只由任务卡 DoD、`verify` 与 R3 守门。这样保留 harness 回归信号，同时避免无关历史闸把一次小改动拖入反复 CI 循环。
+
 **别越层套零件**：①的**完成判据**必须是客观信号——测试/编译/lint 的 exit 0/1；模型的**主观质量分**永不当完成闸（**L25**，见下「软完成失败」）。
 **唯一 carve-out 是 R3**：它代的是**人工审批**、不是 LLM 质量分，故被显式接受为①层里唯一非确定的闸（裁决跑跑可能不同，误 block 走重审路径；
 见 `docs/QUALITY-RUBRIC.md` §0）——**别把这条 carve-out 读成「模型可以判完成」**。

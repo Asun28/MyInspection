@@ -159,7 +159,7 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 两闸门分工：`verify` 是确定性 e2e 验收——**本地 ship 亦跑 verify（free+private 下本地即权威）**，CI 在 PR 上信息性复跑；`codex-review` 是不变量/边界定性评审。**两者皆绿方可合并。**
 
-辅助的 `scaffold-selftest` 不属于支持的必需检查集合：push/PR 都只在非 Markdown 脚手架权威面（`scripts/`、`.claude/`、`.github/`、`configs/`）变化时启动；命中后仍完整跑 Windows/Ubuntu × core/workflow/seeded 六分片。普通产品 PR 仅省掉无关分片，不减少 `verify` 或 R3。
+辅助的 `scaffold-selftest` 不属于支持的必需检查集合，也不进入 PR 合并关键路径：它只在默认分支 push 命中非 Markdown 脚手架权威面（`scripts/`、`.claude/`、`.github/`、`configs/`）或手动触发时启动，仍完整跑 Windows/Ubuntu × core/workflow/seeded 六分片，作为合并后 harness canary。PR 的任务卡 DoD、`verify` 与 R3 不减少。
 
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
