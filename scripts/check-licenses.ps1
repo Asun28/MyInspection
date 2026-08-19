@@ -297,7 +297,7 @@ function Add-GradleMetadataNonCompliance {
 function Get-GradleExceptionMap {
   param([Parameter(Mandatory)][string]$Path)
 
-  $empty = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+  $empty = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal) # exception coordinate ordinal map
   if (-not (Test-Path -LiteralPath $Path)) {
     return [PSCustomObject]@{ Entries = $empty; Error = $null }
   }
@@ -311,17 +311,15 @@ function Get-GradleExceptionMap {
     $jsonOptions.MaxDepth = 16
     $json = [System.Text.Json.JsonDocument]::Parse([string]$raw, $jsonOptions)
     try {
-      if ($json.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) { throw '顶层必须是 JSON 数组。' }
       foreach ($jsonRecord in $json.RootElement.EnumerateArray()) {
-        if ($jsonRecord.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw '数组项必须是对象。' }
         $seenFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($property in $jsonRecord.EnumerateObject()) {
           $field = [string]$property.Name
           Assert-GradleMetadataScalar -Field 'JSON property name' -Value $field
-          if (-not $seenFields.Add($field)) { throw "记录字段重复（大小写完全相同）：$field。" }
-          if (-not $allowedFields.Contains($field)) { throw "记录含不支持字段 $field。" }
+          if (-not $seenFields.Add($field)) { throw "记录字段重复（大小写完全相同）：$field。" } # exception duplicate property guard
+          if (-not $allowedFields.Contains($field)) { throw "记录含不支持字段 $field。" } # exception supported property guard
           if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
-            throw "字段 $field 必须是 JSON 字符串标量（实际类型 $($property.Value.ValueKind)）。"
+            throw "字段 $field 必须是 JSON 字符串标量（实际类型 $($property.Value.ValueKind)）。" # exception JSON string guard
           }
         }
       }
@@ -330,12 +328,6 @@ function Get-GradleExceptionMap {
     }
     $records = @($raw | ConvertFrom-Json -AsHashtable -Depth 16 -ErrorAction Stop)
     foreach ($record in $records) {
-      if ($record -isnot [System.Collections.IDictionary]) { throw '数组项必须是对象。' }
-      foreach ($field in $record.Keys) {
-        if (-not $allowedFields.Contains([string]$field)) {
-          throw "记录含不支持字段 $field。"
-        }
-      }
       foreach ($field in @('coordinate', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
         if (-not $record.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$record[$field])) {
           throw "记录缺少必填字段 $field。"
@@ -350,17 +342,17 @@ function Get-GradleExceptionMap {
       }
       $evidenceUrl = [string]$record.evidence_url
       [uri]$uri = $null
-      if (-not [uri]::TryCreate($evidenceUrl, [System.UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -notin @('http', 'https')) {
+      if (-not [uri]::TryCreate($evidenceUrl, [System.UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -notin @('http', 'https')) { # exception evidence URL guard
         throw "evidence_url 必须是绝对 http(s) URL：$coordinate"
       }
       [datetime]$registeredOn = [datetime]::MinValue
-      if (-not [datetime]::TryParseExact([string]$record.registered_on, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$registeredOn)) {
+      if (-not [datetime]::TryParseExact([string]$record.registered_on, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$registeredOn)) { # exception registration date guard
         throw "registered_on 必须是 yyyy-MM-dd：$coordinate"
       }
       $declaredLicense = $null
       if ($record.ContainsKey('declared_license')) {
         $declaredLicense = [string]$record.declared_license
-        if ([string]::IsNullOrWhiteSpace($declaredLicense)) { throw "declared_license 不能为空：$coordinate" }
+        if ([string]::IsNullOrWhiteSpace($declaredLicense)) { throw "declared_license 不能为空：$coordinate" } # exception declared license nonblank guard
       }
       if (-not $empty.ContainsKey($coordinate)) {
         $empty.Add($coordinate, [PSCustomObject]@{
@@ -380,10 +372,10 @@ function Get-GradleExceptionMap {
       }
       $bucket = $empty[$coordinate]
       if ($null -eq $declaredLicense) {
-        if ($null -ne $bucket.Fallback) { throw "坐标重复、缺失元数据回退有歧义：$coordinate" }
+        if ($null -ne $bucket.Fallback) { throw "坐标重复、缺失元数据回退有歧义：$coordinate" } # exception duplicate fallback guard
         $bucket.Fallback = $entry
       } else {
-        if ($bucket.DeclaredLicenses.ContainsKey($declaredLicense)) {
+        if ($bucket.DeclaredLicenses.ContainsKey($declaredLicense)) { # exception duplicate declared mapping guard
           throw "坐标 + declared_license 重复、映射有歧义：$coordinate / $declaredLicense"
         }
         $bucket.DeclaredLicenses.Add($declaredLicense, $entry)
@@ -391,8 +383,32 @@ function Get-GradleExceptionMap {
     }
     return [PSCustomObject]@{ Entries = $empty; Error = $null }
   } catch {
-    return [PSCustomObject]@{ Entries = $empty; Error = "[GRADLE-OVERRIDE] $($_.Exception.Message)" }
+    $failedEntries = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal) # discard partial exception records
+    return [PSCustomObject]@{ Entries = $failedEntries; Error = "[GRADLE-OVERRIDE] $($_.Exception.Message)" }
   }
+}
+
+function Get-GradlePomSingletonNode {
+  param(
+    [Parameter(Mandatory)][System.Xml.XmlNode]$Parent,
+    [Parameter(Mandatory)][string]$LocalName
+  )
+
+  $nodes = @($Parent.SelectNodes("./*[local-name()='$LocalName']"))
+  if ($nodes.Count -gt 1) { throw "POM 元素 $LocalName 必须至多出现一次。" } # POM singleton ambiguity guard
+  return $(if ($nodes.Count -eq 1) { $nodes[0] } else { $null })
+}
+
+function Get-GradlePomRequiredScalarText {
+  param(
+    [AllowNull()][System.Xml.XmlNode]$Node,
+    [Parameter(Mandatory)][string]$Field
+  )
+
+  if ($null -eq $Node -or [string]::IsNullOrWhiteSpace([string]$Node.InnerText)) { throw "POM $Field 缺失或为空。" } # POM required scalar guard
+  $value = [string]$Node.InnerText
+  Assert-GradleMetadataScalar -Field "POM $Field" -Value $value # POM required scalar safety guard
+  return $value
 }
 
 function Get-GradleCachedPomInfo {
@@ -457,17 +473,21 @@ function Get-GradleCachedPomInfo {
       }
       $project = $pom.DocumentElement
       if ($null -eq $project -or $project.LocalName -ne 'project') { throw '缺少 project 根元素。' }
-      $groupNode = $project.SelectSingleNode('./*[local-name()="groupId"]')
-      $parent = $project.SelectSingleNode('./*[local-name()="parent"]')
+      $groupNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'groupId'
+      $parent = Get-GradlePomSingletonNode -Parent $project -LocalName 'parent'
       $declaredGroup = if ($null -eq $groupNode) { '' } else { [string]$groupNode.InnerText }
-      $parentGroupNode = if ($null -eq $parent) { $null } else { $parent.SelectSingleNode('./*[local-name()="groupId"]') }
-      if ([string]::IsNullOrWhiteSpace($declaredGroup) -and $null -ne $parentGroupNode) { $declaredGroup = [string]$parentGroupNode.InnerText }
-      $artifactNode = $project.SelectSingleNode('./*[local-name()="artifactId"]')
+      $parentGroup = ''; $parentVersion = ''
+      if ($null -ne $parent) {
+        $parentGroup = Get-GradlePomRequiredScalarText -Node (Get-GradlePomSingletonNode -Parent $parent -LocalName 'groupId') -Field 'parent/groupId'
+        [void](Get-GradlePomRequiredScalarText -Node (Get-GradlePomSingletonNode -Parent $parent -LocalName 'artifactId') -Field 'parent/artifactId')
+        $parentVersion = Get-GradlePomRequiredScalarText -Node (Get-GradlePomSingletonNode -Parent $parent -LocalName 'version') -Field 'parent/version'
+      }
+      if ([string]::IsNullOrWhiteSpace($declaredGroup) -and -not [string]::IsNullOrWhiteSpace($parentGroup)) { $declaredGroup = $parentGroup }
+      $artifactNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'artifactId'
       $declaredArtifact = if ($null -eq $artifactNode) { '' } else { [string]$artifactNode.InnerText }
-      $versionNode = $project.SelectSingleNode('./*[local-name()="version"]')
+      $versionNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'version'
       $declaredVersion = if ($null -eq $versionNode) { '' } else { [string]$versionNode.InnerText }
-      $parentVersionNode = if ($null -eq $parent) { $null } else { $parent.SelectSingleNode('./*[local-name()="version"]') }
-      if ([string]::IsNullOrWhiteSpace($declaredVersion) -and $null -ne $parentVersionNode) { $declaredVersion = [string]$parentVersionNode.InnerText }
+      if ([string]::IsNullOrWhiteSpace($declaredVersion) -and -not [string]::IsNullOrWhiteSpace($parentVersion)) { $declaredVersion = $parentVersion }
       Assert-GradleMetadataScalar -Field 'POM groupId' -Value $declaredGroup
       Assert-GradleMetadataScalar -Field 'POM artifactId' -Value $declaredArtifact
       Assert-GradleMetadataScalar -Field 'POM version' -Value $declaredVersion
@@ -477,10 +497,11 @@ function Get-GradleCachedPomInfo {
       if ($declaredGroup -cne $group -or $declaredArtifact -cne $artifact -or $declaredVersion -cne $version) {
         throw "POM GAV 不匹配（声明 $declaredGroup`:$declaredArtifact`:$declaredVersion，期望 $Coordinate）。"
       }
-      $licenseNodes = @($project.SelectNodes('./*[local-name()="licenses"]/*[local-name()="license"]'))
+      $licensesNode = Get-GradlePomSingletonNode -Parent $project -LocalName 'licenses'
+      $licenseNodes = if ($null -eq $licensesNode) { @() } else { @($licensesNode.SelectNodes('./*[local-name()="license"]')) }
       $pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
       foreach ($licenseNode in $licenseNodes) {
-        $nameNode = $licenseNode.SelectSingleNode('./*[local-name()="name"]')
+        $nameNode = Get-GradlePomSingletonNode -Parent $licenseNode -LocalName 'name'
         $licenseName = if ($null -eq $nameNode) { '' } else { [string]$nameNode.InnerText }
         if ([string]::IsNullOrWhiteSpace($licenseName)) { throw 'POM 中每个已声明 license 都必须有非空 name。' } # require every declared license name
         Assert-GradleMetadataScalar -Field 'POM license/name' -Value $licenseName
@@ -593,7 +614,7 @@ function Add-GradleLicenseFinding {
   $findingText = Get-GradleAuditText -Value "$Coordinate => $licenseText [$Source; configurations: $($Configurations -join ', ')]"
   Write-Host "  - $findingText"
   foreach ($license in $Licenses) {
-    $classification = Get-GradleLicenseClassification -License $license
+    $classification = Get-GradleLicenseClassification -License $license # production policy renderer classification
     if ($classification -eq 'plain-gpl') {
       if (-not $script:Distributes) {
         $script:warn += Get-GradleAuditText -Value "$Coordinate => $license（Gradle 黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false]；变 public 前用 -Strict 复核）"
@@ -603,7 +624,7 @@ function Add-GradleLicenseFinding {
       continue
     }
     if ($classification -eq 'forbidden') {
-      Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification
+      Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # compatibility helper forbidden classification
       continue
     }
     if ($classification -eq 'yellow') {
@@ -622,6 +643,179 @@ function Add-GradleLicenseFinding {
         }
       } else {
         Add-GradleMetadataNonCompliance "$Coordinate => 未被政策识别的许可 '$license' [GRADLE-UNKNOWN]"
+      }
+    }
+  }
+}
+
+function Get-GradleLicensePolicyResult {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Resolved,
+    [Parameter(Mandatory)][string]$GradleUserHome,
+    [Parameter(Mandatory)][string]$ExceptionPath
+  )
+
+  $findings = [System.Collections.Generic.List[object]]::new()
+  $warnings = [System.Collections.Generic.List[object]]::new()
+  $violations = [System.Collections.Generic.List[object]]::new()
+  $exceptions = Get-GradleExceptionMap -Path $ExceptionPath
+  if ($null -ne $exceptions.Error) {
+    $violations.Add([PSCustomObject]@{
+      Coordinate = $null
+      Configurations = @()
+      DeclaredLicense = $null
+      EffectiveLicense = $null
+      Classification = 'error'
+      Source = 'exception-table'
+      EvidenceUrl = $null
+      RegisteredBy = $null
+      RegisteredOn = $null
+      Code = 'GRADLE-OVERRIDE'
+      Detail = ([string]$exceptions.Error -replace '^\[GRADLE-OVERRIDE\]\s*', '')
+    })
+  }
+
+  foreach ($resolvedCoordinate in @($Resolved | Sort-Object -Property Coordinate)) {
+    $coordinate = [string]$resolvedCoordinate.Coordinate
+    $configurations = @($resolvedCoordinate.Configurations | Sort-Object -Unique)
+    $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $GradleUserHome
+    $exceptionBucket = if ($exceptions.Entries.ContainsKey($coordinate)) { $exceptions.Entries[$coordinate] } else { $null }
+
+    if ($pom.State -eq 'Error') { # policy POM error guard
+      $violations.Add([PSCustomObject]@{
+        Coordinate = $coordinate; Configurations = $configurations
+        DeclaredLicense = $null; EffectiveLicense = $null; Classification = 'error'
+        Source = 'cached-pom'; EvidenceUrl = $null; RegisteredBy = $null; RegisteredOn = $null
+        Code = 'GRADLE-POM'; Detail = [string]$pom.Detail
+      })
+      continue
+    }
+
+    if ($pom.State -in @('Missing', 'MissingLicense')) { # policy fallback state gate
+      if ($null -eq $exceptionBucket -or $null -eq $exceptionBucket.Fallback) {
+        $missingMetadataViolation = [PSCustomObject]@{
+          Coordinate = $coordinate; Configurations = $configurations
+          DeclaredLicense = $null; EffectiveLicense = $null; Classification = 'unknown'
+          Source = 'metadata-missing'; EvidenceUrl = $null; RegisteredBy = $null; RegisteredOn = $null
+          Code = 'GRADLE-METADATA'; Detail = [string]$pom.Detail
+        }
+        $violations.Add($missingMetadataViolation) # policy missing metadata fail-closed record
+        continue
+      }
+      $fallback = $exceptionBucket.Fallback
+      $fallbackRecord = [PSCustomObject]@{
+        Coordinate = $coordinate; Configurations = $configurations
+        DeclaredLicense = $null; EffectiveLicense = [string]$fallback.License; Classification = 'permissive'
+        Source = 'fallback-override'; EvidenceUrl = [string]$fallback.EvidenceUrl
+        RegisteredBy = [string]$fallback.RegisteredBy; RegisteredOn = [string]$fallback.RegisteredOn
+        Code = $null; Detail = $null
+      }
+      $findings.Add($fallbackRecord)
+      continue
+    }
+
+    $declaredMappings = if ($null -ne $exceptionBucket) { $exceptionBucket.DeclaredLicenses } else { $null }
+    foreach ($license in @($pom.Licenses)) {
+      $declaredLicense = [string]$license
+      $effectiveLicense = $declaredLicense
+      $classification = Get-GradleLicenseClassification -License $declaredLicense
+      $source = 'cached-pom'
+      $evidenceUrl = $null; $registeredBy = $null; $registeredOn = $null
+      $code = $null; $detail = $null
+
+      if ($classification -eq 'plain-gpl') {
+        if ($script:Distributes) {
+          $classification = 'forbidden'
+          $code = 'GRADLE-FORBIDDEN'
+          $detail = $declaredLicense
+        } else {
+          $classification = 'yellow'
+          $detail = '纯 GPL 且本项目声明不分发；须人工确认分发边界'
+        }
+      } elseif ($classification -eq 'forbidden') { # policy forbidden precedence
+        $code = 'GRADLE-FORBIDDEN'
+        $detail = $declaredLicense
+      } elseif ($classification -eq 'unknown') {
+        if ($null -ne $declaredMappings -and $declaredMappings.ContainsKey($declaredLicense)) {
+          $mapping = $declaredMappings[$declaredLicense]
+          if (-not (Test-GradleExceptionCanonicalLicense -License $mapping.License)) {
+            $code = 'GRADLE-OVERRIDE'
+            $detail = "declared_license 映射的非允许 canonical '$($mapping.License)'"
+          } else {
+            $effectiveLicense = [string]$mapping.License
+            $classification = 'permissive'
+            $source = 'declared-override'
+            $evidenceUrl = [string]$mapping.EvidenceUrl
+            $registeredBy = [string]$mapping.RegisteredBy
+            $registeredOn = [string]$mapping.RegisteredOn
+          }
+        } else {
+          $code = 'GRADLE-UNKNOWN'
+          $detail = "未被政策识别的许可 '$declaredLicense'"
+        }
+      }
+
+      $record = [PSCustomObject]@{
+        Coordinate = $coordinate; Configurations = $configurations
+        DeclaredLicense = $declaredLicense; EffectiveLicense = $effectiveLicense; Classification = $classification
+        Source = $source; EvidenceUrl = $evidenceUrl; RegisteredBy = $registeredBy; RegisteredOn = $registeredOn
+        Code = $code; Detail = $detail
+      }
+      $findings.Add($record)
+      if ($classification -eq 'yellow') { $warnings.Add($record) }
+      if ($null -ne $code) { $violations.Add($record) }
+    }
+  }
+
+  return [PSCustomObject]@{ Findings = @($findings); Warnings = @($warnings); Violations = @($violations) }
+}
+
+function Write-GradleLicensePolicyFindings {
+  param(
+    [Parameter(Mandatory)][object]$Policy,
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Resolved
+  )
+
+  foreach ($resolvedCoordinate in @($Resolved | Sort-Object -Property Coordinate)) {
+    $coordinateFindings = @($Policy.Findings | Where-Object Coordinate -CEQ $resolvedCoordinate.Coordinate)
+    if ($coordinateFindings.Count -eq 0) { continue }
+    $shownLicenses = @($coordinateFindings | ForEach-Object {
+      if ([string]::IsNullOrWhiteSpace([string]$_.DeclaredLicense)) { $_.EffectiveLicense } else { $_.DeclaredLicense }
+    })
+    $fallback = @($coordinateFindings | Where-Object Source -CEQ 'fallback-override' | Select-Object -First 1)
+    $sourceText = if ($fallback.Count -eq 1 -and $coordinateFindings.Count -eq 1) {
+      "override $($fallback[0].EvidenceUrl), $($fallback[0].RegisteredBy) $($fallback[0].RegisteredOn)"
+    } else {
+      'cached POM'
+    }
+    $findingText = Get-GradleAuditText -Value "$($resolvedCoordinate.Coordinate) => $($shownLicenses -join '; ') [$sourceText; configurations: $($resolvedCoordinate.Configurations -join ', ')]"
+    Write-Host "  - $findingText"
+    foreach ($finding in @($coordinateFindings | Where-Object Source -CEQ 'declared-override')) {
+      $mappingText = Get-GradleAuditText -Value "exact declared-license mapping: '$($finding.DeclaredLicense)' => $($finding.EffectiveLicense) [override $($finding.EvidenceUrl), $($finding.RegisteredBy) $($finding.RegisteredOn)]"
+      Write-Host "    $mappingText"
+    }
+  }
+
+  foreach ($finding in @($Policy.Findings)) {
+    if ($finding.Code -eq 'GRADLE-FORBIDDEN') {
+      $Coordinate = [string]$finding.Coordinate
+      $license = [string]$finding.DeclaredLicense
+      Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification
+      continue
+    }
+    if ($finding.Code -eq 'GRADLE-UNKNOWN') {
+      Add-GradleMetadataNonCompliance "$($finding.Coordinate) => $($finding.Detail) [GRADLE-UNKNOWN]" # structured unknown classification
+      continue
+    }
+    if ($finding.Code -eq 'GRADLE-OVERRIDE') {
+      Add-GradleMetadataNonCompliance "$($finding.Coordinate) => $($finding.Detail) [GRADLE-OVERRIDE]" # structured mapping validation
+      continue
+    }
+    if ($finding.Classification -eq 'yellow') {
+      if ($finding.Detail -like '纯 GPL*') {
+        $script:warn += Get-GradleAuditText -Value "$($finding.Coordinate) => $($finding.DeclaredLicense)（Gradle 黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false]；变 public 前用 -Strict 复核）" # structured plain-GPL warning
+      } else {
+        $script:warn += Get-GradleAuditText -Value "$($finding.Coordinate) => $($finding.DeclaredLicense)（Gradle 黄牌：需人工确认用途/链接方式）" # structured yellow warning
       }
     }
   }
@@ -861,8 +1055,6 @@ function Invoke-GradleLicenseScan {
   param([Parameter(Mandatory)][string]$Root)
 
   $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
-  $exceptions = Get-GradleExceptionMap -Path (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
-  if ($null -ne $exceptions.Error) { Add-GradleMetadataNonCompliance $exceptions.Error }
   $graph = Get-GradleResolvedGraphs -Root $Root -GradleUserHome $gradleUserHome
   foreach ($graphError in $graph.Errors) {
     $configurationPrefix = if ([string]::IsNullOrWhiteSpace([string]$graphError.Configuration)) { '' } else { "$($graphError.Configuration) => " }
@@ -884,35 +1076,21 @@ function Invoke-GradleLicenseScan {
     }
   }
 
-  $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
-  foreach ($resolved in $graph.Resolved) {
-    $configurations = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    foreach ($configuration in $resolved.Configurations) { [void]$configurations.Add($configuration) }
-    $coordinatesByConfiguration.Add($resolved.Coordinate, $configurations)
+  $policy = Get-GradleLicensePolicyResult -Resolved $graph.Resolved -GradleUserHome $gradleUserHome -ExceptionPath (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
+  if ($graph.Resolved.Count -gt 0) {
+    Write-Host "  已从四张 Gradle 已解析图取得 $($graph.Resolved.Count) 个唯一 GAV（离线、去重、按坐标排序）："
+    Write-GradleLicensePolicyFindings -Policy $policy -Resolved $graph.Resolved
   }
-  if ($coordinatesByConfiguration.Count -eq 0) {
-    return
-  }
-  Write-Host "  已从四张 Gradle 已解析图取得 $($coordinatesByConfiguration.Count) 个唯一 GAV（离线、去重、按坐标排序）："
-  foreach ($coordinate in @($coordinatesByConfiguration.Keys | Sort-Object)) {
-    $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $gradleUserHome
-    $configurations = @($coordinatesByConfiguration[$coordinate] | Sort-Object)
-    $exceptionBucket = if ($exceptions.Entries.ContainsKey($coordinate)) { $exceptions.Entries[$coordinate] } else { $null }
-    if ($pom.State -eq 'Error') {
-      Add-GradleMetadataNonCompliance "$coordinate => $($pom.Detail) [GRADLE-POM]"
+  foreach ($violation in $policy.Violations) {
+    if ($violation.Code -in @('GRADLE-FORBIDDEN', 'GRADLE-UNKNOWN') -or ($violation.Code -eq 'GRADLE-OVERRIDE' -and $violation.Source -eq 'cached-pom')) { continue }
+    if ($violation.Code -eq 'GRADLE-METADATA') {
+      $coordinate = [string]$violation.Coordinate
+      $pom = $violation
+      Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"
       continue
     }
-    if ($pom.State -in @('Missing', 'MissingLicense')) {
-      if ($null -ne $exceptionBucket -and $null -ne $exceptionBucket.Fallback) {
-        $exception = $exceptionBucket.Fallback
-        Add-GradleLicenseFinding -Coordinate $coordinate -Licenses @($exception.License) -Source "override $($exception.EvidenceUrl), $($exception.RegisteredBy) $($exception.RegisteredOn)" -Configurations $configurations
-      } else {
-        Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"
-      }
-      continue
-    }
-    $declaredLicenseMappings = if ($null -ne $exceptionBucket) { $exceptionBucket.DeclaredLicenses } else { $null }
-    Add-GradleLicenseFinding -Coordinate $coordinate -Licenses $pom.Licenses -Source 'cached POM' -Configurations $configurations -DeclaredLicenseMappings $declaredLicenseMappings
+    $prefix = if ([string]::IsNullOrWhiteSpace([string]$violation.Coordinate)) { '' } else { "$($violation.Coordinate) => " }
+    Add-GradleMetadataNonCompliance "$prefix$($violation.Detail) [$($violation.Code)]"
   }
 }
 

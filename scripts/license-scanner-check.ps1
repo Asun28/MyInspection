@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('graph')]
+  [ValidateSet('graph', 'policy')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
   [switch]$SkipMutations
@@ -21,6 +21,533 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
+
+if ($Suite -eq 'policy') {
+  function Assert-Policy {
+    param(
+      [Parameter(Mandatory)][bool]$Condition,
+      [Parameter(Mandatory)][string]$Message
+    )
+    if (-not $Condition) { $failures.Add($Message) }
+  }
+
+  $policyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "license-policy-$PID-$([guid]::NewGuid().ToString('N'))"
+  $policyGradleHome = Join-Path $policyRoot 'gradle-home'
+  $policyExceptionPath = Join-Path $policyRoot 'exceptions.json'
+
+  function Write-PolicyPom {
+    param(
+      [Parameter(Mandatory)][string]$Coordinate,
+      [Parameter(Mandatory)][string]$Xml,
+      [string]$Hash = 'fixture-hash'
+    )
+    $gav = Get-GradleGavParts -Coordinate $Coordinate
+    $coordinateRoot = Get-GradleCacheCoordinateRoot -GradleUserHome $policyGradleHome -Coordinate $Coordinate
+    $hashRoot = Join-Path $coordinateRoot $Hash
+    New-Item -ItemType Directory -Force -Path $hashRoot | Out-Null
+    $pomPath = Join-Path $hashRoot "$($gav.Artifact)-$($gav.Version).pom"
+    [System.IO.File]::WriteAllText($pomPath, $Xml, [System.Text.UTF8Encoding]::new($false))
+    return $pomPath
+  }
+
+  function Set-PolicyExceptions([Parameter(Mandatory)][string]$Json) {
+    [System.IO.File]::WriteAllText($policyExceptionPath, $Json, [System.Text.UTF8Encoding]::new($false))
+  }
+
+  function New-PolicyResolved([Parameter(Mandatory)][string]$Coordinate) {
+    return [PSCustomObject]@{ Coordinate = $Coordinate; Configurations = @(':core:testRuntimeClasspath') }
+  }
+
+  function Invoke-PolicyFixture([Parameter(Mandatory)][string[]]$Coordinates) {
+    $resolved = @($Coordinates | ForEach-Object { New-PolicyResolved -Coordinate $_ })
+    return Get-GradleLicensePolicyResult -Resolved $resolved -GradleUserHome $policyGradleHome -ExceptionPath $policyExceptionPath
+  }
+
+  try {
+    New-Item -ItemType Directory -Force -Path $policyRoot | Out-Null
+    Set-PolicyExceptions -Json '[]'
+
+    $multiCoordinate = 'fixture.policy:multi:1.0'
+    [void](Write-PolicyPom -Coordinate $multiCoordinate -Xml @'
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <groupId>fixture.policy</groupId><artifactId>multi</artifactId><version>1.0</version>
+  <licenses>
+    <license><name>Apache-2.0</name></license>
+    <license><name>LGPL-2.1</name></license>
+  </licenses>
+</project>
+'@)
+    $multiResult = Invoke-PolicyFixture -Coordinates @($multiCoordinate)
+    $multiLicenses = @($multiResult.Findings | ForEach-Object DeclaredLicense)
+    Assert-Policy (
+      $multiResult.Violations.Count -eq 0 -and
+      ($multiLicenses -join ',') -ceq 'Apache-2.0,LGPL-2.1' -and
+      $multiResult.Warnings.Count -eq 1 -and
+      $multiResult.Warnings[0].DeclaredLicense -ceq 'LGPL-2.1' -and
+      ($multiResult.Findings[0].Configurations -join ',') -ceq ':core:testRuntimeClasspath'
+    ) '[POLICY-POM-MULTI] valid multi-license POM did not preserve both decisions/configuration'
+
+    $classificationCases = @(
+      @{ License = 'Apache-2.0'; Expected = 'permissive' },
+      @{ License = 'LGPL-2.1'; Expected = 'yellow' },
+      @{ License = 'EPL-1.0'; Expected = 'forbidden' },
+      @{ License = 'GPL-3.0'; Expected = 'plain-gpl' },
+      @{ License = 'Mystery Apache License'; Expected = 'unknown' }
+    )
+    foreach ($case in $classificationCases) {
+      Assert-Policy (
+        (Get-GradleLicenseClassification -License $case.License) -ceq $case.Expected
+      ) "[POLICY-CLASSIFICATION] $($case.License) was not $($case.Expected)"
+    }
+
+    $dtdCoordinate = 'fixture.policy:dtd:1.0'
+    [void](Write-PolicyPom -Coordinate $dtdCoordinate -Xml @'
+<!DOCTYPE project [<!ENTITY policyLicense "Apache-2.0">]>
+<project><groupId>fixture.policy</groupId><artifactId>dtd</artifactId><version>1.0</version><licenses><license><name>&policyLicense;</name></license></licenses></project>
+'@)
+    $dtdResult = Invoke-PolicyFixture -Coordinates @($dtdCoordinate)
+    Assert-Policy (
+      $dtdResult.Findings.Count -eq 0 -and @($dtdResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+    ) '[POLICY-POM-DTD] DTD-bearing POM was not rejected as GRADLE-POM'
+
+    $mismatchCoordinate = 'fixture.policy:mismatch:1.0'
+    [void](Write-PolicyPom -Coordinate $mismatchCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>mismatch</artifactId><version>2.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>')
+    $mismatchResult = Invoke-PolicyFixture -Coordinates @($mismatchCoordinate)
+    Assert-Policy (
+      @($mismatchResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+    ) '[POLICY-POM-GAV] POM self-declared GAV mismatch was not rejected'
+
+    $blankNameCoordinate = 'fixture.policy:blank-name:1.0'
+    [void](Write-PolicyPom -Coordinate $blankNameCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>blank-name</artifactId><version>1.0</version><licenses><license><name> </name></license></licenses></project>')
+    $blankNameResult = Invoke-PolicyFixture -Coordinates @($blankNameCoordinate)
+    Assert-Policy (
+      @($blankNameResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+    ) '[POLICY-POM-LICENSE-NAME] blank declared license name was not rejected'
+
+    $duplicatePomCases = @(
+      @{ Id = 'group'; Coordinate = 'fixture.policy:duplicate-group:1.0'; Xml = '<project><groupId>fixture.policy</groupId><groupId>other</groupId><artifactId>duplicate-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'artifact'; Coordinate = 'fixture.policy:duplicate-artifact:1.0'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>duplicate-artifact</artifactId><artifactId>other</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'version'; Coordinate = 'fixture.policy:duplicate-version:1.0'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>duplicate-version</artifactId><version>1.0</version><version>2.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'parent'; Coordinate = 'fixture.policy:duplicate-parent:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent-a</artifactId><version>1.0</version></parent><parent><groupId>fixture.policy</groupId><artifactId>parent-b</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>duplicate-parent</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'parent-group'; Coordinate = 'fixture.policy:duplicate-parent-group:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><groupId>other</groupId><artifactId>parent</artifactId><version>1.0</version></parent><artifactId>duplicate-parent-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'parent-artifact'; Coordinate = 'fixture.policy:duplicate-parent-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId><artifactId>other</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>duplicate-parent-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'parent-version'; Coordinate = 'fixture.policy:duplicate-parent-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId><version>1.0</version><version>2.0</version></parent><groupId>fixture.policy</groupId><artifactId>duplicate-parent-version</artifactId><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'licenses-container'; Coordinate = 'fixture.policy:duplicate-licenses-container:1.0'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>duplicate-licenses-container</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses><licenses><license><name>MIT</name></license></licenses></project>' },
+      @{ Id = 'license-name'; Coordinate = 'fixture.policy:duplicate-license-name:1.0'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>duplicate-license-name</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name><name>EPL-1.0</name></license></licenses></project>' }
+    )
+    foreach ($duplicatePom in $duplicatePomCases) {
+      [void](Write-PolicyPom -Coordinate $duplicatePom.Coordinate -Xml $duplicatePom.Xml)
+      $duplicatePomResult = Invoke-PolicyFixture -Coordinates @($duplicatePom.Coordinate)
+      Assert-Policy (
+        @($duplicatePomResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+      ) "[POLICY-POM-SINGLETON-$($duplicatePom.Id.ToUpperInvariant())] repeated singleton element was accepted"
+    }
+
+    $parentMetadataCases = @(
+      @{ Id = 'missing-group'; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'missing-version'; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'control-artifact'; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' }
+    )
+    foreach ($parentMetadata in $parentMetadataCases) {
+      [void](Write-PolicyPom -Coordinate $parentMetadata.Coordinate -Xml $parentMetadata.Xml)
+      $parentMetadataResult = Invoke-PolicyFixture -Coordinates @($parentMetadata.Coordinate)
+      Assert-Policy (
+        @($parentMetadataResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+      ) "[POLICY-POM-PARENT-$($parentMetadata.Id.ToUpperInvariant())] malformed parent GAV was accepted"
+    }
+
+    $baselineExceptions = @'
+[
+  {"coordinate":"fixture.policy:fallback:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/fallback","registered_by":"policy-test","registered_on":"2026-08-19"},
+  {"coordinate":"fixture.policy:fallback-no-license:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/fallback-no-license","registered_by":"policy-test","registered_on":"2026-08-19"},
+  {"coordinate":"fixture.policy:valid-unknown:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/valid-unknown","registered_by":"policy-test","registered_on":"2026-08-19"},
+  {"coordinate":"fixture.policy:declared:1.0","declared_license":"BSD License","license":"BSD-3-Clause","evidence_url":"https://example.invalid/declared","registered_by":"policy-test","registered_on":"2026-08-19"},
+  {"coordinate":"fixture.policy:risk:1.0","declared_license":"EPL-1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/risk","registered_by":"policy-test","registered_on":"2026-08-19"}
+]
+'@
+    Set-PolicyExceptions -Json $baselineExceptions
+    $fallbackResult = Invoke-PolicyFixture -Coordinates @('fixture.policy:fallback:1.0')
+    Assert-Policy (
+      $fallbackResult.Violations.Count -eq 0 -and
+      $fallbackResult.Findings.Count -eq 1 -and
+      $fallbackResult.Findings[0].Source -ceq 'fallback-override' -and
+      $fallbackResult.Findings[0].EffectiveLicense -ceq 'Apache-2.0'
+    ) '[POLICY-OVERRIDE-FALLBACK] exact missing-POM fallback was not accepted'
+
+    $missingLicenseCoordinate = 'fixture.policy:fallback-no-license:1.0'
+    [void](Write-PolicyPom -Coordinate $missingLicenseCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>fallback-no-license</artifactId><version>1.0</version></project>')
+    $missingLicenseResult = Invoke-PolicyFixture -Coordinates @($missingLicenseCoordinate)
+    Assert-Policy (
+      $missingLicenseResult.Violations.Count -eq 0 -and
+      $missingLicenseResult.Findings.Count -eq 1 -and
+      $missingLicenseResult.Findings[0].Source -ceq 'fallback-override'
+    ) '[POLICY-OVERRIDE-MISSING-LICENSE] exact fallback did not cover a valid POM with no license/name'
+
+    Set-PolicyExceptions -Json '[]'
+    $missingWithoutFallback = Invoke-PolicyFixture -Coordinates @('fixture.policy:missing-without-fallback:1.0')
+    $missingLicenseWithoutFallback = Invoke-PolicyFixture -Coordinates @($missingLicenseCoordinate)
+    Assert-Policy (
+      @($missingWithoutFallback.Violations | Where-Object Code -CEQ 'GRADLE-METADATA').Count -eq 1 -and
+      @($missingLicenseWithoutFallback.Violations | Where-Object Code -CEQ 'GRADLE-METADATA').Count -eq 1
+    ) '[POLICY-METADATA-NO-FALLBACK] missing POM or missing license/name passed without an exact fallback'
+    Set-PolicyExceptions -Json $baselineExceptions
+
+    $validUnknownCoordinate = 'fixture.policy:valid-unknown:1.0'
+    [void](Write-PolicyPom -Coordinate $validUnknownCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>valid-unknown</artifactId><version>1.0</version><licenses><license><name>Mystery License</name></license></licenses></project>')
+    $validUnknownResult = Invoke-PolicyFixture -Coordinates @($validUnknownCoordinate)
+    Assert-Policy (
+      @($validUnknownResult.Violations | Where-Object Code -CEQ 'GRADLE-UNKNOWN').Count -eq 1 -and
+      @($validUnknownResult.Findings | Where-Object Source -CEQ 'fallback-override').Count -eq 0
+    ) '[POLICY-FALLBACK-STATE] valid unknown POM was incorrectly replaced by a missing-metadata fallback'
+
+    $declaredCoordinate = 'fixture.policy:declared:1.0'
+    [void](Write-PolicyPom -Coordinate $declaredCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>declared</artifactId><version>1.0</version><licenses><license><name>BSD License</name></license></licenses></project>')
+    $declaredResult = Invoke-PolicyFixture -Coordinates @($declaredCoordinate)
+    Assert-Policy (
+      $declaredResult.Violations.Count -eq 0 -and
+      $declaredResult.Findings.Count -eq 1 -and
+      $declaredResult.Findings[0].Source -ceq 'declared-override' -and
+      $declaredResult.Findings[0].EffectiveLicense -ceq 'BSD-3-Clause'
+    ) '[POLICY-DECLARED-EXACT] exact declared_license mapping was not applied'
+
+    $nearCoordinate = 'fixture.policy:declared-near:1.0'
+    [void](Write-PolicyPom -Coordinate $nearCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>declared-near</artifactId><version>1.0</version><licenses><license><name>bsd license</name></license></licenses></project>')
+    $nearExceptions = @'
+[{"coordinate":"fixture.policy:declared-near:1.0","declared_license":"BSD License","license":"BSD-3-Clause","evidence_url":"https://example.invalid/near","registered_by":"policy-test","registered_on":"2026-08-19"}]
+'@
+    Set-PolicyExceptions -Json $nearExceptions
+    $nearResult = Invoke-PolicyFixture -Coordinates @($nearCoordinate)
+    Assert-Policy (
+      @($nearResult.Violations | Where-Object Code -CEQ 'GRADLE-UNKNOWN').Count -eq 1
+    ) '[POLICY-DECLARED-ORDINAL] case-near declared_license mapping was accepted'
+
+    Set-PolicyExceptions -Json @'
+[{"coordinate":"fixture.policy:risk:1.0","declared_license":"EPL-1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/risk","registered_by":"policy-test","registered_on":"2026-08-19"}]
+'@
+    $riskCoordinate = 'fixture.policy:risk:1.0'
+    [void](Write-PolicyPom -Coordinate $riskCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>risk</artifactId><version>1.0</version><licenses><license><name>EPL-1.0</name></license></licenses></project>')
+    $riskResult = Invoke-PolicyFixture -Coordinates @($riskCoordinate)
+    Assert-Policy (
+      @($riskResult.Violations | Where-Object Code -CEQ 'GRADLE-FORBIDDEN').Count -eq 1
+    ) '[POLICY-FORBIDDEN-FIRST] declared mapping overrode a forbidden POM license'
+
+    $invalidExceptions = @(
+      @{ Id = 'top-level'; Error = $null; Json = '{}' },
+      @{ Id = 'non-object'; Error = $null; Json = '[7]' },
+      @{ Id = 'duplicate-field'; Error = '字段重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'unsupported-field'; Error = '不支持字段'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19","note":"no"}]' },
+      @{ Id = 'control'; Error = '控制/格式'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy\u202etest","registered_on":"2026-08-19"}]' },
+      @{ Id = 'wildcard'; Error = '具体且安全'; Json = '[{"coordinate":"fixture.policy:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'missing-coordinate'; Error = '缺少必填字段 coordinate'; Json = '[{"license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'missing-license'; Error = '缺少必填字段 license'; Json = '[{"coordinate":"fixture.policy:a:1.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'missing-evidence'; Error = '缺少必填字段 evidence_url'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'missing-registrant'; Error = '缺少必填字段 registered_by'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_on":"2026-08-19"}]' },
+      @{ Id = 'missing-date'; Error = '缺少必填字段 registered_on'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test"}]' },
+      @{ Id = 'empty-registrant'; Error = '缺少必填字段'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"","registered_on":"2026-08-19"}]' },
+      @{ Id = 'blank-declared'; Error = 'declared_license 不能为空'; Json = '[{"coordinate":"fixture.policy:a:1.0","declared_license":" ","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'canonical-alias'; Error = '精确 canonical'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"apache 2","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'bad-url'; Error = '绝对 http'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"file:///tmp/evidence","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'bad-date'; Error = 'yyyy-MM-dd'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"19-08-2026"}]' },
+      @{ Id = 'non-string'; Error = 'JSON 字符串'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":7,"registered_on":"2026-08-19"}]' },
+      @{ Id = 'duplicate-fallback'; Error = '坐标重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
+      @{ Id = 'duplicate-declared'; Error = 'declared_license 重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' }
+    )
+    foreach ($invalid in $invalidExceptions) {
+      Set-PolicyExceptions -Json $invalid.Json
+      $invalidResult = Invoke-PolicyFixture -Coordinates @('fixture.policy:a:1.0')
+      $overrideErrors = @($invalidResult.Violations | Where-Object Code -CEQ 'GRADLE-OVERRIDE')
+      Assert-Policy (
+        $invalidResult.Findings.Count -eq 0 -and
+        $overrideErrors.Count -eq 1 -and
+        ([string]::IsNullOrEmpty([string]$invalid.Error) -or $overrideErrors[0].Detail -match [regex]::Escape($invalid.Error))
+      ) "[POLICY-OVERRIDE-$($invalid.Id.ToUpperInvariant())] malformed exception did not fail closed"
+    }
+
+    $invalidContinueCoordinate = 'fixture.policy:invalid-continue:1.0'
+    [void](Write-PolicyPom -Coordinate $invalidContinueCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>invalid-continue</artifactId><version>1.0</version><licenses><license><name>Mystery License</name></license></licenses></project>')
+    Set-PolicyExceptions -Json '[{"coordinate":"fixture.policy:invalid-continue:1.0","declared_license":"Mystery License","license":"Apache-2.0","evidence_url":"https://example.invalid/partial","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]'
+    $invalidContinueResult = Invoke-PolicyFixture -Coordinates @($invalidContinueCoordinate)
+    Assert-Policy (
+      @($invalidContinueResult.Violations | Where-Object Code -CEQ 'GRADLE-OVERRIDE').Count -eq 1 -and
+      @($invalidContinueResult.Violations | Where-Object Code -CEQ 'GRADLE-UNKNOWN').Count -eq 1 -and
+      @($invalidContinueResult.Findings | Where-Object Source -CEQ 'declared-override').Count -eq 0
+    ) '[POLICY-OVERRIDE-CONTINUE] invalid exception table retained a partial override or suppressed concrete-GAV evaluation'
+
+    $caseGavCoordinate = 'fixture.policy:case-gav:1.0'
+    [void](Write-PolicyPom -Coordinate $caseGavCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>case-gav</artifactId><version>1.0</version><licenses><license><name>Mystery License</name></license></licenses></project>')
+    Set-PolicyExceptions -Json '[{"coordinate":"Fixture.Policy:case-gav:1.0","declared_license":"Mystery License","license":"Apache-2.0","evidence_url":"https://example.invalid/case-gav","registered_by":"policy-test","registered_on":"2026-08-19"}]'
+    $caseGavResult = Invoke-PolicyFixture -Coordinates @($caseGavCoordinate)
+    Assert-Policy (
+      @($caseGavResult.Violations | Where-Object Code -CEQ 'GRADLE-UNKNOWN').Count -eq 1 -and
+      @($caseGavResult.Findings | Where-Object Source -CEQ 'declared-override').Count -eq 0
+    ) '[POLICY-OVERRIDE-GAV-ORDINAL] case-near GAV matched an exception record'
+
+    $emptyGraphRoot = Join-Path $policyRoot 'empty-graph-root'
+    New-Item -ItemType Directory -Force -Path (Join-Path $emptyGraphRoot 'configs/licenses') | Out-Null
+    [System.IO.File]::WriteAllText(
+      (Join-Path $emptyGraphRoot 'configs/licenses/gradle-exceptions.json'),
+      '[{"coordinate":"fixture.policy:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]',
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    $script:policyMainResolved = @()
+    function Get-GradleResolvedGraphs {
+      return [PSCustomObject]@{ Resolved = @($script:policyMainResolved); Errors = @() }
+    }
+    $script:bad = @(); $script:warn = @()
+    Invoke-GradleLicenseScan -Root $emptyGraphRoot
+    Assert-Policy (
+      @($script:bad | Where-Object { $_ -match '\[GRADLE-OVERRIDE\]' }).Count -eq 1
+    ) '[POLICY-EMPTY-GRAPH-OVERRIDE] empty resolved graph skipped exception-table validation'
+
+    $policyMainRoot = Join-Path $policyRoot 'main-path-root'
+    New-Item -ItemType Directory -Force -Path (Join-Path $policyMainRoot 'configs/licenses') | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $policyMainRoot 'configs/licenses/gradle-exceptions.json'), '[]', [System.Text.UTF8Encoding]::new($false))
+    $savedPolicyGradleHome = $env:GRADLE_USER_HOME
+    try {
+      $env:GRADLE_USER_HOME = $policyGradleHome
+      $mainCases = @(
+        @{ Id = 'permissive'; License = 'Apache-2.0'; Distributes = $false; Bad = 0; Warn = 0 },
+        @{ Id = 'yellow'; License = 'LGPL-2.1'; Distributes = $false; Bad = 0; Warn = 1 },
+        @{ Id = 'gpl-private'; License = 'GPL-3.0'; Distributes = $false; Bad = 0; Warn = 1 },
+        @{ Id = 'gpl-distributed'; License = 'GPL-3.0'; Distributes = $true; Bad = 1; Warn = 0 },
+        @{ Id = 'forbidden'; License = 'EPL-1.0'; Distributes = $false; Bad = 1; Warn = 0 },
+        @{ Id = 'unknown'; License = 'Mystery License'; Distributes = $false; Bad = 1; Warn = 0 }
+      )
+      foreach ($mainCase in $mainCases) {
+        $coordinate = "fixture.policy:main-$($mainCase.Id):1.0"
+        [void](Write-PolicyPom -Coordinate $coordinate -Xml "<project><groupId>fixture.policy</groupId><artifactId>main-$($mainCase.Id)</artifactId><version>1.0</version><licenses><license><name>$($mainCase.License)</name></license></licenses></project>")
+        $script:policyMainResolved = @([PSCustomObject]@{ Coordinate = $coordinate; Configurations = @(':core:testRuntimeClasspath') })
+        $script:bad = @(); $script:warn = @(); $script:Distributes = [bool]$mainCase.Distributes
+        Invoke-GradleLicenseScan -Root $policyMainRoot
+        Assert-Policy (
+          $script:bad.Count -eq $mainCase.Bad -and $script:warn.Count -eq $mainCase.Warn
+        ) "[POLICY-MAIN-$($mainCase.Id.ToUpperInvariant())] production caller outcome was bad=$($script:bad.Count), warn=$($script:warn.Count)"
+      }
+    } finally {
+      $env:GRADLE_USER_HOME = $savedPolicyGradleHome
+      $script:Distributes = $false
+    }
+  } catch {
+    Assert-Policy $false "[POLICY-SETUP] policy suite failed: $($_.Exception.Message)"
+  } finally {
+    if (Test-Path -LiteralPath $policyRoot) { Remove-Item -LiteralPath $policyRoot -Recurse -Force }
+  }
+
+  if ($failures.Count -gt 0) {
+    Write-Error "[POLICY-CONTRACT] $($failures -join "`n[POLICY-CONTRACT] ")"
+    exit 1
+  }
+
+  if (-not $SkipMutations) {
+    $source = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ScannerPath))
+    $policyMutationCases = @(
+      @{
+        Name = 'pom-dtd'
+        From = '      $readerSettings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit'
+        To = '      $readerSettings.DtdProcessing = [System.Xml.DtdProcessing]::Parse'
+        Expected = '[POLICY-POM-DTD]'
+      },
+      @{
+        Name = 'pom-gav'
+        From = '      if ($declaredGroup -cne $group -or $declaredArtifact -cne $artifact -or $declaredVersion -cne $version) {'
+        To = '      if ($false) {'
+        Expected = '[POLICY-POM-GAV]'
+      },
+      @{
+        Name = 'pom-license-name'
+        From = '        if ([string]::IsNullOrWhiteSpace($licenseName)) { throw ''POM 中每个已声明 license 都必须有非空 name。'' } # require every declared license name'
+        To = '        if ([string]::IsNullOrWhiteSpace($licenseName)) { continue } # require every declared license name'
+        Expected = '[POLICY-POM-LICENSE-NAME]'
+      },
+      @{
+        Name = 'pom-singleton'
+        From = '  if ($nodes.Count -gt 1) { throw "POM 元素 $LocalName 必须至多出现一次。" } # POM singleton ambiguity guard'
+        To = '  if ($false) { throw "POM 元素 $LocalName 必须至多出现一次。" } # POM singleton ambiguity guard'
+        Expected = '[POLICY-POM-SINGLETON-PARENT]'
+      },
+      @{
+        Name = 'pom-parent-required'
+        From = '  if ($null -eq $Node -or [string]::IsNullOrWhiteSpace([string]$Node.InnerText)) { throw "POM $Field 缺失或为空。" } # POM required scalar guard'
+        To = '  if ($null -eq $Node -or [string]::IsNullOrWhiteSpace([string]$Node.InnerText)) { return '''' } # POM required scalar guard'
+        Expected = '[POLICY-POM-PARENT-MISSING-GROUP]'
+      },
+      @{
+        Name = 'pom-parent-scalar'
+        From = '  Assert-GradleMetadataScalar -Field "POM $Field" -Value $value # POM required scalar safety guard'
+        To = '  $null = $value # POM required scalar safety guard'
+        Expected = '[POLICY-POM-PARENT-CONTROL-ARTIFACT]'
+      },
+      @{
+        Name = 'classification-unknown'
+        From = "  return 'unknown'"
+        To = "  return 'permissive'"
+        Expected = '[POLICY-CLASSIFICATION]'
+      },
+      @{
+        Name = 'override-exact-gav'
+        From = '      if ($null -eq (Get-GradleGavParts -Coordinate $coordinate)) {'
+        To = '      if ($false) {'
+        Expected = '[POLICY-OVERRIDE-WILDCARD]'
+      },
+      @{
+        Name = 'override-gav-ordinal'
+        From = '  $empty = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal) # exception coordinate ordinal map'
+        To = '  $empty = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::OrdinalIgnoreCase) # exception coordinate ordinal map'
+        Expected = '[POLICY-OVERRIDE-GAV-ORDINAL]'
+      },
+      @{
+        Name = 'override-required-field'
+        From = "      foreach (`$field in @('coordinate', 'license', 'evidence_url', 'registered_by', 'registered_on')) {"
+        To = "      foreach (`$field in @('coordinate', 'license', 'evidence_url', 'registered_on')) {"
+        Expected = '[POLICY-OVERRIDE-EMPTY-REGISTRANT]'
+      },
+      @{
+        Name = 'override-duplicate-field'
+        From = '          if (-not $seenFields.Add($field)) { throw "记录字段重复（大小写完全相同）：$field。" } # exception duplicate property guard'
+        To = '          [void]$seenFields.Add($field) # exception duplicate property guard'
+        Expected = '[POLICY-OVERRIDE-DUPLICATE-FIELD]'
+      },
+      @{
+        Name = 'override-supported-field'
+        From = "      ForEach-Object { [void]`$allowedFields.Add(`$_) }"
+        To = "      ForEach-Object { [void]`$allowedFields.Add(`$_) }; [void]`$allowedFields.Add('note')"
+        Expected = '[POLICY-OVERRIDE-UNSUPPORTED-FIELD]'
+      },
+      @{
+        Name = 'override-json-string'
+        From = '          if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {'
+        To = '          if ($false) {'
+        Expected = '[POLICY-OVERRIDE-NON-STRING]'
+      },
+      @{
+        Name = 'override-metadata-control'
+        From = '        Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])'
+        To = '        $null = [string]$record[$field]'
+        Expected = '[POLICY-OVERRIDE-CONTROL]'
+      },
+      @{
+        Name = 'override-declared-nonblank'
+        From = '        if ([string]::IsNullOrWhiteSpace($declaredLicense)) { throw "declared_license 不能为空：$coordinate" } # exception declared license nonblank guard'
+        To = '        if ($false) { throw "declared_license 不能为空：$coordinate" } # exception declared license nonblank guard'
+        Expected = '[POLICY-OVERRIDE-BLANK-DECLARED]'
+      },
+      @{
+        Name = 'override-url'
+        From = "      if (-not [uri]::TryCreate(`$evidenceUrl, [System.UriKind]::Absolute, [ref]`$uri) -or `$uri.Scheme -notin @('http', 'https')) { # exception evidence URL guard"
+        To = '      if ($false) { # exception evidence URL guard'
+        Expected = '[POLICY-OVERRIDE-BAD-URL]'
+      },
+      @{
+        Name = 'override-date'
+        From = "      if (-not [datetime]::TryParseExact([string]`$record.registered_on, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]`$registeredOn)) { # exception registration date guard"
+        To = '      if ($false) { # exception registration date guard'
+        Expected = '[POLICY-OVERRIDE-BAD-DATE]'
+      },
+      @{
+        Name = 'override-duplicate-fallback'
+        From = '        if ($null -ne $bucket.Fallback) { throw "坐标重复、缺失元数据回退有歧义：$coordinate" } # exception duplicate fallback guard'
+        To = '        if ($false) { throw "坐标重复、缺失元数据回退有歧义：$coordinate" } # exception duplicate fallback guard'
+        Expected = '[POLICY-OVERRIDE-DUPLICATE-FALLBACK]'
+      },
+      @{
+        Name = 'override-duplicate-declared'
+        From = '        if ($bucket.DeclaredLicenses.ContainsKey($declaredLicense)) { # exception duplicate declared mapping guard'
+        To = '        if ($false) { # exception duplicate declared mapping guard'
+        Expected = '[POLICY-OVERRIDE-DUPLICATE-DECLARED]'
+      },
+      @{
+        Name = 'override-canonical'
+        From = '      if (-not (Test-GradleExceptionCanonicalLicense -License $entry.License)) {'
+        To = '      if ($false) {'
+        Expected = '[POLICY-OVERRIDE-CANONICAL-ALIAS]'
+      },
+      @{
+        Name = 'override-partial-discard'
+        From = '    $failedEntries = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal) # discard partial exception records'
+        To = '    $failedEntries = $empty # discard partial exception records'
+        Expected = '[POLICY-OVERRIDE-CONTINUE]'
+      },
+      @{
+        Name = 'declared-ordinal'
+        From = '          DeclaredLicenses = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)'
+        To = '          DeclaredLicenses = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::OrdinalIgnoreCase)'
+        Expected = '[POLICY-DECLARED-ORDINAL]'
+      },
+      @{
+        Name = 'fallback-state'
+        From = '    if ($pom.State -in @(''Missing'', ''MissingLicense'')) { # policy fallback state gate'
+        To = '    if ($pom.State -in @(''Missing'', ''MissingLicense'', ''Valid'')) { # policy fallback state gate'
+        Expected = '[POLICY-FALLBACK-STATE]'
+      },
+      @{
+        Name = 'fallback-missing-license'
+        From = '    if ($pom.State -in @(''Missing'', ''MissingLicense'')) { # policy fallback state gate'
+        To = '    if ($pom.State -eq ''Missing'') { # policy fallback state gate'
+        Expected = '[POLICY-OVERRIDE-MISSING-LICENSE]'
+      },
+      @{
+        Name = 'metadata-no-fallback'
+        From = '        $violations.Add($missingMetadataViolation) # policy missing metadata fail-closed record'
+        To = '        $null = $missingMetadataViolation # policy missing metadata fail-closed record'
+        Expected = '[POLICY-METADATA-NO-FALLBACK]'
+      },
+      @{
+        Name = 'forbidden-precedence'
+        From = '      } elseif ($classification -eq ''forbidden'') { # policy forbidden precedence'
+        To = '      } elseif ($false) { # policy forbidden precedence'
+        Expected = '[POLICY-FORBIDDEN-FIRST]'
+      },
+      @{
+        Name = 'main-yellow'
+        From = '        $script:warn += Get-GradleAuditText -Value "$($finding.Coordinate) => $($finding.DeclaredLicense)（Gradle 黄牌：需人工确认用途/链接方式）" # structured yellow warning'
+        To = '        $null = $finding # structured yellow warning'
+        Expected = '[POLICY-MAIN-YELLOW]'
+      },
+      @{
+        Name = 'main-gpl-private'
+        From = '        $script:warn += Get-GradleAuditText -Value "$($finding.Coordinate) => $($finding.DeclaredLicense)（Gradle 黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false]；变 public 前用 -Strict 复核）" # structured plain-GPL warning'
+        To = '        $null = $finding # structured plain-GPL warning'
+        Expected = '[POLICY-MAIN-GPL-PRIVATE]'
+      },
+      @{
+        Name = 'main-forbidden'
+        From = '      Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification'
+        To = '      $null = $finding # direct forbidden classification'
+        Expected = '[POLICY-MAIN-GPL-DISTRIBUTED]'
+      },
+      @{
+        Name = 'main-unknown'
+        From = '      Add-GradleMetadataNonCompliance "$($finding.Coordinate) => $($finding.Detail) [GRADLE-UNKNOWN]" # structured unknown classification'
+        To = '      $null = $finding # structured unknown classification'
+        Expected = '[POLICY-MAIN-UNKNOWN]'
+      }
+    )
+
+    foreach ($mutationCase in $policyMutationCases) {
+      $matches = [regex]::Matches($source, [regex]::Escape($mutationCase.From)).Count
+      if ($matches -ne 1) {
+        Write-Error "[POLICY-MUTATION] $($mutationCase.Name) target count=$matches"
+        exit 1
+      }
+      $mutantPath = Join-Path $PSScriptRoot ".license-policy-$PID-$($mutationCase.Name).ps1"
+      try {
+        [System.IO.File]::WriteAllText($mutantPath, $source.Replace($mutationCase.From, $mutationCase.To), [System.Text.UTF8Encoding]::new($false))
+        $mutationOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite policy -ScannerPath $mutantPath -SkipMutations 2>&1 | Out-String)
+        $mutationExit = $LASTEXITCODE
+        if ($mutationExit -eq 0 -or $mutationOutput -notmatch [regex]::Escape($mutationCase.Expected)) {
+          Write-Error "[POLICY-MUTATION] $($mutationCase.Name) did not fail on its semantic inverse (exit=$mutationExit; output=$mutationOutput)"
+          exit 1
+        }
+      } finally {
+        if (Test-Path -LiteralPath $mutantPath) { Remove-Item -LiteralPath $mutantPath -Force }
+      }
+    }
+    Write-Host "license-scanner-check(policy mutations): PASS ($($policyMutationCases.Count))"
+  }
+
+  Write-Host 'license-scanner-check(policy): PASS'
+  exit 0
+}
 
 # Break caught: accepting Gradle constraint-only `(c)` rows would scan a declaration that is not a
 # resolved runtime component. A repeated resolved component `(*)` remains a real graph member.
