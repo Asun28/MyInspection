@@ -259,7 +259,7 @@ function Get-GradleDiscoveryResults {
 # Android app 的 debug/release runtime 与 core 的 runtime/testRuntime（后者包含 TestNG）。所有调用离线，
 # 使“本机缓存里有什么”成为可复验输入，而不在扫描时联网改变解析结果。
 $gradleLicenseConfigurations = @(
-  [PSCustomObject]@{ Project = ':core'; Configuration = 'runtimeClasspath'; Label = ':core:runtimeClasspath' },
+  [PSCustomObject]@{ Project = ':core'; Configuration = 'runtimeClasspath'; Label = ':core:runtimeClasspath' }, # graph target core runtime
   [PSCustomObject]@{ Project = ':core'; Configuration = 'testRuntimeClasspath'; Label = ':core:testRuntimeClasspath' },
   [PSCustomObject]@{ Project = ':app'; Configuration = 'debugRuntimeClasspath'; Label = ':app:debugRuntimeClasspath' },
   [PSCustomObject]@{ Project = ':app'; Configuration = 'releaseRuntimeClasspath'; Label = ':app:releaseRuntimeClasspath' }
@@ -524,6 +524,16 @@ function Get-GradleCoordinatesFromDependencyOutput {
     $body = $Matches.body
     $displayBody = $body
     $displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge
+    if ($body -match '^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[^\s]+\s+->\s+(?<selected>.+)$') {
+      $selectedTarget = $Matches.selected.Trim()
+      if ($selectedTarget -match $internalProjectPattern) { continue } # selected internal project target
+      if ($selectedTarget -match '^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:') {
+        $body = $selectedTarget # selected external module target
+      } elseif ($selectedTarget -match '^project\s+') {
+        $errors.Add("无法判定 Gradle 选中 project 目标：$displayBody [GRADLE-PARSE]")
+        continue
+      }
+    }
     if ($body -match '^project\s+') {
       if ($body -match "^project\s+$projectSelectorPattern(?:\s+\((?:c|\*)\))*\s+->\s+(?<resolved>.+)$") {
         $body = $Matches.resolved.Trim() # project external substitution target
@@ -535,6 +545,7 @@ function Get-GradleCoordinatesFromDependencyOutput {
         continue
       }
     }
+    if ($body -match '\s+\(c\)\s*$') { continue } # exclude Gradle constraint-only edge
     if ($body -notmatch '^(?<group>[A-Za-z0-9_.-]+):(?<artifact>[A-Za-z0-9_.-]+)(?<tail>.*)$') {
       $errors.Add("无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]")
       continue
@@ -542,14 +553,14 @@ function Get-GradleCoordinatesFromDependencyOutput {
     $module = "$($Matches.group):$($Matches.artifact)"
     $tail = $Matches.tail
 
-    if ($body -match '(?:^|\s)(?:FAILED|\(n\))(?:\s|$)') {
+    if ($body -match '(?:^|\s)(?:FAILED|\(n\))(?:\s|$)') { # graph unresolved edge guard
       $errors.Add("$module => Gradle 报告为未解析边：$displayBody [GRADLE-UNRESOLVED]")
       continue
     }
 
     $resolvedVersion = $null
     if ($tail -match '^(?:\s+|:[^\s].*?\s+)->\s+(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
-      $resolvedVersion = $Matches.resolved
+      $resolvedVersion = $Matches.resolved # selected version after replacement
     } elseif ($tail -match '^:(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
       $resolvedVersion = $Matches.resolved
     } else {
@@ -742,62 +753,146 @@ function Get-GradleDiagnosticTail {
   return $tail
 }
 
+function Get-GradleResolvedGraphs {
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [Parameter(Mandatory)][string]$GradleUserHome,
+    [bool]$UseWindows = $IsWindows,
+    [AllowNull()][scriptblock]$Invoker = $null
+  )
+
+  $errors = [System.Collections.Generic.List[object]]::new()
+  $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+  $androidRoot = Join-Path $Root 'android'
+  $wrapper = Get-GradleWrapperPath -AndroidRoot $androidRoot -UseWindows $UseWindows
+  if (-not (Test-Path -LiteralPath $wrapper -PathType Leaf)) {
+    $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $null; ExitCode = $null; Detail = "Gradle 清单存在但找不到 wrapper：$wrapper" })
+    return [PSCustomObject]@{ Resolved = @(); Errors = @($errors) }
+  }
+
+  $distribution = Get-GradleWrapperDistributionState -AndroidRoot $androidRoot -GradleUserHome $GradleUserHome
+  if (-not $distribution.Ready) { # graph wrapper zero-start guard
+    $errors.Add([PSCustomObject]@{ Code = 'GRADLE-WRAPPER-OFFLINE'; Configuration = $null; ExitCode = $null; Detail = $distribution.Detail })
+    return [PSCustomObject]@{ Resolved = @(); Errors = @($errors) }
+  }
+
+  $modulesCacheRoot = $GradleUserHome
+  foreach ($segment in @('caches', 'modules-2')) { $modulesCacheRoot = Join-Path $modulesCacheRoot $segment }
+  $nativeCacheRoot = Join-Path $modulesCacheRoot 'files-2.1'
+  $nativeCacheReady = $false
+  try {
+    if (Test-Path -LiteralPath $nativeCacheRoot -PathType Container) {
+      $cachedArtifact = @(Get-ChildItem -LiteralPath $nativeCacheRoot -File -Recurse -Force -ErrorAction Stop | Where-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($nativeCacheRoot, $_.FullName)
+        @($relativePath -split '[\\/]').Count -ge 5 -and $_.Length -gt 0
+      } | Select-Object -First 1)
+      $metadataReady = $false
+      $metadataRoot = Join-Path $modulesCacheRoot 'metadata-2.107' # Gradle 9.7 native metadata format
+      $moduleMetadata = Get-Item -LiteralPath (Join-Path $metadataRoot 'module-metadata.bin') -Force -ErrorAction SilentlyContinue
+      if ($null -ne $moduleMetadata -and $moduleMetadata.Length -gt 0) {
+        $metadataReady = $true
+      }
+      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness
+    }
+  } catch { $nativeCacheReady = $false }
+  if (-not $nativeCacheReady) { # graph native cache zero-start guard
+    $errors.Add([PSCustomObject]@{ Code = 'GRADLE-CACHE-OFFLINE'; Configuration = $null; ExitCode = $null; Detail = 'Gradle native dependency cache 未预置' }) # native cache zero-start guard
+    return [PSCustomObject]@{ Resolved = @(); Errors = @($errors) }
+  }
+
+  $hadGradleUserHome = Test-Path Env:GRADLE_USER_HOME
+  $savedGradleUserHome = $env:GRADLE_USER_HOME
+  try {
+    $env:GRADLE_USER_HOME = $GradleUserHome # bind preflighted cache to child
+    foreach ($target in $gradleLicenseConfigurations) {
+      $gradleArguments = @('-p', $androidRoot, '--offline', '--no-daemon', "$($target.Project):dependencies", '--configuration', $target.Configuration) # graph offline invocation
+      $command = if ($UseWindows) { $wrapper } else { 'sh' } # platform wrapper selection
+      $commandArguments = if ($UseWindows) { $gradleArguments } else { @($wrapper) + $gradleArguments } # POSIX wrapper via sh
+      try {
+        if ($null -eq $Invoker) {
+          $output = @(& $command @commandArguments 2>&1)
+          $gradleExit = $LASTEXITCODE
+        } else {
+          $invocation = & $Invoker $command ([string[]]$commandArguments)
+          if ($null -eq $invocation -or $null -eq $invocation.PSObject.Properties['ExitCode'] -or $null -eq $invocation.PSObject.Properties['Output']) {
+            throw 'Gradle invoker 必须返回 ExitCode 与 Output。'
+          }
+          $output = @($invocation.Output)
+          $gradleExit = [int]$invocation.ExitCode
+        }
+      } catch {
+        $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $target.Label; ExitCode = $null; Detail = $_.Exception.Message })
+        continue
+      }
+      if ($gradleExit -ne 0) { # graph nonzero subprocess guard
+        $errors.Add([PSCustomObject]@{ Code = 'GRADLE-SUBPROCESS'; Configuration = $target.Label; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance
+        continue
+      }
+
+      $parseResult = Get-GradleCoordinatesFromDependencyOutput -Output $output
+      foreach ($parseError in $parseResult.Errors) {
+        $code = if ($parseError -match '\[(GRADLE-[A-Z-]+)\]\s*$') { $Matches[1] } else { 'GRADLE-PARSE' }
+        $errors.Add([PSCustomObject]@{ Code = $code; Configuration = $target.Label; ExitCode = $null; Detail = $parseError })
+      }
+      $parsed = @($parseResult.Coordinates)
+      if ($parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0) {
+        $errors.Add([PSCustomObject]@{ Code = 'GRADLE-PARSE'; Configuration = $target.Label; ExitCode = $null; Detail = 'Gradle 输出没有可解析的已解析 GAV' })
+        continue
+      }
+      foreach ($coordinate in $parsed) {
+        if (-not $coordinatesByConfiguration.ContainsKey($coordinate)) {
+          $coordinatesByConfiguration.Add($coordinate, [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal))
+        }
+        [void]$coordinatesByConfiguration[$coordinate].Add($target.Label)
+      }
+    }
+  } finally {
+    if ($hadGradleUserHome) { $env:GRADLE_USER_HOME = $savedGradleUserHome }
+    else { Remove-Item Env:GRADLE_USER_HOME -ErrorAction SilentlyContinue }
+  }
+
+  $resolved = @($coordinatesByConfiguration.Keys | Sort-Object | ForEach-Object {
+    [PSCustomObject]@{ Coordinate = $_; Configurations = @($coordinatesByConfiguration[$_] | Sort-Object) }
+  })
+  return [PSCustomObject]@{ Resolved = $resolved; Errors = @($errors) }
+}
+
 function Invoke-GradleLicenseScan {
   param([Parameter(Mandatory)][string]$Root)
 
-  $androidRoot = Join-Path $Root 'android'
-  $wrapper = Get-GradleWrapperPath -AndroidRoot $androidRoot
-  if (-not (Test-Path -LiteralPath $wrapper)) {
-    Add-GradleNonCompliance "Gradle 清单存在但找不到 wrapper：$wrapper [GRADLE-SUBPROCESS]"
-    return
-  }
-
   $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
-  $distribution = Get-GradleWrapperDistributionState -AndroidRoot $androidRoot -GradleUserHome $gradleUserHome
-  if (-not $distribution.Ready) {
-    Add-GradleMetadataNonCompliance "$($distribution.Detail)；为保持许可闸离线，先由 CI/setup 预置 pinned distribution，再重跑扫描 [GRADLE-WRAPPER-OFFLINE]"
-    return
-  }
-
   $exceptions = Get-GradleExceptionMap -Path (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
   if ($null -ne $exceptions.Error) { Add-GradleMetadataNonCompliance $exceptions.Error }
-  $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
-  foreach ($target in $gradleLicenseConfigurations) {
-    try {
-      if ($IsWindows) {
-        $output = @(& $wrapper -p $androidRoot --offline --no-daemon "$($target.Project):dependencies" --configuration $target.Configuration 2>&1)
-      } else {
-        # android/gradlew is intentionally tracked mode 100644; use sh instead of mutating its mode in a license gate.
-        $output = @(& sh $wrapper -p $androidRoot --offline --no-daemon "$($target.Project):dependencies" --configuration $target.Configuration 2>&1)
-      }
-      $gradleExit = $LASTEXITCODE
-    } catch {
-      Add-GradleNonCompliance "$($target.Label) => Gradle 子进程启动失败：$($_.Exception.Message) [GRADLE-SUBPROCESS]"
-      continue
+  $graph = Get-GradleResolvedGraphs -Root $Root -GradleUserHome $gradleUserHome
+  foreach ($graphError in $graph.Errors) {
+    $configurationPrefix = if ([string]::IsNullOrWhiteSpace([string]$graphError.Configuration)) { '' } else { "$($graphError.Configuration) => " }
+    $exitText = if ($null -eq $graphError.ExitCode) { '' } else { "退出 $($graphError.ExitCode)；" }
+    $detail = if (
+      $graphError.Code -ceq 'GRADLE-SUBPROCESS' -and
+      $null -ne $graphError.ExitCode -and
+      $null -ne $graphError.PSObject.Properties['Output']
+    ) {
+      Get-GradleDiagnosticTail -Output @($graphError.Output) -DecodeEscapedNewlines:(-not $IsWindows)
+    } else {
+      [string]$graphError.Detail
     }
-    if ($gradleExit -ne 0) {
-      $diagnosticTail = Get-GradleDiagnosticTail -Output $output -DecodeEscapedNewlines:(-not $IsWindows)
-      Add-GradleNonCompliance "$($target.Label) => Gradle 子进程退出 $gradleExit；输出尾段=$diagnosticTail [GRADLE-SUBPROCESS]"
-      continue
-    }
-    $parseResult = Get-GradleCoordinatesFromDependencyOutput -Output $output
-    foreach ($parseError in $parseResult.Errors) {
-      Add-GradleNonCompliance "$($target.Label) => $parseError"
-    }
-    $parsed = @($parseResult.Coordinates)
-    if ($parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0) {
-      Add-GradleNonCompliance "$($target.Label) => Gradle 输出没有可解析的已解析 GAV [GRADLE-PARSE]"
-      continue
-    }
-    foreach ($coordinate in $parsed) {
-      if (-not $coordinatesByConfiguration.ContainsKey($coordinate)) {
-        $coordinatesByConfiguration.Add($coordinate, [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal))
-      }
-      [void]$coordinatesByConfiguration[$coordinate].Add($target.Label)
+    $message = "$configurationPrefix$exitText$detail [$($graphError.Code)]"
+    if ($graphError.Code -in @('GRADLE-WRAPPER-OFFLINE', 'GRADLE-CACHE-OFFLINE')) {
+      Add-GradleMetadataNonCompliance $message
+    } else {
+      Add-GradleNonCompliance $message
     }
   }
 
-  if ($coordinatesByConfiguration.Count -eq 0) { return }
+  $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+  foreach ($resolved in $graph.Resolved) {
+    $configurations = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($configuration in $resolved.Configurations) { [void]$configurations.Add($configuration) }
+    $coordinatesByConfiguration.Add($resolved.Coordinate, $configurations)
+  }
+  if ($coordinatesByConfiguration.Count -eq 0) {
+    return
+  }
   Write-Host "  已从四张 Gradle 已解析图取得 $($coordinatesByConfiguration.Count) 个唯一 GAV（离线、去重、按坐标排序）："
   foreach ($coordinate in @($coordinatesByConfiguration.Keys | Sort-Object)) {
     $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $gradleUserHome

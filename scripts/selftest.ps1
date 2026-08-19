@@ -9574,6 +9574,10 @@ try {
     Remove-Item -LiteralPath $fixtureExtraDistributionRoot -Recurse -Force
     Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
 
+    $fixtureNativeMetadata = Join-Path $scannerFixtureGradleHome 'caches/modules-2/metadata-2.107'
+    New-Item -ItemType Directory -Force $fixtureNativeMetadata | Out-Null
+    Set-Content -LiteralPath (Join-Path $fixtureNativeMetadata 'module-metadata.bin') -Encoding utf8 -Value 'fixture'
+
     Set-ScannerFixtureReport $scannerInternalProjectReport
     $scannerInternalProjects = Invoke-ScannerFixture $scannerFixtureScript -Strict
     if ($scannerInternalProjects.Exit -ne 0 -or $scannerInternalProjects.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache') {
@@ -9657,19 +9661,17 @@ try {
     }
 
     $versionlessCoordinate = 'fixture.versionless:edge:1.0'
-    $richCoordinate = 'fixture.rich:edge:1.0'
     Set-ScannerFixturePom $versionlessCoordinate 'Apache License, Version 2.0'
-    Set-ScannerFixturePom $richCoordinate 'Apache License, Version 2.0'
     Set-ScannerFixtureReport @(
       '+--- org.testng:testng:7.0.0',
       '+--- fixture.versionless:edge -> 1.0',
       '+--- fixture.rich:edge:{strictly 1.0} -> 1.0 (c)'
     )
     $scannerMixedResolved = Invoke-ScannerFixture $scannerFixtureScript -Strict
-    if ($scannerMixedResolved.Exit -ne 0 -or $scannerMixedResolved.Text -notmatch 'fixture\.versionless:edge:1\.0' -or $scannerMixedResolved.Text -notmatch 'fixture\.rich:edge:1\.0') {
-      Fail "种子缺陷 17cc(scanner/mixed-resolved)：versionless 与 rich selector 边必须与同图普通边一起按 resolved GAV 扫描；实得 exit=$($scannerMixedResolved.Exit)；输出=$($scannerMixedResolved.Text)。"
+    if ($scannerMixedResolved.Exit -ne 0 -or $scannerMixedResolved.Text -notmatch 'fixture\.versionless:edge:1\.0' -or $scannerMixedResolved.Text -match 'fixture\.rich:edge:1\.0') {
+      Fail "种子缺陷 17cc(scanner/mixed-resolved)：versionless 实际依赖必须扫描，带 (c) 的 rich constraint 必须排除；实得 exit=$($scannerMixedResolved.Exit)；输出=$($scannerMixedResolved.Text)。"
     } else {
-      Write-Host '  17cc(scanner/mixed-resolved) versionless + rich selector + 普通边逐一解析 OK' -ForegroundColor Green
+      Write-Host '  17cc(scanner/mixed-resolved) versionless 实际依赖解析、rich (c) constraint 排除 OK' -ForegroundColor Green
     }
 
     $notResolvedCoordinate = 'fixture.unresolved:not-resolved:1.0'
