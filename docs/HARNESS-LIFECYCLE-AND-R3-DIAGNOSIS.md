@@ -454,17 +454,26 @@ R3 指出：测试只做 whole-file Contains，漏掉两个具体回退点，不
 ### Do now
 
 1. **停止 blind retry R3。** 把 9 次质量 block 合并成一张 current-head closure checklist，逐项标出：已修代码、测试、mutation、当前 SHA 证据。
-2. **把 TD2 重新 decomposition。** 推荐的依赖序列如下；名称是建议，尚未创建：
+2. **把 TD2 重新 decomposition。** 已落成下面四张卡；执行宽度固定为 1：
 
    | 子卡 | 单一产出 | 明确不做 |
    |---|---|---|
-   | `T0-LICENSE-GRADLE-GRAPH` | 枚举 policy-relevant configuration、解析 concrete GAV、offline/native cache 边界 | POM policy、异常表、日志美化 |
-   | `T0-LICENSE-POM-POLICY` | POM license 读取、禁列分类、exact-GAV exception schema | CI 接线、通用日志 redaction |
+   | `T0-LICENSE-SCANNER` | 枚举四张批准的 classpath 图、解析 concrete GAV、offline/native cache 边界 | POM policy、异常表、日志美化 |
+   | `T0-LICENSE-POLICY` | POM license 读取、禁列分类、exact-GAV exception schema | CI 接线、通用日志 redaction |
    | `T0-LICENSE-DIAGNOSTICS` | bounded/redacted/injection-safe 诊断输出 | 依赖图和许可判定语义 |
    | `T0-LICENSE-CI-INTEGRATION` | CI warm-up→offline scan 接线、policy/release 文档与 TD2 总验收 | 重写 scanner 核心 |
 
-   因为这些卡会依次触及 `check-licenses.ps1`/`selftest.ps1`，应串行 merge，不是假并行。
-3. **决定现有 PR 的保存策略。** watershed 后不能 rebase/amend；用前向 commit 把非首卡范围的改动剥离，或把当前 PR 明确降为第一张子卡，其余改动进入后续 PR。不要继续把四张卡的修复全堆回 #20。
+   ```mermaid
+   flowchart LR
+       A[T0-LICENSE-SCANNER<br/>graph] -->|verified GAV contract| B[T0-LICENSE-POLICY<br/>POM + classification]
+       B -->|verified finding contract| C[T0-LICENSE-DIAGNOSTICS<br/>bounded + redacted]
+       C -->|verified CLI/exit contract| D[T0-LICENSE-CI-INTEGRATION<br/>CI + docs + TD2 acceptance]
+   ```
+
+   不是并行的两层原因：业务上，下游分别消费上游冻结的 GAV、finding、CLI/exit 合同；资源上，前三卡共同写
+   `scripts/check-licenses.ps1` 和专用 scanner 测试文件。当前 ready set 只有 `T0-LICENSE-SCANNER`，其余三卡均 blocked。
+3. **现有 PR 的保存策略已定为 forward-only。** watershed 后不 rebase/amend/force-push；先为当前完整 head 建恢复引用，
+   再用前向 commit 把 #20 的净 diff 缩成第一张子卡。被剥离的已完成实现从该引用按后继卡逐张移植，不继续把四张卡的修复堆回 #20。
 4. **只对缩到右尺寸的 exact head 再跑一次 R3。** 若 reviewer 仍需读取被截断的大半 diff，说明拆分还不够。
 
 watershed 后不要 rebase/amend/改写历史。需要缩 scope 时用前向 revert/剥离 commit。

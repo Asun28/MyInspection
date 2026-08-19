@@ -1,63 +1,58 @@
 ---
 id: T0-LICENSE-SCANNER
-title: Gradle 依赖许可自动扫描（偿还 TD2 · 把「覆盖缺口告警」变成「逐坐标机检」）
+title: Gradle 已解析坐标图与离线执行基础（TD2 子卡 1/4）
 depends_on: [T0-GATE-HARDENING]
-status: todo
+status: in-progress
 branch: T0-LICENSE-SCANNER
 worktree: C:\wt\T0-LICENSE-SCANNER
 allow_paths:
   - scripts/check-licenses.ps1
-  - scripts/selftest.ps1
-  - docs/LICENSE-POLICY.md
-  - configs/licenses/
-  - .github/workflows/ci.yml
+  - scripts/license-scanner-check.ps1
 forbid:
-  - android/（非本卡领地）
-  - 为过闸弱化任何既有断言
-  - 把「未知许可」默认放行（必须 fail-closed：查不到即视为不合规，人工登记豁免才放行）
+  - android/（本卡只读取 Gradle 结果，不改产品或构建定义）
+  - 联网补下载 wrapper、依赖、POM 或许可元数据
+  - 为保留 PR #20 现状而继续夹带后续三卡的策略、诊断、CI 或文档改动
 non_goals:
-  - 换掉现有的「其它生态清单探针」结构（本卡只把 Gradle 这一支从告警升级为真扫描）
-  - 前端 / PyPI 生态的扫描器（各自生态另说）
-dod_command: pwsh -NoProfile -Command "if (-not ((pwsh -NoProfile -File scripts/check-licenses.ps1 | Select-String -SimpleMatch 'org.testng:testng') -and (pwsh -NoProfile -File scripts/check-licenses.ps1) )) { exit 1 }"
+  - POM license 读取、许可分类和人工豁免表（T0-LICENSE-POLICY）
+  - 日志脱敏、长度上限和注入安全（T0-LICENSE-DIAGNOSTICS）
+  - CI 接线、政策文档和 TD2 总验收（T0-LICENSE-CI-INTEGRATION）
+dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite graph
 dod_exit: 0
-dod_assert: check-licenses 实跑输出中**逐坐标**列出已解析的 Gradle 依赖及其许可（至少含 org.testng:testng 一行，证明传递坐标真被解析而不只是直接依赖）；植入一枚禁列许可（如 EPL/GPL）的假坐标夹具后 `-Strict` **必非零退出且指名该坐标**；查不到许可的坐标计为不合规而非放行。三条各配单句删除变异，变异须「非零 **且** 命中指定断言文本」（L165 分类器）。CI 的 license gate 必须位于 JDK/Android/Gradle setup 与在线 cache warm-up 之后，再执行离线扫描；fresh runner 不得因闸顺序而必红。除这项排序外不改 CI 行为。
+dod_assert: 四张批准的 Gradle classpath 图在 offline 模式下各执行一次；只产出已解析的 concrete group:artifact:version，排除项目节点、约束行、重复项和被替换旧版本。Windows 选 gradlew.bat，Unix 由 sh 执行 gradlew；wrapper distribution 或 native cache 未预置时零启动并 fail-closed。逐项配删除/替换变异，必须命中 graph 专属断言。
 review_gate: codex {verdict:pass}
-hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
-doc_sync: docs/LICENSE-POLICY.md §3 改为「机检覆盖」并删除人工表的临时说明；specs/tech-debt-tracker.md 把 TD2 置 paid（R5）
+hygiene: graph 套件独立于全量 selftest 可在 R3 沙箱快速复跑；只保留能击杀坐标解析、配置范围、offline preflight 或平台 wrapper 变异的测试
+doc_sync: 本卡只把自身状态/PR 证据同步到任务卡；TD2 保持 carded，不得提前 paid
 ---
 
 # T0-LICENSE-SCANNER
 
-## 为什么有这张卡（TD2 的偿还卡）
-`T0-GATE-HARDENING` 让许可闸**看见**了 Gradle 清单（递归发现 + 覆盖缺口 + `-Strict` fail-closed），
-但它只到「知道自己没扫」为止：约 **220 个传递坐标**至今未逐一核验，靠的是一次性人工表 + 显式披露。
-编排者当时的裁决（见 `T0-GATE-HARDENING` 的仲裁段）是：手工审 220 个坐标在下次依赖变动即过期，
-**正确解法是自动扫描器**，而许可义务的触发点是**分发**，故允许把它推迟到发布前——但必须**有卡承接**。
-这就是那张卡。**在还清它之前，`docs/RELEASE-CHECKLIST.md` 的「Gradle 传递依赖许可全量核验通过」是发布阻断项。**
+## 目标
 
-## 产出
-1. 从 Gradle 真实解析结果取坐标；解析范围固定为 `:core` 的 `runtimeClasspath` / `testRuntimeClasspath` 与
-   `:app` 的 `debugRuntimeClasspath` / `releaseRuntimeClasspath`，解析成 `group:artifact:version` 列表——**不是**读
-   `libs.versions.toml` 的字面量（那只有直接依赖，正是 TD2 的盲区）。这四张图是本卡批准的交付/测试运行时闭包，
-   **并非所有可解析 configuration**；编译器/插件、lint、IDE/dialect/migration、UTP、instrumentation、test-fixture
-   等构建期或未随 app 分发的图依 `docs/LICENSE-POLICY.md` §3.1 人工证据管理，不得为过 R3 任意扩大扫描范围。
-2. 逐坐标判定许可：优先 POM 的 `<licenses>` 块；取不到再回落到已登记的**人工豁免表** `configs/licenses/`
-   （每条须写明坐标、许可、证据 URL、登记人/日期）。**查不到 ≠ 通过**——未知即不合规。
-3. 判定口径沿用 `docs/LICENSE-POLICY.md`：宽松（MIT/BSD/Apache 等）放行；GPL/AGPL/SSPL/EPL/non-commercial 致命。
-4. 输出可读报告 + 非零退出语义与现有闸一致（正常运行告警、`-Strict` 失败）。
-5. CI 先完成 JDK/Android/Gradle setup 与在线 build 缓存预热，再跑本扫描器的离线依赖解析；扫描器本身仍不得联网。
+把 TD2 的第一段收敛成一个可独立评审的产物：从 Gradle **真实解析结果**取得稳定的 concrete GAV 列表，且整个执行边界可离线、跨平台、fail-closed。
 
-## 上下文包
-- 现成起点：`findings.md` 里已有编排者复核过的直接依赖许可表（DeepSeek 出表 + testng POM 经编排者独立复核），
-  可作为**回归夹具的期望值**——但不要把它当运行时数据源，它会过期。
-- `org.testng:testng` 的 POM 把 `junit:junit`(EPL) 标为 `<optional>true</optional>`，实测不进 classpath。
-  这正是「读清单字面量」与「读真实解析结果」的差别，适合做一枚断言。
-- 离线：CI/verify 恒 `--offline`，故扫描器需能在**已填充的依赖缓存**上工作，或把取 POM 这一步限定在显式联网的维护命令里，
-  **不得**让 verify 闸依赖出站网络（硬边界）。
+批准的图只有：
+
+1. `:core:runtimeClasspath`
+2. `:core:testRuntimeClasspath`
+3. `:app:debugRuntimeClasspath`
+4. `:app:releaseRuntimeClasspath`
+
+编译器/插件、lint、IDE、migration、UTP、instrumentation 和 test-fixture 等非分发图不在本卡扩张范围内。
+
+## 输入与输出
+
+- 输入：现有 `T0-GATE-HARDENING` 的 Gradle 清单发现能力、仓库内 wrapper、已预热的本机 Gradle cache。
+- 输出：四张图的去重 concrete GAV 集合；稳定的 wrapper 选择与 offline preflight；可单独运行的 `graph` 测试套件。
+- 下游接口：`T0-LICENSE-POLICY` 只消费 GAV 集合，不重新解析 Gradle 文本。
+
+## PR #20 收缩规则
+
+PR #20 是本卡的现有执行分支，但当前净 diff 混入了四卡内容。后续不得改写历史；先保留当前完整 head 的只读恢复引用，再用 forward-only commit 让 PR #20 的**最终净 diff**只保留本卡输出。被剥离的已完成代码按后继卡逐卡移植，不能继续在 #20 上接受跨卡 R3 修复。
 
 ## 验收
-见 dod_command / dod_assert。
 
-## 执行建议
-Sonnet 5 · max（PowerShell + 依赖图解析，模式成熟）；备选 DeepSeek V4 Pro。难度 M。
-先读 `T0-GATE-HARDENING` 的仲裁段与 `specs/tech-debt-tracker.md` 的 TD2 整行，别重走已被裁掉的路。
+运行 front matter 的 `dod_command`。评审还要确认 PR 净 diff 不含 POM/exception policy、通用诊断 hardening、CI 或文档同步。
+
+## 根因诊断
+
+旧卡同时拥有 Gradle 图、POM 策略、诊断安全、CI 和文档，导致 PR #20 净变更 2,422 行、R3 首屏只能覆盖约三分之一。这里按消费者边界切出第一段，不把“已经写完”当作继续合卡的理由。
