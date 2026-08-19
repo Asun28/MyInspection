@@ -24,6 +24,12 @@
 | W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | — |
 | W0 | T0-SCAFFOLD-LEAN-CI | 普通产品 PR 不启动 scaffold-only 六分片；脚手架权威面变化仍全跑 | T0-HARNESS-PERF | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `f976d0f`，PR #22；R3 零发现；基线产品 PR #5–#11 = 60 runs / 360 shard jobs；本次 `.github/**` PR 实测 1 run / 6 jobs 全保留；无新增脚本/job/依赖） |
 | W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | 先还 harness 缺口；PR #20 2,422 行为真实红例 |
+| W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix |
+| W0 | T0-HARNESS-SUBTRACTION-PROTOCOL | 量化、可迁移、按组可回滚的 harness 减负协议（TD134 2/6） | — | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 与 DIFF-BUDGET、LESSONS-COLD-RECALL 真并行；纯文档 |
+| W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | 与实现主链无业务依赖，但共享 selftest，合并须串行 |
+| W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
+| W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
+| W0 | T0-ASCII-REVIEW-ARCHIVE-CODES | review/archive/init 剩余状态码迁移与 TD134 总验收入口（TD134 6/6） | T0-ASCII-CARD-SECRET-CODES | M | GPT-5.6 Terra · high | Sonnet 5 max | 全六卡 merged + 总验收才可 paid |
 | W0 | T0-GATE-FIXFORWARD | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径 | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | —（**三张 T0 卡共用 selftest.ps1，须串行**：HARNESS-PERF → 本卡 → LICENSE-SCANNER） |
 | W0 | T0-LICENSE-SCANNER | 产出四张批准 classpath 图的 concrete GAV + offline wrapper 基础（TD2 1/4；PR #20 缩 scope） | T0-GATE-HARDENING | M | DeepSeek V4 Pro · high | Sonnet 5 max | 与后三卡共享 scanner/test，执行宽度=1 |
 | W0 | T0-LICENSE-POLICY | POM 安全读取、许可分类与 exact-GAV exception（TD2 2/4） | T0-LICENSE-SCANNER | M | DeepSeek V4 Pro · high | Sonnet 5 max | 前卡 merge 后才 ready |
@@ -71,6 +77,27 @@
 
 ★ = 冻结点卡：合并后其产出登记 `scripts/_config.ps1` FrozenPaths，改动走版本评审。
 并行窗口速查：同波仍须服从 `depends_on` 与 allow_paths；媒体路径关键支线 = STREAMING→QUALITY，DEDUPE→ARCHIVE-CONTRACT→BACKUP-IO→LOCAL-MEDIA-RETENTION；主闭环关键路径仍约为 T0→SCHEMA→CANON→COMPOSER→PDF→E2E。
+
+## Scaffold 0.38 selective backport
+
+本图只表示真实产物依赖；虚线表示共享 `scripts/selftest.ps1` 的写资源冲突。资源冲突要求串行合并或在后合卡重放验收，**不**把独立目标伪造成 `depends_on`。
+
+```mermaid
+flowchart LR
+  A[T0-R3-DIFF-BUDGET] --> B[T0-CI-MERGE-GATE]
+  B --> E[T0-ASCII-SHIP-CODES]
+  E --> F[T0-ASCII-CARD-SECRET-CODES]
+  F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]
+  C[T0-HARNESS-SUBTRACTION-PROTOCOL]
+  D[T0-LESSONS-COLD-RECALL]
+  D -.->|selftest write conflict| A
+  D -.->|selftest write conflict| B
+  D -.->|selftest write conflict| E
+```
+
+- 当前 ready：`T0-HARNESS-SUBTRACTION-PROTOCOL`、`T0-LESSONS-COLD-RECALL`；`T0-R3-DIFF-BUDGET` 已有独立 worktree/RED 测试，先续接它。
+- 推荐执行宽度 2：文档协议可与任一实现卡并行；所有写 `scripts/selftest.ps1` 的卡合并宽度 1。
+- 上游只提交通用建议，不要求其修本仓：[#163 TD→1–N cards](https://github.com/Asun28/claude-devops-scaffold/issues/163) · [#164 actual diff budget](https://github.com/Asun28/claude-devops-scaffold/issues/164) · [#165 read-only scaffold diff](https://github.com/Asun28/claude-devops-scaffold/issues/165)。
 
 > **调研已回流**（docs/research/synthesis.md + 3 篇深挖）：官方 NZ 巡检表成为 Routine 模板骨架；二值主评级 UI（存储枚举不变）、照片隐私标记、物业级条目抑制、封面卷积/出处页脚等已并入相应卡上下文包；ghost overlay 确认为全品类空白（唯一差异化确认）。
 
