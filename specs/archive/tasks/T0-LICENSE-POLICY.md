@@ -2,7 +2,7 @@
 id: T0-LICENSE-POLICY
 title: Gradle POM 许可策略合同与 exact-GAV 专用套件（TD2 收口卡 2/4）
 depends_on: [T0-LICENSE-SCANNER]
-status: todo
+status: merged
 branch: T0-LICENSE-POLICY
 worktree: C:\wt\T0-LICENSE-POLICY
 allow_paths:
@@ -47,3 +47,7 @@ PR #20 已在 master `b0a76d0` 合入策略初版。本卡不伪造其原始 RED
 ## 根因诊断
 
 旧 PR 在坐标提取尚不稳定时同时修 POM、GPL/EPL 分类和 exception schema，后续每次 R3 都跨层返工。本卡把“得到坐标”和“判定坐标”分开，使策略 review 能只看许可正确性。
+
+## 合并记录
+
+PR #26 以 master `04f80fd` squash 合并；最终实现提交为 `6d0b995`。policy 专用套件覆盖 30 个语义变异，graph 回归套件 23 个语义变异、真实 strict 离线扫描 150 个唯一 GAV、verify 与 PR CI 均通过。R3 两轮分别发现并修复策略权威重复、无 fallback 负例、XML singleton 与 parent 完整性等真实缺陷；达到 `ReviewRoundCap=2` 后按仓库规则转人裁，用户明确批准合并。TD2 四卡收口完成第 2 张，保持 `carded`；下一张为 `T0-LICENSE-DIAGNOSTICS`。
