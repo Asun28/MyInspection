@@ -87,7 +87,8 @@
   `license` 必须是 §2 的完整宽松 canonical 名称。该路径只处理 `unknown`，不会覆盖 GPL/AGPL/SSPL/EUPL/EPL/
   非商用等禁列，也不会把同一 POM 的其它禁列名称掩盖掉。例如 camera-core 1.5.3 的 `BSD License` 仅映射到
   BSD-3-Clause：人裁确认该精确制品采用 Apache-2.0 + BSD-3-Clause 的拆分许可，并以不可变 AOSP libyuv
-  `9ac065f6219f6a1c7d000be0673133947e8e5fe7` 的 `LICENSE` 为证据；这不扩展为宽泛名称的全局映射。
+  `9ac065f6219f6a1c7d000be0673133947e8e5fe7` 的 `LICENSE` 为证据；这不扩展为宽泛名称的全局映射。风险分类会先统一
+  分隔符、`License`/`Licence` 与常见全称别名；`declared_license` 键本身仍须与原始 POM 文本逐字匹配，不做宽松归一化。
 - **共同校验**：每条记录都必须有 `coordinate`、`license`、`evidence_url`、`registered_by`、`registered_on`
   （`yyyy-MM-dd`）；名称映射另须 `declared_license`。URL 必须是绝对 http(s) 地址。通配、重复、缺字段、
   非宽松 canonical、日期/URL/JSON 格式错误全部 fail-closed。POM 解析失败、GAV 不匹配或同 GAV 缓存副本冲突

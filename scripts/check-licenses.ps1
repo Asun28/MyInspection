@@ -83,10 +83,16 @@ function Test-GradleNormalizedLicense([Parameter(Mandatory)][string]$NormalizedL
 
 function Get-GradleLicenseClassification([Parameter(Mandatory)][string]$License) {
   $normalized = [regex]::Replace($License.Trim().ToUpperInvariant(), '\s+', ' ')
-  if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePlainGplPatterns) { return 'plain-gpl' }
+  $riskNormalized = $normalized.Replace('LICENCE', 'LICENSE')
+  $riskNormalized = [regex]::Replace($riskNormalized, '[-_/]+', ' ')
+  $riskNormalized = [regex]::Replace($riskNormalized, '\s+', ' ').Trim()
+  $plainGplRisk = '^(?:GPL|(?:GNU )?GENERAL PUBLIC LICENSE)(?: VERSION| V)? ?(?:2(?:\.0)?|3(?:\.0)?)$'
+  if ((Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePlainGplPatterns) -or $riskNormalized -cmatch $plainGplRisk) { return 'plain-gpl' }
   # 禁列刻意保持广匹配：不明文本只要出现 GPL/EPL/非商用等风险信号，就宁可拒绝而不降级。
-  if ($License -match $gradleForbidden) { return 'forbidden' }
-  if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradleYellowLicensePatterns) { return 'yellow' }
+  $forbiddenRisk = '(?:^| )(?:AGPL|SSPL|EUPL|EPL)(?: |$)|CC BY NC|NON COMMERCIAL|RESEARCH(?: USE)? ONLY|AFFERO|SERVER SIDE PUBLIC LICENSE|EUROPEAN UNION PUBLIC LICENSE|ECLIPSE PUBLIC LICENSE|(?<!LESSER )GENERAL PUBLIC LICENSE'
+  if ($License -match $gradleForbidden -or $riskNormalized -cmatch $forbiddenRisk) { return 'forbidden' }
+  $yellowRisk = '^(?:LGPL|(?:GNU )?LESSER GENERAL PUBLIC LICENSE)(?: VERSION| V)? ?(?:2(?:\.0|\.1)?|3(?:\.0)?)(?: ONLY| OR LATER)?$'
+  if ((Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradleYellowLicensePatterns) -or $riskNormalized -cmatch $yellowRisk) { return 'yellow' }
   if (Test-GradleNormalizedLicense -NormalizedLicense $normalized -Patterns $gradlePermissiveLicensePatterns) { return 'permissive' }
   return 'unknown'
 }
@@ -634,8 +640,8 @@ function Get-GradleDiagnosticTail {
   })
   $sanitized = @($expandedLines | ForEach-Object {
     $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '')
-    $line = [regex]::Replace($line, '(?i)\bAuthorization\s*[:=]\s*(?:Bearer\s+)?\S+', 'Authorization: [REDACTED]')
-    $line = [regex]::Replace($line, '(?i)\b(token|password|secret|api[-_]?key)\s*[:=]\s*\S+', '$1=[REDACTED]')
+    $line = [regex]::Replace($line, '(?i)\bAuthorization\s*[:=]\s*.*$', 'Authorization: [REDACTED]')
+    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9_.-])(?<key>[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)\s*[:=]\s*.*$', '${key}=[REDACTED]')
     $line = [regex]::Replace($line, '(?i)(https?://)[^/\s:@]+:[^@\s/]+@', '$1[REDACTED]@')
     if (-not [string]::IsNullOrWhiteSpace($line)) { $line.Trim() }
   } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })

@@ -5440,7 +5440,39 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         $pFail = $true
       }
     }
+    foreach ($gradleRiskCase in @(
+      @{ License = 'CC BY-NC 4.0';                       Want = 'forbidden' },
+      @{ License = 'Non Commercial License';            Want = 'forbidden' },
+      @{ License = 'Research Use Only';                  Want = 'forbidden' },
+      @{ License = 'Server Side Public License v1';      Want = 'forbidden' },
+      @{ License = 'European Union Public Licence 1.2';  Want = 'forbidden' },
+      @{ License = 'Eclipse Public Licence 2.0';         Want = 'forbidden' },
+      @{ License = 'GNU General Public Licence v3';      Want = 'plain-gpl' },
+      @{ License = 'LGPL-2.1-only';                      Want = 'yellow' },
+      @{ License = 'LGPL-2.1-or-later';                  Want = 'yellow' }
+    )) {
+      $gradleRiskVerdict = Get-GradleLicenseClassification -License $gradleRiskCase.License
+      if ($gradleRiskVerdict -ne $gradleRiskCase.Want) {
+        Fail "种子缺陷 17p：Gradle 风险许可别名 '$($gradleRiskCase.License)' 必须先判为 $($gradleRiskCase.Want)，不得以 unknown 进入 declared_license 映射；实得=$gradleRiskVerdict。"
+        $pFail = $true
+      }
+    }
     try {
+      foreach ($redactionCase in @(
+        @{ Input = 'gradle: GITHUB_TOKEN=github token value';                         Want = 'gradle: GITHUB_TOKEN=[REDACTED]' },
+        @{ Input = 'gradle: ORG_GRADLE_PROJECT_repoPassword=repository password';     Want = 'gradle: ORG_GRADLE_PROJECT_repoPassword=[REDACTED]' },
+        @{ Input = 'gradle: MY_API_KEY: api key value';                               Want = 'gradle: MY_API_KEY=[REDACTED]' },
+        @{ Input = 'gradle: CLIENT_SECRET=client secret value';                       Want = 'gradle: CLIENT_SECRET=[REDACTED]' },
+        @{ Input = 'gradle: aws_secret_access_key = aws secret value';                Want = 'gradle: aws_secret_access_key=[REDACTED]' },
+        @{ Input = 'gradle: Authorization: Basic basic credential value';             Want = 'gradle: Authorization: [REDACTED]' },
+        @{ Input = 'gradle: Authorization=ApiKey api key credential value';           Want = 'gradle: Authorization: [REDACTED]' }
+      )) {
+        $redactedDiagnostic = Get-GradleDiagnosticTail -Output @($redactionCase.Input)
+        if ($redactedDiagnostic -cne $redactionCase.Want) {
+          Fail "种子缺陷 17p：Gradle 诊断必须完整脱敏授权头及前缀/snake/camel 凭据键的多词值；input=$($redactionCase.Input) expected=$($redactionCase.Want) actual=$redactedDiagnostic。"
+          $pFail = $true
+        }
+      }
       $escapedDiagnosticTail = Get-GradleDiagnosticTail -Output @('prefix\nAuthorization: Bearer REDACT_ME\nsimulated Gradle failure detail\n') -DecodeEscapedNewlines
       $windowsPathDiagnostic = 'failure at D:\a\repo\repo\new\module and C:\release\notes'
       $windowsPathTail = Get-GradleDiagnosticTail -Output @($windowsPathDiagnostic)
@@ -9165,11 +9197,13 @@ function Set-ScannerFixtureConfigurationReport {
 }
 function Set-ScannerFixtureFailure([int]$ExitCode) {
   $longPrefix = 'x' * 2200
+  $credentialFixture = 'GITHUB_' + 'TOKEN=LEAK_ME multi word credential'
   Set-Content -LiteralPath $scannerFixtureWindowsWrapper -Encoding ascii -Value @(
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
     "echo prefix-$longPrefix 1>&2",
     'echo Authorization: Bearer REDACT_ME 1>&2',
+    "echo $credentialFixture 1>&2",
     'echo simulated Gradle failure detail 1>&2',
     "exit /b $ExitCode"
   )
@@ -9178,6 +9212,7 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
     "printf '%s\n' 'prefix-$longPrefix' >&2",
     "printf '%s\n' 'Authorization: Bearer REDACT_ME' >&2",
+    "printf '%s\n' '$credentialFixture' >&2",
     "printf '%s\n' 'simulated Gradle failure detail' >&2",
     "exit $ExitCode"
   )
@@ -9489,6 +9524,49 @@ try {
       Write-Host '  17cc(scanner/declared-name-override) 有效 POM 未知名称的精确 GAV+名称映射仅映射到允许 canonical 许可 OK' -ForegroundColor Green
     }
 
+    $riskyDeclaredCases = @(
+      @{ Id = 'cc-by-nc'; License = 'CC BY-NC 4.0' },
+      @{ Id = 'non-commercial'; License = 'Non Commercial License' },
+      @{ Id = 'research-only'; License = 'Research Use Only' },
+      @{ Id = 'sspl-full'; License = 'Server Side Public License v1' },
+      @{ Id = 'eupl-licence'; License = 'European Union Public Licence 1.2' },
+      @{ Id = 'epl-licence'; License = 'Eclipse Public Licence 2.0' },
+      @{ Id = 'gpl-licence'; License = 'GNU General Public Licence v3' },
+      @{ Id = 'lgpl-only'; License = 'LGPL-2.1-only' },
+      @{ Id = 'lgpl-or-later'; License = 'LGPL-2.1-or-later' }
+    )
+    $riskyDeclaredOverrides = @()
+    $riskyDeclaredReport = @()
+    foreach ($riskyDeclaredCase in $riskyDeclaredCases) {
+      $riskyCoordinate = "fixture.override:risky-$($riskyDeclaredCase.Id):1.0"
+      Set-ScannerFixturePom $riskyCoordinate $riskyDeclaredCase.License
+      $riskyDeclaredReport += "+--- $riskyCoordinate"
+      $riskyDeclaredOverrides += [ordered]@{
+        coordinate = $riskyCoordinate
+        declared_license = $riskyDeclaredCase.License
+        license = 'Apache-2.0'
+        evidence_url = "https://example.invalid/$($riskyDeclaredCase.Id)"
+        registered_by = 'selftest'
+        registered_on = '2026-08-19'
+      }
+    }
+    Set-ScannerFixtureOverrides ($riskyDeclaredOverrides | ConvertTo-Json -Depth 3)
+    Set-ScannerFixtureReport $riskyDeclaredReport
+    $scannerRiskyDeclared = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerRiskyDeclared.Exit -eq 0 -or $scannerRiskyDeclared.Text -match 'exact declared-license mapping') {
+      Fail "种子缺陷 17cc(scanner/declared-name-risk-aliases)：禁列/黄牌许可的常见别名必须在 declared_license 映射前分类，任何精确映射都不得把它们改写为 Apache-2.0；实得 exit=$($scannerRiskyDeclared.Exit)；输出=$($scannerRiskyDeclared.Text)。"
+    } else {
+      $missingRiskClassifications = @($riskyDeclaredCases | Where-Object {
+        $coordinatePattern = [regex]::Escape("fixture.override:risky-$($_.Id):1.0")
+        $scannerRiskyDeclared.Text -notmatch $coordinatePattern -or $scannerRiskyDeclared.Text -match "$coordinatePattern.*GRADLE-UNKNOWN"
+      })
+      if ($missingRiskClassifications.Count -gt 0) {
+        Fail "种子缺陷 17cc(scanner/declared-name-risk-aliases)：风险别名不得落入 GRADLE-UNKNOWN/映射路径；未正确分类=$($missingRiskClassifications.Id -join ', ')；输出=$($scannerRiskyDeclared.Text)。"
+      } else {
+        Write-Host '  17cc(scanner/declared-name-risk-aliases) 禁列/黄牌常见别名均先于 declared_license 映射分类 OK' -ForegroundColor Green
+      }
+    }
+
     $declaredNameMismatchCoordinate = 'fixture.override:declared-mismatch:1.0'
     Set-ScannerFixturePom $declaredNameMismatchCoordinate 'BSD License'
     Set-ScannerFixtureOverrides @"
@@ -9674,6 +9752,25 @@ try {
           $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.epl:copyleft:1\.0' -and $result.Text -match '\[GRADLE-FORBIDDEN\]'
           $code = 'ABSENT-EPL-BLOCK'
         }
+        'risk-alias' {
+          $riskAliasCoordinate = 'fixture.override:risk-alias:1.0'
+          Set-ScannerFixturePom $riskAliasCoordinate 'Eclipse Public Licence 2.0'
+          Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$riskAliasCoordinate","declared_license":"Eclipse Public Licence 2.0","license":"Apache-2.0","evidence_url":"https://example.invalid/risk-alias","registered_by":"selftest","registered_on":"2026-08-19"}
+]
+"@
+          Set-ScannerFixtureReport "+--- $riskAliasCoordinate"
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.override:risk-alias:1\.0.*\[GRADLE-FORBIDDEN\]' -and $result.Text -notmatch 'exact declared-license mapping'
+          $code = 'ABSENT-RISK-ALIAS-BLOCK'
+        }
+        'diagnostic-redaction' {
+          Set-ScannerFixtureFailure 42
+          $result = Invoke-ScannerFixture $ScriptPath
+          $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match 'simulated Gradle failure detail'
+          $code = 'ABSENT-DIAGNOSTIC-REDACTION'
+        }
         'unknown' {
           Set-ScannerFixtureReport '+--- fixture.unknown:missing:1.0'
           $result = Invoke-ScannerFixture $ScriptPath
@@ -9690,6 +9787,9 @@ try {
         @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add($resolvedCoordinate)' },
         @{ Id = 'nested'; Scenario = 'nested-testng'; Code = 'ABSENT-NESTED-TESTNG-REPORT'; Label = '嵌套 TestNG 唯一 configuration 归属'; Marker = "`$plain = `$plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix" },
         @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
+        @{ Id = 'risk-alias'; Scenario = 'risk-alias'; Code = 'ABSENT-RISK-ALIAS-BLOCK'; Label = '风险许可别名先于精确映射阻断'; Marker = 'if ($License -match $gradleForbidden -or $riskNormalized -cmatch $forbiddenRisk) { return ''forbidden'' }' },
+        @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = 'Authorization 整行脱敏'; Marker = '$line = [regex]::Replace($line, ''(?i)\bAuthorization\s*[:=]\s*.*$'', ''Authorization: [REDACTED]'')' },
+        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '前缀/snake/camel 凭据键整行脱敏'; Marker = '$line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9_.-])(?<key>[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)\s*[:=]\s*.*$'', ''${key}=[REDACTED]'')' },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' }
       )
       foreach ($mutationCase in $scannerMutationCases) {
