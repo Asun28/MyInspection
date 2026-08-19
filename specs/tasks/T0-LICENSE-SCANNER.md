@@ -1,8 +1,8 @@
 ---
 id: T0-LICENSE-SCANNER
-title: Gradle 已解析坐标图与离线执行基础（TD2 子卡 1/4）
+title: Gradle 已解析坐标图合同提取与离线图套件（TD2 收口卡 1/4）
 depends_on: [T0-GATE-HARDENING]
-status: in-progress
+status: todo
 branch: T0-LICENSE-SCANNER
 worktree: C:\wt\T0-LICENSE-SCANNER
 allow_paths:
@@ -11,7 +11,7 @@ allow_paths:
 forbid:
   - android/（本卡只读取 Gradle 结果，不改产品或构建定义）
   - 联网补下载 wrapper、依赖、POM 或许可元数据
-  - 为保留 PR #20 现状而继续夹带后续三卡的策略、诊断、CI 或文档改动
+  - 在本卡新增 diff 中夹带后续三卡的策略、诊断、CI 或文档改动
 non_goals:
   - POM license 读取、许可分类和人工豁免表（T0-LICENSE-POLICY）
   - 日志脱敏、长度上限和注入安全（T0-LICENSE-DIAGNOSTICS）
@@ -21,7 +21,7 @@ dod_exit: 0
 dod_assert: 四张批准的 Gradle classpath 图在 offline 模式下各执行一次；只产出已解析的 concrete group:artifact:version，排除项目节点、约束行、重复项和被替换旧版本。Windows 选 gradlew.bat，Unix 由 sh 执行 gradlew；wrapper distribution 或 native cache 未预置时零启动并 fail-closed。逐项配删除/替换变异，必须命中 graph 专属断言。
 review_gate: codex {verdict:pass}
 hygiene: graph 套件独立于全量 selftest 可在 R3 沙箱快速复跑；只保留能击杀坐标解析、配置范围、offline preflight 或平台 wrapper 变异的测试
-doc_sync: 本卡只把自身状态/PR 证据同步到任务卡；TD2 保持 carded，不得提前 paid
+doc_sync: 本卡记录 PR #20 已合并基线与自身 PR 证据；TD2 保持 carded，不得提前 paid
 ---
 
 # T0-LICENSE-SCANNER
@@ -45,13 +45,15 @@ doc_sync: 本卡只把自身状态/PR 证据同步到任务卡；TD2 保持 card
 - 输出：四张图的去重 concrete GAV 集合；稳定的 wrapper 选择与 offline preflight；可单独运行的 `graph` 测试套件。
 - 下游接口：`T0-LICENSE-POLICY` 只消费 GAV 集合，不重新解析 Gradle 文本。
 
-## PR #20 收缩规则
+## 已合并基线与收口规则
 
-PR #20 是本卡的现有执行分支，但当前净 diff 混入了四卡内容。后续不得改写历史；先保留当前完整 head 的只读恢复引用，再用 forward-only commit 让 PR #20 的**最终净 diff**只保留本卡输出。被剥离的已完成代码按后继卡逐卡移植，不能继续在 #20 上接受跨卡 R3 修复。
+PR #20 已于 master `b0a76d0` 合并，包含 TD2 的端到端初版。它是事实基线，不得回滚、拆写历史，也不得伪称为四张后续卡各自的独立 PR。
+
+本卡只在新 worktree 中把 graph 边界提取成可独立运行、可变异验证的合同。先以缺失的 `-Suite graph` 接口铸造真实 RED，再实现专用套件；只有套件暴露 graph 缺陷时才修改 scanner 核心。现有 POM、诊断和 CI 代码可以留在基线中，但不得出现在本卡新增净 diff 或 graph 套件职责内。
 
 ## 验收
 
-运行 front matter 的 `dod_command`。评审还要确认 PR 净 diff 不含 POM/exception policy、通用诊断 hardening、CI 或文档同步。
+运行 front matter 的 `dod_command`。评审还要确认本卡相对 base 的净 diff 不含 POM/exception policy、通用诊断 hardening、CI 或文档同步。
 
 ## 根因诊断
 

@@ -1,6 +1,6 @@
 ---
 id: T0-LICENSE-POLICY
-title: Gradle POM 许可策略与 exact-GAV 豁免（TD2 子卡 2/4）
+title: Gradle POM 许可策略合同与 exact-GAV 专用套件（TD2 收口卡 2/4）
 depends_on: [T0-LICENSE-SCANNER]
 status: todo
 branch: T0-LICENSE-POLICY
@@ -22,7 +22,7 @@ dod_exit: 0
 dod_assert: 对前置卡输出的每个 concrete GAV，只从对应 Gradle cache 坐标目录读取禁用 DTD/外部实体的 POM；POM 坐标必须匹配请求坐标，每个 license 名称非空并保留多许可项。许可按明确 allow/yellow/forbidden 分类；未知或损坏元数据非零。豁免仅接受 schema 完整、exact-GAV、规范许可值和完整证据字段；任一宽匹配/别名/畸形值变异必须由 policy 专属断言击杀。
 review_gate: codex {verdict:pass}
 hygiene: policy 套件只覆盖 POM、分类与豁免边界；复用 graph 套件产物，不重复构造 wrapper/图解析测试
-doc_sync: 本卡只登记自身 PR 证据；TD2 仍为 carded
+doc_sync: 本卡登记 PR #20 已合并基线与自身 PR 证据；TD2 仍为 carded
 ---
 
 # T0-LICENSE-POLICY
@@ -30,6 +30,8 @@ doc_sync: 本卡只登记自身 PR 证据；TD2 仍为 carded
 ## 目标
 
 消费 `T0-LICENSE-SCANNER` 冻结的 concrete GAV 集合，为每个坐标产生可审计的许可判定；本卡不再拥有“如何跑 Gradle”。
+
+PR #20 已在 master `b0a76d0` 合入策略初版。本卡不伪造其原始 RED；真实 RED 是前置 graph 卡合并后 `-Suite policy` 尚不存在或尚不能独立证明下列策略合同。新 diff 只提取、验证并在专属套件发现缺陷时修正 policy 边界。
 
 ## 单一产出
 

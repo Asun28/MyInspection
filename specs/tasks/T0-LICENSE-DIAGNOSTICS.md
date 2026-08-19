@@ -1,6 +1,6 @@
 ---
 id: T0-LICENSE-DIAGNOSTICS
-title: Gradle 许可扫描诊断有界化与脱敏（TD2 子卡 3/4）
+title: Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/4）
 depends_on: [T0-LICENSE-POLICY]
 status: todo
 branch: T0-LICENSE-DIAGNOSTICS
@@ -21,7 +21,7 @@ dod_exit: 0
 dod_assert: wrapper/POM/exception/Gradle 子进程的敌意输出均经过同一诊断边界；输出按行数和字符数有界，URI userinfo、secret-like 值和用户路径被替换，ANSI/control/newline 注入不能伪造新 finding。清洗前后错误类别与非零退出保持不变；删除任一 redaction、bound 或 category-preservation 守卫时 diagnostics 套件必须命中专属断言。
 review_gate: codex {verdict:pass}
 hygiene: diagnostics 套件以敌意输入表驱动，保留各类边界的一枚最小 survivor；不重复证明许可分类本身
-doc_sync: 本卡只登记自身 PR 证据；TD2 仍为 carded
+doc_sync: 本卡登记 PR #20 已合并基线与自身 PR 证据；TD2 仍为 carded
 ---
 
 # T0-LICENSE-DIAGNOSTICS
@@ -29,6 +29,8 @@ doc_sync: 本卡只登记自身 PR 证据；TD2 仍为 carded
 ## 目标
 
 在 graph 与 policy 行为稳定后，只处理失败信息的安全性和可操作性。输入是前两卡的结构化结果，输出是有界、脱敏、不可注入的诊断文本；成功/失败判定不得改变。
+
+PR #20 已在 master `b0a76d0` 合入部分 sanitizer，但并未形成统一出口或独立 diagnostics DoD。已知基线缺口包括绝对用户目录从 wrapper/POM/启动异常路径旁路输出。本卡以这些真实缺口铸造 RED，再集中修复；不得把“已有部分实现”当成完成证据。
 
 ## 单一产出
 
