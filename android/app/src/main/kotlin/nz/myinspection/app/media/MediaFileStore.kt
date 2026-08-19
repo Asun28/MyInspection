@@ -6,6 +6,7 @@ import java.io.InputStream
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import nz.myinspection.core.media.NewAssetDiscard
+import nz.myinspection.core.media.StagedFile
 import nz.myinspection.core.media.StreamCompare
 
 /**
@@ -28,29 +29,30 @@ object MediaFileStore {
         return candidate
     }
 
-    /** 落一份新资产：create→write→publish 全程一个 try/finally，任何一步失败都清掉临时文件。 */
-    fun writeNewAsset(root: File, relPath: String, bytes: ByteArray): File {
-        val target = resolve(root, relPath)
-        target.parentFile?.mkdirs()
-        val temp = createTempSibling(target)
-        try {
-            temp.writeBytes(bytes)
-            return publish(temp, target)
-        } finally {
-            deleteTemp(temp)
-        }
-    }
+    /** Publishes a previously closed and verified staged file through the unchanged no-overwrite move policy. */
+    internal fun publishStaged(staged: StagedFile, root: File, relPath: String): File =
+        publish(staged.file, resolve(root, relPath))
 
     /** 导入=复制，不移动用户原始文件（硬边界）。调用方负责关闭 [source]。 */
     fun copyInto(source: InputStream, root: File, relPath: String): File {
         val target = resolve(root, relPath)
         target.parentFile?.mkdirs()
         val temp = createTempSibling(target)
+        var copyPrimary: Throwable? = null
         try {
             temp.outputStream().use { out -> source.copyTo(out) }
             return publish(temp, target)
+        } catch (failure: Throwable) {
+            copyPrimary = failure
+            throw failure
         } finally {
-            deleteTemp(temp)
+            try {
+                deleteTemp(temp)
+            } catch (cleanupFailure: Throwable) {
+                val failure = copyPrimary
+                if (failure == null) throw cleanupFailure
+                failure.addSuppressed(cleanupFailure)
+            }
         }
     }
 

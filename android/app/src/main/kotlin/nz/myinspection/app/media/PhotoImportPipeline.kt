@@ -14,6 +14,7 @@ import nz.myinspection.core.media.PhotoIngest
 import nz.myinspection.core.media.PhotoIngestPlan
 import nz.myinspection.core.media.PhotoSource
 import nz.myinspection.core.media.PhotoTarget
+import nz.myinspection.core.media.VerifiedAssetWorkflow
 
 /**
  * 导入路径（卡片上下文包「导入」）：复制原字节到临时私有文件（硬边界：导入=复制，不移动用户原始文件）、
@@ -43,6 +44,7 @@ object PhotoImportPipeline {
         activeAssetLookup: (contentHash: String) -> List<String>,
         budgetBytes: Long = PhotoMemoryBudget.transientBytes(),
     ): PhotoIngestOutcome {
+        var primary: Throwable? = null
         try {
             // 存储路径的物业/巡检上下文从 [target] 反查 DB，不由调用方另传——见 resolvePathContext。
             val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
@@ -51,6 +53,7 @@ object PhotoImportPipeline {
             // 删除会把另一次仍在读的文件从磁盘上抽走。
             val scratchRelPath = uniqueScratchRelPath(tempDir, photoId)
             val tempFile = MediaFileStore.resolve(tempDir, scratchRelPath)
+            var scratchPrimary: Throwable? = null
             try {
                 val digest = MessageDigest.getInstance("SHA-256")
                 MediaFileStore.copyInto(DigestInputStream(sourceStream, digest), tempDir, scratchRelPath)
@@ -64,6 +67,7 @@ object PhotoImportPipeline {
                 ) { relPath -> MediaFileStore.resolve(mediaRoot, relPath).exists() }
 
                 if (plan is PhotoIngestPlan.WriteNewAsset) {
+                    val newAssetPlan = plan
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeFile(tempFile.path, bounds)
                     ImportBounds.check(bounds.outWidth, bounds.outHeight, budgetBytes)
@@ -75,23 +79,63 @@ object PhotoImportPipeline {
                     var baked: Bitmap? = null
                     try {
                         // 边界读得出、真解码却回 null：文件在两次读之间被改坏，或格式只有边界可读——具名拒绝，不崩。
-                        decoded = BitmapFactory.decodeFile(tempFile.path)
+                        val decodedBitmap = BitmapFactory.decodeFile(tempFile.path)
                             ?: return PhotoIngestOutcome.RejectedUndecodable(bounds.outWidth, bounds.outHeight)
-                        baked = PhotoOrientationBaker.bake(decoded, orientation)
-                        MediaFileStore.writeNewAsset(mediaRoot, plan.relPath, PhotoJpegEncoder.encode(baked))
+                        decoded = decodedBitmap
+                        val bakedBitmap = PhotoOrientationBaker.bake(decodedBitmap, orientation)
+                        baked = bakedBitmap
+                        return VerifiedAssetWorkflow.encodeStagePublishRecord(
+                            target = MediaFileStore.resolve(mediaRoot, newAssetPlan.relPath),
+                            input = bakedBitmap,
+                            encoder = PhotoJpegEncoder,
+                            // Import dedupe/DB semantics intentionally keep the source-byte hash computed above.
+                            plan = { newAssetPlan },
+                            shouldPublish = { true },
+                            publish = { staged, planned ->
+                                MediaFileStore.publishStaged(staged, mediaRoot, planned.relPath)
+                            },
+                            record = { planned ->
+                                recorder.recordLanded(
+                                    planned,
+                                    photoId,
+                                    target,
+                                    PhotoSource.IMPORTED,
+                                    exifTimeMs,
+                                    mediaRoot,
+                                )
+                            },
+                        )
                     } finally {
                         if (baked != null && baked !== decoded) baked.recycle()
                         decoded?.recycle()
                     }
                 }
                 return recorder.recordLanded(plan, photoId, target, PhotoSource.IMPORTED, exifTimeMs, mediaRoot)
+            } catch (failure: Throwable) {
+                scratchPrimary = failure
+                throw failure
             } finally {
-                if (!MediaFileStore.deleteIfPresent(tempFile)) {
-                    Log.w(TAG, "op=deleteImportTemp photoId=$photoId path=${tempFile.path} result=failed")
+                try {
+                    if (!MediaFileStore.deleteIfPresent(tempFile)) {
+                        Log.w(TAG, "op=deleteImportTemp photoId=$photoId path=${tempFile.path} result=failed")
+                    }
+                } catch (cleanupFailure: Throwable) {
+                    val failure = scratchPrimary
+                    if (failure == null) throw cleanupFailure
+                    failure.addSuppressed(cleanupFailure)
                 }
             }
+        } catch (failure: Throwable) {
+            primary = failure
+            throw failure
         } finally {
-            sourceStream.close()
+            try {
+                sourceStream.close()
+            } catch (closeFailure: Throwable) {
+                val failure = primary
+                if (failure == null) throw closeFailure
+                failure.addSuppressed(closeFailure)
+            }
         }
     }
 
