@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('graph', 'policy', 'diagnostics')]
+  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
   [switch]$SkipMutations
@@ -21,6 +21,184 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
+
+if ($Suite -eq 'gav-bounds') {
+  function Assert-GavBounds {
+    param(
+      [Parameter(Mandatory)][bool]$Condition,
+      [Parameter(Mandatory)][string]$Message
+    )
+    if (-not $Condition) { $failures.Add($Message) }
+  }
+
+  $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "license-gav-bounds-$PID-$([guid]::NewGuid().ToString('N'))"
+  try {
+    $group255 = (('Gg' * 127) + 'G')
+    $artifact255 = (('Aa' * 127) + 'A')
+    $version255 = (('Vv' * 127) + 'V')
+    $acceptedCoordinate = "$group255`:$artifact255`:$version255"
+    $acceptedParts = Get-GradleGavParts -Coordinate $acceptedCoordinate
+    Assert-GavBounds (
+      $null -ne $acceptedParts -and
+      [string]::Equals([string]$acceptedParts.Group, $group255, [System.StringComparison]::Ordinal) -and
+      [string]::Equals([string]$acceptedParts.Artifact, $artifact255, [System.StringComparison]::Ordinal) -and
+      [string]::Equals([string]$acceptedParts.Version, $version255, [System.StringComparison]::Ordinal)
+    ) '[GAV-BOUND-255] 255-character GAV segments did not preserve exact ordinal identity'
+
+    $auditText = Get-GradleAuditText -Value "$acceptedCoordinate => prefix-$('x' * 600)-tail"
+    Assert-GavBounds (
+      $auditText.Length -eq 1000 -and
+      $auditText.StartsWith("$acceptedCoordinate => [TRUNCATED] ", [System.StringComparison]::Ordinal) -and
+      $auditText.EndsWith('-tail', [System.StringComparison]::Ordinal)
+    ) '[GAV-AUDIT-ENVELOPE] accepted maximum GAV did not preserve the coordinate inside the 1000-character audit envelope'
+
+    $script:bad = @()
+    Add-GradleNonCompliance "$acceptedCoordinate => prefix-$('x' * 600)-tail [GRADLE-PARSE]"
+    $auditEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
+    Assert-GavBounds (
+      $auditEntry.Length -eq 1024 -and
+      $auditEntry.StartsWith("[GRADLE] $acceptedCoordinate => [TRUNCATED] ", [System.StringComparison]::Ordinal) -and
+      $auditEntry.EndsWith('-tail [GRADLE-PARSE]', [System.StringComparison]::Ordinal)
+    ) '[GAV-AUDIT-CATEGORY] accepted maximum GAV lost its exact coordinate or caller-owned category'
+
+    $overlongCases = @(
+      @{ Name = 'group'; Coordinate = "$(('g' * 256)):artifact:1.0" },
+      @{ Name = 'artifact'; Coordinate = "group:$(('a' * 256)):1.0" },
+      @{ Name = 'version'; Coordinate = "group:artifact:$(('v' * 256))" }
+    )
+    foreach ($overlongCase in $overlongCases) {
+      Assert-GavBounds (
+        $null -eq (Get-GradleGavParts -Coordinate $overlongCase.Coordinate)
+      ) "[GAV-BOUND-$($overlongCase.Name.ToUpperInvariant())] 256-character $($overlongCase.Name) segment was accepted by the shared GAV boundary"
+    }
+
+    $cacheRejected = $false
+    try {
+      [void](Get-GradleCacheCoordinateRoot -GradleUserHome $fixtureRoot -Coordinate $overlongCases[0].Coordinate)
+    } catch {
+      $cacheRejected = $true
+    }
+    Assert-GavBounds $cacheRejected '[GAV-CACHE-BOUND] overlong GAV became a cache-coordinate path'
+
+    $cachedPomResult = Get-GradleCachedPomInfo -Coordinate $overlongCases[1].Coordinate -GradleUserHome $fixtureRoot
+    Assert-GavBounds (
+      $cachedPomResult.State -ceq 'Error' -and
+      $cachedPomResult.Detail -ceq '坐标不是具体且安全的 GAV。' -and
+      $cachedPomResult.Paths.Count -eq 0
+    ) '[GAV-POM-BOUND] overlong GAV reached cache lookup instead of failing at the cached-POM identity boundary'
+
+    $exceptionPath = Join-Path $fixtureRoot 'exceptions.json'
+    $exceptionRecord = @{
+      coordinate = $overlongCases[2].Coordinate
+      license = 'Apache-2.0'
+      evidence_url = 'https://example.invalid/gav-bound'
+      registered_by = 'gav-bound-test'
+      registered_on = '2026-08-20'
+    }
+    New-Item -ItemType Directory -Force -Path $fixtureRoot | Out-Null
+    [System.IO.File]::WriteAllText($exceptionPath, (ConvertTo-Json -InputObject @($exceptionRecord) -Compress), [System.Text.UTF8Encoding]::new($false))
+    $exceptionResult = Get-GradleExceptionMap -Path $exceptionPath
+    Assert-GavBounds (
+      $exceptionResult.Entries.Count -eq 0 -and
+      $exceptionResult.Error.StartsWith('[GRADLE-OVERRIDE] 坐标不是具体且安全的 GAV：', [System.StringComparison]::Ordinal)
+    ) '[GAV-EXCEPTION-BOUND] overlong GAV became an exception identity'
+
+    $policyExceptionPath = Join-Path $fixtureRoot 'policy-exceptions.json'
+    $policyExceptionRecord = @{
+      coordinate = $overlongCases[1].Coordinate
+      license = 'Apache-2.0'
+      evidence_url = 'https://example.invalid/gav-policy-bound'
+      registered_by = 'gav-bound-test'
+      registered_on = '2026-08-20'
+    }
+    [System.IO.File]::WriteAllText($policyExceptionPath, (ConvertTo-Json -InputObject @($policyExceptionRecord) -Compress), [System.Text.UTF8Encoding]::new($false))
+    $policyResult = Get-GradleLicensePolicyResult -Resolved @([PSCustomObject]@{
+      Coordinate = $overlongCases[1].Coordinate
+      Configurations = @(':core:testRuntimeClasspath')
+    }) -GradleUserHome $fixtureRoot -ExceptionPath $policyExceptionPath
+    Assert-GavBounds (
+      $policyResult.Findings.Count -eq 0 -and
+      @($policyResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1 -and
+      @($policyResult.Violations | Where-Object Code -CEQ 'GRADLE-OVERRIDE').Count -eq 1
+    ) '[GAV-POLICY-BOUND] overlong GAV became a cached-POM or exception-backed finding'
+
+    $graphResult = Get-GradleCoordinatesFromDependencyOutput -Output @("+--- $($overlongCases[0].Coordinate)")
+    Assert-GavBounds (
+      $graphResult.Coordinates.Count -eq 0 -and
+      $graphResult.Errors.Count -eq 1 -and
+      $graphResult.Errors[0] -match '\[GRADLE-PARSE\]$'
+    ) '[GAV-GRAPH-BOUND] overlong GAV entered the parsed dependency finding set'
+  } catch {
+    Assert-GavBounds $false "[GAV-BOUND-SETUP] gav-bounds fixture failed: $($_.Exception.Message)"
+  } finally {
+    if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
+  }
+
+  if ($failures.Count -gt 0) {
+    foreach ($failure in $failures) { Write-Error $failure -ErrorAction Continue }
+    exit 1
+  }
+
+  if (-not $SkipMutations) {
+    $source = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ScannerPath))
+    $gavBoundMutationCases = @(
+      @{
+        Name = 'segment-length'
+        From = '    if ($segment.Length -gt 255) { return $null } # GAV segment length guard'
+        To = '    if ($false) { return $null } # GAV segment length guard'
+        Expected = '[GAV-BOUND-GROUP]'
+      },
+      @{
+        Name = 'cache-shared-guard'
+        From = '  $gav = Get-GradleGavParts -Coordinate $Coordinate # cache coordinate shared GAV guard'
+        To = "  `$gav = [PSCustomObject]@{ Group = 'accepted'; Artifact = 'accepted'; Version = 'accepted' } # cache coordinate shared GAV guard"
+        Expected = '[GAV-CACHE-BOUND]'
+      },
+      @{
+        Name = 'pom-shared-guard'
+        From = '  $gav = Get-GradleGavParts -Coordinate $Coordinate # cached POM shared GAV guard'
+        To = "  `$gav = [PSCustomObject]@{ Group = 'accepted'; Artifact = 'accepted'; Version = 'accepted' } # cached POM shared GAV guard"
+        Expected = '[GAV-POM-BOUND]'
+      },
+      @{
+        Name = 'exception-shared-guard'
+        From = '      if ($null -eq (Get-GradleGavParts -Coordinate $coordinate)) {'
+        To = '      if ($false) {'
+        Expected = '[GAV-EXCEPTION-BOUND]'
+      },
+      @{
+        Name = 'graph-shared-guard'
+        From = '    if ($null -eq (Get-GradleGavParts -Coordinate $resolvedCoordinate)) {'
+        To = '    if ($false) {'
+        Expected = '[GAV-GRAPH-BOUND]'
+      }
+    )
+
+    foreach ($mutationCase in $gavBoundMutationCases) {
+      $matches = [regex]::Matches($source, [regex]::Escape($mutationCase.From)).Count
+      if ($matches -ne 1) {
+        Write-Error "[GAV-BOUND-MUTATION] $($mutationCase.Name) target count=$matches"
+        exit 1
+      }
+      $mutantPath = Join-Path $PSScriptRoot ".license-gav-bounds-$PID-$($mutationCase.Name).ps1"
+      try {
+        [System.IO.File]::WriteAllText($mutantPath, $source.Replace($mutationCase.From, $mutationCase.To), [System.Text.UTF8Encoding]::new($false))
+        $mutationOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite gav-bounds -ScannerPath $mutantPath -SkipMutations 2>&1 | Out-String)
+        $mutationExit = $LASTEXITCODE
+        if ($mutationExit -eq 0 -or $mutationOutput -notmatch [regex]::Escape($mutationCase.Expected)) {
+          Write-Error "[GAV-BOUND-MUTATION] $($mutationCase.Name) did not fail on its semantic inverse (exit=$mutationExit; output=$mutationOutput)"
+          exit 1
+        }
+      } finally {
+        if (Test-Path -LiteralPath $mutantPath) { Remove-Item -LiteralPath $mutantPath -Force }
+      }
+    }
+    Write-Host "license-scanner-check(gav-bounds mutations): PASS ($($gavBoundMutationCases.Count))"
+  }
+
+  Write-Host 'license-scanner-check(gav-bounds): PASS'
+  exit 0
+}
 
 if ($Suite -eq 'diagnostics') {
   function Assert-Diagnostics {
