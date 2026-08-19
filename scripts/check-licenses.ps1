@@ -267,7 +267,13 @@ $gradleLicenseConfigurations = @(
 
 function Add-GradleNonCompliance {
   param([Parameter(Mandatory)][string]$Message)
-  $script:bad += "[GRADLE] $Message"
+
+  $categoryMatch = [regex]::Match($Message, '(?s)^(?<detail>.*?)\s*\[(?<code>GRADLE-[A-Z-]+)\]\s*$')
+  if (-not $categoryMatch.Success) { throw 'Gradle diagnostic missing caller-owned [GRADLE-*] category.' } # diagnostic category required guard
+  $rawDetail = $categoryMatch.Groups['detail'].Value.TrimEnd()
+  $safeDetail = Get-GradleAuditText -Value $rawDetail
+  $safeDetail = [regex]::Replace($safeDetail, '(?i)\[GRADLE-[A-Z-]+\]', '[REDACTED-CATEGORY]') # diagnostic category spoof guard
+  $script:bad += "[GRADLE] $safeDetail [$($categoryMatch.Groups['code'].Value)]"
 }
 
 function Assert-GradleMetadataScalar {
@@ -284,14 +290,24 @@ function Assert-GradleMetadataScalar {
 function Get-GradleAuditText {
   param([AllowEmptyString()][string]$Value)
 
-  $Value = [regex]::Replace($Value, '[\p{Cc}\p{Cf}]', ' ') # metadata audit control/format normalization
-  return Get-GradleDiagnosticTail -Output @($Value) -MaxLines 1 -MaxChars 1000
+  $auditMaxChars = 1000
+  $minimumDiagnosticChars = 200
+  $coordinatePrefix = ''
+  $coordinateMatch = [regex]::Match($Value, '^(?<coordinate>[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)\s*=>\s*(?<rest>.*)$', [System.Text.RegularExpressions.RegexOptions]::Singleline) # diagnostic multiline-GAV preservation
+  if ($coordinateMatch.Success) {
+    $coordinatePrefix = "$($coordinateMatch.Groups['coordinate'].Value) => " # diagnostic exact-GAV preservation
+    if ($coordinatePrefix.Length -le ($auditMaxChars - $minimumDiagnosticChars)) { # diagnostic oversized-coordinate bound
+      $detailBudget = [Math]::Max($minimumDiagnosticChars, $auditMaxChars - $coordinatePrefix.Length) # diagnostic coordinate-inclusive bound
+      return "$coordinatePrefix$(Get-GradleDiagnosticTail -Output @($coordinateMatch.Groups['rest'].Value) -MaxLines 1 -MaxChars $detailBudget)"
+    }
+  }
+  return Get-GradleDiagnosticTail -Output @($Value) -MaxLines 1 -MaxChars $auditMaxChars
 }
 
 function Add-GradleMetadataNonCompliance {
   param([Parameter(Mandatory)][string]$Message)
 
-  Add-GradleNonCompliance (Get-GradleAuditText -Value $Message)
+  Add-GradleNonCompliance $Message
 }
 
 function Get-GradleExceptionMap {
@@ -920,26 +936,52 @@ function Get-GradleDiagnosticTail {
     [switch]$DecodeEscapedNewlines
   )
 
+  function Protect-GradleDiagnosticRecord {
+    param([AllowEmptyString()][string]$Value)
+
+    $Value = [regex]::Replace($Value, '(?is)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*:[^/]*@', '${scheme}[REDACTED]@') # diagnostic multiline URI boundary
+    $Value = [regex]::Replace($Value, '(?im)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*@', '${scheme}[REDACTED]@')
+    $Value = [regex]::Replace($Value, '(?is)\bAuthorization["'']?(?:[ \t]*[:=][ \t]*|[ \t]+).*', 'Authorization: [REDACTED]')
+    $Value = [regex]::Replace($Value, '(?is)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?[ \t]*[:=].*', '${lead}${key}=[REDACTED]')
+    return $Value
+  }
+
+  $configuredUserHomes = @(
+    [Environment]::GetFolderPath('UserProfile'),
+    [Environment]::GetEnvironmentVariable('USERPROFILE'),
+    [Environment]::GetEnvironmentVariable('HOME')
+  ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
+
   $expandedLines = @($Output | ForEach-Object {
     $raw = "$_"
     if ($DecodeEscapedNewlines) {
       $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
     }
-    $raw -split '\r?\n'
+    $raw = Protect-GradleDiagnosticRecord -Value $raw # diagnostic record credential boundary
+    $raw -split '\r\n|\n|\r'
   })
   $sanitized = @($expandedLines | ForEach-Object {
-    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '')
-    $line = [regex]::Replace($line, '(?i)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@', '${scheme}[REDACTED]@') # credential redaction: URI userinfo
-    $line = [regex]::Replace($line, '(?i)\bAuthorization["'']?(?:\s*[:=]\s*|\s+).*$', 'Authorization: [REDACTED]') # credential redaction: authorization
-    $line = [regex]::Replace($line, '(?i)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?(?:\s*[:=]\s*|\s+).*$', '${lead}${key}=[REDACTED]') # credential redaction: key
+    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
+    $line = [regex]::Replace($line, '[\p{Cc}\p{Cf}]', ' ') # diagnostic control/format normalization
+    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/|:;,)\]\r\n]+)(?=[\\/]|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Windows user-home redaction
+    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Unix user-home redaction
+    foreach ($configuredUserHome in $configuredUserHomes) {
+      $trimmedUserHome = "$configuredUserHome".TrimEnd([char[]]@('/', '\'))
+      $homeVariants = @($trimmedUserHome, ($trimmedUserHome -replace '\\', '/'), ($trimmedUserHome -replace '/', '\')) | Sort-Object -Unique
+      foreach ($homeVariant in $homeVariants) {
+        if ([string]::IsNullOrWhiteSpace($homeVariant)) { continue }
+        $line = [regex]::Replace($line, [regex]::Escape($homeVariant) + '(?=[\\/]|[|:;,)\]\s]|$)', '[USER_HOME]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) # diagnostic configured user-home redaction
+      }
+    }
     if (-not [string]::IsNullOrWhiteSpace($line)) { $line.Trim() }
   } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($sanitized.Count -eq 0) { return '<no output>' }
 
   $truncated = $sanitized.Count -gt $MaxLines
-  $tail = (@($sanitized | Select-Object -Last $MaxLines) -join ' | ')
+  $tail = (@($sanitized | Select-Object -Last $MaxLines) -join ' | ') # diagnostic line bound
   $marker = '[TRUNCATED] '
-  if ($tail.Length -gt $MaxChars) {
+  $payloadMax = if ($truncated) { $MaxChars - $marker.Length } else { $MaxChars } # diagnostic marker-inclusive bound
+  if ($tail.Length -gt $payloadMax) { # diagnostic character bound
     $truncated = $true
     $tail = $tail.Substring($tail.Length - ($MaxChars - $marker.Length))
   }
@@ -1056,7 +1098,19 @@ function Invoke-GradleLicenseScan {
 
   $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
   $graph = Get-GradleResolvedGraphs -Root $Root -GradleUserHome $gradleUserHome
-  foreach ($graphError in $graph.Errors) {
+  Write-GradleGraphDiagnostics -Errors $graph.Errors -DecodeEscapedNewlines:(-not $IsWindows) # unified graph diagnostic route
+
+  $policy = Get-GradleLicensePolicyResult -Resolved $graph.Resolved -GradleUserHome $gradleUserHome -ExceptionPath (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
+  Write-GradlePolicyDiagnostics -Policy $policy -Resolved $graph.Resolved # unified policy diagnostic route
+}
+
+function Write-GradleGraphDiagnostics {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Errors,
+    [bool]$DecodeEscapedNewlines = (-not $IsWindows)
+  )
+
+  foreach ($graphError in $Errors) {
     $configurationPrefix = if ([string]::IsNullOrWhiteSpace([string]$graphError.Configuration)) { '' } else { "$($graphError.Configuration) => " }
     $exitText = if ($null -eq $graphError.ExitCode) { '' } else { "退出 $($graphError.ExitCode)；" }
     $detail = if (
@@ -1064,7 +1118,7 @@ function Invoke-GradleLicenseScan {
       $null -ne $graphError.ExitCode -and
       $null -ne $graphError.PSObject.Properties['Output']
     ) {
-      Get-GradleDiagnosticTail -Output @($graphError.Output) -DecodeEscapedNewlines:(-not $IsWindows)
+      Get-GradleDiagnosticTail -Output @($graphError.Output) -DecodeEscapedNewlines:$DecodeEscapedNewlines
     } else {
       [string]$graphError.Detail
     }
@@ -1075,13 +1129,19 @@ function Invoke-GradleLicenseScan {
       Add-GradleNonCompliance $message
     }
   }
+}
 
-  $policy = Get-GradleLicensePolicyResult -Resolved $graph.Resolved -GradleUserHome $gradleUserHome -ExceptionPath (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
-  if ($graph.Resolved.Count -gt 0) {
-    Write-Host "  已从四张 Gradle 已解析图取得 $($graph.Resolved.Count) 个唯一 GAV（离线、去重、按坐标排序）："
-    Write-GradleLicensePolicyFindings -Policy $policy -Resolved $graph.Resolved
+function Write-GradlePolicyDiagnostics {
+  param(
+    [Parameter(Mandatory)][object]$Policy,
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Resolved
+  )
+
+  if ($Resolved.Count -gt 0) {
+    Write-Host "  已从四张 Gradle 已解析图取得 $($Resolved.Count) 个唯一 GAV（离线、去重、按坐标排序）："
+    Write-GradleLicensePolicyFindings -Policy $Policy -Resolved $Resolved
   }
-  foreach ($violation in $policy.Violations) {
+  foreach ($violation in $Policy.Violations) {
     if ($violation.Code -in @('GRADLE-FORBIDDEN', 'GRADLE-UNKNOWN') -or ($violation.Code -eq 'GRADLE-OVERRIDE' -and $violation.Source -eq 'cached-pom')) { continue }
     if ($violation.Code -eq 'GRADLE-METADATA') {
       $coordinate = [string]$violation.Coordinate
