@@ -391,7 +391,8 @@ function Get-GradleExceptionMap {
     }
     return [PSCustomObject]@{ Entries = $empty; Error = $null }
   } catch {
-    return [PSCustomObject]@{ Entries = $empty; Error = "[GRADLE-OVERRIDE] $($_.Exception.Message)" }
+    $failedEntries = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal) # discard partial exception records
+    return [PSCustomObject]@{ Entries = $failedEntries; Error = "[GRADLE-OVERRIDE] $($_.Exception.Message)" }
   }
 }
 
@@ -625,6 +626,127 @@ function Add-GradleLicenseFinding {
       }
     }
   }
+}
+
+function Get-GradleLicensePolicyResult {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Resolved,
+    [Parameter(Mandatory)][string]$GradleUserHome,
+    [Parameter(Mandatory)][string]$ExceptionPath
+  )
+
+  $findings = [System.Collections.Generic.List[object]]::new()
+  $warnings = [System.Collections.Generic.List[object]]::new()
+  $violations = [System.Collections.Generic.List[object]]::new()
+  $exceptions = Get-GradleExceptionMap -Path $ExceptionPath
+  if ($null -ne $exceptions.Error) {
+    $violations.Add([PSCustomObject]@{
+      Coordinate = $null
+      Configurations = @()
+      DeclaredLicense = $null
+      EffectiveLicense = $null
+      Classification = 'error'
+      Source = 'exception-table'
+      EvidenceUrl = $null
+      RegisteredBy = $null
+      RegisteredOn = $null
+      Code = 'GRADLE-OVERRIDE'
+      Detail = ([string]$exceptions.Error -replace '^\[GRADLE-OVERRIDE\]\s*', '')
+    })
+  }
+
+  foreach ($resolvedCoordinate in @($Resolved | Sort-Object -Property Coordinate)) {
+    $coordinate = [string]$resolvedCoordinate.Coordinate
+    $configurations = @($resolvedCoordinate.Configurations | Sort-Object -Unique)
+    $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $GradleUserHome
+    $exceptionBucket = if ($exceptions.Entries.ContainsKey($coordinate)) { $exceptions.Entries[$coordinate] } else { $null }
+
+    if ($pom.State -eq 'Error') { # policy POM error guard
+      $violations.Add([PSCustomObject]@{
+        Coordinate = $coordinate; Configurations = $configurations
+        DeclaredLicense = $null; EffectiveLicense = $null; Classification = 'error'
+        Source = 'cached-pom'; EvidenceUrl = $null; RegisteredBy = $null; RegisteredOn = $null
+        Code = 'GRADLE-POM'; Detail = [string]$pom.Detail
+      })
+      continue
+    }
+
+    if ($pom.State -in @('Missing', 'MissingLicense')) { # policy fallback state gate
+      if ($null -eq $exceptionBucket -or $null -eq $exceptionBucket.Fallback) {
+        $violations.Add([PSCustomObject]@{
+          Coordinate = $coordinate; Configurations = $configurations
+          DeclaredLicense = $null; EffectiveLicense = $null; Classification = 'unknown'
+          Source = 'metadata-missing'; EvidenceUrl = $null; RegisteredBy = $null; RegisteredOn = $null
+          Code = 'GRADLE-METADATA'; Detail = [string]$pom.Detail
+        })
+        continue
+      }
+      $fallback = $exceptionBucket.Fallback
+      $fallbackRecord = [PSCustomObject]@{
+        Coordinate = $coordinate; Configurations = $configurations
+        DeclaredLicense = $null; EffectiveLicense = [string]$fallback.License; Classification = 'permissive'
+        Source = 'fallback-override'; EvidenceUrl = [string]$fallback.EvidenceUrl
+        RegisteredBy = [string]$fallback.RegisteredBy; RegisteredOn = [string]$fallback.RegisteredOn
+        Code = $null; Detail = $null
+      }
+      $findings.Add($fallbackRecord)
+      continue
+    }
+
+    $declaredMappings = if ($null -ne $exceptionBucket) { $exceptionBucket.DeclaredLicenses } else { $null }
+    foreach ($license in @($pom.Licenses)) {
+      $declaredLicense = [string]$license
+      $effectiveLicense = $declaredLicense
+      $classification = Get-GradleLicenseClassification -License $declaredLicense
+      $source = 'cached-pom'
+      $evidenceUrl = $null; $registeredBy = $null; $registeredOn = $null
+      $code = $null; $detail = $null
+
+      if ($classification -eq 'plain-gpl') {
+        if ($script:Distributes) {
+          $classification = 'forbidden'
+          $code = 'GRADLE-FORBIDDEN'
+          $detail = $declaredLicense
+        } else {
+          $classification = 'yellow'
+          $detail = '纯 GPL 且本项目声明不分发；须人工确认分发边界'
+        }
+      } elseif ($classification -eq 'forbidden') { # policy forbidden precedence
+        $code = 'GRADLE-FORBIDDEN'
+        $detail = $declaredLicense
+      } elseif ($classification -eq 'unknown') {
+        if ($null -ne $declaredMappings -and $declaredMappings.ContainsKey($declaredLicense)) {
+          $mapping = $declaredMappings[$declaredLicense]
+          if (-not (Test-GradleExceptionCanonicalLicense -License $mapping.License)) {
+            $code = 'GRADLE-OVERRIDE'
+            $detail = "declared_license 映射的非允许 canonical '$($mapping.License)'"
+          } else {
+            $effectiveLicense = [string]$mapping.License
+            $classification = 'permissive'
+            $source = 'declared-override'
+            $evidenceUrl = [string]$mapping.EvidenceUrl
+            $registeredBy = [string]$mapping.RegisteredBy
+            $registeredOn = [string]$mapping.RegisteredOn
+          }
+        } else {
+          $code = 'GRADLE-UNKNOWN'
+          $detail = "未被政策识别的许可 '$declaredLicense'"
+        }
+      }
+
+      $record = [PSCustomObject]@{
+        Coordinate = $coordinate; Configurations = $configurations
+        DeclaredLicense = $declaredLicense; EffectiveLicense = $effectiveLicense; Classification = $classification
+        Source = $source; EvidenceUrl = $evidenceUrl; RegisteredBy = $registeredBy; RegisteredOn = $registeredOn
+        Code = $code; Detail = $detail
+      }
+      $findings.Add($record)
+      if ($classification -eq 'yellow') { $warnings.Add($record) }
+      if ($null -ne $code) { $violations.Add($record) }
+    }
+  }
+
+  return [PSCustomObject]@{ Findings = @($findings); Warnings = @($warnings); Violations = @($violations) }
 }
 
 function Get-GradleWrapperPath {
@@ -861,8 +983,6 @@ function Invoke-GradleLicenseScan {
   param([Parameter(Mandatory)][string]$Root)
 
   $gradleUserHome = if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' } else { $env:GRADLE_USER_HOME }
-  $exceptions = Get-GradleExceptionMap -Path (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
-  if ($null -ne $exceptions.Error) { Add-GradleMetadataNonCompliance $exceptions.Error }
   $graph = Get-GradleResolvedGraphs -Root $Root -GradleUserHome $gradleUserHome
   foreach ($graphError in $graph.Errors) {
     $configurationPrefix = if ([string]::IsNullOrWhiteSpace([string]$graphError.Configuration)) { '' } else { "$($graphError.Configuration) => " }
@@ -884,35 +1004,39 @@ function Invoke-GradleLicenseScan {
     }
   }
 
-  $coordinatesByConfiguration = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
-  foreach ($resolved in $graph.Resolved) {
-    $configurations = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    foreach ($configuration in $resolved.Configurations) { [void]$configurations.Add($configuration) }
-    $coordinatesByConfiguration.Add($resolved.Coordinate, $configurations)
-  }
-  if ($coordinatesByConfiguration.Count -eq 0) {
-    return
-  }
-  Write-Host "  已从四张 Gradle 已解析图取得 $($coordinatesByConfiguration.Count) 个唯一 GAV（离线、去重、按坐标排序）："
-  foreach ($coordinate in @($coordinatesByConfiguration.Keys | Sort-Object)) {
-    $pom = Get-GradleCachedPomInfo -Coordinate $coordinate -GradleUserHome $gradleUserHome
-    $configurations = @($coordinatesByConfiguration[$coordinate] | Sort-Object)
-    $exceptionBucket = if ($exceptions.Entries.ContainsKey($coordinate)) { $exceptions.Entries[$coordinate] } else { $null }
-    if ($pom.State -eq 'Error') {
-      Add-GradleMetadataNonCompliance "$coordinate => $($pom.Detail) [GRADLE-POM]"
-      continue
-    }
-    if ($pom.State -in @('Missing', 'MissingLicense')) {
-      if ($null -ne $exceptionBucket -and $null -ne $exceptionBucket.Fallback) {
-        $exception = $exceptionBucket.Fallback
-        Add-GradleLicenseFinding -Coordinate $coordinate -Licenses @($exception.License) -Source "override $($exception.EvidenceUrl), $($exception.RegisteredBy) $($exception.RegisteredOn)" -Configurations $configurations
-      } else {
-        Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"
+  $policy = Get-GradleLicensePolicyResult -Resolved $graph.Resolved -GradleUserHome $gradleUserHome -ExceptionPath (Join-Path $Root 'configs/licenses/gradle-exceptions.json')
+  if ($graph.Resolved.Count -gt 0) {
+    Write-Host "  已从四张 Gradle 已解析图取得 $($graph.Resolved.Count) 个唯一 GAV（离线、去重、按坐标排序）："
+    foreach ($resolvedCoordinate in @($graph.Resolved | Sort-Object -Property Coordinate)) {
+      $coordinateFindings = @($policy.Findings | Where-Object Coordinate -CEQ $resolvedCoordinate.Coordinate)
+      if ($coordinateFindings.Count -eq 0) { continue }
+      $declaredFindings = @($coordinateFindings | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.DeclaredLicense) })
+      if ($declaredFindings.Count -gt 0) {
+        $declaredMappings = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+        foreach ($finding in @($declaredFindings | Where-Object Source -CEQ 'declared-override')) {
+          $declaredMappings[$finding.DeclaredLicense] = [PSCustomObject]@{
+            License = $finding.EffectiveLicense; EvidenceUrl = $finding.EvidenceUrl
+            RegisteredBy = $finding.RegisteredBy; RegisteredOn = $finding.RegisteredOn
+          }
+        }
+        Add-GradleLicenseFinding -Coordinate $resolvedCoordinate.Coordinate -Licenses @($declaredFindings.DeclaredLicense) -Source 'cached POM' -Configurations $resolvedCoordinate.Configurations -DeclaredLicenseMappings $declaredMappings
       }
+      foreach ($fallback in @($coordinateFindings | Where-Object Source -CEQ 'fallback-override')) {
+        $findingText = Get-GradleAuditText -Value "$($resolvedCoordinate.Coordinate) => $($fallback.EffectiveLicense) [override $($fallback.EvidenceUrl), $($fallback.RegisteredBy) $($fallback.RegisteredOn); configurations: $($resolvedCoordinate.Configurations -join ', ')]"
+        Write-Host "  - $findingText"
+      }
+    }
+  }
+  foreach ($violation in $policy.Violations) {
+    if ($violation.Code -in @('GRADLE-FORBIDDEN', 'GRADLE-UNKNOWN')) { continue }
+    if ($violation.Code -eq 'GRADLE-METADATA') {
+      $coordinate = [string]$violation.Coordinate
+      $pom = $violation
+      Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"
       continue
     }
-    $declaredLicenseMappings = if ($null -ne $exceptionBucket) { $exceptionBucket.DeclaredLicenses } else { $null }
-    Add-GradleLicenseFinding -Coordinate $coordinate -Licenses $pom.Licenses -Source 'cached POM' -Configurations $configurations -DeclaredLicenseMappings $declaredLicenseMappings
+    $prefix = if ([string]::IsNullOrWhiteSpace([string]$violation.Coordinate)) { '' } else { "$($violation.Coordinate) => " }
+    Add-GradleMetadataNonCompliance "$prefix$($violation.Detail) [$($violation.Code)]"
   }
 }
 
