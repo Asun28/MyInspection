@@ -9581,13 +9581,20 @@ try {
       @{ Id = 'dynamic-version'; Json = '[{"coordinate":"fixture:escape:1.+","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'latest-version'; Json = '[{"coordinate":"fixture:escape:latest.release","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'case-collision'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","License":"Eclipse Public License 2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'duplicate-key'; Field = 'license'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Eclipse Public License 2.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'array-field'; Field = 'coordinate'; Json = '[{"coordinate":["fixture.override:approved:1.0"],"license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-18"}]' },
+      @{ Id = 'number-field'; Field = 'registered_by'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":7,"registered_on":"2026-08-18"}]' },
+      @{ Id = 'boolean-field'; Field = 'registered_by'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":true,"registered_on":"2026-08-18"}]' },
+      @{ Id = 'null-field'; Field = 'registered_by'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":null,"registered_on":"2026-08-18"}]' },
+      @{ Id = 'object-field'; Field = 'registered_by'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":{"name":"selftest"},"registered_on":"2026-08-18"}]' },
       @{ Id = 'missing-field'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","registered_by":"selftest","registered_on":"2026-08-18"}]' },
       @{ Id = 'duplicate'; Json = '[{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/one","registered_by":"selftest","registered_on":"2026-08-18"},{"coordinate":"fixture.override:approved:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/two","registered_by":"selftest","registered_on":"2026-08-18"}]' }
     )) {
       Set-ScannerFixtureOverrides $invalidOverride.Json
       Set-ScannerFixtureReport "+--- $overrideCoordinate"
       $invalidResult = Invoke-ScannerFixture $scannerFixtureScript
-      if ($invalidResult.Exit -eq 0 -or $invalidResult.Text -notmatch 'GRADLE-OVERRIDE') {
+      $missingFieldDiagnostic = $invalidOverride.ContainsKey('Field') -and $invalidResult.Text -notmatch [regex]::Escape([string]$invalidOverride.Field)
+      if ($invalidResult.Exit -eq 0 -or $invalidResult.Text -notmatch 'GRADLE-OVERRIDE' -or $missingFieldDiagnostic) {
         Fail "种子缺陷 17cc(scanner/override-$($invalidOverride.Id))：通配/必填字段缺失/重复坐标的豁免表必须 fail-closed 并输出 GRADLE-OVERRIDE，实得 exit=$($invalidResult.Exit)；输出=$($invalidResult.Text)。"
       } else {
         Write-Host "  17cc(scanner/override-$($invalidOverride.Id)) 非精确或不完整/歧义豁免 fail-closed OK" -ForegroundColor Green

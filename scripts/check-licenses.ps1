@@ -274,11 +274,30 @@ function Get-GradleExceptionMap {
 
   try {
     $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
-    if ($raw.TrimStart() -notmatch '^\[') { throw '顶层必须是 JSON 数组。' }
-    $records = @($raw | ConvertFrom-Json -AsHashtable -Depth 16 -ErrorAction Stop)
     $allowedFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on') |
       ForEach-Object { [void]$allowedFields.Add($_) }
+    $jsonOptions = [System.Text.Json.JsonDocumentOptions]::new()
+    $jsonOptions.MaxDepth = 16
+    $json = [System.Text.Json.JsonDocument]::Parse([string]$raw, $jsonOptions)
+    try {
+      if ($json.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) { throw '顶层必须是 JSON 数组。' }
+      foreach ($jsonRecord in $json.RootElement.EnumerateArray()) {
+        if ($jsonRecord.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw '数组项必须是对象。' }
+        $seenFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($property in $jsonRecord.EnumerateObject()) {
+          $field = [string]$property.Name
+          if (-not $seenFields.Add($field)) { throw "记录字段重复（大小写完全相同）：$field。" }
+          if (-not $allowedFields.Contains($field)) { throw "记录含不支持字段 $field。" }
+          if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
+            throw "字段 $field 必须是 JSON 字符串标量（实际类型 $($property.Value.ValueKind)）。"
+          }
+        }
+      }
+    } finally {
+      $json.Dispose()
+    }
+    $records = @($raw | ConvertFrom-Json -AsHashtable -Depth 16 -ErrorAction Stop)
     foreach ($record in $records) {
       if ($record -isnot [System.Collections.IDictionary]) { throw '数组项必须是对象。' }
       foreach ($field in $record.Keys) {
