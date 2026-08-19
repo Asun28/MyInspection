@@ -5475,15 +5475,15 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         'GNU General Public License Version 2 only', 'GNU General Public Licence v3 or later'
       )) {
         $script:bad = @(); $script:warn = @(); $script:Distributes = $false
-        Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @($plainGplForm) -Source 'fixture' -Configurations @(':app:runtimeClasspath')
+        Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @($plainGplForm) -Source 'selftest' -Configurations @(':core:runtimeClasspath')
         if ($script:bad.Count -ne 0 -or $script:warn.Count -ne 1) {
-          Fail "种子缺陷 17p：不分发模式下纯 GPL 形式 '$plainGplForm' 必须走 plain-gpl 警告分支；bad=$($script:bad.Count) warn=$($script:warn.Count)。"
+          Fail "种子缺陷 17p：Gradle 纯 GPL 后缀 '$plainGplForm' 在 Distributes=false 时必须降为单条黄牌；bad=$($script:bad.Count) warn=$($script:warn.Count)。"
           $pFail = $true
         }
         $script:bad = @(); $script:warn = @(); $script:Distributes = $true
-        Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @($plainGplForm) -Source 'fixture' -Configurations @(':app:runtimeClasspath')
+        Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @($plainGplForm) -Source 'selftest' -Configurations @(':core:runtimeClasspath')
         if ($script:bad.Count -ne 1 -or $script:warn.Count -ne 0) {
-          Fail "种子缺陷 17p：分发模式下纯 GPL 形式 '$plainGplForm' 必须阻断；bad=$($script:bad.Count) warn=$($script:warn.Count)。"
+          Fail "种子缺陷 17p：Gradle 纯 GPL 后缀 '$plainGplForm' 在 Distributes=true 时必须保持致命；bad=$($script:bad.Count) warn=$($script:warn.Count)。"
           $pFail = $true
         }
       }
@@ -9379,6 +9379,22 @@ try {
       Write-Host '  17cc(scanner/wrapper-offline) wrapper distribution 缺失时零启动、fail-closed OK' -ForegroundColor Green
     }
 
+    $fixtureWrapperProperties = Join-Path $scannerFixtureAndroid 'gradle/wrapper/gradle-wrapper.properties'
+    try {
+      Set-Content -LiteralPath $fixtureWrapperProperties -Encoding ascii -Value 'distributionUrl=https\://WRAPPER_USER:WRAPPER_SECRET@example.invalid/not-gradle.zip'
+      Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+      $scannerCredentialedWrapperUrl = Invoke-ScannerFixture $scannerFixtureScript -Strict
+      $credentialedWrapperCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+      if ($scannerCredentialedWrapperUrl.Exit -eq 0 -or $scannerCredentialedWrapperUrl.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $scannerCredentialedWrapperUrl.Text -notmatch '\[REDACTED\]' -or $scannerCredentialedWrapperUrl.Text -match 'WRAPPER_USER|WRAPPER_SECRET' -or $credentialedWrapperCalls.Count -ne 0) {
+        Fail "种子缺陷 17cc(scanner/wrapper-url-redaction)：畸形 distributionUrl 的 URI userinfo 必须在离线阻断诊断中脱敏，且不得启动 wrapper；实得 exit=$($scannerCredentialedWrapperUrl.Exit) calls=$($credentialedWrapperCalls.Count)；输出=$($scannerCredentialedWrapperUrl.Text)。"
+      } else {
+        Write-Host '  17cc(scanner/wrapper-url-redaction) 畸形 distributionUrl 的 URI userinfo 有界脱敏、零启动、fail-closed OK' -ForegroundColor Green
+      }
+    } finally {
+      Copy-Item -LiteralPath (Join-Path $RepoRoot 'android/gradle/wrapper/gradle-wrapper.properties') -Destination $fixtureWrapperProperties -Force
+      Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+    }
+
     # 与 gradle-wrapper.jar PathAssembler 相同的 URL MD5 → unsigned base36 目录键；测试侧独立算期望值，
     # 不复用生产 helper，避免生产 helper 与测试一起写错仍自洽假绿。
     $fixtureDistributionUrl = 'https://services.gradle.org/distributions/gradle-9.7.0-bin.zip'
@@ -9748,6 +9764,117 @@ try {
       Write-Host '  17cc(scanner/pom-conflict) 同 GAV 冲突许可证双缓存副本 fail-closed 且点名 OK' -ForegroundColor Green
     }
 
+    $pomLogInjectionCoordinate = 'fixture.metadata:pom-log-injection:1.0'
+    Set-ScannerFixturePom $pomLogInjectionCoordinate 'Apache License, Version 2.0&#10;::warning title=POM_METADATA_INJECTION::POM_METADATA_FORGE'
+    Set-ScannerFixtureOverrides $null
+    Set-ScannerFixtureReport "+--- $pomLogInjectionCoordinate"
+    $scannerPomLogInjection = Invoke-ScannerFixture $scannerFixtureScript
+    if (
+      $scannerPomLogInjection.Exit -eq 0 -or
+      $scannerPomLogInjection.Text -notmatch [regex]::Escape($pomLogInjectionCoordinate) -or
+      $scannerPomLogInjection.Text -notmatch 'GRADLE-POM' -or
+      $scannerPomLogInjection.Text -match 'POM_METADATA_FORGE' -or
+      $scannerPomLogInjection.Text -match '(?m)^::(?:warning|error|notice)'
+    ) {
+      Fail "种子缺陷 17cc(scanner/pom-log-injection)：POM 元数据中的换行/workflow command 必须 fail-closed 为 GRADLE-POM，且不得伪造独立日志行；实得 exit=$($scannerPomLogInjection.Exit)；输出=$($scannerPomLogInjection.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/pom-log-injection) POM 控制字符 fail-closed；workflow command 未形成独立日志行 OK' -ForegroundColor Green
+    }
+
+    $overrideLogInjectionCoordinate = 'fixture.metadata:override-log-injection:1.0'
+    Set-ScannerFixturePomWithoutLicense $overrideLogInjectionCoordinate
+    Set-ScannerFixtureOverrides @"
+[
+  {"coordinate":"$overrideLogInjectionCoordinate","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest\n::error title=OVERRIDE_METADATA_INJECTION::OVERRIDE_METADATA_FORGE","registered_on":"2026-08-19"}
+]
+"@
+    Set-ScannerFixtureReport "+--- $overrideLogInjectionCoordinate"
+    $scannerOverrideLogInjection = Invoke-ScannerFixture $scannerFixtureScript
+    if (
+      $scannerOverrideLogInjection.Exit -eq 0 -or
+      $scannerOverrideLogInjection.Text -notmatch [regex]::Escape($overrideLogInjectionCoordinate) -or
+      $scannerOverrideLogInjection.Text -notmatch 'GRADLE-OVERRIDE' -or
+      $scannerOverrideLogInjection.Text -match 'OVERRIDE_METADATA_FORGE' -or
+      $scannerOverrideLogInjection.Text -match '(?m)^::(?:warning|error|notice)'
+    ) {
+      Fail "种子缺陷 17cc(scanner/override-log-injection)：例外元数据中的换行/workflow command 必须 fail-closed 为 GRADLE-OVERRIDE，且不得伪造独立日志行；实得 exit=$($scannerOverrideLogInjection.Exit)；输出=$($scannerOverrideLogInjection.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/override-log-injection) 例外元数据控制字符 fail-closed；workflow command 未形成独立日志行 OK' -ForegroundColor Green
+    }
+
+    $pomFormatInjectionCoordinate = 'fixture.metadata:pom-format-injection:1.0'
+    Set-ScannerFixturePom $pomFormatInjectionCoordinate ("Apache License, Version 2.0$([char]0x202E)POM_METADATA_FORMAT_FORGE")
+    Set-ScannerFixtureOverrides $null
+    Set-ScannerFixtureReport "+--- $pomFormatInjectionCoordinate"
+    $scannerPomFormatInjection = Invoke-ScannerFixture $scannerFixtureScript
+    if (
+      $scannerPomFormatInjection.Exit -eq 0 -or
+      $scannerPomFormatInjection.Text -notmatch [regex]::Escape($pomFormatInjectionCoordinate) -or
+      $scannerPomFormatInjection.Text -notmatch 'GRADLE-POM' -or
+      $scannerPomFormatInjection.Text -match 'POM_METADATA_FORMAT_FORGE'
+    ) {
+      Fail "种子缺陷 17cc(scanner/pom-format-injection)：POM 元数据中的 Unicode format 字符必须 fail-closed 为 GRADLE-POM 且不得进入日志；实得 exit=$($scannerPomFormatInjection.Exit)；输出=$($scannerPomFormatInjection.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/pom-format-injection) POM Unicode format 字符 fail-closed 且未进入日志 OK' -ForegroundColor Green
+    }
+
+    $overrideFormatInjectionCoordinate = 'fixture.metadata:override-format-injection:1.0'
+    Set-ScannerFixturePomWithoutLicense $overrideFormatInjectionCoordinate
+    $overrideFormatInjection = [ordered]@{
+      coordinate = $overrideFormatInjectionCoordinate
+      license = 'Apache-2.0'
+      evidence_url = 'https://example.invalid/license'
+      registered_by = "selftest$([char]0x202E)OVERRIDE_METADATA_FORMAT_FORGE"
+      registered_on = '2026-08-19'
+    }
+    Set-ScannerFixtureOverrides (@($overrideFormatInjection) | ConvertTo-Json -Depth 3)
+    Set-ScannerFixtureReport "+--- $overrideFormatInjectionCoordinate"
+    $scannerOverrideFormatInjection = Invoke-ScannerFixture $scannerFixtureScript
+    if (
+      $scannerOverrideFormatInjection.Exit -eq 0 -or
+      $scannerOverrideFormatInjection.Text -notmatch 'GRADLE-OVERRIDE' -or
+      $scannerOverrideFormatInjection.Text -match 'OVERRIDE_METADATA_FORMAT_FORGE'
+    ) {
+      Fail "种子缺陷 17cc(scanner/override-format-injection)：例外元数据中的 Unicode format 字符必须 fail-closed 为 GRADLE-OVERRIDE 且不得进入日志；实得 exit=$($scannerOverrideFormatInjection.Exit)；输出=$($scannerOverrideFormatInjection.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/override-format-injection) 例外 Unicode format 字符 fail-closed 且未进入日志 OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureOverrides @'
+[
+  {"coordinate":"org.testng:testng:7.0.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-19","bad\r::warning title=OVERRIDE_PROPERTY_INJECTION::OVERRIDE_PROPERTY_FORGE":"x"}
+]
+'@
+    Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+    $scannerOverridePropertyInjection = Invoke-ScannerFixture $scannerFixtureScript
+    if (
+      $scannerOverridePropertyInjection.Exit -eq 0 -or
+      $scannerOverridePropertyInjection.Text -notmatch 'GRADLE-OVERRIDE' -or
+      $scannerOverridePropertyInjection.Text -match 'OVERRIDE_PROPERTY_FORGE' -or
+      $scannerOverridePropertyInjection.Text -match '(?m)^::(?:warning|error|notice)'
+    ) {
+      Fail "种子缺陷 17cc(scanner/override-property-injection)：例外 JSON property name 的 bare CR/workflow command 必须 fail-closed 且不得进入日志；实得 exit=$($scannerOverridePropertyInjection.Exit)；输出=$($scannerOverridePropertyInjection.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/override-property-injection) 例外 JSON property name 控制字符 fail-closed 且未进入日志 OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureOverrides @'
+[
+  {"coordinate":"org.testng:testng:7.0.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-19","bad\u202eOVERRIDE_PROPERTY_FORMAT_FORGE":"x"}
+]
+'@
+    Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+    $scannerOverridePropertyFormat = Invoke-ScannerFixture $scannerFixtureScript
+    if (
+      $scannerOverridePropertyFormat.Exit -eq 0 -or
+      $scannerOverridePropertyFormat.Text -notmatch 'GRADLE-OVERRIDE' -or
+      $scannerOverridePropertyFormat.Text -match 'OVERRIDE_PROPERTY_FORMAT_FORGE'
+    ) {
+      Fail "种子缺陷 17cc(scanner/override-property-format)：例外 JSON property name 的 Unicode format 字符必须 fail-closed 且不得进入日志；实得 exit=$($scannerOverridePropertyFormat.Exit)；输出=$($scannerOverridePropertyFormat.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/override-property-format) 例外 JSON property name Unicode format 字符 fail-closed 且未进入日志 OK' -ForegroundColor Green
+    }
+
     $declaredNameOverrideCoordinate = 'fixture.override:declared-name:1.0'
     Set-ScannerFixturePom $declaredNameOverrideCoordinate 'BSD License'
     Set-ScannerFixtureOverrides @"
@@ -10076,13 +10203,16 @@ try {
 . '$escapedScriptPath' -AsLibrary
 `$script:bad = @(); `$script:warn = @(); `$script:Distributes = `$false
 Add-GradleLicenseFinding -Coordinate 'fixture.gpl:suffix:1.0' -Licenses @('GPL-2.0-or-later') -Source 'mutation' -Configurations @(':core:runtimeClasspath')
-if (`$script:bad.Count -eq 0 -and `$script:warn.Count -eq 1) { exit 0 }
-exit 1
+if (`$script:bad.Count -eq 0 -and `$script:warn.Count -eq 1) { Write-Output 'GPL-SUFFIX-PLAIN'; exit 0 }
+if (`$script:bad.Count -eq 1 -and `$script:warn.Count -eq 0) { Write-Output 'GPL-SUFFIX-FORBIDDEN'; exit 2 }
+Write-Output "GPL-SUFFIX-NOISE bad=`$(`$script:bad.Count) warn=`$(`$script:warn.Count)"; exit 3
 "@
           $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
           $probeExit = $LASTEXITCODE
-          $present = $probeExit -eq 0
-          $code = 'ABSENT-GPL-SUFFIX-DOWNGRADE'
+          $probeJoined = $probeOutput -join "`n"
+          $present = $probeExit -eq 0 -and $probeJoined -match '(?m)^GPL-SUFFIX-PLAIN$' -and $probeJoined -notmatch 'GPL-SUFFIX-(?:FORBIDDEN|NOISE)'
+          $semanticInverse = $probeExit -eq 2 -and $probeJoined -match '(?m)^GPL-SUFFIX-FORBIDDEN$' -and $probeJoined -notmatch 'GPL-SUFFIX-(?:PLAIN|NOISE)'
+          $code = if ($present -or $semanticInverse) { 'ABSENT-GPL-SUFFIX-DOWNGRADE' } else { 'MUTANT-NOISE-GPL-SUFFIX-DOWNGRADE' }
         }
         'pom-name-required' {
           $coordinate = 'fixture.pom:blank-license-name:1.0'
@@ -10125,6 +10255,70 @@ exit 1
           $result = Invoke-ScannerFixture $ScriptPath
           $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match 'simulated Gradle failure detail'
           $code = 'ABSENT-DIAGNOSTIC-REDACTION'
+        }
+        'pom-metadata-control' {
+          $coordinate = 'fixture.metadata:pom-format-injection:1.0'
+          Set-ScannerFixtureOverrides $null
+          Set-ScannerFixtureReport "+--- $coordinate"
+          $result = Invoke-ScannerFixture $ScriptPath
+          $baseline = $result.Exit -ne 0 -and $result.Text -match '\[GRADLE-POM\]' -and $result.Text -notmatch 'POM_METADATA_FORMAT_FORGE'
+          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match 'POM_METADATA_FORMAT_FORGE' -and $result.Text -match '\[GRADLE-UNKNOWN\]'
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-POM-METADATA-CONTROL-GUARD' } else { 'MUTANT-NOISE-POM-METADATA-CONTROL-GUARD' }
+        }
+        'override-metadata-control' {
+          $coordinate = 'fixture.metadata:override-mut-format:1.0'
+          $record = [ordered]@{
+            coordinate = $coordinate
+            license = 'Apache-2.0'
+            evidence_url = 'https://example.invalid/license'
+            registered_by = "selftest$([char]0x202E)OVERRIDE_METADATA_FORMAT_FORGE"
+            registered_on = '2026-08-19'
+          }
+          Set-ScannerFixtureOverrides (ConvertTo-Json -InputObject @($record) -Depth 3)
+          $escapedScriptPath = $ScriptPath.Replace("'", "''")
+          $escapedOverridesPath = $scannerFixtureOverrides.Replace("'", "''")
+          $probeText = @"
+. '$escapedScriptPath' -AsLibrary
+`$map = Get-GradleExceptionMap -Path '$escapedOverridesPath'
+if (`$map.Error -match '\[GRADLE-OVERRIDE\]' -and `$map.Entries.Count -eq 0) { Write-Output 'OVERRIDE-METADATA-REJECTED'; exit 0 }
+if (`$null -eq `$map.Error -and `$map.Entries.ContainsKey('$coordinate') -and `$map.Entries['$coordinate'].Fallback.RegisteredBy -match 'OVERRIDE_METADATA_FORMAT_FORGE') { Write-Output 'OVERRIDE-METADATA-ACCEPTED'; exit 2 }
+Write-Output "OVERRIDE-METADATA-NOISE error=`$(`$map.Error) entries=`$(`$map.Entries.Count)"; exit 3
+"@
+          $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
+          $probeExit = $LASTEXITCODE
+          $present = $probeExit -eq 0 -and ($probeOutput -join "`n") -ceq 'OVERRIDE-METADATA-REJECTED'
+          $semanticInverse = $probeExit -eq 2 -and ($probeOutput -join "`n") -ceq 'OVERRIDE-METADATA-ACCEPTED'
+          $code = if ($present -or $semanticInverse) { 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD' } else { 'MUTANT-NOISE-OVERRIDE-METADATA-CONTROL-GUARD' }
+        }
+        'override-property-control' {
+          Set-ScannerFixtureOverrides @'
+[
+  {"coordinate":"org.testng:testng:7.0.0","license":"Apache-2.0","evidence_url":"https://example.invalid/license","registered_by":"selftest","registered_on":"2026-08-19","bad\u202eOVERRIDE_PROPERTY_FORMAT_FORGE":"x"}
+]
+'@
+          Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+          $result = Invoke-ScannerFixture $ScriptPath
+          $baseline = $result.Exit -ne 0 -and $result.Text -match '\[GRADLE-OVERRIDE\]' -and $result.Text -notmatch 'OVERRIDE_PROPERTY_FORMAT_FORGE'
+          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match '\[GRADLE-OVERRIDE\]' -and $result.Text -match 'OVERRIDE_PROPERTY_FORMAT_FORGE'
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-OVERRIDE-PROPERTY-CONTROL-GUARD' } else { 'MUTANT-NOISE-OVERRIDE-PROPERTY-CONTROL-GUARD' }
+        }
+        'metadata-output-sanitizer' {
+          $escapedScriptPath = $ScriptPath.Replace("'", "''")
+          $probeText = @"
+. '$escapedScriptPath' -AsLibrary
+`$payload = "safe-prefix``r::warning title=METADATA_OUTPUT_INJECTION::METADATA_OUTPUT_FORGE`$([char]0x202E)METADATA_FORMAT_FORGE"
+`$value = Get-GradleAuditText -Value `$payload
+if (`$value -match 'safe-prefix' -and `$value -match 'METADATA_OUTPUT_FORGE' -and `$value -match 'METADATA_FORMAT_FORGE' -and `$value -notmatch '[\p{Cc}\p{Cf}]' -and `$value -notmatch '^::') { Write-Output 'METADATA-OUTPUT-SANITIZED'; exit 0 }
+if (`$value -match '[\p{Cc}\p{Cf}]' -or `$value -match '^::') { Write-Output 'METADATA-OUTPUT-UNSANITIZED'; exit 2 }
+Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
+"@
+          $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
+          $probeExit = $LASTEXITCODE
+          $present = $probeExit -eq 0 -and ($probeOutput -join "`n") -ceq 'METADATA-OUTPUT-SANITIZED'
+          $semanticInverse = $probeExit -eq 2 -and ($probeOutput -join "`n") -ceq 'METADATA-OUTPUT-UNSANITIZED'
+          $code = if ($present -or $semanticInverse) { 'ABSENT-METADATA-OUTPUT-SANITIZER' } else { 'MUTANT-NOISE-METADATA-OUTPUT-SANITIZER' }
         }
         'unknown' {
           Set-ScannerFixtureReport '+--- fixture.unknown:missing:1.0'
@@ -10289,7 +10483,7 @@ exit 1
       $scannerMutationCases = @(
         @{ Id = 'report'; Scenario = 'testng'; Code = 'ABSENT-TESTNG-REPORT'; Label = '已解析 TestNG GAV 收集'; Marker = '[void]$coordinates.Add($resolvedCoordinate)' },
         @{ Id = 'nested'; Scenario = 'nested-testng'; Code = 'ABSENT-NESTED-TESTNG-REPORT'; Label = '嵌套 TestNG 唯一 configuration 归属'; Marker = "`$plain = `$plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix" },
-        @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
+        @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
         @{ Id = 'risk-alias'; Scenario = 'risk-alias'; Code = 'ABSENT-RISK-ALIAS-BLOCK'; Label = '风险许可别名先于精确映射阻断'; Marker = 'if ($License -match $gradleForbidden -or $riskNormalized -cmatch $forbiddenRisk) { return ''forbidden'' }' },
         @{ Id = 'gpl-suffix'; Scenario = 'gpl-suffix'; Code = 'ABSENT-GPL-SUFFIX-DOWNGRADE'; Label = '纯 GPL 后缀进入不分发降级分支'; Marker = '# pure GPL suffix classification' },
         @{ Id = 'pom-name-required'; Scenario = 'pom-name-required'; Code = 'ABSENT-POM-NAME-GUARD'; Label = '每个 POM license 均须非空 name'; Marker = '# require every declared license name' },
@@ -10298,7 +10492,11 @@ exit 1
         @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '# credential redaction: authorization' },
         @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '# credential redaction: key' },
         @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
-        @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' },
+        @{ Id = 'pom-metadata-control'; Scenario = 'pom-metadata-control'; Code = 'ABSENT-POM-METADATA-CONTROL-GUARD'; Label = 'POM metadata 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'POM license/name' -Value `$licenseName" },
+        @{ Id = 'override-metadata-control'; Scenario = 'override-metadata-control'; Code = 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD'; Label = '例外 metadata 控制/格式字符拒绝'; Marker = 'Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])' },
+        @{ Id = 'override-property-control'; Scenario = 'override-property-control'; Code = 'ABSENT-OVERRIDE-PROPERTY-CONTROL-GUARD'; Label = '例外 JSON property name 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'JSON property name' -Value `$field" },
+        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = "`$Value = [regex]::Replace(`$Value, '[\p{Cc}\p{Cf}]', ' ') # metadata audit control/format normalization" },
+        @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' },
         @{ Id = 'wrapper-ok'; Scenario = 'wrapper-ok'; Code = 'ABSENT-WRAPPER-OK-GUARD'; Label = 'Gradle wrapper .ok 完成标记'; Marker = '(Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker' },
         @{ Id = 'wrapper-root-count'; Scenario = 'wrapper-root-count'; Code = 'ABSENT-WRAPPER-ROOT-COUNT'; Label = 'Gradle wrapper 解压根目录唯一性'; Marker = '($distributionRoots.Count -eq 1) # wrapper root cardinality' },
         @{ Id = 'wrapper-root-name'; Scenario = 'wrapper-root-name'; Code = 'ABSENT-WRAPPER-ROOT-NAME'; Label = 'Gradle wrapper 解压根目录精确名'; Marker = '($expectedDistributionRoots.Count -eq 1) # wrapper root exact name' },
