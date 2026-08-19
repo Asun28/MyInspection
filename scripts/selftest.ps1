@@ -9203,7 +9203,22 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
     "echo prefix-$longPrefix 1>&2",
     'echo Authorization: Bearer REDACT_ME 1>&2',
+    'echo Authorization Bearer AUTH_SPACE_LEAK 1>&2',
+    'echo Proxy-Authorization: Bearer PROXY_AUTH_LEAK 1>&2',
+    'echo X-Authorization: Bearer X_AUTH_LEAK 1>&2',
     "echo $credentialFixture 1>&2",
+    'echo --password CLI_PASSWORD_LEAK 1>&2',
+    'echo password PLAIN_PASSWORD_LEAK 1>&2',
+    'echo token PLAIN_TOKEN_LEAK 1>&2',
+    'echo -Ppassword=PROP_PASSWORD_LEAK 1>&2',
+    'echo ssh://SSH_USER_LEAK:SSH_PASS_LEAK@example.invalid/repository 1>&2',
+    'echo https://:EMPTY_USER_PASS_LEAK@example.invalid/repository 1>&2',
+    'echo https://EMPTY_PASS_USER_LEAK:@example.invalid/repository 1>&2',
+    'echo https://URI_USERINFO_LEAK@example.invalid/repository 1>&2',
+    'echo https://URI_SECRET_USER_LEAK:@example.invalid/repository 1>&2',
+    'echo {"token":"JSON_TOKEN_LEAK"} 1>&2',
+    'echo {"password":"JSON_PASSWORD_LEAK"} 1>&2',
+    'echo {"Authorization":"Bearer JSON_AUTH_LEAK"} 1>&2',
     'echo simulated Gradle failure detail 1>&2',
     "exit /b $ExitCode"
   )
@@ -9212,7 +9227,22 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
     "printf '%s\n' 'prefix-$longPrefix' >&2",
     "printf '%s\n' 'Authorization: Bearer REDACT_ME' >&2",
+    "printf '%s\n' 'Authorization Bearer AUTH_SPACE_LEAK' >&2",
+    "printf '%s\n' 'Proxy-Authorization: Bearer PROXY_AUTH_LEAK' >&2",
+    "printf '%s\n' 'X-Authorization: Bearer X_AUTH_LEAK' >&2",
     "printf '%s\n' '$credentialFixture' >&2",
+    "printf '%s\n' '--password CLI_PASSWORD_LEAK' >&2",
+    "printf '%s\n' 'password PLAIN_PASSWORD_LEAK' >&2",
+    "printf '%s\n' 'token PLAIN_TOKEN_LEAK' >&2",
+    "printf '%s\n' '-Ppassword=PROP_PASSWORD_LEAK' >&2",
+    "printf '%s\n' 'ssh://SSH_USER_LEAK:SSH_PASS_LEAK@example.invalid/repository' >&2",
+    "printf '%s\n' 'https://:EMPTY_USER_PASS_LEAK@example.invalid/repository' >&2",
+    "printf '%s\n' 'https://EMPTY_PASS_USER_LEAK:@example.invalid/repository' >&2",
+    "printf '%s\n' 'https://URI_USERINFO_LEAK@example.invalid/repository' >&2",
+    "printf '%s\n' 'https://URI_SECRET_USER_LEAK:@example.invalid/repository' >&2",
+    "printf '%s\n' '{`"token`":`"JSON_TOKEN_LEAK`"}' >&2",
+    "printf '%s\n' '{`"password`":`"JSON_PASSWORD_LEAK`"}' >&2",
+    "printf '%s\n' '{`"Authorization`":`"Bearer JSON_AUTH_LEAK`"}' >&2",
     "printf '%s\n' 'simulated Gradle failure detail' >&2",
     "exit $ExitCode"
   )
@@ -9295,7 +9325,16 @@ try {
     $env:GRADLE_CALL_LOG = $scannerFixtureCallLog
     Set-ScannerFixtureOverrides $null
 
-    Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
+    $scannerInternalProjectReport = @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- project '':core''',
+      '+--- project :core',
+      '+--- project ":core"',
+      '+--- project '':source'' -> project ":core"',
+      '+--- project :source -> project :core',
+      '+--- project :source (c) -> project :core (*)'
+    )
+    Set-ScannerFixtureReport $scannerInternalProjectReport
     $scannerUnprovisioned = Invoke-ScannerFixture $scannerFixtureScript -Strict
     $unprovisionedCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
     if ($scannerUnprovisioned.Exit -eq 0 -or $scannerUnprovisioned.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $unprovisionedCalls.Count -ne 0) {
@@ -9319,7 +9358,101 @@ try {
     $fixtureDistributionDir = Join-Path $scannerFixtureGradleHome "wrapper/dists/gradle-9.7.0-bin/$fixtureHash"
     $fixtureDistributionBin = Join-Path $fixtureDistributionDir 'gradle-9.7.0/bin'
     New-Item -ItemType Directory -Force $fixtureDistributionBin | Out-Null
-    New-Item -ItemType File -Force (Join-Path $fixtureDistributionDir 'gradle-9.7.0-bin.zip.ok'), (Join-Path $fixtureDistributionBin 'gradle'), (Join-Path $fixtureDistributionBin 'gradle.bat') | Out-Null
+    $fixtureDistributionOk = Join-Path $fixtureDistributionDir 'gradle-9.7.0-bin.zip.ok'
+    New-Item -ItemType File -Force $fixtureDistributionOk, (Join-Path $fixtureDistributionBin 'gradle'), (Join-Path $fixtureDistributionBin 'gradle.bat') | Out-Null
+    $scannerIncompleteDistribution = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $incompleteDistributionCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerIncompleteDistribution.Exit -eq 0 -or $scannerIncompleteDistribution.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $incompleteDistributionCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-incomplete)：.ok 与 bin 脚本不足以证明 Gradle distribution 可启动；缺少唯一 lib/gradle-launcher-*.jar 时必须零启动并以 GRADLE-WRAPPER-OFFLINE fail-closed；实得 exit=$($scannerIncompleteDistribution.Exit) calls=$($incompleteDistributionCalls.Count)；输出=$($scannerIncompleteDistribution.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-incomplete) 缺唯一 launcher JAR 时零启动、fail-closed OK' -ForegroundColor Green
+    }
+    $fixtureDistributionLib = Join-Path $fixtureDistributionDir 'gradle-9.7.0/lib'
+    New-Item -ItemType Directory -Force $fixtureDistributionLib | Out-Null
+    $fixtureExpectedLauncher = Join-Path $fixtureDistributionLib 'gradle-launcher-9.7.0.jar'
+    New-Item -ItemType File -Force $fixtureExpectedLauncher | Out-Null
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
+    $fixtureWrongLauncher = Join-Path $fixtureDistributionLib 'gradle-launcher-9.6.0.jar'
+    Move-Item -LiteralPath $fixtureExpectedLauncher -Destination $fixtureWrongLauncher
+    $scannerWrongLauncher = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $wrongLauncherCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerWrongLauncher.Exit -eq 0 -or $scannerWrongLauncher.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $wrongLauncherCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-launcher-version)：唯一 launcher JAR 也必须与 distributionUrl 的版本精确对应；错版本 JAR 不得启动 wrapper；实得 exit=$($scannerWrongLauncher.Exit) calls=$($wrongLauncherCalls.Count)；输出=$($scannerWrongLauncher.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-launcher-version) 错版本 launcher JAR 零启动、fail-closed OK' -ForegroundColor Green
+    }
+    Move-Item -LiteralPath $fixtureWrongLauncher -Destination $fixtureExpectedLauncher
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
+    New-Item -ItemType File -Force $fixtureWrongLauncher | Out-Null
+    $scannerExtraLauncher = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $extraLauncherCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerExtraLauncher.Exit -eq 0 -or $scannerExtraLauncher.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $extraLauncherCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-launcher-count)：expected launcher 与额外 launcher 并存时必须零启动并以 GRADLE-WRAPPER-OFFLINE fail-closed；实得 exit=$($scannerExtraLauncher.Exit) calls=$($extraLauncherCalls.Count)；输出=$($scannerExtraLauncher.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-launcher-count) 多 launcher JAR 时零启动、fail-closed OK' -ForegroundColor Green
+    }
+    Remove-Item -LiteralPath $fixtureWrongLauncher -Force
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
+    Remove-Item -LiteralPath $fixtureDistributionOk -Force
+    $scannerMissingDistributionMarker = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $missingDistributionMarkerCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerMissingDistributionMarker.Exit -eq 0 -or $scannerMissingDistributionMarker.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $missingDistributionMarkerCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-missing-ok)：root/launcher/bin 均完整但缺 wrapper .ok 完成标记时必须零启动并以 GRADLE-WRAPPER-OFFLINE fail-closed；实得 exit=$($scannerMissingDistributionMarker.Exit) calls=$($missingDistributionMarkerCalls.Count)；输出=$($scannerMissingDistributionMarker.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-missing-ok) 完整发行版缺 .ok 标记时零启动、fail-closed OK' -ForegroundColor Green
+    }
+    New-Item -ItemType File -Force $fixtureDistributionOk | Out-Null
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
+    foreach ($fixtureBinName in @('gradle', 'gradle.bat')) {
+      $fixtureMissingBin = Join-Path $fixtureDistributionBin $fixtureBinName
+      Remove-Item -LiteralPath $fixtureMissingBin -Force
+      $scannerMissingDistributionBin = Invoke-ScannerFixture $scannerFixtureScript -Strict
+      $missingDistributionBinCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+      if ($scannerMissingDistributionBin.Exit -eq 0 -or $scannerMissingDistributionBin.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $missingDistributionBinCalls.Count -ne 0) {
+        Fail "种子缺陷 17cc(scanner/wrapper-missing-$fixtureBinName)：launcher JAR 存在但缺发行版 $fixtureBinName 脚本时必须零启动并以 GRADLE-WRAPPER-OFFLINE fail-closed；实得 exit=$($scannerMissingDistributionBin.Exit) calls=$($missingDistributionBinCalls.Count)；输出=$($scannerMissingDistributionBin.Text)。"
+      } else {
+        Write-Host "  17cc(scanner/wrapper-missing-$fixtureBinName) 缺发行版 $fixtureBinName 时零启动、fail-closed OK" -ForegroundColor Green
+      }
+      New-Item -ItemType File -Force $fixtureMissingBin | Out-Null
+      Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+    }
+
+    $fixtureExpectedDistributionRoot = Join-Path $fixtureDistributionDir 'gradle-9.7.0'
+    $fixtureWrongDistributionRoot = Join-Path $fixtureDistributionDir 'gradle-9.7.0-renamed'
+    Move-Item -LiteralPath $fixtureExpectedDistributionRoot -Destination $fixtureWrongDistributionRoot
+    $scannerWrongDistributionRoot = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $wrongDistributionRootCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerWrongDistributionRoot.Exit -eq 0 -or $scannerWrongDistributionRoot.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $wrongDistributionRootCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-root-name)：唯一解压根目录也必须与 distributionUrl 的 gradle-<version> 精确对应；错名目录不得启动 wrapper；实得 exit=$($scannerWrongDistributionRoot.Exit) calls=$($wrongDistributionRootCalls.Count)；输出=$($scannerWrongDistributionRoot.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-root-name) 错名唯一解压根目录零启动、fail-closed OK' -ForegroundColor Green
+    }
+    Move-Item -LiteralPath $fixtureWrongDistributionRoot -Destination $fixtureExpectedDistributionRoot
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
+    $fixtureExtraDistributionRoot = Join-Path $fixtureDistributionDir 'gradle-9.7.0-shadow'
+    New-Item -ItemType Directory -Force $fixtureExtraDistributionRoot | Out-Null
+    $scannerExtraDistributionRoot = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    $extraDistributionRootCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    if ($scannerExtraDistributionRoot.Exit -eq 0 -or $scannerExtraDistributionRoot.Text -notmatch 'GRADLE-WRAPPER-OFFLINE' -or $extraDistributionRootCalls.Count -ne 0) {
+      Fail "种子缺陷 17cc(scanner/wrapper-root-count)：expected root 与额外 root 并存时必须零启动并以 GRADLE-WRAPPER-OFFLINE fail-closed；实得 exit=$($scannerExtraDistributionRoot.Exit) calls=$($extraDistributionRootCalls.Count)；输出=$($scannerExtraDistributionRoot.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/wrapper-root-count) 多解压根目录时零启动、fail-closed OK' -ForegroundColor Green
+    }
+    Remove-Item -LiteralPath $fixtureExtraDistributionRoot -Recurse -Force
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+
+    Set-ScannerFixtureReport $scannerInternalProjectReport
+    $scannerInternalProjects = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerInternalProjects.Exit -ne 0 -or $scannerInternalProjects.Text -notmatch 'org\.testng:testng:7\.0\.0.*Apache') {
+      Fail "种子缺陷 17cc(scanner/internal-projects)：single/double/unquoted direct project 与 project -> project 都是仓内节点，应跳过且不遮住同图 TestNG；实得 exit=$($scannerInternalProjects.Exit)；输出=$($scannerInternalProjects.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/internal-projects) single/double/unquoted direct project + project -> project 跳过 OK' -ForegroundColor Green
+    }
     Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
 
     Set-ScannerFixtureConfigurationReport
@@ -9357,6 +9490,42 @@ try {
       Fail "种子缺陷 17cc(scanner/resolved-version)：Gradle requested 0.9 -> resolved 1.0 时必须只以已解析 fixture.resolve:redirect:1.0 查 POM/报告且 -Strict 通过；实得 exit=$($scannerResolved.Exit)；输出=$($scannerResolved.Text)。"
     } else {
       Write-Host '  17cc(scanner/resolved-version) requested -> resolved 版本只按 resolved GAV 查 POM/报告 OK' -ForegroundColor Green
+    }
+
+    $projectSubstitutionCoordinate = 'fixture.project:external:1.2.3'
+    Set-ScannerFixturePom $projectSubstitutionCoordinate 'Apache License, Version 2.0'
+    Set-ScannerFixtureReport @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- project :substitute -> fixture.project:external:1.2.3'
+    )
+    $scannerProjectSubstitution = Invoke-ScannerFixture $scannerFixtureScript -Strict
+    if ($scannerProjectSubstitution.Exit -ne 0 -or $scannerProjectSubstitution.Text -notmatch 'fixture\.project:external:1\.2\.3.*Apache') {
+      Fail "种子缺陷 17cc(scanner/project-substitution)：project dependency 被解析为外部 module 时仍必须逐坐标扫描 resolved GAV；实得 exit=$($scannerProjectSubstitution.Exit)；输出=$($scannerProjectSubstitution.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/project-substitution) project -> external module 的 resolved GAV 逐坐标扫描 OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureReport @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- project :substitute ->',
+      '+--- project malformed'
+    )
+    $scannerMalformedProjects = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerMalformedProjects.Exit -eq 0 -or $scannerMalformedProjects.Text -notmatch 'project :substitute ->.*\[GRADLE-PARSE\]' -or $scannerMalformedProjects.Text -notmatch 'project malformed.*\[GRADLE-PARSE\]') {
+      Fail "种子缺陷 17cc(scanner/malformed-project)：只有完整的内部 project 节点或 project -> external GAV 可被接受；截断 substitution 与畸形 project 边必须逐条以 GRADLE-PARSE fail-closed；实得 exit=$($scannerMalformedProjects.Exit)；输出=$($scannerMalformedProjects.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/malformed-project) 截断 substitution + 畸形 project 边逐条 GRADLE-PARSE fail-closed OK' -ForegroundColor Green
+    }
+
+    Set-ScannerFixtureReport @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- fixture.empty:selector: -> 1.0'
+    )
+    $scannerEmptyRequestedSelector = Invoke-ScannerFixture $scannerFixtureScript
+    if ($scannerEmptyRequestedSelector.Exit -eq 0 -or $scannerEmptyRequestedSelector.Text -notmatch 'fixture\.empty:selector: -> 1\.0.*\[GRADLE-PARSE\]') {
+      Fail "种子缺陷 17cc(scanner/empty-requested-selector)：requested selector 为空的重定向不得被当成 resolved GAV 接受，必须保留完整边并以 GRADLE-PARSE fail-closed；实得 exit=$($scannerEmptyRequestedSelector.Exit)；输出=$($scannerEmptyRequestedSelector.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/empty-requested-selector) 空 requested selector 以完整边 + GRADLE-PARSE fail-closed OK' -ForegroundColor Green
     }
 
     $versionlessCoordinate = 'fixture.versionless:edge:1.0'
@@ -9403,6 +9572,40 @@ try {
       Fail "种子缺陷 17cc(scanner/unrecognized-edge)：无法辨认的非 project Gradle 依赖边不得被普通节点掩盖；带 GAV 的坏尾部与非 GAV 外部边都必须以 GRADLE-PARSE fail-closed；实得 exit=$($scannerUnrecognizedEdge.Exit)；输出=$($scannerUnrecognizedEdge.Text)。"
     } else {
       Write-Host '  17cc(scanner/unrecognized-edge) 带 GAV 的坏尾部 + 非 GAV 外部边均以 GRADLE-PARSE fail-closed OK' -ForegroundColor Green
+    }
+
+    $scannerSecretEdgeReport = @(
+      '+--- org.testng:testng:7.0.0',
+      '+--- malformed Authorization: Bearer REDACT_ME',
+      '+--- malformed Authorization Bearer AUTH_SPACE_LEAK',
+      '+--- malformed Proxy-Authorization: Bearer PROXY_AUTH_LEAK',
+      '+--- malformed X-Authorization: Bearer X_AUTH_LEAK',
+      '+--- malformed GITHUB_TOKEN=LEAK_ME',
+      '+--- malformed https://credential-user:credential-pass@example.invalid/repository',
+      '+--- malformed --password CLI_PASSWORD_LEAK',
+      '+--- malformed password PLAIN_PASSWORD_LEAK',
+      '+--- malformed token PLAIN_TOKEN_LEAK',
+      '+--- malformed -Ppassword=PROP_PASSWORD_LEAK',
+      '+--- malformed ssh://SSH_USER_LEAK:SSH_PASS_LEAK@example.invalid/repository',
+      '+--- malformed https://:EMPTY_USER_PASS_LEAK@example.invalid/repository',
+      '+--- malformed https://EMPTY_PASS_USER_LEAK:@example.invalid/repository',
+      '+--- malformed https://URI_USERINFO_LEAK@example.invalid/repository',
+      '+--- malformed https://URI_SECRET_USER_LEAK:@example.invalid/repository',
+      '+--- malformed {"token":"JSON_TOKEN_LEAK"}',
+      '+--- malformed {"password":"JSON_PASSWORD_LEAK"}',
+      '+--- malformed {"Authorization":"Bearer JSON_AUTH_LEAK"}'
+    )
+    $scannerSecretPattern = 'REDACT_ME|LEAK_ME|credential-user|credential-pass|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK'
+    Set-ScannerFixtureReport $scannerSecretEdgeReport
+    $scannerSecretEdges = Invoke-ScannerFixture $scannerFixtureScript
+    $secretParseCodes = [regex]::Matches($scannerSecretEdges.Text, '\[GRADLE-PARSE\]').Count
+    if ($scannerSecretEdges.Exit -eq 0 -or
+        $scannerSecretEdges.Text -match $scannerSecretPattern -or
+        $scannerSecretEdges.Text -notmatch '\[REDACTED\]' -or
+        $secretParseCodes -lt 18) {
+      Fail "种子缺陷 17cc(scanner/parse-redaction)：Gradle 零退出报告里的畸形边属于不可信文本；任意前缀 Authorization、赋值式/空格式/CLI/property/JSON 凭据与任意 scheme 的 URI userinfo 必须整行有界脱敏，同时十八条 GRADLE-PARSE 分类仍保留；实得 exit=$($scannerSecretEdges.Exit) parseCodes=$secretParseCodes；输出=$($scannerSecretEdges.Text)。"
+    } else {
+      Write-Host '  17cc(scanner/parse-redaction) 畸形边凭据脱敏且逐条保留 GRADLE-PARSE OK' -ForegroundColor Green
     }
 
     Set-ScannerFixtureReport '+--- fixture.epl:copyleft:1.0'
@@ -9731,6 +9934,14 @@ try {
     $scannerMutationLines = Get-Content -LiteralPath $scannerMutationScript
     function Invoke-ScannerMutationProbe([string]$ScriptPath, [string]$Scenario, [string]$MarkerId) {
       Set-ScannerFixtureOverrides $null
+      $classifyWrapperGuard = {
+        param($Result, [object[]]$Calls, [string]$AbsentCode)
+        $blocked = $Result.Exit -ne 0 -and $Result.Text -match 'GRADLE-WRAPPER-OFFLINE' -and $Calls.Count -eq 0
+        $bypassed = $Result.Exit -eq 0 -and $Calls.Count -eq 4 -and $Result.Text -match 'org\.testng:testng:7\.0\.0.*Apache'
+        if ($blocked) { return [PSCustomObject]@{ Present = $true; Code = $AbsentCode } }
+        if ($bypassed) { return [PSCustomObject]@{ Present = $false; Code = $AbsentCode } }
+        return [PSCustomObject]@{ Present = $false; Code = "MUTANT-NOISE-$($AbsentCode.Substring(7))" }
+      }
       switch ($Scenario) {
         'testng' {
           Set-ScannerFixtureReport '+--- org.testng:testng:7.0.0'
@@ -9768,7 +9979,7 @@ try {
         'diagnostic-redaction' {
           Set-ScannerFixtureFailure 42
           $result = Invoke-ScannerFixture $ScriptPath
-          $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match 'simulated Gradle failure detail'
+          $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match 'simulated Gradle failure detail'
           $code = 'ABSENT-DIAGNOSTIC-REDACTION'
         }
         'unknown' {
@@ -9776,6 +9987,154 @@ try {
           $result = Invoke-ScannerFixture $ScriptPath
           $present = $result.Exit -ne 0 -and $result.Text -match 'fixture\.unknown:missing:1\.0' -and $result.Text -match '\[GRADLE-METADATA\]'
           $code = 'ABSENT-UNKNOWN-BLOCK'
+        }
+        'wrapper-ok' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $fixtureDistributionOk -Force
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-OK-GUARD'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            New-Item -ItemType File -Force $fixtureDistributionOk | Out-Null
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'wrapper-root-count' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $fixtureExtraDistributionRoot | Out-Null
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-ROOT-COUNT'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            Remove-Item -LiteralPath $fixtureExtraDistributionRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'wrapper-root-name' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          Move-Item -LiteralPath $fixtureExpectedDistributionRoot -Destination $fixtureWrongDistributionRoot
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-ROOT-NAME'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            Move-Item -LiteralPath $fixtureWrongDistributionRoot -Destination $fixtureExpectedDistributionRoot -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'wrapper-launcher-count' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType File -Force $fixtureWrongLauncher | Out-Null
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-LAUNCHER-COUNT'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            Remove-Item -LiteralPath $fixtureWrongLauncher -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'wrapper-launcher-name' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          Move-Item -LiteralPath $fixtureExpectedLauncher -Destination $fixtureWrongLauncher
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-LAUNCHER-NAME'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            Move-Item -LiteralPath $fixtureWrongLauncher -Destination $fixtureExpectedLauncher -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'wrapper-bin-unix' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          $fixtureBinPath = Join-Path $fixtureDistributionBin 'gradle'
+          Remove-Item -LiteralPath $fixtureBinPath -Force
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-BIN-UNIX'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            New-Item -ItemType File -Force $fixtureBinPath | Out-Null
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'wrapper-bin-windows' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          $fixtureBinPath = Join-Path $fixtureDistributionBin 'gradle.bat'
+          Remove-Item -LiteralPath $fixtureBinPath -Force
+          try {
+            $result = Invoke-ScannerFixture $ScriptPath -Strict
+            $calls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+            $outcome = & $classifyWrapperGuard $result $calls 'ABSENT-WRAPPER-BIN-WINDOWS'
+            $present = $outcome.Present
+            $code = $outcome.Code
+          } finally {
+            New-Item -ItemType File -Force $fixtureBinPath | Out-Null
+            Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
+          }
+        }
+        'project-internal' {
+          Set-ScannerFixtureReport $scannerInternalProjectReport
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $baseline = $result.Exit -eq 0 -and $result.Text -match 'org\.testng:testng:7\.0\.0.*Apache'
+          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match 'project :core.*\[GRADLE-PARSE\]'
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-INTERNAL-PROJECT-SKIP' } else { 'MUTANT-NOISE-INTERNAL-PROJECT-SKIP' }
+        }
+        'project-external' {
+          Set-ScannerFixtureReport @('+--- org.testng:testng:7.0.0', '+--- project :substitute -> fixture.project:external:1.2.3')
+          $result = Invoke-ScannerFixture $ScriptPath -Strict
+          $baseline = $result.Exit -eq 0 -and $result.Text -match 'fixture\.project:external:1\.2\.3.*Apache'
+          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match 'project :substitute -> fixture\.project:external:1\.2\.3.*\[GRADLE-PARSE\]'
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-PROJECT-EXTERNAL-RESOLUTION' } else { 'MUTANT-NOISE-PROJECT-EXTERNAL-RESOLUTION' }
+        }
+        'project-malformed' {
+          Set-ScannerFixtureReport @('+--- org.testng:testng:7.0.0', '+--- project :substitute ->', '+--- project malformed')
+          $result = Invoke-ScannerFixture $ScriptPath
+          $baseline = $result.Exit -ne 0 -and $result.Text -match 'project :substitute ->.*\[GRADLE-PARSE\]' -and $result.Text -match 'project malformed.*\[GRADLE-PARSE\]'
+          $semanticInverse = $result.Exit -eq 0 -and $result.Text -match 'org\.testng:testng:7\.0\.0.*Apache'
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-MALFORMED-PROJECT-BLOCK' } else { 'MUTANT-NOISE-MALFORMED-PROJECT-BLOCK' }
+        }
+        'external-malformed' {
+          Set-ScannerFixtureReport @('+--- org.testng:testng:7.0.0', '+--- fixture.empty:selector: -> 1.0')
+          $result = Invoke-ScannerFixture $ScriptPath
+          $baseline = $result.Exit -ne 0 -and $result.Text -match 'fixture\.empty:selector: -> 1\.0.*\[GRADLE-PARSE\]'
+          $semanticInverse = $result.Exit -eq 0 -and $result.Text -match 'org\.testng:testng:7\.0\.0.*Apache'
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-MALFORMED-EXTERNAL-BLOCK' } else { 'MUTANT-NOISE-MALFORMED-EXTERNAL-BLOCK' }
+        }
+        'parse-redaction' {
+          Set-ScannerFixtureReport $scannerSecretEdgeReport
+          $result = Invoke-ScannerFixture $ScriptPath
+          $parseCodes = [regex]::Matches($result.Text, '\[GRADLE-PARSE\]').Count
+          $baseline = $result.Exit -ne 0 -and $result.Text -notmatch $scannerSecretPattern -and $result.Text -match '\[REDACTED\]' -and $parseCodes -ge 18
+          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match $scannerSecretPattern -and $parseCodes -ge 18
+          $present = $baseline
+          $code = if ($baseline -or $semanticInverse) { 'ABSENT-PARSE-ERROR-REDACTION' } else { 'MUTANT-NOISE-PARSE-ERROR-REDACTION' }
         }
         default { throw "未知 scanner mutation scenario: $Scenario" }
       }
@@ -9788,9 +10147,22 @@ try {
         @{ Id = 'nested'; Scenario = 'nested-testng'; Code = 'ABSENT-NESTED-TESTNG-REPORT'; Label = '嵌套 TestNG 唯一 configuration 归属'; Marker = "`$plain = `$plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix" },
         @{ Id = 'epl'; Scenario = 'epl'; Code = 'ABSENT-EPL-BLOCK'; Label = 'EPL 禁列分类'; Marker = 'Add-GradleNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # direct forbidden classification' },
         @{ Id = 'risk-alias'; Scenario = 'risk-alias'; Code = 'ABSENT-RISK-ALIAS-BLOCK'; Label = '风险许可别名先于精确映射阻断'; Marker = 'if ($License -match $gradleForbidden -or $riskNormalized -cmatch $forbiddenRisk) { return ''forbidden'' }' },
-        @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = 'Authorization 整行脱敏'; Marker = '$line = [regex]::Replace($line, ''(?i)\bAuthorization\s*[:=]\s*.*$'', ''Authorization: [REDACTED]'')' },
-        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '前缀/snake/camel 凭据键整行脱敏'; Marker = '$line = [regex]::Replace($line, ''(?i)(?<![A-Za-z0-9_.-])(?<key>[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)\s*[:=]\s*.*$'', ''${key}=[REDACTED]'')' },
-        @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' }
+        @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '# credential redaction: authorization' },
+        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '# credential redaction: key' },
+        @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
+        @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' },
+        @{ Id = 'wrapper-ok'; Scenario = 'wrapper-ok'; Code = 'ABSENT-WRAPPER-OK-GUARD'; Label = 'Gradle wrapper .ok 完成标记'; Marker = '(Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker' },
+        @{ Id = 'wrapper-root-count'; Scenario = 'wrapper-root-count'; Code = 'ABSENT-WRAPPER-ROOT-COUNT'; Label = 'Gradle wrapper 解压根目录唯一性'; Marker = '($distributionRoots.Count -eq 1) # wrapper root cardinality' },
+        @{ Id = 'wrapper-root-name'; Scenario = 'wrapper-root-name'; Code = 'ABSENT-WRAPPER-ROOT-NAME'; Label = 'Gradle wrapper 解压根目录精确名'; Marker = '($expectedDistributionRoots.Count -eq 1) # wrapper root exact name' },
+        @{ Id = 'wrapper-launcher-count'; Scenario = 'wrapper-launcher-count'; Code = 'ABSENT-WRAPPER-LAUNCHER-COUNT'; Label = 'Gradle wrapper launcher 唯一性'; Marker = '($launcherJars.Count -eq 1) # wrapper launcher cardinality' },
+        @{ Id = 'wrapper-launcher-name'; Scenario = 'wrapper-launcher-name'; Code = 'ABSENT-WRAPPER-LAUNCHER-NAME'; Label = 'Gradle wrapper launcher 精确名'; Marker = '($expectedLauncherJars.Count -eq 1) # wrapper launcher exact name' },
+        @{ Id = 'wrapper-bin-unix'; Scenario = 'wrapper-bin-unix'; Code = 'ABSENT-WRAPPER-BIN-UNIX'; Label = 'Gradle wrapper Unix bin'; Marker = "(`$null -ne `$binDir -and (Test-Path -LiteralPath (Join-Path `$binDir 'gradle') -PathType Leaf)) # wrapper unix bin" },
+        @{ Id = 'wrapper-bin-windows'; Scenario = 'wrapper-bin-windows'; Code = 'ABSENT-WRAPPER-BIN-WINDOWS'; Label = 'Gradle wrapper Windows bin'; Marker = "(`$null -ne `$binDir -and (Test-Path -LiteralPath (Join-Path `$binDir 'gradle.bat') -PathType Leaf)) # wrapper windows bin" },
+        @{ Id = 'project-internal'; Scenario = 'project-internal'; Code = 'ABSENT-INTERNAL-PROJECT-SKIP'; Label = 'Gradle 内部 project 跳过分支'; Marker = 'continue # direct internal Gradle project edge' },
+        @{ Id = 'project-external'; Scenario = 'project-external'; Code = 'ABSENT-PROJECT-EXTERNAL-RESOLUTION'; Label = 'Gradle project -> external resolved target'; Marker = '$body = $Matches.resolved.Trim() # project external substitution target' },
+        @{ Id = 'project-malformed'; Scenario = 'project-malformed'; Code = 'ABSENT-MALFORMED-PROJECT-BLOCK'; Label = '畸形 Gradle project 边 fail-closed'; Marker = '$errors.Add("无法判定 Gradle project 依赖边：$displayBody [GRADLE-PARSE]") # malformed project edge' },
+        @{ Id = 'external-malformed'; Scenario = 'external-malformed'; Code = 'ABSENT-MALFORMED-EXTERNAL-BLOCK'; Label = '空/畸形外部 selector fail-closed'; Marker = '$errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge' },
+        @{ Id = 'parse-redaction'; Scenario = 'parse-redaction'; Code = 'ABSENT-PARSE-ERROR-REDACTION'; Label = 'Gradle parse-error 不可信边脱敏'; Marker = '$displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge' }
       )
       foreach ($mutationCase in $scannerMutationCases) {
         $mutationMarkerId = "GRADLE-SCANNER-MUT-$($mutationCase.Id.ToUpperInvariant())"

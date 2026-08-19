@@ -479,6 +479,8 @@ function Get-GradleCoordinatesFromDependencyOutput {
 
   $coordinates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
   $errors = [System.Collections.Generic.List[string]]::new()
+  $projectSelectorPattern = '(?::[^\s]+|''(?::[^'']+)''|"(?::[^"]+)")'
+  $internalProjectPattern = "^project\s+$projectSelectorPattern(?:\s+\((?:c|\*)\))*$"
   foreach ($line in $Output) {
     # Gradle 树边只接收 Maven GAV；`project :core` 等仓内项目并非第三方坐标。
     # 其余任何无法辨认的边都是覆盖缺口，必须 fail-closed，不得被同图的正常 GAV 掩盖。
@@ -486,26 +488,39 @@ function Get-GradleCoordinatesFromDependencyOutput {
     $plain = $plain -replace '^\s*(?:\|\s*)+', '' # normalize nested dependency prefix
     if ($plain -notmatch '^\s*(?:\+---|\\---)\s+(?<body>.+?)\s*$') { continue }
     $body = $Matches.body
-    if ($body -match '^project\s+') { continue }
+    $displayBody = $body
+    $displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge
+    if ($body -match '^project\s+') {
+      $projectBody = $body
+      if ($body -match "^project\s+$projectSelectorPattern(?:\s+\((?:c|\*)\))*\s+->\s+(?<resolved>.+)$") {
+        $body = $Matches.resolved.Trim() # project external substitution target
+        if ($body -match $internalProjectPattern) { continue }
+      } elseif ($body -match $internalProjectPattern) {
+        continue # direct internal Gradle project edge
+      } else {
+        $errors.Add("无法判定 Gradle project 依赖边：$displayBody [GRADLE-PARSE]") # malformed project edge
+        continue
+      }
+    }
     if ($body -notmatch '^(?<group>[A-Za-z0-9_.-]+):(?<artifact>[A-Za-z0-9_.-]+)(?<tail>.*)$') {
-      $errors.Add("无法判定 Gradle 外部依赖边：$body [GRADLE-PARSE]")
+      $errors.Add("无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]")
       continue
     }
     $module = "$($Matches.group):$($Matches.artifact)"
     $tail = $Matches.tail
 
     if ($body -match '(?:^|\s)(?:FAILED|\(n\))(?:\s|$)') {
-      $errors.Add("$module => Gradle 报告为未解析边：$body [GRADLE-UNRESOLVED]")
+      $errors.Add("$module => Gradle 报告为未解析边：$displayBody [GRADLE-UNRESOLVED]")
       continue
     }
 
     $resolvedVersion = $null
-    if ($tail -match '^(?::.*?)?\s+->\s+(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
+    if ($tail -match '^(?:\s+|:[^\s].*?\s+)->\s+(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
       $resolvedVersion = $Matches.resolved
     } elseif ($tail -match '^:(?<resolved>[A-Za-z0-9_.-]+)(?:\s+\((?:c|\*)\))*\s*$') {
       $resolvedVersion = $Matches.resolved
     } else {
-      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$body [GRADLE-PARSE]")
+      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge
       continue
     }
     $resolvedCoordinate = "$($module):$resolvedVersion"
@@ -599,7 +614,9 @@ function Get-GradleWrapperDistributionState {
     return [PSCustomObject]@{ Ready = $false; Detail = "无法从 distributionUrl 判定 Gradle 发行版：$urlText" }
   }
   $distributionName = $Matches.distribution
-  $installName = "gradle-$($Matches.version)"
+  $installVersion = $Matches.version
+  $installName = "gradle-$installVersion"
+  $expectedLauncherName = "gradle-launcher-$installVersion.jar"
 
   $hashBytes = [Security.Cryptography.MD5]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($urlText))
   [Array]::Reverse($hashBytes)
@@ -613,10 +630,42 @@ function Get-GradleWrapperDistributionState {
 
   $distributionDir = Join-Path $GradleUserHome "wrapper/dists/$distributionName/$urlHash"
   $okPath = Join-Path $distributionDir "$zipName.ok"
-  $binDir = Join-Path $distributionDir "$installName/bin"
-  $ready = (Test-Path -LiteralPath $okPath -PathType Leaf) -and
-    (Test-Path -LiteralPath (Join-Path $binDir 'gradle') -PathType Leaf) -and
-    (Test-Path -LiteralPath (Join-Path $binDir 'gradle.bat') -PathType Leaf)
+  $distributionRoots = @()
+  try {
+    if (Test-Path -LiteralPath $distributionDir -PathType Container) {
+      $distributionRoots = @(Get-ChildItem -LiteralPath $distributionDir -Directory -Force -ErrorAction Stop | Sort-Object -Property Name)
+    }
+  } catch {
+    return [PSCustomObject]@{ Ready = $false; Detail = "读取 wrapper distribution 失败：$($_.Exception.Message)" }
+  }
+
+  $launcherJars = @()
+  $expectedDistributionRoots = @($distributionRoots | Where-Object { [string]::Equals($_.Name, $installName, [StringComparison]::Ordinal) })
+  $distributionRoot = if ($expectedDistributionRoots.Count -gt 0) { $expectedDistributionRoots[0] } elseif ($distributionRoots.Count -eq 1) { $distributionRoots[0] } else { $null }
+  $binDir = $null
+  if ($null -ne $distributionRoot) {
+    $libDir = Join-Path $distributionRoot.FullName 'lib'
+    try {
+      if (Test-Path -LiteralPath $libDir -PathType Container) {
+        $launcherJars = @(Get-ChildItem -LiteralPath $libDir -File -Filter 'gradle-launcher-*.jar' -Force -ErrorAction Stop)
+      }
+    } catch {
+      return [PSCustomObject]@{ Ready = $false; Detail = "读取 wrapper launcher 失败：$($_.Exception.Message)" }
+    }
+    $binDir = Join-Path $distributionRoot.FullName 'bin'
+  }
+  $expectedLauncherJars = @($launcherJars | Where-Object { [string]::Equals($_.Name, $expectedLauncherName, [StringComparison]::Ordinal) })
+
+  $readyChecks = @(
+    (Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker
+    ($distributionRoots.Count -eq 1) # wrapper root cardinality
+    ($expectedDistributionRoots.Count -eq 1) # wrapper root exact name
+    ($launcherJars.Count -eq 1) # wrapper launcher cardinality
+    ($expectedLauncherJars.Count -eq 1) # wrapper launcher exact name
+    ($null -ne $binDir -and (Test-Path -LiteralPath (Join-Path $binDir 'gradle') -PathType Leaf)) # wrapper unix bin
+    ($null -ne $binDir -and (Test-Path -LiteralPath (Join-Path $binDir 'gradle.bat') -PathType Leaf)) # wrapper windows bin
+  )
+  $ready = $readyChecks -notcontains $false
   return [PSCustomObject]@{
     Ready = $ready
     Detail = if ($ready) { $distributionDir } else { "wrapper distribution 未预置完成：$distributionDir" }
@@ -640,9 +689,9 @@ function Get-GradleDiagnosticTail {
   })
   $sanitized = @($expandedLines | ForEach-Object {
     $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '')
-    $line = [regex]::Replace($line, '(?i)\bAuthorization\s*[:=]\s*.*$', 'Authorization: [REDACTED]')
-    $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9_.-])(?<key>[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)\s*[:=]\s*.*$', '${key}=[REDACTED]')
-    $line = [regex]::Replace($line, '(?i)(https?://)[^/\s:@]+:[^@\s/]+@', '$1[REDACTED]@')
+    $line = [regex]::Replace($line, '(?i)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@', '${scheme}[REDACTED]@') # credential redaction: URI userinfo
+    $line = [regex]::Replace($line, '(?i)\bAuthorization["'']?(?:\s*[:=]\s*|\s+).*$', 'Authorization: [REDACTED]') # credential redaction: authorization
+    $line = [regex]::Replace($line, '(?i)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?(?:\s*[:=]\s*|\s+).*$', '${lead}${key}=[REDACTED]') # credential redaction: key
     if (-not [string]::IsNullOrWhiteSpace($line)) { $line.Trim() }
   } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($sanitized.Count -eq 0) { return '<no output>' }
