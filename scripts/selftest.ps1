@@ -150,6 +150,46 @@ function Test-SelftestCiWiringContract([string]$WorkflowText) {
   return $true
 }
 
+function Get-WorkflowOnBlockText([string]$WorkflowText) {
+  $onBlock = [regex]::Match($WorkflowText, '(?ms)^on:\s*\r?\n(?<body>.*?)(?=^[^\s#])')
+  if (-not $onBlock.Success) { return $null }
+  return $onBlock.Groups['body'].Value
+}
+
+function Get-WorkflowMappingKeys([string]$Text, [string]$Indent) {
+  $indentPattern = [regex]::Escape($Indent)
+  $keyMatches = [regex]::Matches($Text, "(?m)^${indentPattern}(?:(?<plain>[A-Za-z_][A-Za-z0-9_-]*)|'(?<single>[^']+)'|`"(?<double>[^`"]+)`")\s*:")
+  return @($keyMatches | ForEach-Object {
+    foreach ($groupName in @('plain', 'single', 'double')) {
+      if ($_.Groups[$groupName].Success) {
+        $_.Groups[$groupName].Value
+        break
+      }
+    }
+  })
+}
+
+function Test-MainMasterWorkflowTrigger([string]$WorkflowText, [string]$Trigger) {
+  $onBlockText = Get-WorkflowOnBlockText $WorkflowText
+  if ($null -eq $onBlockText) { return $false }
+  return ($onBlockText -match "(?m)^  $([regex]::Escape($Trigger)):\s*\r?\n\s+branches:\s*\[\s*main\s*,\s*master\s*\]")
+}
+
+function Test-ScaffoldSelftestTriggerContract([string]$WorkflowText) {
+  $onBlockText = Get-WorkflowOnBlockText $WorkflowText
+  if ($null -eq $onBlockText) { return $false }
+  $events = @(Get-WorkflowMappingKeys $onBlockText '  ')
+  if ($events.Count -ne 2 -or (@($events | Sort-Object -Unique) -join ',') -ne 'push,workflow_dispatch') { return $false }
+  $pushBlock = [regex]::Match($onBlockText, '(?ms)^  push:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*\s*:|\z)')
+  if (-not $pushBlock.Success) { return $false }
+  $pushSelectors = @(Get-WorkflowMappingKeys $pushBlock.Groups['body'].Value '    ')
+  if ($pushSelectors.Count -ne 2 -or (@($pushSelectors | Sort-Object -Unique) -join ',') -ne 'branches,paths') { return $false }
+  if ($pushBlock.Groups['body'].Value -notmatch '(?m)^    branches:\s*\[\s*main\s*,\s*master\s*\]\s*$') { return $false }
+  if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*$") { return $false }
+  if ($onBlockText -notmatch '(?m)^  workflow_dispatch:\s*\{\}\s*$') { return $false }
+  return $true
+}
+
 function New-SelftestSnapshot {
   param(
     [Parameter(Mandatory)][string]$SourceRoot,
@@ -759,7 +799,7 @@ else {
 Step '7/17 PSScriptAnalyzer lint（缺模块即跳过）'
 $pssa = Get-Module -ListAvailable PSScriptAnalyzer | Select-Object -First 1
 if (-not $pssa) {
-  # TD56/TD-119：CI 是唯一能 provision PSSA 的环境；此处若静默 skip-as-pass，Error 级 lint 回归会静默合并
+  # TD56/TD-119：CI 是唯一能 provision PSSA 的环境；此处若静默 skip-as-pass，合并后 canary 会把 Error 级 lint 回归误报为绿
   #   （闸⑦ 计入 PASS）。scaffold-selftest.yml 已在 selftest 前 Install-Module PSScriptAnalyzer；
   #   $env:CI 下模块仍缺即 fail-loud（本地/离线仍优雅跳过）。
   if ($env:CI) { Fail 'PSScriptAnalyzer 未安装但处于 CI（$env:CI 已置）——lint 闸⑦ 不得 skip-as-pass；CI 应在 selftest 前 Install-Module PSScriptAnalyzer（TD56/TD-119）。' }
@@ -907,32 +947,68 @@ $exitOnes82 = ([regex]::Matches($ciText82, 'exit 1\b')).Count
 if ($exitOnes82 -lt 2) { Fail "8.2b TD56/TD-119：ci.yml 中 'exit 1' 出现 $exitOnes82 次（预期 ≥2：check-secrets/check-licenses 各一）——fail-closed 分支可能只 Write-Error 未真正非零退出。" }
 elseif (-not $fail) { Write-Host '  8.2b ci.yml 安全关键闸缺脚本 fail-closed（exit 1）OK' -ForegroundColor Green }
 
-# 8.2c scaffold-selftest.yml 须在 CI provision PSScriptAnalyzer，使 lint 闸⑦ 在唯一能装它的环境里真跑
+# 8.2c scaffold-selftest.yml 须在合并后/manual canary provision PSScriptAnalyzer，使 lint 闸⑦ 在唯一能装它的环境里真跑
 #   （配合闸⑦ 的 $env:CI 缺模块即 Fail 守卫，见上）。断言 provisioning 步骤在位（非本文件、无自引用）。
 $stText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if ($stText82 -notmatch 'Install-Module\s+PSScriptAnalyzer') {
-  Fail '8.2c TD56/TD-119：scaffold-selftest.yml 未 provision PSScriptAnalyzer（Install-Module PSScriptAnalyzer）——lint 闸⑦ 在唯一能装它的环境里仍 skip-as-pass、Error 级回归静默合并。'
+  Fail '8.2c TD56/TD-119：scaffold-selftest.yml 未 provision PSScriptAnalyzer（Install-Module PSScriptAnalyzer）——合并后/manual canary 的 lint 闸⑦ 会 fail-loud。'
 }
 elseif (-not $fail) { Write-Host '  8.2c scaffold-selftest.yml provision PSScriptAnalyzer OK' -ForegroundColor Green }
 
-# 8.2d 两份工作流须**同时**在 push 与 pull_request（main+master）触发。分支规则集要 GitHub Pro 或 public 仓
-#   才能强制「必需状态检查」（私有免费仓 `gh api repos/.../rules/branches/<b>` 返回 403），push 后的工作流
-#   是**事后检测层、非 push 前强制**（见 ci.yml 头注）；但只有 pull_request 触发时，直推默认分支的提交
-#   **连这层事后检测都不跑**——ci.yml 的 check-cards/check-secrets/check-licenses/verify 对其从未执行。
-#   本断言守「检测覆盖不回退」：防「删掉 push: 又静默回到只 PR 触发」的回归；不声称、也不能提供 push 前拦截。
+# 8.2d 产品 CI 的 PR 事件是合并闸，默认分支 push 是事后检测；完整 scaffold selftest 是合并后/手动 canary。
+#   任务卡 DoD 与 R3 负责合并前的本卡验证，避免无关历史 harness 闸反复阻塞产品推进。
 $trigMissing82 = $false
-foreach ($wf in $wfFiles) {
-  $wfPath = Join-Path $RepoRoot $wf
-  if (-not (Test-Path $wfPath)) { continue }   # 缺失已由 8.2a 报错
-  $wfText82 = Get-Content $wfPath -Raw
-  foreach ($trig in @('push', 'pull_request')) {
-    if ($wfText82 -notmatch "(?m)^  ${trig}:\s*\r?\n\s+branches:\s*\[\s*main\s*,\s*master\s*\]") {
-      $trigMissing82 = $true
-      Fail "8.2d：$wf 缺 '${trig}:' 触发（或其 branches 非 [main, master]）——私有免费档无 push 前强制，事后检测是直推提交的唯一检查层；缺 push: 触发即让直推连事后检测都不跑（见 ci.yml 头注）。"
-    }
+$ciTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
+foreach ($trig in @('push', 'pull_request')) {
+  if (-not (Test-MainMasterWorkflowTrigger $ciTriggerText82 $trig)) {
+    $trigMissing82 = $true
+    Fail "8.2d：ci.yml 缺 '${trig}:' 触发（或其 branches 非 [main, master]）。"
   }
 }
-if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 两份工作流均在 push + pull_request（main+master）触发 OK' -ForegroundColor Green }
+$ciOutsideOnMutation82 = [regex]::Replace($ciTriggerText82, '(?m)^  pull_request:\s*\r?\n    branches:\s*\[\s*main\s*,\s*master\s*\]\s*\r?\n', '', 1) + "`n# 仅为文档示例，不是 on 事件：`n  pull_request:`n    branches: [main, master]"
+if (Test-MainMasterWorkflowTrigger $ciOutsideOnMutation82 'pull_request') {
+  $trigMissing82 = $true
+  Fail '8.2d：ci.yml 触发契约被 on: 块之外的 pull_request 形状文本假满足。'
+}
+$scaffoldTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
+  $trigMissing82 = $true
+  Fail '8.2d：scaffold-selftest.yml 必须只在 main/master push 与 workflow_dispatch 运行，且不得含 pull_request——完整 harness 不进入 PR 关键路径。'
+}
+$pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
+$pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
+$scheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  schedule:`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$quotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request': {}`n  workflow_dispatch: {}"
+$doubleQuotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request`": {}`n  workflow_dispatch: {}"
+$quotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request_target': {}`n  workflow_dispatch: {}"
+$doubleQuotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request_target`": {}`n  workflow_dispatch: {}"
+$quotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'schedule':`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$doubleQuotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"schedule`":`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+$tagsMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags: ['**']"
+$tagsIgnoreMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags-ignore: ['release/**']"
+$missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
+$alteredPathsMutation82 = $scaffoldTriggerText82 -replace "'configs/\*\*'", "'android/**'"
+$acceptedTriggerMutations82 = @(
+  $pullRequestTriggerMutation82,
+  $pullRequestTargetMutation82,
+  $scheduleMutation82,
+  $quotedPullRequestMutation82,
+  $doubleQuotedPullRequestMutation82,
+  $quotedPullRequestTargetMutation82,
+  $doubleQuotedPullRequestTargetMutation82,
+  $quotedScheduleMutation82,
+  $doubleQuotedScheduleMutation82,
+  $tagsMutation82,
+  $tagsIgnoreMutation82,
+  $missingPathsMutation82,
+  $alteredPathsMutation82 |
+    Where-Object { Test-ScaffoldSelftestTriggerContract $_ }
+)
+if ($acceptedTriggerMutations82.Count -gt 0) {
+  $trigMissing82 = $true
+  Fail "8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。"
+}
+if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅 post-merge/manual OK' -ForegroundColor Green }
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
@@ -2635,7 +2711,7 @@ function Get-DocDriftBaseOrSkip {
     # 与范围闸同款硬化（R3 #10）：core.quotepath=false 令非 ASCII 路径不被 C-quote；
     # diff.renames=false 令改名显示为 old+new 两路径（不折叠成目的地），保 mapped 源改名后旧路径仍在 Changed、不逃检。
     # 变更集 = 已提交 base..HEAD（R3 r4 #6a：align diff and commit ordering）。14f 在 selftest 内运行，强制点 =
-    # CI(push/PR) 或提交后本地自检——**非** ship 的 pre-commit DoD（卡的 pre-commit DoD 是 dod_command）。故变更集与
+    # 默认分支 push canary 或提交后本地自检——**非** ship 的 pre-commit DoD（卡的 pre-commit DoD 是 dod_command）。故变更集与
     # [doc-sync:none] 逃生门同源于【已提交】历史，语义自洽（若含未提交改动，逃生门（提交信息）无从表达 → R3 r3↔r4 张力，取 r4 收敛解）。
     $changed = @(& git -C $RepoPath -c core.quotepath=false -c diff.renames=false diff --name-only $base HEAD 2>$null)
     if ($LASTEXITCODE -ne 0) { return @{ Skip = 'git diff 失败' } }

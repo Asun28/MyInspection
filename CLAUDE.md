@@ -210,7 +210,7 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 与 `scaffold-selftest.yml` 均 **push + pull_request**（`[main, master]`；selftest 闸 **8.2d** 锁死此形态）。`ci.yml` 的 push 用 `paths-ignore: ['**.md', 'docs/**']`（纯文档直推不触发，混合推送仍全跑），PR 不过滤，因为 `verify` 是支持的规则集必需检查。`scaffold-selftest.yml` 的 push/PR 则都用正向 `paths` 只扫非 Markdown 权威面（scripts/.claude/.github/configs）——它的 shard job 名不在支持的必需检查中，普通业务码 PR 因此不会空跑 selftest matrix，也不会留下 Expected 状态；命中权威面时仍在每个 OS 并行跑 `core/workflow/seeded` 三分片（3 分片 × Windows/Ubuntu 2 OS，任一红即红，闸 **8.2e** 锁死接线；Windows job 各计 2× 分钟）。
+- **CI 触发形态**：`ci.yml` 在 `[main, master]` 的 **push + pull_request** 运行；push 用 `paths-ignore: ['**.md', 'docs/**']`，PR 不过滤，因为 `verify` 是支持的规则集必需检查。完整 `scaffold-selftest.yml` 不进入 PR 关键路径，只在 `[main, master]` push 与 `workflow_dispatch` 运行，作为合并后/手动 harness canary；仍保留每个 OS 的 `core/workflow/seeded` 三分片（3 分片 × Windows/Ubuntu 2 OS，闸 **8.2e** 锁死接线）。合并前由任务卡 DoD + `ci.yml` verify + R3 守门；闸 **8.2d** 锁死两种工作流的不同触发职责。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -246,7 +246,7 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流脚本自检**（改 `scripts/*.ps1` / `.claude/hooks/*.ps1` 后）：`pwsh -File scripts\selftest.ps1`（默认聚合 `core/workflow/seeded`：两个长分片先并行、短 `core` 错峰低优先级加入，仍是**17 闸**总自检；排障可单跑 `-Shard <name>`；来自脚手架、随下游保留；push/PR 也由 `.github/workflows/scaffold-selftest.yml` 在 CI 跑）
+- **工作流脚本自检**（任务卡按改动选定相关 shard/断言作 DoD）：`pwsh -File scripts\selftest.ps1`（默认聚合 `core/workflow/seeded`，排障可单跑 `-Shard <name>`；完整 17 闸在默认分支 push 后或手动由 `.github/workflows/scaffold-selftest.yml` 跑，不作为 PR 合并硬闸）
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 

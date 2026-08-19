@@ -11,7 +11,7 @@ name: ci
 # 分支规则集需要 GitHub Pro 或 public 仓才能强制必需状态检查（见上「有 GitHub Pro/public 时」；
 # 私有免费档 rules API 403），故本工作流**无法阻止**任何直推落到默认分支——它在提交已落地之后才跑。
 # 但此前更糟：只有 pull_request 触发时，直推提交**连事后检查都没有**——secret-leak / 许可 / verify
-# 对这些提交从未跑过（`scaffold-selftest.yml` 早已 push+PR 双触发，本文件此前只有 PR，二者不对称）。
+# 对这些提交从未跑过（本文件此前只有 PR，直推缺少产品验证）。
 # 加 push 触发把直推纳入事后检测：败即显式变红 + 通知；防泄露闸尤其需要事后可见（发现了才能轮换）。
 # push 前的真强制另有两层，都不由本文件承担：本地 pre-push 钩子（`gh-bootstrap.ps1` 装载，只覆盖
 # 装了钩子的克隆）；服务端规则集（需 Pro/public，用户决策）。**加严（加触发/断言）无需 HARNESS-REVIEW**
