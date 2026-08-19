@@ -1,6 +1,6 @@
 ---
 id: T0-LICENSE-DIAGNOSTICS
-title: Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/4）
+title: Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/5）
 depends_on: [T0-LICENSE-POLICY]
 status: todo
 branch: T0-LICENSE-DIAGNOSTICS
@@ -14,6 +14,7 @@ forbid:
   - 改变前两卡冻结的图范围、GAV、POM、分类或 exception 语义
 non_goals:
   - 新增许可策略或例外
+  - 为 GAV segment 添加上界或改变 graph 接纳语义（TD135 follow-up）
   - 修改 CI、政策文档或 TD2 状态
   - 通用化为全仓日志框架
 dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite diagnostics
@@ -21,7 +22,7 @@ dod_exit: 0
 dod_assert: wrapper/POM/exception/Gradle 子进程的敌意输出均经过同一诊断边界；输出按行数和字符数有界，URI userinfo、secret-like 值和用户路径被替换，ANSI/control/newline 注入不能伪造新 finding。清洗前后错误类别与非零退出保持不变；删除任一 redaction、bound 或 category-preservation 守卫时 diagnostics 套件必须命中专属断言。
 review_gate: codex {verdict:pass}
 hygiene: diagnostics 套件以敌意输入表驱动，保留各类边界的一枚最小 survivor；不重复证明许可分类本身
-doc_sync: 本卡登记 PR #20 已合并基线与自身 PR 证据；TD2 仍为 carded
+doc_sync: 本卡登记 PR #20 已合并基线与自身 PR #27 人裁结果；TD135 另卡承接超长 GAV 合同，TD2 仍为 carded
 ---
 
 # T0-LICENSE-DIAGNOSTICS
@@ -35,12 +36,22 @@ PR #20 已在 master `b0a76d0` 合入部分 sanitizer，但并未形成统一出
 ## 单一产出
 
 - 所有外部文本进入日志前走同一个 sanitizer。
-- 每条 finding 保留稳定类别和 exact GAV，但不泄露机器路径或凭据。
+- 对当前诊断信封内的 finding，保留稳定类别和 exact GAV，但不泄露机器路径或凭据；超长 GAV 的 exact+bound 合同由 TD135 另卡承接。
 - 长 stderr、嵌入换行、ANSI/control、Windows/Unix 路径和 URI userinfo 都有行为夹具。
 
 ## 依赖门
 
 依赖 `T0-LICENSE-POLICY` merge，因为只有错误类别和结构化 finding 冻结后，才能证明 sanitizer 没有吞掉或改写安全语义。
+
+## R3 轮次封顶与人裁边界
+
+PR #27 的 R3 已达 round cap，待人裁。本卡只拥有诊断出口的脱敏、有界、抗注入与失败语义；不得修改
+`Get-GradleGavParts`、图接纳/拒绝、缓存路径、POM 身份或 exception key。超长 GAV 同时要求 exact GAV 与固定诊断上界的
+合同冲突已登记为 TD135 follow-up，由随后 `T0-LICENSE-GAV-BOUNDS` 的共享解析边界解决；本卡不以修改 graph 接纳语义来解决该冲突。
+
+Round 2 后，PR #27 head `a750056` 已修复真实的 multiline credential/configured-home。对单一 Output record 内
+`scheme://user:...\n...@host` 与普通两行输出不可判定的歧义，人裁选择安全优先：识别到 credential、Authorization 或 userinfo 前缀后，
+余下 continuation 整体脱敏；外部进程本来逐行输出时，每行仍是独立 array element。该歧义不再拆卡；TD135 仅承接超长 GAV 合同。
 
 ## 根因诊断
 
