@@ -36,23 +36,33 @@ function Get-ListField([string]$FrontMatter, [string]$Name) {
 }
 
 $boardRows = @(
-  '| W0 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | 单分片与 all 汇总以稳定哨兵点名失败 shard/gate（TD9 1/5） | T0-DEBT-SELFTEST-CRITICAL-PATH |',
-  '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT |',
-  '| W0 | T0-DEBT-SELFTEST-NOGIT-ROUTING | 有界 fixture mode 证明生产 seeded git-present/absent routing 与 outcome ledger（TD9 3/5） | T0-DEBT-SELFTEST-SKIP-VISIBILITY |',
-  '| W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING |',
-  '| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET |'
+  '| W0 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | 单分片与 all 汇总以稳定哨兵点名失败 shard/gate（TD9 1/5） | T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b8dee45`，PR #31；稳定 ASCII gate、协议 fail-closed、hermetic/mutation 覆盖、core/verify/R3 绿；TD9 仍 carded） |',
+  '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | PR #33 收回为 skip 协议 + bounded helper；生产 no-git routing 与 mutation 预算已拆卡 |',
+  '| W0 | T0-DEBT-SELFTEST-NOGIT-ROUTING | 有界 fixture mode 证明生产 seeded git-present/absent routing 与 outcome ledger（TD9 3/5） | T0-DEBT-SELFTEST-SKIP-VISIBILITY | M | GPT-5.6 Terra · high | Sonnet 5 max | 与 mutation/load 卡共享 selftest，串行宽度 1 |',
+  '| W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING | M | GPT-5.6 Terra · high | Sonnet 5 max | R3 实测旧形态约 1.6 GB / 500+ CPU 秒；须有机器预算上界 |',
+  '| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 五卡全 merged + post-merge core 重放后才可 paid |'
 )
 $trackerChain = '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
 $trackerGuard = '全部 merged + post-merge core 重放后才可 paid'
+$planChain = '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
+$planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1。'
 
 $cardContract = [ordered]@{
+  Plan = @{
+    Path = 'specs/tasks/T0-DEBT-SELFTEST-SPLIT-PLAN.md'
+    Scalars = [ordered]@{ status = 'todo' }
+    Lists = [ordered]@{ allow_paths = @('scripts/check-td9-split.ps1') }
+    Contains = [ordered]@{}
+  }
   Skip = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-SKIP-VISIBILITY.md'
     Scalars = [ordered]@{
+      status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-CRITICAL-PATH, T0-LICENSE-SELFTEST-DRIFT]'
       dod_command = 'pwsh -NoProfile -File scripts/selftest.ps1 -Fixture skip-ledger'
     }
     Lists = [ordered]@{
+      allow_paths = @('scripts/selftest.ps1')
       non_goals = @(
         '在 core 内启动完整 seeded，或证明 seeded 的生产 no-git routing；该行为归 T0-DEBT-SELFTEST-NOGIT-ROUTING',
         '建立全量 per-gate mutation 矩阵；紧凑身份清单与资源预算归 T0-DEBT-SELFTEST-MUTATION-BUDGET'
@@ -66,10 +76,12 @@ $cardContract = [ordered]@{
   NoGit = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md'
     Scalars = [ordered]@{
+      status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-SKIP-VISIBILITY]'
       dod_command = 'pwsh -NoProfile -File scripts/selftest.ps1 -Fixture seeded-nogit-routing'
     }
     Lists = [ordered]@{
+      allow_paths = @('scripts/selftest.ps1')
       forbid = @('从 core 启动完整 seeded 分片', '以自由文本或部分 OK 文案推断 PASS/SKIP/FAIL')
       non_goals = @('mutation harness 的内存与 CPU 预算收敛')
     }
@@ -81,10 +93,12 @@ $cardContract = [ordered]@{
   Mutation = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md'
     Scalars = [ordered]@{
+      status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-NOGIT-ROUTING]'
       dod_command = 'pwsh -NoProfile -File scripts/selftest.ps1 -Fixture skip-mutation-budget'
     }
     Lists = [ordered]@{
+      allow_paths = @('scripts/selftest.ps1')
       forbid = @('保留数百份完整 selftest 源码副本', '为降低资源而删掉 reason、gate、batch truncation 或 FAIL/SKIP overlap 的变异证明')
       non_goals = @('生产 no-git 路由行为')
     }
@@ -96,10 +110,11 @@ $cardContract = [ordered]@{
   Load = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md'
     Scalars = [ordered]@{
+      status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-MUTATION-BUDGET]'
       doc_sync = '五张 TD9 卡全部 merged 且 post-merge core 重放稳定后，才可把 TD9 置 paid'
     }
-    Lists = [ordered]@{}
+    Lists = [ordered]@{ allow_paths = @('scripts/selftest.ps1') }
     Contains = [ordered]@{}
   }
 }
@@ -108,13 +123,15 @@ function Test-Td9SplitContract([hashtable]$Sources) {
   $actualBoardRows = @($Sources.Board -split '\r?\n' | Where-Object { $_ -match '^\| W0 \| T0-DEBT-SELFTEST-(FAIL-DIAGNOSTICS|SKIP-VISIBILITY|NOGIT-ROUTING|MUTATION-BUDGET|LOAD-STABILITY) \|' })
   if ($actualBoardRows.Count -ne $boardRows.Count) { return $false }
   for ($index = 0; $index -lt $boardRows.Count; $index++) {
-    if (-not $actualBoardRows[$index].StartsWith($boardRows[$index], [System.StringComparison]::Ordinal)) { return $false }
+    if ($actualBoardRows[$index] -cne $boardRows[$index]) { return $false }
   }
 
   $trackerRows = @($Sources.Tracker -split '\r?\n' | Where-Object { $_ -match '^\| TD9 \|' })
-  if ($trackerRows.Count -ne 1 -or
-      -not $trackerRows[0].Contains($trackerChain, [System.StringComparison]::Ordinal) -or
-      -not $trackerRows[0].Contains($trackerGuard, [System.StringComparison]::Ordinal)) {
+  if ($trackerRows.Count -ne 1) { return $false }
+  $trackerColumns = @($trackerRows[0] -split '\|' | ForEach-Object { $_.Trim() })
+  if ($trackerColumns.Count -ne 9 -or $trackerColumns[1] -cne 'TD9' -or $trackerColumns[6] -cne 'carded' -or
+      -not $trackerColumns[7].Contains($trackerChain, [System.StringComparison]::Ordinal) -or
+      -not $trackerColumns[7].Contains($trackerGuard, [System.StringComparison]::Ordinal)) {
     return $false
   }
 
@@ -137,6 +154,14 @@ function Test-Td9SplitContract([hashtable]$Sources) {
         if (-not $actualValue.Contains($expectedText, [System.StringComparison]::Ordinal)) { return $false }
       }
     }
+  }
+
+  $planFrontMatter = Get-FrontMatter $Sources.Plan
+  $planBody = $Sources.Plan.Substring($Sources.Plan.IndexOf("`n---", 4, [System.StringComparison]::Ordinal) + 4)
+  if ($null -eq $planFrontMatter -or
+      -not $planBody.Contains($planChain, [System.StringComparison]::Ordinal) -or
+      -not $planBody.Contains($planWidth, [System.StringComparison]::Ordinal)) {
+    return $false
   }
   return $true
 }
@@ -171,6 +196,12 @@ foreach ($needle in @($trackerChain, $trackerGuard)) {
   $mutant = Copy-Sources $sources
   $mutant.Tracker = $mutant.Tracker.Replace($needle, '')
   Assert-MutantKilled "delete-tracker-$deletionCount" $mutant
+  $deletionCount++
+}
+foreach ($needle in @($planChain, $planWidth)) {
+  $mutant = Copy-Sources $sources
+  $mutant.Plan = $mutant.Plan.Replace($needle, '')
+  Assert-MutantKilled "delete-plan-$deletionCount" $mutant
   $deletionCount++
 }
 foreach ($sourceName in $cardContract.Keys) {
@@ -220,6 +251,25 @@ foreach ($case in $weakeningMutations) {
   Assert-MutantKilled $case.Name $mutant
 }
 
+$structuralWeakening = @(
+  @{ Name = 'weaken-tracker-status'; Source = 'Tracker'; From = '| major | carded |'; To = '| major | paid |' },
+  @{ Name = 'weaken-board-serial'; Source = 'Board'; From = '与 mutation/load 卡共享 selftest，串行宽度 1'; To = '与 mutation/load 卡共享 selftest，可并行' },
+  @{ Name = 'weaken-plan-width'; Source = 'Plan'; From = $planWidth; To = '四卡均修改 `scripts/selftest.ps1`，可并行。' },
+  @{ Name = 'weaken-skip-status'; Source = 'Skip'; From = 'status: todo'; To = 'status: merged' },
+  @{ Name = 'weaken-nogit-status'; Source = 'NoGit'; From = 'status: todo'; To = 'status: merged' },
+  @{ Name = 'weaken-mutation-status'; Source = 'Mutation'; From = 'status: todo'; To = 'status: merged' },
+  @{ Name = 'weaken-load-status'; Source = 'Load'; From = 'status: todo'; To = 'status: merged' },
+  @{ Name = 'weaken-skip-path'; Source = 'Skip'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' },
+  @{ Name = 'weaken-nogit-path'; Source = 'NoGit'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' },
+  @{ Name = 'weaken-mutation-path'; Source = 'Mutation'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' },
+  @{ Name = 'weaken-load-path'; Source = 'Load'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' }
+)
+foreach ($case in $structuralWeakening) {
+  $mutant = Copy-Sources $sources
+  $mutant[$case.Source] = $mutant[$case.Source].Replace($case.From, $case.To)
+  Assert-MutantKilled $case.Name $mutant
+}
+
 $decoyCount = 0
 foreach ($sourceName in @('Skip', 'NoGit', 'Mutation', 'Load')) {
   foreach ($fieldName in @('depends_on', 'dod_command')) {
@@ -232,4 +282,4 @@ foreach ($sourceName in @('Skip', 'NoGit', 'Mutation', 'Load')) {
   }
 }
 
-Write-Host "[TD9-SPLIT-CONTRACT] PASS deletion=$deletionCount reorder=2 weakening=$($weakeningMutations.Count) decoy=$decoyCount"
+Write-Host "[TD9-SPLIT-CONTRACT] PASS deletion=$deletionCount reorder=2 weakening=$($weakeningMutations.Count + $structuralWeakening.Count) decoy=$decoyCount"
