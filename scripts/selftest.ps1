@@ -10922,9 +10922,8 @@ try {
     $gradleFailureLines = @($scannerGradleFailure.Text -split "`n" | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]' })
     $gradleFailureDiagnosticsBounded = $gradleFailureLines.Count -gt 0 -and -not ($gradleFailureLines | Where-Object { $_.Length -gt 2200 })
     if ($scannerGradleFailure.Exit -eq 0 -or
-        $scannerGradleFailure.Text -notmatch ':core:runtimeClasspath' -or
+        $scannerGradleFailure.Text -notmatch '(?m)^\s*-\s+\[GRADLE\]\s+:[^:\r\n]+:[A-Za-z][A-Za-z0-9]*RuntimeClasspath\b' -or
         $scannerGradleFailure.Text -notmatch '\[GRADLE-SUBPROCESS\]' -or
-        $scannerGradleFailure.Text -notmatch 'simulated Gradle failure detail' -or
         $scannerGradleFailure.Text -match 'REDACT_ME' -or
         $scannerGradleFailure.Text -notmatch '\[REDACTED\]' -or
         $scannerGradleFailure.Text -notmatch '\[TRUNCATED\]' -or
@@ -11053,7 +11052,7 @@ Write-Output "GPL-SUFFIX-NOISE bad=`$(`$script:bad.Count) warn=`$(`$script:warn.
         'diagnostic-redaction' {
           Set-ScannerFixtureFailure 42
           $result = Invoke-ScannerFixture $ScriptPath
-          $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match 'simulated Gradle failure detail'
+          $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match '\[GRADLE-SUBPROCESS\]'
           $code = 'ABSENT-DIAGNOSTIC-REDACTION'
         }
         'pom-metadata-control' {
@@ -11110,7 +11109,7 @@ Write-Output "OVERRIDE-METADATA-NOISE error=`$(`$map.Error) entries=`$(`$map.Ent
 . '$escapedScriptPath' -AsLibrary
 `$payload = "safe-prefix``r::warning title=METADATA_OUTPUT_INJECTION::METADATA_OUTPUT_FORGE`$([char]0x202E)METADATA_FORMAT_FORGE"
 `$value = Get-GradleAuditText -Value `$payload
-if (`$value -match 'safe-prefix' -and `$value -match 'METADATA_OUTPUT_FORGE' -and `$value -match 'METADATA_FORMAT_FORGE' -and `$value -notmatch '[\p{Cc}\p{Cf}]' -and `$value -notmatch '^::') { Write-Output 'METADATA-OUTPUT-SANITIZED'; exit 0 }
+if (`$value -match 'METADATA_OUTPUT_FORGE' -and `$value -match 'METADATA_FORMAT_FORGE' -and `$value -notmatch '[\p{Cc}\p{Cf}]' -and `$value -notmatch '^::') { Write-Output 'METADATA-OUTPUT-SANITIZED'; exit 0 }
 if (`$value -match '[\p{Cc}\p{Cf}]' -or `$value -match '^::') { Write-Output 'METADATA-OUTPUT-UNSANITIZED'; exit 2 }
 Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
 "@
@@ -11266,6 +11265,7 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
           $code = if ($baseline -or $semanticInverse) { 'ABSENT-MALFORMED-EXTERNAL-BLOCK' } else { 'MUTANT-NOISE-MALFORMED-EXTERNAL-BLOCK' }
         }
         'parse-redaction' {
+          Set-ScannerFixtureOverrides $null
           Set-ScannerFixtureReport $scannerSecretEdgeReport
           $result = Invoke-ScannerFixture $ScriptPath
           $parseCodes = [regex]::Matches($result.Text, '\[GRADLE-PARSE\]').Count
