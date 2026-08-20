@@ -2,7 +2,7 @@
 id: T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER
 title: 照片孤儿清理：durable sidecar lease + WorkManager 生产调度（偿还 TD14）
 depends_on: [T2-PHOTO-PIPELINE]
-status: todo
+status: merged
 branch: T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER
 worktree: C:\wt\T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER
 allow_paths:
@@ -67,3 +67,7 @@ doc_sync: TD14 状态、TASK-BOARD 备注与 runtime storage 约定（R5）
 ## 执行建议
 
 首选 GPT-5.6 Terra · max；备选 Sonnet 5 · max。难度 M。
+
+## 合并记录
+
+PR #32 以 master `4971f1b` squash 合并。实现完成 `.jpg.pending` lease、受限清理 worker、唯一周期调度、双管线接线与结构化结果；core media 测试、app assemble、verify 与范围检查通过。R3 轮次上限后由用户人裁合并；祖先目录 fsync 与“JPEG 删除 durable 后再移 marker”拆入 `T2-PHOTO-DIRECTORY-DURABILITY`，不继续扩张本卡。
