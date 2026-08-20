@@ -1,6 +1,6 @@
 ---
 id: T2-ROOM-REPEATABLE
-title: 房间可重复性（repeatable）落进模板契约与 schema：BEDROOM 1..N 不再靠代码硬编码
+title: 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8）
 depends_on: [T1-TEMPLATE-ENGINE, T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST]
 status: todo
 branch: T2-ROOM-REPEATABLE
@@ -18,10 +18,10 @@ non_goals:
   - 真实模板内容里逐房间标注 repeatable（T2-ROUTINE-CONTENT / T6-TEMPLATES-REST）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.template.*"
 dod_exit: 0
-dod_assert: 模板 JSON 的房间定义带 repeatable 标记，经加载→校验→**入库→读回**往返不丢失；每条 item.room 必须在房间定义里声明（未声明即拒，错误点名条目）；repeatable 房间与单例房间在读回结果里可区分
+dod_assert: 模板 JSON 的房间定义带 repeatable 标记，经加载→校验→**入库→读回**往返不丢失；每条 item.room 必须在房间定义里声明（未声明即拒，错误点名条目）；repeatable 房间与单例房间在读回结果里可区分；模板历史读回不得因 check_item_def 软删过滤而静默缺项；两处冻结 schema 哈希注释与权威实现一致
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
-doc_sync: CLAUDE.md 当前阶段；data/templates/README.md 的房间段；TASK-BOARD 备注（R5）
+doc_sync: CLAUDE.md 当前阶段；data/templates/README.md 的房间段；TD6/TD7/TD8 状态与 TASK-BOARD 备注（R5）
 ---
 
 # T2-ROOM-REPEATABLE
@@ -45,6 +45,16 @@ T1-TEMPLATE-ENGINE 的 R3 评审两轮都点到这一项：第 1 轮该评审者
 - `android/core/src/main/kotlin/nz/myinspection/core/template/Template.kt`（T1-TEMPLATE-ENGINE 起）——模板 JSON 形态即契约，加 `rooms[]` 段就是改它。
 
 故本卡第一步是**版本评审本身**：把变更提案连同两处影响面报给用户，取得放行后再从 FrozenPaths 临时摘除对应条目、落改动、合并后重新登记。**不要绕过 `guard-frozen`**。
+
+## 同一版本评审窗口并入的既有债
+
+为避免对同一冻结目录反复开窗，本卡同时偿还三个已登记的小债，不另拆实现卡：
+
+- TD6：把 `Supplement.sq` 的链哈希注释改为 `{created_at, text}` 快照域，与 `supplementChainHash` 一致；只改注释，不改哈希行为。
+- TD7：模板历史读回使用不过滤 `check_item_def.deleted_at` 的专用查询，或在发现不完整定义时明确失败；不得静默少项，并以软删夹具验证。
+- TD8：把 `TemplateVersion.sq` 的 `content_hash` 注释改为模板文件原始字节 SHA-256，与 `LoadedTemplate.parse` 一致；只改注释，不改存量值。
+
+三项都服从本卡相同的 FrozenPaths 临时摘除、版本评审、合并后重新登记与 R5 证据要求。
 
 ## 非目标（本卡刻意不做的能力）
 见 front-matter：不做采集期的实例化状态机，不写真实模板内容。
