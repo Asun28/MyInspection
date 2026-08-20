@@ -135,6 +135,20 @@ function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
 # unchanged; only these ASCII records are machine-readable. A non-zero child without exactly one valid
 # record is still red and is reported as UNKNOWN rather than being reduced to a positional exit-code list.
+function Test-SelftestGateId([string]$GateId) {
+  return ($GateId -match '^(?:[0-9]+[A-Za-z0-9.]*|T[0-9]+-[A-Z0-9-]+|TD[0-9]+(?:-[A-Z0-9-]+)?)[A-Za-z0-9._()/\-]*$')
+}
+
+function ConvertTo-SelftestAsciiGateId([string]$Value) {
+  $encoded = [System.Text.StringBuilder]::new()
+  foreach ($char in $Value.ToCharArray()) {
+    if ([string]$char -cmatch '^[A-Za-z0-9._/()\-]$') { [void]$encoded.Append($char) }
+    elseif ([int]$char -lt 128) { [void]$encoded.Append('-') }
+    else { [void]$encoded.Append(('-u{0:x4}-' -f [int]$char)) }
+  }
+  return ([regex]::Replace($encoded.ToString(), '-{2,}', '-').Trim('-'))
+}
+
 function ConvertFrom-SelftestFailureSentinel {
   param(
     [AllowEmptyString()][string]$StdOut,
@@ -153,8 +167,7 @@ function ConvertFrom-SelftestFailureSentinel {
     return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'SENTINEL-SHAPE' }
   }
   $gates = @($match.Groups['gates'].Value -split ',')
-  $validGatePattern = '^(?:[0-9]+(?:\.[0-9]+)?[a-z]*|T[0-9]+-[A-Z0-9-]+|TD[0-9]+(?:-[A-Z0-9-]+)?)(?:\([A-Za-z0-9/_-]+\))?$'
-  if ($gates.Count -eq 0 -or @($gates | Where-Object { $_ -notmatch $validGatePattern }).Count -gt 0 -or @($gates | Select-Object -Unique).Count -ne $gates.Count) {
+  if ($gates.Count -eq 0 -or @($gates | Where-Object { -not (Test-SelftestGateId $_) }).Count -gt 0 -or @($gates | Select-Object -Unique).Count -ne $gates.Count) {
     return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'GATE-LIST' }
   }
   return [PSCustomObject]@{ ProtocolValid = $true; FailedGates = $gates; Reason = '' }
@@ -443,8 +456,11 @@ function Resolve-StrictLintDefault([bool]$IsPostInit, [bool]$ParamBound, [bool]$
 $StrictLint = Resolve-StrictLintDefault -IsPostInit $isPostInit -ParamBound $PSBoundParameters.ContainsKey('StrictLint') -Requested $StrictLint
 
 function Resolve-SelftestGateId([string]$Message, [string]$Fallback) {
-  $match = [regex]::Match($Message, '^(?:闸)?(?<id>(?:[0-9]+(?:\.[0-9]+)?[a-z]*|T[0-9]+-[A-Z0-9-]+|TD[0-9]+(?:-[A-Z0-9-]+)?)(?:\([A-Za-z0-9/_-]+\))?)\s*[:：]')
-  if ($match.Success) { return $match.Groups['id'].Value }
+  $match = [regex]::Match($Message, '^(?:闸)?(?<id>[^:：\s][^:：]*?)\s*[:：]')
+  if ($match.Success) {
+    $gateId = ConvertTo-SelftestAsciiGateId $match.Groups['id'].Value
+    if (Test-SelftestGateId $gateId) { return $gateId }
+  }
   if ($Fallback) { return $Fallback }
   return 'UNKNOWN'
 }
@@ -1150,6 +1166,33 @@ $gateIdProbe82 = @(
   (Resolve-SelftestGateId -Message '8.2e：fixture failure' -Fallback '8'),
   (Resolve-SelftestGateId -Message 'unprefixed failure' -Fallback '7')
 )
+$gateIdFamilies82 = [ordered]@{
+  '10d(接线/_scope)' = '10d(-u63a5-u7ebf-/_scope)'
+  '10d(接线/task)' = '10d(-u63a5-u7ebf-/task)'
+  '10d(接线/archive)' = '10d(-u63a5-u7ebf-/archive)'
+  '10d(锚定/纯函数)' = '10d(-u951a-u5b9a-/-u7eaf-u51fd-u6570-)'
+  '15g1' = '15g1'; '15g2' = '15g2'; '15g3' = '15g3'; '15g4' = '15g4'
+  '15g5' = '15g5'; '15g6' = '15g6'; '15g7' = '15g7'; '15g8' = '15g8'
+  '15h1' = '15h1'; '15h2' = '15h2'; '15h3' = '15h3'
+  '15h4(a)' = '15h4(a)'; '15h4(b)' = '15h4(b)'; '15h4(c)' = '15h4(c)'
+  '15h4(d)' = '15h4(d)'; '15h4(e)' = '15h4(e)'; '15h4(f)' = '15h4(f)'
+  '15g(receipt)①-b(hint)' = '15g(receipt)-u2460-b(hint)'
+  '15g(receipt)①-f(hint)' = '15g(receipt)-u2460-f(hint)'
+  '15d2' = '15d2'; '15d3' = '15d3'
+  '15r(e)A' = '15r(e)A'; '15r(e)B' = '15r(e)B'; '15r(e)C' = '15r(e)C'
+  '15r(e)D' = '15r(e)D'; '15r(e)E' = '15r(e)E'; '15r(e)F' = '15r(e)F'
+  '17aa(6/Codex#1)' = '17aa(6/Codex-1)'
+  'T37-REMOTEMX/1' = 'T37-REMOTEMX/1'
+  'T37-REMOTEMX/1-recover' = 'T37-REMOTEMX/1-recover'
+  'T37-REMOTEMX/1-reuse' = 'T37-REMOTEMX/1-reuse'
+  'T37-REMOTEMX/2' = 'T37-REMOTEMX/2'
+  'T37-REMOTEMX/2-rerun' = 'T37-REMOTEMX/2-rerun'
+  'T37-REMOTEMX/3' = 'T37-REMOTEMX/3'
+}
+$badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
+  $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
+  $actual -ne $_.Value -or -not (Test-SelftestGateId $actual)
+})
 $dedupedGateIds82 = [System.Collections.Generic.List[string]]::new()
 [void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '8.2e：first failure' -Fallback '8')
 [void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '8.2e：repeated failure' -Fallback '8')
@@ -1175,7 +1218,8 @@ $protocolCallPatterns82 = @(
 $acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
   Test-SelftestFailureProtocolSourceContract ([regex]::Replace($selftestSource82, $_, '', 1))
 })
-if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or ($dedupedGateIds82 -join ',') -ne '8.2e,17aa(8)' -or
+if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or $badGateIdFamilies82.Count -ne 0 -or
+    ($dedupedGateIds82 -join ',') -ne '8.2e,17aa(8)' -or
     $singleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -or
     $multipleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)' -or
     -not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0 -or
