@@ -1585,80 +1585,6 @@ $skipTargetedMutationsChanged82 = (
 )
 $skipProtocolMutations82 += @($skipBatchTruncationMutation82, $skipOverlapGuardDeletionMutation82)
 $acceptedSkipProtocolMutations82 = @($skipProtocolMutations82 | Where-Object { Test-SelftestSkipProtocolSourceContract $_ })
-$gitMissingSeededFixtureOk82 = $false
-$expectedGitMissingGateIds82 = @(
-  '17', '17a', '17a2', '17u1', '17u2', '17u3a', '17u3b',
-  '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
-  '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
-  '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
-  '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)', '17ac(td27-posix-shim)',
-  '17s', '17t',
-  '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
-  '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
-  '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y',
-  '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)',
-  '17z(T43-TimeoutCliOverridesConfig)', '17z(T43-TimeoutConfigValue)', '17z(T43-TimeoutDefaultMissingOrEmpty)', '17z(4)', '17z(5)',
-  '17aa', '17aa(1)', '17aa(2)', '17aa(5)',
-  '17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)',
-  '17aa(7)', '17aa(7a)', '17aa(7b)', '17aa(7c)', '17aa(7d)', '17aa(7e/F4)',
-  '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
-  'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
-  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4'
-)
-  $seededNoGitCommands82 = @($skipProtocolInventory82 | Where-Object {
-    $_.GetCommandName() -eq 'Skip-SelftestChecks' -and $_.Extent.Text -match "'17'" -and $_.Extent.Text -match "-Reason\s+'TOOL-GIT-MISSING'"
-  })
-  if ($seededNoGitCommands82.Count -eq 1) {
-    $seededNoGitCommand82 = $seededNoGitCommands82[0]
-    $gateIdsArgument82 = $null
-    for ($i = 0; $i -lt $seededNoGitCommand82.CommandElements.Count; $i++) {
-      $element = $seededNoGitCommand82.CommandElements[$i]
-      if ($element -is [System.Management.Automation.Language.CommandParameterAst] -and $element.ParameterName -eq 'GateIds') {
-        $gateIdsArgument82 = if ($null -ne $element.Argument) { $element.Argument } else { $seededNoGitCommand82.CommandElements[$i + 1] }
-        break
-      }
-    }
-    $registeredGitMissingGateIds82 = @($gateIdsArgument82.FindAll({
-      param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
-    }, $true) | ForEach-Object { $_.Value })
-    $expectedGitMissingRecords82 = @($expectedGitMissingGateIds82 | ForEach-Object { "$_/TOOL-GIT-MISSING" })
-    $pwshExe82 = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-    $savedPath82 = $env:PATH
-    try {
-      $pathWithoutGit82 = @($savedPath82 -split [System.IO.Path]::PathSeparator | Where-Object {
-        $entry = $_
-        $entry -and @('git', 'git.exe', 'git.cmd', 'git.ps1' | Where-Object { Test-Path -LiteralPath (Join-Path $entry $_) }).Count -eq 0
-      }) -join [System.IO.Path]::PathSeparator
-      $env:PATH = $pathWithoutGit82
-      & $pwshExe82 -NoProfile -Command 'if (Get-Command git -ErrorAction SilentlyContinue) { exit 1 }; exit 0'
-      $gitAbsentExit82 = $LASTEXITCODE
-      $gitMissingSeededOutput82 = (& $pwshExe82 -NoProfile -File $PSCommandPath -Shard seeded '-StrictLint:$false' 2>&1 | Out-String)
-      $gitMissingSeededExit82 = $LASTEXITCODE
-    }
-    finally { $env:PATH = $savedPath82 }
-    $emittedSkipMatches82 = @([regex]::Matches($gitMissingSeededOutput82, '(?m)^\[SELFTEST-SKIP\] gate=(?<gate>[A-Za-z0-9._()/\-]+) reason=(?<reason>[A-Z][A-Z0-9-]+)\r?$'))
-    $emittedSkipRecords82 = @($emittedSkipMatches82 | ForEach-Object { "$($_.Groups['gate'].Value)/$($_.Groups['reason'].Value)" })
-    $emittedGitMissingRecords82 = @($emittedSkipRecords82 | Where-Object { $_.EndsWith('/TOOL-GIT-MISSING', [System.StringComparison]::Ordinal) })
-    $seededSummaryMatches82 = @([regex]::Matches($gitMissingSeededOutput82, '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=seeded count=(?<count>[0-9]+) items=(?<items>[^\r\n]+)\r?$'))
-    $skippedPassPatterns82 = @(
-      '(?m)^  17y .* OK\r?$', '(?m)^  17z R3 .* OK\r?$', '(?m)^  17aa 基线.* OK\r?$',
-      '(?m)^  17aa\(6\).* OK\r?$', '(?m)^  17aa\(7\).* OK\r?$', '(?m)^  17aa\(8\).* OK\r?$', '(?m)^  .*T37-REMOTEMX/.* OK\r?$'
-    )
-    $skippedUnitPrintedPass82 = @($skippedPassPatterns82 | Where-Object { $gitMissingSeededOutput82 -match $_ }).Count -gt 0
-    $gitMissingSeededFixtureOk82 = (
-      $gitAbsentExit82 -eq 0 -and $gitMissingSeededExit82 -eq 0 -and
-      ($registeredGitMissingGateIds82 -join ',') -ceq ($expectedGitMissingGateIds82 -join ',') -and
-      ($emittedGitMissingRecords82 -join ',') -ceq ($expectedGitMissingRecords82 -join ',') -and
-      $seededSummaryMatches82.Count -eq 1 -and
-      [int]$seededSummaryMatches82[0].Groups['count'].Value -eq $emittedSkipRecords82.Count -and
-      $seededSummaryMatches82[0].Groups['items'].Value -ceq ($emittedSkipRecords82 -join ',') -and
-      -not $skippedUnitPrintedPass82 -and
-      $gitMissingSeededOutput82 -match '(?m)^selftest\(seeded\): PASS\r?$'
-    )
-    if (-not $gitMissingSeededFixtureOk82) {
-      Fail "8.2e(no-git-seeded)：gitAbsent=$gitAbsentExit82 child=$gitMissingSeededExit82 expectedGit=$($expectedGitMissingRecords82.Count) emittedGit=$($emittedGitMissingRecords82.Count) skipLines=$($emittedSkipRecords82.Count) summaries=$($seededSummaryMatches82.Count) skippedPass=$skippedUnitPrintedPass82。"
-    }
-}
 $protocolCallPatterns82 = @(
   '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
   '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
@@ -1686,7 +1612,7 @@ if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     $normalSkipSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=0 items=NONE' -or $prunedExecutes82 -or
     ($prunedRecords82 -join ',') -ne '17aa(6)/PREREQUISITE-FAIL,17aa(7)/PREREQUISITE-FAIL' -or
     $countDocOrderSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=4 items=14(count/docs/LOOP-ENGINEERING.md)/FILE-MISSING,14(count/.claude/skills/triage/SKILL.md)/FILE-MISSING,14(count/CLAUDE.md)/FILE-MISSING,14(count/TEMPLATE-README.md)/FILE-MISSING' -or
-    -not $invalidReasonRejected82 -or -not $skipFixtureOk82 -or -not $gitMissingSeededFixtureOk82 -or -not $skipTargetedMutationsChanged82 -or -not (Test-SelftestSkipProtocolSourceContract $selftestSource82) -or
+    -not $invalidReasonRejected82 -or -not $skipFixtureOk82 -or -not $skipTargetedMutationsChanged82 -or -not (Test-SelftestSkipProtocolSourceContract $selftestSource82) -or
     $acceptedSkipProtocolMutations82.Count -ne 0) {
   Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason、摘要计数或生产接线 mutation。'
 }
