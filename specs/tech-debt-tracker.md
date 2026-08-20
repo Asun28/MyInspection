@@ -79,6 +79,7 @@
 
 
 | TD137 | 2026-08-20 | `.jpg.pending` / JPEG sibling directory durability | PR #32 已保证 marker 文件 force + 最深父目录同步，但首次创建的祖先目录项未逐级 fsync；补偿/worker 删除 JPEG 后也未先同步同目录再清 marker。掉电可能丢失 marker 层级，或恢复出“JPEG 仍在、marker 已没”。修法：marker publish 前同步完整新目录链；JPEG 删除后先同步父目录，成功才清 sidecar；sync 失败保留 marker 并沿用既有重试/主异常语义。 / 可测：完整 sync 顺序、两条 delete→sync→marker 顺序、三类 sync 删除变异均翻红 / 前置：T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER | major | paid | PR #35 / merge `e9c56b9` / `specs/archive/tasks/T2-PHOTO-DIRECTORY-DURABILITY.md` |
+| TD139 | 2026-08-20 | `T3-REPORT-COMPOSER` PR #39 R3 round cap | 原卡两轮 R3 后仍剩六项 renderer-ready 布局证据缺口：项目内联缩略图未落 40mm 表格列几何、长 caption 可能拆图槽、实际页脚绘了完整哈希、空房标题可孤行、引用/照片层级校验不足、封面/照片实际文本仍绘 epoch 且漏 totals。继续在同 PR 追评会重复扩大 diff 并消耗大额评审 token。修法：人裁原 PR后，用专卡逐项补 exact geometry/不可拆/短哈希/分组/输入校验/ISO-8601 可见文本；不重开已闭合状态域和长文本分页 / 可测：六组行为断言与单句删除变异，报告专属 DoD 绿 / 前置：T3-REPORT-COMPOSER | major | carded | `specs/tasks/T3-REPORT-COMPOSER-R3-CLOSURE.md` |
 
 <!-- 新债项追加到上表。偿还时改 status + 填指针；勿删行（保留还债轨迹）。 -->
 
