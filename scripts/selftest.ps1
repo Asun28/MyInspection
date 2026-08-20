@@ -456,7 +456,7 @@ function Resolve-StrictLintDefault([bool]$IsPostInit, [bool]$ParamBound, [bool]$
 $StrictLint = Resolve-StrictLintDefault -IsPostInit $isPostInit -ParamBound $PSBoundParameters.ContainsKey('StrictLint') -Requested $StrictLint
 
 function Resolve-SelftestGateId([string]$Message, [string]$Fallback) {
-  $match = [regex]::Match($Message, '^(?:闸)?(?<id>[^:：\s][^:：]*?)\s*[:：]')
+  $match = [regex]::Match($Message, '^(?:闸)?(?<id>[^:：\s]+)(?:\s|[:：])')
   if ($match.Success) {
     $gateId = ConvertTo-SelftestAsciiGateId $match.Groups['id'].Value
     if (Test-SelftestGateId $gateId) { return $gateId }
@@ -1197,6 +1197,9 @@ $dedupedGateIds82 = [System.Collections.Generic.List[string]]::new()
 [void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '8.2e：first failure' -Fallback '8')
 [void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '8.2e：repeated failure' -Fallback '8')
 [void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '17aa(8)：second gate' -Fallback '8')
+$runtimeStableGateIds82 = [System.Collections.Generic.List[string]]::new()
+[void](Add-SelftestFailedGateId -GateIds $runtimeStableGateIds82 -Message '17aa(6) setup 失败（exit 1）：git init' -Fallback '17')
+[void](Add-SelftestFailedGateId -GateIds $runtimeStableGateIds82 -Message '17aa(6) setup 失败（exit 128）：git commit' -Fallback '17')
 $singleSentinel82 = Format-SelftestFailureSentinel -Shard core -GateIds ([System.Collections.Generic.List[string]]@('8.2e'))
 $multipleSentinel82 = Format-SelftestFailureSentinel -Shard workflow -GateIds $dedupedGateIds82
 $knownFailure82 = ConvertFrom-SelftestFailureSentinel -StdOut "noise`n[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)" -Shard workflow -ExitCode 1
@@ -1220,6 +1223,7 @@ $acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
 })
 if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or $badGateIdFamilies82.Count -ne 0 -or
     ($dedupedGateIds82 -join ',') -ne '8.2e,17aa(8)' -or
+    ($runtimeStableGateIds82 -join ',') -ne '17aa(6)' -or
     $singleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -or
     $multipleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)' -or
     -not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0 -or
