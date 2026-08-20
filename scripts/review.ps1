@@ -50,6 +50,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($SizeOnly -and $ResetRounds) {
+  Write-Host '  [R3-DIFF-ARGS-INVALID] -SizeOnly and -ResetRounds are independent operations and cannot be combined.' -ForegroundColor Red
+  exit 1
+}
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
 # 忽略会话里无效的 token（空串仍被 gh 视为“存在”→会遮蔽 keyring），用 Remove-Item 彻底清除
 Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
@@ -275,17 +279,18 @@ function Protect-FenceMarkers([string]$s) {
 # `fatal: ... no merge base`，stdout 为空。_encoding.ps1 刻意把 $PSNativeCommandUseErrorActionPreference 设为 $false
 # （顶层原生命令按退出码判、不抛），所以这里**不会**抛异常——不显式检查的话，评审者会收到一份**空 diff**，
 # 在「什么都没看到」的情况下给出 pass（fail-open）。故先验共同祖先，再逐个 diff 调用查退出码。
-$mergeBase = (& git -C $WorktreePath merge-base "$baseOid" HEAD 2>$null | Out-String).Trim()
+$mergeBase = (& git -C $WorktreePath merge-base "$baseOid" "$sha" 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
-  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and HEAD share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
-  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与 HEAD 无共同祖先，无法算 diff）" -ForegroundColor Red
+  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and captured HEAD '$sha' share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
+  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与已捕获 HEAD $sha 无共同祖先，无法算 diff）" -ForegroundColor Red
   exit 1
 }
-$diff = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --stat | Out-String).Trim()
+$comparison = "$baseOid...$sha"
+$diff = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --stat | Out-String).Trim()
 $diffStatExit = $LASTEXITCODE
-$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --numstat | Out-String)
+$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --numstat | Out-String)
 $diffNumstatExit = $LASTEXITCODE
-$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --unified=3 | Out-String)
+$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --unified=3 | Out-String)
 $diffBodyExit = $LASTEXITCODE
 if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
   $diffFailureReason = "[R3-DIFF-COMMAND-FAILED] git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --numstat=$diffNumstatExit, --unified=$diffBodyExit). The size/review input cannot be trusted, so this run blocks fail-closed."
@@ -320,7 +325,7 @@ if ($numstatMalformed.Count -gt 0) {
 $diffChars = [long]$diffBody.Length
 Write-Host "R3 diff size: changedLines=$changedLines diffChars=$diffChars binaryFiles=$binaryFiles limits=$MaxChangedLines/$MaxDiffChars" -ForegroundColor DarkGray
 if ($changedLines -gt $MaxChangedLines -or $diffChars -gt $MaxDiffChars) {
-  $sizeReason = "[R3-DIFF-TOO-LARGE] Pinned diff $baseOid...HEAD is too large for one complete R3 pass: changedLines=$changedLines (max $MaxChangedLines), diffChars=$diffChars (max $MaxDiffChars), binaryFiles=$binaryFiles. Split the task/card before push or review; no reviewer round was consumed."
+  $sizeReason = "[R3-DIFF-TOO-LARGE] Pinned diff $comparison is too large for one complete R3 pass: changedLines=$changedLines (max $MaxChangedLines), diffChars=$diffChars (max $MaxDiffChars), binaryFiles=$binaryFiles. Split the task/card before push or review; no reviewer round was consumed."
   if (-not $SizeOnly) { Write-Verdict 'block' @($sizeReason) }
   Write-Host "  $sizeReason" -ForegroundColor Red
   Write-Host '裁决: block（真实 diff 超预算，须拆卡）' -ForegroundColor Red
