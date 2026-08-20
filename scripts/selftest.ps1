@@ -132,6 +132,53 @@ function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
   return 0
 }
 
+# Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
+# unchanged; only these ASCII records are machine-readable. A non-zero child without exactly one valid
+# record is still red and is reported as UNKNOWN rather than being reduced to a positional exit-code list.
+function ConvertFrom-SelftestFailureSentinel {
+  param(
+    [AllowEmptyString()][string]$StdOut,
+    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded')][string]$Shard,
+    [int]$ExitCode
+  )
+  $sentinelLines = @($StdOut -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-FAILED-GATES]', [System.StringComparison]::Ordinal) })
+  if ($ExitCode -eq 0) {
+    return [PSCustomObject]@{ ProtocolValid = ($sentinelLines.Count -eq 0); FailedGates = @(); Reason = $(if ($sentinelLines.Count -eq 0) { '' } else { 'SENTINEL-ON-GREEN' }) }
+  }
+  if ($sentinelLines.Count -ne 1) {
+    return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'SENTINEL-COUNT' }
+  }
+  $match = [regex]::Match($sentinelLines[0], '^\[SELFTEST-FAILED-GATES\] shard=(?<shard>core|workflow|seeded) gates=(?<gates>[A-Za-z0-9.,()/_-]+)$')
+  if (-not $match.Success -or $match.Groups['shard'].Value -ne $Shard) {
+    return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'SENTINEL-SHAPE' }
+  }
+  $gates = @($match.Groups['gates'].Value -split ',')
+  $validGatePattern = '^(?:[0-9]+(?:\.[0-9]+)?[a-z]*|T[0-9]+-[A-Z0-9-]+|TD[0-9]+(?:-[A-Z0-9-]+)?)(?:\([A-Za-z0-9/_-]+\))?$'
+  if ($gates.Count -eq 0 -or @($gates | Where-Object { $_ -notmatch $validGatePattern }).Count -gt 0 -or @($gates | Select-Object -Unique).Count -ne $gates.Count) {
+    return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'GATE-LIST' }
+  }
+  return [PSCustomObject]@{ ProtocolValid = $true; FailedGates = $gates; Reason = '' }
+}
+
+function Get-SelftestAggregateFailureSummary([object[]]$Results) {
+  $failed = @($Results | Where-Object { $_.ExitCode -ne 0 -or -not $_.ProtocolValid })
+  if ($failed.Count -eq 0) { return $null }
+  $shards = @($failed | ForEach-Object { $_.Name })
+  $gatePairs = @($failed | ForEach-Object {
+    $result = $_
+    if ($result.ProtocolValid -and @($result.FailedGates).Count -gt 0) {
+      @($result.FailedGates) | ForEach-Object { "$($result.Name)/$_" }
+    } else {
+      "$($result.Name)/UNKNOWN(exit=$($result.ExitCode))"
+    }
+  })
+  return [PSCustomObject]@{
+    Shards = $shards
+    FailedGates = $gatePairs
+    Line = "[SELFTEST-ALL-FAIL] shards=$($shards -join ',') failed-gates=$($gatePairs -join ',')"
+  }
+}
+
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
 function Test-SelftestCiMatrixContract([string]$WorkflowText) {
   $matrix = [regex]::Match($WorkflowText, '(?ms)^\s{6}matrix:\s*\r?\n(?<body>.*?)(?=^\s{4}runs-on:)')
@@ -273,7 +320,14 @@ function Complete-SelftestShard {
     if ($stdout) { Write-Host $stdout }
     if ($stderr) { Write-Host $stderr -ForegroundColor Red }
   }
-  return $Child.Process.ExitCode
+  $protocol = ConvertFrom-SelftestFailureSentinel -StdOut $stdout -Shard $Child.Name -ExitCode $Child.Process.ExitCode
+  return [PSCustomObject]@{
+    Name = $Child.Name
+    ExitCode = $Child.Process.ExitCode
+    ProtocolValid = $protocol.ProtocolValid
+    FailedGates = @($protocol.FailedGates)
+    ProtocolReason = $protocol.Reason
+  }
 }
 
 # 默认入口只编排生命周期；快照、启动、收集各由上面单责 helper 处理。
@@ -307,10 +361,14 @@ function Invoke-SelftestAll {
     $coreSnapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot 'core') -Name 'core' -GitExe $gitExe
     if ($CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
     $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $coreSnapshot -Name 'core' -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -PriorityClass BelowNormal -Quiet:$Quiet
-    $exitCodes = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
-    $aggregateExit = Get-SelftestAggregateExitCode -ExitCodes $exitCodes
+    $results = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
+    $exitCodes = @($results | ForEach-Object { $_.ExitCode })
+    $effectiveExitCodes = @($results | ForEach-Object { if ($_.ExitCode -ne 0 -or -not $_.ProtocolValid) { 1 } else { 0 } })
+    $aggregateExit = Get-SelftestAggregateExitCode -ExitCodes $effectiveExitCodes
     if (-not $Quiet) {
       if ($aggregateExit -ne 0) {
+        $failureSummary = Get-SelftestAggregateFailureSummary -Results $results
+        Write-Host $failureSummary.Line -ForegroundColor Red
         Write-Host "selftest(all): FAIL (exit codes: $($exitCodes -join ', '))" -ForegroundColor Red
         Write-Host 'selftest: FAIL' -ForegroundColor Red
       } else {
@@ -355,9 +413,26 @@ function Resolve-StrictLintDefault([bool]$IsPostInit, [bool]$ParamBound, [bool]$
 }
 $StrictLint = Resolve-StrictLintDefault -IsPostInit $isPostInit -ParamBound $PSBoundParameters.ContainsKey('StrictLint') -Requested $StrictLint
 
-function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
+function Resolve-SelftestGateId([string]$Message, [string]$Fallback) {
+  $match = [regex]::Match($Message, '^(?:闸)?(?<id>(?:[0-9]+(?:\.[0-9]+)?[a-z]*|T[0-9]+-[A-Z0-9-]+|TD[0-9]+(?:-[A-Z0-9-]+)?)(?:\([A-Za-z0-9/_-]+\))?)\s*[:：]')
+  if ($match.Success) { return $match.Groups['id'].Value }
+  if ($Fallback) { return $Fallback }
+  return 'UNKNOWN'
+}
+function Step($m) {
+  $stepMatch = [regex]::Match([string]$m, '^(?<id>[0-9]+(?:\.[0-9]+)?[a-z]*)/17\b')
+  if ($stepMatch.Success) { $script:currentSelftestGateId = $stepMatch.Groups['id'].Value }
+  Write-Host "`n=== $m ===" -ForegroundColor Cyan
+}
 $fail = $false
-function Fail($m) { Write-Warning $m; $script:fail = $true }
+$currentSelftestGateId = ''
+$failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
+function Fail($m) {
+  $gateId = Resolve-SelftestGateId -Message ([string]$m) -Fallback $script:currentSelftestGateId
+  if (-not $script:failedSelftestGateIds.Contains($gateId)) { [void]$script:failedSelftestGateIds.Add($gateId) }
+  Write-Warning $m
+  $script:fail = $true
+}
 $RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime', '.pytest_cache', '.ruff_cache', '.mypy_cache')  # 运行时/工具产物：存在即忽略，非交付物
 $executedGateGroups = [System.Collections.Generic.List[string]]::new()
 
@@ -1043,6 +1118,24 @@ if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR�
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
+$gateIdProbe82 = @(
+  (Resolve-SelftestGateId -Message '8.2e：fixture failure' -Fallback '8'),
+  (Resolve-SelftestGateId -Message 'unprefixed failure' -Fallback '7')
+)
+$knownFailure82 = ConvertFrom-SelftestFailureSentinel -StdOut "noise`n[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)" -Shard workflow -ExitCode 1
+$missingFailure82 = ConvertFrom-SelftestFailureSentinel -StdOut 'noise only' -Shard workflow -ExitCode 17
+$wrongShard82 = ConvertFrom-SelftestFailureSentinel -StdOut '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -Shard workflow -ExitCode 1
+$greenProtocol82 = ConvertFrom-SelftestFailureSentinel -StdOut 'selftest: PASS' -Shard core -ExitCode 0
+$sentinelOnGreen82 = ConvertFrom-SelftestFailureSentinel -StdOut '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -Shard core -ExitCode 0
+$summary82 = Get-SelftestAggregateFailureSummary -Results @(
+  [PSCustomObject]@{ Name = 'workflow'; ExitCode = 1; ProtocolValid = $true; FailedGates = @('8.2e', '17aa(8)') },
+  [PSCustomObject]@{ Name = 'core'; ExitCode = 29; ProtocolValid = $false; FailedGates = @() }
+)
+if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or -not $knownFailure82.ProtocolValid -or (@($knownFailure82.FailedGates) -join ',') -ne '8.2e,17aa(8)' -or
+    $missingFailure82.ProtocolValid -or $wrongShard82.ProtocolValid -or -not $greenProtocol82.ProtocolValid -or $sentinelOnGreen82.ProtocolValid -or
+    $summary82.Line -ne '[SELFTEST-ALL-FAIL] shards=workflow,core failed-gates=workflow/8.2e,workflow/17aa(8),core/UNKNOWN(exit=29)') {
+  Fail '8.2e：selftest 失败闸协议未保留 gate id、未拒绝缺失/错 shard/绿态哨兵，或 all 汇总丢失 shard/gate 关联。'
+}
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   Fail '8.2e：scaffold-selftest.yml 的 2 OS×3 分片、runner、脚本参数或 lint 依赖接线不完整。'
@@ -10981,7 +11074,11 @@ if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
 } else { Write-Host "  分片执行组：$($expectedGateGroups -join ',') OK" -ForegroundColor Green }
 
 Step "结论 [$Shard]"
-if ($fail) { Write-Host 'selftest: FAIL' -ForegroundColor Red; exit 1 }
+if ($fail) {
+  Write-Host "[SELFTEST-FAILED-GATES] shard=$Shard gates=$($failedSelftestGateIds -join ',')" -ForegroundColor Red
+  Write-Host 'selftest: FAIL' -ForegroundColor Red
+  exit 1
+}
 Write-Host "selftest($Shard): PASS" -ForegroundColor Green
 Write-Host 'selftest: PASS' -ForegroundColor Green
 exit 0
