@@ -141,6 +141,7 @@ class PendingPhotoLeaseTest {
     @Test
     fun `acquire syncs the complete photo directory chain deepest first after forcing the marker`() = inTempDir { root ->
         val durabilityRoot = File(root, "existing-root").also { assertTrue(it.mkdir()) }
+        val canonicalDurabilityRoot = durabilityRoot.canonicalFile
         val target = File(durabilityRoot, "media/photos/property/inspection/photo-chain.jpg")
         val events = mutableListOf<String>()
 
@@ -152,7 +153,8 @@ class PendingPhotoLeaseTest {
                 channel.force(true)
             },
             syncParentDirectory = { directory ->
-                events += durabilityRoot.toPath().relativize(directory.toPath()).toString().replace('\\', '/')
+                events += canonicalDurabilityRoot.toPath().relativize(directory.canonicalFile.toPath())
+                    .toString().replace('\\', '/')
             },
         )
 
