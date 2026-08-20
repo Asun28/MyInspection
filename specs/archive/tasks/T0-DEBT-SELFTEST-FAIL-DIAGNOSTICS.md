@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS
 title: 让 selftest 分片与 all 汇总稳定点名失败闸
 depends_on: [T0-DEBT-SELFTEST-CRITICAL-PATH]
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS
 worktree: C:\wt\T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS
 allow_paths:
@@ -39,3 +39,7 @@ doc_sync: TD9 保持 carded；本卡只偿还失败点名，skip 与 8.2e load-f
 ## 资源冲突
 
 本卡与 `T0-DEBT-SELFTEST-SKIP-VISIBILITY`、`T0-DEBT-SELFTEST-LOAD-STABILITY` 及 TD134 实现卡共享 `scripts/selftest.ps1`；没有业务依赖，但执行和合并宽度必须为 1。
+
+## 合并记录
+
+PR #31 以 master `b8dee45` squash 合并；最终实现提交为 `155d528`。单分片终态与 `all` 汇总现输出稳定的 ASCII shard/gate 哨兵，缺失或畸形子哨兵仍以 `UNKNOWN(exit=...)` fail-closed。8.2e hermetic 夹具覆盖单/多 gate、重复 Fail 去重、有效/缺失/畸形哨兵、全绿控制组及捕获/发射/聚合解析 mutation；R3 指出的既有复合前缀与运行时 prose 漂移均已纳入表驱动回归。隔离 `selftest -Shard core`、DoD、`verify`、范围、许可、密钥与最终 R3 均通过。TD9 完成第 1/3 张残债卡，保持 `carded`。

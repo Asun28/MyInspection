@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 33 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 34 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -13,6 +13,7 @@
 | T0-DEBT-RELEASE-CHECKLIST-HASH-GUARD | merged | Document and prove the release-checklist hash coupling (repay TD11) |
 | T0-DEBT-SEEDED-CLOSURE-SCOPE | merged | Make seeded mutation closures self-contained (repay TD23) |
 | T0-DEBT-SELFTEST-CRITICAL-PATH | merged | 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径 |
+| T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | merged | 让 selftest 分片与 all 汇总稳定点名失败闸 |
 | T0-DEBT-TASK-INVENTORY | merged | Remove hand-maintained task-card inventory (repay TD21) |
 | T0-DEBT-TEMPLATE-STORE-IMMUTABILITY | merged | Prove TemplateStore read results reject element replacement (repay TD13) |
 | T0-GATE-FIXFORWARD | merged | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径（T0-GATE-HARDENING 事后 R3 两条 block 的 fix-forward） |
