@@ -22,7 +22,7 @@ class PendingPhotoAssetCleanup private constructor(
     private val deleter: OrphanFileDeleter,
     private val listChildren: (File) -> Array<File>?,
     private val readAttributes: (File) -> BasicFileAttributes?,
-    private val openLease: (File) -> PendingPhotoLeaseHandle,
+    private val openLease: (File, PendingPhotoMarkerIdentity) -> PendingPhotoLeaseHandle,
 ) {
     constructor(
         mediaRoot: File,
@@ -34,7 +34,7 @@ class PendingPhotoAssetCleanup private constructor(
         deleter,
         { directory -> directory.listFiles() },
         ::readNoFollowAttributes,
-        { marker -> PendingPhotoLease.openExisting(marker) },
+        { marker, identity -> PendingPhotoLease.openExisting(marker, identity) },
     )
 
     companion object {
@@ -59,7 +59,7 @@ class PendingPhotoAssetCleanup private constructor(
             deleter,
             listChildren,
             readAttributes,
-            { marker -> PendingPhotoLease.openExisting(marker) },
+            { marker, identity -> PendingPhotoLease.openExisting(marker, identity) },
         )
 
         /** Test seam for proving an unknown cleanup primary owns any lease-close failure. */
@@ -67,7 +67,7 @@ class PendingPhotoAssetCleanup private constructor(
             mediaRoot: File,
             findPhoto: (photoId: String) -> PendingPhotoReference?,
             deleter: OrphanFileDeleter,
-            openLease: (File) -> PendingPhotoLeaseHandle,
+            openLease: (File, PendingPhotoMarkerIdentity) -> PendingPhotoLeaseHandle,
         ): PendingPhotoAssetCleanup = PendingPhotoAssetCleanup(
             mediaRoot,
             findPhoto,
@@ -94,6 +94,7 @@ class PendingPhotoAssetCleanup private constructor(
                 is RecoveryResult.Deleted -> deleted += result.relPath
                 is RecoveryResult.Readopted -> readopted += result.relPath
                 is RecoveryResult.Failed -> failed += FailedDeletion(candidate.relPath, result.cause)
+                is RecoveryResult.Rejected -> rejected += result.relPath
             }
         }
         return CleanupResult(deleted, failed, rejected, readopted)
@@ -104,11 +105,14 @@ class PendingPhotoAssetCleanup private constructor(
         var primary: Throwable? = null
         var result: RecoveryResult? = null
         try {
-            lease = openLease(candidate.marker)
+            candidate.markerScanFailure?.let { throw it }
+            lease = openLease(candidate.marker, checkNotNull(candidate.markerIdentity))
             val adopted = findPhoto(candidate.photoId)?.let { it.active && it.relPath == candidate.relPath } == true
             result = if (adopted) {
                 RecoveryResult.Readopted(candidate.relPath)
-            } else if (deleter.delete(candidate.relPath)) {
+            } else if (!isSafePendingAssetLeaf(candidate.relPath)) {
+                RecoveryResult.Rejected(candidate.relPath)
+            } else if (deleter.deleteNoFollow(candidate.relPath)) {
                 RecoveryResult.Deleted(candidate.relPath)
             } else {
                 RecoveryResult.Failed(null)
@@ -121,7 +125,7 @@ class PendingPhotoAssetCleanup private constructor(
             val heldLease = lease
             if (heldLease != null) {
                 try {
-                    if (result !is RecoveryResult.Failed) {
+                    if (result is RecoveryResult.Deleted || result is RecoveryResult.Readopted) {
                         if (!heldLease.closeAfter(PendingPhotoLeaseDisposition.RECORDED)) {
                             result = RecoveryResult.Failed(null)
                         }
@@ -149,6 +153,10 @@ class PendingPhotoAssetCleanup private constructor(
     private fun isExpectedEnvironmentFailure(failure: Throwable): Boolean =
         failure is IOException || failure is SecurityException
 
+    private fun isSafePendingAssetLeaf(relPath: String): Boolean {
+        return NoFollowLeafDeletion.isSafe(mediaRoot, relPath)
+    }
+
     private fun pendingCandidates(): List<PendingCandidate> {
         val root = scanRoot()
         val photos = File(root, "photos")
@@ -159,7 +167,8 @@ class PendingPhotoAssetCleanup private constructor(
         val candidates = mutableListOf<PendingCandidate>()
         for (property in containedDirectories(photoDirectory, root, "property")) {
             for (inspection in containedDirectories(property, root, "inspection")) {
-                for (marker in containedMarkers(inspection, root)) {
+                for (scannedMarker in containedMarkers(inspection, root)) {
+                    val marker = scannedMarker.file
                     val assetName = marker.name.removeSuffix(".pending")
                     val relPath = "photos/${property.name}/${inspection.name}/$assetName"
                     candidates += PendingCandidate(
@@ -167,6 +176,8 @@ class PendingPhotoAssetCleanup private constructor(
                         markerRelPath = "photos/${property.name}/${inspection.name}/${marker.name}",
                         relPath = relPath,
                         photoId = assetName.removeSuffix(".jpg"),
+                        markerIdentity = scannedMarker.identity,
+                        markerScanFailure = scannedMarker.failure,
                     )
                 }
             }
@@ -188,7 +199,7 @@ class PendingPhotoAssetCleanup private constructor(
             containedDirectory(candidate, root, level)
         }
 
-    private fun containedMarkers(directory: File, root: File): List<File> =
+    private fun containedMarkers(directory: File, root: File): List<ScannedMarker> =
         childrenOf(directory).mapNotNull { candidate ->
             if (!candidate.name.endsWith(PENDING_SUFFIX)) return@mapNotNull null
             val attributes = readAttributes(candidate) ?: return@mapNotNull null
@@ -196,7 +207,22 @@ class PendingPhotoAssetCleanup private constructor(
             if (isUnsafeAlias(attributes) || !isWithinMediaRoot(root, canonical)) {
                 throw IllegalStateException("unsafe pending marker: ${candidate.path}")
             }
-            candidate.takeIf { isPlainFile(attributes) }
+            candidate.takeIf { isPlainFile(attributes) }?.let { file ->
+                val markerRelPath = root.toPath().relativize(file.toPath()).toString()
+                    .replace(File.separatorChar, '/')
+                val assetRelPath = markerRelPath.removeSuffix(".pending")
+                if (!MediaPaths.isPhotoRelPathShape(assetRelPath)) {
+                    ScannedMarker(file, identity = null, failure = null)
+                } else {
+                    try {
+                        ScannedMarker(file, PendingPhotoLease.scanIdentity(file), failure = null)
+                    } catch (failure: IOException) {
+                        ScannedMarker(file, identity = null, failure = failure)
+                    } catch (failure: SecurityException) {
+                        ScannedMarker(file, identity = null, failure = failure)
+                    }
+                }
+            }
         }
 
     private fun containedDirectory(candidate: File, root: File, level: String): File? {
@@ -244,12 +270,21 @@ class PendingPhotoAssetCleanup private constructor(
         val markerRelPath: String,
         val relPath: String,
         val photoId: String,
+        val markerIdentity: PendingPhotoMarkerIdentity?,
+        val markerScanFailure: Throwable?,
+    )
+
+    private data class ScannedMarker(
+        val file: File,
+        val identity: PendingPhotoMarkerIdentity?,
+        val failure: Throwable?,
     )
 
     private sealed interface RecoveryResult {
         data class Deleted(val relPath: String) : RecoveryResult
         data class Readopted(val relPath: String) : RecoveryResult
         data class Failed(val cause: Throwable?) : RecoveryResult
+        data class Rejected(val relPath: String) : RecoveryResult
     }
 
 }

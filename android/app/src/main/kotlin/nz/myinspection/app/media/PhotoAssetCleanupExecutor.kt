@@ -1,6 +1,7 @@
 package nz.myinspection.app.media
 
 import java.io.File
+import nz.myinspection.core.media.NoFollowLeafDeletion
 import nz.myinspection.core.media.OrphanFileDeleter
 
 /**
@@ -10,4 +11,6 @@ import nz.myinspection.core.media.OrphanFileDeleter
  */
 class PhotoAssetCleanupExecutor(private val mediaRoot: File) : OrphanFileDeleter {
     override fun delete(relPath: String): Boolean = MediaFileStore.deleteIfPresent(MediaFileStore.resolve(mediaRoot, relPath))
+
+    override fun deleteNoFollow(relPath: String): Boolean = NoFollowLeafDeletion.delete(mediaRoot, relPath)
 }

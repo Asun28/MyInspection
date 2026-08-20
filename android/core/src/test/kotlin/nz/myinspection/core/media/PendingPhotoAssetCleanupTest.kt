@@ -2,12 +2,15 @@ package nz.myinspection.core.media
 
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import org.testng.SkipException
 
 class PendingPhotoAssetCleanupTest {
     @Test
@@ -181,7 +184,11 @@ class PendingPhotoAssetCleanupTest {
     fun `cleanup can finish a resolving marker after its JPEG has been readopted`() = inTempDir { root ->
         val relPath = "photos/property/inspection/photo-7.jpg"
         val asset = asset(root, relPath)
-        val marker = File(asset.parentFile, "photo-7.jpg.pending").also { it.writeBytes(byteArrayOf(1)) }
+        val marker = File(asset.parentFile, "photo-7.jpg.pending")
+        val lease = PendingPhotoLease.acquire(asset)
+        java.io.RandomAccessFile(marker, "rw").use {
+            assertFalse(lease.closeAfter(PendingPhotoLeaseDisposition.RECORDED))
+        }
 
         val result = PendingPhotoAssetCleanup(
             mediaRoot = root,
@@ -194,6 +201,180 @@ class PendingPhotoAssetCleanupTest {
         assertEquals(listOf(relPath), result.readopted)
         assertTrue(asset.isFile)
         assertFalse(marker.exists(), "the recovery worker must be allowed to complete the resolving handoff")
+    }
+
+    @Test
+    fun `cleanup rejects a marker swapped to a symlink after scanning without touching its referent`() =
+        inTempDir { root ->
+            val relPath = "photos/property/inspection/photo-swapped-marker.jpg"
+            val asset = asset(root, relPath)
+            val marker = File(asset.parentFile, "photo-swapped-marker.jpg.pending")
+            PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+            val referent = File(root, "swapped-marker-referent").also { it.writeText("do-not-touch") }
+            val result = PendingPhotoAssetCleanup.withLeaseOpener(
+                mediaRoot = root,
+                findPhoto = { PendingPhotoReference(relPath, active = true) },
+                deleter = OrphanFileDeleter { error("an active row must not delete") },
+                openLease = { scannedMarker, expectedIdentity ->
+                    assertTrue(Files.deleteIfExists(scannedMarker.toPath()))
+                    createSymlinkOrSkip(scannedMarker, referent)
+                    PendingPhotoLease.openExisting(scannedMarker, expectedIdentity)
+                },
+            ).run()
+
+            val failure = result.failed.single()
+            assertEquals(relPath, failure.relPath)
+            assertTrue(failure.cause is IOException)
+            assertEquals("do-not-touch", referent.readText())
+            assertTrue(Files.isSymbolicLink(marker.toPath()))
+            assertTrue(result.readopted.isEmpty())
+        }
+
+    @Test
+    fun `cleanup binds the scanned marker identity to its later no-follow open`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-swapped-regular.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "photo-swapped-regular.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val replacementTarget = File(root, "replacement.jpg")
+        PendingPhotoLease.acquireWithDurability(
+            replacementTarget,
+            forceMarker = { it.force(true) },
+            syncParentDirectory = {},
+            newToken = { ByteArray(16) { 0x55 } },
+        ).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val replacement = File(replacementTarget.parentFile, "replacement.jpg.pending")
+
+        val result = PendingPhotoAssetCleanup.withLeaseOpener(
+            mediaRoot = root,
+            findPhoto = { error("identity mismatch must fail before DB lookup") },
+            deleter = OrphanFileDeleter { error("identity mismatch must fail before deletion") },
+            openLease = { scannedMarker, expectedIdentity ->
+                Files.move(replacement.toPath(), scannedMarker.toPath(), REPLACE_EXISTING)
+                PendingPhotoLease.openExisting(scannedMarker, expectedIdentity)
+            },
+        ).run()
+
+        val failure = result.failed.single()
+        assertEquals(relPath, failure.relPath)
+        assertTrue(failure.cause is IOException)
+        assertTrue(asset.isFile)
+        assertTrue(marker.isFile)
+    }
+
+    @Test
+    fun `cleanup retains the token identity captured during enumeration when a later candidate is replaced`() =
+        inTempDir { root ->
+            val triggerRelPath = "photos/property/inspection/a-trigger.jpg"
+            val victimRelPath = "photos/property/inspection/z-victim.jpg"
+            val trigger = asset(root, triggerRelPath)
+            val victim = File(root, victimRelPath).also { it.writeText("evidence") }
+            PendingPhotoLease.acquireWithDurability(
+                trigger,
+                forceMarker = { it.force(true) },
+                syncParentDirectory = {},
+                newToken = { ByteArray(16) { 0x11 } },
+            ).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+            PendingPhotoLease.acquireWithDurability(
+                victim,
+                forceMarker = { it.force(true) },
+                syncParentDirectory = {},
+                newToken = { ByteArray(16) { 0x22 } },
+            ).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+            val victimMarker = File(victim.parentFile, "z-victim.jpg.pending")
+            val replacementTarget = File(root, "replacement.jpg")
+            PendingPhotoLease.acquireWithDurability(
+                replacementTarget,
+                forceMarker = { it.force(true) },
+                syncParentDirectory = {},
+                newToken = { ByteArray(16) { 0x33 } },
+            ).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+            val replacementMarker = File(root, "replacement.jpg.pending")
+            val replacementBytes = replacementMarker.readBytes()
+            var swapped = false
+
+            val result = PendingPhotoAssetCleanup(
+                mediaRoot = root,
+                findPhoto = { photoId ->
+                    when (photoId) {
+                        "a-trigger" -> {
+                            Files.move(replacementMarker.toPath(), victimMarker.toPath(), REPLACE_EXISTING)
+                            swapped = true
+                            PendingPhotoReference(triggerRelPath, active = true)
+                        }
+                        "z-victim" -> error("a replaced token must fail before the second DB lookup")
+                        else -> null
+                    }
+                },
+                deleter = OrphanFileDeleter { error("active or replaced candidates must not delete") },
+            ).run()
+
+            assertTrue(swapped)
+            assertEquals(listOf(triggerRelPath), result.readopted)
+            val failure = result.failed.single()
+            assertEquals(victimRelPath, failure.relPath)
+            assertTrue(failure.cause is IOException)
+            assertTrue(victimMarker.readBytes().contentEquals(replacementBytes))
+        }
+
+    @Test
+    fun `cleanup rejects a Windows junction marker parent without enumerating its referent`() = inTempDir { root ->
+        if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+            throw SkipException("Windows junction evidence runs only on Windows")
+        }
+        val property = File(root, "photos/property").also { assertTrue(it.mkdirs()) }
+        val referent = kotlin.io.path.createTempDirectory("td14-junction-referent-").toFile()
+        val asset = File(referent, "photo.jpg")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val junction = File(property, "inspection")
+        val process = ProcessBuilder("cmd", "/c", "mklink", "/J", junction.path, referent.path)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (process.waitFor() != 0) {
+            referent.deleteRecursively()
+            throw SkipException("Windows junctions are unavailable: $output")
+        }
+        try {
+            assertFailsWith<IllegalStateException> {
+                PendingPhotoAssetCleanup(
+                    mediaRoot = root,
+                    findPhoto = { error("junction contents must never reach DB lookup") },
+                    deleter = OrphanFileDeleter { error("junction contents must never reach deletion") },
+                ).run()
+            }
+            assertTrue(File(referent, "photo.jpg.pending").isFile)
+        } finally {
+            Files.deleteIfExists(junction.toPath())
+            referent.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cleanup rejects a JPEG symlink and never invokes a deleter that would follow it`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-linked-asset.jpg"
+        val asset = File(root, relPath).also { assertTrue(it.parentFile!!.mkdirs()) }
+        val protectedAsset = File(asset.parentFile, "protected.jpg").also { it.writeText("protected-evidence") }
+        createSymlinkOrSkip(asset, protectedAsset)
+        val marker = File(asset.parentFile, "photo-linked-asset.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        var deleteCalls = 0
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { null },
+            deleter = OrphanFileDeleter { path ->
+                deleteCalls += 1
+                val followed = File(root, path).canonicalFile
+                followed.delete() || !followed.exists()
+            },
+        ).run()
+
+        assertEquals(listOf(relPath), result.rejected)
+        assertEquals(0, deleteCalls, "the shape-valid alias must fail before any follow-capable deleter")
+        assertEquals("protected-evidence", protectedAsset.readText())
+        assertTrue(Files.isSymbolicLink(asset.toPath()))
+        assertTrue(marker.isFile, "unsafe state must retain its recovery marker")
     }
 
     @Test
@@ -292,7 +473,7 @@ class PendingPhotoAssetCleanupTest {
                 mediaRoot = root,
                 findPhoto = { throw primary },
                 deleter = OrphanFileDeleter { error("deleter must not run after lookup failure") },
-                openLease = { ThrowingLease(closeFailure) },
+                openLease = { _, _ -> ThrowingLease(closeFailure) },
             ).run()
 
             val failed = pending.failed.single()
@@ -327,7 +508,7 @@ class PendingPhotoAssetCleanupTest {
                 mediaRoot = root,
                 findPhoto = { null },
                 deleter = OrphanFileDeleter { throw primary },
-                openLease = { ThrowingLease(closeFailure) },
+                openLease = { _, _ -> ThrowingLease(closeFailure) },
             ).run()
         }
 
@@ -349,7 +530,7 @@ class PendingPhotoAssetCleanupTest {
                 mediaRoot = root,
                 findPhoto = { PendingPhotoReference(relPath, active = true) },
                 deleter = OrphanFileDeleter { error("readoption must not delete") },
-                openLease = { ThrowingFinalizingLease(closeFailure) },
+                openLease = { _, _ -> ThrowingFinalizingLease(closeFailure) },
             ).run()
         }
 
@@ -369,7 +550,7 @@ class PendingPhotoAssetCleanupTest {
             mediaRoot = root,
             findPhoto = { PendingPhotoReference(relPath, active = true) },
             deleter = OrphanFileDeleter { error("readoption must not delete") },
-            openLease = { ThrowingFinalizingLease(closeFailure) },
+            openLease = { _, _ -> ThrowingFinalizingLease(closeFailure) },
         ).run()
 
         val failed = result.failed.single()
@@ -390,6 +571,17 @@ class PendingPhotoAssetCleanupTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    private fun createSymlinkOrSkip(link: File, target: File) = try {
+        Files.createSymbolicLink(link.toPath(), target.toPath())
+        Unit
+    } catch (failure: UnsupportedOperationException) {
+        throw SkipException("symbolic links are unavailable on this platform", failure)
+    } catch (failure: IOException) {
+        throw SkipException("symbolic links are unavailable on this host", failure)
+    } catch (failure: SecurityException) {
+        throw SkipException("symbolic links are not permitted on this host", failure)
     }
 
     private class TestAttributes(

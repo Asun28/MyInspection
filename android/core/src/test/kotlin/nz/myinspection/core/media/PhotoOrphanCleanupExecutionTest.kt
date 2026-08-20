@@ -7,6 +7,21 @@ import kotlin.test.assertSame
 
 class PhotoOrphanCleanupExecutionTest {
     @Test
+    fun `SQLite retry classifier accepts only lock busy disk IO and open failures`() {
+        val cases = listOf(
+            PhotoOrphanSqliteFailureKind.DATABASE_LOCKED to true,
+            PhotoOrphanSqliteFailureKind.TABLE_LOCKED to true,
+            PhotoOrphanSqliteFailureKind.DISK_IO to true,
+            PhotoOrphanSqliteFailureKind.CANT_OPEN to true,
+            PhotoOrphanSqliteFailureKind.OTHER to false,
+        )
+
+        cases.forEach { (kind, expected) ->
+            assertEquals(expected, isRetryablePhotoOrphanSqliteFailure(kind), "unexpected decision for $kind")
+        }
+    }
+
+    @Test
     fun `execution closes its driver after a successful cleanup`() {
         val driver = RecordingDriver()
 

@@ -3,6 +3,7 @@ package nz.myinspection.core.media
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Android has no JVM runtime here, so this is a narrow source guard around the already-executable core lifecycle. */
@@ -53,6 +54,14 @@ class PhotoOrphanCleanupWiringTest {
             "forceMarker = { channel -> channel.force(true) }",
         )
         assertTrue(
+            coreLease.contains("FileChannel.open(path, READ, WRITE, CREATE_NEW, NOFOLLOW_LINKS)"),
+            "marker creation must stay atomic and refuse a link leaf",
+        )
+        assertTrue(
+            coreLease.contains("FileChannel.open(marker.toPath(), READ, NOFOLLOW_LINKS)"),
+            "scan and delete verification must reopen marker paths without following links",
+        )
+        assertTrue(
             lease.contains("override fun onCompletedCleanupFailure(failure: Throwable)"),
             "a post-record lease close error must be logged without replacing the recorded outcome",
         )
@@ -64,6 +73,10 @@ class PhotoOrphanCleanupWiringTest {
         val media = app.resolve("media")
         val runtimeStorage = Files.readString(media.resolve("PhotoRuntimeStorage.kt"))
         val worker = Files.readString(media.resolve("PhotoOrphanCleanupWorker.kt"))
+        val cleanupExecutor = Files.readString(media.resolve("PhotoAssetCleanupExecutor.kt"))
+        val noFollowDeletion = Files.readString(
+            androidRoot().resolve("core/src/main/kotlin/nz/myinspection/core/media/NoFollowLeafDeletion.kt"),
+        )
         val scheduler = Files.readString(media.resolve("PhotoOrphanCleanupScheduler.kt"))
         val main = Files.readString(app.resolve("MainActivity.kt"))
 
@@ -84,8 +97,28 @@ class PhotoOrphanCleanupWiringTest {
         )
         assertTrue(worker.contains("retryable = ::isRetryableEnvironmentFailure"))
         assertTrue(
-            worker.contains("failure is IOException || failure is SecurityException || failure is SQLiteException"),
-            "database and filesystem environment failures must request retry; unknown exceptions fail closed",
+            worker.contains("isRetryablePhotoOrphanSqliteFailure(classifySqliteFailure(failure))"),
+            "the Android adapter must delegate its exact SQLite subtype mapping to the executable core classifier",
+        )
+        assertInOrder(
+            worker,
+            "private fun classifySqliteFailure",
+            "is SQLiteDatabaseLockedException -> PhotoOrphanSqliteFailureKind.DATABASE_LOCKED",
+            "is SQLiteTableLockedException -> PhotoOrphanSqliteFailureKind.TABLE_LOCKED",
+            "is SQLiteDiskIOException -> PhotoOrphanSqliteFailureKind.DISK_IO",
+            "is SQLiteCantOpenDatabaseException -> PhotoOrphanSqliteFailureKind.CANT_OPEN",
+            "else -> PhotoOrphanSqliteFailureKind.OTHER",
+        )
+        assertTrue(cleanupExecutor.contains("override fun deleteNoFollow(relPath: String): Boolean"))
+        assertTrue(
+            cleanupExecutor.contains("NoFollowLeafDeletion.delete(mediaRoot, relPath)"),
+            "the Android adapter must use the executable no-follow parent and leaf boundary",
+        )
+        assertTrue(noFollowDeletion.contains("Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)"))
+        assertTrue(noFollowDeletion.contains("Files.deleteIfExists(boundary)"), "only the validated leaf entry may be deleted")
+        assertFalse(
+            noFollowDeletion.contains("Path.of("),
+            "the core helper ships to minSdk 26 and must not reference the Java 11 static Path factory",
         )
         assertTrue(worker.contains("PhotoOrphanCleanupDecision.RETRY -> Result.retry()"))
         assertTrue(worker.contains("PhotoOrphanCleanupDecision.FAILURE -> Result.failure()"))

@@ -6,6 +6,24 @@ data class PhotoOrphanCleanupExecutionResult(
     val failure: Throwable?,
 )
 
+/** Portable boundary for Android's SQLiteException subclass mapping. */
+enum class PhotoOrphanSqliteFailureKind {
+    DATABASE_LOCKED,
+    TABLE_LOCKED,
+    DISK_IO,
+    CANT_OPEN,
+    OTHER,
+}
+
+fun isRetryablePhotoOrphanSqliteFailure(kind: PhotoOrphanSqliteFailureKind): Boolean = when (kind) {
+    PhotoOrphanSqliteFailureKind.DATABASE_LOCKED,
+    PhotoOrphanSqliteFailureKind.TABLE_LOCKED,
+    PhotoOrphanSqliteFailureKind.DISK_IO,
+    PhotoOrphanSqliteFailureKind.CANT_OPEN,
+    -> true
+    PhotoOrphanSqliteFailureKind.OTHER -> false
+}
+
 /**
  * Resource lifecycle for the Android worker, kept generic so JVM tests execute the exact primary/suppression rules.
  *

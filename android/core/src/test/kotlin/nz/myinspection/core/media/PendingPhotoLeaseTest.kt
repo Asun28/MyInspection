@@ -3,14 +3,109 @@ package nz.myinspection.core.media
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import org.testng.SkipException
 
 class PendingPhotoLeaseTest {
+    @Test
+    fun `ingest rejects a pre-existing marker symlink without writing or deleting its referent`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-linked-marker.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val referent = File(root, "marker-referent").also { it.writeBytes(byteArrayOf()) }
+        val marker = File(target.parentFile, "photo-linked-marker.jpg.pending")
+        createSymlinkOrSkip(marker, referent)
+
+        val failure = runCatching {
+            PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RECORDED)
+        }.exceptionOrNull()
+
+        assertTrue(failure is IOException, "a marker link must fail before a lease can mutate it")
+        assertTrue(Files.isSymbolicLink(marker.toPath()))
+        assertEquals(0L, referent.length(), "the linked file must never receive the resolving sentinel")
+    }
+
+    @Test
+    fun `recovery rejects content outside the fixed version state and token format`() = inTempDir { root ->
+        val marker = File(root, "photos/property/inspection/photo-invalid.jpg.pending").also {
+            assertTrue(it.parentFile!!.mkdirs())
+            it.writeBytes(byteArrayOf(2))
+        }
+
+        val outcome = runCatching { PendingPhotoLease.openExisting(marker) }
+        outcome.getOrNull()?.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val thrown = outcome.exceptionOrNull()
+
+        assertTrue(thrown is IOException)
+        assertTrue(thrown.message.orEmpty().contains("content"))
+        assertEquals(listOf<Byte>(2), marker.readBytes().toList())
+    }
+
+    @Test
+    fun `legacy empty marker is retained and rejected instead of being adopted or rewritten`() = inTempDir { root ->
+        val marker = File(root, "photos/property/inspection/photo-empty.jpg.pending").also {
+            assertTrue(it.parentFile!!.mkdirs())
+            assertTrue(it.createNewFile())
+        }
+
+        val thrown = assertFailsWith<IOException> { PendingPhotoLease.openExisting(marker) }
+
+        assertTrue(thrown.message.orEmpty().contains("content"))
+        assertEquals(0L, marker.length())
+    }
+
+    @Test
+    fun `new marker persists the injected 128-bit token in its fixed normal-state format`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-token.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val marker = File(target.parentFile, "photo-token.jpg.pending")
+
+        val lease = PendingPhotoLease.acquireWithDurability(
+            target = target,
+            forceMarker = { it.force(true) },
+            syncParentDirectory = {},
+            newToken = { ByteArray(16) { it.toByte() } },
+        )
+
+        lease.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        assertEquals("MIP1:N:000102030405060708090a0b0c0d0e0f", marker.readText())
+    }
+
+    @Test
+    fun `recorded close retains a path replacement with a different valid marker token`() = inTempDir { root ->
+        val parent = File(root, "photos/property/inspection").also { assertTrue(it.mkdirs()) }
+        val target = File(parent, "photo-original.jpg")
+        val replacementTarget = File(parent, "photo-replacement.jpg")
+        val marker = File(parent, "photo-original.jpg.pending")
+        val replacementMarker = File(parent, "photo-replacement.jpg.pending")
+        val original = PendingPhotoLease.acquireWithDurability(
+            target,
+            forceMarker = { it.force(true) },
+            syncParentDirectory = {},
+            newToken = { ByteArray(16) { 0x11 } },
+        )
+        PendingPhotoLease.acquireWithDurability(
+            replacementTarget,
+            forceMarker = { it.force(true) },
+            syncParentDirectory = {},
+            newToken = { ByteArray(16) { 0x22 } },
+        ).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val replacementBytes = replacementMarker.readBytes()
+        Files.move(replacementMarker.toPath(), marker.toPath(), REPLACE_EXISTING)
+
+        assertFalse(original.closeAfter(PendingPhotoLeaseDisposition.RECORDED))
+        assertTrue(marker.isFile, "a replaced path is not the lease's marker and must be retained")
+        assertTrue(marker.readBytes().contentEquals(replacementBytes))
+    }
+
     @Test
     fun `acquire forces the marker then syncs its parent while the lease is exclusive`() = inTempDir { root ->
         val target = File(root, "photos/property/inspection/photo-durable.jpg").also {
@@ -112,14 +207,18 @@ class PendingPhotoLeaseTest {
 
         val first = PendingPhotoLease.acquire(target)
         assertTrue(marker.isFile, "the marker must exist before any publisher can use the target")
-        assertEquals(0L, marker.length(), "initial marker creation must be an empty durable sidecar")
         assertFailsWith<IOException>("another ingest must not share the same marker lease") {
             PendingPhotoLease.acquire(target)
         }
 
         first.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val initialMarker = marker.readBytes()
+        assertEquals(39, initialMarker.size, "the marker stores a fixed version, state and 128-bit token")
         assertTrue(marker.isFile, "a failed or unfinished record must leave its recovery marker behind")
-        assertEquals(0L, marker.length(), "reopening an existing normal marker must never truncate or rewrite it")
+        assertTrue(
+            marker.readBytes().contentEquals(initialMarker),
+            "reopening an existing normal marker must never truncate or rewrite its token",
+        )
 
         val reopened = PendingPhotoLease.acquire(target)
         reopened.closeAfter(PendingPhotoLeaseDisposition.RECORDED)
@@ -147,12 +246,15 @@ class PendingPhotoLeaseTest {
         }
         val marker = File(target.parentFile, "photo-3.jpg.pending")
         PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
-        marker.writeBytes(byteArrayOf(1))
+        val lease = PendingPhotoLease.acquire(target)
+        RandomAccessFile(marker, "rw").use {
+            assertFalse(lease.closeAfter(PendingPhotoLeaseDisposition.RECORDED))
+        }
 
         assertFailsWith<IOException>("a fresh ingest must not publish through a marker being resolved") {
             PendingPhotoLease.acquire(target)
         }
-        assertEquals(1L, marker.length(), "the resolving state must remain durable for the worker")
+        assertTrue(marker.readText().startsWith("MIP1:R:"), "the resolving state must retain the same durable token")
     }
 
     @Test
@@ -181,5 +283,16 @@ class PendingPhotoLeaseTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    private fun createSymlinkOrSkip(link: File, target: File) = try {
+        Files.createSymbolicLink(link.toPath(), target.toPath())
+        Unit
+    } catch (failure: UnsupportedOperationException) {
+        throw SkipException("symbolic links are unavailable on this platform", failure)
+    } catch (failure: IOException) {
+        throw SkipException("symbolic links are unavailable on this host", failure)
+    } catch (failure: SecurityException) {
+        throw SkipException("symbolic links are not permitted on this host", failure)
     }
 }
