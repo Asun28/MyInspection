@@ -75,6 +75,7 @@
 | W4 | T3-PDF-RENDERER | :app PdfDocument 渲染+CJK+逐页内存+四档导出质量+双版本 | T3-REPORT-COMPOSER | H | Sonnet 5 · max | Opus 5 | 默认 Medium；High 为证据归档建议；不承诺绝对 MB |
 | W4 | T3-HISTORY-COMPARE | 历史条(上次状态/滑动)+ghost overlay 集成+双轨基线 | T2-CAPTURE-UI,T1-SPIKE-PLATFORM | H | Sonnet 5 · max | Opus 5 | — |
 | W4 | T4-COMPLIANCE-ENGINE ★ | 配置驱动合规引擎+阻断 API+NZ DST 边界测试 | T1-SCHEMA-CORE | H | Opus 5 · high | DeepSeek V4 Pro | Terra 对规则夹具与需求逐条比对 |
+| W4 | T4-COMPLIANCE-ENGINE-R3-CLOSURE | PR #43 round-cap 后配置驱动/改期身份/拒绝与不可变证据收口（TD141） | T4-COMPLIANCE-ENGINE | M | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只接第 2 轮四项 finding |
 | W4 | T5-BACKUP-IO | SAF 目的地+内容回读验证回执+自动导出+恢复先试跑后落刀 | T5-BACKUP-FORMAT,T2-PHOTO-PROPERTY-DEDUPE,T5-MEDIA-ARCHIVE-CONTRACT | H | Sonnet 5 · max | Terra | Google Photos 状态不算回执；不接云账号 |
 | W5 | T3-E2E-CORE | JVM e2e 闭环接 verify 闸门 2（$gate2Pending=false） | T3-FINALIZE,T3-REPORT-COMPOSER,T2-ROUTINE-CONTENT | M | DeepSeek V4 Pro · high | Sonnet 5 max | — |
 | W5 | T4-NOTICES | 48h 通知双语文本+一键复制+送达存档(全文快照) | T4-COMPLIANCE-ENGINE | M | DeepSeek V4 Pro · high | Terra | Luna Max（通知文本） |
