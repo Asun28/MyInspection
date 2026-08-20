@@ -29,19 +29,23 @@ class PhotoOrphanCleanupWiringTest {
             "a guard rejection may clear its sidecar only after compensation removed the JPEG",
         )
         assertTrue(
-            lease.contains("lease.closeAfter(disposition)"),
+            lease.contains("lease.closeAfterAssetDeletion(disposition)"),
             "the adapter must release and resolve the real durable lease, not a memory-only flag",
         )
         assertInOrder(
             lease,
-            "PendingPhotoLease.acquire(target, ::syncParentDirectory)",
-            "Os.open(parent.path, OsConstants.O_RDONLY, 0)",
-            "Os.fsync(descriptor)",
-            "Os.close(descriptor)",
+            "PendingPhotoLease.acquire(",
+            "checkNotNull(mediaRoot.parentFile)",
+            "PhotoDirectoryDurability::sync",
+        )
+        assertInOrder(
+            lease,
+            "lease.closeAfterAssetDeletion(disposition)",
+            "PhotoDirectoryDurability.sync(targetParent)",
         )
         assertTrue(
-            lease.contains("activeFailure.addSuppressed(closeFailure)"),
-            "directory descriptor close must stay suppressed beneath an fsync primary",
+            lease.contains("is PhotoIngestOutcome.RejectedByGuard -> if (!result.orphanedFileRemains)"),
+            "only a compensated JPEG delete may select the durable deletion close path",
         )
         assertFalse(
             lease.contains("check(isExpectedEnvironmentFailure(failure))"),
@@ -49,7 +53,8 @@ class PhotoOrphanCleanupWiringTest {
         )
         assertInOrder(
             coreLease,
-            "fun acquire(target: File, syncParentDirectory: (File) -> Unit)",
+            "durabilityRoot: File,",
+            "syncParentDirectory: (File) -> Unit",
             "acquireWithDurability(",
             "forceMarker = { channel -> channel.force(true) }",
         )
@@ -73,6 +78,7 @@ class PhotoOrphanCleanupWiringTest {
         val media = app.resolve("media")
         val runtimeStorage = Files.readString(media.resolve("PhotoRuntimeStorage.kt"))
         val worker = Files.readString(media.resolve("PhotoOrphanCleanupWorker.kt"))
+        val directoryDurability = Files.readString(media.resolve("PhotoDirectoryDurability.kt"))
         val cleanupExecutor = Files.readString(media.resolve("PhotoAssetCleanupExecutor.kt"))
         val noFollowDeletion = Files.readString(
             androidRoot().resolve("core/src/main/kotlin/nz/myinspection/core/media/NoFollowLeafDeletion.kt"),
@@ -94,6 +100,17 @@ class PhotoOrphanCleanupWiringTest {
             "MyInspectionDatabase(resources.driver)",
             "PhotoAssetCleanupExecutor(resources.storage.mediaRoot)",
             "PhotoOrphanCleanupRunner",
+            "syncAssetParentDirectory = PhotoDirectoryDurability::sync",
+        )
+        assertInOrder(
+            directoryDurability,
+            "Os.open(directory.path, OsConstants.O_RDONLY, 0)",
+            "Os.fsync(descriptor)",
+            "Os.close(descriptor)",
+        )
+        assertTrue(
+            directoryDurability.contains("activeFailure.addSuppressed(mappedCloseFailure)"),
+            "directory descriptor close must stay suppressed beneath an fsync primary",
         )
         assertTrue(worker.contains("retryable = ::isRetryableEnvironmentFailure"))
         assertTrue(
@@ -149,6 +166,10 @@ class PhotoOrphanCleanupWiringTest {
             "record =",
         )
         assertTrue(source.contains("PhotoIngestPlan.WriteNewAsset"), "$pipeline must skip sidecars for reused assets")
+        assertTrue(
+            source.contains("PhotoIngestPendingLease.acquire(targetFile, photoId, mediaRoot)"),
+            "$pipeline must give the lease the existing durability-root boundary",
+        )
     }
 
     private fun assertInOrder(source: String, vararg fragments: String) {

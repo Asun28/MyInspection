@@ -1,7 +1,5 @@
 package nz.myinspection.app.media
 
-import android.system.Os
-import android.system.OsConstants
 import android.util.Log
 import java.io.File
 import nz.myinspection.core.media.PendingPhotoLease
@@ -11,6 +9,7 @@ import nz.myinspection.core.media.PublicationLease
 /** App adapter from the ingest outcome domain to the durable sidecar lease outcome domain. */
 internal class PhotoIngestPendingLease private constructor(
     private val photoId: String,
+    private val targetParent: File,
     private val lease: PendingPhotoLease,
 ) : PublicationLease<PhotoIngestOutcome> {
     private var disposition = PendingPhotoLeaseDisposition.RETAIN
@@ -30,7 +29,7 @@ internal class PhotoIngestPendingLease private constructor(
     }
 
     override fun close() {
-        if (!lease.closeAfter(disposition)) {
+        if (!lease.closeAfterAssetDeletion(disposition) { PhotoDirectoryDurability.sync(targetParent) }) {
             Log.w(TAG, "op=deletePendingMarker photoId=$photoId path=${lease.marker.path} result=failed")
         }
     }
@@ -42,26 +41,15 @@ internal class PhotoIngestPendingLease private constructor(
     companion object {
         private const val TAG = "PhotoIngestPendingLease"
 
-        fun acquire(target: File, photoId: String): PhotoIngestPendingLease =
-            PhotoIngestPendingLease(photoId, PendingPhotoLease.acquire(target, ::syncParentDirectory))
-
-        private fun syncParentDirectory(parent: File) {
-            val descriptor = Os.open(parent.path, OsConstants.O_RDONLY, 0)
-            var primary: Throwable? = null
-            try {
-                Os.fsync(descriptor)
-            } catch (failure: Throwable) {
-                primary = failure
-                throw failure
-            } finally {
-                try {
-                    Os.close(descriptor)
-                } catch (closeFailure: Throwable) {
-                    val activeFailure = primary
-                    if (activeFailure == null) throw closeFailure
-                    activeFailure.addSuppressed(closeFailure)
-                }
-            }
-        }
+        fun acquire(target: File, photoId: String, mediaRoot: File): PhotoIngestPendingLease =
+            PhotoIngestPendingLease(
+                photoId,
+                checkNotNull(target.parentFile),
+                PendingPhotoLease.acquire(
+                    target,
+                    checkNotNull(mediaRoot.parentFile),
+                    PhotoDirectoryDurability::sync,
+                ),
+            )
     }
 }

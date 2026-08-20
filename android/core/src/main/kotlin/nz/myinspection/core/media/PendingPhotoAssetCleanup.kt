@@ -27,11 +27,13 @@ class PendingPhotoAssetCleanup private constructor(
     private val listChildren: (File) -> Array<File>?,
     private val readAttributes: (File) -> BasicFileAttributes?,
     private val openLease: (File, PendingPhotoMarkerIdentity) -> PendingPhotoLeaseHandle,
+    private val syncAssetParentDirectory: (File) -> Unit,
 ) {
-    constructor(
+    internal constructor(
         mediaRoot: File,
         findPhoto: (photoId: String) -> PendingPhotoReference?,
         deleter: OrphanFileDeleter,
+        syncAssetParentDirectory: (File) -> Unit = {},
     ) : this(
         mediaRoot,
         findPhoto,
@@ -39,6 +41,7 @@ class PendingPhotoAssetCleanup private constructor(
         { directory -> directory.listFiles() },
         ::readNoFollowAttributes,
         { marker, identity -> PendingPhotoLease.openExisting(marker, identity) },
+        syncAssetParentDirectory,
     )
 
     companion object {
@@ -64,6 +67,7 @@ class PendingPhotoAssetCleanup private constructor(
             listChildren,
             readAttributes,
             { marker, identity -> PendingPhotoLease.openExisting(marker, identity) },
+            {},
         )
 
         /** Test seam for proving an unknown cleanup primary owns any lease-close failure. */
@@ -79,6 +83,7 @@ class PendingPhotoAssetCleanup private constructor(
             { directory -> directory.listFiles() },
             ::readNoFollowAttributes,
             openLease,
+            {},
         )
     }
 
@@ -119,6 +124,7 @@ class PendingPhotoAssetCleanup private constructor(
             } else if (!isSafePendingAssetLeaf(candidate.relPath)) {
                 RecoveryResult.Rejected(candidate.relPath)
             } else if (deleter.deleteNoFollow(candidate.relPath)) {
+                syncAssetParentDirectory(checkNotNull(File(mediaRoot, candidate.relPath).parentFile))
                 RecoveryResult.Deleted(candidate.relPath)
             } else {
                 RecoveryResult.Failed(null)
