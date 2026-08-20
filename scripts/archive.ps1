@@ -30,6 +30,7 @@
 .PARAMETER RepoRoot  仓库根（默认由脚本位置派生）。
 .PARAMETER DryRun    只报「会搬什么」、写零文件（首用/核验安全网）。
 .PARAMETER Quiet     仅打印一行汇总。
+.PARAMETER LessonsOnly  仅执行 -LessonIds 路径；不读写技术债、任务卡及其索引。
 .EXAMPLE
   pwsh -File scripts\archive.ps1 -DryRun     # 预览：将搬多少债项/卡，不写任何文件
 .EXAMPLE
@@ -40,6 +41,7 @@ param(
   [string]$RepoRoot,
   [switch]$DryRun,
   [switch]$Quiet,
+  [switch]$LessonsOnly,
   [string[]]$LessonIds    # T40-LEDGERARCH：lessons 账本冷存目标（如 -LessonIds L32,L34）；未传时下方逻辑整段跳过，其余两路径行为逐字节不变
 )
 
@@ -49,6 +51,9 @@ try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出�
 . (Join-Path $PSScriptRoot '_cards.ps1')
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+if ($LessonsOnly -and -not $PSBoundParameters.ContainsKey('LessonIds')) {
+  throw 'archive.ps1 -LessonsOnly 必须与 -LessonIds 同用（fail-closed，禁止伪装成成功的空范围归档）。'
+}
 
 $TrackerPath  = Join-Path $RepoRoot 'specs/tech-debt-tracker.md'
 $TasksDir     = Join-Path $RepoRoot 'specs/tasks'
@@ -102,7 +107,7 @@ $stats = [ordered]@{ td_archived = 0; td_kept = 0; cards_archived = 0; cards_kep
 
 # ── 1. 技术债：拆热/冷 ──
 $trackerHeader = $null; $trackerSep = $null; $statusIdx = 5
-if (Test-Path $TrackerPath) {
+if (-not $LessonsOnly -and (Test-Path $TrackerPath)) {
   $lines = Get-Content $TrackerPath
   $keptLines = [System.Collections.Generic.List[string]]::new()
   foreach ($line in $lines) {
@@ -137,7 +142,7 @@ function Get-CardField([string]$raw, [string]$key) {
   if ($null -eq $value) { return $null }
   return Get-UncommentedValue $value
 }
-if (Test-Path $TasksDir) {
+if (-not $LessonsOnly -and (Test-Path $TasksDir)) {
   foreach ($cf in (Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne '_TEMPLATE.md' })) {
     $raw = Get-Content $cf.FullName -Raw
     $status = Get-CardField $raw 'status'
@@ -240,10 +245,12 @@ if ($lessonsUsed) {
 # ── DryRun：只报不写 ──
 if ($DryRun) {
   Write-Host "archive.ps1 -DryRun（不写任何文件）：" -ForegroundColor Cyan
-  Write-Host "  技术债：将归档 $($stats.td_archived) 条（paid/accepted），保留 $($stats.td_kept) 条（open/carded/示例）"
-  Write-Host "  任务卡：将归档 $($stats.cards_archived) 张（merged），保留 $($stats.cards_kept) 张"
-  if (-not $Quiet -and $movedTd.Count) { Write-Host "  会搬的债项："; $movedTd | ForEach-Object { Write-Host "    $((Split-TdRow $_)[0])" -ForegroundColor DarkGray } }
-  if (-not $Quiet -and $mergedCards.Count) { Write-Host "  会搬的卡："; $mergedCards | ForEach-Object { Write-Host "    $($_.id)" -ForegroundColor DarkGray } }
+  if (-not $LessonsOnly) {
+    Write-Host "  技术债：将归档 $($stats.td_archived) 条（paid/accepted），保留 $($stats.td_kept) 条（open/carded/示例）"
+    Write-Host "  任务卡：将归档 $($stats.cards_archived) 张（merged），保留 $($stats.cards_kept) 张"
+    if (-not $Quiet -and $movedTd.Count) { Write-Host "  会搬的债项："; $movedTd | ForEach-Object { Write-Host "    $((Split-TdRow $_)[0])" -ForegroundColor DarkGray } }
+    if (-not $Quiet -and $mergedCards.Count) { Write-Host "  会搬的卡："; $mergedCards | ForEach-Object { Write-Host "    $($_.id)" -ForegroundColor DarkGray } }
+  }
   if ($lessonsUsed) {
     Write-Host "  lessons：将搬 $lsMoved 条，已归档/跳过 $lsSkipped 条，拒绝/无效 $lsFailed 条"
     if (-not $Quiet -and $lessonsReport.Count) { Write-Host "  lessons 明细："; $lessonsReport | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray } }
@@ -255,10 +262,10 @@ if ($DryRun) {
 
 # ── 落盘：确保归档目录存在 ──
 New-Item -ItemType Directory -Force $ArchiveDir | Out-Null
-New-Item -ItemType Directory -Force $ArchTasksDir | Out-Null
+if (-not $LessonsOnly) { New-Item -ItemType Directory -Force $ArchTasksDir | Out-Null }
 
 # ── 3. 写活追踪器（去掉冷行）+ 追加到归档 ──
-if ($movedTd.Count) {
+if (-not $LessonsOnly -and $movedTd.Count) {
   Set-Content -Path $TrackerPath -Value ($keptLines -join "`n") -Encoding utf8
 
   if (-not $trackerHeader) { $trackerHeader = '| id | 发现日 | 位置 | 偏离了什么（债） | 严重度 | 状态 | 偿还指针 |' }
@@ -295,7 +302,7 @@ if ($movedTd.Count) {
 }
 
 # ── 4. 重算技术债精简索引（从归档投影）──
-if (Test-Path $TdArchive) {
+if (-not $LessonsOnly -and (Test-Path $TdArchive)) {
   $idxRows = [System.Collections.Generic.List[string]]::new()
   $hdrIdx = 5
   foreach ($l in (Get-Content $TdArchive)) {
@@ -326,20 +333,22 @@ if (Test-Path $TdArchive) {
 }
 
 # ── 5. 移动 merged 卡 ──
-foreach ($card in $mergedCards) {
-  $dest = Join-Path $ArchTasksDir "$($card.id).md"
-  # 目标已存在且**内容不同**（id 归档后又被重建的罕见碰撞）→ 跳过并告警，绝不 -Force 覆盖丢失（审计 #5）。
-  # 内容相同则覆盖无害（幂等）。
-  if ((Test-Path $dest) -and ((Get-Content $dest -Raw) -ne (Get-Content $card.path -Raw))) {
-    Write-Warning "archive.ps1：归档目标已存在且内容不同，跳过以防覆盖丢失：specs/archive/tasks/$($card.id).md（活卡留原位，请人工核对）。"
-    $stats.cards_archived--
-    continue
+if (-not $LessonsOnly) {
+  foreach ($card in $mergedCards) {
+    $dest = Join-Path $ArchTasksDir "$($card.id).md"
+    # 目标已存在且**内容不同**（id 归档后又被重建的罕见碰撞）→ 跳过并告警，绝不 -Force 覆盖丢失（审计 #5）。
+    # 内容相同则覆盖无害（幂等）。
+    if ((Test-Path $dest) -and ((Get-Content $dest -Raw) -ne (Get-Content $card.path -Raw))) {
+      Write-Warning "archive.ps1：归档目标已存在且内容不同，跳过以防覆盖丢失：specs/archive/tasks/$($card.id).md（活卡留原位，请人工核对）。"
+      $stats.cards_archived--
+      continue
+    }
+    Move-Item -Path $card.path -Destination $dest -Force
   }
-  Move-Item -Path $card.path -Destination $dest -Force
 }
 
 # ── 6. 重算卡索引（从 specs/archive/tasks/ 投影）──
-if (Test-Path $ArchTasksDir) {
+if (-not $LessonsOnly -and (Test-Path $ArchTasksDir)) {
   $cardRows = [System.Collections.Generic.List[string]]::new()
   foreach ($cf in (Get-ChildItem $ArchTasksDir -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
     $raw = Get-Content $cf.FullName -Raw
@@ -405,7 +414,8 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
   }
 }
 
-$summary = "archive.ps1：技术债归档 $($stats.td_archived) 条（活追踪器留 $($stats.td_kept)）· 任务卡归档 $($stats.cards_archived) 张（活目录留 $($stats.cards_kept)）→ specs/archive/"
+$summary = if ($LessonsOnly) { 'archive.ps1：lessons-only（技术债/任务卡/索引均未读写）' }
+else { "archive.ps1：技术债归档 $($stats.td_archived) 条（活追踪器留 $($stats.td_kept)）· 任务卡归档 $($stats.cards_archived) 张（活目录留 $($stats.cards_kept)）→ specs/archive/" }
 if ($lessonsUsed) { $summary += " · lessons 归档 $lsMoved 条（跳过 $lsSkipped ｜ 拒绝/无效 $lsFailed）→ specs/archive/lessons-archive.md" }
 if ($Quiet) { Write-Host $summary }
 else {

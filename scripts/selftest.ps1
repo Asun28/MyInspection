@@ -853,6 +853,10 @@ try {
   $l2dArchive = Join-Path $l2dRepo 'specs/archive/lessons-archive.md'
   New-Item -ItemType Directory -Force (Split-Path $l2dLedger), (Split-Path $l2dArchive) | Out-Null
   New-Item -ItemType Directory -Force (Join-Path $l2dRepo 'specs/tasks') | Out-Null
+  $l2dTracker = Join-Path $l2dRepo 'specs/tech-debt-tracker.md'
+  $l2dCard = Join-Path $l2dRepo 'specs/tasks/T-FIXTURE-MERGED.md'
+  Set-Content $l2dTracker "| id | 状态 |`n|---|---|`n| TD-FIXTURE | paid |" -Encoding utf8
+  Set-Content $l2dCard "---`nid: T-FIXTURE-MERGED`ntitle: unrelated merged card`nstatus: merged`n---" -Encoding utf8
   $entry2d = {
     param([string]$Id, [string]$Tier, [int]$Recurrence, [string]$Token)
     @(
@@ -876,6 +880,8 @@ try {
   Set-Content (Join-Path $l2dRepo 'CLAUDE.template.md') "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n[L6] 模板引用" -Encoding utf8
 
   $ledgerHash2d = (Get-FileHash $l2dLedger -Algorithm SHA256).Hash
+  $trackerHash2d = (Get-FileHash $l2dTracker -Algorithm SHA256).Hash
+  $cardHash2d = (Get-FileHash $l2dCard -Algorithm SHA256).Hash
   $dry2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo -DryRun 2>&1 | Out-String)
   $dryExit2d = $LASTEXITCODE
   if ($dryExit2d -ne 0 -or $dry2d -notmatch '\[LSN-ARCHIVE-DRYRUN\]' -or $dry2d -notmatch '\bL1\b') {
@@ -884,8 +890,9 @@ try {
   foreach ($excluded2d in @('L2','L3','L4','L5','L6','L7')) {
     if ($dry2d -match "(?m)^.*\[LSN-ARCHIVE-DRYRUN\].*\b$excluded2d\b") { Fail "闸2d(a)：archive -DryRun 错选排除项 $excluded2d。" }
   }
-  if ((Get-FileHash $l2dLedger -Algorithm SHA256).Hash -ne $ledgerHash2d -or (Test-Path $l2dArchive)) {
-    Fail '闸2d(a)：archive -DryRun 写了 LEDGER 或冷归档（预览必须零写入）。'
+  if ((Get-FileHash $l2dLedger -Algorithm SHA256).Hash -ne $ledgerHash2d -or (Test-Path $l2dArchive) -or
+      (Get-FileHash $l2dTracker -Algorithm SHA256).Hash -ne $trackerHash2d -or (Get-FileHash $l2dCard -Algorithm SHA256).Hash -ne $cardHash2d) {
+    Fail '闸2d(a)：archive -DryRun 写了 lesson 或旁域 tracker/card（预览必须零写入）。'
   }
 
   $run2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo 2>&1 | Out-String)
@@ -897,6 +904,11 @@ try {
   }
   foreach ($kept2d in 2..7) {
     if ($ledgerAfter2d -notmatch "(?m)^##\s+L$kept2d\b") { Fail "闸2d(b)：排除项 L$kept2d 被误搬。" }
+  }
+  if ((Get-FileHash $l2dTracker -Algorithm SHA256).Hash -ne $trackerHash2d -or
+      (Get-FileHash $l2dCard -Algorithm SHA256).Hash -ne $cardHash2d -or
+      (Test-Path (Join-Path $l2dRepo 'specs/archive/tasks/T-FIXTURE-MERGED.md'))) {
+    Fail '闸2d(b)：lesson 实际归档越界改写了 tracker/card；必须使用 archive.ps1 的 lesson-only 模式。'
   }
 
   $search2d = (& pwsh -NoProfile -File $l2dLessons search COLD_RECALL_ONLY -RepoRoot $l2dRepo 2>&1 | Out-String)
@@ -912,9 +924,11 @@ try {
     }
   }
 
+  $ledgerStableHash2d = (Get-FileHash $l2dLedger -Algorithm SHA256).Hash
   $archiveHash2d = (Get-FileHash $l2dArchive -Algorithm SHA256).Hash
   $rerun2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo 2>&1 | Out-String)
-  if ($LASTEXITCODE -ne 0 -or (Get-FileHash $l2dArchive -Algorithm SHA256).Hash -ne $archiveHash2d) {
+  if ($LASTEXITCODE -ne 0 -or (Get-FileHash $l2dLedger -Algorithm SHA256).Hash -ne $ledgerStableHash2d -or
+      (Get-FileHash $l2dArchive -Algorithm SHA256).Hash -ne $archiveHash2d) {
     Fail "闸2d(f)：无新候选时 archive 重跑不幂等。output=[$rerun2d]"
   } else {
     Write-Host '  2d lessons 选择性冷存/零写预览/热冷召回/ID 并集/冷项只读/幂等 OK' -ForegroundColor Green
@@ -5180,8 +5194,8 @@ if (-not $gitJ) {
 if ($Shard -eq 'core') {
 [void]$executedGateGroups.Add('core:16')
 # --- 16. L-id 引用完整性：根入口文档 + .claude/skills + docs 里的 L<n> 经验引用须存在于热账本/冷库并集 ---
-# 治本 L29：交叉链接闸（⑪）只校验文件路径，不管 LEDGER 的 L<n> 引用；写错/写旧 id 把读者导向错误经验，无闸可拦。
-# 此闸从 LEDGER 机数已定义 id，扫 skills/docs 的 L<n> 引用（排除 path:Lnn 行号、Lnn-mm 行段等代码引用形态），存在性机检；
+# 治本 L29：交叉链接闸（⑪）只校验文件路径，不管经验库的 L<n> 引用；写错/写旧 id 把读者导向错误经验，无闸可拦。
+# 此闸从热账本与冷库机数已定义 id，扫 skills/docs 的 L<n> 引用（排除 path:Lnn 行号、Lnn-mm 行段等代码引用形态），存在性机检；
 # 内容是否对得上（L20 的指针是否真指 L20 的内容）仍须人工——存在性可机检、语义不行。
 Step '16/17 L-id 引用完整性（skills/docs 的 L<n> 引用存在于热账本/冷库并集）'
 $ledgerPath = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
@@ -5220,7 +5234,7 @@ else {
       if (-not $defined.ContainsKey($id)) { $dangling += ("{0} → {1}" -f $sf.FullName.Substring($RepoRoot.Length + 1), $id) }
     }
   }
-  if ($dangling) { $dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在 LEDGER；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
+  if ($dangling) { $dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在热账本/冷库并集；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
   else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个热/冷已定义 id）" }
 }
 

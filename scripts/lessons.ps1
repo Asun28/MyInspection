@@ -6,7 +6,7 @@
 
 .DESCRIPTION
   三层与单向学习流（详见 docs/LESSONS.md）：
-    Tier3 热账本 docs/lessons/LEDGER.md + 冷库 specs/archive/lessons-archive.md —— ID 定义与召回并集
+    Tier3 热/冷   docs/lessons/LEDGER.md + specs/archive/lessons-archive.md —— 共同构成项目总经验真相源
     Tier2 按需   docs/lessons/<topic>.md           —— lessons skill 按上下文触发
     Tier1 必须   CLAUDE.md「## 经验铁律（必须加载）」—— 每轮自动入上下文，**封顶**
   方向：会话级（progress.md / claude-mem）─捕获→ 总账 ─晋升→ 按需 / 必须。单向。
@@ -373,7 +373,7 @@ switch ($Command) {
     Write-Host "[LSN-ARCHIVE] candidates=$candidateText"
     if (-not $candidates.Count) { break }
     $archiveScript = Join-Path $PSScriptRoot 'archive.ps1'
-    & pwsh -NoProfile -File $archiveScript -RepoRoot $RepoRoot -LessonIds ($candidates.id -join ',') -Quiet
+    & pwsh -NoProfile -File $archiveScript -RepoRoot $RepoRoot -LessonsOnly -LessonIds ($candidates.id -join ',') -Quiet
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   }
 }

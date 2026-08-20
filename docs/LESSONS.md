@@ -1,7 +1,7 @@
 # 自净化经验系统（Self-Improving Lessons）
 
 > 目标：让工作流**吸取经验、自我进步**——遇到**同样的问题**时能自主解决，不再痛苦地重新推导。
-> 本文件是流程说明；真相源是 `docs/lessons/LEDGER.md`；操作器是 `scripts/lessons.ps1`；触发器是 `lessons` skill。
+> 本文件是流程说明；总经验真相源是热账本 `docs/lessons/LEDGER.md` 与冷库 `specs/archive/lessons-archive.md` 的并集；操作器是 `scripts/lessons.ps1`。
 
 ## 三层经验（必须/按需/总）
 
