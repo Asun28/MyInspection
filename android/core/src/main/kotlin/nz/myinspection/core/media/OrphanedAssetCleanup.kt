@@ -12,6 +12,9 @@ import nz.myinspection.core.db.MyInspectionDatabase
  */
 fun interface OrphanFileDeleter {
     fun delete(relPath: String): Boolean
+
+    /** TD14 pending cleanup overrides this edge so a leaf race can never follow a replacement link. */
+    fun deleteNoFollow(relPath: String): Boolean = delete(relPath)
 }
 
 /** [cause] 为 `null` = deleter 干净地返回了 `false`；非 `null` = 保留原因，供调用方判断可否重试。 */
@@ -64,7 +67,7 @@ class OrphanedAssetCleanup(private val db: MyInspectionDatabase, private val del
                 continue
             }
             try {
-                if (deleter.delete(relPath)) deleted += relPath else failed += FailedDeletion(relPath, cause = null)
+                if (deleter.deleteNoFollow(relPath)) deleted += relPath else failed += FailedDeletion(relPath, cause = null)
             } catch (e: IOException) {
                 failed += FailedDeletion(relPath, cause = e)
             } catch (e: SecurityException) {
