@@ -72,6 +72,54 @@ class PhotoOrphanCleanupRunnerTest {
     }
 
     @Test
+    fun `runner forwards JPEG delete durability before clearing the pending marker`() = inTempDir { root ->
+        val photoId = "pending-delete-sync"
+        val relPath = "photos/property/inspection/$photoId.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "$photoId.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val events = mutableListOf<String>()
+
+        val report = PhotoOrphanCleanupRunner(
+            database,
+            root,
+            OrphanFileDeleter { path -> events += "delete"; File(root, path).delete() },
+            { parent ->
+                assertFalse(asset.exists())
+                assertTrue(marker.isFile)
+                assertEquals(asset.parentFile.canonicalFile, parent.canonicalFile)
+                events += "sync"
+            },
+        ).run()
+
+        assertEquals(PhotoOrphanCleanupDecision.SUCCESS, report.decision)
+        assertEquals(listOf("delete", "sync"), events)
+        assertFalse(marker.exists())
+    }
+
+    @Test
+    fun `runner keeps the pending marker when forwarded JPEG delete durability fails`() = inTempDir { root ->
+        val photoId = "pending-delete-sync-fails"
+        val relPath = "photos/property/inspection/$photoId.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "$photoId.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val failure = IOException("runner JPEG parent fsync failed")
+
+        val report = PhotoOrphanCleanupRunner(
+            database,
+            root,
+            OrphanFileDeleter { path -> File(root, path).delete() },
+            { throw failure },
+        ).run()
+
+        assertEquals(PhotoOrphanCleanupDecision.RETRY, report.decision)
+        assertSame(failure, report.pending.failed.single().cause)
+        assertFalse(asset.exists())
+        assertTrue(marker.isFile)
+    }
+
+    @Test
     fun `runner maps unresolved marker cleanup to retry after deleting its unadopted JPEG`() = inTempDir { root ->
         val photoId = "pending-marker-delete-fails"
         val relPath = "photos/property/inspection/$photoId.jpg"
