@@ -179,6 +179,35 @@ function Get-SelftestAggregateFailureSummary([object[]]$Results) {
   }
 }
 
+function Add-SelftestFailedGateId {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$GateIds,
+    [AllowEmptyString()][string]$Message,
+    [AllowEmptyString()][string]$Fallback
+  )
+  $gateId = Resolve-SelftestGateId -Message $Message -Fallback $Fallback
+  if (-not $GateIds.Contains($gateId)) { [void]$GateIds.Add($gateId) }
+  return $gateId
+}
+
+function Format-SelftestFailureSentinel {
+  param(
+    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded')][string]$Shard,
+    [Parameter(Mandatory)][System.Collections.Generic.List[string]]$GateIds
+  )
+  return "[SELFTEST-FAILED-GATES] shard=$Shard gates=$($GateIds -join ',')"
+}
+
+function Test-SelftestFailureProtocolSourceContract([string]$ScriptText) {
+  $requiredCalls = @(
+    '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b',
+    '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b',
+    '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b',
+    '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b'
+  )
+  return (@($requiredCalls | Where-Object { @([regex]::Matches($ScriptText, $_)).Count -ne 1 }).Count -eq 0)
+}
+
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
 function Test-SelftestCiMatrixContract([string]$WorkflowText) {
   $matrix = [regex]::Match($WorkflowText, '(?ms)^\s{6}matrix:\s*\r?\n(?<body>.*?)(?=^\s{4}runs-on:)')
@@ -428,8 +457,7 @@ $fail = $false
 $currentSelftestGateId = ''
 $failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
 function Fail($m) {
-  $gateId = Resolve-SelftestGateId -Message ([string]$m) -Fallback $script:currentSelftestGateId
-  if (-not $script:failedSelftestGateIds.Contains($gateId)) { [void]$script:failedSelftestGateIds.Add($gateId) }
+  [void](Add-SelftestFailedGateId -GateIds $script:failedSelftestGateIds -Message ([string]$m) -Fallback $script:currentSelftestGateId)
   Write-Warning $m
   $script:fail = $true
 }
@@ -1122,6 +1150,12 @@ $gateIdProbe82 = @(
   (Resolve-SelftestGateId -Message '8.2e：fixture failure' -Fallback '8'),
   (Resolve-SelftestGateId -Message 'unprefixed failure' -Fallback '7')
 )
+$dedupedGateIds82 = [System.Collections.Generic.List[string]]::new()
+[void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '8.2e：first failure' -Fallback '8')
+[void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '8.2e：repeated failure' -Fallback '8')
+[void](Add-SelftestFailedGateId -GateIds $dedupedGateIds82 -Message '17aa(8)：second gate' -Fallback '8')
+$singleSentinel82 = Format-SelftestFailureSentinel -Shard core -GateIds ([System.Collections.Generic.List[string]]@('8.2e'))
+$multipleSentinel82 = Format-SelftestFailureSentinel -Shard workflow -GateIds $dedupedGateIds82
 $knownFailure82 = ConvertFrom-SelftestFailureSentinel -StdOut "noise`n[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)" -Shard workflow -ExitCode 1
 $missingFailure82 = ConvertFrom-SelftestFailureSentinel -StdOut 'noise only' -Shard workflow -ExitCode 17
 $wrongShard82 = ConvertFrom-SelftestFailureSentinel -StdOut '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -Shard workflow -ExitCode 1
@@ -1131,10 +1165,24 @@ $summary82 = Get-SelftestAggregateFailureSummary -Results @(
   [PSCustomObject]@{ Name = 'workflow'; ExitCode = 1; ProtocolValid = $true; FailedGates = @('8.2e', '17aa(8)') },
   [PSCustomObject]@{ Name = 'core'; ExitCode = 29; ProtocolValid = $false; FailedGates = @() }
 )
-if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or -not $knownFailure82.ProtocolValid -or (@($knownFailure82.FailedGates) -join ',') -ne '8.2e,17aa(8)' -or
+$selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
+$protocolCallPatterns82 = @(
+  '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
+  '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
+  '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n',
+  '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+)
+$acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
+  Test-SelftestFailureProtocolSourceContract ([regex]::Replace($selftestSource82, $_, '', 1))
+})
+if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or ($dedupedGateIds82 -join ',') -ne '8.2e,17aa(8)' -or
+    $singleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -or
+    $multipleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)' -or
+    -not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0 -or
+    -not $knownFailure82.ProtocolValid -or (@($knownFailure82.FailedGates) -join ',') -ne '8.2e,17aa(8)' -or
     $missingFailure82.ProtocolValid -or $wrongShard82.ProtocolValid -or -not $greenProtocol82.ProtocolValid -or $sentinelOnGreen82.ProtocolValid -or
     $summary82.Line -ne '[SELFTEST-ALL-FAIL] shards=workflow,core failed-gates=workflow/8.2e,workflow/17aa(8),core/UNKNOWN(exit=29)') {
-  Fail '8.2e：selftest 失败闸协议未保留 gate id、未拒绝缺失/错 shard/绿态哨兵，或 all 汇总丢失 shard/gate 关联。'
+  Fail '8.2e：selftest 失败闸协议未证明 Fail 去重、单/多 gate 发射、生产接线 mutation、畸形输入 fail-closed 或 all 的 shard/gate 汇总。'
 }
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
@@ -1157,6 +1205,7 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $aggTempPattern = "scaffold-selftest-all-$PID-*"
   $aggRootsBefore = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Directory -Filter $aggTempPattern -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
   $oldFailShard = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_FAIL_SHARD', 'Process')
+  $oldGateSpec = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_GATE_SPEC', 'Process')
   $oldLogRoot = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_LOG_ROOT', 'Process')
   try {
     New-Item -ItemType Directory -Force (Join-Path $aggFixture 'scripts'), $aggLogs | Out-Null
@@ -1183,7 +1232,14 @@ while ($Shard -ne 'core' -and
   if ([DateTime]::UtcNow -ge $deadline) { exit 29 }
   Start-Sleep -Milliseconds 20
 }
-if ($env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -eq $Shard) { exit 17 }
+if ($env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -eq $Shard) {
+  if ($env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -eq 'MALFORMED') {
+    Write-Output "[SELFTEST-FAILED-GATES] shard=$Shard gates=not valid"
+  } elseif ($env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC) {
+    Write-Output "[SELFTEST-FAILED-GATES] shard=$Shard gates=$env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC"
+  }
+  exit 17
+}
 exit 0
 '@ | Set-Content (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
     'old' | Set-Content (Join-Path $aggFixture 'old.txt')
@@ -1198,19 +1254,36 @@ exit 0
 
     $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $aggLogs
     $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = 'workflow'
-    $probeFail = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $true -CoreDelaySeconds 1 -Quiet
+    $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = '8.2e,17aa(8)'
+    $probeFailOutput = & { $script:probeFail = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $true -CoreDelaySeconds 1 } 6>&1 | Out-String
     $probeLogs = @(Get-ChildItem $aggLogs -File)
     $probeLogLines = @($probeLogs | ForEach-Object { Get-Content $_.FullName -Raw })
     $readyTicks = @(@('seeded', 'workflow', 'core') | ForEach-Object { [long](Get-Content (Join-Path $aggLogs "ready/$_.ready") -Raw) })
     $coreStaggerMs = [TimeSpan]::FromTicks($readyTicks[2] - [math]::Max($readyTicks[0], $readyTicks[1])).TotalMilliseconds
-    if ($probeFail -ne 1 -or $probeLogs.Count -ne 3 -or $coreStaggerMs -lt 700 -or @($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|True$' }).Count -gt 0) {
-      Fail '8.2e：all 聚合器 stub 夹具未证明长分片并发、core 错峰、dirty overlay、StrictLint 转发或失败传播。'
+    if ($probeFail -ne 1 -or $probeFailOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/8\.2e,workflow/17aa\(8\)' -or
+        $probeLogs.Count -ne 3 -or $coreStaggerMs -lt 700 -or @($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|True$' }).Count -gt 0) {
+      Fail '8.2e：all 聚合器 stub 夹具未证明真实子进程多 gate 哨兵、shard/gate 汇总、并发错峰、dirty overlay、StrictLint 转发或失败传播。'
     }
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue
+    $probeMissingOutput = & { $script:probeMissing = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
+    if ($probeMissing -ne 1 -or $probeMissingOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/UNKNOWN\(exit=17\)') {
+      Fail '8.2e：all 聚合器未把真实子进程缺失哨兵按 workflow/UNKNOWN(exit=17) fail-closed。'
+    }
+
+    $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = 'MALFORMED'
+    $probeMalformedOutput = & { $script:probeMalformed = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
+    if ($probeMalformed -ne 1 -or $probeMalformedOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/UNKNOWN\(exit=17\)') {
+      Fail '8.2e：all 聚合器未把真实子进程畸形哨兵按 workflow/UNKNOWN(exit=17) fail-closed。'
+    }
+
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue
-    $probePass = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 1 -Quiet
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue
+    $probePassOutput = & { $script:probePass = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 1 } 6>&1 | Out-String
     $probeUnboundLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
-    if ($probePass -ne 0 -or @($probeUnboundLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|False\|False\|True$' }).Count -gt 0) {
+    if ($probePass -ne 0 -or $probePassOutput -notmatch 'selftest\(all\): PASS' -or $probePassOutput -match '\[SELFTEST-ALL-FAIL\]' -or
+        @($probeUnboundLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|False\|False\|True$' }).Count -gt 0) {
       Fail '8.2e：all 聚合器三分片全绿或未绑定 StrictLint 语义不正确。'
     }
 
@@ -1233,6 +1306,7 @@ exit 0
   } catch { Fail "8.2e：all 聚合器 hermetic 夹具异常：$($_.Exception.Message)" }
   finally {
     if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
+    if ($null -eq $oldGateSpec) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = $oldGateSpec }
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
     Remove-Item -LiteralPath $aggFixture, $aggLogs -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -11075,7 +11149,7 @@ if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
 
 Step "结论 [$Shard]"
 if ($fail) {
-  Write-Host "[SELFTEST-FAILED-GATES] shard=$Shard gates=$($failedSelftestGateIds -join ',')" -ForegroundColor Red
+  Write-Host (Format-SelftestFailureSentinel -Shard $Shard -GateIds $failedSelftestGateIds) -ForegroundColor Red
   Write-Host 'selftest: FAIL' -ForegroundColor Red
   exit 1
 }
