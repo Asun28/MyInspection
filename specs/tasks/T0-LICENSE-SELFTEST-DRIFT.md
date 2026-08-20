@@ -22,7 +22,7 @@ diagnosis:
   same_class: 扫全 17cc scanner 主断言与 mutation 表；保留 Authorization、赋值式/空格式 key、CLI/plain password/token、URI userinfo、safe-prefix、configuration/detail、parse-redaction 全部既有语义，每个迁移后的 mutation 都须非 vacuous。
 dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite diagnostics
 dod_exit: 0
-dod_assert: diagnostics 套件全绿且 mutation 数不减少；正常与无 git seeded 的 17cc–17hh 全量尾段均通过，旧覆盖无删除/合并/弱化；删除任一迁移后的 redaction/bound/category 守卫命中专属失败码。
+dod_assert: diagnostics 套件全绿且 mutation 数不减少；正常 seeded 的 17cc–17hh 全量尾段通过，旧覆盖无删除/合并/弱化；删除任一迁移后的 redaction/bound/category 守卫命中专属失败码。无 git 全量 child 由依赖本卡的 #33 在合入新 master 后证明。
 review_gate: codex {verdict:pass}
 hygiene: 以现有 diagnostics 权威套件为主，selftest 仅保留不重复且能杀死单句删除的集成回归；任何替换必须先证旧 mutation vacuous、再证新 mutation RED。
 doc_sync: TD137 归档并记录 PR/commit；T0-DEBT-SELFTEST-SKIP-VISIBILITY 解除前置后继续，不宣称 TD9 已 paid
@@ -39,4 +39,4 @@ doc_sync: TD137 归档并记录 PR/commit；T0-DEBT-SELFTEST-SKIP-VISIBILITY 解
 - 保留 baseline 的 CLI/plain password/token、Authorization、key=value、URI userinfo、configuration/detail、safe-prefix 与 parse-error 覆盖。
 - 对 bounded record 的新语义，拆分夹具以分别证明“凭据 continuation 不泄漏”和“普通 benign detail 可保留”，不得用互相矛盾的单个输出记录降低任一断言。
 - `license-scanner-check.ps1 -Suite diagnostics` 是权威行为套件；`selftest` 只做集成接线与同类 mutation 回归。
-- 合并后，#33 再合入最新 master，重放无 git seeded 与 core；本卡不实现 skip protocol。
+- 本卡重放正常 seeded 的 17cc–17hh；合并后由 #33 合入最新 master，再重放无 git seeded 与 core。本卡不实现 skip protocol。

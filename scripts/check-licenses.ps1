@@ -941,9 +941,10 @@ function Get-GradleDiagnosticTail {
     param([AllowEmptyString()][string]$Value)
 
     $Value = [regex]::Replace($Value, '(?is)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*:[^/]*@', '${scheme}[REDACTED]@') # diagnostic multiline URI boundary
-    $Value = [regex]::Replace($Value, '(?im)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*@', '${scheme}[REDACTED]@')
-    $Value = [regex]::Replace($Value, '(?is)\bAuthorization["'']?(?:[ \t]*[:=][ \t]*|[ \t]+).*', 'Authorization: [REDACTED]')
-    $Value = [regex]::Replace($Value, '(?is)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?[ \t]*[:=].*', '${lead}${key}=[REDACTED]')
+    $Value = [regex]::Replace($Value, '(?im)(?<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\r\n]*@', '${scheme}[REDACTED]@') # credential redaction: URI userinfo
+    $Value = [regex]::Replace($Value, '(?is)\bAuthorization["'']?(?:[ \t]*[:=][ \t]*|[ \t]+).*', 'Authorization: [REDACTED]') # credential redaction: authorization
+    $Value = [regex]::Replace($Value, '(?is)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?[ \t]*[:=].*', '${lead}${key}=[REDACTED]') # credential redaction: key
+    $Value = [regex]::Replace($Value, '(?is)(?<lead>^|[^A-Za-z0-9_.-])["'']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'']?[ \t]+.*', '${lead}${key}=[REDACTED]') # diagnostic whitespace credential redaction
     return $Value
   }
 
