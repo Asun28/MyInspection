@@ -17,7 +17,7 @@ non_goals:
   - 改 CI/workflow/task/review 行为
   - 在 core 内启动完整 seeded，或证明 seeded 的生产 no-git routing；该行为归 T0-DEBT-SELFTEST-NOGIT-ROUTING
   - 建立全量 per-gate mutation 矩阵；紧凑身份清单与资源预算归 T0-DEBT-SELFTEST-MUTATION-BUDGET
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch '[SELFTEST-SKIP]') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch '[SELFTEST-SKIP-SUMMARY]'))) { exit 1 }"
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Only 8.2e
 dod_exit: 0
 dod_assert: 每个有意环境跳过或因已知前置失败而不执行的已登记检查输出 [SELFTEST-SKIP] gate={id} reason={stable code}；分片终态输出有序去重 [SELFTEST-SKIP-SUMMARY] 与准确 count；失败后的裁剪不可继续静默，也不得输出该检查 PASS；bounded helper 控制组 count=0。
 review_gate: codex {verdict:pass}

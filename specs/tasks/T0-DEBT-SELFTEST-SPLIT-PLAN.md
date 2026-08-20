@@ -20,7 +20,7 @@ forbid:
 non_goals:
   - 实现 no-git routing 夹具或 mutation 预算收敛
   - 合并或关闭 PR #33
-dod_command: pwsh -NoProfile -File scripts/check-cards.ps1
+dod_command: pwsh -NoProfile -Command "if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-SKIP-VISIBILITY]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-NOGIT-ROUTING]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-MUTATION-BUDGET]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tech-debt-tracker.md -SimpleMatch 'T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY')) { exit 1 }"
 dod_exit: 0
 dod_assert: 原 skip 卡明确收回到 bounded helper 协议；生产 no-git routing 与 mutation 资源预算各有独立任务卡；TD9、全部 live 卡与 TASK-BOARD 记录同一串行顺序。
 review_gate: codex {verdict:pass}
@@ -36,6 +36,6 @@ PR #33 的 R3 实测指出两类不同交付单元：生产 no-git 路由的行�
 
 ## 串行顺序
 
-`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET`
+`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`
 
-三卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1。
+四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1。

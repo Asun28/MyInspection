@@ -14,7 +14,7 @@ forbid:
 non_goals:
   - mutation harness 的内存与 CPU 预算收敛
   - 8.2e rendezvous 负载稳定性
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch '[SELFTEST-ROUTING-FIXTURE]') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'TOOL-GIT-MISSING'))) { exit 1 }"
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Only 8.2e
 dod_exit: 0
 dod_assert: 专用有界 fixture mode 直接走生产 routing；git-present 控制组 skip count=0，git-absent 组输出完整机器记录与准确摘要；每个登记 gate 的 PASS/SKIP/FAIL 互斥，夹具在 routing 后立即退出且不进入完整 seeded 套件。
 review_gate: codex {verdict:pass}

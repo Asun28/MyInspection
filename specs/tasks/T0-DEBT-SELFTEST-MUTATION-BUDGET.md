@@ -14,7 +14,7 @@ forbid:
 non_goals:
   - 生产 no-git 路由行为
   - workflow/seeded/core 重分片
-dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path scripts/selftest.ps1 -SimpleMatch '[SELFTEST-MUTATION-BUDGET]')) { exit 1 }"
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Only 8.2e
 dod_exit: 0
 dod_assert: skip 接线由 parse-once 的紧凑身份清单加有界代表性变异证明；core 不物化或重解析数百份 11k 行整脚本；预算诊断输出稳定 ASCII 哨兵，删除任一必要变异仍翻红。
 review_gate: codex {verdict:pass}
