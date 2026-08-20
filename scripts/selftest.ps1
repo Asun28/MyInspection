@@ -400,7 +400,9 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   if ($identityHash -ne 'f930aa3a79c95647395871735bb8b2050cf043559cf1ed0098c266188f6a8f85') { return $false }
   return (
     $ScriptText -match 'return "\[SELFTEST-SKIP\] gate=\$GateId reason=\$Reason"' -and
-    $ScriptText -match 'return "\[SELFTEST-SKIP-SUMMARY\] shard=\$Shard count=\$\(\$Records\.Count\) items=\$items"'
+    $ScriptText -match 'return "\[SELFTEST-SKIP-SUMMARY\] shard=\$Shard count=\$\(\$Records\.Count\) items=\$items"' -and
+    $ScriptText.Contains('foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }') -and
+    $ScriptText.Contains('if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join '','')" }')
   )
 }
 
@@ -1428,7 +1430,7 @@ try {
   $skipAst82 = [System.Management.Automation.Language.Parser]::ParseInput($selftestSource82, [ref]$skipTokens82, [ref]$skipErrors82)
   $skipFunctionNames82 = @(
     'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
-    'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Test-SelftestPrerequisite',
+    'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
     'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap'
   )
   $skipFunctionSource82 = @($skipFunctionNames82 | ForEach-Object {
@@ -1437,7 +1439,7 @@ try {
     if ($functionMatches.Count -ne 1) { throw "skip fixture function count: $name=$($functionMatches.Count)" }
     $functionMatches[0].Extent.Text
   }) -join "`n`n"
-  $skipFixtureSource82 = "param([ValidateSet('environment-missing','prerequisite-fail','overlap','normal')][string]`$Mode)`n`n$skipFunctionSource82`n`n" + @'
+  $skipFixtureSource82 = "param([ValidateSet('environment-missing','batch','prerequisite-fail','overlap','normal')][string]`$Mode)`n`n$skipFunctionSource82`n`n" + @'
 $script:skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
 $script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
 $script:fail = $false
@@ -1446,6 +1448,10 @@ $script:fixtureOutcome = 'PASS'
 switch ($Mode) {
   'environment-missing' {
     Skip-SelftestCheck -GateId '1b' -Reason 'FILE-MISSING' -Message 'fixture environment missing'
+    $script:fixtureOutcome = 'SKIP'
+  }
+  'batch' {
+    Skip-SelftestChecks -GateIds @('15', '15a', '15b(ship-local)') -Reason 'TOOL-GIT-MISSING' -Message 'fixture git missing'
     $script:fixtureOutcome = 'SKIP'
   }
   'prerequisite-fail' {
@@ -1475,6 +1481,8 @@ exit 0
   Set-Content -LiteralPath $skipFixture82 -Value $skipFixtureSource82 -Encoding utf8
   $environmentMissingOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode environment-missing 2>&1 | Out-String)
   $environmentMissingExit82 = $LASTEXITCODE
+  $batchOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode batch 2>&1 | Out-String)
+  $batchExit82 = $LASTEXITCODE
   $prerequisiteFailOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode prerequisite-fail 2>&1 | Out-String)
   $prerequisiteFailExit82 = $LASTEXITCODE
   $overlapOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode overlap 2>&1 | Out-String)
@@ -1486,6 +1494,11 @@ exit 0
     @([regex]::Matches($environmentMissingOutput82, '(?m)^\[SELFTEST-SKIP\] gate=1b reason=FILE-MISSING\r?$')).Count -eq 1 -and
     $environmentMissingOutput82 -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=1b/FILE-MISSING\r?$' -and
     $environmentMissingOutput82 -match '(?m)^OUTCOME=SKIP\r?$' -and $environmentMissingOutput82 -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+    $batchExit82 -eq 0 -and
+    @([regex]::Matches($batchOutput82, '(?m)^\[SELFTEST-SKIP\] ')).Count -eq 3 -and
+    $batchOutput82 -match '(?m)^\[SELFTEST-SKIP\] gate=15 reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15a reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15b\(ship-local\) reason=TOOL-GIT-MISSING\r?$' -and
+    $batchOutput82 -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=3 items=15/TOOL-GIT-MISSING,15a/TOOL-GIT-MISSING,15b\(ship-local\)/TOOL-GIT-MISSING\r?$' -and
+    $batchOutput82 -match '(?m)^OUTCOME=SKIP\r?$' -and $batchOutput82 -notmatch '(?m)^OUTCOME=PASS\r?$' -and
     $prerequisiteFailExit82 -eq 1 -and
     @([regex]::Matches($prerequisiteFailOutput82, '(?m)^\[SELFTEST-SKIP\] gate=17aa\(7\) reason=PREREQUISITE-FAIL\r?$')).Count -eq 1 -and
     $prerequisiteFailOutput82 -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17aa\(7\)/PREREQUISITE-FAIL\r?$' -and
@@ -1548,6 +1561,19 @@ $skipGateEntryMutations82 = @($skipProtocolInventory82 | ForEach-Object {
 $skipProtocolMutations82 += $skipReasonMutations82
 $skipProtocolMutations82 += $skipGateMutations82
 $skipProtocolMutations82 += $skipGateEntryMutations82
+$skipBatchTruncationMutation82 = $selftestSource82.Replace(
+  'foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }',
+  'foreach ($gateId in @($GateIds | Select-Object -First 1)) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }'
+)
+$skipOverlapGuardDeletionMutation82 = $selftestSource82.Replace(
+  'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join '','')" }',
+  ''
+)
+$skipTargetedMutationsChanged82 = (
+  $skipBatchTruncationMutation82 -cne $selftestSource82 -and
+  $skipOverlapGuardDeletionMutation82 -cne $selftestSource82
+)
+$skipProtocolMutations82 += @($skipBatchTruncationMutation82, $skipOverlapGuardDeletionMutation82)
 $acceptedSkipProtocolMutations82 = @($skipProtocolMutations82 | Where-Object { Test-SelftestSkipProtocolSourceContract $_ })
 $protocolCallPatterns82 = @(
   '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
@@ -1576,7 +1602,7 @@ if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     $normalSkipSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=0 items=NONE' -or $prunedExecutes82 -or
     ($prunedRecords82 -join ',') -ne '17aa(6)/PREREQUISITE-FAIL,17aa(7)/PREREQUISITE-FAIL' -or
     $countDocOrderSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=4 items=14(count/docs/LOOP-ENGINEERING.md)/FILE-MISSING,14(count/.claude/skills/triage/SKILL.md)/FILE-MISSING,14(count/CLAUDE.md)/FILE-MISSING,14(count/TEMPLATE-README.md)/FILE-MISSING' -or
-    -not $invalidReasonRejected82 -or -not $skipFixtureOk82 -or -not (Test-SelftestSkipProtocolSourceContract $selftestSource82) -or
+    -not $invalidReasonRejected82 -or -not $skipFixtureOk82 -or -not $skipTargetedMutationsChanged82 -or -not (Test-SelftestSkipProtocolSourceContract $selftestSource82) -or
     $acceptedSkipProtocolMutations82.Count -ne 0) {
   Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason、摘要计数或生产接线 mutation。'
 }
