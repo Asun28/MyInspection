@@ -1592,7 +1592,7 @@ if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
         break
       }
     }
-    $expectedGitMissingRecords82 = @($gateIdsArgument82.FindAll({
+    $expectedGitMissingRecords82 = @('14f(fail-open-fixture)/TOOL-GIT-MISSING') + @($gateIdsArgument82.FindAll({
       param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
     }, $true) | ForEach-Object { "$($_.Value)/TOOL-GIT-MISSING" })
     $pwshExe82 = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -1627,6 +1627,9 @@ if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
       -not $skippedUnitPrintedPass82 -and
       $gitMissingSeededOutput82 -match '(?m)^selftest\(seeded\): PASS\r?$'
     )
+    if (-not $gitMissingSeededFixtureOk82) {
+      Fail "8.2e(no-git-seeded)：gitAbsent=$gitAbsentExit82 child=$gitMissingSeededExit82 expectedGit=$($expectedGitMissingRecords82.Count) emittedGit=$($emittedGitMissingRecords82.Count) skipLines=$($emittedSkipRecords82.Count) summaries=$($seededSummaryMatches82.Count) skippedPass=$skippedUnitPrintedPass82。"
+    }
   }
 }
 $protocolCallPatterns82 = @(
