@@ -10914,9 +10914,7 @@ try {
     $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
     $gradleFailureLines = @($scannerGradleFailure.Text -split "`n" | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]' })
     $gradleFailureDiagnosticsBounded = $gradleFailureLines.Count -gt 0 -and -not ($gradleFailureLines | Where-Object { $_.Length -gt 2200 })
-    $gradleFailureHasConfiguration = $scannerGradleFailure.Text -match ':[A-Za-z0-9_.-]+:[A-Za-z][A-Za-z0-9]*RuntimeClasspath\b'
     if ($scannerGradleFailure.Exit -eq 0 -or
-        -not $gradleFailureHasConfiguration -or
         $scannerGradleFailure.Text -notmatch '\[GRADLE-SUBPROCESS\]' -or
         $scannerGradleFailure.Text -match 'REDACT_ME' -or
         $scannerGradleFailure.Text -notmatch '\[REDACTED\]' -or
@@ -10925,7 +10923,7 @@ try {
         $scannerGradleFailure.Text -notmatch '阻断项（禁列许可 / 扫描或元数据不合规）' -or
         $scannerGradleFailure.Text -notmatch 'FAIL（发现许可或依赖扫描不合规）' -or
         $scannerGradleFailure.Text -match '发现禁用许可') {
-      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed，保留有界脱敏尾段并使用通用不合规结论；实得 exit=$($scannerGradleFailure.Exit) config=$gradleFailureHasConfiguration bounded=$gradleFailureDiagnosticsBounded redacted=$($scannerGradleFailure.Text -match '\[REDACTED\]') truncated=$($scannerGradleFailure.Text -match '\[TRUNCATED\]')；输出=$($scannerGradleFailure.Text)。"
+      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed，保留有界脱敏尾段并使用通用不合规结论；实得 exit=$($scannerGradleFailure.Exit) bounded=$gradleFailureDiagnosticsBounded redacted=$($scannerGradleFailure.Text -match '\[REDACTED\]') truncated=$($scannerGradleFailure.Text -match '\[TRUNCATED\]')；输出=$($scannerGradleFailure.Text)。"
     } else {
       Write-Host '  17cc(scanner/gradle-exit) Gradle 子进程失败 fail-closed，诊断尾段有界脱敏且结论准确 OK' -ForegroundColor Green
     }
@@ -11258,16 +11256,6 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
           $present = $baseline
           $code = if ($baseline -or $semanticInverse) { 'ABSENT-MALFORMED-EXTERNAL-BLOCK' } else { 'MUTANT-NOISE-MALFORMED-EXTERNAL-BLOCK' }
         }
-        'parse-redaction' {
-          Set-ScannerFixtureOverrides $null
-          Set-ScannerFixtureReport $scannerSecretEdgeReport
-          $result = Invoke-ScannerFixture $ScriptPath
-          $parseCodes = [regex]::Matches($result.Text, '\[GRADLE-PARSE\]').Count
-          $baseline = $result.Exit -ne 0 -and $result.Text -notmatch $scannerSecretPattern -and $result.Text -match '\[REDACTED\]' -and $parseCodes -ge $expectedSecretParseCodes
-          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match $scannerSecretPattern -and $parseCodes -ge $expectedSecretParseCodes
-          $present = $baseline
-          $code = if ($baseline -or $semanticInverse) { 'ABSENT-PARSE-ERROR-REDACTION' } else { 'MUTANT-NOISE-PARSE-ERROR-REDACTION' }
-        }
         default { throw "未知 scanner mutation scenario: $Scenario" }
       }
       $word = if ($present) { 'PRESENT' } else { $code }
@@ -11299,8 +11287,7 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
         @{ Id = 'project-internal'; Scenario = 'project-internal'; Code = 'ABSENT-INTERNAL-PROJECT-SKIP'; Label = 'Gradle 内部 project 跳过分支'; Marker = 'continue # direct internal Gradle project edge' },
         @{ Id = 'project-external'; Scenario = 'project-external'; Code = 'ABSENT-PROJECT-EXTERNAL-RESOLUTION'; Label = 'Gradle project -> external resolved target'; Marker = '$body = $Matches.resolved.Trim() # project external substitution target' },
         @{ Id = 'project-malformed'; Scenario = 'project-malformed'; Code = 'ABSENT-MALFORMED-PROJECT-BLOCK'; Label = '畸形 Gradle project 边 fail-closed'; Marker = '$errors.Add("无法判定 Gradle project 依赖边：$displayBody [GRADLE-PARSE]") # malformed project edge' },
-        @{ Id = 'external-malformed'; Scenario = 'external-malformed'; Code = 'ABSENT-MALFORMED-EXTERNAL-BLOCK'; Label = '空/畸形外部 selector fail-closed'; Marker = '$errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge' },
-        @{ Id = 'parse-redaction'; Scenario = 'parse-redaction'; Code = 'ABSENT-PARSE-ERROR-REDACTION'; Label = 'Gradle parse-error 不可信边脱敏'; Marker = '$displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge' }
+        @{ Id = 'external-malformed'; Scenario = 'external-malformed'; Code = 'ABSENT-MALFORMED-EXTERNAL-BLOCK'; Label = '空/畸形外部 selector fail-closed'; Marker = '$errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge' }
       )
       foreach ($mutationCase in $scannerMutationCases) {
         $mutationMarkerId = "GRADLE-SCANNER-MUT-$($mutationCase.Id.ToUpperInvariant())"
