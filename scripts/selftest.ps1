@@ -10039,6 +10039,9 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     'echo Proxy-Authorization: Bearer PROXY_AUTH_LEAK 1>&2',
     'echo X-Authorization: Bearer X_AUTH_LEAK 1>&2',
     "echo $credentialFixture 1>&2",
+    'echo --password CLI_PASSWORD_LEAK 1>&2',
+    'echo password PLAIN_PASSWORD_LEAK 1>&2',
+    'echo token PLAIN_TOKEN_LEAK 1>&2',
     'echo -Ppassword=PROP_PASSWORD_LEAK 1>&2',
     'echo ssh://SSH_USER_LEAK:SSH_PASS_LEAK@example.invalid/repository 1>&2',
     'echo https://:EMPTY_USER_PASS_LEAK@example.invalid/repository 1>&2',
@@ -10060,6 +10063,9 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     "printf '%s\n' 'Proxy-Authorization: Bearer PROXY_AUTH_LEAK' >&2",
     "printf '%s\n' 'X-Authorization: Bearer X_AUTH_LEAK' >&2",
     "printf '%s\n' '$credentialFixture' >&2",
+    "printf '%s\n' '--password CLI_PASSWORD_LEAK' >&2",
+    "printf '%s\n' 'password PLAIN_PASSWORD_LEAK' >&2",
+    "printf '%s\n' 'token PLAIN_TOKEN_LEAK' >&2",
     "printf '%s\n' '-Ppassword=PROP_PASSWORD_LEAK' >&2",
     "printf '%s\n' 'ssh://SSH_USER_LEAK:SSH_PASS_LEAK@example.invalid/repository' >&2",
     "printf '%s\n' 'https://:EMPTY_USER_PASS_LEAK@example.invalid/repository' >&2",
@@ -10428,6 +10434,9 @@ try {
       '+--- malformed X-Authorization: Bearer X_AUTH_LEAK',
       '+--- malformed GITHUB_TOKEN=LEAK_ME',
       '+--- malformed https://credential-user:credential-pass@example.invalid/repository',
+      '+--- malformed --password CLI_PASSWORD_LEAK',
+      '+--- malformed password PLAIN_PASSWORD_LEAK',
+      '+--- malformed token PLAIN_TOKEN_LEAK',
       '+--- malformed -Ppassword=PROP_PASSWORD_LEAK',
       '+--- malformed ssh://SSH_USER_LEAK:SSH_PASS_LEAK@example.invalid/repository',
       '+--- malformed https://:EMPTY_USER_PASS_LEAK@example.invalid/repository',
@@ -10438,8 +10447,7 @@ try {
       '+--- malformed {"password":"JSON_PASSWORD_LEAK"}',
       '+--- malformed {"Authorization":"Bearer JSON_AUTH_LEAK"}'
     )
-    $expectedSecretParseCodes = $scannerSecretEdgeReport.Count - 1
-    $scannerSecretPattern = 'REDACT_ME|LEAK_ME|credential-user|credential-pass|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK'
+    $scannerSecretPattern = 'REDACT_ME|LEAK_ME|credential-user|credential-pass|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK'
     Set-ScannerFixtureReport $scannerSecretEdgeReport
     $scannerSecretEdges = Invoke-ScannerFixture $scannerFixtureScript
     $secretParseCodes = [regex]::Matches($scannerSecretEdges.Text, '\[GRADLE-PARSE\]').Count
@@ -10447,8 +10455,8 @@ try {
     if ($scannerSecretEdges.Exit -eq 0 -or
         $scannerSecretLeaks.Count -gt 0 -or
         $scannerSecretEdges.Text -notmatch '\[REDACTED\]' -or
-        $secretParseCodes -lt $expectedSecretParseCodes) {
-      Fail "种子缺陷 17cc(scanner/parse-redaction)：Gradle 零退出报告里的畸形边属于不可信文本；Authorization、赋值式 key 与 URI userinfo 必须整行有界脱敏，同时每条 GRADLE-PARSE 分类仍保留；实得 exit=$($scannerSecretEdges.Exit) parseCodes=$secretParseCodes expectedMin=$expectedSecretParseCodes leaks=$($scannerSecretLeaks -join ',') redacted=$($scannerSecretEdges.Text -match '\[REDACTED\]')；输出=$($scannerSecretEdges.Text)。"
+        $secretParseCodes -lt 18) {
+      Fail "种子缺陷 17cc(scanner/parse-redaction)：Gradle 零退出报告里的畸形边属于不可信文本；任意前缀 Authorization、赋值式/空格式/CLI/property/JSON 凭据与任意 scheme 的 URI userinfo 必须整行有界脱敏，同时十八条 GRADLE-PARSE 分类仍保留；实得 exit=$($scannerSecretEdges.Exit) parseCodes=$secretParseCodes leaks=$($scannerSecretLeaks -join ',') redacted=$($scannerSecretEdges.Text -match '\[REDACTED\]')；输出=$($scannerSecretEdges.Text)。"
     } else {
       Write-Host '  17cc(scanner/parse-redaction) 畸形边凭据脱敏且逐条保留 GRADLE-PARSE OK' -ForegroundColor Green
     }
@@ -10914,7 +10922,7 @@ try {
     $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
     $gradleFailureLines = @($scannerGradleFailure.Text -split "`n" | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]' })
     $gradleFailureDiagnosticsBounded = $gradleFailureLines.Count -gt 0 -and -not ($gradleFailureLines | Where-Object { $_.Length -gt 2200 })
-    $gradleFailureHasConfiguration = $scannerGradleFailure.Text -match ':[A-Za-z0-9_.-]+:[A-Za-z][A-Za-z0-9]*RuntimeClasspath\b'
+    $gradleFailureHasConfiguration = $scannerGradleFailure.Text -match '(?m)^\s*-\s+\[GRADLE\]\s+:[^:\r\n]+:[A-Za-z][A-Za-z0-9]*RuntimeClasspath\b'
     if ($scannerGradleFailure.Exit -eq 0 -or
         -not $gradleFailureHasConfiguration -or
         $scannerGradleFailure.Text -notmatch '\[GRADLE-SUBPROCESS\]' -or
@@ -11046,7 +11054,7 @@ Write-Output "GPL-SUFFIX-NOISE bad=`$(`$script:bad.Count) warn=`$(`$script:warn.
         'diagnostic-redaction' {
           Set-ScannerFixtureFailure 42
           $result = Invoke-ScannerFixture $ScriptPath
-          $present = $result.Exit -ne 0 -and $result.Text -notmatch $scannerSecretPattern -and $result.Text -match '\[REDACTED\]' -and $result.Text -match '\[GRADLE-SUBPROCESS\]'
+          $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match '\[GRADLE-SUBPROCESS\]'
           $code = 'ABSENT-DIAGNOSTIC-REDACTION'
         }
         'pom-metadata-control' {
@@ -11263,8 +11271,8 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
           Set-ScannerFixtureReport $scannerSecretEdgeReport
           $result = Invoke-ScannerFixture $ScriptPath
           $parseCodes = [regex]::Matches($result.Text, '\[GRADLE-PARSE\]').Count
-          $baseline = $result.Exit -ne 0 -and $result.Text -notmatch $scannerSecretPattern -and $result.Text -match '\[REDACTED\]' -and $parseCodes -ge $expectedSecretParseCodes
-          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match $scannerSecretPattern -and $parseCodes -ge $expectedSecretParseCodes
+          $baseline = $result.Exit -ne 0 -and $result.Text -notmatch $scannerSecretPattern -and $result.Text -match '\[REDACTED\]' -and $parseCodes -ge 18
+          $semanticInverse = $result.Exit -ne 0 -and $result.Text -match $scannerSecretPattern -and $parseCodes -ge 18
           $present = $baseline
           $code = if ($baseline -or $semanticInverse) { 'ABSENT-PARSE-ERROR-REDACTION' } else { 'MUTANT-NOISE-PARSE-ERROR-REDACTION' }
         }
@@ -11283,7 +11291,9 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
         @{ Id = 'pom-name-required'; Scenario = 'pom-name-required'; Code = 'ABSENT-POM-NAME-GUARD'; Label = '每个 POM license 均须非空 name'; Marker = '# require every declared license name' },
         @{ Id = 'pom-name-verbatim'; Scenario = 'pom-name-verbatim'; Code = 'ABSENT-POM-NAME-VERBATIM'; Label = 'POM license name 原文保真'; Marker = '# preserve exact POM license text' },
         @{ Id = 'pom-name-ordinal'; Scenario = 'pom-name-ordinal'; Code = 'ABSENT-POM-NAME-ORDINAL'; Label = 'POM license names Ordinal 去重排序'; Marker = '$pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)' },
-        @{ Id = 'diagnostic-record'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '统一 record boundary 的 Authorization / key=value / URI userinfo 脱敏'; Marker = '# diagnostic record credential boundary' },
+        @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '\bAuthorization' },
+        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)' },
+        @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '(?im)(?<scheme>' },
         @{ Id = 'pom-metadata-control'; Scenario = 'pom-metadata-control'; Code = 'ABSENT-POM-METADATA-CONTROL-GUARD'; Label = 'POM metadata 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'POM license/name' -Value `$licenseName" },
         @{ Id = 'override-metadata-control'; Scenario = 'override-metadata-control'; Code = 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD'; Label = '例外 metadata 控制/格式字符拒绝'; Marker = 'Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])' },
         @{ Id = 'override-property-control'; Scenario = 'override-property-control'; Code = 'ABSENT-OVERRIDE-PROPERTY-CONTROL-GUARD'; Label = '例外 JSON property name 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'JSON property name' -Value `$field" },
