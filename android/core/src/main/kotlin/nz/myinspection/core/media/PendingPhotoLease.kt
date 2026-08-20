@@ -29,6 +29,8 @@ internal data class PendingPhotoMarkerIdentity(
     fun resolving(): PendingPhotoMarkerIdentity = copy(state = PendingPhotoMarkerState.RESOLVING)
 }
 
+internal class PendingPhotoMarkerFormatException(message: String) : IOException(message)
+
 /** The only outcomes that may remove a pending sidecar after an ingest attempt. */
 enum class PendingPhotoLeaseDisposition(internal val clearsMarker: Boolean) {
     RETAIN(false),
@@ -115,6 +117,15 @@ class PendingPhotoLease private constructor(
             readPathIdentity(marker, allowResolvingMarker = true)
                 ?: throw IOException("pending photo marker disappeared while scanning: ${marker.path}")
 
+        internal fun confirmMalformed(marker: File, channel: FileChannel) {
+            try {
+                readChannelIdentity(marker, channel, allowResolvingMarker = true)
+            } catch (_: PendingPhotoMarkerFormatException) {
+                return
+            }
+            throw IOException("pending photo marker changed after malformed scan: ${marker.path}")
+        }
+
         private fun open(
             marker: File,
             createIfMissing: Boolean,
@@ -144,7 +155,8 @@ class PendingPhotoLease private constructor(
                     createdIdentity = PendingPhotoMarkerIdentity(PendingPhotoMarkerState.NORMAL, token.toLowerHex())
                     try {
                         channel = FileChannel.open(path, READ, WRITE, CREATE_NEW, NOFOLLOW_LINKS)
-                        writeMarker(channel, createdIdentity)
+                        lock = acquireExclusiveLock(marker, channel)
+                        writeNewMarker(channel, createdIdentity)
                     } catch (_: FileAlreadyExistsException) {
                         createdIdentity = null
                         identityBeforeOpen = readPathIdentity(marker, allowResolvingMarker)
@@ -161,22 +173,22 @@ class PendingPhotoLease private constructor(
                 if (openedIdentity != expectedOpenedIdentity || (expectedIdentity != null && openedIdentity != expectedIdentity)) {
                     throw IOException("pending photo marker changed while acquiring: ${marker.path}")
                 }
-                if (readPathIdentity(marker, allowResolvingMarker) != openedIdentity) {
-                    throw IOException("pending photo marker path changed while acquiring: ${marker.path}")
+                if (createdIdentity == null) {
+                    if (readPathIdentity(marker, allowResolvingMarker) != openedIdentity) {
+                        throw IOException("pending photo marker path changed while acquiring: ${marker.path}")
+                    }
+                    lock = acquireExclusiveLock(marker, channel)
+                } else {
+                    val createdAttributes = readMarkerAttributes(marker)
+                        ?: throw IOException("pending photo marker disappeared while acquiring: ${marker.path}")
+                    requireRegularMarker(marker, createdAttributes)
                 }
-                lock = try {
-                    channel.tryLock()
-                } catch (_: OverlappingFileLockException) {
-                    null
-                }
-                if (lock == null) throw IOException("pending photo marker is locked: ${marker.path}")
-
                 syncParentDirectory(checkNotNull(marker.parentFile))
                 val markerFinalizer = finalizeMarker ?: { heldChannel: FileChannel ->
-                    writeMarker(heldChannel, openedIdentity.resolving())
+                    writeResolvingState(heldChannel)
                     heldChannel.force(true)
                 }
-                return PendingPhotoLease(marker, openedIdentity, channel, lock, markerFinalizer)
+                return PendingPhotoLease(marker, openedIdentity, channel, checkNotNull(lock), markerFinalizer)
             } catch (primary: Throwable) {
                 closeQuietly(lock, channel, primary)
                 throw primary
@@ -202,7 +214,7 @@ class PendingPhotoLease private constructor(
 
         private fun requireRegularMarker(marker: File, attributes: BasicFileAttributes) {
             if (!attributes.isRegularFile || attributes.isSymbolicLink || attributes.isOther) {
-                throw MarkerFormatException("pending photo marker is not a regular no-follow file: ${marker.path}")
+                throw PendingPhotoMarkerFormatException("pending photo marker is not a regular no-follow file: ${marker.path}")
             }
         }
 
@@ -212,49 +224,67 @@ class PendingPhotoLease private constructor(
             allowResolvingMarker: Boolean,
         ): PendingPhotoMarkerIdentity {
             if (channel.size() != MARKER_LENGTH.toLong()) {
-                throw MarkerFormatException("pending photo marker has invalid content: ${marker.path}")
+                throw PendingPhotoMarkerFormatException("pending photo marker has invalid content: ${marker.path}")
             }
             val buffer = ByteBuffer.allocate(MARKER_LENGTH)
             var offset = 0L
             while (buffer.hasRemaining()) {
                 val read = channel.read(buffer, offset)
-                if (read <= 0) throw MarkerFormatException("pending photo marker has invalid content: ${marker.path}")
+                if (read <= 0) throw PendingPhotoMarkerFormatException("pending photo marker has invalid content: ${marker.path}")
                 offset += read
             }
             val content = String(buffer.array(), US_ASCII)
             if (!content.startsWith(MARKER_PREFIX) || content[6] != ':') {
-                throw MarkerFormatException("pending photo marker has invalid content: ${marker.path}")
+                throw PendingPhotoMarkerFormatException("pending photo marker has invalid content: ${marker.path}")
             }
             val state = when (content[5]) {
                 PendingPhotoMarkerState.NORMAL.code -> PendingPhotoMarkerState.NORMAL
                 PendingPhotoMarkerState.RESOLVING.code -> PendingPhotoMarkerState.RESOLVING
-                else -> throw MarkerFormatException("pending photo marker has invalid state: ${marker.path}")
+                else -> throw PendingPhotoMarkerFormatException("pending photo marker has invalid state: ${marker.path}")
             }
             if (state == PendingPhotoMarkerState.RESOLVING && !allowResolvingMarker) {
-                throw MarkerFormatException("pending photo marker is being resolved: ${marker.path}")
+                throw PendingPhotoMarkerFormatException("pending photo marker is being resolved: ${marker.path}")
             }
             val tokenHex = content.substring(7)
             if (tokenHex.length != TOKEN_HEX_LENGTH || tokenHex.any { it !in '0'..'9' && it !in 'a'..'f' }) {
-                throw MarkerFormatException("pending photo marker has invalid token: ${marker.path}")
+                throw PendingPhotoMarkerFormatException("pending photo marker has invalid token: ${marker.path}")
             }
             return PendingPhotoMarkerIdentity(state, tokenHex)
         }
 
-        private fun writeMarker(channel: FileChannel, identity: PendingPhotoMarkerIdentity) {
+        private fun writeNewMarker(channel: FileChannel, identity: PendingPhotoMarkerIdentity) {
             val bytes = "$MARKER_PREFIX${identity.state.code}:${identity.tokenHex}".toByteArray(US_ASCII)
             check(bytes.size == MARKER_LENGTH) { "pending marker format changed unexpectedly" }
-            channel.truncate(0)
-            channel.position(0)
-            val marker = ByteBuffer.wrap(bytes)
-            while (marker.hasRemaining()) {
-                check(channel.write(marker) > 0) { "could not write pending marker handoff" }
+            check(channel.size() == 0L) { "new pending marker was not empty" }
+            writeFully(channel, ByteBuffer.wrap(bytes), offset = 0L)
+        }
+
+        private fun writeResolvingState(channel: FileChannel) {
+            writeFully(channel, ByteBuffer.wrap(byteArrayOf(PendingPhotoMarkerState.RESOLVING.code.code.toByte())), offset = 5L)
+        }
+
+        private fun writeFully(channel: FileChannel, buffer: ByteBuffer, offset: Long) {
+            var position = offset
+            while (buffer.hasRemaining()) {
+                val written = channel.write(buffer, position)
+                check(written > 0) { "could not write pending marker handoff" }
+                position += written
             }
+        }
+
+        private fun acquireExclusiveLock(marker: File, channel: FileChannel): FileLock {
+            val acquired = try {
+                channel.tryLock()
+            } catch (_: OverlappingFileLockException) {
+                null
+            }
+            return acquired ?: throw IOException("pending photo marker is locked: ${marker.path}")
         }
 
         private fun deleteVerifiedMarker(marker: File, expected: PendingPhotoMarkerIdentity): Boolean {
             val found = try {
                 readPathIdentity(marker, allowResolvingMarker = true)
-            } catch (_: MarkerFormatException) {
+            } catch (_: PendingPhotoMarkerFormatException) {
                 return false
             }
             if (found == null) return true
@@ -284,8 +314,6 @@ class PendingPhotoLease private constructor(
                 primary.addSuppressed(cleanupFailure)
             }
         }
-
-        private class MarkerFormatException(message: String) : IOException(message)
     }
 
     /**

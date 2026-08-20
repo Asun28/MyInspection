@@ -67,7 +67,7 @@ class OrphanedAssetCleanup(private val db: MyInspectionDatabase, private val del
                 continue
             }
             try {
-                if (deleter.delete(relPath)) deleted += relPath else failed += FailedDeletion(relPath, cause = null)
+                if (deleter.deleteNoFollow(relPath)) deleted += relPath else failed += FailedDeletion(relPath, cause = null)
             } catch (e: IOException) {
                 failed += FailedDeletion(relPath, cause = e)
             } catch (e: SecurityException) {

@@ -2,9 +2,13 @@ package nz.myinspection.core.media
 
 import java.io.File
 import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.NoSuchFileException
+import java.nio.file.StandardOpenOption.READ
+import java.nio.file.StandardOpenOption.WRITE
 import java.nio.file.attribute.BasicFileAttributes
 
 /** The minimal DB fact the sidecar recovery path needs; the Android worker supplies it from `selectById(photoId)`. */
@@ -105,7 +109,9 @@ class PendingPhotoAssetCleanup private constructor(
         var primary: Throwable? = null
         var result: RecoveryResult? = null
         try {
-            candidate.markerScanFailure?.let { throw it }
+            val scanFailure = candidate.markerScanFailure
+            if (scanFailure is PendingPhotoMarkerFormatException) return recoverMalformed(candidate)
+            scanFailure?.let { throw it }
             lease = openLease(candidate.marker, checkNotNull(candidate.markerIdentity))
             val adopted = findPhoto(candidate.photoId)?.let { it.active && it.relPath == candidate.relPath } == true
             result = if (adopted) {
@@ -147,6 +153,35 @@ class PendingPhotoAssetCleanup private constructor(
             }
         }
 
+        return checkNotNull(result)
+    }
+
+    private fun recoverMalformed(candidate: PendingCandidate): RecoveryResult {
+        var result: RecoveryResult? = null
+        var clearMarker = false
+        FileChannel.open(candidate.marker.toPath(), READ, WRITE, NOFOLLOW_LINKS).use { channel ->
+            val lock = try {
+                channel.tryLock()
+            } catch (_: OverlappingFileLockException) {
+                null
+            } ?: throw IOException("pending photo marker is locked: ${candidate.marker.path}")
+            lock.use {
+                PendingPhotoLease.confirmMalformed(candidate.marker, channel)
+                val adopted = findPhoto(candidate.photoId)?.let {
+                    it.active && it.relPath == candidate.relPath
+                } == true
+                result = when {
+                    adopted -> RecoveryResult.Readopted(candidate.relPath).also { clearMarker = true }
+                    !isSafePendingAssetLeaf(candidate.relPath) -> RecoveryResult.Rejected(candidate.markerRelPath)
+                    readNoFollowAttributes(File(mediaRoot, candidate.relPath)) == null ->
+                        RecoveryResult.Deleted(candidate.relPath).also { clearMarker = true }
+                    else -> RecoveryResult.Rejected(candidate.markerRelPath)
+                }
+            }
+        }
+        if (clearMarker && !NoFollowLeafDeletion.delete(mediaRoot, candidate.markerRelPath)) {
+            return RecoveryResult.Failed(null)
+        }
         return checkNotNull(result)
     }
 

@@ -4,6 +4,8 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.nio.file.StandardOpenOption.READ
+import java.nio.file.StandardOpenOption.WRITE
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -116,6 +118,105 @@ class PendingPhotoAssetCleanupTest {
 
         assertEquals(listOf(relPath), result.deleted, "a missing target is already clean and must not strand its marker")
         assertFalse(marker.exists())
+    }
+
+    @Test
+    fun `cleanup removes an empty crash marker when publish never created the JPEG`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-empty-crash.jpg"
+        val markerRelPath = "$relPath.pending"
+        val marker = File(root, markerRelPath).also {
+            assertTrue(it.parentFile!!.mkdirs())
+            assertTrue(it.createNewFile())
+        }
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { null },
+            deleter = OrphanFileDeleter { error("an absent JPEG needs no asset deletion") },
+        ).run()
+
+        assertEquals(listOf(relPath), result.deleted)
+        assertFalse(marker.exists(), "a pre-publish crash must not strand an empty marker forever")
+    }
+
+    @Test
+    fun `cleanup removes a truncated crash marker after an exact active row adopted the JPEG`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-truncated-adopted.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(root, "$relPath.pending").also { it.writeText("MIP1:N:0123") }
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { PendingPhotoReference(relPath, active = true) },
+            deleter = OrphanFileDeleter { error("an adopted JPEG must not be deleted") },
+        ).run()
+
+        assertEquals(listOf(relPath), result.readopted)
+        assertTrue(asset.isFile)
+        assertFalse(marker.exists(), "a post-record crash marker must be recoverable from the exact active row")
+    }
+
+    @Test
+    fun `cleanup fails a malformed marker closed when an unadopted JPEG still exists`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-malformed-ambiguous.jpg"
+        val markerRelPath = "$relPath.pending"
+        val asset = asset(root, relPath)
+        val marker = File(root, markerRelPath).also { it.writeText("MIP1:R:broken") }
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { null },
+            deleter = OrphanFileDeleter { error("ambiguous persisted state must not delete the JPEG") },
+        ).run()
+
+        assertEquals(listOf(markerRelPath), result.rejected)
+        assertTrue(asset.isFile)
+        assertTrue(marker.isFile)
+        assertTrue(result.failed.isEmpty(), "malformed persisted state is a failure, not an endless retry")
+    }
+
+    @Test
+    fun `cleanup classifies an exact-length corrupt marker without a Windows locked-channel retry`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-corrupt-exact-length.jpg"
+        val markerRelPath = "$relPath.pending"
+        val asset = asset(root, relPath)
+        val marker = File(root, markerRelPath).also { it.writeText("x".repeat(39)) }
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { null },
+            deleter = OrphanFileDeleter { error("corrupt persisted state must not delete the JPEG") },
+        ).run()
+
+        assertEquals(listOf(markerRelPath), result.rejected)
+        assertTrue(result.failed.isEmpty())
+        assertTrue(asset.isFile)
+        assertTrue(marker.isFile)
+    }
+
+    @Test
+    fun `cleanup retries rather than clearing an empty marker still locked by its creator`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-empty-live.jpg"
+        val marker = File(root, "$relPath.pending").also {
+            assertTrue(it.parentFile!!.mkdirs())
+            assertTrue(it.createNewFile())
+        }
+
+        java.nio.channels.FileChannel.open(marker.toPath(), READ, WRITE).use { channel ->
+            channel.lock().use {
+                val result = PendingPhotoAssetCleanup(
+                    mediaRoot = root,
+                    findPhoto = { null },
+                    deleter = OrphanFileDeleter { error("a live creator owns this marker") },
+                ).run()
+
+                val failure = result.failed.single()
+                assertEquals(relPath, failure.relPath)
+                assertTrue(failure.cause?.message.orEmpty().contains("locked"))
+                assertTrue(marker.isFile)
+                assertTrue(result.rejected.isEmpty())
+            }
+        }
     }
 
     @Test
