@@ -8,6 +8,7 @@ worktree: C:\wt\T0-DEBT-SELFTEST-SPLIT-PLAN
 allow_paths:
   - specs/tasks/T0-DEBT-SELFTEST-SPLIT-PLAN.md
   - specs/tasks/T0-DEBT-SELFTEST-SKIP-VISIBILITY.md
+  - specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md
   - specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md
   - specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md
   - specs/tech-debt-tracker.md
@@ -21,7 +22,7 @@ non_goals:
   - 合并或关闭 PR #33
 dod_command: pwsh -NoProfile -File scripts/check-cards.ps1
 dod_exit: 0
-dod_assert: 原 skip 卡明确收回到 bounded helper 协议；生产 no-git routing 与 mutation 资源预算各有独立任务卡；TD9 与 TASK-BOARD 记录同一串行顺序。
+dod_assert: 原 skip 卡明确收回到 bounded helper 协议；生产 no-git routing 与 mutation 资源预算各有独立任务卡；TD9、全部 live 卡与 TASK-BOARD 记录同一串行顺序。
 review_gate: codex {verdict:pass}
 hygiene: 逐条对照两轮 R3 block；每个发现只有一个 owner，两个实现卡共享 selftest 因而必须串行。
 doc_sync: 本规划卡合并后标 merged；TD9 保持 carded，直到全部子卡与 post-merge core 重放完成。
