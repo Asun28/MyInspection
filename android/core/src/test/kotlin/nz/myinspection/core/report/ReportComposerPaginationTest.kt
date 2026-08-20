@@ -41,11 +41,13 @@ class ReportComposerPaginationTest {
                 ),
             ),
             statusDefinitions = listOf(
+                StatusDefinition("GOOD", BilingualText("Good", "良好"), BilingualText("No issue", "无问题")),
+                StatusDefinition("FAIR", BilingualText("Fair", "一般"), BilingualText("Wear", "损耗")),
+                StatusDefinition("POOR", BilingualText("Poor", "较差"), BilingualText("Attention", "需处理")),
                 StatusDefinition(
-                    "GOOD",
-                    BilingualText("Good", "良好"),
-                    BilingualText("No issue", "无问题"),
-                    false,
+                    "NOT_APPLICABLE",
+                    BilingualText("Not applicable", "不适用"),
+                    BilingualText("Does not apply", "不适用"),
                 ),
             ),
         )
@@ -124,6 +126,86 @@ class ReportComposerPaginationTest {
             .single { (it.content as? ItemRowBlock)?.itemId == "item-poor" }
         assertTrue(row.heightMm > 18)
         assertTrue(row.yMm + row.heightMm <= BODY_BOTTOM_MM)
+        assertTrue((row.content as ItemRowBlock).textRuns.any { it.language == TextLanguage.ORIGINAL })
+    }
+
+    @Test
+    fun `rental and annual glossaries must exactly match their authoritative status domains`() {
+        val rental = ReportTestFixtures.report()
+        assertFailsWith<IllegalArgumentException> {
+            composer.compose(rental.copy(statusDefinitions = rental.statusDefinitions.dropLast(1)), Audience.LANDLORD)
+        }
+
+        val annualItem = rental.canonical.items.first().copy(status = "SIGNIFICANT_DEFECT")
+        val annual = ReportSnapshot(
+            canonical = rental.canonical.copy(
+                type = "ANNUAL",
+                template = rental.canonical.template.copy(type = "ANNUAL"),
+                items = listOf(annualItem),
+                photos = emptyList(),
+            ),
+            tenancyReference = null,
+            rooms = listOf(
+                ReportRoom(
+                    "annual-room",
+                    BilingualText("Exterior", "室外"),
+                    listOf(ReportItem("annual-item", annualItem, BilingualText("Cladding", "外墙"))),
+                ),
+            ),
+            statusDefinitions = listOf(
+                StatusDefinition("NO_ISSUE", BilingualText("No issue", "无问题"), BilingualText("Clear", "正常")),
+                StatusDefinition("MONITOR", BilingualText("Monitor", "观察"), BilingualText("Review later", "后续复查")),
+                StatusDefinition(
+                    "MAINTENANCE_ITEM",
+                    BilingualText("Maintenance item", "维护项"),
+                    BilingualText("Maintenance needed", "需要维护"),
+                ),
+                StatusDefinition(
+                    "SIGNIFICANT_DEFECT",
+                    BilingualText("Significant defect", "重大缺陷"),
+                    BilingualText("Prompt attention", "应尽快处理"),
+                ),
+                StatusDefinition(
+                    "NOT_APPLICABLE",
+                    BilingualText("Not applicable", "不适用"),
+                    BilingualText("Does not apply", "不适用"),
+                ),
+            ),
+        )
+        val cover = composer.compose(annual, Audience.LANDLORD).pages
+            .flatMap { it.blocks }
+            .map { it.content }
+            .filterIsInstance<CoverBlock>()
+            .single()
+        assertEquals(1, cover.adverseItemCount)
+    }
+
+    @Test
+    fun `large adverse collection and long original text continue across bounded pages`() {
+        val base = ReportTestFixtures.canonical()
+        val items = (1..20).map { index ->
+            base.items.last().copy(stableId = "item-$index", note = if (index == 1) "long note ".repeat(2_000) else "issue")
+        }
+        val reportItems = items.mapIndexed { index, item ->
+            ReportItem("report-item-${index + 1}", item, BilingualText("Item ${index + 1}", "检查项 ${index + 1}"))
+        }
+        val report = ReportSnapshot(
+            canonical = base.copy(items = items, photos = emptyList()),
+            tenancyReference = null,
+            rooms = listOf(ReportRoom("room-many", BilingualText("Many items", "多个检查项"), reportItems)),
+            statusDefinitions = ReportTestFixtures.report().statusDefinitions,
+            supplements = listOf(ReportSupplement("LONG", "supplement ".repeat(2_000))),
+        )
+
+        val plan = composer.compose(report, Audience.LANDLORD)
+        assertEquals(20, plan.pages.flatMap { it.blocks }.count { it.content is SummaryItemBlock })
+        assertTrue(plan.pages.flatMap { it.blocks }.count { it.content is ItemRowBlock } > 20)
+        assertTrue(plan.pages.flatMap { it.blocks }.count { it.content is SupplementBlock } > 1)
+        assertTrue(
+            plan.pages.flatMap { it.blocks }
+                .filterNot { it.content is FooterBlock }
+                .all { it.yMm >= PAGE_MARGIN_MM && it.yMm + it.heightMm <= BODY_BOTTOM_MM },
+        )
     }
 
     @Test
@@ -166,13 +248,17 @@ class ReportComposerPaginationTest {
                     "GOOD",
                     BilingualText("Good", "良好"),
                     BilingualText("No issue", "无问题"),
-                    false,
                 ),
+                StatusDefinition("FAIR", BilingualText("Fair", "一般"), BilingualText("Wear", "损耗")),
                 StatusDefinition(
                     "POOR",
                     BilingualText("Poor", "较差"),
                     BilingualText("Needs attention", "需要处理"),
-                    true,
+                ),
+                StatusDefinition(
+                    "NOT_APPLICABLE",
+                    BilingualText("Not applicable", "不适用"),
+                    BilingualText("Does not apply", "不适用"),
                 ),
             ),
         )
@@ -182,6 +268,10 @@ class ReportComposerPaginationTest {
             page.blocks.any { (it.content as? RoomTitleBlock)?.roomId == "room-2" }
         }
         assertTrue(headingPage.blocks.any { (it.content as? ItemRowBlock)?.itemId == "item-3" })
+        val heading = headingPage.blocks.single { (it.content as? RoomTitleBlock)?.roomId == "room-2" }
+        val runs = (heading.content as RoomTitleBlock).textRuns
+        assertTrue(runs.any { it.language == TextLanguage.EN } && runs.any { it.language == TextLanguage.ZH })
+        assertTrue(heading.yMm + heading.heightMm <= BODY_BOTTOM_MM)
     }
 
     private fun DocumentPlan.imageSlots(purpose: ImagePurpose? = null): List<ImageSlotBlock> = pages

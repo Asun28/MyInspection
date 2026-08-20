@@ -20,7 +20,10 @@ class ReportComposerGoldenTest {
         assertEquals(
             listOf(
                 listOf("cover@15:100", "footer@272:10"),
-                listOf("section:status-glossary@15:10", "status:GOOD@25:20", "status:POOR@45:20", "footer@272:10"),
+                listOf(
+                    "section:status-glossary@15:10", "status:GOOD@25:20", "status:FAIR@45:20",
+                    "status:POOR@65:20", "status:NOT_APPLICABLE@85:20", "footer@272:10",
+                ),
                 listOf("section:summary@15:10", "summary:item-poor@25:16", "footer@272:10"),
                 listOf(
                     "room:room-kitchen@15:12", "image:photo-room:inline@27:48",
@@ -33,12 +36,19 @@ class ReportComposerGoldenTest {
                 ),
                 listOf(
                     "section:closing@15:10", "remediation:item-poor:HIGH@25:20",
-                    "supplement:S1@45:14", "disclaimer@59:24", "footer@272:10",
+                    "supplement:S1@45:14", "disclaimer@59:26", "footer@272:10",
                 ),
             ),
             plan.pages.map { page -> page.blocks.map(::signature) },
         )
         assertEquals((1..6).toList(), plan.pages.map { it.number })
+        val cover = plan.contents().single { it is CoverBlock } as CoverBlock
+        assertEquals(1, cover.adverseItemCount)
+        assertEquals(1, cover.pendingItemCount)
+        assertEquals(
+            listOf(RoomStatusCount("room-kitchen", "GOOD", 1), RoomStatusCount("room-kitchen", "POOR", 1)),
+            cover.roomStatusCounts,
+        )
         plan.pages.forEach { page ->
             val footer = page.blocks.single { it.content is FooterBlock }.content as FooterBlock
             assertEquals(ReportTestFixtures.DATA_HASH, footer.dataHash)
@@ -57,7 +67,13 @@ class ReportComposerGoldenTest {
         assertFalse(landlord.contents().any { it is TenantAgreementBlock })
         assertFalse(tenant.contents().any { it is RemediationBlock })
         assertTrue(tenant.contents().any { it is TenantAgreementBlock })
-        assertTrue(tenant.contents().any { it is DisclaimerBlock })
+        assertTrue(tenant.contents().any { it is DisclaimerBlock && it.text == REPORT_DISCLAIMER })
+        assertTrue(tenant.contents().filterIsInstance<ItemRowBlock>().all { it.wearOrDamage == null })
+        assertFalse(
+            tenant.contents().filterIsInstance<TextBearingBlock>()
+                .flatMap { it.textRuns }
+                .any { it.text.contains("DAMAGE") || it.text.contains("FAIR_WEAR") },
+        )
     }
 
     @Test
@@ -67,6 +83,11 @@ class ReportComposerGoldenTest {
 
         assertTrue(bilingual.isNotEmpty())
         assertTrue(bilingual.all { it.en.isNotBlank() && it.zh.isNotBlank() })
+        plan.pages.flatMap { it.blocks }.forEach { placed ->
+            val block = placed.content as? TextBearingBlock ?: return@forEach
+            assertTrue(block.textRuns.isNotEmpty(), "${block::class.simpleName} must contain renderer-ready measured runs")
+            assertTrue(block.textRuns.all { it.yMm >= 0 && it.yMm + it.heightMm <= placed.heightMm })
+        }
     }
 
     private fun DocumentPlan.contents() = pages.flatMap { page -> page.blocks.map { it.content } }

@@ -91,17 +91,13 @@ internal object ReportTestFixtures {
             ),
         ),
         statusDefinitions = listOf(
+            StatusDefinition("GOOD", BilingualText("Good", "良好"), BilingualText("No issue observed", "未观察到问题")),
+            StatusDefinition("FAIR", BilingualText("Fair", "一般"), BilingualText("Wear is visible", "可见正常损耗")),
+            StatusDefinition("POOR", BilingualText("Poor", "较差"), BilingualText("Attention is needed", "需要处理")),
             StatusDefinition(
-                "GOOD",
-                BilingualText("Good", "良好"),
-                BilingualText("No material issue observed", "未观察到重大问题"),
-                adverse = false,
-            ),
-            StatusDefinition(
-                "POOR",
-                BilingualText("Poor", "较差"),
-                BilingualText("Material attention is needed", "需要重点处理"),
-                adverse = true,
+                "NOT_APPLICABLE",
+                BilingualText("Not applicable", "不适用"),
+                BilingualText("This item does not apply", "本检查项不适用"),
             ),
         ),
         supplements = listOf(ReportSupplement("S1", "Follow-up inspection requested.")),
@@ -112,6 +108,6 @@ internal object ReportTestFixtures {
 
     val measurer = TextMeasurer { text, _, widthMm ->
         val charsPerLine = (widthMm / 3).coerceAtLeast(1)
-        ((text.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1) * 4
+        MeasuredText(text.chunked(charsPerLine).ifEmpty { listOf(" ") }, lineHeightMm = 4)
     }
 }

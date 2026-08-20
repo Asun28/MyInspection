@@ -2,123 +2,76 @@ package nz.myinspection.core.report
 
 import nz.myinspection.core.canon.canonicalJson
 import nz.myinspection.core.canon.sha256Hex
+import nz.myinspection.core.capture.AdverseStatuses
+import nz.myinspection.core.template.TemplateDomains
 
-/** Pure Kotlin layout engine. Renderers consume [DocumentPlan] without making pagination decisions. */
+/** Pure Kotlin layout engine. Renderers consume measured runs and slots without wrapping or pagination. */
 class ReportComposer(private val textMeasurer: TextMeasurer) {
-    fun compose(
-        report: ReportSnapshot,
-        audience: Audience,
-        options: ReportOptions = ReportOptions(),
-    ): DocumentPlan {
+    fun compose(report: ReportSnapshot, audience: Audience, options: ReportOptions = ReportOptions()): DocumentPlan {
         validateProjection(report)
         val dataHash = sha256Hex(canonicalJson(report.canonical))
         val photos = report.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }
             .filter { options.includePrivacyPhotos || !it.privacy }
-        val adverseStatuses = report.statusDefinitions.filter { it.adverse }.mapTo(mutableSetOf()) { it.status }
         val adverseItems = report.rooms.flatMap { room ->
-            room.items.filter { it.snapshot.status in adverseStatuses }.map { room.id to it }
+            room.items.filter { AdverseStatuses.isAdverse(report.canonical.type, it.snapshot.status) }
+                .map { room.id to it }
         }
         val pages = mutableListOf<MutableList<PlacedBlock>>()
-
-        pages.add(pageOf(
-            SizedBlock(
-                100,
-                CoverBlock(
-                    address = report.canonical.property.address,
-                    inspectionType = report.canonical.type,
-                    scheduledAt = report.canonical.scheduledAt,
-                    tenancyReference = report.tenancyReference,
-                    adverseItemCount = adverseItems.size,
-                    remediationCount = if (audience == Audience.LANDLORD) report.remediations.size else 0,
-                ),
-            ),
-        ))
-
-        pages.add(pageOf(
-            SizedBlock(10, SectionTitleBlock("status-glossary", BilingualText("Status glossary", "评级词表"))),
-            *report.statusDefinitions.map {
-                SizedBlock(20, StatusDefinitionBlock(it.status, it.label, it.description, it.adverse))
-            }.toTypedArray(),
-        ))
-
-        pages.add(pageOf(
-            SizedBlock(10, SectionTitleBlock("summary", BilingualText("Summary", "摘要"))),
-            *adverseItems.map { (roomId, item) ->
-                SizedBlock(16, SummaryItemBlock(item.id, roomId, item.snapshot.status))
-            }.toTypedArray(),
-        ))
-
-        if (report.rooms.isNotEmpty()) pages.add(mutableListOf())
         val paginator = Paginator(pages)
+
+        paginator.forcePage(listOf(coverBlock(report, adverseItems)))
+        paginator.startSection(
+            sectionTitle("status-glossary", BilingualText("Status glossary", "评级词表")),
+            report.statusDefinitions.map(::statusBlock),
+        )
+        paginator.startSection(
+            sectionTitle("summary", BilingualText("Summary", "摘要")),
+            adverseItems.map { (roomId, item) -> summaryBlock(roomId, item) },
+        )
+
+        if (report.rooms.isNotEmpty()) paginator.newPage()
         for (room in report.rooms) {
             if (room.items.isEmpty()) {
-                paginator.addGroup(listOf(SizedBlock(12, RoomTitleBlock(room.id, room.label))))
+                paginator.add(roomTitleBlock(room))
                 room.photos.filter { it in photos }.forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
                 continue
             }
-            val firstItem = room.items.first()
-            val roomPhotos = room.photos.filter { it in photos }
-            val opening = buildList {
-                add(SizedBlock(12, RoomTitleBlock(room.id, room.label)))
-                roomPhotos.firstOrNull()?.let { add(imageBlock(it, ImagePurpose.INLINE)) }
-                add(itemBlock(firstItem))
+            val visibleRoomPhotos = room.photos.filter { it in photos }
+            val title = roomTitleBlock(room)
+            val firstPhoto = visibleRoomPhotos.firstOrNull()?.let { imageBlock(it, ImagePurpose.INLINE) }
+            val openingFixedHeight = title.heightMm + (firstPhoto?.heightMm ?: 0)
+            val firstItemChunks = splitBlock(itemBlock(room.items.first(), audience), BODY_HEIGHT_MM - openingFixedHeight)
+            paginator.addGroup(listOfNotNull(title, firstPhoto, firstItemChunks.first()))
+            firstItemChunks.drop(1).forEach(paginator::add)
+            visibleRoomPhotos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
+            room.items.first().photos.filter { it in photos }.forEach {
+                paginator.add(imageBlock(it, ImagePurpose.INLINE))
             }
-            paginator.addGroup(opening)
-            roomPhotos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
-            firstItem.photos.filter { it in photos }.forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
             for (item in room.items.drop(1)) {
-                paginator.add(itemBlock(item))
+                paginator.add(itemBlock(item, audience))
                 item.photos.filter { it in photos }.forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
             }
         }
 
-        if (photos.isNotEmpty()) {
-            val appendix = photos.map { imageBlock(it, ImagePurpose.APPENDIX) }
-            appendix.chunked(2).forEach { pair ->
-                pages.add(pageOf(
-                    SizedBlock(10, SectionTitleBlock("photo-appendix", BilingualText("Photo appendix", "照片附录"))),
-                    *pair.toTypedArray(),
-                ))
-            }
+        photos.map { imageBlock(it, ImagePurpose.APPENDIX) }.chunked(2).forEach { pair ->
+            paginator.forcePage(
+                listOf(sectionTitle("photo-appendix", BilingualText("Photo appendix", "照片附录"))) + pair,
+            )
         }
 
-        val closing = mutableListOf<SizedBlock>()
-        closing += SizedBlock(10, SectionTitleBlock("closing", BilingualText("Closing", "报告结尾")))
-        if (audience == Audience.LANDLORD) {
-            closing += report.remediations.map {
-                SizedBlock(20, RemediationBlock(it.itemId, it.urgency, it.text))
-            }
+        val closing = buildList {
+            if (audience == Audience.LANDLORD) addAll(report.remediations.map(::remediationBlock))
+            addAll(report.supplements.map(::supplementBlock))
+            add(disclaimerBlock())
+            if (audience == Audience.TENANT) add(tenantAgreementBlock())
         }
-        closing += report.supplements.map {
-            val measured = measure(it.text, TextStyle.BODY, 180)
-            SizedBlock(maxOf(14, measured), SupplementBlock(it.reference, it.text))
-        }
-        closing += SizedBlock(
-            24,
-            DisclaimerBlock(
-                BilingualText(
-                    "This report records observed condition and is not professional diagnosis.",
-                    "本报告仅记录观察到的状况，不构成专业诊断。",
-                ),
-            ),
-        )
-        if (audience == Audience.TENANT) {
-            closing += SizedBlock(24, TenantAgreementBlock(BilingualText("Tenant agreement / signature", "租客同意 / 签名")))
-        }
-        paginator.addSection(closing)
+        paginator.startSection(sectionTitle("closing", BilingualText("Closing", "报告结尾")), closing)
 
         val totalPages = pages.size
-        val completedPages = pages.mapIndexed { index, body ->
-            val footer = PlacedBlock(
-                xMm = PAGE_MARGIN_MM,
-                yMm = BODY_BOTTOM_MM,
-                widthMm = A4_WIDTH_MM - 2 * PAGE_MARGIN_MM,
-                heightMm = 10,
-                content = FooterBlock(dataHash, dataHash.take(12), index + 1, totalPages),
-            )
-            PagePlan(index + 1, body + footer)
+        val completed = pages.mapIndexed { index, blocks ->
+            PagePlan(index + 1, blocks + footerBlock(dataHash, index + 1, totalPages))
         }
-        return DocumentPlan(audience, dataHash, completedPages)
+        return DocumentPlan(audience, dataHash, completed)
     }
 
     private fun validateProjection(report: ReportSnapshot) {
@@ -138,85 +91,281 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         }
         val itemIds = items.mapTo(mutableSetOf()) { it.id }
         require(report.remediations.all { it.itemId in itemIds }) { "remediation references unknown item" }
+        val allowedStatuses = requireNotNull(TemplateDomains.allowedStatusesFor(report.canonical.type)) {
+            "unknown inspection type: ${report.canonical.type}"
+        }
         require(report.statusDefinitions.map { it.status }.toSet().size == report.statusDefinitions.size) {
             "duplicate status definition"
         }
-        val definedStatuses = report.statusDefinitions.mapTo(mutableSetOf()) { it.status }
-        require(items.all { it.snapshot.status in definedStatuses }) { "item status is missing from report glossary" }
+        require(report.statusDefinitions.map { it.status }.toSet() == allowedStatuses) {
+            "report glossary must exactly cover the ${report.canonical.type} status domain"
+        }
+        require(items.all { it.snapshot.status in allowedStatuses }) { "item status is outside the template domain" }
     }
 
     private fun <T> multiset(values: List<T>): Map<T, Int> = values.groupingBy { it }.eachCount()
 
-    private fun itemBlock(item: ReportItem): SizedBlock {
-        val noteHeight = item.snapshot.note?.let { measure(it, TextStyle.BODY, 180) } ?: 0
-        return SizedBlock(
-            maxOf(18, noteHeight + 10),
-            ItemRowBlock(
-                item.id,
-                item.label,
-                item.snapshot.status,
-                item.snapshot.note,
-                item.snapshot.wearOrDamage,
+    private fun coverBlock(report: ReportSnapshot, adverseItems: List<Pair<String, ReportItem>>): SizedBlock {
+        val counts = report.rooms.flatMap { room ->
+            room.items.groupingBy { it.snapshot.status }.eachCount().entries.map {
+                RoomStatusCount(room.id, it.key, it.value)
+            }
+        }
+        val lines = buildList {
+            addAll(runs(report.canonical.property.address, TextLanguage.ORIGINAL, TextStyle.TITLE, 180))
+            addAll(runs("${report.canonical.type} · ${report.canonical.scheduledAt}", TextLanguage.NEUTRAL, TextStyle.BODY, 180, endY()))
+            report.tenancyReference?.let { addAll(runs(it, TextLanguage.NEUTRAL, TextStyle.BODY, 180, endY())) }
+            counts.forEach {
+                addAll(runs("${it.roomId} · ${it.status} · ${it.count}", TextLanguage.NEUTRAL, TextStyle.BODY, 180, endY()))
+            }
+        }
+        return sized(
+            CoverBlock(
+                report.canonical.property.address,
+                report.canonical.type,
+                report.canonical.scheduledAt,
+                report.tenancyReference,
+                adverseItems.size,
+                adverseItems.size,
+                counts,
+                lines,
             ),
+            100,
         )
     }
 
-    private fun imageBlock(photo: ReportPhoto, purpose: ImagePurpose): SizedBlock = SizedBlock(
-        if (purpose == ImagePurpose.INLINE) 48 else 120,
-        ImageSlotBlock(
-            photo.id,
-            purpose,
-            photo.reference,
-            photo.snapshot.source,
-            photo.snapshot.exifTimeMs ?: photo.capturedAt,
-        ),
+    private fun sectionTitle(key: String, title: BilingualText): SizedBlock {
+        val textRuns = bilingualRuns(title, TextStyle.TITLE, 180)
+        return sized(SectionTitleBlock(key, title, textRuns), 10)
+    }
+
+    private fun statusBlock(definition: StatusDefinition): SizedBlock {
+        val labelRuns = bilingualRuns(definition.label, TextStyle.BODY, 180)
+        val textRuns = labelRuns + bilingualRuns(definition.description, TextStyle.CAPTION, 180, labelRuns.endY())
+        return sized(StatusDefinitionBlock(definition.status, definition.label, definition.description, textRuns), 20)
+    }
+
+    private fun summaryBlock(roomId: String, item: ReportItem): SizedBlock {
+        val textRuns = runs("$roomId · ${item.id} · ${item.snapshot.status}", TextLanguage.NEUTRAL, TextStyle.BODY, 180)
+        return sized(SummaryItemBlock(item.id, roomId, item.snapshot.status, textRuns), 16)
+    }
+
+    private fun roomTitleBlock(room: ReportRoom): SizedBlock {
+        val textRuns = bilingualRuns(room.label, TextStyle.TITLE, 180)
+        return sized(RoomTitleBlock(room.id, room.label, textRuns), 12)
+    }
+
+    private fun itemBlock(item: ReportItem, audience: Audience): SizedBlock {
+        val visibleJudgment = item.snapshot.wearOrDamage.takeIf { audience == Audience.LANDLORD }
+        val textRuns = buildList {
+            addAll(bilingualRuns(item.label, TextStyle.BODY, 180))
+            addAll(
+                runs(
+                    listOfNotNull(item.snapshot.status, visibleJudgment).joinToString(" · "),
+                    TextLanguage.NEUTRAL,
+                    TextStyle.BODY,
+                    180,
+                    endY(),
+                ),
+            )
+            item.snapshot.note?.takeIf { it.isNotBlank() }?.let {
+                addAll(runs(it, TextLanguage.ORIGINAL, TextStyle.BODY, 180, endY()))
+            }
+        }
+        return sized(
+            ItemRowBlock(item.id, item.label, item.snapshot.status, item.snapshot.note, visibleJudgment, textRuns),
+            18,
+        )
+    }
+
+    private fun imageBlock(photo: ReportPhoto, purpose: ImagePurpose): SizedBlock {
+        val imageHeight = if (purpose == ImagePurpose.INLINE) 44 else 116
+        val capturedAt = photo.snapshot.exifTimeMs ?: photo.capturedAt
+        val caption = "${photo.reference} · ${photo.snapshot.source} · $capturedAt"
+        val textRuns = runs(caption, TextLanguage.NEUTRAL, TextStyle.CAPTION, 180, imageHeight)
+        val height = maxOf(imageHeight + 4, textRuns.endY())
+        return SizedBlock(
+            height,
+            ImageSlotBlock(photo.id, purpose, photo.reference, photo.snapshot.source, capturedAt, textRuns),
+            height,
+        )
+    }
+
+    private fun remediationBlock(remediation: ReportRemediation): SizedBlock {
+        val textRuns = buildList {
+            addAll(bilingualRuns(remediation.text, TextStyle.BODY, 180))
+            addAll(runs(remediation.urgency.name, TextLanguage.NEUTRAL, TextStyle.BODY, 180, endY()))
+        }
+        return sized(RemediationBlock(remediation.itemId, remediation.urgency, remediation.text, textRuns), 20)
+    }
+
+    private fun supplementBlock(supplement: ReportSupplement): SizedBlock {
+        val textRuns = buildList {
+            addAll(runs(supplement.reference, TextLanguage.NEUTRAL, TextStyle.CAPTION, 180))
+            addAll(runs(supplement.text, TextLanguage.ORIGINAL, TextStyle.BODY, 180, endY()))
+        }
+        return sized(SupplementBlock(supplement.reference, supplement.text, textRuns), 14)
+    }
+
+    private fun disclaimerBlock(): SizedBlock {
+        val textRuns = bilingualRuns(REPORT_DISCLAIMER, TextStyle.CAPTION, 180)
+        return sized(DisclaimerBlock(REPORT_DISCLAIMER, textRuns), 24)
+    }
+
+    private fun tenantAgreementBlock(): SizedBlock {
+        val label = BilingualText("Tenant agreement / signature", "租客同意 / 签名")
+        val textRuns = bilingualRuns(label, TextStyle.BODY, 180)
+        return sized(TenantAgreementBlock(label, textRuns), 24)
+    }
+
+    private fun footerBlock(dataHash: String, page: Int, totalPages: Int): PlacedBlock {
+        val textRuns = runs("$dataHash · $page/$totalPages", TextLanguage.NEUTRAL, TextStyle.CAPTION, 180)
+        return PlacedBlock(
+            PAGE_MARGIN_MM,
+            BODY_BOTTOM_MM,
+            A4_WIDTH_MM - 2 * PAGE_MARGIN_MM,
+            10,
+            FooterBlock(dataHash, dataHash.take(12), page, totalPages, textRuns),
+        )
+    }
+
+    private fun bilingualRuns(text: BilingualText, style: TextStyle, widthMm: Int, startY: Int = 0): List<TextRun> {
+        val en = runs(text.en, TextLanguage.EN, style, widthMm, startY)
+        return en + runs(text.zh, TextLanguage.ZH, style, widthMm, en.endY())
+    }
+
+    private fun runs(
+        text: String,
+        language: TextLanguage,
+        style: TextStyle,
+        widthMm: Int,
+        startY: Int = 0,
+    ): List<TextRun> {
+        val measured = textMeasurer.measure(text, style, widthMm)
+        return measured.lines.mapIndexed { index, line ->
+            TextRun(line, language, style, 0, startY + index * measured.lineHeightMm, widthMm, measured.lineHeightMm)
+        }
+    }
+
+    private fun List<TextRun>.endY(): Int = maxOfOrNull { it.yMm + it.heightMm } ?: 0
+
+    private fun sized(content: TextBearingBlock, minimumHeightMm: Int): SizedBlock = SizedBlock(
+        maxOf(minimumHeightMm, content.textRuns.endY() + 2),
+        content,
+        minimumHeightMm,
     )
 
-    private fun measure(text: String, style: TextStyle, widthMm: Int): Int {
-        val height = textMeasurer.heightMm(text, style, widthMm)
-        require(height > 0) { "TextMeasurer must return a positive height" }
-        return height
-    }
-
-    private fun pageOf(vararg blocks: SizedBlock): MutableList<PlacedBlock> {
-        require(blocks.sumOf { it.heightMm } <= BODY_BOTTOM_MM - PAGE_MARGIN_MM) { "section exceeds one page" }
-        var y = PAGE_MARGIN_MM
-        return blocks.mapTo(mutableListOf()) { block ->
-            PlacedBlock(PAGE_MARGIN_MM, y, A4_WIDTH_MM - 2 * PAGE_MARGIN_MM, block.heightMm, block.content)
-                .also { y += block.heightMm }
+    private fun splitBlock(block: SizedBlock, maxHeightMm: Int = BODY_HEIGHT_MM): List<SizedBlock> {
+        require(maxHeightMm > 0) { "no page space remains for block" }
+        if (block.heightMm <= maxHeightMm) return listOf(block)
+        val content = block.content as? TextBearingBlock
+            ?: throw IllegalArgumentException("indivisible block exceeds page body")
+        val paired = content.textRuns.filter { it.language == TextLanguage.EN || it.language == TextLanguage.ZH }
+        val flowing = content.textRuns.filterNot { it in paired }
+        require(paired.endY() + 2 <= maxHeightMm && flowing.isNotEmpty()) {
+            "indivisible bilingual content exceeds page body"
+        }
+        val chunks = mutableListOf<List<TextRun>>()
+        var current = paired.toMutableList()
+        var currentHeight = current.endY()
+        for (run in flowing) {
+            if (current.isNotEmpty() && currentHeight + run.heightMm + 2 > maxHeightMm) {
+                chunks += rebase(current)
+                current = mutableListOf()
+                currentHeight = 0
+            }
+            current += run.copy(yMm = currentHeight)
+            currentHeight += run.heightMm
+        }
+        if (current.isNotEmpty()) chunks += rebase(current)
+        return chunks.map { chunk ->
+            val updated = content.withRuns(chunk)
+            SizedBlock(maxOf(block.minHeightMm, chunk.endY() + 2), updated, block.minHeightMm)
         }
     }
 
-    private data class SizedBlock(val heightMm: Int, val content: DocumentBlock)
+    private fun rebase(runs: List<TextRun>): List<TextRun> {
+        var y = 0
+        return runs.map { run -> run.copy(yMm = y).also { y += run.heightMm } }
+    }
+
+    private fun TextBearingBlock.withRuns(runs: List<TextRun>): TextBearingBlock = when (this) {
+        is CoverBlock -> copy(textRuns = runs)
+        is SectionTitleBlock -> copy(textRuns = runs)
+        is StatusDefinitionBlock -> copy(textRuns = runs)
+        is SummaryItemBlock -> copy(textRuns = runs)
+        is RoomTitleBlock -> copy(textRuns = runs)
+        is ItemRowBlock -> copy(textRuns = runs)
+        is ImageSlotBlock -> copy(textRuns = runs)
+        is RemediationBlock -> copy(textRuns = runs)
+        is SupplementBlock -> copy(textRuns = runs)
+        is DisclaimerBlock -> copy(textRuns = runs)
+        is TenantAgreementBlock -> copy(textRuns = runs)
+        is FooterBlock -> copy(textRuns = runs)
+    }
+
+    private data class SizedBlock(val heightMm: Int, val content: DocumentBlock, val minHeightMm: Int = heightMm)
 
     private inner class Paginator(private val pages: MutableList<MutableList<PlacedBlock>>) {
-        fun add(block: SizedBlock) = addGroup(listOf(block))
-
-        fun addGroup(blocks: List<SizedBlock>) {
-            val totalHeight = blocks.sumOf { it.heightMm }
-            require(totalHeight <= BODY_BOTTOM_MM - PAGE_MARGIN_MM) { "indivisible block group exceeds one page" }
-            var page = pages.lastOrNull()
-            var y = page?.bodyEnd() ?: PAGE_MARGIN_MM
-            if (page == null || y + totalHeight > BODY_BOTTOM_MM) {
-                page = mutableListOf()
-                pages.add(page)
-                y = PAGE_MARGIN_MM
-            }
-            for (block in blocks) {
-                page += PlacedBlock(PAGE_MARGIN_MM, y, A4_WIDTH_MM - 2 * PAGE_MARGIN_MM, block.heightMm, block.content)
-                y += block.heightMm
-            }
+        fun newPage() {
+            if (pages.lastOrNull()?.isEmpty() != true) pages.add(mutableListOf())
         }
 
-        fun addSection(blocks: List<SizedBlock>) {
-            if (blocks.sumOf { it.heightMm } <= BODY_BOTTOM_MM - PAGE_MARGIN_MM) {
-                pages.add(pageOf(*blocks.toTypedArray()))
-                return
-            }
-            pages.add(mutableListOf())
+        fun forcePage(blocks: List<SizedBlock>) {
+            newPage()
             blocks.forEach(::add)
         }
 
+        fun startSection(title: SizedBlock, blocks: List<SizedBlock>) {
+            newPage()
+            if (blocks.isEmpty()) {
+                add(title)
+                return
+            }
+            val firstChunks = splitBlock(blocks.first(), BODY_HEIGHT_MM - title.heightMm)
+            addGroup(listOf(title, firstChunks.first()))
+            firstChunks.drop(1).forEach(::add)
+            blocks.drop(1).forEach(::add)
+        }
+
+        fun add(block: SizedBlock) {
+            splitBlock(block).forEach { chunk ->
+                var page = pages.lastOrNull()
+                var y = page?.bodyEnd() ?: PAGE_MARGIN_MM
+                if (page == null || y + chunk.heightMm > BODY_BOTTOM_MM) {
+                    newPage()
+                    page = pages.last()
+                    y = PAGE_MARGIN_MM
+                }
+                page += place(chunk, y)
+            }
+        }
+
+        fun addGroup(blocks: List<SizedBlock>) {
+            val totalHeight = blocks.sumOf { it.heightMm }
+            require(totalHeight <= BODY_HEIGHT_MM) { "indivisible block group exceeds one page" }
+            var page = pages.lastOrNull()
+            var y = page?.bodyEnd() ?: PAGE_MARGIN_MM
+            if (page == null || y + totalHeight > BODY_BOTTOM_MM) {
+                newPage()
+                page = pages.last()
+                y = PAGE_MARGIN_MM
+            }
+            blocks.forEach { block -> page += place(block, y).also { y += block.heightMm } }
+        }
+
+        private fun place(block: SizedBlock, y: Int) = PlacedBlock(
+            PAGE_MARGIN_MM,
+            y,
+            A4_WIDTH_MM - 2 * PAGE_MARGIN_MM,
+            block.heightMm,
+            block.content,
+        )
+
         private fun List<PlacedBlock>.bodyEnd(): Int = lastOrNull()?.let { it.yMm + it.heightMm } ?: PAGE_MARGIN_MM
+    }
+
+    private companion object {
+        const val BODY_HEIGHT_MM = BODY_BOTTOM_MM - PAGE_MARGIN_MM
     }
 }
