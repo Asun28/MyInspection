@@ -14,6 +14,12 @@ function Get-FrontMatter([string]$Text) {
   return $match.Groups['body'].Value
 }
 
+function Get-MarkdownBodyLines([string]$Text) {
+  $match = [regex]::Match($Text, '\A---\r?\n.*?\r?\n---(?:\r?\n|\z)(?<body>.*)\z', 'Singleline')
+  if (-not $match.Success) { return $null }
+  return @($match.Groups['body'].Value -split '\r?\n')
+}
+
 function Get-ScalarField([string]$FrontMatter, [string]$Name) {
   $matches = @([regex]::Matches($FrontMatter, "(?m)^$([regex]::Escape($Name)):\s*(?<value>[^\r\n]*)\r?$"))
   if ($matches.Count -ne 1) { return $null }
@@ -22,8 +28,9 @@ function Get-ScalarField([string]$FrontMatter, [string]$Name) {
 
 function Get-ListField([string]$FrontMatter, [string]$Name) {
   $lines = @($FrontMatter -split '\r?\n')
-  $start = [Array]::IndexOf($lines, "${Name}:")
-  if ($start -lt 0) { return @() }
+  $starts = @($lines | ForEach-Object -Begin { $index = -1 } -Process { $index++; if ($_ -ceq "${Name}:") { $index } })
+  if ($starts.Count -ne 1) { return $null }
+  $start = $starts[0]
   $items = [System.Collections.Generic.List[string]]::new()
   for ($index = $start + 1; $index -lt $lines.Count; $index++) {
     if ($lines[$index] -match '^  - (?<value>.*)$') {
@@ -50,72 +57,166 @@ $planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1�
 $cardContract = [ordered]@{
   Plan = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-SPLIT-PLAN.md'
-    Scalars = [ordered]@{ status = 'todo' }
-    Lists = [ordered]@{ allow_paths = @('scripts/check-td9-split.ps1') }
-    Contains = [ordered]@{}
+    Scalars = [ordered]@{
+      id = 'T0-DEBT-SELFTEST-SPLIT-PLAN'
+      title = '将 TD9 skip 可见性余项拆成有界串行卡'
+      depends_on = '[]'
+      status = 'todo'
+      branch = 'T0-DEBT-SELFTEST-SPLIT-PLAN'
+      worktree = 'C:\wt\T0-DEBT-SELFTEST-SPLIT-PLAN'
+      dod_command = 'pwsh -NoProfile -File scripts/check-td9-split.ps1'
+      dod_exit = '0'
+      dod_assert = '原 skip 卡明确收回到 bounded helper 协议；生产 no-git routing 与 mutation 资源预算各有独立任务卡；TD9、全部 live 卡与 TASK-BOARD 记录同一串行顺序。'
+      review_gate = 'codex {verdict:pass}'
+      hygiene = 'check-td9-split.ps1 解析 canonical board/tracker/card 语义，并在内存中逐项删除、换序与弱化；任一 mutant 存活即非零；两个实现卡共享 selftest 因而必须串行。'
+      doc_sync = '本规划卡合并后标 merged；TD9 保持 carded，直到全部子卡与 post-merge core 重放完成。'
+    }
+    Lists = [ordered]@{
+      allow_paths = @(
+        'specs/tasks/T0-DEBT-SELFTEST-SPLIT-PLAN.md',
+        'specs/tasks/T0-DEBT-SELFTEST-SKIP-VISIBILITY.md',
+        'specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md',
+        'specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md',
+        'specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md',
+        'specs/tech-debt-tracker.md',
+        'docs/TASK-BOARD.md',
+        'scripts/check-td9-split.ps1'
+      )
+      forbid = @(
+        '修改 scripts/selftest.ps1 或启动任何 selftest 分片',
+        '把后续卡标成并行，或宣称 TD9 已偿还',
+        '用缩窄卡片掩盖 PR #33 已引入且仍可达的缺陷'
+      )
+      non_goals = @('实现 no-git routing 夹具或 mutation 预算收敛', '合并或关闭 PR #33')
+    }
+    BodyClauses = @(
+      'PR #33 的 R3 实测指出两类不同交付单元：生产 no-git 路由的行为证明，以及 mutation harness 的资源确定性。继续塞回原卡会同时扩大行为面与验证成本，因此先把原卡收回到 skip 协议本身，再串行偿还两项余债。',
+      $planChain,
+      $planWidth
+    )
   }
   Skip = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-SKIP-VISIBILITY.md'
     Scalars = [ordered]@{
+      id = 'T0-DEBT-SELFTEST-SKIP-VISIBILITY'
+      title = '让 selftest 有意跳过与前置失败裁剪均可见'
       status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-CRITICAL-PATH, T0-LICENSE-SELFTEST-DRIFT]'
+      branch = 'T0-DEBT-SELFTEST-SKIP-VISIBILITY'
+      worktree = 'C:\wt\T0-DEBT-SELFTEST-SKIP-VISIBILITY'
       dod_command = 'pwsh -NoProfile -File scripts/selftest.ps1 -Fixture skip-ledger'
+      dod_exit = '0'
+      dod_assert = '每个有意环境跳过或因已知前置失败而不执行的已登记检查输出 [SELFTEST-SKIP] gate={id} reason={stable code}；分片终态输出有序去重 [SELFTEST-SKIP-SUMMARY] 与准确 count；失败后的裁剪不可继续静默，也不得输出该检查 PASS；bounded helper 控制组 count=0。'
+      review_gate = 'codex {verdict:pass}'
+      hygiene = '`-Fixture skip-ledger` 在进入任何 shard 前退出；用 bounded helper 的环境缺失、前置失败、正常执行三组夹具证明 FAIL/SKIP/PASS 互斥；删除 skip 记录、reason code 或摘要计数任一层均翻红；完整 8.2e 只作附加证据'
+      doc_sync = 'TD9 保持 carded；本卡只偿还 skip 可见性，不宣称 8.2e load-flake 已解决'
     }
     Lists = [ordered]@{
       allow_paths = @('scripts/selftest.ps1')
+      forbid = @(
+        '把 skip 计作 PASS、把可选环境缺失升级为失败或把真实失败降级为 skip',
+        '以通过日志缺行反推 skip 数量，或只保留自由文本跳过说明而无机器台账',
+        '为追求全量执行而移除既有前置条件、隔离条件或 fail-safe 边界'
+      )
       non_goals = @(
+        '修改失败闸聚合协议或 8.2e rendezvous 时限',
+        '重新编号 17 个顶层闸或重分 core/workflow/seeded',
+        '改 CI/workflow/task/review 行为',
         '在 core 内启动完整 seeded，或证明 seeded 的生产 no-git routing；该行为归 T0-DEBT-SELFTEST-NOGIT-ROUTING',
         '建立全量 per-gate mutation 矩阵；紧凑身份清单与资源预算归 T0-DEBT-SELFTEST-MUTATION-BUDGET'
       )
     }
-    Contains = [ordered]@{
-      dod_assert = @('bounded helper 控制组 count=0')
-      hygiene = @('`-Fixture skip-ledger` 在进入任何 shard 前退出')
-    }
+    BodyClauses = @(
+      '失败 run 与同 SHA 通过 run 的日志差异显示大量后续检查无 PASS、FAIL 或 skip 终态。建立明确执行台账，区分“可选环境未满足”和“前置失败导致裁剪”，不再靠缺行猜测。',
+      '- 只登记真实可独立判定的检查；成功文案被抑制不自动等于检查未执行。',
+      '- reason 使用稳定 ASCII code，prose 可继续服务人工阅读但不参与机器判定。',
+      '- 同一检查同一原因只登记一次；摘要顺序确定，重复运行结果稳定。',
+      '- 已失败检查仍是 FAIL；被裁剪检查才是 SKIP，二者不得互相覆盖。',
+      '本卡与 TD9 另外三张未合并余卡及 TD134 实现卡共享 `scripts/selftest.ps1`；后续三卡按显式语义依赖串行，本卡也必须在最新已合并基线上执行并重放验收。',
+      'PR #33 的两轮 R3 证明，生产 no-git routing 行为与 mutation 资源预算不能继续塞进同一评审单元。本卡只保留 skip primitive、机器台账、摘要与 bounded helper 互斥证明；两项余债按后续卡串行偿还，不能以本卡合并宣称完成。'
+    )
   }
   NoGit = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md'
     Scalars = [ordered]@{
+      id = 'T0-DEBT-SELFTEST-NOGIT-ROUTING'
+      title = '用有界生产夹具证明 seeded no-git 路由'
       status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-SKIP-VISIBILITY]'
+      branch = 'T0-DEBT-SELFTEST-NOGIT-ROUTING'
+      worktree = 'C:\wt\T0-DEBT-SELFTEST-NOGIT-ROUTING'
       dod_command = 'pwsh -NoProfile -File scripts/selftest.ps1 -Fixture seeded-nogit-routing'
+      dod_exit = '0'
+      dod_assert = '专用有界 fixture mode 直接走生产 routing；git-present 控制组 skip count=0，git-absent 组输出完整机器记录与准确摘要；每个登记 gate 的 PASS/SKIP/FAIL 互斥，夹具在 routing 后立即退出且不进入完整 seeded 套件。'
+      review_gate = 'codex {verdict:pass}'
+      hygiene = '`-Fixture seeded-nogit-routing` 在生产 routing 后、进入 seeded 套件前退出；先以反转生产路由条件的单句变异证明旧接线可逃逸；断言机器 ledger，不枚举易漂移的人类 OK 文案；完整 8.2e 只作附加证据。'
+      doc_sync = '合并后更新 TD9 指针；TD9 仍保持 carded，等待 mutation-budget、load-stability 与 post-merge core。'
     }
     Lists = [ordered]@{
       allow_paths = @('scripts/selftest.ps1')
-      forbid = @('从 core 启动完整 seeded 分片', '以自由文本或部分 OK 文案推断 PASS/SKIP/FAIL')
-      non_goals = @('mutation harness 的内存与 CPU 预算收敛')
+      forbid = @('从 core 启动完整 seeded 分片', '以自由文本或部分 OK 文案推断 PASS/SKIP/FAIL', '改变既有 gate 编号、分片归属或真实 git 检测语义')
+      non_goals = @('mutation harness 的内存与 CPU 预算收敛', '8.2e rendezvous 负载稳定性')
     }
-    Contains = [ordered]@{
-      dod_assert = @('git-present 控制组 skip count=0', '每个登记 gate 的 PASS/SKIP/FAIL 互斥')
-      hygiene = @('`-Fixture seeded-nogit-routing` 在生产 routing 后、进入 seeded 套件前退出')
-    }
+    BodyClauses = @(
+      'helper 级环境缺失夹具只能证明 skip primitive，不能证明 seeded 的生产路由条件确实调用该 primitive；反转条件仍可能令现有静态 hash 与 helper 夹具全绿。',
+      '夹具复用生产路由判定与机器 outcome ledger，但在该路由完成后立即终止。禁止为了“真实”而从 core 重跑完整 seeded。'
+    )
   }
   Mutation = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md'
     Scalars = [ordered]@{
+      id = 'T0-DEBT-SELFTEST-MUTATION-BUDGET'
+      title = '将 skip mutation 证明收敛到紧凑身份清单'
       status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-NOGIT-ROUTING]'
+      branch = 'T0-DEBT-SELFTEST-MUTATION-BUDGET'
+      worktree = 'C:\wt\T0-DEBT-SELFTEST-MUTATION-BUDGET'
       dod_command = 'pwsh -NoProfile -File scripts/selftest.ps1 -Fixture skip-mutation-budget'
+      dod_exit = '0'
+      dod_assert = 'skip 接线由 parse-once 的紧凑身份清单加有界代表性变异证明；core 不物化或重解析数百份 11k 行整脚本；预算诊断输出稳定 ASCII 哨兵，删除任一必要变异仍翻红。'
+      review_gate = 'codex {verdict:pass}'
+      hygiene = '`-Fixture skip-mutation-budget` 在进入任何 shard 前退出；记录候选 mutation 数、实际执行数与峰值集合大小；用上界断言锁住回归，不以单机偶然耗时作为唯一判据；完整 8.2e 只作附加证据。'
+      doc_sync = '合并后更新 TD9 指针；TD9 仍保持 carded，等待 load-stability 与 post-merge core。'
     }
     Lists = [ordered]@{
       allow_paths = @('scripts/selftest.ps1')
-      forbid = @('保留数百份完整 selftest 源码副本', '为降低资源而删掉 reason、gate、batch truncation 或 FAIL/SKIP overlap 的变异证明')
-      non_goals = @('生产 no-git 路由行为')
+      forbid = @('保留数百份完整 selftest 源码副本', '为降低资源而删掉 reason、gate、batch truncation 或 FAIL/SKIP overlap 的变异证明', '改变 skip 的运行时语义')
+      non_goals = @('生产 no-git 路由行为', 'workflow/seeded/core 重分片')
     }
-    Contains = [ordered]@{
-      dod_assert = @('parse-once 的紧凑身份清单加有界代表性变异证明', 'core 不物化或重解析数百份 11k 行整脚本')
-      hygiene = @('`-Fixture skip-mutation-budget` 在进入任何 shard 前退出')
-    }
+    BodyClauses = @(
+      '当前 harness 为每个 reason/gate 变异物化一份完整 selftest 字符串，并对每份重跑 whole-AST 扫描。R3 实测约 1.6 GB 工作集与 500+ CPU 秒，确定性受 runner 资源影响。',
+      '生产接线先 parse once 投影为紧凑 identity inventory；行为变异只保留能独立杀死 reason、gate、batch truncation 与 outcome overlap 的代表集合，并用机器预算哨兵锁定候选数和在存集合上界。'
+    )
   }
   Load = @{
     Path = 'specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md'
     Scalars = [ordered]@{
+      id = 'T0-DEBT-SELFTEST-LOAD-STABILITY'
+      title = '消除 8.2e 高负载下固定五秒 rendezvous 假红'
       status = 'todo'
       depends_on = '[T0-DEBT-SELFTEST-MUTATION-BUDGET]'
+      branch = 'T0-DEBT-SELFTEST-LOAD-STABILITY'
+      worktree = 'C:\wt\T0-DEBT-SELFTEST-LOAD-STABILITY'
+      dod_command = 'pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch ''[SELFTEST-8.2E-RENDEZVOUS]'') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch ''SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS''))) { exit 1 }"'
+      dod_exit = '0'
+      dod_assert = '8.2e rendezvous 使用具名有界预算并输出 [SELFTEST-8.2E-RENDEZVOUS]；第二长分片延迟超过旧 5 秒仍通过并保留并发证明；注入短预算的真实 timeout 以专属诊断非零；删除等待上限、ready 条件或并发重叠断言均被变异击杀。'
+      review_gate = 'codex {verdict:pass}'
+      hygiene = 'hermetic 夹具提供 load-delay、bounded-timeout 与正常控制组；断言实际 elapsed/ready ticks 和退出语义，不以 Start-Sleep 后“没报错”作假证明'
       doc_sync = '五张 TD9 卡全部 merged 且 post-merge core 重放稳定后，才可把 TD9 置 paid'
     }
-    Lists = [ordered]@{ allow_paths = @('scripts/selftest.ps1') }
-    Contains = [ordered]@{}
+    Lists = [ordered]@{
+      allow_paths = @('scripts/selftest.ps1')
+      forbid = @('删除长分片并发、core 错峰、dirty overlay、StrictLint 三态或失败传播任一证明', '用无限等待、无上限重试或吞掉 timeout 让夹具假绿', '只把固定 5 秒换成另一个未验证的魔数')
+      non_goals = @('改生产 all 分片调度、CI matrix/runner 或 post-merge 触发规则', '改失败/skip 观测协议', '优化完整 selftest 墙钟时间')
+    }
+    BodyClauses = @(
+      'run `31941736470` 在同一 SHA 上前两次仅 Ubuntu core 的 8.2e 假红、第三次通过。当前 stub 的首个长分片只等另一个长分片五秒；runner 高负载下，后者尚未获调度就会退出 29。',
+      '- timeout 必须有界、具名、可在 hermetic 测试中缩短；默认预算须覆盖实证的调度延迟。',
+      '- load-delay 控制组必须超过旧五秒阈值，并证明两个长分片确实重叠而非串行放宽断言。',
+      '- timeout 负例必须快速、专属地失败，防无限等待或静默跳过。',
+      '- 8.2e 原有五类证明继续各自可证伪，不再用一个合取式告警掩盖具体失败面。',
+      '本卡与 TD9 另外三张未合并余卡及 TD134 实现卡共享 `scripts/selftest.ps1`；必须在 mutation-budget 合并后的最新基线上串行执行并重放验收。'
+    )
   }
 }
 
@@ -143,25 +244,17 @@ function Test-Td9SplitContract([hashtable]$Sources) {
     }
     foreach ($fieldName in $cardContract[$sourceName].Lists.Keys) {
       $actualItems = @(Get-ListField $frontMatter $fieldName)
-      foreach ($expectedItem in $cardContract[$sourceName].Lists[$fieldName]) {
-        if ($expectedItem -cnotin $actualItems) { return $false }
+      $expectedItems = @($cardContract[$sourceName].Lists[$fieldName])
+      if ($actualItems.Count -ne $expectedItems.Count) { return $false }
+      for ($index = 0; $index -lt $expectedItems.Count; $index++) {
+        if ($actualItems[$index] -cne $expectedItems[$index]) { return $false }
       }
     }
-    foreach ($fieldName in $cardContract[$sourceName].Contains.Keys) {
-      $actualValue = Get-ScalarField $frontMatter $fieldName
-      if ($null -eq $actualValue) { return $false }
-      foreach ($expectedText in $cardContract[$sourceName].Contains[$fieldName]) {
-        if (-not $actualValue.Contains($expectedText, [System.StringComparison]::Ordinal)) { return $false }
-      }
+    $bodyLines = @(Get-MarkdownBodyLines $Sources[$sourceName])
+    if ($null -eq $bodyLines) { return $false }
+    foreach ($clause in $cardContract[$sourceName].BodyClauses) {
+      if ($clause -cnotin $bodyLines) { return $false }
     }
-  }
-
-  $planFrontMatter = Get-FrontMatter $Sources.Plan
-  $planBody = $Sources.Plan.Substring($Sources.Plan.IndexOf("`n---", 4, [System.StringComparison]::Ordinal) + 4)
-  if ($null -eq $planFrontMatter -or
-      -not $planBody.Contains($planChain, [System.StringComparison]::Ordinal) -or
-      -not $planBody.Contains($planWidth, [System.StringComparison]::Ordinal)) {
-    return $false
   }
   return $true
 }
@@ -198,12 +291,7 @@ foreach ($needle in @($trackerChain, $trackerGuard)) {
   Assert-MutantKilled "delete-tracker-$deletionCount" $mutant
   $deletionCount++
 }
-foreach ($needle in @($planChain, $planWidth)) {
-  $mutant = Copy-Sources $sources
-  $mutant.Plan = $mutant.Plan.Replace($needle, '')
-  Assert-MutantKilled "delete-plan-$deletionCount" $mutant
-  $deletionCount++
-}
+$clauseWeakeningCount = 0
 foreach ($sourceName in $cardContract.Keys) {
   $contract = $cardContract[$sourceName]
   foreach ($fieldName in $contract.Scalars.Keys) {
@@ -212,6 +300,11 @@ foreach ($sourceName in $cardContract.Keys) {
     $mutant[$sourceName] = $mutant[$sourceName].Replace($needle, '')
     Assert-MutantKilled "delete-$sourceName-$fieldName" $mutant
     $deletionCount++
+
+    $mutant = Copy-Sources $sources
+    $mutant[$sourceName] = $mutant[$sourceName].Replace($needle, "${fieldName}: [WEAKENED]")
+    Assert-MutantKilled "weaken-$sourceName-$fieldName" $mutant
+    $clauseWeakeningCount++
   }
   foreach ($fieldName in $contract.Lists.Keys) {
     foreach ($item in $contract.Lists[$fieldName]) {
@@ -219,15 +312,28 @@ foreach ($sourceName in $cardContract.Keys) {
       $mutant[$sourceName] = $mutant[$sourceName].Replace("  - $item", '')
       Assert-MutantKilled "delete-$sourceName-$fieldName-$deletionCount" $mutant
       $deletionCount++
-    }
-  }
-  foreach ($fieldName in $contract.Contains.Keys) {
-    foreach ($text in $contract.Contains[$fieldName]) {
+
       $mutant = Copy-Sources $sources
-      $mutant[$sourceName] = $mutant[$sourceName].Replace($text, '')
-      Assert-MutantKilled "delete-$sourceName-$fieldName-$deletionCount" $mutant
-      $deletionCount++
+      $mutant[$sourceName] = $mutant[$sourceName].Replace("  - $item", "  - [WEAKENED] $item")
+      Assert-MutantKilled "weaken-$sourceName-$fieldName-$clauseWeakeningCount" $mutant
+      $clauseWeakeningCount++
     }
+
+    $mutant = Copy-Sources $sources
+    $mutant[$sourceName] = $mutant[$sourceName].Replace("${fieldName}:", "${fieldName}:`n  - [EXTRA-CLAUSE]")
+    Assert-MutantKilled "expand-$sourceName-$fieldName" $mutant
+    $clauseWeakeningCount++
+  }
+  foreach ($clause in $contract.BodyClauses) {
+    $mutant = Copy-Sources $sources
+    $mutant[$sourceName] = $mutant[$sourceName].Replace($clause, '')
+    Assert-MutantKilled "delete-$sourceName-body-$deletionCount" $mutant
+    $deletionCount++
+
+    $mutant = Copy-Sources $sources
+    $mutant[$sourceName] = $mutant[$sourceName].Replace($clause, "[WEAKENED] $clause")
+    Assert-MutantKilled "weaken-$sourceName-body-$clauseWeakeningCount" $mutant
+    $clauseWeakeningCount++
   }
 }
 
@@ -238,31 +344,9 @@ $trackerOrderMutant = Copy-Sources $sources
 $trackerOrderMutant.Tracker = $trackerOrderMutant.Tracker.Replace($trackerChain, '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-LOAD-STABILITY`')
 Assert-MutantKilled 'reorder-tracker' $trackerOrderMutant
 
-$weakeningMutations = @(
-  @{ Name = 'weaken-skip-command'; Source = 'Skip'; Field = 'dod_command'; To = "pwsh -NoProfile -Command 'exit 0'" },
-  @{ Name = 'weaken-nogit-command'; Source = 'NoGit'; Field = 'dod_command'; To = "pwsh -NoProfile -Command 'exit 0'" },
-  @{ Name = 'weaken-mutation-command'; Source = 'Mutation'; Field = 'dod_command'; To = "pwsh -NoProfile -Command 'exit 0'" },
-  @{ Name = 'weaken-paid-guard'; Source = 'Load'; Field = 'doc_sync'; To = 'TD9 paid' }
-)
-foreach ($case in $weakeningMutations) {
-  $mutant = Copy-Sources $sources
-  $from = "$($case.Field): $($cardContract[$case.Source].Scalars[$case.Field])"
-  $mutant[$case.Source] = $mutant[$case.Source].Replace($from, "$($case.Field): $($case.To)")
-  Assert-MutantKilled $case.Name $mutant
-}
-
 $structuralWeakening = @(
   @{ Name = 'weaken-tracker-status'; Source = 'Tracker'; From = '| major | carded |'; To = '| major | paid |' },
-  @{ Name = 'weaken-board-serial'; Source = 'Board'; From = '与 mutation/load 卡共享 selftest，串行宽度 1'; To = '与 mutation/load 卡共享 selftest，可并行' },
-  @{ Name = 'weaken-plan-width'; Source = 'Plan'; From = $planWidth; To = '四卡均修改 `scripts/selftest.ps1`，可并行。' },
-  @{ Name = 'weaken-skip-status'; Source = 'Skip'; From = 'status: todo'; To = 'status: merged' },
-  @{ Name = 'weaken-nogit-status'; Source = 'NoGit'; From = 'status: todo'; To = 'status: merged' },
-  @{ Name = 'weaken-mutation-status'; Source = 'Mutation'; From = 'status: todo'; To = 'status: merged' },
-  @{ Name = 'weaken-load-status'; Source = 'Load'; From = 'status: todo'; To = 'status: merged' },
-  @{ Name = 'weaken-skip-path'; Source = 'Skip'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' },
-  @{ Name = 'weaken-nogit-path'; Source = 'NoGit'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' },
-  @{ Name = 'weaken-mutation-path'; Source = 'Mutation'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' },
-  @{ Name = 'weaken-load-path'; Source = 'Load'; From = '  - scripts/selftest.ps1'; To = '  - scripts/other.ps1' }
+  @{ Name = 'weaken-board-serial'; Source = 'Board'; From = '与 mutation/load 卡共享 selftest，串行宽度 1'; To = '与 mutation/load 卡共享 selftest，可并行' }
 )
 foreach ($case in $structuralWeakening) {
   $mutant = Copy-Sources $sources
@@ -282,4 +366,4 @@ foreach ($sourceName in @('Skip', 'NoGit', 'Mutation', 'Load')) {
   }
 }
 
-Write-Host "[TD9-SPLIT-CONTRACT] PASS deletion=$deletionCount reorder=2 weakening=$($weakeningMutations.Count + $structuralWeakening.Count) decoy=$decoyCount"
+Write-Host "[TD9-SPLIT-CONTRACT] PASS deletion=$deletionCount reorder=2 weakening=$($clauseWeakeningCount + $structuralWeakening.Count) decoy=$decoyCount"
