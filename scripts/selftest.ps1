@@ -9452,9 +9452,9 @@ if ($enumErrResults.Count -ne 2) {
   Write-Host '  17cc(enum-err) 枚举出错 → 两分支各自返回 1 条发现错误（主流程阻断，不静默吞掉）OK' -ForegroundColor Green
 }
 
-# 17cc(scanner-integration). Scanner 的细粒度行为与 mutation 只由专用套件维护；seeded 只聚合其总验收，
-# 避免在通用 harness 复制上千行 Gradle/POM fixture。
-$licenseIntegrationOutput = (& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/license-scanner-check.ps1') -Suite integration 2>&1 | Out-String)
+# 17cc(scanner-integration). Scanner 的细粒度行为与 mutation 只由专用套件维护；seeded 只聚合其 cache-independent
+# 总验收，避免在通用 harness 复制上千行 fixture，也不要求合并后 canary 预热真实 Gradle cache。
+$licenseIntegrationOutput = (& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/license-scanner-check.ps1') -Suite integration -SkipRealScan 2>&1 | Out-String)
 $licenseIntegrationExit = $LASTEXITCODE
 if ($licenseIntegrationExit -ne 0 -or $licenseIntegrationOutput -notmatch 'license-scanner-check\(integration\): PASS') {
   $licenseIntegrationTail = if ($licenseIntegrationOutput.Length -gt 4000) { $licenseIntegrationOutput.Substring($licenseIntegrationOutput.Length - 4000) } else { $licenseIntegrationOutput }

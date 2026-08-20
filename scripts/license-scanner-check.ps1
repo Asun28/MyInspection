@@ -5,7 +5,8 @@ param(
   [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds', 'integration')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
-  [switch]$SkipMutations
+  [switch]$SkipMutations,
+  [switch]$SkipRealScan
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +22,10 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
+
+if ($SkipRealScan -and $Suite -ne 'integration') {
+  throw '-SkipRealScan is valid only for the integration suite.'
+}
 
 if ($Suite -eq 'integration') {
   $integrationFailures = [System.Collections.Generic.List[string]]::new()
@@ -46,6 +51,8 @@ if ($Suite -eq 'integration') {
   # authorities and makes unrelated product PRs pay the scanner's mutation cost.
   $integrationCalls = [regex]::Matches($selftestText, 'license-scanner-check\.ps1[^\r\n]*-Suite\s+integration').Count
   Assert-Integration ($integrationCalls -eq 1) "[INTEGRATION-SELFTEST-WIRING] expected one integration-suite call, found $integrationCalls"
+  $cacheIndependentCalls = [regex]::Matches($selftestText, 'license-scanner-check\.ps1[^\r\n]*-Suite\s+integration[^\r\n]*-SkipRealScan').Count
+  Assert-Integration ($cacheIndependentCalls -eq 1) "[INTEGRATION-SELFTEST-COLD] expected the seeded integration call to skip the real repository scan, found $cacheIndependentCalls"
   Assert-Integration ($selftestText -notmatch '\$scannerFixtureRoot') '[INTEGRATION-SELFTEST-INLINE] legacy inline scanner fixture remains in selftest'
 
   # Break caught: a fresh runner cannot satisfy the scanner's mandatory --offline graph calls until
@@ -80,10 +87,12 @@ if ($Suite -eq 'integration') {
     ) "[INTEGRATION-CHILD] $childSuite failed or omitted its PASS marker (exit=$childExit): $childOutput"
   }
 
-  $scannerOutput = (& pwsh -NoProfile -File $ScannerPath -Strict 2>&1 | Out-String)
-  $scannerExit = $LASTEXITCODE
-  Assert-Integration ($scannerExit -eq 0) "[INTEGRATION-REAL-SCAN] strict repository scan failed (exit=$scannerExit): $scannerOutput"
-  Assert-Integration ($scannerOutput -match 'org\.testng:testng:7\.0\.0') '[INTEGRATION-TESTNG] real scan omitted the core TestNG coordinate'
+  if (-not $SkipRealScan) {
+    $scannerOutput = (& pwsh -NoProfile -File $ScannerPath -Strict 2>&1 | Out-String)
+    $scannerExit = $LASTEXITCODE
+    Assert-Integration ($scannerExit -eq 0) "[INTEGRATION-REAL-SCAN] strict repository scan failed (exit=$scannerExit): $scannerOutput"
+    Assert-Integration ($scannerOutput -match 'org\.testng:testng:7\.0\.0') '[INTEGRATION-TESTNG] real scan omitted the core TestNG coordinate'
+  }
 
   if ($integrationFailures.Count -gt 0) {
     Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
@@ -1033,6 +1042,59 @@ if ($Suite -eq 'policy') {
           $script:bad.Count -eq $mainCase.Bad -and $script:warn.Count -eq $mainCase.Warn
         ) "[POLICY-MAIN-$($mainCase.Id.ToUpperInvariant())] production caller outcome was bad=$($script:bad.Count), warn=$($script:warn.Count)"
       }
+
+      # The library checks above prove classification. These two child processes additionally pin the
+      # public CLI boundary: a populated bad bucket must name the coordinate and return nonzero.
+      $processRoot = Join-Path $policyRoot 'process-root'
+      $processScripts = Join-Path $processRoot 'scripts'
+      $processConfig = Join-Path $processRoot 'configs/licenses'
+      New-Item -ItemType Directory -Force -Path $processScripts, $processConfig | Out-Null
+      [System.IO.File]::WriteAllText((Join-Path $processConfig 'gradle-exceptions.json'), '[]', [System.Text.UTF8Encoding]::new($false))
+
+      $processEplCoordinate = 'fixture.policy:process-epl:1.0'
+      [void](Write-PolicyPom -Coordinate $processEplCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>process-epl</artifactId><version>1.0</version><licenses><license><name>EPL-1.0</name></license></licenses></project>')
+      $processScannerPath = Join-Path $processScripts 'check-licenses.ps1'
+      Copy-Item -LiteralPath (Join-Path $PSScriptRoot '_config.ps1') -Destination (Join-Path $processScripts '_config.ps1') -Force
+      $processSource = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ScannerPath))
+      $processAnchor = 'Write-Host ""'
+      if (([regex]::Matches($processSource, [regex]::Escape($processAnchor))).Count -ne 1) {
+        throw 'process fixture could not locate the unique final CLI boundary'
+      }
+      $processHook = @'
+if ($env:LICENSE_POLICY_PROCESS_CASE) {
+  $probeResolved = @([PSCustomObject]@{ Coordinate = $env:LICENSE_POLICY_PROCESS_CASE; Configurations = @(':core:testRuntimeClasspath') })
+  $probePolicy = Get-GradleLicensePolicyResult -Resolved $probeResolved -GradleUserHome $env:GRADLE_USER_HOME -ExceptionPath (Join-Path $RepoRoot 'configs/licenses/gradle-exceptions.json')
+  Write-GradlePolicyDiagnostics -Policy $probePolicy -Resolved $probeResolved
+}
+'@
+      [System.IO.File]::WriteAllText(
+        $processScannerPath,
+        $processSource.Replace($processAnchor, "$processHook`n$processAnchor"),
+        [System.Text.UTF8Encoding]::new($false)
+      )
+
+      $hadProcessCase = Test-Path Env:LICENSE_POLICY_PROCESS_CASE
+      $savedProcessCase = $env:LICENSE_POLICY_PROCESS_CASE
+      try {
+        $processCases = @(
+          @{ Id = 'forbidden'; Coordinate = $processEplCoordinate; Category = '[GRADLE-FORBIDDEN]'; Strict = $true },
+          @{ Id = 'unknown-metadata'; Coordinate = 'fixture.policy:process-missing:1.0'; Category = '[GRADLE-METADATA]'; Strict = $false }
+        )
+        foreach ($processCase in $processCases) {
+          $env:LICENSE_POLICY_PROCESS_CASE = $processCase.Coordinate
+          $processArgs = @('-NoProfile', '-File', $processScannerPath)
+          if ($processCase.Strict) { $processArgs += '-Strict' }
+          $processOutput = (& pwsh @processArgs 2>&1 | Out-String)
+          $processExit = $LASTEXITCODE
+          Assert-Policy (
+            $processExit -ne 0 -and
+            $processOutput.Contains($processCase.Coordinate, [System.StringComparison]::Ordinal) -and
+            $processOutput.Contains($processCase.Category, [System.StringComparison]::Ordinal)
+          ) "[POLICY-PROCESS-$($processCase.Id.ToUpperInvariant())] CLI did not fail nonzero with the exact coordinate/category (exit=$processExit; output=$processOutput)"
+        }
+      } finally {
+        if ($hadProcessCase) { $env:LICENSE_POLICY_PROCESS_CASE = $savedProcessCase } else { Remove-Item Env:LICENSE_POLICY_PROCESS_CASE -ErrorAction SilentlyContinue }
+      }
     } finally {
       $env:GRADLE_USER_HOME = $savedPolicyGradleHome
       $script:Distributes = $false
@@ -1230,6 +1292,12 @@ if ($Suite -eq 'policy') {
         From = '      Add-GradleMetadataNonCompliance "$($finding.Coordinate) => $($finding.Detail) [GRADLE-UNKNOWN]" # structured unknown classification'
         To = '      $null = $finding # structured unknown classification'
         Expected = '[POLICY-MAIN-UNKNOWN]'
+      },
+      @{
+        Name = 'main-exit'
+        From = 'if ($bad.Count -gt 0)                       { Write-Host "`n结论：FAIL（发现许可或依赖扫描不合规）" -ForegroundColor Red; exit 1 }'
+        To = 'if ($bad.Count -gt 0)                       { Write-Host "`n结论：FAIL（发现许可或依赖扫描不合规）" -ForegroundColor Red; exit 0 }'
+        Expected = '[POLICY-PROCESS-FORBIDDEN]'
       }
     )
 
