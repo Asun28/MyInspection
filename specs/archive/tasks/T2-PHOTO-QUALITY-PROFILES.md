@@ -2,7 +2,7 @@
 id: T2-PHOTO-QUALITY-PROFILES
 title: 新照片四档质量：Low / Medium / High / Extra High（默认 Medium）
 depends_on: [T2-PHOTO-STREAMING-ENCODE]
-status: todo
+status: merged
 branch: T2-PHOTO-QUALITY-PROFILES
 worktree: C:\wt\T2-PHOTO-QUALITY-PROFILES
 allow_paths:
@@ -44,3 +44,15 @@ doc_sync: 需求 §4/§5、TD131 与 TASK-BOARD 备注（R5）
 
 ## 验收
 见 front-matter。首选 Sonnet 5 · max；备选 GPT-5.6 Terra · high。难度 M。
+
+## 合并记录
+
+PR #30 以 master `703af59` squash 合并；最终功能提交为 `716034c`。四档契约集中在纯 core：Low
+1280/q75、Medium 1920/q82（默认）、High 2560/q88、Extra High 4096/q92。相机与导入各在操作入口只读取
+一次持久设置，EXIF 转正后按比例缩小且不放大；相机 DB 哈希仍取最终 JPEG，导入 DB 哈希仍取原始 source
+bytes。峰值预算按 source + 按需 EXIF bake + 按需 scale 的真实位图集合饱和计算。
+
+卡片 DoD、verify、范围、许可、secrets 全绿。R3 首轮要求补真实 Android 编码证据；同一 Android SDK 35
+设备上的四个固定夹具经生产 `PhotoBitmapScaler`、`PhotoJpegEncoder`、`VerifiedAssetWorkflow` 与真实 stager
+跑完 16 个输出，总体字节严格 Low < Medium < High < Extra High，High/Extra High 铭牌字形人工可读，第二轮
+R3 `pass`。TD131 已偿还。

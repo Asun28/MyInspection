@@ -86,7 +86,9 @@
 
 **[定,2026-08-19]** 照片与 PDF 的质量是两个独立设置：
 
-- 新拍/新导入照片：`Low / Medium / High / Extra High`，默认 `Medium`；只影响以后写入的照片，不重压已 finalize 的证据
+- 新拍/新导入照片：`Low = 1280px/q75`、`Medium = 1920px/q82`、`High = 2560px/q88`、
+  `Extra High = 4096px/q92`，默认 `Medium`；同一个持久设置由拍摄与导入在每次操作开始时读取一次并冻结，
+  EXIF 转正后按比例缩小且绝不放大小图；只影响以后写入的照片，不重压已 finalize 的证据
 - 每次导出 PDF：`Low / Medium / High / Extra High`，默认 `Medium`；`High` 作为证据归档建议档，不能用一个承诺的 MB 上限代替固定夹具实测
 - 当前所谓“原图”是 EXIF 转正后保存的 JPEG，不是相机 RAW/DNG；不再额外保留一份未处理原图
 
@@ -126,6 +128,9 @@ Routine 里每项都逼你判一次会拖垮流程,而且那时判也没意义�
 1. **EXIF 拍摄时间**,与巡检时间分开存
 2. **来源标记**(`camera` / `imported`)
 3. **内容哈希**,防重复导入
+
+哈希身份保持双轨：相机照片的 `content_hash` 覆盖缩放/编码后的最终 JPEG；导入照片仍以用户选择的原始
+source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，质量档切换不得改变导入去重身份。
 
 两个坑:**EXIF 旋转必须处理**(不处理导入后全是倒的);**复制不移动**,不动原文件。
 
