@@ -10,6 +10,26 @@ import org.testng.SkipException
 
 class NoFollowLeafDeletionTest {
     @Test
+    fun `accepts a trusted root reached through an aliased temporary parent`() = inTempDir { container ->
+        val realParent = File(container, "real-parent").also { assertTrue(it.mkdirs()) }
+        val realRoot = File(realParent, "media").also { assertTrue(it.mkdirs()) }
+        val aliasParent = File(container, "alias-parent")
+        createDirectoryAliasOrSkip(aliasParent, realParent)
+        val leaf = File(realRoot, "photos/property/inspection/photo.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+            it.writeText("orphan")
+        }
+        val trustedRootThroughAlias = File(aliasParent, "media")
+
+        try {
+            assertTrue(NoFollowLeafDeletion.delete(trustedRootThroughAlias, "photos/property/inspection/photo.jpg"))
+            assertFalse(leaf.exists())
+        } finally {
+            Files.deleteIfExists(aliasParent.toPath())
+        }
+    }
+
+    @Test
     fun `deletes a regular shaped leaf through only real lexical parents`() = inTempDir { root ->
         val leaf = File(root, "photos/property/inspection/photo.jpg").also {
             assertTrue(it.parentFile!!.mkdirs())

@@ -22,8 +22,9 @@ object NoFollowLeafDeletion {
     }
 
     private fun validatedLeaf(root: File, relPath: String): Path? {
-        val lexicalRoot = root.toPath().toAbsolutePath().normalize()
-        if (!isPlainDirectory(lexicalRoot) || lexicalRoot.toRealPath() != lexicalRoot) return null
+        val requestedRoot = root.toPath().toAbsolutePath().normalize()
+        if (!isPlainDirectory(requestedRoot)) return null
+        val lexicalRoot = requestedRoot.toRealPath()
 
         val relative = lexicalRoot.fileSystem.getPath(relPath)
         if (relative.isAbsolute) return null
