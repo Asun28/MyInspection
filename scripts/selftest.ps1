@@ -1592,23 +1592,29 @@ if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
         break
       }
     }
-    $expectedGitMissingRecords82 = @('14f(fail-open-fixture)/TOOL-GIT-MISSING') + @($gateIdsArgument82.FindAll({
+    $expectedGitMissingRecords82 = @($gateIdsArgument82.FindAll({
       param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
     }, $true) | ForEach-Object { "$($_.Value)/TOOL-GIT-MISSING" })
     $pwshExe82 = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $savedPath82 = $env:PATH
+    $savedGitMissingProbe82 = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_GIT_MISSING_PROBE', 'Process')
     try {
       $pathWithoutGit82 = @($savedPath82 -split [System.IO.Path]::PathSeparator | Where-Object {
         $entry = $_
         $entry -and @('git', 'git.exe', 'git.cmd', 'git.ps1' | Where-Object { Test-Path -LiteralPath (Join-Path $entry $_) }).Count -eq 0
       }) -join [System.IO.Path]::PathSeparator
       $env:PATH = $pathWithoutGit82
+      $env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE = '1'
       & $pwshExe82 -NoProfile -Command 'if (Get-Command git -ErrorAction SilentlyContinue) { exit 1 }; exit 0'
       $gitAbsentExit82 = $LASTEXITCODE
       $gitMissingSeededOutput82 = (& $pwshExe82 -NoProfile -File $PSCommandPath -Shard seeded '-StrictLint:$false' 2>&1 | Out-String)
       $gitMissingSeededExit82 = $LASTEXITCODE
     }
-    finally { $env:PATH = $savedPath82 }
+    finally {
+      $env:PATH = $savedPath82
+      if ($null -eq $savedGitMissingProbe82) { Remove-Item Env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE -ErrorAction SilentlyContinue }
+      else { $env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE = $savedGitMissingProbe82 }
+    }
     $emittedSkipMatches82 = @([regex]::Matches($gitMissingSeededOutput82, '(?m)^\[SELFTEST-SKIP\] gate=(?<gate>[A-Za-z0-9._()/\-]+) reason=(?<reason>[A-Z][A-Z0-9-]+)\r?$'))
     $emittedSkipRecords82 = @($emittedSkipMatches82 | ForEach-Object { "$($_.Groups['gate'].Value)/$($_.Groups['reason'].Value)" })
     $emittedGitMissingRecords82 = @($emittedSkipRecords82 | Where-Object { $_.EndsWith('/TOOL-GIT-MISSING', [System.StringComparison]::Ordinal) })
@@ -9359,6 +9365,7 @@ exit 0
 }
 }
 
+if ($env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE -ne '1') {
 # ── 17cc/17dd（T0-GATE-HARDENING）+ 17cc(case)/17ee（T0-GATE-FIXFORWARD）：许可闸 Gradle 清单递归发现
 #   （含 libs.versions.toml）+ verify.ps1 --no-daemon + 路径比较大小写语义跟随文件系统 + 发布清单 Gradle
 #   阻断项单一解锁，各配单句删除变异。判据一律走独立子进程 + 专属断言 MARKER：子进程内部完成
@@ -11676,6 +11683,7 @@ else { Write-Host '  17cc/17dd/17ee 收尾：真实 check-licenses.ps1 / verify.
 
 }
 
+}
 $expectedGateGroups = @(switch ($Shard) {
   'core' { 'core:1-14'; 'core:16' }
   'workflow' { 'workflow:15' }
