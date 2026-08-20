@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import nz.myinspection.app.media.PhotoOrphanCleanupScheduler
 import nz.myinspection.app.skeleton.SkeletonScreen
 
 /**
@@ -20,6 +21,7 @@ import nz.myinspection.app.skeleton.SkeletonScreen
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PhotoOrphanCleanupScheduler.schedule(this)
         setContent {
             InspectionAppRoot()
         }

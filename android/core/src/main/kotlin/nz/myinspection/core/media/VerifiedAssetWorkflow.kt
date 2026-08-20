@@ -15,6 +15,14 @@ interface VerifiedAssetStager {
     fun <T> useAndDiscard(staged: StagedFile, action: () -> T): T
 }
 
+/** A resource that must remain exclusively held from publishing an asset until its database record is decided. */
+interface PublicationLease<Result> : AutoCloseable {
+    fun finish(result: Result)
+
+    /** A post-record cleanup failure is reportable but can never replace the completed database result. */
+    fun onCompletedCleanupFailure(failure: Throwable) = Unit
+}
+
 /**
  * Shared final-JPEG workflow for camera and import. A publisher remains app-owned because its no-overwrite policy is
  * filesystem-specific; recording remains app-owned because it carries the existing DB compensation contract.
@@ -26,6 +34,7 @@ object VerifiedAssetWorkflow {
         encoder: StreamEncoder<Input>,
         plan: (StagedFile) -> Plan,
         shouldPublish: (Plan) -> Boolean,
+        publicationLease: (Plan) -> PublicationLease<Result>? = { null },
         publish: (StagedFile, Plan) -> Unit,
         record: (Plan) -> Result,
     ): Result = encodeStagePublishRecordWith(
@@ -35,6 +44,7 @@ object VerifiedAssetWorkflow {
         encoder = encoder,
         plan = plan,
         shouldPublish = shouldPublish,
+        publicationLease = publicationLease,
         publish = publish,
         record = record,
     )
@@ -47,16 +57,47 @@ object VerifiedAssetWorkflow {
         encoder: StreamEncoder<Input>,
         plan: (StagedFile) -> Plan,
         shouldPublish: (Plan) -> Boolean,
+        publicationLease: (Plan) -> PublicationLease<Result>? = { null },
         publish: (StagedFile, Plan) -> Unit,
         record: (Plan) -> Result,
     ): Result {
         val staged = stager.stage(target) { output -> encoder.encodeInto(input, output) }
         return stager.useAndDiscard(staged) {
             val planned = plan(staged)
-            if (shouldPublish(planned)) {
-                publish(staged, planned)
+            val shouldPublishAsset = shouldPublish(planned)
+            val lease = if (shouldPublishAsset) publicationLease(planned) else null
+            var primary: Throwable? = null
+            var recordCompleted = false
+            try {
+                if (shouldPublishAsset) {
+                    publish(staged, planned)
+                }
+                val result = record(planned)
+                recordCompleted = true
+                lease?.finish(result)
+                result
+            } catch (failure: Throwable) {
+                primary = failure
+                throw failure
+            } finally {
+                try {
+                    lease?.close()
+                } catch (closeFailure: Throwable) {
+                    val failure = primary
+                    if (failure != null) {
+                        failure.addSuppressed(closeFailure)
+                    } else if (recordCompleted) {
+                        try {
+                            lease?.onCompletedCleanupFailure(closeFailure)
+                        } catch (reportFailure: Throwable) {
+                            closeFailure.addSuppressed(reportFailure)
+                        }
+                    } else {
+                        throw closeFailure
+                    }
+                }
             }
-            record(planned)
         }
     }
+
 }

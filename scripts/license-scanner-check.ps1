@@ -235,6 +235,18 @@ if ($Suite -eq 'diagnostics') {
     $credentialKeyText -ceq "$credentialKeyName=[REDACTED]" -and $credentialKeyText -notmatch [regex]::Escape($credentialCanary)
   ) '[DIAG-CREDENTIAL-KEY] credential-like key value was not redacted'
 
+  $spaceCredentialCases = @(
+    @{ Input = "--password $credentialCanary"; Expected = '--password=[REDACTED]' },
+    @{ Input = "password $credentialCanary"; Expected = 'password=[REDACTED]' },
+    @{ Input = "token $credentialCanary"; Expected = 'token=[REDACTED]' }
+  )
+  foreach ($spaceCredentialCase in $spaceCredentialCases) {
+    $spaceCredentialText = Get-GradleDiagnosticTail -Output @($spaceCredentialCase.Input) -MaxLines 2 -MaxChars 400
+    Assert-Diagnostics (
+      $spaceCredentialText -ceq $spaceCredentialCase.Expected -and $spaceCredentialText -notmatch [regex]::Escape($credentialCanary)
+    ) "[DIAG-KEY-SPACE] whitespace-delimited secret-like key value was not redacted: $spaceCredentialText"
+  }
+
   $recordCanary = 'DIAG_RECORD_CANARY'
   $recordKeyName = 'pass' + 'word'
   $recordCredentialCases = @(
@@ -512,6 +524,12 @@ if ($Suite -eq 'diagnostics') {
         From = '    $raw = Protect-GradleDiagnosticRecord -Value $raw # diagnostic record credential boundary'
         To = '    $raw = $raw # diagnostic record credential boundary'
         Expected = '[DIAG-RECORD-CREDENTIAL]'
+      },
+      @{
+        Name = 'whitespace-credential-redaction'
+        From = '    $Value = [regex]::Replace($Value, ''(?is)(?<lead>^|[^A-Za-z0-9_.-])["'''']?(?<key>(?:(?:--?|/|-P))?[A-Za-z0-9_.-]*(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)[A-Za-z0-9_.-]*)["'''']?[ \t]+.*'', ''${lead}${key}=[REDACTED]'') # diagnostic whitespace credential redaction'
+        To = '    $Value = $Value # diagnostic whitespace credential redaction'
+        Expected = '[DIAG-KEY-SPACE]'
       },
       @{
         Name = 'record-uri-boundary'

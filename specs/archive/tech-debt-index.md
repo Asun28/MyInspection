@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 13 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 15 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -18,3 +18,5 @@
 | TD135 | major | paid | `scripts/check-licenses.ps1` 的 `Get-GradleGavParts` ↔ 图解析 /… | **已接纳 Gradle/Maven GAV 的每段无长度上限，和诊断的“exact GAV + 总行有界”合同互相冲突**：当前共享验证器只校验字符集、三段数和路径遍历；任意长的 group/artifact/version 仍可进入解… |
 | TD15 | minor | paid | `core/media/`(JPEG 编码内存预算) | **编码字节上界是「有依据的余量」而非可证明上界**：预算余量已从 2 B/px 提到 4 B/px 以覆盖 `ByteArrayOutputStream` 底层数组 + `toByteArray()` 复制，注释也已如实改口（不再自称… |
 | TD131 | major | paid | `app/media/PhotoJpegEncoder.kt` 固定 q92 且无尺寸档 | **所有新照片固定以 q92 编码且没有长边上限/用户设置**。后果：多物业、多年巡检的本机照片增长不可控，Extra High 输入还会放大 TD15 内存峰值；用户也无法区分日常记录与小字证据需求 / 修法：先以流式编码偿还 TD15… |
+| TD14 | major | paid | `core/media/`(落盘↔入库) + `app/media/`(清理调度) | `.jpg.pending` 文件侧 lease、无行/软删照片清理 worker 与 24h KEEP 调度已落地；路径/DB 运行时组成统一为 `filesDir/media` + `myinspection.db`。目录项掉电顺序不… |
+| TD138 | major | paid | `scripts/check-licenses.ps1` ↔ `scripts/license-scanner-che… | **Gradle diagnostics 权威实现与 selftest 旧回归漂移**：PR #33 为验证无 git skip 取消尾段切片后，17cc 暴露 CLI/plain password/token 泄漏、旧逐规则 marke… |

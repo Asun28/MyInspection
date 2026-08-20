@@ -1,7 +1,9 @@
 package nz.myinspection.core.media
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -11,6 +13,7 @@ import kotlin.test.assertIs
 import nz.myinspection.core.db.DbTestFixtures
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.db.Uuid7Generator
+import org.testng.SkipException
 
 /**
  * `photo.orphanedAssets()` itself is already exhaustively covered (finalize-guard, per-rel_path liveness,
@@ -123,6 +126,56 @@ class OrphanedAssetCleanupTest {
             deleterCalls,
             "the deleter must never be invoked for photos/prop-1/insp-2/kept.jpg — a still-active, finalized inspection's evidence must not even be considered for deletion",
         )
+    }
+
+    @Test
+    fun `run uses the no-follow deletion boundary for a shaped soft-delete symlink`() = inTempDir { root ->
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        val relPath = "photos/prop-1/insp-1/orphan-link.jpg"
+        orphanIn(roomId, relPath, "hash-link")
+        val link = File(root, relPath).also { it.parentFile!!.mkdirs() }
+        val protected = File(root, "protected-evidence.jpg").also { it.writeText("protected") }
+        createSymlinkOrSkip(link, protected)
+        val deleter = object : OrphanFileDeleter {
+            override fun delete(relPath: String): Boolean = File(root, relPath).canonicalFile.delete()
+            override fun deleteNoFollow(relPath: String): Boolean = NoFollowLeafDeletion.delete(root, relPath)
+        }
+
+        val result = OrphanedAssetCleanup(database, deleter).run()
+
+        assertEquals(listOf(FailedDeletion(relPath, cause = null)), result.failed)
+        assertEquals("protected", protected.readText(), "soft-delete cleanup must not follow the leaf alias")
+        kotlin.test.assertTrue(Files.isSymbolicLink(link.toPath()))
+    }
+
+    @Test
+    fun `run does not traverse a real parent alias while deleting a soft-delete orphan`() = inTempDir { root ->
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val roomId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        val relPath = "photos/prop-1/insp-1/orphan-through-alias.jpg"
+        orphanIn(roomId, relPath, "hash-parent-alias")
+        val protectedDirectory = File(root, "protected-directory").also { kotlin.test.assertTrue(it.mkdirs()) }
+        val protected = File(protectedDirectory, "orphan-through-alias.jpg").also { it.writeText("protected") }
+        val alias = File(root, "photos/prop-1/insp-1").also { kotlin.test.assertTrue(it.parentFile!!.mkdirs()) }
+        createDirectoryAliasOrSkip(alias, protectedDirectory)
+        val deleter = object : OrphanFileDeleter {
+            override fun delete(relPath: String): Boolean = File(root, relPath).canonicalFile.delete()
+            override fun deleteNoFollow(relPath: String): Boolean = NoFollowLeafDeletion.delete(root, relPath)
+        }
+
+        try {
+            val result = OrphanedAssetCleanup(database, deleter).run()
+
+            assertEquals(listOf(FailedDeletion(relPath, cause = null)), result.failed)
+            assertEquals("protected", protected.readText(), "soft-delete cleanup must not traverse a parent alias")
+        } finally {
+            Files.deleteIfExists(alias.toPath())
+        }
     }
 
     @Test
@@ -280,5 +333,40 @@ class OrphanedAssetCleanupTest {
         val ex = assertFailsWith<IllegalStateException> { cleanup.run() }
         assertIs<IllegalStateException>(ex)
         assertEquals("deleter has a real bug", ex.message)
+    }
+
+    private fun createSymlinkOrSkip(link: File, target: File) {
+        try {
+            Files.createSymbolicLink(link.toPath(), target.toPath())
+        } catch (failure: Exception) {
+            throw SkipException("file symlinks are unavailable: ${failure.message}")
+        }
+    }
+
+    private fun createDirectoryAliasOrSkip(link: File, target: File) {
+        try {
+            Files.createSymbolicLink(link.toPath(), target.toPath())
+            return
+        } catch (_: Exception) {
+            // Windows normally needs a junction when symlink privilege is unavailable.
+        }
+        if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+            val process = ProcessBuilder("cmd", "/c", "mklink", "/J", link.path, target.path)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            if (process.waitFor() == 0) return
+            throw SkipException("directory aliases are unavailable: $output")
+        }
+        throw SkipException("directory aliases are unavailable")
+    }
+
+    private fun inTempDir(block: (File) -> Unit) {
+        val root = kotlin.io.path.createTempDirectory("td14-soft-delete-").toFile()
+        try {
+            block(root)
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

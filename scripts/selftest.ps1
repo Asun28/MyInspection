@@ -6290,11 +6290,13 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         }
       }
       $escapedDiagnosticTail = Get-GradleDiagnosticTail -Output @('prefix\nAuthorization: Bearer REDACT_ME\nsimulated Gradle failure detail\n') -DecodeEscapedNewlines
+      $escapedBenignTail = Get-GradleDiagnosticTail -Output @('prefix\nsimulated Gradle failure detail\n') -DecodeEscapedNewlines
       $windowsPathDiagnostic = 'failure at D:\a\repo\repo\new\module and C:\release\notes'
       $windowsPathTail = Get-GradleDiagnosticTail -Output @($windowsPathDiagnostic)
       if ($escapedDiagnosticTail -notmatch '\[REDACTED\]' -or
           $escapedDiagnosticTail -match 'REDACT_ME' -or
-          $escapedDiagnosticTail -notmatch 'simulated Gradle failure detail' -or
+          $escapedBenignTail -notmatch 'prefix' -or
+          $escapedBenignTail -notmatch 'simulated Gradle failure detail' -or
           $windowsPathTail -cne $windowsPathDiagnostic) {
         Fail "种子缺陷 17p：只有显式 DecodeEscapedNewlines 才可恢复 Unix 包装边界；默认路径绝不能改写 Windows 路径；escaped=$escapedDiagnosticTail windows=$windowsPathTail。"
         $pFail = $true
@@ -10034,6 +10036,7 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     '@echo off',
     'if not "%GRADLE_CALL_LOG%"=="" echo %*>> "%GRADLE_CALL_LOG%"',
     "echo prefix-$longPrefix 1>&2",
+    'echo simulated Gradle failure detail 1>&2',
     'echo Authorization: Bearer REDACT_ME 1>&2',
     'echo Authorization Bearer AUTH_SPACE_LEAK 1>&2',
     'echo Proxy-Authorization: Bearer PROXY_AUTH_LEAK 1>&2',
@@ -10051,13 +10054,13 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     'echo {"token":"JSON_TOKEN_LEAK"} 1>&2',
     'echo {"password":"JSON_PASSWORD_LEAK"} 1>&2',
     'echo {"Authorization":"Bearer JSON_AUTH_LEAK"} 1>&2',
-    'echo simulated Gradle failure detail 1>&2',
     "exit /b $ExitCode"
   )
   Set-Content -LiteralPath $scannerFixtureUnixWrapper -Encoding ascii -Value @(
     '#!/bin/sh',
     'if [ -n "$GRADLE_CALL_LOG" ]; then printf "%s\n" "$*" >> "$GRADLE_CALL_LOG"; fi',
     "printf '%s\n' 'prefix-$longPrefix' >&2",
+    "printf '%s\n' 'simulated Gradle failure detail' >&2",
     "printf '%s\n' 'Authorization: Bearer REDACT_ME' >&2",
     "printf '%s\n' 'Authorization Bearer AUTH_SPACE_LEAK' >&2",
     "printf '%s\n' 'Proxy-Authorization: Bearer PROXY_AUTH_LEAK' >&2",
@@ -10075,7 +10078,6 @@ function Set-ScannerFixtureFailure([int]$ExitCode) {
     "printf '%s\n' '{`"token`":`"JSON_TOKEN_LEAK`"}' >&2",
     "printf '%s\n' '{`"password`":`"JSON_PASSWORD_LEAK`"}' >&2",
     "printf '%s\n' '{`"Authorization`":`"Bearer JSON_AUTH_LEAK`"}' >&2",
-    "printf '%s\n' 'simulated Gradle failure detail' >&2",
     "exit $ExitCode"
   )
 }
@@ -10917,12 +10919,15 @@ try {
       Write-Host '  17cc(scanner/gav-parse) 不安全或非具体 GAV 逐边 GRADLE-PARSE fail-closed OK' -ForegroundColor Green
     }
 
+    Remove-Item -LiteralPath $scannerFixtureCallLog -Force -ErrorAction SilentlyContinue
     Set-ScannerFixtureFailure 42
     $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
+    $scannerGradleFailureCalls = @(if (Test-Path $scannerFixtureCallLog) { Get-Content -LiteralPath $scannerFixtureCallLog })
+    $scannerGradleFailureCalledCoreRuntime = @($scannerGradleFailureCalls | Where-Object { $_.Contains(':core') -and $_.Contains('runtimeClasspath') }).Count -gt 0
     $gradleFailureLines = @($scannerGradleFailure.Text -split "`n" | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]' })
     $gradleFailureDiagnosticsBounded = $gradleFailureLines.Count -gt 0 -and -not ($gradleFailureLines | Where-Object { $_.Length -gt 2200 })
     if ($scannerGradleFailure.Exit -eq 0 -or
-        $scannerGradleFailure.Text -notmatch ':core:runtimeClasspath' -or
+        -not $scannerGradleFailureCalledCoreRuntime -or
         $scannerGradleFailure.Text -notmatch '\[GRADLE-SUBPROCESS\]' -or
         $scannerGradleFailure.Text -notmatch 'simulated Gradle failure detail' -or
         $scannerGradleFailure.Text -match 'REDACT_ME' -or
@@ -11056,6 +11061,52 @@ Write-Output "GPL-SUFFIX-NOISE bad=`$(`$script:bad.Count) warn=`$(`$script:warn.
           $present = $result.Exit -ne 0 -and $result.Text -notmatch 'REDACT_ME|LEAK_ME|CLI_PASSWORD_LEAK|PLAIN_PASSWORD_LEAK|PLAIN_TOKEN_LEAK|PROP_PASSWORD_LEAK|SSH_USER_LEAK|SSH_PASS_LEAK|EMPTY_USER_PASS_LEAK|EMPTY_PASS_USER_LEAK|AUTH_SPACE_LEAK|PROXY_AUTH_LEAK|X_AUTH_LEAK|URI_USERINFO_LEAK|URI_SECRET_USER_LEAK|JSON_TOKEN_LEAK|JSON_PASSWORD_LEAK|JSON_AUTH_LEAK' -and $result.Text -match '\[REDACTED\]' -and $result.Text -match 'simulated Gradle failure detail'
           $code = 'ABSENT-DIAGNOSTIC-REDACTION'
         }
+        'diagnostic-key-redaction' {
+          $escapedScriptPath = $ScriptPath.Replace("'", "''")
+          $probeText = @"
+. '$escapedScriptPath' -AsLibrary
+`$keyName = 'pass' + 'word'
+`$canary = 'KEY_' + 'MUTATION_LEAK'
+`$value = Get-GradleDiagnosticTail -Output @("`$keyName=`$canary") -MaxLines 2 -MaxChars 400
+if (`$value -eq "`$keyName=[REDACTED]") { exit 0 }
+if (`$value -match `$canary) { exit 2 }
+exit 3
+"@
+          $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
+          $probeExit = $LASTEXITCODE
+          $present = $probeExit -eq 0
+          $code = if ($probeExit -in @(0, 2)) { 'ABSENT-DIAGNOSTIC-REDACTION' } else { 'MUTANT-NOISE-DIAGNOSTIC-REDACTION' }
+        }
+        'diagnostic-url-redaction' {
+          $escapedScriptPath = $ScriptPath.Replace("'", "''")
+          $probeText = @"
+. '$escapedScriptPath' -AsLibrary
+`$value = Get-GradleDiagnosticTail -Output @('https://URL_MUTATION_LEAK@example.invalid/repository') -MaxLines 2 -MaxChars 400
+if (`$value -eq 'https://[REDACTED]@example.invalid/repository') { exit 0 }
+if (`$value -match 'URL_MUTATION_LEAK') { exit 2 }
+exit 3
+"@
+          $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
+          $probeExit = $LASTEXITCODE
+          $present = $probeExit -eq 0
+          $code = if ($probeExit -in @(0, 2)) { 'ABSENT-DIAGNOSTIC-REDACTION' } else { 'MUTANT-NOISE-DIAGNOSTIC-REDACTION' }
+        }
+        'diagnostic-key-space-redaction' {
+          $escapedScriptPath = $ScriptPath.Replace("'", "''")
+          $probeText = @"
+. '$escapedScriptPath' -AsLibrary
+`$keyName = 'pass' + 'word'
+`$canary = 'KEY_SPACE_' + 'MUTATION_LEAK'
+`$value = Get-GradleDiagnosticTail -Output @("`$keyName `$canary") -MaxLines 2 -MaxChars 400
+if (`$value -eq "`$keyName=[REDACTED]") { exit 0 }
+if (`$value -match `$canary) { exit 2 }
+exit 3
+"@
+          $probeOutput = @(& pwsh -NoProfile -Command $probeText 2>&1)
+          $probeExit = $LASTEXITCODE
+          $present = $probeExit -eq 0
+          $code = if ($probeExit -in @(0, 2)) { 'ABSENT-DIAGNOSTIC-REDACTION' } else { 'MUTANT-NOISE-DIAGNOSTIC-REDACTION' }
+        }
         'pom-metadata-control' {
           $coordinate = 'fixture.metadata:pom-format-injection:1.0'
           Set-ScannerFixtureOverrides $null
@@ -11108,7 +11159,7 @@ Write-Output "OVERRIDE-METADATA-NOISE error=`$(`$map.Error) entries=`$(`$map.Ent
           $escapedScriptPath = $ScriptPath.Replace("'", "''")
           $probeText = @"
 . '$escapedScriptPath' -AsLibrary
-`$payload = "safe-prefix``r::warning title=METADATA_OUTPUT_INJECTION::METADATA_OUTPUT_FORGE`$([char]0x202E)METADATA_FORMAT_FORGE"
+`$payload = "safe-prefix ::warning title=METADATA_OUTPUT_INJECTION::METADATA_OUTPUT_FORGE`$([char]0x202E)METADATA_FORMAT_FORGE"
 `$value = Get-GradleAuditText -Value `$payload
 if (`$value -match 'safe-prefix' -and `$value -match 'METADATA_OUTPUT_FORGE' -and `$value -match 'METADATA_FORMAT_FORGE' -and `$value -notmatch '[\p{Cc}\p{Cf}]' -and `$value -notmatch '^::') { Write-Output 'METADATA-OUTPUT-SANITIZED'; exit 0 }
 if (`$value -match '[\p{Cc}\p{Cf}]' -or `$value -match '^::') { Write-Output 'METADATA-OUTPUT-UNSANITIZED'; exit 2 }
@@ -11290,12 +11341,13 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
         @{ Id = 'pom-name-verbatim'; Scenario = 'pom-name-verbatim'; Code = 'ABSENT-POM-NAME-VERBATIM'; Label = 'POM license name 原文保真'; Marker = '# preserve exact POM license text' },
         @{ Id = 'pom-name-ordinal'; Scenario = 'pom-name-ordinal'; Code = 'ABSENT-POM-NAME-ORDINAL'; Label = 'POM license names Ordinal 去重排序'; Marker = '$pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)' },
         @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '# credential redaction: authorization' },
-        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '# credential redaction: key' },
-        @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
+        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-key-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式凭据键整行脱敏'; Marker = '# credential redaction: key' },
+        @{ Id = 'diagnostic-key-space'; Scenario = 'diagnostic-key-space-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = 'CLI/plain 空格分隔凭据键整行脱敏'; Marker = '# diagnostic whitespace credential redaction' },
+        @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-url-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
         @{ Id = 'pom-metadata-control'; Scenario = 'pom-metadata-control'; Code = 'ABSENT-POM-METADATA-CONTROL-GUARD'; Label = 'POM metadata 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'POM license/name' -Value `$licenseName" },
         @{ Id = 'override-metadata-control'; Scenario = 'override-metadata-control'; Code = 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD'; Label = '例外 metadata 控制/格式字符拒绝'; Marker = 'Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])' },
         @{ Id = 'override-property-control'; Scenario = 'override-property-control'; Code = 'ABSENT-OVERRIDE-PROPERTY-CONTROL-GUARD'; Label = '例外 JSON property name 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'JSON property name' -Value `$field" },
-        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = "`$Value = [regex]::Replace(`$Value, '[\p{Cc}\p{Cf}]', ' ') # metadata audit control/format normalization" },
+        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = '# diagnostic control/format normalization' },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' },
         @{ Id = 'wrapper-ok'; Scenario = 'wrapper-ok'; Code = 'ABSENT-WRAPPER-OK-GUARD'; Label = 'Gradle wrapper .ok 完成标记'; Marker = '(Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker' },
         @{ Id = 'wrapper-root-count'; Scenario = 'wrapper-root-count'; Code = 'ABSENT-WRAPPER-ROOT-COUNT'; Label = 'Gradle wrapper 解压根目录唯一性'; Marker = '($distributionRoots.Count -eq 1) # wrapper root cardinality' },
@@ -11308,7 +11360,7 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
         @{ Id = 'project-external'; Scenario = 'project-external'; Code = 'ABSENT-PROJECT-EXTERNAL-RESOLUTION'; Label = 'Gradle project -> external resolved target'; Marker = '$body = $Matches.resolved.Trim() # project external substitution target' },
         @{ Id = 'project-malformed'; Scenario = 'project-malformed'; Code = 'ABSENT-MALFORMED-PROJECT-BLOCK'; Label = '畸形 Gradle project 边 fail-closed'; Marker = '$errors.Add("无法判定 Gradle project 依赖边：$displayBody [GRADLE-PARSE]") # malformed project edge' },
         @{ Id = 'external-malformed'; Scenario = 'external-malformed'; Code = 'ABSENT-MALFORMED-EXTERNAL-BLOCK'; Label = '空/畸形外部 selector fail-closed'; Marker = '$errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge' },
-        @{ Id = 'parse-redaction'; Scenario = 'parse-redaction'; Code = 'ABSENT-PARSE-ERROR-REDACTION'; Label = 'Gradle parse-error 不可信边脱敏'; Marker = '$displayBody = Get-GradleDiagnosticTail -Output @($displayBody) -MaxLines 1 -MaxChars 1000 # sanitize parser edge' }
+        @{ Id = 'parse-redaction'; Scenario = 'parse-redaction'; Code = 'ABSENT-PARSE-ERROR-REDACTION'; Label = 'Gradle parse-error 不可信边经过统一 record boundary 脱敏'; Marker = '# diagnostic record credential boundary' }
       )
       foreach ($mutationCase in $scannerMutationCases) {
         $mutationMarkerId = "GRADLE-SCANNER-MUT-$($mutationCase.Id.ToUpperInvariant())"
