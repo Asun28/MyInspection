@@ -326,13 +326,23 @@ function Get-SelftestCountDocEntries {
   return @($entries)
 }
 
+function Get-DocSyncMapAssertionDisposition {
+  param(
+    [Parameter(Mandatory)][bool]$IsPostInit,
+    [Parameter(Mandatory)][hashtable]$Map
+  )
+  if ($IsPostInit) { return 'POST-INIT-NOT-APPLICABLE' }
+  if ($Map.Count -eq 0) { return 'CONFIG-EMPTY' }
+  return 'ASSERT'
+}
+
 function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   $tokens = $null; $errors = $null
   $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
   if (@($errors).Count -ne 0) { return $false }
 
   $expectedCounts = @{
-    'Skip-SelftestCheck' = 77
+    'Skip-SelftestCheck' = 78
     'Skip-SelftestChecks' = 3
     'Register-SelftestSkip' = 3
     'Test-SelftestPrerequisite' = 21
@@ -397,7 +407,7 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   $sha256 = [System.Security.Cryptography.SHA256]::Create()
   try { $identityHash = [Convert]::ToHexString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($identityParts -join "`n"))).ToLowerInvariant() }
   finally { $sha256.Dispose() }
-  if ($identityHash -ne '028d7ad2a62ae4262ffddbe9f779642ff0734cae76c4ed9323402605a0d25862') { return $false }
+  if ($identityHash -ne '6e543a92cda8121d81df2b2eecf164b21be8ba3ea7d3fad6f9b87fb9295fd2eb') { return $false }
   return (
     $ScriptText -match 'return "\[SELFTEST-SKIP\] gate=\$GateId reason=\$Reason"' -and
     $ScriptText -match 'return "\[SELFTEST-SKIP-SUMMARY\] shard=\$Shard count=\$\(\$Records\.Count\) items=\$items"' -and
@@ -3355,7 +3365,23 @@ if ($docDriftAccOk) { Write-Host '  14f Get-ScaffoldDocSyncMap 访问器 OK（�
 $realMap = Get-ScaffoldDocSyncMap
 $realMapOk = $true
 if ($realMap -isnot [hashtable]) { Fail '14f 生产映射：Get-ScaffoldDocSyncMap 未返回 hashtable。'; $realMapOk = $false }
-elseif ((-not $isPostInit) -and $realMap.Count -gt 0) {
+else {
+  $dispositionCases = @(
+    [pscustomobject]@{ Name = 'post-init-custom'; IsPostInit = $true; Map = @{ 'scripts/custom\.ps1' = @('docs/custom.md') }; Expected = 'POST-INIT-NOT-APPLICABLE' },
+    [pscustomobject]@{ Name = 'empty'; IsPostInit = $false; Map = @{}; Expected = 'CONFIG-EMPTY' },
+    [pscustomobject]@{ Name = 'metarepo-configured'; IsPostInit = $false; Map = @{ 'scripts/custom\.ps1' = @('docs/custom.md') }; Expected = 'ASSERT' }
+  )
+  foreach ($case in $dispositionCases) {
+    $actualDisposition = Get-DocSyncMapAssertionDisposition -IsPostInit $case.IsPostInit -Map $case.Map
+    if ($actualDisposition -cne $case.Expected) {
+      Fail "14f 生产映射 skip 原因夹具（$($case.Name)）：期望 $($case.Expected)，实得 $actualDisposition。"
+      $realMapOk = $false
+    }
+  }
+  if ($realMapOk) { Write-Host '  14f 生产 DocSyncMap 断言分流 OK（post-init 自定义 / 元仓空配置 / 元仓非空）' -ForegroundColor Green }
+}
+$realMapDisposition = if ($realMap -is [hashtable]) { Get-DocSyncMapAssertionDisposition -IsPostInit $isPostInit -Map $realMap } else { $null }
+if ($realMapDisposition -ceq 'ASSERT') {
   $expectedPairs = @{
     'scripts/task\.ps1'           = 'docs/DEVOPS-WORKFLOW.md'
     'scripts/review\.ps1'         = 'docs/QUALITY-RUBRIC.md'
@@ -3367,7 +3393,12 @@ elseif ((-not $isPostInit) -and $realMap.Count -gt 0) {
   }
   if ($realMapOk) { Write-Host '  14f 生产 DocSyncMap 首批 3 条耦合精确在场 OK（元仓自检）' -ForegroundColor Green }
 }
-else { Skip-SelftestCheck -GateId '14f(config-map)' -Reason 'CONFIG-EMPTY' -Message '  14f 生产 DocSyncMap 默认耦合断言跳过（post-init 或空配置——graceful-degrade 铁律）。' }
+elseif ($realMapDisposition -ceq 'POST-INIT-NOT-APPLICABLE') {
+  Skip-SelftestCheck -GateId '14f(config-map)' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  14f 生产 DocSyncMap 元仓默认耦合断言跳过（post-init 下游可自定义映射）。'
+}
+elseif ($realMapDisposition -ceq 'CONFIG-EMPTY') {
+  Skip-SelftestCheck -GateId '14f(config-map)' -Reason 'CONFIG-EMPTY' -Message '  14f 生产 DocSyncMap 元仓默认耦合断言跳过（配置为空——graceful-degrade 铁律）。'
+}
 
 # 空【真实】配置端到端仍全绿（R3 r6 #6）：临时置真实 $ScaffoldConfig.DocSyncMap=@{}，经真实访问器 Get-ScaffoldDocSyncMap
 # 喂决策核 Get-DocDriftMissing（mapped 源已变更）→ 缺失恒空、no-op；证「空默认可跑铁律」在完整决策路径上成立。复原 config。
