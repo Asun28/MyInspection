@@ -80,7 +80,8 @@
        已定义 id，扫这些文件的 L<n> 引用——排除 path:Lnn 行号 / Lnn-mm 行段等代码引用形态。存在性可机检，
        内容是否对得上仍靠人工。交叉链接闸（11）只管文件路径，管不到 LEDGER 的 L<n> 指针，故单列一闸。
    17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂**已知坏输入**，断言它确实 BLOCK——把「严格/fail-closed/
-       难绕过」从断言升级为可机检回归。17a check-secrets 抓 snake_case 硬编码密钥；17b review.ps1 对「no-op 评审者 +
+       难绕过」从断言升级为可机检回归。17a check-secrets 抓 snake_case 硬编码密钥；17a3 对 SQLDelight schema
+       baseline 精确放行，并拒相邻/改名数据库与非法清单；17b review.ps1 对「no-op 评审者 +
        预置陈旧 pass 裁决」仍 block（stale-verdict fail-open 已堵）；17c init 用含撇号项目名仍产出可解析 _config；
        17d guard-frozen 对冻结路径写入输出 deny、空 FrozenPaths 无输出（fail-open no-op）；
        17e 账号守卫 host 锚定正则容忍显式端口（C17）、拒子域/子串伪装与他人仓；17f pre-push 钩子体 shebang/无BOM/无CR
@@ -5154,6 +5155,82 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     $a = & $mkSeed (Join-Path $sd 'a') @{ 'config.py' = 'db_password = "s3cr3tValue123"' }   # allowlist secret （本行写出密钥字面量做种子；标记令本仓 check-secrets 跳过 selftest.ps1 自身这行，不自报）
     if ($a -eq 0) { Fail '种子缺陷 17a：check-secrets 未拦截 snake_case 硬编码密钥（db_password=...）——#6 检出回归。' }
     else { Write-Host '  17a check-secrets 拦截 snake_case 密钥 OK' -ForegroundColor Green }
+
+    # 17a3 (TD4). SQLDelight 的已审 schema baseline 是敏感文件名闸的唯一动态例外：配置须为
+    # 精确仓库相对路径 + 非空用途，且 malformed / missing / duplicate / unknown-field / glob / directory
+    # 全部 fail-closed。相邻或改名的 .db 即使同目录、同用途也仍由通用 *.db 规则逐路径拦截。
+    $td4BaselinePath = 'android/core/src/main/sqldelight/databases/1.db'
+    $td4ConfigPath = 'configs/secrets/tracked-sensitive-allowlist.json'
+    $td4BaselineJson = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"SQLDelight migration schema baseline"}]'
+    $invokeTd4SecretFixture = {
+      param(
+        [string]$Name,
+        [AllowNull()][string]$AllowlistJson,
+        [string[]]$TrackedDbPaths = @(),
+        [hashtable]$ExtraFiles = @{}
+      )
+      $dir = Join-Path $sd "a3-$Name"
+      New-Item -ItemType Directory -Force $dir | Out-Null
+      Copy-Item (Join-Path $RepoRoot 'scripts') $dir -Recurse -Force
+      if ($null -ne $AllowlistJson) {
+        $configFile = Join-Path $dir $td4ConfigPath
+        New-Item -ItemType Directory -Force (Split-Path $configFile) | Out-Null
+        Set-Content -LiteralPath $configFile -Value $AllowlistJson -Encoding utf8 -NoNewline
+      }
+      foreach ($dbPath in $TrackedDbPaths) {
+        $dbFile = Join-Path $dir $dbPath
+        New-Item -ItemType Directory -Force (Split-Path $dbFile) | Out-Null
+        [System.IO.File]::WriteAllBytes($dbFile, [byte[]](0x53, 0x51, 0x4c, 0x69, 0x00))
+      }
+      foreach ($rel in $ExtraFiles.Keys) {
+        $file = Join-Path $dir $rel
+        New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+        Set-Content -LiteralPath $file -Value $ExtraFiles[$rel] -Encoding utf8 -NoNewline
+      }
+      & git -C $dir init -q
+      & git -C $dir -c user.email='s@l' -c user.name='s' add -f -A 2>$null
+      & git -C $dir -c user.email='s@l' -c user.name='s' commit -q -m seed *> $null
+      $output = & pwsh -NoProfile -File (Join-Path $dir 'scripts/check-secrets.ps1') 2>&1 | Out-String
+      [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+    }
+
+    $td4Exact = & $invokeTd4SecretFixture 'exact' $td4BaselineJson @($td4BaselinePath)
+    if ($td4Exact.Exit -ne 0) {
+      Fail "种子缺陷 17a3(exact)：精确登记的 SQLDelight schema baseline 未放行（exit=$($td4Exact.Exit)）。输出：$($td4Exact.Output)"
+    }
+    foreach ($td4Unexpected in @(
+      @{ Name = 'adjacent'; Path = 'android/core/src/main/sqldelight/databases/runtime.db' },
+      @{ Name = 'renamed'; Path = 'android/core/src/main/sqldelight/databases/01.db' }
+    )) {
+      $td4Result = & $invokeTd4SecretFixture $td4Unexpected.Name $td4BaselineJson @($td4BaselinePath, $td4Unexpected.Path)
+      if ($td4Result.Exit -eq 0 -or -not $td4Result.Output.Contains($td4Unexpected.Path)) {
+        Fail "种子缺陷 17a3($($td4Unexpected.Name))：未逐路径拒绝未登记数据库 $($td4Unexpected.Path)（exit=$($td4Result.Exit)）。输出：$($td4Result.Output)"
+      }
+    }
+    $td4CaseConfigPath = 'configs/secrets/Tracked-sensitive-allowlist.json'
+    $td4CaseConfig = & $invokeTd4SecretFixture 'config-case' $null @() @{ $td4CaseConfigPath = '[]' }
+    $td4CaseNamed = $td4CaseConfig.Output.Contains($td4CaseConfigPath) -or $td4CaseConfig.Output -match '\[SECRET-ALLOWLIST\]'
+    if ($td4CaseConfig.Exit -eq 0 -or -not $td4CaseNamed) {
+      Fail "种子缺陷 17a3(config-case)：大小写变体清单文件被当作精确静态例外（exit=$($td4CaseConfig.Exit)）。输出：$($td4CaseConfig.Output)"
+    }
+
+    $td4InvalidCases = @(
+      @{ Name = 'malformed'; Json = '[{' },
+      @{ Name = 'missing'; Json = $td4BaselineJson },
+      @{ Name = 'duplicate'; Json = "[$($td4BaselineJson.Trim('[', ']')),$($td4BaselineJson.Trim('[', ']'))]" },
+      @{ Name = 'unknown-field'; Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"schema","scope":"broad"}]' },
+      @{ Name = 'blank-purpose'; Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":""}]' },
+      @{ Name = 'glob'; Json = '[{"path":"android/core/src/main/sqldelight/databases/*.db","purpose":"schema"}]' },
+      @{ Name = 'directory'; Json = '[{"path":"android/core/src/main/sqldelight/databases","purpose":"schema"}]'; Extra = @{ 'android/core/src/main/sqldelight/databases/placeholder.txt' = 'not a database' } }
+    )
+    foreach ($td4Invalid in $td4InvalidCases) {
+      $td4Extra = if ($td4Invalid.ContainsKey('Extra')) { $td4Invalid.Extra } else { @{} }
+      $td4Result = & $invokeTd4SecretFixture $td4Invalid.Name $td4Invalid.Json @() $td4Extra
+      if ($td4Result.Exit -eq 0 -or $td4Result.Output -notmatch '\[SECRET-ALLOWLIST\]') {
+        Fail "种子缺陷 17a3($($td4Invalid.Name))：allowlist 非法状态未以 [SECRET-ALLOWLIST] fail-closed（exit=$($td4Result.Exit)）。输出：$($td4Result.Output)"
+      }
+    }
+    if (-not $fail) { Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green }
 
     # 17a2 (TD-201). check-secrets 必须**存活** git 子模块 gitlink：`git ls-files` 把子模块作为**单条 gitlink** 输出，
     #   其工作树路径是**目录**。1b 循环旧码 `Test-Path $full` 对目录为真、放行后 :151 对 DirectoryInfo 求 `.Length`
