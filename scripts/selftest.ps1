@@ -524,7 +524,6 @@ function Start-SelftestShard {
   $psi.RedirectStandardError = $true
   $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
   $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-  $psi.Environment['SCAFFOLD_SELFTEST_ALL_CHILD'] = '1'
   foreach ($arg in @('-NoProfile', '-File', (Join-Path $SnapshotRoot 'scripts/selftest.ps1'), '-Shard', $Name)) { [void]$psi.ArgumentList.Add($arg) }
   if ($ForwardStrictLint) { [void]$psi.ArgumentList.Add("-StrictLint:`$$($StrictLintValue.ToString().ToLowerInvariant())") }
   $process = [System.Diagnostics.Process]::new()
@@ -1576,9 +1575,26 @@ $skipTargetedMutationsChanged82 = (
 )
 $skipProtocolMutations82 += @($skipBatchTruncationMutation82, $skipOverlapGuardDeletionMutation82)
 $acceptedSkipProtocolMutations82 = @($skipProtocolMutations82 | Where-Object { Test-SelftestSkipProtocolSourceContract $_ })
-$gitMissingSeededFixtureOk82 = $true
-if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
-  $gitMissingSeededFixtureOk82 = $false
+$gitMissingSeededFixtureOk82 = $false
+$expectedGitMissingGateIds82 = @(
+  '17', '17a', '17a2', '17u1', '17u2', '17u3a', '17u3b',
+  '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
+  '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
+  '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
+  '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)',
+  '17s', '17t',
+  '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
+  '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
+  '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y',
+  '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)',
+  '17z(T43-TimeoutCliOverridesConfig)', '17z(T43-TimeoutConfigValue)', '17z(T43-TimeoutDefaultMissingOrEmpty)', '17z(4)', '17z(5)',
+  '17aa', '17aa(1)', '17aa(2)', '17aa(5)',
+  '17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)',
+  '17aa(7)', '17aa(7a)', '17aa(7b)', '17aa(7c)', '17aa(7d)', '17aa(7e/F4)',
+  '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
+  'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
+  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4'
+)
   $seededNoGitCommands82 = @($skipProtocolInventory82 | Where-Object {
     $_.GetCommandName() -eq 'Skip-SelftestChecks' -and $_.Extent.Text -match "'17'" -and $_.Extent.Text -match "-Reason\s+'TOOL-GIT-MISSING'"
   })
@@ -1592,29 +1608,24 @@ if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
         break
       }
     }
-    $expectedGitMissingRecords82 = @($gateIdsArgument82.FindAll({
+    $registeredGitMissingGateIds82 = @($gateIdsArgument82.FindAll({
       param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
-    }, $true) | ForEach-Object { "$($_.Value)/TOOL-GIT-MISSING" })
+    }, $true) | ForEach-Object { $_.Value })
+    $expectedGitMissingRecords82 = @($expectedGitMissingGateIds82 | ForEach-Object { "$_/TOOL-GIT-MISSING" })
     $pwshExe82 = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $savedPath82 = $env:PATH
-    $savedGitMissingProbe82 = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_GIT_MISSING_PROBE', 'Process')
     try {
       $pathWithoutGit82 = @($savedPath82 -split [System.IO.Path]::PathSeparator | Where-Object {
         $entry = $_
         $entry -and @('git', 'git.exe', 'git.cmd', 'git.ps1' | Where-Object { Test-Path -LiteralPath (Join-Path $entry $_) }).Count -eq 0
       }) -join [System.IO.Path]::PathSeparator
       $env:PATH = $pathWithoutGit82
-      $env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE = '1'
       & $pwshExe82 -NoProfile -Command 'if (Get-Command git -ErrorAction SilentlyContinue) { exit 1 }; exit 0'
       $gitAbsentExit82 = $LASTEXITCODE
       $gitMissingSeededOutput82 = (& $pwshExe82 -NoProfile -File $PSCommandPath -Shard seeded '-StrictLint:$false' 2>&1 | Out-String)
       $gitMissingSeededExit82 = $LASTEXITCODE
     }
-    finally {
-      $env:PATH = $savedPath82
-      if ($null -eq $savedGitMissingProbe82) { Remove-Item Env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE -ErrorAction SilentlyContinue }
-      else { $env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE = $savedGitMissingProbe82 }
-    }
+    finally { $env:PATH = $savedPath82 }
     $emittedSkipMatches82 = @([regex]::Matches($gitMissingSeededOutput82, '(?m)^\[SELFTEST-SKIP\] gate=(?<gate>[A-Za-z0-9._()/\-]+) reason=(?<reason>[A-Z][A-Z0-9-]+)\r?$'))
     $emittedSkipRecords82 = @($emittedSkipMatches82 | ForEach-Object { "$($_.Groups['gate'].Value)/$($_.Groups['reason'].Value)" })
     $emittedGitMissingRecords82 = @($emittedSkipRecords82 | Where-Object { $_.EndsWith('/TOOL-GIT-MISSING', [System.StringComparison]::Ordinal) })
@@ -1626,6 +1637,7 @@ if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
     $skippedUnitPrintedPass82 = @($skippedPassPatterns82 | Where-Object { $gitMissingSeededOutput82 -match $_ }).Count -gt 0
     $gitMissingSeededFixtureOk82 = (
       $gitAbsentExit82 -eq 0 -and $gitMissingSeededExit82 -eq 0 -and
+      ($registeredGitMissingGateIds82 -join ',') -ceq ($expectedGitMissingGateIds82 -join ',') -and
       ($emittedGitMissingRecords82 -join ',') -ceq ($expectedGitMissingRecords82 -join ',') -and
       $seededSummaryMatches82.Count -eq 1 -and
       [int]$seededSummaryMatches82[0].Groups['count'].Value -eq $emittedSkipRecords82.Count -and
@@ -1636,7 +1648,6 @@ if ($env:SCAFFOLD_SELFTEST_ALL_CHILD -ne '1') {
     if (-not $gitMissingSeededFixtureOk82) {
       Fail "8.2e(no-git-seeded)：gitAbsent=$gitAbsentExit82 child=$gitMissingSeededExit82 expectedGit=$($expectedGitMissingRecords82.Count) emittedGit=$($emittedGitMissingRecords82.Count) skipLines=$($emittedSkipRecords82.Count) summaries=$($seededSummaryMatches82.Count) skippedPass=$skippedUnitPrintedPass82。"
     }
-  }
 }
 $protocolCallPatterns82 = @(
   '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
@@ -3500,6 +3511,14 @@ else {
   }
 }
 
+}
+
+function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
+  if ($UseWindows) {
+    return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
+  }
+  $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
+  return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
 }
 
 if ($Shard -eq 'seeded') {
@@ -7005,15 +7024,7 @@ exit $realExit
 '@
       $acMoveShimScript = Join-Path $acMoveShim 'git-shim.ps1'
       Set-Content $acMoveShimScript $acMoveShimBody -Encoding utf8
-      # Keep the two platform wrappers in one local emitter. TD27's forced-POSIX probe below passes an
-      # independently located absolute shim path; only the extensionless POSIX body embeds that safe literal.
-      function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
-        if ($UseWindows) {
-          return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
-        }
-        $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
-        return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
-      }
+      # TD27's forced-POSIX probe below reuses the top-level emitter even when git itself is unavailable.
       $acMoveWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $acMoveShimScript -UseWindows $IsWindows
       if ($IsWindows) {
         Set-Content -LiteralPath (Join-Path $acMoveShim 'git.ps1') -Value $acMoveWrapperBody -Encoding utf8
@@ -9365,7 +9376,6 @@ exit 0
 }
 }
 
-if ($env:SCAFFOLD_SELFTEST_GIT_MISSING_PROBE -ne '1') {
 # ── 17cc/17dd（T0-GATE-HARDENING）+ 17cc(case)/17ee（T0-GATE-FIXFORWARD）：许可闸 Gradle 清单递归发现
 #   （含 libs.versions.toml）+ verify.ps1 --no-daemon + 路径比较大小写语义跟随文件系统 + 发布清单 Gradle
 #   阻断项单一解锁，各配单句删除变异。判据一律走独立子进程 + 专属断言 MARKER：子进程内部完成
@@ -11683,7 +11693,6 @@ else { Write-Host '  17cc/17dd/17ee 收尾：真实 check-licenses.ps1 / verify.
 
 }
 
-}
 $expectedGateGroups = @(switch ($Shard) {
   'core' { 'core:1-14'; 'core:16' }
   'workflow' { 'workflow:15' }
