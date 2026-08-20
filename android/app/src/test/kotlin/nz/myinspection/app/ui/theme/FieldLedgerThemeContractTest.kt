@@ -3,7 +3,12 @@ package nz.myinspection.app.ui.theme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.DeviceFontFamilyName
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import kotlin.math.max
 import kotlin.math.min
@@ -82,7 +87,10 @@ class FieldLedgerThemeContractTest {
                 secondaryContainer to onSecondaryContainer,
                 tertiary to onTertiary,
                 tertiaryContainer to onTertiaryContainer,
+                background to onBackground,
                 surface to onSurface,
+                surfaceContainerLow to onSurface,
+                surfaceContainer to onSurface,
                 surfaceContainerHigh to onSurfaceVariant,
                 error to onError,
                 errorContainer to onErrorContainer,
@@ -94,26 +102,18 @@ class FieldLedgerThemeContractTest {
 
     @Test
     fun `five semantic roles remain distinct in light and dark palettes`() {
+        assertSchemeRoles(fieldLedgerLightColorScheme, fieldLedgerLightStatusColors)
+        assertSchemeRoles(fieldLedgerDarkColorScheme, fieldLedgerDarkStatusColors)
         assertEquals(
-            FieldLedgerStatusColors(
-                ok = FieldLedgerStatusColor(Color(0xFFC9ECE5), Color(0xFF073B35), Color(0xFF0B5D52)),
-                attention = FieldLedgerStatusColor(Color(0xFFFFDEA8), Color(0xFF352000), Color(0xFF8B5C00)),
-                critical = FieldLedgerStatusColor(Color(0xFFFFDAD5), Color(0xFF410002), Color(0xFFB3261E)),
-                notApplicable = FieldLedgerStatusColor(Color(0xFFE2E8E4), Color(0xFF44504B), Color(0xFF6F7C76)),
-                privacy = FieldLedgerStatusColor(Color(0xFFEADDFF), Color(0xFF241047), Color(0xFF60458E)),
-            ),
-            fieldLedgerLightStatusColors,
+            FieldLedgerStatusColor(Color(0xFFEADDFF), Color(0xFF241047), Color(0xFF60458E)),
+            fieldLedgerLightStatusColors.privacy,
         )
         assertEquals(
-            FieldLedgerStatusColors(
-                ok = FieldLedgerStatusColor(Color(0xFF064F46), Color(0xFFA5F2E8), Color(0xFF88D0C5)),
-                attention = FieldLedgerStatusColor(Color(0xFF604200), Color(0xFFFFDEA8), Color(0xFFF0BD69)),
-                critical = FieldLedgerStatusColor(Color(0xFF93000A), Color(0xFFFFDAD6), Color(0xFFFFB4AB)),
-                notApplicable = FieldLedgerStatusColor(Color(0xFF252B29), Color(0xFFC3CAC6), Color(0xFF8D9691)),
-                privacy = FieldLedgerStatusColor(Color(0xFF51347F), Color(0xFFEADDFF), Color(0xFFD3BCFD)),
-            ),
-            fieldLedgerDarkStatusColors,
+            FieldLedgerStatusColor(Color(0xFF51347F), Color(0xFFEADDFF), Color(0xFFD3BCFD)),
+            fieldLedgerDarkStatusColors.privacy,
         )
+        assertTrue(fieldLedgerLightStatusColors.privacy != fieldLedgerLightStatusColors.critical)
+        assertTrue(fieldLedgerDarkStatusColors.privacy != fieldLedgerDarkStatusColors.critical)
         listOf(fieldLedgerLightStatusColors, fieldLedgerDarkStatusColors)
             .flatMap { colors ->
                 listOf(colors.ok, colors.attention, colors.critical, colors.notApplicable, colors.privacy)
@@ -125,25 +125,58 @@ class FieldLedgerThemeContractTest {
 
     @Test
     fun `typography and shapes preserve field readability tokens`() {
+        val sans = FontFamily.SansSerif
+        val condensed = FontFamily(Font(DeviceFontFamilyName("sans-serif-condensed")))
         with(fieldLedgerTypography) {
-            assertEquals(32.sp, displayMedium.fontSize)
-            assertEquals(FontWeight.Bold, displayMedium.fontWeight)
-            assertEquals(38.sp, displayMedium.lineHeight)
-            assertEquals(20.sp, titleLarge.fontSize)
-            assertEquals(FontWeight.Bold, titleLarge.fontWeight)
-            assertEquals(18.sp, bodyLarge.fontSize)
-            assertEquals(16.sp, bodyMedium.fontSize)
-            assertEquals(14.sp, bodySmall.fontSize)
-            assertEquals(16.sp, labelLarge.fontSize)
-            assertEquals(FontWeight.Bold, labelLarge.fontWeight)
+            assertEquals(style(condensed, FontWeight.Bold, 32.sp, 38.sp, (-0.01).em), displayMedium)
+            assertEquals(style(sans, FontWeight.Bold, 28.sp, 34.sp, (-0.01).em), headlineLarge)
+            assertEquals(style(sans, FontWeight.Bold, 24.sp, 30.sp), headlineMedium)
+            assertEquals(style(sans, FontWeight.Bold, 20.sp, 26.sp), titleLarge)
+            assertEquals(style(sans, FontWeight.SemiBold, 17.sp, 24.sp), titleMedium)
+            assertEquals(style(sans, FontWeight.Normal, 18.sp, 27.sp), bodyLarge)
+            assertEquals(style(sans, FontWeight.Normal, 16.sp, 24.sp), bodyMedium)
+            assertEquals(style(sans, FontWeight.Normal, 14.sp, 20.sp), bodySmall)
+            assertEquals(style(sans, FontWeight.Bold, 16.sp, 20.sp, 0.01.em), labelLarge)
+            assertEquals(style(condensed, FontWeight.Bold, 13.sp, 18.sp, 0.04.em), labelMedium)
+            assertEquals(style(sans, FontWeight.SemiBold, 12.sp, 16.sp, 0.02.em), labelSmall)
         }
-        assertEquals(28.sp, fieldLedgerDataLargeTextStyle.fontSize)
-        assertEquals(FontWeight.Bold, fieldLedgerDataLargeTextStyle.fontWeight)
+        assertEquals(
+            style(condensed, FontWeight.Bold, 28.sp, 32.sp, (-0.01).em),
+            fieldLedgerDataLargeTextStyle,
+        )
         assertEquals(RoundedCornerShape(4.dp), fieldLedgerShapes.extraSmall)
         assertEquals(RoundedCornerShape(8.dp), fieldLedgerShapes.small)
         assertEquals(RoundedCornerShape(12.dp), fieldLedgerShapes.medium)
         assertEquals(RoundedCornerShape(16.dp), fieldLedgerShapes.large)
+        assertEquals(RoundedCornerShape(16.dp), fieldLedgerShapes.extraLarge)
     }
+
+    private fun assertSchemeRoles(
+        scheme: androidx.compose.material3.ColorScheme,
+        roles: FieldLedgerStatusColors,
+    ) {
+        assertEquals(FieldLedgerStatusColor(scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary), roles.ok)
+        assertEquals(FieldLedgerStatusColor(scheme.tertiaryContainer, scheme.onTertiaryContainer, scheme.tertiary), roles.attention)
+        assertEquals(FieldLedgerStatusColor(scheme.errorContainer, scheme.onErrorContainer, scheme.error), roles.critical)
+        assertEquals(
+            FieldLedgerStatusColor(scheme.surfaceContainerHigh, scheme.onSurfaceVariant, scheme.outline),
+            roles.notApplicable,
+        )
+    }
+
+    private fun style(
+        family: FontFamily,
+        weight: FontWeight,
+        size: androidx.compose.ui.unit.TextUnit,
+        lineHeight: androidx.compose.ui.unit.TextUnit,
+        letterSpacing: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
+    ) = TextStyle(
+        fontFamily = family,
+        fontWeight = weight,
+        fontSize = size,
+        lineHeight = lineHeight,
+        letterSpacing = letterSpacing,
+    )
 
     private fun contrastRatio(background: Color, foreground: Color): Double {
         val backgroundLuminance = relativeLuminance(background)
