@@ -132,6 +132,17 @@ function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
   return 0
 }
 
+function Get-LessonDefinitionIdSet([string]$LedgerPath, [string]$ArchivePath) {
+  $defined = @{}
+  foreach ($path in @($LedgerPath, $ArchivePath)) {
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    foreach ($match in [regex]::Matches((Get-Content -LiteralPath $path -Raw), '(?m)^##\s*(L\d+)\b')) {
+      $defined[$match.Groups[1].Value] = $true
+    }
+  }
+  return $defined
+}
+
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
 # unchanged; only these ASCII records are machine-readable. A non-zero child without exactly one valid
 # record is still red and is reported as UNKNOWN rather than being reduced to a positional exit-code list.
@@ -828,6 +839,88 @@ try {
   else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真（TD51）OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2cRepo -ErrorAction SilentlyContinue
+}
+
+# 2d. T0-LESSONS-COLD-RECALL：选择器只把一次性 ledger 经验交给既有 archive.ps1；冷项仍可召回，
+#     check 以热/冷 ID 并集判引用，bump/promote 对冷项只给移回热区指引。全程真跑生产 CLI，不复制搬运逻辑。
+$l2dRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
+if (Test-Path $l2dRepo) { Remove-Item -Recurse -Force $l2dRepo }
+New-Item -ItemType Directory -Force $l2dRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2dRepo -Recurse -Force
+  $l2dLessons = Join-Path $l2dRepo 'scripts/lessons.ps1'
+  $l2dLedger = Join-Path $l2dRepo 'docs/lessons/LEDGER.md'
+  $l2dArchive = Join-Path $l2dRepo 'specs/archive/lessons-archive.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2dLedger), (Split-Path $l2dArchive) | Out-Null
+  New-Item -ItemType Directory -Force (Join-Path $l2dRepo 'specs/tasks') | Out-Null
+  $entry2d = {
+    param([string]$Id, [string]$Tier, [int]$Recurrence, [string]$Token)
+    @(
+      "## $Id",
+      "- date: 2026-08-21 ｜ tags: fixture ｜ tier: $Tier ｜ kind: pitfall ｜ severity: minor ｜ recurrence: $Recurrence",
+      "- symptom: $Token", '- root_cause: fixture', "- rule: rule-$Token", '- enforced_by: none（fixture）', '- refs:'
+    ) -join "`n"
+  }
+  $l2dLedgerText = @(
+    '# fixture ledger',
+    (& $entry2d L1 ledger 1 'COLD_RECALL_ONLY'),
+    (& $entry2d L2 ledger 2 'RECURRENT_EXCLUDED'),
+    (& $entry2d L3 ondemand 1 'ONDEMAND_EXCLUDED'),
+    (& $entry2d L4 must 1 'MUST_EXCLUDED'),
+    (& $entry2d L5 ledger 1 'CLAUDE_REF_EXCLUDED'),
+    (& $entry2d L6 ledger 1 'TEMPLATE_REF_EXCLUDED'),
+    (& $entry2d L7 ledger 1 'MAX_ID_EXCLUDED')
+  ) -join "`n`n"
+  Set-Content $l2dLedger $l2dLedgerText -Encoding utf8
+  Set-Content (Join-Path $l2dRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n[L5] 常驻引用" -Encoding utf8
+  Set-Content (Join-Path $l2dRepo 'CLAUDE.template.md') "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n[L6] 模板引用" -Encoding utf8
+
+  $ledgerHash2d = (Get-FileHash $l2dLedger -Algorithm SHA256).Hash
+  $dry2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo -DryRun 2>&1 | Out-String)
+  $dryExit2d = $LASTEXITCODE
+  if ($dryExit2d -ne 0 -or $dry2d -notmatch '\[LSN-ARCHIVE-DRYRUN\]' -or $dry2d -notmatch '\bL1\b') {
+    Fail "闸2d(a)：archive -DryRun 未成功报告唯一候选 L1。exit=$dryExit2d output=[$dry2d]"
+  }
+  foreach ($excluded2d in @('L2','L3','L4','L5','L6','L7')) {
+    if ($dry2d -match "(?m)^.*\[LSN-ARCHIVE-DRYRUN\].*\b$excluded2d\b") { Fail "闸2d(a)：archive -DryRun 错选排除项 $excluded2d。" }
+  }
+  if ((Get-FileHash $l2dLedger -Algorithm SHA256).Hash -ne $ledgerHash2d -or (Test-Path $l2dArchive)) {
+    Fail '闸2d(a)：archive -DryRun 写了 LEDGER 或冷归档（预览必须零写入）。'
+  }
+
+  $run2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo 2>&1 | Out-String)
+  $runExit2d = $LASTEXITCODE
+  $ledgerAfter2d = Get-Content $l2dLedger -Raw
+  $archiveAfter2d = if (Test-Path $l2dArchive) { Get-Content $l2dArchive -Raw } else { '' }
+  if ($runExit2d -ne 0 -or $ledgerAfter2d -match '(?m)^##\s+L1\b' -or $archiveAfter2d -notmatch '(?m)^##\s+L1\b') {
+    Fail "闸2d(b)：实际 archive 未经既有搬运器把 L1 从热账本移入冷库。exit=$runExit2d output=[$run2d]"
+  }
+  foreach ($kept2d in 2..7) {
+    if ($ledgerAfter2d -notmatch "(?m)^##\s+L$kept2d\b") { Fail "闸2d(b)：排除项 L$kept2d 被误搬。" }
+  }
+
+  $search2d = (& pwsh -NoProfile -File $l2dLessons search COLD_RECALL_ONLY -RepoRoot $l2dRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $search2d -notmatch '\[archived\].*L1') { Fail "闸2d(c)：冷项 search 未以 [archived] 标记召回 L1。output=[$search2d]" }
+  Add-Content (Join-Path $l2dRepo 'CLAUDE.md') "`n归档后新增引用 [L1]" -Encoding utf8
+  $check2d = (& pwsh -NoProfile -File $l2dLessons check -RepoRoot $l2dRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $check2d -notmatch 'check: PASS') { Fail "闸2d(d)：check 未以热/冷 ID 并集接受 CLAUDE 对已归档 L1 的定义。output=[$check2d]" }
+
+  foreach ($writeCommand2d in @('bump','promote')) {
+    $write2d = (& pwsh -NoProfile -File $l2dLessons $writeCommand2d L1 -RepoRoot $l2dRepo 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0 -or $write2d -notmatch '\[LSN-ARCHIVED-READONLY\]' -or $write2d -notmatch '移回.*docs/lessons/LEDGER\.md') {
+      Fail "闸2d(e)：$writeCommand2d 冷项 L1 未 fail-closed 并给移回热区修法。output=[$write2d]"
+    }
+  }
+
+  $archiveHash2d = (Get-FileHash $l2dArchive -Algorithm SHA256).Hash
+  $rerun2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or (Get-FileHash $l2dArchive -Algorithm SHA256).Hash -ne $archiveHash2d) {
+    Fail "闸2d(f)：无新候选时 archive 重跑不幂等。output=[$rerun2d]"
+  } else {
+    Write-Host '  2d lessons 选择性冷存/零写预览/热冷召回/ID 并集/冷项只读/幂等 OK' -ForegroundColor Green
+  }
+} finally {
+  Remove-Item -Recurse -Force $l2dRepo -ErrorAction SilentlyContinue
 }
 
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---
@@ -5086,16 +5179,30 @@ if (-not $gitJ) {
 
 if ($Shard -eq 'core') {
 [void]$executedGateGroups.Add('core:16')
-# --- 16. L-id 引用完整性：根入口文档 + .claude/skills + docs 里的 L<n> 经验引用须存在于 LEDGER ---
+# --- 16. L-id 引用完整性：根入口文档 + .claude/skills + docs 里的 L<n> 经验引用须存在于热账本/冷库并集 ---
 # 治本 L29：交叉链接闸（⑪）只校验文件路径，不管 LEDGER 的 L<n> 引用；写错/写旧 id 把读者导向错误经验，无闸可拦。
 # 此闸从 LEDGER 机数已定义 id，扫 skills/docs 的 L<n> 引用（排除 path:Lnn 行号、Lnn-mm 行段等代码引用形态），存在性机检；
 # 内容是否对得上（L20 的指针是否真指 L20 的内容）仍须人工——存在性可机检、语义不行。
-Step '16/17 L-id 引用完整性（skills/docs 的 L<n> 引用存在于 LEDGER）'
+Step '16/17 L-id 引用完整性（skills/docs 的 L<n> 引用存在于热账本/冷库并集）'
 $ledgerPath = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 if (-not (Test-Path $ledgerPath)) { Fail 'docs\lessons\LEDGER.md 不存在（经验真相源缺失）。' }
 else {
-  $defined = @{}
-  foreach ($d in [regex]::Matches((Get-Content $ledgerPath -Raw), '(?m)^##\s*L(\d+)\b')) { $defined["L$($d.Groups[1].Value)"] = $true }
+  $lessonsArchivePath = Join-Path $RepoRoot 'specs/archive/lessons-archive.md'
+  $defined = Get-LessonDefinitionIdSet -LedgerPath $ledgerPath -ArchivePath $lessonsArchivePath
+  # 共享谓词的非真空证明：冷库定义必须进入并集；否则未来首次归档后，所有历史引用会被闸16误判悬空。
+  $idProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-lesson-ids-$PID"
+  New-Item -ItemType Directory -Force $idProbeRoot | Out-Null
+  try {
+    $hotProbe = Join-Path $idProbeRoot 'hot.md'; $coldProbe = Join-Path $idProbeRoot 'cold.md'
+    Set-Content $hotProbe "## L901`n" -Encoding utf8
+    Set-Content $coldProbe "## L902`n" -Encoding utf8
+    $probeIds = Get-LessonDefinitionIdSet -LedgerPath $hotProbe -ArchivePath $coldProbe
+    if (-not $probeIds.ContainsKey('L901') -or -not $probeIds.ContainsKey('L902') -or $probeIds.Count -ne 2) {
+      Fail '闸16：经验定义 ID 未按热账本/冷库并集合并。'
+    }
+  } finally {
+    Remove-Item -Recurse -Force $idProbeRoot -ErrorAction SilentlyContinue
+  }
   # 扫描范围：根入口文档 CLAUDE.md + CLAUDE.template.md（下游 CLAUDE.md 的来源，其 L 引用也须不悬空）+ TEMPLATE-README.md + .claude/skills/**/*.md + docs/**/*.md，排除 LEDGER 自身（id 的定义处）。
   $scanFiles = @(
     @(Get-Item -Path (Join-Path $RepoRoot 'CLAUDE.md') -ErrorAction SilentlyContinue) +
@@ -5114,7 +5221,7 @@ else {
     }
   }
   if ($dangling) { $dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在 LEDGER；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
-  else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个已定义 id，引用均存在于 LEDGER）" }
+  else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个热/冷已定义 id）" }
 }
 
 }

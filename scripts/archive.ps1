@@ -375,7 +375,7 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     '# Lessons 账本归档（cold storage · 显式策展搬入）',
     '',
     '> `docs/lessons/LEDGER.md` 的**冷存**：被显式策展搬出（已归档 / 被后续经验合并吸收）的条目整块移到此处，',
-    '> append-only、只搬不删，检索用裸 grep（无需 `lessons.ps1` 覆盖——见 `specs/archive/README.md` 维护小节）。',
+    '> append-only、只搬不删；`lessons.ps1 search` 会统一召回并标 `[archived]`，也可裸 grep。',
     '> 由 `scripts/archive.ps1 -LessonIds L<n>[,L<n>...]` 显式策展驱动搬运，无自动判定；勿手工编辑正文。',
     ''
   )

@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | **Tier 1** | 必须加载的经验（铁律） | `CLAUDE.md` 「## 经验铁律」 | **每轮自动**入上下文 | **封顶 N 条**（见 _config.ps1 `LessonsMustCap`，默认 10） |
 | **Tier 2** | 按需加载的经验（主题） | `docs/lessons/<topic>.md` | `lessons` skill 按上下文触发 | 不限 |
-| **Tier 3** | 项目总经验（总账） | `docs/lessons/LEDGER.md` | 按 tag 检索 | append-only |
+| **Tier 3** | 项目总经验（热账本 + 冷库） | `docs/lessons/LEDGER.md` + `specs/archive/lessons-archive.md` | `lessons.ps1 search` 统一检索 | append-only |
 
 必须层为何封顶：`CLAUDE.md` 每轮全量进上下文，是稀缺预算；铁律只能放**会复发且会卡死**的极少数。超限即淘汰最不活跃项回按需层。
 
@@ -34,11 +34,15 @@
 - `pwsh -File scripts\lessons.ps1 check`：校验 id 唯一、字段完整、必须层 ≤上限 且与 CLAUDE.md 同步。
 - 超限：把 recurrence 最低 / 最久未触发的铁律降回按需层。
 - 定期：合并近义条目、淘汰已过时（如某限制随升级 Pro 消失）的经验。
+- `pwsh -File scripts\lessons.ps1 archive -DryRun` 只预览一次性候选；确认后去掉 `-DryRun`，由既有
+  `archive.ps1 -LessonIds` 搬入冷库。选择器保守排除 must/ondemand、复发项、当前最大 ID，以及
+  `CLAUDE.md`/`CLAUDE.template.md` 引用项；它不替代人工判断，也不自动定时运行。
 
 ### 4. RECALL（检索，遇到问题先查）
-- `pwsh -File scripts\lessons.ps1 search <关键词>` 查总账 + 按需层；命中即照 `rule` 做。
+- `pwsh -File scripts\lessons.ps1 search <关键词>` 查热账本 + 冷库 + 按需层；冷命中带 `[archived]`，命中即照 `rule` 做。
 - 必须层每轮已在上下文，无需检索。
 - `lessons` skill 在「复发/经验/复盘/踩过的坑」等语境自动触发。
+- 冷库是只读历史面：对冷项执行 `bump/promote` 会 fail-closed，并提示先把完整条目移回热账本。
 
 ## 与既有记忆面的边界（不重复）
 其余记忆面各管各的、不与本系统重叠：`claude-mem`（若装）走自动 episodic 观察 + `mem-search` 召回；
