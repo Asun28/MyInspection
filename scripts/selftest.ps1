@@ -5167,7 +5167,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         [string]$Name,
         [AllowNull()][string]$AllowlistJson,
         [string[]]$TrackedDbPaths = @(),
-        [hashtable]$ExtraFiles = @{}
+        [hashtable]$ExtraFiles = @{},
+        [string]$JunctionParent = ''
       )
       $dir = Join-Path $sd "a3-$Name"
       New-Item -ItemType Directory -Force $dir | Out-Null
@@ -5190,6 +5191,23 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
       & git -C $dir init -q
       & git -C $dir -c user.email='s@l' -c user.name='s' add -f -A 2>$null
       & git -C $dir -c user.email='s@l' -c user.name='s' commit -q -m seed *> $null
+      if ($JunctionParent) {
+        $junction = Join-Path $dir $JunctionParent
+        $outside = Join-Path $sd "a3-$Name-outside"
+        Move-Item -LiteralPath $junction -Destination $outside -Force
+        $linkCreated = $false
+        if ($IsWindows) {
+          & cmd /c mklink /J $junction $outside *> $null
+          $linkCreated = ($LASTEXITCODE -eq 0)
+        } else {
+          try { New-Item -ItemType SymbolicLink -Path $junction -Target $outside -ErrorAction Stop | Out-Null; $linkCreated = $true } catch { }
+        }
+        $junctionItem = Get-Item -LiteralPath $junction -Force -ErrorAction SilentlyContinue
+        if (-not $linkCreated -or -not $junctionItem -or (($junctionItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)) {
+          Fail "闸17a3($Name/setup)：未建立祖先 junction/symlink，不能声称覆盖 parent-reparse 绕过。"
+          return [pscustomobject]@{ Exit = 1; Output = '[SECRET-ALLOWLIST] [TD4-JUNCTION-SETUP-FAILED]' }
+        }
+      }
       $output = & pwsh -NoProfile -File (Join-Path $dir 'scripts/check-secrets.ps1') 2>&1 | Out-String
       [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
     }
@@ -5213,11 +5231,20 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     if ($td4CaseConfig.Exit -eq 0 -or -not $td4CaseNamed) {
       Fail "种子缺陷 17a3(config-case)：大小写变体清单文件被当作精确静态例外（exit=$($td4CaseConfig.Exit)）。输出：$($td4CaseConfig.Output)"
     }
+    foreach ($td4ParentCase in @(
+      @{ Name = 'config-parent-reparse'; Parent = 'configs/secrets' },
+      @{ Name = 'database-parent-reparse'; Parent = 'android/core/src/main/sqldelight/databases' }
+    )) {
+      $td4ParentResult = & $invokeTd4SecretFixture $td4ParentCase.Name $td4BaselineJson @($td4BaselinePath) @{} $td4ParentCase.Parent
+      if ($td4ParentResult.Exit -eq 0 -or $td4ParentResult.Output -notmatch '\[SECRET-ALLOWLIST\]') {
+        Fail "种子缺陷 17a3($($td4ParentCase.Name))：清单或快照的祖先 junction/symlink 未 fail-closed（exit=$($td4ParentResult.Exit)）。输出：$($td4ParentResult.Output)"
+      }
+    }
 
     $td4InvalidCases = @(
       @{ Name = 'malformed'; Json = '[{' },
       @{ Name = 'missing'; Json = $td4BaselineJson },
-      @{ Name = 'duplicate'; Json = "[$($td4BaselineJson.Trim('[', ']')),$($td4BaselineJson.Trim('[', ']'))]" },
+      @{ Name = 'duplicate'; Json = "[$($td4BaselineJson.Trim('[', ']')),$($td4BaselineJson.Trim('[', ']'))]"; Tracked = @($td4BaselinePath) },
       @{ Name = 'unknown-field'; Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"schema","scope":"broad"}]' },
       @{ Name = 'blank-purpose'; Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":""}]' },
       @{ Name = 'glob'; Json = '[{"path":"android/core/src/main/sqldelight/databases/*.db","purpose":"schema"}]' },
@@ -5225,9 +5252,90 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     )
     foreach ($td4Invalid in $td4InvalidCases) {
       $td4Extra = if ($td4Invalid.ContainsKey('Extra')) { $td4Invalid.Extra } else { @{} }
-      $td4Result = & $invokeTd4SecretFixture $td4Invalid.Name $td4Invalid.Json @() $td4Extra
+      $td4Tracked = if ($td4Invalid.ContainsKey('Tracked')) { [string[]]$td4Invalid.Tracked } else { @() }
+      $td4Result = & $invokeTd4SecretFixture $td4Invalid.Name $td4Invalid.Json $td4Tracked $td4Extra
       if ($td4Result.Exit -eq 0 -or $td4Result.Output -notmatch '\[SECRET-ALLOWLIST\]') {
         Fail "种子缺陷 17a3($($td4Invalid.Name))：allowlist 非法状态未以 [SECRET-ALLOWLIST] fail-closed（exit=$($td4Result.Exit)）。输出：$($td4Result.Output)"
+      }
+    }
+
+    # duplicate 守卫的精确语义变异：只删重复拒绝，夹具其余条件保持合法；mutant 必须由 RED 变成错误 PASS。
+    $td4DuplicateScript = Join-Path $sd 'a3-duplicate/scripts/check-secrets.ps1'
+    $td4DuplicateOriginal = [System.IO.File]::ReadAllText($td4DuplicateScript)
+    $td4DuplicateGuard = '      if (-not $seenPaths.Add($path)) { throw "清单 path 重复：$path" }'
+    if ([regex]::Matches($td4DuplicateOriginal, [regex]::Escape($td4DuplicateGuard)).Count -ne 1) {
+      Fail '闸17a3(duplicate-mut/setup)：重复 path 守卫未唯一定位，不能声称 mutation death。'
+    } else {
+      try {
+        $td4DuplicateMutant = $td4DuplicateOriginal.Replace($td4DuplicateGuard, '      [void]$seenPaths.Add($path) # TD4 duplicate guard mutation')
+        [System.IO.File]::WriteAllText($td4DuplicateScript, $td4DuplicateMutant, [System.Text.UTF8Encoding]::new($false))
+        $td4DuplicateOut = & pwsh -NoProfile -File $td4DuplicateScript 2>&1 | Out-String
+        $td4DuplicateExit = $LASTEXITCODE
+        if ($td4DuplicateExit -ne 0) { Fail "闸17a3(duplicate-mut)：删除重复守卫后未出现精确 fail-open（exit=$td4DuplicateExit），mutation noise。输出：$td4DuplicateOut" }
+        else { Write-Host '  17a3(duplicate-mut) 删除重复 path 守卫 → 原本非法清单错误 PASS，精确 mutation killed OK' -ForegroundColor Green }
+      } finally {
+        [System.IO.File]::WriteAllText($td4DuplicateScript, $td4DuplicateOriginal, [System.Text.UTF8Encoding]::new($false))
+      }
+    }
+
+    # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
+    # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
+    $td4MigrationRepo = Join-Path $sd 'a3-migration'
+    $td4MigrationWorktreeAdded = $false
+    $td4TenancyOriginal = $null
+    $td4TenancyFile = $null
+    $td4WrongMigration = $null
+    try {
+      & git -C $RepoRoot worktree add --detach $td4MigrationRepo HEAD *> $null
+      if ($LASTEXITCODE -ne 0) { Fail '闸17a3(migration/setup)：无法建立 detached migration fixture worktree。' }
+      else {
+        $td4MigrationWorktreeAdded = $true
+        $td4BuildFile = Join-Path $td4MigrationRepo 'android/core/build.gradle.kts'
+        $td4BaselineFile = Join-Path $td4MigrationRepo $td4BaselinePath
+        $td4BuildText = if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) { Get-Content -LiteralPath $td4BuildFile -Raw } else { '' }
+        if ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
+          Fail '闸17a3(migration/setup)：fixture HEAD 未含 verifyMigrations=true + tracked 1.db，迁移负例会 vacuous。'
+        } else {
+          $invokeTd4CoreCheck = {
+            Push-Location $td4MigrationRepo
+            try {
+              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+              else { $output = & sh android/gradlew -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+              [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+            } finally { Pop-Location }
+          }
+
+          $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
+          $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
+          $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
+          $td4MissingResult = & $invokeTd4CoreCheck
+          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+          $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
+          if ($td4MissingResult.Exit -eq 0 -or -not $td4MissingExact) {
+            Fail "种子缺陷 17a3(migration-missing)：改 .sq 不带 .sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+          }
+
+          $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
+          $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+          [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
+          $td4WrongResult = & $invokeTd4CoreCheck
+          Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
+          $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
+          if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) {
+            Fail "种子缺陷 17a3(migration-wrong)：错误 1.sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4WrongResult.Exit)）。输出：$($td4WrongResult.Output)"
+          } else { Write-Host '  17a3(migration) :core:check 对缺迁移 ADDED + 错迁移 REMOVED 均由真实 verify task 精确翻红 OK' -ForegroundColor Green }
+        }
+      }
+    } finally {
+      if ($td4TenancyFile -and $null -ne $td4TenancyOriginal -and (Test-Path -LiteralPath $td4TenancyFile)) {
+        [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+      }
+      if ($td4WrongMigration -and (Test-Path -LiteralPath $td4WrongMigration)) { Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue }
+      if ($td4MigrationWorktreeAdded) {
+        & git -C $RepoRoot worktree remove --force $td4MigrationRepo *> $null
+        if ($LASTEXITCODE -ne 0) { Fail '闸17a3(migration/cleanup)：detached migration fixture worktree 未拆除。' }
+        & git -C $RepoRoot worktree prune 2>$null
       }
     }
     if (-not $fail) { Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green }

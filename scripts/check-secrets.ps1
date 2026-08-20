@@ -80,9 +80,34 @@ function Test-Sensitive([string]$path) {
   return ($path -match "(?i)($SensitivePatterns)")
 }
 
+function Assert-NoReparsePathChain([string]$fullPath) {
+  $root = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd(
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
+  )
+  $probe = [System.IO.Path]::GetFullPath($fullPath)
+  $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+  $rootPrefix = $root + [System.IO.Path]::DirectorySeparatorChar
+  if (-not [string]::Equals($probe, $root, $comparison) -and -not $probe.StartsWith($rootPrefix, $comparison)) {
+    throw "路径越出仓库，不能校验 reparse 父链：$fullPath"
+  }
+
+  while ($true) {
+    $item = Get-Item -LiteralPath $probe -Force -ErrorAction Stop
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "路径或其父级不得是 reparse point：$probe"
+    }
+    if ([string]::Equals($probe, $root, $comparison)) { break }
+    $parent = [System.IO.Directory]::GetParent($probe)
+    if ($null -eq $parent) { throw "路径父链未回到仓库根：$fullPath" }
+    $probe = $parent.FullName
+  }
+}
+
 function Initialize-TrackedSensitiveAllowlist([string[]]$trackedPaths) {
   $configFile = Join-Path $RepoRoot $TrackedSensitiveAllowlistConfig
   if (-not (Test-Path -LiteralPath $configFile)) { return }
+  Assert-NoReparsePathChain $configFile
 
   $trackedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
   foreach ($trackedPath in $trackedPaths) { [void]$trackedSet.Add($trackedPath) }
@@ -144,6 +169,7 @@ function Initialize-TrackedSensitiveAllowlist([string[]]$trackedPaths) {
       $fullPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot ($path -replace '/', [System.IO.Path]::DirectorySeparatorChar)))
       if (-not $fullPath.StartsWith($repoPrefix, $pathComparison)) { throw "清单 path 越出仓库：$path" }
       if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) { throw "清单 path 不存在或不是普通文件：$path" }
+      Assert-NoReparsePathChain $fullPath
       $item = Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop
       if ($item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
         throw "清单 path 必须是非 reparse 的普通文件：$path"
