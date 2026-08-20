@@ -268,6 +268,16 @@ function Skip-SelftestCheck {
   Write-Host $Message -ForegroundColor DarkGray
 }
 
+function Skip-SelftestChecks {
+  param(
+    [Parameter(Mandatory)][string[]]$GateIds,
+    [Parameter(Mandatory)][string]$Reason,
+    [Parameter(Mandatory)][string]$Message
+  )
+  foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }
+  Write-Host $Message -ForegroundColor DarkGray
+}
+
 function Test-SelftestPrerequisite {
   param(
     [Parameter(Mandatory)][string[]]$GateIds,
@@ -291,6 +301,16 @@ function Format-SelftestSkipSummary {
   return "[SELFTEST-SKIP-SUMMARY] shard=$Shard count=$($Records.Count) items=$items"
 }
 
+function Get-SelftestOutcomeOverlap {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$FailedGateIds,
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$SkippedRecords
+  )
+  $skipGateIds = @($SkippedRecords | ForEach-Object { $_ -replace '/[A-Z][A-Z0-9-]*$', '' })
+  $overlap = @($FailedGateIds | Where-Object { $skipGateIds -ccontains $_ })
+  return $overlap
+}
+
 function Get-SelftestCountDocEntries {
   param(
     [Parameter(Mandatory)][System.Collections.IDictionary]$ProbeDocs,
@@ -312,12 +332,14 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   if (@($errors).Count -ne 0) { return $false }
 
   $expectedCounts = @{
-    'Skip-SelftestCheck' = 71
-    'Register-SelftestSkip' = 2
-    'Test-SelftestPrerequisite' = 20
+    'Skip-SelftestCheck' = 77
+    'Skip-SelftestChecks' = 3
+    'Register-SelftestSkip' = 3
+    'Test-SelftestPrerequisite' = 21
     'Format-SelftestSkipSummary' = 4
+    'Get-SelftestOutcomeOverlap' = 1
   }
-  $protocolNames = @('Skip-SelftestCheck', 'Register-SelftestSkip', 'Test-SelftestPrerequisite', 'Format-SelftestSkipSummary')
+  $protocolNames = @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip', 'Test-SelftestPrerequisite', 'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap')
   $identityParts = [System.Collections.Generic.List[string]]::new()
   foreach ($name in $protocolNames) {
     $commands = @($ast.FindAll({
@@ -328,19 +350,24 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
     foreach ($command in $commands) {
       $identityParameterNames = switch ($name) {
         'Skip-SelftestCheck' { @('GateId', 'Reason') }
+        'Skip-SelftestChecks' { @('GateIds', 'Reason') }
         'Register-SelftestSkip' { @('GateId', 'Reason') }
         'Test-SelftestPrerequisite' { @('GateIds') }
         'Format-SelftestSkipSummary' { @('Shard', 'Records') }
+        'Get-SelftestOutcomeOverlap' { @('FailedGateIds', 'SkippedRecords') }
       }
       $parameterNames = @($command.CommandElements | Where-Object {
         $_ -is [System.Management.Automation.Language.CommandParameterAst]
       } | ForEach-Object { $_.ParameterName })
       if ($name -in @('Skip-SelftestCheck', 'Register-SelftestSkip') -and
           ('GateId' -notin $parameterNames -or 'Reason' -notin $parameterNames)) { return $false }
+      if ($name -eq 'Skip-SelftestChecks' -and ('GateIds' -notin $parameterNames -or 'Reason' -notin $parameterNames)) { return $false }
       if ($name -eq 'Test-SelftestPrerequisite' -and 'GateIds' -notin $parameterNames) { return $false }
       if ($name -eq 'Format-SelftestSkipSummary' -and
           ('Shard' -notin $parameterNames -or 'Records' -notin $parameterNames)) { return $false }
-      if ($name -eq 'Skip-SelftestCheck') {
+      if ($name -eq 'Get-SelftestOutcomeOverlap' -and
+          ('FailedGateIds' -notin $parameterNames -or 'SkippedRecords' -notin $parameterNames)) { return $false }
+      if ($name -in @('Skip-SelftestCheck', 'Skip-SelftestChecks')) {
         $elements = @($command.CommandElements)
         $reasonIndex = -1
         for ($i = 0; $i -lt $elements.Count; $i++) {
@@ -370,7 +397,7 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   $sha256 = [System.Security.Cryptography.SHA256]::Create()
   try { $identityHash = [Convert]::ToHexString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($identityParts -join "`n"))).ToLowerInvariant() }
   finally { $sha256.Dispose() }
-  if ($identityHash -ne '3998975a98784b0bbed26d79ded9703f31f0d82a856ce7920145089b68e0edbc') { return $false }
+  if ($identityHash -ne 'f930aa3a79c95647395871735bb8b2050cf043559cf1ed0098c266188f6a8f85') { return $false }
   return (
     $ScriptText -match 'return "\[SELFTEST-SKIP\] gate=\$GateId reason=\$Reason"' -and
     $ScriptText -match 'return "\[SELFTEST-SKIP-SUMMARY\] shard=\$Shard count=\$\(\$Records\.Count\) items=\$items"'
@@ -684,7 +711,9 @@ if (-not $fail) { Write-Host "  $($ps1.Count) 个 .ps1 语法 OK" }
 # .mjs：workflow 脚本在 harness 包的 async 上下文里跑（顶层 return/await/export const meta 是 harness 特性、
 # 非独立模块），故用「剥 export + 包 async 函数」喂 node --check 验语法；node 缺失则跳过（保持离线，仿闸 ⑦）。
 $mjs = @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/workflows') -Filter *.mjs -Recurse -ErrorAction SilentlyContinue)
-if ($mjs.Count) {
+if ($mjs.Count -eq 0) {
+  Skip-SelftestCheck -GateId '1(mjs)' -Reason 'FILE-MISSING' -Message '  无 .claude/workflows/*.mjs，跳过 mjs 语法检。'
+} else {
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Skip-SelftestCheck -GateId '1(mjs)' -Reason 'TOOL-NODE-MISSING' -Message "  node 未安装，跳过 $($mjs.Count) 个 .mjs 语法检（离线环境正常）。"
   } else {
@@ -1397,38 +1426,59 @@ $skipFixtureOk82 = $false
 try {
   $skipTokens82 = $null; $skipErrors82 = $null
   $skipAst82 = [System.Management.Automation.Language.Parser]::ParseInput($selftestSource82, [ref]$skipTokens82, [ref]$skipErrors82)
-  $skipFunctionNames82 = @('Test-SelftestGateId', 'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Test-SelftestPrerequisite', 'Format-SelftestSkipSummary')
+  $skipFunctionNames82 = @(
+    'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
+    'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Test-SelftestPrerequisite',
+    'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap'
+  )
   $skipFunctionSource82 = @($skipFunctionNames82 | ForEach-Object {
     $name = $_
     $functionMatches = @($skipAst82.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
     if ($functionMatches.Count -ne 1) { throw "skip fixture function count: $name=$($functionMatches.Count)" }
     $functionMatches[0].Extent.Text
   }) -join "`n`n"
-  $skipFixtureSource82 = "param([ValidateSet('environment-missing','prerequisite-fail','normal')][string]`$Mode)`n`n$skipFunctionSource82`n`n" + @'
+  $skipFixtureSource82 = "param([ValidateSet('environment-missing','prerequisite-fail','overlap','normal')][string]`$Mode)`n`n$skipFunctionSource82`n`n" + @'
 $script:skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
+$script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
 $script:fail = $false
+$script:currentSelftestGateId = '8.2e'
+$script:fixtureOutcome = 'PASS'
 switch ($Mode) {
   'environment-missing' {
     Skip-SelftestCheck -GateId '1b' -Reason 'FILE-MISSING' -Message 'fixture environment missing'
-    Write-Output 'OUTCOME=SKIP'
+    $script:fixtureOutcome = 'SKIP'
   }
   'prerequisite-fail' {
-    $script:fail = $true
-    if (Test-SelftestPrerequisite -GateIds @('17aa(7)')) { Write-Output 'OUTCOME=PASS' }
-    else { Write-Output 'OUTCOME=SKIP' }
+    Fail '17aa(6): fixture prerequisite failure'
+    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
+  }
+  'overlap' {
+    Fail '17aa(7): fixture failed unit'
+    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
   }
   'normal' {
-    if (Test-SelftestPrerequisite -GateIds @('17aa(7)')) { Write-Output 'OUTCOME=PASS' }
-    else { Write-Output 'OUTCOME=SKIP' }
+    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
   }
 }
+$outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)
+if ($outcomeOverlap.Count -gt 0) { Write-Output "OVERLAP=$($outcomeOverlap -join ',')" }
 Write-Host (Format-SelftestSkipSummary -Shard core -Records $skippedSelftestChecks)
+if ($fail) {
+  $failureSentinel = Format-SelftestFailureSentinel -Shard core -GateIds $failedSelftestGateIds
+  Write-Host $failureSentinel
+  Write-Output 'OUTCOME=FAIL'
+  exit 1
+}
+Write-Output "OUTCOME=$fixtureOutcome"
+exit 0
 '@
   Set-Content -LiteralPath $skipFixture82 -Value $skipFixtureSource82 -Encoding utf8
   $environmentMissingOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode environment-missing 2>&1 | Out-String)
   $environmentMissingExit82 = $LASTEXITCODE
   $prerequisiteFailOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode prerequisite-fail 2>&1 | Out-String)
   $prerequisiteFailExit82 = $LASTEXITCODE
+  $overlapOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode overlap 2>&1 | Out-String)
+  $overlapExit82 = $LASTEXITCODE
   $normalOutput82 = (& pwsh -NoProfile -File $skipFixture82 -Mode normal 2>&1 | Out-String)
   $normalExit82 = $LASTEXITCODE
   $skipFixtureOk82 = (
@@ -1436,10 +1486,14 @@ Write-Host (Format-SelftestSkipSummary -Shard core -Records $skippedSelftestChec
     @([regex]::Matches($environmentMissingOutput82, '(?m)^\[SELFTEST-SKIP\] gate=1b reason=FILE-MISSING\r?$')).Count -eq 1 -and
     $environmentMissingOutput82 -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=1b/FILE-MISSING\r?$' -and
     $environmentMissingOutput82 -match '(?m)^OUTCOME=SKIP\r?$' -and $environmentMissingOutput82 -notmatch '(?m)^OUTCOME=PASS\r?$' -and
-    $prerequisiteFailExit82 -eq 0 -and
+    $prerequisiteFailExit82 -eq 1 -and
     @([regex]::Matches($prerequisiteFailOutput82, '(?m)^\[SELFTEST-SKIP\] gate=17aa\(7\) reason=PREREQUISITE-FAIL\r?$')).Count -eq 1 -and
     $prerequisiteFailOutput82 -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17aa\(7\)/PREREQUISITE-FAIL\r?$' -and
-    $prerequisiteFailOutput82 -match '(?m)^OUTCOME=SKIP\r?$' -and $prerequisiteFailOutput82 -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+    $prerequisiteFailOutput82 -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(6\)\r?$' -and
+    $prerequisiteFailOutput82 -match '(?m)^OUTCOME=FAIL\r?$' -and $prerequisiteFailOutput82 -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+    $overlapExit82 -eq 1 -and $overlapOutput82 -match '(?m)^OVERLAP=17aa\(7\)\r?$' -and
+    $overlapOutput82 -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(7\)\r?$' -and
+    $overlapOutput82 -match '(?m)^OUTCOME=FAIL\r?$' -and $overlapOutput82 -notmatch '(?m)^OUTCOME=PASS\r?$' -and
     $normalExit82 -eq 0 -and $normalOutput82 -notmatch '(?m)^\[SELFTEST-SKIP\]' -and
     $normalOutput82 -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=0 items=NONE\r?$' -and
     $normalOutput82 -match '(?m)^OUTCOME=PASS\r?$' -and $normalOutput82 -notmatch '(?m)^OUTCOME=SKIP\r?$'
@@ -1451,13 +1505,13 @@ $skipProtocolAst82 = [System.Management.Automation.Language.Parser]::ParseInput(
 $skipProtocolInventory82 = @($skipProtocolAst82.FindAll({
   param($node)
   $node -is [System.Management.Automation.Language.CommandAst] -and
-  $node.GetCommandName() -in @('Skip-SelftestCheck', 'Register-SelftestSkip', 'Test-SelftestPrerequisite', 'Format-SelftestSkipSummary')
+  $node.GetCommandName() -in @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip', 'Test-SelftestPrerequisite', 'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap')
 }, $true))
 $skipProtocolMutations82 = @($skipProtocolInventory82 | ForEach-Object {
   $start = $_.Extent.StartOffset; $length = $_.Extent.EndOffset - $start
   $selftestSource82.Remove($start, $length)
 })
-$skipReasonMutations82 = @($skipProtocolInventory82 | Where-Object { $_.GetCommandName() -eq 'Skip-SelftestCheck' } | ForEach-Object {
+$skipReasonMutations82 = @($skipProtocolInventory82 | Where-Object { $_.GetCommandName() -in @('Skip-SelftestCheck', 'Skip-SelftestChecks') } | ForEach-Object {
   $start = $_.Extent.StartOffset; $length = $_.Extent.EndOffset - $start
   $mutatedCommand = [regex]::Replace($_.Extent.Text, "(?s)-Reason\s+'[^']*'", "-Reason ''", 1)
   $selftestSource82.Substring(0, $start) + $mutatedCommand + $selftestSource82.Substring($start + $length)
@@ -2123,6 +2177,8 @@ if (Test-Path $mcpCfg) {
     if ($mraw -match '(?i)(api[_-]?key|token|secret)"\s*:\s*"(?!\$\{)[^"]{8,}"') { Fail '.mcp.json 疑似含明文密钥（*_API_KEY/token/secret）——密钥须走 env `${VAR}` / `claude mcp add`，绝不入库。' }
     if (-not $fail) { Write-Host "  .mcp.json 合法（mcpServers 存在、无明文密钥）" }
   }
+} else {
+  Skip-SelftestCheck -GateId '9b' -Reason 'FILE-MISSING' -Message '  无 .mcp.json，跳过项目级 MCP 配置校验。'
 }
 # 9g. 信任清单漂移闸（TD78）：docs/TRUST-MANIFEST.md 是外部信任边界的聚合视图。**fail-closed**（R3 #6 收敛）：
 #   ① 有 .mcp.json 声明的 MCP server 就**必须**有清单——缺失即红（不再静默跳过，否则删掉清单即假绿）；
@@ -3471,7 +3527,12 @@ if ($Shard -eq 'workflow') {
 Step '15/17 动态 E2E 冒烟（task.ps1 start + ship -Local 真跑工作流：master 默认分支下建 worktree → 全链 ship 到合并提交）'
 $git = Get-Command git -ErrorAction SilentlyContinue
 if (-not $git) {
-  Skip-SelftestCheck -GateId '15' -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过（离线 / 无 git 环境正常）。'
+  Skip-SelftestChecks -GateIds @(
+    '15', '15a', '15b(ship-local)', '15c', '15d',
+    '15g1', '15g2', '15g3', '15g4', '15g5', '15g6', '15g7', '15g8', '15g9',
+    '15h1', '15h2', '15h3', '15h4(a)', '15h4(b)', '15h4(c)', '15h4(d)', '15h4(e)', '15h4(f)',
+    '15m(1)', '15m(2)', '15m(3)'
+  ) -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过 workflow 分片的 git 执行单元（离线 / 无 git 环境正常）。'
 } else {
   # 让原生命令非零退出**不抛**（只置 $LASTEXITCODE），这样下面能优雅 Fail 而非崩出栈（PS7.4+ 默认会抛）。
   $PSNativeCommandUseErrorActionPreference = $false
@@ -3840,7 +3901,9 @@ if (-not $git) {
       & git -C $e2e branch -D T0-SMOKE 2>$null
       Remove-Item $ghStub15h4 -Recurse -Force -ErrorAction SilentlyContinue
       } else {
-        Skip-SelftestCheck -GateId '15h4(d-f)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(d/e/f) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT，仅 Windows 把裸 gh 解析成 gh.ps1；Linux 会跑真 gh（同 17aa(8) 的 gh-mock 仅 Windows）。被测 online-verify 清理逻辑跨平台无关、由 Windows CI 覆盖。'
+        Skip-SelftestCheck -GateId '15h4(d)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(d) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT。'
+        Skip-SelftestCheck -GateId '15h4(e)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(e) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT。'
+        Skip-SelftestCheck -GateId '15h4(f)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(f) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT；由 Windows CI 覆盖。'
       }
 
       # 15m. base==TaskId 守卫（TD-203 / L86）。须置于 15h 之后——它先重建 15h3 拆掉的 worktree。（15i-15l 已被占用。）
@@ -5306,7 +5369,8 @@ if (-not $gitO) {
 #   两种子均须 ship block 且 marker 文件不得生成。
 $gitJ = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitJ) {
-  Skip-SelftestCheck -GateId '15j/15k' -Reason 'TOOL-GIT-MISSING' -Message '  15j/15k git 未安装，跳过（离线 / 无 git 环境正常）。'
+  Skip-SelftestCheck -GateId '15j' -Reason 'TOOL-GIT-MISSING' -Message '  15j git 未安装，跳过（离线 / 无 git 环境正常）。'
+  Skip-SelftestCheck -GateId '15k' -Reason 'TOOL-GIT-MISSING' -Message '  15k git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $pj = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-cardfield-$PID"
@@ -5426,7 +5490,17 @@ if ($Shard -eq 'seeded') {
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
 Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威 / 17hh 已归档卡入站路径）'
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-  Skip-SelftestCheck -GateId '17' -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过种子缺陷闸（离线/无 git 环境正常）。'
+  Skip-SelftestChecks -GateIds @(
+    '17', '17a', '17a2', '17u1', '17u2', '17u3a', '17u3b',
+    '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
+    '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
+    '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
+    '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)',
+    '17s', '17t',
+    '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
+    '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
+    '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y'
+  ) -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过 seeded 分片的 git 执行单元（离线/无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $sd = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-seed-$PID"
@@ -8071,11 +8145,13 @@ foreach ($n in @("ReviewModel = ''", "ReviewEffort = ''")) {
 if (-not $isPostInit) {
   if ($cfgZ -notmatch "ReviewModel\s*=\s*'[^']+'") { Fail "17z：元仓 _config.ps1 的 ReviewModel 为空——R3 又退回读用户级 ~/.codex/config.toml（GUI 可改），合并闸会被仓外配置左右。" }
   if ($cfgZ -notmatch "ReviewEffort\s*=\s*'[^']+'") { Fail '17z：元仓 _config.ps1 的 ReviewEffort 为空——R3 推理档位又交由仓外配置决定。' }
+} else {
+  Skip-SelftestCheck -GateId '17z(project-pin)' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  17z(project-pin) 跳过：下游按设计清空元仓模型/档位钉值。'
 }
 # 下游面文档同步（CLAUDE.md 之外的三处；同 CLAUDE.md「文档同步」硬规则）。
 foreach ($t in @('TEMPLATE-README.md', 'CLAUDE.template.md', 'docs/scaffold-architecture.html')) {
   $tp = Join-Path $RepoRoot $t
-  if (-not (Test-Path $tp)) { continue }   # 已 init 的下游可能删了模板产物 → 优雅跳过
+  if (-not (Test-Path $tp)) { Skip-SelftestCheck -GateId "17z(doc/$t)" -Reason 'FILE-MISSING' -Message "  17z 文档 $t 不存在，跳过该文档同步检查。"; continue }
   $tt = Get-Content $tp -Raw
   if (-not ($tt.Contains('ReviewModel') -or $tt.Contains('ReviewEffort'))) { Fail "17z：$t 未登记 ReviewModel/ReviewEffort 配置契约（文档漂移）。" }
 }
@@ -8282,7 +8358,7 @@ exit 0
 #   夹具：造 bare origin + 工作克隆；origin/master=B，本地 master 强制回退到 A；分支 feat-base 自 B 起 + 提交 C。
 #   断言送达评审者的 prompt **含 C、不含 B**。仅 Windows（复用 17h 的假 codex.ps1 shim 形态）。
 if (-not $IsWindows) {
-  Skip-SelftestCheck -GateId '17aa' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa 跳过（假 codex.ps1 shim 为 Windows 特有）。'
+  Skip-SelftestChecks -GateIds @('17aa', '17aa(1)', '17aa(2)', '17aa(5)') -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(1/2/5) 跳过：假 codex.ps1 shim 为 Windows 特有。'
 }
 else {
   $bRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17aa_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -8543,9 +8619,10 @@ if (-not $fail) { Write-Host '  17aa(7) 行为：-Local + 远端限定/错配-Ba
 #   ① origin/<base> 缺失/陈旧时须在范围闸前 fetch 恢复到远端当前 SHA，绝不回退本地；
 #   ② gh baseRefName 错配 / 空输出 / 命令失败三态均须 fail-closed；origin/master 正确归一化；评审后 retarget 在 merge 前复查阻断。
 # 同时复用 T11 真任务卡，让其无变量 DoD 经 task.ps1 的双层包装实际执行成功，防「只直接跑卡命令」假绿。
-if (Test-SelftestPrerequisite -GateIds @('17aa(8)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)')) {
+if (Test-SelftestPrerequisite -GateIds @('17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId '17aa(8)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8) gh.ps1 行为夹具仅 Windows 执行；非 Windows 由 Windows CI 覆盖。'
+    Skip-SelftestCheck -GateId '17aa(8/F5)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/F5) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
     Skip-SelftestCheck -GateId '17aa(8/origin-form)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/origin-form) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
     Skip-SelftestCheck -GateId '17aa(8/retarget)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/retarget) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
     Skip-SelftestCheck -GateId '17aa(8/T24-mint-open)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/T24-mint-open) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
@@ -8553,6 +8630,7 @@ if (Test-SelftestPrerequisite -GateIds @('17aa(8)', '17aa(8/origin-form)', '17aa
   # 下游豁免（同 15n/8.0c 手法）：本夹具复用元仓真卡 T11-R3-BASELINE（活位或冷存均可），已初始化下游不带元仓卡库——缺席即跳过而非崩整跑（TD74 同类）。
   } elseif (-not ((Test-Path (Join-Path $RepoRoot 'specs/tasks/T11-R3-BASELINE.md')) -or (Test-Path (Join-Path $RepoRoot 'specs/archive/tasks/T11-R3-BASELINE.md')))) {
     Skip-SelftestCheck -GateId '17aa(8)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8) 跳过：复用的真卡 T11-R3-BASELINE 不存在（已初始化下游无元仓卡库；该行为闸由元仓侧覆盖）。'
+    Skip-SelftestCheck -GateId '17aa(8/F5)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/F5) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
     Skip-SelftestCheck -GateId '17aa(8/origin-form)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/origin-form) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
     Skip-SelftestCheck -GateId '17aa(8/retarget)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/retarget) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
     Skip-SelftestCheck -GateId '17aa(8/T24-mint-open)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/T24-mint-open) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
@@ -8666,7 +8744,9 @@ exit 0
           elseif (Test-Path (Join-Path $r8Root 'review-reached')) { Fail "闸17aa(8/$($r8Case.mode))：base 未确认却仍进入 review。"; break }
         }
         $r8TrackedSha = (& git -C $r8Wt rev-parse refs/remotes/origin/master 2>$null | Out-String).Trim()
-        if (-not $fail -and $r8TrackedSha -ne $r8RemoteSha) { Fail "闸17aa(8/F5)：ship 未把缺失/陈旧 origin/master 刷新到远端当前 SHA（local=$r8TrackedSha remote=$r8RemoteSha）。" }
+        if (Test-SelftestPrerequisite -GateIds @('17aa(8/F5)')) {
+          if ($r8TrackedSha -ne $r8RemoteSha) { Fail "闸17aa(8/F5)：ship 未把缺失/陈旧 origin/master 刷新到远端当前 SHA（local=$r8TrackedSha remote=$r8RemoteSha）。" }
+        }
         if (Test-SelftestPrerequisite -GateIds @('17aa(8/origin-form)')) {
           Remove-Item (Join-Path $r8Root 'review-reached') -ErrorAction SilentlyContinue
           $env:GH_MOCK_BASE_MODE = 'origin-ok'
@@ -11512,8 +11592,7 @@ if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
 } else { Write-Host "  分片执行组：$($expectedGateGroups -join ',') OK" -ForegroundColor Green }
 
 Step "结论 [$Shard]"
-$skipGateIds = @($skippedSelftestChecks | ForEach-Object { $_ -replace '/[A-Z][A-Z0-9-]*$', '' })
-$outcomeOverlap = @($failedSelftestGateIds | Where-Object { $skipGateIds -ccontains $_ })
+$outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)
 if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join ',')" }
 Write-Host (Format-SelftestSkipSummary -Shard $Shard -Records $skippedSelftestChecks) -ForegroundColor DarkGray
 if ($fail) {
