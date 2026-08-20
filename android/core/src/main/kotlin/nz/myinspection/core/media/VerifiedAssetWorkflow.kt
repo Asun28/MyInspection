@@ -1,7 +1,6 @@
 package nz.myinspection.core.media
 
 import java.io.File
-import java.io.IOException
 import java.io.OutputStream
 
 /** Thin platform adapter: Android supplies Bitmap.compress, while this core workflow owns the stream lifecycle. */
@@ -20,7 +19,7 @@ interface VerifiedAssetStager {
 interface PublicationLease<Result> : AutoCloseable {
     fun finish(result: Result)
 
-    /** Expected post-record environment cleanup is reportable; unknown failures remain contract errors. */
+    /** A post-record cleanup failure is reportable but can never replace the completed database result. */
     fun onCompletedCleanupFailure(failure: Throwable) = Unit
 }
 
@@ -88,15 +87,10 @@ object VerifiedAssetWorkflow {
                     if (failure != null) {
                         failure.addSuppressed(closeFailure)
                     } else if (recordCompleted) {
-                        if (isExpectedEnvironmentFailure(closeFailure)) {
-                            try {
-                                lease?.onCompletedCleanupFailure(closeFailure)
-                            } catch (reportFailure: Throwable) {
-                                closeFailure.addSuppressed(reportFailure)
-                                throw closeFailure
-                            }
-                        } else {
-                            throw closeFailure
+                        try {
+                            lease?.onCompletedCleanupFailure(closeFailure)
+                        } catch (reportFailure: Throwable) {
+                            closeFailure.addSuppressed(reportFailure)
                         }
                     } else {
                         throw closeFailure
@@ -106,7 +100,4 @@ object VerifiedAssetWorkflow {
         }
     }
 
-    private fun isExpectedEnvironmentFailure(failure: Throwable): Boolean =
-        (failure is IOException || failure is SecurityException) &&
-            failure.suppressed.all(::isExpectedEnvironmentFailure)
 }

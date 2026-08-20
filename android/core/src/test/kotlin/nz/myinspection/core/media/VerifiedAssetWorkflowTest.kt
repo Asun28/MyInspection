@@ -136,37 +136,58 @@ class VerifiedAssetWorkflowTest {
     }
 
     @Test
-    fun `unknown lease close failure after recording propagates without being reported as recoverable`() = inTempDir { directory ->
+    fun `unknown lease close failure after recording is reported without replacing the result`() = inTempDir { directory ->
         val closeFailure = IllegalStateException("lease close contract violated")
         val lease = ReportingClosePublicationLease(closeFailure)
         val target = File(directory, "photo.jpg")
 
-        val thrown = assertFailsWith<IllegalStateException> {
-            VerifiedAssetWorkflow.encodeStagePublishRecord(
-                target = target,
-                input = Unit,
-                encoder = StreamEncoder { _, output -> output.write(1) },
-                plan = { "new" },
-                shouldPublish = { true },
-                publicationLease = { lease },
-                publish = { staged, _ -> Files.move(staged.file.toPath(), target.toPath()) },
-                record = { "recorded" },
-            )
-        }
+        val result = VerifiedAssetWorkflow.encodeStagePublishRecord(
+            target = target,
+            input = Unit,
+            encoder = StreamEncoder { _, output -> output.write(1) },
+            plan = { "new" },
+            shouldPublish = { true },
+            publicationLease = { lease },
+            publish = { staged, _ -> Files.move(staged.file.toPath(), target.toPath()) },
+            record = { "recorded" },
+        )
 
-        assertSame(closeFailure, thrown)
-        assertTrue(target.isFile, "recorded evidence stays published even though the contract error fails closed")
-        assertSame(null, lease.reportedCleanupFailure, "unknown errors must not enter the recoverable logging hook")
+        assertEquals("recorded", result)
+        assertTrue(target.isFile)
+        assertSame(closeFailure, lease.reportedCleanupFailure)
     }
 
     @Test
-    fun `unknown post-record reporting failure propagates beneath the environmental close primary`() = inTempDir { directory ->
+    fun `post-record reporting failure cannot replace the completed result`() = inTempDir { directory ->
         val closeFailure = IOException("lease filesystem unavailable")
         val reportFailure = IllegalStateException("cleanup reporting contract violated")
         val lease = FailingReportPublicationLease(closeFailure, reportFailure)
 
-        val thrown = assertFailsWith<IOException> {
-            VerifiedAssetWorkflow.encodeStagePublishRecord(
+        val result = VerifiedAssetWorkflow.encodeStagePublishRecord(
+            target = File(directory, "photo.jpg"),
+            input = Unit,
+            encoder = StreamEncoder { _, output -> output.write(1) },
+            plan = { "new" },
+            shouldPublish = { true },
+            publicationLease = { lease },
+            publish = { _, _ -> Unit },
+            record = { "recorded" },
+        )
+
+        assertEquals("recorded", result)
+        assertSame(closeFailure, lease.reportedCleanupFailure)
+        assertEquals(listOf(reportFailure), closeFailure.suppressed.toList())
+    }
+
+    @Test
+    fun `post-record close reports its complete mixed failure tree without replacing the result`() =
+        inTempDir { directory ->
+            val closeFailure = IOException("lease filesystem unavailable")
+            val unknownCleanup = IllegalStateException("lease close contract violated")
+            closeFailure.addSuppressed(unknownCleanup)
+            val lease = ReportingClosePublicationLease(closeFailure)
+
+            val result = VerifiedAssetWorkflow.encodeStagePublishRecord(
                 target = File(directory, "photo.jpg"),
                 input = Unit,
                 encoder = StreamEncoder { _, output -> output.write(1) },
@@ -176,36 +197,10 @@ class VerifiedAssetWorkflowTest {
                 publish = { _, _ -> Unit },
                 record = { "recorded" },
             )
-        }
 
-        assertSame(closeFailure, thrown)
-        assertEquals(listOf(reportFailure), thrown.suppressed.toList())
-    }
-
-    @Test
-    fun `environment close with unknown suppressed cleanup error fails closed without recoverable reporting`() =
-        inTempDir { directory ->
-            val closeFailure = IOException("lease filesystem unavailable")
-            val unknownCleanup = IllegalStateException("lease close contract violated")
-            closeFailure.addSuppressed(unknownCleanup)
-            val lease = ReportingClosePublicationLease(closeFailure)
-
-            val thrown = assertFailsWith<IOException> {
-                VerifiedAssetWorkflow.encodeStagePublishRecord(
-                    target = File(directory, "photo.jpg"),
-                    input = Unit,
-                    encoder = StreamEncoder { _, output -> output.write(1) },
-                    plan = { "new" },
-                    shouldPublish = { true },
-                    publicationLease = { lease },
-                    publish = { _, _ -> Unit },
-                    record = { "recorded" },
-                )
-            }
-
-            assertSame(closeFailure, thrown)
-            assertEquals(listOf(unknownCleanup), thrown.suppressed.toList())
-            assertSame(null, lease.reportedCleanupFailure, "mixed failure trees must not enter the recoverable hook")
+            assertEquals("recorded", result)
+            assertSame(closeFailure, lease.reportedCleanupFailure)
+            assertEquals(listOf(unknownCleanup), closeFailure.suppressed.toList())
         }
 
     @Test
@@ -448,6 +443,9 @@ class VerifiedAssetWorkflowTest {
         private val closeFailure: Throwable,
         private val reportFailure: Throwable,
     ) : PublicationLease<String> {
+        var reportedCleanupFailure: Throwable? = null
+            private set
+
         override fun finish(result: String) = Unit
 
         override fun close() {
@@ -455,6 +453,7 @@ class VerifiedAssetWorkflowTest {
         }
 
         override fun onCompletedCleanupFailure(failure: Throwable) {
+            reportedCleanupFailure = failure
             throw reportFailure
         }
     }

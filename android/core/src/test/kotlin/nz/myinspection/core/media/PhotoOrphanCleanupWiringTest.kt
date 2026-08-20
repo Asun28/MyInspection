@@ -43,9 +43,9 @@ class PhotoOrphanCleanupWiringTest {
             lease.contains("activeFailure.addSuppressed(closeFailure)"),
             "directory descriptor close must stay suppressed beneath an fsync primary",
         )
-        assertTrue(
-            lease.contains("failure.suppressed.all(::isExpectedEnvironmentFailure)"),
-            "the app hook must reject an environmental primary carrying an unknown suppressed failure",
+        assertFalse(
+            lease.contains("check(isExpectedEnvironmentFailure(failure))"),
+            "post-record cleanup logging must not turn an unknown cleanup failure into an ingest failure",
         )
         assertInOrder(
             coreLease,

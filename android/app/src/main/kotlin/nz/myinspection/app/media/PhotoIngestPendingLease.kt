@@ -4,7 +4,6 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.Log
 import java.io.File
-import java.io.IOException
 import nz.myinspection.core.media.PendingPhotoLease
 import nz.myinspection.core.media.PendingPhotoLeaseDisposition
 import nz.myinspection.core.media.PublicationLease
@@ -37,9 +36,6 @@ internal class PhotoIngestPendingLease private constructor(
     }
 
     override fun onCompletedCleanupFailure(failure: Throwable) {
-        check(isExpectedEnvironmentFailure(failure)) {
-            "unexpected pending lease cleanup failure: ${failure.javaClass.name}"
-        }
         Log.w(TAG, "op=releasePendingLease photoId=$photoId path=${lease.marker.path} result=failed", failure)
     }
 
@@ -67,9 +63,5 @@ internal class PhotoIngestPendingLease private constructor(
                 }
             }
         }
-
-        private fun isExpectedEnvironmentFailure(failure: Throwable): Boolean =
-            (failure is IOException || failure is SecurityException) &&
-                failure.suppressed.all(::isExpectedEnvironmentFailure)
     }
 }
