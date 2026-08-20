@@ -7,9 +7,102 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PendingPhotoLeaseTest {
+    @Test
+    fun `acquire forces the marker then syncs its parent while the lease is exclusive`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-durable.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val marker = File(target.parentFile, "photo-durable.jpg.pending")
+        val events = mutableListOf<String>()
+
+        val lease = PendingPhotoLease.acquireWithDurability(
+            target = target,
+            forceMarker = { channel ->
+                events += "force-marker"
+                channel.force(true)
+            },
+            syncParentDirectory = { parent ->
+                events += "sync-parent"
+                assertEquals(target.parentFile!!.canonicalFile, parent.canonicalFile)
+                assertTrue(marker.isFile, "the new directory entry must exist before its parent is synced")
+                val competing = runCatching { PendingPhotoLease.acquire(target) }
+                competing.getOrNull()?.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+                assertTrue(
+                    competing.exceptionOrNull() is IOException,
+                    "the parent sync must run before return while the marker remains exclusively leased",
+                )
+            },
+        )
+
+        assertEquals(listOf("force-marker", "sync-parent"), events)
+        lease.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+    }
+
+    @Test
+    fun `parent directory sync failure aborts acquire with its cause and releases the marker`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-sync-fails.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val failure = IOException("directory fsync failed")
+
+        val thrown = assertFailsWith<IOException> {
+            PendingPhotoLease.acquireWithDurability(
+                target = target,
+                forceMarker = { it.force(true) },
+                syncParentDirectory = { throw failure },
+            )
+        }
+
+        assertSame(failure, thrown)
+        PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+    }
+
+    @Test
+    fun `environment marker finalization failure is preserved and releases the lease for recovery`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-finalize-io.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val failure = IOException("marker write failed")
+        val lease = PendingPhotoLease.acquireWithDurability(
+            target = target,
+            forceMarker = { it.force(true) },
+            syncParentDirectory = {},
+            finalizeMarker = { throw failure },
+        )
+
+        val thrown = assertFailsWith<IOException> {
+            lease.closeAfter(PendingPhotoLeaseDisposition.RECORDED)
+        }
+
+        assertSame(failure, thrown)
+        PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+    }
+
+    @Test
+    fun `unknown marker finalization failure propagates fail closed and releases the lease`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-finalize-unknown.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val failure = IllegalStateException("marker finalizer contract violated")
+        val lease = PendingPhotoLease.acquireWithDurability(
+            target = target,
+            forceMarker = { it.force(true) },
+            syncParentDirectory = {},
+            finalizeMarker = { throw failure },
+        )
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            lease.closeAfter(PendingPhotoLeaseDisposition.RECORDED)
+        }
+
+        assertSame(failure, thrown)
+        PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+    }
+
     @Test
     fun `acquire keeps one durable sidecar exclusively locked until a recorded result clears it`() = inTempDir { root ->
         val target = File(root, "photos/property/inspection/photo-1.jpg").also {

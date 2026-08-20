@@ -131,7 +131,11 @@ class PendingPhotoAssetCleanup private constructor(
                 } catch (closeFailure: Throwable) {
                     val existing = primary
                     if (existing == null) {
-                        result = RecoveryResult.Failed(closeFailure)
+                        if (isExpectedEnvironmentFailure(closeFailure)) {
+                            result = RecoveryResult.Failed(closeFailure)
+                        } else {
+                            throw closeFailure
+                        }
                     } else {
                         existing.addSuppressed(closeFailure)
                     }
@@ -141,6 +145,9 @@ class PendingPhotoAssetCleanup private constructor(
 
         return checkNotNull(result)
     }
+
+    private fun isExpectedEnvironmentFailure(failure: Throwable): Boolean =
+        failure is IOException || failure is SecurityException
 
     private fun pendingCandidates(): List<PendingCandidate> {
         val root = scanRoot()

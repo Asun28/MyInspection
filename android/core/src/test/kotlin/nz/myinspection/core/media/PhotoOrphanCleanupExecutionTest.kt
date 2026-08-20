@@ -37,6 +37,22 @@ class PhotoOrphanCleanupExecutionTest {
     }
 
     @Test
+    fun `execution fails closed when driver close after success is an unknown error`() {
+        val closeFailure = IllegalStateException("driver close contract violated")
+        val driver = RecordingDriver(closeFailure)
+
+        val result = PhotoOrphanCleanupExecution.run(
+            open = { driver },
+            cleanup = { PhotoOrphanCleanupDecision.SUCCESS },
+            retryable = { it is IOException },
+        )
+
+        assertEquals(PhotoOrphanCleanupDecision.FAILURE, result.decision)
+        assertSame(closeFailure, result.failure)
+        assertEquals(1, driver.closeCalls)
+    }
+
+    @Test
     fun `execution keeps a retryable cleanup primary and suppresses its close failure`() {
         val primary = IOException("database temporarily unavailable")
         val closeFailure = IOException("close also failed")
@@ -50,6 +66,24 @@ class PhotoOrphanCleanupExecutionTest {
 
         assertEquals(PhotoOrphanCleanupDecision.RETRY, result.decision)
         assertSame(primary, result.failure, "driver cleanup must not replace the active failure")
+        assertEquals(listOf(closeFailure), primary.suppressed.toList())
+        assertEquals(1, driver.closeCalls)
+    }
+
+    @Test
+    fun `execution fails closed for unknown driver close beside a retryable primary`() {
+        val primary = IOException("database temporarily unavailable")
+        val closeFailure = IllegalStateException("driver close contract violated")
+        val driver = RecordingDriver(closeFailure)
+
+        val result = PhotoOrphanCleanupExecution.run(
+            open = { driver },
+            cleanup = { throw primary },
+            retryable = { it is IOException },
+        )
+
+        assertEquals(PhotoOrphanCleanupDecision.FAILURE, result.decision)
+        assertSame(primary, result.failure, "the active cleanup error remains the primary diagnostic")
         assertEquals(listOf(closeFailure), primary.suppressed.toList())
         assertEquals(1, driver.closeCalls)
     }

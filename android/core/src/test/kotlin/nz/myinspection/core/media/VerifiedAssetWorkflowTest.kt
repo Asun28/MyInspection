@@ -1,6 +1,7 @@
 package nz.myinspection.core.media
 
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
@@ -113,7 +114,7 @@ class VerifiedAssetWorkflowTest {
 
     @Test
     fun `lease close failure after a recorded result is reported without replacing that result`() = inTempDir { directory ->
-        val closeFailure = IllegalStateException("lease close failed")
+        val closeFailure = IOException("lease filesystem unavailable")
         val lease = ReportingClosePublicationLease(closeFailure)
         val target = File(directory, "photo.jpg")
 
@@ -133,6 +134,79 @@ class VerifiedAssetWorkflowTest {
         assertTrue(lease.closed)
         assertSame(closeFailure, lease.reportedCleanupFailure)
     }
+
+    @Test
+    fun `unknown lease close failure after recording propagates without being reported as recoverable`() = inTempDir { directory ->
+        val closeFailure = IllegalStateException("lease close contract violated")
+        val lease = ReportingClosePublicationLease(closeFailure)
+        val target = File(directory, "photo.jpg")
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            VerifiedAssetWorkflow.encodeStagePublishRecord(
+                target = target,
+                input = Unit,
+                encoder = StreamEncoder { _, output -> output.write(1) },
+                plan = { "new" },
+                shouldPublish = { true },
+                publicationLease = { lease },
+                publish = { staged, _ -> Files.move(staged.file.toPath(), target.toPath()) },
+                record = { "recorded" },
+            )
+        }
+
+        assertSame(closeFailure, thrown)
+        assertTrue(target.isFile, "recorded evidence stays published even though the contract error fails closed")
+        assertSame(null, lease.reportedCleanupFailure, "unknown errors must not enter the recoverable logging hook")
+    }
+
+    @Test
+    fun `unknown post-record reporting failure propagates beneath the environmental close primary`() = inTempDir { directory ->
+        val closeFailure = IOException("lease filesystem unavailable")
+        val reportFailure = IllegalStateException("cleanup reporting contract violated")
+        val lease = FailingReportPublicationLease(closeFailure, reportFailure)
+
+        val thrown = assertFailsWith<IOException> {
+            VerifiedAssetWorkflow.encodeStagePublishRecord(
+                target = File(directory, "photo.jpg"),
+                input = Unit,
+                encoder = StreamEncoder { _, output -> output.write(1) },
+                plan = { "new" },
+                shouldPublish = { true },
+                publicationLease = { lease },
+                publish = { _, _ -> Unit },
+                record = { "recorded" },
+            )
+        }
+
+        assertSame(closeFailure, thrown)
+        assertEquals(listOf(reportFailure), thrown.suppressed.toList())
+    }
+
+    @Test
+    fun `environment close with unknown suppressed cleanup error fails closed without recoverable reporting`() =
+        inTempDir { directory ->
+            val closeFailure = IOException("lease filesystem unavailable")
+            val unknownCleanup = IllegalStateException("lease close contract violated")
+            closeFailure.addSuppressed(unknownCleanup)
+            val lease = ReportingClosePublicationLease(closeFailure)
+
+            val thrown = assertFailsWith<IOException> {
+                VerifiedAssetWorkflow.encodeStagePublishRecord(
+                    target = File(directory, "photo.jpg"),
+                    input = Unit,
+                    encoder = StreamEncoder { _, output -> output.write(1) },
+                    plan = { "new" },
+                    shouldPublish = { true },
+                    publicationLease = { lease },
+                    publish = { _, _ -> Unit },
+                    record = { "recorded" },
+                )
+            }
+
+            assertSame(closeFailure, thrown)
+            assertEquals(listOf(unknownCleanup), thrown.suppressed.toList())
+            assertSame(null, lease.reportedCleanupFailure, "mixed failure trees must not enter the recoverable hook")
+        }
 
     @Test
     fun `camera mode derives its plan hash from the closed staged JPEG`() = inTempDir { directory ->
@@ -351,7 +425,7 @@ class VerifiedAssetWorkflowTest {
     }
 
     private class ReportingClosePublicationLease(
-        private val closeFailure: IllegalStateException,
+        private val closeFailure: Throwable,
     ) : PublicationLease<String> {
         var closed = false
             private set
@@ -367,6 +441,21 @@ class VerifiedAssetWorkflowTest {
 
         override fun onCompletedCleanupFailure(failure: Throwable) {
             reportedCleanupFailure = failure
+        }
+    }
+
+    private class FailingReportPublicationLease(
+        private val closeFailure: Throwable,
+        private val reportFailure: Throwable,
+    ) : PublicationLease<String> {
+        override fun finish(result: String) = Unit
+
+        override fun close() {
+            throw closeFailure
+        }
+
+        override fun onCompletedCleanupFailure(failure: Throwable) {
+            throw reportFailure
         }
     }
 

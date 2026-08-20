@@ -10,6 +10,8 @@ import java.io.IOException
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.media.PhotoOrphanCleanupDecision
 import nz.myinspection.core.media.PhotoOrphanCleanupExecution
+import nz.myinspection.core.media.PhotoOrphanCleanupIssue
+import nz.myinspection.core.media.PhotoOrphanCleanupReport
 import nz.myinspection.core.media.PhotoOrphanCleanupRunner
 
 /** Android adapter: constructs the private DB runtime and delegates decision/lifecycle semantics to :core. */
@@ -18,6 +20,7 @@ class PhotoOrphanCleanupWorker(
     parameters: WorkerParameters,
 ) : Worker(appContext, parameters) {
     override fun doWork(): Result {
+        var cleanupReport: PhotoOrphanCleanupReport? = null
         val execution = PhotoOrphanCleanupExecution.run(
             open = {
                 val storage = PhotoRuntimeStorage.from(applicationContext)
@@ -29,12 +32,20 @@ class PhotoOrphanCleanupWorker(
             cleanup = { resources ->
                 val database = MyInspectionDatabase(resources.driver)
                 val deleter = PhotoAssetCleanupExecutor(resources.storage.mediaRoot)
-                PhotoOrphanCleanupRunner(database, resources.storage.mediaRoot, deleter).run()
+                PhotoOrphanCleanupRunner(database, resources.storage.mediaRoot, deleter).run().also { report ->
+                    cleanupReport = report
+                }.decision
             },
             retryable = ::isRetryableEnvironmentFailure,
         )
+        cleanupReport?.issues()?.forEach { issue -> logIssue(issue) }
         execution.failure?.let { failure ->
-            Log.e(TAG, "op=photoOrphanCleanup result=${decisionName(execution.decision)}", failure)
+            Log.e(
+                TAG,
+                "op=photoOrphanCleanup workId=$id runAttemptCount=$runAttemptCount " +
+                    "result=execution_failure bucket=execution path=none cause=${failure.javaClass.name}",
+                failure,
+            )
         }
         return when (execution.decision) {
             PhotoOrphanCleanupDecision.SUCCESS -> Result.success()
@@ -43,14 +54,17 @@ class PhotoOrphanCleanupWorker(
         }
     }
 
-    private fun isRetryableEnvironmentFailure(failure: Throwable): Boolean =
-        failure is IOException || failure is SecurityException || failure is SQLiteException
-
-    private fun decisionName(decision: PhotoOrphanCleanupDecision): String = when (decision) {
-        PhotoOrphanCleanupDecision.SUCCESS -> "success"
-        PhotoOrphanCleanupDecision.RETRY -> "retry"
-        PhotoOrphanCleanupDecision.FAILURE -> "failure"
+    private fun logIssue(issue: PhotoOrphanCleanupIssue) {
+        val causeName = issue.cause?.javaClass?.name ?: "none"
+        val message = "op=photoOrphanCleanup workId=$id runAttemptCount=$runAttemptCount " +
+            "result=${issue.result.logValue} bucket=${issue.bucket.logValue} path=${issue.path} cause=$causeName"
+        val cause = issue.cause
+        if (cause == null) Log.e(TAG, message) else Log.e(TAG, message, cause)
     }
+
+    private fun isRetryableEnvironmentFailure(failure: Throwable): Boolean =
+        (failure is IOException || failure is SecurityException || failure is SQLiteException) &&
+            failure.suppressed.all(::isRetryableEnvironmentFailure)
 
     private data class CleanupResources(
         val storage: PhotoRuntimeStorage,

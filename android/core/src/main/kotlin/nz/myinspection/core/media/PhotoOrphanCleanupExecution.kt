@@ -10,7 +10,8 @@ data class PhotoOrphanCleanupExecutionResult(
  * Resource lifecycle for the Android worker, kept generic so JVM tests execute the exact primary/suppression rules.
  *
  * The app supplies an AndroidSqliteDriver; this core helper deliberately knows only AutoCloseable and the cleanup
- * decision domain. A close failure converts only an otherwise-successful run to retry and never replaces a primary.
+ * decision domain. Expected close failures convert an otherwise-successful run to retry; unknown close failures fail
+ * closed, while an active primary always retains ownership of suppressed cleanup evidence.
  */
 object PhotoOrphanCleanupExecution {
     fun <Resource : AutoCloseable> run(
@@ -38,9 +39,14 @@ object PhotoOrphanCleanupExecution {
                 val failure = primary
                 if (failure != null) {
                     failure.addSuppressed(closeFailure)
+                    if (!retryable(closeFailure)) {
+                        decision = PhotoOrphanCleanupDecision.FAILURE
+                    }
                 } else {
                     primary = closeFailure
-                    if (decision == PhotoOrphanCleanupDecision.SUCCESS) {
+                    if (!retryable(closeFailure)) {
+                        decision = PhotoOrphanCleanupDecision.FAILURE
+                    } else if (decision == PhotoOrphanCleanupDecision.SUCCESS) {
                         decision = PhotoOrphanCleanupDecision.RETRY
                     }
                 }

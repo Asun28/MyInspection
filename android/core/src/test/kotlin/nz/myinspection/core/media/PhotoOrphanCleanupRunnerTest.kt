@@ -2,12 +2,14 @@ package nz.myinspection.core.media
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import nz.myinspection.core.db.DbTestFixtures
 import nz.myinspection.core.db.MyInspectionDatabase
@@ -44,9 +46,11 @@ class PhotoOrphanCleanupRunnerTest {
         PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
         insertActive(photoId, relPath)
 
-        val decision = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }).run()
+        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }).run()
 
-        assertEquals(PhotoOrphanCleanupDecision.SUCCESS, decision)
+        assertEquals(PhotoOrphanCleanupDecision.SUCCESS, report.decision)
+        assertEquals(listOf(relPath), report.pending.readopted)
+        assertEquals(CleanupResult(emptyList(), emptyList(), emptyList()), report.softDelete)
         assertTrue(asset.isFile, "an active exact DB row adopts the JPEG instead of deleting it")
         assertFalse(File(asset.parentFile, "$photoId.jpg.pending").exists())
     }
@@ -59,9 +63,10 @@ class PhotoOrphanCleanupRunnerTest {
         val marker = File(asset.parentFile, "$photoId.jpg.pending")
         PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
 
-        val decision = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }).run()
+        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }).run()
 
-        assertEquals(PhotoOrphanCleanupDecision.RETRY, decision)
+        assertEquals(PhotoOrphanCleanupDecision.RETRY, report.decision)
+        assertEquals(listOf(FailedDeletion(relPath, cause = null)), report.pending.failed)
         assertTrue(asset.isFile)
         assertTrue(marker.isFile, "a failed delete must leave recovery state intact for the next worker run")
     }
@@ -76,13 +81,14 @@ class PhotoOrphanCleanupRunnerTest {
 
         RandomAccessFile(marker, "rw").use {
             assertFalse(lease.closeAfter(PendingPhotoLeaseDisposition.RECORDED))
-            val decision = PhotoOrphanCleanupRunner(
+            val report = PhotoOrphanCleanupRunner(
                 database,
                 root,
                 OrphanFileDeleter { path -> File(root, path).delete() || !File(root, path).exists() },
             ).run()
 
-            assertEquals(PhotoOrphanCleanupDecision.RETRY, decision)
+            assertEquals(PhotoOrphanCleanupDecision.RETRY, report.decision)
+            assertEquals(listOf(FailedDeletion(relPath, cause = null)), report.pending.failed)
             assertFalse(asset.exists(), "the marker retry must not undo a successfully removed unadopted JPEG")
             assertTrue(marker.isFile)
             assertTrue(marker.length() > 0L, "delete failure must preserve the resolving handoff for a later worker")
@@ -97,13 +103,15 @@ class PhotoOrphanCleanupRunnerTest {
         database.photoQueries.softDelete(deleted_at = DbTestFixtures.NOW + 1, id = photoId)
         val calls = mutableListOf<String>()
 
-        val decision = PhotoOrphanCleanupRunner(
+        val report = PhotoOrphanCleanupRunner(
             database,
             root,
             OrphanFileDeleter { path -> calls += path; true },
         ).run()
 
-        assertEquals(PhotoOrphanCleanupDecision.FAILURE, decision)
+        assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
+        assertEquals(listOf(corruptRelPath), report.softDelete.rejected)
+        assertEquals(CleanupResult(emptyList(), emptyList(), emptyList()), report.pending)
         assertTrue(calls.isEmpty(), "the existing cleaner must keep rejecting malformed stored paths")
     }
 
@@ -113,14 +121,108 @@ class PhotoOrphanCleanupRunnerTest {
         File(directory, " .jpg.pending").writeText("")
         val calls = mutableListOf<String>()
 
-        val decision = PhotoOrphanCleanupRunner(
+        val report = PhotoOrphanCleanupRunner(
             database,
             root,
             OrphanFileDeleter { path -> calls += path; true },
         ).run()
 
-        assertEquals(PhotoOrphanCleanupDecision.FAILURE, decision)
+        assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
+        assertEquals(listOf("photos/property/inspection/ .jpg.pending"), report.pending.rejected)
+        assertEquals(CleanupResult(emptyList(), emptyList(), emptyList()), report.softDelete)
         assertTrue(calls.isEmpty(), "pending rejection alone must fail closed before any deletion")
+    }
+
+    @Test
+    fun `runner report and issue projection keep pending and soft-delete rejections distinct`() = inTempDir { root ->
+        val pendingPath = "photos/property/inspection/ .jpg.pending"
+        File(root, pendingPath).also {
+            assertTrue(it.parentFile!!.mkdirs())
+            it.writeText("")
+        }
+        val softDeletePath = "audio/property/inspection/not-a-photo.m4a"
+        val photoId = "soft-deleted-observable"
+        insertActive(photoId, softDeletePath)
+        database.photoQueries.softDelete(deleted_at = DbTestFixtures.NOW + 1, id = photoId)
+
+        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { true }).run()
+
+        assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
+        assertEquals(listOf(pendingPath), report.pending.rejected)
+        assertEquals(listOf(softDeletePath), report.softDelete.rejected)
+        assertEquals(
+            listOf(
+                PhotoOrphanCleanupIssue(
+                    result = PhotoOrphanCleanupIssueResult.REJECTED,
+                    bucket = PhotoOrphanCleanupBucket.PENDING,
+                    path = pendingPath,
+                    cause = null,
+                ),
+                PhotoOrphanCleanupIssue(
+                    result = PhotoOrphanCleanupIssueResult.REJECTED,
+                    bucket = PhotoOrphanCleanupBucket.SOFT_DELETE,
+                    path = softDeletePath,
+                    cause = null,
+                ),
+            ),
+            report.issues(),
+        )
+    }
+
+    @Test
+    fun `report issue projection retains each failed path and cause without collapsing buckets`() {
+        val pendingCause = IOException("pending marker locked")
+        val softDeleteCause = SecurityException("soft-delete asset denied")
+        val pendingPath = "photos/property/inspection/pending.jpg"
+        val softDeletePath = "photos/property/inspection/soft-delete.jpg"
+
+        val report = PhotoOrphanCleanupReport.from(
+            pending = CleanupResult(
+                deleted = emptyList(),
+                failed = listOf(FailedDeletion(pendingPath, pendingCause)),
+                rejected = emptyList(),
+            ),
+            softDelete = CleanupResult(
+                deleted = emptyList(),
+                failed = listOf(FailedDeletion(softDeletePath, softDeleteCause)),
+                rejected = emptyList(),
+            ),
+        )
+
+        assertEquals(PhotoOrphanCleanupDecision.RETRY, report.decision)
+        val issues = report.issues()
+        assertEquals(2, issues.size)
+        assertEquals(PhotoOrphanCleanupIssueResult.FAILED, issues[0].result)
+        assertEquals(PhotoOrphanCleanupBucket.PENDING, issues[0].bucket)
+        assertEquals(pendingPath, issues[0].path)
+        assertSame(pendingCause, issues[0].cause)
+        assertEquals(PhotoOrphanCleanupIssueResult.FAILED, issues[1].result)
+        assertEquals(PhotoOrphanCleanupBucket.SOFT_DELETE, issues[1].bucket)
+        assertEquals(softDeletePath, issues[1].path)
+        assertSame(softDeleteCause, issues[1].cause)
+    }
+
+    @Test
+    fun `report fails closed when a retryable primary retains an unknown suppressed cleanup error`() {
+        val primary = IOException("marker filesystem unavailable")
+        primary.addSuppressed(IllegalStateException("lease close contract violated"))
+
+        val report = PhotoOrphanCleanupReport.from(
+            pending = CleanupResult(
+                deleted = emptyList(),
+                failed = listOf(FailedDeletion("photos/property/inspection/photo.jpg", primary)),
+                rejected = emptyList(),
+            ),
+            softDelete = CleanupResult(emptyList(), emptyList(), emptyList()),
+        )
+
+        assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
+        assertSame(primary, report.pending.failed.single().cause)
+        val issue = report.issues().single()
+        assertEquals(PhotoOrphanCleanupBucket.PENDING, issue.bucket)
+        assertEquals(PhotoOrphanCleanupIssueResult.FAILED, issue.result)
+        assertEquals("photos/property/inspection/photo.jpg", issue.path)
+        assertSame(primary, issue.cause)
     }
 
     private fun insertActive(photoId: String, relPath: String) {

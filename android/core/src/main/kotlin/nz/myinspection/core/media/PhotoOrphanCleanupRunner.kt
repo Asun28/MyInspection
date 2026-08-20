@@ -1,6 +1,7 @@
 package nz.myinspection.core.media
 
 import java.io.File
+import java.io.IOException
 import nz.myinspection.core.db.MyInspectionDatabase
 
 /** The worker result domain: malformed persisted data fails closed, transient filesystem contention retries. */
@@ -8,6 +9,69 @@ enum class PhotoOrphanCleanupDecision {
     SUCCESS,
     RETRY,
     FAILURE,
+}
+
+enum class PhotoOrphanCleanupBucket(val logValue: String) {
+    PENDING("pending"),
+    SOFT_DELETE("soft_delete"),
+}
+
+enum class PhotoOrphanCleanupIssueResult(val logValue: String) {
+    REJECTED("rejected"),
+    FAILED("failed"),
+}
+
+/** One path-level item the Android worker must make observable without losing its cleanup bucket or cause. */
+data class PhotoOrphanCleanupIssue(
+    val result: PhotoOrphanCleanupIssueResult,
+    val bucket: PhotoOrphanCleanupBucket,
+    val path: String,
+    val cause: Throwable?,
+)
+
+/** Complete evidence from one pass; neither cleanup source is collapsed into the WorkManager decision. */
+data class PhotoOrphanCleanupReport private constructor(
+    val pending: CleanupResult,
+    val softDelete: CleanupResult,
+    val decision: PhotoOrphanCleanupDecision,
+) {
+    fun issues(): List<PhotoOrphanCleanupIssue> = buildList {
+        addIssues(PhotoOrphanCleanupBucket.PENDING, pending)
+        addIssues(PhotoOrphanCleanupBucket.SOFT_DELETE, softDelete)
+    }
+
+    private fun MutableList<PhotoOrphanCleanupIssue>.addIssues(
+        bucket: PhotoOrphanCleanupBucket,
+        result: CleanupResult,
+    ) {
+        result.rejected.forEach { path ->
+            add(PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.REJECTED, bucket, path, cause = null))
+        }
+        result.failed.forEach { failure ->
+            add(PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.FAILED, bucket, failure.relPath, failure.cause))
+        }
+    }
+
+    companion object {
+        internal fun from(pending: CleanupResult, softDelete: CleanupResult): PhotoOrphanCleanupReport {
+            val decision = when {
+                pending.rejected.isNotEmpty() || softDelete.rejected.isNotEmpty() ->
+                    PhotoOrphanCleanupDecision.FAILURE
+                (pending.failed + softDelete.failed).any { !isRetryableFailure(it.cause) } ->
+                    PhotoOrphanCleanupDecision.FAILURE
+                pending.failed.isNotEmpty() || softDelete.failed.isNotEmpty() ->
+                    PhotoOrphanCleanupDecision.RETRY
+                else -> PhotoOrphanCleanupDecision.SUCCESS
+            }
+            return PhotoOrphanCleanupReport(pending, softDelete, decision)
+        }
+
+        private fun isRetryableFailure(failure: Throwable?): Boolean = when (failure) {
+            null -> true
+            is IOException, is SecurityException -> failure.suppressed.all(::isRetryableFailure)
+            else -> false
+        }
+    }
 }
 
 /**
@@ -21,7 +85,7 @@ class PhotoOrphanCleanupRunner(
     private val mediaRoot: File,
     private val deleter: OrphanFileDeleter,
 ) {
-    fun run(): PhotoOrphanCleanupDecision {
+    fun run(): PhotoOrphanCleanupReport {
         val pending = PendingPhotoAssetCleanup(
             mediaRoot = mediaRoot,
             findPhoto = { photoId ->
@@ -31,11 +95,7 @@ class PhotoOrphanCleanupRunner(
             },
             deleter = deleter,
         ).run()
-        val orphaned = OrphanedAssetCleanup(database, deleter).run()
-        return when {
-            pending.rejected.isNotEmpty() || orphaned.rejected.isNotEmpty() -> PhotoOrphanCleanupDecision.FAILURE
-            pending.failed.isNotEmpty() || orphaned.failed.isNotEmpty() -> PhotoOrphanCleanupDecision.RETRY
-            else -> PhotoOrphanCleanupDecision.SUCCESS
-        }
+        val softDelete = OrphanedAssetCleanup(database, deleter).run()
+        return PhotoOrphanCleanupReport.from(pending, softDelete)
     }
 }

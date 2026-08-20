@@ -13,6 +13,9 @@ class PhotoOrphanCleanupWiringTest {
         val camera = Files.readString(media.resolve("CameraPhotoIngestPipeline.kt"))
         val imported = Files.readString(media.resolve("PhotoImportPipeline.kt"))
         val lease = Files.readString(media.resolve("PhotoIngestPendingLease.kt"))
+        val coreLease = Files.readString(
+            androidRoot().resolve("core/src/main/kotlin/nz/myinspection/core/media/PendingPhotoLease.kt"),
+        )
 
         assertLeaseIsWired(camera, "camera")
         assertLeaseIsWired(imported, "import")
@@ -27,6 +30,27 @@ class PhotoOrphanCleanupWiringTest {
         assertTrue(
             lease.contains("lease.closeAfter(disposition)"),
             "the adapter must release and resolve the real durable lease, not a memory-only flag",
+        )
+        assertInOrder(
+            lease,
+            "PendingPhotoLease.acquire(target, ::syncParentDirectory)",
+            "Os.open(parent.path, OsConstants.O_RDONLY, 0)",
+            "Os.fsync(descriptor)",
+            "Os.close(descriptor)",
+        )
+        assertTrue(
+            lease.contains("activeFailure.addSuppressed(closeFailure)"),
+            "directory descriptor close must stay suppressed beneath an fsync primary",
+        )
+        assertTrue(
+            lease.contains("failure.suppressed.all(::isExpectedEnvironmentFailure)"),
+            "the app hook must reject an environmental primary carrying an unknown suppressed failure",
+        )
+        assertInOrder(
+            coreLease,
+            "fun acquire(target: File, syncParentDirectory: (File) -> Unit)",
+            "acquireWithDurability(",
+            "forceMarker = { channel -> channel.force(true) }",
         )
         assertTrue(
             lease.contains("override fun onCompletedCleanupFailure(failure: Throwable)"),
@@ -66,6 +90,14 @@ class PhotoOrphanCleanupWiringTest {
         assertTrue(worker.contains("PhotoOrphanCleanupDecision.RETRY -> Result.retry()"))
         assertTrue(worker.contains("PhotoOrphanCleanupDecision.FAILURE -> Result.failure()"))
         assertTrue(worker.contains("execution.failure"), "the app adapter must retain core primary/suppressed failure evidence")
+        assertTrue(worker.contains("cleanupReport?.issues()?.forEach"), "every runner issue must be logged, not collapsed")
+        assertTrue(worker.contains("workId=\$id"))
+        assertTrue(worker.contains("runAttemptCount=\$runAttemptCount"))
+        assertTrue(worker.contains("result=\${issue.result.logValue}"))
+        assertTrue(worker.contains("bucket=\${issue.bucket.logValue}"))
+        assertTrue(worker.contains("path=\${issue.path}"))
+        assertTrue(worker.contains("cause=\$causeName"))
+        assertTrue(worker.contains("result=execution_failure bucket=execution path=none"))
         assertInOrder(worker, "private data class CleanupResources", "override fun close()", "driver.close()")
         assertTrue(scheduler.contains("PeriodicWorkRequestBuilder<PhotoOrphanCleanupWorker>(24, TimeUnit.HOURS)"))
         assertTrue(scheduler.contains("setRequiresStorageNotLow(true)"))

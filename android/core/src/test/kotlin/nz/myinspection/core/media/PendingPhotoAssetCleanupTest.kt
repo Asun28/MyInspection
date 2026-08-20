@@ -279,6 +279,41 @@ class PendingPhotoAssetCleanupTest {
     }
 
     @Test
+    fun `environment primary with unknown lease close stays a path-level failure and fails its report closed`() =
+        inTempDir { root ->
+            val relPath = "photos/property/inspection/photo-mixed-failure.jpg"
+            val asset = asset(root, relPath)
+            val marker = File(asset.parentFile, "photo-mixed-failure.jpg.pending")
+            PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+            val primary = IOException("database temporarily unavailable")
+            val closeFailure = IllegalStateException("lease close contract violated")
+
+            val pending = PendingPhotoAssetCleanup.withLeaseOpener(
+                mediaRoot = root,
+                findPhoto = { throw primary },
+                deleter = OrphanFileDeleter { error("deleter must not run after lookup failure") },
+                openLease = { ThrowingLease(closeFailure) },
+            ).run()
+
+            val failed = pending.failed.single()
+            assertEquals(relPath, failed.relPath)
+            assertSame(primary, failed.cause)
+            assertEquals(listOf(closeFailure), primary.suppressed.toList())
+            assertTrue(marker.isFile)
+
+            val report = PhotoOrphanCleanupReport.from(
+                pending = pending,
+                softDelete = CleanupResult(emptyList(), emptyList(), emptyList()),
+            )
+            assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
+            val issue = report.issues().single()
+            assertEquals(PhotoOrphanCleanupBucket.PENDING, issue.bucket)
+            assertEquals(PhotoOrphanCleanupIssueResult.FAILED, issue.result)
+            assertEquals(relPath, issue.path)
+            assertSame(primary, issue.cause)
+        }
+
+    @Test
     fun `unexpected deleter primary retains the marker and suppresses its lease close failure`() = inTempDir { root ->
         val relPath = "photos/property/inspection/photo-9.jpg"
         val asset = asset(root, relPath)
@@ -298,6 +333,48 @@ class PendingPhotoAssetCleanupTest {
 
         assertSame(primary, thrown)
         assertEquals(listOf(closeFailure), primary.suppressed.toList())
+        assertTrue(marker.isFile)
+    }
+
+    @Test
+    fun `unexpected lease finalization failure after readoption propagates fail closed`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-close-unknown.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "photo-close-unknown.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val closeFailure = IllegalStateException("lease finalizer contract violated")
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            PendingPhotoAssetCleanup.withLeaseOpener(
+                mediaRoot = root,
+                findPhoto = { PendingPhotoReference(relPath, active = true) },
+                deleter = OrphanFileDeleter { error("readoption must not delete") },
+                openLease = { ThrowingFinalizingLease(closeFailure) },
+            ).run()
+        }
+
+        assertSame(closeFailure, thrown)
+        assertTrue(marker.isFile, "unknown finalization failure must retain recovery evidence")
+    }
+
+    @Test
+    fun `environment lease finalization failure after readoption remains a retry with its cause`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-close-io.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "photo-close-io.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val closeFailure = IOException("marker filesystem unavailable")
+
+        val result = PendingPhotoAssetCleanup.withLeaseOpener(
+            mediaRoot = root,
+            findPhoto = { PendingPhotoReference(relPath, active = true) },
+            deleter = OrphanFileDeleter { error("readoption must not delete") },
+            openLease = { ThrowingFinalizingLease(closeFailure) },
+        ).run()
+
+        val failed = result.failed.single()
+        assertEquals(relPath, failed.relPath)
+        assertSame(closeFailure, failed.cause)
         assertTrue(marker.isFile)
     }
 
@@ -338,5 +415,15 @@ class PendingPhotoAssetCleanupTest {
         override fun close() {
             throw closeFailure
         }
+    }
+
+    private class ThrowingFinalizingLease(
+        private val closeFailure: Throwable,
+    ) : PendingPhotoLeaseHandle {
+        override fun closeAfter(disposition: PendingPhotoLeaseDisposition): Boolean {
+            throw closeFailure
+        }
+
+        override fun close() = Unit
     }
 }

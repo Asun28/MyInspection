@@ -1,7 +1,10 @@
 package nz.myinspection.app.media
 
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import java.io.File
+import java.io.IOException
 import nz.myinspection.core.media.PendingPhotoLease
 import nz.myinspection.core.media.PendingPhotoLeaseDisposition
 import nz.myinspection.core.media.PublicationLease
@@ -34,6 +37,9 @@ internal class PhotoIngestPendingLease private constructor(
     }
 
     override fun onCompletedCleanupFailure(failure: Throwable) {
+        check(isExpectedEnvironmentFailure(failure)) {
+            "unexpected pending lease cleanup failure: ${failure.javaClass.name}"
+        }
         Log.w(TAG, "op=releasePendingLease photoId=$photoId path=${lease.marker.path} result=failed", failure)
     }
 
@@ -41,6 +47,29 @@ internal class PhotoIngestPendingLease private constructor(
         private const val TAG = "PhotoIngestPendingLease"
 
         fun acquire(target: File, photoId: String): PhotoIngestPendingLease =
-            PhotoIngestPendingLease(photoId, PendingPhotoLease.acquire(target))
+            PhotoIngestPendingLease(photoId, PendingPhotoLease.acquire(target, ::syncParentDirectory))
+
+        private fun syncParentDirectory(parent: File) {
+            val descriptor = Os.open(parent.path, OsConstants.O_RDONLY, 0)
+            var primary: Throwable? = null
+            try {
+                Os.fsync(descriptor)
+            } catch (failure: Throwable) {
+                primary = failure
+                throw failure
+            } finally {
+                try {
+                    Os.close(descriptor)
+                } catch (closeFailure: Throwable) {
+                    val activeFailure = primary
+                    if (activeFailure == null) throw closeFailure
+                    activeFailure.addSuppressed(closeFailure)
+                }
+            }
+        }
+
+        private fun isExpectedEnvironmentFailure(failure: Throwable): Boolean =
+            (failure is IOException || failure is SecurityException) &&
+                failure.suppressed.all(::isExpectedEnvironmentFailure)
     }
 }

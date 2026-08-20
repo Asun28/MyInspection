@@ -31,29 +31,58 @@ class PendingPhotoLease private constructor(
     val marker: File,
     private val channel: FileChannel,
     private val lock: FileLock,
+    private val finalizeMarker: (FileChannel) -> Unit,
 ) : PendingPhotoLeaseHandle {
     companion object {
         private val RESOLVING_MARKER = byteArrayOf(1)
 
-        fun acquire(target: File): PendingPhotoLease {
+        fun acquire(target: File): PendingPhotoLease = acquire(target) {}
+
+        fun acquire(target: File, syncParentDirectory: (File) -> Unit): PendingPhotoLease =
+            acquireWithDurability(
+                target = target,
+                forceMarker = { channel -> channel.force(true) },
+                syncParentDirectory = syncParentDirectory,
+                finalizeMarker = ::writeResolvingMarker,
+            )
+
+        internal fun acquireWithDurability(
+            target: File,
+            forceMarker: (FileChannel) -> Unit,
+            syncParentDirectory: (File) -> Unit,
+            finalizeMarker: (FileChannel) -> Unit = ::writeResolvingMarker,
+        ): PendingPhotoLease {
             val parent = checkNotNull(target.parentFile) { "photo target has no parent: ${target.path}" }
             if (!parent.exists() && !parent.mkdirs() && !parent.isDirectory) {
                 throw IOException("could not create photo parent: ${parent.path}")
             }
-            return open(File(parent, "${target.name}.pending"), createIfMissing = true)
+            return open(
+                marker = File(parent, "${target.name}.pending"),
+                createIfMissing = true,
+                forceMarker = forceMarker,
+                syncParentDirectory = syncParentDirectory,
+                finalizeMarker = finalizeMarker,
+            )
         }
 
         /** Recovery may take a marker already marked for removal; a fresh ingest must not. */
         internal fun openExisting(marker: File): PendingPhotoLease =
-            open(marker, createIfMissing = false, allowResolvingMarker = true)
-
-        private fun open(marker: File, createIfMissing: Boolean): PendingPhotoLease =
-            open(marker, createIfMissing, allowResolvingMarker = false)
+            open(
+                marker = marker,
+                createIfMissing = false,
+                allowResolvingMarker = true,
+                forceMarker = { channel -> channel.force(true) },
+                syncParentDirectory = {},
+                finalizeMarker = ::writeResolvingMarker,
+            )
 
         private fun open(
             marker: File,
             createIfMissing: Boolean,
-            allowResolvingMarker: Boolean,
+            allowResolvingMarker: Boolean = false,
+            forceMarker: (FileChannel) -> Unit,
+            syncParentDirectory: (File) -> Unit,
+            finalizeMarker: (FileChannel) -> Unit,
         ): PendingPhotoLease {
             if (createIfMissing && !marker.createNewFile() && !marker.isFile) {
                 throw IOException("pending photo marker is not a file: ${marker.path}")
@@ -64,7 +93,7 @@ class PendingPhotoLease private constructor(
             var lock: FileLock? = null
             try {
                 channel = RandomAccessFile(marker, "rw").channel
-                channel.force(true)
+                forceMarker(channel)
                 lock = try {
                     channel.tryLock()
                 } catch (_: OverlappingFileLockException) {
@@ -75,7 +104,8 @@ class PendingPhotoLease private constructor(
                 if (!allowResolvingMarker && channel.size() != 0L) {
                     throw IOException("pending photo marker is resolving: ${marker.path}")
                 }
-                return PendingPhotoLease(marker, channel, lock)
+                syncParentDirectory(checkNotNull(marker.parentFile))
+                return PendingPhotoLease(marker, channel, lock, finalizeMarker)
             } catch (primary: Throwable) {
                 closeQuietly(lock, channel, primary)
                 throw primary
@@ -94,38 +124,43 @@ class PendingPhotoLease private constructor(
                 primary.addSuppressed(cleanupFailure)
             }
         }
+
+        private fun writeResolvingMarker(channel: FileChannel) {
+            channel.truncate(0)
+            channel.position(0)
+            val marker = ByteBuffer.wrap(RESOLVING_MARKER)
+            while (marker.hasRemaining()) {
+                check(channel.write(marker) > 0) { "could not write pending marker handoff" }
+            }
+            channel.force(true)
+        }
     }
 
     /**
      * Marks removal durably while still locked, then releases the lock and deletes the marker. The marker's temporary
      * nonempty state makes a new ingest retry instead of acquiring it during the unlock/delete gap; recovery workers
-     * may open that state and finish cleanup. A marker cleanup failure is deliberately non-fatal and leaves recovery
-     * state behind.
+     * may open that state and finish cleanup. Expected filesystem failures retain recovery state for the caller to
+     * retry; unknown failures propagate fail closed.
      */
     override fun closeAfter(disposition: PendingPhotoLeaseDisposition): Boolean {
         if (!disposition.clearsMarker) {
             close()
             return true
         }
-        if (!markResolving()) {
+        var primary: Throwable? = null
+        try {
+            finalizeMarker(channel)
+        } catch (failure: Throwable) {
+            primary = failure
+        }
+        try {
             close()
-            return false
+        } catch (closeFailure: Throwable) {
+            val failure = primary
+            if (failure == null) primary = closeFailure else failure.addSuppressed(closeFailure)
         }
-        close()
+        primary?.let { throw it }
         return deleteIfPresent(marker)
-    }
-
-    private fun markResolving(): Boolean = try {
-        channel.truncate(0)
-        channel.position(0)
-        val marker = ByteBuffer.wrap(RESOLVING_MARKER)
-        while (marker.hasRemaining()) {
-            check(channel.write(marker) > 0) { "could not write pending marker handoff" }
-        }
-        channel.force(true)
-        true
-    } catch (_: Throwable) {
-        false
     }
 
     override fun close() {
@@ -144,10 +179,6 @@ class PendingPhotoLease private constructor(
         primary?.let { throw it }
     }
 
-    private fun deleteIfPresent(file: File): Boolean = try {
-        file.delete() || !file.exists()
-    } catch (_: SecurityException) {
-        false
-    }
+    private fun deleteIfPresent(file: File): Boolean = file.delete() || !file.exists()
 
 }
