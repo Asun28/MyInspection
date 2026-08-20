@@ -29,7 +29,7 @@ class PhotoOrphanCleanupWiringTest {
             "a guard rejection may clear its sidecar only after compensation removed the JPEG",
         )
         assertTrue(
-            lease.contains("lease.closeAfter(disposition)"),
+            lease.contains("lease.closeAfterAssetDeletion(disposition)"),
             "the adapter must release and resolve the real durable lease, not a memory-only flag",
         )
         assertInOrder(
@@ -40,13 +40,12 @@ class PhotoOrphanCleanupWiringTest {
         )
         assertInOrder(
             lease,
-            "val nextDisposition = when (result)",
+            "lease.closeAfterAssetDeletion(disposition)",
             "PhotoDirectoryDurability.sync(targetParent)",
-            "disposition = nextDisposition",
         )
         assertTrue(
-            lease.contains("nextDisposition == PendingPhotoLeaseDisposition.REJECTED_WITHOUT_ORPHAN"),
-            "a compensated JPEG delete must be synced before its marker can be cleared",
+            lease.contains("is PhotoIngestOutcome.RejectedByGuard -> if (!result.orphanedFileRemains)"),
+            "only a compensated JPEG delete may select the durable deletion close path",
         )
         assertFalse(
             lease.contains("check(isExpectedEnvironmentFailure(failure))"),

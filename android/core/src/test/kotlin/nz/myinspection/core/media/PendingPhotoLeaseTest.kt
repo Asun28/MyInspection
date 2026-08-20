@@ -190,6 +190,49 @@ class PendingPhotoLeaseTest {
     }
 
     @Test
+    fun `completed compensated result survives JPEG parent sync failure and retains a released marker`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-compensated-sync.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        val marker = File(target.parentFile, "photo-compensated-sync.jpg.pending")
+        val syncFailure = IOException("compensated JPEG parent fsync failed")
+        var reportedFailure: Throwable? = null
+
+        val result = VerifiedAssetWorkflow.encodeStagePublishRecord(
+            target = target,
+            input = Unit,
+            encoder = StreamEncoder { _, output -> output.write(byteArrayOf(1, 2, 3)) },
+            plan = { "compensated" },
+            shouldPublish = { true },
+            publicationLease = {
+                val heldLease = PendingPhotoLease.acquire(target)
+                object : PublicationLease<String> {
+                    private var disposition = PendingPhotoLeaseDisposition.RETAIN
+
+                    override fun finish(result: String) {
+                        disposition = PendingPhotoLeaseDisposition.REJECTED_WITHOUT_ORPHAN
+                    }
+
+                    override fun close() {
+                        heldLease.closeAfterAssetDeletion(disposition) { throw syncFailure }
+                    }
+
+                    override fun onCompletedCleanupFailure(failure: Throwable) {
+                        reportedFailure = failure
+                    }
+                }
+            },
+            publish = { _, _ -> Unit },
+            record = { "compensated" },
+        )
+
+        assertEquals("compensated", result, "a completed DB result must not be replaced by cleanup durability")
+        assertSame(syncFailure, reportedFailure)
+        assertTrue(marker.isFile, "failed delete durability must retain recovery evidence")
+        PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+    }
+
+    @Test
     fun `environment marker finalization failure is preserved and releases the lease for recovery`() = inTempDir { root ->
         val target = File(root, "photos/property/inspection/photo-finalize-io.jpg").also {
             assertTrue(it.parentFile!!.mkdirs())

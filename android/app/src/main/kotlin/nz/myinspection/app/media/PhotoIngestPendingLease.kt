@@ -15,7 +15,7 @@ internal class PhotoIngestPendingLease private constructor(
     private var disposition = PendingPhotoLeaseDisposition.RETAIN
 
     override fun finish(result: PhotoIngestOutcome) {
-        val nextDisposition = when (result) {
+        disposition = when (result) {
             is PhotoIngestOutcome.Recorded -> PendingPhotoLeaseDisposition.RECORDED
             is PhotoIngestOutcome.RejectedByGuard -> if (!result.orphanedFileRemains) {
                 PendingPhotoLeaseDisposition.REJECTED_WITHOUT_ORPHAN
@@ -26,14 +26,10 @@ internal class PhotoIngestPendingLease private constructor(
             is PhotoIngestOutcome.RejectedUndecodable,
             -> PendingPhotoLeaseDisposition.RETAIN
         }
-        if (nextDisposition == PendingPhotoLeaseDisposition.REJECTED_WITHOUT_ORPHAN) {
-            PhotoDirectoryDurability.sync(targetParent)
-        }
-        disposition = nextDisposition
     }
 
     override fun close() {
-        if (!lease.closeAfter(disposition)) {
+        if (!lease.closeAfterAssetDeletion(disposition) { PhotoDirectoryDurability.sync(targetParent) }) {
             Log.w(TAG, "op=deletePendingMarker photoId=$photoId path=${lease.marker.path} result=failed")
         }
     }

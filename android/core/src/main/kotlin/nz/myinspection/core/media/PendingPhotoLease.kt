@@ -383,6 +383,27 @@ class PendingPhotoLease private constructor(
         return deleteVerifiedMarker(marker, identity.resolving())
     }
 
+    /** A compensated JPEG delete must be durable before its marker is cleared. */
+    fun closeAfterAssetDeletion(
+        disposition: PendingPhotoLeaseDisposition,
+        syncDeletedAssetParent: () -> Unit,
+    ): Boolean {
+        if (disposition != PendingPhotoLeaseDisposition.REJECTED_WITHOUT_ORPHAN) {
+            return closeAfter(disposition)
+        }
+        try {
+            syncDeletedAssetParent()
+        } catch (primary: Throwable) {
+            try {
+                close()
+            } catch (closeFailure: Throwable) {
+                primary.addSuppressed(closeFailure)
+            }
+            throw primary
+        }
+        return closeAfter(disposition)
+    }
+
     override fun close() {
         var primary: Throwable? = null
         try {
