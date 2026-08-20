@@ -10451,12 +10451,11 @@ try {
     Set-ScannerFixtureReport $scannerSecretEdgeReport
     $scannerSecretEdges = Invoke-ScannerFixture $scannerFixtureScript
     $secretParseCodes = [regex]::Matches($scannerSecretEdges.Text, '\[GRADLE-PARSE\]').Count
-    $scannerSecretLeaks = @([regex]::Matches($scannerSecretEdges.Text, $scannerSecretPattern) | ForEach-Object { $_.Value } | Sort-Object -Unique)
     if ($scannerSecretEdges.Exit -eq 0 -or
-        $scannerSecretLeaks.Count -gt 0 -or
+        $scannerSecretEdges.Text -match $scannerSecretPattern -or
         $scannerSecretEdges.Text -notmatch '\[REDACTED\]' -or
         $secretParseCodes -lt 18) {
-      Fail "种子缺陷 17cc(scanner/parse-redaction)：Gradle 零退出报告里的畸形边属于不可信文本；任意前缀 Authorization、赋值式/空格式/CLI/property/JSON 凭据与任意 scheme 的 URI userinfo 必须整行有界脱敏，同时十八条 GRADLE-PARSE 分类仍保留；实得 exit=$($scannerSecretEdges.Exit) parseCodes=$secretParseCodes leaks=$($scannerSecretLeaks -join ',') redacted=$($scannerSecretEdges.Text -match '\[REDACTED\]')；输出=$($scannerSecretEdges.Text)。"
+      Fail "种子缺陷 17cc(scanner/parse-redaction)：Gradle 零退出报告里的畸形边属于不可信文本；任意前缀 Authorization、赋值式/空格式/CLI/property/JSON 凭据与任意 scheme 的 URI userinfo 必须整行有界脱敏，同时十八条 GRADLE-PARSE 分类仍保留；实得 exit=$($scannerSecretEdges.Exit) parseCodes=$secretParseCodes；输出=$($scannerSecretEdges.Text)。"
     } else {
       Write-Host '  17cc(scanner/parse-redaction) 畸形边凭据脱敏且逐条保留 GRADLE-PARSE OK' -ForegroundColor Green
     }
@@ -10922,9 +10921,8 @@ try {
     $scannerGradleFailure = Invoke-ScannerFixture $scannerFixtureScript
     $gradleFailureLines = @($scannerGradleFailure.Text -split "`n" | Where-Object { $_ -match '\[GRADLE-SUBPROCESS\]' })
     $gradleFailureDiagnosticsBounded = $gradleFailureLines.Count -gt 0 -and -not ($gradleFailureLines | Where-Object { $_.Length -gt 2200 })
-    $gradleFailureHasConfiguration = $scannerGradleFailure.Text -match '(?m)^\s*-\s+\[GRADLE\]\s+:[^:\r\n]+:[A-Za-z][A-Za-z0-9]*RuntimeClasspath\b'
     if ($scannerGradleFailure.Exit -eq 0 -or
-        -not $gradleFailureHasConfiguration -or
+        $scannerGradleFailure.Text -notmatch '(?m)^\s*-\s+\[GRADLE\]\s+:[^:\r\n]+:[A-Za-z][A-Za-z0-9]*RuntimeClasspath\b' -or
         $scannerGradleFailure.Text -notmatch '\[GRADLE-SUBPROCESS\]' -or
         $scannerGradleFailure.Text -match 'REDACT_ME' -or
         $scannerGradleFailure.Text -notmatch '\[REDACTED\]' -or
@@ -10933,7 +10931,7 @@ try {
         $scannerGradleFailure.Text -notmatch '阻断项（禁列许可 / 扫描或元数据不合规）' -or
         $scannerGradleFailure.Text -notmatch 'FAIL（发现许可或依赖扫描不合规）' -or
         $scannerGradleFailure.Text -match '发现禁用许可') {
-      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed，保留有界脱敏尾段并使用通用不合规结论；实得 exit=$($scannerGradleFailure.Exit) config=$gradleFailureHasConfiguration bounded=$gradleFailureDiagnosticsBounded redacted=$($scannerGradleFailure.Text -match '\[REDACTED\]') truncated=$($scannerGradleFailure.Text -match '\[TRUNCATED\]')；输出=$($scannerGradleFailure.Text)。"
+      Fail "种子缺陷 17cc(scanner/gradle-exit)：Gradle 子进程非零必须 fail-closed，保留有界脱敏尾段并使用通用不合规结论；实得 exit=$($scannerGradleFailure.Exit) bounded=$gradleFailureDiagnosticsBounded；输出=$($scannerGradleFailure.Text)。"
     } else {
       Write-Host '  17cc(scanner/gradle-exit) Gradle 子进程失败 fail-closed，诊断尾段有界脱敏且结论准确 OK' -ForegroundColor Green
     }
@@ -11291,13 +11289,13 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
         @{ Id = 'pom-name-required'; Scenario = 'pom-name-required'; Code = 'ABSENT-POM-NAME-GUARD'; Label = '每个 POM license 均须非空 name'; Marker = '# require every declared license name' },
         @{ Id = 'pom-name-verbatim'; Scenario = 'pom-name-verbatim'; Code = 'ABSENT-POM-NAME-VERBATIM'; Label = 'POM license name 原文保真'; Marker = '# preserve exact POM license text' },
         @{ Id = 'pom-name-ordinal'; Scenario = 'pom-name-ordinal'; Code = 'ABSENT-POM-NAME-ORDINAL'; Label = 'POM license names Ordinal 去重排序'; Marker = '$pomLicenses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)' },
-        @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '\bAuthorization' },
-        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '(?:token|password|passwd|secret|credential(?:s)?|api[-_]?key|access[-_]?key)' },
-        @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '(?im)(?<scheme>' },
+        @{ Id = 'diagnostic-auth'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意前缀 Authorization 分隔符/空格式/JSON 整行脱敏'; Marker = '# credential redaction: authorization' },
+        @{ Id = 'diagnostic-key'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '赋值式/空格式/CLI/property/JSON 凭据键整行脱敏'; Marker = '# credential redaction: key' },
+        @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
         @{ Id = 'pom-metadata-control'; Scenario = 'pom-metadata-control'; Code = 'ABSENT-POM-METADATA-CONTROL-GUARD'; Label = 'POM metadata 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'POM license/name' -Value `$licenseName" },
         @{ Id = 'override-metadata-control'; Scenario = 'override-metadata-control'; Code = 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD'; Label = '例外 metadata 控制/格式字符拒绝'; Marker = 'Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])' },
         @{ Id = 'override-property-control'; Scenario = 'override-property-control'; Code = 'ABSENT-OVERRIDE-PROPERTY-CONTROL-GUARD'; Label = '例外 JSON property name 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'JSON property name' -Value `$field" },
-        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = '# diagnostic control/format normalization' },
+        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = "`$Value = [regex]::Replace(`$Value, '[\p{Cc}\p{Cf}]', ' ') # metadata audit control/format normalization" },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' },
         @{ Id = 'wrapper-ok'; Scenario = 'wrapper-ok'; Code = 'ABSENT-WRAPPER-OK-GUARD'; Label = 'Gradle wrapper .ok 完成标记'; Marker = '(Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker' },
         @{ Id = 'wrapper-root-count'; Scenario = 'wrapper-root-count'; Code = 'ABSENT-WRAPPER-ROOT-COUNT'; Label = 'Gradle wrapper 解压根目录唯一性'; Marker = '($distributionRoots.Count -eq 1) # wrapper root cardinality' },
