@@ -10,6 +10,27 @@ import org.testng.SkipException
 
 class NoFollowLeafDeletionTest {
     @Test
+    fun `treats an already absent leaf as a successful idempotent deletion`() = inTempDir { root ->
+        assertTrue(File(root, "photos/property/inspection").mkdirs())
+
+        assertTrue(NoFollowLeafDeletion.delete(root, "photos/property/inspection/missing.jpg"))
+    }
+
+    @Test
+    fun `treats an absent intermediate directory as a successful idempotent deletion`() = inTempDir { root ->
+        assertTrue(File(root, "photos").mkdirs())
+
+        assertTrue(NoFollowLeafDeletion.delete(root, "photos/property/inspection/missing.jpg"))
+    }
+
+    @Test
+    fun `treats an absent media root as a successful idempotent deletion`() = inTempDir { container ->
+        val absentRoot = File(container, "missing-media-root")
+
+        assertTrue(NoFollowLeafDeletion.delete(absentRoot, "photos/property/inspection/missing.jpg"))
+    }
+
+    @Test
     fun `accepts a trusted root reached through an aliased temporary parent`() = inTempDir { container ->
         val realParent = File(container, "real-parent").also { assertTrue(it.mkdirs()) }
         val realRoot = File(realParent, "media").also { assertTrue(it.mkdirs()) }
