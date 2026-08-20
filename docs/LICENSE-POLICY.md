@@ -117,6 +117,9 @@
 ## 5. 核验流程（每次加依赖）
 1. 跑 `pwsh -File scripts\check-licenses.ps1`（扫描后端 venv、前端 node_modules 及 Gradle 四张已解析 classpath；
    命中禁列、Gradle 元数据未知或解析失败均非零退出）。
+   Scanner 自身或 CI 接线变更须再跑 `pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite integration`；
+   它串行聚合 graph/policy/diagnostics/gav-bounds 四个专用套件，并对真实仓执行 `-Strict` 扫描、确认
+   `org.testng:testng` 被逐坐标报告。CI 只在 JDK/Android/Gradle setup 与在线 cache warm-up 完成后执行离线 scanner。
 2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（自动许可扫描不覆盖这些资产）。
 3. Codex 评审闸门会阻断疑似 copyleft/非商用片段。
 4. 真实模型子环境跑 `pip-licenses` **全审**：GPL 硬禁（声明但未 import 的可卸）；LGPL 仅进程隔离/动态可留；UNKNOWN 元数据逐个核实际许可。

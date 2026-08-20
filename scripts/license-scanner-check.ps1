@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds')]
+  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds', 'integration')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
   [switch]$SkipMutations
@@ -21,6 +21,77 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
+
+if ($Suite -eq 'integration') {
+  $integrationFailures = [System.Collections.Generic.List[string]]::new()
+  function Assert-Integration {
+    param(
+      [Parameter(Mandatory)][bool]$Condition,
+      [Parameter(Mandatory)][string]$Message
+    )
+    if (-not $Condition) { $integrationFailures.Add($Message) }
+  }
+
+  $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+  $selftestPath = Join-Path $repoRoot 'scripts/selftest.ps1'
+  $workflowPath = Join-Path $repoRoot '.github/workflows/ci.yml'
+  $policyPath = Join-Path $repoRoot 'docs/LICENSE-POLICY.md'
+  $releasePath = Join-Path $repoRoot 'docs/RELEASE-CHECKLIST.md'
+  $selftestText = [System.IO.File]::ReadAllText($selftestPath)
+  $workflowText = [System.IO.File]::ReadAllText($workflowPath)
+  $policyText = [System.IO.File]::ReadAllText($policyPath)
+  $releaseText = [System.IO.File]::ReadAllText($releasePath)
+
+  # Break caught: scanner fixtures drifting back into the generic seeded harness recreates two
+  # authorities and makes unrelated product PRs pay the scanner's mutation cost.
+  $integrationCalls = [regex]::Matches($selftestText, 'license-scanner-check\.ps1[^\r\n]*-Suite\s+integration').Count
+  Assert-Integration ($integrationCalls -eq 1) "[INTEGRATION-SELFTEST-WIRING] expected one integration-suite call, found $integrationCalls"
+  Assert-Integration ($selftestText -notmatch '\$scannerFixtureRoot') '[INTEGRATION-SELFTEST-INLINE] legacy inline scanner fixture remains in selftest'
+
+  # Break caught: a fresh runner cannot satisfy the scanner's mandatory --offline graph calls until
+  # Java/Android/Gradle setup and the one online build have completed.
+  $orderedSteps = @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)', 'Gradle online build (warms cache for verify.ps1''s --offline gate)', 'License gate', 'E2E verify gate')
+  $previousIndex = -1
+  foreach ($step in $orderedSteps) {
+    $stepIndex = $workflowText.IndexOf("- name: $step", [System.StringComparison]::Ordinal)
+    Assert-Integration ($stepIndex -gt $previousIndex) "[INTEGRATION-CI-ORDER] missing or out-of-order step: $step"
+    if ($stepIndex -ge 0) { $previousIndex = $stepIndex }
+  }
+  $licenseStepStart = $workflowText.IndexOf('- name: License gate', [System.StringComparison]::Ordinal)
+  $verifyStepStart = $workflowText.IndexOf('- name: E2E verify gate', [System.StringComparison]::Ordinal)
+  if ($licenseStepStart -ge 0 -and $verifyStepStart -gt $licenseStepStart) {
+    $licenseStep = $workflowText.Substring($licenseStepStart, $verifyStepStart - $licenseStepStart)
+    Assert-Integration ($licenseStep -match 'scripts/check-licenses\.ps1') '[INTEGRATION-CI-SCANNER] License gate no longer invokes check-licenses.ps1'
+  }
+
+  Assert-Integration ($policyText -match 'license-scanner-check\.ps1 -Suite integration') '[INTEGRATION-POLICY-DOC] policy omits the integration audit command'
+  Assert-Integration ($releaseText -match 'license-scanner-check\.ps1 -Suite integration') '[INTEGRATION-RELEASE-DOC] release checklist omits the integration audit command'
+
+  if ($integrationFailures.Count -gt 0) {
+    Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
+    exit 1
+  }
+
+  foreach ($childSuite in @('graph', 'policy', 'diagnostics', 'gav-bounds')) {
+    $childOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite $childSuite -ScannerPath $ScannerPath 2>&1 | Out-String)
+    $childExit = $LASTEXITCODE
+    Assert-Integration (
+      $childExit -eq 0 -and $childOutput -match "license-scanner-check\($([regex]::Escape($childSuite))\): PASS"
+    ) "[INTEGRATION-CHILD] $childSuite failed or omitted its PASS marker (exit=$childExit): $childOutput"
+  }
+
+  $scannerOutput = (& pwsh -NoProfile -File $ScannerPath -Strict 2>&1 | Out-String)
+  $scannerExit = $LASTEXITCODE
+  Assert-Integration ($scannerExit -eq 0) "[INTEGRATION-REAL-SCAN] strict repository scan failed (exit=$scannerExit): $scannerOutput"
+  Assert-Integration ($scannerOutput -match 'org\.testng:testng:7\.0\.0') '[INTEGRATION-TESTNG] real scan omitted the core TestNG coordinate'
+
+  if ($integrationFailures.Count -gt 0) {
+    Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
+    exit 1
+  }
+  Write-Host 'license-scanner-check(integration): PASS'
+  exit 0
+}
 
 if ($Suite -eq 'gav-bounds') {
   function Assert-GavBounds {
