@@ -81,6 +81,56 @@ class PendingPhotoAssetCleanupTest {
     }
 
     @Test
+    fun `cleanup syncs the JPEG parent after deletion before clearing its marker`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-delete-sync.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "photo-delete-sync.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val events = mutableListOf<String>()
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { null },
+            deleter = OrphanFileDeleter { path ->
+                events += "delete-jpeg"
+                File(root, path).delete()
+            },
+            syncAssetParentDirectory = { parent ->
+                assertFalse(asset.exists(), "the JPEG must be absent before its directory is synced")
+                assertTrue(marker.isFile, "the marker must remain until the delete is durable")
+                assertEquals(asset.parentFile.canonicalFile, parent.canonicalFile)
+                events += "sync-parent"
+            },
+        ).run()
+
+        assertEquals(listOf(relPath), result.deleted)
+        assertEquals(listOf("delete-jpeg", "sync-parent"), events)
+        assertFalse(marker.exists())
+    }
+
+    @Test
+    fun `JPEG parent sync failure retains the marker and reports the exact retry cause`() = inTempDir { root ->
+        val relPath = "photos/property/inspection/photo-delete-sync-fails.jpg"
+        val asset = asset(root, relPath)
+        val marker = File(asset.parentFile, "photo-delete-sync-fails.jpg.pending")
+        PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+        val failure = IOException("JPEG parent fsync failed")
+
+        val result = PendingPhotoAssetCleanup(
+            mediaRoot = root,
+            findPhoto = { null },
+            deleter = OrphanFileDeleter { path -> File(root, path).delete() },
+            syncAssetParentDirectory = { throw failure },
+        ).run()
+
+        val failed = result.failed.single()
+        assertEquals(relPath, failed.relPath)
+        assertSame(failure, failed.cause)
+        assertFalse(asset.exists(), "the delete completed before its durability barrier failed")
+        assertTrue(marker.isFile, "a failed delete barrier must leave recovery evidence")
+    }
+
+    @Test
     fun `cleanup treats an active row at a different relative path as unadopted`() = inTempDir { root ->
         val relPath = "photos/property/inspection/photo-3.jpg"
         val asset = asset(root, relPath)

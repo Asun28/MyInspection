@@ -46,7 +46,7 @@ class PhotoOrphanCleanupRunnerTest {
         PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
         insertActive(photoId, relPath)
 
-        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }).run()
+        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }, {}).run()
 
         assertEquals(PhotoOrphanCleanupDecision.SUCCESS, report.decision)
         assertEquals(listOf(relPath), report.pending.readopted)
@@ -63,7 +63,7 @@ class PhotoOrphanCleanupRunnerTest {
         val marker = File(asset.parentFile, "$photoId.jpg.pending")
         PendingPhotoLease.acquire(asset).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
 
-        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }).run()
+        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { false }, {}).run()
 
         assertEquals(PhotoOrphanCleanupDecision.RETRY, report.decision)
         assertEquals(listOf(FailedDeletion(relPath, cause = null)), report.pending.failed)
@@ -85,6 +85,7 @@ class PhotoOrphanCleanupRunnerTest {
                 database,
                 root,
                 OrphanFileDeleter { path -> File(root, path).delete() || !File(root, path).exists() },
+                {},
             ).run()
 
             assertEquals(PhotoOrphanCleanupDecision.RETRY, report.decision)
@@ -107,6 +108,7 @@ class PhotoOrphanCleanupRunnerTest {
             database,
             root,
             OrphanFileDeleter { path -> calls += path; true },
+            {},
         ).run()
 
         assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
@@ -125,6 +127,7 @@ class PhotoOrphanCleanupRunnerTest {
             database,
             root,
             OrphanFileDeleter { path -> calls += path; true },
+            {},
         ).run()
 
         assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
@@ -145,7 +148,7 @@ class PhotoOrphanCleanupRunnerTest {
         insertActive(photoId, softDeletePath)
         database.photoQueries.softDelete(deleted_at = DbTestFixtures.NOW + 1, id = photoId)
 
-        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { true }).run()
+        val report = PhotoOrphanCleanupRunner(database, root, OrphanFileDeleter { true }, {}).run()
 
         assertEquals(PhotoOrphanCleanupDecision.FAILURE, report.decision)
         assertEquals(listOf(pendingPath), report.pending.rejected)

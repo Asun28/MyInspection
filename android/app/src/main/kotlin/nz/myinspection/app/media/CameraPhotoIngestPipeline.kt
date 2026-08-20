@@ -79,7 +79,7 @@ object CameraPhotoIngestPipeline {
                 shouldPublish = { plan -> plan is PhotoIngestPlan.WriteNewAsset },
                 publicationLease = { plan ->
                     check(plan is PhotoIngestPlan.WriteNewAsset)
-                    PhotoIngestPendingLease.acquire(targetFile, photoId)
+                    PhotoIngestPendingLease.acquire(targetFile, photoId, mediaRoot)
                 },
                 publish = { staged, plan -> MediaFileStore.publishStaged(staged, mediaRoot, plan.relPath) },
                 record = { plan ->

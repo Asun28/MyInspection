@@ -38,7 +38,12 @@ class PhotoOrphanCleanupWorker(
             cleanup = { resources ->
                 val database = MyInspectionDatabase(resources.driver)
                 val deleter = PhotoAssetCleanupExecutor(resources.storage.mediaRoot)
-                PhotoOrphanCleanupRunner(database, resources.storage.mediaRoot, deleter).run().also { report ->
+                PhotoOrphanCleanupRunner(
+                    database,
+                    resources.storage.mediaRoot,
+                    deleter,
+                    syncAssetParentDirectory = PhotoDirectoryDurability::sync,
+                ).run().also { report ->
                     cleanupReport = report
                 }.decision
             },

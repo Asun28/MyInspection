@@ -139,6 +139,38 @@ class PendingPhotoLeaseTest {
     }
 
     @Test
+    fun `acquire syncs the complete photo directory chain deepest first after forcing the marker`() = inTempDir { root ->
+        val durabilityRoot = File(root, "existing-root").also { assertTrue(it.mkdir()) }
+        val target = File(durabilityRoot, "media/photos/property/inspection/photo-chain.jpg")
+        val events = mutableListOf<String>()
+
+        val lease = PendingPhotoLease.acquireWithDurability(
+            target = target,
+            durabilityRoot = durabilityRoot,
+            forceMarker = { channel ->
+                events += "force-marker"
+                channel.force(true)
+            },
+            syncParentDirectory = { directory ->
+                events += durabilityRoot.toPath().relativize(directory.toPath()).toString().replace('\\', '/')
+            },
+        )
+
+        assertEquals(
+            listOf(
+                "force-marker",
+                "media/photos/property/inspection",
+                "media/photos/property",
+                "media/photos",
+                "media",
+                "",
+            ),
+            events,
+        )
+        lease.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+    }
+
+    @Test
     fun `parent directory sync failure aborts acquire with its cause and releases the marker`() = inTempDir { root ->
         val target = File(root, "photos/property/inspection/photo-sync-fails.jpg").also {
             assertTrue(it.parentFile!!.mkdirs())

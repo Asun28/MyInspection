@@ -65,19 +65,28 @@ class PendingPhotoLease private constructor(
         private const val MARKER_LENGTH = 39
         private val secureRandom = SecureRandom()
 
-        fun acquire(target: File): PendingPhotoLease = acquire(target) {}
+        internal fun acquire(target: File): PendingPhotoLease = acquire(target) {}
 
-        fun acquire(target: File, syncParentDirectory: (File) -> Unit): PendingPhotoLease =
+        internal fun acquire(target: File, syncParentDirectory: (File) -> Unit): PendingPhotoLease =
+            acquire(target, checkNotNull(target.parentFile), syncParentDirectory)
+
+        fun acquire(
+            target: File,
+            durabilityRoot: File,
+            syncParentDirectory: (File) -> Unit,
+        ): PendingPhotoLease =
             acquireWithDurability(
                 target = target,
                 forceMarker = { channel -> channel.force(true) },
                 syncParentDirectory = syncParentDirectory,
+                durabilityRoot = durabilityRoot,
             )
 
         internal fun acquireWithDurability(
             target: File,
             forceMarker: (FileChannel) -> Unit,
             syncParentDirectory: (File) -> Unit,
+            durabilityRoot: File = checkNotNull(target.parentFile),
             finalizeMarker: ((FileChannel) -> Unit)? = null,
             newToken: () -> ByteArray = ::randomToken,
             beforeExistingMarkerLock: (FileChannel) -> Unit = {},
@@ -91,6 +100,7 @@ class PendingPhotoLease private constructor(
                 createIfMissing = true,
                 forceMarker = forceMarker,
                 syncParentDirectory = syncParentDirectory,
+                durabilityRoot = durabilityRoot,
                 finalizeMarker = finalizeMarker,
                 newToken = newToken,
                 expectedIdentity = null,
@@ -109,6 +119,7 @@ class PendingPhotoLease private constructor(
                 allowResolvingMarker = true,
                 forceMarker = { channel -> channel.force(true) },
                 syncParentDirectory = {},
+                durabilityRoot = checkNotNull(marker.parentFile),
                 finalizeMarker = null,
                 newToken = ::randomToken,
                 expectedIdentity = expectedIdentity,
@@ -135,6 +146,7 @@ class PendingPhotoLease private constructor(
             allowResolvingMarker: Boolean = false,
             forceMarker: (FileChannel) -> Unit,
             syncParentDirectory: (File) -> Unit,
+            durabilityRoot: File,
             finalizeMarker: ((FileChannel) -> Unit)?,
             newToken: () -> ByteArray,
             expectedIdentity: PendingPhotoMarkerIdentity?,
@@ -195,7 +207,7 @@ class PendingPhotoLease private constructor(
                         ?: throw IOException("pending photo marker disappeared while acquiring: ${marker.path}")
                     requireRegularMarker(marker, createdAttributes)
                 }
-                syncParentDirectory(checkNotNull(marker.parentFile))
+                syncDirectoryChain(checkNotNull(marker.parentFile), durabilityRoot, syncParentDirectory)
                 val markerFinalizer = finalizeMarker ?: { heldChannel: FileChannel ->
                     writeResolvingState(heldChannel)
                     heldChannel.force(true)
@@ -204,6 +216,24 @@ class PendingPhotoLease private constructor(
             } catch (primary: Throwable) {
                 closeQuietly(lock, channel, primary)
                 throw primary
+            }
+        }
+
+        private fun syncDirectoryChain(
+            deepest: File,
+            durabilityRoot: File,
+            syncDirectory: (File) -> Unit,
+        ) {
+            val root = durabilityRoot.canonicalFile
+            var current = deepest.canonicalFile
+            if (current != root && !current.toPath().startsWith(root.toPath())) {
+                throw IOException("photo directory is outside durability root: ${current.path}")
+            }
+            while (true) {
+                syncDirectory(current)
+                if (current == root) return
+                current = current.parentFile
+                    ?: throw IOException("durability root is not an ancestor of photo directory: ${root.path}")
             }
         }
 

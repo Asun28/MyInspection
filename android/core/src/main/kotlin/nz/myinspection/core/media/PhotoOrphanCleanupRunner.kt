@@ -84,6 +84,7 @@ class PhotoOrphanCleanupRunner(
     private val database: MyInspectionDatabase,
     private val mediaRoot: File,
     private val deleter: OrphanFileDeleter,
+    private val syncAssetParentDirectory: (File) -> Unit,
 ) {
     fun run(): PhotoOrphanCleanupReport {
         val pending = PendingPhotoAssetCleanup(
@@ -94,6 +95,7 @@ class PhotoOrphanCleanupRunner(
                 }
             },
             deleter = deleter,
+            syncAssetParentDirectory = syncAssetParentDirectory,
         ).run()
         val softDelete = OrphanedAssetCleanup(database, deleter).run()
         return PhotoOrphanCleanupReport.from(pending, softDelete)

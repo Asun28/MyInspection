@@ -106,7 +106,7 @@ object PhotoImportPipeline {
                             shouldPublish = { true },
                             publicationLease = { plan ->
                                 check(plan is PhotoIngestPlan.WriteNewAsset)
-                                PhotoIngestPendingLease.acquire(targetFile, photoId)
+                                PhotoIngestPendingLease.acquire(targetFile, photoId, mediaRoot)
                             },
                             publish = { staged, planned ->
                                 MediaFileStore.publishStaged(staged, mediaRoot, planned.relPath)
