@@ -42,3 +42,9 @@ doc_sync: LESSONS 与 archive README 同步热/冷职责、检索保证和人工
 ## 资源冲突
 
 本卡与 `T0-R3-DIFF-BUDGET`、`T0-CI-MERGE-GATE`、后续状态码卡都写 `scripts/selftest.ps1`。它没有业务硬依赖，但这些卡不得同时向同一基线合并；执行器须串行占用该文件或在合并前重放完整验收。
+
+## PR #51 R3 round-cap 记录
+
+PR #51 已完成两轮 R3。第 1 轮闭合了组合归档误触 tracker/card、夹具未证明旁域不变与文档措辞漂移；第 2 轮仍发现选择器用未锚定正则读取 `tier` / `recurrence`，正文诱饵可能补齐缺失或非法元数据。
+
+按两轮硬上限，不在 PR #51 继续第 3 轮。原 PR 只能经人裁决定是否合并；剩余解析缺口登记为 `T0-LESSONS-COLD-RECALL-R3-CLOSURE`，且须等原产物落入基线后再实现。
