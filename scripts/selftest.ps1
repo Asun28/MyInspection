@@ -407,7 +407,7 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   $sha256 = [System.Security.Cryptography.SHA256]::Create()
   try { $identityHash = [Convert]::ToHexString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($identityParts -join "`n"))).ToLowerInvariant() }
   finally { $sha256.Dispose() }
-  if ($identityHash -ne '6e543a92cda8121d81df2b2eecf164b21be8ba3ea7d3fad6f9b87fb9295fd2eb') { return $false }
+  if ($identityHash -ne '54c52e8260b8568e4f98bda9940879af9dd47a94b3159fe7f38a2f8937b7d710') { return $false }
   return (
     $ScriptText -match 'return "\[SELFTEST-SKIP\] gate=\$GateId reason=\$Reason"' -and
     $ScriptText -match 'return "\[SELFTEST-SKIP-SUMMARY\] shard=\$Shard count=\$\(\$Records\.Count\) items=\$items"' -and
@@ -1591,7 +1591,7 @@ $expectedGitMissingGateIds82 = @(
   '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
   '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
   '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
-  '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)',
+  '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)', '17ac(td27-posix-shim)',
   '17s', '17t',
   '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
   '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
@@ -3542,14 +3542,6 @@ else {
   }
 }
 
-}
-
-function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
-  if ($UseWindows) {
-    return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
-  }
-  $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
-  return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
 }
 
 if ($Shard -eq 'seeded') {
@@ -5635,7 +5627,7 @@ if (-not $seededGitAvailable) {
     '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
     '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
     '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
-    '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)',
+    '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)', '17ac(td27-posix-shim)',
     '17s', '17t',
     '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
     '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
@@ -7057,7 +7049,15 @@ exit $realExit
 '@
       $acMoveShimScript = Join-Path $acMoveShim 'git-shim.ps1'
       Set-Content $acMoveShimScript $acMoveShimBody -Encoding utf8
-      # TD27's forced-POSIX probe below reuses the top-level emitter even when git itself is unavailable.
+      # Keep the two platform wrappers in one local emitter. TD27's forced-POSIX probe below passes an
+      # independently located absolute shim path; only the extensionless POSIX body embeds that safe literal.
+      function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
+        if ($UseWindows) {
+          return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
+        }
+        $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
+        return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
+      }
       $acMoveWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $acMoveShimScript -UseWindows $IsWindows
       if ($IsWindows) {
         Set-Content -LiteralPath (Join-Path $acMoveShim 'git.ps1') -Value $acMoveWrapperBody -Encoding utf8
@@ -9507,7 +9507,7 @@ function Invoke-Td27PosixShimProbe([string]$HarnessPath, [string]$ExpectedReceip
   return [PSCustomObject]@{ Exit = $semanticExit; StdOut = "MARKER:${MarkerId}:$code`nRAW_EXIT=$rawExit`n$raw"; RawExit = $rawExit; Raw = $raw }
 }
 
-if ($Shard -eq 'seeded') {
+if ($Shard -eq 'seeded' -and $seededGitAvailable) {
   # 17ac(TD27). Force the extensionless POSIX body through pwsh even on Windows. The shim target deliberately
   # lives in a different directory with whitespace and an apostrophe, so PSScriptRoot/current-directory fallback
   # cannot accidentally pass. The real Linux shebang+chmod path remains covered by 17ac(moving-ref) above.
