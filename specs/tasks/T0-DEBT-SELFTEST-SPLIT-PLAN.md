@@ -20,11 +20,11 @@ forbid:
 non_goals:
   - 实现 no-git routing 夹具或 mutation 预算收敛
   - 合并或关闭 PR #33
-dod_command: pwsh -NoProfile -Command "if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-SKIP-VISIBILITY]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-NOGIT-ROUTING]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-MUTATION-BUDGET]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tech-debt-tracker.md -SimpleMatch 'T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY')) { exit 1 }"
+dod_command: pwsh -NoProfile -Command "if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-SKIP-VISIBILITY]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-NOGIT-ROUTING]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md -SimpleMatch 'depends_on: [T0-DEBT-SELFTEST-MUTATION-BUDGET]')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-SKIP-VISIBILITY.md -SimpleMatch '本卡只保留 skip primitive、机器台账、摘要与 bounded helper 互斥证明')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md -SimpleMatch '生产 seeded git-present/absent routing')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md -SimpleMatch 'parse-once 的紧凑身份清单')) { exit 1 }; if (-not (Select-String -LiteralPath docs/TASK-BOARD.md -SimpleMatch 'T0-DEBT-SELFTEST-NOGIT-ROUTING')) { exit 1 }; if (-not (Select-String -LiteralPath docs/TASK-BOARD.md -SimpleMatch 'T0-DEBT-SELFTEST-MUTATION-BUDGET')) { exit 1 }; if (-not (Select-String -LiteralPath specs/tech-debt-tracker.md -SimpleMatch 'T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY')) { exit 1 }"
 dod_exit: 0
 dod_assert: 原 skip 卡明确收回到 bounded helper 协议；生产 no-git routing 与 mutation 资源预算各有独立任务卡；TD9、全部 live 卡与 TASK-BOARD 记录同一串行顺序。
 review_gate: codex {verdict:pass}
-hygiene: 逐条对照两轮 R3 block；每个发现只有一个 owner，两个实现卡共享 selftest 因而必须串行。
+hygiene: dod_command 每条 Select-String 对应一项声明；删除任一依赖、carve-out、owner、TASK-BOARD 行或 tracker 顺序即非零；两个实现卡共享 selftest 因而必须串行。
 doc_sync: 本规划卡合并后标 merged；TD9 保持 carded，直到全部子卡与 post-merge core 重放完成。
 ---
 

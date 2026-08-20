@@ -14,11 +14,11 @@ forbid:
 non_goals:
   - 生产 no-git 路由行为
   - workflow/seeded/core 重分片
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Only 8.2e
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Fixture skip-mutation-budget
 dod_exit: 0
 dod_assert: skip 接线由 parse-once 的紧凑身份清单加有界代表性变异证明；core 不物化或重解析数百份 11k 行整脚本；预算诊断输出稳定 ASCII 哨兵，删除任一必要变异仍翻红。
 review_gate: codex {verdict:pass}
-hygiene: 记录候选 mutation 数、实际执行数与峰值集合大小；用上界断言锁住回归，不以单机偶然耗时作为唯一判据。
+hygiene: `-Fixture skip-mutation-budget` 在进入任何 shard 前退出；记录候选 mutation 数、实际执行数与峰值集合大小；用上界断言锁住回归，不以单机偶然耗时作为唯一判据；完整 8.2e 只作附加证据。
 doc_sync: 合并后更新 TD9 指针；TD9 仍保持 carded，等待 load-stability 与 post-merge core。
 ---
 

@@ -17,11 +17,11 @@ non_goals:
   - 改 CI/workflow/task/review 行为
   - 在 core 内启动完整 seeded，或证明 seeded 的生产 no-git routing；该行为归 T0-DEBT-SELFTEST-NOGIT-ROUTING
   - 建立全量 per-gate mutation 矩阵；紧凑身份清单与资源预算归 T0-DEBT-SELFTEST-MUTATION-BUDGET
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Only 8.2e
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Fixture skip-ledger
 dod_exit: 0
 dod_assert: 每个有意环境跳过或因已知前置失败而不执行的已登记检查输出 [SELFTEST-SKIP] gate={id} reason={stable code}；分片终态输出有序去重 [SELFTEST-SKIP-SUMMARY] 与准确 count；失败后的裁剪不可继续静默，也不得输出该检查 PASS；bounded helper 控制组 count=0。
 review_gate: codex {verdict:pass}
-hygiene: 先登记真正的执行单元与跳过原因，再用 bounded helper 的环境缺失、前置失败、正常执行三组夹具证明 FAIL/SKIP/PASS 互斥；删除 skip 记录、reason code 或摘要计数任一层均翻红；生产 routing 与资源预算分别由两张后续卡偿还
+hygiene: `-Fixture skip-ledger` 在进入任何 shard 前退出；用 bounded helper 的环境缺失、前置失败、正常执行三组夹具证明 FAIL/SKIP/PASS 互斥；删除 skip 记录、reason code 或摘要计数任一层均翻红；完整 8.2e 只作附加证据
 doc_sync: TD9 保持 carded；本卡只偿还 skip 可见性，不宣称 8.2e load-flake 已解决
 ---
 

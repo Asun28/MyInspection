@@ -14,11 +14,11 @@ forbid:
 non_goals:
   - mutation harness 的内存与 CPU 预算收敛
   - 8.2e rendezvous 负载稳定性
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Only 8.2e
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Fixture seeded-nogit-routing
 dod_exit: 0
 dod_assert: 专用有界 fixture mode 直接走生产 routing；git-present 控制组 skip count=0，git-absent 组输出完整机器记录与准确摘要；每个登记 gate 的 PASS/SKIP/FAIL 互斥，夹具在 routing 后立即退出且不进入完整 seeded 套件。
 review_gate: codex {verdict:pass}
-hygiene: 先以反转生产路由条件的单句变异证明旧接线可逃逸，再实现 fixture mode；断言机器 ledger，不枚举易漂移的人类 OK 文案。
+hygiene: `-Fixture seeded-nogit-routing` 在生产 routing 后、进入 seeded 套件前退出；先以反转生产路由条件的单句变异证明旧接线可逃逸；断言机器 ledger，不枚举易漂移的人类 OK 文案；完整 8.2e 只作附加证据。
 doc_sync: 合并后更新 TD9 指针；TD9 仍保持 carded，等待 mutation-budget、load-stability 与 post-merge core。
 ---
 
