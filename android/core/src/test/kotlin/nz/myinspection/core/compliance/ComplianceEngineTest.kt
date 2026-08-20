@@ -160,13 +160,13 @@ class ComplianceEngineTest {
 
     @Test
     fun `entry-purpose rules are data driven and unknown purposes fail closed`() {
-        val config = ComplianceConfigLoader.load(configJson(workCheck = true).encodeToByteArray()).config
+        val config = ComplianceConfigLoader.load(configJson(alternatePurpose = true).encodeToByteArray()).config
         val engine = ComplianceEngine(config)
         val scheduled = atNz("2026-08-10T10:00")
 
         assertIs<ScheduleValidation.Pass>(
             engine.validateSchedule(
-                request(scheduled, scheduled.minus(Duration.ofHours(24)), entryPurpose = "work-check"),
+                request(scheduled, scheduled.minus(Duration.ofHours(72)), entryPurpose = "fixture-purpose"),
             ),
         )
         assertBlocked(
@@ -180,6 +180,51 @@ class ComplianceEngineTest {
                 request(scheduled, scheduled.minus(Duration.ofHours(48)), inspectionType = "ROUTIEN"),
             ),
             ComplianceReasonKey.UNKNOWN_INSPECTION_TYPE,
+        )
+    }
+
+    @Test
+    fun `blank property and malformed same-purpose history fail closed with stable reasons`() {
+        val scheduled = atNz("2026-08-15T10:00")
+        val notice = scheduled.minus(Duration.ofHours(48))
+
+        assertBlocked(
+            engine().validateSchedule(request(scheduled, notice, propertyId = "")),
+            ComplianceReasonKey.INVALID_PROPERTY_ID,
+        )
+        assertBlocked(
+            engine().validateSchedule(
+                request(
+                    scheduled,
+                    notice,
+                    existingEntries = listOf(
+                        ExistingScheduledEntry("property-a", "inspection", "ROUTIEN", atNz("2026-08-01T10:00")),
+                    ),
+                ),
+            ),
+            ComplianceReasonKey.INVALID_HISTORY_ENTRY,
+        )
+    }
+
+    @Test
+    fun `history belonging to another entry purpose cannot trigger the inspection frequency limit`() {
+        val scheduled = atNz("2026-08-15T10:00")
+
+        assertIs<ScheduleValidation.Pass>(
+            engine().validateSchedule(
+                request(
+                    scheduledAt = scheduled,
+                    noticeGivenAt = scheduled.minus(Duration.ofHours(48)),
+                    existingEntries = listOf(
+                        ExistingScheduledEntry(
+                            "property-a",
+                            "fixture-purpose",
+                            "ROUTINE",
+                            atNz("2026-08-01T10:00"),
+                        ),
+                    ),
+                ),
+            ),
         )
     }
 
@@ -230,12 +275,12 @@ class ComplianceEngineTest {
 
     private fun atNz(local: String): Instant = LocalDateTime.parse(local).atZone(zone).toInstant()
 
-    private fun configJson(workCheck: Boolean = false): String {
-        val workCheckRule = if (workCheck) {
+    private fun configJson(alternatePurpose: Boolean = false): String {
+        val alternatePurposeRule = if (alternatePurpose) {
             """
             ,
-            "work-check": {
-              "noticeMinHours": 24,
+            "fixture-purpose": {
+              "noticeMinHours": 72,
               "noticeMaxDays": 14,
               "visitWindow": {"start": "08:00", "end": "19:00", "boardingHouseEnd": "18:00"},
               "frequencyLimit": {"days": 1, "exemptTypes": ["ROUTINE", "INGOING", "EXIT", "ANNUAL"]}
@@ -257,7 +302,7 @@ class ComplianceEngineTest {
                   "visitWindow": {"start": "08:00", "end": "19:00", "boardingHouseEnd": "18:00"},
                   "frequencyLimit": {"days": 28, "exemptTypes": ["INGOING", "EXIT", "ANNUAL"]}
                 }
-                $workCheckRule
+                $alternatePurposeRule
               }
             }
         """.trimIndent()

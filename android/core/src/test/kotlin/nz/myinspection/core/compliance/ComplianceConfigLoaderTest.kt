@@ -86,6 +86,41 @@ class ComplianceConfigLoaderTest {
         }
     }
 
+    @Test
+    fun `v1 requires Pacific Auckland and a checksum-valid timezone override falls back`() {
+        val builtIn = validConfig().encodeToByteArray()
+        val utc = validConfig().replace("Pacific/Auckland", "UTC").encodeToByteArray()
+
+        assertFailsWith<ComplianceConfigException> {
+            ComplianceConfigLoader.load(utc)
+        }
+
+        val overrideResult = ComplianceConfigLoader.load(
+            builtInBytes = builtIn,
+            override = ComplianceOverride(utc, sha256Hex(utc)),
+        )
+        assertEquals(ComplianceConfigSource.BUILT_IN, overrideResult.source)
+        assertEquals(OverrideRejection.INVALID_CONFIG, overrideResult.overrideRejection)
+        assertEquals("Pacific/Auckland", overrideResult.config.timezone.id)
+    }
+
+    @Test
+    fun `digest-valid malformed and semantically invalid overrides are rejected observably`() {
+        val builtIn = validConfig().encodeToByteArray()
+        val malformed = "{".encodeToByteArray()
+        val invalidRule = validConfig(noticeMinHours = 0).encodeToByteArray()
+
+        listOf(malformed, invalidRule).forEach { invalidOverride ->
+            val result = ComplianceConfigLoader.load(
+                builtInBytes = builtIn,
+                override = ComplianceOverride(invalidOverride, sha256Hex(invalidOverride)),
+            )
+            assertEquals(ComplianceConfigSource.BUILT_IN, result.source)
+            assertEquals(OverrideRejection.INVALID_CONFIG, result.overrideRejection)
+            assertEquals(48, result.config.rules.getValue("inspection").noticeMinHours)
+        }
+    }
+
     private fun validConfig(
         schemaVersion: Int = 1,
         noticeMinHours: Int = 48,

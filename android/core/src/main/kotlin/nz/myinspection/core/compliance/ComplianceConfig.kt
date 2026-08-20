@@ -144,6 +144,9 @@ object ComplianceConfigLoader {
             errors += "config: timezone is unknown"
             null
         }
+        if (raw.timezone != V1_TIMEZONE) {
+            errors += "config: timezone must be $V1_TIMEZONE for schemaVersion 1"
+        }
 
         if (raw.sourceRefs.isEmpty()) errors += "config: sourceRefs is empty"
         raw.sourceRefs.forEachIndexed { index, ref ->
@@ -232,6 +235,8 @@ object ComplianceConfigLoader {
         } else {
             LocalTime.parse(raw)
         }
+
+    private const val V1_TIMEZONE = "Pacific/Auckland"
 
 }
 
