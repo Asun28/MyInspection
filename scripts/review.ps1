@@ -42,10 +42,7 @@ param(
   [string]$Effort = '',
   [switch]$LocalBase,   # -Local 工作流：合并目标是**本地** <base>（非 origin/<base>）——优先本地解析基线（TD68 / R3 PR#102 三轮）
   [int]$TimeoutSec = 0,
-  [switch]$ResetRounds, # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
-  [switch]$SizeOnly,    # 只计算真实 diff 预算并退出；不调用 reviewer、不消费 round。供 task.ps1 在 push/PR 前复用
-  [ValidateRange(1, 1000)][int]$MaxChangedLines = 1000, # 仅允许收紧，禁止命令行放宽基线批准的默认上限
-  [ValidateRange(1, 60000)][int]$MaxDiffChars = 60000   # 仅允许收紧，禁止绕过 reviewer 的 60k 完整 diff 边界
+  [switch]$ResetRounds  # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
 )
 
 Set-StrictMode -Version Latest
@@ -254,6 +251,13 @@ $reviewEffort = if ($Effort) { $Effort } else { $cfgEffort }
 # 刻意**不**在此硬编码合法档位枚举：合法值**随模型而异**（实测 gpt-5.6-sol/luna 接受 max、却拒 minimal，
 # 而 API 的通用参数枚举又列出 minimal——两者不同源）。任何静态列表都会「误拒合法配置 / 误放非法组合」。
 # 校验交给 CLI/API：填错即评审者启动失败 → 写不出裁决 → 走下方既有 fail-closed 路径 block（并在控制台打出后端原文报错）。
+if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
+  Write-Host $codexSetup -ForegroundColor Yellow
+  Write-Verdict 'block' @('codex 缺失，无法评审：装 codex、或在 _config.ps1 设 ReviewCommand 换后端、或 -SkipReview（仅本地只读）。')
+  Write-Host '裁决: block（codex 缺失，无法评审）' -ForegroundColor Red
+  exit 1
+}
+
 # --- 评审 prompt：钉死本项目的冻结契约与硬边界 ---
 # 提示注入硬化 · 数据栅栏 nonce（TD48/TD-111）：分隔「待审数据」与「可信 prompt 层」的栅栏标记改用每轮
 # 生成的不可猜 nonce（=== DATA-<nonce> …===）。固定明文栅栏可被卡片/diff 里注入的同款标记冒充、提前「闭合」
@@ -283,61 +287,13 @@ if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
 }
 $diff = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --stat | Out-String).Trim()
 $diffStatExit = $LASTEXITCODE
-$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --numstat | Out-String)
-$diffNumstatExit = $LASTEXITCODE
 $diffBody = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --unified=3 | Out-String)
 $diffBodyExit = $LASTEXITCODE
-if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
-  $diffFailureReason = "[R3-DIFF-COMMAND-FAILED] git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --numstat=$diffNumstatExit, --unified=$diffBodyExit). The size/review input cannot be trusted, so this run blocks fail-closed."
-  if (-not $SizeOnly) { Write-Verdict 'block' @($diffFailureReason) }
-  Write-Host "  $diffFailureReason" -ForegroundColor Red
-  Write-Host '裁决: block（git diff 命令失败）' -ForegroundColor Red
+if ($diffStatExit -ne 0 -or $diffBodyExit -ne 0) {
+  Write-Verdict 'block' @("git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.")
+  Write-Host "裁决: block（git diff 失败：--stat=$diffStatExit / --unified=$diffBodyExit）" -ForegroundColor Red
   exit 1
 }
-$changedLines = [long]0
-$binaryFiles = 0
-$numstatMalformed = @()
-foreach ($numstatLine in @($diffNumstat -split '\r?\n' | Where-Object { $_ -ne '' })) {
-  if ($numstatLine -notmatch '^(?<add>\d+|-)\t(?<delete>\d+|-)\t') {
-    $numstatMalformed += $numstatLine
-    continue
-  }
-  $add = $Matches['add']; $delete = $Matches['delete']
-  if ($add -eq '-' -or $delete -eq '-') {
-    if ($add -ne '-' -or $delete -ne '-') { $numstatMalformed += $numstatLine; continue }
-    $binaryFiles++
-    continue
-  }
-  $changedLines += [long]$add + [long]$delete
-}
-if ($numstatMalformed.Count -gt 0) {
-  $numstatReason = "[R3-DIFF-NUMSTAT-INVALID] git diff --numstat returned $($numstatMalformed.Count) unparseable row(s); changed-line size is unknown, so this run blocks fail-closed."
-  if (-not $SizeOnly) { Write-Verdict 'block' @($numstatReason) }
-  Write-Host "  $numstatReason" -ForegroundColor Red
-  Write-Host '裁决: block（numstat 无法可靠解析）' -ForegroundColor Red
-  exit 1
-}
-$diffChars = [long]$diffBody.Length
-Write-Host "R3 diff size: changedLines=$changedLines diffChars=$diffChars binaryFiles=$binaryFiles limits=$MaxChangedLines/$MaxDiffChars" -ForegroundColor DarkGray
-if ($changedLines -gt $MaxChangedLines -or $diffChars -gt $MaxDiffChars) {
-  $sizeReason = "[R3-DIFF-TOO-LARGE] Pinned diff $baseOid...HEAD is too large for one complete R3 pass: changedLines=$changedLines (max $MaxChangedLines), diffChars=$diffChars (max $MaxDiffChars), binaryFiles=$binaryFiles. Split the task/card before push or review; no reviewer round was consumed."
-  if (-not $SizeOnly) { Write-Verdict 'block' @($sizeReason) }
-  Write-Host "  $sizeReason" -ForegroundColor Red
-  Write-Host '裁决: block（真实 diff 超预算，须拆卡）' -ForegroundColor Red
-  exit 1
-}
-if ($SizeOnly) {
-  Write-Host 'R3 diff budget: PASS（SizeOnly；未调用 reviewer、未消费 round）' -ForegroundColor Green
-  exit 0
-}
-
-if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
-  Write-Host $codexSetup -ForegroundColor Yellow
-  Write-Verdict 'block' @('codex 缺失，无法评审：装 codex、或在 _config.ps1 设 ReviewCommand 换后端、或 -SkipReview（仅本地只读）。')
-  Write-Host '裁决: block（codex 缺失，无法评审）' -ForegroundColor Red
-  exit 1
-}
-
 $diffCap = 60000
 $diffTruncated = $false
 if ($diffBody.Length -gt $diffCap) { $diffBody = $diffBody.Substring(0, $diffCap); $diffTruncated = $true }

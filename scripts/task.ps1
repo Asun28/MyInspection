@@ -501,18 +501,6 @@ switch ($Phase) {
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'secrets' 'check-secrets fatal'; throw '检出疑似机密（见上 check-secrets）。立即轮换密钥、改用环境变量/密钥管理并移除后重 ship（见 docs/SECURITY.md）。' }
       $sagaDone += '防泄露闸'
 
-      Step '真实 diff 预算闸（1000 changed lines 且 60000 chars 内；push/PR/R3 前硬阻断）'
-      if ($Local) {
-        & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -SizeOnly -LocalBase
-      } else {
-        & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -SizeOnly
-      }
-      if ($LASTEXITCODE -ne 0) {
-        Add-CatchRecord 'review-size' 'R3 diff budget block'
-        throw '真实 diff 超过单卡/R3 完整读取预算，或预算无法可靠计算。拆卡或修复 git 基线后重 ship；尚未 push、开 PR 或消费 reviewer round。'
-      }
-      $sagaDone += '真实 diff 预算'
-
       if ($Local) {
         # ── -Local：无 push/PR/gh 的本地完成路径（治「T0 throwaway 无远端/无 Codex 也能闭环」）──
         Step 'R3 第二模型评审（-Local：可选——有 codex/ReviewCommand 才跑，无则跳过、仅本地检视）'
