@@ -48,6 +48,7 @@
 | W0 | T0-LICENSE-SELFTEST-DRIFT | 恢复 Gradle diagnostics 的 selftest 回归覆盖并迁移非 vacuous mutation（TD138） | T0-LICENSE-GAV-BOUNDS | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `d00c062`，PR #36；diagnostics 19 mutations、normal seeded、verify、R3 pass；因并发登记冲突从 TD137 重编号） |
 | W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/3） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | PR #33 恢复：TD138 前置已 merged；合入最新 master 后重放无 git seeded/core/R3 |
 | W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 3/3） | T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | 三卡全 merged + post-merge core 重放后才可 paid |
+| W0 | T0-DEBT-MIGRATION-FIXTURE-CLEANUP | PR #47 round-cap 后收敛 Windows migration fixture 清理（TD142） | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 TD4 先人裁；只做短路径、有界重试和诊断保留，不重审生产实现 |
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | —（人工真机验收） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | 冻结前 Opus 5 抽审 |
 | W1 | T1-SPIKE-PLATFORM | 真机可行性 ×4：overlay/离线听写/SAF/80 照 PDF 压力 | T0 | H | Opus 5 · max | Sonnet 5 max | —（人工真机验收） |
