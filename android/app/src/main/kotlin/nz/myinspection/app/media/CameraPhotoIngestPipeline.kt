@@ -58,11 +58,12 @@ object CameraPhotoIngestPipeline {
             baked = bakedBitmap
             val scaledBitmap = PhotoBitmapScaler.scaleDown(bakedBitmap, qualityProfile)
             scaled = scaledBitmap
+            val targetFile = MediaFileStore.resolve(
+                mediaRoot,
+                MediaPaths.photoRelPath(propertyId, inspectionId, photoId),
+            )
             VerifiedAssetWorkflow.encodeStagePublishRecord(
-                target = MediaFileStore.resolve(
-                    mediaRoot,
-                    MediaPaths.photoRelPath(propertyId, inspectionId, photoId),
-                ),
+                target = targetFile,
                 input = scaledBitmap,
                 encoder = PhotoJpegEncoder(qualityProfile),
                 plan = { staged ->
@@ -76,6 +77,10 @@ object CameraPhotoIngestPipeline {
                     ) { relPath -> MediaFileStore.resolve(mediaRoot, relPath).exists() }
                 },
                 shouldPublish = { plan -> plan is PhotoIngestPlan.WriteNewAsset },
+                publicationLease = { plan ->
+                    check(plan is PhotoIngestPlan.WriteNewAsset)
+                    PhotoIngestPendingLease.acquire(targetFile, photoId)
+                },
                 publish = { staged, plan -> MediaFileStore.publishStaged(staged, mediaRoot, plan.relPath) },
                 record = { plan ->
                     recorder.recordLanded(plan, photoId, target, PhotoSource.CAMERA, capturedAtMs, mediaRoot)

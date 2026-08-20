@@ -53,6 +53,88 @@ class VerifiedAssetWorkflowTest {
     }
 
     @Test
+    fun `a new asset lease begins before publish and ends only after recording`() = inTempDir { directory ->
+        val target = File(directory, "photo.jpg")
+        val events = mutableListOf<String>()
+        val lease = RecordingPublicationLease(events)
+
+        val result = VerifiedAssetWorkflow.encodeStagePublishRecordWith(
+            stager = VerificationRecordingStager(events),
+            target = target,
+            input = "asset",
+            encoder = StreamEncoder { value, output ->
+                events += "encode"
+                output.write(value.toByteArray(Charsets.US_ASCII))
+            },
+            plan = { events += "plan"; "new" },
+            shouldPublish = { true },
+            publicationLease = { events += "lease"; lease },
+            publish = { staged, _ ->
+                events += "publish"
+                Files.move(staged.file.toPath(), target.toPath())
+            },
+            record = {
+                events += "record"
+                "recorded"
+            },
+        )
+
+        assertEquals("recorded", result)
+        assertEquals(
+            listOf("stage", "encode", "verify", "plan", "lease", "publish", "record", "finish:recorded", "close"),
+            events,
+            "a marker lease must span publish through the completed record, not either half alone",
+        )
+    }
+
+    @Test
+    fun `lease close failure is suppressed beneath the publish failure`() = inTempDir { directory ->
+        val primary = IllegalStateException("publish failed")
+        val closeFailure = IllegalStateException("lease close failed")
+        val lease = ThrowingClosePublicationLease(closeFailure)
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            VerifiedAssetWorkflow.encodeStagePublishRecord(
+                target = File(directory, "photo.jpg"),
+                input = Unit,
+                encoder = StreamEncoder { _, output -> output.write(1) },
+                plan = { "new" },
+                shouldPublish = { true },
+                publicationLease = { lease },
+                publish = { _, _ -> throw primary },
+                record = { error("record must not run after publish failure") },
+            )
+        }
+
+        assertSame(primary, thrown)
+        assertEquals(listOf(closeFailure), thrown.suppressed.toList(), "lease cleanup must not replace the publish failure")
+        assertTrue(lease.closed, "a failed publish must still release the marker lock")
+    }
+
+    @Test
+    fun `lease close failure after a recorded result is reported without replacing that result`() = inTempDir { directory ->
+        val closeFailure = IllegalStateException("lease close failed")
+        val lease = ReportingClosePublicationLease(closeFailure)
+        val target = File(directory, "photo.jpg")
+
+        val result = VerifiedAssetWorkflow.encodeStagePublishRecord(
+            target = target,
+            input = Unit,
+            encoder = StreamEncoder { _, output -> output.write(1) },
+            plan = { "new" },
+            shouldPublish = { true },
+            publicationLease = { lease },
+            publish = { staged, _ -> Files.move(staged.file.toPath(), target.toPath()) },
+            record = { "recorded" },
+        )
+
+        assertEquals("recorded", result, "DB success must remain visible when only marker release failed")
+        assertTrue(target.isFile)
+        assertTrue(lease.closed)
+        assertSame(closeFailure, lease.reportedCleanupFailure)
+    }
+
+    @Test
     fun `camera mode derives its plan hash from the closed staged JPEG`() = inTempDir { directory ->
         val target = File(directory, "camera.jpg")
         val finalJpeg = "final-camera-jpeg".toByteArray(Charsets.US_ASCII)
@@ -240,6 +322,52 @@ class VerifiedAssetWorkflowTest {
 
         override fun <T> useAndDiscard(staged: StagedFile, action: () -> T): T =
             StreamFileStager.useAndDiscard(staged, action)
+    }
+
+    private class RecordingPublicationLease(
+        private val events: MutableList<String>,
+    ) : PublicationLease<String> {
+        override fun finish(result: String) {
+            events += "finish:$result"
+        }
+
+        override fun close() {
+            events += "close"
+        }
+    }
+
+    private class ThrowingClosePublicationLease(
+        private val closeFailure: IllegalStateException,
+    ) : PublicationLease<Nothing> {
+        var closed = false
+            private set
+
+        override fun finish(result: Nothing) = error("finish must not run after publish failure")
+
+        override fun close() {
+            closed = true
+            throw closeFailure
+        }
+    }
+
+    private class ReportingClosePublicationLease(
+        private val closeFailure: IllegalStateException,
+    ) : PublicationLease<String> {
+        var closed = false
+            private set
+        var reportedCleanupFailure: Throwable? = null
+            private set
+
+        override fun finish(result: String) = Unit
+
+        override fun close() {
+            closed = true
+            throw closeFailure
+        }
+
+        override fun onCompletedCleanupFailure(failure: Throwable) {
+            reportedCleanupFailure = failure
+        }
     }
 
     private class ReadFailingStager(

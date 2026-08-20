@@ -96,13 +96,18 @@ object PhotoImportPipeline {
                         baked = bakedBitmap
                         val scaledBitmap = PhotoBitmapScaler.scaleDown(bakedBitmap, qualityProfile)
                         scaled = scaledBitmap
+                        val targetFile = MediaFileStore.resolve(mediaRoot, newAssetPlan.relPath)
                         return VerifiedAssetWorkflow.encodeStagePublishRecord(
-                            target = MediaFileStore.resolve(mediaRoot, newAssetPlan.relPath),
+                            target = targetFile,
                             input = scaledBitmap,
                             encoder = PhotoJpegEncoder(qualityProfile),
                             // Import dedupe/DB semantics intentionally keep the source-byte hash computed above.
                             plan = { newAssetPlan },
                             shouldPublish = { true },
+                            publicationLease = { plan ->
+                                check(plan is PhotoIngestPlan.WriteNewAsset)
+                                PhotoIngestPendingLease.acquire(targetFile, photoId)
+                            },
                             publish = { staged, planned ->
                                 MediaFileStore.publishStaged(staged, mediaRoot, planned.relPath)
                             },
