@@ -3,6 +3,7 @@ package nz.myinspection.core.media
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import kotlin.test.Test
@@ -223,6 +224,34 @@ class PendingPhotoLeaseTest {
         val reopened = PendingPhotoLease.acquire(target)
         reopened.closeAfter(PendingPhotoLeaseDisposition.RECORDED)
         assertFalse(marker.exists(), "a successfully recorded photo must no longer be recoverable as an orphan")
+    }
+
+    @Test
+    fun `acquire rejects a normal marker that becomes resolving before its exclusive lock`() = inTempDir { root ->
+        val target = File(root, "photos/property/inspection/photo-lock-race.jpg").also {
+            assertTrue(it.parentFile!!.mkdirs())
+        }
+        PendingPhotoLease.acquire(target).closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+
+        val outcome = runCatching {
+            PendingPhotoLease.acquireWithDurability(
+                target = target,
+                forceMarker = { it.force(true) },
+                syncParentDirectory = {},
+                beforeExistingMarkerLock = { channel ->
+                    channel.write(ByteBuffer.wrap(byteArrayOf('R'.code.toByte())), 5L)
+                    channel.force(true)
+                },
+            )
+        }
+        outcome.getOrNull()?.closeAfter(PendingPhotoLeaseDisposition.RETAIN)
+
+        val failure = outcome.exceptionOrNull()
+        assertTrue(failure is IOException)
+        assertTrue(
+            failure.message.orEmpty().contains("changed after lock"),
+            "a contender must fail specifically because its locked marker state was revalidated: $failure",
+        )
     }
 
     @Test

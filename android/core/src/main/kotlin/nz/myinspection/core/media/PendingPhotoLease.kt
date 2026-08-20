@@ -80,6 +80,7 @@ class PendingPhotoLease private constructor(
             syncParentDirectory: (File) -> Unit,
             finalizeMarker: ((FileChannel) -> Unit)? = null,
             newToken: () -> ByteArray = ::randomToken,
+            beforeExistingMarkerLock: (FileChannel) -> Unit = {},
         ): PendingPhotoLease {
             val parent = checkNotNull(target.parentFile) { "photo target has no parent: ${target.path}" }
             if (!parent.exists() && !parent.mkdirs() && !parent.isDirectory) {
@@ -93,6 +94,7 @@ class PendingPhotoLease private constructor(
                 finalizeMarker = finalizeMarker,
                 newToken = newToken,
                 expectedIdentity = null,
+                beforeExistingMarkerLock = beforeExistingMarkerLock,
             )
         }
 
@@ -110,6 +112,7 @@ class PendingPhotoLease private constructor(
                 finalizeMarker = null,
                 newToken = ::randomToken,
                 expectedIdentity = expectedIdentity,
+                beforeExistingMarkerLock = {},
             )
 
         /** Scan-bound identity is content-backed because Windows' default JDK provider returns a null fileKey. */
@@ -135,6 +138,7 @@ class PendingPhotoLease private constructor(
             finalizeMarker: ((FileChannel) -> Unit)?,
             newToken: () -> ByteArray,
             expectedIdentity: PendingPhotoMarkerIdentity?,
+            beforeExistingMarkerLock: (FileChannel) -> Unit,
         ): PendingPhotoLease {
             val path = marker.toPath()
             var identityBeforeOpen = readPathIdentity(marker, allowResolvingMarker)
@@ -177,7 +181,15 @@ class PendingPhotoLease private constructor(
                     if (readPathIdentity(marker, allowResolvingMarker) != openedIdentity) {
                         throw IOException("pending photo marker path changed while acquiring: ${marker.path}")
                     }
+                    beforeExistingMarkerLock(channel)
                     lock = acquireExclusiveLock(marker, channel)
+                    val lockedIdentity = readChannelIdentity(marker, channel, allowResolvingMarker = true)
+                    if (lockedIdentity != openedIdentity ||
+                        (!allowResolvingMarker && lockedIdentity.state == PendingPhotoMarkerState.RESOLVING) ||
+                        (expectedIdentity != null && lockedIdentity != expectedIdentity)
+                    ) {
+                        throw IOException("pending photo marker changed after lock: ${marker.path}")
+                    }
                 } else {
                     val createdAttributes = readMarkerAttributes(marker)
                         ?: throw IOException("pending photo marker disappeared while acquiring: ${marker.path}")
