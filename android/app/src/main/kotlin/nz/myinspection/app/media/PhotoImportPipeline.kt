@@ -12,6 +12,7 @@ import nz.myinspection.core.media.ImportBounds
 import nz.myinspection.core.media.PhotoAssociationRecorder
 import nz.myinspection.core.media.PhotoIngest
 import nz.myinspection.core.media.PhotoIngestPlan
+import nz.myinspection.core.media.PhotoQualityProfileSource
 import nz.myinspection.core.media.PhotoSource
 import nz.myinspection.core.media.PhotoTarget
 import nz.myinspection.core.media.VerifiedAssetWorkflow
@@ -20,11 +21,11 @@ import nz.myinspection.core.media.VerifiedAssetWorkflow
  * 导入路径（卡片上下文包「导入」）：复制原字节到临时私有文件（硬边界：导入=复制，不移动用户原始文件）、
  * **边拷边对原始字节求 SHA-256**（单次读流完成拷贝+摘要，不把整份文件读进内存）→ 去重命中且物理文件仍在
  * 则丢弃临时副本、只建新关联 → 否则先只读边界过预算闸（`inJustDecodeBounds` 不分配像素内存），过闸才
- * 原分辨率解码、按临时副本自身的 EXIF orientation 转正烘焙、编码落到派生路径 → 入库 photo 关联
+ * 以将要执行的 EXIF 转正和冻结档位算出真实峰值后原分辨率解码、转正烘焙、编码落到派生路径 → 入库 photo 关联
  * （source=IMPORTED，exif_time_ms 与巡检时间分开存，需求 §5）。临时副本用后即删，中间位图恒在 finally 回收。
  *
- * **不做有损降采样**：证据分辨率决策属消费端（卡片上下文包「缩略图交给消费端按需降采样」）；装不下的
- * 文件出路是具名拒绝，不是静默压小。
+ * 新照片只在转正后按本次冻结的档位缩小，绝不放大；DB `content_hash` 仍是上面求得的原始 source bytes，
+ * staged digest 只校验这份最终 JPEG，不借档位切换改变导入去重身份。
  *
  * SAF 选文件（把用户挑的 Uri 打开成 [sourceStream]）属采集 UI 层；本函数只接一个已打开的流，并负责关闭
  * 它——**从函数入口就建立所有权**（最外层 `finally` 显式 `close()`，覆盖 [resolvePathContext] 与临时路径
@@ -42,10 +43,12 @@ object PhotoImportPipeline {
         target: PhotoTarget,
         recorder: PhotoAssociationRecorder,
         activeAssetLookup: (contentHash: String) -> List<String>,
+        qualityProfileSource: PhotoQualityProfileSource,
         budgetBytes: Long = PhotoMemoryBudget.transientBytes(),
     ): PhotoIngestOutcome {
         var primary: Throwable? = null
         try {
+            val qualityProfile = qualityProfileSource.snapshotForNewPhoto()
             // 存储路径的物业/巡检上下文从 [target] 反查 DB，不由调用方另传——见 resolvePathContext。
             val (propertyId, inspectionId) = recorder.resolvePathContext(target.roomInstanceId)
             // 每次调用一个独立命名的临时文件（同 MediaFileStore 内部临时文件的唯一性来源
@@ -70,13 +73,20 @@ object PhotoImportPipeline {
                     val newAssetPlan = plan
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeFile(tempFile.path, bounds)
-                    ImportBounds.check(bounds.outWidth, bounds.outHeight, budgetBytes)
+                    val orientation = PhotoExifReader.readOrientation(tempFile)
+                    ImportBounds.check(
+                        width = bounds.outWidth,
+                        height = bounds.outHeight,
+                        budgetBytes = budgetBytes,
+                        profile = qualityProfile,
+                        exifOrientation = orientation,
+                    )
                         .rejectionOrNull()
                         ?.let { return it }
 
-                    val orientation = PhotoExifReader.readOrientation(tempFile)
                     var decoded: Bitmap? = null
                     var baked: Bitmap? = null
+                    var scaled: Bitmap? = null
                     try {
                         // 边界读得出、真解码却回 null：文件在两次读之间被改坏，或格式只有边界可读——具名拒绝，不崩。
                         val decodedBitmap = BitmapFactory.decodeFile(tempFile.path)
@@ -84,10 +94,12 @@ object PhotoImportPipeline {
                         decoded = decodedBitmap
                         val bakedBitmap = PhotoOrientationBaker.bake(decodedBitmap, orientation)
                         baked = bakedBitmap
+                        val scaledBitmap = PhotoBitmapScaler.scaleDown(bakedBitmap, qualityProfile)
+                        scaled = scaledBitmap
                         return VerifiedAssetWorkflow.encodeStagePublishRecord(
                             target = MediaFileStore.resolve(mediaRoot, newAssetPlan.relPath),
-                            input = bakedBitmap,
-                            encoder = PhotoJpegEncoder,
+                            input = scaledBitmap,
+                            encoder = PhotoJpegEncoder(qualityProfile),
                             // Import dedupe/DB semantics intentionally keep the source-byte hash computed above.
                             plan = { newAssetPlan },
                             shouldPublish = { true },
@@ -106,6 +118,7 @@ object PhotoImportPipeline {
                             },
                         )
                     } finally {
+                        if (scaled != null && scaled !== baked) scaled.recycle()
                         if (baked != null && baked !== decoded) baked.recycle()
                         decoded?.recycle()
                     }

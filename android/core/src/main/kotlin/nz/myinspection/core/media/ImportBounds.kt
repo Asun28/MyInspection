@@ -7,7 +7,7 @@ package nz.myinspection.core.media
 sealed interface ImportBoundsResult {
     data object Accepted : ImportBoundsResult
 
-    /** 转正烘焙+编码所需的瞬时内存 [requiredBytes] 超出本次可用预算 [budgetBytes]。 */
+    /** 转正烘焙+缩放+编码所需的瞬时内存 [requiredBytes] 超出本次可用预算 [budgetBytes]。 */
     data class Rejected(val width: Int, val height: Int, val requiredBytes: Long, val budgetBytes: Long) : ImportBoundsResult
 
     /** 取不到正的图像边界（`BitmapFactory` 的 `inJustDecodeBounds` 对非图片/损坏文件给出 -1）。 */
@@ -15,36 +15,86 @@ sealed interface ImportBoundsResult {
 }
 
 /**
- * 解码前置校验：按**字节预算**判定「继续解码这份图会不会撑爆进程」，是进程存活底线，不是显示尺寸策略。
- * 预算由调用方按设备实际堆余量注入（:app 的 `PhotoMemoryBudget`），不写死像素上限——固定阈值在小堆设备
- * 上仍会 OOM、在大堆设备上又白拒合法证据。相机与导入两条管线在编码那一刻都同时持有源位图与转正位图；JPEG
- * 仅经过有界文件流（见 [PEAK_BYTES_PER_PIXEL]），故共用同一套判定。超限的 UX 属 T2-CAPTURE-UI（已登记技术债）。
+ * 解码前置校验：按**本次操作真实同时存活的 ARGB_8888 位图**判定「继续解码这份图会不会撑爆进程」，是进程
+ * 存活底线，不是显示尺寸策略。源位图始终存在；非 identity EXIF 转正会分配同尺寸 baked 位图；仅当冻结档位
+ * 真正缩小时，缩放会在 baked/source 尚存活时分配第三份位图。JPEG 直接写入有界文件流，故不计作整份内存。
+ *
+ * 预算由调用方按设备实际堆余量注入（:app 的 `PhotoMemoryBudget`），不写死像素上限。相机与导入必须传入
+ * 同一操作已冻结的 [PhotoQualityProfile] 和将要执行的 EXIF orientation，避免检查一个较小峰值、实际分配更大
+ * 峰值。超限的 UX 属 T2-CAPTURE-UI（已登记技术债）。
  */
 object ImportBounds {
     /** `Bitmap.Config.ARGB_8888` 每像素字节数。 */
     const val BYTES_PER_PIXEL: Long = 4
 
-    /** 编码那一刻同时存活的位图数：源位图 + 转正烘焙新分配的那份（源位图由其属主在编码之后才回收）。 */
-    const val CONCURRENT_BITMAPS: Long = 2
-
-    /** 单像素峰值 = 两份位图；JPEG 编码直接进入有界文件流，不再保留整份编码字节。 */
-    const val PEAK_BYTES_PER_PIXEL: Long = BYTES_PER_PIXEL * CONCURRENT_BITMAPS
-
-    /** 该尺寸解码+烘焙+编码的峰值字节数；超出 `Long` 表示范围时饱和到 [Long.MAX_VALUE]（仍是"远超任何预算"）。 */
-    fun requiredBytes(width: Int, height: Int): Long {
-        val pixels = width.toLong() * height.toLong()
-        return if (pixels > Long.MAX_VALUE / PEAK_BYTES_PER_PIXEL) Long.MAX_VALUE else pixels * PEAK_BYTES_PER_PIXEL
+    /**
+     * 返回当前 EXIF+档位操作的峰值位图字节数；无效边界是调用错误，供外部输入使用时请先调用 [check]。
+     * 计算超过 [Long] 可表示范围时饱和到 [Long.MAX_VALUE]。
+     */
+    fun requiredBytes(
+        width: Int,
+        height: Int,
+        profile: PhotoQualityProfile,
+        exifOrientation: Int,
+    ): Long {
+        require(width > 0 && height > 0) { "image bounds must be positive: ${width}x${height}" }
+        return peakRequirement(width, height, profile, exifOrientation).bytes
     }
 
-    fun check(width: Int, height: Int, budgetBytes: Long): ImportBoundsResult {
+    fun check(
+        width: Int,
+        height: Int,
+        budgetBytes: Long,
+        profile: PhotoQualityProfile,
+        exifOrientation: Int,
+    ): ImportBoundsResult {
         if (width <= 0 || height <= 0) return ImportBoundsResult.Undecodable(width, height)
-        // 比较写成"像素数 vs 预算/单像素"而非"所需字节 vs 预算"：Int 上界的两条边相乘已达 4.6e18，
-        // 再乘单像素字节会溢出 Long 变负数，一张荒谬大的图反而会被判为"装得下"。
-        val pixels = width.toLong() * height.toLong()
-        return if (pixels > budgetBytes / PEAK_BYTES_PER_PIXEL) {
-            ImportBoundsResult.Rejected(width, height, requiredBytes(width, height), budgetBytes)
+        val requirement = peakRequirement(width, height, profile, exifOrientation)
+        return if (requirement.saturated || requirement.bytes > budgetBytes) {
+            ImportBoundsResult.Rejected(width, height, requirement.bytes, budgetBytes)
         } else {
             ImportBoundsResult.Accepted
+        }
+    }
+
+    private fun peakRequirement(
+        width: Int,
+        height: Int,
+        profile: PhotoQualityProfile,
+        exifOrientation: Int,
+    ): ByteRequirement {
+        val transform = ExifOrientation.transformFor(exifOrientation)
+        val isQuarterTurn = transform.rotationDegrees == 90 || transform.rotationDegrees == 270
+        val orientedWidth = if (isQuarterTurn) height else width
+        val orientedHeight = if (isQuarterTurn) width else height
+        val scaled = profile.scaledDimensions(orientedWidth, orientedHeight)
+
+        var peak = bitmapBytes(width, height) // decoded/caller-owned source
+        if (transform.rotationDegrees != 0 || transform.flipHorizontal) {
+            peak = peak.plus(bitmapBytes(width, height)) // EXIF-baked destination
+        }
+        if (scaled.width != orientedWidth || scaled.height != orientedHeight) {
+            peak = peak.plus(bitmapBytes(scaled.width, scaled.height)) // scale destination
+        }
+        return peak
+    }
+
+    private fun bitmapBytes(width: Int, height: Int): ByteRequirement {
+        // Positive Int bounds multiply safely in Long; multiplying their pixel count by four may not.
+        val pixels = width.toLong() * height.toLong()
+        return if (pixels > Long.MAX_VALUE / BYTES_PER_PIXEL) {
+            ByteRequirement(Long.MAX_VALUE, saturated = true)
+        } else {
+            ByteRequirement(pixels * BYTES_PER_PIXEL, saturated = false)
+        }
+    }
+
+    private data class ByteRequirement(val bytes: Long, val saturated: Boolean) {
+        fun plus(other: ByteRequirement): ByteRequirement {
+            if (saturated || other.saturated || bytes > Long.MAX_VALUE - other.bytes) {
+                return ByteRequirement(Long.MAX_VALUE, saturated = true)
+            }
+            return ByteRequirement(bytes + other.bytes, saturated = false)
         }
     }
 }

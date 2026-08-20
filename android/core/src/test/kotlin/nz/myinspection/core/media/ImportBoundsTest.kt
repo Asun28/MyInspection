@@ -5,72 +5,129 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 /**
- * 预算边界向量。**budget/required 全部写死为字面量、不由 [ImportBounds] 自己的常量算出**——否则把
- * `CONCURRENT_BITMAPS` 从 2 改成 1 这类变异会同时移动断言两侧，测试照样绿（L165）。
- * 4000 x 3000 = 12,000,000 px；峰值 8 B/px（两份 ARGB 位图）。JPEG 已流式落盘，故不再为整份
- * 编码结果预留线性内存 = 96,000,000 字节。
+ * 峰值预算必须按操作真实存活的位图计算：解码源始终存在；EXIF 转正仅在需要时分配同尺寸目标；缩放仅在
+ * profile 真正缩小时分配第三份目标。JPEG 是流式落盘，不属于整份内存预算。
  */
 class ImportBoundsTest {
     @Test
-    fun `the peak-per-pixel model is two ARGB bitmaps after JPEG streams to disk`() {
-        assertEquals(8L, ImportBounds.PEAK_BYTES_PER_PIXEL, "4 B/px x 2 concurrent bitmaps; the JPEG is not a whole in-memory array")
-        assertEquals(96_000_000L, ImportBounds.requiredBytes(width = 4000, height = 3000))
+    fun `identity orientation reserves the source and only the necessary scaled destination`() {
+        // 4000 x 3000 source = 48,000,000 B; MEDIUM target 1920 x 1440 = 11,059,200 B.
+        assertEquals(
+            59_059_200L,
+            ImportBounds.requiredBytes(
+                width = 4000,
+                height = 3000,
+                profile = PhotoQualityProfile.MEDIUM,
+                exifOrientation = 1,
+            ),
+        )
     }
 
     @Test
-    fun `a budget exactly equal to the requirement accepts`() {
+    fun `rotated medium image budgets the real three-bitmap allocation instant`() {
+        // Source 48,000,000 B + 90-degree baked source 48,000,000 B + 1440 x 1920 scaled target 11,059,200 B.
+        val required = 107_059_200L
+        assertEquals(
+            required,
+            ImportBounds.requiredBytes(
+                width = 4000,
+                height = 3000,
+                profile = PhotoQualityProfile.MEDIUM,
+                exifOrientation = 6,
+            ),
+        )
         assertEquals(
             ImportBoundsResult.Accepted,
-            ImportBounds.check(width = 4000, height = 3000, budgetBytes = 96_000_000L),
+            ImportBounds.check(
+                width = 4000,
+                height = 3000,
+                budgetBytes = required,
+                profile = PhotoQualityProfile.MEDIUM,
+                exifOrientation = 6,
+            ),
         )
-    }
-
-    @Test
-    fun `one byte less than the requirement rejects`() {
         val rejected = assertIs<ImportBoundsResult.Rejected>(
-            ImportBounds.check(width = 4000, height = 3000, budgetBytes = 95_999_999L),
+            ImportBounds.check(
+                width = 4000,
+                height = 3000,
+                budgetBytes = required - 1,
+                profile = PhotoQualityProfile.MEDIUM,
+                exifOrientation = 6,
+            ),
         )
-        assertEquals(4000, rejected.width)
-        assertEquals(3000, rejected.height)
-        assertEquals(96_000_000L, rejected.requiredBytes)
-        assertEquals(95_999_999L, rejected.budgetBytes, "the budget in force must be reported, not a hard-coded limit")
+        assertEquals(required, rejected.requiredBytes)
+        assertEquals(required - 1, rejected.budgetBytes)
     }
 
     @Test
-    fun `one pixel more than the exactly-fitting budget rejects`() {
-        assertIs<ImportBoundsResult.Rejected>(
-            ImportBounds.check(width = 4001, height = 3000, budgetBytes = 96_000_000L),
+    fun `unscaled upright image does not reserve phantom intermediate bitmaps`() {
+        assertEquals(
+            48_000_000L,
+            ImportBounds.requiredBytes(
+                width = 4000,
+                height = 3000,
+                profile = PhotoQualityProfile.EXTRA_HIGH,
+                exifOrientation = 1,
+            ),
         )
     }
 
     @Test
-    fun `a 45MP import is rejected on a budget that comfortably fits a 12MP one`() {
-        // 同一个预算下：12MP 过、45MP 不过——这正是固定像素阈值做不到的事（阈值要么在小堆设备上放行
-        // 会 OOM 的图，要么在大堆设备上白拒合法证据）。
-        val budget = 200_000_000L
-        assertEquals(ImportBoundsResult.Accepted, ImportBounds.check(4000, 3000, budget))
-        assertIs<ImportBoundsResult.Rejected>(ImportBounds.check(8192, 5464, budget))
-    }
-
-    @Test
-    fun `a zero budget rejects even a one-pixel image`() {
-        assertIs<ImportBoundsResult.Rejected>(ImportBounds.check(width = 1, height = 1, budgetBytes = 0L))
+    fun `mirror-only orientation reserves its baked bitmap even when no scale is needed`() {
+        assertEquals(
+            96_000_000L,
+            ImportBounds.requiredBytes(
+                width = 4000,
+                height = 3000,
+                profile = PhotoQualityProfile.EXTRA_HIGH,
+                exifOrientation = 2,
+            ),
+        )
     }
 
     @Test
     fun `non-positive dimensions report Undecodable instead of being sized`() {
-        // BitmapFactory 的 inJustDecodeBounds 对非图片/损坏文件给出 -1；0 同样不是可编码的证据。
-        assertEquals(ImportBoundsResult.Undecodable(-1, -1), ImportBounds.check(-1, -1, budgetBytes = Long.MAX_VALUE))
-        assertEquals(ImportBoundsResult.Undecodable(0, 4000), ImportBounds.check(0, 4000, budgetBytes = Long.MAX_VALUE))
-        assertEquals(ImportBoundsResult.Undecodable(4000, 0), ImportBounds.check(4000, 0, budgetBytes = Long.MAX_VALUE))
+        assertEquals(
+            ImportBoundsResult.Undecodable(-1, -1),
+            ImportBounds.check(
+                width = -1,
+                height = -1,
+                budgetBytes = Long.MAX_VALUE,
+                profile = PhotoQualityProfile.MEDIUM,
+                exifOrientation = 1,
+            ),
+        )
+        assertEquals(
+            ImportBoundsResult.Undecodable(0, 4000),
+            ImportBounds.check(
+                width = 0,
+                height = 4000,
+                budgetBytes = Long.MAX_VALUE,
+                profile = PhotoQualityProfile.MEDIUM,
+                exifOrientation = 1,
+            ),
+        )
     }
 
     @Test
-    fun `an absurd dimension pair saturates instead of wrapping into an accept`() {
-        // Int.MAX_VALUE^2 x 10 会溢出 Long；若比较写成"所需字节 vs 预算"，溢出后的负数会被判成"装得下"。
-        assertEquals(Long.MAX_VALUE, ImportBounds.requiredBytes(Int.MAX_VALUE, Int.MAX_VALUE))
+    fun `an absurd dimension pair saturates and rejects instead of wrapping into an accept`() {
+        assertEquals(
+            Long.MAX_VALUE,
+            ImportBounds.requiredBytes(
+                width = Int.MAX_VALUE,
+                height = Int.MAX_VALUE,
+                profile = PhotoQualityProfile.LOW,
+                exifOrientation = 6,
+            ),
+        )
         assertIs<ImportBoundsResult.Rejected>(
-            ImportBounds.check(Int.MAX_VALUE, Int.MAX_VALUE, budgetBytes = Long.MAX_VALUE),
+            ImportBounds.check(
+                width = Int.MAX_VALUE,
+                height = Int.MAX_VALUE,
+                budgetBytes = Long.MAX_VALUE,
+                profile = PhotoQualityProfile.LOW,
+                exifOrientation = 6,
+            ),
         )
     }
 }
