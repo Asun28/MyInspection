@@ -2,7 +2,7 @@
 id: T0-LICENSE-SELFTEST-DRIFT
 title: 恢复 Gradle diagnostics 的 selftest 回归覆盖并消除权威套件漂移
 depends_on: [T0-LICENSE-GAV-BOUNDS]
-status: todo
+status: merged
 branch: T0-LICENSE-SELFTEST-DRIFT
 worktree: C:\wt\T0-LICENSE-SELFTEST-DRIFT
 allow_paths:
@@ -25,7 +25,7 @@ dod_exit: 0
 dod_assert: diagnostics 套件全绿且 mutation 数不减少；正常 seeded 的 17cc–17hh 全量尾段通过，旧覆盖无删除/合并/弱化；删除任一迁移后的 redaction/bound/category 守卫命中专属失败码。无 git 全量 child 由依赖本卡的 #33 在合入新 master 后证明。
 review_gate: codex {verdict:pass}
 hygiene: 以现有 diagnostics 权威套件为主，selftest 仅保留不重复且能杀死单句删除的集成回归；任何替换必须先证旧 mutation vacuous、再证新 mutation RED。
-doc_sync: TD137 归档并记录 PR/commit；T0-DEBT-SELFTEST-SKIP-VISIBILITY 解除前置后继续，不宣称 TD9 已 paid
+doc_sync: TD138 归档并记录 PR/commit；T0-DEBT-SELFTEST-SKIP-VISIBILITY 解除前置后继续，不宣称 TD9 已 paid
 ---
 
 # T0-LICENSE-SELFTEST-DRIFT

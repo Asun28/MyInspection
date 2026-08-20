@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 35 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 36 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -24,6 +24,7 @@
 | T0-LICENSE-GAV-BOUNDS | merged | Gradle/Maven GAV 分段上界与有界诊断契约（TD135；TD2 4/5） |
 | T0-LICENSE-POLICY | merged | Gradle POM 许可策略合同与 exact-GAV 专用套件（TD2 收口卡 2/4） |
 | T0-LICENSE-SCANNER | merged | Gradle 已解析坐标图合同提取与离线图套件（TD2 收口卡 1/4） |
+| T0-LICENSE-SELFTEST-DRIFT | merged | 恢复 Gradle diagnostics 的 selftest 回归覆盖并消除权威套件漂移 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
