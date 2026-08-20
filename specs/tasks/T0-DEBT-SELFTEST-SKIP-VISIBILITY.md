@@ -15,11 +15,13 @@ non_goals:
   - 修改失败闸聚合协议或 8.2e rendezvous 时限
   - 重新编号 17 个顶层闸或重分 core/workflow/seeded
   - 改 CI/workflow/task/review 行为
+  - 在 core 内启动完整 seeded，或证明 seeded 的生产 no-git routing；该行为归 T0-DEBT-SELFTEST-NOGIT-ROUTING
+  - 建立全量 per-gate mutation 矩阵；紧凑身份清单与资源预算归 T0-DEBT-SELFTEST-MUTATION-BUDGET
 dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch '[SELFTEST-SKIP]') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch '[SELFTEST-SKIP-SUMMARY]'))) { exit 1 }"
 dod_exit: 0
-dod_assert: 每个有意环境跳过或因已知前置失败而不执行的已登记检查输出 [SELFTEST-SKIP] gate={id} reason={stable code}；分片终态输出有序去重 [SELFTEST-SKIP-SUMMARY] 与准确 count；失败后的裁剪不可继续静默，也不得输出该检查 PASS；全执行控制组 count=0。
+dod_assert: 每个有意环境跳过或因已知前置失败而不执行的已登记检查输出 [SELFTEST-SKIP] gate={id} reason={stable code}；分片终态输出有序去重 [SELFTEST-SKIP-SUMMARY] 与准确 count；失败后的裁剪不可继续静默，也不得输出该检查 PASS；bounded helper 控制组 count=0。
 review_gate: codex {verdict:pass}
-hygiene: 先登记真正的执行单元与跳过原因，再用 hermetic 环境缺失、前置失败、正常执行三组夹具证明 FAIL/SKIP/PASS 互斥；删除 skip 记录、reason code 或摘要计数任一层均翻红
+hygiene: 先登记真正的执行单元与跳过原因，再用 bounded helper 的环境缺失、前置失败、正常执行三组夹具证明 FAIL/SKIP/PASS 互斥；删除 skip 记录、reason code 或摘要计数任一层均翻红；生产 routing 与资源预算分别由两张后续卡偿还
 doc_sync: TD9 保持 carded；本卡只偿还 skip 可见性，不宣称 8.2e load-flake 已解决
 ---
 
@@ -39,3 +41,7 @@ doc_sync: TD9 保持 carded；本卡只偿还 skip 可见性，不宣称 8.2e lo
 ## 资源冲突
 
 本卡与 TD9 另外两卡及 TD134 实现卡共享 `scripts/selftest.ps1`；没有业务硬依赖，必须在最新已合并基线上串行执行并重放验收。
+
+## R3 拆分仲裁
+
+PR #33 的两轮 R3 证明，生产 no-git routing 行为与 mutation 资源预算不能继续塞进同一评审单元。本卡只保留 skip primitive、机器台账、摘要与 bounded helper 互斥证明；两项余债按后续卡串行偿还，不能以本卡合并宣称完成。
