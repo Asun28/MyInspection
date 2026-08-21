@@ -2,7 +2,7 @@
 id: T0-DEBT-UNICODE-SCALAR-TEXT
 title: 建立 fail-closed 的 Unicode scalar 控制/格式文本单一真相源
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-UNICODE-SCALAR-TEXT
 worktree: C:\wt\T0-DEBT-UNICODE-SCALAR-TEXT
 allow_paths:
