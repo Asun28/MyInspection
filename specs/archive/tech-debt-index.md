@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 15 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 31 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -20,3 +20,19 @@
 | TD131 | major | paid | `app/media/PhotoJpegEncoder.kt` 固定 q92 且无尺寸档 | **所有新照片固定以 q92 编码且没有长边上限/用户设置**。后果：多物业、多年巡检的本机照片增长不可控，Extra High 输入还会放大 TD15 内存峰值；用户也无法区分日常记录与小字证据需求 / 修法：先以流式编码偿还 TD15… |
 | TD14 | major | paid | `core/media/`(落盘↔入库) + `app/media/`(清理调度) | `.jpg.pending` 文件侧 lease、无行/软删照片清理 worker 与 24h KEEP 调度已落地；路径/DB 运行时组成统一为 `filesDir/media` + `myinspection.db`。目录项掉电顺序不… |
 | TD138 | major | paid | `scripts/check-licenses.ps1` ↔ `scripts/license-scanner-che… | **Gradle diagnostics 权威实现与 selftest 旧回归漂移**：PR #33 为验证无 git skip 取消尾段切片后，17cc 暴露 CLI/plain password/token 泄漏、旧逐规则 marke… |
+| TD4 | major | paid | `scripts/check-secrets.ps1`(L57 模式 `\.db$` · L175 glob `*.d… | **防泄露闸与迁移校验闸结构性互斥，导致 T1-SCHEMA-CORE 关掉了 `verifyMigrations`**：SQLDelight 的 `verifyMigrations` 需要把 `<version>.db` schema… |
+| TD1 | minor | paid | `scripts/selftest.ps1`(闸15n · 闸17aa(8)) | **对上游脚手架 bug 的本地补丁 ×2，已回搬**：①15n 在 post-init 缺少元仓专属 `TEMPLATE-README.md` 时稳定跳过；②17aa(8) 在 live/archive 均缺少元仓 T11 卡时稳定跳过… |
+| TD137 | major | paid | `.jpg.pending` / JPEG sibling directory durability | PR #32 已保证 marker 文件 force + 最深父目录同步，但首次创建的祖先目录项未逐级 fsync；补偿/worker 删除 JPEG 后也未先同步同目录再清 marker。掉电可能丢失 marker 层级，或恢复出“JP… |
+| TD140 | major | paid | `T2-FIELD-LEDGER-THEME` PR #41 R3 round cap | 原卡两轮 R3 后仍剩一类主题契约完整性缺口：Material 3 未显式传入的 inverse/fixed accent、surface 层级与四个 Typography 角色会继承库默认值，标准组件可能重新出现未批准的默认紫色/中性色… |
+| TD145 | minor | paid | `T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST` PR #47 R3 round cap | 原卡第二轮 R3 只剩 Windows migration fixture 清理不确定：真实 ADDED/REMOVED 断言通过后，立即执行的 `git worktree remove --force` 偶发非零且 stderr 被丢弃… |
+| TD146 | minor | paid | `specs/archive/cards-index.md` ↔ `specs/archive/tasks/` | **归档卡索引静默漂移**：归档目录已有 39 张卡，自动生成索引仍声明并列出 36 张。`archive.ps1` 每次真运行会重算正确投影，但 R5 可手工移动卡；现有 selftest 只在隔离夹具里证明生成器，没有普通 PR 闸验… |
+| TD147 | major | paid | `docs/lessons/LEDGER.md` L214 ↔ `CLAUDE.md` 必须层 | **blocking 经验达到晋升门槛后仍停留总账**：L214 已记录“未提交代码做单句删除变异后用 `git checkout --` 还原，连同新工作一起被抹掉”的真实损失，并以 severity=blocking 达到必须层门槛；… |
+| TD148 | major | paid | `docs/lessons/LEDGER.md` L177 ↔ `CLAUDE.md` L17 PowerShell… | **blocking mutation 批次假全绿经验未进入默认上下文**：PowerShell 变量名大小写不敏感，`foreach ($m in $M)` 会在第一轮覆盖集合，令 16 枚计划只跑 1 枚；若汇总只看每条 OK 而不核… |
+| TD149 | major | paid | `docs/lessons/LEDGER.md` L167 ↔ `CLAUDE.md` L165 mutation 铁律 | **blocking mutation 假红分类纪律未进入默认上下文**：L167 已记录多批变异因靶未命中、parser 失败、StrictMode 异常或更早闸抢先而非目标断言失败，却仍被汇总成“全红”。L165 已要求单句删除变异与… |
+| TD150 | major | paid | `docs/lessons/LEDGER.md` L172 ↔ `CLAUDE.md` L17/L177 PowerS… | **blocking detached pwsh 编码假红纪律未进入默认上下文**：harness 外启动的 pwsh 默认 OEM 编码曾让中文断言 mojibake，整晚 mutation 批次全部假红；L172 已记录事故但仍是 l… |
+| TD152 | major | paid | `docs/lessons/LEDGER.md` L162 ↔ `CLAUDE.md` L17/L172/L177 脚… | **blocking Windows Python 编码/缓冲误诊纪律未进入默认上下文**：Python 的 locale 默认编码会让第三方工具读取仓库中文文件时报 UnicodeDecodeError，管道块缓冲又会让长驻进程看似静默… |
+| TD153 | major | paid | `docs/lessons/LEDGER.md` L171 ↔ `CLAUDE.md` 必须层安全铁律 | **blocking 不安全路径委托纪律未进入默认上下文**：守卫曾拒绝自己写/删不安全裁决路径，却仍经 REVIEW_OUT 把同一路径交给评审者子进程，令链接可覆写工作树外文件；同型错误在第二站点复发。L171 已有 17t 行为闸但… |
+| TD154 | major | paid | `docs/lessons/LEDGER.md` L164 ↔ `CLAUDE.md` L171 信任边界铁律 | **blocking fail-closed 新入口信任绑定纪律未进入默认上下文**：范围闸抽出第二入口时遗漏原入口靠运行位置白拿的判定对象、基线卡、检查器来源、提交身份与 TOCTOU 绑定，产生多条空 diff/自证式 fail-op… |
+| TD155 | major | paid | `docs/lessons/LEDGER.md` L21 ↔ `CLAUDE.md` L205 R3 轮次证据铁律 | **R3 配额故障被误读为真实评审分歧**：Codex 配额耗尽时评审者不产出裁决，重复 ship 会继续消耗 rounds，最终以 round cap 表象掩盖“评审者从未真正运行”。L21 已复发两次并有独立 probe/ResetR… |
+| TD156 | major | paid | `scripts/selftest.ps1` `New-SelftestSnapshot` | **detached/linked worktree 的 all 快照采用错误 master，令 core 14f 假红**：从最新 `origin/master` 建出的 detached worktree 跑 `-Shard all`… |
+| TD158 | major | paid | `scripts/selftest.ps1` gate 15b / 17a3 + post-merge runs 32… | **post-merge canary 把 harness 环境/编排问题误报成产品 CI 红且无法定位**：seeded 在无 wrapper/plugin cache 的 hosted runner 直接跑 `:core:check`… |
