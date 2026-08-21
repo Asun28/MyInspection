@@ -839,6 +839,140 @@ foreach ($h in $encHooks) {
 # 计数**从清单派生**，不写字面量：字面量与清单会各自漂移（本行此前写 12、清单实为 11 项，codex R3 r3 抓出）。
 if ($g1ok) { Write-Host "  1g OutputEncoding 覆盖对称 OK（$($encScripts.Count) 入口脚本 dot-source 前奏 + $($encHooks.Count) 钩子就地 OutputEncoding）" -ForegroundColor Green }
 
+# 1h（TD157 / L190）：.NET regex classifies UTF-16 code units, so supplementary-plane Cf scalars
+# appear as two Cs code units and evade `\p{Cc}|\p{Cf}`. Exercise the real shared helper:
+# enumerate the complete Unicode scalar space in bounded batches, require every Cc/Cf target to
+# become one ASCII space, preserve every other scalar exactly, and reject malformed UTF-16 instead
+# of silently converting it into trusted text.
+Step '1h/17 Unicode scalar control/format text helper (TD157)'
+$unicodeScalarHelper = Join-Path $PSScriptRoot '_unicode.ps1'
+if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
+  Fail '[UNICODE-SCALAR-MISSING] scripts/_unicode.ps1 is absent.'
+} else {
+  $unicodeHelperText = Get-Content -LiteralPath $unicodeScalarHelper -Raw
+  $unicodeHelperShapeOk = $true
+  if ($unicodeHelperText -notmatch '(?m)^\s*\$offset \+= \$rune\.Utf16SequenceLength\s*$') {
+    Fail '[UNICODE-SCALAR-ADVANCE] scalar iteration does not advance by the decoded rune width.'
+    $unicodeHelperShapeOk = $false
+  }
+  if ($unicodeHelperText -notmatch '(?m)^\s*\$category = \[System\.Text\.Rune\]::GetUnicodeCategory\(\$rune\)\s*$') {
+    Fail '[UNICODE-SCALAR-CATEGORY] scalar category is not derived from the decoded rune.'
+    $unicodeHelperShapeOk = $false
+  }
+  if ($unicodeHelperText -notmatch '(?m)^\s*throw \[System\.ArgumentException\]::new\($' -or
+      $unicodeHelperText -notmatch '\[UNICODE-SCALAR-MALFORMED\] malformed UTF-16') {
+    Fail '[UNICODE-SCALAR-MALFORMED-GUARD] malformed UTF-16 does not reach the stable fail-closed guard.'
+    $unicodeHelperShapeOk = $false
+  }
+  . $unicodeScalarHelper
+  $unicodeScalarOk = $unicodeHelperShapeOk
+  if (-not $unicodeHelperShapeOk) {
+    # A deleted advance statement would otherwise hang the semantic oracle.
+  } elseif (-not (Get-Command ConvertTo-ScaffoldControlFormatSpaces -CommandType Function -ErrorAction SilentlyContinue)) {
+    Fail '[UNICODE-SCALAR-API] ConvertTo-ScaffoldControlFormatSpaces is absent.'
+    $unicodeScalarOk = $false
+  } else {
+    function Test-UnicodeScalarTransform([Parameter(Mandatory)][string]$CommandName) {
+      $visited = 0
+      $targets = 0
+      $inputBuffer = [System.Text.StringBuilder]::new(16384)
+      $expected = [System.Text.StringBuilder]::new(16384)
+      $batchPoints = [System.Collections.Generic.List[int]]::new(4096)
+
+      for ($codePoint = 0; $codePoint -le 0x10FFFF; $codePoint++) {
+        if ($codePoint -ge 0xD800 -and $codePoint -le 0xDFFF) { continue }
+        $visited++
+        $rune = [System.Text.Rune]::new($codePoint)
+        $runeText = $rune.ToString()
+        $category = [System.Text.Rune]::GetUnicodeCategory($rune)
+        $isTarget = $category -in @(
+          [System.Globalization.UnicodeCategory]::Control,
+          [System.Globalization.UnicodeCategory]::Format
+        )
+        if ($isTarget) { $targets++ }
+        [void]$inputBuffer.Append($runeText)
+        [void]$expected.Append($(if ($isTarget) { ' ' } else { $runeText }))
+        [void]$batchPoints.Add($codePoint)
+
+        if ($batchPoints.Count -lt 4096 -and $codePoint -lt 0x10FFFF) { continue }
+        try { [string]$actual = & $CommandName $inputBuffer.ToString() }
+        catch {
+          return [PSCustomObject]@{ Ok = $false; Code = 'THREW'; Point = $batchPoints[0]; Category = ''; Detail = $_.Exception.Message; Visited = $visited; Targets = $targets }
+        }
+        if ($actual -cne $expected.ToString()) {
+          foreach ($point in $batchPoints) {
+            $pointRune = [System.Text.Rune]::new($point)
+            $pointText = $pointRune.ToString()
+            $pointCategory = [System.Text.Rune]::GetUnicodeCategory($pointRune)
+            $pointIsTarget = $pointCategory -in @(
+              [System.Globalization.UnicodeCategory]::Control,
+              [System.Globalization.UnicodeCategory]::Format
+            )
+            [string]$pointActual = & $CommandName $pointText
+            $pointExpected = if ($pointIsTarget) { ' ' } else { $pointText }
+            if ($pointActual -cne $pointExpected) {
+              return [PSCustomObject]@{ Ok = $false; Code = $(if ($pointIsTarget) { 'TARGET' } else { 'PRESERVE' }); Point = $point; Category = $pointCategory; Detail = ''; Visited = $visited; Targets = $targets }
+            }
+          }
+          return [PSCustomObject]@{ Ok = $false; Code = 'BATCH'; Point = $batchPoints[0]; Category = ''; Detail = 'batch output differed but per-scalar replay did not'; Visited = $visited; Targets = $targets }
+        }
+        [void]$inputBuffer.Clear()
+        [void]$expected.Clear()
+        $batchPoints.Clear()
+      }
+      return [PSCustomObject]@{ Ok = $true; Code = ''; Point = -1; Category = ''; Detail = ''; Visited = $visited; Targets = $targets }
+    }
+
+    $unicodeOracle = Test-UnicodeScalarTransform -CommandName 'ConvertTo-ScaffoldControlFormatSpaces'
+    if (-not $unicodeOracle.Ok) {
+      $unicodeOracleCode = if ($unicodeOracle.Code -eq 'TARGET') { 'UNICODE-SCALAR-TARGET' } elseif ($unicodeOracle.Code -eq 'PRESERVE') { 'UNICODE-SCALAR-PRESERVE' } else { 'UNICODE-SCALAR-ORACLE' }
+      Fail ('[{0}] U+{1:X} category={2} failed the complete scalar oracle ({3}).' -f $unicodeOracleCode, $unicodeOracle.Point, $unicodeOracle.Category, $unicodeOracle.Detail)
+      $unicodeScalarOk = $false
+    }
+    if ($unicodeOracle.Visited -ne (0x110000 - 0x800) -or $unicodeOracle.Targets -le 0) {
+      Fail "[UNICODE-SCALAR-ORACLE] scalar enumeration was incomplete (visited=$($unicodeOracle.Visited) targets=$($unicodeOracle.Targets))."
+      $unicodeScalarOk = $false
+    }
+
+    # Mutation proof: broaden the production predicate to DecimalDigitNumber. The same complete oracle
+    # must kill that over-replacement at U+0030 as PRESERVE, proving non-target coverage is not sampled.
+    $unicodeMutantName = 'ConvertTo-ScaffoldControlFormatSpacesOverReplacementMutant'
+    $unicodeMutantText = $unicodeHelperText.Replace(
+      'function ConvertTo-ScaffoldControlFormatSpaces {',
+      "function $unicodeMutantName {"
+    ).Replace(
+      '$category -eq [System.Globalization.UnicodeCategory]::Format) {',
+      '$category -eq [System.Globalization.UnicodeCategory]::Format -or' + "`n" +
+      '        $category -eq [System.Globalization.UnicodeCategory]::DecimalDigitNumber) {'
+    )
+    try {
+      if ($unicodeMutantText -ceq $unicodeHelperText) { throw 'over-replacement mutation did not change helper source' }
+      . ([scriptblock]::Create($unicodeMutantText))
+      $unicodeMutantOracle = Test-UnicodeScalarTransform -CommandName $unicodeMutantName
+      if ($unicodeMutantOracle.Ok -or $unicodeMutantOracle.Code -ne 'PRESERVE' -or $unicodeMutantOracle.Point -ne 0x30) {
+        Fail "[UNICODE-SCALAR-MUTATION-OVERREPLACE] DecimalDigitNumber mutant was not killed at U+0030 as PRESERVE (ok=$($unicodeMutantOracle.Ok) code=$($unicodeMutantOracle.Code) point=$($unicodeMutantOracle.Point))."
+        $unicodeScalarOk = $false
+      }
+    }
+    catch {
+      Fail "[UNICODE-SCALAR-MUTATION-SETUP] over-replacement mutation could not run: $($_.Exception.Message)"
+      $unicodeScalarOk = $false
+    }
+    finally { Remove-Item -LiteralPath "Function:\$unicodeMutantName" -ErrorAction SilentlyContinue }
+
+    foreach ($unicodeMalformed in @([string][char]0xD800, [string][char]0xDC00)) {
+      $unicodeRejected = $false
+      try { [void](ConvertTo-ScaffoldControlFormatSpaces $unicodeMalformed) }
+      catch { $unicodeRejected = $_.Exception.Message -match '\[UNICODE-SCALAR-MALFORMED\]' }
+      if (-not $unicodeRejected) {
+        Fail '[UNICODE-SCALAR-MALFORMED] lone surrogate was not rejected with the stable sentinel.'
+        $unicodeScalarOk = $false
+      }
+    }
+  }
+  if ($unicodeScalarOk) { Write-Host '  1h Unicode scalar control/format helper OK' -ForegroundColor Green }
+}
+
 # --- 2. 经验系统自检 ---
 Step '2/17 经验系统（lessons.ps1 check）'
 & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check
