@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 33 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 34 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -38,3 +38,4 @@
 | TD158 | major | paid | `scripts/selftest.ps1` gate 15b / 17a3 + post-merge runs 32… | **post-merge canary 把 harness 环境/编排问题误报成产品 CI 红且无法定位**：seeded 在无 wrapper/plugin cache 的 hosted runner 直接跑 `:core:check`… |
 | TD151 | major | paid | `docs/lessons/LEDGER.md` L181 ↔ `CLAUDE.md` L193 Unicode 铁律 | **blocking Unicode sanitizer 数据损坏纪律未进入默认上下文**：.NET 正则按 UTF-16 码元匹配，宽泛 `\p{C}` 会把合法增补平面字符的代理对两半当 `Cs` 清除；L181 已记录真实数据损坏但… |
 | TD159 | major | paid | `.github/workflows/ci.yml` pull_request `verify` | **纯文档 PR 仍无差别启动完整 Windows Android 工具链**：PR #111 只做 R5 元数据时，run 32524624342 依次 provision Java/Android/Gradle、在线 build 与许… |
+| TD24 | major | paid | `Photo.sq` `selectActiveAssetsByContentHash` → `PhotoIngest… | **照片按内容哈希全局复用，却要求备份源为单一物业 owner**：查询不按物业过滤，`PhotoIngest` 也只校验路径形状；现有 recorder 测试已允许 B 物业照片复用 A 物业的同一 `rel_path`。但 `Back… |
