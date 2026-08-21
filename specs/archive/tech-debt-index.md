@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 31 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 32 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -36,3 +36,4 @@
 | TD155 | major | paid | `docs/lessons/LEDGER.md` L21 ↔ `CLAUDE.md` L205 R3 轮次证据铁律 | **R3 配额故障被误读为真实评审分歧**：Codex 配额耗尽时评审者不产出裁决，重复 ship 会继续消耗 rounds，最终以 round cap 表象掩盖“评审者从未真正运行”。L21 已复发两次并有独立 probe/ResetR… |
 | TD156 | major | paid | `scripts/selftest.ps1` `New-SelftestSnapshot` | **detached/linked worktree 的 all 快照采用错误 master，令 core 14f 假红**：从最新 `origin/master` 建出的 detached worktree 跑 `-Shard all`… |
 | TD158 | major | paid | `scripts/selftest.ps1` gate 15b / 17a3 + post-merge runs 32… | **post-merge canary 把 harness 环境/编排问题误报成产品 CI 红且无法定位**：seeded 在无 wrapper/plugin cache 的 hosted runner 直接跑 `:core:check`… |
+| TD151 | major | paid | `docs/lessons/LEDGER.md` L181 ↔ `CLAUDE.md` L193 Unicode 铁律 | **blocking Unicode sanitizer 数据损坏纪律未进入默认上下文**：.NET 正则按 UTF-16 码元匹配，宽泛 `\p{C}` 会把合法增补平面字符的代理对两半当 `Cs` 清除；L181 已记录真实数据损坏但… |
