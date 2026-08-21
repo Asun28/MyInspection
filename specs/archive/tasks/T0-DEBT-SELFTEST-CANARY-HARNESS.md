@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-CANARY-HARNESS
 title: 让 post-merge selftest canary 离线确定且失败可定位
 depends_on: [T0-DEBT-SELFTEST-SPLIT-PLAN]
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-CANARY-HARNESS
 worktree: C:\wt\T0-DEBT-SELFTEST-CANARY-HARNESS
 allow_paths:

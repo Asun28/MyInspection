@@ -12,7 +12,7 @@ allow_paths:
   - data/templates/README.md
 forbid:
   - 未授权的运行期出站网络 / 写登录态 / 自动发布
-  - 在 TD4 未还清前落 .sqm（verifyMigrations 与防泄露闸的冲突会让迁移无从校验）
+  - 落 `.sqm` 却不同时更新受审 schema 快照，或绕过已恢复的 verifyMigrations / 防泄露闸
 non_goals:
   - 采集期真正实例化 room_instance 的状态机（T2-CAPTURE-CORE 消费本卡产出）
   - 真实模板内容里逐房间标注 repeatable（T2-ROUTINE-CONTENT / T6-TEMPLATES-REST）
@@ -34,14 +34,14 @@ T1-TEMPLATE-ENGINE 的 R3 评审两轮都点到这一项：第 1 轮该评审者
 
 1. **存不下**：`check_item_def` 只有 item 级的 `room` 列，没有房间定义表，也没有 repeatable 列。`android/core/src/main/sqldelight/` 已在 `fcdc88d` 起登记为 FrozenPaths，加列/加表必须走新 `.sqm` + 版本评审——这在 T1-TEMPLATE-ENGINE 的 `allow_paths` 之外。
 2. **半落地更坏**：只往模板 JSON 加 `rooms[]` 而不持久化，会造出「入库时静默丢字段」的路径——正是 T1-SCHEMA-CORE 用 17 轮评审清掉的那一类缺陷，不该在一张**冻结点卡**里新造一个。
-3. **前置债未还**：TD4（`verifyMigrations` 与防泄露闸结构性冲突）未还清前，第一份 `.sqm` 无从校验。本卡的 `forbid` 已把这条写死。
+3. **迁移闸已就绪**：TD4 已由 PR #47 与后续清理 PR #93 偿还；逐路径 schema 快照豁免和 `verifyMigrations` 已恢复。本卡现在可以在版本评审后提交第一份 `.sqm`，但不得绕过这两道闸。
 
 ## 禁止
-见 front-matter。特别地：动冻结的 `sqldelight/` 目录**必须**以「本卡 = 该版本评审」的形式显式声明，并先还清 TD4。
+见 front-matter。特别地：动冻结的 `sqldelight/` 目录**必须**以「本卡 = 该版本评审」的形式显式声明，并通过 TD4 已恢复的 schema 快照与迁移校验闸。
 
 ## 两处冻结物都要过版本评审（开卡第一步）
 本卡要改的两个面**都已冻结**（`scripts/_config.ps1` FrozenPaths，`guard-frozen` 钩子会当场拒绝就地编辑）：
-- `android/core/src/main/sqldelight/`（T1-SCHEMA-CORE 起）——房间定义表/列走**新 `.sqm`**，且须先还清 TD4；
+- `android/core/src/main/sqldelight/`（T1-SCHEMA-CORE 起）——房间定义表/列走**新 `.sqm`**，同步更新受审快照并通过 `verifyMigrations`；
 - `android/core/src/main/kotlin/nz/myinspection/core/template/Template.kt`（T1-TEMPLATE-ENGINE 起）——模板 JSON 形态即契约，加 `rooms[]` 段就是改它。
 
 故本卡第一步是**版本评审本身**：把变更提案连同两处影响面报给用户，取得放行后再从 FrozenPaths 临时摘除对应条目、落改动、合并后重新登记。**不要绕过 `guard-frozen`**。

@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 51 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 57 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -9,6 +9,8 @@
 | T0-DEBT-ARCHIVED-CARD-PATHS | merged | Repair inbound references to archived task cards (repay TD22) |
 | T0-DEBT-CASE-PROBE-CLOSURE-SCOPE | merged | Make 17cc case mutation probes host-independent (repay TD25) |
 | T0-DEBT-GATE-ENTRY-TRUST-BINDINGS | merged | 把 fail-closed 新入口信任绑定纪律晋升为必须层（偿还 TD154 / L164） |
+| T0-DEBT-MIGRATION-FIXTURE-CLEANUP | merged | 收敛 TD4 migration fixture 的 Windows worktree 清理 |
+| T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | merged | 偿还 TD4：只豁免 SQLDelight schema 快照并恢复迁移验证 |
 | T0-DEBT-MUTATION-BATCH-COUNT | merged | 把 mutation 批次条数自证纪律合并晋升为必须层（偿还 TD148 / L177） |
 | T0-DEBT-MUTATION-EVIDENCE-CLASSIFIER | merged | 把 mutation 判据分类器纪律合并晋升为必须层（偿还 TD149 / L167） |
 | T0-DEBT-MUTATION-RESTORE-SAFETY | merged | 把未提交 mutation 还原防丢纪律晋升为必须层（偿还 TD147 / L214） |
@@ -19,10 +21,13 @@
 | T0-DEBT-REFERENCE-INTEGRITY | merged | Authority TD reference integrity (repay TD16) |
 | T0-DEBT-RELEASE-CHECKLIST-HASH-GUARD | merged | Document and prove the release-checklist hash coupling (repay TD11) |
 | T0-DEBT-SEEDED-CLOSURE-SCOPE | merged | Make seeded mutation closures self-contained (repay TD23) |
+| T0-DEBT-SELFTEST-CANARY-HARNESS | merged | 让 post-merge selftest canary 离线确定且失败可定位 |
 | T0-DEBT-SELFTEST-CRITICAL-PATH | merged | 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径 |
 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | merged | 让 selftest 分片与 all 汇总稳定点名失败闸 |
 | T0-DEBT-SELFTEST-SNAPSHOT-BASELINE | merged | 让 selftest all 快照钉住调用者 HEAD 与权威 master（偿还 TD156） |
+| T0-DEBT-SELFTEST-SPLIT-PLAN | merged | 将 TD9 skip 可见性余项拆成有界串行卡 |
 | T0-DEBT-TASK-INVENTORY | merged | Remove hand-maintained task-card inventory (repay TD21) |
+| T0-DEBT-TD9-SPLIT-ARCHIVE-CONSUMER | merged | 让 TD9 split checker 读取已归档规划卡 |
 | T0-DEBT-TEMPLATE-STORE-IMMUTABILITY | merged | Prove TemplateStore read results reject element replacement (repay TD13) |
 | T0-DEBT-UNICODE-SANITIZER-CATEGORIES | merged | 把 Unicode sanitizer 类别纪律合并晋升为必须层（偿还 TD151 / L181） |
 | T0-DEBT-UNICODE-SCALAR-TEXT | merged | 建立 fail-closed 的 Unicode scalar 控制/格式文本单一真相源 |
@@ -30,6 +35,7 @@
 | T0-DEBT-WINDOWS-PYTHON-UTF8 | merged | 把 Windows Python UTF-8 工具纪律合并晋升为必须层（偿还 TD152 / L162） |
 | T0-GATE-FIXFORWARD | merged | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径（T0-GATE-HARDENING 事后 R3 两条 block 的 fix-forward） |
 | T0-GATE-HARDENING | merged | 许可闸看得见 Gradle + verify 确定性 + 两枚闸门自测（从 T0-TOOLCHAIN 拆出） |
+| T0-HANDOFF-REVALIDATE | merged | 续接旧 HANDOFF 前重验下一动作仍成立 |
 | T0-HARNESS-PERF | merged | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness/测试改动） |
 | T0-HARNESS-SUBTRACTION-PROTOCOL | merged | 为常驻 harness 文本增加量化、可回滚的减负协议 |
 | T0-LICENSE-DIAGNOSTICS | merged | Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/5） |

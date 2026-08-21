@@ -2,7 +2,7 @@
 id: T0-DEBT-MIGRATION-FIXTURE-CLEANUP
 title: 收敛 TD4 migration fixture 的 Windows worktree 清理
 depends_on: [T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST]
-status: todo
+status: merged
 branch: T0-DEBT-MIGRATION-FIXTURE-CLEANUP
 worktree: C:\wt\T0-DEBT-MIGRATION-FIXTURE-CLEANUP
 allow_paths:
