@@ -2,7 +2,7 @@
 id: T0-DEBT-MUTATION-RESTORE-SAFETY
 title: 把未提交 mutation 还原防丢纪律晋升为必须层（偿还 TD147 / L214）
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-MUTATION-RESTORE-SAFETY
 worktree: C:\wt\T0-DEBT-MUTATION-RESTORE-SAFETY
 allow_paths:
