@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-SKIP-VISIBILITY
 title: 让 selftest 有意跳过与前置失败裁剪均可见
 depends_on: [T0-DEBT-SELFTEST-CRITICAL-PATH, T0-LICENSE-SELFTEST-DRIFT]
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-SKIP-VISIBILITY
 worktree: C:\wt\T0-DEBT-SELFTEST-SKIP-VISIBILITY
 allow_paths:

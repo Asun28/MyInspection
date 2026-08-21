@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-NOGIT-ROUTING
 title: 用有界生产夹具证明 seeded no-git 路由
 depends_on: [T0-DEBT-SELFTEST-SKIP-VISIBILITY]
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-NOGIT-ROUTING
 worktree: C:\wt\T0-DEBT-SELFTEST-NOGIT-ROUTING
 allow_paths:
