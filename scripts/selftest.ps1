@@ -5508,6 +5508,10 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
     $td145GitRepo = Join-Path $sd 'a3-cleanup-git'
     $td145GitWorktree = Join-Path $sd 'a3-cleanup-git-wt'
+    $td145FallbackPath = Join-Path $sd 'a3-cleanup-fallback'
+    $td145InvalidRepo = Join-Path $sd 'a3-cleanup-invalid-repo'
+    $td145InvalidTarget = Join-Path $sd 'a3-cleanup-invalid-target'
+    $td145LockedStream = $null
     try {
       New-Item -ItemType Directory -Force $td145GitRepo | Out-Null
       & git -C $td145GitRepo init -q
@@ -5527,10 +5531,36 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
       if ($td145MissingPath.Success -or -not $td145MissingPath.Registered -or $td145MissingPath.PathExists -or -not $td145MissingPath.Diagnostics.Contains('remove-exit=') -or -not $td145MissingPath.Diagnostics.Contains('list-exit=0')) {
         Fail "闸17a3(cleanup/registered-missing)：locked 登记仍在且目录缺失时未 fail-closed 并分列 Git exit。诊断：$($td145MissingPath.Diagnostics)"
       }
+
+      New-Item -ItemType Directory -Force $td145FallbackPath | Out-Null
+      Set-Content -LiteralPath (Join-Path $td145FallbackPath 'plain.txt') -Value 'fallback' -Encoding utf8
+      $td145Fallback = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145FallbackPath -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if (-not $td145Fallback.Success -or $td145Fallback.Registered -or $td145Fallback.PathExists -or $td145Fallback.Diagnostics -notmatch 'remove-exit=[1-9]\d*' -or -not $td145Fallback.Diagnostics.Contains('remove-detail=') -or -not $td145Fallback.Diagnostics.Contains('list-exit=0') -or -not $td145Fallback.Diagnostics.Contains('fallback-exit=0')) {
+        Fail "闸17a3(cleanup/fallback-success)：真实 Git remove 失败后未分列 stderr 并由 filesystem fallback 清除普通目录。诊断：$($td145Fallback.Diagnostics)"
+      }
+
+      if ($IsWindows) {
+        New-Item -ItemType Directory -Force $td145FallbackPath | Out-Null
+        $td145LockedFile = Join-Path $td145FallbackPath 'locked.txt'
+        Set-Content -LiteralPath $td145LockedFile -Value 'locked' -Encoding utf8
+        $td145LockedStream = [System.IO.File]::Open($td145LockedFile, 'Open', 'ReadWrite', 'None')
+        $td145FallbackFailure = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145FallbackPath -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+        if ($td145FallbackFailure.Success -or $td145FallbackFailure.Registered -or -not $td145FallbackFailure.PathExists -or -not $td145FallbackFailure.Diagnostics.Contains('fallback-exit=99') -or -not $td145FallbackFailure.Diagnostics.Contains('fallback-detail=')) {
+          Fail "闸17a3(cleanup/fallback-failure)：filesystem fallback 失败未保留现场与独立诊断。诊断：$($td145FallbackFailure.Diagnostics)"
+        }
+        $td145LockedStream.Dispose(); $td145LockedStream = $null
+      }
+
+      New-Item -ItemType Directory -Force $td145InvalidRepo, $td145InvalidTarget | Out-Null
+      $td145GitFailure = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145InvalidRepo -WorktreePath $td145InvalidTarget -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if ($td145GitFailure.Success -or -not $td145GitFailure.Registered -or -not $td145GitFailure.PathExists -or $td145GitFailure.Diagnostics -notmatch 'remove-exit=[1-9]\d*' -or -not $td145GitFailure.Diagnostics.Contains('remove-detail=') -or $td145GitFailure.Diagnostics -notmatch 'list-exit=[1-9]\d*' -or -not $td145GitFailure.Diagnostics.Contains('list-detail=')) {
+        Fail "闸17a3(cleanup/git-failure)：真实 remove/list 非零未分别保留 exit/stderr 并 fail-closed。诊断：$($td145GitFailure.Diagnostics)"
+      }
     } finally {
+      if ($td145LockedStream) { $td145LockedStream.Dispose() }
       & git -C $td145GitRepo worktree unlock $td145GitWorktree 2>$null
       & git -C $td145GitRepo worktree prune --expire now 2>$null
-      Remove-Item -LiteralPath $td145GitWorktree, $td145GitRepo -Recurse -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $td145GitWorktree, $td145GitRepo, $td145FallbackPath, $td145InvalidRepo, $td145InvalidTarget -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
