@@ -380,6 +380,15 @@ function Get-SelftestOutcomeOverlap {
   return $overlap
 }
 
+function Test-SelftestAggregatePassEligible {
+  param(
+    [Parameter(Mandatory)][bool]$Failed,
+    [Parameter(Mandatory)][int]$SkipCountBefore,
+    [Parameter(Mandatory)][int]$SkipCountAfter
+  )
+  return (-not $Failed -and $SkipCountBefore -eq $SkipCountAfter)
+}
+
 function Get-SelftestCountDocEntries {
   param(
     [Parameter(Mandatory)][System.Collections.IDictionary]$ProbeDocs,
@@ -411,7 +420,7 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   if (@($errors).Count -ne 0) { return $false }
 
   $expectedCounts = @{
-    'Skip-SelftestCheck' = 78
+    'Skip-SelftestCheck' = 80
     'Skip-SelftestChecks' = 3
     'Register-SelftestSkip' = 4
     'Test-SelftestPrerequisite' = 21
@@ -476,7 +485,7 @@ function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
   $sha256 = [System.Security.Cryptography.SHA256]::Create()
   try { $identityHash = [Convert]::ToHexString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($identityParts -join "`n"))).ToLowerInvariant() }
   finally { $sha256.Dispose() }
-  if ($identityHash -ne '2915e149a20ab7fdf116515763717ff81d4e9279948445c67fe7a009fa79f3a8') { return $false }
+  if ($identityHash -ne '023ec3e925a5a53b21c2643bbab9807b9fca869620d0459089e94aecb0df8151') { return $false }
   $batchLoop = 'foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId ' + '-Reason $Reason) }'
   $overlapGuard = 'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap ' + '-join '','')" }'
   return (
@@ -563,6 +572,29 @@ function Test-SelftestSeededSkipWiringContract([string]$ScriptText) {
   return ($gradleSkipRegistrations.Count -eq 1 -and -not $ScriptText.Contains('Write-Host "' + $legacyPrefix))
 }
 
+function Test-SelftestSkipPassExclusivitySourceContract([string]$ScriptText) {
+  $helperBody = 'return (-not $Failed -and $SkipCountBefore ' + '-eq $SkipCountAfter)'
+  $skipCountAfter = ' -SkipCountAfter $skippedSelftestChecks.Count'
+  $requiredSnippets = @(
+    $helperBody,
+    ('$countSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $countSkipRecordCount' + $skipCountAfter),
+    ('$probeNameSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ("Skip-SelftestCheck -GateId '14d(doc/docs/DELIVERY-" + "CHAINS.md)' -Reason 'FILE-MISSING'"),
+    ("Skip-SelftestCheck -GateId '14d(doc/docs/LOOP-" + "ENGINEERING.md)' -Reason 'FILE-MISSING'"),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeNameSkipRecordCount' + $skipCountAfter),
+    ('$lensSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $lensSkipRecordCount' + $skipCountAfter),
+    ('$l86SkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $nFail -SkipCountBefore $l86SkipRecordCount' + $skipCountAfter),
+    ('$td4SkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $td4SkipRecordCount' + $skipCountAfter),
+    ('$tSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed (-not $tAllOk) -SkipCountBefore $tSkipRecordCount' + $skipCountAfter)
+  )
+  return (@($requiredSnippets | Where-Object { -not $ScriptText.Contains($_) }).Count -eq 0)
+}
+
 function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
   $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
   try {
@@ -575,7 +607,7 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
     $functionNames = @(
       'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
       'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
-      'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap'
+      'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap', 'Test-SelftestAggregatePassEligible'
     )
     $functionSource = @($functionNames | ForEach-Object {
       $name = $_
@@ -583,7 +615,7 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
       if ($functionMatches.Count -ne 1) { throw "function count: $name=$($functionMatches.Count)" }
       $functionMatches[0].Extent.Text
     }) -join "`n`n"
-    $fixtureSource = "param([ValidateSet('environment-missing','batch','seeded-git-missing','gradle-wrapper-offline','prerequisite-fail','overlap','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
+    $fixtureSource = "param([ValidateSet('environment-missing','batch','seeded-git-missing','gradle-wrapper-offline','prerequisite-fail','overlap','aggregate-pass','aggregate-skip','aggregate-fail','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
 $script:skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
 $script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
 $script:fail = $false
@@ -613,6 +645,19 @@ switch ($Mode) {
   'overlap' {
     Fail '17aa(7): fixture failed unit'
     if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
+  }
+  'aggregate-pass' {
+    $before = $skippedSelftestChecks.Count
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $false -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'SKIP' }
+  }
+  'aggregate-skip' {
+    $before = $skippedSelftestChecks.Count
+    [void](Register-SelftestSkip -GateId '14d(doc/docs/DELIVERY-CHAINS.md)' -Reason 'FILE-MISSING')
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $false -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'SKIP' }
+  }
+  'aggregate-fail' {
+    $before = $skippedSelftestChecks.Count
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $true -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'SKIP' }
   }
   'normal' {
     if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
@@ -645,6 +690,12 @@ exit 0
     $prerequisiteFailExit = $LASTEXITCODE
     $overlapOutput = (& pwsh -NoProfile -File $fixturePath -Mode overlap 2>&1 | Out-String)
     $overlapExit = $LASTEXITCODE
+    $aggregatePassOutput = (& pwsh -NoProfile -File $fixturePath -Mode aggregate-pass 2>&1 | Out-String)
+    $aggregatePassExit = $LASTEXITCODE
+    $aggregateSkipOutput = (& pwsh -NoProfile -File $fixturePath -Mode aggregate-skip 2>&1 | Out-String)
+    $aggregateSkipExit = $LASTEXITCODE
+    $aggregateFailOutput = (& pwsh -NoProfile -File $fixturePath -Mode aggregate-fail 2>&1 | Out-String)
+    $aggregateFailExit = $LASTEXITCODE
     $normalOutput = (& pwsh -NoProfile -File $fixturePath -Mode normal 2>&1 | Out-String)
     $normalExit = $LASTEXITCODE
     $expectedSeededGitMissingRecords = @($seededGitMissingGateIds | ForEach-Object { "$_/TOOL-GIT-MISSING" })
@@ -682,6 +733,9 @@ exit 0
       $overlapExit -eq 1 -and $overlapOutput -match '(?m)^OVERLAP=17aa\(7\)\r?$' -and
       $overlapOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(7\)\r?$' -and
       $overlapOutput -match '(?m)^OUTCOME=FAIL\r?$' -and $overlapOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregatePassExit -eq 0 -and $aggregatePassOutput -match '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregateSkipExit -eq 0 -and $aggregateSkipOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $aggregateSkipOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregateFailExit -eq 0 -and $aggregateFailOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $aggregateFailOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
       $normalExit -eq 0 -and $normalOutput -notmatch '(?m)^\[SELFTEST-SKIP\]' -and
       $normalOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=0 items=NONE\r?$' -and
       $normalOutput -match '(?m)^OUTCOME=PASS\r?$' -and $normalOutput -notmatch '(?m)^OUTCOME=SKIP\r?$'
@@ -733,6 +787,20 @@ function Test-SelftestSkipLedgerRepresentativeMutation([string]$ScriptText) {
   foreach ($mutation in $wiringMutations) {
     $mutated = $ScriptText.Replace($mutation.From, $mutation.To)
     if ($mutated -ceq $ScriptText -or (Test-SelftestSeededSkipWiringContract $mutated)) { return $false }
+  }
+  $exclusivityMutations = @(
+    [PSCustomObject]@{
+      Name = 'aggregate-helper-skip-blind';
+      From = 'return (-not $Failed -and $SkipCountBefore ' + '-eq $SkipCountAfter)'; To = 'return (-not $Failed)'
+    },
+    [PSCustomObject]@{
+      Name = 'aggregate-14d-unregistered';
+      From = "Skip-SelftestCheck -GateId '14d(doc/docs/DELIVERY-" + "CHAINS.md)' -Reason 'FILE-MISSING'"; To = 'Write-Host'
+    }
+  )
+  foreach ($mutation in $exclusivityMutations) {
+    $mutated = $ScriptText.Replace($mutation.From, $mutation.To)
+    if ($mutated -ceq $ScriptText -or (Test-SelftestSkipPassExclusivitySourceContract $mutated)) { return $false }
   }
   return $true
 }
@@ -1060,6 +1128,7 @@ if ($Fixture -eq 'skip-ledger') {
   $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
   if (-not (Test-SelftestSkipProtocolSourceContract $source)) { throw '[SELFTEST-SKIP-SOURCE-CONTRACT]' }
   if (-not (Test-SelftestSeededSkipWiringContract $source)) { throw '[SELFTEST-SKIP-SEEDED-WIRING-CONTRACT]' }
+  if (-not (Test-SelftestSkipPassExclusivitySourceContract $source)) { throw '[SELFTEST-SKIP-PASS-EXCLUSIVITY-CONTRACT]' }
   if (-not (Test-SelftestSkipLedgerRepresentativeMutation $source)) { throw '[SELFTEST-SKIP-MUTATION-CONTRACT]' }
   if (-not (Invoke-SelftestSkipLedgerFixture $source)) { throw '[SELFTEST-SKIP-BEHAVIOR-CONTRACT]' }
   Write-Host '[SELFTEST-FIXTURE] skip-ledger PASS'
@@ -3716,10 +3785,13 @@ if ($probeCount -ge 1 -and $gateCount -ge 1) {
     $raw = Get-Content $p -Raw
     if ($raw -notmatch "\b$n\s*$unit") { Fail "$relPath 缺正确的计数字面量「$n $unit」（真相源 = $n；计数漂移，请同步）。" }
   }
+  $countSkipRecordCount = $skippedSelftestChecks.Count
   foreach ($entry in (Get-SelftestCountDocEntries -ProbeDocs $probeDocs -GateDocs $gateDocs)) {
     Test-Count $entry.Path $entry.Count $entry.Unit
   }
-  if (-not $fail) { Write-Host "  计数一致：探针 $probeCount（triage.ps1）/ 闸 $gateCount（selftest.ps1），docs 字面量吻合" }
+  if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $countSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+    Write-Host "  计数一致：探针 $probeCount（triage.ps1）/ 闸 $gateCount（selftest.ps1），docs 字面量吻合"
+  }
 }
 
 # 14d. 探针名清单一致性（TD67）：14a 只数不比名——DELIVERY-CHAINS 心跳行曾 7/9 漂移且无机检可拦。
@@ -3727,6 +3799,7 @@ if ($probeCount -ge 1 -and $gateCount -ge 1) {
 #   先交叉核 14a 的标记计数（防「有标记未注册 / 注册未立标记」的死探针），再断言每名 ⊆ DELIVERY-CHAINS 心跳行、
 #   ∈ LOOP-ENGINEERING.md 全文（该文档自述逐一列全）。graceful（文件缺失跳过）。
 if (Test-Path $triageForCount) {
+  $probeNameSkipRecordCount = $skippedSelftestChecks.Count
   $probeNames = @([regex]::Matches((Get-Content $triageForCount -Raw), "Add-Finding\s+'([a-z][a-z0-9-]*)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
   if ($probeNames.Count -lt 1) { Fail '14d TD67：无法从 triage.ps1 抽 Add-Finding 探针名（调用形态漂移？）。' }
   elseif ($probeCount -ge 1 -and $probeNames.Count -ne $probeCount) {
@@ -3737,13 +3810,15 @@ if (Test-Path $triageForCount) {
     $hbRow14 = @(Get-Content $dcPath14) | Where-Object { $_ -match '^\|\s*心跳\s*/\s*triage' } | Select-Object -First 1
     if (-not $hbRow14) { Fail '14d TD67：DELIVERY-CHAINS.md 找不到心跳行（"| 心跳 / triage"）——行标识漂移或被删。' }
     else { foreach ($n in $probeNames) { if ($hbRow14 -notlike "*$n*") { Fail "14d TD67：DELIVERY-CHAINS.md 心跳行漏列探针「$n」（加/改探针未同步文档枚举）。" } } }
-  }
+  } else { Skip-SelftestCheck -GateId '14d(doc/docs/DELIVERY-CHAINS.md)' -Reason 'FILE-MISSING' -Message '  14d：docs/DELIVERY-CHAINS.md 不存在，跳过该文档探针名交叉核对。' }
   $lePath14 = Join-Path $RepoRoot 'docs/LOOP-ENGINEERING.md'
   if (Test-Path $lePath14) {
     $leRaw14 = Get-Content $lePath14 -Raw
     foreach ($n in $probeNames) { if ($leRaw14 -notlike "*$n*") { Fail "14d TD67：LOOP-ENGINEERING.md 未提及探针「$n」（该文档自述逐一列全，应同步）。" } }
+  } else { Skip-SelftestCheck -GateId '14d(doc/docs/LOOP-ENGINEERING.md)' -Reason 'FILE-MISSING' -Message '  14d：docs/LOOP-ENGINEERING.md 不存在，跳过该文档探针名交叉核对。' }
+  if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeNameSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+    Write-Host "  14d 探针名清单一致（$($probeNames.Count) 名：Add-Finding ↔ 标记计数 ↔ DELIVERY-CHAINS 心跳行 ↔ LOOP-ENGINEERING）OK" -ForegroundColor Green
   }
-  if (-not $fail) { Write-Host "  14d 探针名清单一致（$($probeNames.Count) 名：Add-Finding ↔ 标记计数 ↔ DELIVERY-CHAINS 心跳行 ↔ LOOP-ENGINEERING）OK" -ForegroundColor Green }
 }
 
 # 14c. lens 计数一致性：从 workflow 源（真相源）机数，反查工作流+docs 里的计数字面量。
@@ -3761,12 +3836,15 @@ function Test-CountAdjacent($relPath, $n, $kwRe, $label) {
   }
 }
 if ($lensCount -lt 1)  { Fail "无法从 plan-forge.mjs 机数 lens 数（key: 条目缺失？）。" }
+$lensSkipRecordCount = $skippedSelftestChecks.Count
 if ($lensCount -ge 1) {
   foreach ($f in @('.claude/workflows/plan-forge.mjs', 'docs/IDEA-TO-PLAN.md', 'docs/idea-to-plan-diagram.html', 'docs/scaffold-architecture.html')) {
     Test-CountAdjacent $f $lensCount 'lens|透镜' 'lens'
   }
 }
-if (-not $fail) { Write-Host "  lens 计数一致：lens $lensCount（plan-forge.mjs），工作流+docs 字面量吻合" }
+if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $lensSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+  Write-Host "  lens 计数一致：lens $lensCount（plan-forge.mjs），工作流+docs 字面量吻合"
+}
 
 # 14e. 「执行边界」节同步（CLAUDE.md「文档同步」硬规则的机检化）：该节是每轮必载的行为红线，
 #   CLAUDE.md 与 CLAUDE.template.md 各持一份、此前仅靠人工同步——无机检可拦漂移或红线被无声删改。
@@ -4636,6 +4714,7 @@ $l86Docs = @(
   'scripts/task.ps1'                    # 脚本自身 .EXAMPLE 头注
 )
 $nFail = $false
+$l86SkipRecordCount = $skippedSelftestChecks.Count
 foreach ($rel in $l86Docs) {
   $p = Join-Path $RepoRoot $rel
   # 下游豁免（同 8.0c/11b 手法）：TEMPLATE-README.md 属元仓专属物（-Cleanup/-Retrofit 不下发），已初始化下游缺席是预期而非漂移。
@@ -4646,7 +4725,9 @@ foreach ($rel in $l86Docs) {
 # 另断言 skill 的 R1 start 条目不再以「之后 cd 进该 worktree」收尾（那句暗示后续相位命令在 worktree 内跑）。
 $tlText = Get-Content (Join-Path $RepoRoot '.claude/skills/task-loop/SKILL.md') -Raw
 if ($tlText -match '(?m)^-\s+\*\*R1 start\*\*.*之后\s*`cd`\s*进该 worktree。\s*$') { Fail '闸15n：task-loop skill 的 R1 start 仍以「之后 cd 进该 worktree」收尾，暗示后续相位命令在 worktree 内跑——会撞 L86-WT 守卫。'; $nFail = $true }
-if (-not $nFail) { Write-Host "  15n L86 相位命令指引一致 OK（$($l86Docs.Count) 处权威文档均提示 L86-WT、skill 不再教 worktree 内跑 task.ps1）" -ForegroundColor Green }
+if (Test-SelftestAggregatePassEligible -Failed $nFail -SkipCountBefore $l86SkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+  Write-Host "  15n L86 相位命令指引一致 OK（$($l86Docs.Count) 处权威文档均提示 L86-WT、skill 不再教 worktree 内跑 task.ps1）" -ForegroundColor Green
+}
 
 # 15p. cleanup 删除点凭据闸（T24-CLEANUP-TOKEN）：`branch -D` 是 cleanup 内唯一无脏树守卫的破坏性删除点——
 #   ship 两处合并成功路径（-Local merge / gh pr merge --squash）之后必须各铸一枚 T24-MERGETOKEN 单次合并凭据，
@@ -6412,6 +6493,7 @@ if (-not $seededGitAvailable) {
     # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
     # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
     $td4GradleUserHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' }
+    $td4SkipRecordCount = $skippedSelftestChecks.Count
     $td4MigrationGate = Invoke-SelftestGradleMigrationGate -AndroidRoot (Join-Path $RepoRoot 'android') -GradleUserHome $td4GradleUserHome -RunCases {
     $td4MigrationRepo = if ($IsWindows) {
       Join-Path ([System.IO.Path]::GetPathRoot($RepoRoot)) "st4-$PID"
@@ -6482,7 +6564,9 @@ if (-not $seededGitAvailable) {
     if ($td4MigrationGate.Skipped) {
       [void](Register-SelftestSkip -GateId '17a3' -Reason $td4MigrationGate.Reason)
     }
-    if (-not $fail) { Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green }
+    if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $td4SkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+      Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green
+    }
 
     # 17a2 (TD-201). check-secrets 必须**存活** git 子模块 gitlink：`git ls-files` 把子模块作为**单条 gitlink** 输出，
     #   其工作树路径是**目录**。1b 循环旧码 `Test-Path $full` 对目录为真、放行后 :151 对 DirectoryInfo 求 `.Length`
@@ -8074,6 +8158,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
       @{ tag = 't15-pass-but-write-fails'; body = "'{""verdict"":""pass"",""reasons"":[]}' | Set-Content -Path `$env:REVIEW_OUT -Encoding utf8; Set-ItemProperty -LiteralPath `$env:REVIEW_OUT -Name IsReadOnly -Value `$true"; code = '[R3-VERDICT-WRITE-FAILED]'; block = $true; jsonReason = $false }
     )
     $tAllOk = $true
+    $tSkipRecordCount = $skippedSelftestChecks.Count
     $tIdx = 0
     foreach ($tc in $tCases) {
       $tIdx++
@@ -8830,7 +8915,9 @@ if (-not (Test-Path -LiteralPath $rd)) { New-Item -ItemType Junction -Path $rd -
         $tAllOk = $false
       }
     }
-    if ($tAllOk) { Write-Host '  17t R3 阻断态可诊断性 OK（S0 输出路径存在但读不了 / S1 无内容含零字节/纯空白 / S2 无 JSON / S3 读不出 verdict 同类四支 各带专属状态码（**裁决文件写得进去的用例**上，码同时出现在 stdout 与裁决 JSON；t14/t15 落点被占故只验 stdout）；读故障不被误报成 S1；合法 pass 不误 block；省略 reasons 的 pass/block 不残留兜底码；S2 原文**按确切文件名逐字保全**、reason 点名它，落盘失败时如实报失败而非仍称已保全；陈旧原文跨轮作废、作废不了时明标为陈旧（t23/t24）；晚检出的 [R3-REVIEW-DIR-UNSAFE] 用相位准确措辞（t22）。**评审者文本内联与其防伪造加固见 T56**）' -ForegroundColor Green }
+    if (Test-SelftestAggregatePassEligible -Failed (-not $tAllOk) -SkipCountBefore $tSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+      Write-Host '  17t R3 阻断态可诊断性 OK（S0 输出路径存在但读不了 / S1 无内容含零字节/纯空白 / S2 无 JSON / S3 读不出 verdict 同类四支 各带专属状态码（**裁决文件写得进去的用例**上，码同时出现在 stdout 与裁决 JSON；t14/t15 落点被占故只验 stdout）；读故障不被误报成 S1；合法 pass 不误 block；省略 reasons 的 pass/block 不残留兜底码；S2 原文**按确切文件名逐字保全**、reason 点名它，落盘失败时如实报失败而非仍称已保全；陈旧原文跨轮作废、作废不了时明标为陈旧（t23/t24）；晚检出的 [R3-REVIEW-DIR-UNSAFE] 用相位准确措辞（t22）。**评审者文本内联与其防伪造加固见 T56**）' -ForegroundColor Green
+    }
 
     # 17v. handoff 多 HANDOFF 块——尾块优先（同源 17q · TD57/TD-120）：progress.md 若被误 append 新块而非
     #   原地编辑（本闸就是要治的失手），旧码 `[regex]::Match` 懒惰首匹配会：check 误按过期首块判定、
