@@ -1535,7 +1535,7 @@
 - refs: 
 
 ## L214
-- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
+- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
 - symptom: 单句删除变异跑完后用 git checkout -- <file> 还原，结果该文件里**未提交的新工作**连同变异一起消失；还原核查报 restored=False，但代码已经没了。本轮丢掉的是一整条新增查询及其注释。
 - root_cause: git checkout -- <path> 恢复的是 HEAD/索引版本，不是"变异前的磁盘内容"。前几轮都是先提交再变异所以无恙；这次省了提交那一步，"还原"就等于"丢弃未提交改动"。
 - rule: 变异证明前**先提交**被测文件（或先复制一份、从副本还原）；还原后必须核 SHA256 与变异前一致——本轮正是这道核查当场发现了丢失，没有它会带着空文件继续跑。
