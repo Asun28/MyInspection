@@ -93,7 +93,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **★冻结点已合并**：`T1-SCHEMA-CORE` **merged**（2026-08-16，master `fcdc88d`，R3 pass 于第 **17** 轮）——13 表全量
 schema + UUIDv7 + `core/model/` 快照类型 + 70 个 JVM 测试。合并后 `android/core/src/main/sqldelight/` 已登记进
 `_config.ps1` FrozenPaths（实测 `guard-frozen` 拒绝就地编辑）：**此后加表/改列/加查询 = 新 `.sqm` + 版本评审，
-且须先还清 TD4**（`verifyMigrations` 与防泄露闸冲突）。`core/model/` **刻意不冻**——T1-CANON-HASH 落地时哈希域
+并通过已恢复的 `verifyMigrations` 与逐路径 schema 快照防泄露闸**（TD4 已 paid）。`core/model/` **刻意不冻**——T1-CANON-HASH 落地时哈希域
 形状若需微调属正常演进，形状已由 `InspectionSnapshotTest` 的逐字段断言钉住，不会静默改变。
 > 17 轮里修掉 **9 个真缺陷**（6 个配单句删除变异证明），含两个数据丢失级（孤儿清理会删掉仍被引用的物理文件；
 > 已被引用的模板版本仍可加项）、一个确定性级（`items[]` 无全序 ⇒ 同数据两个 `data_hash`，而该哈希是 PDF 页脚的
@@ -164,7 +164,7 @@ UNCLASSIFIABLE 影响结果）——评审用本仓自己的单一真相源原�
 L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 · TD9（selftest 可诊断性+load-flake）· **TD5 → paid**
 （本 PR 为偿还指针）· TD10（多连接契约仲裁：**评审不得再以多连接证明 block 单连接卡**）· TD12/TD13。
 
-**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T2-ROOM-REPEATABLE`（须先还清 TD4）· `T4-COMPLIANCE-ENGINE`
+**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T2-ROOM-REPEATABLE`（TD4 已 paid，进入 schema 版本评审）· `T4-COMPLIANCE-ENGINE`
 （依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture+finalize，均已合——
 关键路径下一站，快照装配正门与 TD5 黄金测试已随 T3-FINALIZE 落地，可直接开工）。
 

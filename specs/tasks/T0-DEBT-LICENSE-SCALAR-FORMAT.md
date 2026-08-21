@@ -20,7 +20,7 @@ non_goals:
 diagnosis:
   root_cause: check-licenses 的 metadata guard 与 diagnostic sanitizer 使用 UTF-16 regex，增补平面 Cf 可穿过拒绝和输出清洗边界。
   same_class: 许可脚本内两个 live consumer 与 dedicated scanner check 同卡覆盖；secrets consumer 独立拆卡。
-dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1
+dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite policy; if ($LASTEXITCODE -ne 0) { exit 1 }; pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite diagnostics
 dod_exit: 0
 dod_assert: POM/exception metadata 中任一增补平面 Cf 或 malformed UTF-16 均 fail-closed；diagnostic 输出把每个 BMP/增补 Cc/Cf 映射为单个 space 且普通 emoji 原样保留；真实 scanner 行为与删除 consumer 接线变异均命中专属 ASCII 失败码
 review_gate: codex {verdict:pass}

@@ -32,7 +32,7 @@ doc_sync: TD132 状态、schema 契约与 TASK-BOARD 备注（R5）
 - `verified_backup_receipt` + entries：provider-neutral 的 `destination_kind + opaque destination_ref + opaque object_ref + optional version_ref`、导出/验证时间、scope，以及每个资产的 `rel_path + content_hash + byte_size`；只有目标重新打开并解密核验后才能创建。短时签名 URL、token 和云凭据不得持久化。
 
 ## 冻结物版本评审
-`android/core/src/main/sqldelight/` 已冻结。本卡就是该新增表版本的显式评审卡：先获用户放行并确认 schema version，再落新 `.sqm` 和快照；先还 TD4，禁止关掉迁移校验或绕过 `guard-frozen`。备份 manifest 的字段已经足以验证资产，本卡不改冻结的 format_version。
+`android/core/src/main/sqldelight/` 已冻结。本卡就是该新增表版本的显式评审卡：先获用户放行并确认 schema version，再落新 `.sqm` 和快照；TD4 已偿还，必须沿用其恢复的迁移校验，禁止关掉校验或绕过 `guard-frozen`。备份 manifest 的字段已经足以验证资产，本卡不改冻结的 format_version。
 
 ## 不变量
 - “记录是否存在”和“本机字节是否存在”分离；归档绝不软删 photo/inspection/report 元数据。
