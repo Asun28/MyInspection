@@ -4,7 +4,7 @@ title: 续接旧 HANDOFF 前重验下一动作仍成立
 depends_on: []
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-HANDOFF-REVALIDATE
 worktree: C:\wt\T0-HANDOFF-REVALIDATE
 allow_paths:
