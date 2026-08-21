@@ -2,7 +2,7 @@
 id: T0-DEBT-GATE-ENTRY-TRUST-BINDINGS
 title: 把 fail-closed 新入口信任绑定纪律晋升为必须层（偿还 TD154 / L164）
 depends_on: [T0-DEBT-UNSAFE-PATH-DELEGATION]
-status: todo
+status: merged
 branch: T0-DEBT-GATE-ENTRY-TRUST-BINDINGS
 worktree: C:\wt\T0-DEBT-GATE-ENTRY-TRUST-BINDINGS
 allow_paths:
