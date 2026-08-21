@@ -1191,7 +1191,7 @@
 - refs: 
 
 ## L171
-- date: 2026-07-30 ｜ tags: security,review,symlink,fail-closed ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: R3 两轮 block + 两次全量变异重测（约 12h 机时）
+- date: 2026-07-30 ｜ tags: security,review,symlink,fail-closed ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: R3 两轮 block + 两次全量变异重测（约 12h 机时）
 - symptom: 守卫检出裁决路径不安全后「自己不写/不删」，却仍把同一条路径设为 $env:REVIEW_OUT 交给评审者子进程——评审者跟着链接把工作树之外的文件覆写；同一错误在第二个站点（陈旧裁决删除处）原样复发（R3 r14 + r16 各抓一处）。
 - root_cause: 「拒绝自己的写操作」被误当「守住了这条路径」；把不可信路径交给子进程/下游等于授权它代写，而 fail-closed 判断要等子进程回来才跑，为时已晚。
 - rule: 「我不写」不等于「我没让别人写」——凡把路径交给子进程/下游，交之前就得过同一道判据，判不过就不唤起（检出即中止）；同一安全决策的响应抽成唯一函数供所有站点调用，防第二站点漏改。
