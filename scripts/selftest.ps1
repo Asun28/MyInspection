@@ -452,6 +452,19 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
         [regex]::Matches($terminalSummaryMutant, [regex]::Escape($terminalSummaryCall)).Count -ne 0) {
       throw 'production terminal skip summary mutation survived'
     }
+    $normalizedScriptText = $ScriptText.Replace("`r`n", "`n")
+    $terminalOverlapPrefix = 'Step "结论 [$Shard]"' + "`n" +
+      '$outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)'
+    $terminalOverlapGuard = 'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join '','')" }'
+    $terminalOverlapBlock = $terminalOverlapPrefix + "`n" + $terminalOverlapGuard
+    if ([regex]::Matches($normalizedScriptText, [regex]::Escape($terminalOverlapBlock)).Count -ne 1) {
+      throw 'production terminal FAIL/SKIP overlap guard absent or duplicated'
+    }
+    $terminalOverlapMutant = $normalizedScriptText.Replace($terminalOverlapBlock, $terminalOverlapPrefix)
+    if ($terminalOverlapMutant -ceq $normalizedScriptText -or
+        [regex]::Matches($terminalOverlapMutant, [regex]::Escape($terminalOverlapBlock)).Count -ne 0) {
+      throw 'production terminal FAIL/SKIP overlap mutation survived'
+    }
     $functionNames = @(
       'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
       'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
@@ -509,7 +522,8 @@ switch ($Mode) {
   }
   'aggregate-fail' {
     $before = $skippedSelftestChecks.Count
-    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $true -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'SKIP' }
+    Fail '14d: fixture aggregate failure'
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $true -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'FAIL' }
   }
   'normal' {
     if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
@@ -582,7 +596,11 @@ exit 0
       $overlapOutput -match '(?m)^OUTCOME=FAIL\r?$' -and $overlapOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
       $aggregatePassExit -eq 0 -and $aggregatePassOutput -match '(?m)^OUTCOME=PASS\r?$' -and
       $aggregateSkipExit -eq 0 -and $aggregateSkipOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $aggregateSkipOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
-      $aggregateFailExit -eq 0 -and $aggregateFailOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $aggregateFailOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregateFailExit -ne 0 -and
+      $aggregateFailOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=14d\r?$' -and
+      $aggregateFailOutput -match '(?m)^OUTCOME=FAIL\r?$' -and
+      $aggregateFailOutput -notmatch '(?m)^OUTCOME=(?:PASS|SKIP)\r?$' -and
+      $aggregateFailOutput -notmatch '(?m)^\[SELFTEST-SKIP\] ' -and
       $normalExit -eq 0 -and $normalOutput -notmatch '(?m)^\[SELFTEST-SKIP\]' -and
       $normalOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=0 items=NONE\r?$' -and
       $normalOutput -match '(?m)^OUTCOME=PASS\r?$' -and $normalOutput -notmatch '(?m)^OUTCOME=SKIP\r?$'
