@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-SNAPSHOT-BASELINE
 title: 让 selftest all 快照钉住调用者 HEAD 与权威 master（偿还 TD156）
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-SNAPSHOT-BASELINE
 worktree: C:\wt\T0-DEBT-SELFTEST-SNAPSHOT-BASELINE
 allow_paths:

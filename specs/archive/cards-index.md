@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 49 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 50 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -21,6 +21,7 @@
 | T0-DEBT-SEEDED-CLOSURE-SCOPE | merged | Make seeded mutation closures self-contained (repay TD23) |
 | T0-DEBT-SELFTEST-CRITICAL-PATH | merged | 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径 |
 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | merged | 让 selftest 分片与 all 汇总稳定点名失败闸 |
+| T0-DEBT-SELFTEST-SNAPSHOT-BASELINE | merged | 让 selftest all 快照钉住调用者 HEAD 与权威 master（偿还 TD156） |
 | T0-DEBT-TASK-INVENTORY | merged | Remove hand-maintained task-card inventory (repay TD21) |
 | T0-DEBT-TEMPLATE-STORE-IMMUTABILITY | merged | Prove TemplateStore read results reject element replacement (repay TD13) |
 | T0-DEBT-UNICODE-SANITIZER-CATEGORIES | merged | 把 Unicode sanitizer 类别纪律合并晋升为必须层（偿还 TD151 / L181） |
