@@ -82,16 +82,17 @@ function Get-ListField([string]$FrontMatter, [string]$Name) {
   return @($items)
 }
 
-function Assert-TaskCardLifecycleFixture([hashtable]$PlanContract) {
+function Assert-TaskCardLifecycleFixture([hashtable]$Contract) {
   $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "td9-card-$([guid]::NewGuid().ToString('N'))"
   $liveDir = Join-Path $fixtureRoot 'specs/tasks'
   $archiveDir = Join-Path $fixtureRoot 'specs/archive/tasks'
-  $liveCard = Join-Path $liveDir 'T0-DEBT-SELFTEST-SPLIT-PLAN.md'
-  $archiveCard = Join-Path $archiveDir 'T0-DEBT-SELFTEST-SPLIT-PLAN.md'
+  $cardName = "$($Contract.TaskId).md"
+  $liveCard = Join-Path $liveDir $cardName
+  $archiveCard = Join-Path $archiveDir $cardName
   try {
     New-Item -ItemType Directory -Force -Path $liveDir, $archiveDir | Out-Null
     Set-Content -LiteralPath $archiveCard -Value 'archived' -Encoding utf8NoBOM
-    try { $archiveText = Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract } catch {
+    try { $archiveText = Read-ContractCardText -Root $fixtureRoot -Contract $Contract } catch {
       throw "[TD9-SPLIT-ARCHIVE-FIXTURE] archive-only consumer failed: $($_.Exception.Message)"
     }
     if ($archiveText.Trim() -cne 'archived') {
@@ -100,7 +101,7 @@ function Assert-TaskCardLifecycleFixture([hashtable]$PlanContract) {
 
     Remove-Item -LiteralPath $archiveCard -Force
     Set-Content -LiteralPath $liveCard -Value 'live' -Encoding utf8NoBOM
-    try { $liveText = Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract } catch {
+    try { $liveText = Read-ContractCardText -Root $fixtureRoot -Contract $Contract } catch {
       throw "[TD9-SPLIT-ARCHIVE-FIXTURE] live-only consumer failed: $($_.Exception.Message)"
     }
     if ($liveText.Trim() -cne 'live') {
@@ -109,14 +110,14 @@ function Assert-TaskCardLifecycleFixture([hashtable]$PlanContract) {
 
     Set-Content -LiteralPath $archiveCard -Value 'archived' -Encoding utf8NoBOM
     $duplicateRejected = $false
-    try { [void](Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract) } catch {
+    try { [void](Read-ContractCardText -Root $fixtureRoot -Contract $Contract) } catch {
       if ($_.Exception.Message.Contains('[TD9-SPLIT-CARD-RESOLUTION]')) { $duplicateRejected = $true } else { throw }
     }
     if (-not $duplicateRejected) { throw '[TD9-SPLIT-ARCHIVE-FIXTURE] duplicate live/archive card was accepted' }
 
     Remove-Item -LiteralPath $liveCard, $archiveCard -Force
     $missingRejected = $false
-    try { [void](Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract) } catch {
+    try { [void](Read-ContractCardText -Root $fixtureRoot -Contract $Contract) } catch {
       if ($_.Exception.Message.Contains('[TD9-SPLIT-CARD-RESOLUTION]')) { $missingRejected = $true } else { throw }
     }
     if (-not $missingRejected) { throw '[TD9-SPLIT-ARCHIVE-FIXTURE] missing card was accepted' }
@@ -129,13 +130,13 @@ function Assert-TaskCardLifecycleFixture([hashtable]$PlanContract) {
 
 $boardRows = @(
   '| W0 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | 单分片与 all 汇总以稳定哨兵点名失败 shard/gate（TD9 1/5） | T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b8dee45`，PR #31；稳定 ASCII gate、协议 fail-closed、hermetic/mutation 覆盖、core/verify/R3 绿；TD9 仍 carded） |',
-  '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | PR #33 收回为 skip 协议 + bounded helper；生产 no-git routing 与 mutation 预算已拆卡 |',
-  '| W0 | T0-DEBT-SELFTEST-NOGIT-ROUTING | 有界 fixture mode 证明生产 seeded git-present/absent routing 与 outcome ledger（TD9 3/5） | T0-DEBT-SELFTEST-SKIP-VISIBILITY | M | GPT-5.6 Terra · high | Sonnet 5 max | 与 mutation/load 卡共享 selftest，串行宽度 1 |',
+  '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `c745015`，PR #33；机器 skip 台账、汇总与 bounded helper，core/verify/R3 PASS；生产 no-git routing 与 mutation 预算按卡拆分） |',
+  '| W0 | T0-DEBT-SELFTEST-NOGIT-ROUTING | 有界 fixture mode 证明生产 seeded git-present/absent routing 与 outcome ledger（TD9 3/5） | T0-DEBT-SELFTEST-SKIP-VISIBILITY | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `02425dd`，PR #110；完整 130-gate 身份、nonce 子进程与 route inversion mutation；DoD/verify 绿，两轮 R3 finding 修复后人裁；TD9 仍 carded） |',
   '| W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING | M | GPT-5.6 Terra · high | Sonnet 5 max | R3 实测旧形态约 1.6 GB / 500+ CPU 秒；须有机器预算上界 |',
   '| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 五卡全 merged + post-merge core 重放后才可 paid |'
 )
-$trackerChain = '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
-$trackerGuard = '全部 merged + post-merge core 重放后才可 paid'
+$trackerChain = '`T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
+$trackerGuard = '两卡 merged 后再做一次 post-merge core 重放，才可把 TD9 置 paid'
 $planChain = '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
 $planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1。'
 
@@ -181,11 +182,11 @@ $cardContract = [ordered]@{
     )
   }
   Skip = @{
-    Path = 'specs/tasks/T0-DEBT-SELFTEST-SKIP-VISIBILITY.md'
+    TaskId = 'T0-DEBT-SELFTEST-SKIP-VISIBILITY'
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-SKIP-VISIBILITY'
       title = '让 selftest 有意跳过与前置失败裁剪均可见'
-      status = 'todo'
+      status = 'merged'
       depends_on = '[T0-DEBT-SELFTEST-CRITICAL-PATH, T0-LICENSE-SELFTEST-DRIFT]'
       branch = 'T0-DEBT-SELFTEST-SKIP-VISIBILITY'
       worktree = 'C:\wt\T0-DEBT-SELFTEST-SKIP-VISIBILITY'
@@ -222,11 +223,11 @@ $cardContract = [ordered]@{
     )
   }
   NoGit = @{
-    Path = 'specs/tasks/T0-DEBT-SELFTEST-NOGIT-ROUTING.md'
+    TaskId = 'T0-DEBT-SELFTEST-NOGIT-ROUTING'
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-NOGIT-ROUTING'
       title = '用有界生产夹具证明 seeded no-git 路由'
-      status = 'todo'
+      status = 'merged'
       depends_on = '[T0-DEBT-SELFTEST-SKIP-VISIBILITY]'
       branch = 'T0-DEBT-SELFTEST-NOGIT-ROUTING'
       worktree = 'C:\wt\T0-DEBT-SELFTEST-NOGIT-ROUTING'
@@ -305,7 +306,9 @@ $cardContract = [ordered]@{
   }
 }
 
-Assert-TaskCardLifecycleFixture -PlanContract $cardContract.Plan
+foreach ($lifecycleContract in @($cardContract.Plan, $cardContract.Skip, $cardContract.NoGit)) {
+  Assert-TaskCardLifecycleFixture -Contract $lifecycleContract
+}
 
 function Test-Td9SplitContract([hashtable]$Sources) {
   $actualBoardRows = @($Sources.Board -split '\r?\n' | Where-Object { $_ -match '^\| W0 \| T0-DEBT-SELFTEST-(FAIL-DIAGNOSTICS|SKIP-VISIBILITY|NOGIT-ROUTING|MUTATION-BUDGET|LOAD-STABILITY) \|' })
@@ -429,12 +432,12 @@ $boardOrderMutant = Copy-Sources $sources
 $boardOrderMutant.Board = $boardOrderMutant.Board.Replace($boardRows[1], '__TD9_BOARD_SWAP__').Replace($boardRows[2], $boardRows[1]).Replace('__TD9_BOARD_SWAP__', $boardRows[2])
 Assert-MutantKilled 'reorder-board' $boardOrderMutant
 $trackerOrderMutant = Copy-Sources $sources
-$trackerOrderMutant.Tracker = $trackerOrderMutant.Tracker.Replace($trackerChain, '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-LOAD-STABILITY`')
+$trackerOrderMutant.Tracker = $trackerOrderMutant.Tracker.Replace($trackerChain, '`T0-DEBT-SELFTEST-LOAD-STABILITY` → `T0-DEBT-SELFTEST-MUTATION-BUDGET`')
 Assert-MutantKilled 'reorder-tracker' $trackerOrderMutant
 
 $structuralWeakening = @(
   @{ Name = 'weaken-tracker-status'; Source = 'Tracker'; From = '| major | carded |'; To = '| major | paid |' },
-  @{ Name = 'weaken-board-serial'; Source = 'Board'; From = '与 mutation/load 卡共享 selftest，串行宽度 1'; To = '与 mutation/load 卡共享 selftest，可并行' }
+  @{ Name = 'weaken-board-status'; Source = 'Board'; From = 'TD9 仍 carded'; To = 'TD9 paid' }
 )
 foreach ($case in $structuralWeakening) {
   $mutant = Copy-Sources $sources
