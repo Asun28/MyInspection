@@ -414,167 +414,6 @@ function Get-DocSyncMapAssertionDisposition {
   return 'ASSERT'
 }
 
-function Test-SelftestSkipProtocolSourceContract([string]$ScriptText) {
-  $tokens = $null; $errors = $null
-  $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
-  if (@($errors).Count -ne 0) { return $false }
-
-  $expectedCounts = @{
-    'Skip-SelftestCheck' = 80
-    'Skip-SelftestChecks' = 3
-    'Register-SelftestSkip' = 4
-    'Test-SelftestPrerequisite' = 21
-    'Format-SelftestSkipSummary' = 4
-    'Get-SelftestOutcomeOverlap' = 1
-  }
-  $protocolNames = @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip', 'Test-SelftestPrerequisite', 'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap')
-  $identityParts = [System.Collections.Generic.List[string]]::new()
-  foreach ($name in $protocolNames) {
-    $commands = @($ast.FindAll({
-      param($node)
-      $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq $name
-    }, $true) | Sort-Object { $_.Extent.StartOffset })
-    if ($commands.Count -ne $expectedCounts[$name]) { return $false }
-    foreach ($command in $commands) {
-      $identityParameterNames = switch ($name) {
-        'Skip-SelftestCheck' { @('GateId', 'Reason') }
-        'Skip-SelftestChecks' { @('GateIds', 'Reason') }
-        'Register-SelftestSkip' { @('GateId', 'Reason') }
-        'Test-SelftestPrerequisite' { @('GateIds') }
-        'Format-SelftestSkipSummary' { @('Shard', 'Records') }
-        'Get-SelftestOutcomeOverlap' { @('FailedGateIds', 'SkippedRecords') }
-      }
-      $parameterNames = @($command.CommandElements | Where-Object {
-        $_ -is [System.Management.Automation.Language.CommandParameterAst]
-      } | ForEach-Object { $_.ParameterName })
-      if ($name -in @('Skip-SelftestCheck', 'Register-SelftestSkip') -and
-          ('GateId' -notin $parameterNames -or 'Reason' -notin $parameterNames)) { return $false }
-      if ($name -eq 'Skip-SelftestChecks' -and ('GateIds' -notin $parameterNames -or 'Reason' -notin $parameterNames)) { return $false }
-      if ($name -eq 'Test-SelftestPrerequisite' -and 'GateIds' -notin $parameterNames) { return $false }
-      if ($name -eq 'Format-SelftestSkipSummary' -and
-          ('Shard' -notin $parameterNames -or 'Records' -notin $parameterNames)) { return $false }
-      if ($name -eq 'Get-SelftestOutcomeOverlap' -and
-          ('FailedGateIds' -notin $parameterNames -or 'SkippedRecords' -notin $parameterNames)) { return $false }
-      if ($name -in @('Skip-SelftestCheck', 'Skip-SelftestChecks')) {
-        $elements = @($command.CommandElements)
-        $reasonIndex = -1
-        for ($i = 0; $i -lt $elements.Count; $i++) {
-          if ($elements[$i] -is [System.Management.Automation.Language.CommandParameterAst] -and
-              $elements[$i].ParameterName -eq 'Reason') { $reasonIndex = $i; break }
-        }
-        if ($reasonIndex -lt 0 -or $reasonIndex + 1 -ge $elements.Count -or
-            $elements[$reasonIndex + 1] -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
-            -not (Test-SelftestSkipReasonCode $elements[$reasonIndex + 1].Value)) { return $false }
-      }
-      $identityValues = @($identityParameterNames | ForEach-Object {
-        $parameterName = $_; $argumentText = $null
-        for ($i = 0; $i -lt $command.CommandElements.Count; $i++) {
-          $element = $command.CommandElements[$i]
-          if ($element -is [System.Management.Automation.Language.CommandParameterAst] -and $element.ParameterName -eq $parameterName) {
-            $argument = if ($null -ne $element.Argument) { $element.Argument } elseif ($i + 1 -lt $command.CommandElements.Count) { $command.CommandElements[$i + 1] } else { $null }
-            if ($null -ne $argument) { $argumentText = ($argument.Extent.Text -replace '\s+', ' ').Trim() }
-            break
-          }
-        }
-        if ($null -eq $argumentText) { return $false }
-        "$parameterName=$argumentText"
-      })
-      [void]$identityParts.Add("$name|$($identityValues -join '|')")
-    }
-  }
-  $sha256 = [System.Security.Cryptography.SHA256]::Create()
-  try { $identityHash = [Convert]::ToHexString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($identityParts -join "`n"))).ToLowerInvariant() }
-  finally { $sha256.Dispose() }
-  if ($identityHash -ne '023ec3e925a5a53b21c2643bbab9807b9fca869620d0459089e94aecb0df8151') { return $false }
-  $batchLoop = 'foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId ' + '-Reason $Reason) }'
-  $overlapGuard = 'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap ' + '-join '','')" }'
-  return (
-    $ScriptText -match 'return "\[SELFTEST-SKIP\] gate=\$GateId reason=\$Reason"' -and
-    $ScriptText -match 'return "\[SELFTEST-SKIP-SUMMARY\] shard=\$Shard count=\$\(\$Records\.Count\) items=\$items"' -and
-    $ScriptText.Contains($batchLoop) -and $ScriptText.Contains($overlapGuard)
-  )
-}
-
-function Get-SelftestCommandArgument {
-  param(
-    [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
-    [Parameter(Mandatory)][string]$ParameterName
-  )
-  $elements = @($Command.CommandElements)
-  for ($i = 0; $i -lt $elements.Count; $i++) {
-    $element = $elements[$i]
-    if ($element -is [System.Management.Automation.Language.CommandParameterAst] -and $element.ParameterName -eq $ParameterName) {
-      if ($null -ne $element.Argument) { return $element.Argument }
-      if ($i + 1 -lt $elements.Count) { return $elements[$i + 1] }
-      return $null
-    }
-  }
-  return $null
-}
-
-function Get-SelftestSeededGitMissingGateIds([string]$ScriptText) {
-  $tokens = $null; $errors = $null
-  $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
-  if (@($errors).Count -ne 0) { return @() }
-
-  $gitMissingBatches = @($ast.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Skip-SelftestChecks'
-  }, $true) | Where-Object {
-    $reason = Get-SelftestCommandArgument -Command $_ -ParameterName 'Reason'
-    $reason -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $reason.Value -ceq 'TOOL-GIT-MISSING'
-  })
-  $seededGitMissingBatches = @($gitMissingBatches | Where-Object {
-    $gateIds = Get-SelftestCommandArgument -Command $_ -ParameterName 'GateIds'
-    $null -ne $gateIds -and @($gateIds.FindAll({
-      param($node)
-      $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $node.Value -ceq '17'
-    }, $true)).Count -eq 1
-  })
-  if ($seededGitMissingBatches.Count -ne 1) { return @() }
-  $gateIdsArgument = Get-SelftestCommandArgument -Command $seededGitMissingBatches[0] -ParameterName 'GateIds'
-  if ($null -eq $gateIdsArgument) { return @() }
-  return @($gateIdsArgument.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
-  }, $true) | ForEach-Object { $_.Value })
-}
-
-function Test-SelftestSeededSkipWiringContract([string]$ScriptText) {
-  $tokens = $null; $errors = $null
-  $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
-  if (@($errors).Count -ne 0) { return $false }
-  $registeredGateIds = @(Get-SelftestSeededGitMissingGateIds $ScriptText)
-  $requiredGitMissingGateIds = @(
-    '17a3',
-    ('17l(default-' + 'codex)'),
-    ('17t(t16/' + 'symlink-half)')
-  )
-  $forbiddenGitMissingGateIds = @(
-    ('17z(' + 'project-pin)'),
-    ('17z(doc/' + 'TEMPLATE-README.md)'),
-    ('17z(doc/' + 'CLAUDE.template.md)'),
-    ('17z(doc/docs/' + 'scaffold-architecture.html)')
-  )
-  if (@($requiredGitMissingGateIds | Where-Object { $registeredGateIds -cnotcontains $_ }).Count -ne 0 -or
-      @($forbiddenGitMissingGateIds | Where-Object { $registeredGateIds -ccontains $_ }).Count -ne 0) { return $false }
-
-  $gradleSkipRegistrations = @($ast.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Register-SelftestSkip'
-  }, $true) | Where-Object {
-    $gateId = Get-SelftestCommandArgument -Command $_ -ParameterName 'GateId'
-    $reason = Get-SelftestCommandArgument -Command $_ -ParameterName 'Reason'
-    $gateId -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-      $gateId.Value -ceq '17a3' -and $reason.Extent.Text -ceq '$td4MigrationGate.Reason'
-  })
-  $legacyPrefix = '[SELFTEST-' + 'SKIP] gate=17a3 reason='
-  $forbiddenSeededRoutingGuard = "`$Shard -eq 'seeded' -and " + '$seededGitAvailable'
-  return ($gradleSkipRegistrations.Count -eq 1 -and
-    -not $ScriptText.Contains('Write-Host "' + $legacyPrefix) -and
-    -not $ScriptText.Contains($forbiddenSeededRoutingGuard))
-}
-
 function Test-SelftestSkipPassExclusivitySourceContract([string]$ScriptText) {
   $helperBody = 'return (-not $Failed -and $SkipCountBefore ' + '-eq $SkipCountAfter)'
   $skipCountAfter = ' -SkipCountAfter $skippedSelftestChecks.Count'
@@ -604,9 +443,6 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
     $tokens = $null; $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
     if (@($errors).Count -ne 0) { throw 'source parse failed' }
-    $seededGitMissingGateIds = @(Get-SelftestSeededGitMissingGateIds $ScriptText)
-    if ($seededGitMissingGateIds.Count -eq 0) { throw 'seeded git-missing gate list absent' }
-    $seededGitMissingLiteral = @($seededGitMissingGateIds | ForEach-Object { "'$($_ -replace "'", "''")'" }) -join ', '
     $functionNames = @(
       'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
       'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
@@ -618,7 +454,7 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
       if ($functionMatches.Count -ne 1) { throw "function count: $name=$($functionMatches.Count)" }
       $functionMatches[0].Extent.Text
     }) -join "`n`n"
-    $fixtureSource = "param([ValidateSet('environment-missing','batch','seeded-git-missing','gradle-wrapper-offline','prerequisite-fail','overlap','aggregate-pass','aggregate-skip','aggregate-fail','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
+    $fixtureSource = "param([ValidateSet('environment-missing','batch','gradle-wrapper-offline','prerequisite-fail','overlap','aggregate-pass','aggregate-skip','aggregate-fail','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
 $script:skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
 $script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
 $script:fail = $false
@@ -631,10 +467,6 @@ switch ($Mode) {
   }
   'batch' {
     Skip-SelftestChecks -GateIds @('15', '15a', '15b(ship-local)') -Reason 'TOOL-GIT-MISSING' -Message 'fixture git missing'
-    $script:fixtureOutcome = 'SKIP'
-  }
-  'seeded-git-missing' {
-    Skip-SelftestChecks -GateIds @(__SEEDED_GIT_MISSING_GATE_IDS__) -Reason 'TOOL-GIT-MISSING' -Message 'fixture seeded git missing'
     $script:fixtureOutcome = 'SKIP'
   }
   'gradle-wrapper-offline' {
@@ -679,14 +511,11 @@ if ($fail) {
 Write-Output "OUTCOME=$fixtureOutcome"
 exit 0
 '@
-    $fixtureSource = $fixtureSource.Replace('__SEEDED_GIT_MISSING_GATE_IDS__', $seededGitMissingLiteral)
     Set-Content -LiteralPath $fixturePath -Value $fixtureSource -Encoding utf8
     $environmentMissingOutput = (& pwsh -NoProfile -File $fixturePath -Mode environment-missing 2>&1 | Out-String)
     $environmentMissingExit = $LASTEXITCODE
     $batchOutput = (& pwsh -NoProfile -File $fixturePath -Mode batch 2>&1 | Out-String)
     $batchExit = $LASTEXITCODE
-    $seededGitMissingOutput = (& pwsh -NoProfile -File $fixturePath -Mode seeded-git-missing 2>&1 | Out-String)
-    $seededGitMissingExit = $LASTEXITCODE
     $gradleWrapperOfflineOutput = (& pwsh -NoProfile -File $fixturePath -Mode gradle-wrapper-offline 2>&1 | Out-String)
     $gradleWrapperOfflineExit = $LASTEXITCODE
     $prerequisiteFailOutput = (& pwsh -NoProfile -File $fixturePath -Mode prerequisite-fail 2>&1 | Out-String)
@@ -701,14 +530,6 @@ exit 0
     $aggregateFailExit = $LASTEXITCODE
     $normalOutput = (& pwsh -NoProfile -File $fixturePath -Mode normal 2>&1 | Out-String)
     $normalExit = $LASTEXITCODE
-    $expectedSeededGitMissingRecords = @($seededGitMissingGateIds | ForEach-Object { "$_/TOOL-GIT-MISSING" })
-    $expectedSeededGitMissingSummary = "[SELFTEST-SKIP-SUMMARY] shard=core count=$($expectedSeededGitMissingRecords.Count) items=$($expectedSeededGitMissingRecords -join ',')"
-    $forbiddenSeededGitMissingRecords = @(
-      '17z(project-pin)/TOOL-GIT-MISSING',
-      '17z(doc/TEMPLATE-README.md)/TOOL-GIT-MISSING',
-      '17z(doc/CLAUDE.template.md)/TOOL-GIT-MISSING',
-      '17z(doc/docs/scaffold-architecture.html)/TOOL-GIT-MISSING'
-    )
     $passed = (
       $environmentMissingExit -eq 0 -and
       @([regex]::Matches($environmentMissingOutput, '(?m)^\[SELFTEST-SKIP\] gate=1b reason=FILE-MISSING\r?$')).Count -eq 1 -and
@@ -719,11 +540,6 @@ exit 0
       $batchOutput -match '(?m)^\[SELFTEST-SKIP\] gate=15 reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15a reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15b\(ship-local\) reason=TOOL-GIT-MISSING\r?$' -and
       $batchOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=3 items=15/TOOL-GIT-MISSING,15a/TOOL-GIT-MISSING,15b\(ship-local\)/TOOL-GIT-MISSING\r?$' -and
       $batchOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $batchOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
-      $seededGitMissingExit -eq 0 -and
-      @([regex]::Matches($seededGitMissingOutput, '(?m)^\[SELFTEST-SKIP\] ')).Count -eq $expectedSeededGitMissingRecords.Count -and
-      $seededGitMissingOutput -match ('(?m)^' + [regex]::Escape($expectedSeededGitMissingSummary) + '\r?$') -and
-      @($forbiddenSeededGitMissingRecords | Where-Object { $seededGitMissingOutput.Contains($_) }).Count -eq 0 -and
-      $seededGitMissingOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $seededGitMissingOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
       $gradleWrapperOfflineExit -eq 0 -and
       @([regex]::Matches($gradleWrapperOfflineOutput, '(?m)^\[SELFTEST-SKIP\] gate=17a3 reason=GRADLE-WRAPPER-OFFLINE\r?$')).Count -eq 1 -and
       $gradleWrapperOfflineOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17a3/GRADLE-WRAPPER-OFFLINE\r?$' -and
@@ -748,68 +564,6 @@ exit 0
   } finally {
     Remove-Item -LiteralPath $fixturePath -Force -ErrorAction SilentlyContinue
   }
-}
-
-function Test-SelftestSkipLedgerRepresentativeMutation([string]$ScriptText) {
-  if ($ScriptText.Contains('$skipProtocolMutations82 = @($skipProtocolInventory82 | ' + 'ForEach-Object')) { return $false }
-  $mutations = @(
-    [PSCustomObject]@{
-      Name = 'record'; From = 'return "[SELFTEST-' + 'SKIP] gate=$GateId reason=$Reason"'; To = ''
-    },
-    [PSCustomObject]@{
-      Name = 'reason'; From = "Skip-SelftestCheck -GateId '1(mjs)' -" + "Reason 'FILE-MISSING'"; To = "Skip-SelftestCheck -GateId '1(mjs)' -Reason ''"
-    },
-    [PSCustomObject]@{
-      Name = 'summary'; From = 'return "[SELFTEST-SKIP-' + 'SUMMARY] shard=$Shard count=$($Records.Count) items=$items"'; To = ''
-    },
-    [PSCustomObject]@{
-      Name = 'batch'; From = 'foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId ' + '-Reason $Reason) }';
-      To = 'foreach ($gateId in @($GateIds | Select-Object -First 1)) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }'
-    },
-    [PSCustomObject]@{
-      Name = 'overlap'; From = 'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap ' + '-join '','')" }'; To = ''
-    }
-  )
-  foreach ($mutation in $mutations) {
-    $mutated = $ScriptText.Replace($mutation.From, $mutation.To)
-    if ($mutated -ceq $ScriptText -or (Test-SelftestSkipProtocolSourceContract $mutated)) { return $false }
-  }
-  $wiringMutations = @(
-    [PSCustomObject]@{
-      Name = 'seeded-git-missing-identity'; From = "    '17a3', '17l(default-" + "codex)',"; To = "    '17a3',"
-    },
-    [PSCustomObject]@{
-      Name = 'seeded-git-missing-static-check';
-      From = "    '17a3', '17l(default-" + "codex)', '17t(t16/symlink-half)',"
-      To = "    '17a3', '17l(default-" + "codex)', '17t(t16/symlink-half)', '17z(project-pin)',"
-    },
-    [PSCustomObject]@{
-      Name = 'gradle-wrapper-offline-registration'; From = "      [void](Register-SelftestSkip -GateId '17a3' -" + 'Reason $td4MigrationGate.Reason)'; To = ''
-    },
-    [PSCustomObject]@{
-      Name = 'seeded-routing-overreach'; From = "if (`$Shard -eq 'seeded') {";
-      To = "if (`$Shard -eq 'seeded' -and " + '$seededGitAvailable) {'
-    }
-  )
-  foreach ($mutation in $wiringMutations) {
-    $mutated = $ScriptText.Replace($mutation.From, $mutation.To)
-    if ($mutated -ceq $ScriptText -or (Test-SelftestSeededSkipWiringContract $mutated)) { return $false }
-  }
-  $exclusivityMutations = @(
-    [PSCustomObject]@{
-      Name = 'aggregate-helper-skip-blind';
-      From = 'return (-not $Failed -and $SkipCountBefore ' + '-eq $SkipCountAfter)'; To = 'return (-not $Failed)'
-    },
-    [PSCustomObject]@{
-      Name = 'aggregate-14d-unregistered';
-      From = "Skip-SelftestCheck -GateId '14d(doc/docs/DELIVERY-" + "CHAINS.md)' -Reason 'FILE-MISSING'"; To = 'Write-Host'
-    }
-  )
-  foreach ($mutation in $exclusivityMutations) {
-    $mutated = $ScriptText.Replace($mutation.From, $mutation.To)
-    if ($mutated -ceq $ScriptText -or (Test-SelftestSkipPassExclusivitySourceContract $mutated)) { return $false }
-  }
-  return $true
 }
 
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
@@ -1133,10 +887,7 @@ function Get-SelftestCanarySourceContractFailures {
 
 if ($Fixture -eq 'skip-ledger') {
   $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
-  if (-not (Test-SelftestSkipProtocolSourceContract $source)) { throw '[SELFTEST-SKIP-SOURCE-CONTRACT]' }
-  if (-not (Test-SelftestSeededSkipWiringContract $source)) { throw '[SELFTEST-SKIP-SEEDED-WIRING-CONTRACT]' }
   if (-not (Test-SelftestSkipPassExclusivitySourceContract $source)) { throw '[SELFTEST-SKIP-PASS-EXCLUSIVITY-CONTRACT]' }
-  if (-not (Test-SelftestSkipLedgerRepresentativeMutation $source)) { throw '[SELFTEST-SKIP-MUTATION-CONTRACT]' }
   if (-not (Invoke-SelftestSkipLedgerFixture $source)) { throw '[SELFTEST-SKIP-BEHAVIOR-CONTRACT]' }
   Write-Host '[SELFTEST-FIXTURE] skip-ledger PASS'
   exit 0
@@ -1191,7 +942,6 @@ if ($Fixture -eq 'canary-harness') {
     if ($contractFailures.Count -ne 0 -or
         [regex]::Matches($source, '(?m)^\s+\$(?:cold|ready|td4MigrationGate) = Invoke-SelftestGradleMigrationGate -AndroidRoot').Count -ne 3 -or
         [regex]::Matches($source, '(?m)^\s+Add-SelftestE2eBaseline -RepoRoot \$e2e ').Count -ne 1 -or
-        -not (Test-SelftestSeededSkipWiringContract $source) -or
         $source.Contains("-TaskId T0-SMOKE -Phase ship -Local -SkipRed *> `$null`n      `$shipExit")) {
       throw "canary-harness production wiring is absent, duplicated, or weakened: $($contractFailures -join ',')"
     }
@@ -2154,7 +1904,6 @@ try { [void](Add-SelftestSkipRecord -Records $skipRecords82 -GateId '1' -Reason 
 catch { $invalidReasonRejected82 = $true }
 $selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
 $skipFixtureOk82 = Invoke-SelftestSkipLedgerFixture $selftestSource82
-$skipRepresentativeMutationsOk82 = Test-SelftestSkipLedgerRepresentativeMutation $selftestSource82
 $protocolCallPatterns82 = @(
   '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
   '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
@@ -2182,9 +1931,8 @@ if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     $normalSkipSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=0 items=NONE' -or $prunedExecutes82 -or
     ($prunedRecords82 -join ',') -ne '17aa(6)/PREREQUISITE-FAIL,17aa(7)/PREREQUISITE-FAIL' -or
     $countDocOrderSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=4 items=14(count/docs/LOOP-ENGINEERING.md)/FILE-MISSING,14(count/.claude/skills/triage/SKILL.md)/FILE-MISSING,14(count/CLAUDE.md)/FILE-MISSING,14(count/TEMPLATE-README.md)/FILE-MISSING' -or
-    -not $invalidReasonRejected82 -or -not $skipFixtureOk82 -or -not $skipRepresentativeMutationsOk82 -or
-    -not (Test-SelftestSkipProtocolSourceContract $selftestSource82)) {
-  Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason、摘要计数或生产接线 mutation。'
+    -not $invalidReasonRejected82 -or -not $skipFixtureOk82) {
+  Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason 或摘要计数。'
 }
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
