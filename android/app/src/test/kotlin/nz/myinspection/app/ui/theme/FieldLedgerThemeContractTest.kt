@@ -101,6 +101,58 @@ class FieldLedgerThemeContractTest {
     }
 
     @Test
+    fun `light scheme maps every extended material color role to field ledger tokens`() {
+        with(fieldLedgerLightColorScheme) {
+            assertEquals(Color(0xFFE2E8E4), surfaceVariant)
+            assertEquals(Color(0xFF0F1513), inverseSurface)
+            assertEquals(Color(0xFFE0E4E1), inverseOnSurface)
+            assertEquals(Color(0xFF88D0C5), inversePrimary)
+            assertEquals(Color(0xFFFFFFFF), surfaceBright)
+            assertEquals(Color(0xFFE2E8E4), surfaceDim)
+            assertEquals(Color(0xFFFFFFFF), surfaceContainerLowest)
+            assertEquals(Color(0xFFE2E8E4), surfaceContainerHighest)
+            assertEquals(Color(0xFFC9ECE5), primaryFixed)
+            assertEquals(Color(0xFF88D0C5), primaryFixedDim)
+            assertEquals(Color(0xFF073B35), onPrimaryFixed)
+            assertEquals(Color(0xFF0B5D52), onPrimaryFixedVariant)
+            assertEquals(Color(0xFFD9EAF1), secondaryFixed)
+            assertEquals(Color(0xFFB8CAD2), secondaryFixedDim)
+            assertEquals(Color(0xFF183842), onSecondaryFixed)
+            assertEquals(Color(0xFF3E5B67), onSecondaryFixedVariant)
+            assertEquals(Color(0xFFFFDEA8), tertiaryFixed)
+            assertEquals(Color(0xFFF0BD69), tertiaryFixedDim)
+            assertEquals(Color(0xFF352000), onTertiaryFixed)
+            assertEquals(Color(0xFF8B5C00), onTertiaryFixedVariant)
+        }
+    }
+
+    @Test
+    fun `dark scheme maps every extended material color role to field ledger tokens`() {
+        with(fieldLedgerDarkColorScheme) {
+            assertEquals(Color(0xFF252B29), surfaceVariant)
+            assertEquals(Color(0xFFF7F9F7), inverseSurface)
+            assertEquals(Color(0xFF17201D), inverseOnSurface)
+            assertEquals(Color(0xFF0B5D52), inversePrimary)
+            assertEquals(Color(0xFF252B29), surfaceBright)
+            assertEquals(Color(0xFF0F1513), surfaceDim)
+            assertEquals(Color(0xFF0F1513), surfaceContainerLowest)
+            assertEquals(Color(0xFF252B29), surfaceContainerHighest)
+            assertEquals(Color(0xFFC9ECE5), primaryFixed)
+            assertEquals(Color(0xFF88D0C5), primaryFixedDim)
+            assertEquals(Color(0xFF073B35), onPrimaryFixed)
+            assertEquals(Color(0xFF0B5D52), onPrimaryFixedVariant)
+            assertEquals(Color(0xFFD9EAF1), secondaryFixed)
+            assertEquals(Color(0xFFB8CAD2), secondaryFixedDim)
+            assertEquals(Color(0xFF183842), onSecondaryFixed)
+            assertEquals(Color(0xFF3E5B67), onSecondaryFixedVariant)
+            assertEquals(Color(0xFFFFDEA8), tertiaryFixed)
+            assertEquals(Color(0xFFF0BD69), tertiaryFixedDim)
+            assertEquals(Color(0xFF352000), onTertiaryFixed)
+            assertEquals(Color(0xFF8B5C00), onTertiaryFixedVariant)
+        }
+    }
+
+    @Test
     fun `five semantic roles remain distinct in light and dark palettes`() {
         assertSchemeRoles(fieldLedgerLightColorScheme, fieldLedgerLightStatusColors)
         assertSchemeRoles(fieldLedgerDarkColorScheme, fieldLedgerDarkStatusColors)
@@ -149,6 +201,18 @@ class FieldLedgerThemeContractTest {
         assertEquals(RoundedCornerShape(12.dp), fieldLedgerShapes.medium)
         assertEquals(RoundedCornerShape(16.dp), fieldLedgerShapes.large)
         assertEquals(RoundedCornerShape(16.dp), fieldLedgerShapes.extraLarge)
+    }
+
+    @Test
+    fun `remaining material typography roles reuse the approved hierarchy`() {
+        val sans = FontFamily.SansSerif
+        val condensed = FontFamily(Font(DeviceFontFamilyName("sans-serif-condensed")))
+        with(fieldLedgerTypography) {
+            assertEquals(style(condensed, FontWeight.Bold, 32.sp, 38.sp, (-0.01).em), displayLarge)
+            assertEquals(style(sans, FontWeight.Bold, 28.sp, 34.sp, (-0.01).em), displaySmall)
+            assertEquals(style(sans, FontWeight.Bold, 20.sp, 26.sp), headlineSmall)
+            assertEquals(style(sans, FontWeight.SemiBold, 17.sp, 24.sp), titleSmall)
+        }
     }
 
     private fun assertSchemeRoles(
