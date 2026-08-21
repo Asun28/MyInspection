@@ -1,10 +1,11 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 60 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 61 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
 |---|---|---|
+| T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-DEBT-ARCHIVE-CARDS-INDEX-GATE | merged | 让归档任务卡索引保持为可验证的真实投影（偿还 TD146） |
 | T0-DEBT-ARCHIVED-CARD-PATHS | merged | Repair inbound references to archived task cards (repay TD22) |
 | T0-DEBT-CASE-PROBE-CLOSURE-SCOPE | merged | Make 17cc case mutation probes host-independent (repay TD25) |
