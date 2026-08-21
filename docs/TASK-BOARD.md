@@ -24,7 +24,8 @@
 | W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | — |
 | W0 | T0-SCAFFOLD-LEAN-CI | 普通产品 PR 不启动 scaffold-only 六分片；脚手架权威面变化仍全跑 | T0-HARNESS-PERF | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `f976d0f`，PR #22；R3 零发现；基线产品 PR #5–#11 = 60 runs / 360 shard jobs；本次 `.github/**` PR 实测 1 run / 6 jobs 全保留；无新增脚本/job/依赖） |
 | W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | 先还 harness 缺口；PR #20 2,422 行为真实红例 |
-| W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix |
+| W0 | T0-R3-DIFF-BUDGET-R3-CLOSURE | PR #53 round-cap 后禁用 diff helper，并把 measured OID 贯穿 ship（TD142） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只接第 2 轮两项 finding |
+| W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET-R3-CLOSURE | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix |
 | W0 | T0-HARNESS-SUBTRACTION-PROTOCOL | 量化、可迁移、按组可回滚的 harness 减负协议（TD134 2/6） | — | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `e971ef8`，PR #24；R3 零发现；只增 15 行协议文本，无实际删减或脚本行为变化） |
 | W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | PR #51 两轮 R3 达上限，原 PR 先人裁；剩余 meta 解析转专卡 |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
@@ -98,7 +99,8 @@
 
 ```mermaid
 flowchart LR
-  A[T0-R3-DIFF-BUDGET] --> B[T0-CI-MERGE-GATE]
+  A[T0-R3-DIFF-BUDGET] --> A2[T0-R3-DIFF-BUDGET-R3-CLOSURE]
+  A2 --> B[T0-CI-MERGE-GATE]
   B --> E[T0-ASCII-SHIP-CODES]
   E --> F[T0-ASCII-CARD-SECRET-CODES]
   F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]
@@ -110,7 +112,7 @@ flowchart LR
   D -.->|selftest write conflict| E
 ```
 
-- 当前状态：`T0-LESSONS-COLD-RECALL` PR #51 等人裁，closure 卡受其阻塞；下一张可执行卡从不写共享 selftest 的 ready 项选择。
+- 当前状态：`T0-R3-DIFF-BUDGET` PR #53 与 `T0-LESSONS-COLD-RECALL` PR #51 均等人裁；两张 closure 卡受各自原卡阻塞，下一张可执行卡从不写共享 selftest 的 ready 项选择。
 - 推荐执行宽度 2：文档协议可与任一实现卡并行；所有写 `scripts/selftest.ps1` 的卡合并宽度 1。
 - 上游只提交通用建议，不要求其修本仓：[#163 TD→1–N cards](https://github.com/Asun28/claude-devops-scaffold/issues/163) · [#164 actual diff budget](https://github.com/Asun28/claude-devops-scaffold/issues/164) · [#165 read-only scaffold diff](https://github.com/Asun28/claude-devops-scaffold/issues/165)。
 
