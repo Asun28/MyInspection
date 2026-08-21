@@ -1717,3 +1717,11 @@
 - rule: verifying a "continues past X" claim requires ordering the fixture so a later item exists AFTER the exception-causing item, then mutating specifically the post-catch control flow (e.g. insert an explicit break/return in the catch body) — not just deleting the whole catch/guard. A coarse "remove the whole mechanism" mutation only proves "the mechanism exists", never "the mechanism has the specific narrow behavior claimed". Rule of thumb: before trusting a mutation kill, ask "what is the minimal code change that would also turn this test red — does that minimal change match the actual claim in the test name/comment, or is it a stronger regression the test happens to also catch?"
 - enforced_by: 
 - refs: T2-PHOTO-PIPELINE round 5 block (codex): OrphanedAssetCleanupTest 的批处理连续性测试用倒序 fixture 重写 + break 变异重新证明；L165 同族（断言面/变异粒度必须恰好等于契约，这里把"粒度"从断言延伸到变异靶点本身）
+
+## L237
+- date: 2026-08-21 ｜ tags: powershell,harness,testing,diagnostics ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 多一轮 R3
+- symptom: Exact-byte 投影检查已有 BOM/删行负例，委托 verify 也会失败，但 R3 仍能构造同长度内容漂移与 wrapper 自造同名状态码而让弱测试误绿。
+- root_cause: 负例只改变字节长度，未让逐字节循环承重；父 wrapper 重复子检查器的稳定状态码，任何子进程崩溃都可被包装成看似正确的业务失败。
+- rule: 测试 exact-byte 比较器必须含同长度单字节替换；测试委托闸必须同时覆盖干净正例，并要求稳定状态码唯一且只由真正判定错误的子检查器输出。
+- enforced_by: scripts/selftest.ps1 gate 12e
+- refs: PR #61；scripts/selftest.ps1 gate 12e

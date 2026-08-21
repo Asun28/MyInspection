@@ -2,7 +2,7 @@
 id: T0-DEBT-ARCHIVE-CARDS-INDEX-GATE
 title: 让归档任务卡索引保持为可验证的真实投影（偿还 TD146）
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-ARCHIVE-CARDS-INDEX-GATE
 worktree: C:\wt\T0-DEBT-ARCHIVE-CARDS-INDEX-GATE
 allow_paths:
