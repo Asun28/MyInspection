@@ -159,6 +159,8 @@ function Remove-Td4MigrationFixtureWorktree {
         $attemptResult = [PSCustomObject]@{ Exit = $LASTEXITCODE; Output = $removeOutput }
       }
     } catch { $attemptResult = [PSCustomObject]@{ Exit = 99; Output = $_.Exception.ToString() } }
+    $removeExit = if ($null -ne $attemptResult.Exit) { [int]$attemptResult.Exit } else { 99 }
+    $removeOutput = [string]$attemptResult.Output
 
     $listOutput = if ($RegistrationProbe) { '' } else { (& git -C $RepoRoot worktree list --porcelain 2>&1 | Out-String) }
     $listExit = if ($RegistrationProbe) { 0 } else { $LASTEXITCODE }
@@ -167,14 +169,24 @@ function Remove-Td4MigrationFixtureWorktree {
         try { [System.IO.Path]::GetFullPath($_.Substring(9)).Equals($targetPath, $comparison) } catch { $false }
       }).Count -gt 0
     }
+    $fallbackExit = $null
+    $fallbackOutput = ''
     if (-not $AttemptInvoker -and -not $lastRegistered -and (Test-Path -LiteralPath $targetPath)) {
-      try { Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop } catch { $attemptResult = [PSCustomObject]@{ Exit = 99; Output = "$($attemptResult.Output)`nfilesystem fallback: $($_.Exception)" } }
+      try { Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop; $fallbackExit = 0 }
+      catch { $fallbackExit = 99; $fallbackOutput = $_.Exception.ToString() }
     }
     $lastPathExists = Test-Path -LiteralPath $targetPath
-    $attemptExit = if ($null -ne $attemptResult.Exit) { [int]$attemptResult.Exit } else { 99 }
-    $attemptOutput = [string]$attemptResult.Output
-    $listDetail = if ($listExit -eq 0) { '' } else { "`nworktree-list exit=$listExit`n$listOutput" }
-    [void]$diagnostics.Add("attempt=$attempt exit=$attemptExit registered=$lastRegistered pathExists=$lastPathExists`ndetail=$attemptOutput$listDetail") # TD145 diagnostic retention
+    $detail = [System.Collections.Generic.List[string]]::new()
+    [void]$detail.Add("attempt=$attempt registered=$lastRegistered pathExists=$lastPathExists")
+    [void]$detail.Add("remove-exit=$removeExit")
+    if ($removeOutput) { [void]$detail.Add("remove-detail=$removeOutput") }
+    [void]$detail.Add("list-exit=$listExit")
+    if ($listExit -ne 0 -and $listOutput) { [void]$detail.Add("list-detail=$listOutput") }
+    if ($null -ne $fallbackExit) {
+      [void]$detail.Add("fallback-exit=$fallbackExit")
+      if ($fallbackOutput) { [void]$detail.Add("fallback-detail=$fallbackOutput") }
+    }
+    [void]$diagnostics.Add($detail -join "`n") # TD145 diagnostic retention
     if (-not $lastRegistered -and -not $lastPathExists) {
       return [PSCustomObject]@{ Success = $true; Attempts = $attempt; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $false; PathExists = $false }
     }
@@ -5486,13 +5498,40 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     $td145Diagnostic = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td145Probe -MaxAttempts 2 -RetryDelayMs 1 `
       -AttemptInvoker { param($attempt, $path) [PSCustomObject]@{ Exit = 42; Output = "diagnostic-detail-$attempt" } } `
       -RegistrationProbe { $false } -SleepInvoker { param($ms) }
-    $td145DiagnosticOk = -not $td145Diagnostic.Success -and $td145Diagnostic.Diagnostics.Contains('attempt=1 exit=42') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-1') -and $td145Diagnostic.Diagnostics.Contains('attempt=2 exit=42') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-2')
+    $td145DiagnosticOk = -not $td145Diagnostic.Success -and $td145Diagnostic.PathExists -and (Test-Path -LiteralPath $td145Probe) -and $td145Diagnostic.Diagnostics.Contains('attempt=1') -and $td145Diagnostic.Diagnostics.Contains('remove-exit=42') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-1') -and $td145Diagnostic.Diagnostics.Contains('attempt=2') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-2')
     if (-not $td145DiagnosticOk) {
-      Fail "闸17a3(cleanup/diagnostic)：终态失败未保留每次 exit/detail。诊断：$($td145Diagnostic.Diagnostics)"
+      Fail "闸17a3(cleanup/diagnostic)：终态失败未保留 fixture 与每次 exit/detail。诊断：$($td145Diagnostic.Diagnostics)"
     } elseif ($td145RetryOk) {
       Write-Host '  17a3(cleanup-probe) 首次失败后有界重试；终态失败逐次保留 exit/detail OK' -ForegroundColor Green
     }
     Remove-Item -LiteralPath $td145Probe -Recurse -Force -ErrorAction SilentlyContinue
+
+    $td145GitRepo = Join-Path $sd 'a3-cleanup-git'
+    $td145GitWorktree = Join-Path $sd 'a3-cleanup-git-wt'
+    try {
+      New-Item -ItemType Directory -Force $td145GitRepo | Out-Null
+      & git -C $td145GitRepo init -q
+      Set-Content -LiteralPath (Join-Path $td145GitRepo 'seed.txt') -Value 'td145' -Encoding utf8
+      & git -C $td145GitRepo -c user.email='s@l' -c user.name='s' add seed.txt
+      & git -C $td145GitRepo -c user.email='s@l' -c user.name='s' commit -q -m seed
+      & git -C $td145GitRepo worktree add --detach $td145GitWorktree HEAD *> $null
+      $td145RealCleanup = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145GitWorktree -MaxAttempts 2 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if (-not $td145RealCleanup.Success -or -not $td145RealCleanup.Diagnostics.Contains('remove-exit=0') -or -not $td145RealCleanup.Diagnostics.Contains('list-exit=0')) {
+        Fail "闸17a3(cleanup/real-git)：真实 remove/list 未成功且分别保留 exit。诊断：$($td145RealCleanup.Diagnostics)"
+      }
+
+      & git -C $td145GitRepo worktree add --detach $td145GitWorktree HEAD *> $null
+      & git -C $td145GitRepo worktree lock $td145GitWorktree
+      Remove-Item -LiteralPath $td145GitWorktree -Recurse -Force
+      $td145MissingPath = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145GitWorktree -MaxAttempts 2 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if ($td145MissingPath.Success -or -not $td145MissingPath.Registered -or $td145MissingPath.PathExists -or -not $td145MissingPath.Diagnostics.Contains('remove-exit=') -or -not $td145MissingPath.Diagnostics.Contains('list-exit=0')) {
+        Fail "闸17a3(cleanup/registered-missing)：locked 登记仍在且目录缺失时未 fail-closed 并分列 Git exit。诊断：$($td145MissingPath.Diagnostics)"
+      }
+    } finally {
+      & git -C $td145GitRepo worktree unlock $td145GitWorktree 2>$null
+      & git -C $td145GitRepo worktree prune --expire now 2>$null
+      Remove-Item -LiteralPath $td145GitWorktree, $td145GitRepo -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
     # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
