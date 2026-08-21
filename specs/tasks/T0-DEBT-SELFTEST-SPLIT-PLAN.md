@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-SPLIT-PLAN
 title: 将 TD9 skip 可见性余项拆成有界串行卡
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-SPLIT-PLAN
 worktree: C:\wt\T0-DEBT-SELFTEST-SPLIT-PLAN
 allow_paths:
