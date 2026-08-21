@@ -1199,7 +1199,7 @@
 - refs: T55-TD96-R3-REFUSAL-DIAG R3 r14/r16；变异 LEAFGUARD/PREINVOKE
 
 ## L172
-- date: 2026-07-30 ｜ tags: powershell,encoding,detached,false-negative ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 一晚变异批次全部假红重跑
+- date: 2026-07-30 ｜ tags: powershell,encoding,detached,false-negative ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 一晚变异批次全部假红重跑
 - symptom: Start-Process pwsh -NoProfile 起的 detached 进程跑本仓脚本，中文断言/中文判据 mojibake 即假红；变异 runner 的中文 want 串与阴性形态双双被打假（一枚被误判为「红在别的断言」）。
 - root_cause: 脱离 harness 的 pwsh 子进程默认走 OEM 代码页而非 UTF-8，编码链与交互会话不同源；中文文本一经比对即失配（L17 同族：编码不同源即假结论）。
 - rule: 凡在 harness 之外起 pwsh 跑本仓脚本（detached/计划任务/CI 外壳），前奏必须 dot-source scripts/_encoding.ps1 再执行；机检文本尽量用 ASCII 哨兵（L165），中文只给人读。
