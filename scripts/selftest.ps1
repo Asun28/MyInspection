@@ -584,6 +584,31 @@ function Add-SelftestE2eBaseline {
   if ($LASTEXITCODE -ne 0) { throw "E2E reviewed sensitive baseline force-add failed: $TrackedSensitivePath" }
 }
 
+function Get-SelftestCanarySourceContracts {
+  # Build each required production line from parts so the contract text itself cannot satisfy its own source check.
+  return @(
+    [PSCustomObject]@{ Code = 'SHIP-RUNNER'; Text = ('      $shipOutput = @(& pwsh -NoProfile -File (Join-Path $e2e ''scripts/task.ps1'') -TaskId T0-SMOKE -Phase ship -Local -SkipRed ' + '2>&1)') }
+    [PSCustomObject]@{ Code = 'SHIP-EXIT'; Text = ('      $shipExit = $LAST' + 'EXITCODE') }
+    [PSCustomObject]@{ Code = 'SHIP-DIAGNOSTIC'; Text = ('        $shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode $shipExit -Output $shipOutput -LedgerPath ' + '(Join-Path $e2e ''_local/effectiveness-ledger.jsonl'')') }
+    [PSCustomObject]@{ Code = 'SHIP-FAIL'; Text = ('        Fail "$shipDiagnostic task.ps1 -Phase ship -Local ' + '非零退出。"') }
+    [PSCustomObject]@{ Code = 'MIGRATION-PREFLIGHT'; Text = ('      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot ' + '-GradleUserHome $gradleHome') }
+    [PSCustomObject]@{ Code = 'MIGRATION-ADDED'; Text = ('          $td4MissingExact = $td4MissingResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4MissingResult.Output -match ''td4_missing_migration_probe'' -and $td4MissingResult.Output -match ' + '''ADDED''') }
+    [PSCustomObject]@{ Code = 'MIGRATION-REMOVED'; Text = ('          $td4WrongExact = $td4WrongResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4WrongResult.Output -match ''td4_wrong_migration_probe'' -and $td4WrongResult.Output -match ' + '''REMOVED''') }
+  )
+}
+
+function Get-SelftestCanarySourceContractFailures {
+  param([Parameter(Mandatory)][string]$Source)
+
+  $failures = [Collections.Generic.List[string]]::new()
+  foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
+    if ([regex]::Matches($Source, [regex]::Escape($contract.Text)).Count -ne 1) {
+      $failures.Add([string]$contract.Code)
+    }
+  }
+  return @($failures)
+}
+
 if ($Fixture -eq 'canary-harness') {
   $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-canary-harness-$PID"
   try {
@@ -598,9 +623,12 @@ if ($Fixture -eq 'canary-harness') {
       throw "canary-harness nested ship diagnostic contract failed: $diagnostic"
     }
 
+    $coldAndroidRoot = Join-Path $fixtureRoot 'cold-android'
+    New-Item -ItemType Directory -Force (Join-Path $coldAndroidRoot 'gradle/wrapper') | Out-Null
+    Set-Content -LiteralPath (Join-Path $coldAndroidRoot 'gradle/wrapper/gradle-wrapper.properties') `
+      -Value 'distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.0-bin.zip' -Encoding utf8
     $coldCalls = 0
-    $cold = Invoke-SelftestGradleMigrationGate -AndroidRoot $fixtureRoot -GradleUserHome $fixtureRoot `
-      -StateProbe { param($androidRoot, $gradleHome) [pscustomobject]@{ Ready = $false; Detail = 'cold-fixture' } } `
+    $cold = Invoke-SelftestGradleMigrationGate -AndroidRoot $coldAndroidRoot -GradleUserHome (Join-Path $fixtureRoot 'cold-gradle-home') `
       -RunCases { $script:coldCalls++ }
     if (-not $cold.Skipped -or $cold.Reason -cne 'GRADLE-WRAPPER-OFFLINE' -or $coldCalls -ne 0) {
       throw "canary-harness cold Gradle gate invoked wrapper or lost stable reason: calls=$coldCalls result=$cold"
@@ -626,13 +654,20 @@ if ($Fixture -eq 'canary-harness') {
     }
 
     $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
-    if ([regex]::Matches($source, '\$shipOutput = @\(& pwsh').Count -ne 1 -or
-        [regex]::Matches($source, '(?m)^\s+\$shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode \$shipExit').Count -ne 1 -or
+    $contractFailures = @(Get-SelftestCanarySourceContractFailures -Source $source)
+    if ($contractFailures.Count -ne 0 -or
         [regex]::Matches($source, '(?m)^\s+\$(?:cold|ready|td4MigrationGate) = Invoke-SelftestGradleMigrationGate -AndroidRoot').Count -ne 3 -or
         [regex]::Matches($source, '(?m)^\s+Add-SelftestE2eBaseline -RepoRoot \$e2e ').Count -ne 1 -or
         [regex]::Matches($source, '(?m)^\s+Write-Host "\[SELFTEST-SKIP\] gate=17a3 reason=').Count -ne 1 -or
         $source.Contains("-TaskId T0-SMOKE -Phase ship -Local -SkipRed *> `$null`n      `$shipExit")) {
-      throw 'canary-harness production wiring is absent, duplicated, or still suppresses the 15b baseline ship output.'
+      throw "canary-harness production wiring is absent, duplicated, or weakened: $($contractFailures -join ',')"
+    }
+    foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
+      $mutatedSource = $source.Replace($contract.Text, '')
+      $mutationFailures = @(Get-SelftestCanarySourceContractFailures -Source $mutatedSource)
+      if ($mutationFailures.Count -ne 1 -or $mutationFailures[0] -cne $contract.Code) {
+        throw "canary-harness source mutation did not isolate $($contract.Code): $($mutationFailures -join ',')"
+      }
     }
     Write-Host '[SELFTEST-FIXTURE] canary-harness PASS'
     exit 0
