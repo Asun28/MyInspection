@@ -1271,7 +1271,7 @@
 - refs: 
 
 ## L181
-- date: 2026-07-31 ｜ tags: regex,unicode,sanitize,dotnet ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-31 ｜ tags: regex,unicode,sanitize,dotnet ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 「剥控制字符」的消毒把 emoji、CJK 扩展 B 等增补平面字符打成两个空格，悄悄毁掉合法文本，而实现与文档都声称只折叠控制字符。
 - root_cause: .NET 正则按 **UTF-16 码元**匹配：一个增补平面字符是代理对，两半各自属 Unicode 类别 Cs，而 Cs ⊂ \p{C}。故 -replace '\p{C}' 会命中代理对的每一半。
 - rule: 要剥的只有 **Cc（控制）与 Cf（格式）**：用 [\p{Cc}\p{Cf}]，别用 \p{C}（它还含 Cs 代理 / Co 私用 / Cn 未分配，都不是终端可执行的）。凡「剥控制字符」的实现都配一枚**增补平面字符原样留存**的回归断言；另注意替换成空格而非删除，免得删后相邻字符缩合出本不存在的敏感前缀。
