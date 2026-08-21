@@ -249,7 +249,7 @@ $cardContract = [ordered]@{
     )
   }
   Mutation = @{
-    Path = 'specs/tasks/T0-DEBT-SELFTEST-MUTATION-BUDGET.md'
+    TaskId = 'T0-DEBT-SELFTEST-MUTATION-BUDGET'
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-MUTATION-BUDGET'
       title = '将 skip mutation 证明收敛到紧凑身份清单'
@@ -275,7 +275,7 @@ $cardContract = [ordered]@{
     )
   }
   Load = @{
-    Path = 'specs/tasks/T0-DEBT-SELFTEST-LOAD-STABILITY.md'
+    TaskId = 'T0-DEBT-SELFTEST-LOAD-STABILITY'
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-LOAD-STABILITY'
       title = '消除 8.2e 高负载下固定五秒 rendezvous 假红'
@@ -301,12 +301,12 @@ $cardContract = [ordered]@{
       '- load-delay 控制组必须超过旧五秒阈值，并证明两个长分片确实重叠而非串行放宽断言。',
       '- timeout 负例必须快速、专属地失败，防无限等待或静默跳过。',
       '- 8.2e 原有五类证明继续各自可证伪，不再用一个合取式告警掩盖具体失败面。',
-      '本卡与 TD9 另外三张未合并余卡及 TD134 实现卡共享 `scripts/selftest.ps1`；必须在 mutation-budget 合并后的最新基线上串行执行并重放验收。'
+      '本卡与尚未合并的 mutation-budget 前置卡共享 `scripts/selftest.ps1`；必须在其合并后的最新基线上串行执行并重放验收。'
     )
   }
 }
 
-foreach ($lifecycleContract in @($cardContract.Plan, $cardContract.Skip, $cardContract.NoGit)) {
+foreach ($lifecycleContract in @($cardContract.Plan, $cardContract.Skip, $cardContract.NoGit, $cardContract.Mutation, $cardContract.Load)) {
   Assert-TaskCardLifecycleFixture -Contract $lifecycleContract
 }
 
