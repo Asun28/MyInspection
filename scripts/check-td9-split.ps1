@@ -8,6 +8,23 @@ function Read-RepoText([string]$RelativePath) {
   Get-Content -Raw -LiteralPath (Join-Path $repoRoot $RelativePath)
 }
 
+function Resolve-TaskCardPath {
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [Parameter(Mandatory)][string]$TaskId
+  )
+
+  $candidates = @(
+    "specs/tasks/$TaskId.md"
+    "specs/archive/tasks/$TaskId.md"
+  )
+  $existing = @($candidates | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf })
+  if ($existing.Count -ne 1) {
+    throw "[TD9-SPLIT-CARD-RESOLUTION] expected one live or archived card for $TaskId, found $($existing.Count)"
+  }
+  return $existing[0]
+}
+
 function Get-FrontMatter([string]$Text) {
   $match = [regex]::Match($Text, '\A---\r?\n(?<body>.*?)\r?\n---(?:\r?\n|\z)', 'Singleline')
   if (-not $match.Success) { return $null }
@@ -42,6 +59,43 @@ function Get-ListField([string]$FrontMatter, [string]$Name) {
   return @($items)
 }
 
+function Assert-TaskCardLifecycleFixture {
+  $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "td9-card-$([guid]::NewGuid().ToString('N'))"
+  $liveDir = Join-Path $fixtureRoot 'specs/tasks'
+  $archiveDir = Join-Path $fixtureRoot 'specs/archive/tasks'
+  $liveCard = Join-Path $liveDir 'T0-FIXTURE.md'
+  $archiveCard = Join-Path $archiveDir 'T0-FIXTURE.md'
+  try {
+    New-Item -ItemType Directory -Force -Path $liveDir, $archiveDir | Out-Null
+    Set-Content -LiteralPath $archiveCard -Value 'archived' -Encoding utf8NoBOM
+    $resolved = Resolve-TaskCardPath -Root $fixtureRoot -TaskId 'T0-FIXTURE'
+    if ($resolved -cne 'specs/archive/tasks/T0-FIXTURE.md') {
+      throw "[TD9-SPLIT-ARCHIVE-FIXTURE] expected archive path, got $resolved"
+    }
+
+    Set-Content -LiteralPath $liveCard -Value 'live' -Encoding utf8NoBOM
+    $duplicateRejected = $false
+    try { [void](Resolve-TaskCardPath -Root $fixtureRoot -TaskId 'T0-FIXTURE') } catch {
+      if ($_.Exception.Message.Contains('[TD9-SPLIT-CARD-RESOLUTION]')) { $duplicateRejected = $true } else { throw }
+    }
+    if (-not $duplicateRejected) { throw '[TD9-SPLIT-ARCHIVE-FIXTURE] duplicate live/archive card was accepted' }
+
+    Remove-Item -LiteralPath $liveCard, $archiveCard -Force
+    $missingRejected = $false
+    try { [void](Resolve-TaskCardPath -Root $fixtureRoot -TaskId 'T0-FIXTURE') } catch {
+      if ($_.Exception.Message.Contains('[TD9-SPLIT-CARD-RESOLUTION]')) { $missingRejected = $true } else { throw }
+    }
+    if (-not $missingRejected) { throw '[TD9-SPLIT-ARCHIVE-FIXTURE] missing card was accepted' }
+  } finally {
+    Remove-Item -LiteralPath $liveCard, $archiveCard -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $liveDir, $archiveDir -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $fixtureRoot 'specs/archive'), (Join-Path $fixtureRoot 'specs'), $fixtureRoot -Force -ErrorAction SilentlyContinue
+  }
+}
+
+Assert-TaskCardLifecycleFixture
+$planCardPath = Resolve-TaskCardPath -Root $repoRoot -TaskId 'T0-DEBT-SELFTEST-SPLIT-PLAN'
+
 $boardRows = @(
   '| W0 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | 单分片与 all 汇总以稳定哨兵点名失败 shard/gate（TD9 1/5） | T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b8dee45`，PR #31；稳定 ASCII gate、协议 fail-closed、hermetic/mutation 覆盖、core/verify/R3 绿；TD9 仍 carded） |',
   '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | PR #33 收回为 skip 协议 + bounded helper；生产 no-git routing 与 mutation 预算已拆卡 |',
@@ -56,7 +110,7 @@ $planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1�
 
 $cardContract = [ordered]@{
   Plan = @{
-    Path = 'specs/tasks/T0-DEBT-SELFTEST-SPLIT-PLAN.md'
+    Path = $planCardPath
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-SPLIT-PLAN'
       title = '将 TD9 skip 可见性余项拆成有界串行卡'
