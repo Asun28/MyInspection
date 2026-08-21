@@ -19,7 +19,7 @@ non_goals:
 diagnosis:
   root_cause: .NET regex 按 UTF-16 码元分类，增补平面 Cf 标量在正则眼里是两个 Cs，现有 Cc/Cf 字符类因此漏判。
   same_class: 全仓 Cc/Cf consumer 已扫描；本卡只建立共享 scalar primitive，license 与 secrets 分别由后续卡接入。
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core
 dod_exit: 0
 dod_assert: helper 逐 Unicode scalar 保留普通 BMP/增补字符、把所有 Cc/Cf 各替换为一个 ASCII space、对 lone high/low surrogate fail-closed；exhaustive oracle 枚举完整 scalar 空间而非手挑样本，删除 scalar advance、类别判定、malformed guard 任一句均命中专属失败码
 review_gate: codex {verdict:pass}
