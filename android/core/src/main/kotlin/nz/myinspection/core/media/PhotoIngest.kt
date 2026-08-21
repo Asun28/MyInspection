@@ -17,9 +17,9 @@ sealed interface PhotoIngestPlan {
 
 object PhotoIngest {
     /**
-     * [existingActiveRelPaths] = `photo.selectActiveAssetsByContentHash` 的返回（已按 rel_path 升序去重），
-     * 取第一条**形状合法**的作复用目标。形状闸（[MediaPaths.isPhotoRelPathShape]）不可省：`photo.rel_path`
-     * 列没有 schema 约束保证它长照片命名空间的样子，一行损坏/串表数据会让不该被复用的路径混进候选。
+     * [existingActiveRelPaths] = `photo.selectActiveAssetsByPropertyAndContentHash` 的返回（已按 rel_path 升序去重），
+     * 取第一条**形状合法且属于 [propertyId]** 的作复用目标。物业路径闸不可省：它让调用契约即使收到错误的
+     * 跨物业候选也会退化为新文件，而不是制造无法按单一物业完整备份的共享物理资产。
      * 无可用候选时经 [MediaPaths.photoRelPath] 这唯一派生点算新路径，不手拼。
      */
     fun plan(
@@ -29,7 +29,7 @@ object PhotoIngest {
         contentHash: String,
         existingActiveRelPaths: List<String>,
     ): PhotoIngestPlan {
-        val reuseTarget = existingActiveRelPaths.firstOrNull(MediaPaths::isPhotoRelPathShape)
+        val reuseTarget = existingActiveRelPaths.firstOrNull { MediaPaths.isPhotoRelPathForProperty(it, propertyId) }
         return if (reuseTarget != null) {
             PhotoIngestPlan.ReuseExistingAsset(relPath = reuseTarget, contentHash = contentHash)
         } else {
