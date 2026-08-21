@@ -17,9 +17,9 @@ forbid:
   - 以跨连接场景重新阻断单连接契约（TD10 仲裁仍有效）
 non_goals:
   - 按物业恢复（TD12）；孤儿清理调度（TD14）；流式编码（TD15）
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.*" --tests "nz.myinspection.core.db.DbDownstreamQueriesTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
-dod_assert: 同一物业同 hash 仍复用；A 物业路径作为 B 物业候选时必须写 B 的新路径；交换候选/插入顺序结果不变；只读审计能列出既有跨物业共享 rel_path 而不修改它；删除物业过滤的单点变异使测试翻红；版本评审记录、core 测试与 assembleDebug 全绿
+dod_assert: 同一物业同 hash 仍复用；A 物业路径作为 B 物业候选时必须写 B 的新路径；交换候选/插入顺序结果不变；只读审计能列出既有跨物业共享 rel_path 而不修改它；删除物业过滤的单点变异使测试翻红；版本评审记录、DbDownstreamQueriesTest、core media 测试与 assembleDebug 全绿
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: TD24 状态与 TASK-BOARD 备注（R5）
