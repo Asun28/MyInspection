@@ -839,6 +839,63 @@ foreach ($h in $encHooks) {
 # 计数**从清单派生**，不写字面量：字面量与清单会各自漂移（本行此前写 12、清单实为 11 项，codex R3 r3 抓出）。
 if ($g1ok) { Write-Host "  1g OutputEncoding 覆盖对称 OK（$($encScripts.Count) 入口脚本 dot-source 前奏 + $($encHooks.Count) 钩子就地 OutputEncoding）" -ForegroundColor Green }
 
+# 1h（TD157 / L190）：.NET regex classifies UTF-16 code units, so supplementary-plane Cf scalars
+# appear as two Cs code units and evade a [Cc|Cf] character class. Exercise the real shared helper:
+# enumerate the complete Unicode scalar space to derive every Cc/Cf target, require each target to
+# become one ASCII space, preserve representative non-target BMP/supplementary scalars, and reject
+# malformed UTF-16 instead of silently converting it into trusted text.
+Step '1h/17 Unicode scalar control/format text helper (TD157)'
+$unicodeScalarHelper = Join-Path $PSScriptRoot '_unicode.ps1'
+if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
+  Fail '[UNICODE-SCALAR-MISSING] scripts/_unicode.ps1 is absent.'
+} else {
+  . $unicodeScalarHelper
+  $unicodeScalarOk = $true
+  if (-not (Get-Command ConvertTo-ScaffoldControlFormatSpaces -CommandType Function -ErrorAction SilentlyContinue)) {
+    Fail '[UNICODE-SCALAR-API] ConvertTo-ScaffoldControlFormatSpaces is absent.'
+    $unicodeScalarOk = $false
+  } else {
+    $unicodeTargetCount = 0
+    $unicodeVisitedCount = 0
+    foreach ($unicodeCodePoint in 0..0x10FFFF) {
+      if ($unicodeCodePoint -ge 0xD800 -and $unicodeCodePoint -le 0xDFFF) { continue }
+      $unicodeVisitedCount++
+      $unicodeRune = [System.Text.Rune]::new($unicodeCodePoint)
+      $unicodeCategory = [System.Text.Rune]::GetUnicodeCategory($unicodeRune)
+      if ($unicodeCategory -notin @(
+          [System.Globalization.UnicodeCategory]::Control,
+          [System.Globalization.UnicodeCategory]::Format
+        )) { continue }
+      $unicodeTargetCount++
+      $unicodeActual = ConvertTo-ScaffoldControlFormatSpaces $unicodeRune.ToString()
+      if ($unicodeActual -cne ' ') {
+        Fail ('[UNICODE-SCALAR-TARGET] U+{0:X} category={1} was not replaced by one ASCII space.' -f $unicodeCodePoint, $unicodeCategory)
+        $unicodeScalarOk = $false
+        break
+      }
+    }
+    if ($unicodeVisitedCount -ne (0x110000 - 0x800) -or $unicodeTargetCount -le 0) {
+      Fail "[UNICODE-SCALAR-ORACLE] scalar enumeration was incomplete (visited=$unicodeVisitedCount targets=$unicodeTargetCount)."
+      $unicodeScalarOk = $false
+    }
+    $unicodeOrdinary = 'A' + [System.Text.Rune]::new(0x1F600).ToString() + [System.Text.Rune]::new(0x20000).ToString()
+    if ((ConvertTo-ScaffoldControlFormatSpaces $unicodeOrdinary) -cne $unicodeOrdinary) {
+      Fail '[UNICODE-SCALAR-PRESERVE] ordinary BMP/supplementary scalars changed.'
+      $unicodeScalarOk = $false
+    }
+    foreach ($unicodeMalformed in @([string][char]0xD800, [string][char]0xDC00)) {
+      $unicodeRejected = $false
+      try { [void](ConvertTo-ScaffoldControlFormatSpaces $unicodeMalformed) }
+      catch { $unicodeRejected = $_.Exception.Message -match '\[UNICODE-SCALAR-MALFORMED\]' }
+      if (-not $unicodeRejected) {
+        Fail '[UNICODE-SCALAR-MALFORMED] lone surrogate was not rejected with the stable sentinel.'
+        $unicodeScalarOk = $false
+      }
+    }
+  }
+  if ($unicodeScalarOk) { Write-Host '  1h Unicode scalar control/format helper OK' -ForegroundColor Green }
+}
+
 # --- 2. 经验系统自检 ---
 Step '2/17 经验系统（lessons.ps1 check）'
 & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check
