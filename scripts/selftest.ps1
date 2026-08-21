@@ -117,6 +117,9 @@
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
   [ValidateSet('', 'canary-harness', 'skip-ledger', 'seeded-nogit-routing')][string]$Fixture = '',
+  [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
+  [string]$NoGitFixtureNonce = '',
+  [string]$NoGitMutationNonce = '',
   [switch]$StrictLint
 )
 
@@ -968,7 +971,27 @@ function Get-SelftestCanarySourceContractFailures {
   return @($failures)
 }
 
-if ($Fixture -eq 'seeded-nogit-routing' -and -not $env:SCAFFOLD_SELFTEST_NOGIT_CASE) {
+$noGitFixtureChild = (
+  $Fixture -eq 'seeded-nogit-routing' -and $NoGitFixtureCase -and $NoGitFixtureNonce -and
+  $env:SCAFFOLD_SELFTEST_NOGIT_NONCE -and
+  $NoGitFixtureNonce -ceq $env:SCAFFOLD_SELFTEST_NOGIT_NONCE
+)
+$noGitMutationChild = (
+  $Fixture -eq 'seeded-nogit-routing' -and $NoGitMutationNonce -and
+  $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE -and
+  $NoGitMutationNonce -ceq $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE
+)
+
+if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
+  $fixtureSource = [IO.File]::ReadAllText($PSCommandPath)
+  foreach ($legacyAmbientControl in @(
+    ('SCAFFOLD_SELFTEST_NOGIT_' + 'CASE'),
+    ('SCAFFOLD_SELFTEST_NOGIT_' + 'MUTATION_CHILD')
+  )) {
+    if ($fixtureSource.Contains($legacyAmbientControl, [StringComparison]::Ordinal)) {
+      throw "[SELFTEST-NOGIT-ROUTING-AMBIENT] legacy ambient control remains authoritative: $legacyAmbientControl"
+    }
+  }
   $gateIds = @(Get-SelftestSeededGitGateIds)
   if ($gateIds.Count -eq 0 -or @($gateIds | Select-Object -Unique).Count -ne $gateIds.Count -or
       @($gateIds | Where-Object { -not (Test-SelftestGateId $_) }).Count -ne 0) {
@@ -982,13 +1005,15 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $env:SCAFFOLD_SELFTEST_NOGIT_C
       [Parameter(Mandatory)][ValidateSet('RUN', 'SKIP')][string]$ExpectedDecision,
       [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ExpectedSkipRecords
     )
-    $savedCase = $env:SCAFFOLD_SELFTEST_NOGIT_CASE
+    $nonce = [guid]::NewGuid().ToString('N')
+    $savedNonce = $env:SCAFFOLD_SELFTEST_NOGIT_NONCE
     try {
-      $env:SCAFFOLD_SELFTEST_NOGIT_CASE = $Case
-      $output = (& pwsh -NoProfile -File $PSCommandPath -Shard seeded -Fixture seeded-nogit-routing 2>&1 | Out-String)
+      $env:SCAFFOLD_SELFTEST_NOGIT_NONCE = $nonce
+      $output = (& pwsh -NoProfile -File $PSCommandPath -Shard seeded -Fixture seeded-nogit-routing -NoGitFixtureCase $Case -NoGitFixtureNonce $nonce 2>&1 | Out-String)
       $exitCode = $LASTEXITCODE
     } finally {
-      $env:SCAFFOLD_SELFTEST_NOGIT_CASE = $savedCase
+      if ($null -eq $savedNonce) { Remove-Item Env:SCAFFOLD_SELFTEST_NOGIT_NONCE -ErrorAction SilentlyContinue }
+      else { $env:SCAFFOLD_SELFTEST_NOGIT_NONCE = $savedNonce }
     }
     $routeLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-NOGIT-ROUTING]', [StringComparison]::Ordinal) })
     $skipLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-SKIP] ', [StringComparison]::Ordinal) })
@@ -1011,8 +1036,8 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $env:SCAFFOLD_SELFTEST_NOGIT_C
   [void](Invoke-SeededNoGitRoutingCase -Case git-present -ExpectedDecision RUN -ExpectedSkipRecords @())
   [void](Invoke-SeededNoGitRoutingCase -Case git-absent -ExpectedDecision SKIP -ExpectedSkipRecords $expectedAbsentRecords)
 
-  if (-not $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_CHILD) {
-    $source = [IO.File]::ReadAllText($PSCommandPath)
+  if (-not $noGitMutationChild) {
+    $source = $fixtureSource
     $routeCondition = 'if (' + '-not $runSeededGitGates) {'
     $invertedCondition = 'if (' + '$runSeededGitGates) {'
     if ([regex]::Matches($source, [regex]::Escape($routeCondition)).Count -ne 1) {
@@ -1025,17 +1050,20 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $env:SCAFFOLD_SELFTEST_NOGIT_C
         $source.Replace($routeCondition, $invertedCondition),
         [Text.UTF8Encoding]::new($false)
       )
-      $savedMutationChild = $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_CHILD
+      $mutationNonce = [guid]::NewGuid().ToString('N')
+      $savedMutationNonce = $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE
       try {
-        $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_CHILD = '1'
-        $mutantOutput = (& pwsh -NoProfile -File $mutantPath -Fixture seeded-nogit-routing 2>&1 | Out-String)
+        $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE = $mutationNonce
+        $mutantOutput = (& pwsh -NoProfile -File $mutantPath -Fixture seeded-nogit-routing -NoGitMutationNonce $mutationNonce 2>&1 | Out-String)
         $mutantExit = $LASTEXITCODE
       } finally {
-        $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_CHILD = $savedMutationChild
+        if ($null -eq $savedMutationNonce) { Remove-Item Env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE -ErrorAction SilentlyContinue }
+        else { $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE = $savedMutationNonce }
       }
       if ($mutantExit -eq 0 -or $mutantOutput -notmatch '\[SELFTEST-NOGIT-ROUTING-CASE\] case=git-present') {
         throw "[SELFTEST-NOGIT-ROUTING-MUTATION] inverted production route was not killed semantically: exit=$mutantExit output=$($mutantOutput.Trim())"
       }
+      Write-Host '[SELFTEST-NOGIT-ROUTING-MUTATION] KILLED'
     } finally {
       Remove-Item -LiteralPath $mutantPath -Force -ErrorAction SilentlyContinue
     }
@@ -6152,21 +6180,21 @@ if ($Shard -eq 'seeded') {
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
 Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威 / 17hh 已归档卡入站路径）'
-$seededGitAvailable = if ($Fixture -eq 'seeded-nogit-routing' -and $env:SCAFFOLD_SELFTEST_NOGIT_CASE) {
-  $env:SCAFFOLD_SELFTEST_NOGIT_CASE -ceq 'git-present'
+$seededGitAvailable = if ($noGitFixtureChild) {
+  $NoGitFixtureCase -ceq 'git-present'
 } else {
   [bool](Get-Command git -ErrorAction SilentlyContinue)
 }
 $runSeededGitGates = Invoke-SelftestSeededGitRouting -GitAvailable $seededGitAvailable
 if (-not $runSeededGitGates) {
-  if ($Fixture -eq 'seeded-nogit-routing') {
-    Write-Host "[SELFTEST-NOGIT-ROUTING] case=$env:SCAFFOLD_SELFTEST_NOGIT_CASE decision=SKIP"
+  if ($noGitFixtureChild) {
+    Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=SKIP"
     Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
     exit 0
   }
 } else {
-  if ($Fixture -eq 'seeded-nogit-routing') {
-    Write-Host "[SELFTEST-NOGIT-ROUTING] case=$env:SCAFFOLD_SELFTEST_NOGIT_CASE decision=RUN"
+  if ($noGitFixtureChild) {
+    Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=RUN"
     Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
     exit 0
   }
