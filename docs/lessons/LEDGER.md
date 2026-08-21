@@ -1119,7 +1119,7 @@
 - refs: T52-TD111 R3 r3 #6（按真交付 HEAD 重跑 clean+变异并更新）；T50 的 15q 两条子断言各做一次变异；同族 L157
 
 ## L162
-- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 在 Windows 上跑第三方/插件 Python 工具读本仓含中文的 JSON/MD 时崩 UnicodeDecodeError: charmap codec cant decode byte 0x81；设 PYTHONIOENCODING 不解决。同批还撞到：把启动 server 的 Python 脚本接管道（| head）后启动横幅/URL 永不出现，看起来像静默失败
 - root_cause: Windows 上 Python 的 open() 默认用 locale 编码 cp1252 解码文件；PYTHONIOENCODING 只管 stdout/stderr 不管文件读取，故与 L31 不同源、套 L31 的解法会白试。管道场景下 stdout 从行缓冲变块缓冲，进程不退出就什么都不吐
 - rule: 调第三方/插件 Python 工具读本仓文件一律前置 PYTHONUTF8=1（UTF-8 模式，改的正是 open() 默认编码）；自己写的脚本 open()/write_text 显式 encoding=utf-8。要即时看到长驻进程的启动横幅就用 python -u 且别接管道
