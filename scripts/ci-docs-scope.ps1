@@ -44,7 +44,8 @@ function Get-CiChangedPaths {
         throw 'base/head SHA must be full 40-hex commit IDs'
     }
 
-    $paths = @(& git -c core.quotepath=false diff --name-only --no-renames $Base $Head --)
+    $range = "$Base...$Head"
+    $paths = @(& git -c core.quotepath=false diff --name-only --no-renames $range --)
     if ($LASTEXITCODE -ne 0) { throw "git diff failed (exit $LASTEXITCODE)" }
     return @($paths)
 }
@@ -229,6 +230,40 @@ function Invoke-SelfTest {
         $actualEmpty = Invoke-CiDocsScope -Event pull_request -Base $head -Head $head -OutputPath $outputFile.FullName
         Assert-SelfTest -Condition (-not $actualEmpty) -Message 'real empty git diff did not fail closed to full CI'
         Assert-SelfTest -Condition ((Get-Content -Raw -LiteralPath $outputFile.FullName).Trim() -ceq 'docs_only=false') -Message 'real empty git diff output mismatch'
+
+        $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "ci-docs-scope-$PID-$([guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $fixtureRoot | Out-Null
+        Push-Location $fixtureRoot
+        try {
+            & git init -q
+            & git config user.name ci-docs-scope
+            & git config user.email ci-docs-scope@example.invalid
+            Set-Content -LiteralPath base.txt -Value base -Encoding utf8
+            & git add -- base.txt
+            & git commit -q -m base
+            $common = (& git rev-parse HEAD).Trim()
+
+            & git switch -q -c docs-feature
+            New-Item -ItemType Directory -Path docs | Out-Null
+            Set-Content -LiteralPath docs/feature.md -Value docs -Encoding utf8
+            & git add -- docs/feature.md
+            & git commit -q -m docs
+            $featureHead = (& git rev-parse HEAD).Trim()
+
+            & git switch -q --detach $common
+            New-Item -ItemType Directory -Path scripts | Out-Null
+            Set-Content -LiteralPath scripts/target-change.ps1 -Value code -Encoding utf8
+            & git add -- scripts/target-change.ps1
+            & git commit -q -m target-code
+            $targetHead = (& git rev-parse HEAD).Trim()
+
+            $divergedPaths = @(Get-CiChangedPaths -Base $targetHead -Head $featureHead)
+            Assert-SelfTest -Condition ($divergedPaths.Count -eq 1 -and $divergedPaths[0] -ceq 'docs/feature.md') -Message "diverged PR diff included target-only paths: $($divergedPaths -join ',')"
+            Assert-SelfTest -Condition (Test-CiDocsOnlyPaths -Paths $divergedPaths) -Message 'diverged Markdown-only PR was not docs-only'
+        } finally {
+            Pop-Location
+            Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     } finally {
         Remove-Item -LiteralPath $outputFile.FullName -Force -ErrorAction SilentlyContinue
     }
