@@ -840,7 +840,7 @@ foreach ($h in $encHooks) {
 if ($g1ok) { Write-Host "  1g OutputEncoding 覆盖对称 OK（$($encScripts.Count) 入口脚本 dot-source 前奏 + $($encHooks.Count) 钩子就地 OutputEncoding）" -ForegroundColor Green }
 
 # 1h（TD157 / L190）：.NET regex classifies UTF-16 code units, so supplementary-plane Cf scalars
-# appear as two Cs code units and evade a [Cc|Cf] character class. Exercise the real shared helper:
+# appear as two Cs code units and evade `\p{Cc}|\p{Cf}`. Exercise the real shared helper:
 # enumerate the complete Unicode scalar space to derive every Cc/Cf target, require each target to
 # become one ASCII space, preserve representative non-target BMP/supplementary scalars, and reject
 # malformed UTF-16 instead of silently converting it into trusted text.
@@ -849,9 +849,26 @@ $unicodeScalarHelper = Join-Path $PSScriptRoot '_unicode.ps1'
 if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
   Fail '[UNICODE-SCALAR-MISSING] scripts/_unicode.ps1 is absent.'
 } else {
+  $unicodeHelperText = Get-Content -LiteralPath $unicodeScalarHelper -Raw
+  $unicodeHelperShapeOk = $true
+  if ($unicodeHelperText -notmatch '(?m)^\s*\$offset \+= \$rune\.Utf16SequenceLength\s*$') {
+    Fail '[UNICODE-SCALAR-ADVANCE] scalar iteration does not advance by the decoded rune width.'
+    $unicodeHelperShapeOk = $false
+  }
+  if ($unicodeHelperText -notmatch '(?m)^\s*\$category = \[System\.Text\.Rune\]::GetUnicodeCategory\(\$rune\)\s*$') {
+    Fail '[UNICODE-SCALAR-CATEGORY] scalar category is not derived from the decoded rune.'
+    $unicodeHelperShapeOk = $false
+  }
+  if ($unicodeHelperText -notmatch '(?m)^\s*throw \[System\.ArgumentException\]::new\($' -or
+      $unicodeHelperText -notmatch '\[UNICODE-SCALAR-MALFORMED\] malformed UTF-16') {
+    Fail '[UNICODE-SCALAR-MALFORMED-GUARD] malformed UTF-16 does not reach the stable fail-closed guard.'
+    $unicodeHelperShapeOk = $false
+  }
   . $unicodeScalarHelper
-  $unicodeScalarOk = $true
-  if (-not (Get-Command ConvertTo-ScaffoldControlFormatSpaces -CommandType Function -ErrorAction SilentlyContinue)) {
+  $unicodeScalarOk = $unicodeHelperShapeOk
+  if (-not $unicodeHelperShapeOk) {
+    # A deleted advance statement would otherwise hang the semantic oracle.
+  } elseif (-not (Get-Command ConvertTo-ScaffoldControlFormatSpaces -CommandType Function -ErrorAction SilentlyContinue)) {
     Fail '[UNICODE-SCALAR-API] ConvertTo-ScaffoldControlFormatSpaces is absent.'
     $unicodeScalarOk = $false
   } else {
