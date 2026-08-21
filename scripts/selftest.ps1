@@ -116,7 +116,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'skip-ledger')][string]$Fixture = '',
   [switch]$StrictLint
 )
 
@@ -288,6 +288,328 @@ function Test-SelftestFailureProtocolSourceContract([string]$ScriptText) {
     '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b'
   )
   return (@($requiredCalls | Where-Object { @([regex]::Matches($ScriptText, $_)).Count -ne 1 }).Count -eq 0)
+}
+
+# Stable skip protocol. Human prose remains informational; only the ASCII gate/reason ledger is
+# machine-readable. Records retain first-seen order and deduplicate the same gate/reason pair.
+function Test-SelftestSkipReasonCode([string]$Reason) {
+  return ($Reason -cmatch '^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$')
+}
+
+function Add-SelftestSkipRecord {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Records,
+    [Parameter(Mandatory)][string]$GateId,
+    [Parameter(Mandatory)][string]$Reason
+  )
+  if (-not (Test-SelftestGateId $GateId)) { throw "Invalid selftest skip gate id: $GateId" }
+  if (-not (Test-SelftestSkipReasonCode $Reason)) { throw "Invalid selftest skip reason code: $Reason" }
+  $record = "$GateId/$Reason"
+  if ($Records.Contains($record)) { return $false }
+  [void]$Records.Add($record)
+  return $true
+}
+
+function Format-SelftestSkipRecord([string]$GateId, [string]$Reason) {
+  return "[SELFTEST-SKIP] gate=$GateId reason=$Reason"
+}
+
+function Register-SelftestSkip {
+  param(
+    [Parameter(Mandatory)][string]$GateId,
+    [Parameter(Mandatory)][string]$Reason,
+    [System.Collections.Generic.List[string]]$Records,
+    [switch]$NoEmit
+  )
+  if ($null -eq $Records) { $Records = $script:skippedSelftestChecks }
+  $added = Add-SelftestSkipRecord -Records $Records -GateId $GateId -Reason $Reason
+  if ($added -and -not $NoEmit) { Write-Host (Format-SelftestSkipRecord -GateId $GateId -Reason $Reason) -ForegroundColor DarkGray }
+  return $added
+}
+
+function Skip-SelftestCheck {
+  param(
+    [Parameter(Mandatory)][string]$GateId,
+    [Parameter(Mandatory)][string]$Reason,
+    [Parameter(Mandatory)][string]$Message
+  )
+  [void](Register-SelftestSkip -GateId $GateId -Reason $Reason)
+  Write-Host $Message -ForegroundColor DarkGray
+}
+
+function Skip-SelftestChecks {
+  param(
+    [Parameter(Mandatory)][string[]]$GateIds,
+    [Parameter(Mandatory)][string]$Reason,
+    [Parameter(Mandatory)][string]$Message
+  )
+  foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }
+  Write-Host $Message -ForegroundColor DarkGray
+}
+
+function Test-SelftestPrerequisite {
+  param(
+    [Parameter(Mandatory)][string[]]$GateIds,
+    [bool]$PrerequisiteFailed = $script:fail,
+    [System.Collections.Generic.List[string]]$Records,
+    [switch]$NoEmit
+  )
+  if (-not $PrerequisiteFailed) { return $true }
+  foreach ($gateId in $GateIds) {
+    [void](Register-SelftestSkip -GateId $gateId -Reason 'PREREQUISITE-FAIL' -Records $Records -NoEmit:$NoEmit)
+  }
+  return $false
+}
+
+function Format-SelftestSkipSummary {
+  param(
+    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded')][string]$Shard,
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Records
+  )
+  $items = if ($Records.Count -eq 0) { 'NONE' } else { $Records -join ',' }
+  return "[SELFTEST-SKIP-SUMMARY] shard=$Shard count=$($Records.Count) items=$items"
+}
+
+function Get-SelftestOutcomeOverlap {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$FailedGateIds,
+    [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$SkippedRecords
+  )
+  $skipGateIds = @($SkippedRecords | ForEach-Object { $_ -replace '/[A-Z][A-Z0-9-]*$', '' })
+  $overlap = @($FailedGateIds | Where-Object { $skipGateIds -ccontains $_ })
+  return $overlap
+}
+
+function Test-SelftestAggregatePassEligible {
+  param(
+    [Parameter(Mandatory)][bool]$Failed,
+    [Parameter(Mandatory)][int]$SkipCountBefore,
+    [Parameter(Mandatory)][int]$SkipCountAfter
+  )
+  return (-not $Failed -and $SkipCountBefore -eq $SkipCountAfter)
+}
+
+function Get-SelftestCountDocEntries {
+  param(
+    [Parameter(Mandatory)][System.Collections.IDictionary]$ProbeDocs,
+    [Parameter(Mandatory)][System.Collections.IDictionary]$GateDocs
+  )
+  $entries = [System.Collections.Generic.List[object]]::new()
+  foreach ($entry in $ProbeDocs.GetEnumerator()) {
+    [void]$entries.Add([PSCustomObject]@{ Path = [string]$entry.Key; Count = $entry.Value; Unit = '探针' })
+  }
+  foreach ($entry in $GateDocs.GetEnumerator()) {
+    [void]$entries.Add([PSCustomObject]@{ Path = [string]$entry.Key; Count = $entry.Value; Unit = '闸' })
+  }
+  return @($entries)
+}
+
+function Get-DocSyncMapAssertionDisposition {
+  param(
+    [Parameter(Mandatory)][bool]$IsPostInit,
+    [Parameter(Mandatory)][hashtable]$Map
+  )
+  if ($IsPostInit) { return 'POST-INIT-NOT-APPLICABLE' }
+  if ($Map.Count -eq 0) { return 'CONFIG-EMPTY' }
+  return 'ASSERT'
+}
+
+function Test-SelftestSkipPassExclusivitySourceContract([string]$ScriptText) {
+  $helperBody = 'return (-not $Failed -and $SkipCountBefore ' + '-eq $SkipCountAfter)'
+  $skipCountAfter = ' -SkipCountAfter $skippedSelftestChecks.Count'
+  $requiredSnippets = @(
+    $helperBody,
+    ('$countSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $countSkipRecordCount' + $skipCountAfter),
+    ('$probeNameSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ("Skip-SelftestCheck -GateId '14d(doc/docs/DELIVERY-" + "CHAINS.md)' -Reason 'FILE-MISSING'"),
+    ("Skip-SelftestCheck -GateId '14d(doc/docs/LOOP-" + "ENGINEERING.md)' -Reason 'FILE-MISSING'"),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeNameSkipRecordCount' + $skipCountAfter),
+    ('$lensSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $lensSkipRecordCount' + $skipCountAfter),
+    ('$l86SkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $nFail -SkipCountBefore $l86SkipRecordCount' + $skipCountAfter),
+    ('$td4SkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $td4SkipRecordCount' + $skipCountAfter),
+    ('$tSkipRecordCount = $skippedSelftestChecks.' + 'Count'),
+    ('Test-SelftestAggregatePassEligible -Failed (-not $tAllOk) -SkipCountBefore $tSkipRecordCount' + $skipCountAfter)
+  )
+  return (@($requiredSnippets | Where-Object { -not $ScriptText.Contains($_) }).Count -eq 0)
+}
+
+function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
+  $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
+  try {
+    $tokens = $null; $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
+    if (@($errors).Count -ne 0) { throw 'source parse failed' }
+    $terminalSummaryCall = 'Write-Host (Format-Selftest' + 'SkipSummary -Shard $Shard -Records $skippedSelftestChecks) -ForegroundColor DarkGray'
+    if ([regex]::Matches($ScriptText, [regex]::Escape($terminalSummaryCall)).Count -ne 1) {
+      throw 'production terminal skip summary call absent or duplicated'
+    }
+    $terminalSummaryMutant = $ScriptText.Replace($terminalSummaryCall, '')
+    if ($terminalSummaryMutant -ceq $ScriptText -or
+        [regex]::Matches($terminalSummaryMutant, [regex]::Escape($terminalSummaryCall)).Count -ne 0) {
+      throw 'production terminal skip summary mutation survived'
+    }
+    $normalizedScriptText = $ScriptText.Replace("`r`n", "`n")
+    $terminalOverlapPrefix = 'Step "结论 [$Shard]"' + "`n" +
+      '$outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)'
+    $terminalOverlapGuard = 'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join '','')" }'
+    $terminalOverlapBlock = $terminalOverlapPrefix + "`n" + $terminalOverlapGuard
+    if ([regex]::Matches($normalizedScriptText, [regex]::Escape($terminalOverlapBlock)).Count -ne 1) {
+      throw 'production terminal FAIL/SKIP overlap guard absent or duplicated'
+    }
+    $terminalOverlapMutant = $normalizedScriptText.Replace($terminalOverlapBlock, $terminalOverlapPrefix)
+    if ($terminalOverlapMutant -ceq $normalizedScriptText -or
+        [regex]::Matches($terminalOverlapMutant, [regex]::Escape($terminalOverlapBlock)).Count -ne 0) {
+      throw 'production terminal FAIL/SKIP overlap mutation survived'
+    }
+    $functionNames = @(
+      'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
+      'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
+      'Format-SelftestSkipSummary', 'Get-SelftestOutcomeOverlap', 'Test-SelftestAggregatePassEligible'
+    )
+    $functionSource = @($functionNames | ForEach-Object {
+      $name = $_
+      $functionMatches = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
+      if ($functionMatches.Count -ne 1) { throw "function count: $name=$($functionMatches.Count)" }
+      $functionMatches[0].Extent.Text
+    }) -join "`n`n"
+    $fixtureSource = "param([ValidateSet('environment-missing','batch','duplicate','invalid-reason','gradle-wrapper-offline','prerequisite-fail','overlap','aggregate-pass','aggregate-skip','aggregate-fail','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
+$script:skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
+$script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
+$script:fail = $false
+$script:currentSelftestGateId = '8.2e'
+$script:fixtureOutcome = 'PASS'
+switch ($Mode) {
+  'environment-missing' {
+    Skip-SelftestCheck -GateId '1b' -Reason 'FILE-MISSING' -Message 'fixture environment missing'
+    $script:fixtureOutcome = 'SKIP'
+  }
+  'batch' {
+    Skip-SelftestChecks -GateIds @('15', '15a', '15b(ship-local)') -Reason 'TOOL-GIT-MISSING' -Message 'fixture git missing'
+    $script:fixtureOutcome = 'SKIP'
+  }
+  'duplicate' {
+    [void](Register-SelftestSkip -GateId '15' -Reason 'TOOL-GIT-MISSING')
+    [void](Register-SelftestSkip -GateId '15' -Reason 'TOOL-GIT-MISSING')
+    $script:fixtureOutcome = 'SKIP'
+  }
+  'invalid-reason' {
+    [void](Register-SelftestSkip -GateId '15' -Reason 'git missing')
+  }
+  'gradle-wrapper-offline' {
+    [void](Register-SelftestSkip -GateId '17a3' -Reason 'GRADLE-WRAPPER-OFFLINE')
+    $script:fixtureOutcome = 'SKIP'
+  }
+  'prerequisite-fail' {
+    Fail '17aa(6): fixture prerequisite failure'
+    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
+  }
+  'overlap' {
+    Fail '17aa(7): fixture failed unit'
+    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
+  }
+  'aggregate-pass' {
+    $before = $skippedSelftestChecks.Count
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $false -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'SKIP' }
+  }
+  'aggregate-skip' {
+    $before = $skippedSelftestChecks.Count
+    [void](Register-SelftestSkip -GateId '14d(doc/docs/DELIVERY-CHAINS.md)' -Reason 'FILE-MISSING')
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $false -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'SKIP' }
+  }
+  'aggregate-fail' {
+    $before = $skippedSelftestChecks.Count
+    Fail '14d: fixture aggregate failure'
+    $script:fixtureOutcome = if (Test-SelftestAggregatePassEligible -Failed $true -SkipCountBefore $before -SkipCountAfter $skippedSelftestChecks.Count) { 'PASS' } else { 'FAIL' }
+  }
+  'normal' {
+    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
+  }
+}
+
+$outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)
+if ($outcomeOverlap.Count -gt 0) { Write-Output "OVERLAP=$($outcomeOverlap -join ',')" }
+Write-Host (Format-SelftestSkipSummary -Shard core -Records $skippedSelftestChecks)
+if ($fail) {
+  $failureSentinel = Format-SelftestFailureSentinel -Shard core -GateIds $failedSelftestGateIds
+  Write-Host $failureSentinel
+  Write-Output 'OUTCOME=FAIL'
+  exit 1
+}
+Write-Output "OUTCOME=$fixtureOutcome"
+exit 0
+'@
+    Set-Content -LiteralPath $fixturePath -Value $fixtureSource -Encoding utf8
+    $environmentMissingOutput = (& pwsh -NoProfile -File $fixturePath -Mode environment-missing 2>&1 | Out-String)
+    $environmentMissingExit = $LASTEXITCODE
+    $batchOutput = (& pwsh -NoProfile -File $fixturePath -Mode batch 2>&1 | Out-String)
+    $batchExit = $LASTEXITCODE
+    $duplicateOutput = (& pwsh -NoProfile -File $fixturePath -Mode duplicate 2>&1 | Out-String)
+    $duplicateExit = $LASTEXITCODE
+    $invalidReasonOutput = (& pwsh -NoProfile -File $fixturePath -Mode invalid-reason 2>&1 | Out-String)
+    $invalidReasonExit = $LASTEXITCODE
+    $gradleWrapperOfflineOutput = (& pwsh -NoProfile -File $fixturePath -Mode gradle-wrapper-offline 2>&1 | Out-String)
+    $gradleWrapperOfflineExit = $LASTEXITCODE
+    $prerequisiteFailOutput = (& pwsh -NoProfile -File $fixturePath -Mode prerequisite-fail 2>&1 | Out-String)
+    $prerequisiteFailExit = $LASTEXITCODE
+    $overlapOutput = (& pwsh -NoProfile -File $fixturePath -Mode overlap 2>&1 | Out-String)
+    $overlapExit = $LASTEXITCODE
+    $aggregatePassOutput = (& pwsh -NoProfile -File $fixturePath -Mode aggregate-pass 2>&1 | Out-String)
+    $aggregatePassExit = $LASTEXITCODE
+    $aggregateSkipOutput = (& pwsh -NoProfile -File $fixturePath -Mode aggregate-skip 2>&1 | Out-String)
+    $aggregateSkipExit = $LASTEXITCODE
+    $aggregateFailOutput = (& pwsh -NoProfile -File $fixturePath -Mode aggregate-fail 2>&1 | Out-String)
+    $aggregateFailExit = $LASTEXITCODE
+    $normalOutput = (& pwsh -NoProfile -File $fixturePath -Mode normal 2>&1 | Out-String)
+    $normalExit = $LASTEXITCODE
+    $passed = (
+      $environmentMissingExit -eq 0 -and
+      @([regex]::Matches($environmentMissingOutput, '(?m)^\[SELFTEST-SKIP\] gate=1b reason=FILE-MISSING\r?$')).Count -eq 1 -and
+      $environmentMissingOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=1b/FILE-MISSING\r?$' -and
+      $environmentMissingOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $environmentMissingOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $batchExit -eq 0 -and
+      @([regex]::Matches($batchOutput, '(?m)^\[SELFTEST-SKIP\] ')).Count -eq 3 -and
+      $batchOutput -match '(?m)^\[SELFTEST-SKIP\] gate=15 reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15a reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15b\(ship-local\) reason=TOOL-GIT-MISSING\r?$' -and
+      $batchOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=3 items=15/TOOL-GIT-MISSING,15a/TOOL-GIT-MISSING,15b\(ship-local\)/TOOL-GIT-MISSING\r?$' -and
+      $batchOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $batchOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $duplicateExit -eq 0 -and
+      @([regex]::Matches($duplicateOutput, '(?m)^\[SELFTEST-SKIP\] gate=15 reason=TOOL-GIT-MISSING\r?$')).Count -eq 1 -and
+      $duplicateOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=15/TOOL-GIT-MISSING\r?$' -and
+      $duplicateOutput -match '(?m)^OUTCOME=SKIP\r?$' -and
+      $invalidReasonExit -ne 0 -and
+      $invalidReasonOutput -match 'Invalid selftest skip reason code: git missing' -and
+      $invalidReasonOutput -notmatch '(?m)^\[SELFTEST-SKIP-SUMMARY\]' -and
+      $gradleWrapperOfflineExit -eq 0 -and
+      @([regex]::Matches($gradleWrapperOfflineOutput, '(?m)^\[SELFTEST-SKIP\] gate=17a3 reason=GRADLE-WRAPPER-OFFLINE\r?$')).Count -eq 1 -and
+      $gradleWrapperOfflineOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17a3/GRADLE-WRAPPER-OFFLINE\r?$' -and
+      $gradleWrapperOfflineOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $gradleWrapperOfflineOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $prerequisiteFailExit -eq 1 -and
+      @([regex]::Matches($prerequisiteFailOutput, '(?m)^\[SELFTEST-SKIP\] gate=17aa\(7\) reason=PREREQUISITE-FAIL\r?$')).Count -eq 1 -and
+      $prerequisiteFailOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17aa\(7\)/PREREQUISITE-FAIL\r?$' -and
+      $prerequisiteFailOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(6\)\r?$' -and
+      $prerequisiteFailOutput -match '(?m)^OUTCOME=FAIL\r?$' -and $prerequisiteFailOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $overlapExit -eq 1 -and $overlapOutput -match '(?m)^OVERLAP=17aa\(7\)\r?$' -and
+      $overlapOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(7\)\r?$' -and
+      $overlapOutput -match '(?m)^OUTCOME=FAIL\r?$' -and $overlapOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregatePassExit -eq 0 -and $aggregatePassOutput -match '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregateSkipExit -eq 0 -and $aggregateSkipOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $aggregateSkipOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $aggregateFailExit -ne 0 -and
+      $aggregateFailOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=14d\r?$' -and
+      $aggregateFailOutput -match '(?m)^OUTCOME=FAIL\r?$' -and
+      $aggregateFailOutput -notmatch '(?m)^OUTCOME=(?:PASS|SKIP)\r?$' -and
+      $aggregateFailOutput -notmatch '(?m)^\[SELFTEST-SKIP\] ' -and
+      $normalExit -eq 0 -and $normalOutput -notmatch '(?m)^\[SELFTEST-SKIP\]' -and
+      $normalOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=0 items=NONE\r?$' -and
+      $normalOutput -match '(?m)^OUTCOME=PASS\r?$' -and $normalOutput -notmatch '(?m)^OUTCOME=SKIP\r?$'
+    )
+    if (-not $passed) { throw 'fixture outcome contract failed' }
+    return $true
+  } finally {
+    Remove-Item -LiteralPath $fixturePath -Force -ErrorAction SilentlyContinue
+  }
 }
 
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
@@ -609,6 +931,14 @@ function Get-SelftestCanarySourceContractFailures {
   return @($failures)
 }
 
+if ($Fixture -eq 'skip-ledger') {
+  $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
+  if (-not (Test-SelftestSkipPassExclusivitySourceContract $source)) { throw '[SELFTEST-SKIP-PASS-EXCLUSIVITY-CONTRACT]' }
+  if (-not (Invoke-SelftestSkipLedgerFixture $source)) { throw '[SELFTEST-SKIP-BEHAVIOR-CONTRACT]' }
+  Write-Host '[SELFTEST-FIXTURE] skip-ledger PASS'
+  exit 0
+}
+
 if ($Fixture -eq 'canary-harness') {
   $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-canary-harness-$PID"
   try {
@@ -658,7 +988,6 @@ if ($Fixture -eq 'canary-harness') {
     if ($contractFailures.Count -ne 0 -or
         [regex]::Matches($source, '(?m)^\s+\$(?:cold|ready|td4MigrationGate) = Invoke-SelftestGradleMigrationGate -AndroidRoot').Count -ne 3 -or
         [regex]::Matches($source, '(?m)^\s+Add-SelftestE2eBaseline -RepoRoot \$e2e ').Count -ne 1 -or
-        [regex]::Matches($source, '(?m)^\s+Write-Host "\[SELFTEST-SKIP\] gate=17a3 reason=').Count -ne 1 -or
         $source.Contains("-TaskId T0-SMOKE -Phase ship -Local -SkipRed *> `$null`n      `$shipExit")) {
       throw "canary-harness production wiring is absent, duplicated, or weakened: $($contractFailures -join ',')"
     }
@@ -720,6 +1049,7 @@ function Step($m) {
 $fail = $false
 $currentSelftestGateId = ''
 $failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
+$skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
 function Fail($m) {
   [void](Add-SelftestFailedGateId -GateIds $script:failedSelftestGateIds -Message ([string]$m) -Fallback $script:currentSelftestGateId)
   Write-Warning $m
@@ -775,9 +1105,11 @@ if (-not $fail) { Write-Host "  $($ps1.Count) 个 .ps1 语法 OK" }
 # .mjs：workflow 脚本在 harness 包的 async 上下文里跑（顶层 return/await/export const meta 是 harness 特性、
 # 非独立模块），故用「剥 export + 包 async 函数」喂 node --check 验语法；node 缺失则跳过（保持离线，仿闸 ⑦）。
 $mjs = @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/workflows') -Filter *.mjs -Recurse -ErrorAction SilentlyContinue)
-if ($mjs.Count) {
+if ($mjs.Count -eq 0) {
+  Skip-SelftestCheck -GateId '1(mjs)' -Reason 'FILE-MISSING' -Message '  无 .claude/workflows/*.mjs，跳过 mjs 语法检。'
+} else {
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "  node 未安装，跳过 $($mjs.Count) 个 .mjs 语法检（离线环境正常）。" -ForegroundColor DarkGray
+    Skip-SelftestCheck -GateId '1(mjs)' -Reason 'TOOL-NODE-MISSING' -Message "  node 未安装，跳过 $($mjs.Count) 个 .mjs 语法检（离线环境正常）。"
   } else {
     $mjsOk = 0
     foreach ($m in $mjs) {
@@ -835,9 +1167,9 @@ else {
 Step '1b/17 scout-options BRIEF/IDEA 兜底表达式（TD53/TD-116）'
 $soExprPath = Join-Path $RepoRoot '.claude/workflows/scout-options.mjs'
 if (-not (Test-Path $soExprPath)) {
-  Write-Host '  1b 跳过（无 scout-options.mjs——下游裁剪后正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '1b' -Reason 'FILE-MISSING' -Message '  1b 跳过（无 scout-options.mjs——下游裁剪后正常）。'
 } elseif (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  Write-Host '  1b 跳过（node 未安装，离线环境正常，同 mjs 语法检）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '1b' -Reason 'TOOL-NODE-MISSING' -Message '  1b 跳过（node 未安装，离线环境正常，同 mjs 语法检）。'
 } else {
   $soSrc = Get-Content $soExprPath -Raw
   $briefM = [regex]::Match($soSrc, '(?m)^const BRIEF = (.+)$')
@@ -1214,7 +1546,7 @@ try {
 
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---
 Step '3/17 模板哨兵（CLAUDE.template.md）'
-if ($isPostInit) { Write-Host '  已初始化（无 CLAUDE.template.md），跳过——本闸只测元仓自身的模板形态。' -ForegroundColor DarkGray }
+if ($isPostInit) { Skip-SelftestCheck -GateId '3' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  已初始化（无 CLAUDE.template.md），跳过——本闸只测元仓自身的模板形态。' }
 else {
   $tpl = Join-Path $RepoRoot 'CLAUDE.template.md'
   $t = Get-Content $tpl -Raw
@@ -1224,7 +1556,7 @@ else {
 }
 
 Step '4/17 模板产物占位符完好'
-if ($isPostInit) { Write-Host '  已初始化，跳过——init 已合法替换掉这些占位符，其消失是预期结果而非缺陷。' -ForegroundColor DarkGray }
+if ($isPostInit) { Skip-SelftestCheck -GateId '4' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  已初始化，跳过——init 已合法替换掉这些占位符，其消失是预期结果而非缺陷。' }
 else {
   foreach ($rel in @('pyproject.toml.example')) {
     $p = Join-Path $RepoRoot $rel
@@ -1235,7 +1567,7 @@ else {
 
 # --- 5. token 覆盖：所有含 {{TOKEN}} 的文件，扩展名须在 init 的处理清单内 ---
 Step '5/17 token 覆盖（init 替换扩展名清单）'
-if ($isPostInit) { Write-Host '  已初始化，跳过——init 已替换掉全仓 {{TOKEN}}，本闸测的是元仓自身「扩展名清单是否漏项」。' -ForegroundColor DarkGray }
+if ($isPostInit) { Skip-SelftestCheck -GateId '5' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  已初始化，跳过——init 已替换掉全仓 {{TOKEN}}，本闸测的是元仓自身「扩展名清单是否漏项」。' }
 else {
   # 与 init-scaffold.ps1 的 $exts 对齐；运行时脚本(.ps1)用定向 .Replace 且常在帮助文本里引用 token 字面量，故整体豁免。
   $initExts = @('.md', '.json', '.yml', '.yaml', '.toml', '.example')
@@ -1304,7 +1636,7 @@ if (-not $pssa) {
   #   （闸⑦ 计入 PASS）。scaffold-selftest.yml 已在 selftest 前 Install-Module PSScriptAnalyzer；
   #   $env:CI 下模块仍缺即 fail-loud（本地/离线仍优雅跳过）。
   if ($env:CI) { Fail 'PSScriptAnalyzer 未安装但处于 CI（$env:CI 已置）——lint 闸⑦ 不得 skip-as-pass；CI 应在 selftest 前 Install-Module PSScriptAnalyzer（TD56/TD-119）。' }
-  else { Write-Host '  PSScriptAnalyzer 未安装，跳过（离线环境正常）。装：Install-Module PSScriptAnalyzer -Scope CurrentUser' -ForegroundColor DarkGray }
+  else { Skip-SelftestCheck -GateId '7' -Reason 'TOOL-PSSA-MISSING' -Message '  PSScriptAnalyzer 未安装，跳过（离线环境正常）。装：Install-Module PSScriptAnalyzer -Scope CurrentUser' }
 } else {
   Import-Module PSScriptAnalyzer -ErrorAction Stop
   # 本仓有意为之的风格，豁免：彩色 CLI 输出(Write-Host)、集合访问器复数名(Get-Lessons)、内部助手谓词(Next-Id)；
@@ -1356,7 +1688,7 @@ elseif ($svMeta -notmatch '^\d+\.\d+\.\d+$') { Fail "ScaffoldVersion='$svMeta' �
 #   CHANGELOG.md 顶层版本条目（## [x.y.z]）须 == _config 的 ScaffoldVersion——否则 bump 了版本却漏更 CHANGELOG，
 #   fleet 回填的「按版本对照」就失真。把这条 release-ritual 契约从「人记得」升级为机检（治本 TD12）。
 #   仅元仓适用：CHANGELOG.md 是元仓专属物，init -Cleanup 会删它（下游另起自己产品的），下游没有它属预期、非缺陷。
-if ($isPostInit) { Write-Host '  8.0c 跳过（已初始化，CHANGELOG.md 属元仓专属物、下游预期不存在）。' -ForegroundColor DarkGray }
+if ($isPostInit) { Skip-SelftestCheck -GateId '8.0c' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  8.0c 跳过（已初始化，CHANGELOG.md 属元仓专属物、下游预期不存在）。' }
 else {
   $clPath = Join-Path $RepoRoot 'CHANGELOG.md'
   if (-not (Test-Path $clPath)) { Fail 'CHANGELOG.md 不存在（TD12：脚手架发布须有版本化变更日志，供下游 fleet 回填对照）。' }
@@ -1593,7 +1925,31 @@ $summary82 = Get-SelftestAggregateFailureSummary -Results @(
   [PSCustomObject]@{ Name = 'workflow'; ExitCode = 1; ProtocolValid = $true; FailedGates = @('8.2e', '17aa(8)') },
   [PSCustomObject]@{ Name = 'core'; ExitCode = 29; ProtocolValid = $false; FailedGates = @() }
 )
+$skipRecords82 = [System.Collections.Generic.List[string]]::new()
+$firstSkip82 = Add-SelftestSkipRecord -Records $skipRecords82 -GateId '1' -Reason 'TOOL-NODE-MISSING'
+$duplicateSkip82 = Add-SelftestSkipRecord -Records $skipRecords82 -GateId '1' -Reason 'TOOL-NODE-MISSING'
+$secondSkip82 = Add-SelftestSkipRecord -Records $skipRecords82 -GateId '8.2e' -Reason 'PREREQUISITE-FAIL'
+$skipSummary82 = Format-SelftestSkipSummary -Shard core -Records $skipRecords82
+$normalRecords82 = [System.Collections.Generic.List[string]]::new()
+$normalExecutes82 = Test-SelftestPrerequisite -GateIds @('17aa(6)') -PrerequisiteFailed:$false -Records $normalRecords82 -NoEmit
+$normalSkipSummary82 = Format-SelftestSkipSummary -Shard core -Records $normalRecords82
+$prunedRecords82 = [System.Collections.Generic.List[string]]::new()
+$prunedExecutes82 = Test-SelftestPrerequisite -GateIds @('17aa(6)', '17aa(7)') -PrerequisiteFailed:$true -Records $prunedRecords82 -NoEmit
+$countDocOrderRecords82 = [System.Collections.Generic.List[string]]::new()
+$countDocOrderEntries82 = @(Get-SelftestCountDocEntries -ProbeDocs ([ordered]@{
+  'docs/LOOP-ENGINEERING.md' = 8; '.claude/skills/triage/SKILL.md' = 8
+}) -GateDocs ([ordered]@{
+  'CLAUDE.md' = 17; 'TEMPLATE-README.md' = 17
+}))
+foreach ($entry in $countDocOrderEntries82) {
+  [void](Add-SelftestSkipRecord -Records $countDocOrderRecords82 -GateId "14(count/$($entry.Path))" -Reason 'FILE-MISSING')
+}
+$countDocOrderSummary82 = Format-SelftestSkipSummary -Shard core -Records $countDocOrderRecords82
+$invalidReasonRejected82 = $false
+try { [void](Add-SelftestSkipRecord -Records $skipRecords82 -GateId '1' -Reason 'node missing') }
+catch { $invalidReasonRejected82 = $true }
 $selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
+$skipFixtureOk82 = Invoke-SelftestSkipLedgerFixture $selftestSource82
 $protocolCallPatterns82 = @(
   '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
   '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
@@ -1613,6 +1969,16 @@ if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or $badGateIdFamilies82.Count -ne 0
     $missingFailure82.ProtocolValid -or $wrongShard82.ProtocolValid -or -not $greenProtocol82.ProtocolValid -or $sentinelOnGreen82.ProtocolValid -or
     $summary82.Line -ne '[SELFTEST-ALL-FAIL] shards=workflow,core failed-gates=workflow/8.2e,workflow/17aa(8),core/UNKNOWN(exit=29)') {
   Fail '8.2e：selftest 失败闸协议未证明 Fail 去重、单/多 gate 发射、生产接线 mutation、畸形输入 fail-closed 或 all 的 shard/gate 汇总。'
+}
+if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
+    ($skipRecords82 -join ',') -ne '1/TOOL-NODE-MISSING,8.2e/PREREQUISITE-FAIL' -or
+    $skipSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=2 items=1/TOOL-NODE-MISSING,8.2e/PREREQUISITE-FAIL' -or
+    -not $normalExecutes82 -or $normalRecords82.Count -ne 0 -or
+    $normalSkipSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=0 items=NONE' -or $prunedExecutes82 -or
+    ($prunedRecords82 -join ',') -ne '17aa(6)/PREREQUISITE-FAIL,17aa(7)/PREREQUISITE-FAIL' -or
+    $countDocOrderSummary82 -ne '[SELFTEST-SKIP-SUMMARY] shard=core count=4 items=14(count/docs/LOOP-ENGINEERING.md)/FILE-MISSING,14(count/.claude/skills/triage/SKILL.md)/FILE-MISSING,14(count/CLAUDE.md)/FILE-MISSING,14(count/TEMPLATE-README.md)/FILE-MISSING' -or
+    -not $invalidReasonRejected82 -or -not $skipFixtureOk82) {
+  Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason 或摘要计数。'
 }
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
@@ -1780,7 +2146,7 @@ exit 0
 }
 
 if ($isPostInit) {
-  Write-Host '  init 干跑冒烟（-Cleanup / -Retrofit 两路）跳过——已初始化，本闸只测「从模板生成下游」这条元仓专属路径。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '8' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  init 干跑冒烟（-Cleanup / -Retrofit 两路）跳过——已初始化，本闸只测「从模板生成下游」这条元仓专属路径。'
 } else {
 $tmp = New-InitSmokeCopy "scaffold-smoke-$PID"
 try {
@@ -2170,7 +2536,7 @@ try {
 # --- 9. .claude 设置 / 钩子完整性：settings.json 合法 + 其引用的钩子文件存在 ---
 Step '9/17 .claude 设置/钩子完整性（settings.json 合法 + 引用钩子存在 + .mcp.json 合法 + vendored skill NOTICE 溯源）'
 $settings = Join-Path $RepoRoot '.claude/settings.json'
-if (-not (Test-Path $settings)) { Write-Host '  无 .claude\settings.json，跳过。' -ForegroundColor DarkGray }
+if (-not (Test-Path $settings)) { Skip-SelftestCheck -GateId '9' -Reason 'FILE-MISSING' -Message '  无 .claude\settings.json，跳过。' }
 else {
   $sraw = Get-Content $settings -Raw
   $sjson = $null
@@ -2247,6 +2613,8 @@ if (Test-Path $mcpCfg) {
     if ($mraw -match '(?i)(api[_-]?key|token|secret)"\s*:\s*"(?!\$\{)[^"]{8,}"') { Fail '.mcp.json 疑似含明文密钥（*_API_KEY/token/secret）——密钥须走 env `${VAR}` / `claude mcp add`，绝不入库。' }
     if (-not $fail) { Write-Host "  .mcp.json 合法（mcpServers 存在、无明文密钥）" }
   }
+} else {
+  Skip-SelftestCheck -GateId '9b' -Reason 'FILE-MISSING' -Message '  无 .mcp.json，跳过项目级 MCP 配置校验。'
 }
 # 9g. 信任清单漂移闸（TD78）：docs/TRUST-MANIFEST.md 是外部信任边界的聚合视图。**fail-closed**（R3 #6 收敛）：
 #   ① 有 .mcp.json 声明的 MCP server 就**必须**有清单——缺失即红（不再静默跳过，否则删掉清单即假绿）；
@@ -2299,7 +2667,7 @@ if ($tmGaps -contains 'MANIFEST-MISSING') {
 } elseif ($tmGaps.Count) {
   Fail "TRUST-MANIFEST 漂移（$($tmGaps -join '; ')）：MCP server 须登记进 docs/TRUST-MANIFEST.md 的信任边界**表格行**（散文提及不算）；R3 后端亦须表格登记。"
 } elseif (-not $tmExists) {
-  Write-Host '  无 .mcp.json 声明的 MCP server 且无 TRUST-MANIFEST（下游裁剪），9g 跳过。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '9g' -Reason 'CONFIG-EMPTY' -Message '  无 .mcp.json 声明的 MCP server 且无 TRUST-MANIFEST（下游裁剪），9g 跳过。'
 } elseif (-not $fail) {
   Write-Host "  信任清单 OK（.mcp.json 每个 MCP server + R3 后端均在信任边界表格登记）"
 }
@@ -2340,7 +2708,7 @@ foreach ($sd in $skillDirs) {
   if ($nraw -notmatch '(?im)vendored[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { Fail "vendored skill「$($sd.Name)」：NOTICE.md 缺 vendored 日期（须有含 'vendored … YYYY-MM-DD' 的一行）。" }
   if ($nraw -notmatch '(?im)(version[^\r\n]*\d+(\.\d+)+|\b[0-9a-f]{7,40}\b)') { Fail "vendored skill「$($sd.Name)」：NOTICE.md 缺上游版本或 commit SHA（'version … x.y[.z]' 或 7-40 位十六进制）。" }
 }
-if ($noticeChecked -eq 0) { Write-Host '  无 .claude/skills/*/NOTICE.md（无 vendored skill），9c 跳过。' -ForegroundColor DarkGray }
+if ($noticeChecked -eq 0) { Skip-SelftestCheck -GateId '9c' -Reason 'FILE-MISSING' -Message '  无 .claude/skills/*/NOTICE.md（无 vendored skill），9c 跳过。' }
 elseif (-not $fail) { Write-Host "  vendored skill NOTICE 溯源 OK（$noticeChecked 份：同目录 LICENSE + 来源 URL/许可证/vendored 日期/上游版本或 SHA 四要素齐）" }
 
 # 9f. Stop 钩子 JSON 输出契约（TD61/L82）：官方 hooks 文档把 UserPromptSubmit/UserPromptExpansion/SessionStart
@@ -2684,7 +3052,7 @@ foreach ($lf in $linkFiles) {
   }
 }
 if ($missing) { $missing | Sort-Object -Unique | ForEach-Object { Fail "悬空链接：$_（入口图引用的工件不存在；改名/删除后请同步 CLAUDE.md/AGENTS.md）" } }
-elseif ($linkFiles.Count -eq 0) { Write-Host '  无 CLAUDE.md / AGENTS.md，跳过。' -ForegroundColor DarkGray }
+elseif ($linkFiles.Count -eq 0) { Skip-SelftestCheck -GateId '11' -Reason 'FILE-MISSING' -Message '  无 CLAUDE.md / AGENTS.md，跳过。' }
 else { Write-Host "  入口图交叉链接完整（核验 $checkedLinks 处引用，无悬空）" }
 
 # 11b. 下游文档触发语 + tier-routing 钩子可见性（TD61/TD-124）：`route-new-work` 是 UserPromptSubmit 钩子、
@@ -2695,7 +3063,7 @@ else { Write-Host "  入口图交叉链接完整（核验 $checkedLinks 处引�
 # 三类钩子绑定（PreToolUse/Stop/SessionStart）并列列出。
 $ctPath = Join-Path $RepoRoot 'CLAUDE.template.md'
 $trPath = Join-Path $RepoRoot 'TEMPLATE-README.md'
-if (-not (Test-Path $ctPath)) { Write-Host '  CLAUDE.template.md 不存在（已初始化下游），11b 跳过。' -ForegroundColor DarkGray }
+if (-not (Test-Path $ctPath)) { Skip-SelftestCheck -GateId '11b' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  CLAUDE.template.md 不存在（已初始化下游），11b 跳过。' }
 elseif (-not (Test-Path $trPath)) { Fail 'TEMPLATE-README.md 不存在（下游 on-ramp 缺失）。' }
 else {
   $ctRaw = Get-Content $ctPath -Raw
@@ -3202,25 +3570,29 @@ if ($gateCount -lt 1)  { Fail "无法从 selftest.ps1 机数闸总数（Step 'N/
 
 if ($probeCount -ge 1 -and $gateCount -ge 1) {
   # 探针计数字面量须吻合的 docs（阿拉伯数字，便于机检）
-  $probeDocs = @{
+  $probeDocs = [ordered]@{
     'docs/LOOP-ENGINEERING.md'        = $probeCount
     '.claude/skills/triage/SKILL.md'  = $probeCount
   }
   # 闸计数字面量须吻合的 docs
-  $gateDocs = @{
+  $gateDocs = [ordered]@{
     'CLAUDE.md'                = $gateCount
     'TEMPLATE-README.md'       = $gateCount
     'docs/DELIVERY-CHAINS.md'  = $gateCount
   }
   function Test-Count($relPath, $n, $unit) {
     $p = Join-Path $RepoRoot $relPath
-    if (-not (Test-Path $p)) { Write-Host "  $relPath 不存在，跳过。" -ForegroundColor DarkGray; return }
+    if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14(count/$relPath)" -Reason 'FILE-MISSING' -Message "  $relPath 不存在，跳过。"; return }
     $raw = Get-Content $p -Raw
     if ($raw -notmatch "\b$n\s*$unit") { Fail "$relPath 缺正确的计数字面量「$n $unit」（真相源 = $n；计数漂移，请同步）。" }
   }
-  foreach ($k in $probeDocs.Keys) { Test-Count $k $probeDocs[$k] '探针' }
-  foreach ($k in $gateDocs.Keys)  { Test-Count $k $gateDocs[$k] '闸' }
-  if (-not $fail) { Write-Host "  计数一致：探针 $probeCount（triage.ps1）/ 闸 $gateCount（selftest.ps1），docs 字面量吻合" }
+  $countSkipRecordCount = $skippedSelftestChecks.Count
+  foreach ($entry in (Get-SelftestCountDocEntries -ProbeDocs $probeDocs -GateDocs $gateDocs)) {
+    Test-Count $entry.Path $entry.Count $entry.Unit
+  }
+  if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $countSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+    Write-Host "  计数一致：探针 $probeCount（triage.ps1）/ 闸 $gateCount（selftest.ps1），docs 字面量吻合"
+  }
 }
 
 # 14d. 探针名清单一致性（TD67）：14a 只数不比名——DELIVERY-CHAINS 心跳行曾 7/9 漂移且无机检可拦。
@@ -3228,6 +3600,7 @@ if ($probeCount -ge 1 -and $gateCount -ge 1) {
 #   先交叉核 14a 的标记计数（防「有标记未注册 / 注册未立标记」的死探针），再断言每名 ⊆ DELIVERY-CHAINS 心跳行、
 #   ∈ LOOP-ENGINEERING.md 全文（该文档自述逐一列全）。graceful（文件缺失跳过）。
 if (Test-Path $triageForCount) {
+  $probeNameSkipRecordCount = $skippedSelftestChecks.Count
   $probeNames = @([regex]::Matches((Get-Content $triageForCount -Raw), "Add-Finding\s+'([a-z][a-z0-9-]*)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
   if ($probeNames.Count -lt 1) { Fail '14d TD67：无法从 triage.ps1 抽 Add-Finding 探针名（调用形态漂移？）。' }
   elseif ($probeCount -ge 1 -and $probeNames.Count -ne $probeCount) {
@@ -3238,13 +3611,15 @@ if (Test-Path $triageForCount) {
     $hbRow14 = @(Get-Content $dcPath14) | Where-Object { $_ -match '^\|\s*心跳\s*/\s*triage' } | Select-Object -First 1
     if (-not $hbRow14) { Fail '14d TD67：DELIVERY-CHAINS.md 找不到心跳行（"| 心跳 / triage"）——行标识漂移或被删。' }
     else { foreach ($n in $probeNames) { if ($hbRow14 -notlike "*$n*") { Fail "14d TD67：DELIVERY-CHAINS.md 心跳行漏列探针「$n」（加/改探针未同步文档枚举）。" } } }
-  }
+  } else { Skip-SelftestCheck -GateId '14d(doc/docs/DELIVERY-CHAINS.md)' -Reason 'FILE-MISSING' -Message '  14d：docs/DELIVERY-CHAINS.md 不存在，跳过该文档探针名交叉核对。' }
   $lePath14 = Join-Path $RepoRoot 'docs/LOOP-ENGINEERING.md'
   if (Test-Path $lePath14) {
     $leRaw14 = Get-Content $lePath14 -Raw
     foreach ($n in $probeNames) { if ($leRaw14 -notlike "*$n*") { Fail "14d TD67：LOOP-ENGINEERING.md 未提及探针「$n」（该文档自述逐一列全，应同步）。" } }
+  } else { Skip-SelftestCheck -GateId '14d(doc/docs/LOOP-ENGINEERING.md)' -Reason 'FILE-MISSING' -Message '  14d：docs/LOOP-ENGINEERING.md 不存在，跳过该文档探针名交叉核对。' }
+  if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeNameSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+    Write-Host "  14d 探针名清单一致（$($probeNames.Count) 名：Add-Finding ↔ 标记计数 ↔ DELIVERY-CHAINS 心跳行 ↔ LOOP-ENGINEERING）OK" -ForegroundColor Green
   }
-  if (-not $fail) { Write-Host "  14d 探针名清单一致（$($probeNames.Count) 名：Add-Finding ↔ 标记计数 ↔ DELIVERY-CHAINS 心跳行 ↔ LOOP-ENGINEERING）OK" -ForegroundColor Green }
 }
 
 # 14c. lens 计数一致性：从 workflow 源（真相源）机数，反查工作流+docs 里的计数字面量。
@@ -3256,24 +3631,27 @@ if (Test-Path $pfPath)  { $lensCount  = @([regex]::Matches((Get-Content $pfPath 
 # 字面量须与数字**相邻**（数字 + 可选「个」+ 关键词），避免同行其它数字误判。
 function Test-CountAdjacent($relPath, $n, $kwRe, $label) {
   $p = Join-Path $RepoRoot $relPath
-  if (-not (Test-Path $p)) { Write-Host "  $relPath 不存在，跳过。" -ForegroundColor DarkGray; return }
+  if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14(lens/$relPath)" -Reason 'FILE-MISSING' -Message "  $relPath 不存在，跳过。"; return }
   if ((Get-Content $p -Raw) -notmatch "\b$n\s*(?:个\s*)?(?:$kwRe)") {
     Fail "$relPath 缺正确的 $label 计数字面量「$n …($kwRe)」（真相源=$n；lens/角度计数漂移，请同步）。"
   }
 }
 if ($lensCount -lt 1)  { Fail "无法从 plan-forge.mjs 机数 lens 数（key: 条目缺失？）。" }
+$lensSkipRecordCount = $skippedSelftestChecks.Count
 if ($lensCount -ge 1) {
   foreach ($f in @('.claude/workflows/plan-forge.mjs', 'docs/IDEA-TO-PLAN.md', 'docs/idea-to-plan-diagram.html', 'docs/scaffold-architecture.html')) {
     Test-CountAdjacent $f $lensCount 'lens|透镜' 'lens'
   }
 }
-if (-not $fail) { Write-Host "  lens 计数一致：lens $lensCount（plan-forge.mjs），工作流+docs 字面量吻合" }
+if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $lensSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+  Write-Host "  lens 计数一致：lens $lensCount（plan-forge.mjs），工作流+docs 字面量吻合"
+}
 
 # 14e. 「执行边界」节同步（CLAUDE.md「文档同步」硬规则的机检化）：该节是每轮必载的行为红线，
 #   CLAUDE.md 与 CLAUDE.template.md 各持一份、此前仅靠人工同步——无机检可拦漂移或红线被无声删改。
 #   断言：① 两文件「## 执行边界」节逐字一致（case-sensitive，连行尾一起比）；② 必备红线锚点在场
 #   （测试篡改禁令 / 「完成与词义」/ 虚构禁令）。已初始化下游无模板，跳过。
-if ($isPostInit) { Write-Host '  14e 已初始化（无 CLAUDE.template.md），跳过执行边界同步比对。' -ForegroundColor DarkGray }
+if ($isPostInit) { Skip-SelftestCheck -GateId '14e' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  14e 已初始化（无 CLAUDE.template.md），跳过执行边界同步比对。' }
 else {
   $ebPat = '(?s)## 执行边界.*?(?=\r?\n## )'
   $ebCm = [regex]::Match((Get-Content (Join-Path $RepoRoot 'CLAUDE.md') -Raw), $ebPat).Value
@@ -3400,7 +3778,23 @@ if ($docDriftAccOk) { Write-Host '  14f Get-ScaffoldDocSyncMap 访问器 OK（�
 $realMap = Get-ScaffoldDocSyncMap
 $realMapOk = $true
 if ($realMap -isnot [hashtable]) { Fail '14f 生产映射：Get-ScaffoldDocSyncMap 未返回 hashtable。'; $realMapOk = $false }
-elseif ((-not $isPostInit) -and $realMap.Count -gt 0) {
+else {
+  $dispositionCases = @(
+    [pscustomobject]@{ Name = 'post-init-custom'; IsPostInit = $true; Map = @{ 'scripts/custom\.ps1' = @('docs/custom.md') }; Expected = 'POST-INIT-NOT-APPLICABLE' },
+    [pscustomobject]@{ Name = 'empty'; IsPostInit = $false; Map = @{}; Expected = 'CONFIG-EMPTY' },
+    [pscustomobject]@{ Name = 'metarepo-configured'; IsPostInit = $false; Map = @{ 'scripts/custom\.ps1' = @('docs/custom.md') }; Expected = 'ASSERT' }
+  )
+  foreach ($case in $dispositionCases) {
+    $actualDisposition = Get-DocSyncMapAssertionDisposition -IsPostInit $case.IsPostInit -Map $case.Map
+    if ($actualDisposition -cne $case.Expected) {
+      Fail "14f 生产映射 skip 原因夹具（$($case.Name)）：期望 $($case.Expected)，实得 $actualDisposition。"
+      $realMapOk = $false
+    }
+  }
+  if ($realMapOk) { Write-Host '  14f 生产 DocSyncMap 断言分流 OK（post-init 自定义 / 元仓空配置 / 元仓非空）' -ForegroundColor Green }
+}
+$realMapDisposition = if ($realMap -is [hashtable]) { Get-DocSyncMapAssertionDisposition -IsPostInit $isPostInit -Map $realMap } else { $null }
+if ($realMapDisposition -ceq 'ASSERT') {
   $expectedPairs = @{
     'scripts/task\.ps1'           = 'docs/DEVOPS-WORKFLOW.md'
     'scripts/review\.ps1'         = 'docs/QUALITY-RUBRIC.md'
@@ -3412,7 +3806,12 @@ elseif ((-not $isPostInit) -and $realMap.Count -gt 0) {
   }
   if ($realMapOk) { Write-Host '  14f 生产 DocSyncMap 首批 3 条耦合精确在场 OK（元仓自检）' -ForegroundColor Green }
 }
-else { Write-Host '  14f 生产 DocSyncMap 默认耦合断言跳过（post-init 或空配置——graceful-degrade 铁律）。' -ForegroundColor DarkGray }
+elseif ($realMapDisposition -ceq 'POST-INIT-NOT-APPLICABLE') {
+  Skip-SelftestCheck -GateId '14f(config-map)' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  14f 生产 DocSyncMap 元仓默认耦合断言跳过（post-init 下游可自定义映射）。'
+}
+elseif ($realMapDisposition -ceq 'CONFIG-EMPTY') {
+  Skip-SelftestCheck -GateId '14f(config-map)' -Reason 'CONFIG-EMPTY' -Message '  14f 生产 DocSyncMap 元仓默认耦合断言跳过（配置为空——graceful-degrade 铁律）。'
+}
 
 # 空【真实】配置端到端仍全绿（R3 r6 #6）：临时置真实 $ScaffoldConfig.DocSyncMap=@{}，经真实访问器 Get-ScaffoldDocSyncMap
 # 喂决策核 Get-DocDriftMissing（mapped 源已变更）→ 缺失恒空、no-op；证「空默认可跑铁律」在完整决策路径上成立。复原 config。
@@ -3529,7 +3928,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
       $shD = Get-DocDriftBaseOrSkip -RepoPath $rSh
       if ($shD['Skip'] -ne 'shallow repository') { Fail "14f fail-open(shallow)：期望 skip 理由『shallow repository』，实得『$($shD.Keys -join ',')=$($shD['Skip'])』（master 可解析下唯一 skip 应为 shallow；检测恐失效）。"; $docDriftFoOk = $false }
     }
-    else { Write-Host '  14f fail-open(shallow) 跳过（浅克隆未成）。' -ForegroundColor DarkGray }
+    else { Skip-SelftestCheck -GateId '14f(shallow-fixture)' -Reason 'FIXTURE-UNAVAILABLE' -Message '  14f fail-open(shallow) 跳过（浅克隆未成）。' }
   }
   finally {
     $PSNativeCommandUseErrorActionPreference = $prevFoNative
@@ -3538,12 +3937,12 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
   if ($docDriftFoOk) { Write-Host '  14f fail-open + 硬化夹具 OK（unborn/detached/no-master/no-merge-base/shallow skip + 正常仓 base/Changed/Messages + 决策端到端 + CJK/quotepath + 改名/renames=false）' -ForegroundColor Green }
 }
 else {
-  Write-Host '  14f fail-open 状态夹具跳过（git 未安装）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '14f(fail-open-fixture)' -Reason 'TOOL-GIT-MISSING' -Message '  14f fail-open 状态夹具跳过（git 未安装）。'
 }
 
 $docDriftDecision = Get-DocDriftBaseOrSkip -RepoPath $RepoRoot
 if ($docDriftDecision.ContainsKey('Skip')) {
-  Write-Host "  14f real-run 跳过（$($docDriftDecision.Skip)）。" -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '14f(real-run)' -Reason 'GIT-BASE-UNAVAILABLE' -Message "  14f real-run 跳过（$($docDriftDecision.Skip)）。"
 }
 else {
   $docDriftEscape = (@($docDriftDecision.Messages) -join "`n").Contains('[doc-sync:none]')
@@ -3672,7 +4071,12 @@ if ($Shard -eq 'workflow') {
 Step '15/17 动态 E2E 冒烟（task.ps1 start + ship -Local 真跑工作流：master 默认分支下建 worktree → 全链 ship 到合并提交）'
 $git = Get-Command git -ErrorAction SilentlyContinue
 if (-not $git) {
-  Write-Host '  git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestChecks -GateIds @(
+    '15', '15a', '15b(ship-local)', '15c', '15d',
+    '15g1', '15g2', '15g3', '15g4', '15g5', '15g6', '15g7', '15g8', '15g9',
+    '15h1', '15h2', '15h3', '15h4(a)', '15h4(b)', '15h4(c)', '15h4(d)', '15h4(e)', '15h4(f)',
+    '15m(1)', '15m(2)', '15m(3)'
+  ) -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过 workflow 分片的 git 执行单元（离线 / 无 git 环境正常）。'
 } else {
   # 让原生命令非零退出**不抛**（只置 $LASTEXITCODE），这样下面能优雅 Fail 而非崩出栈（PS7.4+ 默认会抛）。
   $PSNativeCommandUseErrorActionPreference = $false
@@ -3738,7 +4142,7 @@ if (-not $git) {
     #   密钥闸→R3→-Local 合并——此前零动态覆盖；正是 L39「静态绿≠工作流真能跑」要堵的面）。在 worktree 里造一处真改动
     #   （否则 --no-ff 合并为空、无合并提交可断言），跑 ship -Local -SkipRed，断言 exit 0 且产出合并提交。
     #   离线确定性：评审/verify/许可走上面的基线 stub（非真 codex/机器态）；真实工作树许可闸与完整 scanner 分别由 15o/17cc 覆盖；账号守卫 -Local 跳过。
-    if (-not $fail -and (Test-Path $wtDir)) {
+    if ((Test-SelftestPrerequisite -GateIds @('15b(ship-local)')) -and (Test-Path $wtDir)) {
       Set-Content (Join-Path $wtDir 'README.md') 'e2e ship-loop smoke change' -Encoding utf8   # allow_paths 内的真改动
       $shipOutput = @(& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1)
       $shipExit = $LASTEXITCODE
@@ -3754,7 +4158,12 @@ if (-not $git) {
     # 15c/15d. ship 两道确定性闸的种子缺陷覆盖（17 系模式：enforcer 喂已知坏输入须 BLOCK 且写效果账本——
     #   账本（_local/effectiveness-ledger.jsonl，由 Add-CatchRecord 落）无记录会被 HARNESS-REVIEW 读作死闸）。
     # 15c：把 worktree 的 verify.ps1 stub 成 exit 1 → ship 须在 verify 总闸拦下（闸在提交前，坏 stub 不入库；checkout 还原）。
-    if (-not $fail -and (Test-Path $wtDir)) {
+    if ((Test-SelftestPrerequisite -GateIds @(
+      '15c', '15d',
+      '15g1', '15g2', '15g3', '15g4', '15g5', '15g6', '15g7', '15g8', '15g9',
+      '15h1', '15h2', '15h3', '15h4(a)', '15h4(b)', '15h4(c)', '15h4(d)', '15h4(e)', '15h4(f)',
+      '15m(1)', '15m(2)', '15m(3)'
+    )) -and (Test-Path $wtDir)) {
       $ledger = Join-Path $e2e '_local/effectiveness-ledger.jsonl'
       Set-Content (Join-Path $wtDir 'scripts/verify.ps1') 'exit 1' -Encoding utf8
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
@@ -4039,7 +4448,9 @@ if (-not $git) {
       & git -C $e2e branch -D T0-SMOKE 2>$null
       Remove-Item $ghStub15h4 -Recurse -Force -ErrorAction SilentlyContinue
       } else {
-        Write-Host '  15h4(d/e/f) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT，仅 Windows 把裸 gh 解析成 gh.ps1；Linux 会跑真 gh（同 17aa(8) 的 gh-mock 仅 Windows）。被测 online-verify 清理逻辑跨平台无关、由 Windows CI 覆盖。' -ForegroundColor DarkGray
+        Skip-SelftestCheck -GateId '15h4(d)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(d) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT。'
+        Skip-SelftestCheck -GateId '15h4(e)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(e) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT。'
+        Skip-SelftestCheck -GateId '15h4(f)' -Reason 'OS-WINDOWS-ONLY' -Message '  15h4(f) 跳过（非 Windows）：gh.ps1 stub 依赖 PATHEXT；由 Windows CI 覆盖。'
       }
 
       # 15m. base==TaskId 守卫（TD-203 / L86）。须置于 15h 之后——它先重建 15h3 拆掉的 worktree。（15i-15l 已被占用。）
@@ -4104,17 +4515,20 @@ $l86Docs = @(
   'scripts/task.ps1'                    # 脚本自身 .EXAMPLE 头注
 )
 $nFail = $false
+$l86SkipRecordCount = $skippedSelftestChecks.Count
 foreach ($rel in $l86Docs) {
   $p = Join-Path $RepoRoot $rel
   # 下游豁免（同 8.0c/11b 手法）：TEMPLATE-README.md 属元仓专属物（-Cleanup/-Retrofit 不下发），已初始化下游缺席是预期而非漂移。
-  if ($rel -eq 'TEMPLATE-README.md' -and $isPostInit -and -not (Test-Path $p)) { Write-Host '  15n：TEMPLATE-README.md 不存在（已初始化下游，元仓专属物），该面跳过。' -ForegroundColor DarkGray; continue }
+  if ($rel -eq 'TEMPLATE-README.md' -and $isPostInit -and -not (Test-Path $p)) { Skip-SelftestCheck -GateId '15n' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  15n：TEMPLATE-README.md 不存在（已初始化下游，元仓专属物），该面跳过。'; continue }
   if (-not (Test-Path $p)) { Fail "闸15n：$rel 不存在（相位命令指引失去真相源？）。"; $nFail = $true; continue }
   if ((Get-Content $p -Raw) -notmatch 'L86-WT') { Fail "闸15n：$rel 未提示 L86-WT 守卫——它仍可能教「在 worktree 内跑 scripts\task.ps1 相位命令」，而该动作现已被 fail-closed 拒（TD-238 文档漂移）。"; $nFail = $true }
 }
 # 另断言 skill 的 R1 start 条目不再以「之后 cd 进该 worktree」收尾（那句暗示后续相位命令在 worktree 内跑）。
 $tlText = Get-Content (Join-Path $RepoRoot '.claude/skills/task-loop/SKILL.md') -Raw
 if ($tlText -match '(?m)^-\s+\*\*R1 start\*\*.*之后\s*`cd`\s*进该 worktree。\s*$') { Fail '闸15n：task-loop skill 的 R1 start 仍以「之后 cd 进该 worktree」收尾，暗示后续相位命令在 worktree 内跑——会撞 L86-WT 守卫。'; $nFail = $true }
-if (-not $nFail) { Write-Host "  15n L86 相位命令指引一致 OK（$($l86Docs.Count) 处权威文档均提示 L86-WT、skill 不再教 worktree 内跑 task.ps1）" -ForegroundColor Green }
+if (Test-SelftestAggregatePassEligible -Failed $nFail -SkipCountBefore $l86SkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+  Write-Host "  15n L86 相位命令指引一致 OK（$($l86Docs.Count) 处权威文档均提示 L86-WT、skill 不再教 worktree 内跑 task.ps1）" -ForegroundColor Green
+}
 
 # 15p. cleanup 删除点凭据闸（T24-CLEANUP-TOKEN）：`branch -D` 是 cleanup 内唯一无脏树守卫的破坏性删除点——
 #   ship 两处合并成功路径（-Local merge / gh pr merge --squash）之后必须各铸一枚 T24-MERGETOKEN 单次合并凭据，
@@ -4251,7 +4665,7 @@ if (-not $r15Fail) { Write-Host '  15r ship saga 报告闸 OK（腿完成追加�
 #   已登记 specs/tech-debt-tracker.md TD89（r6 #6）；远端分支恢复文案由 15r(d) 词法锁（-PostStatus/baseRefName）覆盖。
 $gitR15 = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitR15) {
-  Write-Host '  15r(e) git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15r(e)' -Reason 'TOOL-GIT-MISSING' -Message '  15r(e) git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $sg = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-saga-$PID"
@@ -4479,7 +4893,7 @@ else {
 }
 $gitRC = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitRC) {
-  Write-Host '  15g(receipt) git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15g(receipt)' -Reason 'TOOL-GIT-MISSING' -Message '  15g(receipt) git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $rg = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-rcpt-$PID"
@@ -4719,7 +5133,7 @@ if (-not $gitRC) {
             } finally { $rcLockC.Close(); $rcLockC.Dispose() }
             Remove-Item $rcptFileC -Force -ErrorAction SilentlyContinue   # 解锁后清理，免扰后续 ④
           }
-        } else { Write-Host '  15g(receipt)⑥ cleanup 清据失败告警：非 Windows 跳过（文件锁手法 Windows-only，同 15h4d-f）。' -ForegroundColor DarkGray }
+        } else { Skip-SelftestCheck -GateId '15g(receipt)-cleanup-lock' -Reason 'OS-WINDOWS-ONLY' -Message '  15g(receipt)⑥ cleanup 清据失败告警：非 Windows 跳过（文件锁手法 Windows-only，同 15h4d-f）。' }
 
         # ⑦ RED hint 推送态分类**真 bare-origin 生命周期行为夹具**（R3 r14/r15 #6 · 用户裁定 T35 纳远端底座）：真裸 origin + **真 git fetch --prune**
         #    （非 update-ref 模拟）跑 hint 逐字同源的判据序列，覆盖远端删除/前移/分叉，验 6 态裁决正确 + 远端删分支时 fetch --prune 修剪陈旧 origin/T
@@ -4927,7 +5341,7 @@ exit $LASTEXITCODE
 #   Chinese token 跨子进程匹配走 UTF-8 OutputEncoding 钉法（TD31/TD34：非 UTF-8 宿主下中文字节误码致假 FAIL）。
 $gitI = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitI) {
-  Write-Host '  15i git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15i' -Reason 'TOOL-GIT-MISSING' -Message '  15i git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $pf = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-pushfail-$PID"
@@ -5009,7 +5423,7 @@ if (-not $gitI) {
 # （证其被正确识别为「在范围内」，未被误拦）。
 $gitD2 = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitD2) {
-  Write-Host '  15d2 git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15d2' -Reason 'TOOL-GIT-MISSING' -Message '  15d2 git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $sd2 = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-scope-seed-$PID"
@@ -5132,7 +5546,7 @@ if (-not $gitD2) {
 #   被摘掉后仍「碰巧绿」（vacuous）——变异 C/D/E/G/I 已实测坐实这一点。
 $gitS = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitS) {
-  Write-Host '  15s git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15s' -Reason 'TOOL-GIT-MISSING' -Message '  15s git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $ss = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-checkscope-$PID"
@@ -5435,7 +5849,7 @@ if (-not $gitS) {
 #   GREEN（已修，调用点改 $Wt）：ship 看到工作树的 exit 1 stub → 许可闸拦、账本记 gate=license、ship 非零退出。
 $gitO = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitO) {
-  Write-Host '  15o git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15o' -Reason 'TOOL-GIT-MISSING' -Message '  15o git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $so = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-license-gate-seed-$PID"
@@ -5505,7 +5919,8 @@ if (-not $gitO) {
 #   两种子均须 ship block 且 marker 文件不得生成。
 $gitJ = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitJ) {
-  Write-Host '  15j/15k git 未安装，跳过（离线 / 无 git 环境正常）。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '15j' -Reason 'TOOL-GIT-MISSING' -Message '  15j git 未安装，跳过（离线 / 无 git 环境正常）。'
+  Skip-SelftestCheck -GateId '15k' -Reason 'TOOL-GIT-MISSING' -Message '  15k git 未安装，跳过（离线 / 无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $pj = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-cardfield-$PID"
@@ -5624,8 +6039,28 @@ if ($Shard -eq 'seeded') {
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
 Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威 / 17hh 已归档卡入站路径）'
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-  Write-Host '  git 未安装，跳过种子缺陷闸（离线/无 git 环境正常）。' -ForegroundColor DarkGray
+$seededGitAvailable = [bool](Get-Command git -ErrorAction SilentlyContinue)
+if (-not $seededGitAvailable) {
+  Skip-SelftestChecks -GateIds @(
+    '17', '17a', '17a2', '17u1', '17u2', '17u3a', '17u3b',
+    '17a3', '17l(default-codex)', '17t(t16/symlink-half)',
+    '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
+    '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
+    '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
+    '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)', '17ac(td27-posix-shim)',
+    '17s', '17t',
+    '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
+    '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
+    '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y',
+    '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)',
+    '17z(T43-TimeoutCliOverridesConfig)', '17z(T43-TimeoutConfigValue)', '17z(T43-TimeoutDefaultMissingOrEmpty)', '17z(4)', '17z(5)',
+    '17aa', '17aa(1)', '17aa(2)', '17aa(5)',
+    '17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)',
+    '17aa(7)', '17aa(7a)', '17aa(7b)', '17aa(7c)', '17aa(7d)', '17aa(7e/F4)',
+    '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
+    'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
+    'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4'
+  ) -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过 seeded 分片的 git 执行单元（离线/无 git 环境正常）。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
   $sd = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-seed-$PID"
@@ -5859,6 +6294,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
     # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
     $td4GradleUserHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' }
+    $td4SkipRecordCount = $skippedSelftestChecks.Count
     $td4MigrationGate = Invoke-SelftestGradleMigrationGate -AndroidRoot (Join-Path $RepoRoot 'android') -GradleUserHome $td4GradleUserHome -RunCases {
     $td4MigrationRepo = if ($IsWindows) {
       Join-Path ([System.IO.Path]::GetPathRoot($RepoRoot)) "st4-$PID"
@@ -5927,9 +6363,11 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     }
     }
     if ($td4MigrationGate.Skipped) {
-      Write-Host "[SELFTEST-SKIP] gate=17a3 reason=$($td4MigrationGate.Reason)" -ForegroundColor DarkGray
+      [void](Register-SelftestSkip -GateId '17a3' -Reason $td4MigrationGate.Reason)
     }
-    if (-not $fail) { Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green }
+    if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $td4SkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+      Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green
+    }
 
     # 17a2 (TD-201). check-secrets 必须**存活** git 子模块 gitlink：`git ls-files` 把子模块作为**单条 gitlink** 输出，
     #   其工作树路径是**目录**。1b 循环旧码 `Test-Path $full` 对目录为真、放行后 :151 对 DirectoryInfo 求 `.Length`
@@ -6006,7 +6444,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     #   TD15：init-scaffold.ps1 本身随下游保留（未随 selftest.ps1 一起自动删），但文档明示用户可手动删它；
     #   若已被手动删除，本闸测的元仓专属 init 机制已不适用于该仓，优雅跳过而非误判失败。
     if (-not (Test-Path (Join-Path $RepoRoot 'init-scaffold.ps1'))) {
-      Write-Host '  17c 跳过（无 init-scaffold.ps1——已被手动清理，正常）。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17c' -Reason 'FILE-MISSING' -Message '  17c 跳过（无 init-scaffold.ps1——已被手动清理，正常）。'
     } else {
       $sc = Join-Path $sd 'c'
       Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $sc -Recurse -Force
@@ -6146,7 +6584,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     #   仅 Windows：codex 的 .ps1/.cmd shim 是 Windows npm 特有；非 Windows 上 npm codex 为可直接执行的二进制、
     #   Start-Process 直指即可（且 `& codex` 在 Linux 也不解析名为 codex.ps1 的文件），该 bug 不复现 → 跳过。
     if (-not $IsWindows) {
-      Write-Host '  17h 跳过（codex .ps1/.cmd shim 为 Windows 特有；非 Windows 不复现此 bug）。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17h' -Reason 'OS-WINDOWS-ONLY' -Message '  17h 跳过（codex .ps1/.cmd shim 为 Windows 特有；非 Windows 不复现此 bug）。'
     } else {
     $sh = Join-Path $sd 'h'
     Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $sh -Recurse -Force
@@ -6284,7 +6722,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     #   默认 codex 路径自称「独立第二评审（Codex）」；自定义 ReviewCommand 后端只自称「独立第二评审」、不得再冒名 Codex。
     #   断言在送达文本上做（非 review.ps1 源码 grep）——证身份参数化真抵达评审者，而非仅源码里存在分支。
     if (-not $IsWindows) {
-      Write-Host '  17l（默认 codex 半）跳过（依赖 17h 的 Windows 专有 codex.ps1 shim 夹具）。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17l(default-codex)' -Reason 'PREREQUISITE-UNAVAILABLE' -Message '  17l（默认 codex 半）跳过（依赖 17h 的 Windows 专有 codex.ps1 shim 夹具）。'
     } else {
       $lPromptH = Get-Content (Join-Path $sh '.review/feat-z.json.prompt.txt') -Raw -ErrorAction SilentlyContinue
       if (-not $lPromptH) { Fail '闸17l：17h 夹具未捕获送达 prompt（假 codex.ps1 stub 结构变了？）——无从断言默认 codex 路径的评审者身份。' }
@@ -6301,7 +6739,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     #   (i) 源内不得再出现「当前是 20xx」类硬编码绝对年份（workflow 沙箱里 new Date()/Date.now() 会抛、无法运行时取年，
     #   写死则逐年腐化）；(ii) 须保留 args 条件日期表达式（A.today 取参或 TODAY ? 条件拼接）——日期只能经 args 进入 prompt。
     $soPath = Join-Path $RepoRoot '.claude/workflows/scout-options.mjs'
-    if (-not (Test-Path $soPath)) { Write-Host '  17m 跳过（无 scout-options.mjs——下游裁剪后正常）。' -ForegroundColor DarkGray }
+    if (-not (Test-Path $soPath)) { Skip-SelftestCheck -GateId '17m' -Reason 'FILE-MISSING' -Message '  17m 跳过（无 scout-options.mjs——下游裁剪后正常）。' }
     else {
       $soRaw = Get-Content $soPath -Raw
       if ($soRaw -match '当前是\s*20\d\d') { Fail '种子缺陷 17m：scout-options.mjs 又现硬编码绝对年份「当前是 20xx」——逐年腐化回归（T4-GUARD-HYGIENE ⑦；日期只能经 args.today 进入）。' }
@@ -6419,7 +6857,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
           elseif ((Get-Content $argsFile -Raw) -notmatch 'origin\|https://github\.com/acct/repo\.git') { Fail '种子缺陷 17o-C(exec)：链式既有钩子未收到原始参数 $1/$2（args 转交失败）。'; $oFail = $true }
           elseif ((-not (Test-Path $stdinFile)) -or ((Get-Content $stdinFile -Raw) -notmatch 'refs/heads/main aaa refs/heads/main bbb')) { Fail '种子缺陷 17o-C(exec)：链式既有钩子未收到原始 stdin（ref 更新转交失败）。'; $oFail = $true }
         } else {
-          Write-Host '  17o-C(exec) 跳过：sh/pwsh 不可用（结构断言仍生效；CI ubuntu 支路必跑执行断言）。' -ForegroundColor DarkGray
+          Skip-SelftestCheck -GateId '17o-C(exec)' -Reason 'SHELL-UNAVAILABLE' -Message '  17o-C(exec) 跳过：sh/pwsh 不可用（结构断言仍生效；CI ubuntu 支路必跑执行断言）。'
         }
         # 情形 D：幂等重跑（既有的已是本脚手架标记的）→ 不再二次备份为 pre-push.local.local。
         Install-PrePushHook -RepoRoot $rc *> $null
@@ -7521,6 +7959,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
       @{ tag = 't15-pass-but-write-fails'; body = "'{""verdict"":""pass"",""reasons"":[]}' | Set-Content -Path `$env:REVIEW_OUT -Encoding utf8; Set-ItemProperty -LiteralPath `$env:REVIEW_OUT -Name IsReadOnly -Value `$true"; code = '[R3-VERDICT-WRITE-FAILED]'; block = $true; jsonReason = $false }
     )
     $tAllOk = $true
+    $tSkipRecordCount = $skippedSelftestChecks.Count
     $tIdx = 0
     foreach ($tc in $tCases) {
       $tIdx++
@@ -7665,7 +8104,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
       $linkKind = if (Test-ScaffoldJunctionCapability (Join-Path $t16Probe 'capjn')) { 'junction' } else { 'none' }
     }
     if ($linkKind -eq 'none') {
-      Write-Host '  17t(t16) 跳过：本机既建不了符号链接也建不了 junction，重解析点守卫本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t16)' -Reason 'REPARSE-CAPABILITY-MISSING' -Message '  17t(t16) 跳过：本机既建不了符号链接也建不了 junction，重解析点守卫本轮未获覆盖。'
     } else {
       # 被审分支可以 `git add -f` 把 `.review/<branch>.raw.txt` 塞成一个指向别处的重解析点；
       # 无守卫时 Set-Content 会**跟着它写** ⇒ 评审者可控的原文被重定向到 .review 之外（R3 r10 #2）。
@@ -7722,7 +8161,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
             $tAllOk = $false
           }
           if ($linkKind -eq 'junction') {
-            Write-Host '  17t(t16) 半覆盖：本机用 junction 施压（免管理员），已证「检测到重解析点并单列报告」；「阻止任意文件覆写」那一半需文件符号链接，由 CI 的 ubuntu 支路覆盖。' -ForegroundColor DarkGray
+            Skip-SelftestCheck -GateId '17t(t16/symlink-half)' -Reason 'SYMLINK-CAPABILITY-MISSING' -Message '  17t(t16) 半覆盖：本机用 junction 施压（免管理员），已证「检测到重解析点并单列报告」；「阻止任意文件覆写」那一半需文件符号链接，由 CI 的 ubuntu 支路覆盖。'
           }
         }
       }
@@ -7750,7 +8189,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
         try { [void][System.IO.File]::ReadAllText($vp17) } catch { $reallyUnreadable = $true }
       }
       if (-not $reallyUnreadable) {
-        Write-Host '  17t(t17) 跳过：本机无法把文件设成对自己不可读（权限模型/提权所致），该分支未获覆盖。' -ForegroundColor DarkGray
+        Skip-SelftestCheck -GateId '17t(t17)' -Reason 'PERMISSION-CAPABILITY-MISSING' -Message '  17t(t17) 跳过：本机无法把文件设成对自己不可读（权限模型/提权所致），该分支未获覆盖。'
       } else {
         if ($x17 -eq 0) { Fail '闸17t(t17)：读不了却仍放行（exit 0）——R3 fail-closed 回归。'; $tAllOk = $false }
         if ($o17 -notmatch [regex]::Escape('[R3-OUTPUT-UNREADABLE]')) {
@@ -7773,7 +8212,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
     New-Item -ItemType Directory -Force $t18Probe | Out-Null
     $canJn18 = Test-ScaffoldJunctionCapability $t18Probe
     if (-not $canJn18) {
-      Write-Host '  17t(t18) 跳过：本机建不了 junction，父目录重解析点这条绕过本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t18)' -Reason 'JUNCTION-CAPABILITY-MISSING' -Message '  17t(t18) 跳过：本机建不了 junction，父目录重解析点这条绕过本轮未获覆盖。'
     } else {
       $ts18 = Join-Path $sd 't18'
       Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts18 -Recurse -Force
@@ -7855,7 +8294,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
     New-Item -ItemType Directory -Force $t19Probe | Out-Null
     $canJn19 = Test-ScaffoldJunctionCapability $t19Probe
     if (-not $canJn19) {
-      Write-Host '  17t(t19) 跳过：本机建不了 junction，评审期植入（TOCTOU）这条路径本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t19)' -Reason 'JUNCTION-CAPABILITY-MISSING' -Message '  17t(t19) 跳过：本机建不了 junction，评审期植入（TOCTOU）这条路径本轮未获覆盖。'
     } else {
       $ts19 = Join-Path $sd 't19'
       Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts19 -Recurse -Force
@@ -7940,7 +8379,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
     New-Item -ItemType Directory -Force $t20Probe | Out-Null
     $canJn20 = Test-ScaffoldJunctionCapability $t20Probe
     if (-not $canJn20) {
-      Write-Host '  17t(t20) 跳过：本机建不了 junction，「叶子本来就是链接」这条路径本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t20)' -Reason 'JUNCTION-CAPABILITY-MISSING' -Message '  17t(t20) 跳过：本机建不了 junction，「叶子本来就是链接」这条路径本轮未获覆盖。'
     } else {
       $ts20 = Join-Path $sd 't20'
       Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts20 -Recurse -Force
@@ -8025,7 +8464,7 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
       $probeThrew21 = $false
       try { [void](Test-Path -LiteralPath $vp21 -PathType Leaf) } catch { $probeThrew21 = $true }
       if (-not $probeThrew21) {
-        Write-Host '  17t(t21) 跳过：本机无法把目录设成对自己不可遍历（权限模型/提权所致），元数据探测那一支未获覆盖。' -ForegroundColor DarkGray
+        Skip-SelftestCheck -GateId '17t(t21)' -Reason 'PERMISSION-CAPABILITY-MISSING' -Message '  17t(t21) 跳过：本机无法把目录设成对自己不可遍历（权限模型/提权所致），元数据探测那一支未获覆盖。'
       } else {
         if ($x21 -eq 0) { Fail '闸17t(t21)：父目录不可遍历、裁决读不出，却仍放行（exit 0）——R3 fail-closed 回归。'; $tAllOk = $false }
         # **核心断言**：非零退出**不够**（脚本被异常打死也是非零）——必须看见状态码，才证明它是「诊断后阻断」而非「崩了」。
@@ -8052,9 +8491,9 @@ Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -For
     $canJn22 = Test-ScaffoldJunctionCapability $t22Probe
     $plant22 = Join-Path $sd 'plant22.ps1'
     if (-not $canJn22) {
-      Write-Host '  17t(t22) 跳过：本机建不了 junction，「入口之后、唤起之前」这段窗口本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t22)' -Reason 'JUNCTION-CAPABILITY-MISSING' -Message '  17t(t22) 跳过：本机建不了 junction，「入口之后、唤起之前」这段窗口本轮未获覆盖。'
     } elseif ($plant22 -match '\s') {
-      Write-Host '  17t(t22) 跳过：夹具路径含空格，diff.external 命令行无法可靠传递，本例本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t22)' -Reason 'FIXTURE-PATH-UNSUPPORTED' -Message '  17t(t22) 跳过：夹具路径含空格，diff.external 命令行无法可靠传递，本例本轮未获覆盖。'
     } else {
       $ts22 = Join-Path $sd 't22'
       Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts22 -Recurse -Force
@@ -8091,7 +8530,7 @@ if (-not (Test-Path -LiteralPath $rd)) { New-Item -ItemType Junction -Path $rd -
         # 反 vacuous：植链必须**真的**在窗口内发生过，否则本例只是又跑了一遍正常流程。
         $rd22Item = Get-Item -LiteralPath (Join-Path $ts22 '.review') -Force -ErrorAction SilentlyContinue
         if (-not ($rd22Item -and ((($rd22Item.Attributes) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0))) {
-          Write-Host '  17t(t22) 跳过：diff.external 未能在窗口内把 .review 换成 junction（git 未调外部 diff / 本机策略所限），本例未真正施压。' -ForegroundColor DarkGray
+          Skip-SelftestCheck -GateId '17t(t22)' -Reason 'FIXTURE-SWAP-UNAVAILABLE' -Message '  17t(t22) 跳过：diff.external 未能在窗口内把 .review 换成 junction（git 未调外部 diff / 本机策略所限），本例未真正施压。'
         } else {
           if ($x22 -eq 0) { Fail '闸17t(t22)：入口之后被植链，仍放行（exit 0）——R3 fail-closed 回归。'; $tAllOk = $false }
           if ($o22 -notmatch [regex]::Escape('[R3-REVIEW-DIR-UNSAFE]')) {
@@ -8165,7 +8604,7 @@ if (-not (Test-Path -LiteralPath $rd)) { New-Item -ItemType Junction -Path $rd -
     # 老措辞只说「本轮不可得」，操作者按文档路径一看有文件，自然当成本轮的——正是 R3 r17 指的误导。
     # deny ACE 是 Windows 权限模型专属；非 Windows 声明跳过（与 t20/t22 的 junction 档同规矩）。
     if (-not $IsWindows) {
-      Write-Host '  17t(t24) 跳过：deny ACE 为 Windows 权限模型专属，「陈旧残留 + 保存失败」组合本轮未获覆盖。' -ForegroundColor DarkGray
+      Skip-SelftestCheck -GateId '17t(t24)' -Reason 'OS-WINDOWS-ONLY' -Message '  17t(t24) 跳过：deny ACE 为 Windows 权限模型专属，「陈旧残留 + 保存失败」组合本轮未获覆盖。'
     } else {
       $ts24 = Join-Path $sd 't24'
       Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts24 -Recurse -Force
@@ -8195,7 +8634,7 @@ if (-not (Test-Path -LiteralPath $rd)) { New-Item -ItemType Junction -Path $rd -
         try { Remove-Item -LiteralPath $stale24 -Force -ErrorAction Stop; $pinned24 = $false } catch { }
         try { Set-Content -Path $stale24 -Value 'probe' -Encoding utf8 -NoNewline -ErrorAction Stop; $pinned24 = $false } catch { }
         if (-not $pinned24) {
-          Write-Host '  17t(t24) 跳过：本机权限模型没能把旧件钉死（deny ACE 未生效），本例未真正施压。' -ForegroundColor DarkGray
+          Skip-SelftestCheck -GateId '17t(t24)' -Reason 'PERMISSION-CAPABILITY-MISSING' -Message '  17t(t24) 跳过：本机权限模型没能把旧件钉死（deny ACE 未生效），本例未真正施压。'
         } else {
           Set-Content (Join-Path $ts24 'CHANGED.txt') 'a change under review' -Encoding utf8
           & git -C $ts24 -c user.email='t@l' -c user.name='t' add -A 2>$null
@@ -8277,7 +8716,9 @@ if (-not (Test-Path -LiteralPath $rd)) { New-Item -ItemType Junction -Path $rd -
         $tAllOk = $false
       }
     }
-    if ($tAllOk) { Write-Host '  17t R3 阻断态可诊断性 OK（S0 输出路径存在但读不了 / S1 无内容含零字节/纯空白 / S2 无 JSON / S3 读不出 verdict 同类四支 各带专属状态码（**裁决文件写得进去的用例**上，码同时出现在 stdout 与裁决 JSON；t14/t15 落点被占故只验 stdout）；读故障不被误报成 S1；合法 pass 不误 block；省略 reasons 的 pass/block 不残留兜底码；S2 原文**按确切文件名逐字保全**、reason 点名它，落盘失败时如实报失败而非仍称已保全；陈旧原文跨轮作废、作废不了时明标为陈旧（t23/t24）；晚检出的 [R3-REVIEW-DIR-UNSAFE] 用相位准确措辞（t22）。**评审者文本内联与其防伪造加固见 T56**）' -ForegroundColor Green }
+    if (Test-SelftestAggregatePassEligible -Failed (-not $tAllOk) -SkipCountBefore $tSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
+      Write-Host '  17t R3 阻断态可诊断性 OK（S0 输出路径存在但读不了 / S1 无内容含零字节/纯空白 / S2 无 JSON / S3 读不出 verdict 同类四支 各带专属状态码（**裁决文件写得进去的用例**上，码同时出现在 stdout 与裁决 JSON；t14/t15 落点被占故只验 stdout）；读故障不被误报成 S1；合法 pass 不误 block；省略 reasons 的 pass/block 不残留兜底码；S2 原文**按确切文件名逐字保全**、reason 点名它，落盘失败时如实报失败而非仍称已保全；陈旧原文跨轮作废、作废不了时明标为陈旧（t23/t24）；晚检出的 [R3-REVIEW-DIR-UNSAFE] 用相位准确措辞（t22）。**评审者文本内联与其防伪造加固见 T56**）' -ForegroundColor Green
+    }
 
     # 17v. handoff 多 HANDOFF 块——尾块优先（同源 17q · TD57/TD-120）：progress.md 若被误 append 新块而非
     #   原地编辑（本闸就是要治的失手），旧码 `[regex]::Match` 懒惰首匹配会：check 误按过期首块判定、
@@ -8549,11 +8990,13 @@ foreach ($n in @("ReviewModel = ''", "ReviewEffort = ''")) {
 if (-not $isPostInit) {
   if ($cfgZ -notmatch "ReviewModel\s*=\s*'[^']+'") { Fail "17z：元仓 _config.ps1 的 ReviewModel 为空——R3 又退回读用户级 ~/.codex/config.toml（GUI 可改），合并闸会被仓外配置左右。" }
   if ($cfgZ -notmatch "ReviewEffort\s*=\s*'[^']+'") { Fail '17z：元仓 _config.ps1 的 ReviewEffort 为空——R3 推理档位又交由仓外配置决定。' }
+} else {
+  Skip-SelftestCheck -GateId '17z(project-pin)' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  17z(project-pin) 跳过：下游按设计清空元仓模型/档位钉值。'
 }
 # 下游面文档同步（CLAUDE.md 之外的三处；同 CLAUDE.md「文档同步」硬规则）。
 foreach ($t in @('TEMPLATE-README.md', 'CLAUDE.template.md', 'docs/scaffold-architecture.html')) {
   $tp = Join-Path $RepoRoot $t
-  if (-not (Test-Path $tp)) { continue }   # 已 init 的下游可能删了模板产物 → 优雅跳过
+  if (-not (Test-Path $tp)) { Skip-SelftestCheck -GateId "17z(doc/$t)" -Reason 'FILE-MISSING' -Message "  17z 文档 $t 不存在，跳过该文档同步检查。"; continue }
   $tt = Get-Content $tp -Raw
   if (-not ($tt.Contains('ReviewModel') -or $tt.Contains('ReviewEffort'))) { Fail "17z：$t 未登记 ReviewModel/ReviewEffort 配置契约（文档漂移）。" }
 }
@@ -8572,8 +9015,9 @@ foreach ($k in @('ReviewModel', 'ReviewEffort')) {
 #   静态 grep 挡不住「flag 被拼错 / 传错位置 / 根本没传」——本段用假 codex.ps1 shim（同 17h 形态）捕获 argv，
 #   用 ReviewCommand stub 捕获 env，覆盖四种组合：配置生效 / 留空即省略 flag / CLI 参数覆盖配置 / 自定义后端 env 透传。
 #   仅 Windows：codex 的 .ps1 shim 是 Windows npm 特有（同 17h 的跳过理由）；静态断言在所有 OS 仍生效。
+if ($seededGitAvailable) {
 if (-not $IsWindows) {
-  Write-Host '  17z 功能半跳过（假 codex.ps1 shim 为 Windows 特有）；静态断言仍生效。' -ForegroundColor DarkGray
+  Skip-SelftestCheck -GateId '17z(functional)' -Reason 'OS-WINDOWS-ONLY' -Message '  17z 功能半跳过（假 codex.ps1 shim 为 Windows 特有）；静态断言仍生效。'
 }
 else {
   $zRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17z_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -8760,7 +9204,7 @@ exit 0
 #   夹具：造 bare origin + 工作克隆；origin/master=B，本地 master 强制回退到 A；分支 feat-base 自 B 起 + 提交 C。
 #   断言送达评审者的 prompt **含 C、不含 B**。仅 Windows（复用 17h 的假 codex.ps1 shim 形态）。
 if (-not $IsWindows) {
-  Write-Host '  17aa 跳过（假 codex.ps1 shim 为 Windows 特有）。' -ForegroundColor DarkGray
+  Skip-SelftestChecks -GateIds @('17aa', '17aa(1)', '17aa(2)', '17aa(5)') -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(1/2/5) 跳过：假 codex.ps1 shim 为 Windows 特有。'
 }
 else {
   $bRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17aa_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -8843,7 +9287,7 @@ exit 0
     # (5) 基线与 HEAD **无共同祖先**（unrelated histories）：`git diff base...HEAD` exit 128、stdout 为空。
     #     _encoding.ps1 把 $PSNativeCommandUseErrorActionPreference 设为 $false（按码判、不抛），故若不显式检查，
     #     评审者会收到**空 diff** 并可能在「什么都没看到」的情况下给 pass —— fail-open。须 fail-closed block。
-    if (-not $fail) {
+    if (Test-SelftestPrerequisite -GateIds @('17aa(5)')) {
       & git -C $bw checkout -q --orphan orphan-x
       & git -C $bw -c user.email='s@l' -c user.name='s' commit -q -m orphan *> $null
       Remove-Item -Recurse -Force (Join-Path $bw '.review') -ErrorAction SilentlyContinue
@@ -8870,7 +9314,7 @@ exit 0
 #   R3（PR #102）指出 task.ps1 的**确定性范围闸**（line 318）吃同一个「用本地 $Base」的 bug。把「名→ref」解析
 #   收敛到 scripts/_gitbase.ps1，review.ps1 与 task.ps1 共用。这里直接喂它「本地落后 origin」的仓，断言返回
 #   origin/master；再静态守两处调用点都经该函数、都不再用本地 $Base 算 diff（防再次一处修一处漏）。
-if (-not $fail) {
+if (Test-SelftestPrerequisite -GateIds @('17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)')) {
   $gbFile = Join-Path $RepoRoot 'scripts/_gitbase.ps1'
   if (-not (Test-Path $gbFile)) { Fail '17aa(6)：scripts/_gitbase.ps1 缺失——TD68 的共享基线解析器不存在。' }
   else {
@@ -8900,7 +9344,7 @@ if (-not $fail) {
       GS @('checkout', '-q', '--detach', $gbC)       # detach，master 不再被检出 → branch -f 可用（R3 七轮）
       GS @('branch', '-f', 'master', $gbB)
       GS @('push', '-q', '-u', 'origin', 'master')   # origin/master = B
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('17aa(6/local-behind)')) {
         # --- 方向1：本地落后 origin（master=A, origin/master=B）---
         GS @('branch', '-f', 'master', $gbA)
         $gbLocSha1 = (& git -C $gbw rev-parse master).Trim(); $gbRemSha = (& git -C $gbw rev-parse origin/master).Trim()
@@ -8908,7 +9352,7 @@ if (-not $fail) {
         $gbOut = (& pwsh -NoProfile -Command ". '$gbFile'; `$r = Resolve-ScaffoldBaseRef -GitDir '$gbw' -BaseName 'master'; `$r + '=' + (git -C '$gbw' rev-parse `$r)" 2>$null | Out-String).Trim()
         if ($gbOut -ne "refs/remotes/origin/master=$gbRemSha") { Fail "17aa(6)：本地落后 origin 时解析器应返回 origin/master(=$gbRemSha)，却得 '$gbOut'（TD68 共享解析器坏了）。" }
       }
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('17aa(6/local-ahead)')) {
         # --- 方向2：本地领先 origin（master=C, origin/master=B）；-PreferLocal 须返回本地 ---
         GS @('branch', '-f', 'master', $gbC)
         $gbLocSha2 = (& git -C $gbw rev-parse master).Trim(); $gbRemSha2 = (& git -C $gbw rev-parse origin/master).Trim()
@@ -8919,7 +9363,7 @@ if (-not $fail) {
         $gbRemote2 = (& pwsh -NoProfile -Command ". '$gbFile'; Resolve-ScaffoldBaseRef -GitDir '$gbw' -BaseName 'master'" 2>$null | Out-String).Trim()
         if ($gbRemote2 -ne 'refs/remotes/origin/master') { Fail "17aa(6)：缺省模式在本地领先时仍应优先 origin/master，却得 '$gbRemote2'。" }
       }
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('17aa(6/shadow-ref)')) {
         # --- F2 影子劫持（TD84 · R3 十轮 + 审计）：造一条本地分支 refs/heads/origin/master 指向**别的 sha**（$gbA），
         #     短名 rev-parse 'origin/master' 会被它先命中；全限定 refs/remotes/origin/master 不受影响。断言解析器仍解到远端 sha。
         GS @('update-ref', 'refs/heads/origin/master', $gbA)   # 恶意影子 ref（≠ origin/master=B）
@@ -8962,7 +9406,7 @@ if (-not $fail) {
 # ── 17aa(7). 行为测试（R3 PR#102 六轮）：-Local + 坏 -Base 真的 fail-closed（不是只在源码里搜标记）──
 #   造「本地 master 领先 origin/master」的仓，实跑 `task.ps1 -Phase ship -Local -Base <坏值>`，断言非零退出 + 报错点明原因。
 #   守卫置于 ship 最前（worktree/check-cards 之前），故本测试不需建 worktree、不触 DoD/评审——快且确定。
-if (-not $fail) {
+if (Test-SelftestPrerequisite -GateIds @('17aa(7)')) {
   $lbRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17aa7_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
   try {
     $lbOrigin = Join-Path $lbRoot 'o.git'; $lbw = Join-Path $lbRoot 'w'
@@ -9021,12 +9465,22 @@ if (-not $fail) { Write-Host '  17aa(7) 行为：-Local + 远端限定/错配-Ba
 #   ① origin/<base> 缺失/陈旧时须在范围闸前 fetch 恢复到远端当前 SHA，绝不回退本地；
 #   ② gh baseRefName 错配 / 空输出 / 命令失败三态均须 fail-closed；origin/master 正确归一化；评审后 retarget 在 merge 前复查阻断。
 # 同时复用 T11 真任务卡，让其无变量 DoD 经 task.ps1 的双层包装实际执行成功，防「只直接跑卡命令」假绿。
-if (-not $fail) {
+if (Test-SelftestPrerequisite -GateIds @('17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)')) {
   if (-not $IsWindows) {
-    Write-Host '  17aa(8) gh.ps1 行为夹具仅 Windows 执行；非 Windows 由 Windows CI 覆盖。' -ForegroundColor DarkGray
+    Skip-SelftestCheck -GateId '17aa(8)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8) gh.ps1 行为夹具仅 Windows 执行；非 Windows 由 Windows CI 覆盖。'
+    Skip-SelftestCheck -GateId '17aa(8/F5)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/F5) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
+    Skip-SelftestCheck -GateId '17aa(8/origin-form)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/origin-form) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
+    Skip-SelftestCheck -GateId '17aa(8/retarget)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/retarget) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
+    Skip-SelftestCheck -GateId '17aa(8/T24-mint-open)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/T24-mint-open) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
+    Skip-SelftestCheck -GateId '17aa(8/T24-mint-merged)' -Reason 'OS-WINDOWS-ONLY' -Message '  17aa(8/T24-mint-merged) 跳过：gh.ps1 行为夹具仅 Windows 执行。'
   # 下游豁免（同 15n/8.0c 手法）：本夹具复用元仓真卡 T11-R3-BASELINE（活位或冷存均可），已初始化下游不带元仓卡库——缺席即跳过而非崩整跑（TD74 同类）。
   } elseif (-not ((Test-Path (Join-Path $RepoRoot 'specs/tasks/T11-R3-BASELINE.md')) -or (Test-Path (Join-Path $RepoRoot 'specs/archive/tasks/T11-R3-BASELINE.md')))) {
-    Write-Host '  17aa(8) 跳过：复用的真卡 T11-R3-BASELINE 不存在（已初始化下游无元仓卡库；该行为闸由元仓侧覆盖）。' -ForegroundColor DarkGray
+    Skip-SelftestCheck -GateId '17aa(8)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8) 跳过：复用的真卡 T11-R3-BASELINE 不存在（已初始化下游无元仓卡库；该行为闸由元仓侧覆盖）。'
+    Skip-SelftestCheck -GateId '17aa(8/F5)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/F5) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
+    Skip-SelftestCheck -GateId '17aa(8/origin-form)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/origin-form) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
+    Skip-SelftestCheck -GateId '17aa(8/retarget)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/retarget) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
+    Skip-SelftestCheck -GateId '17aa(8/T24-mint-open)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/T24-mint-open) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
+    Skip-SelftestCheck -GateId '17aa(8/T24-mint-merged)' -Reason 'FIXTURE-CARD-MISSING' -Message '  17aa(8/T24-mint-merged) 跳过：复用的真卡 T11-R3-BASELINE 不存在。'
   } else {
     $r8Root = Join-Path ([System.IO.Path]::GetTempPath()) ("st17aa8_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     $r8SavedPath = $env:PATH; $r8SavedMode = $env:GH_MOCK_BASE_MODE; $r8SavedRoot = $env:GH_MOCK_ROOT
@@ -9136,14 +9590,16 @@ exit 0
           elseif (Test-Path (Join-Path $r8Root 'review-reached')) { Fail "闸17aa(8/$($r8Case.mode))：base 未确认却仍进入 review。"; break }
         }
         $r8TrackedSha = (& git -C $r8Wt rev-parse refs/remotes/origin/master 2>$null | Out-String).Trim()
-        if (-not $fail -and $r8TrackedSha -ne $r8RemoteSha) { Fail "闸17aa(8/F5)：ship 未把缺失/陈旧 origin/master 刷新到远端当前 SHA（local=$r8TrackedSha remote=$r8RemoteSha）。" }
-        if (-not $fail) {
+        if (Test-SelftestPrerequisite -GateIds @('17aa(8/F5)')) {
+          if ($r8TrackedSha -ne $r8RemoteSha) { Fail "闸17aa(8/F5)：ship 未把缺失/陈旧 origin/master 刷新到远端当前 SHA（local=$r8TrackedSha remote=$r8RemoteSha）。" }
+        }
+        if (Test-SelftestPrerequisite -GateIds @('17aa(8/origin-form)')) {
           Remove-Item (Join-Path $r8Root 'review-reached') -ErrorAction SilentlyContinue
           $env:GH_MOCK_BASE_MODE = 'origin-ok'
           & pwsh -NoProfile -File (Join-Path $r8Repo 'scripts/task.ps1') -TaskId T11-R3-BASELINE -Phase ship -Base origin/master -SkipRed -NoAutoMerge *> $null
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $r8Root 'review-reached'))) { Fail '闸17aa(8/origin-form)：-Base origin/master 未归一化为 GitHub baseRefName=master 并走到 review 成功。' }
         }
-        if (-not $fail) {
+        if (Test-SelftestPrerequisite -GateIds @('17aa(8/retarget)')) {
           Remove-Item (Join-Path $r8Root 'review-reached'),(Join-Path $r8Root 'merge-reached'),(Join-Path $r8Root 'base-count') -ErrorAction SilentlyContinue
           $env:GH_MOCK_BASE_MODE = 'retarget'
           $r8RetargetOut = (& pwsh -NoProfile -File (Join-Path $r8Repo 'scripts/task.ps1') -TaskId T11-R3-BASELINE -Phase ship -SkipRed 2>&1 | Out-String)
@@ -9151,7 +9607,7 @@ exit 0
           elseif (-not (Test-Path (Join-Path $r8Root 'review-reached'))) { Fail '闸17aa(8/retarget)：夹具未走过 review，未真正覆盖评审后的 TOCTOU 窗口。' }
           elseif (Test-Path (Join-Path $r8Root 'merge-reached')) { Fail '闸17aa(8/retarget)：二次 base 校验失败后仍调用 gh pr merge。' }
         }
-        if (-not $fail) {
+        if (Test-SelftestPrerequisite -GateIds @('17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)')) {
           # 17aa(8/T24-mint) 远端铸造行为（T24 R3 r5 #17/#6，复用本 gh mock 远端 ship 夹具）：`gh pr merge` exit 0 ≠ 已合并——
           #   state=OPEN（auto-merge/队列仅入队）→ 不铸凭据且 ship fail-closed；state=MERGED → 铸 tip 绑定凭据（tip==被合并 head）。
           $r8TokFile = Join-Path (Join-Path (Join-Path $r8Repo '.git') 'scaffold-merged') 'T11-R3-BASELINE'
@@ -9163,7 +9619,7 @@ exit 0
           if ($LASTEXITCODE -eq 0) { Fail '闸17aa(8/T24-mint-open)：gh pr merge 返回 0 但 PR state=OPEN（仅入队）时 ship 仍退出 0——未合并状态被当已合并。' }
           elseif (Test-Path $r8TokFile) { Fail '闸17aa(8/T24-mint-open)：PR 未 MERGED 却铸出了合并凭据——cleanup 将被授权删除未合并分支（T24 数据丢失面重开）。' }
           elseif ($r8OpenOut -notmatch 'T24-MERGETOKEN') { Fail '闸17aa(8/T24-mint-open)：fail-closed 但报错未携带 T24-MERGETOKEN 哨兵与恢复指引。' }
-          if (-not $fail) {
+          if (Test-SelftestPrerequisite -GateIds @('17aa(8/T24-mint-merged)')) {
             $env:GH_MOCK_MERGE_STATE = 'merged'
             & pwsh -NoProfile -File (Join-Path $r8Repo 'scripts/task.ps1') -TaskId T11-R3-BASELINE -Phase ship -SkipRed *> $null
             $r8MintExit = $LASTEXITCODE
@@ -9195,9 +9651,17 @@ exit 0
 # 复用 17aa(8) GH_MOCK PATH-stub gh + 裸 origin + 15r(e) 隔离仓；本卡新增能力 = gh stub 按 PR 存在性状态化
 # （create 前 `gh pr view --json number` 返回空→走 PR 新建腿；create 后返回号→走复用腿）+ 可注入远端 merge 失败。
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
-if (-not $fail) {
+if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
+  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4')) {
   if (-not $IsWindows) {
-    Write-Host '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。' -ForegroundColor DarkGray
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/1-recover' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1-recover 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/1-reuse' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1-reuse 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/2' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/2 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/2-rerun' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/2-rerun 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/3' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/3 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-REMOTEMX/4' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/4 跳过：远端态矩阵仅 Windows 执行。'
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
@@ -9328,7 +9792,7 @@ exit 0
       #   run1（真 RED→绿 GREENMX→武装首次 create 失败，非 -SkipRed）：commit 铸收据→push 成功(origin ref==HEAD)→PR 腿失败(未获 PR 号)→pushed-no-PR；
       #   run2（-NoAutoMerge 恢复，非 -SkipRed）：收据自洽 resume 放行 RED→幂等 push(HEAD 不变、origin ref==HEAD)→PR 新建腿(count=1)→停 PR-open；
       #   run3（复用腿，非 -SkipRed）：收据 resume→PR 已在→跳过 create(count 仍=1)→mock 合并铸 T24 凭据。全程 HEAD 不变。
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse')) {
         $fx1 = & $rmMake 'base'
         try {
           if (-not $fx1.Ok) { Fail 'T37-REMOTEMX/1 setup：底座夹具 start 未产出 worktree。' }
@@ -9388,7 +9852,7 @@ exit 0
 
       # 场景 2：push 被拒（非 FF）drive-through——裸 origin 预置分叉 → 首跑 ship 在 push 腿失败（TD44/:593）→
       # 教义 worktree 内 fetch + git merge origin/分叉（merge 从不 rebase，禁历史改写）→ 重跑同一 ship 幂等 push 变 FF、全绿至 mock 合并。
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun')) {
         $fx2 = & $rmMake 'nonff'
         try {
           if (-not $fx2.Ok) { Fail 'T37-REMOTEMX/2 setup：非 FF 夹具 start 未产出 worktree。' }
@@ -9441,7 +9905,7 @@ exit 0
       }
 
       # 场景 3：远端合并失败态（TD89 点名零覆盖缺口）——注入 gh pr merge 非零 → ship fail-closed：非零退出、点名合并失败、绝不铸 T24 凭据。
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX/3')) {
         $fx3 = & $rmMake 'mergefail'
         try {
           if (-not $fx3.Ok) { Fail 'T37-REMOTEMX/3 setup：合并失败夹具 start 未产出 worktree。' }
@@ -9476,7 +9940,7 @@ exit 0
       #   正例：全在界 ⇒ 范围步 [SCOPE-PASS] ⇒ 链续跑 -PostStatus ⇒ mock 合并被消费（merge-reached 在场）。
       #         正例给负例的红提供**鉴别力**：否则负例可能只是因为序列本身走不通而红（vacuous）。
       #   前置：收据须**真的被构造成缺失**（先断言它在、删掉、再断言它不在）——否则「收据缺失」是碰巧成立。
-      if (-not $fail) {
+      if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX/4')) {
         $fx4 = & $rmMake 'recovery'
         try {
           if (-not $fx4.Ok) { Fail '闸15t / T37-REMOTEMX/4 setup：恢复夹具 start 未产出 worktree。' }
@@ -9645,6 +10109,7 @@ exit 0
       foreach ($rr in $script:rmRoots) { Remove-Item -Recurse -Force $rr -ErrorAction SilentlyContinue }
     }
   }
+}
 }
 
 # ── 17cc/17dd（T0-GATE-HARDENING）+ 17cc(case)/17ee（T0-GATE-FIXFORWARD）：许可闸 Gradle 清单递归发现
@@ -10159,7 +10624,7 @@ try {
     [System.Management.Automation.Language.Parser]::ParseFile($realCLPath, [ref]$reparseTokens, [ref]$null) | Out-Null
     $nonCommentReparseHits = @($reparseTokens | Where-Object { $_.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment -and $_.Text -match 'ReparsePoint' })
     if ($nonCommentReparseHits.Count -eq 0) { Fail '17cc(reparse) 静态兜底：check-licenses.ps1 的非注释 token 里未见 ReparsePoint 判据——剪枝逻辑可能未落地或已被删（本机/本用户无法建符号链接/目录联接，只能退化到源码静态核验；注释单独出现不算数）。' }
-    else { Write-Host '  17cc(reparse) 半覆盖：本机/本用户无法建符号链接/目录联接（非本卡缺陷），已退化为 token 级静态核验——ReparsePoint 判据在非注释代码中确认在场 OK' -ForegroundColor DarkGray }
+    else { Skip-SelftestCheck -GateId '17cc(reparse-functional)' -Reason 'REPARSE-CAPABILITY-MISSING' -Message '  17cc(reparse) 半覆盖：本机/本用户无法建符号链接/目录联接（非本卡缺陷），已退化为 token 级静态核验——ReparsePoint 判据在非注释代码中确认在场 OK' }
   } else {
     $reparseHits = @(Find-GradleManifests -Root $fxReparseRoot -Names @('build.gradle'))
     $leakedHits = @($reparseHits | Where-Object { $_.StartsWith($fxOutside) -or $_.StartsWith($reparseLinkPath) })
@@ -12024,6 +12489,9 @@ if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
 } else { Write-Host "  分片执行组：$($expectedGateGroups -join ',') OK" -ForegroundColor Green }
 
 Step "结论 [$Shard]"
+$outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)
+if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join ',')" }
+Write-Host (Format-SelftestSkipSummary -Shard $Shard -Records $skippedSelftestChecks) -ForegroundColor DarkGray
 if ($fail) {
   Write-Host (Format-SelftestFailureSentinel -Shard $Shard -GateIds $failedSelftestGateIds) -ForegroundColor Red
   Write-Host 'selftest: FAIL' -ForegroundColor Red
