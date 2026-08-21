@@ -2,7 +2,7 @@
 id: T2-PHOTO-PROPERTY-DEDUPE
 title: 照片物理去重限定在同一物业（偿还 TD24，保证按物业备份闭包）
 depends_on: [T2-PHOTO-PIPELINE, T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST]
-status: todo
+status: merged
 branch: T2-PHOTO-PROPERTY-DEDUPE
 worktree: C:\wt\T2-PHOTO-PROPERTY-DEDUPE
 allow_paths:

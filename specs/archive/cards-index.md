@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 61 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 62 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -59,6 +59,7 @@
 | T2-PHOTO-DIRECTORY-DURABILITY | merged | 照片 sidecar 的目录级 crash durability 收口 |
 | T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER | merged | 照片孤儿清理：durable sidecar lease + WorkManager 生产调度（偿还 TD14） |
 | T2-PHOTO-PIPELINE | merged | 照片管线：存储布局 + EXIF 转正（8 向）+ 内容哈希去重 + 导入 |
+| T2-PHOTO-PROPERTY-DEDUPE | merged | 照片物理去重限定在同一物业（偿还 TD24，保证按物业备份闭包） |
 | T2-PHOTO-QUALITY-PROFILES | merged | 新照片四档质量：Low / Medium / High / Extra High（默认 Medium） |
 | T2-PHOTO-STREAMING-ENCODE | merged | 照片流式编码：去掉整份 JPEG ByteArray 内存峰值（偿还 TD15） |
 | T2-PHRASELIB | merged | 双语短语库种子内容 + 查询接口 |
