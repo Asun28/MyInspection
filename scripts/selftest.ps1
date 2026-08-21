@@ -2476,6 +2476,67 @@ else {
   if (-not (Test-Path (Join-Path $ar 'specs/tasks/TA2.md'))) { $arFail += 'todo 卡 TA2 被误归档（应留活目录）' }
   if (-not (Test-Path (Join-Path $ar 'specs/tasks/_TEMPLATE.md')) -or (Test-Path (Join-Path $ar 'specs/archive/tasks/_TEMPLATE.md'))) { $arFail += '_TEMPLATE.md 被误归档（名字豁免失效）' }
   if ($cardsIdx -notmatch 'TA1' -or $cardsIdx -notmatch 'TA3' -or $cardsIdx -match 'TA2') { $arFail += '卡索引内容错（应含 TA1/TA3、不含 TA2）' }
+
+  # TD146：只读索引检查必须复用生产投影且零副作用。先证正确索引通过，再删一条真实行证 exact drift 会被拒；
+  # 检查不得顺手修复，正常 archive 才负责重建。tree state 用逐文件 SHA 独立证明只读，不镜像索引生成逻辑。
+  $cardsIndexPath = Join-Path $ar 'specs/archive/cards-index.md'
+  $getArchiveTreeState = {
+    @(Get-ChildItem -LiteralPath $ar -Recurse -File | Sort-Object FullName | ForEach-Object {
+      $rel = [IO.Path]::GetRelativePath($ar, $_.FullName).Replace('\', '/')
+      "$rel|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+    })
+  }
+  $treeBeforeCheck = @(& $getArchiveTreeState)
+  $cardsCheckGoodOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckGoodCode = $LASTEXITCODE
+  $treeAfterCheck = @(& $getArchiveTreeState)
+  if ($cardsCheckGoodCode -ne 0) { $arFail += "正确卡索引被只读检查拒绝（exit=$cardsCheckGoodCode）：$cardsCheckGoodOut" }
+  if (@(Compare-Object $treeBeforeCheck $treeAfterCheck).Count -ne 0) { $arFail += '只读卡索引检查修改了夹具文件树' }
+
+  $correctCardsIndexBytes = [IO.File]::ReadAllBytes($cardsIndexPath)
+  $utf8Bom = [Text.UTF8Encoding]::new($true).GetPreamble()
+  [IO.File]::WriteAllBytes($cardsIndexPath, [byte[]]($utf8Bom + $correctCardsIndexBytes))
+  $bomDriftHash = (Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash
+  $cardsCheckBomOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckBomCode = $LASTEXITCODE
+  if ($cardsCheckBomCode -eq 0) { $arFail += 'UTF-8 BOM 字节漂移仍 exit 0（检查并非 exact bytes）' }
+  elseif ($cardsCheckBomOut -notmatch '\[ARCHIVE-CARDS-INDEX-DRIFT\]') { $arFail += "BOM 字节漂移被拒但未输出 [ARCHIVE-CARDS-INDEX-DRIFT]：$cardsCheckBomOut" }
+  if ((Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash -ne $bomDriftHash) { $arFail += 'BOM 漂移检查修改/自修了夹具索引' }
+  [IO.File]::WriteAllBytes($cardsIndexPath, $correctCardsIndexBytes)
+
+  $tamperedCardsIndex = @(Get-Content -LiteralPath $cardsIndexPath | Where-Object { $_ -notmatch '^\| TA3 \|' })
+  Set-Content -LiteralPath $cardsIndexPath -Value ($tamperedCardsIndex -join "`n") -Encoding utf8
+  $treeBeforeDriftCheck = @(& $getArchiveTreeState)
+  $cardsCheckDriftOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckDriftCode = $LASTEXITCODE
+  $treeAfterDriftCheck = @(& $getArchiveTreeState)
+  if ($cardsCheckDriftCode -eq 0) { $arFail += '删除 TA3 索引行后只读检查仍 exit 0（exact projection 漂移未拦）' }
+  elseif ($cardsCheckDriftOut -notmatch '\[ARCHIVE-CARDS-INDEX-DRIFT\]') { $arFail += "索引漂移被拒但未输出 [ARCHIVE-CARDS-INDEX-DRIFT]：$cardsCheckDriftOut" }
+  if (@(Compare-Object $treeBeforeDriftCheck $treeAfterDriftCheck).Count -ne 0) { $arFail += '漂移检查修改/自修了夹具文件树' }
+
+  & pwsh -NoProfile -File $arScript -RepoRoot $ar -Quiet *> $null
+  $cardsRebuildCode = $LASTEXITCODE
+  $cardsCheckRebuiltOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckRebuiltCode = $LASTEXITCODE
+  if ($cardsRebuildCode -ne 0 -or $cardsCheckRebuiltCode -ne 0) { $arFail += "正常 archive 未能重建并通过卡索引检查（rebuild=$cardsRebuildCode check=$cardsCheckRebuiltCode）：$cardsCheckRebuiltOut" }
+
+  # verify 接线用极小真实仓夹具：不含 Android/Python/frontend，故唯一失败必须来自 archive cards index drift。
+  $verifyArchiveRoot = Join-Path $ar 'verify-wire'
+  New-Item -ItemType Directory -Force (Join-Path $verifyArchiveRoot 'scripts'), (Join-Path $verifyArchiveRoot 'specs/archive/tasks') | Out-Null
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify.ps1'), $arScript, (Join-Path $PSScriptRoot '_cards.ps1'), (Join-Path $PSScriptRoot '_encoding.ps1') -Destination (Join-Path $verifyArchiveRoot 'scripts')
+  Set-Content -LiteralPath (Join-Path $verifyArchiveRoot 'specs/archive/tasks/TV1.md') -Value "---`nid: TV1`ntitle: verify one`nstatus: merged`n---" -Encoding utf8
+  Set-Content -LiteralPath (Join-Path $verifyArchiveRoot 'specs/archive/tasks/TV2.md') -Value "---`nid: TV2`ntitle: verify two`nstatus: merged`n---" -Encoding utf8
+  & pwsh -NoProfile -File (Join-Path $verifyArchiveRoot 'scripts/archive.ps1') -RepoRoot $verifyArchiveRoot -Quiet *> $null
+  $verifyCardsIndexPath = Join-Path $verifyArchiveRoot 'specs/archive/cards-index.md'
+  $verifyTamperedIndex = @(Get-Content -LiteralPath $verifyCardsIndexPath | Where-Object { $_ -notmatch '^\| TV2 \|' })
+  Set-Content -LiteralPath $verifyCardsIndexPath -Value ($verifyTamperedIndex -join "`n") -Encoding utf8
+  $verifyTamperedHash = (Get-FileHash -LiteralPath $verifyCardsIndexPath -Algorithm SHA256).Hash
+  $verifyDriftOut = & pwsh -NoProfile -File (Join-Path $verifyArchiveRoot 'scripts/verify.ps1') 2>&1 | Out-String
+  $verifyDriftCode = $LASTEXITCODE
+  if ($verifyDriftCode -eq 0) { $arFail += 'verify 对漂移的 cards-index 仍 exit 0（只读投影检查未接线）' }
+  elseif ($verifyDriftOut -notmatch '\[ARCHIVE-CARDS-INDEX-DRIFT\]') { $arFail += "verify 非零但未由 [ARCHIVE-CARDS-INDEX-DRIFT] 点名：$verifyDriftOut" }
+  if ((Get-FileHash -LiteralPath $verifyCardsIndexPath -Algorithm SHA256).Hash -ne $verifyTamperedHash) { $arFail += 'verify 的索引检查写回/自修了漂移索引' }
+
   # (4) 幂等：再跑一次，分区与索引不得变
   & pwsh -NoProfile -File $arScript -RepoRoot $ar -Quiet *> $null
   $liveTd2 = Get-Content (Join-Path $ar 'specs/tech-debt-tracker.md') -Raw
