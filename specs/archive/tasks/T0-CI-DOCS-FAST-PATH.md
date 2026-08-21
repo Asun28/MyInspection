@@ -2,7 +2,7 @@
 id: T0-CI-DOCS-FAST-PATH
 title: 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链
 depends_on: []
-status: todo
+status: merged
 branch: T0-CI-DOCS-FAST-PATH
 worktree: C:\wt\T0-CI-DOCS-FAST-PATH
 allow_paths:
