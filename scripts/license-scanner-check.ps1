@@ -832,15 +832,24 @@ if ($Suite -eq 'policy') {
     }
 
     $supplementaryFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
+    $xmlEntityPrefix = ([string][char]38) + '#x'
+    $malformedHighEntity = $xmlEntityPrefix + 'D800;'
+    $malformedLowEntity = $xmlEntityPrefix + 'DC00;'
     $parentMetadataCases = @(
       @{ Id = 'missing-group'; Error = $null; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'missing-version'; Error = $null; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'control-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'supplementary-format-artifact'; Error = '[LICENSE-METADATA-SCALAR]'; Coordinate = 'fixture.policy:parent-supplementary-format-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${supplementaryFormat}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-supplementary-format-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
-      @{ Id = 'malformed-high-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-malformed-high-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#xD800;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-high-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
-      @{ Id = 'malformed-low-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-malformed-low-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#xDC00;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-low-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' }
+      @{ Id = 'malformed-high-artifact'; Error = $null; EntityHex = '26-23-78-44-38-30-30-3B'; Coordinate = 'fixture.policy:parent-malformed-high-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${malformedHighEntity}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-high-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
+      @{ Id = 'malformed-low-artifact'; Error = $null; EntityHex = '26-23-78-44-43-30-30-3B'; Coordinate = 'fixture.policy:parent-malformed-low-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${malformedLowEntity}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-low-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" }
     )
     foreach ($parentMetadata in $parentMetadataCases) {
+      if ($parentMetadata.ContainsKey('EntityHex')) {
+        $pomFixtureHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($parentMetadata.Xml))
+        Assert-Policy (
+          [regex]::Matches($pomFixtureHex, [regex]::Escape($parentMetadata.EntityHex)).Count -eq 1
+        ) "[POLICY-POM-MALFORMED-FIXTURE-BYTES-$($parentMetadata.Id.ToUpperInvariant())] generated XML entity bytes drifted"
+      }
       [void](Write-PolicyPom -Coordinate $parentMetadata.Coordinate -Xml $parentMetadata.Xml)
       $parentMetadataResult = Invoke-PolicyFixture -Coordinates @($parentMetadata.Coordinate)
       $parentPomErrors = @($parentMetadataResult.Violations | Where-Object Code -CEQ 'GRADLE-POM')
@@ -947,9 +956,10 @@ if ($Suite -eq 'policy') {
       @{ Id = 'duplicate-fallback'; Error = '坐标重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'duplicate-declared'; Error = 'declared_license 重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' }
     )
+    $jsonEscapePrefix = ([string][char]92) + 'u'
     foreach ($surrogateCase in @(
-      @{ Id = 'high'; Escape = '\uD800' },
-      @{ Id = 'low'; Escape = '\uDC00' }
+      @{ Id = 'high'; Escape = $jsonEscapePrefix + 'D800'; EscapeHex = '5C-75-44-38-30-30' },
+      @{ Id = 'low'; Escape = $jsonEscapePrefix + 'DC00'; EscapeHex = '5C-75-44-43-30-30' }
     )) {
       foreach ($field in @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
         $values = @{
@@ -962,6 +972,10 @@ if ($Suite -eq 'policy') {
         }
         $values[$field] = "$($values[$field])$($surrogateCase.Escape)"
         $malformedJson = '[{"coordinate":"' + $values.coordinate + '","declared_license":"' + $values.declared_license + '","license":"' + $values.license + '","evidence_url":"' + $values.evidence_url + '","registered_by":"' + $values.registered_by + '","registered_on":"' + $values.registered_on + '"}]'
+        $malformedJsonHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($malformedJson))
+        Assert-Policy (
+          [regex]::Matches($malformedJsonHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -eq 1
+        ) "[POLICY-OVERRIDE-MALFORMED-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-$($field.Replace('_', '-').ToUpperInvariant())] generated JSON escape bytes drifted"
         $invalidExceptions += @{
           Id = "malformed-$($surrogateCase.Id)-$($field.Replace('_', '-'))"
           Error = '[LICENSE-METADATA-SCALAR]'
@@ -973,6 +987,10 @@ if ($Suite -eq 'policy') {
         Error = '[LICENSE-METADATA-SCALAR]'
         Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by' + $surrogateCase.Escape + '":"policy-test","registered_on":"2026-08-19"}]'
       }
+      $propertyFixtureHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($invalidExceptions[-1].Json))
+      Assert-Policy (
+        [regex]::Matches($propertyFixtureHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -eq 1
+      ) "[POLICY-OVERRIDE-MALFORMED-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-PROPERTY-NAME] generated JSON property escape bytes drifted"
     }
     foreach ($invalid in $invalidExceptions) {
       Set-PolicyExceptions -Json $invalid.Json
