@@ -124,6 +124,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # 分片子进程可能没有交互控制台；若沿用 Windows OEM 编码，中文哨兵/路径会在嵌套
 # pwsh 日志中变字节，导致断言假红。入口先与其它生产脚本一样钉 UTF-8/native 语义。
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }
+. (Join-Path $PSScriptRoot '_gitbase.ps1')
 
 # 纯函数：聚合器必须 fail-closed，只有所有分片均为 0 才返回 0。闸 8.2e 直测此函数，
 # 而默认 all 路径实际用它裁决进程退出码，避免「并行了但吞掉红分片」。
@@ -286,15 +287,39 @@ function New-SelftestSnapshot {
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][object]$GitExe
   )
+  $sourceHeadLines = @(& $GitExe.Source -C $SourceRoot rev-parse --verify 'HEAD^{commit}')
+  if ($LASTEXITCODE -ne 0 -or $sourceHeadLines.Count -ne 1 -or $sourceHeadLines[0] -notmatch '^[0-9a-f]{40,64}$') {
+    throw "无法为 selftest 分片 $Name 解析调用者 HEAD 提交。"
+  }
+  $sourceHeadOid = [string]$sourceHeadLines[0]
+  $sourceBaseRef = Resolve-ScaffoldBaseRef -GitDir $SourceRoot -BaseName master
+  if (-not $sourceBaseRef) { throw "无法为 selftest 分片 $Name 解析权威 master 引用。" }
+  $sourceBaseLines = @(& $GitExe.Source -C $SourceRoot rev-parse --verify "$sourceBaseRef^{commit}")
+  if ($LASTEXITCODE -ne 0 -or $sourceBaseLines.Count -ne 1 -or $sourceBaseLines[0] -notmatch '^[0-9a-f]{40,64}$') {
+    throw "无法为 selftest 分片 $Name 解析权威 master 提交。"
+  }
+  $sourceBaseOid = [string]$sourceBaseLines[0]
+  if ($Name -notmatch '^[a-z0-9-]+$') { throw "selftest 分片名不能用于隔离分支：$Name" }
+  $snapshotBranch = "selftest-snapshot-$Name"
+
   & $GitExe.Source clone --quiet --no-hardlinks $SourceRoot $SnapshotRoot
   if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name clone 独立仓库快照。" }
-  & $GitExe.Source -C $SnapshotRoot show-ref --verify --quiet refs/heads/master
-  if ($LASTEXITCODE -ne 0) {
-    & $GitExe.Source -C $SnapshotRoot show-ref --verify --quiet refs/remotes/origin/master
-    if ($LASTEXITCODE -eq 0) {
-      & $GitExe.Source -C $SnapshotRoot branch master refs/remotes/origin/master *> $null
-      if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 建立本地 master 基线。" }
-    }
+  # TD156-HEAD-PIN：clone 可把 detached HEAD 归到任一同 SHA 分支；快照必须显式钉 source HEAD。
+  & $GitExe.Source -C $SnapshotRoot checkout --quiet -B $snapshotBranch $sourceHeadOid
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 建立隔离 HEAD 分支。" }
+  # TD156-BASE-PIN：clone 的 origin/master 指向 source 的本地 master，不等于 source 自己的权威 origin/master。
+  & $GitExe.Source -C $SnapshotRoot update-ref refs/heads/master $sourceBaseOid
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 钉住本地 master 基线。" }
+  & $GitExe.Source -C $SnapshotRoot update-ref refs/remotes/origin/master $sourceBaseOid
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 钉住 origin/master 基线。" }
+  $snapshotHeadOid = (& $GitExe.Source -C $SnapshotRoot rev-parse --verify 'HEAD^{commit}').Trim()
+  $snapshotMasterOid = (& $GitExe.Source -C $SnapshotRoot rev-parse --verify 'refs/heads/master^{commit}').Trim()
+  $snapshotOriginMasterOid = (& $GitExe.Source -C $SnapshotRoot rev-parse --verify 'refs/remotes/origin/master^{commit}').Trim()
+  $snapshotHeadRef = (& $GitExe.Source -C $SnapshotRoot symbolic-ref --short HEAD).Trim()
+  if ($LASTEXITCODE -ne 0 -or $snapshotHeadOid -ne $sourceHeadOid -or
+      $snapshotMasterOid -ne $sourceBaseOid -or $snapshotOriginMasterOid -ne $sourceBaseOid -or
+      $snapshotHeadRef -ne $snapshotBranch) {
+    throw "selftest 分片 $Name 的 HEAD/master 快照身份未精确钉定。"
   }
 
   # --no-renames 把 rename 展开成旧路径删除 + 新路径复制，防 clone 中残留旧文件。
@@ -1250,6 +1275,7 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
 
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
   $aggLogs = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-logs-$PID-$([guid]::NewGuid().ToString('N'))"
+  $aggOrigin = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-origin-$PID-$([guid]::NewGuid().ToString('N')).git"
   $aggTempPattern = "scaffold-selftest-all-$PID-*"
   $aggRootsBefore = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Directory -Filter $aggTempPattern -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
   $oldFailShard = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_FAIL_SHARD', 'Process')
@@ -1296,9 +1322,44 @@ exit 0
     & git -C $aggFixture symbolic-ref HEAD refs/heads/master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture master failed' }
     & git -C $aggFixture add -A; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture add failed' }
     & git -C $aggFixture -c user.email='s@l' -c user.name='s' commit -q -m base; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture commit failed' }
+    $td156StaleMasterOid = (& git -C $aggFixture rev-parse --verify 'HEAD^{commit}').Trim()
+    & git init --bare -q $aggOrigin; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture bare origin failed' }
+    & git -C $aggFixture remote add origin $aggOrigin; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture origin add failed' }
+    & git -C $aggFixture push -q -u origin master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture initial push failed' }
+    & git -C $aggFixture switch -q -c td156-latest; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest branch failed' }
+    'latest-head' | Set-Content (Join-Path $aggFixture 'head-marker.txt')
+    & git -C $aggFixture add head-marker.txt; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest add failed' }
+    & git -C $aggFixture -c user.email='s@l' -c user.name='s' commit -q -m latest; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest commit failed' }
+    $td156SourceHeadOid = (& git -C $aggFixture rev-parse --verify 'HEAD^{commit}').Trim()
+    & git -C $aggFixture push -q origin HEAD:master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest push failed' }
+    & git -C $aggFixture branch td156-same-head $td156SourceHeadOid; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture same-SHA branch failed' }
+    & git -C $aggFixture switch -q --detach $td156SourceHeadOid; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture detach failed' }
+    $td156AuthoritativeBaseOid = (& git -C $aggFixture rev-parse --verify 'refs/remotes/origin/master^{commit}').Trim()
+    if ($td156StaleMasterOid -eq $td156AuthoritativeBaseOid -or $td156SourceHeadOid -ne $td156AuthoritativeBaseOid) {
+      throw 'aggregate fixture did not create stale local master + authoritative origin/master'
+    }
     & git -C $aggFixture mv old.txt renamed.txt; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture rename failed' }
     Remove-Item -LiteralPath (Join-Path $aggFixture 'deleted.txt') -Force -ErrorAction Stop
     'untracked' | Set-Content (Join-Path $aggFixture 'untracked.txt')
+
+    $td156Snapshot = Join-Path $aggLogs 'td156-snapshot'
+    [void](New-SelftestSnapshot -SourceRoot $aggFixture -SnapshotRoot $td156Snapshot -Name 'td156' -GitExe (Get-Command git -ErrorAction Stop))
+    $td156SnapshotHead = (& git -C $td156Snapshot rev-parse --verify 'HEAD^{commit}').Trim()
+    $td156SnapshotMaster = (& git -C $td156Snapshot rev-parse --verify 'refs/heads/master^{commit}').Trim()
+    $td156SnapshotOriginMaster = (& git -C $td156Snapshot rev-parse --verify 'refs/remotes/origin/master^{commit}').Trim()
+    $td156SnapshotBranch = (& git -C $td156Snapshot symbolic-ref --short HEAD 2>$null).Trim()
+    $td156OverlayOk = (Test-Path (Join-Path $td156Snapshot 'renamed.txt')) -and
+      (-not (Test-Path (Join-Path $td156Snapshot 'old.txt'))) -and
+      (-not (Test-Path (Join-Path $td156Snapshot 'deleted.txt'))) -and
+      (Test-Path (Join-Path $td156Snapshot 'untracked.txt'))
+    if ($td156SnapshotHead -ne $td156SourceHeadOid -or
+        $td156SnapshotMaster -ne $td156AuthoritativeBaseOid -or
+        $td156SnapshotOriginMaster -ne $td156AuthoritativeBaseOid -or
+        -not $td156SnapshotBranch.StartsWith('selftest-snapshot-', [System.StringComparison]::Ordinal) -or
+        -not $td156OverlayOk) {
+      Fail '8.2e(TD156)：all 快照未钉 source HEAD、隔离分支、权威 master/origin-master 或 dirty overlay。'
+    }
+    Remove-Item -LiteralPath $td156Snapshot -Recurse -Force -ErrorAction Stop
 
     $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $aggLogs
     $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = 'workflow'
@@ -1356,7 +1417,7 @@ exit 0
     if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
     if ($null -eq $oldGateSpec) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = $oldGateSpec }
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
-    Remove-Item -LiteralPath $aggFixture, $aggLogs -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $aggFixture, $aggLogs, $aggOrigin -Recurse -Force -ErrorAction SilentlyContinue
   }
   if (-not $fail) { Write-Host '  8.2e 6 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
 }
