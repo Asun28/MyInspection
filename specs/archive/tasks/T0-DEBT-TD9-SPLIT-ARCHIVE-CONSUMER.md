@@ -4,7 +4,7 @@ title: 让 TD9 split checker 读取已归档规划卡
 depends_on: [T0-DEBT-SELFTEST-SPLIT-PLAN]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-DEBT-TD9-SPLIT-ARCHIVE-CONSUMER
 worktree: C:\wt\T0-DEBT-TD9-SPLIT-ARCHIVE-CONSUMER
 allow_paths:
