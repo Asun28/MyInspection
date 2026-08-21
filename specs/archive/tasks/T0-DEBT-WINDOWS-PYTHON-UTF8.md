@@ -2,7 +2,7 @@
 id: T0-DEBT-WINDOWS-PYTHON-UTF8
 title: 把 Windows Python UTF-8 工具纪律合并晋升为必须层（偿还 TD152 / L162）
 depends_on: [T0-DEBT-POWERSHELL-DETACHED-ENCODING]
-status: todo
+status: merged
 branch: T0-DEBT-WINDOWS-PYTHON-UTF8
 worktree: C:\wt\T0-DEBT-WINDOWS-PYTHON-UTF8
 allow_paths:
