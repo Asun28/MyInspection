@@ -116,6 +116,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
+  [ValidateSet('', 'canary-harness')][string]$Fixture = '',
   [switch]$StrictLint
 )
 
@@ -518,6 +519,161 @@ function Invoke-SelftestAll {
     if (Test-Path -LiteralPath $aggregateRoot) { Remove-Item -LiteralPath $aggregateRoot -Recurse -Force -ErrorAction Stop }
   }
   return $aggregateExit
+}
+
+function Get-SelftestNestedShipDiagnostic {
+  param(
+    [Parameter(Mandatory)][int]$ExitCode,
+    [AllowEmptyCollection()][object[]]$Output = @(),
+    [Parameter(Mandatory)][string]$LedgerPath
+  )
+
+  $gate = 'unknown'
+  if (Test-Path -LiteralPath $LedgerPath -PathType Leaf) {
+    foreach ($line in @([System.IO.File]::ReadAllLines($LedgerPath)) | Select-Object -Last 20) {
+      if (-not $line.Trim()) { continue }
+      try {
+        $record = $line | ConvertFrom-Json -ErrorAction Stop
+        if ($record.gate -and [string]$record.gate -match '^[A-Za-z0-9._-]+$') { $gate = [string]$record.gate }
+      } catch { }
+    }
+  }
+
+  # Reuse the scanner's bounded, credential-aware diagnostic formatter rather than growing a second redactor.
+  . (Join-Path $PSScriptRoot 'check-licenses.ps1') -AsLibrary
+  $tail = Get-GradleDiagnosticTail -Output $Output -MaxLines 20 -MaxChars 3000
+  return "[SELFTEST-15B-SHIP] exit=$ExitCode gate=$gate tail=$tail"
+}
+
+function Invoke-SelftestGradleMigrationGate {
+  param(
+    [Parameter(Mandatory)][string]$AndroidRoot,
+    [Parameter(Mandatory)][string]$GradleUserHome,
+    [scriptblock]$StateProbe,
+    [Parameter(Mandatory)][scriptblock]$RunCases
+  )
+
+  if (-not $StateProbe) {
+    $StateProbe = {
+      param($androidRoot, $gradleHome)
+      . (Join-Path $PSScriptRoot 'check-licenses.ps1') -AsLibrary
+      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot -GradleUserHome $gradleHome
+    }
+  }
+  $state = & $StateProbe $AndroidRoot $GradleUserHome
+  if (-not $state.Ready) {
+    return [PSCustomObject]@{ Skipped = $true; Reason = 'GRADLE-WRAPPER-OFFLINE'; Detail = [string]$state.Detail }
+  }
+  & $RunCases
+  return [PSCustomObject]@{ Skipped = $false; Reason = ''; Detail = [string]$state.Detail }
+}
+
+function Add-SelftestE2eBaseline {
+  param(
+    [Parameter(Mandatory)][string]$RepoRoot,
+    [Parameter(Mandatory)][string]$TrackedSensitivePath
+  )
+
+  & git -C $RepoRoot add -A 2>$null
+  if ($LASTEXITCODE -ne 0) { throw "E2E baseline git add failed: $RepoRoot" }
+  $sensitiveFile = Join-Path $RepoRoot $TrackedSensitivePath
+  if (-not (Test-Path -LiteralPath $sensitiveFile -PathType Leaf)) {
+    throw "E2E reviewed sensitive baseline is missing: $TrackedSensitivePath"
+  }
+  & git -C $RepoRoot add -f -- $TrackedSensitivePath 2>$null
+  if ($LASTEXITCODE -ne 0) { throw "E2E reviewed sensitive baseline force-add failed: $TrackedSensitivePath" }
+}
+
+function Get-SelftestCanarySourceContracts {
+  # Build each required production line from parts so the contract text itself cannot satisfy its own source check.
+  return @(
+    [PSCustomObject]@{ Code = 'SHIP-RUNNER'; Text = ('      $shipOutput = @(& pwsh -NoProfile -File (Join-Path $e2e ''scripts/task.ps1'') -TaskId T0-SMOKE -Phase ship -Local -SkipRed ' + '2>&1)') }
+    [PSCustomObject]@{ Code = 'SHIP-EXIT'; Text = ('      $shipExit = $LAST' + 'EXITCODE') }
+    [PSCustomObject]@{ Code = 'SHIP-DIAGNOSTIC'; Text = ('        $shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode $shipExit -Output $shipOutput -LedgerPath ' + '(Join-Path $e2e ''_local/effectiveness-ledger.jsonl'')') }
+    [PSCustomObject]@{ Code = 'SHIP-FAIL'; Text = ('        Fail "$shipDiagnostic task.ps1 -Phase ship -Local ' + '非零退出。"') }
+    [PSCustomObject]@{ Code = 'MIGRATION-PREFLIGHT'; Text = ('      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot ' + '-GradleUserHome $gradleHome') }
+    [PSCustomObject]@{ Code = 'MIGRATION-ADDED'; Text = ('          $td4MissingExact = $td4MissingResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4MissingResult.Output -match ''td4_missing_migration_probe'' -and $td4MissingResult.Output -match ' + '''ADDED''') }
+    [PSCustomObject]@{ Code = 'MIGRATION-REMOVED'; Text = ('          $td4WrongExact = $td4WrongResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4WrongResult.Output -match ''td4_wrong_migration_probe'' -and $td4WrongResult.Output -match ' + '''REMOVED''') }
+  )
+}
+
+function Get-SelftestCanarySourceContractFailures {
+  param([Parameter(Mandatory)][string]$Source)
+
+  $failures = [Collections.Generic.List[string]]::new()
+  foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
+    if ([regex]::Matches($Source, [regex]::Escape($contract.Text)).Count -ne 1) {
+      $failures.Add([string]$contract.Code)
+    }
+  }
+  return @($failures)
+}
+
+if ($Fixture -eq 'canary-harness') {
+  $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-canary-harness-$PID"
+  try {
+    New-Item -ItemType Directory -Force $fixtureRoot | Out-Null
+    $ledgerPath = Join-Path $fixtureRoot 'effectiveness-ledger.jsonl'
+    '{"gate":"scope","result":"block"}' | Set-Content -LiteralPath $ledgerPath -Encoding utf8
+    $sensitive = 'CANARY-' + 'PRIVATE'
+    $nestedOutput = @((1..30 | ForEach-Object { "noise-line-$_" }) + "Authorization: Bearer $sensitive" + 'exact-inner-failure')
+    $diagnostic = Get-SelftestNestedShipDiagnostic -ExitCode 23 -Output $nestedOutput -LedgerPath $ledgerPath
+    if ($diagnostic -notmatch '^\[SELFTEST-15B-SHIP\] exit=23 gate=scope tail=' -or
+        $diagnostic -notmatch 'exact-inner-failure' -or $diagnostic.Contains($sensitive) -or $diagnostic.Length -gt 3600) {
+      throw "canary-harness nested ship diagnostic contract failed: $diagnostic"
+    }
+
+    $coldAndroidRoot = Join-Path $fixtureRoot 'cold-android'
+    New-Item -ItemType Directory -Force (Join-Path $coldAndroidRoot 'gradle/wrapper') | Out-Null
+    Set-Content -LiteralPath (Join-Path $coldAndroidRoot 'gradle/wrapper/gradle-wrapper.properties') `
+      -Value 'distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.0-bin.zip' -Encoding utf8
+    $coldCalls = 0
+    $cold = Invoke-SelftestGradleMigrationGate -AndroidRoot $coldAndroidRoot -GradleUserHome (Join-Path $fixtureRoot 'cold-gradle-home') `
+      -RunCases { $script:coldCalls++ }
+    if (-not $cold.Skipped -or $cold.Reason -cne 'GRADLE-WRAPPER-OFFLINE' -or $coldCalls -ne 0) {
+      throw "canary-harness cold Gradle gate invoked wrapper or lost stable reason: calls=$coldCalls result=$cold"
+    }
+    $readyCalls = 0
+    $ready = Invoke-SelftestGradleMigrationGate -AndroidRoot $fixtureRoot -GradleUserHome $fixtureRoot `
+      -StateProbe { param($androidRoot, $gradleHome) [pscustomobject]@{ Ready = $true; Detail = 'ready-fixture' } } `
+      -RunCases { $script:readyCalls++ }
+    if ($ready.Skipped -or $readyCalls -ne 1) {
+      throw "canary-harness ready Gradle gate did not execute real cases exactly once: calls=$readyCalls result=$ready"
+    }
+
+    $baselineRepo = Join-Path $fixtureRoot 'baseline-repo'
+    New-Item -ItemType Directory -Force (Join-Path $baselineRepo 'ignored') | Out-Null
+    & git -C $baselineRepo init -q
+    Set-Content -LiteralPath (Join-Path $baselineRepo '.gitignore') -Value '*.db' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $baselineRepo 'normal.txt') -Value 'normal' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $baselineRepo 'ignored/1.db') -Value 'reviewed baseline' -Encoding utf8
+    Add-SelftestE2eBaseline -RepoRoot $baselineRepo -TrackedSensitivePath 'ignored/1.db'
+    $trackedBaseline = "$(& git -C $baselineRepo ls-files --error-unmatch -- 'ignored/1.db' 2>$null)".Trim()
+    if ($LASTEXITCODE -ne 0 -or $trackedBaseline -cne 'ignored/1.db') {
+      throw 'canary-harness E2E baseline did not force-add the reviewed ignored file.'
+    }
+
+    $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
+    $contractFailures = @(Get-SelftestCanarySourceContractFailures -Source $source)
+    if ($contractFailures.Count -ne 0 -or
+        [regex]::Matches($source, '(?m)^\s+\$(?:cold|ready|td4MigrationGate) = Invoke-SelftestGradleMigrationGate -AndroidRoot').Count -ne 3 -or
+        [regex]::Matches($source, '(?m)^\s+Add-SelftestE2eBaseline -RepoRoot \$e2e ').Count -ne 1 -or
+        [regex]::Matches($source, '(?m)^\s+Write-Host "\[SELFTEST-SKIP\] gate=17a3 reason=').Count -ne 1 -or
+        $source.Contains("-TaskId T0-SMOKE -Phase ship -Local -SkipRed *> `$null`n      `$shipExit")) {
+      throw "canary-harness production wiring is absent, duplicated, or weakened: $($contractFailures -join ',')"
+    }
+    foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
+      $mutatedSource = $source.Replace($contract.Text, '')
+      $mutationFailures = @(Get-SelftestCanarySourceContractFailures -Source $mutatedSource)
+      if ($mutationFailures.Count -ne 1 -or $mutationFailures[0] -cne $contract.Code) {
+        throw "canary-harness source mutation did not isolate $($contract.Code): $($mutationFailures -join ',')"
+      }
+    }
+    Write-Host '[SELFTEST-FIXTURE] canary-harness PASS'
+    exit 0
+  } finally {
+    Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 # 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
@@ -3555,7 +3711,7 @@ if (-not $git) {
     & git -C $e2e symbolic-ref HEAD refs/heads/master                 # 版本无关地强制默认分支 = master
     & git -C $e2e config user.email 'selftest@local'                  # 仓级身份：15b ship 的内部 commit/merge 据此（非 -c 内联）
     & git -C $e2e config user.name  'selftest'
-    & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' add -A 2>$null
+    Add-SelftestE2eBaseline -RepoRoot $e2e -TrackedSensitivePath 'android/core/src/main/sqldelight/databases/1.db'
     & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'e2e base' *> $null
     $baseLicenseStub = (& git -C $e2e show 'HEAD:scripts/check-licenses.ps1' 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $baseLicenseStub -cne 'exit 0') {
@@ -3584,10 +3740,13 @@ if (-not $git) {
     #   离线确定性：评审/verify/许可走上面的基线 stub（非真 codex/机器态）；真实工作树许可闸与完整 scanner 分别由 15o/17cc 覆盖；账号守卫 -Local 跳过。
     if (-not $fail -and (Test-Path $wtDir)) {
       Set-Content (Join-Path $wtDir 'README.md') 'e2e ship-loop smoke change' -Encoding utf8   # allow_paths 内的真改动
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
+      $shipOutput = @(& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1)
       $shipExit = $LASTEXITCODE
       $mergeCount = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
-      if ($shipExit -ne 0) { Fail "task.ps1 -Phase ship -Local 非零退出（$shipExit）——ship 编排链断（DoD/verify/范围/许可/密钥/评审/合并之一）。" }
+      if ($shipExit -ne 0) {
+        $shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode $shipExit -Output $shipOutput -LedgerPath (Join-Path $e2e '_local/effectiveness-ledger.jsonl')
+        Fail "$shipDiagnostic task.ps1 -Phase ship -Local 非零退出。"
+      }
       elseif ($mergeCount -lt 1) { Fail 'ship -Local 退出 0 但 master 上无合并提交（--no-ff 未生效 / worktree 改动未提交？）。' }
       else { Write-Host '  动态 E2E OK（ship -Local）：DoD→verify(stub)→范围→许可→密钥→R3(stub)→-Local 合并全过，exit 0 且产出合并提交' -ForegroundColor Green }
     }
@@ -5699,6 +5858,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
     # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
     # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
+    $td4GradleUserHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' }
+    $td4MigrationGate = Invoke-SelftestGradleMigrationGate -AndroidRoot (Join-Path $RepoRoot 'android') -GradleUserHome $td4GradleUserHome -RunCases {
     $td4MigrationRepo = if ($IsWindows) {
       Join-Path ([System.IO.Path]::GetPathRoot($RepoRoot)) "st4-$PID"
     } else {
@@ -5763,6 +5924,10 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
           Write-Host "  17a3(migration/cleanup) 短路径 fixture 已清除（attempts=$($td4Cleanup.Attempts)；目录与 worktree 登记均不存在）OK" -ForegroundColor Green
         }
       }
+    }
+    }
+    if ($td4MigrationGate.Skipped) {
+      Write-Host "[SELFTEST-SKIP] gate=17a3 reason=$($td4MigrationGate.Reason)" -ForegroundColor DarkGray
     }
     if (-not $fail) { Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green }
 
