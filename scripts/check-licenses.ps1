@@ -23,6 +23,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_config.ps1')
+. (Join-Path $PSScriptRoot '_unicode.ps1')
 
 # ── 许可分类（库导出区 · 置于 Set-Location/扫描之前，令 -AsLibrary 可安全取用；主流程与 selftest 17p 共用单一真相源）──
 # 禁列：负向后顾 (?<!L)GPL 确保 LGPL 不被 GPL 命中；AGPL 显式列入禁列。
@@ -283,8 +284,13 @@ function Assert-GradleMetadataScalar {
     [AllowEmptyString()][string]$Value
   )
 
-  if ([regex]::IsMatch($Value, '[\p{Cc}\p{Cf}]')) {
-    throw "元数据字段 $Field 含控制/格式字符。"
+  try {
+    $sanitized = ConvertTo-ScaffoldControlFormatSpaces $Value
+  } catch {
+    throw "[LICENSE-METADATA-SCALAR] 元数据字段 $Field 含 malformed UTF-16：$($_.Exception.Message)"
+  }
+  if ($sanitized -cne $Value) {
+    throw "[LICENSE-METADATA-SCALAR] 元数据字段 $Field 含控制/格式字符。"
   }
 }
 
@@ -331,13 +337,27 @@ function Get-GradleExceptionMap {
       foreach ($jsonRecord in $json.RootElement.EnumerateArray()) {
         $seenFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($property in $jsonRecord.EnumerateObject()) {
-          $field = [string]$property.Name
+          try {
+            $propertyName = $property.Name
+            if ($null -eq $propertyName) {
+              throw [System.ArgumentException]::new('JSON property name did not decode to a Unicode scalar string.')
+            }
+            $field = [string]$propertyName
+          } catch {
+            throw "[LICENSE-METADATA-SCALAR] JSON property name 含 malformed UTF-16：$($_.Exception.Message)"
+          }
           Assert-GradleMetadataScalar -Field 'JSON property name' -Value $field
           if (-not $seenFields.Add($field)) { throw "记录字段重复（大小写完全相同）：$field。" } # exception duplicate property guard
           if (-not $allowedFields.Contains($field)) { throw "记录含不支持字段 $field。" } # exception supported property guard
           if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
             throw "字段 $field 必须是 JSON 字符串标量（实际类型 $($property.Value.ValueKind)）。" # exception JSON string guard
           }
+          try {
+            $jsonScalar = [string]$property.Value.GetString()
+          } catch {
+            throw "[LICENSE-METADATA-SCALAR] 元数据字段 $field 含 malformed UTF-16：$($_.Exception.Message)"
+          }
+          Assert-GradleMetadataScalar -Field $field -Value $jsonScalar # exception raw JSON scalar safety guard
         }
       }
     } finally {
@@ -349,9 +369,6 @@ function Get-GradleExceptionMap {
         if (-not $record.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$record[$field])) {
           throw "记录缺少必填字段 $field。"
         }
-      }
-      foreach ($field in $record.Keys) {
-        Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])
       }
       $coordinate = [string]$record.coordinate
       if ($null -eq (Get-GradleGavParts -Coordinate $coordinate)) {
@@ -960,11 +977,12 @@ function Get-GradleDiagnosticTail {
       $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
     }
     $raw = Protect-GradleDiagnosticRecord -Value $raw # diagnostic record credential boundary
-    $raw -split '\r\n|\n|\r'
+    $line = [regex]::Replace($raw, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
+    $line = ConvertTo-ScaffoldControlFormatSpaces $line # diagnostic scalar control/format normalization
+    $line
   })
   $sanitized = @($expandedLines | ForEach-Object {
-    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
-    $line = [regex]::Replace($line, '[\p{Cc}\p{Cf}]', ' ') # diagnostic control/format normalization
+    $line = "$_"
     $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/|:;,)\]\r\n]+)(?=[\\/]|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Windows user-home redaction
     $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Unix user-home redaction
     foreach ($configuredUserHome in $configuredUserHomes) {
