@@ -66,13 +66,119 @@ $SensitivePatterns = @(
 # 例外：以下命中模式但属**合法可入库**（模板/示例/文档），不应误报。
 # 收窄（TD62/TD-125）：不再 blanket 放行任意 `*.example`——旧 `\.example$` 令 `service-account.json.example` /
 # `prod.pem.example` / `secret.example` 等「按模式敏感、仅加 .example 后缀」的文件名整个逃过**文件名闸**。
-# 只显式豁免已知安全模板（`.env.example`、`data/README.md`）。注：内容闸(1b)对 `.example` 文件**始终扫描**
+# 只显式豁免已知安全模板（`.env.example`、`data/README.md`）与动态清单文件**自身**。动态清单里的
+# 数据库路径仍由下方严格解析后逐条加入，绝不在这个正则里写目录/扩展名级放行。注：内容闸(1b)对 `.example` 文件**始终扫描**
 # （不查本白名单），故真含密钥的 `*.example` 仍会被内容扫描抓到；本收窄只补文件名闸这一层纵深。
+$TrackedSensitiveAllowlistConfig = 'configs/secrets/tracked-sensitive-allowlist.json'
 $Allowlist = '(^|/)\.env\.example$|(^|/)data/README\.md$'
+$TrackedSensitiveAllowlist = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 
 function Test-Sensitive([string]$path) {
+  if ($path -ceq $TrackedSensitiveAllowlistConfig) { return $false }
   if ($path -match $Allowlist) { return $false }
+  if ($TrackedSensitiveAllowlist.Contains($path)) { return $false }
   return ($path -match "(?i)($SensitivePatterns)")
+}
+
+function Assert-NoReparsePathChain([string]$fullPath) {
+  $root = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd(
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
+  )
+  $probe = [System.IO.Path]::GetFullPath($fullPath)
+  $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+  $rootPrefix = $root + [System.IO.Path]::DirectorySeparatorChar
+  if (-not [string]::Equals($probe, $root, $comparison) -and -not $probe.StartsWith($rootPrefix, $comparison)) {
+    throw "路径越出仓库，不能校验 reparse 父链：$fullPath"
+  }
+
+  while ($true) {
+    $item = Get-Item -LiteralPath $probe -Force -ErrorAction Stop
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "路径或其父级不得是 reparse point：$probe"
+    }
+    if ([string]::Equals($probe, $root, $comparison)) { break }
+    $parent = [System.IO.Directory]::GetParent($probe)
+    if ($null -eq $parent) { throw "路径父链未回到仓库根：$fullPath" }
+    $probe = $parent.FullName
+  }
+}
+
+function Initialize-TrackedSensitiveAllowlist([string[]]$trackedPaths) {
+  $configFile = Join-Path $RepoRoot $TrackedSensitiveAllowlistConfig
+  if (-not (Test-Path -LiteralPath $configFile)) { return }
+  Assert-NoReparsePathChain $configFile
+
+  $trackedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+  foreach ($trackedPath in $trackedPaths) { [void]$trackedSet.Add($trackedPath) }
+  if (-not $trackedSet.Contains($TrackedSensitiveAllowlistConfig)) {
+    throw "清单文件必须由 git 精确追踪：$TrackedSensitiveAllowlistConfig"
+  }
+
+  $configItem = Get-Item -LiteralPath $configFile -Force -ErrorAction Stop
+  if ($configItem.PSIsContainer -or ($configItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    throw "清单文件必须是非 reparse 的普通文件：$TrackedSensitiveAllowlistConfig"
+  }
+
+  $document = $null
+  try {
+    $document = [System.Text.Json.JsonDocument]::Parse((Get-Content -LiteralPath $configFile -Raw -ErrorAction Stop))
+    if ($document.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) {
+      throw '清单顶层必须是 JSON array。'
+    }
+    if ($document.RootElement.GetArrayLength() -eq 0) { throw '清单不得为空。' }
+
+    $allowedFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    [void]$allowedFields.Add('path'); [void]$allowedFields.Add('purpose')
+    $seenPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $repoPrefix = $RepoRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    $pathComparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+
+    $entryIndex = 0
+    foreach ($entry in $document.RootElement.EnumerateArray()) {
+      $entryIndex++
+      if ($entry.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw "条目 $entryIndex 必须是 JSON object。" }
+      $fields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+      $values = @{}
+      foreach ($property in $entry.EnumerateObject()) {
+        $name = $property.Name
+        if (-not $fields.Add($name)) { throw "条目 $entryIndex 字段重复：$name" }
+        if (-not $allowedFields.Contains($name)) { throw "条目 $entryIndex 含未知字段：$name" }
+        if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) { throw "条目 $entryIndex 字段 $name 必须是 string。" }
+        $values[$name] = $property.Value.GetString()
+      }
+      if (-not $fields.Contains('path') -or -not $fields.Contains('purpose')) { throw "条目 $entryIndex 必须且只能含 path、purpose。" }
+
+      $path = [string]$values.path
+      $purpose = [string]$values.purpose
+      if ([string]::IsNullOrWhiteSpace($path) -or $path -match '[\p{Cc}\p{Cf}]') { throw "条目 $entryIndex path 为空或含控制字符。" }
+      if ([string]::IsNullOrWhiteSpace($purpose) -or $purpose -match '[\p{Cc}\p{Cf}]') { throw "条目 $entryIndex purpose 为空或含控制字符。" }
+      if ($path.Contains('\') -or $path -match '[*?\[\]]' -or $path.StartsWith('/') -or $path -match '^[A-Za-z]:') {
+        throw "条目 $entryIndex path 必须是无 glob 的正斜杠仓库相对精确路径：$path"
+      }
+      $segments = @($path -split '/')
+      if ($segments.Count -lt 2 -or @($segments | Where-Object { $_ -in @('', '.', '..') }).Count -ne 0) {
+        throw "条目 $entryIndex path 含空段、点段或越界段：$path"
+      }
+      if ($path -cnotmatch '^android/core/src/main/sqldelight/.+\.db$') {
+        throw "条目 $entryIndex 只允许 SQLDelight schema baseline .db：$path"
+      }
+      if (-not $seenPaths.Add($path)) { throw "清单 path 重复：$path" }
+      if (-not $trackedSet.Contains($path)) { throw "清单 path 不存在或未被 git 精确追踪：$path" }
+
+      $fullPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot ($path -replace '/', [System.IO.Path]::DirectorySeparatorChar)))
+      if (-not $fullPath.StartsWith($repoPrefix, $pathComparison)) { throw "清单 path 越出仓库：$path" }
+      if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) { throw "清单 path 不存在或不是普通文件：$path" }
+      Assert-NoReparsePathChain $fullPath
+      $item = Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop
+      if ($item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "清单 path 必须是非 reparse 的普通文件：$path"
+      }
+      [void]$TrackedSensitiveAllowlist.Add($path)
+    }
+  } finally {
+    if ($null -ne $document) { $document.Dispose() }
+  }
 }
 
 # ── 内容密钥模式集 + Find-LineSecret（库导出区 · 密钥判定单一真相源）──
@@ -135,6 +241,13 @@ $warn  = @()   # 警告发现（-Strict 下升级为致命）
 # ── 1. 致命：已被 git 追踪的敏感文件（gitignore 救不了它们）──
 # -c core.quotepath=false：否则 git 把非 ASCII 路径 C-quote 成 "\344\275..." → 文件名模式与 Test-Path 双失（C40）。
 $tracked = @(& git -C $RepoRoot -c core.quotepath=false ls-files)
+try {
+  Initialize-TrackedSensitiveAllowlist $tracked
+} catch {
+  Write-Host "致命（[SECRET-ALLOWLIST] 精确敏感文件清单无效）：$($_.Exception.Message)" -ForegroundColor Red
+  Write-Host "`ncheck-secrets: FAIL（[SECRET-ALLOWLIST]）" -ForegroundColor Red
+  exit 1
+}
 $trackedHits = @($tracked | Where-Object { Test-Sensitive $_ })
 foreach ($f in $trackedHits) {
   $fatal += "已被追踪的敏感文件：$f  → 补救：git rm --cached `"$f`" 然后提交（gitignore 对已追踪文件无效）"
