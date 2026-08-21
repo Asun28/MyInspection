@@ -2,7 +2,7 @@
 id: T0-DEBT-UNSAFE-PATH-DELEGATION
 title: 把不安全路径不得委托下游纪律晋升为必须层（偿还 TD153 / L171）
 depends_on: [T0-DEBT-MUTATION-RESTORE-SAFETY]
-status: todo
+status: merged
 branch: T0-DEBT-UNSAFE-PATH-DELEGATION
 worktree: C:\wt\T0-DEBT-UNSAFE-PATH-DELEGATION
 allow_paths:
