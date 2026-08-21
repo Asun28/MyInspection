@@ -80,6 +80,22 @@ function Test-Sensitive([string]$path) {
   return ($path -match "(?i)($SensitivePatterns)")
 }
 
+function Assert-TrackedSensitiveAllowlistScalar {
+  param(
+    [Parameter(Mandatory)][string]$Field,
+    [AllowEmptyString()][string]$Value
+  )
+
+  try {
+    $sanitized = ConvertTo-ScaffoldControlFormatSpaces $Value
+  } catch {
+    throw "[SECRET-ALLOWLIST-SCALAR] 字段 $Field 含 malformed UTF-16：$($_.Exception.Message)"
+  }
+  if ($sanitized -cne $Value) {
+    throw "[SECRET-ALLOWLIST-SCALAR] 字段 $Field 含控制/格式标量。"
+  }
+}
+
 function Assert-NoReparsePathChain([string]$fullPath) {
   $root = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd(
     [System.IO.Path]::DirectorySeparatorChar,
@@ -145,14 +161,20 @@ function Initialize-TrackedSensitiveAllowlist([string[]]$trackedPaths) {
         if (-not $fields.Add($name)) { throw "条目 $entryIndex 字段重复：$name" }
         if (-not $allowedFields.Contains($name)) { throw "条目 $entryIndex 含未知字段：$name" }
         if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) { throw "条目 $entryIndex 字段 $name 必须是 string。" }
-        $values[$name] = $property.Value.GetString()
+        try {
+          $values[$name] = $property.Value.GetString()
+        } catch {
+          throw "[SECRET-ALLOWLIST-SCALAR] 字段 $name 含 malformed UTF-16：$($_.Exception.Message)"
+        }
       }
       if (-not $fields.Contains('path') -or -not $fields.Contains('purpose')) { throw "条目 $entryIndex 必须且只能含 path、purpose。" }
 
       $path = [string]$values.path
       $purpose = [string]$values.purpose
-      if ([string]::IsNullOrWhiteSpace($path) -or $path -match '[\p{Cc}\p{Cf}]') { throw "条目 $entryIndex path 为空或含控制字符。" }
-      if ([string]::IsNullOrWhiteSpace($purpose) -or $purpose -match '[\p{Cc}\p{Cf}]') { throw "条目 $entryIndex purpose 为空或含控制字符。" }
+      if ([string]::IsNullOrWhiteSpace($path)) { throw "条目 $entryIndex path 为空。" }
+      if ([string]::IsNullOrWhiteSpace($purpose)) { throw "条目 $entryIndex purpose 为空。" }
+      Assert-TrackedSensitiveAllowlistScalar -Field 'path' -Value $path # tracked-sensitive path scalar guard
+      Assert-TrackedSensitiveAllowlistScalar -Field 'purpose' -Value $purpose # tracked-sensitive purpose scalar guard
       if ($path.Contains('\') -or $path -match '[*?\[\]]' -or $path.StartsWith('/') -or $path -match '^[A-Za-z]:') {
         throw "条目 $entryIndex path 必须是无 glob 的正斜杠仓库相对精确路径：$path"
       }
@@ -226,6 +248,7 @@ function Find-LineSecret([string]$line) {
 
 # ── 库模式：函数/模式集已定义，就此返回——不执行扫描、不触达 git、不 exit（TD18）──
 if ($AsLibrary) { return }
+. (Join-Path $PSScriptRoot '_unicode.ps1')
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出（git 路径解码）+ 原生非零按码判（非 git 优雅 exit 0）；库模式早返回后才 dot-source，缺失即 fail-open（TD54/TD-117）
 
 # ── 非 git 仓 => 优雅跳过（元仓 / 尚未建仓）──

@@ -6290,6 +6290,123 @@ if (-not $runSeededGitGates) {
     if ($td4Exact.Exit -ne 0) {
       Fail "种子缺陷 17a3(exact)：精确登记的 SQLDelight schema baseline 未放行（exit=$($td4Exact.Exit)）。输出：$($td4Exact.Output)"
     }
+
+    # TD157: exercise both live allowlist scalar consumers through the real check-secrets entry point.
+    # The hostile values are constructed from Rune/ASCII code units; no invisible code point or
+    # backslash-u escape is embedded in this source (CLAUDE L193).
+    $td157ScalarDir = Join-Path $sd 'a3-exact'
+    $td157ScalarConfig = Join-Path $td157ScalarDir $td4ConfigPath
+    $td157ScalarScript = Join-Path $td157ScalarDir 'scripts/check-secrets.ps1'
+    $invokeTd157ScalarFixture = {
+      param([Parameter(Mandatory)][string]$Json)
+      [System.IO.File]::WriteAllText($td157ScalarConfig, $Json, [System.Text.UTF8Encoding]::new($false))
+      $output = & pwsh -NoProfile -File $td157ScalarScript 2>&1 | Out-String
+      [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+    }
+
+    $td157SupplementaryFormats = [System.Collections.Generic.List[System.Text.Rune]]::new()
+    for ($codePoint = 0x10000; $codePoint -le 0x10FFFF; $codePoint++) {
+      $rune = [System.Text.Rune]::new($codePoint)
+      if ([System.Text.Rune]::GetUnicodeCategory($rune) -eq [System.Globalization.UnicodeCategory]::Format) {
+        $td157SupplementaryFormats.Add($rune)
+      }
+    }
+    foreach ($field in @('path', 'purpose')) {
+      $fieldFailure = $null
+      foreach ($formatRune in $td157SupplementaryFormats) {
+        $formatText = $formatRune.ToString()
+        $hostilePath = if ($field -ceq 'path') { "$td4BaselinePath$formatText" } else { $td4BaselinePath }
+        $hostilePurpose = if ($field -ceq 'purpose') { "schema$formatText" } else { 'schema' }
+        $hostileJson = '[{"path":"' + $hostilePath + '","purpose":"' + $hostilePurpose + '"}]'
+        $scalarResult = & $invokeTd157ScalarFixture $hostileJson
+        if ($scalarResult.Exit -eq 0 -or $scalarResult.Output -notmatch '\[SECRET-ALLOWLIST-SCALAR\]') {
+          $fieldFailure = ('U+{0:X}; exit={1}; output={2}' -f $formatRune.Value, $scalarResult.Exit, $scalarResult.Output)
+          break
+        }
+      }
+      if ($td157SupplementaryFormats.Count -eq 0 -or $null -ne $fieldFailure) {
+        Fail "[SECRET-ALLOWLIST-SCALAR-$($field.ToUpperInvariant())] supplementary Cf coverage failed: count=$($td157SupplementaryFormats.Count); $fieldFailure"
+      }
+    }
+
+    $jsonEscapePrefix = ([string][char]92) + 'u'
+    foreach ($surrogateCase in @(
+      @{ Id = 'high'; Escape = $jsonEscapePrefix + 'D800'; EscapeHex = '5C-75-44-38-30-30' },
+      @{ Id = 'low'; Escape = $jsonEscapePrefix + 'DC00'; EscapeHex = '5C-75-44-43-30-30' }
+    )) {
+      foreach ($field in @('path', 'purpose')) {
+        $malformedPath = if ($field -ceq 'path') { $td4BaselinePath + $surrogateCase.Escape } else { $td4BaselinePath }
+        $malformedPurpose = if ($field -ceq 'purpose') { 'schema' + $surrogateCase.Escape } else { 'schema' }
+        $malformedJson = '[{"path":"' + $malformedPath + '","purpose":"' + $malformedPurpose + '"}]'
+        $malformedHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($malformedJson))
+        if ([regex]::Matches($malformedHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -ne 1) {
+          Fail "[SECRET-ALLOWLIST-SCALAR-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-$($field.ToUpperInvariant())] generated JSON escape bytes drifted"
+          continue
+        }
+        $malformedResult = & $invokeTd157ScalarFixture $malformedJson
+        if ($malformedResult.Exit -eq 0 -or $malformedResult.Output -notmatch '\[SECRET-ALLOWLIST-SCALAR\]') {
+          Fail "[SECRET-ALLOWLIST-SCALAR-MALFORMED-$($surrogateCase.Id.ToUpperInvariant())-$($field.ToUpperInvariant())] malformed UTF-16 was not rejected by the real consumer (exit=$($malformedResult.Exit); output=$($malformedResult.Output))"
+        }
+      }
+    }
+
+    $ordinaryEmoji = [System.Text.Rune]::new(0x1F600).ToString()
+    $emojiPurposeJson = '[{"path":"' + $td4BaselinePath + '","purpose":"schema-' + $ordinaryEmoji + '"}]'
+    $emojiPurposeResult = & $invokeTd157ScalarFixture $emojiPurposeJson
+    if ($emojiPurposeResult.Exit -ne 0 -or $emojiPurposeResult.Output -match '\[SECRET-ALLOWLIST-SCALAR\]') {
+      Fail "[SECRET-ALLOWLIST-SCALAR-EMOJI-PURPOSE] ordinary emoji was rejected by the scalar guard (exit=$($emojiPurposeResult.Exit); output=$($emojiPurposeResult.Output))"
+    }
+    $emojiPath = "android/core/src/main/sqldelight/databases/emoji-$ordinaryEmoji.db"
+    $emojiPathJson = '[{"path":"' + $emojiPath + '","purpose":"schema"}]'
+    $emojiPathResult = & $invokeTd157ScalarFixture $emojiPathJson
+    if ($emojiPathResult.Exit -eq 0 -or $emojiPathResult.Output -match '\[SECRET-ALLOWLIST-SCALAR\]' -or -not $emojiPathResult.Output.Contains($emojiPath)) {
+      Fail "[SECRET-ALLOWLIST-SCALAR-EMOJI-PATH] ordinary emoji did not reach downstream exact-path rejection (exit=$($emojiPathResult.Exit); output=$($emojiPathResult.Output))"
+    }
+
+    $representativeFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
+    $trackedFormatPath = "android/core/src/main/sqldelight/databases/scalar-$representativeFormat.db"
+    $trackedFormatFile = Join-Path $td157ScalarDir $trackedFormatPath
+    [System.IO.Directory]::CreateDirectory((Split-Path $trackedFormatFile)) | Out-Null
+    [System.IO.File]::WriteAllBytes($trackedFormatFile, [byte[]](0x53, 0x51, 0x4c, 0x69, 0x00))
+    & git -C $td157ScalarDir add -f -- $trackedFormatPath 2>$null
+    if ($LASTEXITCODE -ne 0) { Fail '[SECRET-ALLOWLIST-SCALAR-MUTATION-SETUP] representative tracked path was not staged.' }
+    $td157Original = [System.IO.File]::ReadAllText($td157ScalarScript)
+    foreach ($mutationCase in @(
+      @{
+        Field = 'path'
+        From = "      Assert-TrackedSensitiveAllowlistScalar -Field 'path' -Value `$path # tracked-sensitive path scalar guard"
+        To = '      $null = $path # tracked-sensitive path scalar guard'
+        Json = '[{"path":"' + $td4BaselinePath + '","purpose":"schema"},{"path":"' + $trackedFormatPath + '","purpose":"schema"}]'
+      },
+      @{
+        Field = 'purpose'
+        From = "      Assert-TrackedSensitiveAllowlistScalar -Field 'purpose' -Value `$purpose # tracked-sensitive purpose scalar guard"
+        To = '      $null = $purpose # tracked-sensitive purpose scalar guard'
+        Json = '[{"path":"' + $td4BaselinePath + '","purpose":"schema-' + $representativeFormat + '"}]'
+      }
+    )) {
+      if ($mutationCase.Field -eq 'purpose') {
+        & git -C $td157ScalarDir rm -f -- $trackedFormatPath 2>$null
+        if ($LASTEXITCODE -ne 0) { Fail '[SECRET-ALLOWLIST-SCALAR-MUTATION-PURPOSE-SETUP] representative format path could not be removed before the isolated purpose mutation.' }
+      }
+      $targetCount = [regex]::Matches($td157Original, [regex]::Escape($mutationCase.From)).Count
+      if ($targetCount -ne 1) {
+        Fail "[SECRET-ALLOWLIST-SCALAR-MUTATION-$($mutationCase.Field.ToUpperInvariant())-TARGET] consumer wiring target count=$targetCount"
+        continue
+      }
+      try {
+        $mutant = $td157Original.Replace($mutationCase.From, $mutationCase.To)
+        [System.IO.File]::WriteAllText($td157ScalarScript, $mutant, [System.Text.UTF8Encoding]::new($false))
+        $mutationResult = & $invokeTd157ScalarFixture $mutationCase.Json
+        if ($mutationResult.Exit -ne 0) {
+          Fail "[SECRET-ALLOWLIST-SCALAR-MUTATION-$($mutationCase.Field.ToUpperInvariant())] deleting consumer wiring did not produce the exact fail-open inverse (exit=$($mutationResult.Exit); output=$($mutationResult.Output))"
+        }
+      } finally {
+        [System.IO.File]::WriteAllText($td157ScalarScript, $td157Original, [System.Text.UTF8Encoding]::new($false))
+      }
+    }
+    [System.IO.File]::WriteAllText($td157ScalarConfig, $td4BaselineJson, [System.Text.UTF8Encoding]::new($false))
+
     foreach ($td4Unexpected in @(
       @{ Name = 'adjacent'; Path = 'android/core/src/main/sqldelight/databases/runtime.db' },
       @{ Name = 'renamed'; Path = 'android/core/src/main/sqldelight/databases/01.db' }
