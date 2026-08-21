@@ -80,7 +80,8 @@
        已定义 id，扫这些文件的 L<n> 引用——排除 path:Lnn 行号 / Lnn-mm 行段等代码引用形态。存在性可机检，
        内容是否对得上仍靠人工。交叉链接闸（11）只管文件路径，管不到 LEDGER 的 L<n> 指针，故单列一闸。
    17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂**已知坏输入**，断言它确实 BLOCK——把「严格/fail-closed/
-       难绕过」从断言升级为可机检回归。17a check-secrets 抓 snake_case 硬编码密钥；17b review.ps1 对「no-op 评审者 +
+       难绕过」从断言升级为可机检回归。17a check-secrets 抓 snake_case 硬编码密钥；17a3 对 SQLDelight schema
+       baseline 精确放行，并拒相邻/改名数据库与非法清单；17b review.ps1 对「no-op 评审者 +
        预置陈旧 pass 裁决」仍 block（stale-verdict fail-open 已堵）；17c init 用含撇号项目名仍产出可解析 _config；
        17d guard-frozen 对冻结路径写入输出 deny、空 FrozenPaths 无输出（fail-open no-op）；
        17e 账号守卫 host 锚定正则容忍显式端口（C17）、拒子域/子串伪装与他人仓；17f pre-push 钩子体 shebang/无BOM/无CR
@@ -115,6 +116,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
+  [ValidateSet('', 'canary-harness')][string]$Fixture = '',
   [switch]$StrictLint
 )
 
@@ -124,12 +126,79 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # 分片子进程可能没有交互控制台；若沿用 Windows OEM 编码，中文哨兵/路径会在嵌套
 # pwsh 日志中变字节，导致断言假红。入口先与其它生产脚本一样钉 UTF-8/native 语义。
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }
+. (Join-Path $PSScriptRoot '_gitbase.ps1')
 
 # 纯函数：聚合器必须 fail-closed，只有所有分片均为 0 才返回 0。闸 8.2e 直测此函数，
 # 而默认 all 路径实际用它裁决进程退出码，避免「并行了但吞掉红分片」。
 function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
   if (@($ExitCodes | Where-Object { $_ -ne 0 }).Count -gt 0) { return 1 }
   return 0
+}
+
+function Remove-Td4MigrationFixtureWorktree {
+  param(
+    [Parameter(Mandatory)][string]$RepoRoot,
+    [Parameter(Mandatory)][string]$WorktreePath,
+    [int]$MaxAttempts = 3,
+    [int]$RetryDelayMs = 250,
+    [scriptblock]$AttemptInvoker,
+    [scriptblock]$RegistrationProbe,
+    [scriptblock]$SleepInvoker
+  )
+
+  $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+  $targetPath = [System.IO.Path]::GetFullPath($WorktreePath)
+  $diagnostics = [System.Collections.Generic.List[string]]::new()
+  $lastRegistered = $true
+  $lastPathExists = Test-Path -LiteralPath $targetPath
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      if ($AttemptInvoker) {
+        $attemptResult = & $AttemptInvoker $attempt $targetPath
+      } else {
+        $removeOutput = (& git -C $RepoRoot worktree remove --force $targetPath 2>&1 | Out-String)
+        $attemptResult = [PSCustomObject]@{ Exit = $LASTEXITCODE; Output = $removeOutput }
+      }
+    } catch { $attemptResult = [PSCustomObject]@{ Exit = 99; Output = $_.Exception.ToString() } }
+    $removeExit = if ($null -ne $attemptResult.Exit) { [int]$attemptResult.Exit } else { 99 }
+    $removeOutput = [string]$attemptResult.Output
+
+    $listOutput = if ($RegistrationProbe) { '' } else { (& git -C $RepoRoot worktree list --porcelain 2>&1 | Out-String) }
+    $listExit = if ($RegistrationProbe) { 0 } else { $LASTEXITCODE }
+    $lastRegistered = if ($RegistrationProbe) { [bool](& $RegistrationProbe $targetPath) } elseif ($listExit -ne 0) { $true } else {
+      @($listOutput -split '\r?\n' | Where-Object { $_.StartsWith('worktree ', [System.StringComparison]::Ordinal) } | Where-Object {
+        try { [System.IO.Path]::GetFullPath($_.Substring(9)).Equals($targetPath, $comparison) } catch { $false }
+      }).Count -gt 0
+    }
+    $fallbackExit = $null
+    $fallbackOutput = ''
+    if (-not $AttemptInvoker -and -not $lastRegistered -and (Test-Path -LiteralPath $targetPath)) {
+      try { Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop; $fallbackExit = 0 }
+      catch { $fallbackExit = 99; $fallbackOutput = $_.Exception.ToString() }
+    }
+    $lastPathExists = Test-Path -LiteralPath $targetPath
+    $detail = [System.Collections.Generic.List[string]]::new()
+    [void]$detail.Add("attempt=$attempt registered=$lastRegistered pathExists=$lastPathExists")
+    [void]$detail.Add("remove-exit=$removeExit")
+    if ($removeOutput) { [void]$detail.Add("remove-detail=$removeOutput") }
+    [void]$detail.Add("list-exit=$listExit")
+    if ($listExit -ne 0 -and $listOutput) { [void]$detail.Add("list-detail=$listOutput") }
+    if ($null -ne $fallbackExit) {
+      [void]$detail.Add("fallback-exit=$fallbackExit")
+      if ($fallbackOutput) { [void]$detail.Add("fallback-detail=$fallbackOutput") }
+    }
+    [void]$diagnostics.Add($detail -join "`n") # TD145 diagnostic retention
+    if (-not $lastRegistered -and -not $lastPathExists) {
+      return [PSCustomObject]@{ Success = $true; Attempts = $attempt; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $false; PathExists = $false }
+    }
+    if ($attempt -lt $MaxAttempts) {
+      if ($SleepInvoker) { & $SleepInvoker $RetryDelayMs } else { Start-Sleep -Milliseconds $RetryDelayMs }
+      continue # TD145 bounded retry
+    }
+    break
+  }
+
+  return [PSCustomObject]@{ Success = $false; Attempts = $MaxAttempts; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $lastRegistered; PathExists = $lastPathExists }
 }
 
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
@@ -481,15 +550,39 @@ function New-SelftestSnapshot {
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][object]$GitExe
   )
+  $sourceHeadLines = @(& $GitExe.Source -C $SourceRoot rev-parse --verify 'HEAD^{commit}')
+  if ($LASTEXITCODE -ne 0 -or $sourceHeadLines.Count -ne 1 -or $sourceHeadLines[0] -notmatch '^[0-9a-f]{40,64}$') {
+    throw "无法为 selftest 分片 $Name 解析调用者 HEAD 提交。"
+  }
+  $sourceHeadOid = [string]$sourceHeadLines[0]
+  $sourceBaseRef = Resolve-ScaffoldBaseRef -GitDir $SourceRoot -BaseName master
+  if (-not $sourceBaseRef) { throw "无法为 selftest 分片 $Name 解析权威 master 引用。" }
+  $sourceBaseLines = @(& $GitExe.Source -C $SourceRoot rev-parse --verify "$sourceBaseRef^{commit}")
+  if ($LASTEXITCODE -ne 0 -or $sourceBaseLines.Count -ne 1 -or $sourceBaseLines[0] -notmatch '^[0-9a-f]{40,64}$') {
+    throw "无法为 selftest 分片 $Name 解析权威 master 提交。"
+  }
+  $sourceBaseOid = [string]$sourceBaseLines[0]
+  if ($Name -notmatch '^[a-z0-9-]+$') { throw "selftest 分片名不能用于隔离分支：$Name" }
+  $snapshotBranch = "selftest-snapshot-$Name"
+
   & $GitExe.Source clone --quiet --no-hardlinks $SourceRoot $SnapshotRoot
   if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name clone 独立仓库快照。" }
-  & $GitExe.Source -C $SnapshotRoot show-ref --verify --quiet refs/heads/master
-  if ($LASTEXITCODE -ne 0) {
-    & $GitExe.Source -C $SnapshotRoot show-ref --verify --quiet refs/remotes/origin/master
-    if ($LASTEXITCODE -eq 0) {
-      & $GitExe.Source -C $SnapshotRoot branch master refs/remotes/origin/master *> $null
-      if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 建立本地 master 基线。" }
-    }
+  # TD156-HEAD-PIN：clone 可把 detached HEAD 归到任一同 SHA 分支；快照必须显式钉 source HEAD。
+  & $GitExe.Source -C $SnapshotRoot checkout --quiet -B $snapshotBranch $sourceHeadOid
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 建立隔离 HEAD 分支。" }
+  # TD156-BASE-PIN：clone 的 origin/master 指向 source 的本地 master，不等于 source 自己的权威 origin/master。
+  & $GitExe.Source -C $SnapshotRoot update-ref refs/heads/master $sourceBaseOid
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 钉住本地 master 基线。" }
+  & $GitExe.Source -C $SnapshotRoot update-ref refs/remotes/origin/master $sourceBaseOid
+  if ($LASTEXITCODE -ne 0) { throw "无法为 selftest 分片 $Name 钉住 origin/master 基线。" }
+  $snapshotHeadOid = (& $GitExe.Source -C $SnapshotRoot rev-parse --verify 'HEAD^{commit}').Trim()
+  $snapshotMasterOid = (& $GitExe.Source -C $SnapshotRoot rev-parse --verify 'refs/heads/master^{commit}').Trim()
+  $snapshotOriginMasterOid = (& $GitExe.Source -C $SnapshotRoot rev-parse --verify 'refs/remotes/origin/master^{commit}').Trim()
+  $snapshotHeadRef = (& $GitExe.Source -C $SnapshotRoot symbolic-ref --short HEAD).Trim()
+  if ($LASTEXITCODE -ne 0 -or $snapshotHeadOid -ne $sourceHeadOid -or
+      $snapshotMasterOid -ne $sourceBaseOid -or $snapshotOriginMasterOid -ne $sourceBaseOid -or
+      $snapshotHeadRef -ne $snapshotBranch) {
+    throw "selftest 分片 $Name 的 HEAD/master 快照身份未精确钉定。"
   }
 
   # --no-renames 把 rename 展开成旧路径删除 + 新路径复制，防 clone 中残留旧文件。
@@ -621,6 +714,161 @@ function Invoke-SelftestAll {
     if (Test-Path -LiteralPath $aggregateRoot) { Remove-Item -LiteralPath $aggregateRoot -Recurse -Force -ErrorAction Stop }
   }
   return $aggregateExit
+}
+
+function Get-SelftestNestedShipDiagnostic {
+  param(
+    [Parameter(Mandatory)][int]$ExitCode,
+    [AllowEmptyCollection()][object[]]$Output = @(),
+    [Parameter(Mandatory)][string]$LedgerPath
+  )
+
+  $gate = 'unknown'
+  if (Test-Path -LiteralPath $LedgerPath -PathType Leaf) {
+    foreach ($line in @([System.IO.File]::ReadAllLines($LedgerPath)) | Select-Object -Last 20) {
+      if (-not $line.Trim()) { continue }
+      try {
+        $record = $line | ConvertFrom-Json -ErrorAction Stop
+        if ($record.gate -and [string]$record.gate -match '^[A-Za-z0-9._-]+$') { $gate = [string]$record.gate }
+      } catch { }
+    }
+  }
+
+  # Reuse the scanner's bounded, credential-aware diagnostic formatter rather than growing a second redactor.
+  . (Join-Path $PSScriptRoot 'check-licenses.ps1') -AsLibrary
+  $tail = Get-GradleDiagnosticTail -Output $Output -MaxLines 20 -MaxChars 3000
+  return "[SELFTEST-15B-SHIP] exit=$ExitCode gate=$gate tail=$tail"
+}
+
+function Invoke-SelftestGradleMigrationGate {
+  param(
+    [Parameter(Mandatory)][string]$AndroidRoot,
+    [Parameter(Mandatory)][string]$GradleUserHome,
+    [scriptblock]$StateProbe,
+    [Parameter(Mandatory)][scriptblock]$RunCases
+  )
+
+  if (-not $StateProbe) {
+    $StateProbe = {
+      param($androidRoot, $gradleHome)
+      . (Join-Path $PSScriptRoot 'check-licenses.ps1') -AsLibrary
+      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot -GradleUserHome $gradleHome
+    }
+  }
+  $state = & $StateProbe $AndroidRoot $GradleUserHome
+  if (-not $state.Ready) {
+    return [PSCustomObject]@{ Skipped = $true; Reason = 'GRADLE-WRAPPER-OFFLINE'; Detail = [string]$state.Detail }
+  }
+  & $RunCases
+  return [PSCustomObject]@{ Skipped = $false; Reason = ''; Detail = [string]$state.Detail }
+}
+
+function Add-SelftestE2eBaseline {
+  param(
+    [Parameter(Mandatory)][string]$RepoRoot,
+    [Parameter(Mandatory)][string]$TrackedSensitivePath
+  )
+
+  & git -C $RepoRoot add -A 2>$null
+  if ($LASTEXITCODE -ne 0) { throw "E2E baseline git add failed: $RepoRoot" }
+  $sensitiveFile = Join-Path $RepoRoot $TrackedSensitivePath
+  if (-not (Test-Path -LiteralPath $sensitiveFile -PathType Leaf)) {
+    throw "E2E reviewed sensitive baseline is missing: $TrackedSensitivePath"
+  }
+  & git -C $RepoRoot add -f -- $TrackedSensitivePath 2>$null
+  if ($LASTEXITCODE -ne 0) { throw "E2E reviewed sensitive baseline force-add failed: $TrackedSensitivePath" }
+}
+
+function Get-SelftestCanarySourceContracts {
+  # Build each required production line from parts so the contract text itself cannot satisfy its own source check.
+  return @(
+    [PSCustomObject]@{ Code = 'SHIP-RUNNER'; Text = ('      $shipOutput = @(& pwsh -NoProfile -File (Join-Path $e2e ''scripts/task.ps1'') -TaskId T0-SMOKE -Phase ship -Local -SkipRed ' + '2>&1)') }
+    [PSCustomObject]@{ Code = 'SHIP-EXIT'; Text = ('      $shipExit = $LAST' + 'EXITCODE') }
+    [PSCustomObject]@{ Code = 'SHIP-DIAGNOSTIC'; Text = ('        $shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode $shipExit -Output $shipOutput -LedgerPath ' + '(Join-Path $e2e ''_local/effectiveness-ledger.jsonl'')') }
+    [PSCustomObject]@{ Code = 'SHIP-FAIL'; Text = ('        Fail "$shipDiagnostic task.ps1 -Phase ship -Local ' + '非零退出。"') }
+    [PSCustomObject]@{ Code = 'MIGRATION-PREFLIGHT'; Text = ('      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot ' + '-GradleUserHome $gradleHome') }
+    [PSCustomObject]@{ Code = 'MIGRATION-ADDED'; Text = ('          $td4MissingExact = $td4MissingResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4MissingResult.Output -match ''td4_missing_migration_probe'' -and $td4MissingResult.Output -match ' + '''ADDED''') }
+    [PSCustomObject]@{ Code = 'MIGRATION-REMOVED'; Text = ('          $td4WrongExact = $td4WrongResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4WrongResult.Output -match ''td4_wrong_migration_probe'' -and $td4WrongResult.Output -match ' + '''REMOVED''') }
+  )
+}
+
+function Get-SelftestCanarySourceContractFailures {
+  param([Parameter(Mandatory)][string]$Source)
+
+  $failures = [Collections.Generic.List[string]]::new()
+  foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
+    if ([regex]::Matches($Source, [regex]::Escape($contract.Text)).Count -ne 1) {
+      $failures.Add([string]$contract.Code)
+    }
+  }
+  return @($failures)
+}
+
+if ($Fixture -eq 'canary-harness') {
+  $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-canary-harness-$PID"
+  try {
+    New-Item -ItemType Directory -Force $fixtureRoot | Out-Null
+    $ledgerPath = Join-Path $fixtureRoot 'effectiveness-ledger.jsonl'
+    '{"gate":"scope","result":"block"}' | Set-Content -LiteralPath $ledgerPath -Encoding utf8
+    $sensitive = 'CANARY-' + 'PRIVATE'
+    $nestedOutput = @((1..30 | ForEach-Object { "noise-line-$_" }) + "Authorization: Bearer $sensitive" + 'exact-inner-failure')
+    $diagnostic = Get-SelftestNestedShipDiagnostic -ExitCode 23 -Output $nestedOutput -LedgerPath $ledgerPath
+    if ($diagnostic -notmatch '^\[SELFTEST-15B-SHIP\] exit=23 gate=scope tail=' -or
+        $diagnostic -notmatch 'exact-inner-failure' -or $diagnostic.Contains($sensitive) -or $diagnostic.Length -gt 3600) {
+      throw "canary-harness nested ship diagnostic contract failed: $diagnostic"
+    }
+
+    $coldAndroidRoot = Join-Path $fixtureRoot 'cold-android'
+    New-Item -ItemType Directory -Force (Join-Path $coldAndroidRoot 'gradle/wrapper') | Out-Null
+    Set-Content -LiteralPath (Join-Path $coldAndroidRoot 'gradle/wrapper/gradle-wrapper.properties') `
+      -Value 'distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.0-bin.zip' -Encoding utf8
+    $coldCalls = 0
+    $cold = Invoke-SelftestGradleMigrationGate -AndroidRoot $coldAndroidRoot -GradleUserHome (Join-Path $fixtureRoot 'cold-gradle-home') `
+      -RunCases { $script:coldCalls++ }
+    if (-not $cold.Skipped -or $cold.Reason -cne 'GRADLE-WRAPPER-OFFLINE' -or $coldCalls -ne 0) {
+      throw "canary-harness cold Gradle gate invoked wrapper or lost stable reason: calls=$coldCalls result=$cold"
+    }
+    $readyCalls = 0
+    $ready = Invoke-SelftestGradleMigrationGate -AndroidRoot $fixtureRoot -GradleUserHome $fixtureRoot `
+      -StateProbe { param($androidRoot, $gradleHome) [pscustomobject]@{ Ready = $true; Detail = 'ready-fixture' } } `
+      -RunCases { $script:readyCalls++ }
+    if ($ready.Skipped -or $readyCalls -ne 1) {
+      throw "canary-harness ready Gradle gate did not execute real cases exactly once: calls=$readyCalls result=$ready"
+    }
+
+    $baselineRepo = Join-Path $fixtureRoot 'baseline-repo'
+    New-Item -ItemType Directory -Force (Join-Path $baselineRepo 'ignored') | Out-Null
+    & git -C $baselineRepo init -q
+    Set-Content -LiteralPath (Join-Path $baselineRepo '.gitignore') -Value '*.db' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $baselineRepo 'normal.txt') -Value 'normal' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $baselineRepo 'ignored/1.db') -Value 'reviewed baseline' -Encoding utf8
+    Add-SelftestE2eBaseline -RepoRoot $baselineRepo -TrackedSensitivePath 'ignored/1.db'
+    $trackedBaseline = "$(& git -C $baselineRepo ls-files --error-unmatch -- 'ignored/1.db' 2>$null)".Trim()
+    if ($LASTEXITCODE -ne 0 -or $trackedBaseline -cne 'ignored/1.db') {
+      throw 'canary-harness E2E baseline did not force-add the reviewed ignored file.'
+    }
+
+    $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
+    $contractFailures = @(Get-SelftestCanarySourceContractFailures -Source $source)
+    if ($contractFailures.Count -ne 0 -or
+        [regex]::Matches($source, '(?m)^\s+\$(?:cold|ready|td4MigrationGate) = Invoke-SelftestGradleMigrationGate -AndroidRoot').Count -ne 3 -or
+        [regex]::Matches($source, '(?m)^\s+Add-SelftestE2eBaseline -RepoRoot \$e2e ').Count -ne 1 -or
+        [regex]::Matches($source, '(?m)^\s+Write-Host "\[SELFTEST-SKIP\] gate=17a3 reason=').Count -ne 1 -or
+        $source.Contains("-TaskId T0-SMOKE -Phase ship -Local -SkipRed *> `$null`n      `$shipExit")) {
+      throw "canary-harness production wiring is absent, duplicated, or weakened: $($contractFailures -join ',')"
+    }
+    foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
+      $mutatedSource = $source.Replace($contract.Text, '')
+      $mutationFailures = @(Get-SelftestCanarySourceContractFailures -Source $mutatedSource)
+      if ($mutationFailures.Count -ne 1 -or $mutationFailures[0] -cne $contract.Code) {
+        throw "canary-harness source mutation did not isolate $($contract.Code): $($mutationFailures -join ',')"
+      }
+    }
+    Write-Host '[SELFTEST-FIXTURE] canary-harness PASS'
+    exit 0
+  } finally {
+    Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 # 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
@@ -944,6 +1192,140 @@ foreach ($h in $encHooks) {
 }
 # 计数**从清单派生**，不写字面量：字面量与清单会各自漂移（本行此前写 12、清单实为 11 项，codex R3 r3 抓出）。
 if ($g1ok) { Write-Host "  1g OutputEncoding 覆盖对称 OK（$($encScripts.Count) 入口脚本 dot-source 前奏 + $($encHooks.Count) 钩子就地 OutputEncoding）" -ForegroundColor Green }
+
+# 1h（TD157 / L190）：.NET regex classifies UTF-16 code units, so supplementary-plane Cf scalars
+# appear as two Cs code units and evade `\p{Cc}|\p{Cf}`. Exercise the real shared helper:
+# enumerate the complete Unicode scalar space in bounded batches, require every Cc/Cf target to
+# become one ASCII space, preserve every other scalar exactly, and reject malformed UTF-16 instead
+# of silently converting it into trusted text.
+Step '1h/17 Unicode scalar control/format text helper (TD157)'
+$unicodeScalarHelper = Join-Path $PSScriptRoot '_unicode.ps1'
+if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
+  Fail '[UNICODE-SCALAR-MISSING] scripts/_unicode.ps1 is absent.'
+} else {
+  $unicodeHelperText = Get-Content -LiteralPath $unicodeScalarHelper -Raw
+  $unicodeHelperShapeOk = $true
+  if ($unicodeHelperText -notmatch '(?m)^\s*\$offset \+= \$rune\.Utf16SequenceLength\s*$') {
+    Fail '[UNICODE-SCALAR-ADVANCE] scalar iteration does not advance by the decoded rune width.'
+    $unicodeHelperShapeOk = $false
+  }
+  if ($unicodeHelperText -notmatch '(?m)^\s*\$category = \[System\.Text\.Rune\]::GetUnicodeCategory\(\$rune\)\s*$') {
+    Fail '[UNICODE-SCALAR-CATEGORY] scalar category is not derived from the decoded rune.'
+    $unicodeHelperShapeOk = $false
+  }
+  if ($unicodeHelperText -notmatch '(?m)^\s*throw \[System\.ArgumentException\]::new\($' -or
+      $unicodeHelperText -notmatch '\[UNICODE-SCALAR-MALFORMED\] malformed UTF-16') {
+    Fail '[UNICODE-SCALAR-MALFORMED-GUARD] malformed UTF-16 does not reach the stable fail-closed guard.'
+    $unicodeHelperShapeOk = $false
+  }
+  . $unicodeScalarHelper
+  $unicodeScalarOk = $unicodeHelperShapeOk
+  if (-not $unicodeHelperShapeOk) {
+    # A deleted advance statement would otherwise hang the semantic oracle.
+  } elseif (-not (Get-Command ConvertTo-ScaffoldControlFormatSpaces -CommandType Function -ErrorAction SilentlyContinue)) {
+    Fail '[UNICODE-SCALAR-API] ConvertTo-ScaffoldControlFormatSpaces is absent.'
+    $unicodeScalarOk = $false
+  } else {
+    function Test-UnicodeScalarTransform([Parameter(Mandatory)][string]$CommandName) {
+      $visited = 0
+      $targets = 0
+      $inputBuffer = [System.Text.StringBuilder]::new(16384)
+      $expected = [System.Text.StringBuilder]::new(16384)
+      $batchPoints = [System.Collections.Generic.List[int]]::new(4096)
+
+      for ($codePoint = 0; $codePoint -le 0x10FFFF; $codePoint++) {
+        if ($codePoint -ge 0xD800 -and $codePoint -le 0xDFFF) { continue }
+        $visited++
+        $rune = [System.Text.Rune]::new($codePoint)
+        $runeText = $rune.ToString()
+        $category = [System.Text.Rune]::GetUnicodeCategory($rune)
+        $isTarget = $category -in @(
+          [System.Globalization.UnicodeCategory]::Control,
+          [System.Globalization.UnicodeCategory]::Format
+        )
+        if ($isTarget) { $targets++ }
+        [void]$inputBuffer.Append($runeText)
+        [void]$expected.Append($(if ($isTarget) { ' ' } else { $runeText }))
+        [void]$batchPoints.Add($codePoint)
+
+        if ($batchPoints.Count -lt 4096 -and $codePoint -lt 0x10FFFF) { continue }
+        try { [string]$actual = & $CommandName $inputBuffer.ToString() }
+        catch {
+          return [PSCustomObject]@{ Ok = $false; Code = 'THREW'; Point = $batchPoints[0]; Category = ''; Detail = $_.Exception.Message; Visited = $visited; Targets = $targets }
+        }
+        if ($actual -cne $expected.ToString()) {
+          foreach ($point in $batchPoints) {
+            $pointRune = [System.Text.Rune]::new($point)
+            $pointText = $pointRune.ToString()
+            $pointCategory = [System.Text.Rune]::GetUnicodeCategory($pointRune)
+            $pointIsTarget = $pointCategory -in @(
+              [System.Globalization.UnicodeCategory]::Control,
+              [System.Globalization.UnicodeCategory]::Format
+            )
+            [string]$pointActual = & $CommandName $pointText
+            $pointExpected = if ($pointIsTarget) { ' ' } else { $pointText }
+            if ($pointActual -cne $pointExpected) {
+              return [PSCustomObject]@{ Ok = $false; Code = $(if ($pointIsTarget) { 'TARGET' } else { 'PRESERVE' }); Point = $point; Category = $pointCategory; Detail = ''; Visited = $visited; Targets = $targets }
+            }
+          }
+          return [PSCustomObject]@{ Ok = $false; Code = 'BATCH'; Point = $batchPoints[0]; Category = ''; Detail = 'batch output differed but per-scalar replay did not'; Visited = $visited; Targets = $targets }
+        }
+        [void]$inputBuffer.Clear()
+        [void]$expected.Clear()
+        $batchPoints.Clear()
+      }
+      return [PSCustomObject]@{ Ok = $true; Code = ''; Point = -1; Category = ''; Detail = ''; Visited = $visited; Targets = $targets }
+    }
+
+    $unicodeOracle = Test-UnicodeScalarTransform -CommandName 'ConvertTo-ScaffoldControlFormatSpaces'
+    if (-not $unicodeOracle.Ok) {
+      $unicodeOracleCode = if ($unicodeOracle.Code -eq 'TARGET') { 'UNICODE-SCALAR-TARGET' } elseif ($unicodeOracle.Code -eq 'PRESERVE') { 'UNICODE-SCALAR-PRESERVE' } else { 'UNICODE-SCALAR-ORACLE' }
+      Fail ('[{0}] U+{1:X} category={2} failed the complete scalar oracle ({3}).' -f $unicodeOracleCode, $unicodeOracle.Point, $unicodeOracle.Category, $unicodeOracle.Detail)
+      $unicodeScalarOk = $false
+    }
+    if ($unicodeOracle.Visited -ne (0x110000 - 0x800) -or $unicodeOracle.Targets -le 0) {
+      Fail "[UNICODE-SCALAR-ORACLE] scalar enumeration was incomplete (visited=$($unicodeOracle.Visited) targets=$($unicodeOracle.Targets))."
+      $unicodeScalarOk = $false
+    }
+
+    # Mutation proof: broaden the production predicate to DecimalDigitNumber. The same complete oracle
+    # must kill that over-replacement at U+0030 as PRESERVE, proving non-target coverage is not sampled.
+    $unicodeMutantName = 'ConvertTo-ScaffoldControlFormatSpacesOverReplacementMutant'
+    $unicodeMutantText = $unicodeHelperText.Replace(
+      'function ConvertTo-ScaffoldControlFormatSpaces {',
+      "function $unicodeMutantName {"
+    ).Replace(
+      '$category -eq [System.Globalization.UnicodeCategory]::Format) {',
+      '$category -eq [System.Globalization.UnicodeCategory]::Format -or' + "`n" +
+      '        $category -eq [System.Globalization.UnicodeCategory]::DecimalDigitNumber) {'
+    )
+    try {
+      if ($unicodeMutantText -ceq $unicodeHelperText) { throw 'over-replacement mutation did not change helper source' }
+      . ([scriptblock]::Create($unicodeMutantText))
+      $unicodeMutantOracle = Test-UnicodeScalarTransform -CommandName $unicodeMutantName
+      if ($unicodeMutantOracle.Ok -or $unicodeMutantOracle.Code -ne 'PRESERVE' -or $unicodeMutantOracle.Point -ne 0x30) {
+        Fail "[UNICODE-SCALAR-MUTATION-OVERREPLACE] DecimalDigitNumber mutant was not killed at U+0030 as PRESERVE (ok=$($unicodeMutantOracle.Ok) code=$($unicodeMutantOracle.Code) point=$($unicodeMutantOracle.Point))."
+        $unicodeScalarOk = $false
+      }
+    }
+    catch {
+      Fail "[UNICODE-SCALAR-MUTATION-SETUP] over-replacement mutation could not run: $($_.Exception.Message)"
+      $unicodeScalarOk = $false
+    }
+    finally { Remove-Item -LiteralPath "Function:\$unicodeMutantName" -ErrorAction SilentlyContinue }
+
+    foreach ($unicodeMalformed in @([string][char]0xD800, [string][char]0xDC00)) {
+      $unicodeRejected = $false
+      try { [void](ConvertTo-ScaffoldControlFormatSpaces $unicodeMalformed) }
+      catch { $unicodeRejected = $_.Exception.Message -match '\[UNICODE-SCALAR-MALFORMED\]' }
+      if (-not $unicodeRejected) {
+        Fail '[UNICODE-SCALAR-MALFORMED] lone surrogate was not rejected with the stable sentinel.'
+        $unicodeScalarOk = $false
+      }
+    }
+  }
+  if ($unicodeScalarOk) { Write-Host '  1h Unicode scalar control/format helper OK' -ForegroundColor Green }
+}
 
 # --- 2. 经验系统自检 ---
 Step '2/17 经验系统（lessons.ps1 check）'
@@ -1634,6 +2016,7 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
 
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
   $aggLogs = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-logs-$PID-$([guid]::NewGuid().ToString('N'))"
+  $aggOrigin = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-origin-$PID-$([guid]::NewGuid().ToString('N')).git"
   $aggTempPattern = "scaffold-selftest-all-$PID-*"
   $aggRootsBefore = @(Get-ChildItem ([System.IO.Path]::GetTempPath()) -Directory -Filter $aggTempPattern -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
   $oldFailShard = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_FAIL_SHARD', 'Process')
@@ -1680,9 +2063,44 @@ exit 0
     & git -C $aggFixture symbolic-ref HEAD refs/heads/master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture master failed' }
     & git -C $aggFixture add -A; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture add failed' }
     & git -C $aggFixture -c user.email='s@l' -c user.name='s' commit -q -m base; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture commit failed' }
+    $td156StaleMasterOid = (& git -C $aggFixture rev-parse --verify 'HEAD^{commit}').Trim()
+    & git init --bare -q $aggOrigin; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture bare origin failed' }
+    & git -C $aggFixture remote add origin $aggOrigin; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture origin add failed' }
+    & git -C $aggFixture push -q -u origin master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture initial push failed' }
+    & git -C $aggFixture switch -q -c td156-latest; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest branch failed' }
+    'latest-head' | Set-Content (Join-Path $aggFixture 'head-marker.txt')
+    & git -C $aggFixture add head-marker.txt; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest add failed' }
+    & git -C $aggFixture -c user.email='s@l' -c user.name='s' commit -q -m latest; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest commit failed' }
+    $td156SourceHeadOid = (& git -C $aggFixture rev-parse --verify 'HEAD^{commit}').Trim()
+    & git -C $aggFixture push -q origin HEAD:master; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture latest push failed' }
+    & git -C $aggFixture branch td156-same-head $td156SourceHeadOid; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture same-SHA branch failed' }
+    & git -C $aggFixture switch -q --detach $td156SourceHeadOid; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture detach failed' }
+    $td156AuthoritativeBaseOid = (& git -C $aggFixture rev-parse --verify 'refs/remotes/origin/master^{commit}').Trim()
+    if ($td156StaleMasterOid -eq $td156AuthoritativeBaseOid -or $td156SourceHeadOid -ne $td156AuthoritativeBaseOid) {
+      throw 'aggregate fixture did not create stale local master + authoritative origin/master'
+    }
     & git -C $aggFixture mv old.txt renamed.txt; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture rename failed' }
     Remove-Item -LiteralPath (Join-Path $aggFixture 'deleted.txt') -Force -ErrorAction Stop
     'untracked' | Set-Content (Join-Path $aggFixture 'untracked.txt')
+
+    $td156Snapshot = Join-Path $aggLogs 'td156-snapshot'
+    [void](New-SelftestSnapshot -SourceRoot $aggFixture -SnapshotRoot $td156Snapshot -Name 'td156' -GitExe (Get-Command git -ErrorAction Stop))
+    $td156SnapshotHead = (& git -C $td156Snapshot rev-parse --verify 'HEAD^{commit}').Trim()
+    $td156SnapshotMaster = (& git -C $td156Snapshot rev-parse --verify 'refs/heads/master^{commit}').Trim()
+    $td156SnapshotOriginMaster = (& git -C $td156Snapshot rev-parse --verify 'refs/remotes/origin/master^{commit}').Trim()
+    $td156SnapshotBranch = (& git -C $td156Snapshot symbolic-ref --short HEAD 2>$null).Trim()
+    $td156OverlayOk = (Test-Path (Join-Path $td156Snapshot 'renamed.txt')) -and
+      (-not (Test-Path (Join-Path $td156Snapshot 'old.txt'))) -and
+      (-not (Test-Path (Join-Path $td156Snapshot 'deleted.txt'))) -and
+      (Test-Path (Join-Path $td156Snapshot 'untracked.txt'))
+    if ($td156SnapshotHead -ne $td156SourceHeadOid -or
+        $td156SnapshotMaster -ne $td156AuthoritativeBaseOid -or
+        $td156SnapshotOriginMaster -ne $td156AuthoritativeBaseOid -or
+        -not $td156SnapshotBranch.StartsWith('selftest-snapshot-', [System.StringComparison]::Ordinal) -or
+        -not $td156OverlayOk) {
+      Fail '8.2e(TD156)：all 快照未钉 source HEAD、隔离分支、权威 master/origin-master 或 dirty overlay。'
+    }
+    Remove-Item -LiteralPath $td156Snapshot -Recurse -Force -ErrorAction Stop
 
     $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $aggLogs
     $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = 'workflow'
@@ -1740,7 +2158,7 @@ exit 0
     if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
     if ($null -eq $oldGateSpec) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = $oldGateSpec }
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
-    Remove-Item -LiteralPath $aggFixture, $aggLogs -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $aggFixture, $aggLogs, $aggOrigin -Recurse -Force -ErrorAction SilentlyContinue
   }
   if (-not $fail) { Write-Host '  8.2e 6 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
 }
@@ -2862,6 +3280,84 @@ else {
   if (-not (Test-Path (Join-Path $ar 'specs/tasks/TA2.md'))) { $arFail += 'todo 卡 TA2 被误归档（应留活目录）' }
   if (-not (Test-Path (Join-Path $ar 'specs/tasks/_TEMPLATE.md')) -or (Test-Path (Join-Path $ar 'specs/archive/tasks/_TEMPLATE.md'))) { $arFail += '_TEMPLATE.md 被误归档（名字豁免失效）' }
   if ($cardsIdx -notmatch 'TA1' -or $cardsIdx -notmatch 'TA3' -or $cardsIdx -match 'TA2') { $arFail += '卡索引内容错（应含 TA1/TA3、不含 TA2）' }
+
+  # TD146：只读索引检查必须复用生产投影且零副作用。先证正确索引通过，再删一条真实行证 exact drift 会被拒；
+  # 检查不得顺手修复，正常 archive 才负责重建。tree state 用逐文件 SHA 独立证明只读，不镜像索引生成逻辑。
+  $cardsIndexPath = Join-Path $ar 'specs/archive/cards-index.md'
+  $getArchiveTreeState = {
+    @(Get-ChildItem -LiteralPath $ar -Recurse -File | Sort-Object FullName | ForEach-Object {
+      $rel = [IO.Path]::GetRelativePath($ar, $_.FullName).Replace('\', '/')
+      "$rel|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+    })
+  }
+  $treeBeforeCheck = @(& $getArchiveTreeState)
+  $cardsCheckGoodOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckGoodCode = $LASTEXITCODE
+  $treeAfterCheck = @(& $getArchiveTreeState)
+  if ($cardsCheckGoodCode -ne 0) { $arFail += "正确卡索引被只读检查拒绝（exit=$cardsCheckGoodCode）：$cardsCheckGoodOut" }
+  if (@(Compare-Object $treeBeforeCheck $treeAfterCheck).Count -ne 0) { $arFail += '只读卡索引检查修改了夹具文件树' }
+
+  $correctCardsIndexBytes = [IO.File]::ReadAllBytes($cardsIndexPath)
+  $utf8Bom = [Text.UTF8Encoding]::new($true).GetPreamble()
+  [IO.File]::WriteAllBytes($cardsIndexPath, [byte[]]($utf8Bom + $correctCardsIndexBytes))
+  $bomDriftHash = (Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash
+  $cardsCheckBomOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckBomCode = $LASTEXITCODE
+  if ($cardsCheckBomCode -eq 0) { $arFail += 'UTF-8 BOM 字节漂移仍 exit 0（检查并非 exact bytes）' }
+  elseif ($cardsCheckBomOut -notmatch '\[ARCHIVE-CARDS-INDEX-DRIFT\]') { $arFail += "BOM 字节漂移被拒但未输出 [ARCHIVE-CARDS-INDEX-DRIFT]：$cardsCheckBomOut" }
+  if ((Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash -ne $bomDriftHash) { $arFail += 'BOM 漂移检查修改/自修了夹具索引' }
+  [IO.File]::WriteAllBytes($cardsIndexPath, $correctCardsIndexBytes)
+
+  $equalLengthDrift = [Text.UTF8Encoding]::new($false).GetString($correctCardsIndexBytes).Replace('merged three', 'merged threw')
+  if ([Text.UTF8Encoding]::new($false).GetByteCount($equalLengthDrift) -ne $correctCardsIndexBytes.Length) {
+    $arFail += '同长度索引漂移夹具未保持字节数（测试设置失效）'
+  } else {
+    [IO.File]::WriteAllText($cardsIndexPath, $equalLengthDrift, [Text.UTF8Encoding]::new($false))
+    $equalLengthDriftHash = (Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash
+    $cardsCheckEqualOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+    $cardsCheckEqualCode = $LASTEXITCODE
+    if ($cardsCheckEqualCode -eq 0) { $arFail += '同长度 title 字节替换仍 exit 0（逐字节比较未承重）' }
+    elseif ([regex]::Matches($cardsCheckEqualOut, '\[ARCHIVE-CARDS-INDEX-DRIFT\]').Count -ne 1) { $arFail += "同长度漂移未精确输出一枚 [ARCHIVE-CARDS-INDEX-DRIFT]：$cardsCheckEqualOut" }
+    if ((Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash -ne $equalLengthDriftHash) { $arFail += '同长度漂移检查修改/自修了夹具索引' }
+    [IO.File]::WriteAllBytes($cardsIndexPath, $correctCardsIndexBytes)
+  }
+
+  $tamperedCardsIndex = @(Get-Content -LiteralPath $cardsIndexPath | Where-Object { $_ -notmatch '^\| TA3 \|' })
+  Set-Content -LiteralPath $cardsIndexPath -Value ($tamperedCardsIndex -join "`n") -Encoding utf8
+  $treeBeforeDriftCheck = @(& $getArchiveTreeState)
+  $cardsCheckDriftOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckDriftCode = $LASTEXITCODE
+  $treeAfterDriftCheck = @(& $getArchiveTreeState)
+  if ($cardsCheckDriftCode -eq 0) { $arFail += '删除 TA3 索引行后只读检查仍 exit 0（exact projection 漂移未拦）' }
+  elseif ($cardsCheckDriftOut -notmatch '\[ARCHIVE-CARDS-INDEX-DRIFT\]') { $arFail += "索引漂移被拒但未输出 [ARCHIVE-CARDS-INDEX-DRIFT]：$cardsCheckDriftOut" }
+  if (@(Compare-Object $treeBeforeDriftCheck $treeAfterDriftCheck).Count -ne 0) { $arFail += '漂移检查修改/自修了夹具文件树' }
+
+  & pwsh -NoProfile -File $arScript -RepoRoot $ar -Quiet *> $null
+  $cardsRebuildCode = $LASTEXITCODE
+  $cardsCheckRebuiltOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsCheckRebuiltCode = $LASTEXITCODE
+  if ($cardsRebuildCode -ne 0 -or $cardsCheckRebuiltCode -ne 0) { $arFail += "正常 archive 未能重建并通过卡索引检查（rebuild=$cardsRebuildCode check=$cardsCheckRebuiltCode）：$cardsCheckRebuiltOut" }
+
+  # verify 接线用极小真实仓夹具：不含 Android/Python/frontend，故唯一失败必须来自 archive cards index drift。
+  $verifyArchiveRoot = Join-Path $ar 'verify-wire'
+  New-Item -ItemType Directory -Force (Join-Path $verifyArchiveRoot 'scripts'), (Join-Path $verifyArchiveRoot 'specs/archive/tasks') | Out-Null
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify.ps1'), $arScript, (Join-Path $PSScriptRoot '_cards.ps1'), (Join-Path $PSScriptRoot '_encoding.ps1') -Destination (Join-Path $verifyArchiveRoot 'scripts')
+  Set-Content -LiteralPath (Join-Path $verifyArchiveRoot 'specs/archive/tasks/TV1.md') -Value "---`nid: TV1`ntitle: verify one`nstatus: merged`n---" -Encoding utf8
+  Set-Content -LiteralPath (Join-Path $verifyArchiveRoot 'specs/archive/tasks/TV2.md') -Value "---`nid: TV2`ntitle: verify two`nstatus: merged`n---" -Encoding utf8
+  & pwsh -NoProfile -File (Join-Path $verifyArchiveRoot 'scripts/archive.ps1') -RepoRoot $verifyArchiveRoot -Quiet *> $null
+  $verifyCardsIndexPath = Join-Path $verifyArchiveRoot 'specs/archive/cards-index.md'
+  $verifyGoodOut = & pwsh -NoProfile -File (Join-Path $verifyArchiveRoot 'scripts/verify.ps1') 2>&1 | Out-String
+  $verifyGoodCode = $LASTEXITCODE
+  if ($verifyGoodCode -ne 0) { $arFail += "verify 对正确 cards-index 非零（检查参数/运行时接线无效）：$verifyGoodOut" }
+  $verifyTamperedIndex = @(Get-Content -LiteralPath $verifyCardsIndexPath | Where-Object { $_ -notmatch '^\| TV2 \|' })
+  Set-Content -LiteralPath $verifyCardsIndexPath -Value ($verifyTamperedIndex -join "`n") -Encoding utf8
+  $verifyTamperedHash = (Get-FileHash -LiteralPath $verifyCardsIndexPath -Algorithm SHA256).Hash
+  $verifyDriftOut = & pwsh -NoProfile -File (Join-Path $verifyArchiveRoot 'scripts/verify.ps1') 2>&1 | Out-String
+  $verifyDriftCode = $LASTEXITCODE
+  if ($verifyDriftCode -eq 0) { $arFail += 'verify 对漂移的 cards-index 仍 exit 0（只读投影检查未接线）' }
+  elseif ([regex]::Matches($verifyDriftOut, '\[ARCHIVE-CARDS-INDEX-DRIFT\]').Count -ne 1) { $arFail += "verify 非零但 archive 子进程状态码不是唯一一枚 [ARCHIVE-CARDS-INDEX-DRIFT]：$verifyDriftOut" }
+  if ((Get-FileHash -LiteralPath $verifyCardsIndexPath -Algorithm SHA256).Hash -ne $verifyTamperedHash) { $arFail += 'verify 的索引检查写回/自修了漂移索引' }
+
   # (4) 幂等：再跑一次，分区与索引不得变
   & pwsh -NoProfile -File $arScript -RepoRoot $ar -Quiet *> $null
   $liveTd2 = Get-Content (Join-Path $ar 'specs/tech-debt-tracker.md') -Raw
@@ -3628,7 +4124,7 @@ if (-not $git) {
     & git -C $e2e symbolic-ref HEAD refs/heads/master                 # 版本无关地强制默认分支 = master
     & git -C $e2e config user.email 'selftest@local'                  # 仓级身份：15b ship 的内部 commit/merge 据此（非 -c 内联）
     & git -C $e2e config user.name  'selftest'
-    & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' add -A 2>$null
+    Add-SelftestE2eBaseline -RepoRoot $e2e -TrackedSensitivePath 'android/core/src/main/sqldelight/databases/1.db'
     & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'e2e base' *> $null
     $baseLicenseStub = (& git -C $e2e show 'HEAD:scripts/check-licenses.ps1' 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $baseLicenseStub -cne 'exit 0') {
@@ -3657,10 +4153,13 @@ if (-not $git) {
     #   离线确定性：评审/verify/许可走上面的基线 stub（非真 codex/机器态）；真实工作树许可闸与完整 scanner 分别由 15o/17cc 覆盖；账号守卫 -Local 跳过。
     if ((Test-SelftestPrerequisite -GateIds @('15b(ship-local)')) -and (Test-Path $wtDir)) {
       Set-Content (Join-Path $wtDir 'README.md') 'e2e ship-loop smoke change' -Encoding utf8   # allow_paths 内的真改动
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
+      $shipOutput = @(& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1)
       $shipExit = $LASTEXITCODE
       $mergeCount = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
-      if ($shipExit -ne 0) { Fail "task.ps1 -Phase ship -Local 非零退出（$shipExit）——ship 编排链断（DoD/verify/范围/许可/密钥/评审/合并之一）。" }
+      if ($shipExit -ne 0) {
+        $shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode $shipExit -Output $shipOutput -LedgerPath (Join-Path $e2e '_local/effectiveness-ledger.jsonl')
+        Fail "$shipDiagnostic task.ps1 -Phase ship -Local 非零退出。"
+      }
       elseif ($mergeCount -lt 1) { Fail 'ship -Local 退出 0 但 master 上无合并提交（--no-ff 未生效 / worktree 改动未提交？）。' }
       else { Write-Host '  动态 E2E OK（ship -Local）：DoD→verify(stub)→范围→许可→密钥→R3(stub)→-Local 合并全过，exit 0 且产出合并提交' -ForegroundColor Green }
     }
@@ -5594,6 +6093,283 @@ if (-not $seededGitAvailable) {
     $a = & $mkSeed (Join-Path $sd 'a') @{ 'config.py' = 'db_password = "s3cr3tValue123"' }   # allowlist secret （本行写出密钥字面量做种子；标记令本仓 check-secrets 跳过 selftest.ps1 自身这行，不自报）
     if ($a -eq 0) { Fail '种子缺陷 17a：check-secrets 未拦截 snake_case 硬编码密钥（db_password=...）——#6 检出回归。' }
     else { Write-Host '  17a check-secrets 拦截 snake_case 密钥 OK' -ForegroundColor Green }
+
+    # 17a3 (TD4). SQLDelight 的已审 schema baseline 是敏感文件名闸的唯一动态例外：配置须为
+    # 精确仓库相对路径 + 非空用途，且 malformed / missing / duplicate / unknown-field / glob / directory
+    # 全部 fail-closed。相邻或改名的 .db 即使同目录、同用途也仍由通用 *.db 规则逐路径拦截。
+    $td4BaselinePath = 'android/core/src/main/sqldelight/databases/1.db'
+    $td4ConfigPath = 'configs/secrets/tracked-sensitive-allowlist.json'
+    $td4BaselineJson = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"SQLDelight migration schema baseline"}]'
+    $invokeTd4SecretFixture = {
+      param(
+        [string]$Name,
+        [AllowNull()][string]$AllowlistJson,
+        [string[]]$TrackedDbPaths = @(),
+        [hashtable]$ExtraFiles = @{},
+        [string]$JunctionParent = ''
+      )
+      $dir = Join-Path $sd "a3-$Name"
+      New-Item -ItemType Directory -Force $dir | Out-Null
+      Copy-Item (Join-Path $RepoRoot 'scripts') $dir -Recurse -Force
+      if ($null -ne $AllowlistJson) {
+        $configFile = Join-Path $dir $td4ConfigPath
+        New-Item -ItemType Directory -Force (Split-Path $configFile) | Out-Null
+        Set-Content -LiteralPath $configFile -Value $AllowlistJson -Encoding utf8 -NoNewline
+      }
+      foreach ($dbPath in $TrackedDbPaths) {
+        $dbFile = Join-Path $dir $dbPath
+        New-Item -ItemType Directory -Force (Split-Path $dbFile) | Out-Null
+        [System.IO.File]::WriteAllBytes($dbFile, [byte[]](0x53, 0x51, 0x4c, 0x69, 0x00))
+      }
+      foreach ($rel in $ExtraFiles.Keys) {
+        $file = Join-Path $dir $rel
+        New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+        Set-Content -LiteralPath $file -Value $ExtraFiles[$rel] -Encoding utf8 -NoNewline
+      }
+      & git -C $dir init -q
+      & git -C $dir -c user.email='s@l' -c user.name='s' add -f -A 2>$null
+      & git -C $dir -c user.email='s@l' -c user.name='s' commit -q -m seed *> $null
+      if ($JunctionParent) {
+        $junction = Join-Path $dir $JunctionParent
+        $outside = Join-Path $sd "a3-$Name-outside"
+        Move-Item -LiteralPath $junction -Destination $outside -Force
+        $linkCreated = $false
+        if ($IsWindows) {
+          & cmd /c mklink /J $junction $outside *> $null
+          $linkCreated = ($LASTEXITCODE -eq 0)
+        } else {
+          try { New-Item -ItemType SymbolicLink -Path $junction -Target $outside -ErrorAction Stop | Out-Null; $linkCreated = $true } catch { }
+        }
+        $junctionItem = Get-Item -LiteralPath $junction -Force -ErrorAction SilentlyContinue
+        if (-not $linkCreated -or -not $junctionItem -or (($junctionItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)) {
+          Fail "闸17a3($Name/setup)：未建立祖先 junction/symlink，不能声称覆盖 parent-reparse 绕过。"
+          return [pscustomobject]@{ Exit = 1; Output = '[SECRET-ALLOWLIST] [TD4-JUNCTION-SETUP-FAILED]' }
+        }
+      }
+      $output = & pwsh -NoProfile -File (Join-Path $dir 'scripts/check-secrets.ps1') 2>&1 | Out-String
+      [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+    }
+
+    $td4Exact = & $invokeTd4SecretFixture 'exact' $td4BaselineJson @($td4BaselinePath)
+    if ($td4Exact.Exit -ne 0) {
+      Fail "种子缺陷 17a3(exact)：精确登记的 SQLDelight schema baseline 未放行（exit=$($td4Exact.Exit)）。输出：$($td4Exact.Output)"
+    }
+    foreach ($td4Unexpected in @(
+      @{ Name = 'adjacent'; Path = 'android/core/src/main/sqldelight/databases/runtime.db' },
+      @{ Name = 'renamed'; Path = 'android/core/src/main/sqldelight/databases/01.db' }
+    )) {
+      $td4Result = & $invokeTd4SecretFixture $td4Unexpected.Name $td4BaselineJson @($td4BaselinePath, $td4Unexpected.Path)
+      if ($td4Result.Exit -eq 0 -or -not $td4Result.Output.Contains($td4Unexpected.Path)) {
+        Fail "种子缺陷 17a3($($td4Unexpected.Name))：未逐路径拒绝未登记数据库 $($td4Unexpected.Path)（exit=$($td4Result.Exit)）。输出：$($td4Result.Output)"
+      }
+    }
+    $td4CaseConfigPath = 'configs/secrets/Tracked-sensitive-allowlist.json'
+    $td4CaseConfig = & $invokeTd4SecretFixture 'config-case' $null @() @{ $td4CaseConfigPath = '[]' }
+    $td4CaseNamed = $td4CaseConfig.Output.Contains($td4CaseConfigPath) -or $td4CaseConfig.Output -match '\[SECRET-ALLOWLIST\]'
+    if ($td4CaseConfig.Exit -eq 0 -or -not $td4CaseNamed) {
+      Fail "种子缺陷 17a3(config-case)：大小写变体清单文件被当作精确静态例外（exit=$($td4CaseConfig.Exit)）。输出：$($td4CaseConfig.Output)"
+    }
+    foreach ($td4ParentCase in @(
+      @{ Name = 'config-parent-reparse'; Parent = 'configs/secrets' },
+      @{ Name = 'database-parent-reparse'; Parent = 'android/core/src/main/sqldelight/databases' }
+    )) {
+      $td4ParentResult = & $invokeTd4SecretFixture $td4ParentCase.Name $td4BaselineJson @($td4BaselinePath) @{} $td4ParentCase.Parent
+      if ($td4ParentResult.Exit -eq 0 -or $td4ParentResult.Output -notmatch '\[SECRET-ALLOWLIST\]') {
+        Fail "种子缺陷 17a3($($td4ParentCase.Name))：清单或快照的祖先 junction/symlink 未 fail-closed（exit=$($td4ParentResult.Exit)）。输出：$($td4ParentResult.Output)"
+      }
+    }
+
+    $td4InvalidCases = @(
+      @{ Name = 'malformed'; Json = '[{' },
+      @{ Name = 'missing'; Json = $td4BaselineJson },
+      @{ Name = 'duplicate'; Json = "[$($td4BaselineJson.Trim('[', ']')),$($td4BaselineJson.Trim('[', ']'))]"; Tracked = @($td4BaselinePath) },
+      @{ Name = 'unknown-field'; Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"schema","scope":"broad"}]' },
+      @{ Name = 'blank-purpose'; Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":""}]' },
+      @{ Name = 'glob'; Json = '[{"path":"android/core/src/main/sqldelight/databases/*.db","purpose":"schema"}]' },
+      @{ Name = 'directory'; Json = '[{"path":"android/core/src/main/sqldelight/databases","purpose":"schema"}]'; Extra = @{ 'android/core/src/main/sqldelight/databases/placeholder.txt' = 'not a database' } }
+    )
+    foreach ($td4Invalid in $td4InvalidCases) {
+      $td4Extra = if ($td4Invalid.ContainsKey('Extra')) { $td4Invalid.Extra } else { @{} }
+      $td4Tracked = if ($td4Invalid.ContainsKey('Tracked')) { [string[]]$td4Invalid.Tracked } else { @() }
+      $td4Result = & $invokeTd4SecretFixture $td4Invalid.Name $td4Invalid.Json $td4Tracked $td4Extra
+      if ($td4Result.Exit -eq 0 -or $td4Result.Output -notmatch '\[SECRET-ALLOWLIST\]') {
+        Fail "种子缺陷 17a3($($td4Invalid.Name))：allowlist 非法状态未以 [SECRET-ALLOWLIST] fail-closed（exit=$($td4Result.Exit)）。输出：$($td4Result.Output)"
+      }
+    }
+
+    # duplicate 守卫的精确语义变异：只删重复拒绝，夹具其余条件保持合法；mutant 必须由 RED 变成错误 PASS。
+    $td4DuplicateScript = Join-Path $sd 'a3-duplicate/scripts/check-secrets.ps1'
+    $td4DuplicateOriginal = [System.IO.File]::ReadAllText($td4DuplicateScript)
+    $td4DuplicateGuard = '      if (-not $seenPaths.Add($path)) { throw "清单 path 重复：$path" }'
+    if ([regex]::Matches($td4DuplicateOriginal, [regex]::Escape($td4DuplicateGuard)).Count -ne 1) {
+      Fail '闸17a3(duplicate-mut/setup)：重复 path 守卫未唯一定位，不能声称 mutation death。'
+    } else {
+      try {
+        $td4DuplicateMutant = $td4DuplicateOriginal.Replace($td4DuplicateGuard, '      [void]$seenPaths.Add($path) # TD4 duplicate guard mutation')
+        [System.IO.File]::WriteAllText($td4DuplicateScript, $td4DuplicateMutant, [System.Text.UTF8Encoding]::new($false))
+        $td4DuplicateOut = & pwsh -NoProfile -File $td4DuplicateScript 2>&1 | Out-String
+        $td4DuplicateExit = $LASTEXITCODE
+        if ($td4DuplicateExit -ne 0) { Fail "闸17a3(duplicate-mut)：删除重复守卫后未出现精确 fail-open（exit=$td4DuplicateExit），mutation noise。输出：$td4DuplicateOut" }
+        else { Write-Host '  17a3(duplicate-mut) 删除重复 path 守卫 → 原本非法清单错误 PASS，精确 mutation killed OK' -ForegroundColor Green }
+      } finally {
+        [System.IO.File]::WriteAllText($td4DuplicateScript, $td4DuplicateOriginal, [System.Text.UTF8Encoding]::new($false))
+      }
+    }
+
+    # 两个微型行为 probe 使用真实 helper，不复制 migration fixture：第一次失败后必须重试；终态失败必须逐次留诊断。
+    $td145Probe = Join-Path $sd 'a3-cleanup-probe'
+    $td145Counter = [PSCustomObject]@{ Count = 0 }
+    New-Item -ItemType Directory -Force $td145Probe | Out-Null
+    $td145Retry = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td145Probe -MaxAttempts 2 -RetryDelayMs 1 `
+      -AttemptInvoker { param($attempt, $path) $td145Counter.Count++; if ($attempt -eq 2) { Remove-Item -LiteralPath $path -Recurse -Force; [PSCustomObject]@{ Exit = 0; Output = 'retry-detail-2' } } else { [PSCustomObject]@{ Exit = 41; Output = 'retry-detail-1' } } } `
+      -RegistrationProbe { $false } -SleepInvoker { param($ms) }
+    $td145RetryOk = $td145Retry.Success -and $td145Retry.Attempts -eq 2 -and $td145Counter.Count -eq 2
+    if (-not $td145RetryOk) {
+      Fail "闸17a3(cleanup/retry)：首次失败后未执行第二次有界清理。诊断：$($td145Retry.Diagnostics)"
+    }
+    New-Item -ItemType Directory -Force $td145Probe | Out-Null
+    $td145Diagnostic = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td145Probe -MaxAttempts 2 -RetryDelayMs 1 `
+      -AttemptInvoker { param($attempt, $path) [PSCustomObject]@{ Exit = 42; Output = "diagnostic-detail-$attempt" } } `
+      -RegistrationProbe { $false } -SleepInvoker { param($ms) }
+    $td145DiagnosticOk = -not $td145Diagnostic.Success -and $td145Diagnostic.PathExists -and (Test-Path -LiteralPath $td145Probe) -and $td145Diagnostic.Diagnostics.Contains('attempt=1') -and $td145Diagnostic.Diagnostics.Contains('remove-exit=42') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-1') -and $td145Diagnostic.Diagnostics.Contains('attempt=2') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-2')
+    if (-not $td145DiagnosticOk) {
+      Fail "闸17a3(cleanup/diagnostic)：终态失败未保留 fixture 与每次 exit/detail。诊断：$($td145Diagnostic.Diagnostics)"
+    } elseif ($td145RetryOk) {
+      Write-Host '  17a3(cleanup-probe) 首次失败后有界重试；终态失败逐次保留 exit/detail OK' -ForegroundColor Green
+    }
+    Remove-Item -LiteralPath $td145Probe -Recurse -Force -ErrorAction SilentlyContinue
+
+    $td145GitRepo = Join-Path $sd 'a3-cleanup-git'
+    $td145GitWorktree = Join-Path $sd 'a3-cleanup-git-wt'
+    $td145FallbackPath = Join-Path $sd 'a3-cleanup-fallback'
+    $td145InvalidRepo = Join-Path $sd 'a3-cleanup-invalid-repo'
+    $td145InvalidTarget = Join-Path $sd 'a3-cleanup-invalid-target'
+    $td145LockedStream = $null
+    try {
+      New-Item -ItemType Directory -Force $td145GitRepo | Out-Null
+      & git -C $td145GitRepo init -q
+      Set-Content -LiteralPath (Join-Path $td145GitRepo 'seed.txt') -Value 'td145' -Encoding utf8
+      & git -C $td145GitRepo -c user.email='s@l' -c user.name='s' add seed.txt
+      & git -C $td145GitRepo -c user.email='s@l' -c user.name='s' commit -q -m seed
+      & git -C $td145GitRepo worktree add --detach $td145GitWorktree HEAD *> $null
+      $td145RealCleanup = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145GitWorktree -MaxAttempts 2 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if (-not $td145RealCleanup.Success -or -not $td145RealCleanup.Diagnostics.Contains('remove-exit=0') -or -not $td145RealCleanup.Diagnostics.Contains('list-exit=0')) {
+        Fail "闸17a3(cleanup/real-git)：真实 remove/list 未成功且分别保留 exit。诊断：$($td145RealCleanup.Diagnostics)"
+      }
+
+      & git -C $td145GitRepo worktree add --detach $td145GitWorktree HEAD *> $null
+      & git -C $td145GitRepo worktree lock $td145GitWorktree
+      Remove-Item -LiteralPath $td145GitWorktree -Recurse -Force
+      $td145MissingPath = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145GitWorktree -MaxAttempts 2 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if ($td145MissingPath.Success -or -not $td145MissingPath.Registered -or $td145MissingPath.PathExists -or -not $td145MissingPath.Diagnostics.Contains('remove-exit=') -or -not $td145MissingPath.Diagnostics.Contains('list-exit=0')) {
+        Fail "闸17a3(cleanup/registered-missing)：locked 登记仍在且目录缺失时未 fail-closed 并分列 Git exit。诊断：$($td145MissingPath.Diagnostics)"
+      }
+
+      New-Item -ItemType Directory -Force $td145FallbackPath | Out-Null
+      Set-Content -LiteralPath (Join-Path $td145FallbackPath 'plain.txt') -Value 'fallback' -Encoding utf8
+      $td145Fallback = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145FallbackPath -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if (-not $td145Fallback.Success -or $td145Fallback.Registered -or $td145Fallback.PathExists -or $td145Fallback.Diagnostics -notmatch 'remove-exit=[1-9]\d*' -or -not $td145Fallback.Diagnostics.Contains('remove-detail=') -or -not $td145Fallback.Diagnostics.Contains('list-exit=0') -or -not $td145Fallback.Diagnostics.Contains('fallback-exit=0')) {
+        Fail "闸17a3(cleanup/fallback-success)：真实 Git remove 失败后未分列 stderr 并由 filesystem fallback 清除普通目录。诊断：$($td145Fallback.Diagnostics)"
+      }
+
+      if ($IsWindows) {
+        New-Item -ItemType Directory -Force $td145FallbackPath | Out-Null
+        $td145LockedFile = Join-Path $td145FallbackPath 'locked.txt'
+        Set-Content -LiteralPath $td145LockedFile -Value 'locked' -Encoding utf8
+        $td145LockedStream = [System.IO.File]::Open($td145LockedFile, 'Open', 'ReadWrite', 'None')
+        $td145FallbackFailure = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145FallbackPath -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+        if ($td145FallbackFailure.Success -or $td145FallbackFailure.Registered -or -not $td145FallbackFailure.PathExists -or -not $td145FallbackFailure.Diagnostics.Contains('fallback-exit=99') -or -not $td145FallbackFailure.Diagnostics.Contains('fallback-detail=')) {
+          Fail "闸17a3(cleanup/fallback-failure)：filesystem fallback 失败未保留现场与独立诊断。诊断：$($td145FallbackFailure.Diagnostics)"
+        }
+        $td145LockedStream.Dispose(); $td145LockedStream = $null
+      }
+
+      New-Item -ItemType Directory -Force $td145InvalidRepo, $td145InvalidTarget | Out-Null
+      $td145GitFailure = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145InvalidRepo -WorktreePath $td145InvalidTarget -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+      if ($td145GitFailure.Success -or -not $td145GitFailure.Registered -or -not $td145GitFailure.PathExists -or $td145GitFailure.Diagnostics -notmatch 'remove-exit=[1-9]\d*' -or -not $td145GitFailure.Diagnostics.Contains('remove-detail=') -or $td145GitFailure.Diagnostics -notmatch 'list-exit=[1-9]\d*' -or -not $td145GitFailure.Diagnostics.Contains('list-detail=')) {
+        Fail "闸17a3(cleanup/git-failure)：真实 remove/list 非零未分别保留 exit/stderr 并 fail-closed。诊断：$($td145GitFailure.Diagnostics)"
+      }
+    } finally {
+      if ($td145LockedStream) { $td145LockedStream.Dispose() }
+      & git -C $td145GitRepo worktree unlock $td145GitWorktree 2>$null
+      & git -C $td145GitRepo worktree prune --expire now 2>$null
+      Remove-Item -LiteralPath $td145GitWorktree, $td145GitRepo, $td145FallbackPath, $td145InvalidRepo, $td145InvalidTarget -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
+    # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
+    $td4GradleUserHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' }
+    $td4MigrationGate = Invoke-SelftestGradleMigrationGate -AndroidRoot (Join-Path $RepoRoot 'android') -GradleUserHome $td4GradleUserHome -RunCases {
+    $td4MigrationRepo = if ($IsWindows) {
+      Join-Path ([System.IO.Path]::GetPathRoot($RepoRoot)) "st4-$PID"
+    } else {
+      Join-Path ([System.IO.Path]::GetTempPath()) "st4-$PID"
+    }
+    $td4MigrationWorktreeAdded = $false
+    $td4TenancyOriginal = $null
+    $td4TenancyFile = $null
+    $td4WrongMigration = $null
+    try {
+      & git -C $RepoRoot worktree add --detach $td4MigrationRepo HEAD *> $null
+      if ($LASTEXITCODE -ne 0) { Fail '闸17a3(migration/setup)：无法建立 detached migration fixture worktree。' }
+      else {
+        $td4MigrationWorktreeAdded = $true
+        $td4BuildFile = Join-Path $td4MigrationRepo 'android/core/build.gradle.kts'
+        $td4BaselineFile = Join-Path $td4MigrationRepo $td4BaselinePath
+        $td4BuildText = if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) { Get-Content -LiteralPath $td4BuildFile -Raw } else { '' }
+        if ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
+          Fail '闸17a3(migration/setup)：fixture HEAD 未含 verifyMigrations=true + tracked 1.db，迁移负例会 vacuous。'
+        } else {
+          $invokeTd4CoreCheck = {
+            Push-Location $td4MigrationRepo
+            try {
+              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+              else { $output = & sh android/gradlew -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+              [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+            } finally { Pop-Location }
+          }
+
+          $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
+          $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
+          $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
+          $td4MissingResult = & $invokeTd4CoreCheck
+          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+          $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
+          if ($td4MissingResult.Exit -eq 0 -or -not $td4MissingExact) {
+            Fail "种子缺陷 17a3(migration-missing)：改 .sq 不带 .sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+          }
+
+          $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
+          $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+          [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
+          $td4WrongResult = & $invokeTd4CoreCheck
+          Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
+          $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
+          if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) {
+            Fail "种子缺陷 17a3(migration-wrong)：错误 1.sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4WrongResult.Exit)）。输出：$($td4WrongResult.Output)"
+          } else { Write-Host '  17a3(migration) :core:check 对缺迁移 ADDED + 错迁移 REMOVED 均由真实 verify task 精确翻红 OK' -ForegroundColor Green }
+        }
+      }
+    } finally {
+      if ($td4TenancyFile -and $null -ne $td4TenancyOriginal -and (Test-Path -LiteralPath $td4TenancyFile)) {
+        [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+      }
+      if ($td4WrongMigration -and (Test-Path -LiteralPath $td4WrongMigration)) { Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue }
+      if ($td4MigrationWorktreeAdded) {
+        $td4Cleanup = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td4MigrationRepo -MaxAttempts 3 -RetryDelayMs 250
+        if (-not $td4Cleanup.Success) {
+          Fail "闸17a3(migration/cleanup)：detached migration fixture 在 $($td4Cleanup.Attempts) 次有界尝试后仍未拆除；现场保留于 $td4MigrationRepo。逐次诊断：`n$($td4Cleanup.Diagnostics)"
+        } else {
+          Write-Host "  17a3(migration/cleanup) 短路径 fixture 已清除（attempts=$($td4Cleanup.Attempts)；目录与 worktree 登记均不存在）OK" -ForegroundColor Green
+        }
+      }
+    }
+    }
+    if ($td4MigrationGate.Skipped) {
+      Write-Host "[SELFTEST-SKIP] gate=17a3 reason=$($td4MigrationGate.Reason)" -ForegroundColor DarkGray
+    }
+    if (-not $fail) { Write-Host '  17a3 TD4 精确 schema snapshot allowlist + adjacent/renamed DB rejection + fail-closed config matrix OK' -ForegroundColor Green }
 
     # 17a2 (TD-201). check-secrets 必须**存活** git 子模块 gitlink：`git ls-files` 把子模块作为**单条 gitlink** 输出，
     #   其工作树路径是**目录**。1b 循环旧码 `Test-Path $full` 对目录为真、放行后 :151 对 DirectoryInfo 求 `.Length`

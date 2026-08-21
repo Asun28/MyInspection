@@ -2,7 +2,7 @@
 id: T2-PHOTO-DIRECTORY-DURABILITY
 title: 照片 sidecar 的目录级 crash durability 收口
 depends_on: [T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER]
-status: todo
+status: merged
 branch: T2-PHOTO-DIRECTORY-DURABILITY
 worktree: C:\wt\T2-PHOTO-DIRECTORY-DURABILITY
 allow_paths:

@@ -38,3 +38,7 @@ doc_sync: specs/tech-debt-tracker.md 将 TD4 置 paid；T2-ROOM-REPEATABLE 解�
 
 ## 验收
 见 front-matter。执行前先确认 `T0-LICENSE-SCANNER` 已合并，避免两卡同时修改 `scripts/selftest.ps1`。
+
+## R3 round-cap 记录（2026-08-21）
+
+PR #47 第二轮 R3 时，allowlist、父级 reparse 防护、重复项 mutation 与真实 migration ADDED/REMOVED 断言均已通过；唯一阻塞是 Windows 上 detached migration fixture 紧接 Gradle 负例后的清理偶发失败，且旧清理丢弃 git stderr。按两轮上限停止本卡自动评审，不再原地扩张；后续由 `T0-DEBT-MIGRATION-FIXTURE-CLEANUP` 在本卡经人裁后承接，TD4 仍保持 `carded`。
