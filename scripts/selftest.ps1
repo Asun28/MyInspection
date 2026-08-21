@@ -7238,7 +7238,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     #   check-licenses.ps1:59 `Set-Location $RepoRoot` 后，前端块跑 `license-checker` 默认从 process.cwd()(=仓根)找
     #   package.json、恒扫仓根、从不进 frontend/——下游 frontend/ 的 GPL/AGPL 等违禁依赖漏判，却仍打印「已扫描 npm 包」(fail-open)。
     #   修复=显式 `--start $feDir` 指到前端目录。本子闸用**行为夹具**证明修复非 vacuous：临时夹具仓（含被测 check-licenses
-    #   与其 _config/_encoding 依赖 + frontend/package.json + 只在 frontend/ 植一个 .gpl-marker）+ PATH 注入的 npx 桩
+    #   与其 _config/_encoding/_unicode 依赖 + frontend/package.json + 只在 frontend/ 植一个 .gpl-marker）+ PATH 注入的 npx 桩
     #   （模拟 license-checker 的 --start/cwd 目录选择：据扫描目标目录是否含 .gpl-marker 决定吐含 GPL 的许可 JSON 还是 {}）。
     #   修复前扫 cwd/仓根→无标记→吐 {}→放行(exit 0)；修复后 --start frontend→有标记→吐 GPL→check-licenses 命中 forbidden→
     #   block(exit 1)。桩/夹具全离线确定、临时目录用毕即弃、PATH 用毕 finally 还原（同 15f 之理，不动元仓）。
@@ -7248,10 +7248,11 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     try {
       $fx3Bin = Join-Path $fx3 'bin'; $fx3Scripts = Join-Path $fx3 'scripts'; $fx3Fe = Join-Path $fx3 'frontend'
       New-Item -ItemType Directory -Force $fx3Bin, $fx3Scripts, $fx3Fe | Out-Null
-      # 被测件 + 其 dot-source 依赖（_config/_encoding）拷入夹具 scripts/，令 check-licenses 的 $PSScriptRoot/.. 解析到夹具根。
+      # 被测件 + 其 dot-source 依赖（_config/_encoding/_unicode）拷入夹具 scripts/，令 check-licenses 的 $PSScriptRoot/.. 解析到夹具根。
       Copy-Item (Join-Path $RepoRoot 'scripts/check-licenses.ps1') (Join-Path $fx3Scripts 'check-licenses.ps1')
       Copy-Item (Join-Path $RepoRoot 'scripts/_config.ps1')        (Join-Path $fx3Scripts '_config.ps1')
       Copy-Item (Join-Path $RepoRoot 'scripts/_encoding.ps1')      (Join-Path $fx3Scripts '_encoding.ps1')
+      Copy-Item (Join-Path $RepoRoot 'scripts/_unicode.ps1')       (Join-Path $fx3Scripts '_unicode.ps1')
       Set-Content (Join-Path $fx3Fe 'package.json') '{"name":"fe","version":"0.0.0"}' -Encoding utf8
       Set-Content (Join-Path $fx3Fe '.gpl-marker')  'seed: frontend subtree has a GPL dep' -Encoding utf8   # 只植前端子树
       $fx3Gpl = Join-Path $fx3 'gpl.json'   # 桩在「扫描目标含 .gpl-marker」时吐它（模拟前端有 GPL 依赖）
@@ -7274,12 +7275,12 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         & chmod +x (Join-Path $fx3Bin 'npx') | Out-Null
       }
       $env:PATH = $fx3Bin + [System.IO.Path]::PathSeparator + $env:PATH
-      & pwsh -NoProfile -File (Join-Path $fx3Scripts 'check-licenses.ps1') *> $null
+      $fx3Output = @(& pwsh -NoProfile -File (Join-Path $fx3Scripts 'check-licenses.ps1') 2>&1) -join "`n"
       $fx3Exit = $LASTEXITCODE
-      if ($fx3Exit -eq 0) {
-        Fail "种子缺陷 17p3：前端 frontend/ 子树存在 GPL 依赖（.gpl-marker），但 check-licenses.ps1 从仓根跑 license-checker（未传 --start frontend）、漏扫前端子树、exit 0 放行——fail-open 许可闸（TD-205）。修复=前端扫描传 --start `$feDir 指到 frontend/，令违禁依赖被扫到并 block。"
+      if ($fx3Exit -eq 0 -or $fx3Output -notmatch [regex]::Escape('gpl-pkg@1.0.0')) {
+        Fail "种子缺陷 17p3：前端 frontend/ 子树的 GPL 依赖必须以非零退出并在诊断中点名 gpl-pkg@1.0.0；exit=$fx3Exit output=$fx3Output。"
       } else {
-        Write-Host '  17p3 前端许可扫描 --start frontend OK（frontend/ 的 GPL 依赖被扫到并 block[exit 1]；不再从仓根漏扫）' -ForegroundColor Green
+        Write-Host '  17p3 前端许可扫描 --start frontend OK（非零退出且诊断点名 gpl-pkg@1.0.0；不再被启动失败假绿）' -ForegroundColor Green
       }
     } finally {
       $env:PATH = $fx3OldPath
@@ -11022,7 +11023,7 @@ function Invoke-ScannerFixture([string]$ScriptPath, [switch]$Strict) {
 }
 try {
   New-Item -ItemType Directory -Force $scannerFixtureScripts, (Join-Path $scannerFixtureAndroid 'gradle/wrapper') | Out-Null
-  Copy-Item -LiteralPath $realCLPath, (Join-Path $RepoRoot 'scripts/_config.ps1'), (Join-Path $RepoRoot 'scripts/_encoding.ps1') -Destination $scannerFixtureScripts
+  Copy-Item -LiteralPath $realCLPath, (Join-Path $RepoRoot 'scripts/_config.ps1'), (Join-Path $RepoRoot 'scripts/_encoding.ps1'), (Join-Path $RepoRoot 'scripts/_unicode.ps1') -Destination $scannerFixtureScripts
   Copy-Item -LiteralPath (Join-Path $RepoRoot 'android/gradle/wrapper/gradle-wrapper.properties') -Destination (Join-Path $scannerFixtureAndroid 'gradle/wrapper/gradle-wrapper.properties')
   Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'gradle/libs.versions.toml') -Encoding utf8 -Value '[versions]'
   Set-Content -LiteralPath (Join-Path $scannerFixtureAndroid 'build.gradle.kts') -Encoding utf8 -Value 'plugins {}'
@@ -12220,9 +12221,9 @@ Write-Output 'METADATA-OUTPUT-NOISE'; exit 3
         @{ Id = 'diagnostic-key-space'; Scenario = 'diagnostic-key-space-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = 'CLI/plain 空格分隔凭据键整行脱敏'; Marker = '# diagnostic whitespace credential redaction' },
         @{ Id = 'diagnostic-url'; Scenario = 'diagnostic-url-redaction'; Code = 'ABSENT-DIAGNOSTIC-REDACTION'; Label = '任意 URI scheme 的完整 userinfo 整行脱敏'; Marker = '# credential redaction: URI userinfo' },
         @{ Id = 'pom-metadata-control'; Scenario = 'pom-metadata-control'; Code = 'ABSENT-POM-METADATA-CONTROL-GUARD'; Label = 'POM metadata 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'POM license/name' -Value `$licenseName" },
-        @{ Id = 'override-metadata-control'; Scenario = 'override-metadata-control'; Code = 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD'; Label = '例外 metadata 控制/格式字符拒绝'; Marker = 'Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])' },
+        @{ Id = 'override-metadata-control'; Scenario = 'override-metadata-control'; Code = 'ABSENT-OVERRIDE-METADATA-CONTROL-GUARD'; Label = '例外 metadata 控制/格式字符拒绝'; Marker = 'Assert-GradleMetadataScalar -Field $field -Value $jsonScalar # exception raw JSON scalar safety guard' },
         @{ Id = 'override-property-control'; Scenario = 'override-property-control'; Code = 'ABSENT-OVERRIDE-PROPERTY-CONTROL-GUARD'; Label = '例外 JSON property name 控制/格式字符拒绝'; Marker = "Assert-GradleMetadataScalar -Field 'JSON property name' -Value `$field" },
-        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = '# diagnostic control/format normalization' },
+        @{ Id = 'metadata-output-sanitizer'; Scenario = 'metadata-output-sanitizer'; Code = 'ABSENT-METADATA-OUTPUT-SANITIZER'; Label = 'POM/例外 metadata 输出控制/格式字符归一化'; Marker = '$line = ConvertTo-ScaffoldControlFormatSpaces $line # diagnostic scalar control/format normalization' },
         @{ Id = 'unknown'; Scenario = 'unknown'; Code = 'ABSENT-UNKNOWN-BLOCK'; Label = '未知元数据 fail-closed'; Marker = 'Add-GradleMetadataNonCompliance "$coordinate => 许可缺失/未知（$($pom.Detail)） [GRADLE-METADATA]"' },
         @{ Id = 'wrapper-ok'; Scenario = 'wrapper-ok'; Code = 'ABSENT-WRAPPER-OK-GUARD'; Label = 'Gradle wrapper .ok 完成标记'; Marker = '(Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker' },
         @{ Id = 'wrapper-root-count'; Scenario = 'wrapper-root-count'; Code = 'ABSENT-WRAPPER-ROOT-COUNT'; Label = 'Gradle wrapper 解压根目录唯一性'; Marker = '($distributionRoots.Count -eq 1) # wrapper root cardinality' },
