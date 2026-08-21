@@ -26,6 +26,14 @@ object MediaPaths {
         return match.groupValues.drop(1).all(::isSafeSegment)
     }
 
+    /** 路径必须既合法又位于指定物业命名空间，才能作为该物业的新关联复用目标。 */
+    fun isPhotoRelPathForProperty(relPath: String, propertyId: String): Boolean {
+        val match = PHOTO_REL_PATH_PATTERN.matchEntire(relPath) ?: return false
+        return isSafeSegment(propertyId) &&
+            match.groupValues[1] == propertyId &&
+            match.groupValues.drop(1).all(::isSafeSegment)
+    }
+
     /** 三个入参本应恒为 UUIDv7，天然安全；这层校验防的是损坏/异常输入把 `/`、`\`、`.`、`..` 带进路径。 */
     private fun requireSafeSegment(name: String, value: String) {
         require(isSafeSegment(value)) { "$name is not a safe path segment: $value" }

@@ -21,7 +21,7 @@ import nz.myinspection.core.media.VerifiedAssetWorkflow
  * 分配第二、第三份位图；JPEG 只经过有界输出流。传感器分辨率是硬件上限，但设备当下的堆余量不是常数——高像素
  * 模式 + 内存吃紧时照样会把进程拖垮，故与导入路径同一套判定。
  *
- * [activeAssetLookup] 按本函数内部算出的 contentHash 调用：哈希只在烘焙+编码之后才算得出来，调用方无从预查。
+ * [activeAssetLookup] 按 DB 反查的物业与本函数内部算出的 contentHash 调用：哈希只在烘焙+编码之后才算得出来。
  * [capturedAtMs] 是 CameraX 报告的拍摄时刻（与巡检时间分开入库，需求 §5），无从取得时传 null，不伪造。
  */
 object CameraPhotoIngestPipeline {
@@ -33,7 +33,7 @@ object CameraPhotoIngestPipeline {
         target: PhotoTarget,
         recorder: PhotoAssociationRecorder,
         capturedAtMs: Long?,
-        activeAssetLookup: (contentHash: String) -> List<String>,
+        activeAssetLookup: (propertyId: String, contentHash: String) -> List<String>,
         qualityProfileSource: PhotoQualityProfileSource,
         budgetBytes: Long = PhotoMemoryBudget.transientBytes(),
     ): PhotoIngestOutcome {
@@ -70,7 +70,7 @@ object CameraPhotoIngestPipeline {
                     // 相机路径的 content_hash 是最终缩放 JPEG，不是源 Bitmap 的像素摘要。
                     val contentHash = staged.digest.sha256
                     PhotoIngest.verifyReuseExists(
-                        PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash)),
+                        PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(propertyId, contentHash)),
                         propertyId,
                         inspectionId,
                         photoId,
