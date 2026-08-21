@@ -116,7 +116,10 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'skip-ledger')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'skip-ledger', 'seeded-nogit-routing')][string]$Fixture = '',
+  [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
+  [string]$NoGitFixtureNonce = '',
+  [string]$NoGitMutationNonce = '',
   [switch]$StrictLint
 )
 
@@ -345,6 +348,44 @@ function Skip-SelftestChecks {
   )
   foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }
   Write-Host $Message -ForegroundColor DarkGray
+}
+
+function Get-SelftestSeededGitGateIds {
+  return @(
+    '17', '17a', '17a2', '17u1', '17u2', '17u3a', '17u3b',
+    '17a3', '17l(default-codex)', '17t(t16/symlink-half)',
+    '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
+    '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
+    '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
+    '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)', '17ac(td27-posix-shim)',
+    '17s', '17t',
+    '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
+    '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
+    '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y',
+    '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)', '17z(project-pin)',
+    '17z(T43-TimeoutCliOverridesConfig)', '17z(T43-TimeoutConfigValue)', '17z(T43-TimeoutDefaultMissingOrEmpty)', '17z(4)', '17z(5)',
+    '17aa', '17aa(1)', '17aa(2)', '17aa(5)',
+    '17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)',
+    '17aa(7)', '17aa(7a)', '17aa(7b)', '17aa(7c)', '17aa(7d)', '17aa(7e/F4)',
+    '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
+    'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
+    'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
+    '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
+  )
+}
+
+function Invoke-SelftestSeededGitRouting {
+  param(
+    [Parameter(Mandatory)][bool]$GitAvailable,
+    [System.Collections.Generic.List[string]]$Records,
+    [switch]$NoEmit
+  )
+  if ($GitAvailable) { return $true }
+  foreach ($gateId in @(Get-SelftestSeededGitGateIds)) {
+    [void](Register-SelftestSkip -GateId $gateId -Reason 'TOOL-GIT-MISSING' -Records $Records -NoEmit:$NoEmit)
+  }
+  if (-not $NoEmit) { Write-Host '  git 未安装，跳过 seeded 分片的 git 执行单元（离线/无 git 环境正常）。' -ForegroundColor DarkGray }
+  return $false
 }
 
 function Test-SelftestPrerequisite {
@@ -929,6 +970,111 @@ function Get-SelftestCanarySourceContractFailures {
     }
   }
   return @($failures)
+}
+
+$noGitFixtureChild = (
+  $Fixture -eq 'seeded-nogit-routing' -and $NoGitFixtureCase -and $NoGitFixtureNonce -and
+  $env:SCAFFOLD_SELFTEST_NOGIT_NONCE -and
+  $NoGitFixtureNonce -ceq $env:SCAFFOLD_SELFTEST_NOGIT_NONCE
+)
+$noGitMutationChild = (
+  $Fixture -eq 'seeded-nogit-routing' -and $NoGitMutationNonce -and
+  $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE -and
+  $NoGitMutationNonce -ceq $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE
+)
+
+if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
+  $fixtureSource = [IO.File]::ReadAllText($PSCommandPath)
+  foreach ($legacyAmbientControl in @(
+    ('SCAFFOLD_SELFTEST_NOGIT_' + 'CASE'),
+    ('SCAFFOLD_SELFTEST_NOGIT_' + 'MUTATION_CHILD')
+  )) {
+    if ($fixtureSource.Contains($legacyAmbientControl, [StringComparison]::Ordinal)) {
+      throw "[SELFTEST-NOGIT-ROUTING-AMBIENT] legacy ambient control remains authoritative: $legacyAmbientControl"
+    }
+  }
+  $gateIds = @(Get-SelftestSeededGitGateIds)
+  $inventoryBytes = [Text.Encoding]::UTF8.GetBytes(($gateIds -join "`n"))
+  $inventorySha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($inventoryBytes)).ToLowerInvariant()
+  if ($gateIds.Count -eq 0 -or @($gateIds | Select-Object -Unique).Count -ne $gateIds.Count -or
+      @($gateIds | Where-Object { -not (Test-SelftestGateId $_) }).Count -ne 0 -or
+      $gateIds.Count -ne 130 -or
+      $inventorySha256 -cne '6bacd569c7f8909846a3339d0ad394d217c5c53128bfa1a1a349901015fab9a5') {
+    throw "[SELFTEST-NOGIT-ROUTING-INVENTORY] seeded git gate inventory identity mismatch: count=$($gateIds.Count) sha256=$inventorySha256"
+  }
+  $expectedAbsentRecords = @($gateIds | ForEach-Object { "$_/TOOL-GIT-MISSING" })
+
+  function Invoke-SeededNoGitRoutingCase {
+    param(
+      [Parameter(Mandatory)][ValidateSet('git-present', 'git-absent')][string]$Case,
+      [Parameter(Mandatory)][ValidateSet('RUN', 'SKIP')][string]$ExpectedDecision,
+      [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ExpectedSkipRecords
+    )
+    $nonce = [guid]::NewGuid().ToString('N')
+    $savedNonce = $env:SCAFFOLD_SELFTEST_NOGIT_NONCE
+    try {
+      $env:SCAFFOLD_SELFTEST_NOGIT_NONCE = $nonce
+      $output = (& pwsh -NoProfile -File $PSCommandPath -Shard seeded -Fixture seeded-nogit-routing -NoGitFixtureCase $Case -NoGitFixtureNonce $nonce 2>&1 | Out-String)
+      $exitCode = $LASTEXITCODE
+    } finally {
+      if ($null -eq $savedNonce) { Remove-Item Env:SCAFFOLD_SELFTEST_NOGIT_NONCE -ErrorAction SilentlyContinue }
+      else { $env:SCAFFOLD_SELFTEST_NOGIT_NONCE = $savedNonce }
+    }
+    $routeLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-NOGIT-ROUTING]', [StringComparison]::Ordinal) })
+    $skipLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-SKIP] ', [StringComparison]::Ordinal) })
+    $summaryLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-SKIP-SUMMARY] ', [StringComparison]::Ordinal) })
+    $failureLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-FAILED-GATES] ', [StringComparison]::Ordinal) })
+    $expectedRoute = "[SELFTEST-NOGIT-ROUTING] case=$Case decision=$ExpectedDecision"
+    $expectedSkipLines = @($ExpectedSkipRecords | ForEach-Object {
+      $gateId = $_.Substring(0, $_.Length - '/TOOL-GIT-MISSING'.Length)
+      Format-SelftestSkipRecord -GateId $gateId -Reason 'TOOL-GIT-MISSING'
+    })
+    $expectedSummary = "[SELFTEST-SKIP-SUMMARY] shard=seeded count=$($ExpectedSkipRecords.Count) items=$(if ($ExpectedSkipRecords.Count -eq 0) { 'NONE' } else { $ExpectedSkipRecords -join ',' })"
+    if ($exitCode -ne 0 -or $routeLines.Count -ne 1 -or $routeLines[0] -cne $expectedRoute -or
+        $summaryLines.Count -ne 1 -or $summaryLines[0] -cne $expectedSummary -or
+        ($skipLines -join "`n") -cne ($expectedSkipLines -join "`n") -or $failureLines.Count -ne 0) {
+      throw "[SELFTEST-NOGIT-ROUTING-CASE] case=$Case exit=$exitCode expected-route=$expectedRoute expected-summary=$expectedSummary output=$($output.Trim())"
+    }
+    return $output
+  }
+
+  [void](Invoke-SeededNoGitRoutingCase -Case git-present -ExpectedDecision RUN -ExpectedSkipRecords @())
+  [void](Invoke-SeededNoGitRoutingCase -Case git-absent -ExpectedDecision SKIP -ExpectedSkipRecords $expectedAbsentRecords)
+
+  if (-not $noGitMutationChild) {
+    $source = $fixtureSource
+    $routeCondition = 'if (' + '-not $runSeededGitGates) {'
+    $invertedCondition = 'if (' + '$runSeededGitGates) {'
+    if ([regex]::Matches($source, [regex]::Escape($routeCondition)).Count -ne 1) {
+      throw '[SELFTEST-NOGIT-ROUTING-MUTATION-SETUP] production route condition absent or duplicated.'
+    }
+    $mutantPath = Join-Path $PSScriptRoot ".selftest-nogit-routing-mutant-$PID-$([guid]::NewGuid().ToString('N')).ps1"
+    try {
+      [IO.File]::WriteAllText(
+        $mutantPath,
+        $source.Replace($routeCondition, $invertedCondition),
+        [Text.UTF8Encoding]::new($false)
+      )
+      $mutationNonce = [guid]::NewGuid().ToString('N')
+      $savedMutationNonce = $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE
+      try {
+        $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE = $mutationNonce
+        $mutantOutput = (& pwsh -NoProfile -File $mutantPath -Fixture seeded-nogit-routing -NoGitMutationNonce $mutationNonce 2>&1 | Out-String)
+        $mutantExit = $LASTEXITCODE
+      } finally {
+        if ($null -eq $savedMutationNonce) { Remove-Item Env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE -ErrorAction SilentlyContinue }
+        else { $env:SCAFFOLD_SELFTEST_NOGIT_MUTATION_NONCE = $savedMutationNonce }
+      }
+      if ($mutantExit -eq 0 -or $mutantOutput -notmatch '\[SELFTEST-NOGIT-ROUTING-CASE\] case=git-present') {
+        throw "[SELFTEST-NOGIT-ROUTING-MUTATION] inverted production route was not killed semantically: exit=$mutantExit output=$($mutantOutput.Trim())"
+      }
+      Write-Host '[SELFTEST-NOGIT-ROUTING-MUTATION] KILLED'
+    } finally {
+      Remove-Item -LiteralPath $mutantPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+  Write-Host '[SELFTEST-FIXTURE] seeded-nogit-routing PASS'
+  exit 0
 }
 
 if ($Fixture -eq 'skip-ledger') {
@@ -6039,29 +6185,24 @@ if ($Shard -eq 'seeded') {
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
 Step '17/17 种子缺陷闸（enforcer 对已知坏输入须 BLOCK：check-secrets / review.ps1 stale-verdict + 超时 + codex-launch + quoted-cmd + stdin-delivery / init / guard-frozen / 账号守卫 host 锚定 / pre-push 钩子体 + 安装行为(core.hooksPath/链式) / 远端 ship 无评审后端 fail-fast / 评审者身份随后端 / scout-options 年份 / 两 Stop 钩子文案 / 许可闸 Distributes 降级 / handoff 存活性 / R3 prompt token+schema / 17ac 不可变 OID 卡片权威 / 17hh 已归档卡入站路径）'
-$seededGitAvailable = [bool](Get-Command git -ErrorAction SilentlyContinue)
-if (-not $seededGitAvailable) {
-  Skip-SelftestChecks -GateIds @(
-    '17', '17a', '17a2', '17u1', '17u2', '17u3a', '17u3b',
-    '17a3', '17l(default-codex)', '17t(t16/symlink-half)',
-    '17b', '17c', '17d', '17d(TD49)', '17e', '17f', '17g', '17h', '17i', '17j', '17k', '17l', '17m', '17n',
-    '17o-A', '17o-B', '17o-C', '17o-C(exec)', '17o-D', '17o-E', '17o-E(exec)', '17o-F', '17o-G',
-    '17p', '17p2', '17p3', '17q', '17r', '17r(fence)', '17r(stance)', '17ab',
-    '17ac', '17ac(read-fault)', '17ac(probe-fault)', '17ac(fallback)', '17ac(state-table)', '17ac(object-type)', '17ac(moving-ref)', '17ac(mut/worktree-first)', '17ac(td27-posix-shim)',
-    '17s', '17t',
-    '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
-    '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
-    '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y',
-    '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)',
-    '17z(T43-TimeoutCliOverridesConfig)', '17z(T43-TimeoutConfigValue)', '17z(T43-TimeoutDefaultMissingOrEmpty)', '17z(4)', '17z(5)',
-    '17aa', '17aa(1)', '17aa(2)', '17aa(5)',
-    '17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)',
-    '17aa(7)', '17aa(7a)', '17aa(7b)', '17aa(7c)', '17aa(7d)', '17aa(7e/F4)',
-    '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
-    'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
-    'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4'
-  ) -Reason 'TOOL-GIT-MISSING' -Message '  git 未安装，跳过 seeded 分片的 git 执行单元（离线/无 git 环境正常）。'
+$seededGitAvailable = if ($noGitFixtureChild) {
+  $NoGitFixtureCase -ceq 'git-present'
 } else {
+  [bool](Get-Command git -ErrorAction SilentlyContinue)
+}
+$runSeededGitGates = Invoke-SelftestSeededGitRouting -GitAvailable $seededGitAvailable
+if (-not $runSeededGitGates) {
+  if ($noGitFixtureChild) {
+    Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=SKIP"
+    Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
+    exit 0
+  }
+} else {
+  if ($noGitFixtureChild) {
+    Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=RUN"
+    Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
+    exit 0
+  }
   $PSNativeCommandUseErrorActionPreference = $false
   $sd = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-seed-$PID"
   if (Test-Path $sd) { Remove-Item -Recurse -Force $sd }
