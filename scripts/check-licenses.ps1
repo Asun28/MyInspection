@@ -23,6 +23,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_config.ps1')
+. (Join-Path $PSScriptRoot '_unicode.ps1')
 
 # ── 许可分类（库导出区 · 置于 Set-Location/扫描之前，令 -AsLibrary 可安全取用；主流程与 selftest 17p 共用单一真相源）──
 # 禁列：负向后顾 (?<!L)GPL 确保 LGPL 不被 GPL 命中；AGPL 显式列入禁列。
@@ -283,8 +284,13 @@ function Assert-GradleMetadataScalar {
     [AllowEmptyString()][string]$Value
   )
 
-  if ([regex]::IsMatch($Value, '[\p{Cc}\p{Cf}]')) {
-    throw "元数据字段 $Field 含控制/格式字符。"
+  try {
+    $sanitized = ConvertTo-ScaffoldControlFormatSpaces $Value
+  } catch {
+    throw "[LICENSE-METADATA-SCALAR] 元数据字段 $Field 含 malformed UTF-16：$($_.Exception.Message)"
+  }
+  if ($sanitized -cne $Value) {
+    throw "[LICENSE-METADATA-SCALAR] 元数据字段 $Field 含控制/格式字符。"
   }
 }
 
@@ -960,11 +966,12 @@ function Get-GradleDiagnosticTail {
       $raw = $raw -replace '\\r\\n', "`n" -replace '\\n', "`n" -replace '\\r', "`n"
     }
     $raw = Protect-GradleDiagnosticRecord -Value $raw # diagnostic record credential boundary
-    $raw -split '\r\n|\n|\r'
+    $line = [regex]::Replace($raw, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
+    $line = ConvertTo-ScaffoldControlFormatSpaces $line # diagnostic scalar control/format normalization
+    $line
   })
   $sanitized = @($expandedLines | ForEach-Object {
-    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '') # diagnostic ANSI redaction
-    $line = [regex]::Replace($line, '[\p{Cc}\p{Cf}]', ' ') # diagnostic control/format normalization
+    $line = "$_"
     $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9])(?:[A-Za-z]:)[\\/]+Users[\\/]+(?:[^\\/|]+(?=[\\/])|[^\\/|:;,)\]\r\n]+)(?=[\\/]|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Windows user-home redaction
     $line = [regex]::Replace($line, '(?i)(?<![A-Za-z0-9:])/(?:home/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|Users/(?:[^/|]+(?=/)|[^/|:;,)\]\r\n]+)|root)(?=/|[|:;,)\]]|$)', '[USER_HOME]') # diagnostic Unix user-home redaction
     foreach ($configuredUserHome in $configuredUserHomes) {
