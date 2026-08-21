@@ -2,7 +2,7 @@
 id: T2-FIELD-LEDGER-THEME-R3-CLOSURE
 title: Field Ledger Material 3 全角色显式映射（PR #41 R3 收口）
 depends_on: [T2-FIELD-LEDGER-THEME]
-status: todo
+status: merged
 branch: T2-FIELD-LEDGER-THEME-R3-CLOSURE
 worktree: C:\wt\T2-FIELD-LEDGER-THEME-R3-CLOSURE
 allow_paths:
