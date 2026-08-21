@@ -178,7 +178,7 @@
 - refs:
 
 ## L21
-- date: 2026-06-05 ｜ tags: codex,ship,review-gate,quota ｜ tier: ledger ｜ severity: major ｜ recurrence: 2
+- date: 2026-06-05 ｜ tags: codex,ship,review-gate,quota ｜ tier: must ｜ severity: major ｜ recurrence: 2
 - symptom: task.ps1 ship 在 R3 Codex 评审闸门非零退出、回贴 codex-review=failure、未合并；codex 输出含 hit your usage limit。**变体**：symptom 也可能只显示为 `[R3-NO-OUTPUT]`（裁决 json 写着「评审者退出 1 但未写裁决文件」），控制台里配额报错文本可能已被截断/滚走看不见——连续两次配额耗尽会把 `.review/<branch>.rounds` 顶到 `ReviewRoundCap`，触发 `[R3-ROUND-CAP]`，读起来像「评审者与我两轮意见不合」，实际上评审者两次都没真正跑起来。
 - root_cause: Codex 用量配额耗尽，codex exec 返错而非裁决 JSON；review.ps1 解析不到 verdict 即 fail-closed 当 block（非真实评审拒绝）。`Invoke-ReviewerWithTimeout` 把子进程 stdout/stderr 写临时文件、`Write-Host` 打印后在 `finally` 里删掉——事后（下一次工具调用/新会话）无法从磁盘回捞，只能趁那次调用的控制台输出还在时读到。
 - rule: 非代码问题，勿绕过 codex 闸门勿手动合并；待配额重置后重跑 task.ps1 ship（DoD/commit/push 幂等、PR 复用、仅重跑 codex）。**确诊配额耗尽（不烧 round cap）**：不要靠再跑一次 `ship` 去赌能不能看全控制台输出——`.rounds` 计数器会累加，顶到 cap 后 review.ps1 直接判 `[R3-ROUND-CAP]`、连评审者都不再唤起，诊断窗口就没了。改为在同一 worktree 直接单跑一次 `codex exec`（不经 review.ps1，不碰 `.rounds`）：`"Say OK." | & codex exec -s read-only -C <worktree> -m <ReviewModel> -c model_reasoning_effort=<ReviewEffort> --ignore-user-config --output-last-message <tmpfile>`，`2>&1` 捕全；stderr 出现 `hit your usage limit` 即坐实配额、非 diff/后端逻辑问题。若因两次配额失败已顶到 `ReviewRoundCap`，那不是真实两轮分歧，`review.ps1 -ResetRounds` 前先做上面这步确诊，别把外部故障误判成需要人裁的争议。
