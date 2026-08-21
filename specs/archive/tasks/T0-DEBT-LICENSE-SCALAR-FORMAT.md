@@ -3,7 +3,7 @@ id: T0-DEBT-LICENSE-SCALAR-FORMAT
 title: 让许可元数据与诊断拒绝或清洗增补平面格式标量
 depends_on: [T0-DEBT-UNICODE-SCALAR-TEXT]
 parallelizable_with: [T0-DEBT-SECRETS-SCALAR-FORMAT]
-status: todo
+status: merged
 branch: T0-DEBT-LICENSE-SCALAR-FORMAT
 worktree: C:\wt\T0-DEBT-LICENSE-SCALAR-FORMAT
 allow_paths:
