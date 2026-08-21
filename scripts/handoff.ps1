@@ -69,6 +69,7 @@ function Get-Fields($block) {
 $HandoffTemplate = @'
 <!-- HANDOFF:START -->
 <!-- STATUS 枚举: in-progress | blocked | handoff-ready | done -->
+<!-- [HANDOFF-REVALIDATE] 执行 NEXT-ACTION 前先核它是否仍成立：STATUS 记的阻塞前提还在吗？该卡是否已被别的卡覆盖、已作废、或有更小的解法？ -->
 STATUS: in-progress
 TASK: <一句话：本 session 在做什么>
 CARD: <specs/tasks/<id>.md 或 none>
@@ -176,6 +177,7 @@ switch ($Verb) {
     }
     Write-Host "交接校验：PASS（$Path · STATUS=$($f['STATUS'])）" -ForegroundColor Green
     Write-Host "  下一步：$($f['NEXT-ACTION'])"
+    Write-Host '  [HANDOFF-REVALIDATE] 执行它之前先核它是否仍成立：STATUS 记的阻塞前提还在吗？该卡是否已被别的卡覆盖、已作废、或有更小的解法？' -ForegroundColor DarkGray
     exit 0
   }
 }

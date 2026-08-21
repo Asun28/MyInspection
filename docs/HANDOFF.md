@@ -36,6 +36,9 @@ UPDATED: T1-FOO · step 4/6 · GREEN 后待 ship
 - **全部 12 字段必填**，不留空、不留 `<占位>`。
 - `STATUS` 取枚举值之一。
 - **行动字段**（`LAST-GREEN` / `NEXT-ACTION` / `VERIFY`）必须**具体、可执行**：能复制粘贴的命令，或一个明确的首步 + 验证。
+- **`[HANDOFF-REVALIDATE]`：执行 `NEXT-ACTION` 前先核它是否仍成立。** 依次确认 `STATUS` 记录的阻塞前提仍在、
+  该卡未被覆盖或作废、且没有更小方案。任一不成立，先更新交接，不照旧执行。该义务附着在既有
+  `NEXT-ACTION` 上，不新增第 13 个字段。
 - `DO-NOT` / `OPEN-QUESTIONS` / `INVARIANTS` 可填 `none`——`none` 是**精确**的「此处无内容」，是合法交接。
 
 ### 什么叫「模糊」（被 `handoff check` 拒）
@@ -70,7 +73,8 @@ UPDATED: T1-FOO · step 4/6 · GREEN 后待 ship
   测试挂了贴输出——**不虚构进度**（源：docs/references/claude-fable-5-prompting-llms.txt「兜底事实」节）。
 
 ## 最小流程
-1. 进场：读 SessionStart 打印的 HANDOFF（或 `handoff show`）→ 照 `NEXT-ACTION` 续，先跑 `VERIFY` 确认态。
+1. 进场：读 SessionStart 打印的 HANDOFF（或 `handoff show`）→ 先跑 `VERIFY` 确认态 → 按
+   `[HANDOFF-REVALIDATE]` 重验旧动作仍成立 → 成立才继续，不成立先更新交接。
    卡在 worktree 内施工时三件套在**那个 worktree 的 cwd**；从主检出续接用 `pwsh -NoProfile -File scripts\handoff.ps1 show -Path <WorktreeRoot>\<id>\progress.md` 指过去（triage 心跳的 handoff 探针也会浮出该路径）。
 2. 干活：随手更新 `task_plan.md` 勾选、`findings.md` 决策/死路、`progress.md` 时间线。
 3. 离场：重写 HANDOFF 块 → `handoff check` 必须 PASS → 才算交接完成。
