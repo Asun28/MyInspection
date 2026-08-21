@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 56 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 57 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -27,6 +27,7 @@
 | T0-DEBT-SELFTEST-SNAPSHOT-BASELINE | merged | 让 selftest all 快照钉住调用者 HEAD 与权威 master（偿还 TD156） |
 | T0-DEBT-SELFTEST-SPLIT-PLAN | merged | 将 TD9 skip 可见性余项拆成有界串行卡 |
 | T0-DEBT-TASK-INVENTORY | merged | Remove hand-maintained task-card inventory (repay TD21) |
+| T0-DEBT-TD9-SPLIT-ARCHIVE-CONSUMER | merged | 让 TD9 split checker 读取已归档规划卡 |
 | T0-DEBT-TEMPLATE-STORE-IMMUTABILITY | merged | Prove TemplateStore read results reject element replacement (repay TD13) |
 | T0-DEBT-UNICODE-SANITIZER-CATEGORIES | merged | 把 Unicode sanitizer 类别纪律合并晋升为必须层（偿还 TD151 / L181） |
 | T0-DEBT-UNICODE-SCALAR-TEXT | merged | 建立 fail-closed 的 Unicode scalar 控制/格式文本单一真相源 |
