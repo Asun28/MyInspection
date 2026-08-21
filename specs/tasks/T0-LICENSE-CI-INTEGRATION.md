@@ -49,3 +49,7 @@ PR #20 已在 master `b0a76d0` 合入 CI 顺序和 scanner 初版，但五个专
 ## 根因诊断
 
 CI 和文档依赖稳定的 CLI/exit contract，却被旧卡与解析器、POM 和日志同时评审。把它放在末端可避免核心行为每改一次就重审 workflow 和政策措辞。
+
+## R3 round-cap 后续
+
+PR #49 两轮 R3 后仍剩两类 harness 合同缺口：integration 的 raw-text 接线断言可被注释满足，且 cold seeded 的 PASS 文案与 `SkipMutations` 语义不准确。按两轮上限停止本 PR 的修复与评审；原 PR 保持开放并转人裁。后续由 `T0-LICENSE-CI-INTEGRATION-R3-CLOSURE` 只收紧活跃接线断言、comment/delete mutation 与 cold 聚合文案，不恢复旧 1400 行 fixture，也不重开 scanner 核心。
