@@ -8,6 +8,7 @@ worktree: C:\wt\T2-PHOTO-PROPERTY-DEDUPE
 allow_paths:
   - android/core/src/main/sqldelight/
   - android/core/src/main/kotlin/nz/myinspection/core/media/
+  - android/core/src/test/kotlin/nz/myinspection/core/db/DbDownstreamQueriesTest.kt
   - android/core/src/test/kotlin/nz/myinspection/core/media/
   - android/app/src/main/kotlin/nz/myinspection/app/media/
   - android/app/src/test/kotlin/nz/myinspection/app/media/
@@ -30,7 +31,13 @@ doc_sync: TD24 状态与 TASK-BOARD 备注（R5）
 把活动资产复用查询与 `PhotoIngest` 候选契约收窄为同一 `property_id`。历史跨物业共享路径只报告，不在本卡迁移或复制；新写入从本卡起不再制造该状态。
 
 ## 冻结物版本评审
-`Photo.sq` 已冻结。开卡第一步须提交“新增/替换物业过滤查询”的版本评审，获准后临时摘除精确 FrozenPath、改动、合并后重新登记；不得绕过 `guard-frozen`。若查询形态不改表结构，不制造空 `.sqm`；若评审发现必须改表，则暂停并提交完整迁移方案。
+`Photo.sq` 已冻结。本卡就是这次查询级版本评审，批准面严格限定为：
+
+1. 把 `selectActiveAssetsByContentHash(content_hash)` 替换成接收 `property_id + content_hash` 的同物业查询；通过 `photo → room_instance → inspection` 的既有逻辑关联取物业，不改表、列、索引或既有行。
+2. 新增只读审计查询，按 `rel_path` 列出仍被多个物业活跃引用的历史状态；它只报告，不迁移、复制或删除文件。
+3. 同步现有 SQLDelight 下游查询测试及 media/app 调用契约。`DbDownstreamQueriesTest.kt` 已有旧查询的编译期调用，因此必须明确纳入范围；遗漏它会迫使实施越界或保留不安全旧 API。
+
+获准后才可临时摘除 `android/core/src/main/sqldelight/` 这一条精确 FrozenPath，实施并在合并前原样重新登记；不得停用或绕过 `guard-frozen`。本次无 DDL 变化，不制造空 `.sqm`；若实现中发现必须改表或索引，立即暂停并另提完整迁移方案。
 
 ## 关键边界
 - 物业归属从 photo → inspection → property 的权威关系派生，不信调用方随手传的 owner 字符串。
