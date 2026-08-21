@@ -2,7 +2,7 @@
 id: T0-DEBT-MUTATION-EVIDENCE-CLASSIFIER
 title: 把 mutation 判据分类器纪律合并晋升为必须层（偿还 TD149 / L167）
 depends_on: [T0-DEBT-MUTATION-BATCH-COUNT]
-status: todo
+status: merged
 branch: T0-DEBT-MUTATION-EVIDENCE-CLASSIFIER
 worktree: C:\wt\T0-DEBT-MUTATION-EVIDENCE-CLASSIFIER
 allow_paths:
