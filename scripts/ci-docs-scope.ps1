@@ -50,14 +50,64 @@ function Get-CiChangedPaths {
 }
 
 function Write-CiScopeOutput {
-    param([bool]$DocsOnly)
+    param(
+        [bool]$DocsOnly,
+        [string]$OutputPath = $env:GITHUB_OUTPUT
+    )
 
     $value = if ($DocsOnly) { 'true' } else { 'false' }
     $mode = if ($DocsOnly) { 'docs' } else { 'full' }
-    if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_OUTPUT)) {
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "docs_only=$value" -Encoding utf8
+    if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+        Add-Content -LiteralPath $OutputPath -Value "docs_only=$value" -Encoding utf8
     }
     Write-Host "[CI-DOCS-SCOPE] mode=$mode"
+}
+
+function Invoke-CiDocsScope {
+    param(
+        [Parameter(Mandatory)][string]$Event,
+        [string]$Base = '',
+        [string]$Head = '',
+        [scriptblock]$ChangedPathsProvider = { param($b, $h) Get-CiChangedPaths -Base $b -Head $h },
+        [string]$OutputPath = $env:GITHUB_OUTPUT
+    )
+
+    $docsOnly = $false
+    if ($Event -ceq 'pull_request') {
+        try {
+            $paths = @(& $ChangedPathsProvider $Base $Head)
+            $docsOnly = Test-CiDocsOnlyPaths -Paths $paths
+        } catch {
+            Write-Warning "[CI-DOCS-SCOPE] classification failed; using full CI: $($_.Exception.Message)"
+            $docsOnly = $false
+        }
+    }
+    Write-CiScopeOutput -DocsOnly $docsOnly -OutputPath $OutputPath
+    return $docsOnly
+}
+
+function Get-WorkflowStepMatch {
+    param(
+        [Parameter(Mandatory)][string]$WorkflowText,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $escaped = [regex]::Escape($Name)
+    return [regex]::Match($WorkflowText, "(?ms)^      - name: $escaped\r?\n(?<body>.*?)(?=^      - (?:name:|uses:)|\z)")
+}
+
+function Set-WorkflowStepBodyForTest {
+    param(
+        [Parameter(Mandatory)][string]$WorkflowText,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$MutateBody
+    )
+
+    $step = Get-WorkflowStepMatch -WorkflowText $WorkflowText -Name $Name
+    if (-not $step.Success) { throw "selftest setup: workflow step missing: $Name" }
+    $bodyGroup = $step.Groups['body']
+    $mutatedBody = & $MutateBody $bodyGroup.Value
+    return $WorkflowText.Substring(0, $bodyGroup.Index) + $mutatedBody + $WorkflowText.Substring($bodyGroup.Index + $bodyGroup.Length)
 }
 
 function Get-WorkflowContractErrors {
@@ -77,13 +127,28 @@ function Get-WorkflowContractErrors {
         'github.event.pull_request.base.sha',
         'github.event.pull_request.head.sha',
         'fetch-depth: 0',
-        '- name: Validate task cards',
-        '- name: Validate archive card index',
-        '-CheckCardsIndex -Quiet',
-        '- name: Secret-leak gate'
+        'github.event_name'
     )) {
         if (-not $WorkflowText.Contains($required, [StringComparison]::Ordinal)) {
             $errors.Add("missing workflow contract: $required")
+        }
+    }
+
+    $gateContracts = @(
+        @{ Name = 'Validate task cards'; Needles = @("`$f = 'scripts/check-cards.ps1'", 'pwsh -NoProfile -File $f', 'check-cards.ps1 missing (gate removed?)') },
+        @{ Name = 'Validate archive card index'; Needles = @("`$f = 'scripts/archive.ps1'", 'pwsh -NoProfile -File $f -CheckCardsIndex -Quiet', 'archive.ps1 missing (gate removed?)') },
+        @{ Name = 'Secret-leak gate'; Needles = @("`$f = 'scripts/check-secrets.ps1'", 'pwsh -NoProfile -File $f', 'check-secrets.ps1 missing (gate removed?)') }
+    )
+    foreach ($gate in $gateContracts) {
+        $step = Get-WorkflowStepMatch -WorkflowText $WorkflowText -Name $gate.Name
+        if (-not $step.Success) {
+            $errors.Add("retained gate missing: $($gate.Name)")
+            continue
+        }
+        foreach ($needle in $gate.Needles) {
+            if (-not $step.Groups['body'].Value.Contains($needle, [StringComparison]::Ordinal)) {
+                $errors.Add("retained gate body missing [$($gate.Name)]: $needle")
+            }
         }
     }
 
@@ -100,8 +165,7 @@ function Get-WorkflowContractErrors {
         'E2E verify gate'
     )
     foreach ($name in $heavySteps) {
-        $escaped = [regex]::Escape($name)
-        $step = [regex]::Match($WorkflowText, "(?ms)^      - name: $escaped\r?\n(?<body>.*?)(?=^      - (?:name:|uses:)|\z)")
+        $step = Get-WorkflowStepMatch -WorkflowText $WorkflowText -Name $name
         if (-not $step.Success) {
             $errors.Add("heavy step missing: $name")
         } elseif ($step.Groups['body'].Value -notmatch "steps\.docs_scope\.outputs\.docs_only != 'true'") {
@@ -140,16 +204,65 @@ function Invoke-SelfTest {
         Assert-SelfTest -Condition ($actual -eq $case.Expected) -Message "case '$($case.Name)' expected $($case.Expected), got $actual"
     }
 
+    $outputFile = New-TemporaryFile
+    try {
+        $entryCases = @(
+            @{ Name = 'pr-docs'; Event = 'pull_request'; Base = 'x'; Head = 'y'; Provider = { param($b, $h) @('docs/guide.md') }; Expected = $true },
+            @{ Name = 'pr-mixed'; Event = 'pull_request'; Base = 'x'; Head = 'y'; Provider = { param($b, $h) @('docs/guide.md', 'scripts/check.ps1') }; Expected = $false },
+            @{ Name = 'invalid-sha'; Event = 'pull_request'; Base = 'bad'; Head = ('0' * 40); Provider = { param($b, $h) Get-CiChangedPaths -Base $b -Head $h }; Expected = $false },
+            @{ Name = 'missing-commit'; Event = 'pull_request'; Base = ('f' * 40); Head = ('e' * 40); Provider = { param($b, $h) Get-CiChangedPaths -Base $b -Head $h }; Expected = $false },
+            @{ Name = 'push'; Event = 'push'; Base = ''; Head = ''; Provider = { throw 'provider must not run for push' }; Expected = $false },
+            @{ Name = 'manual'; Event = 'workflow_dispatch'; Base = ''; Head = ''; Provider = { throw 'provider must not run for workflow_dispatch' }; Expected = $false }
+        )
+        foreach ($case in $entryCases) {
+            Clear-Content -LiteralPath $outputFile.FullName
+            $actual = Invoke-CiDocsScope -Event $case.Event -Base $case.Base -Head $case.Head -ChangedPathsProvider $case.Provider -OutputPath $outputFile.FullName
+            $expectedOutput = if ($case.Expected) { 'docs_only=true' } else { 'docs_only=false' }
+            $output = @(Get-Content -LiteralPath $outputFile.FullName)
+            Assert-SelfTest -Condition ($actual -eq $case.Expected) -Message "entry '$($case.Name)' expected $($case.Expected), got $actual"
+            Assert-SelfTest -Condition ($output.Count -eq 1 -and $output[0] -ceq $expectedOutput) -Message "entry '$($case.Name)' output was '$($output -join ',')'"
+        }
+
+        $head = (& git rev-parse HEAD 2>$null | Out-String).Trim()
+        Assert-SelfTest -Condition ($LASTEXITCODE -eq 0 -and $head -match '^[0-9a-f]{40}$') -Message 'git fixture HEAD unavailable'
+        Clear-Content -LiteralPath $outputFile.FullName
+        $actualEmpty = Invoke-CiDocsScope -Event pull_request -Base $head -Head $head -OutputPath $outputFile.FullName
+        Assert-SelfTest -Condition (-not $actualEmpty) -Message 'real empty git diff did not fail closed to full CI'
+        Assert-SelfTest -Condition ((Get-Content -Raw -LiteralPath $outputFile.FullName).Trim() -ceq 'docs_only=false') -Message 'real empty git diff output mismatch'
+    } finally {
+        Remove-Item -LiteralPath $outputFile.FullName -Force -ErrorAction SilentlyContinue
+    }
+
     $workflowPath = Join-Path (Split-Path -Parent $PSScriptRoot) '.github/workflows/ci.yml'
     $workflow = Get-Content -Raw -LiteralPath $workflowPath
     $errors = @(Get-WorkflowContractErrors -WorkflowText $workflow)
     Assert-SelfTest -Condition ($errors.Count -eq 0) -Message ($errors -join '; ')
 
-    $withoutArchive = $workflow.Replace('      - name: Validate archive card index', '      - name: MUTATED archive gate')
-    Assert-SelfTest -Condition (@(Get-WorkflowContractErrors -WorkflowText $withoutArchive).Count -gt 0) -Message 'archive gate deletion mutation survived'
-    $guardText = 'if: ${{ steps.docs_scope.outputs.docs_only != ''true'' }}'
-    $withoutGuard = $workflow.Replace($guardText, 'if: ${{ true }}')
-    Assert-SelfTest -Condition (@(Get-WorkflowContractErrors -WorkflowText $withoutGuard).Count -gt 0) -Message 'docs-only guard deletion mutation survived'
+    $gateMutations = @(
+        @{ Name = 'Validate task cards'; Command = 'pwsh -NoProfile -File $f' },
+        @{ Name = 'Validate archive card index'; Command = 'pwsh -NoProfile -File $f -CheckCardsIndex -Quiet' },
+        @{ Name = 'Secret-leak gate'; Command = 'pwsh -NoProfile -File $f' }
+    )
+    foreach ($mutation in $gateMutations) {
+        $command = $mutation.Command
+        $mutant = Set-WorkflowStepBodyForTest -WorkflowText $workflow -Name $mutation.Name -MutateBody { param($body) $body.Replace($command, '') }
+        $expectedError = "retained gate body missing [$($mutation.Name)]: $command"
+        Assert-SelfTest -Condition (@(Get-WorkflowContractErrors -WorkflowText $mutant) -contains $expectedError) -Message "gate command deletion survived: $($mutation.Name)"
+    }
+
+    $heavySteps = @(
+        'Setup Python', 'Install uv', 'Sync deps', 'Pytest (no-network)',
+        'Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)',
+        'Gradle online build (warms cache for verify.ps1''s --offline gate)', 'License gate', 'E2E verify gate'
+    )
+    foreach ($name in $heavySteps) {
+        $mutant = Set-WorkflowStepBodyForTest -WorkflowText $workflow -Name $name -MutateBody {
+            param($body)
+            $body.Replace("steps.docs_scope.outputs.docs_only != 'true'", 'true')
+        }
+        $expectedError = "heavy step lacks docs-only guard: $name"
+        Assert-SelfTest -Condition (@(Get-WorkflowContractErrors -WorkflowText $mutant) -contains $expectedError) -Message "heavy-step guard deletion survived: $name"
+    }
 
     Write-Host 'ci-docs-scope: PASS'
 }
@@ -159,13 +272,4 @@ if ($SelfTest) {
     exit 0
 }
 
-$docsOnly = $false
-if ($EventName -ceq 'pull_request') {
-    try {
-        $docsOnly = Test-CiDocsOnlyPaths -Paths @(Get-CiChangedPaths -Base $BaseSha -Head $HeadSha)
-    } catch {
-        Write-Warning "[CI-DOCS-SCOPE] classification failed; using full CI: $($_.Exception.Message)"
-        $docsOnly = $false
-    }
-}
-Write-CiScopeOutput -DocsOnly $docsOnly
+$null = Invoke-CiDocsScope -Event $EventName -Base $BaseSha -Head $HeadSha
