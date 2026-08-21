@@ -20,7 +20,7 @@ non_goals:
 diagnosis:
   root_cause: allowlist 的 path/purpose guard 使用 UTF-16 regex，增补平面 Cf 可作为不可见标量穿过字段校验。
   same_class: allowlist 的 path 与 purpose 两个字段同卡表驱动覆盖；license consumer 独立拆卡。
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Only 17
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded
 dod_exit: 0
 dod_assert: 真实 check-secrets fixture 对 path/purpose 中每个增补平面 Cf 与 malformed surrogate 均非零且点名 SECRET-ALLOWLIST scalar 失败；普通 emoji 不触发该守卫且后续 exact-path 语义保持；删除 path、purpose 任一 helper 接线的变异各自翻红
 review_gate: codex {verdict:pass}
@@ -37,7 +37,7 @@ tracked-sensitive allowlist 的 `path` 与 `purpose` 复用 scalar helper，拒�
 ## 验收
 
 ```powershell
-pwsh -NoProfile -File scripts/selftest.ps1 -Only 17
+pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded
 ```
 
 - 期望退出码：0
