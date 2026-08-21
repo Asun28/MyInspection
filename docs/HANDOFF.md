@@ -36,8 +36,8 @@ UPDATED: T1-FOO · step 4/6 · GREEN 后待 ship
 - **全部 12 字段必填**，不留空、不留 `<占位>`。
 - `STATUS` 取枚举值之一。
 - **行动字段**（`LAST-GREEN` / `NEXT-ACTION` / `VERIFY`）必须**具体、可执行**：能复制粘贴的命令，或一个明确的首步 + 验证。
-- **`[HANDOFF-REVALIDATE]`：执行 `NEXT-ACTION` 前先核它是否仍成立。** 依次确认 `STATUS` 记录的阻塞前提仍在、
-  该卡未被覆盖或作废、且没有更小方案。任一不成立，先更新交接，不照旧执行。该义务附着在既有
+- **`[HANDOFF-REVALIDATE]`：执行 `NEXT-ACTION` 前先核它是否仍成立。** 依次确认 `TASK` / `OPEN-QUESTIONS`
+  与 `CARD` 当前状态所记录的阻塞前提仍在、该卡未被覆盖或作废、且没有更小方案。任一不成立，先更新交接，不照旧执行。该义务附着在既有
   `NEXT-ACTION` 上，不新增第 13 个字段。
 - `DO-NOT` / `OPEN-QUESTIONS` / `INVARIANTS` 可填 `none`——`none` 是**精确**的「此处无内容」，是合法交接。
 
