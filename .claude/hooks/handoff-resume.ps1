@@ -12,9 +12,9 @@ try {
     $text = Get-Content $p -Raw
     $m = [regex]::Match($text, '(?s)<!--\s*HANDOFF:START\s*-->(.*?)<!--\s*HANDOFF:END\s*-->')
     if ($m.Success -and $m.Groups[1].Value.Trim()) {
-      [Console]::Out.WriteLine("`n[handoff] 上个 session 的交接指针（progress.md）——先跑 VERIFY 确认态，再照 NEXT-ACTION 续：")
+      [Console]::Out.WriteLine("`n[handoff] 上个 session 的交接指针（progress.md）——先跑 VERIFY 确认态；再重验旧动作，成立才执行 NEXT-ACTION：")
       [Console]::Out.WriteLine($m.Groups[1].Value.Trim())
-      [Console]::Out.WriteLine('[handoff] [HANDOFF-REVALIDATE] 执行 NEXT-ACTION 前先核它是否仍成立：STATUS 记的阻塞前提还在吗？该卡是否已被别的卡覆盖、已作废、或有更小的解法？不成立就先改交接，别照着跑。')
+      [Console]::Out.WriteLine('[handoff] [HANDOFF-REVALIDATE] 执行 NEXT-ACTION 前先确认旧动作仍成立；标准：docs/HANDOFF.md')
       [Console]::Out.WriteLine('[handoff] 校验：pwsh -NoProfile -File scripts\handoff.ps1 check ｜ 标准：docs/HANDOFF.md')
     }
     else {
