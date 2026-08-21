@@ -25,6 +25,29 @@ function Resolve-TaskCardPath {
   return $existing[0]
 }
 
+function Read-TaskCardText {
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [Parameter(Mandatory)][string]$TaskId
+  )
+  $relativePath = Resolve-TaskCardPath -Root $Root -TaskId $TaskId
+  return Get-Content -Raw -LiteralPath (Join-Path $Root $relativePath)
+}
+
+function Read-ContractCardText {
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [Parameter(Mandatory)][hashtable]$Contract
+  )
+  if ($Contract.ContainsKey('TaskId')) {
+    return Read-TaskCardText -Root $Root -TaskId $Contract.TaskId
+  }
+  if ($Contract.ContainsKey('Path')) {
+    return Get-Content -Raw -LiteralPath (Join-Path $Root $Contract.Path)
+  }
+  throw '[TD9-SPLIT-CARD-CONTRACT] card source has neither TaskId nor Path'
+}
+
 function Get-FrontMatter([string]$Text) {
   $match = [regex]::Match($Text, '\A---\r?\n(?<body>.*?)\r?\n---(?:\r?\n|\z)', 'Singleline')
   if (-not $match.Success) { return $null }
@@ -59,30 +82,41 @@ function Get-ListField([string]$FrontMatter, [string]$Name) {
   return @($items)
 }
 
-function Assert-TaskCardLifecycleFixture {
+function Assert-TaskCardLifecycleFixture([hashtable]$PlanContract) {
   $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "td9-card-$([guid]::NewGuid().ToString('N'))"
   $liveDir = Join-Path $fixtureRoot 'specs/tasks'
   $archiveDir = Join-Path $fixtureRoot 'specs/archive/tasks'
-  $liveCard = Join-Path $liveDir 'T0-FIXTURE.md'
-  $archiveCard = Join-Path $archiveDir 'T0-FIXTURE.md'
+  $liveCard = Join-Path $liveDir 'T0-DEBT-SELFTEST-SPLIT-PLAN.md'
+  $archiveCard = Join-Path $archiveDir 'T0-DEBT-SELFTEST-SPLIT-PLAN.md'
   try {
     New-Item -ItemType Directory -Force -Path $liveDir, $archiveDir | Out-Null
     Set-Content -LiteralPath $archiveCard -Value 'archived' -Encoding utf8NoBOM
-    $resolved = Resolve-TaskCardPath -Root $fixtureRoot -TaskId 'T0-FIXTURE'
-    if ($resolved -cne 'specs/archive/tasks/T0-FIXTURE.md') {
-      throw "[TD9-SPLIT-ARCHIVE-FIXTURE] expected archive path, got $resolved"
+    try { $archiveText = Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract } catch {
+      throw "[TD9-SPLIT-ARCHIVE-FIXTURE] archive-only consumer failed: $($_.Exception.Message)"
+    }
+    if ($archiveText.Trim() -cne 'archived') {
+      throw '[TD9-SPLIT-ARCHIVE-FIXTURE] archive-only card was not read through the consumer'
     }
 
+    Remove-Item -LiteralPath $archiveCard -Force
     Set-Content -LiteralPath $liveCard -Value 'live' -Encoding utf8NoBOM
+    try { $liveText = Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract } catch {
+      throw "[TD9-SPLIT-ARCHIVE-FIXTURE] live-only consumer failed: $($_.Exception.Message)"
+    }
+    if ($liveText.Trim() -cne 'live') {
+      throw '[TD9-SPLIT-ARCHIVE-FIXTURE] live-only card was not read through the consumer'
+    }
+
+    Set-Content -LiteralPath $archiveCard -Value 'archived' -Encoding utf8NoBOM
     $duplicateRejected = $false
-    try { [void](Resolve-TaskCardPath -Root $fixtureRoot -TaskId 'T0-FIXTURE') } catch {
+    try { [void](Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract) } catch {
       if ($_.Exception.Message.Contains('[TD9-SPLIT-CARD-RESOLUTION]')) { $duplicateRejected = $true } else { throw }
     }
     if (-not $duplicateRejected) { throw '[TD9-SPLIT-ARCHIVE-FIXTURE] duplicate live/archive card was accepted' }
 
     Remove-Item -LiteralPath $liveCard, $archiveCard -Force
     $missingRejected = $false
-    try { [void](Resolve-TaskCardPath -Root $fixtureRoot -TaskId 'T0-FIXTURE') } catch {
+    try { [void](Read-ContractCardText -Root $fixtureRoot -Contract $PlanContract) } catch {
       if ($_.Exception.Message.Contains('[TD9-SPLIT-CARD-RESOLUTION]')) { $missingRejected = $true } else { throw }
     }
     if (-not $missingRejected) { throw '[TD9-SPLIT-ARCHIVE-FIXTURE] missing card was accepted' }
@@ -92,9 +126,6 @@ function Assert-TaskCardLifecycleFixture {
     Remove-Item -LiteralPath (Join-Path $fixtureRoot 'specs/archive'), (Join-Path $fixtureRoot 'specs'), $fixtureRoot -Force -ErrorAction SilentlyContinue
   }
 }
-
-Assert-TaskCardLifecycleFixture
-$planCardPath = Resolve-TaskCardPath -Root $repoRoot -TaskId 'T0-DEBT-SELFTEST-SPLIT-PLAN'
 
 $boardRows = @(
   '| W0 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | 单分片与 all 汇总以稳定哨兵点名失败 shard/gate（TD9 1/5） | T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b8dee45`，PR #31；稳定 ASCII gate、协议 fail-closed、hermetic/mutation 覆盖、core/verify/R3 绿；TD9 仍 carded） |',
@@ -110,7 +141,7 @@ $planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1�
 
 $cardContract = [ordered]@{
   Plan = @{
-    Path = $planCardPath
+    TaskId = 'T0-DEBT-SELFTEST-SPLIT-PLAN'
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-SPLIT-PLAN'
       title = '将 TD9 skip 可见性余项拆成有界串行卡'
@@ -274,6 +305,8 @@ $cardContract = [ordered]@{
   }
 }
 
+Assert-TaskCardLifecycleFixture -PlanContract $cardContract.Plan
+
 function Test-Td9SplitContract([hashtable]$Sources) {
   $actualBoardRows = @($Sources.Board -split '\r?\n' | Where-Object { $_ -match '^\| W0 \| T0-DEBT-SELFTEST-(FAIL-DIAGNOSTICS|SKIP-VISIBILITY|NOGIT-ROUTING|MUTATION-BUDGET|LOAD-STABILITY) \|' })
   if ($actualBoardRows.Count -ne $boardRows.Count) { return $false }
@@ -328,7 +361,8 @@ $sources = @{
   Tracker = Read-RepoText 'specs/tech-debt-tracker.md'
 }
 foreach ($sourceName in $cardContract.Keys) {
-  $sources[$sourceName] = Read-RepoText $cardContract[$sourceName].Path
+  $contract = $cardContract[$sourceName]
+  $sources[$sourceName] = Read-ContractCardText -Root $repoRoot -Contract $contract
 }
 if (-not (Test-Td9SplitContract $sources)) { throw '[TD9-SPLIT-CONTRACT] live documents do not match the canonical TD9 split' }
 
