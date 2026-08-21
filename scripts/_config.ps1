@@ -39,7 +39,7 @@ $script:ScaffoldConfig = @{
   #   'backend/app/schemas/manifest',
   # T1-SCHEMA-CORE 合并后冻结（该卡 doc_sync 明列本步；卡内多处注释亦以「本目录合并后即进 FrozenPaths」
   # 为前提解释了为什么下游卡要的查询必须由该卡预先提供）。此后加表/改列/加查询 = 新 .sqm + 版本评审，
-  # 且须先还清 TD4（verifyMigrations 与防泄露闸冲突，故该卡未开）。
+  # 并通过 TD4 已恢复的 verifyMigrations 与逐路径 schema 快照防泄露闸。
   # **只冻 sqldelight/**：`core/model/` 的快照类型刻意不冻——T1-CANON-HASH 落地时若发现哈希域形状需微调，
   # 那是正常演进（该形状已由 InspectionSnapshotTest 的逐字段断言钉住，改动不会静默发生）。
   # T1-CANON-HASH 合并后冻结（该卡 doc_sync 明列本步）：canonical JSON 序列化器 + 哈希 + 快照投影是
