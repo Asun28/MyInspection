@@ -362,14 +362,15 @@ function Get-SelftestSeededGitGateIds {
     '17t(t1)', '17t(t2)', '17t(t3)', '17t(t4)', '17t(t5)', '17t(t6)', '17t(t7)', '17t(t8)', '17t(t9)', '17t(t10)', '17t(t11)', '17t(t12)',
     '17t(t13)', '17t(t14)', '17t(t15)', '17t(t16)', '17t(t17)', '17t(t18)', '17t(t19)', '17t(t20)', '17t(t21)', '17t(t22)', '17t(t23)', '17t(t24)', '17t(doc)',
     '17v', '17w', '17w(redirect)', '17w(paired)', '17w(inline-hash)', '17w(init)', '17x', '17y',
-    '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)',
+    '17z(functional)', '17z(0)', '17z(1)', '17z(2)', '17z(3)', '17z(project-pin)',
     '17z(T43-TimeoutCliOverridesConfig)', '17z(T43-TimeoutConfigValue)', '17z(T43-TimeoutDefaultMissingOrEmpty)', '17z(4)', '17z(5)',
     '17aa', '17aa(1)', '17aa(2)', '17aa(5)',
     '17aa(6)', '17aa(6/local-behind)', '17aa(6/local-ahead)', '17aa(6/shadow-ref)',
     '17aa(7)', '17aa(7a)', '17aa(7b)', '17aa(7c)', '17aa(7d)', '17aa(7e/F4)',
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
-    'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4'
+    'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
+    '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
 
@@ -993,9 +994,13 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
     }
   }
   $gateIds = @(Get-SelftestSeededGitGateIds)
+  $inventoryBytes = [Text.Encoding]::UTF8.GetBytes(($gateIds -join "`n"))
+  $inventorySha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($inventoryBytes)).ToLowerInvariant()
   if ($gateIds.Count -eq 0 -or @($gateIds | Select-Object -Unique).Count -ne $gateIds.Count -or
-      @($gateIds | Where-Object { -not (Test-SelftestGateId $_) }).Count -ne 0) {
-    throw '[SELFTEST-NOGIT-ROUTING-INVENTORY] seeded git gate inventory is empty, duplicated, or invalid.'
+      @($gateIds | Where-Object { -not (Test-SelftestGateId $_) }).Count -ne 0 -or
+      $gateIds.Count -ne 130 -or
+      $inventorySha256 -cne '6bacd569c7f8909846a3339d0ad394d217c5c53128bfa1a1a349901015fab9a5') {
+    throw "[SELFTEST-NOGIT-ROUTING-INVENTORY] seeded git gate inventory identity mismatch: count=$($gateIds.Count) sha256=$inventorySha256"
   }
   $expectedAbsentRecords = @($gateIds | ForEach-Object { "$_/TOOL-GIT-MISSING" })
 
