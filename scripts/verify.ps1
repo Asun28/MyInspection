@@ -33,7 +33,7 @@ $archiveScript = Join-Path $RepoRoot 'scripts/archive.ps1'
 if (Test-Path -LiteralPath $archiveScript -PathType Leaf) {
   & pwsh -NoProfile -File $archiveScript -RepoRoot $RepoRoot -CheckCardsIndex -Quiet
   if ($LASTEXITCODE -ne 0) {
-    Write-Warning '归档卡索引投影漂移（[ARCHIVE-CARDS-INDEX-DRIFT]）'
+    Write-Warning '归档卡索引只读检查失败（详见 archive.ps1 上方诊断）'
     $failed = $true
   }
 }
