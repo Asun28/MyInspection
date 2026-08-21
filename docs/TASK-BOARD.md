@@ -26,7 +26,7 @@
 | W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | 先还 harness 缺口；PR #20 2,422 行为真实红例 |
 | W0 | T0-R3-DIFF-BUDGET-R3-CLOSURE | PR #53 round-cap 后禁用 diff helper，并把 measured OID 贯穿 ship（TD142） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只接第 2 轮两项 finding |
 | W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET-R3-CLOSURE | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix |
-| W0 | T0-CI-DOCS-FAST-PATH | 纯文档 PR 保留轻量 verify 状态，跳过 Android/Gradle 重闸（TD159） | — | S | GPT-5.6 Terra · high | Codex R3 | run 32524624342 实证：R5 文档 PR 无差别跑完整工具链；push/manual 与代码 PR 不放松 |
+| W0 | T0-CI-DOCS-FAST-PATH | 纯文档 PR 保留轻量 verify 状态，跳过 Android/Gradle 重闸（TD159） | — | S | GPT-5.6 Terra · high | Codex R3 | run 32524624342 实证：R5 文档 PR 无差别跑完整工具链；保留既有纯文档 push 跳过，含代码 push/manual 不放松 |
 | W0 | T0-HARNESS-SUBTRACTION-PROTOCOL | 量化、可迁移、按组可回滚的 harness 减负协议（TD134 2/6） | — | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `e971ef8`，PR #24；R3 零发现；只增 15 行协议文本，无实际删减或脚本行为变化） |
 | W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | PR #51 两轮 R3 达上限，原 PR 先人裁；剩余 meta 解析转专卡 |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
