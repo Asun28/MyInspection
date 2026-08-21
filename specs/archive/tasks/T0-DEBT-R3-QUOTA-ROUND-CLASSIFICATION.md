@@ -2,7 +2,7 @@
 id: T0-DEBT-R3-QUOTA-ROUND-CLASSIFICATION
 title: 把 R3 配额/轮次证据分类纪律晋升为必须层（偿还 TD155 / L21）
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-R3-QUOTA-ROUND-CLASSIFICATION
 worktree: C:\wt\T0-DEBT-R3-QUOTA-ROUND-CLASSIFICATION
 allow_paths:
