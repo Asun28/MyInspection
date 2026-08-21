@@ -1135,7 +1135,7 @@
 - refs: 
 
 ## L164
-- date: 2026-07-25 ｜ tags: gates,security,refactor,trust-boundary ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: gates,security,refactor,trust-boundary ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 把 ship 内联的 fail-closed 范围闸抽成共享核 + 独立 CLI 后，判定语义逐条搬对了、既有种子闸也继续绿，但新入口连吃 R3 十一轮 block：缺省基线取到卡分支自己（空 diff 印 PASS）、缺省工作树缺失即静默回退主检出、判定尖端跟着 -Path 那个检出的 HEAD 走、allow_paths 读的是被审分支自己的卡、连检查器脚本本身都可被被审分支替换成恒 PASS。
 - root_cause: 原入口的安全性有一大半不在它的代码里，而在**它被规定的运行位置**：L86 强制相位命令只在主检出跑，于是「判定对象是谁、标准取自哪份卡、跑的是哪一份检查器」全都被运行位置隐式钉死。抽出第二个入口时只搬了可见的判定语义，这些隐式绑定一条都没跟着走——多一个入口就多一条绕过路径，而每条都表现为 fail-open（印 PASS），比没有这个闸更坏。
 - rule: 给已有 fail-closed 闸增设第二个入口（独立 CLI / 恢复序列 / CI 腿）前，先把原入口「靠运行位置白拿的」信任绑定逐条列出来并在新入口显式补齐：①判定对象锚定到不可变标识（按卡 id 取分支引用，不看该检出的 HEAD）②判定标准取自受信基线（git show <baseRef>:卡 路径，绝不读被审检出里的副本）③检查器与其依赖须来自受信检出（跑主检出那份、用 -Path 指被审树）④入参只收纯名/完整 OID 并按提交身份判等（拒 git revision 语法与前缀匹配）⑤解析成 sha 后全程钉 sha，不再用可变引用名（防 TOCTOU）。每条各配一个 ASCII 哨兵与一枚只删该句的变异，证明它承重。
