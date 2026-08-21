@@ -2,7 +2,7 @@
 id: T0-DEBT-UNICODE-SANITIZER-CATEGORIES
 title: 把 Unicode sanitizer 类别纪律合并晋升为必须层（偿还 TD151 / L181）
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-UNICODE-SANITIZER-CATEGORIES
 worktree: C:\wt\T0-DEBT-UNICODE-SANITIZER-CATEGORIES
 allow_paths:
