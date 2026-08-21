@@ -443,6 +443,15 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
     $tokens = $null; $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
     if (@($errors).Count -ne 0) { throw 'source parse failed' }
+    $terminalSummaryCall = 'Write-Host (Format-Selftest' + 'SkipSummary -Shard $Shard -Records $skippedSelftestChecks) -ForegroundColor DarkGray'
+    if ([regex]::Matches($ScriptText, [regex]::Escape($terminalSummaryCall)).Count -ne 1) {
+      throw 'production terminal skip summary call absent or duplicated'
+    }
+    $terminalSummaryMutant = $ScriptText.Replace($terminalSummaryCall, '')
+    if ($terminalSummaryMutant -ceq $ScriptText -or
+        [regex]::Matches($terminalSummaryMutant, [regex]::Escape($terminalSummaryCall)).Count -ne 0) {
+      throw 'production terminal skip summary mutation survived'
+    }
     $functionNames = @(
       'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
       'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
@@ -454,7 +463,7 @@ function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
       if ($functionMatches.Count -ne 1) { throw "function count: $name=$($functionMatches.Count)" }
       $functionMatches[0].Extent.Text
     }) -join "`n`n"
-    $fixtureSource = "param([ValidateSet('environment-missing','batch','gradle-wrapper-offline','prerequisite-fail','overlap','aggregate-pass','aggregate-skip','aggregate-fail','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
+    $fixtureSource = "param([ValidateSet('environment-missing','batch','duplicate','invalid-reason','gradle-wrapper-offline','prerequisite-fail','overlap','aggregate-pass','aggregate-skip','aggregate-fail','normal')][string]`$Mode)`n`n$functionSource`n`n" + @'
 $script:skippedSelftestChecks = [System.Collections.Generic.List[string]]::new()
 $script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
 $script:fail = $false
@@ -468,6 +477,14 @@ switch ($Mode) {
   'batch' {
     Skip-SelftestChecks -GateIds @('15', '15a', '15b(ship-local)') -Reason 'TOOL-GIT-MISSING' -Message 'fixture git missing'
     $script:fixtureOutcome = 'SKIP'
+  }
+  'duplicate' {
+    [void](Register-SelftestSkip -GateId '15' -Reason 'TOOL-GIT-MISSING')
+    [void](Register-SelftestSkip -GateId '15' -Reason 'TOOL-GIT-MISSING')
+    $script:fixtureOutcome = 'SKIP'
+  }
+  'invalid-reason' {
+    [void](Register-SelftestSkip -GateId '15' -Reason 'git missing')
   }
   'gradle-wrapper-offline' {
     [void](Register-SelftestSkip -GateId '17a3' -Reason 'GRADLE-WRAPPER-OFFLINE')
@@ -516,6 +533,10 @@ exit 0
     $environmentMissingExit = $LASTEXITCODE
     $batchOutput = (& pwsh -NoProfile -File $fixturePath -Mode batch 2>&1 | Out-String)
     $batchExit = $LASTEXITCODE
+    $duplicateOutput = (& pwsh -NoProfile -File $fixturePath -Mode duplicate 2>&1 | Out-String)
+    $duplicateExit = $LASTEXITCODE
+    $invalidReasonOutput = (& pwsh -NoProfile -File $fixturePath -Mode invalid-reason 2>&1 | Out-String)
+    $invalidReasonExit = $LASTEXITCODE
     $gradleWrapperOfflineOutput = (& pwsh -NoProfile -File $fixturePath -Mode gradle-wrapper-offline 2>&1 | Out-String)
     $gradleWrapperOfflineExit = $LASTEXITCODE
     $prerequisiteFailOutput = (& pwsh -NoProfile -File $fixturePath -Mode prerequisite-fail 2>&1 | Out-String)
@@ -540,6 +561,13 @@ exit 0
       $batchOutput -match '(?m)^\[SELFTEST-SKIP\] gate=15 reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15a reason=TOOL-GIT-MISSING\r?\n\[SELFTEST-SKIP\] gate=15b\(ship-local\) reason=TOOL-GIT-MISSING\r?$' -and
       $batchOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=3 items=15/TOOL-GIT-MISSING,15a/TOOL-GIT-MISSING,15b\(ship-local\)/TOOL-GIT-MISSING\r?$' -and
       $batchOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $batchOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
+      $duplicateExit -eq 0 -and
+      @([regex]::Matches($duplicateOutput, '(?m)^\[SELFTEST-SKIP\] gate=15 reason=TOOL-GIT-MISSING\r?$')).Count -eq 1 -and
+      $duplicateOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=15/TOOL-GIT-MISSING\r?$' -and
+      $duplicateOutput -match '(?m)^OUTCOME=SKIP\r?$' -and
+      $invalidReasonExit -ne 0 -and
+      $invalidReasonOutput -match 'Invalid selftest skip reason code: git missing' -and
+      $invalidReasonOutput -notmatch '(?m)^\[SELFTEST-SKIP-SUMMARY\]' -and
       $gradleWrapperOfflineExit -eq 0 -and
       @([regex]::Matches($gradleWrapperOfflineOutput, '(?m)^\[SELFTEST-SKIP\] gate=17a3 reason=GRADLE-WRAPPER-OFFLINE\r?$')).Count -eq 1 -and
       $gradleWrapperOfflineOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17a3/GRADLE-WRAPPER-OFFLINE\r?$' -and
