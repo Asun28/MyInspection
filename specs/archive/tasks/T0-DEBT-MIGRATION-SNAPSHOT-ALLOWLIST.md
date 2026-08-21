@@ -2,7 +2,7 @@
 id: T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST
 title: 偿还 TD4：只豁免 SQLDelight schema 快照并恢复迁移验证
 depends_on: [T0-LICENSE-SCANNER]
-status: todo
+status: merged
 branch: T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST
 worktree: C:\wt\T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST
 allow_paths:
