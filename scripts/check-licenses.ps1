@@ -337,13 +337,27 @@ function Get-GradleExceptionMap {
       foreach ($jsonRecord in $json.RootElement.EnumerateArray()) {
         $seenFields = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($property in $jsonRecord.EnumerateObject()) {
-          $field = [string]$property.Name
+          try {
+            $propertyName = $property.Name
+            if ($null -eq $propertyName) {
+              throw [System.ArgumentException]::new('JSON property name did not decode to a Unicode scalar string.')
+            }
+            $field = [string]$propertyName
+          } catch {
+            throw "[LICENSE-METADATA-SCALAR] JSON property name 含 malformed UTF-16：$($_.Exception.Message)"
+          }
           Assert-GradleMetadataScalar -Field 'JSON property name' -Value $field
           if (-not $seenFields.Add($field)) { throw "记录字段重复（大小写完全相同）：$field。" } # exception duplicate property guard
           if (-not $allowedFields.Contains($field)) { throw "记录含不支持字段 $field。" } # exception supported property guard
           if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
             throw "字段 $field 必须是 JSON 字符串标量（实际类型 $($property.Value.ValueKind)）。" # exception JSON string guard
           }
+          try {
+            $jsonScalar = [string]$property.Value.GetString()
+          } catch {
+            throw "[LICENSE-METADATA-SCALAR] 元数据字段 $field 含 malformed UTF-16：$($_.Exception.Message)"
+          }
+          Assert-GradleMetadataScalar -Field $field -Value $jsonScalar # exception raw JSON scalar safety guard
         }
       }
     } finally {
@@ -355,9 +369,6 @@ function Get-GradleExceptionMap {
         if (-not $record.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$record[$field])) {
           throw "记录缺少必填字段 $field。"
         }
-      }
-      foreach ($field in $record.Keys) {
-        Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])
       }
       $coordinate = [string]$record.coordinate
       if ($null -eq (Get-GradleGavParts -Coordinate $coordinate)) {

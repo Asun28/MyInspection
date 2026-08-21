@@ -836,7 +836,9 @@ if ($Suite -eq 'policy') {
       @{ Id = 'missing-group'; Error = $null; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'missing-version'; Error = $null; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
       @{ Id = 'control-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
-      @{ Id = 'supplementary-format-artifact'; Error = '[LICENSE-METADATA-SCALAR]'; Coordinate = 'fixture.policy:parent-supplementary-format-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${supplementaryFormat}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-supplementary-format-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" }
+      @{ Id = 'supplementary-format-artifact'; Error = '[LICENSE-METADATA-SCALAR]'; Coordinate = 'fixture.policy:parent-supplementary-format-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${supplementaryFormat}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-supplementary-format-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
+      @{ Id = 'malformed-high-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-malformed-high-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#xD800;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-high-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'malformed-low-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-malformed-low-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#xDC00;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-low-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' }
     )
     foreach ($parentMetadata in $parentMetadataCases) {
       [void](Write-PolicyPom -Coordinate $parentMetadata.Coordinate -Xml $parentMetadata.Xml)
@@ -846,21 +848,6 @@ if ($Suite -eq 'policy') {
         $parentPomErrors.Count -eq 1 -and
         ([string]::IsNullOrEmpty([string]$parentMetadata.Error) -or $parentPomErrors[0].Detail -match [regex]::Escape($parentMetadata.Error))
       ) "[POLICY-POM-PARENT-$($parentMetadata.Id.ToUpperInvariant())] malformed parent GAV was accepted"
-    }
-
-    foreach ($metadataCase in @(
-      @{ Id = 'pom-high'; Field = 'POM license name'; Value = "prefix-$([char]0xD800)-suffix" },
-      @{ Id = 'pom-low'; Field = 'POM license name'; Value = "prefix-$([char]0xDC00)-suffix" },
-      @{ Id = 'exception-high'; Field = 'exception registered_by'; Value = "prefix-$([char]0xD800)-suffix" },
-      @{ Id = 'exception-low'; Field = 'exception registered_by'; Value = "prefix-$([char]0xDC00)-suffix" }
-    )) {
-      $metadataRejected = $false
-      try {
-        Assert-GradleMetadataScalar -Field $metadataCase.Field -Value $metadataCase.Value
-      } catch {
-        $metadataRejected = $_.Exception.Message -match '\[LICENSE-METADATA-SCALAR\]'
-      }
-      Assert-Policy $metadataRejected "[POLICY-METADATA-SCALAR-MALFORMED-$($metadataCase.Id.ToUpperInvariant())] malformed UTF-16 metadata was accepted"
     }
 
     $baselineExceptions = @'
@@ -960,6 +947,33 @@ if ($Suite -eq 'policy') {
       @{ Id = 'duplicate-fallback'; Error = '坐标重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'duplicate-declared'; Error = 'declared_license 重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' }
     )
+    foreach ($surrogateCase in @(
+      @{ Id = 'high'; Escape = '\uD800' },
+      @{ Id = 'low'; Escape = '\uDC00' }
+    )) {
+      foreach ($field in @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
+        $values = @{
+          coordinate = 'fixture.policy:a:1.0'
+          declared_license = 'Mystery'
+          license = 'Apache-2.0'
+          evidence_url = 'https://example.invalid/a'
+          registered_by = 'policy-test'
+          registered_on = '2026-08-19'
+        }
+        $values[$field] = "$($values[$field])$($surrogateCase.Escape)"
+        $malformedJson = '[{"coordinate":"' + $values.coordinate + '","declared_license":"' + $values.declared_license + '","license":"' + $values.license + '","evidence_url":"' + $values.evidence_url + '","registered_by":"' + $values.registered_by + '","registered_on":"' + $values.registered_on + '"}]'
+        $invalidExceptions += @{
+          Id = "malformed-$($surrogateCase.Id)-$($field.Replace('_', '-'))"
+          Error = '[LICENSE-METADATA-SCALAR]'
+          Json = $malformedJson
+        }
+      }
+      $invalidExceptions += @{
+        Id = "malformed-$($surrogateCase.Id)-property-name"
+        Error = '[LICENSE-METADATA-SCALAR]'
+        Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by' + $surrogateCase.Escape + '":"policy-test","registered_on":"2026-08-19"}]'
+      }
+    }
     foreach ($invalid in $invalidExceptions) {
       Set-PolicyExceptions -Json $invalid.Json
       $invalidResult = Invoke-PolicyFixture -Coordinates @('fixture.policy:a:1.0')
@@ -1129,8 +1143,8 @@ if ($Suite -eq 'policy') {
       },
       @{
         Name = 'override-metadata-control'
-        From = '        Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])'
-        To = '        $null = [string]$record[$field]'
+        From = '          Assert-GradleMetadataScalar -Field $field -Value $jsonScalar # exception raw JSON scalar safety guard'
+        To = '          $null = $jsonScalar # exception raw JSON scalar safety guard'
         Expected = '[POLICY-OVERRIDE-SUPPLEMENTARY-FORMAT]'
       },
       @{
