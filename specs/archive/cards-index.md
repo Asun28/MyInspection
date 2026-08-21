@@ -1,10 +1,11 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 58 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 62 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
 |---|---|---|
+| T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-DEBT-ARCHIVE-CARDS-INDEX-GATE | merged | 让归档任务卡索引保持为可验证的真实投影（偿还 TD146） |
 | T0-DEBT-ARCHIVED-CARD-PATHS | merged | Repair inbound references to archived task cards (repay TD22) |
 | T0-DEBT-CASE-PROBE-CLOSURE-SCOPE | merged | Make 17cc case mutation probes host-independent (repay TD25) |
@@ -25,6 +26,8 @@
 | T0-DEBT-SELFTEST-CANARY-HARNESS | merged | 让 post-merge selftest canary 离线确定且失败可定位 |
 | T0-DEBT-SELFTEST-CRITICAL-PATH | merged | 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径 |
 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | merged | 让 selftest 分片与 all 汇总稳定点名失败闸 |
+| T0-DEBT-SELFTEST-NOGIT-ROUTING | merged | 用有界生产夹具证明 seeded no-git 路由 |
+| T0-DEBT-SELFTEST-SKIP-VISIBILITY | merged | 让 selftest 有意跳过与前置失败裁剪均可见 |
 | T0-DEBT-SELFTEST-SNAPSHOT-BASELINE | merged | 让 selftest all 快照钉住调用者 HEAD 与权威 master（偿还 TD156） |
 | T0-DEBT-SELFTEST-SPLIT-PLAN | merged | 将 TD9 skip 可见性余项拆成有界串行卡 |
 | T0-DEBT-TASK-INVENTORY | merged | Remove hand-maintained task-card inventory (repay TD21) |
@@ -56,6 +59,7 @@
 | T2-PHOTO-DIRECTORY-DURABILITY | merged | 照片 sidecar 的目录级 crash durability 收口 |
 | T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER | merged | 照片孤儿清理：durable sidecar lease + WorkManager 生产调度（偿还 TD14） |
 | T2-PHOTO-PIPELINE | merged | 照片管线：存储布局 + EXIF 转正（8 向）+ 内容哈希去重 + 导入 |
+| T2-PHOTO-PROPERTY-DEDUPE | merged | 照片物理去重限定在同一物业（偿还 TD24，保证按物业备份闭包） |
 | T2-PHOTO-QUALITY-PROFILES | merged | 新照片四档质量：Low / Medium / High / Extra High（默认 Medium） |
 | T2-PHOTO-STREAMING-ENCODE | merged | 照片流式编码：去掉整份 JPEG ByteArray 内存峰值（偿还 TD15） |
 | T2-PHRASELIB | merged | 双语短语库种子内容 + 查询接口 |

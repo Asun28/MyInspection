@@ -42,7 +42,7 @@ object PhotoImportPipeline {
         mediaRoot: File,
         target: PhotoTarget,
         recorder: PhotoAssociationRecorder,
-        activeAssetLookup: (contentHash: String) -> List<String>,
+        activeAssetLookup: (propertyId: String, contentHash: String) -> List<String>,
         qualityProfileSource: PhotoQualityProfileSource,
         budgetBytes: Long = PhotoMemoryBudget.transientBytes(),
     ): PhotoIngestOutcome {
@@ -63,7 +63,7 @@ object PhotoImportPipeline {
                 val contentHash = ContentHash.hex(digest.digest())
                 val exifTimeMs = PhotoExifReader.readExifTimeMs(tempFile)
                 val plan = PhotoIngest.verifyReuseExists(
-                    PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(contentHash)),
+                    PhotoIngest.plan(propertyId, inspectionId, photoId, contentHash, activeAssetLookup(propertyId, contentHash)),
                     propertyId,
                     inspectionId,
                     photoId,

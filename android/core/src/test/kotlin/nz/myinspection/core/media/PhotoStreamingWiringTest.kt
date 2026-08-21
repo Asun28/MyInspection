@@ -91,6 +91,24 @@ class PhotoStreamingWiringTest {
         assertTrue(imported.contains("val contentHash = ContentHash.hex(digest.digest())"), "import DB plan must keep the original-source digest")
     }
 
+    @Test
+    fun `camera and import scope active asset lookup to their resolved property`() {
+        val appMedia = androidRoot().resolve("app/src/main/kotlin/nz/myinspection/app/media")
+        val camera = Files.readString(appMedia.resolve("CameraPhotoIngestPipeline.kt"))
+        val imported = Files.readString(appMedia.resolve("PhotoImportPipeline.kt"))
+
+        for ((pipeline, source) in listOf("camera" to camera, "import" to imported)) {
+            assertTrue(
+                source.contains("activeAssetLookup: (propertyId: String, contentHash: String) -> List<String>"),
+                "$pipeline lookup contract must require the authoritative property together with the hash",
+            )
+            assertTrue(
+                source.contains("activeAssetLookup(propertyId, contentHash)"),
+                "$pipeline must query with the property resolved from its target room, not hash alone",
+            )
+        }
+    }
+
     private fun occurrences(source: String, fragment: String): Int =
         source.windowed(fragment.length, partialWindows = false).count { it == fragment }
 
