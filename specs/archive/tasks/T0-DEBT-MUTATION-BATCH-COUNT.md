@@ -2,7 +2,7 @@
 id: T0-DEBT-MUTATION-BATCH-COUNT
 title: 把 mutation 批次条数自证纪律合并晋升为必须层（偿还 TD148 / L177）
 depends_on: [T0-DEBT-MUTATION-RESTORE-SAFETY]
-status: todo
+status: merged
 branch: T0-DEBT-MUTATION-BATCH-COUNT
 worktree: C:\wt\T0-DEBT-MUTATION-BATCH-COUNT
 allow_paths:

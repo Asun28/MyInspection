@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 41 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 42 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -8,6 +8,7 @@
 | T0-DEBT-ARCHIVE-CARDS-INDEX-GATE | merged | 让归档任务卡索引保持为可验证的真实投影（偿还 TD146） |
 | T0-DEBT-ARCHIVED-CARD-PATHS | merged | Repair inbound references to archived task cards (repay TD22) |
 | T0-DEBT-CASE-PROBE-CLOSURE-SCOPE | merged | Make 17cc case mutation probes host-independent (repay TD25) |
+| T0-DEBT-MUTATION-BATCH-COUNT | merged | 把 mutation 批次条数自证纪律合并晋升为必须层（偿还 TD148 / L177） |
 | T0-DEBT-MUTATION-RESTORE-SAFETY | merged | 把未提交 mutation 还原防丢纪律晋升为必须层（偿还 TD147 / L214） |
 | T0-DEBT-R3-CARD-BASELINE | merged | Align R3 task-card authority with the pinned base (repay TD3) |
 | T0-DEBT-R3-MOVING-REF-UNIX | merged | Repair the 17ac Unix moving-ref git shim with a quoted absolute target (repay TD27) |
