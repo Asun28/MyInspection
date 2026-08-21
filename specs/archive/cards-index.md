@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 50 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 51 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -25,6 +25,7 @@
 | T0-DEBT-TASK-INVENTORY | merged | Remove hand-maintained task-card inventory (repay TD21) |
 | T0-DEBT-TEMPLATE-STORE-IMMUTABILITY | merged | Prove TemplateStore read results reject element replacement (repay TD13) |
 | T0-DEBT-UNICODE-SANITIZER-CATEGORIES | merged | 把 Unicode sanitizer 类别纪律合并晋升为必须层（偿还 TD151 / L181） |
+| T0-DEBT-UNICODE-SCALAR-TEXT | merged | 建立 fail-closed 的 Unicode scalar 控制/格式文本单一真相源 |
 | T0-DEBT-UNSAFE-PATH-DELEGATION | merged | 把不安全路径不得委托下游纪律晋升为必须层（偿还 TD153 / L171） |
 | T0-DEBT-WINDOWS-PYTHON-UTF8 | merged | 把 Windows Python UTF-8 工具纪律合并晋升为必须层（偿还 TD152 / L162） |
 | T0-GATE-FIXFORWARD | merged | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径（T0-GATE-HARDENING 事后 R3 两条 block 的 fix-forward） |
