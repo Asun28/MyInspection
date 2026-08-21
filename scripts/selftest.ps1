@@ -569,7 +569,10 @@ function Test-SelftestSeededSkipWiringContract([string]$ScriptText) {
       $gateId.Value -ceq '17a3' -and $reason.Extent.Text -ceq '$td4MigrationGate.Reason'
   })
   $legacyPrefix = '[SELFTEST-' + 'SKIP] gate=17a3 reason='
-  return ($gradleSkipRegistrations.Count -eq 1 -and -not $ScriptText.Contains('Write-Host "' + $legacyPrefix))
+  $forbiddenSeededRoutingGuard = "`$Shard -eq 'seeded' -and " + '$seededGitAvailable'
+  return ($gradleSkipRegistrations.Count -eq 1 -and
+    -not $ScriptText.Contains('Write-Host "' + $legacyPrefix) -and
+    -not $ScriptText.Contains($forbiddenSeededRoutingGuard))
 }
 
 function Test-SelftestSkipPassExclusivitySourceContract([string]$ScriptText) {
@@ -782,6 +785,10 @@ function Test-SelftestSkipLedgerRepresentativeMutation([string]$ScriptText) {
     },
     [PSCustomObject]@{
       Name = 'gradle-wrapper-offline-registration'; From = "      [void](Register-SelftestSkip -GateId '17a3' -" + 'Reason $td4MigrationGate.Reason)'; To = ''
+    },
+    [PSCustomObject]@{
+      Name = 'seeded-routing-overreach'; From = "if (`$Shard -eq 'seeded') {";
+      To = "if (`$Shard -eq 'seeded' -and " + '$seededGitAvailable) {'
     }
   )
   foreach ($mutation in $wiringMutations) {
@@ -10409,7 +10416,7 @@ function Invoke-Td27PosixShimProbe([string]$HarnessPath, [string]$ExpectedReceip
   return [PSCustomObject]@{ Exit = $semanticExit; StdOut = "MARKER:${MarkerId}:$code`nRAW_EXIT=$rawExit`n$raw"; RawExit = $rawExit; Raw = $raw }
 }
 
-if ($Shard -eq 'seeded' -and $seededGitAvailable) {
+if ($Shard -eq 'seeded') {
   # 17ac(TD27). Force the extensionless POSIX body through pwsh even on Windows. The shim target deliberately
   # lives in a different directory with whitespace and an apostrophe, so PSScriptRoot/current-directory fallback
   # cannot accidentally pass. The real Linux shebang+chmod path remains covered by 17ac(moving-ref) above.
