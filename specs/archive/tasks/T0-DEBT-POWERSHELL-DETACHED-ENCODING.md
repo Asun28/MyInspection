@@ -2,7 +2,7 @@
 id: T0-DEBT-POWERSHELL-DETACHED-ENCODING
 title: 把 detached PowerShell 编码纪律合并晋升为必须层（偿还 TD150 / L172）
 depends_on: [T0-DEBT-MUTATION-BATCH-COUNT]
-status: todo
+status: merged
 branch: T0-DEBT-POWERSHELL-DETACHED-ENCODING
 worktree: C:\wt\T0-DEBT-POWERSHELL-DETACHED-ENCODING
 allow_paths:
