@@ -53,11 +53,11 @@ Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → �
 - **缺陷类**（bug 逃逸到产线）→ **③直连①**：补一条回归 eval（`docs/EVAL.md` GROW）+ 复发的工具链坑记一条经验（`scripts/lessons.ps1` → `enforced_by` 机械守卫）。回流的**产物**受机检（eval 条目 exit 0/1、守卫脚本），**触发**靠人。
 - **方向类**（用户不要它 / 要的是别的）→ **③经②回①**：从漏斗的 **`1-brief` 重新进**（`docs/IDEA-TO-PLAN.md`：1-brief→2-options→3-plan），修愿景 → 改规格 → 重新拆卡。这正是 Ng 那条链——**早已存在，只是从没被标成「外部信号的入口」**。
 
-> **心跳不接外部信号，是刻意的**：`triage.ps1` 10 探针全部只读、离线、扫本地子系统（见下节）。生产遥测要网络、要状态、要凭据，
+> **心跳不接外部信号，是刻意的**：`triage.ps1` 11 探针全部只读、离线、扫本地子系统（见下节）。生产遥测要网络、要状态、要凭据，
 > 会把一个「只读离线确定性」的 reporter 变成有攻击面的守护进程（对照下方「安全税」节）。③的入口是**人把外部信号写成一条 eval 或一条 brief**，从既有正门进。
 
 ## 心跳：`scripts/triage.ps1`
-**只读、离线、确定性**地扫描既有子系统的本地信号，汇成收件箱 `_local/triage-inbox.md`（gitignored）。10 探针：
+**只读、离线、确定性**地扫描既有子系统的本地信号，汇成收件箱 `_local/triage-inbox.md`（gitignored）。11 探针：
 `lessons-promote`（经验达晋升门槛却仍在总账层）· `tech-debt-open`（债未还）· `cards-active`（卡在飞）·
 `handoff-open`（cwd 交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达封顶=minor / 超封顶=major，该做减法；
 小节标题找不到时 fail-closed 报，不静默判「未超」）·
@@ -65,7 +65,8 @@ Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → �
 `effectiveness`（效果账本：各 ship 闸真实拦截数——喂 HARNESS-REVIEW 据拦截数 + ship 次数做减法）·
 `worktree-orphan`（卡已 merged 却没拆的残留 worktree——cleanup 漏跑 / 半合并遗留）·
 `lessons-demote`（必须层某条已有确定性守卫盯住——每轮上下文换来的是机器已在做的事）·
-`delivery-blocked`（在飞卡坐在一份 R3 block 裁决上，却没人把结果接回注意力——**交付停摆**，severity=blocking）。
+`delivery-blocked`（在飞卡坐在一份 R3 block 裁决上，却没人把结果接回注意力——**交付停摆**，severity=blocking）·
+`scaffold-stale`（落后上游脚手架几版尚未议过；只读已取到本地的 ref，**绝不 fetch**）。
 
 - 退出码恒 0——它是 **reporter，不是闸门**。闸门仍是 worktree/TDD/Codex/CI。
 - **只发现、不行动**：绝不写仓内被跟踪文件、不做 git/gh 写操作。act 走既有交付链。
