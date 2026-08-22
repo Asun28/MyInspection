@@ -1,11 +1,12 @@
-#requires -Version 7
+﻿#requires -Version 7
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds')]
+  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds', 'integration')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
-  [switch]$SkipMutations
+  [switch]$SkipMutations,
+  [switch]$SkipRealScan
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +22,181 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
+
+if ($SkipRealScan -and $Suite -ne 'integration') {
+  throw '-SkipRealScan is valid only for the integration suite.'
+}
+
+if ($Suite -eq 'integration') {
+  $integrationFailures = [System.Collections.Generic.List[string]]::new()
+  function Assert-Integration {
+    param(
+      [Parameter(Mandatory)][bool]$Condition,
+      [Parameter(Mandatory)][string]$Message
+    )
+    if (-not $Condition) { $integrationFailures.Add($Message) }
+  }
+
+  $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+  $selftestPath = Join-Path $repoRoot 'scripts/selftest.ps1'
+  $workflowPath = Join-Path $repoRoot '.github/workflows/ci.yml'
+  $policyPath = Join-Path $repoRoot 'docs/LICENSE-POLICY.md'
+  $releasePath = Join-Path $repoRoot 'docs/RELEASE-CHECKLIST.md'
+  $selftestText = [System.IO.File]::ReadAllText($selftestPath)
+  $workflowText = [System.IO.File]::ReadAllText($workflowPath)
+  $policyText = [System.IO.File]::ReadAllText($policyPath)
+  $releaseText = [System.IO.File]::ReadAllText($releasePath)
+
+  # Break caught (R3 round 2): these assertions used to read raw file text, so a commented-out call,
+  # a commented-out YAML step, or a leftover `$f = 'scripts/check-licenses.ps1'` string satisfied them
+  # while the actual wiring was gone. An assertion that a *disabled* gate satisfies is not a gate.
+  # So: PowerShell is judged by its AST (comments are not in the AST), YAML/Markdown by visible,
+  # uniquely anchored active lines. Get-IntegrationWiringFailures is pure over its inputs precisely
+  # so the mutation block below can feed it commented/deleted variants and demand the exact codes.
+  function Get-IntegrationWiringFailures {
+    param(
+      [Parameter(Mandatory)][AllowEmptyString()][string]$SelftestText,
+      [Parameter(Mandatory)][AllowEmptyString()][string]$WorkflowText,
+      [Parameter(Mandatory)][AllowEmptyString()][string]$PolicyText,
+      [Parameter(Mandatory)][AllowEmptyString()][string]$ReleaseText
+    )
+    $found = [System.Collections.Generic.List[string]]::new()
+
+    # --- selftest.ps1: judged by AST, so commented-out calls simply do not exist ---
+    $selftestAst = [System.Management.Automation.Language.Parser]::ParseInput($SelftestText, [ref]$null, [ref]$null)
+    $scannerCommands = @($selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.CommandAst]
+    }, $true) | Where-Object { $_.Extent.Text -match 'license-scanner-check\.ps1' })
+    $integrationCalls = @($scannerCommands | Where-Object { $_.Extent.Text -match '-Suite\s+integration' }).Count
+    if ($integrationCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-WIRING] expected exactly one active integration-suite invocation in selftest.ps1, found $integrationCalls") }
+    $coldCalls = @($scannerCommands | Where-Object { $_.Extent.Text -match '-Suite\s+integration' -and $_.Extent.Text -match '-SkipRealScan' }).Count
+    if ($coldCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-COLD] expected the seeded integration invocation to pass -SkipRealScan, found $coldCalls") }
+    $inlineFixtureRefs = @($selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.VariableExpressionAst]
+    }, $true) | Where-Object { $_.VariablePath.UserPath -eq 'scannerFixtureRoot' }).Count
+    if ($inlineFixtureRefs -ne 0) { $found.Add("[INTEGRATION-SELFTEST-INLINE] legacy inline scanner fixture still live in selftest.ps1 ($inlineFixtureRefs reference(s))") }
+
+    # --- ci.yml: a step counts only as an active sequence item; a commented '- name:' is not one ---
+    $workflowLines = @($WorkflowText -split '\r?\n')
+    $orderedSteps = @(
+      'Setup Java (Temurin 17)',
+      'Setup Android SDK',
+      'Setup Gradle (dependency cache across CI runs)',
+      "Gradle online build (warms cache for verify.ps1's --offline gate)",
+      'License gate',
+      'E2E verify gate'
+    )
+    $stepLine = @{}
+    foreach ($step in $orderedSteps) {
+      $pattern = '^\s*-\s+name:\s+' + [regex]::Escape($step) + '\s*$'
+      $hits = @(0..($workflowLines.Count - 1) | Where-Object { $workflowLines[$_] -match $pattern })
+      if ($hits.Count -ne 1) { $found.Add("[INTEGRATION-CI-ORDER] expected exactly one active '- name: $step' step in ci.yml, found $($hits.Count)"); continue }
+      $stepLine[$step] = $hits[0]
+    }
+    $previous = -1
+    foreach ($step in $orderedSteps) {
+      if (-not $stepLine.ContainsKey($step)) { continue }
+      if ($stepLine[$step] -le $previous) { $found.Add("[INTEGRATION-CI-ORDER] step '$step' is out of order in ci.yml") }
+      $previous = $stepLine[$step]
+    }
+    # The License gate must actually *execute* the scanner. Assigning its path to a variable is not
+    # execution: the previous assertion stayed green after the `pwsh -File $f` line had been deleted.
+    if ($stepLine.ContainsKey('License gate') -and $stepLine.ContainsKey('E2E verify gate')) {
+      $gateBody = @($workflowLines[$stepLine['License gate']..($stepLine['E2E verify gate'] - 1)])
+      $executes = @($gateBody | Where-Object { $_ -notmatch '^\s*#' -and $_ -match 'pwsh[^\r\n]*check-licenses\.ps1' }).Count
+      if ($executes -lt 1) { $found.Add('[INTEGRATION-CI-SCANNER] License gate has no active line that executes scripts/check-licenses.ps1') }
+    }
+
+    # --- docs: the command must sit on a visible line, not inside an HTML comment ---
+    foreach ($doc in @(
+      @{ Code = 'INTEGRATION-POLICY-DOC'; Name = 'docs/LICENSE-POLICY.md'; Text = $PolicyText },
+      @{ Code = 'INTEGRATION-RELEASE-DOC'; Name = 'docs/RELEASE-CHECKLIST.md'; Text = $ReleaseText }
+    )) {
+      $visible = [regex]::Replace($doc.Text, '(?s)<!--.*?-->', '')
+      $hits = @($visible -split '\r?\n' | Where-Object { $_ -match 'license-scanner-check\.ps1\s+-Suite\s+integration' }).Count
+      if ($hits -lt 1) { $found.Add("[$($doc.Code)] $($doc.Name) has no visible line documenting the integration audit command") }
+    }
+
+    return $found.ToArray()
+  }
+
+  foreach ($wiringFailure in (Get-IntegrationWiringFailures -SelftestText $selftestText -WorkflowText $workflowText -PolicyText $policyText -ReleaseText $releaseText)) {
+    Assert-Integration $false $wiringFailure
+  }
+
+  # Every assertion class above gets a comment/delete mutation proving it can actually go red.
+  # The previous versions looked just like these and were all satisfiable by disabled text.
+  $wiringMutations = @(
+    @{ Id = 'selftest-call-commented'; Code = 'INTEGRATION-SELFTEST-WIRING'; Target = 'Selftest'; Kind = 'comment'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-deleted'; Code = 'INTEGRATION-SELFTEST-WIRING'; Target = 'Selftest'; Kind = 'delete'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-inline-restored'; Code = 'INTEGRATION-SELFTEST-INLINE'; Target = 'Selftest'; Kind = 'append'; Text = "`n`$scannerFixtureRoot = 'restored'`n" },
+    @{ Id = 'ci-step-commented'; Code = 'INTEGRATION-CI-ORDER'; Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-step-deleted'; Code = 'INTEGRATION-CI-ORDER'; Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-scanner-exec-deleted'; Code = 'INTEGRATION-CI-SCANNER'; Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^.*pwsh.*check-licenses\.ps1.*$' },
+    @{ Id = 'policy-doc-hidden'; Code = 'INTEGRATION-POLICY-DOC'; Target = 'Policy'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' },
+    @{ Id = 'release-doc-hidden'; Code = 'INTEGRATION-RELEASE-DOC'; Target = 'Release'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' }
+  )
+  foreach ($wm in $wiringMutations) {
+    $texts = @{ Selftest = $selftestText; Workflow = $workflowText; Policy = $policyText; Release = $releaseText }
+    $original = $texts[$wm.Target]
+    # 单点变异必须只动一处。`[regex]::Replace(input, pattern, evaluator, 1)` 没有 count 静态重载——
+    # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
+    # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
+    # append 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
+    $wmRegex = if ($wm.Kind -eq 'append') { $null } else { [regex]::new($wm.Pattern) }
+    $mutated = switch ($wm.Kind) {
+      'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
+      'delete' { $wmRegex.Replace($original, '', 1) }
+      'hide' { $wmRegex.Replace($original, { param($m) '<!-- ' + $m.Value + ' -->' }, 1) }
+      'append' { $original + $wm.Text }
+      default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
+    }
+    if ($wm.Kind -ne 'append' -and $mutated -ceq $original) {
+      Assert-Integration $false "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' changed nothing - its pattern no longer matches, so this assertion class is unproven"
+      continue
+    }
+    $texts[$wm.Target] = $mutated
+    $mutantFailures = @(Get-IntegrationWiringFailures -SelftestText $texts.Selftest -WorkflowText $texts.Workflow -PolicyText $texts.Policy -ReleaseText $texts.Release)
+    $hit = @($mutantFailures | Where-Object { $_.StartsWith("[$($wm.Code)]", [System.StringComparison]::Ordinal) }).Count
+    Assert-Integration ($hit -ge 1) "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' did not raise $($wm.Code) - that assertion is satisfiable by disabled or dead text. Raised: $($mutantFailures -join ' | ')"
+  }
+
+  if ($integrationFailures.Count -gt 0) {
+    Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
+    exit 1
+  }
+
+  # -SkipMutations 必须真的传给四个子套件。此前它被接受却从不转发：调用方以为省掉了 mutation 成本，
+  # 实际全跑，于是「开关有效」和「开关被忽略」在输出上无从分辨——沉默地不做事比报错更难发现。
+  $childCommon = @('-ScannerPath', $ScannerPath)
+  if ($SkipMutations) { $childCommon += '-SkipMutations' }
+  foreach ($childSuite in @('graph', 'policy', 'diagnostics', 'gav-bounds')) {
+    $childOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite $childSuite @childCommon 2>&1 | Out-String)
+    $childExit = $LASTEXITCODE
+    Assert-Integration (
+      $childExit -eq 0 -and $childOutput -match "license-scanner-check\($([regex]::Escape($childSuite))\): PASS"
+    ) "[INTEGRATION-CHILD] $childSuite failed or omitted its PASS marker (exit=$childExit): $childOutput"
+  }
+
+  if (-not $SkipRealScan) {
+    $scannerOutput = (& pwsh -NoProfile -File $ScannerPath -Strict 2>&1 | Out-String)
+    $scannerExit = $LASTEXITCODE
+    Assert-Integration ($scannerExit -eq 0) "[INTEGRATION-REAL-SCAN] strict repository scan failed (exit=$scannerExit): $scannerOutput"
+    Assert-Integration ($scannerOutput -match 'org\.testng:testng:7\.0\.0') '[INTEGRATION-TESTNG] real scan omitted the core TestNG coordinate'
+  }
+
+  if ($integrationFailures.Count -gt 0) {
+    Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
+    exit 1
+  }
+  # PASS 文案只许陈述**本次真的跑过的证据**。此前 seeded 用 -SkipRealScan 跑，输出却照样宣称
+  # 「真实仓 Strict 扫描通过」——一句没有对应执行的成功陈述，比没有输出更糟：它让读者停止追问。
+  $integrationEvidence = @('graph/policy/diagnostics/gav-bounds 子套件')
+  $integrationEvidence += if ($SkipMutations) { 'mutation 已按 -SkipMutations 跳过' } else { '含各子套件 mutation' }
+  $integrationEvidence += if ($SkipRealScan) { '真实仓 Strict 扫描已按 -SkipRealScan 跳过（未执行）' } else { '真实仓 Strict 扫描 + TestNG 坐标' }
+  Write-Host "license-scanner-check(integration): PASS（$($integrationEvidence -join '；')）"
+  exit 0
+}
 
 if ($Suite -eq 'gav-bounds') {
   function Assert-GavBounds {
@@ -1063,6 +1239,69 @@ if ($Suite -eq 'policy') {
           $script:bad.Count -eq $mainCase.Bad -and $script:warn.Count -eq $mainCase.Warn
         ) "[POLICY-MAIN-$($mainCase.Id.ToUpperInvariant())] production caller outcome was bad=$($script:bad.Count), warn=$($script:warn.Count)"
       }
+
+      # The library checks above prove classification. These two child processes additionally pin the
+      # public CLI boundary: a populated bad bucket must name the coordinate and return nonzero.
+      $processRoot = Join-Path $policyRoot 'process-root'
+      $processScripts = Join-Path $processRoot 'scripts'
+      $processConfig = Join-Path $processRoot 'configs/licenses'
+      New-Item -ItemType Directory -Force -Path $processScripts, $processConfig | Out-Null
+      [System.IO.File]::WriteAllText((Join-Path $processConfig 'gradle-exceptions.json'), '[]', [System.Text.UTF8Encoding]::new($false))
+
+      $processEplCoordinate = 'fixture.policy:process-epl:1.0'
+      [void](Write-PolicyPom -Coordinate $processEplCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>process-epl</artifactId><version>1.0</version><licenses><license><name>EPL-1.0</name></license></licenses></project>')
+      $processScannerPath = Join-Path $processScripts 'check-licenses.ps1'
+      $processSource = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ScannerPath))
+      # 这个夹具把 check-licenses.ps1 复制到临时 scripts 目录再以子进程跑，于是它 dot-source 的每个兄弟脚本
+      # 都必须一起搬过去——`$PSScriptRoot` 指向的是临时目录，不是 scripts/。此处**从被测脚本源码里推导**依赖清单，
+      # 而不是写死一份：写死的那份在 2026-08-22 已经真的漏过一次（check-licenses.ps1 新增 `. _unicode.ps1` 后
+      # 夹具仍只拷 _config.ps1，CI 上以缺文件炸掉）。推导 + 缺失即 throw，让「加了依赖忘了改夹具」不可表达。
+      $processDeps = @([regex]::Matches($processSource, "(?m)^\.\s+\(Join-Path\s+\`$PSScriptRoot\s+'(?<dep>_[A-Za-z0-9_-]+\.ps1)'\)") | ForEach-Object { $_.Groups['dep'].Value } | Select-Object -Unique)
+      if ($processDeps.Count -lt 1) { throw 'process fixture could not derive any dot-sourced dependency from the scanner source' }
+      foreach ($processDep in $processDeps) {
+        $processDepSource = Join-Path $PSScriptRoot $processDep
+        if (-not (Test-Path -LiteralPath $processDepSource -PathType Leaf)) { throw "process fixture dependency '$processDep' is dot-sourced by the scanner but missing from scripts/" }
+        Copy-Item -LiteralPath $processDepSource -Destination (Join-Path $processScripts $processDep) -Force
+      }
+      $processAnchor = 'Write-Host ""'
+      if (([regex]::Matches($processSource, [regex]::Escape($processAnchor))).Count -ne 1) {
+        throw 'process fixture could not locate the unique final CLI boundary'
+      }
+      $processHook = @'
+if ($env:LICENSE_POLICY_PROCESS_CASE) {
+  $probeResolved = @([PSCustomObject]@{ Coordinate = $env:LICENSE_POLICY_PROCESS_CASE; Configurations = @(':core:testRuntimeClasspath') })
+  $probePolicy = Get-GradleLicensePolicyResult -Resolved $probeResolved -GradleUserHome $env:GRADLE_USER_HOME -ExceptionPath (Join-Path $RepoRoot 'configs/licenses/gradle-exceptions.json')
+  Write-GradlePolicyDiagnostics -Policy $probePolicy -Resolved $probeResolved
+}
+'@
+      [System.IO.File]::WriteAllText(
+        $processScannerPath,
+        $processSource.Replace($processAnchor, "$processHook`n$processAnchor"),
+        [System.Text.UTF8Encoding]::new($false)
+      )
+
+      $hadProcessCase = Test-Path Env:LICENSE_POLICY_PROCESS_CASE
+      $savedProcessCase = $env:LICENSE_POLICY_PROCESS_CASE
+      try {
+        $processCases = @(
+          @{ Id = 'forbidden'; Coordinate = $processEplCoordinate; Category = '[GRADLE-FORBIDDEN]'; Strict = $true },
+          @{ Id = 'unknown-metadata'; Coordinate = 'fixture.policy:process-missing:1.0'; Category = '[GRADLE-METADATA]'; Strict = $false }
+        )
+        foreach ($processCase in $processCases) {
+          $env:LICENSE_POLICY_PROCESS_CASE = $processCase.Coordinate
+          $processArgs = @('-NoProfile', '-File', $processScannerPath)
+          if ($processCase.Strict) { $processArgs += '-Strict' }
+          $processOutput = (& pwsh @processArgs 2>&1 | Out-String)
+          $processExit = $LASTEXITCODE
+          Assert-Policy (
+            $processExit -ne 0 -and
+            $processOutput.Contains($processCase.Coordinate, [System.StringComparison]::Ordinal) -and
+            $processOutput.Contains($processCase.Category, [System.StringComparison]::Ordinal)
+          ) "[POLICY-PROCESS-$($processCase.Id.ToUpperInvariant())] CLI did not fail nonzero with the exact coordinate/category (exit=$processExit; output=$processOutput)"
+        }
+      } finally {
+        if ($hadProcessCase) { $env:LICENSE_POLICY_PROCESS_CASE = $savedProcessCase } else { Remove-Item Env:LICENSE_POLICY_PROCESS_CASE -ErrorAction SilentlyContinue }
+      }
     } finally {
       $env:GRADLE_USER_HOME = $savedPolicyGradleHome
       $script:Distributes = $false
@@ -1260,6 +1499,12 @@ if ($Suite -eq 'policy') {
         From = '      Add-GradleMetadataNonCompliance "$($finding.Coordinate) => $($finding.Detail) [GRADLE-UNKNOWN]" # structured unknown classification'
         To = '      $null = $finding # structured unknown classification'
         Expected = '[POLICY-MAIN-UNKNOWN]'
+      },
+      @{
+        Name = 'main-exit'
+        From = 'if ($bad.Count -gt 0)                       { Write-Host "`n结论：FAIL（发现许可或依赖扫描不合规）" -ForegroundColor Red; exit 1 }'
+        To = 'if ($bad.Count -gt 0)                       { Write-Host "`n结论：FAIL（发现许可或依赖扫描不合规）" -ForegroundColor Red; exit 0 }'
+        Expected = '[POLICY-PROCESS-FORBIDDEN]'
       }
     )
 
