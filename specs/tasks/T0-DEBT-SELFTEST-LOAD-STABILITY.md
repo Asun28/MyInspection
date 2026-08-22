@@ -1,7 +1,7 @@
 ---
 id: T0-DEBT-SELFTEST-LOAD-STABILITY
 title: 消除 8.2e 高负载下固定五秒 rendezvous 假红
-depends_on: [T0-DEBT-SELFTEST-CRITICAL-PATH]
+depends_on: [T0-DEBT-SELFTEST-MUTATION-BUDGET]
 status: todo
 branch: T0-DEBT-SELFTEST-LOAD-STABILITY
 worktree: C:\wt\T0-DEBT-SELFTEST-LOAD-STABILITY
@@ -20,7 +20,7 @@ dod_exit: 0
 dod_assert: 8.2e rendezvous 使用具名有界预算并输出 [SELFTEST-8.2E-RENDEZVOUS]；第二长分片延迟超过旧 5 秒仍通过并保留并发证明；注入短预算的真实 timeout 以专属诊断非零；删除等待上限、ready 条件或并发重叠断言均被变异击杀。
 review_gate: codex {verdict:pass}
 hygiene: hermetic 夹具提供 load-delay、bounded-timeout 与正常控制组；断言实际 elapsed/ready ticks 和退出语义，不以 Start-Sleep 后“没报错”作假证明
-doc_sync: 三张 TD9 残债卡全部 merged 且 post-merge core 重放稳定后，才可把 TD9 置 paid
+doc_sync: 五张 TD9 卡全部 merged 且 post-merge core 重放稳定后，才可把 TD9 置 paid
 ---
 
 # T0-DEBT-SELFTEST-LOAD-STABILITY
@@ -38,4 +38,4 @@ run `31941736470` 在同一 SHA 上前两次仅 Ubuntu core 的 8.2e 假红、�
 
 ## 资源冲突
 
-本卡与 TD9 另外两卡及 TD134 实现卡共享 `scripts/selftest.ps1`；没有业务硬依赖，必须在最新已合并基线上串行执行并重放验收。
+本卡与尚未合并的 mutation-budget 前置卡共享 `scripts/selftest.ps1`；必须在其合并后的最新基线上串行执行并重放验收。

@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
@@ -47,40 +47,131 @@ if ($Suite -eq 'integration') {
   $policyText = [System.IO.File]::ReadAllText($policyPath)
   $releaseText = [System.IO.File]::ReadAllText($releasePath)
 
-  # Break caught: scanner fixtures drifting back into the generic seeded harness recreates two
-  # authorities and makes unrelated product PRs pay the scanner's mutation cost.
-  $integrationCalls = [regex]::Matches($selftestText, 'license-scanner-check\.ps1[^\r\n]*-Suite\s+integration').Count
-  Assert-Integration ($integrationCalls -eq 1) "[INTEGRATION-SELFTEST-WIRING] expected one integration-suite call, found $integrationCalls"
-  $cacheIndependentCalls = [regex]::Matches($selftestText, 'license-scanner-check\.ps1[^\r\n]*-Suite\s+integration[^\r\n]*-SkipRealScan').Count
-  Assert-Integration ($cacheIndependentCalls -eq 1) "[INTEGRATION-SELFTEST-COLD] expected the seeded integration call to skip the real repository scan, found $cacheIndependentCalls"
-  Assert-Integration ($selftestText -notmatch '\$scannerFixtureRoot') '[INTEGRATION-SELFTEST-INLINE] legacy inline scanner fixture remains in selftest'
+  # Break caught (R3 round 2): these assertions used to read raw file text, so a commented-out call,
+  # a commented-out YAML step, or a leftover `$f = 'scripts/check-licenses.ps1'` string satisfied them
+  # while the actual wiring was gone. An assertion that a *disabled* gate satisfies is not a gate.
+  # So: PowerShell is judged by its AST (comments are not in the AST), YAML/Markdown by visible,
+  # uniquely anchored active lines. Get-IntegrationWiringFailures is pure over its inputs precisely
+  # so the mutation block below can feed it commented/deleted variants and demand the exact codes.
+  function Get-IntegrationWiringFailures {
+    param(
+      [Parameter(Mandatory)][AllowEmptyString()][string]$SelftestText,
+      [Parameter(Mandatory)][AllowEmptyString()][string]$WorkflowText,
+      [Parameter(Mandatory)][AllowEmptyString()][string]$PolicyText,
+      [Parameter(Mandatory)][AllowEmptyString()][string]$ReleaseText
+    )
+    $found = [System.Collections.Generic.List[string]]::new()
 
-  # Break caught: a fresh runner cannot satisfy the scanner's mandatory --offline graph calls until
-  # Java/Android/Gradle setup and the one online build have completed.
-  $orderedSteps = @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)', 'Gradle online build (warms cache for verify.ps1''s --offline gate)', 'License gate', 'E2E verify gate')
-  $previousIndex = -1
-  foreach ($step in $orderedSteps) {
-    $stepIndex = $workflowText.IndexOf("- name: $step", [System.StringComparison]::Ordinal)
-    Assert-Integration ($stepIndex -gt $previousIndex) "[INTEGRATION-CI-ORDER] missing or out-of-order step: $step"
-    if ($stepIndex -ge 0) { $previousIndex = $stepIndex }
-  }
-  $licenseStepStart = $workflowText.IndexOf('- name: License gate', [System.StringComparison]::Ordinal)
-  $verifyStepStart = $workflowText.IndexOf('- name: E2E verify gate', [System.StringComparison]::Ordinal)
-  if ($licenseStepStart -ge 0 -and $verifyStepStart -gt $licenseStepStart) {
-    $licenseStep = $workflowText.Substring($licenseStepStart, $verifyStepStart - $licenseStepStart)
-    Assert-Integration ($licenseStep -match 'scripts/check-licenses\.ps1') '[INTEGRATION-CI-SCANNER] License gate no longer invokes check-licenses.ps1'
+    # --- selftest.ps1: judged by AST, so commented-out calls simply do not exist ---
+    $selftestAst = [System.Management.Automation.Language.Parser]::ParseInput($SelftestText, [ref]$null, [ref]$null)
+    $scannerCommands = @($selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.CommandAst]
+    }, $true) | Where-Object { $_.Extent.Text -match 'license-scanner-check\.ps1' })
+    $integrationCalls = @($scannerCommands | Where-Object { $_.Extent.Text -match '-Suite\s+integration' }).Count
+    if ($integrationCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-WIRING] expected exactly one active integration-suite invocation in selftest.ps1, found $integrationCalls") }
+    $coldCalls = @($scannerCommands | Where-Object { $_.Extent.Text -match '-Suite\s+integration' -and $_.Extent.Text -match '-SkipRealScan' }).Count
+    if ($coldCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-COLD] expected the seeded integration invocation to pass -SkipRealScan, found $coldCalls") }
+    $inlineFixtureRefs = @($selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.VariableExpressionAst]
+    }, $true) | Where-Object { $_.VariablePath.UserPath -eq 'scannerFixtureRoot' }).Count
+    if ($inlineFixtureRefs -ne 0) { $found.Add("[INTEGRATION-SELFTEST-INLINE] legacy inline scanner fixture still live in selftest.ps1 ($inlineFixtureRefs reference(s))") }
+
+    # --- ci.yml: a step counts only as an active sequence item; a commented '- name:' is not one ---
+    $workflowLines = @($WorkflowText -split '\r?\n')
+    $orderedSteps = @(
+      'Setup Java (Temurin 17)',
+      'Setup Android SDK',
+      'Setup Gradle (dependency cache across CI runs)',
+      "Gradle online build (warms cache for verify.ps1's --offline gate)",
+      'License gate',
+      'E2E verify gate'
+    )
+    $stepLine = @{}
+    foreach ($step in $orderedSteps) {
+      $pattern = '^\s*-\s+name:\s+' + [regex]::Escape($step) + '\s*$'
+      $hits = @(0..($workflowLines.Count - 1) | Where-Object { $workflowLines[$_] -match $pattern })
+      if ($hits.Count -ne 1) { $found.Add("[INTEGRATION-CI-ORDER] expected exactly one active '- name: $step' step in ci.yml, found $($hits.Count)"); continue }
+      $stepLine[$step] = $hits[0]
+    }
+    $previous = -1
+    foreach ($step in $orderedSteps) {
+      if (-not $stepLine.ContainsKey($step)) { continue }
+      if ($stepLine[$step] -le $previous) { $found.Add("[INTEGRATION-CI-ORDER] step '$step' is out of order in ci.yml") }
+      $previous = $stepLine[$step]
+    }
+    # The License gate must actually *execute* the scanner. Assigning its path to a variable is not
+    # execution: the previous assertion stayed green after the `pwsh -File $f` line had been deleted.
+    if ($stepLine.ContainsKey('License gate') -and $stepLine.ContainsKey('E2E verify gate')) {
+      $gateBody = @($workflowLines[$stepLine['License gate']..($stepLine['E2E verify gate'] - 1)])
+      $executes = @($gateBody | Where-Object { $_ -notmatch '^\s*#' -and $_ -match 'pwsh[^\r\n]*check-licenses\.ps1' }).Count
+      if ($executes -lt 1) { $found.Add('[INTEGRATION-CI-SCANNER] License gate has no active line that executes scripts/check-licenses.ps1') }
+    }
+
+    # --- docs: the command must sit on a visible line, not inside an HTML comment ---
+    foreach ($doc in @(
+      @{ Code = 'INTEGRATION-POLICY-DOC'; Name = 'docs/LICENSE-POLICY.md'; Text = $PolicyText },
+      @{ Code = 'INTEGRATION-RELEASE-DOC'; Name = 'docs/RELEASE-CHECKLIST.md'; Text = $ReleaseText }
+    )) {
+      $visible = [regex]::Replace($doc.Text, '(?s)<!--.*?-->', '')
+      $hits = @($visible -split '\r?\n' | Where-Object { $_ -match 'license-scanner-check\.ps1\s+-Suite\s+integration' }).Count
+      if ($hits -lt 1) { $found.Add("[$($doc.Code)] $($doc.Name) has no visible line documenting the integration audit command") }
+    }
+
+    return $found.ToArray()
   }
 
-  Assert-Integration ($policyText -match 'license-scanner-check\.ps1 -Suite integration') '[INTEGRATION-POLICY-DOC] policy omits the integration audit command'
-  Assert-Integration ($releaseText -match 'license-scanner-check\.ps1 -Suite integration') '[INTEGRATION-RELEASE-DOC] release checklist omits the integration audit command'
+  foreach ($wiringFailure in (Get-IntegrationWiringFailures -SelftestText $selftestText -WorkflowText $workflowText -PolicyText $policyText -ReleaseText $releaseText)) {
+    Assert-Integration $false $wiringFailure
+  }
+
+  # Every assertion class above gets a comment/delete mutation proving it can actually go red.
+  # The previous versions looked just like these and were all satisfiable by disabled text.
+  $wiringMutations = @(
+    @{ Id = 'selftest-call-commented'; Code = 'INTEGRATION-SELFTEST-WIRING'; Target = 'Selftest'; Kind = 'comment'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-deleted'; Code = 'INTEGRATION-SELFTEST-WIRING'; Target = 'Selftest'; Kind = 'delete'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-inline-restored'; Code = 'INTEGRATION-SELFTEST-INLINE'; Target = 'Selftest'; Kind = 'append'; Text = "`n`$scannerFixtureRoot = 'restored'`n" },
+    @{ Id = 'ci-step-commented'; Code = 'INTEGRATION-CI-ORDER'; Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-step-deleted'; Code = 'INTEGRATION-CI-ORDER'; Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-scanner-exec-deleted'; Code = 'INTEGRATION-CI-SCANNER'; Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^.*pwsh.*check-licenses\.ps1.*$' },
+    @{ Id = 'policy-doc-hidden'; Code = 'INTEGRATION-POLICY-DOC'; Target = 'Policy'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' },
+    @{ Id = 'release-doc-hidden'; Code = 'INTEGRATION-RELEASE-DOC'; Target = 'Release'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' }
+  )
+  foreach ($wm in $wiringMutations) {
+    $texts = @{ Selftest = $selftestText; Workflow = $workflowText; Policy = $policyText; Release = $releaseText }
+    $original = $texts[$wm.Target]
+    # 单点变异必须只动一处。`[regex]::Replace(input, pattern, evaluator, 1)` 没有 count 静态重载——
+    # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
+    # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
+    # append 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
+    $wmRegex = if ($wm.Kind -eq 'append') { $null } else { [regex]::new($wm.Pattern) }
+    $mutated = switch ($wm.Kind) {
+      'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
+      'delete' { $wmRegex.Replace($original, '', 1) }
+      'hide' { $wmRegex.Replace($original, { param($m) '<!-- ' + $m.Value + ' -->' }, 1) }
+      'append' { $original + $wm.Text }
+      default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
+    }
+    if ($wm.Kind -ne 'append' -and $mutated -ceq $original) {
+      Assert-Integration $false "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' changed nothing - its pattern no longer matches, so this assertion class is unproven"
+      continue
+    }
+    $texts[$wm.Target] = $mutated
+    $mutantFailures = @(Get-IntegrationWiringFailures -SelftestText $texts.Selftest -WorkflowText $texts.Workflow -PolicyText $texts.Policy -ReleaseText $texts.Release)
+    $hit = @($mutantFailures | Where-Object { $_.StartsWith("[$($wm.Code)]", [System.StringComparison]::Ordinal) }).Count
+    Assert-Integration ($hit -ge 1) "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' did not raise $($wm.Code) - that assertion is satisfiable by disabled or dead text. Raised: $($mutantFailures -join ' | ')"
+  }
 
   if ($integrationFailures.Count -gt 0) {
     Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
     exit 1
   }
 
+  # -SkipMutations 必须真的传给四个子套件。此前它被接受却从不转发：调用方以为省掉了 mutation 成本，
+  # 实际全跑，于是「开关有效」和「开关被忽略」在输出上无从分辨——沉默地不做事比报错更难发现。
+  $childCommon = @('-ScannerPath', $ScannerPath)
+  if ($SkipMutations) { $childCommon += '-SkipMutations' }
   foreach ($childSuite in @('graph', 'policy', 'diagnostics', 'gav-bounds')) {
-    $childOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite $childSuite -ScannerPath $ScannerPath 2>&1 | Out-String)
+    $childOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite $childSuite @childCommon 2>&1 | Out-String)
     $childExit = $LASTEXITCODE
     Assert-Integration (
       $childExit -eq 0 -and $childOutput -match "license-scanner-check\($([regex]::Escape($childSuite))\): PASS"
@@ -98,7 +189,12 @@ if ($Suite -eq 'integration') {
     Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
     exit 1
   }
-  Write-Host 'license-scanner-check(integration): PASS'
+  # PASS 文案只许陈述**本次真的跑过的证据**。此前 seeded 用 -SkipRealScan 跑，输出却照样宣称
+  # 「真实仓 Strict 扫描通过」——一句没有对应执行的成功陈述，比没有输出更糟：它让读者停止追问。
+  $integrationEvidence = @('graph/policy/diagnostics/gav-bounds 子套件')
+  $integrationEvidence += if ($SkipMutations) { 'mutation 已按 -SkipMutations 跳过' } else { '含各子套件 mutation' }
+  $integrationEvidence += if ($SkipRealScan) { '真实仓 Strict 扫描已按 -SkipRealScan 跳过（未执行）' } else { '真实仓 Strict 扫描 + TestNG 坐标' }
+  Write-Host "license-scanner-check(integration): PASS（$($integrationEvidence -join '；')）"
   exit 0
 }
 
@@ -350,7 +446,7 @@ if ($Suite -eq 'diagnostics') {
   }
   $ordinaryRecordText = Get-GradleDiagnosticTail -Output @("https://user`nordinary@example.invalid/repository") -MaxLines 3 -MaxChars 400
   Assert-Diagnostics (
-    $ordinaryRecordText -ceq 'https://user | ordinary@example.invalid/repository'
+    $ordinaryRecordText -ceq 'https://user ordinary@example.invalid/repository'
   ) "[DIAG-RECORD-BOUNDARY] ordinary next line was consumed as URI userinfo: $ordinaryRecordText"
 
   $windowsPathCases = @(
@@ -412,6 +508,54 @@ if ($Suite -eq 'diagnostics') {
     $controlText -ceq 'prefix- -suffix' -and -not [regex]::IsMatch($controlText, '[\p{Cc}\p{Cf}]')
   ) '[DIAG-CONTROL] control/format character survived diagnostics'
 
+  $supplementaryFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
+  $supplementaryFormatText = Get-GradleDiagnosticTail -Output @("prefix-$supplementaryFormat-suffix") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $supplementaryFormatText -ceq 'prefix- -suffix'
+  ) '[DIAG-SCALAR-SUPPLEMENTARY] supplementary format scalar survived diagnostics'
+
+  $ordinaryEmoji = [System.Text.Rune]::new(0x1F600).ToString()
+  $ordinaryEmojiText = Get-GradleDiagnosticTail -Output @("prefix-$ordinaryEmoji-suffix") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $ordinaryEmojiText -ceq "prefix-$ordinaryEmoji-suffix"
+  ) '[DIAG-SCALAR-PRESERVE] ordinary supplementary scalar changed in diagnostics'
+
+  foreach ($malformedCase in @(
+    @{ Id = 'high'; Value = "prefix-$([char]0xD800)-suffix" },
+    @{ Id = 'low'; Value = "prefix-$([char]0xDC00)-suffix" }
+  )) {
+    $malformedRejected = $false
+    try {
+      $null = Get-GradleDiagnosticTail -Output @($malformedCase.Value) -MaxLines 2 -MaxChars 400
+    } catch {
+      $malformedRejected = $_.Exception.Message -match '\[UNICODE-SCALAR-MALFORMED\]'
+    }
+    Assert-Diagnostics $malformedRejected "[DIAG-SCALAR-MALFORMED-$($malformedCase.Id.ToUpperInvariant())] malformed UTF-16 was accepted by diagnostics"
+  }
+
+  if (-not $SkipMutations) {
+    $scalarTargetCount = 0
+    $supplementaryTargetCount = 0
+    $scalarTargetFailure = $null
+    for ($codePoint = 0; $codePoint -le 0x10FFFF; $codePoint++) {
+      if ($codePoint -ge 0xD800 -and $codePoint -le 0xDFFF) { continue }
+      $rune = [System.Text.Rune]::new($codePoint)
+      $category = [System.Text.Rune]::GetUnicodeCategory($rune)
+      if ($category -ne [System.Globalization.UnicodeCategory]::Control -and
+          $category -ne [System.Globalization.UnicodeCategory]::Format) { continue }
+      $scalarTargetCount++
+      if ($codePoint -gt 0xFFFF) { $supplementaryTargetCount++ }
+      $actual = Get-GradleDiagnosticTail -Output @("L$($rune.ToString())R") -MaxLines 2 -MaxChars 400
+      if ($actual -cne 'L R') {
+        $scalarTargetFailure = ('U+{0:X}' -f $codePoint)
+        break
+      }
+    }
+    Assert-Diagnostics (
+      $scalarTargetCount -gt 0 -and $supplementaryTargetCount -gt 0 -and $null -eq $scalarTargetFailure
+    ) "[DIAG-SCALAR-EXHAUSTIVE] Cc/Cf scalar did not map to one space: $scalarTargetFailure"
+  }
+
   $ansiText = Get-GradleDiagnosticTail -Output @("prefix-`e[31mred`e[0m-suffix") -MaxLines 2 -MaxChars 400
   Assert-Diagnostics (
     $ansiText -ceq 'prefix-red-suffix' -and $ansiText -notmatch '\[31m|\[0m'
@@ -419,7 +563,7 @@ if ($Suite -eq 'diagnostics') {
 
   $newlineText = Get-GradleDiagnosticTail -Output @("first`r::error forged`nthird") -MaxLines 3 -MaxChars 400
   Assert-Diagnostics (
-    $newlineText -ceq 'first | ::error forged | third' -and $newlineText -notmatch "[\r\n]"
+    $newlineText -ceq 'first ::error forged third' -and $newlineText -notmatch "[\r\n]"
   ) '[DIAG-NEWLINE] newline injection remained physically multi-line'
 
   $lineBoundText = Get-GradleDiagnosticTail -Output @('line-1', 'line-2', 'line-3', 'line-4', 'line-5', 'line-6') -MaxLines 3 -MaxChars 400
@@ -584,10 +728,11 @@ if ($Suite -eq 'diagnostics') {
 
   $script:bad = @()
   $multilineCoordinate = 'fixture.multiline:artifact:1.0'
-  Add-GradleNonCompliance "$multilineCoordinate => first`nsecond [GRADLE-FAKE] tail [GRADLE-POM]"
+  Add-GradleNonCompliance "$multilineCoordinate => first`n$('x' * 1200) tail [GRADLE-FAKE] [GRADLE-POM]"
   $multilineCoordinateEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
   Assert-Diagnostics (
-    $multilineCoordinateEntry -ceq "[GRADLE] $multilineCoordinate => [TRUNCATED] second [REDACTED-CATEGORY] tail [GRADLE-POM]" -and
+    $multilineCoordinateEntry.StartsWith("[GRADLE] $multilineCoordinate => [TRUNCATED] ", [System.StringComparison]::Ordinal) -and
+    $multilineCoordinateEntry.EndsWith(' tail [REDACTED-CATEGORY] [GRADLE-POM]', [System.StringComparison]::Ordinal) -and
     $multilineCoordinateEntry -notmatch '[\r\n]'
   ) "[DIAG-GAV-NEWLINE] multiline detail lost exact GAV/category preservation: $multilineCoordinateEntry"
 
@@ -637,15 +782,15 @@ if ($Suite -eq 'diagnostics') {
       },
       @{
         Name = 'ansi-redaction'
-        From = '    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '''') # diagnostic ANSI redaction'
-        To = '    $line = "$_" # diagnostic ANSI redaction'
+        From = '    $line = [regex]::Replace($raw, "`e\[[0-?]*[ -/]*[@-~]", '''') # diagnostic ANSI redaction'
+        To = '    $line = $raw # diagnostic ANSI redaction'
         Expected = '[DIAG-ANSI]'
       },
       @{
-        Name = 'control-normalization'
-        From = '    $line = [regex]::Replace($line, ''[\p{Cc}\p{Cf}]'', '' '') # diagnostic control/format normalization'
-        To = '    $line = $line # diagnostic control/format normalization'
-        Expected = '[DIAG-CONTROL]'
+        Name = 'scalar-control-format-normalization'
+        From = '    $line = ConvertTo-ScaffoldControlFormatSpaces $line # diagnostic scalar control/format normalization'
+        To = '    $line = $line # diagnostic scalar control/format normalization'
+        Expected = '[DIAG-SCALAR-SUPPLEMENTARY]'
       },
       @{
         Name = 'line-bound'
@@ -862,16 +1007,31 @@ if ($Suite -eq 'policy') {
       ) "[POLICY-POM-SINGLETON-$($duplicatePom.Id.ToUpperInvariant())] repeated singleton element was accepted"
     }
 
+    $supplementaryFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
+    $xmlEntityPrefix = ([string][char]38) + '#x'
+    $malformedHighEntity = $xmlEntityPrefix + 'D800;'
+    $malformedLowEntity = $xmlEntityPrefix + 'DC00;'
     $parentMetadataCases = @(
-      @{ Id = 'missing-group'; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
-      @{ Id = 'missing-version'; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
-      @{ Id = 'control-artifact'; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' }
+      @{ Id = 'missing-group'; Error = $null; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'missing-version'; Error = $null; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'control-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'supplementary-format-artifact'; Error = '[LICENSE-METADATA-SCALAR]'; Coordinate = 'fixture.policy:parent-supplementary-format-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${supplementaryFormat}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-supplementary-format-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
+      @{ Id = 'malformed-high-artifact'; Error = $null; EntityHex = '26-23-78-44-38-30-30-3B'; Coordinate = 'fixture.policy:parent-malformed-high-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${malformedHighEntity}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-high-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
+      @{ Id = 'malformed-low-artifact'; Error = $null; EntityHex = '26-23-78-44-43-30-30-3B'; Coordinate = 'fixture.policy:parent-malformed-low-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${malformedLowEntity}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-low-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" }
     )
     foreach ($parentMetadata in $parentMetadataCases) {
+      if ($parentMetadata.ContainsKey('EntityHex')) {
+        $pomFixtureHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($parentMetadata.Xml))
+        Assert-Policy (
+          [regex]::Matches($pomFixtureHex, [regex]::Escape($parentMetadata.EntityHex)).Count -eq 1
+        ) "[POLICY-POM-MALFORMED-FIXTURE-BYTES-$($parentMetadata.Id.ToUpperInvariant())] generated XML entity bytes drifted"
+      }
       [void](Write-PolicyPom -Coordinate $parentMetadata.Coordinate -Xml $parentMetadata.Xml)
       $parentMetadataResult = Invoke-PolicyFixture -Coordinates @($parentMetadata.Coordinate)
+      $parentPomErrors = @($parentMetadataResult.Violations | Where-Object Code -CEQ 'GRADLE-POM')
       Assert-Policy (
-        @($parentMetadataResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+        $parentPomErrors.Count -eq 1 -and
+        ([string]::IsNullOrEmpty([string]$parentMetadata.Error) -or $parentPomErrors[0].Detail -match [regex]::Escape($parentMetadata.Error))
       ) "[POLICY-POM-PARENT-$($parentMetadata.Id.ToUpperInvariant())] malformed parent GAV was accepted"
     }
 
@@ -956,6 +1116,7 @@ if ($Suite -eq 'policy') {
       @{ Id = 'duplicate-field'; Error = '字段重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'unsupported-field'; Error = '不支持字段'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19","note":"no"}]' },
       @{ Id = 'control'; Error = '控制/格式'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy\u202etest","registered_on":"2026-08-19"}]' },
+      @{ Id = 'supplementary-format'; Error = '[LICENSE-METADATA-SCALAR]'; Json = "[{`"coordinate`":`"fixture.policy:a:1.0`",`"license`":`"Apache-2.0`",`"evidence_url`":`"https://example.invalid/a`",`"registered_by`":`"policy${supplementaryFormat}test`",`"registered_on`":`"2026-08-19`"}]" },
       @{ Id = 'wildcard'; Error = '具体且安全'; Json = '[{"coordinate":"fixture.policy:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'missing-coordinate'; Error = '缺少必填字段 coordinate'; Json = '[{"license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'missing-license'; Error = '缺少必填字段 license'; Json = '[{"coordinate":"fixture.policy:a:1.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
@@ -971,6 +1132,42 @@ if ($Suite -eq 'policy') {
       @{ Id = 'duplicate-fallback'; Error = '坐标重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'duplicate-declared'; Error = 'declared_license 重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' }
     )
+    $jsonEscapePrefix = ([string][char]92) + 'u'
+    foreach ($surrogateCase in @(
+      @{ Id = 'high'; Escape = $jsonEscapePrefix + 'D800'; EscapeHex = '5C-75-44-38-30-30' },
+      @{ Id = 'low'; Escape = $jsonEscapePrefix + 'DC00'; EscapeHex = '5C-75-44-43-30-30' }
+    )) {
+      foreach ($field in @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
+        $values = @{
+          coordinate = 'fixture.policy:a:1.0'
+          declared_license = 'Mystery'
+          license = 'Apache-2.0'
+          evidence_url = 'https://example.invalid/a'
+          registered_by = 'policy-test'
+          registered_on = '2026-08-19'
+        }
+        $values[$field] = "$($values[$field])$($surrogateCase.Escape)"
+        $malformedJson = '[{"coordinate":"' + $values.coordinate + '","declared_license":"' + $values.declared_license + '","license":"' + $values.license + '","evidence_url":"' + $values.evidence_url + '","registered_by":"' + $values.registered_by + '","registered_on":"' + $values.registered_on + '"}]'
+        $malformedJsonHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($malformedJson))
+        Assert-Policy (
+          [regex]::Matches($malformedJsonHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -eq 1
+        ) "[POLICY-OVERRIDE-MALFORMED-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-$($field.Replace('_', '-').ToUpperInvariant())] generated JSON escape bytes drifted"
+        $invalidExceptions += @{
+          Id = "malformed-$($surrogateCase.Id)-$($field.Replace('_', '-'))"
+          Error = '[LICENSE-METADATA-SCALAR]'
+          Json = $malformedJson
+        }
+      }
+      $invalidExceptions += @{
+        Id = "malformed-$($surrogateCase.Id)-property-name"
+        Error = '[LICENSE-METADATA-SCALAR]'
+        Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by' + $surrogateCase.Escape + '":"policy-test","registered_on":"2026-08-19"}]'
+      }
+      $propertyFixtureHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($invalidExceptions[-1].Json))
+      Assert-Policy (
+        [regex]::Matches($propertyFixtureHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -eq 1
+      ) "[POLICY-OVERRIDE-MALFORMED-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-PROPERTY-NAME] generated JSON property escape bytes drifted"
+    }
     foreach ($invalid in $invalidExceptions) {
       Set-PolicyExceptions -Json $invalid.Json
       $invalidResult = Invoke-PolicyFixture -Coordinates @('fixture.policy:a:1.0')
@@ -1054,8 +1251,18 @@ if ($Suite -eq 'policy') {
       $processEplCoordinate = 'fixture.policy:process-epl:1.0'
       [void](Write-PolicyPom -Coordinate $processEplCoordinate -Xml '<project><groupId>fixture.policy</groupId><artifactId>process-epl</artifactId><version>1.0</version><licenses><license><name>EPL-1.0</name></license></licenses></project>')
       $processScannerPath = Join-Path $processScripts 'check-licenses.ps1'
-      Copy-Item -LiteralPath (Join-Path $PSScriptRoot '_config.ps1') -Destination (Join-Path $processScripts '_config.ps1') -Force
       $processSource = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ScannerPath))
+      # 这个夹具把 check-licenses.ps1 复制到临时 scripts 目录再以子进程跑，于是它 dot-source 的每个兄弟脚本
+      # 都必须一起搬过去——`$PSScriptRoot` 指向的是临时目录，不是 scripts/。此处**从被测脚本源码里推导**依赖清单，
+      # 而不是写死一份：写死的那份在 2026-08-22 已经真的漏过一次（check-licenses.ps1 新增 `. _unicode.ps1` 后
+      # 夹具仍只拷 _config.ps1，CI 上以缺文件炸掉）。推导 + 缺失即 throw，让「加了依赖忘了改夹具」不可表达。
+      $processDeps = @([regex]::Matches($processSource, "(?m)^\.\s+\(Join-Path\s+\`$PSScriptRoot\s+'(?<dep>_[A-Za-z0-9_-]+\.ps1)'\)") | ForEach-Object { $_.Groups['dep'].Value } | Select-Object -Unique)
+      if ($processDeps.Count -lt 1) { throw 'process fixture could not derive any dot-sourced dependency from the scanner source' }
+      foreach ($processDep in $processDeps) {
+        $processDepSource = Join-Path $PSScriptRoot $processDep
+        if (-not (Test-Path -LiteralPath $processDepSource -PathType Leaf)) { throw "process fixture dependency '$processDep' is dot-sourced by the scanner but missing from scripts/" }
+        Copy-Item -LiteralPath $processDepSource -Destination (Join-Path $processScripts $processDep) -Force
+      }
       $processAnchor = 'Write-Host ""'
       if (([regex]::Matches($processSource, [regex]::Escape($processAnchor))).Count -ne 1) {
         throw 'process fixture could not locate the unique final CLI boundary'
@@ -1147,7 +1354,7 @@ if ($env:LICENSE_POLICY_PROCESS_CASE) {
         Name = 'pom-parent-scalar'
         From = '  Assert-GradleMetadataScalar -Field "POM $Field" -Value $value # POM required scalar safety guard'
         To = '  $null = $value # POM required scalar safety guard'
-        Expected = '[POLICY-POM-PARENT-CONTROL-ARTIFACT]'
+        Expected = '[POLICY-POM-PARENT-SUPPLEMENTARY-FORMAT-ARTIFACT]'
       },
       @{
         Name = 'classification-unknown'
@@ -1193,9 +1400,9 @@ if ($env:LICENSE_POLICY_PROCESS_CASE) {
       },
       @{
         Name = 'override-metadata-control'
-        From = '        Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])'
-        To = '        $null = [string]$record[$field]'
-        Expected = '[POLICY-OVERRIDE-CONTROL]'
+        From = '          Assert-GradleMetadataScalar -Field $field -Value $jsonScalar # exception raw JSON scalar safety guard'
+        To = '          $null = $jsonScalar # exception raw JSON scalar safety guard'
+        Expected = '[POLICY-OVERRIDE-SUPPLEMENTARY-FORMAT]'
       },
       @{
         Name = 'override-declared-nonblank'

@@ -18,8 +18,8 @@ CREATE TABLE photo (
 );
 
 CREATE INDEX idx_photo_inspection_item ON photo (inspection_item_id);
--- content_hash 打头的索引，现在的消费者是 **selectActiveAssetsByContentHash**（去重复用：按哈希找活跃资产，
--- 不带 room_instance 范围限定）。idx_photo_active 以 room_instance_id 打头，覆盖不到这个访问模式。
+-- content_hash 打头的索引，现在的消费者是 **selectActiveAssetsByPropertyAndContentHash**（去重复用：
+-- 按物业+哈希找活跃资产）。idx_photo_active 以 room_instance_id 打头，覆盖不到这个访问模式。
 CREATE INDEX idx_photo_content_hash ON photo (content_hash);
 -- rel_path 打头的**部分**索引，消费者是 orphanedAssets 的相关子查询
 -- `NOT EXISTS (… p2.rel_path = p1.rel_path AND p2.deleted_at IS NULL)`。
@@ -92,11 +92,26 @@ WHERE id = :id
 -- 全部返回，调用方取第一条即可。**排序键取 rel_path 而非 created_at**：DISTINCT 之后 rel_path 两两不等，
 -- 顺序恒定；created_at 会撞值，撞值时顺序不定，同一输入两次运行可能复用到不同的物理文件（下游 canonical
 -- 哈希要求确定性，这种漂移会让同一份数据算出两个结果）。
-selectActiveAssetsByContentHash:
-SELECT DISTINCT rel_path
-FROM photo
-WHERE content_hash = :content_hash AND deleted_at IS NULL
-ORDER BY rel_path ASC;
+selectActiveAssetsByPropertyAndContentHash:
+SELECT DISTINCT p.rel_path
+FROM photo p
+JOIN room_instance ri ON ri.id = p.room_instance_id
+JOIN inspection i ON i.id = ri.inspection_id
+WHERE i.property_id = :property_id
+  AND p.content_hash = :content_hash
+  AND p.deleted_at IS NULL
+ORDER BY p.rel_path ASC;
+
+-- 历史兼容审计：只列出仍被多个物业活跃引用的物理路径。本查询只读，不迁移、复制或删除既有资产。
+selectCrossPropertySharedActiveRelPaths:
+SELECT p.rel_path, COUNT(DISTINCT i.property_id) AS property_count
+FROM photo p
+JOIN room_instance ri ON ri.id = p.room_instance_id
+JOIN inspection i ON i.id = ri.inspection_id
+WHERE p.deleted_at IS NULL
+GROUP BY p.rel_path
+HAVING COUNT(DISTINCT i.property_id) > 1
+ORDER BY p.rel_path ASC;
 
 -- 孤儿资产查询（T2-PHOTO-PIPELINE「提供 orphanedAssets() 查询 + 清理用例」，同名以贴合原文）。
 -- **判死活只看 rel_path，返回值也只有 rel_path。** 清理任务删的是**一个物理文件路径**，而 schema 里
@@ -105,7 +120,7 @@ ORDER BY rel_path ASC;
 -- 报成孤儿，**而 P 仍被活跃行引用，删掉即数据丢失**；活跃行若属 FINALIZED 巡检，丢的就是巡检证据。
 -- 判定粒度与删除粒度对齐后，才有那条推论：softDelete 禁止软删 FINALIZED 巡检下的照片，故其 rel_path
 -- 恒有活跃行、不会进孤儿列表，无需另写「排除 FINALIZED」的特判。
--- 不返回 content_hash：清理只需要路径；哈希侧的问题由 selectActiveAssetsByContentHash 回答。
+-- 不返回 content_hash：清理只需要路径；哈希侧的问题由 selectActiveAssetsByPropertyAndContentHash 回答。
 orphanedAssets:
 SELECT DISTINCT p1.rel_path
 FROM photo p1

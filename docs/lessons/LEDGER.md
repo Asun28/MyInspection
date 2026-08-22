@@ -178,7 +178,7 @@
 - refs:
 
 ## L21
-- date: 2026-06-05 ｜ tags: codex,ship,review-gate,quota ｜ tier: ledger ｜ severity: major ｜ recurrence: 2
+- date: 2026-06-05 ｜ tags: codex,ship,review-gate,quota ｜ tier: must ｜ severity: major ｜ recurrence: 2
 - symptom: task.ps1 ship 在 R3 Codex 评审闸门非零退出、回贴 codex-review=failure、未合并；codex 输出含 hit your usage limit。**变体**：symptom 也可能只显示为 `[R3-NO-OUTPUT]`（裁决 json 写着「评审者退出 1 但未写裁决文件」），控制台里配额报错文本可能已被截断/滚走看不见——连续两次配额耗尽会把 `.review/<branch>.rounds` 顶到 `ReviewRoundCap`，触发 `[R3-ROUND-CAP]`，读起来像「评审者与我两轮意见不合」，实际上评审者两次都没真正跑起来。
 - root_cause: Codex 用量配额耗尽，codex exec 返错而非裁决 JSON；review.ps1 解析不到 verdict 即 fail-closed 当 block（非真实评审拒绝）。`Invoke-ReviewerWithTimeout` 把子进程 stdout/stderr 写临时文件、`Write-Host` 打印后在 `finally` 里删掉——事后（下一次工具调用/新会话）无法从磁盘回捞，只能趁那次调用的控制台输出还在时读到。
 - rule: 非代码问题，勿绕过 codex 闸门勿手动合并；待配额重置后重跑 task.ps1 ship（DoD/commit/push 幂等、PR 复用、仅重跑 codex）。**确诊配额耗尽（不烧 round cap）**：不要靠再跑一次 `ship` 去赌能不能看全控制台输出——`.rounds` 计数器会累加，顶到 cap 后 review.ps1 直接判 `[R3-ROUND-CAP]`、连评审者都不再唤起，诊断窗口就没了。改为在同一 worktree 直接单跑一次 `codex exec`（不经 review.ps1，不碰 `.rounds`）：`"Say OK." | & codex exec -s read-only -C <worktree> -m <ReviewModel> -c model_reasoning_effort=<ReviewEffort> --ignore-user-config --output-last-message <tmpfile>`，`2>&1` 捕全；stderr 出现 `hit your usage limit` 即坐实配额、非 diff/后端逻辑问题。若因两次配额失败已顶到 `ReviewRoundCap`，那不是真实两轮分歧，`review.ps1 -ResetRounds` 前先做上面这步确诊，别把外部故障误判成需要人裁的争议。
@@ -1119,7 +1119,7 @@
 - refs: T52-TD111 R3 r3 #6（按真交付 HEAD 重跑 clean+变异并更新）；T50 的 15q 两条子断言各做一次变异；同族 L157
 
 ## L162
-- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 在 Windows 上跑第三方/插件 Python 工具读本仓含中文的 JSON/MD 时崩 UnicodeDecodeError: charmap codec cant decode byte 0x81；设 PYTHONIOENCODING 不解决。同批还撞到：把启动 server 的 Python 脚本接管道（| head）后启动横幅/URL 永不出现，看起来像静默失败
 - root_cause: Windows 上 Python 的 open() 默认用 locale 编码 cp1252 解码文件；PYTHONIOENCODING 只管 stdout/stderr 不管文件读取，故与 L31 不同源、套 L31 的解法会白试。管道场景下 stdout 从行缓冲变块缓冲，进程不退出就什么都不吐
 - rule: 调第三方/插件 Python 工具读本仓文件一律前置 PYTHONUTF8=1（UTF-8 模式，改的正是 open() 默认编码）；自己写的脚本 open()/write_text 显式 encoding=utf-8。要即时看到长驻进程的启动横幅就用 python -u 且别接管道
@@ -1135,7 +1135,7 @@
 - refs: 
 
 ## L164
-- date: 2026-07-25 ｜ tags: gates,security,refactor,trust-boundary ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: gates,security,refactor,trust-boundary ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 把 ship 内联的 fail-closed 范围闸抽成共享核 + 独立 CLI 后，判定语义逐条搬对了、既有种子闸也继续绿，但新入口连吃 R3 十一轮 block：缺省基线取到卡分支自己（空 diff 印 PASS）、缺省工作树缺失即静默回退主检出、判定尖端跟着 -Path 那个检出的 HEAD 走、allow_paths 读的是被审分支自己的卡、连检查器脚本本身都可被被审分支替换成恒 PASS。
 - root_cause: 原入口的安全性有一大半不在它的代码里，而在**它被规定的运行位置**：L86 强制相位命令只在主检出跑，于是「判定对象是谁、标准取自哪份卡、跑的是哪一份检查器」全都被运行位置隐式钉死。抽出第二个入口时只搬了可见的判定语义，这些隐式绑定一条都没跟着走——多一个入口就多一条绕过路径，而每条都表现为 fail-open（印 PASS），比没有这个闸更坏。
 - rule: 给已有 fail-closed 闸增设第二个入口（独立 CLI / 恢复序列 / CI 腿）前，先把原入口「靠运行位置白拿的」信任绑定逐条列出来并在新入口显式补齐：①判定对象锚定到不可变标识（按卡 id 取分支引用，不看该检出的 HEAD）②判定标准取自受信基线（git show <baseRef>:卡 路径，绝不读被审检出里的副本）③检查器与其依赖须来自受信检出（跑主检出那份、用 -Path 指被审树）④入参只收纯名/完整 OID 并按提交身份判等（拒 git revision 语法与前缀匹配）⑤解析成 sha 后全程钉 sha，不再用可变引用名（防 TOCTOU）。每条各配一个 ASCII 哨兵与一枚只删该句的变异，证明它承重。
@@ -1159,7 +1159,7 @@
 - refs: 
 
 ## L167
-- date: 2026-07-26 ｜ tags: testing,mutation,evidence,vacuous ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-26 ｜ tags: testing,mutation,evidence,vacuous ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: T54 的变异证据连续三批都「全红」却证明不了任何事：①12 枚逐腿变异用 `if ($false) { & $step …` 造成花括号不配对 ⇒ 全在语法阶段就死，exit=1 但无一条目标 Fail 行；②两枚腿把值写进 $script: 变量、腿外读取，删腿后那句读取因 StrictMode「变量未定义」抛异常、整段中止 ⇒ 红在异常而非目标断言；③变异脚本自身把 \" 当转义写进双引号串 ⇒ 脚本 parse 失败；④摘掉共享判定核那一句时，**更早的闸**（15s）先抓住并把 $fail 置真，令后面整个矩阵被 `if (-not $fail)` 跳过 ⇒ 被测闸根本没跑，却极易读成「它覆盖到了」。另有两枚变异「存活」，一枚是断言真的假、另一枚是变异写错而断言本来是对的。
 - root_cause: 「跑了变异、它红了」与「我关心的那条断言响了」是两回事，而退出码只报前者。变异实验的失败面比被测代码还多：靶没命中、语法坏了、运行时异常、脚本自身写错、被更早的闸抢先中断——每一种都产出 exit≠0，都长得像成功。人只看汇总里的 exit 码就会把这些全记成「已证明」。
 - rule: 变异证据必须带**判据分类器**，只有「非零 **且** 命中**指定的那条断言文本**」才记 OK；`PARSE-ERROR / 存活 / 红在别的断言 / 红但无目标 Fail 行` 一律单列报出，不许并进「全红」。配套四条：①靶字符串不在文件里即 **throw 中止**，绝不静默 no-op；②变异后先跑一次 parser，语法坏了直接判假红；③「存活」先分诊是**断言假**还是**变异假**——后者要改变异、别去削弱一条本来正确的断言；④证明「闸 X 覆盖缺陷 D」前，先确认**没有更早的闸**也抓 D 并提前中断整轮，否则要用**组合变异**（同时短路那道早闸）才测得到 X。
@@ -1191,7 +1191,7 @@
 - refs: 
 
 ## L171
-- date: 2026-07-30 ｜ tags: security,review,symlink,fail-closed ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: R3 两轮 block + 两次全量变异重测（约 12h 机时）
+- date: 2026-07-30 ｜ tags: security,review,symlink,fail-closed ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: R3 两轮 block + 两次全量变异重测（约 12h 机时）
 - symptom: 守卫检出裁决路径不安全后「自己不写/不删」，却仍把同一条路径设为 $env:REVIEW_OUT 交给评审者子进程——评审者跟着链接把工作树之外的文件覆写；同一错误在第二个站点（陈旧裁决删除处）原样复发（R3 r14 + r16 各抓一处）。
 - root_cause: 「拒绝自己的写操作」被误当「守住了这条路径」；把不可信路径交给子进程/下游等于授权它代写，而 fail-closed 判断要等子进程回来才跑，为时已晚。
 - rule: 「我不写」不等于「我没让别人写」——凡把路径交给子进程/下游，交之前就得过同一道判据，判不过就不唤起（检出即中止）；同一安全决策的响应抽成唯一函数供所有站点调用，防第二站点漏改。
@@ -1199,7 +1199,7 @@
 - refs: T55-TD96-R3-REFUSAL-DIAG R3 r14/r16；变异 LEAFGUARD/PREINVOKE
 
 ## L172
-- date: 2026-07-30 ｜ tags: powershell,encoding,detached,false-negative ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 一晚变异批次全部假红重跑
+- date: 2026-07-30 ｜ tags: powershell,encoding,detached,false-negative ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 一晚变异批次全部假红重跑
 - symptom: Start-Process pwsh -NoProfile 起的 detached 进程跑本仓脚本，中文断言/中文判据 mojibake 即假红；变异 runner 的中文 want 串与阴性形态双双被打假（一枚被误判为「红在别的断言」）。
 - root_cause: 脱离 harness 的 pwsh 子进程默认走 OEM 代码页而非 UTF-8，编码链与交互会话不同源；中文文本一经比对即失配（L17 同族：编码不同源即假结论）。
 - rule: 凡在 harness 之外起 pwsh 跑本仓脚本（detached/计划任务/CI 外壳），前奏必须 dot-source scripts/_encoding.ps1 再执行；机检文本尽量用 ASCII 哨兵（L165），中文只给人读。
@@ -1239,7 +1239,7 @@
 - refs: T60-JNPROBE-ITEMVERIFY（PR #147）；根因实测 = ubuntu run 30511675074 红 + WSL 复现脚本；L165 同族（面=产物）
 
 ## L177
-- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 变异 campaign 报告「跑完」且每枚都 OK，实际只跑了 1 枚；同一脚本把 16 枚的表打印成「3 mutations」。
 - root_cause: PowerShell 变量名**大小写不敏感**：foreach ($m in $M) 里的循环变量 $m 就是集合 $M 本身，第一轮迭代即把 $M 覆盖成末元素（一个哈希表）。此后 $M.Count 返回哈希表键数（3），下一个 foreach ($m in $M) 只迭代那一枚。
 - rule: 循环变量绝不能与集合变量同名（含仅大小写不同）：集合用 $MUTS/$items 之类复数名，循环用 $mut/$item。凡「批量证据」脚本，跑完必须核对**记录条数 == 计划条数**，别只看「每条都 OK」。
@@ -1271,7 +1271,7 @@
 - refs: 
 
 ## L181
-- date: 2026-07-31 ｜ tags: regex,unicode,sanitize,dotnet ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-31 ｜ tags: regex,unicode,sanitize,dotnet ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 「剥控制字符」的消毒把 emoji、CJK 扩展 B 等增补平面字符打成两个空格，悄悄毁掉合法文本，而实现与文档都声称只折叠控制字符。
 - root_cause: .NET 正则按 **UTF-16 码元**匹配：一个增补平面字符是代理对，两半各自属 Unicode 类别 Cs，而 Cs ⊂ \p{C}。故 -replace '\p{C}' 会命中代理对的每一半。
 - rule: 要剥的只有 **Cc（控制）与 Cf（格式）**：用 [\p{Cc}\p{Cf}]，别用 \p{C}（它还含 Cs 代理 / Co 私用 / Cn 未分配，都不是终端可执行的）。凡「剥控制字符」的实现都配一枚**增补平面字符原样留存**的回归断言；另注意替换成空格而非删除，免得删后相邻字符缩合出本不存在的敏感前缀。
@@ -1343,7 +1343,7 @@
 - refs: 
 
 ## L190
-- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: r7 我用 `[CharUnicodeInfo]::GetUnicodeCategory()` 验出 U+1BCA0/U+E0001 属 `Cf`，据此断定「正则的 `\p{Cf}` 已覆盖增补平面」并写进权威注释与 rubric；r8 实测 `$s -match '\p{Cf}'` 对这四个增补标量**全 False**，整段增补面其实一个都没被剥，伪造码照样拼得出来
 - root_cause: **验证用的 oracle 与被测实现不是同一套判据**：`GetUnicodeCategory` 按 **Unicode 标量**判类目，而 .NET 正则按 **UTF-16 码元**匹配——增补标量在正则眼里是一对 `Cs` 代理，永远进不了 `\p{Cf}`/`\p{Mn}` 之类的类目类。用前者去证后者，等于拿另一台机器的读数当本机结论。这比不验证更坏：它产生**有据可依的错误自信**，还会被写进文档变成下一轮的假前提
 - rule: 验证一个断言时，**必须用被测代码实际使用的那套机制去验**，不能用「语义上等价」的另一个 API：正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回、别推理；渲染层行为就看渲染器实际输出。判断法：问「我的验证脚本和生产代码，是不是同一个引擎在做同一个判断？」不是就换写法。**且断言的对象若是一个「类目/属性」（`Cf`、default-ignorable 之类），取样证不了它——必须把全集从权威表枚举出来逐个比对**（2026-08-03 r13 更正：本条原写「逐点实测代表码位（BMP 与增补各取样）」，那正是又栽一次的原因——r8 照它取样补完仍漏 18 个增补面 `Cf`，r13 才由全码位枚举挖出）。落地形态：用**标量级** API（`Rune.GetUnicodeCategory`）枚举出「应该命中的全集」，再用**生产代码那套机制**（正则）逐个验它是否真命中；两套 oracle 各司其职、谁也不替谁。好处是 Unicode 升版新增码位时断言会自己红，而不必等下一个评审者发现
@@ -1535,7 +1535,7 @@
 - refs: 
 
 ## L214
-- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
+- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
 - symptom: 单句删除变异跑完后用 git checkout -- <file> 还原，结果该文件里**未提交的新工作**连同变异一起消失；还原核查报 restored=False，但代码已经没了。本轮丢掉的是一整条新增查询及其注释。
 - root_cause: git checkout -- <path> 恢复的是 HEAD/索引版本，不是"变异前的磁盘内容"。前几轮都是先提交再变异所以无恙；这次省了提交那一步，"还原"就等于"丢弃未提交改动"。
 - rule: 变异证明前**先提交**被测文件（或先复制一份、从副本还原）；还原后必须核 SHA256 与变异前一致——本轮正是这道核查当场发现了丢失，没有它会带着空文件继续跑。
@@ -1717,3 +1717,11 @@
 - rule: verifying a "continues past X" claim requires ordering the fixture so a later item exists AFTER the exception-causing item, then mutating specifically the post-catch control flow (e.g. insert an explicit break/return in the catch body) — not just deleting the whole catch/guard. A coarse "remove the whole mechanism" mutation only proves "the mechanism exists", never "the mechanism has the specific narrow behavior claimed". Rule of thumb: before trusting a mutation kill, ask "what is the minimal code change that would also turn this test red — does that minimal change match the actual claim in the test name/comment, or is it a stronger regression the test happens to also catch?"
 - enforced_by: 
 - refs: T2-PHOTO-PIPELINE round 5 block (codex): OrphanedAssetCleanupTest 的批处理连续性测试用倒序 fixture 重写 + break 变异重新证明；L165 同族（断言面/变异粒度必须恰好等于契约，这里把"粒度"从断言延伸到变异靶点本身）
+
+## L237
+- date: 2026-08-21 ｜ tags: powershell,harness,testing,diagnostics ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 多一轮 R3
+- symptom: Exact-byte 投影检查已有 BOM/删行负例，委托 verify 也会失败，但 R3 仍能构造同长度内容漂移与 wrapper 自造同名状态码而让弱测试误绿。
+- root_cause: 负例只改变字节长度，未让逐字节循环承重；父 wrapper 重复子检查器的稳定状态码，任何子进程崩溃都可被包装成看似正确的业务失败。
+- rule: 测试 exact-byte 比较器必须含同长度单字节替换；测试委托闸必须同时覆盖干净正例，并要求稳定状态码唯一且只由真正判定错误的子检查器输出。
+- enforced_by: scripts/selftest.ps1 gate 12e
+- refs: PR #61；scripts/selftest.ps1 gate 12e
