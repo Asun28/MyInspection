@@ -1,4 +1,4 @@
-﻿---
+---
 id: T0-SCAFFOLD-SYNC-043
 title: 装上 fleet 双向回路，并回填上游 v0.43.0 里由本项目提出的三条修复
 depends_on: []
