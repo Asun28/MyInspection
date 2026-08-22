@@ -10,7 +10,7 @@
 | `tech-debt-archive.md` | 同上债项的**整行**（含完整还债指针 = 机构记忆，append-only） | 命中索引后按 id 取整行细节 |
 | `cards-index.md` | 已 `merged` 卡的**精简索引**（id · 状态 · 标题） | 找某张老卡先看这里 |
 | `tasks/<id>.md` | 已 `merged` 卡**原文** | 需要完整卡时打开 |
-| `lessons-archive.md` | 已归档/合并的 `docs/lessons/LEDGER.md` **lesson 条目整块**（`-LessonIds` 显式策展输入驱动，无自动判定） | 检索=裸 grep（无 index，条目本身即是完整块） |
+| `lessons-archive.md` | 已归档/合并的 `docs/lessons/LEDGER.md` **lesson 条目整块**（`-LessonIds` 搬运器仍是唯一写入口） | `lessons.ps1 search` 统一召回并标 `[archived]`；也可裸 grep |
 
 ## 维护（勿手工编辑索引/归档正文——由脚本投影生成）
 - 生成/更新：`pwsh -File scripts\archive.ps1`（**幂等**；`-DryRun` 先预览会搬什么、写零文件——含 lessons：
@@ -21,6 +21,9 @@
   `open`/`carded`/`todo`/`in-progress`/`in-review` 一律留活文件。lesson 条目**无 status 字段可依**，恒为
   显式策展——由 `-LessonIds` 手工/agent 指定 id 才搬，拒搬 LEDGER 当前最高 id（防 Next-Id 重铸撞号）、
   拒搬两侧皆查无的未知 id（fail-closed 防手滑打错）。
+- lessons 可先运行 `lessons.ps1 archive -DryRun` 生成保守候选：仅 `tier=ledger`、`recurrence=1`、非当前最大 ID、
+  且未被 `CLAUDE.md`/`CLAUDE.template.md` 引用。去掉 `-DryRun` 后仍只转调本文件既有的
+  `archive.ps1 -LessonIds`，不会出现第二套搬运器；候选只是机械预筛，不取代人工复核。
 - **只搬不删**——append-only 语义在归档侧延续，还债/交付轨迹一条不丢。
 - 何时跑：每张卡合并后的 R5 doc-sync 顺手跑一次（幂等、-DryRun 可先预览）；或发现活文件里闭合项开始堆积时手动跑。
 - 锁：`scripts/selftest.ps1` 子闸 **12e** 以 hermetic 夹具验证热/冷分区、索引条数一致、幂等（含 lessons 子夹具：
