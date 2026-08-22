@@ -85,10 +85,26 @@ data class ItemRowBlock(
     val note: String?,
     val wearOrDamage: String?,
     override val textRuns: List<TextRun>,
+    /**
+     * Evidence photos for this item, as thumbnails placed inside the row's own coordinate space.
+     * They belong to the row rather than following it as page-wide blocks, so the renderer draws an
+     * item table with a picture column instead of a paragraph followed by unrelated full-width images.
+     */
+    val thumbnails: List<ImageSlotBlock> = emptyList(),
 ) : TextBearingBlock
 
 enum class ImagePurpose { INLINE, APPENDIX }
 
+/**
+ * A picture the renderer draws as-is. Geometry is part of the plan, not something the renderer derives:
+ * [xMm]/[yMm] are relative to the containing block's origin, so an inline thumbnail nested in an
+ * [ItemRowBlock] and a full-page appendix image are described the same way and differ only in numbers.
+ *
+ * Image slots are indivisible. [textRuns] carry a bounded caption (see the composer's caption cap) precisely
+ * so that no caption length can ever make a slot taller than one page and tempt the paginator to split it -
+ * splitting would produce two slots with the same [photoId], i.e. one photo apparently printed twice.
+ * [reference], [source] and [capturedAt] always carry the complete values even when the caption is elided.
+ */
 data class ImageSlotBlock(
     val photoId: String,
     val purpose: ImagePurpose,
@@ -96,6 +112,10 @@ data class ImageSlotBlock(
     val source: String,
     val capturedAt: Long,
     override val textRuns: List<TextRun>,
+    val xMm: Int,
+    val yMm: Int,
+    val widthMm: Int,
+    val heightMm: Int,
 ) : TextBearingBlock
 
 data class RemediationBlock(

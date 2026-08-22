@@ -59,7 +59,8 @@ class ReportComposerPaginationTest {
             val body = page.blocks.filterNot { it.content is FooterBlock }
             assertTrue(body.all { it.yMm >= 15 && it.yMm + it.heightMm <= 272 }, "page ${page.number} overflow")
             body.filter { it.content is ImageSlotBlock }.forEach {
-                assertTrue(it.heightMm == 48 || it.heightMm == 120, "image slots are indivisible fixed blocks")
+                val slot = it.content as ImageSlotBlock
+                assertEquals(slot.heightMm, it.heightMm, "image slot geometry must match its placed height")
             }
             val headingIndex = body.indexOfFirst { it.content is RoomTitleBlock }
             if (headingIndex >= 0) {
@@ -68,6 +69,11 @@ class ReportComposerPaginationTest {
         }
         assertEquals(80, plan.imageSlots(ImagePurpose.INLINE).size)
         assertEquals(80, plan.imageSlots(ImagePurpose.APPENDIX).size)
+        // Splitting a slot would show up as one photoId appearing twice for the same purpose.
+        ImagePurpose.entries.forEach { purpose ->
+            val ids = plan.imageSlots(purpose).map { it.photoId }
+            assertEquals(ids.size, ids.toSet().size, "a $purpose photo was emitted more than once")
+        }
         assertTrue(plan.imageSlots().all { it.source.isNotBlank() && it.reference.isNotBlank() && it.capturedAt > 0 })
     }
 
@@ -274,8 +280,15 @@ class ReportComposerPaginationTest {
         assertTrue(heading.yMm + heading.heightMm <= BODY_BOTTOM_MM)
     }
 
+    /** Item evidence now lives inside its row, so collecting slots has to descend into item thumbnails. */
     private fun DocumentPlan.imageSlots(purpose: ImagePurpose? = null): List<ImageSlotBlock> = pages
         .flatMap { it.blocks }
-        .mapNotNull { it.content as? ImageSlotBlock }
+        .flatMap { placed ->
+            when (val content = placed.content) {
+                is ImageSlotBlock -> listOf(content)
+                is ItemRowBlock -> content.thumbnails
+                else -> emptyList()
+            }
+        }
         .filter { purpose == null || it.purpose == purpose }
 }

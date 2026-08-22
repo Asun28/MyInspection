@@ -25,14 +25,16 @@ class ReportComposerGoldenTest {
                     "status:POOR@65:20", "status:NOT_APPLICABLE@85:20", "footer@272:10",
                 ),
                 listOf("section:summary@15:10", "summary:item-poor@25:16", "footer@272:10"),
+                // The item photo is no longer a full-width block trailing its row: it is a thumbnail inside
+                // item-poor, which is why that row is 54 mm tall and no separate inline image slot follows it.
                 listOf(
-                    "room:room-kitchen@15:12", "image:photo-room:inline@27:48",
-                    "item:item-good@75:18", "item:item-poor@93:18", "image:photo-item:inline@111:48",
+                    "room:room-kitchen@15:12", "image:photo-room:inline@27:50",
+                    "item:item-good@77:18", "item:item-poor@95:54",
                     "footer@272:10",
                 ),
                 listOf(
-                    "section:photo-appendix@15:10", "image:photo-room:appendix@25:120",
-                    "image:photo-item:appendix@145:120", "footer@272:10",
+                    "section:photo-appendix@15:10", "image:photo-room:appendix@25:122",
+                    "image:photo-item:appendix@147:122", "footer@272:10",
                 ),
                 listOf(
                     "section:closing@15:10", "remediation:item-poor:HIGH@25:20",
