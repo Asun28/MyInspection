@@ -4,7 +4,16 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Collections
 
+/**
+ * One already-scheduled visit, as the caller knows it.
+ *
+ * [entryId] exists so rescheduling can be expressed at all. Without an identity the row being moved is
+ * indistinguishable from a competing row, so passing an unfiltered history made an inspection collide with
+ * itself and report [ComplianceReasonKey.FREQUENCY_LIMIT] for a date it already legitimately occupied.
+ * Callers pass the whole history and name the row under edit; they do not pre-filter.
+ */
 data class ExistingScheduledEntry(
+    val entryId: String,
     val propertyId: String,
     val entryPurpose: String,
     val inspectionType: String,
@@ -21,6 +30,11 @@ data class ScheduleRequest(
     /** Audit fact only. Consent must never relax an inspection rule. */
     val tenantConsented: Boolean,
     val existingEntries: List<ExistingScheduledEntry>,
+    /**
+     * When this request reschedules an existing visit, the [ExistingScheduledEntry.entryId] of that visit.
+     * It is excluded from the frequency comparison: a row must never block its own move. Null for new visits.
+     */
+    val currentEntryId: String? = null,
 )
 
 enum class ComplianceReasonKey {
@@ -81,6 +95,8 @@ class ComplianceEngine(private val config: ComplianceConfig) {
         ) {
             var frequencyBlocked = false
             request.existingEntries.forEach { existing ->
+                // The row being rescheduled is not competition for itself.
+                if (request.currentEntryId != null && existing.entryId == request.currentEntryId) return@forEach
                 if (existing.propertyId == request.propertyId && existing.entryPurpose == request.entryPurpose) {
                     if (existing.inspectionType !in SUPPORTED_INSPECTION_TYPES) {
                         reasons += ComplianceReason(ComplianceReasonKey.INVALID_HISTORY_ENTRY)
