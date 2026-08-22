@@ -61,6 +61,7 @@ $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot '_config.ps1')
+. (Join-Path $PSScriptRoot '_lessons.ps1')   # 必须层驻留规则的共享判定核（上游 v0.43.0 #188/#189）
 $Ledger = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 $OnDemandDir = Join-Path $RepoRoot 'docs/lessons'
 $ClaudeMd = Join-Path $RepoRoot 'CLAUDE.md'
@@ -83,7 +84,7 @@ function Get-Lessons {
     $rec = ([regex]::Match($b, 'recurrence:\s*(\d+)')).Groups[1].Value
     $tags = ([regex]::Match($b, 'tags:\s*([^｜|]+)')).Groups[1].Value.Trim()
     $rule = ([regex]::Match($b, '(?m)^- rule:\s*(.+)$')).Groups[1].Value.Trim()
-    $enf = ([regex]::Match($b, '(?m)^- enforced_by:\s*(.+)$')).Groups[1].Value.Trim()
+    $enf = Get-ScaffoldLessonEnforcedBy $b   # 空字段不再吃掉下一行（旧式 \s* + (.+) 的 fail-open，见 _lessons.ps1 头注）
     $cost = ([regex]::Match($b, 'cost:\s*([^｜|]+)')).Groups[1].Value.Trim()   # 可选；旧条目无此字段 => 空（向后兼容）
     $out += [pscustomobject]@{ id = $id; tier = $tier; kind = $kind; severity = $sev; recurrence = [int]($rec | ForEach-Object { if ($_){$_}else{0} }); tags = $tags; rule = $rule; enforced_by = $enf; cost = $cost; body = $b }
   }
@@ -194,14 +195,19 @@ switch ($Command) {
     # 必须层封顶（以 CLAUDE.md「经验铁律」实际条数为准）
     # TD39: 零 tier=must 时 Where-Object 发 AutomationNull，直接取 .Count 在 StrictMode 抛——@() 包裹保 Count 0（合法下游态：删净示例 must 经验）。
     $mustInLedger = @($ls | Where-Object tier -eq 'must').Count
-    $mustInClaude = 0
-    if (Test-Path $ClaudeMd) {
-      $cm = Get-Content $ClaudeMd -Raw
-      $sec = [regex]::Match($cm, '(?s)## 经验铁律.*?(?=\n## |\z)').Value
-      $mustInClaude = ([regex]::Matches($sec, '(?m)^\s*-\s+\*\*')).Count
+    # 计量单位是**驻留的经验 id**，不是 markdown 条目：一条写着 [L17][L162][L172][L177] 的 bullet
+    # 对计数器是 1 条、对模型是 4 条规则，封顶要管的正是后者（上游 issue #184 / 修复 #188）。
+    # 本项目实测（origin/master 9c1f98d）：10 条 bullet 承载 19 个 id——按条目计恒绿，而每轮驻留
+    # 上下文已是上限的近两倍，这正是「封顶通过了但成本还在涨」的静默失效面。
+    $mustBullets = @(Get-ScaffoldMustLayerBullet -Path $ClaudeMd)
+    $mustIds = @($mustBullets | ForEach-Object Ids | Sort-Object -Unique)
+    $mustInClaude = $mustIds.Count
+    $mergedBullets = @($mustBullets | Where-Object IdCount -gt 1)
+    Write-Host "必须层：总账标 must=$mustInLedger ｜ CLAUDE.md 驻留 id=$mustInClaude（承载于 $($mustBullets.Count) 条目）｜ 上限=$MustCap"
+    if ($mergedBullets.Count -gt 0) {
+      Write-Host "  合并条目（一条承载多个 id，按 id 计）：$((($mergedBullets | ForEach-Object { $_.Ids -join '+' }) -join ' ｜ '))" -ForegroundColor DarkGray
     }
-    Write-Host "必须层：总账标 must=$mustInLedger ｜ CLAUDE.md 铁律条目=$mustInClaude ｜ 上限=$MustCap"
-    if ($mustInClaude -gt $MustCap) { Write-Warning "CLAUDE.md 铁律超上限（$mustInClaude>$MustCap）→ 淘汰最不活跃项回按需层。"; $fail = $true }
+    if ($mustInClaude -gt $MustCap) { Write-Warning "CLAUDE.md 铁律超上限（驻留 id $mustInClaude>$MustCap）→ 淘汰最不活跃项回按需层。当前驻留：$(($mustIds -join ', '))"; $fail = $true }
     # id 存在性：每条 tier=must 的总账经验，其 [Lx] 必须出现在 CLAUDE.md 铁律小节里（单一真相源可机检）
     $claudeSec = ''
     if (Test-Path $ClaudeMd) { $claudeSec = [regex]::Match((Get-Content $ClaudeMd -Raw), '(?s)## 经验铁律.*?(?=\n## |\z)').Value }
