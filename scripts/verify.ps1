@@ -28,6 +28,16 @@ Set-Location $RepoRoot
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 $failed = $false
 
+# 归档卡索引是生成投影：PR verify 只读检查，漂移 fail-closed，绝不在验收时自动修工作树。
+$archiveScript = Join-Path $RepoRoot 'scripts/archive.ps1'
+if (Test-Path -LiteralPath $archiveScript -PathType Leaf) {
+  & pwsh -NoProfile -File $archiveScript -RepoRoot $RepoRoot -CheckCardsIndex -Quiet
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning '归档卡索引只读检查失败（详见 archive.ps1 上方诊断）'
+    $failed = $true
+  }
+}
+
 # --- 闸门 1：静态检查 + 单元测试（ruff / pytest / 前端 check+test，有引导才收紧）---
 Step '闸门 1/2：静态检查 + 契约/单元测试（ruff / pytest / 前端 check+test）'
 $hasPyproject = Test-Path "$RepoRoot/pyproject.toml"

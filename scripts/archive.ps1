@@ -29,6 +29,7 @@
 
 .PARAMETER RepoRoot  仓库根（默认由脚本位置派生）。
 .PARAMETER DryRun    只报「会搬什么」、写零文件（首用/核验安全网）。
+.PARAMETER CheckCardsIndex  只读核验 cards-index.md 是否与归档卡投影逐字节一致；不搬运、不修复。
 .PARAMETER Quiet     仅打印一行汇总。
 .PARAMETER LessonsOnly  仅执行 -LessonIds 路径；不读写技术债、任务卡及其索引。
 .EXAMPLE
@@ -40,6 +41,7 @@
 param(
   [string]$RepoRoot,
   [switch]$DryRun,
+  [switch]$CheckCardsIndex,
   [switch]$Quiet,
   [switch]$LessonsOnly,
   [string[]]$LessonIds    # T40-LEDGERARCH：lessons 账本冷存目标（如 -LessonIds L32,L34）；未传时下方逻辑整段跳过，其余两路径行为逐字节不变
@@ -142,6 +144,52 @@ function Get-CardField([string]$raw, [string]$key) {
   if ($null -eq $value) { return $null }
   return Get-UncommentedValue $value
 }
+
+function Get-CardsIndexText([string]$archiveTasksDir) {
+  $cardRows = [System.Collections.Generic.List[string]]::new()
+  if (Test-Path -LiteralPath $archiveTasksDir -PathType Container) {
+    foreach ($cf in (Get-ChildItem -LiteralPath $archiveTasksDir -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+      $raw = Get-Content -LiteralPath $cf.FullName -Raw
+      $id = Format-Cell ([IO.Path]::GetFileNameWithoutExtension($cf.Name))
+      $title = Format-Cell (Get-CardField $raw 'title') 100
+      $st = Format-Cell (Get-CardField $raw 'status')
+      $cardRows.Add("| $id | $st | $title |")
+    }
+  }
+  $cardHead = @(
+    '# 已归档任务卡索引（merged cards · cold storage）',
+    '',
+    ('> 一行一条已 `merged` 的卡，共 {0} 张；完整卡在 `specs/archive/tasks/<id>.md`。' -f $cardRows.Count),
+    '> 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。',
+    '',
+    '| id | 状态 | 标题 |',
+    '|---|---|---|'
+  )
+  # 生成件固定 UTF-8 no-BOM + LF，避免 Windows Set-Content 的平台行尾让同一投影字节漂移。
+  return (($cardHead + $cardRows) -join "`n") + "`n"
+}
+
+function Test-ExactBytes([byte[]]$left, [byte[]]$right) {
+  if ($null -eq $left -or $null -eq $right -or $left.Length -ne $right.Length) { return $false }
+  for ($i = 0; $i -lt $left.Length; $i++) {
+    if ($left[$i] -ne $right[$i]) { return $false }
+  }
+  return $true
+}
+
+if ($CheckCardsIndex) {
+  $expectedCardsIndexBytes = [Text.UTF8Encoding]::new($false).GetBytes((Get-CardsIndexText $ArchTasksDir))
+  [byte[]]$actualCardsIndexBytes = if (Test-Path -LiteralPath $CardsIndex -PathType Leaf) {
+    [IO.File]::ReadAllBytes($CardsIndex)
+  } else { $null }
+  if (-not (Test-ExactBytes $actualCardsIndexBytes $expectedCardsIndexBytes)) {
+    Write-Output '[ARCHIVE-CARDS-INDEX-DRIFT] specs/archive/cards-index.md 与 specs/archive/tasks/*.md 投影不一致；请用正常 archive 流程重建后提交。'
+    exit 1
+  }
+  if (-not $Quiet) { Write-Host 'archive cards-index check: PASS' }
+  exit 0
+}
+
 if (-not $LessonsOnly -and (Test-Path $TasksDir)) {
   foreach ($cf in (Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne '_TEMPLATE.md' })) {
     $raw = Get-Content $cf.FullName -Raw
@@ -349,25 +397,7 @@ if (-not $LessonsOnly) {
 
 # ── 6. 重算卡索引（从 specs/archive/tasks/ 投影）──
 if (-not $LessonsOnly -and (Test-Path $ArchTasksDir)) {
-  $cardRows = [System.Collections.Generic.List[string]]::new()
-  foreach ($cf in (Get-ChildItem $ArchTasksDir -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
-    $raw = Get-Content $cf.FullName -Raw
-    $id = Format-Cell ([IO.Path]::GetFileNameWithoutExtension($cf.Name))
-    $title = Format-Cell (Get-CardField $raw 'title') 100
-    $st = Format-Cell (Get-CardField $raw 'status')
-    $cardRows.Add("| $id | $st | $title |")
-  }
-  # 同 #2：单引号串 + -f 注入计数，保住 `merged` / `specs/archive/tasks/<id>.md` 里的反引号不被当转义吞掉。
-  $cardHead = @(
-    '# 已归档任务卡索引（merged cards · cold storage）',
-    '',
-    ('> 一行一条已 `merged` 的卡，共 {0} 张；完整卡在 `specs/archive/tasks/<id>.md`。' -f $cardRows.Count),
-    '> 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。',
-    '',
-    '| id | 状态 | 标题 |',
-    '|---|---|---|'
-  )
-  Set-Content -Path $CardsIndex -Value (($cardHead + $cardRows) -join "`n") -Encoding utf8
+  [IO.File]::WriteAllText($CardsIndex, (Get-CardsIndexText $ArchTasksDir), [Text.UTF8Encoding]::new($false))
 }
 
 # ── 7. 写 lessons 账本冷存（T40-LEDGERARCH；仅当本轮确有新搬运/补齐时落盘——幂等重跑 0 搬 = 不触碰任何文件）──

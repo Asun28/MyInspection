@@ -54,12 +54,12 @@ class PhotoAssociationRecorderTest {
 
     private data class Fixture(val propertyId: String, val inspectionId: String, val roomInstanceId: String)
 
-    private fun draftFixture(roomKey: String = "BEDROOM"): Fixture {
-        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+    private fun draftFixture(roomKey: String = "BEDROOM", propertyId: String? = null): Fixture {
+        val actualPropertyId = propertyId ?: DbTestFixtures.insertProperty(database, uuid)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, version = ++nextTemplateVersion)
-        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId)
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, actualPropertyId, templateVersionId)
         val roomInstanceId = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = roomKey)
-        return Fixture(propertyId, inspectionId, roomInstanceId)
+        return Fixture(actualPropertyId, inspectionId, roomInstanceId)
     }
 
     private fun finalize(inspectionId: String) {
@@ -136,8 +136,8 @@ class PhotoAssociationRecorderTest {
         val firstPlan = newPlan(first, firstPhotoId, "shared-hash")
         recorder.record(firstPlan, firstPhotoId, PhotoTarget(first.roomInstanceId), PhotoSource.CAMERA, null, discardOk)
 
-        // 跨房间/跨巡检的同内容照片是合法的（同一缺陷 Ingoing 与 Exit 各拍一次），复用的是**同一份**物理文件。
-        val second = draftFixture(roomKey = "KITCHEN")
+        // 同一物业内跨房间/跨巡检的同内容照片可复用同一份物理文件。
+        val second = draftFixture(roomKey = "KITCHEN", propertyId = first.propertyId)
         val secondPhotoId = uuid.next()
         val reusePlan = PhotoIngestPlan.ReuseExistingAsset(relPath = firstPlan.relPath, contentHash = "shared-hash")
 
@@ -148,7 +148,7 @@ class PhotoAssociationRecorderTest {
         assertEquals(firstPlan.relPath, database.photoQueries.selectById(secondPhotoId).executeAsOne().rel_path)
         assertEquals(
             listOf(firstPlan.relPath),
-            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            database.photoQueries.selectActiveAssetsByPropertyAndContentHash(first.propertyId, "shared-hash").executeAsList(),
             "两条关联、一份物理文件——去重复用不再复制字节，只建关联",
         )
         assertEquals(emptyList(), discardCalls)

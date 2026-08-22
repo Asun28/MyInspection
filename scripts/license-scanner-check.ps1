@@ -270,7 +270,7 @@ if ($Suite -eq 'diagnostics') {
   }
   $ordinaryRecordText = Get-GradleDiagnosticTail -Output @("https://user`nordinary@example.invalid/repository") -MaxLines 3 -MaxChars 400
   Assert-Diagnostics (
-    $ordinaryRecordText -ceq 'https://user | ordinary@example.invalid/repository'
+    $ordinaryRecordText -ceq 'https://user ordinary@example.invalid/repository'
   ) "[DIAG-RECORD-BOUNDARY] ordinary next line was consumed as URI userinfo: $ordinaryRecordText"
 
   $windowsPathCases = @(
@@ -332,6 +332,54 @@ if ($Suite -eq 'diagnostics') {
     $controlText -ceq 'prefix- -suffix' -and -not [regex]::IsMatch($controlText, '[\p{Cc}\p{Cf}]')
   ) '[DIAG-CONTROL] control/format character survived diagnostics'
 
+  $supplementaryFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
+  $supplementaryFormatText = Get-GradleDiagnosticTail -Output @("prefix-$supplementaryFormat-suffix") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $supplementaryFormatText -ceq 'prefix- -suffix'
+  ) '[DIAG-SCALAR-SUPPLEMENTARY] supplementary format scalar survived diagnostics'
+
+  $ordinaryEmoji = [System.Text.Rune]::new(0x1F600).ToString()
+  $ordinaryEmojiText = Get-GradleDiagnosticTail -Output @("prefix-$ordinaryEmoji-suffix") -MaxLines 2 -MaxChars 400
+  Assert-Diagnostics (
+    $ordinaryEmojiText -ceq "prefix-$ordinaryEmoji-suffix"
+  ) '[DIAG-SCALAR-PRESERVE] ordinary supplementary scalar changed in diagnostics'
+
+  foreach ($malformedCase in @(
+    @{ Id = 'high'; Value = "prefix-$([char]0xD800)-suffix" },
+    @{ Id = 'low'; Value = "prefix-$([char]0xDC00)-suffix" }
+  )) {
+    $malformedRejected = $false
+    try {
+      $null = Get-GradleDiagnosticTail -Output @($malformedCase.Value) -MaxLines 2 -MaxChars 400
+    } catch {
+      $malformedRejected = $_.Exception.Message -match '\[UNICODE-SCALAR-MALFORMED\]'
+    }
+    Assert-Diagnostics $malformedRejected "[DIAG-SCALAR-MALFORMED-$($malformedCase.Id.ToUpperInvariant())] malformed UTF-16 was accepted by diagnostics"
+  }
+
+  if (-not $SkipMutations) {
+    $scalarTargetCount = 0
+    $supplementaryTargetCount = 0
+    $scalarTargetFailure = $null
+    for ($codePoint = 0; $codePoint -le 0x10FFFF; $codePoint++) {
+      if ($codePoint -ge 0xD800 -and $codePoint -le 0xDFFF) { continue }
+      $rune = [System.Text.Rune]::new($codePoint)
+      $category = [System.Text.Rune]::GetUnicodeCategory($rune)
+      if ($category -ne [System.Globalization.UnicodeCategory]::Control -and
+          $category -ne [System.Globalization.UnicodeCategory]::Format) { continue }
+      $scalarTargetCount++
+      if ($codePoint -gt 0xFFFF) { $supplementaryTargetCount++ }
+      $actual = Get-GradleDiagnosticTail -Output @("L$($rune.ToString())R") -MaxLines 2 -MaxChars 400
+      if ($actual -cne 'L R') {
+        $scalarTargetFailure = ('U+{0:X}' -f $codePoint)
+        break
+      }
+    }
+    Assert-Diagnostics (
+      $scalarTargetCount -gt 0 -and $supplementaryTargetCount -gt 0 -and $null -eq $scalarTargetFailure
+    ) "[DIAG-SCALAR-EXHAUSTIVE] Cc/Cf scalar did not map to one space: $scalarTargetFailure"
+  }
+
   $ansiText = Get-GradleDiagnosticTail -Output @("prefix-`e[31mred`e[0m-suffix") -MaxLines 2 -MaxChars 400
   Assert-Diagnostics (
     $ansiText -ceq 'prefix-red-suffix' -and $ansiText -notmatch '\[31m|\[0m'
@@ -339,7 +387,7 @@ if ($Suite -eq 'diagnostics') {
 
   $newlineText = Get-GradleDiagnosticTail -Output @("first`r::error forged`nthird") -MaxLines 3 -MaxChars 400
   Assert-Diagnostics (
-    $newlineText -ceq 'first | ::error forged | third' -and $newlineText -notmatch "[\r\n]"
+    $newlineText -ceq 'first ::error forged third' -and $newlineText -notmatch "[\r\n]"
   ) '[DIAG-NEWLINE] newline injection remained physically multi-line'
 
   $lineBoundText = Get-GradleDiagnosticTail -Output @('line-1', 'line-2', 'line-3', 'line-4', 'line-5', 'line-6') -MaxLines 3 -MaxChars 400
@@ -504,10 +552,11 @@ if ($Suite -eq 'diagnostics') {
 
   $script:bad = @()
   $multilineCoordinate = 'fixture.multiline:artifact:1.0'
-  Add-GradleNonCompliance "$multilineCoordinate => first`nsecond [GRADLE-FAKE] tail [GRADLE-POM]"
+  Add-GradleNonCompliance "$multilineCoordinate => first`n$('x' * 1200) tail [GRADLE-FAKE] [GRADLE-POM]"
   $multilineCoordinateEntry = if ($script:bad.Count -eq 1) { [string]$script:bad[0] } else { '' }
   Assert-Diagnostics (
-    $multilineCoordinateEntry -ceq "[GRADLE] $multilineCoordinate => [TRUNCATED] second [REDACTED-CATEGORY] tail [GRADLE-POM]" -and
+    $multilineCoordinateEntry.StartsWith("[GRADLE] $multilineCoordinate => [TRUNCATED] ", [System.StringComparison]::Ordinal) -and
+    $multilineCoordinateEntry.EndsWith(' tail [REDACTED-CATEGORY] [GRADLE-POM]', [System.StringComparison]::Ordinal) -and
     $multilineCoordinateEntry -notmatch '[\r\n]'
   ) "[DIAG-GAV-NEWLINE] multiline detail lost exact GAV/category preservation: $multilineCoordinateEntry"
 
@@ -557,15 +606,15 @@ if ($Suite -eq 'diagnostics') {
       },
       @{
         Name = 'ansi-redaction'
-        From = '    $line = [regex]::Replace($_, "`e\[[0-?]*[ -/]*[@-~]", '''') # diagnostic ANSI redaction'
-        To = '    $line = "$_" # diagnostic ANSI redaction'
+        From = '    $line = [regex]::Replace($raw, "`e\[[0-?]*[ -/]*[@-~]", '''') # diagnostic ANSI redaction'
+        To = '    $line = $raw # diagnostic ANSI redaction'
         Expected = '[DIAG-ANSI]'
       },
       @{
-        Name = 'control-normalization'
-        From = '    $line = [regex]::Replace($line, ''[\p{Cc}\p{Cf}]'', '' '') # diagnostic control/format normalization'
-        To = '    $line = $line # diagnostic control/format normalization'
-        Expected = '[DIAG-CONTROL]'
+        Name = 'scalar-control-format-normalization'
+        From = '    $line = ConvertTo-ScaffoldControlFormatSpaces $line # diagnostic scalar control/format normalization'
+        To = '    $line = $line # diagnostic scalar control/format normalization'
+        Expected = '[DIAG-SCALAR-SUPPLEMENTARY]'
       },
       @{
         Name = 'line-bound'
@@ -782,16 +831,31 @@ if ($Suite -eq 'policy') {
       ) "[POLICY-POM-SINGLETON-$($duplicatePom.Id.ToUpperInvariant())] repeated singleton element was accepted"
     }
 
+    $supplementaryFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
+    $xmlEntityPrefix = ([string][char]38) + '#x'
+    $malformedHighEntity = $xmlEntityPrefix + 'D800;'
+    $malformedLowEntity = $xmlEntityPrefix + 'DC00;'
     $parentMetadataCases = @(
-      @{ Id = 'missing-group'; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
-      @{ Id = 'missing-version'; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
-      @{ Id = 'control-artifact'; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' }
+      @{ Id = 'missing-group'; Error = $null; Coordinate = 'fixture.policy:parent-missing-group:1.0'; Xml = '<project><parent><artifactId>parent</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-group</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'missing-version'; Error = $null; Coordinate = 'fixture.policy:parent-missing-version:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent</artifactId></parent><groupId>fixture.policy</groupId><artifactId>parent-missing-version</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'control-artifact'; Error = $null; Coordinate = 'fixture.policy:parent-control-artifact:1.0'; Xml = '<project><parent><groupId>fixture.policy</groupId><artifactId>parent&#x202E;</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-control-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+      @{ Id = 'supplementary-format-artifact'; Error = '[LICENSE-METADATA-SCALAR]'; Coordinate = 'fixture.policy:parent-supplementary-format-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${supplementaryFormat}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-supplementary-format-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
+      @{ Id = 'malformed-high-artifact'; Error = $null; EntityHex = '26-23-78-44-38-30-30-3B'; Coordinate = 'fixture.policy:parent-malformed-high-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${malformedHighEntity}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-high-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" },
+      @{ Id = 'malformed-low-artifact'; Error = $null; EntityHex = '26-23-78-44-43-30-30-3B'; Coordinate = 'fixture.policy:parent-malformed-low-artifact:1.0'; Xml = "<project><parent><groupId>fixture.policy</groupId><artifactId>parent${malformedLowEntity}</artifactId><version>1.0</version></parent><groupId>fixture.policy</groupId><artifactId>parent-malformed-low-artifact</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>" }
     )
     foreach ($parentMetadata in $parentMetadataCases) {
+      if ($parentMetadata.ContainsKey('EntityHex')) {
+        $pomFixtureHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($parentMetadata.Xml))
+        Assert-Policy (
+          [regex]::Matches($pomFixtureHex, [regex]::Escape($parentMetadata.EntityHex)).Count -eq 1
+        ) "[POLICY-POM-MALFORMED-FIXTURE-BYTES-$($parentMetadata.Id.ToUpperInvariant())] generated XML entity bytes drifted"
+      }
       [void](Write-PolicyPom -Coordinate $parentMetadata.Coordinate -Xml $parentMetadata.Xml)
       $parentMetadataResult = Invoke-PolicyFixture -Coordinates @($parentMetadata.Coordinate)
+      $parentPomErrors = @($parentMetadataResult.Violations | Where-Object Code -CEQ 'GRADLE-POM')
       Assert-Policy (
-        @($parentMetadataResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+        $parentPomErrors.Count -eq 1 -and
+        ([string]::IsNullOrEmpty([string]$parentMetadata.Error) -or $parentPomErrors[0].Detail -match [regex]::Escape($parentMetadata.Error))
       ) "[POLICY-POM-PARENT-$($parentMetadata.Id.ToUpperInvariant())] malformed parent GAV was accepted"
     }
 
@@ -876,6 +940,7 @@ if ($Suite -eq 'policy') {
       @{ Id = 'duplicate-field'; Error = '字段重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'unsupported-field'; Error = '不支持字段'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19","note":"no"}]' },
       @{ Id = 'control'; Error = '控制/格式'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy\u202etest","registered_on":"2026-08-19"}]' },
+      @{ Id = 'supplementary-format'; Error = '[LICENSE-METADATA-SCALAR]'; Json = "[{`"coordinate`":`"fixture.policy:a:1.0`",`"license`":`"Apache-2.0`",`"evidence_url`":`"https://example.invalid/a`",`"registered_by`":`"policy${supplementaryFormat}test`",`"registered_on`":`"2026-08-19`"}]" },
       @{ Id = 'wildcard'; Error = '具体且安全'; Json = '[{"coordinate":"fixture.policy:*:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'missing-coordinate'; Error = '缺少必填字段 coordinate'; Json = '[{"license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'missing-license'; Error = '缺少必填字段 license'; Json = '[{"coordinate":"fixture.policy:a:1.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
@@ -891,6 +956,42 @@ if ($Suite -eq 'policy') {
       @{ Id = 'duplicate-fallback'; Error = '坐标重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' },
       @{ Id = 'duplicate-declared'; Error = 'declared_license 重复'; Json = '[{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by":"policy-test","registered_on":"2026-08-19"},{"coordinate":"fixture.policy:a:1.0","declared_license":"Mystery","license":"BSD-3-Clause","evidence_url":"https://example.invalid/b","registered_by":"policy-test","registered_on":"2026-08-19"}]' }
     )
+    $jsonEscapePrefix = ([string][char]92) + 'u'
+    foreach ($surrogateCase in @(
+      @{ Id = 'high'; Escape = $jsonEscapePrefix + 'D800'; EscapeHex = '5C-75-44-38-30-30' },
+      @{ Id = 'low'; Escape = $jsonEscapePrefix + 'DC00'; EscapeHex = '5C-75-44-43-30-30' }
+    )) {
+      foreach ($field in @('coordinate', 'declared_license', 'license', 'evidence_url', 'registered_by', 'registered_on')) {
+        $values = @{
+          coordinate = 'fixture.policy:a:1.0'
+          declared_license = 'Mystery'
+          license = 'Apache-2.0'
+          evidence_url = 'https://example.invalid/a'
+          registered_by = 'policy-test'
+          registered_on = '2026-08-19'
+        }
+        $values[$field] = "$($values[$field])$($surrogateCase.Escape)"
+        $malformedJson = '[{"coordinate":"' + $values.coordinate + '","declared_license":"' + $values.declared_license + '","license":"' + $values.license + '","evidence_url":"' + $values.evidence_url + '","registered_by":"' + $values.registered_by + '","registered_on":"' + $values.registered_on + '"}]'
+        $malformedJsonHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($malformedJson))
+        Assert-Policy (
+          [regex]::Matches($malformedJsonHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -eq 1
+        ) "[POLICY-OVERRIDE-MALFORMED-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-$($field.Replace('_', '-').ToUpperInvariant())] generated JSON escape bytes drifted"
+        $invalidExceptions += @{
+          Id = "malformed-$($surrogateCase.Id)-$($field.Replace('_', '-'))"
+          Error = '[LICENSE-METADATA-SCALAR]'
+          Json = $malformedJson
+        }
+      }
+      $invalidExceptions += @{
+        Id = "malformed-$($surrogateCase.Id)-property-name"
+        Error = '[LICENSE-METADATA-SCALAR]'
+        Json = '[{"coordinate":"fixture.policy:a:1.0","license":"Apache-2.0","evidence_url":"https://example.invalid/a","registered_by' + $surrogateCase.Escape + '":"policy-test","registered_on":"2026-08-19"}]'
+      }
+      $propertyFixtureHex = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($invalidExceptions[-1].Json))
+      Assert-Policy (
+        [regex]::Matches($propertyFixtureHex, [regex]::Escape($surrogateCase.EscapeHex)).Count -eq 1
+      ) "[POLICY-OVERRIDE-MALFORMED-FIXTURE-BYTES-$($surrogateCase.Id.ToUpperInvariant())-PROPERTY-NAME] generated JSON property escape bytes drifted"
+    }
     foreach ($invalid in $invalidExceptions) {
       Set-PolicyExceptions -Json $invalid.Json
       $invalidResult = Invoke-PolicyFixture -Coordinates @('fixture.policy:a:1.0')
@@ -1014,7 +1115,7 @@ if ($Suite -eq 'policy') {
         Name = 'pom-parent-scalar'
         From = '  Assert-GradleMetadataScalar -Field "POM $Field" -Value $value # POM required scalar safety guard'
         To = '  $null = $value # POM required scalar safety guard'
-        Expected = '[POLICY-POM-PARENT-CONTROL-ARTIFACT]'
+        Expected = '[POLICY-POM-PARENT-SUPPLEMENTARY-FORMAT-ARTIFACT]'
       },
       @{
         Name = 'classification-unknown'
@@ -1060,9 +1161,9 @@ if ($Suite -eq 'policy') {
       },
       @{
         Name = 'override-metadata-control'
-        From = '        Assert-GradleMetadataScalar -Field ([string]$field) -Value ([string]$record[$field])'
-        To = '        $null = [string]$record[$field]'
-        Expected = '[POLICY-OVERRIDE-CONTROL]'
+        From = '          Assert-GradleMetadataScalar -Field $field -Value $jsonScalar # exception raw JSON scalar safety guard'
+        To = '          $null = $jsonScalar # exception raw JSON scalar safety guard'
+        Expected = '[POLICY-OVERRIDE-SUPPLEMENTARY-FORMAT]'
       },
       @{
         Name = 'override-declared-nonblank'

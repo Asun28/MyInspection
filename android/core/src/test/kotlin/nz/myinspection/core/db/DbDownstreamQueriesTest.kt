@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
  *  - inspection_item.updateWearOrDamageIfDraft（消费方：采集层）
  *  - property_item_override.setSuppressed / selectByPropertyAndStableId（采集层）
  *  - notice.recordDelivery（通知层）
- *  - photo.softDelete / orphanedAssets / selectActiveAssetsByContentHash（照片管线）
+ *  - photo.softDelete / orphanedAssets / property-scoped active-asset reuse（照片管线）
  */
 class DbDownstreamQueriesTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -487,16 +487,23 @@ class DbDownstreamQueriesTest {
      * 两种实现都能让断言通过——排序那句就没被测到（L165）。
      */
     @Test
-    fun `selectActiveAssetsByContentHash returns active paths in deterministic order and excludes soft-deleted ones`() {
+    fun `active asset reuse is property-scoped deterministic and excludes soft-deleted paths`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val otherPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
         val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val otherInspectionId = DbTestFixtures.insertDraftInspection(
+            database, uuid, otherPropertyId,
+            DbTestFixtures.insertTemplateVersion(database, uuid, version = 2, now = now),
+            now = now,
+        )
         // 三个房间：idx_photo_active 把去重唯一性限定在**单个 room_instance 内**（有意如此，见 Photo.sq
         // 该索引注释：同一照片内容跨巡检/跨房间合法出现）。所以「同哈希、多物理路径」只可能跨房间成立，
         // 而那正是 T2-PHOTO-PIPELINE 要的跨巡检复用场景——同一房间内塞两次同哈希反而该被唯一索引拦下。
         val roomA = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1, now = now)
         val roomB = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 2, now = now)
         val roomC = DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, roomKey = "KITCHEN", instanceNo = 1, now = now)
+        val otherPropertyRoom = DbTestFixtures.insertRoomInstance(database, uuid, otherInspectionId, now = now)
 
         fun addPhoto(roomInstanceId: String, relPath: String, hash: String): String {
             val id = uuid.next()
@@ -513,26 +520,27 @@ class DbDownstreamQueriesTest {
         // path-b 全程保持活跃：它是上面「最后一条关联被删后仍幸存的复用目标」那条断言的对照物。
         addPhoto(roomA, "photos/path-b.jpg", "shared-hash")
         val firstAssociationAtPathA = addPhoto(roomB, "photos/path-a.jpg", "shared-hash")
+        addPhoto(otherPropertyRoom, "photos/other-property.jpg", "shared-hash")
         addPhoto(roomA, "photos/unrelated.jpg", "other-hash")
 
         assertEquals(
             listOf("photos/path-a.jpg", "photos/path-b.jpg"),
-            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
-            "every active path for the hash must come back, ordered by rel_path rather than by insertion order",
+            database.photoQueries.selectActiveAssetsByPropertyAndContentHash(propertyId, "shared-hash").executeAsList(),
+            "only this property's active paths must come back, ordered by rel_path rather than insertion order",
         )
         assertEquals(
-            emptyList(),
-            database.photoQueries.selectActiveAssetsByContentHash("no-such-hash").executeAsList(),
-            "an unknown hash must return nothing, so the caller imports a fresh file instead of reusing a wrong one",
+            listOf("photos/other-property.jpg"),
+            database.photoQueries.selectActiveAssetsByPropertyAndContentHash(otherPropertyId, "shared-hash").executeAsList(),
+            "the same hash in another property must remain a separate physical asset",
         )
 
         // 复用：第三个房间的新关联指向查回来的同一份物理文件（跨房间才不撞 idx_photo_active）。
         // DISTINCT 必须把它折叠掉，否则调用方会以为磁盘上有两份。
-        val reusedPath = database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList().first()
+        val reusedPath = database.photoQueries.selectActiveAssetsByPropertyAndContentHash(propertyId, "shared-hash").executeAsList().first()
         val reuseAssociation = addPhoto(roomC, reusedPath, "shared-hash")
         assertEquals(
             listOf("photos/path-a.jpg", "photos/path-b.jpg"),
-            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            database.photoQueries.selectActiveAssetsByPropertyAndContentHash(propertyId, "shared-hash").executeAsList(),
             "reusing an asset adds an association, not a physical file — the distinct path set must not grow",
         )
 
@@ -541,7 +549,7 @@ class DbDownstreamQueriesTest {
         database.photoQueries.softDelete(deleted_at = now + 1, id = firstAssociationAtPathA)
         assertEquals(
             listOf("photos/path-a.jpg", "photos/path-b.jpg"),
-            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            database.photoQueries.selectActiveAssetsByPropertyAndContentHash(propertyId, "shared-hash").executeAsList(),
             "dropping one of two associations must not retire the physical file the other one still points at",
         )
 
@@ -549,13 +557,59 @@ class DbDownstreamQueriesTest {
         database.photoQueries.softDelete(deleted_at = now + 2, id = reuseAssociation)
         assertEquals(
             listOf("photos/path-b.jpg"),
-            database.photoQueries.selectActiveAssetsByContentHash("shared-hash").executeAsList(),
+            database.photoQueries.selectActiveAssetsByPropertyAndContentHash(propertyId, "shared-hash").executeAsList(),
             "a path whose last active association is gone must stop being offered for reuse",
         )
         // 与 orphanedAssets 的口径对上：刚退出复用池的那份物理文件，正是它该报告的孤儿。
         assertTrue(
             database.photoQueries.orphanedAssets().executeAsList().contains("photos/path-a.jpg"),
             "the path that just left the reuse pool is exactly what orphanedAssets must hand to the cleanup job",
+        )
+    }
+
+    @Test
+    fun `cross-property active path audit reports only paths shared by distinct properties`() {
+        fun newRoom(propertyId: String, version: Long): String {
+            val inspectionId = DbTestFixtures.insertDraftInspection(
+                database,
+                uuid,
+                propertyId,
+                DbTestFixtures.insertTemplateVersion(database, uuid, version = version, now = now),
+                now = now,
+            )
+            return DbTestFixtures.insertRoomInstance(database, uuid, inspectionId, now = now)
+        }
+
+        val propertyA = DbTestFixtures.insertProperty(database, uuid, now)
+        val propertyB = DbTestFixtures.insertProperty(database, uuid, now)
+        val roomA1 = newRoom(propertyA, 11)
+        val roomA2 = newRoom(propertyA, 12)
+        val roomB = newRoom(propertyB, 13)
+
+        fun add(roomId: String, path: String, hash: String, deletedAt: Long? = null) {
+            val id = uuid.next()
+            assertEquals(1L, database.photoQueries.insert(
+                id = id, inspection_item_id = null, room_instance_id = roomId,
+                rel_path = path, content_hash = hash, exif_time_ms = null, source = "CAMERA",
+                privacy_flag = 0, created_at = now, updated_at = now,
+            ).value)
+            if (deletedAt != null) database.photoQueries.softDelete(deleted_at = deletedAt, id = id)
+        }
+
+        add(roomA1, "photos/shared-z.jpg", "hash-a")
+        add(roomB, "photos/shared-z.jpg", "hash-b")
+        add(roomA1, "photos/shared-a.jpg", "hash-c")
+        add(roomB, "photos/shared-a.jpg", "hash-d")
+        add(roomA1, "photos/same-property-only.jpg", "hash-e")
+        add(roomA2, "photos/same-property-only.jpg", "hash-f")
+        add(roomB, "photos/deleted-other-property.jpg", "hash-g", deletedAt = now + 1)
+        add(roomA1, "photos/deleted-other-property.jpg", "hash-h")
+
+        assertEquals(
+            listOf("photos/shared-a.jpg" to 2L, "photos/shared-z.jpg" to 2L),
+            database.photoQueries.selectCrossPropertySharedActiveRelPaths().executeAsList()
+                .map { it.rel_path to it.property_count },
+            "audit must be read-only, deterministic, and count distinct active properties",
         )
     }
 }

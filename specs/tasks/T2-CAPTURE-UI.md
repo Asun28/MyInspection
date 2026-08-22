@@ -1,7 +1,7 @@
 ---
 id: T2-CAPTURE-UI
 title: Field Ledger Compose 走查：房间导航 + 状态/证据 + 备注/拍照
-depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T2-FIELD-LEDGER-THEME, T2-REPEATABLE-ROOM-RUNTIME]
+depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T2-FIELD-LEDGER-THEME-R3-CLOSURE, T2-REPEATABLE-ROOM-RUNTIME]
 parallelizable_with: [T3-REPORT-COMPOSER, T3-FINALIZE]
 status: todo
 branch: T2-CAPTURE-UI
@@ -42,7 +42,7 @@ doc_sync: TASK-BOARD 备注（R5）
 - 草稿：每房间退出/切换即触发 `:core` 房间粒度保存；进程死亡恢复由核保证，UI 只需重进时读进度。
 - 视觉基调：工具型、素色高对比、日光下可读；参考 `docs/research/` 调研的 [adopt] 项（若报告尚未就位，按上述铁律即可，不阻塞）。
 - ViewModel 只做状态流转发（StateFlow 包 :core 查询），无业务分支——评审会按「UI 未旁路核心规则」查。
-- **Field Ledger 生产化**：以 `context/DESIGN.md` 为视觉真相源，落固定的 Material 3 `ColorScheme`/`Typography`/`Shapes`（禁 capture 动态取壁纸色）；明确 light/dark 策略并在 app root 应用。删除一次性 `skeleton/`，`MainActivity` 只挂真实根界面。自定义 evidence rail 合并 TalkBack 语义，状态/照片/历史均有文本标签；“需注意”细分用可见 sheet，长按只可作快捷方式。
+- **Field Ledger 生产化**：主题契约已由 `T2-FIELD-LEDGER-THEME-R3-CLOSURE` 完整闭合（PR #55 / master `cc4c67c`），Material 3 的核心与扩展颜色角色、Typography 和 Shapes 均有 Field Ledger 显式映射；本卡只负责在 app root 应用该固定主题（禁 capture 动态取壁纸色），不重新设计 token。删除一次性 `skeleton/`，`MainActivity` 只挂真实根界面。自定义 evidence rail 合并 TalkBack 语义，状态/照片/历史均有文本标签；“需注意”细分用可见 sheet，长按只可作快捷方式。
 
 ## 验收 / 执行建议
 dod 见 front-matter；人工冒烟清单条目写进 PR 描述。
