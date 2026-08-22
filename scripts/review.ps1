@@ -42,11 +42,19 @@ param(
   [string]$Effort = '',
   [switch]$LocalBase,   # -Local 工作流：合并目标是**本地** <base>（非 origin/<base>）——优先本地解析基线（TD68 / R3 PR#102 三轮）
   [int]$TimeoutSec = 0,
-  [switch]$ResetRounds  # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
+  [switch]$ResetRounds, # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
+  [switch]$SizeOnly,    # 只计算真实 diff 预算并退出；不调用 reviewer、不消费 round。供 task.ps1 在 push/PR 前复用
+  [string]$ExpectHead = '', # 调用方已测量/已钉死的提交 OID：本次评审的 HEAD 必须**恰好**是它，否则唤起评审者之前 fail-closed
+  [ValidateRange(1, 1000)][int]$MaxChangedLines = 1000, # 仅允许收紧，禁止命令行放宽基线批准的默认上限
+  [ValidateRange(1, 60000)][int]$MaxDiffChars = 60000   # 仅允许收紧，禁止绕过 reviewer 的 60k 完整 diff 边界
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($SizeOnly -and $ResetRounds) {
+  Write-Host '  [R3-DIFF-ARGS-INVALID] -SizeOnly and -ResetRounds are independent operations and cannot be combined.' -ForegroundColor Red
+  exit 1
+}
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
 # 忽略会话里无效的 token（空串仍被 gh 视为“存在”→会遮蔽 keyring），用 Remove-Item 彻底清除
 Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
@@ -66,6 +74,23 @@ $scriptRootResolved = (Resolve-Path $PSScriptRoot).Path
 $wtWithSep = $WorktreePath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if ($scriptRootResolved.StartsWith($wtWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
   Write-Warning "TD66-STD-BASELINE: 评审逻辑本体（review.ps1/_guard/_gitbase/_encoding）由被审树 '$WorktreePath' 自身提供（-Local / 手动在被审检出内跑评审）。rubric 与 FrozenPaths 已从基线锁定，但**评审逻辑本体未从基线锁**——被审分支理论上能改动评审代码本身。要完全完整性，请从主检出跑评审（标准远端 ship 即如此）。此为纵深防御提示、非阻断。"
+}
+# 被审对象身份闸（R3 round 3）：分支引用与工作树 HEAD 是**两样东西**。task.ps1 的 Assert-MeasuredTip 只能证明
+# refs/heads/<TaskId> 仍指向被测 OID；工作树若在测量之后 detach 或切到别的分支，那条引用纹丝不动、守卫照过，
+# 而本脚本审的是 `git rev-parse HEAD` —— 于是「被测量的」「被合并的」是同一个提交，「被评审的」却是另一个。
+# 故调用方把已钉死的 OID 显式传进来，在这里比对：不符即 fail-closed，且**早于** round 计数与 reviewer 调用，
+# 不消费轮次（这是身份错配，不是评审意见）。
+if ($ExpectHead) {
+  if ($ExpectHead -notmatch '^[0-9a-fA-F]{40}$') {
+    Write-Host "  [R3-HEAD-MISMATCH] -ExpectHead '$ExpectHead' 不是 40 位十六进制 OID：无法用它证明被审对象身份，拒绝评审（fail-closed）。" -ForegroundColor Red
+    Write-Host '裁决: block（-ExpectHead 形态非法）' -ForegroundColor Red
+    exit 1
+  }
+  if ($sha -ne $ExpectHead.ToLowerInvariant()) {
+    Write-Host "  [R3-HEAD-MISMATCH] 工作树 '$WorktreePath' 的 HEAD 是 $sha，调用方钉死的被测提交是 $($ExpectHead.ToLowerInvariant())。分支引用可能仍指向被测提交（detached HEAD / 切分支不会移动它），但评审看到的是 HEAD —— 继续下去就会「审 A、合 B」。已在唤起评审者之前中止，未消费评审轮次。修复：把工作树切回被测提交（git -C '$WorktreePath' checkout $($ExpectHead.ToLowerInvariant())），或重跑 ship 让全部闸门对当前 HEAD 重新测量。" -ForegroundColor Red
+    Write-Host '裁决: block（被审 HEAD 与已钉死的被测提交不符）' -ForegroundColor Red
+    exit 1
+  }
 }
 $reviewDir = Join-Path $WorktreePath '.review'
 # 分支名含 / 会让 <branch>.json 落到子目录 → 父目录不存在则写入失败、$raw 空、误判 block（L25）。
@@ -251,13 +276,6 @@ $reviewEffort = if ($Effort) { $Effort } else { $cfgEffort }
 # 刻意**不**在此硬编码合法档位枚举：合法值**随模型而异**（实测 gpt-5.6-sol/luna 接受 max、却拒 minimal，
 # 而 API 的通用参数枚举又列出 minimal——两者不同源）。任何静态列表都会「误拒合法配置 / 误放非法组合」。
 # 校验交给 CLI/API：填错即评审者启动失败 → 写不出裁决 → 走下方既有 fail-closed 路径 block（并在控制台打出后端原文报错）。
-if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
-  Write-Host $codexSetup -ForegroundColor Yellow
-  Write-Verdict 'block' @('codex 缺失，无法评审：装 codex、或在 _config.ps1 设 ReviewCommand 换后端、或 -SkipReview（仅本地只读）。')
-  Write-Host '裁决: block（codex 缺失，无法评审）' -ForegroundColor Red
-  exit 1
-}
-
 # --- 评审 prompt：钉死本项目的冻结契约与硬边界 ---
 # 提示注入硬化 · 数据栅栏 nonce（TD48/TD-111）：分隔「待审数据」与「可信 prompt 层」的栅栏标记改用每轮
 # 生成的不可猜 nonce（=== DATA-<nonce> …===）。固定明文栅栏可被卡片/diff 里注入的同款标记冒充、提前「闭合」
@@ -279,21 +297,78 @@ function Protect-FenceMarkers([string]$s) {
 # `fatal: ... no merge base`，stdout 为空。_encoding.ps1 刻意把 $PSNativeCommandUseErrorActionPreference 设为 $false
 # （顶层原生命令按退出码判、不抛），所以这里**不会**抛异常——不显式检查的话，评审者会收到一份**空 diff**，
 # 在「什么都没看到」的情况下给出 pass（fail-open）。故先验共同祖先，再逐个 diff 调用查退出码。
-$mergeBase = (& git -C $WorktreePath merge-base "$baseOid" HEAD 2>$null | Out-String).Trim()
+$mergeBase = (& git -C $WorktreePath merge-base "$baseOid" "$sha" 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
-  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and HEAD share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
-  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与 HEAD 无共同祖先，无法算 diff）" -ForegroundColor Red
+  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and captured HEAD '$sha' share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
+  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与已捕获 HEAD $sha 无共同祖先，无法算 diff）" -ForegroundColor Red
   exit 1
 }
-$diff = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --stat | Out-String).Trim()
+$comparison = "$baseOid...$sha"
+# 预算与评审输入都必须来自 git 自己的 diff 实现：`--no-ext-diff` 关掉仓库/环境可配的 diff.external，
+# `--no-textconv` 关掉 gitattributes 的 textconv 过滤器。二者任缺其一，被审仓库就能提供一个**成功退出**的
+# helper 把一份超大改动压成几行输出——numstat 仍在 1000 行以内、字符数被压到 60000 以下，于是预算闸放行、
+# 评审者读到的也是被过滤后的正文。这不是理论面：本仓夹具已证明 diff.external 会被执行。
+$diff = (& git -C $WorktreePath -c core.quotepath=false diff --no-ext-diff --no-textconv $comparison --stat | Out-String).Trim()
 $diffStatExit = $LASTEXITCODE
-$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --unified=3 | Out-String)
+$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff --no-ext-diff --no-textconv $comparison --numstat | Out-String)
+$diffNumstatExit = $LASTEXITCODE
+$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff --no-ext-diff --no-textconv $comparison --unified=3 | Out-String)
 $diffBodyExit = $LASTEXITCODE
-if ($diffStatExit -ne 0 -or $diffBodyExit -ne 0) {
-  Write-Verdict 'block' @("git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.")
-  Write-Host "裁决: block（git diff 失败：--stat=$diffStatExit / --unified=$diffBodyExit）" -ForegroundColor Red
+if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
+  $diffFailureReason = "[R3-DIFF-COMMAND-FAILED] git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --numstat=$diffNumstatExit, --unified=$diffBodyExit). The size/review input cannot be trusted, so this run blocks fail-closed."
+  if (-not $SizeOnly) { Write-Verdict 'block' @($diffFailureReason) }
+  Write-Host "  $diffFailureReason" -ForegroundColor Red
+  Write-Host '裁决: block（git diff 命令失败）' -ForegroundColor Red
   exit 1
 }
+$changedLines = [long]0
+$binaryFiles = 0
+$numstatMalformed = @()
+foreach ($numstatLine in @($diffNumstat -split '\r?\n' | Where-Object { $_ -ne '' })) {
+  if ($numstatLine -notmatch '^(?<add>\d+|-)\t(?<delete>\d+|-)\t') {
+    $numstatMalformed += $numstatLine
+    continue
+  }
+  $add = $Matches['add']; $delete = $Matches['delete']
+  if ($add -eq '-' -or $delete -eq '-') {
+    if ($add -ne '-' -or $delete -ne '-') { $numstatMalformed += $numstatLine; continue }
+    $binaryFiles++
+    continue
+  }
+  $changedLines += [long]$add + [long]$delete
+}
+if ($numstatMalformed.Count -gt 0) {
+  $numstatReason = "[R3-DIFF-NUMSTAT-INVALID] git diff --numstat returned $($numstatMalformed.Count) unparseable row(s); changed-line size is unknown, so this run blocks fail-closed."
+  if (-not $SizeOnly) { Write-Verdict 'block' @($numstatReason) }
+  Write-Host "  $numstatReason" -ForegroundColor Red
+  Write-Host '裁决: block（numstat 无法可靠解析）' -ForegroundColor Red
+  exit 1
+}
+$diffChars = [long]$diffBody.Length
+Write-Host "R3 diff size: changedLines=$changedLines diffChars=$diffChars binaryFiles=$binaryFiles limits=$MaxChangedLines/$MaxDiffChars" -ForegroundColor DarkGray
+if ($changedLines -gt $MaxChangedLines -or $diffChars -gt $MaxDiffChars) {
+  $sizeReason = "[R3-DIFF-TOO-LARGE] Pinned diff $comparison is too large for one complete R3 pass: changedLines=$changedLines (max $MaxChangedLines), diffChars=$diffChars (max $MaxDiffChars), binaryFiles=$binaryFiles. Split the task/card before push or review; no reviewer round was consumed."
+  if (-not $SizeOnly) { Write-Verdict 'block' @($sizeReason) }
+  Write-Host "  $sizeReason" -ForegroundColor Red
+  Write-Host '裁决: block（真实 diff 超预算，须拆卡）' -ForegroundColor Red
+  exit 1
+}
+if ($SizeOnly) {
+  # 把**本次实际测量的那个提交**以机器可读形式交回调用方。task.ps1 据此在 push / R3 / 合并前逐次核对分支仍
+  # 指向同一 OID：否则「测量的提交」与「发布的提交」可以是两个东西——SizeOnly 通过后把分支移到一个
+  # 1001 行的提交上，push/建 PR 仍会照发，pre-push 硬闸形同虚设。分支名不是提交身份，OID 才是。
+  Write-Host "R3-DIFF-MEASURED-OID: $sha"
+  Write-Host 'R3 diff budget: PASS（SizeOnly；未调用 reviewer、未消费 round）' -ForegroundColor Green
+  exit 0
+}
+
+if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
+  Write-Host $codexSetup -ForegroundColor Yellow
+  Write-Verdict 'block' @('codex 缺失，无法评审：装 codex、或在 _config.ps1 设 ReviewCommand 换后端、或 -SkipReview（仅本地只读）。')
+  Write-Host '裁决: block（codex 缺失，无法评审）' -ForegroundColor Red
+  exit 1
+}
+
 $diffCap = 60000
 $diffTruncated = $false
 if ($diffBody.Length -gt $diffCap) { $diffBody = $diffBody.Substring(0, $diffCap); $diffTruncated = $true }
