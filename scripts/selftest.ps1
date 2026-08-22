@@ -1940,7 +1940,7 @@ function Test-LicenseGateAfterGradleWarmup([string]$WorkflowText) {
   }
   $canonicalBlock = (($license.Value -replace "`r`n", "`n") -replace "`r", "`n").TrimEnd("`n") + "`n"
   $actualHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonicalBlock)))
-  return ($actualHash -ceq '95C793589286FC04086C94EC31E3AAD50C863DF10EEAA6848DC3F11FD41D51EE' -and
+  return ($actualHash -ceq 'DD4E2DC3755FC1083A0C02C868895A6F5EF050C909F90647B897C82D714A916C' -and
           $license.Index -gt $warmup.Index -and $license.Index -lt $e2e.Index)
 }
 $licenseGateMatch82 = [regex]::Match($ciText82, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
