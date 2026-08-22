@@ -44,6 +44,7 @@ param(
   [int]$TimeoutSec = 0,
   [switch]$ResetRounds, # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
   [switch]$SizeOnly,    # 只计算真实 diff 预算并退出；不调用 reviewer、不消费 round。供 task.ps1 在 push/PR 前复用
+  [string]$ExpectHead = '', # 调用方已测量/已钉死的提交 OID：本次评审的 HEAD 必须**恰好**是它，否则唤起评审者之前 fail-closed
   [ValidateRange(1, 1000)][int]$MaxChangedLines = 1000, # 仅允许收紧，禁止命令行放宽基线批准的默认上限
   [ValidateRange(1, 60000)][int]$MaxDiffChars = 60000   # 仅允许收紧，禁止绕过 reviewer 的 60k 完整 diff 边界
 )
@@ -73,6 +74,23 @@ $scriptRootResolved = (Resolve-Path $PSScriptRoot).Path
 $wtWithSep = $WorktreePath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if ($scriptRootResolved.StartsWith($wtWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
   Write-Warning "TD66-STD-BASELINE: 评审逻辑本体（review.ps1/_guard/_gitbase/_encoding）由被审树 '$WorktreePath' 自身提供（-Local / 手动在被审检出内跑评审）。rubric 与 FrozenPaths 已从基线锁定，但**评审逻辑本体未从基线锁**——被审分支理论上能改动评审代码本身。要完全完整性，请从主检出跑评审（标准远端 ship 即如此）。此为纵深防御提示、非阻断。"
+}
+# 被审对象身份闸（R3 round 3）：分支引用与工作树 HEAD 是**两样东西**。task.ps1 的 Assert-MeasuredTip 只能证明
+# refs/heads/<TaskId> 仍指向被测 OID；工作树若在测量之后 detach 或切到别的分支，那条引用纹丝不动、守卫照过，
+# 而本脚本审的是 `git rev-parse HEAD` —— 于是「被测量的」「被合并的」是同一个提交，「被评审的」却是另一个。
+# 故调用方把已钉死的 OID 显式传进来，在这里比对：不符即 fail-closed，且**早于** round 计数与 reviewer 调用，
+# 不消费轮次（这是身份错配，不是评审意见）。
+if ($ExpectHead) {
+  if ($ExpectHead -notmatch '^[0-9a-fA-F]{40}$') {
+    Write-Host "  [R3-HEAD-MISMATCH] -ExpectHead '$ExpectHead' 不是 40 位十六进制 OID：无法用它证明被审对象身份，拒绝评审（fail-closed）。" -ForegroundColor Red
+    Write-Host '裁决: block（-ExpectHead 形态非法）' -ForegroundColor Red
+    exit 1
+  }
+  if ($sha -ne $ExpectHead.ToLowerInvariant()) {
+    Write-Host "  [R3-HEAD-MISMATCH] 工作树 '$WorktreePath' 的 HEAD 是 $sha，调用方钉死的被测提交是 $($ExpectHead.ToLowerInvariant())。分支引用可能仍指向被测提交（detached HEAD / 切分支不会移动它），但评审看到的是 HEAD —— 继续下去就会「审 A、合 B」。已在唤起评审者之前中止，未消费评审轮次。修复：把工作树切回被测提交（git -C '$WorktreePath' checkout $($ExpectHead.ToLowerInvariant())），或重跑 ship 让全部闸门对当前 HEAD 重新测量。" -ForegroundColor Red
+    Write-Host '裁决: block（被审 HEAD 与已钉死的被测提交不符）' -ForegroundColor Red
+    exit 1
+  }
 }
 $reviewDir = Join-Path $WorktreePath '.review'
 # 分支名含 / 会让 <branch>.json 落到子目录 → 父目录不存在则写入失败、$raw 空、误判 block（L25）。

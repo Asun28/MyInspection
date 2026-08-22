@@ -3199,6 +3199,11 @@ if (-not $git) {
     # ref 移动的植入点（15b3 用）。未设 T0_SMOKE_MOVE_TIP 时行为与原 stub 逐字相同，15b/15b2 不受影响。
     $reviewStub = @'
 [Console]::In.ReadToEnd() | Out-Null
+if ($env:T0_SMOKE_DETACH_HEAD) {
+  # 只动 HEAD，绝不动 refs/heads/T0-SMOKE：这正是「分支引用看起来没事」的那种漂移。
+  $detachWt = $env:T0_SMOKE_DETACH_HEAD
+  & git -C $detachWt checkout -q --detach HEAD~1
+}
 if ($env:T0_SMOKE_MOVE_TIP) {
   $moveWt = $env:T0_SMOKE_MOVE_TIP
   [System.IO.File]::WriteAllText((Join-Path $moveWt 'README.md'), "tip moved after the budget gate measured it`n")
@@ -3303,6 +3308,33 @@ if ($env:T0_SMOKE_MOVE_TIP) {
       elseif ($moveMergeAfter -ne $moveMergeBefore) { Fail '闸15b3：报告 tip 前移后仍产生了 merge commit——未测量的提交已被并入基线。' }
       else { Write-Host '  15b3 被测提交身份 OK（SizeOnly 后 ref 前移 → R3-DIFF-TIP-MOVED，零 merge）' -ForegroundColor Green }
       & git -C $wtDir reset --hard $moveTipBefore *> $null   # disposable fixture：丢弃植入的前移提交
+    }
+
+    # 15b4（T0-R3-DIFF-BUDGET R3 round 3）：分支引用与工作树 HEAD 是两样东西。让 HEAD 走开（detach 到另一个
+    #   提交）而 refs/heads/T0-SMOKE **原地不动**：只查分支引用的守卫会照过，但评审读的是 HEAD，于是「被测量的」
+    #   与「被评审的」分家。必须在唤起评审者之前以 [R3-DIFF-TIP-MOVED] 停住，且零 merge、零评审。
+    if (-not $fail -and (Test-Path $wtDir)) {
+      $detachBranchOid = (& git -C $wtDir rev-parse HEAD 2>$null | Out-String).Trim()
+      $detachMergeBefore = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      Set-Content (Join-Path $wtDir 'README.md') 'in-budget change measured before HEAD walks away' -Encoding utf8
+      $savedDetach = $env:T0_SMOKE_DETACH_HEAD
+      try {
+        $env:T0_SMOKE_DETACH_HEAD = $wtDir
+        $detachOut = (& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1 | Out-String)
+        $detachExit = $LASTEXITCODE
+      } finally {
+        if ($null -eq $savedDetach) { Remove-Item Env:T0_SMOKE_DETACH_HEAD -ErrorAction SilentlyContinue } else { $env:T0_SMOKE_DETACH_HEAD = $savedDetach }
+      }
+      $detachBranchAfter = (& git -C $wtDir rev-parse refs/heads/T0-SMOKE 2>$null | Out-String).Trim()
+      $detachHeadAfter = (& git -C $wtDir rev-parse HEAD 2>$null | Out-String).Trim()
+      $detachMergeAfter = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      if ($detachHeadAfter -eq $detachBranchAfter) { Fail '闸15b4：植入点未能让 HEAD 与分支引用分离——本例没有真正施压（detach 失败）。' }
+      elseif ($detachExit -eq 0) { Fail '闸15b4：HEAD 已离开被测提交（分支引用未动），ship 仍 exit 0——只查分支引用的守卫放过了「审 A、合 B」。' }
+      elseif ($detachOut -notmatch '\[R3-DIFF-TIP-MOVED\]') { Fail "闸15b4：ship 非零但未命中 [R3-DIFF-TIP-MOVED]，可能红在错误路径。输出=$detachOut" }
+      elseif ($detachMergeAfter -ne $detachMergeBefore) { Fail '闸15b4：报告 HEAD 漂移后仍产生了 merge commit。' }
+      else { Write-Host '  15b4 被审 HEAD 身份 OK（分支引用不动、HEAD 走开 → R3-DIFF-TIP-MOVED，零 merge）' -ForegroundColor Green }
+      & git -C $wtDir checkout -q T0-SMOKE *> $null
+      & git -C $wtDir reset --hard $detachBranchOid *> $null   # disposable fixture：恢复到本例之前的状态
     }
 
     # 15c/15d. ship 两道确定性闸的种子缺陷覆盖（17 系模式：enforcer 喂已知坏输入须 BLOCK 且写效果账本——
@@ -11243,6 +11275,9 @@ try {
   $textconvUnguarded = (& git -C $textconvSpoofRoot -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String).Length
   if ($textconvUnguarded -ge 60001) { $spoofPreconditions += "textconv spoof did not shrink the unguarded diff (chars=$textconvUnguarded); this case cannot prove --no-textconv" }
   $textconvSpoof = Invoke-ReviewSizeFixture $textconvSpoofRoot
+  # 被审对象身份：HEAD 与调用方钉死的 OID 不符时，必须在做任何别的事之前 fail-closed，且不耗轮次。
+  $headMismatch = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-HEAD-MISMATCH' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ExpectHead', ('0' * 40))
+  $headMalformed = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-HEAD-MALFORMED' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ExpectHead', 'not-an-oid')
   $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
   $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
   $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
@@ -11319,12 +11354,14 @@ exit $realExit
     if ($reviewSizeText -notmatch ([regex]::Escape("diff --no-ext-diff --no-textconv `$comparison $guardedCall"))) { $sizeFailures += "authoritative '$guardedCall' diff call does not disable external diff/textconv" }
   }
   if ($argConflict.Exit -eq 0 -or $argConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + ResetRounds did not fail with R3-DIFF-ARGS-INVALID' }
+  if ($headMismatch.Exit -eq 0 -or $headMismatch.Text -notmatch '\[R3-HEAD-MISMATCH\]') { $sizeFailures += "a HEAD that differs from -ExpectHead was not refused (exit=$($headMismatch.Exit))" }
+  if ($headMalformed.Exit -eq 0 -or $headMalformed.Text -notmatch '\[R3-HEAD-MISMATCH\]') { $sizeFailures += "a malformed -ExpectHead was not refused (exit=$($headMalformed.Exit))" }
   if ($tooHighLines.Exit -eq 0 -or $tooHighLines.Text -notmatch 'MaxChangedLines') { $sizeFailures += 'MaxChangedLines accepted a value above 1000' }
   if ($tooHighChars.Exit -eq 0 -or $tooHighChars.Text -notmatch 'MaxDiffChars') { $sizeFailures += 'MaxDiffChars accepted a value above 60000' }
   if ($malformedNumstat.Exit -eq 0 -or $malformedNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "malformed numstat did not fail closed with its diagnostic (exit=$($malformedNumstat.Exit))" }
   if ($movedHead.Exit -ne 0 -or $movedHead.Text -notmatch 'changedLines=1' -or -not (Test-Path (Join-Path $moveHeadRoot 'head-moved.marker'))) { $sizeFailures += "moving HEAD changed the captured diff authority (exit=$($movedHead.Exit))" }
   if ($largeFullReview.Exit -eq 0 -or $largeFullReview.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $largeFullReview.Text -match 'Codex 评审|第二模型评审') { $sizeFailures += 'normal review did not stop at the size gate before reviewer invocation' }
-  $sizeCases = @($small999, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $extSpoof, $textconvSpoof, $argConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $movedHead, $largeFullReview)
+  $sizeCases = @($small999, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $extSpoof, $textconvSpoof, $argConflict, $headMismatch, $headMalformed, $tooHighLines, $tooHighChars, $malformedNumstat, $movedHead, $largeFullReview)
   if (@($sizeCases | Where-Object { $_.Rounds -ne 0 }).Count -ne 0) { $sizeFailures += 'size evaluation created/incremented an R3 round counter' }
   if ($reviewSizeText -notmatch '\[int\]\$MaxChangedLines\s*=\s*1000' -or $reviewSizeText -notmatch '\[int\]\$MaxDiffChars\s*=\s*60000') { $sizeFailures += 'production parameter defaults are not 1000 lines / 60000 chars' }
   $sizeOnlyPos = $taskSizeText.IndexOf('-SizeOnly', [System.StringComparison]::Ordinal)
@@ -11337,6 +11374,9 @@ exit $realExit
     if ($taskSizeText -notmatch ([regex]::Escape("Assert-MeasuredTip -MeasuredOid `$measuredOid -When '$boundStep'"))) { $sizeFailures += "'$boundStep' is not bound to the measured commit OID" }
   }
   if ($taskSizeText -notmatch [regex]::Escape('--match-head-commit $measuredOid')) { $sizeFailures += 'remote squash merge does not pin the measured commit server-side' }
+  if ($reviewSizeText -notmatch '\[R3-HEAD-MISMATCH\]') { $sizeFailures += 'review.ps1 has no -ExpectHead identity gate' }
+  if (@([regex]::Matches($taskSizeText, [regex]::Escape('-ExpectHead $measuredOid'))).Count -lt 2) { $sizeFailures += 'both review invocations must pass -ExpectHead $measuredOid' }
+  if ($taskSizeText -notmatch [regex]::Escape("rev-parse --verify --quiet 'HEAD^{commit}'")) { $sizeFailures += 'Assert-MeasuredTip does not pin the worktree HEAD, only the branch ref' }
 
   if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
   else { Write-Host '  17ai 真实 diff 预算 OK（999 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / 成功 ext-diff+textconv 伪装仍被拦 / 参数冲突+上限 / captured HEAD / 被测 OID 贯穿 push·R3·合并 / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }

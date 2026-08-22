@@ -513,6 +513,16 @@ switch ($Phase) {
         if ($tip -ne $MeasuredOid) {
           throw "[R3-DIFF-TIP-MOVED] $When 之前发现任务分支 $TaskId 已不再指向预算闸测量的提交：实测 $tip，应为 $MeasuredOid。分支名相同不等于提交相同——继续下去会发布一个从未过预算闸的提交。已中止（未执行该步骤）。修复：把分支移回 $MeasuredOid，或重跑 -Phase ship 让全部闸门对新提交重跑。"
         }
+        # 分支引用对了还不够：评审与构建读的是**工作树 HEAD**。detach 或切分支都不会移动 refs/heads/<TaskId>，
+        # 于是上面那条断言照过、而 HEAD 已是别的提交——「被测量的」与「被评审的」就此分家。两者都得钉住。
+        $headRaw = (& git -C $Wt rev-parse --verify --quiet 'HEAD^{commit}' 2>$null)
+        $headOid = "$headRaw".Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $headOid) {
+          throw "[R3-DIFF-TIP-MOVED] $When 之前无法解析工作树 '$Wt' 的 HEAD——被审对象身份无法复核，fail-closed 中止（未执行该步骤）。"
+        }
+        if ($headOid -ne $MeasuredOid) {
+          throw "[R3-DIFF-TIP-MOVED] $When 之前发现工作树 '$Wt' 的 HEAD 是 $headOid，而预算闸测量的是 $MeasuredOid（任务分支引用本身没动，故只查分支引用看不出来——detached HEAD / 切分支即此情形）。继续下去会「审 A、合 B」。已中止（未执行该步骤）。修复：先把工作树切回该提交，或重跑 -Phase ship 重新测量。"
+        }
       }
 
       Step '真实 diff 预算闸（1000 changed lines 且 60000 chars 内；push/PR/R3 前硬阻断）'
@@ -547,7 +557,7 @@ switch ($Phase) {
         if ($reviewAvail) {
           # -LocalBase：-Local 的合并目标是本地 <base>，评审基线也须对照本地（否则前次本地合并的文件被误判，TD68）。
           Assert-MeasuredTip -MeasuredOid $measuredOid -When 'R3 第二模型评审（-Local）'
-          & pwsh -NoProfile -File (Join-Path $Wt 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -LocalBase
+          & pwsh -NoProfile -File (Join-Path $Wt 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -LocalBase -ExpectHead $measuredOid
           if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block (-Local)'; throw '第二模型评审 block（-Local），已停止。修复后重 ship -Local。' }
         } else {
           Write-Warning '无 codex / ReviewCommand：-Local 跳过第二模型评审（仅本地检视，未做对抗评审）。装 codex 或在 _config 配 ReviewCommand 可启用。'
@@ -617,7 +627,9 @@ switch ($Phase) {
       Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；block 即停、不合并）'
       # 正常 R3 必须审预算闸测量过的同一个提交，否则「已测量」与「已评审」会指向两份不同产物。
       Assert-MeasuredTip -MeasuredOid $measuredOid -When 'R3 第二模型评审'
-      & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -PostStatus -PrNumber $pr
+      # 评审者自己也必须拒绝身份不符的对象：task.ps1 的断言与 review.ps1 的断言之间仍有一段时间窗，
+      # 且手工直接调 review.ps1 时根本不经过 task.ps1。把 OID 显式传下去，让闸自己 fail-closed。
+      & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -PostStatus -PrNumber $pr -ExpectHead $measuredOid
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block'; throw 'Codex 裁决 block，已停止。修复后重 ship（PR 已开，重 ship 会更新）。' }
       $sagaDone += 'R3 评审'
 
