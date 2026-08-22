@@ -20,14 +20,15 @@ description: >-
 ## 回路（DISCOVER → TRIAGE → ACT，单向喂既有链）
 1. **DISCOVER（只读扫描，不行动）**：
    `pwsh -File scripts\triage.ps1 scan`
-   纯文件解析、不打网络/不调 gh；产出 `_local/triage-inbox.md`（gitignored）。10 探针：
+   纯文件解析、不打网络/不调 gh；产出 `_local/triage-inbox.md`（gitignored）。11 探针：
    `lessons-promote`（经验该晋升）· `tech-debt-open`（债该还）· `cards-active`（卡在飞）·
    `handoff-open`（交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达/超封顶，该做减法；标题找不到即 fail-closed 报）·
    `harness-refresh`（judgment 经验累积达门槛，该双向复审：删旧闸 + 搜更优工具/方法纳新）·
    `effectiveness`（效果账本：各 ship 闸真实拦截数——喂 HARNESS-REVIEW 做拦截计数减法）·
    `worktree-orphan`（卡已 merged 却没拆的残留 worktree——cleanup 漏跑/半合并遗留）·
    `lessons-demote`（必须层某条已被确定性守卫覆盖，该降层）·
-   `delivery-blocked`（在飞卡坐在 R3 block 裁决上没人接——交付停摆，severity=blocking）。退出码恒 0（reporter，非闸门）。
+   `delivery-blocked`（在飞卡坐在 R3 block 裁决上没人接——交付停摆，severity=blocking）·
+   `scaffold-stale`（落后上游脚手架几版未议）。退出码恒 0（reporter，非闸门）。
 2. **TRIAGE（读收件箱，定路由）**：按 severity 读，据项的性质分两路——心跳只发现，方向仍归人/agent 判断（RSI）。
    - **判断类/定方向**（`tech-debt-open` 转不转卡、`harness-refresh`/`lessons-cap` 的减法、`cards-active` 续不续）：一次挑**一件**、逐条由人/agent 确认，别无脑平推（会牺牲方向判断）。
    - **可逆机械项**（`lessons-promote`、`worktree-orphan` 清残留及同类）：确认可逆后可**并行委派子代理**执行，编排者不必逐件等——独立且可逆的发现就 fan out、主线继续。
@@ -42,7 +43,7 @@ description: >-
    - `worktree-orphan` → `task-loop`：确认无未推改动后 `pwsh -File scripts\task.ps1 -TaskId <id> -Phase cleanup` 拆残留 worktree。
    - `lessons-demote`  → `docs\HARNESS-REVIEW.md` 仪式：确认守卫真覆盖后，从 CLAUDE.md 铁律小节摘掉该条 + LEDGER 改 `tier: ondemand`，再 `lessons.ps1 check`。
    - `delivery-blocked`→ `task-loop`：读该卡 `.review/*.json` 的 reasons，逐条修或拆卡后重 ship；理由若属既有系统而非本次 diff，另开卡（L113），别让 block 悬着。
-
+   - `scaffold-stale`  → `docs\SCAFFOLD-SYNC.md`：`pwsh -File scripts\scaffold-sync.ps1 check`，逐版决定拿/不拿，**并把决定连同理由写进决策账**——不回填是一等结果，不登记不是。
 
 ## 节律（cadence）
 - 手动：每个工作 session 开场跑一次 `triage.ps1 scan`，把收件箱当当天的 work-list。
