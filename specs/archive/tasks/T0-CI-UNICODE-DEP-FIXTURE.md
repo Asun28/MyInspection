@@ -2,7 +2,7 @@
 id: T0-CI-UNICODE-DEP-FIXTURE
 title: 补齐 license scanner 自检夹具的 Unicode helper 依赖并防假绿
 depends_on: [T0-DEBT-LICENSE-SCALAR-FORMAT]
-status: todo
+status: merged
 branch: T0-CI-UNICODE-DEP-FIXTURE
 worktree: C:\wt\T0-CI-UNICODE-DEP-FIXTURE
 allow_paths:
