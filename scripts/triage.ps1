@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   脚手架的「心跳」(heartbeat)：按节律(cadence)对本仓做一次**只读、离线、确定性**的扫描，
@@ -368,6 +368,45 @@ function Invoke-ProbeDeliveryBlocked {
   }
 }
 
+# ── 探针 12：scaffold-stale（落后上游脚手架几版；上游 v0.42.0 的 fleet 回路）──
+# 只读**已经取到本地**的 ref 与决策账，**绝不 fetch**——完整保住「心跳只读、离线、确定性」这条刻意不变量；
+# 刷新归显式的 `scaffold-sync.ps1 check -Fetch`。落后恒为**意见**、不进 ship：落后于脚手架不是停止交付本项目的理由。
+function Invoke-ProbeScaffoldStale {
+  $upstream = ''
+  try { $upstream = Get-ScaffoldUpstreamRepo } catch { return }
+  if (-not $upstream) { return }
+
+  # 元仓不把自己报成落后于自己。
+  $originUrl = & git -C $RepoRoot remote get-url origin 2>$null
+  if ($LASTEXITCODE -eq 0 -and $originUrl -and ($originUrl -match [regex]::Escape($upstream))) { return }
+
+  try { . (Join-Path $PSScriptRoot 'scaffold-sync.ps1') -AsLibrary } catch { return }
+
+  $ledgerPath = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
+  $ledgerText = if (Test-Path $ledgerPath) { Get-Content $ledgerPath -Raw } else { '' }
+  $provenance = 'unknown'
+  try { $provenance = Get-ScaffoldVersion } catch { }
+  $synced = Get-SyncedVersion $ledgerText $provenance
+
+  $tags = @()
+  $raw = & git -C $RepoRoot for-each-ref "--format=%(refname:strip=2)" 'refs/scaffold-tags/' 2>$null
+  if ($LASTEXITCODE -eq 0 -and $raw) { $tags = @($raw | Where-Object { $_ }) }
+  if ($tags.Count -eq 0) {
+    Add-Finding 'scaffold-stale' 'minor' `
+      "本地没有任何上游脚手架 tag——本项目从未去 $upstream 看过有哪些修复可以回填。" `
+      'pwsh -File scripts\scaffold-sync.ps1 check -Fetch'
+    return
+  }
+
+  $behind = @(Get-NewerVersion $tags $synced)
+  if ($behind.Count -gt 0) {
+    $latest = $behind[$behind.Count - 1].Version.ToString()
+    $syncedLabel = if (ConvertTo-ScaffoldVersion $synced) { "v$synced" } else { '一个未登记的基线' }
+    Add-Finding 'scaffold-stale' 'major' `
+      "$($behind.Count) 个上游脚手架版本尚未议过（$syncedLabel -> v$latest）。每一版都是「拿或写清为什么不拿」——跳过是正当决定，不登记不是。" `
+      'pwsh -File scripts\scaffold-sync.ps1 check'
+  }
+}
 # ── selfcheck：探针 4（handoff-open 跨 worktree）的 hermetic 自检（R3 rubric #6：新逻辑须有自证测试）──
 # 夹具全建在系统临时目录、finally 清理——绝不读写真仓/真 worktree/_local（对齐 selftest 12b 的 hermetic 模式）。
 # 恪守 reporter 契约「退出码恒 0」（本卡 forbid）：核验以**输出断言**为准（同 selftest 12b 对探针 8 的
@@ -515,6 +554,7 @@ Invoke-ProbeEffectiveness
 Invoke-ProbeOrphanWorktree
 Invoke-ProbeLessonsDemote
 Invoke-ProbeDeliveryBlocked
+Invoke-ProbeScaffoldStale
 
 $order = @{ blocking = 0; major = 1; minor = 2 }
 $sorted = $findings | Sort-Object @{ Expression = { $order[$_.severity] } }, probe

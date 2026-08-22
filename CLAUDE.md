@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `CLAUDE.md`=给开发助手 Claude 的指令；`_local/models/`=私有模型系统提示 / 输出转储（不入库）。
 - **内部/工作/设计文档一律放 `_local/`**（已 gitignore，永不入任何仓库）；临时验证文件放 `.secrets/`（gitignored，用完即删）。
   例外：`task_plan.md`/`findings.md`/`progress.md` 因 planning-with-files 钩子按 cwd 读取**必须**留在根目录，已 gitignore。
-- **项目内复用资产沉淀归位（验证过就沉淀）**：验证过的资产按类型落到固定位置——**页面结构/组件规范/业务判断/路由约定** → `context/`（项目约定，入库共享）；**踩过的坑** → `lessons`（`scripts/lessons.ps1 add`）；**架构/选型决策** → `docs/adr/`。**红线**：别把业务具体实现（表单/列表/结果页模板等）塞进可复用元层（CLAUDE.md / 脚手架）——元层只装**工具无关的约定/标准/清单**，项目资产沉淀到 `context`/`lessons`/`adr`。
+- **项目内复用资产沉淀归位（验证过就沉淀）**：验证过的资产按类型落到固定位置——**页面结构/组件规范/业务判断/路由约定** → `context/`（项目约定，入库共享）；**踩过的坑** → `lessons`（`scripts/lessons.ps1 add`）；**架构/选型决策** → `docs/adr/`；**元层（脚手架自身）的缺陷/改进** → **上游 issue**（`scripts/scaffold-sync.ps1 report`，账在 `docs/SCAFFOLD-SYNC.md`）。判据不靠感觉：修复该落在 `scripts/`/`.claude/`/`.github/` 就是上游的事，落在 `android/`/`configs/` 就是自己开卡。**红线**：别把业务具体实现（表单/列表/结果页模板等）塞进可复用元层（CLAUDE.md / 脚手架）——元层只装**工具无关的约定/标准/清单**，项目资产沉淀到 `context`/`lessons`/`adr`。
 
 ## 命名约定（强制 · 复用既有，禁止新造）
 > **给 AI 编码 agent 的确定性契约**：新建任何带名字的工件前，先在下表找它属于哪一类，**套用既有正则/形态**——
@@ -202,6 +202,7 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 双向回路 + 决策账**：本项目 ↔ 生成它的脚手架（`Asun28/claude-devops-scaffold`）。`scripts/scaffold-sync.ps1 check` 只打印落后区间每一版的 CHANGELOG「Downstream 块」（**耦合组**是 raw `git diff` 推不出来的那半，也是只拿一半时最贵的失败模式）；`report` 把元层缺陷反哺成上游 issue。**决策账一版一行**（applied / partial / skipped + 理由）——**不回填是一等结果，不登记不是**。`_config.ps1` 的 `ScaffoldVersion` 是**生成来源**戳、**不是**「已回填到哪版」，后者只在这份账里。心跳探针 `scaffold-stale` 只读已取到本地的 ref、绝不 fetch
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
