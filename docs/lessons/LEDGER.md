@@ -1343,7 +1343,7 @@
 - refs: 
 
 ## L190
-- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: r7 我用 `[CharUnicodeInfo]::GetUnicodeCategory()` 验出 U+1BCA0/U+E0001 属 `Cf`，据此断定「正则的 `\p{Cf}` 已覆盖增补平面」并写进权威注释与 rubric；r8 实测 `$s -match '\p{Cf}'` 对这四个增补标量**全 False**，整段增补面其实一个都没被剥，伪造码照样拼得出来
 - root_cause: **验证用的 oracle 与被测实现不是同一套判据**：`GetUnicodeCategory` 按 **Unicode 标量**判类目，而 .NET 正则按 **UTF-16 码元**匹配——增补标量在正则眼里是一对 `Cs` 代理，永远进不了 `\p{Cf}`/`\p{Mn}` 之类的类目类。用前者去证后者，等于拿另一台机器的读数当本机结论。这比不验证更坏：它产生**有据可依的错误自信**，还会被写进文档变成下一轮的假前提
 - rule: 验证一个断言时，**必须用被测代码实际使用的那套机制去验**，不能用「语义上等价」的另一个 API：正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回、别推理；渲染层行为就看渲染器实际输出。判断法：问「我的验证脚本和生产代码，是不是同一个引擎在做同一个判断？」不是就换写法。**且断言的对象若是一个「类目/属性」（`Cf`、default-ignorable 之类），取样证不了它——必须把全集从权威表枚举出来逐个比对**（2026-08-03 r13 更正：本条原写「逐点实测代表码位（BMP 与增补各取样）」，那正是又栽一次的原因——r8 照它取样补完仍漏 18 个增补面 `Cf`，r13 才由全码位枚举挖出）。落地形态：用**标量级** API（`Rune.GetUnicodeCategory`）枚举出「应该命中的全集」，再用**生产代码那套机制**（正则）逐个验它是否真命中；两套 oracle 各司其职、谁也不替谁。好处是 Unicode 升版新增码位时断言会自己红，而不必等下一个评审者发现

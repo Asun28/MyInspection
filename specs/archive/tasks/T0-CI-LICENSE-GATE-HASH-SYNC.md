@@ -2,7 +2,7 @@
 id: T0-CI-LICENSE-GATE-HASH-SYNC
 title: 同步 docs-only License gate 的 8.2b2 规范块哈希
 depends_on: [T0-CI-DOCS-FAST-PATH]
-status: todo
+status: merged
 branch: T0-CI-LICENSE-GATE-HASH-SYNC
 worktree: C:\wt\T0-CI-LICENSE-GATE-HASH-SYNC
 allow_paths:

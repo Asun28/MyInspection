@@ -3,7 +3,7 @@ id: T0-DEBT-SECRETS-SCALAR-FORMAT
 title: 让 tracked-sensitive allowlist 拒绝增补平面格式标量
 depends_on: [T0-DEBT-UNICODE-SCALAR-TEXT]
 parallelizable_with: [T0-DEBT-LICENSE-SCALAR-FORMAT]
-status: todo
+status: merged
 branch: T0-DEBT-SECRETS-SCALAR-FORMAT
 worktree: C:\wt\T0-DEBT-SECRETS-SCALAR-FORMAT
 allow_paths:
