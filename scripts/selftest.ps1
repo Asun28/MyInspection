@@ -3030,9 +3030,9 @@ elseif ($wireTask -match '(?m)^\s*[^#\r\n]*Get-Yaml(Block)?ListItems') { Fail '�
 else { Write-Host '  种子缺陷 10d(接线/_scope+task) OK：判定核接的是块式专用取值器、核内无宽取值器，task.ps1 经共享核取值且不再自行解析（变异必红）' -ForegroundColor Green }
 $wireTriage = @(Select-String -Path (Join-Path $RepoRoot 'scripts/triage.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
 $wireArchive = @(Select-String -Path (Join-Path $RepoRoot 'scripts/archive.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
-if ($wireTriage -ne 3) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 3（三个探针：cards-active / handoff-open / worktree-orphan）——有探针退回手写正则或被删。" }
+if ($wireTriage -ne 4) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 4（四个探针：cards-active / handoff-open / worktree-orphan / delivery-blocked）——有探针退回手写正则或被删。" }
 elseif ($wireArchive -lt 1) { Fail "闸10d(接线/archive)：archive.ps1 未调用共享 Get-FrontMatter——Get-CardField 退回手写正则。" }
-else { Write-Host '  种子缺陷 10d(接线/triage+archive) OK：三个 triage 探针与 archive 取值器均走共享锚定解析器' -ForegroundColor Green }
+else { Write-Host "  种子缺陷 10d(接线/triage+archive) OK：$wireTriage 个 triage 探针与 archive 取值器均走共享锚定解析器" -ForegroundColor Green }
 # 10d(锚定/纯函数)：闸 10c 从 check-cards 侧证锚定，但 check-cards 在 master 上本来就是锚定的——
 # 真正**改了行为**的是 task.ps1:459 与 triage 三处（原为未锚定）。它们现在共用本函数，故直接证本函数：
 # front-matter 内一行「以 --- 开头但有尾随文字」不得被当作闭合符，其后的键仍须可见。
@@ -3317,6 +3317,9 @@ if (Test-Path $td12) { Remove-Item -Recurse -Force $td12 }
 New-Item -ItemType Directory -Force (Join-Path $td12 'scripts') | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $td12 'specs') | Out-Null
 Copy-Item $triagePath (Join-Path $td12 'scripts/triage.ps1') -Force
+# L229：新加的 dot-source 库必须进每一份**选择性**夹具拷贝清单——triage.ps1 现在还 dot-source _lessons.ps1
+# （必须层驻留 id + enforced_by 的共享判定核）。漏拷不是「少测一点」，是夹具在加载期就崩、整闸红得看不出病因。
+Copy-Item (Join-Path $PSScriptRoot '_lessons.ps1') (Join-Path $td12 'scripts/_lessons.ps1') -Force
 Copy-Item (Join-Path $PSScriptRoot '_cards.ps1') (Join-Path $td12 'scripts/_cards.ps1') -Force
 $tdFixture = @(
   '# Fixture 技术债追踪器（选顶 12d · TD57/TD-120 种子缺陷）', '',

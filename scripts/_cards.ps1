@@ -4,7 +4,13 @@ function Get-FrontMatter($raw) {
   # TD60/TD-123：闭合 `---` 须锚定到整行（其后只允许行尾空白，再接换行或文件末尾）——不锚定时，
   # front-matter 内某行只要「以 --- 开头」（哪怕后面还有文字，非真正的闭合符）就会被非贪婪 .*? 提前
   # 当作闭合命中，导致真正的闭合符之后（其实还在 front-matter 内）的键被切进「正文」而「消失」。
-  $m = [regex]::Match($raw, '(?s)\A---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\z)')
+  # TD130（上游 v0.41.0）：开头锚点也接受一个可选的 U+FEFF。经管道取来的卡片文本
+  # （git show BASEREF:specs/tasks/CARDID.md）保留文件的 UTF-8 BOM——只有 Get-Content 的文件读取器会剥它——
+  # 于是裸 \A--- 锚失配、front-matter 解析成 null、allow_paths 取空，完整式 check-scope 必判
+  # [SCOPE-UNDECIDABLE]，并把原因误报成「卡没写 allow_paths」。恰在中断恢复场景失效。
+  # 剥在**唯一共享解析器**里，全部调用面一次同愈（绝不逐调用点补，那必漂移）。
+  # 码位只写转义形态，源码里没有字面 BOM 字节（L193）。
+  $m = [regex]::Match($raw, '(?s)\A\uFEFF?---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\z)')
   if ($m.Success) { return $m.Groups[1].Value }
   return $null
 }

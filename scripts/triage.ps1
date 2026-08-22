@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   脚手架的「心跳」(heartbeat)：按节律(cadence)对本仓做一次**只读、离线、确定性**的扫描，
@@ -48,6 +48,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
 . (Join-Path $PSScriptRoot '_cards.ps1')
+. (Join-Path $PSScriptRoot '_lessons.ps1')   # 必须层驻留规则 + enforced_by 的共享判定核（上游 v0.43.0）
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 # _config 仅取 LessonsMustCap；缺失/留空亦能跑（fail-safe 默认）。
@@ -64,6 +65,10 @@ $TechDebt  = Join-Path $RepoRoot 'specs/tech-debt-tracker.md'
 $TasksDir  = Join-Path $RepoRoot 'specs/tasks'
 $ClaudeMd  = Join-Path $RepoRoot 'CLAUDE.md'
 
+# 晋升候选的批量阈值（上游 issue #185）：一条候选报一条 finding 在结构上无界——每次扫描都把
+# 全部合格经验重报一遍，而处理一条是多 PR 的仪式，于是 N 条候选投影成约 3N 个 PR。超过阈值就
+# 改口径：请求走一次批量复审，而不是派 N 份独立的活。
+$PromoteBatchSize = 5
 # finding 累加器：每条 = @{ probe; severity(blocking|major|minor); what; next }
 $findings = [System.Collections.Generic.List[object]]::new()
 function Add-Finding($probe, $severity, $what, $next) {
@@ -79,7 +84,8 @@ function Get-LastHandoffBlock([string]$text) {
 
 # ── 探针 1：lessons-promote（LEDGER 里仍在 ledger 层却已达晋升门槛）──
 function Invoke-ProbeLessons {
-  if (-not (Test-Path $Ledger)) { return }
+  if (-not (Test-Path $Ledger)) { return }  $cands = [System.Collections.Generic.List[object]]::new()
+
   $raw = Get-Content $Ledger -Raw
   $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d)') | Where-Object { $_ -match '^L\d' }
   foreach ($b in $blocks) {
@@ -88,12 +94,25 @@ function Invoke-ProbeLessons {
     $sev  = ([regex]::Match($b, 'severity:\s*(\w+)')).Groups[1].Value
     $recM = [regex]::Match($b, 'recurrence:\s*(\d+)')
     $rec  = if ($recM.Success) { [int]$recM.Groups[1].Value } else { 0 }
+    $enf  = Get-ScaffoldLessonEnforcedBy $b
     # 只盯**未经分层（ledger）**且达客观门槛者；ondemand/must 已是有意安置，不打扰。
-    if ($tier -eq 'ledger' -and ($rec -ge 2 -or $sev -eq 'blocking')) {
+    # enforced_by 闸（上游 issue #183）：已有确定性守卫盯住的坑，不该再花每轮上下文去重复讲一遍——
+    # docs/HARNESS-REVIEW.md 两处都是这么说的，而该字段本就被 lessons.ps1 解析并当真。判定核与
+    # promote 动词共用（_lessons.ps1），两处不会漂移。
+    if ($tier -eq 'ledger' -and ($rec -ge 2 -or $sev -eq 'blocking') -and -not (Test-ScaffoldLessonGuarded $enf)) {
       $why = if ($sev -eq 'blocking') { "severity=blocking" } else { "recurrence=$rec" }
+      $cands.Add([pscustomobject]@{ id = $id; why = $why })
+    }
+  }
+  if ($cands.Count -gt $PromoteBatchSize) {
+    Add-Finding 'lessons-promote' 'major' `
+      "$($cands.Count) 条无守卫经验已达晋升门槛（$((($cands | ForEach-Object id) -join ', '))）——按**一批**复审，别一条开一张卡。" `
+      "下次 docs\HARNESS-REVIEW.md 复审时整批过：每条优先加确定性闸并记进 enforced_by，只有闸盖不住的才升必须层。"
+  } else {
+    foreach ($c in $cands) {
       Add-Finding 'lessons-promote' 'major' `
-        "$id 仍在总账层却已达晋升门槛（$why）——经验未沉淀为按需/必须层，下次仍可能重导。" `
-        "pwsh -File scripts\lessons.ps1 promote $id"
+        "$($c.id) 仍在总账层、已达晋升门槛（$($c.why)）且无机械守卫——下次仍可能重导。" `
+        "优先加确定性闸并记进 enforced_by；闸盖不住才升层：pwsh -File scripts\lessons.ps1 promote $($c.id)"
     }
   }
 }
@@ -201,10 +220,13 @@ function Invoke-ProbeHandoff {
 # ── 探针 5：lessons-cap（必须层逼近/达封顶）──
 function Invoke-ProbeCap {
   if (-not (Test-Path $ClaudeMd)) { return }
-  $sec = [regex]::Match((Get-Content $ClaudeMd -Raw), '(?s)## 经验铁律.*?(?=\n## |\z)').Value
-  $n = ([regex]::Matches($sec, '(?m)^\s*-\s+\*\*')).Count
-  if ($n -ge $MustCap) {
-    Add-Finding 'lessons-cap' 'minor' "必须层经验已 $n/$MustCap（达封顶）——再加铁律前须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层。"
+  # 计量单位是**驻留的经验 id**，不是 markdown 条目（上游 issue #184）：把多个 id 并进一条 bullet
+  # 曾经既满足封顶、又让驻留规则数继续涨。判定核与 lessons.ps1 check 共用（_lessons.ps1）。
+  $n = @(Get-ScaffoldMustLayerBullet -Path $ClaudeMd | ForEach-Object Ids | Sort-Object -Unique).Count
+  if ($n -gt $MustCap) {
+    Add-Finding 'lessons-cap' 'major' "必须层已驻留 $n/$MustCap 个经验 id（**超**封顶）——每轮上下文成本已越线，须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层，再 pwsh -File scripts\lessons.ps1 check 复核。"
+  } elseif ($n -ge $MustCap) {
+    Add-Finding 'lessons-cap' 'minor' "必须层已驻留 $n/$MustCap 个经验 id（达封顶）——再加铁律前须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层。"
   }
 }
 
@@ -281,6 +303,71 @@ function Invoke-ProbeOrphanWorktree {
   }
 }
 
+# ── 探针 10：lessons-demote（探针 1 的逆向；上游 issue #183 的另一半）──
+# 一条已有确定性守卫盯住的规则，坐在必须层就是**永久**每轮成本，换来的是机器已经在做的事。
+# 只报不动：降层是 HARNESS-REVIEW 的判断，不是心跳的。
+function Invoke-ProbeLessonsDemote {
+  if (-not (Test-Path $Ledger)) { return }
+  $raw = Get-Content $Ledger -Raw
+  $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d)') | Where-Object { $_ -match '^L\d' }
+  foreach ($b in $blocks) {
+    $id   = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
+    $tier = ([regex]::Match($b, 'tier:\s*(\w+)')).Groups[1].Value
+    $enf  = Get-ScaffoldLessonEnforcedBy $b
+    if ($tier -eq 'must' -and (Test-ScaffoldLessonGuarded $enf)) {
+      Add-Finding 'lessons-demote' 'minor' `
+        "$id 坐在必须层（每轮、永久），但机器已在守它：$enf" `
+        "下次 docs\HARNESS-REVIEW.md 复审时判：从 CLAUDE.md 铁律小节摘掉该条、LEDGER 改 tier: ondemand，再 pwsh -File scripts\lessons.ps1 check"
+    }
+  }
+}
+
+# ── 探针 11：delivery-blocked（在飞卡坐在 R3 的 block 裁决上，却没人把这个结果接回注意力）──
+# 补的洞（上游 issue #185）：其余探针读的全是脚手架自身状态，于是收件箱可以很热闹、而关键路径其实停着——
+# 且箱里每一条可行动项都是脚手架自我维护。`cards-active` 读的是 `status:`（作者意图），坐在 block 上的卡
+# 与正在推进的卡长得一模一样。
+# 刻意**离线**、不调 gh：心跳不把外部信号当决策（docs/LOOP-ENGINEERING.md），而这个信号本就不需要网络——
+# review.ps1 每次跑都把归一化裁决写进 <worktree>/.review/<分支>.json。severity 取 blocking（既有排序表的最高档），
+# 于是「交付停摆」排在一切自我维护发现之上，无须新增排序码。
+function Invoke-ProbeDeliveryBlocked {
+  if (-not (Test-Path $TasksDir)) { return }
+  $wtRoot = $null
+  try { $wtRoot = Get-ScaffoldWorktreeRoot } catch { $wtRoot = $null }
+  $hits = @()
+  foreach ($c in (Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne '_TEMPLATE.md')) {
+    $fm = Get-FrontMatter (Get-Content $c.FullName -Raw)
+    if (-not $fm) { continue }
+    $status = ([regex]::Match($fm, '(?m)^status\s*:\s*(.*?)\s*$')).Groups[1].Value
+    if ($status -notin @('in-progress', 'in-review')) { continue }
+    $id = [IO.Path]::GetFileNameWithoutExtension($c.FullName)
+    # 卡自己的 worktree 存着为它写过的每一份裁决；主检出里那份按分支名落盘（-Local ship），
+    # 故在主检出只有 <id>.json 可能属于本卡。
+    $files = @()
+    if ($wtRoot) {
+      $wtReview = Join-Path (Join-Path $wtRoot $id) '.review'
+      if (Test-Path $wtReview) { $files += @(Get-ChildItem $wtReview -Filter *.json -ErrorAction SilentlyContinue) }
+    }
+    $localReview = Join-Path (Join-Path $RepoRoot '.review') "$id.json"
+    if (Test-Path $localReview) { $files += @(Get-Item $localReview) }
+    foreach ($vf in $files) {
+      $verdict = ''; $reasons = 0
+      try {
+        $o = Get-Content $vf.FullName -Raw | ConvertFrom-Json
+        if ($o -and ($o.PSObject.Properties.Name -contains 'verdict')) { $verdict = [string]$o.verdict }
+        if ($o -and ($o.PSObject.Properties.Name -contains 'reasons')) { $reasons = @($o.reasons).Count }
+      } catch { continue }   # 一份读不出的裁决绝不能把心跳带崩（同探针 8 的 fail-safe 契约）
+      if ($verdict -ne 'block') { continue }
+      $hits += [pscustomobject]@{ id = $id; path = $vf.FullName; reasons = $reasons; when = $vf.LastWriteTime }
+    }
+  }
+  foreach ($h in ($hits | Sort-Object when)) {     # 最旧优先：停得最久的卡先被读到
+    $age = [int]((Get-Date) - $h.when).TotalHours
+    Add-Finding 'delivery-blocked' 'blocking' `
+      "卡 $($h.id) 正坐在一份 block 裁决上（$($h.reasons) 条理由，约 $age 小时前）——评审干完了活，结果却没被接回注意力。" `
+      "读 $($h.path)，按它点名的逐条修或拆卡后重 ship；若某条属于既有系统而非本次 diff，另开卡（L113），别让 block 悬着。"
+  }
+}
+
 # ── selfcheck：探针 4（handoff-open 跨 worktree）的 hermetic 自检（R3 rubric #6：新逻辑须有自证测试）──
 # 夹具全建在系统临时目录、finally 清理——绝不读写真仓/真 worktree/_local（对齐 selftest 12b 的 hermetic 模式）。
 # 恪守 reporter 契约「退出码恒 0」（本卡 forbid）：核验以**输出断言**为准（同 selftest 12b 对探针 8 的
@@ -317,6 +404,81 @@ if ($Verb -eq 'selfcheck') {
     try { Invoke-ProbeHandoff } finally { Pop-Location }
     if (@($findings | Where-Object { $_.next -match 'show -Path .*T8-SC-A' }).Count -ne 0) { $fails.Add('用例2 worktree=cwd 未去重（A 被跨 worktree 重复上报）') }
     if (@($findings | Where-Object { $_.next -eq 'pwsh -File scripts\handoff.ps1 check' }).Count -ne 1) { $fails.Add('用例2 期望恰 1 条 cwd handoff-open（next=check）') }
+    # ── 用例 4：delivery-blocked（探针 10）——四态：block 须报 / pass 不报 / todo 卡不报 / 坏 JSON 不崩 ──
+    # 一个从不触发的探针比没有探针更糟，它读起来就像「一切正常」，故这里必须有能让它红的正例。
+    foreach ($t in @(
+        @{ id = 'T8-SC-A'; json = '{"verdict":"block","reasons":["r1","r2"]}' },   # in-progress + block → 须报
+        @{ id = 'T8-SC-D'; json = '{"verdict":"pass","reasons":[]}' },             # in-progress + pass  → 不报
+        @{ id = 'T8-SC-C'; json = '{"verdict":"block","reasons":["r1"]}' },        # todo 卡 + block     → 不报（状态闸）
+        @{ id = 'T8-SC-B'; json = '{ this is not json' })) {                       # in-review + 坏 JSON → 不崩、不报
+      $rv = Join-Path (Join-Path $fxWt $t.id) '.review'
+      New-Item -ItemType Directory -Force $rv | Out-Null
+      Set-Content -Path (Join-Path $rv "$($t.id).json") -Value $t.json -Encoding utf8
+    }
+    $findings.Clear()
+    try { Invoke-ProbeDeliveryBlocked } catch { $fails.Add("用例4 探针抛异常（心跳须 fail-safe）：$($_.Exception.Message)") }
+    $db = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($db.Count -ne 1) { $fails.Add("用例4 期望恰 1 条 delivery-blocked（仅 A），实得 $($db.Count)") }
+    elseif ($db[0].what -notmatch 'T8-SC-A') { $fails.Add('用例4 报出的不是 block 那张卡（A）') }
+    elseif ($db[0].severity -ne 'blocking') { $fails.Add("用例4 severity 应为 blocking（交付停摆须排在自我维护之上），实得 $($db[0].severity)") }
+    elseif ($db[0].what -notmatch '2 条理由') { $fails.Add('用例4 未报出裁决的理由条数') }
+
+    # ── 用例 5：lessons-cap 按驻留 id 计数（上游 issue #184）──
+    # 判据的要害在于：同一份夹具下**旧的按条目计数会绿、新的按 id 计数必红**——否则这条修复无从证伪。
+    $fxClaude = Join-Path $fxRoot 'CLAUDE.md'
+    Set-Content -Path $fxClaude -Encoding utf8 -Value @(
+      '## 经验铁律（必须加载）',
+      '- **[L901][L902][L903]** 三个 id 并进一条 bullet',
+      '- **[L904]** 单 id 一条',
+      '',
+      '## 下一节') 
+    $ClaudeMd = $fxClaude       # 注入：探针读脚本作用域
+    $MustCap = 3
+    $bulletCount = ([regex]::Matches((Get-Content $fxClaude -Raw), '(?m)^\s*-\s+\*\*')).Count
+    if ($bulletCount -gt $MustCap) { $fails.Add("用例5 夹具无效：旧口径（条目数 $bulletCount）本身已超上限 $MustCap，证明不了新口径") }
+    $findings.Clear()
+    Invoke-ProbeCap
+    $cap = @($findings | Where-Object probe -eq 'lessons-cap')
+    if ($cap.Count -ne 1) { $fails.Add("用例5 期望恰 1 条 lessons-cap，实得 $($cap.Count)") }
+    elseif ($cap[0].what -notmatch '4/3') { $fails.Add("用例5 未按驻留 id 计数（期望 4/3，实得：$($cap[0].what)）") }
+    elseif ($cap[0].severity -ne 'major') { $fails.Add('用例5 超封顶应为 major（达封顶才是 minor）') }
+
+    # ── 用例 6：enforced_by 双向（上游 issue #183）+ 空字段不得被读成「已有守卫」──
+    # L904 的 enforced_by 是**空行**、其后紧跟 refs 行：旧式 '\s*(.+)' 会跨行捕到 refs 值、把它误判为已有守卫，
+    # 于是最需要被提名的那条反而被静默滤掉（fail-open）。这里正是钉住该方向的用例。
+    $fxLedger = Join-Path $fxRoot 'LEDGER.md'
+    Set-Content -Path $fxLedger -Encoding utf8 -Value @(
+      '## L901 有守卫的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: scripts/selftest.ps1 闸 99z',
+      '',
+      '## L902 显式无守卫的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: none（本条只能靠人）',
+      '',
+      '## L903 有守卫的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: scripts/selftest.ps1 闸 99y',
+      '',
+      '## L904 空 enforced_by 的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by:',
+      '- refs: scripts/selftest.ps1 闸 99x',
+      '')
+    $Ledger = $fxLedger          # 注入：两个探针都读脚本作用域
+    $findings.Clear(); Invoke-ProbeLessonsDemote
+    $dem = @($findings | Where-Object probe -eq 'lessons-demote')
+    if ($dem.Count -ne 1) { $fails.Add("用例6 期望恰 1 条 lessons-demote（仅 L901），实得 $($dem.Count)") }
+    elseif ($dem[0].what -notmatch 'L901') { $fails.Add('用例6 降层提名的不是有守卫的那条（L901）') }
+    $findings.Clear(); Invoke-ProbeLessons
+    $pro = @($findings | Where-Object probe -eq 'lessons-promote')
+    if ($pro.Count -ne 1) { $fails.Add("用例6 期望恰 1 条 lessons-promote，实得 $($pro.Count)") }
+    elseif ($pro[0].what -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
+    elseif ($pro[0].what -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
     # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
     Remove-Item function:Get-ScaffoldWorktreeRoot
     $findings.Clear(); Push-Location $fxCwd
@@ -331,7 +493,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree：检出 in-progress/in-review · 忽略 todo/已收口 · cwd 去重 · 缺配置优雅跳过）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 10 block 四态 · 探针 5 按驻留 id 计数 · 探针 1/9 的 enforced_by 双向与空字段）' -ForegroundColor Green
   }
   exit 0
 }
@@ -351,6 +513,8 @@ Invoke-ProbeCap
 Invoke-ProbeRefresh
 Invoke-ProbeEffectiveness
 Invoke-ProbeOrphanWorktree
+Invoke-ProbeLessonsDemote
+Invoke-ProbeDeliveryBlocked
 
 $order = @{ blocking = 0; major = 1; minor = 2 }
 $sorted = $findings | Sort-Object @{ Expression = { $order[$_.severity] } }, probe
