@@ -501,16 +501,43 @@ switch ($Phase) {
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'secrets' 'check-secrets fatal'; throw '检出疑似机密（见上 check-secrets）。立即轮换密钥、改用环境变量/密钥管理并移除后重 ship（见 docs/SECURITY.md）。' }
       $sagaDone += '防泄露闸'
 
-      Step '真实 diff 预算闸（1000 changed lines 且 60000 chars 内；push/PR/R3 前硬阻断）'
-      if ($Local) {
-        & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -SizeOnly -LocalBase
-      } else {
-        & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -SizeOnly
+      # 被测提交身份守卫：任何对外副作用之前复核任务分支仍指向预算闸测量过的那个 OID。
+      # ref 前移/后退/被替换都在此以稳定状态码停住，且停在副作用**之前**——push 之后再发现已经晚了。
+      function Assert-MeasuredTip {
+        param([Parameter(Mandatory)][string]$MeasuredOid, [Parameter(Mandatory)][string]$When)
+        $tipRaw = (& git -C $Wt rev-parse --verify --quiet "refs/heads/$TaskId" 2>$null)
+        $tip = "$tipRaw".Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $tip) {
+          throw "[R3-DIFF-TIP-MOVED] $When 之前无法解析任务分支 refs/heads/$TaskId 的当前提交——被测提交身份无法复核，fail-closed 中止（未执行该步骤）。"
+        }
+        if ($tip -ne $MeasuredOid) {
+          throw "[R3-DIFF-TIP-MOVED] $When 之前发现任务分支 $TaskId 已不再指向预算闸测量的提交：实测 $tip，应为 $MeasuredOid。分支名相同不等于提交相同——继续下去会发布一个从未过预算闸的提交。已中止（未执行该步骤）。修复：把分支移回 $MeasuredOid，或重跑 -Phase ship 让全部闸门对新提交重跑。"
+        }
       }
-      if ($LASTEXITCODE -ne 0) {
+
+      Step '真实 diff 预算闸（1000 changed lines 且 60000 chars 内；push/PR/R3 前硬阻断）'
+      $sizeArgs = if ($Local) {
+        @('-WorktreePath', $Wt, '-Base', $Base, '-SizeOnly', '-LocalBase')
+      } else {
+        @('-WorktreePath', $Wt, '-Base', $shipBase, '-SizeOnly')
+      }
+      $sizeOutput = (& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') @sizeArgs 2>&1 | Out-String)
+      $sizeExit = $LASTEXITCODE
+      Write-Host $sizeOutput
+      if ($sizeExit -ne 0) {
         Add-CatchRecord 'review-size' 'R3 diff budget block'
         throw '真实 diff 超过单卡/R3 完整读取预算，或预算无法可靠计算。拆卡或修复 git 基线后重 ship；尚未 push、开 PR 或消费 reviewer round。'
       }
+      # 预算闸测量的是**一个具体提交**，不是「分支 $TaskId 当时碰巧指向的东西」。把那个 OID 取出来钉住，
+      # 后面每一个对外副作用（push / 建 PR / R3 / 合并）之前都拿它复核一次；缺失即 fail-closed，
+      # 因为「拿不到被测对象的身份」和「测了别的东西」在安全上等价。
+      $measuredOid = ''
+      if ($sizeOutput -match '(?m)^R3-DIFF-MEASURED-OID:\s*([0-9a-f]{40})\s*$') { $measuredOid = $Matches[1] }
+      if (-not $measuredOid) {
+        Add-CatchRecord 'review-size' 'R3 diff budget OID missing'
+        throw '[R3-DIFF-OID-MISSING] 预算闸退出 0 却没有交回它实际测量的提交 OID——无法证明后续 push/评审/合并发布的就是被测那个提交。fail-closed 中止；尚未 push、开 PR 或消费 reviewer round。'
+      }
+      Write-Host "真实 diff 预算已钉死被测提交：$measuredOid（此后 push/R3/合并前逐次复核）" -ForegroundColor DarkGray
       $sagaDone += '真实 diff 预算'
 
       if ($Local) {
@@ -519,6 +546,7 @@ switch ($Phase) {
         # $reviewAvail 已在 ship 入口求值（同一判定，远端路径拿它 fail-fast，此处复用；TD22-C23）
         if ($reviewAvail) {
           # -LocalBase：-Local 的合并目标是本地 <base>，评审基线也须对照本地（否则前次本地合并的文件被误判，TD68）。
+          Assert-MeasuredTip -MeasuredOid $measuredOid -When 'R3 第二模型评审（-Local）'
           & pwsh -NoProfile -File (Join-Path $Wt 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -LocalBase
           if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block (-Local)'; throw '第二模型评审 block（-Local），已停止。修复后重 ship -Local。' }
         } else {
@@ -532,7 +560,9 @@ switch ($Phase) {
         $curBranch = (& git -C $RepoRoot symbolic-ref --quiet --short HEAD 2>$null)
         if ($curBranch) { $curBranch = $curBranch.Trim() }
         Assert-LocalMergeTarget -Cur $curBranch -Base $Base -TaskId $TaskId
-        & git -C $RepoRoot merge --no-ff --no-edit $TaskId
+        # 合并的是**提交**，不是分支名：并入前复核 $TaskId 仍指向预算闸测量过的 OID，再按该 OID 合并。
+        Assert-MeasuredTip -MeasuredOid $measuredOid -When '本地合并'
+        & git -C $RepoRoot merge --no-ff --no-edit $measuredOid
         if ($LASTEXITCODE -ne 0) { throw "本地合并 $TaskId 失败（冲突？）。在主工作树解决冲突后重试。" }
         $sagaLocalMerged = $true   # 合并已成功——此后失败（凭据铸造）不得误报为合并前守卫态（R3 r5 #9）
         # T24-MERGETOKEN 铸造（-Local 合并成功事件）：cleanup 的 branch -D 只认这枚单次凭据（或 -Force / gh 在线补验）。
@@ -553,11 +583,20 @@ switch ($Phase) {
       }
 
       Step 'push + 开 PR（Codex 评审在 PR 开好后单次运行，兼作回贴状态）'
-      & git push -u origin $TaskId
+      # push 之前是最后一个还能无代价停下的点：一旦推上去，远端就有了一个可能从未过预算闸的提交。
+      # 复核通过后按 **OID → 分支** 的显式 refspec 推送，而不是推「分支现在指向的东西」——
+      # 后者在复核与 push 之间仍留一条 ref 可以移动的缝。
+      Assert-MeasuredTip -MeasuredOid $measuredOid -When 'push 到远端'
+      & git -C $Wt push origin "${measuredOid}:refs/heads/$TaskId"
       # TD44（载重护栏）：push 静默失败（网络/凭证/非 fast-forward 拒绝）时若续跑，下游 `gh pr merge` 会合并 origin/$TaskId
       # 当前指向的【陈旧】head——与本地刚过闸的产物解耦、把未评审内容并入基线，且 R3 把绿状态回贴到 head 已陈旧的 PR（状态误导）。
       # 故 push 后立即校验退出码：非零即在开 PR / 合并之前 throw，恢复「过闸的产物 === 被合并的产物」不变量。
       if ($LASTEXITCODE -ne 0) { throw "git push 失败（exit $LASTEXITCODE）——远端未更新，已中止以防合并陈旧远端 head（TD44）。排查网络/凭证；若为非 fast-forward 拒绝，先 git fetch origin，再在 worktree 内 git merge origin/$TaskId（merge 从不 rebase；亦可 git pull --no-rebase）后重 ship；watershed 后严禁 rebase/改写历史。" }
+      # 上面刻意用「OID → 分支」的显式 refspec 推送，而 `git push -u` 在源是裸 OID 时会**静默不设**上游
+      # （实测：push 退出 0、分支已建，但 branch@{upstream} 仍为空）。TD85-RESUME 的推送态分类依赖 origin/$TaskId，
+      # 故在此显式补设上游；失败即 throw，不留「推上去了但追踪没配」的半态。
+      & git -C $Wt branch --set-upstream-to="origin/$TaskId" $TaskId 2>&1 | Write-Host
+      if ($LASTEXITCODE -ne 0) { throw "push 成功但未能把 $TaskId 的上游设为 origin/$TaskId（exit $LASTEXITCODE）——TD85-RESUME 的推送态分类会因缺少跟踪引用而误判。先 git -C `"$Wt`" fetch origin $TaskId 再手动 git -C `"$Wt`" branch --set-upstream-to=origin/$TaskId $TaskId，然后重 ship。" }
       $cardTitle = Get-CardField 'title'; if (-not $cardTitle) { $cardTitle = $TaskId }
       $title = "${TaskId}: $cardTitle"
       $exists = (& gh pr view $TaskId --json number -q .number 2>$null)
@@ -576,6 +615,8 @@ switch ($Phase) {
       $sagaDone += 'push+PR'
 
       Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；block 即停、不合并）'
+      # 正常 R3 必须审预算闸测量过的同一个提交，否则「已测量」与「已评审」会指向两份不同产物。
+      Assert-MeasuredTip -MeasuredOid $measuredOid -When 'R3 第二模型评审'
       & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -PostStatus -PrNumber $pr
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block'; throw 'Codex 裁决 block，已停止。修复后重 ship（PR 已开，重 ship 会更新）。' }
       $sagaDone += 'R3 评审'
@@ -590,8 +631,11 @@ switch ($Phase) {
         # 不加 --delete-branch：在 worktree 内它会尝试 checkout base(main) 以删本地分支，
         # 而 main 被主工作树占用 → fatal "'main' is already used by worktree"（合并其实已成功）。
         # 远端分支由仓库 delete_branch_on_merge=true 自动删；本地分支由 cleanup 阶段删。
-        & gh pr merge $pr --squash
-        if ($LASTEXITCODE -ne 0) { throw "PR #$pr squash 合并失败（exit $LASTEXITCODE）。检查 gh 权限/合并冲突后重试。" }
+        # 合并同样按 OID 收口：本地复核分支未动，再让服务端用 --match-head-commit 拒绝「PR head 已不是这个提交」的合并。
+        # 两侧都钉住，才能保证「被测量的 / 被评审的 / 被合并的」是同一个提交。
+        Assert-MeasuredTip -MeasuredOid $measuredOid -When '远端 squash 合并'
+        & gh pr merge $pr --squash --match-head-commit $measuredOid
+        if ($LASTEXITCODE -ne 0) { throw "PR #$pr squash 合并失败（exit $LASTEXITCODE）。若因 --match-head-commit 不匹配，说明 PR head 已不是预算闸测量并经 R3 评审的提交 $measuredOid——不要放宽该参数，重跑 -Phase ship 让全部闸门对新 head 重跑。否则检查 gh 权限/合并冲突后重试。" }
         # T24-MERGETOKEN 铸造（PR squash 合并成功事件）：内容记 PR 号 + 分支 tip（仅溯源），在位即凭据。
         $tokDir = "$(& git -C $RepoRoot rev-parse --git-common-dir 2>$null)".Trim()
         if (-not $tokDir) { throw "T24-MERGETOKEN：PR #$pr 已合并但无法解析 git-common-dir，合并凭据未铸造——cleanup 将走 gh 在线补验（或 -Force）。排查 git 环境。" }

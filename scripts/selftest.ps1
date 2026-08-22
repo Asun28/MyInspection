@@ -3195,8 +3195,16 @@ if (-not $git) {
     $cfg = [regex]::Replace($cfg, "GhAccount\s*=\s*'[^']*'",   { "GhAccount = 'smoke'" })
     # 15b 的 ship -Local 评审走 pass-stub 后端（确定性+离线；绝不调真 codex——它可能在 PATH 上、联网、非确定）。
     # ship 评审的「裁决逻辑」已由种子闸 17b 覆盖；本闸只验「装起来之后」的编排粘合（DoD→许可→密钥→合并）。
+    # 评审子进程正好落在「预算闸已测量」与「合并尚未发生」之间，是唯一无需改生产码就能确定性注入
+    # ref 移动的植入点（15b3 用）。未设 T0_SMOKE_MOVE_TIP 时行为与原 stub 逐字相同，15b/15b2 不受影响。
     $reviewStub = @'
 [Console]::In.ReadToEnd() | Out-Null
+if ($env:T0_SMOKE_MOVE_TIP) {
+  $moveWt = $env:T0_SMOKE_MOVE_TIP
+  [System.IO.File]::WriteAllText((Join-Path $moveWt 'README.md'), "tip moved after the budget gate measured it`n")
+  & git -C $moveWt add -A
+  & git -C $moveWt -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'post-SizeOnly tip movement'
+}
 '{"verdict":"pass","reasons":[]}' | Set-Content $env:REVIEW_OUT -Encoding utf8
 '@
     Set-Content (Join-Path $e2e 'review-stub.ps1') $reviewStub -Encoding utf8
@@ -3270,6 +3278,31 @@ if (-not $git) {
       elseif ($budgetMergeCountAfter -ne $budgetMergeCount) { Fail '闸15b2：预算闸报告 block 后仍产生了 merge commit。' }
       else { Write-Host '  15b2 真实 ship diff 预算 OK（1001 lines → R3-DIFF-TOO-LARGE + review-size ledger；零 merge）' -ForegroundColor Green }
       & git -C $wtDir reset --hard $budgetTip *> $null   # disposable fixture：移除 ship 在预算闸前创建的超限提交
+    }
+
+    # 15b3（T0-R3-DIFF-BUDGET）：预算闸测量的是**一个提交**，不是分支名。让评审 stub 在「已测量、未合并」的窗口里
+    # 给任务分支追加一个提交，模拟 SizeOnly 之后 ref 前移。合并前的身份复核必须以 [R3-DIFF-TIP-MOVED] 停住，
+    # 且不产生任何 merge——否则被合并的就是一个从未过预算闸的提交。删掉合并前那句 Assert-MeasuredTip，本例即变红。
+    if (-not $fail -and (Test-Path $wtDir)) {
+      $moveTipBefore = (& git -C $wtDir rev-parse HEAD 2>$null | Out-String).Trim()
+      $moveMergeBefore = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      Set-Content (Join-Path $wtDir 'README.md') 'in-budget change that the budget gate will measure' -Encoding utf8
+      $savedMoveTip = $env:T0_SMOKE_MOVE_TIP
+      try {
+        $env:T0_SMOKE_MOVE_TIP = $wtDir
+        $moveOut = (& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1 | Out-String)
+        $moveExit = $LASTEXITCODE
+      } finally {
+        if ($null -eq $savedMoveTip) { Remove-Item Env:T0_SMOKE_MOVE_TIP -ErrorAction SilentlyContinue } else { $env:T0_SMOKE_MOVE_TIP = $savedMoveTip }
+      }
+      $moveMergeAfter = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      $moveTipAfter = (& git -C $wtDir rev-parse HEAD 2>$null | Out-String).Trim()
+      if ($moveTipAfter -eq $moveTipBefore) { Fail '闸15b3：评审 stub 未能在测量后移动任务分支——本例没有真正施压（植入点失效）。' }
+      elseif ($moveExit -eq 0) { Fail '闸15b3：SizeOnly 之后分支已前移，ship 仍 exit 0——被测提交身份未贯穿到合并前。' }
+      elseif ($moveOut -notmatch '\[R3-DIFF-TIP-MOVED\]') { Fail "闸15b3：ship 非零但未命中 [R3-DIFF-TIP-MOVED]，可能红在错误路径。输出=$moveOut" }
+      elseif ($moveMergeAfter -ne $moveMergeBefore) { Fail '闸15b3：报告 tip 前移后仍产生了 merge commit——未测量的提交已被并入基线。' }
+      else { Write-Host '  15b3 被测提交身份 OK（SizeOnly 后 ref 前移 → R3-DIFF-TIP-MOVED，零 merge）' -ForegroundColor Green }
+      & git -C $wtDir reset --hard $moveTipBefore *> $null   # disposable fixture：丢弃植入的前移提交
     }
 
     # 15c/15d. ship 两道确定性闸的种子缺陷覆盖（17 系模式：enforcer 喂已知坏输入须 BLOCK 且写效果账本——
@@ -3645,8 +3678,10 @@ $p15Fail = $false
 $tp15p = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
 # 代码级断言（R3 #6：铸造 site 的注释本身含哨兵，凑「距离内出现哨兵」的正则会被「删代码留注释」满足）——
 # 剥整行注释后，要求两处合并成功调用点之后各出现一次**具体的 token 写盘操作**（Set-Content 到 <tokDir>/<TaskId>）。
+# -Local 侧的定位锚是那句 merge：它现在并入的是**预算闸测量过的 OID**（$measuredOid）而非分支名——
+# 分支名相同不等于提交相同，锚跟着生产码走，才不会在「审 A 合 B」被修掉之后还继续绿。
 $tpCode15p = (($tp15p -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
-if ($tpCode15p -notmatch '(?s)merge --no-ff --no-edit \$TaskId.{0,1500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：-Local 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）——cleanup 删除点失去「已合并」机检信号。'; $p15Fail = $true }
+if ($tpCode15p -notmatch '(?s)merge --no-ff --no-edit \$measuredOid.{0,1500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：-Local 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）——cleanup 删除点失去「已合并」机检信号。'; $p15Fail = $true }
 if ($tpCode15p -notmatch '(?s)gh pr merge \$pr --squash.{0,2500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：PR squash 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）。'; $p15Fail = $true }
 if ($tpCode15p -notmatch "(?s)gh pr merge \`$pr --squash.{0,2500}?-ine 'MERGED'") { Fail '闸15p：远端铸造前未按 state 门禁（gh pr merge exit 0 ≠ 已合并——auto-merge/队列仅入队时不得铸凭据，R3 r5 #17）。'; $p15Fail = $true }
 $cl15p = [regex]::Match($tp15p, "(?s)'cleanup'\s*\{.*").Value
@@ -11176,11 +11211,38 @@ try {
   $chars60001 = Invoke-ReviewSizeFixture $chars60001Root
   $binary = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BINARY' -LineCount 0 -LongLineChars 0 -Binary)
   $largeFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BEFORE-REVIEWER' -LineCount 1001 -LongLineChars 0) -FullReview
+  # diff 命令失败的注入点从 diff.external 换到 git shim（见下方 shim 块）：预算闸现在显式 --no-ext-diff，
+  # 外部 helper 根本不会被调用——继续用它注入失败，测的就只是「我们确实关掉了它」，而不是「命令失败会 fail-closed」。
+  # 两件事必须分开测，否则一枚夹具同时为两个契约作证，改动其一时另一个静默失去覆盖。
   $diffFailureRoot = New-ReviewSizeFixture -Name 'T9-SIZE-DIFF-FAIL' -LineCount 1 -LongLineChars 0
-  $diffFailureCommand = Join-Path $diffFailureRoot 'fail-diff.cmd'
-  [System.IO.File]::WriteAllText($diffFailureCommand, "@exit /b 23`r`n", [Text.ASCIIEncoding]::new())
-  & git -C $diffFailureRoot config diff.external $diffFailureCommand
-  $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
+
+  # 上面那个 helper 用**失败**证明 diff.external 确实会被 git 调用。真正能绕过预算的是**成功**的 helper：
+  # 它退出 0、只吐几行，于是 unified diff 被压到 60000 以下，而 --numstat 是 git 内部算的、仍在 1000 行以内
+  # ——两把尺同时读到「小改动」，超限的东西就这么进了 push/PR/R3。故此处各造一枚成功伪装（diff.external 与
+  # gitattributes textconv），要求预算闸**仍然**以 [R3-DIFF-TOO-LARGE] 拦住。
+  # 先做负控：不带 --no-ext-diff/--no-textconv 时伪装必须真的把 diff 压下去；压不下去说明本例没牙，直接判失败，
+  # 免得「本机没执行外部 diff」被当成「防护生效」（L165：断言得能红在该红的地方）。
+  # git 通过 sh 调 diff.external / textconv，.cmd 在这里是跑不起来的（跑不起来=非零=看着像被拦住了，
+  # 于是「成功伪装」这条用例会假绿）。沿用本文件既有可用形态：pwsh 脚本 + 正斜杠路径。
+  $spoofHelperScript = Join-Path $sizeRoot 'shrink-diff.ps1'
+  Set-Content -LiteralPath $spoofHelperScript -Value 'Write-Output "shrunk"' -Encoding ascii
+  $spoofHelper = "pwsh -NoProfile -File $($spoofHelperScript -replace '\\','/')"
+  $spoofPreconditions = @()
+
+  $extSpoofRoot = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-EXT-SPOOF' -LineCount 0 -LongLineChars 59000) 60001
+  & git -C $extSpoofRoot config diff.external $spoofHelper
+  $extSpoofUnguarded = (& git -C $extSpoofRoot -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String).Length
+  if ($extSpoofUnguarded -ge 60001) { $spoofPreconditions += "diff.external spoof did not shrink the unguarded diff (chars=$extSpoofUnguarded); this case cannot prove --no-ext-diff" }
+  $extSpoof = Invoke-ReviewSizeFixture $extSpoofRoot
+
+  $textconvSpoofRoot = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-TEXTCONV-SPOOF' -LineCount 0 -LongLineChars 59000) 60001
+  Set-Content -LiteralPath (Join-Path $textconvSpoofRoot '.gitattributes') -Value 'payload.txt diff=shrinker' -Encoding ascii
+  & git -C $textconvSpoofRoot add -A
+  & git -C $textconvSpoofRoot commit -q --amend --no-edit
+  & git -C $textconvSpoofRoot config diff.shrinker.textconv $spoofHelper
+  $textconvUnguarded = (& git -C $textconvSpoofRoot -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String).Length
+  if ($textconvUnguarded -ge 60001) { $spoofPreconditions += "textconv spoof did not shrink the unguarded diff (chars=$textconvUnguarded); this case cannot prove --no-textconv" }
+  $textconvSpoof = Invoke-ReviewSizeFixture $textconvSpoofRoot
   $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
   $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
   $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
@@ -11190,6 +11252,9 @@ try {
   New-Item -ItemType Directory -Force $sizeGitShimDir | Out-Null
   $sizeGitShimScript = Join-Path $sizeGitShimDir 'git-shim.ps1'
   @'
+if ($env:T9_SIZE_SHIM_MODE -eq 'diff-fail' -and $args -contains 'diff') {
+  exit 23
+}
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat' -and $args -contains '--numstat') {
   Write-Output 'malformed-numstat-row'
   exit 0
@@ -11215,6 +11280,10 @@ exit $realExit
     if ($IsWindows) { $env:PATHEXT = ".PS1;$sizeSavedPathExt" }
     $env:T9_SIZE_SHIM_MODE = 'numstat'
     $malformedNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BAD-NUMSTAT' -LineCount 1 -LongLineChars 0)
+
+    # 让 `git diff` 本身非零，独立于任何 diff helper 配置：证明「命令失败 → fail-closed」这条契约仍在。
+    $env:T9_SIZE_SHIM_MODE = 'diff-fail'
+    $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
 
     $moveHeadRoot = New-ReviewSizeFixture -Name 'T9-SIZE-MOVE-HEAD' -LineCount 1 -LongLineChars 0
     $moveHeadOldOid = (& $env:T9_SIZE_REAL_GIT -C $moveHeadRoot rev-parse HEAD | Out-String).Trim()
@@ -11243,22 +11312,34 @@ exit $realExit
   if ($chars60001.Exit -eq 0 -or $chars60001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $chars60001.Text -notmatch 'diffChars=60001') { $sizeFailures += "60001-char mutant was not blocked with exact metric (exit=$($chars60001.Exit))" }
   if ($binary.Exit -ne 0 -or $binary.Text -notmatch 'binaryFiles=1') { $sizeFailures += "binary numstat was misparsed or hidden (exit=$($binary.Exit))" }
   if ($diffFailure.Exit -eq 0 -or $diffFailure.Text -notmatch '\[R3-DIFF-COMMAND-FAILED\]') { $sizeFailures += "git diff command failure did not fail closed with its diagnostic (exit=$($diffFailure.Exit))" }
+  if ($spoofPreconditions.Count) { $sizeFailures += $spoofPreconditions }
+  if ($extSpoof.Exit -eq 0 -or $extSpoof.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $extSpoof.Text -notmatch 'diffChars=60001') { $sizeFailures += "a successful diff.external helper shrank the measured diff past the budget (exit=$($extSpoof.Exit))" }
+  if ($textconvSpoof.Exit -eq 0 -or $textconvSpoof.Text -notmatch '\[R3-DIFF-TOO-LARGE\]') { $sizeFailures += "a successful textconv filter shrank the measured diff past the budget (exit=$($textconvSpoof.Exit))" }
+  foreach ($guardedCall in @('--stat', '--numstat', '--unified=3')) {
+    if ($reviewSizeText -notmatch ([regex]::Escape("diff --no-ext-diff --no-textconv `$comparison $guardedCall"))) { $sizeFailures += "authoritative '$guardedCall' diff call does not disable external diff/textconv" }
+  }
   if ($argConflict.Exit -eq 0 -or $argConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + ResetRounds did not fail with R3-DIFF-ARGS-INVALID' }
   if ($tooHighLines.Exit -eq 0 -or $tooHighLines.Text -notmatch 'MaxChangedLines') { $sizeFailures += 'MaxChangedLines accepted a value above 1000' }
   if ($tooHighChars.Exit -eq 0 -or $tooHighChars.Text -notmatch 'MaxDiffChars') { $sizeFailures += 'MaxDiffChars accepted a value above 60000' }
   if ($malformedNumstat.Exit -eq 0 -or $malformedNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "malformed numstat did not fail closed with its diagnostic (exit=$($malformedNumstat.Exit))" }
   if ($movedHead.Exit -ne 0 -or $movedHead.Text -notmatch 'changedLines=1' -or -not (Test-Path (Join-Path $moveHeadRoot 'head-moved.marker'))) { $sizeFailures += "moving HEAD changed the captured diff authority (exit=$($movedHead.Exit))" }
   if ($largeFullReview.Exit -eq 0 -or $largeFullReview.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $largeFullReview.Text -match 'Codex 评审|第二模型评审') { $sizeFailures += 'normal review did not stop at the size gate before reviewer invocation' }
-  $sizeCases = @($small999, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $movedHead, $largeFullReview)
+  $sizeCases = @($small999, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $extSpoof, $textconvSpoof, $argConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $movedHead, $largeFullReview)
   if (@($sizeCases | Where-Object { $_.Rounds -ne 0 }).Count -ne 0) { $sizeFailures += 'size evaluation created/incremented an R3 round counter' }
   if ($reviewSizeText -notmatch '\[int\]\$MaxChangedLines\s*=\s*1000' -or $reviewSizeText -notmatch '\[int\]\$MaxDiffChars\s*=\s*60000') { $sizeFailures += 'production parameter defaults are not 1000 lines / 60000 chars' }
   $sizeOnlyPos = $taskSizeText.IndexOf('-SizeOnly', [System.StringComparison]::Ordinal)
   $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
   if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
   if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
+  if ($reviewSizeText -notmatch 'R3-DIFF-MEASURED-OID:') { $sizeFailures += 'review.ps1 -SizeOnly does not emit the measured commit OID' }
+  if ($taskSizeText -notmatch '\[R3-DIFF-TIP-MOVED\]') { $sizeFailures += 'task.ps1 has no R3-DIFF-TIP-MOVED guard binding the measured commit' }
+  foreach ($boundStep in @('push 到远端', 'R3 第二模型评审', '远端 squash 合并', '本地合并')) {
+    if ($taskSizeText -notmatch ([regex]::Escape("Assert-MeasuredTip -MeasuredOid `$measuredOid -When '$boundStep'"))) { $sizeFailures += "'$boundStep' is not bound to the measured commit OID" }
+  }
+  if ($taskSizeText -notmatch [regex]::Escape('--match-head-commit $measuredOid')) { $sizeFailures += 'remote squash merge does not pin the measured commit server-side' }
 
   if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
-  else { Write-Host '  17ai 真实 diff 预算 OK（999 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / 参数冲突+上限 / captured HEAD / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }
+  else { Write-Host '  17ai 真实 diff 预算 OK（999 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / 成功 ext-diff+textconv 伪装仍被拦 / 参数冲突+上限 / captured HEAD / 被测 OID 贯穿 push·R3·合并 / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }
 } finally {
   Remove-Item -LiteralPath $sizeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -286,11 +286,15 @@ if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
   exit 1
 }
 $comparison = "$baseOid...$sha"
-$diff = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --stat | Out-String).Trim()
+# 预算与评审输入都必须来自 git 自己的 diff 实现：`--no-ext-diff` 关掉仓库/环境可配的 diff.external，
+# `--no-textconv` 关掉 gitattributes 的 textconv 过滤器。二者任缺其一，被审仓库就能提供一个**成功退出**的
+# helper 把一份超大改动压成几行输出——numstat 仍在 1000 行以内、字符数被压到 60000 以下，于是预算闸放行、
+# 评审者读到的也是被过滤后的正文。这不是理论面：本仓夹具已证明 diff.external 会被执行。
+$diff = (& git -C $WorktreePath -c core.quotepath=false diff --no-ext-diff --no-textconv $comparison --stat | Out-String).Trim()
 $diffStatExit = $LASTEXITCODE
-$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --numstat | Out-String)
+$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff --no-ext-diff --no-textconv $comparison --numstat | Out-String)
 $diffNumstatExit = $LASTEXITCODE
-$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --unified=3 | Out-String)
+$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff --no-ext-diff --no-textconv $comparison --unified=3 | Out-String)
 $diffBodyExit = $LASTEXITCODE
 if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
   $diffFailureReason = "[R3-DIFF-COMMAND-FAILED] git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --numstat=$diffNumstatExit, --unified=$diffBodyExit). The size/review input cannot be trusted, so this run blocks fail-closed."
@@ -332,6 +336,10 @@ if ($changedLines -gt $MaxChangedLines -or $diffChars -gt $MaxDiffChars) {
   exit 1
 }
 if ($SizeOnly) {
+  # 把**本次实际测量的那个提交**以机器可读形式交回调用方。task.ps1 据此在 push / R3 / 合并前逐次核对分支仍
+  # 指向同一 OID：否则「测量的提交」与「发布的提交」可以是两个东西——SizeOnly 通过后把分支移到一个
+  # 1001 行的提交上，push/建 PR 仍会照发，pre-push 硬闸形同虚设。分支名不是提交身份，OID 才是。
+  Write-Host "R3-DIFF-MEASURED-OID: $sha"
   Write-Host 'R3 diff budget: PASS（SizeOnly；未调用 reviewer、未消费 round）' -ForegroundColor Green
   exit 0
 }
