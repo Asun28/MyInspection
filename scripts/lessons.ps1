@@ -75,6 +75,37 @@ if ($DryRun -and $Command -ne 'archive') { throw '-DryRun 只适用于 archive �
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 
 # 解析总账为对象数组（按 "## L<n>" 分块）
+# 规范 meta 行 = 块内**唯一**一条以 `- date:` 开头的行，字段以全角｜或半角| 分隔、形如 `key: value`。
+# 元数据只有这一个出生点：正文 prose 里写的 `tier: ledger` / `recurrence: 1` 一律不作数。
+# 这不是洁癖——archive 是**搬运数据**的动作，靠不锚定的正则从整块里捞字段，等于让任意一句叙述文本
+# 决定某条经验会不会被移出热账本。缺失/重复/非法一律 Ok=$false，由调用方 fail-closed（[LSN-META-INVALID]）。
+function Get-LessonMeta([string]$Block) {
+  $metaLines = @(($Block -split '\r?\n') | Where-Object { $_ -match '^-\s+date:' })
+  if ($metaLines.Count -ne 1) {
+    return [pscustomobject]@{ Ok = $false; Error = "规范 meta 行（以 '- date:' 开头）应恰好 1 条，实得 $($metaLines.Count)"; Fields = @{} }
+  }
+  $fields = @{}
+  foreach ($seg in (($metaLines[0] -replace '^-\s+', '') -split '[｜|]')) {
+    if ($seg -notmatch '^\s*(?<k>[a-z_]+)\s*:\s*(?<v>.*?)\s*$') { continue }
+    $k = $Matches['k']
+    if ($fields.ContainsKey($k)) {
+      return [pscustomobject]@{ Ok = $false; Error = "规范 meta 行字段 '$k' 重复"; Fields = @{} }
+    }
+    $fields[$k] = $Matches['v']
+  }
+  foreach ($required in @('date', 'tags', 'tier', 'severity', 'recurrence')) {
+    if (-not $fields.ContainsKey($required)) {
+      return [pscustomobject]@{ Ok = $false; Error = "规范 meta 行缺少必填字段 '$required'"; Fields = @{} }
+    }
+  }
+  if ($fields['date'] -notmatch '^\d{4}-\d{2}-\d{2}$') { return [pscustomobject]@{ Ok = $false; Error = "date 非法：'$($fields['date'])'"; Fields = @{} } }
+  if ($fields['tier'] -notin @('must', 'ondemand', 'ledger')) { return [pscustomobject]@{ Ok = $false; Error = "tier 非法：'$($fields['tier'])'"; Fields = @{} } }
+  if ($fields['severity'] -notin @('blocking', 'major', 'minor')) { return [pscustomobject]@{ Ok = $false; Error = "severity 非法：'$($fields['severity'])'"; Fields = @{} } }
+  if ($fields['recurrence'] -notmatch '^\d+$') { return [pscustomobject]@{ Ok = $false; Error = "recurrence 非法：'$($fields['recurrence'])'"; Fields = @{} } }
+  if ($fields.ContainsKey('kind') -and $fields['kind'] -notin @('pitfall', 'judgment')) { return [pscustomobject]@{ Ok = $false; Error = "kind 非法：'$($fields['kind'])'"; Fields = @{} } }
+  return [pscustomobject]@{ Ok = $true; Error = ''; Fields = $fields }
+}
+
 function Get-LessonsFromPath([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return @() }
   $raw = Get-Content -LiteralPath $Path -Raw
@@ -82,16 +113,19 @@ function Get-LessonsFromPath([string]$Path) {
   $out = @()
   foreach ($b in $blocks) {
     $id = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
-    $tier = ([regex]::Match($b, 'tier:\s*(\w+)')).Groups[1].Value
-    $sev = ([regex]::Match($b, 'severity:\s*(\w+)')).Groups[1].Value
-    $kind = ([regex]::Match($b, 'kind:\s*(\w+)')).Groups[1].Value
-    if (-not $kind) { $kind = 'pitfall' }   # 旧条目无 kind 字段 => 默认 pitfall（向后兼容）
-    $rec = ([regex]::Match($b, 'recurrence:\s*(\d+)')).Groups[1].Value
-    $tags = ([regex]::Match($b, 'tags:\s*([^｜|]+)')).Groups[1].Value.Trim()
+    $meta = Get-LessonMeta $b
+    $f = $meta.Fields
+    # meta 行不合法时**不猜**：字段留空/0，metaOk=$false 让下游自己决定 fail-closed 的方式。
+    $tier = if ($meta.Ok) { $f['tier'] } else { '' }
+    $sev  = if ($meta.Ok) { $f['severity'] } else { '' }
+    $kind = if ($meta.Ok -and $f.ContainsKey('kind')) { $f['kind'] } else { 'pitfall' }   # 旧条目无 kind 字段 => 默认 pitfall（向后兼容）
+    $rec  = if ($meta.Ok) { [int]$f['recurrence'] } else { 0 }
+    $tags = if ($meta.Ok) { $f['tags'] } else { '' }
+    $cost = if ($meta.Ok -and $f.ContainsKey('cost')) { $f['cost'] } else { '' }          # 可选；旧条目无此字段 => 空（向后兼容）
+    # rule / enforced_by 是正文里的独立整行，本身就锚定在行首，保持原样。
     $rule = ([regex]::Match($b, '(?m)^- rule:\s*(.+)$')).Groups[1].Value.Trim()
     $enf = ([regex]::Match($b, '(?m)^- enforced_by:\s*(.+)$')).Groups[1].Value.Trim()
-    $cost = ([regex]::Match($b, 'cost:\s*([^｜|]+)')).Groups[1].Value.Trim()   # 可选；旧条目无此字段 => 空（向后兼容）
-    $out += [pscustomobject]@{ id = $id; tier = $tier; kind = $kind; severity = $sev; recurrence = [int]($rec | ForEach-Object { if ($_){$_}else{0} }); tags = $tags; rule = $rule; enforced_by = $enf; cost = $cost; body = $b }
+    $out += [pscustomobject]@{ id = $id; tier = $tier; kind = $kind; severity = $sev; recurrence = $rec; tags = $tags; rule = $rule; enforced_by = $enf; cost = $cost; metaOk = $meta.Ok; metaError = $meta.Error; body = $b }
   }
   return $out
 }
@@ -211,6 +245,11 @@ switch ($Command) {
     Step '护栏：必须层封顶 + id 唯一 + 字段完整'
     $ls = Get-AllLessons
     $fail = $false
+    # 规范 meta 行完整性：先于其余校验，因为下面每一条判定（tier 漂移、must 封顶、晋升门槛）都读这些字段。
+    # 元数据读不出来就不能假装读出了默认值——那正是「正文诱饵冒充元数据」的入口。
+    $badMeta = @($ls | Where-Object { -not $_.metaOk })
+    foreach ($bm in $badMeta) { Write-Warning "[LSN-META-INVALID] $($bm.id) 的规范 meta 行不合法：$($bm.metaError)" }
+    if ($badMeta.Count) { $fail = $true } else { Write-Host '规范 meta 行 ✓' }
     # id 唯一
     $dup = $ls | Group-Object id | Where-Object Count -gt 1
     if ($dup) { Write-Warning "重复 id：$($dup.Name -join ', ')"; $fail = $true } else { Write-Host 'id 唯一 ✓' }
@@ -361,7 +400,12 @@ switch ($Command) {
         $referenced[$match.Groups[1].Value] = $true
       }
     }
+    # metaOk 是入选的第一道条件：archive 会把条目从热账本搬到冷库，而「元数据读不出来」与「元数据说可以搬」
+    # 在证据强度上完全不同。读不出来就留在热账本（fail-closed），由 check 报 [LSN-META-INVALID] 让人来修。
+    $unparsable = @($hot | Where-Object { -not $_.metaOk })
+    foreach ($bad in $unparsable) { Write-Warning "[LSN-META-INVALID] $($bad.id) 的规范 meta 行不合法（$($bad.metaError)）——保留在热账本，不进归档候选。" }
     $candidates = @($hot | Where-Object {
+      $_.metaOk -and
       $_.tier -eq 'ledger' -and $_.recurrence -eq 1 -and
       [int]($_.id.Substring(1)) -ne $maxNumber -and -not $referenced.ContainsKey($_.id)
     })

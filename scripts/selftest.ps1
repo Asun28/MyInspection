@@ -937,6 +937,82 @@ try {
   Remove-Item -Recurse -Force $l2dRepo -ErrorAction SilentlyContinue
 }
 
+# 2e. T0-LESSONS-COLD-RECALL（R3 收口）：archive 是**搬运数据**的动作，它的选择器只许信唯一、锚定、完整的
+#     规范 meta 行。不锚定地在整块里捞 `tier:` / `recurrence:`，等于让任意一句正文叙述决定某条经验会不会
+#     被移出热账本——meta 行缺字段时，第一个匹配就落到正文诱饵上。此闸用敌意夹具钉死：诱饵/重复/非法一律
+#     [LSN-META-INVALID] 留在热区，合法条目行为不变。把 Get-LessonMeta 换回不锚定正则，(a) 立刻变红。
+$l2eRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2e-$PID"
+if (Test-Path $l2eRepo) { Remove-Item -Recurse -Force $l2eRepo }
+New-Item -ItemType Directory -Force $l2eRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2eRepo -Recurse -Force
+  $l2eLessons = Join-Path $l2eRepo 'scripts/lessons.ps1'
+  $l2eLedger = Join-Path $l2eRepo 'docs/lessons/LEDGER.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2eLedger), (Join-Path $l2eRepo 'specs/archive') | Out-Null
+  Set-Content (Join-Path $l2eRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n`n## refs`n" -Encoding utf8
+
+  # L1 合法且一次性 => 唯一合法候选（对照组：新校验不得误伤正常条目）。
+  # L2 lesson-meta-body-bait：meta 行**故意不含** tier / recurrence，正文却写着 `tier: ledger` 与 `recurrence: 1`。
+  #    不锚定的实现会从正文补齐这两个字段，于是 L2 被当成一次性 ledger 经验搬走。
+  # L3 两条 meta 行；L4 tier 取非法值。三者都必须留在热区。
+  # L9 合法但为最大 id（既有排除规则），确保候选集只可能是 L1。
+  $l2eLedgerText = @(
+    '# fixture ledger',
+    '',
+    '## L1',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: LEGIT_COLD_CANDIDATE', '- root_cause: fixture', '- rule: rule-legit', '- enforced_by: none（fixture）',
+    '',
+    '## L2',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ kind: pitfall ｜ severity: minor',
+    '- symptom: lesson-meta-body-bait，正文声称 tier: ledger 且 recurrence: 1，但规范 meta 行根本没有这两个字段',
+    '- root_cause: fixture', '- rule: rule-bait recurrence: 1', '- enforced_by: none（fixture）',
+    '',
+    '## L3',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1',
+    '- date: 2026-08-22 ｜ tags: fixture ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: DUPLICATE_META_LINE', '- root_cause: fixture', '- rule: rule-dup', '- enforced_by: none（fixture）',
+    '',
+    '## L4',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: bogus ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: INVALID_TIER_VALUE', '- root_cause: fixture', '- rule: rule-bogus', '- enforced_by: none（fixture）',
+    '',
+    '## L9',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: MAX_ID_EXCLUDED', '- root_cause: fixture', '- rule: rule-max', '- enforced_by: none（fixture）'
+  ) -join "`n"
+  Set-Content $l2eLedger $l2eLedgerText -Encoding utf8
+
+  $dry2e = (& pwsh -NoProfile -File $l2eLessons archive -RepoRoot $l2eRepo -DryRun 2>&1 | Out-String)
+  $dryExit2e = $LASTEXITCODE
+  $cand2e = ([regex]::Match($dry2e, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
+  $e2Fail = $false
+  if ($dryExit2e -ne 0) { Fail "闸2e(a)：archive -DryRun 对敌意夹具非零退出（$dryExit2e）——预览应报告候选而非崩溃。output=[$dry2e]"; $e2Fail = $true }
+  elseif ($cand2e -ne 'L1') { Fail "闸2e(a)：候选集应恰为 L1，实得 '$cand2e'——正文诱饵/重复 meta/非法 tier 有条目被当成合法元数据（不锚定解析）。output=[$dry2e]"; $e2Fail = $true }
+  foreach ($hostile2e in @('L2', 'L3', 'L4')) {
+    if ($dry2e -notmatch "\[LSN-META-INVALID\][^`n]*\b$hostile2e\b") { Fail "闸2e(b)：$hostile2e 的非法 meta 未被点名报告 [LSN-META-INVALID]——静默留热区等于没有诊断。output=[$dry2e]"; $e2Fail = $true }
+  }
+
+  $check2e = (& pwsh -NoProfile -File $l2eLessons check -RepoRoot $l2eRepo 2>&1 | Out-String)
+  $checkExit2e = $LASTEXITCODE
+  if ($checkExit2e -eq 0 -or $check2e -notmatch '\[LSN-META-INVALID\]') {
+    Fail "闸2e(c)：check 对缺字段/重复/非法 meta 未 fail-closed（exit=$checkExit2e）——校验器放行的形状，选择器迟早会当真。output=[$check2e]"; $e2Fail = $true
+  }
+
+  $ledgerHash2e = (Get-FileHash $l2eLedger -Algorithm SHA256).Hash
+  $run2e = (& pwsh -NoProfile -File $l2eLessons archive -RepoRoot $l2eRepo 2>&1 | Out-String)
+  $ledgerAfter2e = Get-Content $l2eLedger -Raw
+  foreach ($stayHot2e in @('L2', 'L3', 'L4')) {
+    if ($ledgerAfter2e -notmatch "(?m)^##\s+$stayHot2e\b") { Fail "闸2e(d)：$stayHot2e 元数据不可解析却被真的搬出热账本——fail-closed 应是「留下」，不是「搬走」。output=[$run2e]"; $e2Fail = $true }
+  }
+  if ($ledgerAfter2e -match '(?m)^##\s+L1\b') { Fail "闸2e(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2e]"; $e2Fail = $true }
+  if ($ledgerHash2e -eq (Get-FileHash $l2eLedger -Algorithm SHA256).Hash) { Fail '闸2e(d)：archive 实跑后热账本毫无变化——本例没有真正施压。'; $e2Fail = $true }
+
+  if (-not $e2Fail) { Write-Host '  2e lessons 规范 meta 行锚定解析 OK（正文诱饵/重复 meta/非法值均 [LSN-META-INVALID] 留热区，合法条目照常冷存）' -ForegroundColor Green }
+} finally {
+  Remove-Item -Recurse -Force $l2eRepo -ErrorAction SilentlyContinue
+}
+
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---
 Step '3/17 模板哨兵（CLAUDE.template.md）'
 if ($isPostInit) { Write-Host '  已初始化（无 CLAUDE.template.md），跳过——本闸只测元仓自身的模板形态。' -ForegroundColor DarkGray }
