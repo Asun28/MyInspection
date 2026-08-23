@@ -30,7 +30,7 @@ dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scri
 dod_exit: 0
 dod_assert: `triage selfcheck` 打印 ASCII 哨兵 PASS（覆盖新探针 10/11 与改口径后的探针 1/5，含批量窗口两侧边界与主检出 `.review` 取证路径，全部走 hermetic 夹具；`_cards.ps1` 的 BOM 分支由 selftest 闸 10d(BOM/纯函数) 常设守住），且 `lessons.ps1 check` 在**生产路径**上按驻留 id 报出 9——不是按条目报 7，证明新口径不只在夹具里生效
 review_gate: codex {verdict:pass}
-hygiene: 9 枚单句变异逐一击杀，每枚还原后核 SHA256 逐字节一致——封顶退回按条目计数 / 撤 enforced_by 闸 / enforced_by 正则退回跨行 / delivery-blocked 不再按 verdict 过滤 / 降层不再要求守卫 / selfcheck 不再注入夹具总账 / 批量阈值 `-gt` 退化成 `-ge`（off-by-one）/ 摘掉主检出 `.review` 取证路径 / `_cards.ps1` 去掉 `\uFEFF?` 锚点后带 BOM 的卡 front-matter 解析成 null
+hygiene: 12 枚单句变异逐一击杀，每枚还原后核 SHA256 逐字节一致——封顶退回按条目计数 / 撤 enforced_by 闸 / enforced_by 正则退回跨行 / delivery-blocked 不再按 verdict 过滤 / 降层不再要求守卫 / selfcheck 不再注入夹具总账 / 批量阈值 `-gt` 退化成 `-ge`（off-by-one）/ 摘掉主检出 `.review` 取证路径 / `_cards.ps1` 去掉 `\uFEFF?` 锚点后带 BOM 的卡 front-matter 解析成 null
 doc_sync: CLAUDE.md 计量单位说明 · LOOP-ENGINEERING 与 triage skill 的探针枚举与计数 · DELIVERY-CHAINS 心跳行（R5）
 ---
 

@@ -351,13 +351,24 @@ function Invoke-ProbeDeliveryBlocked {
     }
     $localReview = Join-Path (Join-Path $RepoRoot '.review') "$id.json"
     if (Test-Path $localReview) { $files += @(Get-Item $localReview) }
+    # 两条取证路径会互相干扰，各有一种坏法：
+    #   ① **同一份裁决被数两次**——卡的 worktree 恰是主检出时，通配与按 id 拼出的路径指向同一个文件；
+    #   ② **捞到别人的 block**——worktree 侧是 `*.json` 通配，别的分支在同一 .review 里留下的裁决会被当成本卡的。
+    # 故先按规范化全路径去重（Windows 路径大小写不敏感），再要求产物**自证属于本卡**。
+    $seenPath = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($vf in $files) {
-      $verdict = ''; $reasons = 0
+      if (-not $seenPath.Add([IO.Path]::GetFullPath($vf.FullName))) { continue }   # ① 同一文件只算一次
+      $verdict = ''; $reasons = 0; $owner = ''
       try {
         $o = Get-Content $vf.FullName -Raw | ConvertFrom-Json
         if ($o -and ($o.PSObject.Properties.Name -contains 'verdict')) { $verdict = [string]$o.verdict }
         if ($o -and ($o.PSObject.Properties.Name -contains 'reasons')) { $reasons = @($o.reasons).Count }
+        if ($o -and ($o.PSObject.Properties.Name -contains 'branch'))  { $owner   = [string]$o.branch }
       } catch { continue }   # 一份读不出的裁决绝不能把心跳带崩（同探针 8 的 fail-safe 契约）
+      # ② 归属：review.ps1 会把被审分支写进 branch，按它判；旧产物无该字段时退回文件名（<id>.json 即本卡命名）。
+      # 判不出归属就跳过——reporter 宁可漏报，也不该拿别人的 block 冤枉本卡（假阳性会把注意力引向错的地方）。
+      if ($owner) { if ($owner -ne $id) { continue } }
+      elseif ([IO.Path]::GetFileNameWithoutExtension($vf.Name) -ne $id) { continue }
       if ($verdict -ne 'block') { continue }
       $hits += [pscustomobject]@{ id = $id; path = $vf.FullName; reasons = $reasons; when = $vf.LastWriteTime }
     }
@@ -511,6 +522,45 @@ if ($Verb -eq 'selfcheck') {
     $lb = @($findings | Where-Object probe -eq 'delivery-blocked')
     if ($lb.Count -ne 1) { $fails.Add("用例8 期望恰 1 条来自主检出 .review 的 delivery-blocked，实得 $($lb.Count)") }
     elseif ($lb[0].what -notmatch 'T8-SC-A') { $fails.Add('用例8 报出的不是本地 .review 里那张卡') }
+    # ── 用例 9：两条取证路径**真重合**时，同一份裁决只报一条 ──
+    # 重合条件是 <RepoRoot> == <wtRoot>/<id>：此时通配取到的 .review/<id>.json 与按 id 拼出的
+    # <RepoRoot>/.review/<id>.json 是**同一个文件**。用例 4 与 8 各自只喂一条路径，都盖不住这里。
+    $fxOv = Join-Path $fxRoot 'overlap'
+    $fxOvCard = Join-Path $fxOv 'T8-SC-A'
+    New-Item -ItemType Directory -Force (Join-Path $fxOvCard '.review') | Out-Null
+    Set-Content -Path (Join-Path $fxOvCard '.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["dup"],"branch":"T8-SC-A"}' -Encoding utf8
+    $RepoRoot = $fxOvCard                                 # 主检出恰是卡自己的 worktree
+    function Get-ScaffoldWorktreeRoot { $fxOv }           # 于是两条路径解析到同一个文件
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $ov = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($ov.Count -ne 1) { $fails.Add("用例9 重合路径下期望恰 1 条 delivery-blocked，实得 $($ov.Count)（未按规范化全路径去重，一份裁决被数两次）") }
+
+    # ── 用例 10：归属校验的**两道**各测一条 ──
+    # (a) 文件名就不是本卡的（隔壁分支按自己分支名落盘）——由文件名兜底挡下；
+    # (b) 文件名恰好是 <id>.json、但产物自述 branch 属于别人（分支改名/复制夹具后会出现）——只有读 branch 才挡得下。
+    # 少测 (b)，branch 归属那半就是死代码：删掉它测试照绿。
+    $fxFor = Join-Path $fxRoot 'foreign'
+    New-Item -ItemType Directory -Force (Join-Path $fxFor 'T8-SC-A/.review') | Out-Null
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/codex-other-branch.json') -Value '{"verdict":"block","reasons":["not-ours"],"branch":"T9-SOMEONE-ELSE"}' -Encoding utf8
+    $RepoRoot = Join-Path $fxRoot 'no-such-repo'
+    function Get-ScaffoldWorktreeRoot { $fxFor }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $fo = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($fo.Count -ne 0) { $fails.Add("用例10(a) 文件名非本卡的裁决被算到本卡头上（实得 $($fo.Count) 条）") }
+    # (b)：同一目录再放一份**文件名对得上、branch 对不上**的，仍不得上报
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["renamed-branch"],"branch":"T9-SOMEONE-ELSE"}' -Encoding utf8
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $fo2 = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($fo2.Count -ne 0) { $fails.Add("用例10(b) 文件名对得上但 branch 自述属于别人的裁决仍被上报（实得 $($fo2.Count) 条）——branch 归属校验是死代码") }
+    # (c)：**无 branch 字段**的旧产物（该字段是后加的）——此时唯一能判归属的就是文件名那道兜底。
+    # 少了这条，文件名兜底同样是死代码：(a)/(b) 里 branch 都在场，第一道就把它们挡了，兜底永远走不到。
+    $fxLegacy = Join-Path $fxRoot 'legacy'
+    New-Item -ItemType Directory -Force (Join-Path $fxLegacy 'T8-SC-A/.review') | Out-Null
+    Set-Content -Path (Join-Path $fxLegacy 'T8-SC-A/.review/codex-legacy-no-branch.json') -Value '{"verdict":"block","reasons":["legacy-artifact"]}' -Encoding utf8
+    function Get-ScaffoldWorktreeRoot { $fxLegacy }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $fo3 = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($fo3.Count -ne 0) { $fails.Add("用例10(c) 无 branch 字段、文件名也非本卡的旧产物被上报（实得 $($fo3.Count) 条）——文件名兜底是死代码") }
     # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
     Remove-Item function:Get-ScaffoldWorktreeRoot
     $findings.Clear(); Push-Location $fxCwd
@@ -525,7 +575,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review · 探针 5 按驻留 id 计数 · 探针 1/10 的 enforced_by 双向、空字段与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+隔壁分支归属 · 探针 5 按驻留 id 计数 · 探针 1/10 的 enforced_by 双向、空字段与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }
