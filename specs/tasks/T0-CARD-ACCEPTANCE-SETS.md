@@ -1,6 +1,6 @@
 ---
 id: T0-CARD-ACCEPTANCE-SETS
-title: 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据
+title: 给两张 round-cap 卡补编号 acceptance 清单（声明性，不改评审语义），并记录「轮次通胀 ≠ 颗粒度」的判据
 depends_on: []
 parallelizable_with: []
 status: todo
@@ -37,27 +37,41 @@ doc_sync: 无（本卡不改 CLAUDE.md；T3/T4 合并时各自的 doc_sync 照�
 # T0-CARD-ACCEPTANCE-SETS
 
 ## 产出
-给 `T3-REPORT-COMPOSER` 与 `T4-COMPLIANCE-ENGINE` 两张 round-cap 卡各补一份**编号封闭的 `acceptance:` 清单**，并把「R3 轮次通胀不是颗粒度问题」的实测判据入总账（L241）。
+给 `T3-REPORT-COMPOSER` 与 `T4-COMPLIANCE-ENGINE` 两张 round-cap 卡各补一份**编号的 `acceptance:` 清单**，并把「R3 轮次通胀不是颗粒度问题」的实测判据入总账（L241）。
+
+**清单是声明，不是判据**：它写下作者认为「完成」需要哪些事实，供实现者与评审者对照；**裁决仍完全按 `docs/QUALITY-RUBRIC.md` 现行 rubric**，本卡不改任何评审语义（见 `non_goals`）。
 
 ## 为什么（实测判据）
 两张卡各自两轮 R3 触顶。通行归因是「卡太大、拆细就好」。实测不支持：
 
-| 卡 | PR 新增行 | R3 轮次 |
-|---|---:|---:|
-| T2-ROUTINE-CONTENT | 277 | 9 |
-| T1-CANON-HASH | 556 | 2 |
-| T3-FINALIZE | 2027 | 15 |
-| T1-SCHEMA-CORE | 2632 | 17 |
-| T5-BACKUP-FORMAT | 2740 | **4** |
+**完整数据集（八张全列，无取舍）**：
 
-八张已合并卡 Pearson r=0.42、**r^2=0.18**——卡片体量只解释不到两成的轮次方差，最大的 diff 反而第四少轮次。
+| 卡 | PR | 新增行 | R3 轮次 |
+|---|---|---:|---:|
+| T2-ROUTINE-CONTENT | #5 | 277 | 9 |
+| T1-CANON-HASH | #2 | 556 | 2 |
+| T1-TEMPLATE-ENGINE | #3 | 1008 | 5 |
+| T2-CAPTURE-CORE | #8 | 1862 | 7 |
+| T3-FINALIZE | #7 | 2027 | 15 |
+| T2-PHOTO-PIPELINE | #6 | 2168 | 9 |
+| T1-SCHEMA-CORE | 本地合并 fcdc88d | 2632 | 17 |
+| T5-BACKUP-FORMAT | #9 | 2740 | **4** |
 
-真正的判别式是**验收集合封不封闭**。24 份终局裁决共 25 条 finding，其中 **18 条（72%）** 是 rubric #6「测试缺失」；#6 的搜索面在卡片只声明行为、不枚举验收事实时**无界**。对照：`T1-CANON-HASH` 把哈希域逐字段列全 → 2 轮收；`T4-COMPLIANCE-ENGINE` 只写「加载器做校验」→ 评审逐条列出 12 个卡片从未提过的拒绝用例，全部属实。
+对这八对 (x=新增行, y=轮次) 算 Pearson：**r = 0.42，r^2 = 0.18**。卡片体量只解释不到两成的轮次方差，且最大的 diff 反而是第四少轮次。
 
-本卡把那些集合**一次性封闭**，让下一轮 R3 从「无界搜索」变成「照单核对」。
+**数据来源与其限度（可复算）**：
+- 新增行 = `gh pr view <n> --json additions`；`T1-SCHEMA-CORE` 无 PR（早于公开仓，走本地合并），取 `git show --stat fcdc88d` 的 insertions，**与其余七行来源不同**，单列注明。
+- 轮次 = 各卡自己的合并记录 / `docs/TASK-BOARD.md` / `CLAUDE.md`「当前阶段」里写下的轮次，属**叙述性记录**而非机器产物。
+- finding 分布 = 各 worktree `.review/<branch>.json` 共 24 份**终局**裁决（13 block / 11 pass）、25 条 finding，其中 18 条（72%）点名 rubric #6，`#1 #2 #3 #5 #8 #11 #13 #14 #15 #16` 十维零命中。**这些 .review 产物按设计不入库**（每轮覆写、随 worktree 生灭），故此处只能给出计数与复算方法，读者无法从本仓历史复现——把它当**指向性证据**，不是可审计数据集。同理，24 份是终局快照，不是历次轮次的普查。
+
+结论按证据强度分两级：**「体量不解释轮次」有完整可复算数据支撑**；**「#6 无界是主因」只有上述指向性证据**，本卡不据后者改变任何评审规则，只据前者主张「写清单」这一条不依赖 rubric 的做法。
+
+对照仍是最直观的：`T1-CANON-HASH` 把哈希域逐字段列全 → 2 轮收；`T4-COMPLIANCE-ENGINE` 只写「加载器做校验」→ 评审逐条列出 12 个卡片从未提过的拒绝用例，全部属实。
+
+本卡把那些事实**一次性写出来**。价值不依赖任何 rubric 改动：作者一次想清「完成=哪些事实」，比在 N 轮评审里被动发现便宜，实现者与评审者也多了一张可对照的清单。至于「清单外一律不 block」——那是上游提案，**本卡不采用**。
 
 ## 与上游的关系
-`acceptance:` 是本仓先行的**下游试验**，同时已作为提案提给上游：Asun28/claude-devops-scaffold **#203**（封闭验收集合 → #6 有不动点）、**#204**（rubric 瘦身 + #8 优先于 #6 的处置动词）、**#205**（评审按内容分流）。上游未落地前**不改本地 `QUALITY-RUBRIC.md`**，避免与上游分叉；清单靠人/评审读，不靠机检。
+写清单这件事本卡就做了。**把清单变成排他性判据**则只是提案，已提给上游：Asun28/claude-devops-scaffold **#203**（封闭验收集合 → #6 有不动点）、**#204**（rubric 瘦身 + #8 优先于 #6 的处置动词）、**#205**（评审按内容分流）。**上游落地前本仓一律不采用这些语义**，也不改本地 `QUALITY-RUBRIC.md`；清单靠人与评审读，不当机检、不当裁决依据。
 
 ## 验收 / 执行建议
 dod 见 front-matter。纯卡片改动，无实现码。

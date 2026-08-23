@@ -18,8 +18,11 @@ dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :cor
 dod_exit: 0
 dod_assert: 黄金布局树测试绿（固定巡检 fixture → 固定 DocumentPlan：页数/块序列/图槽位）；80 照 fixture 分页无溢出/无孤行；房东版含建议插槽+紧急度、房客版仅客观节；双语行配对（en 行+zh 行成对不拆页）；页脚含 data_hash 与免责声明槽
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
-  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block（上游提案 Asun28/claude-devops-scaffold#203）。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 黄金布局树：固定巡检 fixture → 固定 DocumentPlan，逐字段断言页数 + 块序列 + 每个图槽的 x/y/width/height（mm）"
   - "A2 项目内联缩略图几何：落在项目表行内、目标宽约 40mm，断言坐标而非仅断言块序"
   - "A3 附录大图：每页 2 张、目标宽约 120mm，带回链编号（房间.项.序）"

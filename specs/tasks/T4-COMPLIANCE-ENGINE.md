@@ -19,8 +19,11 @@ dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :cor
 dod_exit: 0
 dod_assert: 需求 §10 全部规则各有正/反测试：4 周 Routine 限额（Ingoing/Exit 不计入·按类型分流）、通知提前量 ≥48h 且 ≤14d、时段 08:00–19:00（寄宿 18:00）、「双方同意也拦」场景；DST 转换日（NZ 9 月底进/4 月初出）边界用例绿；规则来自 configs/compliance/nz-rules-v1.json，改配置数值测试即变（引擎无字面量）
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
-  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block（上游提案 Asun28/claude-devops-scaffold#203）。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 4 周内不得重复 ROUTINE：正例（第 29 天放行）+ 反例（第 27 天拦下）各一"
   - "A2 通知提前量 ≥ 最小值：正例 + 反例（差 1 分钟）各一"
   - "A3 通知提前量 ≤ 最大值：正例 + 反例（超 1 分钟）各一"
