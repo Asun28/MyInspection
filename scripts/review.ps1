@@ -28,6 +28,11 @@
 .PARAMETER Model      本次评审用的模型；留空取 _config.ps1 的 ReviewModel，再空则用后端自身默认。
 .PARAMETER Effort     本次评审的推理档位；留空取 _config.ps1 的 ReviewEffort，再空则用后端自身默认。
                       合法值随模型而异，本脚本不硬编码枚举——填错即由 CLI/API 报错、走 fail-closed block。
+.PARAMETER SizeOnly   只按真实 diff 预算度量已钉死的 base...HEAD（additions+deletions 与未截断 unified diff 字符数）后退出：
+                      **不唤起评审者、不消费 round**；exit 0 = 在预算内。task.ps1 ship 在 push/开 PR 前跑同一条路径。
+                      与 -ResetRounds / -SkipReview 互斥（两者都在预算闸之前返回，组合起来一件事也不做）。
+.PARAMETER MaxChangedLines  changed-lines 上限（默认 1000）。ValidateRange 上界即默认值：**只许收紧**，命令行放宽不了基线批准的预算。
+.PARAMETER MaxDiffChars     未截断 unified diff 字符上限（默认 60000，与评审者首屏 cap 对齐）。同样只许收紧。
 .EXAMPLE
   pwsh -File scripts/review.ps1 -WorktreePath /path/to/wt/T1-FOO -PostStatus -PrNumber 7
 #>
@@ -50,8 +55,13 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-if ($SizeOnly -and $ResetRounds) {
-  Write-Host '  [R3-DIFF-ARGS-INVALID] -SizeOnly and -ResetRounds are independent operations and cannot be combined.' -ForegroundColor Red
+# -ResetRounds 与 -SkipReview 都在预算闸**之前**就 return/exit，故与 -SizeOnly 组合时**两件事都不发生**：
+# 既没量到体量，也没清计数 / 没做只读检视，却仍返回一个会被读成「量过了」的退出码。两者同属互斥类，一起拒。
+$argsConflict = @()
+if ($ResetRounds) { $argsConflict += '-ResetRounds' }
+if ($SkipReview) { $argsConflict += '-SkipReview' }
+if ($SizeOnly -and $argsConflict.Count -gt 0) {
+  Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly and $($argsConflict -join ' and ') are independent operations and cannot be combined." -ForegroundColor Red
   exit 1
 }
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
@@ -286,11 +296,16 @@ if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
   exit 1
 }
 $comparison = "$baseOid...$sha"
-$diff = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --stat | Out-String).Trim()
+# --stat 段不参与预算度量，但和下方 $diffBody 同属喂给评审者的 prompt：Out-String 按**平台**换行拼接，
+# 不归一就会出现「概览 CRLF、正文 LF」的同一份 prompt 两种换行、且随 OS 变形。同口径归一到 LF。
+$diff = ((& git -C $WorktreePath -c core.quotepath=false diff $comparison --stat | Out-String) -replace "`r`n", "`n").Trim()
 $diffStatExit = $LASTEXITCODE
 $diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --numstat | Out-String)
 $diffNumstatExit = $LASTEXITCODE
-$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --unified=3 | Out-String)
+# Out-String 用**平台**换行拼接（Windows CRLF / Unix LF），于是同一份 diff 在两个平台上字符数不同——
+# 一个 59,900 字符的改动在 Linux 放行、在 Windows 就可能报 60,100 超限。预算是跨平台契约，度量必须
+# 先归一到 LF 再计数与截断；truncation 也用同一份归一文本，免得截断点随平台漂移。
+$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --unified=3 | Out-String) -replace "`r`n", "`n"
 $diffBodyExit = $LASTEXITCODE
 if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
   $diffFailureReason = "[R3-DIFF-COMMAND-FAILED] git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --numstat=$diffNumstatExit, --unified=$diffBodyExit). The size/review input cannot be trusted, so this run blocks fail-closed."
@@ -303,7 +318,10 @@ $changedLines = [long]0
 $binaryFiles = 0
 $numstatMalformed = @()
 foreach ($numstatLine in @($diffNumstat -split '\r?\n' | Where-Object { $_ -ne '' })) {
-  if ($numstatLine -notmatch '^(?<add>\d+|-)\t(?<delete>\d+|-)\t') {
+  # **整行**校验，不是前缀校验：--numstat 每行恰好三个 TAB 分隔字段，第三个是非空且自身不含 TAB 的路径
+  # （rename 的 `old => new` / `dir/{a => b}` 压缩形态里没有 TAB，照常匹配）。只锚头部时 `1<TAB>2<TAB>`（空路径）
+  # 与 `1<TAB>2<TAB>a<TAB>b`（多出字段）会被当成合法行计入体量——行本身已经不是 numstat 了，数出来的体量就不可信。
+  if ($numstatLine -notmatch '^(?<add>\d+|-)\t(?<delete>\d+|-)\t[^\t\r\n]+$') {
     $numstatMalformed += $numstatLine
     continue
   }
@@ -313,7 +331,14 @@ foreach ($numstatLine in @($diffNumstat -split '\r?\n' | Where-Object { $_ -ne '
     $binaryFiles++
     continue
   }
-  $changedLines += [long]$add + [long]$delete
+  # 正则只保证「是一串数字」，不保证装得进 Int64：一个 30 位的数字段会匹配成功、然后在强制转换处
+  # **抛异常**，绕过本该接住它的 [R3-DIFF-NUMSTAT-INVALID]。用 TryParse 把溢出也归到同一个 fail-closed 出口。
+  [long]$addValue = 0; [long]$deleteValue = 0
+  if (-not [long]::TryParse($add, [ref]$addValue) -or -not [long]::TryParse($delete, [ref]$deleteValue)) {
+    $numstatMalformed += $numstatLine
+    continue
+  }
+  $changedLines += $addValue + $deleteValue
 }
 if ($numstatMalformed.Count -gt 0) {
   $numstatReason = "[R3-DIFF-NUMSTAT-INVALID] git diff --numstat returned $($numstatMalformed.Count) unparseable row(s); changed-line size is unknown, so this run blocks fail-closed."
@@ -343,6 +368,9 @@ if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue))
   exit 1
 }
 
+# 纵深防御，**当前不可达**：上方预算闸已在 $diffChars > $MaxDiffChars 时退出，而 $MaxDiffChars 的
+# ValidateRange 上界就是 60000（只许收紧），故走到这里的 $diffBody 必然 <= 60000。别把它读成活的截断行为
+# ——默认路径下评审者永远拿到完整 diff；留着只是「预算闸被改小/绕过时 prompt 仍不超首屏」的兜底。
 $diffCap = 60000
 $diffTruncated = $false
 if ($diffBody.Length -gt $diffCap) { $diffBody = $diffBody.Substring(0, $diffCap); $diffTruncated = $true }

@@ -89,7 +89,7 @@ Not every `block` is a quality judgement. Where the reviewer ran to completion b
 | `[R3-DIFF-TOO-LARGE]` | The complete pinned diff exceeds 1000 changed lines or 60000 characters; no reviewer ran and no round was consumed. | Split the card into ordered, independently verifiable units. |
 | `[R3-DIFF-COMMAND-FAILED]` | A pinned diff command failed, so size and review input are not trustworthy. | Repair the repository, baseline, or diff driver, then rerun. |
 | `[R3-DIFF-NUMSTAT-INVALID]` | Diff size contains an unclassifiable `--numstat` row. | Inspect the diff driver/output; unknown size never passes. |
-| `[R3-DIFF-ARGS-INVALID]` | Mutually exclusive diff-budget operations were requested together (currently `-SizeOnly` with `-ResetRounds`). | Run one operation at a time; reset is not a successful size measurement. |
+| `[R3-DIFF-ARGS-INVALID]` | Mutually exclusive diff-budget operations were requested together (`-SizeOnly` with `-ResetRounds` or `-SkipReview`; both of those return before the budget gate, so the pair performs neither operation). | Run one operation at a time; neither a counter reset nor a skipped review is a successful size measurement. |
 
 `[R3-VERDICT-WRITE-FAILED]` differs from the other four in *when* it is raised: the first four say no usable verdict could be read **from the reviewer**, whereas this one says the harness could not persist the verdict it had already decided. It is nonetheless a block state, and it **overrides a `pass`** — a verdict that cannot be persisted leaves no auditable record, and an unauditable approval is not an approval. Failing closed here matches the pre-existing behaviour, where an unwritable verdict path aborted the script outright.
 

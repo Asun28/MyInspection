@@ -10,7 +10,7 @@
     start   : 建 worktree(<WorktreeRoot>\<TaskId>) + 引导环境(uv sync / npm i)，打印 TDD 提醒。
     ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → 真实 diff 预算
               → push → 开 PR → Codex 评审(必 pass) → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
-              故本地闸门(DoD/verify/范围/许可/密钥/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
+              故本地闸门(DoD/verify/范围/许可/密钥/预算/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
 
   设计取舍见 docs\DEVOPS-WORKFLOW.md。Codex 评审通过即可自动合并（用户选择 hands-off）。
@@ -589,9 +589,9 @@ switch ($Phase) {
         # R3 可能很慢；评审期间 PR 可被并发 retarget。紧贴 merge 再确认一次，关闭「审 A、并 B」TOCTOU。
         Assert-RemotePrBase -Pr $pr -ExpectedBase $shipBase
         # free + private：服务端无规则集/必需检查，auto-merge 亦未启用。
-        # 本地闸门（DoD + verify + 范围闸 + 许可闸 + 防泄露闸 + Codex 评审）已在上方过闸（任一失败即 throw、不到此处），故直接 squash 合并。
+        # 本地闸门（DoD + verify + 范围闸 + 许可闸 + 防泄露闸 + 真实 diff 预算 + Codex 评审）已在上方过闸（任一失败即 throw、不到此处），故直接 squash 合并。
         # CI(verify) 在 PR 上仅信息性复跑，不阻断。（若转 GitHub Pro/public 并重建规则集，可改回 `gh pr merge --auto`。）
-        Step '本地闸门已过（DoD+verify+范围+许可+密钥+Codex）→ 直接 squash 合并（free private：无服务端必需检查）'
+        Step '本地闸门已过（DoD+verify+范围+许可+密钥+预算+Codex）→ 直接 squash 合并（free private：无服务端必需检查）'
         # 不加 --delete-branch：在 worktree 内它会尝试 checkout base(main) 以删本地分支，
         # 而 main 被主工作树占用 → fatal "'main' is already used by worktree"（合并其实已成功）。
         # 远端分支由仓库 delete_branch_on_merge=true 自动删；本地分支由 cleanup 阶段删。
@@ -701,8 +701,8 @@ switch ($Phase) {
           # PR 真实状态不以腿成员判定推断（R3 r2 #9）：push+PR 是复合腿——pr create 已成功而后续 PR 号解析/base
           # 断言 throw 时，腿未标完成但 PR 已存在。以「PR 号是否已解析到手」为准；解析不到只指示实查，不断言「尚无 PR」。
           # 【已推送恢复闸门保真总则（R3 r14/r16 #17）】：CI 无范围闸兜底（TD89 根因）——下列**每个**已推送分支走 -PostStatus/合并前，
-          # 必须先在 worktree **手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸）**，绝不以 CI 复跑替代（CI 漏卡外越界）。
-          Write-Host "    【闸门保真总则】已推送恢复合并前**必先手动补跑全部确定性闸：DoD、verify、范围闸、许可闸、防泄露闸**——CI 无范围闸兜底、不可仅靠 CI 复跑（TD89 根因/R3 r16 #17）。下列各分支均在此总则下。" -ForegroundColor Yellow
+          # 必须先在 worktree **手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算）**，绝不以 CI 复跑替代（CI 漏卡外越界）。
+          Write-Host "    【闸门保真总则】已推送恢复合并前**必先手动补跑全部确定性闸：DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算**——CI 无范围闸兜底、不可仅靠 CI 复跑（TD89 根因/R3 r16 #17）。下列各分支均在此总则下。" -ForegroundColor Yellow
           $sagaPrNum = if ((Test-Path Variable:pr) -and $pr) { $pr } else { 0 }
           if ($sagaDone -contains 'R3 评审') {
             # R3 r3 #2 + r6 #9：修复若改动了 PR head（如解决冲突的新提交），已录的 R3 pass 即对旧 diff 而言；base 被

@@ -1,6 +1,6 @@
 # DevOps 工作流 · worktree + TDD + Codex-PR 闸门 + 测试卫生 + 文档同步
 
-> EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` enforces RED evidence → DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope/review gates, then runs scope `allow_paths` → license → secret-leak → real diff budget → push/PR-base validation → deliberately non-deterministic codex R3 review → pre-merge base revalidation → squash merge.
+> EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` enforces RED evidence → DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope/review gates, then runs scope `allow_paths` → license → secret-leak → push/PR-base validation → deliberately non-deterministic codex R3 review → pre-merge base revalidation → squash merge.
 
 > 本文件是工作流的唯一操作手册。它把 5 条要求（R1–R5）落到 Windows/PowerShell 原生、
 > 零新增运行时依赖的闭环上。核心理念：**计划/任务卡 own 规划/冻结/验收，脚手架只补 git+TDD+评审接线**，
@@ -61,7 +61,7 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase start
 # R2 RED 检查点（先写失败测试后跑）：断言 DoD 非零并落 .review\T0-SCAFFOLD.red 证据，ship 据此强制 RED-first
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase red
 
-# 远端基线定向 fetch → R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸(check-secrets) → 真实 diff 预算 → push → PR base确认 → R3 Codex pass → merge前再确认base → 合并
+# 远端基线定向 fetch → R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸(check-secrets) → push → PR base确认 → R3 Codex pass → merge前再确认base → 合并
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
 #   无远端 / 无 Codex 的本地 T0：加 -Local（DoD + 可选评审后**本地**合并，不 push/PR/gh）
 #   pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship -Local
@@ -75,7 +75,7 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 ```
 
 > <!-- T36-DOCTRINE -->
-> **ship 非原子 → 重跑同一条 `-Phase ship` 即 resume（T36-DOCTRINE）**：远端 `ship` 依次执行 RED 证据 → DoD → verify → **提交（watershed）** → 刷新远端基线 → 范围 → 许可 → 防泄露 → 真实 diff 预算 → push/PR → base 确认 → R3 → merge 前 base 复查 → 合并；任一闸失败即 `throw`，并先打印 saga 报告（`T26-SHIPSAGA`：已完成腿、失败点、待办腿及按状态生成的恢复命令）——先读它再动手。commit 前中断可直接重跑；commit 腿铸造 T35 watershed receipt 后，receipt 会让合法重跑通过 RED 新鲜度闸，因此 commit 后至 merge 前的**主恢复同样是：修复后重跑原封不动的同一条 `ship`，让全部闸重新通过（含修复提交），没有豁免。**
+> **ship 非原子 → 重跑同一条 `-Phase ship` 即 resume（T36-DOCTRINE）**：远端 `ship` 依次执行 RED 证据 → DoD → verify → **提交（watershed）** → 刷新远端基线 → 范围 → 许可 → 防泄露 → push/PR → base 确认 → R3 → merge 前 base 复查 → 合并；任一闸失败即 `throw`，并先打印 saga 报告（`T26-SHIPSAGA`：已完成腿、失败点、待办腿及按状态生成的恢复命令）——先读它再动手。commit 前中断可直接重跑；commit 腿铸造 T35 watershed receipt 后，receipt 会让合法重跑通过 RED 新鲜度闸，因此 commit 后至 merge 前的**主恢复同样是：修复后重跑原封不动的同一条 `ship`，让全部闸重新通过（含修复提交），没有豁免。**
 >
 > 这条 doctrine 只由 saga catch 的 receipt-present 分支与本节承载。**旧的「不要重跑 ship，直接对已开 PR 重跑评审并合并」路径已反转**：它绕过范围（scope）闸，而 CI **没有范围闸**，这正是 TD89 的根因。不得把 CI 通过当作完整闸门凭据，也不得用直接 review/merge 替代正常的 ship resume。
 > 该反转现由 `selftest.ps1` 闸 **15q** 的负断言机检锁死（TD93 item②）：`scripts/task.ps1` 内一旦复现旧路径的**三条既定措辞**（禁用词表见 15q）即 `FAIL`——旧教义最危险的载体正是印在 RED 证据闸抛错处的**运行期指引**注释，操作者撞闸时会照读照做。该锁是**字面量比对、非语义**：改写措辞可绕过，故它是最后一道栅栏、**不替代评审**。扫描面 = `scripts/task.ps1`（禁绝）+ `selftest.ps1` 自身（词表恰 1 次）；本文件**不在**扫描面内——本段引号内是「已反转」的历史描述，合法且必须保留。
