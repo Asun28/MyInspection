@@ -66,7 +66,7 @@ acceptance_notes: |
     A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
     A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
   A11 的**偏离**（人裁待办，不自行弱化清单）：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
-    FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item <d>\a\..\a\.review\X.json` 交出的 FullName
+    FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item` 传入一条含 `..` 段的路径时，它交出的 FullName
     已无 `..`），故「去掉 GetFullPath」这枚变异**不可能**让任何用例变红，A11 那半条无法成立。已按「不留写不出
     变异的守卫」处理：删掉该恒等调用、键改为 $vf.FullName，并把注释里「Windows 路径大小写不敏感」这句普适宣称
     换成按 OS 取比较器的实际规则。A11 的另一半（大小写不同的目录段仍只报 1 条 + 比较器换 Ordinal 即红）由
@@ -76,7 +76,7 @@ acceptance_notes: |
     `[\w.-]{2,}[\\/][\w.-]{2,}` 把任何含斜杠的中文短语读成「仓库路径」（人工/评审、手动/人工核验、
     见 PR #183 的讨论/结论）；`闸\s*\S` 又把「闸」后的**任意**字符当闸编号，于是 `无闸门（只能靠人）`
     ——字面就是「没有闸门」——被判成**已有守卫**。总账是中文散文，这两种形态是常态而非边角。后果直达
-    探针 10：`<id> 坐在必须层…但机器已在守它：无闸门（只能靠人）`，一边引用「没有闸门」四个字、一边据此
+    探针 10：「某条经验坐在必须层…但机器已在守它：无闸门（只能靠人）」，一边引用「没有闸门」四个字、一边据此
     主张删掉一条本就无守卫的铁律——正是 `_lessons.ps1` 自己注释里点名要防的那种灾难。
     修法：路径分支收成 ASCII `[A-Za-z0-9._-]`，闸分支要求其后是**真编号**（ASCII 字母数字，或本仓在用的
     圈码 `闸⑯`/`gate ⑧`，即 U+2460-U+24FF——整块无表意文字，故收它不会重开中文那个口子）；`gate` 后
@@ -88,7 +88,7 @@ acceptance_notes: |
     同步加这五种取值。
   两处措辞说明（清单逐字保留，不就地改写）：① A4 里的 `Get-ScaffoldMustLayerBullet` 已随本轮更名为
     `Get-ScaffoldMustLayerSection`（同一枚判定核，多返回 Found/Reason 两个字段，好让「标题没找到」与
-    「小节在、零驻留」可分辨）；② A9/A10/A13 里的 `<RepoRoot>` / `<id>.json` 是路径**形态**记号，
+    「小节在、零驻留」可分辨）；② A9/A10/A13 的路径形态已改用中文描述（原先的尖括号记号会触发 check-cards 的占位符启发式），
     check-cards 的占位符启发式会据此发一条 advisory 告警（非阻断，`check-cards: PASS`）。
 dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scripts/triage.ps1 selfcheck) -match 'triage selfcheck: PASS').Count -eq 1) -and (((& pwsh -NoProfile -File scripts/lessons.ps1 check) -match 'id=9').Count -eq 1))) { exit 1 }"
 dod_exit: 0
