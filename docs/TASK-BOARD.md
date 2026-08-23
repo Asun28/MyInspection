@@ -26,13 +26,16 @@
 | W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **已拆为 3 张**（2026-08-23）：本卡只留度量/边界/ship 接线；见下两行。原 PR #53 四轮 R3 均命中真缺陷、修复后 61,674 字符超出自身 60,000 上限 |
 | W0 | T0-R3-DIFF-INPUT-TRUST | diff 预算的输入只信 git 自己：ext-diff/textconv/属性二进制均不可缩小体量 | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | A5 是**已复现**的真绕过：一行 .gitattributes `-diff` 让 1001 行量成 1 行 |
 | W0 | T0-R3-MEASURED-OID-BINDING | 被测量的提交＝被 push/评审/合并的那一个（分支引用与 HEAD 双钉） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 第 3 轮 finding：只钉分支引用时 detached HEAD 可「审 A 合 B」 |
+| W0 | T0-R3-FLOW-ENUM-SYNC | 预算闸补进每一处确定性闸枚举 + 每处一条锚定断言（承接母卡 A13） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | **第二次拆分**（2026-08-23）：母卡 committed 51,882 字符在预算内，加上第 2 轮修复即 63,023、超自身 60,000 上限 3,023；A13 是文本同步契约、与行为度量无共享代码面，整条移出。母卡 A13 槽位留空不重排 |
 | W0 | ~~T0-R3-DIFF-BUDGET-R3-CLOSURE~~ | **已退役**（2026-08-23）：人裁选路线 2，第 2 轮两项 finding 已在原卡修完；余下契约由上面两张拆卡承接 | — | — | — | — | 退役理由见 T0-R3-DIFF-BUDGET「拆分依据」 |
-| W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET-R3-CLOSURE | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix |
+| W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix。2026-08-23 修正本栏：原写已退役的 closure 卡，与卡内 `depends_on` 不符 |
+| W0 | T0-CARD-ACCEPTANCE-FIELD | 把 acceptance 封闭验收集合登记为正式卡片字段 + 形态机检（可选字段、缺失只告警） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 四张卡已在用该字段而 `specs/README.md` 字段表无此行；机检只判形态（编号 A1..An 连续），不判条目精度。与 5 张在飞卡共用 selftest.ps1，须排在其后 |
 | W0 | T0-CI-DOCS-FAST-PATH | 纯文档 PR 保留轻量 verify 状态，跳过 Android/Gradle 重闸（TD159） | — | S | GPT-5.6 Terra · high | Codex R3 | **merged**（PR #114 · master `620fb43`；两轮 R3 后人裁；docs-only lane 保留 cards/archive/secrets） |
 | W0 | T0-CI-UNICODE-DEP-FIXTURE | 补齐 license scanner 自检夹具的 Unicode helper 依赖并防止 17p3 假绿 | T0-DEBT-LICENSE-SCALAR-FORMAT | S | GPT-5.6 Terra · high | Codex R3 | **merged**（PR #120 · master `bb0c199`；两处 fixture 依赖齐备，17p3 锚定 `gpl-pkg@1.0.0`，seeded/R3 PASS） |
 | W0 | T0-CI-LICENSE-GATE-HASH-SYNC | 同步 docs-only License gate 的 8.2b2 规范块哈希 | T0-CI-DOCS-FAST-PATH | S | GPT-5.6 Terra · high | Codex R3 | **merged**（失败 run `32535429955` 定位到 8.2b2 基线漂移；PR #122 · master `5b2e5a5`；本地 core/verify 与 R3 PASS，合并后 run `32538957860` 的 Windows/Linux core 双绿） |
 | W0 | T0-HARNESS-SUBTRACTION-PROTOCOL | 量化、可迁移、按组可回滚的 harness 减负协议（TD134 2/6） | — | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `e971ef8`，PR #24；R3 零发现；只增 15 行协议文本，无实际删减或脚本行为变化） |
 | W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | PR #51 两轮 R3 达上限，原 PR 先人裁；剩余 meta 解析转专卡 |
+| W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | 与 T0-LESSONS-COLD-RECALL 共享 lessons.ps1/selftest，合并须串行 |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
 | W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
@@ -124,19 +127,22 @@
 flowchart LR
   A[T0-R3-DIFF-BUDGET] --> A2[T0-R3-DIFF-INPUT-TRUST]
   A --> A3[T0-R3-MEASURED-OID-BINDING]
-  A2 --> B[T0-CI-MERGE-GATE]
+  A --> A4[T0-CARD-ACCEPTANCE-FIELD]
+  A --> A5[T0-R3-FLOW-ENUM-SYNC]
+  A --> B[T0-CI-MERGE-GATE]
   B --> E[T0-ASCII-SHIP-CODES]
   E --> F[T0-ASCII-CARD-SECRET-CODES]
   F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]
   C[T0-HARNESS-SUBTRACTION-PROTOCOL]
   D[T0-LESSONS-COLD-RECALL]
   D --> H[T0-LESSONS-COLD-RECALL-R3-CLOSURE]
+  A -.->|selftest write conflict| A4
   D -.->|selftest write conflict| A
   D -.->|selftest write conflict| B
   D -.->|selftest write conflict| E
 ```
 
-- 当前状态（2026-08-23）：`T0-R3-DIFF-BUDGET` 已按自身教义拆成 3 张（度量 / 输入可信 / 提交身份），PR #53 的实现分属三张卡，各自独立评审；`T0-LESSONS-COLD-RECALL` PR #51 已修完第 2 轮 finding 待评审。**注意** `T0-CI-MERGE-GATE` 的 depends_on 仍指向已退役的 closure 卡，应改指 `T0-R3-MEASURED-OID-BINDING`。
+- 当前状态（2026-08-23）：`T0-R3-DIFF-BUDGET` 已按自身教义拆成 3 张（度量 / 输入可信 / 提交身份），PR #53 的实现分属三张卡，各自独立评审；`T0-LESSONS-COLD-RECALL` PR #51 已修完第 2 轮 finding 待评审。`T0-CI-MERGE-GATE` 的依赖歧义已收口（2026-08-23）：卡内 `depends_on: [T0-R3-DIFF-BUDGET]` 为准（CLAUDE.md「状态以卡为准」），本表该栏与上图边已同步；此前本行建议的 `T0-R3-MEASURED-OID-BINDING` 未被采纳——OID 绑定与合并闸无产物依赖。
 - 推荐执行宽度 2：文档协议可与任一实现卡并行；所有写 `scripts/selftest.ps1` 的卡合并宽度 1。
 - 上游只提交通用建议，不要求其修本仓：[#163 TD→1–N cards](https://github.com/Asun28/claude-devops-scaffold/issues/163) · [#164 actual diff budget](https://github.com/Asun28/claude-devops-scaffold/issues/164) · [#165 read-only scaffold diff](https://github.com/Asun28/claude-devops-scaffold/issues/165)。
 
