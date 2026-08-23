@@ -13,7 +13,7 @@ allow_paths:
   - docs/lessons/LEDGER.md
 forbid:
   - 改任何实现码或测试（本卡只动卡片与总账）
-  - 动 T3/T4 两张卡的 allow_paths / forbid / non_goals / dod_exit（验收集合是新增字段，不改既有契约面）；dod_command 只准追加 `--rerun-tasks --no-build-cache` 两个 flag，命令主体与 --tests 选择器不动
+  - 动 T3/T4 两张卡的 allow_paths / forbid / non_goals / dod_command（验收集合是新增字段，不改既有契约面）
 non_goals:
   - 按新清单实现 T3/T4 的缺失测试（那是两张卡自己的 PR #39 / #43）
   - 改 QUALITY-RUBRIC.md 的 #6 / #8 判定（上游 Asun28/claude-devops-scaffold#203 #204 未落地前不本地分叉）
@@ -25,7 +25,7 @@ acceptance:
   - "A1 T3-REPORT-COMPOSER 卡含 acceptance 块，条目覆盖其 R3 六条 finding（几何/图槽不可分/短哈希/孤行/投影校验/封面统计与时间渲染）**且**覆盖卡片原有 dod_assert 的每一项"
   - "A2 T4-COMPLIANCE-ENGINE 卡含 acceptance 块，条目覆盖其 R3 四条 finding（非默认配置值/改期身份/拒绝集/不可变视图）**且**覆盖需求 §10 四条法定规则与 DST 语义"
   - "A3 T4 卡内不再有 `## R3 round-cap 后续` 节（该节按路线 1 声称四类缺口归 T4-COMPLIANCE-ENGINE-R3-CLOSURE 收口，与用户已定的路线 2 及新清单自相矛盾）"
-  - "A4 两张卡的 allow_paths / forbid / non_goals / dod_exit 逐字节未变（只新增字段，不改既有契约面）。**dod_command 是唯一例外，且只准追加 `--rerun-tasks --no-build-cache`**：两卡原命令带 `-q` 且无这两个 flag，`:core:test` 一旦 UP-TO-DATE 或 FROM-CACHE 就一行不打、直接以 0 退出——DoD 会在**一个测试都没跑**的情况下报绿（本仓已两次栽在这上面）。命令主体、`--tests` 选择器与 dod_exit 均不动，故契约面（跑哪些测试、要什么退出码）逐字节等价，改的只是「保证它真的跑」"
+  - "A4 两张卡的 allow_paths / forbid / non_goals / dod_command 逐字节未变（只新增字段，不改既有契约面）"
   - "A5 总账新增 L241（judgment 类）：记录 **r=0.4365 / r^2=0.1906**（八对数据逐行可复算，narrative 与 L241 均记 0.19）与 #6/#8 不对称，并显式限定 L206「拆卡」的适用面。**订正说明**：本条初稿写 0.18，那是照 CLAUDE.md 概述取轮次的误算；按 TASK-BOARD 订正两个数据点后复算为 0.1906，R3 第 2 轮据此要求本条与可复现值一致，故就地改正——这是让契约对齐数据，不是把靶子挪到已达成的位置"
   - "A6 L241 的 id 避开主检出未提交总账已占用的 238/239/240，不制造重号"
   - "A7 check-cards 与 lessons.ps1 check 均 PASS"
