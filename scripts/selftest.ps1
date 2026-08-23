@@ -1751,6 +1751,26 @@ try {
         Fail "闸2d(b)：从**主检出**直跑 bump 未正确递增到 5（exit=$l2dExitB）——git 在主检出返回的是**相对**路径 `.git`，Split-Path 取父级得空串，须先相对检出根解析成绝对路径。输出=$l2dTailB"
       }
       else {
+        # (d) git 失败但**往 stdout 吐了看似路径的东西** —— 只判空会当成解析成功、把账本指到一个不存在的
+        #   检出上（R3 r2 #9）。_encoding.ps1 置 $PSNativeCommandUseErrorActionPreference = $false，原生非零
+        #   **不抛**，try/catch 兜不住，必须显式取退出码。注入手法用 git shim（同本仓「diff 命令失败只信 git
+        #   自身实现、须 shim 注入」的既有立场），不改被测代码。
+        $l2dShim = Join-Path $l2dRoot 'shim'
+        New-Item -ItemType Directory -Force $l2dShim | Out-Null
+        Set-Content (Join-Path $l2dShim 'git.cmd') "@echo off`r`necho C:\definitely\not\a\checkout\.git`r`nexit /b 1" -Encoding ascii
+        $l2dPathOld = $env:PATH
+        try {
+          $env:PATH = "$l2dShim;$l2dPathOld"
+          $l2dOutD = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+          $l2dExitD = $LASTEXITCODE
+        }
+        finally { $env:PATH = $l2dPathOld }
+        $l2dMainD = Get-Content $l2dMainLedger -Raw
+        $l2dTailD = ($l2dOutD -replace '\s+', ' ').Trim()
+        if ($l2dExitD -ne 0 -or $l2dMainD -notmatch '(?m)^- date:.*?recurrence:\s*6\b') {
+          Fail "闸2d(d)：git 非零退出但 stdout 有内容时未回落到调用方检出（exit=$l2dExitD）——解析器只判了 stdout 空、漏判退出码，于是把账本指到 shim 吐出的假路径上。契约是「非零退出**或**空输出 → 回落」。输出=$l2dTailD"
+        }
+        else {
         # (c) 主检出账本缺失 —— 必须 fail-closed，绝不回落到 worktree 那份（回落＝本闸要修的 bug 原样复活）。
         Remove-Item -Force $l2dMainLedger
         $l2dOutC = (& pwsh -NoProfile -File $l2dWtLessons bump L1 2>&1 | Out-String)
@@ -1760,7 +1780,8 @@ try {
         elseif ($l2dTailC -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]')) {
           Fail "闸2d(c)：主检出账本缺失时 bump 虽非零退出，但未打印 ASCII 失败码 [LSN-PLANE-UNRESOLVED]（机检认哨兵、不认本地化文案，L165）。输出=$l2dTailC"
         }
-        else { Write-Host '  2d lessons.ps1 bump 只写主检出账本（worktree 那份逐字节不变 / 相对 .git 形态 / 缺账本 fail-closed）OK' -ForegroundColor Green }
+        else { Write-Host '  2d lessons.ps1 bump 只写主检出账本（worktree 那份逐字节不变 / 相对 .git 形态 / git 非零即回落 / 缺账本 fail-closed）OK' -ForegroundColor Green }
+        }
       }
     }
   }

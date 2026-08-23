@@ -76,10 +76,18 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 function Resolve-BumpLedger {
   param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Fallback)
   $gcd = ''
-  try { $gcd = "$(& git -C $Root rev-parse --git-common-dir 2>$null)".Trim() } catch { $gcd = '' }
-  # git 不可用 / 这里根本不是仓库（输出空）→ 回落调用方检出。**这一步必需**：selftest 闸 2b/2c 的 hermetic
+  $rc = 1
+  try {
+    $gcd = "$(& git -C $Root rev-parse --git-common-dir 2>$null)".Trim()
+    # 退出码必须**紧接着**取：_encoding.ps1 置 $PSNativeCommandUseErrorActionPreference = $false，原生非零
+    # **不抛**，try/catch 只兜得住「git 根本不在 PATH」。只判 stdout 空会漏掉「git 失败却往 stdout 吐了个
+    # 看似路径的东西」——那会把账本解析到一个不存在的检出上，正好是本函数最不该犯的错。
+    $rc = $LASTEXITCODE
+  }
+  catch { $gcd = ''; $rc = 1 }
+  # 非零退出**或**空输出 → 回落调用方检出（卡片契约原文）。这一步必需：selftest 闸 2b/2c 的 hermetic
   # 夹具是「只拷 scripts/ 的非 git 临时目录」，此处硬失败会把两枚既有闸打红。
-  if (-not $gcd) { return $Fallback }
+  if ($rc -ne 0 -or -not $gcd) { return $Fallback }
   # 主检出里 git 返回**相对**的 `.git`（Split-Path 取父级得空串）；linked worktree 里才返回主仓 .git 的绝对
   # 路径。故先相对 $Root 解析成绝对路径，两种形态才走同一条路。
   $gitDir = if ([System.IO.Path]::IsPathRooted($gcd)) { $gcd } else { Join-Path $Root $gcd }
