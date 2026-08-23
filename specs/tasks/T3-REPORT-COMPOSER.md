@@ -17,28 +17,6 @@ non_goals:
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
 dod_assert: 黄金布局树测试绿（固定巡检 fixture → 固定 DocumentPlan：页数/块序列/图槽位）；80 照 fixture 分页无溢出/无孤行；房东版含建议插槽+紧急度、房客版仅客观节；双语行配对（en 行+zh 行成对不拆页）；页脚含 data_hash 与免责声明槽
-acceptance:
-  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
-  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
-  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
-  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
-  # 的内容，**上游落地前本仓不采用**。
-  - "A1 黄金布局树：固定巡检 fixture → 固定 DocumentPlan，逐字段断言页数 + 块序列 + 每个图槽的 x/y/width/height（mm）"
-  - "A2 项目内联缩略图几何：落在项目表行内、目标宽约 40mm，断言坐标而非仅断言块序"
-  - "A3 附录大图：每页 2 张、目标宽约 120mm，带回链编号（房间.项.序）"
-  - "A4 ImageSlotBlock 永不可分割：INLINE 与 APPENDIX 两种槽位各一条「超长 caption」对抗用例，证明分页不会把一个图槽拆成两块（同一 photoId 绝不出现两次）"
-  - "A5 caption 有界：合成期按固定行数封顶或截断，使 A4 的不变量不依赖输入长度"
-  - "A6 页脚渲染文本含 data_hash **短形**（取前 12 位），断言渲染文本原文而非仅断言元数据字段"
-  - "A7 页脚每页含页码 + 免责声明槽（固定双语文案）"
-  - "A8 孤行控制（两条）：非空房间的标题与首行不分离；空房间的标题与其首张全景图不分离——或显式拒绝空房间"
-  - "A9 80 照 fixture 分页无溢出，且断言页数上界"
-  - "A10 双语配对：固定文案 en 行 + zh 行成对，分页不拆对（含跨页边界用例）"
-  - "A11 版本分离：TENANT plan 内不存在 remediation 类型块与紧急度字段（类型层断言）；LANDLORD 含该插槽"
-  - "A12 privacy_flag 照片默认不进两版报告；显式传参时才包含（两条）"
-  - "A13 投影校验拒绝集（各一条负例）：空白 room id、空白 item id、重复 photo 引用、roomPhotos 里 isRoomLevel=false、item photos 里 isRoomLevel=true"
-  - "A14 封面「不利发现卷积」：房间×状态计数与待处理条目数以实测、带标签的文本 run 出现在封面（非仅元数据）"
-  - "A15 时间一律渲染为确定性人类可读串（不得出现裸 epoch 毫秒）：scheduledAt 与照片 capturedAt 各一条断言渲染原文"
-  - "A16 composer 不含任何 android import / 位图解码（静态断言或依赖检查）"
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: TASK-BOARD 备注（R5）
