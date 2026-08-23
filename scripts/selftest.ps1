@@ -1757,17 +1757,27 @@ try {
         #   自身实现、须 shim 注入」的既有立场），不改被测代码。
         $l2dShim = Join-Path $l2dRoot 'shim'
         New-Item -ItemType Directory -Force $l2dShim | Out-Null
-        Set-Content (Join-Path $l2dShim 'git.cmd') "@echo off`r`necho C:\definitely\not\a\checkout\.git`r`nexit /b 1" -Encoding ascii
+        $l2dMark = Join-Path $l2dShim 'invoked.txt'
+        # 两个平台各备一份 shim：Windows 靠 PATHEXT 认 git.cmd，Unix 认**无扩展名且可执行**的 git。
+        # 两份都落 marker，下面据此断言「shim 真被调用过」——否则在没被覆盖的平台上真 git 会成功、
+        # recurrence 照样 5→6，本用例整个假绿（R3 r3 #6：此闸原先只在 Windows 上真跑到过回落路径）。
+        Set-Content (Join-Path $l2dShim 'git.cmd') "@echo off`r`n> `"%~dp0invoked.txt`" echo invoked`r`necho C:\definitely\not\a\checkout\.git`r`nexit /b 1" -Encoding ascii
+        $l2dSh = "#!/bin/sh`necho invoked > `"`$(dirname `"`$0`")/invoked.txt`"`necho /definitely/not/a/checkout/.git`nexit 1`n"
+        [System.IO.File]::WriteAllText((Join-Path $l2dShim 'git'), $l2dSh, (New-Object System.Text.UTF8Encoding($false)))
+        if (-not $IsWindows) { & chmod +x (Join-Path $l2dShim 'git') 2>&1 | Out-Null }
         $l2dPathOld = $env:PATH
         try {
-          $env:PATH = "$l2dShim;$l2dPathOld"
+          $env:PATH = "$l2dShim$([System.IO.Path]::PathSeparator)$l2dPathOld"
           $l2dOutD = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
           $l2dExitD = $LASTEXITCODE
         }
         finally { $env:PATH = $l2dPathOld }
         $l2dMainD = Get-Content $l2dMainLedger -Raw
         $l2dTailD = ($l2dOutD -replace '\s+', ' ').Trim()
-        if ($l2dExitD -ne 0 -or $l2dMainD -notmatch '(?m)^- date:.*?recurrence:\s*6\b') {
+        if (-not (Test-Path $l2dMark)) {
+          Fail "闸2d(d)：git shim 从未被调用（marker 缺席）——本用例在当前平台根本没跑到回落路径，recurrence 5→6 是**真 git 成功**的结果，断言假绿（R3 r3 #6）。Windows 需 git.cmd、Unix 需无扩展名且 chmod +x 的 git，且 shim 目录须在 PATH 首位（分隔符按 [System.IO.Path]::PathSeparator）。"
+        }
+        elseif ($l2dExitD -ne 0 -or $l2dMainD -notmatch '(?m)^- date:.*?recurrence:\s*6\b') {
           Fail "闸2d(d)：git 非零退出但 stdout 有内容时未回落到调用方检出（exit=$l2dExitD）——解析器只判了 stdout 空、漏判退出码，于是把账本指到 shim 吐出的假路径上。契约是「非零退出**或**空输出 → 回落」。输出=$l2dTailD"
         }
         else {
