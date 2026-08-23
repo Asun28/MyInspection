@@ -99,11 +99,69 @@ if ($Suite -eq 'integration') {
     return $null
   }
 
+  function Get-CommandPathArguments {
+    param(
+      [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
+      [Parameter(Mandatory)][string[]]$PathParameters
+    )
+    # 收齐这条命令上**所有**可能是写入目标的实参：① 每一个具名路径参数（全部，不是碰上第一个就 break——
+    # `Copy-Item -LiteralPath $src -Destination …/gradlew.bat` 会因为「取到 LiteralPath 就停」而漏掉真正的
+    # 目标）；② 第一个未被任何参数消费的位置实参（`Set-Content $p 'x'` 这种形态）。
+    $targets = [System.Collections.Generic.List[System.Management.Automation.Language.Ast]]::new()
+    foreach ($parameterName in $PathParameters) {
+      $bound = Get-BoundParameter -Command $Command -Name $parameterName
+      if ($null -ne $bound -and $null -ne $bound.Argument) { $targets.Add($bound.Argument) }
+    }
+    $elements = @($Command.CommandElements)
+    for ($i = 1; $i -lt $elements.Count; $i++) {
+      $element = $elements[$i]
+      if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+        if ($null -eq $element.Argument -and $i + 1 -lt $elements.Count -and $elements[$i + 1] -isnot [System.Management.Automation.Language.CommandParameterAst]) { $i++ }
+        continue
+      }
+      $targets.Add($element)
+      break
+    }
+    return $targets.ToArray()
+  }
+
   function Get-AstLiteralValue {
     param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Node)
     # 裸词与带引号的字符串都归一成同一个值；其它形态退回原文，交给调用方按原文判。
     if ($Node -is [System.Management.Automation.Language.StringConstantExpressionAst]) { return $Node.Value }
     return $Node.Extent.Text
+  }
+
+  function Test-ConstantCondition {
+    param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Condition)
+    # `if ($false)` / `if ($true)` / `if (0)` 这类条件在语法上就不是运行期判断——它只会把被包住的语句
+    # 静态关掉（或恒开）。真实的分片门 `if ($Shard -eq 'seeded')` 是 BinaryExpressionAst，不在此列。
+    $pipeline = $Condition
+    if ($pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return $false }
+    $elements = @($pipeline.PipelineElements)
+    if ($elements.Count -ne 1) { return $false }
+    if ($elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return $false }
+    $expression = $elements[0].Expression
+    if ($expression -is [System.Management.Automation.Language.ConstantExpressionAst]) { return $true }
+    if ($expression -is [System.Management.Automation.Language.VariableExpressionAst]) {
+      return @('true', 'false') -contains $expression.VariablePath.UserPath
+    }
+    return $false
+  }
+
+  function Test-WrapperPathExpression {
+    param(
+      [Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Node,
+      [Parameter(Mandatory)][string]$Pattern,
+      [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$NamingVariables
+    )
+    # 该表达式是否**静态可见地**指向一个 Gradle wrapper 文件：自身文本命中，或它是裸变量而该变量在本文件
+    # 里的任一赋值右值命中。大小写敏感（`-cmatch`）：`Get-GradleWrapperDistributionState` 不该被误判。
+    if ($Node.Extent.Text -cmatch $Pattern) { return $true }
+    if ($Node -is [System.Management.Automation.Language.VariableExpressionAst]) {
+      return $NamingVariables.Contains($Node.VariablePath.UserPath)
+    }
+    return $false
   }
 
   function Test-ScannerCheckInvocation {
@@ -236,23 +294,95 @@ if ($Suite -eq 'integration') {
     $coldCalls = @($integrationCalls | Where-Object { $null -ne (Get-BoundParameter -Command $_ -Name 'SkipRealScan') }).Count
     if ($coldCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-COLD] expected the seeded integration invocation to pass -SkipRealScan, found $coldCalls") }
 
-    # 旧 INLINE 断言是**变量名黑名单**（「不得存在名为 scannerFixtureRoot 的变量」）：改个名字整棵
-    # 1400 行 fixture 就能原样回来，而配套变异恰恰只证明了黑名单条目本身生效。这里判**行为**——
-    # 写文件的命令，其目标路径以 gradlew / gradlew.bat 收尾，就是在就地重建那棵 wrapper 发行树。
-    # 只看**目标路径**实参，不看整条命令的文本：闸 17dd 会把含 `.\gradlew.bat …` 的 verify.ps1 内容
-    # 写进临时暂存文件，那是合法的、目标路径与 gradlew 无关的写入。
-    $fixtureWriters = @($selftestCommands | Where-Object {
-      $name = $_.GetCommandName()
-      $null -ne $name -and @('Set-Content', 'New-Item', 'Out-File', 'Copy-Item') -contains $name
-    } | Where-Object {
-      $target = $null
-      foreach ($parameterName in @('LiteralPath', 'Path', 'Destination')) {
-        $bound = Get-BoundParameter -Command $_ -Name $parameterName
-        if ($null -ne $bound -and $null -ne $bound.Argument) { $target = $bound.Argument.Extent.Text; break }
+    # 「调用存在」不等于「调用会执行」：把那一行包进 `if ($false) { … }`、或埋进一个没人调的函数，
+    # 上面两条断言照样绿而闸 17cc 已被静默停用。故再判一条**静态存活性**：调用的祖先链上不得出现
+    # 条件为常量的 `if`，也不得位于任何函数定义体内。真实的分片门 `if ($Shard -eq 'seeded')` 不是常量
+    # 条件，不受影响。
+    # 边界照实说：这只证明它没有被**静态**停用；「seeded 分片确实走到了它」这条证据不在本套件里——
+    # 那是 seeded 自己那行 `17cc(scanner-integration) … OK`，它只有真跑过才会打印。
+    $deadCalls = @($integrationCalls | Where-Object {
+      $isDead = $false
+      $ancestor = $_.Parent
+      while ($null -ne $ancestor) {
+        if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst]) { $isDead = $true; break }
+        if ($ancestor -is [System.Management.Automation.Language.IfStatementAst]) {
+          foreach ($clause in $ancestor.Clauses) {
+            if (Test-ConstantCondition -Condition $clause.Item1) { $isDead = $true; break }
+          }
+          if ($isDead) { break }
+        }
+        $ancestor = $ancestor.Parent
       }
-      $null -ne $target -and $target -match 'gradlew(\.bat)?[''"]\)*[ \t]*$'
+      $isDead
     })
-    if ($fixtureWriters.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-INLINE] selftest.ps1 still constructs a Gradle wrapper fixture in-line ($($fixtureWriters.Count) file-writing command(s) whose target path ends in gradlew/gradlew.bat)") }
+    if ($deadCalls.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-LIVENESS] the integration invocation in selftest.ps1 sits under a constant-condition if or inside a function definition, so its presence proves nothing about execution ($($deadCalls.Count) such call(s))") }
+
+    # A15 的正面契约：selftest.ps1 里**不存在写文件动作、其目标路径静态可见地指向 gradlew / gradlew.bat**。
+    # 旧断言是变量名黑名单（「不得存在名为 scannerFixtureRoot 的变量」）——改个名字整棵 1400 行 fixture 就能
+    # 原样回来。这一版判写动作本身，覆盖三种**写入原语**（原语不可改名，变量名可以）：
+    #   ① 写文件 cmdlet（含内置别名）绑定的路径参数，以及第一个未被参数消费的位置实参；
+    #   ② `[System.IO.File]` / `[System.IO.Directory]` / `[System.IO.Compression.ZipFile]` 上的写方法调用——
+    #      它是 InvokeMemberExpressionAst，**根本不是 CommandAst**，`GetCommandName()` 永远看不到它，而本文件
+    #      自己就用这个形态写夹具（Write-PolicyPom / process fixture）；
+    #   ③ 文件重定向 `>` / `>>` 的目标。
+    # 「静态可见地指向」= 该实参自身的文本大小写敏感地命中 `gradlew`/`gradlew.bat`（故 `Get-GradleWrapper…`、
+    # `$gradleWrapperOfflineOutput` 这类标识符不误伤），**或**该实参是裸变量、而它在本文件内的任一赋值右值
+    # 命中同一模式——后者堵掉「先把路径赋给变量再写」这条绕过。闸 17dd 的
+    # `Set-Content -LiteralPath $vfScratch` 正是裸变量形态，但 `$vfScratch` 的赋值解出来是
+    # `…GetTempPath() + "st17dd-verify-…ps1"`，不含 gradlew，故它**按内容**被排除，而不是按变量名被豁免。
+    # 契约边界（不夸大）：这三条只覆盖**静态可见**的目标；把路径拼出来（`'gradle' + 'w.bat'`）或从外部数据
+    # 读进来仍能规避——那是任何静态分析的共同下界，与「改个变量名即整份夹具复活」不是一个量级。
+    $wrapperPathPattern = 'gradlew(\.bat)?(?![A-Za-z0-9_.-])'
+    $wrapperNamingVariables = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($assignment in $selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst]
+    }, $true)) {
+      if ($assignment.Left -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
+      if ($assignment.Right.Extent.Text -cnotmatch $wrapperPathPattern) { continue }
+      # 只认**构造路径**的赋值：字符串字面量、拼接、Join-Path。`$output = & cmd /c android\gradlew.bat …`
+      # 那种「把命令输出接下来」的赋值不是路径——把它算进来会污染 `$output` 这个在 selftest 里到处都是的
+      # 名字，之后任何 `Set-Content -Path $output` 都成假红。故：右值里除 Join-Path 外不得有任何命令调用。
+      $pathBuildingCommands = @($assignment.Right.FindAll({
+        param($node) $node -is [System.Management.Automation.Language.CommandAst]
+      }, $true) | Where-Object { $_.GetCommandName() -ne 'Join-Path' })
+      if ($pathBuildingCommands.Count -ne 0) { continue }
+      [void]$wrapperNamingVariables.Add($assignment.Left.VariablePath.UserPath)
+    }
+    $fixtureWriteTargets = [System.Collections.Generic.List[string]]::new()
+    $writerCommandNames = @(
+      'Set-Content', 'sc', 'Add-Content', 'ac', 'New-Item', 'ni', 'Out-File',
+      'Copy-Item', 'copy', 'cp', 'cpi', 'Move-Item', 'move', 'mv', 'mi',
+      'Rename-Item', 'ren', 'rni', 'Tee-Object', 'tee'
+    )
+    foreach ($command in $selftestCommands) {
+      $commandName = $command.GetCommandName()
+      if ($null -eq $commandName -or $writerCommandNames -notcontains $commandName) { continue }
+      foreach ($target in (Get-CommandPathArguments -Command $command -PathParameters @('LiteralPath', 'Path', 'Destination', 'FilePath', 'NewName'))) {
+        if (Test-WrapperPathExpression -Node $target -Pattern $wrapperPathPattern -NamingVariables $wrapperNamingVariables) {
+          $fixtureWriteTargets.Add("$commandName -> $($target.Extent.Text)")
+        }
+      }
+    }
+    foreach ($invocation in $selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst]
+    }, $true)) {
+      if ($null -eq $invocation.Arguments) { continue }
+      if ($invocation.Expression.Extent.Text -notmatch 'IO\.(File|Directory|Compression\.ZipFile)\]$') { continue }
+      if ($invocation.Member.Extent.Text -notmatch '^(WriteAll|AppendAll|Create|Copy|Move|Replace|Extract|Open)') { continue }
+      foreach ($argument in @($invocation.Arguments)) {
+        if (Test-WrapperPathExpression -Node $argument -Pattern $wrapperPathPattern -NamingVariables $wrapperNamingVariables) {
+          $fixtureWriteTargets.Add("$($invocation.Expression.Extent.Text)::$($invocation.Member.Extent.Text) -> $($argument.Extent.Text)")
+        }
+      }
+    }
+    foreach ($redirection in $selftestAst.FindAll({
+      param($node) $node -is [System.Management.Automation.Language.FileRedirectionAst]
+    }, $true)) {
+      if (Test-WrapperPathExpression -Node $redirection.Location -Pattern $wrapperPathPattern -NamingVariables $wrapperNamingVariables) {
+        $fixtureWriteTargets.Add("redirection -> $($redirection.Location.Extent.Text)")
+      }
+    }
+    if ($fixtureWriteTargets.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-INLINE] selftest.ps1 still constructs a Gradle wrapper fixture in-line ($($fixtureWriteTargets.Count) write(s) whose target path names gradlew/gradlew.bat: $($fixtureWriteTargets -join '; '))") }
 
     # --- ci.yml：步骤只在它是一个活的序列项时才算数 ---
     $workflowLines = @($WorkflowText -split '\r?\n')
@@ -283,10 +413,25 @@ if ($Suite -eq 'integration') {
     if ($stepLine.ContainsKey('License gate')) {
       $gateLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine['License gate'])
       $gateKeys = Get-WorkflowStepKeys -StepLines $gateLines
-      $expectedGateKeys = @('name', 'if', 'shell', 'run')
+      # 键集**不**逐字逐序钉死：那样一个无害的 `env:` / `working-directory:`、甚至把 `shell:` 写到 `if:`
+      # 上面（YAML 语义完全相同），都会让 seeded 以一条读起来像「检测到破坏」的消息变红。这里改成
+      # 「必需键齐 + 多出来的键只能来自良性白名单」，并把这一段真正依赖的东西钉住：
+      #   · `shell` 的**值**必须是 pwsh——下面整段 `run:` 块分析都按 PowerShell 解析它，此前只检查了键
+      #     存在、没检查值，`shell: bash` 能一路绿到底；
+      #   · `if` 仍逐字钉死（见上方 $expectedGateCondition 的理由）。
+      # `continue-on-error` 无论取什么值都不在良性集里：写成 `false` 只是默认值的复述，却给「下一次悄悄
+      # 改成 true」提供了一个不显眼的落脚点。
+      $requiredGateKeys = @('name', 'if', 'shell', 'run')
+      $benignGateKeys = @('env', 'working-directory', 'timeout-minutes')
       $actualGateKeys = @($gateKeys.Keys)
-      if (($actualGateKeys -join ',') -cne ($expectedGateKeys -join ',')) {
-        $found.Add("[INTEGRATION-CI-ACTIVE] License gate top-level keys are {$($actualGateKeys -join ',')}, expected exactly {$($expectedGateKeys -join ',')}")
+      $missingGateKeys = @($requiredGateKeys | Where-Object { $actualGateKeys -cnotcontains $_ })
+      $unexpectedGateKeys = @($actualGateKeys | Where-Object { $requiredGateKeys -cnotcontains $_ -and $benignGateKeys -cnotcontains $_ })
+      if ($missingGateKeys.Count -ne 0) {
+        $found.Add("[INTEGRATION-CI-ACTIVE] License gate is missing required top-level key(s) {$($missingGateKeys -join ',')}; keys are {$($actualGateKeys -join ',')}")
+      } elseif ($unexpectedGateKeys.Count -ne 0) {
+        $found.Add("[INTEGRATION-CI-ACTIVE] License gate carries top-level key(s) {$($unexpectedGateKeys -join ',')} that are neither required {$($requiredGateKeys -join ',')} nor benign {$($benignGateKeys -join ',')}")
+      } elseif ($gateKeys['shell'] -cne 'pwsh') {
+        $found.Add("[INTEGRATION-CI-ACTIVE] License gate declares shell '$($gateKeys['shell'])', but the run-block analysis below parses it as PowerShell, so it must be exactly 'pwsh'")
       } elseif ($gateKeys['if'] -cne $expectedGateCondition) {
         $found.Add("[INTEGRATION-CI-ACTIVE] License gate runs under condition '$($gateKeys['if'])', expected exactly '$expectedGateCondition'")
       }
@@ -298,15 +443,29 @@ if ($Suite -eq 'integration') {
         $found.Add('[INTEGRATION-CI-SCANNER] License gate has no run: block to execute the scanner from')
       } else {
         $runAst = [System.Management.Automation.Language.Parser]::ParseInput($runScript, [ref]$null, [ref]$null)
+        # 变量解析必须 fail-closed，而不是「最后一次赋值获胜」。反例：
+        #   `if ($env:CI) { $f = 'scripts/check-cards.ps1' } else { $f = 'scripts/check-licenses.ps1' }`
+        # 后接 `pwsh -NoProfile -File $f`——按词法顺序取最后一次赋值会解出 check-licenses.ps1，断言全绿，
+        # 而 CI 上真正跑的是 check-cards.ps1。故：同名变量只要有**两次以上赋值且取值不一致**，或有任何一次
+        # **非字面量**赋值，该名字即判为解不出，从表里摘掉 → Resolve-ExecutedFilePath 返回 $null → 视为
+        # 「无法证明它执行了目标脚本」。拼接与 Join-Path 本就落在非字面量这一支，早已 fail-closed。
         $literals = @{}
+        $ambiguousLiterals = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($assignment in $runAst.FindAll({
           param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst]
         }, $true)) {
           if ($assignment.Left -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
-          if ($assignment.Right -isnot [System.Management.Automation.Language.CommandExpressionAst]) { continue }
-          if ($assignment.Right.Expression -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { continue }
-          $literals[$assignment.Left.VariablePath.UserPath] = $assignment.Right.Expression.Value
+          $assignedName = $assignment.Left.VariablePath.UserPath
+          if ($assignment.Right -isnot [System.Management.Automation.Language.CommandExpressionAst] -or
+              $assignment.Right.Expression -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) {
+            [void]$ambiguousLiterals.Add($assignedName)
+            continue
+          }
+          $assignedValue = $assignment.Right.Expression.Value
+          if ($literals.ContainsKey($assignedName) -and [string]$literals[$assignedName] -cne $assignedValue) { [void]$ambiguousLiterals.Add($assignedName) }
+          $literals[$assignedName] = $assignedValue
         }
+        foreach ($ambiguousName in $ambiguousLiterals) { [void]$literals.Remove($ambiguousName) }
         $executedPaths = @($runAst.FindAll({
           param($node) $node -is [System.Management.Automation.Language.CommandAst]
         }, $true) | ForEach-Object { Resolve-ExecutedFilePath -Command $_ -Literals $literals } | Where-Object { $null -ne $_ })
@@ -357,9 +516,13 @@ if ($Suite -eq 'integration') {
     Assert-Integration $false $wiringFailure
   }
 
-  # 上面 Get-IntegrationWiringFailures 会抬起的**九个**码（SELFTEST-WIRING / -COLD / -INLINE ·
-  # CI-ORDER-COUNT / -SEQUENCE · CI-ACTIVE · CI-SCANNER · POLICY-DOC · RELEASE-DOC），每个都必须出现在
-  # 下面某一枚变异**声明的期望集合**里；分类器要求实得集合与声明集合**逐字相等**。
+  # 上面 Get-IntegrationWiringFailures 会抬起的**每一个**失败码，都必须出现在下面某一枚变异**声明的期望
+  # 集合**里；分类器要求实得集合与声明集合**逐字相等**。
+  # 此前这句话是注释里的一个**数字**（「九个码」）——随手加一个抬升点它就悄悄变假，而 R3 只读 diff，
+  # 看不出注释与代码已经对不上（A16 说的正是这类承重陈述）。故改成机检（见下方
+  # [INTEGRATION-WIRING-CODE-COVERAGE]）：码集从 Get-IntegrationWiringFailures 的**源码本身**抽出来，
+  # 与变异声明集合求**相等**而非包含——新增抬升点却没配变异会红；变异声明了一个没有任何抬升点能产生的码
+  # （打错字、被重构掉）也会红；抽取本身失效（正则漂了 ⇒ 左边为空）同样红，不会静默变成真空绿。
   # 上一版的分类器只要求「期望码出现 ≥1 次」，于是 -SELFTEST-COLD 从来不是任何一枚变异的被测对象
   # （两枚 selftest 变异顺带把它抬起来而已）——删掉那两行断言后，八枚变异照样全绿（实测）。
   # 注意 WIRING 与 COLD 天然成对：调用整条没了，`-SkipRealScan` 自然也没了，所以那三枚变异声明的是
@@ -372,7 +535,17 @@ if ($Suite -eq 'integration') {
     @{ Id = 'selftest-call-quoted-mention'; Codes = @('INTEGRATION-SELFTEST-WIRING', 'INTEGRATION-SELFTEST-COLD'); Target = 'Selftest'; Kind = 'replace-line'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$'; Text = 'Write-Host "run: scripts/license-scanner-check.ps1 -Suite integration -SkipRealScan (disabled for now)"' },
     # -SELFTEST-COLD 自己的变异：只摘掉 -SkipRealScan 这一个 token，调用其余部分原样保留。
     @{ Id = 'selftest-skiprealscan-removed'; Codes = @('INTEGRATION-SELFTEST-COLD'); Target = 'Selftest'; Kind = 'strip-token'; Pattern = '(?m)^(?<head>.*license-scanner-check\.ps1.*-Suite[ \t]+integration)[ \t]+-SkipRealScan(?<tail>.*)$' },
+    # -SELFTEST-LIVENESS 自己的变异：调用整条原样保留（WIRING/COLD 仍绿），只把它包进恒假的 if——
+    # 这正是「闸还在、但已经不会执行」的形态。
+    @{ Id = 'selftest-call-dead-guard'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    # INLINE 覆盖的每条路径各一枚变异：具名路径参数（下一枚）· 位置实参（不写 -LiteralPath/-Path）·
+    # .NET 静态写方法（根本不是 CommandAst）· 把路径先赋给变量再写（extent 只剩变量名）· 文件重定向。
+    # 五枚共同证明这条契约覆盖的是**写入原语**，而不是某个变量名。
     @{ Id = 'selftest-inline-fixture-restored'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`nSet-Content -LiteralPath (Join-Path `$restoredFixtureRoot 'android/gradlew.bat') -Encoding utf8 -Value 'fixture'`n" },
+    @{ Id = 'selftest-inline-fixture-positional-path'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`nSet-Content (Join-Path `$restoredFixtureRoot 'android/gradlew.bat') -Encoding utf8 -Value 'fixture'`n" },
+    @{ Id = 'selftest-inline-fixture-dotnet-write'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n[System.IO.File]::WriteAllText((Join-Path `$restoredFixtureRoot 'android/gradlew.bat'), 'fixture', [System.Text.UTF8Encoding]::new(`$false))`n" },
+    @{ Id = 'selftest-inline-fixture-hoisted-path'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n`$restoredWrapperPath = Join-Path `$restoredFixtureRoot 'android/gradlew.bat'`nSet-Content -LiteralPath `$restoredWrapperPath -Encoding utf8 -Value 'fixture'`n" },
+    @{ Id = 'selftest-inline-fixture-redirection'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n'fixture' > 'android/gradlew.bat'`n" },
     @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     # 卡片头号 dod_assert 的专属变异：整块 License gate 搬到 JDK setup 之前。真实回归形态——
@@ -386,9 +559,44 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-exec-commented-out'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)if \(Test-Path \$f\).*check-licenses\.ps1.*$'; Text = "Write-Host 'gate disabled'  # pwsh -NoProfile -File scripts/check-licenses.ps1" },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
+    # `shell:` 的**值**：下面整段 run: 块分析都按 PowerShell 解析它，改成 bash 后此前一路绿到底。
+    @{ Id = 'ci-gate-shell-swapped'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*\r?\n[ \t]*)shell:.*$'; Text = 'shell: bash' },
+    # 「必需键缺失」与「没有 run: 块可执行」两处抬升点：删掉 License gate 的 `run: |` 那一行（用后瞻锚到
+    # 它下面两行内的唯一那句 `$f = 'scripts/check-licenses.ps1'`，故单点唯一）。两个码同时抬起是正确结果。
+    @{ Id = 'ci-gate-run-block-removed'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*run:[ \t]*\|[ \t]*\r?\n(?=(?:[^\r\n]*\r?\n)?[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*\r?$)" },
+    # 变量解析的 fail-closed：同名变量出现第二次、取值不同 ⇒ 解不出 ⇒ 无法证明它执行了目标脚本。
+    # 「最后一次赋值获胜」的旧写法在这枚变异下保持绿，而 CI 实跑的会是 check-cards.ps1。
+    @{ Id = 'ci-scanner-path-ambiguous'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = "(?m)^[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*$"; Text = "          `$f = 'scripts/check-cards.ps1'" },
+    # 姊妹闸 E2E verify gate 的条件被改掉：上面把 License gate 的 `if:` 钉成字面量，理由是「它等于姊妹闸
+    # 用的那条」；姊妹闸一变，那个理由就不再成立，必须有人报出来。
+    @{ Id = 'ci-sibling-gate-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+E2E verify gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'policy-doc-hidden'; Codes = @('INTEGRATION-POLICY-DOC'); Target = 'Policy'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' },
-    @{ Id = 'release-doc-hidden'; Codes = @('INTEGRATION-RELEASE-DOC'); Target = 'Release'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' }
+    # POLICY-DOC 的另一半（`## 5.` 小节不唯一）：`policy-doc-hidden` 落在「小节里没写出命令」那一支，
+    # 这一枚落在「小节数 ≠ 1」那一支。
+    @{ Id = 'policy-doc-section-duplicated'; Codes = @('INTEGRATION-POLICY-DOC'); Target = 'Policy'; Kind = 'insert-after'; Pattern = '(?m)^##\s+5\.\s.*$'; Text = '## 5. 核验流程（重复小节）' },
+    @{ Id = 'release-doc-hidden'; Codes = @('INTEGRATION-RELEASE-DOC'); Target = 'Release'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' },
+    # RELEASE-DOC 的另一半（哨兵项还在、但那条命令被从项里删掉）：`release-doc-hidden` 落在「哨兵项数
+    # ≠ 1」那一支，这一枚落在「哨兵项里没写出命令」那一支。
+    @{ Id = 'release-doc-command-stripped'; Codes = @('INTEGRATION-RELEASE-DOC'); Target = 'Release'; Kind = 'strip-token'; Pattern = '(?m)^(?<head>.*\[GRADLE-LIC-SCANNER-ONLY\].*)license-scanner-check\.ps1 -Suite integration(?<tail>.*)$' }
   )
+  # 「每个抬升点都有变异盯着」的机检本体（替掉原来那句注释里的数字，见上）。码集从
+  # Get-IntegrationWiringFailures 的源码里抽 `$found.Add("[CODE] …")`，与变异声明集合求**相等**。
+  # 本断言刻意放在函数体**之外**：它自己的失败码不会被上面的抽取正则收进去，也不进变异分类器的实得集合。
+  $suiteSourceText = [System.IO.File]::ReadAllText($PSCommandPath)
+  $suiteSourceAst = [System.Management.Automation.Language.Parser]::ParseInput($suiteSourceText, [ref]$null, [ref]$null)
+  $wiringFunctionAst = @($suiteSourceAst.FindAll({
+    param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-IntegrationWiringFailures'
+  }, $true))
+  if ($wiringFunctionAst.Count -ne 1) {
+    Assert-Integration $false "[INTEGRATION-WIRING-CODE-COVERAGE] expected exactly one Get-IntegrationWiringFailures definition to derive the raised-code set from, found $($wiringFunctionAst.Count)"
+  } else {
+    $wiringRaisedCodes = @([regex]::Matches($wiringFunctionAst[0].Extent.Text, '\$found\.Add\((?:["''])\[(?<code>[A-Z0-9-]+)\]') | ForEach-Object { $_.Groups['code'].Value } | Sort-Object -Unique)
+    $wiringDeclaredCodes = @($wiringMutations | ForEach-Object { $_.Codes } | Sort-Object -Unique)
+    Assert-Integration (
+      ($wiringRaisedCodes -join ',') -ceq ($wiringDeclaredCodes -join ',')
+    ) "[INTEGRATION-WIRING-CODE-COVERAGE] the codes Get-IntegrationWiringFailures can raise {$($wiringRaisedCodes -join ',')} are not exactly the codes the mutations declare {$($wiringDeclaredCodes -join ',')} - either a raise site has no mutation watching it, or a mutation names a code nothing can produce"
+  }
+
   if (-not $SkipMutations) {
     foreach ($wm in $wiringMutations) {
       $texts = @{ Selftest = $selftestText; Workflow = $workflowText; Policy = $policyText; Release = $releaseText }
@@ -406,6 +614,8 @@ if ($Suite -eq 'integration') {
         # `keep` 是可选组：不存在时 .Value 是空串，于是 replace-line 既能整行替换、也能保留前缀。
         'replace-line' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + $wm.Text }, 1) }
         'strip-token' { $wmRegex.Replace($original, { param($m) $m.Groups['head'].Value + $m.Groups['tail'].Value }, 1) }
+        # 语句原样保留，只把它包进恒假的 if：AST 上那条命令仍在，「存在」类断言全绿，唯有存活性会红。
+        'wrap-false' { $wmRegex.Replace($original, { param($m) 'if ($false) { ' + $m.Value.Trim() + ' }' }, 1) }
         'insert-after' { $wmRegex.Replace($original, { param($m) $m.Value + "`n" + $wm.Text }, 1) }
         'reorder' { Move-WorkflowStepBefore -Text $original -Step $wm.Step -Before $wm.Before }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
@@ -430,6 +640,9 @@ if ($Suite -eq 'integration') {
     Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
     exit 1
   }
+  # 与四个子套件同一形态的 mutation PASS 行：它的**存在与否**就是「本套件自己的接线变异这一趟到底跑没跑」
+  # 的可读证据。A7 要求 -SkipMutations 的语义机检可判，而「跑了但不打印」与「没跑」在 stdout 上此前无从分辨。
+  if (-not $SkipMutations) { Write-Host "license-scanner-check(integration wiring mutations): PASS ($($wiringMutations.Count))" }
 
   # -SkipRealScan 作用域守卫的红证据：本进程早已跑过那一行，只能从子进程验。配一枚删除变异，
   # 证明这条红确实来自那道守卫、而不是别处（副本删掉守卫后同一条命令必须变绿）。
@@ -498,6 +711,31 @@ if ($Suite -eq 'integration') {
     Assert-Integration (
       $childExit -eq 0 -and $childOutput -match "license-scanner-check\($([regex]::Escape($childSuite))\): PASS"
     ) "[INTEGRATION-CHILD] $childSuite failed or omitted its PASS marker (exit=$childExit): $childOutput"
+    # 这里是**唯一**一处把本脚本自己的 -SkipMutations 转发下去的调用（上面那三条断言喂的是字面量
+    # $true/$false，观察不到这一行）。两个方向都要断言：只断言「跳过时不该有 mutation 行」的话，把这一行
+    # 改成恒 $false 在默认运行下毫无影响、全绿，而 PASS 文案仍替它宣称「各子套件 mutation 均已按
+    # -SkipMutations 跳过」——A16 那一类假陈述。
+    $childRanMutations = $childOutput -match 'mutations\): PASS'
+    Assert-Integration (
+      $childRanMutations -ne [bool]$SkipMutations
+    ) "[INTEGRATION-SKIPMUTATIONS-FORWARD] $childSuite did not follow this run's -SkipMutations (-SkipMutations=$([bool]$SkipMutations), child printed a mutations PASS line=$childRanMutations): $childOutput"
+  }
+
+  # A6/A7 的机检那一半：`-Suite integration -SkipMutations` 这条路径此前从未被任何测试执行过（三处
+  # Get-ChildSuiteArguments 断言用字面量、转发那行无人观察、子套件循环也不检查 mutation 行的**缺席**）。
+  # 子进程真跑一次，要求：① 退出 0；② PASS 行的 ASCII 哨兵是 [mutations=skipped]；③ 整份 stdout 里
+  # **一条** `mutations): PASS` 都没有——四个子套件的、以及本套件自己那条 wiring 变异 PASS 行，都必须真的没跑。
+  # 只在**非** -SkipMutations 的运行里起这个探针：既杜绝无限递归（子进程带 -SkipMutations，不会再起一层），
+  # 也让 -SkipMutations 保持它「省成本」的本意。
+  if (-not $SkipMutations) {
+    $skipForwardArguments = @('-Suite', 'integration', '-ScannerPath', $ScannerPath, '-SkipRealScan', '-SkipMutations')
+    $skipForwardOutput = (& pwsh -NoProfile -File $PSCommandPath @skipForwardArguments 2>&1 | Out-String)
+    $skipForwardExit = $LASTEXITCODE
+    Assert-Integration (
+      $skipForwardExit -eq 0 -and
+      $skipForwardOutput -match 'license-scanner-check\(integration\): PASS \[real-scan=skipped\] \[mutations=skipped\]' -and
+      $skipForwardOutput -notmatch 'mutations\): PASS'
+    ) "[INTEGRATION-SKIPMUTATIONS-FORWARD] a nested '-Suite integration -SkipRealScan -SkipMutations' run did not report both skips, or still ran mutations (exit=$skipForwardExit): $skipForwardOutput"
   }
 
   if (-not $SkipRealScan) {
@@ -1368,6 +1606,42 @@ if ($Suite -eq 'policy') {
       ) "[POLICY-POM-SINGLETON-$($duplicatePom.Id.ToUpperInvariant())] repeated singleton element was accepted"
     }
 
+    # 同一 GAV 在 Gradle 缓存里存在**两份** POM 副本（两个仓库、或 POM 被重新发布）是正常状态，而两条
+    # 守卫都落在这里：① 副本里混有「未声明许可」与「已声明许可」两种，② 副本之间声明了互相冲突的许可证。
+    # 两者都必须是 Error/GRADLE-POM——尤其 ① 不能回落到 Missing/MissingLicense 那条**能被豁免表回退记录
+    # 洗白**的分支：一份 licence-less 副本 + 一份声明了 copyleft 的副本，会让人工回退把该 copyleft 坐标
+    # 静默放行。docs/LICENSE-POLICY.md §3.2 明写这两种情形「一律不可由任何例外覆盖」。
+    # 这两条守卫此前的唯一夹具（17cc(scanner/pom-mixed) / (scanner/pom-conflict)）随 selftest 的 -1434 行
+    # 一起被删（实测：各改成 `if ($false)` 后 policy 套件仍全绿），故在此按副本 hash 目录重建。
+    $multiCopyCases = @(
+      @{
+        Id = 'mixed'
+        Coordinate = 'fixture.policy:multicopy-mixed:1.0'
+        Copies = @(
+          @{ Hash = 'no-license-copy'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>multicopy-mixed</artifactId><version>1.0</version></project>' },
+          @{ Hash = 'licensed-copy'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>multicopy-mixed</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' }
+        )
+      },
+      @{
+        Id = 'conflict'
+        Coordinate = 'fixture.policy:multicopy-conflict:1.0'
+        Copies = @(
+          @{ Hash = 'apache-copy'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>multicopy-conflict</artifactId><version>1.0</version><licenses><license><name>Apache-2.0</name></license></licenses></project>' },
+          @{ Hash = 'mit-copy'; Xml = '<project><groupId>fixture.policy</groupId><artifactId>multicopy-conflict</artifactId><version>1.0</version><licenses><license><name>MIT</name></license></licenses></project>' }
+        )
+      }
+    )
+    foreach ($multiCopy in $multiCopyCases) {
+      foreach ($multiCopyPom in $multiCopy.Copies) {
+        [void](Write-PolicyPom -Coordinate $multiCopy.Coordinate -Hash $multiCopyPom.Hash -Xml $multiCopyPom.Xml)
+      }
+      $multiCopyResult = Invoke-PolicyFixture -Coordinates @($multiCopy.Coordinate)
+      Assert-Policy (
+        $multiCopyResult.Findings.Count -eq 0 -and
+        @($multiCopyResult.Violations | Where-Object Code -CEQ 'GRADLE-POM').Count -eq 1
+      ) "[POLICY-POM-MULTICOPY-$($multiCopy.Id.ToUpperInvariant())] two cached POM copies of one GAV were not rejected as GRADLE-POM (findings=$($multiCopyResult.Findings.Count); violations=$(@($multiCopyResult.Violations | ForEach-Object { $_.Code }) -join ', '))"
+    }
+
     $supplementaryFormat = [System.Text.Rune]::new(0x1BCA0).ToString()
     $xmlEntityPrefix = ([string][char]38) + '#x'
     $malformedHighEntity = $xmlEntityPrefix + 'D800;'
@@ -1710,6 +1984,21 @@ if ($env:LICENSE_POLICY_PROCESS_CASE) {
         From = '  if ($null -eq $Node -or [string]::IsNullOrWhiteSpace([string]$Node.InnerText)) { throw "POM $Field 缺失或为空。" } # POM required scalar guard'
         To = '  if ($null -eq $Node -or [string]::IsNullOrWhiteSpace([string]$Node.InnerText)) { return '''' } # POM required scalar guard'
         Expected = '[POLICY-POM-PARENT-MISSING-GROUP]'
+      },
+      # 同 GAV 多副本的两条守卫（此前零覆盖）。① 混合副本若不 fail-closed，会落进 MissingLicense →
+      # 豁免表回退分支，一个**声明了**许可证的坐标就被人工回退洗白；② 冲突副本若不 fail-closed，
+      # 扫描器会把两份声明并成一个 Valid 结果、任选其一放行。
+      @{
+        Name = 'pom-multicopy-mixed'
+        From = '    if ($licenses.Count -gt 0) {'
+        To = '    if ($false) {'
+        Expected = '[POLICY-POM-MULTICOPY-MIXED]'
+      },
+      @{
+        Name = 'pom-multicopy-conflict'
+        From = '  if ($licenseSignatures.Count -ne 1) {'
+        To = '  if ($false) {'
+        Expected = '[POLICY-POM-MULTICOPY-CONFLICT]'
       },
       @{
         Name = 'pom-parent-scalar'
@@ -2097,6 +2386,24 @@ try {
       Assert-Graph ($errorRecord.Code -ceq 'GRADLE-SUBPROCESS' -and $errorRecord.ExitCode -eq 42) "nonzero Gradle error lost code/exit"
     }
 
+    # Break caught: a zero-exit Gradle report that yields no parseable GAV **and** no parser error must
+    # still fail closed, per configuration. 这是本卡整条链路上最坏的失效形态：Gradle 换掉树形字符 / 某个
+    # configuration 一行都不打 / `--console` 形态变化 ⇒ 解析器既不吐坐标也不吐错误，许可闸于是**绿着**
+    # 报告「零个 Gradle 坐标」——扫了个空却宣布通过。把它变成 GRADLE-PARSE 的只有 check-licenses.ps1 的
+    # `$parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0` 那一条守卫；它此前的唯一夹具随 selftest
+    # 的 -1434 行一起被删除（实测：把该守卫改成 `if ($false)` 后 graph 与 policy 两个套件仍全绿）。
+    $emptyInvoker = {
+      param([string]$Command, [string[]]$Arguments)
+      [PSCustomObject]@{ ExitCode = 0; Output = @('no resolved Gradle coordinate here') }
+    }
+    $emptyReportResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $emptyInvoker
+    $emptyReportLabels = @($emptyReportResult.Errors | Where-Object { $_.Code -ceq 'GRADLE-PARSE' } | ForEach-Object { $_.Configuration } | Sort-Object)
+    Assert-Graph (
+      @($emptyReportResult.Resolved).Count -eq 0 -and
+      $emptyReportResult.Errors.Count -eq 4 -and
+      ($emptyReportLabels -join ',') -ceq ':app:debugRuntimeClasspath,:app:releaseRuntimeClasspath,:core:runtimeClasspath,:core:testRuntimeClasspath'
+    ) "[GRAPH-EMPTY-REPORT] a zero-exit Gradle report with no parseable GAV did not fail closed once per configuration (resolved=$(@($emptyReportResult.Resolved).Count), errors=$($emptyReportResult.Errors.Count), GRADLE-PARSE targets=$($emptyReportLabels -join ', '))"
+
     # A warm ambient cache must not authorize a different, cold caller-supplied cache.
     $coldGradleHome = Join-Path $fixtureRoot 'caller-cold-gradle-home'
     New-Item -ItemType Directory -Force -Path $coldGradleHome | Out-Null
@@ -2441,6 +2748,14 @@ if (-not $SkipMutations) {
       From = '        $errors.Add("无法判定 Gradle 选中 project 目标：$displayBody [GRADLE-PARSE]")'
       To = '        $null = $displayBody'
       Expected = 'parser/malformed-selected-project returned wrong error codes'
+    },
+    # 「Gradle 退出 0、却零个可解析坐标且零个解析错误」的 fail-closed（此前零覆盖：唯一夹具随 selftest
+    # -1434 行删除）。关掉它 = 许可闸绿着报告「什么都没扫到」——本卡守的那条硬边界正是它。
+    @{
+      Name = 'empty-resolved-report'
+      From = '      if ($parsed.Count -eq 0 -and $parseResult.Errors.Count -eq 0) {'
+      To = '      if ($false) {'
+      Expected = '[GRAPH-EMPTY-REPORT]'
     }
   )
 

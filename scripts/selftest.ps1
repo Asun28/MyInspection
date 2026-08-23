@@ -10956,30 +10956,55 @@ if ($enumErrResults.Count -ne 2) {
 # 总验收，避免在通用 harness 复制上千行 fixture，也不要求合并后 canary 预热真实 Gradle cache。
 # 注意本调用**不**传 -SkipMutations：本套件自己的 wiring 变异与四个子套件的 mutation 都会跑。要省那份
 # 成本须显式传参——该开关现在两处都认（此前只是被接受、从不转发，于是「开关有效」与「开关被忽略」在输出上
-# 无从分辨）。
+# 无从分辨）。**可读证据**：本闸的 stdout 里会先出现 `license-scanner-check(integration wiring mutations):
+# PASS (N)`，它只在**没有** -SkipMutations 时打印；四个子套件的 `…(<suite> mutations): PASS` 由本套件
+# 逐个断言其在/不在，另有一次子进程 `-Suite integration -SkipMutations` 真跑，要求整份 stdout 里
+# 一条 `mutations): PASS` 都没有。
 #
 # **原 17cc(scanner)/17cc(scanner-mut) 那 1434 行 fixture 逐类去向**（删除即失覆盖，故逐类点名它现在
-# 由哪个套件、以哪个失败码守；这张表就是「删掉的东西没消失」的证据本身）：
+# 由哪个套件、以哪个失败码守；这张表就是「删掉的东西没消失」的证据本身）。
+# **一行都不许省**：漏掉的那一行读起来等同于「已覆盖」——2026-08-23 的独立复核逐条比对了删除块里的 59 个
+# `Fail` 哨兵，缺的恰好是三个**真的没人守**的类（pom-mixed / pom-conflict / gradle-parse）。它们已在
+# license-scanner-check.ps1 里补上真实用例与变异，并各占下表一行；此后新增/删除一类都须同步这张表。
 #   wrapper-*（wrapper 选平台 / 发行树七个就绪合取：完成标记 · root 基数 · root 精确名 · launcher 基数 ·
 #              launcher 精确名 · bin/gradle · bin/gradle.bat）
 #                                   → graph 套件，`GRADLE-WRAPPER-OFFLINE` + 零 wrapper 调用；
 #                                     每个合取一枚专属 `[GRAPH-WRAPPER-*]` 断言码与配套变异
 #   cache-*（冷/陈旧 cache 零启动、metadata 格式版本、caller 与 ambient cache 不一致）
 #                                   → graph 套件，`GRADLE-CACHE-OFFLINE` + 零 wrapper 调用
-#   invocation-*（四张已解析 classpath、--offline/--no-daemon、POSIX 经 sh、GRADLE_USER_HOME 绑定）
+#   invocation-*（四张已解析 classpath、--offline/--no-daemon、POSIX 经 sh、GRADLE_USER_HOME 绑定、
+#                 platform-wrapper 的 Windows/Unix 选择）
 #                                   → graph 套件，`graph collector invoked N configurations` / `omitted --offline` 等
-#   subprocess-*（非零子进程的退出码与目标 provenance）
+#   subprocess-*（非零子进程的退出码与目标 provenance；即旧 gradle-exit）
 #                                   → graph 套件，`GRADLE-SUBPROCESS`
-#   parser-*（constraint (c) 边 · 重定向 · project 边界 · 选中目标 · 未解析 FAILED/(n) · 非具体版本 ·
-#             空 requested selector · 空重定向尾 · 畸形 project 目标）
+#   parser-*（constraint (c) 边 · 重定向 · project 边界 · 选中目标 · 未解析 FAILED/(n) ·
+#             非具体版本（含 dot-segment / 动态 selector，即旧 gav-parse）· 空 requested selector ·
+#             空重定向尾 · 畸形 project 目标）
 #                                   → graph 套件 `$parserCases`，`GRADLE-PARSE` / `GRADLE-UNRESOLVED`
-#   pom-*（多许可 POM · DTD · 自述 GAV 不符 · 空 license/name · 单例元素重复 · 畸形 parent GAV）
-#                                   → policy 套件，`[POLICY-POM-*]`
-#   override-*（精确豁免回退 · 缺 license/name 回退 · 无回退即失败 · declared 映射 · 禁列优先 ·
-#               畸形豁免表 fail-closed · GAV 序数比较）
+#   gradle-parse（Gradle 退出 0、却零个可解析 GAV **且**零个解析错误 ⇒ 许可闸绿着「什么都没扫到」）
+#                                   → graph 套件 `[GRAPH-EMPTY-REPORT]`，四张图各一条 `GRADLE-PARSE`
+#   pom-*（多许可 POM · DTD 与畸形 XML（即旧 pom-parse，与 DTD 同落 `GRADLE-POM` 汇）· 自述 GAV/version
+#          不符（即旧 gav / gav-version）· 空 license/name · license 名逐字保留 · 单例元素重复 ·
+#          畸形 parent GAV）
+#                                   → policy 套件，`[POLICY-POM-DTD]` / `[POLICY-POM-GAV]` / `[POLICY-POM-LICENSE-NAME]` /
+#                                     `[POLICY-POM-MULTI]` / `[POLICY-POM-SINGLETON-*]` / `[POLICY-POM-PARENT-*]`
+#   pom-multicopy-*（同一 GAV 的**多份**缓存 POM 副本：缺失/已声明**混合**，以及副本间许可证**冲突**——
+#                    两者都不可由豁免表覆盖，否则一份 licence-less 副本 + 一份声明了 copyleft 的副本会被
+#                    人工回退洗白；见 docs/LICENSE-POLICY.md §3.2）
+#                                   → policy 套件，`[POLICY-POM-MULTICOPY-MIXED]` / `[POLICY-POM-MULTICOPY-CONFLICT]`
+#   license-classification（EPL 禁列 · 无 POM 的 unknown · 缓存 POM 的 unknown-license · 关键词子串伪装 ·
+#                           LGPL 黄牌精确名 · 纯 GPL 分不分发；以及「CLI 必须非零并点名坐标与类别」那一层）
+#                                   → policy 套件：`[POLICY-CLASSIFICATION]`（分类器本体）+
+#                                     `[POLICY-MAIN-*]`（生产调用方的 bad/warn 桶）+
+#                                     `[POLICY-PROCESS-*]`（子进程 CLI 的退出码与点名）
+#   override-*（精确豁免回退 · 缺 license/name 回退 · 无回退即失败 · declared 映射（exact / canonical /
+#               禁列优先 / risk 别名）· 畸形豁免表 fail-closed · GAV 序数比较）
 #                                   → policy 套件，`[POLICY-OVERRIDE-*]` / `[POLICY-DECLARED-*]` / `[POLICY-METADATA-NO-FALLBACK]`
-#   redaction（URI userinfo · Authorization · 密钥式键 · 用户目录 · 控制/格式字符 · ANSI · 换行注入 · 行/字符上界）
-#                                   → diagnostics 套件，`[DIAG-*]`
+#   redaction（URI userinfo（含 wrapper distributionUrl 里的凭据，经 `[DIAG-ENTRY-WRAPPER-EXCEPTION]`
+#              同一条生产入口）· Authorization · 密钥式键 · 用户目录 · 控制/格式字符 · ANSI · 换行注入 ·
+#              行/字符上界；即旧 parse-redaction 与 pom-/override-/wrapper-url- 各 injection 族）
+#                                   → diagnostics 套件，`[DIAG-*]`；「不得因此启动 wrapper」那一半在 graph 套件
+#                                     的 `GRADLE-WRAPPER-OFFLINE` 零启动断言里
 #   gav-bounds（255 字符段 · 256 拒收 · 审计信封）
 #                                   → gav-bounds 套件，`[GAV-*]`
 # 判据锚 ASCII 哨兵（L165）：`PASS` 后面的 `[real-scan=…]` 说明本次**真的**跑了哪一支。两种模式的中文
