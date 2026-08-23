@@ -23,8 +23,11 @@ non_goals:
   - 改 ReviewRoundCap、ReviewTimeoutSec 或 60000 字符 prompt 截断实现之外的 prompt 内容
   - 追溯性拒绝已经 merged 的历史大 PR
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
-  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block（上游提案 Asun28/claude-devops-scaffold#203）。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 度量口径：review.ps1 对 pinned base...HEAD 求 additions+deletions（来自 --numstat）与未截断 unified diff 的字符数，两个数各有一条断言其精确值的夹具"
   - "A2 放行边界：恰好 999 changed lines 放行、恰好 60000 字符放行，各断言精确度量值（不只断言 exit 0）"
   - "A3 阻断边界：1001 changed lines 与 60001 字符各自以 [R3-DIFF-TOO-LARGE] 阻断，且诊断文本含实测值与上限"
