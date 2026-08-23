@@ -33,6 +33,7 @@
 | W0 | T0-CI-LICENSE-GATE-HASH-SYNC | 同步 docs-only License gate 的 8.2b2 规范块哈希 | T0-CI-DOCS-FAST-PATH | S | GPT-5.6 Terra · high | Codex R3 | **merged**（失败 run `32535429955` 定位到 8.2b2 基线漂移；PR #122 · master `5b2e5a5`；本地 core/verify 与 R3 PASS，合并后 run `32538957860` 的 Windows/Linux core 双绿） |
 | W0 | T0-HARNESS-SUBTRACTION-PROTOCOL | 量化、可迁移、按组可回滚的 harness 减负协议（TD134 2/6） | — | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `e971ef8`，PR #24；R3 零发现；只增 15 行协议文本，无实际删减或脚本行为变化） |
 | W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | PR #51 两轮 R3 达上限，原 PR 先人裁；剩余 meta 解析转专卡 |
+| W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | 与 T0-LESSONS-COLD-RECALL 共享 lessons.ps1/selftest，合并须串行 |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
 | W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
