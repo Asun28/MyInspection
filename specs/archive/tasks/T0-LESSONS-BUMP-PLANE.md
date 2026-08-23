@@ -3,7 +3,7 @@ id: T0-LESSONS-BUMP-PLANE
 title: bump 写主检出账本，复发计数不再随卡片 diff 丢失
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-LESSONS-BUMP-PLANE
 worktree: C:\wt\T0-LESSONS-BUMP-PLANE
 allow_paths:
