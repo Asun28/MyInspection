@@ -106,8 +106,14 @@ internal object ReportTestFixtures {
         ),
     )
 
-    val measurer = TextMeasurer { text, _, widthMm ->
-        val charsPerLine = (widthMm / 3).coerceAtLeast(1)
-        MeasuredText(text.chunked(charsPerLine).ifEmpty { listOf(" ") }, lineHeightMm = 4)
+    /** The fake measurer's per-line budget. Tests assert against the same number the measurer wraps at. */
+    fun charBudget(widthMm: Int): Int = (widthMm / 3).coerceAtLeast(1)
+
+    const val LINE_HEIGHT_MM = 4
+
+    fun measurerOf(lineHeightMm: Int): TextMeasurer = TextMeasurer { text, _, widthMm ->
+        MeasuredText(text.chunked(charBudget(widthMm)).ifEmpty { listOf(" ") }, lineHeightMm)
     }
+
+    val measurer = measurerOf(LINE_HEIGHT_MM)
 }

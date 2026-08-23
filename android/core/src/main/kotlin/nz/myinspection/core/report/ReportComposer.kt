@@ -11,6 +11,7 @@ import java.time.format.DateTimeFormatter
 /** Pure Kotlin layout engine. Renderers consume measured runs and slots without wrapping or pagination. */
 class ReportComposer(private val textMeasurer: TextMeasurer) {
     fun compose(report: ReportSnapshot, audience: Audience, options: ReportOptions = ReportOptions()): DocumentPlan {
+        validateMeasurer()
         validateProjection(report)
         val dataHash = sha256Hex(canonicalJson(report.canonical))
         val photos = report.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }
@@ -22,7 +23,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         val pages = mutableListOf<MutableList<PlacedBlock>>()
         val paginator = Paginator(pages)
 
-        paginator.forcePage(listOf(coverBlock(report, adverseItems)))
+        paginator.forcePage(listOf(coverBlock(report, audience, adverseItems)))
         paginator.startSection(
             sectionTitle("status-glossary", BilingualText("Status glossary", "评级词表")),
             report.statusDefinitions.map(::statusBlock),
@@ -37,12 +38,15 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             val visibleRoomPhotos = room.photos.filter { it in photos }
             val title = roomTitleBlock(room)
             if (room.items.isEmpty()) {
-                // A heading whose room has nothing to show is an orphan by construction, so the projection
-                // must not contain one. When there is photography, the heading travels with its first picture:
-                // otherwise the heading can end a page and its only content start the next one.
-                require(visibleRoomPhotos.isNotEmpty()) {
-                    "room ${room.id} has neither items nor visible photos; it would render as an orphan heading"
+                // A room carrying nothing at all is a malformed projection: its heading could only ever be an
+                // orphan. A room whose photography is entirely privacy-filtered is a different case - that is
+                // the default projection of a room full of the tenant's belongings - so it is simply skipped.
+                require(room.photos.isNotEmpty()) {
+                    "room ${room.id} has neither items nor photos; it would render as an orphan heading"
                 }
+                if (visibleRoomPhotos.isEmpty()) continue
+                // The heading travels with its first picture: otherwise it can end a page and its only
+                // content start the next one.
                 val firstPhoto = imageBlock(visibleRoomPhotos.first(), ImagePurpose.INLINE)
                 paginator.addGroup(listOf(title, firstPhoto))
                 visibleRoomPhotos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
@@ -60,8 +64,13 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             }
         }
 
-        photos.map { imageBlock(it, ImagePurpose.APPENDIX) }.chunked(2).forEach { pair ->
-            paginator.forcePage(
+        // Two large pictures per appendix page, titled. The box is sized so that a title plus two slots
+        // carrying the longest caption the cap allows still fits the body; placing the three as one group
+        // means an outsized measurer fails loudly here instead of demoting the page to a single picture
+        // and leaving the follow-on page without the title that was already spent.
+        photos.map { imageBlock(it, ImagePurpose.APPENDIX) }.chunked(APPENDIX_PER_PAGE).forEach { pair ->
+            paginator.newPage()
+            paginator.addGroup(
                 listOf(sectionTitle("photo-appendix", BilingualText("Photo appendix", "照片附录"))) + pair,
             )
         }
@@ -81,6 +90,21 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         return DocumentPlan(audience, dataHash, completed)
     }
 
+    /**
+     * The measurer is an injected seam, so its line height is an input. The composer emits fixed bilingual
+     * text of its own that no caller can shorten, and a bilingual pair is never split across pages, so a
+     * line height at which that text no longer fits a page body makes every report ungenerable. Refuse it
+     * here, where the message can name the style and the measurement, rather than deep inside pagination.
+     */
+    private fun validateMeasurer() {
+        val disclaimer = bilingualRuns(REPORT_DISCLAIMER, TextStyle.CAPTION, BODY_WIDTH_MM)
+        val required = disclaimer.endY() + 2
+        require(required <= BODY_HEIGHT_MM) {
+            "the measurer reports a ${disclaimer.first().heightMm}mm CAPTION line height, at which the fixed " +
+                "disclaimer measures ${required}mm and cannot fit the ${BODY_HEIGHT_MM}mm page body"
+        }
+    }
+
     private fun validateProjection(report: ReportSnapshot) {
         require(report.rooms.map { it.id }.toSet().size == report.rooms.size) { "duplicate room id" }
         val items = report.rooms.flatMap { it.items }
@@ -90,9 +114,16 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         require(photos.all { it.id.isNotBlank() && it.reference.isNotBlank() && it.capturedAt > 0 }) {
             "report photos require an id, reference and positive capture time"
         }
-        // Every back-reference the renderer prints has to resolve. Blank identifiers and duplicate photo
-        // references still satisfy the multiset checks above, yet produce a report whose evidence cannot be
-        // traced back to anything - the one thing the reference is for.
+        // The caption renders the EXIF instant when the photo has one, so that is the value to guard.
+        // Checking capturedAt alone reports success while every caption for the photo reads 1970-01-01.
+        photos.forEach { photo ->
+            val rendered = photo.snapshot.exifTimeMs ?: photo.capturedAt
+            require(rendered > 0) {
+                "photo ${photo.id} would render capture time $rendered; the drawn instant must be positive"
+            }
+        }
+        // Every back-reference the renderer prints has to resolve: the multiset checks above are satisfied
+        // by blank identifiers and repeated references, which render evidence that traces to nothing.
         require(report.rooms.all { it.id.isNotBlank() }) { "report rooms require a non-blank id" }
         require(items.all { it.id.isNotBlank() }) { "report items require a non-blank id" }
         require(photos.map { it.reference }.toSet().size == photos.size) { "duplicate report photo reference" }
@@ -126,17 +157,27 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
 
     private fun <T> multiset(values: List<T>): Map<T, Int> = values.groupingBy { it }.eachCount()
 
-    private fun coverBlock(report: ReportSnapshot, adverseItems: List<Pair<String, ReportItem>>): SizedBlock {
+    /**
+     * The answer sheet, and it is one page. The room-by-status breakdown grows with the property, so the
+     * drawn part is capped and says how many rows it left out; [CoverBlock.roomStatusCounts] still carries
+     * the whole breakdown, and the summary section lists every adverse item in full.
+     */
+    private fun coverBlock(
+        report: ReportSnapshot,
+        audience: Audience,
+        adverseItems: List<Pair<String, ReportItem>>,
+    ): SizedBlock {
         // Pending work is the number of distinct items carrying a remediation, not a second copy of the
         // adverse count. They differ whenever an item is adverse but has no remediation yet, or vice versa.
         val pendingItemCount = report.remediations.map { it.itemId }.distinct().size
+            .takeIf { audience == Audience.LANDLORD }
         val counts = report.rooms.flatMap { room ->
             room.items.groupingBy { it.snapshot.status }.eachCount().entries.map {
                 RoomStatusCount(room.id, it.key, it.value)
             }
         }
-        val lines = buildList {
-            addAll(runs(report.canonical.property.address, TextLanguage.ORIGINAL, TextStyle.TITLE, 180))
+        val head = buildList {
+            addAll(runs(report.canonical.property.address, TextLanguage.ORIGINAL, TextStyle.TITLE, BODY_WIDTH_MM))
             addAll(
                 runs(
                     "${report.canonical.type} · ${isoUtc(report.canonical.scheduledAt)}",
@@ -149,13 +190,53 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             report.tenancyReference?.let {
                 addAll(runs(it, TextLanguage.NEUTRAL, TextStyle.BODY, BODY_WIDTH_MM, endY()))
             }
-            // The totals have to be drawn, not merely carried as metadata: a cover that silently omits them
-            // is exactly as wrong as one that computes them incorrectly, and only the drawn runs are read.
-            addAll(runs("Adverse items / 不利项：${adverseItems.size}", TextLanguage.NEUTRAL, TextStyle.BODY, BODY_WIDTH_MM, endY()))
-            addAll(runs("Pending remediation / 待处理：$pendingItemCount", TextLanguage.NEUTRAL, TextStyle.BODY, BODY_WIDTH_MM, endY()))
-            counts.forEach {
-                addAll(runs("${it.roomId} · ${it.status} · ${it.count}", TextLanguage.NEUTRAL, TextStyle.BODY, BODY_WIDTH_MM, endY()))
+            addAll(
+                bilingualRuns(
+                    BilingualText("Adverse items: ${adverseItems.size}", "不利项：${adverseItems.size}"),
+                    TextStyle.BODY,
+                    BODY_WIDTH_MM,
+                    endY(),
+                ),
+            )
+            pendingItemCount?.let { pending ->
+                addAll(
+                    bilingualRuns(
+                        BilingualText("Pending remediation: $pending", "待处理：$pending"),
+                        TextStyle.BODY,
+                        BODY_WIDTH_MM,
+                        endY(),
+                    ),
+                )
             }
+        }
+        val budget = BODY_HEIGHT_MM - 2
+        require(head.endY() <= budget) {
+            "the cover header measures ${head.endY()}mm and cannot fit the ${budget}mm available"
+        }
+        val elisionReserve = measuredHeight(coverElision(counts.size), TextStyle.BODY)
+        val lines = head.toMutableList()
+        var drawnCounts = 0
+        for (count in counts) {
+            val line = runs(
+                "${count.roomId} · ${count.status} · ${count.count}",
+                TextLanguage.NEUTRAL,
+                TextStyle.BODY,
+                BODY_WIDTH_MM,
+                lines.endY(),
+            )
+            val reserve = if (drawnCounts + 1 < counts.size) elisionReserve else 0
+            if (line.endY() + reserve > budget) break
+            lines += line
+            drawnCounts++
+        }
+        if (drawnCounts < counts.size) {
+            lines += runs(
+                coverElision(counts.size - drawnCounts),
+                TextLanguage.NEUTRAL,
+                TextStyle.BODY,
+                BODY_WIDTH_MM,
+                lines.endY(),
+            )
         }
         return sized(
             CoverBlock(
@@ -171,6 +252,11 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             100,
         )
     }
+
+    private fun coverElision(remaining: Int): String = "$CAPTION_ELISION $remaining more rows / 另有 $remaining 行见摘要"
+
+    private fun measuredHeight(text: String, style: TextStyle): Int =
+        textMeasurer.measure(text, style, BODY_WIDTH_MM).let { it.lines.size * it.lineHeightMm }
 
     private fun sectionTitle(key: String, title: BilingualText): SizedBlock {
         val textRuns = bilingualRuns(title, TextStyle.TITLE, 180)
@@ -244,7 +330,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
 
     /** Room-level photography: a full-width picture that stands on its own between item rows. */
     private fun imageBlock(photo: ReportPhoto, purpose: ImagePurpose): SizedBlock {
-        val imageHeight = if (purpose == ImagePurpose.INLINE) 44 else 116
+        val imageHeight = if (purpose == ImagePurpose.INLINE) PANORAMA_IMAGE_MM else APPENDIX_IMAGE_MM
         val slot = imageSlot(photo, purpose, x = 0, y = 0, widthMm = BODY_WIDTH_MM, imageHeightMm = imageHeight)
         return SizedBlock(slot.heightMm, slot, slot.heightMm)
     }
@@ -267,7 +353,13 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         val caption = "${photo.reference} · ${photo.snapshot.source} · ${isoUtc(capturedAt)}"
         val measured = textMeasurer.measure(caption, TextStyle.CAPTION, widthMm)
         val kept = measured.lines.take(MAX_CAPTION_LINES).toMutableList()
-        if (measured.lines.size > MAX_CAPTION_LINES) kept[kept.lastIndex] = kept.last() + CAPTION_ELISION
+        if (measured.lines.size > MAX_CAPTION_LINES) {
+            // Replace, never append: the measurer has already filled that line to the column's budget, so
+            // appending the marker pushes a glyph past the column edge - and the thumbnail column ends at
+            // the body's right edge, so the overflow lands in the page margin. Dropping as many characters
+            // as the marker takes keeps the line no longer than the measurer made it.
+            kept[kept.lastIndex] = kept.last().dropLast(CAPTION_ELISION.length) + CAPTION_ELISION
+        }
         val textRuns = kept.mapIndexed { index, line ->
             TextRun(
                 line,
@@ -290,6 +382,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             xMm = x,
             yMm = y,
             widthMm = widthMm,
+            imageHeightMm = imageHeightMm,
             heightMm = height,
         )
     }
@@ -325,15 +418,15 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     }
 
     private fun footerBlock(dataHash: String, page: Int, totalPages: Int): PlacedBlock {
-        // The drawn footer carries the short hash; the full digest stays in FooterBlock.dataHash for
-        // verification. Printing all 64 characters was never the contract and does not fit the footer.
+        // The drawn footer carries the short hash, which is what fits the strip; the full digest stays in
+        // FooterBlock.dataHash for verification.
         val shortHash = dataHash.take(SHORT_HASH_LENGTH)
         val textRuns = runs("$shortHash · $page/$totalPages", TextLanguage.NEUTRAL, TextStyle.CAPTION, BODY_WIDTH_MM)
         return PlacedBlock(
             PAGE_MARGIN_MM,
             BODY_BOTTOM_MM,
             A4_WIDTH_MM - 2 * PAGE_MARGIN_MM,
-            10,
+            FOOTER_HEIGHT_MM,
             FooterBlock(dataHash, shortHash, page, totalPages, textRuns),
         )
     }
@@ -365,19 +458,26 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     )
 
     private fun splitBlock(block: SizedBlock, maxHeightMm: Int = BODY_HEIGHT_MM): List<SizedBlock> {
-        require(maxHeightMm > 0) { "no page space remains for block" }
+        require(maxHeightMm > 0) { "no page space remains for ${block.content.describe()}" }
         if (block.heightMm <= maxHeightMm) return listOf(block)
-        require(block.content !is ImageSlotBlock) {
+        val content = block.content
+        if (content is ItemRowBlock) return splitItemRow(block, content, maxHeightMm)
+        require(content !is ImageSlotBlock) {
             // Splitting would emit two slots carrying the same photoId: the same photograph printed twice,
-            // each with part of its caption. Captions are capped at composition time so this cannot happen.
-            "image slots are indivisible and must never exceed the page body"
+            // each with part of its caption.
+            "${content.describe()} is indivisible and measures ${block.heightMm}mm, over the ${maxHeightMm}mm available"
         }
-        val content = block.content as? TextBearingBlock
-            ?: throw IllegalArgumentException("indivisible block exceeds page body")
-        val paired = content.textRuns.filter { it.language == TextLanguage.EN || it.language == TextLanguage.ZH }
-        val flowing = content.textRuns.filterNot { it in paired }
-        require(paired.endY() + 2 <= maxHeightMm && flowing.isNotEmpty()) {
-            "indivisible bilingual content exceeds page body"
+        val text = content as? TextBearingBlock
+            ?: throw IllegalArgumentException("${content.describe()} is indivisible and exceeds the page body")
+        val (paired, flowing) = text.textRuns.partition {
+            it.language == TextLanguage.EN || it.language == TextLanguage.ZH
+        }
+        require(paired.endY() + 2 <= maxHeightMm) {
+            "${content.describe()} has a bilingual pair measuring ${paired.endY() + 2}mm, " +
+                "over the ${maxHeightMm}mm available; an en/zh pair is never split across pages"
+        }
+        require(flowing.isNotEmpty()) {
+            "${content.describe()} measures ${block.heightMm}mm and carries no free text to flow onto a second page"
         }
         val chunks = mutableListOf<List<TextRun>>()
         var current = paired.toMutableList()
@@ -393,9 +493,77 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         }
         if (current.isNotEmpty()) chunks += rebase(current)
         return chunks.map { chunk ->
-            val updated = content.withRuns(chunk)
+            val updated = text.withRuns(chunk)
             SizedBlock(maxOf(block.minHeightMm, chunk.endY() + 2), updated, block.minHeightMm)
         }
+    }
+
+    /**
+     * An item row is two drawn columns: measured text on the left, evidence thumbnails on the right. A row
+     * taller than the space available is cut into chunks that own **disjoint** slices of both columns, so no
+     * photograph is ever printed under two fragments of one note. The bilingual label repeats on every chunk
+     * because a continuation row still has to say which item its pictures belong to.
+     */
+    private fun splitItemRow(block: SizedBlock, row: ItemRowBlock, maxHeightMm: Int): List<SizedBlock> {
+        val (label, flowing) = row.textRuns.partition {
+            it.language == TextLanguage.EN || it.language == TextLanguage.ZH
+        }
+        require(label.endY() + 2 <= maxHeightMm) {
+            "item ${row.itemId} has a bilingual label measuring ${label.endY() + 2}mm, " +
+                "over the ${maxHeightMm}mm available"
+        }
+        val pendingText = ArrayDeque(flowing)
+        val pendingThumbnails = ArrayDeque(row.thumbnails)
+        val chunks = mutableListOf<SizedBlock>()
+        while (chunks.isEmpty() || pendingText.isNotEmpty() || pendingThumbnails.isNotEmpty()) {
+            val textRuns = label.toMutableList()
+            var textY = label.endY()
+            while (pendingText.isNotEmpty() && textY + pendingText.first().heightMm + 2 <= maxHeightMm) {
+                val run = pendingText.removeFirst()
+                textRuns += run.copy(yMm = textY)
+                textY += run.heightMm
+            }
+            val thumbnails = mutableListOf<ImageSlotBlock>()
+            var thumbY = 0
+            while (pendingThumbnails.isNotEmpty() && thumbY + pendingThumbnails.first().heightMm <= maxHeightMm) {
+                val slot = pendingThumbnails.removeFirst()
+                thumbnails += slot.movedTo(thumbY)
+                thumbY += slot.heightMm + THUMB_GAP_MM
+            }
+            require(textRuns.size > label.size || thumbnails.isNotEmpty() || chunks.isEmpty()) {
+                "item ${row.itemId} cannot place its next line or thumbnail in the ${maxHeightMm}mm available"
+            }
+            val thumbnailEnd = (thumbY - THUMB_GAP_MM).coerceAtLeast(0)
+            chunks += SizedBlock(
+                maxOf(block.minHeightMm, textY + 2, thumbnailEnd),
+                row.copy(textRuns = textRuns, thumbnails = thumbnails),
+                block.minHeightMm,
+            )
+        }
+        return chunks
+    }
+
+    /** Moves a slot inside its containing block, carrying the caption runs with the picture. */
+    private fun ImageSlotBlock.movedTo(newYMm: Int): ImageSlotBlock {
+        val delta = newYMm - yMm
+        if (delta == 0) return this
+        return copy(yMm = newYMm, textRuns = textRuns.map { it.copy(yMm = it.yMm + delta) })
+    }
+
+    /** Identifies a block in a failure message: a bare measurement names nothing the author can look up. */
+    private fun DocumentBlock.describe(): String = when (this) {
+        is CoverBlock -> "cover"
+        is SectionTitleBlock -> "section title $key"
+        is StatusDefinitionBlock -> "status definition $status"
+        is SummaryItemBlock -> "summary row $itemId"
+        is RoomTitleBlock -> "room title $roomId"
+        is ItemRowBlock -> "item $itemId"
+        is ImageSlotBlock -> "image slot $photoId"
+        is RemediationBlock -> "remediation for $itemId"
+        is SupplementBlock -> "supplement $reference"
+        is DisclaimerBlock -> "disclaimer"
+        is TenantAgreementBlock -> "tenant agreement"
+        is FooterBlock -> "footer for page $pageNumber"
     }
 
     private fun rebase(runs: List<TextRun>): List<TextRun> {
@@ -457,7 +625,10 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
 
         fun addGroup(blocks: List<SizedBlock>) {
             val totalHeight = blocks.sumOf { it.heightMm }
-            require(totalHeight <= BODY_HEIGHT_MM) { "indivisible block group exceeds one page" }
+            require(totalHeight <= BODY_HEIGHT_MM) {
+                "${blocks.joinToString(" + ") { it.content.describe() }} must be placed together but measure " +
+                    "${totalHeight}mm, over the ${BODY_HEIGHT_MM}mm page body"
+            }
             var page = pages.lastOrNull()
             var y = page?.bodyEnd() ?: PAGE_MARGIN_MM
             if (page == null || y + totalHeight > BODY_BOTTOM_MM) {
@@ -479,13 +650,25 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         private fun List<PlacedBlock>.bodyEnd(): Int = lastOrNull()?.let { it.yMm + it.heightMm } ?: PAGE_MARGIN_MM
     }
 
-    /** Layout constants are internal so the layout-contract tests assert the real numbers, not copies. */
-    internal companion object {
+    /**
+     * Layout constants are private. Tests write the numbers out instead: an assertion phrased as
+     * `assertEquals(INLINE_THUMB_MM, thumbnail.widthMm)` compares this constant with itself and stays green
+     * when it is changed to anything at all.
+     */
+    private companion object {
         const val BODY_HEIGHT_MM = BODY_BOTTOM_MM - PAGE_MARGIN_MM
         const val BODY_WIDTH_MM = A4_WIDTH_MM - 2 * PAGE_MARGIN_MM
         /** Fixed picture column for item evidence, per the card's ~40 mm inline thumbnail. */
         const val INLINE_THUMB_MM = 40
         const val THUMB_GAP_MM = 2
+        /** Full-width room panorama between item rows. */
+        const val PANORAMA_IMAGE_MM = 44
+        const val APPENDIX_PER_PAGE = 2
+        /**
+         * Appendix picture box, sized so a section title plus [APPENDIX_PER_PAGE] slots at the maximum
+         * caption still fit the body: 10 + 2 x (108 + 3 x 4 + 2) = 254 mm of the 257 mm available.
+         */
+        const val APPENDIX_IMAGE_MM = 108
         const val THUMB_COLUMN_X_MM = BODY_WIDTH_MM - INLINE_THUMB_MM
         const val ITEM_TEXT_WIDTH_MM = THUMB_COLUMN_X_MM - 5
         /** Caption bound that keeps image slots indivisible whatever a reference string contains. */

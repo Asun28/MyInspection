@@ -72,6 +72,15 @@ data class MeasuredText(val lines: List<String>, val lineHeightMm: Int) {
     }
 }
 
+/**
+ * Wraps text to a column and reports the resulting lines and line height in millimetres.
+ *
+ * Preconditions the composer relies on and checks at `compose` entry:
+ * - every returned line fits `widthMm`, so the composer may draw a line without re-measuring it;
+ * - `lineHeightMm` is small enough that the composer's own fixed bilingual text (the report disclaimer)
+ *   still fits one page body. An en/zh pair is never split across pages, so a line height above that
+ *   bound makes every report ungenerable rather than merely ugly.
+ */
 fun interface TextMeasurer {
     fun measure(text: String, style: TextStyle, widthMm: Int): MeasuredText
 }
