@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   脚手架自检（本元仓的「verify」）：本仓交付物就是这些脚本/钩子/模板本身，故需要一个
@@ -1899,6 +1899,83 @@ try {
       Fail "闸2g(e)：$writeCommand2g 冷项 L1 未 fail-closed 并给移回热区修法。output=[$write2g]"; $g2Fail = $true
     }
   }
+
+  # 闸2g(f)：A11 的**生产路径**回归——真实 linked worktree，而不是非 git 临时目录。
+  # 2g(e) 的夹具不是 git 仓库，Resolve-BumpLedger 因此回落到本地账本，冷项在本地热账本里本就不存在，
+  # 于是命中「块没找到」分支顺带触发只读提示——**它测的根本不是 bump 会不会改主检出**。真实形态是：
+  # 主检出的 LEDGER 里 Lx 仍是热的、本工作树已把它归冷；旧序的 bump 会命中块、照常改写、exit 0。
+  # 修复前实测：exit 0、无哨兵、主检出 recurrence 3→4。
+  $wtRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gf-$PID"
+  if (Test-Path $wtRepo2g) { Remove-Item -Recurse -Force -LiteralPath $wtRepo2g }
+  $wtMain2g = Join-Path $wtRepo2g 'main'
+  $wtLink2g = Join-Path $wtRepo2g 'wt'
+  New-Item -ItemType Directory -Force (Join-Path $wtMain2g 'docs/lessons'), (Join-Path $wtMain2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $wtMain2g -Recurse -Force
+  $hotBlock2g = @('# LEDGER', '', '## L900', '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 3', '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  Set-Content (Join-Path $wtMain2g 'docs/lessons/LEDGER.md') $hotBlock2g -Encoding utf8
+  Set-Content (Join-Path $wtMain2g 'specs/archive/lessons-archive.md') '# archive' -Encoding utf8
+  Push-Location $wtMain2g
+  & git init -q 2>&1 | Out-Null
+  & git config user.email 'selftest@example.invalid' 2>&1 | Out-Null
+  & git config user.name 'selftest' 2>&1 | Out-Null
+  & git add -A 2>&1 | Out-Null
+  & git -c commit.gpgsign=false commit -q -m fixture 2>&1 | Out-Null
+  & git worktree add -q -b lessons2gf $wtLink2g 2>&1 | Out-Null
+  $wtAddOk2g = ($LASTEXITCODE -eq 0)
+  Pop-Location
+  if (-not $wtAddOk2g) {
+    Fail '闸2g(f)：无法建立 linked worktree 夹具——本闸判的就是 linked worktree 下的行为，建不起来即中止而非跳过。'
+    $g2Fail = $true
+  }
+  else {
+    Set-Content (Join-Path $wtLink2g 'docs/lessons/LEDGER.md') '# LEDGER' -Encoding utf8
+    Set-Content (Join-Path $wtLink2g 'specs/archive/lessons-archive.md') ($hotBlock2g -replace '# LEDGER', '# archive') -Encoding utf8
+    $mainLedger2g = Join-Path $wtMain2g 'docs/lessons/LEDGER.md'
+    $hashBefore2g = (Get-FileHash $mainLedger2g -Algorithm SHA256).Hash
+    Push-Location $wtLink2g
+    $wtOut2g = (& pwsh -NoProfile -File (Join-Path $wtLink2g 'scripts/lessons.ps1') bump L900 2>&1 | Out-String)
+    $wtExit2g = $LASTEXITCODE
+    Pop-Location
+    $hashAfter2g = (Get-FileHash $mainLedger2g -Algorithm SHA256).Hash
+    if ($wtExit2g -eq 0) { Fail "闸2g(f)：linked worktree 里 bump 已归冷的 L900 退出 0（主检出该 id 仍热）——A11 的闸没拦住生产路径。output=[$wtOut2g]"; $g2Fail = $true }
+    if ($wtOut2g -notmatch '\[LSN-ARCHIVED-READONLY\]') { Fail "闸2g(f)：未打出 [LSN-ARCHIVED-READONLY]——写入面与判据面分家（写主检出的账本，却只判本工作树的冷库）。output=[$wtOut2g]"; $g2Fail = $true }
+    if ($hashBefore2g -ne $hashAfter2g) { Fail '闸2g(f)：主检出的 LEDGER 被改写——冷项 bump 必须零写入。'; $g2Fail = $true }
+    Push-Location $wtMain2g
+    & git worktree remove --force $wtLink2g 2>&1 | Out-Null
+    Pop-Location
+  }
+  if (Test-Path $wtRepo2g) { Remove-Item -Recurse -Force -LiteralPath $wtRepo2g -ErrorAction SilentlyContinue }
+
+  # 闸2g(g)：Int32 范围判据（旧写法用「位数 \d{1,9}」当范围代理，两头都错）。
+  # ① 1000000000 是合法 Int32（10 位）却被位数上界拒；② bump 能把 999999999 加成 1000000000 写进去，
+  # 下一次读又判它非法——写路径造出读路径拒绝的值。判据改为 [int]::TryParse，即范围本身。
+  $intRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gg-$PID"
+  if (Test-Path $intRepo2g) { Remove-Item -Recurse -Force -LiteralPath $intRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $intRepo2g 'docs/lessons'), (Join-Path $intRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $intRepo2g -Recurse -Force
+  $intLessons2g = Join-Path $intRepo2g 'scripts/lessons.ps1'
+  $intLedger2g = Join-Path $intRepo2g 'docs/lessons/LEDGER.md'
+  Set-Content (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') '# archive' -Encoding utf8
+  $mk2g = {
+    param([string]$Id, [string]$Rec)
+    @("## $Id", "- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: $Rec", '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  }
+  # (g1) 合法的 10 位 Int32 必须被接受——位数上界会误杀它
+  Set-Content $intLedger2g (@('# LEDGER', '', (& $mk2g 'L1000000000' '1')) -join [Environment]::NewLine) -Encoding utf8
+  $g1Out = (& pwsh -NoProfile -File $intLessons2g check -RepoRoot $intRepo2g 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $g1Out -notmatch 'check: PASS') { Fail "闸2g(g1)：合法 Int32 值 L1000000000（10 位）被判非法——位数不是范围判据。output=[$g1Out]"; $g2Fail = $true }
+  # (g2) Int32.MaxValue+1 必须被拒（读路径 fail-closed）
+  Set-Content $intLedger2g (@('# LEDGER', '', (& $mk2g 'L901' '2147483648')) -join [Environment]::NewLine) -Encoding utf8
+  $g2Out = (& pwsh -NoProfile -File $intLessons2g check -RepoRoot $intRepo2g 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0) { Fail "闸2g(g2)：recurrence 2147483648 超 Int32 却被接受——溢出会让下游 [int] 抛裸异常。output=[$g2Out]"; $g2Fail = $true }
+  # (g3) bump 到 Int32 上限必须 fail-closed 且零写入（否则写出读路径拒绝的值）
+  Set-Content $intLedger2g (@('# LEDGER', '', (& $mk2g 'L902' '2147483647')) -join [Environment]::NewLine) -Encoding utf8
+  $g3Hash = (Get-FileHash $intLedger2g -Algorithm SHA256).Hash
+  $g3Out = (& pwsh -NoProfile -File $intLessons2g bump L902 -RepoRoot $intRepo2g 2>&1 | Out-String)
+  $g3Exit = $LASTEXITCODE
+  if ($g3Exit -eq 0) { Fail "闸2g(g3)：recurrence 已是 Int32.MaxValue，bump 仍退出 0——PowerShell 的 + 会静默升宽到 [long]，写出的值下一次读就判非法。output=[$g3Out]"; $g2Fail = $true }
+  if ((Get-FileHash $intLedger2g -Algorithm SHA256).Hash -ne $g3Hash) { Fail '闸2g(g3)：到顶的 bump 改写了账本——必须零写入。'; $g2Fail = $true }
+  if (Test-Path $intRepo2g) { Remove-Item -Recurse -Force -LiteralPath $intRepo2g -ErrorAction SilentlyContinue }
 
   $ledgerStableHash2g = (Get-FileHash $l2gLedger -Algorithm SHA256).Hash
   $archiveHash2g = (Get-FileHash $l2gArchive -Algorithm SHA256).Hash

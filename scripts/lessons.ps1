@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   自净化经验系统的编排器（Tier1 必须 / Tier2 按需 / Tier3 总账）。
@@ -103,8 +103,12 @@ function Get-ResidentLessonRefs {
 # id 的数值形态：下游（本文件的最高-id 比较、archive.ps1 的 Get-LedgerHeadings）都要 [int] 它，超 Int32 会抛
 # 裸 .NET 异常、令 list/search/check 因一条坏条目全体不可用。不可解析返回 -1，调用方按 [LSN-META-INVALID] 处理。
 function Get-LessonNumber([string]$Id) {
-  if ($Id -notmatch '^L(\d{1,9})$') { return -1 }
-  return [int]$Matches[1]
+  # 位数上界曾写 \d{1,9}：那是拿位数当 Int32 范围的代理，两头都不对——1000000000..2147483647 是合法 Int32
+  # 却被拒，而 bump 又能写出 10 位值让下一次读判非法。改用 TryParse，判据**就是** Int32 范围本身。
+  if ($Id -notmatch '^L(\d+)$') { return -1 }
+  $n = 0
+  if (-not [int]::TryParse($Matches[1], [ref]$n)) { return -1 }
+  return $n
 }
 
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
@@ -189,7 +193,9 @@ function Get-LessonMeta([string]$Block) {
   if ($fields['severity'] -notin @('blocking', 'major', 'minor')) { return [pscustomobject]@{ Ok = $false; Error = "severity 非法：'$($fields['severity'])'"; Fields = @{} } }
   # 上界 9 位：下面会 [int] 它，超 Int32 在 $ErrorActionPreference='Stop' 下是终止性异常——一条坏条目就让
   # list/search/check/archive 全体抛裸 .NET 消息，连「先 search 查经验」这个入口都没了。越界归本条 fail-closed。
-  if ($fields['recurrence'] -notmatch '^\d{1,9}$') { return [pscustomobject]@{ Ok = $false; Error = "recurrence 非法：'$($fields['recurrence'])'"; Fields = @{} } }
+  # 同 Get-LessonNumber：位数不是 Int32 范围的等价判据。TryParse 既拦溢出，又不误杀合法的 10 位值。
+  $recNum = 0
+  if (($fields['recurrence'] -notmatch '^\d+$') -or (-not [int]::TryParse($fields['recurrence'], [ref]$recNum))) { return [pscustomobject]@{ Ok = $false; Error = "recurrence 非法：'$($fields['recurrence'])'"; Fields = @{} } }
   if ($fields.ContainsKey('kind') -and $fields['kind'] -notin @('pitfall', 'judgment')) { return [pscustomobject]@{ Ok = $false; Error = "kind 非法：'$($fields['kind'])'"; Fields = @{} } }
   return [pscustomobject]@{ Ok = $true; Error = ''; Fields = $fields }
 }
@@ -234,8 +240,8 @@ function Get-AllLessons {
   return @($hot + $cold)
 }
 
-function Throw-ArchivedLessonReadOnly([string]$Id) {
-  if (@(Get-ArchivedLessons | Where-Object id -eq $Id).Count) {
+function Throw-ArchivedLessonReadOnly([string]$Id, [string]$ArchivePath = $LessonsArchive) {
+  if (@(Get-LessonsFromPath $ArchivePath | Where-Object id -eq $Id).Count) {
     throw "[LSN-ARCHIVED-READONLY] $Id 位于冷库；如需 bump/promote，请先把该条目整块移回 docs/lessons/LEDGER.md，再执行写操作。"
   }
 }
@@ -449,7 +455,14 @@ switch ($Command) {
     # master(#129) 的写入平面 + 本卡(#51) 的冷存只读提示与严格标题口径，两者都要：
     # 前者决定写哪一份账本，后者决定块边界与「命中冷库条目时给出移回热区的修法」。
     $BumpLedger = Resolve-BumpLedger -Root $RepoRoot -Fallback $Ledger
-    if (-not (Test-Path $BumpLedger)) { Throw-ArchivedLessonReadOnly $Query; throw "总账不存在: $BumpLedger" }
+    # A11 的闸必须在**任何写入之前**：旧写法只在「账本不存在」与「块没找到」两条失败分支上调它，于是
+    # 「本检出已把 Lx 归冷、而主检出的 LEDGER 里 Lx 仍是热的」这条真实路径会命中块、照常改写、exit 0，
+    # 冷存只读提示一次都不出现。写哪一份账本，就得连同那一份的冷库一起判——否则判据与写入面分家。
+    # 两个平面任一为冷即拒（fail-closed）：id 在任何一侧已归冷，热/冷对就已经不一致，此时写入只会加深它。
+    $BumpArchive = Join-Path (Split-Path -Parent (Split-Path -Parent $BumpLedger)) 'specs/archive/lessons-archive.md'
+    Throw-ArchivedLessonReadOnly $Query
+    if ((Test-Path $BumpArchive) -and ($BumpArchive -ne $LessonsArchive)) { Throw-ArchivedLessonReadOnly $Query $BumpArchive }
+    if (-not (Test-Path $BumpLedger)) { throw "总账不存在: $BumpLedger" }
     $raw = Get-Content $BumpLedger -Raw
     # 抠出该 id 的块。标题口径与 Get-LessonsFromPath / archive.ps1 同形（整行恰为 `## L<n>`）——`\b` 的旧写法会在
     # `## L45 (deprecated)` 处提前收尾，同一条经验遂在 bump 眼里合法、在选择器眼里 meta 行重复，两权威相反。
@@ -463,6 +476,9 @@ switch ($Command) {
     $bumpMeta = Get-LessonMeta $block
     if (-not $bumpMeta.Ok) { throw "[LSN-META-INVALID] $Query 的规范 meta 行不合法（$($bumpMeta.Error)）——拒绝 bump，未写入任何字节。" }
     $old = [int]$bumpMeta.Fields['recurrence']
+    # PowerShell 的 + 会在溢出时**静默升宽到 [long]**，于是这里能写出 2147483648，而下一次读取按 Int32
+    # 判它非法——写路径造出读路径拒绝的值。到顶即 fail-closed，零写入。
+    if ($old -ge [int]::MaxValue) { throw "[LSN-META-INVALID] $Query 的 recurrence 已达 Int32 上限（$old），再加一会写出读路径无法解析的值——拒绝 bump，未写入任何字节。" }
     $new = $old + 1
     # TD51/TD-114：原写法 [regex]::Replace($block,'recurrence:\s*\d+',"recurrence: $new",1) 并无
     # (string,string,string,int) 这个重载——第 4 个实参 1 被隐式转成 RegexOptions（1=IgnoreCase），

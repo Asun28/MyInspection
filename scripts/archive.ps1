@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   冷存压缩（cold-storage compaction）：把**已闭合**的技术债行（status=paid/accepted）与**已合并**的任务卡
@@ -94,7 +94,12 @@ function Get-LedgerHeadings([string[]]$lines) {
     # 位数上界 9：下一行就 [int] 它，超 Int32 会让整个脚本抛裸 .NET 转换异常。超界的标题一律不当条目标题
     # （仍作为区间终点参与 `^##\s` 切块），于是「解析不了的 id」永远不会被搬——与 lessons.ps1 的
     # Get-LessonNumber 同一个上界，两侧对「哪些 id 可处理」的认定不分家。
-    if ($lines[$i] -match '^##\s+L(\d{1,9})\s*$') { $marks.Add([pscustomobject]@{ Id = "L$($Matches[1])"; Number = [int]$Matches[1]; Start = $i }) }
+    # 位数上界改为 TryParse：判据就是 Int32 范围本身，与 lessons.ps1 的 Get-LessonNumber 同源。
+    # 解析不了的标题仍作为区间终点参与 `^##\s` 切块，只是不当条目标题——「搬不动的 id 永不被搬」不变。
+    if ($lines[$i] -match '^##\s+L(\d+)\s*$') {
+      $num = 0
+      if ([int]::TryParse($Matches[1], [ref]$num)) { $marks.Add([pscustomobject]@{ Id = "L$($Matches[1])"; Number = $num; Start = $i }) }
+    }
   }
   $result = [System.Collections.Generic.List[object]]::new()
   foreach ($m in $marks) {
