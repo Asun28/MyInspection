@@ -41,3 +41,7 @@ doc_sync: CLAUDE.md 当前阶段；合并后 configs/compliance/ schema 视同�
 
 ## 验收 / 执行建议
 dod 见 front-matter。首选 **Opus 5 · high**（法律边界卡，按难度上强档）；备选 DeepSeek V4 Pro；**Terra 交叉复核：规则夹具逐条对照需求 §10 原文**。难度 H。
+
+## R3 round-cap 后续
+
+PR #43 两轮 R3 后仍缺四类证据：非默认配置未跨过默认常量边界、改期没有当前记录身份、配置拒绝分支负例不完整、公开集合不可变包装缺少 mutation-sensitive 证明。按两轮上限停止扩张本卡；原 PR 保持开放并转人裁，后续由 `T4-COMPLIANCE-ENGINE-R3-CLOSURE` 精确收口，不重开已闭合的 DST、checksum、exact timezone 与阻断 reason 合同。
