@@ -18,7 +18,7 @@
     check    护栏：校验必须层条数未超上限、id 无重复、字段完整。
     promote  打印某条的晋升建议（是否够格进必须/按需层 + 操作提示）。
     bump     某条经验复发一次 → recurrence +1（复发计数入口，跨过 2 即提示 promote）。
-    archive  选择一次性 ledger 经验，预览或交给 archive.ps1 冷存。
+    archive  选择一次性 ledger 经验，预览或交给 archive.ps1 冷存（选择规则的权威表述见 docs/LESSONS.md §3 PURIFY）。
 
   两类经验（-Kind，正交于 tier/severity）：
     pitfall  （默认）**工具链/方法的坑**（怎么干活踩雷）——可升级为机械守卫（enforced_by）。
@@ -30,6 +30,9 @@
   Find-LineSecret，单一真相源）；**权威闸是 check-secrets**（ship / pre-push / CI 强制），
   PII 无机检——由作者入账前自查。
 
+.PARAMETER RepoRoot  仓库根（默认由脚本位置派生）；hermetic 夹具与跨仓调用用它指定别的仓。
+.PARAMETER DryRun    仅 archive 可用：预览候选、写零文件。预览与实跑走同一搬运器（`archive.ps1`，只差 `-DryRun`），
+                     故它的拒绝在预览里同样出现、同样非零退出。
 .EXAMPLE
   pwsh -File scripts\lessons.ps1 add -Tags 'powershell,git' -Severity blocking -Symptom '...' -RootCause '...' -Rule '...' -EnforcedBy 'scripts/review.ps1' -Cost '浪费40分钟'
 .EXAMPLE
@@ -69,8 +72,37 @@ $Ledger = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 $LessonsArchive = Join-Path $RepoRoot 'specs/archive/lessons-archive.md'
 $OnDemandDir = Join-Path $RepoRoot 'docs/lessons'
 $ClaudeMd = Join-Path $RepoRoot 'CLAUDE.md'
+$TemplateMd = Join-Path $RepoRoot 'CLAUDE.template.md'
 $MustCap = $ScaffoldConfig.LessonsMustCap   # 必须层（CLAUDE.md「经验铁律」）条数上限——超限须淘汰最不活跃项回按需层
 if ($DryRun -and $Command -ne 'archive') { throw '-DryRun 只适用于 archive 子命令。' }
+
+# 「常驻 CLAUDE 文件引用了某条经验」的**唯一**判定式，与 selftest.ps1 闸 16 的 $refRe 同形：前不接 ASCII
+# 字母/数字/冒号（排除 path:L88 行号），后不接 -<digit>（排除 L52-71 行段）。别退回 '\[(L\d+)\]'——仓里的引用
+# 绝大多数**裸写**（`见 L26 之理`），只认方括号会把常驻文件正在引用的条目搬进冷库，而事后无闸变红
+# （闸 16 按热∪冷判，冷项照样算已定义）。闸 2d(a2) 断言此处与闸 16 从同一份 CLAUDE.md 推出同一 id 集合。
+# 范围简写只保护两端点（`L229–L232` 不保护 L230/L231），见 docs/LESSONS.md §3。
+$LessonRefRegex = '(?<![A-Za-z0-9:])L(\d+)\b(?!-\d)'
+function Get-ResidentLessonRefs {
+  # id → 引用它的常驻文件名（check 要文件名做诊断，archive 只用 ContainsKey）。
+  $refs = @{}
+  foreach ($residentPath in @($ClaudeMd, $TemplateMd)) {
+    if (-not (Test-Path -LiteralPath $residentPath)) { continue }
+    $leaf = Split-Path $residentPath -Leaf
+    foreach ($m in [regex]::Matches((Get-Content -LiteralPath $residentPath -Raw), $LessonRefRegex)) {
+      $rid = "L$($m.Groups[1].Value)"
+      if (-not $refs.ContainsKey($rid)) { $refs[$rid] = [System.Collections.Generic.List[string]]::new() }
+      if (-not $refs[$rid].Contains($leaf)) { $refs[$rid].Add($leaf) }
+    }
+  }
+  return $refs
+}
+
+# id 的数值形态：下游（本文件的最高-id 比较、archive.ps1 的 Get-LedgerHeadings）都要 [int] 它，超 Int32 会抛
+# 裸 .NET 异常、令 list/search/check 因一条坏条目全体不可用。不可解析返回 -1，调用方按 [LSN-META-INVALID] 处理。
+function Get-LessonNumber([string]$Id) {
+  if ($Id -notmatch '^L(\d{1,9})$') { return -1 }
+  return [int]$Matches[1]
+}
 
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 
@@ -93,15 +125,21 @@ function Get-LessonMeta([string]$Block) {
     }
     $fields[$k] = $Matches['v']
   }
-  foreach ($required in @('date', 'tags', 'tier', 'severity', 'recurrence')) {
+  # 不列 date：meta 行的定义就是「以 `- date:` 开头的那一行」，该字段结构上必然存在，列了也没有输入能触到。
+  # 另三项即便漏列，下面的值校验也会因取到 $null（StrictMode 下缺失键不抛）而照判非法——所以本表若只报
+  # 「不合法」，删掉任何一项都没人变红（实测如此）。故用 ASCII 哨兵 `missing-field=<名>` 把「缺失」与
+  # 「值非法」报成两回事：既是可操作诊断（补字段 vs 改值），也让闸 2e(b2) 逐项断言本表真在起作用。
+  foreach ($required in @('tags', 'tier', 'severity', 'recurrence')) {
     if (-not $fields.ContainsKey($required)) {
-      return [pscustomobject]@{ Ok = $false; Error = "规范 meta 行缺少必填字段 '$required'"; Fields = @{} }
+      return [pscustomobject]@{ Ok = $false; Error = "missing-field=$required（规范 meta 行缺少必填字段）"; Fields = @{} }
     }
   }
   if ($fields['date'] -notmatch '^\d{4}-\d{2}-\d{2}$') { return [pscustomobject]@{ Ok = $false; Error = "date 非法：'$($fields['date'])'"; Fields = @{} } }
   if ($fields['tier'] -notin @('must', 'ondemand', 'ledger')) { return [pscustomobject]@{ Ok = $false; Error = "tier 非法：'$($fields['tier'])'"; Fields = @{} } }
   if ($fields['severity'] -notin @('blocking', 'major', 'minor')) { return [pscustomobject]@{ Ok = $false; Error = "severity 非法：'$($fields['severity'])'"; Fields = @{} } }
-  if ($fields['recurrence'] -notmatch '^\d+$') { return [pscustomobject]@{ Ok = $false; Error = "recurrence 非法：'$($fields['recurrence'])'"; Fields = @{} } }
+  # 上界 9 位：下面会 [int] 它，超 Int32 在 $ErrorActionPreference='Stop' 下是终止性异常——一条坏条目就让
+  # list/search/check/archive 全体抛裸 .NET 消息，连「先 search 查经验」这个入口都没了。越界归本条 fail-closed。
+  if ($fields['recurrence'] -notmatch '^\d{1,9}$') { return [pscustomobject]@{ Ok = $false; Error = "recurrence 非法：'$($fields['recurrence'])'"; Fields = @{} } }
   if ($fields.ContainsKey('kind') -and $fields['kind'] -notin @('pitfall', 'judgment')) { return [pscustomobject]@{ Ok = $false; Error = "kind 非法：'$($fields['kind'])'"; Fields = @{} } }
   return [pscustomobject]@{ Ok = $true; Error = ''; Fields = $fields }
 }
@@ -109,16 +147,24 @@ function Get-LessonMeta([string]$Block) {
 function Get-LessonsFromPath([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return @() }
   $raw = Get-Content -LiteralPath $Path -Raw
-  $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d)') | Where-Object { $_ -match '^L\d' }
+  # 标题形态与 archive.ps1 的 Get-LedgerHeadings 同口径：整行**恰为** `## L<n>`。松口径（只看 `## L` 前缀）会把
+  # `## L42 (deprecated)` 当条目，而搬运器不认，于是选择器交出一个它眼里不存在的 id、报出与真因无关的
+  # 「未知 id / 最高 id」。`[ \t]*` 而非 `\s*`：后者会吃掉换行。
+  $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d+[ \t]*(?:\r?$))') | Where-Object { $_ -match '^L\d' }
   $out = @()
   foreach ($b in $blocks) {
     $id = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
     $meta = Get-LessonMeta $b
+    if ((Get-LessonNumber $id) -lt 0) {
+      $meta = [pscustomobject]@{ Ok = $false; Error = "id '$id' 数值超出可解析范围（>9 位）"; Fields = @{} }
+    }
     $f = $meta.Fields
     # meta 行不合法时**不猜**：字段留空/0，metaOk=$false 让下游自己决定 fail-closed 的方式。
     $tier = if ($meta.Ok) { $f['tier'] } else { '' }
     $sev  = if ($meta.Ok) { $f['severity'] } else { '' }
-    $kind = if ($meta.Ok -and $f.ContainsKey('kind')) { $f['kind'] } else { 'pitfall' }   # 旧条目无 kind 字段 => 默认 pitfall（向后兼容）
+    # kind 只在 meta 合法时才回落到 'pitfall'（旧条目兼容）；meta 读不出来时回落等于**猜**，而猜出的具体值
+    # 会被 list/promote 当事实显示，可能正好与真相相反。
+    $kind = if ($meta.Ok) { if ($f.ContainsKey('kind')) { $f['kind'] } else { 'pitfall' } } else { '' }
     $rec  = if ($meta.Ok) { [int]$f['recurrence'] } else { 0 }
     $tags = if ($meta.Ok) { $f['tags'] } else { '' }
     $cost = if ($meta.Ok -and $f.ContainsKey('cost')) { $f['cost'] } else { '' }          # 可选；旧条目无此字段 => 空（向后兼容）
@@ -145,15 +191,23 @@ function Throw-ArchivedLessonReadOnly([string]$Id) {
 }
 
 function Next-Id {
-  param([array]$Lessons = (Get-Lessons))
-  # TD24/TD39: StrictMode 下空集合直接取 .id 会抛异常。裸调用（add 的生产路径）走【默认绑定】=(Get-Lessons)，
-  # 空 LEDGER 时 Get-Lessons 返回 @()，经 [array] 参数强制转换 unroll 成 $null → @($null).Count==1、绕过 Count-eq-0
+  # 默认绑定取热∪冷：单调性此前靠「热永远保有全局最大 id」这条不变量，而它又由两处**各自算**的最高-id
+  # 排除（本文件选择器 + archive.ps1 的 $maxId）共同维持，改动任一处即撞号。取并集最大，让单调性成为结构事实。
+  param([array]$Lessons = (Get-AllLessons))
+  # TD24/TD39: StrictMode 下空集合直接取 .id 会抛异常。裸调用（add 的生产路径）走【默认绑定】=(Get-AllLessons)，
+  # 空账本时它返回 @()，经 [array] 参数强制转换 unroll 成 $null → @($null).Count==1、绕过 Count-eq-0
   # 守卫 → $ls.id 抛 PropertyNotFoundStrict（TD24 PR#47 只测了 -Lessons @() 显式绑定路径，漏了此默认绑定路径）。
   # 修法：先滤掉 null 元素再判 Count（@() 包裹单独不够——@($null) 仍 Count 1）。Get-Lessons 不动（改 ,$out 会破坏
   # search/list/check 的直管调用：逗号包裹令整个数组当单个管道项、Where-Object 取不到 .tier 属性）。
   $ls = @($Lessons | Where-Object { $null -ne $_ })
   if ($ls.Count -eq 0) { return 'L1' }
-  $ids = $ls.id | ForEach-Object { [int]($_ -replace '\D','') }
+  $ids = @()
+  foreach ($entry in $ls) {
+    $n = Get-LessonNumber $entry.id
+    # 铸新号前不许有读不出的 id：静默跳过会让新条目撞上那条坏 id 的号——单一真相源出现重号比抛错更糟。
+    if ($n -lt 0) { throw "[LSN-META-INVALID] 无法从『$($entry.id)』解析条目编号，拒绝铸新 id（先修好该条目的「## L<n>」标题）。" }
+    $ids += $n
+  }
   if (-not $ids) { return 'L1' }
   'L' + (($ids | Measure-Object -Maximum).Maximum + 1)
 }
@@ -213,7 +267,9 @@ switch ($Command) {
     if ($FilterTag) { $ls = $ls | Where-Object { $_.tags -match [regex]::Escape($FilterTag) } }
     if ($FilterKind) { $ls = $ls | Where-Object kind -eq $FilterKind }
     if (-not $ls) { Write-Host '（无匹配条目）'; break }
+    # meta 读不出来的条目**不显示占位默认值**：空 tier/severity 与 rec=0 会被当成事实读。显式打不可用标记。
     $ls | ForEach-Object {
+      if (-not $_.metaOk) { "{0,-4} [LSN-META-INVALID] {1}" -f $_.id, $_.metaError; return }
       $costTag = if ($_.cost) { " 〔成本:$($_.cost)〕" } else { '' }   # 有 cost 才显示（向后兼容）
       "{0,-4} [{1,-8}] {2,-8} sev={3,-8} rec={4}{5} | {6}" -f $_.id, $_.tier, $_.kind, $_.severity, $_.recurrence, $costTag, $_.rule
     }
@@ -226,10 +282,11 @@ switch ($Command) {
     if (-not $terms) { throw 'search 需要关键词。' }
     Step "总账检索：$Query"
     $hit = Get-Lessons | Where-Object { Test-AllTermsMatch $_.body $terms }
-    if ($hit) { $hit | ForEach-Object { $costTag = if ($_.cost) { " 〔成本:$($_.cost)〕" } else { '' }; "{0} [{1}]{2} {3}" -f $_.id, $_.tier, $costTag, $_.rule } } else { '  （总账无匹配）' }
+    # 同 list：metaOk=$false 时不渲染猜出来的 tier/cost，打不可用标记（召回本身仍照常给出 rule）。
+    if ($hit) { $hit | ForEach-Object { if (-not $_.metaOk) { "{0} [LSN-META-INVALID] {1}" -f $_.id, $_.rule; return }; $costTag = if ($_.cost) { " 〔成本:$($_.cost)〕" } else { '' }; "{0} [{1}]{2} {3}" -f $_.id, $_.tier, $costTag, $_.rule } } else { '  （总账无匹配）' }
     Step "冷归档检索：$Query"
     $coldHit = Get-ArchivedLessons | Where-Object { Test-AllTermsMatch $_.body $terms }
-    if ($coldHit) { $coldHit | ForEach-Object { "[archived] {0} [{1}] {2}" -f $_.id, $_.tier, $_.rule } } else { '  （冷归档无匹配）' }
+    if ($coldHit) { $coldHit | ForEach-Object { $tierTag = if ($_.metaOk) { $_.tier } else { 'LSN-META-INVALID' }; "[archived] {0} [{1}] {2}" -f $_.id, $tierTag, $_.rule } } else { '  （冷归档无匹配）' }
     Step "按需层检索：$Query"
     $files = Get-ChildItem $OnDemandDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne 'LEDGER.md'
     $any = $false
@@ -279,17 +336,12 @@ switch ($Command) {
       if (-not $src) { Write-Warning "CLAUDE.md 铁律引用了不存在的 $cid（总账已删？漂移）。"; $fail = $true }
       elseif ($src.tier -ne 'must') { Write-Warning "$cid 在 CLAUDE.md 是铁律，但总账标 tier=$($src.tier)（层级漂移，需同步）。"; $fail = $true }
     }
-    $TemplateMd = Join-Path $RepoRoot 'CLAUDE.template.md'
     # 两个常驻 CLAUDE 文件可引用已归档经验；定义域是热账本与冷库并集。层级漂移仍只在铁律小节校验。
+    # 引用判定走顶部单一真相源 $LessonRefRegex（含裸引用），与 archive 选择器的排除面同源。
     $definedIds = @{}; foreach ($lesson in $ls) { $definedIds[$lesson.id] = $true }
-    foreach ($residentPath in @($ClaudeMd, $TemplateMd)) {
-      if (-not (Test-Path -LiteralPath $residentPath)) { continue }
-      foreach ($rm in [regex]::Matches((Get-Content -LiteralPath $residentPath -Raw), '\[(L\d+)\]')) {
-        $rid = $rm.Groups[1].Value
-        if (-not $definedIds.ContainsKey($rid)) {
-          Write-Warning "$(Split-Path $residentPath -Leaf) 引用了不存在的 $rid（热账本/冷库并集均无定义）。"; $fail = $true
-        }
-      }
+    foreach ($entry in (Get-ResidentLessonRefs).GetEnumerator()) {
+      if ($definedIds.ContainsKey($entry.Key)) { continue }
+      Write-Warning "$($entry.Value -join ' / ') 引用了不存在的 $($entry.Key)（热账本/冷库并集均无定义）。"; $fail = $true
     }
     # 模板同步（元仓专用）：CLAUDE.template.md 的铁律节须与总账 tier=must 双向一致——
     #   堵「元仓晋升 must 只改 CLAUDE.md 忘改模板 → 下游 init 首跑 check 即挂」。下游无此文件 => 优雅跳过（空配置规则）。
@@ -346,14 +398,18 @@ switch ($Command) {
     if (-not $Query) { throw 'bump 需要条目 id（如 L1）。' }
     if (-not (Test-Path $Ledger)) { Throw-ArchivedLessonReadOnly $Query; throw "总账不存在: $Ledger" }
     $raw = Get-Content $Ledger -Raw
-    # 抠出该 id 的块（## L<n> 起，到下一个 ## L<n> 或文件尾止）
-    $blockRe = "(?ms)^##\s+$([regex]::Escape($Query))\b.*?(?=^##\s+L\d|\z)"
+    # 抠出该 id 的块。标题口径与 Get-LessonsFromPath / archive.ps1 同形（整行恰为 `## L<n>`）——`\b` 的旧写法会在
+    # `## L45 (deprecated)` 处提前收尾，同一条经验遂在 bump 眼里合法、在选择器眼里 meta 行重复，两权威相反。
+    $blockRe = "(?ms)^##\s+$([regex]::Escape($Query))[ \t]*(?:\r?$).*?(?=^##\s+L\d+[ \t]*(?:\r?$)|\z)"
     $m = [regex]::Match($raw, $blockRe)
     if (-not $m.Success) { Throw-ArchivedLessonReadOnly $Query; throw "未找到 $Query。" }
     $block = $m.Value
-    $rm = [regex]::Match($block, 'recurrence:\s*(\d+)')
-    if (-not $rm.Success) { throw "$Query 块内无 recurrence 字段，无法 bump（检查 LEDGER 格式）。" }
-    $old = [int]$rm.Groups[1].Value
+    # bump 是**写**路径，读计数器必须走与选择器同一个出生点 Get-LessonMeta。不锚定地在整块里捞
+    # `recurrence:\s*(\d+)` 会捞到正文字面量：meta 行缺该字段时读出正文的 7、把锚定的 Replace 打空（块字节不变）、
+    # 却打印绿字「7 → 8」并建议 promote 进必须层。元数据非法一律零写入非零退出，与 check/archive 同口径。
+    $bumpMeta = Get-LessonMeta $block
+    if (-not $bumpMeta.Ok) { throw "[LSN-META-INVALID] $Query 的规范 meta 行不合法（$($bumpMeta.Error)）——拒绝 bump，未写入任何字节。" }
+    $old = [int]$bumpMeta.Fields['recurrence']
     $new = $old + 1
     # TD51/TD-114：原写法 [regex]::Replace($block,'recurrence:\s*\d+',"recurrence: $new",1) 并无
     # (string,string,string,int) 这个重载——第 4 个实参 1 被隐式转成 RegexOptions（1=IgnoreCase），
@@ -361,7 +417,11 @@ switch ($Command) {
     # 会被静默篡改。改锚定到本块的 meta 行（`- date: ... recurrence: <n>`），只动该行的计数器，
     # 不触碰 body 里可能出现的同名字面量。`${1}` 用单引号字面量 + 字符串拼接 $new（避免双引号内
     # `${1}`/`$1` 被 PowerShell 当成变量插值、吞掉正则回引用）。
-    $newBlock = [regex]::Replace($block, '(?m)^(- date:.*?recurrence:\s*)\d+', ('${1}' + $new))
+    # 三层各管一件事：Get-LessonMeta 拦「形状不对就别写」（闸 2e(e) 杀）；实例 Replace 第三实参 1 把「只写一处」
+    # 变成结构事实（静态重载没有次数版，见上）；-ceq 拦「一个字节没改却报成功」——锚定形态漂移时只有它能变红
+    # （闸 2c(b) 杀）。行首锚定与 Get-LessonMeta 的 `^-\s+date:` 同形，否则两者对「哪行是 meta 行」的认定会分家。
+    $newBlock = [Regex]::new('(?m)^(-\s+date:.*?recurrence:\s*)\d+').Replace($block, ('${1}' + $new), 1)
+    if ($newBlock -ceq $block) { throw "[LSN-META-INVALID] $Query 的 meta 行 recurrence 计数器未被更新（锚定未命中）——拒绝写回，未写入任何字节。" }
     $raw = $raw.Remove($m.Index, $m.Length).Insert($m.Index, $newBlock)
     Set-Content -Path $Ledger -Value $raw -Encoding utf8 -NoNewline
     Write-Host "$Query recurrence: $old → $new" -ForegroundColor Green
@@ -374,6 +434,8 @@ switch ($Command) {
     if (-not $Query) { throw 'promote 需要条目 id（如 L1）。' }
     $l = Get-Lessons | Where-Object id -eq $Query | Select-Object -First 1
     if (-not $l) { Throw-ArchivedLessonReadOnly $Query; throw "未找到 $Query。" }
+    # promote 是**决策**面：读不出元数据却渲染空 tier / rec=0 并给出「暂不够必须层」，等于把默认值当结论卖出去。
+    if (-not $l.metaOk) { throw "[LSN-META-INVALID] $Query 的规范 meta 行不合法（$($l.metaError)）——晋升门槛读不出来，拒绝给结论。" }
     Step "晋升评估：$Query"
     "当前 tier=$($l.tier) kind=$($l.kind) severity=$($l.severity) recurrence=$($l.recurrence)"
     if ($l.kind -eq 'judgment') { Write-Host '  注：judgment（方向/决策）类——晋升的同时把它登记进 docs\HARNESS-REVIEW.md 的 judgment-feed，随模型变强复审方向品味。' -ForegroundColor DarkCyan }
@@ -387,37 +449,36 @@ switch ($Command) {
   }
 
   'archive' {
+    # 选择规则的自然语言权威表述在 docs/LESSONS.md §3 PURIFY（此处只实现，不再复述一遍口径）。
     $hot = @(Get-Lessons)
     $maxNumber = -1
     foreach ($lesson in $hot) {
-      $number = [int]($lesson.id.Substring(1))
+      $number = Get-LessonNumber $lesson.id
       if ($number -gt $maxNumber) { $maxNumber = $number }
     }
-    $referenced = @{}
-    foreach ($residentPath in @($ClaudeMd, (Join-Path $RepoRoot 'CLAUDE.template.md'))) {
-      if (-not (Test-Path -LiteralPath $residentPath)) { continue }
-      foreach ($match in [regex]::Matches((Get-Content -LiteralPath $residentPath -Raw), '\[(L\d+)\]')) {
-        $referenced[$match.Groups[1].Value] = $true
-      }
-    }
-    # metaOk 是入选的第一道条件：archive 会把条目从热账本搬到冷库，而「元数据读不出来」与「元数据说可以搬」
-    # 在证据强度上完全不同。读不出来就留在热账本（fail-closed），由 check 报 [LSN-META-INVALID] 让人来修。
+    $referenced = Get-ResidentLessonRefs
+    # metaOk 是入选第一条件（理由见顶部 Get-LessonMeta 头注）：读不出来就留热账本，并且**整条命令非零退出**
+    # ——同一份账本不能 check 报 1 而 archive 报 0；archive.ps1 的 DryRun 早就是这口径（闸 12e⑥）。
     $unparsable = @($hot | Where-Object { -not $_.metaOk })
     foreach ($bad in $unparsable) { Write-Warning "[LSN-META-INVALID] $($bad.id) 的规范 meta 行不合法（$($bad.metaError)）——保留在热账本，不进归档候选。" }
     $candidates = @($hot | Where-Object {
       $_.metaOk -and
       $_.tier -eq 'ledger' -and $_.recurrence -eq 1 -and
-      [int]($_.id.Substring(1)) -ne $maxNumber -and -not $referenced.ContainsKey($_.id)
+      (Get-LessonNumber $_.id) -ne $maxNumber -and -not $referenced.ContainsKey($_.id)
     })
     $candidateText = if ($candidates.Count) { ($candidates.id -join ',') } else { 'none' }
-    if ($DryRun) {
-      Write-Host "[LSN-ARCHIVE-DRYRUN] candidates=$candidateText"
-      break
+    Write-Host "$(if ($DryRun) { '[LSN-ARCHIVE-DRYRUN]' } else { '[LSN-ARCHIVE]' }) candidates=$candidateText"
+    $moverExit = 0
+    if ($candidates.Count) {
+      # 预览与实跑走**同一个**搬运器，只差 -DryRun。否则预览只演到「选出了谁」，而搬运器的四类拒绝（别名 id /
+      # 最高 id / 未知 id / 两侧内容不一致）全在这之后：预览报绿，实跑却搬走一部分后非零退出——落差压在数据移动上。
+      $archiveScript = Join-Path $PSScriptRoot 'archive.ps1'
+      $moverArgs = @('-NoProfile', '-File', $archiveScript, '-RepoRoot', $RepoRoot, '-LessonsOnly', '-LessonIds', ($candidates.id -join ','))
+      $moverArgs += if ($DryRun) { '-DryRun' } else { '-Quiet' }
+      & pwsh @moverArgs
+      $moverExit = $LASTEXITCODE
     }
-    Write-Host "[LSN-ARCHIVE] candidates=$candidateText"
-    if (-not $candidates.Count) { break }
-    $archiveScript = Join-Path $PSScriptRoot 'archive.ps1'
-    & pwsh -NoProfile -File $archiveScript -RepoRoot $RepoRoot -LessonsOnly -LessonIds ($candidates.id -join ',') -Quiet
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($unparsable.Count) { exit 1 }
+    if ($moverExit -ne 0) { exit $moverExit }
   }
 }

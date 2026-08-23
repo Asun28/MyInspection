@@ -76,9 +76,11 @@
        15j/15k：ship 卡片重解析须与 check-cards 同契约且 ship 重跑 check-cards（TD45）——start 后主仓卡片被编辑
        （或 -Phase ship 未 fresh start 续跑）时，front-matter 缺 dod_command 但正文含 `dod_command:` 文档示例行（15j）、
        或 front-matter 键误大小写 DOD_COMMAND（15k）均须 ship block、且该行/该值绝不被执行（marker 文件不得生成）。
-   16. L-id 引用完整性：根入口文档 CLAUDE.md / TEMPLATE-README.md 与 .claude\skills / docs 里的 L<n> 经验引用须存在于 LEDGER（治本 L29）。从 LEDGER 机数
-       已定义 id，扫这些文件的 L<n> 引用——排除 path:Lnn 行号 / Lnn-mm 行段等代码引用形态。存在性可机检，
-       内容是否对得上仍靠人工。交叉链接闸（11）只管文件路径，管不到 LEDGER 的 L<n> 指针，故单列一闸。
+   16. L-id 引用完整性：根入口文档 CLAUDE.md / TEMPLATE-README.md 与 .claude\skills / docs 里的 L<n> 经验引用须存在于
+       **热账本 docs\lessons\LEDGER.md 与冷库 specs\archive\lessons-archive.md 的并集**（治本 L29；归档过的经验仍是
+       已定义 id，不该因搬进冷库而被判悬空）。从这两处机数已定义 id，扫上述文件的 L<n> 引用——排除 path:Lnn 行号 /
+       Lnn-mm 行段等代码引用形态。存在性可机检，内容是否对得上仍靠人工。交叉链接闸（11）只管文件路径，
+       管不到经验库的 L<n> 指针，故单列一闸。16a 用「id 只存在于冷库」的夹具直测这条并集接线本身（非只测 helper）。
    17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂**已知坏输入**，断言它确实 BLOCK——把「严格/fail-closed/
        难绕过」从断言升级为可机检回归。17a check-secrets 抓 snake_case 硬编码密钥；17a3 对 SQLDelight schema
        baseline 精确放行，并拒相邻/改名数据库与非法清单；17b review.ps1 对「no-op 评审者 +
@@ -147,6 +149,42 @@ function Get-LessonDefinitionIdSet([string]$LedgerPath, [string]$ArchivePath) {
     }
   }
   return $defined
+}
+
+# 「文本里引用了某条经验」的判定式（闸 16 与闸 2d 共用）：前不接 ASCII 字母/数字/冒号（排除 path:L88 行号），
+# 后不接 -<digit>（排除 L52-71 行段）。仓里的引用绝大多数是裸写，只认 `[Lnn]` 会漏掉一大半。lessons.ps1 的
+# $LessonRefRegex 是同一语义的另一实现，闸 2d(a2) 断言两边从同一份 CLAUDE.md 推出同一 id 集合。
+function Get-LessonReferenceIdSet([string]$Text) {
+  $ids = @{}
+  foreach ($match in [regex]::Matches($Text, '(?<![A-Za-z0-9:])L(\d+)\b(?!-\d)')) {
+    $ids["L$($match.Groups[1].Value)"] = $true
+  }
+  return $ids
+}
+
+# 闸 16 的**本体**（不是它的辅助）：给一个仓根，返回悬空引用清单 + 已定义 id 数 + 扫描文件数。提成函数是为了让
+# 「热∪冷并集这条接线」本身可被夹具直测——只直测 Get-LessonDefinitionIdSet 证明的是「helper 会合并两个路径」，
+# 证明不了闸 16 真把冷库路径传了进去（删掉 -ArchivePath，直测仍绿；而真实仓里 lessons-archive.md 今天还不存在，
+# 并集恰等于热账本 ⇒ 闸 16 也绿。洞要等首次归档、热账本一次少掉上百条之后才张开）。
+function Get-DanglingLessonReferences([string]$Root) {
+  $ledgerPath = Join-Path $Root 'docs/lessons/LEDGER.md'
+  $defined = Get-LessonDefinitionIdSet -LedgerPath $ledgerPath -ArchivePath (Join-Path $Root 'specs/archive/lessons-archive.md')
+  # 扫描范围：根入口文档 CLAUDE.md + CLAUDE.template.md（下游 CLAUDE.md 的来源，其 L 引用也须不悬空）+
+  # TEMPLATE-README.md + .claude/skills/**/*.md + docs/**/*.md，排除 LEDGER 自身（id 的定义处）。
+  $scanFiles = @(
+    @(Get-Item -Path (Join-Path $Root 'CLAUDE.md') -ErrorAction SilentlyContinue) +
+    @(Get-Item -Path (Join-Path $Root 'CLAUDE.template.md') -ErrorAction SilentlyContinue) +
+    @(Get-Item -Path (Join-Path $Root 'TEMPLATE-README.md') -ErrorAction SilentlyContinue) +
+    @(Get-ChildItem -Path (Join-Path $Root '.claude/skills') -Filter *.md -Recurse -ErrorAction SilentlyContinue) +
+    @(Get-ChildItem -Path (Join-Path $Root 'docs') -Filter *.md -Recurse -ErrorAction SilentlyContinue)
+  ) | Where-Object { $_.FullName -ne $ledgerPath }
+  $dangling = @()
+  foreach ($sf in $scanFiles) {
+    foreach ($id in (Get-LessonReferenceIdSet (Get-Content $sf.FullName -Raw)).Keys) {
+      if (-not $defined.ContainsKey($id)) { $dangling += ("{0} → {1}" -f $sf.FullName.Substring($Root.Length + 1), $id) }
+    }
+  }
+  return [pscustomobject]@{ Dangling = @($dangling); DefinedCount = $defined.Count; ScanCount = @($scanFiles).Count }
 }
 
 function Remove-Td4MigrationFixtureWorktree {
@@ -1679,12 +1717,20 @@ try {
   $l2cLessons = Join-Path $l2cRepo 'scripts/lessons.ps1'
   $l2cLedger = Join-Path $l2cRepo 'docs/lessons/LEDGER.md'
   New-Item -ItemType Directory -Force (Split-Path $l2cLedger) | Out-Null
+  # L2 的 meta 行破折号后是**两个空格**——合法（Get-LessonMeta 认 `^-\s+date:`），但它把「读 meta 行的锚定形态」
+  # 与「写 meta 行的锚定形态」是否同源变成可观测：若把 bump 的 Replace 锚定收窄成 `^(- date:`（恰一个空格），
+  # 替换将一处也匹配不上、块字节原样写回，旧码会照样打印绿字并 exit 0。此夹具令那条路径必须现形。
   $l2cEntry = @(
     '# 经验总账（TD51 fixture）', '',
     '## L1',
     '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
     '- symptom: seed，body 里引用示例文本 recurrence: 7（不应被 bump 覆盖）',
-    '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
+    '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:',
+    '',
+    '## L2',
+    '-  date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 5',
+    '- symptom: META_LINE_WITH_TWO_SPACES', '- root_cause: seed', '- rule: seed rule two',
+    '- enforced_by: none（seed）', '- refs:'
   ) -join "`n"
   Set-Content $l2cLedger $l2cEntry -Encoding utf8
   $b2cOut = (& pwsh -NoProfile -File $l2cLessons bump L1 2>&1 | Out-String)
@@ -1696,13 +1742,26 @@ try {
   if ($b2cExit -ne 0) { Fail "闸2c：bump 对合法 fixture 非零退出（$b2cExit）——不应发生。输出=$(($b2cOut -replace '\s+',' ').Trim())" }
   elseif (-not $metaOk) { Fail "闸2c：bump 后 meta 行 recurrence 未变为 4（计数未正确递增）。after=$afterTail" }
   elseif (-not $bodyIntact) { Fail "闸2c：bump 用错 [regex]::Replace 重载、把 body 里的示例 `recurrence: 7` 也覆盖了（TD51：4 参数 int 被隐式转成 RegexOptions.IgnoreCase 做全量替换，应只动 meta 计数器一处）。after=$afterTail" }
-  else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真（TD51）OK' -ForegroundColor Green }
+  else {
+    # 读侧与写侧的 meta 行锚定形态必须同源：L2 的 meta 行破折号后两个空格，读侧照收，写侧若收窄成恰一个空格
+    # 就会「一处也没改却报成功」。断言退出 0 + 计数器真的到 6 + 文件字节真的变了，三者缺一都能让那条路径隐身。
+    $hash2cBefore = (Get-FileHash $l2cLedger -Algorithm SHA256).Hash
+    $b2cOut2 = (& pwsh -NoProfile -File $l2cLessons bump L2 2>&1 | Out-String)
+    $b2cExit2 = $LASTEXITCODE
+    $after2 = Get-Content $l2cLedger -Raw
+    if ($b2cExit2 -ne 0) { Fail "闸2c(b)：bump 对「破折号后两个空格」的合法 meta 行非零退出（$b2cExit2）——写侧锚定比读侧窄。output=[$b2cOut2]" }
+    elseif ($after2 -notmatch '(?m)^-\s+date:.*?recurrence:\s*6\b') { Fail "闸2c(b)：bump L2 后 meta 行 recurrence 未变为 6。after=$(($after2 -replace '\s+',' ').Trim())" }
+    elseif ((Get-FileHash $l2cLedger -Algorithm SHA256).Hash -eq $hash2cBefore) { Fail '闸2c(b)：bump 报告成功却一个字节都没写（假绿写入——正是「读到了正文里的数字、锚定的写却打空」那条路径）。' }
+    else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真、读写锚定同源（TD51）OK' -ForegroundColor Green }
+  }
 } finally {
   Remove-Item -Recurse -Force $l2cRepo -ErrorAction SilentlyContinue
 }
 
 # 2d. T0-LESSONS-COLD-RECALL：选择器只把一次性 ledger 经验交给既有 archive.ps1；冷项仍可召回，
 #     check 以热/冷 ID 并集判引用，bump/promote 对冷项只给移回热区指引。全程真跑生产 CLI，不复制搬运逻辑。
+#     排除面逐条可杀：复发≥2 / tier=ondemand / tier=must / 当前最大 id / 被常驻 CLAUDE 文件引用（**三种形态**：
+#     方括号 [L5]、裸写 L6、范围端点 L7–L8、模板侧裸写 L11）各配一条夹具，候选集按逐字相等断言。
 $l2dRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
 if (Test-Path $l2dRepo) { Remove-Item -Recurse -Force $l2dRepo }
 New-Item -ItemType Directory -Force $l2dRepo | Out-Null
@@ -1722,7 +1781,7 @@ try {
     @(
       "## $Id",
       "- date: 2026-08-21 ｜ tags: fixture ｜ tier: $Tier ｜ kind: pitfall ｜ severity: minor ｜ recurrence: $Recurrence",
-      "- symptom: $Token", '- root_cause: fixture', "- rule: rule-$Token", '- enforced_by: none（fixture）', '- refs:'
+      "- symptom: $Token", "- rule: rule-$Token"
     ) -join "`n"
   }
   $l2dLedgerText = @(
@@ -1731,28 +1790,52 @@ try {
     (& $entry2d L2 ledger 2 'RECURRENT_EXCLUDED'),
     (& $entry2d L3 ondemand 1 'ONDEMAND_EXCLUDED'),
     (& $entry2d L4 must 1 'MUST_EXCLUDED'),
-    (& $entry2d L5 ledger 1 'CLAUDE_REF_EXCLUDED'),
-    (& $entry2d L6 ledger 1 'TEMPLATE_REF_EXCLUDED'),
-    (& $entry2d L7 ledger 1 'MAX_ID_EXCLUDED')
+    (& $entry2d L5 ledger 1 'CLAUDE_BRACKET_REF_EXCLUDED'),
+    (& $entry2d L6 ledger 1 'CLAUDE_BARE_REF_EXCLUDED'),
+    (& $entry2d L7 ledger 1 'CLAUDE_RANGE_LEFT_EXCLUDED'),
+    (& $entry2d L8 ledger 1 'CLAUDE_RANGE_RIGHT_EXCLUDED'),
+    (& $entry2d L11 ledger 1 'TEMPLATE_BARE_REF_EXCLUDED'),
+    (& $entry2d L12 ledger 1 'MAX_ID_EXCLUDED')
   ) -join "`n`n"
   Set-Content $l2dLedger $l2dLedgerText -Encoding utf8
-  Set-Content (Join-Path $l2dRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n[L5] 常驻引用" -Encoding utf8
-  Set-Content (Join-Path $l2dRepo 'CLAUDE.template.md') "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n[L6] 模板引用" -Encoding utf8
+  # 常驻引用的**三种真实形态**都要在夹具里（F1 的病根正是实现只认第一种，而本仓 CLAUDE.md 绝大多数是第二种）：
+  #   ① 方括号 [L5]  ② 裸写「按 L6 之理」  ③ 范围简写 L7–L8。EN DASH 按 L193 用码位拼出、不直接敲——它与
+  # ASCII 连字符肉眼几乎一样，而在引用正则里行为相反（`L52-71` 是行段须排除，`L7–L8` 两端点须保护）。
+  # 范围简写不保护中间 id，该限制写在 docs/LESSONS.md §3，不靠这里的沉默表达。
+  $enDash2d = [string][char]0x2013
+  $tier1Head2d = "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n"
+  # `${名}` 包裹不是洁癖：CJK 在 PowerShell 里是合法变量名字符，`"$tier1Head2d模板侧…"` 会被当成一个变量名。
+  Set-Content (Join-Path $l2dRepo 'CLAUDE.md') "${tier1Head2d}[L5] 方括号引用`n按 L6 之理（裸引用，本仓最常见）`n范围简写 L7${enDash2d}L8（两端点均须受保护）" -Encoding utf8
+  Set-Content (Join-Path $l2dRepo 'CLAUDE.template.md') "${tier1Head2d}模板侧裸引用 L11" -Encoding utf8
 
+  # Fail 只置位不中断，故绿字必须挂在**本闸自己的**失败位上（沿用 2e 的 $e2Fail 形态）：否则 (a)–(e) 全红、
+  # (f) 恰好绿时，最后一句 if/else 的 else 分支照样打印「2d … OK」。
+  $d2Fail = $false
   $ledgerHash2d = (Get-FileHash $l2dLedger -Algorithm SHA256).Hash
   $trackerHash2d = (Get-FileHash $l2dTracker -Algorithm SHA256).Hash
   $cardHash2d = (Get-FileHash $l2dCard -Algorithm SHA256).Hash
   $dry2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo -DryRun 2>&1 | Out-String)
   $dryExit2d = $LASTEXITCODE
-  if ($dryExit2d -ne 0 -or $dry2d -notmatch '\[LSN-ARCHIVE-DRYRUN\]' -or $dry2d -notmatch '\bL1\b') {
-    Fail "闸2d(a)：archive -DryRun 未成功报告唯一候选 L1。exit=$dryExit2d output=[$dry2d]"
-  }
-  foreach ($excluded2d in @('L2','L3','L4','L5','L6','L7')) {
-    if ($dry2d -match "(?m)^.*\[LSN-ARCHIVE-DRYRUN\].*\b$excluded2d\b") { Fail "闸2d(a)：archive -DryRun 错选排除项 $excluded2d。" }
-  }
+  # 候选集**逐字相等**，不是「整份 stdout 里出现过 L1」：后者被任何一行无关告警满足，而这里判的是「哪些条目
+  # 会被移出热账本」——数据搬运面上，宽于契约的断言等于没有断言（L165）。逐字相等同时钉住 L2–L12 全部落选。
+  $cand2d = ([regex]::Match($dry2d, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
+  if ($dryExit2d -ne 0) { Fail "闸2d(a)：archive -DryRun 对合法夹具非零退出（$dryExit2d）。output=[$dry2d]"; $d2Fail = $true }
+  elseif ($cand2d -ne 'L1') { Fail "闸2d(a)：候选集应恰为 L1，实得『$cand2d』——tier/复发/最大 id/常驻引用四类排除面之一失效。output=[$dry2d]"; $d2Fail = $true }
   if ((Get-FileHash $l2dLedger -Algorithm SHA256).Hash -ne $ledgerHash2d -or (Test-Path $l2dArchive) -or
       (Get-FileHash $l2dTracker -Algorithm SHA256).Hash -ne $trackerHash2d -or (Get-FileHash $l2dCard -Algorithm SHA256).Hash -ne $cardHash2d) {
-    Fail '闸2d(a)：archive -DryRun 写了 lesson 或旁域 tracker/card（预览必须零写入）。'
+    Fail '闸2d(a)：archive -DryRun 写了 lesson 或旁域 tracker/card（预览必须零写入）。'; $d2Fail = $true
+  }
+
+  # (a2) F1 单一真相源：闸 16 的引用判定式与选择器的排除面须从**同一份** CLAUDE 文件推出**同一个** id 集合。
+  #   比较范围收敛到「只可能因被引用而落选」的那组（tier=ledger、recurrence=1、非最大 id），把另三类排除面
+  #   从等式里剔干净。任一处改窄（如选择器退回只认 `[Lnn]`）→ 裸引用与范围端点掉进候选集 → 两集合分歧 → 红。
+  $refEligible2d = @('L1','L5','L6','L7','L8','L11')
+  $residentText2d = (Get-Content (Join-Path $l2dRepo 'CLAUDE.md') -Raw) + "`n" + (Get-Content (Join-Path $l2dRepo 'CLAUDE.template.md') -Raw)
+  $gate16Refs2d = Get-LessonReferenceIdSet $residentText2d
+  $gate16Set2d = (@($refEligible2d | Where-Object { $gate16Refs2d.ContainsKey($_) }) -join ',')
+  $selectorSet2d = (@($refEligible2d | Where-Object { @($cand2d -split ',') -notcontains $_ }) -join ',')
+  if ($gate16Set2d -ne $selectorSet2d) {
+    Fail "闸2d(a2)：常驻引用判定出现第二套权威——闸16 判定被引用=[$gate16Set2d]，lessons.ps1 选择器判定被引用=[$selectorSet2d]。两者须逐条相等（本仓引用多为裸写，只认 [Lnn] 会把常驻文件正在引用的条目搬进冷库）。"; $d2Fail = $true
   }
 
   $run2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo 2>&1 | Out-String)
@@ -1760,27 +1843,27 @@ try {
   $ledgerAfter2d = Get-Content $l2dLedger -Raw
   $archiveAfter2d = if (Test-Path $l2dArchive) { Get-Content $l2dArchive -Raw } else { '' }
   if ($runExit2d -ne 0 -or $ledgerAfter2d -match '(?m)^##\s+L1\b' -or $archiveAfter2d -notmatch '(?m)^##\s+L1\b') {
-    Fail "闸2d(b)：实际 archive 未经既有搬运器把 L1 从热账本移入冷库。exit=$runExit2d output=[$run2d]"
+    Fail "闸2d(b)：实际 archive 未经既有搬运器把 L1 从热账本移入冷库。exit=$runExit2d output=[$run2d]"; $d2Fail = $true
   }
-  foreach ($kept2d in 2..7) {
-    if ($ledgerAfter2d -notmatch "(?m)^##\s+L$kept2d\b") { Fail "闸2d(b)：排除项 L$kept2d 被误搬。" }
+  foreach ($kept2d in @('L2','L3','L4','L5','L6','L7','L8','L11','L12')) {
+    if ($ledgerAfter2d -notmatch "(?m)^##\s+$kept2d\b") { Fail "闸2d(b)：排除项 $kept2d 被误搬（实跑后已不在 LEDGER）。"; $d2Fail = $true }
   }
   if ((Get-FileHash $l2dTracker -Algorithm SHA256).Hash -ne $trackerHash2d -or
       (Get-FileHash $l2dCard -Algorithm SHA256).Hash -ne $cardHash2d -or
       (Test-Path (Join-Path $l2dRepo 'specs/archive/tasks/T-FIXTURE-MERGED.md'))) {
-    Fail '闸2d(b)：lesson 实际归档越界改写了 tracker/card；必须使用 archive.ps1 的 lesson-only 模式。'
+    Fail '闸2d(b)：lesson 实际归档越界改写了 tracker/card；必须使用 archive.ps1 的 lesson-only 模式。'; $d2Fail = $true
   }
 
   $search2d = (& pwsh -NoProfile -File $l2dLessons search COLD_RECALL_ONLY -RepoRoot $l2dRepo 2>&1 | Out-String)
-  if ($LASTEXITCODE -ne 0 -or $search2d -notmatch '\[archived\].*L1') { Fail "闸2d(c)：冷项 search 未以 [archived] 标记召回 L1。output=[$search2d]" }
+  if ($LASTEXITCODE -ne 0 -or $search2d -notmatch '\[archived\].*L1') { Fail "闸2d(c)：冷项 search 未以 [archived] 标记召回 L1。output=[$search2d]"; $d2Fail = $true }
   Add-Content (Join-Path $l2dRepo 'CLAUDE.md') "`n归档后新增引用 [L1]" -Encoding utf8
   $check2d = (& pwsh -NoProfile -File $l2dLessons check -RepoRoot $l2dRepo 2>&1 | Out-String)
-  if ($LASTEXITCODE -ne 0 -or $check2d -notmatch 'check: PASS') { Fail "闸2d(d)：check 未以热/冷 ID 并集接受 CLAUDE 对已归档 L1 的定义。output=[$check2d]" }
+  if ($LASTEXITCODE -ne 0 -or $check2d -notmatch 'check: PASS') { Fail "闸2d(d)：check 未以热/冷 ID 并集接受 CLAUDE 对已归档 L1 的定义。output=[$check2d]"; $d2Fail = $true }
 
   foreach ($writeCommand2d in @('bump','promote')) {
     $write2d = (& pwsh -NoProfile -File $l2dLessons $writeCommand2d L1 -RepoRoot $l2dRepo 2>&1 | Out-String)
     if ($LASTEXITCODE -eq 0 -or $write2d -notmatch '\[LSN-ARCHIVED-READONLY\]' -or $write2d -notmatch '移回.*docs/lessons/LEDGER\.md') {
-      Fail "闸2d(e)：$writeCommand2d 冷项 L1 未 fail-closed 并给移回热区修法。output=[$write2d]"
+      Fail "闸2d(e)：$writeCommand2d 冷项 L1 未 fail-closed 并给移回热区修法。output=[$write2d]"; $d2Fail = $true
     }
   }
 
@@ -1789,18 +1872,20 @@ try {
   $rerun2d = (& pwsh -NoProfile -File $l2dLessons archive -RepoRoot $l2dRepo 2>&1 | Out-String)
   if ($LASTEXITCODE -ne 0 -or (Get-FileHash $l2dLedger -Algorithm SHA256).Hash -ne $ledgerStableHash2d -or
       (Get-FileHash $l2dArchive -Algorithm SHA256).Hash -ne $archiveHash2d) {
-    Fail "闸2d(f)：无新候选时 archive 重跑不幂等。output=[$rerun2d]"
-  } else {
-    Write-Host '  2d lessons 选择性冷存/零写预览/热冷召回/ID 并集/冷项只读/幂等 OK' -ForegroundColor Green
+    Fail "闸2d(f)：无新候选时 archive 重跑不幂等。output=[$rerun2d]"; $d2Fail = $true
+  }
+  if (-not $d2Fail) {
+    Write-Host '  2d lessons 选择性冷存/零写预览/三形态引用排除/热冷召回/ID 并集/冷项只读/幂等 OK' -ForegroundColor Green
   }
 } finally {
   Remove-Item -Recurse -Force $l2dRepo -ErrorAction SilentlyContinue
 }
 
-# 2e. T0-LESSONS-COLD-RECALL（R3 收口）：archive 是**搬运数据**的动作，它的选择器只许信唯一、锚定、完整的
-#     规范 meta 行。不锚定地在整块里捞 `tier:` / `recurrence:`，等于让任意一句正文叙述决定某条经验会不会
-#     被移出热账本——meta 行缺字段时，第一个匹配就落到正文诱饵上。此闸用敌意夹具钉死：诱饵/重复/非法一律
-#     [LSN-META-INVALID] 留在热区，合法条目行为不变。把 Get-LessonMeta 换回不锚定正则，(a) 立刻变红。
+# 2e. T0-LESSONS-COLD-RECALL（R3 收口）：规范 meta 行是元数据的**唯一出生点**——为什么必须如此，见
+#     scripts/lessons.ps1 中 Get-LessonMeta 的头注（单一处论述，此处不复述）。本闸只负责把它钉死：
+#     用一条夹具一个病灶的敌意账本，断言读侧（archive 选择器 / check / list / search）与写侧（bump / promote）
+#     一律 [LSN-META-INVALID] 留热区、零写入、非零退出，而合法条目行为不变。
+#     把 Get-LessonMeta 换回不锚定正则、或去掉任一枚值校验，都有对应的一条夹具让它变红。
 $l2eRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2e-$PID"
 if (Test-Path $l2eRepo) { Remove-Item -Recurse -Force $l2eRepo }
 New-Item -ItemType Directory -Force $l2eRepo | Out-Null
@@ -1811,46 +1896,55 @@ try {
   New-Item -ItemType Directory -Force (Split-Path $l2eLedger), (Join-Path $l2eRepo 'specs/archive') | Out-Null
   Set-Content (Join-Path $l2eRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n`n## refs`n" -Encoding utf8
 
-  # L1 合法且一次性 => 唯一合法候选（对照组：新校验不得误伤正常条目）。
-  # L2 lesson-meta-body-bait：meta 行**故意不含** tier / recurrence，正文却写着 `tier: ledger` 与 `recurrence: 1`。
-  #    不锚定的实现会从正文补齐这两个字段，于是 L2 被当成一次性 ledger 经验搬走。
-  # L3 两条 meta 行；L4 tier 取非法值。三者都必须留在热区。
-  # L9 合法但为最大 id（既有排除规则），确保候选集只可能是 L1。
+  # 一条夹具一个病灶——每道守卫都要有一枚**只**打它的夹具，共用一条会让两道守卫互相打掩护（L165）。
+  # 每条只在合法基线 meta 行上改一处，正文形状不变，于是「哪里不合法」在下面一眼可见。
+  # L20 值得单说：它的 meta 行**整个没有** recurrence 字段（不是值写错）。这才是 bump 假绿写入的确切触发形状——
+  # meta 行通常是块内第二行，不锚定的 `recurrence:\s*(\d+)` 会先命中它，只有该字段根本不在时才掉到正文诱饵上，
+  # 于是读出 7、算出 8、锚定的写一处也匹配不到、原样写回，却打印绿字「7 → 8」、exit 0、还建议 promote 进必须层。
+  # **闸 2c 抓不到它**（2c 的夹具 meta 行有该字段，读永远落在 meta 行上），故必须在此单列。
+  $ok2e = '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1'
+  $entry2e = {
+    param([string]$Heading, [string]$Meta, [string]$Token, [string]$Bait = '')
+    @("## $Heading", $Meta, "- symptom: $Token", "- rule: rule-$Token$Bait") -join "`n"
+  }
   $l2eLedgerText = @(
-    '# fixture ledger',
-    '',
-    '## L1',
-    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
-    '- symptom: LEGIT_COLD_CANDIDATE', '- root_cause: fixture', '- rule: rule-legit', '- enforced_by: none（fixture）',
-    '',
-    '## L2',
-    '- date: 2026-08-21 ｜ tags: fixture ｜ kind: pitfall ｜ severity: minor',
-    '- symptom: lesson-meta-body-bait，正文声称 tier: ledger 且 recurrence: 1，但规范 meta 行根本没有这两个字段',
-    '- root_cause: fixture', '- rule: rule-bait recurrence: 1', '- enforced_by: none（fixture）',
-    '',
-    '## L3',
-    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1',
-    '- date: 2026-08-22 ｜ tags: fixture ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1',
-    '- symptom: DUPLICATE_META_LINE', '- root_cause: fixture', '- rule: rule-dup', '- enforced_by: none（fixture）',
-    '',
-    '## L4',
-    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: bogus ｜ severity: minor ｜ recurrence: 1',
-    '- symptom: INVALID_TIER_VALUE', '- root_cause: fixture', '- rule: rule-bogus', '- enforced_by: none（fixture）',
-    '',
-    '## L9',
-    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
-    '- symptom: MAX_ID_EXCLUDED', '- root_cause: fixture', '- rule: rule-max', '- enforced_by: none（fixture）'
-  ) -join "`n"
+    '# fixture ledger', '',
+    (& $entry2e 'L1'  $ok2e 'LEGIT_COLD_CANDIDATE'),
+    (& $entry2e 'L2'  ($ok2e -replace ' ｜ tier: ledger','') 'BAIT_TIER_ONLY' '，正文诱饵 tier: ledger'),
+    (& $entry2e 'L20' ($ok2e -replace ' ｜ recurrence: 1','') 'BAIT_RECURRENCE_ONLY' '，正文诱饵 recurrence: 7'),
+    (& $entry2e 'L3'  ($ok2e + "`n" + $ok2e) 'DUPLICATE_META_LINE'),
+    (& $entry2e 'L4'  ($ok2e -replace 'tier: ledger','tier: bogus') 'INVALID_TIER_VALUE'),
+    (& $entry2e 'L5'  '- note: 本块无规范 meta 行' 'NO_META_LINE_AT_ALL'),
+    (& $entry2e 'L6'  ('  ' + $ok2e) 'INDENTED_META_LINE'),
+    (& $entry2e 'L7'  ($ok2e -replace 'tier: ledger','tier: ledger ｜ tier: must') 'DUPLICATE_FIELD_NAME'),
+    (& $entry2e 'L8'  ($ok2e -replace 'date: 2026-08-21','date: 2026-8-1') 'NON_ISO_DATE'),
+    (& $entry2e 'L10' ($ok2e -replace 'severity: minor','severity: fatal') 'INVALID_SEVERITY'),
+    (& $entry2e 'L13' ($ok2e -replace 'kind: pitfall','kind: bogus') 'INVALID_KIND'),
+    (& $entry2e 'L14' ($ok2e -replace 'recurrence: 1','recurrence: many') 'NON_NUMERIC_RECURRENCE'),
+    (& $entry2e 'L15' ($ok2e -replace 'recurrence: 1','recurrence: 99999999999999999999') 'RECURRENCE_OVERFLOWS_INT32'),
+    (& $entry2e 'L16' ($ok2e -replace ' ｜ tags: fixture','') 'MISSING_TAGS_FIELD'),
+    (& $entry2e 'L99999999999999999999' $ok2e 'ID_OVERFLOWS_INT32'),
+    (& $entry2e 'L30' $ok2e 'MAX_ID_EXCLUDED')
+  ) -join "`n`n"
   Set-Content $l2eLedger $l2eLedgerText -Encoding utf8
+  $hostile2eIds = @('L2', 'L20', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L13', 'L14', 'L15', 'L16', 'L99999999999999999999')
 
   $dry2e = (& pwsh -NoProfile -File $l2eLessons archive -RepoRoot $l2eRepo -DryRun 2>&1 | Out-String)
   $dryExit2e = $LASTEXITCODE
   $cand2e = ([regex]::Match($dry2e, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
   $e2Fail = $false
-  if ($dryExit2e -ne 0) { Fail "闸2e(a)：archive -DryRun 对敌意夹具非零退出（$dryExit2e）——预览应报告候选而非崩溃。output=[$dry2e]"; $e2Fail = $true }
-  elseif ($cand2e -ne 'L1') { Fail "闸2e(a)：候选集应恰为 L1，实得 '$cand2e'——正文诱饵/重复 meta/非法 tier 有条目被当成合法元数据（不锚定解析）。output=[$dry2e]"; $e2Fail = $true }
-  foreach ($hostile2e in @('L2', 'L3', 'L4')) {
+  # 有不可解析条目时预览必须**非零**退出：同一份账本不能 check 报 1 而 archive 报 0，那正是 archive.ps1 自己
+  # 早已否掉的 fail-open（闸 12e⑥）。告警文本不算诊断——`-Quiet`、折叠的 CI 日志、按退出码判断的调用方都看不见。
+  if ($dryExit2e -eq 0) { Fail "闸2e(a)：夹具含不可解析条目，archive -DryRun 却退出 0——预览把「无效」伪装成绿。output=[$dry2e]"; $e2Fail = $true }
+  if ($cand2e -ne 'L1') { Fail "闸2e(a)：候选集应恰为 L1，实得『$cand2e』——有条目的正文诱饵/非法值被当成了合法元数据，或合法条目被误伤。output=[$dry2e]"; $e2Fail = $true }
+  foreach ($hostile2e in $hostile2eIds) {
     if ($dry2e -notmatch "\[LSN-META-INVALID\][^`n]*\b$hostile2e\b") { Fail "闸2e(b)：$hostile2e 的非法 meta 未被点名报告 [LSN-META-INVALID]——静默留热区等于没有诊断。output=[$dry2e]"; $e2Fail = $true }
+  }
+  # (b2) 「字段缺失」须报成缺失、而非降级成「值非法」。StrictMode 下缺失键取值为 $null，下游枚举/正则校验照样
+  #   判非法，于是必填字段表的每一项都能被删掉而整批仍绿（本卡变异实测：删 'tier' 后闸 2 全绿）。断言 ASCII
+  #   哨兵 missing-field=<名>，本表才真有人在测；不断言中文正文——本地化文案一变即假红/假绿（L165）。
+  foreach ($missing2e in @('tier', 'recurrence', 'tags')) {
+    if ($dry2e -notmatch "missing-field=$missing2e") { Fail "闸2e(b2)：缺 $missing2e 字段的条目未报 missing-field=$missing2e，而是被降级成「值非法」——必填字段表遂无一项可被变异杀死。output=[$dry2e]"; $e2Fail = $true }
   }
 
   $check2e = (& pwsh -NoProfile -File $l2eLessons check -RepoRoot $l2eRepo 2>&1 | Out-String)
@@ -1859,18 +1953,146 @@ try {
     Fail "闸2e(c)：check 对缺字段/重复/非法 meta 未 fail-closed（exit=$checkExit2e）——校验器放行的形状，选择器迟早会当真。output=[$check2e]"; $e2Fail = $true
   }
 
+  # (c2) 一条坏条目不得废掉整个 CLI：recurrence / id 越 Int32 时 `[int]` 在 $ErrorActionPreference='Stop' 下是终止性
+  #   异常，会让 list/search/check 一起抛裸 .NET 消息——连「遇到问题先 search」这个召回入口都没了。越界须与其它
+  #   非法值走同一条 [LSN-META-INVALID] 路。判据用 ASCII 哨兵 + 退出码，不认本地化异常文案。
+  $list2e = (& pwsh -NoProfile -File $l2eLessons list -RepoRoot $l2eRepo 2>&1 | Out-String); $listExit2e = $LASTEXITCODE
+  $srch2e = (& pwsh -NoProfile -File $l2eLessons search RECURRENCE_OVERFLOWS_INT32 -RepoRoot $l2eRepo 2>&1 | Out-String); $srchExit2e = $LASTEXITCODE
+  if ($listExit2e -ne 0 -or $srchExit2e -ne 0) { Fail "闸2e(c2)：list/search 因越界条目非零退出（$listExit2e/$srchExit2e）——一条坏 meta 不该废掉只读召回面。output=[$list2e$srch2e]"; $e2Fail = $true }
+  elseif ("$list2e$srch2e" -match 'Cannot convert|OverflowException') { Fail "闸2e(c2)：list/search 抛出了裸 .NET 转换异常（越界未走 [LSN-META-INVALID]）。output=[$list2e$srch2e]"; $e2Fail = $true }
+  elseif ($list2e -notmatch 'L15[^`n]*\[LSN-META-INVALID\]') { Fail "闸2e(c2)：list 未把不可解析条目标成 [LSN-META-INVALID]，而是渲染了猜出来的默认值（空 tier / rec=0 会被当事实读）。output=[$list2e]"; $e2Fail = $true }
+
+  # (e) 写侧：bump 只信规范 meta 行。三个靶各打一处：L20 = 假绿写入（旧码读正文的 7、印「7 → 8」、exit 0、零写入）；
+  #   L3 = 一次改两行；L15 = 唯一能证明 **Get-LessonMeta 那道闸本身**在起作用的靶——L20/L3 即使摘掉它也会被
+  #   「块字节一个都没变」兜住，而 L15 的计数器是合法数字串，摘掉闸后 bump 会把 20 位计数器静默改写成 1 并 exit 0。
+  #   三者都要求：非零退出 + 点名 [LSN-META-INVALID] + LEDGER 字节不变。
+  foreach ($bumpTarget2e in @('L20', 'L3', 'L15')) {
+    $hashBefore2e = (Get-FileHash $l2eLedger -Algorithm SHA256).Hash
+    $bumpOut2e = (& pwsh -NoProfile -File $l2eLessons bump $bumpTarget2e -RepoRoot $l2eRepo 2>&1 | Out-String)
+    $bumpExit2e = $LASTEXITCODE
+    $hashAfter2e = (Get-FileHash $l2eLedger -Algorithm SHA256).Hash
+    if ($bumpExit2e -eq 0) { Fail "闸2e(e)：bump $bumpTarget2e 的 meta 行不合法却退出 0——写路径把「读不出元数据」当成了「元数据说可以写」。output=[$bumpOut2e]"; $e2Fail = $true }
+    if ($bumpOut2e -notmatch '\[LSN-META-INVALID\]') { Fail "闸2e(e)：bump $bumpTarget2e 拒绝时未给 [LSN-META-INVALID] 哨兵。output=[$bumpOut2e]"; $e2Fail = $true }
+    if ($hashAfter2e -ne $hashBefore2e) { Fail "闸2e(e)：bump $bumpTarget2e 被拒却改动了 LEDGER 字节（应零写入）。"; $e2Fail = $true }
+  }
+  # promote 是决策面：同样不得对不可解析条目渲染默认值并给出「暂不够必须层」这种结论。
+  $promote2e = (& pwsh -NoProfile -File $l2eLessons promote L20 -RepoRoot $l2eRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0 -or $promote2e -notmatch '\[LSN-META-INVALID\]') {
+    Fail "闸2e(e)：promote 对不可解析条目未 fail-closed，而是拿空 tier / rec=0 当事实给了晋升结论。output=[$promote2e]"; $e2Fail = $true
+  }
+
   $ledgerHash2e = (Get-FileHash $l2eLedger -Algorithm SHA256).Hash
   $run2e = (& pwsh -NoProfile -File $l2eLessons archive -RepoRoot $l2eRepo 2>&1 | Out-String)
+  $runExit2e = $LASTEXITCODE
   $ledgerAfter2e = Get-Content $l2eLedger -Raw
-  foreach ($stayHot2e in @('L2', 'L3', 'L4')) {
+  if ($runExit2e -eq 0) { Fail "闸2e(d)：夹具含不可解析条目，archive 实跑却退出 0——预览与实跑须同口径 fail-closed。output=[$run2e]"; $e2Fail = $true }
+  foreach ($stayHot2e in $hostile2eIds) {
     if ($ledgerAfter2e -notmatch "(?m)^##\s+$stayHot2e\b") { Fail "闸2e(d)：$stayHot2e 元数据不可解析却被真的搬出热账本——fail-closed 应是「留下」，不是「搬走」。output=[$run2e]"; $e2Fail = $true }
   }
   if ($ledgerAfter2e -match '(?m)^##\s+L1\b') { Fail "闸2e(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2e]"; $e2Fail = $true }
   if ($ledgerHash2e -eq (Get-FileHash $l2eLedger -Algorithm SHA256).Hash) { Fail '闸2e(d)：archive 实跑后热账本毫无变化——本例没有真正施压。'; $e2Fail = $true }
 
-  if (-not $e2Fail) { Write-Host '  2e lessons 规范 meta 行锚定解析 OK（正文诱饵/重复 meta/非法值均 [LSN-META-INVALID] 留热区，合法条目照常冷存）' -ForegroundColor Green }
+  if (-not $e2Fail) { Write-Host '  2e lessons 规范 meta 行锚定解析 OK（十四条敌意夹具均 [LSN-META-INVALID] 留热区、预览与实跑同为非零；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2eRepo -ErrorAction SilentlyContinue
+}
+
+# 2f. T0-LESSONS-COLD-RECALL（R3 收口·预览诚实性与幂等的非平凡分支）：
+#   (a) 预览必须走搬运器自己那条路——选择器只回答「选出了谁」，archive.ps1 的四类拒绝都在这之后；只印候选就
+#       break 会让预览报绿、实跑搬走一部分后才非零退出，落差压在一次数据移动上。
+#   (b) 归档暂存写失败（注入同名 .tmp 目录）须非零退出、两侧字节零变化——wrapper 不得把搬运器的失败吞成 0
+#       （12e⑦ 只证明了 archive.ps1 本身，证明不了这层透传）。
+#   (c) 幂等的**非平凡**分支：把已归档条目粘回 LEDGER 造两侧并存态，重跑须自愈补齐且归档字节不变
+#       （只测「无新候选时零写入」会漏掉这条自愈路径）。
+#   (d) 带后缀的标题（`## L45 (deprecated)`）两侧须同样不当它是条目 id，否则诊断会指向与真因无关的「未知 id」。
+$l2fRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2f-$PID"
+if (Test-Path $l2fRepo) { Remove-Item -Recurse -Force $l2fRepo }
+New-Item -ItemType Directory -Force $l2fRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2fRepo -Recurse -Force
+  $l2fLessons = Join-Path $l2fRepo 'scripts/lessons.ps1'
+  $l2fLedger = Join-Path $l2fRepo 'docs/lessons/LEDGER.md'
+  $l2fArchive = Join-Path $l2fRepo 'specs/archive/lessons-archive.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2fLedger), (Split-Path $l2fArchive) | Out-Null
+  Set-Content (Join-Path $l2fRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n`n## refs`n" -Encoding utf8
+  $entry2f = {
+    param([string]$Heading, [string]$Token)
+    @(
+      "## $Heading",
+      '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+      "- symptom: $Token", "- rule: rule-$Token"
+    ) -join "`n"
+  }
+  $f2Fail = $false
+
+  # (a) 预览与实跑同口径：L02 是**非规范别名**（前导零），选择器会把它当普通候选交出去，
+  #   而搬运器按 `^L[1-9]\d*$` 拒收（别名经数值匹配会撞上 L2 的块）。预览若不透传给搬运器，这条拒绝
+  #   在预览里完全看不见、还 exit 0。断言：非零退出 + 预览输出里出现搬运器自己的拒绝文案 + 零写入。
+  Set-Content $l2fLedger (@('# fixture ledger', '', (& $entry2f 'L1' 'ALIAS_CASE_LEGIT'), '', (& $entry2f 'L02' 'ALIAS_ID_REJECTED_BY_MOVER'), '', (& $entry2f 'L30' 'MAX_ID_EXCLUDED')) -join "`n") -Encoding utf8
+  $hashA2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+  $dryA2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo -DryRun 2>&1 | Out-String)
+  $dryExitA2f = $LASTEXITCODE
+  if ($dryExitA2f -eq 0) { Fail "闸2f(a)：候选里含搬运器会拒收的别名 id L02，archive -DryRun 却退出 0——预览没走搬运器那条路（去掉 -DryRun 才会现形，而那时已经在搬数据了）。output=[$dryA2f]"; $f2Fail = $true }
+  if ($dryA2f -notmatch '非规范' -and $dryA2f -notmatch '\[无效\]') { Fail "闸2f(a)：预览输出里没有搬运器自己的拒绝明细——说明 -DryRun 未透传到 archive.ps1。output=[$dryA2f]"; $f2Fail = $true }
+  if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashA2f -or (Test-Path $l2fArchive)) { Fail '闸2f(a)：预览写了文件（透传后仍须零写入）。'; $f2Fail = $true }
+
+  # (b) 归档暂存写失败：在 `<归档>.tmp` 预置同名**目录**令 Set-Content 确定性失败（跨平台一致）。
+  Set-Content $l2fLedger (@('# fixture ledger', '', (& $entry2f 'L1' 'MOVE_TARGET'), '', (& $entry2f 'L30' 'MAX_ID_EXCLUDED')) -join "`n") -Encoding utf8
+  $hashB2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+  $tmpBlock2f = "$l2fArchive.tmp"
+  New-Item -ItemType Directory -Force $tmpBlock2f | Out-Null
+  $runB2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
+  $runExitB2f = $LASTEXITCODE
+  Remove-Item $tmpBlock2f -Recurse -Force -ErrorAction SilentlyContinue
+  if ($runExitB2f -eq 0) { Fail "闸2f(b)：归档暂存写失败时 lessons.ps1 archive 仍退出 0——wrapper 吞掉了搬运器的非零码。output=[$runB2f]"; $f2Fail = $true }
+  if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashB2f) { Fail '闸2f(b)：归档暂存写失败时 LEDGER 不该有任何变化（数据丢失窗口）。'; $f2Fail = $true }
+  if (Test-Path $l2fArchive) { Fail '闸2f(b)：归档暂存写失败却留下了归档件（原子替换未生效）。'; $f2Fail = $true }
+
+  # (c) 正常搬运 → 造两侧并存 → 重跑自愈。
+  $runC2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $l2fArchive) -or (Get-Content $l2fLedger -Raw) -match '(?m)^##\s+L1\s*$') {
+    Fail "闸2f(c)：清掉注入后正常搬运未把 L1 移入冷库。output=[$runC2f]"; $f2Fail = $true
+  } else {
+    $archLines2f = @(Get-Content $l2fArchive)
+    $idx2f = -1
+    for ($i = 0; $i -lt $archLines2f.Count; $i++) { if ($archLines2f[$i] -match '^##\s+L1\s*$') { $idx2f = $i; break } }
+    if ($idx2f -lt 0) { Fail '闸2f(c)：归档件里找不到「## L1」标题，无法构造两侧并存态。'; $f2Fail = $true }
+    else {
+      # 把归档侧那一整块**逐字**粘回 LEDGER：archive.ps1 的自愈只在两侧内容逐字一致时才补完移动，
+      # 不一致时会拒绝自动处理（防归档陈旧时盲删在册的较新内容）——此处测的是一致那一支。
+      Add-Content $l2fLedger (@('') + @($archLines2f[$idx2f..($archLines2f.Count - 1)])) -Encoding utf8
+      $archHashC2f = (Get-FileHash $l2fArchive -Algorithm SHA256).Hash
+      $healC2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
+      $healExitC2f = $LASTEXITCODE
+      $ledgerAfterC2f = Get-Content $l2fLedger -Raw
+      $headCountC2f = ([regex]::Matches((Get-Content $l2fArchive -Raw), '(?m)^##\s+L1\s*$')).Count
+      if ($healExitC2f -ne 0) { Fail "闸2f(c)：两侧并存态重跑非零退出（$healExitC2f）——自愈分支未走通。output=[$healC2f]"; $f2Fail = $true }
+      if ($ledgerAfterC2f -match '(?m)^##\s+L1\s*$') { Fail "闸2f(c)：两侧并存态重跑后 LEDGER 仍留着 L1 残留副本（移动未补完）。output=[$healC2f]"; $f2Fail = $true }
+      if ($headCountC2f -ne 1) { Fail "闸2f(c)：自愈后归档侧「## L1」标题出现 $headCountC2f 次（应恰 1 次——重复追加即非幂等）。"; $f2Fail = $true }
+      if ((Get-FileHash $l2fArchive -Algorithm SHA256).Hash -ne $archHashC2f) { Fail '闸2f(c)：自愈补齐改动了归档字节（该分支只该清除 LEDGER 残留，不该重写归档内容）。'; $f2Fail = $true }
+    }
+  }
+
+  # (d) 带后缀的标题两侧同口径。夹具顺序 L41 → L50 → `## L45 (deprecated)`：
+  #   严口径下 L45 那段不是标题，被并进 L50 的块 ⇒ L50 出现两条 meta 行 ⇒ [LSN-META-INVALID] 留热区，候选恰为 L41。
+  #   松口径（退回只看 `## L` 前缀）下 L45 成了独立条目、且元数据完全合法 ⇒ 候选变成 L41,L45，
+  #   而搬运器根本不认这个 id，报的却是「未知 id」——此处的逐字相等断言正是为拦这种错位诊断。
+  Set-Content $l2fLedger (@(
+    '# fixture ledger', '',
+    (& $entry2f 'L41' 'SUFFIX_CASE_LEGIT'), '',
+    (& $entry2f 'L50' 'MAX_ID_EXCLUDED'), '',
+    (& $entry2f 'L45 (deprecated)' 'SUFFIXED_HEADING_NOT_AN_ENTRY')
+  ) -join "`n") -Encoding utf8
+  $dryD2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo -DryRun 2>&1 | Out-String)
+  $dryExitD2f = $LASTEXITCODE
+  $candD2f = ([regex]::Match($dryD2f, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
+  if ($candD2f -ne 'L41') { Fail "闸2f(d)：候选集应恰为 L41，实得『$candD2f』——带后缀的标题「## L45 (deprecated)」被当成了条目 id（lessons.ps1 的标题口径比 archive.ps1 宽）。output=[$dryD2f]"; $f2Fail = $true }
+  if ($dryD2f -notmatch "\[LSN-META-INVALID\][^`n]*\bL50\b") { Fail "闸2f(d)：后缀标题并入 L50 的块后应令其 meta 行重复、被点名 [LSN-META-INVALID]。output=[$dryD2f]"; $f2Fail = $true }
+  if ($dryExitD2f -eq 0) { Fail "闸2f(d)：存在不可解析条目却退出 0。output=[$dryD2f]"; $f2Fail = $true }
+
+  if (-not $f2Fail) { Write-Host '  2f lessons 预览透传搬运器拒绝/写失败非零透传/两侧并存自愈幂等/标题口径两侧一致 OK' -ForegroundColor Green }
+} finally {
+  Remove-Item -Recurse -Force $l2fRepo -ErrorAction SilentlyContinue
 }
 
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---
@@ -6337,41 +6559,27 @@ Step '16/17 L-id 引用完整性（skills/docs 的 L<n> 引用存在于热账本
 $ledgerPath = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 if (-not (Test-Path $ledgerPath)) { Fail 'docs\lessons\LEDGER.md 不存在（经验真相源缺失）。' }
 else {
-  $lessonsArchivePath = Join-Path $RepoRoot 'specs/archive/lessons-archive.md'
-  $defined = Get-LessonDefinitionIdSet -LedgerPath $ledgerPath -ArchivePath $lessonsArchivePath
-  # 共享谓词的非真空证明：冷库定义必须进入并集；否则未来首次归档后，所有历史引用会被闸16误判悬空。
+  # 16a 接线非真空证明（不是直测 helper）：夹具仓里 L903 **只**在冷库、L901 只在热账本、L904 两侧皆无，
+  #   从 docs/ 同时引用三者，然后跑闸 16 自己那条代码路径。删掉 -ArchivePath 实参 → L903 判悬空 → 红；
+  #   把定义集合改成无脑全绿 → L904 不再被报出 → 也红。两个方向各有一枚能杀死它的变异。
   $idProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-lesson-ids-$PID"
-  New-Item -ItemType Directory -Force $idProbeRoot | Out-Null
+  if (Test-Path $idProbeRoot) { Remove-Item -Recurse -Force $idProbeRoot }
+  New-Item -ItemType Directory -Force (Join-Path $idProbeRoot 'docs/lessons'), (Join-Path $idProbeRoot 'specs/archive') | Out-Null
   try {
-    $hotProbe = Join-Path $idProbeRoot 'hot.md'; $coldProbe = Join-Path $idProbeRoot 'cold.md'
-    Set-Content $hotProbe "## L901`n" -Encoding utf8
-    Set-Content $coldProbe "## L902`n" -Encoding utf8
-    $probeIds = Get-LessonDefinitionIdSet -LedgerPath $hotProbe -ArchivePath $coldProbe
-    if (-not $probeIds.ContainsKey('L901') -or -not $probeIds.ContainsKey('L902') -or $probeIds.Count -ne 2) {
-      Fail '闸16：经验定义 ID 未按热账本/冷库并集合并。'
-    }
+    Set-Content (Join-Path $idProbeRoot 'docs/lessons/LEDGER.md') "# probe hot`n`n## L901`n- rule: hot only`n" -Encoding utf8
+    Set-Content (Join-Path $idProbeRoot 'specs/archive/lessons-archive.md') "# probe cold`n`n## L903`n- rule: cold only`n" -Encoding utf8
+    Set-Content (Join-Path $idProbeRoot 'docs/probe-refs.md') "热引用 L901；冷引用 L903；悬空引用 L904。" -Encoding utf8
+    $probe16 = Get-DanglingLessonReferences $idProbeRoot
+    $probeDangling = @($probe16.Dangling | ForEach-Object { ($_ -split '→')[-1].Trim() } | Sort-Object -Unique) -join ','
+    if ($probeDangling -ne 'L904') {
+      Fail "闸16a：热∪冷并集接线未生效——夹具里只有 L904 该判悬空，实得『$probeDangling』（L903 上榜=冷库路径没传进定义集合；空=定义集合无脑全绿）。"
+    } else { Write-Host '  16a 定义集合 = 热账本 ∪ 冷库（只存在于冷库的 id 不判悬空、两侧皆无的 id 仍判悬空）OK' -ForegroundColor Green }
   } finally {
     Remove-Item -Recurse -Force $idProbeRoot -ErrorAction SilentlyContinue
   }
-  # 扫描范围：根入口文档 CLAUDE.md + CLAUDE.template.md（下游 CLAUDE.md 的来源，其 L 引用也须不悬空）+ TEMPLATE-README.md + .claude/skills/**/*.md + docs/**/*.md，排除 LEDGER 自身（id 的定义处）。
-  $scanFiles = @(
-    @(Get-Item -Path (Join-Path $RepoRoot 'CLAUDE.md') -ErrorAction SilentlyContinue) +
-    @(Get-Item -Path (Join-Path $RepoRoot 'CLAUDE.template.md') -ErrorAction SilentlyContinue) +
-    @(Get-Item -Path (Join-Path $RepoRoot 'TEMPLATE-README.md') -ErrorAction SilentlyContinue) +
-    @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/skills') -Filter *.md -Recurse -ErrorAction SilentlyContinue) +
-    @(Get-ChildItem -Path (Join-Path $RepoRoot 'docs') -Filter *.md -Recurse -ErrorAction SilentlyContinue)
-  ) | Where-Object { $_.FullName -ne $ledgerPath }
-  # 真经验引用：L<n> 前不接 ASCII 字母/数字/冒号（排除 HTML5 内的 L5、path:L88 行号），后不接 -<digit>（排除 L52-71 行段）。
-  $refRe = '(?<![A-Za-z0-9:])L(\d+)\b(?!-\d)'
-  $dangling = @()
-  foreach ($sf in $scanFiles) {
-    foreach ($mm in [regex]::Matches((Get-Content $sf.FullName -Raw), $refRe)) {
-      $id = "L$($mm.Groups[1].Value)"
-      if (-not $defined.ContainsKey($id)) { $dangling += ("{0} → {1}" -f $sf.FullName.Substring($RepoRoot.Length + 1), $id) }
-    }
-  }
-  if ($dangling) { $dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在热账本/冷库并集；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
-  else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个热/冷已定义 id）" }
+  $g16 = Get-DanglingLessonReferences $RepoRoot
+  if ($g16.Dangling.Count) { $g16.Dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在热账本/冷库并集；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
+  else { Write-Host "  L-id 引用完整（扫 $($g16.ScanCount) 个 skills/docs 文件，$($g16.DefinedCount) 个热/冷已定义 id）" }
 }
 
 }

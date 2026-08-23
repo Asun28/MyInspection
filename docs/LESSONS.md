@@ -1,7 +1,7 @@
 # 自净化经验系统（Self-Improving Lessons）
 
 > 目标：让工作流**吸取经验、自我进步**——遇到**同样的问题**时能自主解决，不再痛苦地重新推导。
-> 本文件是流程说明；总经验真相源是热账本 `docs/lessons/LEDGER.md` 与冷库 `specs/archive/lessons-archive.md` 的并集；操作器是 `scripts/lessons.ps1`。
+> 本文件是流程说明；总经验真相源是热账本 `docs/lessons/LEDGER.md` 与冷库 `specs/archive/lessons-archive.md` 的并集；操作器是 `scripts/lessons.ps1`；触发器是 `lessons` skill。
 
 ## 三层经验（必须/按需/总）
 
@@ -34,9 +34,16 @@
 - `pwsh -File scripts\lessons.ps1 check`：校验 id 唯一、字段完整、必须层 ≤上限 且与 CLAUDE.md 同步。
 - 超限：把 recurrence 最低 / 最久未触发的铁律降回按需层。
 - 定期：合并近义条目、淘汰已过时（如某限制随升级 Pro 消失）的经验。
-- `pwsh -File scripts\lessons.ps1 archive -DryRun` 只预览一次性候选；确认后去掉 `-DryRun`，由既有
-  `archive.ps1 -LessonIds` 搬入冷库。选择器保守排除 must/ondemand、复发项、当前最大 ID，以及
-  `CLAUDE.md`/`CLAUDE.template.md` 引用项；它不替代人工判断，也不自动定时运行。
+- **归档（热 → 冷）的选择规则 —— 本节是这条规则的权威表述**（`scripts/lessons.ps1` 与 `specs/archive/README.md`
+  只指向这里，不各自复述）：`pwsh -File scripts\lessons.ps1 archive -DryRun` 预览候选，只选 **`tier=ledger` 且
+  `recurrence=1` 且非当前最大 ID 且未被 `CLAUDE.md`/`CLAUDE.template.md` 引用** 的条目；确认后去掉 `-DryRun`，
+  仍由既有 `archive.ps1 -LessonIds` 搬入冷库——**没有第二套搬运器**。它是机械预筛，不替代人工复核、不定时运行。
+  - **预览与实跑同口径**：`-DryRun` 透传给同一个搬运器，故「别名 id / 最高 ID / 未知 id / 两侧内容不一致」四类
+    拒绝在预览里就会出现、退出码一致，不会「预览报绿、实跑搬到一半才失败」。
+  - **元数据读不出来的条目一律留热**并报 `[LSN-META-INVALID]`，此时预览与实跑**都非零退出**（与 `check` 同口径）。
+  - **「被引用」按裸写形态判**：`见 L26 之理` 与 `[L26]` 同样算引用（判定式与 `selftest.ps1` 闸 16 同源）。
+  - **范围简写只保护两端点**：`L229–L232` 只保护 L229 与 L232，中间的 L230、L231 仍会进候选集——要保住某条
+    经验就把 id 逐个写出来。
 
 ### 4. RECALL（检索，遇到问题先查）
 - `pwsh -File scripts\lessons.ps1 search <关键词>` 查热账本 + 冷库 + 按需层；冷命中带 `[archived]`，命中即照 `rule` 做。

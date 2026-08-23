@@ -56,6 +56,11 @@ if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).
 if ($LessonsOnly -and -not $PSBoundParameters.ContainsKey('LessonIds')) {
   throw 'archive.ps1 -LessonsOnly 必须与 -LessonIds 同用（fail-closed，禁止伪装成成功的空范围归档）。'
 }
+if ($LessonsOnly -and $CheckCardsIndex) {
+  # -CheckCardsIndex 的分支在下面所有 -LessonsOnly 守卫**之前**就 exit，同时传入会静默吞掉模式开关、
+  # 让调用方以为跑的是 lessons 路径。互斥组合必是调用方口径出错，显式拒绝而非择一执行。
+  throw 'archive.ps1：-LessonsOnly 与 -CheckCardsIndex 互斥（后者只读核验卡索引，与 lessons 路径无关）。'
+}
 
 $TrackerPath  = Join-Path $RepoRoot 'specs/tech-debt-tracker.md'
 $TasksDir     = Join-Path $RepoRoot 'specs/tasks'
@@ -86,7 +91,10 @@ function Get-LedgerHeadings([string[]]$lines) {
   for ($i = 0; $i -lt $lines.Count; $i++) {
     # F11（R3）：同时保留**逐字 id 串**（Id）与数值（Number）——只存 [int] 会让 L02 别名撞上 L2 的块；
     # 定位/判存一律按 Id 精确串比，Number 只用于「最高 id」数值比较。
-    if ($lines[$i] -match '^##\s+L(\d+)\s*$') { $marks.Add([pscustomobject]@{ Id = "L$($Matches[1])"; Number = [int]$Matches[1]; Start = $i }) }
+    # 位数上界 9：下一行就 [int] 它，超 Int32 会让整个脚本抛裸 .NET 转换异常。超界的标题一律不当条目标题
+    # （仍作为区间终点参与 `^##\s` 切块），于是「解析不了的 id」永远不会被搬——与 lessons.ps1 的
+    # Get-LessonNumber 同一个上界，两侧对「哪些 id 可处理」的认定不分家。
+    if ($lines[$i] -match '^##\s+L(\d{1,9})\s*$') { $marks.Add([pscustomobject]@{ Id = "L$($Matches[1])"; Number = [int]$Matches[1]; Start = $i }) }
   }
   $result = [System.Collections.Generic.List[object]]::new()
   foreach ($m in $marks) {
@@ -309,7 +317,8 @@ if ($DryRun) {
 }
 
 # ── 落盘：确保归档目录存在 ──
-New-Item -ItemType Directory -Force $ArchiveDir | Out-Null
+# -LessonsOnly 且本轮 0 搬时不建目录：那一路承诺「幂等重跑不碰任何文件」，凭空造出 specs/archive/ 与之矛盾。
+if (-not $LessonsOnly -or $lsMoved -gt 0) { New-Item -ItemType Directory -Force $ArchiveDir | Out-Null }
 if (-not $LessonsOnly) { New-Item -ItemType Directory -Force $ArchTasksDir | Out-Null }
 
 # ── 3. 写活追踪器（去掉冷行）+ 追加到归档 ──
@@ -415,7 +424,8 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     '',
     '> `docs/lessons/LEDGER.md` 的**冷存**：被显式策展搬出（已归档 / 被后续经验合并吸收）的条目整块移到此处，',
     '> append-only、只搬不删；`lessons.ps1 search` 会统一召回并标 `[archived]`，也可裸 grep。',
-    '> 由 `scripts/archive.ps1 -LessonIds L<n>[,L<n>...]` 显式策展驱动搬运，无自动判定；勿手工编辑正文。',
+    '> 唯一写入口是 `scripts/archive.ps1 -LessonIds L<n>[,L<n>...]`——id 恒为显式传入，本脚本自己不判定该搬谁；',
+    '> `lessons.ps1 archive` 可先机械预筛出保守候选（规则见 `docs/LESSONS.md` §3），但仍只是转调本入口。勿手工编辑正文。',
     ''
   )
   $lsArchiveWriteOk = $true
