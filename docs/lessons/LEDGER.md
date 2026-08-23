@@ -1725,3 +1725,11 @@
 - rule: 测试 exact-byte 比较器必须含同长度单字节替换；测试委托闸必须同时覆盖干净正例，并要求稳定状态码唯一且只由真正判定错误的子检查器输出。
 - enforced_by: scripts/selftest.ps1 gate 12e
 - refs: PR #61；scripts/selftest.ps1 gate 12e
+
+## L241
+- date: 2026-08-23 ｜ tags: r3,review,card-sizing,rubric,acceptance-set,judgment ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: R3 轮次通胀被归因为「卡太大、颗粒度不够」，于是拆卡；拆完轮次不降。评审每轮都提出新的细节问题，像是永远修不完。
+- root_cause: 轮次与卡片行数几乎无关：8 张已合并卡实测 Pearson r=0.42、r^2=0.18，最大 diff（T5-BACKUP-FORMAT 2740 行）4 轮收，最小（T2-ROUTINE-CONTENT 277 行）9 轮。真正驱动是卡片只声明行为、不封闭验收集合——24 份终局裁决共 25 条 finding 里 18 条（72%）是 rubric #6「测试缺失」，而 #6 的搜索面在验收集合开放时无界。同时 #8（过度设计）25 条里 0 命中，于是卡片没要求的防御性代码总被判成「补测试」而非「删掉」，每轮修复反而扩大下轮的未测面，形成正反馈而非收敛。
+- rule: 轮次通胀先看卡片有没有编号封闭的验收清单，再谈拆卡。两条修法：① 卡片写 acceptance 编号闭集（T1-CANON-HASH 把哈希域逐字段列全 → 2 轮收；T4-COMPLIANCE-ENGINE 只说「加载器做校验」→ 评审列出 12 条卡片从未提过的拒绝用例），rubric #6 改判「清单内每条是否有可证伪测试」，清单外一律 [FOLLOW-UP] 不 block；② 凡不能追溯到验收条目的守卫/包装/分支，判定是删除而非补测试（#8 优先于 #6）。本条限定 L206 的适用面：拆卡治的是 allow_paths 蔓延与单 PR 过大，不治轮次通胀——把拆卡当轮次通胀的解药会拆出更多卡、更多仪式 PR，轮次照旧。
+- enforced_by: none（上游 #203 提案的 acceptance: 字段落地前无机检；check-cards 只查 allow_paths 尺寸，判不出验收集合是否封闭）
+- refs: docs/QUALITY-RUBRIC.md; specs/tasks/T4-COMPLIANCE-ENGINE.md; 上游 Asun28/claude-devops-scaffold#203 #204 #205
