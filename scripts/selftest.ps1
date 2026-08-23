@@ -1739,6 +1739,8 @@ try {
   else { Write-Host '  2h lessons.ps1 check 分节 fail-closed OK（标题漂移 → 非零 + [LESSONS-SECTION-NOT-FOUND]；小节在场仍 PASS）' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
+}
+
 # 2d. bump 的写入平面（T0-LESSONS-BUMP-PLANE）：recurrence 是**仓库级元数据**，与任何卡片无关。
 #   旧实现把 $Ledger 绑到 $PSScriptRoot/..，于是在 linked worktree 里跑 bump 就写进了**卡片分支**的
 #   LEDGER.md，被范围闸与 R3 #7（夹带无关改动）正确拦下——计数遂无处可去。丢失是**结构性**的：
