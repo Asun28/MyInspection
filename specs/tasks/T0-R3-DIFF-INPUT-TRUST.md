@@ -18,8 +18,11 @@ non_goals:
   - 被测提交的身份绑定（属 T0-R3-MEASURED-OID-BINDING）
   - 处理 git 之外的 diff 工具或非 git 仓库
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
-  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 三处权威 diff 调用（--stat / --numstat / --unified）全部显式带 --no-ext-diff 与 --no-textconv；静态断言逐调用点检查，缺任一参数即红"
   - "A2 成功的 diff.external 伪装：配一个 exit 0 且只吐几行的 helper，超限改动仍必须以 [R3-DIFF-TOO-LARGE] 阻断并报出真实字符数"
   - "A3 成功的 textconv 伪装：经 .gitattributes 的 diff driver 配 textconv，同样必须仍被阻断"

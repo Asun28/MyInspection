@@ -22,6 +22,11 @@ dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path 'specs/tas
 dod_exit: 0
 dod_assert: 两张卡各含 `acceptance:` 块；T4 卡内已无 `R3 round-cap` 残留节；总账含 L241
 acceptance:
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 T3-REPORT-COMPOSER 卡含 acceptance 块，条目覆盖其 R3 六条 finding（几何/图槽不可分/短哈希/孤行/投影校验/封面统计与时间渲染）**且**覆盖卡片原有 dod_assert 的每一项"
   - "A2 T4-COMPLIANCE-ENGINE 卡含 acceptance 块，条目覆盖其 R3 四条 finding（非默认配置值/改期身份/拒绝集/不可变视图）**且**覆盖需求 §10 四条法定规则与 DST 语义"
   - "A3 T4 卡内不再有 `## R3 round-cap 后续` 节（该节按路线 1 声称四类缺口归 T4-COMPLIANCE-ENGINE-R3-CLOSURE 收口，与用户已定的路线 2 及新清单自相矛盾）"
