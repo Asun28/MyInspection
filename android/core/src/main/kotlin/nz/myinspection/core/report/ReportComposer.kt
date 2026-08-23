@@ -70,9 +70,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         // and leaving the follow-on page without the title that was already spent.
         photos.map { imageBlock(it, ImagePurpose.APPENDIX) }.chunked(APPENDIX_PER_PAGE).forEach { pair ->
             paginator.newPage()
-            paginator.addGroup(
-                listOf(sectionTitle("photo-appendix", BilingualText("Photo appendix", "照片附录"))) + pair,
-            )
+            paginator.addGroup(listOf(sectionTitle(APPENDIX_TITLE_KEY, APPENDIX_TITLE)) + pair)
         }
 
         val closing = buildList {
@@ -91,17 +89,36 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     }
 
     /**
-     * The measurer is an injected seam, so its line height is an input. The composer emits fixed bilingual
-     * text of its own that no caller can shorten, and a bilingual pair is never split across pages, so a
-     * line height at which that text no longer fits a page body makes every report ungenerable. Refuse it
-     * here, where the message can name the style and the measurement, rather than deep inside pagination.
+     * The measurer is an injected seam, so its line heights are inputs. Two pieces of this layout are fixed
+     * against them and no caller can shorten either: the composer's own bilingual disclaimer, which is never
+     * split across pages, and the appendix page, whose picture box is a constant and whose density is two
+     * per page. A measurer at which either no longer fits the body makes every report ungenerable, so it is
+     * refused here, where the message can name the styles and the measurements, rather than deep inside
+     * pagination where the message can only name the blocks it failed to place.
+     *
+     * The appendix bound is checked whether or not this particular report has photographs. The measurer is a
+     * fixed property of the renderer, not of the report, and a precondition that only bites on the first
+     * report that happens to carry a picture is a precondition that ships broken.
      */
     private fun validateMeasurer() {
         val disclaimer = bilingualRuns(REPORT_DISCLAIMER, TextStyle.CAPTION, BODY_WIDTH_MM)
         val required = disclaimer.endY() + 2
+        val captionLineMm = disclaimer.first().heightMm
         require(required <= BODY_HEIGHT_MM) {
-            "the measurer reports a ${disclaimer.first().heightMm}mm CAPTION line height, at which the fixed " +
+            "the measurer reports a ${captionLineMm}mm CAPTION line height, at which the fixed " +
                 "disclaimer measures ${required}mm and cannot fit the ${BODY_HEIGHT_MM}mm page body"
+        }
+        // The same section title block and the same worst-case slot the appendix loop builds, so the two
+        // cannot drift: a caption spends the cap in full whenever a reference is long enough to wrap.
+        val title = sectionTitle(APPENDIX_TITLE_KEY, APPENDIX_TITLE)
+        val titleLineMm = (title.content as TextBearingBlock).textRuns.first().heightMm
+        val slotMm = APPENDIX_IMAGE_MM + MAX_CAPTION_LINES * captionLineMm + 2
+        val appendixPageMm = title.heightMm + APPENDIX_PER_PAGE * slotMm
+        require(appendixPageMm <= BODY_HEIGHT_MM) {
+            "the measurer reports a ${titleLineMm}mm TITLE line height and a ${captionLineMm}mm CAPTION line " +
+                "height, at which an appendix page (a ${title.heightMm}mm section title plus " +
+                "$APPENDIX_PER_PAGE slots of ${slotMm}mm at the $MAX_CAPTION_LINES-line caption cap) measures " +
+                "${appendixPageMm}mm and cannot fit the ${BODY_HEIGHT_MM}mm page body"
         }
     }
 
@@ -210,10 +227,15 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             }
         }
         val budget = BODY_HEIGHT_MM - 2
-        require(head.endY() <= budget) {
-            "the cover header measures ${head.endY()}mm and cannot fit the ${budget}mm available"
+        // The marker below is appended whenever a row is left out, and the loop can leave every row out, so
+        // the header is only admissible with room for it: admitting the header alone lets a header that
+        // fills the budget draw the marker past it, and the block then outgrows the body and is split onto
+        // a second page - a second cover carrying the same address and the same totals.
+        val elisionReserve = if (counts.isEmpty()) 0 else measuredHeight(coverElision(counts.size), TextStyle.BODY)
+        require(head.endY() + elisionReserve <= budget) {
+            "the cover header measures ${head.endY()}mm and its elision marker ${elisionReserve}mm, which " +
+                "together cannot fit the ${budget}mm available"
         }
-        val elisionReserve = measuredHeight(coverElision(counts.size), TextStyle.BODY)
         val lines = head.toMutableList()
         var drawnCounts = 0
         for (count in counts) {
@@ -664,9 +686,16 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         /** Full-width room panorama between item rows. */
         const val PANORAMA_IMAGE_MM = 44
         const val APPENDIX_PER_PAGE = 2
+        const val APPENDIX_TITLE_KEY = "photo-appendix"
+        private val APPENDIX_TITLE = BilingualText("Photo appendix", "照片附录")
         /**
-         * Appendix picture box, sized so a section title plus [APPENDIX_PER_PAGE] slots at the maximum
-         * caption still fit the body: 10 + 2 x (108 + 3 x 4 + 2) = 254 mm of the 257 mm available.
+         * Appendix picture box. The invariant it has to satisfy is that a section title plus
+         * [APPENDIX_PER_PAGE] slots, each spending the [MAX_CAPTION_LINES] cap in full, still fit
+         * [BODY_HEIGHT_MM] - which is a joint property of this number and of the TITLE and CAPTION line
+         * heights the injected measurer reports, never of this number alone. [validateMeasurer] evaluates it
+         * against the measurer actually handed in and refuses the pair it cannot serve; writing one
+         * measurer's arithmetic out here instead would state as unconditional a sum that holds only for
+         * whatever measurer the author had in front of them.
          */
         const val APPENDIX_IMAGE_MM = 108
         const val THUMB_COLUMN_X_MM = BODY_WIDTH_MM - INLINE_THUMB_MM

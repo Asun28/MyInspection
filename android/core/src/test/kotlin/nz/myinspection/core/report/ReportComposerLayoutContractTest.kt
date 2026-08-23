@@ -9,8 +9,10 @@ import kotlin.test.assertTrue
  * order and placed heights; neither can see where inside a row a picture sits, how tall the picture box is,
  * or what the caption says.
  *
- * Every number here is written out. Asserting `thumbnail.widthMm == ReportComposer.INLINE_THUMB_MM` compares
- * the production constant with itself and stays green when that constant is changed to anything at all.
+ * Every number here is written out. An assertion whose expected value is one of the composer's own layout
+ * constants compares the production value with itself and stays green when that constant is changed to
+ * anything at all; `ReportSourcePurityTest` is what keeps such an expected value out of these files, the
+ * comments included - a number restated in prose drifts exactly as silently as one restated in code.
  * A4 210x297 mm at a 15 mm margin leaves a 180 mm body; the picture column is the rightmost 40 mm of it.
  */
 class ReportComposerLayoutContractTest {

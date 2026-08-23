@@ -115,5 +115,19 @@ internal object ReportTestFixtures {
         MeasuredText(text.chunked(charBudget(widthMm)).ifEmpty { listOf(" ") }, lineHeightMm)
     }
 
+    /**
+     * A measurer whose line height depends on the style, which is the ordinary case for a Paint-backed
+     * measurer: a heading line is taller than a small-print caption line. The uniform measurer above cannot
+     * express that difference at all, so a composer precondition that mixes the two styles is invisible to it.
+     */
+    fun measurerOf(titleMm: Int, bodyMm: Int, captionMm: Int): TextMeasurer = TextMeasurer { text, style, widthMm ->
+        val lineHeightMm = when (style) {
+            TextStyle.TITLE -> titleMm
+            TextStyle.BODY -> bodyMm
+            TextStyle.CAPTION -> captionMm
+        }
+        MeasuredText(text.chunked(charBudget(widthMm)).ifEmpty { listOf(" ") }, lineHeightMm)
+    }
+
     val measurer = measurerOf(LINE_HEIGHT_MM)
 }

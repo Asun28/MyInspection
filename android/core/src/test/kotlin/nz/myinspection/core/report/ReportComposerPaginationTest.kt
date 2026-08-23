@@ -100,6 +100,79 @@ class ReportComposerPaginationTest {
     }
 
     /**
+     * A continuation chunk re-bases the thumbnails it owns to the top of its own row, and a caption belongs
+     * to its picture, not to the row it was first measured in. Moving the box without its caption runs is
+     * invisible to any assertion that walks the box alone: the photograph appears in the right place and
+     * its provenance line - reference, source, capture instant, the evidence the appendix exists to carry -
+     * is drawn hundreds of millimetres below, off the sheet.
+     *
+     * Six photos split 4 + 2, so the second chunk is the one whose pictures actually move, and it holds
+     * more than one of them: a single-thumbnail chunk moves nothing (its slot is already at y=0) and cannot
+     * see the defect at all.
+     */
+    @Test
+    fun `each caption follows its own picture into the continuation chunk`() {
+        val plan = composer.compose(photoHeavyItemReport(photoCount = 6, note = null), Audience.LANDLORD)
+        val placed = plan.pages.flatMap { page -> page.blocks.filter { it.content is ItemRowBlock } }
+
+        assertEquals(
+            listOf(4, 2),
+            placed.map { (it.content as ItemRowBlock).thumbnails.size },
+            "the fixture must produce a continuation chunk carrying more than one moved thumbnail",
+        )
+        assertEquals(
+            listOf(listOf("p-1", "p-2", "p-3", "p-4"), listOf("p-5", "p-6")),
+            placed.map { row -> (row.content as ItemRowBlock).thumbnails.map { it.photoId } },
+        )
+        placed.forEach { row ->
+            (row.content as ItemRowBlock).thumbnails.forEach { slot ->
+                val pictureBottom = row.yMm + slot.yMm + slot.imageHeightMm
+                slot.textRuns.forEachIndexed { line, run ->
+                    assertEquals(
+                        pictureBottom + line * run.heightMm,
+                        row.yMm + run.yMm,
+                        "caption line $line of ${slot.photoId} is drawn at ${row.yMm + run.yMm}mm, " +
+                            "not under its picture box ending at ${pictureBottom}mm",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * The picture column stacks on a fixed 2 mm gap. At gap 0 each provenance line is printed hard against
+     * the next photograph and the evidence column stops being readable in print, which no assertion about
+     * how many photos a chunk holds can see: four thumbnails fit the body either way.
+     */
+    @Test
+    fun `thumbnails stack under one another on a two millimetre gap`() {
+        val plan = composer.compose(photoHeavyItemReport(photoCount = 6, note = null), Audience.LANDLORD)
+        val chunks = plan.itemChunks("item-big")
+
+        // The closed form below holds only while every caption is the same height, so pin that first.
+        assertEquals(
+            setOf(3),
+            chunks.flatMap { it.thumbnails }.map { it.textRuns.size }.toSet(),
+            "the fixture must give every thumbnail a three-line caption",
+        )
+        assertEquals(setOf(54), chunks.flatMap { it.thumbnails }.map { it.heightMm }.toSet())
+        chunks.forEach { chunk ->
+            assertEquals(
+                chunk.thumbnails.indices.map { it * 56 },
+                chunk.thumbnails.map { it.yMm },
+                "a 54mm slot on a 2mm gap puts the nth picture at (n-1) x 56mm",
+            )
+            chunk.thumbnails.zipWithNext().forEach { (above, below) ->
+                assertEquals(
+                    above.yMm + above.heightMm + 2,
+                    below.yMm,
+                    "${below.photoId} does not sit 2mm under ${above.photoId}",
+                )
+            }
+        }
+    }
+
+    /**
      * The field case behind the split: a POOR carpet with six photos and a long dictated note. Both columns
      * have to be partitioned at once - the note must read once end to end, and each photograph must appear
      * once. The bilingual label repeats on every chunk, because a continuation row still has to say which
@@ -204,19 +277,70 @@ class ReportComposerPaginationTest {
     }
 
     /**
-     * The appendix pair is placed as one indivisible group, so a measurer whose captions are taller than
-     * the box was sized for cannot quietly demote the page to a single picture: the placement refuses, and
-     * says which blocks it could not place together.
+     * The appendix picture box is a fixed number, so how many millimetres a title line and a caption line
+     * cost is what decides whether a section title plus two full-caption slots still fit the body. Those
+     * are properties of the injected measurer, so the composer has to refuse a measurer it cannot draw an
+     * appendix page with - at the door, where the message can name both styles and both measured values.
+     *
+     * A title line taller than a caption line is the ordinary case for a Paint-backed measurer and is the
+     * shape the uniform fake cannot express: at TITLE 6 / CAPTION 4 an appendix page measures 258 mm, one
+     * millimetre over the body, and every report with a photograph in it becomes ungenerable.
      */
     @Test
-    fun `an appendix pair too tall for its page fails loudly instead of halving the density`() {
-        val tall = ReportComposer(ReportTestFixtures.measurerOf(lineHeightMm = 8))
-        val threeLineReference = "evidence/" + "x".repeat(91)
+    fun `a measurer that cannot draw an appendix page is refused, naming both styles and both values`() {
+        val cases = listOf(
+            // 14mm title + 2 x (108 + 3 x 4 + 2) = 258mm.
+            Triple(
+                ReportTestFixtures.measurerOf(titleMm = 6, bodyMm = 4, captionMm = 4),
+                listOf("6mm TITLE", "4mm CAPTION", "258mm", "257mm"),
+                "a taller heading than caption",
+            ),
+            // 18mm title + 2 x (108 + 3 x 8 + 2) = 286mm.
+            Triple(
+                ReportTestFixtures.measurerOf(lineHeightMm = 8),
+                listOf("8mm TITLE", "8mm CAPTION", "286mm", "257mm"),
+                "a uniformly taller line",
+            ),
+        )
 
-        val failure = assertFailsWith<IllegalArgumentException> {
-            tall.compose(reportWithPhotoReference(threeLineReference), Audience.LANDLORD)
+        cases.forEach { (measurer, expected, label) ->
+            val failure = assertFailsWith<IllegalArgumentException>(message = "$label was accepted") {
+                ReportComposer(measurer).compose(ReportTestFixtures.report(), Audience.LANDLORD)
+            }
+            expected.forEach {
+                assertTrue(
+                    failure.message!!.contains(it),
+                    "the refusal for $label never mentions '$it': ${failure.message}",
+                )
+            }
         }
-        listOf("section title photo-appendix", "image slot photo-room", "must be placed together").forEach {
+        // One millimetre either side of the bound: 12mm title + 244mm = 256mm still composes, so the guard
+        // is measuring the appendix page rather than rejecting every non-uniform measurer it is handed.
+        ReportComposer(ReportTestFixtures.measurerOf(titleMm = 5, bodyMm = 4, captionMm = 4))
+            .compose(ReportTestFixtures.report(), Audience.LANDLORD)
+    }
+
+    /**
+     * The blocks a page must carry together are placed as one indivisible group, so a room opening that
+     * cannot fit one page fails loudly instead of stranding the heading. A 2,760-character label makes the
+     * heading 190 mm on its own: with a 50 mm panorama that leaves 17 mm, under the 18 mm an item row can
+     * ever shrink to, so the group is 258 mm and cannot be placed at all.
+     */
+    @Test
+    fun `a room opening too tall for one page fails loudly instead of stranding its heading`() {
+        val base = ReportTestFixtures.report()
+        val huge = BilingualText("e".repeat(2_760), "房")
+        val report = base.copy(rooms = base.rooms.map { it.copy(label = huge) })
+
+        val failure = assertFailsWith<IllegalArgumentException>(message = "the oversized room opening was placed") {
+            composer.compose(report, Audience.LANDLORD)
+        }
+        listOf(
+            "room title room-kitchen",
+            "image slot photo-room",
+            "item item-good",
+            "must be placed together but measure 258mm",
+        ).forEach {
             assertTrue(failure.message!!.contains(it), "the refusal never mentions '$it': ${failure.message}")
         }
     }
@@ -266,6 +390,44 @@ class ReportComposerPaginationTest {
         val drawnRows = cover.textRuns.count { it.text.startsWith("room-") }
         assertTrue(drawnRows in 1 until 60, "the cover drew $drawnRows of 60 rows")
         assertTrue(drawn.contains("… ${60 - drawnRows} more rows"), "the cover drops rows silently: $drawn")
+    }
+
+    /**
+     * One cover or no report - never two. The header is admitted against the page budget and the elision
+     * marker is then appended whenever a row is left out, so a header that fills the budget leaves the
+     * marker nowhere to go and the block outgrows the body, which splits it onto a second page that carries
+     * the full address and both totals again.
+     *
+     * A single address length cannot pin that: the window where it happens is a few dozen characters wide
+     * and sits between an address that composes and one that is refused. Sweeping across the whole window
+     * asserts the invariant instead - every length either draws exactly one cover or is refused for being
+     * unable to fit the cover, and the sweep exercises both outcomes.
+     */
+    @Test
+    fun `no address length can split the cover onto a second page`() {
+        val outcomes = (3_300..3_600 step 10).map { length ->
+            val report = manyRoomReport(rooms = 60, address = "a".repeat(length))
+            try {
+                val covers = composer.compose(report, Audience.LANDLORD).pages
+                    .flatMap { page -> page.blocks.map { page.number to it } }
+                    .filter { it.second.content is CoverBlock }
+                assertEquals(
+                    1,
+                    covers.size,
+                    "an address of $length characters drew ${covers.size} covers, on pages ${covers.map { it.first }}",
+                )
+                "composed"
+            } catch (refused: IllegalArgumentException) {
+                assertTrue(
+                    refused.message!!.contains("the cover header"),
+                    "an address of $length characters was refused for an unrelated reason: ${refused.message}",
+                )
+                "refused"
+            }
+        }
+
+        // Neither branch may be empty, or the loop above asserts nothing about the outcome it never saw.
+        assertEquals(setOf("composed", "refused"), outcomes.toSet(), "the sweep must cross the refusal boundary")
     }
 
     @Test
@@ -345,8 +507,16 @@ class ReportComposerPaginationTest {
             rooms = listOf(report.rooms.single().copy(photos = emptyList())),
         )
 
-        assertFailsWith<IllegalArgumentException> { composer.compose(wrongItems, Audience.LANDLORD) }
-        assertFailsWith<IllegalArgumentException> { composer.compose(missingPhoto, Audience.LANDLORD) }
+        // Each of the two multisets is guarded separately, so each needs its own message: a bare "it threw"
+        // is satisfied by whichever guard happens to fire, including one neither case is named for.
+        assertEquals(
+            "report items do not match canonical snapshot",
+            assertFailsWith<IllegalArgumentException> { composer.compose(wrongItems, Audience.LANDLORD) }.message,
+        )
+        assertEquals(
+            "report photos do not match canonical snapshot",
+            assertFailsWith<IllegalArgumentException> { composer.compose(missingPhoto, Audience.LANDLORD) }.message,
+        )
     }
 
     /**
@@ -410,8 +580,76 @@ class ReportComposerPaginationTest {
                 "would render capture time 0",
                 { r: ReportSnapshot -> r.withItemPhotoExif(0L) },
             ),
+            Triple(
+                "duplicate room id",
+                "duplicate room id",
+                { r: ReportSnapshot -> r.copy(rooms = r.rooms + r.rooms) },
+            ),
+            // Give one item its sibling's id rather than inventing a new one for both: a fresh id would
+            // also orphan the remediation that points at the old one, and that guard would fire first.
+            Triple(
+                "duplicate item id",
+                "duplicate report item id",
+                { r: ReportSnapshot ->
+                    r.copy(
+                        rooms = r.rooms.map { room ->
+                            room.copy(items = room.items.map { it.copy(id = room.items.last().id) })
+                        },
+                    )
+                },
+            ),
+            // Two slots holding one id render the same photograph as two pieces of evidence, and the
+            // reference guard below cannot see it: distinct references on a repeated id satisfy it.
+            Triple(
+                "duplicate photo id",
+                "duplicate report photo id",
+                { r: ReportSnapshot ->
+                    r.copy(
+                        rooms = r.rooms.map { room ->
+                            room.copy(photos = room.photos.map { it.copy(id = "photo-item") })
+                        },
+                    )
+                },
+            ),
+            Triple(
+                "remediation pointing at an unknown item",
+                "remediation references unknown item",
+                { r: ReportSnapshot ->
+                    r.copy(remediations = listOf(ReportRemediation("gone", Urgency.HIGH, BilingualText("Fix", "修复"))))
+                },
+            ),
+            // A repeated status renders two glossary entries for one rating; the set comparison below is
+            // satisfied by the duplicate, because a set of the same statuses still equals the domain.
+            Triple(
+                "duplicate status definition",
+                "duplicate status definition",
+                { r: ReportSnapshot -> r.copy(statusDefinitions = r.statusDefinitions + r.statusDefinitions.last()) },
+            ),
+            // The glossary is set-equal to the template domain, so a status outside it has no entry: the
+            // report would print a rating the reader has no definition for, and the adverse classification
+            // would silently treat it as benign. Changing the canonical item too keeps the multiset guard
+            // satisfied, so the guard under test is the one that fires.
+            Triple(
+                "item status outside the template domain",
+                "item status is outside the template domain",
+                { r: ReportSnapshot ->
+                    val room = r.rooms.single()
+                    val wrecked = room.items.first().let { it.copy(snapshot = it.snapshot.copy(status = "WRECKED")) }
+                    r.copy(
+                        canonical = r.canonical.copy(items = listOf(wrecked.snapshot) + r.canonical.items.drop(1)),
+                        rooms = listOf(room.copy(items = listOf(wrecked) + room.items.drop(1))),
+                    )
+                },
+            ),
         )
 
+        // Two guards sharing one message make each other untestable: delete either and the sibling branch
+        // refuses the same input with the same text, so no case can tell which one is gone.
+        assertEquals(
+            cases.size,
+            cases.map { it.second }.toSet().size,
+            "two cases expect the same refusal text: ${cases.map { it.second }}",
+        )
         cases.forEach { (label, expected, mutate) ->
             val failure = assertFailsWith<IllegalArgumentException>(message = "projection accepted: $label") {
                 composer.compose(mutate(ReportTestFixtures.report()), Audience.LANDLORD)
@@ -453,9 +691,14 @@ class ReportComposerPaginationTest {
     @Test
     fun `rental and annual glossaries must exactly match their authoritative status domains`() {
         val rental = ReportTestFixtures.report()
-        assertFailsWith<IllegalArgumentException> {
-            composer.compose(rental.copy(statusDefinitions = rental.statusDefinitions.dropLast(1)), Audience.LANDLORD)
-        }
+        // The glossary is what tells the reader what a rating means, so an incomplete one has to be refused
+        // by name: a bare "it threw" is equally satisfied by the duplicate-definition guard beside it.
+        assertEquals(
+            "report glossary must exactly cover the ROUTINE status domain",
+            assertFailsWith<IllegalArgumentException> {
+                composer.compose(rental.copy(statusDefinitions = rental.statusDefinitions.dropLast(1)), Audience.LANDLORD)
+            }.message,
+        )
 
         val annualItem = rental.canonical.items.first().copy(status = "SIGNIFICANT_DEFECT")
         val annual = ReportSnapshot(
@@ -713,11 +956,15 @@ class ReportComposerPaginationTest {
     }
 
     /** One GOOD item per room, so the cover's room-by-status breakdown has exactly one line per room. */
-    private fun manyRoomReport(rooms: Int): ReportSnapshot {
+    private fun manyRoomReport(rooms: Int, address: String? = null): ReportSnapshot {
         val base = ReportTestFixtures.canonical()
         val item = base.items.first()
         return ReportSnapshot(
-            canonical = base.copy(items = List(rooms) { item }, photos = emptyList()),
+            canonical = base.copy(
+                items = List(rooms) { item },
+                photos = emptyList(),
+                property = base.property.copy(address = address ?: base.property.address),
+            ),
             tenancyReference = null,
             rooms = (1..rooms).map { index ->
                 ReportRoom(
@@ -783,8 +1030,19 @@ class ReportComposerPaginationTest {
     private fun PagePlan.drawn(): List<DrawnUnit> = blocks
         .filterNot { it.content is FooterBlock }
         .flatMap { placed ->
-            val nested = (placed.content as? ItemRowBlock)?.thumbnails.orEmpty().map {
-                DrawnUnit("thumbnail:${it.photoId}", placed.yMm + it.yMm, it.heightMm)
+            val slots = when (val content = placed.content) {
+                is ItemRowBlock -> content.thumbnails
+                is ImageSlotBlock -> listOf(content)
+                else -> emptyList()
+            }
+            // A caption is drawn from its own run and not from the box above it, so a slot moved without its
+            // runs puts the picture on the page and its provenance line off the bottom of the sheet. Walking
+            // the box alone reports that page as clean.
+            val nested = slots.flatMap { slot ->
+                listOf(DrawnUnit("slot:${slot.photoId}", placed.yMm + slot.yMm, slot.heightMm)) +
+                    slot.textRuns.mapIndexed { line, run ->
+                        DrawnUnit("caption:${slot.photoId}:$line", placed.yMm + run.yMm, run.heightMm)
+                    }
             }
             listOf(DrawnUnit(placed.content::class.simpleName.orEmpty(), placed.yMm, placed.heightMm)) + nested
         }
