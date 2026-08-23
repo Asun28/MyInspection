@@ -35,7 +35,7 @@ class ComplianceConfigLoaderTest {
                     end = LocalTime.of(19, 0),
                     boardingHouseEnd = LocalTime.of(18, 0),
                 ),
-                frequencyLimit = FrequencyLimit(days = 28, exemptTypes = listOf("INGOING", "EXIT", "ANNUAL")),
+                frequencyLimit = FrequencyLimit(days = 28, exemptTypes = listOf("INGOING", "EXIT")),
             ),
             result.config.rules.getValue("inspection"),
         )

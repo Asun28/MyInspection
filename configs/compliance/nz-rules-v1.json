@@ -19,8 +19,7 @@
         "days": 28,
         "exemptTypes": [
           "INGOING",
-          "EXIT",
-          "ANNUAL"
+          "EXIT"
         ]
       }
     }

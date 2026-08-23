@@ -150,23 +150,29 @@ object ComplianceConfigLoader {
             null
         }
         if (raw.timezone != V1_TIMEZONE) {
-            errors += "config: timezone must be $V1_TIMEZONE for schemaVersion $expectedSchemaVersion"
+            errors += "config: timezone must be $V1_TIMEZONE for schemaVersion 1"
         }
 
         if (raw.sourceRefs.isEmpty()) errors += "config: sourceRefs is empty"
+        // One diagnostic per condition, or a deleted condition is reported by whichever sibling happens to trip
+        // on the same fixture and nothing turns red. Measured with java.net.URI: only the credential branch
+        // refuses "https://attacker@www.tenancy.govt.nz/", and both "https:///path" and "https:x" parse
+        // hostless. The control-character check runs before the parse because every control character makes
+        // URI throw, so behind the parse it could never fire.
         raw.sourceRefs.forEachIndexed { index, ref ->
+            val label = "sourceRefs[$index]"
+            if (ref.any { it.isISOControl() }) errors += "$label: must not contain control characters"
             val uri = try {
                 URI(ref)
             } catch (_: Exception) {
                 null
             }
-            if (uri == null ||
-                !uri.scheme.equals("https", ignoreCase = true) ||
-                uri.host.isNullOrBlank() ||
-                uri.userInfo != null ||
-                ref.any { it.isISOControl() }
-            ) {
-                errors += "sourceRefs[$index]: must be a safe HTTPS URL"
+            if (uri == null) {
+                errors += "$label: must be a parsable URL"
+            } else {
+                if (!uri.scheme.equals("https", ignoreCase = true)) errors += "$label: must use HTTPS"
+                if (uri.host.isNullOrBlank()) errors += "$label: must name a host"
+                if (uri.userInfo != null) errors += "$label: must not carry credentials"
             }
         }
         if (raw.sourceRefs.distinct().size != raw.sourceRefs.size) {

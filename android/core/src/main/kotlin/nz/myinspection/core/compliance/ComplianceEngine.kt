@@ -127,10 +127,12 @@ class ComplianceEngine(private val config: ComplianceConfig) {
         }
 
         // request.tenantConsented is intentionally not a branch: consent cannot override this configured gate.
+        // The verdict lists the grounds for refusal, not one entry per offending row: INVALID_HISTORY_ENTRY is
+        // raised per bad row above, and the UI and notice layers render this list verbatim.
         return if (reasons.isEmpty()) {
             ScheduleValidation.Pass
         } else {
-            ScheduleValidation.Blocked(Collections.unmodifiableList(reasons))
+            ScheduleValidation.Blocked(Collections.unmodifiableList(reasons.distinct()))
         }
     }
 

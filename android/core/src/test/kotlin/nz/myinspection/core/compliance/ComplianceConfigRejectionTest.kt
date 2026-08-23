@@ -2,9 +2,11 @@ package nz.myinspection.core.compliance
 
 import kotlinx.serialization.SerializationException
 import java.nio.charset.MalformedInputException
+import nz.myinspection.core.compliance.ComplianceTestFixtures.EXEMPT_TYPES
 import nz.myinspection.core.compliance.ComplianceTestFixtures.LEGISLATION_REF
 import nz.myinspection.core.compliance.ComplianceTestFixtures.RULES_OPEN
 import nz.myinspection.core.compliance.ComplianceTestFixtures.SOURCE_REFS
+import nz.myinspection.core.compliance.ComplianceTestFixtures.TENANCY_REF
 import nz.myinspection.core.compliance.ComplianceTestFixtures.configJson
 import nz.myinspection.core.compliance.ComplianceTestFixtures.sha256Hex
 import kotlin.test.Test
@@ -35,10 +37,6 @@ class ComplianceConfigRejectionTest {
             val failure = assertFailsWith<ComplianceConfigException>(
                 message = "expected the built-in config to be rejected for: ${case.label}",
             ) { ComplianceConfigLoader.load(bytes) }
-            assertTrue(
-                failure.errors.isNotEmpty(),
-                "rejection for '${case.label}' produced no diagnostic; a fail-closed branch must say what it refused",
-            )
             assertTrue(
                 failure.errors.any { it.contains(case.diagnostic) },
                 "rejection for '${case.label}' never reported '${case.diagnostic}', so this case was being kept " +
@@ -173,7 +171,24 @@ class ComplianceConfigRejectionTest {
         RejectionCase("duplicate sourceRefs", "sourceRefs contains duplicates") {
             it.replace(SOURCE_REFS, "\"sourceRefs\": [\"$LEGISLATION_REF\", \"$LEGISLATION_REF\"],")
         },
-        RejectionCase("non-https sourceRef", "must be a safe HTTPS URL") { it.replace("https://", "http://") },
+        // One case per sourceRef condition; the URI measurements that decide which shape reaches which
+        // condition are recorded beside those conditions in ComplianceConfigLoader.
+        RejectionCase("non-https sourceRef", "must use HTTPS") { it.replace("https://", "http://") },
+        RejectionCase("credentialed sourceRef", "must not carry credentials") {
+            it.replace("https://www.tenancy", "https://attacker@www.tenancy")
+        },
+        RejectionCase("hostless hierarchical sourceRef", "must name a host") {
+            it.replace(TENANCY_REF, "https:///maintenance-and-inspections/")
+        },
+        RejectionCase("hostless opaque sourceRef", "must name a host") {
+            it.replace(TENANCY_REF, "https:maintenance-and-inspections")
+        },
+        RejectionCase("unparsable sourceRef", "must be a parsable URL") {
+            it.replace(TENANCY_REF, "https://")
+        },
+        RejectionCase("control character in sourceRef", "must not contain control characters") {
+            it.replace(TENANCY_REF, "https://www.tenancy.govt.nz/" + TAB_ESCAPE + "inspections/")
+        },
         // Truncating at the rules object is the only edit that genuinely empties it; a "replace {" trick
         // silently produced the original document, and this suite caught that on first run.
         RejectionCase("empty rules", "rules is empty") { it.substringBefore(RULES_OPEN) + RULES_OPEN + "}}" },
@@ -194,10 +209,10 @@ class ComplianceConfigRejectionTest {
             it.replace("\"days\": 28", "\"days\": 0")
         },
         RejectionCase("duplicate exempt types", "exemptTypes contains duplicates") {
-            it.replace("[\"INGOING\", \"EXIT\", \"ANNUAL\"]", "[\"INGOING\", \"INGOING\"]")
+            it.replace(EXEMPT_TYPES, "[\"INGOING\", \"INGOING\"]")
         },
         RejectionCase("unknown exempt type", "unknown exempt inspection type SPOT_CHECK") {
-            it.replace("[\"INGOING\", \"EXIT\", \"ANNUAL\"]", "[\"SPOT_CHECK\"]")
+            it.replace(EXEMPT_TYPES, "[\"SPOT_CHECK\"]")
         },
         RejectionCase("malformed visit window time", "visitWindow.start: must be HH:mm") {
             it.replace("\"start\": \"08:00\"", "\"start\": \"8am\"")
@@ -234,5 +249,8 @@ class ComplianceConfigRejectionTest {
             "\"inspection\": {\"noticeMinHours\": 1, \"noticeMaxDays\": 1, " +
                 "\"visitWindow\": {\"start\": \"08:00\", \"end\": \"19:00\", \"boardingHouseEnd\": \"18:00\"}, " +
                 "\"frequencyLimit\": {\"days\": 1, \"exemptTypes\": []}}, "
+
+        /** A JSON escape for U+0009, spelled from two pieces so no tool can turn this source into a real tab. */
+        const val TAB_ESCAPE = "\\" + "u0009"
     }
 }

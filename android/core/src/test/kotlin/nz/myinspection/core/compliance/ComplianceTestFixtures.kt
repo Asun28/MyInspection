@@ -19,8 +19,8 @@ internal object ComplianceTestFixtures {
     const val SOURCE_REFS = "\"sourceRefs\": [\"$LEGISLATION_REF\", \"$TENANCY_REF\"],"
     const val RULES_OPEN = "\"rules\": {"
 
-    /** The signed exemption list; [ComplianceEngineTest] records why ANNUAL belongs in it. */
-    const val EXEMPT_TYPES = "[\"INGOING\", \"EXIT\", \"ANNUAL\"]"
+    /** The signed exemption list; requirements §10 authorises exactly these two. */
+    const val EXEMPT_TYPES = "[\"INGOING\", \"EXIT\"]"
 
     fun configJson(
         schemaVersion: Int = 1,

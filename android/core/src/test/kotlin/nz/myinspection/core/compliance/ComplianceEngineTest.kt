@@ -108,13 +108,12 @@ class ComplianceEngineTest {
             ExistingScheduledEntry("e-other-property", "property-b", "inspection", "ROUTINE", near),
             ExistingScheduledEntry("e-ingoing", "property-a", "inspection", "INGOING", near),
             ExistingScheduledEntry("e-exit", "property-a", "inspection", "EXIT", near),
-            ExistingScheduledEntry("e-annual", "property-a", "inspection", "ANNUAL", near),
         )
 
         assertIs<ScheduleValidation.Pass>(
             engine().validateSchedule(request(scheduled, notice, existingEntries = irrelevant)),
         )
-        listOf("INGOING", "EXIT", "ANNUAL").forEach { type ->
+        listOf("INGOING", "EXIT").forEach { type ->
             assertIs<ScheduleValidation.Pass>(
                 engine().validateSchedule(request(scheduled, notice, inspectionType = type, existingEntries = listOf(
                     ExistingScheduledEntry("e-routine", "property-a", "inspection", "ROUTINE", near),
@@ -206,6 +205,15 @@ class ComplianceEngineTest {
                     ),
                 ),
             ),
+            ComplianceReasonKey.INVALID_HISTORY_ENTRY,
+        )
+        // reasons is a set of grounds, not a tally: a second broken row must not repeat the key, because the
+        // UI and notice layers render this list verbatim.
+        fun badType(id: String, at: String) =
+            ExistingScheduledEntry(id, "property-a", "inspection", "ROUTIEN", atNz(at))
+        val twoBadRows = listOf(badType("e-bad-1", "2026-08-01T10:00"), badType("e-bad-2", "2026-08-02T10:00"))
+        assertBlocked(
+            engine().validateSchedule(request(scheduled, notice, existingEntries = twoBadRows)),
             ComplianceReasonKey.INVALID_HISTORY_ENTRY,
         )
     }
@@ -339,7 +347,7 @@ class ComplianceEngineTest {
 
     /**
      * `exemptTypes` is read twice — once for the requested type, once for each stored one — and the suite only
-     * ever configured the signed INGOING/EXIT/ANNUAL list, so either read could be a hard-coded set and stay
+     * ever configured the signed INGOING/EXIT list, so either read could be a hard-coded set and stay
      * green. A config that exempts ROUTINE *instead* inverts both: the same fixtures now demand the opposite
      * verdicts, so a literal set fails whichever side it is written on.
      */
@@ -512,7 +520,7 @@ class ComplianceEngineTest {
             ),
             ComplianceReasonKey.OUTSIDE_VISIT_WINDOW,
         )
-        // frequencyLimit days = 28, exemptTypes = INGOING/EXIT/ANNUAL
+        // frequencyLimit days = 28, exemptTypes = INGOING/EXIT
         assertBlocked(
             engine.validateSchedule(
                 request(
@@ -536,7 +544,7 @@ class ComplianceEngineTest {
                 ),
             ),
         )
-        listOf("INGOING", "EXIT", "ANNUAL").forEach { exempt ->
+        listOf("INGOING", "EXIT").forEach { exempt ->
             assertIs<ScheduleValidation.Pass>(
                 engine.validateSchedule(
                     request(
@@ -559,32 +567,43 @@ class ComplianceEngineTest {
     }
 
     /**
-     * The published exemption list names ANNUAL next to INGOING/EXIT although the requirements name only the
-     * latter two. That is deliberate: ANNUAL is the owner-occupied yearly check (自住房年检), not an entry into
-     * a tenancy, so the RTA's four-week ceiling on repeat inspections has nothing to apply to. It is recorded
-     * here because the rule schema carries no prose field to record it in.
+     * ANNUAL is not exempt. Requirements §10 authorises exactly two exemptions, Ingoing and Exit, and the frozen
+     * `inspection` DDL comment says the same; this config file was the only one of the three faces claiming a
+     * third. Nothing binds ANNUAL to an owner-occupied property either — `tenancy_id` is nullable with no CHECK
+     * and [ScheduleRequest] carries no tenancy — so exempting it let a landlord enter a tenanted property twice
+     * in two days by relabelling the second visit. Over-blocking a rare owner-occupied annual check is the
+     * fail-closed side of that trade, and the side the written requirement had already taken.
+     *
+     * The cap keys on `inspectionType` for the request and for every stored row, so both directions move
+     * together and both are asserted here.
      */
     @Test
-    fun `ANNUAL is exempt because an owner-occupied annual check is not a tenancy entry`() {
+    fun `ANNUAL is capped like any other inspection on the requested and the stored side`() {
         val loaded = ComplianceConfigLoader.load(Files.readAllBytes(findRepositoryFile(RULES_FILE)))
+        val engine = ComplianceEngine(loaded.config)
         val scheduled = atNz("2026-08-19T10:00")
-        val yesterday = ExistingScheduledEntry(
-            "e-annual-yesterday", "property-a", "inspection", "ANNUAL", atNz("2026-08-18T10:00"),
-        )
+        val notice = scheduled.minus(Duration.ofHours(48))
+        val twentySevenDaysEarlier = atNz("2026-07-23T10:00")
+        fun history(id: String, type: String) =
+            ExistingScheduledEntry(id, "property-a", "inspection", type, twentySevenDaysEarlier)
 
         assertEquals(
-            listOf("INGOING", "EXIT", "ANNUAL"),
+            listOf("INGOING", "EXIT"),
             loaded.config.rules.getValue("inspection").frequencyLimit.exemptTypes,
         )
-        assertIs<ScheduleValidation.Pass>(
-            ComplianceEngine(loaded.config).validateSchedule(
-                request(
-                    scheduled,
-                    scheduled.minus(Duration.ofHours(48)),
-                    inspectionType = "ANNUAL",
-                    existingEntries = listOf(yesterday),
-                ),
+        // Requested side: a visit relabelled ANNUAL is capped by an earlier ROUTINE.
+        assertBlocked(
+            engine.validateSchedule(
+                request(scheduled, notice, inspectionType = "ANNUAL", existingEntries = listOf(history("e-r", "ROUTINE"))),
             ),
+            ComplianceReasonKey.FREQUENCY_LIMIT,
+        )
+        // Stored side: an earlier ANNUAL now counts against a ROUTINE instead of vanishing from the comparison.
+        assertBlocked(
+            engine.validateSchedule(
+                request(scheduled, notice, existingEntries = listOf(history("e-a", "ANNUAL"))),
+            ),
+            ComplianceReasonKey.FREQUENCY_LIMIT,
         )
     }
 
