@@ -1698,7 +1698,7 @@ try {
 #   夹具 LSN-PLANE-WORKTREE：真 git 仓 + 一棵 linked worktree，三条断言——
 #     (a) 从 worktree 跑 bump → 主检出账本 +1，且 worktree 账本**逐字节不变**；
 #     (b) 从主检出直跑 → 仍正确 +1（覆盖 --git-common-dir 返回**相对** `.git` 的形态，Split-Path 得空串）；
-#     (c) 主检出账本缺失 → 非零退出 + [LSN-PLANE-UNRESOLVED]（fail-closed，禁止回落到当前检出）。
+#     (e) 继承的 GIT_COMMON_DIR 不得劫持写入平面；(c) 主检出账本缺失 → 非零退出 + [LSN-PLANE-UNRESOLVED]（fail-closed，禁止回落到当前检出）。
 $l2dRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
 if (Test-Path $l2dRoot) { Remove-Item -Recurse -Force $l2dRoot }
 New-Item -ItemType Directory -Force $l2dRoot | Out-Null
@@ -1781,16 +1781,51 @@ try {
           Fail "闸2d(d)：git 非零退出但 stdout 有内容时未回落到调用方检出（exit=$l2dExitD）——解析器只判了 stdout 空、漏判退出码，于是把账本指到 shim 吐出的假路径上。契约是「非零退出**或**空输出 → 回落」。输出=$l2dTailD"
         }
         else {
+        # (e) 继承的 GIT_COMMON_DIR 不得劫持写入平面（R3 预审 #1）：git 执行 hook 时本就会设 GIT_DIR，
+        #   这类变量会盖过 -C，未清理时解析会落到**另一个仓库**、把计数静默加到别人的账本上。
+        #   夹具造第二个仓（自带同路径账本，故「误写」确实能成功），设 GIT_COMMON_DIR 指向它再跑 bump：
+        #   断言本仓账本 6→7 且**另一个仓的账本逐字节不变**。未修版本会去加另一个仓的那份。
+        $l2dOther = Join-Path $l2dRoot 'other'
+        $l2dOtherLedger = Join-Path $l2dOther 'docs/lessons/LEDGER.md'
+        New-Item -ItemType Directory -Force (Split-Path $l2dOtherLedger) | Out-Null
+        Set-Content $l2dOtherLedger $l2dEntry -Encoding utf8
+        & git -C $l2dOther init -q 2>&1 | Out-Null
+        $l2dOtherPre = (Get-FileHash $l2dOtherLedger -Algorithm SHA256).Hash
+        $l2dGcdOld = [Environment]::GetEnvironmentVariable('GIT_COMMON_DIR')
+        try {
+          $env:GIT_COMMON_DIR = (Join-Path $l2dOther '.git')
+          $l2dOutE = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+          $l2dExitE = $LASTEXITCODE
+        }
+        finally {
+          if ($null -eq $l2dGcdOld) { Remove-Item Env:GIT_COMMON_DIR -ErrorAction SilentlyContinue }
+          else { $env:GIT_COMMON_DIR = $l2dGcdOld }
+        }
+        $l2dOtherPost = (Get-FileHash $l2dOtherLedger -Algorithm SHA256).Hash
+        $l2dMainE = Get-Content $l2dMainLedger -Raw
+        $l2dTailE = ($l2dOutE -replace '\s+', ' ').Trim()
+        if ($l2dOtherPost -ne $l2dOtherPre) {
+          Fail "闸2d(e)：继承的 GIT_COMMON_DIR 劫持了写入平面——bump 把计数加到了**另一个仓库**的账本上（SHA256 $l2dOtherPre -> $l2dOtherPost）。解析前须清 GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE。输出=$l2dTailE"
+        }
+        elseif ($l2dExitE -ne 0 -or $l2dMainE -notmatch '(?m)^- date:.*?recurrence:\s*7\b') {
+          Fail "闸2d(e)：设了 GIT_COMMON_DIR 后 bump 未能正常写本仓账本（exit=$l2dExitE，期望 recurrence 7）——清理环境变量不应把正常路径一并弄坏。输出=$l2dTailE"
+        }
+
         # (c) 主检出账本缺失 —— 必须 fail-closed，绝不回落到 worktree 那份（回落＝本闸要修的 bug 原样复活）。
         Remove-Item -Force $l2dMainLedger
+        $l2dWtHashPreC = (Get-FileHash $l2dWtLedger -Algorithm SHA256).Hash
         $l2dOutC = (& pwsh -NoProfile -File $l2dWtLessons bump L1 2>&1 | Out-String)
         $l2dExitC = $LASTEXITCODE
         $l2dTailC = ($l2dOutC -replace '\s+', ' ').Trim()
-        if ($l2dExitC -eq 0) { Fail "闸2d(c)：主检出账本缺失时 bump 仍退出 0——静默回落到当前检出的账本，正是本闸要根治的形态。输出=$l2dTailC" }
+        $l2dWtHashPostC = (Get-FileHash $l2dWtLedger -Algorithm SHA256).Hash
+        if ($l2dWtHashPostC -ne $l2dWtHashPreC) {
+          Fail "闸2d(c)：主检出账本缺失时 bump 仍写了 **worktree** 那份账本（SHA256 $l2dWtHashPreC -> $l2dWtHashPostC）——先写回落账本再抛 [LSN-PLANE-UNRESOLVED] 同样违约：禁止的是那次写入，不只是那个退出码（R3 预审 #3）。"
+        }
+        elseif ($l2dExitC -eq 0) { Fail "闸2d(c)：主检出账本缺失时 bump 仍退出 0——静默回落到当前检出的账本，正是本闸要根治的形态。输出=$l2dTailC" }
         elseif ($l2dTailC -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]')) {
           Fail "闸2d(c)：主检出账本缺失时 bump 虽非零退出，但未打印 ASCII 失败码 [LSN-PLANE-UNRESOLVED]（机检认哨兵、不认本地化文案，L165）。输出=$l2dTailC"
         }
-        else { Write-Host '  2d lessons.ps1 bump 只写主检出账本（worktree 那份逐字节不变 / 相对 .git 形态 / git 非零即回落 / 缺账本 fail-closed）OK' -ForegroundColor Green }
+        else { Write-Host '  2d lessons.ps1 bump 只写主检出账本（worktree 那份逐字节不变 / 相对 .git 形态 / git 非零即回落 / GIT_COMMON_DIR 劫持无效 / 缺账本 fail-closed 且不写回落账本）OK' -ForegroundColor Green }
         }
       }
     }

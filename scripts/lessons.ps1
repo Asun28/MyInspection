@@ -75,6 +75,17 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 # promote 只打印建议、不写盘。
 function Resolve-BumpLedger {
   param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Fallback)
+  # 继承来的 GIT_DIR / GIT_COMMON_DIR / GIT_WORK_TREE 会盖过 -C，把解析劫持到**另一个仓库**——
+  # git 执行 hook 时本就会设 GIT_DIR，届时计数会静默加到别的仓库的账本上。本函数语义是「$Root 所属仓库
+  # 的主检出」，故先清掉这三个再问 git（清用 Remove-Item，赋空串仍算「已设置」，同 L3）。
+  # 已知限制（R3 预审 #2）：若本仓被当作 submodule 使用，--git-common-dir 返回 <super>/.git/modules/<path>，
+  # 其父级并非检出根，此处会 fail-closed 报错而非误写。本仓不以 submodule 形式使用，按「宁停勿猜」处理。
+  $gitEnvNames = @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE')
+  $gitEnvSaved = @{}
+  foreach ($n in $gitEnvNames) {
+    $gitEnvSaved[$n] = [Environment]::GetEnvironmentVariable($n)
+    if ($null -ne $gitEnvSaved[$n]) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
+  }
   $gcd = ''
   $rc = 1
   try {
@@ -85,6 +96,9 @@ function Resolve-BumpLedger {
     $rc = $LASTEXITCODE
   }
   catch { $gcd = ''; $rc = 1 }
+  finally {
+    foreach ($n in $gitEnvNames) { if ($null -ne $gitEnvSaved[$n]) { Set-Item "Env:$n" $gitEnvSaved[$n] } }
+  }
   # 非零退出**或**空输出 → 回落调用方检出（卡片契约原文）。这一步必需：selftest 闸 2b/2c 的 hermetic
   # 夹具是「只拷 scripts/ 的非 git 临时目录」，此处硬失败会把两枚既有闸打红。
   if ($rc -ne 0 -or -not $gcd) { return $Fallback }
