@@ -68,6 +68,53 @@ $MustCap = $ScaffoldConfig.LessonsMustCap   # 必须层（CLAUDE.md「经验铁�
 
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 
+# bump 专用的账本平面（T0-LESSONS-BUMP-PLANE）：recurrence 是**仓库级元数据**，与任何卡片无关。
+# 绑在 $PSScriptRoot/.. 时，在 linked worktree 里跑 bump 会把它写进**卡片分支**的 LEDGER.md，被范围闸与
+# R3 #7（夹带无关改动）正确拦下 —— 计数遂无处可去。且丢失是结构性的：卡片工作全在 worktree 里做。
+# 故 bump 一律解析到**主检出**。只有 bump 走这条平面：add 的新经验属有意随卡入库（L241 即先例），
+# promote 只打印建议、不写盘。
+function Resolve-BumpLedger {
+  param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Fallback)
+  # 继承来的 GIT_DIR / GIT_COMMON_DIR / GIT_WORK_TREE 会盖过 -C，把解析劫持到**另一个仓库**——
+  # git 执行 hook 时本就会设 GIT_DIR，届时计数会静默加到别的仓库的账本上。本函数语义是「$Root 所属仓库
+  # 的主检出」，故先清掉这三个再问 git（清用 Remove-Item，赋空串仍算「已设置」，同 L3）。
+  # 已知限制（R3 预审 #2）：若本仓被当作 submodule 使用，--git-common-dir 返回 <super>/.git/modules/<path>，
+  # 其父级并非检出根，此处会 fail-closed 报错而非误写。本仓不以 submodule 形式使用，按「宁停勿猜」处理。
+  $gitEnvNames = @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE')
+  $gitEnvSaved = @{}
+  foreach ($n in $gitEnvNames) {
+    $gitEnvSaved[$n] = [Environment]::GetEnvironmentVariable($n)
+    if ($null -ne $gitEnvSaved[$n]) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
+  }
+  $gcd = ''
+  $rc = 1
+  try {
+    $gcd = "$(& git -C $Root rev-parse --git-common-dir 2>$null)".Trim()
+    # 退出码必须**紧接着**取：_encoding.ps1 置 $PSNativeCommandUseErrorActionPreference = $false，原生非零
+    # **不抛**，try/catch 只兜得住「git 根本不在 PATH」。只判 stdout 空会漏掉「git 失败却往 stdout 吐了个
+    # 看似路径的东西」——那会把账本解析到一个不存在的检出上，正好是本函数最不该犯的错。
+    $rc = $LASTEXITCODE
+  }
+  catch { $gcd = ''; $rc = 1 }
+  finally {
+    foreach ($n in $gitEnvNames) { if ($null -ne $gitEnvSaved[$n]) { Set-Item "Env:$n" $gitEnvSaved[$n] } }
+  }
+  # 非零退出**或**空输出 → 回落调用方检出（卡片契约原文）。这一步必需：selftest 闸 2b/2c 的 hermetic
+  # 夹具是「只拷 scripts/ 的非 git 临时目录」，此处硬失败会把两枚既有闸打红。
+  if ($rc -ne 0 -or -not $gcd) { return $Fallback }
+  # 主检出里 git 返回**相对**的 `.git`（Split-Path 取父级得空串）；linked worktree 里才返回主仓 .git 的绝对
+  # 路径。故先相对 $Root 解析成绝对路径，两种形态才走同一条路。
+  $gitDir = if ([System.IO.Path]::IsPathRooted($gcd)) { $gcd } else { Join-Path $Root $gcd }
+  $mainCheckout = Split-Path ([System.IO.Path]::GetFullPath($gitDir)) -Parent
+  $candidate = Join-Path $mainCheckout 'docs/lessons/LEDGER.md'
+  # fail-closed：解析到了主检出却没有账本，就停下报错。**绝不**回落到当前检出那份 —— 那正是本函数要根治的
+  # 形态（计数悄悄写进卡片分支，再被范围闸吞掉）。
+  if (-not (Test-Path $candidate)) {
+    throw "[LSN-PLANE-UNRESOLVED] 主检出账本不存在：$candidate。recurrence 是仓库级元数据，bump 只写主检出；请确认该检出完好，或直接从主检出跑 bump。此处不回落到当前检出的账本。"
+  }
+  return $candidate
+}
+
 # 解析总账为对象数组（按 "## L<n>" 分块）
 function Get-Lessons {
   if (-not (Test-Path $Ledger)) { return @() }
@@ -271,8 +318,9 @@ switch ($Command) {
   'bump' {
     # 同一条经验复发一次 → recurrence +1（自净化闭环的「复发计数」入口，避免手改 LEDGER）。
     if (-not $Query) { throw 'bump 需要条目 id（如 L1）。' }
-    if (-not (Test-Path $Ledger)) { throw "总账不存在: $Ledger" }
-    $raw = Get-Content $Ledger -Raw
+    $BumpLedger = Resolve-BumpLedger -Root $RepoRoot -Fallback $Ledger
+    if (-not (Test-Path $BumpLedger)) { throw "总账不存在: $BumpLedger" }
+    $raw = Get-Content $BumpLedger -Raw
     # 抠出该 id 的块（## L<n> 起，到下一个 ## L<n> 或文件尾止）
     $blockRe = "(?ms)^##\s+$([regex]::Escape($Query))\b.*?(?=^##\s+L\d|\z)"
     $m = [regex]::Match($raw, $blockRe)
@@ -290,8 +338,11 @@ switch ($Command) {
     # `${1}`/`$1` 被 PowerShell 当成变量插值、吞掉正则回引用）。
     $newBlock = [regex]::Replace($block, '(?m)^(- date:.*?recurrence:\s*)\d+', ('${1}' + $new))
     $raw = $raw.Remove($m.Index, $m.Length).Insert($m.Index, $newBlock)
-    Set-Content -Path $Ledger -Value $raw -Encoding utf8 -NoNewline
+    Set-Content -Path $BumpLedger -Value $raw -Encoding utf8 -NoNewline
     Write-Host "$Query recurrence: $old → $new" -ForegroundColor Green
+    if ($BumpLedger -ne $Ledger) {
+      Write-Host "  账本 = $BumpLedger（主检出；recurrence 是仓库级元数据，不进卡片 diff）。本检出的 list/promote 读的仍是本地那份，计数会显示旧值。" -ForegroundColor DarkGray
+    }
     if ($new -ge 2) {
       Write-Host "  recurrence≥2 → 满足晋升必须层门槛之一，考虑 promote $Query。" -ForegroundColor Yellow
     }

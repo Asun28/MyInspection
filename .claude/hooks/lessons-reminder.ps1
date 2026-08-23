@@ -17,6 +17,7 @@ try {
 [lessons] 自净化复盘：本次会话若踩过非平凡坑/解决过反复问题，入账（同样问题不再重导）：
   pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Symptom '..' -RootCause '..' -Rule '..'
   blocking 或复发≥2 → promote <id> 进必须层；完事 pwsh -File scripts\lessons.ps1 check
+  **老坑又踩一次就计数**（不是新增条目）：pwsh -File scripts\lessons.ps1 bump <id>；在 worktree 里跑也会写主检出账本、不进卡片 diff
   已有相近条目就更新而非新增；发现错的条目删除。
 '@
   $out = [ordered]@{ hookSpecificOutput = [ordered]@{ hookEventName = 'Stop'; additionalContext = $msg } }
