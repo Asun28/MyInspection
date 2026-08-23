@@ -3,7 +3,7 @@ id: T0-CARD-ACCEPTANCE-SETS
 title: 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-CARD-ACCEPTANCE-SETS
 worktree: C:\wt\T0-CARD-ACCEPTANCE-SETS
 allow_paths:
