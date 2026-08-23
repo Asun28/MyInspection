@@ -9,7 +9,7 @@
 
     start   : 建 worktree(<WorktreeRoot>\<TaskId>) + 引导环境(uv sync / npm i)，打印 TDD 提醒。
     ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → 真实 diff 预算
-              → Codex 评审(必 pass) → push → 开 PR → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
+              → push → 开 PR → Codex 评审(必 pass) → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
               故本地闸门(DoD/verify/范围/许可/密钥/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
 
@@ -557,8 +557,7 @@ switch ($Phase) {
 
       Step 'push + 开 PR（Codex 评审在 PR 开好后单次运行，兼作回贴状态）'
       # push 之前是最后一个还能无代价停下的点：一旦推上去，远端就有了一个可能从未过预算闸的提交。
-      # 复核通过后按 **OID → 分支** 的显式 refspec 推送，而不是推「分支现在指向的东西」——
-      # 后者在复核与 push 之间仍留一条 ref 可以移动的缝。
+      # 按提交 OID 发布（而非分支名）属 T0-R3-MEASURED-OID-BINDING，本卡不做。
       & git push -u origin $TaskId
       # TD44（载重护栏）：push 静默失败（网络/凭证/非 fast-forward 拒绝）时若续跑，下游 `gh pr merge` 会合并 origin/$TaskId
       # 当前指向的【陈旧】head——与本地刚过闸的产物解耦、把未评审内容并入基线，且 R3 把绿状态回贴到 head 已陈旧的 PR（状态误导）。
@@ -582,7 +581,6 @@ switch ($Phase) {
       $sagaDone += 'push+PR'
 
       Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；block 即停、不合并）'
-      # 正常 R3 必须审预算闸测量过的同一个提交，否则「已测量」与「已评审」会指向两份不同产物。
       & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -PostStatus -PrNumber $pr
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block'; throw 'Codex 裁决 block，已停止。修复后重 ship（PR 已开，重 ship 会更新）。' }
       $sagaDone += 'R3 评审'

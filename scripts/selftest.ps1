@@ -4708,8 +4708,6 @@ $p15Fail = $false
 $tp15p = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
 # 代码级断言（R3 #6：铸造 site 的注释本身含哨兵，凑「距离内出现哨兵」的正则会被「删代码留注释」满足）——
 # 剥整行注释后，要求两处合并成功调用点之后各出现一次**具体的 token 写盘操作**（Set-Content 到 <tokDir>/<TaskId>）。
-# -Local 侧的定位锚是那句 merge：它现在并入的是**预算闸测量过的 OID**（$measuredOid）而非分支名——
-# 分支名相同不等于提交相同，锚跟着生产码走，才不会在「审 A 合 B」被修掉之后还继续绿。
 $tpCode15p = (($tp15p -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
 if ($tpCode15p -notmatch '(?s)merge --no-ff --no-edit \$TaskId.{0,1500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：-Local 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）——cleanup 删除点失去「已合并」机检信号。'; $p15Fail = $true }
 if ($tpCode15p -notmatch '(?s)gh pr merge \$pr --squash.{0,2500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：PR squash 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）。'; $p15Fail = $true }
@@ -5580,6 +5578,107 @@ if (-not $gitI) {
     Set-Location $RepoRoot
     & git -C $pf worktree prune 2>$null
     Remove-Item -Recurse -Force $pf -ErrorAction SilentlyContinue
+  }
+}
+
+# 15b5（T0-R3-DIFF-BUDGET · A9）：超限的**远端** ship 必须零 push、零建 PR、零合并。
+#   15b2 用 -Local 证了「零 merge」，但 -Local 路径上 push 与建 PR 本就不可能发生——拿它当远端证据
+#   等于用「这条路上没有车」证明「刹车有效」。故此处建带 bare origin 的完整远端夹具，真跑非 -Local ship，
+#   并以**行为**取证：远端仓里不得出现该任务分支（证零 push）、gh 调用日志必须为空（证零建 PR / 零合并）。
+$gitB5 = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitB5) {
+  Skip-SelftestCheck -GateId '15b5' -Reason 'TOOL-GIT-MISSING' -Message '  15b5 git 未安装，跳过（离线 / 无 git 环境正常）。'
+} elseif (-not $IsWindows) {
+  # gh spy 用 gh.ps1，靠 PATHEXT 让裸 `gh` 解析到它；非 Windows 无 PATHEXT，会转而跑真 gh（非 hermetic），同 15h4(d) 之理。
+  Skip-SelftestCheck -GateId '15b5' -Reason 'OS-WINDOWS-ONLY' -Message '  15b5 跳过（非 Windows）：gh spy 依赖 PATHEXT 解析 gh.ps1。'
+} else {
+  $PSNativeCommandUseErrorActionPreference = $false
+  $b5 = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-budget-remote-$PID"
+  if (Test-Path $b5) { Remove-Item -Recurse -Force $b5 }
+  New-Item -ItemType Directory -Force $b5 | Out-Null
+  $b5SavedPath = $env:PATH; $b5SavedPathExt = $env:PATHEXT
+  try {
+    Copy-Item (Join-Path $RepoRoot 'scripts') $b5 -Recurse -Force
+    $cfgB5 = Join-Path $b5 'scripts/_config.ps1'
+    $cB5 = Get-Content $cfgB5 -Raw
+    $cB5 = [regex]::Replace($cB5, "WorktreeRoot\s*=\s*'[^']*'", { "WorktreeRoot = '$($b5 -replace '\\','/')/wt'" })
+    $cB5 = [regex]::Replace($cB5, "GhAccount\s*=\s*'[^']*'", { "GhAccount = 'b5'" })
+    $cB5 = $cB5.Replace("ReviewCommand = ''", "ReviewCommand = 'pwsh -NoProfile -Command exit 0'")
+    # 比对必须用**注入时的同一形态**（正斜杠），否则守卫恒红；且注入失败时必须**停下**——
+    # 只 Fail 不短路，会让后续断言照跑并打出 OK，同一闸同时报「失败」和「通过」。
+    $b5WtExpect = ($b5 -replace '\\','/') + '/wt'
+    $b5CfgOk = ($cB5 -match [regex]::Escape($b5WtExpect)) -and ($cB5 -match "ReviewCommand = 'pwsh")
+    if (-not $b5CfgOk) {
+      Fail '闸15b5：fixture _config 注入失败（WorktreeRoot/ReviewCommand 行格式变了？Replace 没命中）——测的不再是远端 ship 预算阻断。'
+    }
+    Set-Content $cfgB5 $cB5 -NoNewline -Encoding utf8
+    Set-Content (Join-Path $b5 'scripts/_guard.ps1') 'function Assert-PersonalAccount { param([string]$Expected, [string]$RepoRoot, [switch]$CheckRemote, [string]$RemoteUrl) }' -Encoding utf8
+    Set-Content (Join-Path $b5 'scripts/verify.ps1') 'exit 0' -Encoding utf8
+    Set-Content (Join-Path $b5 'scripts/check-licenses.ps1') 'exit 0' -Encoding utf8
+    & git -C $b5 init -q
+    & git -C $b5 symbolic-ref HEAD refs/heads/master
+    & git -C $b5 config user.email 'selftest@local'
+    & git -C $b5 config user.name  'selftest'
+    $b5Origin = Join-Path $b5 'remote.git'
+    & git init --bare -q $b5Origin
+    & git -C $b5 remote add origin $b5Origin
+    New-Item -ItemType Directory -Force (Join-Path $b5 'specs/tasks') | Out-Null
+    @('---', 'id: T0-BUDGETREMOTE', 'title: seed 15b5 remote budget block', 'status: todo',
+      'dod_command: "pwsh -NoProfile -File scripts/check-cards.ps1"', 'allow_paths:', '  - README.md', '---') -join "`n" |
+      Set-Content (Join-Path $b5 'specs/tasks/T0-BUDGETREMOTE.md') -Encoding utf8
+    & git -C $b5 -c user.email='selftest@local' -c user.name='selftest' add -A 2>$null
+    & git -C $b5 -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'b5 base' *> $null
+    & git -C $b5 push -q -u origin master
+    & pwsh -NoProfile -File (Join-Path $b5 'scripts/task.ps1') -TaskId T0-BUDGETREMOTE -Phase start *> $null
+    $b5Wt = Join-Path $b5 'wt/T0-BUDGETREMOTE'
+    if (-not $b5CfgOk) {
+      # 注入已失败并记账，跳过取证部分（继续跑只会得出无意义的结论）。
+    } elseif (-not (Test-Path $b5Wt)) {
+      Fail '闸15b5：fixture start 未产出 worktree——无法验证远端预算阻断（前置失败）。'
+    } else {
+      # gh spy：记录每次调用；被调到就说明走过了 PR 创建或合并。返回非零使误调也不会静默成功。
+      $b5SpyDir = Join-Path $b5 'spy-bin'
+      New-Item -ItemType Directory -Force $b5SpyDir | Out-Null
+      $b5GhLog = Join-Path $b5 'gh-calls.log'
+      Set-Content (Join-Path $b5SpyDir 'gh.ps1') "Add-Content -LiteralPath '$($b5GhLog -replace '\\','/')' -Value (`$args -join ' '); exit 1" -Encoding ascii
+      $env:PATH = "$b5SpyDir$([IO.Path]::PathSeparator)$b5SavedPath"
+      $env:PATHEXT = ".PS1;$b5SavedPathExt"
+      # 超限改动：1001 行落在 allow_paths 内，预算闸须在 push 之前拦住。
+      [System.IO.File]::WriteAllLines((Join-Path $b5Wt 'README.md'), [string[]](1..1001 | ForEach-Object { "b5-line-$_" }))
+      $encWrapB5 = Join-Path $b5 'enc-ship-15b5.ps1'
+      Set-Content $encWrapB5 'try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }; & (Join-Path $PSScriptRoot "scripts/task.ps1") -TaskId T0-BUDGETREMOTE -Phase ship -SkipRed; exit $LASTEXITCODE' -Encoding utf8
+      $prevOutB5 = $null
+      try { $prevOutB5 = [Console]::OutputEncoding; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
+      try {
+        $b5Out = (& pwsh -NoProfile -File $encWrapB5 2>&1 | Out-String)
+        $b5Exit = $LASTEXITCODE
+      } finally {
+        if ($prevOutB5) { try { [Console]::OutputEncoding = $prevOutB5 } catch { } }
+      }
+      $b5RemoteBranch = (& git -C $b5Origin rev-parse --verify --quiet 'refs/heads/T0-BUDGETREMOTE' 2>$null | Out-String).Trim()
+      $b5GhCalls = if (Test-Path $b5GhLog) { (Get-Content $b5GhLog -Raw).Trim() } else { '' }
+      $b5Tail = ($b5Out -replace '\s+', ' ').Trim(); if ($b5Tail.Length -gt 260) { $b5Tail = $b5Tail.Substring($b5Tail.Length - 260) }
+      if ($b5Exit -eq 0) { Fail '闸15b5：1001 行的**远端** ship 仍退出 0——预算闸未在远端路径上生效。' }
+      elseif ($b5Out -notmatch '\[R3-DIFF-TOO-LARGE\]') { Fail "闸15b5：远端 ship 非零但未命中 [R3-DIFF-TOO-LARGE]，可能红在错误路径。输出尾段=$b5Tail" }
+      elseif ($b5RemoteBranch) { Fail "闸15b5：预算阻断后远端仍出现任务分支（$b5RemoteBranch）——push 发生在预算闸之前或未被拦住（A9 的零 push 不成立）。" }
+      elseif ($b5GhCalls) { Fail "闸15b5：预算阻断后仍调用了 gh（建 PR / 合并）：$b5GhCalls" }
+      else {
+        # 负控：上面「远端没有该分支」只有在这套夹具**本来推得动**时才算证据。把改动缩到预算内重跑，
+        # 远端必须真的出现该分支——否则「零 push」证明的只是夹具跑不到 push，而不是预算闸拦住了它。
+        [System.IO.File]::WriteAllLines((Join-Path $b5Wt 'README.md'), [string[]]('b5 in-budget change'))
+        $b5CtlOut = (& pwsh -NoProfile -File $encWrapB5 2>&1 | Out-String)
+        $b5CtlBranch = (& git -C $b5Origin rev-parse --verify --quiet 'refs/heads/T0-BUDGETREMOTE' 2>$null | Out-String).Trim()
+        $b5CtlTail = ($b5CtlOut -replace '\s+', ' ').Trim(); if ($b5CtlTail.Length -gt 260) { $b5CtlTail = $b5CtlTail.Substring($b5CtlTail.Length - 260) }
+        if (-not $b5CtlBranch) { Fail "闸15b5 负控：预算内的改动也没能 push 到远端——本夹具根本走不到 push，前面的『零 push』不构成证据。输出尾段=$b5CtlTail" }
+        elseif ($b5CtlOut -match '\[R3-DIFF-TOO-LARGE\]') { Fail '闸15b5 负控：预算内的改动仍被判超限——预算闸误伤（阈值或度量口径错）。' }
+        else { Write-Host '  15b5 远端 ship 预算阻断 OK（1001 lines → R3-DIFF-TOO-LARGE；远端无该分支=零 push；gh 零调用=零建 PR、零合并；负控：预算内改动确实推得上去）' -ForegroundColor Green }
+      }
+    }
+  } finally {
+    $env:PATH = $b5SavedPath; $env:PATHEXT = $b5SavedPathExt
+    Set-Location $RepoRoot
+    & git -C $b5 worktree prune 2>$null
+    Remove-Item -Recurse -Force $b5 -ErrorAction SilentlyContinue
   }
 }
 
@@ -12766,16 +12865,22 @@ exit $realExit
   $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
   if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
   if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
-  # A13：预算闸必须出现在**每一处**权威流程枚举里。这些枚举是操作者据以判断「跑到哪一步」的清单，
-  # 漏一处就等于对着一份不含该闸的流程排障。逐处断言，改一处漏一处即红。
+  # A13：预算闸必须出现在**每一处**权威流程枚举里，**且顺序要与生产码一致**。只断言「出现过」不够——
+  # 本卡第 1 轮 R3 就是这样漏掉的：枚举里写着 R3 在 push 之前，而生产码 push 在前，断言照样绿。
+  # 故按有序子序列断言：每一步必须依次出现，任一处顺序写反即红。
   $sizeFlowText = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
   foreach ($sizeFlow in @(
-    @{ Id = 'task.ps1 ship 流程注释'; Text = $taskSizeText; Needle = '防泄露闸 → 真实 diff 预算' },
-    @{ Id = 'DEVOPS-WORKFLOW 远端 ship 流程'; Text = $sizeFlowText; Needle = '防泄露闸(check-secrets) → 真实 diff 预算' },
-    @{ Id = 'DEVOPS-WORKFLOW resume 流程'; Text = $sizeFlowText; Needle = '防泄露 → 真实 diff 预算' },
-    @{ Id = 'DEVOPS-WORKFLOW EN 摘要'; Text = $sizeFlowText; Needle = 'secret-leak → real diff budget' }
+    @{ Id = 'task.ps1 ship 流程注释'; Text = $taskSizeText; Steps = @('防泄露闸', '真实 diff 预算', 'push', '开 PR', 'Codex 评审') },
+    @{ Id = 'DEVOPS-WORKFLOW 远端 ship 流程'; Text = $sizeFlowText; Steps = @('防泄露闸(check-secrets)', '真实 diff 预算', 'push', 'R3 Codex pass', '合并') },
+    @{ Id = 'DEVOPS-WORKFLOW resume 流程'; Text = $sizeFlowText; Steps = @('防泄露', '真实 diff 预算', 'push/PR') },
+    @{ Id = 'DEVOPS-WORKFLOW EN 摘要'; Text = $sizeFlowText; Steps = @('secret-leak', 'real diff budget', 'push/PR-base validation', 'codex R3 review') }
   )) {
-    if ($sizeFlow.Text -notmatch [regex]::Escape($sizeFlow.Needle)) { $sizeFailures += "flow enumeration '$($sizeFlow.Id)' does not list the diff-budget gate" }
+    $flowCursor = 0
+    foreach ($flowStep in $sizeFlow.Steps) {
+      $flowAt = $sizeFlow.Text.IndexOf($flowStep, $flowCursor, [System.StringComparison]::Ordinal)
+      if ($flowAt -lt 0) { $sizeFailures += "flow enumeration '$($sizeFlow.Id)' is missing or misorders '$flowStep'"; break }
+      $flowCursor = $flowAt + $flowStep.Length
+    }
   }
 
   if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
