@@ -24,7 +24,7 @@ forbid:
   - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`；心跳恒离线、退出码恒 0）
   - 新增第二处「驻留 id 怎么数」的实现——判定核只有 `scripts/_lessons.ps1` 一处
 non_goals:
-  - fleet 回路与探针 12 `scaffold-stale`（那是 `T0-SCAFFOLD-SYNC-043`，本卡的下一张）
+  - fleet 回路与探针 12 `scaffold-stale`（那是 `T0-SCAFFOLD-FLEET-LOOP`，本卡的下一张）
   - 必须层减法本身（上一张卡 `T0-LESSONS-TIER1-CUT` 已做完）
 dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scripts/triage.ps1 selfcheck) -match 'triage selfcheck: PASS').Count -eq 1) -and (((& pwsh -NoProfile -File scripts/lessons.ps1 check) -match 'id=9').Count -eq 1))) { exit 1 }"
 dod_exit: 0
