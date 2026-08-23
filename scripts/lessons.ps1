@@ -76,10 +76,13 @@ $TemplateMd = Join-Path $RepoRoot 'CLAUDE.template.md'
 $MustCap = $ScaffoldConfig.LessonsMustCap   # 必须层（CLAUDE.md「经验铁律」）条数上限——超限须淘汰最不活跃项回按需层
 if ($DryRun -and $Command -ne 'archive') { throw '-DryRun 只适用于 archive 子命令。' }
 
-# 「常驻 CLAUDE 文件引用了某条经验」的**唯一**判定式，与 selftest.ps1 闸 16 的 $refRe 同形：前不接 ASCII
-# 字母/数字/冒号（排除 path:L88 行号），后不接 -<digit>（排除 L52-71 行段）。别退回 '\[(L\d+)\]'——仓里的引用
-# 绝大多数**裸写**（`见 L26 之理`），只认方括号会把常驻文件正在引用的条目搬进冷库，而事后无闸变红
-# （闸 16 按热∪冷判，冷项照样算已定义）。闸 2d(a2) 断言此处与闸 16 从同一份 CLAUDE.md 推出同一 id 集合。
+# 「常驻 CLAUDE 文件引用了某条经验」的**唯一真相源**：前不接 ASCII 字母/数字/冒号（排除 path:L88 行号），
+# 后不接 -<digit>（排除 L52-71 行段）。别退回 '\[(L\d+)\]'——仓里的引用绝大多数**裸写**（`见 L26 之理`），
+# 只认方括号会把常驻文件正在引用的条目搬进冷库，而事后无闸变红（闸 16 按热∪冷判，冷项照样算已定义）。
+# **下面这一行是该判定式在全仓的唯一字面量**：selftest.ps1 闸 16 的 Get-LessonReferenceIdSet 不再另抄一份，
+# 而是从本文件源码里把它抽出来复用（抽不到即 fail-closed 变红），故不存在「两份副本各自漂移」这回事；
+# 闸 2g(a2) 另断言选择器排除面与闸 16 从同一份 CLAUDE.md 推出同一 id 集合（证明选择器真用了它）。
+# 改本行时请一并保持 `$LessonRefRegex = '<模式>'` 这个单引号单行赋值形态——抽取按此形态锚定。
 # 范围简写只保护两端点（`L229–L232` 不保护 L230/L231），见 docs/LESSONS.md §3。
 $LessonRefRegex = '(?<![A-Za-z0-9:])L(\d+)\b(?!-\d)'
 function Get-ResidentLessonRefs {
@@ -450,6 +453,19 @@ switch ($Command) {
 
   'archive' {
     # 选择规则的自然语言权威表述在 docs/LESSONS.md §3 PURIFY（此处只实现，不再复述一遍口径）。
+    # 先验「引用排除面到底有没有输入」。Get-ResidentLessonRefs 对缺失文件是 `continue`，于是「定义受保护集合的
+    # 那个文件不存在」与「确实没有条目被引用」在下游 `-not ContainsKey` 处**不可区分**：一棵有 LEDGER 却没有
+    # CLAUDE.md 的树（或 -RepoRoot 指过去的别的仓）会让整批 tier=ledger / recurrence=1 / 非最高 id 的条目静默
+    # 进候选、被真的搬冷，事后还没有闸会红（闸 16 按热∪冷判，冷项照样算已定义）——与「只认方括号引用」同一
+    # 后果、不同入口。这是本命令唯一的 fail-open 面（非法 meta / 别名 id / 暂存写失败都早已 fail-closed），
+    # 故读不到判据就不给「候选」这个结论：零搬运、非零退出，预览与实跑同口径。
+    # 判据只认 CLAUDE.md 在不在：它是每个仓（元仓与下游）都有的常驻真相源，缺席即受保护集合的主输入没了；
+    # CLAUDE.template.md 只在元仓存在，**单独**缺席属正常形态，不作判据——否则每个下游仓都归不了档。
+    # check 不受此限——它只做诊断、不移动数据，缺文件时按空配置优雅降级（见上面 check 分支的 Test-Path）。
+    if (-not (Test-Path -LiteralPath $ClaudeMd)) {
+      Write-Warning "[LSN-RESIDENT-SOURCE-MISSING] 常驻 $ClaudeMd 不存在——引用排除面失去主输入，拒绝归档（零搬运）。"
+      exit 1
+    }
     $hot = @(Get-Lessons)
     $maxNumber = -1
     foreach ($lesson in $hot) {
@@ -459,6 +475,8 @@ switch ($Command) {
     $referenced = Get-ResidentLessonRefs
     # metaOk 是入选第一条件（理由见顶部 Get-LessonMeta 头注）：读不出来就留热账本，并且**整条命令非零退出**
     # ——同一份账本不能 check 报 1 而 archive 报 0；archive.ps1 的 DryRun 早就是这口径（闸 12e⑥）。
+    # 但这个非零退出**不等于「什么都没发生」**：实跑仍会把合法候选照常搬冷（见文件末尾 exit 1 的位置），
+    # 退出码报告的只是「账本里还有读不出的条目」。调用方别把 exit 1 读成回滚；修好坏条目后重跑幂等。
     $unparsable = @($hot | Where-Object { -not $_.metaOk })
     foreach ($bad in $unparsable) { Write-Warning "[LSN-META-INVALID] $($bad.id) 的规范 meta 行不合法（$($bad.metaError)）——保留在热账本，不进归档候选。" }
     $candidates = @($hot | Where-Object {
@@ -470,14 +488,18 @@ switch ($Command) {
     Write-Host "$(if ($DryRun) { '[LSN-ARCHIVE-DRYRUN]' } else { '[LSN-ARCHIVE]' }) candidates=$candidateText"
     $moverExit = 0
     if ($candidates.Count) {
-      # 预览与实跑走**同一个**搬运器，只差 -DryRun。否则预览只演到「选出了谁」，而搬运器的四类拒绝（别名 id /
-      # 最高 id / 未知 id / 两侧内容不一致）全在这之后：预览报绿，实跑却搬走一部分后非零退出——落差压在数据移动上。
+      # 预览与实跑走**同一个**搬运器，只差 -DryRun。否则预览只演到「选出了谁」，而搬运器自己的拒绝全在这之后：
+      # 预览报绿，实跑却搬走一部分后非零退出——落差压在数据移动上。经**本入口**实际可达的拒绝只有两类：
+      # 非规范别名 id（如 `L02`，闸 2f(a) 有夹具）与「两侧并存但内容不一致」；另两类（拒最高 id / 未知 id）
+      # 在这里结构上不可达——最高 id 已被上面的选择器先行排除，候选又恒取自热账本、搬运器必查得到。
       $archiveScript = Join-Path $PSScriptRoot 'archive.ps1'
       $moverArgs = @('-NoProfile', '-File', $archiveScript, '-RepoRoot', $RepoRoot, '-LessonsOnly', '-LessonIds', ($candidates.id -join ','))
       $moverArgs += if ($DryRun) { '-DryRun' } else { '-Quiet' }
       & pwsh @moverArgs
       $moverExit = $LASTEXITCODE
     }
+    # 顺序即语义：搬运已在上面发生过了。此处的 exit 1 报告「账本里有读不出的条目」，**不表示零搬运**——
+    # 合法候选此刻已经进了冷库（A15 只要求非零退出；预览路径因 -DryRun 天然零写入，两者退出码仍同口径）。
     if ($unparsable.Count) { exit 1 }
     if ($moverExit -ne 0) { exit $moverExit }
   }

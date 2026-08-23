@@ -256,7 +256,9 @@ if ($lessonsUsed) {
     }
     if ($id -notmatch '^L[1-9]\d*$') {
       # F11：只收**规范形式**（无前导零）——`L02` 这类别名经数值匹配会撞上 `L2` 的块，fail-closed 拒绝。
-      Write-Warning "archive.ps1 -LessonIds：非法/非规范 id『$rawId』（须形如 L32，无前导零），已跳过。"
+      # 前缀哨兵是给机检用的：闸 2f(a) 靠「预览里出现了搬运器自己的拒绝」证明 -DryRun 真透传到了本脚本，
+      # 而中文告警文案一旦被改写或在编码链上变字节就会假红/假绿（L165）。中文正文保留给人读，两者并存。
+      Write-Warning "archive.ps1 -LessonIds：[ARCHIVE-LESSON-REJECT-ALIAS] 非法/非规范 id『$rawId』（须形如 L32，无前导零），已跳过。"
       $lessonsReport.Add("  [无效] $rawId"); $lsFailed++; continue
     }
     $n = [int]($id.Substring(1))
