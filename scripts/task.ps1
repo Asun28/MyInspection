@@ -8,8 +8,8 @@
   PR + 合并 → 收尾 → 文档同步 闭环。分阶段执行（编码本身由 Claude/人在 worktree 内做）：
 
     start   : 建 worktree(<WorktreeRoot>\<TaskId>) + 引导环境(uv sync / npm i)，打印 TDD 提醒。
-    ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → Codex 评审(必 pass)
-              → push → 开 PR → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
+    ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → 真实 diff 预算
+              → Codex 评审(必 pass) → push → 开 PR → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
               故本地闸门(DoD/verify/范围/许可/密钥/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
 
@@ -255,7 +255,7 @@ switch ($Phase) {
     # T26-SHIPSAGA 腿完成跟踪：ship 是多腿可重试 saga，任一腿失败须在失败时刻自述进度（TD85 事件实证：四个并发
     # 会话各自从散文重推断状态、其一误判）。有序腿名与下方既有 Step 标签一一对应；只记相内内存、不写盘
     # （ship 幂等可重入，跨进程状态无必要）。catch 只报告后原样 rethrow——异常语义/退出码/失败面均不变。
-    $sagaLegs = @('卡校验', 'DoD', 'verify', '提交', '范围闸', '许可闸', '防泄露闸') + $(if ($Local) { @('R3 评审', '本地合并') } else { @('push+PR', 'R3 评审', '合并') })
+    $sagaLegs = @('卡校验', 'DoD', 'verify', '提交', '范围闸', '许可闸', '防泄露闸', '真实 diff 预算') + $(if ($Local) { @('R3 评审', '本地合并') } else { @('push+PR', 'R3 评审', '合并') })
     $sagaDone = @()
     # 腿间非腿操作的显式追踪（R3 r3 #9）：卡校验→DoD 之间还有预检（评审后端可用性/账号守卫/环境引导）与 RED 证据闸
     # 两段非 Step 操作——只按「首个未完成腿」推断会把这些失败误报成 DoD（TD85 事件正是这样被误判的）；$sagaAt 非空
@@ -501,6 +501,21 @@ switch ($Phase) {
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'secrets' 'check-secrets fatal'; throw '检出疑似机密（见上 check-secrets）。立即轮换密钥、改用环境变量/密钥管理并移除后重 ship（见 docs/SECURITY.md）。' }
       $sagaDone += '防泄露闸'
 
+      Step '真实 diff 预算闸（1000 changed lines 且 60000 chars 内；push/PR/R3 前硬阻断）'
+      $sizeArgs = if ($Local) {
+        @('-WorktreePath', $Wt, '-Base', $Base, '-SizeOnly', '-LocalBase')
+      } else {
+        @('-WorktreePath', $Wt, '-Base', $shipBase, '-SizeOnly')
+      }
+      $sizeOutput = (& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') @sizeArgs 2>&1 | Out-String)
+      $sizeExit = $LASTEXITCODE
+      Write-Host $sizeOutput
+      if ($sizeExit -ne 0) {
+        Add-CatchRecord 'review-size' 'R3 diff budget block'
+        throw '真实 diff 超过单卡/R3 完整读取预算，或预算无法可靠计算。拆卡或修复 git 基线后重 ship；尚未 push、开 PR 或消费 reviewer round。'
+      }
+      $sagaDone += '真实 diff 预算'
+
       if ($Local) {
         # ── -Local：无 push/PR/gh 的本地完成路径（治「T0 throwaway 无远端/无 Codex 也能闭环」）──
         Step 'R3 第二模型评审（-Local：可选——有 codex/ReviewCommand 才跑，无则跳过、仅本地检视）'
@@ -541,6 +556,9 @@ switch ($Phase) {
       }
 
       Step 'push + 开 PR（Codex 评审在 PR 开好后单次运行，兼作回贴状态）'
+      # push 之前是最后一个还能无代价停下的点：一旦推上去，远端就有了一个可能从未过预算闸的提交。
+      # 复核通过后按 **OID → 分支** 的显式 refspec 推送，而不是推「分支现在指向的东西」——
+      # 后者在复核与 push 之间仍留一条 ref 可以移动的缝。
       & git push -u origin $TaskId
       # TD44（载重护栏）：push 静默失败（网络/凭证/非 fast-forward 拒绝）时若续跑，下游 `gh pr merge` 会合并 origin/$TaskId
       # 当前指向的【陈旧】head——与本地刚过闸的产物解耦、把未评审内容并入基线，且 R3 把绿状态回贴到 head 已陈旧的 PR（状态误导）。
@@ -564,6 +582,7 @@ switch ($Phase) {
       $sagaDone += 'push+PR'
 
       Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；block 即停、不合并）'
+      # 正常 R3 必须审预算闸测量过的同一个提交，否则「已测量」与「已评审」会指向两份不同产物。
       & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -PostStatus -PrNumber $pr
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block'; throw 'Codex 裁决 block，已停止。修复后重 ship（PR 已开，重 ship 会更新）。' }
       $sagaDone += 'R3 评审'

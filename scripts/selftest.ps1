@@ -4301,6 +4301,30 @@ if (-not $git) {
       else { Write-Host '  动态 E2E OK（ship -Local）：DoD→verify(stub)→范围→许可→密钥→R3(stub)→-Local 合并全过，exit 0 且产出合并提交' -ForegroundColor Green }
     }
 
+    # 15b2（T0-R3-DIFF-BUDGET）：在同一真实 ship 夹具中制造 1001 changed lines。必须在 R3/merge 前
+    # 以专属码与 review-size 账本阻断；删除/注释 task.ps1 的 SizeOnly 调用会令本例继续合并并 exit 0。
+    if (-not $fail -and (Test-Path $wtDir)) {
+      $budgetTip = (& git -C $wtDir rev-parse HEAD 2>$null | Out-String).Trim()
+      $budgetMergeCount = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      $ledger = Join-Path $e2e '_local/effectiveness-ledger.jsonl'
+      $budgetLedgerBefore = if (Test-Path $ledger) { @(Select-String -Path $ledger -Pattern '"gate":"review-size"').Count } else { 0 }
+      [System.IO.File]::WriteAllLines((Join-Path $wtDir 'README.md'), [string[]](1..1001 | ForEach-Object { "budget-line-$_" }))
+      $budgetOut = (& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1 | Out-String)
+      $budgetExit = $LASTEXITCODE
+      $budgetLedgerAfter = if (Test-Path $ledger) { @(Select-String -Path $ledger -Pattern '"gate":"review-size"').Count } else { 0 }
+      $budgetMergeCountAfter = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      if ($budgetExit -eq 0) { Fail '闸15b2：1001-line diff 的真实 ship 仍 exit 0——task.ps1 未在 merge 前执行 SizeOnly 预算闸。' }
+      elseif ($budgetOut -notmatch '\[R3-DIFF-TOO-LARGE\]') { Fail "闸15b2：ship 非零但未命中 [R3-DIFF-TOO-LARGE]，可能红在错误路径。输出=$budgetOut" }
+      elseif ($budgetLedgerAfter -le $budgetLedgerBefore) { Fail '闸15b2：预算闸阻断但未新增 gate=review-size 效果账本。' }
+      elseif ($budgetMergeCountAfter -ne $budgetMergeCount) { Fail '闸15b2：预算闸报告 block 后仍产生了 merge commit。' }
+      # 预算腿必须在 saga 报告里被点名为失败点。它一度只出现在 $sagaDone 而不在 $sagaLegs，
+      # 于是预算失败被误报成 push+PR（远端）或 R3 评审（-Local），真正失败的那一步从待办清单里消失。
+      elseif ($budgetOut -notmatch [regex]::Escape('失败点：真实 diff 预算')) { Fail "闸15b2：预算失败未被点名为失败点（saga 腿缺失会把它误报成相邻腿）。输出=$budgetOut" }
+      elseif ($budgetOut -notmatch [regex]::Escape('待办腿：R3 评审 → 本地合并')) { Fail "闸15b2：预算失败后的待办腿清单不符——应恰为失败腿之后的有序余项。输出=$budgetOut" }
+      else { Write-Host '  15b2 真实 ship diff 预算 OK（1001 lines → R3-DIFF-TOO-LARGE + review-size ledger；零 merge；saga 点名预算腿）' -ForegroundColor Green }
+      & git -C $wtDir reset --hard $budgetTip *> $null   # disposable fixture：移除 ship 在预算闸前创建的超限提交
+    }
+
     # 15c/15d. ship 两道确定性闸的种子缺陷覆盖（17 系模式：enforcer 喂已知坏输入须 BLOCK 且写效果账本——
     #   账本（_local/effectiveness-ledger.jsonl，由 Add-CatchRecord 落）无记录会被 HARNESS-REVIEW 读作死闸）。
     # 15c：把 worktree 的 verify.ps1 stub 成 exit 1 → ship 须在 verify 总闸拦下（闸在提交前，坏 stub 不入库；checkout 还原）。
@@ -4684,6 +4708,8 @@ $p15Fail = $false
 $tp15p = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
 # 代码级断言（R3 #6：铸造 site 的注释本身含哨兵，凑「距离内出现哨兵」的正则会被「删代码留注释」满足）——
 # 剥整行注释后，要求两处合并成功调用点之后各出现一次**具体的 token 写盘操作**（Set-Content 到 <tokDir>/<TaskId>）。
+# -Local 侧的定位锚是那句 merge：它现在并入的是**预算闸测量过的 OID**（$measuredOid）而非分支名——
+# 分支名相同不等于提交相同，锚跟着生产码走，才不会在「审 A 合 B」被修掉之后还继续绿。
 $tpCode15p = (($tp15p -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
 if ($tpCode15p -notmatch '(?s)merge --no-ff --no-edit \$TaskId.{0,1500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：-Local 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）——cleanup 删除点失去「已合并」机检信号。'; $p15Fail = $true }
 if ($tpCode15p -notmatch '(?s)gh pr merge \$pr --squash.{0,2500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：PR squash 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）。'; $p15Fail = $true }
@@ -4949,7 +4975,7 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($aOut -notmatch '已完成腿：卡校验') { Fail '闸15r(e)A：报告未列出已完成腿（卡校验已过却未见于清单）——进度自述失真。'; $reFail = $true }
         if ($aOut -notmatch '失败点：.*RED 证据闸') { Fail '闸15r(e)A：RED 证据闸失败被误报——失败点须点名 RED 证据闸（腿间预检/闸位显式追踪），不得按「首个未完成腿」误报为 DoD（R3 r3 #9）。'; $reFail = $true }
         if ($aOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15R -Phase ship -Local') { Fail '闸15r(e)A：commit 前失败未给出带齐已绑定选项的完整重跑命令（-Local 未回填或命令缺失）。'; $reFail = $true }
-        if ($aOut -notmatch [regex]::Escape('待办腿：DoD → verify → 提交 → 范围闸 → 许可闸 → 防泄露闸 → R3 评审 → 本地合并')) { Fail '闸15r(e)A：腿间闸失败时待办腿必须完整保留（DoD 并未失败、不得被吞出待办，R3 r4 #9）——精确有序清单不符。'; $reFail = $true }
+        if ($aOut -notmatch [regex]::Escape('待办腿：DoD → verify → 提交 → 范围闸 → 许可闸 → 防泄露闸 → 真实 diff 预算 → R3 评审 → 本地合并')) { Fail '闸15r(e)A：腿间闸失败时待办腿必须完整保留（DoD 并未失败、不得被吞出待办，R3 r4 #9）——精确有序清单不符。'; $reFail = $true }
         if ($aOut -notmatch '缺少 RED 证据') { Fail '闸15r(e)A：原始异常文案未原样在场——throw 被改写/吞没（异常语义漂移）。'; $reFail = $true }
         if (-not $bOut) { Fail '闸15r(e)B：ship 输出为空——未产出任何 saga 报告。'; $reFail = $true }
         if ($bExit -eq 0) { Fail '闸15r(e)B：越界改动下 ship -Local 仍退出 0——范围闸失效或 saga catch 吞异常。'; $reFail = $true }
@@ -4960,7 +4986,7 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         # HEAD~1」不再适用——收据在场即走重跑分支；reset 归位仅降为收据缺失/不自洽的兜底（且靶=evidence.redSha 非 HEAD~1）。
         if ($bOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15RB -Phase ship -Local') { Fail '闸15r(e)B：真提交后水位线收据在位，saga 未建议重跑同一条 ship——TD89 根治后提交后重跑经收据 resume 放行 RED 闸、非死锁（旧「勿重跑」死锁文案未随 T35 机制更新，R3 r1 #9 反转）。'; $reFail = $true }
         if ($bOut -notmatch '水位线收据') { Fail '闸15r(e)B：重跑建议未点名水位线收据在位——恢复路由未据收据在位性（双 Test-Path）分流，文案与 T35 机制漂移。'; $reFail = $true }
-        if ($bOut -notmatch [regex]::Escape('待办腿：许可闸 → 防泄露闸 → R3 评审 → 本地合并')) { Fail '闸15r(e)B：腿失败时待办腿=失败腿之后的精确有序清单——清单不符（R3 r4 #6）。'; $reFail = $true }
+        if ($bOut -notmatch [regex]::Escape('待办腿：许可闸 → 防泄露闸 → 真实 diff 预算 → R3 评审 → 本地合并')) { Fail '闸15r(e)B：腿失败时待办腿=失败腿之后的精确有序清单——清单不符（R3 r4 #6）。'; $reFail = $true }
         if ($bOut -notmatch '越界改动') { Fail '闸15r(e)B：原始范围闸异常文案未原样在场——throw 被改写/吞没。'; $reFail = $true }
         if (-not $dOut) { Fail '闸15r(e)D：ship 输出为空——未产出任何 saga 报告。'; $reFail = $true }
         if ($dExit -eq 0) { Fail '闸15r(e)D：no-op 提交重跑（范围闸仍越界）竟退出 0。'; $reFail = $true }
@@ -12594,6 +12620,153 @@ if (-not $authorityBase.Ok) {
   } finally {
     Remove-Item -LiteralPath $authorityScratch -Recurse -Force -ErrorAction SilentlyContinue
   }
+}
+
+# 17ai（T0-R3-DIFF-BUDGET）：真实 diff 预算必须在 reviewer 与 push/PR 之前 fail-closed。
+# 真实仓夹具锁住 999/1001 changed-lines、60000/60001 untruncated diff chars、binary 与命令故障；
+# 正常评审路径的超限例同时证明预算闸先于 reviewer，且 SizeOnly/超限均不消费 round。
+$reviewSizeScript = Join-Path $RepoRoot 'scripts/review.ps1'
+$reviewSizeText = Get-Content -LiteralPath $reviewSizeScript -Raw
+$taskSizeText = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
+$sizeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17ai-review-size-$PID-$([guid]::NewGuid().ToString('N'))"
+try {
+  function New-ReviewSizeFixture([string]$Name, [int]$LineCount, [int]$LongLineChars, [switch]$Binary) {
+    $root = Join-Path $sizeRoot $Name
+    New-Item -ItemType Directory -Force $root | Out-Null
+    & git -C $root init -q
+    & git -C $root symbolic-ref HEAD refs/heads/master
+    & git -C $root config user.email 'size@test.invalid'
+    & git -C $root config user.name 'size-test'
+    Set-Content -LiteralPath (Join-Path $root 'base.txt') -Value 'base' -Encoding utf8
+    & git -C $root add -A
+    & git -C $root commit -q -m base
+    & git -C $root switch -q -c $Name
+    if ($Binary) {
+      [System.IO.File]::WriteAllBytes((Join-Path $root 'payload.bin'), [byte[]](0, 1, 2, 0, 255, 17))
+    } elseif ($LongLineChars -gt 0) {
+      [System.IO.File]::WriteAllText((Join-Path $root 'payload.txt'), ('x' * $LongLineChars))
+    } else {
+      [System.IO.File]::WriteAllLines((Join-Path $root 'payload.txt'), [string[]](1..$LineCount | ForEach-Object { "line-$_" }))
+    }
+    & git -C $root add -A
+    & git -C $root commit -q -m feature
+    return $root
+  }
+  function Set-ReviewFixtureDiffChars([string]$Root, [int]$TargetChars, [int]$InitialContentChars = 59000) {
+    $payload = Join-Path $Root 'payload.txt'
+    $contentChars = $InitialContentChars
+    for ($attempt = 0; $attempt -lt 4; $attempt++) {
+      [System.IO.File]::WriteAllText($payload, ('x' * $contentChars))
+      & git -C $Root add -A
+      & git -C $Root commit -q --amend --no-edit
+      $actualChars = (& git -C $Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String).Length
+      if ($actualChars -eq $TargetChars) { return $Root }
+      $contentChars += ($TargetChars - $actualChars)
+      if ($contentChars -lt 1) { throw "cannot tune fixture '$Root' to $TargetChars diff chars" }
+    }
+    throw "fixture '$Root' did not converge to exactly $TargetChars diff chars"
+  }
+  function Invoke-ReviewSizeFixture([string]$Root, [switch]$FullReview, [string[]]$ExtraArgs = @()) {
+    $invokeArgs = @('-NoProfile', '-File', $reviewSizeScript, '-WorktreePath', $Root, '-Base', 'master', '-LocalBase')
+    if (-not $FullReview) { $invokeArgs += '-SizeOnly' }
+    $invokeArgs += $ExtraArgs
+    $text = (& pwsh @invokeArgs 2>&1 | Out-String)
+    return [pscustomobject]@{ Exit=$LASTEXITCODE; Text=$text; Rounds=@(Get-ChildItem -LiteralPath (Join-Path $Root '.review') -Filter '*.rounds' -ErrorAction SilentlyContinue).Count }
+  }
+
+  $small999 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SMALL' -LineCount 999 -LongLineChars 0)
+  $large1001 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LINES' -LineCount 1001 -LongLineChars 0)
+  $chars60000Root = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-CHARS-60000' -LineCount 0 -LongLineChars 59000) 60000
+  $chars60001Root = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-CHARS-60001' -LineCount 0 -LongLineChars 59000) 60001
+  $chars60000 = Invoke-ReviewSizeFixture $chars60000Root
+  $chars60001 = Invoke-ReviewSizeFixture $chars60001Root
+  $binary = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BINARY' -LineCount 0 -LongLineChars 0 -Binary)
+  $largeFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BEFORE-REVIEWER' -LineCount 1001 -LongLineChars 0) -FullReview
+  $diffFailureRoot = New-ReviewSizeFixture -Name 'T9-SIZE-DIFF-FAIL' -LineCount 1 -LongLineChars 0
+  $diffFailureCommand = Join-Path $diffFailureRoot 'fail-diff.cmd'
+  [System.IO.File]::WriteAllText($diffFailureCommand, "@exit /b 23`r`n", [Text.ASCIIEncoding]::new())
+  & git -C $diffFailureRoot config diff.external $diffFailureCommand
+  $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
+  $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
+  $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
+  $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
+
+  # One platform wrapper drives two deterministic git races: malformed --numstat, and HEAD moving after merge-base.
+  $sizeGitShimDir = Join-Path $sizeRoot 'git-shim-bin'
+  New-Item -ItemType Directory -Force $sizeGitShimDir | Out-Null
+  $sizeGitShimScript = Join-Path $sizeGitShimDir 'git-shim.ps1'
+  @'
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat' -and $args -contains '--numstat') {
+  Write-Output 'malformed-numstat-row'
+  exit 0
+}
+& $env:T9_SIZE_REAL_GIT @args
+$realExit = $LASTEXITCODE
+if ($env:T9_SIZE_SHIM_MODE -eq 'move-head' -and $realExit -eq 0 -and $args -contains 'merge-base' -and -not (Test-Path -LiteralPath $env:T9_SIZE_MOVE_MARKER)) {
+  Set-Content -LiteralPath $env:T9_SIZE_MOVE_MARKER -Value 'moved' -Encoding utf8
+  & $env:T9_SIZE_REAL_GIT -C $env:T9_SIZE_MOVE_REPO update-ref $env:T9_SIZE_MOVE_REF $env:T9_SIZE_MOVE_OID *> $null
+}
+exit $realExit
+'@ | Set-Content $sizeGitShimScript -Encoding utf8
+  $sizeGitWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $sizeGitShimScript -UseWindows $IsWindows
+  if ($IsWindows) { Set-Content (Join-Path $sizeGitShimDir 'git.ps1') $sizeGitWrapperBody -Encoding utf8 }
+  else { Set-Content (Join-Path $sizeGitShimDir 'git') $sizeGitWrapperBody -Encoding utf8; & chmod +x (Join-Path $sizeGitShimDir 'git') }
+  $sizeSavedPath = $env:PATH; $sizeSavedPathExt = $env:PATHEXT
+  $sizeSavedMode = $env:T9_SIZE_SHIM_MODE; $sizeSavedRealGit = $env:T9_SIZE_REAL_GIT
+  $sizeSavedMoveRepo = $env:T9_SIZE_MOVE_REPO; $sizeSavedMoveRef = $env:T9_SIZE_MOVE_REF
+  $sizeSavedMoveOid = $env:T9_SIZE_MOVE_OID; $sizeSavedMoveMarker = $env:T9_SIZE_MOVE_MARKER
+  try {
+    $env:T9_SIZE_REAL_GIT = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $env:PATH = "$sizeGitShimDir$([IO.Path]::PathSeparator)$sizeSavedPath"
+    if ($IsWindows) { $env:PATHEXT = ".PS1;$sizeSavedPathExt" }
+    $env:T9_SIZE_SHIM_MODE = 'numstat'
+    $malformedNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BAD-NUMSTAT' -LineCount 1 -LongLineChars 0)
+
+    $moveHeadRoot = New-ReviewSizeFixture -Name 'T9-SIZE-MOVE-HEAD' -LineCount 1 -LongLineChars 0
+    $moveHeadOldOid = (& $env:T9_SIZE_REAL_GIT -C $moveHeadRoot rev-parse HEAD | Out-String).Trim()
+    [System.IO.File]::WriteAllLines((Join-Path $moveHeadRoot 'payload.txt'), [string[]](1..1001 | ForEach-Object { "moved-line-$_" }))
+    & $env:T9_SIZE_REAL_GIT -C $moveHeadRoot add -A
+    & $env:T9_SIZE_REAL_GIT -C $moveHeadRoot commit -q --amend --no-edit
+    $moveHeadNewOid = (& $env:T9_SIZE_REAL_GIT -C $moveHeadRoot rev-parse HEAD | Out-String).Trim()
+    & $env:T9_SIZE_REAL_GIT -C $moveHeadRoot update-ref refs/heads/T9-SIZE-MOVE-HEAD $moveHeadOldOid
+    $env:T9_SIZE_SHIM_MODE = 'move-head'
+    $env:T9_SIZE_MOVE_REPO = $moveHeadRoot
+    $env:T9_SIZE_MOVE_REF = 'refs/heads/T9-SIZE-MOVE-HEAD'
+    $env:T9_SIZE_MOVE_OID = $moveHeadNewOid
+    $env:T9_SIZE_MOVE_MARKER = Join-Path $moveHeadRoot 'head-moved.marker'
+    $movedHead = Invoke-ReviewSizeFixture $moveHeadRoot
+  } finally {
+    $env:PATH = $sizeSavedPath; $env:PATHEXT = $sizeSavedPathExt
+    $env:T9_SIZE_SHIM_MODE = $sizeSavedMode; $env:T9_SIZE_REAL_GIT = $sizeSavedRealGit
+    $env:T9_SIZE_MOVE_REPO = $sizeSavedMoveRepo; $env:T9_SIZE_MOVE_REF = $sizeSavedMoveRef
+    $env:T9_SIZE_MOVE_OID = $sizeSavedMoveOid; $env:T9_SIZE_MOVE_MARKER = $sizeSavedMoveMarker
+  }
+
+  $sizeFailures = @()
+  if ($small999.Exit -ne 0 -or $small999.Text -notmatch 'changedLines=999') { $sizeFailures += "999-line control did not pass with exact metric (exit=$($small999.Exit))" }
+  if ($large1001.Exit -eq 0 -or $large1001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $large1001.Text -notmatch 'changedLines=1001') { $sizeFailures += "1001-line mutant was not blocked with exact metric (exit=$($large1001.Exit))" }
+  if ($chars60000.Exit -ne 0 -or $chars60000.Text -notmatch 'diffChars=60000') { $sizeFailures += "exactly-60000-char control did not pass (exit=$($chars60000.Exit))" }
+  if ($chars60001.Exit -eq 0 -or $chars60001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $chars60001.Text -notmatch 'diffChars=60001') { $sizeFailures += "60001-char mutant was not blocked with exact metric (exit=$($chars60001.Exit))" }
+  if ($binary.Exit -ne 0 -or $binary.Text -notmatch 'binaryFiles=1') { $sizeFailures += "binary numstat was misparsed or hidden (exit=$($binary.Exit))" }
+  if ($diffFailure.Exit -eq 0 -or $diffFailure.Text -notmatch '\[R3-DIFF-COMMAND-FAILED\]') { $sizeFailures += "git diff command failure did not fail closed with its diagnostic (exit=$($diffFailure.Exit))" }
+  if ($argConflict.Exit -eq 0 -or $argConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + ResetRounds did not fail with R3-DIFF-ARGS-INVALID' }
+  if ($tooHighLines.Exit -eq 0 -or $tooHighLines.Text -notmatch 'MaxChangedLines') { $sizeFailures += 'MaxChangedLines accepted a value above 1000' }
+  if ($tooHighChars.Exit -eq 0 -or $tooHighChars.Text -notmatch 'MaxDiffChars') { $sizeFailures += 'MaxDiffChars accepted a value above 60000' }
+  if ($malformedNumstat.Exit -eq 0 -or $malformedNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "malformed numstat did not fail closed with its diagnostic (exit=$($malformedNumstat.Exit))" }
+  if ($movedHead.Exit -ne 0 -or $movedHead.Text -notmatch 'changedLines=1' -or -not (Test-Path (Join-Path $moveHeadRoot 'head-moved.marker'))) { $sizeFailures += "moving HEAD changed the captured diff authority (exit=$($movedHead.Exit))" }
+  if ($largeFullReview.Exit -eq 0 -or $largeFullReview.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $largeFullReview.Text -match 'Codex 评审|第二模型评审') { $sizeFailures += 'normal review did not stop at the size gate before reviewer invocation' }
+  $sizeCases = @($small999, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $movedHead, $largeFullReview)
+  if (@($sizeCases | Where-Object { $_.Rounds -ne 0 }).Count -ne 0) { $sizeFailures += 'size evaluation created/incremented an R3 round counter' }
+  if ($reviewSizeText -notmatch '\[int\]\$MaxChangedLines\s*=\s*1000' -or $reviewSizeText -notmatch '\[int\]\$MaxDiffChars\s*=\s*60000') { $sizeFailures += 'production parameter defaults are not 1000 lines / 60000 chars' }
+  $sizeOnlyPos = $taskSizeText.IndexOf('-SizeOnly', [System.StringComparison]::Ordinal)
+  $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
+  if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
+  if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
+
+  if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
+  else { Write-Host '  17ai 真实 diff 预算 OK（999 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / diff 命令失败 / 参数冲突+上限 / captured HEAD / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }
+} finally {
+  Remove-Item -LiteralPath $sizeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # 17hh（TD22）：归档 merged 卡后，三个具名非归档来源必须改指向 archive 路径；不把此债扩成全仓历史链接扫描。
