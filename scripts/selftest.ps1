@@ -1733,10 +1733,10 @@ try {
     '## 必载经验（标题已漂移）',
     '- **[L901][L902][L903][L904][L905][L906][L907][L908][L909][L910][L911]** 11 个驻留 id，远超上限', '', '## 下一节') -join "`n") -Encoding utf8
   $driftOut = (& pwsh -NoProfile -File $l2dLessons check 2>&1 | Out-String); $driftExit = $LASTEXITCODE
-  if ($okExit -ne 0) { Fail "闸2d(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
-  elseif ($driftExit -eq 0) { Fail "闸2d：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
-  elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2d：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
-  else { Write-Host '  2d lessons.ps1 check 分节 fail-closed OK（标题漂移 → 非零 + [LESSONS-SECTION-NOT-FOUND]；小节在场仍 PASS）' -ForegroundColor Green }
+  if ($okExit -ne 0) { Fail "闸2h(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
+  elseif ($driftExit -eq 0) { Fail "闸2h：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
+  elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
+  else { Write-Host '  2h lessons.ps1 check 分节 fail-closed OK（标题漂移 → 非零 + [LESSONS-SECTION-NOT-FOUND]；小节在场仍 PASS）' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2dRepo -ErrorAction SilentlyContinue
 }

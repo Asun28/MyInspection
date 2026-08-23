@@ -58,7 +58,7 @@ acceptance_notes: |
     A1  scripts/selftest.ps1 闸 2a（生产路径，两个期望值各自精确断言、且断言二者不相等）
     A2  scripts/triage.ps1 用例 5（foreach 两侧边界，阈值全部由 $MustCap 算出）
     A3  scripts/triage.ps1 用例 5 的 $bulletCount 前置断言（两侧夹具各跑一次）
-    A4  scripts/selftest.ps1 闸 2d（正例仍 PASS + 负例非零且带 [LESSONS-SECTION-NOT-FOUND]）；探针侧 = 用例 5b
+    A4  scripts/selftest.ps1 闸 2h（正例仍 PASS + 负例非零且带 [LESSONS-SECTION-NOT-FOUND]）；探针侧 = 用例 5b
     A5  scripts/triage.ps1 用例 6（L901 降层 / L903 不晋升 / L902 none 不降层 / L904 空字段须晋升，四条各一断言）
     A6  同上 L905（TODO，tier must，不得降层）与 L906（N/A，tier ledger，须晋升）+ lessons.ps1 check 的
         Test-ScaffoldLessonEnforcedByWellFormed 闸与其自检探针；**中文取值方向 = 用例 6b**（见下）
