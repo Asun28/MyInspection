@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   Shared decision core for the Tier-1 lessons section: which rules are resident in CLAUDE.md's
@@ -70,10 +70,23 @@ function Test-ScaffoldLessonGuarded {
     the sanctioned `none（reason）` form, an empty field, and placeholders such as TODO / N/A / 待补 /
     见 PR 讨论 alike.
 
+    Both of those two alternatives are spelled out character by character, because the generic spelling
+    over-matches in the OPPOSITE direction and this ledger is Chinese prose:
+      - the path side is [A-Za-z0-9._-], not [\w.-]. .NET's \w is Unicode-aware and matches CJK, so
+        `[\w.-]{2,}[\\/][\w.-]{2,}` read any Chinese phrase carrying a slash as "a repo path" -
+        `人工/评审`, `手动/人工核验`, `见 PR #183 的讨论/结论`. A repo path is ASCII here; a phrase is not.
+      - the gate side demands an actual id after the keyword, not `\S`. `闸\s*\S` accepted `闸` followed
+        by ANY character, so `无闸门（只能靠人）` - which says in as many words that there is no gate -
+        read as GUARDED, and `gate 讨论` with it. An id is ASCII alphanumeric or one of the enclosed
+        alphanumerics (U+2460-U+24FF) this repo already writes its gate numbers with (`闸⑯`, `gate ⑧`);
+        that block contains no ideographs, so admitting it cannot reopen the CJK hole. `\s+` stays
+        required after the ASCII keyword so `gateway` is not a gate reference.
+
     Fail-closed both ways, which is why it is an allowlist. Reading an unrecognised value as "guarded"
     drops that lesson from the promote probe (the one lesson most needing a guard vanishes from the
     heartbeat), and if it is already tier: must it hands the demote probe the line "机器已在守它：TODO" -
-    the heartbeat arguing to delete a guardless iron rule. lessons.ps1 `check` rejects the same
+    or, worse, "机器已在守它：无闸门（只能靠人）" - the heartbeat arguing to delete a guardless iron rule
+    while quoting the words "there is no gate" as its evidence. lessons.ps1 `check` rejects the same
     unrecognised forms outright, so they cannot accumulate in the ledger.
   #>
   [CmdletBinding()]
@@ -81,7 +94,9 @@ function Test-ScaffoldLessonGuarded {
   if ([string]::IsNullOrWhiteSpace($EnforcedBy)) { return $false }
   $v = $EnforcedBy.Trim()
   if ($v -match $ScaffoldNoGuardDeclRe) { return $false }
-  return ($v -match '(?i)(\.(ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)\b|[\w.-]{2,}[\\/][\w.-]{2,}|\bgate\s+\S|闸\s*\S)')
+  # 闸编号的字符类写成 \u 转义而非字面圈码（L193：不可见/易错码位只写转义形态，落盘可逐字节复核）。
+  # ①-⓿ = Enclosed Alphanumerics，整块无表意文字，故收它进来不会重开中文那个口子。
+  return ($v -match '(?i)(\.(ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)\b|[A-Za-z0-9._-]{2,}[\\/][A-Za-z0-9._-]{2,}|\bgate\s+[0-9A-Za-z\u2460-\u24FF]|闸\s*[0-9A-Za-z\u2460-\u24FF])')
 }
 
 function Test-ScaffoldLessonEnforcedByWellFormed {
@@ -91,9 +106,10 @@ function Test-ScaffoldLessonEnforcedByWellFormed {
   .DESCRIPTION
     Three legal forms and nothing else: empty (a non-blocking lesson may leave it blank), the sanctioned
     `none（reason）` declaration, or a guard reference Test-ScaffoldLessonGuarded recognises. A value that
-    is none of those - TODO, N/A, 待补, 见 PR 讨论 - is a placeholder impersonating a declaration, and the
-    ledger is where it would sit forever. Rejecting it at the gate is what keeps the guarded/unguarded
-    judgement above meaningful.
+    is none of those - TODO, N/A, 待补, 见 PR 讨论, and equally the Chinese ones 无闸门（只能靠人） /
+    人工/评审 / 未定/待议 - is a placeholder impersonating a declaration, and the ledger is where it would
+    sit forever. Rejecting it at the gate is what keeps the guarded/unguarded judgement above meaningful.
+    Note this gate inherits every character-class decision made above: it delegates, it does not re-judge.
   #>
   [CmdletBinding()]
   param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)

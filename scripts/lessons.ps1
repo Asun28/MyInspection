@@ -257,24 +257,34 @@ switch ($Command) {
     $blkNoEnf = $ls | Where-Object { $_.severity -eq 'blocking' -and -not $_.enforced_by }
     if ($blkNoEnf) { Write-Warning "blocking 经验缺 enforced_by（须填机械守卫路径，或 'none（理由）'）：$($blkNoEnf.id -join ', ')"; $fail = $true } else { Write-Host 'enforced_by 完整（blocking 均已声明守卫）✓' }
     # enforced_by **形态**可认（fail-closed）：非空、又既不是 'none（理由）' 也不是认得出的守卫引用的取值
-    #   （TODO / N/A / 待补 / 见 PR 讨论）是**冒充了一次声明**——它让上面那道「blocking 必填」闸满意，
+    #   （TODO / N/A / 待补 / 见 PR 讨论，以及中文的 无闸门（只能靠人）/ 人工/评审 / 未定/待议）
+    #   是**冒充了一次声明**——它让上面那道「blocking 必填」闸满意，
     #   于是这条经验此后既不会被追问、也不再被晋升探针提名。故在入口直接拒：写真守卫，或写 none（理由）。
     $badEnf = @($ls | Where-Object { -not (Test-ScaffoldLessonEnforcedByWellFormed $_.enforced_by) })
     if ($badEnf.Count) { Write-Warning "enforced_by 取值认不出是机械守卫（占位符一律拒绝；请写脚本路径 / 闸编号，或写 'none（理由）'）：$(($badEnf | ForEach-Object { "$($_.id)=$($_.enforced_by)" }) -join ' ｜ ')"; $fail = $true } else { Write-Host 'enforced_by 形态可认（非空取值皆为守卫引用或 none（理由））✓' }
     # enforced_by 判据自检（确定性 fixture，不依赖总账内容）：守卫判定必须**双向**成立且对未知取值 fail-closed——
     #   真脚本路径/闸编号判有守卫；none（理由）、空字段、以及 TODO/N/A/待补 这类占位符一律判**无**守卫。
     #   少了占位符那一段，「已有守卫」就能被一个待办事项冒充（上游 issue #183 的反面）。
+    #   **中文取值同样要判对**：总账是中文散文，而 .NET 的 \w 认 CJK、`闸\s*\S` 认闸后任意字符，于是
+    #   「人工/评审」曾被读成仓库路径、「无闸门（只能靠人）」（字面就是「没有闸门」）曾被读成**已有守卫**。
+    #   反方向也要钉：本仓真在用的圈码闸编号（闸⑯ / gate ⑧）必须仍判有守卫，收紧不能连带拒真引用。
     $guardProbeOk = (Test-ScaffoldLessonGuarded 'scripts/review.ps1') -and
                     (Test-ScaffoldLessonGuarded 'selftest 闸 10g（大小写负夹具）') -and
+                    (Test-ScaffoldLessonGuarded 'selftest 闸⑯') -and
                     -not (Test-ScaffoldLessonGuarded 'none（本条只能靠人）') -and
                     -not (Test-ScaffoldLessonGuarded '') -and
                     -not (Test-ScaffoldLessonGuarded 'TODO') -and
                     -not (Test-ScaffoldLessonGuarded 'N/A') -and
                     -not (Test-ScaffoldLessonGuarded '待补') -and
+                    -not (Test-ScaffoldLessonGuarded '无闸门（只能靠人）') -and
+                    -not (Test-ScaffoldLessonGuarded '人工/评审') -and
+                    -not (Test-ScaffoldLessonGuarded '闸，靠人') -and
+                    -not (Test-ScaffoldLessonGuarded 'gate 讨论') -and
                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
+                    -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
                     (Test-ScaffoldLessonEnforcedByWellFormed '') -and
                     (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）')
-    if ($guardProbeOk) { Write-Host 'enforced_by 守卫判定自检（真引用/none/空/占位符 四类各判对）✓' } else { Write-Warning 'enforced_by 守卫判定回归（Test-ScaffoldLessonGuarded：真引用未判有守卫，或 none/空/占位符被误判为已有守卫——fail-open 方向）。'; $fail = $true }
+    if ($guardProbeOk) { Write-Host 'enforced_by 守卫判定自检（真引用/圈码闸号/none/空/ASCII 占位符/中文伪守卫 各判对）✓' } else { Write-Warning 'enforced_by 守卫判定回归（Test-ScaffoldLessonGuarded：真引用或圈码闸号未判有守卫，或 none/空/占位符/中文伪守卫（无闸门…、人工/评审）被误判为已有守卫——fail-open 方向）。'; $fail = $true }
     # search 语义自检（确定性 fixture，不依赖总账内容）：多词=AND 全命中、缺一词即不命中、单词行为不变——
     #   守 search 的召回契约（selftest 闸② 借道本命令免费回归）。
     $probeOk = (Test-AllTermsMatch 'alpha beta gamma' @('alpha', 'gamma')) -and

@@ -554,6 +554,36 @@ if ($Verb -eq 'selfcheck') {
     if ($proWhat -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
     if ($proWhat -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
     if ($proWhat -notmatch 'L906') { $fails.Add('用例6 占位符 enforced_by: N/A 的 L906 未被提名——认不出的取值被误读成「已有守卫」（fail-open）') }
+
+    # ── 用例 6b：**中文**取值的守卫判定（用例 6 的反方向；总账本就是中文散文）──
+    # 用例 6 只覆盖了 ASCII 占位符，于是收紧成允许清单后仍有一个反向的 fail-open：判定核用 .NET 正则，
+    # 而 .NET 的 \w 是 Unicode 感知的——`[\w.-]{2,}[\\/][\w.-]{2,}` 把任何**含斜杠的中文短语**读成
+    # 「仓库路径」（人工/评审、手动/人工核验、见 PR #183 的讨论/结论）；`闸\s*\S` 又把「闸」后面的
+    # **任意**字符当闸编号，于是「无闸门（只能靠人）」——字面意思就是没有闸门——被判成**已有守卫**，
+    # 降层探针遂打出「机器已在守它：无闸门（只能靠人）」：一边引用「没有闸门」四个字、一边据此主张
+    # 删掉一条本就无守卫的铁律。这正是 _lessons.ps1 自己的注释点名要防的那种灾难。
+    # L165：每种形态各一枚夹具，且各配一枚**单句**变异（放宽对应字符类即可让本用例变红），故失败文案逐条分开写。
+    # 反方向的 L911 同样重要：收紧不能连带拒掉本仓真在用的圈码闸编号（闸⑯ / gate ⑧）。
+    $fx6b = Join-Path $fxRoot 'ledger-cjk.md'
+    Set-Content -Path $fx6b -Encoding utf8 -Value @(
+      '## L907 中文「无闸门」的必须层', '- tier: must', '- severity: blocking', '- enforced_by: 无闸门（只能靠人）', '',
+      '## L908 中文斜杠短语的总账层', '- tier: ledger', '- severity: blocking', '- enforced_by: 人工/评审', '',
+      '## L909 闸后跟标点的总账层', '- tier: ledger', '- severity: blocking', '- enforced_by: 闸，靠人', '',
+      '## L910 gate 后跟中文的总账层', '- tier: ledger', '- severity: blocking', '- enforced_by: gate 讨论', '',
+      '## L911 圈码闸编号的总账层', '- tier: ledger', '- severity: blocking', '- enforced_by: selftest 闸⑯', '')
+    $Ledger = $fx6b
+    $findings.Clear(); Invoke-ProbeLessonsDemote
+    $demWhat6b = ((@($findings | Where-Object probe -eq 'lessons-demote')) | ForEach-Object what) -join ' '
+    if ($demWhat6b -match 'L907') { $fails.Add('用例6b 中文「无闸门（只能靠人）」的 L907 被提名降层——心跳把「没有闸门」四个字当成了「机器已在守它」的证据（闸 分支认闸后任意字符，fail-open）') }
+    $findings.Clear(); Invoke-ProbeLessons
+    $pro6b = @($findings | Where-Object probe -eq 'lessons-promote')
+    $proWhat6b = ($pro6b | ForEach-Object what) -join ' '
+    if ($pro6b.Count -ne 3) { $fails.Add("用例6b 期望恰 3 条 lessons-promote（L908/L909/L910 三种中文伪守卫），实得 $($pro6b.Count)") }
+    if ($proWhat6b -notmatch 'L908') { $fails.Add('用例6b 中文斜杠短语「人工/评审」的 L908 未被提名晋升——.NET 的 \w 认 CJK，含斜杠的中文短语被读成仓库路径（fail-open）') }
+    if ($proWhat6b -notmatch 'L909') { $fails.Add('用例6b 「闸，靠人」的 L909 未被提名晋升——闸 后面跟的是标点不是闸编号，却被读成闸引用（fail-open）') }
+    if ($proWhat6b -notmatch 'L910') { $fails.Add('用例6b 「gate 讨论」的 L910 未被提名晋升——gate 后面跟的是中文不是闸编号，却被读成闸引用（fail-open）') }
+    if ($proWhat6b -match 'L911') { $fails.Add('用例6b 圈码闸编号「selftest 闸⑯」的 L911 被提名晋升——收紧连带拒掉了本仓真在用的闸引用形态（fail-closed 过头，会把真守卫报成没守卫）') }
+
     # ── 用例 7：批量窗口的边界（$PromoteBatchSize 恰好 vs 超一条）──
     # 阈值判据用的是 -gt，故「恰好等于」必须仍逐条报、「多一条」才切成一条批量 finding。
     # 只测其中一侧会让 off-by-one 静默存活（-ge 与 -gt 在 N 条时才分道）。
@@ -665,7 +695,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+去重键 OS 语义+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/占位符与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+去重键 OS 语义+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }

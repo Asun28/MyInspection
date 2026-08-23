@@ -61,7 +61,7 @@ acceptance_notes: |
     A4  scripts/selftest.ps1 闸 2d（正例仍 PASS + 负例非零且带 [LESSONS-SECTION-NOT-FOUND]）；探针侧 = 用例 5b
     A5  scripts/triage.ps1 用例 6（L901 降层 / L903 不晋升 / L902 none 不降层 / L904 空字段须晋升，四条各一断言）
     A6  同上 L905（TODO，tier must，不得降层）与 L906（N/A，tier ledger，须晋升）+ lessons.ps1 check 的
-        Test-ScaffoldLessonEnforcedByWellFormed 闸与其自检探针
+        Test-ScaffoldLessonEnforcedByWellFormed 闸与其自检探针；**中文取值方向 = 用例 6b**（见下）
     A7  scripts/triage.ps1 用例 7      A8 用例 4      A9 用例 8      A10 用例 9      A12 用例 9b
     A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
     A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
@@ -71,6 +71,21 @@ acceptance_notes: |
     变异的守卫」处理：删掉该恒等调用、键改为 $vf.FullName，并把注释里「Windows 路径大小写不敏感」这句普适宣称
     换成按 OS 取比较器的实际规则。A11 的另一半（大小写不同的目录段仍只报 1 条 + 比较器换 Ordinal 即红）由
     用例 9b 满足，实测该枚变异击杀。
+  A6 的**反方向补洞**（R3 再评审 rr127 的唯一 block，已修）：把 A6 从否定清单改成允许清单时，只覆盖了
+    ASCII 占位符，允许清单本身却朝反方向过宽——判定核用 .NET 正则，而 .NET 的 `\w` **认 CJK**，于是
+    `[\w.-]{2,}[\\/][\w.-]{2,}` 把任何含斜杠的中文短语读成「仓库路径」（人工/评审、手动/人工核验、
+    见 PR #183 的讨论/结论）；`闸\s*\S` 又把「闸」后的**任意**字符当闸编号，于是 `无闸门（只能靠人）`
+    ——字面就是「没有闸门」——被判成**已有守卫**。总账是中文散文，这两种形态是常态而非边角。后果直达
+    探针 10：`<id> 坐在必须层…但机器已在守它：无闸门（只能靠人）`，一边引用「没有闸门」四个字、一边据此
+    主张删掉一条本就无守卫的铁律——正是 `_lessons.ps1` 自己注释里点名要防的那种灾难。
+    修法：路径分支收成 ASCII `[A-Za-z0-9._-]`，闸分支要求其后是**真编号**（ASCII 字母数字，或本仓在用的
+    圈码 `闸⑯`/`gate ⑧`，即 U+2460-U+24FF——整块无表意文字，故收它不会重开中文那个口子）；`gate` 后
+    保留 `\s+` 以免 `gateway` 变成闸引用。**实测：真实 LEDGER 全部 195 条 enforced_by 取值改前改后判定
+    逐条一致**（133 空 / 36 none / 26 有守卫 / 0 拒绝，改前改后同数、零条裁决翻转），六种中文 fail-open
+    形态全部关闭。新增夹具落在 scripts/triage.ps1 用例 6b：L907（无闸门（只能靠人），tier must，不得降层）
+    · L908（人工/评审，须晋升）· L909（闸，靠人，须晋升）· L910（gate 讨论，须晋升）· L911（selftest 闸⑯，
+    tier ledger 但**有**守卫，不得晋升——钉住「收紧不得连带拒真引用」这一侧）；lessons.ps1 的守卫自检探针
+    同步加这五种取值。
   两处措辞说明（清单逐字保留，不就地改写）：① A4 里的 `Get-ScaffoldMustLayerBullet` 已随本轮更名为
     `Get-ScaffoldMustLayerSection`（同一枚判定核，多返回 Found/Reason 两个字段，好让「标题没找到」与
     「小节在、零驻留」可分辨）；② A9/A10/A13 里的 `<RepoRoot>` / `<id>.json` 是路径**形态**记号，
@@ -95,6 +110,16 @@ hygiene: |
     ⑰ 去重比较器写死 `OrdinalIgnoreCase`（**只在大小写敏感 FS 上可判**：Linux 上两份不同裁决被并成一条；
        由 CI 的 ubuntu-latest `core` 分片经闸 12c 覆盖，Windows 本地跑判 SKIP 而非 KILL）
     ⑱ `_cards.ps1` 去掉 `\uFEFF?` 锚点后带 BOM 的卡 front-matter 解析成 null（常设闸 10d(BOM/纯函数)）
+  用例 6b（中文取值方向）另五枚，靶均为 `_lessons.ps1` 守卫判定那一行、每枚只动一处字符类，且**两两独立**
+  （任一枚只让它对应的那条用例变红）；分类器要求 **DoD 非零退出 且 命中该用例自己那句失败文案**——只认
+  id 会被用例 6b 的条数汇总行冒充（那行同时含 L908/L909/L910 三个 id），首轮就是这么误判的，收紧后重跑：
+    ⑲ 路径分支退回 `[\w.-]`（.NET 的 \w 认 CJK）  → L908 未被提名晋升
+    ⑳ 闸分支字符类放进「门」                      → L907 被提名降层
+    ㉑ 闸分支字符类放进全角逗号                    → L909 未被提名晋升
+    ㉒ `\bgate\s+` 之后退回 `\S`                   → L910 未被提名晋升
+    ㉓ 闸分支去掉 U+2460-U+24FF 圈码范围           → L911 被提名晋升（收紧过头，真守卫报成没守卫）
+    ㉔ 整行退回改前拼法                            → lessons.ps1 check 打出「enforced_by 守卫判定回归」并非零退出
+  ⑲-㉔ 6/6 击杀；批次全程只写 `%TEMP%` 副本，跑完核工作树四个被测脚本 SHA-256 与基线逐字节一致（L196）。
 doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层表 Tier-1 容量格 + PURIFY 步骤 ·
   .claude/skills/lessons/SKILL.md 三层描述 + PURIFY 步骤 · scripts/_config.ps1 的 LessonsMustCap 定义处注释 ·
   scripts/lessons.ps1 与 scripts/triage.ps1 的头注（子命令说明 / 探针清单）· docs/LOOP-ENGINEERING.md 与
