@@ -8,7 +8,7 @@ branch: T0-LESSONS-CAP-UNIT
 worktree: C:\wt\T0-LESSONS-CAP-UNIT
 allow_paths:
   # 横切卡（L97）：改的是「必须层驻留规则怎么计量」这条规则本身，教它的面一次扫齐——
-  # 判定核 / 两个消费者 / 接线闸 / 三处教学面。>5 是横切的固有形态，非 scoping 失误。
+  # 判定核 / 两个消费者 / 接线闸 / 教学面。>5 是横切的固有形态，非 scoping 失误。
   - scripts/_lessons.ps1
   - scripts/lessons.ps1
   - scripts/_cards.ps1
@@ -19,6 +19,14 @@ allow_paths:
   - docs/DELIVERY-CHAINS.md
   - .claude/skills/triage/SKILL.md
   - specs/tasks/T0-LESSONS-CAP-UNIT.md
+  # 2026-08-23 扩围：pre-R3 独立复核（Opus 5）扫出 L97 清单**漏了五处权威面**，它们仍在教被本卡
+  # 废止的「条数」单位、或仍按旧探针数枚举心跳。L97 明写这类面须**一次性纳入 allow_paths**，
+  # 分两张卡扫必然多打一轮 R3，故就地扩围而非另开卡（扩围落在 pinned base = master，符合范围闸语义）。
+  - docs/LESSONS.md                     # :10 三层表 Tier-1 容量格仍写「封顶 N 条」——权威文档 #4
+  - .claude/skills/lessons/SKILL.md     # :18 同上；:33 PURIFY 步骤写「必须层≤上限」
+  - scripts/_config.ps1                 # :140 LessonsMustCap 定义处注释仍写「封顶条数」；本卡注释三次指向它
+  - docs/HARNESS-REVIEW.md              # :137 自动触发点只列三枚探针，新探针的 next 串却指回本文
+  - docs/scaffold-architecture.html     # :468 心跳节点枚举 8 枚探针，缺新增两枚
 forbid:
   - 抬高 `LessonsMustCap`
   - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`；心跳恒离线、退出码恒 0）
