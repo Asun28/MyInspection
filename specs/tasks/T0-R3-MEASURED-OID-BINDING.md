@@ -19,8 +19,11 @@ non_goals:
   - 并发 ship 的锁机制或多会话协调
   - PR base 分支漂移（已由既有 Assert-RemotePrBase 覆盖）
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
-  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 -SizeOnly 以机器可读形式交回本次实际测量的完整 40 位 OID，一枚夹具断言其等于测量时的 HEAD"
   - "A2 task.ps1 解析该 OID 并钉住；解析不到即以专属码 fail-closed（不得默默继续），一枚缺失夹具证明之"
   - "A3 分支引用漂移即停：SizeOnly 之后任务分支引用被移动，下一个对外副作用之前以 [R3-DIFF-TIP-MOVED] 阻断"

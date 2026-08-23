@@ -20,8 +20,11 @@ non_goals:
   - 修改 Android 产品代码或 Gradle 依赖
   - 发布应用、商店提交或外部交付
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
-  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   # 本清单由 2026-08-23 的 pre-R3 独立复核（Opus 5 读全量 diff）产出——本卡 diff 实测 213,186 字符、
   # 远超 review.ps1:297 的 6 万字符首屏 cap，故 R3 只能读到约 28%；封闭清单是那道缺口的补偿控制。
   - "A1 selftest 接线判定的是可执行调用而非字符串：断言须认 CommandAst 的被调命令为 pwsh 且其 -File 实参 extent 含 license-scanner-check.ps1；把 selftest 里那行整行换成引用同一命令文本的 Write-Host，必须以 [INTEGRATION-SELFTEST-WIRING] 变红（只比 CommandAst.Extent.Text 会把字符串字面量判为调用）"

@@ -20,7 +20,11 @@ non_goals:
   - 改 review.ps1 的卡片注入方式（现已整卡 raw 注入，acceptance 天然可见）
   - 退役 *-R3-CLOSURE 卡（R5 的活，随各自母卡走）
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 字段登记：specs/README.md 的 front-matter 字段表新增 acceptance 一行，说明它是**可选**的封闭验收集合，且明确「清单即完成定义、清单外是 [FOLLOW-UP]」这一语义"
   - "A2 模板落地：specs/tasks/_TEMPLATE.md 含注释态的 acceptance 示例块，示例条目形如 A1/A2 且演示夹具级精度（含具体数值与 ASCII 哨兵各一例）"
   - "A3 形态机检：check-cards.ps1 在卡片含 acceptance 时校验它是至少 3 条的字符串序列，任一条不是字符串即以 [CARD-ACCEPTANCE-INVALID] 非零退出"

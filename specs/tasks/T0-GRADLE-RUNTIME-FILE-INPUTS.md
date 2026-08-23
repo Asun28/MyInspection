@@ -22,7 +22,11 @@ non_goals:
   - 修 ComplianceEngineTest 里 `findRepositoryFile` 从 user.dir 向上走的实现形态（本卡只补输入声明，路径解析形态另议）
   - 给 android/app/ 或其它模块做同类排查
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 缺陷可复现（RED 先行）：在补声明之前，改动 configs/compliance/nz-rules-v1.json 的 exemptTypes 后直接跑 `:core:test --tests \"nz.myinspection.core.compliance.*\"`，记录其 **exit 0 且 task 报 UP-TO-DATE**；同一改动加 `--rerun-tasks` 后 exit 1 且失败文案含 `[INGOING, EXIT, ANNUAL]`——两条退出码与两段文案都落进卡片证据，证明假绿真实存在而非推测"
   - "A2 声明后同一复现必红：补上输入声明后，**不加** `--rerun-tasks` 重跑同一改动，exit 必须为 1；还原改动后 exit 回 0。两次都断言退出码精确值"
   - "A3 声明面取自实测而非猜测：用 `grep -rn 'findRepositoryFile\\|user.dir\\|File(\"\\.\\./' android/core/src/test` 的全量命中列出**每一处**在运行期读仓内文件的测试，逐处判定其读取目标并登记；清单落进卡片，新增同类读取须同时登记声明"

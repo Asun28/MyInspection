@@ -35,7 +35,11 @@ non_goals:
   - fleet 回路与探针 12 `scaffold-stale`（那是 `T0-SCAFFOLD-FLEET-LOOP`，本卡的下一张）
   - 必须层减法本身（上一张卡 `T0-LESSONS-TIER1-CUT` 已做完）
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 生产路径的计量单位：lessons.ps1 check 对真实 CLAUDE.md 同时断言驻留 id 数 == 9 与承载条目数 == 7，两个数各断言精确值——只断言 id=9 证不出「单位换了」"
   - "A2 封顶两侧边界：驻留 id 恰好 == cap 出 minor 且文案含「达封顶」，== cap+1 出 major 且文案含「超封顶」，两侧各一枚 hermetic 夹具。夹具内把 cap **注入**成一个小值（免于造 11 个 id），但两侧的 id 数必须由该注入变量算出（cap 与 cap+1），**不得出现 3/4 这类字面量**；生产常量 LessonsMustCap 的取值不参与本夹具，改它不应让本用例变色"
   - "A3 旧口径必须在同一夹具下仍绿：A2 的**两枚**夹具都须满足「markdown 条目数 ≤ cap」——超封顶那枚驻留 id 数 > cap，达封顶那枚 == cap（不是两枚都 > cap，那与 A2 的 minor 侧自相矛盾）——且该前提本身有断言，否则夹具证不了新口径"
