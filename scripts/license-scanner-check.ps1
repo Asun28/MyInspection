@@ -11,6 +11,19 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
+# 本脚本不能靠 `. $ScannerPath -AsLibrary` 继承前奏：check-licenses.ps1 在 `-AsLibrary` 处提前 return，
+# 前奏写在那两行**之后**（house gate 1g 对库脚本的既定形态）。本脚本的 stdout 现在含中文，父进程
+# （selftest / task.ps1）在非 UTF-8 Windows 控制台上会按 OEM 解码，断言遂假红。故自行 dot-source，
+# 并已登记进 selftest 闸 1g 的 $encScripts（该闸的计数从清单派生，无字面量要改）。
+
+# -SkipRealScan 只对 integration 有意义：其余套件收下它却完全忽略，调用方以为省掉了真实扫描。
+# 这道守卫排在 `. $ScannerPath -AsLibrary` **之前**——无效调用不该先把整个扫描器加载进来再被拒。
+# 失败面是 ASCII 码而非散文（L165：机检读哨兵）；它由 integration 套件从子进程验证，并配一枚删除变异。
+if ($SkipRealScan -and $Suite -ne 'integration') {
+  Write-Error "[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan is valid only for -Suite integration (got '$Suite')"
+  exit 1
+}
 
 $failures = [System.Collections.Generic.List[string]]::new()
 function Assert-Graph {
@@ -22,10 +35,6 @@ function Assert-Graph {
 }
 
 . $ScannerPath -AsLibrary
-
-if ($SkipRealScan -and $Suite -ne 'integration') {
-  throw '-SkipRealScan is valid only for the integration suite.'
-}
 
 if ($Suite -eq 'integration') {
   $integrationFailures = [System.Collections.Generic.List[string]]::new()
@@ -47,12 +56,163 @@ if ($Suite -eq 'integration') {
   $policyText = [System.IO.File]::ReadAllText($policyPath)
   $releaseText = [System.IO.File]::ReadAllText($releasePath)
 
-  # Break caught (R3 round 2): these assertions used to read raw file text, so a commented-out call,
-  # a commented-out YAML step, or a leftover `$f = 'scripts/check-licenses.ps1'` string satisfied them
-  # while the actual wiring was gone. An assertion that a *disabled* gate satisfies is not a gate.
-  # So: PowerShell is judged by its AST (comments are not in the AST), YAML/Markdown by visible,
-  # uniquely anchored active lines. Get-IntegrationWiringFailures is pure over its inputs precisely
-  # so the mutation block below can feed it commented/deleted variants and demand the exact codes.
+  # 这一段的**判据形态**是本卡两轮 R3 的病灶所在，结论写在最前面：
+  #   ① PowerShell 侧判「调用」，不判「文本」。`CommandAst.Extent.Text` 覆盖它的全部实参（字符串
+  #      字面量在内），于是 `Write-Host "run: …license-scanner-check.ps1 -Suite integration…"` 同时
+  #      满足了 WIRING 与 COLD 两条断言（实测 scannerCommands=1 / integrationCalls=1 / coldCalls=1）
+  #      ——上一版换成 AST 只去掉了「注释」这一种失效形态，没去掉「提到即算数」。现在要求：命令名
+  #      是 pwsh、存在 `-File` 参数、且绑定到 `-File` 的**实参**指向本脚本。
+  #   ② YAML 侧把 `run:` 块当 PowerShell 解析，解出**真正被执行的那个路径**。旧谓词
+  #      `pwsh[^\r\n]*check-licenses\.ps1` 里的 `pwsh` 来自调用、`check-licenses.ps1` 来自
+  #      `Write-Error` 的消息串，同行即绿：把 `$f` 换成 `scripts/check-cards.ps1`、或把整句调用
+  #      注释到行尾，两种改法实测都保持绿（`^\s*#` 只排除整行注释）。
+  #   ③ 「这一步是活的」写成**正面契约**：顶层键集恰好 name/if/shell/run，且 `if:` 逐字等于姊妹闸
+  #      E2E verify gate 用的那条表达式。不写「禁止 continue-on-error / if: false」式黑名单——
+  #      黑名单证明不了别名不存在（同型断言在 PR #124 两度被 block）。
+  # Get-IntegrationWiringFailures 对输入纯函数，正是为了让下面的变异块喂进注释/删除/改写/移位变体，
+  # 并要求它抬起**恰好**那一组失败码。
+
+  # ci.yml 里 License gate 与其姊妹闸共用的运行条件（逐字）。两处都要等于它：只写「等于姊妹闸」会让
+  # 「两处一起改成 ${{ false }}」保持绿，故把这条表达式本身钉成字面量。
+  $expectedGateCondition = '${{ steps.docs_scope.outputs.docs_only != ''true'' }}'
+  # License gate 真正必须执行的脚本路径（ci.yml 的 run: 块里解析出来的字面量）。
+  $expectedGateScript = 'scripts/check-licenses.ps1'
+
+  function Get-BoundParameter {
+    param(
+      [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
+      [Parameter(Mandatory)][string]$Name
+    )
+    # 返回 $null = 该参数不在这条命令上；否则返回 @{ Argument = <实参 Ast 或 $null（开关形态）> }。
+    # `-File value` 的实参是下一个元素；`-File:value` 挂在参数节点自己身上。
+    $elements = @($Command.CommandElements)
+    for ($i = 0; $i -lt $elements.Count; $i++) {
+      $element = $elements[$i]
+      if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
+      if (-not [string]::Equals($element.ParameterName, $Name, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+      if ($null -ne $element.Argument) { return [PSCustomObject]@{ Argument = $element.Argument } }
+      if ($i + 1 -lt $elements.Count -and $elements[$i + 1] -isnot [System.Management.Automation.Language.CommandParameterAst]) {
+        return [PSCustomObject]@{ Argument = $elements[$i + 1] }
+      }
+      return [PSCustomObject]@{ Argument = $null }
+    }
+    return $null
+  }
+
+  function Get-AstLiteralValue {
+    param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Node)
+    # 裸词与带引号的字符串都归一成同一个值；其它形态退回原文，交给调用方按原文判。
+    if ($Node -is [System.Management.Automation.Language.StringConstantExpressionAst]) { return $Node.Value }
+    return $Node.Extent.Text
+  }
+
+  function Test-ScannerCheckInvocation {
+    param([Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command)
+    # 「是不是真的在调本脚本」= 命令名是 pwsh（`& pwsh` 同解）+ 有 -File + 其实参提到本脚本文件名。
+    if (-not [string]::Equals($Command.GetCommandName(), 'pwsh', [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $file = Get-BoundParameter -Command $Command -Name 'File'
+    if ($null -eq $file -or $null -eq $file.Argument) { return $false }
+    return ($file.Argument.Extent.Text -match 'license-scanner-check\.ps1')
+  }
+
+  function Resolve-ExecutedFilePath {
+    param(
+      [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
+      [Parameter(Mandatory)][hashtable]$Literals
+    )
+    # 返回这条 `pwsh … -File <expr>` 真正会执行的路径字面量：直接量取其值，变量查同块内的字面量赋值；
+    # 都解不出就返回 $null（= 无法证明它执行了目标脚本，按 fail-closed 处理）。
+    if (-not [string]::Equals($Command.GetCommandName(), 'pwsh', [System.StringComparison]::OrdinalIgnoreCase)) { return $null }
+    $file = Get-BoundParameter -Command $Command -Name 'File'
+    if ($null -eq $file -or $null -eq $file.Argument) { return $null }
+    $argument = $file.Argument
+    if ($argument -is [System.Management.Automation.Language.StringConstantExpressionAst]) { return $argument.Value }
+    if ($argument -is [System.Management.Automation.Language.VariableExpressionAst]) {
+      $name = $argument.VariablePath.UserPath
+      if ($Literals.ContainsKey($name)) { return [string]$Literals[$name] }
+    }
+    return $null
+  }
+
+  function Get-WorkflowStepLines {
+    param(
+      [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines,
+      [Parameter(Mandatory)][int]$Start
+    )
+    # 一个 step 从它的 `- name:` 行起，到下一个**同级或更浅**的序列项前一行止。
+    $stepLines = [System.Collections.Generic.List[string]]::new()
+    if ($Start -lt 0 -or $Start -ge $Lines.Count) { return $stepLines.ToArray() }
+    $indent = if ($Lines[$Start] -match '^(?<indent>[ \t]*)-[ \t]') { $Matches.indent.Length } else { 0 }
+    $stepLines.Add($Lines[$Start])
+    for ($i = $Start + 1; $i -lt $Lines.Count; $i++) {
+      if ($Lines[$i] -match '^(?<indent>[ \t]*)-[ \t]' -and $Matches.indent.Length -le $indent) { break }
+      $stepLines.Add($Lines[$i])
+    }
+    return $stepLines.ToArray()
+  }
+
+  function Get-WorkflowStepKeys {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StepLines)
+    # 只收该 step 的**顶层**映射键：`- name:` 行上的那个，以及与它同列（破折号后两列）的后续键。
+    # 更深缩进的行属于块标量或子映射，不是这一步的键。
+    $keys = [ordered]@{}
+    if ($StepLines.Count -eq 0) { return $keys }
+    if ($StepLines[0] -notmatch '^(?<indent>[ \t]*)-[ \t]+(?<key>[A-Za-z][A-Za-z0-9_-]*):(?<value>.*)$') { return $keys }
+    $keyColumn = $Matches.indent.Length + 2
+    $keys[$Matches.key] = $Matches.value.Trim()
+    for ($i = 1; $i -lt $StepLines.Count; $i++) {
+      if ($StepLines[$i] -notmatch '^(?<indent>[ \t]*)(?<key>[A-Za-z][A-Za-z0-9_-]*):(?<value>.*)$') { continue }
+      if ($Matches.indent.Length -ne $keyColumn) { continue }
+      $keys[$Matches.key] = $Matches.value.Trim()
+    }
+    return $keys
+  }
+
+  function Get-WorkflowRunScript {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StepLines)
+    # `run: |` 之后、缩进比 `run:` 深的连续行即块标量；不做去缩进（PowerShell 解析器不在乎前导空白，
+    # 而去缩进会破坏块内的 here-string）。
+    $runIndex = -1
+    $runIndent = 0
+    for ($i = 0; $i -lt $StepLines.Count; $i++) {
+      if ($StepLines[$i] -match '^(?<indent>[ \t]*)run:[ \t]*\|[ \t]*$') { $runIndex = $i; $runIndent = $Matches.indent.Length; break }
+    }
+    if ($runIndex -lt 0) { return $null }
+    $body = [System.Collections.Generic.List[string]]::new()
+    for ($i = $runIndex + 1; $i -lt $StepLines.Count; $i++) {
+      $line = $StepLines[$i]
+      if ([string]::IsNullOrWhiteSpace($line)) { $body.Add(''); continue }
+      $indent = ($line -replace '^(?<indent>[ \t]*).*$', '${indent}').Length
+      if ($indent -le $runIndent) { break }
+      $body.Add($line)
+    }
+    return ($body -join "`n")
+  }
+
+  function Move-WorkflowStepBefore {
+    param(
+      [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+      [Parameter(Mandatory)][string]$Step,
+      [Parameter(Mandatory)][string]$Before
+    )
+    # 变异用：把整个 step 块搬到另一个 step 之前（只搬 `- name:` 一行会连带砍掉它的 run: 块，
+    # 那样一枚变异会同时抬起 SEQUENCE 与 CI-SCANNER，证不了排序这一条）。
+    $lines = @($Text -split "`n")
+    $stepPattern = '^[ \t]*-[ \t]+name:[ \t]+' + [regex]::Escape($Step) + '[ \t]*$'
+    $beforePattern = '^[ \t]*-[ \t]+name:[ \t]+' + [regex]::Escape($Before) + '[ \t]*$'
+    $stepIndex = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match $stepPattern })
+    if ($stepIndex.Count -ne 1) { return $Text }
+    $block = @(Get-WorkflowStepLines -Lines $lines -Start $stepIndex[0])
+    $remaining = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($i -lt $stepIndex[0] -or $i -ge ($stepIndex[0] + $block.Count)) { $lines[$i] } })
+    $target = @(0..($remaining.Count - 1) | Where-Object { $remaining[$_] -match $beforePattern })
+    if ($target.Count -ne 1) { return $Text }
+    $moved = @(for ($i = 0; $i -lt $remaining.Count; $i++) {
+      if ($i -eq $target[0]) { $block }
+      $remaining[$i]
+    })
+    return ($moved -join "`n")
+  }
+
   function Get-IntegrationWiringFailures {
     param(
       [Parameter(Mandatory)][AllowEmptyString()][string]$SelftestText,
@@ -62,21 +222,39 @@ if ($Suite -eq 'integration') {
     )
     $found = [System.Collections.Generic.List[string]]::new()
 
-    # --- selftest.ps1: judged by AST, so commented-out calls simply do not exist ---
+    # --- selftest.ps1：判的是被执行的命令，不是提到它的文本 ---
     $selftestAst = [System.Management.Automation.Language.Parser]::ParseInput($SelftestText, [ref]$null, [ref]$null)
-    $scannerCommands = @($selftestAst.FindAll({
+    $selftestCommands = @($selftestAst.FindAll({
       param($node) $node -is [System.Management.Automation.Language.CommandAst]
-    }, $true) | Where-Object { $_.Extent.Text -match 'license-scanner-check\.ps1' })
-    $integrationCalls = @($scannerCommands | Where-Object { $_.Extent.Text -match '-Suite\s+integration' }).Count
-    if ($integrationCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-WIRING] expected exactly one active integration-suite invocation in selftest.ps1, found $integrationCalls") }
-    $coldCalls = @($scannerCommands | Where-Object { $_.Extent.Text -match '-Suite\s+integration' -and $_.Extent.Text -match '-SkipRealScan' }).Count
+    }, $true))
+    $scannerCommands = @($selftestCommands | Where-Object { Test-ScannerCheckInvocation -Command $_ })
+    $integrationCalls = @($scannerCommands | Where-Object {
+      $suite = Get-BoundParameter -Command $_ -Name 'Suite'
+      $null -ne $suite -and $null -ne $suite.Argument -and (Get-AstLiteralValue -Node $suite.Argument) -ceq 'integration'
+    })
+    if ($integrationCalls.Count -ne 1) { $found.Add("[INTEGRATION-SELFTEST-WIRING] expected exactly one executed integration-suite invocation in selftest.ps1, found $($integrationCalls.Count)") }
+    $coldCalls = @($integrationCalls | Where-Object { $null -ne (Get-BoundParameter -Command $_ -Name 'SkipRealScan') }).Count
     if ($coldCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-COLD] expected the seeded integration invocation to pass -SkipRealScan, found $coldCalls") }
-    $inlineFixtureRefs = @($selftestAst.FindAll({
-      param($node) $node -is [System.Management.Automation.Language.VariableExpressionAst]
-    }, $true) | Where-Object { $_.VariablePath.UserPath -eq 'scannerFixtureRoot' }).Count
-    if ($inlineFixtureRefs -ne 0) { $found.Add("[INTEGRATION-SELFTEST-INLINE] legacy inline scanner fixture still live in selftest.ps1 ($inlineFixtureRefs reference(s))") }
 
-    # --- ci.yml: a step counts only as an active sequence item; a commented '- name:' is not one ---
+    # 旧 INLINE 断言是**变量名黑名单**（「不得存在名为 scannerFixtureRoot 的变量」）：改个名字整棵
+    # 1400 行 fixture 就能原样回来，而配套变异恰恰只证明了黑名单条目本身生效。这里判**行为**——
+    # 写文件的命令，其目标路径以 gradlew / gradlew.bat 收尾，就是在就地重建那棵 wrapper 发行树。
+    # 只看**目标路径**实参，不看整条命令的文本：闸 17dd 会把含 `.\gradlew.bat …` 的 verify.ps1 内容
+    # 写进临时暂存文件，那是合法的、目标路径与 gradlew 无关的写入。
+    $fixtureWriters = @($selftestCommands | Where-Object {
+      $name = $_.GetCommandName()
+      $null -ne $name -and @('Set-Content', 'New-Item', 'Out-File', 'Copy-Item') -contains $name
+    } | Where-Object {
+      $target = $null
+      foreach ($parameterName in @('LiteralPath', 'Path', 'Destination')) {
+        $bound = Get-BoundParameter -Command $_ -Name $parameterName
+        if ($null -ne $bound -and $null -ne $bound.Argument) { $target = $bound.Argument.Extent.Text; break }
+      }
+      $null -ne $target -and $target -match 'gradlew(\.bat)?[''"]\)*[ \t]*$'
+    })
+    if ($fixtureWriters.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-INLINE] selftest.ps1 still constructs a Gradle wrapper fixture in-line ($($fixtureWriters.Count) file-writing command(s) whose target path ends in gradlew/gradlew.bat)") }
+
+    # --- ci.yml：步骤只在它是一个活的序列项时才算数 ---
     $workflowLines = @($WorkflowText -split '\r?\n')
     $orderedSteps = @(
       'Setup Java (Temurin 17)',
@@ -90,31 +268,86 @@ if ($Suite -eq 'integration') {
     foreach ($step in $orderedSteps) {
       $pattern = '^\s*-\s+name:\s+' + [regex]::Escape($step) + '\s*$'
       $hits = @(0..($workflowLines.Count - 1) | Where-Object { $workflowLines[$_] -match $pattern })
-      if ($hits.Count -ne 1) { $found.Add("[INTEGRATION-CI-ORDER] expected exactly one active '- name: $step' step in ci.yml, found $($hits.Count)"); continue }
+      if ($hits.Count -ne 1) { $found.Add("[INTEGRATION-CI-ORDER-COUNT] expected exactly one active '- name: $step' step in ci.yml, found $($hits.Count)"); continue }
       $stepLine[$step] = $hits[0]
     }
+    # 计数与排序拆成两个码：两枚既有变异都只是删/注释掉 `- name: License gate`，两枚都落在计数这一支，
+    # 于是卡片的头号 dod_assert（scanner 排在 JDK/Android/Gradle setup 与在线预热之后）此前一枚变异都没有。
     $previous = -1
     foreach ($step in $orderedSteps) {
       if (-not $stepLine.ContainsKey($step)) { continue }
-      if ($stepLine[$step] -le $previous) { $found.Add("[INTEGRATION-CI-ORDER] step '$step' is out of order in ci.yml") }
+      if ($stepLine[$step] -le $previous) { $found.Add("[INTEGRATION-CI-ORDER-SEQUENCE] step '$step' is out of order in ci.yml") }
       $previous = $stepLine[$step]
     }
-    # The License gate must actually *execute* the scanner. Assigning its path to a variable is not
-    # execution: the previous assertion stayed green after the `pwsh -File $f` line had been deleted.
-    if ($stepLine.ContainsKey('License gate') -and $stepLine.ContainsKey('E2E verify gate')) {
-      $gateBody = @($workflowLines[$stepLine['License gate']..($stepLine['E2E verify gate'] - 1)])
-      $executes = @($gateBody | Where-Object { $_ -notmatch '^\s*#' -and $_ -match 'pwsh[^\r\n]*check-licenses\.ps1' }).Count
-      if ($executes -lt 1) { $found.Add('[INTEGRATION-CI-SCANNER] License gate has no active line that executes scripts/check-licenses.ps1') }
+
+    if ($stepLine.ContainsKey('License gate')) {
+      $gateLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine['License gate'])
+      $gateKeys = Get-WorkflowStepKeys -StepLines $gateLines
+      $expectedGateKeys = @('name', 'if', 'shell', 'run')
+      $actualGateKeys = @($gateKeys.Keys)
+      if (($actualGateKeys -join ',') -cne ($expectedGateKeys -join ',')) {
+        $found.Add("[INTEGRATION-CI-ACTIVE] License gate top-level keys are {$($actualGateKeys -join ',')}, expected exactly {$($expectedGateKeys -join ',')}")
+      } elseif ($gateKeys['if'] -cne $expectedGateCondition) {
+        $found.Add("[INTEGRATION-CI-ACTIVE] License gate runs under condition '$($gateKeys['if'])', expected exactly '$expectedGateCondition'")
+      }
+
+      # 必须**执行**扫描器，而且执行的就是那个路径。旧谓词只是「同一行里既有 pwsh 又有
+      # check-licenses.ps1」，`pwsh` 来自调用、`check-licenses.ps1` 来自 Write-Error 的消息串。
+      $runScript = Get-WorkflowRunScript -StepLines $gateLines
+      if ([string]::IsNullOrWhiteSpace($runScript)) {
+        $found.Add('[INTEGRATION-CI-SCANNER] License gate has no run: block to execute the scanner from')
+      } else {
+        $runAst = [System.Management.Automation.Language.Parser]::ParseInput($runScript, [ref]$null, [ref]$null)
+        $literals = @{}
+        foreach ($assignment in $runAst.FindAll({
+          param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst]
+        }, $true)) {
+          if ($assignment.Left -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
+          if ($assignment.Right -isnot [System.Management.Automation.Language.CommandExpressionAst]) { continue }
+          if ($assignment.Right.Expression -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { continue }
+          $literals[$assignment.Left.VariablePath.UserPath] = $assignment.Right.Expression.Value
+        }
+        $executedPaths = @($runAst.FindAll({
+          param($node) $node -is [System.Management.Automation.Language.CommandAst]
+        }, $true) | ForEach-Object { Resolve-ExecutedFilePath -Command $_ -Literals $literals } | Where-Object { $null -ne $_ })
+        $scannerRuns = @($executedPaths | Where-Object { $_ -ceq $expectedGateScript }).Count
+        if ($scannerRuns -lt 1) {
+          $found.Add("[INTEGRATION-CI-SCANNER] License gate never executes $expectedGateScript (resolved pwsh -File targets: $(if ($executedPaths.Count -eq 0) { '<none>' } else { $executedPaths -join ', ' }))")
+        }
+      }
+    }
+    if ($stepLine.ContainsKey('E2E verify gate')) {
+      $siblingKeys = Get-WorkflowStepKeys -StepLines @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine['E2E verify gate'])
+      if (-not $siblingKeys.Contains('if') -or $siblingKeys['if'] -cne $expectedGateCondition) {
+        $found.Add("[INTEGRATION-CI-ACTIVE] sibling gate 'E2E verify gate' no longer carries the pinned condition '$expectedGateCondition' — the pin above is no longer the sibling's expression")
+      }
     }
 
-    # --- docs: the command must sit on a visible line, not inside an HTML comment ---
-    foreach ($doc in @(
-      @{ Code = 'INTEGRATION-POLICY-DOC'; Name = 'docs/LICENSE-POLICY.md'; Text = $PolicyText },
-      @{ Code = 'INTEGRATION-RELEASE-DOC'; Name = 'docs/RELEASE-CHECKLIST.md'; Text = $ReleaseText }
-    )) {
-      $visible = [regex]::Replace($doc.Text, '(?s)<!--.*?-->', '')
-      $hits = @($visible -split '\r?\n' | Where-Object { $_ -match 'license-scanner-check\.ps1\s+-Suite\s+integration' }).Count
-      if ($hits -lt 1) { $found.Add("[$($doc.Code)] $($doc.Name) has no visible line documenting the integration audit command") }
+    # --- docs：命令必须落在**具体那一条**上，不是文件里随便哪一行 ---
+    $integrationCommand = 'license-scanner-check.ps1 -Suite integration'
+    # RELEASE-CHECKLIST：锚到闸 17ee 逐字节钉死的那条哨兵项本身（17ee 管「单一解锁路径」的措辞，
+    # 这里管「审计命令写在同一条上」；不重复 17ee 的哈希，只要求二者指的是同一行）。
+    $releaseVisible = @([regex]::Replace($ReleaseText, '(?s)<!--.*?-->', '') -split '\r?\n')
+    $releaseSentinelLines = @($releaseVisible | Where-Object { $_.Contains('[GRADLE-LIC-SCANNER-ONLY]') })
+    if ($releaseSentinelLines.Count -ne 1) {
+      $found.Add("[INTEGRATION-RELEASE-DOC] docs/RELEASE-CHECKLIST.md 的可见 [GRADLE-LIC-SCANNER-ONLY] 项应恰好 1 条，实得 $($releaseSentinelLines.Count)")
+    } elseif (-not $releaseSentinelLines[0].Contains($integrationCommand)) {
+      $found.Add("[INTEGRATION-RELEASE-DOC] docs/RELEASE-CHECKLIST.md 的 [GRADLE-LIC-SCANNER-ONLY] 项没有写出 $integrationCommand")
+    }
+    # LICENSE-POLICY：锚到 §5「核验流程」这一节内（`^##\s` 不会匹配 `### 5.1`，故 5.1 仍属本节）。
+    $policyVisible = @([regex]::Replace($PolicyText, '(?s)<!--.*?-->', '') -split '\r?\n')
+    $policySectionStarts = @(0..($policyVisible.Count - 1) | Where-Object { $policyVisible[$_] -match '^##\s+5\.\s' })
+    if ($policySectionStarts.Count -ne 1) {
+      $found.Add("[INTEGRATION-POLICY-DOC] docs/LICENSE-POLICY.md 没有唯一的「## 5.」核验流程小节（实得 $($policySectionStarts.Count) 处）")
+    } else {
+      $sectionEnd = $policyVisible.Count
+      for ($i = $policySectionStarts[0] + 1; $i -lt $policyVisible.Count; $i++) {
+        if ($policyVisible[$i] -match '^##\s') { $sectionEnd = $i; break }
+      }
+      $sectionLines = @($policyVisible[$policySectionStarts[0]..($sectionEnd - 1)])
+      if (@($sectionLines | Where-Object { $_.Contains($integrationCommand) }).Count -lt 1) {
+        $found.Add("[INTEGRATION-POLICY-DOC] docs/LICENSE-POLICY.md 的「## 5. 核验流程」小节没有写出 $integrationCommand")
+      }
     }
 
     return $found.ToArray()
@@ -124,41 +357,73 @@ if ($Suite -eq 'integration') {
     Assert-Integration $false $wiringFailure
   }
 
-  # Every assertion class above gets a comment/delete mutation proving it can actually go red.
-  # The previous versions looked just like these and were all satisfiable by disabled text.
+  # 上面 Get-IntegrationWiringFailures 会抬起的**九个**码（SELFTEST-WIRING / -COLD / -INLINE ·
+  # CI-ORDER-COUNT / -SEQUENCE · CI-ACTIVE · CI-SCANNER · POLICY-DOC · RELEASE-DOC），每个都必须出现在
+  # 下面某一枚变异**声明的期望集合**里；分类器要求实得集合与声明集合**逐字相等**。
+  # 上一版的分类器只要求「期望码出现 ≥1 次」，于是 -SELFTEST-COLD 从来不是任何一枚变异的被测对象
+  # （两枚 selftest 变异顺带把它抬起来而已）——删掉那两行断言后，八枚变异照样全绿（实测）。
+  # 注意 WIRING 与 COLD 天然成对：调用整条没了，`-SkipRealScan` 自然也没了，所以那三枚变异声明的是
+  # 两码的集合；COLD 另有一枚**只摘 -SkipRealScan 这一个 token** 的变异，其声明集合恰好只含 COLD。
   $wiringMutations = @(
-    @{ Id = 'selftest-call-commented'; Code = 'INTEGRATION-SELFTEST-WIRING'; Target = 'Selftest'; Kind = 'comment'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
-    @{ Id = 'selftest-call-deleted'; Code = 'INTEGRATION-SELFTEST-WIRING'; Target = 'Selftest'; Kind = 'delete'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
-    @{ Id = 'selftest-inline-restored'; Code = 'INTEGRATION-SELFTEST-INLINE'; Target = 'Selftest'; Kind = 'append'; Text = "`n`$scannerFixtureRoot = 'restored'`n" },
-    @{ Id = 'ci-step-commented'; Code = 'INTEGRATION-CI-ORDER'; Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
-    @{ Id = 'ci-step-deleted'; Code = 'INTEGRATION-CI-ORDER'; Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
-    @{ Id = 'ci-scanner-exec-deleted'; Code = 'INTEGRATION-CI-SCANNER'; Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^.*pwsh.*check-licenses\.ps1.*$' },
-    @{ Id = 'policy-doc-hidden'; Code = 'INTEGRATION-POLICY-DOC'; Target = 'Policy'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' },
-    @{ Id = 'release-doc-hidden'; Code = 'INTEGRATION-RELEASE-DOC'; Target = 'Release'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' }
+    @{ Id = 'selftest-call-commented'; Codes = @('INTEGRATION-SELFTEST-WIRING', 'INTEGRATION-SELFTEST-COLD'); Target = 'Selftest'; Kind = 'comment'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-deleted'; Codes = @('INTEGRATION-SELFTEST-WIRING', 'INTEGRATION-SELFTEST-COLD'); Target = 'Selftest'; Kind = 'delete'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    # R3 第 2 轮的那条 finding 的直接回归：把调用换成一句**提到**它的 Write-Host。AST 版断言在这枚
+    # 变异下曾照样绿（Extent.Text 含字符串字面量），本枚就是它的红证据。
+    @{ Id = 'selftest-call-quoted-mention'; Codes = @('INTEGRATION-SELFTEST-WIRING', 'INTEGRATION-SELFTEST-COLD'); Target = 'Selftest'; Kind = 'replace-line'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$'; Text = 'Write-Host "run: scripts/license-scanner-check.ps1 -Suite integration -SkipRealScan (disabled for now)"' },
+    # -SELFTEST-COLD 自己的变异：只摘掉 -SkipRealScan 这一个 token，调用其余部分原样保留。
+    @{ Id = 'selftest-skiprealscan-removed'; Codes = @('INTEGRATION-SELFTEST-COLD'); Target = 'Selftest'; Kind = 'strip-token'; Pattern = '(?m)^(?<head>.*license-scanner-check\.ps1.*-Suite[ \t]+integration)[ \t]+-SkipRealScan(?<tail>.*)$' },
+    @{ Id = 'selftest-inline-fixture-restored'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`nSet-Content -LiteralPath (Join-Path `$restoredFixtureRoot 'android/gradlew.bat') -Encoding utf8 -Value 'fixture'`n" },
+    @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    # 卡片头号 dod_assert 的专属变异：整块 License gate 搬到 JDK setup 之前。真实回归形态——
+    # 新跑者上缓存是冷的，GRADLE-CACHE-OFFLINE 触发，每个 PR 都红而没有任何东西指向病因。
+    @{ Id = 'ci-step-reordered'; Codes = @('INTEGRATION-CI-ORDER-SEQUENCE'); Target = 'Workflow'; Kind = 'reorder'; Step = 'License gate'; Before = 'Setup Java (Temurin 17)' },
+    @{ Id = 'ci-scanner-exec-deleted'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^.*pwsh.*check-licenses\.ps1.*$' },
+    # 把闸换去跑别的脚本：`pwsh` 与 `check-licenses.ps1` 仍同行（后者来自 Write-Error 的消息串），
+    # 旧谓词实测保持绿。
+    @{ Id = 'ci-scanner-path-swapped'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)\$f = ''scripts/check-licenses\.ps1''[ \t]*$'; Text = "`$f = 'scripts/check-cards.ps1'" },
+    # 把整句调用注释到行尾：`^\s*#` 只排除整行注释，旧谓词实测保持绿。
+    @{ Id = 'ci-scanner-exec-commented-out'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)if \(Test-Path \$f\).*check-licenses\.ps1.*$'; Text = "Write-Host 'gate disabled'  # pwsh -NoProfile -File scripts/check-licenses.ps1" },
+    @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
+    @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
+    @{ Id = 'policy-doc-hidden'; Codes = @('INTEGRATION-POLICY-DOC'); Target = 'Policy'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' },
+    @{ Id = 'release-doc-hidden'; Codes = @('INTEGRATION-RELEASE-DOC'); Target = 'Release'; Kind = 'hide'; Pattern = '(?m)^.*license-scanner-check\.ps1 -Suite integration.*$' }
   )
-  foreach ($wm in $wiringMutations) {
-    $texts = @{ Selftest = $selftestText; Workflow = $workflowText; Policy = $policyText; Release = $releaseText }
-    $original = $texts[$wm.Target]
-    # 单点变异必须只动一处。`[regex]::Replace(input, pattern, evaluator, 1)` 没有 count 静态重载——
-    # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
-    # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
-    # append 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
-    $wmRegex = if ($wm.Kind -eq 'append') { $null } else { [regex]::new($wm.Pattern) }
-    $mutated = switch ($wm.Kind) {
-      'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
-      'delete' { $wmRegex.Replace($original, '', 1) }
-      'hide' { $wmRegex.Replace($original, { param($m) '<!-- ' + $m.Value + ' -->' }, 1) }
-      'append' { $original + $wm.Text }
-      default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
+  if (-not $SkipMutations) {
+    foreach ($wm in $wiringMutations) {
+      $texts = @{ Selftest = $selftestText; Workflow = $workflowText; Policy = $policyText; Release = $releaseText }
+      $original = $texts[$wm.Target]
+      # 单点变异必须只动一处。`[regex]::Replace(input, pattern, evaluator, 1)` 没有 count 静态重载——
+      # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
+      # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
+      # append/reorder 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
+      $wmRegex = if (@('append', 'reorder') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
+      $mutated = switch ($wm.Kind) {
+        'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
+        'delete' { $wmRegex.Replace($original, '', 1) }
+        'hide' { $wmRegex.Replace($original, { param($m) '<!-- ' + $m.Value + ' -->' }, 1) }
+        'append' { $original + $wm.Text }
+        # `keep` 是可选组：不存在时 .Value 是空串，于是 replace-line 既能整行替换、也能保留前缀。
+        'replace-line' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + $wm.Text }, 1) }
+        'strip-token' { $wmRegex.Replace($original, { param($m) $m.Groups['head'].Value + $m.Groups['tail'].Value }, 1) }
+        'insert-after' { $wmRegex.Replace($original, { param($m) $m.Value + "`n" + $wm.Text }, 1) }
+        'reorder' { Move-WorkflowStepBefore -Text $original -Step $wm.Step -Before $wm.Before }
+        default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
+      }
+      if ($mutated -ceq $original) {
+        Assert-Integration $false "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' changed nothing - its pattern no longer matches, so this assertion class is unproven"
+        continue
+      }
+      $texts[$wm.Target] = $mutated
+      $mutantFailures = @(Get-IntegrationWiringFailures -SelftestText $texts.Selftest -WorkflowText $texts.Workflow -PolicyText $texts.Policy -ReleaseText $texts.Release)
+      $raisedCodes = @($mutantFailures | ForEach-Object {
+        if ($_ -match '^\[(?<code>[A-Z0-9-]+)\]') { $Matches.code } else { 'UNCLASSIFIED' }
+      } | Sort-Object -Unique)
+      $expectedCodes = @($wm.Codes | Sort-Object -Unique)
+      Assert-Integration (
+        ($raisedCodes -join ',') -ceq ($expectedCodes -join ',')
+      ) "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' raised {$($raisedCodes -join ',')} but must raise exactly {$($expectedCodes -join ',')} - a code that only ever co-fires with another mutation's target is not proven to be under test. Raised: $($mutantFailures -join ' | ')"
     }
-    if ($wm.Kind -ne 'append' -and $mutated -ceq $original) {
-      Assert-Integration $false "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' changed nothing - its pattern no longer matches, so this assertion class is unproven"
-      continue
-    }
-    $texts[$wm.Target] = $mutated
-    $mutantFailures = @(Get-IntegrationWiringFailures -SelftestText $texts.Selftest -WorkflowText $texts.Workflow -PolicyText $texts.Policy -ReleaseText $texts.Release)
-    $hit = @($mutantFailures | Where-Object { $_.StartsWith("[$($wm.Code)]", [System.StringComparison]::Ordinal) }).Count
-    Assert-Integration ($hit -ge 1) "[INTEGRATION-WIRING-MUTATION] mutation '$($wm.Id)' did not raise $($wm.Code) - that assertion is satisfiable by disabled or dead text. Raised: $($mutantFailures -join ' | ')"
   }
 
   if ($integrationFailures.Count -gt 0) {
@@ -166,12 +431,69 @@ if ($Suite -eq 'integration') {
     exit 1
   }
 
+  # -SkipRealScan 作用域守卫的红证据：本进程早已跑过那一行，只能从子进程验。配一枚删除变异，
+  # 证明这条红确实来自那道守卫、而不是别处（副本删掉守卫后同一条命令必须变绿）。
+  $scopeGuardOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite gav-bounds -SkipRealScan -SkipMutations 2>&1 | Out-String)
+  $scopeGuardExit = $LASTEXITCODE
+  Assert-Integration (
+    $scopeGuardExit -ne 0 -and $scopeGuardOutput -match '\[INTEGRATION-SKIPREALSCAN-SCOPE\]'
+  ) "[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan on a non-integration suite was accepted (exit=$scopeGuardExit): $scopeGuardOutput"
+  $scopeGuardSource = [System.IO.File]::ReadAllText($PSCommandPath)
+  # 锚**必须逐行拼**，不能写成 here-string：here-string 的正文与守卫逐字相同，于是它自己也成了一处
+  # 匹配，计数恒为 2、删除变异永远建不起来。逐行拼出来的源码带反引号转义，与守卫的实际字节不同，
+  # 全文里就只剩守卫那一处。
+  $scopeGuardBlock = @(
+    "if (`$SkipRealScan -and `$Suite -ne 'integration') {",
+    "  Write-Error `"[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan is valid only for -Suite integration (got '`$Suite')`"",
+    '  exit 1',
+    '}'
+  ) -join "`n"
+  if (([regex]::Matches($scopeGuardSource, [regex]::Escape($scopeGuardBlock))).Count -ne 1) {
+    Assert-Integration $false '[INTEGRATION-SKIPREALSCAN-SCOPE] the guard block anchor is no longer unique in this script, so its delete-mutation cannot be built'
+  } else {
+    $scopeMutantPath = Join-Path $PSScriptRoot ".license-scanner-$PID-skiprealscan-scope.ps1"
+    try {
+      [System.IO.File]::WriteAllText($scopeMutantPath, $scopeGuardSource.Replace($scopeGuardBlock, ''), [System.Text.UTF8Encoding]::new($false))
+      $scopeMutantOutput = (& pwsh -NoProfile -File $scopeMutantPath -Suite gav-bounds -SkipRealScan -SkipMutations 2>&1 | Out-String)
+      $scopeMutantExit = $LASTEXITCODE
+      Assert-Integration (
+        $scopeMutantExit -eq 0
+      ) "[INTEGRATION-SKIPREALSCAN-SCOPE] deleting the guard did not turn the invalid invocation green (exit=$scopeMutantExit) - the rejection observed above came from somewhere else: $scopeMutantOutput"
+    } finally {
+      if (Test-Path -LiteralPath $scopeMutantPath) { Remove-Item -LiteralPath $scopeMutantPath -Force }
+    }
+  }
+
   # -SkipMutations 必须真的传给四个子套件。此前它被接受却从不转发：调用方以为省掉了 mutation 成本，
   # 实际全跑，于是「开关有效」和「开关被忽略」在输出上无从分辨——沉默地不做事比报错更难发现。
-  $childCommon = @('-ScannerPath', $ScannerPath)
-  if ($SkipMutations) { $childCommon += '-SkipMutations' }
+  # 转发线被抽成纯函数，两个分支的参数表各自被逐字钉住：删掉那一行，$true 那条断言立刻红。
+  function Get-ChildSuiteArguments {
+    param(
+      [Parameter(Mandatory)][string]$ChildSuite,
+      [Parameter(Mandatory)][string]$ChildScannerPath,
+      [Parameter(Mandatory)][bool]$ChildSkipMutations
+    )
+    $arguments = @('-Suite', $ChildSuite, '-ScannerPath', $ChildScannerPath)
+    if ($ChildSkipMutations) { $arguments += '-SkipMutations' } # 转发线
+    return $arguments
+  }
+  Assert-Integration (
+    (Get-ChildSuiteArguments -ChildSuite 'graph' -ChildScannerPath $ScannerPath -ChildSkipMutations $true) -contains '-SkipMutations'
+  ) '[INTEGRATION-SKIPMUTATIONS-FORWARD] -SkipMutations was not forwarded into the child suite argument list'
+  Assert-Integration (
+    -not ((Get-ChildSuiteArguments -ChildSuite 'graph' -ChildScannerPath $ScannerPath -ChildSkipMutations $false) -contains '-SkipMutations')
+  ) '[INTEGRATION-SKIPMUTATIONS-FORWARD] the child suite argument list carried -SkipMutations although the caller never asked for it'
+  # 端到端：用**同一段**构造逻辑真跑一次最便宜的子套件，要求它没有打印 mutation PASS 行。
+  $forwardProbeArguments = Get-ChildSuiteArguments -ChildSuite 'gav-bounds' -ChildScannerPath $ScannerPath -ChildSkipMutations $true
+  $forwardProbeOutput = (& pwsh -NoProfile -File $PSCommandPath @forwardProbeArguments 2>&1 | Out-String)
+  $forwardProbeExit = $LASTEXITCODE
+  Assert-Integration (
+    $forwardProbeExit -eq 0 -and $forwardProbeOutput -notmatch 'mutations\): PASS'
+  ) "[INTEGRATION-SKIPMUTATIONS-FORWARD] the child suite still ran its mutations under the forwarded -SkipMutations (exit=$forwardProbeExit): $forwardProbeOutput"
+
   foreach ($childSuite in @('graph', 'policy', 'diagnostics', 'gav-bounds')) {
-    $childOutput = (& pwsh -NoProfile -File $PSCommandPath -Suite $childSuite @childCommon 2>&1 | Out-String)
+    $childArguments = Get-ChildSuiteArguments -ChildSuite $childSuite -ChildScannerPath $ScannerPath -ChildSkipMutations ([bool]$SkipMutations)
+    $childOutput = (& pwsh -NoProfile -File $PSCommandPath @childArguments 2>&1 | Out-String)
     $childExit = $LASTEXITCODE
     Assert-Integration (
       $childExit -eq 0 -and $childOutput -match "license-scanner-check\($([regex]::Escape($childSuite))\): PASS"
@@ -182,7 +504,18 @@ if ($Suite -eq 'integration') {
     $scannerOutput = (& pwsh -NoProfile -File $ScannerPath -Strict 2>&1 | Out-String)
     $scannerExit = $LASTEXITCODE
     Assert-Integration ($scannerExit -eq 0) "[INTEGRATION-REAL-SCAN] strict repository scan failed (exit=$scannerExit): $scannerOutput"
-    Assert-Integration ($scannerOutput -match 'org\.testng:testng:7\.0\.0') '[INTEGRATION-TESTNG] real scan omitted the core TestNG coordinate'
+    # 版本不写死：`org.testng:testng` 并不在 libs.versions.toml 里被 pin（它是 kotlin-test-testng 的
+    # 传递依赖），卡片要求的也只是这个 module 被逐坐标报告。钉 7.0.0 会让一次例行升级把套件红在
+    # 「real scan omitted the core TestNG coordinate」上——一句关于病因的假陈述。故：需求锚到清单里
+    # 真正声明的那一行，报告侧只要求 module + 一个具体版本号。
+    # 清单只在真扫这一支才读：-SkipRealScan（seeded 走的那条）不该因 android/ 缺文件而炸。
+    $versionsText = [System.IO.File]::ReadAllText((Join-Path $repoRoot 'android/gradle/libs.versions.toml'))
+    Assert-Integration (
+      $versionsText -match 'org\.jetbrains\.kotlin:kotlin-test-testng'
+    ) "[INTEGRATION-TESTNG-MANIFEST] android/gradle/libs.versions.toml no longer declares org.jetbrains.kotlin:kotlin-test-testng, so org.testng:testng is no longer the runner this assertion is about"
+    Assert-Integration (
+      $scannerOutput -match 'org\.testng:testng:[0-9][^\s]*'
+    ) "[INTEGRATION-TESTNG] real scan omitted a concrete org.testng:testng coordinate: $scannerOutput"
   }
 
   if ($integrationFailures.Count -gt 0) {
@@ -191,10 +524,38 @@ if ($Suite -eq 'integration') {
   }
   # PASS 文案只许陈述**本次真的跑过的证据**。此前 seeded 用 -SkipRealScan 跑，输出却照样宣称
   # 「真实仓 Strict 扫描通过」——一句没有对应执行的成功陈述，比没有输出更糟：它让读者停止追问。
+  # 但中文散文对机器不可读：两种模式的 ASCII 前缀完全相同，seeded 的断言分辨不出它跑的是哪一支。
+  # 故模式本身进 ASCII 哨兵（L165），并把哨兵的生成抽成纯函数、四种组合逐字钉住——把任一个三元
+  # 折叠成单支，对应那条断言立刻红。
+  function Get-IntegrationEvidenceSentinel {
+    param(
+      [Parameter(Mandatory)][bool]$RealScanSkipped,
+      [Parameter(Mandatory)][bool]$MutationsSkipped
+    )
+    $realScan = if ($RealScanSkipped) { 'skipped' } else { 'executed' }
+    $mutations = if ($MutationsSkipped) { 'skipped' } else { 'executed' }
+    return "[real-scan=$realScan] [mutations=$mutations]"
+  }
+  $sentinelTruthTable = @(
+    @{ RealScanSkipped = $true;  MutationsSkipped = $true;  Expected = '[real-scan=skipped] [mutations=skipped]' },
+    @{ RealScanSkipped = $true;  MutationsSkipped = $false; Expected = '[real-scan=skipped] [mutations=executed]' },
+    @{ RealScanSkipped = $false; MutationsSkipped = $true;  Expected = '[real-scan=executed] [mutations=skipped]' },
+    @{ RealScanSkipped = $false; MutationsSkipped = $false; Expected = '[real-scan=executed] [mutations=executed]' }
+  )
+  foreach ($row in $sentinelTruthTable) {
+    $actualSentinel = Get-IntegrationEvidenceSentinel -RealScanSkipped $row.RealScanSkipped -MutationsSkipped $row.MutationsSkipped
+    Assert-Integration (
+      $actualSentinel -ceq $row.Expected
+    ) "[INTEGRATION-EVIDENCE-SENTINEL] sentinel for (real-scan skipped=$($row.RealScanSkipped), mutations skipped=$($row.MutationsSkipped)) is '$actualSentinel', expected '$($row.Expected)'"
+  }
+  if ($integrationFailures.Count -gt 0) {
+    Write-Error "[INTEGRATION-CONTRACT] $($integrationFailures -join "`n[INTEGRATION-CONTRACT] ")"
+    exit 1
+  }
   $integrationEvidence = @('graph/policy/diagnostics/gav-bounds 子套件')
-  $integrationEvidence += if ($SkipMutations) { 'mutation 已按 -SkipMutations 跳过' } else { '含各子套件 mutation' }
+  $integrationEvidence += if ($SkipMutations) { '本套件 wiring 变异与各子套件 mutation 均已按 -SkipMutations 跳过' } else { '本套件 wiring 变异 + 各子套件 mutation' }
   $integrationEvidence += if ($SkipRealScan) { '真实仓 Strict 扫描已按 -SkipRealScan 跳过（未执行）' } else { '真实仓 Strict 扫描 + TestNG 坐标' }
-  Write-Host "license-scanner-check(integration): PASS（$($integrationEvidence -join '；')）"
+  Write-Host "license-scanner-check(integration): PASS $(Get-IntegrationEvidenceSentinel -RealScanSkipped ([bool]$SkipRealScan) -MutationsSkipped ([bool]$SkipMutations))（$($integrationEvidence -join '；')）"
   exit 0
 }
 
@@ -1581,6 +1942,36 @@ $parserCases = @(
     Lines = @('+--- fixture.invalid:artifact:..', '\--- fixture.invalid:artifact:latest.release')
     Coordinates = @()
     ErrorCodes = @('GRADLE-PARSE', 'GRADLE-PARSE')
+  },
+  # 未解析边守卫的 FAILED 那一半此前无人测：存活的 fixture 只含 `(n)`，把生产正则里的 `FAILED|`
+  # 删掉，四个套件仍全绿——而 `+--- group:artifact:1.0 FAILED` 会就此被当成可解析坐标。
+  @{
+    Name = 'unresolved-failed'
+    Lines = @('+--- fixture.failed:artifact:1.0 FAILED', '\--- fixture.failed:other:2.0 -> 2.1 FAILED')
+    Coordinates = @()
+    ErrorCodes = @('GRADLE-UNRESOLVED', 'GRADLE-UNRESOLVED')
+  },
+  # 外部依赖边的尾部判定 else 分支（「无法判定 Gradle 外部依赖边」那一处）此前零覆盖：
+  # non-concrete 走的是其后的具体版本闸，malformed external edge 走的是更早的 group:artifact 不匹配。
+  @{
+    Name = 'empty-requested-selector'
+    Lines = @('+--- fixture.empty:selector: -> 1.0')
+    Coordinates = @()
+    ErrorCodes = @('GRADLE-PARSE')
+  },
+  @{
+    Name = 'empty-redirect-tail'
+    Lines = @('+--- fixture.tail:empty:1.0 ->')
+    Coordinates = @()
+    ErrorCodes = @('GRADLE-PARSE')
+  },
+  # 「选中目标是个畸形 project 边」那一处 fail-closed 此前零覆盖：selected-targets 只走了
+  # 「选中内部 project」与「选中外部 module」两条正常分支。
+  @{
+    Name = 'malformed-selected-project'
+    Lines = @('+--- old.group:old-artifact:1.0 -> project :core extra')
+    Coordinates = @()
+    ErrorCodes = @('GRADLE-PARSE')
   }
 )
 foreach ($case in $parserCases) {
@@ -1785,8 +2176,52 @@ try {
     $missingDistributionResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     Assert-Graph (
       $missingDistributionResult.Errors.Count -eq 1 -and $missingDistributionResult.Errors[0].Code -ceq 'GRADLE-WRAPPER-OFFLINE'
-    ) "missing wrapper completion marker did not return GRADLE-WRAPPER-OFFLINE"
-    Assert-Graph ($invocations.Count -eq 0) "incomplete wrapper distribution still started $($invocations.Count) wrapper calls"
+    ) "[GRAPH-WRAPPER-OK-MARKER] missing wrapper completion marker did not return GRADLE-WRAPPER-OFFLINE"
+    Assert-Graph ($invocations.Count -eq 0) "[GRAPH-WRAPPER-OK-MARKER] incomplete wrapper distribution still started $($invocations.Count) wrapper calls"
+
+    # wrapper 就绪是**七个**合取，此前只有完成标记那一个被测：图 fixture 造出的发行树太完美，删掉
+    # 其余任何一个合取，四个套件仍全绿——半解压 / 版本对不上的发行树会被判为就绪，扫描器照样对它启动
+    # wrapper，「冷跑者上离线零启动」这条整个故事赖以成立的保证就此静默失效。每个合取一个专属码，
+    # 各配一枚把该合取改成恒真的变异（见 $mutationCases 的 wrapper-* 六枚）。
+    Set-Content -LiteralPath (Join-Path $distributionDir 'gradle-9.7.0-bin.zip.ok') -Encoding utf8 -Value 'fixture'
+    $wrapperLauncherPath = Join-Path $distributionRoot 'lib/gradle-launcher-9.7.0.jar'
+    $wrapperAltLauncherPath = Join-Path $distributionRoot 'lib/gradle-launcher-9.6.0.jar'
+    $wrapperAltRootPath = Join-Path $distributionDir 'gradle-9.6.0'
+    $wrapperUnixBinPath = Join-Path $distributionRoot 'bin/gradle'
+    $wrapperWindowsBinPath = Join-Path $distributionRoot 'bin/gradle.bat'
+    $wrapperReadinessCases = @(
+      @{ Code = 'GRAPH-WRAPPER-ROOT-CARDINALITY'; Label = 'a second distribution root beside gradle-9.7.0'
+         Break = { New-Item -ItemType Directory -Force -Path $wrapperAltRootPath | Out-Null }
+         Restore = { Remove-Item -LiteralPath $wrapperAltRootPath -Recurse -Force } }
+      @{ Code = 'GRAPH-WRAPPER-ROOT-NAME'; Label = 'the single distribution root carrying the wrong version name'
+         Break = { Rename-Item -LiteralPath $distributionRoot -NewName 'gradle-9.6.0' }
+         Restore = { Rename-Item -LiteralPath $wrapperAltRootPath -NewName 'gradle-9.7.0' } }
+      @{ Code = 'GRAPH-WRAPPER-LAUNCHER-CARDINALITY'; Label = 'a second gradle-launcher jar in lib/'
+         Break = { Set-Content -LiteralPath $wrapperAltLauncherPath -Encoding utf8 -Value 'fixture' }
+         Restore = { Remove-Item -LiteralPath $wrapperAltLauncherPath -Force } }
+      @{ Code = 'GRAPH-WRAPPER-LAUNCHER-NAME'; Label = 'the single launcher jar carrying the wrong version name'
+         Break = { Rename-Item -LiteralPath $wrapperLauncherPath -NewName 'gradle-launcher-9.6.0.jar' }
+         Restore = { Rename-Item -LiteralPath $wrapperAltLauncherPath -NewName 'gradle-launcher-9.7.0.jar' } }
+      @{ Code = 'GRAPH-WRAPPER-UNIX-BIN'; Label = 'a missing bin/gradle'
+         Break = { Remove-Item -LiteralPath $wrapperUnixBinPath -Force }
+         Restore = { Set-Content -LiteralPath $wrapperUnixBinPath -Encoding utf8 -Value 'fixture' } }
+      @{ Code = 'GRAPH-WRAPPER-WINDOWS-BIN'; Label = 'a missing bin/gradle.bat'
+         Break = { Remove-Item -LiteralPath $wrapperWindowsBinPath -Force }
+         Restore = { Set-Content -LiteralPath $wrapperWindowsBinPath -Encoding utf8 -Value 'fixture' } }
+    )
+    foreach ($wrapperCase in $wrapperReadinessCases) {
+      & $wrapperCase.Break
+      try {
+        $invocations.Clear()
+        $wrapperCaseResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
+        Assert-Graph (
+          $wrapperCaseResult.Errors.Count -eq 1 -and $wrapperCaseResult.Errors[0].Code -ceq 'GRADLE-WRAPPER-OFFLINE'
+        ) "[$($wrapperCase.Code)] $($wrapperCase.Label) did not return GRADLE-WRAPPER-OFFLINE: $($wrapperCaseResult.Errors | ConvertTo-Json -Compress)"
+        Assert-Graph (
+          $invocations.Count -eq 0
+        ) "[$($wrapperCase.Code)] $($wrapperCase.Label) still started $($invocations.Count) wrapper calls"
+      } finally { & $wrapperCase.Restore }
+    }
   } catch {
     Assert-Graph $false "resolved graph API failed: $($_.Exception.Message)"
   }
@@ -1941,6 +2376,71 @@ if (-not $SkipMutations) {
       From = '      $errors.Add([PSCustomObject]@{ Code = ''GRADLE-SUBPROCESS''; Configuration = $target.Label; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance'
       To = '      $errors.Add([PSCustomObject]@{ Code = ''GRADLE-SUBPROCESS''; Configuration = $null; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance'
       Expected = 'nonzero Gradle error lost target provenance'
+    },
+    # wrapper 就绪的七个合取各一枚：把该合取改成恒真，只有它对应的用例会红。此前只有 `.ok` 完成标记
+    # 那一条有用例，其余六条删掉后四个套件全绿（实测：六枚变异全部存活）。
+    @{
+      Name = 'wrapper-ok-marker'
+      From = '    (Test-Path -LiteralPath $okPath -PathType Leaf) # wrapper completion marker'
+      To = '    ($true) # wrapper completion marker'
+      Expected = '[GRAPH-WRAPPER-OK-MARKER]'
+    },
+    @{
+      Name = 'wrapper-root-cardinality'
+      From = '    ($distributionRoots.Count -eq 1) # wrapper root cardinality'
+      To = '    ($true) # wrapper root cardinality'
+      Expected = '[GRAPH-WRAPPER-ROOT-CARDINALITY]'
+    },
+    @{
+      Name = 'wrapper-root-name'
+      From = '    ($expectedDistributionRoots.Count -eq 1) # wrapper root exact name'
+      To = '    ($true) # wrapper root exact name'
+      Expected = '[GRAPH-WRAPPER-ROOT-NAME]'
+    },
+    @{
+      Name = 'wrapper-launcher-cardinality'
+      From = '    ($launcherJars.Count -eq 1) # wrapper launcher cardinality'
+      To = '    ($true) # wrapper launcher cardinality'
+      Expected = '[GRAPH-WRAPPER-LAUNCHER-CARDINALITY]'
+    },
+    @{
+      Name = 'wrapper-launcher-name'
+      From = '    ($expectedLauncherJars.Count -eq 1) # wrapper launcher exact name'
+      To = '    ($true) # wrapper launcher exact name'
+      Expected = '[GRAPH-WRAPPER-LAUNCHER-NAME]'
+    },
+    @{
+      Name = 'wrapper-unix-bin'
+      From = '    ($null -ne $binDir -and (Test-Path -LiteralPath (Join-Path $binDir ''gradle'') -PathType Leaf)) # wrapper unix bin'
+      To = '    ($true) # wrapper unix bin'
+      Expected = '[GRAPH-WRAPPER-UNIX-BIN]'
+    },
+    @{
+      Name = 'wrapper-windows-bin'
+      From = '    ($null -ne $binDir -and (Test-Path -LiteralPath (Join-Path $binDir ''gradle.bat'') -PathType Leaf)) # wrapper windows bin'
+      To = '    ($true) # wrapper windows bin'
+      Expected = '[GRAPH-WRAPPER-WINDOWS-BIN]'
+    },
+    # 未解析边守卫的 FAILED 那一半（存活 fixture 只含 `(n)`，删掉 `FAILED|` 实测四套件全绿）。
+    @{
+      Name = 'unresolved-failed-half'
+      From = '    if ($body -match ''(?:^|\s)(?:FAILED|\(n\))(?:\s|$)'') { # graph unresolved edge guard'
+      To = '    if ($body -match ''(?:^|\s)(?:\(n\))(?:\s|$)'') { # graph unresolved edge guard'
+      Expected = 'parser/unresolved-failed returned wrong error codes'
+    },
+    # 外部依赖边尾部判定的 fail-closed（此前零覆盖）：改成静默 continue 即漏计一条覆盖缺口。
+    @{
+      Name = 'external-tail-failclosed'
+      From = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge'
+      To = '      $null = $displayBody # malformed external edge'
+      Expected = 'parser/empty-redirect-tail returned wrong error codes'
+    },
+    # 「选中目标是畸形 project 边」的 fail-closed（此前零覆盖）。
+    @{
+      Name = 'selected-project-failclosed'
+      From = '        $errors.Add("无法判定 Gradle 选中 project 目标：$displayBody [GRADLE-PARSE]")'
+      To = '        $null = $displayBody'
+      Expected = 'parser/malformed-selected-project returned wrong error codes'
     }
   )
 

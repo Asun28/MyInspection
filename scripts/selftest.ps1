@@ -1453,7 +1453,7 @@ try {
 # 1g：OutputEncoding 覆盖对称（TD54/TD-117 breadth）——所有写中文 stdout 的入口脚本 dot-source _encoding.ps1（前奏统一设 UTF-8 输出）；
 #     所有写 stdout 的钩子就地设 [Console]::OutputEncoding（钩子保持自包含 fail-open、不跨目录 dot-source 前奏，与其既有 InputEncoding pin 同风格）。
 #     selftest.ps1 的 all 子进程会捕获中文输出，也必须在入口 dot-source 前奏，避免 Windows OEM 解码假红。
-$encScripts = @('selftest.ps1', 'task.ps1', 'review.ps1', 'check-secrets.ps1', 'verify.ps1', 'gh-bootstrap.ps1', 'handoff.ps1', 'lessons.ps1', 'triage.ps1', 'check-cards.ps1', 'check-scope.ps1', 'check-licenses.ps1', 'init-scaffold.ps1')
+$encScripts = @('selftest.ps1', 'task.ps1', 'review.ps1', 'check-secrets.ps1', 'verify.ps1', 'gh-bootstrap.ps1', 'handoff.ps1', 'lessons.ps1', 'triage.ps1', 'check-cards.ps1', 'check-scope.ps1', 'check-licenses.ps1', 'license-scanner-check.ps1', 'init-scaffold.ps1')
 $g1ok = $true
 foreach ($s in $encScripts) {
   # init-scaffold.ps1 在仓库根（非 scripts/，见 $RootAllow / 闸①的 $RepoRoot 解析），其余在 scripts/。
@@ -10954,14 +10954,43 @@ if ($enumErrResults.Count -ne 2) {
 
 # 17cc(scanner-integration). Scanner 的细粒度行为与 mutation 只由专用套件维护；seeded 只聚合其 cache-independent
 # 总验收，避免在通用 harness 复制上千行 fixture，也不要求合并后 canary 预热真实 Gradle cache。
-# 注意本调用**不**传 -SkipMutations：子套件的 mutation 仍会跑。要省那份成本须显式传参（现已真的转发给子套件）。
+# 注意本调用**不**传 -SkipMutations：本套件自己的 wiring 变异与四个子套件的 mutation 都会跑。要省那份
+# 成本须显式传参——该开关现在两处都认（此前只是被接受、从不转发，于是「开关有效」与「开关被忽略」在输出上
+# 无从分辨）。
+#
+# **原 17cc(scanner)/17cc(scanner-mut) 那 1434 行 fixture 逐类去向**（删除即失覆盖，故逐类点名它现在
+# 由哪个套件、以哪个失败码守；这张表就是「删掉的东西没消失」的证据本身）：
+#   wrapper-*（wrapper 选平台 / 发行树七个就绪合取：完成标记 · root 基数 · root 精确名 · launcher 基数 ·
+#              launcher 精确名 · bin/gradle · bin/gradle.bat）
+#                                   → graph 套件，`GRADLE-WRAPPER-OFFLINE` + 零 wrapper 调用；
+#                                     每个合取一枚专属 `[GRAPH-WRAPPER-*]` 断言码与配套变异
+#   cache-*（冷/陈旧 cache 零启动、metadata 格式版本、caller 与 ambient cache 不一致）
+#                                   → graph 套件，`GRADLE-CACHE-OFFLINE` + 零 wrapper 调用
+#   invocation-*（四张已解析 classpath、--offline/--no-daemon、POSIX 经 sh、GRADLE_USER_HOME 绑定）
+#                                   → graph 套件，`graph collector invoked N configurations` / `omitted --offline` 等
+#   subprocess-*（非零子进程的退出码与目标 provenance）
+#                                   → graph 套件，`GRADLE-SUBPROCESS`
+#   parser-*（constraint (c) 边 · 重定向 · project 边界 · 选中目标 · 未解析 FAILED/(n) · 非具体版本 ·
+#             空 requested selector · 空重定向尾 · 畸形 project 目标）
+#                                   → graph 套件 `$parserCases`，`GRADLE-PARSE` / `GRADLE-UNRESOLVED`
+#   pom-*（多许可 POM · DTD · 自述 GAV 不符 · 空 license/name · 单例元素重复 · 畸形 parent GAV）
+#                                   → policy 套件，`[POLICY-POM-*]`
+#   override-*（精确豁免回退 · 缺 license/name 回退 · 无回退即失败 · declared 映射 · 禁列优先 ·
+#               畸形豁免表 fail-closed · GAV 序数比较）
+#                                   → policy 套件，`[POLICY-OVERRIDE-*]` / `[POLICY-DECLARED-*]` / `[POLICY-METADATA-NO-FALLBACK]`
+#   redaction（URI userinfo · Authorization · 密钥式键 · 用户目录 · 控制/格式字符 · ANSI · 换行注入 · 行/字符上界）
+#                                   → diagnostics 套件，`[DIAG-*]`
+#   gav-bounds（255 字符段 · 256 拒收 · 审计信封）
+#                                   → gav-bounds 套件，`[GAV-*]`
+# 判据锚 ASCII 哨兵（L165）：`PASS` 后面的 `[real-scan=…]` 说明本次**真的**跑了哪一支。两种模式的中文
+# 文案不同但前缀相同，只判前缀分辨不出——本闸以 -SkipRealScan 运行，就必须读到 `[real-scan=skipped]`。
 $licenseIntegrationOutput = (& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/license-scanner-check.ps1') -Suite integration -SkipRealScan 2>&1 | Out-String)
 $licenseIntegrationExit = $LASTEXITCODE
-if ($licenseIntegrationExit -ne 0 -or $licenseIntegrationOutput -notmatch 'license-scanner-check\(integration\): PASS') {
+if ($licenseIntegrationExit -ne 0 -or $licenseIntegrationOutput -notmatch 'license-scanner-check\(integration\): PASS \[real-scan=skipped\]') {
   $licenseIntegrationTail = if ($licenseIntegrationOutput.Length -gt 4000) { $licenseIntegrationOutput.Substring($licenseIntegrationOutput.Length - 4000) } else { $licenseIntegrationOutput }
-  Fail "种子缺陷 17cc(scanner-integration)：专用 license scanner 总验收失败或缺 PASS marker（exit=$licenseIntegrationExit）：$licenseIntegrationTail"
+  Fail "种子缺陷 17cc(scanner-integration)：专用 license scanner 总验收失败，或 PASS 行缺 ASCII 哨兵 [real-scan=skipped]（exit=$licenseIntegrationExit）：$licenseIntegrationTail"
 } else {
-  Write-Host '  17cc(scanner-integration) graph/policy/diagnostics/gav-bounds 子套件聚合 PASS OK（本闸以 -SkipRealScan 运行：**未**执行真实仓 Strict 扫描——那条证据由卡片 DoD 的默认 integration 运行提供）' -ForegroundColor Green
+  Write-Host '  17cc(scanner-integration) graph/policy/diagnostics/gav-bounds 子套件聚合 PASS OK（哨兵 [real-scan=skipped] 已确认本闸**未**执行真实仓 Strict 扫描——那条证据由卡片 DoD 的默认 integration 运行提供）' -ForegroundColor Green
 }
 
 # 17dd. verify.ps1 的 Android 闸调用含 --no-daemon（源码断言，纯文本、不执行整套 Gradle 构建——避免 R3
@@ -11017,7 +11046,7 @@ $realRcPath = Join-Path $RepoRoot 'docs/RELEASE-CHECKLIST.md'
 $realRcHashBefore = (Get-FileHash -LiteralPath $realRcPath -Algorithm SHA256).Hash
 $rcSentinel = '[GRADLE-LIC-SCANNER-ONLY]'
 # 规范项文本的 SHA-256（UTF-8 字节，行尾已由 Get-Content 剥离）。改这一项的措辞 → 同步改这里，二者是一对。
-$rcCanonHash = '6911970FCDDDD903491B517535FA7FD8C513832EA40173C13359D25862558576'
+$rcCanonHash = '2689BF3DE16AAE33C12FFA5248C0FA6C7A621BA553A4D3A822D81C14A71440BC'
 $rcEditorWarning = '<!-- 编辑本项的任何字符都须同步更新 scripts/selftest.ps1 的 17ee $rcCanonHash，并重跑 pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded。 -->'
 $rcOrigLines = Get-Content -LiteralPath $realRcPath
 # 内联不经 GetNewClosure()：$LASTEXITCODE 需取子进程调用后的新鲜值（同 17cc(reparse-mut) 的注记）。
