@@ -26,7 +26,7 @@ acceptance:
   # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block。
   # 本清单由 2026-08-23 的 pre-R3 独立复核（Opus 5）产出。本卡是**搬运数据**的动作，
   # 故所有「谁会被搬走」的判定都按数据丢失级要求可证伪，不接受「整份 stdout 里出现过」这种宽断言。
-  - "A1 候选集精确相等：hermetic 夹具下 archive -DryRun 的输出用 candidates=(?<c>\\S+) 提取后断言逐字 -eq 'L1'，不得用整份 stdout -match '\\bL1\\b'（闸 2e 已是此形态，闸 2d 须对齐）"
+  - "A1 候选集精确相等：hermetic 夹具下 archive -DryRun 的输出用 candidates= 后的判定串提取，再与**期望候选串逐字相等**比对——不得用整份 stdout 的宽匹配，那样任何一行无关告警提到该 id 都算过。夹具须同时含「该进候选」与「被排除」两类条目，故期望串不止一个 id；条目增减时**同步改期望串**，不得改成子串包含（闸 2e 已是此形态，闸 2g 须对齐）"
   - "A2 排除面逐条可杀：同一夹具内 tier=must、tier=ondemand、recurrence=2、当前最大 ID 各一条，断言四者都不在 candidates 里，且实跑后其 (?m)^##\\s+L<id> 仍在 LEDGER"
   - "A3 常驻引用排除须覆盖**裸引用**形态：夹具 CLAUDE.md 分别写 [L5]、见 L6 之理（裸）、L7–L8（范围）三种；断言四个 id 全不进 candidates。判定复用闸 16 已有的 (?<![A-Za-z0-9:])L(\\d+)\\b(?!-\\d) 作**单一真相源**，禁止在 lessons.ps1 另立第二套引用正则；范围简写覆盖不到的中间 id 须在文档里写明不受保护"
   - "A4 正文诱饵 tier 单独可杀：夹具 L2 的规范 meta 行**只**缺 tier、其余合法，正文含 tier: ledger；断言 L2 不进 candidates、[LSN-META-INVALID] 点名 L2、实跑后仍在 LEDGER"
