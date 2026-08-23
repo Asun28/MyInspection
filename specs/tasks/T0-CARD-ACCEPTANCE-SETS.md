@@ -26,7 +26,7 @@ acceptance:
   - "A2 T4-COMPLIANCE-ENGINE 卡含 acceptance 块，条目覆盖其 R3 四条 finding（非默认配置值/改期身份/拒绝集/不可变视图）**且**覆盖需求 §10 四条法定规则与 DST 语义"
   - "A3 T4 卡内不再有 `## R3 round-cap 后续` 节（该节按路线 1 声称四类缺口归 T4-COMPLIANCE-ENGINE-R3-CLOSURE 收口，与用户已定的路线 2 及新清单自相矛盾）"
   - "A4 两张卡的 allow_paths / forbid / non_goals / dod_command 逐字节未变（只新增字段，不改既有契约面）"
-  - "A5 总账新增 L241（judgment 类）：记录 r^2=0.18 的实测与 #6/#8 不对称，并显式限定 L206「拆卡」的适用面"
+  - "A5 总账新增 L241（judgment 类）：记录 **r=0.4365 / r^2=0.1906**（八对数据逐行可复算，narrative 与 L241 均记 0.19）与 #6/#8 不对称，并显式限定 L206「拆卡」的适用面。**订正说明**：本条初稿写 0.18，那是照 CLAUDE.md 概述取轮次的误算；按 TASK-BOARD 订正两个数据点后复算为 0.1906，R3 第 2 轮据此要求本条与可复现值一致，故就地改正——这是让契约对齐数据，不是把靶子挪到已达成的位置"
   - "A6 L241 的 id 避开主检出未提交总账已占用的 238/239/240，不制造重号"
   - "A7 check-cards 与 lessons.ps1 check 均 PASS"
 review_gate: codex {verdict:pass}

@@ -25,7 +25,7 @@ acceptance:
   # 边界方向按需求 §10 的原文判定（「≥ 48 小时且 ≤ 14 天」「08:00–19:00」都是**闭区间**）：
   # 端点值本身合法，越界的是端点再往外一个最小刻度那一侧。写反了会让正确的引擎测不过，
   # 而让它变绿最便宜的改法就是把引擎改错——这类条目本身即缺陷源。
-  - "A1 通知下限精确边界：权威 JSON 的 48h 下，恰好 48h00m00.000s 放行、48h 减 1 毫秒以 NOTICE_TOO_SHORT 阻断，两例均断言 reasons 的 key 序列精确等于单元素列表"
+  - "A1 通知下限精确边界：权威 JSON 的 48h 下，恰好 48h00m00.000s **放行**（断言结果是 ScheduleValidation.Pass；Pass 没有 reasons 字段，不得对它断言「单元素 reasons」），48h 减 1 毫秒以 NOTICE_TOO_SHORT 阻断且断言 reasons 的 key 序列精确等于单元素 [NOTICE_TOO_SHORT]。两例合起来钉住「>=48h」的包含语义：把实现的 < 改成 <= 会让放行那例变红"
   - "A2 通知上限精确边界，钉住「≤ 14 天」的**包含**语义：恰好 Duration.ofDays(14) 的真实时长放行、14 天再**减** 1 毫秒同样放行、14 天再**加** 1 毫秒才以 NOTICE_TOO_EARLY 阻断。两个放行例断言结果恰为 ScheduleValidation.Pass，阻断例断言 reasons 的 key 序列精确等于单元素 [NOTICE_TOO_EARLY]。变异判据：把引擎的 `notice > Duration.ofDays(...)` 改成 `>=`，「恰好 14 天放行」那例必红——本条的**方向**是它自己的验收面，因为一份要求「14 天减 1 毫秒被拦」的清单会把合法的 14 天通知判成违规，而那正是需求 §10 明文允许的"
   - "A3 普通时段四点：Pacific/Auckland 本地 08:00:00 与 19:00:00 放行、07:59:59.999 与 19:00:00.001 以 OUTSIDE_VISIT_WINDOW 阻断，四点各一条断言，不用整体循环掩盖单点。两侧下界都取**相邻毫秒**：07:59:59 这种整秒下界会被带亚秒松弛的守卫（如 isBefore(start.minusMillis(500))）放过"
   - "A4 寄宿时段三点：isBoardingHouse=true 时 18:00:00 放行、18:00:00.001 阻断；同一个 18:00:00.001 时刻在 isBoardingHouse=false 下必须放行，以证明关闭时刻取自 boardingHouseEnd 分支而非同一个常量"
