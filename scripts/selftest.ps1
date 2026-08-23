@@ -3040,6 +3040,14 @@ $dashTailFm = Get-FrontMatter "---`nid: T9-DASH`n--- 这行以三短横开头但
 if (-not $dashTailFm -or $dashTailFm -notmatch '(?m)^status\s*:\s*merged\s*$') { Fail '闸10d(锚定/纯函数)：dash-tail 行被误判为 front-matter 闭合符，其后的 status 键不可见——task.ps1 范围闸与 triage 三探针会拿到被截断的 front-matter（TD60/TD-123 的未锚定回归）。' }
 else { Write-Host '  种子缺陷 10d(锚定/纯函数) OK：dash-tail 行不被当闭合符，其后键仍可见（钉住 task/triage 四处原未锚定站点的收敛）' -ForegroundColor Green }
 
+# 10d(BOM/纯函数)：经**管道**取来的卡片文本（git show BASEREF:specs/tasks/<id>.md）保留文件的 UTF-8 BOM
+# ——只有 Get-Content 的文件读取器会剥它。裸 \A--- 锚会失配 → front-matter 解析成 null → allow_paths 取空 →
+# 完整式 check-scope 必判 [SCOPE-UNDECIDABLE]，且把原因误报成「卡没写 allow_paths」，恰在中断恢复场景失效。
+# 码位只写转义形态，源码里不出现字面 BOM 字节（L193）。
+$bomFm = Get-FrontMatter ([string][char]0xFEFF + "---`nid: T9-BOM`nstatus: merged`n---`n正文")
+if (-not $bomFm -or $bomFm -notmatch '(?m)^status\s*:\s*merged\s*$') { Fail '闸10d(BOM/纯函数)：前导 U+FEFF 使 front-matter 解析成 null——经管道取得的基线卡会让 allow_paths 取空、完整式 check-scope 误判为「卡没写 allow_paths」（上游 v0.41.0 TD130 回归）。' }
+else { Write-Host '  种子缺陷 10d(BOM/纯函数) OK：前导 U+FEFF 不阻断 front-matter 解析（管道取来的基线卡仍可判 allow_paths）' -ForegroundColor Green }
+
 # 10e. 种子缺陷（TD63 item5）：YAML block-scalar `dod_command: |` 被单行取值器（Get-Scalar，非多行 YAML 解析）
 # 截断成字面量 `|`——既通过非空校验，又通过 no-op 判定（按 &&/||/;/| 分段后两侧皆空串、Where-Object 过滤后
 # $dodSegments.Count=0，`$dodSegments.Count -gt 0` 为假使 no-op 分支不触发），静默放行成一张「看似合法」的卡；

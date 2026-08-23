@@ -65,7 +65,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Ledger = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 $OnDemandDir = Join-Path $RepoRoot 'docs/lessons'
 $ClaudeMd = Join-Path $RepoRoot 'CLAUDE.md'
-$MustCap = $ScaffoldConfig.LessonsMustCap   # 必须层（CLAUDE.md「经验铁律」）条数上限——超限须淘汰最不活跃项回按需层
+$MustCap = $ScaffoldConfig.LessonsMustCap   # 必须层（CLAUDE.md「经验铁律」）**驻留经验 id** 数上限（非条目数）——超限须淘汰最不活跃项回按需层
 
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 
@@ -192,7 +192,7 @@ switch ($Command) {
     # id 唯一
     $dup = $ls | Group-Object id | Where-Object Count -gt 1
     if ($dup) { Write-Warning "重复 id：$($dup.Name -join ', ')"; $fail = $true } else { Write-Host 'id 唯一 ✓' }
-    # 必须层封顶（以 CLAUDE.md「经验铁律」实际条数为准）
+    # 必须层封顶（以 CLAUDE.md「经验铁律」实际驻留的**经验 id 数**为准，非 markdown 条目数）
     # TD39: 零 tier=must 时 Where-Object 发 AutomationNull，直接取 .Count 在 StrictMode 抛——@() 包裹保 Count 0（合法下游态：删净示例 must 经验）。
     $mustInLedger = @($ls | Where-Object tier -eq 'must').Count
     # 计量单位是**驻留的经验 id**，不是 markdown 条目：一条写着 [L17][L162][L172][L177] 的 bullet

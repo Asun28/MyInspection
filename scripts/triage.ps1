@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   脚手架的「心跳」(heartbeat)：按节律(cadence)对本仓做一次**只读、离线、确定性**的扫描，
@@ -18,6 +18,8 @@
     - harness-refresh : judgment 经验累积达门槛——该双向自我改进（删旧闸 + 主动搜更优工具/方法纳新，见 HARNESS-REVIEW / L26）
     - effectiveness   : _local/effectiveness-ledger.jsonl 里各闸拦截计数——喂 HARNESS-REVIEW 据计数+ship 次数做减法（TD2；TD9 分母经 review 否决，见 ADR 0003）
     - worktree-orphan : WorktreeRoot 下卡已 merged 却没拆的残留 worktree（cleanup 漏跑 / 半合并遗留，TD3）
+    - lessons-demote  : 必须层里已被确定性守卫覆盖的条目——每轮上下文换来的是机器已在做的事（上游 issue #183 的逆向半）
+    - delivery-blocked: 在飞卡坐在一份 R3 block 裁决上却没人接回注意力（**唯一读交付状态的探针**，上游 issue #185）
   每信号产出一条 finding（severity + 一行 what + 建议的下一步命令），汇成 markdown 收件箱。
   **只发现、不行动**：绝不写仓内被跟踪文件、绝不 git/gh 写操作；act 走既有交付链
   （task-loop skill / lessons promote / 开卡偿还 / handoff check）。退出码恒 0（reporter，非闸门）。
@@ -25,7 +27,7 @@
   收件箱默认写到 _local/triage-inbox.md（gitignored，运行时态）。无 _config 依赖也能跑（优雅降级）。
 
 .PARAMETER Verb     scan（扫描并写收件箱+打印摘要） | list（只打印上次收件箱，不重扫） |
-                    selfcheck（探针 4 的 hermetic 自检：临时夹具、输出断言，见该段头注）。默认 scan。
+                    selfcheck（探针 4/5/10/11 的 hermetic 自检：临时夹具、输出断言，见该段头注）。默认 scan。
 .PARAMETER OutFile  收件箱路径（默认 _local/triage-inbox.md）。
 .PARAMETER NoWrite  只报不写（selftest 干跑用：核验扫描在默认配置下不抛异常）。
 .PARAMETER Quiet    静默：仅退出码与一行计数，不打印 finding 明细。
@@ -34,7 +36,7 @@
 .EXAMPLE
   pwsh -File scripts\triage.ps1 scan -NoWrite   # 只报不写（selftest 用）
 .EXAMPLE
-  pwsh -File scripts\triage.ps1 selfcheck       # 探针 4 自检（末行 'triage selfcheck: PASS' 即绿）
+  pwsh -File scripts\triage.ps1 selfcheck       # 探针 4/5/10/11 自检（末行 'triage selfcheck: PASS' 即绿）
 #>
 [CmdletBinding()]
 param(
@@ -217,7 +219,7 @@ function Invoke-ProbeHandoff {
   } catch { return }
 }
 
-# ── 探针 5：lessons-cap（必须层逼近/达封顶）──
+# ── 探针 5：lessons-cap（必须层驻留 id 逼近/超过封顶；单位是经验 id，非 markdown 条目）──
 function Invoke-ProbeCap {
   if (-not (Test-Path $ClaudeMd)) { return }
   # 计量单位是**驻留的经验 id**，不是 markdown 条目（上游 issue #184）：把多个 id 并进一条 bullet
@@ -368,7 +370,7 @@ function Invoke-ProbeDeliveryBlocked {
   }
 }
 
-# ── selfcheck：探针 4（handoff-open 跨 worktree）的 hermetic 自检（R3 rubric #6：新逻辑须有自证测试）──
+# ── selfcheck：探针 4（handoff-open）/ 5（lessons-cap）/ 10（lessons-demote）/ 11（delivery-blocked）与探针 1 的 hermetic 自检（R3 rubric #6：新逻辑须有自证测试）──
 # 夹具全建在系统临时目录、finally 清理——绝不读写真仓/真 worktree/_local（对齐 selftest 12b 的 hermetic 模式）。
 # 恪守 reporter 契约「退出码恒 0」（本卡 forbid）：核验以**输出断言**为准（同 selftest 12b 对探针 8 的
 # 'dod:1' 输出断言模式）——全绿打印末行 'triage selfcheck: PASS'；任一断言失败则逐条打印 'FAIL <原因>'
@@ -404,7 +406,7 @@ if ($Verb -eq 'selfcheck') {
     try { Invoke-ProbeHandoff } finally { Pop-Location }
     if (@($findings | Where-Object { $_.next -match 'show -Path .*T8-SC-A' }).Count -ne 0) { $fails.Add('用例2 worktree=cwd 未去重（A 被跨 worktree 重复上报）') }
     if (@($findings | Where-Object { $_.next -eq 'pwsh -File scripts\handoff.ps1 check' }).Count -ne 1) { $fails.Add('用例2 期望恰 1 条 cwd handoff-open（next=check）') }
-    # ── 用例 4：delivery-blocked（探针 10）——四态：block 须报 / pass 不报 / todo 卡不报 / 坏 JSON 不崩 ──
+    # ── 用例 4：delivery-blocked（探针 11）——四态：block 须报 / pass 不报 / todo 卡不报 / 坏 JSON 不崩 ──
     # 一个从不触发的探针比没有探针更糟，它读起来就像「一切正常」，故这里必须有能让它红的正例。
     foreach ($t in @(
         @{ id = 'T8-SC-A'; json = '{"verdict":"block","reasons":["r1","r2"]}' },   # in-progress + block → 须报
@@ -431,7 +433,7 @@ if ($Verb -eq 'selfcheck') {
       '- **[L901][L902][L903]** 三个 id 并进一条 bullet',
       '- **[L904]** 单 id 一条',
       '',
-      '## 下一节') 
+      '## 下一节')
     $ClaudeMd = $fxClaude       # 注入：探针读脚本作用域
     $MustCap = 3
     $bulletCount = ([regex]::Matches((Get-Content $fxClaude -Raw), '(?m)^\s*-\s+\*\*')).Count
@@ -479,6 +481,36 @@ if ($Verb -eq 'selfcheck') {
     if ($pro.Count -ne 1) { $fails.Add("用例6 期望恰 1 条 lessons-promote，实得 $($pro.Count)") }
     elseif ($pro[0].what -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
     elseif ($pro[0].what -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
+    # ── 用例 7：批量窗口的边界（$PromoteBatchSize 恰好 vs 超一条）──
+    # 阈值判据用的是 -gt，故「恰好等于」必须仍逐条报、「多一条」才切成一条批量 finding。
+    # 只测其中一侧会让 off-by-one 静默存活（-ge 与 -gt 在 N 条时才分道）。
+    foreach ($n in @($PromoteBatchSize, $PromoteBatchSize + 1)) {
+      $fxN = Join-Path $fxRoot "ledger-$n.md"
+      Set-Content -Path $fxN -Encoding utf8 -Value @(1..$n | ForEach-Object {
+        "## L90$_ 无守卫且达门槛", '- tier: ledger', '- severity: blocking', '- enforced_by: none（夹具）', '' })
+      $Ledger = $fxN
+      $findings.Clear(); Invoke-ProbeLessons
+      $hits = @($findings | Where-Object probe -eq 'lessons-promote')
+      if ($n -le $PromoteBatchSize) {
+        if ($hits.Count -ne $n) { $fails.Add("用例7 恰好 $n 条（== 阈值）应逐条报，实得 $($hits.Count) 条") }
+      } else {
+        if ($hits.Count -ne 1) { $fails.Add("用例7 超阈值（$n 条）应合成 1 条批量 finding，实得 $($hits.Count) 条") }
+        elseif ($hits[0].what -notmatch "$n 条") { $fails.Add('用例7 批量 finding 未报出候选条数（读者无从判断规模）') }
+      }
+    }
+
+    # ── 用例 8：主检出侧的 .review/<id>.json 也要被看见（-Local ship 的裁决落在那里）──
+    # 探针有两条取证路径：卡自己的 worktree，以及主检出按**卡 id** 命名的那份。只测前者会让后者静默失效。
+    $fxLocalReview = Join-Path $fxRoot 'localrepo/.review'
+    New-Item -ItemType Directory -Force $fxLocalReview | Out-Null
+    Set-Content -Path (Join-Path $fxLocalReview 'T8-SC-A.json') -Value '{"verdict":"block","reasons":["only-local"]}' -Encoding utf8
+    $RepoRoot = Join-Path $fxRoot 'localrepo'      # 注入：探针读脚本作用域 $RepoRoot
+    function Get-ScaffoldWorktreeRoot { Join-Path $fxRoot 'no-such-wt' }   # worktree 侧刻意缺席，只剩本地那条路径
+    $findings.Clear()
+    try { Invoke-ProbeDeliveryBlocked } catch { $fails.Add("用例8 探针抛异常：$($_.Exception.Message)") }
+    $lb = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($lb.Count -ne 1) { $fails.Add("用例8 期望恰 1 条来自主检出 .review 的 delivery-blocked，实得 $($lb.Count)") }
+    elseif ($lb[0].what -notmatch 'T8-SC-A') { $fails.Add('用例8 报出的不是本地 .review 里那张卡') }
     # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
     Remove-Item function:Get-ScaffoldWorktreeRoot
     $findings.Clear(); Push-Location $fxCwd
@@ -493,7 +525,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 10 block 四态 · 探针 5 按驻留 id 计数 · 探针 1/9 的 enforced_by 双向与空字段）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review · 探针 5 按驻留 id 计数 · 探针 1/10 的 enforced_by 双向、空字段与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }
