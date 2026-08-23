@@ -8,6 +8,10 @@ branch: T0-GRADLE-RUNTIME-FILE-INPUTS
 worktree: C:\wt\T0-GRADLE-RUNTIME-FILE-INPUTS
 allow_paths:
   - android/core/build.gradle.kts
+  # 同一根因的第三条腿：走 Gradle 的卡，其 dod_command 也可能报绿而测试没跑。
+  # 这些卡文件不在任何实现卡的 allow_paths 内（各卡都改不了自己的 dod_command），故由本卡统一收口。
+  - specs/tasks/T3-REPORT-COMPOSER.md
+  - specs/tasks/T4-COMPLIANCE-ENGINE.md
   - android/core/src/test/kotlin/nz/myinspection/core/
 forbid:
   - 关闭或绕过 Gradle 增量构建 / 缓存（`--rerun-tasks` 不是修法，是当前唯一的绕法）
@@ -28,9 +32,10 @@ acceptance:
   - "A7 单句删除变异：删掉输入声明那一句后，A2 的断言必须变红（判据分类器：非零**且**命中 A2 的专属失败文本才算击杀）"
   - "A8 第二类假绿——构建缓存服务了纯文本断言：`android/gradle.properties` 设了 `org.gradle.caching=true`，而只读源码文本的测试（如 report 包的 source-purity 扫描）在**字节码不变**的编辑下会被缓存直接服务、断言根本不执行。RED 先行：往被扫描文件里插入一处违例，不加 `--no-build-cache` 跑 `:core:test` 记录其 **exit 0**；加 `--no-build-cache` 记录 exit 1。补上源码树的 `inputs.files(...)` 声明后，不加该开关的同一改动必须 exit 1"
   - "A9 两类机制在卡内分别命名，不混为一谈：① 运行期从 user.dir 向上走读到的仓内文件（Gradle 不知道它是输入）；② 断言只读文本、字节码不变故缓存命中（Gradle 知道输入但认为无需重跑）。两者的修法都落在 build.gradle.kts，但复现命令与判据不同，卡内各留一段可复算记录"
+  - "A10 走 Gradle 的卡其 dod_command 必须真的跑：本仓所有 dod_command 里带 `gradlew` 的卡（现为 T3-REPORT-COMPOSER 与 T4-COMPLIANCE-ENGINE，判定面用 grep 全量取，不写死清单）均须带 `--rerun-tasks --no-build-cache`——两卡原命令带 `-q` 且无这两个 flag，`:core:test` 一旦 UP-TO-DATE 或 FROM-CACHE 就一行不打、直接以 0 退出，DoD 遂在**一个测试都没跑**的情况下报绿。RED 先行：改动被测源后不加 flag 跑其 dod_command 记录 exit 0，加上后记录 exit 1；补 flag 后不加也必须 exit 1。**只准追加这两个 flag**，命令主体与 `--tests` 选择器不动，故契约面（跑哪些测试、要什么退出码）逐字节等价，改的只是「保证它真的跑」"
 dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path android/core/build.gradle.kts -SimpleMatch 'nz-rules-v1.json' -Quiet)) { exit 1 }"
 dod_exit: 0
-dod_assert: android/core/build.gradle.kts 显式把权威合规配置声明为 :core:test 的输入；A1–A9 每条都有可证伪证据，其中 A1/A2/A8 的六个退出码为实测记录。
+dod_assert: android/core/build.gradle.kts 显式把权威合规配置声明为 :core:test 的输入；A1–A10 每条都有可证伪证据，其中 A1/A2/A8 的六个退出码为实测记录。
 review_gate: codex {verdict:pass}
 hygiene: A2/A5/A8 各留一枚最小复现；A7 一枚单句删除变异；不为此新增测试框架或 Gradle 插件
 doc_sync: 无（构建配置改动本体即文档）；若确认 data/templates 侧另有语义，在本卡正文记录实测结论
