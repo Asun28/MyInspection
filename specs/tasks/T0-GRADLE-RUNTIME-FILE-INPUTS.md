@@ -1,6 +1,6 @@
 ---
 id: T0-GRADLE-RUNTIME-FILE-INPUTS
-title: 把测试在运行期读的仓内文件声明为 Gradle 测试输入，消除「改了权威文件仍报 UP-TO-DATE」的假绿
+title: 让 Gradle 看见测试真正的输入，消除两类「改了东西仍报绿、测试其实没跑」
 depends_on: []
 parallelizable_with: []
 status: todo
@@ -26,11 +26,13 @@ acceptance:
   - "A5 data/templates 侧同样可证：改动 data/templates/routine-v1.json 的任一双语文案后，不加 `--rerun-tasks` 跑 `:core:test --tests \"nz.myinspection.core.content.*\"` 必须 exit 1（该目录已被 build.gradle.kts 挂成 main 资源目录，但**资源目录不等于测试输入声明**，须实测确认哪一侧生效）"
   - "A6 CI 语义不变：CI 是干净检出、无可 UP-TO-DATE 的基线，故本卡不改变 CI 行为；一条断言证明 `:core:check` 在干净树上的退出码与本卡前后一致（本卡只修本地增量路径的假绿）"
   - "A7 单句删除变异：删掉输入声明那一句后，A2 的断言必须变红（判据分类器：非零**且**命中 A2 的专属失败文本才算击杀）"
+  - "A8 第二类假绿——构建缓存服务了纯文本断言：`android/gradle.properties` 设了 `org.gradle.caching=true`，而只读源码文本的测试（如 report 包的 source-purity 扫描）在**字节码不变**的编辑下会被缓存直接服务、断言根本不执行。RED 先行：往被扫描文件里插入一处违例，不加 `--no-build-cache` 跑 `:core:test` 记录其 **exit 0**；加 `--no-build-cache` 记录 exit 1。补上源码树的 `inputs.files(...)` 声明后，不加该开关的同一改动必须 exit 1"
+  - "A9 两类机制在卡内分别命名，不混为一谈：① 运行期从 user.dir 向上走读到的仓内文件（Gradle 不知道它是输入）；② 断言只读文本、字节码不变故缓存命中（Gradle 知道输入但认为无需重跑）。两者的修法都落在 build.gradle.kts，但复现命令与判据不同，卡内各留一段可复算记录"
 dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path android/core/build.gradle.kts -SimpleMatch 'nz-rules-v1.json' -Quiet)) { exit 1 }"
 dod_exit: 0
-dod_assert: android/core/build.gradle.kts 显式把权威合规配置声明为 :core:test 的输入；A1–A7 每条都有可证伪证据，其中 A1/A2 的四个退出码为实测记录。
+dod_assert: android/core/build.gradle.kts 显式把权威合规配置声明为 :core:test 的输入；A1–A9 每条都有可证伪证据，其中 A1/A2/A8 的六个退出码为实测记录。
 review_gate: codex {verdict:pass}
-hygiene: A2/A5 各留一枚最小复现；A7 一枚单句删除变异；不为此新增测试框架或 Gradle 插件
+hygiene: A2/A5/A8 各留一枚最小复现；A7 一枚单句删除变异；不为此新增测试框架或 Gradle 插件
 doc_sync: 无（构建配置改动本体即文档）；若确认 data/templates 侧另有语义，在本卡正文记录实测结论
 
 ---
@@ -50,6 +52,30 @@ mutated config（把 ANNUAL 加回 exemptTypes）
 
 `configs/compliance/nz-rules-v1.json` 由 `ComplianceEngineTest` 的 `findRepositoryFile` 在**运行期**
 从 `user.dir` 向上走目录找到并读取。Gradle 因此不知道它是 `:core:test` 的输入，改它不会让任务失效。
+
+## 第二类假绿：构建缓存服务了纯文本断言（2026-08-23 同日第二次实测）
+
+修 `T3-REPORT-COMPOSER` 时，一枚本该被杀死的变异同样报告 SURVIVED，机制却不同：
+
+```
+往被扫描的源文件插入一处违例
+  plain run            exit=0     <- FROM-CACHE，字节码没变，任务被缓存直接服务
+  --no-build-cache     exit=1     <- source-purity 扫描真跑了，断言变红
+```
+
+`android/gradle.properties` 设了 `org.gradle.caching=true`。一个**只读源码文本**的断言
+（report 包的 source-purity 扫描）在注释级编辑下产出完全相同的字节码，于是 Gradle 认定
+无需重跑、直接交出上次的绿色结果——**断言从未执行**。
+
+两类机制必须分开命名（A9），因为复现命令与判据都不同：
+
+| | Gradle 的认知 | 复现开关 | 修法 |
+|---|---|---|---|
+| ① 运行期读仓内文件 | **不知道**它是输入 | `--rerun-tasks` | 声明为 `:core:test` 的输入 |
+| ② 纯文本断言被缓存 | 知道输入，但认为**无需重跑** | `--no-build-cache` | 把源码树也声明成输入 |
+
+共同后果只有一个，而且正是变异测试最怕的那个：**批次分不清「守卫扛住了」与「什么都没跑」**。
+两次实测里，第一反应都是「这枚变异存活了、守卫有洞」——真相是守卫好好的，测试没上场。
 
 ## 为什么值得单开一卡
 
