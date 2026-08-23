@@ -41,6 +41,7 @@ acceptance:
   - "A13 预览与实跑同口径：archive -DryRun 须透传到 archive.ps1 -DryRun，令搬运器自身的四类拒绝（别名 id / 最高 id / 未知 id / 两侧内容不一致）在预览里同样出现并同样非零退出，与 12e⑥ 的 fail-closed 契约一致；另注入一次同名 .tmp 目录令暂存写失败，断言非零退出且两侧 SHA256 均不变"
   - "A14 幂等含非平凡分支：无新候选时重跑零写入；追加把已归档条目整块粘回 LEDGER 造两侧并存态，重跑须自愈补齐、归档侧标题恰 1 次、归档字节 SHA256 不变"
   - "A15 存在不可解析条目时 archive 必须非零退出（预览与实跑同口径）——不得沿用「有 [LSN-META-INVALID] 仍 exit 0」，那与同文件 12e⑥ 对 archive.ps1 的 fail-closed 契约直接矛盾，且会让 check 与 archive 对同一份账本给出相反退出码"
+  - "A16 定义常驻引用的文件缺失时 fail-closed：`-RepoRoot` 指向一棵有 LEDGER 但**没有 CLAUDE.md** 的树时，archive 不得把「读不到受保护集合」当成「没有条目被引用」——须以 [LSN-RESIDENT-SOURCE-MISSING] 非零退出且零搬运，一枚夹具断言之。这是本卡唯一的 fail-open 残留面：其余路径都 fail-closed，而这一条会让整批 tier=ledger/recurrence=1/非最高 id 的条目静默进候选并被搬冷——与 A3 同一后果、不同入口"
 dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/lessons.ps1 -SimpleMatch '[LSN-ARCHIVE-DRYRUN]') -and (Select-String -Path scripts/lessons.ps1 -SimpleMatch '[archived]') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'lessons-archive.md'))) { exit 1 }"
 dod_exit: 0
 dod_assert: archive -DryRun 只选择 tier=ledger、recurrence=1、非最大 ID、且未被 CLAUDE.md/CLAUDE.template.md 引用的条目；真实执行复用 archive.ps1 -LessonIds；search 横跨热账本与冷库并标记 archived；check/gate16 的定义 ID 集合为两库并集，bump/promote 命中冷项时给出移回热区的明确修法。
