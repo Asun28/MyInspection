@@ -12722,6 +12722,9 @@ if (-not $authorityBase.Ok) {
 }
 
 # 17ai（T0-R3-DIFF-BUDGET）：真实 diff 预算必须在 reviewer 与 push/PR 之前 fail-closed。
+#   captured-HEAD 一例归属 A1「本次实际测量」：度量必须针对**一个**提交，故比较式两端都钉死
+#   （base 取 pinned baseOid、HEAD 取进入时捕获的 $sha）。HEAD 在窗口内被移动时度量值不得改变；
+#   把该 OID 继续传给 push/评审/合并属 T0-R3-MEASURED-OID-BINDING，不在本卡。
 # 真实仓夹具锁住 999/1001 changed-lines、60000/60001 untruncated diff chars、binary 与命令故障；
 # 正常评审路径的超限例同时证明预算闸先于 reviewer，且 SizeOnly/超限均不消费 round。
 $reviewSizeScript = Join-Path $RepoRoot 'scripts/review.ps1'
