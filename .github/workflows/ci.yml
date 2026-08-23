@@ -54,25 +54,49 @@ jobs:
       # 每个下游 CI 跑的都是审计过的确定字节（TD56/TD-119）。尾注版本号仅供人读；升级由 dependabot/renovate
       # 提 PR 刷新 SHA（selftest 闸 8.2a 机检两份工作流所有 uses: 均为 40-hex SHA）。
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # PR 文档分类需要同时读取 base/head；缺失历史时分类器 fail-closed 到完整 CI。
+          fetch-depth: 0
+
+      - name: Classify PR change scope
+        id: docs_scope
+        shell: pwsh
+        run: |
+          $eventName = '${{ github.event_name }}'
+          if ($eventName -eq 'pull_request') {
+            pwsh -NoProfile -File scripts/ci-docs-scope.ps1 `
+              -EventName $eventName `
+              -BaseSha '${{ github.event.pull_request.base.sha }}' `
+              -HeadSha '${{ github.event.pull_request.head.sha }}'
+          } else {
+            # push/workflow_dispatch 的非文档触发始终走完整 CI；纯文档 push 已由既有 paths-ignore 跳过。
+            pwsh -NoProfile -File scripts/ci-docs-scope.ps1 -EventName $eventName
+          }
 
       - name: Validate task cards
         shell: pwsh
         run: |
           $f = 'scripts/check-cards.ps1'
-          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Host 'check-cards.ps1 absent; skipping' }
+          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-cards.ps1 missing (gate removed?)'; exit 1 }
+
+      - name: Validate archive card index
+        shell: pwsh
+        run: |
+          $f = 'scripts/archive.ps1'
+          if (Test-Path $f) { pwsh -NoProfile -File $f -CheckCardsIndex -Quiet } else { Write-Error 'archive.ps1 missing (gate removed?)'; exit 1 }
 
       - name: Setup Python
-        if: ${{ hashFiles('pyproject.toml') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('pyproject.toml') != '' }}
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'   # init 替换；与 scripts/_config.ps1 PythonVersion 对齐
 
       - name: Install uv
-        if: ${{ hashFiles('pyproject.toml') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('pyproject.toml') != '' }}
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
 
       - name: Sync deps
-        if: ${{ hashFiles('pyproject.toml') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('pyproject.toml') != '' }}
         shell: pwsh
         # --frozen：用已提交的 uv.lock，**不**在 CI 里改解析 → 确定性（治「裸 uv sync 可变 lock → 非确定性解析」）。
         # 前提：把 uv.lock 提交进仓库（最佳实践）。无 lock 时本步会明确报错，而非静默漂移。
@@ -82,7 +106,7 @@ jobs:
       # IMAGEIO_FFMPEG_EXE（属 CI 工具链装配，非产品运行时联网）。模板默认不含该步骤。
 
       - name: Pytest (no-network)
-        if: ${{ hashFiles('pyproject.toml') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('pyproject.toml') != '' }}
         shell: pwsh
         env:
           APP_ENV: ci
@@ -108,14 +132,14 @@ jobs:
           if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-secrets.ps1 missing (gate removed?)'; exit 1 }
 
       - name: Setup Java (Temurin 17)
-        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('android/gradlew.bat') != '' }}
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Setup Android SDK
-        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('android/gradlew.bat') != '' }}
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           # platform-tools + 与卡片 T0-TOOLCHAIN 的供给（provisioning）契约同口径的 compileSdk/build-tools（35，见
@@ -124,7 +148,7 @@ jobs:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Setup Gradle (dependency cache across CI runs)
-        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('android/gradlew.bat') != '' }}
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         # 核验 raw.githubusercontent.com/gradle/actions/9c971963.../setup-gradle/action.yml 全部 inputs：
         # 该 pinned SHA 已不存在 build-root-directory 输入，其余用 with: 块显式声明（T0-TOOLCHAIN R3 finding）。
@@ -137,7 +161,7 @@ jobs:
           cache-provider: basic
 
       - name: Gradle online build (warms cache for verify.ps1's --offline gate)
-        if: ${{ hashFiles('android/gradlew.bat') != '' }}
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' && hashFiles('android/gradlew.bat') != '' }}
         shell: pwsh
         working-directory: android
         # CI 跑者每次都是新机（即便 setup-gradle 恢复了跨 run 缓存，依赖清单一变仍可能缓存未命中）——
@@ -150,6 +174,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "gradlew build failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
 
       - name: License gate
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}
         shell: pwsh
         # 每 PR 跑商用许可闸（PyPI/npm + Gradle 已解析 classpath，见 docs/LICENSE-POLICY.md）——服务端兜底，
         # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。禁列许可或 Gradle 解析/元数据失败均非零退出。
@@ -162,6 +187,7 @@ jobs:
           if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
 
       - name: E2E verify gate
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}
         shell: pwsh
         run: |
           $f = 'scripts/verify.ps1'

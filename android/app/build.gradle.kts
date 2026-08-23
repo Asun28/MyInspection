@@ -66,6 +66,13 @@ dependencies {
 
     // Android 侧 SQLDelight 驱动（schema 由后续卡挂上，本卡只 pin 依赖）
     implementation(libs.sqldelight.driver.android)
+
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlin.test.testng)
+}
+
+tasks.withType<Test>().configureEach {
+    useTestNG()
 }
 
 // 合并清单 + 备份/D2D 排除规则回归检查（隐私硬边界，见 res/xml/{data_extraction_rules,backup_rules}.xml 注释）。

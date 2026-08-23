@@ -7,11 +7,11 @@ status: todo
 branch: T1-SPIKE-PLATFORM
 worktree: C:\wt\T1-SPIKE-PLATFORM
 allow_paths:
-  - android/app/src/main/
+  - android/app/src/debug/
   - docs/spike/
 forbid:
   - 碰 android/core/（并行卡领地）与构建文件
-  - 把 spike 代码当生产代码（正式实现各归其卡；spike 代码可留 debug 入口但不接主流程）
+  - 把 spike 代码放进 main/release source set 或接入生产主流程（正式实现各归其卡）
 non_goals:
   - 生产级 UI/架构（一个 debug Activity 串四项探测即可）
   - 照片入库/数据模型（读写 app 私有目录裸文件即可）
@@ -27,6 +27,8 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注 + 若降级须改 T3-HISTOR
 
 ## 产出
 一个 debug Activity + 真机验证报告 `docs/spike/PLATFORM-SPIKE.md`，对四个 [验] 风险各下二值结论。
+
+探针全部放在 `android/app/src/debug/`（含 debug manifest、源码与字体资产），只进入 debug APK；release/main source set 不出现入口或探针类。该范围修订修正了原卡“debug Activity”与只允许 `src/main/` 的矛盾，不改变四项真机验收。
 
 ## 上下文包（执行模型必读）
 - **①Ghost overlay（主目的，需求 §2 [验]）**：CameraX `Preview` + `ImageCapture` 绑同一 `UseCaseGroup` 且共 `ViewPort`（Codex 要点：buffer 与 display 坐标系不同，用 PreviewView 的 transform/`CoordinateTransform` 对位，不做手写 center-crop 算术）；PreviewView 上叠一张历史照（Compose Image，alpha 0.25–0.4，ContentScale 匹配 FILL_CENTER 语义）；拍一张存 app 私有目录（`getExternalFilesDir`）再读回显示。锁竖屏。判据：取景时历史照与实景可对位、拍存读回不变形。**跑不通 → 结论=降级「拍完并排比对」（两条路都零风险，需求原文）**。

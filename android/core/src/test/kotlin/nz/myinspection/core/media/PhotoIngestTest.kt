@@ -29,7 +29,7 @@ class PhotoIngestTest {
 
     @Test
     fun `with multiple active paths for the hash, the caller's first entry wins deterministically`() {
-        // selectActiveAssetsByContentHash already returns them ORDER BY rel_path ASC; PhotoIngest must
+        // selectActiveAssetsByPropertyAndContentHash already returns them ORDER BY rel_path ASC; PhotoIngest must
         // not re-sort or pick differently — it just takes the caller's first entry.
         val plan = PhotoIngest.plan(
             propertyId = "prop-1", inspectionId = "insp-1", photoId = "photo-1",
@@ -37,6 +37,38 @@ class PhotoIngestTest {
             existingActiveRelPaths = listOf("photos/prop-1/insp-1/a.jpg", "photos/prop-1/insp-1/b.jpg"),
         )
         assertEquals("photos/prop-1/insp-1/a.jpg", assertIs<PhotoIngestPlan.ReuseExistingAsset>(plan).relPath)
+    }
+
+    @Test
+    fun `a candidate owned by another property is skipped and a new property-local path is written`() {
+        val plan = PhotoIngest.plan(
+            propertyId = "prop-b", inspectionId = "insp-b", photoId = "photo-b",
+            contentHash = "shared-hash",
+            existingActiveRelPaths = listOf("photos/prop-a/insp-a/existing.jpg"),
+        )
+
+        val writeNew = assertIs<PhotoIngestPlan.WriteNewAsset>(plan)
+        assertEquals("photos/prop-b/insp-b/photo-b.jpg", writeNew.relPath)
+    }
+
+    @Test
+    fun `candidate order cannot let a foreign-property path displace a local reusable asset`() {
+        val candidates = listOf(
+            "photos/prop-a/insp-a/foreign.jpg",
+            "photos/prop-b/insp-old/local.jpg",
+        )
+
+        for (orderedCandidates in listOf(candidates, candidates.reversed())) {
+            val plan = PhotoIngest.plan(
+                propertyId = "prop-b", inspectionId = "insp-b", photoId = "photo-b",
+                contentHash = "shared-hash",
+                existingActiveRelPaths = orderedCandidates,
+            )
+            assertEquals(
+                "photos/prop-b/insp-old/local.jpg",
+                assertIs<PhotoIngestPlan.ReuseExistingAsset>(plan).relPath,
+            )
+        }
     }
 
     @Test
