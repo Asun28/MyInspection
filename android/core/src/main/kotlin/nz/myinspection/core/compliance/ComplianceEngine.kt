@@ -10,7 +10,9 @@ import java.util.Collections
  * [entryId] exists so rescheduling can be expressed at all. Without an identity the row being moved is
  * indistinguishable from a competing row, so passing an unfiltered history made an inspection collide with
  * itself and report [ComplianceReasonKey.FREQUENCY_LIMIT] for a date it already legitimately occupied.
- * Callers pass the whole history and name the row under edit; they do not pre-filter.
+ * Callers pass the whole history and name the row under edit; they do not pre-filter. [entryId] must therefore
+ * be a real identity: blank or repeated ids are refused rather than matched, because one name that fits several
+ * rows excludes all of them.
  */
 data class ExistingScheduledEntry(
     val entryId: String,
@@ -32,7 +34,8 @@ data class ScheduleRequest(
     val existingEntries: List<ExistingScheduledEntry>,
     /**
      * When this request reschedules an existing visit, the [ExistingScheduledEntry.entryId] of that visit.
-     * It is excluded from the frequency comparison: a row must never block its own move. Null for new visits.
+     * It is excluded from the frequency comparison: a row must never block its own move. Null for new visits;
+     * when non-null it must name exactly one row of [ScheduleRequest.existingEntries].
      */
     val currentEntryId: String? = null,
 )
@@ -90,7 +93,20 @@ class ComplianceEngine(private val config: ComplianceConfig) {
             reasons += ComplianceReason(ComplianceReasonKey.OUTSIDE_VISIT_WINDOW)
         }
 
-        if (request.inspectionType in SUPPORTED_INSPECTION_TYPES &&
+        // History has to be trustworthy as identity and as data before it can excuse or trigger the cap.
+        // entryId is free text the caller supplies: a blank id (an unpersisted row) or a repeated one makes a
+        // single currentEntryId exclude several competing rows at once, and an id naming no row is not a
+        // reschedule at all. A purpose the config does not know has no rule to be judged under, so leaving it
+        // in the comparison would drop a genuine competitor silently while an unknown type below fails closed.
+        val entryIds = request.existingEntries.map { it.entryId }
+        val historyUsable = entryIds.none { it.isBlank() } &&
+            entryIds.distinct().size == entryIds.size &&
+            (request.currentEntryId == null || entryIds.count { it == request.currentEntryId } == 1) &&
+            request.existingEntries.all { it.entryPurpose in config.rules }
+        if (!historyUsable) reasons += ComplianceReason(ComplianceReasonKey.INVALID_HISTORY_ENTRY)
+
+        if (historyUsable &&
+            request.inspectionType in SUPPORTED_INSPECTION_TYPES &&
             request.inspectionType !in rule.frequencyLimit.exemptTypes
         ) {
             var frequencyBlocked = false

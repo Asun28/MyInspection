@@ -1,5 +1,7 @@
 package nz.myinspection.core.compliance
 
+import nz.myinspection.core.compliance.ComplianceTestFixtures.RULES_FILE
+import nz.myinspection.core.compliance.ComplianceTestFixtures.configJson
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -208,32 +210,50 @@ class ComplianceEngineTest {
         )
     }
 
+    /**
+     * A purpose the config *does* know is genuinely someone else's quota: its own rule carries its own
+     * frequency limit, so it must not consume the inspection one.
+     */
     @Test
-    fun `history belonging to another entry purpose cannot trigger the inspection frequency limit`() {
+    fun `history belonging to another configured entry purpose cannot trigger the inspection frequency limit`() {
+        val engine = ComplianceEngine(
+            ComplianceConfigLoader.load(configJson(alternatePurpose = true).encodeToByteArray()).config,
+        )
         val scheduled = atNz("2026-08-15T10:00")
+        val other = ExistingScheduledEntry(
+            "e-other-purpose", "property-a", "fixture-purpose", "ROUTINE", atNz("2026-08-01T10:00"),
+        )
 
         assertIs<ScheduleValidation.Pass>(
-            engine().validateSchedule(
-                request(
-                    scheduledAt = scheduled,
-                    noticeGivenAt = scheduled.minus(Duration.ofHours(48)),
-                    existingEntries = listOf(
-                        ExistingScheduledEntry(
-                            "e-other-purpose",
-                            "property-a",
-                            "fixture-purpose",
-                            "ROUTINE",
-                            atNz("2026-08-01T10:00"),
-                        ),
-                    ),
-                ),
+            engine.validateSchedule(
+                request(scheduled, scheduled.minus(Duration.ofHours(48)), existingEntries = listOf(other)),
             ),
+        )
+    }
+
+    /**
+     * A purpose the config does *not* know is not someone else's quota, it is a broken row: the rule that would
+     * govern it cannot be looked up. Skipping it silently drops a genuine competitor from the comparison — the
+     * config validator itself rejects "Inspection", so a row carrying it is corruption, not a different visit.
+     */
+    @Test
+    fun `history carrying an unknown entry purpose fails closed instead of vanishing from the comparison`() {
+        val scheduled = atNz("2026-08-15T10:00")
+        val unknown = ExistingScheduledEntry(
+            "e-unknown-purpose", "property-a", "Inspection", "ROUTINE", atNz("2026-08-12T10:00"),
+        )
+
+        assertBlocked(
+            engine().validateSchedule(
+                request(scheduled, scheduled.minus(Duration.ofHours(48)), existingEntries = listOf(unknown)),
+            ),
+            ComplianceReasonKey.INVALID_HISTORY_ENTRY,
         )
     }
 
     @Test
     fun `repository rule file loads and drives the signed inspection behavior`() {
-        val bytes = Files.readAllBytes(findRepositoryFile("configs/compliance/nz-rules-v1.json"))
+        val bytes = Files.readAllBytes(findRepositoryFile(RULES_FILE))
         val loaded = ComplianceConfigLoader.load(bytes)
         val engine = ComplianceEngine(loaded.config)
         val scheduled = atNz("2026-08-15T10:00")
@@ -318,6 +338,62 @@ class ComplianceEngineTest {
     }
 
     /**
+     * `exemptTypes` is read twice — once for the requested type, once for each stored one — and the suite only
+     * ever configured the signed INGOING/EXIT/ANNUAL list, so either read could be a hard-coded set and stay
+     * green. A config that exempts ROUTINE *instead* inverts both: the same fixtures now demand the opposite
+     * verdicts, so a literal set fails whichever side it is written on.
+     */
+    @Test
+    fun `exempt inspection types come from config on both the requested and the stored side`() {
+        val engine = ComplianceEngine(
+            ComplianceConfigLoader.load(configJson(exemptTypes = """["ROUTINE"]""").encodeToByteArray()).config,
+        )
+        val scheduled = atNz("2026-08-19T10:00")
+        val notice = scheduled.minus(Duration.ofHours(48))
+        val twentySevenDaysEarlier = atNz("2026-07-23T10:00")
+        val routine = ExistingScheduledEntry("e-routine", "property-a", "inspection", "ROUTINE", twentySevenDaysEarlier)
+        val ingoing = ExistingScheduledEntry("e-ingoing", "property-a", "inspection", "INGOING", twentySevenDaysEarlier)
+
+        assertIs<ScheduleValidation.Pass>(
+            engine.validateSchedule(request(scheduled, notice, existingEntries = listOf(routine))),
+        )
+        assertBlocked(
+            engine.validateSchedule(
+                request(scheduled, notice, inspectionType = "INGOING", existingEntries = listOf(ingoing)),
+            ),
+            ComplianceReasonKey.FREQUENCY_LIMIT,
+        )
+    }
+
+    /**
+     * The civil timezone is config data too. 2026-08-19T20:30Z is 20:30 in UTC — past any closing time — and
+     * 08:30 the next morning in Pacific/Auckland, so one Instant reaches opposite verdicts under two configs
+     * that differ in nothing else. The UTC config is built directly because the loader pins v1 to
+     * Pacific/Auckland, and that validator must not be weakened to serve a test.
+     */
+    @Test
+    fun `the civil timezone that decides visit hours comes from config`() {
+        val auckland = ComplianceConfigLoader.load(configJson().encodeToByteArray()).config
+        val utc = ComplianceConfig(
+            schemaVersion = auckland.schemaVersion,
+            effectiveDate = auckland.effectiveDate,
+            sourceRefs = auckland.sourceRefs,
+            timezone = ZoneId.of("UTC"),
+            rules = auckland.rules,
+        )
+        val scheduled = Instant.parse("2026-08-19T20:30:00Z")
+        val notice = scheduled.minus(Duration.ofHours(48))
+
+        assertIs<ScheduleValidation.Pass>(
+            ComplianceEngine(auckland).validateSchedule(request(scheduled, notice)),
+        )
+        assertBlocked(
+            ComplianceEngine(utc).validateSchedule(request(scheduled, notice)),
+            ComplianceReasonKey.OUTSIDE_VISIT_WINDOW,
+        )
+    }
+
+    /**
      * A row cannot be competition for itself. Before [ScheduleRequest.currentEntryId] existed, handing the
      * engine the real history while moving one of its rows made that row block its own move, so the only way
      * to reschedule anything was for every caller to pre-filter — an undocumented contract nothing enforced.
@@ -356,13 +432,36 @@ class ComplianceEngineTest {
             ),
             ComplianceReasonKey.FREQUENCY_LIMIT,
         )
-        // An id that matches nothing excludes nothing.
-        assertBlocked(
-            engine.validateSchedule(
-                request(moveTo, notice, existingEntries = listOf(underEdit), currentEntryId = "entry-absent"),
-            ),
-            ComplianceReasonKey.FREQUENCY_LIMIT,
-        )
+    }
+
+    /**
+     * Exclusion by id is only sound while ids are identities. `entryId` is free text the caller supplies, and a
+     * not-yet-persisted row carries "", while a buggy mapper repeats one id across rows — either way a single
+     * `currentEntryId` silently excludes *several* competing rows and the four-week cap stops existing. The
+     * gate must refuse the history rather than approve a schedule it cannot reason about.
+     */
+    @Test
+    fun `ambiguous reschedule identity fails closed instead of excusing several competing rows`() {
+        val engine = engine()
+        val moveTo = atNz("2026-08-14T10:00")
+        val notice = moveTo.minus(Duration.ofHours(48))
+        fun routine(id: String, at: String) =
+            ExistingScheduledEntry(id, "property-a", "inspection", "ROUTINE", atNz(at))
+        fun verdict(rows: List<ExistingScheduledEntry>, current: String? = null) =
+            engine.validateSchedule(request(moveTo, notice, existingEntries = rows, currentEntryId = current))
+
+        // Two unpersisted rows, both matched by currentEntryId "": a third Routine inside four days used to pass.
+        val unpersisted = listOf(routine("", "2026-08-10T10:00"), routine("", "2026-08-12T10:00"))
+        assertBlocked(verdict(unpersisted, current = ""), ComplianceReasonKey.INVALID_HISTORY_ENTRY)
+        // A single blank id is already unusable, with nothing named for it to be confused with.
+        assertBlocked(verdict(unpersisted.take(1)), ComplianceReasonKey.INVALID_HISTORY_ENTRY)
+        // Non-blank but repeated: naming that id later would excuse both rows at once.
+        val repeated = listOf(routine("entry-dup", "2026-08-10T10:00"), routine("entry-dup", "2026-08-12T10:00"))
+        assertBlocked(verdict(repeated), ComplianceReasonKey.INVALID_HISTORY_ENTRY)
+        // Naming a row that is not in the history is not a reschedule; accepting it as a new visit would let a
+        // caller drop the row under edit from the list and reuse its date.
+        val single = listOf(routine("entry-under-edit", "2026-08-10T10:00"))
+        assertBlocked(verdict(single, current = "entry-absent"), ComplianceReasonKey.INVALID_HISTORY_ENTRY)
     }
 
     /**
@@ -371,7 +470,7 @@ class ComplianceEngineTest {
      */
     @Test
     fun `every rule in the authoritative repository file has a passing and a failing case`() {
-        val bytes = Files.readAllBytes(findRepositoryFile("configs/compliance/nz-rules-v1.json"))
+        val bytes = Files.readAllBytes(findRepositoryFile(RULES_FILE))
         val engine = ComplianceEngine(ComplianceConfigLoader.load(bytes).config)
         val scheduled = atNz("2026-08-19T10:00")
 
@@ -459,6 +558,36 @@ class ComplianceEngineTest {
         )
     }
 
+    /**
+     * The published exemption list names ANNUAL next to INGOING/EXIT although the requirements name only the
+     * latter two. That is deliberate: ANNUAL is the owner-occupied yearly check (自住房年检), not an entry into
+     * a tenancy, so the RTA's four-week ceiling on repeat inspections has nothing to apply to. It is recorded
+     * here because the rule schema carries no prose field to record it in.
+     */
+    @Test
+    fun `ANNUAL is exempt because an owner-occupied annual check is not a tenancy entry`() {
+        val loaded = ComplianceConfigLoader.load(Files.readAllBytes(findRepositoryFile(RULES_FILE)))
+        val scheduled = atNz("2026-08-19T10:00")
+        val yesterday = ExistingScheduledEntry(
+            "e-annual-yesterday", "property-a", "inspection", "ANNUAL", atNz("2026-08-18T10:00"),
+        )
+
+        assertEquals(
+            listOf("INGOING", "EXIT", "ANNUAL"),
+            loaded.config.rules.getValue("inspection").frequencyLimit.exemptTypes,
+        )
+        assertIs<ScheduleValidation.Pass>(
+            ComplianceEngine(loaded.config).validateSchedule(
+                request(
+                    scheduled,
+                    scheduled.minus(Duration.ofHours(48)),
+                    inspectionType = "ANNUAL",
+                    existingEntries = listOf(yesterday),
+                ),
+            ),
+        )
+    }
+
     /** Blocked reasons are handed out as an unmodifiable view; callers must not be able to edit a verdict. */
     @Test
     fun `blocked reasons reject mutation through a cast`() {
@@ -506,47 +635,6 @@ class ComplianceEngineTest {
     }
 
     private fun atNz(local: String): Instant = LocalDateTime.parse(local).atZone(zone).toInstant()
-
-    private fun configJson(
-        alternatePurpose: Boolean = false,
-        noticeMinHours: Int = 48,
-        noticeMaxDays: Int = 14,
-        windowStart: String = "08:00",
-        windowEnd: String = "19:00",
-        boardingHouseEnd: String = "18:00",
-        frequencyDays: Int = 28,
-    ): String {
-        val alternatePurposeRule = if (alternatePurpose) {
-            """
-            ,
-            "fixture-purpose": {
-              "noticeMinHours": 72,
-              "noticeMaxDays": 14,
-              "visitWindow": {"start": "08:00", "end": "19:00", "boardingHouseEnd": "18:00"},
-              "frequencyLimit": {"days": 1, "exemptTypes": ["ROUTINE", "INGOING", "EXIT", "ANNUAL"]}
-            }
-            """.trimIndent()
-        } else {
-            ""
-        }
-        return """
-            {
-              "schemaVersion": 1,
-              "effectiveDate": "2025-12-01",
-              "sourceRefs": ["https://www.legislation.govt.nz/act/public/1986/120/en/latest/sections/DLM95504/"],
-              "timezone": "Pacific/Auckland",
-              "rules": {
-                "inspection": {
-                  "noticeMinHours": $noticeMinHours,
-                  "noticeMaxDays": $noticeMaxDays,
-                  "visitWindow": {"start": "$windowStart", "end": "$windowEnd", "boardingHouseEnd": "$boardingHouseEnd"},
-                  "frequencyLimit": {"days": $frequencyDays, "exemptTypes": ["INGOING", "EXIT", "ANNUAL"]}
-                }
-                $alternatePurposeRule
-              }
-            }
-        """.trimIndent()
-    }
 
     private fun findRepositoryFile(relative: String): Path {
         var cursor: Path? = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()

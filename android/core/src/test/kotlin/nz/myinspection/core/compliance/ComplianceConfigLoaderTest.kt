@@ -1,15 +1,18 @@
 package nz.myinspection.core.compliance
 
-import java.security.MessageDigest
+import nz.myinspection.core.compliance.ComplianceTestFixtures.TENANCY_REF
+import nz.myinspection.core.compliance.ComplianceTestFixtures.configJson
+import nz.myinspection.core.compliance.ComplianceTestFixtures.sha256Hex
 import java.time.LocalTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
+/** The documents this class hands the loader are the ones it must accept; refusals live in [ComplianceConfigRejectionTest]. */
 class ComplianceConfigLoaderTest {
     @Test
     fun `valid built-in bytes load the inspection rule without hidden defaults`() {
-        val result = ComplianceConfigLoader.load(validConfig().encodeToByteArray())
+        val result = ComplianceConfigLoader.load(configJson().encodeToByteArray())
 
         assertEquals(ComplianceConfigSource.BUILT_IN, result.source)
         assertEquals(null, result.overrideRejection)
@@ -40,8 +43,8 @@ class ComplianceConfigLoaderTest {
 
     @Test
     fun `override applies only when its raw-byte digest and schema version both match`() {
-        val builtIn = validConfig(noticeMinHours = 48).encodeToByteArray()
-        val override = validConfig(noticeMinHours = 72).encodeToByteArray()
+        val builtIn = configJson(noticeMinHours = 48).encodeToByteArray()
+        val override = configJson(noticeMinHours = 72).encodeToByteArray()
 
         val accepted = ComplianceConfigLoader.load(
             builtInBytes = builtIn,
@@ -58,7 +61,7 @@ class ComplianceConfigLoaderTest {
         assertEquals(OverrideRejection.CHECKSUM_MISMATCH, badDigest.overrideRejection)
         assertEquals(48, badDigest.config.rules.getValue("inspection").noticeMinHours)
 
-        val wrongSchema = validConfig(schemaVersion = 2, noticeMinHours = 72).encodeToByteArray()
+        val wrongSchema = configJson(schemaVersion = 2, noticeMinHours = 72).encodeToByteArray()
         val badSchema = ComplianceConfigLoader.load(
             builtInBytes = builtIn,
             override = ComplianceOverride(wrongSchema, sha256Hex(wrongSchema)),
@@ -71,12 +74,9 @@ class ComplianceConfigLoaderTest {
     @Test
     fun `invalid civil windows and source URLs fail closed instead of widening the rule`() {
         val invalidCases = listOf(
-            validConfig().replace("\"start\": \"08:00\"", "\"start\": \"08:00:30\""),
-            validConfig().replace("\"boardingHouseEnd\": \"18:00\"", "\"boardingHouseEnd\": \"20:00\""),
-            validConfig().replace(
-                "https://www.tenancy.govt.nz/maintenance-and-inspections/inspections/",
-                "https://",
-            ),
+            configJson().replace("\"start\": \"08:00\"", "\"start\": \"08:00:30\""),
+            configJson().replace("\"boardingHouseEnd\": \"18:00\"", "\"boardingHouseEnd\": \"20:00\""),
+            configJson().replace(TENANCY_REF, "https://"),
         )
 
         invalidCases.forEach { invalid ->
@@ -88,8 +88,8 @@ class ComplianceConfigLoaderTest {
 
     @Test
     fun `v1 requires Pacific Auckland and a checksum-valid timezone override falls back`() {
-        val builtIn = validConfig().encodeToByteArray()
-        val utc = validConfig().replace("Pacific/Auckland", "UTC").encodeToByteArray()
+        val builtIn = configJson().encodeToByteArray()
+        val utc = configJson().replace("Pacific/Auckland", "UTC").encodeToByteArray()
 
         assertFailsWith<ComplianceConfigException> {
             ComplianceConfigLoader.load(utc)
@@ -106,9 +106,9 @@ class ComplianceConfigLoaderTest {
 
     @Test
     fun `digest-valid malformed and semantically invalid overrides are rejected observably`() {
-        val builtIn = validConfig().encodeToByteArray()
+        val builtIn = configJson().encodeToByteArray()
         val malformed = "{".encodeToByteArray()
-        val invalidRule = validConfig(noticeMinHours = 0).encodeToByteArray()
+        val invalidRule = configJson(noticeMinHours = 0).encodeToByteArray()
 
         listOf(malformed, invalidRule).forEach { invalidOverride ->
             val result = ComplianceConfigLoader.load(
@@ -120,38 +120,4 @@ class ComplianceConfigLoaderTest {
             assertEquals(48, result.config.rules.getValue("inspection").noticeMinHours)
         }
     }
-
-    private fun validConfig(
-        schemaVersion: Int = 1,
-        noticeMinHours: Int = 48,
-    ): String =
-        """
-        {
-          "schemaVersion": $schemaVersion,
-          "effectiveDate": "2025-12-01",
-          "sourceRefs": [
-            "https://www.legislation.govt.nz/act/public/1986/120/en/latest/sections/DLM95504/",
-            "https://www.tenancy.govt.nz/maintenance-and-inspections/inspections/"
-          ],
-          "timezone": "Pacific/Auckland",
-          "rules": {
-            "inspection": {
-              "noticeMinHours": $noticeMinHours,
-              "noticeMaxDays": 14,
-              "visitWindow": {
-                "start": "08:00",
-                "end": "19:00",
-                "boardingHouseEnd": "18:00"
-              },
-              "frequencyLimit": {
-                "days": 28,
-                "exemptTypes": ["INGOING", "EXIT", "ANNUAL"]
-              }
-            }
-          }
-        }
-        """.trimIndent()
-
-    private fun sha256Hex(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }

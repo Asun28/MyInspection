@@ -123,8 +123,13 @@ object ComplianceConfigLoader {
     private fun parseValidated(bytes: ByteArray, expectedSchemaVersion: Int): ComplianceConfig =
         validateAndFreeze(decodeRaw(bytes), expectedSchemaVersion)
 
-    private fun decodeRaw(bytes: ByteArray): RawComplianceConfig =
-        json.decodeFromString(RawComplianceConfig.serializer(), decodeUtf8Strict(bytes))
+    private fun decodeRaw(bytes: ByteArray): RawComplianceConfig {
+        val text = decodeUtf8Strict(bytes)
+        val raw = json.decodeFromString(RawComplianceConfig.serializer(), text)
+        val ambiguous = ambiguousKeys(text)
+        if (ambiguous.isNotEmpty()) throw ComplianceConfigException(Collections.unmodifiableList(ambiguous))
+        return raw
+    }
 
     private fun validateAndFreeze(raw: RawComplianceConfig, expectedSchemaVersion: Int): ComplianceConfig {
         val errors = mutableListOf<String>()
@@ -145,7 +150,7 @@ object ComplianceConfigLoader {
             null
         }
         if (raw.timezone != V1_TIMEZONE) {
-            errors += "config: timezone must be $V1_TIMEZONE for schemaVersion 1"
+            errors += "config: timezone must be $V1_TIMEZONE for schemaVersion $expectedSchemaVersion"
         }
 
         if (raw.sourceRefs.isEmpty()) errors += "config: sourceRefs is empty"
@@ -272,6 +277,47 @@ private data class RawFrequencyLimit(
     val days: Int,
     val exemptTypes: List<String>,
 )
+
+/**
+ * Object keys that would let the document say one thing and mean another.
+ *
+ * The pinned kotlinx build resolves duplicate keys last-wins and reports nothing, so an override whose SHA-256
+ * a user verified could still enforce a value no reader of those bytes would predict — the digest authenticates
+ * the whole file, which puts "what the bytes say" inside the trust boundary. Keys are compared exactly as
+ * written and an escaped key is refused outright, so two spellings of one name cannot differ textually and
+ * collide after decoding; no key in this schema needs an escape.
+ *
+ * The scan assumes well-formed JSON and so runs only after the parser has accepted the text: there, a string
+ * followed by ':' is always an object key.
+ */
+private fun ambiguousKeys(text: String): List<String> {
+    val errors = mutableListOf<String>()
+    val scopes = ArrayDeque<MutableSet<String>>()
+    var index = 0
+    while (index < text.length) {
+        when (text[index]) {
+            '{' -> { scopes.addLast(mutableSetOf()); index++ }
+            '}' -> { scopes.removeLastOrNull(); index++ }
+            '"' -> {
+                var end = index + 1
+                while (end < text.length && text[end] != '"') end += if (text[end] == '\\') 2 else 1
+                val literal = text.substring(index + 1, minOf(end, text.length))
+                index = end + 1
+                var next = index
+                while (next < text.length && text[next].isWhitespace()) next++
+                if (next < text.length && text[next] == ':' && scopes.isNotEmpty()) {
+                    if (literal.contains('\\')) {
+                        errors += "config: JSON key $literal uses an escape sequence"
+                    } else if (!scopes.last().add(literal)) {
+                        errors += "config: duplicate JSON key $literal"
+                    }
+                }
+            }
+            else -> index++
+        }
+    }
+    return errors
+}
 
 private fun decodeUtf8Strict(bytes: ByteArray): String =
     Charsets.UTF_8.newDecoder()
