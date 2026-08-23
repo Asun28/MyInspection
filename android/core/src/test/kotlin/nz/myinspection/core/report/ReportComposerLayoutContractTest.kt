@@ -65,6 +65,10 @@ class ReportComposerLayoutContractTest {
      * The picture box is a plan number, not something the renderer works out. Deriving it from the first
      * caption run's y works only while a slot has at least one caption line, and a renderer that guessed
      * wrong would paint the caption over the bottom of the photograph.
+     *
+     * Width and x are part of that box. A full-width slot that quietly narrowed, or a panorama indented
+     * inside its own placed block, prints evidence smaller than the page allows without changing any
+     * height these assertions already pin.
      */
     @Test
     fun `every slot states its own picture box`() {
@@ -76,6 +80,11 @@ class ReportComposerLayoutContractTest {
         assertEquals(40, thumbnail.imageHeightMm)
         assertEquals(44, panorama.imageHeightMm)
         assertEquals(108, appendix.imageHeightMm)
+        // The full-width slots span the whole 180mm body, and the panorama starts at its block's own left
+        // edge rather than being indented inside it.
+        assertEquals(180, appendix.widthMm, "the appendix picture is narrower than the 180mm body")
+        assertEquals(180, panorama.widthMm, "the room panorama is narrower than the 180mm body")
+        assertEquals(0, panorama.xMm, "the room panorama is indented inside its own placed block")
         plan.slots().forEach { slot ->
             assertEquals(
                 slot.yMm + slot.imageHeightMm,
