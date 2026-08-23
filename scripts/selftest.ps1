@@ -12683,19 +12683,18 @@ try {
   $binary = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BINARY' -LineCount 0 -LongLineChars 0 -Binary)
   $largeFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BEFORE-REVIEWER' -LineCount 1001 -LongLineChars 0) -FullReview
   $diffFailureRoot = New-ReviewSizeFixture -Name 'T9-SIZE-DIFF-FAIL' -LineCount 1 -LongLineChars 0
-  $diffFailureCommand = Join-Path $diffFailureRoot 'fail-diff.cmd'
-  [System.IO.File]::WriteAllText($diffFailureCommand, "@exit /b 23`r`n", [Text.ASCIIEncoding]::new())
-  & git -C $diffFailureRoot config diff.external $diffFailureCommand
-  $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
   $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
   $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
   $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
 
-  # One platform wrapper drives two deterministic git races: malformed --numstat, and HEAD moving after merge-base.
+  # One platform wrapper drives three deterministic git failures: a failing `git diff`, a malformed --numstat,
   $sizeGitShimDir = Join-Path $sizeRoot 'git-shim-bin'
   New-Item -ItemType Directory -Force $sizeGitShimDir | Out-Null
   $sizeGitShimScript = Join-Path $sizeGitShimDir 'git-shim.ps1'
   @'
+if ($env:T9_SIZE_SHIM_MODE -eq 'diff-fail' -and $args -contains 'diff') {
+  exit 23
+}
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat' -and $args -contains '--numstat') {
   Write-Output 'malformed-numstat-row'
   exit 0
@@ -12719,6 +12718,11 @@ exit $realExit
     $env:T9_SIZE_REAL_GIT = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $env:PATH = "$sizeGitShimDir$([IO.Path]::PathSeparator)$sizeSavedPath"
     if ($IsWindows) { $env:PATHEXT = ".PS1;$sizeSavedPathExt" }
+    # A6：让 `git diff` 自身非零。用 shim 而非 diff.external —— 后者是**被审仓库可配的**，
+    # 拿它注入等于让「命令失败会 fail-closed」这条契约依赖一个被审对象能关掉的开关。
+    $env:T9_SIZE_SHIM_MODE = 'diff-fail'
+    $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
+
     $env:T9_SIZE_SHIM_MODE = 'numstat'
     $malformedNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BAD-NUMSTAT' -LineCount 1 -LongLineChars 0)
 
@@ -12762,6 +12766,17 @@ exit $realExit
   $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
   if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
   if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
+  # A13：预算闸必须出现在**每一处**权威流程枚举里。这些枚举是操作者据以判断「跑到哪一步」的清单，
+  # 漏一处就等于对着一份不含该闸的流程排障。逐处断言，改一处漏一处即红。
+  $sizeFlowText = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
+  foreach ($sizeFlow in @(
+    @{ Id = 'task.ps1 ship 流程注释'; Text = $taskSizeText; Needle = '防泄露闸 → 真实 diff 预算' },
+    @{ Id = 'DEVOPS-WORKFLOW 远端 ship 流程'; Text = $sizeFlowText; Needle = '防泄露闸(check-secrets) → 真实 diff 预算' },
+    @{ Id = 'DEVOPS-WORKFLOW resume 流程'; Text = $sizeFlowText; Needle = '防泄露 → 真实 diff 预算' },
+    @{ Id = 'DEVOPS-WORKFLOW EN 摘要'; Text = $sizeFlowText; Needle = 'secret-leak → real diff budget' }
+  )) {
+    if ($sizeFlow.Text -notmatch [regex]::Escape($sizeFlow.Needle)) { $sizeFailures += "flow enumeration '$($sizeFlow.Id)' does not list the diff-budget gate" }
+  }
 
   if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
   else { Write-Host '  17ai 真实 diff 预算 OK（999 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / diff 命令失败 / 参数冲突+上限 / captured HEAD / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }
