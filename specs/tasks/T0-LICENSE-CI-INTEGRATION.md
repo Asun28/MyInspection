@@ -19,6 +19,27 @@ non_goals:
   - 新增生态扫描器、许可类别或 exception 格式
   - 修改 Android 产品代码或 Gradle 依赖
   - 发布应用、商店提交或外部交付
+acceptance:
+  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试；
+  # 清单外的缺口记 [FOLLOW-UP] 开新卡，不在本卡 block。
+  # 本清单由 2026-08-23 的 pre-R3 独立复核（Opus 5 读全量 diff）产出——本卡 diff 达 13.8 万字符、
+  # 远超 review.ps1:297 的 6 万字符首屏 cap，故 R3 只能读到约四成；封闭清单是那道缺口的补偿控制。
+  - "A1 selftest 接线判定的是可执行调用而非字符串：断言须认 CommandAst 的被调命令为 pwsh 且其 -File 实参 extent 含 license-scanner-check.ps1；把 selftest 里那行整行换成引用同一命令文本的 Write-Host，必须以 [INTEGRATION-SELFTEST-WIRING] 变红（只比 CommandAst.Extent.Text 会把字符串字面量判为调用）"
+  - "A2 CI 接线判定的是被执行的路径而非同行字符串：须把 License gate 步骤内活跃行的执行目标解析到 scripts/check-licenses.ps1（变量赋值与 -File $f 成对，或直接字面量）；两种形态各一枚变异必须以 [INTEGRATION-CI-SCANNER] 变红——① 把 $f 改指 scripts/check-cards.ps1，② 把执行行换成 Write-Host 加行尾注释形态的原调用"
+  - "A3 [INTEGRATION-SELFTEST-COLD] 有专属单点变异：只删 selftest 那行的 -SkipRealScan（保留 -Suite integration）必须恰以该码变红；且变异判据分类器须要求「命中期望码且不命中其它接线码」，杜绝顺带触发被当成证明"
+  - "A4 CI 步骤的存在与顺序分码分变异：把 - name: License gate 移到 Setup Java 之前必须以 [INTEGRATION-CI-ORDER-SEQUENCE] 变红；删除或注释该步骤名必须以 [INTEGRATION-CI-ORDER-COUNT] 变红（两者共用一个码时顺序分支拿不到任何变异）"
+  - "A5 PASS 文案带机检可读的 ASCII 模式哨兵：-SkipRealScan 运行输出 PASS [real-scan=skipped]、默认运行输出 PASS [real-scan=executed]；把该三元改成恒定「已执行」分支后，selftest 的 17cc(scanner-integration) 必须变红（中文证据句零机检 ⇒ R3 #12 的修复无回归保护）"
+  - "A6 -SkipMutations 转发可证：以 -Suite integration -SkipRealScan -SkipMutations 运行时，四个子套件输出必须不含 mutations): PASS 行；删掉转发那行后该断言必须变红"
+  - "A7 -SkipMutations 对 integration 自身接线变异的语义显式定死并机检：要么一并跳过，要么 PASS 文案只声明「子套件 mutation 已跳过」——不得出现「已按 -SkipMutations 跳过」而八枚接线变异照跑"
+  - "A8 -SkipRealScan 的作用域守卫有 RED 证据：-Suite graph -SkipRealScan 必须非零退出并打 [INTEGRATION-SKIPREALSCAN-SCOPE]，删掉该守卫后断言变红；且守卫须前移到 dot-source scanner 之前（现在非法调用会先把整个 scanner 载入一遍再抛错）"
+  - "A9 wrapper distribution readiness 的七个合取项逐条保留 RED 证据：.ok 标记 / root 基数 / root 精确名 / launcher 基数 / launcher 精确版本名 / bin/gradle / bin/gradle.bat，每删一条都必须让 graph 套件以 GRADLE-WRAPPER-OFFLINE 加零 wrapper 启动变红，各带专属失败码（selftest 的 -1434 行删掉了其中六条的唯一夹具）"
+  - "A10 依赖图解析器补回三个只存在于旧夹具的形态：FAILED 行必须产出 GRADLE-UNRESOLVED（现夹具只有 (n)，从生产正则删掉 FAILED| 后全套仍绿）；空 selector 与空重定向尾两种边必须各产出 GRADLE-PARSE 并保留完整边文本"
+  - "A11 1434 行删除的无损性在 diff 内可核：selftest 删除处的注释须列出「被删断言类 → 承接套件 + 失败码」的逐条映射，至少覆盖 wrapper-* / parser-* / pom-* / override-* / redaction 五族。理由是 R3 只读 diff（L227），映射只有落进 diff 才是证据"
+  - "A12 真实仓扫描证据与坐标真相源同源且失败可诊断：[INTEGRATION-TESTNG] 的期望坐标从 android/gradle/libs.versions.toml 的 pinned 版本推导（现在硬编码 7.0.0，升版即假红），失败文案须带上扫描输出"
+  - "A13 本脚本的中文 stdout 落进闸 1g 的编码契约：或在入口 dot-source _encoding.ps1、或加进 selftest 的 $encScripts 并补前奏（本卡引入了该脚本第一条非 ASCII stdout，而 -AsLibrary 早退拿不到 scanner 的编码前奏）"
+  - "A14 发布清单改写不得静默丢掉两条分发红线：docs/RELEASE-CHECKLIST.md 须保留「未清零前不得分发（打包 APK 对外分发与变 public 均算分发）」的明文禁令，以及指向 LICENSE-POLICY §1.1 的「AGPL/SSPL/EUPL/非商用触发点与分发无关」指针；改后同步 selftest 的 $rcCanonHash（哈希同步会让这类丢失对闸 17ee 不可见）"
+  - "A15 接线断言不得是变量名黑名单：[INTEGRATION-SELFTEST-INLINE] 须以正向契约表达（如 selftest 中调用本脚本的 CommandAst 恰一个、且不存在构造 Gradle wrapper 夹具的写文件命令），改个变量名即可让整份夹具复活而断言仍绿的形态不算数"
+  - "A16 注释不得认证不存在的覆盖：凡声称「每条断言都有对应变异」「赋值不算执行」之类的完备性陈述，须与实际断言逐条相符——本仓评审文化里这类注释是承重陈述，一句假的就多打一轮"
 dod_command: pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite integration
 dod_exit: 0
 dod_assert: CI 在 JDK/Android/Gradle setup 与在线 cache warm-up 后运行 scanner，scanner 本身强制 offline；fresh-runner 顺序夹具可证不会因未预热必红。仓库真实扫描逐坐标输出至少含 org.testng:testng，禁列和未知夹具均非零；五个子套件与 selftest 接线全绿。政策/发布文档准确写明覆盖与剩余人工边界。只有本卡 merge 后执行 TD2 总验收并补齐五个 PR/commit 证据，随后才允许 paid/归档。
