@@ -50,7 +50,7 @@
 - refs:
 
 ## L3
-- date: 2026-06-01 ｜ tags: github, gh-cli, auth, env, powershell ｜ tier: must ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-06-01 ｜ tags: github, gh-cli, auth, env, powershell ｜ tier: ondemand ｜ severity: blocking ｜ recurrence: 2
 - symptom: `gh` 始终 401，即使 keyring 已登录；`$env:GITHUB_TOKEN=''` 也没用。
 - root_cause: **空字符串** token 仍被 gh 视为「已设置」，从而**遮蔽** keyring 凭据。
 - rule: 用 `Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue` **彻底清除**，不要赋空串。所有 gh 脚本开头已这样做。
@@ -663,7 +663,7 @@
 - refs: 本会话清理 codebase-memory-mcp 注入 ~/.codex/config.toml 的现场（11 行块只删掉 10 行，# <<< 哨兵残留为末行）；rule① 初稿误把「-notmatch 哨兵过滤」当通用解，被 R3（codex）在 PR #101 当场证伪并实测复现（哨兵没了、块体三行全活）——该缺陷此前逃过了 fresh-context 子代理复核，因其只在「块内每行都匹中」的偏置样例上验过；关联 L93（同为 PowerShell 静默假绿：命令自称成功、结果已错）、L25（确定性闸 exit 0/1）
 
 ## L95
-- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: `-Phase red` 打印「RED 已确认（dod 退出 1）」并写下 .review/<id>.red 证据，但那个 1 其实来自 ParserError「Missing expression after unary operator '-not'」——DoD 命令根本没跑起来，一条断言都没执行；该 dod_command 的 GREEN 永远不可达。
 - root_cause: task.ps1 用 `& pwsh -NoProfile -Command <卡片 dod_command 原文>` 执行 DoD，而卡片惯用写法自身又是 `pwsh -NoProfile -Command "..."`。双层包裹下，内层双引号串里的 `$ok` 被子 shell 先行内插成空串，孙 shell 只收到 ` = (...); if (-not ) {...}`。`-Phase red` 只看退出码非零，遂把「语法坏了」当「测试红了」收下 = vacuous RED。
 - rule: dod_command 里一律不写 `$变量`——用 T9-DOCS-DRIFT 的无变量写法 `pwsh -NoProfile -Command "if (-not ((Select-String ...) -and (...))) { exit 1 }"`。跑完 -Phase red 必须读一眼 DoD 的实际输出，确认非零退出来自断言失败而非 ParserError/CommandNotFound；「RED 已确认」这行字不是证据。已合并的 T10-R3-PIN-MODEL 卡即误用 `$ok` 形态，其 DoD 至今无法执行断言（TD69）。
@@ -727,7 +727,7 @@
 - refs: 
 
 ## L106
-- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: PowerShell 工具对 C:\wt\<worktree> 等主检出之外的路径默认沙箱化：cd/写入表面成功（无报错、'done' 打印），但下一次调用读回验证却是旧内容；未加 dangerouslyDisableSandbox 时的一次写脚本还曾把 cd 静默重置回主检出，导致后续相对路径写操作真的落进了主检出（误把 BOM 加进 7 个生产脚本），须 git restore 撤销。
 - root_cause: PowerShell 工具默认沙箱模式对主工作目录之外路径的读写不可靠——未显式传 dangerouslyDisableSandbox:true 时，跨目录操作可能被静默重定向/回退到主目录而非报错，造成'看起来成功、实际操作了错误位置'的假象。
 - rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。
@@ -1119,7 +1119,7 @@
 - refs: T52-TD111 R3 r3 #6（按真交付 HEAD 重跑 clean+变异并更新）；T50 的 15q 两条子断言各做一次变异；同族 L157
 
 ## L162
-- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 在 Windows 上跑第三方/插件 Python 工具读本仓含中文的 JSON/MD 时崩 UnicodeDecodeError: charmap codec cant decode byte 0x81；设 PYTHONIOENCODING 不解决。同批还撞到：把启动 server 的 Python 脚本接管道（| head）后启动横幅/URL 永不出现，看起来像静默失败
 - root_cause: Windows 上 Python 的 open() 默认用 locale 编码 cp1252 解码文件；PYTHONIOENCODING 只管 stdout/stderr 不管文件读取，故与 L31 不同源、套 L31 的解法会白试。管道场景下 stdout 从行缓冲变块缓冲，进程不退出就什么都不吐
 - rule: 调第三方/插件 Python 工具读本仓文件一律前置 PYTHONUTF8=1（UTF-8 模式，改的正是 open() 默认编码）；自己写的脚本 open()/write_text 显式 encoding=utf-8。要即时看到长驻进程的启动横幅就用 python -u 且别接管道
@@ -1135,7 +1135,7 @@
 - refs: 
 
 ## L164
-- date: 2026-07-25 ｜ tags: gates,security,refactor,trust-boundary ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: gates,security,refactor,trust-boundary ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 把 ship 内联的 fail-closed 范围闸抽成共享核 + 独立 CLI 后，判定语义逐条搬对了、既有种子闸也继续绿，但新入口连吃 R3 十一轮 block：缺省基线取到卡分支自己（空 diff 印 PASS）、缺省工作树缺失即静默回退主检出、判定尖端跟着 -Path 那个检出的 HEAD 走、allow_paths 读的是被审分支自己的卡、连检查器脚本本身都可被被审分支替换成恒 PASS。
 - root_cause: 原入口的安全性有一大半不在它的代码里，而在**它被规定的运行位置**：L86 强制相位命令只在主检出跑，于是「判定对象是谁、标准取自哪份卡、跑的是哪一份检查器」全都被运行位置隐式钉死。抽出第二个入口时只搬了可见的判定语义，这些隐式绑定一条都没跟着走——多一个入口就多一条绕过路径，而每条都表现为 fail-open（印 PASS），比没有这个闸更坏。
 - rule: 给已有 fail-closed 闸增设第二个入口（独立 CLI / 恢复序列 / CI 腿）前，先把原入口「靠运行位置白拿的」信任绑定逐条列出来并在新入口显式补齐：①判定对象锚定到不可变标识（按卡 id 取分支引用，不看该检出的 HEAD）②判定标准取自受信基线（git show <baseRef>:卡 路径，绝不读被审检出里的副本）③检查器与其依赖须来自受信检出（跑主检出那份、用 -Path 指被审树）④入参只收纯名/完整 OID 并按提交身份判等（拒 git revision 语法与前缀匹配）⑤解析成 sha 后全程钉 sha，不再用可变引用名（防 TOCTOU）。每条各配一个 ASCII 哨兵与一枚只删该句的变异，证明它承重。
@@ -1159,7 +1159,7 @@
 - refs: 
 
 ## L167
-- date: 2026-07-26 ｜ tags: testing,mutation,evidence,vacuous ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-26 ｜ tags: testing,mutation,evidence,vacuous ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: T54 的变异证据连续三批都「全红」却证明不了任何事：①12 枚逐腿变异用 `if ($false) { & $step …` 造成花括号不配对 ⇒ 全在语法阶段就死，exit=1 但无一条目标 Fail 行；②两枚腿把值写进 $script: 变量、腿外读取，删腿后那句读取因 StrictMode「变量未定义」抛异常、整段中止 ⇒ 红在异常而非目标断言；③变异脚本自身把 \" 当转义写进双引号串 ⇒ 脚本 parse 失败；④摘掉共享判定核那一句时，**更早的闸**（15s）先抓住并把 $fail 置真，令后面整个矩阵被 `if (-not $fail)` 跳过 ⇒ 被测闸根本没跑，却极易读成「它覆盖到了」。另有两枚变异「存活」，一枚是断言真的假、另一枚是变异写错而断言本来是对的。
 - root_cause: 「跑了变异、它红了」与「我关心的那条断言响了」是两回事，而退出码只报前者。变异实验的失败面比被测代码还多：靶没命中、语法坏了、运行时异常、脚本自身写错、被更早的闸抢先中断——每一种都产出 exit≠0，都长得像成功。人只看汇总里的 exit 码就会把这些全记成「已证明」。
 - rule: 变异证据必须带**判据分类器**，只有「非零 **且** 命中**指定的那条断言文本**」才记 OK；`PARSE-ERROR / 存活 / 红在别的断言 / 红但无目标 Fail 行` 一律单列报出，不许并进「全红」。配套四条：①靶字符串不在文件里即 **throw 中止**，绝不静默 no-op；②变异后先跑一次 parser，语法坏了直接判假红；③「存活」先分诊是**断言假**还是**变异假**——后者要改变异、别去削弱一条本来正确的断言；④证明「闸 X 覆盖缺陷 D」前，先确认**没有更早的闸**也抓 D 并提前中断整轮，否则要用**组合变异**（同时短路那道早闸）才测得到 X。
@@ -1191,7 +1191,7 @@
 - refs: 
 
 ## L171
-- date: 2026-07-30 ｜ tags: security,review,symlink,fail-closed ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: R3 两轮 block + 两次全量变异重测（约 12h 机时）
+- date: 2026-07-30 ｜ tags: security,review,symlink,fail-closed ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: R3 两轮 block + 两次全量变异重测（约 12h 机时）
 - symptom: 守卫检出裁决路径不安全后「自己不写/不删」，却仍把同一条路径设为 $env:REVIEW_OUT 交给评审者子进程——评审者跟着链接把工作树之外的文件覆写；同一错误在第二个站点（陈旧裁决删除处）原样复发（R3 r14 + r16 各抓一处）。
 - root_cause: 「拒绝自己的写操作」被误当「守住了这条路径」；把不可信路径交给子进程/下游等于授权它代写，而 fail-closed 判断要等子进程回来才跑，为时已晚。
 - rule: 「我不写」不等于「我没让别人写」——凡把路径交给子进程/下游，交之前就得过同一道判据，判不过就不唤起（检出即中止）；同一安全决策的响应抽成唯一函数供所有站点调用，防第二站点漏改。
@@ -1199,7 +1199,7 @@
 - refs: T55-TD96-R3-REFUSAL-DIAG R3 r14/r16；变异 LEAFGUARD/PREINVOKE
 
 ## L172
-- date: 2026-07-30 ｜ tags: powershell,encoding,detached,false-negative ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 一晚变异批次全部假红重跑
+- date: 2026-07-30 ｜ tags: powershell,encoding,detached,false-negative ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 一晚变异批次全部假红重跑
 - symptom: Start-Process pwsh -NoProfile 起的 detached 进程跑本仓脚本，中文断言/中文判据 mojibake 即假红；变异 runner 的中文 want 串与阴性形态双双被打假（一枚被误判为「红在别的断言」）。
 - root_cause: 脱离 harness 的 pwsh 子进程默认走 OEM 代码页而非 UTF-8，编码链与交互会话不同源；中文文本一经比对即失配（L17 同族：编码不同源即假结论）。
 - rule: 凡在 harness 之外起 pwsh 跑本仓脚本（detached/计划任务/CI 外壳），前奏必须 dot-source scripts/_encoding.ps1 再执行；机检文本尽量用 ASCII 哨兵（L165），中文只给人读。
@@ -1239,7 +1239,7 @@
 - refs: T60-JNPROBE-ITEMVERIFY（PR #147）；根因实测 = ubuntu run 30511675074 红 + WSL 复现脚本；L165 同族（面=产物）
 
 ## L177
-- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 变异 campaign 报告「跑完」且每枚都 OK，实际只跑了 1 枚；同一脚本把 16 枚的表打印成「3 mutations」。
 - root_cause: PowerShell 变量名**大小写不敏感**：foreach ($m in $M) 里的循环变量 $m 就是集合 $M 本身，第一轮迭代即把 $M 覆盖成末元素（一个哈希表）。此后 $M.Count 返回哈希表键数（3），下一个 foreach ($m in $M) 只迭代那一枚。
 - rule: 循环变量绝不能与集合变量同名（含仅大小写不同）：集合用 $MUTS/$items 之类复数名，循环用 $mut/$item。凡「批量证据」脚本，跑完必须核对**记录条数 == 计划条数**，别只看「每条都 OK」。
@@ -1271,7 +1271,7 @@
 - refs: 
 
 ## L181
-- date: 2026-07-31 ｜ tags: regex,unicode,sanitize,dotnet ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-31 ｜ tags: regex,unicode,sanitize,dotnet ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 「剥控制字符」的消毒把 emoji、CJK 扩展 B 等增补平面字符打成两个空格，悄悄毁掉合法文本，而实现与文档都声称只折叠控制字符。
 - root_cause: .NET 正则按 **UTF-16 码元**匹配：一个增补平面字符是代理对，两半各自属 Unicode 类别 Cs，而 Cs ⊂ \p{C}。故 -replace '\p{C}' 会命中代理对的每一半。
 - rule: 要剥的只有 **Cc（控制）与 Cf（格式）**：用 [\p{Cc}\p{Cf}]，别用 \p{C}（它还含 Cs 代理 / Co 私用 / Cn 未分配，都不是终端可执行的）。凡「剥控制字符」的实现都配一枚**增补平面字符原样留存**的回归断言；另注意替换成空格而非删除，免得删后相邻字符缩合出本不存在的敏感前缀。
@@ -1535,7 +1535,7 @@
 - refs: 
 
 ## L214
-- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
+- date: 2026-08-16 ｜ tags: mutation-testing,git,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1 ｜ cost: 丢失一条已写好的查询 + 一次重写
 - symptom: 单句删除变异跑完后用 git checkout -- <file> 还原，结果该文件里**未提交的新工作**连同变异一起消失；还原核查报 restored=False，但代码已经没了。本轮丢掉的是一整条新增查询及其注释。
 - root_cause: git checkout -- <path> 恢复的是 HEAD/索引版本，不是"变异前的磁盘内容"。前几轮都是先提交再变异所以无恙；这次省了提交那一步，"还原"就等于"丢弃未提交改动"。
 - rule: 变异证明前**先提交**被测文件（或先复制一份、从副本还原）；还原后必须核 SHA256 与变异前一致——本轮正是这道核查当场发现了丢失，没有它会带着空文件继续跑。
@@ -1631,7 +1631,7 @@
 - refs: 
 
 ## L226
-- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
 - root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
 - rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装
