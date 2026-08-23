@@ -12950,7 +12950,7 @@ exit $realExit
   $a14DevopsPara = @($a14Devops -split "`r?`n" | Where-Object { $_.Contains('allow_paths` 的条目数只在建卡期') })
   if ($a14DevopsPara.Count -ne 1) { $sizeFailures += "A14: DEVOPS-WORKFLOW's 'allow_paths is not a size proof' paragraph is missing or duplicated (found $($a14DevopsPara.Count))" }
   else {
-    foreach ($a14Needle in @('不是**规模证明**', '真实 diff 预算', '只允许收紧')) {
+    foreach ($a14Needle in @('**不是**规模证明', '真实 diff 预算', '只允许收紧')) {
       if (-not $a14DevopsPara[0].Contains($a14Needle)) { $sizeFailures += "A14: DEVOPS-WORKFLOW paragraph no longer states '$a14Needle'" }
     }
   }

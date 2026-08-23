@@ -30,7 +30,7 @@
                       合法值随模型而异，本脚本不硬编码枚举——填错即由 CLI/API 报错、走 fail-closed block。
 .PARAMETER SizeOnly   只按真实 diff 预算度量已钉死的 base...HEAD（additions+deletions 与未截断 unified diff 字符数）后退出：
                       **不唤起评审者、不消费 round**；exit 0 = 在预算内。task.ps1 ship 在 push/开 PR 前跑同一条路径。
-                      与 -ResetRounds / -SkipReview 互斥（两者都在预算闸之前返回，组合起来一件事也不做）。
+                      与 -ResetRounds 互斥（后者在预算闸之前返回，组合起来一件事也不做）。
 .PARAMETER MaxChangedLines  changed-lines 上限（默认 1000）。ValidateRange 上界即默认值：**只许收紧**，命令行放宽不了基线批准的预算。
 .PARAMETER MaxDiffChars     未截断 unified diff 字符上限（默认 60000，与评审者首屏 cap 对齐）。同样只许收紧。
 .EXAMPLE
@@ -55,13 +55,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-# -ResetRounds 与 -SkipReview 都在预算闸**之前**就 return/exit，故与 -SizeOnly 组合时**两件事都不发生**：
-# 既没量到体量，也没清计数 / 没做只读检视，却仍返回一个会被读成「量过了」的退出码。两者同属互斥类，一起拒。
-$argsConflict = @()
-if ($ResetRounds) { $argsConflict += '-ResetRounds' }
-if ($SkipReview) { $argsConflict += '-SkipReview' }
-if ($SizeOnly -and $argsConflict.Count -gt 0) {
-  Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly and $($argsConflict -join ' and ') are independent operations and cannot be combined." -ForegroundColor Red
+# -SizeOnly 与 -ResetRounds 互斥：后者在预算闸**之前**就 return，组合起来既没量到体量、也没清计数，
+# 却仍返回一个会被读成「量过了」的退出码。（-SkipReview 属同一类，但不在本卡验收集合内 → [FOLLOW-UP]。）
+if ($SizeOnly -and $ResetRounds) {
+  Write-Host '  [R3-DIFF-ARGS-INVALID] -SizeOnly and -ResetRounds are independent operations and cannot be combined.' -ForegroundColor Red
   exit 1
 }
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
