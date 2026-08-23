@@ -76,14 +76,19 @@ doc_sync: 无（本卡不改 CLAUDE.md；T3/T4 合并时各自的 doc_sync 照�
 `T2-PHOTO-DIRECTORY-DURABILITY`(#35, 334 行)、`T2-FIELD-LEDGER-THEME`(#55，只记「R3 全绿」无轮次)。
 其中 #32 是全部产品卡里最大的一张，它缺记录这件事本身即本表的最大不确定性来源，须明写。
 
-Pearson **r = 0.6316，r^2 = 0.3989**（14 行；旧的八行值 r=0.4365 / r^2=0.1906 已作废，见下「复算结果与结论修正」）——体量解释约 **四成**的轮次方差＝**中等相关**，但最大的 diff（2740 行）仍只跑 4 轮、是全表**第二少**，故规模不**决定**轮次。
+Pearson **r = 0.6316，r^2 = 0.3989**（14 行；旧的八行值 r=0.4365 / r^2=0.1906 已作废，见下「复算结果与结论修正」）——体量解释约 **四成**的轮次方差＝**中等相关**，但**全表最大**的 diff（`T5-BACKUP-FORMAT` 2740 行）只跑 4 轮，低于 14 行的轮次中位数 4.5，故规模不**决定**轮次。（旧稿称这 4 轮「第二少」是八行时代的排名，14 行里的轮次层级是 1 / 2 / 4 / 5 / 6 / 9 / 11 / 15 / 17，4 是第三档、并列第 6–7 位，已订正。）
 
-**来源与勘误（逐行可核）**：新增行 = `gh pr view <n> --json additions`；`T1-SCHEMA-CORE` 无 PR，取
-`git show --stat fcdc88d` 的 insertions（来源与其余七行不同）。轮次的来源**分两类**，须分别声明：
-`T2-ROUTINE-CONTENT` / `T2-CAPTURE-CORE` / `T3-FINALIZE` / `T2-PHOTO-PIPELINE` / `T5-BACKUP-FORMAT`
-五行取自 `docs/TASK-BOARD.md` 的逐轮记述；`T1-SCHEMA-CORE`(17) / `T1-CANON-HASH`(2) /
-`T1-TEMPLATE-ENGINE`(5) 三行在 TASK-BOARD 里**没有轮次记录**，只能取自 `CLAUDE.md` 的「当前阶段」节
-——那是它们唯一的记录。故优先级规则的准确表述是「**两者都有时以 TASK-BOARD 为准**」，而非
+**来源与勘误（逐行可核 · 14 行全覆盖）**：新增行 = `gh pr view <n> --json additions`，**12 行**如此取得；
+**两行无 PR、走本地合并**，取 `git show --stat` 的 insertions——`T1-SKELETON-E2E`(19fd908, 258) 与
+`T1-SCHEMA-CORE`(fcdc88d, 2632)。（旧稿只点了 `T1-SCHEMA-CORE` 一处，漏了 `T1-SKELETON-E2E`，已订正。）
+轮次的来源**分两类，逐行点名**：**10 行取自 `docs/TASK-BOARD.md` 的逐轮记述**——
+`T2-PHOTO-PROPERTY-DEDUPE`(1) / `T2-ROUTINE-CONTENT`(9) / `T2-PHOTO-QUALITY-PROFILES`(2) /
+`T5-RETENTION`(5) / `T2-PHRASELIB`(4) / `T2-PHOTO-STREAMING-ENCODE`(2) / `T2-CAPTURE-CORE`(6) /
+`T3-FINALIZE`(15) / `T2-PHOTO-PIPELINE`(11) / `T5-BACKUP-FORMAT`(4)；**4 行在 TASK-BOARD 里没有轮次记录**，
+只能取自 `CLAUDE.md` 的「当前阶段」节——`T1-SKELETON-E2E`(2) / `T1-CANON-HASH`(2) /
+`T1-TEMPLATE-ENGINE`(5) / `T1-SCHEMA-CORE`(17)，那是它们唯一的记录。
+（旧稿写「五行 TASK-BOARD + 三行 CLAUDE.md」，那是八行时代的账，14 行里有 6 行当时无来源声明，已补齐。）
+故优先级规则的准确表述是「**两者都有时以 TASK-BOARD 为准**」，而非
 「一律以 TASK-BOARD 为准」。初稿有两处取值错误，**它们的来源不同、须分开说**（在一段专讲逐行溯源的
 文字里含混带过，正是第 1 轮被打回的那一类问题）：`T2-CAPTURE-CORE` 的 7 确实照 `CLAUDE.md` 概述取值
 （该节原文「76 测试，7 轮」），而 TASK-BOARD 记的是 6；`T2-PHOTO-PIPELINE` 的 9 **不来自 `CLAUDE.md`**
@@ -98,9 +103,10 @@ r=0.6316 / **r^2=0.3989**——不是初稿八行的 0.1906。评审给出的中
 14 行的实测是规模解释了约 **40%** 的轮次方差——那不是「基本不解释」，是**中等相关**。
 故 L241 的措辞由「别把拆卡当轮次通胀的解药」改为「拆卡是有用的次要杠杆，但不是主因」，
 并写明剩余约 60% 由别的东西驱动。
-**唯一不依赖入选口径的判据是两个极端**（无论怎么定 cohort 都在表内）：
-`T2-ROUTINE-CONTENT` 277 行跑 9 轮，`T5-BACKUP-FORMAT` 2740 行跑 4 轮——规模差 9.9 倍、
-轮次反而少一半有余。它证明的是「规模不**决定**轮次」，这比相关系数弱但更稳，
+**不依赖入选口径的判据是这一对反向观测**（无论怎么定 cohort 都在表内）：
+`T5-BACKUP-FORMAT` 是全表**最大**的一张（2740 行）却只跑 4 轮（低于中位数 4.5）；
+`T2-ROUTINE-CONTENT` 只有 277 行——按体量是**第 3 小**——却跑了 9 轮，是**第 4 高**。
+规模差 9.9 倍而轮次反向。（旧稿把 277 行称作「极端/最小」，14 行里比它更小的还有 163 与 258，已订正。）它证明的是「规模不**决定**轮次」，这比相关系数弱但更稳，
 且与 r^2=0.40 并不矛盾：两者一起读作「规模是真实因素之一，但单卡的轮次主要由别的东西决定」。
 初稿把「不决定」写成了「基本无关」，是过度解读，本次一并订正。
 
