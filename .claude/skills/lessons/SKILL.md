@@ -15,7 +15,8 @@ description: >-
 权威真相源是 `docs/lessons/LEDGER.md`；流程细节见 `docs/LESSONS.md`。一律用 `pwsh`（非 bash）。
 
 ## 三层（按加载方式）
-- **必须层（Tier1）**：`CLAUDE.md` 的「经验铁律」小节，每轮自动在上下文，封顶 N 条（见 `_config.ps1` `LessonsMustCap`，默认 10）。
+- **必须层（Tier1）**：`CLAUDE.md` 的「经验铁律」小节，每轮自动在上下文，封顶 N 个**驻留经验 id**（见 `_config.ps1` `LessonsMustCap`，默认 10）。
+  计量的是 id 不是条目：一条写着 `[L190][L193]` 的 bullet 算 2 个，把几条并进一条 bullet 不会让它变便宜。
 - **按需层（Tier2）**：`docs/lessons/<topic>.md`（如 `powershell-and-gh.md`），相关时才读。
 - **总账（Tier3）**：`docs/lessons/LEDGER.md`，全量、append-only、唯一真相源。
 
@@ -30,7 +31,8 @@ description: >-
    `docs/HARNESS-REVIEW.md` 复审）。选错方向、本可有更优下一步时，用 `-Kind judgment` 记下来（见 `docs/LOOP-ENGINEERING.md`）。
 3. **PROMOTE（晋升）**：同一条经验再次撞上时先 `pwsh -File scripts\lessons.ps1 bump <id>`（复发计数 +1，跨过 2 即提示晋升），再 `pwsh -File scripts\lessons.ps1 promote <id>`。客观门槛：`severity=blocking` 或 `recurrence≥2` → 够格进必须层；
    否则进按需层。晋升＝把一行结论写进 CLAUDE.md 铁律（或对应 `docs/lessons/<topic>.md`）并改该条 `tier`。
-4. **PURIFY（提纯/封顶）**：`pwsh -File scripts\lessons.ps1 check`。校验 id 唯一、字段完整、必须层≤上限。
+4. **PURIFY（提纯/封顶）**：`pwsh -File scripts\lessons.ps1 check`。校验 id 唯一、字段完整、`enforced_by` 形态可认
+   （`TODO`/`N/A`/`待补` 这类占位符会被当场拒收——它们冒充了一次守卫声明），以及必须层**驻留经验 id 数**≤上限。
    超限时把**最不活跃**（recurrence 最低、最久未触发）的一条降回按需层，保持必须层精悍。
 
 ## 边界（不造第 4 个记忆库）

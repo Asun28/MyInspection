@@ -15,7 +15,7 @@
     add      追加一条经验到总账（低摩擦捕获）。
     list     列出总账条目（可按 tier/tag/kind 过滤）。
     search   按关键词检索总账 + 按需层（recall）。
-    check    护栏：校验必须层条数未超上限、id 无重复、字段完整。
+    check    护栏：校验必须层**驻留经验 id 数**未超上限（非条目数）、id 无重复、字段完整、enforced_by 形态可认。
     promote  打印某条的晋升建议（是否够格进必须/按需层 + 操作提示）。
     bump     某条经验复发一次 → recurrence +1（复发计数入口，跨过 2 即提示 promote）。
 
@@ -199,8 +199,16 @@ switch ($Command) {
     # 对计数器是 1 条、对模型是 4 条规则，封顶要管的正是后者（上游 issue #184 / 修复 #188）。
     # 本项目实测（origin/master 9c1f98d）：10 条 bullet 承载 19 个 id——按条目计恒绿，而每轮驻留
     # 上下文已是上限的近两倍，这正是「封顶通过了但成本还在涨」的静默失效面。
-    $mustBullets = @(Get-ScaffoldMustLayerBullet -Path $ClaudeMd)
-    $mustIds = @($mustBullets | ForEach-Object Ids | Sort-Object -Unique)
+    # 「小节」只有一个定义 = 判定核返回的 Ids：封顶、id 存在性、层级漂移三处同读一份集合。此前封顶数
+    # bullet、后两者正则扫整段文本，于是只写在小节引言 blockquote 里的 must 经验「登记了却不计费」。
+    $mustSec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
+    if (-not $mustSec.Found -and $mustSec.Reason -eq 'HEADING-NOT-FOUND') {
+      # fail-closed：静默返回 0 条会让封顶恒绿——「测不出」绝不能读成「没超」。
+      Write-Warning "$($mustSec.Sentinel) CLAUDE.md 存在但找不到「经验铁律」小节（标题漂移？）——封顶无从计量，拒绝放行。"
+      $fail = $true
+    }
+    $mustBullets = @($mustSec.Bullets)
+    $mustIds = @($mustSec.Ids)
     $mustInClaude = $mustIds.Count
     $mergedBullets = @($mustBullets | Where-Object IdCount -gt 1)
     Write-Host "必须层：总账标 must=$mustInLedger ｜ CLAUDE.md 驻留 id=$mustInClaude（承载于 $($mustBullets.Count) 条目）｜ 上限=$MustCap"
@@ -208,17 +216,14 @@ switch ($Command) {
       Write-Host "  合并条目（一条承载多个 id，按 id 计）：$((($mergedBullets | ForEach-Object { $_.Ids -join '+' }) -join ' ｜ '))" -ForegroundColor DarkGray
     }
     if ($mustInClaude -gt $MustCap) { Write-Warning "CLAUDE.md 铁律超上限（驻留 id $mustInClaude>$MustCap）→ 淘汰最不活跃项回按需层。当前驻留：$(($mustIds -join ', '))"; $fail = $true }
-    # id 存在性：每条 tier=must 的总账经验，其 [Lx] 必须出现在 CLAUDE.md 铁律小节里（单一真相源可机检）
-    $claudeSec = ''
-    if (Test-Path $ClaudeMd) { $claudeSec = [regex]::Match((Get-Content $ClaudeMd -Raw), '(?s)## 经验铁律.*?(?=\n## |\z)').Value }
+    # id 存在性：每条 tier=must 的总账经验，其 [Lx] 必须**作为驻留条目**出现在铁律小节里（写进引言散文不算）
     foreach ($m in ($ls | Where-Object tier -eq 'must')) {
-      if ($claudeSec -notmatch [regex]::Escape("[$($m.id)]")) {
-        Write-Warning "必须层经验 $($m.id) 未在 CLAUDE.md 铁律小节登记（id 缺失）。"; $fail = $true
+      if ($mustIds -notcontains $m.id) {
+        Write-Warning "必须层经验 $($m.id) 未在 CLAUDE.md 铁律小节登记为驻留条目（id 缺失，或只写在小节散文里）。"; $fail = $true
       }
     }
-    # 漂移：CLAUDE.md 铁律里出现的 [Lx]，其总账条目应仍标 tier=must（否则文本/层级漂移）
-    foreach ($cm in [regex]::Matches($claudeSec, '\[(L\d+)\]')) {
-      $cid = $cm.Groups[1].Value
+    # 漂移：CLAUDE.md 铁律驻留的 [Lx]，其总账条目应仍标 tier=must（否则文本/层级漂移）
+    foreach ($cid in $mustIds) {
       $src = $ls | Where-Object id -eq $cid | Select-Object -First 1
       if (-not $src) { Write-Warning "CLAUDE.md 铁律引用了不存在的 $cid（总账已删？漂移）。"; $fail = $true }
       elseif ($src.tier -ne 'must') { Write-Warning "$cid 在 CLAUDE.md 是铁律，但总账标 tier=$($src.tier)（层级漂移，需同步）。"; $fail = $true }
@@ -227,14 +232,18 @@ switch ($Command) {
     #   堵「元仓晋升 must 只改 CLAUDE.md 忘改模板 → 下游 init 首跑 check 即挂」。下游无此文件 => 优雅跳过（空配置规则）。
     $TemplateMd = Join-Path $RepoRoot 'CLAUDE.template.md'
     if (Test-Path $TemplateMd) {
-      $tplSec = [regex]::Match((Get-Content $TemplateMd -Raw), '(?s)## 经验铁律.*?(?=\n## |\z)').Value
+      # 同一枚判定核，同一份「小节」定义（本卡 forbid：不得有第二处「驻留 id 怎么数」的实现）。
+      $tplSec = Get-ScaffoldMustLayerSection -Path $TemplateMd
+      if (-not $tplSec.Found) {
+        Write-Warning "$($tplSec.Sentinel) CLAUDE.template.md 存在但找不到「经验铁律」小节（模板标题漂移）——模板同步无从校验，拒绝放行。"; $fail = $true
+      }
+      $tplIds = @($tplSec.Ids)
       foreach ($m in ($ls | Where-Object tier -eq 'must')) {
-        if ($tplSec -notmatch [regex]::Escape("[$($m.id)]")) {
+        if ($tplIds -notcontains $m.id) {
           Write-Warning "必须层经验 $($m.id) 未在 CLAUDE.template.md 铁律小节登记（模板漂移，下游 init 首跑 check 会挂）。"; $fail = $true
         }
       }
-      foreach ($tm in [regex]::Matches($tplSec, '\[(L\d+)\]')) {
-        $tid = $tm.Groups[1].Value
+      foreach ($tid in $tplIds) {
         $src = $ls | Where-Object id -eq $tid | Select-Object -First 1
         if (-not $src) { Write-Warning "CLAUDE.template.md 铁律引用了不存在的 $tid（总账已删？漂移）。"; $fail = $true }
         elseif ($src.tier -ne 'must') { Write-Warning "$tid 在 CLAUDE.template.md 是铁律，但总账标 tier=$($src.tier)（层级漂移，需同步）。"; $fail = $true }
@@ -247,6 +256,25 @@ switch ($Command) {
     #   OpenAI《Harness Engineering》「让同一错误不可复发」：把会卡死/返工的坑从「上下文提醒」升级为「确定性守卫」，或至少显式承认无守卫。
     $blkNoEnf = $ls | Where-Object { $_.severity -eq 'blocking' -and -not $_.enforced_by }
     if ($blkNoEnf) { Write-Warning "blocking 经验缺 enforced_by（须填机械守卫路径，或 'none（理由）'）：$($blkNoEnf.id -join ', ')"; $fail = $true } else { Write-Host 'enforced_by 完整（blocking 均已声明守卫）✓' }
+    # enforced_by **形态**可认（fail-closed）：非空、又既不是 'none（理由）' 也不是认得出的守卫引用的取值
+    #   （TODO / N/A / 待补 / 见 PR 讨论）是**冒充了一次声明**——它让上面那道「blocking 必填」闸满意，
+    #   于是这条经验此后既不会被追问、也不再被晋升探针提名。故在入口直接拒：写真守卫，或写 none（理由）。
+    $badEnf = @($ls | Where-Object { -not (Test-ScaffoldLessonEnforcedByWellFormed $_.enforced_by) })
+    if ($badEnf.Count) { Write-Warning "enforced_by 取值认不出是机械守卫（占位符一律拒绝；请写脚本路径 / 闸编号，或写 'none（理由）'）：$(($badEnf | ForEach-Object { "$($_.id)=$($_.enforced_by)" }) -join ' ｜ ')"; $fail = $true } else { Write-Host 'enforced_by 形态可认（非空取值皆为守卫引用或 none（理由））✓' }
+    # enforced_by 判据自检（确定性 fixture，不依赖总账内容）：守卫判定必须**双向**成立且对未知取值 fail-closed——
+    #   真脚本路径/闸编号判有守卫；none（理由）、空字段、以及 TODO/N/A/待补 这类占位符一律判**无**守卫。
+    #   少了占位符那一段，「已有守卫」就能被一个待办事项冒充（上游 issue #183 的反面）。
+    $guardProbeOk = (Test-ScaffoldLessonGuarded 'scripts/review.ps1') -and
+                    (Test-ScaffoldLessonGuarded 'selftest 闸 10g（大小写负夹具）') -and
+                    -not (Test-ScaffoldLessonGuarded 'none（本条只能靠人）') -and
+                    -not (Test-ScaffoldLessonGuarded '') -and
+                    -not (Test-ScaffoldLessonGuarded 'TODO') -and
+                    -not (Test-ScaffoldLessonGuarded 'N/A') -and
+                    -not (Test-ScaffoldLessonGuarded '待补') -and
+                    -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
+                    (Test-ScaffoldLessonEnforcedByWellFormed '') -and
+                    (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）')
+    if ($guardProbeOk) { Write-Host 'enforced_by 守卫判定自检（真引用/none/空/占位符 四类各判对）✓' } else { Write-Warning 'enforced_by 守卫判定回归（Test-ScaffoldLessonGuarded：真引用未判有守卫，或 none/空/占位符被误判为已有守卫——fail-open 方向）。'; $fail = $true }
     # search 语义自检（确定性 fixture，不依赖总账内容）：多词=AND 全命中、缺一词即不命中、单词行为不变——
     #   守 search 的召回契约（selftest 闸② 借道本命令免费回归）。
     $probeOk = (Test-AllTermsMatch 'alpha beta gamma' @('alpha', 'gamma')) -and

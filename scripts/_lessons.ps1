@@ -2,14 +2,16 @@
 <#
 .SYNOPSIS
   Shared decision core for the Tier-1 lessons section: which rules are resident in CLAUDE.md's
-  must-load block, and how many distinct rules that actually is.
+  must-load block, how many distinct rules that actually is, and whether a lesson already has a
+  mechanical guard.
 
 .DESCRIPTION
   Two call sites need the same answer and used to compute it from the same regex, copied twice
   (lessons.ps1 `check` and triage.ps1's lessons-cap probe). Both counted markdown bullets, so
   merging several lesson IDs into one bullet satisfied LessonsMustCap while the resident rule
-  count - and the per-turn context it costs - kept growing. Measured downstream over 24 hours:
-  9 -> 10 bullets (compliant throughout), 9 -> 17 resident IDs, 5,075 -> 7,523 bytes.
+  count - and the per-turn context it costs - kept growing. The one measurement quoted in this
+  PR carries its commit and lives at its own call site (lessons.ps1 `check`); no unattributed
+  before/after numbers live here.
 
   The unit is therefore the distinct lesson ID, not the bullet: a bullet carrying
   [L17][L162][L172][L177] is one bullet to a checker and four rules to the model, so it counts
@@ -17,16 +19,22 @@
   section's prose (headers, blockquotes, notes about demoted lessons) costs bytes, which is
   T89-DOC-BUDGETS' unit, not this one.
 
-  Pure function, no side effects, no config dependency: -Path reads a file, -Lines takes the
-  text directly so the parser is testable without a fixture file, and -Heading defaults to the
-  production section name so a test can drive it with an ASCII heading (machine anchors stay
-  pure ASCII, L165).
+  "The section" also has exactly one definition, and it is the Ids this parser returns: the cap,
+  the id-existence check and the tier-drift check all read that same set. While the cap counted
+  bullets and the other two regexed the whole section text, a `tier: must` lesson mentioned only
+  in the intro blockquote read as registered yet cost nothing against the cap - the merged-bullet
+  loophole in miniature.
 
 .EXAMPLE
-  Get-ScaffoldMustLayerBullet -Path CLAUDE.md | ForEach-Object Ids | Sort-Object -Unique
+  (Get-ScaffoldMustLayerSection -Path CLAUDE.md).Ids                                  # resident rules
 .EXAMPLE
-  Get-ScaffoldMustLayerBullet -Path CLAUDE.md | Where-Object IdCount -gt 1    # merged bullets
+  (Get-ScaffoldMustLayerSection -Path CLAUDE.md).Bullets | Where-Object IdCount -gt 1 # merged bullets
 #>
+
+# 分节解析失败的 ASCII 哨兵（L165：机检认 ASCII，本地化文案只给人读）。两个消费者引用同一枚字面量。
+$ScaffoldMustLayerNotFound = '[LESSONS-SECTION-NOT-FOUND]'
+# 「显式声明无守卫」的唯一形态。守卫判定与形态判定对它给相反答案，故字面量只写这一处。
+$ScaffoldNoGuardDeclRe = '^none\b'
 
 function Get-ScaffoldLessonEnforcedBy {
   <#
@@ -50,45 +58,90 @@ function Test-ScaffoldLessonGuarded {
   .SYNOPSIS
     Does this lesson already have a real mechanical guard? The single definition of that question.
   .DESCRIPTION
-    docs/HARNESS-REVIEW.md says it twice - a pitfall already covered by a deterministic gate does not need
-    per-turn context (line 31), and a mechanically covered reminder may leave the must layer (line 96) - but
-    the promote probe judged on recurrence/severity alone and never read the field, so a working gate became
-    a reason to ALSO spend context on the same rule (upstream issue #183).
+    docs/HARNESS-REVIEW.md says it twice - in the gate stress-test table, row `lessons 必须层（Tier1）`
+    ("有机械守卫的可降回按需层"), and again under 「与其它系统的衔接」 - but the promote probe judged on
+    recurrence/severity alone and never read the field, so a working gate became a reason to ALSO spend
+    context on the same rule (upstream issue #183). (Section/row text, not line numbers: those drift on
+    the next edit of that document.)
 
-    The sanctioned "no guard" form is `enforced_by: none（reason）`, which lessons.ps1 check already requires
-    of every blocking lesson. An empty field is unguarded too: reading a missing declaration as "covered"
-    would silence the promote probe for every lesson that never filled it in, which fails open in the one
-    direction that matters.
+    Allowlist, not denylist. "Guarded" requires the value to NAME a mechanical artifact: a repo path
+    (>=2 characters either side of the separator, so `N/A` is not one), a file with a code/config
+    extension, or a gate reference (`闸 <id>` / `gate <id>`). Everything else reads as UNGUARDED -
+    the sanctioned `none（reason）` form, an empty field, and placeholders such as TODO / N/A / 待补 /
+    见 PR 讨论 alike.
+
+    Fail-closed both ways, which is why it is an allowlist. Reading an unrecognised value as "guarded"
+    drops that lesson from the promote probe (the one lesson most needing a guard vanishes from the
+    heartbeat), and if it is already tier: must it hands the demote probe the line "机器已在守它：TODO" -
+    the heartbeat arguing to delete a guardless iron rule. lessons.ps1 `check` rejects the same
+    unrecognised forms outright, so they cannot accumulate in the ledger.
   #>
   [CmdletBinding()]
   param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)
   if ([string]::IsNullOrWhiteSpace($EnforcedBy)) { return $false }
-  return ($EnforcedBy.Trim() -notmatch '^none\b')
+  $v = $EnforcedBy.Trim()
+  if ($v -match $ScaffoldNoGuardDeclRe) { return $false }
+  return ($v -match '(?i)(\.(ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)\b|[\w.-]{2,}[\\/][\w.-]{2,}|\bgate\s+\S|闸\s*\S)')
 }
 
-function Get-ScaffoldMustLayerBullet {
+function Test-ScaffoldLessonEnforcedByWellFormed {
+  <#
+  .SYNOPSIS
+    Is this enforced_by value a form the ledger accepts at all? lessons.ps1 `check` gates on it.
+  .DESCRIPTION
+    Three legal forms and nothing else: empty (a non-blocking lesson may leave it blank), the sanctioned
+    `none（reason）` declaration, or a guard reference Test-ScaffoldLessonGuarded recognises. A value that
+    is none of those - TODO, N/A, 待补, 见 PR 讨论 - is a placeholder impersonating a declaration, and the
+    ledger is where it would sit forever. Rejecting it at the gate is what keeps the guarded/unguarded
+    judgement above meaningful.
+  #>
   [CmdletBinding()]
-  param(
-    [string]$Path,
-    [string[]]$Lines,
-    [string]$Heading = '经验铁律'
-  )
-  if (-not $PSBoundParameters.ContainsKey('Lines')) {
-    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return @() }
-    $Lines = @(Get-Content -LiteralPath $Path)
+  param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)
+  if ([string]::IsNullOrWhiteSpace($EnforcedBy)) { return $true }
+  if ($EnforcedBy.Trim() -match $ScaffoldNoGuardDeclRe) { return $true }
+  return (Test-ScaffoldLessonGuarded $EnforcedBy)
+}
+
+function Get-ScaffoldMustLayerSection {
+  <#
+  .SYNOPSIS
+    Parse CLAUDE.md's must-load lessons section once: Found / Reason / Bullets / Ids.
+  .DESCRIPTION
+    Reason is 'OK' | 'FILE-MISSING' | 'HEADING-NOT-FOUND'. The two failure states are deliberately
+    distinct and are NOT the same as "section present, zero bullets":
+      FILE-MISSING      graceful - a repo with no CLAUDE.md has no must layer at all (empty-config rule).
+      HEADING-NOT-FOUND drift - every consumer must fail closed, because the alternative reading is
+                        "zero resident rules", which passes any cap while having measured nothing.
+    The anchor is the section's own localized heading (the file it parses is Chinese prose); the ASCII
+    sentinel $ScaffoldMustLayerNotFound is on the failure signal, which is the part machines match (L165).
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+  $none = @()
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+    return [pscustomobject]@{ Found = $false; Reason = 'FILE-MISSING'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
   }
-  $out = @()
+  $bullets = @()
   $inSection = $false
-  foreach ($line in $Lines) {
+  foreach ($line in @(Get-Content -LiteralPath $Path)) {
     if (-not $inSection) {
-      if ($line -match ('^##\s+' + [regex]::Escape($Heading))) { $inSection = $true }
+      if ($line -match '^##\s+经验铁律') { $inSection = $true }
       continue
     }
-    if ($line -match '^##\s') { break }          # next level-2 heading ends the section
+    if ($line -match '^##\s') { break }           # next level-2 heading ends the section
     if ($line -notmatch '^\s*-\s+') { continue }  # only list items can declare a resident rule
     $ids = @([regex]::Matches($line, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     if ($ids.Count -eq 0) { continue }
-    $out += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $line.Trim() }
+    $bullets += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $line.Trim() }
   }
-  return $out
+  if (-not $inSection) {
+    return [pscustomobject]@{ Found = $false; Reason = 'HEADING-NOT-FOUND'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
+  }
+  return [pscustomobject]@{
+    Found    = $true
+    Reason   = 'OK'
+    Sentinel = ''            # 解析成功没有失败信号；消费者照样只拼 .Sentinel，不必各自记住那枚字面量
+    Bullets  = $bullets
+    Ids      = @($bullets | ForEach-Object Ids | Sort-Object -Unique)
+  }
 }

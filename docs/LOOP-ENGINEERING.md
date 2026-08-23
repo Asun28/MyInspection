@@ -59,7 +59,8 @@ Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → �
 ## 心跳：`scripts/triage.ps1`
 **只读、离线、确定性**地扫描既有子系统的本地信号，汇成收件箱 `_local/triage-inbox.md`（gitignored）。10 探针：
 `lessons-promote`（经验达晋升门槛却仍在总账层）· `tech-debt-open`（债未还）· `cards-active`（卡在飞）·
-`handoff-open`（cwd 交接未收口）· `lessons-cap`（必须层达封顶该做减法）·
+`handoff-open`（cwd 交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达封顶=minor / 超封顶=major，该做减法；
+小节标题找不到时 fail-closed 报，不静默判「未超」）·
 `harness-refresh`（judgment 经验累积达门槛——该双向自我改进：删旧闸 + 主动搜更优工具/方法纳新）·
 `effectiveness`（效果账本：各 ship 闸真实拦截数——喂 HARNESS-REVIEW 据拦截数 + ship 次数做减法）·
 `worktree-orphan`（卡已 merged 却没拆的残留 worktree——cleanup 漏跑 / 半合并遗留）·

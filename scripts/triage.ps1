@@ -14,11 +14,12 @@
     - cards-active    : specs/tasks/*.md 里 status=in-progress|in-review 的在飞卡（可能待续/待评审）
     - handoff-open    : cwd 若有 progress.md，其 HANDOFF STATUS≠done/handoff-ready（交接未收口）；
                         另查 in-progress|in-review 卡的 worktree 内 progress.md（主检出续接不再对 worktree 交接失明）
-    - lessons-cap     : 必须层（CLAUDE.md 经验铁律）逼近/达到封顶（该做减法了，见 HARNESS-REVIEW）
+    - lessons-cap     : 必须层（CLAUDE.md 经验铁律）**驻留经验 id 数**达封顶（minor）/ 超封顶（major）——
+                        计量单位是 id 不是条目；小节标题找不到时按 fail-closed 报（该做减法了，见 HARNESS-REVIEW）
     - harness-refresh : judgment 经验累积达门槛——该双向自我改进（删旧闸 + 主动搜更优工具/方法纳新，见 HARNESS-REVIEW / L26）
     - effectiveness   : _local/effectiveness-ledger.jsonl 里各闸拦截计数——喂 HARNESS-REVIEW 据计数+ship 次数做减法（TD2；TD9 分母经 review 否决，见 ADR 0003）
     - worktree-orphan : WorktreeRoot 下卡已 merged 却没拆的残留 worktree（cleanup 漏跑 / 半合并遗留，TD3）
-    - lessons-demote  : 必须层里已被确定性守卫覆盖的条目——每轮上下文换来的是机器已在做的事（上游 issue #183 的逆向半）
+    - lessons-demote  : 必须层里已被确定性守卫覆盖的**驻留经验 id**——每轮上下文换来的是机器已在做的事（上游 issue #183 的逆向半）
     - delivery-blocked: 在飞卡坐在一份 R3 block 裁决上却没人接回注意力（**唯一读交付状态的探针**，上游 issue #185）
   每信号产出一条 finding（severity + 一行 what + 建议的下一步命令），汇成 markdown 收件箱。
   **只发现、不行动**：绝不写仓内被跟踪文件、绝不 git/gh 写操作；act 走既有交付链
@@ -27,7 +28,7 @@
   收件箱默认写到 _local/triage-inbox.md（gitignored，运行时态）。无 _config 依赖也能跑（优雅降级）。
 
 .PARAMETER Verb     scan（扫描并写收件箱+打印摘要） | list（只打印上次收件箱，不重扫） |
-                    selfcheck（探针 4/5/10/11 的 hermetic 自检：临时夹具、输出断言，见该段头注）。默认 scan。
+                    selfcheck（探针 1/4/5/10/11 的 hermetic 自检：临时夹具、输出断言，见该段头注）。默认 scan。
 .PARAMETER OutFile  收件箱路径（默认 _local/triage-inbox.md）。
 .PARAMETER NoWrite  只报不写（selftest 干跑用：核验扫描在默认配置下不抛异常）。
 .PARAMETER Quiet    静默：仅退出码与一行计数，不打印 finding 明细。
@@ -86,7 +87,8 @@ function Get-LastHandoffBlock([string]$text) {
 
 # ── 探针 1：lessons-promote（LEDGER 里仍在 ledger 层却已达晋升门槛）──
 function Invoke-ProbeLessons {
-  if (-not (Test-Path $Ledger)) { return }  $cands = [System.Collections.Generic.List[object]]::new()
+  if (-not (Test-Path $Ledger)) { return }
+  $cands = [System.Collections.Generic.List[object]]::new()
 
   $raw = Get-Content $Ledger -Raw
   $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d)') | Where-Object { $_ -match '^L\d' }
@@ -224,9 +226,15 @@ function Invoke-ProbeCap {
   if (-not (Test-Path $ClaudeMd)) { return }
   # 计量单位是**驻留的经验 id**，不是 markdown 条目（上游 issue #184）：把多个 id 并进一条 bullet
   # 曾经既满足封顶、又让驻留规则数继续涨。判定核与 lessons.ps1 check 共用（_lessons.ps1）。
-  $n = @(Get-ScaffoldMustLayerBullet -Path $ClaudeMd | ForEach-Object Ids | Sort-Object -Unique).Count
+  $sec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
+  if (-not $sec.Found) {
+    # 标题漂移时静默返回 0 条 = 封顶恒绿。「测不出」必须报出来，不能读成「没超」（fail-closed）。
+    Add-Finding 'lessons-cap' 'major' "$($sec.Sentinel) CLAUDE.md 在，但找不到「经验铁律」小节——封顶已无从计量（标题漂移？）。" "对齐小节标题后 pwsh -File scripts\lessons.ps1 check 复核（该命令同样按此 fail-closed）。"
+    return
+  }
+  $n = @($sec.Ids).Count
   if ($n -gt $MustCap) {
-    Add-Finding 'lessons-cap' 'major' "必须层已驻留 $n/$MustCap 个经验 id（**超**封顶）——每轮上下文成本已越线，须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层，再 pwsh -File scripts\lessons.ps1 check 复核。"
+    Add-Finding 'lessons-cap' 'major' "必须层已驻留 $n/$MustCap 个经验 id（**超封顶**）——每轮上下文成本已越线，须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层，再 pwsh -File scripts\lessons.ps1 check 复核。"
   } elseif ($n -ge $MustCap) {
     Add-Finding 'lessons-cap' 'minor' "必须层已驻留 $n/$MustCap 个经验 id（达封顶）——再加铁律前须先做减法。" "走 docs\HARNESS-REVIEW.md：淘汰最不活跃项回按需层。"
   }
@@ -354,10 +362,19 @@ function Invoke-ProbeDeliveryBlocked {
     # 两条取证路径会互相干扰，各有一种坏法：
     #   ① **同一份裁决被数两次**——卡的 worktree 恰是主检出时，通配与按 id 拼出的路径指向同一个文件；
     #   ② **捞到别人的 block**——worktree 侧是 `*.json` 通配，别的分支在同一 .review 里留下的裁决会被当成本卡的。
-    # 故先按规范化全路径去重（Windows 路径大小写不敏感），再要求产物**自证属于本卡**。
-    $seenPath = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    # 故先按全路径去重，再要求产物**自证属于本卡**。
+    # 去重键 = `$vf.FullName`：FileInfo 的 FullName 本就是完全限定并已折叠 `.` / `..` 段的路径（实测
+    # `Get-Item <dir>\a\..\a\.review\X.json` 交出的 FullName 已无 `..`），故再套一层 [IO.Path]::GetFullPath
+    # 是恒等变换、摘掉它没有任何用例会红——那样的守卫只会让人误以为这里已经防住了什么。
+    # **唯一真会变的是大小写**（GetFullPath 亦不规范化大小写，`Get-Item` 原样保留调用方给的壳），而它是否
+    # 该被忽略**按运行 OS 定，不是 Windows 常量**：`.github/workflows/scaffold-selftest.yml` 把含本探针的
+    # core 分片也跑在 ubuntu-latest 上，那里 `a.json` 与 `A.json` 是两份不同裁决，一律 OrdinalIgnoreCase
+    # 会把其中一份静默吃掉。同 T0-GATE-FIXFORWARD 的病灶与修法（`-contains` 恒不敏感 / `StartsWith(string)`
+    # 恒敏感，一行两套语义 ⇒ Linux 上被静默剪掉），沿用该卡定下的「按 OS 取比较器」家族，不另起一套。
+    $pathComparer = if ($IsWindows -or $IsMacOS) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
+    $seenPath = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
     foreach ($vf in $files) {
-      if (-not $seenPath.Add([IO.Path]::GetFullPath($vf.FullName))) { continue }   # ① 同一文件只算一次
+      if (-not $seenPath.Add($vf.FullName)) { continue }   # ① 同一文件只算一次
       $verdict = ''; $reasons = 0; $owner = ''
       try {
         $o = Get-Content $vf.FullName -Raw | ConvertFrom-Json
@@ -428,6 +445,9 @@ if ($Verb -eq 'selfcheck') {
       New-Item -ItemType Directory -Force $rv | Out-Null
       Set-Content -Path (Join-Path $rv "$($t.id).json") -Value $t.json -Encoding utf8
     }
+    # 本块头注承诺「绝不读写真仓」：探针的第二条取证路径是 <RepoRoot>\.review\<id>.json，$RepoRoot 若仍是
+    # 真工作树，本用例就会去 Test-Path 真仓的 .review（用例 8/9/10 已各自注入，唯独这里漏了）。先注入再跑。
+    $RepoRoot = Join-Path $fxRoot 'no-such-repo'          # 注入：探针读脚本作用域 $RepoRoot
     $findings.Clear()
     try { Invoke-ProbeDeliveryBlocked } catch { $fails.Add("用例4 探针抛异常（心跳须 fail-safe）：$($_.Exception.Message)") }
     $db = @($findings | Where-Object probe -eq 'delivery-blocked')
@@ -436,29 +456,56 @@ if ($Verb -eq 'selfcheck') {
     elseif ($db[0].severity -ne 'blocking') { $fails.Add("用例4 severity 应为 blocking（交付停摆须排在自我维护之上），实得 $($db[0].severity)") }
     elseif ($db[0].what -notmatch '2 条理由') { $fails.Add('用例4 未报出裁决的理由条数') }
 
-    # ── 用例 5：lessons-cap 按驻留 id 计数（上游 issue #184）──
+    # ── 用例 5：lessons-cap 按驻留 id 计数（上游 issue #184），封顶**两侧边界**各一枚 ──
     # 判据的要害在于：同一份夹具下**旧的按条目计数会绿、新的按 id 计数必红**——否则这条修复无从证伪。
-    $fxClaude = Join-Path $fxRoot 'CLAUDE.md'
-    Set-Content -Path $fxClaude -Encoding utf8 -Value @(
-      '## 经验铁律（必须加载）',
-      '- **[L901][L902][L903]** 三个 id 并进一条 bullet',
-      '- **[L904]** 单 id 一条',
+    # 只测「超封顶」会让 minor 那一侧无人看守；阈值一律由 $MustCap 算出、不写 3/4 这类字面量，
+    # 否则改常量时本用例照绿。
+    $MustCap = 3
+    foreach ($case in @(
+        @{ n = $MustCap;     sev = 'minor'; word = '达封顶' },      # 恰好等于上限
+        @{ n = $MustCap + 1; sev = 'major'; word = '超封顶' })) {   # 超出一个
+      # 前 n-1 个 id 并进**一条** bullet、末一个单独一条 ⇒ 条目数恒为 2（旧口径两侧皆绿），
+      # 驻留 id 数 = n（新口径在超封顶侧必红）。
+      $merged = (1..($case.n - 1) | ForEach-Object { "[L90$_]" }) -join ''
+      $fxClaude = Join-Path $fxRoot "CLAUDE-$($case.n).md"
+      Set-Content -Path $fxClaude -Encoding utf8 -Value @(
+        '## 经验铁律（必须加载）',
+        "- **$merged** 多个 id 并进一条 bullet",
+        "- **[L9$($case.n)9]** 单 id 一条",
+        '',
+        '## 下一节')
+      $ClaudeMd = $fxClaude       # 注入：探针读脚本作用域
+      $bulletCount = ([regex]::Matches((Get-Content $fxClaude -Raw), '(?m)^\s*-\s+\*\*')).Count
+      if ($bulletCount -gt $MustCap) { $fails.Add("用例5（$($case.n)/$MustCap）夹具无效：旧口径（条目数 $bulletCount）本身已超上限，证明不了新口径") }
+      $findings.Clear()
+      Invoke-ProbeCap
+      $cap = @($findings | Where-Object probe -eq 'lessons-cap')
+      if ($cap.Count -ne 1) { $fails.Add("用例5（$($case.n)/$MustCap）期望恰 1 条 lessons-cap，实得 $($cap.Count)") }
+      elseif ($cap[0].what -notmatch "$($case.n)/$MustCap") { $fails.Add("用例5 未按驻留 id 计数（期望 $($case.n)/$MustCap，实得：$($cap[0].what)）") }
+      elseif ($cap[0].severity -ne $case.sev) { $fails.Add("用例5（$($case.n)/$MustCap）severity 应为 $($case.sev)，实得 $($cap[0].severity)") }
+      elseif ($cap[0].what -notmatch $case.word) { $fails.Add("用例5（$($case.n)/$MustCap）文案未点明「$($case.word)」：$($cap[0].what)") }
+    }
+    # ── 用例 5b：小节标题漂移必须 fail-closed ──
+    # 找不到小节时若静默返回 0 条，就与「小节在、零驻留」不可分辨：封顶判定恒绿、探针一声不吭，
+    # 而此刻真实驻留数其实远超上限。机检面认 ASCII 哨兵（L165），本地化文案只给人读。
+    $fxDrift = Join-Path $fxRoot 'CLAUDE-drift.md'
+    Set-Content -Path $fxDrift -Encoding utf8 -Value @(
+      '## 必载经验（标题已漂移）',
+      "- **[L901][L902][L903][L904][L905]** 驻留 5 个 id，远超上限 $MustCap",
       '',
       '## 下一节')
-    $ClaudeMd = $fxClaude       # 注入：探针读脚本作用域
-    $MustCap = 3
-    $bulletCount = ([regex]::Matches((Get-Content $fxClaude -Raw), '(?m)^\s*-\s+\*\*')).Count
-    if ($bulletCount -gt $MustCap) { $fails.Add("用例5 夹具无效：旧口径（条目数 $bulletCount）本身已超上限 $MustCap，证明不了新口径") }
-    $findings.Clear()
-    Invoke-ProbeCap
-    $cap = @($findings | Where-Object probe -eq 'lessons-cap')
-    if ($cap.Count -ne 1) { $fails.Add("用例5 期望恰 1 条 lessons-cap，实得 $($cap.Count)") }
-    elseif ($cap[0].what -notmatch '4/3') { $fails.Add("用例5 未按驻留 id 计数（期望 4/3，实得：$($cap[0].what)）") }
-    elseif ($cap[0].severity -ne 'major') { $fails.Add('用例5 超封顶应为 major（达封顶才是 minor）') }
+    $ClaudeMd = $fxDrift
+    $findings.Clear(); Invoke-ProbeCap
+    $drift = @($findings | Where-Object probe -eq 'lessons-cap')
+    if ($drift.Count -ne 1) { $fails.Add("用例5b 标题漂移时期望恰 1 条 lessons-cap（fail-closed），实得 $($drift.Count)——静默返回 0 条即封顶恒绿") }
+    elseif ($drift[0].what -notmatch [regex]::Escape($ScaffoldMustLayerNotFound)) { $fails.Add("用例5b 未打出 ASCII 哨兵 $ScaffoldMustLayerNotFound（实得：$($drift[0].what)）") }
 
-    # ── 用例 6：enforced_by 双向（上游 issue #183）+ 空字段不得被读成「已有守卫」──
+    # ── 用例 6：enforced_by 四向（上游 issue #183）——有守卫 / 显式 none / 空字段 / 认不出的占位符 ──
     # L904 的 enforced_by 是**空行**、其后紧跟 refs 行：旧式 '\s*(.+)' 会跨行捕到 refs 值、把它误判为已有守卫，
     # 于是最需要被提名的那条反而被静默滤掉（fail-open）。这里正是钉住该方向的用例。
+    # L905/L906 钉的是另一种 fail-open：`TODO`/`N/A` 这类既非空、又非 none（理由）的占位符若被读成
+    # 「已有守卫」，一条**无**守卫的铁律会被降层探针写成「机器已在守它：TODO」，而最该被提名加闸的
+    # 总账条目则从心跳里消失。判定核对认不出的取值一律 fail-closed（判无守卫）。
     $fxLedger = Join-Path $fxRoot 'LEDGER.md'
     Set-Content -Path $fxLedger -Encoding utf8 -Value @(
       '## L901 有守卫的必须层',
@@ -481,17 +528,32 @@ if ($Verb -eq 'selfcheck') {
       '- severity: blocking',
       '- enforced_by:',
       '- refs: scripts/selftest.ps1 闸 99x',
+      '',
+      '## L905 占位符 enforced_by 的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: TODO',
+      '',
+      '## L906 占位符 enforced_by 的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: N/A',
       '')
     $Ledger = $fxLedger          # 注入：两个探针都读脚本作用域
     $findings.Clear(); Invoke-ProbeLessonsDemote
     $dem = @($findings | Where-Object probe -eq 'lessons-demote')
-    if ($dem.Count -ne 1) { $fails.Add("用例6 期望恰 1 条 lessons-demote（仅 L901），实得 $($dem.Count)") }
-    elseif ($dem[0].what -notmatch 'L901') { $fails.Add('用例6 降层提名的不是有守卫的那条（L901）') }
+    $demWhat = ($dem | ForEach-Object what) -join ' '
+    if ($dem.Count -ne 1) { $fails.Add("用例6 期望恰 1 条 lessons-demote（仅有真守卫的 L901），实得 $($dem.Count)") }
+    if ($demWhat -notmatch 'L901') { $fails.Add('用例6 有守卫的必须层条目 L901 未被提名降层（enforced_by 的降层方向失效）') }
+    if ($demWhat -match 'L902') { $fails.Add('用例6 显式 none（理由）的 L902 被提名降层——none 必须判为**无**守卫') }
+    if ($demWhat -match 'L905') { $fails.Add('用例6 占位符 enforced_by: TODO 的 L905 被提名降层——心跳在替一条无守卫的铁律说「机器已在守它」（fail-open）') }
     $findings.Clear(); Invoke-ProbeLessons
     $pro = @($findings | Where-Object probe -eq 'lessons-promote')
-    if ($pro.Count -ne 1) { $fails.Add("用例6 期望恰 1 条 lessons-promote，实得 $($pro.Count)") }
-    elseif ($pro[0].what -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
-    elseif ($pro[0].what -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
+    $proWhat = ($pro | ForEach-Object what) -join ' '
+    if ($pro.Count -ne 2) { $fails.Add("用例6 期望恰 2 条 lessons-promote（空字段 L904 + 占位符 L906），实得 $($pro.Count)") }
+    if ($proWhat -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
+    if ($proWhat -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
+    if ($proWhat -notmatch 'L906') { $fails.Add('用例6 占位符 enforced_by: N/A 的 L906 未被提名——认不出的取值被误读成「已有守卫」（fail-open）') }
     # ── 用例 7：批量窗口的边界（$PromoteBatchSize 恰好 vs 超一条）──
     # 阈值判据用的是 -gt，故「恰好等于」必须仍逐条报、「多一条」才切成一条批量 finding。
     # 只测其中一侧会让 off-by-one 静默存活（-ge 与 -gt 在 N 条时才分道）。
@@ -533,7 +595,35 @@ if ($Verb -eq 'selfcheck') {
     function Get-ScaffoldWorktreeRoot { $fxOv }           # 于是两条路径解析到同一个文件
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $ov = @($findings | Where-Object probe -eq 'delivery-blocked')
-    if ($ov.Count -ne 1) { $fails.Add("用例9 重合路径下期望恰 1 条 delivery-blocked，实得 $($ov.Count)（未按规范化全路径去重，一份裁决被数两次）") }
+    # 只断言条数会把「两条都被归属挡掉」的 0 条与真去重混为一谈，故连报的是谁、指向哪个文件一并钉住。
+    if ($ov.Count -ne 1) { $fails.Add("用例9 重合路径下期望恰 1 条 delivery-blocked，实得 $($ov.Count)（未按全路径去重，一份裁决被数两次）") }
+    elseif ($ov[0].what -notmatch 'T8-SC-A') { $fails.Add("用例9 报的不是重合路径上那张卡（A）：$($ov[0].what)") }
+    elseif ($ov[0].next -notmatch [regex]::Escape([IO.Path]::Combine('overlap', 'T8-SC-A', '.review', 'T8-SC-A.json'))) { $fails.Add("用例9 finding 指向的不是重合路径上那唯一一份裁决文件：$($ov[0].next)") }
+    # ── 用例 9b：去重键的**大小写语义按运行 OS 定**（同 T0-GATE-FIXFORWARD 的病灶家族）──
+    # 用例 9 的两条路径是同一个字符串拼出来的，两个 FullName 逐字节相同——于是 Ordinal 与 OrdinalIgnoreCase
+    # 都能去重，比较器换掉照绿（实测：把 OrdinalIgnoreCase 改成 Ordinal，selfcheck 仍 PASS）。
+    # 本用例让两条**字符串真不同**：主检出侧路径整体大写、worktree 侧原样，并在同一 .review 里再放一份
+    # 只有大小写不同的文件名。
+    #   Windows/macOS（不敏感）：t8-sc-a.json 覆盖同名文件 ⇒ 目录仍只有一份裁决；两条大小写不同的路径
+    #                            指向它 ⇒ 必须去重成 **1** 条（比较器若改 Ordinal 就变 2 条，红）。
+    #   Linux（敏感）：T8-SC-A.json 与 t8-sc-a.json 是**两份不同裁决**，大写的 RepoRoot 目录根本不存在
+    #                  ⇒ 必须各报一条、共 **2** 条（比较器若写死 OrdinalIgnoreCase 就吃掉一份，红）。
+    $fxCase = Join-Path $fxRoot 'oscase'
+    $fxCaseCard = Join-Path $fxCase 'T8-SC-A'
+    New-Item -ItemType Directory -Force (Join-Path $fxCaseCard '.review') | Out-Null
+    Set-Content -Path (Join-Path $fxCaseCard '.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["upper"],"branch":"T8-SC-A"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxCaseCard '.review/t8-sc-a.json') -Value '{"verdict":"block","reasons":["lower"],"branch":"T8-SC-A"}' -Encoding utf8
+    $RepoRoot = $fxCaseCard.ToUpperInvariant()            # 主检出路径整体大写：与通配侧字符串不等，指向同一文件（仅在不敏感 FS 上）
+    function Get-ScaffoldWorktreeRoot { $fxCase }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $osCase = @($findings | Where-Object probe -eq 'delivery-blocked')
+    $caseInsensitiveFs = ($IsWindows -or $IsMacOS)        # 与探针取比较器同一判据：本闸测的正是「两侧各自该有的条数」
+    $expectedOsCase = if ($caseInsensitiveFs) { 1 } else { 2 }
+    if ($osCase.Count -ne $expectedOsCase) {
+      $why = if ($caseInsensitiveFs) { '同一份裁决的两条大小写不同的路径未被去重（比较器退成 Ordinal？）' } else { '两份大小写不同的**不同**裁决被并成一条（比较器写死 OrdinalIgnoreCase？Linux 上会静默吃掉一份）' }
+      $fails.Add("用例9b OS=$($PSVersionTable.Platform) 期望 $expectedOsCase 条 delivery-blocked，实得 $($osCase.Count)——$why")
+    }
+    elseif (($osCase | Where-Object { $_.what -notmatch 'T8-SC-A' })) { $fails.Add('用例9b 报出的裁决不属于本卡（A）') }
 
     # ── 用例 10：归属校验的**两道**各测一条 ──
     # (a) 文件名就不是本卡的（隔壁分支按自己分支名落盘）——由文件名兜底挡下；
@@ -575,7 +665,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+隔壁分支归属 · 探针 5 按驻留 id 计数 · 探针 1/10 的 enforced_by 双向、空字段与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+去重键 OS 语义+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/占位符与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }

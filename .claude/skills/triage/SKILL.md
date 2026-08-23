@@ -22,7 +22,7 @@ description: >-
    `pwsh -File scripts\triage.ps1 scan`
    纯文件解析、不打网络/不调 gh；产出 `_local/triage-inbox.md`（gitignored）。10 探针：
    `lessons-promote`（经验该晋升）· `tech-debt-open`（债该还）· `cards-active`（卡在飞）·
-   `handoff-open`（交接未收口）· `lessons-cap`（必须层该做减法）·
+   `handoff-open`（交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达/超封顶，该做减法；标题找不到即 fail-closed 报）·
    `harness-refresh`（judgment 经验累积达门槛，该双向复审：删旧闸 + 搜更优工具/方法纳新）·
    `effectiveness`（效果账本：各 ship 闸真实拦截数——喂 HARNESS-REVIEW 做拦截计数减法）·
    `worktree-orphan`（卡已 merged 却没拆的残留 worktree——cleanup 漏跑/半合并遗留）·
