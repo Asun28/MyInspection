@@ -1690,6 +1690,86 @@ try {
   Remove-Item -Recurse -Force $l2cRepo -ErrorAction SilentlyContinue
 }
 
+# 2d. bump 的写入平面（T0-LESSONS-BUMP-PLANE）：recurrence 是**仓库级元数据**，与任何卡片无关。
+#   旧实现把 $Ledger 绑到 $PSScriptRoot/..，于是在 linked worktree 里跑 bump 就写进了**卡片分支**的
+#   LEDGER.md，被范围闸与 R3 #7（夹带无关改动）正确拦下——计数遂无处可去。丢失是**结构性**的：
+#   卡片工作全在 worktree 里做，所以「工作中发现的复发」几乎必然记不上，晋升门槛被系统性低估。
+#   修法：bump 经 git rev-parse --git-common-dir 解析**主检出**的账本，只此一条平面、无静默回落。
+#   夹具 LSN-PLANE-WORKTREE：真 git 仓 + 一棵 linked worktree，三条断言——
+#     (a) 从 worktree 跑 bump → 主检出账本 +1，且 worktree 账本**逐字节不变**；
+#     (b) 从主检出直跑 → 仍正确 +1（覆盖 --git-common-dir 返回**相对** `.git` 的形态，Split-Path 得空串）；
+#     (c) 主检出账本缺失 → 非零退出 + [LSN-PLANE-UNRESOLVED]（fail-closed，禁止回落到当前检出）。
+$l2dRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
+if (Test-Path $l2dRoot) { Remove-Item -Recurse -Force $l2dRoot }
+New-Item -ItemType Directory -Force $l2dRoot | Out-Null
+try {
+  $l2dMain = Join-Path $l2dRoot 'main'
+  $l2dWt = Join-Path $l2dRoot 'wt'
+  New-Item -ItemType Directory -Force $l2dMain | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2dMain -Recurse -Force   # 同 2b/2c：整目录拷，免隐式漏 dot-source 依赖
+  $l2dMainLedger = Join-Path $l2dMain 'docs/lessons/LEDGER.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2dMainLedger) | Out-Null
+  $l2dEntry = @(
+    '# 经验总账（LSN-PLANE-WORKTREE fixture）', '',
+    '## L1',
+    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
+    '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
+  ) -join "`n"
+  Set-Content $l2dMainLedger $l2dEntry -Encoding utf8
+  $l2dGit = @('-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false')
+  & git -C $l2dMain init -q 2>&1 | Out-Null
+  & git -C $l2dMain @l2dGit add -A 2>&1 | Out-Null
+  & git -C $l2dMain @l2dGit commit -qm 'lsn-plane fixture' 2>&1 | Out-Null
+  & git -C $l2dMain @l2dGit worktree add -q --detach $l2dWt 2>&1 | Out-Null
+  $l2dWtLedger = Join-Path $l2dWt 'docs/lessons/LEDGER.md'
+  $l2dWtLessons = Join-Path $l2dWt 'scripts/lessons.ps1'
+  if (-not (Test-Path $l2dWtLedger) -or -not (Test-Path $l2dWtLessons)) {
+    Fail '闸2d 夹具：linked worktree 未检出 LEDGER/lessons.ps1（夹具自身坏了，非被测行为）。'
+  }
+  else {
+    # (a) 从 worktree 跑 —— 账本必须落在主检出，worktree 那份一个字节都不许动。
+    $l2dWtHashBefore = (Get-FileHash $l2dWtLedger -Algorithm SHA256).Hash
+    $l2dOutA = (& pwsh -NoProfile -File $l2dWtLessons bump L1 2>&1 | Out-String)
+    $l2dExitA = $LASTEXITCODE
+    $l2dMainA = Get-Content $l2dMainLedger -Raw
+    $l2dWtHashAfter = (Get-FileHash $l2dWtLedger -Algorithm SHA256).Hash
+    $l2dTailA = ($l2dOutA -replace '\s+', ' ').Trim()
+    if ($l2dExitA -ne 0) { Fail "闸2d(a)：从 linked worktree 跑 bump 非零退出（$l2dExitA）——不应发生。输出=$l2dTailA" }
+    elseif ($l2dMainA -notmatch '(?m)^- date:.*?recurrence:\s*4\b') {
+      Fail "闸2d(a)：从 linked worktree 跑 bump 后**主检出**账本 recurrence 未变为 4——写入平面仍绑在脚本所在检出（`$Ledger = `$PSScriptRoot/..），复发计数会随卡片分支走、被范围闸/R3 #7 当夹带改动拦掉而永久丢失。输出=$l2dTailA"
+    }
+    elseif ($l2dWtHashAfter -ne $l2dWtHashBefore) {
+      Fail "闸2d(a)：bump 改动了 **worktree** 那份 LEDGER（SHA256 $l2dWtHashBefore -> $l2dWtHashAfter）——仓库级元数据不得进入卡片分支 diff。"
+    }
+    else {
+      # (b) 从主检出直跑 —— 覆盖 --git-common-dir 返回相对 `.git` 的形态。
+      $l2dOutB = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+      $l2dExitB = $LASTEXITCODE
+      $l2dMainB = Get-Content $l2dMainLedger -Raw
+      $l2dTailB = ($l2dOutB -replace '\s+', ' ').Trim()
+      if ($l2dExitB -ne 0 -or $l2dMainB -notmatch '(?m)^- date:.*?recurrence:\s*5\b') {
+        Fail "闸2d(b)：从**主检出**直跑 bump 未正确递增到 5（exit=$l2dExitB）——git 在主检出返回的是**相对**路径 `.git`，Split-Path 取父级得空串，须先相对检出根解析成绝对路径。输出=$l2dTailB"
+      }
+      else {
+        # (c) 主检出账本缺失 —— 必须 fail-closed，绝不回落到 worktree 那份（回落＝本闸要修的 bug 原样复活）。
+        Remove-Item -Force $l2dMainLedger
+        $l2dOutC = (& pwsh -NoProfile -File $l2dWtLessons bump L1 2>&1 | Out-String)
+        $l2dExitC = $LASTEXITCODE
+        $l2dTailC = ($l2dOutC -replace '\s+', ' ').Trim()
+        if ($l2dExitC -eq 0) { Fail "闸2d(c)：主检出账本缺失时 bump 仍退出 0——静默回落到当前检出的账本，正是本闸要根治的形态。输出=$l2dTailC" }
+        elseif ($l2dTailC -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]')) {
+          Fail "闸2d(c)：主检出账本缺失时 bump 虽非零退出，但未打印 ASCII 失败码 [LSN-PLANE-UNRESOLVED]（机检认哨兵、不认本地化文案，L165）。输出=$l2dTailC"
+        }
+        else { Write-Host '  2d lessons.ps1 bump 只写主检出账本（worktree 那份逐字节不变 / 相对 .git 形态 / 缺账本 fail-closed）OK' -ForegroundColor Green }
+      }
+    }
+  }
+}
+finally {
+  & git -C $l2dMain worktree remove --force $l2dWt 2>&1 | Out-Null
+  Remove-Item -Recurse -Force $l2dRoot -ErrorAction SilentlyContinue
+}
+
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---
 Step '3/17 模板哨兵（CLAUDE.template.md）'
 if ($isPostInit) { Skip-SelftestCheck -GateId '3' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  已初始化（无 CLAUDE.template.md），跳过——本闸只测元仓自身的模板形态。' }
@@ -2866,7 +2946,9 @@ $hookTmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-ho
 Remove-Item $hookTmpRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $hookTmpRoot | Out-Null
 try {
-  function Test-StopHookJson($hookRelPath, $cwdPath) {
+  # $mustContain（T0-LESSONS-BUMP-PLANE）：断言**渲染出来的** additionalContext 真带该子串——比对文件做
+  #   grep 强，因为提醒里出现才算数（写在注释里不算），且模型看到的正是这段 JSON。
+  function Test-StopHookJson($hookRelPath, $cwdPath, $mustContain) {
     $hp = Join-Path $RepoRoot $hookRelPath
     if (-not (Test-Path $hp)) { Fail "闸9f：$hookRelPath 不存在。"; return }
     $prevCwd = Get-Location
@@ -2885,9 +2967,13 @@ try {
       Fail "闸9f：$hookRelPath 输出 JSON 缺 hookSpecificOutput.{hookEventName='Stop', additionalContext=非空}：$rawOut"
       return
     }
-    Write-Host "  9f $hookRelPath OK（JSON hookSpecificOutput.additionalContext 非空）" -ForegroundColor Green
+    if ($mustContain -and "$($parsed.hookSpecificOutput.additionalContext)" -notmatch [regex]::Escape($mustContain)) {
+      Fail "闸9f：$hookRelPath 的 additionalContext 未出现 '$mustContain' —— 提醒模板漏了这条入口，模型就不会照做（本例：复发计数 bump 从头到尾没在提醒里出现过，于是老坑复发只会被再写一条近义经验，或干脆记不上）。"
+      return
+    }
+    Write-Host "  9f $hookRelPath OK（JSON hookSpecificOutput.additionalContext 非空$(if ($mustContain) { " + 含 '$mustContain'" })）" -ForegroundColor Green
   }
-  Test-StopHookJson '.claude/hooks/lessons-reminder.ps1' $null
+  Test-StopHookJson '.claude/hooks/lessons-reminder.ps1' $null 'bump'
   $hoCwd = Join-Path $hookTmpRoot 'ho-cwd'
   New-Item -ItemType Directory -Force $hoCwd | Out-Null
   Set-Content (Join-Path $hoCwd 'progress.md') '# fixture'

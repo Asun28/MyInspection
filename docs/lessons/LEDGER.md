@@ -730,7 +730,7 @@
 - date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: PowerShell 工具对 C:\wt\<worktree> 等主检出之外的路径默认沙箱化：cd/写入表面成功（无报错、'done' 打印），但下一次调用读回验证却是旧内容；未加 dangerouslyDisableSandbox 时的一次写脚本还曾把 cd 静默重置回主检出，导致后续相对路径写操作真的落进了主检出（误把 BOM 加进 7 个生产脚本），须 git restore 撤销。
 - root_cause: PowerShell 工具默认沙箱模式对主工作目录之外路径的读写不可靠——未显式传 dangerouslyDisableSandbox:true 时，跨目录操作可能被静默重定向/回退到主目录而非报错，造成'看起来成功、实际操作了错误位置'的假象。
-- rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。
+- rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。 **2026-08-23 复核（recurrence 2→4）**：结论不变，仍不 promote。2026-07-23 的判定依据（已被 L157「落盘改动先对 diff --stat」覆盖）在计数升到 4 之后依然成立——新增的两次只增加了暴露频次，没有推翻「已有通用形态覆盖它」这一理由。
 - enforced_by: 
 - refs: 
 
@@ -1634,8 +1634,8 @@
 - date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
 - root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
-- rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装
-- enforced_by: 
+- rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装 **2026-08-23 裁断（recurrence 1→4，当日触发 3 次）**：仍**不进必须层**。本条规则纯机械可检（写回前后核前 3 字节），该落成守卫而不是占每轮上下文的铁律；Tier-1 名额有限（上限 10、master 现 9），且「写完立刻复核」的通用形态已由 L165 覆盖。当日 3 次触发集中在同一段整文件拼装作业里，属单次作业的密集暴露、非广谱复发。
+- enforced_by: none（待建 BOM 写回闸：拼装既有脚本前后核前 3 字节；在此之前只靠 rule 与 R3 #7 守。2026-08-23 裁断不进必须层，理由见 rule 末段）
 - refs: 
 
 ## L227
