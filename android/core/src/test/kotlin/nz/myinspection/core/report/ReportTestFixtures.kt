@@ -9,8 +9,6 @@ import nz.myinspection.core.model.TemplateSnapshot
 import nz.myinspection.core.model.TenancySnapshot
 
 internal object ReportTestFixtures {
-    const val DATA_HASH = "ea9cd02e76bf79ac320df5795e51433b3200eb28900ab8837479a0c15eaf452d"
-
     private val goodItem = InspectionItemSnapshot(
         stableId = "kitchen.wall.paint",
         status = "GOOD",

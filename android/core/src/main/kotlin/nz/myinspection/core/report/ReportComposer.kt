@@ -453,7 +453,22 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         // The drawn footer carries the short hash, which is what fits the strip; the full digest stays in
         // FooterBlock.dataHash for verification.
         val shortHash = dataHash.take(SHORT_HASH_LENGTH)
-        val textRuns = runs("$shortHash · $page/$totalPages", TextLanguage.NEUTRAL, TextStyle.CAPTION, BODY_WIDTH_MM)
+        val footerText = "$shortHash · $page/$totalPages"
+        val measured = textMeasurer.measure(footerText, TextStyle.CAPTION, BODY_WIDTH_MM)
+        require(measured.lines.size == 1 && measured.lineHeightMm <= FOOTER_HEIGHT_MM) {
+            "footer text must measure as one line within the 10mm strip"
+        }
+        val textRuns = listOf(
+            TextRun(
+                measured.lines.single(),
+                TextLanguage.NEUTRAL,
+                TextStyle.CAPTION,
+                0,
+                0,
+                BODY_WIDTH_MM,
+                measured.lineHeightMm,
+            ),
+        )
         return PlacedBlock(
             PAGE_MARGIN_MM,
             BODY_BOTTOM_MM,

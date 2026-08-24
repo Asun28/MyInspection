@@ -465,7 +465,11 @@ class ReportComposerPaginationTest {
             )
         }
         val included = composer.compose(report, Audience.LANDLORD, ReportOptions(includePrivacyPhotos = true))
-        assertEquals(listOf("private-photo", "private-photo"), included.imageSlots().map { it.photoId })
+        assertEquals(
+            mapOf(ImagePurpose.INLINE to 1, ImagePurpose.APPENDIX to 1),
+            included.imageSlots().groupingBy { it.purpose }.eachCount(),
+        )
+        assertEquals(setOf("private-photo"), included.imageSlots().map { it.photoId }.toSet())
     }
 
     /**

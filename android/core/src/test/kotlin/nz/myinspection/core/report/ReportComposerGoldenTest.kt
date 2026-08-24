@@ -9,24 +9,28 @@ import kotlin.test.assertTrue
  * Production break under test: without the report model/composer there is no deterministic layout tree,
  * no typed audience boundary, and no canonical data-hash footer for a renderer to consume.
  *
- * Mutation evidence (mutation -> discriminating assertion -> expected failure text):
- * A1 remove a forced section page -> exact six-page tree -> `expected 6 pages`; A2 reorder a block ->
- * exact golden signatures -> `layout tree differs`; A3 reduce appendix density -> odd/even absolute geometry ->
- * `appendix page ... carries ... pictures`; A4 move a thumbnail out of its row -> exact 40 mm geometry ->
- * `item evidence is still emitted`; A5 draw raw epoch -> literal ISO text -> `cover draws a raw epoch value`;
- * A6 omit provenance -> exact caption -> `photo captions render reference`; A7 append/drop a UTF-16 unit ->
- * proportional and supplementary regressions -> `elided final line still wraps` / `unpaired UTF-16 surrogate`;
- * A8 split an image slot -> per-purpose photo-id uniqueness -> `photo was emitted more than once`;
- * A9 place a photo-only heading sequentially -> boundary fixture -> `heading did not move to a fresh page`;
- * A10 duplicate flowing text -> reconstructed note/supplement -> `must read once, end to end`;
- * A11 copy or split EN/ZH into later chunks -> language sequence checks -> `later chunk repeats EN/ZH`;
- * A12 expose landlord data -> typed-block and cover-only checks -> `tenant cover carries ... total`;
- * A13 include privacy/default or accept bare room -> two-audience/refusal checks -> `room-bare`;
- * A14 weaken canonical projection validation -> table-driven exact refusal -> `projection accepted`;
- * A15 derive geometry from production constants -> source purity and literal bounds -> `drawn unit spans`;
- * A16 use wall-clock/locale formatting -> fixed instant captions -> `raw epoch`;
- * A17 derive footer/tail expectations -> literal 1/6, 6/6 and exact runs/counts -> `tail contract differs`;
- * A18 drop/reorder summary/backlinks -> ordered triples and row resolution -> `summary order/backlink differs`.
+ * A19 mutation receipts (2026-08-24; every production file was restored before the next run):
+ *
+ * | Acceptance | Minimal mutation | Actual discriminating failure |
+ * | --- | --- | --- |
+ * | A1 | omit the forced summary page | `expected 6 pages: cover + glossary + summary + room + appendix + closing` |
+ * | A2 | widen the inline thumbnail from 40 to 41 mm | `Expected <40>, actual <41>` |
+ * | A3 | reduce appendix density from two to one | `3 photos must span two appendix pages` |
+ * | A4 | indent the room panorama by 1 mm | `the room panorama is indented inside its own placed block` |
+ * | A5 | render collection time instead of EXIF time | `Expected <1.2.1 · camera · 2025-08-16T00:10:00Z>` |
+ * | A6 | raise the caption cap from three to four lines | `an elided caption is exactly the three lines the cap allows` |
+ * | A7 | drop one UTF-16 unit before appending the marker | `caption elision left an unpaired UTF-16 surrogate` |
+ * | A8 | retain all thumbnails in every split row chunk | `each item photo must be drawn exactly once` |
+ * | A9 | place a photo-only heading and photo sequentially | `the heading did not move to a fresh page with its photo` |
+ * | A10 | repeat the first flowing note line in every chunk | `the note must read once, end to end, across the chunks` |
+ * | A11 | copy the EN/ZH pair into continuation chunks | `later chunk 2 repeats EN/ZH` |
+ * | A12 | expose wearOrDamage to the tenant row | `Expected value to be true` at the typed tenant assertion |
+ * | A13 | include privacy photos by default | `a private photo reached the LANDLORD default report` |
+ * | A14 | delete the duplicate-photo-id guard | `projection accepted: duplicate photo id` |
+ * | A15 | render scheduledAt as epoch milliseconds | `cover draws a raw epoch value` |
+ * | A16 | change one nibble of the literal canonical digest | `Expected <ea9cd02e...>, actual <...>` |
+ * | A17 | let the footer measurer return two runs | `footer text must measure as one line within the 10mm strip` |
+ * | A18 | reverse the adverse-item traversal | `summary order differs from room/item traversal` |
  */
 class ReportComposerGoldenTest {
     private val composer = ReportComposer(ReportTestFixtures.measurer)
@@ -35,7 +39,7 @@ class ReportComposerGoldenTest {
     fun `fixed inspection produces the golden six-page layout tree`() {
         val plan = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
 
-        assertEquals(ReportTestFixtures.DATA_HASH, plan.dataHash)
+        assertEquals("ea9cd02e76bf79ac320df5795e51433b3200eb28900ab8837479a0c15eaf452d", plan.dataHash)
         // Six pages are forced by six independently paged regions: cover, glossary, summary, room detail,
         // one two-up appendix page, and closing. None is inferred from the result being asserted.
         assertEquals(6, plan.pages.size, "expected 6 pages: cover + glossary + summary + room + appendix + closing")
@@ -82,27 +86,51 @@ class ReportComposerGoldenTest {
     @Test
     fun `the footer that gets drawn carries the short hash, not the full digest`() {
         val plan = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
-        val expectedShort = ReportTestFixtures.DATA_HASH.take(12)
-
         assertEquals("ea9cd02e76bf · 1/6", plan.pages.first().footerText())
         assertEquals("ea9cd02e76bf · 6/6", plan.pages.last().footerText())
 
         plan.pages.forEach { page ->
             val footer = page.blocks.single { it.content is FooterBlock }.content as FooterBlock
             assertEquals(
-                "$expectedShort · ${page.number}/${plan.pages.size}",
-                footer.textRuns.joinToString("") { it.text },
+                "ea9cd02e76bf · ${page.number}/6",
+                footer.textRuns.single().text,
                 "the drawn footer text must be the short hash",
             )
             assertTrue(
-                footer.textRuns.none { it.text.contains(ReportTestFixtures.DATA_HASH) },
+                !footer.textRuns.single().text.contains(
+                    "ea9cd02e76bf79ac320df5795e51433b3200eb28900ab8837479a0c15eaf452d",
+                ),
                 "the full 64-character digest must not be drawn",
             )
-            assertEquals(ReportTestFixtures.DATA_HASH, footer.dataHash, "the full digest stays available")
-            assertEquals(expectedShort, footer.shortHash)
+            assertEquals(
+                "ea9cd02e76bf79ac320df5795e51433b3200eb28900ab8837479a0c15eaf452d",
+                footer.dataHash,
+                "the full digest stays available",
+            )
+            assertEquals("ea9cd02e76bf", footer.shortHash)
             assertEquals(page.number, footer.pageNumber)
             assertEquals(6, footer.totalPages)
+            val run = footer.textRuns.single()
+            assertTrue(run.yMm >= 0 && run.yMm + run.heightMm <= 10, "footer run exceeds its 10mm strip")
         }
+    }
+
+    @Test
+    fun `a footer that measures to multiple lines is refused instead of overflowing its fixed strip`() {
+        val wrappingFooter = TextMeasurer { text, style, widthMm ->
+            if (text.startsWith("ea9cd02e76bf ·")) {
+                MeasuredText(listOf("ea9cd02e76bf", text.substringAfter("ea9cd02e76bf ")), 4)
+            } else {
+                ReportTestFixtures.measurer.measure(text, style, widthMm)
+            }
+        }
+
+        assertEquals(
+            "footer text must measure as one line within the 10mm strip",
+            kotlin.test.assertFailsWith<IllegalArgumentException> {
+                ReportComposer(wrappingFooter).compose(ReportTestFixtures.report(), Audience.LANDLORD)
+            }.message,
+        )
     }
 
     /** 封面即答案: the totals and the instant have to reach paper, not merely sit in the block's fields. */
