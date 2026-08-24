@@ -145,7 +145,7 @@ if ($Suite -eq 'integration') {
 
   function Test-AstCommandStaticallyLive {
     param(
-      [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
+      [Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Command,
       [string[]]$AllowedIfConditions = @(),
       [string[]]$RequiredIfConditions = @()
     )
@@ -179,6 +179,30 @@ if ($Suite -eq 'integration') {
       if (-not $seen.Contains(($requiredCondition -replace '\s+', ' ').Trim())) { return $false }
     }
     return $true
+  }
+
+  function Get-LiveLiteralAssignmentValueBefore {
+    param(
+      [Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Root,
+      [Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Target,
+      [Parameter(Mandatory)][string]$VariableName
+    )
+    # Resolve the value that is actually in force at Target: only unconditional, statically live assignments
+    # before the target participate, and the last such assignment wins just as PowerShell execution does.
+    # A dead/conditional assignment is not execution evidence; a final non-literal assignment fails closed.
+    $assignments = @($Root.FindAll({
+      param($node)
+      $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+      $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+      $node.Left.VariablePath.UserPath -ceq $VariableName -and
+      $node.Extent.StartOffset -lt $Target.Extent.StartOffset -and
+      (Test-AstCommandStaticallyLive -Command $node)
+    }, $true) | Sort-Object { $_.Extent.StartOffset })
+    if ($assignments.Count -eq 0) { return $null }
+    $last = $assignments[-1]
+    if ($last.Right -isnot [System.Management.Automation.Language.CommandExpressionAst] -or
+        $last.Right.Expression -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { return $null }
+    return $last.Right.Expression.Value
   }
 
   function Test-WrapperPathExpression {
@@ -694,39 +718,27 @@ if ($Suite -eq 'integration') {
         $found.Add('[INTEGRATION-CI-SCANNER] License gate has no run: block to execute the scanner from')
       } else {
         $runAst = [System.Management.Automation.Language.Parser]::ParseInput($runScript, [ref]$null, [ref]$null)
-        # 变量解析必须 fail-closed，而不是「最后一次赋值获胜」。反例：
-        #   `if ($env:CI) { $f = 'scripts/check-cards.ps1' } else { $f = 'scripts/check-licenses.ps1' }`
-        # 后接 `pwsh -NoProfile -File $f`——按词法顺序取最后一次赋值会解出 check-licenses.ps1，断言全绿，
-        # 而 CI 上真正跑的是 check-cards.ps1。故：同名变量只要有**两次以上赋值且取值不一致**，或有任何一次
-        # **非字面量**赋值，该名字即判为解不出，从表里摘掉 → Resolve-ExecutedFilePath 返回 $null → 视为
-        # 「无法证明它执行了目标脚本」。拼接与 Join-Path 本就落在非字面量这一支，早已 fail-closed。
-        $literals = @{}
-        $ambiguousLiterals = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-        foreach ($assignment in $runAst.FindAll({
-          param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst]
-        }, $true)) {
-          if ($assignment.Left -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
-          $assignedName = $assignment.Left.VariablePath.UserPath
-          if ($assignment.Right -isnot [System.Management.Automation.Language.CommandExpressionAst] -or
-              $assignment.Right.Expression -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) {
-            [void]$ambiguousLiterals.Add($assignedName)
-            continue
-          }
-          $assignedValue = $assignment.Right.Expression.Value
-          if ($literals.ContainsKey($assignedName) -and [string]$literals[$assignedName] -cne $assignedValue) { [void]$ambiguousLiterals.Add($assignedName) }
-          $literals[$assignedName] = $assignedValue
-        }
-        foreach ($ambiguousName in $ambiguousLiterals) { [void]$literals.Remove($ambiguousName) }
-        $executedPaths = @($runAst.FindAll({
+        # Bind every prerequisite to the live scanner command. Whole-block presence is insufficient: a correct
+        # assignment after the command, or inside `if ($false)`, never affects that invocation.
+        $liveCommands = @($runAst.FindAll({
           param($node) $node -is [System.Management.Automation.Language.CommandAst]
-        }, $true) | Where-Object { Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path $f') } |
-          ForEach-Object { Resolve-ExecutedFilePath -Command $_ -Literals $literals } | Where-Object { $null -ne $_ })
-        $scannerRuns = @($executedPaths | Where-Object { $_ -ceq $expectedGateScript }).Count
-        if ($scannerRuns -lt 1) {
-          $found.Add("[INTEGRATION-CI-SCANNER] License gate never executes $expectedGateScript (resolved pwsh -File targets: $(if ($executedPaths.Count -eq 0) { '<none>' } else { $executedPaths -join ', ' }))")
+        }, $true) | Where-Object { Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path $f') })
+        $executedPaths = [System.Collections.Generic.List[string]]::new()
+        $scannerRuns = [System.Collections.Generic.List[object]]::new()
+        foreach ($command in $liveCommands) {
+          $fValue = Get-LiveLiteralAssignmentValueBefore -Root $runAst -Target $command -VariableName 'f'
+          $literals = @{}
+          if ($null -ne $fValue) { $literals['f'] = $fValue }
+          $resolvedPath = Resolve-ExecutedFilePath -Command $command -Literals $literals
+          if ($null -ne $resolvedPath) { $executedPaths.Add($resolvedPath) }
+          if ($resolvedPath -ceq $expectedGateScript) { $scannerRuns.Add($command) }
         }
-        if ($runScript -notmatch '(?m)^\s*\$env:UV_OFFLINE\s*=\s*''1''\s*$' -or
-            $runScript -notmatch '(?m)^\s*\$env:npm_config_offline\s*=\s*''true''\s*$') {
+        if ($scannerRuns.Count -lt 1) {
+          $found.Add("[INTEGRATION-CI-SCANNER] License gate never executes $expectedGateScript (resolved pwsh -File targets: $(if ($executedPaths.Count -eq 0) { '<none>' } else { $executedPaths -join ', ' }))")
+        } elseif (@($scannerRuns | Where-Object {
+          (Get-LiveLiteralAssignmentValueBefore -Root $runAst -Target $_ -VariableName 'env:UV_OFFLINE') -ceq '1' -and
+          (Get-LiveLiteralAssignmentValueBefore -Root $runAst -Target $_ -VariableName 'env:npm_config_offline') -ceq 'true'
+        }).Count -ne $scannerRuns.Count) {
           $found.Add('[INTEGRATION-CI-SCANNER] License gate must set UV_OFFLINE=1 and npm_config_offline=true before the scanner so uv/npx cannot make network requests')
         }
       }
@@ -858,8 +870,14 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-exec-uncalled-function'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-function-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-scanner-exec-dead-else'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-else-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-scanner-exec-dead-loop'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-while-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
+    @{ Id = 'ci-scanner-path-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = "(?m)^(?<keep>[ \t]*)(?<body>\`$f = 'scripts/check-licenses\.ps1'[ \t]*)$" },
+    @{ Id = 'ci-scanner-path-moved-after'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = "(?m)^[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*\r?$"; AnchorPattern = '(?m)^[ \t]*if \(Test-Path \$f\).*check-licenses\.ps1.*\r?$' },
     @{ Id = 'ci-scanner-uv-offline-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*\`$env:UV_OFFLINE[ \t]*=[ \t]*'1'[ \t]*\r?`n" },
     @{ Id = 'ci-scanner-npm-offline-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*\r?`n" },
+    @{ Id = 'ci-scanner-uv-offline-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = "(?m)^(?<keep>[ \t]*)(?<body>\`$env:UV_OFFLINE[ \t]*=[ \t]*'1'[ \t]*)$" },
+    @{ Id = 'ci-scanner-uv-offline-moved-after'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = "(?m)^[ \t]*\`$env:UV_OFFLINE[ \t]*=[ \t]*'1'[ \t]*\r?$"; AnchorPattern = '(?m)^[ \t]*if \(Test-Path \$f\).*check-licenses\.ps1.*\r?$' },
+    @{ Id = 'ci-scanner-npm-offline-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = "(?m)^(?<keep>[ \t]*)(?<body>\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*)$" },
+    @{ Id = 'ci-scanner-npm-offline-moved-after'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = "(?m)^[ \t]*\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*\r?$"; AnchorPattern = '(?m)^[ \t]*if \(Test-Path \$f\).*check-licenses\.ps1.*\r?$' },
     @{ Id = 'ci-provision-pip-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*uv run --with pip-licenses==)5\.5\.5(?: pip-licenses --version[ \t]*)$'; Text = '6.0.0a1 pip-licenses --version' },
     @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
     @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
@@ -871,8 +889,7 @@ if ($Suite -eq 'integration') {
     # 「必需键缺失」与「没有 run: 块可执行」两处抬升点：删掉 License gate 的 `run: |` 那一行（用后瞻锚到
     # 它下面两行内的唯一那句 `$f = 'scripts/check-licenses.ps1'`，故单点唯一）。两个码同时抬起是正确结果。
     @{ Id = 'ci-gate-run-block-removed'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*run:[ \t]*\|[ \t]*\r?\n(?=(?:[^\r\n]*\r?\n){0,4}[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*\r?$)" },
-    # 变量解析的 fail-closed：同名变量出现第二次、取值不同 ⇒ 解不出 ⇒ 无法证明它执行了目标脚本。
-    # 「最后一次赋值获胜」的旧写法在这枚变异下保持绿，而 CI 实跑的会是 check-cards.ps1。
+    # 命令前最后一次存活赋值决定实参；这枚变异证明检查器与 PowerShell 的顺序语义一致。
     @{ Id = 'ci-scanner-path-ambiguous'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = "(?m)^[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*$"; Text = "          `$f = 'scripts/check-cards.ps1'" },
     # 姊妹闸 E2E verify gate 的条件被改掉：上面把 License gate 的 `if:` 钉成字面量，理由是「它等于姊妹闸
     # 用的那条」；姊妹闸一变，那个理由就不再成立，必须有人报出来。
@@ -939,6 +956,16 @@ if ($Suite -eq 'integration') {
         'replace-ordered-with-disabled-job' { Replace-OrderedStepsWithDisabledJobFixture -Text $original }
         'replace-ordered-with-expression-disabled-job' { Replace-OrderedStepsWithDisabledJobFixture -Text $original -Condition '${{ 1 == 0 }}' }
         'move-e2e-to-separate-job' { Move-E2eStepToSeparateJobFixture -Text $original }
+        'move-after-line' {
+          $sourceMatch = $wmRegex.Match($original)
+          if (-not $sourceMatch.Success) { $original } else {
+            $withoutSource = $original.Remove($sourceMatch.Index, $sourceMatch.Length)
+            $anchorMatch = [regex]::Match($withoutSource, $wm.AnchorPattern)
+            if (-not $anchorMatch.Success) { $original } else {
+              $withoutSource.Insert($anchorMatch.Index + $anchorMatch.Length, "`n" + $sourceMatch.Value)
+            }
+          }
+        }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
       }
       if ($mutated -ceq $original) {
