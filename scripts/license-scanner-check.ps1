@@ -267,7 +267,21 @@ if ($Suite -eq 'integration') {
     # A step name counts only as a direct sequence child of `steps:`. A visually identical line inside `run: |`
     # is YAML scalar content, not a workflow step; raw whole-file regexes cannot make that distinction.
     $indices = [System.Collections.Generic.List[int]]::new()
+    $blockScalarIndent = -1
     for ($i = 0; $i -lt $Lines.Count; $i++) {
+      $current = $Lines[$i]
+      if ($blockScalarIndent -ge 0) {
+        if ([string]::IsNullOrWhiteSpace($current)) { continue }
+        $currentIndent = ([regex]::Match($current, '^[ ]*')).Value.Length
+        if ($currentIndent -gt $blockScalarIndent) { continue }
+        $blockScalarIndent = -1
+      }
+      # YAML literal/folded scalars own every following nonblank line indented deeper than their header.
+      # A textual `steps:` subtree there is script data, never workflow structure.
+      if ($current -match '^(?<indent>[ ]*)(?:-[ ]+)?[A-Za-z][A-Za-z0-9_-]*:[ \t]*[|>](?:[1-9][+-]?|[+-][1-9]?)?[ \t]*(?:#.*)?$') {
+        $blockScalarIndent = $Matches.indent.Length
+        continue
+      }
       if ($Lines[$i] -notmatch '^(?<indent>[ ]*)steps:[ \t]*$') { continue }
       $stepsIndent = $Matches.indent.Length
       $itemIndent = $stepsIndent + 2
@@ -343,6 +357,33 @@ if ($Suite -eq 'integration') {
       $remaining[$i]
     })
     return ($moved -join "`n")
+  }
+
+  function Replace-LicenseStepWithInertScalarFixture {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $lines = @($Text -split "`n")
+    $licenseIndices = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^      - name: License gate[ \t]*$' })
+    $warmupIndices = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^      - name: Gradle online build' })
+    if ($licenseIndices.Count -ne 1 -or $warmupIndices.Count -ne 1) { return $Text }
+    $licenseBlock = @(Get-WorkflowStepLines -Lines $lines -Start $licenseIndices[0])
+    $remaining = @(for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($i -lt $licenseIndices[0] -or $i -ge ($licenseIndices[0] + $licenseBlock.Count)) { $lines[$i] }
+    })
+    $warmupRun = @(($warmupIndices[0] + 1)..($remaining.Count - 1) | Where-Object { $remaining[$_] -match '^        run: \|[ \t]*$' } | Select-Object -First 1)
+    if ($warmupRun.Count -ne 1) { return $Text }
+    $fake = @(
+      '          steps:',
+      '            - name: License gate',
+      "              if: `${{ steps.docs_scope.outputs.docs_only != 'true' }}",
+      '              shell: pwsh',
+      '              run: |',
+      "                `$f = 'scripts/check-licenses.ps1'",
+      '                pwsh -NoProfile -File $f'
+    )
+    return (@(for ($i = 0; $i -lt $remaining.Count; $i++) {
+      $remaining[$i]
+      if ($i -eq $warmupRun[0]) { $fake }
+    }) -join "`n")
   }
 
   function Get-IntegrationWiringFailures {
@@ -617,6 +658,8 @@ if ($Suite -eq 'integration') {
     # The same text nested under the preceding run scalar is inert YAML. Whole-file regex counting used to accept
     # this after the real direct-child name was indented away.
     @{ Id = 'ci-step-name-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$'; Text = '          - name: License gate' },
+    # 删除真实整步，并把完整可执行形状伪装进另一步的 `run: |` 标量；只忽略单独的 `- name:` 诱饵不够。
+    @{ Id = 'ci-full-step-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-inert-scalar' },
     # 卡片头号 dod_assert 的专属变异：整块 License gate 搬到 JDK setup 之前。真实回归形态——
     # 新跑者上缓存是冷的，GRADLE-CACHE-OFFLINE 触发，每个 PR 都红而没有任何东西指向病因。
     @{ Id = 'ci-step-reordered'; Codes = @('INTEGRATION-CI-ORDER-SEQUENCE'); Target = 'Workflow'; Kind = 'reorder'; Step = 'License gate'; Before = 'Setup Java (Temurin 17)' },
@@ -678,7 +721,7 @@ if ($Suite -eq 'integration') {
       # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
       # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
       # append/reorder 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
-      $wmRegex = if (@('append', 'reorder') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
+      $wmRegex = if (@('append', 'reorder', 'replace-license-with-inert-scalar') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
       $mutated = switch ($wm.Kind) {
         'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
         'delete' { $wmRegex.Replace($original, '', 1) }
@@ -698,6 +741,7 @@ if ($Suite -eq 'integration') {
         'wrap-while-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'while ($false) { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'insert-after' { $wmRegex.Replace($original, { param($m) $m.Value + "`n" + $wm.Text }, 1) }
         'reorder' { Move-WorkflowStepBefore -Text $original -Step $wm.Step -Before $wm.Before }
+        'replace-license-with-inert-scalar' { Replace-LicenseStepWithInertScalarFixture -Text $original }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
       }
       if ($mutated -ceq $original) {
@@ -731,19 +775,20 @@ if ($Suite -eq 'integration') {
   Assert-Integration (
     $scopeGuardExit -ne 0 -and $scopeGuardOutput -match '\[INTEGRATION-SKIPREALSCAN-SCOPE\]'
   ) "[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan on a non-integration suite was accepted (exit=$scopeGuardExit): $scopeGuardOutput"
-  $scopeGuardSource = [System.IO.File]::ReadAllText($PSCommandPath)
-  # 锚**必须逐行拼**，不能写成 here-string：here-string 的正文与守卫逐字相同，于是它自己也成了一处
-  # 匹配，计数恒为 2、删除变异永远建不起来。逐行拼出来的源码带反引号转义，与守卫的实际字节不同，
-  # 全文里就只剩守卫那一处。
-  $scopeGuardBlock = @(
-    "if (`$SkipRealScan -and `$Suite -ne 'integration') {",
-    "  Write-Error `"[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan is valid only for -Suite integration (got '`$Suite')`"",
-    '  exit 1',
-    '}'
-  ) -join "`n"
-  if (([regex]::Matches($scopeGuardSource, [regex]::Escape($scopeGuardBlock))).Count -ne 1) {
-    Assert-Integration $false '[INTEGRATION-SKIPREALSCAN-SCOPE] the guard block anchor is no longer unique in this script, so its delete-mutation cannot be built'
-  } else {
+  function Invoke-ScopeGuardDeletionMutation {
+    # PASS marker lives inside the operation, so a skipped run cannot execute the mutation silently: the parent
+    # `-SkipMutations` probe rejects every `mutations): PASS` line in its child output.
+    $scopeGuardSource = [System.IO.File]::ReadAllText($PSCommandPath)
+    $scopeGuardBlock = @(
+      "if (`$SkipRealScan -and `$Suite -ne 'integration') {",
+      "  Write-Error `"[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan is valid only for -Suite integration (got '`$Suite')`"",
+      '  exit 1',
+      '}'
+    ) -join "`n"
+    if (([regex]::Matches($scopeGuardSource, [regex]::Escape($scopeGuardBlock))).Count -ne 1) {
+      Assert-Integration $false '[INTEGRATION-SKIPREALSCAN-SCOPE] the guard block anchor is no longer unique in this script, so its delete-mutation cannot be built'
+      return
+    }
     $scopeMutantPath = Join-Path $PSScriptRoot ".license-scanner-$PID-skiprealscan-scope.ps1"
     try {
       [System.IO.File]::WriteAllText($scopeMutantPath, $scopeGuardSource.Replace($scopeGuardBlock, ''), [System.Text.UTF8Encoding]::new($false))
@@ -752,10 +797,12 @@ if ($Suite -eq 'integration') {
       Assert-Integration (
         $scopeMutantExit -eq 0
       ) "[INTEGRATION-SKIPREALSCAN-SCOPE] deleting the guard did not turn the invalid invocation green (exit=$scopeMutantExit) - the rejection observed above came from somewhere else: $scopeMutantOutput"
+      Write-Host 'license-scanner-check(integration scope mutations): PASS (1)'
     } finally {
       if (Test-Path -LiteralPath $scopeMutantPath) { Remove-Item -LiteralPath $scopeMutantPath -Force }
     }
   }
+  if (-not $SkipMutations) { Invoke-ScopeGuardDeletionMutation }
 
   # -SkipMutations 必须真的传给四个子套件。此前它被接受却从不转发：调用方以为省掉了 mutation 成本，
   # 实际全跑，于是「开关有效」和「开关被忽略」在输出上无从分辨——沉默地不做事比报错更难发现。
