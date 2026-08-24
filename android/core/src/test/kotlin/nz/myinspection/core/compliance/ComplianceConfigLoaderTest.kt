@@ -86,6 +86,21 @@ class ComplianceConfigLoaderTest {
     }
 
     @Test
+    fun `newer-schema override is classified before strict v1 shape decoding`() {
+        val builtIn = configJson(noticeMinHours = 48).encodeToByteArray()
+        val structurallyV2 = """{"schemaVersion":2,"v2Only":{"replacement":"shape"}}""".encodeToByteArray()
+
+        val result = ComplianceConfigLoader.load(
+            builtIn,
+            ComplianceOverride(structurallyV2, sha256Hex(structurallyV2)),
+        )
+
+        assertEquals(ComplianceConfigSource.BUILT_IN, result.source)
+        assertEquals(OverrideRejection.SCHEMA_VERSION_MISMATCH, result.overrideRejection)
+        assertEquals(48, result.config.rules.getValue("inspection").noticeMinHours)
+    }
+
+    @Test
     fun `invalid civil windows and source URLs fail closed instead of widening the rule`() {
         val invalidCases = listOf(
             configJson().replace("\"start\": \"08:00\"", "\"start\": \"08:00:30\""),

@@ -2,6 +2,7 @@ package nz.myinspection.core.compliance
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -97,6 +98,23 @@ object ComplianceConfigLoader {
             )
         }
 
+        val overrideSchemaVersion = try {
+            decodeTopLevelSchemaVersion(overrideBytes)
+        } catch (_: Exception) {
+            return LoadedComplianceConfig(
+                builtIn,
+                ComplianceConfigSource.BUILT_IN,
+                OverrideRejection.INVALID_CONFIG,
+            )
+        }
+        if (overrideSchemaVersion != builtIn.schemaVersion) {
+            return LoadedComplianceConfig(
+                builtIn,
+                ComplianceConfigSource.BUILT_IN,
+                OverrideRejection.SCHEMA_VERSION_MISMATCH,
+            )
+        }
+
         val raw = try {
             decodeRaw(overrideBytes)
         } catch (_: Exception) {
@@ -128,6 +146,16 @@ object ComplianceConfigLoader {
 
     private fun parseValidated(bytes: ByteArray, expectedSchemaVersion: Int): ComplianceConfig =
         validateAndFreeze(decodeRaw(bytes), expectedSchemaVersion)
+
+    private fun decodeTopLevelSchemaVersion(bytes: ByteArray): Int {
+        val text = decodeUtf8Strict(bytes)
+        val ambiguous = ambiguousKeys(text)
+        if (ambiguous.isNotEmpty()) throw ComplianceConfigException(Collections.unmodifiableList(ambiguous))
+        val root = json.parseToJsonElement(text)
+        require(root is JsonObject) { "compliance config root must be an object" }
+        return root["schemaVersion"]?.toString()?.toIntOrNull()
+            ?: throw IllegalArgumentException("compliance config schemaVersion must be an integer")
+    }
 
     private fun decodeRaw(bytes: ByteArray): RawComplianceConfig {
         val text = decodeUtf8Strict(bytes)
