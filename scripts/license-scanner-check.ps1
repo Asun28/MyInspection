@@ -149,6 +149,31 @@ if ($Suite -eq 'integration') {
     return $false
   }
 
+  function Test-AstCommandStaticallyLive {
+    param([Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command)
+    # Static evidence is deliberately narrow: a command hidden in a function/script-block definition is not
+    # executed merely because its AST exists, and a command in a constant-false branch is unreachable. Dynamic
+    # guards (the real `if (Test-Path $f)` and seeded shard condition) remain admissible evidence.
+    $ancestor = $Command.Parent
+    while ($null -ne $ancestor) {
+      if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
+          $ancestor -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) { return $false }
+      if ($ancestor -is [System.Management.Automation.Language.IfStatementAst]) {
+        foreach ($clause in $ancestor.Clauses) {
+          $body = $clause.Item2
+          if ($Command.Extent.StartOffset -lt $body.Extent.StartOffset -or
+              $Command.Extent.EndOffset -gt $body.Extent.EndOffset) { continue }
+          $condition = $clause.Item1
+          if (-not (Test-ConstantCondition -Condition $condition)) { continue }
+          $conditionText = $condition.Extent.Text.Trim()
+          if ($conditionText -ceq '$false' -or $conditionText -ceq '0') { return $false }
+        }
+      }
+      $ancestor = $ancestor.Parent
+    }
+    return $true
+  }
+
   function Test-WrapperPathExpression {
     param(
       [Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Node,
@@ -207,6 +232,27 @@ if ($Suite -eq 'integration') {
       $stepLines.Add($Lines[$i])
     }
     return $stepLines.ToArray()
+  }
+
+  function Get-WorkflowActiveStepIndices {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines)
+    # A step name counts only as a direct sequence child of `steps:`. A visually identical line inside `run: |`
+    # is YAML scalar content, not a workflow step; raw whole-file regexes cannot make that distinction.
+    $indices = [System.Collections.Generic.List[int]]::new()
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+      if ($Lines[$i] -notmatch '^(?<indent>[ ]*)steps:[ \t]*$') { continue }
+      $stepsIndent = $Matches.indent.Length
+      $itemIndent = $stepsIndent + 2
+      for ($j = $i + 1; $j -lt $Lines.Count; $j++) {
+        $line = $Lines[$j]
+        if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^[ \t]*#') { continue }
+        if ($line -notmatch '^(?<indent>[ ]*)') { continue }
+        $lineIndent = $Matches.indent.Length
+        if ($lineIndent -le $stepsIndent) { break }
+        if ($lineIndent -eq $itemIndent -and $line -match '^[ ]*-[ \t]+name:') { $indices.Add($j) }
+      }
+    }
+    return $indices.ToArray()
   }
 
   function Get-WorkflowStepKeys {
@@ -296,25 +342,11 @@ if ($Suite -eq 'integration') {
 
     # 「调用存在」不等于「调用会执行」：把那一行包进 `if ($false) { … }`、或埋进一个没人调的函数，
     # 上面两条断言照样绿而闸 17cc 已被静默停用。故再判一条**静态存活性**：调用的祖先链上不得出现
-    # 条件为常量的 `if`，也不得位于任何函数定义体内。真实的分片门 `if ($Shard -eq 'seeded')` 不是常量
+    # 恒假分支，也不得位于任何函数/脚本块定义体内。真实的分片门 `if ($Shard -eq 'seeded')` 不是恒假
     # 条件，不受影响。
     # 边界照实说：这只证明它没有被**静态**停用；「seeded 分片确实走到了它」这条证据不在本套件里——
     # 那是 seeded 自己那行 `17cc(scanner-integration) … OK`，它只有真跑过才会打印。
-    $deadCalls = @($integrationCalls | Where-Object {
-      $isDead = $false
-      $ancestor = $_.Parent
-      while ($null -ne $ancestor) {
-        if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst]) { $isDead = $true; break }
-        if ($ancestor -is [System.Management.Automation.Language.IfStatementAst]) {
-          foreach ($clause in $ancestor.Clauses) {
-            if (Test-ConstantCondition -Condition $clause.Item1) { $isDead = $true; break }
-          }
-          if ($isDead) { break }
-        }
-        $ancestor = $ancestor.Parent
-      }
-      $isDead
-    })
+    $deadCalls = @($integrationCalls | Where-Object { -not (Test-AstCommandStaticallyLive -Command $_) })
     if ($deadCalls.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-LIVENESS] the integration invocation in selftest.ps1 sits under a constant-condition if or inside a function definition, so its presence proves nothing about execution ($($deadCalls.Count) such call(s))") }
 
     # A15 的正面契约：selftest.ps1 里**不存在写文件动作、其目标路径静态可见地指向 gradlew / gradlew.bat**。
@@ -395,9 +427,10 @@ if ($Suite -eq 'integration') {
       'E2E verify gate'
     )
     $stepLine = @{}
+    $activeStepIndices = @(Get-WorkflowActiveStepIndices -Lines $workflowLines)
     foreach ($step in $orderedSteps) {
-      $pattern = '^\s*-\s+name:\s+' + [regex]::Escape($step) + '\s*$'
-      $hits = @(0..($workflowLines.Count - 1) | Where-Object { $workflowLines[$_] -match $pattern })
+      $pattern = '^[ ]*-[ \t]+name:[ \t]+' + [regex]::Escape($step) + '[ \t]*$'
+      $hits = @($activeStepIndices | Where-Object { $workflowLines[$_] -match $pattern })
       if ($hits.Count -ne 1) { $found.Add("[INTEGRATION-CI-ORDER-COUNT] expected exactly one active '- name: $step' step in ci.yml, found $($hits.Count)"); continue }
       $stepLine[$step] = $hits[0]
     }
@@ -468,7 +501,8 @@ if ($Suite -eq 'integration') {
         foreach ($ambiguousName in $ambiguousLiterals) { [void]$literals.Remove($ambiguousName) }
         $executedPaths = @($runAst.FindAll({
           param($node) $node -is [System.Management.Automation.Language.CommandAst]
-        }, $true) | ForEach-Object { Resolve-ExecutedFilePath -Command $_ -Literals $literals } | Where-Object { $null -ne $_ })
+        }, $true) | Where-Object { Test-AstCommandStaticallyLive -Command $_ } |
+          ForEach-Object { Resolve-ExecutedFilePath -Command $_ -Literals $literals } | Where-Object { $null -ne $_ })
         $scannerRuns = @($executedPaths | Where-Object { $_ -ceq $expectedGateScript }).Count
         if ($scannerRuns -lt 1) {
           $found.Add("[INTEGRATION-CI-SCANNER] License gate never executes $expectedGateScript (resolved pwsh -File targets: $(if ($executedPaths.Count -eq 0) { '<none>' } else { $executedPaths -join ', ' }))")
@@ -538,6 +572,7 @@ if ($Suite -eq 'integration') {
     # -SELFTEST-LIVENESS 自己的变异：调用整条原样保留（WIRING/COLD 仍绿），只把它包进恒假的 if——
     # 这正是「闸还在、但已经不会执行」的形态。
     @{ Id = 'selftest-call-dead-guard'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-uncalled-function'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-function'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
     # INLINE 覆盖的每条路径各一枚变异：具名路径参数（下一枚）· 位置实参（不写 -LiteralPath/-Path）·
     # .NET 静态写方法（根本不是 CommandAst）· 把路径先赋给变量再写（extent 只剩变量名）· 文件重定向。
     # 五枚共同证明这条契约覆盖的是**写入原语**，而不是某个变量名。
@@ -548,6 +583,9 @@ if ($Suite -eq 'integration') {
     @{ Id = 'selftest-inline-fixture-redirection'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n'fixture' > 'android/gradlew.bat'`n" },
     @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    # The same text nested under the preceding run scalar is inert YAML. Whole-file regex counting used to accept
+    # this after the real direct-child name was indented away.
+    @{ Id = 'ci-step-name-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$'; Text = '          - name: License gate' },
     # 卡片头号 dod_assert 的专属变异：整块 License gate 搬到 JDK setup 之前。真实回归形态——
     # 新跑者上缓存是冷的，GRADLE-CACHE-OFFLINE 触发，每个 PR 都红而没有任何东西指向病因。
     @{ Id = 'ci-step-reordered'; Codes = @('INTEGRATION-CI-ORDER-SEQUENCE'); Target = 'Workflow'; Kind = 'reorder'; Step = 'License gate'; Before = 'Setup Java (Temurin 17)' },
@@ -557,6 +595,8 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-path-swapped'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)\$f = ''scripts/check-licenses\.ps1''[ \t]*$'; Text = "`$f = 'scripts/check-cards.ps1'" },
     # 把整句调用注释到行尾：`^\s*#` 只排除整行注释，旧谓词实测保持绿。
     @{ Id = 'ci-scanner-exec-commented-out'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)if \(Test-Path \$f\).*check-licenses\.ps1.*$'; Text = "Write-Host 'gate disabled'  # pwsh -NoProfile -File scripts/check-licenses.ps1" },
+    @{ Id = 'ci-scanner-exec-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
+    @{ Id = 'ci-scanner-exec-uncalled-function'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-function-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
     # `shell:` 的**值**：下面整段 run: 块分析都按 PowerShell 解析它，改成 bash 后此前一路绿到底。
@@ -616,6 +656,9 @@ if ($Suite -eq 'integration') {
         'strip-token' { $wmRegex.Replace($original, { param($m) $m.Groups['head'].Value + $m.Groups['tail'].Value }, 1) }
         # 语句原样保留，只把它包进恒假的 if：AST 上那条命令仍在，「存在」类断言全绿，唯有存活性会红。
         'wrap-false' { $wmRegex.Replace($original, { param($m) 'if ($false) { ' + $m.Value.Trim() + ' }' }, 1) }
+        'wrap-function' { $wmRegex.Replace($original, { param($m) 'function Invoke-InertIntegrationGate { ' + $m.Value.Trim() + ' }' }, 1) }
+        'wrap-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'if ($false) { ' + $m.Groups['body'].Value + ' }' }, 1) }
+        'wrap-function-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'function Invoke-InertLicenseGate { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'insert-after' { $wmRegex.Replace($original, { param($m) $m.Value + "`n" + $wm.Text }, 1) }
         'reorder' { Move-WorkflowStepBefore -Text $original -Step $wm.Step -Before $wm.Before }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
@@ -748,12 +791,27 @@ if ($Suite -eq 'integration') {
     # 真正声明的那一行，报告侧只要求 module + 一个具体版本号。
     # 清单只在真扫这一支才读：-SkipRealScan（seeded 走的那条）不该因 android/ 缺文件而炸。
     $versionsText = [System.IO.File]::ReadAllText((Join-Path $repoRoot 'android/gradle/libs.versions.toml'))
+    $testNgManifestPattern = '(?m)^[ \t]*kotlin-test-testng[ \t]*=[ \t]*\{[^\r\n]*module[ \t]*=[ \t]*"org\.jetbrains\.kotlin:kotlin-test-testng"[^\r\n]*\}[ \t]*\r?$'
+    $testNgOutputPattern = '(?m)^[ \t]*-[ \t]+org\.testng:testng:[0-9][^\r\n]*\r?$'
+    # Nested pwsh may preserve host colour SGR sequences in captured text; strip only those presentation bytes
+    # before applying the anchored semantic line predicate. Diagnostics retain the raw scanner output.
+    $scannerMatchText = $scannerOutput -replace '\e\[[0-9;]*m', ''
     Assert-Integration (
-      $versionsText -match 'org\.jetbrains\.kotlin:kotlin-test-testng'
-    ) "[INTEGRATION-TESTNG-MANIFEST] android/gradle/libs.versions.toml no longer declares org.jetbrains.kotlin:kotlin-test-testng, so org.testng:testng is no longer the runner this assertion is about"
+      ([regex]::Matches($versionsText, $testNgManifestPattern)).Count -eq 1
+    ) "[INTEGRATION-TESTNG-MANIFEST] android/gradle/libs.versions.toml no longer has exactly one anchored kotlin-test-testng module declaration, so org.testng:testng is no longer the runner this assertion is about. Strict scanner output: $scannerOutput"
     Assert-Integration (
-      $scannerOutput -match 'org\.testng:testng:[0-9][^\s]*'
+      $scannerMatchText -match $testNgOutputPattern
     ) "[INTEGRATION-TESTNG] real scan omitted a concrete org.testng:testng coordinate: $scannerOutput"
+    if (-not $SkipMutations) {
+      $manifestMutant = ([regex]::new($testNgManifestPattern)).Replace($versionsText, '', 1)
+      Assert-Integration (
+        $manifestMutant -cne $versionsText -and $manifestMutant -notmatch $testNgManifestPattern
+      ) "[INTEGRATION-TESTNG-MANIFEST-MUTATION] deleting the anchored kotlin-test-testng declaration did not kill its predicate. Strict scanner output: $scannerOutput"
+      $outputMutant = ([regex]::new($testNgOutputPattern)).Replace($scannerMatchText, '', 1)
+      Assert-Integration (
+        $outputMutant -cne $scannerMatchText -and $outputMutant -notmatch $testNgOutputPattern
+      ) "[INTEGRATION-TESTNG-MUTATION] deleting the anchored org.testng:testng report line did not kill its predicate. Strict scanner output: $scannerOutput"
+    }
   }
 
   if ($integrationFailures.Count -gt 0) {
