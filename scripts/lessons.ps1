@@ -206,7 +206,7 @@ function Get-LessonsFromPath([string]$Path) {
   # 标题形态与 archive.ps1 的 Get-LedgerHeadings 同口径：整行**恰为** `## L<n>`。松口径（只看 `## L` 前缀）会把
   # `## L42 (deprecated)` 当条目，而搬运器不认，于是选择器交出一个它眼里不存在的 id、报出与真因无关的
   # 「未知 id / 最高 id」。`[ \t]*` 而非 `\s*`：后者会吃掉换行。
-  $blocks = [regex]::Split($raw, '(?m)^##\s+(?=L\d+[ \t]*(?:\r?$))') | Where-Object { $_ -match '^L\d' }
+  $blocks = [regex]::Split($raw, '(?m)^##[ \t]+(?=L\d+[ \t]*(?:\r?$))') | Where-Object { $_ -match '^L\d' }
   $out = @()
   foreach ($b in $blocks) {
     $id = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
@@ -471,7 +471,7 @@ switch ($Command) {
     $raw = Get-Content $BumpLedger -Raw
     # 抠出该 id 的块。标题口径与 Get-LessonsFromPath / archive.ps1 同形（整行恰为 `## L<n>`）——`\b` 的旧写法会在
     # `## L45 (deprecated)` 处提前收尾，同一条经验遂在 bump 眼里合法、在选择器眼里 meta 行重复，两权威相反。
-    $blockRe = "(?ms)^##\s+$([regex]::Escape($Query))[ \t]*(?:\r?$).*?(?=^##\s+L\d+[ \t]*(?:\r?$)|\z)"
+    $blockRe = "(?ms)^##[ \t]+$([regex]::Escape($Query))[ \t]*(?:\r?$).*?(?=^##[ \t]+L\d+[ \t]*(?:\r?$)|\z)"
     $m = [regex]::Match($raw, $blockRe)
     if (-not $m.Success) { Throw-ArchivedLessonReadOnly $Query; throw "未找到 $Query。" }
     $block = $m.Value

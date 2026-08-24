@@ -144,7 +144,7 @@ function Get-LessonDefinitionIdSet([string]$LedgerPath, [string]$ArchivePath) {
   $defined = @{}
   foreach ($path in @($LedgerPath, $ArchivePath)) {
     if (-not (Test-Path -LiteralPath $path)) { continue }
-    foreach ($match in [regex]::Matches((Get-Content -LiteralPath $path -Raw), '(?m)^##\s*(L\d+)\b')) {
+    foreach ($match in [regex]::Matches((Get-Content -LiteralPath $path -Raw), '(?m)^##[ \t]+(L\d+)[ \t]*\r?$')) {
       $defined[$match.Groups[1].Value] = $true
     }
   }
@@ -1701,7 +1701,7 @@ try {
   $a2Exit = $LASTEXITCODE
   $a2Tail = ($a2Out -replace '\s+', ' ').Trim(); if ($a2Tail.Length -gt 200) { $a2Tail = $a2Tail.Substring($a2Tail.Length - 200) }
   if ($a2Exit -ne 0) { Fail "闸2b(a)：空 LEDGER 上 lessons.ps1 add 非零退出（$a2Exit）——裸 Next-Id 默认绑定 StrictMode 崩（TD24/TD39：空数组 unroll→`$null，@(`$null).Count==1 绕过守卫、`$ls.id 抛）。下游首条经验即崩、TD24 实为未修。输出尾段=$a2Tail" }
-  elseif ((Get-Content $l2Ledger -Raw) -notmatch '(?m)^##\s+L1\b') { Fail '闸2b(a)：add 退出 0 但未在空 LEDGER mint L1——Next-Id 未正确返回 L1（空账本递增回归）。' }
+  elseif ((Get-Content $l2Ledger -Raw) -notmatch '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail '闸2b(a)：add 退出 0 但未在空 LEDGER mint L1——Next-Id 未正确返回 L1（空账本递增回归）。' }
 
   # (b) zero-tier:must LEDGER 上【真跑】check → 零匹配 Where-Object 取 .Count。旧码崩溃；新码 exit 0（真 PASS）。
   #   构造【合法】zero-must 账本（条目齐全、无一 must）——修好后 check 应真 PASS，令 RED/GREEN 以退出码判别（locale 无关，免中文 mojibake 假 FAIL）。
@@ -1873,13 +1873,13 @@ try {
   $movedExpect2g = @('L1', 'L9', 'L10')
   $moveFail2g = ($runExit2g -ne 0)
   foreach ($moved2g in $movedExpect2g) {
-    if ($ledgerAfter2g -match "(?m)^##\s+$moved2g\b" -or $archiveAfter2g -notmatch "(?m)^##\s+$moved2g\b") { $moveFail2g = $true }
+    if ($ledgerAfter2g -match "(?m)^##[ \t]+$moved2g[ \t]*\r?$" -or $archiveAfter2g -notmatch "(?m)^##[ \t]+$moved2g[ \t]*\r?$") { $moveFail2g = $true }
   }
   if ($moveFail2g) {
     Fail "闸2g(b)：实际 archive 未经既有搬运器把 $($movedExpect2g -join ',') 全部从热账本移入冷库。exit=$runExit2g output=[$run2g]"; $g2Fail = $true
   }
   foreach ($kept2g in @('L2','L3','L4','L5','L6','L7','L8','L11','L12')) {
-    if ($ledgerAfter2g -notmatch "(?m)^##\s+$kept2g\b") { Fail "闸2g(b)：排除项 $kept2g 被误搬（实跑后已不在 LEDGER）。"; $g2Fail = $true }
+    if ($ledgerAfter2g -notmatch "(?m)^##[ \t]+$kept2g[ \t]*\r?$") { Fail "闸2g(b)：排除项 $kept2g 被误搬（实跑后已不在 LEDGER）。"; $g2Fail = $true }
   }
   if ((Get-FileHash $l2gTracker -Algorithm SHA256).Hash -ne $trackerHash2g -or
       (Get-FileHash $l2gCard -Algorithm SHA256).Hash -ne $cardHash2g -or
@@ -2206,9 +2206,9 @@ try {
   $ledgerAfter2i = Get-Content $l2iLedger -Raw
   if ($runExit2i -eq 0) { Fail "闸2i(d)：夹具含不可解析条目，archive 实跑却退出 0——预览与实跑须同口径 fail-closed。output=[$run2i]"; $e2Fail = $true }
   foreach ($stayHot2i in $hostile2iIds) {
-    if ($ledgerAfter2i -notmatch "(?m)^##\s+$stayHot2i\b") { Fail "闸2i(d)：$stayHot2i 元数据不可解析却被真的搬出热账本——fail-closed 应是「留下」，不是「搬走」。output=[$run2i]"; $e2Fail = $true }
+    if ($ledgerAfter2i -notmatch "(?m)^##[ \t]+$stayHot2i[ \t]*\r?$") { Fail "闸2i(d)：$stayHot2i 元数据不可解析却被真的搬出热账本——fail-closed 应是「留下」，不是「搬走」。output=[$run2i]"; $e2Fail = $true }
   }
-  if ($ledgerAfter2i -match '(?m)^##\s+L1\b') { Fail "闸2i(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2i]"; $e2Fail = $true }
+  if ($ledgerAfter2i -match '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail "闸2i(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2i]"; $e2Fail = $true }
   if ($ledgerHash2i -eq (Get-FileHash $l2iLedger -Algorithm SHA256).Hash) { Fail '闸2i(d)：archive 实跑后热账本毫无变化——本例没有真正施压。'; $e2Fail = $true }
 
   if (-not $e2Fail) { Write-Host '  2e lessons 规范 meta 行锚定解析 OK（十五条敌意夹具均 [LSN-META-INVALID] 留热区、预览与实跑同为非零；四枚必填字段各自可杀；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
@@ -2270,12 +2270,12 @@ try {
 
   # (c) 正常搬运 → 造两侧并存 → 重跑自愈。
   $runC2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $l2fArchive) -or (Get-Content $l2fLedger -Raw) -match '(?m)^##\s+L1\s*$') {
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $l2fArchive) -or (Get-Content $l2fLedger -Raw) -match '(?m)^##[ \t]+L1[ \t]*\r?$') {
     Fail "闸2f(c)：清掉注入后正常搬运未把 L1 移入冷库。output=[$runC2f]"; $f2Fail = $true
   } else {
     $archLines2f = @(Get-Content $l2fArchive)
     $idx2f = -1
-    for ($i = 0; $i -lt $archLines2f.Count; $i++) { if ($archLines2f[$i] -match '^##\s+L1\s*$') { $idx2f = $i; break } }
+    for ($i = 0; $i -lt $archLines2f.Count; $i++) { if ($archLines2f[$i] -match '^##[ \t]+L1[ \t]*$') { $idx2f = $i; break } }
     if ($idx2f -lt 0) { Fail '闸2f(c)：归档件里找不到「## L1」标题，无法构造两侧并存态。'; $f2Fail = $true }
     else {
       # 把归档侧那一整块**逐字**粘回 LEDGER：archive.ps1 的自愈只在两侧内容逐字一致时才补完移动，
@@ -2285,9 +2285,9 @@ try {
       $healC2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
       $healExitC2f = $LASTEXITCODE
       $ledgerAfterC2f = Get-Content $l2fLedger -Raw
-      $headCountC2f = ([regex]::Matches((Get-Content $l2fArchive -Raw), '(?m)^##\s+L1\s*$')).Count
+      $headCountC2f = ([regex]::Matches((Get-Content $l2fArchive -Raw), '(?m)^##[ \t]+L1[ \t]*\r?$')).Count
       if ($healExitC2f -ne 0) { Fail "闸2f(c)：两侧并存态重跑非零退出（$healExitC2f）——自愈分支未走通。output=[$healC2f]"; $f2Fail = $true }
-      if ($ledgerAfterC2f -match '(?m)^##\s+L1\s*$') { Fail "闸2f(c)：两侧并存态重跑后 LEDGER 仍留着 L1 残留副本（移动未补完）。output=[$healC2f]"; $f2Fail = $true }
+      if ($ledgerAfterC2f -match '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail "闸2f(c)：两侧并存态重跑后 LEDGER 仍留着 L1 残留副本（移动未补完）。output=[$healC2f]"; $f2Fail = $true }
       if ($headCountC2f -ne 1) { Fail "闸2f(c)：自愈后归档侧「## L1」标题出现 $headCountC2f 次（应恰 1 次——重复追加即非幂等）。"; $f2Fail = $true }
       if ((Get-FileHash $l2fArchive -Algorithm SHA256).Hash -ne $archHashC2f) { Fail '闸2f(c)：自愈补齐改动了归档字节（该分支只该清除 LEDGER 残留，不该重写归档内容）。'; $f2Fail = $true }
     }
@@ -2301,14 +2301,28 @@ try {
     '# fixture ledger', '',
     (& $entry2f 'L41' 'SUFFIX_CASE_LEGIT'), '',
     (& $entry2f 'L50' 'MAX_ID_EXCLUDED'), '',
-    (& $entry2f 'L45 (deprecated)' 'SUFFIXED_HEADING_NOT_AN_ENTRY')
+    (& $entry2f 'L45 (deprecated)' 'SUFFIXED_HEADING_NOT_AN_ENTRY'), '',
+    '##', 'L46',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: SPLIT_HEADING_NOT_AN_ENTRY', '- rule: split-heading-rule'
   ) -join "`n") -Encoding utf8
+  $hashD2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
   $dryD2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo -DryRun 2>&1 | Out-String)
   $dryExitD2f = $LASTEXITCODE
   $candD2f = ([regex]::Match($dryD2f, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
   if ($candD2f -ne 'L41') { Fail "闸2f(d)：候选集应恰为 L41，实得『$candD2f』——带后缀的标题「## L45 (deprecated)」被当成了条目 id（lessons.ps1 的标题口径比 archive.ps1 宽）。output=[$dryD2f]"; $f2Fail = $true }
   if ($dryD2f -notmatch "\[LSN-META-INVALID\][^`n]*\bL50\b") { Fail "闸2f(d)：后缀标题并入 L50 的块后应令其 meta 行重复、被点名 [LSN-META-INVALID]。output=[$dryD2f]"; $f2Fail = $true }
   if ($dryExitD2f -eq 0) { Fail "闸2f(d)：存在不可解析条目却退出 0。output=[$dryD2f]"; $f2Fail = $true }
+  foreach ($malformedId2f in @('L45', 'L46')) {
+    $bumpD2f = (& pwsh -NoProfile -File $l2fLessons bump $malformedId2f -RepoRoot $l2fRepo 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0) { Fail "闸2f(d)：非整行标题 $malformedId2f 被 bump 成功修改。output=[$bumpD2f]"; $f2Fail = $true }
+    if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashD2f) { Fail "闸2f(d)：bump 拒绝 $malformedId2f 后仍改写了 LEDGER。"; $f2Fail = $true }
+  }
+  $definedD2f = Get-LessonDefinitionIdSet -LedgerPath $l2fLedger -ArchivePath $l2fArchive
+  $danglingD2f = @((Get-LessonReferenceIdSet 'resident refs L45 and [L46]').Keys | Where-Object { -not $definedD2f.ContainsKey($_) } | Sort-Object)
+  if (($danglingD2f -join ',') -ne 'L45,L46') {
+    Fail "闸2f(d)：闸16 未把后缀/拆行标题引用同时判为悬空，实得 [$($danglingD2f -join ',')]。"; $f2Fail = $true
+  }
 
   if (-not $f2Fail) { Write-Host '  2f lessons 预览透传搬运器拒绝/写失败非零透传/两侧并存自愈幂等/标题口径两侧一致 OK' -ForegroundColor Green }
 } finally {
@@ -4296,8 +4310,8 @@ else {
   $lsCode3 = $LASTEXITCODE
   $lsLedgerRaw3 = Get-Content $lsLedgerPath -Raw
   $lsArchRaw3 = Get-Content $lsArchivePath -Raw
-  $lsL2HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##\s+L2\s*$')).Count
-  $lsL3HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##\s+L3\s*$')).Count
+  $lsL2HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##[ \t]+L2[ \t]*\r?$')).Count
+  $lsL3HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##[ \t]+L3[ \t]*\r?$')).Count
   if ($lsCode3 -ne 0) { $arFail += "12e lessons③：幂等重跑非零退出（$lsCode3）" }
   if ($lsL2HeadCount -ne 1 -or $lsL3HeadCount -ne 1) { $arFail += "12e lessons③：非幂等——归档 L2/L3 标题各出现 $lsL2HeadCount/$lsL3HeadCount 次（应各恰 1 次）" }
   if ((& $lsNormalize $lsLedgerRaw3) -ne $lsExpectedRemainText) { $arFail += '12e lessons③：非幂等——重跑改变了 LEDGER 内容' }
@@ -4380,14 +4394,14 @@ else {
   $lsArchAfter9 = Get-Content $lsArchivePath -Raw
   if ($lsCode9 -eq 0) { $arFail += '12e lessons⑨：LEDGER 暂存/替换失败未非零退出（F7 fail-closed 失效）' }
   if ($lsLedgerAfter9 -ne $lsLedgerBefore9) { $arFail += '12e lessons⑨：LEDGER 替换失败时其内容不该有任何变化（在册经验丢失窗口未堵住）' }
-  if ($lsArchAfter9 -notmatch '(?m)^##\s+L1\s*$') { $arFail += '12e lessons⑨：归档应已先行含 L1（两侧并存态的权威侧未落盘）' }
+  if ($lsArchAfter9 -notmatch '(?m)^##[ \t]+L1[ \t]*\r?$') { $arFail += '12e lessons⑨：归档应已先行含 L1（两侧并存态的权威侧未落盘）' }
   & pwsh -NoProfile -File $arScript -RepoRoot $ar -LessonIds L1 -Quiet *> $null
   $lsCode9b = $LASTEXITCODE
   $lsLedgerAfter9b = Get-Content $lsLedgerPath -Raw
   $lsArchAfter9b = Get-Content $lsArchivePath -Raw
-  $lsL1HeadCount9 = ([regex]::Matches($lsArchAfter9b, '(?m)^##\s+L1\s*$')).Count
+  $lsL1HeadCount9 = ([regex]::Matches($lsArchAfter9b, '(?m)^##[ \t]+L1[ \t]*\r?$')).Count
   if ($lsCode9b -ne 0) { $arFail += "12e lessons⑨：两侧并存自愈重跑非零退出（$lsCode9b）" }
-  if ($lsLedgerAfter9b -match '(?m)^##\s+L1\s*$') { $arFail += '12e lessons⑨：自愈重跑后 LEDGER 仍含 L1（补齐分支未生效）' }
+  if ($lsLedgerAfter9b -match '(?m)^##[ \t]+L1[ \t]*\r?$') { $arFail += '12e lessons⑨：自愈重跑后 LEDGER 仍含 L1（补齐分支未生效）' }
   if ($lsL1HeadCount9 -ne 1) { $arFail += "12e lessons⑨：自愈后归档 L1 标题出现 $lsL1HeadCount9 次（应恰 1 次，不得重复追加）" }
 
   # ⑩ 两侧并存但内容不一致（F9）：把改动过的 L2 变体粘回 LEDGER（模拟在册被人工更新/归档陈旧）——
