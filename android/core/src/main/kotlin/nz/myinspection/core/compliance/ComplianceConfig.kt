@@ -37,10 +37,15 @@ class ComplianceConfig internal constructor(
     val rules: Map<String, EntryPurposeRule>,
 )
 
-data class ComplianceOverride(
-    val bytes: ByteArray,
+class ComplianceOverride(
+    bytes: ByteArray,
     val expectedSha256: String,
-)
+) {
+    // Copy at the trust boundary: the caller must not be able to change signed input after constructing it.
+    private val signedBytes = bytes.copyOf()
+
+    internal fun snapshotBytes(): ByteArray = signedBytes.copyOf()
+}
 
 enum class ComplianceConfigSource { BUILT_IN, OVERRIDE }
 
@@ -78,9 +83,10 @@ object ComplianceConfigLoader {
         if (override == null) {
             return LoadedComplianceConfig(builtIn, ComplianceConfigSource.BUILT_IN, null)
         }
+        val overrideBytes = override.snapshotBytes()
 
         if (!MessageDigest.isEqual(
-                sha256Hex(override.bytes).encodeToByteArray(),
+                sha256Hex(overrideBytes).encodeToByteArray(),
                 override.expectedSha256.lowercase().encodeToByteArray(),
             )
         ) {
@@ -92,7 +98,7 @@ object ComplianceConfigLoader {
         }
 
         val raw = try {
-            decodeRaw(override.bytes)
+            decodeRaw(overrideBytes)
         } catch (_: Exception) {
             return LoadedComplianceConfig(
                 builtIn,

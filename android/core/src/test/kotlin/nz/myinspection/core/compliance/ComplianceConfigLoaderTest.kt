@@ -72,6 +72,20 @@ class ComplianceConfigLoaderTest {
     }
 
     @Test
+    fun `override snapshots caller bytes before later mutation`() {
+        val builtIn = configJson(noticeMinHours = 48).encodeToByteArray()
+        val source = configJson(noticeMinHours = 72).encodeToByteArray()
+        val signed = ComplianceOverride(source, sha256Hex(source))
+
+        source.fill('x'.code.toByte())
+        val accepted = ComplianceConfigLoader.load(builtIn, signed)
+
+        assertEquals(ComplianceConfigSource.OVERRIDE, accepted.source)
+        assertEquals(null, accepted.overrideRejection)
+        assertEquals(72, accepted.config.rules.getValue("inspection").noticeMinHours)
+    }
+
+    @Test
     fun `invalid civil windows and source URLs fail closed instead of widening the rule`() {
         val invalidCases = listOf(
             configJson().replace("\"start\": \"08:00\"", "\"start\": \"08:00:30\""),
