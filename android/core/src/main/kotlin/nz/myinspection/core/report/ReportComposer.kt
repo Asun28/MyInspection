@@ -509,24 +509,32 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         minimumHeightMm,
     )
 
-    private fun splitBlock(block: SizedBlock, maxHeightMm: Int = BODY_HEIGHT_MM): List<SizedBlock> {
-        require(maxHeightMm > 0) { "no page space remains for ${block.content.describe()}" }
-        if (block.heightMm <= maxHeightMm) return listOf(block)
+    private fun splitBlock(
+        block: SizedBlock,
+        firstMaxHeightMm: Int = BODY_HEIGHT_MM,
+        continuationMaxHeightMm: Int = BODY_HEIGHT_MM,
+    ): List<SizedBlock> {
+        require(firstMaxHeightMm > 0) { "no page space remains for ${block.content.describe()}" }
+        require(continuationMaxHeightMm > 0) { "no continuation space remains for ${block.content.describe()}" }
+        if (block.heightMm <= firstMaxHeightMm) return listOf(block)
         val content = block.content
-        if (content is ItemRowBlock) return splitItemRow(block, content, maxHeightMm)
+        if (content is ItemRowBlock) {
+            return splitItemRow(block, content, firstMaxHeightMm, continuationMaxHeightMm)
+        }
         require(content !is ImageSlotBlock) {
             // Splitting would emit two slots carrying the same photoId: the same photograph printed twice,
             // each with part of its caption.
-            "${content.describe()} is indivisible and measures ${block.heightMm}mm, over the ${maxHeightMm}mm available"
+            "${content.describe()} is indivisible and measures ${block.heightMm}mm, over the " +
+                "${firstMaxHeightMm}mm available"
         }
         val text = content as? TextBearingBlock
             ?: throw IllegalArgumentException("${content.describe()} is indivisible and exceeds the page body")
         val (paired, flowing) = text.textRuns.partition {
             it.language == TextLanguage.EN || it.language == TextLanguage.ZH
         }
-        require(paired.endY() + 2 <= maxHeightMm) {
+        require(paired.endY() + 2 <= firstMaxHeightMm) {
             "${content.describe()} has a bilingual pair measuring ${paired.endY() + 2}mm, " +
-                "over the ${maxHeightMm}mm available; an en/zh pair is never split across pages"
+                "over the ${firstMaxHeightMm}mm available; an en/zh pair is never split across pages"
         }
         require(flowing.isNotEmpty()) {
             "${content.describe()} measures ${block.heightMm}mm and carries no free text to flow onto a second page"
@@ -534,15 +542,17 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         val chunks = mutableListOf<List<TextRun>>()
         var current = paired.toMutableList()
         var currentHeight = current.endY()
+        var currentMaxHeight = firstMaxHeightMm
         for (run in flowing) {
-            require(run.heightMm + 2 <= maxHeightMm) {
-                "${content.describe()} has a flowing line measuring ${run.heightMm}mm; with 2mm padding it " +
-                    "cannot fit in the ${maxHeightMm}mm page body"
-            }
-            if (current.isNotEmpty() && currentHeight + run.heightMm + 2 > maxHeightMm) {
+            if (current.isNotEmpty() && currentHeight + run.heightMm + 2 > currentMaxHeight) {
                 chunks += rebase(current)
                 current = mutableListOf()
                 currentHeight = 0
+                currentMaxHeight = continuationMaxHeightMm
+            }
+            require(run.heightMm + 2 <= currentMaxHeight) {
+                "${content.describe()} has a flowing line measuring ${run.heightMm}mm; with 2mm padding it " +
+                    "cannot fit in the ${currentMaxHeight}mm page body"
             }
             current += run.copy(yMm = currentHeight)
             currentHeight += run.heightMm
@@ -560,18 +570,24 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
      * photograph is ever printed under two fragments of one note. The bilingual label repeats on every chunk
      * because a continuation row still has to say which item its pictures belong to.
      */
-    private fun splitItemRow(block: SizedBlock, row: ItemRowBlock, maxHeightMm: Int): List<SizedBlock> {
+    private fun splitItemRow(
+        block: SizedBlock,
+        row: ItemRowBlock,
+        firstMaxHeightMm: Int,
+        continuationMaxHeightMm: Int,
+    ): List<SizedBlock> {
         val (label, flowing) = row.textRuns.partition {
             it.language == TextLanguage.EN || it.language == TextLanguage.ZH
         }
-        require(label.endY() + 2 <= maxHeightMm) {
+        require(label.endY() + 2 <= firstMaxHeightMm) {
             "item ${row.itemId} has a bilingual label measuring ${label.endY() + 2}mm, " +
-                "over the ${maxHeightMm}mm available"
+                "over the ${firstMaxHeightMm}mm available"
         }
         val pendingText = ArrayDeque(flowing)
         val pendingThumbnails = ArrayDeque(row.thumbnails)
         val chunks = mutableListOf<SizedBlock>()
         while (chunks.isEmpty() || pendingText.isNotEmpty() || pendingThumbnails.isNotEmpty()) {
+            val maxHeightMm = if (chunks.isEmpty()) firstMaxHeightMm else continuationMaxHeightMm
             val textRuns = label.toMutableList()
             var textY = label.endY()
             while (pendingText.isNotEmpty() && textY + pendingText.first().heightMm + 2 <= maxHeightMm) {

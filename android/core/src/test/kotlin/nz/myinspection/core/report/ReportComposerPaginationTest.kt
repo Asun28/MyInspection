@@ -831,8 +831,8 @@ class ReportComposerPaginationTest {
     /**
      * Free text continues across pages without being duplicated or lost, and each continuation is sized
      * from the runs it actually holds. The item row is split once, against the budget its room heading
-     * leaves (245 mm), so every full chunk is 242 mm and only the last is short; the supplement is split
-     * against the budget its section title leaves (247 mm) and runs to 246 mm a chunk.
+     * leaves (245 mm), then uses the full 257 mm body for continuations. The supplement follows the same
+     * rule after spending the reduced budget beside its section title.
      */
     @Test
     fun `large adverse collection and long original text continue across bounded pages`() {
@@ -860,11 +860,13 @@ class ReportComposerPaginationTest {
         assertEquals(20, plan.pages.flatMap { it.blocks }.count { it.content is SummaryItemBlock })
         // 6 chunks for the wrapped item plus one row each for the other 19 items.
         assertEquals(25, rows.size)
-        assertEquals(
-            listOf(242, 242, 242, 242, 242, 190),
-            rows.filter { (it.content as ItemRowBlock).itemId == "report-item-1" }.map { it.heightMm },
-        )
-        assertEquals(listOf(246, 246, 246, 246, 246, 246, 14), supplements.map { it.heightMm })
+        val longRowHeights = rows.filter { (it.content as ItemRowBlock).itemId == "report-item-1" }.map { it.heightMm }
+        assertEquals(242, longRowHeights.first())
+        assertTrue(254 in longRowHeights.drop(1), "continuations never used the fresh-page body")
+        assertTrue(longRowHeights.all { it <= 257 })
+        assertEquals(246, supplements.first().heightMm)
+        assertTrue(supplements.drop(1).any { it.heightMm == 254 })
+        assertTrue(supplements.all { it.heightMm <= 257 })
         assertEquals(
             longNote,
             plan.itemChunks("report-item-1")
@@ -919,6 +921,32 @@ class ReportComposerPaginationTest {
         assertTrue(runs.any { it.language == TextLanguage.EN } && runs.any { it.language == TextLanguage.ZH })
     }
 
+    @Test
+    fun `room opening uses its reduced budget only for the first item chunk`() {
+        val base = ReportTestFixtures.report()
+        val room = base.rooms.single()
+        val poor = room.items.single { it.id == "item-poor" }
+        val hugeLabel = BilingualText("oversized room heading", "超高房间标题")
+        val measurer = TextMeasurer { text, _, widthMm ->
+            MeasuredText(
+                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
+                if (text == hugeLabel.en || text == hugeLabel.zh) 93 else 4,
+            )
+        }
+        val report = base.copy(
+            canonical = base.canonical.copy(items = listOf(poor.snapshot)),
+            rooms = listOf(room.copy(label = hugeLabel, items = listOf(poor))),
+        )
+
+        val plan = ReportComposer(measurer).compose(report, Audience.LANDLORD)
+        val chunks = plan.itemChunks("item-poor")
+
+        assertEquals(2, chunks.size, "the 19mm opening budget must split text from the 54mm thumbnail")
+        assertTrue(chunks.first().thumbnails.isEmpty())
+        assertEquals(listOf("photo-item"), chunks.last().thumbnails.map { it.photoId })
+        plan.assertNothingOverflows()
+    }
+
     /**
      * A section title is never left alone either. The title reduces the budget its first block is split to,
      * so the first chunk always fits beside it; splitting to the full body instead produces a first chunk
@@ -955,6 +983,28 @@ class ReportComposerPaginationTest {
             "the section title was left alone on page ${titlePage.number}",
         )
         assertEquals(title.yMm + title.heightMm, chunks.first().yMm, "the first chunk must follow its title")
+        plan.assertNothingOverflows()
+    }
+
+    @Test
+    fun `section opening uses its reduced budget only for the first flowing chunk`() {
+        val boundaryText = "fresh-page-boundary"
+        val measurer = TextMeasurer { text, _, widthMm ->
+            MeasuredText(
+                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
+                if (text == boundaryText) 250 else 4,
+            )
+        }
+        val report = ReportTestFixtures.report().copy(
+            remediations = emptyList(),
+            supplements = listOf(ReportSupplement("BOUNDARY", boundaryText)),
+        )
+
+        val plan = ReportComposer(measurer).compose(report, Audience.LANDLORD)
+        val chunks = plan.pages.flatMap { it.blocks }.filter { it.content is SupplementBlock }
+
+        assertEquals(listOf(14, 252), chunks.map { it.heightMm })
+        assertEquals(boundaryText, (chunks.last().content as SupplementBlock).textRuns.single().text)
         plan.assertNothingOverflows()
     }
 
