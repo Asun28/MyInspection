@@ -76,6 +76,7 @@ if ($Suite -eq 'integration') {
   # 「两处一起改成 ${{ false }}」保持绿，故把这条表达式本身钉成字面量。
   $expectedGateCondition = '${{ steps.docs_scope.outputs.docs_only != ''true'' }}'
   $expectedUvCache = '${{ runner.temp }}/license-scanner-uv-5.5.5'
+  $expectedUvVersion = '0.7.9'
   # License gate 真正必须执行的脚本路径（ci.yml 的 run: 块里解析出来的字面量）。
   $expectedGateScript = 'scripts/check-licenses.ps1'
 
@@ -389,21 +390,24 @@ if ($Suite -eq 'integration') {
     return $keys
   }
 
-  function Get-WorkflowStepEnvValues {
+  function Get-WorkflowStepMappingValues {
     param(
       [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StepLines,
+      [Parameter(Mandatory)][string]$MappingName,
       [Parameter(Mandatory)][string]$Name
     )
     $values = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt $StepLines.Count; $i++) {
-      if ($StepLines[$i] -notmatch '^(?<indent>[ \t]*)env:[ \t]*$') { continue }
-      $envIndent = $Matches.indent.Length
+      if ($StepLines[$i] -notmatch ('^(?<indent>[ \t]*)' + [regex]::Escape($MappingName) + ':[ \t]*$')) { continue }
+      $mappingIndent = $Matches.indent.Length
       for ($j = $i + 1; $j -lt $StepLines.Count; $j++) {
         $line = $StepLines[$j]
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         if ($line -notmatch '^(?<indent>[ \t]*)(?<key>[A-Za-z_][A-Za-z0-9_]*):(?<value>.*)$') { break }
-        if ($Matches.indent.Length -le $envIndent) { break }
-        if ($Matches.indent.Length -eq $envIndent + 2 -and $Matches.key -ceq $Name) { $values.Add($Matches.value.Trim()) }
+        if ($Matches.indent.Length -le $mappingIndent) { break }
+        if ($Matches.indent.Length -eq $mappingIndent + 2 -and $Matches.key -ceq $Name) {
+          $values.Add($Matches.value.Trim().Trim("'`""))
+        }
       }
     }
     return $values.ToArray()
@@ -684,6 +688,16 @@ if ($Suite -eq 'integration') {
     $stepLine = @{}
     $stepJob = @{}
     $activeStepRecords = @(Get-WorkflowActiveStepRecords -Lines $workflowLines)
+    $uvSetupHits = @($activeStepRecords | Where-Object { $workflowLines[$_.Index] -match '^[ ]*-[ \t]+name:[ \t]+Install uv[ \t]*$' })
+    if ($uvSetupHits.Count -ne 1) {
+      $found.Add("[INTEGRATION-CI-ACTIVE] expected exactly one active Install uv step, found $($uvSetupHits.Count)")
+    } else {
+      $uvSetupLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $uvSetupHits[0].Index)
+      $uvSetupVersions = @(Get-WorkflowStepMappingValues -StepLines $uvSetupLines -MappingName 'with' -Name 'version')
+      if ($uvSetupVersions.Count -ne 1 -or $uvSetupVersions[0] -cne $expectedUvVersion) {
+        $found.Add("[INTEGRATION-CI-ACTIVE] Install uv must pin setup-uv to exact uv version '$expectedUvVersion'")
+      }
+    }
     foreach ($step in $orderedSteps) {
       $pattern = '^[ ]*-[ \t]+name:[ \t]+' + [regex]::Escape($step) + '[ \t]*$'
       $hits = @($activeStepRecords | Where-Object { $workflowLines[$_.Index] -match $pattern })
@@ -709,7 +723,7 @@ if ($Suite -eq 'integration') {
     if ($stepLine.ContainsKey('License gate')) {
       $gateLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine['License gate'])
       $gateKeys = Get-WorkflowStepKeys -StepLines $gateLines
-      $gateUvCaches = @(Get-WorkflowStepEnvValues -StepLines $gateLines -Name 'UV_CACHE_DIR')
+      $gateUvCaches = @(Get-WorkflowStepMappingValues -StepLines $gateLines -MappingName 'env' -Name 'UV_CACHE_DIR')
       # 键集**不**逐字逐序钉死：那样一个无害的 `env:` / `working-directory:`、甚至把 `shell:` 写到 `if:`
       # 上面（YAML 语义完全相同），都会让 seeded 以一条读起来像「检测到破坏」的消息变红。这里改成
       # 「必需键齐 + 多出来的键只能来自良性白名单」，并把这一段真正依赖的东西钉住：
@@ -771,7 +785,7 @@ if ($Suite -eq 'integration') {
     if ($stepLine.ContainsKey($provisionStep)) {
       $provisionLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine[$provisionStep])
       $provisionKeys = Get-WorkflowStepKeys -StepLines $provisionLines
-      $provisionUvCaches = @(Get-WorkflowStepEnvValues -StepLines $provisionLines -Name 'UV_CACHE_DIR')
+      $provisionUvCaches = @(Get-WorkflowStepMappingValues -StepLines $provisionLines -MappingName 'env' -Name 'UV_CACHE_DIR')
       $provisionRun = Get-WorkflowRunScript -StepLines $provisionLines
       $provisionTokens = $null
       $provisionErrors = $null
@@ -908,6 +922,7 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
     @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
     @{ Id = 'ci-provision-npm-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>npm install --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*)$' },
+    @{ Id = 'ci-setup-uv-version-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+Install uv[ \t]*\r?\n.*?^[ \t]*version:[ \t]*["'']?)0\.7\.9(?<tail>["'']?[ \t]*\r?$)' },
     @{ Id = 'ci-provision-uv-cache-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+Provision license scanners \(online cache warm-up\)[ \t]*\r?\n.*?^[ \t]*UV_CACHE_DIR:[ \t]*\$\{\{ runner\.temp \}\}/license-scanner-uv-)5\.5\.5(?<tail>[ \t]*\r?$)' },
     @{ Id = 'ci-gate-uv-cache-drift'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n.*?^[ \t]*UV_CACHE_DIR:[ \t]*\$\{\{ runner\.temp \}\}/license-scanner-uv-)5\.5\.5(?<tail>[ \t]*\r?$)' },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
@@ -1177,71 +1192,58 @@ process.stdout.write('{}');
     }
   }
 
-  # Hermetic warm-up → offline handoff proof for Python. The probe accepts only the exact online pin,
-  # records it inside the isolated UV_CACHE_DIR, then permits the production scanner's unversioned invocation
-  # only when that same cache is reused under UV_OFFLINE=1. This proves isolation makes the unversioned gate
-  # deterministic without changing scanner core owned by the upstream card.
+  # Real warm-up → offline handoff proof for Python. CI pins uv itself, so this test requires that exact binary,
+  # warms pip-licenses==5.5.5 into an empty isolated cache, then runs the production scanner's unversioned command
+  # offline against the same cache. A fallback trap proves success came from uv rather than a global pip-licenses.
   if (-not $SkipMutations) {
     $uvHandoffRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-uv-handoff-" + [guid]::NewGuid().ToString('N'))
     $uvHandoffScripts = Join-Path $uvHandoffRoot 'scripts'
-    $uvHandoffBin = Join-Path $uvHandoffRoot 'bin'
+    $uvHandoffTrapBin = Join-Path $uvHandoffRoot 'trap-bin'
     $uvHandoffCache = Join-Path $uvHandoffRoot 'uv-cache-5.5.5'
-    $uvHandoffVersion = Join-Path $uvHandoffCache 'pip-licenses-version.txt'
-    $uvHandoffInvoked = Join-Path $uvHandoffRoot 'pip-licenses-invoked.txt'
-    $uvHandoffOutbound = Join-Path $uvHandoffRoot 'outbound-attempted.txt'
+    $uvFallbackMarker = Join-Path $uvHandoffRoot 'fallback-invoked.txt'
     $priorUvHandoffPath = $env:PATH
     $priorUvHandoffCache = [Environment]::GetEnvironmentVariable('UV_CACHE_DIR', 'Process')
-    $priorUvHandoffVersion = [Environment]::GetEnvironmentVariable('UV_HANDOFF_VERSION_MARKER', 'Process')
-    $priorUvHandoffInvoked = [Environment]::GetEnvironmentVariable('UV_HANDOFF_INVOKED_MARKER', 'Process')
-    $priorUvHandoffOutbound = [Environment]::GetEnvironmentVariable('UV_HANDOFF_OUTBOUND_MARKER', 'Process')
+    $priorUvHandoffOffline = [Environment]::GetEnvironmentVariable('UV_OFFLINE', 'Process')
+    $priorUvHandoffFallback = [Environment]::GetEnvironmentVariable('UV_HANDOFF_FALLBACK_MARKER', 'Process')
     try {
-      New-Item -ItemType Directory -Force -Path $uvHandoffScripts, $uvHandoffBin, $uvHandoffCache | Out-Null
+      New-Item -ItemType Directory -Force -Path $uvHandoffScripts, $uvHandoffTrapBin, $uvHandoffCache | Out-Null
       foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$sibling") -Destination (Join-Path $uvHandoffScripts $sibling)
       }
       Set-Content -LiteralPath (Join-Path $uvHandoffRoot 'pyproject.toml') -Encoding utf8 -Value "[project]`nname = 'uv-handoff-probe'`nversion = '0.0.0'"
-      Set-Content -LiteralPath (Join-Path $uvHandoffBin 'uv.ps1') -Encoding utf8 -Value @'
+      Set-Content -LiteralPath (Join-Path $uvHandoffTrapBin 'pip-licenses.ps1') -Encoding utf8 -Value @'
 param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Remaining)
-$argsText = (($Remaining | ForEach-Object { [string]$_ }) -join ' ')
-if ($argsText -ceq 'run --with pip-licenses==5.5.5 pip-licenses --version') {
-  Set-Content -LiteralPath $env:UV_HANDOFF_VERSION_MARKER -Encoding utf8 -Value '5.5.5'
-  Write-Output 'pip-licenses 5.5.5'
-  exit 0
-}
-if ($argsText -ceq 'run --with pip-licenses pip-licenses --format=json' -and
-    $env:UV_OFFLINE -ceq '1' -and
-    (Test-Path -LiteralPath $env:UV_HANDOFF_VERSION_MARKER) -and
-    (Get-Content -LiteralPath $env:UV_HANDOFF_VERSION_MARKER -Raw).Trim() -ceq '5.5.5') {
-  Set-Content -LiteralPath $env:UV_HANDOFF_INVOKED_MARKER -Encoding utf8 -Value 'invoked'
-  Write-Output '[]'
-  exit 0
-}
-Set-Content -LiteralPath $env:UV_HANDOFF_OUTBOUND_MARKER -Encoding utf8 -Value $argsText
-exit 24
+Set-Content -LiteralPath $env:UV_HANDOFF_FALLBACK_MARKER -Encoding utf8 -Value 'fallback'
+exit 31
 '@
-      $env:PATH = $uvHandoffBin + [System.IO.Path]::PathSeparator + $priorUvHandoffPath
+      $env:PATH = $uvHandoffTrapBin + [System.IO.Path]::PathSeparator + $priorUvHandoffPath
       $env:UV_CACHE_DIR = $uvHandoffCache
-      $env:UV_HANDOFF_VERSION_MARKER = $uvHandoffVersion
-      $env:UV_HANDOFF_INVOKED_MARKER = $uvHandoffInvoked
-      $env:UV_HANDOFF_OUTBOUND_MARKER = $uvHandoffOutbound
-      $uvWarmOutput = (& uv run --with pip-licenses==5.5.5 pip-licenses --version 2>&1 | Out-String)
-      $uvWarmExit = $LASTEXITCODE
+      $env:UV_HANDOFF_FALLBACK_MARKER = $uvFallbackMarker
+      Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue
+      $uvVersionOutput = (& uv --version 2>&1 | Out-String).Trim()
+      $uvVersionExit = $LASTEXITCODE
+      Push-Location $uvHandoffRoot
+      try {
+        $uvWarmOutput = (& uv run --with pip-licenses==5.5.5 pip-licenses --version 2>&1 | Out-String)
+        $uvWarmExit = $LASTEXITCODE
+      } finally { Pop-Location }
       $uvHandoffResult = if ($uvWarmExit -eq 0) {
         Invoke-StrictOfflineLicenseScan -Path (Join-Path $uvHandoffScripts 'check-licenses.ps1')
       } else { [pscustomobject]@{ ExitCode = $uvWarmExit; Output = $uvWarmOutput } }
       Assert-Integration (
+        $uvVersionExit -eq 0 -and
+        $uvVersionOutput -match ('^uv ' + [regex]::Escape($expectedUvVersion) + '(?:\s|$)') -and
         $uvWarmExit -eq 0 -and
+        $uvWarmOutput -match ('(?m)^pip-licenses ' + [regex]::Escape('5.5.5') + '\s*$') -and
         $uvHandoffResult.ExitCode -eq 0 -and
-        (Test-Path -LiteralPath $uvHandoffInvoked) -and
-        -not (Test-Path -LiteralPath $uvHandoffOutbound) -and
-        (Get-Content -LiteralPath $uvHandoffVersion -Raw).Trim() -ceq '5.5.5'
-      ) "[INTEGRATION-UV-HANDOFF] exact warm-up did not feed the real unversioned offline scan through its isolated cache (warm=$uvWarmExit scan=$($uvHandoffResult.ExitCode) invoked=$([bool](Test-Path -LiteralPath $uvHandoffInvoked)) outbound=$([bool](Test-Path -LiteralPath $uvHandoffOutbound))): warm=[$uvWarmOutput] scan=[$($uvHandoffResult.Output)]"
+        $uvHandoffResult.Output -match '已扫描 PyPI 包' -and
+        -not (Test-Path -LiteralPath $uvFallbackMarker)
+      ) "[INTEGRATION-UV-HANDOFF] uv $expectedUvVersion did not warm pip-licenses 5.5.5 into an empty isolated cache for the real unversioned offline scan (uv=[$uvVersionOutput] warm=$uvWarmExit scan=$($uvHandoffResult.ExitCode) fallback=$([bool](Test-Path -LiteralPath $uvFallbackMarker))): warm=[$uvWarmOutput] scan=[$($uvHandoffResult.Output)]"
     } finally {
       $env:PATH = $priorUvHandoffPath
       if ($null -eq $priorUvHandoffCache) { Remove-Item Env:UV_CACHE_DIR -ErrorAction SilentlyContinue } else { $env:UV_CACHE_DIR = $priorUvHandoffCache }
-      if ($null -eq $priorUvHandoffVersion) { Remove-Item Env:UV_HANDOFF_VERSION_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_VERSION_MARKER = $priorUvHandoffVersion }
-      if ($null -eq $priorUvHandoffInvoked) { Remove-Item Env:UV_HANDOFF_INVOKED_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_INVOKED_MARKER = $priorUvHandoffInvoked }
-      if ($null -eq $priorUvHandoffOutbound) { Remove-Item Env:UV_HANDOFF_OUTBOUND_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_OUTBOUND_MARKER = $priorUvHandoffOutbound }
+      if ($null -eq $priorUvHandoffOffline) { Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue } else { $env:UV_OFFLINE = $priorUvHandoffOffline }
+      if ($null -eq $priorUvHandoffFallback) { Remove-Item Env:UV_HANDOFF_FALLBACK_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_FALLBACK_MARKER = $priorUvHandoffFallback }
       if (Test-Path -LiteralPath $uvHandoffRoot) { Remove-Item -LiteralPath $uvHandoffRoot -Recurse -Force }
     }
   }

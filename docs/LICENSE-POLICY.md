@@ -123,7 +123,8 @@
    warm-up **之后**（该顺序由上述套件的 `[INTEGRATION-CI-ORDER-SEQUENCE]` 断言机检）；但那四步另有
    `hashFiles('android/gradlew.bat') != ''` 条件，该文件缺席时它们不执行、License gate 仍会跑并独立发现
    Gradle 清单：确无清单才只余 PyPI/npm；有清单但 wrapper/缓存不可用则以 `GRADLE-WRAPPER-OFFLINE`
-   fail-closed。CI 先在独立在线步骤以精确版本 `pip-licenses==5.5.5` / `license-checker@25.0.1` 预热工具：
+   fail-closed。CI 先安装精确版本 `uv==0.7.9`，再在独立在线步骤以精确版本
+   `pip-licenses==5.5.5` / `license-checker@25.0.1` 预热工具：
    uv 使用仅供该 job 的版本化 `UV_CACHE_DIR`，且预热与闸门复用同一目录；npm 工具安装在仓根
    `node_modules`，与扫描器的仓根 cwd 一致，因此离线 `npx` 可确定性解析预热版本。
    License gate 与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
