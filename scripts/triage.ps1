@@ -469,13 +469,15 @@ if ($Verb -eq 'selfcheck') {
       $merged = (1..($case.n - 2) | ForEach-Object { "[L90$_]" }) -join ''
       $wrappedId = "[L90$($case.n - 1)]"
       $fxClaude = Join-Path $fxRoot "CLAUDE-$($case.n).md"
+      $continuation = if ($case.n -eq $MustCap) {
+        @("lazy continuation $wrappedId（同一 markdown 条目的懒续行）")
+      } else {
+        @('', "  indented paragraph $wrappedId（空行后的缩进段落仍属同一条目）")
+      }
       Set-Content -Path $fxClaude -Encoding utf8 -Value @(
-        '## 经验铁律（必须加载）',
-        "- **$merged** 多个 id 并进一条 bullet",
-        "  continuation $wrappedId（同一 markdown 条目的续行）",
-        "- **[L9$($case.n)9]** 单 id 一条",
-        '',
-        '## 下一节')
+        @('## 经验铁律（必须加载）', "- **$merged** 多个 id 并进一条 bullet") +
+        $continuation +
+        @("- **[L9$($case.n)9]** 单 id 一条", '', '## 下一节'))
       $ClaudeMd = $fxClaude       # 注入：探针读脚本作用域
       $bulletCount = ([regex]::Matches((Get-Content $fxClaude -Raw), '(?m)^\s*-\s+\*\*')).Count
       if ($bulletCount -gt $MustCap) { $fails.Add("用例5（$($case.n)/$MustCap）夹具无效：旧口径（条目数 $bulletCount）本身已超上限，证明不了新口径") }
@@ -571,7 +573,10 @@ if ($Verb -eq 'selfcheck') {
 
     foreach ($invalidEnforcedBy in @(
       'TODO: add scripts/future.ps1', '待补 scripts/future.ps1', 'N/A (.json)', 'no gate 1', '无闸1',
-      'none', 'none TODO')) {
+      'TODO（scripts/future.ps1）', 'N/A（scripts/future.ps1）', '待补（scripts/future.ps1）',
+      'TODO，scripts/future.ps1', 'no gate（scripts/future.ps1）',
+      'none', 'none TODO', 'none: scripts/future.ps1', 'none：scripts/future.ps1',
+      'none, scripts/future.ps1')) {
       if (Test-ScaffoldLessonGuarded $invalidEnforcedBy) { $fails.Add("用例6c 伪守卫被判 guarded：$invalidEnforcedBy") }
       if (Test-ScaffoldLessonEnforcedByWellFormed $invalidEnforcedBy) { $fails.Add("用例6c 非规范声明被判 well-formed：$invalidEnforcedBy") }
     }

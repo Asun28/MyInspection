@@ -35,9 +35,9 @@
 # 分节解析失败的 ASCII 哨兵（L165：机检认 ASCII，本地化文案只给人读）。两个消费者引用同一枚字面量。
 $ScaffoldMustLayerNotFound = '[LESSONS-SECTION-NOT-FOUND]'
 # 「显式声明无守卫」的唯一形态。守卫判定与形态判定对它给相反答案，故字面量只写这一处。
-$ScaffoldNoGuardDeclRe = '^none(?:（[^）\r\n]+）|\([^\)\r\n]+\))$'
+$ScaffoldNoGuardDeclRe = '^none(?:（[^\r\n]+）|\([^\r\n]+\))$'
 # Placeholder/negation prefixes win before any later path/extension/gate-looking substring can launder them.
-$ScaffoldRejectedGuardPrefixRe = '^(?:(?:TODO|N/A)(?:$|[\s:：.(])|待补(?:$|[\s:：.(])|no\s+gate(?:$|[\s:：0-9])|无闸|none(?:$|\s))'
+$ScaffoldRejectedGuardPrefixRe = '^(?i:(?:TODO|N/A)(?=$|[^A-Za-z0-9_])|no[ \t]+gate(?=$|[^A-Za-z0-9_])|none(?=$|[^A-Za-z0-9_]))|^(?:待补|无闸)'
 
 function Get-ScaffoldLessonEnforcedBy {
   <#
@@ -159,11 +159,10 @@ function Get-ScaffoldMustLayerSection {
       $currentItem = $line
       continue
     }
-    if ($null -ne $currentItem -and $line -match '^\s+\S') {
-      $currentItem += "`n$line"
-      continue
-    }
-    if ($null -ne $currentItem) { $items.Add($currentItem); $currentItem = $null }
+    # Inside this bounded section, every physical line after a list marker belongs to that item until the
+    # next marker or section heading. This covers CommonMark lazy continuations and an indented paragraph
+    # after a blank line; ending on either shape silently drops resident ids from the cap.
+    if ($null -ne $currentItem) { $currentItem += "`n$line"; continue }
   }
   if ($null -ne $currentItem) { $items.Add($currentItem) }
   foreach ($item in $items) {

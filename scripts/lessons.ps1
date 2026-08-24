@@ -341,6 +341,14 @@ switch ($Command) {
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'none') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'none TODO') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '待补（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO，scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'no gate（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none: scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none：scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none, scripts/future.ps1') -and
                      (Test-ScaffoldLessonEnforcedByWellFormed '') -and
                      (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）') -and
                      (Test-ScaffoldLessonEnforcedByWellFormed 'none(reason)')
