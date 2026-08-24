@@ -101,7 +101,7 @@ class ComplianceEngine(private val config: ComplianceConfig) {
         val entryIds = request.existingEntries.map { it.entryId }
         val historyUsable = entryIds.none { it.isBlank() } &&
             entryIds.distinct().size == entryIds.size &&
-            (request.currentEntryId == null || entryIds.count { it == request.currentEntryId } == 1) &&
+            (request.currentEntryId == null || request.currentEntryId in entryIds) &&
             request.existingEntries.all { it.entryPurpose in config.rules }
         if (!historyUsable) reasons += ComplianceReason(ComplianceReasonKey.INVALID_HISTORY_ENTRY)
 

@@ -37,8 +37,8 @@ import kotlin.test.assertIs
  * | A8 | replace ordinary-close read with 19:00 | expected `Blocked`, actual `Pass` at 18:00 under configured 17:00 |
  * | A8 | replace boarding-close read with 18:00 | expected `Blocked`, actual `Pass` at 17:00 under configured 16:00 |
  * | A9 | replace frequency-day read with 28 | expected `Blocked`, actual `Pass` at 30 days under configured 42d |
- * | A10 | replace requested exemption read with signed literals | expected `Blocked`, actual `Pass` for configured-exempt ROUTINE |
- * | A10 | replace stored exemption read with signed literals | expected `Blocked`, actual `Pass` for stored configured-exempt ROUTINE |
+ * | A10 | replace requested exemption read with signed literals | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` for configured-exempt ROUTINE |
+ * | A10 | replace stored exemption read with signed literals | expected `Blocked(FREQUENCY_LIMIT)`, actual `Pass` for configured-non-exempt INGOING |
  * | A11 | replace visit-zone read with Pacific/Auckland | expected `Blocked`, actual `Pass` for 20:30 in configured UTC |
  * | A12 | measure notice in local wall time | expected `Blocked(NOTICE_TOO_SHORT)`, actual `Pass` across spring DST |
  * | A12 | use elapsed 672h for frequency | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` at the 28-civil-day spring boundary |
@@ -47,8 +47,7 @@ import kotlin.test.assertIs
  * | A13 | exclude every matching-property row | expected `Blocked(FREQUENCY_LIMIT)`, actual `Pass` with a genuine competitor |
  * | A14 | delete blank-id check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for one blank row |
  * | A14 | delete distinct-id check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for duplicate ids |
- * | A14 | change current-id count from exactly one to nonzero | expected `INVALID_HISTORY_ENTRY`, actual `Pass` for a multi-match id |
- * | A14 | delete absent-current-id check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for `entry-absent` |
+ * | A14 | delete current-id membership check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for `entry-absent` |
  * | A15 | remove configured-other-purpose separation | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` for `fixture-purpose` history |
  * | A15 | delete unknown-purpose history validation | expected `Blocked(INVALID_HISTORY_ENTRY)`, actual `Pass` for `Inspection` |
  * | A16 | delete schema-version validation | `unsupported schemaVersion 2` diagnostic disappeared |
