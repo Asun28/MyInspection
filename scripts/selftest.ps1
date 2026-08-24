@@ -1658,9 +1658,11 @@ try {
     '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
   ) -join "`n"
   Set-Content $l2Ledger $l2Entry -Encoding utf8
+  # A present resident section with zero lesson ids is distinct from a missing CLAUDE.md; both must be legal.
+  Set-Content (Join-Path $l2Repo 'CLAUDE.md') "## 经验铁律（必须加载）`n当前无驻留经验。`n`n## 下一节" -Encoding utf8
   $c2Out = (& pwsh -NoProfile -File $l2Lessons check 2>&1 | Out-String)
   $c2Exit = $LASTEXITCODE
-  if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
+  if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER + 在场但零 resident-id 的 CLAUDE.md 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
   elseif ($c2Out -notmatch 'check: PASS') { Fail '闸2b(b)：check 退出 0 但输出无「check: PASS」——zero-must fixture 未正常通过（可能崩在别处或断言点漂移）。' }
   $invalidEntries = @(
     @{ id = 'L1'; value = 'TODO' }, @{ id = 'L2'; value = 'N/A' }, @{ id = 'L3'; value = '待补' }
