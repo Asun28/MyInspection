@@ -145,6 +145,37 @@ class ReportComposerPaginationTest {
      * how many photos a chunk holds can see: four thumbnails fit the body either way.
      */
     @Test
+    fun `variable caption heights drive the thumbnail stacking recurrence`() {
+        val variableCaptions = TextMeasurer { text, style, widthMm ->
+            if (style == TextStyle.CAPTION) {
+                val lineCount = when {
+                    text.startsWith("2.1.2") -> 2
+                    text.startsWith("2.1.3") -> 3
+                    else -> 1
+                }
+                MeasuredText(List(lineCount) { "caption-${it + 1}" }, 4)
+            } else {
+                ReportTestFixtures.measurer.measure(text, style, widthMm)
+            }
+        }
+        val thumbnails = ReportComposer(variableCaptions)
+            .compose(photoHeavyItemReport(photoCount = 4, note = null), Audience.LANDLORD)
+            .itemChunks("item-big")
+            .single()
+            .thumbnails
+
+        assertEquals(listOf(46, 50, 54, 46), thumbnails.map { it.heightMm })
+        assertEquals(listOf(0, 48, 100, 156), thumbnails.map { it.yMm })
+        thumbnails.zipWithNext().forEach { (above, below) ->
+            assertEquals(above.yMm + above.heightMm + 2, below.yMm)
+        }
+        assertTrue(
+            thumbnails.map { it.yMm } != thumbnails.indices.map { it * 56 },
+            "mixed-height fixture cannot kill the y = index * 56 regression",
+        )
+    }
+
+    @Test
     fun `thumbnails stack under one another on a two millimetre gap`() {
         val plan = composer.compose(photoHeavyItemReport(photoCount = 6, note = null), Audience.LANDLORD)
         val chunks = plan.itemChunks("item-big")

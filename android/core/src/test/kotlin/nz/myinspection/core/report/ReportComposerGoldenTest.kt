@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * | Acceptance | Minimal mutation | Actual discriminating failure |
  * | --- | --- | --- |
  * | A1 | omit the forced summary page | `expected 6 pages: cover + glossary + summary + room + appendix + closing` |
- * | A2 | widen the inline thumbnail from 40 to 41 mm | `Expected <40>, actual <41>` |
+ * | A2 | replace accumulated thumbnail pitch with fixed `+56` | `Expected <[0, 48, 100, 156]>, actual <[0, 56, 112, 168]>` |
  * | A3 | reduce appendix density from two to one | `3 photos must span two appendix pages` |
  * | A4 | indent the room panorama by 1 mm | `the room panorama is indented inside its own placed block` |
  * | A5 | retain all thumbnails in every split row chunk | `each item photo must be drawn exactly once` |
