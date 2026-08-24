@@ -22,11 +22,12 @@ allow_paths:
   # 2026-08-23 扩围：pre-R3 独立复核（Opus 5）扫出 L97 清单**漏了五处权威面**，它们仍在教被本卡
   # 废止的「条数」单位、或仍按旧探针数枚举心跳。L97 明写这类面须**一次性纳入 allow_paths**，
   # 分两张卡扫必然多打一轮 R3，故就地扩围而非另开卡（扩围落在 pinned base = master，符合范围闸语义）。
-  - docs/LESSONS.md                     # :10 三层表 Tier-1 容量格仍写「封顶 N 条」——权威文档 #4
-  - .claude/skills/lessons/SKILL.md     # :18 同上；:33 PURIFY 步骤写「必须层≤上限」
-  - scripts/_config.ps1                 # :140 LessonsMustCap 定义处注释仍写「封顶条数」；本卡注释三次指向它
-  - docs/HARNESS-REVIEW.md              # :137 自动触发点只列三枚探针，新探针的 next 串却指回本文
-  - docs/scaffold-architecture.html     # :468 心跳节点枚举 8 枚探针，缺新增两枚
+  - docs/LESSONS.md                     # 三层表 Tier-1 容量格原写「封顶 N 条」——权威文档 #4，已改按驻留 id
+  - .claude/skills/lessons/SKILL.md     # 同上；PURIFY 步骤原写「必须层≤上限」，已补单位与占位符拒收
+  - scripts/_config.ps1                 # LessonsMustCap 定义处原写「封顶条数」；本卡注释三次指向它
+  - docs/HARNESS-REVIEW.md              # 自动触发点原只列三枚探针，而新探针的 next 串指回本文，已改列全 10 枚
+  - docs/scaffold-architecture.html     # 心跳节点原枚举 8 枚探针，缺新增两枚，已补齐并改用探针本名
+  # 以上五处漏改一处即由 selftest 闸 14g 的两条枚举断言当场变红——L97 的「一次扫齐」从此是常设闸、不再是一次性动作。
 forbid:
   - 抬高 `LessonsMustCap`
   - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`；心跳恒离线、退出码恒 0）
@@ -56,12 +57,78 @@ acceptance:
   - "A14 归属契约有机检：selftest 静态断言 review.ps1 写进裁决的 branch 字段取自 git rev-parse --abbrev-ref HEAD、且字段名为 branch（review.ps1 不在本卡 allow_paths，故只钉断言不改它）"
   - "A15 L97 权威面一致（两条枚举断言）：① 教「封顶单位」的面（docs/LESSONS.md · lessons skill · _config.ps1 · lessons.ps1 头注 · triage.ps1 头注 · CLAUDE.md 小节）皆不得再含「封顶 N 条 / 条数上限」形态；② 列探针清单的面（docs/LOOP-ENGINEERING.md · triage SKILL.md · docs/DELIVERY-CHAINS.md · docs/scaffold-architecture.html · docs/HARNESS-REVIEW.md）条数须等于 triage.ps1 里 Invoke-Probe* 的实际个数。漏改任一处即红"
   - "A16 常设接线不断：_cards.ps1 的 BOM 分支有常设用例（带前导 U+FEFF 的 front-matter 仍解得出 status，码位只写转义形态）；triage.ps1 经共享 Get-FrontMatter 的调用点数 == 4；_lessons.ps1 进每一份选择性夹具拷贝清单"
+acceptance_notes: |
+  逐条落点（验收即在这些位置可证伪）：
+    A1  scripts/selftest.ps1 闸 2a（生产路径，两个期望值各自精确断言、且断言二者不相等）
+    A2  scripts/triage.ps1 用例 5（foreach 两侧边界，阈值全部由 $MustCap 算出）
+    A3  scripts/triage.ps1 用例 5 的 $bulletCount 前置断言（两侧夹具各跑一次）
+    A4  scripts/selftest.ps1 闸 2h（正例仍 PASS + 负例非零且带 [LESSONS-SECTION-NOT-FOUND]）；探针侧 = 用例 5b
+    A5  scripts/triage.ps1 用例 6（L901 降层 / L903 不晋升 / L902 none 不降层 / L904 空字段须晋升，四条各一断言）
+    A6  同上 L905（TODO，tier must，不得降层）与 L906（N/A，tier ledger，须晋升）+ lessons.ps1 check 的
+        Test-ScaffoldLessonEnforcedByWellFormed 闸与其自检探针；**中文取值方向 = 用例 6b**（见下）
+    A7  scripts/triage.ps1 用例 7      A8 用例 4      A9 用例 8      A10 用例 9      A12 用例 9b
+    A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
+    A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
+  A11 的**偏离**（人裁待办，不自行弱化清单）：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
+    FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item` 传入一条含 `..` 段的路径时，它交出的 FullName
+    已无 `..`），故「去掉 GetFullPath」这枚变异**不可能**让任何用例变红，A11 那半条无法成立。已按「不留写不出
+    变异的守卫」处理：删掉该恒等调用、键改为 $vf.FullName，并把注释里「Windows 路径大小写不敏感」这句普适宣称
+    换成按 OS 取比较器的实际规则。A11 的另一半（大小写不同的目录段仍只报 1 条 + 比较器换 Ordinal 即红）由
+    用例 9b 满足，实测该枚变异击杀。
+  A6 的**反方向补洞**（R3 再评审 rr127 的唯一 block，已修）：把 A6 从否定清单改成允许清单时，只覆盖了
+    ASCII 占位符，允许清单本身却朝反方向过宽——判定核用 .NET 正则，而 .NET 的 `\w` **认 CJK**，于是
+    `[\w.-]{2,}[\\/][\w.-]{2,}` 把任何含斜杠的中文短语读成「仓库路径」（人工/评审、手动/人工核验、
+    见 PR #183 的讨论/结论）；`闸\s*\S` 又把「闸」后的**任意**字符当闸编号，于是 `无闸门（只能靠人）`
+    ——字面就是「没有闸门」——被判成**已有守卫**。总账是中文散文，这两种形态是常态而非边角。后果直达
+    探针 10：「某条经验坐在必须层…但机器已在守它：无闸门（只能靠人）」，一边引用「没有闸门」四个字、一边据此
+    主张删掉一条本就无守卫的铁律——正是 `_lessons.ps1` 自己注释里点名要防的那种灾难。
+    修法：路径分支收成 ASCII `[A-Za-z0-9._-]`，闸分支要求其后是**真编号**（ASCII 字母数字，或本仓在用的
+    圈码 `闸⑯`/`gate ⑧`，即 U+2460-U+24FF——整块无表意文字，故收它不会重开中文那个口子）；`gate` 后
+    保留 `\s+` 以免 `gateway` 变成闸引用。**实测：真实 LEDGER 全部 195 条 enforced_by 取值改前改后判定
+    逐条一致**（133 空 / 36 none / 26 有守卫 / 0 拒绝，改前改后同数、零条裁决翻转），六种中文 fail-open
+    形态全部关闭。新增夹具落在 scripts/triage.ps1 用例 6b：L907（无闸门（只能靠人），tier must，不得降层）
+    · L908（人工/评审，须晋升）· L909（闸，靠人，须晋升）· L910（gate 讨论，须晋升）· L911（selftest 闸⑯，
+    tier ledger 但**有**守卫，不得晋升——钉住「收紧不得连带拒真引用」这一侧）；lessons.ps1 的守卫自检探针
+    同步加这五种取值。
+  两处措辞说明（清单逐字保留，不就地改写）：① A4 里的 `Get-ScaffoldMustLayerBullet` 已随本轮更名为
+    `Get-ScaffoldMustLayerSection`（同一枚判定核，多返回 Found/Reason 两个字段，好让「标题没找到」与
+    「小节在、零驻留」可分辨）；② A9/A10/A13 的路径形态已改用中文描述（原先的尖括号记号会触发 check-cards 的占位符启发式），
+    check-cards 的占位符启发式会据此发一条 advisory 告警（非阻断，`check-cards: PASS`）。
 dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scripts/triage.ps1 selfcheck) -match 'triage selfcheck: PASS').Count -eq 1) -and (((& pwsh -NoProfile -File scripts/lessons.ps1 check) -match 'id=9').Count -eq 1))) { exit 1 }"
 dod_exit: 0
-dod_assert: `triage selfcheck` 打印 ASCII 哨兵 PASS（覆盖新探针 10/11 与改口径后的探针 1/5，全部走 hermetic 夹具），且 `lessons.ps1 check` 在**生产路径**上按驻留 id 报出 9——不是按条目报 7，证明新口径不只在夹具里生效
+dod_assert: `triage selfcheck` 打印 ASCII 哨兵 PASS（覆盖新探针 10/11 与改口径后的探针 1/5，含批量窗口两侧边界与主检出 `.review` 取证路径，全部走 hermetic 夹具；`_cards.ps1` 的 BOM 分支由 selftest 闸 10d(BOM/纯函数) 常设守住），且 `lessons.ps1 check` 在**生产路径**上按驻留 id 报出 9——不是按条目报 7，证明新口径不只在夹具里生效
 review_gate: codex {verdict:pass}
-hygiene: 6 枚单句变异逐一击杀（封顶退回按条目计数 / 撤 enforced_by 闸 / enforced_by 正则退回跨行 / delivery-blocked 不再按 verdict 过滤 / 降层不再要求守卫 / selfcheck 不再注入夹具总账），每枚还原后核 SHA256 逐字节一致；另一枚证 `_cards.ps1` 的 BOM 锚点（去掉 `\uFEFF?` 后带 BOM 的卡 front-matter 解析成 null）
-doc_sync: CLAUDE.md 计量单位说明 · LOOP-ENGINEERING 与 triage skill 的探针枚举与计数 · DELIVERY-CHAINS 心跳行（R5）
+hygiene: |
+  单句变异逐一击杀，判据分类器只认「selfcheck 打出 FAIL **且**命中指定用例编号」（光是红不算，可能红错原因）；
+  变异一律植入 scripts/ 的**临时副本**、跑完从源文件重拷还原并核 SHA256 逐字节一致（工作树全程零变异态，L196 的
+  硬杀窗口从根上消掉）。枚数与靶：
+    ① 封顶退回按 markdown 条目计数              ② 封顶 minor 侧 `-ge` 退化（两侧边界合一）
+    ③ 封顶 fail-closed 分支删掉（标题漂移静默判「未超」）  ④ 分节解析吞掉「标题没找到」态（_lessons.ps1）
+    ⑤ 守卫判定退回旧式「非 none 即有守卫」（_lessons.ps1）  ⑥ enforced_by 正则退回跨行捕获
+    ⑦ 降层不再要求守卫                          ⑧ 晋升不再看 enforced_by
+    ⑨ selfcheck 不再注入夹具总账                ⑩ 批量阈值 `-gt` 退化成 `-ge`（off-by-one）
+    ⑪ 摘掉主检出 `.review` 取证路径             ⑫ delivery-blocked 不再按 verdict 过滤
+    ⑬ 去重的 HashSet.Add 恒真（一份裁决被数两次）⑭ branch 归属判定摘掉（隔壁分支的 block 算到本卡头上）
+    ⑮ 文件名归属兜底摘掉（无 branch 字段的旧产物失守）
+    ⑯ 去重比较器 `OrdinalIgnoreCase` → `Ordinal`（Windows 侧：同一份裁决被数两次）
+    ⑰ 去重比较器写死 `OrdinalIgnoreCase`（**只在大小写敏感 FS 上可判**：Linux 上两份不同裁决被并成一条；
+       由 CI 的 ubuntu-latest `core` 分片经闸 12c 覆盖，Windows 本地跑判 SKIP 而非 KILL）
+    ⑱ `_cards.ps1` 去掉 `\uFEFF?` 锚点后带 BOM 的卡 front-matter 解析成 null（常设闸 10d(BOM/纯函数)）
+  用例 6b（中文取值方向）另五枚，靶均为 `_lessons.ps1` 守卫判定那一行、每枚只动一处字符类，且**两两独立**
+  （任一枚只让它对应的那条用例变红）；分类器要求 **DoD 非零退出 且 命中该用例自己那句失败文案**——只认
+  id 会被用例 6b 的条数汇总行冒充（那行同时含 L908/L909/L910 三个 id），首轮就是这么误判的，收紧后重跑：
+    ⑲ 路径分支退回 `[\w.-]`（.NET 的 \w 认 CJK）  → L908 未被提名晋升
+    ⑳ 闸分支字符类放进「门」                      → L907 被提名降层
+    ㉑ 闸分支字符类放进全角逗号                    → L909 未被提名晋升
+    ㉒ `\bgate\s+` 之后退回 `\S`                   → L910 未被提名晋升
+    ㉓ 闸分支去掉 U+2460-U+24FF 圈码范围           → L911 被提名晋升（收紧过头，真守卫报成没守卫）
+    ㉔ 整行退回改前拼法                            → lessons.ps1 check 打出「enforced_by 守卫判定回归」并非零退出
+  ⑲-㉔ 6/6 击杀；批次全程只写 `%TEMP%` 副本，跑完核工作树四个被测脚本 SHA-256 与基线逐字节一致（L196）。
+doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层表 Tier-1 容量格 + PURIFY 步骤 ·
+  .claude/skills/lessons/SKILL.md 三层描述 + PURIFY 步骤 · scripts/_config.ps1 的 LessonsMustCap 定义处注释 ·
+  scripts/lessons.ps1 与 scripts/triage.ps1 的头注（子命令说明 / 探针清单）· docs/LOOP-ENGINEERING.md 与
+  .claude/skills/triage/SKILL.md 的探针枚举与计数 · docs/DELIVERY-CHAINS.md 心跳行 · docs/HARNESS-REVIEW.md
+  「心跳的发现信号」（改列全 10 枚并点明哪 5 枚指回本文）· docs/scaffold-architecture.html 心跳节点与经验系统节点（R5）
 ---
 
 # T0-LESSONS-CAP-UNIT
@@ -100,3 +167,8 @@ pwsh -NoProfile -File scripts\lessons.ps1 check
 ```
 - 期望退出码：0
 - 断言：`triage selfcheck: PASS` + `lessons.ps1 check` 报驻留 `id=9`
+
+DoD 是**最小闸**，不是完成定义：完成定义 = front-matter 的 `acceptance` 封闭集合 A1–A16
+（清单内每条都有可证伪测试，落点见 `acceptance_notes`；**清单外的发现记 `[FOLLOW-UP]`**）。
+其中 A1/A4/A14/A15 由 `pwsh -NoProfile -File scripts\selftest.ps1 -Shard core` 常设看守
+（闸 2a / 2d / 10d(接线/review→triage) / 14g①②），其余由 `triage.ps1 selfcheck` 的 hermetic 用例看守。

@@ -7,11 +7,15 @@
 
 | 层 | 名称 | 物理位置 | 加载方式 | 容量 |
 |---|---|---|---|---|
-| **Tier 1** | 必须加载的经验（铁律） | `CLAUDE.md` 「## 经验铁律」 | **每轮自动**入上下文 | **封顶 N 条**（见 _config.ps1 `LessonsMustCap`，默认 10） |
+| **Tier 1** | 必须加载的经验（铁律） | `CLAUDE.md` 「## 经验铁律」 | **每轮自动**入上下文 | **封顶 N 个驻留经验 id**（见 _config.ps1 `LessonsMustCap`，默认 10） |
 | **Tier 2** | 按需加载的经验（主题） | `docs/lessons/<topic>.md` | `lessons` skill 按上下文触发 | 不限 |
 | **Tier 3** | 项目总经验（总账） | `docs/lessons/LEDGER.md` | 按 tag 检索 | append-only |
 
 必须层为何封顶：`CLAUDE.md` 每轮全量进上下文，是稀缺预算；铁律只能放**会复发且会卡死**的极少数。超限即淘汰最不活跃项回按需层。
+**计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 bullet 对计数器是 1 条、对模型是 2 条规则，
+封顶要管的正是后者——否则把几条并进一条 bullet 就能一边「合规」一边让每轮成本继续涨。判定核只有
+`scripts/_lessons.ps1` 一处（`lessons.ps1 check` 与心跳探针 `lessons-cap` 共用）；小节标题找不到时两者一律
+fail-closed 报错，不把「测不出」读成「未超」。
 
 ## 自净化闭环（capture → promote → purify → recall）
 
@@ -36,7 +40,8 @@
 - 评估：`pwsh -File scripts\lessons.ps1 promote <id>`。
 
 ### 3. PURIFY（提纯，保持精悍）
-- `pwsh -File scripts\lessons.ps1 check`：校验 id 唯一、字段完整、必须层 ≤上限 且与 CLAUDE.md 同步。
+- `pwsh -File scripts\lessons.ps1 check`：校验 id 唯一、字段完整、`enforced_by` 形态可认（占位符如 `TODO`/`N/A` 一律拒收）、
+  必须层**驻留经验 id 数** ≤上限 且与 CLAUDE.md 同步。
 - 超限：把 recurrence 最低 / 最久未触发的铁律降回按需层。
 - 定期：合并近义条目、淘汰已过时（如某限制随升级 Pro 消失）的经验。
 

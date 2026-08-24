@@ -1609,8 +1609,21 @@ if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
 
 # --- 2. 经验系统自检 ---
 Step '2/17 经验系统（lessons.ps1 check）'
-& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check
-if ($LASTEXITCODE -ne 0) { Fail '经验系统 check 未过（见上）。' }
+$lessonsCheckOut = (& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check 2>&1 | Out-String)
+$lessonsCheckExit = $LASTEXITCODE
+Write-Host $lessonsCheckOut
+if ($lessonsCheckExit -ne 0) { Fail '经验系统 check 未过（见上）。' }
+# 2a. 计量单位钉在**生产路径**上（本仓真实 CLAUDE.md，非夹具）：驻留经验 id 数与承载它们的条目数
+#   **两个数各断言精确值**。只断言其一证不出「单位换了」——两个数必须**不相等**，那正是「合并条目」
+#   这条静默失效路径的形状；相等时旧口径（数 bullet）与新口径（数 id）不可分辨。
+#   数字变了就该在这里红：加/减铁律、或把两条并进一条 bullet，都要求作者回来同步这两个期望值。
+$expectedResidentIds = 9    # CLAUDE.md「经验铁律」小节当前驻留的经验 id 数（上限 LessonsMustCap=10）
+$expectedBullets = 7        # 承载它们的 markdown 条目数——比 id 少，因为有两条是合并条目
+if ($lessonsCheckOut -notmatch "驻留 id=$expectedResidentIds（承载于 $expectedBullets 条目）") {
+  Fail "闸2a：lessons.ps1 check 未在生产 CLAUDE.md 上报出「驻留 id=$expectedResidentIds（承载于 $expectedBullets 条目）」——要么铁律增删了（同步本闸的两个期望值），要么封顶又退回按 markdown 条目计量。实际输出：$(($lessonsCheckOut -split "`r?`n" | Where-Object { $_ -match '必须层：' }) -join ' ')"
+} elseif ($expectedResidentIds -eq $expectedBullets) {
+  Fail '闸2a：期望的 id 数与条目数相等——此时两种口径不可分辨，本闸证不了单位是 id。请让夹具/生产数据保留至少一条合并条目。'
+} else { Write-Host "  2a 计量单位 OK（生产路径：驻留 id=$expectedResidentIds ≠ 条目数 $expectedBullets，两个数各自精确断言）" -ForegroundColor Green }
 
 # 2b. TD39/TD-102：lessons.ps1 在【空 / 零-must LEDGER】下 StrictMode 崩溃（TD24 标 paid 实为未真修）。
 #   根因：add 走【裸】Next-Id（默认绑定 = (Get-Lessons)）。空 LEDGER 时 Get-Lessons 返回 @()，经 [array] 默认参数
@@ -1688,6 +1701,44 @@ try {
   else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真（TD51）OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2cRepo -ErrorAction SilentlyContinue
+}
+
+# 2h. 分节解析 fail-closed：CLAUDE.md **在**、但「经验铁律」小节标题漂移时，旧码返回 0 条 bullet，
+#   与「小节在、零驻留」逐字不可分辨——于是 check 打印「驻留 id=0」、`-gt $MustCap` 判否、**exit 0 放行**，
+#   而此刻真实驻留数其实远超上限（实测旧码：标题改一个字 → 11 个 id 的夹具报 0，封顶静默通过）。
+#   本闸种同一个坏输入：夹具仓的 CLAUDE.md 带一条 11 个 id 的铁律、标题写成别的，断言 check
+#   **非零退出**且打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]（机检认哨兵，本地化文案只给人读，L165）。
+$l2hRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
+if (Test-Path $l2hRepo) { Remove-Item -Recurse -Force $l2hRepo }
+New-Item -ItemType Directory -Force $l2hRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2hRepo -Recurse -Force   # 同 2b/2c：整目录拷免隐式漏依赖（lessons.ps1 dot-source _config/_lessons/check-secrets）
+  $l2hLessons = Join-Path $l2hRepo 'scripts/lessons.ps1'
+  $l2hLedger = Join-Path $l2hRepo 'docs/lessons/LEDGER.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2hLedger) | Out-Null
+  Set-Content $l2hLedger (@(
+    '# 经验总账（2d fixture：零 must，令唯一红点只可能来自分节解析）', '',
+    '## L1',
+    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
+  ) -join "`n") -Encoding utf8
+  # 正例恰好取那个**最容易被混淆**的状态：小节在、但一个 [Lx] 都没驻留。旧码给这个状态和「标题找不到」
+  #   同一个答案（0 条），新码必须把它判成 PASS——否则「fail-closed」就是把正常的空必须层也一并拦了。
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
+    '## 经验铁律（必须加载 · fixture）',
+    '- 本夹具的铁律小节故意不驻留任何 id（证「小节在、零驻留」仍须放行）', '', '## 下一节') -join "`n") -Encoding utf8
+  $okOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $okExit = $LASTEXITCODE
+  # 负例：只把标题换掉，其余一字不动
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
+    '## 必载经验（标题已漂移）',
+    '- **[L901][L902][L903][L904][L905][L906][L907][L908][L909][L910][L911]** 11 个驻留 id，远超上限', '', '## 下一节') -join "`n") -Encoding utf8
+  $driftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $driftExit = $LASTEXITCODE
+  if ($okExit -ne 0) { Fail "闸2h(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
+  elseif ($driftExit -eq 0) { Fail "闸2h：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
+  elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
+  else { Write-Host '  2h lessons.ps1 check 分节 fail-closed OK（标题漂移 → 非零 + [LESSONS-SECTION-NOT-FOUND]；小节在场仍 PASS）' -ForegroundColor Green }
+} finally {
+  Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
 }
 
 # 2d. bump 的写入平面（T0-LESSONS-BUMP-PLANE）：recurrence 是**仓库级元数据**，与任何卡片无关。
@@ -3182,15 +3233,35 @@ elseif ($wireTask -match '(?m)^\s*[^#\r\n]*Get-Yaml(Block)?ListItems') { Fail '�
 else { Write-Host '  种子缺陷 10d(接线/_scope+task) OK：判定核接的是块式专用取值器、核内无宽取值器，task.ps1 经共享核取值且不再自行解析（变异必红）' -ForegroundColor Green }
 $wireTriage = @(Select-String -Path (Join-Path $RepoRoot 'scripts/triage.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
 $wireArchive = @(Select-String -Path (Join-Path $RepoRoot 'scripts/archive.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
-if ($wireTriage -ne 3) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 3（三个探针：cards-active / handoff-open / worktree-orphan）——有探针退回手写正则或被删。" }
+if ($wireTriage -ne 4) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 4（四个探针：cards-active / handoff-open / worktree-orphan / delivery-blocked）——有探针退回手写正则或被删。" }
 elseif ($wireArchive -lt 1) { Fail "闸10d(接线/archive)：archive.ps1 未调用共享 Get-FrontMatter——Get-CardField 退回手写正则。" }
-else { Write-Host '  种子缺陷 10d(接线/triage+archive) OK：三个 triage 探针与 archive 取值器均走共享锚定解析器' -ForegroundColor Green }
+else { Write-Host "  种子缺陷 10d(接线/triage+archive) OK：$wireTriage 个 triage 探针与 archive 取值器均走共享锚定解析器" -ForegroundColor Green }
+# 10d(接线/review→triage)：`delivery-blocked` 的归属判据横跨两个脚本——triage.ps1 读裁决里的 `branch`，
+#   而写它的是 review.ps1，中间没有任何东西把两端钉住。review.ps1 不在本卡 allow_paths，故这里只立**静态**
+#   断言、不动它：裁决必须带 `branch` 字段，且该字段取自 `git rev-parse --abbrev-ref HEAD`（**分支名**，
+#   不是 `refs/heads/…` 那种 ref 路径，也不是 sha——那些值与卡 id 永不相等，归属第一道会把每份裁决都判成
+#   「不是本卡」，探针遂静默退回文件名兜底或干脆漏报）。任一端漂移，`delivery-blocked` 都只是安静下来，
+#   而一个安静的 reporter 读起来恰恰像「什么都没堵着」。
+$wireReview = Get-Content (Join-Path $RepoRoot 'scripts/review.ps1') -Raw
+if ($wireReview -notmatch '(?m)^\s*\$branch\s*=\s*\(&\s*git[^\r\n]*rev-parse\s+--abbrev-ref\s+HEAD\)') {
+  Fail '闸10d(接线/review→triage)：review.ps1 不再用 `git rev-parse --abbrev-ref HEAD` 取分支名——triage 探针 11 的 branch 归属判据要求该值是**分支名**（ref 路径 / sha 与卡 id 永不相等，归属会把每份裁决都判成别人的）。'
+} elseif ($wireReview -notmatch '(?m)branch\s*=\s*\$branch\b') {
+  Fail '闸10d(接线/review→triage)：review.ps1 写裁决时不再落 branch 字段——triage 探针 11 只剩文件名兜底，隔壁分支留在同一 .review 里的 block 会被算到本卡头上，或本卡的 block 因文件名不符而静默漏报。'
+} else { Write-Host '  种子缺陷 10d(接线/review→triage) OK：裁决带 branch 字段且取自 git rev-parse --abbrev-ref HEAD（探针 11 的归属判据两端对得上）' -ForegroundColor Green }
 # 10d(锚定/纯函数)：闸 10c 从 check-cards 侧证锚定，但 check-cards 在 master 上本来就是锚定的——
 # 真正**改了行为**的是 task.ps1:459 与 triage 三处（原为未锚定）。它们现在共用本函数，故直接证本函数：
 # front-matter 内一行「以 --- 开头但有尾随文字」不得被当作闭合符，其后的键仍须可见。
 $dashTailFm = Get-FrontMatter "---`nid: T9-DASH`n--- 这行以三短横开头但有尾随文字，不是闭合符`nstatus: merged`n---`n正文"
 if (-not $dashTailFm -or $dashTailFm -notmatch '(?m)^status\s*:\s*merged\s*$') { Fail '闸10d(锚定/纯函数)：dash-tail 行被误判为 front-matter 闭合符，其后的 status 键不可见——task.ps1 范围闸与 triage 三探针会拿到被截断的 front-matter（TD60/TD-123 的未锚定回归）。' }
 else { Write-Host '  种子缺陷 10d(锚定/纯函数) OK：dash-tail 行不被当闭合符，其后键仍可见（钉住 task/triage 四处原未锚定站点的收敛）' -ForegroundColor Green }
+
+# 10d(BOM/纯函数)：经**管道**取来的卡片文本（git show BASEREF:specs/tasks/<id>.md）保留文件的 UTF-8 BOM
+# ——只有 Get-Content 的文件读取器会剥它。裸 \A--- 锚会失配 → front-matter 解析成 null → allow_paths 取空 →
+# 完整式 check-scope 必判 [SCOPE-UNDECIDABLE]，且把原因误报成「卡没写 allow_paths」，恰在中断恢复场景失效。
+# 码位只写转义形态，源码里不出现字面 BOM 字节（L193）。
+$bomFm = Get-FrontMatter ([string][char]0xFEFF + "---`nid: T9-BOM`nstatus: merged`n---`n正文")
+if (-not $bomFm -or $bomFm -notmatch '(?m)^status\s*:\s*merged\s*$') { Fail '闸10d(BOM/纯函数)：前导 U+FEFF 使 front-matter 解析成 null——经管道取得的基线卡会让 allow_paths 取空、完整式 check-scope 误判为「卡没写 allow_paths」（上游 v0.41.0 TD130 回归）。' }
+else { Write-Host '  种子缺陷 10d(BOM/纯函数) OK：前导 U+FEFF 不阻断 front-matter 解析（管道取来的基线卡仍可判 allow_paths）' -ForegroundColor Green }
 
 # 10e. 种子缺陷（TD63 item5）：YAML block-scalar `dod_command: |` 被单行取值器（Get-Scalar，非多行 YAML 解析）
 # 截断成字面量 `|`——既通过非空校验，又通过 no-op 判定（按 &&/||/;/| 分段后两侧皆空串、Where-Object 过滤后
@@ -3469,6 +3540,9 @@ if (Test-Path $td12) { Remove-Item -Recurse -Force $td12 }
 New-Item -ItemType Directory -Force (Join-Path $td12 'scripts') | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $td12 'specs') | Out-Null
 Copy-Item $triagePath (Join-Path $td12 'scripts/triage.ps1') -Force
+# L229：新加的 dot-source 库必须进每一份**选择性**夹具拷贝清单——triage.ps1 现在还 dot-source _lessons.ps1
+# （必须层驻留 id + enforced_by 的共享判定核）。漏拷不是「少测一点」，是夹具在加载期就崩、整闸红得看不出病因。
+Copy-Item (Join-Path $PSScriptRoot '_lessons.ps1') (Join-Path $td12 'scripts/_lessons.ps1') -Force
 Copy-Item (Join-Path $PSScriptRoot '_cards.ps1') (Join-Path $td12 'scripts/_cards.ps1') -Force
 $tdFixture = @(
   '# Fixture 技术债追踪器（选顶 12d · TD57/TD-120 种子缺陷）', '',
@@ -3917,6 +3991,50 @@ if (Test-Path $triageForCount) {
   } else { Skip-SelftestCheck -GateId '14d(doc/docs/LOOP-ENGINEERING.md)' -Reason 'FILE-MISSING' -Message '  14d：docs/LOOP-ENGINEERING.md 不存在，跳过该文档探针名交叉核对。' }
   if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeNameSkipRecordCount -SkipCountAfter $skippedSelftestChecks.Count) {
     Write-Host "  14d 探针名清单一致（$($probeNames.Count) 名：Add-Finding ↔ 标记计数 ↔ DELIVERY-CHAINS 心跳行 ↔ LOOP-ENGINEERING）OK" -ForegroundColor Green
+  }
+}
+
+# 14g. L97 权威面一致性（两条枚举断言）：本仓每次改「所有面都在教的那条规则」，都是靠人 grep 出全部权威面，
+#   漏一处就多打一轮 R3。这两条断言把那次 grep 变成常设闸——漏改任一面即红，L97 的扫齐遂不再是一次性动作。
+#   ① 教「封顶计量单位」的面：不得再出现「封顶 N 条 / 封顶条数 / 条数上限」这类**按条目**的旧口径，
+#      且必须正面出现「驻留…id」——只做负断言的话，把那句整段删掉也能过。
+#   ② 列「探针清单」的面：各自枚举的探针名个数须等于 triage.ps1 里 Invoke-Probe* 函数的**实际**个数。
+$capUnitSurfaces = @('docs/LESSONS.md', '.claude/skills/lessons/SKILL.md', 'scripts/_config.ps1', 'scripts/lessons.ps1', 'scripts/triage.ps1', 'CLAUDE.md')
+$staleCapUnitRe = '封顶\s*(?:\*\*)?\s*[0-9N]+\s*条|封顶条数|条数上限|必须层\s*(?:≤|<=)\s*上限'
+$capUnitSkipBefore = $skippedSelftestChecks.Count
+foreach ($rel in $capUnitSurfaces) {
+  $p = Join-Path $RepoRoot $rel
+  if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14g(cap-unit/$rel)" -Reason 'FILE-MISSING' -Message "  14g：$rel 不存在，跳过。"; continue }
+  $raw = Get-Content $p -Raw
+  if ($raw -match $staleCapUnitRe) { Fail "14g①：$rel 仍在教被废止的**按条目**封顶口径（命中「$($Matches[0])」）——单位是驻留的经验 id，一条承载多个 id 的 bullet 算多条。" }
+  elseif ($raw -notmatch '(?i)驻留[^\r\n]{0,10}id') { Fail "14g①：$rel 没有正面写出「驻留…id」这个计量单位——只删掉旧口径不算改对，读者仍不知道按什么计。" }
+}
+if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $capUnitSkipBefore -SkipCountAfter $skippedSelftestChecks.Count) {
+  Write-Host "  14g① 封顶计量单位一致（$($capUnitSurfaces.Count) 处权威面皆按驻留 id、无按条目残留）OK" -ForegroundColor Green
+}
+if (Test-Path $triageForCount) {
+  $probeRosterSkipBefore = $skippedSelftestChecks.Count
+  $triageRaw14g = Get-Content $triageForCount -Raw
+  # 真相源用**函数定义**，与 14a 的注释标记、14d 的 Add-Finding 名各自独立；三者先互核，再拿去比文档。
+  $probeFnCount = @([regex]::Matches($triageRaw14g, '(?m)^function\s+Invoke-Probe\w*\s*\{')).Count
+  if ($probeFnCount -lt 1) { Fail '14g②：无法从 triage.ps1 机数 Invoke-Probe* 函数定义（命名形态漂移？）。' }
+  elseif ($probeCount -ge 1 -and $probeFnCount -ne $probeCount) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ 「# ── 探针 N」标记 $probeCount 个——triage.ps1 自身先对不齐。" }
+  elseif ($probeNames.Count -ge 1 -and $probeFnCount -ne $probeNames.Count) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ Add-Finding 探针名 $($probeNames.Count) 个——有探针不上报或有名字没有函数。" }
+  else {
+    # 「列探针清单」的五处面：任一处漏列新探针即红（新探针的 next 常直接把读者送到这些文档，它们不能不知道它存在）。
+    foreach ($rel in @('docs/LOOP-ENGINEERING.md', '.claude/skills/triage/SKILL.md', 'docs/DELIVERY-CHAINS.md', 'docs/scaffold-architecture.html', 'docs/HARNESS-REVIEW.md')) {
+      $p = Join-Path $RepoRoot $rel
+      if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14g(roster/$rel)" -Reason 'FILE-MISSING' -Message "  14g：$rel 不存在，跳过。"; continue }
+      $raw = Get-Content $p -Raw
+      $listed = @($probeNames | Where-Object { $raw -like "*$_*" })
+      if ($listed.Count -ne $probeFnCount) {
+        $missing = @($probeNames | Where-Object { $raw -notlike "*$_*" })
+        Fail "14g②：$rel 枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')。"
+      }
+    }
+    if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeRosterSkipBefore -SkipCountAfter $skippedSelftestChecks.Count) {
+      Write-Host "  14g② 探针清单一致（真相源 = $probeFnCount 个 Invoke-Probe* 函数，与标记数/Add-Finding 名数互核后，5 处枚举面逐一比对）OK" -ForegroundColor Green
+    }
   }
 }
 

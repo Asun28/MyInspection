@@ -53,20 +53,24 @@ Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → �
 - **缺陷类**（bug 逃逸到产线）→ **③直连①**：补一条回归 eval（`docs/EVAL.md` GROW）+ 复发的工具链坑记一条经验（`scripts/lessons.ps1` → `enforced_by` 机械守卫）。回流的**产物**受机检（eval 条目 exit 0/1、守卫脚本），**触发**靠人。
 - **方向类**（用户不要它 / 要的是别的）→ **③经②回①**：从漏斗的 **`1-brief` 重新进**（`docs/IDEA-TO-PLAN.md`：1-brief→2-options→3-plan），修愿景 → 改规格 → 重新拆卡。这正是 Ng 那条链——**早已存在，只是从没被标成「外部信号的入口」**。
 
-> **心跳不接外部信号，是刻意的**：`triage.ps1` 8 探针全部只读、离线、扫本地子系统（见下节）。生产遥测要网络、要状态、要凭据，
+> **心跳不接外部信号，是刻意的**：`triage.ps1` 10 探针全部只读、离线、扫本地子系统（见下节）。生产遥测要网络、要状态、要凭据，
 > 会把一个「只读离线确定性」的 reporter 变成有攻击面的守护进程（对照下方「安全税」节）。③的入口是**人把外部信号写成一条 eval 或一条 brief**，从既有正门进。
 
 ## 心跳：`scripts/triage.ps1`
-**只读、离线、确定性**地扫描既有子系统的本地信号，汇成收件箱 `_local/triage-inbox.md`（gitignored）。8 探针：
+**只读、离线、确定性**地扫描既有子系统的本地信号，汇成收件箱 `_local/triage-inbox.md`（gitignored）。10 探针：
 `lessons-promote`（经验达晋升门槛却仍在总账层）· `tech-debt-open`（债未还）· `cards-active`（卡在飞）·
-`handoff-open`（cwd 交接未收口）· `lessons-cap`（必须层达封顶该做减法）·
+`handoff-open`（cwd 交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达封顶=minor / 超封顶=major，该做减法；
+小节标题找不到时 fail-closed 报，不静默判「未超」）·
 `harness-refresh`（judgment 经验累积达门槛——该双向自我改进：删旧闸 + 主动搜更优工具/方法纳新）·
 `effectiveness`（效果账本：各 ship 闸真实拦截数——喂 HARNESS-REVIEW 据拦截数 + ship 次数做减法）·
-`worktree-orphan`（卡已 merged 却没拆的残留 worktree——cleanup 漏跑 / 半合并遗留）。
+`worktree-orphan`（卡已 merged 却没拆的残留 worktree——cleanup 漏跑 / 半合并遗留）·
+`lessons-demote`（必须层某条已有确定性守卫盯住——每轮上下文换来的是机器已在做的事）·
+`delivery-blocked`（在飞卡坐在一份 R3 block 裁决上，却没人把结果接回注意力——**交付停摆**，severity=blocking）。
 
 - 退出码恒 0——它是 **reporter，不是闸门**。闸门仍是 worktree/TDD/Codex/CI。
 - **只发现、不行动**：绝不写仓内被跟踪文件、不做 git/gh 写操作。act 走既有交付链。
-- 自检：`pwsh -File scripts\triage.ps1 selfcheck`——探针 4 的 hermetic 自测（临时夹具 + 输出断言，末行 `triage selfcheck: PASS` 即绿；PR #26 引入，selftest 闸 12c 常设接线，改探针即回归）。
+- 其中 `delivery-blocked` 是唯一读**交付**状态的探针：其余探针读的都是脚手架自身，于是收件箱可以很热闹而关键路径其实停着，且箱里每一条可行动项都是脚手架自我维护（上游 issue #185）。它同样离线——`review.ps1` 每次跑都把归一化裁决写进 `<worktree>/.review/<分支>.json`。
+- 自检：`pwsh -File scripts\triage.ps1 selfcheck`——探针 4/5/10/11 的 hermetic 自测（临时夹具 + 输出断言，末行 `triage selfcheck: PASS` 即绿；PR #26 引入，selftest 闸 12c 常设接线，改探针即回归）。
 - 节律（主模式）：一次自主运行内**自步进 N 个 triage→act 周期**——扫描发现 → 挑一件 act → 到间隔用 fresh-context 校验（独立、新上下文的 verifier 子代理对着规格核，优于自我批评）→ 再扫下一轮，如此推进数小时。session 开场跑一次当 work-list、或 Claude Code `/loop` 定时重跑 `triage` skill，是**回退节律**（用户不在场自步进、或跨运行接力时用）。
 
 > **发现 vs 行动，按可逆性分界**（Anthropic RSI）：把「perspiration」（巡检、发现）自动化，心跳本体只发现；act 则按**可逆性**分两档。
