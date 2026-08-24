@@ -12818,6 +12818,7 @@ try {
   }
 
   $small999 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SMALL' -LineCount 999 -LongLineChars 0)
+  $boundary1000 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BOUNDARY' -LineCount 1000 -LongLineChars 0)
   $large1001 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LINES' -LineCount 1001 -LongLineChars 0)
   $chars60000Root = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-CHARS-60000' -LineCount 0 -LongLineChars 59000) 60000
   $chars60001Root = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-CHARS-60001' -LineCount 0 -LongLineChars 59000) 60001
@@ -12832,6 +12833,7 @@ try {
   $blockedFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ROUNDS-CONTROL' -LineCount 2 -LongLineChars 0 -WithReviewInputs) -FullReview -SpyVerdict 'block'
   $diffFailureRoot = New-ReviewSizeFixture -Name 'T9-SIZE-DIFF-FAIL' -LineCount 1 -LongLineChars 0
   $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
+  $skipConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SKIP-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-SkipReview')
   $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
   $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
 
@@ -12910,6 +12912,7 @@ exit $realExit
 
   $sizeFailures = @()
   if ($small999.Exit -ne 0 -or $small999.Text -notmatch 'changedLines=999') { $sizeFailures += "999-line control did not pass with exact metric (exit=$($small999.Exit))" }
+  if ($boundary1000.Exit -ne 0 -or $boundary1000.Text -notmatch 'changedLines=1000') { $sizeFailures += "exactly-1000-line boundary did not pass with exact metric (exit=$($boundary1000.Exit))" }
   if ($large1001.Exit -eq 0 -or $large1001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $large1001.Text -notmatch 'changedLines=1001') { $sizeFailures += "1001-line mutant was not blocked with exact metric (exit=$($large1001.Exit))" }
   # A3 还要求诊断报出**上限本身**，否则读日志的人看得到实测值却不知道被什么拦住。
   if ($large1001.Text -notmatch 'max 1000' -or $chars60001.Text -notmatch 'max 60000') { $sizeFailures += 'block diagnostics do not state the limits they enforced' }
@@ -12926,12 +12929,13 @@ exit $realExit
   if ($binary.Exit -ne 0 -or $binary.Text -notmatch 'binaryFiles=1') { $sizeFailures += "binary numstat was misparsed or hidden (exit=$($binary.Exit))" }
   if ($diffFailure.Exit -eq 0 -or $diffFailure.Text -notmatch '\[R3-DIFF-COMMAND-FAILED\]') { $sizeFailures += "git diff command failure did not fail closed with its diagnostic (exit=$($diffFailure.Exit))" }
   if ($argConflict.Exit -eq 0 -or $argConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + ResetRounds did not fail with R3-DIFF-ARGS-INVALID' }
+  if ($skipConflict.Exit -eq 0 -or $skipConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + SkipReview did not fail with R3-DIFF-ARGS-INVALID' }
   if ($tooHighLines.Exit -eq 0 -or $tooHighLines.Text -notmatch 'MaxChangedLines') { $sizeFailures += 'MaxChangedLines accepted a value above 1000' }
   if ($tooHighChars.Exit -eq 0 -or $tooHighChars.Text -notmatch 'MaxDiffChars') { $sizeFailures += 'MaxDiffChars accepted a value above 60000' }
   if ($malformedNumstat.Exit -eq 0 -or $malformedNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "malformed numstat did not fail closed with its diagnostic (exit=$($malformedNumstat.Exit))" }
   if ($movedHead.Exit -ne 0 -or $movedHead.Text -notmatch 'changedLines=1' -or -not (Test-Path (Join-Path $moveHeadRoot 'head-moved.marker'))) { $sizeFailures += "moving HEAD changed the captured diff authority (exit=$($movedHead.Exit))" }
   if ($largeFullReview.Exit -eq 0 -or $largeFullReview.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $largeFullReview.Text -match 'Codex 评审|第二模型评审') { $sizeFailures += 'normal review did not stop at the size gate before reviewer invocation' }
-  $sizeCases = @($small999, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $overflowNumstat, $prefixNumstat, $movedHead, $largeFullReview)
+  $sizeCases = @($small999, $boundary1000, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $skipConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $overflowNumstat, $prefixNumstat, $movedHead, $largeFullReview)
   # A4/A8：非调用要有**正面**证据（spy 未留痕），且该证据必须有牙——正控证明 spy 在评审者真被唤起时会留痕。
   if (@($sizeCases | Where-Object { $_.ReviewerInvoked }).Count -ne 0) { $sizeFailures += 'the reviewer was invoked on a size-gated run (spy marker present)' }
   if (-not $smallFullReview.ReviewerInvoked) { $sizeFailures += 'reviewer spy is inert: an in-budget full review left no marker, so "no marker" proves nothing' }
@@ -12963,7 +12967,7 @@ exit $realExit
   #      故每条先**锚到自己那一段**（取该枚举所在的行/段），只在段内做有序核对。
 
   if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
-  else { Write-Host '  17ai 真实 diff 预算 OK（999 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / diff 命令失败 / 参数冲突+上限 / captured HEAD / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }
+  else { Write-Host '  17ai 真实 diff 预算 OK（999/1000 行过 / 1001 行拦 / 60000 字符过且 60001 拦 / binary+坏 numstat / diff 命令失败 / 两组参数冲突+上限 / captured HEAD / task 真 ship 前置且不耗 reviewer round）' -ForegroundColor Green }
 } finally {
   Remove-Item -LiteralPath $sizeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -55,10 +55,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-# -SizeOnly 与 -ResetRounds 互斥：后者在预算闸**之前**就 return，组合起来既没量到体量、也没清计数，
-# 却仍返回一个会被读成「量过了」的退出码。（-SkipReview 属同一类，但不在本卡验收集合内 → [FOLLOW-UP]。）
-if ($SizeOnly -and $ResetRounds) {
-  Write-Host '  [R3-DIFF-ARGS-INVALID] -SizeOnly and -ResetRounds are independent operations and cannot be combined.' -ForegroundColor Red
+# -SizeOnly 与两个提前返回操作互斥：组合起来不会得到可信的预算测量结果。
+if ($SizeOnly -and ($ResetRounds -or $SkipReview)) {
+  $otherOperation = if ($ResetRounds) { '-ResetRounds' } else { '-SkipReview' }
+  Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly and $otherOperation are independent operations and cannot be combined." -ForegroundColor Red
   exit 1
 }
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
