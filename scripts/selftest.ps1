@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   脚手架自检（本元仓的「verify」）：本仓交付物就是这些脚本/钩子/模板本身，故需要一个
@@ -1834,7 +1834,7 @@ try {
   Set-Content (Join-Path $l2gRepo 'CLAUDE.md') "${tier1Head2g}[L5] 方括号引用`n按 L6 之理（裸引用，本仓最常见）`n范围简写 L7${enDash2g}L8（两端点均须受保护）`n行号写法 scripts/x.ps1:L9（冒号前缀=源码行号，不算引用）`n行段写法 L10-13（ASCII 连字符=行段，不算引用）" -Encoding utf8
   Set-Content (Join-Path $l2gRepo 'CLAUDE.template.md') "${tier1Head2g}模板侧裸引用 L11" -Encoding utf8
 
-  # Fail 只置位不中断，故绿字必须挂在**本闸自己的**失败位上（沿用 2e 的 $e2Fail 形态）：否则 (a)–(e) 全红、
+  # Fail 只置位不中断，故绿字必须挂在**本闸自己的**失败位上（独立的 $g2Fail）：否则 (a)–(e) 全红、
   # (f) 恰好绿时，最后一句 if/else 的 else 分支照样打印「2g … OK」。
   $g2Fail = $false
   $ledgerHash2g = (Get-FileHash $l2gLedger -Algorithm SHA256).Hash
@@ -2061,9 +2061,9 @@ try {
   $rerun2g = (& pwsh -NoProfile -File $l2gLessons archive -RepoRoot $l2gRepo 2>&1 | Out-String)
   if ($LASTEXITCODE -ne 0 -or (Get-FileHash $l2gLedger -Algorithm SHA256).Hash -ne $ledgerStableHash2g -or
       (Get-FileHash $l2gArchive -Algorithm SHA256).Hash -ne $archiveHash2g) {
-    Fail "闸2g(f)：无新候选时 archive 重跑不幂等。output=[$rerun2g]"; $g2Fail = $true
+    Fail "闸2g(j)：无新候选时 archive 重跑不幂等。output=[$rerun2g]"; $g2Fail = $true
   }
-  # (g) A16：定义「受保护集合」的常驻 CLAUDE.md 缺席时必须 fail-closed（模板文件只在元仓存在，故夹具把两个
+  # (k) A16：定义「受保护集合」的常驻 CLAUDE.md 缺席时必须 fail-closed（模板文件只在元仓存在，故夹具把两个
   #   都删掉——这正是「有 LEDGER 却没有 CLAUDE.md」那棵树的真实形态）。此刻 L5/L6/L7/L8/L11 之所以还留在
   #   热账本，唯一原因就是被这两个文件引用；把它们删掉再跑，fail-open 的实现会把这 5 条**真的**搬进冷库，
   #   exit 0、无告警，事后闸 16 也不会红（它按热∪冷判）——与「只认方括号引用」同一后果、不同入口。
@@ -2079,11 +2079,11 @@ try {
     if ($modeG2g -eq '预览') { $argsG2g += '-DryRun' }
     $noRef2g = (& pwsh @argsG2g 2>&1 | Out-String)
     $noRefExit2g = $LASTEXITCODE
-    if ($noRefExit2g -eq 0) { Fail "闸2g(g)：常驻 CLAUDE 文件全部缺席时 archive($modeG2g) 仍退出 0——「读不到受保护集合」被当成了「没有条目被引用」，整批 ledger 条目遂静默进候选。output=[$noRef2g]"; $g2Fail = $true }
-    if ($noRef2g -notmatch '\[LSN-RESIDENT-SOURCE-MISSING\]') { Fail "闸2g(g)：archive($modeG2g) 未给 [LSN-RESIDENT-SOURCE-MISSING] 哨兵——告警文本不算诊断，按退出码判断的调用方看不见原因。output=[$noRef2g]"; $g2Fail = $true }
-    if ($noRef2g -match 'candidates=') { Fail "闸2g(g)：引用判据缺席时仍印出了 candidates=——判据都没有，就不该给出「候选」这个结论。output=[$noRef2g]"; $g2Fail = $true }
+    if ($noRefExit2g -eq 0) { Fail "闸2g(k)：常驻 CLAUDE 文件全部缺席时 archive($modeG2g) 仍退出 0——「读不到受保护集合」被当成了「没有条目被引用」，整批 ledger 条目遂静默进候选。output=[$noRef2g]"; $g2Fail = $true }
+    if ($noRef2g -notmatch '\[LSN-RESIDENT-SOURCE-MISSING\]') { Fail "闸2g(k)：archive($modeG2g) 未给 [LSN-RESIDENT-SOURCE-MISSING] 哨兵——告警文本不算诊断，按退出码判断的调用方看不见原因。output=[$noRef2g]"; $g2Fail = $true }
+    if ($noRef2g -match 'candidates=') { Fail "闸2g(k)：引用判据缺席时仍印出了 candidates=——判据都没有，就不该给出「候选」这个结论。output=[$noRef2g]"; $g2Fail = $true }
     if ((Get-FileHash $l2gLedger -Algorithm SHA256).Hash -ne $ledgerHashG2g -or (Get-FileHash $l2gArchive -Algorithm SHA256).Hash -ne $archiveHashG2g) {
-      Fail "闸2g(g)：引用判据缺席时 archive($modeG2g) 仍动了数据（L5/L6/L7/L8/L11 正是靠常驻引用才留热）。"; $g2Fail = $true
+      Fail "闸2g(k)：引用判据缺席时 archive($modeG2g) 仍动了数据（L5/L6/L7/L8/L11 正是靠常驻引用才留热）。"; $g2Fail = $true
     }
   }
 
@@ -2094,7 +2094,7 @@ try {
   Remove-Item -Recurse -Force $l2gRepo -ErrorAction SilentlyContinue
 }
 
-# 2e. T0-LESSONS-COLD-RECALL（R3 收口）：规范 meta 行是元数据的**唯一出生点**——为什么必须如此，见
+# 2i. T0-LESSONS-COLD-RECALL（R3 收口）：规范 meta 行是元数据的**唯一出生点**——为什么必须如此，见
 #     scripts/lessons.ps1 中 Get-LessonMeta 的头注（单一处论述，此处不复述）。本闸只负责把它钉死：
 #     用一条夹具一个病灶的敌意账本，断言读侧（archive 选择器 / check / list / search）与写侧（bump / promote）
 #     一律 [LSN-META-INVALID] 留热区、零写入、非零退出，而合法条目行为不变。
@@ -2211,7 +2211,7 @@ try {
   if ($ledgerAfter2i -match '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail "闸2i(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2i]"; $e2Fail = $true }
   if ($ledgerHash2i -eq (Get-FileHash $l2iLedger -Algorithm SHA256).Hash) { Fail '闸2i(d)：archive 实跑后热账本毫无变化——本例没有真正施压。'; $e2Fail = $true }
 
-  if (-not $e2Fail) { Write-Host '  2e lessons 规范 meta 行锚定解析 OK（十五条敌意夹具均 [LSN-META-INVALID] 留热区、预览与实跑同为非零；四枚必填字段各自可杀；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
+  if (-not $e2Fail) { Write-Host '  2i lessons 规范 meta 行锚定解析 OK（十五条敌意夹具均 [LSN-META-INVALID] 留热区、预览与实跑同为非零；四枚必填字段各自可杀；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2iRepo -ErrorAction SilentlyContinue
 }

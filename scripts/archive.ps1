@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   冷存压缩（cold-storage compaction）：把**已闭合**的技术债行（status=paid/accepted）与**已合并**的任务卡

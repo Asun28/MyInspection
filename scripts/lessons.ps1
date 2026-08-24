@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   自净化经验系统的编排器（Tier1 必须 / Tier2 按需 / Tier3 总账）。
@@ -182,7 +182,7 @@ function Get-LessonMeta([string]$Block) {
   # 不列 date：meta 行的定义就是「以 `- date:` 开头的那一行」，该字段结构上必然存在，列了也没有输入能触到。
   # 另三项即便漏列，下面的值校验也会因取到 $null（StrictMode 下缺失键不抛）而照判非法——所以本表若只报
   # 「不合法」，删掉任何一项都没人变红（实测如此）。故用 ASCII 哨兵 `missing-field=<名>` 把「缺失」与
-  # 「值非法」报成两回事：既是可操作诊断（补字段 vs 改值），也让闸 2e(b2) 逐项断言本表真在起作用。
+  # 「值非法」报成两回事：既是可操作诊断（补字段 vs 改值），也让闸 2i(b2) 逐项断言本表真在起作用。
   foreach ($required in @('tags', 'tier', 'severity', 'recurrence')) {
     if (-not $fields.ContainsKey($required)) {
       return [pscustomobject]@{ Ok = $false; Error = "missing-field=$required（规范 meta 行缺少必填字段）"; Fields = @{} }
@@ -491,7 +491,7 @@ switch ($Command) {
     # 会被静默篡改。改锚定到本块的 meta 行（`- date: ... recurrence: <n>`），只动该行的计数器，
     # 不触碰 body 里可能出现的同名字面量。`${1}` 用单引号字面量 + 字符串拼接 $new（避免双引号内
     # `${1}`/`$1` 被 PowerShell 当成变量插值、吞掉正则回引用）。
-    # 三层各管一件事：Get-LessonMeta 拦「形状不对就别写」（闸 2e(e) 杀）；实例 Replace 第三实参 1 把「只写一处」
+    # 三层各管一件事：Get-LessonMeta 拦「形状不对就别写」（闸 2i(e) 杀）；实例 Replace 第三实参 1 把「只写一处」
     # 变成结构事实（静态重载没有次数版，见上）；-ceq 拦「一个字节没改却报成功」——锚定形态漂移时只有它能变红
     # （闸 2c(b) 杀）。行首锚定与 Get-LessonMeta 的 `^-\s+date:` 同形，否则两者对「哪行是 meta 行」的认定会分家。
     $newBlock = [Regex]::new('(?m)^(-\s+date:.*?recurrence:\s*)\d+').Replace($block, ('${1}' + $new), 1)
