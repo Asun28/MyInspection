@@ -55,7 +55,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-# -SizeOnly 与两个提前返回操作互斥：组合起来不会得到可信的预算测量结果。
+# Size measurement cannot combine with an early-return operation.
 if ($SizeOnly -and ($ResetRounds -or $SkipReview)) {
   $otherOperation = if ($ResetRounds) { '-ResetRounds' } else { '-SkipReview' }
   Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly and $otherOperation are independent operations and cannot be combined." -ForegroundColor Red
