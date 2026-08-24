@@ -12830,11 +12830,11 @@ if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-overflow' -and $args -contains '--numsta
   exit 0
 }
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-blank' -and $args -contains '--numstat') {
-  [Console]::Out.Write("1`t0`tfirst.txt`n`n1`t0`tsecond.txt`n")
+  Write-Output "1`t0`tfirst.txt`n`n1`t0`tsecond.txt"
   exit 0
 }
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-sum-overflow' -and $args -contains '--numstat') {
-  [Console]::Out.Write("9223372036854775807`t0`tfirst.txt`n1`t0`tsecond.txt`n")
+  Write-Output "9223372036854775807`t0`tfirst.txt`n1`t0`tsecond.txt"
   exit 0
 }
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-row-overflow' -and $args -contains '--numstat') {
