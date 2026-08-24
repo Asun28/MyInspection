@@ -1822,7 +1822,7 @@ try {
   }
   $getLessonBlock2g = {
     param([string]$Text, [string]$Id)
-    $match = [regex]::Match($Text, "(?ms)^##[ \t]+$([regex]::Escape($Id))[ \t]*\r?$.*?(?=^##[ \t]+L\d+[ \t]*\r?$|\z)")
+    $match = [regex]::Match($Text, "(?ms)^##[ \t]+$([regex]::Escape($Id))[ \t]*\r?$.*?(?=^##[ \t]+|\z)")
     if (-not $match.Success) { return '' }
     return (($match.Value -replace "`r`n", "`n").TrimEnd("`r", "`n"))
   }
@@ -2500,10 +2500,16 @@ try {
     }
   }
 
-  # (d) 热侧标题解析仍保持严格口径；搬运器对 lesson-like 的非规范标题另在 (e) fail-closed。
+  # (d) 条目起点只认规范 `## L<n>`，但块终点是下一个任意 `## ` 标题。Appendix 下的 meta/rule
+  # 不得补全 L42，也不得被 bump L42 改写；带后缀/拆行标题仍不成为 lesson id。
   Set-Content $l2fLedger (@(
     '# fixture ledger', '',
     (& $entry2f 'L41' 'SUFFIX_CASE_LEGIT'), '',
+    '## L42',
+    '- symptom: OWN_METADATA_AND_RULE_MISSING',
+    '## Appendix',
+    '- date: 2026-08-21 ｜ tags: appendix ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 7',
+    '- rule: APPENDIX_RULE_MUST_NOT_QUALIFY_L42', '',
     (& $entry2f 'L50' 'MAX_ID_EXCLUDED'), '',
     (& $entry2f 'L45 (deprecated)' 'SUFFIXED_HEADING_NOT_AN_ENTRY'), '',
     '##', 'L46',
@@ -2514,14 +2520,18 @@ try {
   $dryD2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo -DryRun 2>&1 | Out-String)
   $dryExitD2f = $LASTEXITCODE
   $candD2f = ([regex]::Match($dryD2f, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
-  if ($candD2f -ne 'L41') { Fail "闸2f(d)：候选集应恰为 L41，实得『$candD2f』——带后缀的标题「## L45 (deprecated)」被当成了条目 id（lessons.ps1 的标题口径比 archive.ps1 宽）。output=[$dryD2f]"; $f2Fail = $true }
-  if ($dryD2f -notmatch "\[LSN-META-INVALID\][^`n]*\bL50\b") { Fail "闸2f(d)：后缀标题并入 L50 的块后应令其 meta 行重复、被点名 [LSN-META-INVALID]。output=[$dryD2f]"; $f2Fail = $true }
+  if ($candD2f -ne 'L41') { Fail "闸2f(d)：候选集应恰为 L41，实得『$candD2f』——Appendix 正文补全了 L42，或非规范标题被当成条目 id。output=[$dryD2f]"; $f2Fail = $true }
+  if ($dryD2f -notmatch "\[LSN-META-INVALID\][^`n]*\bL42\b" -or $dryD2f -notmatch "\[LSN-ENTRY-INVALID\][^`n]*\bL42\b") {
+    Fail "闸2f(d)：L42 自身缺 meta/rule，却未被两个共享不变量点名；Appendix 内容可能越界补全了它。output=[$dryD2f]"; $f2Fail = $true
+  }
+  if ($dryD2f -match "\[LSN-META-INVALID\][^`n]*\bL50\b") { Fail "闸2f(d)：后缀标题越过通用 ## 边界并入 L50，令合法 L50 被误判。output=[$dryD2f]"; $f2Fail = $true }
   if ($dryExitD2f -eq 0) { Fail "闸2f(d)：存在不可解析条目却退出 0。output=[$dryD2f]"; $f2Fail = $true }
-  foreach ($malformedId2f in @('L45', 'L46')) {
+  foreach ($malformedId2f in @('L42', 'L45', 'L46')) {
     $bumpD2f = (& pwsh -NoProfile -File $l2fLessons bump $malformedId2f -RepoRoot $l2fRepo 2>&1 | Out-String)
-    if ($LASTEXITCODE -eq 0) { Fail "闸2f(d)：非整行标题 $malformedId2f 被 bump 成功修改。output=[$bumpD2f]"; $f2Fail = $true }
+    if ($LASTEXITCODE -eq 0) { Fail "闸2f(d)：不可写目标 $malformedId2f 被 bump 成功修改。output=[$bumpD2f]"; $f2Fail = $true }
     if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashD2f) { Fail "闸2f(d)：bump 拒绝 $malformedId2f 后仍改写了 LEDGER。"; $f2Fail = $true }
   }
+  if ((Get-Content $l2fLedger -Raw) -notmatch 'tags: appendix.*recurrence: 7') { Fail '闸2f(d)：bump L42 改写了 Appendix 的 recurrence。'; $f2Fail = $true }
   $definedD2f = Get-LessonDefinitionIdSet -LedgerPath $l2fLedger -ArchivePath $l2fArchive
   $danglingD2f = @((Get-LessonReferenceIdSet 'resident refs L45 and [L46]').Keys | Where-Object { -not $definedD2f.ContainsKey($_) } | Sort-Object)
   if (($danglingD2f -join ',') -ne 'L45,L46') {

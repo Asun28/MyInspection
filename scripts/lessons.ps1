@@ -203,13 +203,13 @@ function Get-LessonMeta([string]$Block) {
 function Get-LessonsFromPath([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return @() }
   $raw = Get-Content -LiteralPath $Path -Raw
-  # 标题形态与 archive.ps1 的 Get-LedgerHeadings 同口径：整行**恰为** `## L<n>`。松口径（只看 `## L` 前缀）会把
-  # `## L42 (deprecated)` 当条目，而搬运器不认，于是选择器交出一个它眼里不存在的 id、报出与真因无关的
-  # 「未知 id / 最高 id」。`[ \t]*` 而非 `\s*`：后者会吃掉换行。
-  $blocks = [regex]::Split($raw, '(?m)^##[ \t]+(?=L\d+[ \t]*(?:\r?$))') | Where-Object { $_ -match '^L\d' }
+  # 起点只认整行 `## L<n>`；终点与 archive.ps1 一致，是下一个任意 `## ` 标题。否则 Appendix 下的
+  # meta/rule 会越界补全前一条 lesson，而搬运器实际只移动 Appendix 之前的半块。
+  $blocks = [regex]::Matches($raw, '(?ms)^##[ \t]+(?<id>L\d+)[ \t]*\r?$.*?(?=^##[ \t]+|\z)')
   $out = @()
-  foreach ($b in $blocks) {
-    $id = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
+  foreach ($blockMatch in $blocks) {
+    $b = $blockMatch.Value
+    $id = $blockMatch.Groups['id'].Value
     $meta = Get-LessonMeta $b
     if ((Get-LessonNumber $id) -lt 0) {
       $meta = [pscustomobject]@{ Ok = $false; Error = "id '$id' 数值超出 Int32 可解析范围"; Fields = @{} }
@@ -486,9 +486,8 @@ switch ($Command) {
     if ((Test-Path $BumpArchive) -and ($BumpArchive -ne $LessonsArchive)) { Throw-ArchivedLessonReadOnly $Query $BumpArchive }
     if (-not (Test-Path $BumpLedger)) { throw "总账不存在: $BumpLedger" }
     $raw = Get-Content $BumpLedger -Raw
-    # 抠出该 id 的块。标题口径与 Get-LessonsFromPath / archive.ps1 同形（整行恰为 `## L<n>`）——`\b` 的旧写法会在
-    # `## L45 (deprecated)` 处提前收尾，同一条经验遂在 bump 眼里合法、在选择器眼里 meta 行重复，两权威相反。
-    $blockRe = "(?ms)^##[ \t]+$([regex]::Escape($Query))[ \t]*(?:\r?$).*?(?=^##[ \t]+L\d+[ \t]*(?:\r?$)|\z)"
+    # 起点严格匹配目标 id，终点则是任意二级标题；读、写、搬运三条路径共享同一块边界。
+    $blockRe = "(?ms)^##[ \t]+$([regex]::Escape($Query))[ \t]*(?:\r?$).*?(?=^##[ \t]+|\z)"
     $m = [regex]::Match($raw, $blockRe)
     if (-not $m.Success) { Throw-ArchivedLessonReadOnly $Query; throw "未找到 $Query。" }
     $block = $m.Value
