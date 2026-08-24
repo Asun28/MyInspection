@@ -15,7 +15,11 @@ forbid:
 non_goals:
   - 实际导出/回读（T5-BACKUP-IO）；清理/恢复照片字节（T5-LOCAL-MEDIA-RETENTION）；备份格式 v2；S3/账号/订阅实现
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 迁移即版本评审的可执行证据：落新 `1.sqm`（schema 1→2）+ 受审快照 `databases/2.db`，测试用 `JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)` 建 v1 baseline 后调 `MyInspectionDatabase.Schema.migrate(driver, 1, 2)`，断言迁移前后既有 13 张表（photo/inspection/room_instance/…）的 `PRAGMA table_info` 列集合逐列相等、且 photo 行的 `rel_path`/`content_hash` 逐字段相等；`android/core/build.gradle.kts` 的 `verifyMigrations.set(true)` 保持 true（不改这一行、不加豁免），`verifyMainMyInspectionDatabaseMigration` 随 `:core:check` 全绿"
   - "A2 状态域封闭：`local_asset_state.state` 带 `CHECK (state IN ('PRESENT','ARCHIVED','RESTORING'))`；三个合法值各成功插入一次，`'present'`（小写）与 `'ARCHIVED '`（尾随空格）各抛 SQLite 约束异常——同 `photo.privacy_flag`/`photo.source` 的 CHECK 先例（一个域外值就绕开全部按值过滤的查询）"
   - "A3 转换带时间与原因：每次状态写入落 `changed_at`（epoch 毫秒）+ `reason`（NOT NULL）；用固定 `nz.myinspection.core.db.ClockMs { 1_700_000_000_000L }` 注入，断言 `changed_at` 恰等 1700000000000（不是「大于 0」）；`reason` 传空串 `\"\"` 被拒并带新增状态码 `[ARCHIVE-STATE-REASON-EMPTY]`，传 1 字符 `\"a\"` 通过"

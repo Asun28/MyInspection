@@ -21,7 +21,11 @@ non_goals:
   - 把 triage.ps1 / archive.ps1 等其它脚本也纳入 DocSyncMap（同类面各自评估，本卡只做 lessons.ps1 这一处）
   - 重新设计 doc-drift 闸的耦合模型
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 机检缺口先证其存在（RED 先行）：在补 DocSyncMap 之前，构造一次只改 scripts/lessons.ps1、完全不碰任何文档的提交，跑闸 14f/17 得 **PASS**——记录该退出码作为「今天这条耦合不存在」的证据"
   - "A2 补上耦合后同一场景必红：`scripts/_config.ps1` 的 DocSyncMap 新增 `'scripts/lessons\\.ps1'` 键，值至少含 `docs/LESSONS.md`；A1 的同一次「只改脚本不改文档」必须变为**非零**，且失败文案点名 lessons.ps1 与未被触及的文档路径"
   - "A3 正例不误伤：同时改 scripts/lessons.ps1 与 docs/LESSONS.md 的提交，闸 14f/17 仍 PASS（否则闸变成「改脚本必须改文档」的噪音，必被绕过）"

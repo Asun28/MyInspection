@@ -17,7 +17,11 @@ non_goals:
   - 采集期真正实例化 room_instance 的状态机（T2-CAPTURE-CORE 消费本卡产出）
   - 真实模板内容里逐房间标注 repeatable（T2-ROUTINE-CONTENT / T6-TEMPLATES-REST）
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 版本评审即迁移闸的可执行证据：落新 `1.sqm`（schema 1→2）+ 同步更新受审快照 `databases/2.db`，`android/core/build.gradle.kts` 的 `verifyMigrations.set(true)` 与 `schemaOutputDirectory.set(file(\"src/main/sqldelight/databases\"))` 两行逐字不变（不加豁免、不改开关），`verifyMainMyInspectionDatabaseMigration` 随 `:core:check` 全绿；测试用 `JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)` 建 v1 baseline 后调 `MyInspectionDatabase.Schema.migrate(driver, 1, 2)`，断言迁移后 `check_item_def` 的 `PRAGMA table_info` 列名有序集合与迁移前**逐列相等**（房间定义走新表、绝不给 check_item_def 加列），且既有 3 行的 `stable_id`/`room`/`sort` 逐字段相等"
   - "A2 房间定义表形态闭集：新表 `template_room_def`，`PRAGMA table_info` 列名有序集合逐一等于 (`id`, `template_version_id`, `room_key`, `repeatable`, `sort`, `created_at`, `updated_at`, `deleted_at`)；`repeatable INTEGER NOT NULL` 带 `CHECK (repeatable IN (0, 1))`（同 `photo.privacy_flag` 先例）——写 0 与 1 各成功一次，写 2 与 -1 各抛 SQLite 约束异常；建部分唯一索引 `ON template_room_def (template_version_id, room_key) WHERE deleted_at IS NULL`（同 `idx_check_item_def_active` 先例），同版本重复 room_key 抛约束异常、不同版本同 room_key 两行均插入成功"
   - "A3 JSON 形态向后兼容（这是 non_goals 第 2 条的可证伪面）：`Template` 增 `rooms: List<TemplateRoom> = emptyList()`，新增类型 `TemplateRoom(key: String, repeatable: Boolean = false)` 落 `Template.kt`；对**缺 `rooms` 键**的既有字节 `data/templates/routine-v1.json`（经 `resources.srcDir(\"../../data/templates\")` 从测试类路径读原字节），`LoadedTemplate.parse` 成功且 `rooms.isEmpty()` 为 true、`TemplateLoader.validate` 返回**空列表**；含 `rooms` 键的字节解析出等长列表；键名拼错的 `roomsX` 仍抛 `kotlinx.serialization.SerializationException`（严格未知字段模式未被放宽）"
