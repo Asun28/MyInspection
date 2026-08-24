@@ -11223,7 +11223,7 @@ $realRcPath = Join-Path $RepoRoot 'docs/RELEASE-CHECKLIST.md'
 $realRcHashBefore = (Get-FileHash -LiteralPath $realRcPath -Algorithm SHA256).Hash
 $rcSentinel = '[GRADLE-LIC-SCANNER-ONLY]'
 # 规范项文本的 SHA-256（UTF-8 字节，行尾已由 Get-Content 剥离）。改这一项的措辞 → 同步改这里，二者是一对。
-$rcCanonHash = '2689BF3DE16AAE33C12FFA5248C0FA6C7A621BA553A4D3A822D81C14A71440BC'
+$rcCanonHash = '20B95EC458FF555D0687ADFA4939064D925402F5A9A304A4D88FC0579D0AD194'
 $rcEditorWarning = '<!-- 编辑本项的任何字符都须同步更新 scripts/selftest.ps1 的 17ee $rcCanonHash，并重跑 pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded。 -->'
 $rcOrigLines = Get-Content -LiteralPath $realRcPath
 # 内联不经 GetNewClosure()：$LASTEXITCODE 需取子进程调用后的新鲜值（同 17cc(reparse-mut) 的注记）。

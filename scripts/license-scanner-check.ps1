@@ -113,10 +113,21 @@ if ($Suite -eq 'integration') {
       if ($null -ne $bound -and $null -ne $bound.Argument) { $targets.Add($bound.Argument) }
     }
     $elements = @($Command.CommandElements)
+    $commandInfo = @(Get-Command $Command.GetCommandName() -ErrorAction SilentlyContinue | Select-Object -First 1)
     for ($i = 1; $i -lt $elements.Count; $i++) {
       $element = $elements[$i]
       if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
-        if ($null -eq $element.Argument -and $i + 1 -lt $elements.Count -and $elements[$i + 1] -isnot [System.Management.Automation.Language.CommandParameterAst]) { $i++ }
+        $consumesNext = $true
+        if ($commandInfo.Count -eq 1) {
+          $parameterMatches = @($commandInfo[0].Parameters.Values | Where-Object {
+            $_.Name.StartsWith($element.ParameterName, [System.StringComparison]::OrdinalIgnoreCase)
+          })
+          if ($parameterMatches.Count -eq 1 -and $parameterMatches[0].ParameterType -eq [switch]) {
+            $consumesNext = $false
+          }
+        }
+        if ($consumesNext -and $null -eq $element.Argument -and $i + 1 -lt $elements.Count -and
+            $elements[$i + 1] -isnot [System.Management.Automation.Language.CommandParameterAst]) { $i++ }
         continue
       }
       $targets.Add($element)
@@ -132,21 +143,24 @@ if ($Suite -eq 'integration') {
     return $Node.Extent.Text
   }
 
-  function Test-ConstantCondition {
+  function Get-StaticConditionState {
     param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Condition)
     # `if ($false)` / `if ($true)` / `if (0)` 这类条件在语法上就不是运行期判断——它只会把被包住的语句
     # 静态关掉（或恒开）。真实的分片门 `if ($Shard -eq 'seeded')` 是 BinaryExpressionAst，不在此列。
     $pipeline = $Condition
-    if ($pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return $false }
+    if ($pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return 'dynamic' }
     $elements = @($pipeline.PipelineElements)
-    if ($elements.Count -ne 1) { return $false }
-    if ($elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return $false }
+    if ($elements.Count -ne 1) { return 'dynamic' }
+    if ($elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return 'dynamic' }
     $expression = $elements[0].Expression
-    if ($expression -is [System.Management.Automation.Language.ConstantExpressionAst]) { return $true }
-    if ($expression -is [System.Management.Automation.Language.VariableExpressionAst]) {
-      return @('true', 'false') -contains $expression.VariablePath.UserPath
+    if ($expression -is [System.Management.Automation.Language.ConstantExpressionAst]) {
+      return $(if ([bool]$expression.Value) { 'true' } else { 'false' })
     }
-    return $false
+    if ($expression -is [System.Management.Automation.Language.VariableExpressionAst]) {
+      if ($expression.VariablePath.UserPath -eq 'true') { return 'true' }
+      if ($expression.VariablePath.UserPath -eq 'false') { return 'false' }
+    }
+    return 'dynamic'
   }
 
   function Test-AstCommandStaticallyLive {
@@ -159,16 +173,30 @@ if ($Suite -eq 'integration') {
       if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
           $ancestor -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) { return $false }
       if ($ancestor -is [System.Management.Automation.Language.IfStatementAst]) {
-        foreach ($clause in $ancestor.Clauses) {
+        $commandClause = -1
+        for ($clauseIndex = 0; $clauseIndex -lt $ancestor.Clauses.Count; $clauseIndex++) {
+          $clause = $ancestor.Clauses[$clauseIndex]
           $body = $clause.Item2
-          if ($Command.Extent.StartOffset -lt $body.Extent.StartOffset -or
-              $Command.Extent.EndOffset -gt $body.Extent.EndOffset) { continue }
-          $condition = $clause.Item1
-          if (-not (Test-ConstantCondition -Condition $condition)) { continue }
-          $conditionText = $condition.Extent.Text.Trim()
-          if ($conditionText -ceq '$false' -or $conditionText -ceq '0') { return $false }
+          if ($Command.Extent.StartOffset -ge $body.Extent.StartOffset -and
+              $Command.Extent.EndOffset -le $body.Extent.EndOffset) { $commandClause = $clauseIndex; break }
+        }
+        if ($commandClause -ge 0) {
+          for ($clauseIndex = 0; $clauseIndex -lt $commandClause; $clauseIndex++) {
+            if ((Get-StaticConditionState -Condition $ancestor.Clauses[$clauseIndex].Item1) -eq 'true') { return $false }
+          }
+          if ((Get-StaticConditionState -Condition $ancestor.Clauses[$commandClause].Item1) -eq 'false') { return $false }
+        } elseif ($null -ne $ancestor.ElseClause -and
+                  $Command.Extent.StartOffset -ge $ancestor.ElseClause.Extent.StartOffset -and
+                  $Command.Extent.EndOffset -le $ancestor.ElseClause.Extent.EndOffset) {
+          foreach ($clause in $ancestor.Clauses) {
+            if ((Get-StaticConditionState -Condition $clause.Item1) -eq 'true') { return $false }
+          }
         }
       }
+      if (($ancestor -is [System.Management.Automation.Language.WhileStatementAst] -or
+           $ancestor -is [System.Management.Automation.Language.ForStatementAst]) -and
+          $null -ne $ancestor.Condition -and
+          (Get-StaticConditionState -Condition $ancestor.Condition) -eq 'false') { return $false }
       $ancestor = $ancestor.Parent
     }
     return $true
@@ -573,6 +601,8 @@ if ($Suite -eq 'integration') {
     # 这正是「闸还在、但已经不会执行」的形态。
     @{ Id = 'selftest-call-dead-guard'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
     @{ Id = 'selftest-call-uncalled-function'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-function'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-dead-else'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-else'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-dead-loop'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-while-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
     # INLINE 覆盖的每条路径各一枚变异：具名路径参数（下一枚）· 位置实参（不写 -LiteralPath/-Path）·
     # .NET 静态写方法（根本不是 CommandAst）· 把路径先赋给变量再写（extent 只剩变量名）· 文件重定向。
     # 五枚共同证明这条契约覆盖的是**写入原语**，而不是某个变量名。
@@ -581,6 +611,7 @@ if ($Suite -eq 'integration') {
     @{ Id = 'selftest-inline-fixture-dotnet-write'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n[System.IO.File]::WriteAllText((Join-Path `$restoredFixtureRoot 'android/gradlew.bat'), 'fixture', [System.Text.UTF8Encoding]::new(`$false))`n" },
     @{ Id = 'selftest-inline-fixture-hoisted-path'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n`$restoredWrapperPath = Join-Path `$restoredFixtureRoot 'android/gradlew.bat'`nSet-Content -LiteralPath `$restoredWrapperPath -Encoding utf8 -Value 'fixture'`n" },
     @{ Id = 'selftest-inline-fixture-redirection'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n'fixture' > 'android/gradlew.bat'`n" },
+    @{ Id = 'selftest-inline-switch-before-positional'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`nSet-Content -NoNewline (Join-Path `$RepoRoot 'android/gradlew.bat') -Value 'fixture'`n" },
     @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     # The same text nested under the preceding run scalar is inert YAML. Whole-file regex counting used to accept
@@ -597,6 +628,8 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-exec-commented-out'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)if \(Test-Path \$f\).*check-licenses\.ps1.*$'; Text = "Write-Host 'gate disabled'  # pwsh -NoProfile -File scripts/check-licenses.ps1" },
     @{ Id = 'ci-scanner-exec-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-scanner-exec-uncalled-function'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-function-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
+    @{ Id = 'ci-scanner-exec-dead-else'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-else-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
+    @{ Id = 'ci-scanner-exec-dead-loop'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-while-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
     # `shell:` 的**值**：下面整段 run: 块分析都按 PowerShell 解析它，改成 bash 后此前一路绿到底。
@@ -657,8 +690,12 @@ if ($Suite -eq 'integration') {
         # 语句原样保留，只把它包进恒假的 if：AST 上那条命令仍在，「存在」类断言全绿，唯有存活性会红。
         'wrap-false' { $wmRegex.Replace($original, { param($m) 'if ($false) { ' + $m.Value.Trim() + ' }' }, 1) }
         'wrap-function' { $wmRegex.Replace($original, { param($m) 'function Invoke-InertIntegrationGate { ' + $m.Value.Trim() + ' }' }, 1) }
+        'wrap-else' { $wmRegex.Replace($original, { param($m) 'if ($true) { } else { ' + $m.Value.Trim() + ' }' }, 1) }
+        'wrap-while-false' { $wmRegex.Replace($original, { param($m) 'while ($false) { ' + $m.Value.Trim() + ' }' }, 1) }
         'wrap-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'if ($false) { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'wrap-function-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'function Invoke-InertLicenseGate { ' + $m.Groups['body'].Value + ' }' }, 1) }
+        'wrap-else-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'if ($true) { } else { ' + $m.Groups['body'].Value + ' }' }, 1) }
+        'wrap-while-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'while ($false) { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'insert-after' { $wmRegex.Replace($original, { param($m) $m.Value + "`n" + $wm.Text }, 1) }
         'reorder' { Move-WorkflowStepBefore -Text $original -Step $wm.Step -Before $wm.Before }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
@@ -2305,12 +2342,14 @@ $parserCases = @(
     Lines = @('+--- fixture.empty:selector: -> 1.0')
     Coordinates = @()
     ErrorCodes = @('GRADLE-PARSE')
+    DiagnosticEdges = @('fixture.empty:selector: -> 1.0')
   },
   @{
     Name = 'empty-redirect-tail'
     Lines = @('+--- fixture.tail:empty:1.0 ->')
     Coordinates = @()
     ErrorCodes = @('GRADLE-PARSE')
+    DiagnosticEdges = @('fixture.tail:empty:1.0 ->')
   },
   # 「选中目标是个畸形 project 边」那一处 fail-closed 此前零覆盖：selected-targets 只走了
   # 「选中内部 project」与「选中外部 module」两条正常分支。
@@ -2329,6 +2368,10 @@ foreach ($case in $parserCases) {
   })
   Assert-Graph (($actualCoordinates -join ',') -ceq ($case.Coordinates -join ',')) "parser/$($case.Name) returned wrong GAVs: $($actualCoordinates -join ', ')"
   Assert-Graph (($actualCodes -join ',') -ceq ($case.ErrorCodes -join ',')) "parser/$($case.Name) returned wrong error codes: $($actualCodes -join ', ')"
+  $diagnosticEdges = if ($case.ContainsKey('DiagnosticEdges')) { @($case.DiagnosticEdges) } else { @() }
+  foreach ($diagnosticEdge in $diagnosticEdges) {
+    Assert-Graph (($result.Errors -join "`n").Contains($diagnosticEdge)) "parser/$($case.Name) omitted original edge text: $diagnosticEdge"
+  }
 }
 
 # Break caught: graph collection must be independently consumable by policy code. It must execute
@@ -2799,6 +2842,12 @@ if (-not $SkipMutations) {
       From = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge'
       To = '      $null = $displayBody # malformed external edge'
       Expected = 'parser/empty-redirect-tail returned wrong error codes'
+    },
+    @{
+      Name = 'external-tail-diagnostic-edge'
+      From = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge'
+      To = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边 [GRADLE-PARSE]") # malformed external edge'
+      Expected = 'omitted original edge text'
     },
     # 「选中目标是畸形 project 边」的 fail-closed（此前零覆盖）。
     @{

@@ -121,8 +121,9 @@
    它串行聚合 graph/policy/diagnostics/gav-bounds 四个专用套件，并对真实仓执行 `-Strict` 扫描、确认
    `org.testng:testng` 被逐坐标报告。CI 里 License gate 步骤排在 JDK/Android/Gradle setup 与在线 cache
    warm-up **之后**（该顺序由上述套件的 `[INTEGRATION-CI-ORDER-SEQUENCE]` 断言机检）；但那四步另有
-   `hashFiles('android/gradlew.bat') != ''` 条件，该文件缺席时它们不执行、License gate 仍会跑——此时没有
-   Gradle 清单可扫，只余 PyPI/npm 两半。**只有 Gradle 那一半强制离线**（`--offline --no-daemon`，复用上一步
+   `hashFiles('android/gradlew.bat') != ''` 条件，该文件缺席时它们不执行、License gate 仍会跑并独立发现
+   Gradle 清单：确无清单才只余 PyPI/npm；有清单但 wrapper/缓存不可用则以 `GRADLE-WRAPPER-OFFLINE`
+   fail-closed。**只有 Gradle 那一半强制离线**（`--offline --no-daemon`，复用上一步
    预热的缓存）；PyPI/npm 扫描器可按需联网装配（见 `.github/workflows/ci.yml` 的 License gate 注释）。
 2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（自动许可扫描不覆盖这些资产）。
 3. Codex 评审闸门会阻断疑似 copyleft/非商用片段。
