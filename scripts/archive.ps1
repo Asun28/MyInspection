@@ -91,7 +91,7 @@ function Get-LedgerHeadings([string[]]$lines) {
   for ($i = 0; $i -lt $lines.Count; $i++) {
     # F11（R3）：同时保留**逐字 id 串**（Id）与数值（Number）——只存 [int] 会让 L02 别名撞上 L2 的块；
     # 定位/判存一律按 Id 精确串比，Number 只用于「最高 id」数值比较。
-    # 位数上界 9：下一行就 [int] 它，超 Int32 会让整个脚本抛裸 .NET 转换异常。超界的标题一律不当条目标题
+    # 下一行就 [int] 它，超 Int32 会让整个脚本抛裸 .NET 转换异常。超出 Int32 范围的标题一律不当条目标题
     # （仍作为区间终点参与 `^##\s` 切块），于是「解析不了的 id」永远不会被搬——与 lessons.ps1 的
     # Get-LessonNumber 同一个上界，两侧对「哪些 id 可处理」的认定不分家。
     # 位数上界改为 TryParse：判据就是 Int32 范围本身，与 lessons.ps1 的 Get-LessonNumber 同源。
@@ -286,7 +286,7 @@ if ($lessonsUsed) {
       $ledgerBlockNorm = ((Get-LineSlice $ledgerLines $h.Start $h.End) -join "`n").TrimEnd()
       $archiveBlockNorm = ((Get-LineSlice $archiveLines $ha.Start $ha.End) -join "`n").TrimEnd()
       if ($ledgerBlockNorm -ne $archiveBlockNorm) {
-        Write-Warning "archive.ps1 -LessonIds：$id 两侧并存且内容不一致（疑似归档陈旧 / 在册已更新）——拒绝自动清除，双侧未动，请人工核对后再定。"
+        Write-Warning "[ARCHIVE-LESSON-REJECT-CONFLICT] archive.ps1 -LessonIds：$id 两侧并存且内容不一致（疑似归档陈旧 / 在册已更新）——拒绝自动清除，双侧未动，请人工核对后再定。"
         $lessonsReport.Add("  [冲突-两侧不一致] $id"); $lsFailed++; continue
       }
       $ledgerLines = (Get-LineSlice $ledgerLines 0 $h.Start) + (Get-LineSlice $ledgerLines $h.End $ledgerLines.Count)

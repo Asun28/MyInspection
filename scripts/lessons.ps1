@@ -191,7 +191,7 @@ function Get-LessonMeta([string]$Block) {
   if ($fields['date'] -notmatch '^\d{4}-\d{2}-\d{2}$') { return [pscustomobject]@{ Ok = $false; Error = "date 非法：'$($fields['date'])'"; Fields = @{} } }
   if ($fields['tier'] -notin @('must', 'ondemand', 'ledger')) { return [pscustomobject]@{ Ok = $false; Error = "tier 非法：'$($fields['tier'])'"; Fields = @{} } }
   if ($fields['severity'] -notin @('blocking', 'major', 'minor')) { return [pscustomobject]@{ Ok = $false; Error = "severity 非法：'$($fields['severity'])'"; Fields = @{} } }
-  # 上界 9 位：下面会 [int] 它，超 Int32 在 $ErrorActionPreference='Stop' 下是终止性异常——一条坏条目就让
+  # 判据是 **Int32 范围本身**（TryParse），不是位数：下面会 [int] 它，超 Int32 在 $ErrorActionPreference='Stop' 下是终止性异常——一条坏条目就让
   # list/search/check/archive 全体抛裸 .NET 消息，连「先 search 查经验」这个入口都没了。越界归本条 fail-closed。
   # 同 Get-LessonNumber：位数不是 Int32 范围的等价判据。TryParse 既拦溢出，又不误杀合法的 10 位值。
   $recNum = 0
@@ -212,7 +212,7 @@ function Get-LessonsFromPath([string]$Path) {
     $id = ([regex]::Match($b, '^(L\d+)')).Groups[1].Value
     $meta = Get-LessonMeta $b
     if ((Get-LessonNumber $id) -lt 0) {
-      $meta = [pscustomobject]@{ Ok = $false; Error = "id '$id' 数值超出可解析范围（>9 位）"; Fields = @{} }
+      $meta = [pscustomobject]@{ Ok = $false; Error = "id '$id' 数值超出 Int32 可解析范围"; Fields = @{} }
     }
     $f = $meta.Fields
     # meta 行不合法时**不猜**：字段留空/0，metaOk=$false 让下游自己决定 fail-closed 的方式。
@@ -459,7 +459,12 @@ switch ($Command) {
     # 「本检出已把 Lx 归冷、而主检出的 LEDGER 里 Lx 仍是热的」这条真实路径会命中块、照常改写、exit 0，
     # 冷存只读提示一次都不出现。写哪一份账本，就得连同那一份的冷库一起判——否则判据与写入面分家。
     # 两个平面任一为冷即拒（fail-closed）：id 在任何一侧已归冷，热/冷对就已经不一致，此时写入只会加深它。
-    $BumpArchive = Join-Path (Split-Path -Parent (Split-Path -Parent $BumpLedger)) 'specs/archive/lessons-archive.md'
+    # 三级父目录才是检出根：<root>/docs/lessons/LEDGER.md → docs/lessons → docs → <root>。
+    # 早先只上溯两级，算出 <root>/docs/specs/archive/... 这个永不存在的路径，于是 Test-Path 恒 false、
+    # 主检出那侧的冷库**一次都没被看过**；而 2g(f) 仍然绿，因为它被前一道（本工作树冷库）那条守卫满足了
+    # ——断言被另一条路径满足，正是 L165 要根除的形态。
+    $BumpRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $BumpLedger))
+    $BumpArchive = Join-Path $BumpRoot 'specs/archive/lessons-archive.md'
     Throw-ArchivedLessonReadOnly $Query
     if ((Test-Path $BumpArchive) -and ($BumpArchive -ne $LessonsArchive)) { Throw-ArchivedLessonReadOnly $Query $BumpArchive }
     if (-not (Test-Path $BumpLedger)) { throw "总账不存在: $BumpLedger" }
