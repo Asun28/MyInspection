@@ -183,6 +183,15 @@ block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接�
 ③ `T0-LICENSE-SCANNER`（偿还 TD2；落地即解锁 `docs/RELEASE-CHECKLIST.md` 的 Gradle 发布阻断项与 `-Strict` 退出 0）；
 ④ `T1-SPIKE-PLATFORM`（需用户真机约 15 分钟）。
 
+**复发计数不再随卡片丢失**：`T0-LESSONS-BUMP-PLANE` **merged**（2026-08-23，master `edc2770`，PR #129）——
+`lessons.ps1 bump` 的账本平面由 `$PSScriptRoot/..` 改为经 `git rev-parse --git-common-dir` 解析的**主检出**，
+于是在卡片 worktree 里跑 bump 也立刻落账、且永不进卡片 diff（此前它会被范围闸与 R3 #7 正确拦下，计数遂
+结构性丢失——卡片工作全在 worktree 里做）。只有 `bump` 走这条平面：`add` 随卡入库是有意的，`promote` 只打印。
+Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**R3 四轮 + 一次 R3 前 codex 预审共出 5 条真缺陷**
+（漏判 git 退出码 · 闸只在 Windows 真跑过 · 继承的 `GIT_*` 可把计数写进**另一个仓库** · 闸未证明「那次禁止的写入
+没发生」），8 枚变异全杀；末轮 pass 零发现。**方法论**：ship 前先把 `origin/master` 合上来——第 1 轮 3 条 finding
+全是「分支落后一个提交」被评审读成「本分支在撤销它」的假象，白烧一轮。
+
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
 2. `docs/LICENSE-POLICY.md` — 依赖许可硬规则
