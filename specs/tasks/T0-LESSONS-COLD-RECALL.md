@@ -40,7 +40,7 @@ acceptance:
   - "A8 非法值面六枚逐一可杀：同名字段重复、date: 2026-8-1、severity: fatal、kind: bogus、recurrence: many、recurrence 超 Int32 上界，各一条夹具；六条全部被 [LSN-META-INVALID] 点名且实跑后仍在 LEDGER。溢出那条另断言**只读召回面不被一条坏条目废掉**：list 与 search **exit 0** 且输出不含裸 .NET 转换异常文本。check 按 A10 仍须**非零退出**——本条的「可用」指不抛裸异常，不指 exit 0，二者不冲突"
   - "A9 bump 只信规范 meta 行：夹具 meta 行无 recurrence、正文含 recurrence: 7；断言 bump 非零退出并输出 [LSN-META-INVALID]，且 LEDGER 字节 SHA256 前后不变（当前实现会打印绿字 7 → 8、exit 0、实际零写入，并建议 promote）"
   - "A10 check 两向：含 A4–A8 任一非法条目时 check 非零退出且输出含 [LSN-META-INVALID]；同时对真仓全量 LEDGER 跑 check 仍 exit 0，防新校验器误伤既有账本"
-  - "A11 冷项 round-trip：搬冷后 search 在冷段以 [archived] L<id> 召回；bump 与 promote 均非零退出，输出含 [LSN-ARCHIVED-READONLY] 与「移回 docs/lessons/LEDGER.md」的修法"
+  - "A11 冷项 round-trip：搬冷后 search 在冷段以 [archived] L<id> 召回；bump 与 promote 均非零退出，输出含 [LSN-ARCHIVED-READONLY] 与可执行的 -RestoreLessonIds 修法；按该修法恢复后两命令可用且冷热并集仍恰有一份完整条目"
   - "A12 闸 16 并集接线非真空：夹具仓造只存在于冷库的 ## L903 并从 docs/ 引用它；把 Get-LessonDefinitionIdSet 调用处的 -ArchivePath 实参删掉即变红（只直测 helper 证明不了接线）"
   - "A13 预览与实跑同口径：archive -DryRun 须透传到 archive.ps1 -DryRun。经本入口**实际可达**的搬运器拒绝共两类，各配一枚夹具、均须在预览里出现搬运器自己的 ASCII 哨兵、同样非零退出、零写入：① 非规范别名 id（前导零）；② 冷热两侧并存但内容不逐字一致。另两类（拒最高 id / 拒未知 id）经本入口**结构上不可达**——最高 id 已被选择器先行排除，候选恒取自热账本标题——故**不要求**夹具，但须在 docs/LESSONS.md 写明其不可达的理由。另注入一次同名 .tmp 目录令暂存写失败，断言非零退出且热/冷两侧 SHA256 均不变"
   - "A14 幂等含非平凡分支：无新候选时重跑零写入；追加把已归档条目整块粘回 LEDGER 造两侧并存态，重跑须自愈补齐、归档侧标题恰 1 次、归档字节 SHA256 不变"

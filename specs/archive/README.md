@@ -10,7 +10,7 @@
 | `tech-debt-archive.md` | 同上债项的**整行**（含完整还债指针 = 机构记忆，append-only） | 命中索引后按 id 取整行细节 |
 | `cards-index.md` | 已 `merged` 卡的**精简索引**（id · 状态 · 标题） | 找某张老卡先看这里 |
 | `tasks/<id>.md` | 已 `merged` 卡**原文** | 需要完整卡时打开 |
-| `lessons-archive.md` | 已归档/合并的 `docs/lessons/LEDGER.md` **lesson 条目整块**（`-LessonIds` 搬运器仍是唯一写入口） | `lessons.ps1 search` 统一召回并标 `[archived]`；也可裸 grep |
+| `lessons-archive.md` | 已归档/合并的 `docs/lessons/LEDGER.md` **lesson 条目整块**（正文只由搬运器维护） | `lessons.ps1 search` 统一召回并标 `[archived]`；也可裸 grep |
 
 ## 维护（勿手工编辑索引/归档正文——由脚本投影生成）
 - 生成/更新：`pwsh -File scripts\archive.ps1`（**幂等**；`-DryRun` 先预览会搬什么、写零文件——含 lessons：
@@ -29,6 +29,9 @@
   `[LSN-RESIDENT-SOURCE-MISSING]` 非零退出、零搬运，不把「读不到受保护集合」当成「没有条目被引用」。
   候选只是预筛，不取代人工复核。
 - **只搬不删**——append-only 语义在归档侧延续，还债/交付轨迹一条不丢。
+- lesson 冷库的唯一反向例外是恢复命令：
+  `pwsh -File scripts\archive.ps1 -LessonsOnly -RestoreLessonIds L<n>`。它无损移动完整块冷→热，让随后
+  `bump/promote` 可用；热侧落盘后冷侧替换失败只会留下可重跑自愈的两侧并存态。勿手工复制/删除正文。
 - 何时跑：每张卡合并后的 R5 doc-sync 顺手跑一次（幂等、-DryRun 可先预览）；或发现活文件里闭合项开始堆积时手动跑。
 - 锁：`scripts/selftest.ps1` 子闸 **12e** 以 hermetic 夹具验证热/冷分区、索引条数一致、幂等（含 lessons 子夹具：
   逗号形式精确文本搬运、幂等、拒最高 id、拒未知 id、空 token 与 DryRun 亦 fail-closed、归档与 LEDGER

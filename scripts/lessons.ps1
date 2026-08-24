@@ -240,9 +240,21 @@ function Get-AllLessons {
   return @($hot + $cold)
 }
 
+# `check` 与会移动数据的 `archive` 共用同一组条目不变量；选择器不得把 metaOk 误当成完整有效。
+function Get-LessonInvariantErrors($Lesson) {
+  $errors = [System.Collections.Generic.List[string]]::new()
+  if (-not $Lesson.metaOk) { $errors.Add('meta-invalid') }
+  if (-not $Lesson.rule) { $errors.Add('missing-rule') }
+  if ($Lesson.metaOk -and $Lesson.severity -eq 'blocking' -and -not $Lesson.enforced_by) {
+    $errors.Add('blocking-missing-enforced-by')
+  }
+  return $errors.ToArray()
+}
+
 function Throw-ArchivedLessonReadOnly([string]$Id, [string]$ArchivePath = $LessonsArchive) {
   if (@(Get-LessonsFromPath $ArchivePath | Where-Object id -eq $Id).Count) {
-    throw "[LSN-ARCHIVED-READONLY] $Id 位于冷库；如需 bump/promote，请先把该条目整块移回 docs/lessons/LEDGER.md，再执行写操作。"
+    $restoreRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ArchivePath))
+    throw "[LSN-ARCHIVED-READONLY] $Id 位于冷库；请先运行 pwsh -File scripts/archive.ps1 -RepoRoot `"$restoreRoot`" -LessonsOnly -RestoreLessonIds $Id，再执行 bump/promote。"
   }
 }
 
@@ -364,8 +376,9 @@ switch ($Command) {
     $fail = $false
     # 规范 meta 行完整性：先于其余校验，因为下面每一条判定（tier 漂移、must 封顶、晋升门槛）都读这些字段。
     # 元数据读不出来就不能假装读出了默认值——那正是「正文诱饵冒充元数据」的入口。
-    $badMeta = @($ls | Where-Object { -not $_.metaOk })
-    foreach ($bm in $badMeta) { Write-Warning "[LSN-META-INVALID] $($bm.id) 的规范 meta 行不合法：$($bm.metaError)" }
+    $validation = @($ls | ForEach-Object { [pscustomobject]@{ Lesson = $_; Errors = @(Get-LessonInvariantErrors $_) } })
+    $badMeta = @($validation | Where-Object { $_.Errors -contains 'meta-invalid' })
+    foreach ($bm in $badMeta) { Write-Warning "[LSN-META-INVALID] $($bm.Lesson.id) 的规范 meta 行不合法：$($bm.Lesson.metaError)" }
     if ($badMeta.Count) { $fail = $true } else { Write-Host '规范 meta 行 ✓' }
     # id 唯一
     $dup = $ls | Group-Object id | Where-Object Count -gt 1
@@ -420,12 +433,12 @@ switch ($Command) {
       }
     }
     # 字段完整
-    $bad = $ls | Where-Object { -not $_.rule }
-    if ($bad) { Write-Warning "缺 rule 字段：$($bad.id -join ', ')"; $fail = $true } else { Write-Host '字段完整 ✓' }
+    $bad = @($validation | Where-Object { $_.Errors -contains 'missing-rule' } | ForEach-Object Lesson)
+    if ($bad.Count) { Write-Warning "[LSN-ENTRY-INVALID] 缺 rule 字段：$($bad.id -join ', ')"; $fail = $true } else { Write-Host '字段完整 ✓' }
     # enforced_by：blocking 经验必须声明机械守卫（脚本/闸门路径）或显式 'none（理由）'——
     #   OpenAI《Harness Engineering》「让同一错误不可复发」：把会卡死/返工的坑从「上下文提醒」升级为「确定性守卫」，或至少显式承认无守卫。
-    $blkNoEnf = $ls | Where-Object { $_.severity -eq 'blocking' -and -not $_.enforced_by }
-    if ($blkNoEnf) { Write-Warning "blocking 经验缺 enforced_by（须填机械守卫路径，或 'none（理由）'）：$($blkNoEnf.id -join ', ')"; $fail = $true } else { Write-Host 'enforced_by 完整（blocking 均已声明守卫）✓' }
+    $blkNoEnf = @($validation | Where-Object { $_.Errors -contains 'blocking-missing-enforced-by' } | ForEach-Object Lesson)
+    if ($blkNoEnf.Count) { Write-Warning "[LSN-ENTRY-INVALID] blocking 经验缺 enforced_by（须填机械守卫路径，或 'none（理由）'）：$($blkNoEnf.id -join ', ')"; $fail = $true } else { Write-Host 'enforced_by 完整（blocking 均已声明守卫）✓' }
     # search 语义自检（确定性 fixture，不依赖总账内容）：多词=AND 全命中、缺一词即不命中、单词行为不变——
     #   守 search 的召回契约（selftest 闸② 借道本命令免费回归）。
     $probeOk = (Test-AllTermsMatch 'alpha beta gamma' @('alpha', 'gamma')) -and
@@ -542,6 +555,14 @@ switch ($Command) {
     # 判据只认 CLAUDE.md 在不在：它是每个仓（元仓与下游）都有的常驻真相源，缺席即受保护集合的主输入没了；
     # CLAUDE.template.md 只在元仓存在，**单独**缺席属正常形态，不作判据——否则每个下游仓都归不了档。
     # check 不受此限——它只做诊断、不移动数据，缺文件时按空配置优雅降级（见上面 check 分支的 Test-Path）。
+    if (-not (Test-Path -LiteralPath $Ledger -PathType Leaf)) {
+      Write-Warning "[LSN-LEDGER-SOURCE-MISSING] lesson 热账本 $Ledger 不存在或不是可读文件——拒绝归档（零搬运）。"
+      exit 1
+    }
+    try { $null = Get-Content -LiteralPath $Ledger -Raw -ErrorAction Stop } catch {
+      Write-Warning "[LSN-LEDGER-SOURCE-MISSING] lesson 热账本 $Ledger 无法读取——拒绝归档（零搬运）：$($_.Exception.Message)"
+      exit 1
+    }
     if (-not (Test-Path -LiteralPath $ClaudeMd)) {
       Write-Warning "[LSN-RESIDENT-SOURCE-MISSING] 常驻 $ClaudeMd 不存在——引用排除面失去主输入，拒绝归档（零搬运）。"
       exit 1
@@ -564,10 +585,18 @@ switch ($Command) {
     # ——同一份账本不能 check 报 1 而 archive 报 0；archive.ps1 的 DryRun 早就是这口径（闸 12e⑥）。
     # 但这个非零退出**不等于「什么都没发生」**：实跑仍会把合法候选照常搬冷（见文件末尾 exit 1 的位置），
     # 退出码报告的只是「账本里还有读不出的条目」。调用方别把 exit 1 读成回滚；修好坏条目后重跑幂等。
-    $unparsable = @($hot | Where-Object { -not $_.metaOk })
+    $invariantById = @{}
+    foreach ($lesson in $hot) { $invariantById[$lesson.id] = @(Get-LessonInvariantErrors $lesson) }
+    $unparsable = @($hot | Where-Object { $invariantById[$_.id] -contains 'meta-invalid' })
     foreach ($bad in $unparsable) { Write-Warning "[LSN-META-INVALID] $($bad.id) 的规范 meta 行不合法（$($bad.metaError)）——保留在热账本，不进归档候选。" }
+    $invalidEntries = @($hot | Where-Object {
+      ($invariantById[$_.id] -contains 'missing-rule') -or ($invariantById[$_.id] -contains 'blocking-missing-enforced-by')
+    })
+    foreach ($bad in $invalidEntries) {
+      Write-Warning "[LSN-ENTRY-INVALID] $($bad.id) 条目不完整（$($invariantById[$bad.id] -join ',')）——保留在热账本，不进归档候选。"
+    }
     $candidates = @($hot | Where-Object {
-      $_.metaOk -and
+      @($invariantById[$_.id]).Count -eq 0 -and
       $_.tier -eq 'ledger' -and $_.recurrence -eq 1 -and
       (Get-LessonNumber $_.id) -ne $maxNumber -and -not $referenced.ContainsKey($_.id)
     })
@@ -587,7 +616,7 @@ switch ($Command) {
     }
     # 顺序即语义：搬运已在上面发生过了。此处的 exit 1 报告「账本里有读不出的条目」，**不表示零搬运**——
     # 合法候选此刻已经进了冷库（A15 只要求非零退出；预览路径因 -DryRun 天然零写入，两者退出码仍同口径）。
-    if ($unparsable.Count) { exit 1 }
+    if ($unparsable.Count -or $invalidEntries.Count) { exit 1 }
     if ($moverExit -ne 0) { exit $moverExit }
   }
 }

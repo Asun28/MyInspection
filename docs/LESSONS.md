@@ -51,6 +51,9 @@
   - **元数据读不出来的条目一律留热**并报 `[LSN-META-INVALID]`，此时预览与实跑**都非零退出**（与 `check` 同口径）。
     但实跑的非零退出**不代表零搬运**：合法候选照样已经搬进冷库，退出码报告的是「账本里还有读不出的条目」，
     别把 exit 1 读成回滚；修好坏条目后重跑幂等。
+  - `check` 的正文不变量也适用于归档：缺 `rule`，或 `severity=blocking` 却缺 `enforced_by` 的条目报
+    `[LSN-ENTRY-INVALID]`、留热并令命令非零；元数据合法不等于整个条目有效。
+  - 源 `docs/lessons/LEDGER.md` 缺席或不可读时报 `[LSN-LEDGER-SOURCE-MISSING]` 并零写入；错误路径不能被解释成空账本。
   - **定义「谁被引用」的常驻 `CLAUDE.md` 缺席时拒绝归档**：`-RepoRoot` 指向一棵有 LEDGER 却没有 `CLAUDE.md`
     的树时，`archive` 以 `[LSN-RESIDENT-SOURCE-MISSING]` 非零退出且零搬运——「读不到受保护集合」不等于「没有
     条目被引用」，后者会让整批 `tier=ledger` 条目静默搬冷。（`CLAUDE.template.md` 只在元仓存在，**单独**缺席
@@ -63,7 +66,9 @@
 - `pwsh -File scripts\lessons.ps1 search <关键词>` 查热账本 + 冷库 + 按需层；冷命中带 `[archived]`，命中即照 `rule` 做。
 - 必须层每轮已在上下文，无需检索。
 - `lessons` skill 在「复发/经验/复盘/踩过的坑」等语境自动触发。
-- 冷库是只读历史面：对冷项执行 `bump/promote` 会 fail-closed，并提示先把完整条目移回热账本。
+- 冷库是只读历史面：对冷项执行 `bump/promote` 会 fail-closed，并给出
+  `archive.ps1 -LessonsOnly -RestoreLessonIds <id>`。这是唯一受支持的反向例外：脚本先把完整块无损移回热账本、
+  再从冷库移除；任一步失败都至少保留一份，冷热并存态可重跑自愈。不要手工复制或删除冷库正文。
 
 ## 与既有记忆面的边界（不重复）
 其余记忆面各管各的、不与本系统重叠：`claude-mem`（若装）走自动 episodic 观察 + `mem-search` 召回；

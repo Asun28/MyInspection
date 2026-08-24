@@ -1943,8 +1943,26 @@ try {
 
   foreach ($writeCommand2g in @('bump','promote')) {
     $write2g = (& pwsh -NoProfile -File $l2gLessons $writeCommand2g L1 -RepoRoot $l2gRepo 2>&1 | Out-String)
-    if ($LASTEXITCODE -eq 0 -or $write2g -notmatch '\[LSN-ARCHIVED-READONLY\]' -or $write2g -notmatch '移回.*docs/lessons/LEDGER\.md') {
-      Fail "闸2g(e)：$writeCommand2g 冷项 L1 未 fail-closed 并给移回热区修法。output=[$write2g]"; $g2Fail = $true
+    if ($LASTEXITCODE -eq 0 -or $write2g -notmatch '\[LSN-ARCHIVED-READONLY\]' -or $write2g -notmatch 'RestoreLessonIds') {
+      Fail "闸2g(e)：$writeCommand2g 冷项 L1 未 fail-closed 并给出可执行的 -RestoreLessonIds 修法。output=[$write2g]"; $g2Fail = $true
+    }
+  }
+
+  # (e1) 提示里的恢复命令必须真的完成冷→热移动，而不是复制后留下冷热重复、令 bump/promote 继续拒绝。
+  $tokenCountBeforeRestore2g = ([regex]::Matches("$(Get-Content $l2gLedger -Raw)`n$(Get-Content $l2gArchive -Raw)", 'COLD_RECALL_ONLY')).Count
+  $restore2g = (& pwsh -NoProfile -File (Join-Path $l2gRepo 'scripts/archive.ps1') -RepoRoot $l2gRepo -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+  $restoreExit2g = $LASTEXITCODE
+  $hotAfterRestore2g = Get-Content $l2gLedger -Raw
+  $coldAfterRestore2g = Get-Content $l2gArchive -Raw
+  $tokenCount2g = ([regex]::Matches("$hotAfterRestore2g`n$coldAfterRestore2g", 'COLD_RECALL_ONLY')).Count
+  if ($restoreExit2g -ne 0 -or ([regex]::Matches($hotAfterRestore2g, '(?m)^##[ \t]+L1[ \t]*\r?$')).Count -ne 1 -or
+      $coldAfterRestore2g -match '(?m)^##[ \t]+L1[ \t]*\r?$' -or $tokenCount2g -ne $tokenCountBeforeRestore2g) {
+    Fail "闸2g(e1)：-RestoreLessonIds L1 未完成无损冷→热移动（exit=$restoreExit2g，token-count=$tokenCount2g，before=$tokenCountBeforeRestore2g）。output=[$restore2g]"; $g2Fail = $true
+  }
+  foreach ($usableCommand2g in @('bump','promote')) {
+    $usable2g = (& pwsh -NoProfile -File $l2gLessons $usableCommand2g L1 -RepoRoot $l2gRepo 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $usable2g -match '\[LSN-ARCHIVED-READONLY\]') {
+      Fail "闸2g(e1)：按提示恢复后 $usableCommand2g L1 仍不可用。output=[$usable2g]"; $g2Fail = $true
     }
   }
 
@@ -2171,6 +2189,23 @@ try {
     }
   }
 
+  # (l) 源 LEDGER 缺席不等于空账本。选择器若继续，会打印 candidates=none 并 exit 0，掩盖错误 RepoRoot。
+  $noLedgerRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gl-$PID"
+  if (Test-Path $noLedgerRepo2g) { Remove-Item -Recurse -Force -LiteralPath $noLedgerRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $noLedgerRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $noLedgerRepo2g -Recurse -Force
+  Set-Content (Join-Path $noLedgerRepo2g 'CLAUDE.md') '常驻引用：无' -Encoding utf8
+  $noLedgerArchive2g = Join-Path $noLedgerRepo2g 'specs/archive/lessons-archive.md'
+  Set-Content $noLedgerArchive2g '# archive sentinel' -Encoding utf8
+  $noLedgerColdHash2g = (Get-FileHash $noLedgerArchive2g -Algorithm SHA256).Hash
+  $noLedgerOut2g = (& pwsh -NoProfile -File (Join-Path $noLedgerRepo2g 'scripts/lessons.ps1') archive -RepoRoot $noLedgerRepo2g 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0 -or $noLedgerOut2g -notmatch '\[LSN-LEDGER-SOURCE-MISSING\]' -or
+      (Get-FileHash $noLedgerArchive2g -Algorithm SHA256).Hash -ne $noLedgerColdHash2g -or
+      (Test-Path (Join-Path $noLedgerRepo2g 'docs/lessons/LEDGER.md'))) {
+    Fail "闸2g(l)：源 LEDGER 缺席未以 [LSN-LEDGER-SOURCE-MISSING] fail-closed 且零写入。output=[$noLedgerOut2g]"; $g2Fail = $true
+  }
+  Remove-Item -Recurse -Force -LiteralPath $noLedgerRepo2g -ErrorAction SilentlyContinue
+
   if (-not $g2Fail) {
     Write-Host '  2g lessons 选择性冷存/零写预览/三形态引用排除 + 两种否定形态/引用判据缺席即 fail-closed/热冷召回/ID 并集/冷项只读/幂等 OK' -ForegroundColor Green
   }
@@ -2224,11 +2259,14 @@ try {
     # L17 的 meta 行整个没有 severity 字段（走必填字段表那一行）。少了 L17，把 'severity' 从必填表里删掉
     # 后没有任何输入能变红——缺失键在 StrictMode 下取值为 $null，会被下游的值校验降级成「值非法」照样报错。
     (& $entry2i 'L17' ($ok2i -replace ' ｜ severity: minor','') 'MISSING_SEVERITY_FIELD'),
+    ((& $entry2i 'L18' $ok2i 'MISSING_RULE_LINE') -replace '(?m)^- rule:.*(?:\r?\n|$)', ''),
+    (& $entry2i 'L19' ($ok2i -replace 'severity: minor','severity: blocking') 'BLOCKING_WITHOUT_ENFORCED_BY'),
     (& $entry2i 'L99999999999999999999' $ok2i 'ID_OVERFLOWS_INT32'),
     (& $entry2i 'L30' $ok2i 'MAX_ID_EXCLUDED')
   ) -join "`n`n"
   Set-Content $l2iLedger $l2iLedgerText -Encoding utf8
   $hostile2iIds = @('L2', 'L20', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L13', 'L14', 'L15', 'L16', 'L17', 'L99999999999999999999')
+  $invalidEntry2iIds = @('L18', 'L19')
 
   $dry2i = (& pwsh -NoProfile -File $l2iLessons archive -RepoRoot $l2iRepo -DryRun 2>&1 | Out-String)
   $dryExit2i = $LASTEXITCODE
@@ -2241,6 +2279,9 @@ try {
   foreach ($hostile2i in $hostile2iIds) {
     if ($dry2i -notmatch "\[LSN-META-INVALID\][^`n]*\b$hostile2i\b") { Fail "闸2i(b)：$hostile2i 的非法 meta 未被点名报告 [LSN-META-INVALID]——静默留热区等于没有诊断。output=[$dry2i]"; $e2Fail = $true }
   }
+  foreach ($invalidEntry2i in $invalidEntry2iIds) {
+    if ($dry2i -notmatch "\[LSN-ENTRY-INVALID\][^`n]*\b$invalidEntry2i\b") { Fail "闸2i(b3)：$invalidEntry2i 违反 check 共用正文不变量，却未被 [LSN-ENTRY-INVALID] 点名并排除。output=[$dry2i]"; $e2Fail = $true }
+  }
   # (b2) 「字段缺失」须报成缺失、而非降级成「值非法」。StrictMode 下缺失键取值为 $null，下游枚举/正则校验照样
   #   判非法，于是必填字段表的每一项都能被删掉而整批仍绿（本卡变异实测：删 'tier' 后闸 2 全绿）。断言 ASCII
   #   哨兵 missing-field=<名>，本表才真有人在测；不断言中文正文——本地化文案一变即假红/假绿（L165）。
@@ -2252,7 +2293,7 @@ try {
 
   $check2i = (& pwsh -NoProfile -File $l2iLessons check -RepoRoot $l2iRepo 2>&1 | Out-String)
   $checkExit2i = $LASTEXITCODE
-  if ($checkExit2i -eq 0 -or $check2i -notmatch '\[LSN-META-INVALID\]') {
+  if ($checkExit2i -eq 0 -or $check2i -notmatch '\[LSN-META-INVALID\]' -or $check2i -notmatch '\[LSN-ENTRY-INVALID\]') {
     Fail "闸2i(c)：check 对缺字段/重复/非法 meta 未 fail-closed（exit=$checkExit2i）——校验器放行的形状，选择器迟早会当真。output=[$check2i]"; $e2Fail = $true
   }
 
@@ -2289,13 +2330,13 @@ try {
   $runExit2i = $LASTEXITCODE
   $ledgerAfter2i = Get-Content $l2iLedger -Raw
   if ($runExit2i -eq 0) { Fail "闸2i(d)：夹具含不可解析条目，archive 实跑却退出 0——预览与实跑须同口径 fail-closed。output=[$run2i]"; $e2Fail = $true }
-  foreach ($stayHot2i in $hostile2iIds) {
+  foreach ($stayHot2i in @($hostile2iIds + $invalidEntry2iIds)) {
     if ($ledgerAfter2i -notmatch "(?m)^##[ \t]+$stayHot2i[ \t]*\r?$") { Fail "闸2i(d)：$stayHot2i 元数据不可解析却被真的搬出热账本——fail-closed 应是「留下」，不是「搬走」。output=[$run2i]"; $e2Fail = $true }
   }
   if ($ledgerAfter2i -match '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail "闸2i(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2i]"; $e2Fail = $true }
   if ($ledgerHash2i -eq (Get-FileHash $l2iLedger -Algorithm SHA256).Hash) { Fail '闸2i(d)：archive 实跑后热账本毫无变化——本例没有真正施压。'; $e2Fail = $true }
 
-  if (-not $e2Fail) { Write-Host '  2i lessons 规范 meta 行锚定解析 OK（十五条敌意夹具均 [LSN-META-INVALID] 留热区、预览与实跑同为非零；四枚必填字段各自可杀；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
+  if (-not $e2Fail) { Write-Host '  2i lessons 规范 meta + 共用正文不变量 OK（非法条目均点名留热、预览与实跑非零；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2iRepo -ErrorAction SilentlyContinue
 }
@@ -2377,10 +2418,7 @@ try {
     }
   }
 
-  # (d) 带后缀的标题两侧同口径。夹具顺序 L41 → L50 → `## L45 (deprecated)`：
-  #   严口径下 L45 那段不是标题，被并进 L50 的块 ⇒ L50 出现两条 meta 行 ⇒ [LSN-META-INVALID] 留热区，候选恰为 L41。
-  #   松口径（退回只看 `## L` 前缀）下 L45 成了独立条目、且元数据完全合法 ⇒ 候选变成 L41,L45，
-  #   而搬运器根本不认这个 id，报的却是「未知 id」——此处的逐字相等断言正是为拦这种错位诊断。
+  # (d) 热侧标题解析仍保持严格口径；搬运器对 lesson-like 的非规范标题另在 (e) fail-closed。
   Set-Content $l2fLedger (@(
     '# fixture ledger', '',
     (& $entry2f 'L41' 'SUFFIX_CASE_LEGIT'), '',
@@ -2406,6 +2444,22 @@ try {
   $danglingD2f = @((Get-LessonReferenceIdSet 'resident refs L45 and [L46]').Keys | Where-Object { -not $definedD2f.ContainsKey($_) } | Sort-Object)
   if (($danglingD2f -join ',') -ne 'L45,L46') {
     Fail "闸2f(d)：闸16 未把后缀/拆行标题引用同时判为悬空，实得 [$($danglingD2f -join ',')]。"; $f2Fail = $true
+  }
+
+  # (e) 冷库从第一行就出现不可解析的 lesson-like 标题时必须整次拒绝。旧实现把它当“无条目头注”，
+  # 随后写入合法 L1 时会重建冷库并静默丢掉原块。溢出和带后缀各打一枚，双侧字节必须完全不变。
+  $l2fMover = Join-Path $l2fRepo 'scripts/archive.ps1'
+  foreach ($badColdHeading2f in @('L2147483648', 'L45 (deprecated)')) {
+    Set-Content $l2fLedger (@('# fixture ledger', '', (& $entry2f 'L1' 'VALID_MOVE_MUST_NOT_RUN'), '', (& $entry2f 'L30' 'MAX_ID_EXCLUDED')) -join "`n") -Encoding utf8
+    Set-Content $l2fArchive (@("## $badColdHeading2f", '- data: COLD_BLOCK_MUST_SURVIVE') -join "`n") -Encoding utf8
+    $hotHashE2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+    $coldHashE2f = (Get-FileHash $l2fArchive -Algorithm SHA256).Hash
+    $badColdOut2f = (& pwsh -NoProfile -File $l2fMover -RepoRoot $l2fRepo -LessonsOnly -LessonIds L1 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0 -or $badColdOut2f -notmatch '\[ARCHIVE-LESSON-INVALID-HEADING\]' -or
+        (Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hotHashE2f -or
+        (Get-FileHash $l2fArchive -Algorithm SHA256).Hash -ne $coldHashE2f) {
+      Fail "闸2f(e)：冷库首条非法标题 ## $badColdHeading2f 未 fail-closed 且双侧零写入。output=[$badColdOut2f]"; $f2Fail = $true
+    }
   }
 
   if (-not $f2Fail) { Write-Host '  2f lessons 预览透传搬运器拒绝/写失败非零透传/两侧并存自愈幂等/标题口径两侧一致 OK' -ForegroundColor Green }

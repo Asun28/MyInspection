@@ -32,6 +32,7 @@
 .PARAMETER CheckCardsIndex  只读核验 cards-index.md 是否与归档卡投影逐字节一致；不搬运、不修复。
 .PARAMETER Quiet     仅打印一行汇总。
 .PARAMETER LessonsOnly  仅执行 -LessonIds 路径；不读写技术债、任务卡及其索引。
+.PARAMETER RestoreLessonIds  把指定 lesson 整块从冷库移回热账本；仅可与 -LessonsOnly 同用。
 .EXAMPLE
   pwsh -File scripts\archive.ps1 -DryRun     # 预览：将搬多少债项/卡，不写任何文件
 .EXAMPLE
@@ -44,7 +45,8 @@ param(
   [switch]$CheckCardsIndex,
   [switch]$Quiet,
   [switch]$LessonsOnly,
-  [string[]]$LessonIds    # T40-LEDGERARCH：lessons 账本冷存目标（如 -LessonIds L32,L34）；未传时下方逻辑整段跳过，其余两路径行为逐字节不变
+  [string[]]$LessonIds,   # T40-LEDGERARCH：lessons 账本冷存目标（如 -LessonIds L32,L34）
+  [string[]]$RestoreLessonIds
 )
 
 Set-StrictMode -Version Latest
@@ -53,8 +55,16 @@ try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出�
 . (Join-Path $PSScriptRoot '_cards.ps1')
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
-if ($LessonsOnly -and -not $PSBoundParameters.ContainsKey('LessonIds')) {
-  throw 'archive.ps1 -LessonsOnly 必须与 -LessonIds 同用（fail-closed，禁止伪装成成功的空范围归档）。'
+$archiveLessonsUsed = $PSBoundParameters.ContainsKey('LessonIds')
+$restoreLessonsUsed = $PSBoundParameters.ContainsKey('RestoreLessonIds')
+if ($archiveLessonsUsed -and $restoreLessonsUsed) {
+  throw 'archive.ps1：-LessonIds 与 -RestoreLessonIds 互斥；一次调用只能选择一个移动方向。'
+}
+if ($restoreLessonsUsed -and -not $LessonsOnly) {
+  throw 'archive.ps1：-RestoreLessonIds 必须与 -LessonsOnly 同用，防止恢复 lesson 时夹带归档技术债/任务卡。'
+}
+if ($LessonsOnly -and -not ($archiveLessonsUsed -or $restoreLessonsUsed)) {
+  throw 'archive.ps1 -LessonsOnly 必须与 -LessonIds 或 -RestoreLessonIds 同用（fail-closed，禁止伪装成成功的空范围移动）。'
 }
 if ($LessonsOnly -and $CheckCardsIndex) {
   # -CheckCardsIndex 的分支在下面所有 -LessonsOnly 守卫**之前**就 exit，同时传入会静默吞掉模式开关、
@@ -86,19 +96,25 @@ function Format-Cell([string]$s, [int]$max = 0) {
 }
 # T40-LEDGERARCH：lessons 账本冷存辅助——扫 `## L<n>` 标题，区间 = 该标题起、至下一个通用 `## ` 标题（任意内容）或 EOF 止
 # （独占端点，与卡片定义一致）；供下面 -LessonIds 路径定位条目块、判队 LEDGER/归档两侧是否已含某 id。
-function Get-LedgerHeadings([string[]]$lines) {
+function Get-LedgerHeadings([string[]]$lines, [switch]$FailOnInvalidLessonHeading) {
   $marks = [System.Collections.Generic.List[object]]::new()
   for ($i = 0; $i -lt $lines.Count; $i++) {
-    # F11（R3）：同时保留**逐字 id 串**（Id）与数值（Number）——只存 [int] 会让 L02 别名撞上 L2 的块；
-    # 定位/判存一律按 Id 精确串比，Number 只用于「最高 id」数值比较。
-    # 下一行就 [int] 它，超 Int32 会让整个脚本抛裸 .NET 转换异常。超出 Int32 范围的标题一律不当条目标题
-    # （仍作为区间终点参与 `^##\s` 切块），于是「解析不了的 id」永远不会被搬——与 lessons.ps1 的
-    # Get-LessonNumber 同一个上界，两侧对「哪些 id 可处理」的认定不分家。
-    # 位数上界改为 TryParse：判据就是 Int32 范围本身，与 lessons.ps1 的 Get-LessonNumber 同源。
-    # 解析不了的标题仍作为区间终点参与 `^##\s` 切块，只是不当条目标题——「搬不动的 id 永不被搬」不变。
-    if ($lines[$i] -match '^##\s+L(\d+)\s*$') {
+    # 冷库里任何形如 lesson id 开头的二级标题都必须能按规范形态解析。静默略过会把首条坏标题误当头注，
+    # 下一次搬运遂从空正文重建归档、丢掉旧块。热账本仍由 lessons.ps1 逐条诊断，合法候选可照常搬运。
+    if ($lines[$i] -cmatch '^##[ \t]+L\d') {
+      $headingMatch = [regex]::Match($lines[$i], '^##[ \t]+L([1-9]\d*)[ \t]*$')
+      if (-not $headingMatch.Success) {
+        if (-not $FailOnInvalidLessonHeading) { continue }
+        $aliasMarker = if ($lines[$i] -cmatch '^##[ \t]+L0\d') { ' [ARCHIVE-LESSON-REJECT-ALIAS]' } else { '' }
+        throw "[ARCHIVE-LESSON-INVALID-HEADING]$aliasMarker 无法解析 lesson 标题：$($lines[$i])"
+      }
       $num = 0
-      if ([int]::TryParse($Matches[1], [ref]$num)) { $marks.Add([pscustomobject]@{ Id = "L$($Matches[1])"; Number = $num; Start = $i }) }
+      $digits = $headingMatch.Groups[1].Value
+      if (-not [int]::TryParse($digits, [ref]$num)) {
+        if (-not $FailOnInvalidLessonHeading) { continue }
+        throw "[ARCHIVE-LESSON-INVALID-HEADING] lesson 标题超出 Int32 范围：$($lines[$i])"
+      }
+      $marks.Add([pscustomobject]@{ Id = "L$digits"; Number = $num; Start = $i })
     }
   }
   $result = [System.Collections.Generic.List[object]]::new()
@@ -218,9 +234,10 @@ if (-not $LessonsOnly -and (Test-Path $TasksDir)) {
 #      任何 I/O，两既有路径行为逐字节不变）。源 docs/lessons/LEDGER.md，目标 specs/archive/lessons-archive.md。
 $LedgerPath = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 $LessonsArchive = Join-Path $ArchiveDir 'lessons-archive.md'
-# F10（R3）：用参数**在场性**判定而非值真伪——`-LessonIds ''` 绑定 @('')，单元素数组按值展开成空串为假，
-# 值判定会静默跳过整段、exit 0，绕过空 token 的 fail-closed 承诺。在场即进入校验（空串在循环里被显式拒绝）。
-$lessonsUsed = $PSBoundParameters.ContainsKey('LessonIds')
+# 用参数**在场性**判定而非值真伪；显式空串也必须进入校验并 fail-closed。
+$lessonsUsed = $archiveLessonsUsed -or $restoreLessonsUsed
+$lessonMoveDirection = if ($restoreLessonsUsed) { 'restore' } else { 'archive' }
+$lessonIdInput = if ($restoreLessonsUsed) { $RestoreLessonIds } else { $LessonIds }
 $lessonsReport = [System.Collections.Generic.List[string]]::new()
 $lsMoved = 0; $lsSkipped = 0; $lsFailed = 0
 $ledgerLines = @()
@@ -230,19 +247,21 @@ if ($lessonsUsed) {
   # "L32,L34"（而非两元素数组），偏偏 README 文档的正是这种写法，实测外部调用下会整体判非法、0 搬。
   # 校验前显式按逗号展开每个元素，兑现文档承诺的调用形态。F8（R3）：空 token **保留**进校验——
   # 悄悄滤掉会让 `-LessonIds ','` 这类误输入静默 exit 0，违反本路径宣示的 fail-closed。
-  $LessonIds = @($LessonIds | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() })
-  if ($LessonIds.Count -eq 0) {
+  $lessonIdInput = @($lessonIdInput | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() })
+  if ($lessonIdInput.Count -eq 0) {
     # F10 补全：参数在场却展开出 0 个 token（如显式空数组）——同属误输入，fail-closed。
     Write-Warning 'archive.ps1 -LessonIds：参数在场但没有任何 id token——fail-closed 拒绝。'
     $lessonsReport.Add('  [空参数]'); $lsFailed++
   }
   # 用「先置空数组、命中再重赋值」而非 `$x = if(...){}else{@()}` 表达式赋值——后者任一分支零输出时，
   # 管道会把结果拆散退化成 $null（PowerShell 空/单元素集合坍缩坑：函数直接赋值处另需调用点外包 @() 兜底）。
-  $ledgerLines = @()
-  if (Test-Path $LedgerPath) { $ledgerLines = @(Get-Content $LedgerPath) }
+  if (-not (Test-Path -LiteralPath $LedgerPath -PathType Leaf)) {
+    throw "[ARCHIVE-LESSON-SOURCE-MISSING] lesson 热账本不存在：$LedgerPath"
+  }
+  $ledgerLines = @(Get-Content -LiteralPath $LedgerPath -ErrorAction Stop)
   $archiveRaw = @()
   if (Test-Path $LessonsArchive) { $archiveRaw = @(Get-Content $LessonsArchive) }
-  $archiveHead0 = @(Get-LedgerHeadings $archiveRaw)
+  $archiveHead0 = @(Get-LedgerHeadings $archiveRaw -FailOnInvalidLessonHeading)
   # 归档件正文 = 自其第一个 `## L<n>` 标题起（跳过标题/头注 blockquote）；无条目时视作空正文。
   $archiveLines = @()
   if ($archiveHead0.Count) { $archiveLines = Get-LineSlice $archiveRaw $archiveHead0[0].Start $archiveRaw.Count }
@@ -252,7 +271,7 @@ if ($lessonsUsed) {
   $maxId = -1
   foreach ($h in (Get-LedgerHeadings $ledgerLines)) { if ($h.Number -gt $maxId) { $maxId = $h.Number } }
 
-  foreach ($rawId in $LessonIds) {
+  foreach ($rawId in $lessonIdInput) {
     $id = "$rawId".Trim()
     if ($id -eq '') {
       # F8：多余逗号/空参产生的空 token——显式拒绝（fail-closed），绝不静默当作没发生。
@@ -266,13 +285,17 @@ if ($lessonsUsed) {
       Write-Warning "archive.ps1 -LessonIds：[ARCHIVE-LESSON-REJECT-ALIAS] 非法/非规范 id『$rawId』（须形如 L32，无前导零），已跳过。"
       $lessonsReport.Add("  [无效] $rawId"); $lsFailed++; continue
     }
-    $n = [int]($id.Substring(1))
-    if ($n -eq $maxId) {
+    $n = 0
+    if (-not [int]::TryParse($id.Substring(1), [ref]$n)) {
+      Write-Warning "archive.ps1：lesson id 超出 Int32 范围『$id』——fail-closed 拒绝。"
+      $lessonsReport.Add("  [越界] $id"); $lsFailed++; continue
+    }
+    if ($lessonMoveDirection -eq 'archive' -and $n -eq $maxId) {
       Write-Warning "archive.ps1 -LessonIds：拒绝搬 $id ——当前 LEDGER 最高 id，搬走会令下次 Next-Id 重铸撞号，已跳过（其余 id 照常处理）。"
       $lessonsReport.Add("  [拒绝-最高id] $id"); $lsFailed++; continue
     }
     $inLedger = @(Get-LedgerHeadings $ledgerLines | Where-Object { $_.Id -eq $id })
-    $inArchive = @(Get-LedgerHeadings $archiveLines | Where-Object { $_.Id -eq $id })
+    $inArchive = @(Get-LedgerHeadings $archiveLines -FailOnInvalidLessonHeading | Where-Object { $_.Id -eq $id })
     if (-not $inLedger.Count -and -not $inArchive.Count) {
       Write-Warning "archive.ps1 -LessonIds：未知 id『$id』——LEDGER 与归档均查无此条（防手滑打错 id），已跳过。"
       $lessonsReport.Add("  [未知id] $id"); $lsFailed++; continue
@@ -289,19 +312,38 @@ if ($lessonsUsed) {
         Write-Warning "[ARCHIVE-LESSON-REJECT-CONFLICT] archive.ps1 -LessonIds：$id 两侧并存且内容不一致（疑似归档陈旧 / 在册已更新）——拒绝自动清除，双侧未动，请人工核对后再定。"
         $lessonsReport.Add("  [冲突-两侧不一致] $id"); $lsFailed++; continue
       }
-      $ledgerLines = (Get-LineSlice $ledgerLines 0 $h.Start) + (Get-LineSlice $ledgerLines $h.End $ledgerLines.Count)
-      $lessonsReport.Add("  [补齐-两侧并存] $id（两侧逐字一致，清除 LEDGER 残留副本补完移动）"); $lsMoved++; continue
+      if ($lessonMoveDirection -eq 'restore') {
+        $archiveLines = (Get-LineSlice $archiveLines 0 $ha.Start) + (Get-LineSlice $archiveLines $ha.End $archiveLines.Count)
+        $lessonsReport.Add("  [补齐-两侧并存] $id（两侧逐字一致，清除冷库残留副本补完恢复）")
+      } else {
+        $ledgerLines = (Get-LineSlice $ledgerLines 0 $h.Start) + (Get-LineSlice $ledgerLines $h.End $ledgerLines.Count)
+        $lessonsReport.Add("  [补齐-两侧并存] $id（两侧逐字一致，清除 LEDGER 残留副本补完移动）")
+      }
+      $lsMoved++; continue
     }
-    if ($inArchive.Count) {
+    if ($lessonMoveDirection -eq 'restore' -and $inLedger.Count) {
+      $lessonsReport.Add("  [已恢复/跳过] $id（幂等，0 动作）"); $lsSkipped++; continue
+    }
+    if ($lessonMoveDirection -eq 'archive' -and $inArchive.Count) {
       # 幂等：归档已含该 id、LEDGER 已无此条（正常态：上轮已完整搬走）→ 0 动作，不重复追加。
       $lessonsReport.Add("  [已归档/跳过] $id（幂等，0 动作）"); $lsSkipped++; continue
     }
-    $h = $inLedger[0]
-    $block = Get-LineSlice $ledgerLines $h.Start $h.End
-    $ledgerLines = (Get-LineSlice $ledgerLines 0 $h.Start) + (Get-LineSlice $ledgerLines $h.End $ledgerLines.Count)
-    if ($archiveLines.Count -and "$($archiveLines[-1])".Trim() -ne '') { $archiveLines += '' }
-    $archiveLines += $block
-    $lessonsReport.Add("  [搬运] $id"); $lsMoved++
+    if ($lessonMoveDirection -eq 'restore') {
+      $ha = $inArchive[0]
+      $block = Get-LineSlice $archiveLines $ha.Start $ha.End
+      $archiveLines = (Get-LineSlice $archiveLines 0 $ha.Start) + (Get-LineSlice $archiveLines $ha.End $archiveLines.Count)
+      if ($ledgerLines.Count -and "$($ledgerLines[-1])".Trim() -ne '') { $ledgerLines += '' }
+      $ledgerLines += $block
+      $lessonsReport.Add("  [恢复] $id")
+    } else {
+      $h = $inLedger[0]
+      $block = Get-LineSlice $ledgerLines $h.Start $h.End
+      $ledgerLines = (Get-LineSlice $ledgerLines 0 $h.Start) + (Get-LineSlice $ledgerLines $h.End $ledgerLines.Count)
+      if ($archiveLines.Count -and "$($archiveLines[-1])".Trim() -ne '') { $archiveLines += '' }
+      $archiveLines += $block
+      $lessonsReport.Add("  [搬运] $id")
+    }
+    $lsMoved++
   }
 }
 
@@ -315,7 +357,8 @@ if ($DryRun) {
     if (-not $Quiet -and $mergedCards.Count) { Write-Host "  会搬的卡："; $mergedCards | ForEach-Object { Write-Host "    $($_.id)" -ForegroundColor DarkGray } }
   }
   if ($lessonsUsed) {
-    Write-Host "  lessons：将搬 $lsMoved 条，已归档/跳过 $lsSkipped 条，拒绝/无效 $lsFailed 条"
+    $moveVerb = if ($lessonMoveDirection -eq 'restore') { '恢复' } else { '搬' }
+    Write-Host "  lessons：将$moveVerb $lsMoved 条，幂等/跳过 $lsSkipped 条，拒绝/无效 $lsFailed 条"
     if (-not $Quiet -and $lessonsReport.Count) { Write-Host "  lessons 明细："; $lessonsReport | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray } }
   }
   # F2（R3）：DryRun 不再无条件 exit 0——`-DryRun -LessonIds L999` 之前告警照发却仍报成功，违反 fail-closed
@@ -416,7 +459,7 @@ if (-not $LessonsOnly -and (Test-Path $ArchTasksDir)) {
   [IO.File]::WriteAllText($CardsIndex, (Get-CardsIndexText $ArchTasksDir), [Text.UTF8Encoding]::new($false))
 }
 
-# ── 7. 写 lessons 账本冷存（T40-LEDGERARCH；仅当本轮确有新搬运/补齐时落盘——幂等重跑 0 搬 = 不触碰任何文件）──
+# ── 7. 写 lessons 热/冷账本（仅当本轮确有移动/补齐时落盘——幂等重跑 0 搬 = 不触碰任何文件）──
 # F3（R3）：目的地（归档）先写、源（LEDGER，会被删走该块）后写——归档写失败时源保持原样不动，绝不出现
 # 「两边都没有」的数据丢失窗口；只有归档确认落盘成功，才敢对 LEDGER 做破坏性移除。
 # F5（R3）：且绝不对既有归档 Set-Content 直写——截断先于写入，中断/盘满的半写会把「LEDGER 里早已删源」的
@@ -430,40 +473,69 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     '# Lessons 账本归档（cold storage · 显式策展搬入）',
     '',
     '> `docs/lessons/LEDGER.md` 的**冷存**：被显式策展搬出（已归档 / 被后续经验合并吸收）的条目整块移到此处，',
-    '> append-only、只搬不删；`lessons.ps1 search` 会统一召回并标 `[archived]`，也可裸 grep。',
-    '> 唯一写入口是 `scripts/archive.ps1 -LessonIds L<n>[,L<n>...]`——id 恒为显式传入，本脚本自己不判定该搬谁；',
+    '> 历史默认只搬不删；唯一反向例外是本脚本的 `-RestoreLessonIds`，它把完整块无损移回热账本后才允许 bump/promote。',
+    '> 冷存入口是 `scripts/archive.ps1 -LessonIds L<n>[,L<n>...]`——id 恒为显式传入，本脚本自己不判定该搬谁；',
     '> `lessons.ps1 archive` 可先机械预筛出保守候选（规则见 `docs/LESSONS.md` §3），但仍只是转调本入口。勿手工编辑正文。',
     ''
   )
-  $lsArchiveWriteOk = $true
-  $lsTmpPath = "$LessonsArchive.tmp"
-  try {
-    Set-Content -Path $lsTmpPath -Value (($lsHead + $archiveLines) -join "`n") -Encoding utf8 -ErrorAction Stop
-    Move-Item -Path $lsTmpPath -Destination $LessonsArchive -Force -ErrorAction Stop
-  } catch {
-    $lsArchiveWriteOk = $false
-    $lsFailed++
-    Remove-Item $lsTmpPath -Force -ErrorAction SilentlyContinue
-    Write-Warning "archive.ps1 -LessonIds：归档暂存/替换失败，LEDGER 与既有归档保持原样未动（防数据丢失窗口）：$LessonsArchive —— $($_.Exception.Message)"
-  }
-  if ($lsArchiveWriteOk) {
-    # F7（R3）：LEDGER 同样暂存+原子替换——直写截断被中断会毁掉从未归档的在册经验。归档已先行落盘，
-    # 此步失败只留下「两侧并存」态（归档为权威副本），重跑经上方补齐分支自愈——双侧皆无丢失窗口。
+  $lsArchiveText = (($lsHead + $archiveLines) -join "`n")
+  $lsLedgerText = ($ledgerLines -join "`n")
+  if ($lessonMoveDirection -eq 'restore') {
+    # 恢复方向反过来：先确认热账本落盘，再从冷库移除。第二步失败只会留下逐字一致的两侧并存态，重跑自愈。
+    $lsLedgerWriteOk = $true
     $lsLedgerTmp = "$LedgerPath.tmp"
     try {
-      Set-Content -Path $lsLedgerTmp -Value ($ledgerLines -join "`n") -Encoding utf8 -ErrorAction Stop
+      Set-Content -Path $lsLedgerTmp -Value $lsLedgerText -Encoding utf8 -ErrorAction Stop
       Move-Item -Path $lsLedgerTmp -Destination $LedgerPath -Force -ErrorAction Stop
     } catch {
+      $lsLedgerWriteOk = $false
       $lsFailed++
       Remove-Item $lsLedgerTmp -Force -ErrorAction SilentlyContinue
-      Write-Warning "archive.ps1 -LessonIds：LEDGER 暂存/替换失败（归档已落盘=两侧并存态，重跑将自愈补齐）：$LedgerPath —— $($_.Exception.Message)"
+      Write-Warning "archive.ps1 -RestoreLessonIds：LEDGER 暂存/替换失败，冷库保持原样未动：$LedgerPath —— $($_.Exception.Message)"
+    }
+    if ($lsLedgerWriteOk) {
+      $lsTmpPath = "$LessonsArchive.tmp"
+      try {
+        Set-Content -Path $lsTmpPath -Value $lsArchiveText -Encoding utf8 -ErrorAction Stop
+        Move-Item -Path $lsTmpPath -Destination $LessonsArchive -Force -ErrorAction Stop
+      } catch {
+        $lsFailed++
+        Remove-Item $lsTmpPath -Force -ErrorAction SilentlyContinue
+        Write-Warning "archive.ps1 -RestoreLessonIds：冷库暂存/替换失败（热侧已落盘=两侧并存态，重跑将自愈补齐）：$LessonsArchive —— $($_.Exception.Message)"
+      }
+    }
+  } else {
+    $lsArchiveWriteOk = $true
+    $lsTmpPath = "$LessonsArchive.tmp"
+    try {
+      Set-Content -Path $lsTmpPath -Value $lsArchiveText -Encoding utf8 -ErrorAction Stop
+      Move-Item -Path $lsTmpPath -Destination $LessonsArchive -Force -ErrorAction Stop
+    } catch {
+      $lsArchiveWriteOk = $false
+      $lsFailed++
+      Remove-Item $lsTmpPath -Force -ErrorAction SilentlyContinue
+      Write-Warning "archive.ps1 -LessonIds：归档暂存/替换失败，LEDGER 与既有归档保持原样未动（防数据丢失窗口）：$LessonsArchive —— $($_.Exception.Message)"
+    }
+    if ($lsArchiveWriteOk) {
+      $lsLedgerTmp = "$LedgerPath.tmp"
+      try {
+        Set-Content -Path $lsLedgerTmp -Value $lsLedgerText -Encoding utf8 -ErrorAction Stop
+        Move-Item -Path $lsLedgerTmp -Destination $LedgerPath -Force -ErrorAction Stop
+      } catch {
+        $lsFailed++
+        Remove-Item $lsLedgerTmp -Force -ErrorAction SilentlyContinue
+        Write-Warning "archive.ps1 -LessonIds：LEDGER 暂存/替换失败（归档已落盘=两侧并存态，重跑将自愈补齐）：$LedgerPath —— $($_.Exception.Message)"
+      }
     }
   }
 }
 
 $summary = if ($LessonsOnly) { 'archive.ps1：lessons-only（技术债/任务卡/索引均未读写）' }
 else { "archive.ps1：技术债归档 $($stats.td_archived) 条（活追踪器留 $($stats.td_kept)）· 任务卡归档 $($stats.cards_archived) 张（活目录留 $($stats.cards_kept)）→ specs/archive/" }
-if ($lessonsUsed) { $summary += " · lessons 归档 $lsMoved 条（跳过 $lsSkipped ｜ 拒绝/无效 $lsFailed）→ specs/archive/lessons-archive.md" }
+if ($lessonsUsed) {
+  $summary += if ($lessonMoveDirection -eq 'restore') { " · lessons 恢复 $lsMoved 条（跳过 $lsSkipped ｜ 拒绝/无效 $lsFailed）→ docs/lessons/LEDGER.md" }
+  else { " · lessons 归档 $lsMoved 条（跳过 $lsSkipped ｜ 拒绝/无效 $lsFailed）→ specs/archive/lessons-archive.md" }
+}
 if ($Quiet) { Write-Host $summary }
 else {
   Write-Host $summary -ForegroundColor Green
