@@ -146,13 +146,15 @@ if ($Suite -eq 'integration') {
   function Test-AstCommandStaticallyLive {
     param(
       [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
-      [string[]]$AllowedIfConditions = @()
+      [string[]]$AllowedIfConditions = @(),
+      [string[]]$RequiredIfConditions = @()
     )
     # Liveness is a positive contract. Every enclosing branch must be one of the exact conditions the caller
     # expects; an expression that merely looks dynamic is not execution evidence (`1 -eq 2` was previously
     # accepted). Loops, else branches, definitions, and script-block expressions are never accepted evidence.
     $allowed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($condition in $AllowedIfConditions) { [void]$allowed.Add(($condition -replace '\s+', ' ').Trim()) }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $ancestor = $Command.Parent
     while ($null -ne $ancestor) {
       if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
@@ -168,9 +170,13 @@ if ($Suite -eq 'integration') {
         if ($commandClause -lt 0) { return $false }
         $conditionText = ($ancestor.Clauses[$commandClause].Item1.Extent.Text -replace '\s+', ' ').Trim()
         if (-not $allowed.Contains($conditionText)) { return $false }
+        [void]$seen.Add($conditionText)
       }
       if ($ancestor -is [System.Management.Automation.Language.LoopStatementAst]) { return $false }
       $ancestor = $ancestor.Parent
+    }
+    foreach ($requiredCondition in $RequiredIfConditions) {
+      if (-not $seen.Contains(($requiredCondition -replace '\s+', ' ').Trim())) { return $false }
     }
     return $true
   }
@@ -730,11 +736,24 @@ if ($Suite -eq 'integration') {
       $provisionLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine[$provisionStep])
       $provisionKeys = Get-WorkflowStepKeys -StepLines $provisionLines
       $provisionRun = Get-WorkflowRunScript -StepLines $provisionLines
+      $provisionTokens = $null
+      $provisionErrors = $null
+      $provisionAst = [System.Management.Automation.Language.Parser]::ParseInput($provisionRun, [ref]$provisionTokens, [ref]$provisionErrors)
+      $provisionCommands = @($provisionAst.FindAll({
+        param($node) $node -is [System.Management.Automation.Language.CommandAst]
+      }, $true))
+      $uvProvisionRuns = @($provisionCommands | Where-Object {
+        ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'uv run --with pip-licenses==5.5.5 pip-licenses --version' -and
+        (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path pyproject.toml') -RequiredIfConditions @('Test-Path pyproject.toml'))
+      }).Count
+      $npmProvisionRuns = @($provisionCommands | Where-Object {
+        ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25.0.1' -and
+        (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path frontend/package.json') -RequiredIfConditions @('Test-Path frontend/package.json'))
+      }).Count
       if (-not $provisionKeys.Contains('if') -or $provisionKeys['if'] -cne $expectedGateCondition -or
           -not $provisionKeys.Contains('shell') -or $provisionKeys['shell'] -cne 'pwsh' -or
-          $provisionRun -notmatch '(?m)^\s*uv run --with pip-licenses==5\.5\.5 pip-licenses --version\s*$' -or
-          $provisionRun -notmatch '(?m)^\s*npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1\s*$') {
-        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must use exact pins pip-licenses==5.5.5 and license-checker@25.0.1 under the same docs-only condition')
+          $provisionErrors.Count -ne 0 -or $uvProvisionRuns -ne 1 -or $npmProvisionRuns -ne 1) {
+        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must execute exact pins pip-licenses==5.5.5 and license-checker@25.0.1 on live paths under their exact manifest guards and the same docs-only condition')
       }
     }
     if ($stepLine.ContainsKey('E2E verify gate')) {
@@ -818,7 +837,7 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-provision-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+Provision license scanners \(online cache warm-up\)[ \t]*$' },
     # The same text nested under the preceding run scalar is inert YAML. Whole-file regex counting used to accept
     # this after the real direct-child name was indented away.
-    @{ Id = 'ci-step-name-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$'; Text = '          - name: License gate' },
+    @{ Id = 'ci-step-name-inert-block-scalar'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$'; Text = '          - name: License gate' },
     # 删除真实整步，并把完整可执行形状伪装进另一步的 `run: |` 标量；只忽略单独的 `- name:` 诱饵不够。
     @{ Id = 'ci-full-step-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-inert-scalar' },
     @{ Id = 'ci-full-step-inert-quoted-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-quoted-scalar' },
@@ -843,6 +862,8 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-npm-offline-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*\r?`n" },
     @{ Id = 'ci-provision-pip-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*uv run --with pip-licenses==)5\.5\.5(?: pip-licenses --version[ \t]*)$'; Text = '6.0.0a1 pip-licenses --version' },
     @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
+    @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
+    @{ Id = 'ci-provision-npm-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*)$' },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
     # `shell:` 的**值**：下面整段 run: 块分析都按 PowerShell 解析它，改成 bash 后此前一路绿到底。
