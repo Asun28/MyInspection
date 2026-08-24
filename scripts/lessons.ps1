@@ -325,12 +325,25 @@ switch ($Command) {
                     -not (Test-ScaffoldLessonGuarded '待补') -and
                     -not (Test-ScaffoldLessonGuarded '无闸门（只能靠人）') -and
                     -not (Test-ScaffoldLessonGuarded '人工/评审') -and
-                    -not (Test-ScaffoldLessonGuarded '闸，靠人') -and
-                    -not (Test-ScaffoldLessonGuarded 'gate 讨论') -and
-                    -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
-                    -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
-                    (Test-ScaffoldLessonEnforcedByWellFormed '') -and
-                    (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）')
+                     -not (Test-ScaffoldLessonGuarded '闸，靠人') -and
+                     -not (Test-ScaffoldLessonGuarded 'gate 讨论') -and
+                     -not (Test-ScaffoldLessonGuarded 'TODO: add scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded '待补 scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'N/A (.json)') -and
+                     -not (Test-ScaffoldLessonGuarded 'no gate 1') -and
+                     -not (Test-ScaffoldLessonGuarded '无闸1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO: add scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '待补 scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A (.json)') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'no gate 1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none TODO') -and
+                     (Test-ScaffoldLessonEnforcedByWellFormed '') -and
+                     (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）') -and
+                     (Test-ScaffoldLessonEnforcedByWellFormed 'none(reason)')
     if ($guardProbeOk) { Write-Host 'enforced_by 守卫判定自检（真引用/圈码闸号/none/空/ASCII 占位符/中文伪守卫 各判对）✓' } else { Write-Warning 'enforced_by 守卫判定回归（Test-ScaffoldLessonGuarded：真引用或圈码闸号未判有守卫，或 none/空/占位符/中文伪守卫（无闸门…、人工/评审）被误判为已有守卫——fail-open 方向）。'; $fail = $true }
     # search 语义自检（确定性 fixture，不依赖总账内容）：多词=AND 全命中、缺一词即不命中、单词行为不变——
     #   守 search 的召回契约（selftest 闸② 借道本命令免费回归）。

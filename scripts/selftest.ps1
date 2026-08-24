@@ -3518,14 +3518,14 @@ try {
   Remove-Item $tmpLedger -Force -ErrorAction SilentlyContinue
   Remove-Item Env:SCAFFOLD_EFFECTIVENESS_LEDGER -ErrorAction SilentlyContinue
 }
-# 12c. triage selfcheck 常设接线（TD23）：PR #26 引入的 hermetic 探针自测（探针 4 跨 worktree，临时夹具）
+# 12c. triage selfcheck 常设接线（TD23）：探针 1/4/5/10/11 的 hermetic 自测（含探针 4 跨 worktree）
 #   此前「可跑不被跑」；接进常设闸使改探针即回归。triage 退出码恒 0（reporter 契约），故同 12b 只断言输出——
 #   且钉**末行**（selfcheck 的 PASS/FAIL 总结行恒为最后输出）：防「输出里早处出现 PASS、随后才报错」的假绿。
 $selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
 $selfcheckLines = @($selfcheckOut -split "`r?`n" | ForEach-Object { ($_ -replace "`e\[[0-9;]*m", '').Trim() } | Where-Object { $_ -ne '' })   # 去 ANSI 色码 + 空行（防终端差异）
 $selfcheckLast = if ($selfcheckLines.Count) { $selfcheckLines[-1] } else { '' }
 if ($selfcheckLast -notmatch '^triage selfcheck: PASS') { Fail "triage selfcheck 未过（期望末行为 'triage selfcheck: PASS…'，实际末行「$selfcheckLast」）：`n$selfcheckOut" }
-else { Write-Host '  triage selfcheck OK（探针 4 hermetic 自检：末行 PASS）' }
+else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：末行 PASS）' }
 
 # 12d. tech-debt 探针（探针2）位置解析硬化（TD57/TD-120）：旧码硬编码 `$cells[5]` 为状态列、且用朴素
 #   `.Split('|')` 分列——单元格内出现字面竖线（如位置列 backtick 代码片段里的正则析取 `a\|b`）会

@@ -6,8 +6,9 @@
   mechanical guard.
 
 .DESCRIPTION
-  Two call sites need the same answer and used to compute it from the same regex, copied twice
-  (lessons.ps1 `check` and triage.ps1's lessons-cap probe). Both counted markdown bullets, so
+  Two consumers make three invocations and need the same answer: lessons.ps1 `check` reads CLAUDE.md and,
+  when present, CLAUDE.template.md; triage.ps1's lessons-cap probe reads CLAUDE.md. Both consumers used to
+  compute it from the same regex, copied twice. They counted markdown bullets, so
   merging several lesson IDs into one bullet satisfied LessonsMustCap while the resident rule
   count - and the per-turn context it costs - kept growing. The one measurement quoted in this
   PR carries its commit and lives at its own call site (lessons.ps1 `check`); no unattributed
@@ -34,7 +35,9 @@
 # 分节解析失败的 ASCII 哨兵（L165：机检认 ASCII，本地化文案只给人读）。两个消费者引用同一枚字面量。
 $ScaffoldMustLayerNotFound = '[LESSONS-SECTION-NOT-FOUND]'
 # 「显式声明无守卫」的唯一形态。守卫判定与形态判定对它给相反答案，故字面量只写这一处。
-$ScaffoldNoGuardDeclRe = '^none\b'
+$ScaffoldNoGuardDeclRe = '^none(?:（[^）\r\n]+）|\([^\)\r\n]+\))$'
+# Placeholder/negation prefixes win before any later path/extension/gate-looking substring can launder them.
+$ScaffoldRejectedGuardPrefixRe = '^(?:(?:TODO|N/A)(?:$|[\s:：.(])|待补(?:$|[\s:：.(])|no\s+gate(?:$|[\s:：0-9])|无闸|none(?:$|\s))'
 
 function Get-ScaffoldLessonEnforcedBy {
   <#
@@ -93,7 +96,7 @@ function Test-ScaffoldLessonGuarded {
   param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)
   if ([string]::IsNullOrWhiteSpace($EnforcedBy)) { return $false }
   $v = $EnforcedBy.Trim()
-  if ($v -match $ScaffoldNoGuardDeclRe) { return $false }
+  if ($v -match $ScaffoldNoGuardDeclRe -or $v -match $ScaffoldRejectedGuardPrefixRe) { return $false }
   # 闸编号的字符类写成 \u 转义而非字面圈码（L193：不可见/易错码位只写转义形态，落盘可逐字节复核）。
   # ①-⓿ = Enclosed Alphanumerics，整块无表意文字，故收它进来不会重开中文那个口子。
   return ($v -match '(?i)(\.(ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)\b|[A-Za-z0-9._-]{2,}[\\/][A-Za-z0-9._-]{2,}|\bgate\s+[0-9A-Za-z\u2460-\u24FF]|闸\s*[0-9A-Za-z\u2460-\u24FF])')
@@ -138,17 +141,35 @@ function Get-ScaffoldMustLayerSection {
     return [pscustomobject]@{ Found = $false; Reason = 'FILE-MISSING'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
   }
   $bullets = @()
+  $items = [System.Collections.Generic.List[string]]::new()
+  $currentItem = $null
   $inSection = $false
   foreach ($line in @(Get-Content -LiteralPath $Path)) {
     if (-not $inSection) {
       if ($line -match '^##\s+经验铁律') { $inSection = $true }
       continue
     }
-    if ($line -match '^##\s') { break }           # next level-2 heading ends the section
-    if ($line -notmatch '^\s*-\s+') { continue }  # only list items can declare a resident rule
-    $ids = @([regex]::Matches($line, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    if ($line -match '^##\s') {
+      if ($null -ne $currentItem) { $items.Add($currentItem) }
+      $currentItem = $null
+      break
+    }
+    if ($line -match '^\s*-\s+') {
+      if ($null -ne $currentItem) { $items.Add($currentItem) }
+      $currentItem = $line
+      continue
+    }
+    if ($null -ne $currentItem -and $line -match '^\s+\S') {
+      $currentItem += "`n$line"
+      continue
+    }
+    if ($null -ne $currentItem) { $items.Add($currentItem); $currentItem = $null }
+  }
+  if ($null -ne $currentItem) { $items.Add($currentItem) }
+  foreach ($item in $items) {
+    $ids = @([regex]::Matches($item, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     if ($ids.Count -eq 0) { continue }
-    $bullets += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $line.Trim() }
+    $bullets += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $item.Trim() }
   }
   if (-not $inSection) {
     return [pscustomobject]@{ Found = $false; Reason = 'HEADING-NOT-FOUND'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }

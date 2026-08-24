@@ -37,7 +37,7 @@
 .EXAMPLE
   pwsh -File scripts\triage.ps1 scan -NoWrite   # 只报不写（selftest 用）
 .EXAMPLE
-  pwsh -File scripts\triage.ps1 selfcheck       # 探针 4/5/10/11 自检（末行 'triage selfcheck: PASS' 即绿）
+  pwsh -File scripts\triage.ps1 selfcheck       # 探针 1/4/5/10/11 自检（末行 'triage selfcheck: PASS' 即绿）
 #>
 [CmdletBinding()]
 param(
@@ -464,13 +464,15 @@ if ($Verb -eq 'selfcheck') {
     foreach ($case in @(
         @{ n = $MustCap;     sev = 'minor'; word = '达封顶' },      # 恰好等于上限
         @{ n = $MustCap + 1; sev = 'major'; word = '超封顶' })) {   # 超出一个
-      # 前 n-1 个 id 并进**一条** bullet、末一个单独一条 ⇒ 条目数恒为 2（旧口径两侧皆绿），
-      # 驻留 id 数 = n（新口径在超封顶侧必红）。
-      $merged = (1..($case.n - 1) | ForEach-Object { "[L90$_]" }) -join ''
+      # 前 n-1 个 id 并进**一条** bullet（最后一个放续行）、末一个单独一条 ⇒ 条目数恒为 2，
+      # 驻留 id 数 = n。续行钉住完整 list-item 解析，不能只扫物理首行。
+      $merged = (1..($case.n - 2) | ForEach-Object { "[L90$_]" }) -join ''
+      $wrappedId = "[L90$($case.n - 1)]"
       $fxClaude = Join-Path $fxRoot "CLAUDE-$($case.n).md"
       Set-Content -Path $fxClaude -Encoding utf8 -Value @(
         '## 经验铁律（必须加载）',
         "- **$merged** 多个 id 并进一条 bullet",
+        "  continuation $wrappedId（同一 markdown 条目的续行）",
         "- **[L9$($case.n)9]** 单 id 一条",
         '',
         '## 下一节')
@@ -538,6 +540,16 @@ if ($Verb -eq 'selfcheck') {
       '- tier: ledger',
       '- severity: blocking',
       '- enforced_by: N/A',
+      '',
+      '## L912 复合占位符 enforced_by 的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: TODO: add scripts/future.ps1',
+      '',
+      '## L913 伪文件后缀占位符的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: N/A (.json)',
       '')
     $Ledger = $fxLedger          # 注入：两个探针都读脚本作用域
     $findings.Clear(); Invoke-ProbeLessonsDemote
@@ -547,13 +559,26 @@ if ($Verb -eq 'selfcheck') {
     if ($demWhat -notmatch 'L901') { $fails.Add('用例6 有守卫的必须层条目 L901 未被提名降层（enforced_by 的降层方向失效）') }
     if ($demWhat -match 'L902') { $fails.Add('用例6 显式 none（理由）的 L902 被提名降层——none 必须判为**无**守卫') }
     if ($demWhat -match 'L905') { $fails.Add('用例6 占位符 enforced_by: TODO 的 L905 被提名降层——心跳在替一条无守卫的铁律说「机器已在守它」（fail-open）') }
+    if ($demWhat -match 'L912') { $fails.Add('用例6 复合占位符 TODO: add scripts/future.ps1 的 L912 被提名降层——占位前缀不能被后续真路径洗白') }
     $findings.Clear(); Invoke-ProbeLessons
     $pro = @($findings | Where-Object probe -eq 'lessons-promote')
     $proWhat = ($pro | ForEach-Object what) -join ' '
-    if ($pro.Count -ne 2) { $fails.Add("用例6 期望恰 2 条 lessons-promote（空字段 L904 + 占位符 L906），实得 $($pro.Count)") }
+    if ($pro.Count -ne 3) { $fails.Add("用例6 期望恰 3 条 lessons-promote（空字段 L904 + 占位符 L906 + 伪后缀占位符 L913），实得 $($pro.Count)") }
     if ($proWhat -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
     if ($proWhat -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
     if ($proWhat -notmatch 'L906') { $fails.Add('用例6 占位符 enforced_by: N/A 的 L906 未被提名——认不出的取值被误读成「已有守卫」（fail-open）') }
+    if ($proWhat -notmatch 'L913') { $fails.Add('用例6 复合占位符 N/A (.json) 的 L913 未被提名——占位前缀不能被括号内文件后缀洗白') }
+
+    foreach ($invalidEnforcedBy in @(
+      'TODO: add scripts/future.ps1', '待补 scripts/future.ps1', 'N/A (.json)', 'no gate 1', '无闸1',
+      'none', 'none TODO')) {
+      if (Test-ScaffoldLessonGuarded $invalidEnforcedBy) { $fails.Add("用例6c 伪守卫被判 guarded：$invalidEnforcedBy") }
+      if (Test-ScaffoldLessonEnforcedByWellFormed $invalidEnforcedBy) { $fails.Add("用例6c 非规范声明被判 well-formed：$invalidEnforcedBy") }
+    }
+    foreach ($validNoGuard in @('none（理由）', 'none(reason)')) {
+      if (-not (Test-ScaffoldLessonEnforcedByWellFormed $validNoGuard)) { $fails.Add("用例6c 带非空理由的 none 声明被拒：$validNoGuard") }
+      if (Test-ScaffoldLessonGuarded $validNoGuard) { $fails.Add("用例6c none 声明被误判 guarded：$validNoGuard") }
+    }
 
     # ── 用例 6b：**中文**取值的守卫判定（用例 6 的反方向；总账本就是中文散文）──
     # 用例 6 只覆盖了 ASCII 占位符，于是收紧成允许清单后仍有一个反向的 fail-open：判定核用 .NET 正则，

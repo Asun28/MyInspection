@@ -70,7 +70,7 @@ Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → �
 - 退出码恒 0——它是 **reporter，不是闸门**。闸门仍是 worktree/TDD/Codex/CI。
 - **只发现、不行动**：绝不写仓内被跟踪文件、不做 git/gh 写操作。act 走既有交付链。
 - 其中 `delivery-blocked` 是唯一读**交付**状态的探针：其余探针读的都是脚手架自身，于是收件箱可以很热闹而关键路径其实停着，且箱里每一条可行动项都是脚手架自我维护（上游 issue #185）。它同样离线——`review.ps1` 每次跑都把归一化裁决写进 `<worktree>/.review/<分支>.json`。
-- 自检：`pwsh -File scripts\triage.ps1 selfcheck`——探针 4/5/10/11 的 hermetic 自测（临时夹具 + 输出断言，末行 `triage selfcheck: PASS` 即绿；PR #26 引入，selftest 闸 12c 常设接线，改探针即回归）。
+- 自检：`pwsh -File scripts\triage.ps1 selfcheck`——探针 1/4/5/10/11 的 hermetic 自测（临时夹具 + 输出断言，末行 `triage selfcheck: PASS` 即绿；PR #26 引入，selftest 闸 12c 常设接线，改探针即回归）。
 - 节律（主模式）：一次自主运行内**自步进 N 个 triage→act 周期**——扫描发现 → 挑一件 act → 到间隔用 fresh-context 校验（独立、新上下文的 verifier 子代理对着规格核，优于自我批评）→ 再扫下一轮，如此推进数小时。session 开场跑一次当 work-list、或 Claude Code `/loop` 定时重跑 `triage` skill，是**回退节律**（用户不在场自步进、或跨运行接力时用）。
 
 > **发现 vs 行动，按可逆性分界**（Anthropic RSI）：把「perspiration」（巡检、发现）自动化，心跳本体只发现；act 则按**可逆性**分两档。
