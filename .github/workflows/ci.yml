@@ -176,6 +176,8 @@ jobs:
       - name: Provision license scanners (online cache warm-up)
         if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}
         shell: pwsh
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/license-scanner-uv-5.5.5
         # This is the only online phase for license-scanner tooling. Exact versions are warmed before the gate;
         # the gate itself forces uv and npm offline, so a cold/missing cache fails closed without a registry request.
         run: |
@@ -184,13 +186,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { Write-Error "pip-licenses provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
           }
           if (Test-Path frontend/package.json) {
-            npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25.0.1
+            npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1
             if ($LASTEXITCODE -ne 0) { Write-Error "license-checker provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
           }
 
       - name: License gate
         if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}
         shell: pwsh
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/license-scanner-uv-5.5.5
         # 每 PR 跑商用许可闸（PyPI/npm + Gradle 已解析 classpath，见 docs/LICENSE-POLICY.md）——服务端兜底，
         # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。禁列许可或 Gradle 解析/元数据失败均非零退出。
         # 无受支持清单（pyproject.toml / frontend/package.json / Gradle 清单）时脚本自身优雅通过；三种生态

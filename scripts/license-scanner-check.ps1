@@ -75,6 +75,7 @@ if ($Suite -eq 'integration') {
   # ci.yml 里 License gate 与其姊妹闸共用的运行条件（逐字）。两处都要等于它：只写「等于姊妹闸」会让
   # 「两处一起改成 ${{ false }}」保持绿，故把这条表达式本身钉成字面量。
   $expectedGateCondition = '${{ steps.docs_scope.outputs.docs_only != ''true'' }}'
+  $expectedUvCache = '${{ runner.temp }}/license-scanner-uv-5.5.5'
   # License gate 真正必须执行的脚本路径（ci.yml 的 run: 块里解析出来的字面量）。
   $expectedGateScript = 'scripts/check-licenses.ps1'
 
@@ -388,6 +389,26 @@ if ($Suite -eq 'integration') {
     return $keys
   }
 
+  function Get-WorkflowStepEnvValues {
+    param(
+      [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StepLines,
+      [Parameter(Mandatory)][string]$Name
+    )
+    $values = [System.Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $StepLines.Count; $i++) {
+      if ($StepLines[$i] -notmatch '^(?<indent>[ \t]*)env:[ \t]*$') { continue }
+      $envIndent = $Matches.indent.Length
+      for ($j = $i + 1; $j -lt $StepLines.Count; $j++) {
+        $line = $StepLines[$j]
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line -notmatch '^(?<indent>[ \t]*)(?<key>[A-Za-z_][A-Za-z0-9_]*):(?<value>.*)$') { break }
+        if ($Matches.indent.Length -le $envIndent) { break }
+        if ($Matches.indent.Length -eq $envIndent + 2 -and $Matches.key -ceq $Name) { $values.Add($Matches.value.Trim()) }
+      }
+    }
+    return $values.ToArray()
+  }
+
   function Get-WorkflowRunScript {
     param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StepLines)
     # `run: |` 之后、缩进比 `run:` 深的连续行即块标量；不做去缩进（PowerShell 解析器不在乎前导空白，
@@ -688,6 +709,7 @@ if ($Suite -eq 'integration') {
     if ($stepLine.ContainsKey('License gate')) {
       $gateLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine['License gate'])
       $gateKeys = Get-WorkflowStepKeys -StepLines $gateLines
+      $gateUvCaches = @(Get-WorkflowStepEnvValues -StepLines $gateLines -Name 'UV_CACHE_DIR')
       # 键集**不**逐字逐序钉死：那样一个无害的 `env:` / `working-directory:`、甚至把 `shell:` 写到 `if:`
       # 上面（YAML 语义完全相同），都会让 seeded 以一条读起来像「检测到破坏」的消息变红。这里改成
       # 「必需键齐 + 多出来的键只能来自良性白名单」，并把这一段真正依赖的东西钉住：
@@ -716,6 +738,8 @@ if ($Suite -eq 'integration') {
       $runScript = Get-WorkflowRunScript -StepLines $gateLines
       if ([string]::IsNullOrWhiteSpace($runScript)) {
         $found.Add('[INTEGRATION-CI-SCANNER] License gate has no run: block to execute the scanner from')
+      } elseif ($gateUvCaches.Count -ne 1 -or $gateUvCaches[0] -cne $expectedUvCache) {
+        $found.Add("[INTEGRATION-CI-SCANNER] License gate must reuse the isolated exact-version uv cache '$expectedUvCache' warmed by the provisioning step")
       } else {
         $runAst = [System.Management.Automation.Language.Parser]::ParseInput($runScript, [ref]$null, [ref]$null)
         # Bind every prerequisite to the live scanner command. Whole-block presence is insufficient: a correct
@@ -747,6 +771,7 @@ if ($Suite -eq 'integration') {
     if ($stepLine.ContainsKey($provisionStep)) {
       $provisionLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine[$provisionStep])
       $provisionKeys = Get-WorkflowStepKeys -StepLines $provisionLines
+      $provisionUvCaches = @(Get-WorkflowStepEnvValues -StepLines $provisionLines -Name 'UV_CACHE_DIR')
       $provisionRun = Get-WorkflowRunScript -StepLines $provisionLines
       $provisionTokens = $null
       $provisionErrors = $null
@@ -759,13 +784,14 @@ if ($Suite -eq 'integration') {
         (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path pyproject.toml') -RequiredIfConditions @('Test-Path pyproject.toml'))
       }).Count
       $npmProvisionRuns = @($provisionCommands | Where-Object {
-        ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25.0.1' -and
+        ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1' -and
         (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path frontend/package.json') -RequiredIfConditions @('Test-Path frontend/package.json'))
       }).Count
       if (-not $provisionKeys.Contains('if') -or $provisionKeys['if'] -cne $expectedGateCondition -or
           -not $provisionKeys.Contains('shell') -or $provisionKeys['shell'] -cne 'pwsh' -or
+          $provisionUvCaches.Count -ne 1 -or $provisionUvCaches[0] -cne $expectedUvCache -or
           $provisionErrors.Count -ne 0 -or $uvProvisionRuns -ne 1 -or $npmProvisionRuns -ne 1) {
-        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must execute exact pins pip-licenses==5.5.5 and license-checker@25.0.1 on live paths under their exact manifest guards and the same docs-only condition')
+        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must execute exact pins under their manifest guards, warm the isolated versioned uv cache, and share the docs-only condition')
       }
     }
     if ($stepLine.ContainsKey('E2E verify gate')) {
@@ -844,8 +870,8 @@ if ($Suite -eq 'integration') {
     @{ Id = 'selftest-inline-fixture-hoisted-path'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n`$restoredWrapperPath = Join-Path `$restoredFixtureRoot 'android/gradlew.bat'`nSet-Content -LiteralPath `$restoredWrapperPath -Encoding utf8 -Value 'fixture'`n" },
     @{ Id = 'selftest-inline-fixture-redirection'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`n'fixture' > 'android/gradlew.bat'`n" },
     @{ Id = 'selftest-inline-switch-before-positional'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`nSet-Content -NoNewline (Join-Path `$RepoRoot 'android/gradlew.bat') -Value 'fixture'`n" },
-    @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
-    @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     @{ Id = 'ci-provision-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+Provision license scanners \(online cache warm-up\)[ \t]*$' },
     # The same text nested under the preceding run scalar is inert YAML. Whole-file regex counting used to accept
     # this after the real direct-child name was indented away.
@@ -879,9 +905,11 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-npm-offline-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = "(?m)^(?<keep>[ \t]*)(?<body>\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*)$" },
     @{ Id = 'ci-scanner-npm-offline-moved-after'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = "(?m)^[ \t]*\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*\r?$"; AnchorPattern = '(?m)^[ \t]*if \(Test-Path \$f\).*check-licenses\.ps1.*\r?$' },
     @{ Id = 'ci-provision-pip-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*uv run --with pip-licenses==)5\.5\.5(?: pip-licenses --version[ \t]*)$'; Text = '6.0.0a1 pip-licenses --version' },
-    @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
+    @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
     @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
-    @{ Id = 'ci-provision-npm-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*)$' },
+    @{ Id = 'ci-provision-npm-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>npm install --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*)$' },
+    @{ Id = 'ci-provision-uv-cache-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+Provision license scanners \(online cache warm-up\)[ \t]*\r?\n.*?^[ \t]*UV_CACHE_DIR:[ \t]*\$\{\{ runner\.temp \}\}/license-scanner-uv-)5\.5\.5(?<tail>[ \t]*\r?$)' },
+    @{ Id = 'ci-gate-uv-cache-drift'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n.*?^[ \t]*UV_CACHE_DIR:[ \t]*\$\{\{ runner\.temp \}\}/license-scanner-uv-)5\.5\.5(?<tail>[ \t]*\r?$)' },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
     # `shell:` 的**值**：下面整段 run: 块分析都按 PowerShell 解析它，改成 bash 后此前一路绿到底。
@@ -1105,7 +1133,7 @@ if ($Suite -eq 'integration') {
   }
 
   # Hermetic warm-up → offline handoff proof for npm. Install a local fixture package into the exact
-  # `frontend/node_modules` scope used by CI, then run the real production scanner with an empty cache and npm
+  # repository-root `node_modules` scope used by CI, then run the real production scanner with an empty cache and npm
   # forced offline. The fixture bin marker proves npx resolved the warmed local tool instead of attempting fetch.
   if (-not $SkipMutations) {
     $handoffRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-npm-handoff-" + [guid]::NewGuid().ToString('N'))
@@ -1133,19 +1161,88 @@ process.stdout.write('{}');
       $env:npm_config_cache = $handoffCache
       $env:npm_config_offline = 'true'
       $env:LICENSE_CHECKER_HANDOFF_MARKER = $handoffMarker
-      $handoffInstallOutput = (& npm install --prefix $handoffFrontend --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String)
+      $handoffInstallOutput = (& npm install --prefix $handoffRoot --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String)
       $handoffInstallExit = $LASTEXITCODE
       $handoffResult = if ($handoffInstallExit -eq 0) {
         Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
       } else { [pscustomobject]@{ ExitCode = $handoffInstallExit; Output = $handoffInstallOutput } }
       Assert-Integration (
         $handoffInstallExit -eq 0 -and $handoffResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $handoffMarker)
-      ) "[INTEGRATION-NPM-HANDOFF] frontend-scoped warm-up did not feed the real offline npx scan (install=$handoffInstallExit scan=$($handoffResult.ExitCode) marker=$([bool](Test-Path -LiteralPath $handoffMarker))): install=[$handoffInstallOutput] scan=[$($handoffResult.Output)]"
+      ) "[INTEGRATION-NPM-HANDOFF] repository-root warm-up did not feed the real offline npx scan (install=$handoffInstallExit scan=$($handoffResult.ExitCode) marker=$([bool](Test-Path -LiteralPath $handoffMarker))): install=[$handoffInstallOutput] scan=[$($handoffResult.Output)]"
     } finally {
       if ($null -eq $priorNpmCacheHandoff) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue } else { $env:npm_config_cache = $priorNpmCacheHandoff }
       if ($null -eq $priorNpmOfflineHandoff) { Remove-Item Env:npm_config_offline -ErrorAction SilentlyContinue } else { $env:npm_config_offline = $priorNpmOfflineHandoff }
       if ($null -eq $priorHandoffMarker) { Remove-Item Env:LICENSE_CHECKER_HANDOFF_MARKER -ErrorAction SilentlyContinue } else { $env:LICENSE_CHECKER_HANDOFF_MARKER = $priorHandoffMarker }
       if (Test-Path -LiteralPath $handoffRoot) { Remove-Item -LiteralPath $handoffRoot -Recurse -Force }
+    }
+  }
+
+  # Hermetic warm-up → offline handoff proof for Python. The probe accepts only the exact online pin,
+  # records it inside the isolated UV_CACHE_DIR, then permits the production scanner's unversioned invocation
+  # only when that same cache is reused under UV_OFFLINE=1. This proves isolation makes the unversioned gate
+  # deterministic without changing scanner core owned by the upstream card.
+  if (-not $SkipMutations) {
+    $uvHandoffRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-uv-handoff-" + [guid]::NewGuid().ToString('N'))
+    $uvHandoffScripts = Join-Path $uvHandoffRoot 'scripts'
+    $uvHandoffBin = Join-Path $uvHandoffRoot 'bin'
+    $uvHandoffCache = Join-Path $uvHandoffRoot 'uv-cache-5.5.5'
+    $uvHandoffVersion = Join-Path $uvHandoffCache 'pip-licenses-version.txt'
+    $uvHandoffInvoked = Join-Path $uvHandoffRoot 'pip-licenses-invoked.txt'
+    $uvHandoffOutbound = Join-Path $uvHandoffRoot 'outbound-attempted.txt'
+    $priorUvHandoffPath = $env:PATH
+    $priorUvHandoffCache = [Environment]::GetEnvironmentVariable('UV_CACHE_DIR', 'Process')
+    $priorUvHandoffVersion = [Environment]::GetEnvironmentVariable('UV_HANDOFF_VERSION_MARKER', 'Process')
+    $priorUvHandoffInvoked = [Environment]::GetEnvironmentVariable('UV_HANDOFF_INVOKED_MARKER', 'Process')
+    $priorUvHandoffOutbound = [Environment]::GetEnvironmentVariable('UV_HANDOFF_OUTBOUND_MARKER', 'Process')
+    try {
+      New-Item -ItemType Directory -Force -Path $uvHandoffScripts, $uvHandoffBin, $uvHandoffCache | Out-Null
+      foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$sibling") -Destination (Join-Path $uvHandoffScripts $sibling)
+      }
+      Set-Content -LiteralPath (Join-Path $uvHandoffRoot 'pyproject.toml') -Encoding utf8 -Value "[project]`nname = 'uv-handoff-probe'`nversion = '0.0.0'"
+      Set-Content -LiteralPath (Join-Path $uvHandoffBin 'uv.ps1') -Encoding utf8 -Value @'
+param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Remaining)
+$argsText = (($Remaining | ForEach-Object { [string]$_ }) -join ' ')
+if ($argsText -ceq 'run --with pip-licenses==5.5.5 pip-licenses --version') {
+  Set-Content -LiteralPath $env:UV_HANDOFF_VERSION_MARKER -Encoding utf8 -Value '5.5.5'
+  Write-Output 'pip-licenses 5.5.5'
+  exit 0
+}
+if ($argsText -ceq 'run --with pip-licenses pip-licenses --format=json' -and
+    $env:UV_OFFLINE -ceq '1' -and
+    (Test-Path -LiteralPath $env:UV_HANDOFF_VERSION_MARKER) -and
+    (Get-Content -LiteralPath $env:UV_HANDOFF_VERSION_MARKER -Raw).Trim() -ceq '5.5.5') {
+  Set-Content -LiteralPath $env:UV_HANDOFF_INVOKED_MARKER -Encoding utf8 -Value 'invoked'
+  Write-Output '[]'
+  exit 0
+}
+Set-Content -LiteralPath $env:UV_HANDOFF_OUTBOUND_MARKER -Encoding utf8 -Value $argsText
+exit 24
+'@
+      $env:PATH = $uvHandoffBin + [System.IO.Path]::PathSeparator + $priorUvHandoffPath
+      $env:UV_CACHE_DIR = $uvHandoffCache
+      $env:UV_HANDOFF_VERSION_MARKER = $uvHandoffVersion
+      $env:UV_HANDOFF_INVOKED_MARKER = $uvHandoffInvoked
+      $env:UV_HANDOFF_OUTBOUND_MARKER = $uvHandoffOutbound
+      $uvWarmOutput = (& uv run --with pip-licenses==5.5.5 pip-licenses --version 2>&1 | Out-String)
+      $uvWarmExit = $LASTEXITCODE
+      $uvHandoffResult = if ($uvWarmExit -eq 0) {
+        Invoke-StrictOfflineLicenseScan -Path (Join-Path $uvHandoffScripts 'check-licenses.ps1')
+      } else { [pscustomobject]@{ ExitCode = $uvWarmExit; Output = $uvWarmOutput } }
+      Assert-Integration (
+        $uvWarmExit -eq 0 -and
+        $uvHandoffResult.ExitCode -eq 0 -and
+        (Test-Path -LiteralPath $uvHandoffInvoked) -and
+        -not (Test-Path -LiteralPath $uvHandoffOutbound) -and
+        (Get-Content -LiteralPath $uvHandoffVersion -Raw).Trim() -ceq '5.5.5'
+      ) "[INTEGRATION-UV-HANDOFF] exact warm-up did not feed the real unversioned offline scan through its isolated cache (warm=$uvWarmExit scan=$($uvHandoffResult.ExitCode) invoked=$([bool](Test-Path -LiteralPath $uvHandoffInvoked)) outbound=$([bool](Test-Path -LiteralPath $uvHandoffOutbound))): warm=[$uvWarmOutput] scan=[$($uvHandoffResult.Output)]"
+    } finally {
+      $env:PATH = $priorUvHandoffPath
+      if ($null -eq $priorUvHandoffCache) { Remove-Item Env:UV_CACHE_DIR -ErrorAction SilentlyContinue } else { $env:UV_CACHE_DIR = $priorUvHandoffCache }
+      if ($null -eq $priorUvHandoffVersion) { Remove-Item Env:UV_HANDOFF_VERSION_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_VERSION_MARKER = $priorUvHandoffVersion }
+      if ($null -eq $priorUvHandoffInvoked) { Remove-Item Env:UV_HANDOFF_INVOKED_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_INVOKED_MARKER = $priorUvHandoffInvoked }
+      if ($null -eq $priorUvHandoffOutbound) { Remove-Item Env:UV_HANDOFF_OUTBOUND_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_OUTBOUND_MARKER = $priorUvHandoffOutbound }
+      if (Test-Path -LiteralPath $uvHandoffRoot) { Remove-Item -LiteralPath $uvHandoffRoot -Recurse -Force }
     }
   }
 
