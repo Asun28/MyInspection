@@ -55,10 +55,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-# Size measurement cannot combine with an early-return operation.
 if ($SizeOnly -and ($ResetRounds -or $SkipReview)) {
   $otherOperation = if ($ResetRounds) { '-ResetRounds' } else { '-SkipReview' }
-  Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly and $otherOperation are independent operations and cannot be combined." -ForegroundColor Red
+  Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly conflicts with $otherOperation." -ForegroundColor Red
   exit 1
 }
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
