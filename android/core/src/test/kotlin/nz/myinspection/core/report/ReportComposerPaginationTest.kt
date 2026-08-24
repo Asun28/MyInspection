@@ -228,6 +228,63 @@ class ReportComposerPaginationTest {
         )
     }
 
+    @Test
+    fun `an individually oversized summary line is refused rather than placed beyond the body`() {
+        val oversizedSummary = "room-kitchen · item-poor-2 · POOR"
+        val contentDependent = TextMeasurer { text, _, widthMm ->
+            MeasuredText(
+                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
+                if (text == oversizedSummary) 258 else 4,
+            )
+        }
+
+        val base = ReportTestFixtures.report()
+        val poor = base.rooms.single().items.single { it.id == "item-poor" }
+        val duplicateSnapshot = poor.snapshot.copy(stableId = "lounge.carpet.2")
+        val report = base.copy(
+            canonical = base.canonical.copy(items = base.canonical.items + duplicateSnapshot),
+            rooms = base.rooms.map {
+                val duplicate = poor.copy(
+                    id = "item-poor-2",
+                    snapshot = duplicateSnapshot,
+                    photos = emptyList(),
+                )
+                it.copy(items = it.items + duplicate)
+            },
+        )
+        val failure = assertFailsWith<IllegalArgumentException> {
+            ReportComposer(contentDependent).compose(report, Audience.LANDLORD)
+        }
+        listOf("summary row item-poor-2", "258mm", "257mm").forEach {
+            assertTrue(failure.message!!.contains(it), "the refusal never mentions '$it': ${failure.message}")
+        }
+    }
+
+    @Test
+    fun `an individually oversized supplement line is refused rather than placed beyond the body`() {
+        val oversizedSupplement = "oversized supplement"
+        val contentDependent = TextMeasurer { text, _, widthMm ->
+            MeasuredText(
+                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
+                if (text == oversizedSupplement) 258 else 4,
+            )
+        }
+        val report = ReportTestFixtures.report().copy(
+            remediations = emptyList(),
+            supplements = listOf(
+                ReportSupplement("FIRST", "ordinary supplement"),
+                ReportSupplement("OVERSIZED", oversizedSupplement),
+            ),
+        )
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            ReportComposer(contentDependent).compose(report, Audience.LANDLORD)
+        }
+        listOf("supplement OVERSIZED", "258mm", "257mm").forEach {
+            assertTrue(failure.message!!.contains(it), "the refusal never mentions '$it': ${failure.message}")
+        }
+    }
+
     /**
      * The measurer is an injected seam, so its line height is an input like any other. A height that cannot
      * hold the composer's own fixed disclaimer has to be refused at the door, with a message naming the

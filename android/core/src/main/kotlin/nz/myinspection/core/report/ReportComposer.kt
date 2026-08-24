@@ -535,6 +535,10 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         var current = paired.toMutableList()
         var currentHeight = current.endY()
         for (run in flowing) {
+            require(run.heightMm + 2 <= maxHeightMm) {
+                "${content.describe()} has a flowing line measuring ${run.heightMm}mm; with 2mm padding it " +
+                    "cannot fit in the ${maxHeightMm}mm page body"
+            }
             if (current.isNotEmpty() && currentHeight + run.heightMm + 2 > maxHeightMm) {
                 chunks += rebase(current)
                 current = mutableListOf()
