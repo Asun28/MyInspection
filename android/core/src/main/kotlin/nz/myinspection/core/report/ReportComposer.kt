@@ -376,11 +376,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         val measured = textMeasurer.measure(caption, TextStyle.CAPTION, widthMm)
         val kept = measured.lines.take(MAX_CAPTION_LINES).toMutableList()
         if (measured.lines.size > MAX_CAPTION_LINES) {
-            // Replace, never append: the measurer has already filled that line to the column's budget, so
-            // appending the marker pushes a glyph past the column edge - and the thumbnail column ends at
-            // the body's right edge, so the overflow lands in the page margin. Dropping as many characters
-            // as the marker takes keeps the line no longer than the measurer made it.
-            kept[kept.lastIndex] = kept.last().dropLast(CAPTION_ELISION.length) + CAPTION_ELISION
+            kept[kept.lastIndex] = elidedLineThatFits(kept.last(), widthMm)
         }
         val textRuns = kept.mapIndexed { index, line ->
             TextRun(
@@ -407,6 +403,20 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             imageHeightMm = imageHeightMm,
             heightMm = height,
         )
+    }
+
+    /** Removes complete Unicode code points until the marker measures as one line in the target column. */
+    private fun elidedLineThatFits(line: String, widthMm: Int): String {
+        var prefix = line
+        while (true) {
+            val candidate = prefix + CAPTION_ELISION
+            if (textMeasurer.measure(candidate, TextStyle.CAPTION, widthMm).lines.size == 1) return candidate
+            require(prefix.isNotEmpty()) {
+                "the caption elision marker cannot fit the ${widthMm}mm caption column"
+            }
+            val lastCodePoint = prefix.codePointBefore(prefix.length)
+            prefix = prefix.dropLast(Character.charCount(lastCodePoint))
+        }
     }
 
     /** Locale-independent, fixed-offset rendering. Renderers must never be handed raw epoch milliseconds. */

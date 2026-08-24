@@ -8,6 +8,25 @@ import kotlin.test.assertTrue
 /**
  * Production break under test: without the report model/composer there is no deterministic layout tree,
  * no typed audience boundary, and no canonical data-hash footer for a renderer to consume.
+ *
+ * Mutation evidence (mutation -> discriminating assertion -> expected failure text):
+ * A1 remove a forced section page -> exact six-page tree -> `expected 6 pages`; A2 reorder a block ->
+ * exact golden signatures -> `layout tree differs`; A3 reduce appendix density -> odd/even absolute geometry ->
+ * `appendix page ... carries ... pictures`; A4 move a thumbnail out of its row -> exact 40 mm geometry ->
+ * `item evidence is still emitted`; A5 draw raw epoch -> literal ISO text -> `cover draws a raw epoch value`;
+ * A6 omit provenance -> exact caption -> `photo captions render reference`; A7 append/drop a UTF-16 unit ->
+ * proportional and supplementary regressions -> `elided final line still wraps` / `unpaired UTF-16 surrogate`;
+ * A8 split an image slot -> per-purpose photo-id uniqueness -> `photo was emitted more than once`;
+ * A9 place a photo-only heading sequentially -> boundary fixture -> `heading did not move to a fresh page`;
+ * A10 duplicate flowing text -> reconstructed note/supplement -> `must read once, end to end`;
+ * A11 copy or split EN/ZH into later chunks -> language sequence checks -> `later chunk repeats EN/ZH`;
+ * A12 expose landlord data -> typed-block and cover-only checks -> `tenant cover carries ... total`;
+ * A13 include privacy/default or accept bare room -> two-audience/refusal checks -> `room-bare`;
+ * A14 weaken canonical projection validation -> table-driven exact refusal -> `projection accepted`;
+ * A15 derive geometry from production constants -> source purity and literal bounds -> `drawn unit spans`;
+ * A16 use wall-clock/locale formatting -> fixed instant captions -> `raw epoch`;
+ * A17 derive footer/tail expectations -> literal 1/6, 6/6 and exact runs/counts -> `tail contract differs`;
+ * A18 drop/reorder summary/backlinks -> ordered triples and row resolution -> `summary order/backlink differs`.
  */
 class ReportComposerGoldenTest {
     private val composer = ReportComposer(ReportTestFixtures.measurer)
@@ -17,6 +36,9 @@ class ReportComposerGoldenTest {
         val plan = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
 
         assertEquals(ReportTestFixtures.DATA_HASH, plan.dataHash)
+        // Six pages are forced by six independently paged regions: cover, glossary, summary, room detail,
+        // one two-up appendix page, and closing. None is inferred from the result being asserted.
+        assertEquals(6, plan.pages.size, "expected 6 pages: cover + glossary + summary + room + appendix + closing")
         assertEquals(
             listOf(
                 listOf("cover@15:100", "footer@272:10"),
@@ -62,6 +84,9 @@ class ReportComposerGoldenTest {
         val plan = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
         val expectedShort = ReportTestFixtures.DATA_HASH.take(12)
 
+        assertEquals("ea9cd02e76bf · 1/6", plan.pages.first().footerText())
+        assertEquals("ea9cd02e76bf · 6/6", plan.pages.last().footerText())
+
         plan.pages.forEach { page ->
             val footer = page.blocks.single { it.content is FooterBlock }.content as FooterBlock
             assertEquals(
@@ -98,7 +123,7 @@ class ReportComposerGoldenTest {
     @Test
     fun `audience types prevent tenant remediation leakage and retain tenant agreement`() {
         val landlord = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
-        val tenant = composer.compose(ReportTestFixtures.report(), Audience.TENANT)
+        val tenant = composer.compose(tenantFreeTextReport(), Audience.TENANT)
 
         assertTrue(landlord.contents().any { it is RemediationBlock && it.urgency == Urgency.HIGH })
         assertFalse(landlord.contents().any { it is TenantAgreementBlock })
@@ -106,10 +131,10 @@ class ReportComposerGoldenTest {
         assertTrue(tenant.contents().any { it is TenantAgreementBlock })
         assertTrue(tenant.contents().any { it is DisclaimerBlock && it.text == REPORT_DISCLAIMER })
         assertTrue(tenant.contents().filterIsInstance<ItemRowBlock>().all { it.wearOrDamage == null })
-        assertFalse(
-            tenant.contents().filterIsInstance<TextBearingBlock>()
-                .flatMap { it.textRuns }
-                .any { it.text.contains("DAMAGE") || it.text.contains("FAIR_WEAR") },
+        assertTrue(
+            tenant.contents().filterIsInstance<ItemRowBlock>().flatMap { it.textRuns }
+                .any { it.text.contains("DAMAGE FAIR_WEAR remediation 建议 HIGH") },
+            "legitimate tenant-authored vocabulary was removed from the item note",
         )
     }
 
@@ -119,20 +144,77 @@ class ReportComposerGoldenTest {
      * another route. The disclaimer is exempt because it is one frozen constant, pinned above.
      */
     @Test
-    fun `no landlord-only word reaches any tenant page`() {
-        val tenant = composer.compose(ReportTestFixtures.report(), Audience.TENANT)
+    fun `tenant cover and typed blocks exclude landlord-only data without scanning user notes`() {
+        val tenant = composer.compose(tenantFreeTextReport(), Audience.TENANT)
         val forbidden = listOf("remediation", "Remediation", "待处理", "建议", "紧急度") + Urgency.entries.map { it.name }
 
         val cover = tenant.contents().filterIsInstance<CoverBlock>().single()
         assertEquals(null, cover.pendingItemCount, "the tenant cover carries the landlord's pending total")
-        tenant.contents().filterIsInstance<TextBearingBlock>()
-            .filterNot { it is DisclaimerBlock }
-            .flatMap { block -> block.textRuns.map { block to it.text } }
-            .forEach { (block, drawn) ->
-                forbidden.forEach { word ->
-                    assertFalse(drawn.contains(word), "${block::class.simpleName} draws '$word' to the tenant: $drawn")
-                }
+        assertFalse(tenant.contents().any { it is RemediationBlock }, "a landlord-only block reached the tenant")
+        cover.textRuns.forEach { run ->
+            forbidden.forEach { word ->
+                assertFalse(run.text.contains(word), "tenant cover draws '$word': ${run.text}")
             }
+        }
+    }
+
+    @Test
+    fun `closing tail pins exact disclaimer supplement and audience-specific blocks`() {
+        val landlord = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
+        val tenant = composer.compose(ReportTestFixtures.report(), Audience.TENANT)
+        val expectedDisclaimerRuns = listOf(
+            TextLanguage.EN to "This report records visible conditions at the inspection tim",
+            TextLanguage.EN to "e. It is not legal, building, engineering, property, health ",
+            TextLanguage.EN to "or safety advice. Requirements and standards may change. Con",
+            TextLanguage.EN to "sult appropriately licensed professionals before acting.",
+            TextLanguage.ZH to "本报告仅记录检查时可见的状况，不构成法律、建筑、工程、物业、健康或安全建议。要求和标准可能变化，采取行动前请咨询具备相应",
+            TextLanguage.ZH to "执照的专业人士。",
+        )
+
+        listOf(landlord, tenant).forEach { plan ->
+            val tail = plan.pages.last().blocks.map { it.content }
+            assertEquals(listOf("S1"), tail.filterIsInstance<SupplementBlock>().map { it.reference })
+            assertEquals(
+                expectedDisclaimerRuns,
+                tail.filterIsInstance<DisclaimerBlock>().single().textRuns.map { it.language to it.text },
+                "tail contract differs for ${plan.audience}",
+            )
+            assertEquals(1, tail.count { it is DisclaimerBlock })
+            assertEquals(1, tail.count { it is SupplementBlock })
+        }
+        assertEquals(1, landlord.contents().count { it is RemediationBlock })
+        assertEquals(0, landlord.contents().count { it is TenantAgreementBlock })
+        assertEquals(0, tenant.contents().count { it is RemediationBlock })
+        assertEquals(1, tenant.contents().count { it is TenantAgreementBlock })
+        assertEquals(
+            listOf(
+                TextLanguage.EN to "Tenant agreement / signature",
+                TextLanguage.ZH to "租客同意 / 签名",
+            ),
+            tenant.contents().filterIsInstance<TenantAgreementBlock>().single().textRuns.map { it.language to it.text },
+        )
+    }
+
+    @Test
+    fun `summary rows preserve ordered adverse triples and each backlink resolves to an item row`() {
+        val plan = composer.compose(multiAdverseReport(), Audience.LANDLORD)
+        val summaries = plan.contents().filterIsInstance<SummaryItemBlock>()
+        val rows = plan.contents().filterIsInstance<ItemRowBlock>()
+
+        assertEquals(
+            listOf(
+                Triple("room-z", "item-z-poor", "POOR"),
+                Triple("room-a", "item-a-fair", "FAIR"),
+                Triple("room-a", "item-a-poor", "POOR"),
+            ),
+            summaries.map { Triple(it.roomId, it.itemId, it.status) },
+            "summary order differs from room/item traversal",
+        )
+        assertEquals(
+            summaries.map { it.itemId },
+            summaries.map { summary -> rows.single { it.itemId == summary.itemId }.itemId },
+            "a summary backlink does not resolve to exactly one item row",
+        )
     }
 
     @Test
@@ -150,6 +232,53 @@ class ReportComposerGoldenTest {
     }
 
     private fun DocumentPlan.contents() = pages.flatMap { page -> page.blocks.map { it.content } }
+
+    private fun PagePlan.footerText(): String =
+        (blocks.single { it.content is FooterBlock }.content as FooterBlock).textRuns.joinToString("") { it.text }
+
+    private fun tenantFreeTextReport(): ReportSnapshot {
+        val base = ReportTestFixtures.report()
+        val room = base.rooms.single()
+        val changed = room.items.last().copy(
+            snapshot = room.items.last().snapshot.copy(note = "DAMAGE FAIR_WEAR remediation 建议 HIGH"),
+        )
+        return base.copy(
+            canonical = base.canonical.copy(items = listOf(room.items.first().snapshot, changed.snapshot)),
+            rooms = listOf(room.copy(items = listOf(room.items.first(), changed))),
+        )
+    }
+
+    private fun multiAdverseReport(): ReportSnapshot {
+        val base = ReportTestFixtures.canonical()
+        val zPoor = base.items.last().copy(stableId = "z-poor", status = "POOR")
+        val zGood = base.items.first().copy(stableId = "z-good", status = "GOOD")
+        val aFair = base.items.last().copy(stableId = "a-fair", status = "FAIR")
+        val aPoor = base.items.last().copy(stableId = "a-poor", status = "POOR")
+        val rooms = listOf(
+            ReportRoom(
+                "room-z",
+                BilingualText("Rear room", "后室"),
+                listOf(
+                    ReportItem("item-z-poor", zPoor, BilingualText("Door", "门")),
+                    ReportItem("item-z-good", zGood, BilingualText("Wall", "墙")),
+                ),
+            ),
+            ReportRoom(
+                "room-a",
+                BilingualText("Front room", "前室"),
+                listOf(
+                    ReportItem("item-a-fair", aFair, BilingualText("Floor", "地板")),
+                    ReportItem("item-a-poor", aPoor, BilingualText("Window", "窗")),
+                ),
+            ),
+        )
+        return ReportSnapshot(
+            canonical = base.copy(items = listOf(zPoor, zGood, aFair, aPoor), photos = emptyList()),
+            tenancyReference = null,
+            rooms = rooms,
+            statusDefinitions = ReportTestFixtures.report().statusDefinitions,
+        )
+    }
 
     private fun DocumentBlock.bilingualText(): List<BilingualText> = when (this) {
         is SectionTitleBlock -> listOf(title)

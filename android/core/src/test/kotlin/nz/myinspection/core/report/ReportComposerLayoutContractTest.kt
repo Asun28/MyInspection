@@ -144,6 +144,51 @@ class ReportComposerLayoutContractTest {
         }
     }
 
+    @Test
+    fun `caption elision remeasures a wide marker until the final line fits`() {
+        val proportional = weightedMeasurer()
+        val plan = ReportComposer(proportional).compose(
+            reportWithItemReference("i".repeat(200)),
+            Audience.LANDLORD,
+        )
+
+        plan.slots().filter { it.photoId == "photo-item" }.forEach { slot ->
+            val finalRun = slot.textRuns.last()
+            assertTrue(finalRun.text.endsWith("…"), "the over-long caption has no elision marker")
+            assertEquals(
+                listOf(finalRun.text),
+                proportional.measure(finalRun.text, finalRun.style, finalRun.widthMm).lines,
+                "the elided final line still wraps under the measurer that produced the plan",
+            )
+        }
+    }
+
+    @Test
+    fun `caption elision never leaves half of a supplementary code point`() {
+        val supplementary = TextMeasurer { text, _, _ ->
+            when {
+                text.contains("supplementary-reference") ->
+                    MeasuredText(listOf("first", "second", "third😀", "overflow"), 4)
+                text == "third😀…" -> MeasuredText(listOf("third😀", "…"), 4)
+                else -> MeasuredText(listOf(text), 4)
+            }
+        }
+        val plan = ReportComposer(supplementary).compose(
+            reportWithItemReference("supplementary-reference"),
+            Audience.LANDLORD,
+        )
+
+        plan.slots().filter { it.photoId == "photo-item" }.forEach { slot ->
+            val finalText = slot.textRuns.last().text
+            assertEquals("third…", finalText)
+            assertTrue(
+                finalText.codePoints().allMatch { Character.isValidCodePoint(it) } &&
+                    finalText.none { Character.isSurrogate(it) },
+                "caption elision left an unpaired UTF-16 surrogate: $finalText",
+            )
+        }
+    }
+
     // --- fixtures ---
 
     private fun ImageSlotBlock.caption(): String = textRuns.joinToString("") { it.text }
@@ -168,5 +213,24 @@ class ReportComposerLayoutContractTest {
                 )
             },
         )
+    }
+
+    private fun weightedMeasurer(): TextMeasurer = TextMeasurer { text, _, widthMm ->
+        val capacity = (widthMm / 5).coerceAtLeast(8)
+        val lines = mutableListOf<String>()
+        val current = StringBuilder()
+        var used = 0
+        text.codePoints().forEach { codePoint ->
+            val weight = if (codePoint == 'i'.code) 1 else if (codePoint == '…'.code) 6 else 2
+            if (current.isNotEmpty() && used + weight > capacity) {
+                lines += current.toString()
+                current.clear()
+                used = 0
+            }
+            current.appendCodePoint(codePoint)
+            used += weight
+        }
+        if (current.isNotEmpty()) lines += current.toString()
+        MeasuredText(lines.ifEmpty { listOf(" ") }, 4)
     }
 }

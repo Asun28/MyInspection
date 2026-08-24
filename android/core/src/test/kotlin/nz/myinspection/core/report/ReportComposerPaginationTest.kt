@@ -255,25 +255,36 @@ class ReportComposerPaginationTest {
      * count, so the fixture below uses the longest caption the cap allows.
      */
     @Test
-    fun `every appendix page carries its section title and exactly two pictures`() {
+    fun `odd and even multi-page appendices retain titles two-up density and absolute bounds`() {
         val threeLineReference = "evidence/" + "x".repeat(91)
-        val plan = composer.compose(reportWithPhotoReference(threeLineReference), Audience.LANDLORD)
-        val appendixPages = plan.pages.filter { page ->
-            page.blocks.any { (it.content as? ImageSlotBlock)?.purpose == ImagePurpose.APPENDIX }
-        }
-
-        assertEquals(1, appendixPages.size, "the two-photo fixture must need exactly one appendix page")
-        appendixPages.forEach { page ->
-            val slots = page.blocks.mapNotNull { it.content as? ImageSlotBlock }
-                .filter { it.purpose == ImagePurpose.APPENDIX }
-            assertEquals(2, slots.size, "appendix page ${page.number} carries ${slots.size} pictures, not 2")
-            assertEquals(3, slots.first().textRuns.size, "the fixture must produce the longest allowed caption")
-            assertTrue(
-                page.blocks.any { (it.content as? SectionTitleBlock)?.key == "photo-appendix" },
-                "appendix page ${page.number} has no section title",
+        listOf(3 to listOf(2, 1), 4 to listOf(2, 2)).forEach { (photoCount, expectedDensity) ->
+            val plan = composer.compose(
+                reportWithAppendixPhotos(photoCount, threeLineReference),
+                Audience.LANDLORD,
             )
+            val appendixPages = plan.pages.filter { page ->
+                page.blocks.any { (it.content as? ImageSlotBlock)?.purpose == ImagePurpose.APPENDIX }
+            }
+
+            assertEquals(2, appendixPages.size, "$photoCount photos must span two appendix pages")
+            assertEquals(expectedDensity, appendixPages.map { page -> page.appendixSlots().size })
+            appendixPages.forEachIndexed { pageIndex, page ->
+                val title = page.blocks.single { (it.content as? SectionTitleBlock)?.key == "photo-appendix" }
+                val slots = page.appendixSlots()
+                assertEquals(15, title.yMm, "appendix page ${page.number} title does not start at the body top")
+                assertEquals(listOf(25, 147).take(slots.size), slots.map { it.first.yMm })
+                assertEquals(listOf(147, 269).take(slots.size), slots.map { it.first.yMm + it.first.heightMm })
+                slots.forEach { (_, slot) ->
+                    assertEquals(3, slot.textRuns.size, "photo ${slot.photoId} did not spend the caption cap")
+                }
+                assertEquals(
+                    expectedDensity[pageIndex],
+                    slots.size,
+                    "appendix page ${page.number} carries the wrong picture density",
+                )
+            }
+            plan.assertNothingOverflows()
         }
-        plan.assertNothingOverflows()
     }
 
     /**
@@ -431,7 +442,7 @@ class ReportComposerPaginationTest {
     }
 
     @Test
-    fun `privacy photos are excluded by default and included only by explicit option`() {
+    fun `privacy photos are excluded by default for both audiences and included only by explicit option`() {
         val basePhoto = ReportTestFixtures.canonical().photos.first()
         val privatePhoto = ReportPhoto(
             "private-photo",
@@ -447,7 +458,12 @@ class ReportComposerPaginationTest {
             canonical = canonical,
         )
 
-        assertTrue(composer.compose(report, Audience.LANDLORD).imageSlots().isEmpty())
+        Audience.entries.forEach { audience ->
+            assertTrue(
+                composer.compose(report, audience).imageSlots().isEmpty(),
+                "a private photo reached the $audience default report",
+            )
+        }
         val included = composer.compose(report, Audience.LANDLORD, ReportOptions(includePrivacyPhotos = true))
         assertEquals(listOf("private-photo", "private-photo"), included.imageSlots().map { it.photoId })
     }
@@ -458,40 +474,47 @@ class ReportComposerPaginationTest {
      * prints the tenant's private photographs.
      */
     @Test
-    fun `a room emptied by the privacy filter is skipped, and a room with no content at all is refused`() {
-        val plan = composer.compose(reportWithPhotoOnlyRoom(privacy = true), Audience.LANDLORD)
+    fun `a room emptied by the privacy filter is skipped independently for both audiences`() {
+        Audience.entries.forEach { audience ->
+            val plan = composer.compose(reportWithPhotoOnlyRoom(privacy = true), audience)
+            assertTrue(
+                plan.pages.flatMap { it.blocks }.none { (it.content as? RoomTitleBlock)?.roomId == "room-private" },
+                "a fully filtered room still emitted its heading for $audience",
+            )
+            assertTrue(plan.imageSlots().none { it.photoId == "photo-private" })
+        }
+    }
 
-        assertTrue(
-            plan.pages.flatMap { it.blocks }.none { (it.content as? RoomTitleBlock)?.roomId == "room-private" },
-            "a fully filtered room still emitted its heading",
-        )
-        assertTrue(plan.imageSlots().none { it.photoId == "photo-private" }, "a privacy photo reached the report")
-
-        val visible = composer.compose(reportWithPhotoOnlyRoom(privacy = false), Audience.LANDLORD)
-        assertTrue(visible.pages.flatMap { it.blocks }.any { (it.content as? RoomTitleBlock)?.roomId == "room-private" })
-
+    @Test
+    fun `a truly bare room is refused by name`() {
         val failure = assertFailsWith<IllegalArgumentException> {
             composer.compose(reportWithBareRoom(), Audience.LANDLORD)
         }
         assertTrue(
-            failure.message!!.contains("orphan heading"),
-            "expected the orphan-heading refusal, got: ${failure.message}",
+            failure.message!!.contains("room-bare") && failure.message!!.contains("orphan heading"),
+            "expected the room-bare orphan-heading refusal, got: ${failure.message}",
         )
     }
 
     /** A photo-only room's heading travels with its first picture, so it can never end a page alone. */
     @Test
     fun `a room with no items keeps its heading with its first photo`() {
-        val plan = composer.compose(reportWithPhotoOnlyRoom(privacy = false), Audience.LANDLORD)
+        val plan = composer.compose(reportWithBoundaryPhotoOnlyRoom(), Audience.LANDLORD)
         val page = plan.pages.single { page ->
             page.blocks.any { (it.content as? RoomTitleBlock)?.roomId == "room-private" }
         }
         val headingIndex = page.blocks.indexOfFirst { (it.content as? RoomTitleBlock)?.roomId == "room-private" }
+        val heading = page.blocks[headingIndex]
+        val photo = page.blocks[headingIndex + 1]
 
-        assertTrue(
-            page.blocks.drop(headingIndex + 1).any { it.content is ImageSlotBlock },
-            "the photo-only room's heading was separated from its only content",
-        )
+        assertTrue(photo.content is ImageSlotBlock, "the photo-only heading is not immediately followed by its photo")
+        assertEquals(15, heading.yMm, "the heading did not move to a fresh page with its photo")
+        assertEquals(heading.yMm + heading.heightMm, photo.yMm)
+        val previous = plan.pages[page.number - 2]
+        val previousEnd = previous.blocks.filterNot { it.content is FooterBlock }.maxOf { it.yMm + it.heightMm }
+        assertEquals(249, previousEnd, "the boundary fixture must end the preceding page at 249mm")
+        assertTrue(previousEnd + heading.heightMm <= 272, "the heading alone must fit the preceding page")
+        assertTrue(previousEnd + heading.heightMm + photo.heightMm > 272, "heading plus photo must not fit")
     }
 
     @Test
@@ -857,6 +880,15 @@ class ReportComposerPaginationTest {
 
         assertEquals(2, chunks.size, "the fixture must split the first closing block in two")
         assertEquals(listOf(246, 20), chunks.map { it.heightMm })
+        val firstLanguages = (chunks.first().content as RemediationBlock).textRuns.map { it.language }
+        assertTrue(TextLanguage.EN in firstLanguages && TextLanguage.ZH in firstLanguages)
+        chunks.drop(1).forEachIndexed { index, chunk ->
+            val languages = (chunk.content as RemediationBlock).textRuns.map { it.language }
+            assertTrue(
+                TextLanguage.EN !in languages && TextLanguage.ZH !in languages,
+                "later chunk ${index + 2} repeats EN/ZH instead of keeping the pair in the first chunk: $languages",
+            )
+        }
         assertTrue(
             titlePage.blocks.any { it.content is RemediationBlock },
             "the section title was left alone on page ${titlePage.number}",
@@ -937,6 +969,29 @@ class ReportComposerPaginationTest {
         )
     }
 
+    private fun reportWithAppendixPhotos(photoCount: Int, reference: String): ReportSnapshot {
+        val base = ReportTestFixtures.canonical()
+        val item = base.items.first()
+        val snapshots = (1..photoCount).map { index ->
+            PhotoSnapshot("appendix-$index", "camera", 1_755_500_000_000L + index, isRoomLevel = false)
+        }
+        val photos = snapshots.mapIndexed { index, snapshot ->
+            ReportPhoto("appendix-${index + 1}", snapshot, false, "$reference.${index + 1}", snapshot.exifTimeMs!!)
+        }
+        return ReportSnapshot(
+            canonical = base.copy(items = listOf(item), photos = snapshots),
+            tenancyReference = null,
+            rooms = listOf(
+                ReportRoom(
+                    "appendix-room",
+                    BilingualText("Evidence room", "证据房间"),
+                    listOf(ReportItem("appendix-item", item, BilingualText("Wall", "墙"), photos)),
+                ),
+            ),
+            statusDefinitions = ReportTestFixtures.report().statusDefinitions,
+        )
+    }
+
     /** A room whose only content is one room-level photograph, visible or privacy-flagged. */
     private fun reportWithPhotoOnlyRoom(privacy: Boolean): ReportSnapshot {
         val base = ReportTestFixtures.report()
@@ -945,6 +1000,22 @@ class ReportComposerPaginationTest {
         return base.copy(
             canonical = base.canonical.copy(photos = base.canonical.photos + snapshot),
             rooms = base.rooms + ReportRoom("room-private", BilingualText("Ensuite", "套间"), emptyList(), listOf(photo)),
+        )
+    }
+
+    private fun reportWithBoundaryPhotoOnlyRoom(): ReportSnapshot {
+        val base = reportWithPhotoOnlyRoom(privacy = false)
+        val fillerSnapshots = (1..2).map { index ->
+            PhotoSnapshot("ph-fill-$index", "camera", 1_755_410_000_000L + index, isRoomLevel = true)
+        }
+        val fillerPhotos = fillerSnapshots.mapIndexed { index, snapshot ->
+            ReportPhoto("photo-fill-${index + 1}", snapshot, false, "1.R.${index + 2}", snapshot.exifTimeMs!!)
+        }
+        return base.copy(
+            canonical = base.canonical.copy(photos = base.canonical.photos + fillerSnapshots),
+            rooms = base.rooms.mapIndexed { index, room ->
+                if (index == 0) room.copy(photos = room.photos + fillerPhotos) else room
+            },
         )
     }
 
@@ -1072,4 +1143,8 @@ class ReportComposerPaginationTest {
             }
         }
         .filter { purpose == null || it.purpose == purpose }
+
+    private fun PagePlan.appendixSlots(): List<Pair<PlacedBlock, ImageSlotBlock>> = blocks.mapNotNull { placed ->
+        (placed.content as? ImageSlotBlock)?.takeIf { it.purpose == ImagePurpose.APPENDIX }?.let { placed to it }
+    }
 }
