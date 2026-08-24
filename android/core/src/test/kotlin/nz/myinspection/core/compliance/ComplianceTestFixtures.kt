@@ -53,15 +53,14 @@ internal object ComplianceTestFixtures {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     /**
-     * A second configured purpose, unlike "inspection" in every value a test could read: a higher notice floor
-     * and a frequency limit that exempts everything. A rule picked by purpose is therefore distinguishable from
-     * the inspection rule being used by default.
+     * A second configured purpose, unlike "inspection" in every rule field. A rule picked by purpose is therefore
+     * distinguishable from the inspection rule being used by default at every selection point.
      */
     private const val ALTERNATE_PURPOSE_RULE = """,
             "fixture-purpose": {
               "noticeMinHours": 72,
-              "noticeMaxDays": 14,
-              "visitWindow": {"start": "08:00", "end": "19:00", "boardingHouseEnd": "18:00"},
+              "noticeMaxDays": 9,
+              "visitWindow": {"start": "09:00", "end": "17:00", "boardingHouseEnd": "16:00"},
               "frequencyLimit": {"days": 1, "exemptTypes": ["ROUTINE", "INGOING", "EXIT", "ANNUAL"]}
             }"""
 }

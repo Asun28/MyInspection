@@ -2,6 +2,7 @@ package nz.myinspection.core.compliance
 
 import nz.myinspection.core.compliance.ComplianceTestFixtures.RULES_FILE
 import nz.myinspection.core.compliance.ComplianceTestFixtures.configJson
+import java.lang.reflect.Modifier
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -13,6 +14,33 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
+/**
+ * A21 mutation receipt (2026-08-24, `:core:test --tests nz.myinspection.core.compliance.*`). Every row is one
+ * restored single-statement mutation; each run exited nonzero and named the assertion shown:
+ *
+ * | Acceptance | Mutation | Observed failing assertion text |
+ * | --- | --- | --- |
+ * | A1 | `< 48h` -> `<= 48h` | expected `Pass`, actual `Blocked(NOTICE_TOO_SHORT)` |
+ * | A2 | `> 14d` -> `>= 14d` | expected `Pass`, actual `Blocked(NOTICE_TOO_EARLY)` |
+ * | A3 | subtract 500ms from the opening boundary | expected `Blocked`, actual `Pass` at 07:59:59.999 |
+ * | A4 | always select the ordinary close | expected `Blocked`, actual `Pass` at boarding 18:00:00.001 |
+ * | A5 | `later.isBefore` -> `!later.isAfter` | expected `Pass`, actual `Blocked` at 28 civil days |
+ * | A6 | delete INGOING from the signed exemptions | expected `[INGOING, EXIT]`, found `[EXIT]` |
+ * | A7 | hard-code the 48h notice floor | expected `Blocked`, actual `Pass` under the 72h fixture |
+ * | A8 | hard-code 08:00/19:00/18:00 | expected `Blocked`, actual `Pass` under the 09:00/17:00/16:00 fixture |
+ * | A9 | hard-code 28 frequency days | expected `Blocked`, actual `Pass` for 30 days under the 42-day fixture |
+ * | A10 | hard-code request exemptions | expected `Blocked`, actual `Pass` under the inverted exemption fixture |
+ * | A11 | hard-code Pacific/Auckland for visit hours | expected `Blocked`, actual `Pass` under UTC |
+ * | A12 | measure notice as local wall time | expected `Blocked`, actual `Pass` across spring DST |
+ * | A13 | disable current-row exclusion | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` |
+ * | A14 | delete duplicate-id rejection | expected `[INVALID_HISTORY_ENTRY]`, found `[FREQUENCY_LIMIT]` |
+ * | A15 | delete configured-purpose history validation | expected `Blocked`, actual `Pass` |
+ * | A16 | delete each control/parse/HTTPS/host/credential guard separately | exact indexed error list lost its corresponding diagnostic; four single-error documents were accepted |
+ * | A17 | unwrap `sourceRefs` | expected `UnsupportedOperationException`, mutation completed successfully |
+ * | A18 | add ANNUAL to signed exemptions | expected `[INGOING, EXIT]`, found `[INGOING, EXIT, ANNUAL]` |
+ * | A19 | add `bypass:Boolean=false` to ScheduleRequest | exact field map gained `bypass=boolean` |
+ * | A20 | add an unclaimed enum member | exact reason-key list gained `UNCLAIMED_REASON` |
+ */
 class ComplianceEngineTest {
     private val zone = ZoneId.of("Pacific/Auckland")
 
@@ -28,6 +56,9 @@ class ComplianceEngineTest {
         assertIs<ScheduleValidation.Pass>(
             engine.validateSchedule(request(atClosing, atClosing.minus(Duration.ofDays(14)))),
         )
+        assertIs<ScheduleValidation.Pass>(
+            engine.validateSchedule(request(atClosing, atClosing.minus(Duration.ofDays(14)).plusMillis(1))),
+        )
         assertBlocked(
             engine.validateSchedule(request(atOpening, atOpening.minus(Duration.ofHours(48)).plusMillis(1))),
             ComplianceReasonKey.NOTICE_TOO_SHORT,
@@ -37,12 +68,17 @@ class ComplianceEngineTest {
             ComplianceReasonKey.NOTICE_TOO_EARLY,
         )
         assertBlocked(
-            engine.validateSchedule(request(atNz("2026-08-10T07:59:59"), atNz("2026-08-08T07:59:59"))),
+            engine.validateSchedule(request(atNz("2026-08-10T07:59:59.999"), atNz("2026-08-08T07:59:59.999"))),
             ComplianceReasonKey.OUTSIDE_VISIT_WINDOW,
         )
         assertBlocked(
             engine.validateSchedule(request(atNz("2026-08-10T19:00:00.001"), atNz("2026-08-08T19:00:00.001"))),
             ComplianceReasonKey.OUTSIDE_VISIT_WINDOW,
+        )
+        assertIs<ScheduleValidation.Pass>(
+            engine.validateSchedule(
+                request(atNz("2026-08-10T18:00:00.001"), atNz("2026-08-08T18:00:00.001")),
+            ),
         )
     }
 
@@ -77,11 +113,22 @@ class ComplianceEngineTest {
             scheduledAt = atNz("2026-08-01T10:00"),
         )
 
+        val twentySevenDaysLater = atNz("2026-08-28T10:00")
         assertBlocked(
             engine.validateSchedule(
                 request(
-                    scheduledAt = atNz("2026-08-15T10:00"),
-                    noticeGivenAt = atNz("2026-08-13T10:00"),
+                    scheduledAt = twentySevenDaysLater,
+                    noticeGivenAt = twentySevenDaysLater.minus(Duration.ofHours(48)),
+                    existingEntries = listOf(previous),
+                ),
+            ),
+            ComplianceReasonKey.FREQUENCY_LIMIT,
+        )
+        assertBlocked(
+            engine.validateSchedule(
+                request(
+                    scheduledAt = twentySevenDaysLater,
+                    noticeGivenAt = twentySevenDaysLater.minus(Duration.ofHours(48)),
                     existingEntries = listOf(previous),
                     tenantConsented = true,
                 ),
@@ -166,11 +213,37 @@ class ComplianceEngineTest {
         val config = ComplianceConfigLoader.load(configJson(alternatePurpose = true).encodeToByteArray()).config
         val engine = ComplianceEngine(config)
         val scheduled = atNz("2026-08-10T10:00")
+        val alternate = config.rules.getValue("fixture-purpose")
+
+        assertEquals(72, alternate.noticeMinHours)
+        assertEquals(9, alternate.noticeMaxDays)
+        assertEquals("09:00", alternate.visitWindow.start.toString())
+        assertEquals("17:00", alternate.visitWindow.end.toString())
+        assertEquals("16:00", alternate.visitWindow.boardingHouseEnd.toString())
+        assertEquals(1, alternate.frequencyLimit.days)
+        assertEquals(listOf("ROUTINE", "INGOING", "EXIT", "ANNUAL"), alternate.frequencyLimit.exemptTypes)
 
         assertIs<ScheduleValidation.Pass>(
             engine.validateSchedule(
                 request(scheduled, scheduled.minus(Duration.ofHours(72)), entryPurpose = "fixture-purpose"),
             ),
+        )
+        assertBlocked(
+            engine.validateSchedule(
+                request(scheduled, scheduled.minus(Duration.ofDays(10)), entryPurpose = "fixture-purpose"),
+            ),
+            ComplianceReasonKey.NOTICE_TOO_EARLY,
+        )
+        val beforeAlternateOpening = atNz("2026-08-10T08:30")
+        assertBlocked(
+            engine.validateSchedule(
+                request(
+                    beforeAlternateOpening,
+                    beforeAlternateOpening.minus(Duration.ofHours(72)),
+                    entryPurpose = "fixture-purpose",
+                ),
+            ),
+            ComplianceReasonKey.OUTSIDE_VISIT_WINDOW,
         )
         assertBlocked(
             engine.validateSchedule(
@@ -466,6 +539,7 @@ class ComplianceEngineTest {
         // Non-blank but repeated: naming that id later would excuse both rows at once.
         val repeated = listOf(routine("entry-dup", "2026-08-10T10:00"), routine("entry-dup", "2026-08-12T10:00"))
         assertBlocked(verdict(repeated), ComplianceReasonKey.INVALID_HISTORY_ENTRY)
+        assertBlocked(verdict(repeated, current = "entry-dup"), ComplianceReasonKey.INVALID_HISTORY_ENTRY)
         // Naming a row that is not in the history is not a reschedule; accepting it as a new visit would let a
         // caller drop the row under edit from the list and reuse its date.
         val single = listOf(routine("entry-under-edit", "2026-08-10T10:00"))
@@ -620,7 +694,58 @@ class ComplianceEngineTest {
         assertFailsWith<UnsupportedOperationException> {
             mutable.add(ComplianceReason(ComplianceReasonKey.FREQUENCY_LIMIT))
         }
+        assertFailsWith<UnsupportedOperationException> { mutable.removeAt(0) }
         assertEquals(before, blocked.reasons)
+    }
+
+    @Test
+    fun `public compliance API has exactly one gate and request shape has no bypass`() {
+        val publicMethods = ComplianceEngine::class.java.declaredMethods
+            .filter { Modifier.isPublic(it.modifiers) && !it.isSynthetic }
+        assertEquals(listOf("validateSchedule"), publicMethods.map { it.name })
+        assertEquals(listOf(ScheduleRequest::class.java), publicMethods.single().parameterTypes.toList())
+        assertEquals(ScheduleValidation::class.java, publicMethods.single().returnType)
+        assertEquals(emptyList(), ComplianceEngine::class.java.declaredFields.filter { Modifier.isPublic(it.modifiers) })
+        assertEquals(emptyList(), publicMethods.filter { it.name.startsWith("set") })
+
+        val constructors = ComplianceEngine::class.java.declaredConstructors.filterNot { it.isSynthetic }
+        assertEquals(1, constructors.size)
+        assertEquals(listOf(ComplianceConfig::class.java), constructors.single().parameterTypes.toList())
+
+        val requestShape = ScheduleRequest::class.java.declaredFields
+            .filterNot { it.isSynthetic }
+            .associate { it.name to it.genericType.typeName }
+        assertEquals(
+            linkedMapOf(
+                "propertyId" to "java.lang.String",
+                "entryPurpose" to "java.lang.String",
+                "inspectionType" to "java.lang.String",
+                "isBoardingHouse" to "boolean",
+                "scheduledAt" to "java.time.Instant",
+                "noticeGivenAt" to "java.time.Instant",
+                "tenantConsented" to "boolean",
+                "existingEntries" to "java.util.List<nz.myinspection.core.compliance.ExistingScheduledEntry>",
+                "currentEntryId" to "java.lang.String",
+            ),
+            requestShape,
+        )
+    }
+
+    @Test
+    fun `reason keys are a closed ordered set`() {
+        assertEquals(
+            listOf(
+                ComplianceReasonKey.UNKNOWN_ENTRY_PURPOSE,
+                ComplianceReasonKey.UNKNOWN_INSPECTION_TYPE,
+                ComplianceReasonKey.INVALID_PROPERTY_ID,
+                ComplianceReasonKey.INVALID_HISTORY_ENTRY,
+                ComplianceReasonKey.NOTICE_TOO_SHORT,
+                ComplianceReasonKey.NOTICE_TOO_EARLY,
+                ComplianceReasonKey.OUTSIDE_VISIT_WINDOW,
+                ComplianceReasonKey.FREQUENCY_LIMIT,
+            ),
+            ComplianceReasonKey.entries,
+        )
     }
 
     private fun engine(): ComplianceEngine =

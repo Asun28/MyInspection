@@ -93,6 +93,56 @@ class ComplianceConfigRejectionTest {
         assertFailsWith<SerializationException> { ComplianceConfigLoader.load(unknownField.encodeToByteArray()) }
     }
 
+    @Test
+    fun `each source reference condition reports its complete ordered indexed diagnostics`() {
+        val cases = listOf(
+            SourceRefCase(
+                "control character",
+                "https://www.tenancy.govt.nz/" + TAB_ESCAPE + "inspections/",
+                listOf(
+                    "sourceRefs[1]: must not contain control characters",
+                    "sourceRefs[1]: must be a parsable URL",
+                ),
+            ),
+            SourceRefCase(
+                "unparsable",
+                "https://",
+                listOf("sourceRefs[1]: must be a parsable URL"),
+            ),
+            SourceRefCase(
+                "non-https",
+                "http://www.tenancy.govt.nz/maintenance-and-inspections/inspections/",
+                listOf("sourceRefs[1]: must use HTTPS"),
+            ),
+            SourceRefCase(
+                "hostless",
+                "https:///maintenance-and-inspections/inspections/",
+                listOf("sourceRefs[1]: must name a host"),
+            ),
+            SourceRefCase(
+                "credentials",
+                "https://attacker@www.tenancy.govt.nz/maintenance-and-inspections/inspections/",
+                listOf("sourceRefs[1]: must not carry credentials"),
+            ),
+        )
+        val branchDiagnostics = listOf(
+            "must not contain control characters",
+            "must be a parsable URL",
+            "must use HTTPS",
+            "must name a host",
+            "must not carry credentials",
+        )
+        assertEquals(branchDiagnostics.size, branchDiagnostics.distinct().size, "sourceRef branch diagnostics must be unique")
+
+        cases.forEach { case ->
+            val json = configJson().replace(TENANCY_REF, case.replacement)
+            val failure = assertFailsWith<ComplianceConfigException>(case.label) {
+                ComplianceConfigLoader.load(json.encodeToByteArray())
+            }
+            assertEquals(case.expectedErrors, failure.errors, "wrong ordered diagnostics for ${case.label}")
+        }
+    }
+
     // --- the returned collections are genuinely unmodifiable ---
 
     @Test
@@ -103,6 +153,7 @@ class ComplianceConfigRejectionTest {
         @Suppress("UNCHECKED_CAST")
         val mutableSourceRefs = config.sourceRefs as MutableList<String>
         assertFailsWith<UnsupportedOperationException> { mutableSourceRefs.add("https://example.invalid/") }
+        assertFailsWith<UnsupportedOperationException> { mutableSourceRefs.removeAt(0) }
         assertFailsWith<UnsupportedOperationException> { mutableSourceRefs.clear() }
         assertEquals(sourceRefsBefore, config.sourceRefs)
 
@@ -113,12 +164,15 @@ class ComplianceConfigRejectionTest {
         assertFailsWith<UnsupportedOperationException> {
             mutableRules["smuggled"] = config.rules.getValue("inspection")
         }
+        assertFailsWith<UnsupportedOperationException> { mutableRules.clear() }
         assertEquals(rulesBefore, config.rules.keys.toList())
 
         val exemptBefore = config.rules.getValue("inspection").frequencyLimit.exemptTypes.toList()
         @Suppress("UNCHECKED_CAST")
         val mutableExempt = config.rules.getValue("inspection").frequencyLimit.exemptTypes as MutableList<String>
         assertFailsWith<UnsupportedOperationException> { mutableExempt.add("ROUTINE") }
+        assertFailsWith<UnsupportedOperationException> { mutableExempt.removeAt(0) }
+        assertFailsWith<UnsupportedOperationException> { mutableExempt.clear() }
         assertEquals(exemptBefore, config.rules.getValue("inspection").frequencyLimit.exemptTypes)
     }
 
@@ -130,6 +184,8 @@ class ComplianceConfigRejectionTest {
         val before = failure.errors.toList()
         @Suppress("UNCHECKED_CAST")
         val mutable = failure.errors as MutableList<String>
+        assertFailsWith<UnsupportedOperationException> { mutable.add("smuggled") }
+        assertFailsWith<UnsupportedOperationException> { mutable.removeAt(0) }
         assertFailsWith<UnsupportedOperationException> { mutable.clear() }
         assertEquals(before, failure.errors)
     }
@@ -150,6 +206,12 @@ class ComplianceConfigRejectionTest {
         val diagnostic: String,
         val rejection: OverrideRejection = OverrideRejection.INVALID_CONFIG,
         val mutate: (String) -> String,
+    )
+
+    private data class SourceRefCase(
+        val label: String,
+        val replacement: String,
+        val expectedErrors: List<String>,
     )
 
     private fun rejectionCases(): List<RejectionCase> = listOf(
