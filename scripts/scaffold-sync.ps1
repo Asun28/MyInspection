@@ -133,16 +133,23 @@ function Get-SyncedVersion {
     decision was. A row recorded as `skipped` still counts as evaluated: the point of writing the
     reason down is that the question is settled and must not be asked again. With no ledger rows the
     project has never evaluated anything, so provenance (_config ScaffoldVersion) is the floor.
+
+    The ledger is only the region below the SCAFFOLD-SYNC-LEDGER sentinel, and a row must lead with a
+    version plus an allowed decision. Without both bounds, an unrelated table can silently raise the
+    high-water mark (#201). Missing sentinel fails closed to the provenance floor.
   #>
   param([string]$LedgerText, [string]$Fallback)
   $best = $null
+  $inLedger = $false
   if ($LedgerText) {
     foreach ($line in ($LedgerText -split "`r?`n")) {
+      if ($line -match 'SCAFFOLD-SYNC-LEDGER') { $inLedger = $true; continue }
+      if (-not $inLedger) { continue }
       if ($line -notmatch '^\s*\|') { continue }
-      foreach ($cell in ($line -split '\|')) {
-        $v = ConvertTo-ScaffoldVersion $cell.Trim()
-        if ($v -and ($null -eq $best -or $v -gt $best)) { $best = $v }
-      }
+      $cells = @(($line -split '\|') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+      if ($cells.Count -lt 2 -or $cells[1] -notmatch '^(applied|partial|skipped)$') { continue }
+      $v = ConvertTo-ScaffoldVersion $cells[0]
+      if ($v -and ($null -eq $best -or $v -gt $best)) { $best = $v }
     }
   }
   if ($null -eq $best) { return $Fallback }
@@ -373,6 +380,8 @@ body with no downstream block at all
 
   # 4. the ledger high-water mark wins over provenance, and a skipped row still counts as evaluated.
   $ledger = @'
+<!-- SCAFFOLD-SYNC-LEDGER -->
+
 | version | decision | reason |
 |---|---|---|
 | v0.42.0 | skipped | its new gate contradicts a deliberate local removal |
@@ -380,6 +389,46 @@ body with no downstream block at all
 '@
   if ((Get-SyncedVersion $ledger '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion ignored the newest ledger row') }
   if ((Get-SyncedVersion '' '0.30.0') -ne '0.30.0') { $fails.Add('Get-SyncedVersion did not fall back to provenance on an empty ledger') }
+
+  # 4b. A ledger-shaped row above the sentinel is not part of the ledger.
+  $decoyAbove = @'
+| v0.99.0 | applied | decoy above the ledger |
+<!-- SCAFFOLD-SYNC-LEDGER -->
+| version | decision | reason |
+|---|---|---|
+| v0.42.0 | skipped | settled locally |
+'@
+  if ((Get-SyncedVersion $decoyAbove '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion read a row above the ledger sentinel (#201)') }
+
+  # 4c. A release mentioned in a different table below the ledger is not a ledger decision.
+  $decoyBelow = @'
+<!-- SCAFFOLD-SYNC-LEDGER -->
+| version | decision | reason |
+|---|---|---|
+| v0.42.0 | skipped | settled locally |
+| follow-up | source release |
+|---|---|
+| local card | v0.99.0 |
+'@
+  if ((Get-SyncedVersion $decoyBelow '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion read a non-ledger row below the sentinel (#201)') }
+
+  # 4d. Missing sentinel fails closed to the provenance floor.
+  $noSentinel = @'
+| version | decision | reason |
+|---|---|---|
+| v0.99.0 | applied | marker was deleted |
+'@
+  if ((Get-SyncedVersion $noSentinel '0.30.0') -ne '0.30.0') { $fails.Add('Get-SyncedVersion accepted a table with no ledger sentinel (#201)') }
+
+  # 4e. A version-first row without an allowed decision is not a ledger decision.
+  $versionFirstDecoy = @'
+<!-- SCAFFOLD-SYNC-LEDGER -->
+| version | decision | reason |
+|---|---|---|
+| v0.42.0 | skipped | settled locally |
+| v0.99.0 | 2026-09-09 | release history, not a decision |
+'@
+  if ((Get-SyncedVersion $versionFirstDecoy '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion accepted a version-first row without a ledger decision (#201)') }
 
   # 5. cross-surface wiring: the probe is registered and the heartbeat stayed offline.
   $triage = Join-Path $PSScriptRoot 'triage.ps1'
@@ -394,7 +443,7 @@ body with no downstream block at all
     Write-Host 'scaffold-sync selfcheck: FAIL'
     exit 1
   }
-  Write-Host 'scaffold-sync selfcheck: PASS (version parse / newer-set / downstream-block cut / ledger high-water / offline heartbeat)' -ForegroundColor Green
+  Write-Host 'scaffold-sync selfcheck: PASS (version parse / newer-set / downstream-block cut / ledger high-water / ledger scope / offline heartbeat)' -ForegroundColor Green
 }
 
 # Library consumers (the triage probe) take only the pure helpers above and stop here, so that

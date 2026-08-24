@@ -42,7 +42,10 @@ That composes the issue body, stamps it with provenance (scaffold version, OS, P
 scans it with `check-secrets.ps1` because the issue is public, prints it, writes it to
 `_local/scaffold-issue.md`, and **stops**. Read it, then re-run with `-Send` to actually create it.
 
-**This direction has already paid, twice.** Installing the loop found a defect in the loop itself: `Get-SyncedVersion` ignores its own `SCAFFOLD-SYNC-LEDGER` sentinel and reads every table in this file, so a bare version cell anywhere below could silently become the high-water mark and report this project as current when it is not. Filed as upstream **#201**; worked around here by backticking every version cell outside the ledger table.
+**This direction has already paid, twice.** Installing the loop found a defect in the loop itself:
+`Get-SyncedVersion` ignored its own `SCAFFOLD-SYNC-LEDGER` sentinel and read every table in this file,
+so an unrelated version cell could silently become the high-water mark. Filed as upstream **#201**;
+upstream v0.44.0 repaired it, and the bounded reader plus four adversarial fixtures are backfilled here.
 
 **And before that.** Three issues filed from here on 2026-08-21 — #183 (promote probe
 ignores `enforced_by`), #184 (the must-tier cap counts bullets, not context cost), #185 (every triage
@@ -104,10 +107,13 @@ the same reason, and rows below say so rather than repeating the argument.
      high-water mark of what this project has evaluated, whatever the decision was; with no rows it
      falls back to the provenance stamp in scripts/_config.ps1 (ScaffoldVersion). Decisions:
      applied = took it whole | partial = took some, reason says which and why | skipped = took none.
-     Do not delete rows: a removed row silently reopens a settled question. -->
+     Do not delete rows: a removed row silently reopens a settled question.
+     This marker is executable scope, not decoration: only version-first rows below it whose second
+     cell is applied/partial/skipped count. Removing it safely falls back to provenance. -->
 
 | version | decision | date | reason / what was taken | issue |
 |---|---|---|---|---|
+| v0.44.0 | partial | 2026-08-24 | **Applied the sync-ledger coupling group**: `scripts/scaffold-sync.ps1` now reads only decision-shaped rows below the sentinel, repairing #201; selfcheck pins decoys above/below the ledger, a missing sentinel, and a version-first non-decision row. **Deferred** the card-validation group because its mutation-registry rule would reject 31 current live cards and overlaps `T0-CARD-ACCEPTANCE-FIELD`; deferred shared-core selfchecks because all 7 local cores need local examples and the group overlaps PR #127; deferred content-aware handoff throttling to its own card because hook/selftest files are outside this card's registered scope. **N/A:** T115's upstream default `DocSyncMap` expansion is deliberately not mandatory post-init; this project keeps its four-pair custom map and lacks two upstream sources named by that map. Official tag `v0.44.0` verified at `af4f5724cc5403bfa0521a68c552362bb96f4dd5`. | upstream #201 / v0.44.0 |
 | v0.43.0 | partial | 2026-08-23 | **Took the three fixes this project filed upstream**: #188 cap counts resident lesson IDs (new `scripts/_lessons.ps1` + `lessons.ps1 check` + triage probe 5), #189 promote probe reads `enforced_by` and gained its inverse (new probe `lessons-demote`), #190 `delivery-blocked` probe. All four wired into `triage.ps1 selfcheck` with hermetic fixtures; six single-line mutations kill them. **Left for follow-up cards**: #186/#187/#191/#192/#193/#194/#195, #180, #181/#182 — see the open table below. **N/A here**: #197 (`mutate.ps1` does not exist in this tree), #186's `required` fan-in job (this project has no CI merge gate). | our #183/#184/#185 |
 | v0.42.0 | partial | 2026-08-23 | The fleet loop itself: `scripts/scaffold-sync.ps1`, `_config.ps1` `UpstreamRepo` + `Get-ScaffoldUpstreamRepo`, triage probe `scaffold-stale`, and this document. **Not taken**: the `selftest.ps1` gate 1g/12f wiring — this project's selftest has diverged to 10,987 lines against upstream's 8,446, so the wiring is its own card, not a patch hunk. | upstream #201 |
 | v0.41.0 | partial | 2026-08-23 | Took **TD130**: `_cards.ps1` front-matter parser tolerates a leading U+FEFF, so card text piped through `git show BASEREF:specs/tasks/<id>.md` no longer loses its front-matter and makes full-form `check-scope` fail closed with `[SCOPE-UNDECIDABLE]` blaming the card. Mutation-proven (without the anchor, BOM-prefixed front matter parses to null). **Already present**: the `HANDOFF-REVALIDATE` sentinel trio. **N/A**: `init-scaffold.ps1` pruning (no init script in a generated tree), `mutate.ps1` `-NoNewline`. **Follow-up**: `lessons.ps1` `-NoNewline`. **Skipped**: R3 English fail-closed reasons — this project's `[R3-*]` operator surface is Chinese and `QUALITY-RUBRIC.md` §5 is anchored to it. | |
@@ -131,11 +137,8 @@ the same reason, and rows below say so rather than repeating the argument.
 
 ## Still open from the versions above
 
-<!-- Versions in THIS table are backticked on purpose. scaffold-sync.ps1's Get-SyncedVersion scans
-     every table cell in this whole file - it does not honour the SCAFFOLD-SYNC-LEDGER sentinel - and
-     treats any cell that is exactly v<x.y.z> as a ledger high-water candidate. A bare version cell
-     down here would therefore move the high-water mark and silently report this project as current.
-     Measured: with the ledger rows removed, a bare `v0.41.0` in this table became the high-water. -->
+<!-- Version cells here remain backticked for readability, but v0.44.0 removed the correctness
+     dependency on that convention: the parser now requires both ledger region and row shape. -->
 These are the pieces that were judged worth taking but are too big or too entangled to ride along
 with the backfill card that opened this ledger. Each one is a card, not a patch hunk.
 
@@ -149,9 +152,10 @@ with the backfill card that opened this ledger. Each one is a card, not a patch 
 | Card-rule declared examples (`_cards.ps1` + `check-cards.ps1`) | `v0.43.0` #191 | our `_cards.ps1` is 83 lines against upstream's 230 — a rewrite, not a merge |
 | Doc character budgets (sub-gate 14g), gate map (14i), generated PR titles, archive indices as verified projections | `v0.43.0` #192/#195/#180/#181/#182 | each is small on its own; batch them once the selftest wiring above lands |
 | `lessons.ps1` writes with `-NoNewline` | `v0.41.0` | trivial, but collides with PR #51 which is rewriting the same file |
+| Card scalar/rule package: empty scalar, duplicate TD claims, nested-pwsh DoD exit, mutation-registry ownership, acceptance warning | `v0.44.0` | overlaps the narrower `T0-CARD-ACCEPTANCE-FIELD`; the registry rule would reject 31 live cards because this project still uses per-card ad-hoc mutation evidence rather than upstream's `specs/mutations/` registry |
+| Shared-core selfcheck gate and examples | `v0.44.0` | all 7 local function-bearing `scripts/_*.ps1` cores currently lack the upstream example contract; port as a local migration after PR #127 instead of copying 1,431 divergent lines |
+| Content-aware handoff reminder throttle | `v0.44.0` | compatible and independent, but its two hooks plus standing selftest are outside this card's registered `allow_paths`; give it its own RED-first card |
 
-**Known open upstream, deliberately not invented here:** `Get-Scalar` in `_cards.ps1` captures the
-following line when a front-matter field is empty (`\s*` crosses the newline and `(.+)` demands a
-character — the same shape as the `enforced_by` bug fixed in #189). Upstream registered it as TD143
-and has **not** fixed it. Inventing a local fix would fork a shared parser; wait for the upstream
-patch, or file it as its own card if it bites first.
+**Resolved upstream, not yet backfilled here:** v0.44.0 repairs `Get-Scalar` capturing the following
+line for an empty field. It belongs to the deferred card scalar/rule package above, not this fleet-loop
+card, because the coupled validation migration must be evaluated against this project's live cards.
