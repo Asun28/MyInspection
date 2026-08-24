@@ -1837,6 +1837,38 @@ try {
   # Fail 只置位不中断，故绿字必须挂在**本闸自己的**失败位上（独立的 $g2Fail）：否则 (a)–(e) 全红、
   # (f) 恰好绿时，最后一句 if/else 的 else 分支照样打印「2g … OK」。
   $g2Fail = $false
+
+  # Duplicate hot IDs destroy block identity when the selector sends only an ID to archive.ps1. Cover all
+  # ambiguous shapes: excluded+eligible, byte-identical eligible blocks, and different eligible blocks.
+  $duplicateCases2g = @(
+    @{ Name='mixed'; Blocks=@((& $entry2g L1 ondemand 1 'EXCLUDED-FIRST'), (& $entry2g L1 ledger 1 'ELIGIBLE-SECOND')) },
+    @{ Name='identical'; Blocks=@((& $entry2g L1 ledger 1 'SAME'), (& $entry2g L1 ledger 1 'SAME')) },
+    @{ Name='different'; Blocks=@((& $entry2g L1 ledger 1 'FIRST'), (& $entry2g L1 ledger 1 'SECOND')) }
+  )
+  foreach ($duplicateCase2g in $duplicateCases2g) {
+    $dupRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2g-dup-$($duplicateCase2g.Name)-$PID"
+    if (Test-Path $dupRepo2g) { Remove-Item -Recurse -Force -LiteralPath $dupRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $dupRepo2g 'docs/lessons'), (Join-Path $dupRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $dupRepo2g -Recurse -Force
+    $dupLedger2g = Join-Path $dupRepo2g 'docs/lessons/LEDGER.md'
+    $dupArchive2g = Join-Path $dupRepo2g 'specs/archive/lessons-archive.md'
+    Set-Content (Join-Path $dupRepo2g 'CLAUDE.md') 'resident source present; no lesson references' -Encoding utf8
+    Set-Content $dupLedger2g ((@('# fixture ledger') + $duplicateCase2g.Blocks + @((& $entry2g L2 ledger 1 'MAX'))) -join "`n`n") -Encoding utf8
+    Set-Content $dupArchive2g '# archive' -Encoding utf8
+    $dupHotHash2g = (Get-FileHash $dupLedger2g -Algorithm SHA256).Hash
+    $dupColdHash2g = (Get-FileHash $dupArchive2g -Algorithm SHA256).Hash
+    $dupOut2g = (& pwsh -NoProfile -File (Join-Path $dupRepo2g 'scripts/lessons.ps1') archive -RepoRoot $dupRepo2g 2>&1 | Out-String)
+    $dupExit2g = $LASTEXITCODE
+    if ($dupExit2g -eq 0 -or $dupOut2g -notmatch '\[LSN-DUPLICATE-HOT-ID\]' -or $dupOut2g -match 'candidates=') {
+      Fail "闸2g(duplicate/$($duplicateCase2g.Name))：重复热 id 未在选择候选前 fail-closed。output=[$dupOut2g]"; $g2Fail = $true
+    }
+    if ((Get-FileHash $dupLedger2g -Algorithm SHA256).Hash -ne $dupHotHash2g -or
+        (Get-FileHash $dupArchive2g -Algorithm SHA256).Hash -ne $dupColdHash2g) {
+      Fail "闸2g(duplicate/$($duplicateCase2g.Name))：重复热 id 拒绝路径改写了热账本或冷库。"; $g2Fail = $true
+    }
+    Remove-Item -Recurse -Force -LiteralPath $dupRepo2g -ErrorAction SilentlyContinue
+  }
+
   $ledgerHash2g = (Get-FileHash $l2gLedger -Algorithm SHA256).Hash
   $trackerHash2g = (Get-FileHash $l2gTracker -Algorithm SHA256).Hash
   $cardHash2g = (Get-FileHash $l2gCard -Algorithm SHA256).Hash

@@ -541,6 +541,13 @@ switch ($Command) {
       exit 1
     }
     $hot = @(Get-Lessons)
+    # The mover accepts IDs, not parsed block identities. With duplicate hot IDs it can select a different
+    # block than the eligibility filter inspected, so reject the ambiguous ledger before deriving candidates.
+    $duplicateHotIds = @($hot | Group-Object id | Where-Object Count -gt 1)
+    if ($duplicateHotIds.Count) {
+      Write-Warning "[LSN-DUPLICATE-HOT-ID] 热账本 id 重复：$($duplicateHotIds.Name -join ',')——拒绝归档，双侧零写入。"
+      exit 1
+    }
     $maxNumber = -1
     foreach ($lesson in $hot) {
       $number = Get-LessonNumber $lesson.id
