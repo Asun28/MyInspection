@@ -271,6 +271,22 @@ if ($lessonsUsed) {
   $maxId = -1
   foreach ($h in (Get-LedgerHeadings $ledgerLines)) { if ($h.Number -gt $maxId) { $maxId = $h.Number } }
 
+  # A failed second atomic replacement leaves the moved blocks on both sides. Batch order must therefore be
+  # deterministic from the source file, not caller input: reversing L2,L1 would otherwise append blocks in the
+  # opposite order, changing which block owns the separator blank line and making exact retry comparison conflict.
+  $sourceLines = if ($lessonMoveDirection -eq 'restore') { $archiveLines } else { $ledgerLines }
+  $sourceOrder = @{}
+  foreach ($sourceHeading in (Get-LedgerHeadings $sourceLines)) {
+    if (-not $sourceOrder.ContainsKey($sourceHeading.Id)) { $sourceOrder[$sourceHeading.Id] = $sourceHeading.Start }
+  }
+  $inputOrdinal = 0
+  $lessonIdInput = @($lessonIdInput | ForEach-Object {
+    $rawToken = $_
+    $normalizedToken = "$rawToken".Trim()
+    $order = if ($sourceOrder.ContainsKey($normalizedToken)) { [int]$sourceOrder[$normalizedToken] } else { [int]::MaxValue }
+    [pscustomobject]@{ Raw = $rawToken; SourceOrder = $order; InputOrder = $inputOrdinal++ }
+  } | Sort-Object SourceOrder, InputOrder | ForEach-Object { $_.Raw })
+
   foreach ($rawId in $lessonIdInput) {
     $id = "$rawId".Trim()
     if ($id -eq '') {

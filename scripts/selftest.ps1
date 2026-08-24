@@ -2109,6 +2109,54 @@ try {
     }
   }
 
+  # (e6) 多 id 的恢复顺序必须由源文件决定，而不是由调用者的参数顺序决定。反向传 L2,L1，并让第二个
+  # 原子替换失败，先制造两侧并存；清除注入后用同一反向参数重试，归档/恢复两个方向都必须自愈。
+  foreach ($batchDirection2g in @('archive', 'restore')) {
+    $batchRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge6-$batchDirection2g-$PID"
+    if (Test-Path $batchRepo2g) { Remove-Item -Recurse -Force -LiteralPath $batchRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $batchRepo2g 'docs/lessons'), (Join-Path $batchRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $batchRepo2g -Recurse -Force
+    $batchLedger2g = Join-Path $batchRepo2g 'docs/lessons/LEDGER.md'
+    $batchArchive2g = Join-Path $batchRepo2g 'specs/archive/lessons-archive.md'
+    $batchL12g = (& $entry2g L1 ledger 1 'BATCH_FIRST')
+    $batchL22g = (& $entry2g L2 ledger 1 'BATCH_SECOND')
+    $batchL32g = (& $entry2g L3 ledger 1 'BATCH_MAX_SENTINEL')
+    if ($batchDirection2g -eq 'archive') {
+      Set-Content $batchLedger2g ((@('# ledger', $batchL12g, $batchL22g, $batchL32g)) -join "`n`n") -Encoding utf8
+      Set-Content $batchArchive2g '# archive' -Encoding utf8
+      $batchArgs2g = @('-LessonIds', 'L2,L1')
+      $batchBlockedTmp2g = "$batchLedger2g.tmp"
+    } else {
+      Set-Content $batchLedger2g '# ledger' -Encoding utf8
+      Set-Content $batchArchive2g ((@('# archive', $batchL12g, $batchL22g)) -join "`n`n") -Encoding utf8
+      $batchArgs2g = @('-RestoreLessonIds', 'L2,L1')
+      $batchBlockedTmp2g = "$batchArchive2g.tmp"
+    }
+    New-Item -ItemType Directory -Force $batchBlockedTmp2g | Out-Null
+    $batchFailOut2g = (& pwsh -NoProfile -File (Join-Path $batchRepo2g 'scripts/archive.ps1') -RepoRoot $batchRepo2g -LessonsOnly @batchArgs2g 2>&1 | Out-String)
+    $batchFailExit2g = $LASTEXITCODE
+    Remove-Item -Recurse -Force -LiteralPath $batchBlockedTmp2g -ErrorAction SilentlyContinue
+    if ($batchFailExit2g -eq 0) {
+      Fail "闸2g(e6/$batchDirection2g)：第二个原子替换失败仍 exit 0。output=[$batchFailOut2g]"; $g2Fail = $true
+    }
+    $batchHealOut2g = (& pwsh -NoProfile -File (Join-Path $batchRepo2g 'scripts/archive.ps1') -RepoRoot $batchRepo2g -LessonsOnly @batchArgs2g 2>&1 | Out-String)
+    $batchHealExit2g = $LASTEXITCODE
+    $batchHotText2g = Get-Content $batchLedger2g -Raw
+    $batchColdText2g = Get-Content $batchArchive2g -Raw
+    $batchDestinationText2g = if ($batchDirection2g -eq 'archive') { $batchColdText2g } else { $batchHotText2g }
+    $batchSourceText2g = if ($batchDirection2g -eq 'archive') { $batchHotText2g } else { $batchColdText2g }
+    $batchL1Pos2g = $batchDestinationText2g.IndexOf('## L1', [System.StringComparison]::Ordinal)
+    $batchL2Pos2g = $batchDestinationText2g.IndexOf('## L2', [System.StringComparison]::Ordinal)
+    if ($batchHealExit2g -ne 0 -or $batchHealOut2g -match '\[ARCHIVE-LESSON-REJECT-CONFLICT\]' -or
+        $batchSourceText2g -match '(?m)^##[ \t]+L[12][ \t]*\r?$' -or
+        $batchL1Pos2g -lt 0 -or $batchL2Pos2g -le $batchL1Pos2g -or
+        (& $getLessonBlock2g $batchDestinationText2g L1) -cne $batchL12g -or
+        (& $getLessonBlock2g $batchDestinationText2g L2) -cne $batchL22g) {
+      Fail "闸2g(e6/$batchDirection2g)：反向双 id 的失败重试未按源顺序自愈。output=[$batchHealOut2g]"; $g2Fail = $true
+    }
+    Remove-Item -Recurse -Force -LiteralPath $batchRepo2g -ErrorAction SilentlyContinue
+  }
+
   # 闸2g(f)：A11 的**生产路径**回归——真实 linked worktree，而不是非 git 临时目录。
   # 2g(e) 的夹具不是 git 仓库，Resolve-BumpLedger 因此回落到本地账本，冷项在本地热账本里本就不存在，
   # 于是命中「块没找到」分支顺带触发只读提示——**它测的根本不是 bump 会不会改主检出**。真实形态是：
