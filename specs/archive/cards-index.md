@@ -1,10 +1,11 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 66 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 67 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
 |---|---|---|
+| T0-CARD-ACCEPTANCE-SETS | merged | 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据 |
 | T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-CI-LICENSE-GATE-HASH-SYNC | merged | 同步 docs-only License gate 的 8.2b2 规范块哈希 |
 | T0-CI-UNICODE-DEP-FIXTURE | merged | 补齐 license scanner 自检夹具的 Unicode helper 依赖并防假绿 |
