@@ -12,9 +12,11 @@ allow_paths:
   - scripts/_config.ps1
   - scripts/triage.ps1
   - docs/SCAFFOLD-SYNC.md
-  - docs/LOOP-ENGINEERING.md
-  - docs/DELIVERY-CHAINS.md
-  - .claude/skills/triage/SKILL.md
+    - docs/LOOP-ENGINEERING.md
+    - docs/DELIVERY-CHAINS.md
+    - docs/HARNESS-REVIEW.md
+    - docs/scaffold-architecture.html
+    - .claude/skills/triage/SKILL.md
   - CLAUDE.md
   - specs/tasks/T0-SCAFFOLD-FLEET-LOOP.md
 forbid:
@@ -34,6 +36,7 @@ acceptance:
   - "A3 缺 sentinel fail-closed：只有 v0.99.0 applied 表但无 sentinel 时精确回退 provenance 0.30.0"
   - "A4 行形：sentinel 下方以 v0.99.0 开头但第二列是日期而非 applied/partial/skipped 时精确返回账内 v0.42.0"
   - "A5 真实决策账：v0.44.0 行为 partial 且点名已取 sync-ledger 组、三组 deferred 与各自本地理由；ScaffoldVersion 仍精确为 0.29.0"
+  - "A6 探针清单：selftest core 的 14g② 对五处枚举面逐一比对，11 枚探针均在场且 docs/HARNESS-REVIEW.md 与 docs/scaffold-architecture.html 都点名 scaffold-stale"
 review_gate: codex {verdict:pass}
 hygiene: v0.44.0 四枚账域负例已先红后绿；删除 sentinel 状态门、决策枚举判断或首列版本解析中的任一条，至少一枚夹具转红；真实账无行时仍回退溯源戳 0.29.0
 doc_sync: CLAUDE.md 权威文档索引 + 资产沉淀归位第四去处 · LOOP-ENGINEERING 与 triage skill 的探针枚举与计数 · DELIVERY-CHAINS 心跳行（R5）
