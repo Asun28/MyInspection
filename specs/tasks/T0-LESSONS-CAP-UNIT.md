@@ -167,4 +167,4 @@ pwsh -NoProfile -File scripts\lessons.ps1 check
 DoD 是**最小闸**，不是完成定义：完成定义 = front-matter 的 `acceptance` 封闭集合 A1–A16
 （清单内每条都有可证伪测试，落点见 `acceptance_notes`；**清单外的发现记 `[FOLLOW-UP]`**）。
 其中 A1/A4/A14/A15 由 `pwsh -NoProfile -File scripts\selftest.ps1 -Shard core` 常设看守
-（闸 2a / 2d / 10d(接线/review→triage) / 14g①②），其余由 `triage.ps1 selfcheck` 的 hermetic 用例看守。
+（闸 2a / 2h / 10d(接线/review→triage) / 14g①②），其余由 `triage.ps1 selfcheck` 的 hermetic 用例看守。

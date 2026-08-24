@@ -1708,7 +1708,7 @@ try {
 #   而此刻真实驻留数其实远超上限（实测旧码：标题改一个字 → 11 个 id 的夹具报 0，封顶静默通过）。
 #   本闸种同一个坏输入：夹具仓的 CLAUDE.md 带一条 11 个 id 的铁律、标题写成别的，断言 check
 #   **非零退出**且打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]（机检认哨兵，本地化文案只给人读，L165）。
-$l2hRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
+$l2hRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2h-$PID"
 if (Test-Path $l2hRepo) { Remove-Item -Recurse -Force $l2hRepo }
 New-Item -ItemType Directory -Force $l2hRepo | Out-Null
 try {
@@ -1717,7 +1717,7 @@ try {
   $l2hLedger = Join-Path $l2hRepo 'docs/lessons/LEDGER.md'
   New-Item -ItemType Directory -Force (Split-Path $l2hLedger) | Out-Null
   Set-Content $l2hLedger (@(
-    '# 经验总账（2d fixture：零 must，令唯一红点只可能来自分节解析）', '',
+    '# 经验总账（2h fixture：零 must，令唯一红点只可能来自分节解析）', '',
     '## L1',
     '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
     '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
