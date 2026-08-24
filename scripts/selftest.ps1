@@ -1820,6 +1820,12 @@ try {
       "- symptom: $Token", "- rule: rule-$Token"
     ) -join "`n"
   }
+  $getLessonBlock2g = {
+    param([string]$Text, [string]$Id)
+    $match = [regex]::Match($Text, "(?ms)^##[ \t]+$([regex]::Escape($Id))[ \t]*\r?$.*?(?=^##[ \t]+L\d+[ \t]*\r?$|\z)")
+    if (-not $match.Success) { return '' }
+    return (($match.Value -replace "`r`n", "`n").TrimEnd("`r", "`n"))
+  }
   $l2gLedgerText = @(
     '# fixture ledger',
     (& $entry2g L1 ledger 1 'COLD_RECALL_ONLY'),
@@ -1949,15 +1955,20 @@ try {
   }
 
   # (e1) 提示里的恢复命令必须真的完成冷→热移动，而不是复制后留下冷热重复、令 bump/promote 继续拒绝。
+  $expectedRestoreBlock2g = (& $entry2g L1 ledger 1 'COLD_RECALL_ONLY')
   $tokenCountBeforeRestore2g = ([regex]::Matches("$(Get-Content $l2gLedger -Raw)`n$(Get-Content $l2gArchive -Raw)", 'COLD_RECALL_ONLY')).Count
   $restore2g = (& pwsh -NoProfile -File (Join-Path $l2gRepo 'scripts/archive.ps1') -RepoRoot $l2gRepo -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
   $restoreExit2g = $LASTEXITCODE
   $hotAfterRestore2g = Get-Content $l2gLedger -Raw
   $coldAfterRestore2g = Get-Content $l2gArchive -Raw
   $tokenCount2g = ([regex]::Matches("$hotAfterRestore2g`n$coldAfterRestore2g", 'COLD_RECALL_ONLY')).Count
+  $actualRestoreBlock2g = & $getLessonBlock2g $hotAfterRestore2g L1
   if ($restoreExit2g -ne 0 -or ([regex]::Matches($hotAfterRestore2g, '(?m)^##[ \t]+L1[ \t]*\r?$')).Count -ne 1 -or
       $coldAfterRestore2g -match '(?m)^##[ \t]+L1[ \t]*\r?$' -or $tokenCount2g -ne $tokenCountBeforeRestore2g) {
     Fail "闸2g(e1)：-RestoreLessonIds L1 未完成无损冷→热移动（exit=$restoreExit2g，token-count=$tokenCount2g，before=$tokenCountBeforeRestore2g）。output=[$restore2g]"; $g2Fail = $true
+  }
+  if ($actualRestoreBlock2g -cne $expectedRestoreBlock2g) {
+    Fail "闸2g(e1)：恢复后的 L1 整块与归档前字节内容不相等（完整块断言失败）。actual=[$actualRestoreBlock2g] expected=[$expectedRestoreBlock2g]"; $g2Fail = $true
   }
   foreach ($usableCommand2g in @('bump','promote')) {
     $usable2g = (& pwsh -NoProfile -File $l2gLessons $usableCommand2g L1 -RepoRoot $l2gRepo 2>&1 | Out-String)
@@ -1989,6 +2000,77 @@ try {
     Fail '闸2g(e2)：promote 的冷热并存拒绝路径改写了热账本或冷库。'; $g2Fail = $true
   }
   Remove-Item -Recurse -Force -LiteralPath $bothRepo2g -ErrorAction SilentlyContinue
+
+  # (e3) 恢复器按 id 移动，任一侧重复 id 都让块身份不唯一。必须在取 [0] 之前拒绝，且双侧零写入。
+  $restoreDupBlock2g = (& $entry2g L1 ledger 1 'RESTORE_DUPLICATE')
+  $restoreDupCases2g = @(
+    @{ Name = 'hot'; Hot = @($restoreDupBlock2g, $restoreDupBlock2g); Cold = @($restoreDupBlock2g) },
+    @{ Name = 'cold'; Hot = @(); Cold = @($restoreDupBlock2g, $restoreDupBlock2g) }
+  )
+  foreach ($restoreDupCase2g in $restoreDupCases2g) {
+    $restoreDupRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge3-$($restoreDupCase2g.Name)-$PID"
+    if (Test-Path $restoreDupRepo2g) { Remove-Item -Recurse -Force -LiteralPath $restoreDupRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $restoreDupRepo2g 'docs/lessons'), (Join-Path $restoreDupRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $restoreDupRepo2g -Recurse -Force
+    $restoreDupLedger2g = Join-Path $restoreDupRepo2g 'docs/lessons/LEDGER.md'
+    $restoreDupArchive2g = Join-Path $restoreDupRepo2g 'specs/archive/lessons-archive.md'
+    Set-Content $restoreDupLedger2g ((@('# ledger') + $restoreDupCase2g.Hot) -join "`n`n") -Encoding utf8
+    Set-Content $restoreDupArchive2g ((@('# archive') + $restoreDupCase2g.Cold) -join "`n`n") -Encoding utf8
+    $restoreDupHotHash2g = (Get-FileHash $restoreDupLedger2g -Algorithm SHA256).Hash
+    $restoreDupColdHash2g = (Get-FileHash $restoreDupArchive2g -Algorithm SHA256).Hash
+    $restoreDupOut2g = (& pwsh -NoProfile -File (Join-Path $restoreDupRepo2g 'scripts/archive.ps1') -RepoRoot $restoreDupRepo2g -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+    $restoreDupExit2g = $LASTEXITCODE
+    if ($restoreDupExit2g -eq 0 -or $restoreDupOut2g -notmatch '\[ARCHIVE-LESSON-REJECT-DUPLICATE\]') {
+      Fail "闸2g(e3/$($restoreDupCase2g.Name))：恢复器未拒绝重复 id。output=[$restoreDupOut2g]"; $g2Fail = $true
+    }
+    if ((Get-FileHash $restoreDupLedger2g -Algorithm SHA256).Hash -ne $restoreDupHotHash2g -or
+        (Get-FileHash $restoreDupArchive2g -Algorithm SHA256).Hash -ne $restoreDupColdHash2g) {
+      Fail "闸2g(e3/$($restoreDupCase2g.Name))：重复 id 拒绝路径改写了热账本或冷库。"; $g2Fail = $true
+    }
+    Remove-Item -Recurse -Force -LiteralPath $restoreDupRepo2g -ErrorAction SilentlyContinue
+  }
+
+  # (e4) 恢复方向的两个原子写失败分支：热侧暂存失败须双侧不变；冷侧暂存失败须留下逐字一致的
+  # 双侧态，清除注入后重跑只删除冷副本，热侧完整块与失败后 hash 均保持不变。
+  foreach ($restoreFailureSide2g in @('ledger', 'archive')) {
+    $restoreFailRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge4-$restoreFailureSide2g-$PID"
+    if (Test-Path $restoreFailRepo2g) { Remove-Item -Recurse -Force -LiteralPath $restoreFailRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $restoreFailRepo2g 'docs/lessons'), (Join-Path $restoreFailRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $restoreFailRepo2g -Recurse -Force
+    $restoreFailLedger2g = Join-Path $restoreFailRepo2g 'docs/lessons/LEDGER.md'
+    $restoreFailArchive2g = Join-Path $restoreFailRepo2g 'specs/archive/lessons-archive.md'
+    $restoreFailBlock2g = (& $entry2g L1 ledger 1 "RESTORE_FAILURE_$($restoreFailureSide2g.ToUpperInvariant())")
+    Set-Content $restoreFailLedger2g '# ledger' -Encoding utf8
+    Set-Content $restoreFailArchive2g (@('# archive', '', $restoreFailBlock2g) -join "`n") -Encoding utf8
+    $restoreFailHotBefore2g = (Get-FileHash $restoreFailLedger2g -Algorithm SHA256).Hash
+    $restoreFailColdBefore2g = (Get-FileHash $restoreFailArchive2g -Algorithm SHA256).Hash
+    $blockedTmp2g = if ($restoreFailureSide2g -eq 'ledger') { "$restoreFailLedger2g.tmp" } else { "$restoreFailArchive2g.tmp" }
+    New-Item -ItemType Directory -Force $blockedTmp2g | Out-Null
+    $restoreFailOut2g = (& pwsh -NoProfile -File (Join-Path $restoreFailRepo2g 'scripts/archive.ps1') -RepoRoot $restoreFailRepo2g -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+    $restoreFailExit2g = $LASTEXITCODE
+    Remove-Item -Recurse -Force -LiteralPath $blockedTmp2g -ErrorAction SilentlyContinue
+    $restoreFailHotAfter2g = (Get-FileHash $restoreFailLedger2g -Algorithm SHA256).Hash
+    $restoreFailColdAfter2g = (Get-FileHash $restoreFailArchive2g -Algorithm SHA256).Hash
+    if ($restoreFailExit2g -eq 0) { Fail "闸2g(e4/$restoreFailureSide2g)：恢复暂存写失败仍 exit 0。output=[$restoreFailOut2g]"; $g2Fail = $true }
+    if ($restoreFailColdAfter2g -ne $restoreFailColdBefore2g) { Fail "闸2g(e4/$restoreFailureSide2g)：失败路径改写了冷库。"; $g2Fail = $true }
+    if ($restoreFailureSide2g -eq 'ledger') {
+      if ($restoreFailHotAfter2g -ne $restoreFailHotBefore2g) { Fail '闸2g(e4/ledger)：热账本暂存失败仍改写了热账本。'; $g2Fail = $true }
+    } else {
+      $restoreFailHotBlock2g = & $getLessonBlock2g (Get-Content $restoreFailLedger2g -Raw) L1
+      $restoreFailColdBlock2g = & $getLessonBlock2g (Get-Content $restoreFailArchive2g -Raw) L1
+      if ($restoreFailHotAfter2g -eq $restoreFailHotBefore2g -or $restoreFailHotBlock2g -cne $restoreFailBlock2g -or $restoreFailColdBlock2g -cne $restoreFailBlock2g) {
+        Fail '闸2g(e4/archive)：冷侧暂存失败后未留下两侧逐字一致的完整块。'; $g2Fail = $true
+      }
+      $restoreHealOut2g = (& pwsh -NoProfile -File (Join-Path $restoreFailRepo2g 'scripts/archive.ps1') -RepoRoot $restoreFailRepo2g -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+      $restoreHealExit2g = $LASTEXITCODE
+      if ($restoreHealExit2g -ne 0 -or (Get-FileHash $restoreFailLedger2g -Algorithm SHA256).Hash -ne $restoreFailHotAfter2g -or
+          (Get-Content $restoreFailArchive2g -Raw) -match '(?m)^##[ \t]+L1[ \t]*\r?$' -or
+          (& $getLessonBlock2g (Get-Content $restoreFailLedger2g -Raw) L1) -cne $restoreFailBlock2g) {
+        Fail "闸2g(e4/archive)：清除故障注入后重跑未从两侧一致态自愈。output=[$restoreHealOut2g]"; $g2Fail = $true
+      }
+    }
+    Remove-Item -Recurse -Force -LiteralPath $restoreFailRepo2g -ErrorAction SilentlyContinue
+  }
 
   # 闸2g(f)：A11 的**生产路径**回归——真实 linked worktree，而不是非 git 临时目录。
   # 2g(e) 的夹具不是 git 仓库，Resolve-BumpLedger 因此回落到本地账本，冷项在本地热账本里本就不存在，

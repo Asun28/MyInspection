@@ -296,6 +296,10 @@ if ($lessonsUsed) {
     }
     $inLedger = @(Get-LedgerHeadings $ledgerLines | Where-Object { $_.Id -eq $id })
     $inArchive = @(Get-LedgerHeadings $archiveLines -FailOnInvalidLessonHeading | Where-Object { $_.Id -eq $id })
+    if ($inLedger.Count -gt 1 -or $inArchive.Count -gt 1) {
+      Write-Warning "[ARCHIVE-LESSON-REJECT-DUPLICATE] archive.ps1：$id 块身份不唯一（热侧 $($inLedger.Count) 块，冷侧 $($inArchive.Count) 块）——拒绝移动，双侧未动。"
+      $lessonsReport.Add("  [重复id] $id"); $lsFailed++; continue
+    }
     if (-not $inLedger.Count -and -not $inArchive.Count) {
       Write-Warning "archive.ps1 -LessonIds：未知 id『$id』——LEDGER 与归档均查无此条（防手滑打错 id），已跳过。"
       $lessonsReport.Add("  [未知id] $id"); $lsFailed++; continue
