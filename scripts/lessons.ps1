@@ -265,7 +265,11 @@ function Next-Id {
     $ids += $n
   }
   if (-not $ids) { return 'L1' }
-  'L' + (($ids | Measure-Object -Maximum).Maximum + 1)
+  $maxId = [int](($ids | Measure-Object -Maximum).Maximum)
+  if ($maxId -ge [int]::MaxValue) {
+    throw "[LSN-ID-EXHAUSTED] lesson id 已达 Int32 上限（L$maxId），无法铸造下一枚可被读取的 id；未写入任何字节。"
+  }
+  'L' + ($maxId + 1)
 }
 
 # search 的共享谓词：多词 = AND，**所有**词都出现在文本里才命中（Tier2/Tier3 同用；check 对它做确定性自检）
@@ -509,8 +513,10 @@ switch ($Command) {
 
   'promote' {
     if (-not $Query) { throw 'promote 需要条目 id（如 L1）。' }
+    # 恢复/冲突态可能冷热两侧同时存在同一 id。先判冷库，不能因热副本存在就隐藏已归档事实并给出晋升结论。
+    Throw-ArchivedLessonReadOnly $Query
     $l = Get-Lessons | Where-Object id -eq $Query | Select-Object -First 1
-    if (-not $l) { Throw-ArchivedLessonReadOnly $Query; throw "未找到 $Query。" }
+    if (-not $l) { throw "未找到 $Query。" }
     # promote 是**决策**面：读不出元数据却渲染空 tier / rec=0 并给出「暂不够必须层」，等于把默认值当结论卖出去。
     if (-not $l.metaOk) { throw "[LSN-META-INVALID] $Query 的规范 meta 行不合法（$($l.metaError)）——晋升门槛读不出来，拒绝给结论。" }
     Step "晋升评估：$Query"

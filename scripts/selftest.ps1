@@ -1948,6 +1948,30 @@ try {
     }
   }
 
+  # (e2) 恢复态可能暂时冷热两侧同时存在同一条目。promote 是只读决策，但仍不得优先采用热副本、
+  # 把「已归冷」事实藏掉后给出晋升建议；两侧任一命中冷库就必须先要求人工移回并消歧。
+  $bothRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge2-$PID"
+  if (Test-Path $bothRepo2g) { Remove-Item -Recurse -Force -LiteralPath $bothRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $bothRepo2g 'docs/lessons'), (Join-Path $bothRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $bothRepo2g -Recurse -Force
+  $bothBlock2g = @('## L1', '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1', '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  $bothLedger2g = Join-Path $bothRepo2g 'docs/lessons/LEDGER.md'
+  $bothArchive2g = Join-Path $bothRepo2g 'specs/archive/lessons-archive.md'
+  Set-Content $bothLedger2g (@('# LEDGER', '', $bothBlock2g) -join [Environment]::NewLine) -Encoding utf8
+  Set-Content $bothArchive2g (@('# archive', '', $bothBlock2g) -join [Environment]::NewLine) -Encoding utf8
+  $bothHotHash2g = (Get-FileHash $bothLedger2g -Algorithm SHA256).Hash
+  $bothColdHash2g = (Get-FileHash $bothArchive2g -Algorithm SHA256).Hash
+  $bothOut2g = (& pwsh -NoProfile -File (Join-Path $bothRepo2g 'scripts/lessons.ps1') promote L1 -RepoRoot $bothRepo2g 2>&1 | Out-String)
+  $bothExit2g = $LASTEXITCODE
+  if ($bothExit2g -eq 0 -or $bothOut2g -notmatch '\[LSN-ARCHIVED-READONLY\]') {
+    Fail "闸2g(e2)：冷热两侧同时存在 L1 时 promote 仍采用热副本并退出 0。output=[$bothOut2g]"; $g2Fail = $true
+  }
+  if ((Get-FileHash $bothLedger2g -Algorithm SHA256).Hash -ne $bothHotHash2g -or
+      (Get-FileHash $bothArchive2g -Algorithm SHA256).Hash -ne $bothColdHash2g) {
+    Fail '闸2g(e2)：promote 的冷热并存拒绝路径改写了热账本或冷库。'; $g2Fail = $true
+  }
+  Remove-Item -Recurse -Force -LiteralPath $bothRepo2g -ErrorAction SilentlyContinue
+
   # 闸2g(f)：A11 的**生产路径**回归——真实 linked worktree，而不是非 git 临时目录。
   # 2g(e) 的夹具不是 git 仓库，Resolve-BumpLedger 因此回落到本地账本，冷项在本地热账本里本就不存在，
   # 于是命中「块没找到」分支顺带触发只读提示——**它测的根本不是 bump 会不会改主检出**。真实形态是：
@@ -2023,6 +2047,18 @@ try {
   $g3Exit = $LASTEXITCODE
   if ($g3Exit -eq 0) { Fail "闸2g(g3)：recurrence 已是 Int32.MaxValue，bump 仍退出 0——PowerShell 的 + 会静默升宽到 [long]，写出的值下一次读就判非法。output=[$g3Out]"; $g2Fail = $true }
   if ((Get-FileHash $intLedger2g -Algorithm SHA256).Hash -ne $g3Hash) { Fail '闸2g(g3)：到顶的 bump 改写了账本——必须零写入。'; $g2Fail = $true }
+  # (g4) Next-Id 也必须守同一个 Int32 域；冷库最大 id 到顶时 add 不得写出下一次读取必拒的 L2147483648。
+  Set-Content $intLedger2g '# LEDGER' -Encoding utf8
+  Set-Content (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') (@('# archive', '', (& $mk2g 'L2147483647' '1')) -join [Environment]::NewLine) -Encoding utf8
+  $g4LedgerHash = (Get-FileHash $intLedger2g -Algorithm SHA256).Hash
+  $g4ArchiveHash = (Get-FileHash (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') -Algorithm SHA256).Hash
+  $g4Out = (& pwsh -NoProfile -File $intLessons2g add -RepoRoot $intRepo2g -Symptom s -Rule r 2>&1 | Out-String)
+  $g4Exit = $LASTEXITCODE
+  if ($g4Exit -eq 0 -or $g4Out -notmatch '\[LSN-ID-EXHAUSTED\]') { Fail "闸2g(g4)：冷库最大 id 已达 Int32.MaxValue，add 未以 [LSN-ID-EXHAUSTED] fail-closed。output=[$g4Out]"; $g2Fail = $true }
+  if ((Get-FileHash $intLedger2g -Algorithm SHA256).Hash -ne $g4LedgerHash -or
+      (Get-FileHash (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') -Algorithm SHA256).Hash -ne $g4ArchiveHash) {
+    Fail '闸2g(g4)：Next-Id 域耗尽后的 add 改写了热账本或冷库。'; $g2Fail = $true
+  }
   if (Test-Path $intRepo2g) { Remove-Item -Recurse -Force -LiteralPath $intRepo2g -ErrorAction SilentlyContinue }
 
   # 闸2g(h)：A13 的第二类搬运器拒绝——热/冷内容不一致，须经 wrapper 的 -DryRun 打出**搬运器自己的 ASCII 哨兵**。
