@@ -343,6 +343,14 @@ function Invoke-ProbeDeliveryBlocked {
   if (-not (Test-Path $TasksDir)) { return }
   $wtRoot = $null
   try { $wtRoot = Get-ScaffoldWorktreeRoot } catch { $wtRoot = $null }
+  # core.ignorecase is recorded by git from the repository filesystem. It is a better authority than the OS name:
+  # macOS volumes can be either case-sensitive or insensitive. Failure to read it falls back to Ordinal so a
+  # branchless legacy filename is never broadened merely because the environment is unknown.
+  $pathComparer = [System.StringComparer]::Ordinal
+  try {
+    $ignoreCase = (& git -C $RepoRoot config --bool core.ignorecase 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $ignoreCase -ceq 'true') { $pathComparer = [System.StringComparer]::OrdinalIgnoreCase }
+  } catch { }
   $hits = @()
   foreach ($c in (Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne '_TEMPLATE.md')) {
     $fm = Get-FrontMatter (Get-Content $c.FullName -Raw)
@@ -366,12 +374,8 @@ function Invoke-ProbeDeliveryBlocked {
     # 去重键 = `$vf.FullName`：FileInfo 的 FullName 本就是完全限定并已折叠 `.` / `..` 段的路径（实测
     # `Get-Item <dir>\a\..\a\.review\X.json` 交出的 FullName 已无 `..`），故再套一层 [IO.Path]::GetFullPath
     # 是恒等变换、摘掉它没有任何用例会红——那样的守卫只会让人误以为这里已经防住了什么。
-    # **唯一真会变的是大小写**（GetFullPath 亦不规范化大小写，`Get-Item` 原样保留调用方给的壳），而它是否
-    # 该被忽略**按运行 OS 定，不是 Windows 常量**：`.github/workflows/scaffold-selftest.yml` 把含本探针的
-    # core 分片也跑在 ubuntu-latest 上，那里 `a.json` 与 `A.json` 是两份不同裁决，一律 OrdinalIgnoreCase
-    # 会把其中一份静默吃掉。同 T0-GATE-FIXFORWARD 的病灶与修法（`-contains` 恒不敏感 / `StartsWith(string)`
-    # 恒敏感，一行两套语义 ⇒ Linux 上被静默剪掉），沿用该卡定下的「按 OS 取比较器」家族，不另起一套。
-    $pathComparer = if ($IsWindows -or $IsMacOS) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
+    # **唯一真会变的是大小写**。去重与 branchless 旧产物的文件名归属都走仓库实际 core.ignorecase；
+    # branch/verdict 则是 JSON schema 字段，始终逐字精确，不能借文件系统语义放宽。
     $seenPath = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
     $verdictCandidates = @()
     foreach ($vf in $files) {
@@ -385,13 +389,14 @@ function Invoke-ProbeDeliveryBlocked {
       } catch { continue }   # 一份读不出的裁决绝不能把心跳带崩（同探针 8 的 fail-safe 契约）
       # ② 归属：review.ps1 会把被审分支写进 branch，按它判；旧产物无该字段时退回文件名（<id>.json 即本卡命名）。
       # 判不出归属就跳过——reporter 宁可漏报，也不该拿别人的 block 冤枉本卡（假阳性会把注意力引向错的地方）。
-      if ($owner) { if ($owner -ne $id) { continue } }
-      elseif ([IO.Path]::GetFileNameWithoutExtension($vf.Name) -ne $id) { continue }
-      if ($verdict -notin @('pass', 'block')) { continue }
+      if ($owner) { if (-not [string]::Equals($owner, $id, [System.StringComparison]::Ordinal)) { continue } }
+      elseif (-not $pathComparer.Equals([IO.Path]::GetFileNameWithoutExtension($vf.Name), $id)) { continue }
+      if (-not ([string]::Equals($verdict, 'pass', [System.StringComparison]::Ordinal) -or
+                [string]::Equals($verdict, 'block', [System.StringComparison]::Ordinal))) { continue }
       $verdictCandidates += [pscustomobject]@{ id = $id; path = $vf.FullName; verdict = $verdict; reasons = $reasons; when = $vf.LastWriteTimeUtc }
     }
     $current = @($verdictCandidates | Sort-Object @{ Expression = 'when'; Descending = $true }, @{ Expression = 'path'; Descending = $false } | Select-Object -First 1)
-    if ($current.Count -eq 1 -and $current[0].verdict -eq 'block') {
+    if ($current.Count -eq 1 -and $current[0].verdict -ceq 'block') {
       $hits += $current[0]
     }
   }
@@ -664,29 +669,28 @@ if ($Verb -eq 'selfcheck') {
     if ($ov.Count -ne 1) { $fails.Add("用例9 重合路径下期望恰 1 条 delivery-blocked，实得 $($ov.Count)（未按全路径去重，一份裁决被数两次）") }
     elseif ($ov[0].what -notmatch 'T8-SC-A') { $fails.Add("用例9 报的不是重合路径上那张卡（A）：$($ov[0].what)") }
     elseif ($ov[0].next -notmatch [regex]::Escape([IO.Path]::Combine('overlap', 'T8-SC-A', '.review', 'T8-SC-A.json'))) { $fails.Add("用例9 finding 指向的不是重合路径上那唯一一份裁决文件：$($ov[0].next)") }
-    # ── 用例 9b：去重键的**大小写语义按运行 OS 定**（同 T0-GATE-FIXFORWARD 的病灶家族）──
+    # ── 用例 9b：去重键的**大小写语义按仓库实际 core.ignorecase 定**（同 T0-GATE-FIXFORWARD 的病灶家族）──
     # 用例 9 的两条路径是同一个字符串拼出来的，两个 FullName 逐字节相同——于是 Ordinal 与 OrdinalIgnoreCase
     # 都能去重，比较器换掉照绿（实测：把 OrdinalIgnoreCase 改成 Ordinal，selfcheck 仍 PASS）。
     # 本用例让两条**字符串真不同**：主检出侧路径整体大写、worktree 侧原样，并在同一 .review 里再放一份
     # 只有大小写不同的文件名。
-    #   Windows/macOS（不敏感）：t8-sc-a.json 覆盖同名文件 ⇒ 目录仍只有一份裁决；两条大小写不同的路径
-    #                            指向它 ⇒ 必须去重成 **1** 条（比较器若改 Ordinal 就变 2 条，红）。
-    #   Linux（敏感）：T8-SC-A.json 与 t8-sc-a.json 是**两份不同裁决**，大写的 RepoRoot 目录根本不存在
-    #                  ⇒ 必须各报一条、共 **2** 条（比较器若写死 OrdinalIgnoreCase 就吃掉一份，红）。
+    #   不敏感卷：t8-sc-a.json 覆盖同名文件 ⇒ 目录仍只有一份裁决；两条大小写不同的路径指向它，须去重成 1 条。
+    #   敏感卷：T8-SC-A.json 与 t8-sc-a.json 是两份不同裁决，大写 RepoRoot 不存在，须各报一条、共 2 条。
     $fxCase = Join-Path $fxRoot 'oscase'
     $fxCaseCard = Join-Path $fxCase 'T8-SC-A'
     New-Item -ItemType Directory -Force (Join-Path $fxCaseCard '.review') | Out-Null
+    & git -C $fxCase init -q
     Set-Content -Path (Join-Path $fxCaseCard '.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["upper"],"branch":"T8-SC-A"}' -Encoding utf8
     Set-Content -Path (Join-Path $fxCaseCard '.review/t8-sc-a.json') -Value '{"verdict":"block","reasons":["lower"],"branch":"T8-SC-A"}' -Encoding utf8
     $RepoRoot = $fxCaseCard.ToUpperInvariant()            # 主检出路径整体大写：与通配侧字符串不等，指向同一文件（仅在不敏感 FS 上）
     function Get-ScaffoldWorktreeRoot { $fxCase }
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $osCase = @($findings | Where-Object probe -eq 'delivery-blocked')
-    $caseInsensitiveFs = ($IsWindows -or $IsMacOS)        # 与探针取比较器同一判据：本闸测的正是「两侧各自该有的条数」
+    $caseInsensitiveFs = ((& git -C $fxCase config --bool core.ignorecase | Out-String).Trim() -ceq 'true')
     $expectedOsCase = if ($caseInsensitiveFs) { 1 } else { 2 }
     if ($osCase.Count -ne $expectedOsCase) {
       $why = if ($caseInsensitiveFs) { '同一份裁决的两条大小写不同的路径未被去重（比较器退成 Ordinal？）' } else { '两份大小写不同的**不同**裁决被并成一条（比较器写死 OrdinalIgnoreCase？Linux 上会静默吃掉一份）' }
-      $fails.Add("用例9b OS=$($PSVersionTable.Platform) 期望 $expectedOsCase 条 delivery-blocked，实得 $($osCase.Count)——$why")
+      $fails.Add("用例9b core.ignorecase=$caseInsensitiveFs 期望 $expectedOsCase 条 delivery-blocked，实得 $($osCase.Count)——$why")
     }
     elseif (($osCase | Where-Object { $_.what -notmatch 'T8-SC-A' })) { $fails.Add('用例9b 报出的裁决不属于本卡（A）') }
 
@@ -734,6 +738,25 @@ if ($Verb -eq 'selfcheck') {
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $fo3 = @($findings | Where-Object probe -eq 'delivery-blocked')
     if ($fo3.Count -ne 0) { $fails.Add("用例10(c) 无 branch 字段、文件名也非本卡的旧产物被上报（实得 $($fo3.Count) 条）——文件名兜底是死代码") }
+    # (d/e) branch 与 verdict 是 JSON schema 字段，大小写必须逐字精确；PowerShell 的 -eq/-in 默认不敏感。
+    function Get-ScaffoldWorktreeRoot { $fxFor }
+    Get-ChildItem -LiteralPath (Join-Path $fxFor 'T8-SC-A/.review') -Filter '*.json' | Remove-Item -Force
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["case-owner"],"branch":"t8-sc-a"}' -Encoding utf8
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例10(d) branch 只有大小写不同仍被当成本卡所有——schema 归属必须 Ordinal') }
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value '{"verdict":"BLOCK","reasons":["case-verdict"],"branch":"T8-SC-A"}' -Encoding utf8
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例10(e) 大写 BLOCK 被当成合法 block——verdict enum 必须区分大小写') }
+    # (f) 仅旧产物的文件名归属跟随仓库所在文件系统，由 git init 的 core.ignorecase 实测，不拿 OS 名称代替卷语义。
+    Get-ChildItem -LiteralPath (Join-Path $fxFor 'T8-SC-A/.review') -Filter '*.json' | Remove-Item -Force
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/t8-sc-a.json') -Value '{"verdict":"block","reasons":["legacy-case"]}' -Encoding utf8
+    & git -C $fxFor init -q
+    $legacyIgnoreCase = ((& git -C $fxFor config --bool core.ignorecase | Out-String).Trim() -ceq 'true')
+    $RepoRoot = $fxFor
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $legacyCaseCount = @($findings | Where-Object probe -eq 'delivery-blocked').Count
+    $expectedLegacyCaseCount = if ($legacyIgnoreCase) { 1 } else { 0 }
+    if ($legacyCaseCount -ne $expectedLegacyCaseCount) { $fails.Add("用例10(f) branchless 大小写文件名未跟随实际 core.ignorecase=$legacyIgnoreCase（期望 $expectedLegacyCaseCount，实得 $legacyCaseCount）") }
     # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
     Remove-Item function:Get-ScaffoldWorktreeRoot
     $findings.Clear(); Push-Location $fxCwd
@@ -748,7 +771,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前裁决优先+去重键 OS 语义+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前裁决优先+core.ignorecase 去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }
