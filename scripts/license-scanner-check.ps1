@@ -143,31 +143,16 @@ if ($Suite -eq 'integration') {
     return $Node.Extent.Text
   }
 
-  function Get-StaticConditionState {
-    param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Condition)
-    # `if ($false)` / `if ($true)` / `if (0)` 这类条件在语法上就不是运行期判断——它只会把被包住的语句
-    # 静态关掉（或恒开）。真实的分片门 `if ($Shard -eq 'seeded')` 是 BinaryExpressionAst，不在此列。
-    $pipeline = $Condition
-    if ($pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return 'dynamic' }
-    $elements = @($pipeline.PipelineElements)
-    if ($elements.Count -ne 1) { return 'dynamic' }
-    if ($elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return 'dynamic' }
-    $expression = $elements[0].Expression
-    if ($expression -is [System.Management.Automation.Language.ConstantExpressionAst]) {
-      return $(if ([bool]$expression.Value) { 'true' } else { 'false' })
-    }
-    if ($expression -is [System.Management.Automation.Language.VariableExpressionAst]) {
-      if ($expression.VariablePath.UserPath -eq 'true') { return 'true' }
-      if ($expression.VariablePath.UserPath -eq 'false') { return 'false' }
-    }
-    return 'dynamic'
-  }
-
   function Test-AstCommandStaticallyLive {
-    param([Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command)
-    # Static evidence is deliberately narrow: a command hidden in a function/script-block definition is not
-    # executed merely because its AST exists, and a command in a constant-false branch is unreachable. Dynamic
-    # guards (the real `if (Test-Path $f)` and seeded shard condition) remain admissible evidence.
+    param(
+      [Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command,
+      [string[]]$AllowedIfConditions = @()
+    )
+    # Liveness is a positive contract. Every enclosing branch must be one of the exact conditions the caller
+    # expects; an expression that merely looks dynamic is not execution evidence (`1 -eq 2` was previously
+    # accepted). Loops, else branches, definitions, and script-block expressions are never accepted evidence.
+    $allowed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($condition in $AllowedIfConditions) { [void]$allowed.Add(($condition -replace '\s+', ' ').Trim()) }
     $ancestor = $Command.Parent
     while ($null -ne $ancestor) {
       if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
@@ -180,23 +165,11 @@ if ($Suite -eq 'integration') {
           if ($Command.Extent.StartOffset -ge $body.Extent.StartOffset -and
               $Command.Extent.EndOffset -le $body.Extent.EndOffset) { $commandClause = $clauseIndex; break }
         }
-        if ($commandClause -ge 0) {
-          for ($clauseIndex = 0; $clauseIndex -lt $commandClause; $clauseIndex++) {
-            if ((Get-StaticConditionState -Condition $ancestor.Clauses[$clauseIndex].Item1) -eq 'true') { return $false }
-          }
-          if ((Get-StaticConditionState -Condition $ancestor.Clauses[$commandClause].Item1) -eq 'false') { return $false }
-        } elseif ($null -ne $ancestor.ElseClause -and
-                  $Command.Extent.StartOffset -ge $ancestor.ElseClause.Extent.StartOffset -and
-                  $Command.Extent.EndOffset -le $ancestor.ElseClause.Extent.EndOffset) {
-          foreach ($clause in $ancestor.Clauses) {
-            if ((Get-StaticConditionState -Condition $clause.Item1) -eq 'true') { return $false }
-          }
-        }
+        if ($commandClause -lt 0) { return $false }
+        $conditionText = ($ancestor.Clauses[$commandClause].Item1.Extent.Text -replace '\s+', ' ').Trim()
+        if (-not $allowed.Contains($conditionText)) { return $false }
       }
-      if (($ancestor -is [System.Management.Automation.Language.WhileStatementAst] -or
-           $ancestor -is [System.Management.Automation.Language.ForStatementAst]) -and
-          $null -ne $ancestor.Condition -and
-          (Get-StaticConditionState -Condition $ancestor.Condition) -eq 'false') { return $false }
+      if ($ancestor -is [System.Management.Automation.Language.LoopStatementAst]) { return $false }
       $ancestor = $ancestor.Parent
     }
     return $true
@@ -339,12 +312,10 @@ if ($Suite -eq 'integration') {
         $stepsStarts = @()
         for ($i = $job.Index + 1; $i -lt $jobEnd; $i++) {
           if (-not $structural[$i]) { continue }
-          if ($Lines[$i] -match ('^' + (' ' * $fieldIndent) + 'if:[ \t]*(?<value>.*)$')) {
-            $condition = $Matches.value.Trim()
-            if ($condition.Length -ge 2 -and (($condition[0] -eq [char]34 -and $condition[-1] -eq [char]34) -or ($condition[0] -eq [char]39 -and $condition[-1] -eq [char]39))) {
-              $condition = $condition.Substring(1, $condition.Length - 2).Trim()
-            }
-            if ($condition -match '^(?:false|\$\{\{[ \t]*false[ \t]*\}\})$') { $jobLive = $false }
+          if ($Lines[$i] -match ('^' + (' ' * $fieldIndent) + 'if:[ \t]*')) {
+            # The ordered contract currently needs no job-level condition. Treat every such condition as
+            # unproven rather than trying to recognize an open-ended set of false-looking expressions.
+            $jobLive = $false
           }
           if ($Lines[$i] -match ('^' + (' ' * $fieldIndent) + 'steps:[ \t]*$')) { $stepsStarts += $i }
         }
@@ -492,8 +463,11 @@ if ($Suite -eq 'integration') {
   }
 
   function Replace-OrderedStepsWithDisabledJobFixture {
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
-    $ordered = @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)', "Gradle online build (warms cache for verify.ps1's --offline gate)", 'License gate', 'E2E verify gate')
+    param(
+      [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+      [string]$Condition = '${{ false }}'
+    )
+    $ordered = @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)', "Gradle online build (warms cache for verify.ps1's --offline gate)", 'Provision license scanners (online cache warm-up)', 'License gate', 'E2E verify gate')
     $lines = @($Text -split "`n")
     $remove = [System.Collections.Generic.HashSet[int]]::new()
     foreach ($step in $ordered) {
@@ -505,7 +479,7 @@ if ($Suite -eq 'integration') {
     $remaining = @(for ($i = 0; $i -lt $lines.Count; $i++) { if (-not $remove.Contains($i)) { $lines[$i] } })
     $fakeJob = @(
       '  inert_license_evidence:',
-      '    if: ${{ false }}',
+      "    if: $Condition",
       '    runs-on: windows-latest',
       '    steps:',
       '      - name: Setup Java (Temurin 17)',
@@ -515,6 +489,10 @@ if ($Suite -eq 'integration') {
       '      - name: Setup Gradle (dependency cache across CI runs)',
       '        run: Write-Host inert',
       "      - name: Gradle online build (warms cache for verify.ps1's --offline gate)",
+      '        run: Write-Host inert',
+      '      - name: Provision license scanners (online cache warm-up)',
+      "        if: `${{ steps.docs_scope.outputs.docs_only != 'true' }}",
+      '        shell: pwsh',
       '        run: Write-Host inert',
       '      - name: License gate',
       "        if: `${{ steps.docs_scope.outputs.docs_only != 'true' }}",
@@ -567,13 +545,12 @@ if ($Suite -eq 'integration') {
     if ($coldCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-COLD] expected the seeded integration invocation to pass -SkipRealScan, found $coldCalls") }
 
     # 「调用存在」不等于「调用会执行」：把那一行包进 `if ($false) { … }`、或埋进一个没人调的函数，
-    # 上面两条断言照样绿而闸 17cc 已被静默停用。故再判一条**静态存活性**：调用的祖先链上不得出现
-    # 恒假分支，也不得位于任何函数/脚本块定义体内。真实的分片门 `if ($Shard -eq 'seeded')` 不是恒假
-    # 条件，不受影响。
+    # 上面两条断言照样绿而闸 17cc 已被静默停用。故再判一条**正面存活契约**：调用的祖先链只允许
+    # 当前真实分片门 `$Shard -eq 'seeded'`；其它 if/loop、else、函数/脚本块定义一概不能充当执行证据。
     # 边界照实说：这只证明它没有被**静态**停用；「seeded 分片确实走到了它」这条证据不在本套件里——
     # 那是 seeded 自己那行 `17cc(scanner-integration) … OK`，它只有真跑过才会打印。
-    $deadCalls = @($integrationCalls | Where-Object { -not (Test-AstCommandStaticallyLive -Command $_) })
-    if ($deadCalls.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-LIVENESS] the integration invocation in selftest.ps1 sits under a constant-condition if or inside a function definition, so its presence proves nothing about execution ($($deadCalls.Count) such call(s))") }
+    $deadCalls = @($integrationCalls | Where-Object { -not (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @("`$Shard -eq 'seeded'")) })
+    if ($deadCalls.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-LIVENESS] the integration invocation in selftest.ps1 is not under the exact seeded-shard ancestor contract, so its presence proves nothing about execution ($($deadCalls.Count) such call(s))") }
 
     # A15 的正面契约：selftest.ps1 里**不存在写文件动作、其目标路径静态可见地指向 gradlew / gradlew.bat**。
     # 旧断言是变量名黑名单（「不得存在名为 scannerFixtureRoot 的变量」）——改个名字整棵 1400 行 fixture 就能
@@ -649,6 +626,7 @@ if ($Suite -eq 'integration') {
       'Setup Android SDK',
       'Setup Gradle (dependency cache across CI runs)',
       "Gradle online build (warms cache for verify.ps1's --offline gate)",
+      'Provision license scanners (online cache warm-up)',
       'License gate',
       'E2E verify gate'
     )
@@ -735,12 +713,28 @@ if ($Suite -eq 'integration') {
         foreach ($ambiguousName in $ambiguousLiterals) { [void]$literals.Remove($ambiguousName) }
         $executedPaths = @($runAst.FindAll({
           param($node) $node -is [System.Management.Automation.Language.CommandAst]
-        }, $true) | Where-Object { Test-AstCommandStaticallyLive -Command $_ } |
+        }, $true) | Where-Object { Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path $f') } |
           ForEach-Object { Resolve-ExecutedFilePath -Command $_ -Literals $literals } | Where-Object { $null -ne $_ })
         $scannerRuns = @($executedPaths | Where-Object { $_ -ceq $expectedGateScript }).Count
         if ($scannerRuns -lt 1) {
           $found.Add("[INTEGRATION-CI-SCANNER] License gate never executes $expectedGateScript (resolved pwsh -File targets: $(if ($executedPaths.Count -eq 0) { '<none>' } else { $executedPaths -join ', ' }))")
         }
+        if ($runScript -notmatch '(?m)^\s*\$env:UV_OFFLINE\s*=\s*''1''\s*$' -or
+            $runScript -notmatch '(?m)^\s*\$env:npm_config_offline\s*=\s*''true''\s*$') {
+          $found.Add('[INTEGRATION-CI-SCANNER] License gate must set UV_OFFLINE=1 and npm_config_offline=true before the scanner so uv/npx cannot make network requests')
+        }
+      }
+    }
+    $provisionStep = 'Provision license scanners (online cache warm-up)'
+    if ($stepLine.ContainsKey($provisionStep)) {
+      $provisionLines = @(Get-WorkflowStepLines -Lines $workflowLines -Start $stepLine[$provisionStep])
+      $provisionKeys = Get-WorkflowStepKeys -StepLines $provisionLines
+      $provisionRun = Get-WorkflowRunScript -StepLines $provisionLines
+      if (-not $provisionKeys.Contains('if') -or $provisionKeys['if'] -cne $expectedGateCondition -or
+          -not $provisionKeys.Contains('shell') -or $provisionKeys['shell'] -cne 'pwsh' -or
+          $provisionRun -notmatch '(?m)^\s*uv run --with pip-licenses==5\.5\.5 pip-licenses --version\s*$' -or
+          $provisionRun -notmatch '(?m)^\s*npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1\s*$') {
+        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must use exact pins pip-licenses==5.5.5 and license-checker@25.0.1 under the same docs-only condition')
       }
     }
     if ($stepLine.ContainsKey('E2E verify gate')) {
@@ -806,6 +800,7 @@ if ($Suite -eq 'integration') {
     # -SELFTEST-LIVENESS 自己的变异：调用整条原样保留（WIRING/COLD 仍绿），只把它包进恒假的 if——
     # 这正是「闸还在、但已经不会执行」的形态。
     @{ Id = 'selftest-call-dead-guard'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
+    @{ Id = 'selftest-call-constant-false'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-constant-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
     @{ Id = 'selftest-call-uncalled-function'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-function'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
     @{ Id = 'selftest-call-dead-else'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-else'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
     @{ Id = 'selftest-call-dead-loop'; Codes = @('INTEGRATION-SELFTEST-LIVENESS'); Target = 'Selftest'; Kind = 'wrap-while-false'; Pattern = '(?m)^.*license-scanner-check\.ps1.*-Suite[ \t]+integration.*$' },
@@ -820,6 +815,7 @@ if ($Suite -eq 'integration') {
     @{ Id = 'selftest-inline-switch-before-positional'; Codes = @('INTEGRATION-SELFTEST-INLINE'); Target = 'Selftest'; Kind = 'append'; Text = "`nSet-Content -NoNewline (Join-Path `$RepoRoot 'android/gradlew.bat') -Value 'fixture'`n" },
     @{ Id = 'ci-step-commented'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'comment'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
     @{ Id = 'ci-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$' },
+    @{ Id = 'ci-provision-step-deleted'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+Provision license scanners \(online cache warm-up\)[ \t]*$' },
     # The same text nested under the preceding run scalar is inert YAML. Whole-file regex counting used to accept
     # this after the real direct-child name was indented away.
     @{ Id = 'ci-step-name-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$'; Text = '          - name: License gate' },
@@ -827,6 +823,7 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-full-step-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-inert-scalar' },
     @{ Id = 'ci-full-step-inert-quoted-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-quoted-scalar' },
     @{ Id = 'ci-ordered-steps-disabled-job'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-ordered-with-disabled-job' },
+    @{ Id = 'ci-ordered-steps-expression-disabled-job'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-ordered-with-expression-disabled-job' },
     @{ Id = 'ci-e2e-split-live-job'; Codes = @('INTEGRATION-CI-ORDER-SEQUENCE'); Target = 'Workflow'; Kind = 'move-e2e-to-separate-job' },
     # 卡片头号 dod_assert 的专属变异：整块 License gate 搬到 JDK setup 之前。真实回归形态——
     # 新跑者上缓存是冷的，GRADLE-CACHE-OFFLINE 触发，每个 PR 都红而没有任何东西指向病因。
@@ -838,16 +835,21 @@ if ($Suite -eq 'integration') {
     # 把整句调用注释到行尾：`^\s*#` 只排除整行注释，旧谓词实测保持绿。
     @{ Id = 'ci-scanner-exec-commented-out'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*)if \(Test-Path \$f\).*check-licenses\.ps1.*$'; Text = "Write-Host 'gate disabled'  # pwsh -NoProfile -File scripts/check-licenses.ps1" },
     @{ Id = 'ci-scanner-exec-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
+    @{ Id = 'ci-scanner-exec-constant-false'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-constant-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-scanner-exec-uncalled-function'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-function-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-scanner-exec-dead-else'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-else-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
     @{ Id = 'ci-scanner-exec-dead-loop'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-while-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>if \(Test-Path \$f\).*check-licenses\.ps1.*)$' },
+    @{ Id = 'ci-scanner-uv-offline-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*\`$env:UV_OFFLINE[ \t]*=[ \t]*'1'[ \t]*\r?`n" },
+    @{ Id = 'ci-scanner-npm-offline-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*\r?`n" },
+    @{ Id = 'ci-provision-pip-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*uv run --with pip-licenses==)5\.5\.5(?: pip-licenses --version[ \t]*)$'; Text = '6.0.0a1 pip-licenses --version' },
+    @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
     @{ Id = 'ci-gate-condition-falsified'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*)if:.*$'; Text = 'if: ${{ false }}' },
     @{ Id = 'ci-gate-continue-on-error'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*$'; Text = '        continue-on-error: true' },
     # `shell:` 的**值**：下面整段 run: 块分析都按 PowerShell 解析它，改成 bash 后此前一路绿到底。
     @{ Id = 'ci-gate-shell-swapped'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n[ \t]*if:.*\r?\n[ \t]*)shell:.*$'; Text = 'shell: bash' },
     # 「必需键缺失」与「没有 run: 块可执行」两处抬升点：删掉 License gate 的 `run: |` 那一行（用后瞻锚到
     # 它下面两行内的唯一那句 `$f = 'scripts/check-licenses.ps1'`，故单点唯一）。两个码同时抬起是正确结果。
-    @{ Id = 'ci-gate-run-block-removed'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*run:[ \t]*\|[ \t]*\r?\n(?=(?:[^\r\n]*\r?\n)?[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*\r?$)" },
+    @{ Id = 'ci-gate-run-block-removed'; Codes = @('INTEGRATION-CI-ACTIVE', 'INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'delete'; Pattern = "(?m)^[ \t]*run:[ \t]*\|[ \t]*\r?\n(?=(?:[^\r\n]*\r?\n){0,4}[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*\r?$)" },
     # 变量解析的 fail-closed：同名变量出现第二次、取值不同 ⇒ 解不出 ⇒ 无法证明它执行了目标脚本。
     # 「最后一次赋值获胜」的旧写法在这枚变异下保持绿，而 CI 实跑的会是 check-cards.ps1。
     @{ Id = 'ci-scanner-path-ambiguous'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'insert-after'; Pattern = "(?m)^[ \t]*\`$f = 'scripts/check-licenses\.ps1'[ \t]*$"; Text = "          `$f = 'scripts/check-cards.ps1'" },
@@ -889,7 +891,7 @@ if ($Suite -eq 'integration') {
       # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
       # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
       # append/reorder 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
-      $wmRegex = if (@('append', 'reorder', 'replace-license-with-inert-scalar', 'replace-license-with-quoted-scalar', 'replace-ordered-with-disabled-job', 'move-e2e-to-separate-job') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
+      $wmRegex = if (@('append', 'reorder', 'replace-license-with-inert-scalar', 'replace-license-with-quoted-scalar', 'replace-ordered-with-disabled-job', 'replace-ordered-with-expression-disabled-job', 'move-e2e-to-separate-job') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
       $mutated = switch ($wm.Kind) {
         'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
         'delete' { $wmRegex.Replace($original, '', 1) }
@@ -900,10 +902,12 @@ if ($Suite -eq 'integration') {
         'strip-token' { $wmRegex.Replace($original, { param($m) $m.Groups['head'].Value + $m.Groups['tail'].Value }, 1) }
         # 语句原样保留，只把它包进恒假的 if：AST 上那条命令仍在，「存在」类断言全绿，唯有存活性会红。
         'wrap-false' { $wmRegex.Replace($original, { param($m) 'if ($false) { ' + $m.Value.Trim() + ' }' }, 1) }
+        'wrap-constant-false' { $wmRegex.Replace($original, { param($m) 'if (1 -eq 2) { ' + $m.Value.Trim() + ' }' }, 1) }
         'wrap-function' { $wmRegex.Replace($original, { param($m) 'function Invoke-InertIntegrationGate { ' + $m.Value.Trim() + ' }' }, 1) }
         'wrap-else' { $wmRegex.Replace($original, { param($m) 'if ($true) { } else { ' + $m.Value.Trim() + ' }' }, 1) }
         'wrap-while-false' { $wmRegex.Replace($original, { param($m) 'while ($false) { ' + $m.Value.Trim() + ' }' }, 1) }
         'wrap-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'if ($false) { ' + $m.Groups['body'].Value + ' }' }, 1) }
+        'wrap-constant-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'if (1 -eq 2) { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'wrap-function-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'function Invoke-InertLicenseGate { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'wrap-else-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'if ($true) { } else { ' + $m.Groups['body'].Value + ' }' }, 1) }
         'wrap-while-false-indented' { $wmRegex.Replace($original, { param($m) $m.Groups['keep'].Value + 'while ($false) { ' + $m.Groups['body'].Value + ' }' }, 1) }
@@ -912,6 +916,7 @@ if ($Suite -eq 'integration') {
         'replace-license-with-inert-scalar' { Replace-LicenseStepWithInertScalarFixture -Text $original }
         'replace-license-with-quoted-scalar' { Replace-LicenseStepWithQuotedScalarFixture -Text $original }
         'replace-ordered-with-disabled-job' { Replace-OrderedStepsWithDisabledJobFixture -Text $original }
+        'replace-ordered-with-expression-disabled-job' { Replace-OrderedStepsWithDisabledJobFixture -Text $original -Condition '${{ 1 == 0 }}' }
         'move-e2e-to-separate-job' { Move-E2eStepToSeparateJobFixture -Text $original }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
       }
@@ -1036,9 +1041,81 @@ if ($Suite -eq 'integration') {
     ) "[INTEGRATION-SKIPMUTATIONS-FORWARD] a nested '-Suite integration -SkipRealScan -SkipMutations' run did not report both skips, or still ran mutations (exit=$skipForwardExit): $skipForwardOutput"
   }
 
+  function Invoke-StrictOfflineLicenseScan {
+    param([Parameter(Mandatory)][string]$Path)
+    $priorUvOffline = [Environment]::GetEnvironmentVariable('UV_OFFLINE', 'Process')
+    $priorNpmOffline = [Environment]::GetEnvironmentVariable('npm_config_offline', 'Process')
+    try {
+      $env:UV_OFFLINE = '1'
+      $env:npm_config_offline = 'true'
+      $output = (& pwsh -NoProfile -File $Path -Strict 2>&1 | Out-String)
+      return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    } finally {
+      if ($null -eq $priorUvOffline) { Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue } else { $env:UV_OFFLINE = $priorUvOffline }
+      if ($null -eq $priorNpmOffline) { Remove-Item Env:npm_config_offline -ErrorAction SilentlyContinue } else { $env:npm_config_offline = $priorNpmOffline }
+    }
+  }
+
+  # Hermetic cold-cache proof: the real production scanner sees both supported manifests and resolves uv,
+  # pip-licenses, and npx to probes that record invocation. A probe records an outbound attempt if its ecosystem's
+  # official offline environment flag is absent. Empty cache roots plus nonzero probes must make -Strict fail closed,
+  # while the outbound marker stays absent.
+  if (-not $SkipMutations) {
+    $coldRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-offline-" + [guid]::NewGuid().ToString('N'))
+    $coldScripts = Join-Path $coldRoot 'scripts'
+    $coldBin = Join-Path $coldRoot 'bin'
+    $coldFrontend = Join-Path $coldRoot 'frontend'
+    $outboundMarker = Join-Path $coldRoot 'outbound-attempted.txt'
+    $invokedMarker = Join-Path $coldRoot 'invoked.txt'
+    $priorPath = $env:PATH
+    $priorUvCache = [Environment]::GetEnvironmentVariable('UV_CACHE_DIR', 'Process')
+    $priorNpmCache = [Environment]::GetEnvironmentVariable('npm_config_cache', 'Process')
+    try {
+      New-Item -ItemType Directory -Force -Path $coldScripts, $coldBin, $coldFrontend, (Join-Path $coldRoot 'uv-cache'), (Join-Path $coldRoot 'npm-cache') | Out-Null
+      foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$sibling") -Destination (Join-Path $coldScripts $sibling)
+      }
+      Set-Content -LiteralPath (Join-Path $coldRoot 'pyproject.toml') -Encoding utf8 -Value "[project]`nname = 'cold-license-probe'`nversion = '0.0.0'"
+      Set-Content -LiteralPath (Join-Path $coldFrontend 'package.json') -Encoding utf8 -Value '{"name":"cold-license-probe","private":true}'
+      $probeTemplate = @'
+param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Remaining)
+Add-Content -LiteralPath '__INVOKED__' -Encoding utf8 -Value '__TOOL__'
+if (__OFFLINE_TEST__) { exit 23 }
+Set-Content -LiteralPath '__OUTBOUND__' -Encoding utf8 -Value '__TOOL__'
+exit 24
+'@
+      foreach ($probe in @(
+        @{ Name = 'uv'; Offline = "`$env:UV_OFFLINE -ceq '1'" },
+        @{ Name = 'pip-licenses'; Offline = "`$env:UV_OFFLINE -ceq '1'" },
+        @{ Name = 'npx'; Offline = "`$env:npm_config_offline -ceq 'true'" }
+      )) {
+        $probeText = $probeTemplate.Replace('__INVOKED__', $invokedMarker.Replace("'", "''")).Replace('__OUTBOUND__', $outboundMarker.Replace("'", "''")).Replace('__TOOL__', $probe.Name).Replace('__OFFLINE_TEST__', $probe.Offline)
+        Set-Content -LiteralPath (Join-Path $coldBin ($probe.Name + '.ps1')) -Encoding utf8 -Value $probeText
+      }
+      $env:PATH = $coldBin + [System.IO.Path]::PathSeparator + $priorPath
+      $env:UV_CACHE_DIR = Join-Path $coldRoot 'uv-cache'
+      $env:npm_config_cache = Join-Path $coldRoot 'npm-cache'
+      $coldResult = Invoke-StrictOfflineLicenseScan -Path (Join-Path $coldScripts 'check-licenses.ps1')
+      $invokedTools = if (Test-Path $invokedMarker) { @(Get-Content -LiteralPath $invokedMarker) } else { @() }
+      Assert-Integration (
+        $coldResult.ExitCode -ne 0 -and
+        -not (Test-Path $outboundMarker) -and
+        $invokedTools -contains 'uv' -and
+        $invokedTools -contains 'pip-licenses' -and
+        $invokedTools -contains 'npx'
+      ) "[INTEGRATION-OFFLINE-COLD] cold-cache strict scan did not fail closed without an outbound attempt (exit=$($coldResult.ExitCode), invoked={$($invokedTools -join ',')}, outbound=$([bool](Test-Path $outboundMarker))): $($coldResult.Output)"
+    } finally {
+      $env:PATH = $priorPath
+      if ($null -eq $priorUvCache) { Remove-Item Env:UV_CACHE_DIR -ErrorAction SilentlyContinue } else { $env:UV_CACHE_DIR = $priorUvCache }
+      if ($null -eq $priorNpmCache) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue } else { $env:npm_config_cache = $priorNpmCache }
+      if (Test-Path $coldRoot) { Remove-Item -LiteralPath $coldRoot -Recurse -Force }
+    }
+  }
+
   if (-not $SkipRealScan) {
-    $scannerOutput = (& pwsh -NoProfile -File $ScannerPath -Strict 2>&1 | Out-String)
-    $scannerExit = $LASTEXITCODE
+    $scannerResult = Invoke-StrictOfflineLicenseScan -Path $ScannerPath
+    $scannerOutput = $scannerResult.Output
+    $scannerExit = $scannerResult.ExitCode
     Assert-Integration ($scannerExit -eq 0) "[INTEGRATION-REAL-SCAN] strict repository scan failed (exit=$scannerExit): $scannerOutput"
     # 版本不写死：`org.testng:testng` 并不在 libs.versions.toml 里被 pin（它是 kotlin-test-testng 的
     # 传递依赖），卡片要求的也只是这个 module 被逐坐标报告。钉 7.0.0 会让一次例行升级把套件红在

@@ -2,7 +2,7 @@ name: ci
 
 # 确定性验收闸门（R2）。作为默认分支规则集的必需状态检查 `verify`（有 GitHub Pro/public 时）。
 # 最终的 E2E verify gate 步骤本身纯确定性、离线 —— 与本机 verify.ps1 同义。其余步骤（Sync deps / License
-# gate 的扫描器获取 / T0-TOOLCHAIN 起新增的 Gradle online build）按需联网装配工具链/依赖，同产品运行时联网正交
+# gate 前的 pinned 扫描器预热 / T0-TOOLCHAIN 起新增的 Gradle online build）按需联网装配工具链/依赖，同产品运行时联网正交
 # （见各步骤自身注释）。若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
 # 触发分支同时覆盖 main 与 master：scaffold 自身默认分支是 master（见 selftest 闸⑮/L38），
 # gh-bootstrap 推 main；任一默认分支下 PR CI 都会触发，避开「主分支名漂移→CI 静默不跑」。
@@ -173,16 +173,32 @@ jobs:
           cmd /c gradlew.bat --no-daemon build
           if ($LASTEXITCODE -ne 0) { Write-Error "gradlew build failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
 
+      - name: Provision license scanners (online cache warm-up)
+        if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}
+        shell: pwsh
+        # This is the only online phase for license-scanner tooling. Exact versions are warmed before the gate;
+        # the gate itself forces uv and npm offline, so a cold/missing cache fails closed without a registry request.
+        run: |
+          if (Test-Path pyproject.toml) {
+            uv run --with pip-licenses==5.5.5 pip-licenses --version
+            if ($LASTEXITCODE -ne 0) { Write-Error "pip-licenses provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+          }
+          if (Test-Path frontend/package.json) {
+            npm install --prefix frontend --no-save --package-lock=false --ignore-scripts license-checker@25.0.1
+            if ($LASTEXITCODE -ne 0) { Write-Error "license-checker provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+          }
+
       - name: License gate
         if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}
         shell: pwsh
         # 每 PR 跑商用许可闸（PyPI/npm + Gradle 已解析 classpath，见 docs/LICENSE-POLICY.md）——服务端兜底，
         # 堵「本地 ship 跑许可闸、裸 push 绕过」（TD16）。禁列许可或 Gradle 解析/元数据失败均非零退出。
-        # 无受支持清单（pyproject.toml / frontend/package.json / Gradle 清单）时脚本自身优雅通过；
-        # PyPI/npm 扫描器可按需联网装配；Gradle 扫描仅复用上一步在线 build 预热的缓存，并以 --offline --no-daemon 运行。
-        # 两者均属 CI 工具链装配，非产品运行时联网。
+        # 无受支持清单（pyproject.toml / frontend/package.json / Gradle 清单）时脚本自身优雅通过；三种生态
+        # 均只复用上面的在线预热，扫描阶段强制离线，缓存缺失即 fail-closed。
         run: |
           # fail-closed（同 check-secrets，TD56/TD-119）：许可闸脚本缺失即非零退出，不 skip-as-pass。
+          $env:UV_OFFLINE = '1'
+          $env:npm_config_offline = 'true'
           $f = 'scripts/check-licenses.ps1'
           if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
 

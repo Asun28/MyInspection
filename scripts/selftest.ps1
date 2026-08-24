@@ -2072,26 +2072,27 @@ $exitOnes82 = ([regex]::Matches($ciText82, 'exit 1\b')).Count
 if ($exitOnes82 -lt 2) { Fail "8.2b TD56/TD-119：ci.yml 中 'exit 1' 出现 $exitOnes82 次（预期 ≥2：check-secrets/check-licenses 各一）——fail-closed 分支可能只 Write-Error 未真正非零退出。" }
 elseif (-not $fail) { Write-Host '  8.2b ci.yml 安全关键闸缺脚本 fail-closed（exit 1）OK' -ForegroundColor Green }
 
-# 8.2b2（TD2）：Gradle 许可扫描本身必须离线，fresh runner 先完成 JDK/Android/Gradle setup 与 online build
-# 预热才有 POM/解析缓存可读。只允许移动既有 License gate，不能借排序之名改掉任何 fail-closed 内容：以
-# 校正后的规范 UTF-8/LF 块哈希钉住字节。再造“把原块移回 warm-up 前”的单一位置变异，证明断言真会红。
+# 8.2b2（TD2）：许可扫描本身必须离线，fresh runner 先完成 JDK/Android/Gradle setup、Gradle online build
+# 与 pinned PyPI/npm scanner provisioning。License gate 规范块用 UTF-8/LF 哈希钉住，再造“移回 warm-up 前”
+# 的单一位置变异，证明顺序断言真会红。
 function Test-LicenseGateAfterGradleWarmup([string]$WorkflowText) {
   $license = [regex]::Match($WorkflowText, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
   $warmup = [regex]::Match($WorkflowText, '(?m)^      - name: Gradle online build \(warms cache for verify\.ps1''s --offline gate\)\s*$')
+  $provision = [regex]::Match($WorkflowText, '(?m)^      - name: Provision license scanners \(online cache warm-up\)\s*$')
   $e2e = [regex]::Match($WorkflowText, '(?m)^      - name: E2E verify gate\s*$')
-  if (-not $license.Success -or -not $warmup.Success -or -not $e2e.Success) { return $false }
+  if (-not $license.Success -or -not $warmup.Success -or -not $provision.Success -or -not $e2e.Success) { return $false }
   foreach ($setupName in @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)')) {
     $setup = [regex]::Match($WorkflowText, "(?m)^      - name: $([regex]::Escape($setupName))\s*`$")
     if (-not $setup.Success -or $setup.Index -ge $warmup.Index) { return $false }
   }
   $canonicalBlock = (($license.Value -replace "`r`n", "`n") -replace "`r", "`n").TrimEnd("`n") + "`n"
   $actualHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonicalBlock)))
-  return ($actualHash -ceq 'DD4E2DC3755FC1083A0C02C868895A6F5EF050C909F90647B897C82D714A916C' -and
-          $license.Index -gt $warmup.Index -and $license.Index -lt $e2e.Index)
+  return ($actualHash -ceq '9173B6CD7FB674A6F4507BB2EB6790F2C9FA0DAF9DA8A9D6132B70C33DCB16C2' -and
+          $provision.Index -gt $warmup.Index -and $license.Index -gt $provision.Index -and $license.Index -lt $e2e.Index)
 }
 $licenseGateMatch82 = [regex]::Match($ciText82, '(?ms)^      - name: License gate\r?\n.*?(?=^      - name: |\z)')
 if (-not (Test-LicenseGateAfterGradleWarmup $ciText82)) {
-  Fail '8.2b2 TD2：License gate 未保持基线字节或未严格位于 JDK/Android/Gradle setup + online warm-up 之后、E2E verify 之前——fresh runner 的离线 Gradle POM 扫描会因顺序必红，或 gate 内容被改动。'
+  Fail '8.2b2 TD2：License gate 未保持规范字节或未严格位于 JDK/Android/Gradle setup + Gradle/pinned scanner online warm-up 之后、E2E verify 之前。'
 } else {
   $withoutLicense82 = $ciText82.Remove($licenseGateMatch82.Index, $licenseGateMatch82.Length)
   $warmupAfterRemoval82 = [regex]::Match($withoutLicense82, '(?m)^      - name: Gradle online build \(warms cache for verify\.ps1''s --offline gate\)\s*$')
@@ -2099,7 +2100,7 @@ if (-not (Test-LicenseGateAfterGradleWarmup $ciText82)) {
   if (Test-LicenseGateAfterGradleWarmup $wrongOrder82) {
     Fail '8.2b2 TD2：把未改的 License gate 单独移回 Gradle online warm-up 之前后断言仍通过——排序检查是 vacuous。'
   } else {
-    Write-Host '  8.2b2 TD2 License gate 保持校正规范块 SHA-256，位于 JDK/Android/Gradle setup + online warm-up 后、E2E 前；逆向移动变异被检出 OK' -ForegroundColor Green
+    Write-Host '  8.2b2 TD2 License gate 保持规范块 SHA-256，位于 JDK/Android/Gradle setup + Gradle/pinned scanner online warm-up 后、E2E 前；逆向移动变异被检出 OK' -ForegroundColor Green
   }
 }
 
@@ -11223,7 +11224,7 @@ $realRcPath = Join-Path $RepoRoot 'docs/RELEASE-CHECKLIST.md'
 $realRcHashBefore = (Get-FileHash -LiteralPath $realRcPath -Algorithm SHA256).Hash
 $rcSentinel = '[GRADLE-LIC-SCANNER-ONLY]'
 # 规范项文本的 SHA-256（UTF-8 字节，行尾已由 Get-Content 剥离）。改这一项的措辞 → 同步改这里，二者是一对。
-$rcCanonHash = '20B95EC458FF555D0687ADFA4939064D925402F5A9A304A4D88FC0579D0AD194'
+$rcCanonHash = '543F323F4A36C4178CA3BC9232B29484E7EA8BE874B3714CBD31F5742BE437EA'
 $rcEditorWarning = '<!-- 编辑本项的任何字符都须同步更新 scripts/selftest.ps1 的 17ee $rcCanonHash，并重跑 pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded。 -->'
 $rcOrigLines = Get-Content -LiteralPath $realRcPath
 # 内联不经 GetNewClosure()：$LASTEXITCODE 需取子进程调用后的新鲜值（同 17cc(reparse-mut) 的注记）。

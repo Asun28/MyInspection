@@ -123,8 +123,10 @@
    warm-up **之后**（该顺序由上述套件的 `[INTEGRATION-CI-ORDER-SEQUENCE]` 断言机检）；但那四步另有
    `hashFiles('android/gradlew.bat') != ''` 条件，该文件缺席时它们不执行、License gate 仍会跑并独立发现
    Gradle 清单：确无清单才只余 PyPI/npm；有清单但 wrapper/缓存不可用则以 `GRADLE-WRAPPER-OFFLINE`
-   fail-closed。**只有 Gradle 那一半强制离线**（`--offline --no-daemon`，复用上一步
-   预热的缓存）；PyPI/npm 扫描器可按需联网装配（见 `.github/workflows/ci.yml` 的 License gate 注释）。
+   fail-closed。CI 先在独立在线步骤以精确版本 `pip-licenses==5.5.5` / `license-checker@25.0.1` 预热工具；
+   License gate 与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
+   `npm_config_offline=true`，Gradle 继续使用 `--offline --no-daemon`。三种生态在扫描阶段均禁止网络，
+   缓存或工具缺失即 fail-closed；integration 的冷缓存探针会验证工具确实被调用且没有 outbound attempt。
 2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（自动许可扫描不覆盖这些资产）。
 3. Codex 评审闸门会阻断疑似 copyleft/非商用片段。
 4. 真实模型子环境跑 `pip-licenses` **全审**：GPL 硬禁（声明但未 import 的可卸）；LGPL 仅进程隔离/动态可留；UNKNOWN 元数据逐个核实际许可。
