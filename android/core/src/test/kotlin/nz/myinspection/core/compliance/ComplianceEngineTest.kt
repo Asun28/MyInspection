@@ -20,25 +20,88 @@ import kotlin.test.assertIs
  *
  * | Acceptance | Mutation | Observed failing assertion text |
  * | --- | --- | --- |
- * | A1 | `< 48h` -> `<= 48h` | expected `Pass`, actual `Blocked(NOTICE_TOO_SHORT)` |
- * | A2 | `> 14d` -> `>= 14d` | expected `Pass`, actual `Blocked(NOTICE_TOO_EARLY)` |
- * | A3 | subtract 500ms from the opening boundary | expected `Blocked`, actual `Pass` at 07:59:59.999 |
- * | A4 | always select the ordinary close | expected `Blocked`, actual `Pass` at boarding 18:00:00.001 |
- * | A5 | `later.isBefore` -> `!later.isAfter` | expected `Pass`, actual `Blocked` at 28 civil days |
- * | A6 | delete INGOING from the signed exemptions | expected `[INGOING, EXIT]`, found `[EXIT]` |
- * | A7 | hard-code the 48h notice floor | expected `Blocked`, actual `Pass` under the 72h fixture |
- * | A8 | hard-code 08:00/19:00/18:00 | expected `Blocked`, actual `Pass` under the 09:00/17:00/16:00 fixture |
- * | A9 | hard-code 28 frequency days | expected `Blocked`, actual `Pass` for 30 days under the 42-day fixture |
- * | A10 | hard-code request exemptions | expected `Blocked`, actual `Pass` under the inverted exemption fixture |
- * | A11 | hard-code Pacific/Auckland for visit hours | expected `Blocked`, actual `Pass` under UTC |
- * | A12 | measure notice as local wall time | expected `Blocked`, actual `Pass` across spring DST |
- * | A13 | disable current-row exclusion | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` |
- * | A14 | delete duplicate-id rejection | expected `[INVALID_HISTORY_ENTRY]`, found `[FREQUENCY_LIMIT]` |
- * | A15 | delete configured-purpose history validation | expected `Blocked`, actual `Pass` |
- * | A16 | delete each control/parse/HTTPS/host/credential guard separately | exact indexed error list lost its corresponding diagnostic; four single-error documents were accepted |
- * | A17 | unwrap `sourceRefs` | expected `UnsupportedOperationException`, mutation completed successfully |
- * | A18 | add ANNUAL to signed exemptions | expected `[INGOING, EXIT]`, found `[INGOING, EXIT, ANNUAL]` |
+ * | A1 | notice opening `<` -> `<=` | expected `Pass`, actual `Blocked(NOTICE_TOO_SHORT)` at exactly 48h |
+ * | A2 | notice ceiling `>` -> `>=` | expected `Pass`, actual `Blocked(NOTICE_TOO_EARLY)` at exactly 14d |
+ * | A3 | opening `isBefore` -> `!isAfter` | expected `Pass`, actual `Blocked` at exactly 08:00 |
+ * | A3 | delete opening comparison | expected `Blocked`, actual `Pass` at 07:59:59.999 |
+ * | A3 | closing `isAfter` -> `!isBefore` | expected `Pass`, actual `Blocked` at exactly 19:00 |
+ * | A3 | delete closing comparison | expected `Blocked`, actual `Pass` at 19:00:00.001 |
+ * | A4 | always select ordinary close | expected `Blocked`, actual `Pass` at boarding 18:00:00.001 |
+ * | A5 | frequency `later.isBefore` -> `!later.isAfter` | expected `Pass`, actual `Blocked` at exactly 28 civil days |
+ * | A5 | return `Pass` when `tenantConsented` | expected `Blocked(FREQUENCY_LIMIT)`, actual `Pass` at 27 days |
+ * | A6 | delete requested-type exemption check | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` for INGOING and EXIT requests |
+ * | A6 | delete stored-type exemption check | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` for stored INGOING and EXIT rows |
+ * | A7 | replace minimum read with 48 | expected `Blocked`, actual `Pass` at 48h under configured 72h |
+ * | A7 | replace maximum read with 14 | expected `Blocked`, actual `Pass` at 10d under configured 7d |
+ * | A8 | replace opening read with 08:00 | expected `Blocked`, actual `Pass` at 08:30 under configured 09:00 |
+ * | A8 | replace ordinary-close read with 19:00 | expected `Blocked`, actual `Pass` at 18:00 under configured 17:00 |
+ * | A8 | replace boarding-close read with 18:00 | expected `Blocked`, actual `Pass` at 17:00 under configured 16:00 |
+ * | A9 | replace frequency-day read with 28 | expected `Blocked`, actual `Pass` at 30 days under configured 42d |
+ * | A10 | replace requested exemption read with signed literals | expected `Blocked`, actual `Pass` for configured-exempt ROUTINE |
+ * | A10 | replace stored exemption read with signed literals | expected `Blocked`, actual `Pass` for stored configured-exempt ROUTINE |
+ * | A11 | replace visit-zone read with Pacific/Auckland | expected `Blocked`, actual `Pass` for 20:30 in configured UTC |
+ * | A12 | measure notice in local wall time | expected `Blocked(NOTICE_TOO_SHORT)`, actual `Pass` across spring DST |
+ * | A12 | use elapsed 672h for frequency | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` at the 28-civil-day spring boundary |
+ * | A13 | delete current-row exclusion | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` for the row under edit |
+ * | A13 | exclude every row when current id is absent | expected `Blocked(FREQUENCY_LIMIT)`, actual `Pass` for a new visit |
+ * | A13 | exclude every matching-property row | expected `Blocked(FREQUENCY_LIMIT)`, actual `Pass` with a genuine competitor |
+ * | A14 | delete blank-id check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for one blank row |
+ * | A14 | delete distinct-id check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for duplicate ids |
+ * | A14 | change current-id count from exactly one to nonzero | expected `INVALID_HISTORY_ENTRY`, actual `Pass` for a multi-match id |
+ * | A14 | delete absent-current-id check | expected `INVALID_HISTORY_ENTRY`, actual `FREQUENCY_LIMIT` for `entry-absent` |
+ * | A15 | remove configured-other-purpose separation | expected `Pass`, actual `Blocked(FREQUENCY_LIMIT)` for `fixture-purpose` history |
+ * | A15 | delete unknown-purpose history validation | expected `Blocked(INVALID_HISTORY_ENTRY)`, actual `Pass` for `Inspection` |
+ * | A16 | delete schema-version validation | `unsupported schemaVersion 2` diagnostic disappeared |
+ * | A16 | delete effective-date validation | malformed date document was accepted |
+ * | A16 | delete unknown-timezone validation | `timezone is unknown` diagnostic disappeared |
+ * | A16 | delete exact-v1-timezone validation | checksum-valid UTC document was accepted |
+ * | A16 | delete empty-sourceRefs validation | empty sourceRefs document was accepted |
+ * | A16 | delete duplicate-sourceRefs validation | duplicate sourceRefs document was accepted |
+ * | A16 | delete sourceRef control guard | exact indexed error list lost `must not contain control characters` |
+ * | A16 | delete sourceRef parse guard | unparsable and control-character documents were accepted/misdiagnosed |
+ * | A16 | delete sourceRef HTTPS guard | non-HTTPS document was accepted |
+ * | A16 | delete sourceRef host guard | both hostless documents were accepted |
+ * | A16 | delete sourceRef credential guard | credentialed document was accepted |
+ * | A16 | delete empty-rules validation | empty rules document was accepted |
+ * | A16 | delete entry-purpose validation | `Inspection` purpose document was accepted |
+ * | A16 | delete positive notice-min validation | zero minimum document was accepted |
+ * | A16 | delete positive notice-max validation | zero maximum lost its named diagnostic |
+ * | A16 | delete minimum-versus-maximum validation | 480h/1d document lost its named diagnostic |
+ * | A16 | delete positive frequency-days validation | zero-day document was accepted |
+ * | A16 | delete duplicate-exemption validation | repeated INGOING document was accepted |
+ * | A16 | delete known-exemption validation | SPOT_CHECK document was accepted |
+ * | A16 | delete strict HH:mm validation | `8am` visit opening document was accepted |
+ * | A16 | delete ordinary-window ordering | 08:00-07:00 document lost its named diagnostic |
+ * | A16 | delete boarding-window ordering | boarding close 07:00 document lost its named diagnostic |
+ * | A16 | delete boarding-width validation | boarding close 20:00 document lost its named diagnostic |
+ * | A16 | delete duplicate scalar-key detection | duplicate noticeMinHours document was accepted last-wins |
+ * | A16 | delete duplicate rule-key detection | duplicate inspection rule document was accepted last-wins |
+ * | A16 | delete escaped-key rejection | escaped noticeMinHours key document was accepted |
+ * | A16 | replace strict UTF-8 decode with replacement decode | expected MalformedInputException, document reached JSON parsing |
+ * | A16 | enable unknown-field coercion | expected SerializationException, unexpectedField document loaded |
+ * | A17 | map bad digest to INVALID_CONFIG | expected CHECKSUM_MISMATCH, found INVALID_CONFIG |
+ * | A17 | map schema mismatch to INVALID_CONFIG | expected SCHEMA_VERSION_MISMATCH, found INVALID_CONFIG |
+ * | A17 | map invalid config to schema mismatch | expected INVALID_CONFIG, found SCHEMA_VERSION_MISMATCH |
+ * | A17 | unwrap sourceRefs | expected UnsupportedOperationException from add/remove/clear; mutation succeeded |
+ * | A17 | unwrap rules | expected UnsupportedOperationException from remove/put/clear; mutation succeeded |
+ * | A17 | unwrap exemptTypes | expected UnsupportedOperationException from add/remove/clear; mutation succeeded |
+ * | A17 | unwrap validation errors | expected UnsupportedOperationException from add/remove/clear; mutation succeeded |
+ * | A17 | unwrap blocked reasons | expected UnsupportedOperationException from add/remove/clear; mutation succeeded |
+ * | A18 | add ANNUAL to requested exemptions | expected FREQUENCY_LIMIT, actual Pass for ANNUAL request after ROUTINE |
+ * | A18 | add ANNUAL to stored exemptions | expected FREQUENCY_LIMIT, actual Pass for ROUTINE after stored ANNUAL |
+ * | A19 | add a second public gate method | exact method list gained the new name |
+ * | A19 | add a public engine field | expected no public fields, found the added field |
+ * | A19 | add a second constructor | expected one constructor, found two |
+ * | A19 | change gate parameter/return shape | exact parameter or return assertion differed |
  * | A19 | add `bypass:Boolean=false` to ScheduleRequest | exact field map gained `bypass=boolean` |
+ * | A20 | delete UNKNOWN_ENTRY_PURPOSE production | expected that sole key, actual Pass |
+ * | A20 | delete UNKNOWN_INSPECTION_TYPE production | expected that sole key, actual Pass |
+ * | A20 | delete INVALID_PROPERTY_ID production | expected that sole key, actual Pass |
+ * | A20 | delete INVALID_HISTORY_ENTRY production | expected that sole key, actual Pass/FREQUENCY_LIMIT |
+ * | A20 | delete NOTICE_TOO_SHORT production | expected that sole key, actual Pass |
+ * | A20 | delete NOTICE_TOO_EARLY production | expected that sole key, actual Pass |
+ * | A20 | delete OUTSIDE_VISIT_WINDOW production | expected that sole key, actual Pass |
+ * | A20 | delete FREQUENCY_LIMIT production | expected that sole key, actual Pass |
  * | A20 | add an unclaimed enum member | exact reason-key list gained `UNCLAIMED_REASON` |
  */
 class ComplianceEngineTest {
