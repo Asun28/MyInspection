@@ -4021,15 +4021,46 @@ if (Test-Path $triageForCount) {
   elseif ($probeCount -ge 1 -and $probeFnCount -ne $probeCount) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ 「# ── 探针 N」标记 $probeCount 个——triage.ps1 自身先对不齐。" }
   elseif ($probeNames.Count -ge 1 -and $probeFnCount -ne $probeNames.Count) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ Add-Finding 探针名 $($probeNames.Count) 个——有探针不上报或有名字没有函数。" }
   else {
-    # 「列探针清单」的五处面：任一处漏列新探针即红（新探针的 next 常直接把读者送到这些文档，它们不能不知道它存在）。
-    foreach ($rel in @('docs/LOOP-ENGINEERING.md', '.claude/skills/triage/SKILL.md', 'docs/DELIVERY-CHAINS.md', 'docs/scaffold-architecture.html', 'docs/HARNESS-REVIEW.md')) {
+    # Parse each authoritative roster itself, not the whole file: every one also discusses some probe names
+    # elsewhere, so a full-file substring search survives deletion from the actual roster.
+    function Get-ProbeRosterSpan([string[]]$Lines, [string]$StartPattern, [string]$EndPattern, [string]$Label) {
+      $starts = @(0..($Lines.Count - 1) | Where-Object { $Lines[$_] -match $StartPattern })
+      if ($starts.Count -ne 1) { throw "$Label start anchor count=$($starts.Count), expected 1" }
+      if (-not $EndPattern) { return $Lines[$starts[0]] }
+      $ends = @($starts[0]..($Lines.Count - 1) | Where-Object { $Lines[$_] -match $EndPattern })
+      if ($ends.Count -ne 1 -or $ends[0] -lt $starts[0]) { throw "$Label end anchor count=$($ends.Count), expected 1 after start" }
+      return ($Lines[$starts[0]..$ends[0]] -join "`n")
+    }
+    function Get-KnownProbeNames([string]$Text, [string[]]$KnownNames) {
+      return @($KnownNames | Where-Object { $Text -match ('(?<![a-z0-9-])' + [regex]::Escape($_) + '(?![a-z0-9-])') } | Sort-Object)
+    }
+    $rosterSpecs = @(
+      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*severity=blocking' },
+      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*退出码恒' },
+      @{ Rel='docs/DELIVERY-CHAINS.md'; Start='^\|\s*心跳\s*/\s*triage'; End='' },
+      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+10\s+探针'; End='' },
+      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另五枚.*\x60delivery-blocked\x60' }
+    )
+    foreach ($spec in $rosterSpecs) {
+      $rel = $spec.Rel
       $p = Join-Path $RepoRoot $rel
       if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14g(roster/$rel)" -Reason 'FILE-MISSING' -Message "  14g：$rel 不存在，跳过。"; continue }
-      $raw = Get-Content $p -Raw
-      $listed = @($probeNames | Where-Object { $raw -like "*$_*" })
-      if ($listed.Count -ne $probeFnCount) {
-        $missing = @($probeNames | Where-Object { $raw -notlike "*$_*" })
-        Fail "14g②：$rel 枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')。"
+      try { $roster = Get-ProbeRosterSpan -Lines @(Get-Content $p) -StartPattern $spec.Start -EndPattern $spec.End -Label $rel }
+      catch { Fail "14g②：$rel 的权威探针清单边界不可唯一解析：$($_.Exception.Message)"; continue }
+      $listed = @(Get-KnownProbeNames -Text $roster -KnownNames $probeNames)
+      if (($listed -join ',') -cne (@($probeNames | Sort-Object) -join ',')) {
+        $missing = @($probeNames | Where-Object { $listed -cnotcontains $_ })
+        Fail "14g②：$rel 的权威清单枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')。"
+      }
+      # Fifty cheap deletion mutations (five rosters × ten names): each removal must be visible even when the
+      # same name appears elsewhere in that file. This is the regression proof for the bounded parser above.
+      foreach ($probeName in $probeNames) {
+        $namePattern = '(?<![a-z0-9-])' + [regex]::Escape($probeName) + '(?![a-z0-9-])'
+        $mutant = ([regex]::new($namePattern)).Replace($roster, '', 1)
+        $mutantNames = @(Get-KnownProbeNames -Text $mutant -KnownNames $probeNames)
+        if ($mutant -ceq $roster -or $mutantNames -ccontains $probeName -or $mutantNames.Count -ne ($probeFnCount - 1)) {
+          Fail "14g②(mut/$rel/$probeName)：从权威清单单删该探针后，边界解析未精确少 1 枚（实得 $($mutantNames.Count)）。"
+        }
       }
     }
     if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeRosterSkipBefore -SkipCountAfter $skippedSelftestChecks.Count) {
