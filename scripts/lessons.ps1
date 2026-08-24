@@ -493,8 +493,8 @@ switch ($Command) {
     # `${1}`/`$1` 被 PowerShell 当成变量插值、吞掉正则回引用）。
     # 三层各管一件事：Get-LessonMeta 拦「形状不对就别写」（闸 2i(e) 杀）；实例 Replace 第三实参 1 把「只写一处」
     # 变成结构事实（静态重载没有次数版，见上）；-ceq 拦「一个字节没改却报成功」——锚定形态漂移时只有它能变红
-    # （闸 2c(b) 杀）。行首锚定与 Get-LessonMeta 的 `^-\s+date:` 同形，否则两者对「哪行是 meta 行」的认定会分家。
-    $newBlock = [Regex]::new('(?m)^(-\s+date:.*?recurrence:\s*)\d+').Replace($block, ('${1}' + $new), 1)
+    # （闸 2c(b) 杀）。行首只收水平空白，并要求字段分隔符，避免跨行或正文里的 recurrence bait。
+    $newBlock = [Regex]::new('(?m)^(-[ \t]+date:[^\r\n]*?[｜|][ \t]*recurrence[ \t]*:[ \t]*)\d+').Replace($block, ('${1}' + $new), 1)
     if ($newBlock -ceq $block) { throw "[LSN-META-INVALID] $Query 的 meta 行 recurrence 计数器未被更新（锚定未命中）——拒绝写回，未写入任何字节。" }
     $raw = $raw.Remove($m.Index, $m.Length).Insert($m.Index, $newBlock)
     Set-Content -Path $BumpLedger -Value $raw -Encoding utf8 -NoNewline

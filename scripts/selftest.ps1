@@ -1716,7 +1716,17 @@ try {
   $c2Exit = $LASTEXITCODE
   if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
   elseif ($c2Out -notmatch 'check: PASS') { Fail '闸2b(b)：check 退出 0 但输出无「check: PASS」——zero-must fixture 未正常通过（可能崩在别处或断言点漂移）。' }
-  else { Write-Host '  2b lessons.ps1 空 LEDGER add / zero-must check 均不崩（TD39/TD-102，覆盖生产裸调用路径）OK' -ForegroundColor Green }
+  else {
+    $l2Archive = Join-Path $l2Repo 'specs/archive/lessons-archive.md'
+    New-Item -ItemType Directory -Force (Split-Path $l2Archive) | Out-Null
+    Set-Content $l2Archive (@('# archive', '', '## L500', '- date: 2025-12-31 ｜ tags: cold ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1', '- symptom: cold max', '- root_cause: seed', '- rule: archived ids remain reserved', '- enforced_by: none（seed）', '- refs:') -join "`n") -Encoding utf8
+    $coldAddOut = (& pwsh -NoProfile -File $l2Lessons add -Severity minor -Symptom 'cold max add' -Rule 'mint after archived maximum' 2>&1 | Out-String)
+    $coldAddExit = $LASTEXITCODE
+    $coldAddText = Get-Content $l2Ledger -Raw
+    if ($coldAddExit -ne 0 -or $coldAddText -notmatch '(?m)^##[ \t]+L501[ \t]*\r?$' -or $coldAddText -match '(?m)^##[ \t]+L2[ \t]*\r?$') {
+      Fail "闸2b(c)：真实 add 未以冷库最大 L500 的下一号 L501 入账，归档 id 被复用。exit=$coldAddExit output=[$coldAddOut]"
+    } else { Write-Host '  2b lessons.ps1 空账本、zero-must 与 cold-max add 生产路径 OK' -ForegroundColor Green }
+  }
 } finally {
   Remove-Item -Recurse -Force $l2Repo -ErrorAction SilentlyContinue
 }
@@ -1741,16 +1751,20 @@ try {
   $l2cEntry = @(
     '# 经验总账（TD51 fixture）', '',
     '## L1',
-    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
+    '- date: 2026-01-01 ｜ tags: seed recurrence: 99 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
     '- symptom: seed，body 里引用示例文本 recurrence: 7（不应被 bump 覆盖）',
     '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:',
     '',
     '## L2',
+    '-',
+    'date: prose recurrence: 99',
     '-  date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 5',
     '- symptom: META_LINE_WITH_TWO_SPACES', '- root_cause: seed', '- rule: seed rule two',
     '- enforced_by: none（seed）', '- refs:'
   ) -join "`n"
   Set-Content $l2cLedger $l2cEntry -Encoding utf8
+  $before = Get-Content $l2cLedger -Raw
+  $expected = $before.Replace('severity: minor ｜ recurrence: 3', 'severity: minor ｜ recurrence: 4')
   $b2cOut = (& pwsh -NoProfile -File $l2cLessons bump L1 2>&1 | Out-String)
   $b2cExit = $LASTEXITCODE
   $after = Get-Content $l2cLedger -Raw
@@ -1759,16 +1773,18 @@ try {
   $afterTail = ($after -replace '\s+', ' ').Trim()
   if ($b2cExit -ne 0) { Fail "闸2c：bump 对合法 fixture 非零退出（$b2cExit）——不应发生。输出=$(($b2cOut -replace '\s+',' ').Trim())" }
   elseif (-not $metaOk) { Fail "闸2c：bump 后 meta 行 recurrence 未变为 4（计数未正确递增）。after=$afterTail" }
-  elseif (-not $bodyIntact) { Fail "闸2c：bump 用错 [regex]::Replace 重载、把 body 里的示例 `recurrence: 7` 也覆盖了（TD51：4 参数 int 被隐式转成 RegexOptions.IgnoreCase 做全量替换，应只动 meta 计数器一处）。after=$afterTail" }
+  elseif (-not $bodyIntact -or $after -cne $expected) { Fail "闸2c：bump 未逐字只改 delimiter-bounded recurrence 字段；tags/body bait 被改。after=$afterTail" }
   else {
     # 读侧与写侧的 meta 行锚定形态必须同源：L2 的 meta 行破折号后两个空格，读侧照收，写侧若收窄成恰一个空格
     # 就会「一处也没改却报成功」。断言退出 0 + 计数器真的到 6 + 文件字节真的变了，三者缺一都能让那条路径隐身。
     $hash2cBefore = (Get-FileHash $l2cLedger -Algorithm SHA256).Hash
+    $before2 = Get-Content $l2cLedger -Raw
+    $expected2 = $before2.Replace('severity: minor ｜ recurrence: 5', 'severity: minor ｜ recurrence: 6')
     $b2cOut2 = (& pwsh -NoProfile -File $l2cLessons bump L2 2>&1 | Out-String)
     $b2cExit2 = $LASTEXITCODE
     $after2 = Get-Content $l2cLedger -Raw
     if ($b2cExit2 -ne 0) { Fail "闸2c(b)：bump 对「破折号后两个空格」的合法 meta 行非零退出（$b2cExit2）——写侧锚定比读侧窄。output=[$b2cOut2]" }
-    elseif ($after2 -notmatch '(?m)^-\s+date:.*?recurrence:\s*6\b') { Fail "闸2c(b)：bump L2 后 meta 行 recurrence 未变为 6。after=$(($after2 -replace '\s+',' ').Trim())" }
+    elseif ($after2 -notmatch '(?m)^-\s+date:.*?recurrence:\s*6\b' -or $after2 -cne $expected2) { Fail "闸2c(b)：跨行 bait 被写入，或 L2 canonical recurrence 未逐字单改。after=$(($after2 -replace '\s+',' ').Trim())" }
     elseif ((Get-FileHash $l2cLedger -Algorithm SHA256).Hash -eq $hash2cBefore) { Fail '闸2c(b)：bump 报告成功却一个字节都没写（假绿写入——正是「读到了正文里的数字、锚定的写却打空」那条路径）。' }
     else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真、读写锚定同源（TD51）OK' -ForegroundColor Green }
   }
