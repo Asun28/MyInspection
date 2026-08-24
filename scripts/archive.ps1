@@ -310,9 +310,11 @@ if ($lessonsUsed) {
       # 毁掉较新的在册内容（违反只搬不删）；不一致即拒绝自动处理、双侧不动、fail-closed 留人工核对。
       $h = $inLedger[0]
       $ha = $inArchive[0]
-      $ledgerBlockNorm = ((Get-LineSlice $ledgerLines $h.Start $h.End) -join "`n").TrimEnd()
-      $archiveBlockNorm = ((Get-LineSlice $archiveLines $ha.Start $ha.End) -join "`n").TrimEnd()
-      if ($ledgerBlockNorm -ne $archiveBlockNorm) {
+      # Get-Content has already normalized physical line endings into lines; preserve every remaining character,
+      # including case, trailing spaces, and trailing blank lines. Only ordinal equality can authorize deletion.
+      $ledgerBlockText = (Get-LineSlice $ledgerLines $h.Start $h.End) -join "`n"
+      $archiveBlockText = (Get-LineSlice $archiveLines $ha.Start $ha.End) -join "`n"
+      if (-not [string]::Equals($ledgerBlockText, $archiveBlockText, [System.StringComparison]::Ordinal)) {
         Write-Warning "[ARCHIVE-LESSON-REJECT-CONFLICT] archive.ps1 -LessonIds：$id 两侧并存且内容不一致（疑似归档陈旧 / 在册已更新）——拒绝自动清除，双侧未动，请人工核对后再定。"
         $lessonsReport.Add("  [冲突-两侧不一致] $id"); $lsFailed++; continue
       }

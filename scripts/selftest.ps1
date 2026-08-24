@@ -2072,6 +2072,43 @@ try {
     Remove-Item -Recurse -Force -LiteralPath $restoreFailRepo2g -ErrorAction SilentlyContinue
   }
 
+  # (e5) 双侧自愈只接受逐字一致。PowerShell 的 -ne 默认不区分大小写，TrimEnd() 又会吞掉正文尾空格；
+  # 两者都会把真实冲突误判成相同并删除一侧。归档/恢复两个方向、case-only/trailing-space 两类都须拒绝且零写入。
+  foreach ($exactDirection2g in @('archive', 'restore')) {
+    foreach ($exactVariant2g in @('case-only', 'trailing-space')) {
+      $exactRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge5-$exactDirection2g-$exactVariant2g-$PID"
+      if (Test-Path $exactRepo2g) { Remove-Item -Recurse -Force -LiteralPath $exactRepo2g }
+      New-Item -ItemType Directory -Force (Join-Path $exactRepo2g 'docs/lessons'), (Join-Path $exactRepo2g 'specs/archive') | Out-Null
+      Copy-Item (Join-Path $RepoRoot 'scripts') $exactRepo2g -Recurse -Force
+      $exactLedger2g = Join-Path $exactRepo2g 'docs/lessons/LEDGER.md'
+      $exactArchive2g = Join-Path $exactRepo2g 'specs/archive/lessons-archive.md'
+      $exactMeta2g = '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1'
+      $exactHotRule2g = if ($exactVariant2g -eq 'case-only') { '- rule: CaseSensitiveRule' } else { '- rule: trailing-sensitive' }
+      $exactColdRule2g = if ($exactVariant2g -eq 'case-only') { '- rule: casesensitiverule' } else { '- rule: trailing-sensitive' }
+      $exactHotRefs2g = '- refs:'
+      $exactColdRefs2g = if ($exactVariant2g -eq 'trailing-space') { '- refs: ' } else { '- refs:' }
+      $exactHotBlock2g = @('## L1', $exactMeta2g, '- symptom: s', '- root_cause: rc', $exactHotRule2g, $exactHotRefs2g)
+      $exactColdBlock2g = @('## L1', $exactMeta2g, '- symptom: s', '- root_cause: rc', $exactColdRule2g, $exactColdRefs2g)
+      # L2 keeps L1 eligible for the archive direction; it is outside the compared L1 block.
+      $exactSentinel2g = @('## L2', $exactMeta2g, '- symptom: sentinel', '- root_cause: rc', '- rule: highest-id', '- refs:')
+      Set-Content $exactLedger2g ((@('# ledger', '') + $exactHotBlock2g + @('') + $exactSentinel2g) -join "`n") -Encoding utf8
+      Set-Content $exactArchive2g ((@('# archive', '') + $exactColdBlock2g) -join "`n") -Encoding utf8
+      $exactHotHash2g = (Get-FileHash $exactLedger2g -Algorithm SHA256).Hash
+      $exactColdHash2g = (Get-FileHash $exactArchive2g -Algorithm SHA256).Hash
+      $exactArgs2g = if ($exactDirection2g -eq 'restore') { @('-RestoreLessonIds', 'L1') } else { @('-LessonIds', 'L1') }
+      $exactOut2g = (& pwsh -NoProfile -File (Join-Path $exactRepo2g 'scripts/archive.ps1') -RepoRoot $exactRepo2g -LessonsOnly @exactArgs2g 2>&1 | Out-String)
+      $exactExit2g = $LASTEXITCODE
+      if ($exactExit2g -eq 0 -or $exactOut2g -notmatch '\[ARCHIVE-LESSON-REJECT-CONFLICT\]') {
+        Fail "闸2g(e5/$exactDirection2g/$exactVariant2g)：逐字冲突未以 [ARCHIVE-LESSON-REJECT-CONFLICT] fail-closed。output=[$exactOut2g]"; $g2Fail = $true
+      }
+      if ((Get-FileHash $exactLedger2g -Algorithm SHA256).Hash -ne $exactHotHash2g -or
+          (Get-FileHash $exactArchive2g -Algorithm SHA256).Hash -ne $exactColdHash2g) {
+        Fail "闸2g(e5/$exactDirection2g/$exactVariant2g)：冲突拒绝路径改写了热账本或冷库。"; $g2Fail = $true
+      }
+      Remove-Item -Recurse -Force -LiteralPath $exactRepo2g -ErrorAction SilentlyContinue
+    }
+  }
+
   # 闸2g(f)：A11 的**生产路径**回归——真实 linked worktree，而不是非 git 临时目录。
   # 2g(e) 的夹具不是 git 仓库，Resolve-BumpLedger 因此回落到本地账本，冷项在本地热账本里本就不存在，
   # 于是命中「块没找到」分支顺带触发只读提示——**它测的根本不是 bump 会不会改主检出**。真实形态是：
