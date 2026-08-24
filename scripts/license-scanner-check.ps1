@@ -262,39 +262,112 @@ if ($Suite -eq 'integration') {
     return $stepLines.ToArray()
   }
 
-  function Get-WorkflowActiveStepIndices {
+  function Test-YamlQuotedScalarClosed {
+    param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][char]$Quote, [int]$Start = 0)
+    for ($i = $Start; $i -lt $Text.Length; $i++) {
+      if ($Text[$i] -ne $Quote) { continue }
+      if ($Quote -eq [char]39 -and $i + 1 -lt $Text.Length -and $Text[$i + 1] -eq [char]39) { $i++; continue }
+      if ($Quote -eq [char]34) {
+        $slashes = 0
+        for ($j = $i - 1; $j -ge 0 -and $Text[$j] -eq [char]92; $j--) { $slashes++ }
+        if (($slashes % 2) -eq 1) { continue }
+      }
+      return $true
+    }
+    return $false
+  }
+
+  function Get-WorkflowStructuralLineMask {
     param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines)
-    # A step name counts only as a direct sequence child of `steps:`. A visually identical line inside `run: |`
-    # is YAML scalar content, not a workflow step; raw whole-file regexes cannot make that distinction.
-    $indices = [System.Collections.Generic.List[int]]::new()
+    $mask = [bool[]]::new($Lines.Count)
+    for ($i = 0; $i -lt $mask.Count; $i++) { $mask[$i] = $true }
     $blockScalarIndent = -1
+    $quotedScalar = [char]0
     for ($i = 0; $i -lt $Lines.Count; $i++) {
       $current = $Lines[$i]
+      if ($quotedScalar -ne [char]0) {
+        $mask[$i] = $false
+        if (Test-YamlQuotedScalarClosed -Text $current -Quote $quotedScalar) { $quotedScalar = [char]0 }
+        continue
+      }
       if ($blockScalarIndent -ge 0) {
-        if ([string]::IsNullOrWhiteSpace($current)) { continue }
+        if ([string]::IsNullOrWhiteSpace($current)) { $mask[$i] = $false; continue }
         $currentIndent = ([regex]::Match($current, '^[ ]*')).Value.Length
-        if ($currentIndent -gt $blockScalarIndent) { continue }
+        if ($currentIndent -gt $blockScalarIndent) { $mask[$i] = $false; continue }
         $blockScalarIndent = -1
       }
-      # YAML literal/folded scalars own every following nonblank line indented deeper than their header.
-      # A textual `steps:` subtree there is script data, never workflow structure.
       if ($current -match '^(?<indent>[ ]*)(?:-[ ]+)?[A-Za-z][A-Za-z0-9_-]*:[ \t]*[|>](?:[1-9][+-]?|[+-][1-9]?)?[ \t]*(?:#.*)?$') {
         $blockScalarIndent = $Matches.indent.Length
         continue
       }
-      if ($Lines[$i] -notmatch '^(?<indent>[ ]*)steps:[ \t]*$') { continue }
-      $stepsIndent = $Matches.indent.Length
-      $itemIndent = $stepsIndent + 2
-      for ($j = $i + 1; $j -lt $Lines.Count; $j++) {
-        $line = $Lines[$j]
-        if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^[ \t]*#') { continue }
-        if ($line -notmatch '^(?<indent>[ ]*)') { continue }
-        $lineIndent = $Matches.indent.Length
-        if ($lineIndent -le $stepsIndent) { break }
-        if ($lineIndent -eq $itemIndent -and $line -match '^[ ]*-[ \t]+name:') { $indices.Add($j) }
+      $valueMatch = [regex]::Match($current, '^[ ]*(?:-[ ]+)?[A-Za-z][A-Za-z0-9_-]*:[ \t]*(?<value>.*)$')
+      if (-not $valueMatch.Success) { $valueMatch = [regex]::Match($current, '^[ ]*-[ ]+(?<value>.*)$') }
+      if (-not $valueMatch.Success) { continue }
+      $value = $valueMatch.Groups['value'].Value.TrimStart()
+      if ($value.Length -eq 0 -or ($value[0] -ne [char]34 -and $value[0] -ne [char]39)) { continue }
+      if (-not (Test-YamlQuotedScalarClosed -Text $value -Quote $value[0] -Start 1)) { $quotedScalar = $value[0] }
+    }
+    return $mask
+  }
+
+  function Get-WorkflowActiveStepRecords {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines)
+    $records = [System.Collections.Generic.List[object]]::new()
+    $structural = Get-WorkflowStructuralLineMask -Lines $Lines
+    $jobsHeaders = @(0..($Lines.Count - 1) | Where-Object { $structural[$_] -and $Lines[$_] -match '^jobs:[ \t]*$' })
+    foreach ($jobsHeader in $jobsHeaders) {
+      $jobsIndent = ([regex]::Match($Lines[$jobsHeader], '^[ ]*')).Value.Length
+      $jobIndent = $jobsIndent + 2
+      $jobStarts = @()
+      for ($i = $jobsHeader + 1; $i -lt $Lines.Count; $i++) {
+        if (-not $structural[$i] -or [string]::IsNullOrWhiteSpace($Lines[$i]) -or $Lines[$i] -match '^[ \t]*#') { continue }
+        $indent = ([regex]::Match($Lines[$i], '^[ ]*')).Value.Length
+        if ($indent -le $jobsIndent) { break }
+        if ($indent -eq $jobIndent -and $Lines[$i] -match '^[ ]*(?<job>[A-Za-z0-9_-]+):[ \t]*(?:#.*)?$') {
+          $jobStarts += [pscustomobject]@{ Index = $i; Name = $Matches.job }
+        }
+      }
+      foreach ($job in $jobStarts) {
+        $jobEnd = $Lines.Count
+        for ($i = $job.Index + 1; $i -lt $Lines.Count; $i++) {
+          if (-not $structural[$i] -or [string]::IsNullOrWhiteSpace($Lines[$i]) -or $Lines[$i] -match '^[ \t]*#') { continue }
+          $indent = ([regex]::Match($Lines[$i], '^[ ]*')).Value.Length
+          if ($indent -le $jobIndent) { $jobEnd = $i; break }
+        }
+        $fieldIndent = $jobIndent + 2
+        $jobLive = $true
+        $stepsStarts = @()
+        for ($i = $job.Index + 1; $i -lt $jobEnd; $i++) {
+          if (-not $structural[$i]) { continue }
+          if ($Lines[$i] -match ('^' + (' ' * $fieldIndent) + 'if:[ \t]*(?<value>.*)$')) {
+            $condition = $Matches.value.Trim()
+            if ($condition.Length -ge 2 -and (($condition[0] -eq [char]34 -and $condition[-1] -eq [char]34) -or ($condition[0] -eq [char]39 -and $condition[-1] -eq [char]39))) {
+              $condition = $condition.Substring(1, $condition.Length - 2).Trim()
+            }
+            if ($condition -match '^(?:false|\$\{\{[ \t]*false[ \t]*\}\})$') { $jobLive = $false }
+          }
+          if ($Lines[$i] -match ('^' + (' ' * $fieldIndent) + 'steps:[ \t]*$')) { $stepsStarts += $i }
+        }
+        if (-not $jobLive) { continue }
+        foreach ($stepsStart in $stepsStarts) {
+          $itemIndent = $fieldIndent + 2
+          for ($i = $stepsStart + 1; $i -lt $jobEnd; $i++) {
+            if (-not $structural[$i] -or [string]::IsNullOrWhiteSpace($Lines[$i]) -or $Lines[$i] -match '^[ \t]*#') { continue }
+            $indent = ([regex]::Match($Lines[$i], '^[ ]*')).Value.Length
+            if ($indent -le $fieldIndent) { break }
+            if ($indent -eq $itemIndent -and $Lines[$i] -match '^[ ]*-[ \t]+name:') {
+              $records.Add([pscustomobject]@{ Index = $i; Job = $job.Name })
+            }
+          }
+        }
       }
     }
-    return $indices.ToArray()
+    return $records.ToArray()
+  }
+
+  function Get-WorkflowActiveStepIndices {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines)
+    return @((Get-WorkflowActiveStepRecords -Lines $Lines) | ForEach-Object Index)
   }
 
   function Get-WorkflowStepKeys {
@@ -384,6 +457,90 @@ if ($Suite -eq 'integration') {
       $remaining[$i]
       if ($i -eq $warmupRun[0]) { $fake }
     }) -join "`n")
+  }
+
+  function Replace-LicenseStepWithQuotedScalarFixture {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $lines = @($Text -split "`n")
+    $licenseIndices = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^      - name: License gate[ \t]*$' })
+    if ($licenseIndices.Count -ne 1) { return $Text }
+    $licenseBlock = @(Get-WorkflowStepLines -Lines $lines -Start $licenseIndices[0])
+    $remaining = @(for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($i -lt $licenseIndices[0] -or $i -ge ($licenseIndices[0] + $licenseBlock.Count)) { $lines[$i] }
+    })
+    $e2eIndices = @(0..($remaining.Count - 1) | Where-Object { $remaining[$_] -match '^      - name: E2E verify gate[ \t]*$' })
+    if ($e2eIndices.Count -ne 1) { return $Text }
+    $bait = @(
+      '      - name: Quoted scalar bait',
+      '        shell: pwsh',
+      '        env:',
+      '          BAIT: "prefix',
+      '            steps:',
+      '              - name: License gate',
+      "                if: `${{ steps.docs_scope.outputs.docs_only != 'true' }}",
+      '                shell: pwsh',
+      '                run: |',
+      "                  `$f = 'scripts/check-licenses.ps1'",
+      '                  pwsh -NoProfile -File $f',
+      '            suffix"',
+      '        run: Write-Host bait'
+    )
+    return (@(for ($i = 0; $i -lt $remaining.Count; $i++) {
+      if ($i -eq $e2eIndices[0]) { $bait }
+      $remaining[$i]
+    }) -join "`n")
+  }
+
+  function Replace-OrderedStepsWithDisabledJobFixture {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $ordered = @('Setup Java (Temurin 17)', 'Setup Android SDK', 'Setup Gradle (dependency cache across CI runs)', "Gradle online build (warms cache for verify.ps1's --offline gate)", 'License gate', 'E2E verify gate')
+    $lines = @($Text -split "`n")
+    $remove = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($step in $ordered) {
+      $pattern = '^      - name: ' + [regex]::Escape($step) + '[ \t]*$'
+      $indices = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match $pattern })
+      if ($indices.Count -ne 1) { return $Text }
+      foreach ($offset in 0..((@(Get-WorkflowStepLines -Lines $lines -Start $indices[0])).Count - 1)) { [void]$remove.Add($indices[0] + $offset) }
+    }
+    $remaining = @(for ($i = 0; $i -lt $lines.Count; $i++) { if (-not $remove.Contains($i)) { $lines[$i] } })
+    $fakeJob = @(
+      '  inert_license_evidence:',
+      '    if: ${{ false }}',
+      '    runs-on: windows-latest',
+      '    steps:',
+      '      - name: Setup Java (Temurin 17)',
+      '        run: Write-Host inert',
+      '      - name: Setup Android SDK',
+      '        run: Write-Host inert',
+      '      - name: Setup Gradle (dependency cache across CI runs)',
+      '        run: Write-Host inert',
+      "      - name: Gradle online build (warms cache for verify.ps1's --offline gate)",
+      '        run: Write-Host inert',
+      '      - name: License gate',
+      "        if: `${{ steps.docs_scope.outputs.docs_only != 'true' }}",
+      '        shell: pwsh',
+      '        run: |',
+      "          `$f = 'scripts/check-licenses.ps1'",
+      '          pwsh -NoProfile -File $f',
+      '      - name: E2E verify gate',
+      "        if: `${{ steps.docs_scope.outputs.docs_only != 'true' }}",
+      '        shell: pwsh',
+      '        run: Write-Host inert'
+    )
+    return (($remaining + $fakeJob) -join "`n")
+  }
+
+  function Move-E2eStepToSeparateJobFixture {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $lines = @($Text -split "`n")
+    $indices = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^      - name: E2E verify gate[ \t]*$' })
+    if ($indices.Count -ne 1) { return $Text }
+    $block = @(Get-WorkflowStepLines -Lines $lines -Start $indices[0])
+    $remaining = @(for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($i -lt $indices[0] -or $i -ge ($indices[0] + $block.Count)) { $lines[$i] }
+    })
+    $newJob = @('  split_e2e:', '    runs-on: windows-latest', '    steps:') + $block
+    return (($remaining + $newJob) -join "`n")
   }
 
   function Get-IntegrationWiringFailures {
@@ -496,20 +653,28 @@ if ($Suite -eq 'integration') {
       'E2E verify gate'
     )
     $stepLine = @{}
-    $activeStepIndices = @(Get-WorkflowActiveStepIndices -Lines $workflowLines)
+    $stepJob = @{}
+    $activeStepRecords = @(Get-WorkflowActiveStepRecords -Lines $workflowLines)
     foreach ($step in $orderedSteps) {
       $pattern = '^[ ]*-[ \t]+name:[ \t]+' + [regex]::Escape($step) + '[ \t]*$'
-      $hits = @($activeStepIndices | Where-Object { $workflowLines[$_] -match $pattern })
+      $hits = @($activeStepRecords | Where-Object { $workflowLines[$_.Index] -match $pattern })
       if ($hits.Count -ne 1) { $found.Add("[INTEGRATION-CI-ORDER-COUNT] expected exactly one active '- name: $step' step in ci.yml, found $($hits.Count)"); continue }
-      $stepLine[$step] = $hits[0]
+      $stepLine[$step] = $hits[0].Index
+      $stepJob[$step] = $hits[0].Job
     }
     # 计数与排序拆成两个码：两枚既有变异都只是删/注释掉 `- name: License gate`，两枚都落在计数这一支，
     # 于是卡片的头号 dod_assert（scanner 排在 JDK/Android/Gradle setup 与在线预热之后）此前一枚变异都没有。
-    $previous = -1
-    foreach ($step in $orderedSteps) {
-      if (-not $stepLine.ContainsKey($step)) { continue }
-      if ($stepLine[$step] -le $previous) { $found.Add("[INTEGRATION-CI-ORDER-SEQUENCE] step '$step' is out of order in ci.yml") }
-      $previous = $stepLine[$step]
+    if ($stepLine.Count -eq $orderedSteps.Count) {
+      $orderedJobs = @($orderedSteps | ForEach-Object { $stepJob[$_] } | Sort-Object -Unique)
+      if ($orderedJobs.Count -ne 1) {
+        $found.Add("[INTEGRATION-CI-ORDER-SEQUENCE] ordered setup/license/E2E steps span jobs {$($orderedJobs -join ',')}; all must be direct steps of one live job")
+      } else {
+        $previous = -1
+        foreach ($step in $orderedSteps) {
+          if ($stepLine[$step] -le $previous) { $found.Add("[INTEGRATION-CI-ORDER-SEQUENCE] step '$step' is out of order in ci.yml") }
+          $previous = $stepLine[$step]
+        }
+      }
     }
 
     if ($stepLine.ContainsKey('License gate')) {
@@ -660,6 +825,9 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-step-name-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*$'; Text = '          - name: License gate' },
     # 删除真实整步，并把完整可执行形状伪装进另一步的 `run: |` 标量；只忽略单独的 `- name:` 诱饵不够。
     @{ Id = 'ci-full-step-inert-block-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-inert-scalar' },
+    @{ Id = 'ci-full-step-inert-quoted-scalar'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-license-with-quoted-scalar' },
+    @{ Id = 'ci-ordered-steps-disabled-job'; Codes = @('INTEGRATION-CI-ORDER-COUNT'); Target = 'Workflow'; Kind = 'replace-ordered-with-disabled-job' },
+    @{ Id = 'ci-e2e-split-live-job'; Codes = @('INTEGRATION-CI-ORDER-SEQUENCE'); Target = 'Workflow'; Kind = 'move-e2e-to-separate-job' },
     # 卡片头号 dod_assert 的专属变异：整块 License gate 搬到 JDK setup 之前。真实回归形态——
     # 新跑者上缓存是冷的，GRADLE-CACHE-OFFLINE 触发，每个 PR 都红而没有任何东西指向病因。
     @{ Id = 'ci-step-reordered'; Codes = @('INTEGRATION-CI-ORDER-SEQUENCE'); Target = 'Workflow'; Kind = 'reorder'; Step = 'License gate'; Before = 'Setup Java (Temurin 17)' },
@@ -721,7 +889,7 @@ if ($Suite -eq 'integration') {
       # 那个 1 会被隐式当成 RegexOptions.IgnoreCase，于是变成全量替换（本仓 TD51 踩过同一个坑）。
       # 实例方法 Regex.Replace(input, evaluator, count) 才真的有 count。
       # append/reorder 类没有 Pattern 键；StrictMode 下先取再判会直接抛。
-      $wmRegex = if (@('append', 'reorder', 'replace-license-with-inert-scalar') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
+      $wmRegex = if (@('append', 'reorder', 'replace-license-with-inert-scalar', 'replace-license-with-quoted-scalar', 'replace-ordered-with-disabled-job', 'move-e2e-to-separate-job') -contains $wm.Kind) { $null } else { [regex]::new($wm.Pattern) }
       $mutated = switch ($wm.Kind) {
         'comment' { $wmRegex.Replace($original, { param($m) '#' + $m.Value }, 1) }
         'delete' { $wmRegex.Replace($original, '', 1) }
@@ -742,6 +910,9 @@ if ($Suite -eq 'integration') {
         'insert-after' { $wmRegex.Replace($original, { param($m) $m.Value + "`n" + $wm.Text }, 1) }
         'reorder' { Move-WorkflowStepBefore -Text $original -Step $wm.Step -Before $wm.Before }
         'replace-license-with-inert-scalar' { Replace-LicenseStepWithInertScalarFixture -Text $original }
+        'replace-license-with-quoted-scalar' { Replace-LicenseStepWithQuotedScalarFixture -Text $original }
+        'replace-ordered-with-disabled-job' { Replace-OrderedStepsWithDisabledJobFixture -Text $original }
+        'move-e2e-to-separate-job' { Move-E2eStepToSeparateJobFixture -Text $original }
         default { throw "unknown wiring mutation kind '$($wm.Kind)'" }
       }
       if ($mutated -ceq $original) {
