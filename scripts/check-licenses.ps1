@@ -1209,10 +1209,12 @@ if ($pyJson) {
 Write-Host "=== 前端 npm 许可扫描 ===" -ForegroundColor Cyan
 $pkg = Join-Path $RepoRoot 'frontend/package.json'
 if ((Test-Path $pkg) -and (Get-Command npx -ErrorAction SilentlyContinue)) {
-  # TD-205：license-checker 默认从 process.cwd() 找 package.json（此处 cwd = $RepoRoot，见上方 Set-Location），恒扫仓根、从不进 frontend/。
-  #   须显式 --start 指到前端目录，否则 frontend/ 的 GPL/AGPL 等违禁依赖漏判，而下面仍打印「已扫描 npm 包」——一个虚假的 commercial-safe 信号（fail-open）。
+  # TD-205：--start pins the manifest under review; cwd is also frontend so npx resolves the exact
+  # frontend/node_modules warm-up produced by CI instead of consulting the root/cache while offline.
   $feDir = Join-Path $RepoRoot 'frontend'
-  $njson = & npx --yes license-checker --start $feDir --json 2>$null
+  Push-Location $feDir
+  try { $njson = & npx --yes license-checker --start $feDir --json 2>$null }
+  finally { Pop-Location }
   if ($njson) {
     try {
       $obj = $njson | ConvertFrom-Json

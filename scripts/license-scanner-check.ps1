@@ -1104,6 +1104,51 @@ if ($Suite -eq 'integration') {
     }
   }
 
+  # Hermetic warm-up → offline handoff proof for npm. Install a local fixture package into the exact
+  # `frontend/node_modules` scope used by CI, then run the real production scanner with an empty cache and npm
+  # forced offline. The fixture bin marker proves npx resolved the warmed local tool instead of attempting fetch.
+  if (-not $SkipMutations) {
+    $handoffRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-npm-handoff-" + [guid]::NewGuid().ToString('N'))
+    $handoffScripts = Join-Path $handoffRoot 'scripts'
+    $handoffFrontend = Join-Path $handoffRoot 'frontend'
+    $handoffPackage = Join-Path $handoffRoot 'fixture-license-checker'
+    $handoffCache = Join-Path $handoffRoot 'npm-cache'
+    $handoffMarker = Join-Path $handoffRoot 'license-checker-invoked.txt'
+    $priorNpmCacheHandoff = [Environment]::GetEnvironmentVariable('npm_config_cache', 'Process')
+    $priorNpmOfflineHandoff = [Environment]::GetEnvironmentVariable('npm_config_offline', 'Process')
+    $priorHandoffMarker = [Environment]::GetEnvironmentVariable('LICENSE_CHECKER_HANDOFF_MARKER', 'Process')
+    try {
+      New-Item -ItemType Directory -Force -Path $handoffScripts, $handoffFrontend, $handoffPackage, $handoffCache | Out-Null
+      foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$sibling") -Destination (Join-Path $handoffScripts $sibling)
+      }
+      Set-Content -LiteralPath (Join-Path $handoffFrontend 'package.json') -Encoding utf8 -Value '{"name":"handoff-app","private":true}'
+      Set-Content -LiteralPath (Join-Path $handoffPackage 'package.json') -Encoding utf8 -Value '{"name":"license-checker","version":"25.0.1","bin":{"license-checker":"cli.js"}}'
+      Set-Content -LiteralPath (Join-Path $handoffPackage 'cli.js') -Encoding utf8 -Value @'
+#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(process.env.LICENSE_CHECKER_HANDOFF_MARKER, 'invoked');
+process.stdout.write('{}');
+'@
+      $env:npm_config_cache = $handoffCache
+      $env:npm_config_offline = 'true'
+      $env:LICENSE_CHECKER_HANDOFF_MARKER = $handoffMarker
+      $handoffInstallOutput = (& npm install --prefix $handoffFrontend --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String)
+      $handoffInstallExit = $LASTEXITCODE
+      $handoffResult = if ($handoffInstallExit -eq 0) {
+        Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
+      } else { [pscustomobject]@{ ExitCode = $handoffInstallExit; Output = $handoffInstallOutput } }
+      Assert-Integration (
+        $handoffInstallExit -eq 0 -and $handoffResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $handoffMarker)
+      ) "[INTEGRATION-NPM-HANDOFF] frontend-scoped warm-up did not feed the real offline npx scan (install=$handoffInstallExit scan=$($handoffResult.ExitCode) marker=$([bool](Test-Path -LiteralPath $handoffMarker))): install=[$handoffInstallOutput] scan=[$($handoffResult.Output)]"
+    } finally {
+      if ($null -eq $priorNpmCacheHandoff) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue } else { $env:npm_config_cache = $priorNpmCacheHandoff }
+      if ($null -eq $priorNpmOfflineHandoff) { Remove-Item Env:npm_config_offline -ErrorAction SilentlyContinue } else { $env:npm_config_offline = $priorNpmOfflineHandoff }
+      if ($null -eq $priorHandoffMarker) { Remove-Item Env:LICENSE_CHECKER_HANDOFF_MARKER -ErrorAction SilentlyContinue } else { $env:LICENSE_CHECKER_HANDOFF_MARKER = $priorHandoffMarker }
+      if (Test-Path -LiteralPath $handoffRoot) { Remove-Item -LiteralPath $handoffRoot -Recurse -Force }
+    }
+  }
+
   # Hermetic cold-cache proof: the real production scanner sees both supported manifests and resolves uv,
   # pip-licenses, and npx to probes that record invocation. A probe records an outbound attempt if its ecosystem's
   # official offline environment flag is absent. Empty cache roots plus nonzero probes must make -Strict fail closed,
