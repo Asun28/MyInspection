@@ -901,6 +901,34 @@ class ReportComposerPaginationTest {
         plan.assertNothingOverflows()
     }
 
+    @Test
+    fun `tenant disclaimer and agreement move as one final-page tail at the residual boundary`() {
+        // 53 BODY lines plus the one-line reference make a 218 mm supplement. After the 10 mm closing
+        // heading it ends at 243 mm, leaving 29 mm: enough for the 26 mm disclaimer alone, but not the
+        // 50 mm disclaimer+agreement tail. Independent placement strands the agreement on a disclaimer-free page.
+        val report = ReportTestFixtures.report().copy(
+            remediations = emptyList(),
+            supplements = listOf(ReportSupplement("BOUNDARY", "x".repeat(53 * 60))),
+        )
+
+        val plan = composer.compose(report, Audience.TENANT)
+        val supplement = plan.pages.flatMap { it.blocks }.single { it.content is SupplementBlock }
+        val disclaimerPage = plan.pages.single { page -> page.blocks.any { it.content is DisclaimerBlock } }
+        val agreementPage = plan.pages.single { page -> page.blocks.any { it.content is TenantAgreementBlock } }
+
+        assertEquals(218, supplement.heightMm, "the fixture no longer leaves the intended 29 mm residual")
+        assertEquals(243, supplement.yMm + supplement.heightMm)
+        assertEquals(disclaimerPage.number, agreementPage.number, "the final tenant page lost its disclaimer")
+        assertEquals(
+            listOf(DisclaimerBlock::class, TenantAgreementBlock::class),
+            agreementPage.blocks.map { it.content }.filter {
+                it is DisclaimerBlock || it is TenantAgreementBlock
+            }.map { it::class },
+        )
+        assertEquals(15, disclaimerPage.blocks.single { it.content is DisclaimerBlock }.yMm)
+        plan.assertNothingOverflows()
+    }
+
     // --- fixtures ---
 
     /** One item carrying more evidence than a single page can hold. */

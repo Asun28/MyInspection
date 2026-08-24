@@ -73,13 +73,18 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             paginator.addGroup(listOf(sectionTitle(APPENDIX_TITLE_KEY, APPENDIX_TITLE)) + pair)
         }
 
-        val closing = buildList {
+        val closingBody = buildList {
             if (audience == Audience.LANDLORD) addAll(report.remediations.map(::remediationBlock))
             addAll(report.supplements.map(::supplementBlock))
+        }
+        paginator.startSection(sectionTitle("closing", BilingualText("Closing", "报告结尾")), closingBody)
+        val closingTail = buildList {
             add(disclaimerBlock())
             if (audience == Audience.TENANT) add(tenantAgreementBlock())
         }
-        paginator.startSection(sectionTitle("closing", BilingualText("Closing", "报告结尾")), closing)
+        // The tenant agreement may never create a new final page without the mandatory disclaimer. Treat
+        // the fixed tenant tail as one indivisible unit at residual boundaries; the landlord has one block.
+        paginator.addGroup(closingTail)
 
         val totalPages = pages.size
         val completed = pages.mapIndexed { index, blocks ->

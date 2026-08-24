@@ -17,19 +17,19 @@ import kotlin.test.assertTrue
  * | A2 | widen the inline thumbnail from 40 to 41 mm | `Expected <40>, actual <41>` |
  * | A3 | reduce appendix density from two to one | `3 photos must span two appendix pages` |
  * | A4 | indent the room panorama by 1 mm | `the room panorama is indented inside its own placed block` |
- * | A5 | render collection time instead of EXIF time | `Expected <1.2.1 · camera · 2025-08-16T00:10:00Z>` |
- * | A6 | raise the caption cap from three to four lines | `an elided caption is exactly the three lines the cap allows` |
+ * | A5 | retain all thumbnails in every split row chunk | `each item photo must be drawn exactly once` |
+ * | A6 | store `imageHeightMm + 1` while retaining the measured slot height | `Expected <40>, actual <41>` |
  * | A7 | drop one UTF-16 unit before appending the marker | `caption elision left an unpaired UTF-16 surrogate` |
- * | A8 | retain all thumbnails in every split row chunk | `each item photo must be drawn exactly once` |
+ * | A8 | shorten the footer hash slice from 12 to 11 | `Expected <ea9cd02e76bf · 1/6>, actual <ea9cd02e76b · 1/6>` |
  * | A9 | place a photo-only heading and photo sequentially | `the heading did not move to a fresh page with its photo` |
- * | A10 | repeat the first flowing note line in every chunk | `the note must read once, end to end, across the chunks` |
+ * | A10 | chunk the 80-photo appendix one-up instead of two-up | `Expected <64>, actual <104>` |
  * | A11 | copy the EN/ZH pair into continuation chunks | `later chunk 2 repeats EN/ZH` |
  * | A12 | expose wearOrDamage to the tenant row | `Expected value to be true` at the typed tenant assertion |
  * | A13 | include privacy photos by default | `a private photo reached the LANDLORD default report` |
  * | A14 | delete the duplicate-photo-id guard | `projection accepted: duplicate photo id` |
  * | A15 | render scheduledAt as epoch milliseconds | `cover draws a raw epoch value` |
- * | A16 | change one nibble of the literal canonical digest | `Expected <ea9cd02e...>, actual <...>` |
- * | A17 | let the footer measurer return two runs | `footer text must measure as one line within the 10mm strip` |
+ * | A16 | insert one `ReportComposer` + `.` reference into a test source | `a test names the composer's companion instead of writing the value out` |
+ * | A17 | delete the single `add(disclaimerBlock())` call | `final page must contain exactly one disclaimer` |
  * | A18 | reverse the adverse-item traversal | `summary order differs from room/item traversal` |
  */
 class ReportComposerGoldenTest {
@@ -202,12 +202,12 @@ class ReportComposerGoldenTest {
         listOf(landlord, tenant).forEach { plan ->
             val tail = plan.pages.last().blocks.map { it.content }
             assertEquals(listOf("S1"), tail.filterIsInstance<SupplementBlock>().map { it.reference })
+            assertEquals(1, tail.count { it is DisclaimerBlock }, "final page must contain exactly one disclaimer")
             assertEquals(
                 expectedDisclaimerRuns,
                 tail.filterIsInstance<DisclaimerBlock>().single().textRuns.map { it.language to it.text },
                 "tail contract differs for ${plan.audience}",
             )
-            assertEquals(1, tail.count { it is DisclaimerBlock })
             assertEquals(1, tail.count { it is SupplementBlock })
         }
         assertEquals(1, landlord.contents().count { it is RemediationBlock })
