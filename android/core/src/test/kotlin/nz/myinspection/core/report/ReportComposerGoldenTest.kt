@@ -136,7 +136,8 @@ class ReportComposerGoldenTest {
     /** 封面即答案: the totals and the instant have to reach paper, not merely sit in the block's fields. */
     @Test
     fun `the cover draws labelled totals and ISO-8601 times rather than epoch milliseconds`() {
-        val plan = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
+        val report = ReportTestFixtures.report()
+        val plan = composer.compose(report, Audience.LANDLORD)
         val cover = plan.contents().filterIsInstance<CoverBlock>().single()
         val drawn = cover.textRuns.joinToString("|") { it.text }
 
@@ -146,6 +147,30 @@ class ReportComposerGoldenTest {
         assertTrue(drawn.contains("ROUTINE · 2025-08-16T00:00:00Z"), "cover draws a raw epoch value: $drawn")
         assertTrue(!drawn.contains("1755302400000"), "epoch milliseconds reached the rendered cover")
         assertTrue(drawn.contains("room-kitchen · GOOD · 1"), "the room breakdown is not drawn: $drawn")
+
+        val rawEpochs = buildSet {
+            add(report.canonical.scheduledAt.toString())
+            report.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }.forEach { photo ->
+                add(photo.capturedAt.toString())
+                photo.snapshot.exifTimeMs?.let { add(it.toString()) }
+            }
+        }
+        plan.contents().mapNotNull { block ->
+            when (block) {
+                is CoverBlock -> block
+                is ImageSlotBlock -> block
+                else -> null
+            }
+        }.forEach { block ->
+            block.textRuns.forEach { run ->
+                rawEpochs.forEach { epoch ->
+                    assertFalse(
+                        run.text.contains(epoch),
+                        "raw epoch $epoch reached ${block::class.simpleName}: ${run.text}",
+                    )
+                }
+            }
+        }
     }
 
     @Test
@@ -188,8 +213,14 @@ class ReportComposerGoldenTest {
 
     @Test
     fun `closing tail pins exact disclaimer supplement and audience-specific blocks`() {
-        val landlord = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
-        val tenant = composer.compose(ReportTestFixtures.report(), Audience.TENANT)
+        val report = ReportTestFixtures.report().copy(
+            supplements = listOf(
+                ReportSupplement("S1", "Follow-up inspection requested."),
+                ReportSupplement("S2", "Second ordered supplement."),
+            ),
+        )
+        val landlord = composer.compose(report, Audience.LANDLORD)
+        val tenant = composer.compose(report, Audience.TENANT)
         val expectedDisclaimerRuns = listOf(
             TextLanguage.EN to "This report records visible conditions at the inspection tim",
             TextLanguage.EN to "e. It is not legal, building, engineering, property, health ",
@@ -201,14 +232,14 @@ class ReportComposerGoldenTest {
 
         listOf(landlord, tenant).forEach { plan ->
             val tail = plan.pages.last().blocks.map { it.content }
-            assertEquals(listOf("S1"), tail.filterIsInstance<SupplementBlock>().map { it.reference })
+            assertEquals(report.supplements.map { it.reference }, tail.filterIsInstance<SupplementBlock>().map { it.reference })
             assertEquals(1, tail.count { it is DisclaimerBlock }, "final page must contain exactly one disclaimer")
             assertEquals(
                 expectedDisclaimerRuns,
                 tail.filterIsInstance<DisclaimerBlock>().single().textRuns.map { it.language to it.text },
                 "tail contract differs for ${plan.audience}",
             )
-            assertEquals(1, tail.count { it is SupplementBlock })
+            assertEquals(2, tail.count { it is SupplementBlock })
         }
         assertEquals(1, landlord.contents().count { it is RemediationBlock })
         assertEquals(0, landlord.contents().count { it is TenantAgreementBlock })

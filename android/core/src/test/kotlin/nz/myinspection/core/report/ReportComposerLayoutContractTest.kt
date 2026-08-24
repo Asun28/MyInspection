@@ -115,6 +115,21 @@ class ReportComposerLayoutContractTest {
 
         val appendix = plan.slots().single { it.photoId == "photo-item" && it.purpose == ImagePurpose.APPENDIX }
         assertEquals("1.2.1 · camera · 2025-08-16T00:10:00Z", appendix.caption())
+
+        val expected = mapOf(
+            "photo-item" to Triple("1.2.1", "camera", 1_755_303_000_000L),
+            "photo-room" to Triple("1.R.1", "imported", 1_755_303_200_000L),
+        )
+        assertEquals(4, plan.slots().size)
+        expected.forEach { (photoId, provenance) ->
+            val slots = plan.slots().filter { it.photoId == photoId }
+            assertEquals(setOf(ImagePurpose.INLINE, ImagePurpose.APPENDIX), slots.map { it.purpose }.toSet())
+            slots.forEach { slot ->
+                assertEquals(provenance.first, slot.reference, "$photoId ${slot.purpose} lost its reference")
+                assertEquals(provenance.second, slot.source, "$photoId ${slot.purpose} lost its source")
+                assertEquals(provenance.third, slot.capturedAt, "$photoId ${slot.purpose} lost its capture instant")
+            }
+        }
     }
 
     /**
