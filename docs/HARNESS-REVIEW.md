@@ -136,7 +136,7 @@
 - 必须层封顶（`LessonsMustCap`）已是一种「强制做减法」——本评审是其在**整条 harness** 层面的推广。
 - **心跳的发现信号**：`scripts/triage.ps1` 的十枚探针里，**五枚的下一步直接指回本文**，即本评审的**自动触发点**——
   `lessons-cap`（必须层驻留 id 达/超封顶）· `lessons-demote`（某条铁律已被确定性守卫覆盖，该降回按需层）·
-  `lessons-promote`（一批无守卫经验已达晋升门槛，按**一批**复审而非一条开一张卡）· `harness-refresh`（judgment 累积达门槛）·
+  `lessons-promote`（无守卫经验达晋升门槛：候选 `<=5` 时逐 id 走 lessons 动作；`>5` 时只建一个 HARNESS-REVIEW 批次）· `harness-refresh`（judgment 累积达门槛）·
   `effectiveness`（各闸拦截计数 / 0 拦截，TD2）。
   另五枚不进本仪式、走交付链：`tech-debt-open` · `cards-active` · `handoff-open` · `worktree-orphan` · `delivery-blocked`（交付停摆 → task-loop）。
   某闸门长期零命中由 `effectiveness` 探针 + 效果账本捕获——心跳负责「发现该复审了」，本仪式负责「逐闸量化、双向增删」。

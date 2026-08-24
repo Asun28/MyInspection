@@ -1662,7 +1662,17 @@ try {
   $c2Exit = $LASTEXITCODE
   if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
   elseif ($c2Out -notmatch 'check: PASS') { Fail '闸2b(b)：check 退出 0 但输出无「check: PASS」——zero-must fixture 未正常通过（可能崩在别处或断言点漂移）。' }
-  else { Write-Host '  2b lessons.ps1 空 LEDGER add / zero-must check 均不崩（TD39/TD-102，覆盖生产裸调用路径）OK' -ForegroundColor Green }
+  $invalidEntries = @(
+    @{ id = 'L1'; value = 'TODO' }, @{ id = 'L2'; value = 'N/A' }, @{ id = 'L3'; value = '待补' }
+  ) | ForEach-Object {
+    @("## $($_.id)", '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1', '- symptom: seed', '- root_cause: seed', '- rule: seed', "- enforced_by: $($_.value)", '- refs:', '') -join "`n"
+  }
+  Set-Content $l2Ledger (('# invalid enforced_by fixture', '') + $invalidEntries -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2Repo 'CLAUDE.md') "## 经验铁律（必须加载）`n- zero resident ids`n`n## 下一节" -Encoding utf8
+  $invalidOut = (& pwsh -NoProfile -File $l2Lessons check 2>&1 | Out-String); $invalidExit = $LASTEXITCODE
+  if ($invalidExit -eq 0 -or $invalidOut -notmatch '\[LESSONS-ENFORCED-BY-INVALID\]' -or $invalidOut -notmatch 'L1=TODO' -or $invalidOut -notmatch 'L2=N/A' -or $invalidOut -notmatch 'L3=待补') {
+    Fail "闸2b(c)：真实 lessons.ps1 check 未逐项拒绝 TODO/N/A/待补 enforced_by。exit=$invalidExit output=[$invalidOut]"
+  } else { Write-Host '  2b lessons.ps1 空/zero-must 与 invalid enforced_by 生产路径 OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2Repo -ErrorAction SilentlyContinue
 }
@@ -1717,26 +1727,31 @@ try {
   $l2hLedger = Join-Path $l2hRepo 'docs/lessons/LEDGER.md'
   New-Item -ItemType Directory -Force (Split-Path $l2hLedger) | Out-Null
   Set-Content $l2hLedger (@(
-    '# 经验总账（2h fixture：零 must，令唯一红点只可能来自分节解析）', '',
+    '# 经验总账（2h fixture）', '',
     '## L1',
-    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- date: 2026-01-01 ｜ tags: seed ｜ tier: must ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
     '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
   ) -join "`n") -Encoding utf8
-  # 正例恰好取那个**最容易被混淆**的状态：小节在、但一个 [Lx] 都没驻留。旧码给这个状态和「标题找不到」
-  #   同一个答案（0 条），新码必须把它判成 PASS——否则「fail-closed」就是把正常的空必须层也一并拦了。
   Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
     '## 经验铁律（必须加载 · fixture）',
-    '- 本夹具的铁律小节故意不驻留任何 id（证「小节在、零驻留」仍须放行）', '', '## 下一节') -join "`n") -Encoding utf8
+    '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@(
+    '## 经验铁律（必须加载 · fixture）',
+    '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
   $okOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $okExit = $LASTEXITCODE
   # 负例：只把标题换掉，其余一字不动
   Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
     '## 必载经验（标题已漂移）',
     '- **[L901][L902][L903][L904][L905][L906][L907][L908][L909][L910][L911]** 11 个驻留 id，远超上限', '', '## 下一节') -join "`n") -Encoding utf8
   $driftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $driftExit = $LASTEXITCODE
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@('## 经验铁律（必须加载 · fixture）', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@('## 模板铁律标题已漂移', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  $tplDriftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $tplDriftExit = $LASTEXITCODE
   if ($okExit -ne 0) { Fail "闸2h(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
   elseif ($driftExit -eq 0) { Fail "闸2h：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
   elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
-  else { Write-Host '  2h lessons.ps1 check 分节 fail-closed OK（标题漂移 → 非零 + [LESSONS-SECTION-NOT-FOUND]；小节在场仍 PASS）' -ForegroundColor Green }
+  elseif ($tplDriftExit -eq 0 -or $tplDriftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h(template)：CLAUDE.template.md 标题漂移未非零并给稳定哨兵。exit=$tplDriftExit output=[$tplDriftOut]" }
+  else { Write-Host '  2h CLAUDE.md/template resident-id 分节均 fail-closed OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
 }

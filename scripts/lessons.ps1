@@ -308,7 +308,7 @@ switch ($Command) {
     #   是**冒充了一次声明**——它让上面那道「blocking 必填」闸满意，
     #   于是这条经验此后既不会被追问、也不再被晋升探针提名。故在入口直接拒：写真守卫，或写 none（理由）。
     $badEnf = @($ls | Where-Object { -not (Test-ScaffoldLessonEnforcedByWellFormed $_.enforced_by) })
-    if ($badEnf.Count) { Write-Warning "enforced_by 取值认不出是机械守卫（占位符一律拒绝；请写脚本路径 / 闸编号，或写 'none（理由）'）：$(($badEnf | ForEach-Object { "$($_.id)=$($_.enforced_by)" }) -join ' ｜ ')"; $fail = $true } else { Write-Host 'enforced_by 形态可认（非空取值皆为守卫引用或 none（理由））✓' }
+    if ($badEnf.Count) { Write-Warning "[LESSONS-ENFORCED-BY-INVALID] enforced_by 取值认不出是机械守卫（占位符一律拒绝；请写脚本路径 / 闸编号，或写 'none（理由）'）：$(($badEnf | ForEach-Object { "$($_.id)=$($_.enforced_by)" }) -join ' ｜ ')"; $fail = $true } else { Write-Host 'enforced_by 形态可认（非空取值皆为守卫引用或 none（理由））✓' }
     # enforced_by 判据自检（确定性 fixture，不依赖总账内容）：守卫判定必须**双向**成立且对未知取值 fail-closed——
     #   真脚本路径/闸编号判有守卫；none（理由）、空字段、以及 TODO/N/A/待补 这类占位符一律判**无**守卫。
     #   少了占位符那一段，「已有守卫」就能被一个待办事项冒充（上游 issue #183 的反面）。

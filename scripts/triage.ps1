@@ -373,6 +373,7 @@ function Invoke-ProbeDeliveryBlocked {
     # 恒敏感，一行两套语义 ⇒ Linux 上被静默剪掉），沿用该卡定下的「按 OS 取比较器」家族，不另起一套。
     $pathComparer = if ($IsWindows -or $IsMacOS) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
     $seenPath = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+    $verdictCandidates = @()
     foreach ($vf in $files) {
       if (-not $seenPath.Add($vf.FullName)) { continue }   # ① 同一文件只算一次
       $verdict = ''; $reasons = 0; $owner = ''
@@ -386,12 +387,16 @@ function Invoke-ProbeDeliveryBlocked {
       # 判不出归属就跳过——reporter 宁可漏报，也不该拿别人的 block 冤枉本卡（假阳性会把注意力引向错的地方）。
       if ($owner) { if ($owner -ne $id) { continue } }
       elseif ([IO.Path]::GetFileNameWithoutExtension($vf.Name) -ne $id) { continue }
-      if ($verdict -ne 'block') { continue }
-      $hits += [pscustomobject]@{ id = $id; path = $vf.FullName; reasons = $reasons; when = $vf.LastWriteTime }
+      if ($verdict -notin @('pass', 'block')) { continue }
+      $verdictCandidates += [pscustomobject]@{ id = $id; path = $vf.FullName; verdict = $verdict; reasons = $reasons; when = $vf.LastWriteTimeUtc }
+    }
+    $current = @($verdictCandidates | Sort-Object @{ Expression = 'when'; Descending = $true }, @{ Expression = 'path'; Descending = $false } | Select-Object -First 1)
+    if ($current.Count -eq 1 -and $current[0].verdict -eq 'block') {
+      $hits += $current[0]
     }
   }
   foreach ($h in ($hits | Sort-Object when)) {     # 最旧优先：停得最久的卡先被读到
-    $age = [int]((Get-Date) - $h.when).TotalHours
+    $age = [int]((Get-Date).ToUniversalTime() - $h.when).TotalHours
     Add-Finding 'delivery-blocked' 'blocking' `
       "卡 $($h.id) 正坐在一份 block 裁决上（$($h.reasons) 条理由，约 $age 小时前）——评审干完了活，结果却没被接回注意力。" `
       "读 $($h.path)，按它点名的逐条修或拆卡后重 ship；若某条属于既有系统而非本次 diff，另开卡（L113），别让 block 悬着。"
@@ -685,6 +690,24 @@ if ($Verb -eq 'selfcheck') {
     }
     elseif (($osCase | Where-Object { $_.what -notmatch 'T8-SC-A' })) { $fails.Add('用例9b 报出的裁决不属于本卡（A）') }
 
+    # 用例 9c：同卡两条取证路径冲突时，只认较新的当前裁决。
+    $fxCurrentWt = Join-Path $fxRoot 'current-wt'; $fxCurrentRepo = Join-Path $fxRoot 'current-repo'
+    $wtCurrentReview = Join-Path $fxCurrentWt 'T8-SC-A/.review'; $localCurrentReview = Join-Path $fxCurrentRepo '.review'
+    New-Item -ItemType Directory -Force $wtCurrentReview, $localCurrentReview | Out-Null
+    $olderVerdict = Join-Path $wtCurrentReview 'T8-SC-A.json'; $newerVerdict = Join-Path $localCurrentReview 'T8-SC-A.json'
+    Set-Content $olderVerdict '{"verdict":"block","reasons":["stale"],"branch":"T8-SC-A"}' -Encoding utf8
+    Set-Content $newerVerdict '{"verdict":"pass","reasons":[],"branch":"T8-SC-A"}' -Encoding utf8
+    [IO.File]::SetLastWriteTimeUtc($olderVerdict, [datetime]::UtcNow.AddHours(-2)); [IO.File]::SetLastWriteTimeUtc($newerVerdict, [datetime]::UtcNow.AddHours(-1))
+    $RepoRoot = $fxCurrentRepo; function Get-ScaffoldWorktreeRoot { $fxCurrentWt }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例9c 较旧 block + 较新 pass 仍报告 stale block') }
+    Set-Content $olderVerdict '{"verdict":"pass","reasons":[],"branch":"T8-SC-A"}' -Encoding utf8
+    Set-Content $newerVerdict '{"verdict":"block","reasons":["current"],"branch":"T8-SC-A"}' -Encoding utf8
+    [IO.File]::SetLastWriteTimeUtc($olderVerdict, [datetime]::UtcNow.AddHours(-2)); [IO.File]::SetLastWriteTimeUtc($newerVerdict, [datetime]::UtcNow.AddHours(-1))
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $currentBlocked = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($currentBlocked.Count -ne 1 -or $currentBlocked[0].next -notmatch [regex]::Escape($newerVerdict)) { $fails.Add('用例9c 较旧 pass + 较新 block 未只报告当前 block') }
+
     # ── 用例 10：归属校验的**两道**各测一条 ──
     # (a) 文件名就不是本卡的（隔壁分支按自己分支名落盘）——由文件名兜底挡下；
     # (b) 文件名恰好是 <id>.json、但产物自述 branch 属于别人（分支改名/复制夹具后会出现）——只有读 branch 才挡得下。
@@ -725,7 +748,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+去重键 OS 语义+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前裁决优先+去重键 OS 语义+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }
