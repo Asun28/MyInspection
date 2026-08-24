@@ -2380,12 +2380,14 @@ try {
     (& $entry2i 'L17' ($ok2i -replace ' ｜ severity: minor','') 'MISSING_SEVERITY_FIELD'),
     ((& $entry2i 'L18' $ok2i 'MISSING_RULE_LINE') -replace '(?m)^- rule:.*(?:\r?\n|$)', ''),
     (& $entry2i 'L19' ($ok2i -replace 'severity: minor','severity: blocking') 'BLOCKING_WITHOUT_ENFORCED_BY'),
+    ((& $entry2i 'L21' $ok2i 'EMPTY_RULE_VALUE') -replace '(?m)^- rule:.*$', "- rule:`n- refs:"),
+    ((& $entry2i 'L22' ($ok2i -replace 'severity: minor','severity: blocking') 'EMPTY_ENFORCED_BY_VALUE') + "`n- enforced_by:`n- refs:"),
     (& $entry2i 'L99999999999999999999' $ok2i 'ID_OVERFLOWS_INT32'),
     (& $entry2i 'L30' $ok2i 'MAX_ID_EXCLUDED')
   ) -join "`n`n"
   Set-Content $l2iLedger $l2iLedgerText -Encoding utf8
   $hostile2iIds = @('L2', 'L20', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L13', 'L14', 'L15', 'L16', 'L17', 'L99999999999999999999')
-  $invalidEntry2iIds = @('L18', 'L19')
+  $invalidEntry2iIds = @('L18', 'L19', 'L21', 'L22')
 
   $dry2i = (& pwsh -NoProfile -File $l2iLessons archive -RepoRoot $l2iRepo -DryRun 2>&1 | Out-String)
   $dryExit2i = $LASTEXITCODE

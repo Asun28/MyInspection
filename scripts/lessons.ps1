@@ -224,9 +224,9 @@ function Get-LessonsFromPath([string]$Path) {
     $rec  = if ($meta.Ok) { [int]$f['recurrence'] } else { 0 }
     $tags = if ($meta.Ok) { $f['tags'] } else { '' }
     $cost = if ($meta.Ok -and $f.ContainsKey('cost')) { $f['cost'] } else { '' }          # 可选；旧条目无此字段 => 空（向后兼容）
-    # rule / enforced_by 是正文里的独立整行，本身就锚定在行首，保持原样。
-    $rule = ([regex]::Match($b, '(?m)^- rule:\s*(.+)$')).Groups[1].Value.Trim()
-    $enf = ([regex]::Match($b, '(?m)^- enforced_by:\s*(.+)$')).Groups[1].Value.Trim()
+    # 只允许水平空白，值也不得跨行；\s* 会吞换行，让空值借用下一条正文而假装完整。
+    $rule = ([regex]::Match($b, '(?m)^- rule:[ \t]*([^\r\n]+)[ \t]*\r?$')).Groups[1].Value.Trim()
+    $enf = ([regex]::Match($b, '(?m)^- enforced_by:[ \t]*([^\r\n]+)[ \t]*\r?$')).Groups[1].Value.Trim()
     $out += [pscustomobject]@{ id = $id; tier = $tier; kind = $kind; severity = $sev; recurrence = $rec; tags = $tags; rule = $rule; enforced_by = $enf; cost = $cost; metaOk = $meta.Ok; metaError = $meta.Error; body = $b }
   }
   return $out
