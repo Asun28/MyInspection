@@ -512,7 +512,7 @@ switch ($Phase) {
       Write-Host $sizeOutput
       if ($sizeExit -ne 0) {
         Add-CatchRecord 'review-size' 'R3 diff budget block'
-        throw '真实 diff 超过单卡/R3 完整读取预算，或预算无法可靠计算。拆卡或修复 git 基线后重 ship；尚未 push、开 PR 或消费 reviewer round。'
+        throw '真实 diff 超过单卡/R3 完整读取预算，或预算无法可靠计算。拆卡或修复 git 基线后重 ship；本次调用未新增 push/PR、未消费 reviewer round，重试前请检查现有远端分支与 PR。'
       }
       $sagaDone += '真实 diff 预算'
 

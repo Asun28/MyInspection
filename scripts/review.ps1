@@ -313,7 +313,12 @@ if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
 $changedLines = [long]0
 $binaryFiles = 0
 $numstatMalformed = @()
-foreach ($numstatLine in @($diffNumstat -split '\r?\n' | Where-Object { $_ -ne '' })) {
+$numstatLines = [System.Collections.Generic.List[string]]::new()
+foreach ($line in [regex]::Split($diffNumstat, '\r?\n')) { $numstatLines.Add($line) }
+# Out-String appends one record separator. Remove exactly that final separator; any other blank row is malformed input.
+if ($numstatLines.Count -gt 0 -and $numstatLines[$numstatLines.Count - 1] -eq '') { $numstatLines.RemoveAt($numstatLines.Count - 1) }
+foreach ($numstatLine in $numstatLines) {
+  if ($numstatLine -eq '') { $numstatMalformed += '<blank>'; continue }
   # **整行**校验，不是前缀校验：--numstat 每行恰好三个 TAB 分隔字段，第三个是非空且自身不含 TAB 的路径
   # （rename 的 `old => new` / `dir/{a => b}` 压缩形态里没有 TAB，照常匹配）。只锚头部时 `1<TAB>2<TAB>`（空路径）
   # 与 `1<TAB>2<TAB>a<TAB>b`（多出字段）会被当成合法行计入体量——行本身已经不是 numstat 了，数出来的体量就不可信。
@@ -334,7 +339,10 @@ foreach ($numstatLine in @($diffNumstat -split '\r?\n' | Where-Object { $_ -ne '
     $numstatMalformed += $numstatLine
     continue
   }
-  $changedLines += $addValue + $deleteValue
+  if ($addValue -gt ([long]::MaxValue - $deleteValue)) { $numstatMalformed += $numstatLine; continue }
+  $rowTotal = $addValue + $deleteValue
+  if ($changedLines -gt ([long]::MaxValue - $rowTotal)) { $numstatMalformed += $numstatLine; continue }
+  $changedLines += $rowTotal
 }
 if ($numstatMalformed.Count -gt 0) {
   $numstatReason = "[R3-DIFF-NUMSTAT-INVALID] git diff --numstat returned $($numstatMalformed.Count) unparseable row(s); changed-line size is unknown, so this run blocks fail-closed."

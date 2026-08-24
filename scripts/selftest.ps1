@@ -5581,15 +5581,11 @@ if (-not $gitI) {
   }
 }
 
-# 15b5（T0-R3-DIFF-BUDGET · A9）：超限的**远端** ship 必须零 push、零建 PR、零合并。
-#   15b2 用 -Local 证了「零 merge」，但 -Local 路径上 push 与建 PR 本就不可能发生——拿它当远端证据
-#   等于用「这条路上没有车」证明「刹车有效」。故此处建带 bare origin 的完整远端夹具，真跑非 -Local ship，
-#   并以**行为**取证：远端仓里不得出现该任务分支（证零 push）、gh 调用日志必须为空（证零建 PR / 零合并）。
+# 15b5：超限远端 ship 零 push/PR/merge；预算内负控可到达 push/gh。
 $gitB5 = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitB5) {
   Skip-SelftestCheck -GateId '15b5' -Reason 'TOOL-GIT-MISSING' -Message '  15b5 git 未安装，跳过（离线 / 无 git 环境正常）。'
 } elseif (-not $IsWindows) {
-  # gh spy 用 gh.ps1，靠 PATHEXT 让裸 `gh` 解析到它；非 Windows 无 PATHEXT，会转而跑真 gh（非 hermetic），同 15h4(d) 之理。
   Skip-SelftestCheck -GateId '15b5' -Reason 'OS-WINDOWS-ONLY' -Message '  15b5 跳过（非 Windows）：gh spy 依赖 PATHEXT 解析 gh.ps1。'
 } else {
   $PSNativeCommandUseErrorActionPreference = $false
@@ -5604,8 +5600,6 @@ if (-not $gitB5) {
     $cB5 = [regex]::Replace($cB5, "WorktreeRoot\s*=\s*'[^']*'", { "WorktreeRoot = '$($b5 -replace '\\','/')/wt'" })
     $cB5 = [regex]::Replace($cB5, "GhAccount\s*=\s*'[^']*'", { "GhAccount = 'b5'" })
     $cB5 = $cB5.Replace("ReviewCommand = ''", "ReviewCommand = 'pwsh -NoProfile -Command exit 0'")
-    # 比对必须用**注入时的同一形态**（正斜杠），否则守卫恒红；且注入失败时必须**停下**——
-    # 只 Fail 不短路，会让后续断言照跑并打出 OK，同一闸同时报「失败」和「通过」。
     $b5WtExpect = ($b5 -replace '\\','/') + '/wt'
     $b5CfgOk = ($cB5 -match [regex]::Escape($b5WtExpect)) -and ($cB5 -match "ReviewCommand = 'pwsh")
     if (-not $b5CfgOk) {
@@ -5632,18 +5626,15 @@ if (-not $gitB5) {
     & pwsh -NoProfile -File (Join-Path $b5 'scripts/task.ps1') -TaskId T0-BUDGETREMOTE -Phase start *> $null
     $b5Wt = Join-Path $b5 'wt/T0-BUDGETREMOTE'
     if (-not $b5CfgOk) {
-      # 注入已失败并记账，跳过取证部分（继续跑只会得出无意义的结论）。
     } elseif (-not (Test-Path $b5Wt)) {
       Fail '闸15b5：fixture start 未产出 worktree——无法验证远端预算阻断（前置失败）。'
     } else {
-      # gh spy：记录每次调用；被调到就说明走过了 PR 创建或合并。返回非零使误调也不会静默成功。
       $b5SpyDir = Join-Path $b5 'spy-bin'
       New-Item -ItemType Directory -Force $b5SpyDir | Out-Null
       $b5GhLog = Join-Path $b5 'gh-calls.log'
       Set-Content (Join-Path $b5SpyDir 'gh.ps1') "Add-Content -LiteralPath '$($b5GhLog -replace '\\','/')' -Value (`$args -join ' '); exit 1" -Encoding ascii
       $env:PATH = "$b5SpyDir$([IO.Path]::PathSeparator)$b5SavedPath"
       $env:PATHEXT = ".PS1;$b5SavedPathExt"
-      # 超限改动：1001 行落在 allow_paths 内，预算闸须在 push 之前拦住。
       [System.IO.File]::WriteAllLines((Join-Path $b5Wt 'README.md'), [string[]](1..1001 | ForEach-Object { "b5-line-$_" }))
       $encWrapB5 = Join-Path $b5 'enc-ship-15b5.ps1'
       Set-Content $encWrapB5 'try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }; & (Join-Path $PSScriptRoot "scripts/task.ps1") -TaskId T0-BUDGETREMOTE -Phase ship -SkipRed; exit $LASTEXITCODE' -Encoding utf8
@@ -5655,8 +5646,6 @@ if (-not $gitB5) {
       } finally {
         if ($prevOutB5) { try { [Console]::OutputEncoding = $prevOutB5 } catch { } }
       }
-      # A14：allow_paths 条目数不是规模证明。本夹具的卡只有**一条** allow_paths（README.md），
-      # 建卡期的 >5 告警根本不会触发，却照样被真实体量拦住——这就是「文件数与评审量无稳定关系」的可证伪形式。
       $b5CardAllow = @((Get-Content (Join-Path $b5 'specs/tasks/T0-BUDGETREMOTE.md')) | Where-Object { $_ -match '^\s+- ' }).Count
       if ($b5CardAllow -gt 5) { Fail "闸15b5(A14)：夹具卡的 allow_paths 有 $b5CardAllow 条（>5），会触发建卡期告警——本例就证明不了「条目数少也能超限」。" }
       $b5RemoteBranch = (& git -C $b5Origin rev-parse --verify --quiet 'refs/heads/T0-BUDGETREMOTE' 2>$null | Out-String).Trim()
@@ -5667,16 +5656,12 @@ if (-not $gitB5) {
       elseif ($b5RemoteBranch) { Fail "闸15b5：预算阻断后远端仍出现任务分支（$b5RemoteBranch）——push 发生在预算闸之前或未被拦住（A9 的零 push 不成立）。" }
       elseif ($b5GhCalls) { Fail "闸15b5：预算阻断后仍调用了 gh（建 PR / 合并）：$b5GhCalls" }
       else {
-        # 负控：上面「远端没有该分支」只有在这套夹具**本来推得动**时才算证据。把改动缩到预算内重跑，
-        # 远端必须真的出现该分支——否则「零 push」证明的只是夹具跑不到 push，而不是预算闸拦住了它。
         [System.IO.File]::WriteAllLines((Join-Path $b5Wt 'README.md'), [string[]]('b5 in-budget change'))
         $b5CtlOut = (& pwsh -NoProfile -File $encWrapB5 2>&1 | Out-String)
         $b5CtlBranch = (& git -C $b5Origin rev-parse --verify --quiet 'refs/heads/T0-BUDGETREMOTE' 2>$null | Out-String).Trim()
         $b5CtlTail = ($b5CtlOut -replace '\s+', ' ').Trim(); if ($b5CtlTail.Length -gt 260) { $b5CtlTail = $b5CtlTail.Substring($b5CtlTail.Length - 260) }
         if (-not $b5CtlBranch) { Fail "闸15b5 负控：预算内的改动也没能 push 到远端——本夹具根本走不到 push，前面的『零 push』不构成证据。输出尾段=$b5CtlTail" }
         elseif ($b5CtlOut -match '\[R3-DIFF-TOO-LARGE\]') { Fail '闸15b5 负控：预算内的改动仍被判超限——预算闸误伤（阈值或度量口径错）。' }
-        # gh spy 正控：负控那趟 push 成功后会继续去 `gh pr view/create`，spy 必须留下调用记录。
-        # 没有这一条，「超限那趟 gh 日志为空」证明的可能只是 spy 根本拦不到 gh。
         elseif (-not (Test-Path $b5GhLog)) { Fail '闸15b5 正控：预算内那趟 ship 推送成功后仍未记录任何 gh 调用——gh spy 拦不到 gh，前面的『零建 PR / 零合并』不构成证据。' }
         else { Write-Host '  15b5 远端 ship 预算阻断 OK（1001 lines → R3-DIFF-TOO-LARGE；远端无该分支=零 push；gh 零调用=零建 PR、零合并；负控：预算内改动确实推得上去）' -ForegroundColor Green }
       }
@@ -12728,12 +12713,7 @@ if (-not $authorityBase.Ok) {
   }
 }
 
-# 17ai（T0-R3-DIFF-BUDGET）：真实 diff 预算必须在 reviewer 与 push/PR 之前 fail-closed。
-#   captured-HEAD 一例归属 A1「本次实际测量」：度量必须针对**一个**提交，故比较式两端都钉死
-#   （base 取 pinned baseOid、HEAD 取进入时捕获的 $sha）。HEAD 在窗口内被移动时度量值不得改变；
-#   把该 OID 继续传给 push/评审/合并属 T0-R3-MEASURED-OID-BINDING，不在本卡。
-# 真实仓夹具锁住 999/1001 changed-lines、60000/60001 untruncated diff chars、binary 与命令故障；
-# 正常评审路径的超限例同时证明预算闸先于 reviewer，且 SizeOnly/超限均不消费 round。
+# 17ai：钉死的真实 diff 预算在 reviewer 与 push/PR 之前 fail-closed。
 $reviewSizeScript = Join-Path $RepoRoot 'scripts/review.ps1'
 $reviewSizeText = Get-Content -LiteralPath $reviewSizeScript -Raw
 $taskSizeText = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
@@ -12748,11 +12728,8 @@ try {
     & git -C $root config user.name 'size-test'
     Set-Content -LiteralPath (Join-Path $root 'base.txt') -Value 'base' -Encoding utf8
     if ($WithReviewInputs) {
-      # review.ps1 在唤起评审者**之前**还要取到判定标准（rubric）；夹具缺它就会先以「无判定标准」fail-closed，
-      # 于是评审者永远到不了——正控便无从成立。给正控夹具补上最小 rubric，让它真能走到评审者那一步。
       New-Item -ItemType Directory -Force (Join-Path $root 'docs'), (Join-Path $root 'specs/tasks') | Out-Null
       Set-Content -LiteralPath (Join-Path $root 'docs/QUALITY-RUBRIC.md') -Value '# fixture rubric（仅为让评审流程可达；判定内容不参与本闸断言）' -Encoding utf8
-      # 卡片也要在**基线提交**上：review.ps1 从 baseOid 取卡（base 优先、worktree 兜底），缺它同样到不了评审者。
       @('---', "id: $Name", 'title: fixture card', 'status: todo', 'allow_paths:', '  - payload.txt', '---') -join "`n" |
         Set-Content -LiteralPath (Join-Path $root "specs/tasks/$Name.md") -Encoding utf8
     }
@@ -12777,8 +12754,6 @@ try {
       [System.IO.File]::WriteAllText($payload, ('x' * $contentChars))
       & git -C $Root add -A
       & git -C $Root commit -q --amend --no-edit
-      # 必须与生产同口径（LF 归一），否则在 Windows 上按 CRLF 调到 60001、生产按 LF 只数出 59xxx，
-      # 「超限」夹具就不再超限——夹具与被测件的度量口径一旦分家，边界用例全部失真。
       $actualChars = ((& git -C $Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String) -replace "`r`n", "`n").Length
       if ($actualChars -eq $TargetChars) { return $Root }
       $contentChars += ($TargetChars - $actualChars)
@@ -12786,21 +12761,22 @@ try {
     }
     throw "fixture '$Root' did not converge to exactly $TargetChars diff chars"
   }
-  # 评审者调用 spy：_config 的 ReviewCommand 为空时 review.ps1 调用裸 `codex`，故把一个只负责留痕的
-  # codex.ps1 前置到 PATH 来拦截它（同 15h4 的 gh stub 手法，Windows 经 PATHEXT 解析）。用「有没有留痕」
-  # 判评审者是否被唤起，比「输出里没有某句中文」强：后者在文案改动或该句恰好没打印时都会假绿。
   $reviewerSpyDir = Join-Path $sizeRoot 'reviewer-spy-bin'
   New-Item -ItemType Directory -Force $reviewerSpyDir | Out-Null
   $reviewerSpyMark = Join-Path $sizeRoot 'reviewer-invoked.marker'
-  # spy 脚本按行构造：PowerShell 的转义字符是反引号不是反斜杠，把 JSON 塞进双引号串里用 \" 只会把反斜杠
-  # 原样写进文件，生成一个语法坏掉的 spy——而坏掉的 spy 恰好『不留痕』，断言照样绿。故逐行拼、不做嵌套转义。
   $reviewerSpyBody = @(
     "Set-Content -LiteralPath '$($reviewerSpyMark -replace '\\','/')' -Value 'invoked'",
     '[Console]::In.ReadToEnd() | Out-Null',
     '$v = $env:T9_SPY_VERDICT; if (-not $v) { $v = ''pass'' }',
     'Set-Content $env:REVIEW_OUT -Encoding utf8 -Value (''{"verdict":"'' + $v + ''","reasons":[]}'')'
   )
-  Set-Content -LiteralPath (Join-Path $reviewerSpyDir 'codex.ps1') -Value $reviewerSpyBody -Encoding ascii
+  $reviewerSpyScript = Join-Path $reviewerSpyDir 'codex.ps1'
+  Set-Content -LiteralPath $reviewerSpyScript -Value $reviewerSpyBody -Encoding ascii
+  $reviewerSpyPosix = Join-Path $reviewerSpyDir 'codex'
+  $reviewerSpyTarget = $reviewerSpyScript.Replace('\', '/')
+  $reviewerSpyPosixBody = @('#!/bin/sh', "exec pwsh -NoProfile -File '$reviewerSpyTarget' `"`$@`"") -join "`n"
+  Set-Content -LiteralPath $reviewerSpyPosix -NoNewline -Encoding ascii -Value ($reviewerSpyPosixBody + "`n")
+  if (-not $IsWindows) { & chmod +x $reviewerSpyPosix }
   function Invoke-ReviewSizeFixture([string]$Root, [switch]$FullReview, [string[]]$ExtraArgs = @(), [string]$SpyVerdict = 'pass') {
     $invokeArgs = @('-NoProfile', '-File', $reviewSizeScript, '-WorktreePath', $Root, '-Base', 'master', '-LocalBase')
     if (-not $FullReview) { $invokeArgs += '-SizeOnly' }
@@ -12826,10 +12802,7 @@ try {
   $chars60001 = Invoke-ReviewSizeFixture $chars60001Root
   $binary = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BINARY' -LineCount 0 -LongLineChars 0 -Binary)
   $largeFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BEFORE-REVIEWER' -LineCount 1001 -LongLineChars 0) -FullReview
-  # 正控：预算内的完整评审必须真的唤起评审者。没有它，「超限时 spy 没留痕」证明的可能只是 spy 根本不工作。
   $smallFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-REVIEWER-REACHED' -LineCount 2 -LongLineChars 0 -WithReviewInputs) -FullReview
-  # 第二枚正控：被**评审者**阻断的运行必须留下 .rounds 文件。没有它，「超限时 rounds 为零」分不清
-  # 「闸提前停住了」和「计数器根本不工作」——把 review.ps1 的计数写入整段删掉，前者照样绿。
   $blockedFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ROUNDS-CONTROL' -LineCount 2 -LongLineChars 0 -WithReviewInputs) -FullReview -SpyVerdict 'block'
   $diffFailureRoot = New-ReviewSizeFixture -Name 'T9-SIZE-DIFF-FAIL' -LineCount 1 -LongLineChars 0
   $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
@@ -12837,7 +12810,6 @@ try {
   $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
   $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
 
-  # One platform wrapper drives three deterministic git failures: a failing `git diff`, a malformed --numstat,
   $sizeGitShimDir = Join-Path $sizeRoot 'git-shim-bin'
   New-Item -ItemType Directory -Force $sizeGitShimDir | Out-Null
   $sizeGitShimScript = Join-Path $sizeGitShimDir 'git-shim.ps1'
@@ -12850,13 +12822,23 @@ if ($env:T9_SIZE_SHIM_MODE -eq 'numstat' -and $args -contains '--numstat') {
   exit 0
 }
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-prefix' -and $args -contains '--numstat') {
-  # 前缀合法、整行非法：两个数字段没问题，路径字段是空的。只锚头部的正则会把它当成合法行计入体量。
   Write-Output "1`t2`t"
   exit 0
 }
 if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-overflow' -and $args -contains '--numstat') {
-  # 形如数字、但装不进 Int64：正则会放行，强制转换会抛——必须落到 NUMSTAT-INVALID 而不是崩掉。
   Write-Output "999999999999999999999999999999`t1`tpayload.txt"
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-blank' -and $args -contains '--numstat') {
+  [Console]::Out.Write("1`t0`tfirst.txt`n`n1`t0`tsecond.txt`n")
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-sum-overflow' -and $args -contains '--numstat') {
+  [Console]::Out.Write("9223372036854775807`t0`tfirst.txt`n1`t0`tsecond.txt`n")
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-row-overflow' -and $args -contains '--numstat') {
+  Write-Output "9223372036854775807`t1`trow.txt"
   exit 0
 }
 & $env:T9_SIZE_REAL_GIT @args
@@ -12878,8 +12860,6 @@ exit $realExit
     $env:T9_SIZE_REAL_GIT = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $env:PATH = "$sizeGitShimDir$([IO.Path]::PathSeparator)$sizeSavedPath"
     if ($IsWindows) { $env:PATHEXT = ".PS1;$sizeSavedPathExt" }
-    # A6：让 `git diff` 自身非零。用 shim 而非 diff.external —— 后者是**被审仓库可配的**，
-    # 拿它注入等于让「命令失败会 fail-closed」这条契约依赖一个被审对象能关掉的开关。
     $env:T9_SIZE_SHIM_MODE = 'diff-fail'
     $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
 
@@ -12889,6 +12869,12 @@ exit $realExit
     $overflowNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-OVERFLOW-NUMSTAT' -LineCount 1 -LongLineChars 0)
     $env:T9_SIZE_SHIM_MODE = 'numstat-prefix'
     $prefixNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-PREFIX-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-blank'
+    $blankNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BLANK-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-sum-overflow'
+    $sumOverflowNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SUM-OVERFLOW-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-row-overflow'
+    $rowOverflowNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ROW-OVERFLOW-NUMSTAT' -LineCount 1 -LongLineChars 0)
 
     $moveHeadRoot = New-ReviewSizeFixture -Name 'T9-SIZE-MOVE-HEAD' -LineCount 1 -LongLineChars 0
     $moveHeadOldOid = (& $env:T9_SIZE_REAL_GIT -C $moveHeadRoot rev-parse HEAD | Out-String).Trim()
@@ -12914,13 +12900,13 @@ exit $realExit
   if ($small999.Exit -ne 0 -or $small999.Text -notmatch 'changedLines=999') { $sizeFailures += "999-line control did not pass with exact metric (exit=$($small999.Exit))" }
   if ($boundary1000.Exit -ne 0 -or $boundary1000.Text -notmatch 'changedLines=1000') { $sizeFailures += "1000-line boundary failed (exit=$($boundary1000.Exit))" }
   if ($large1001.Exit -eq 0 -or $large1001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $large1001.Text -notmatch 'changedLines=1001') { $sizeFailures += "1001-line mutant was not blocked with exact metric (exit=$($large1001.Exit))" }
-  # A3 还要求诊断报出**上限本身**，否则读日志的人看得到实测值却不知道被什么拦住。
   if ($large1001.Text -notmatch 'max 1000' -or $chars60001.Text -notmatch 'max 60000') { $sizeFailures += 'block diagnostics do not state the limits they enforced' }
   if ($overflowNumstat.Exit -eq 0 -or $overflowNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "an Int64-overflowing numstat row did not reach R3-DIFF-NUMSTAT-INVALID (exit=$($overflowNumstat.Exit))" }
   if ($prefixNumstat.Exit -eq 0 -or $prefixNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "a prefix-valid but otherwise malformed numstat row was accepted (exit=$($prefixNumstat.Exit)) — head-anchored validation counts it as real size" }
+  if ($blankNumstat.Exit -eq 0 -or $blankNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += 'an interior blank numstat row was discarded' }
+  if ($sumOverflowNumstat.Exit -eq 0 -or $sumOverflowNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += 'cumulative numstat overflow escaped the fail-closed diagnostic' }
+  if ($rowOverflowNumstat.Exit -eq 0 -or $rowOverflowNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += 'row numstat overflow escaped the fail-closed diagnostic' }
   if ($chars60000.Exit -ne 0 -or $chars60000.Text -notmatch 'diffChars=60000') { $sizeFailures += "exactly-60000-char control did not pass (exit=$($chars60000.Exit))" }
-  # #10 跨平台定值：报告的 diffChars 必须等于**LF 归一后**的字符数。独立算一遍（不复用生产代码路径），
-  # 两者相等即证明度量与平台换行无关——Windows 的 CRLF 不会把同一份 diff 记成更大的数。
   $canonChars = ((& git -C $chars60000Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String) -replace "`r`n", "`n").Length
   if ($canonChars -ne 60000) { $sizeFailures += "fixture is not LF-canonical 60000 (got $canonChars) — the boundary case is not measuring what it claims" }
   $crlfChars = ((& git -C $chars60000Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String) -replace "`r`n", "`n") -replace "`n", "`r`n"
@@ -12935,20 +12921,17 @@ exit $realExit
   if ($malformedNumstat.Exit -eq 0 -or $malformedNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "malformed numstat did not fail closed with its diagnostic (exit=$($malformedNumstat.Exit))" }
   if ($movedHead.Exit -ne 0 -or $movedHead.Text -notmatch 'changedLines=1' -or -not (Test-Path (Join-Path $moveHeadRoot 'head-moved.marker'))) { $sizeFailures += "moving HEAD changed the captured diff authority (exit=$($movedHead.Exit))" }
   if ($largeFullReview.Exit -eq 0 -or $largeFullReview.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $largeFullReview.Text -match 'Codex 评审|第二模型评审') { $sizeFailures += 'normal review did not stop at the size gate before reviewer invocation' }
-  $sizeCases = @($small999, $boundary1000, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $skipConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $overflowNumstat, $prefixNumstat, $movedHead, $largeFullReview)
-  # A4/A8：非调用要有**正面**证据（spy 未留痕），且该证据必须有牙——正控证明 spy 在评审者真被唤起时会留痕。
+  $sizeCases = @($small999, $boundary1000, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $skipConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $overflowNumstat, $prefixNumstat, $blankNumstat, $sumOverflowNumstat, $rowOverflowNumstat, $movedHead, $largeFullReview)
   if (@($sizeCases | Where-Object { $_.ReviewerInvoked }).Count -ne 0) { $sizeFailures += 'the reviewer was invoked on a size-gated run (spy marker present)' }
   if (-not $smallFullReview.ReviewerInvoked) { $sizeFailures += 'reviewer spy is inert: an in-budget full review left no marker, so "no marker" proves nothing' }
   if ($blockedFullReview.Rounds -lt 1) { $sizeFailures += 'rounds counter is inert: a reviewer-blocked run left no .rounds file, so "zero rounds" proves nothing' }
   if (@($sizeCases | Where-Object { $_.Rounds -ne 0 }).Count -ne 0) { $sizeFailures += 'size evaluation created/incremented an R3 round counter' }
   if ($reviewSizeText -notmatch '\[int\]\$MaxChangedLines\s*=\s*1000' -or $reviewSizeText -notmatch '\[int\]\$MaxDiffChars\s*=\s*60000') { $sizeFailures += 'production parameter defaults are not 1000 lines / 60000 chars' }
-  # 锚在**相位标签**上，不是第一处 '-SizeOnly'：后者会被它上方任何一句提到该开关的注释满足（vacuous）。
   $sizeOnlyPos = $taskSizeText.IndexOf("Step '真实 diff 预算闸", [System.StringComparison]::Ordinal)
   $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
   if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
   if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
-  # A14 的**文档半**：那两句话本身就是契约，删掉即红。夹具卡只有 1 条 allow_paths 是**夹具**属性，
-  # 任何产品回归都不会让它变红；能承重的是「文档说了这件事」这条断言。各锚到自己那段、逐要素核对。
+  if ($taskSizeText -match '尚未 push、开 PR' -or $taskSizeText -notmatch '本次调用' -or $taskSizeText -notmatch '现有远端') { $sizeFailures += 'task.ps1 overclaims that no earlier push or PR can exist after a size block' }
   $a14Devops = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
   $a14Rubric = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/QUALITY-RUBRIC.md') -Raw
   $a14DevopsPara = @($a14Devops -split "`r?`n" | Where-Object { $_.Contains('allow_paths` 的条目数只在建卡期') })
@@ -12961,11 +12944,6 @@ exit $realExit
   $a14RubricLines = @($a14Rubric -split "`r?`n" | Where-Object { $_.Contains('additions + deletions <= 1000') })
   if ($a14RubricLines.Count -lt 2) { $sizeFailures += "A14: QUALITY-RUBRIC 4.1 must state the 1000/60000 pair in both languages (found $($a14RubricLines.Count))" }
   if (-not ($a14Rubric.Contains('may only be tightened, never raised') -or $a14Rubric.Contains('只能收紧上限'))) { $sizeFailures += 'A14: QUALITY-RUBRIC 4.1 no longer states that the limits may only be tightened' }
-  # A13：预算闸必须出现在**每一处**权威流程枚举里。两次 R3 的教训都写进了这条断言的形状：
-  #   ① 只断言「出现过」不够——顺序写反照样绿（第 1 轮）；故按有序子序列逐步核对。
-  #   ② 全局 IndexOf 不够——前文任意位置的无关文字就能满足它，而陈旧枚举原地不动（第 2 轮）；
-  #      故每条先**锚到自己那一段**（取该枚举所在的行/段），只在段内做有序核对。
-
   if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
   else { Write-Host '  17ai diff 预算 OK（999/1000 行过；1001 拦；60000 过、60001 拦；两组参数冲突已拒）' -ForegroundColor Green }
 } finally {
