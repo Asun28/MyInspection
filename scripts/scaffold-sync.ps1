@@ -1,20 +1,6 @@
 ﻿#requires -Version 7
-<#
-.SYNOPSIS
-  Check upstream scaffold releases or compose a scrubbed upstream issue.
-
-.DESCRIPTION
-  `check` compares the canonical decision ledger with locally cached upstream tags; `-Fetch` is its
-  only network path. `report` scans title/body, saves a draft, and sends only with explicit `-Send`.
-  Patch application stays a human decision. The `scaffold-stale` heartbeat never fetches.
-
-.PARAMETER Verb     check (default) | report | selfcheck.
-.PARAMETER Fetch    Refresh upstream tags for check.
-.PARAMETER Send     Create the public issue after all guards pass.
-.PARAMETER OutFile  Draft path; defaults to _local/scaffold-issue.md.
-.EXAMPLE
-  pwsh -File scripts\scaffold-sync.ps1 check -Fetch
-#>
+<# Check cached upstream releases or compose a secret-scanned upstream issue.
+   Network access requires check -Fetch; issue creation requires report -Send. #>
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)][ValidateSet('check', 'report', 'selfcheck')][string]$Verb = 'check',
@@ -115,6 +101,15 @@ function Get-ScaffoldIssueSecretHit {
   return @($hits)
 }
 
+function Find-ScaffoldPublicSecret {
+  param([string]$Line, [System.Collections.IDictionary]$Patterns)
+  # Public text has no source-fixture exemptions.
+  foreach ($name in $Patterns.Keys) {
+    if ($Line -match $Patterns[$name]) { return $name }
+  }
+  return $null
+}
+
 function Test-ScaffoldReportMaySend {
   param([bool]$ScannerAvailable, [int]$SecretHitCount, [string]$ConfigError)
   return ($ScannerAvailable -and $SecretHitCount -eq 0 -and -not $ConfigError)
@@ -141,9 +136,24 @@ function Resolve-ScaffoldConfiguration {
   return [pscustomobject]@{ Version=$version; Upstream=$upstream; Error=$errorText }
 }
 
+function ConvertTo-ScaffoldRepositoryIdentity {
+  param([string]$Text)
+  if (-not $Text) { return $null }
+  $m = [regex]::Match($Text.Trim(), '^(?i)(?:https?://github\.com/|ssh://git@github\.com/|git@github\.com:)?(?<owner>[a-z0-9][a-z0-9-]{0,38})/(?<repo>[a-z0-9_.-]+?)(?:\.git)?/?$')
+  if (-not $m.Success) { return $null }
+  return ($m.Groups['owner'].Value + '/' + $m.Groups['repo'].Value).ToLowerInvariant()
+}
+
+function Test-ScaffoldRepositoryIdentity {
+  param([string]$RemoteUrl, [string]$Upstream)
+  $actual = ConvertTo-ScaffoldRepositoryIdentity $RemoteUrl
+  $expected = ConvertTo-ScaffoldRepositoryIdentity $Upstream
+  return ($actual -and $expected -and [string]::Equals($actual, $expected, [System.StringComparison]::Ordinal))
+}
+
 function Get-ScaffoldStaleState {
   param([string]$OriginUrl, [string]$Upstream, [string[]]$Tags, [string]$Synced)
-  if ($OriginUrl -and $Upstream -and $OriginUrl -match [regex]::Escape($Upstream)) { return [pscustomobject]@{ Status='self'; Behind=@(); Latest='' } }
+  if (Test-ScaffoldRepositoryIdentity $OriginUrl $Upstream) { return [pscustomobject]@{ Status='self'; Behind=@(); Latest='' } }
   if (@($Tags).Count -eq 0) { return [pscustomobject]@{ Status='no-tags'; Behind=@(); Latest='' } }
   $behind = @(Get-NewerVersion $Tags $Synced)
   if ($behind.Count -eq 0) { return [pscustomobject]@{ Status='current'; Behind=@(); Latest='' } }
@@ -167,9 +177,13 @@ function Get-TriageScaffoldProbeContract {
 }
 
 function Test-UpstreamRemote {
-  param([string]$Name)
-  $null = & git -C $RepoRoot remote get-url $Name 2>$null
-  return ($LASTEXITCODE -eq 0)
+  param([string]$Name, [string]$ExpectedUpstream, [scriptblock]$GetUrl)
+  if ($GetUrl) { $url = & $GetUrl $Name; if (-not $url) { return $false } }
+  else {
+    $url = & git -C $RepoRoot remote get-url $Name 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $url) { return $false }
+  }
+  return (Test-ScaffoldRepositoryIdentity ([string]$url) $ExpectedUpstream)
 }
 
 function Get-UpstreamTag {
@@ -186,22 +200,17 @@ function Get-UpstreamChangelog {
   return ($text -join "`n")
 }
 
-# ---------------------------------------------------------------------------
-# check
-# ---------------------------------------------------------------------------
-
 function Invoke-Check {
   param([string]$Remote, [switch]$Fetch)
-  if (-not (Test-UpstreamRemote $Remote)) {
-    Write-Host "[FLEET-NO-UPSTREAM] no git remote named '$Remote' - this project is not linked to its scaffold yet." -ForegroundColor Yellow
+  if (-not (Test-UpstreamRemote $Remote $UpstreamRepo)) {
+    Write-Host "[FLEET-NO-UPSTREAM] remote '$Remote' is missing or does not exactly match '$UpstreamRepo'." -ForegroundColor Yellow
     Write-Host "  one-time setup : git remote add $Remote https://github.com/$UpstreamRepo.git"
     Write-Host "  then           : pwsh -File scripts\scaffold-sync.ps1 check -Fetch"
     return
   }
   if ($Fetch) {
     Write-Host "[FLEET-FETCH] refreshing upstream tags from '$Remote' into $UpstreamRefNs/ ..." -ForegroundColor DarkGray
-    # --no-tags is load-bearing: without it git ALSO auto-follows the same tags into refs/tags/,
-    # colliding with this project's own version tags. The dedicated namespace is the whole point.
+    # Keep scaffold releases out of this project's refs/tags/.
     & git -C $RepoRoot fetch --no-tags $Remote ('+refs/tags/*:' + $UpstreamRefNs + '/*')
     if ($LASTEXITCODE -ne 0) {
       Write-Host "[FLEET-FETCH-FAILED] could not reach '$Remote'. Reporting on what is already on disk." -ForegroundColor Yellow
@@ -303,7 +312,7 @@ function Invoke-Report {
     . (Join-Path $PSScriptRoot 'check-secrets.ps1') -AsLibrary
     if (-not (Get-Command Find-LineSecret -CommandType Function -ErrorAction SilentlyContinue)) { throw 'Find-LineSecret was not loaded' }
     $scannerAvailable = $true
-    $hits = @(Get-ScaffoldIssueSecretHit $issueTitle $body { param($line) Find-LineSecret $line })
+    $hits = @(Get-ScaffoldIssueSecretHit $issueTitle $body { param($line) Find-ScaffoldPublicSecret $line $ContentSecretPatterns })
   } catch {
     Write-Host '[FLEET-SCAN-UNAVAILABLE] check-secrets.ps1 could not be loaded; read the body yourself before sending.' -ForegroundColor Yellow
   }
@@ -466,6 +475,15 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
   if (-not (Test-ScaffoldReportMaySend $true 0 '')) { $fails.Add('report -Send rejected trusted clean input') }
   if (Test-ScaffoldReportComplete 'title' 'summary' '' 'surface') { $fails.Add('report -Send accepted a missing reproduction') }
   if (-not (Test-ScaffoldReportComplete 'title' 'summary' 'repro' 'surface')) { $fails.Add('report field gate rejected complete input') }
+  try {
+    . (Join-Path $PSScriptRoot 'check-secrets.ps1') -AsLibrary
+    $fixtureEscapes = @('allowlist secret','{{TOKEN}}','${TOKEN}','<TOKEN>','xxxxxxxx','your-token','example','changeme','placeholder','dummy','sample','todo','fixme','redacted','***','...')
+    foreach ($escape in $fixtureEscapes) {
+      $line = "API_KEY=supersecretvalue123 $escape"
+      if (Find-LineSecret $line) { $fails.Add("source scanner exemption fixture changed: $escape") }
+      if (-not (Find-ScaffoldPublicSecret $line $ContentSecretPatterns)) { $fails.Add("public report scanner accepted source exemption: $escape") }
+    }
+  } catch { $fails.Add("real public report scanner fixture failed: $($_.Exception.Message)") }
 
   $realLedger = Get-Content $LedgerDoc -Raw
   $realV44 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.44\.0 \| partial \|' })
@@ -479,6 +497,11 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
 
   $localOrigin = 'https://github.com/Asun28/project.git'; $upstream = 'Asun28/claude-devops-scaffold'
   if ((Get-ScaffoldStaleState "https://github.com/$upstream.git" $upstream @() '0.42.0').Status -ne 'self') { $fails.Add('scaffold-stale did not suppress the upstream repository itself') }
+  foreach ($spoof in @("https://github.com/$upstream-fork.git", 'https://github.com/Asun28/fork-claude-devops-scaffold.git')) {
+    if ((Get-ScaffoldStaleState $spoof $upstream @() '0.42.0').Status -eq 'self') { $fails.Add("scaffold-stale accepted spoofed self repository: $spoof") }
+  }
+  if (Test-UpstreamRemote 'scaffold' $upstream { 'https://github.com/other/wrong-repository.git' }) { $fails.Add('check accepted a remote for the wrong upstream repository') }
+  if (-not (Test-UpstreamRemote 'scaffold' $upstream { 'git@github.com:Asun28/claude-devops-scaffold.git' })) { $fails.Add('check rejected the exact upstream repository SSH identity') }
   if ((Get-ScaffoldStaleState $localOrigin $upstream @() '0.42.0').Status -ne 'no-tags') { $fails.Add('scaffold-stale no-tags fixture failed') }
   if ((Get-ScaffoldStaleState $localOrigin $upstream @('v0.42.0') '0.42.0').Status -ne 'current') { $fails.Add('scaffold-stale current fixture failed') }
   $stale = Get-ScaffoldStaleState $localOrigin $upstream @('v0.42.0','v0.43.0') '0.42.0'
@@ -506,19 +529,17 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
   Write-Host 'scaffold-sync selfcheck: PASS (version parse / newer-set / downstream-block cut / ledger high-water / ledger scope / offline heartbeat)' -ForegroundColor Green
 }
 
-# Library consumers (the triage probe) take only the pure helpers above and stop here, so that
-# dot-sourcing never runs a scan and never leaks encoding settings into the caller scope (L85).
+# Triage loads helpers only; it must not run a scan.
 if ($AsLibrary) { return }
 
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 stdout + native non-zero by code (TD54); missing = fail-open
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
-# Upstream tags are fetched into a dedicated ref namespace instead of refs/tags/, so that the
-# scaffold's release tags never collide with this project's own version tags.
+# Isolate upstream release tags from project tags.
 $UpstreamRefNs = 'refs/scaffold-tags'
 $LedgerDoc     = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
 
-# _config is optional: an unconfigured or partially configured tree still runs (graceful degradation).
+# Legacy/absent config degrades safely.
 $configPath = Join-Path $PSScriptRoot '_config.ps1'
 $resolvedConfig = Resolve-ScaffoldConfiguration $configPath 'Asun28/claude-devops-scaffold'
 $UpstreamRepo = $resolvedConfig.Upstream; $LocalVersion = $resolvedConfig.Version; $ConfigLoadError = $resolvedConfig.Error
