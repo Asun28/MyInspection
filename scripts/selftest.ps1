@@ -1460,8 +1460,26 @@ foreach ($s in $encScripts) {
   $sp = if ($s -eq 'init-scaffold.ps1') { Join-Path $RepoRoot $s } else { Join-Path $PSScriptRoot $s }
   if (-not (Test-Path $sp)) { Fail "1g TD54：$s 不存在。"; $g1ok = $false; continue }
   $spRaw = Get-Content -LiteralPath $sp -Raw
-  $hasPrelude = if ($s -eq 'selftest.ps1') { $spRaw -match "(?m)^try \{ \. \(Join-Path \`$PSScriptRoot '_encoding\.ps1'\) \} catch \{ \}\s*$" } else { $spRaw -match '_encoding\.ps1' }
+  $hasPrelude = if ($s -eq 'selftest.ps1') {
+    $spRaw -match "(?m)^try \{ \. \(Join-Path \`$PSScriptRoot '_encoding\.ps1'\) \} catch \{ \}\s*$"
+  } elseif ($s -eq 'license-scanner-check.ps1') {
+    $spRaw -match "(?m)^\. \(Join-Path \`$PSScriptRoot '_encoding\.ps1'\)(?:\s*#.*)?$"
+  } else { $spRaw -match '_encoding\.ps1' }
   if (-not $hasPrelude) { Fail "1g TD54：$s 未 dot-source _encoding.ps1（OutputEncoding 覆盖缺口）。"; $g1ok = $false }
+}
+$encodingFailClosedRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("selftest-encoding-failclosed-" + [guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory -Force -Path $encodingFailClosedRoot | Out-Null
+  $encodingFailClosedScript = Join-Path $encodingFailClosedRoot 'license-scanner-check.ps1'
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'license-scanner-check.ps1') -Destination $encodingFailClosedScript
+  $encodingFailClosedOutput = (& pwsh -NoProfile -File $encodingFailClosedScript -Suite graph 2>&1 | Out-String)
+  $encodingFailClosedExit = $LASTEXITCODE
+  if ($encodingFailClosedExit -eq 0 -or $encodingFailClosedOutput -notmatch '_encoding\.ps1') {
+    Fail "1g TD54：license-scanner-check.ps1 缺失必需 _encoding.ps1 时未 fail-closed（exit=$encodingFailClosedExit）：$encodingFailClosedOutput"
+    $g1ok = $false
+  }
+} finally {
+  if (Test-Path -LiteralPath $encodingFailClosedRoot) { Remove-Item -LiteralPath $encodingFailClosedRoot -Recurse -Force }
 }
 $encHookDir = Join-Path (Split-Path $PSScriptRoot -Parent) '.claude/hooks'
 $encHooks = @('route-new-work.ps1', 'guard-frozen.ps1', 'handoff-resume.ps1', 'handoff-reminder.ps1', 'lessons-reminder.ps1')

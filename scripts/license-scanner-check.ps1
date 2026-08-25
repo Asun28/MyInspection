@@ -11,7 +11,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
+. (Join-Path $PSScriptRoot '_encoding.ps1') # Required UTF-8/native-error prelude; load failure must stop the suite.
 # 本脚本不能靠 `. $ScannerPath -AsLibrary` 继承前奏：check-licenses.ps1 在 `-AsLibrary` 处提前 return，
 # 前奏写在那两行**之后**（house gate 1g 对库脚本的既定形态）。本脚本的 stdout 现在含中文，父进程
 # （selftest / task.ps1）在非 UTF-8 Windows 控制台上会按 OEM 解码，断言遂假红。故自行 dot-source，
