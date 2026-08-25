@@ -1862,6 +1862,29 @@ try {
   Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
 }
 
+# 2h2. 共享 resident parser 遵守受限 CommonMark：三种无序列表标记都计项；空行后的仓外段落/
+# blockquote 不续进前一项；围栏代码里的标题、列表与 id 都只是正文诱饵。
+$l2h2File = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2h2-$PID.md"
+try {
+  . (Join-Path $RepoRoot 'scripts/_lessons.ps1')
+  $l2h2Text = @(
+    '```markdown', '## 经验铁律（必须加载）', '- **[L900]** fenced decoy', '```',
+    '## 经验铁律（必须加载 · fixture）',
+    '* **[L901]** star item', '  lazy continuation [L902]',
+    '+ **[L903]** plus item', '', 'outside paragraph [L904]', '> outside quote [L905]',
+    '- **[L906]** dash item', '~~~text', '## fake heading', '- **[L907]** fenced decoy', '~~~',
+    'outside after fence [L908]', '', '## 下一节'
+  ) -join "`n"
+  Set-Content $l2h2File $l2h2Text -Encoding utf8
+  $l2h2 = Get-ScaffoldMustLayerSection -Path $l2h2File
+  $l2h2Ids = @($l2h2.Ids) -join ','
+  if (-not $l2h2.Found -or $l2h2.Bullets.Count -ne 3 -or $l2h2Ids -ne 'L901,L902,L903,L906') {
+    Fail "闸2h2：resident parser 未守 CommonMark marker/boundary/fence；Found=$($l2h2.Found) Bullets=$($l2h2.Bullets.Count) Ids=$l2h2Ids"
+  } else { Write-Host '  2h2 resident parser CommonMark marker/boundary/fence OK' -ForegroundColor Green }
+} finally {
+  Remove-Item $l2h2File -Force -ErrorAction SilentlyContinue
+}
+
 # 2g. T0-LESSONS-COLD-RECALL：选择器只把一次性 ledger 经验交给既有 archive.ps1；冷项仍可召回，
 #     check 以热/冷 ID 并集判引用，bump/promote 对冷项只给移回热区指引。全程真跑生产 CLI，不复制搬运逻辑。
 #     排除面逐条可杀：复发≥2 / tier=ondemand / tier=must / 当前最大 id / 被常驻 CLAUDE 文件引用（**三种形态**：
