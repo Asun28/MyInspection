@@ -32,15 +32,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-# The pure helpers below are reused by the triage probe through -AsLibrary, so nothing that runs at
-# load time may live above the early return: no encoding prelude, no config read, no path resolution.
-
-# ---------------------------------------------------------------------------
-# Pure helpers (no git, no network). These carry the parsing risk, so selfcheck drives them directly.
-# ---------------------------------------------------------------------------
 
 function ConvertTo-ScaffoldVersion {
-  <# Tag name or bare version -> [version], or $null when it is not a release tag. #>
   param([string]$Text)
   if (-not $Text) { return $null }
   $m = [regex]::Match($Text.Trim(), '^v?(\d+\.\d+\.\d+)$')
@@ -49,7 +42,6 @@ function ConvertTo-ScaffoldVersion {
 }
 
 function Get-NewerVersion {
-  <# Release tags strictly newer than $Since, oldest first. Junk refs are ignored, not fatal. #>
   param([string[]]$Tags, [string]$Since)
   $base = ConvertTo-ScaffoldVersion $Since
   $out = @()
@@ -62,13 +54,6 @@ function Get-NewerVersion {
 }
 
 function Get-DownstreamBlock {
-  <#
-    Extract the "Downstream action required / effect" blockquote for one version out of a CHANGELOG.
-    Stateful line walk rather than index slicing (L94): the block runs from the first `> **Downstream`
-    line to the first line that leaves the blockquote, and the section ends at the next `## [` heading.
-    Returns '' when the version has no downstream block, which is itself worth reporting upstream -
-    the release ritual requires one on every entry.
-  #>
   param([string]$Changelog, [string]$Version)
   if (-not $Changelog) { return '' }
   $want = '## [' + $Version + ']'
@@ -93,16 +78,6 @@ function Get-DownstreamBlock {
 }
 
 function Get-SyncedVersion {
-  <#
-    The version this project has evaluated up to = the newest version row in the ledger, whatever the
-    decision was. A row recorded as `skipped` still counts as evaluated: the point of writing the
-    reason down is that the question is settled and must not be asked again. With no ledger rows the
-    project has never evaluated anything, so provenance (_config ScaffoldVersion) is the floor.
-
-    The ledger is only the region below the SCAFFOLD-SYNC-LEDGER sentinel, and a row must lead with a
-    version plus an allowed decision. Without both bounds, an unrelated table can silently raise the
-    high-water mark (#201). Missing sentinel fails closed to the provenance floor.
-  #>
   param([string]$LedgerText, [string]$Fallback, [string[]]$KnownTags = @())
   $best = $null; $lines = @($LedgerText -split "`r?`n")
   $markers = @(0..($lines.Count - 1) | Where-Object { $lines[$_].Trim() -ceq '<!-- SCAFFOLD-SYNC-LEDGER -->' })
@@ -122,7 +97,7 @@ function Get-SyncedVersion {
   $floor = ConvertTo-ScaffoldVersion $Fallback
   foreach ($tag in $KnownTags) {
     $v = ConvertTo-ScaffoldVersion $tag
-    if ($v -and ($null -ne $floor) -and $v -gt $floor -and -not $decisions.ContainsKey($v.ToString())) {
+    if ($v -and $best -and ($null -ne $floor) -and $v -gt $floor -and $v -le $best -and -not $decisions.ContainsKey($v.ToString())) {
       throw "[FLEET-LEDGER-INVALID] locally available v$v has no decision"
     }
   }
@@ -143,6 +118,27 @@ function Get-ScaffoldIssueSecretHit {
 function Test-ScaffoldReportMaySend {
   param([bool]$ScannerAvailable, [int]$SecretHitCount, [string]$ConfigError)
   return ($ScannerAvailable -and $SecretHitCount -eq 0 -and -not $ConfigError)
+}
+
+function Test-ScaffoldReportComplete {
+  param([string]$IssueTitle, [string]$IssueSummary, [string]$IssueRepro, [string]$IssueSurface)
+  return -not @(@($IssueTitle,$IssueSummary,$IssueRepro,$IssueSurface) | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
+}
+
+function Resolve-ScaffoldConfiguration {
+  param([string]$Path, [string]$DefaultUpstream)
+  $version = 'unknown'; $upstream = $DefaultUpstream; $errorText = ''
+  if (-not (Test-Path $Path)) { return [pscustomobject]@{ Version=$version; Upstream=$upstream; Error='' } }
+  try {
+    $tokens = $null; $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
+    if (@($errors).Count) { throw $errors[0].Message }
+    $names = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object Name)
+    . $Path
+    if ($names -contains 'Get-ScaffoldVersion') { $version = Get-ScaffoldVersion }
+    if ($names -contains 'Get-ScaffoldUpstreamRepo') { $configured = Get-ScaffoldUpstreamRepo; if ($configured) { $upstream = $configured } }
+  } catch { $errorText = $_.Exception.Message }
+  return [pscustomobject]@{ Version=$version; Upstream=$upstream; Error=$errorText }
 }
 
 function Get-ScaffoldStaleState {
@@ -169,10 +165,6 @@ function Get-TriageScaffoldProbeContract {
     Offline = @($errors).Count -eq 0 -and -not $fetch
   }
 }
-
-# ---------------------------------------------------------------------------
-# git access (read-only unless -Fetch)
-# ---------------------------------------------------------------------------
 
 function Test-UpstreamRemote {
   param([string]$Name)
@@ -300,6 +292,10 @@ function Invoke-Report {
   $outPath = if ($OutFile) { $OutFile } else { Join-Path $RepoRoot '_local/scaffold-issue.md' }
   $issueTitle = if ($Title) { $Title } else { 'scaffold: <one-line summary>' }
   $body = Format-IssueBody $Summary $Repro $Surface $LessonId
+  if ($Send -and -not (Test-ScaffoldReportComplete $Title $Summary $Repro $Surface)) {
+    Write-Host '[FLEET-REPORT-BLOCKED] -Send requires Title, Summary, Repro, and Surface.' -ForegroundColor Red
+    exit 1
+  }
 
   # The issue is public. Reuse the deterministic secret scanner rather than inventing a second one.
   $hits = @(); $scannerAvailable = $false
@@ -349,10 +345,6 @@ function Invoke-Report {
   Write-Host '  Record the issue link in docs/SCAFFOLD-SYNC.md so the version that fixes it can be matched back.'
 }
 
-# ---------------------------------------------------------------------------
-# selfcheck - hermetic; drives the parsing helpers that carry the real risk
-# ---------------------------------------------------------------------------
-
 function Invoke-Selfcheck {
   $fails = [System.Collections.Generic.List[string]]::new()
   $sampleChangelog = @'
@@ -379,25 +371,21 @@ body with no downstream block at all
 - other
 '@
 
-  # 1. version parsing accepts release tags and bare versions, rejects everything else.
   if ($null -ne (ConvertTo-ScaffoldVersion 'v1.2')) { $fails.Add('ConvertTo-ScaffoldVersion accepted a two-part version') }
   if ($null -ne (ConvertTo-ScaffoldVersion 'nightly')) { $fails.Add('ConvertTo-ScaffoldVersion accepted a non-release tag') }
   if ((ConvertTo-ScaffoldVersion 'v0.41.0') -ne [version]'0.41.0') { $fails.Add('ConvertTo-ScaffoldVersion mis-parsed a v-prefixed tag') }
 
-  # 2. only strictly newer versions are reported, ascending, junk refs ignored.
   $newer = @(Get-NewerVersion @('v0.41.0', 'v0.43.0', 'v0.42.0', 'nightly') '0.41.0')
   if ($newer.Count -ne 2) { $fails.Add("Get-NewerVersion returned $($newer.Count) versions, expected 2") }
   elseif ($newer[0].Tag -ne 'v0.42.0' -or $newer[1].Tag -ne 'v0.43.0') { $fails.Add('Get-NewerVersion did not sort ascending') }
   if (@(Get-NewerVersion @('v0.41.0') '0.41.0').Count -ne 0) { $fails.Add('Get-NewerVersion reported the already-synced version as newer') }
 
-  # 3. the downstream block is cut at both ends, not bled across sections.
   $b43 = Get-DownstreamBlock $sampleChangelog '0.43.0'
   if ($b43 -notmatch 'coupling group') { $fails.Add('Get-DownstreamBlock lost the 0.43.0 block') }
   if ($b43 -match 'nothing reaches you') { $fails.Add('Get-DownstreamBlock bled into a later section') }
   if ($b43 -match 'something') { $fails.Add('Get-DownstreamBlock swallowed prose after the blockquote') }
   if ((Get-DownstreamBlock $sampleChangelog '0.42.0') -ne '') { $fails.Add('Get-DownstreamBlock invented a block for a version that has none') }
 
-  # 4. the ledger high-water mark wins over provenance, and a skipped row still counts as evaluated.
   $ledger = @'
 <!-- SCAFFOLD-SYNC-LEDGER -->
 
@@ -409,7 +397,6 @@ body with no downstream block at all
   if ((Get-SyncedVersion $ledger '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion ignored the newest ledger row') }
   if ((Get-SyncedVersion '' '0.30.0') -ne '0.30.0') { $fails.Add('Get-SyncedVersion did not fall back to provenance on an empty ledger') }
 
-  # 4b. A ledger-shaped row above the sentinel is not part of the ledger.
   $decoyAbove = @'
 | v0.99.0 | applied | decoy above the ledger |
 <!-- SCAFFOLD-SYNC-LEDGER -->
@@ -419,7 +406,6 @@ body with no downstream block at all
 '@
   if ((Get-SyncedVersion $decoyAbove '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion read a row above the ledger sentinel (#201)') }
 
-  # 4c. A release mentioned in a different table below the ledger is not a ledger decision.
   $decoyBelow = @'
 <!-- SCAFFOLD-SYNC-LEDGER -->
 | version | decision | reason |
@@ -431,7 +417,6 @@ body with no downstream block at all
 '@
   if ((Get-SyncedVersion $decoyBelow '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion read a non-ledger row below the sentinel (#201)') }
 
-  # 4d. Missing sentinel fails closed to the provenance floor.
   $noSentinel = @'
 | version | decision | reason |
 |---|---|---|
@@ -439,7 +424,6 @@ body with no downstream block at all
 '@
   if ((Get-SyncedVersion $noSentinel '0.30.0') -ne '0.30.0') { $fails.Add('Get-SyncedVersion accepted a table with no ledger sentinel (#201)') }
 
-  # 4e. A version-first row without an allowed decision makes the ledger invalid.
   $versionFirstDecoy = @'
 <!-- SCAFFOLD-SYNC-LEDGER -->
 | version | decision | reason |
@@ -447,9 +431,10 @@ body with no downstream block at all
 | v0.42.0 | skipped | settled locally |
 | v0.99.0 | 2026-09-09 | release history, not a decision |
 '@
-  try { $null = Get-SyncedVersion $versionFirstDecoy '0.30.0'; $fails.Add('Get-SyncedVersion ignored a version-first malformed decision (#201)') } catch { }
+  $badRowError = ''
+  try { $null = Get-SyncedVersion $versionFirstDecoy '0.30.0' } catch { $badRowError = $_.Exception.Message }
+  if ($badRowError -notmatch '^\[FLEET-LEDGER-INVALID\].*non-canonical decision') { $fails.Add('Get-SyncedVersion did not reject the exact malformed decision class (#201)') }
 
-  # 4f. Only one exact whole-line marker opens the ledger; prose mentions and duplicates cannot.
   $productionPreamble = @'
 This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
 | v0.99.0 | applied | preamble decoy |
@@ -459,11 +444,13 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
 | v0.42.0 | partial | settled |
 | v0.41.0 | applied | settled |
 '@
-  if ((Get-SyncedVersion $productionPreamble '0.30.0' @('v0.41.0','v0.42.0')) -ne '0.42.0') { $fails.Add('Get-SyncedVersion accepted a production-preamble decoy before the exact marker') }
+  $composedSynced = Get-SyncedVersion $productionPreamble '0.30.0' @('v0.41.0','v0.42.0','v0.43.0')
+  if ($composedSynced -ne '0.42.0') { $fails.Add('Get-SyncedVersion accepted a production-preamble decoy before the exact marker') }
+  $composedState = Get-ScaffoldStaleState 'https://github.com/Asun28/project.git' 'Asun28/claude-devops-scaffold' @('v0.41.0','v0.42.0','v0.43.0') $composedSynced
+  if ($composedState.Status -ne 'behind' -or $composedState.Latest -ne '0.43.0') { $fails.Add('production ledger/tag composition did not report the first undecided release as behind') }
   $duplicateMarker = $productionPreamble + "`n<!-- SCAFFOLD-SYNC-LEDGER -->"
   try { $null = Get-SyncedVersion $duplicateMarker '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion accepted duplicate exact markers') } catch { }
 
-  # 4g. Every locally available release needs one canonical decision; gaps/malformed/duplicates fail closed.
   $badDecision = $productionPreamble.Replace('| v0.41.0 | applied |', '| v0.41.0 | deferred |')
   try { $null = Get-SyncedVersion $badDecision '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion ignored a malformed decision') } catch { }
   $gap = $productionPreamble -replace '(?m)^\| v0\.41\.0 \| applied \| settled \|\r?\n?', ''
@@ -471,15 +458,25 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
   $duplicateRow = $productionPreamble + "`n| v0.42.0 | skipped | duplicate |"
   try { $null = Get-SyncedVersion $duplicateRow '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion ignored a duplicate release decision') } catch { }
 
-  # 5. Public report gate scans title and body, and -Send fails closed without scanner/config trust.
   $fakeScanner = { param($line) if ($line -match 'TOKEN') { 'fake-secret' } }
   if (@(Get-ScaffoldIssueSecretHit 'TOKEN-in-title' 'safe body' $fakeScanner).Count -ne 1) { $fails.Add('report secret scan missed the public title') }
   if (@(Get-ScaffoldIssueSecretHit 'safe title' "safe`nTOKEN-in-body" $fakeScanner).Count -ne 1) { $fails.Add('report secret scan missed the public body') }
   if (Test-ScaffoldReportMaySend $false 0 '') { $fails.Add('report -Send allowed an unavailable scanner') }
   if (Test-ScaffoldReportMaySend $true 0 'malformed config') { $fails.Add('report -Send allowed a malformed configuration') }
   if (-not (Test-ScaffoldReportMaySend $true 0 '')) { $fails.Add('report -Send rejected trusted clean input') }
+  if (Test-ScaffoldReportComplete 'title' 'summary' '' 'surface') { $fails.Add('report -Send accepted a missing reproduction') }
+  if (-not (Test-ScaffoldReportComplete 'title' 'summary' 'repro' 'surface')) { $fails.Add('report field gate rejected complete input') }
 
-  # 6. Probe state is hermetic: self-repo/no-tags/current/behind are distinct and deterministic.
+  $realLedger = Get-Content $LedgerDoc -Raw
+  $realV44 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.44\.0 \| partial \|' })
+  if ((Get-SyncedVersion $realLedger $LocalVersion) -ne '0.44.0' -or $LocalVersion -cne '0.29.0' -or $realV44.Count -ne 1 -or $realV44[0] -notmatch '31 live-card' -or $realV44[0] -notmatch 'seven shared-core' -or $realV44[0] -notmatch 'handoff') { $fails.Add('real v0.44 partial ledger row or 0.29.0 provenance drifted') }
+  $legacyConfig = Join-Path ([IO.Path]::GetTempPath()) "scaffold-legacy-config-$PID.ps1"
+  try {
+    Set-Content $legacyConfig "function Get-ScaffoldVersion { '0.29.0' }" -Encoding utf8
+    $legacy = Resolve-ScaffoldConfiguration $legacyConfig 'Asun28/claude-devops-scaffold'
+    if ($legacy.Error -or $legacy.Version -cne '0.29.0' -or $legacy.Upstream -cne 'Asun28/claude-devops-scaffold') { $fails.Add('legacy config without Get-ScaffoldUpstreamRepo did not retain canonical defaults') }
+  } finally { Remove-Item $legacyConfig -Force -ErrorAction SilentlyContinue }
+
   $localOrigin = 'https://github.com/Asun28/project.git'; $upstream = 'Asun28/claude-devops-scaffold'
   if ((Get-ScaffoldStaleState "https://github.com/$upstream.git" $upstream @() '0.42.0').Status -ne 'self') { $fails.Add('scaffold-stale did not suppress the upstream repository itself') }
   if ((Get-ScaffoldStaleState $localOrigin $upstream @() '0.42.0').Status -ne 'no-tags') { $fails.Add('scaffold-stale no-tags fixture failed') }
@@ -522,19 +519,9 @@ $UpstreamRefNs = 'refs/scaffold-tags'
 $LedgerDoc     = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
 
 # _config is optional: an unconfigured or partially configured tree still runs (graceful degradation).
-$UpstreamRepo = 'Asun28/claude-devops-scaffold'; $LocalVersion = 'unknown'; $ConfigLoadError = ''
 $configPath = Join-Path $PSScriptRoot '_config.ps1'
-if (Test-Path $configPath) {
-  try {
-    . $configPath
-    if (Get-Command Get-ScaffoldVersion -CommandType Function -ErrorAction SilentlyContinue) { $LocalVersion = Get-ScaffoldVersion }
-    # Legacy generated trees may predate this optional key/getter; absence keeps the canonical upstream default.
-    if (Get-Command Get-ScaffoldUpstreamRepo -CommandType Function -ErrorAction SilentlyContinue) {
-      $configured = Get-ScaffoldUpstreamRepo
-      if ($configured) { $UpstreamRepo = $configured }
-    }
-  } catch { $ConfigLoadError = $_.Exception.Message }
-}
+$resolvedConfig = Resolve-ScaffoldConfiguration $configPath 'Asun28/claude-devops-scaffold'
+$UpstreamRepo = $resolvedConfig.Upstream; $LocalVersion = $resolvedConfig.Version; $ConfigLoadError = $resolvedConfig.Error
 
 switch ($Verb) {
   'check'     { Invoke-Check -Remote $Remote -Fetch:$Fetch }

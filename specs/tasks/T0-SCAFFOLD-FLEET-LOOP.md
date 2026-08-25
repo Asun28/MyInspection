@@ -35,11 +35,11 @@ acceptance:
   - "A1 账域上界：sentinel 上方放一条形如 | v0.99.0 | applied | ... | 的合法账行，Get-SyncedVersion 仍精确返回账内 v0.42.0"
   - "A2 账域下界：sentinel 下方另表第二列提及 v0.99.0，Get-SyncedVersion 仍精确返回账内 v0.42.0"
   - "A3 缺 sentinel fail-closed：只有 v0.99.0 applied 表但无 sentinel 时精确回退 provenance 0.30.0"
-  - "A4 行形：sentinel 下方以 v0.99.0 开头但第二列是日期而非 applied/partial/skipped 时精确返回账内 v0.42.0"
+  - "A4 行形：sentinel 下方以 v0.99.0 开头但第二列是日期而非 applied/partial/skipped 时以 [FLEET-LEDGER-INVALID] fail-closed"
   - "A5 真实决策账：v0.44.0 行为 partial 且点名已取 sync-ledger 组、三组 deferred 与各自本地理由；ScaffoldVersion 仍精确为 0.29.0"
   - "A6 探针清单：selftest core 的 14g② 对五处枚举面逐一比对，11 枚探针均在场且 docs/HARNESS-REVIEW.md 与 docs/scaffold-architecture.html 都点名 scaffold-stale"
   - "A7 决策账只认唯一整行 marker 与 canonical decision；本地 tag 缺行、坏 decision、重复版本均 fail-closed"
-  - "A8 公共 report 同扫标题/正文；scanner 不可用、命中 secret 或配置解析失败时 -Send 必拦，旧配置缺可选 getter 仍兼容"
+  - "A8 公共 report 同扫标题/正文；字段不全、scanner 不可用、命中 secret 或配置解析失败时 -Send 必拦，旧配置缺可选 getter 仍兼容"
   - "A9 scaffold-stale 的 self-repo/no-tags/current/behind 四态、DESCRIPTION 与末行调用锚定、for-each-ref→fetch 变异均有 hermetic 断言"
 review_gate: codex {verdict:pass}
 hygiene: v0.44.0 四枚账域负例已先红后绿；删除 sentinel 状态门、决策枚举判断或首列版本解析中的任一条，至少一枚夹具转红；真实账无行时仍回退溯源戳 0.29.0
