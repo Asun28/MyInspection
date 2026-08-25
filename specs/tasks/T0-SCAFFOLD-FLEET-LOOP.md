@@ -14,6 +14,9 @@ allow_paths:
   - docs/SCAFFOLD-SYNC.md
   - docs/LOOP-ENGINEERING.md
   - docs/DELIVERY-CHAINS.md
+  # Reference-only teaching surfaces for future harness changes; they do not add product coding requirements.
+  - docs/HARNESS-REVIEW.md
+  - docs/scaffold-architecture.html
   - .claude/skills/triage/SKILL.md
   - CLAUDE.md
   - specs/tasks/T0-SCAFFOLD-FLEET-LOOP.md
