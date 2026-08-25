@@ -5014,6 +5014,104 @@ if (Test-Path $triageForCount) {
   }
 }
 
+# 14g. L97 权威面一致性（两条枚举断言）：本仓每次改「所有面都在教的那条规则」，都是靠人 grep 出全部权威面，
+#   漏一处就多打一轮 R3。这两条断言把那次 grep 变成常设闸——漏改任一面即红，L97 的扫齐遂不再是一次性动作。
+#   ① 教「封顶计量单位」的面：不得再出现「封顶 N 条 / 封顶条数 / 条数上限」这类**按条目**的旧口径，
+#      且必须正面出现「驻留…id」——只做负断言的话，把那句整段删掉也能过。
+#   ② 列「探针清单」的面：各自枚举的探针名个数须等于 triage.ps1 里 Invoke-Probe* 函数的**实际**个数。
+$capUnitSurfaces = @('docs/LESSONS.md', '.claude/skills/lessons/SKILL.md', 'scripts/_config.ps1', 'scripts/lessons.ps1', 'scripts/triage.ps1', 'CLAUDE.md')
+$staleCapUnitRe = '封顶\s*(?:\*\*)?\s*[0-9N]+\s*条|封顶条数|条数上限|必须层\s*(?:≤|<=)\s*上限'
+$capUnitSkipBefore = $skippedSelftestChecks.Count
+foreach ($rel in $capUnitSurfaces) {
+  $p = Join-Path $RepoRoot $rel
+  if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14g(cap-unit/$rel)" -Reason 'FILE-MISSING' -Message "  14g：$rel 不存在，跳过。"; continue }
+  $raw = Get-Content $p -Raw
+  if ($raw -match $staleCapUnitRe) { Fail "14g①：$rel 仍在教被废止的**按条目**封顶口径（命中「$($Matches[0])」）——单位是驻留的经验 id，一条承载多个 id 的 bullet 算多条。" }
+  elseif ($raw -notmatch '(?i)驻留[^\r\n]{0,10}id') { Fail "14g①：$rel 没有正面写出「驻留…id」这个计量单位——只删掉旧口径不算改对，读者仍不知道按什么计。" }
+}
+if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $capUnitSkipBefore -SkipCountAfter $skippedSelftestChecks.Count) {
+  Write-Host "  14g① 封顶计量单位一致（$($capUnitSurfaces.Count) 处权威面皆按驻留 id、无按条目残留）OK" -ForegroundColor Green
+}
+if (Test-Path $triageForCount) {
+  $probeRosterSkipBefore = $skippedSelftestChecks.Count
+  $triageRaw14g = Get-Content $triageForCount -Raw
+  # 真相源用**函数定义**，与 14a 的注释标记、14d 的 Add-Finding 名各自独立；三者先互核，再拿去比文档。
+  $probeFnCount = @([regex]::Matches($triageRaw14g, '(?m)^function\s+Invoke-Probe\w*\s*\{')).Count
+  if ($probeFnCount -lt 1) { Fail '14g②：无法从 triage.ps1 机数 Invoke-Probe* 函数定义（命名形态漂移？）。' }
+  elseif ($probeCount -ge 1 -and $probeFnCount -ne $probeCount) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ 「# ── 探针 N」标记 $probeCount 个——triage.ps1 自身先对不齐。" }
+  elseif ($probeNames.Count -ge 1 -and $probeFnCount -ne $probeNames.Count) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ Add-Finding 探针名 $($probeNames.Count) 个——有探针不上报或有名字没有函数。" }
+  else {
+    # Parse each authoritative roster itself, not the whole file: every one also discusses some probe names
+    # elsewhere, so a full-file substring search survives deletion from the actual roster.
+    function Get-ProbeRosterSpan([string[]]$Lines, [string]$StartPattern, [string]$EndPattern, [string]$Label) {
+      $starts = @(0..($Lines.Count - 1) | Where-Object { $Lines[$_] -match $StartPattern })
+      if ($starts.Count -ne 1) { throw "$Label start anchor count=$($starts.Count), expected 1" }
+      if (-not $EndPattern) { return $Lines[$starts[0]] }
+      $ends = @($starts[0]..($Lines.Count - 1) | Where-Object { $Lines[$_] -match $EndPattern })
+      if ($ends.Count -ne 1 -or $ends[0] -lt $starts[0]) { throw "$Label end anchor count=$($ends.Count), expected 1 after start" }
+      return ($Lines[$starts[0]..$ends[0]] -join "`n")
+    }
+    function Get-ProbeRosterNames([string]$Text, [string]$Mode) {
+      $tokenPattern = if ($Mode -ceq 'code') {
+        '(?<=`)[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?=`)'
+      } else {
+        '(?<![a-z0-9-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![a-z0-9-])'
+      }
+      return @([regex]::Matches($Text, $tokenPattern) | ForEach-Object Value | Sort-Object)
+    }
+    $rosterSpecs = @(
+      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*severity=blocking'; Mode='code' },
+      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*退出码恒'; Mode='code' },
+      @{ Rel='docs/DELIVERY-CHAINS.md'; Start='^\|\s*心跳\s*/\s*triage'; End=''; Mode='plain'; Body='子系统（(?<body>[^）]+)）→' },
+      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+10\s+探针'; End=''; Mode='plain'; Body='10\s+探针（(?<body>[^）]+)）→' },
+      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另五枚.*\x60delivery-blocked\x60'; Mode='code' }
+    )
+    foreach ($spec in $rosterSpecs) {
+      $rel = $spec.Rel
+      $p = Join-Path $RepoRoot $rel
+      if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14g(roster/$rel)" -Reason 'FILE-MISSING' -Message "  14g：$rel 不存在，跳过。"; continue }
+      try { $roster = Get-ProbeRosterSpan -Lines @(Get-Content $p) -StartPattern $spec.Start -EndPattern $spec.End -Label $rel }
+      catch { Fail "14g②：$rel 的权威探针清单边界不可唯一解析：$($_.Exception.Message)"; continue }
+      $rosterBody = $roster
+      if ($spec.ContainsKey('Body')) {
+        $bodyMatches = @([regex]::Matches($roster, $spec.Body))
+        if ($bodyMatches.Count -ne 1) { Fail "14g②：$rel 的权威探针清单正文边界命中 $($bodyMatches.Count) 次，期望 1。"; continue }
+        $rosterBody = $bodyMatches[0].Groups['body'].Value
+      }
+      $listed = @(Get-ProbeRosterNames -Text $rosterBody -Mode $spec.Mode)
+      if (($listed -join ',') -cne (@($probeNames | Sort-Object) -join ',')) {
+        $missing = @($probeNames | Where-Object { $listed -cnotcontains $_ })
+        $extra = @($listed | Where-Object { $probeNames -cnotcontains $_ })
+        Fail "14g②：$rel 的权威清单枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')；多列/陈旧：$($extra -join ', ')。"
+      }
+      # Fifty cheap deletion mutations (five rosters × ten names): each removal must be visible even when the
+      # same name appears elsewhere in that file. This is the regression proof for the bounded parser above.
+      foreach ($probeName in $probeNames) {
+        $namePattern = '(?<![a-z0-9-])' + [regex]::Escape($probeName) + '(?![a-z0-9-])'
+        $mutant = ([regex]::new($namePattern)).Replace($rosterBody, '', 1)
+        $mutantNames = @(Get-ProbeRosterNames -Text $mutant -Mode $spec.Mode)
+        if ($mutant -ceq $roster -or $mutantNames -ccontains $probeName -or $mutantNames.Count -ne ($probeFnCount - 1)) {
+          Fail "14g②(mut/$rel/$probeName)：从权威清单单删该探针后，边界解析未精确少 1 枚（实得 $($mutantNames.Count)）。"
+        }
+      }
+      $extraToken = if ($spec.Mode -ceq 'code') { ' `stale-probe`' } else { ' stale-probe' }
+      $extraMutantNames = @(Get-ProbeRosterNames -Text ($rosterBody + $extraToken) -Mode $spec.Mode)
+      if ($extraMutantNames.Count -ne ($probeFnCount + 1) -or $extraMutantNames -cnotcontains 'stale-probe') {
+        Fail "14g②(mut/$rel/stale-extra)：权威清单新增未知探针 stale-probe 后未被解析为第 $($probeFnCount + 1) 枚（实得 $($extraMutantNames.Count)）。"
+      }
+      $duplicateName = $probeNames[0]
+      $duplicateToken = if ($spec.Mode -ceq 'code') { " ``$duplicateName``" } else { " $duplicateName" }
+      $duplicateMutantNames = @(Get-ProbeRosterNames -Text ($rosterBody + $duplicateToken) -Mode $spec.Mode)
+      if ($duplicateMutantNames.Count -ne ($probeFnCount + 1) -or @($duplicateMutantNames | Where-Object { $_ -ceq $duplicateName }).Count -ne 2) {
+        Fail "14g②(mut/$rel/duplicate)：权威清单重复探针 $duplicateName 后未保留两次出现（总数 $($duplicateMutantNames.Count)）。"
+      }
+    }
+    if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeRosterSkipBefore -SkipCountAfter $skippedSelftestChecks.Count) {
+      Write-Host "  14g② 探针清单一致（真相源 = $probeFnCount 个 Invoke-Probe* 函数，与标记数/Add-Finding 名数互核后，5 处枚举面逐一比对）OK" -ForegroundColor Green
+    }
+  }
+}
+
 # 14c. lens 计数一致性：从 workflow 源（真相源）机数，反查工作流+docs 里的计数字面量。
 #   治本「7-vs-8 lens」这类漂移——plan-forge 的 lens 散落多份 docs，
 #   加 lens 时易漏改字面量；此处从 .mjs 的 key: 条目机数，断言相关文件含正确计数字面量（缺即漂移）。
