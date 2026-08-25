@@ -1272,12 +1272,24 @@ process.stdout.write(JSON.stringify({'fixture-app-dep@1.0.0': {licenses: 'MIT'}}
       $env:npm_config_cache = $handoffCache
       $env:npm_config_offline = 'true'
       $env:LICENSE_CHECKER_HANDOFF_MARKER = $handoffMarker
-      $handoffLockOutput = (& npm install --prefix $handoffFrontend --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | Out-String)
-      $handoffLockExit = $LASTEXITCODE
-      $handoffCiOutput = if ($handoffLockExit -eq 0) { (& npm ci --prefix $handoffFrontend --ignore-scripts --no-audit --no-fund 2>&1 | Out-String) } else { '' }
-      $handoffCiExit = if ($handoffLockExit -eq 0) { $LASTEXITCODE } else { $handoffLockExit }
-      $handoffInstallOutput = if ($handoffCiExit -eq 0) { (& npm install --prefix $handoffRoot --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String) } else { '' }
-      $handoffInstallExit = if ($handoffCiExit -eq 0) { $LASTEXITCODE } else { $handoffCiExit }
+      # Windows runners intermittently resolved `npm install --prefix <temp>` from the caller's repository cwd.
+      # Enter each intended package root instead, so npm's discovery scope and the later removal proof are identical.
+      Push-Location $handoffFrontend
+      try {
+        $handoffLockOutput = (& npm install --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | Out-String)
+        $handoffLockExit = $LASTEXITCODE
+        $handoffCiOutput = if ($handoffLockExit -eq 0) { (& npm ci --ignore-scripts --no-audit --no-fund 2>&1 | Out-String) } else { '' }
+        $handoffCiExit = if ($handoffLockExit -eq 0) { $LASTEXITCODE } else { $handoffLockExit }
+      } finally {
+        Pop-Location
+      }
+      Push-Location $handoffRoot
+      try {
+        $handoffInstallOutput = if ($handoffCiExit -eq 0) { (& npm install --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String) } else { '' }
+        $handoffInstallExit = if ($handoffCiExit -eq 0) { $LASTEXITCODE } else { $handoffCiExit }
+      } finally {
+        Pop-Location
+      }
       $handoffResult = if ($handoffLockExit -eq 0 -and $handoffCiExit -eq 0 -and $handoffInstallExit -eq 0) {
         Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
       } else { [pscustomobject]@{ ExitCode = $handoffInstallExit; Output = $handoffInstallOutput } }
