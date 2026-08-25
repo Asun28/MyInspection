@@ -156,6 +156,11 @@ $script:ScaffoldConfig = @{
   #   `## [x.y.z] - YYYY-MM-DD`（selftest 闸 ⑧ 8.0c 强制：顶条目须 == 本字段）；③ 合并后打 git tag `vx.y.z` 并推送
   #   （下游据 tag + CHANGELOG 回填，见 TEMPLATE-README「升级已 init 的下游」）。selftest 闸 ⑧ 校验格式并验证戳入下游。
   ScaffoldVersion = '0.29.0'
+
+  # ── 上游脚手架仓库（fleet 双向回路）──：scaffold-sync.ps1 据此取 release tag 与 CHANGELOG、
+  # 并在 report 时把元层缺陷反哺回该仓。留空 '' => 各调用方回退到自带默认地址。
+  # fork 了脚手架就改指自己那份（真正维护本项目的那个）。
+  UpstreamRepo = 'Asun28/claude-devops-scaffold'
 }
 
 # 便捷解析：取 ProjectName（留空则回退仓库目录名）。$RepoRoot 由调用方传入。
@@ -179,6 +184,15 @@ function Get-ScaffoldVersion {
   $v = $script:ScaffoldConfig.ScaffoldVersion
   if (-not $v) { return 'unknown' }
   return $v
+}
+
+# 便捷解析：取上游脚手架仓库（fleet 回路）。ContainsKey 守卫：旧 _config（未含该键）在
+# StrictMode 下直接取键会抛——缺失或留空均返回 ''，调用方自行回退。
+function Get-ScaffoldUpstreamRepo {
+  if (-not $script:ScaffoldConfig.ContainsKey('UpstreamRepo')) { return '' }
+  $r = $script:ScaffoldConfig.UpstreamRepo
+  if (-not $r) { return '' }
+  return $r
 }
 
 # 便捷解析：取开发 worktree 根。配置非空即用之；留空则按 OS 取默认（可移植：mac/Linux 不再吃 D:\ 盘符）。

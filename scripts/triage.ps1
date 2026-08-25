@@ -22,6 +22,7 @@
     - worktree-orphan : WorktreeRoot 下卡已 merged 却没拆的残留 worktree（cleanup 漏跑 / 半合并遗留，TD3）
     - lessons-demote  : 必须层里已被确定性守卫覆盖的**驻留经验 id**——每轮上下文换来的是机器已在做的事（上游 issue #183 的逆向半）
     - delivery-blocked: 在飞卡坐在一份 R3 block 裁决上却没人接回注意力（**唯一读交付状态的探针**，上游 issue #185）
+    - scaffold-stale  : 本地已取到的上游脚手架 tag 尚有未逐版裁决者（离线，只提示显式 check -Fetch）
   每信号产出一条 finding（severity + 一行 what + 建议的下一步命令），汇成 markdown 收件箱。
   **只发现、不行动**：绝不写仓内被跟踪文件、绝不 git/gh 写操作；act 走既有交付链
   （task-loop skill / lessons promote / 开卡偿还 / handoff check）。退出码恒 0（reporter，非闸门）。
@@ -431,6 +432,48 @@ function Invoke-ProbeDeliveryBlocked {
   }
 }
 
+# ── 探针 12：scaffold-stale（落后上游脚手架几版；上游 v0.42.0 的 fleet 回路）──
+# 只读**已经取到本地**的 ref 与决策账，**绝不 fetch**——完整保住「心跳只读、离线、确定性」这条刻意不变量；
+# 刷新归显式的 `scaffold-sync.ps1 check -Fetch`。落后恒为**意见**、不进 ship：落后于脚手架不是停止交付本项目的理由。
+function Invoke-ProbeScaffoldStale {
+  $upstream = ''
+  try { $upstream = Get-ScaffoldUpstreamRepo } catch { return }
+  if (-not $upstream) { return }
+
+  try { . (Join-Path $PSScriptRoot 'scaffold-sync.ps1') -AsLibrary } catch { return }
+
+  # 元仓不把自己报成落后于自己。
+  $originUrl = & git -C $RepoRoot remote get-url origin 2>$null
+  if ($LASTEXITCODE -ne 0) { $originUrl = '' }
+  if ((Get-ScaffoldStaleState $originUrl $upstream @() '').Status -eq 'self') { return }
+
+  $tags = @()
+  $raw = & git -C $RepoRoot for-each-ref "--format=%(refname:strip=2)" 'refs/scaffold-tags/' 2>$null
+  if ($LASTEXITCODE -eq 0 -and $raw) { $tags = @($raw | Where-Object { $_ }) }
+
+  $ledgerPath = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
+  $ledgerText = if (Test-Path $ledgerPath) { Get-Content $ledgerPath -Raw } else { '' }
+  $provenance = 'unknown'
+  try { $provenance = Get-ScaffoldVersion } catch { }
+  try { $synced = Get-SyncedVersion $ledgerText $provenance $tags } catch {
+    Add-Finding 'scaffold-stale' 'major' $_.Exception.Message '修 docs/SCAFFOLD-SYNC.md 决策账后重跑 pwsh -File scripts\scaffold-sync.ps1 check'
+    return
+  }
+
+  $state = Get-ScaffoldStaleState $originUrl $upstream $tags $synced
+  if ($state.Status -eq 'no-tags') {
+    Add-Finding 'scaffold-stale' 'minor' `
+      "本地没有任何上游脚手架 tag——本项目从未去 $upstream 看过有哪些修复可以回填。" `
+      'pwsh -File scripts\scaffold-sync.ps1 check -Fetch'
+    return
+  }
+  if ($state.Status -eq 'behind') {
+    $syncedLabel = if (ConvertTo-ScaffoldVersion $synced) { "v$synced" } else { '一个未登记的基线' }
+    Add-Finding 'scaffold-stale' 'major' `
+      "$($state.Behind.Count) 个上游脚手架版本尚未议过（$syncedLabel -> v$($state.Latest)）。每一版都是「拿或写清为什么不拿」——跳过是正当决定，不登记不是。" `
+      'pwsh -File scripts\scaffold-sync.ps1 check'
+  }
+}
 function Select-ScaffoldCurrentVerdicts {
   param(
     [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Candidates,
@@ -997,6 +1040,7 @@ Invoke-ProbeEffectiveness
 Invoke-ProbeOrphanWorktree
 Invoke-ProbeLessonsDemote
 Invoke-ProbeDeliveryBlocked
+Invoke-ProbeScaffoldStale
 
 $order = @{ blocking = 0; major = 1; minor = 2 }
 $sorted = $findings | Sort-Object @{ Expression = { $order[$_.severity] } }, probe
