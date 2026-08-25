@@ -23,7 +23,7 @@ dod_exit: 0
 dod_assert: actual-root 敏感/不敏感夹具证明证据身份；同来源冲突必选 block；不同 root 使用不同 SHA 且 review→triage 精确绑定被测；相关证据 unreadable/unknown 时仍 exit 0 但产出明确 finding；删除任一守卫时自检必红
 review_gate: codex {verdict:pass}
 hygiene: 从 PR #137 的 exact extraction 独立承接；复用既有 triage selfcheck，不建平行测试文件
-doc_sync: none（探针名称、数量与用户命令不变，仅修裁决证据身份）
+doc_sync: none（探针名称、数量与用户命令不变；仅修裁决证据身份、per-root HEAD 绑定与静默失败可观测性）
 ---
 
 # T0-TRIAGE-EVIDENCE-CASE
