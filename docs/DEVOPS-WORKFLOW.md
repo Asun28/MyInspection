@@ -32,6 +32,8 @@
 | **R5 文档同步** | 合并后立刻更新 CLAUDE.md/README/卡片 status；每卡 `doc_sync` 字段 + cleanup 阶段提醒（**建议性**——非机检字段，靠流程 + 评审兜底）。**效率约定（见 L123）**：R5 doc-sync（卡 status→merged、TD→paid、指针填 PR#）+ R5.5 lessons **默认写进 ship PR 本体**（一 PR / 一评审 / 一 CI，免每特性双 PR）；只有真·合并后事实（如 squash SHA）或并发撞号被迫拆分，才另开 follow-up PR |
 | **R5.5 复盘（经验回流）** | **闭环最后一拍**：doc-sync/cleanup 之后做一次极简复盘——本卡若踩过会复发的非平凡坑（工具链/判断），`lessons.ps1 add` 入账、`blocking` 当场 `promote`，没有就显式跳过。与开场的经验检索（recall）对称，闭合自净化经验回路；门槛/时机的真相源见 `docs/LESSONS.md`「接入 task-loop」（**建议性**——非机检，靠流程 + `lessons` skill 触发兜底） |
 
+**真实 diff 预算是 push / 开 PR / R3 之前的硬闸**：`ship` 用 `review.ps1 -SizeOnly` 对 pinned `base...HEAD` 计算 `additions+deletions <= 1000` 且未截断 unified diff `<= 60000` 字符，任一超限即 `[R3-DIFF-TOO-LARGE]`，不 push、不开 PR、不消费 reviewer round。`allow_paths` 的条目数只在建卡期提示共享面与所有权——目录前缀可覆盖大量文件、单个脚本也能产生巨大 diff，故它**不是**规模证明。超限卡必须拆成有依赖的 1→N 卡，不能扩 `allow_paths` 或提高 CLI 参数绕过；`MaxChangedLines`/`MaxDiffChars` 只允许收紧。
+
 ## 2. 仓库托管：真实 GitHub PR
 
 - 私有仓库；有 Pro 则 main 规则集要求 **PR + 必需检查 `verify`+`codex-review`**；仅 squash、合并后删分支。
