@@ -117,6 +117,23 @@
 ## 5. 核验流程（每次加依赖）
 1. 跑 `pwsh -File scripts\check-licenses.ps1`（扫描后端 venv、前端 node_modules 及 Gradle 四张已解析 classpath；
    命中禁列、Gradle 元数据未知或解析失败均非零退出）。
+   Scanner 自身或 CI 接线变更须再跑 `pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite integration`；
+   它串行聚合 graph/policy/diagnostics/gav-bounds 四个专用套件，并对真实仓执行 `-Strict` 扫描、确认
+   `org.testng:testng` 被逐坐标报告。CI 里 License gate 步骤排在 JDK/Android/Gradle setup 与在线 cache
+   warm-up **之后**（该顺序由上述套件的 `[INTEGRATION-CI-ORDER-SEQUENCE]` 断言机检）；但那四步另有
+   `hashFiles('android/gradlew.bat') != ''` 条件，该文件缺席时它们不执行、License gate 仍会跑并独立发现
+   Gradle 清单：确无清单才只余 PyPI/npm；有清单但 wrapper/缓存不可用则以 `GRADLE-WRAPPER-OFFLINE`
+   fail-closed。CI 先安装精确版本 `uv==0.7.9`，再在独立在线步骤以精确版本
+   `pip-licenses==5.5.5` / `license-checker@25.0.1` 预热工具：
+   uv 使用仅供该 job 的版本化 `UV_CACHE_DIR`，且预热与闸门复用同一目录；npm 工具安装在仓根
+   `node_modules`，与扫描器的仓根 cwd 一致，因此离线 `npx` 可确定性解析预热版本；若有
+   `frontend/package.json`，还必须有 lockfile，并先以 `npm ci --prefix frontend --ignore-scripts --no-audit --no-fund`
+   安装锁定的应用依赖树。缺 lockfile、`frontend/node_modules` 或任一安装失败均不得进入假绿扫描。
+   真实 uv 的空缓存预热→离线扫描交接证明只由该在线步骤调用 `-Suite provision-handoff`；常规
+   integration / seeded selftest 不运行这条联网证明。
+   License gate 以 `-Strict` 执行，并与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
+   `npm_config_offline=true`，Gradle 继续使用 `--offline --no-daemon`。三种生态在扫描阶段均禁止网络，
+   缓存或工具缺失即 fail-closed；integration 的冷缓存探针会验证工具确实被调用且没有 outbound attempt。
 2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（自动许可扫描不覆盖这些资产）。
 3. Codex 评审闸门会阻断疑似 copyleft/非商用片段。
 4. 真实模型子环境跑 `pip-licenses` **全审**：GPL 硬禁（声明但未 import 的可卸）；LGPL 仅进程隔离/动态可留；UNKNOWN 元数据逐个核实际许可。
