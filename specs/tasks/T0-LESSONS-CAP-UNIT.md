@@ -36,18 +36,22 @@ non_goals:
   - fleet 回路与探针 12 `scaffold-stale`（那是 `T0-SCAFFOLD-FLEET-LOOP`，本卡的下一张）
   - 必须层减法本身（上一张卡 `T0-LESSONS-TIER1-CUT` 已做完）
 acceptance:
-  # 封闭验收集合：以下即本卡「完成」的全部内容。清单内每条须有可证伪测试。
+  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
+  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
+  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
+  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
+  # 的内容，**上游落地前本仓不采用**。
   - "A1 生产路径的计量单位：lessons.ps1 check 对真实 CLAUDE.md 同时断言驻留 id 数 == 9 与承载条目数 == 7，两个数各断言精确值——只断言 id=9 证不出「单位换了」"
-  - "A2 封顶两侧边界：驻留 id 恰好 == LessonsMustCap 出 minor 且文案含「达封顶」，== cap+1 出 major 且文案含「超封顶」，两侧各一枚 hermetic 夹具，阈值取自脚本常量而非字面量"
-  - "A3 旧口径必须在同一夹具下仍绿：夹具的 markdown 条目数 ≤ cap 而驻留 id 数 > cap，且该前提本身有断言（否则夹具证不了新口径）"
-  - "A4 分节解析 fail-closed：CLAUDE.md 里找不到「经验铁律」小节时 Get-ScaffoldMustLayerBullet 不得静默返回 0 条——须以 ASCII 哨兵报错且 lessons.ps1 check 非零退出，一枚改标题的夹具断言之"
+  - "A2 封顶两侧边界：驻留 id 恰好 == cap 出 minor 且文案含「达封顶」，== cap+1 出 major 且文案含「超封顶」，两侧各一枚 hermetic 夹具。夹具内把 cap **注入**成一个小值（免于造 11 个 id），但两侧的 id 数必须由该注入变量算出（cap 与 cap+1），**不得出现 3/4 这类字面量**；生产常量 LessonsMustCap 的取值不参与本夹具，改它不应让本用例变色"
+  - "A3 旧口径必须在同一夹具下仍绿：A2 的**两枚**夹具都须满足「markdown 条目数 ≤ cap」——超封顶那枚驻留 id 数 > cap，达封顶那枚 == cap（不是两枚都 > cap，那与 A2 的 minor 侧自相矛盾）——且该前提本身有断言，否则夹具证不了新口径"
+  - "A4 分节解析 fail-closed：CLAUDE.md 里找不到「经验铁律」小节时，scripts/_lessons.ps1 的分节解析器（本卡内由 Get-ScaffoldMustLayerBullet 更名为 **Get-ScaffoldMustLayerSection**，返回 Found/Reason 以区分「标题没找到」与「小节在、零驻留」）不得静默返回 0 条——须以 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND] 报错且 lessons.ps1 check 非零退出。一枚改标题的负例夹具与一枚「小节在、零驻留」的正例夹具（须仍 PASS）各断言之"
   - "A5 enforced_by 双向四方向：有守卫的 ledger 条不被提名晋升 / 有守卫的 must 条被提名降层 / 显式 none（理由）判为无守卫 / 空字段判为无守卫（不得跨行捕到下一行的值），四条各一断言"
   - "A6 enforced_by 未知取值 fail-closed：TODO / N/A / 待补 这类既非空又非 none 的取值不得被读成「已有守卫」——须与空字段同判，且 lessons.ps1 check 直接拒绝该形态"
   - "A7 批量窗口两侧：候选数恰好 == PromoteBatchSize 时逐条报（断言条数 == N），== N+1 时合成 1 条且文案含 N+1；阈值读脚本常量，-gt 退化成 -ge 即有一侧变红"
   - "A8 delivery-blocked 四态：in-progress+block 报恰 1 条且 severity=blocking、文案含卡 id 与理由条数；in-progress+pass 不报；todo 卡+block 不报；坏 JSON 不抛异常且不报"
   - "A9 主检出取证路径：worktree 侧刻意缺席、只留 仓库根的 .review/ 下与卡 id 同名的 json 时仍报恰 1 条，且文案含该卡 id"
   - "A10 取证路径重合去重：仓库根恰好等于 worktree 根加卡 id 时报恰 1 条，且断言报的就是该卡（what 含 id、path 指向那唯一文件）——只断言条数会把「两条都被归属挡掉」的 0 条与真去重混为一谈"
-  - "A11 去重键的规范化本身：两条路径字符串不等、指向同一文件（一条含 .\\ 段或大小写不同的目录段）时仍只报 1 条；配两枚单句变异——去掉 GetFullPath、把比较器换成 Ordinal——各自让本条变红"
+  - "A11 去重键按**完全限定路径**比较：FileInfo.FullName 本就完全限定且已折叠 . / .. 段，故不再对它二次调用 [IO.Path]::GetFullPath——该调用经十一种路径形态实测为恒等变换（含 8.3 短名、目录联接、UNC、尾分隔符、不同 PSDrive 位置下的相对路径），没有任何变异能杀死它，**本条不为它要求变异**。要证的只有比较器：一枚夹具让两条取证路径的**字符串真不等**（一侧整段大写），并配一枚单句变异——把比较器换成 Ordinal——让本条在大小写不敏感的文件系统上变红。**期望条数按运行 OS 判据分支，见 A12**；本条不写死「只报 1 条」，那在 Linux 上与 A12 要求的 2 条矛盾"
   - "A12 去重键的 OS 语义：路径比较的大小写敏感性按运行 OS 定——Linux 上 a.json 与 A.json 是两份不同裁决须各报一条，Windows 上同名不同壳只报一条；两个断言按 OS 判据分支各跑一次"
   - "A13 归属校验三道各一条：文件名非本卡且 branch 属别人不报 / 文件名恰是卡 id 加 .json 但 branch 属别人不报 / 无 branch 字段且文件名非本卡不报。删 branch 判定使第二条红、删文件名兜底使第三条红"
   - "A14 归属契约有机检：selftest 静态断言 review.ps1 写进裁决的 branch 字段取自 git rev-parse --abbrev-ref HEAD、且字段名为 branch（review.ps1 不在本卡 allow_paths，故只钉断言不改它）"
@@ -65,12 +69,12 @@ acceptance_notes: |
     A7  scripts/triage.ps1 用例 7      A8 用例 4      A9 用例 8      A10 用例 9      A12 用例 9b
     A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
     A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
-  A11 的**偏离**（人裁待办，不自行弱化清单）：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
+  A11 的实现说明：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
     FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item` 传入一条含 `..` 段的路径时，它交出的 FullName
     已无 `..`），故「去掉 GetFullPath」这枚变异**不可能**让任何用例变红，A11 那半条无法成立。已按「不留写不出
     变异的守卫」处理：删掉该恒等调用、键改为 $vf.FullName，并把注释里「Windows 路径大小写不敏感」这句普适宣称
     换成按 OS 取比较器的实际规则。A11 的另一半（大小写不同的目录段仍只报 1 条 + 比较器换 Ordinal 即红）由
-    用例 9b 满足，实测该枚变异击杀。
+    用例 9b 满足，并同时用纯候选列表钉住大小写敏感/不敏感两侧的分组结果。
   A6 的**反方向补洞**（R3 再评审 rr127 的唯一 block，已修）：把 A6 从否定清单改成允许清单时，只覆盖了
     ASCII 占位符，允许清单本身却朝反方向过宽——判定核用 .NET 正则，而 .NET 的 `\w` **认 CJK**，于是
     `[\w.-]{2,}[\\/][\w.-]{2,}` 把任何含斜杠的中文短语读成「仓库路径」（人工/评审、手动/人工核验、
@@ -86,9 +90,7 @@ acceptance_notes: |
     · L908（人工/评审，须晋升）· L909（闸，靠人，须晋升）· L910（gate 讨论，须晋升）· L911（selftest 闸⑯，
     tier ledger 但**有**守卫，不得晋升——钉住「收紧不得连带拒真引用」这一侧）；lessons.ps1 的守卫自检探针
     同步加这五种取值。
-  两处措辞说明（清单逐字保留，不就地改写）：① A4 里的 `Get-ScaffoldMustLayerBullet` 已随本轮更名为
-    `Get-ScaffoldMustLayerSection`（同一枚判定核，多返回 Found/Reason 两个字段，好让「标题没找到」与
-    「小节在、零驻留」可分辨）；② A9/A10/A13 的路径形态已改用中文描述（原先的尖括号记号会触发 check-cards 的占位符启发式），
+  措辞说明：A9/A10/A13 的路径形态已改用中文描述（原先的尖括号记号会触发 check-cards 的占位符启发式），
     check-cards 的占位符启发式会据此发一条 advisory 告警（非阻断，`check-cards: PASS`）。
 dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scripts/triage.ps1 selfcheck) -match 'triage selfcheck: PASS').Count -eq 1) -and (((& pwsh -NoProfile -File scripts/lessons.ps1 check) -match 'id=9').Count -eq 1))) { exit 1 }"
 dod_exit: 0
