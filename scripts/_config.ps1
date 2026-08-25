@@ -137,7 +137,10 @@ $script:ScaffoldConfig = @{
   # 绝不改成让评审者少验。
   ReviewTimeoutSec = 3600
 
-  # 经验系统「必须层」（CLAUDE.md 经验铁律）封顶条数。超限须淘汰最不活跃项回按需层。
+  # 经验系统「必须层」（CLAUDE.md 经验铁律）封顶的**驻留经验 id 数**——不是该小节的 markdown 条目数：
+  # 一条写着 [L190][L193] 的 Markdown bullet 包含 2 个驻留 id、占 2 个封顶单位，封顶要管的是驻留 id，否则
+  # 把几条并进一条 bullet 就能一边合规一边让每轮上下文成本继续涨。判定核 scripts/_lessons.ps1。
+  # 超限须淘汰最不活跃项回按需层。
   LessonsMustCap = 10
 
   # ── 项目规模档位（软提示）──：建议「跳过哪些交付链」，治「小项目被全套流程拖慢」。
