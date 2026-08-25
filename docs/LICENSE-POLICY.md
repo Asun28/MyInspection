@@ -127,6 +127,8 @@
    `pip-licenses==5.5.5` / `license-checker@25.0.1` 预热工具：
    uv 使用仅供该 job 的版本化 `UV_CACHE_DIR`，且预热与闸门复用同一目录；npm 工具安装在仓根
    `node_modules`，与扫描器的仓根 cwd 一致，因此离线 `npx` 可确定性解析预热版本。
+   真实 uv 的空缓存预热→离线扫描交接证明只由该在线步骤调用 `-Suite provision-handoff`；常规
+   integration / seeded selftest 不运行这条联网证明。
    License gate 与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
    `npm_config_offline=true`，Gradle 继续使用 `--offline --no-daemon`。三种生态在扫描阶段均禁止网络，
    缓存或工具缺失即 fail-closed；integration 的冷缓存探针会验证工具确实被调用且没有 outbound attempt。

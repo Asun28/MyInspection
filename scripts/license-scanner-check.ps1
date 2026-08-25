@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds', 'integration')]
+  [ValidateSet('graph', 'policy', 'diagnostics', 'gav-bounds', 'integration', 'provision-handoff')]
   [string]$Suite,
   [string]$ScannerPath = (Join-Path $PSScriptRoot 'check-licenses.ps1'),
   [switch]$SkipMutations,
@@ -23,6 +23,71 @@ try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 +
 if ($SkipRealScan -and $Suite -ne 'integration') {
   Write-Error "[INTEGRATION-SKIPREALSCAN-SCOPE] -SkipRealScan is valid only for -Suite integration (got '$Suite')"
   exit 1
+}
+
+# This suite is intentionally the only network-enabled scanner proof. CI calls it from the online
+# provisioning step; integration/selftest and every production scan remain offline and deterministic.
+if ($Suite -eq 'provision-handoff') {
+  $expectedUvVersion = '0.7.9'
+  $handoffRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-uv-handoff-" + [guid]::NewGuid().ToString('N'))
+  $handoffScripts = Join-Path $handoffRoot 'scripts'
+  $handoffTrapBin = Join-Path $handoffRoot 'trap-bin'
+  $handoffCache = Join-Path $handoffRoot 'uv-cache-5.5.5'
+  $fallbackMarker = Join-Path $handoffRoot 'fallback-invoked.txt'
+  $scannerRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($ScannerPath))
+  $priorPath = $env:PATH
+  $priorUvCache = [Environment]::GetEnvironmentVariable('UV_CACHE_DIR', 'Process')
+  $priorUvOffline = [Environment]::GetEnvironmentVariable('UV_OFFLINE', 'Process')
+  $priorFallbackMarker = [Environment]::GetEnvironmentVariable('UV_HANDOFF_FALLBACK_MARKER', 'Process')
+  try {
+    New-Item -ItemType Directory -Force -Path $handoffScripts, $handoffTrapBin, $handoffCache | Out-Null
+    foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
+      Copy-Item -LiteralPath (Join-Path $scannerRoot $sibling) -Destination (Join-Path $handoffScripts $sibling)
+    }
+    Set-Content -LiteralPath (Join-Path $handoffRoot 'pyproject.toml') -Encoding utf8 -Value "[project]`nname = 'uv-handoff-probe'`nversion = '0.0.0'"
+    Set-Content -LiteralPath (Join-Path $handoffTrapBin 'pip-licenses.ps1') -Encoding utf8 -Value @'
+param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Remaining)
+Set-Content -LiteralPath $env:UV_HANDOFF_FALLBACK_MARKER -Encoding utf8 -Value 'fallback'
+exit 31
+'@
+    $env:PATH = $handoffTrapBin + [System.IO.Path]::PathSeparator + $priorPath
+    $env:UV_CACHE_DIR = $handoffCache
+    $env:UV_HANDOFF_FALLBACK_MARKER = $fallbackMarker
+    Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue
+
+    $uvVersionOutput = (& uv --version 2>&1 | Out-String).Trim()
+    $uvVersionExit = $LASTEXITCODE
+    if ($uvVersionExit -ne 0 -or $uvVersionOutput -notmatch ('^uv ' + [regex]::Escape($expectedUvVersion) + '(?:\s|$)')) {
+      throw "[PROVISION-HANDOFF-UV-VERSION] expected uv $expectedUvVersion, got exit=$uvVersionExit output=[$uvVersionOutput]"
+    }
+
+    Push-Location $handoffRoot
+    try {
+      $warmOutput = (& uv run --with pip-licenses==5.5.5 pip-licenses --version 2>&1 | Out-String)
+      $warmExit = $LASTEXITCODE
+    } finally { Pop-Location }
+    if ($warmExit -ne 0 -or $warmOutput -notmatch '(?m)^pip-licenses 5\.5\.5\s*$') {
+      throw "[PROVISION-HANDOFF-WARM] exact pip-licenses warm-up failed (exit=$warmExit): $warmOutput"
+    }
+
+    $env:UV_OFFLINE = '1'
+    $scanOutput = (& pwsh -NoProfile -File (Join-Path $handoffScripts 'check-licenses.ps1') -Strict 2>&1 | Out-String)
+    $scanExit = $LASTEXITCODE
+    if ($scanExit -ne 0 -or $scanOutput -notmatch '已扫描 PyPI 包' -or (Test-Path -LiteralPath $fallbackMarker)) {
+      throw "[PROVISION-HANDOFF-OFFLINE] warmed cache did not feed the production scanner offline (exit=$scanExit fallback=$([bool](Test-Path -LiteralPath $fallbackMarker))): $scanOutput"
+    }
+    Write-Host 'license-scanner-check(provision-handoff): PASS [online-warm=executed] [offline-scan=executed]'
+    exit 0
+  } catch {
+    Write-Error $_
+    exit 1
+  } finally {
+    $env:PATH = $priorPath
+    if ($null -eq $priorUvCache) { Remove-Item Env:UV_CACHE_DIR -ErrorAction SilentlyContinue } else { $env:UV_CACHE_DIR = $priorUvCache }
+    if ($null -eq $priorUvOffline) { Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue } else { $env:UV_OFFLINE = $priorUvOffline }
+    if ($null -eq $priorFallbackMarker) { Remove-Item Env:UV_HANDOFF_FALLBACK_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_FALLBACK_MARKER = $priorFallbackMarker }
+    if (Test-Path -LiteralPath $handoffRoot) { Remove-Item -LiteralPath $handoffRoot -Recurse -Force }
+  }
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
@@ -801,11 +866,16 @@ if ($Suite -eq 'integration') {
         ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1' -and
         (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path frontend/package.json') -RequiredIfConditions @('Test-Path frontend/package.json'))
       }).Count
+      $handoffProvisionRuns = @($provisionCommands | Where-Object {
+        ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite provision-handoff' -and
+        (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path pyproject.toml') -RequiredIfConditions @('Test-Path pyproject.toml'))
+      }).Count
       if (-not $provisionKeys.Contains('if') -or $provisionKeys['if'] -cne $expectedGateCondition -or
           -not $provisionKeys.Contains('shell') -or $provisionKeys['shell'] -cne 'pwsh' -or
           $provisionUvCaches.Count -ne 1 -or $provisionUvCaches[0] -cne $expectedUvCache -or
-          $provisionErrors.Count -ne 0 -or $uvProvisionRuns -ne 1 -or $npmProvisionRuns -ne 1) {
-        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must execute exact pins under their manifest guards, warm the isolated versioned uv cache, and share the docs-only condition')
+          $provisionErrors.Count -ne 0 -or $uvProvisionRuns -ne 1 -or $npmProvisionRuns -ne 1 -or
+          $handoffProvisionRuns -ne 1) {
+        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must execute exact pins and the real uv handoff suite under their manifest guards, warm the isolated versioned uv cache, and share the docs-only condition')
       }
     }
     if ($stepLine.ContainsKey('E2E verify gate')) {
@@ -922,6 +992,7 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
     @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
     @{ Id = 'ci-provision-npm-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>npm install --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*)$' },
+    @{ Id = 'ci-provision-handoff-deleted'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*pwsh -NoProfile -File scripts/license-scanner-check\.ps1 -Suite provision-handoff[ \t]*\r?\n' },
     @{ Id = 'ci-setup-uv-version-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+Install uv[ \t]*\r?\n.*?^[ \t]*version:[ \t]*["'']?)0\.7\.9(?<tail>["'']?[ \t]*\r?$)' },
     @{ Id = 'ci-provision-uv-cache-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+Provision license scanners \(online cache warm-up\)[ \t]*\r?\n.*?^[ \t]*UV_CACHE_DIR:[ \t]*\$\{\{ runner\.temp \}\}/license-scanner-uv-)5\.5\.5(?<tail>[ \t]*\r?$)' },
     @{ Id = 'ci-gate-uv-cache-drift'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?ms)^(?<head>[ \t]*-[ \t]+name:[ \t]+License gate[ \t]*\r?\n.*?^[ \t]*UV_CACHE_DIR:[ \t]*\$\{\{ runner\.temp \}\}/license-scanner-uv-)5\.5\.5(?<tail>[ \t]*\r?$)' },
@@ -1189,62 +1260,6 @@ process.stdout.write('{}');
       if ($null -eq $priorNpmOfflineHandoff) { Remove-Item Env:npm_config_offline -ErrorAction SilentlyContinue } else { $env:npm_config_offline = $priorNpmOfflineHandoff }
       if ($null -eq $priorHandoffMarker) { Remove-Item Env:LICENSE_CHECKER_HANDOFF_MARKER -ErrorAction SilentlyContinue } else { $env:LICENSE_CHECKER_HANDOFF_MARKER = $priorHandoffMarker }
       if (Test-Path -LiteralPath $handoffRoot) { Remove-Item -LiteralPath $handoffRoot -Recurse -Force }
-    }
-  }
-
-  # Real warm-up → offline handoff proof for Python. CI pins uv itself, so this test requires that exact binary,
-  # warms pip-licenses==5.5.5 into an empty isolated cache, then runs the production scanner's unversioned command
-  # offline against the same cache. A fallback trap proves success came from uv rather than a global pip-licenses.
-  if (-not $SkipMutations) {
-    $uvHandoffRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("license-uv-handoff-" + [guid]::NewGuid().ToString('N'))
-    $uvHandoffScripts = Join-Path $uvHandoffRoot 'scripts'
-    $uvHandoffTrapBin = Join-Path $uvHandoffRoot 'trap-bin'
-    $uvHandoffCache = Join-Path $uvHandoffRoot 'uv-cache-5.5.5'
-    $uvFallbackMarker = Join-Path $uvHandoffRoot 'fallback-invoked.txt'
-    $priorUvHandoffPath = $env:PATH
-    $priorUvHandoffCache = [Environment]::GetEnvironmentVariable('UV_CACHE_DIR', 'Process')
-    $priorUvHandoffOffline = [Environment]::GetEnvironmentVariable('UV_OFFLINE', 'Process')
-    $priorUvHandoffFallback = [Environment]::GetEnvironmentVariable('UV_HANDOFF_FALLBACK_MARKER', 'Process')
-    try {
-      New-Item -ItemType Directory -Force -Path $uvHandoffScripts, $uvHandoffTrapBin, $uvHandoffCache | Out-Null
-      foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
-        Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$sibling") -Destination (Join-Path $uvHandoffScripts $sibling)
-      }
-      Set-Content -LiteralPath (Join-Path $uvHandoffRoot 'pyproject.toml') -Encoding utf8 -Value "[project]`nname = 'uv-handoff-probe'`nversion = '0.0.0'"
-      Set-Content -LiteralPath (Join-Path $uvHandoffTrapBin 'pip-licenses.ps1') -Encoding utf8 -Value @'
-param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Remaining)
-Set-Content -LiteralPath $env:UV_HANDOFF_FALLBACK_MARKER -Encoding utf8 -Value 'fallback'
-exit 31
-'@
-      $env:PATH = $uvHandoffTrapBin + [System.IO.Path]::PathSeparator + $priorUvHandoffPath
-      $env:UV_CACHE_DIR = $uvHandoffCache
-      $env:UV_HANDOFF_FALLBACK_MARKER = $uvFallbackMarker
-      Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue
-      $uvVersionOutput = (& uv --version 2>&1 | Out-String).Trim()
-      $uvVersionExit = $LASTEXITCODE
-      Push-Location $uvHandoffRoot
-      try {
-        $uvWarmOutput = (& uv run --with pip-licenses==5.5.5 pip-licenses --version 2>&1 | Out-String)
-        $uvWarmExit = $LASTEXITCODE
-      } finally { Pop-Location }
-      $uvHandoffResult = if ($uvWarmExit -eq 0) {
-        Invoke-StrictOfflineLicenseScan -Path (Join-Path $uvHandoffScripts 'check-licenses.ps1')
-      } else { [pscustomobject]@{ ExitCode = $uvWarmExit; Output = $uvWarmOutput } }
-      Assert-Integration (
-        $uvVersionExit -eq 0 -and
-        $uvVersionOutput -match ('^uv ' + [regex]::Escape($expectedUvVersion) + '(?:\s|$)') -and
-        $uvWarmExit -eq 0 -and
-        $uvWarmOutput -match ('(?m)^pip-licenses ' + [regex]::Escape('5.5.5') + '\s*$') -and
-        $uvHandoffResult.ExitCode -eq 0 -and
-        $uvHandoffResult.Output -match '已扫描 PyPI 包' -and
-        -not (Test-Path -LiteralPath $uvFallbackMarker)
-      ) "[INTEGRATION-UV-HANDOFF] uv $expectedUvVersion did not warm pip-licenses 5.5.5 into an empty isolated cache for the real unversioned offline scan (uv=[$uvVersionOutput] warm=$uvWarmExit scan=$($uvHandoffResult.ExitCode) fallback=$([bool](Test-Path -LiteralPath $uvFallbackMarker))): warm=[$uvWarmOutput] scan=[$($uvHandoffResult.Output)]"
-    } finally {
-      $env:PATH = $priorUvHandoffPath
-      if ($null -eq $priorUvHandoffCache) { Remove-Item Env:UV_CACHE_DIR -ErrorAction SilentlyContinue } else { $env:UV_CACHE_DIR = $priorUvHandoffCache }
-      if ($null -eq $priorUvHandoffOffline) { Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue } else { $env:UV_OFFLINE = $priorUvHandoffOffline }
-      if ($null -eq $priorUvHandoffFallback) { Remove-Item Env:UV_HANDOFF_FALLBACK_MARKER -ErrorAction SilentlyContinue } else { $env:UV_HANDOFF_FALLBACK_MARKER = $priorUvHandoffFallback }
-      if (Test-Path -LiteralPath $uvHandoffRoot) { Remove-Item -LiteralPath $uvHandoffRoot -Recurse -Force }
     }
   }
 

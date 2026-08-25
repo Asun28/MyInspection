@@ -186,6 +186,8 @@ jobs:
           if (Test-Path pyproject.toml) {
             uv run --with pip-licenses==5.5.5 pip-licenses --version
             if ($LASTEXITCODE -ne 0) { Write-Error "pip-licenses provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+            pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite provision-handoff
+            if ($LASTEXITCODE -ne 0) { Write-Error "real uv handoff proof failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
           }
           if (Test-Path frontend/package.json) {
             npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1
