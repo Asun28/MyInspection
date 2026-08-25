@@ -151,8 +151,31 @@ function Get-ScaffoldMustLayerSection {
   $residentOccurrences = [System.Collections.Generic.List[string]]::new()
   $items = [System.Collections.Generic.List[string]]::new()
   $currentItem = $null
+  $currentContentIndent = 0
+  $afterBlank = $false
   $inSection = $false
+  $fenceChar = ''
+  $fenceLength = 0
   foreach ($line in @(Get-Content -LiteralPath $Path)) {
+    $fenceMatch = [regex]::Match($line, '^[ ]{0,3}(?<fence>`{3,}|~{3,})(?<tail>.*)$')
+    if ($fenceChar) {
+      if ($fenceMatch.Success -and
+          $fenceMatch.Groups['fence'].Value[0] -eq $fenceChar -and
+          $fenceMatch.Groups['fence'].Value.Length -ge $fenceLength -and
+          [string]::IsNullOrWhiteSpace($fenceMatch.Groups['tail'].Value)) {
+        $fenceChar = ''
+        $fenceLength = 0
+      }
+      continue
+    }
+    if ($fenceMatch.Success) {
+      if ($null -ne $currentItem) { $items.Add($currentItem) }
+      $currentItem = $null
+      $afterBlank = $false
+      $fenceChar = $fenceMatch.Groups['fence'].Value[0]
+      $fenceLength = $fenceMatch.Groups['fence'].Value.Length
+      continue
+    }
     if (-not $inSection) {
       if ($line -match '^##\s+经验铁律') { $inSection = $true }
       continue
@@ -162,15 +185,36 @@ function Get-ScaffoldMustLayerSection {
       $currentItem = $null
       break
     }
-    if ($line -match '^\s*-\s+') {
+    $itemMatch = [regex]::Match($line, '^(?<indent>[ ]{0,3})[-+*](?<space>[ \t]+).*$')
+    if ($itemMatch.Success) {
       if ($null -ne $currentItem) { $items.Add($currentItem) }
       $currentItem = $line
+      $currentContentIndent = $itemMatch.Groups['indent'].Value.Length + 1 + $itemMatch.Groups['space'].Value.Length
+      $afterBlank = $false
       continue
     }
-    # Inside this bounded section, every physical line after a list marker belongs to that item until the
-    # next marker or section heading. This covers CommonMark lazy continuations and an indented paragraph
-    # after a blank line; ending on either shape silently drops resident ids from the cap.
-    if ($null -ne $currentItem) { $currentItem += "`n$line"; continue }
+    if ($null -eq $currentItem) { continue }
+    if ([string]::IsNullOrWhiteSpace($line)) { $afterBlank = $true; continue }
+    # A top-level blockquote is a sibling block, never resident-item content. Before a blank, ordinary prose
+    # remains a CommonMark lazy continuation. After a blank, only content-indented prose can resume the item;
+    # an unindented paragraph is outside it and must not smuggle extra [Lx] ids into the resident set.
+    if ($line -match '^[ ]{0,3}>') {
+      $items.Add($currentItem)
+      $currentItem = $null
+      $afterBlank = $false
+      continue
+    }
+    if ($afterBlank) {
+      $leadingSpaces = [regex]::Match($line, '^ *').Value.Length
+      if ($leadingSpaces -lt $currentContentIndent) {
+        $items.Add($currentItem)
+        $currentItem = $null
+        $afterBlank = $false
+        continue
+      }
+    }
+    $currentItem += "`n$line"
+    $afterBlank = $false
   }
   if ($null -ne $currentItem) { $items.Add($currentItem) }
   foreach ($item in $items) {
