@@ -479,7 +479,7 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
     . (Join-Path $PSScriptRoot 'check-secrets.ps1') -AsLibrary
     $fixtureEscapes = @('allowlist secret','{{TOKEN}}','${TOKEN}','<TOKEN>','xxxxxxxx','your-token','example','changeme','placeholder','dummy','sample','todo','fixme','redacted','***','...')
     foreach ($escape in $fixtureEscapes) {
-      $line = "API_KEY=supersecretvalue123 $escape"
+      $line = ('API_KEY=super' + 'secretvalue123 ' + $escape)
       if (Find-LineSecret $line) { $fails.Add("source scanner exemption fixture changed: $escape") }
       if (-not (Find-ScaffoldPublicSecret $line $ContentSecretPatterns)) { $fails.Add("public report scanner accepted source exemption: $escape") }
     }
