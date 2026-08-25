@@ -458,14 +458,14 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>经验系统 <span class="file">lessons.ps1</span></h3>
-              <p>三层：铁律（封顶）→ 主题文件 → LEDGER（append-only 真相源）。blocking 经验须填 enforced_by；judgment 喂 HARNESS-REVIEW。</p>
+              <p>三层：铁律（按<strong>驻留经验 id</strong> 封顶，非条目数）→ 主题文件 → LEDGER（append-only 真相源）。blocking 经验须填 enforced_by（占位符会被 check 拒收）；judgment 喂 HARNESS-REVIEW。</p>
             </div>
           </article>
           <article class="node c-mul" tabindex="0" data-rel="heal" data-self="triage">
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>心跳 triage <span class="file">triage.ps1</span></h3>
-              <p>只读扫各子系统（经验晋升 / 技术债 / 活跃卡 / 交接 / 封顶 / harness / effectiveness / worktree）→ 收件箱。只发现不行动，恒退出 0。</p>
+              <p>只读扫各子系统的 11 探针（lessons-promote 经验晋升 / tech-debt-open 技术债 / cards-active 活跃卡 / handoff-open 交接 / lessons-cap 封顶 / harness-refresh / effectiveness / worktree-orphan / lessons-demote 该降层 / delivery-blocked 交付停摆 / scaffold-stale 上游版本待议）→ 收件箱。只发现不行动，恒退出 0。</p>
               <span class="rel-tag">只读扫各子系统</span>
             </div>
           </article>

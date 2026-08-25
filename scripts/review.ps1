@@ -28,6 +28,11 @@
 .PARAMETER Model      本次评审用的模型；留空取 _config.ps1 的 ReviewModel，再空则用后端自身默认。
 .PARAMETER Effort     本次评审的推理档位；留空取 _config.ps1 的 ReviewEffort，再空则用后端自身默认。
                       合法值随模型而异，本脚本不硬编码枚举——填错即由 CLI/API 报错、走 fail-closed block。
+.PARAMETER SizeOnly   只按真实 diff 预算度量已钉死的 base...HEAD（additions+deletions 与未截断 unified diff 字符数）后退出：
+                      **不唤起评审者、不消费 round**；exit 0 = 在预算内。task.ps1 ship 在 push/开 PR 前跑同一条路径。
+                      与 -ResetRounds 互斥（后者在预算闸之前返回，组合起来一件事也不做）。
+.PARAMETER MaxChangedLines  changed-lines 上限（默认 1000）。ValidateRange 上界即默认值：**只许收紧**，命令行放宽不了基线批准的预算。
+.PARAMETER MaxDiffChars     未截断 unified diff 字符上限（默认 60000，与评审者首屏 cap 对齐）。同样只许收紧。
 .EXAMPLE
   pwsh -File scripts/review.ps1 -WorktreePath /path/to/wt/T1-FOO -PostStatus -PrNumber 7
 #>
@@ -42,11 +47,19 @@ param(
   [string]$Effort = '',
   [switch]$LocalBase,   # -Local 工作流：合并目标是**本地** <base>（非 origin/<base>）——优先本地解析基线（TD68 / R3 PR#102 三轮）
   [int]$TimeoutSec = 0,
-  [switch]$ResetRounds  # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
+  [switch]$ResetRounds, # 独立操作：清零本分支 R3 轮次计数（见 _config.ps1 ReviewRoundCap）后 **exit 0 直接返回，不评审**；人裁完毕后用
+  [switch]$SizeOnly,    # 只计算真实 diff 预算并退出；不调用 reviewer、不消费 round。供 task.ps1 在 push/PR 前复用
+  [ValidateRange(1, 1000)][int]$MaxChangedLines = 1000, # 仅允许收紧，禁止命令行放宽基线批准的默认上限
+  [ValidateRange(1, 60000)][int]$MaxDiffChars = 60000   # 仅允许收紧，禁止绕过 reviewer 的 60k 完整 diff 边界
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($SizeOnly -and ($ResetRounds -or $SkipReview)) {
+  $otherOperation = if ($ResetRounds) { '-ResetRounds' } else { '-SkipReview' }
+  Write-Host "  [R3-DIFF-ARGS-INVALID] -SizeOnly conflicts with $otherOperation." -ForegroundColor Red
+  exit 1
+}
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open；评审者子进程 InputEncoding pin 仍就地保留在下方注入子脚本
 # 忽略会话里无效的 token（空串仍被 gh 视为“存在”→会遮蔽 keyring），用 Remove-Item 彻底清除
 Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
@@ -251,13 +264,6 @@ $reviewEffort = if ($Effort) { $Effort } else { $cfgEffort }
 # 刻意**不**在此硬编码合法档位枚举：合法值**随模型而异**（实测 gpt-5.6-sol/luna 接受 max、却拒 minimal，
 # 而 API 的通用参数枚举又列出 minimal——两者不同源）。任何静态列表都会「误拒合法配置 / 误放非法组合」。
 # 校验交给 CLI/API：填错即评审者启动失败 → 写不出裁决 → 走下方既有 fail-closed 路径 block（并在控制台打出后端原文报错）。
-if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
-  Write-Host $codexSetup -ForegroundColor Yellow
-  Write-Verdict 'block' @('codex 缺失，无法评审：装 codex、或在 _config.ps1 设 ReviewCommand 换后端、或 -SkipReview（仅本地只读）。')
-  Write-Host '裁决: block（codex 缺失，无法评审）' -ForegroundColor Red
-  exit 1
-}
-
 # --- 评审 prompt：钉死本项目的冻结契约与硬边界 ---
 # 提示注入硬化 · 数据栅栏 nonce（TD48/TD-111）：分隔「待审数据」与「可信 prompt 层」的栅栏标记改用每轮
 # 生成的不可猜 nonce（=== DATA-<nonce> …===）。固定明文栅栏可被卡片/diff 里注入的同款标记冒充、提前「闭合」
@@ -279,21 +285,96 @@ function Protect-FenceMarkers([string]$s) {
 # `fatal: ... no merge base`，stdout 为空。_encoding.ps1 刻意把 $PSNativeCommandUseErrorActionPreference 设为 $false
 # （顶层原生命令按退出码判、不抛），所以这里**不会**抛异常——不显式检查的话，评审者会收到一份**空 diff**，
 # 在「什么都没看到」的情况下给出 pass（fail-open）。故先验共同祖先，再逐个 diff 调用查退出码。
-$mergeBase = (& git -C $WorktreePath merge-base "$baseOid" HEAD 2>$null | Out-String).Trim()
+$mergeBase = (& git -C $WorktreePath merge-base "$baseOid" "$sha" 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
-  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and HEAD share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
-  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与 HEAD 无共同祖先，无法算 diff）" -ForegroundColor Red
+  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and captured HEAD '$sha' share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.")
+  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与已捕获 HEAD $sha 无共同祖先，无法算 diff）" -ForegroundColor Red
   exit 1
 }
-$diff = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --stat | Out-String).Trim()
+$comparison = "$baseOid...$sha"
+# --stat 段不参与预算度量，但和下方 $diffBody 同属喂给评审者的 prompt：Out-String 按**平台**换行拼接，
+# 不归一就会出现「概览 CRLF、正文 LF」的同一份 prompt 两种换行、且随 OS 变形。同口径归一到 LF。
+$diff = ((& git -C $WorktreePath -c core.quotepath=false diff $comparison --stat | Out-String) -replace "`r`n", "`n").Trim()
 $diffStatExit = $LASTEXITCODE
-$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff "$baseOid...HEAD" --unified=3 | Out-String)
+$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --numstat | Out-String)
+$diffNumstatExit = $LASTEXITCODE
+# Out-String 用**平台**换行拼接（Windows CRLF / Unix LF），于是同一份 diff 在两个平台上字符数不同——
+# 一个 59,900 字符的改动在 Linux 放行、在 Windows 就可能报 60,100 超限。预算是跨平台契约，度量必须
+# 先归一到 LF 再计数与截断；truncation 也用同一份归一文本，免得截断点随平台漂移。
+$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --unified=3 | Out-String) -replace "`r`n", "`n"
 $diffBodyExit = $LASTEXITCODE
-if ($diffStatExit -ne 0 -or $diffBodyExit -ne 0) {
-  Write-Verdict 'block' @("git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.")
-  Write-Host "裁决: block（git diff 失败：--stat=$diffStatExit / --unified=$diffBodyExit）" -ForegroundColor Red
+if ($diffStatExit -ne 0 -or $diffNumstatExit -ne 0 -or $diffBodyExit -ne 0) {
+  $diffFailureReason = "[R3-DIFF-COMMAND-FAILED] git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --numstat=$diffNumstatExit, --unified=$diffBodyExit). The size/review input cannot be trusted, so this run blocks fail-closed."
+  if (-not $SizeOnly) { Write-Verdict 'block' @($diffFailureReason) }
+  Write-Host "  $diffFailureReason" -ForegroundColor Red
+  Write-Host '裁决: block（git diff 命令失败）' -ForegroundColor Red
   exit 1
 }
+$changedLines = [long]0
+$binaryFiles = 0
+$numstatMalformed = @()
+$numstatLines = [System.Collections.Generic.List[string]]::new()
+foreach ($line in [regex]::Split($diffNumstat, '\r?\n')) { $numstatLines.Add($line) }
+# Out-String appends one record separator. Remove exactly that final separator; any other blank row is malformed input.
+if ($numstatLines.Count -gt 0 -and $numstatLines[$numstatLines.Count - 1] -eq '') { $numstatLines.RemoveAt($numstatLines.Count - 1) }
+foreach ($numstatLine in $numstatLines) {
+  if ($numstatLine -eq '') { $numstatMalformed += '<blank>'; continue }
+  # **整行**校验，不是前缀校验：--numstat 每行恰好三个 TAB 分隔字段，第三个是非空且自身不含 TAB 的路径
+  # （rename 的 `old => new` / `dir/{a => b}` 压缩形态里没有 TAB，照常匹配）。只锚头部时 `1<TAB>2<TAB>`（空路径）
+  # 与 `1<TAB>2<TAB>a<TAB>b`（多出字段）会被当成合法行计入体量——行本身已经不是 numstat 了，数出来的体量就不可信。
+  if ($numstatLine -notmatch '^(?<add>\d+|-)\t(?<delete>\d+|-)\t[^\t\r\n]+$') {
+    $numstatMalformed += $numstatLine
+    continue
+  }
+  $add = $Matches['add']; $delete = $Matches['delete']
+  if ($add -eq '-' -or $delete -eq '-') {
+    if ($add -ne '-' -or $delete -ne '-') { $numstatMalformed += $numstatLine; continue }
+    $binaryFiles++
+    continue
+  }
+  # 正则只保证「是一串数字」，不保证装得进 Int64：一个 30 位的数字段会匹配成功、然后在强制转换处
+  # **抛异常**，绕过本该接住它的 [R3-DIFF-NUMSTAT-INVALID]。用 TryParse 把溢出也归到同一个 fail-closed 出口。
+  [long]$addValue = 0; [long]$deleteValue = 0
+  if (-not [long]::TryParse($add, [ref]$addValue) -or -not [long]::TryParse($delete, [ref]$deleteValue)) {
+    $numstatMalformed += $numstatLine
+    continue
+  }
+  if ($addValue -gt ([long]::MaxValue - $deleteValue)) { $numstatMalformed += $numstatLine; continue }
+  $rowTotal = $addValue + $deleteValue
+  if ($changedLines -gt ([long]::MaxValue - $rowTotal)) { $numstatMalformed += $numstatLine; continue }
+  $changedLines += $rowTotal
+}
+if ($numstatMalformed.Count -gt 0) {
+  $numstatReason = "[R3-DIFF-NUMSTAT-INVALID] git diff --numstat returned $($numstatMalformed.Count) unparseable row(s); changed-line size is unknown, so this run blocks fail-closed."
+  if (-not $SizeOnly) { Write-Verdict 'block' @($numstatReason) }
+  Write-Host "  $numstatReason" -ForegroundColor Red
+  Write-Host '裁决: block（numstat 无法可靠解析）' -ForegroundColor Red
+  exit 1
+}
+$diffChars = [long]$diffBody.Length
+Write-Host "R3 diff size: changedLines=$changedLines diffChars=$diffChars binaryFiles=$binaryFiles limits=$MaxChangedLines/$MaxDiffChars" -ForegroundColor DarkGray
+if ($changedLines -gt $MaxChangedLines -or $diffChars -gt $MaxDiffChars) {
+  $sizeReason = "[R3-DIFF-TOO-LARGE] Pinned diff $comparison is too large for one complete R3 pass: changedLines=$changedLines (max $MaxChangedLines), diffChars=$diffChars (max $MaxDiffChars), binaryFiles=$binaryFiles. Split the task/card before push or review; no reviewer round was consumed."
+  if (-not $SizeOnly) { Write-Verdict 'block' @($sizeReason) }
+  Write-Host "  $sizeReason" -ForegroundColor Red
+  Write-Host '裁决: block（真实 diff 超预算，须拆卡）' -ForegroundColor Red
+  exit 1
+}
+if ($SizeOnly) {
+  Write-Host 'R3 diff budget: PASS（SizeOnly；未调用 reviewer、未消费 round）' -ForegroundColor Green
+  exit 0
+}
+
+if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
+  Write-Host $codexSetup -ForegroundColor Yellow
+  Write-Verdict 'block' @('codex 缺失，无法评审：装 codex、或在 _config.ps1 设 ReviewCommand 换后端、或 -SkipReview（仅本地只读）。')
+  Write-Host '裁决: block（codex 缺失，无法评审）' -ForegroundColor Red
+  exit 1
+}
+
+# 纵深防御，**当前不可达**：上方预算闸已在 $diffChars > $MaxDiffChars 时退出，而 $MaxDiffChars 的
+# ValidateRange 上界就是 60000（只许收紧），故走到这里的 $diffBody 必然 <= 60000。别把它读成活的截断行为
+# ——默认路径下评审者永远拿到完整 diff；留着只是「预算闸被改小/绕过时 prompt 仍不超首屏」的兜底。
 $diffCap = 60000
 $diffTruncated = $false
 if ($diffBody.Length -gt $diffCap) { $diffBody = $diffBody.Substring(0, $diffCap); $diffTruncated = $true }

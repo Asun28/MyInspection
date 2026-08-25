@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "effectiveDate": "2025-12-01",
+  "sourceRefs": [
+    "https://www.legislation.govt.nz/act/public/1986/120/en/latest/sections/DLM95504/",
+    "https://www.tenancy.govt.nz/maintenance-and-inspections/inspections/"
+  ],
+  "timezone": "Pacific/Auckland",
+  "rules": {
+    "inspection": {
+      "noticeMinHours": 48,
+      "noticeMaxDays": 14,
+      "visitWindow": {
+        "start": "08:00",
+        "end": "19:00",
+        "boardingHouseEnd": "18:00"
+      },
+      "frequencyLimit": {
+        "days": 28,
+        "exemptTypes": [
+          "INGOING",
+          "EXIT"
+        ]
+      }
+    }
+  }
+}

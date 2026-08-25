@@ -8,9 +8,9 @@
   PR + 合并 → 收尾 → 文档同步 闭环。分阶段执行（编码本身由 Claude/人在 worktree 内做）：
 
     start   : 建 worktree(<WorktreeRoot>\<TaskId>) + 引导环境(uv sync / npm i)，打印 TDD 提醒。
-    ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → Codex 评审(必 pass)
-              → push → 开 PR → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
-              故本地闸门(DoD/verify/范围/许可/密钥/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
+    ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → 真实 diff 预算
+              → push → 开 PR → Codex 评审(必 pass) → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
+              故本地闸门(DoD/verify/范围/许可/密钥/预算/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
 
   设计取舍见 docs\DEVOPS-WORKFLOW.md。Codex 评审通过即可自动合并（用户选择 hands-off）。
@@ -255,7 +255,7 @@ switch ($Phase) {
     # T26-SHIPSAGA 腿完成跟踪：ship 是多腿可重试 saga，任一腿失败须在失败时刻自述进度（TD85 事件实证：四个并发
     # 会话各自从散文重推断状态、其一误判）。有序腿名与下方既有 Step 标签一一对应；只记相内内存、不写盘
     # （ship 幂等可重入，跨进程状态无必要）。catch 只报告后原样 rethrow——异常语义/退出码/失败面均不变。
-    $sagaLegs = @('卡校验', 'DoD', 'verify', '提交', '范围闸', '许可闸', '防泄露闸') + $(if ($Local) { @('R3 评审', '本地合并') } else { @('push+PR', 'R3 评审', '合并') })
+    $sagaLegs = @('卡校验', 'DoD', 'verify', '提交', '范围闸', '许可闸', '防泄露闸', '真实 diff 预算') + $(if ($Local) { @('R3 评审', '本地合并') } else { @('push+PR', 'R3 评审', '合并') })
     $sagaDone = @()
     # 腿间非腿操作的显式追踪（R3 r3 #9）：卡校验→DoD 之间还有预检（评审后端可用性/账号守卫/环境引导）与 RED 证据闸
     # 两段非 Step 操作——只按「首个未完成腿」推断会把这些失败误报成 DoD（TD85 事件正是这样被误判的）；$sagaAt 非空
@@ -501,6 +501,21 @@ switch ($Phase) {
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'secrets' 'check-secrets fatal'; throw '检出疑似机密（见上 check-secrets）。立即轮换密钥、改用环境变量/密钥管理并移除后重 ship（见 docs/SECURITY.md）。' }
       $sagaDone += '防泄露闸'
 
+      Step '真实 diff 预算闸（1000 changed lines 且 60000 chars 内；push/PR/R3 前硬阻断）'
+      $sizeArgs = if ($Local) {
+        @('-WorktreePath', $Wt, '-Base', $Base, '-SizeOnly', '-LocalBase')
+      } else {
+        @('-WorktreePath', $Wt, '-Base', $shipBase, '-SizeOnly')
+      }
+      $sizeOutput = (& pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') @sizeArgs 2>&1 | Out-String)
+      $sizeExit = $LASTEXITCODE
+      Write-Host $sizeOutput
+      if ($sizeExit -ne 0) {
+        Add-CatchRecord 'review-size' 'R3 diff budget block'
+        throw '真实 diff 超过单卡/R3 完整读取预算，或预算无法可靠计算。拆卡或修复 git 基线后重 ship；本次调用未新增 push/PR、未消费 reviewer round，重试前请检查现有远端分支与 PR。'
+      }
+      $sagaDone += '真实 diff 预算'
+
       if ($Local) {
         # ── -Local：无 push/PR/gh 的本地完成路径（治「T0 throwaway 无远端/无 Codex 也能闭环」）──
         Step 'R3 第二模型评审（-Local：可选——有 codex/ReviewCommand 才跑，无则跳过、仅本地检视）'
@@ -541,6 +556,8 @@ switch ($Phase) {
       }
 
       Step 'push + 开 PR（Codex 评审在 PR 开好后单次运行，兼作回贴状态）'
+      # push 之前是最后一个还能无代价停下的点：一旦推上去，远端就有了一个可能从未过预算闸的提交。
+      # 按提交 OID 发布（而非分支名）属 T0-R3-MEASURED-OID-BINDING，本卡不做。
       & git push -u origin $TaskId
       # TD44（载重护栏）：push 静默失败（网络/凭证/非 fast-forward 拒绝）时若续跑，下游 `gh pr merge` 会合并 origin/$TaskId
       # 当前指向的【陈旧】head——与本地刚过闸的产物解耦、把未评审内容并入基线，且 R3 把绿状态回贴到 head 已陈旧的 PR（状态误导）。
@@ -572,9 +589,9 @@ switch ($Phase) {
         # R3 可能很慢；评审期间 PR 可被并发 retarget。紧贴 merge 再确认一次，关闭「审 A、并 B」TOCTOU。
         Assert-RemotePrBase -Pr $pr -ExpectedBase $shipBase
         # free + private：服务端无规则集/必需检查，auto-merge 亦未启用。
-        # 本地闸门（DoD + verify + 范围闸 + 许可闸 + 防泄露闸 + Codex 评审）已在上方过闸（任一失败即 throw、不到此处），故直接 squash 合并。
+        # 本地闸门（DoD + verify + 范围闸 + 许可闸 + 防泄露闸 + 真实 diff 预算 + Codex 评审）已在上方过闸（任一失败即 throw、不到此处），故直接 squash 合并。
         # CI(verify) 在 PR 上仅信息性复跑，不阻断。（若转 GitHub Pro/public 并重建规则集，可改回 `gh pr merge --auto`。）
-        Step '本地闸门已过（DoD+verify+范围+许可+密钥+Codex）→ 直接 squash 合并（free private：无服务端必需检查）'
+        Step '本地闸门已过（DoD+verify+范围+许可+密钥+预算+Codex）→ 直接 squash 合并（free private：无服务端必需检查）'
         # 不加 --delete-branch：在 worktree 内它会尝试 checkout base(main) 以删本地分支，
         # 而 main 被主工作树占用 → fatal "'main' is already used by worktree"（合并其实已成功）。
         # 远端分支由仓库 delete_branch_on_merge=true 自动删；本地分支由 cleanup 阶段删。
@@ -684,8 +701,8 @@ switch ($Phase) {
           # PR 真实状态不以腿成员判定推断（R3 r2 #9）：push+PR 是复合腿——pr create 已成功而后续 PR 号解析/base
           # 断言 throw 时，腿未标完成但 PR 已存在。以「PR 号是否已解析到手」为准；解析不到只指示实查，不断言「尚无 PR」。
           # 【已推送恢复闸门保真总则（R3 r14/r16 #17）】：CI 无范围闸兜底（TD89 根因）——下列**每个**已推送分支走 -PostStatus/合并前，
-          # 必须先在 worktree **手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸）**，绝不以 CI 复跑替代（CI 漏卡外越界）。
-          Write-Host "    【闸门保真总则】已推送恢复合并前**必先手动补跑全部确定性闸：DoD、verify、范围闸、许可闸、防泄露闸**——CI 无范围闸兜底、不可仅靠 CI 复跑（TD89 根因/R3 r16 #17）。下列各分支均在此总则下。" -ForegroundColor Yellow
+          # 必须先在 worktree **手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算）**，绝不以 CI 复跑替代（CI 漏卡外越界）。
+          Write-Host "    【闸门保真总则】已推送恢复合并前**必先手动补跑全部确定性闸：DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算**——CI 无范围闸兜底、不可仅靠 CI 复跑（TD89 根因/R3 r16 #17）。下列各分支均在此总则下。" -ForegroundColor Yellow
           $sagaPrNum = if ((Test-Path Variable:pr) -and $pr) { $pr } else { 0 }
           if ($sagaDone -contains 'R3 评审') {
             # R3 r3 #2 + r6 #9：修复若改动了 PR head（如解决冲突的新提交），已录的 R3 pass 即对旧 diff 而言；base 被
