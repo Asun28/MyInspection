@@ -648,6 +648,46 @@ if ($Verb -eq 'selfcheck') {
       '- tier: ledger',
       '- severity: blocking',
       '- enforced_by: FIXME scripts/future.ps1',
+      '',
+      '## L916 前导计划词 + 文件后缀的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: planned future.ps1',
+      '',
+      '## L917 前导人工说明 + 仓库路径的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: manual only; docs/manual',
+      '',
+      '## L918 前导英文否定 + gate 的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: there is no gate 1',
+      '',
+      '## L919 前导中文否定 + 闸号的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: 没有闸1',
+      '',
+      '## L920 前导计划词 + 文件后缀的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: planned future.ps1',
+      '',
+      '## L921 前导人工说明 + 仓库路径的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: manual only; docs/manual',
+      '',
+      '## L922 前导英文否定 + gate 的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: there is no gate 1',
+      '',
+      '## L923 前导中文否定 + 闸号的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: 没有闸1',
       '')
     $Ledger = $fxLedger          # 注入：两个探针都读脚本作用域
     $findings.Clear(); Invoke-ProbeLessonsDemote
@@ -659,15 +699,21 @@ if ($Verb -eq 'selfcheck') {
     if ($demWhat -match 'L905') { $fails.Add('用例6 占位符 enforced_by: TODO 的 L905 被提名降层——心跳在替一条无守卫的铁律说「机器已在守它」（fail-open）') }
     if ($demWhat -match 'L912') { $fails.Add('用例6 复合占位符 TODO: add scripts/future.ps1 的 L912 被提名降层——占位前缀不能被后续真路径洗白') }
     if ($demWhat -match 'L914') { $fails.Add('用例6 复合占位符 TBD scripts/future.ps1 的 L914 被提名降层——未知占位前缀不能被后续真路径洗白') }
+    foreach ($id in 916..919) {
+      if ($demWhat -match "L$id") { $fails.Add("用例6 前导否定/计划说明的伪守卫 L$id 被提名降层——字段中稍后出现的文件/路径/闸号不得洗白前导文本") }
+    }
     $findings.Clear(); Invoke-ProbeLessons
     $pro = @($findings | Where-Object probe -eq 'lessons-promote')
     $proWhat = ($pro | ForEach-Object what) -join ' '
-    if ($pro.Count -ne 4) { $fails.Add("用例6 期望恰 4 条 lessons-promote（空字段 L904 + 占位符 L906/L913/L915），实得 $($pro.Count)") }
+    if ($pro.Count -ne 1) { $fails.Add("用例6 期望 8 个候选超过批量窗口后合成恰 1 条 lessons-promote，实得 $($pro.Count)") }
     if ($proWhat -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
     if ($proWhat -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
     if ($proWhat -notmatch 'L906') { $fails.Add('用例6 占位符 enforced_by: N/A 的 L906 未被提名——认不出的取值被误读成「已有守卫」（fail-open）') }
     if ($proWhat -notmatch 'L913') { $fails.Add('用例6 复合占位符 N/A (.json) 的 L913 未被提名——占位前缀不能被括号内文件后缀洗白') }
     if ($proWhat -notmatch 'L915') { $fails.Add('用例6 复合占位符 FIXME scripts/future.ps1 的 L915 未被提名——未知占位前缀不能被后续真路径洗白') }
+    foreach ($id in 920..923) {
+      if ($proWhat -notmatch "L$id") { $fails.Add("用例6 前导否定/计划说明的伪守卫 L$id 未被提名晋升——字段中稍后出现的文件/路径/闸号不得洗白前导文本") }
+    }
 
     foreach ($invalidEnforcedBy in @(
       'TODO: add scripts/future.ps1', 'TBD scripts/future.ps1', 'FIXME scripts/future.ps1',
@@ -675,7 +721,8 @@ if ($Verb -eq 'selfcheck') {
       'TODO（scripts/future.ps1）', 'N/A（scripts/future.ps1）', '待补（scripts/future.ps1）',
       'TODO，scripts/future.ps1', 'no gate（scripts/future.ps1）',
       'none', 'none TODO', 'none: scripts/future.ps1', 'none：scripts/future.ps1',
-      'none, scripts/future.ps1')) {
+      'none, scripts/future.ps1',
+      'planned future.ps1', 'manual only; docs/manual', 'there is no gate 1', '没有闸1')) {
       if (Test-ScaffoldLessonGuarded $invalidEnforcedBy) { $fails.Add("用例6c 伪守卫被判 guarded：$invalidEnforcedBy") }
       if (Test-ScaffoldLessonEnforcedByWellFormed $invalidEnforcedBy) { $fails.Add("用例6c 非规范声明被判 well-formed：$invalidEnforcedBy") }
     }

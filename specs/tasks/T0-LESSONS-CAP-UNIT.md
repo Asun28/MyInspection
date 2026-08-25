@@ -58,6 +58,11 @@ acceptance:
   - "A15 L97 权威面一致（两条枚举断言）：① 教「封顶单位」的面（docs/LESSONS.md · lessons skill · _config.ps1 · lessons.ps1 头注 · triage.ps1 头注 · CLAUDE.md 小节）皆不得再含「封顶 N 条 / 条数上限」形态；② 列探针清单的面（docs/LOOP-ENGINEERING.md · triage SKILL.md · docs/DELIVERY-CHAINS.md · docs/scaffold-architecture.html · docs/HARNESS-REVIEW.md）条数须等于 triage.ps1 里 Invoke-Probe* 的实际个数。漏改任一处即红"
   - "A16 常设接线不断：_cards.ps1 的 BOM 分支有常设用例（带前导 U+FEFF 的 front-matter 仍解得出 status，码位只写转义形态）；triage.ps1 经共享 Get-FrontMatter 的调用点数 == 4；_lessons.ps1 进每一份选择性夹具拷贝清单"
 acceptance_notes: |
+  R3 修复历史（供下一轮按完整 PR 复核，非替代 rubric）：
+    - faa28fd：占位符/否定前缀不得被后续路径洗白；delivery-blocked 裁决绑定当前本地 HEAD，并固定来源优先级。
+    - 73c39e3：必须层同条目内或跨条目的重复驻留 id 以稳定哨兵 fail-closed。
+    - b8ec021：五处探针清单改为精确集合校验，同时拒绝 stale extra 与重复探针名；同步权威文档。
+    - 本轮：守卫引用改为字段起始锚定的完整声明；文件后缀、仓库路径、英文 gate、中文闸号四种前导否定/计划文本均覆盖 promote、demote 与 check。
   逐条落点（验收即在这些位置可证伪）：
     A1  scripts/selftest.ps1 闸 2a（生产路径，两个期望值各自精确断言、且断言二者不相等）
     A2  scripts/triage.ps1 用例 5（foreach 两侧边界，阈值全部由 $MustCap 算出）

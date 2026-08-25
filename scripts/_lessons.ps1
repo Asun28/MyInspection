@@ -40,6 +40,10 @@ $ScaffoldDuplicateResidentId = '[LESSONS-DUPLICATE-RESIDENT-ID]'
 $ScaffoldNoGuardDeclRe = '^none(?:（[^\r\n]+）|\([^\r\n]+\))$'
 # Placeholder/negation prefixes win before any later path/extension/gate-looking substring can launder them.
 $ScaffoldRejectedGuardPrefixRe = '^(?i:(?:TODO|TBD|FIXME|XXX|TBC|TK|WIP|PENDING|N/?A)(?=$|[^A-Za-z0-9_])|no[ \t]+gate(?=$|[^A-Za-z0-9_])|none(?=$|[^A-Za-z0-9_]))|^(?:待补|待定|未定|待议|暂无|无闸)'
+# Canonical declarations start with the guard reference; later prose cannot launder an unrelated prefix.
+# The final `.*$` permits the explanatory suffixes already used by the ledger while keeping the accepted
+# file, repo-path, English gate, Chinese gate, and explicit self-guard forms anchored to the whole field.
+$ScaffoldGuardReferenceRe = '(?i)^(?:(?:[A-Za-z0-9._-]+[\\/])*[A-Za-z0-9._-]+\.(?:ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)(?=$|[ \t+;（(])|[A-Za-z0-9._-]{2,}[\\/][A-Za-z0-9._-]{2,}(?:[\\/][A-Za-z0-9._-]+)*(?=$|[ \t+;（(])|gate[ \t]+[0-9A-Za-z\u2460-\u24FF][0-9A-Za-z._\u2460-\u24FF-]*(?=$|[ \t+;（(])|(?:[A-Za-z0-9._-]+[ \t]+)?闸[ \t]*[0-9A-Za-z\u2460-\u24FF][0-9A-Za-z._\u2460-\u24FF-]*(?=$|[ \t+;（(])|check-cards[ \t]+该断言自身(?=$|[ \t+;（(])).*$'
 
 function Get-ScaffoldLessonEnforcedBy {
   <#
@@ -69,7 +73,7 @@ function Test-ScaffoldLessonGuarded {
     context on the same rule (upstream issue #183). (Section/row text, not line numbers: those drift on
     the next edit of that document.)
 
-    Allowlist, not denylist. "Guarded" requires the value to NAME a mechanical artifact: a repo path
+    Anchored allowlist, not denylist. "Guarded" requires the value to START by naming a mechanical artifact: a repo path
     (>=2 characters either side of the separator, so `N/A` is not one), a file with a code/config
     extension, or a gate reference (`闸 <id>` / `gate <id>`). Everything else reads as UNGUARDED -
     the sanctioned `none（reason）` form, an empty field, and placeholders such as TODO / N/A / 待补 /
@@ -101,7 +105,7 @@ function Test-ScaffoldLessonGuarded {
   if ($v -match $ScaffoldNoGuardDeclRe -or $v -match $ScaffoldRejectedGuardPrefixRe) { return $false }
   # 闸编号的字符类写成 \u 转义而非字面圈码（L193：不可见/易错码位只写转义形态，落盘可逐字节复核）。
   # ①-⓿ = Enclosed Alphanumerics，整块无表意文字，故收它进来不会重开中文那个口子。
-  return ($v -match '(?i)(\.(ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)\b|[A-Za-z0-9._-]{2,}[\\/][A-Za-z0-9._-]{2,}|\bgate\s+[0-9A-Za-z\u2460-\u24FF]|闸\s*[0-9A-Za-z\u2460-\u24FF])')
+  return ($v -match $ScaffoldGuardReferenceRe)
 }
 
 function Test-ScaffoldLessonEnforcedByWellFormed {

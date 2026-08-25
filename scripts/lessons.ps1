@@ -336,6 +336,10 @@ switch ($Command) {
                      -not (Test-ScaffoldLessonGuarded 'N/A (.json)') -and
                      -not (Test-ScaffoldLessonGuarded 'no gate 1') -and
                      -not (Test-ScaffoldLessonGuarded '无闸1') -and
+                     -not (Test-ScaffoldLessonGuarded 'planned future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'manual only; docs/manual') -and
+                     -not (Test-ScaffoldLessonGuarded 'there is no gate 1') -and
+                     -not (Test-ScaffoldLessonGuarded '没有闸1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO: add scripts/future.ps1') -and
@@ -345,6 +349,10 @@ switch ($Command) {
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A (.json)') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'no gate 1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'planned future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'manual only; docs/manual') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'there is no gate 1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '没有闸1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'none') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'none TODO') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO（scripts/future.ps1）') -and
