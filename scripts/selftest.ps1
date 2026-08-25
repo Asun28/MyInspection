@@ -4529,11 +4529,23 @@ try {
 # 12c. triage selfcheck 常设接线（TD23）：探针 1/4/5/10/11 的 hermetic 自测（含探针 4 跨 worktree）
 #   此前「可跑不被跑」；接进常设闸使改探针即回归。triage 退出码恒 0（reporter 契约），故同 12b 只断言输出——
 #   且钉**末行**（selfcheck 的 PASS/FAIL 总结行恒为最后输出）：防「输出里早处出现 PASS、随后才报错」的假绿。
-$selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
+#   用命令级 Git 配置注入强制签名，证明夹具提交显式覆盖用户/系统签名设置（R3 #137）。
+$gitConfigNames12c = @('GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0')
+$gitConfigBefore12c = @{}
+foreach ($name12c in $gitConfigNames12c) { $gitConfigBefore12c[$name12c] = [Environment]::GetEnvironmentVariable($name12c, 'Process') }
+try {
+  $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'commit.gpgSign'; $env:GIT_CONFIG_VALUE_0 = 'true'
+  $selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
+} finally {
+  foreach ($name12c in $gitConfigNames12c) {
+    $before12c = $gitConfigBefore12c[$name12c]
+    if ($null -eq $before12c) { Remove-Item "Env:$name12c" -ErrorAction SilentlyContinue } else { Set-Item "Env:$name12c" $before12c }
+  }
+}
 $selfcheckLines = @($selfcheckOut -split "`r?`n" | ForEach-Object { ($_ -replace "`e\[[0-9;]*m", '').Trim() } | Where-Object { $_ -ne '' })   # 去 ANSI 色码 + 空行（防终端差异）
 $selfcheckLast = if ($selfcheckLines.Count) { $selfcheckLines[-1] } else { '' }
 if ($selfcheckLast -notmatch '^triage selfcheck: PASS') { Fail "triage selfcheck 未过（期望末行为 'triage selfcheck: PASS…'，实际末行「$selfcheckLast」）：`n$selfcheckOut" }
-else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：末行 PASS）' }
+else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：敌意 Git 配置下末行 PASS）' }
 
 # 12d. tech-debt 探针（探针2）位置解析硬化（TD57/TD-120）：旧码硬编码 `$cells[5]` 为状态列、且用朴素
 #   `.Split('|')` 分列——单元格内出现字面竖线（如位置列 backtick 代码片段里的正则析取 `a\|b`）会

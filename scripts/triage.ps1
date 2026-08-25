@@ -457,9 +457,10 @@ if ($Verb -eq 'selfcheck') {
   $fails = [System.Collections.Generic.List[string]]::new()
   try {
     $fixtureHeadRepo = Join-Path $fxRoot 'head-reader'
-    New-Item -ItemType Directory -Force $fixtureHeadRepo | Out-Null
-    & git -C $fixtureHeadRepo init -q
-    & git -C $fixtureHeadRepo -c user.name=fixture -c user.email=fixture@example.invalid commit --allow-empty -m fixture -q
+    $fixtureHooks = Join-Path $fxRoot 'empty-hooks'
+    New-Item -ItemType Directory -Force $fixtureHeadRepo, $fixtureHooks | Out-Null
+    & git -c 'init.templateDir=' -C $fixtureHeadRepo init -q
+    & git -C $fixtureHeadRepo -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false -c "core.hooksPath=$fixtureHooks" commit --allow-empty -m fixture -q
     $fixtureHead = (& git -C $fixtureHeadRepo rev-parse HEAD | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or (Get-ScaffoldRepositoryHead -Path $fixtureHeadRepo) -cne $fixtureHead) {
       $fails.Add('用例4a Get-ScaffoldRepositoryHead 未离线读出夹具仓当前 HEAD')
