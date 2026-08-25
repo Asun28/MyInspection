@@ -15,9 +15,16 @@ forbid:
 non_goals:
   - 修改 lessons 工具、脚手架或历史归档
   - 把普通产品设计偏好晋升为仓库铁律
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path 'docs/lessons/LEDGER.md' -Pattern '^## L242$') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch '四参静态 [regex]::Replace') -and (Select-String -Path 'docs/lessons/LEDGER.md' -Pattern '^## L243$') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch 'Assert-MeasuredTip') -and (Select-String -Path 'docs/lessons/LEDGER.md' -Pattern '^## L244$') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch 'git apply --3way') -and (Select-String -Path 'docs/lessons/LEDGER.md' -Pattern '^## L245$') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch 'required 的匹配用 assert') -and (Select-String -Path 'docs/lessons/LEDGER.md' -Pattern '^## L246$') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch 'review.ps1 -WorktreePath') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch '-SizeOnly') -and (Select-String -Path 'docs/lessons/LEDGER.md' -Pattern '^## L247$') -and (Select-String -Path 'docs/lessons/LEDGER.md' -SimpleMatch 'archive.ps1 -CheckCardsIndex'))) { exit 1 }" && pwsh -NoProfile -File scripts/lessons.ps1 check
+acceptance:
+  - "A1 L242 block-local：静态 Regex.Replace 四参重载与跨行 whitespace 变异失靶，规则要求实例 Replace/count、[ tab] 行空白和变异后目标行确实改变；enforced_by 点名 selftest 2c/真实 mutation guard"
+  - "A2 L243 block-local：consumer 读 HEAD 时必须同时钉 branch tip 与 HEAD，并显式传 OID；证据点名 Assert-MeasuredTip、R3-HEAD-MISMATCH 与 selftest 15b4"
+  - "A3 L244/L245 block-local：旧分支成果按 merge-base patch + git apply --3way 重放；脚本剥离每个 required target 必须 assert 命中并做删除量/关键词残留对账"
+  - "A4 L246 block-local：与 R3 阈值比较只使用 review.ps1 -SizeOnly 的 UTF-16 码元尺，证据指向 T0-R3-DIFF-BUDGET，不用 wc -c 做拆卡决策"
+  - "A5 L247 block-local：归档搬运后必须跑 archive.ps1 -CheckCardsIndex，明确 cards-index 是机检投影非 doc_sync 文档，并保留 ARCHIVE-CARDS-INDEX-DRIFT 证据"
+  - "A6 排除与 schema：不迁移后台轮询习惯、PR 未合并参数说明、无 refs 的泛化措辞；L242–L247 id 唯一且每块自身含 rule/enforced_by/refs，lessons check 全绿"
+dod_command: pwsh -NoProfile -Command "if (-not (((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L242\r?\n(?:(?!^## L[0-9]+).)*四参静态 \[regex\]::Replace(?:(?!^## L[0-9]+).)*scripts/selftest\.ps1 闸 2c') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L243\r?\n(?:(?!^## L[0-9]+).)*Assert-MeasuredTip(?:(?!^## L[0-9]+).)*selftest 闸 15b4') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L244\r?\n(?:(?!^## L[0-9]+).)*git apply --3way(?:(?!^## L[0-9]+).)*git diff --numstat origin/master') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L245\r?\n(?:(?!^## L[0-9]+).)*required 的匹配用 assert(?:(?!^## L[0-9]+).)*关键词全文 grep') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L246\r?\n(?:(?!^## L[0-9]+).)*review\.ps1 -WorktreePath(?:(?!^## L[0-9]+).)*T0-R3-DIFF-BUDGET') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L247\r?\n(?:(?!^## L[0-9]+).)*archive\.ps1 -CheckCardsIndex(?:(?!^## L[0-9]+).)*ARCHIVE-CARDS-INDEX-DRIFT'))) { exit 1 }" && pwsh -NoProfile -File scripts/lessons.ps1 check
 dod_exit: 0
-dod_assert: 精确登记 L242–L247 六条长期有效经验及其具名证据锚点（regex 单点变异、HEAD/分支双钉、merge-base patch、脚本剥离断言、SizeOnly 权威量尺、archive 投影），再证明 id 唯一且 meta/enforced_by/refs 满足当前 schema；不迁移后台轮询习惯、已合并前参数说明或无证据的泛化条目
+dod_assert: A1–A6 的六个 block-local regex 全部命中自身 rule/evidence/enforced_by/refs，随后 lessons check 证明 id/schema/必须层无漂移；关键词放到别的 lesson 不会误绿
 review_gate: codex {verdict:pass}
 hygiene: 使用 lessons.ps1 add/check 规范化，不手工复制旧账本块；相同根因合并为复发计数或现有规则增量
 doc_sync: CLAUDE.md 只接晋升后的最小规则增量（R5）

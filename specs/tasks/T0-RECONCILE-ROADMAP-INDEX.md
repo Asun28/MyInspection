@@ -14,9 +14,15 @@ forbid:
 non_goals:
   - 创建或实现七张新卡
   - 修改 UI 设计真相源或 lessons 账本
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path 'docs/TASK-BOARD.md' -Pattern '^\| W1 \| T1-LOCAL-DATA-SECURITY \|') -and (Select-String -Path 'docs/TASK-BOARD.md' -Pattern '^\| W5 \| T5-OPERATION-EVENT-STORE \|') -and (Select-String -Path 'specs/tech-debt-tracker.md' -Pattern '^\| TD160 \|') -and (Select-String -Path 'specs/tech-debt-tracker.md' -Pattern '^\| TD161 \|'))) { exit 1 }"
+acceptance:
+  - "A1 七卡投影：Task Board 恰有 T1 local-security/share W1、database-lifecycle W2、T5 event/export/erasure W5、T7 local-health W7 七行，标题/depends_on 与卡片一致"
+  - "A2 TD160 完整行：数据库 active/history 与 write-authority 风险、后果、修法、可测、TD4 前置、major/carded 和 T1-DATABASE-LIFECYCLE-AUTHORITY 偿还指针均在同一行"
+  - "A3 TD161 完整行：本机 typed diagnostics/export 风险、PII/失败隔离、90天/20000行、飞行模式可测、T1 安全前置、major/carded 与 event→export 两卡 closure 均在同一行"
+  - "A4 旧债修正：TD12 明确 v1 仅全量包且 property scope 禁用；TD24 回到媒体生命周期/verified receipt，不再声称 property backup 已由旧去重卡交付"
+  - "A5 图可解析：check-cards 对全部七卡依赖通过；Task Board 只投影卡事实，不复制规格或把 todo 写成 merged"
+dod_command: pwsh -NoProfile -File scripts/check-cards.ps1 && pwsh -NoProfile -Command "if (-not (((Select-String -Path 'docs/TASK-BOARD.md' -Pattern '^\| (W1 \| T1-(LOCAL-DATA-SECURITY|SHARE-SCREEN-PRIVACY)|W2 \| T1-DATABASE-LIFECYCLE-AUTHORITY|W5 \| T5-(OPERATION-EVENT-STORE|DIAGNOSTIC-EXPORT|LOCAL-DATA-ERASURE)|W7 \| T7-LOCAL-HEALTH-RELEASE) \|').Count -eq 7) -and (Select-String -Path 'specs/tech-debt-tracker.md' -Pattern '^\| TD160 \|.*active 与 historical.*写权限.*后果.*修法.*可测.*TD4.*major \| carded \| `specs/tasks/T1-DATABASE-LIFECYCLE-AUTHORITY\.md` \|$') -and (Select-String -Path 'specs/tech-debt-tracker.md' -Pattern '^\| TD161 \|.*typed.*90 天/20,000 行.*飞行模式.*T1-LOCAL-DATA-SECURITY.*major \| carded \| `T5-OPERATION-EVENT-STORE` → `T5-DIAGNOSTIC-EXPORT`.*\|$') -and (Select-String -Path 'specs/tech-debt-tracker.md' -Pattern '^\| TD12 \|.*v1.*全量.*property scope.*禁') -and (Select-String -Path 'specs/tech-debt-tracker.md' -Pattern '^\| TD24 \|.*媒体.*verified'))) { exit 1 }"
 dod_exit: 0
-dod_assert: 七张边界明确的未来实现卡均被 Task Board 收录，TD160/TD161 与其偿还路径一致，所有依赖 id 可由 check-cards 解析
+dod_assert: A1–A5 通过：七行 exact wave/card projection、TD160/TD161 全行语义与偿还指针、TD12/TD24 修正及 check-cards dependency graph 均成立
 review_gate: codex {verdict:pass}
 hygiene: 任务表只投影卡片事实，不复制完整实现规格
 doc_sync: Task Board、tech-debt tracker 与七张卡互相引用一致（R5）
