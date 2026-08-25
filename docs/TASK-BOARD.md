@@ -43,7 +43,7 @@
 | W0 | T0-TRIAGE-EVIDENCE-CASE | triage 裁决证据身份、HEAD 绑定与失败可观测性 | T0-LESSONS-CAP-TRIAGE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | PR #137 R3 fix-forward；独立于 exact extraction；actual-root case、per-root SHA、unreadable/unknown finding |
 | W0 | T0-LESSONS-CMD-DOCSYNC | lessons.ps1 纳入 doc-drift 机检 + archive 子命令同步三处命令清单 | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 缺口不在那三行文档而在 `_config.ps1` 的 DocSyncMap——它只有 4 个键、不含 lessons.ps1，故闸 14f/17 对它完全沉默。补文档只修一次，补键才让下一次也红。匹配须排除 `_lessons.ps1`（判定核，改它不该要求动用户文档） |
 | W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `edc2770`，PR #129；R3 第 4 轮 pass 零发现——前 3 轮：1 轮 3 条全是基线陈旧假象、2/3 轮各 1 条真缺陷；另有 R3 前 codex 预审再出 2 条真缺陷，合计 8 枚变异全杀） |
-| W0 | T0-RECONCILE-DATA-AUTHORITY | 同步数据库生命周期、离线安全与备份权威文档 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 本地 master 设计审计片 1/12；纯文档，不宣称已实现；Sol 只作 R3 |
+| W0 | T0-RECONCILE-DATA-AUTHORITY | 同步数据库生命周期、离线安全与备份权威文档 | T0-RECONCILE-LESSONS | S | GPT-5.6 Terra · high | Sonnet 5 max | 本地 master 设计审计片 1/12；纯文档，不宣称已实现；Sol 只作 R3 |
 | W0 | T0-RECONCILE-T1-SECURITY-CARDS | 登记数据库生命周期与 Android 本地安全三张实现卡 | T0-RECONCILE-DATA-AUTHORITY | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 2/12；三张卡各守一个安全边界；Sol 只作 R3 |
 | W0 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | 登记事件、诊断、清除与本机健康四张实现卡 | T0-RECONCILE-T1-SECURITY-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 3/12；无远程 admin/遥测；Sol 只作 R3 |
 | W0 | T0-RECONCILE-ROADMAP-INDEX | 将七张卡投影到任务表和技术债索引 | T0-RECONCILE-T1-SECURITY-CARDS,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 4/12；只投影路线，不实现产品；Sol 只作 R3 |
