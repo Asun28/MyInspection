@@ -57,12 +57,14 @@ acceptance:
   - "A14 归属契约有机检：selftest 静态断言 review.ps1 写进裁决的 branch 字段取自 git rev-parse --abbrev-ref HEAD、且字段名为 branch（review.ps1 不在本卡 allow_paths，故只钉断言不改它）"
   - "A15 L97 权威面一致（两条枚举断言）：① 教「封顶单位」的面（docs/LESSONS.md · lessons skill · _config.ps1 · lessons.ps1 头注 · triage.ps1 头注 · CLAUDE.md 小节）皆不得再含「封顶 N 条 / 条数上限」形态；② 列探针清单的面（docs/LOOP-ENGINEERING.md · triage SKILL.md · docs/DELIVERY-CHAINS.md · docs/scaffold-architecture.html · docs/HARNESS-REVIEW.md）条数须等于 triage.ps1 里 Invoke-Probe* 的实际个数。漏改任一处即红"
   - "A16 常设接线不断：_cards.ps1 的 BOM 分支有常设用例（带前导 U+FEFF 的 front-matter 仍解得出 status，码位只写转义形态）；triage.ps1 经共享 Get-FrontMatter 的调用点数 == 4；_lessons.ps1 进每一份选择性夹具拷贝清单"
+  - "A17 resident Markdown 边界：共享解析器把 `*`/`+`/`-` 都识别为独立无序列表项；空行后的无缩进段落与顶层 blockquote 不再归入前一项，但 lazy continuation 与按内容列缩进的续段仍归入；围栏代码内的 `##`、列表标记和 `[Lx]` 全部不参与小节定位、结束或 id 计数。三枚 hermetic 夹具逐项断言精确 Ids 与 Bullets 数。"
 acceptance_notes: |
   R3 修复历史（供下一轮按完整 PR 复核，非替代 rubric）：
     - faa28fd：占位符/否定前缀不得被后续路径洗白；delivery-blocked 裁决绑定当前本地 HEAD，并固定来源优先级。
     - 73c39e3：必须层同条目内或跨条目的重复驻留 id 以稳定哨兵 fail-closed。
     - b8ec021：五处探针清单改为精确集合校验，同时拒绝 stale extra 与重复探针名；同步权威文档。
-    - 本轮：守卫引用改为字段起始锚定的完整声明；文件后缀、仓库路径、英文 gate、中文闸号四种前导否定/计划文本均覆盖 promote、demote 与 check。
+    - a7e31f6 后续：守卫引用改为字段起始锚定的完整声明；文件后缀、仓库路径、英文 gate、中文闸号四种前导否定/计划文本均覆盖 promote、demote 与 check。
+    - 2026-08-25 本轮：根因是共享解析器把「下一 marker/heading 前的所有物理行」都当同一 `-` 项，且不维护 fenced-code 状态。改为受限 CommonMark 状态机，并由用例 5d 钉住三类边界。
   逐条落点（验收即在这些位置可证伪）：
     A1  scripts/selftest.ps1 闸 2a（生产路径，两个期望值各自精确断言、且断言二者不相等）
     A2  scripts/triage.ps1 用例 5（foreach 两侧边界，阈值全部由 $MustCap 算出）
@@ -74,6 +76,7 @@ acceptance_notes: |
     A7  scripts/triage.ps1 用例 7      A8 用例 4      A9 用例 8      A10 用例 9      A12 用例 9b
     A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
     A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
+    A17 scripts/triage.ps1 用例 5d/markers、5d/boundary、5d/fence
   R3 后续加固（不改上述 pinned acceptance 的语义）：
     - A6 的拒收前缀覆盖完整占位符声明，而不是只拒 TODO/N/A/待补；`TBD scripts/future.ps1` 在 must 侧不得降层，
       `FIXME scripts/future.ps1` 在 ledger 侧必须晋升，且 lessons.ps1 check 的形态自检同步拒绝二者。
@@ -107,7 +110,7 @@ acceptance_notes: |
     check-cards 的占位符启发式会据此发一条 advisory 告警（非阻断，`check-cards: PASS`）。
 dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scripts/triage.ps1 selfcheck) -match 'triage selfcheck: PASS').Count -eq 1) -and (((& pwsh -NoProfile -File scripts/lessons.ps1 check) -match 'id=9').Count -eq 1))) { exit 1 }"
 dod_exit: 0
-dod_assert: `triage selfcheck` 打印 ASCII 哨兵 PASS（覆盖新探针 10/11 与改口径后的探针 1/5，含批量窗口两侧边界与主检出 `.review` 取证路径，全部走 hermetic 夹具；`_cards.ps1` 的 BOM 分支由 selftest 闸 10d(BOM/纯函数) 常设守住），且 `lessons.ps1 check` 在**生产路径**上按驻留 id 报出 9——不是按条目报 7，证明新口径不只在夹具里生效
+dod_assert: `triage selfcheck` 打印 ASCII 哨兵 PASS（覆盖新探针 10/11 与改口径后的探针 1/5，含批量窗口两侧边界、resident Markdown 三类边界与主检出 `.review` 取证路径，全部走 hermetic 夹具；`_cards.ps1` 的 BOM 分支由 selftest 闸 10d(BOM/纯函数) 常设守住），且 `lessons.ps1 check` 在**生产路径**上按驻留 id 报出 9——不是按条目报 7，证明新口径不只在夹具里生效
 review_gate: codex {verdict:pass}
 hygiene: |
   单句变异逐一击杀，判据分类器只认「selfcheck 打出 FAIL **且**命中指定用例编号」（光是红不算，可能红错原因）；
@@ -140,6 +143,8 @@ hygiene: |
   夹具在选择器退回 LastWriteTimeUtc 时变红；另用临时 git 仓真实执行 `git rev-parse HEAD`，钉住离线读 HEAD 的边界。
   用例 5c 另以同 bullet 重复与跨 bullet 重复两种夹具真跑两个消费者；任一层恢复提前 Unique 都会让 triage 无 finding、
   lessons.ps1 check 缺失稳定哨兵，从而同时变红。
+  用例 5d 先在旧解析器上精确 RED：markers 只得 L932/1 bullet，boundary 误收 L942/L943，fence 误收 L950；
+  改成受限状态机后同一 selfcheck 精确 GREEN。未声称额外变异批次。
 doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层表 Tier-1 容量格 + PURIFY 步骤 ·
   .claude/skills/lessons/SKILL.md 三层描述 + PURIFY 步骤 · scripts/_config.ps1 的 LessonsMustCap 定义处注释 ·
   scripts/lessons.ps1 与 scripts/triage.ps1 的头注（子命令说明 / 探针清单）· docs/LOOP-ENGINEERING.md 与

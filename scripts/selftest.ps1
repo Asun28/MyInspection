@@ -76,9 +76,11 @@
        15j/15k：ship 卡片重解析须与 check-cards 同契约且 ship 重跑 check-cards（TD45）——start 后主仓卡片被编辑
        （或 -Phase ship 未 fresh start 续跑）时，front-matter 缺 dod_command 但正文含 `dod_command:` 文档示例行（15j）、
        或 front-matter 键误大小写 DOD_COMMAND（15k）均须 ship block、且该行/该值绝不被执行（marker 文件不得生成）。
-   16. L-id 引用完整性：根入口文档 CLAUDE.md / TEMPLATE-README.md 与 .claude\skills / docs 里的 L<n> 经验引用须存在于 LEDGER（治本 L29）。从 LEDGER 机数
-       已定义 id，扫这些文件的 L<n> 引用——排除 path:Lnn 行号 / Lnn-mm 行段等代码引用形态。存在性可机检，
-       内容是否对得上仍靠人工。交叉链接闸（11）只管文件路径，管不到 LEDGER 的 L<n> 指针，故单列一闸。
+   16. L-id 引用完整性：根入口文档 CLAUDE.md / TEMPLATE-README.md 与 .claude\skills / docs 里的 L<n> 经验引用须存在于
+       **热账本 docs\lessons\LEDGER.md 与冷库 specs\archive\lessons-archive.md 的并集**（治本 L29；归档过的经验仍是
+       已定义 id，不该因搬进冷库而被判悬空）。从这两处机数已定义 id，扫上述文件的 L<n> 引用——排除 path:Lnn 行号 /
+       Lnn-mm 行段等代码引用形态。存在性可机检，内容是否对得上仍靠人工。交叉链接闸（11）只管文件路径，
+       管不到经验库的 L<n> 指针，故单列一闸。16a 用「id 只存在于冷库」的夹具直测这条并集接线本身（非只测 helper）。
    17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂**已知坏输入**，断言它确实 BLOCK——把「严格/fail-closed/
        难绕过」从断言升级为可机检回归。17a check-secrets 抓 snake_case 硬编码密钥；17a3 对 SQLDelight schema
        baseline 精确放行，并拒相邻/改名数据库与非法清单；17b review.ps1 对「no-op 评审者 +
@@ -136,6 +138,71 @@ try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }
 function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
   if (@($ExitCodes | Where-Object { $_ -ne 0 }).Count -gt 0) { return 1 }
   return 0
+}
+
+function Get-LessonDefinitionIdSet([string]$LedgerPath, [string]$ArchivePath) {
+  $defined = @{}
+  foreach ($path in @($LedgerPath, $ArchivePath)) {
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    foreach ($match in [regex]::Matches((Get-Content -LiteralPath $path -Raw), '(?m)^##[ \t]+(L\d+)[ \t]*\r?$')) {
+      $defined[$match.Groups[1].Value] = $true
+    }
+  }
+  return $defined
+}
+
+# 「文本里引用了某条经验」的判定式（闸 16 与闸 2g 共用）**只有一份字面量**，出生点是 scripts/lessons.ps1 的
+# $LessonRefRegex（卡片 A3：单一真相源，禁止在两处各写一份）。这里不再抄一份「同一语义的另一实现」——抄一份
+# 就有两个权威：两边字节相同时无人会红，而任一边被改窄（删掉前置 lookbehind 或 `(?!-\d)`）后，也没有断言
+# 拦得住，直到某天常驻文件正在引用的条目被搬进冷库才现形。改从源码里抽：抽不到即 Fail（重命名/改写赋值形态
+# 会 fail-closed 变红），绝不静默回落到内置副本。抽取失败只报一次（缓存已解析状态），免得逐文件刷屏。
+$script:lessonRefRegexResolved = $false
+$script:lessonRefRegexValue = ''
+function Get-LessonRefRegex {
+  if (-not $script:lessonRefRegexResolved) {
+    $script:lessonRefRegexResolved = $true
+    $lessonsScriptPath = Join-Path $PSScriptRoot 'lessons.ps1'
+    $lessonsSrc = if (Test-Path -LiteralPath $lessonsScriptPath) { Get-Content -LiteralPath $lessonsScriptPath -Raw } else { '' }
+    $script:lessonRefRegexValue = ([regex]::Match($lessonsSrc, '(?m)^\$LessonRefRegex\s*=\s*''(?<re>.+)''\s*$')).Groups['re'].Value
+    if (-not $script:lessonRefRegexValue) {
+      Fail "[LSN-REF-REGEX-SOURCE-MISSING] 无法从 scripts/lessons.ps1 抽出 `$LessonRefRegex 引用判定式（单一真相源被重命名/改写了赋值形态）——引用排除面与悬空引用闸都失去判据，拒绝用内置副本兜底。"
+    }
+  }
+  return $script:lessonRefRegexValue
+}
+function Get-LessonReferenceIdSet([string]$Text) {
+  $ids = @{}
+  $lessonRefRe = Get-LessonRefRegex
+  if (-not $lessonRefRe) { return $ids }
+  foreach ($match in [regex]::Matches($Text, $lessonRefRe)) {
+    $ids["L$($match.Groups[1].Value)"] = $true
+  }
+  return $ids
+}
+
+# 闸 16 的**本体**（不是它的辅助）：给一个仓根，返回悬空引用清单 + 已定义 id 数 + 扫描文件数。提成函数是为了让
+# 「热∪冷并集这条接线」本身可被夹具直测——只直测 Get-LessonDefinitionIdSet 证明的是「helper 会合并两个路径」，
+# 证明不了闸 16 真把冷库路径传了进去（删掉 -ArchivePath，直测仍绿；而真实仓里 lessons-archive.md 今天还不存在，
+# 并集恰等于热账本 ⇒ 闸 16 也绿。洞要等首次归档、热账本一次少掉上百条之后才张开）。
+function Get-DanglingLessonReferences([string]$Root) {
+  $ledgerPath = Join-Path $Root 'docs/lessons/LEDGER.md'
+  $defined = Get-LessonDefinitionIdSet -LedgerPath $ledgerPath -ArchivePath (Join-Path $Root 'specs/archive/lessons-archive.md')
+  # 扫描范围：根入口文档 CLAUDE.md + CLAUDE.template.md（下游 CLAUDE.md 的来源，其 L 引用也须不悬空）+
+  # TEMPLATE-README.md + .claude/skills/**/*.md + docs/**/*.md，排除 LEDGER 自身（id 的定义处）。
+  $scanFiles = @(
+    @(Get-Item -Path (Join-Path $Root 'CLAUDE.md') -ErrorAction SilentlyContinue) +
+    @(Get-Item -Path (Join-Path $Root 'CLAUDE.template.md') -ErrorAction SilentlyContinue) +
+    @(Get-Item -Path (Join-Path $Root 'TEMPLATE-README.md') -ErrorAction SilentlyContinue) +
+    @(Get-ChildItem -Path (Join-Path $Root '.claude/skills') -Filter *.md -Recurse -ErrorAction SilentlyContinue) +
+    @(Get-ChildItem -Path (Join-Path $Root 'docs') -Filter *.md -Recurse -ErrorAction SilentlyContinue)
+  ) | Where-Object { $_.FullName -ne $ledgerPath }
+  $dangling = @()
+  foreach ($sf in $scanFiles) {
+    foreach ($id in (Get-LessonReferenceIdSet (Get-Content $sf.FullName -Raw)).Keys) {
+      if (-not $defined.ContainsKey($id)) { $dangling += ("{0} → {1}" -f $sf.FullName.Substring($Root.Length + 1), $id) }
+    }
+  }
+  return [pscustomobject]@{ Dangling = @($dangling); DefinedCount = $defined.Count; ScanCount = @($scanFiles).Count }
 }
 
 function Remove-Td4MigrationFixtureWorktree {
@@ -1647,7 +1714,7 @@ try {
   $a2Exit = $LASTEXITCODE
   $a2Tail = ($a2Out -replace '\s+', ' ').Trim(); if ($a2Tail.Length -gt 200) { $a2Tail = $a2Tail.Substring($a2Tail.Length - 200) }
   if ($a2Exit -ne 0) { Fail "闸2b(a)：空 LEDGER 上 lessons.ps1 add 非零退出（$a2Exit）——裸 Next-Id 默认绑定 StrictMode 崩（TD24/TD39：空数组 unroll→`$null，@(`$null).Count==1 绕过守卫、`$ls.id 抛）。下游首条经验即崩、TD24 实为未修。输出尾段=$a2Tail" }
-  elseif ((Get-Content $l2Ledger -Raw) -notmatch '(?m)^##\s+L1\b') { Fail '闸2b(a)：add 退出 0 但未在空 LEDGER mint L1——Next-Id 未正确返回 L1（空账本递增回归）。' }
+  elseif ((Get-Content $l2Ledger -Raw) -notmatch '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail '闸2b(a)：add 退出 0 但未在空 LEDGER mint L1——Next-Id 未正确返回 L1（空账本递增回归）。' }
 
   # (b) zero-tier:must LEDGER 上【真跑】check → 零匹配 Where-Object 取 .Count。旧码崩溃；新码 exit 0（真 PASS）。
   #   构造【合法】zero-must 账本（条目齐全、无一 must）——修好后 check 应真 PASS，令 RED/GREEN 以退出码判别（locale 无关，免中文 mojibake 假 FAIL）。
@@ -1664,6 +1731,18 @@ try {
   $c2Exit = $LASTEXITCODE
   if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER + 在场但零 resident-id 的 CLAUDE.md 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
   elseif ($c2Out -notmatch 'check: PASS') { Fail '闸2b(b)：check 退出 0 但输出无「check: PASS」——zero-must fixture 未正常通过（可能崩在别处或断言点漂移）。' }
+  else {
+    $l2Archive = Join-Path $l2Repo 'specs/archive/lessons-archive.md'
+    New-Item -ItemType Directory -Force (Split-Path $l2Archive) | Out-Null
+    Set-Content $l2Archive (@('# archive', '', '## L500', '- date: 2025-12-31 ｜ tags: cold ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1', '- symptom: cold max', '- root_cause: seed', '- rule: archived ids remain reserved', '- enforced_by: none（seed）', '- refs:') -join "`n") -Encoding utf8
+    $coldAddOut = (& pwsh -NoProfile -File $l2Lessons add -Severity minor -Symptom 'cold max add' -Rule 'mint after archived maximum' 2>&1 | Out-String)
+    $coldAddExit = $LASTEXITCODE
+    $coldAddText = Get-Content $l2Ledger -Raw
+    if ($coldAddExit -ne 0 -or $coldAddText -notmatch '(?m)^##[ \t]+L501[ \t]*\r?$' -or $coldAddText -match '(?m)^##[ \t]+L2[ \t]*\r?$') {
+      Fail "闸2b(c)：真实 add 未以冷库最大 L500 的下一号 L501 入账，归档 id 被复用。exit=$coldAddExit output=[$coldAddOut]"
+    } else { Write-Host '  2b lessons.ps1 空账本、zero-must 与 cold-max add 生产路径 OK' -ForegroundColor Green }
+  }
+
   $invalidEntries = @(
     @{ id = 'L1'; value = 'TODO' }, @{ id = 'L2'; value = 'N/A' }, @{ id = 'L3'; value = '待补' }
   ) | ForEach-Object {
@@ -1693,14 +1772,26 @@ try {
   $l2cLessons = Join-Path $l2cRepo 'scripts/lessons.ps1'
   $l2cLedger = Join-Path $l2cRepo 'docs/lessons/LEDGER.md'
   New-Item -ItemType Directory -Force (Split-Path $l2cLedger) | Out-Null
+  # L2 的 meta 行破折号后是**两个空格**——合法（Get-LessonMeta 认 `^-\s+date:`），但它把「读 meta 行的锚定形态」
+  # 与「写 meta 行的锚定形态」是否同源变成可观测：若把 bump 的 Replace 锚定收窄成 `^(- date:`（恰一个空格），
+  # 替换将一处也匹配不上、块字节原样写回，旧码会照样打印绿字并 exit 0。此夹具令那条路径必须现形。
   $l2cEntry = @(
     '# 经验总账（TD51 fixture）', '',
     '## L1',
-    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
+    '- date: 2026-01-01 ｜ tags: seed recurrence: 99 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
     '- symptom: seed，body 里引用示例文本 recurrence: 7（不应被 bump 覆盖）',
-    '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
+    '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:',
+    '',
+    '## L2',
+    '-',
+    'date: prose recurrence: 99',
+    '-  date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 5',
+    '- symptom: META_LINE_WITH_TWO_SPACES', '- root_cause: seed', '- rule: seed rule two',
+    '- enforced_by: none（seed）', '- refs:'
   ) -join "`n"
   Set-Content $l2cLedger $l2cEntry -Encoding utf8
+  $before = Get-Content $l2cLedger -Raw
+  $expected = $before.Replace('severity: minor ｜ recurrence: 3', 'severity: minor ｜ recurrence: 4')
   $b2cOut = (& pwsh -NoProfile -File $l2cLessons bump L1 2>&1 | Out-String)
   $b2cExit = $LASTEXITCODE
   $after = Get-Content $l2cLedger -Raw
@@ -1709,8 +1800,21 @@ try {
   $afterTail = ($after -replace '\s+', ' ').Trim()
   if ($b2cExit -ne 0) { Fail "闸2c：bump 对合法 fixture 非零退出（$b2cExit）——不应发生。输出=$(($b2cOut -replace '\s+',' ').Trim())" }
   elseif (-not $metaOk) { Fail "闸2c：bump 后 meta 行 recurrence 未变为 4（计数未正确递增）。after=$afterTail" }
-  elseif (-not $bodyIntact) { Fail "闸2c：bump 用错 [regex]::Replace 重载、把 body 里的示例 `recurrence: 7` 也覆盖了（TD51：4 参数 int 被隐式转成 RegexOptions.IgnoreCase 做全量替换，应只动 meta 计数器一处）。after=$afterTail" }
-  else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真（TD51）OK' -ForegroundColor Green }
+  elseif (-not $bodyIntact -or $after -cne $expected) { Fail "闸2c：bump 未逐字只改 delimiter-bounded recurrence 字段；tags/body bait 被改。after=$afterTail" }
+  else {
+    # 读侧与写侧的 meta 行锚定形态必须同源：L2 的 meta 行破折号后两个空格，读侧照收，写侧若收窄成恰一个空格
+    # 就会「一处也没改却报成功」。断言退出 0 + 计数器真的到 6 + 文件字节真的变了，三者缺一都能让那条路径隐身。
+    $hash2cBefore = (Get-FileHash $l2cLedger -Algorithm SHA256).Hash
+    $before2 = Get-Content $l2cLedger -Raw
+    $expected2 = $before2.Replace('severity: minor ｜ recurrence: 5', 'severity: minor ｜ recurrence: 6')
+    $b2cOut2 = (& pwsh -NoProfile -File $l2cLessons bump L2 2>&1 | Out-String)
+    $b2cExit2 = $LASTEXITCODE
+    $after2 = Get-Content $l2cLedger -Raw
+    if ($b2cExit2 -ne 0) { Fail "闸2c(b)：bump 对「破折号后两个空格」的合法 meta 行非零退出（$b2cExit2）——写侧锚定比读侧窄。output=[$b2cOut2]" }
+    elseif ($after2 -notmatch '(?m)^-\s+date:.*?recurrence:\s*6\b' -or $after2 -cne $expected2) { Fail "闸2c(b)：跨行 bait 被写入，或 L2 canonical recurrence 未逐字单改。after=$(($after2 -replace '\s+',' ').Trim())" }
+    elseif ((Get-FileHash $l2cLedger -Algorithm SHA256).Hash -eq $hash2cBefore) { Fail '闸2c(b)：bump 报告成功却一个字节都没写（假绿写入——正是「读到了正文里的数字、锚定的写却打空」那条路径）。' }
+    else { Write-Host '  2c lessons.ps1 bump 只改 meta 计数器、body 文本保真、读写锚定同源（TD51）OK' -ForegroundColor Green }
+  }
 } finally {
   Remove-Item -Recurse -Force $l2cRepo -ErrorAction SilentlyContinue
 }
@@ -1749,13 +1853,900 @@ try {
   Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@('## 经验铁律（必须加载 · fixture）', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
   Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@('## 模板铁律标题已漂移', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
   $tplDriftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $tplDriftExit = $LASTEXITCODE
+  $validResident = @('## 经验铁律（必须加载 · fixture）', '- **[L1]** resident fixture', '', '## 下一节') -join "`n"
+  $duplicateResident = @('## 经验铁律（必须加载 · fixture）', '- **[L1]** first occurrence', '+ **[L1]** duplicate occurrence', '', '## 下一节') -join "`n"
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') $duplicateResident -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') $validResident -Encoding utf8
+  $dupOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $dupExit = $LASTEXITCODE
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') $validResident -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') $duplicateResident -Encoding utf8
+  $tplDupOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $tplDupExit = $LASTEXITCODE
   if ($okExit -ne 0) { Fail "闸2h(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
   elseif ($driftExit -eq 0) { Fail "闸2h：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
   elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
   elseif ($tplDriftExit -eq 0 -or $tplDriftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h(template)：CLAUDE.template.md 标题漂移未非零并给稳定哨兵。exit=$tplDriftExit output=[$tplDriftOut]" }
-  else { Write-Host '  2h CLAUDE.md/template resident-id 分节均 fail-closed OK' -ForegroundColor Green }
+  elseif ($dupExit -eq 0 -or $dupOut -notmatch '\[LESSONS-DUPLICATE-RESIDENT-ID\].*CLAUDE\.md.*L1') { Fail "闸2h(duplicate)：CLAUDE.md 重复驻留 L1 未非零并给稳定哨兵/明细。exit=$dupExit output=[$dupOut]" }
+  elseif ($tplDupExit -eq 0 -or $tplDupOut -notmatch '\[LESSONS-DUPLICATE-RESIDENT-ID\].*CLAUDE\.template\.md.*L1') { Fail "闸2h(template duplicate)：CLAUDE.template.md 重复驻留 L1 未非零并给稳定哨兵/明细。exit=$tplDupExit output=[$tplDupOut]" }
+  else { Write-Host '  2h CLAUDE.md/template resident-id 分节漂移与重复 id 均 fail-closed OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
+}
+
+# 2h2. 共享 resident parser 遵守受限 CommonMark：三种无序列表标记都计项；空行后的仓外段落/
+# blockquote 不续进前一项；围栏代码里的标题、列表与 id 都只是正文诱饵。
+$l2h2File = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2h2-$PID.md"
+try {
+  . (Join-Path $RepoRoot 'scripts/_lessons.ps1')
+  $l2h2Text = @(
+    '```markdown', '## 经验铁律（必须加载）', '- **[L900]** fenced decoy', '```',
+    '## 经验铁律（必须加载 · fixture）',
+    '* **[L901]** star item', '  lazy continuation [L902]',
+    '+ **[L903]** plus item', '', 'outside paragraph [L904]', '> outside quote [L905]',
+    '- **[L906]** dash item', '~~~text', '## fake heading', '- **[L907]** fenced decoy', '~~~',
+    'outside after fence [L908]', '', '## 下一节'
+  ) -join "`n"
+  Set-Content $l2h2File $l2h2Text -Encoding utf8
+  $l2h2 = Get-ScaffoldMustLayerSection -Path $l2h2File
+  $l2h2Ids = @($l2h2.Ids) -join ','
+  if (-not $l2h2.Found -or $l2h2.Bullets.Count -ne 3 -or $l2h2Ids -ne 'L901,L902,L903,L906') {
+    Fail "闸2h2：resident parser 未守 CommonMark marker/boundary/fence；Found=$($l2h2.Found) Bullets=$($l2h2.Bullets.Count) Ids=$l2h2Ids"
+  } else { Write-Host '  2h2 resident parser CommonMark marker/boundary/fence OK' -ForegroundColor Green }
+} finally {
+  Remove-Item $l2h2File -Force -ErrorAction SilentlyContinue
+}
+
+# 2g. T0-LESSONS-COLD-RECALL：选择器只把一次性 ledger 经验交给既有 archive.ps1；冷项仍可召回，
+#     check 以热/冷 ID 并集判引用，bump/promote 对冷项只给移回热区指引。全程真跑生产 CLI，不复制搬运逻辑。
+#     排除面逐条可杀：复发≥2 / tier=ondemand / tier=must / 当前最大 id / 被常驻 CLAUDE 文件引用（**三种形态**：
+#     方括号 [L5]、裸写 L6、范围端点 L7–L8、模板侧裸写 L11）各配一条夹具，候选集按逐字相等断言；
+#     两种「看着像引用但按契约不算」的否定形态（路径行号 x.ps1:L9、ASCII 行段 L10-13）另各配一条，
+#     令判定式的两个否定组件也各自可被单点变异杀死。(g) 另证「引用判据本身缺席」时 fail-closed（卡片 A16）。
+$l2gRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2g-$PID"
+if (Test-Path $l2gRepo) { Remove-Item -Recurse -Force $l2gRepo }
+New-Item -ItemType Directory -Force $l2gRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2gRepo -Recurse -Force
+  $l2gLessons = Join-Path $l2gRepo 'scripts/lessons.ps1'
+  $l2gLedger = Join-Path $l2gRepo 'docs/lessons/LEDGER.md'
+  $l2gArchive = Join-Path $l2gRepo 'specs/archive/lessons-archive.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2gLedger), (Split-Path $l2gArchive) | Out-Null
+  New-Item -ItemType Directory -Force (Join-Path $l2gRepo 'specs/tasks') | Out-Null
+  $l2gTracker = Join-Path $l2gRepo 'specs/tech-debt-tracker.md'
+  $l2gCard = Join-Path $l2gRepo 'specs/tasks/T-FIXTURE-MERGED.md'
+  Set-Content $l2gTracker "| id | 状态 |`n|---|---|`n| TD-FIXTURE | paid |" -Encoding utf8
+  Set-Content $l2gCard "---`nid: T-FIXTURE-MERGED`ntitle: unrelated merged card`nstatus: merged`n---" -Encoding utf8
+  $entry2g = {
+    param([string]$Id, [string]$Tier, [int]$Recurrence, [string]$Token)
+    @(
+      "## $Id",
+      "- date: 2026-08-21 ｜ tags: fixture ｜ tier: $Tier ｜ kind: pitfall ｜ severity: minor ｜ recurrence: $Recurrence",
+      "- symptom: $Token", "- rule: rule-$Token"
+    ) -join "`n"
+  }
+  $getLessonBlock2g = {
+    param([string]$Text, [string]$Id)
+    $match = [regex]::Match($Text, "(?ms)^##[ \t]+$([regex]::Escape($Id))[ \t]*\r?$.*?(?=^##[ \t]+|\z)")
+    if (-not $match.Success) { return '' }
+    return (($match.Value -replace "`r`n", "`n").TrimEnd("`r", "`n"))
+  }
+  $l2gLedgerText = @(
+    '# fixture ledger',
+    (& $entry2g L1 ledger 1 'COLD_RECALL_ONLY'),
+    (& $entry2g L2 ledger 2 'RECURRENT_EXCLUDED'),
+    (& $entry2g L3 ondemand 1 'ONDEMAND_EXCLUDED'),
+    (& $entry2g L4 must 1 'MUST_EXCLUDED'),
+    (& $entry2g L5 ledger 1 'CLAUDE_BRACKET_REF_EXCLUDED'),
+    (& $entry2g L6 ledger 1 'CLAUDE_BARE_REF_EXCLUDED'),
+    (& $entry2g L7 ledger 1 'CLAUDE_RANGE_LEFT_EXCLUDED'),
+    (& $entry2g L8 ledger 1 'CLAUDE_RANGE_RIGHT_EXCLUDED'),
+    (& $entry2g L9 ledger 1 'PATH_LINE_NUMBER_NOT_A_REF'),
+    (& $entry2g L10 ledger 1 'ASCII_HYPHEN_RANGE_NOT_A_REF'),
+    (& $entry2g L11 ledger 1 'TEMPLATE_BARE_REF_EXCLUDED'),
+    (& $entry2g L12 ledger 1 'MAX_ID_EXCLUDED')
+  ) -join "`n`n"
+  Set-Content $l2gLedger $l2gLedgerText -Encoding utf8
+  # 常驻引用的**三种真实形态**都要在夹具里（F1 的病根正是实现只认第一种，而本仓 CLAUDE.md 绝大多数是第二种）：
+  #   ① 方括号 [L5]  ② 裸写「按 L6 之理」  ③ 范围简写 L7–L8。EN DASH 按 L193 用码位拼出、不直接敲——它与
+  # ASCII 连字符肉眼几乎一样，而在引用正则里行为相反（`L52-71` 是行段须排除，`L7–L8` 两端点须保护）。
+  # 范围简写不保护中间 id，该限制写在 docs/LESSONS.md §3，不靠这里的沉默表达。
+  # 另有**两种「看着像引用、按契约不算」**的形态（L9 / L10），它们让判定式的另两个组件各自可被单点变异杀死：
+  #   ④ `scripts/x.ps1:L9` 冒号前缀 = 代码行号 → 删掉 `(?<![A-Za-z0-9:])` 后 L9 会被误判为受保护、退出候选集；
+  #   ⑤ `L10-13` ASCII 连字符 = 行段 → 删掉 `(?!-\d)` 后 L10 同样会被误判受保护。
+  # 判定式如今全仓只有一份字面量（在 lessons.ps1），故两边不会分歧——但「组件是否还在」仍须由这里的候选集变红来证明。
+  $enDash2g = [string][char]0x2013
+  $tier1Head2g = "## 经验铁律（必须加载）`n- **[L4] must fixture**`n`n## refs`n"
+  # `${名}` 包裹不是洁癖：CJK 在 PowerShell 里是合法变量名字符，`"$tier1Head2g模板侧…"` 会被当成一个变量名。
+  Set-Content (Join-Path $l2gRepo 'CLAUDE.md') "${tier1Head2g}[L5] 方括号引用`n按 L6 之理（裸引用，本仓最常见）`n范围简写 L7${enDash2g}L8（两端点均须受保护）`n行号写法 scripts/x.ps1:L9（冒号前缀=源码行号，不算引用）`n行段写法 L10-13（ASCII 连字符=行段，不算引用）" -Encoding utf8
+  Set-Content (Join-Path $l2gRepo 'CLAUDE.template.md') "${tier1Head2g}模板侧裸引用 L11" -Encoding utf8
+
+  # Fail 只置位不中断，故绿字必须挂在**本闸自己的**失败位上（独立的 $g2Fail）：否则 (a)–(e) 全红、
+  # (f) 恰好绿时，最后一句 if/else 的 else 分支照样打印「2g … OK」。
+  $g2Fail = $false
+
+  # Duplicate hot IDs destroy block identity when the selector sends only an ID to archive.ps1. Cover all
+  # ambiguous shapes: excluded+eligible, byte-identical eligible blocks, and different eligible blocks.
+  $duplicateCases2g = @(
+    @{ Name='mixed'; Blocks=@((& $entry2g L1 ondemand 1 'EXCLUDED-FIRST'), (& $entry2g L1 ledger 1 'ELIGIBLE-SECOND')) },
+    @{ Name='identical'; Blocks=@((& $entry2g L1 ledger 1 'SAME'), (& $entry2g L1 ledger 1 'SAME')) },
+    @{ Name='different'; Blocks=@((& $entry2g L1 ledger 1 'FIRST'), (& $entry2g L1 ledger 1 'SECOND')) }
+  )
+  foreach ($duplicateCase2g in $duplicateCases2g) {
+    $dupRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2g-dup-$($duplicateCase2g.Name)-$PID"
+    if (Test-Path $dupRepo2g) { Remove-Item -Recurse -Force -LiteralPath $dupRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $dupRepo2g 'docs/lessons'), (Join-Path $dupRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $dupRepo2g -Recurse -Force
+    $dupLedger2g = Join-Path $dupRepo2g 'docs/lessons/LEDGER.md'
+    $dupArchive2g = Join-Path $dupRepo2g 'specs/archive/lessons-archive.md'
+    Set-Content (Join-Path $dupRepo2g 'CLAUDE.md') 'resident source present; no lesson references' -Encoding utf8
+    Set-Content $dupLedger2g ((@('# fixture ledger') + $duplicateCase2g.Blocks + @((& $entry2g L2 ledger 1 'MAX'))) -join "`n`n") -Encoding utf8
+    Set-Content $dupArchive2g '# archive' -Encoding utf8
+    $dupHotHash2g = (Get-FileHash $dupLedger2g -Algorithm SHA256).Hash
+    $dupColdHash2g = (Get-FileHash $dupArchive2g -Algorithm SHA256).Hash
+    $dupOut2g = (& pwsh -NoProfile -File (Join-Path $dupRepo2g 'scripts/lessons.ps1') archive -RepoRoot $dupRepo2g 2>&1 | Out-String)
+    $dupExit2g = $LASTEXITCODE
+    if ($dupExit2g -eq 0 -or $dupOut2g -notmatch '\[LSN-DUPLICATE-HOT-ID\]' -or $dupOut2g -match 'candidates=') {
+      Fail "闸2g(duplicate/$($duplicateCase2g.Name))：重复热 id 未在选择候选前 fail-closed。output=[$dupOut2g]"; $g2Fail = $true
+    }
+    if ((Get-FileHash $dupLedger2g -Algorithm SHA256).Hash -ne $dupHotHash2g -or
+        (Get-FileHash $dupArchive2g -Algorithm SHA256).Hash -ne $dupColdHash2g) {
+      Fail "闸2g(duplicate/$($duplicateCase2g.Name))：重复热 id 拒绝路径改写了热账本或冷库。"; $g2Fail = $true
+    }
+    Remove-Item -Recurse -Force -LiteralPath $dupRepo2g -ErrorAction SilentlyContinue
+  }
+
+  $ledgerHash2g = (Get-FileHash $l2gLedger -Algorithm SHA256).Hash
+  $trackerHash2g = (Get-FileHash $l2gTracker -Algorithm SHA256).Hash
+  $cardHash2g = (Get-FileHash $l2gCard -Algorithm SHA256).Hash
+  $dry2g = (& pwsh -NoProfile -File $l2gLessons archive -RepoRoot $l2gRepo -DryRun 2>&1 | Out-String)
+  $dryExit2g = $LASTEXITCODE
+  # 候选集**逐字相等**，不是「整份 stdout 里出现过 L1」：后者被任何一行无关告警满足，而这里判的是「哪些条目
+  # 会被移出热账本」——数据搬运面上，宽于契约的断言等于没有断言（L165）。逐字相等同时钉住两个方向：
+  # 排除面（L2/L3/L4/L5/L6/L7/L8/L11/L12）一个都不许进候选，而「看着像引用但不算」的 L9/L10 一个都不许被漏掉。
+  $cand2g = ([regex]::Match($dry2g, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
+  if ($dryExit2g -ne 0) { Fail "闸2g(a)：archive -DryRun 对合法夹具非零退出（$dryExit2g）。output=[$dry2g]"; $g2Fail = $true }
+  elseif ($cand2g -ne 'L1,L9,L10') { Fail "闸2g(a)：候选集应恰为 L1,L9,L10，实得『$cand2g』——tier/复发/最大 id/常驻引用四类排除面之一失效，或引用判定式的「路径行号」「ASCII 行段」两个否定组件之一被删（那会把 L9/L10 误判成受保护）。output=[$dry2g]"; $g2Fail = $true }
+  if ((Get-FileHash $l2gLedger -Algorithm SHA256).Hash -ne $ledgerHash2g -or (Test-Path $l2gArchive) -or
+      (Get-FileHash $l2gTracker -Algorithm SHA256).Hash -ne $trackerHash2g -or (Get-FileHash $l2gCard -Algorithm SHA256).Hash -ne $cardHash2g) {
+    Fail '闸2g(a)：archive -DryRun 写了 lesson 或旁域 tracker/card（预览必须零写入）。'; $g2Fail = $true
+  }
+
+  # (a2) 单一真相源的**接线**证明：判定式本身如今只有一份字面量（lessons.ps1 的 $LessonRefRegex，闸 16 从其源码
+  #   抽取复用），所以这里测的不再是「两份副本是否一致」，而是「选择器的排除面真的走了那份判定式」——
+  #   若 Get-ResidentLessonRefs 里改回内联 `'\[(L\d+)\]'`，裸引用与范围端点会掉进候选集，而闸 16 侧不变 → 分歧 → 红。
+  #   比较范围收敛到「只可能因被引用而落选」的那组（tier=ledger、recurrence=1、非最大 id），把另三类排除面剔干净。
+  $refEligible2g = @('L1','L5','L6','L7','L8','L9','L10','L11')
+  $residentText2g = (Get-Content (Join-Path $l2gRepo 'CLAUDE.md') -Raw) + "`n" + (Get-Content (Join-Path $l2gRepo 'CLAUDE.template.md') -Raw)
+  $gate16Refs2g = Get-LessonReferenceIdSet $residentText2g
+  $gate16Set2g = (@($refEligible2g | Where-Object { $gate16Refs2g.ContainsKey($_) }) -join ',')
+  $selectorSet2g = (@($refEligible2g | Where-Object { @($cand2g -split ',') -notcontains $_ }) -join ',')
+  if ($gate16Set2g -ne $selectorSet2g) {
+    Fail "闸2g(a2)：常驻引用判定出现第二套权威——闸16 判定被引用=[$gate16Set2g]，lessons.ps1 选择器判定被引用=[$selectorSet2g]。两者须逐条相等（本仓引用多为裸写，只认 [Lnn] 会把常驻文件正在引用的条目搬进冷库）。"; $g2Fail = $true
+  }
+
+  $run2g = (& pwsh -NoProfile -File $l2gLessons archive -RepoRoot $l2gRepo 2>&1 | Out-String)
+  $runExit2g = $LASTEXITCODE
+  $ledgerAfter2g = Get-Content $l2gLedger -Raw
+  $archiveAfter2g = if (Test-Path $l2gArchive) { Get-Content $l2gArchive -Raw } else { '' }
+  $movedExpect2g = @('L1', 'L9', 'L10')
+  $moveFail2g = ($runExit2g -ne 0)
+  foreach ($moved2g in $movedExpect2g) {
+    if ($ledgerAfter2g -match "(?m)^##[ \t]+$moved2g[ \t]*\r?$" -or $archiveAfter2g -notmatch "(?m)^##[ \t]+$moved2g[ \t]*\r?$") { $moveFail2g = $true }
+  }
+  if ($moveFail2g) {
+    Fail "闸2g(b)：实际 archive 未经既有搬运器把 $($movedExpect2g -join ',') 全部从热账本移入冷库。exit=$runExit2g output=[$run2g]"; $g2Fail = $true
+  }
+  foreach ($kept2g in @('L2','L3','L4','L5','L6','L7','L8','L11','L12')) {
+    if ($ledgerAfter2g -notmatch "(?m)^##[ \t]+$kept2g[ \t]*\r?$") { Fail "闸2g(b)：排除项 $kept2g 被误搬（实跑后已不在 LEDGER）。"; $g2Fail = $true }
+  }
+  if ((Get-FileHash $l2gTracker -Algorithm SHA256).Hash -ne $trackerHash2g -or
+      (Get-FileHash $l2gCard -Algorithm SHA256).Hash -ne $cardHash2g -or
+      (Test-Path (Join-Path $l2gRepo 'specs/archive/tasks/T-FIXTURE-MERGED.md'))) {
+    Fail '闸2g(b)：lesson 实际归档越界改写了 tracker/card；必须使用 archive.ps1 的 lesson-only 模式。'; $g2Fail = $true
+  }
+
+  $search2g = (& pwsh -NoProfile -File $l2gLessons search COLD_RECALL_ONLY -RepoRoot $l2gRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $search2g -notmatch '\[archived\].*L1') { Fail "闸2g(c)：冷项 search 未以 [archived] 标记召回 L1。output=[$search2g]"; $g2Fail = $true }
+  Add-Content (Join-Path $l2gRepo 'CLAUDE.md') "`n归档后新增引用 [L1]" -Encoding utf8
+  $check2g = (& pwsh -NoProfile -File $l2gLessons check -RepoRoot $l2gRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $check2g -notmatch 'check: PASS') { Fail "闸2g(d)：check 未以热/冷 ID 并集接受 CLAUDE 对已归档 L1 的定义。output=[$check2g]"; $g2Fail = $true }
+
+  foreach ($writeCommand2g in @('bump','promote')) {
+    $write2g = (& pwsh -NoProfile -File $l2gLessons $writeCommand2g L1 -RepoRoot $l2gRepo 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0 -or $write2g -notmatch '\[LSN-ARCHIVED-READONLY\]' -or $write2g -notmatch 'RestoreLessonIds') {
+      Fail "闸2g(e)：$writeCommand2g 冷项 L1 未 fail-closed 并给出可执行的 -RestoreLessonIds 修法。output=[$write2g]"; $g2Fail = $true
+    }
+  }
+
+  # (e1) 提示里的恢复命令必须真的完成冷→热移动，而不是复制后留下冷热重复、令 bump/promote 继续拒绝。
+  $expectedRestoreBlock2g = (& $entry2g L1 ledger 1 'COLD_RECALL_ONLY')
+  $tokenCountBeforeRestore2g = ([regex]::Matches("$(Get-Content $l2gLedger -Raw)`n$(Get-Content $l2gArchive -Raw)", 'COLD_RECALL_ONLY')).Count
+  $restore2g = (& pwsh -NoProfile -File (Join-Path $l2gRepo 'scripts/archive.ps1') -RepoRoot $l2gRepo -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+  $restoreExit2g = $LASTEXITCODE
+  $hotAfterRestore2g = Get-Content $l2gLedger -Raw
+  $coldAfterRestore2g = Get-Content $l2gArchive -Raw
+  $tokenCount2g = ([regex]::Matches("$hotAfterRestore2g`n$coldAfterRestore2g", 'COLD_RECALL_ONLY')).Count
+  $actualRestoreBlock2g = & $getLessonBlock2g $hotAfterRestore2g L1
+  if ($restoreExit2g -ne 0 -or ([regex]::Matches($hotAfterRestore2g, '(?m)^##[ \t]+L1[ \t]*\r?$')).Count -ne 1 -or
+      $coldAfterRestore2g -match '(?m)^##[ \t]+L1[ \t]*\r?$' -or $tokenCount2g -ne $tokenCountBeforeRestore2g) {
+    Fail "闸2g(e1)：-RestoreLessonIds L1 未完成无损冷→热移动（exit=$restoreExit2g，token-count=$tokenCount2g，before=$tokenCountBeforeRestore2g）。output=[$restore2g]"; $g2Fail = $true
+  }
+  if ($actualRestoreBlock2g -cne $expectedRestoreBlock2g) {
+    Fail "闸2g(e1)：恢复后的 L1 整块与归档前字节内容不相等（完整块断言失败）。actual=[$actualRestoreBlock2g] expected=[$expectedRestoreBlock2g]"; $g2Fail = $true
+  }
+  foreach ($usableCommand2g in @('bump','promote')) {
+    $usable2g = (& pwsh -NoProfile -File $l2gLessons $usableCommand2g L1 -RepoRoot $l2gRepo 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $usable2g -match '\[LSN-ARCHIVED-READONLY\]') {
+      Fail "闸2g(e1)：按提示恢复后 $usableCommand2g L1 仍不可用。output=[$usable2g]"; $g2Fail = $true
+    }
+  }
+
+  # (e2) 恢复态可能暂时冷热两侧同时存在同一条目。promote 是只读决策，但仍不得优先采用热副本、
+  # 把「已归冷」事实藏掉后给出晋升建议；两侧任一命中冷库就必须先要求人工移回并消歧。
+  $bothRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge2-$PID"
+  if (Test-Path $bothRepo2g) { Remove-Item -Recurse -Force -LiteralPath $bothRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $bothRepo2g 'docs/lessons'), (Join-Path $bothRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $bothRepo2g -Recurse -Force
+  $bothBlock2g = @('## L1', '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1', '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  $bothLedger2g = Join-Path $bothRepo2g 'docs/lessons/LEDGER.md'
+  $bothArchive2g = Join-Path $bothRepo2g 'specs/archive/lessons-archive.md'
+  Set-Content $bothLedger2g (@('# LEDGER', '', $bothBlock2g) -join [Environment]::NewLine) -Encoding utf8
+  Set-Content $bothArchive2g (@('# archive', '', $bothBlock2g) -join [Environment]::NewLine) -Encoding utf8
+  $bothHotHash2g = (Get-FileHash $bothLedger2g -Algorithm SHA256).Hash
+  $bothColdHash2g = (Get-FileHash $bothArchive2g -Algorithm SHA256).Hash
+  $bothOut2g = (& pwsh -NoProfile -File (Join-Path $bothRepo2g 'scripts/lessons.ps1') promote L1 -RepoRoot $bothRepo2g 2>&1 | Out-String)
+  $bothExit2g = $LASTEXITCODE
+  if ($bothExit2g -eq 0 -or $bothOut2g -notmatch '\[LSN-ARCHIVED-READONLY\]') {
+    Fail "闸2g(e2)：冷热两侧同时存在 L1 时 promote 仍采用热副本并退出 0。output=[$bothOut2g]"; $g2Fail = $true
+  }
+  if ((Get-FileHash $bothLedger2g -Algorithm SHA256).Hash -ne $bothHotHash2g -or
+      (Get-FileHash $bothArchive2g -Algorithm SHA256).Hash -ne $bothColdHash2g) {
+    Fail '闸2g(e2)：promote 的冷热并存拒绝路径改写了热账本或冷库。'; $g2Fail = $true
+  }
+  Remove-Item -Recurse -Force -LiteralPath $bothRepo2g -ErrorAction SilentlyContinue
+
+  # (e3) 恢复器按 id 移动，任一侧重复 id 都让块身份不唯一。必须在取 [0] 之前拒绝，且双侧零写入。
+  $restoreDupBlock2g = (& $entry2g L1 ledger 1 'RESTORE_DUPLICATE')
+  $restoreDupCases2g = @(
+    @{ Name = 'hot'; Hot = @($restoreDupBlock2g, $restoreDupBlock2g); Cold = @($restoreDupBlock2g) },
+    @{ Name = 'cold'; Hot = @(); Cold = @($restoreDupBlock2g, $restoreDupBlock2g) }
+  )
+  foreach ($restoreDupCase2g in $restoreDupCases2g) {
+    $restoreDupRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge3-$($restoreDupCase2g.Name)-$PID"
+    if (Test-Path $restoreDupRepo2g) { Remove-Item -Recurse -Force -LiteralPath $restoreDupRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $restoreDupRepo2g 'docs/lessons'), (Join-Path $restoreDupRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $restoreDupRepo2g -Recurse -Force
+    $restoreDupLedger2g = Join-Path $restoreDupRepo2g 'docs/lessons/LEDGER.md'
+    $restoreDupArchive2g = Join-Path $restoreDupRepo2g 'specs/archive/lessons-archive.md'
+    Set-Content $restoreDupLedger2g ((@('# ledger') + $restoreDupCase2g.Hot) -join "`n`n") -Encoding utf8
+    Set-Content $restoreDupArchive2g ((@('# archive') + $restoreDupCase2g.Cold) -join "`n`n") -Encoding utf8
+    $restoreDupHotHash2g = (Get-FileHash $restoreDupLedger2g -Algorithm SHA256).Hash
+    $restoreDupColdHash2g = (Get-FileHash $restoreDupArchive2g -Algorithm SHA256).Hash
+    $restoreDupOut2g = (& pwsh -NoProfile -File (Join-Path $restoreDupRepo2g 'scripts/archive.ps1') -RepoRoot $restoreDupRepo2g -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+    $restoreDupExit2g = $LASTEXITCODE
+    if ($restoreDupExit2g -eq 0 -or $restoreDupOut2g -notmatch '\[ARCHIVE-LESSON-REJECT-DUPLICATE\]') {
+      Fail "闸2g(e3/$($restoreDupCase2g.Name))：恢复器未拒绝重复 id。output=[$restoreDupOut2g]"; $g2Fail = $true
+    }
+    if ((Get-FileHash $restoreDupLedger2g -Algorithm SHA256).Hash -ne $restoreDupHotHash2g -or
+        (Get-FileHash $restoreDupArchive2g -Algorithm SHA256).Hash -ne $restoreDupColdHash2g) {
+      Fail "闸2g(e3/$($restoreDupCase2g.Name))：重复 id 拒绝路径改写了热账本或冷库。"; $g2Fail = $true
+    }
+    Remove-Item -Recurse -Force -LiteralPath $restoreDupRepo2g -ErrorAction SilentlyContinue
+  }
+
+  # (e4) 恢复方向的两个原子写失败分支：热侧暂存失败须双侧不变；冷侧暂存失败须留下逐字一致的
+  # 双侧态，清除注入后重跑只删除冷副本，热侧完整块与失败后 hash 均保持不变。
+  foreach ($restoreFailureSide2g in @('ledger', 'archive')) {
+    $restoreFailRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge4-$restoreFailureSide2g-$PID"
+    if (Test-Path $restoreFailRepo2g) { Remove-Item -Recurse -Force -LiteralPath $restoreFailRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $restoreFailRepo2g 'docs/lessons'), (Join-Path $restoreFailRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $restoreFailRepo2g -Recurse -Force
+    $restoreFailLedger2g = Join-Path $restoreFailRepo2g 'docs/lessons/LEDGER.md'
+    $restoreFailArchive2g = Join-Path $restoreFailRepo2g 'specs/archive/lessons-archive.md'
+    $restoreFailBlock2g = (& $entry2g L1 ledger 1 "RESTORE_FAILURE_$($restoreFailureSide2g.ToUpperInvariant())")
+    Set-Content $restoreFailLedger2g '# ledger' -Encoding utf8
+    Set-Content $restoreFailArchive2g (@('# archive', '', $restoreFailBlock2g) -join "`n") -Encoding utf8
+    $restoreFailHotBefore2g = (Get-FileHash $restoreFailLedger2g -Algorithm SHA256).Hash
+    $restoreFailColdBefore2g = (Get-FileHash $restoreFailArchive2g -Algorithm SHA256).Hash
+    $blockedTmp2g = if ($restoreFailureSide2g -eq 'ledger') { "$restoreFailLedger2g.tmp" } else { "$restoreFailArchive2g.tmp" }
+    New-Item -ItemType Directory -Force $blockedTmp2g | Out-Null
+    $restoreFailOut2g = (& pwsh -NoProfile -File (Join-Path $restoreFailRepo2g 'scripts/archive.ps1') -RepoRoot $restoreFailRepo2g -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+    $restoreFailExit2g = $LASTEXITCODE
+    Remove-Item -Recurse -Force -LiteralPath $blockedTmp2g -ErrorAction SilentlyContinue
+    $restoreFailHotAfter2g = (Get-FileHash $restoreFailLedger2g -Algorithm SHA256).Hash
+    $restoreFailColdAfter2g = (Get-FileHash $restoreFailArchive2g -Algorithm SHA256).Hash
+    if ($restoreFailExit2g -eq 0) { Fail "闸2g(e4/$restoreFailureSide2g)：恢复暂存写失败仍 exit 0。output=[$restoreFailOut2g]"; $g2Fail = $true }
+    if ($restoreFailColdAfter2g -ne $restoreFailColdBefore2g) { Fail "闸2g(e4/$restoreFailureSide2g)：失败路径改写了冷库。"; $g2Fail = $true }
+    if ($restoreFailureSide2g -eq 'ledger') {
+      if ($restoreFailHotAfter2g -ne $restoreFailHotBefore2g) { Fail '闸2g(e4/ledger)：热账本暂存失败仍改写了热账本。'; $g2Fail = $true }
+    } else {
+      $restoreFailHotBlock2g = & $getLessonBlock2g (Get-Content $restoreFailLedger2g -Raw) L1
+      $restoreFailColdBlock2g = & $getLessonBlock2g (Get-Content $restoreFailArchive2g -Raw) L1
+      if ($restoreFailHotAfter2g -eq $restoreFailHotBefore2g -or $restoreFailHotBlock2g -cne $restoreFailBlock2g -or $restoreFailColdBlock2g -cne $restoreFailBlock2g) {
+        Fail '闸2g(e4/archive)：冷侧暂存失败后未留下两侧逐字一致的完整块。'; $g2Fail = $true
+      }
+      $restoreHealOut2g = (& pwsh -NoProfile -File (Join-Path $restoreFailRepo2g 'scripts/archive.ps1') -RepoRoot $restoreFailRepo2g -LessonsOnly -RestoreLessonIds L1 2>&1 | Out-String)
+      $restoreHealExit2g = $LASTEXITCODE
+      if ($restoreHealExit2g -ne 0 -or (Get-FileHash $restoreFailLedger2g -Algorithm SHA256).Hash -ne $restoreFailHotAfter2g -or
+          (Get-Content $restoreFailArchive2g -Raw) -match '(?m)^##[ \t]+L1[ \t]*\r?$' -or
+          (& $getLessonBlock2g (Get-Content $restoreFailLedger2g -Raw) L1) -cne $restoreFailBlock2g) {
+        Fail "闸2g(e4/archive)：清除故障注入后重跑未从两侧一致态自愈。output=[$restoreHealOut2g]"; $g2Fail = $true
+      }
+    }
+    Remove-Item -Recurse -Force -LiteralPath $restoreFailRepo2g -ErrorAction SilentlyContinue
+  }
+
+  # (e5) 双侧自愈只接受逐字一致。PowerShell 的 -ne 默认不区分大小写，TrimEnd() 又会吞掉正文尾空格；
+  # 两者都会把真实冲突误判成相同并删除一侧。归档/恢复两个方向、case-only/trailing-space 两类都须拒绝且零写入。
+  foreach ($exactDirection2g in @('archive', 'restore')) {
+    foreach ($exactVariant2g in @('case-only', 'trailing-space')) {
+      $exactRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge5-$exactDirection2g-$exactVariant2g-$PID"
+      if (Test-Path $exactRepo2g) { Remove-Item -Recurse -Force -LiteralPath $exactRepo2g }
+      New-Item -ItemType Directory -Force (Join-Path $exactRepo2g 'docs/lessons'), (Join-Path $exactRepo2g 'specs/archive') | Out-Null
+      Copy-Item (Join-Path $RepoRoot 'scripts') $exactRepo2g -Recurse -Force
+      $exactLedger2g = Join-Path $exactRepo2g 'docs/lessons/LEDGER.md'
+      $exactArchive2g = Join-Path $exactRepo2g 'specs/archive/lessons-archive.md'
+      $exactMeta2g = '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1'
+      $exactHotRule2g = if ($exactVariant2g -eq 'case-only') { '- rule: CaseSensitiveRule' } else { '- rule: trailing-sensitive' }
+      $exactColdRule2g = if ($exactVariant2g -eq 'case-only') { '- rule: casesensitiverule' } else { '- rule: trailing-sensitive' }
+      $exactHotRefs2g = '- refs:'
+      $exactColdRefs2g = if ($exactVariant2g -eq 'trailing-space') { '- refs: ' } else { '- refs:' }
+      $exactHotBlock2g = @('## L1', $exactMeta2g, '- symptom: s', '- root_cause: rc', $exactHotRule2g, $exactHotRefs2g)
+      $exactColdBlock2g = @('## L1', $exactMeta2g, '- symptom: s', '- root_cause: rc', $exactColdRule2g, $exactColdRefs2g)
+      # L2 keeps L1 eligible for the archive direction; it is outside the compared L1 block.
+      $exactSentinel2g = @('## L2', $exactMeta2g, '- symptom: sentinel', '- root_cause: rc', '- rule: highest-id', '- refs:')
+      Set-Content $exactLedger2g ((@('# ledger', '') + $exactHotBlock2g + @('') + $exactSentinel2g) -join "`n") -Encoding utf8
+      Set-Content $exactArchive2g ((@('# archive', '') + $exactColdBlock2g) -join "`n") -Encoding utf8
+      $exactHotHash2g = (Get-FileHash $exactLedger2g -Algorithm SHA256).Hash
+      $exactColdHash2g = (Get-FileHash $exactArchive2g -Algorithm SHA256).Hash
+      $exactArgs2g = if ($exactDirection2g -eq 'restore') { @('-RestoreLessonIds', 'L1') } else { @('-LessonIds', 'L1') }
+      $exactOut2g = (& pwsh -NoProfile -File (Join-Path $exactRepo2g 'scripts/archive.ps1') -RepoRoot $exactRepo2g -LessonsOnly @exactArgs2g 2>&1 | Out-String)
+      $exactExit2g = $LASTEXITCODE
+      if ($exactExit2g -eq 0 -or $exactOut2g -notmatch '\[ARCHIVE-LESSON-REJECT-CONFLICT\]') {
+        Fail "闸2g(e5/$exactDirection2g/$exactVariant2g)：逐字冲突未以 [ARCHIVE-LESSON-REJECT-CONFLICT] fail-closed。output=[$exactOut2g]"; $g2Fail = $true
+      }
+      if ((Get-FileHash $exactLedger2g -Algorithm SHA256).Hash -ne $exactHotHash2g -or
+          (Get-FileHash $exactArchive2g -Algorithm SHA256).Hash -ne $exactColdHash2g) {
+        Fail "闸2g(e5/$exactDirection2g/$exactVariant2g)：冲突拒绝路径改写了热账本或冷库。"; $g2Fail = $true
+      }
+      Remove-Item -Recurse -Force -LiteralPath $exactRepo2g -ErrorAction SilentlyContinue
+    }
+  }
+
+  # (e6) 多 id 的恢复顺序必须由源文件决定，而不是由调用者的参数顺序决定。反向传 L2,L1，并让第二个
+  # 原子替换失败，先制造两侧并存；清除注入后用同一反向参数重试，归档/恢复两个方向都必须自愈。
+  foreach ($batchDirection2g in @('archive', 'restore')) {
+    $batchRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2ge6-$batchDirection2g-$PID"
+    if (Test-Path $batchRepo2g) { Remove-Item -Recurse -Force -LiteralPath $batchRepo2g }
+    New-Item -ItemType Directory -Force (Join-Path $batchRepo2g 'docs/lessons'), (Join-Path $batchRepo2g 'specs/archive') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts') $batchRepo2g -Recurse -Force
+    $batchLedger2g = Join-Path $batchRepo2g 'docs/lessons/LEDGER.md'
+    $batchArchive2g = Join-Path $batchRepo2g 'specs/archive/lessons-archive.md'
+    $batchL12g = (& $entry2g L1 ledger 1 'BATCH_FIRST')
+    $batchL22g = (& $entry2g L2 ledger 1 'BATCH_SECOND')
+    $batchL32g = (& $entry2g L3 ledger 1 'BATCH_MAX_SENTINEL')
+    if ($batchDirection2g -eq 'archive') {
+      Set-Content $batchLedger2g ((@('# ledger', $batchL12g, $batchL22g, $batchL32g)) -join "`n`n") -Encoding utf8
+      Set-Content $batchArchive2g '# archive' -Encoding utf8
+      $batchArgs2g = @('-LessonIds', 'L2,L1')
+      $batchBlockedTmp2g = "$batchLedger2g.tmp"
+    } else {
+      Set-Content $batchLedger2g '# ledger' -Encoding utf8
+      Set-Content $batchArchive2g ((@('# archive', $batchL12g, $batchL22g)) -join "`n`n") -Encoding utf8
+      $batchArgs2g = @('-RestoreLessonIds', 'L2,L1')
+      $batchBlockedTmp2g = "$batchArchive2g.tmp"
+    }
+    New-Item -ItemType Directory -Force $batchBlockedTmp2g | Out-Null
+    $batchFailOut2g = (& pwsh -NoProfile -File (Join-Path $batchRepo2g 'scripts/archive.ps1') -RepoRoot $batchRepo2g -LessonsOnly @batchArgs2g 2>&1 | Out-String)
+    $batchFailExit2g = $LASTEXITCODE
+    Remove-Item -Recurse -Force -LiteralPath $batchBlockedTmp2g -ErrorAction SilentlyContinue
+    if ($batchFailExit2g -eq 0) {
+      Fail "闸2g(e6/$batchDirection2g)：第二个原子替换失败仍 exit 0。output=[$batchFailOut2g]"; $g2Fail = $true
+    }
+    $batchHealOut2g = (& pwsh -NoProfile -File (Join-Path $batchRepo2g 'scripts/archive.ps1') -RepoRoot $batchRepo2g -LessonsOnly @batchArgs2g 2>&1 | Out-String)
+    $batchHealExit2g = $LASTEXITCODE
+    $batchHotText2g = Get-Content $batchLedger2g -Raw
+    $batchColdText2g = Get-Content $batchArchive2g -Raw
+    $batchDestinationText2g = if ($batchDirection2g -eq 'archive') { $batchColdText2g } else { $batchHotText2g }
+    $batchSourceText2g = if ($batchDirection2g -eq 'archive') { $batchHotText2g } else { $batchColdText2g }
+    $batchL1Pos2g = $batchDestinationText2g.IndexOf('## L1', [System.StringComparison]::Ordinal)
+    $batchL2Pos2g = $batchDestinationText2g.IndexOf('## L2', [System.StringComparison]::Ordinal)
+    if ($batchHealExit2g -ne 0 -or $batchHealOut2g -match '\[ARCHIVE-LESSON-REJECT-CONFLICT\]' -or
+        $batchSourceText2g -match '(?m)^##[ \t]+L[12][ \t]*\r?$' -or
+        $batchL1Pos2g -lt 0 -or $batchL2Pos2g -le $batchL1Pos2g -or
+        (& $getLessonBlock2g $batchDestinationText2g L1) -cne $batchL12g -or
+        (& $getLessonBlock2g $batchDestinationText2g L2) -cne $batchL22g) {
+      Fail "闸2g(e6/$batchDirection2g)：反向双 id 的失败重试未按源顺序自愈。output=[$batchHealOut2g]"; $g2Fail = $true
+    }
+    Remove-Item -Recurse -Force -LiteralPath $batchRepo2g -ErrorAction SilentlyContinue
+  }
+
+  # 闸2g(f)：A11 的**生产路径**回归——真实 linked worktree，而不是非 git 临时目录。
+  # 2g(e) 的夹具不是 git 仓库，Resolve-BumpLedger 因此回落到本地账本，冷项在本地热账本里本就不存在，
+  # 于是命中「块没找到」分支顺带触发只读提示——**它测的根本不是 bump 会不会改主检出**。真实形态是：
+  # 主检出的 LEDGER 里 Lx 仍是热的、本工作树已把它归冷；旧序的 bump 会命中块、照常改写、exit 0。
+  # 修复前实测：exit 0、无哨兵、主检出 recurrence 3→4。
+  $wtRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gf-$PID"
+  if (Test-Path $wtRepo2g) { Remove-Item -Recurse -Force -LiteralPath $wtRepo2g }
+  $wtMain2g = Join-Path $wtRepo2g 'main'
+  $wtLink2g = Join-Path $wtRepo2g 'wt'
+  New-Item -ItemType Directory -Force (Join-Path $wtMain2g 'docs/lessons'), (Join-Path $wtMain2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $wtMain2g -Recurse -Force
+  $hotBlock2g = @('# LEDGER', '', '## L900', '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 3', '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  Set-Content (Join-Path $wtMain2g 'docs/lessons/LEDGER.md') $hotBlock2g -Encoding utf8
+  Set-Content (Join-Path $wtMain2g 'specs/archive/lessons-archive.md') '# archive' -Encoding utf8
+  Push-Location $wtMain2g
+  & git init -q 2>&1 | Out-Null
+  & git config user.email 'selftest@example.invalid' 2>&1 | Out-Null
+  & git config user.name 'selftest' 2>&1 | Out-Null
+  & git add -A 2>&1 | Out-Null
+  & git -c commit.gpgsign=false commit -q -m fixture 2>&1 | Out-Null
+  & git worktree add -q -b lessons2gf $wtLink2g 2>&1 | Out-Null
+  $wtAddOk2g = ($LASTEXITCODE -eq 0)
+  Pop-Location
+  if (-not $wtAddOk2g) {
+    Fail '闸2g(f)：无法建立 linked worktree 夹具——本闸判的就是 linked worktree 下的行为，建不起来即中止而非跳过。'
+    $g2Fail = $true
+  }
+  else {
+    Set-Content (Join-Path $wtLink2g 'docs/lessons/LEDGER.md') '# LEDGER' -Encoding utf8
+    Set-Content (Join-Path $wtLink2g 'specs/archive/lessons-archive.md') ($hotBlock2g -replace '# LEDGER', '# archive') -Encoding utf8
+    $mainLedger2g = Join-Path $wtMain2g 'docs/lessons/LEDGER.md'
+    $hashBefore2g = (Get-FileHash $mainLedger2g -Algorithm SHA256).Hash
+    Push-Location $wtLink2g
+    $wtOut2g = (& pwsh -NoProfile -File (Join-Path $wtLink2g 'scripts/lessons.ps1') bump L900 2>&1 | Out-String)
+    $wtExit2g = $LASTEXITCODE
+    Pop-Location
+    $hashAfter2g = (Get-FileHash $mainLedger2g -Algorithm SHA256).Hash
+    if ($wtExit2g -eq 0) { Fail "闸2g(f)：linked worktree 里 bump 已归冷的 L900 退出 0（主检出该 id 仍热）——A11 的闸没拦住生产路径。output=[$wtOut2g]"; $g2Fail = $true }
+    if ($wtOut2g -notmatch '\[LSN-ARCHIVED-READONLY\]') { Fail "闸2g(f)：未打出 [LSN-ARCHIVED-READONLY]——写入面与判据面分家（写主检出的账本，却只判本工作树的冷库）。output=[$wtOut2g]"; $g2Fail = $true }
+    if ($hashBefore2g -ne $hashAfter2g) { Fail '闸2g(f)：主检出的 LEDGER 被改写——冷项 bump 必须零写入。'; $g2Fail = $true }
+    Push-Location $wtMain2g
+    & git worktree remove --force $wtLink2g 2>&1 | Out-Null
+    Pop-Location
+  }
+  if (Test-Path $wtRepo2g) { Remove-Item -Recurse -Force -LiteralPath $wtRepo2g -ErrorAction SilentlyContinue }
+
+  # 闸2g(g)：Int32 范围判据（旧写法用「位数 \d{1,9}」当范围代理，两头都错）。
+  # ① 1000000000 是合法 Int32（10 位）却被位数上界拒；② bump 能把 999999999 加成 1000000000 写进去，
+  # 下一次读又判它非法——写路径造出读路径拒绝的值。判据改为 [int]::TryParse，即范围本身。
+  $intRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gg-$PID"
+  if (Test-Path $intRepo2g) { Remove-Item -Recurse -Force -LiteralPath $intRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $intRepo2g 'docs/lessons'), (Join-Path $intRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $intRepo2g -Recurse -Force
+  $intLessons2g = Join-Path $intRepo2g 'scripts/lessons.ps1'
+  $intLedger2g = Join-Path $intRepo2g 'docs/lessons/LEDGER.md'
+  Set-Content (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') '# archive' -Encoding utf8
+  $mk2g = {
+    param([string]$Id, [string]$Rec)
+    @("## $Id", "- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: $Rec", '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  }
+  # (g1) 合法的 10 位 Int32 必须被接受——位数上界会误杀它
+  Set-Content $intLedger2g (@('# LEDGER', '', (& $mk2g 'L1000000000' '1')) -join [Environment]::NewLine) -Encoding utf8
+  $g1Out = (& pwsh -NoProfile -File $intLessons2g check -RepoRoot $intRepo2g 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $g1Out -notmatch 'check: PASS') { Fail "闸2g(g1)：合法 Int32 值 L1000000000（10 位）被判非法——位数不是范围判据。output=[$g1Out]"; $g2Fail = $true }
+  # (g2) Int32.MaxValue+1 必须被拒（读路径 fail-closed）
+  Set-Content $intLedger2g (@('# LEDGER', '', (& $mk2g 'L901' '2147483648')) -join [Environment]::NewLine) -Encoding utf8
+  $g2Out = (& pwsh -NoProfile -File $intLessons2g check -RepoRoot $intRepo2g 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0) { Fail "闸2g(g2)：recurrence 2147483648 超 Int32 却被接受——溢出会让下游 [int] 抛裸异常。output=[$g2Out]"; $g2Fail = $true }
+  # (g3) bump 到 Int32 上限必须 fail-closed 且零写入（否则写出读路径拒绝的值）
+  Set-Content $intLedger2g (@('# LEDGER', '', (& $mk2g 'L902' '2147483647')) -join [Environment]::NewLine) -Encoding utf8
+  $g3Hash = (Get-FileHash $intLedger2g -Algorithm SHA256).Hash
+  $g3Out = (& pwsh -NoProfile -File $intLessons2g bump L902 -RepoRoot $intRepo2g 2>&1 | Out-String)
+  $g3Exit = $LASTEXITCODE
+  if ($g3Exit -eq 0) { Fail "闸2g(g3)：recurrence 已是 Int32.MaxValue，bump 仍退出 0——PowerShell 的 + 会静默升宽到 [long]，写出的值下一次读就判非法。output=[$g3Out]"; $g2Fail = $true }
+  if ((Get-FileHash $intLedger2g -Algorithm SHA256).Hash -ne $g3Hash) { Fail '闸2g(g3)：到顶的 bump 改写了账本——必须零写入。'; $g2Fail = $true }
+  # (g4) Next-Id 也必须守同一个 Int32 域；冷库最大 id 到顶时 add 不得写出下一次读取必拒的 L2147483648。
+  Set-Content $intLedger2g '# LEDGER' -Encoding utf8
+  Set-Content (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') (@('# archive', '', (& $mk2g 'L2147483647' '1')) -join [Environment]::NewLine) -Encoding utf8
+  $g4LedgerHash = (Get-FileHash $intLedger2g -Algorithm SHA256).Hash
+  $g4ArchiveHash = (Get-FileHash (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') -Algorithm SHA256).Hash
+  $g4Out = (& pwsh -NoProfile -File $intLessons2g add -RepoRoot $intRepo2g -Symptom s -Rule r 2>&1 | Out-String)
+  $g4Exit = $LASTEXITCODE
+  if ($g4Exit -eq 0 -or $g4Out -notmatch '\[LSN-ID-EXHAUSTED\]') { Fail "闸2g(g4)：冷库最大 id 已达 Int32.MaxValue，add 未以 [LSN-ID-EXHAUSTED] fail-closed。output=[$g4Out]"; $g2Fail = $true }
+  if ((Get-FileHash $intLedger2g -Algorithm SHA256).Hash -ne $g4LedgerHash -or
+      (Get-FileHash (Join-Path $intRepo2g 'specs/archive/lessons-archive.md') -Algorithm SHA256).Hash -ne $g4ArchiveHash) {
+    Fail '闸2g(g4)：Next-Id 域耗尽后的 add 改写了热账本或冷库。'; $g2Fail = $true
+  }
+  if (Test-Path $intRepo2g) { Remove-Item -Recurse -Force -LiteralPath $intRepo2g -ErrorAction SilentlyContinue }
+
+  # 闸2g(h)：A13 的第二类搬运器拒绝——热/冷内容不一致，须经 wrapper 的 -DryRun 打出**搬运器自己的 ASCII 哨兵**。
+  # 原先这条分支只有本地化中文 Write-Warning，且唯一的测试直接调搬运器、按中文文案匹配——本地化文案一变即
+  # 静默失效（L165：机检只认 ASCII 哨兵）。现补 [ARCHIVE-LESSON-REJECT-CONFLICT] 并从 wrapper 预览侧断言。
+  $cfRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gh-$PID"
+  if (Test-Path $cfRepo2g) { Remove-Item -Recurse -Force -LiteralPath $cfRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $cfRepo2g 'docs/lessons'), (Join-Path $cfRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $cfRepo2g -Recurse -Force
+  $cfLessons2g = Join-Path $cfRepo2g 'scripts/lessons.ps1'
+  $cfLedger2g = Join-Path $cfRepo2g 'docs/lessons/LEDGER.md'
+  $cfArchive2g = Join-Path $cfRepo2g 'specs/archive/lessons-archive.md'
+  $cfMeta2g = '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 1'
+  # 两侧并存但正文**不一致**：rule 行不同 → 自愈路径必须拒绝（盲删 LEDGER 侧会毁掉较新的在册内容）
+  # 选择器把**最高 id** 列为排除面之一，所以夹具必须另有一条更高的 id，否则 L905 自己就是最高、
+  # candidates=none，搬运器一次都不会被调用——本闸会因为「没候选」而红，而不是因为它要测的冲突分支。
+  Set-Content $cfLedger2g (@('# LEDGER', '',
+    '## L905', $cfMeta2g, '- symptom: s', '- root_cause: rc', '- rule: HOT-VERSION', '- refs:', '',
+    '## L950', $cfMeta2g, '- symptom: s', '- root_cause: rc', '- rule: highest-id sentinel (excluded by design)', '- refs:') -join [Environment]::NewLine) -Encoding utf8
+  Set-Content $cfArchive2g (@('# archive', '', '## L905', $cfMeta2g, '- symptom: s', '- root_cause: rc', '- rule: COLD-VERSION-DIFFERS', '- refs:') -join [Environment]::NewLine) -Encoding utf8
+  # 常驻真相源必须在场：CLAUDE.md 缺席时 lessons.ps1 先以 [LSN-RESIDENT-SOURCE-MISSING] 拒绝归档，
+  # 根本走不到冲突分支——那样本闸会因为**另一个**原因变红，测不到它声称要测的东西。
+  Set-Content (Join-Path $cfRepo2g 'CLAUDE.md') '常驻引用：无' -Encoding utf8
+  New-Item -ItemType Directory -Force (Join-Path $cfRepo2g 'specs/tasks') | Out-Null
+  Set-Content (Join-Path $cfRepo2g 'specs/tech-debt-tracker.md') "| id | 状态 |`n|---|---|`n| TD-FIXTURE | paid |" -Encoding utf8
+  $cfHotHash2g = (Get-FileHash $cfLedger2g -Algorithm SHA256).Hash
+  $cfColdHash2g = (Get-FileHash $cfArchive2g -Algorithm SHA256).Hash
+  $cfOut2g = (& pwsh -NoProfile -File $cfLessons2g archive -DryRun -RepoRoot $cfRepo2g 2>&1 | Out-String)
+  $cfExit2g = $LASTEXITCODE
+  if ($cfExit2g -eq 0) { Fail "闸2g(h)：两侧并存且内容不一致，archive -DryRun 仍退出 0——预览把「拒绝」伪装成绿。output=[$cfOut2g]"; $g2Fail = $true }
+  if ($cfOut2g -notmatch '\[ARCHIVE-LESSON-REJECT-CONFLICT\]') { Fail "闸2g(h)：预览输出里没有搬运器自己的 ASCII 哨兵 [ARCHIVE-LESSON-REJECT-CONFLICT]——要么哨兵没加，要么 -DryRun 没把搬运器的拒绝透传上来（只按中文文案判会在文案一变时静默失效）。output=[$cfOut2g]"; $g2Fail = $true }
+  if ((Get-FileHash $cfLedger2g -Algorithm SHA256).Hash -ne $cfHotHash2g) { Fail '闸2g(h)：拒绝路径改写了热账本——必须双侧零写入。'; $g2Fail = $true }
+  if ((Get-FileHash $cfArchive2g -Algorithm SHA256).Hash -ne $cfColdHash2g) { Fail '闸2g(h)：拒绝路径改写了冷库——必须双侧零写入。'; $g2Fail = $true }
+  if (Test-Path $cfRepo2g) { Remove-Item -Recurse -Force -LiteralPath $cfRepo2g -ErrorAction SilentlyContinue }
+
+  # 闸2g(i)：**镜像**用例——冷项只在**主检出**的冷库里，本工作树的冷库没有它。
+  # 只有「按 BumpLedger 推出的主检出冷库」那条守卫能拦住它；2g(f) 拦不住，因为 2g(f) 会被
+  # 本工作树自己的冷库先满足（断言被另一条路径满足＝没在测它声称测的东西，L165）。
+  # 早先 $BumpArchive 只上溯两级父目录，算出 <root>/docs/specs/archive/... 这个永不存在的路径，
+  # Test-Path 恒 false ⇒ 这条守卫一次都没跑过，而 2g(f) 照样绿。本闸把这条路径钉死。
+  $mrRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gi-$PID"
+  if (Test-Path $mrRepo2g) { Remove-Item -Recurse -Force -LiteralPath $mrRepo2g }
+  $mrMain2g = Join-Path $mrRepo2g 'main'
+  $mrLink2g = Join-Path $mrRepo2g 'wt'
+  New-Item -ItemType Directory -Force (Join-Path $mrMain2g 'docs/lessons'), (Join-Path $mrMain2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $mrMain2g -Recurse -Force
+  $mrBlock2g = @('## L906', '- date: 2026-08-24 ｜ tags: t ｜ tier: ledger ｜ severity: minor ｜ recurrence: 7', '- symptom: s', '- root_cause: rc', '- rule: r', '- refs:') -join [Environment]::NewLine
+  Set-Content (Join-Path $mrMain2g 'docs/lessons/LEDGER.md') (@('# LEDGER', '', $mrBlock2g) -join [Environment]::NewLine) -Encoding utf8
+  Set-Content (Join-Path $mrMain2g 'specs/archive/lessons-archive.md') (@('# archive', '', $mrBlock2g) -join [Environment]::NewLine) -Encoding utf8
+  Push-Location $mrMain2g
+  & git init -q 2>&1 | Out-Null
+  & git config user.email 'selftest@example.invalid' 2>&1 | Out-Null
+  & git config user.name 'selftest' 2>&1 | Out-Null
+  & git add -A 2>&1 | Out-Null
+  & git -c commit.gpgsign=false commit -q -m fixture 2>&1 | Out-Null
+  & git worktree add -q -b lessons2gi $mrLink2g 2>&1 | Out-Null
+  $mrAddOk2g = ($LASTEXITCODE -eq 0)
+  Pop-Location
+  if (-not $mrAddOk2g) {
+    Fail '闸2g(i)：无法建立 linked worktree 夹具——本闸判的就是主检出冷库那条守卫，建不起来即中止而非跳过。'
+    $g2Fail = $true
+  }
+  else {
+    # 关键：本工作树的冷库**空**（不含 L906），主检出的冷库含 L906 且主检出 LEDGER 里它仍是热的
+    Set-Content (Join-Path $mrLink2g 'specs/archive/lessons-archive.md') '# archive' -Encoding utf8
+    Set-Content (Join-Path $mrLink2g 'docs/lessons/LEDGER.md') '# LEDGER' -Encoding utf8
+    $mrMainLedger2g = Join-Path $mrMain2g 'docs/lessons/LEDGER.md'
+    $mrHash2g = (Get-FileHash $mrMainLedger2g -Algorithm SHA256).Hash
+    Push-Location $mrLink2g
+    $mrOut2g = (& pwsh -NoProfile -File (Join-Path $mrLink2g 'scripts/lessons.ps1') bump L906 2>&1 | Out-String)
+    $mrExit2g = $LASTEXITCODE
+    Pop-Location
+    if ($mrExit2g -eq 0) { Fail "闸2g(i)：L906 只在主检出的冷库里（本工作树冷库为空），bump 仍退出 0——按 BumpLedger 推出主检出冷库的那条守卫没生效（早先的两级父目录 bug 会让它永远 Test-Path 失败）。output=[$mrOut2g]"; $g2Fail = $true }
+    if ($mrOut2g -notmatch '\[LSN-ARCHIVED-READONLY\]') { Fail "闸2g(i)：未打出 [LSN-ARCHIVED-READONLY]——主检出冷库未被查看。output=[$mrOut2g]"; $g2Fail = $true }
+    if ((Get-FileHash $mrMainLedger2g -Algorithm SHA256).Hash -ne $mrHash2g) { Fail '闸2g(i)：主检出 LEDGER 被改写——冷项 bump 必须零写入。'; $g2Fail = $true }
+    Push-Location $mrMain2g
+    & git worktree remove --force $mrLink2g 2>&1 | Out-Null
+    Pop-Location
+  }
+  if (Test-Path $mrRepo2g) { Remove-Item -Recurse -Force -LiteralPath $mrRepo2g -ErrorAction SilentlyContinue }
+
+  $ledgerStableHash2g = (Get-FileHash $l2gLedger -Algorithm SHA256).Hash
+  $archiveHash2g = (Get-FileHash $l2gArchive -Algorithm SHA256).Hash
+  $rerun2g = (& pwsh -NoProfile -File $l2gLessons archive -RepoRoot $l2gRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or (Get-FileHash $l2gLedger -Algorithm SHA256).Hash -ne $ledgerStableHash2g -or
+      (Get-FileHash $l2gArchive -Algorithm SHA256).Hash -ne $archiveHash2g) {
+    Fail "闸2g(j)：无新候选时 archive 重跑不幂等。output=[$rerun2g]"; $g2Fail = $true
+  }
+  # (k) A16：定义「受保护集合」的常驻 CLAUDE.md 缺席时必须 fail-closed（模板文件只在元仓存在，故夹具把两个
+  #   都删掉——这正是「有 LEDGER 却没有 CLAUDE.md」那棵树的真实形态）。此刻 L5/L6/L7/L8/L11 之所以还留在
+  #   热账本，唯一原因就是被这两个文件引用；把它们删掉再跑，fail-open 的实现会把这 5 条**真的**搬进冷库，
+  #   exit 0、无告警，事后闸 16 也不会红（它按热∪冷判）——与「只认方括号引用」同一后果、不同入口。
+  #   断言预览与实跑同口径：非零退出 + 点名 [LSN-RESIDENT-SOURCE-MISSING] + 连 candidates= 都不该印出来
+  #   （读不到判据就不该有「候选」这个结论）+ 两侧字节零变化。
+  Remove-Item (Join-Path $l2gRepo 'CLAUDE.md'), (Join-Path $l2gRepo 'CLAUDE.template.md') -Force
+  $ledgerHashG2g = (Get-FileHash $l2gLedger -Algorithm SHA256).Hash
+  $archiveHashG2g = (Get-FileHash $l2gArchive -Algorithm SHA256).Hash
+  foreach ($modeG2g in @('预览', '实跑')) {
+    # 逐元素拼参数数组再 splat：`$x = if (…) { @('-DryRun') }` 会被 PowerShell 把单元素数组拆成**字符串**，
+    # 而 splat 一个字符串是按字符散开的（实测报 “positional parameter … 'D'”），预览分支遂根本没带上 -DryRun。
+    $argsG2g = @('-NoProfile', '-File', $l2gLessons, 'archive', '-RepoRoot', $l2gRepo)
+    if ($modeG2g -eq '预览') { $argsG2g += '-DryRun' }
+    $noRef2g = (& pwsh @argsG2g 2>&1 | Out-String)
+    $noRefExit2g = $LASTEXITCODE
+    if ($noRefExit2g -eq 0) { Fail "闸2g(k)：常驻 CLAUDE 文件全部缺席时 archive($modeG2g) 仍退出 0——「读不到受保护集合」被当成了「没有条目被引用」，整批 ledger 条目遂静默进候选。output=[$noRef2g]"; $g2Fail = $true }
+    if ($noRef2g -notmatch '\[LSN-RESIDENT-SOURCE-MISSING\]') { Fail "闸2g(k)：archive($modeG2g) 未给 [LSN-RESIDENT-SOURCE-MISSING] 哨兵——告警文本不算诊断，按退出码判断的调用方看不见原因。output=[$noRef2g]"; $g2Fail = $true }
+    if ($noRef2g -match 'candidates=') { Fail "闸2g(k)：引用判据缺席时仍印出了 candidates=——判据都没有，就不该给出「候选」这个结论。output=[$noRef2g]"; $g2Fail = $true }
+    if ((Get-FileHash $l2gLedger -Algorithm SHA256).Hash -ne $ledgerHashG2g -or (Get-FileHash $l2gArchive -Algorithm SHA256).Hash -ne $archiveHashG2g) {
+      Fail "闸2g(k)：引用判据缺席时 archive($modeG2g) 仍动了数据（L5/L6/L7/L8/L11 正是靠常驻引用才留热）。"; $g2Fail = $true
+    }
+  }
+
+  # (l) 源 LEDGER 缺席不等于空账本。选择器若继续，会打印 candidates=none 并 exit 0，掩盖错误 RepoRoot。
+  $noLedgerRepo2g = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2gl-$PID"
+  if (Test-Path $noLedgerRepo2g) { Remove-Item -Recurse -Force -LiteralPath $noLedgerRepo2g }
+  New-Item -ItemType Directory -Force (Join-Path $noLedgerRepo2g 'specs/archive') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $noLedgerRepo2g -Recurse -Force
+  Set-Content (Join-Path $noLedgerRepo2g 'CLAUDE.md') '常驻引用：无' -Encoding utf8
+  $noLedgerArchive2g = Join-Path $noLedgerRepo2g 'specs/archive/lessons-archive.md'
+  Set-Content $noLedgerArchive2g '# archive sentinel' -Encoding utf8
+  $noLedgerColdHash2g = (Get-FileHash $noLedgerArchive2g -Algorithm SHA256).Hash
+  $noLedgerOut2g = (& pwsh -NoProfile -File (Join-Path $noLedgerRepo2g 'scripts/lessons.ps1') archive -RepoRoot $noLedgerRepo2g 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0 -or $noLedgerOut2g -notmatch '\[LSN-LEDGER-SOURCE-MISSING\]' -or
+      (Get-FileHash $noLedgerArchive2g -Algorithm SHA256).Hash -ne $noLedgerColdHash2g -or
+      (Test-Path (Join-Path $noLedgerRepo2g 'docs/lessons/LEDGER.md'))) {
+    Fail "闸2g(l)：源 LEDGER 缺席未以 [LSN-LEDGER-SOURCE-MISSING] fail-closed 且零写入。output=[$noLedgerOut2g]"; $g2Fail = $true
+  }
+  Remove-Item -Recurse -Force -LiteralPath $noLedgerRepo2g -ErrorAction SilentlyContinue
+
+  if (-not $g2Fail) {
+    Write-Host '  2g lessons 选择性冷存/零写预览/三形态引用排除 + 两种否定形态/引用判据缺席即 fail-closed/热冷召回/ID 并集/冷项只读/幂等 OK' -ForegroundColor Green
+  }
+} finally {
+  Remove-Item -Recurse -Force $l2gRepo -ErrorAction SilentlyContinue
+}
+
+# 2i. T0-LESSONS-COLD-RECALL（R3 收口）：规范 meta 行是元数据的**唯一出生点**——为什么必须如此，见
+#     scripts/lessons.ps1 中 Get-LessonMeta 的头注（单一处论述，此处不复述）。本闸只负责把它钉死：
+#     用一条夹具一个病灶的敌意账本，断言读侧（archive 选择器 / check / list / search）与写侧（bump / promote）
+#     一律 [LSN-META-INVALID] 留热区、零写入、非零退出，而合法条目行为不变。
+#     把 Get-LessonMeta 换回不锚定正则、或去掉任一枚值校验，都有对应的一条夹具让它变红。
+$l2iRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2i-$PID"
+if (Test-Path $l2iRepo) { Remove-Item -Recurse -Force $l2iRepo }
+New-Item -ItemType Directory -Force $l2iRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2iRepo -Recurse -Force
+  $l2iLessons = Join-Path $l2iRepo 'scripts/lessons.ps1'
+  $l2iLedger = Join-Path $l2iRepo 'docs/lessons/LEDGER.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2iLedger), (Join-Path $l2iRepo 'specs/archive') | Out-Null
+  Set-Content (Join-Path $l2iRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n`n## refs`n" -Encoding utf8
+
+  # 一条夹具一个病灶——每道守卫都要有一枚**只**打它的夹具，共用一条会让两道守卫互相打掩护（L165）。
+  # 每条只在合法基线 meta 行上改一处，正文形状不变，于是「哪里不合法」在下面一眼可见。
+  # L20 值得单说：它的 meta 行**整个没有** recurrence 字段（不是值写错）。这才是 bump 假绿写入的确切触发形状——
+  # meta 行通常是块内第二行，不锚定的 `recurrence:\s*(\d+)` 会先命中它，只有该字段根本不在时才掉到正文诱饵上，
+  # 于是读出 7、算出 8、锚定的写一处也匹配不到、原样写回，却打印绿字「7 → 8」、exit 0、还建议 promote 进必须层。
+  # **闸 2c 抓不到它**（2c 的夹具 meta 行有该字段，读永远落在 meta 行上），故必须在此单列。
+  $ok2i = '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1'
+  $entry2i = {
+    param([string]$Heading, [string]$Meta, [string]$Token, [string]$Bait = '')
+    @("## $Heading", $Meta, "- symptom: $Token", "- rule: rule-$Token$Bait") -join "`n"
+  }
+  $l2iLedgerText = @(
+    '# fixture ledger', '',
+    (& $entry2i 'L1'  $ok2i 'LEGIT_COLD_CANDIDATE'),
+    (& $entry2i 'L2'  ($ok2i -replace ' ｜ tier: ledger','') 'BAIT_TIER_ONLY' '，正文诱饵 tier: ledger'),
+    (& $entry2i 'L20' ($ok2i -replace ' ｜ recurrence: 1','') 'BAIT_RECURRENCE_ONLY' '，正文诱饵 recurrence: 7'),
+    (& $entry2i 'L3'  ($ok2i + "`n" + $ok2i) 'DUPLICATE_META_LINE'),
+    (& $entry2i 'L4'  ($ok2i -replace 'tier: ledger','tier: bogus') 'INVALID_TIER_VALUE'),
+    (& $entry2i 'L5'  '- note: 本块无规范 meta 行' 'NO_META_LINE_AT_ALL'),
+    (& $entry2i 'L6'  ('  ' + $ok2i) 'INDENTED_META_LINE'),
+    (& $entry2i 'L7'  ($ok2i -replace 'tier: ledger','tier: ledger ｜ tier: must') 'DUPLICATE_FIELD_NAME'),
+    (& $entry2i 'L8'  ($ok2i -replace 'date: 2026-08-21','date: 2026-8-1') 'NON_ISO_DATE'),
+    (& $entry2i 'L10' ($ok2i -replace 'severity: minor','severity: fatal') 'INVALID_SEVERITY'),
+    (& $entry2i 'L13' ($ok2i -replace 'kind: pitfall','kind: bogus') 'INVALID_KIND'),
+    (& $entry2i 'L14' ($ok2i -replace 'recurrence: 1','recurrence: many') 'NON_NUMERIC_RECURRENCE'),
+    (& $entry2i 'L15' ($ok2i -replace 'recurrence: 1','recurrence: 99999999999999999999') 'RECURRENCE_OVERFLOWS_INT32'),
+    (& $entry2i 'L16' ($ok2i -replace ' ｜ tags: fixture','') 'MISSING_TAGS_FIELD'),
+    # L17 与 L10 是**两枚**夹具、打的是两道不同守卫：L10 的 severity 有值但值非法（走值校验那一行），
+    # L17 的 meta 行整个没有 severity 字段（走必填字段表那一行）。少了 L17，把 'severity' 从必填表里删掉
+    # 后没有任何输入能变红——缺失键在 StrictMode 下取值为 $null，会被下游的值校验降级成「值非法」照样报错。
+    (& $entry2i 'L17' ($ok2i -replace ' ｜ severity: minor','') 'MISSING_SEVERITY_FIELD'),
+    ((& $entry2i 'L18' $ok2i 'MISSING_RULE_LINE') -replace '(?m)^- rule:.*(?:\r?\n|$)', ''),
+    (& $entry2i 'L19' ($ok2i -replace 'severity: minor','severity: blocking') 'BLOCKING_WITHOUT_ENFORCED_BY'),
+    ((& $entry2i 'L21' $ok2i 'EMPTY_RULE_VALUE') -replace '(?m)^- rule:.*$', "- rule:`n- refs:"),
+    ((& $entry2i 'L22' ($ok2i -replace 'severity: minor','severity: blocking') 'EMPTY_ENFORCED_BY_VALUE') + "`n- enforced_by:`n- refs:"),
+    (& $entry2i 'L99999999999999999999' $ok2i 'ID_OVERFLOWS_INT32'),
+    (& $entry2i 'L30' $ok2i 'MAX_ID_EXCLUDED')
+  ) -join "`n`n"
+  Set-Content $l2iLedger $l2iLedgerText -Encoding utf8
+  $hostile2iIds = @('L2', 'L20', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L13', 'L14', 'L15', 'L16', 'L17', 'L99999999999999999999')
+  $invalidEntry2iIds = @('L18', 'L19', 'L21', 'L22')
+
+  $dry2i = (& pwsh -NoProfile -File $l2iLessons archive -RepoRoot $l2iRepo -DryRun 2>&1 | Out-String)
+  $dryExit2i = $LASTEXITCODE
+  $cand2i = ([regex]::Match($dry2i, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
+  $e2Fail = $false
+  # 有不可解析条目时预览必须**非零**退出：同一份账本不能 check 报 1 而 archive 报 0，那正是 archive.ps1 自己
+  # 早已否掉的 fail-open（闸 12e⑥）。告警文本不算诊断——`-Quiet`、折叠的 CI 日志、按退出码判断的调用方都看不见。
+  if ($dryExit2i -eq 0) { Fail "闸2i(a)：夹具含不可解析条目，archive -DryRun 却退出 0——预览把「无效」伪装成绿。output=[$dry2i]"; $e2Fail = $true }
+  if ($cand2i -ne 'L1') { Fail "闸2i(a)：候选集应恰为 L1，实得『$cand2i』——有条目的正文诱饵/非法值被当成了合法元数据，或合法条目被误伤。output=[$dry2i]"; $e2Fail = $true }
+  foreach ($hostile2i in $hostile2iIds) {
+    if ($dry2i -notmatch "\[LSN-META-INVALID\][^`n]*\b$hostile2i\b") { Fail "闸2i(b)：$hostile2i 的非法 meta 未被点名报告 [LSN-META-INVALID]——静默留热区等于没有诊断。output=[$dry2i]"; $e2Fail = $true }
+  }
+  foreach ($invalidEntry2i in $invalidEntry2iIds) {
+    if ($dry2i -notmatch "\[LSN-ENTRY-INVALID\][^`n]*\b$invalidEntry2i\b") { Fail "闸2i(b3)：$invalidEntry2i 违反 check 共用正文不变量，却未被 [LSN-ENTRY-INVALID] 点名并排除。output=[$dry2i]"; $e2Fail = $true }
+  }
+  # (b2) 「字段缺失」须报成缺失、而非降级成「值非法」。StrictMode 下缺失键取值为 $null，下游枚举/正则校验照样
+  #   判非法，于是必填字段表的每一项都能被删掉而整批仍绿（本卡变异实测：删 'tier' 后闸 2 全绿）。断言 ASCII
+  #   哨兵 missing-field=<名>，本表才真有人在测；不断言中文正文——本地化文案一变即假红/假绿（L165）。
+  #   本循环须与 lessons.ps1 的必填表**逐项等长**（今为 tags/tier/severity/recurrence 四项，各配一枚只缺该
+  #   字段的夹具：L16/L2/L17/L20）——漏掉哪一项，哪一项就重新变回「删了没人红」。
+  foreach ($missing2i in @('tier', 'recurrence', 'tags', 'severity')) {
+    if ($dry2i -notmatch "missing-field=$missing2i") { Fail "闸2i(b2)：缺 $missing2i 字段的条目未报 missing-field=$missing2i，而是被降级成「值非法」——必填字段表遂无一项可被变异杀死。output=[$dry2i]"; $e2Fail = $true }
+  }
+
+  $check2i = (& pwsh -NoProfile -File $l2iLessons check -RepoRoot $l2iRepo 2>&1 | Out-String)
+  $checkExit2i = $LASTEXITCODE
+  if ($checkExit2i -eq 0 -or $check2i -notmatch '\[LSN-META-INVALID\]' -or $check2i -notmatch '\[LSN-ENTRY-INVALID\]') {
+    Fail "闸2i(c)：check 对缺字段/重复/非法 meta 未 fail-closed（exit=$checkExit2i）——校验器放行的形状，选择器迟早会当真。output=[$check2i]"; $e2Fail = $true
+  }
+
+  # (c2) 一条坏条目不得废掉整个 CLI：recurrence / id 越 Int32 时 `[int]` 在 $ErrorActionPreference='Stop' 下是终止性
+  #   异常，会让 list/search/check 一起抛裸 .NET 消息——连「遇到问题先 search」这个召回入口都没了。越界须与其它
+  #   非法值走同一条 [LSN-META-INVALID] 路。判据用 ASCII 哨兵 + 退出码，不认本地化异常文案。
+  $list2i = (& pwsh -NoProfile -File $l2iLessons list -RepoRoot $l2iRepo 2>&1 | Out-String); $listExit2i = $LASTEXITCODE
+  $srch2i = (& pwsh -NoProfile -File $l2iLessons search RECURRENCE_OVERFLOWS_INT32 -RepoRoot $l2iRepo 2>&1 | Out-String); $srchExit2i = $LASTEXITCODE
+  if ($listExit2i -ne 0 -or $srchExit2i -ne 0) { Fail "闸2i(c2)：list/search 因越界条目非零退出（$listExit2i/$srchExit2i）——一条坏 meta 不该废掉只读召回面。output=[$list2i$srch2i]"; $e2Fail = $true }
+  elseif ("$list2i$srch2i" -match 'Cannot convert|OverflowException') { Fail "闸2i(c2)：list/search 抛出了裸 .NET 转换异常（越界未走 [LSN-META-INVALID]）。output=[$list2i$srch2i]"; $e2Fail = $true }
+  elseif ($list2i -notmatch 'L15[^`n]*\[LSN-META-INVALID\]') { Fail "闸2i(c2)：list 未把不可解析条目标成 [LSN-META-INVALID]，而是渲染了猜出来的默认值（空 tier / rec=0 会被当事实读）。output=[$list2i]"; $e2Fail = $true }
+
+  # (e) 写侧：bump 只信规范 meta 行。三个靶各打一处：L20 = 假绿写入（旧码读正文的 7、印「7 → 8」、exit 0、零写入）；
+  #   L3 = 一次改两行；L15 = 唯一能证明 **Get-LessonMeta 那道闸本身**在起作用的靶——L20/L3 即使摘掉它也会被
+  #   「块字节一个都没变」兜住，而 L15 的计数器是合法数字串，摘掉闸后 bump 会把 20 位计数器静默改写成 1 并 exit 0。
+  #   三者都要求：非零退出 + 点名 [LSN-META-INVALID] + LEDGER 字节不变。
+  foreach ($bumpTarget2i in @('L20', 'L3', 'L15')) {
+    $hashBefore2i = (Get-FileHash $l2iLedger -Algorithm SHA256).Hash
+    $bumpOut2i = (& pwsh -NoProfile -File $l2iLessons bump $bumpTarget2i -RepoRoot $l2iRepo 2>&1 | Out-String)
+    $bumpExit2i = $LASTEXITCODE
+    $hashAfter2i = (Get-FileHash $l2iLedger -Algorithm SHA256).Hash
+    if ($bumpExit2i -eq 0) { Fail "闸2i(e)：bump $bumpTarget2i 的 meta 行不合法却退出 0——写路径把「读不出元数据」当成了「元数据说可以写」。output=[$bumpOut2i]"; $e2Fail = $true }
+    if ($bumpOut2i -notmatch '\[LSN-META-INVALID\]') { Fail "闸2i(e)：bump $bumpTarget2i 拒绝时未给 [LSN-META-INVALID] 哨兵。output=[$bumpOut2i]"; $e2Fail = $true }
+    if ($hashAfter2i -ne $hashBefore2i) { Fail "闸2i(e)：bump $bumpTarget2i 被拒却改动了 LEDGER 字节（应零写入）。"; $e2Fail = $true }
+  }
+  # promote 是决策面：同样不得对不可解析条目渲染默认值并给出「暂不够必须层」这种结论。
+  $promote2i = (& pwsh -NoProfile -File $l2iLessons promote L20 -RepoRoot $l2iRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0 -or $promote2i -notmatch '\[LSN-META-INVALID\]') {
+    Fail "闸2i(e)：promote 对不可解析条目未 fail-closed，而是拿空 tier / rec=0 当事实给了晋升结论。output=[$promote2i]"; $e2Fail = $true
+  }
+
+  $ledgerHash2i = (Get-FileHash $l2iLedger -Algorithm SHA256).Hash
+  $run2i = (& pwsh -NoProfile -File $l2iLessons archive -RepoRoot $l2iRepo 2>&1 | Out-String)
+  $runExit2i = $LASTEXITCODE
+  $ledgerAfter2i = Get-Content $l2iLedger -Raw
+  if ($runExit2i -eq 0) { Fail "闸2i(d)：夹具含不可解析条目，archive 实跑却退出 0——预览与实跑须同口径 fail-closed。output=[$run2i]"; $e2Fail = $true }
+  foreach ($stayHot2i in @($hostile2iIds + $invalidEntry2iIds)) {
+    if ($ledgerAfter2i -notmatch "(?m)^##[ \t]+$stayHot2i[ \t]*\r?$") { Fail "闸2i(d)：$stayHot2i 元数据不可解析却被真的搬出热账本——fail-closed 应是「留下」，不是「搬走」。output=[$run2i]"; $e2Fail = $true }
+  }
+  if ($ledgerAfter2i -match '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail "闸2i(d)：合法一次性条目 L1 未被搬走——新校验误伤了正常路径。output=[$run2i]"; $e2Fail = $true }
+  if ($ledgerHash2i -eq (Get-FileHash $l2iLedger -Algorithm SHA256).Hash) { Fail '闸2i(d)：archive 实跑后热账本毫无变化——本例没有真正施压。'; $e2Fail = $true }
+
+  if (-not $e2Fail) { Write-Host '  2i lessons 规范 meta + 共用正文不变量 OK（非法条目均点名留热、预览与实跑非零；bump/promote 零写入拒绝；list/search 仍可用；合法条目照常冷存）' -ForegroundColor Green }
+} finally {
+  Remove-Item -Recurse -Force $l2iRepo -ErrorAction SilentlyContinue
+}
+
+# 2f. T0-LESSONS-COLD-RECALL（R3 收口·预览诚实性与幂等的非平凡分支）：
+#   (a) 预览必须走搬运器自己那条路——选择器只回答「选出了谁」，archive.ps1 的四类拒绝都在这之后；只印候选就
+#       break 会让预览报绿、实跑搬走一部分后才非零退出，落差压在一次数据移动上。
+#   (b) 归档暂存写失败（注入同名 .tmp 目录）须非零退出、两侧字节零变化——wrapper 不得把搬运器的失败吞成 0
+#       （12e⑦ 只证明了 archive.ps1 本身，证明不了这层透传）。
+#   (c) 幂等的**非平凡**分支：把已归档条目粘回 LEDGER 造两侧并存态，重跑须自愈补齐且归档字节不变
+#       （只测「无新候选时零写入」会漏掉这条自愈路径）。
+#   (d) 带后缀的标题（`## L45 (deprecated)`）两侧须同样不当它是条目 id，否则诊断会指向与真因无关的「未知 id」。
+$l2fRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2f-$PID"
+if (Test-Path $l2fRepo) { Remove-Item -Recurse -Force $l2fRepo }
+New-Item -ItemType Directory -Force $l2fRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2fRepo -Recurse -Force
+  $l2fLessons = Join-Path $l2fRepo 'scripts/lessons.ps1'
+  $l2fLedger = Join-Path $l2fRepo 'docs/lessons/LEDGER.md'
+  $l2fArchive = Join-Path $l2fRepo 'specs/archive/lessons-archive.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2fLedger), (Split-Path $l2fArchive) | Out-Null
+  Set-Content (Join-Path $l2fRepo 'CLAUDE.md') "## 经验铁律（必须加载）`n`n## refs`n" -Encoding utf8
+  $entry2f = {
+    param([string]$Heading, [string]$Token)
+    @(
+      "## $Heading",
+      '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+      "- symptom: $Token", "- rule: rule-$Token"
+    ) -join "`n"
+  }
+  $f2Fail = $false
+
+  # (a) 预览与实跑同口径：L02 是**非规范别名**（前导零），选择器会把它当普通候选交出去，
+  #   而搬运器按 `^L[1-9]\d*$` 拒收（别名经数值匹配会撞上 L2 的块）。预览若不透传给搬运器，这条拒绝
+  #   在预览里完全看不见、还 exit 0。断言：非零退出 + 预览输出里出现搬运器自己的拒绝文案 + 零写入。
+  Set-Content $l2fLedger (@('# fixture ledger', '', (& $entry2f 'L1' 'ALIAS_CASE_LEGIT'), '', (& $entry2f 'L02' 'ALIAS_ID_REJECTED_BY_MOVER'), '', (& $entry2f 'L30' 'MAX_ID_EXCLUDED')) -join "`n") -Encoding utf8
+  $hashA2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+  $dryA2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo -DryRun 2>&1 | Out-String)
+  $dryExitA2f = $LASTEXITCODE
+  if ($dryExitA2f -eq 0) { Fail "闸2f(a)：候选里含搬运器会拒收的别名 id L02，archive -DryRun 却退出 0——预览没走搬运器那条路（去掉 -DryRun 才会现形，而那时已经在搬数据了）。output=[$dryA2f]"; $f2Fail = $true }
+  # 判据是 archive.ps1 自己发的 ASCII 哨兵，不是中文文案：本地化正文一改（或编码链一变）就假红/假绿（L165）。
+  if ($dryA2f -notmatch '\[ARCHIVE-LESSON-REJECT-ALIAS\]') { Fail "闸2f(a)：预览输出里没有搬运器自己的拒绝哨兵 [ARCHIVE-LESSON-REJECT-ALIAS]——说明 -DryRun 未透传到 archive.ps1。output=[$dryA2f]"; $f2Fail = $true }
+  if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashA2f -or (Test-Path $l2fArchive)) { Fail '闸2f(a)：预览写了文件（透传后仍须零写入）。'; $f2Fail = $true }
+
+  # (b) 归档暂存写失败：在 `<归档>.tmp` 预置同名**目录**令 Set-Content 确定性失败（跨平台一致）。
+  Set-Content $l2fLedger (@('# fixture ledger', '', (& $entry2f 'L1' 'MOVE_TARGET'), '', (& $entry2f 'L30' 'MAX_ID_EXCLUDED')) -join "`n") -Encoding utf8
+  $hashB2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+  $tmpBlock2f = "$l2fArchive.tmp"
+  New-Item -ItemType Directory -Force $tmpBlock2f | Out-Null
+  $runB2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
+  $runExitB2f = $LASTEXITCODE
+  Remove-Item $tmpBlock2f -Recurse -Force -ErrorAction SilentlyContinue
+  if ($runExitB2f -eq 0) { Fail "闸2f(b)：归档暂存写失败时 lessons.ps1 archive 仍退出 0——wrapper 吞掉了搬运器的非零码。output=[$runB2f]"; $f2Fail = $true }
+  if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashB2f) { Fail '闸2f(b)：归档暂存写失败时 LEDGER 不该有任何变化（数据丢失窗口）。'; $f2Fail = $true }
+  if (Test-Path $l2fArchive) { Fail '闸2f(b)：归档暂存写失败却留下了归档件（原子替换未生效）。'; $f2Fail = $true }
+
+  # (c) 正常搬运 → 造两侧并存 → 重跑自愈。
+  $runC2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $l2fArchive) -or (Get-Content $l2fLedger -Raw) -match '(?m)^##[ \t]+L1[ \t]*\r?$') {
+    Fail "闸2f(c)：清掉注入后正常搬运未把 L1 移入冷库。output=[$runC2f]"; $f2Fail = $true
+  } else {
+    $archLines2f = @(Get-Content $l2fArchive)
+    $idx2f = -1
+    for ($i = 0; $i -lt $archLines2f.Count; $i++) { if ($archLines2f[$i] -match '^##[ \t]+L1[ \t]*$') { $idx2f = $i; break } }
+    if ($idx2f -lt 0) { Fail '闸2f(c)：归档件里找不到「## L1」标题，无法构造两侧并存态。'; $f2Fail = $true }
+    else {
+      # 把归档侧那一整块**逐字**粘回 LEDGER：archive.ps1 的自愈只在两侧内容逐字一致时才补完移动，
+      # 不一致时会拒绝自动处理（防归档陈旧时盲删在册的较新内容）——此处测的是一致那一支。
+      Add-Content $l2fLedger (@('') + @($archLines2f[$idx2f..($archLines2f.Count - 1)])) -Encoding utf8
+      $archHashC2f = (Get-FileHash $l2fArchive -Algorithm SHA256).Hash
+      $healC2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo 2>&1 | Out-String)
+      $healExitC2f = $LASTEXITCODE
+      $ledgerAfterC2f = Get-Content $l2fLedger -Raw
+      $headCountC2f = ([regex]::Matches((Get-Content $l2fArchive -Raw), '(?m)^##[ \t]+L1[ \t]*\r?$')).Count
+      if ($healExitC2f -ne 0) { Fail "闸2f(c)：两侧并存态重跑非零退出（$healExitC2f）——自愈分支未走通。output=[$healC2f]"; $f2Fail = $true }
+      if ($ledgerAfterC2f -match '(?m)^##[ \t]+L1[ \t]*\r?$') { Fail "闸2f(c)：两侧并存态重跑后 LEDGER 仍留着 L1 残留副本（移动未补完）。output=[$healC2f]"; $f2Fail = $true }
+      if ($headCountC2f -ne 1) { Fail "闸2f(c)：自愈后归档侧「## L1」标题出现 $headCountC2f 次（应恰 1 次——重复追加即非幂等）。"; $f2Fail = $true }
+      if ((Get-FileHash $l2fArchive -Algorithm SHA256).Hash -ne $archHashC2f) { Fail '闸2f(c)：自愈补齐改动了归档字节（该分支只该清除 LEDGER 残留，不该重写归档内容）。'; $f2Fail = $true }
+    }
+  }
+
+  # (d) 条目起点只认规范 `## L<n>`，但块终点是下一个任意 `## ` 标题。Appendix 下的 meta/rule
+  # 不得补全 L42，也不得被 bump L42 改写；带后缀/拆行标题仍不成为 lesson id。
+  Set-Content $l2fLedger (@(
+    '# fixture ledger', '',
+    (& $entry2f 'L41' 'SUFFIX_CASE_LEGIT'), '',
+    '## L42',
+    '- symptom: OWN_METADATA_AND_RULE_MISSING',
+    '## Appendix',
+    '- date: 2026-08-21 ｜ tags: appendix ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 7',
+    '- rule: APPENDIX_RULE_MUST_NOT_QUALIFY_L42', '',
+    (& $entry2f 'L50' 'MAX_ID_EXCLUDED'), '',
+    (& $entry2f 'L45 (deprecated)' 'SUFFIXED_HEADING_NOT_AN_ENTRY'), '',
+    '##', 'L46',
+    '- date: 2026-08-21 ｜ tags: fixture ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: SPLIT_HEADING_NOT_AN_ENTRY', '- rule: split-heading-rule'
+  ) -join "`n") -Encoding utf8
+  $hashD2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+  $dryD2f = (& pwsh -NoProfile -File $l2fLessons archive -RepoRoot $l2fRepo -DryRun 2>&1 | Out-String)
+  $dryExitD2f = $LASTEXITCODE
+  $candD2f = ([regex]::Match($dryD2f, '\[LSN-ARCHIVE-DRYRUN\]\s*candidates=(?<c>\S+)')).Groups['c'].Value
+  if ($candD2f -ne 'L41') { Fail "闸2f(d)：候选集应恰为 L41，实得『$candD2f』——Appendix 正文补全了 L42，或非规范标题被当成条目 id。output=[$dryD2f]"; $f2Fail = $true }
+  if ($dryD2f -notmatch "\[LSN-META-INVALID\][^`n]*\bL42\b" -or $dryD2f -notmatch "\[LSN-ENTRY-INVALID\][^`n]*\bL42\b") {
+    Fail "闸2f(d)：L42 自身缺 meta/rule，却未被两个共享不变量点名；Appendix 内容可能越界补全了它。output=[$dryD2f]"; $f2Fail = $true
+  }
+  if ($dryD2f -match "\[LSN-META-INVALID\][^`n]*\bL50\b") { Fail "闸2f(d)：后缀标题越过通用 ## 边界并入 L50，令合法 L50 被误判。output=[$dryD2f]"; $f2Fail = $true }
+  if ($dryExitD2f -eq 0) { Fail "闸2f(d)：存在不可解析条目却退出 0。output=[$dryD2f]"; $f2Fail = $true }
+  foreach ($malformedId2f in @('L42', 'L45', 'L46')) {
+    $bumpD2f = (& pwsh -NoProfile -File $l2fLessons bump $malformedId2f -RepoRoot $l2fRepo 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0) { Fail "闸2f(d)：不可写目标 $malformedId2f 被 bump 成功修改。output=[$bumpD2f]"; $f2Fail = $true }
+    if ((Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hashD2f) { Fail "闸2f(d)：bump 拒绝 $malformedId2f 后仍改写了 LEDGER。"; $f2Fail = $true }
+  }
+  if ((Get-Content $l2fLedger -Raw) -notmatch 'tags: appendix.*recurrence: 7') { Fail '闸2f(d)：bump L42 改写了 Appendix 的 recurrence。'; $f2Fail = $true }
+  $definedD2f = Get-LessonDefinitionIdSet -LedgerPath $l2fLedger -ArchivePath $l2fArchive
+  $danglingD2f = @((Get-LessonReferenceIdSet 'resident refs L45 and [L46]').Keys | Where-Object { -not $definedD2f.ContainsKey($_) } | Sort-Object)
+  if (($danglingD2f -join ',') -ne 'L45,L46') {
+    Fail "闸2f(d)：闸16 未把后缀/拆行标题引用同时判为悬空，实得 [$($danglingD2f -join ',')]。"; $f2Fail = $true
+  }
+
+  # (e) 冷库从第一行就出现不可解析的 lesson-like 标题时必须整次拒绝。旧实现把它当“无条目头注”，
+  # 随后写入合法 L1 时会重建冷库并静默丢掉原块。溢出和带后缀各打一枚，双侧字节必须完全不变。
+  $l2fMover = Join-Path $l2fRepo 'scripts/archive.ps1'
+  foreach ($badColdHeading2f in @('L2147483648', 'L45 (deprecated)')) {
+    Set-Content $l2fLedger (@('# fixture ledger', '', (& $entry2f 'L1' 'VALID_MOVE_MUST_NOT_RUN'), '', (& $entry2f 'L30' 'MAX_ID_EXCLUDED')) -join "`n") -Encoding utf8
+    Set-Content $l2fArchive (@("## $badColdHeading2f", '- data: COLD_BLOCK_MUST_SURVIVE') -join "`n") -Encoding utf8
+    $hotHashE2f = (Get-FileHash $l2fLedger -Algorithm SHA256).Hash
+    $coldHashE2f = (Get-FileHash $l2fArchive -Algorithm SHA256).Hash
+    $badColdOut2f = (& pwsh -NoProfile -File $l2fMover -RepoRoot $l2fRepo -LessonsOnly -LessonIds L1 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0 -or $badColdOut2f -notmatch '\[ARCHIVE-LESSON-INVALID-HEADING\]' -or
+        (Get-FileHash $l2fLedger -Algorithm SHA256).Hash -ne $hotHashE2f -or
+        (Get-FileHash $l2fArchive -Algorithm SHA256).Hash -ne $coldHashE2f) {
+      Fail "闸2f(e)：冷库首条非法标题 ## $badColdHeading2f 未 fail-closed 且双侧零写入。output=[$badColdOut2f]"; $f2Fail = $true
+    }
+  }
+
+  if (-not $f2Fail) { Write-Host '  2f lessons 预览透传搬运器拒绝/写失败非零透传/两侧并存自愈幂等/标题口径两侧一致 OK' -ForegroundColor Green }
+} finally {
+  Remove-Item -Recurse -Force $l2fRepo -ErrorAction SilentlyContinue
 }
 
 # 2d. bump 的写入平面（T0-LESSONS-BUMP-PLANE）：recurrence 是**仓库级元数据**，与任何卡片无关。
@@ -3538,11 +4529,23 @@ try {
 # 12c. triage selfcheck 常设接线（TD23）：探针 1/4/5/10/11 的 hermetic 自测（含探针 4 跨 worktree）
 #   此前「可跑不被跑」；接进常设闸使改探针即回归。triage 退出码恒 0（reporter 契约），故同 12b 只断言输出——
 #   且钉**末行**（selfcheck 的 PASS/FAIL 总结行恒为最后输出）：防「输出里早处出现 PASS、随后才报错」的假绿。
-$selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
+#   用命令级 Git 配置注入强制签名，证明夹具提交显式覆盖用户/系统签名设置（R3 #137）。
+$gitConfigNames12c = @('GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0')
+$gitConfigBefore12c = @{}
+foreach ($name12c in $gitConfigNames12c) { $gitConfigBefore12c[$name12c] = [Environment]::GetEnvironmentVariable($name12c, 'Process') }
+try {
+  $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'commit.gpgSign'; $env:GIT_CONFIG_VALUE_0 = 'true'
+  $selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
+} finally {
+  foreach ($name12c in $gitConfigNames12c) {
+    $before12c = $gitConfigBefore12c[$name12c]
+    if ($null -eq $before12c) { Remove-Item "Env:$name12c" -ErrorAction SilentlyContinue } else { Set-Item "Env:$name12c" $before12c }
+  }
+}
 $selfcheckLines = @($selfcheckOut -split "`r?`n" | ForEach-Object { ($_ -replace "`e\[[0-9;]*m", '').Trim() } | Where-Object { $_ -ne '' })   # 去 ANSI 色码 + 空行（防终端差异）
 $selfcheckLast = if ($selfcheckLines.Count) { $selfcheckLines[-1] } else { '' }
 if ($selfcheckLast -notmatch '^triage selfcheck: PASS') { Fail "triage selfcheck 未过（期望末行为 'triage selfcheck: PASS…'，实际末行「$selfcheckLast」）：`n$selfcheckOut" }
-else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：末行 PASS）' }
+else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：敌意 Git 配置下末行 PASS）' }
 
 # 12d. tech-debt 探针（探针2）位置解析硬化（TD57/TD-120）：旧码硬编码 `$cells[5]` 为状态列、且用朴素
 #   `.Split('|')` 分列——单元格内出现字面竖线（如位置列 backtick 代码片段里的正则析取 `a\|b`）会
@@ -3762,8 +4765,8 @@ else {
   $lsCode3 = $LASTEXITCODE
   $lsLedgerRaw3 = Get-Content $lsLedgerPath -Raw
   $lsArchRaw3 = Get-Content $lsArchivePath -Raw
-  $lsL2HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##\s+L2\s*$')).Count
-  $lsL3HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##\s+L3\s*$')).Count
+  $lsL2HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##[ \t]+L2[ \t]*\r?$')).Count
+  $lsL3HeadCount = ([regex]::Matches($lsArchRaw3, '(?m)^##[ \t]+L3[ \t]*\r?$')).Count
   if ($lsCode3 -ne 0) { $arFail += "12e lessons③：幂等重跑非零退出（$lsCode3）" }
   if ($lsL2HeadCount -ne 1 -or $lsL3HeadCount -ne 1) { $arFail += "12e lessons③：非幂等——归档 L2/L3 标题各出现 $lsL2HeadCount/$lsL3HeadCount 次（应各恰 1 次）" }
   if ((& $lsNormalize $lsLedgerRaw3) -ne $lsExpectedRemainText) { $arFail += '12e lessons③：非幂等——重跑改变了 LEDGER 内容' }
@@ -3846,14 +4849,14 @@ else {
   $lsArchAfter9 = Get-Content $lsArchivePath -Raw
   if ($lsCode9 -eq 0) { $arFail += '12e lessons⑨：LEDGER 暂存/替换失败未非零退出（F7 fail-closed 失效）' }
   if ($lsLedgerAfter9 -ne $lsLedgerBefore9) { $arFail += '12e lessons⑨：LEDGER 替换失败时其内容不该有任何变化（在册经验丢失窗口未堵住）' }
-  if ($lsArchAfter9 -notmatch '(?m)^##\s+L1\s*$') { $arFail += '12e lessons⑨：归档应已先行含 L1（两侧并存态的权威侧未落盘）' }
+  if ($lsArchAfter9 -notmatch '(?m)^##[ \t]+L1[ \t]*\r?$') { $arFail += '12e lessons⑨：归档应已先行含 L1（两侧并存态的权威侧未落盘）' }
   & pwsh -NoProfile -File $arScript -RepoRoot $ar -LessonIds L1 -Quiet *> $null
   $lsCode9b = $LASTEXITCODE
   $lsLedgerAfter9b = Get-Content $lsLedgerPath -Raw
   $lsArchAfter9b = Get-Content $lsArchivePath -Raw
-  $lsL1HeadCount9 = ([regex]::Matches($lsArchAfter9b, '(?m)^##\s+L1\s*$')).Count
+  $lsL1HeadCount9 = ([regex]::Matches($lsArchAfter9b, '(?m)^##[ \t]+L1[ \t]*\r?$')).Count
   if ($lsCode9b -ne 0) { $arFail += "12e lessons⑨：两侧并存自愈重跑非零退出（$lsCode9b）" }
-  if ($lsLedgerAfter9b -match '(?m)^##\s+L1\s*$') { $arFail += '12e lessons⑨：自愈重跑后 LEDGER 仍含 L1（补齐分支未生效）' }
+  if ($lsLedgerAfter9b -match '(?m)^##[ \t]+L1[ \t]*\r?$') { $arFail += '12e lessons⑨：自愈重跑后 LEDGER 仍含 L1（补齐分支未生效）' }
   if ($lsL1HeadCount9 -ne 1) { $arFail += "12e lessons⑨：自愈后归档 L1 标题出现 $lsL1HeadCount9 次（应恰 1 次，不得重复追加）" }
 
   # ⑩ 两侧并存但内容不一致（F9）：把改动过的 L2 变体粘回 LEDGER（模拟在册被人工更新/归档陈旧）——
@@ -4017,7 +5020,7 @@ if (Test-Path $triageForCount) {
 #      且必须正面出现「驻留…id」——只做负断言的话，把那句整段删掉也能过。
 #   ② 列「探针清单」的面：各自枚举的探针名个数须等于 triage.ps1 里 Invoke-Probe* 函数的**实际**个数。
 $capUnitSurfaces = @('docs/LESSONS.md', '.claude/skills/lessons/SKILL.md', 'scripts/_config.ps1', 'scripts/lessons.ps1', 'scripts/triage.ps1', 'CLAUDE.md')
-$staleCapUnitRe = '封顶\s*(?:\*\*)?\s*[0-9N]+\s*条|封顶条数|条数上限|必须层\s*(?:≤|<=)\s*上限'
+$staleCapUnitRe = '封顶\s*(?:\*\*)?\s*[0-9N]+\s*条|封顶条数|条数上限|必须层\s*(?:≤|<=)\s*上限|对计数器是\s*1\s*条'
 $capUnitSkipBefore = $skippedSelftestChecks.Count
 foreach ($rel in $capUnitSurfaces) {
   $p = Join-Path $RepoRoot $rel
@@ -4640,6 +5643,30 @@ if (-not $git) {
       }
       elseif ($mergeCount -lt 1) { Fail 'ship -Local 退出 0 但 master 上无合并提交（--no-ff 未生效 / worktree 改动未提交？）。' }
       else { Write-Host '  动态 E2E OK（ship -Local）：DoD→verify(stub)→范围→许可→密钥→R3(stub)→-Local 合并全过，exit 0 且产出合并提交' -ForegroundColor Green }
+    }
+
+    # 15b2（T0-R3-DIFF-BUDGET）：在同一真实 ship 夹具中制造 1001 changed lines。必须在 R3/merge 前
+    # 以专属码与 review-size 账本阻断；删除/注释 task.ps1 的 SizeOnly 调用会令本例继续合并并 exit 0。
+    if (-not $fail -and (Test-Path $wtDir)) {
+      $budgetTip = (& git -C $wtDir rev-parse HEAD 2>$null | Out-String).Trim()
+      $budgetMergeCount = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      $ledger = Join-Path $e2e '_local/effectiveness-ledger.jsonl'
+      $budgetLedgerBefore = if (Test-Path $ledger) { @(Select-String -Path $ledger -Pattern '"gate":"review-size"').Count } else { 0 }
+      [System.IO.File]::WriteAllLines((Join-Path $wtDir 'README.md'), [string[]](1..1001 | ForEach-Object { "budget-line-$_" }))
+      $budgetOut = (& pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed 2>&1 | Out-String)
+      $budgetExit = $LASTEXITCODE
+      $budgetLedgerAfter = if (Test-Path $ledger) { @(Select-String -Path $ledger -Pattern '"gate":"review-size"').Count } else { 0 }
+      $budgetMergeCountAfter = @(& git -C $e2e rev-list --merges HEAD 2>$null).Count
+      if ($budgetExit -eq 0) { Fail '闸15b2：1001-line diff 的真实 ship 仍 exit 0——task.ps1 未在 merge 前执行 SizeOnly 预算闸。' }
+      elseif ($budgetOut -notmatch '\[R3-DIFF-TOO-LARGE\]') { Fail "闸15b2：ship 非零但未命中 [R3-DIFF-TOO-LARGE]，可能红在错误路径。输出=$budgetOut" }
+      elseif ($budgetLedgerAfter -le $budgetLedgerBefore) { Fail '闸15b2：预算闸阻断但未新增 gate=review-size 效果账本。' }
+      elseif ($budgetMergeCountAfter -ne $budgetMergeCount) { Fail '闸15b2：预算闸报告 block 后仍产生了 merge commit。' }
+      # 预算腿必须在 saga 报告里被点名为失败点。它一度只出现在 $sagaDone 而不在 $sagaLegs，
+      # 于是预算失败被误报成 push+PR（远端）或 R3 评审（-Local），真正失败的那一步从待办清单里消失。
+      elseif ($budgetOut -notmatch [regex]::Escape('失败点：真实 diff 预算')) { Fail "闸15b2：预算失败未被点名为失败点（saga 腿缺失会把它误报成相邻腿）。输出=$budgetOut" }
+      elseif ($budgetOut -notmatch [regex]::Escape('待办腿：R3 评审 → 本地合并')) { Fail "闸15b2：预算失败后的待办腿清单不符——应恰为失败腿之后的有序余项。输出=$budgetOut" }
+      else { Write-Host '  15b2 真实 ship diff 预算 OK（1001 lines → R3-DIFF-TOO-LARGE + review-size ledger；零 merge；saga 点名预算腿）' -ForegroundColor Green }
+      & git -C $wtDir reset --hard $budgetTip *> $null   # disposable fixture：移除 ship 在预算闸前创建的超限提交
     }
 
     # 15c/15d. ship 两道确定性闸的种子缺陷覆盖（17 系模式：enforcer 喂已知坏输入须 BLOCK 且写效果账本——
@@ -5290,7 +6317,7 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($aOut -notmatch '已完成腿：卡校验') { Fail '闸15r(e)A：报告未列出已完成腿（卡校验已过却未见于清单）——进度自述失真。'; $reFail = $true }
         if ($aOut -notmatch '失败点：.*RED 证据闸') { Fail '闸15r(e)A：RED 证据闸失败被误报——失败点须点名 RED 证据闸（腿间预检/闸位显式追踪），不得按「首个未完成腿」误报为 DoD（R3 r3 #9）。'; $reFail = $true }
         if ($aOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15R -Phase ship -Local') { Fail '闸15r(e)A：commit 前失败未给出带齐已绑定选项的完整重跑命令（-Local 未回填或命令缺失）。'; $reFail = $true }
-        if ($aOut -notmatch [regex]::Escape('待办腿：DoD → verify → 提交 → 范围闸 → 许可闸 → 防泄露闸 → R3 评审 → 本地合并')) { Fail '闸15r(e)A：腿间闸失败时待办腿必须完整保留（DoD 并未失败、不得被吞出待办，R3 r4 #9）——精确有序清单不符。'; $reFail = $true }
+        if ($aOut -notmatch [regex]::Escape('待办腿：DoD → verify → 提交 → 范围闸 → 许可闸 → 防泄露闸 → 真实 diff 预算 → R3 评审 → 本地合并')) { Fail '闸15r(e)A：腿间闸失败时待办腿必须完整保留（DoD 并未失败、不得被吞出待办，R3 r4 #9）——精确有序清单不符。'; $reFail = $true }
         if ($aOut -notmatch '缺少 RED 证据') { Fail '闸15r(e)A：原始异常文案未原样在场——throw 被改写/吞没（异常语义漂移）。'; $reFail = $true }
         if (-not $bOut) { Fail '闸15r(e)B：ship 输出为空——未产出任何 saga 报告。'; $reFail = $true }
         if ($bExit -eq 0) { Fail '闸15r(e)B：越界改动下 ship -Local 仍退出 0——范围闸失效或 saga catch 吞异常。'; $reFail = $true }
@@ -5301,7 +6328,7 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         # HEAD~1」不再适用——收据在场即走重跑分支；reset 归位仅降为收据缺失/不自洽的兜底（且靶=evidence.redSha 非 HEAD~1）。
         if ($bOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15RB -Phase ship -Local') { Fail '闸15r(e)B：真提交后水位线收据在位，saga 未建议重跑同一条 ship——TD89 根治后提交后重跑经收据 resume 放行 RED 闸、非死锁（旧「勿重跑」死锁文案未随 T35 机制更新，R3 r1 #9 反转）。'; $reFail = $true }
         if ($bOut -notmatch '水位线收据') { Fail '闸15r(e)B：重跑建议未点名水位线收据在位——恢复路由未据收据在位性（双 Test-Path）分流，文案与 T35 机制漂移。'; $reFail = $true }
-        if ($bOut -notmatch [regex]::Escape('待办腿：许可闸 → 防泄露闸 → R3 评审 → 本地合并')) { Fail '闸15r(e)B：腿失败时待办腿=失败腿之后的精确有序清单——清单不符（R3 r4 #6）。'; $reFail = $true }
+        if ($bOut -notmatch [regex]::Escape('待办腿：许可闸 → 防泄露闸 → 真实 diff 预算 → R3 评审 → 本地合并')) { Fail '闸15r(e)B：腿失败时待办腿=失败腿之后的精确有序清单——清单不符（R3 r4 #6）。'; $reFail = $true }
         if ($bOut -notmatch '越界改动') { Fail '闸15r(e)B：原始范围闸异常文案未原样在场——throw 被改写/吞没。'; $reFail = $true }
         if (-not $dOut) { Fail '闸15r(e)D：ship 输出为空——未产出任何 saga 报告。'; $reFail = $true }
         if ($dExit -eq 0) { Fail '闸15r(e)D：no-op 提交重跑（范围闸仍越界）竟退出 0。'; $reFail = $true }
@@ -5898,6 +6925,99 @@ if (-not $gitI) {
   }
 }
 
+# 15b5：超限远端 ship 零 push/PR/merge；预算内负控可到达 push/gh。
+$gitB5 = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitB5) {
+  Skip-SelftestCheck -GateId '15b5' -Reason 'TOOL-GIT-MISSING' -Message '  15b5 git 未安装，跳过（离线 / 无 git 环境正常）。'
+} elseif (-not $IsWindows) {
+  Skip-SelftestCheck -GateId '15b5' -Reason 'OS-WINDOWS-ONLY' -Message '  15b5 跳过（非 Windows）：gh spy 依赖 PATHEXT 解析 gh.ps1。'
+} else {
+  $PSNativeCommandUseErrorActionPreference = $false
+  $b5 = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-budget-remote-$PID"
+  if (Test-Path $b5) { Remove-Item -Recurse -Force $b5 }
+  New-Item -ItemType Directory -Force $b5 | Out-Null
+  $b5SavedPath = $env:PATH; $b5SavedPathExt = $env:PATHEXT
+  try {
+    Copy-Item (Join-Path $RepoRoot 'scripts') $b5 -Recurse -Force
+    $cfgB5 = Join-Path $b5 'scripts/_config.ps1'
+    $cB5 = Get-Content $cfgB5 -Raw
+    $cB5 = [regex]::Replace($cB5, "WorktreeRoot\s*=\s*'[^']*'", { "WorktreeRoot = '$($b5 -replace '\\','/')/wt'" })
+    $cB5 = [regex]::Replace($cB5, "GhAccount\s*=\s*'[^']*'", { "GhAccount = 'b5'" })
+    $cB5 = $cB5.Replace("ReviewCommand = ''", "ReviewCommand = 'pwsh -NoProfile -Command exit 0'")
+    $b5WtExpect = ($b5 -replace '\\','/') + '/wt'
+    $b5CfgOk = ($cB5 -match [regex]::Escape($b5WtExpect)) -and ($cB5 -match "ReviewCommand = 'pwsh")
+    if (-not $b5CfgOk) {
+      Fail '闸15b5：fixture _config 注入失败（WorktreeRoot/ReviewCommand 行格式变了？Replace 没命中）——测的不再是远端 ship 预算阻断。'
+    }
+    Set-Content $cfgB5 $cB5 -NoNewline -Encoding utf8
+    Set-Content (Join-Path $b5 'scripts/_guard.ps1') 'function Assert-PersonalAccount { param([string]$Expected, [string]$RepoRoot, [switch]$CheckRemote, [string]$RemoteUrl) }' -Encoding utf8
+    Set-Content (Join-Path $b5 'scripts/verify.ps1') 'exit 0' -Encoding utf8
+    Set-Content (Join-Path $b5 'scripts/check-licenses.ps1') 'exit 0' -Encoding utf8
+    & git -C $b5 init -q
+    & git -C $b5 symbolic-ref HEAD refs/heads/master
+    & git -C $b5 config user.email 'selftest@local'
+    & git -C $b5 config user.name  'selftest'
+    $b5Origin = Join-Path $b5 'remote.git'
+    & git init --bare -q $b5Origin
+    & git -C $b5 remote add origin $b5Origin
+    New-Item -ItemType Directory -Force (Join-Path $b5 'specs/tasks') | Out-Null
+    @('---', 'id: T0-BUDGETREMOTE', 'title: seed 15b5 remote budget block', 'status: todo',
+      'dod_command: "pwsh -NoProfile -File scripts/check-cards.ps1"', 'allow_paths:', '  - README.md', '---') -join "`n" |
+      Set-Content (Join-Path $b5 'specs/tasks/T0-BUDGETREMOTE.md') -Encoding utf8
+    & git -C $b5 -c user.email='selftest@local' -c user.name='selftest' add -A 2>$null
+    & git -C $b5 -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'b5 base' *> $null
+    & git -C $b5 push -q -u origin master
+    & pwsh -NoProfile -File (Join-Path $b5 'scripts/task.ps1') -TaskId T0-BUDGETREMOTE -Phase start *> $null
+    $b5Wt = Join-Path $b5 'wt/T0-BUDGETREMOTE'
+    if (-not $b5CfgOk) {
+    } elseif (-not (Test-Path $b5Wt)) {
+      Fail '闸15b5：fixture start 未产出 worktree——无法验证远端预算阻断（前置失败）。'
+    } else {
+      $b5SpyDir = Join-Path $b5 'spy-bin'
+      New-Item -ItemType Directory -Force $b5SpyDir | Out-Null
+      $b5GhLog = Join-Path $b5 'gh-calls.log'
+      Set-Content (Join-Path $b5SpyDir 'gh.ps1') "Add-Content -LiteralPath '$($b5GhLog -replace '\\','/')' -Value (`$args -join ' '); exit 1" -Encoding ascii
+      $env:PATH = "$b5SpyDir$([IO.Path]::PathSeparator)$b5SavedPath"
+      $env:PATHEXT = ".PS1;$b5SavedPathExt"
+      [System.IO.File]::WriteAllLines((Join-Path $b5Wt 'README.md'), [string[]](1..1001 | ForEach-Object { "b5-line-$_" }))
+      $encWrapB5 = Join-Path $b5 'enc-ship-15b5.ps1'
+      Set-Content $encWrapB5 'try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }; & (Join-Path $PSScriptRoot "scripts/task.ps1") -TaskId T0-BUDGETREMOTE -Phase ship -SkipRed; exit $LASTEXITCODE' -Encoding utf8
+      $prevOutB5 = $null
+      try { $prevOutB5 = [Console]::OutputEncoding; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
+      try {
+        $b5Out = (& pwsh -NoProfile -File $encWrapB5 2>&1 | Out-String)
+        $b5Exit = $LASTEXITCODE
+      } finally {
+        if ($prevOutB5) { try { [Console]::OutputEncoding = $prevOutB5 } catch { } }
+      }
+      $b5CardAllow = @((Get-Content (Join-Path $b5 'specs/tasks/T0-BUDGETREMOTE.md')) | Where-Object { $_ -match '^\s+- ' }).Count
+      if ($b5CardAllow -gt 5) { Fail "闸15b5(A14)：夹具卡的 allow_paths 有 $b5CardAllow 条（>5），会触发建卡期告警——本例就证明不了「条目数少也能超限」。" }
+      $b5RemoteBranch = (& git -C $b5Origin rev-parse --verify --quiet 'refs/heads/T0-BUDGETREMOTE' 2>$null | Out-String).Trim()
+      $b5GhCalls = if (Test-Path $b5GhLog) { (Get-Content $b5GhLog -Raw).Trim() } else { '' }
+      $b5Tail = ($b5Out -replace '\s+', ' ').Trim(); if ($b5Tail.Length -gt 260) { $b5Tail = $b5Tail.Substring($b5Tail.Length - 260) }
+      if ($b5Exit -eq 0) { Fail '闸15b5：1001 行的**远端** ship 仍退出 0——预算闸未在远端路径上生效。' }
+      elseif ($b5Out -notmatch '\[R3-DIFF-TOO-LARGE\]') { Fail "闸15b5：远端 ship 非零但未命中 [R3-DIFF-TOO-LARGE]，可能红在错误路径。输出尾段=$b5Tail" }
+      elseif ($b5RemoteBranch) { Fail "闸15b5：预算阻断后远端仍出现任务分支（$b5RemoteBranch）——push 发生在预算闸之前或未被拦住（A9 的零 push 不成立）。" }
+      elseif ($b5GhCalls) { Fail "闸15b5：预算阻断后仍调用了 gh（建 PR / 合并）：$b5GhCalls" }
+      else {
+        [System.IO.File]::WriteAllLines((Join-Path $b5Wt 'README.md'), [string[]]('b5 in-budget change'))
+        $b5CtlOut = (& pwsh -NoProfile -File $encWrapB5 2>&1 | Out-String)
+        $b5CtlBranch = (& git -C $b5Origin rev-parse --verify --quiet 'refs/heads/T0-BUDGETREMOTE' 2>$null | Out-String).Trim()
+        $b5CtlTail = ($b5CtlOut -replace '\s+', ' ').Trim(); if ($b5CtlTail.Length -gt 260) { $b5CtlTail = $b5CtlTail.Substring($b5CtlTail.Length - 260) }
+        if (-not $b5CtlBranch) { Fail "闸15b5 负控：预算内的改动也没能 push 到远端——本夹具根本走不到 push，前面的『零 push』不构成证据。输出尾段=$b5CtlTail" }
+        elseif ($b5CtlOut -match '\[R3-DIFF-TOO-LARGE\]') { Fail '闸15b5 负控：预算内的改动仍被判超限——预算闸误伤（阈值或度量口径错）。' }
+        elseif (-not (Test-Path $b5GhLog)) { Fail '闸15b5 正控：预算内那趟 ship 推送成功后仍未记录任何 gh 调用——gh spy 拦不到 gh，前面的『零建 PR / 零合并』不构成证据。' }
+        else { Write-Host '  15b5 远端 ship 预算阻断 OK（1001 lines → R3-DIFF-TOO-LARGE；远端无该分支=零 push；gh 零调用=零建 PR、零合并；负控：预算内改动确实推得上去）' -ForegroundColor Green }
+      }
+    }
+  } finally {
+    $env:PATH = $b5SavedPath; $env:PATHEXT = $b5SavedPathExt
+    Set-Location $RepoRoot
+    & git -C $b5 worktree prune 2>$null
+    Remove-Item -Recurse -Force $b5 -ErrorAction SilentlyContinue
+  }
+}
+
 # 15d2（TD60/TD-123）：范围闸「第二种子」——15d 只种了一个卡外文件证「越界必拦」，但旧匹配是**字符前缀**
 # 而非**路径段前缀**：`$f -like ($_.TrimEnd('/')+'*')` 对 allow `docs/`（trim 后 "docs*"）会让 `docs2/oob.md`
 # 误判「在范围内」（字符串以 "docs" 打头即匹配，"2" 不算数）；对 allow `README.md`（"README.md*"）同理会让
@@ -6487,35 +7607,35 @@ if (-not $gitJ) {
 
 if ($Shard -eq 'core') {
 [void]$executedGateGroups.Add('core:16')
-# --- 16. L-id 引用完整性：根入口文档 + .claude/skills + docs 里的 L<n> 经验引用须存在于 LEDGER ---
-# 治本 L29：交叉链接闸（⑪）只校验文件路径，不管 LEDGER 的 L<n> 引用；写错/写旧 id 把读者导向错误经验，无闸可拦。
-# 此闸从 LEDGER 机数已定义 id，扫 skills/docs 的 L<n> 引用（排除 path:Lnn 行号、Lnn-mm 行段等代码引用形态），存在性机检；
+# --- 16. L-id 引用完整性：根入口文档 + .claude/skills + docs 里的 L<n> 经验引用须存在于热账本/冷库并集 ---
+# 治本 L29：交叉链接闸（⑪）只校验文件路径，不管经验库的 L<n> 引用；写错/写旧 id 把读者导向错误经验，无闸可拦。
+# 此闸从热账本与冷库机数已定义 id，扫 skills/docs 的 L<n> 引用（排除 path:Lnn 行号、Lnn-mm 行段等代码引用形态），存在性机检；
 # 内容是否对得上（L20 的指针是否真指 L20 的内容）仍须人工——存在性可机检、语义不行。
-Step '16/17 L-id 引用完整性（skills/docs 的 L<n> 引用存在于 LEDGER）'
+Step '16/17 L-id 引用完整性（skills/docs 的 L<n> 引用存在于热账本/冷库并集）'
 $ledgerPath = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 if (-not (Test-Path $ledgerPath)) { Fail 'docs\lessons\LEDGER.md 不存在（经验真相源缺失）。' }
 else {
-  $defined = @{}
-  foreach ($d in [regex]::Matches((Get-Content $ledgerPath -Raw), '(?m)^##\s*L(\d+)\b')) { $defined["L$($d.Groups[1].Value)"] = $true }
-  # 扫描范围：根入口文档 CLAUDE.md + CLAUDE.template.md（下游 CLAUDE.md 的来源，其 L 引用也须不悬空）+ TEMPLATE-README.md + .claude/skills/**/*.md + docs/**/*.md，排除 LEDGER 自身（id 的定义处）。
-  $scanFiles = @(
-    @(Get-Item -Path (Join-Path $RepoRoot 'CLAUDE.md') -ErrorAction SilentlyContinue) +
-    @(Get-Item -Path (Join-Path $RepoRoot 'CLAUDE.template.md') -ErrorAction SilentlyContinue) +
-    @(Get-Item -Path (Join-Path $RepoRoot 'TEMPLATE-README.md') -ErrorAction SilentlyContinue) +
-    @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/skills') -Filter *.md -Recurse -ErrorAction SilentlyContinue) +
-    @(Get-ChildItem -Path (Join-Path $RepoRoot 'docs') -Filter *.md -Recurse -ErrorAction SilentlyContinue)
-  ) | Where-Object { $_.FullName -ne $ledgerPath }
-  # 真经验引用：L<n> 前不接 ASCII 字母/数字/冒号（排除 HTML5 内的 L5、path:L88 行号），后不接 -<digit>（排除 L52-71 行段）。
-  $refRe = '(?<![A-Za-z0-9:])L(\d+)\b(?!-\d)'
-  $dangling = @()
-  foreach ($sf in $scanFiles) {
-    foreach ($mm in [regex]::Matches((Get-Content $sf.FullName -Raw), $refRe)) {
-      $id = "L$($mm.Groups[1].Value)"
-      if (-not $defined.ContainsKey($id)) { $dangling += ("{0} → {1}" -f $sf.FullName.Substring($RepoRoot.Length + 1), $id) }
-    }
+  # 16a 接线非真空证明（不是直测 helper）：夹具仓里 L903 **只**在冷库、L901 只在热账本、L904 两侧皆无，
+  #   从 docs/ 同时引用三者，然后跑闸 16 自己那条代码路径。删掉 -ArchivePath 实参 → L903 判悬空 → 红；
+  #   把定义集合改成无脑全绿 → L904 不再被报出 → 也红。两个方向各有一枚能杀死它的变异。
+  $idProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-lesson-ids-$PID"
+  if (Test-Path $idProbeRoot) { Remove-Item -Recurse -Force $idProbeRoot }
+  New-Item -ItemType Directory -Force (Join-Path $idProbeRoot 'docs/lessons'), (Join-Path $idProbeRoot 'specs/archive') | Out-Null
+  try {
+    Set-Content (Join-Path $idProbeRoot 'docs/lessons/LEDGER.md') "# probe hot`n`n## L901`n- rule: hot only`n" -Encoding utf8
+    Set-Content (Join-Path $idProbeRoot 'specs/archive/lessons-archive.md') "# probe cold`n`n## L903`n- rule: cold only`n" -Encoding utf8
+    Set-Content (Join-Path $idProbeRoot 'docs/probe-refs.md') "热引用 L901；冷引用 L903；悬空引用 L904。" -Encoding utf8
+    $probe16 = Get-DanglingLessonReferences $idProbeRoot
+    $probeDangling = @($probe16.Dangling | ForEach-Object { ($_ -split '→')[-1].Trim() } | Sort-Object -Unique) -join ','
+    if ($probeDangling -ne 'L904') {
+      Fail "闸16a：热∪冷并集接线未生效——夹具里只有 L904 该判悬空，实得『$probeDangling』（L903 上榜=冷库路径没传进定义集合；空=定义集合无脑全绿）。"
+    } else { Write-Host '  16a 定义集合 = 热账本 ∪ 冷库（只存在于冷库的 id 不判悬空、两侧皆无的 id 仍判悬空）OK' -ForegroundColor Green }
+  } finally {
+    Remove-Item -Recurse -Force $idProbeRoot -ErrorAction SilentlyContinue
   }
-  if ($dangling) { $dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在 LEDGER；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
-  else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个已定义 id，引用均存在于 LEDGER）" }
+  $g16 = Get-DanglingLessonReferences $RepoRoot
+  if ($g16.Dangling.Count) { $g16.Dangling | Sort-Object -Unique | ForEach-Object { Fail "悬空经验引用：$_（L<n> 不在热账本/冷库并集；改名/重排经验后请同步引用——存在性已机检，内容是否对得上仍须人工核对）" } }
+  else { Write-Host "  L-id 引用完整（扫 $($g16.ScanCount) 个 skills/docs 文件，$($g16.DefinedCount) 个热/冷已定义 id）" }
 }
 
 }
@@ -12935,6 +14055,243 @@ if (-not $authorityBase.Ok) {
   } finally {
     Remove-Item -LiteralPath $authorityScratch -Recurse -Force -ErrorAction SilentlyContinue
   }
+}
+
+# 17ai：钉死的真实 diff 预算在 reviewer 与 push/PR 之前 fail-closed。
+$reviewSizeScript = Join-Path $RepoRoot 'scripts/review.ps1'
+$reviewSizeText = Get-Content -LiteralPath $reviewSizeScript -Raw
+$taskSizeText = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
+$sizeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "st17ai-review-size-$PID-$([guid]::NewGuid().ToString('N'))"
+try {
+  function New-ReviewSizeFixture([string]$Name, [int]$LineCount, [int]$LongLineChars, [switch]$Binary, [switch]$WithReviewInputs) {
+    $root = Join-Path $sizeRoot $Name
+    New-Item -ItemType Directory -Force $root | Out-Null
+    & git -C $root init -q
+    & git -C $root symbolic-ref HEAD refs/heads/master
+    & git -C $root config user.email 'size@test.invalid'
+    & git -C $root config user.name 'size-test'
+    Set-Content -LiteralPath (Join-Path $root 'base.txt') -Value 'base' -Encoding utf8
+    if ($WithReviewInputs) {
+      New-Item -ItemType Directory -Force (Join-Path $root 'docs'), (Join-Path $root 'specs/tasks') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'docs/QUALITY-RUBRIC.md') -Value '# fixture rubric（仅为让评审流程可达；判定内容不参与本闸断言）' -Encoding utf8
+      @('---', "id: $Name", 'title: fixture card', 'status: todo', 'allow_paths:', '  - payload.txt', '---') -join "`n" |
+        Set-Content -LiteralPath (Join-Path $root "specs/tasks/$Name.md") -Encoding utf8
+    }
+    & git -C $root add -A
+    & git -C $root commit -q -m base
+    & git -C $root switch -q -c $Name
+    if ($Binary) {
+      [System.IO.File]::WriteAllBytes((Join-Path $root 'payload.bin'), [byte[]](0, 1, 2, 0, 255, 17))
+    } elseif ($LongLineChars -gt 0) {
+      [System.IO.File]::WriteAllText((Join-Path $root 'payload.txt'), ('x' * $LongLineChars))
+    } else {
+      [System.IO.File]::WriteAllLines((Join-Path $root 'payload.txt'), [string[]](1..$LineCount | ForEach-Object { "line-$_" }))
+    }
+    & git -C $root add -A
+    & git -C $root commit -q -m feature
+    return $root
+  }
+  function Set-ReviewFixtureDiffChars([string]$Root, [int]$TargetChars, [int]$InitialContentChars = 59000) {
+    $payload = Join-Path $Root 'payload.txt'
+    $contentChars = $InitialContentChars
+    for ($attempt = 0; $attempt -lt 4; $attempt++) {
+      [System.IO.File]::WriteAllText($payload, ('x' * $contentChars))
+      & git -C $Root add -A
+      & git -C $Root commit -q --amend --no-edit
+      $actualChars = ((& git -C $Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String) -replace "`r`n", "`n").Length
+      if ($actualChars -eq $TargetChars) { return $Root }
+      $contentChars += ($TargetChars - $actualChars)
+      if ($contentChars -lt 1) { throw "cannot tune fixture '$Root' to $TargetChars diff chars" }
+    }
+    throw "fixture '$Root' did not converge to exactly $TargetChars diff chars"
+  }
+  $reviewerSpyDir = Join-Path $sizeRoot 'reviewer-spy-bin'
+  New-Item -ItemType Directory -Force $reviewerSpyDir | Out-Null
+  $reviewerSpyMark = Join-Path $sizeRoot 'reviewer-invoked.marker'
+  $reviewerSpyBody = @(
+    "Set-Content -LiteralPath '$($reviewerSpyMark -replace '\\','/')' -Value 'invoked'",
+    '[Console]::In.ReadToEnd() | Out-Null',
+    '$v = $env:T9_SPY_VERDICT; if (-not $v) { $v = ''pass'' }',
+    'Set-Content $env:REVIEW_OUT -Encoding utf8 -Value (''{"verdict":"'' + $v + ''","reasons":[]}'')'
+  )
+  $reviewerSpyScript = Join-Path $reviewerSpyDir 'codex.ps1'
+  Set-Content -LiteralPath $reviewerSpyScript -Value $reviewerSpyBody -Encoding ascii
+  $reviewerSpyPosix = Join-Path $reviewerSpyDir 'codex'
+  $reviewerSpyTarget = $reviewerSpyScript.Replace('\', '/')
+  $reviewerSpyPosixBody = @('#!/bin/sh', "exec pwsh -NoProfile -File '$reviewerSpyTarget' `"`$@`"") -join "`n"
+  Set-Content -LiteralPath $reviewerSpyPosix -NoNewline -Encoding ascii -Value ($reviewerSpyPosixBody + "`n")
+  if (-not $IsWindows) { & chmod +x $reviewerSpyPosix }
+  function Invoke-ReviewSizeFixture([string]$Root, [switch]$FullReview, [string[]]$ExtraArgs = @(), [string]$SpyVerdict = 'pass') {
+    $invokeArgs = @('-NoProfile', '-File', $reviewSizeScript, '-WorktreePath', $Root, '-Base', 'master', '-LocalBase')
+    if (-not $FullReview) { $invokeArgs += '-SizeOnly' }
+    $invokeArgs += $ExtraArgs
+    Remove-Item -LiteralPath $reviewerSpyMark -Force -ErrorAction SilentlyContinue
+    $spySavedPath = $env:PATH; $spySavedExt = $env:PATHEXT
+    $spySavedVerdict = $env:T9_SPY_VERDICT; $env:T9_SPY_VERDICT = $SpyVerdict
+    try {
+      $env:PATH = "$reviewerSpyDir$([IO.Path]::PathSeparator)$spySavedPath"
+      if ($IsWindows) { $env:PATHEXT = ".PS1;$spySavedExt" }
+      $text = (& pwsh @invokeArgs 2>&1 | Out-String)
+      $exit = $LASTEXITCODE
+    } finally { $env:PATH = $spySavedPath; $env:PATHEXT = $spySavedExt; $env:T9_SPY_VERDICT = $spySavedVerdict }
+    return [pscustomobject]@{ Exit=$exit; Text=$text; ReviewerInvoked=(Test-Path -LiteralPath $reviewerSpyMark); Rounds=@(Get-ChildItem -LiteralPath (Join-Path $Root '.review') -Filter '*.rounds' -ErrorAction SilentlyContinue).Count }
+  }
+
+  $small999 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SMALL' -LineCount 999 -LongLineChars 0)
+  $boundary1000 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BOUNDARY' -LineCount 1000 -LongLineChars 0)
+  $large1001 = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LINES' -LineCount 1001 -LongLineChars 0)
+  $chars60000Root = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-CHARS-60000' -LineCount 0 -LongLineChars 59000) 60000
+  $chars60001Root = Set-ReviewFixtureDiffChars (New-ReviewSizeFixture -Name 'T9-SIZE-CHARS-60001' -LineCount 0 -LongLineChars 59000) 60001
+  $chars60000 = Invoke-ReviewSizeFixture $chars60000Root
+  $chars60001 = Invoke-ReviewSizeFixture $chars60001Root
+  $binary = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BINARY' -LineCount 0 -LongLineChars 0 -Binary)
+  $largeFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BEFORE-REVIEWER' -LineCount 1001 -LongLineChars 0) -FullReview
+  $smallFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-REVIEWER-REACHED' -LineCount 2 -LongLineChars 0 -WithReviewInputs) -FullReview
+  $blockedFullReview = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ROUNDS-CONTROL' -LineCount 2 -LongLineChars 0 -WithReviewInputs) -FullReview -SpyVerdict 'block'
+  $diffFailureRoot = New-ReviewSizeFixture -Name 'T9-SIZE-DIFF-FAIL' -LineCount 1 -LongLineChars 0
+  $argConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ARG-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-ResetRounds')
+  $skipConflict = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SKIP-CONFLICT' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-SkipReview')
+  $tooHighLines = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-LINES' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxChangedLines','1001')
+  $tooHighChars = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-LIMIT-CHARS' -LineCount 1 -LongLineChars 0) -ExtraArgs @('-MaxDiffChars','60001')
+
+  $sizeGitShimDir = Join-Path $sizeRoot 'git-shim-bin'
+  New-Item -ItemType Directory -Force $sizeGitShimDir | Out-Null
+  $sizeGitShimScript = Join-Path $sizeGitShimDir 'git-shim.ps1'
+  @'
+if ($env:T9_SIZE_SHIM_MODE -eq 'diff-fail' -and $args -contains 'diff') {
+  exit 23
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat' -and $args -contains '--numstat') {
+  Write-Output 'malformed-numstat-row'
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-prefix' -and $args -contains '--numstat') {
+  Write-Output "1`t2`t"
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-overflow' -and $args -contains '--numstat') {
+  Write-Output "999999999999999999999999999999`t1`tpayload.txt"
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-blank' -and $args -contains '--numstat') {
+  Write-Output "1`t0`tfirst.txt`n`n1`t0`tsecond.txt"
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-sum-overflow' -and $args -contains '--numstat') {
+  Write-Output "9223372036854775807`t0`tfirst.txt`n1`t0`tsecond.txt"
+  exit 0
+}
+if ($env:T9_SIZE_SHIM_MODE -eq 'numstat-row-overflow' -and $args -contains '--numstat') {
+  Write-Output "9223372036854775807`t1`trow.txt"
+  exit 0
+}
+& $env:T9_SIZE_REAL_GIT @args
+$realExit = $LASTEXITCODE
+if ($env:T9_SIZE_SHIM_MODE -eq 'move-head' -and $realExit -eq 0 -and $args -contains 'merge-base' -and -not (Test-Path -LiteralPath $env:T9_SIZE_MOVE_MARKER)) {
+  Set-Content -LiteralPath $env:T9_SIZE_MOVE_MARKER -Value 'moved' -Encoding utf8
+  & $env:T9_SIZE_REAL_GIT -C $env:T9_SIZE_MOVE_REPO update-ref $env:T9_SIZE_MOVE_REF $env:T9_SIZE_MOVE_OID *> $null
+}
+exit $realExit
+'@ | Set-Content $sizeGitShimScript -Encoding utf8
+  $sizeGitWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $sizeGitShimScript -UseWindows $IsWindows
+  if ($IsWindows) { Set-Content (Join-Path $sizeGitShimDir 'git.ps1') $sizeGitWrapperBody -Encoding utf8 }
+  else { Set-Content (Join-Path $sizeGitShimDir 'git') $sizeGitWrapperBody -Encoding utf8; & chmod +x (Join-Path $sizeGitShimDir 'git') }
+  $sizeSavedPath = $env:PATH; $sizeSavedPathExt = $env:PATHEXT
+  $sizeSavedMode = $env:T9_SIZE_SHIM_MODE; $sizeSavedRealGit = $env:T9_SIZE_REAL_GIT
+  $sizeSavedMoveRepo = $env:T9_SIZE_MOVE_REPO; $sizeSavedMoveRef = $env:T9_SIZE_MOVE_REF
+  $sizeSavedMoveOid = $env:T9_SIZE_MOVE_OID; $sizeSavedMoveMarker = $env:T9_SIZE_MOVE_MARKER
+  try {
+    $env:T9_SIZE_REAL_GIT = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $env:PATH = "$sizeGitShimDir$([IO.Path]::PathSeparator)$sizeSavedPath"
+    if ($IsWindows) { $env:PATHEXT = ".PS1;$sizeSavedPathExt" }
+    $env:T9_SIZE_SHIM_MODE = 'diff-fail'
+    $diffFailure = Invoke-ReviewSizeFixture $diffFailureRoot
+
+    $env:T9_SIZE_SHIM_MODE = 'numstat'
+    $malformedNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BAD-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-overflow'
+    $overflowNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-OVERFLOW-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-prefix'
+    $prefixNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-PREFIX-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-blank'
+    $blankNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-BLANK-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-sum-overflow'
+    $sumOverflowNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-SUM-OVERFLOW-NUMSTAT' -LineCount 1 -LongLineChars 0)
+    $env:T9_SIZE_SHIM_MODE = 'numstat-row-overflow'
+    $rowOverflowNumstat = Invoke-ReviewSizeFixture (New-ReviewSizeFixture -Name 'T9-SIZE-ROW-OVERFLOW-NUMSTAT' -LineCount 1 -LongLineChars 0)
+
+    $moveHeadRoot = New-ReviewSizeFixture -Name 'T9-SIZE-MOVE-HEAD' -LineCount 1 -LongLineChars 0
+    $moveHeadOldOid = (& $env:T9_SIZE_REAL_GIT -C $moveHeadRoot rev-parse HEAD | Out-String).Trim()
+    [System.IO.File]::WriteAllLines((Join-Path $moveHeadRoot 'payload.txt'), [string[]](1..1001 | ForEach-Object { "moved-line-$_" }))
+    & $env:T9_SIZE_REAL_GIT -C $moveHeadRoot add -A
+    & $env:T9_SIZE_REAL_GIT -C $moveHeadRoot commit -q --amend --no-edit
+    $moveHeadNewOid = (& $env:T9_SIZE_REAL_GIT -C $moveHeadRoot rev-parse HEAD | Out-String).Trim()
+    & $env:T9_SIZE_REAL_GIT -C $moveHeadRoot update-ref refs/heads/T9-SIZE-MOVE-HEAD $moveHeadOldOid
+    $env:T9_SIZE_SHIM_MODE = 'move-head'
+    $env:T9_SIZE_MOVE_REPO = $moveHeadRoot
+    $env:T9_SIZE_MOVE_REF = 'refs/heads/T9-SIZE-MOVE-HEAD'
+    $env:T9_SIZE_MOVE_OID = $moveHeadNewOid
+    $env:T9_SIZE_MOVE_MARKER = Join-Path $moveHeadRoot 'head-moved.marker'
+    $movedHead = Invoke-ReviewSizeFixture $moveHeadRoot
+  } finally {
+    $env:PATH = $sizeSavedPath; $env:PATHEXT = $sizeSavedPathExt
+    $env:T9_SIZE_SHIM_MODE = $sizeSavedMode; $env:T9_SIZE_REAL_GIT = $sizeSavedRealGit
+    $env:T9_SIZE_MOVE_REPO = $sizeSavedMoveRepo; $env:T9_SIZE_MOVE_REF = $sizeSavedMoveRef
+    $env:T9_SIZE_MOVE_OID = $sizeSavedMoveOid; $env:T9_SIZE_MOVE_MARKER = $sizeSavedMoveMarker
+  }
+
+  $sizeFailures = @()
+  if ($small999.Exit -ne 0 -or $small999.Text -notmatch 'changedLines=999') { $sizeFailures += "999-line control did not pass with exact metric (exit=$($small999.Exit))" }
+  if ($boundary1000.Exit -ne 0 -or $boundary1000.Text -notmatch 'changedLines=1000') { $sizeFailures += "1000-line boundary failed (exit=$($boundary1000.Exit))" }
+  if ($large1001.Exit -eq 0 -or $large1001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $large1001.Text -notmatch 'changedLines=1001') { $sizeFailures += "1001-line mutant was not blocked with exact metric (exit=$($large1001.Exit))" }
+  if ($large1001.Text -notmatch 'max 1000' -or $chars60001.Text -notmatch 'max 60000') { $sizeFailures += 'block diagnostics do not state the limits they enforced' }
+  if ($overflowNumstat.Exit -eq 0 -or $overflowNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "an Int64-overflowing numstat row did not reach R3-DIFF-NUMSTAT-INVALID (exit=$($overflowNumstat.Exit))" }
+  if ($prefixNumstat.Exit -eq 0 -or $prefixNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "a prefix-valid but otherwise malformed numstat row was accepted (exit=$($prefixNumstat.Exit)) — head-anchored validation counts it as real size" }
+  if ($blankNumstat.Exit -eq 0 -or $blankNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += 'an interior blank numstat row was discarded' }
+  if ($sumOverflowNumstat.Exit -eq 0 -or $sumOverflowNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += 'cumulative numstat overflow escaped the fail-closed diagnostic' }
+  if ($rowOverflowNumstat.Exit -eq 0 -or $rowOverflowNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += 'row numstat overflow escaped the fail-closed diagnostic' }
+  if ($chars60000.Exit -ne 0 -or $chars60000.Text -notmatch 'diffChars=60000') { $sizeFailures += "exactly-60000-char control did not pass (exit=$($chars60000.Exit))" }
+  $canonChars = ((& git -C $chars60000Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String) -replace "`r`n", "`n").Length
+  if ($canonChars -ne 60000) { $sizeFailures += "fixture is not LF-canonical 60000 (got $canonChars) — the boundary case is not measuring what it claims" }
+  $crlfChars = ((& git -C $chars60000Root -c core.quotepath=false diff 'master...HEAD' --unified=3 | Out-String) -replace "`r`n", "`n") -replace "`n", "`r`n"
+  if ($IsWindows -and $crlfChars.Length -le $canonChars) { $sizeFailures += 'CRLF/LF control is inert: the two forms measure the same, so this assertion cannot detect platform drift' }
+  if ($chars60001.Exit -eq 0 -or $chars60001.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $chars60001.Text -notmatch 'diffChars=60001') { $sizeFailures += "60001-char mutant was not blocked with exact metric (exit=$($chars60001.Exit))" }
+  if ($binary.Exit -ne 0 -or $binary.Text -notmatch 'binaryFiles=1') { $sizeFailures += "binary numstat was misparsed or hidden (exit=$($binary.Exit))" }
+  if ($diffFailure.Exit -eq 0 -or $diffFailure.Text -notmatch '\[R3-DIFF-COMMAND-FAILED\]') { $sizeFailures += "git diff command failure did not fail closed with its diagnostic (exit=$($diffFailure.Exit))" }
+  if ($argConflict.Exit -eq 0 -or $argConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + ResetRounds did not fail with R3-DIFF-ARGS-INVALID' }
+  if ($skipConflict.Exit -eq 0 -or $skipConflict.Text -notmatch '\[R3-DIFF-ARGS-INVALID\]') { $sizeFailures += 'SizeOnly + SkipReview was accepted' }
+  if ($tooHighLines.Exit -eq 0 -or $tooHighLines.Text -notmatch 'MaxChangedLines') { $sizeFailures += 'MaxChangedLines accepted a value above 1000' }
+  if ($tooHighChars.Exit -eq 0 -or $tooHighChars.Text -notmatch 'MaxDiffChars') { $sizeFailures += 'MaxDiffChars accepted a value above 60000' }
+  if ($malformedNumstat.Exit -eq 0 -or $malformedNumstat.Text -notmatch '\[R3-DIFF-NUMSTAT-INVALID\]') { $sizeFailures += "malformed numstat did not fail closed with its diagnostic (exit=$($malformedNumstat.Exit))" }
+  if ($movedHead.Exit -ne 0 -or $movedHead.Text -notmatch 'changedLines=1' -or -not (Test-Path (Join-Path $moveHeadRoot 'head-moved.marker'))) { $sizeFailures += "moving HEAD changed the captured diff authority (exit=$($movedHead.Exit))" }
+  if ($largeFullReview.Exit -eq 0 -or $largeFullReview.Text -notmatch '\[R3-DIFF-TOO-LARGE\]' -or $largeFullReview.Text -match 'Codex 评审|第二模型评审') { $sizeFailures += 'normal review did not stop at the size gate before reviewer invocation' }
+  $sizeCases = @($small999, $boundary1000, $large1001, $chars60000, $chars60001, $binary, $diffFailure, $argConflict, $skipConflict, $tooHighLines, $tooHighChars, $malformedNumstat, $overflowNumstat, $prefixNumstat, $blankNumstat, $sumOverflowNumstat, $rowOverflowNumstat, $movedHead, $largeFullReview)
+  if (@($sizeCases | Where-Object { $_.ReviewerInvoked }).Count -ne 0) { $sizeFailures += 'the reviewer was invoked on a size-gated run (spy marker present)' }
+  if (-not $smallFullReview.ReviewerInvoked) { $sizeFailures += 'reviewer spy is inert: an in-budget full review left no marker, so "no marker" proves nothing' }
+  if ($blockedFullReview.Rounds -lt 1) { $sizeFailures += 'rounds counter is inert: a reviewer-blocked run left no .rounds file, so "zero rounds" proves nothing' }
+  if (@($sizeCases | Where-Object { $_.Rounds -ne 0 }).Count -ne 0) { $sizeFailures += 'size evaluation created/incremented an R3 round counter' }
+  if ($reviewSizeText -notmatch '\[int\]\$MaxChangedLines\s*=\s*1000' -or $reviewSizeText -notmatch '\[int\]\$MaxDiffChars\s*=\s*60000') { $sizeFailures += 'production parameter defaults are not 1000 lines / 60000 chars' }
+  $sizeOnlyPos = $taskSizeText.IndexOf("Step '真实 diff 预算闸", [System.StringComparison]::Ordinal)
+  $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
+  if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
+  if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
+  if ($taskSizeText -match '尚未 push、开 PR' -or $taskSizeText -notmatch '本次调用' -or $taskSizeText -notmatch '现有远端') { $sizeFailures += 'task.ps1 overclaims that no earlier push or PR can exist after a size block' }
+  $a14Devops = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
+  $a14Rubric = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/QUALITY-RUBRIC.md') -Raw
+  $a14DevopsPara = @($a14Devops -split "`r?`n" | Where-Object { $_.Contains('allow_paths` 的条目数只在建卡期') })
+  if ($a14DevopsPara.Count -ne 1) { $sizeFailures += "A14: DEVOPS-WORKFLOW's 'allow_paths is not a size proof' paragraph is missing or duplicated (found $($a14DevopsPara.Count))" }
+  else {
+    foreach ($a14Needle in @('**不是**规模证明', '真实 diff 预算', '只允许收紧')) {
+      if (-not $a14DevopsPara[0].Contains($a14Needle)) { $sizeFailures += "A14: DEVOPS-WORKFLOW paragraph no longer states '$a14Needle'" }
+    }
+  }
+  $a14RubricLines = @($a14Rubric -split "`r?`n" | Where-Object { $_.Contains('additions + deletions <= 1000') })
+  if ($a14RubricLines.Count -lt 2) { $sizeFailures += "A14: QUALITY-RUBRIC 4.1 must state the 1000/60000 pair in both languages (found $($a14RubricLines.Count))" }
+  if (-not ($a14Rubric.Contains('may only be tightened, never raised') -or $a14Rubric.Contains('只能收紧上限'))) { $sizeFailures += 'A14: QUALITY-RUBRIC 4.1 no longer states that the limits may only be tightened' }
+  if ($sizeFailures.Count) { Fail "种子缺陷 17ai：真实 diff 预算闸未闭合：$($sizeFailures -join '；')" }
+  else { Write-Host '  17ai diff 预算 OK（999/1000 行过；1001 拦；60000 过、60001 拦；两组参数冲突已拒）' -ForegroundColor Green }
+} finally {
+  Remove-Item -LiteralPath $sizeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # 17hh（TD22）：归档 merged 卡后，三个具名非归档来源必须改指向 archive 路径；不把此债扩成全仓历史链接扫描。

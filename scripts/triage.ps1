@@ -496,9 +496,10 @@ if ($Verb -eq 'selfcheck') {
   $fails = [System.Collections.Generic.List[string]]::new()
   try {
     $fixtureHeadRepo = Join-Path $fxRoot 'head-reader'
-    New-Item -ItemType Directory -Force $fixtureHeadRepo | Out-Null
-    & git -C $fixtureHeadRepo init -q
-    & git -C $fixtureHeadRepo -c user.name=fixture -c user.email=fixture@example.invalid commit --allow-empty -m fixture -q
+    $fixtureHooks = Join-Path $fxRoot 'empty-hooks'
+    New-Item -ItemType Directory -Force $fixtureHeadRepo, $fixtureHooks | Out-Null
+    & git -c 'init.templateDir=' -C $fixtureHeadRepo init -q
+    & git -C $fixtureHeadRepo -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false -c "core.hooksPath=$fixtureHooks" commit --allow-empty -m fixture -q
     $fixtureHead = (& git -C $fixtureHeadRepo rev-parse HEAD | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or (Get-ScaffoldRepositoryHead -Path $fixtureHeadRepo) -cne $fixtureHead) {
       $fails.Add('用例4a Get-ScaffoldRepositoryHead 未离线读出夹具仓当前 HEAD')
@@ -627,6 +628,57 @@ if ($Verb -eq 'selfcheck') {
       if ($duplicateCheckExit -eq 0 -or $duplicateCheckOutput -notmatch [regex]::Escape($duplicateSentinel)) {
         $fails.Add("用例5c/$($duplicateCase.id) lessons.ps1 check 未非零并给 $duplicateSentinel（exit=$duplicateCheckExit）")
       }
+    }
+
+    # ── 用例 5d：受限 CommonMark 边界——三种无序列表标记、空行后的块边界、围栏代码 ──
+    # 这三枚夹具直接驱动共享解析器。只数 `-`、把空行后的仓外段落继续并进前一项、或把 fenced code
+    # 里的原始 `##` 当小节边界，都会分别让一枚变红。
+    $fxMarkers = Join-Path $fxRoot 'CLAUDE-markers.md'
+    Set-Content -LiteralPath $fxMarkers -Encoding utf8 -Value @(
+      '## 经验铁律（必须加载）',
+      '* **[L930]** star item',
+      '+ **[L931]** plus item',
+      '- **[L932]** dash item',
+      '', '## 下一节')
+    $markerSection = Get-ScaffoldMustLayerSection -Path $fxMarkers
+    if (-not $markerSection.Found -or ($markerSection.Ids -join ',') -ne 'L930,L931,L932' -or $markerSection.Bullets.Count -ne 3) {
+      $fails.Add("用例5d/markers 未把 */+/- 解析为三条独立 resident item（Found=$($markerSection.Found)，Ids=$($markerSection.Ids -join ',')，Bullets=$($markerSection.Bullets.Count)）")
+    }
+
+    $fxBoundary = Join-Path $fxRoot 'CLAUDE-boundary.md'
+    Set-Content -LiteralPath $fxBoundary -Encoding utf8 -Value @(
+      '## 经验铁律（必须加载）',
+      '- **[L940]** first item',
+      'lazy continuation [L941]',
+      '',
+      'outside paragraph [L942]',
+      '> outside blockquote [L943]',
+      '- **[L944]** second item',
+      '',
+      '  indented continuation [L945]',
+      '', '## 下一节')
+    $boundarySection = Get-ScaffoldMustLayerSection -Path $fxBoundary
+    if (-not $boundarySection.Found -or ($boundarySection.Ids -join ',') -ne 'L940,L941,L944,L945') {
+      $fails.Add("用例5d/boundary 把空行后的外部段落/blockquote 算进 resident item，或丢了合法续行（Found=$($boundarySection.Found)，Ids=$($boundarySection.Ids -join ',')）")
+    }
+
+    $fxFence = Join-Path $fxRoot 'CLAUDE-fence.md'
+    Set-Content -LiteralPath $fxFence -Encoding utf8 -Value @(
+      '```markdown',
+      '## 经验铁律（代码示例，不是小节）',
+      '- **[L950]** fenced decoy',
+      '```',
+      '## 经验铁律（必须加载）',
+      '- **[L951]** real item before fence',
+      '```text',
+      '## 下一节（围栏内，不得结束真实小节）',
+      '- **[L952]** fenced decoy inside section',
+      '```',
+      '+ **[L953]** real item after fence',
+      '', '## 下一节')
+    $fenceSection = Get-ScaffoldMustLayerSection -Path $fxFence
+    if (-not $fenceSection.Found -or ($fenceSection.Ids -join ',') -ne 'L951,L953' -or $fenceSection.Bullets.Count -ne 2) {
+      $fails.Add("用例5d/fence 把 fenced code 的 heading/id 当成结构，或在围栏内标题处截断（Found=$($fenceSection.Found)，Ids=$($fenceSection.Ids -join ',')，Bullets=$($fenceSection.Bullets.Count)）")
     }
 
     # ── 用例 6：enforced_by 四向（上游 issue #183）——有守卫 / 显式 none / 空字段 / 认不出的占位符 ──
@@ -962,7 +1014,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前 SHA/固定来源优先+OS 路径语义去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移/重复 id fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前 SHA/固定来源优先+OS 路径语义去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移/重复 id fail-closed+resident Markdown markers/boundary/fence · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }
