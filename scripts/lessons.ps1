@@ -387,8 +387,8 @@ switch ($Command) {
     # 必须层封顶（以 CLAUDE.md「经验铁律」实际驻留的**经验 id 数**为准，非 markdown 条目数）
     # TD39: 零 tier=must 时 Where-Object 发 AutomationNull，直接取 .Count 在 StrictMode 抛——@() 包裹保 Count 0（合法下游态：删净示例 must 经验）。
     $mustInLedger = @($ls | Where-Object tier -eq 'must').Count
-    # 计量单位是**驻留的经验 id**，不是 markdown 条目：一条写着 [L17][L162][L172][L177] 的 bullet
-    # 对计数器是 1 条、对模型是 4 条规则，封顶要管的正是后者（上游 issue #184 / 修复 #188）。
+    # 计量单位是**驻留的经验 id**，不是 markdown 条目：一条写着 [L17][L162][L172][L177] 的 Markdown bullet
+    # 包含 4 个驻留 id、占 4 个封顶单位（上游 issue #184 / 修复 #188）。
     # 本项目实测（origin/master 9c1f98d）：10 条 bullet 承载 19 个 id——按条目计恒绿，而每轮驻留
     # 上下文已是上限的近两倍，这正是「封顶通过了但成本还在涨」的静默失效面。
     # 「小节」只有一个定义 = 判定核返回的 Ids：封顶、id 存在性、层级漂移三处同读一份集合。此前封顶数

@@ -12,7 +12,7 @@
 | **Tier 3** | 项目总经验（热账本 + 冷库） | `docs/lessons/LEDGER.md` + `specs/archive/lessons-archive.md` | `lessons.ps1 search` 统一检索 | append-only |
 
 必须层为何封顶：`CLAUDE.md` 每轮全量进上下文，是稀缺预算；铁律只能放**会复发且会卡死**的极少数。超限即淘汰最不活跃项回按需层。
-**计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 bullet 对计数器是 1 条、对模型是 2 条规则，
+**计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 Markdown bullet 包含 2 个驻留 id、占 2 个封顶单位，
 封顶要管的正是后者——否则把几条并进一条 bullet 就能一边「合规」一边让每轮成本继续涨。判定核只有
 `scripts/_lessons.ps1` 一处（`lessons.ps1 check` 与心跳探针 `lessons-cap` 共用）；小节标题找不到时两者一律
 fail-closed 报错，不把「测不出」读成「未超」。

@@ -5020,7 +5020,7 @@ if (Test-Path $triageForCount) {
 #      且必须正面出现「驻留…id」——只做负断言的话，把那句整段删掉也能过。
 #   ② 列「探针清单」的面：各自枚举的探针名个数须等于 triage.ps1 里 Invoke-Probe* 函数的**实际**个数。
 $capUnitSurfaces = @('docs/LESSONS.md', '.claude/skills/lessons/SKILL.md', 'scripts/_config.ps1', 'scripts/lessons.ps1', 'scripts/triage.ps1', 'CLAUDE.md')
-$staleCapUnitRe = '封顶\s*(?:\*\*)?\s*[0-9N]+\s*条|封顶条数|条数上限|必须层\s*(?:≤|<=)\s*上限'
+$staleCapUnitRe = '封顶\s*(?:\*\*)?\s*[0-9N]+\s*条|封顶条数|条数上限|必须层\s*(?:≤|<=)\s*上限|对计数器是\s*1\s*条'
 $capUnitSkipBefore = $skippedSelftestChecks.Count
 foreach ($rel in $capUnitSurfaces) {
   $p = Join-Path $RepoRoot $rel
