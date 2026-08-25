@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS
 title: 将本地可复现经验按当前 lessons schema 归并到账本
 depends_on: []
-parallelizable_with: [T0-RECONCILE-DATA-AUTHORITY, T0-RECONCILE-DESIGN-METADATA]
+parallelizable_with: [T0-RECONCILE-DESIGN-METADATA]
 status: todo
 branch: T0-RECONCILE-LESSONS
 worktree: C:\wt\T0-RECONCILE-LESSONS
@@ -22,9 +22,9 @@ acceptance:
   - "A4 L246 block-local：与 R3 阈值比较只使用 review.ps1 -SizeOnly 的 UTF-16 码元尺，证据指向 T0-R3-DIFF-BUDGET，不用 wc -c 做拆卡决策"
   - "A5 L247 block-local：归档搬运后必须跑 archive.ps1 -CheckCardsIndex，明确 cards-index 是机检投影非 doc_sync 文档，并保留 ARCHIVE-CARDS-INDEX-DRIFT 证据"
   - "A6 排除与 schema：不迁移后台轮询习惯、PR 未合并参数说明、无 refs 的泛化措辞；L242–L247 id 唯一且每块自身含 rule/enforced_by/refs，lessons check 全绿"
-dod_command: pwsh -NoProfile -Command "if (-not (((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L242\r?\n(?:(?!^## L[0-9]+).)*四参静态 \[regex\]::Replace(?:(?!^## L[0-9]+).)*scripts/selftest\.ps1 闸 2c') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L243\r?\n(?:(?!^## L[0-9]+).)*Assert-MeasuredTip(?:(?!^## L[0-9]+).)*selftest 闸 15b4') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L244\r?\n(?:(?!^## L[0-9]+).)*git apply --3way(?:(?!^## L[0-9]+).)*git diff --numstat origin/master') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L245\r?\n(?:(?!^## L[0-9]+).)*required 的匹配用 assert(?:(?!^## L[0-9]+).)*关键词全文 grep') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L246\r?\n(?:(?!^## L[0-9]+).)*review\.ps1 -WorktreePath(?:(?!^## L[0-9]+).)*T0-R3-DIFF-BUDGET') -and ((Get-Content 'docs/lessons/LEDGER.md' -Raw) -match '(?ms)^## L247\r?\n(?:(?!^## L[0-9]+).)*archive\.ps1 -CheckCardsIndex(?:(?!^## L[0-9]+).)*ARCHIVE-CARDS-INDEX-DRIFT'))) { exit 1 }" && pwsh -NoProfile -File scripts/lessons.ps1 check
+dod_command: $r=Get-Content 'docs/lessons/LEDGER.md' -Raw;function Block($id,$ps){$b=[regex]::Match($r,('(?ms)^## '+$id+'\r?\n(?:(?!^## L[0-9]+).)*')).Value;if(-not$b){throw ('missing '+$id)};foreach($p in @('(?m)^- rule: .+','(?m)^- enforced_by: .+','(?m)^- refs: .+')+$ps){$m=[regex]::Match($b,$p);if(-not$m.Success-or[regex]::IsMatch($b.Remove($m.Index,$m.Length),$p)){throw ($id+' missing/non-unique '+$p)}}};$ids=@([regex]::Matches($r,'(?m)^## (L24[2-7])$')|%{$_.Groups[1].Value});if($ids.Count-ne6-or$ids.Count-ne@($ids|sort -Unique).Count-or(Compare-Object ($ids|sort) @('L242','L243','L244','L245','L246','L247'))){throw 'lesson ids'};Block 'L242' @('四参静态 \[regex\]::Replace','实例方法 \[regex\]::new','\[ \\t\]','目标行本身变了','scripts/selftest\.ps1 闸 2c','mutation.*guard');Block 'L243' @('消费者读的是 HEAD','分支引用与 HEAD 双钉','显式参数传给被调方','Assert-MeasuredTip','R3-HEAD-MISMATCH','selftest 闸 15b4');Block 'L244' @('merge-base','git apply --3way','git diff --numstat origin/master','基线哨兵');Block 'L245' @('required 的匹配用 assert','删除行数 == 预期','关键词.*grep','命中数必须为 0');Block 'L246' @('review\.ps1 -WorktreePath','-SizeOnly','UTF-16 码元','T0-R3-DIFF-BUDGET','wc -c');Block 'L247' @('archive\.ps1 -CheckCardsIndex','cards-index.*投影不是文档','ARCHIVE-CARDS-INDEX-DRIFT','推 master 前.*verify'); & scripts/lessons.ps1 check
 dod_exit: 0
-dod_assert: A1–A6 的六个 block-local regex 全部命中自身 rule/evidence/enforced_by/refs，随后 lessons check 证明 id/schema/必须层无漂移；关键词放到别的 lesson 不会误绿
+dod_assert: A1–A6 的 L242–L247 精确唯一集合与每块 rule/enforced_by/非空 refs、全部规则/证据逐块命中；每个唯一命中做删除变异，跨 lesson 搬词或删任一字段即 RED；随后 lessons check 证明 schema 无漂移
 review_gate: codex {verdict:pass}
 hygiene: 使用 lessons.ps1 add/check 规范化，不手工复制旧账本块；相同根因合并为复发计数或现有规则增量
 doc_sync: CLAUDE.md 只接晋升后的最小规则增量（R5）
