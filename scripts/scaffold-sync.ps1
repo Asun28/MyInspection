@@ -1,54 +1,19 @@
 ﻿#requires -Version 7
 <#
 .SYNOPSIS
-  Fleet loop: the two-way link between this project and the scaffold it was generated from.
+  Check upstream scaffold releases or compose a scrubbed upstream issue.
 
 .DESCRIPTION
-  `init-scaffold.ps1` is a one-time snapshot, so the relationship with the upstream scaffold is
-  normally one-way and manual: the downstream pulls fixes by hand and nothing travels back. This
-  script closes that into a loop with two halves that share one link.
+  `check` compares the canonical decision ledger with locally cached upstream tags; `-Fetch` is its
+  only network path. `report` scans title/body, saves a draft, and sends only with explicit `-Send`.
+  Patch application stays a human decision. The `scaffold-stale` heartbeat never fetches.
 
-    check  - Am I stale? Compares the version this project has evaluated up to (the decision ledger
-             in docs/SCAFFOLD-SYNC.md, falling back to _config.ps1 ScaffoldVersion when the ledger
-             has no rows yet) against the upstream release tags, and prints ONLY the CHANGELOG
-             "Downstream action required" blocks for the versions in between. Those blocks carry the
-             coupling groups, which a raw `git diff` can never tell you and which are the expensive
-             half of a backfill. The CHANGELOG is read out of the fetched upstream tag, so this still
-             works after `init-scaffold.ps1 -Cleanup` removed the local copy.
-
-    report - I found a scaffold-level defect. Composes an upstream issue body carrying provenance
-             (scaffold version, OS, PowerShell version, the surface at fault, the reproduction and
-             any related lesson id), scans it for secrets because the issue is public, prints it and
-             writes it to _local/. It STOPS there. Creating the issue needs an explicit -Send.
-
-  Deciding NOT to take a version is a first-class outcome, not a failure: a change that would hurt
-  this project is correctly skipped, and the ledger records the reason so the next session does not
-  re-litigate it. See docs/SCAFFOLD-SYNC.md.
-
-  Patch application is deliberately NOT automated. It stays three git commands under human decision
-  (`git diff` into a file, `git apply --3way --check`, then apply) because which versions to take is
-  a judgment call this script must not make for you.
-
-  Network boundary: only `check -Fetch` and `report -Send` touch the network, and both are explicit.
-  The triage probe `scaffold-stale` reads what is already on disk and never fetches, which keeps the
-  heartbeat read-only, offline and deterministic (docs/LOOP-ENGINEERING.md).
-
-.PARAMETER Verb      check (default) | report | selfcheck.
-.PARAMETER Fetch     check only: refresh upstream tags first. This is the only network call in check.
-.PARAMETER Remote    Name of the git remote pointing at the upstream scaffold. Default 'scaffold'.
-.PARAMETER Title     report: one-line issue title.
-.PARAMETER Summary   report: what is wrong, in prose.
-.PARAMETER Repro     report: the smallest reproduction, ideally a command plus its observed output.
-.PARAMETER Surface   report: the scaffold surface at fault, e.g. 'scripts/task.ps1' or 'selftest 14d'.
-.PARAMETER LessonId  report: related lesson id (Lnn) if this project already recorded one.
-.PARAMETER Send      report: actually create the issue. Without it the script only prints and writes.
-.PARAMETER OutFile   report: where to write the composed body. Default _local/scaffold-issue.md.
+.PARAMETER Verb     check (default) | report | selfcheck.
+.PARAMETER Fetch    Refresh upstream tags for check.
+.PARAMETER Send     Create the public issue after all guards pass.
+.PARAMETER OutFile  Draft path; defaults to _local/scaffold-issue.md.
 .EXAMPLE
   pwsh -File scripts\scaffold-sync.ps1 check -Fetch
-.EXAMPLE
-  pwsh -File scripts\scaffold-sync.ps1 report -Title 'ship deadlocks when ...' -Surface 'scripts/task.ps1'
-.EXAMPLE
-  pwsh -File scripts\scaffold-sync.ps1 selfcheck
 #>
 [CmdletBinding()]
 param(
@@ -138,22 +103,71 @@ function Get-SyncedVersion {
     version plus an allowed decision. Without both bounds, an unrelated table can silently raise the
     high-water mark (#201). Missing sentinel fails closed to the provenance floor.
   #>
-  param([string]$LedgerText, [string]$Fallback)
-  $best = $null
-  $inLedger = $false
-  if ($LedgerText) {
-    foreach ($line in ($LedgerText -split "`r?`n")) {
-      if ($line -match 'SCAFFOLD-SYNC-LEDGER') { $inLedger = $true; continue }
-      if (-not $inLedger) { continue }
-      if ($line -notmatch '^\s*\|') { continue }
-      $cells = @(($line -split '\|') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-      if ($cells.Count -lt 2 -or $cells[1] -notmatch '^(applied|partial|skipped)$') { continue }
-      $v = ConvertTo-ScaffoldVersion $cells[0]
-      if ($v -and ($null -eq $best -or $v -gt $best)) { $best = $v }
+  param([string]$LedgerText, [string]$Fallback, [string[]]$KnownTags = @())
+  $best = $null; $lines = @($LedgerText -split "`r?`n")
+  $markers = @(0..($lines.Count - 1) | Where-Object { $lines[$_].Trim() -ceq '<!-- SCAFFOLD-SYNC-LEDGER -->' })
+  if ($markers.Count -eq 0) { return $Fallback }
+  if ($markers.Count -ne 1) { throw '[FLEET-LEDGER-INVALID] expected exactly one whole-line ledger marker' }
+  $decisions = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+  foreach ($line in $lines[($markers[0] + 1)..($lines.Count - 1)]) {
+    $m = [regex]::Match($line, '^\s*\|\s*(?<version>v?\d+\.\d+\.\d+)\s*\|\s*(?<decision>[^|]*?)\s*\|')
+    if (-not $m.Success) { continue }
+    $v = ConvertTo-ScaffoldVersion $m.Groups['version'].Value; $decision = $m.Groups['decision'].Value
+    if ($decision -cnotmatch '^(applied|partial|skipped)$') { throw "[FLEET-LEDGER-INVALID] $v has non-canonical decision '$decision'" }
+    $key = $v.ToString()
+    if ($decisions.ContainsKey($key)) { throw "[FLEET-LEDGER-INVALID] duplicate decision for v$key" }
+    $decisions[$key] = $decision
+    if ($null -eq $best -or $v -gt $best) { $best = $v }
+  }
+  $floor = ConvertTo-ScaffoldVersion $Fallback
+  foreach ($tag in $KnownTags) {
+    $v = ConvertTo-ScaffoldVersion $tag
+    if ($v -and ($null -ne $floor) -and $v -gt $floor -and -not $decisions.ContainsKey($v.ToString())) {
+      throw "[FLEET-LEDGER-INVALID] locally available v$v has no decision"
     }
   }
   if ($null -eq $best) { return $Fallback }
   return $best.ToString()
+}
+
+function Get-ScaffoldIssueSecretHit {
+  param([string]$IssueTitle, [string]$IssueBody, [scriptblock]$Scanner)
+  $hits = @(); $n = 0
+  foreach ($entry in @(@{ Label='title'; Text=$IssueTitle }) + @($IssueBody -split "`r?`n" | ForEach-Object { $n++; @{ Label="body line $n"; Text=$_ } })) {
+    $hit = & $Scanner $entry.Text
+    if ($hit) { $hits += "$($entry.Label): $hit" }
+  }
+  return @($hits)
+}
+
+function Test-ScaffoldReportMaySend {
+  param([bool]$ScannerAvailable, [int]$SecretHitCount, [string]$ConfigError)
+  return ($ScannerAvailable -and $SecretHitCount -eq 0 -and -not $ConfigError)
+}
+
+function Get-ScaffoldStaleState {
+  param([string]$OriginUrl, [string]$Upstream, [string[]]$Tags, [string]$Synced)
+  if ($OriginUrl -and $Upstream -and $OriginUrl -match [regex]::Escape($Upstream)) { return [pscustomobject]@{ Status='self'; Behind=@(); Latest='' } }
+  if (@($Tags).Count -eq 0) { return [pscustomobject]@{ Status='no-tags'; Behind=@(); Latest='' } }
+  $behind = @(Get-NewerVersion $Tags $Synced)
+  if ($behind.Count -eq 0) { return [pscustomobject]@{ Status='current'; Behind=@(); Latest='' } }
+  return [pscustomobject]@{ Status='behind'; Behind=$behind; Latest=$behind[-1].Version.ToString() }
+}
+
+function Get-TriageScaffoldProbeContract {
+  param([string]$Text)
+  $tokens = $null; $errors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors)
+  $fetch = @($ast.FindAll({
+    param($node)
+    if ($node -isnot [System.Management.Automation.Language.CommandAst] -or $node.GetCommandName() -notin @('git','git.exe')) { return $false }
+    return @($node.CommandElements | Where-Object { $_.Extent.Text.Trim([char[]]@([char]39,[char]34)) -ceq 'fetch' }).Count -gt 0
+  }, $true)).Count -gt 0
+  return [pscustomobject]@{
+    Registered = $Text -cmatch '(?m)^[ \t]*Invoke-ProbeScaffoldStale[ \t]*$'
+    Documented = $Text -cmatch '(?m)^[ \t]*-[ \t]+scaffold-stale[ \t]*:'
+    Offline = @($errors).Count -eq 0 -and -not $fetch
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -208,7 +222,10 @@ function Invoke-Check {
     return
   }
   $ledgerText = if (Test-Path $LedgerDoc) { Get-Content $LedgerDoc -Raw } else { '' }
-  $synced = Get-SyncedVersion $ledgerText $LocalVersion
+  try { $synced = Get-SyncedVersion $ledgerText $LocalVersion $tags } catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    exit 1
+  }
   $syncedV = ConvertTo-ScaffoldVersion $synced
   $syncedLabel = if ($syncedV) { "v$synced" } else { 'an unrecorded baseline (no ledger row and no ScaffoldVersion)' }
   $behind = @(Get-NewerVersion $tags $synced)
@@ -285,15 +302,12 @@ function Invoke-Report {
   $body = Format-IssueBody $Summary $Repro $Surface $LessonId
 
   # The issue is public. Reuse the deterministic secret scanner rather than inventing a second one.
-  $hits = @()
+  $hits = @(); $scannerAvailable = $false
   try {
     . (Join-Path $PSScriptRoot 'check-secrets.ps1') -AsLibrary
-    $n = 0
-    foreach ($line in ($body -split "`r?`n")) {
-      $n++
-      $hit = Find-LineSecret $line
-      if ($hit) { $hits += "line ${n}: $hit" }
-    }
+    if (-not (Get-Command Find-LineSecret -CommandType Function -ErrorAction SilentlyContinue)) { throw 'Find-LineSecret was not loaded' }
+    $scannerAvailable = $true
+    $hits = @(Get-ScaffoldIssueSecretHit $issueTitle $body { param($line) Find-LineSecret $line })
   } catch {
     Write-Host '[FLEET-SCAN-UNAVAILABLE] check-secrets.ps1 could not be loaded; read the body yourself before sending.' -ForegroundColor Yellow
   }
@@ -316,6 +330,11 @@ function Invoke-Report {
   if (-not $Send) {
     Write-Host '[FLEET-REPORT-DRYRUN] nothing was sent. Read the body above, then re-run with -Send to create the issue.' -ForegroundColor Yellow
     return
+  }
+  if (-not (Test-ScaffoldReportMaySend $scannerAvailable $hits.Count $ConfigLoadError)) {
+    if ($ConfigLoadError) { Write-Host "[FLEET-CONFIG-INVALID] refusing public send: $ConfigLoadError" -ForegroundColor Red }
+    else { Write-Host '[FLEET-SCAN-UNAVAILABLE] refusing public send without the deterministic secret scanner.' -ForegroundColor Red }
+    exit 1
   }
   try { . (Join-Path $PSScriptRoot '_guard.ps1'); Assert-PersonalAccount } catch {
     Write-Host "[FLEET-REPORT-BLOCKED] account guard refused: $($_.Exception.Message)" -ForegroundColor Red
@@ -420,7 +439,7 @@ body with no downstream block at all
 '@
   if ((Get-SyncedVersion $noSentinel '0.30.0') -ne '0.30.0') { $fails.Add('Get-SyncedVersion accepted a table with no ledger sentinel (#201)') }
 
-  # 4e. A version-first row without an allowed decision is not a ledger decision.
+  # 4e. A version-first row without an allowed decision makes the ledger invalid.
   $versionFirstDecoy = @'
 <!-- SCAFFOLD-SYNC-LEDGER -->
 | version | decision | reason |
@@ -428,14 +447,58 @@ body with no downstream block at all
 | v0.42.0 | skipped | settled locally |
 | v0.99.0 | 2026-09-09 | release history, not a decision |
 '@
-  if ((Get-SyncedVersion $versionFirstDecoy '0.30.0') -ne '0.42.0') { $fails.Add('Get-SyncedVersion accepted a version-first row without a ledger decision (#201)') }
+  try { $null = Get-SyncedVersion $versionFirstDecoy '0.30.0'; $fails.Add('Get-SyncedVersion ignored a version-first malformed decision (#201)') } catch { }
 
-  # 5. cross-surface wiring: the probe is registered and the heartbeat stayed offline.
+  # 4f. Only one exact whole-line marker opens the ledger; prose mentions and duplicates cannot.
+  $productionPreamble = @'
+This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
+| v0.99.0 | applied | preamble decoy |
+<!-- SCAFFOLD-SYNC-LEDGER -->
+| version | decision | reason |
+|---|---|---|
+| v0.42.0 | partial | settled |
+| v0.41.0 | applied | settled |
+'@
+  if ((Get-SyncedVersion $productionPreamble '0.30.0' @('v0.41.0','v0.42.0')) -ne '0.42.0') { $fails.Add('Get-SyncedVersion accepted a production-preamble decoy before the exact marker') }
+  $duplicateMarker = $productionPreamble + "`n<!-- SCAFFOLD-SYNC-LEDGER -->"
+  try { $null = Get-SyncedVersion $duplicateMarker '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion accepted duplicate exact markers') } catch { }
+
+  # 4g. Every locally available release needs one canonical decision; gaps/malformed/duplicates fail closed.
+  $badDecision = $productionPreamble.Replace('| v0.41.0 | applied |', '| v0.41.0 | deferred |')
+  try { $null = Get-SyncedVersion $badDecision '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion ignored a malformed decision') } catch { }
+  $gap = $productionPreamble -replace '(?m)^\| v0\.41\.0 \| applied \| settled \|\r?\n?', ''
+  try { $null = Get-SyncedVersion $gap '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion ignored a locally available release gap') } catch { }
+  $duplicateRow = $productionPreamble + "`n| v0.42.0 | skipped | duplicate |"
+  try { $null = Get-SyncedVersion $duplicateRow '0.30.0' @('v0.41.0','v0.42.0'); $fails.Add('Get-SyncedVersion ignored a duplicate release decision') } catch { }
+
+  # 5. Public report gate scans title and body, and -Send fails closed without scanner/config trust.
+  $fakeScanner = { param($line) if ($line -match 'TOKEN') { 'fake-secret' } }
+  if (@(Get-ScaffoldIssueSecretHit 'TOKEN-in-title' 'safe body' $fakeScanner).Count -ne 1) { $fails.Add('report secret scan missed the public title') }
+  if (@(Get-ScaffoldIssueSecretHit 'safe title' "safe`nTOKEN-in-body" $fakeScanner).Count -ne 1) { $fails.Add('report secret scan missed the public body') }
+  if (Test-ScaffoldReportMaySend $false 0 '') { $fails.Add('report -Send allowed an unavailable scanner') }
+  if (Test-ScaffoldReportMaySend $true 0 'malformed config') { $fails.Add('report -Send allowed a malformed configuration') }
+  if (-not (Test-ScaffoldReportMaySend $true 0 '')) { $fails.Add('report -Send rejected trusted clean input') }
+
+  # 6. Probe state is hermetic: self-repo/no-tags/current/behind are distinct and deterministic.
+  $localOrigin = 'https://github.com/Asun28/project.git'; $upstream = 'Asun28/claude-devops-scaffold'
+  if ((Get-ScaffoldStaleState "https://github.com/$upstream.git" $upstream @() '0.42.0').Status -ne 'self') { $fails.Add('scaffold-stale did not suppress the upstream repository itself') }
+  if ((Get-ScaffoldStaleState $localOrigin $upstream @() '0.42.0').Status -ne 'no-tags') { $fails.Add('scaffold-stale no-tags fixture failed') }
+  if ((Get-ScaffoldStaleState $localOrigin $upstream @('v0.42.0') '0.42.0').Status -ne 'current') { $fails.Add('scaffold-stale current fixture failed') }
+  $stale = Get-ScaffoldStaleState $localOrigin $upstream @('v0.42.0','v0.43.0') '0.42.0'
+  if ($stale.Status -ne 'behind' -or $stale.Behind.Count -ne 1 -or $stale.Latest -ne '0.43.0') { $fails.Add('scaffold-stale behind fixture failed') }
+
+  # 7. Cross-surface wiring is anchored, documented, and offline even with `git -C ... fetch` mutations.
   $triage = Join-Path $PSScriptRoot 'triage.ps1'
   if (Test-Path $triage) {
     $tRaw = Get-Content $triage -Raw
-    if ($tRaw -notmatch 'scaffold-stale') { $fails.Add('triage.ps1 does not register the scaffold-stale probe') }
-    if ($tRaw -match 'git fetch') { $fails.Add('triage.ps1 contains a fetch - the heartbeat must stay offline') }
+    $contract = Get-TriageScaffoldProbeContract $tRaw
+    if (-not $contract.Registered) { $fails.Add('triage.ps1 does not invoke scaffold-stale on its own anchored line') }
+    if (-not $contract.Documented) { $fails.Add('triage.ps1 DESCRIPTION omits scaffold-stale') }
+    if (-not $contract.Offline) { $fails.Add('triage.ps1 contains a git fetch - the heartbeat must stay offline') }
+    $noInvoke = [regex]::Replace($tRaw, '(?m)^Invoke-ProbeScaffoldStale\s*$', '# invocation removed', 1)
+    if ((Get-TriageScaffoldProbeContract $noInvoke).Registered) { $fails.Add('scaffold-stale registration assertion survived invocation deletion') }
+    $fetchMutant = [regex]::Replace($tRaw, '\bfor-each-ref\b', 'fetch', 1)
+    if ((Get-TriageScaffoldProbeContract $fetchMutant).Offline) { $fails.Add('offline assertion missed a git -C ... fetch mutation') }
   }
 
   if ($fails.Count -gt 0) {
@@ -459,14 +522,19 @@ $UpstreamRefNs = 'refs/scaffold-tags'
 $LedgerDoc     = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
 
 # _config is optional: an unconfigured or partially configured tree still runs (graceful degradation).
-$UpstreamRepo = 'Asun28/claude-devops-scaffold'
-$LocalVersion = 'unknown'
-try {
-  . (Join-Path $PSScriptRoot '_config.ps1')
-  $LocalVersion = Get-ScaffoldVersion
-  $configured = Get-ScaffoldUpstreamRepo
-  if ($configured) { $UpstreamRepo = $configured }
-} catch { }
+$UpstreamRepo = 'Asun28/claude-devops-scaffold'; $LocalVersion = 'unknown'; $ConfigLoadError = ''
+$configPath = Join-Path $PSScriptRoot '_config.ps1'
+if (Test-Path $configPath) {
+  try {
+    . $configPath
+    if (Get-Command Get-ScaffoldVersion -CommandType Function -ErrorAction SilentlyContinue) { $LocalVersion = Get-ScaffoldVersion }
+    # Legacy generated trees may predate this optional key/getter; absence keeps the canonical upstream default.
+    if (Get-Command Get-ScaffoldUpstreamRepo -CommandType Function -ErrorAction SilentlyContinue) {
+      $configured = Get-ScaffoldUpstreamRepo
+      if ($configured) { $UpstreamRepo = $configured }
+    }
+  } catch { $ConfigLoadError = $_.Exception.Message }
+}
 
 switch ($Verb) {
   'check'     { Invoke-Check -Remote $Remote -Fetch:$Fetch }
