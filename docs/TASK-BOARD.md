@@ -40,6 +40,7 @@
 | W0 | T0-LESSONS-CAP-CORE-SPLIT | 从超预算 PR #127 提取 resident-id 共享核与 lessons 消费者 | — | S | GPT-5.6 Sol · high | Codex R3 | #128 合并后 #127 为 1441 行 / 126905 字符；第一片约 51k 字符，不改语义/历史 |
 | W0 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | 先同步 triage 探针 roster，解除代码片的既有 doc-count 闸循环 | T0-LESSONS-CAP-CORE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | 三份 exact #127 文档约 10k 字符；docs-only 先落，代码片仍保持约 53k |
 | W0 | T0-LESSONS-CAP-TRIAGE-SPLIT | 从超预算 PR #127 提取 lessons triage 探针与 hermetic 夹具 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | 第二代码片约 53k 字符；合并后原 #127 仅余其它教学/配置尾卡 |
+| W0 | T0-TRIAGE-EVIDENCE-CASE | triage 裁决证据按实际目录大小写语义确定身份 | T0-LESSONS-CAP-TRIAGE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | PR #137 R3 fix-forward；独立于 exact extraction，冲突 pass/block fail-closed |
 | W0 | T0-LESSONS-CMD-DOCSYNC | lessons.ps1 纳入 doc-drift 机检 + archive 子命令同步三处命令清单 | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 缺口不在那三行文档而在 `_config.ps1` 的 DocSyncMap——它只有 4 个键、不含 lessons.ps1，故闸 14f/17 对它完全沉默。补文档只修一次，补键才让下一次也红。匹配须排除 `_lessons.ps1`（判定核，改它不该要求动用户文档） |
 | W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `edc2770`，PR #129；R3 第 4 轮 pass 零发现——前 3 轮：1 轮 3 条全是基线陈旧假象、2/3 轮各 1 条真缺陷；另有 R3 前 codex 预审再出 2 条真缺陷，合计 8 枚变异全杀） |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
