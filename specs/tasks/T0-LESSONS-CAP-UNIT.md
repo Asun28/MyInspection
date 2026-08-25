@@ -75,6 +75,8 @@ acceptance_notes: |
     - delivery-blocked 只接纳 `sha` 与**产物所属仓库当前 HEAD**逐字一致的裁决；worktree 与主检出两份都当前时，
       固定按来源优先级选择 worktree，不再用可漂移/可伪造的 LastWriteTimeUtc。用例 9c 覆盖 stale block/current pass、
       stale pass/current block，以及两份都当前时两种相反 verdict（并故意把较新的 mtime 给低优先来源）。
+    - 驻留 id 在同一 bullet 或跨 bullet 重复时，以 `[LESSONS-DUPLICATE-RESIDENT-ID]` fail-closed；不得先 Unique
+      再计数而把任意多个重复驻留压成一个。用例 5c 的两种 hermetic 夹具均穿过 triage 与 lessons.ps1 check 两个消费者。
   A11 的实现说明：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
     FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item` 传入一条含 `..` 段的路径时，它交出的 FullName
     已无 `..`），故「去掉 GetFullPath」这枚变异**不可能**让任何用例变红，A11 那半条无法成立。已按「不留写不出
@@ -131,6 +133,8 @@ hygiene: |
   R3 后续加固由常设 selfcheck 直接覆盖：用例 6 的 L914/L915 分别钉住 TBD/FIXME 复合占位符在降层/晋升两侧；
   用例 9c 的 stale/current SHA 交叉夹具在去掉 SHA 匹配守卫时变红，两份 current 的反向 verdict + 反向 mtime
   夹具在选择器退回 LastWriteTimeUtc 时变红；另用临时 git 仓真实执行 `git rev-parse HEAD`，钉住离线读 HEAD 的边界。
+  用例 5c 另以同 bullet 重复与跨 bullet 重复两种夹具真跑两个消费者；任一层恢复提前 Unique 都会让 triage 无 finding、
+  lessons.ps1 check 缺失稳定哨兵，从而同时变红。
 doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层表 Tier-1 容量格 + PURIFY 步骤 ·
   .claude/skills/lessons/SKILL.md 三层描述 + PURIFY 步骤 · scripts/_config.ps1 的 LessonsMustCap 定义处注释 ·
   scripts/lessons.ps1 与 scripts/triage.ps1 的头注（子命令说明 / 探针清单）· docs/LOOP-ENGINEERING.md 与

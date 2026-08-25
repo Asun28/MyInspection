@@ -228,8 +228,9 @@ function Invoke-ProbeCap {
   # 曾经既满足封顶、又让驻留规则数继续涨。判定核与 lessons.ps1 check 共用（_lessons.ps1）。
   $sec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
   if (-not $sec.Found) {
-    # 标题漂移时静默返回 0 条 = 封顶恒绿。「测不出」必须报出来，不能读成「没超」（fail-closed）。
-    Add-Finding 'lessons-cap' 'major' "$($sec.Sentinel) CLAUDE.md 在，但找不到「经验铁律」小节——封顶已无从计量（标题漂移？）。" "对齐小节标题后 pwsh -File scripts\lessons.ps1 check 复核（该命令同样按此 fail-closed）。"
+    # 标题漂移或重复驻留时继续计数都会假绿；「测不准」必须报出来（fail-closed）。
+    $detail = if ($sec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($sec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（标题漂移？）' }
+    Add-Finding 'lessons-cap' 'major' "$($sec.Sentinel) CLAUDE.md $detail——封顶已无从可靠计量。" "修正小节后 pwsh -File scripts\lessons.ps1 check 复核（该命令同样按此 fail-closed）。"
     return
   }
   $n = @($sec.Ids).Count
@@ -559,6 +560,34 @@ if ($Verb -eq 'selfcheck') {
     if ($drift.Count -ne 1) { $fails.Add("用例5b 标题漂移时期望恰 1 条 lessons-cap（fail-closed），实得 $($drift.Count)——静默返回 0 条即封顶恒绿") }
     elseif ($drift[0].what -notmatch [regex]::Escape($ScaffoldMustLayerNotFound)) { $fails.Add("用例5b 未打出 ASCII 哨兵 $ScaffoldMustLayerNotFound（实得：$($drift[0].what)）") }
 
+    # ── 用例 5c：重复驻留 id 必须在两个消费者都 fail-closed ──
+    # Break caught: Sort-Object -Unique inside one bullet or across bullets lets arbitrarily many repeated
+    # residents collapse to one id before the cap is measured. Both shapes exercise the real shared parser,
+    # then the triage consumer and a subprocess running the production lessons.ps1 check consumer.
+    $duplicateSentinel = '[LESSONS-DUPLICATE-RESIDENT-ID]'
+    $fxDuplicateRepo = Join-Path $fxRoot 'duplicate-consumer'
+    New-Item -ItemType Directory -Force $fxDuplicateRepo, (Join-Path $fxDuplicateRepo 'docs/lessons') | Out-Null
+    Copy-Item -LiteralPath $PSScriptRoot -Destination $fxDuplicateRepo -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path (Split-Path $PSScriptRoot) 'docs/lessons/LEDGER.md') -Destination (Join-Path $fxDuplicateRepo 'docs/lessons/LEDGER.md') -Force
+    foreach ($duplicateCase in @(
+        @{ id = 'within-bullet'; lines = @('## 经验铁律（必须加载）', '- **[L1]** first [L1] repeated in one resident bullet', '', '## 下一节') },
+        @{ id = 'across-bullets'; lines = @('## 经验铁律（必须加载）', '- **[L1]** first resident bullet', '- **[L1]** second resident bullet', '', '## 下一节') })) {
+      $fxDuplicateClaude = Join-Path $fxRoot "CLAUDE-duplicate-$($duplicateCase.id).md"
+      Set-Content -LiteralPath $fxDuplicateClaude -Value $duplicateCase.lines -Encoding utf8
+      $ClaudeMd = $fxDuplicateClaude
+      $findings.Clear(); Invoke-ProbeCap
+      $duplicateFinding = @($findings | Where-Object probe -eq 'lessons-cap')
+      if ($duplicateFinding.Count -ne 1 -or $duplicateFinding[0].severity -ne 'major' -or $duplicateFinding[0].what -notmatch [regex]::Escape($duplicateSentinel)) {
+        $fails.Add("用例5c/$($duplicateCase.id) triage 未以 major + $duplicateSentinel 拒绝重复驻留 id（实得 $($duplicateFinding.Count)：$(($duplicateFinding | ForEach-Object what) -join ' | ')）")
+      }
+      Set-Content -LiteralPath (Join-Path $fxDuplicateRepo 'CLAUDE.md') -Value $duplicateCase.lines -Encoding utf8
+      $duplicateCheckOutput = (& pwsh -NoProfile -File (Join-Path $fxDuplicateRepo 'scripts/lessons.ps1') check 2>&1 | Out-String)
+      $duplicateCheckExit = $LASTEXITCODE
+      if ($duplicateCheckExit -eq 0 -or $duplicateCheckOutput -notmatch [regex]::Escape($duplicateSentinel)) {
+        $fails.Add("用例5c/$($duplicateCase.id) lessons.ps1 check 未非零并给 $duplicateSentinel（exit=$duplicateCheckExit）")
+      }
+    }
+
     # ── 用例 6：enforced_by 四向（上游 issue #183）——有守卫 / 显式 none / 空字段 / 认不出的占位符 ──
     # L904 的 enforced_by 是**空行**、其后紧跟 refs 行：旧式 '\s*(.+)' 会跨行捕到 refs 值、把它误判为已有守卫，
     # 于是最需要被提名的那条反而被静默滤掉（fail-open）。这里正是钉住该方向的用例。
@@ -845,7 +874,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前 SHA/固定来源优先+OS 路径语义去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前 SHA/固定来源优先+OS 路径语义去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移/重复 id fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }

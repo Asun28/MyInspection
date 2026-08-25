@@ -21,7 +21,8 @@
   T89-DOC-BUDGETS' unit, not this one.
 
   "The section" also has exactly one definition, and it is the Ids this parser returns: the cap,
-  the id-existence check and the tier-drift check all read that same set. While the cap counted
+  the id-existence check and the tier-drift check all read that same set. Duplicate occurrences fail
+  closed before any consumer counts the set, so deduplication cannot hide context growth. While the cap counted
   bullets and the other two regexed the whole section text, a `tier: must` lesson mentioned only
   in the intro blockquote read as registered yet cost nothing against the cap - the merged-bullet
   loophole in miniature.
@@ -34,6 +35,7 @@
 
 # 分节解析失败的 ASCII 哨兵（L165：机检认 ASCII，本地化文案只给人读）。两个消费者引用同一枚字面量。
 $ScaffoldMustLayerNotFound = '[LESSONS-SECTION-NOT-FOUND]'
+$ScaffoldDuplicateResidentId = '[LESSONS-DUPLICATE-RESIDENT-ID]'
 # 「显式声明无守卫」的唯一形态。守卫判定与形态判定对它给相反答案，故字面量只写这一处。
 $ScaffoldNoGuardDeclRe = '^none(?:（[^\r\n]+）|\([^\r\n]+\))$'
 # Placeholder/negation prefixes win before any later path/extension/gate-looking substring can launder them.
@@ -124,13 +126,14 @@ function Test-ScaffoldLessonEnforcedByWellFormed {
 function Get-ScaffoldMustLayerSection {
   <#
   .SYNOPSIS
-    Parse CLAUDE.md's must-load lessons section once: Found / Reason / Bullets / Ids.
+    Parse CLAUDE.md's must-load lessons section once: Found / Reason / Bullets / Ids / DuplicateIds.
   .DESCRIPTION
-    Reason is 'OK' | 'FILE-MISSING' | 'HEADING-NOT-FOUND'. The two failure states are deliberately
+    Reason is 'OK' | 'FILE-MISSING' | 'HEADING-NOT-FOUND' | 'DUPLICATE-RESIDENT-ID'. Failure states are deliberately
     distinct and are NOT the same as "section present, zero bullets":
       FILE-MISSING      graceful - a repo with no CLAUDE.md has no must layer at all (empty-config rule).
       HEADING-NOT-FOUND drift - every consumer must fail closed, because the alternative reading is
                         "zero resident rules", which passes any cap while having measured nothing.
+      DUPLICATE-RESIDENT-ID invalid - repeated resident occurrences must not collapse before cap accounting.
     The anchor is the section's own localized heading (the file it parses is Chinese prose); the ASCII
     sentinel $ScaffoldMustLayerNotFound is on the failure signal, which is the part machines match (L165).
   #>
@@ -141,6 +144,7 @@ function Get-ScaffoldMustLayerSection {
     return [pscustomobject]@{ Found = $false; Reason = 'FILE-MISSING'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
   }
   $bullets = @()
+  $residentOccurrences = [System.Collections.Generic.List[string]]::new()
   $items = [System.Collections.Generic.List[string]]::new()
   $currentItem = $null
   $inSection = $false
@@ -166,12 +170,25 @@ function Get-ScaffoldMustLayerSection {
   }
   if ($null -ne $currentItem) { $items.Add($currentItem) }
   foreach ($item in $items) {
-    $ids = @([regex]::Matches($item, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    $occurrences = @([regex]::Matches($item, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value })
+    foreach ($id in $occurrences) { $residentOccurrences.Add($id) }
+    $ids = @($occurrences | Sort-Object -Unique)
     if ($ids.Count -eq 0) { continue }
     $bullets += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $item.Trim() }
   }
   if (-not $inSection) {
     return [pscustomobject]@{ Found = $false; Reason = 'HEADING-NOT-FOUND'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
+  }
+  $duplicateIds = @($residentOccurrences | Group-Object | Where-Object Count -gt 1 | ForEach-Object Name | Sort-Object)
+  if ($duplicateIds.Count -ne 0) {
+    return [pscustomobject]@{
+      Found        = $false
+      Reason       = 'DUPLICATE-RESIDENT-ID'
+      Sentinel     = $ScaffoldDuplicateResidentId
+      Bullets      = $bullets
+      Ids          = @($residentOccurrences | Sort-Object -Unique)
+      DuplicateIds = $duplicateIds
+    }
   }
   return [pscustomobject]@{
     Found    = $true
@@ -179,5 +196,6 @@ function Get-ScaffoldMustLayerSection {
     Sentinel = ''            # 解析成功没有失败信号；消费者照样只拼 .Sentinel，不必各自记住那枚字面量
     Bullets  = $bullets
     Ids      = @($bullets | ForEach-Object Ids | Sort-Object -Unique)
+    DuplicateIds = $none
   }
 }

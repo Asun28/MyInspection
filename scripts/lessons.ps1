@@ -249,9 +249,10 @@ switch ($Command) {
     # 「小节」只有一个定义 = 判定核返回的 Ids：封顶、id 存在性、层级漂移三处同读一份集合。此前封顶数
     # bullet、后两者正则扫整段文本，于是只写在小节引言 blockquote 里的 must 经验「登记了却不计费」。
     $mustSec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
-    if (-not $mustSec.Found -and $mustSec.Reason -eq 'HEADING-NOT-FOUND') {
-      # fail-closed：静默返回 0 条会让封顶恒绿——「测不出」绝不能读成「没超」。
-      Write-Warning "$($mustSec.Sentinel) CLAUDE.md 存在但找不到「经验铁律」小节（标题漂移？）——封顶无从计量，拒绝放行。"
+    if (-not $mustSec.Found -and $mustSec.Reason -ne 'FILE-MISSING') {
+      # fail-closed：标题漂移或重复驻留都会让 cap 计量失真；「测不准」绝不能读成「没超」。
+      $detail = if ($mustSec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($mustSec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（标题漂移？）' }
+      Write-Warning "$($mustSec.Sentinel) CLAUDE.md $detail——封顶无从可靠计量，拒绝放行。"
       $fail = $true
     }
     $mustBullets = @($mustSec.Bullets)
@@ -282,7 +283,8 @@ switch ($Command) {
       # 同一枚判定核，同一份「小节」定义（本卡 forbid：不得有第二处「驻留 id 怎么数」的实现）。
       $tplSec = Get-ScaffoldMustLayerSection -Path $TemplateMd
       if (-not $tplSec.Found) {
-        Write-Warning "$($tplSec.Sentinel) CLAUDE.template.md 存在但找不到「经验铁律」小节（模板标题漂移）——模板同步无从校验，拒绝放行。"; $fail = $true
+        $templateDetail = if ($tplSec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($tplSec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（模板标题漂移）' }
+        Write-Warning "$($tplSec.Sentinel) CLAUDE.template.md $templateDetail——模板同步无从校验，拒绝放行。"; $fail = $true
       }
       $tplIds = @($tplSec.Ids)
       foreach ($m in ($ls | Where-Object tier -eq 'must')) {
