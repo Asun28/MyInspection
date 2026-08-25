@@ -30,7 +30,7 @@ allow_paths:
   # 以上五处漏改一处即由 selftest 闸 14g 的两条枚举断言当场变红——L97 的「一次扫齐」从此是常设闸、不再是一次性动作。
 forbid:
   - 抬高 `LessonsMustCap`
-  - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`；心跳恒离线、退出码恒 0）
+  - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`，并以离线 `git rev-parse HEAD` 绑定当前检出；心跳恒离线、退出码恒 0）
   - 新增第二处「驻留 id 怎么数」的实现——判定核只有 `scripts/_lessons.ps1` 一处
 non_goals:
   - fleet 回路与探针 12 `scaffold-stale`（那是 `T0-SCAFFOLD-FLEET-LOOP`，本卡的下一张）
@@ -151,7 +151,7 @@ doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层�
 
 - `scripts/_lessons.ps1`（新）—— 判定核**只此一处**，`lessons.ps1 check` 与心跳探针 5 共用，不会漂移。
 - 探针 1 `lessons-promote` 加 `enforced_by` 闸与批量窗口；新增探针 10 `lessons-demote`（逆向）。
-- 新增探针 11 `delivery-blocked` —— 唯一读**交付**状态的探针，离线读 `.review/*.json`。
+- 新增探针 11 `delivery-blocked` —— 唯一读**交付**状态的探针，离线读 `.review/*.json`，并读取本地仓库 HEAD 拒绝陈旧裁决。
 - `_cards.ps1` front-matter 容忍前导 U+FEFF（上游 v0.41.0 TD130）。
 
 ## 这三条修复的来历
@@ -168,7 +168,7 @@ doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层�
 ## 禁止 / 非目标
 
 见 front-matter。心跳的「只读、离线、确定性」是刻意不变量（`docs/LOOP-ENGINEERING.md`）：
-`delivery-blocked` 不调 gh，因为 `review.ps1` 每次跑都已把归一化裁决写在本地。
+`delivery-blocked` 不调 gh，因为 `review.ps1` 每次跑都已把归一化裁决写在本地；它只额外执行本地 `git rev-parse HEAD` 来核对裁决 SHA，不访问网络。
 
 ## 验收（DoD = 命令 + 退出码 + 断言）
 

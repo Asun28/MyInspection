@@ -20,7 +20,7 @@ description: >-
 ## 回路（DISCOVER → TRIAGE → ACT，单向喂既有链）
 1. **DISCOVER（只读扫描，不行动）**：
    `pwsh -File scripts\triage.ps1 scan`
-   纯文件解析、不打网络/不调 gh；产出 `_local/triage-inbox.md`（gitignored）。10 探针：
+   读取本地文件、不打网络/不调 gh；`delivery-blocked` 另以离线 `git rev-parse HEAD` 把裁决绑定到当前检出；产出 `_local/triage-inbox.md`（gitignored）。10 探针：
    `lessons-promote`（经验该晋升）· `tech-debt-open`（债该还）· `cards-active`（卡在飞）·
    `handoff-open`（交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达/超封顶，该做减法；标题找不到即 fail-closed 报）·
    `harness-refresh`（judgment 经验累积达门槛，该双向复审：删旧闸 + 搜更优工具/方法纳新）·

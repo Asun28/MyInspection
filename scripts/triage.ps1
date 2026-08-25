@@ -8,7 +8,8 @@
 .DESCRIPTION
   动机（addy osmani《Loop Engineering》组件①「the heartbeat」+ Anthropic《Recursive Self-Improvement》
   「把 perspiration 自动化、人保留 direction-setting」）：脚手架原本全是**按需**触发（task start/ship/cleanup），
-  缺一个定期**发现**待办的回路。本脚本扫描既有子系统的本地信号（**不打网络/不调 gh**，纯文件解析）：
+  缺一个定期**发现**待办的回路。本脚本扫描既有子系统的本地信号（**不打网络/不调 gh**；读取本地文件，
+  delivery-blocked 另以离线 `git rev-parse HEAD` 把裁决绑定到当前检出）：
     - lessons-promote : LEDGER 里仍在 ledger 层、却已达晋升门槛（recurrence≥2 或 severity=blocking）的经验
     - tech-debt-open  : specs/tech-debt-tracker.md 里 status=open 的债项（持续小额还债的待还队列）
     - cards-active    : specs/tasks/*.md 里 status=in-progress|in-review 的在飞卡（可能待续/待评审）
@@ -338,7 +339,8 @@ function Invoke-ProbeLessonsDemote {
 # 且箱里每一条可行动项都是脚手架自我维护。`cards-active` 读的是 `status:`（作者意图），坐在 block 上的卡
 # 与正在推进的卡长得一模一样。
 # 刻意**离线**、不调 gh：心跳不把外部信号当决策（docs/LOOP-ENGINEERING.md），而这个信号本就不需要网络——
-# review.ps1 每次跑都把归一化裁决写进 <worktree>/.review/<分支>.json。severity 取 blocking（既有排序表的最高档），
+# review.ps1 每次跑都把归一化裁决写进 <worktree>/.review/<分支>.json；探针另以本地 `git rev-parse HEAD`
+# 拒绝不属于当前检出的旧裁决。severity 取 blocking（既有排序表的最高档），
 # 于是「交付停摆」排在一切自我维护发现之上，无须新增排序码。
 function Get-ScaffoldRepositoryHead {
   param([Parameter(Mandatory)][string]$Path)
