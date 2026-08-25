@@ -48,7 +48,7 @@
 代价必须说破：**build-time 全绿 ≠ 这东西值得存在**。①证明「代码对」，②证明「方向对」，③才证明「用户要」。
 把①的绿灯读成③的答案，是理解债在**产品层**的同构——*"the comfortable posture is the dangerous one"*。
 
-### ③ 怎么回流：两条既有正门，都不需要第十个探针
+### ③ 怎么回流：两条既有正门，不需要额外的外部信号探针
 Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → 喂编码 agent」。本仓早有这条链，按信号类型分两口进：
 - **缺陷类**（bug 逃逸到产线）→ **③直连①**：补一条回归 eval（`docs/EVAL.md` GROW）+ 复发的工具链坑记一条经验（`scripts/lessons.ps1` → `enforced_by` 机械守卫）。回流的**产物**受机检（eval 条目 exit 0/1、守卫脚本），**触发**靠人。
 - **方向类**（用户不要它 / 要的是别的）→ **③经②回①**：从漏斗的 **`1-brief` 重新进**（`docs/IDEA-TO-PLAN.md`：1-brief→2-options→3-plan），修愿景 → 改规格 → 重新拆卡。这正是 Ng 那条链——**早已存在，只是从没被标成「外部信号的入口」**。
@@ -70,8 +70,8 @@ Ng 的链是「外部数据 → 修正开发者愿景 → 改产品规格 → �
 
 - 退出码恒 0——它是 **reporter，不是闸门**。闸门仍是 worktree/TDD/Codex/CI。
 - **只发现、不行动**：绝不写仓内被跟踪文件、不做 git/gh 写操作。act 走既有交付链。
-- 其中 `delivery-blocked` 是唯一读**交付**状态的探针：其余探针读的都是脚手架自身，于是收件箱可以很热闹而关键路径其实停着，且箱里每一条可行动项都是脚手架自我维护（上游 issue #185）。它同样离线——`review.ps1` 每次跑都把归一化裁决写进 `<worktree>/.review/<分支>.json`。
-- 自检：`pwsh -File scripts\triage.ps1 selfcheck`——探针 4/5/10/11 的 hermetic 自测（临时夹具 + 输出断言，末行 `triage selfcheck: PASS` 即绿；PR #26 引入，selftest 闸 12c 常设接线，改探针即回归）。
+- 其中 `delivery-blocked` 是唯一读**交付**状态的探针：其余探针读的都是脚手架自身，于是收件箱可以很热闹而关键路径其实停着，且箱里每一条可行动项都是脚手架自我维护（上游 issue #185）。它同样离线——读取 `review.ps1` 写入 `<worktree>/.review/<分支>.json` 的归一化裁决，并以本地 `git rev-parse HEAD` 确认裁决属于当前检出；不访问网络。
+- 自检：`pwsh -File scripts\triage.ps1 selfcheck`——探针 1/4/5/10/11 的 hermetic 自测（临时夹具 + 输出断言，末行 `triage selfcheck: PASS` 即绿；PR #26 引入，selftest 闸 12c 常设接线，改探针即回归）。
 - 节律（主模式）：一次自主运行内**自步进 N 个 triage→act 周期**——扫描发现 → 挑一件 act → 到间隔用 fresh-context 校验（独立、新上下文的 verifier 子代理对着规格核，优于自我批评）→ 再扫下一轮，如此推进数小时。session 开场跑一次当 work-list、或 Claude Code `/loop` 定时重跑 `triage` skill，是**回退节律**（用户不在场自步进、或跨运行接力时用）。
 
 > **发现 vs 行动，按可逆性分界**（Anthropic RSI）：把「perspiration」（巡检、发现）自动化，心跳本体只发现；act 则按**可逆性**分两档。

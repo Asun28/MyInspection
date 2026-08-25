@@ -249,9 +249,10 @@ switch ($Command) {
     # 「小节」只有一个定义 = 判定核返回的 Ids：封顶、id 存在性、层级漂移三处同读一份集合。此前封顶数
     # bullet、后两者正则扫整段文本，于是只写在小节引言 blockquote 里的 must 经验「登记了却不计费」。
     $mustSec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
-    if (-not $mustSec.Found -and $mustSec.Reason -eq 'HEADING-NOT-FOUND') {
-      # fail-closed：静默返回 0 条会让封顶恒绿——「测不出」绝不能读成「没超」。
-      Write-Warning "$($mustSec.Sentinel) CLAUDE.md 存在但找不到「经验铁律」小节（标题漂移？）——封顶无从计量，拒绝放行。"
+    if (-not $mustSec.Found -and $mustSec.Reason -ne 'FILE-MISSING') {
+      # fail-closed：标题漂移或重复驻留都会让 cap 计量失真；「测不准」绝不能读成「没超」。
+      $detail = if ($mustSec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($mustSec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（标题漂移？）' }
+      Write-Warning "$($mustSec.Sentinel) CLAUDE.md $detail——封顶无从可靠计量，拒绝放行。"
       $fail = $true
     }
     $mustBullets = @($mustSec.Bullets)
@@ -282,7 +283,8 @@ switch ($Command) {
       # 同一枚判定核，同一份「小节」定义（本卡 forbid：不得有第二处「驻留 id 怎么数」的实现）。
       $tplSec = Get-ScaffoldMustLayerSection -Path $TemplateMd
       if (-not $tplSec.Found) {
-        Write-Warning "$($tplSec.Sentinel) CLAUDE.template.md 存在但找不到「经验铁律」小节（模板标题漂移）——模板同步无从校验，拒绝放行。"; $fail = $true
+        $templateDetail = if ($tplSec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($tplSec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（模板标题漂移）' }
+        Write-Warning "$($tplSec.Sentinel) CLAUDE.template.md $templateDetail——模板同步无从校验，拒绝放行。"; $fail = $true
       }
       $tplIds = @($tplSec.Ids)
       foreach ($m in ($ls | Where-Object tier -eq 'must')) {
@@ -308,7 +310,7 @@ switch ($Command) {
     #   是**冒充了一次声明**——它让上面那道「blocking 必填」闸满意，
     #   于是这条经验此后既不会被追问、也不再被晋升探针提名。故在入口直接拒：写真守卫，或写 none（理由）。
     $badEnf = @($ls | Where-Object { -not (Test-ScaffoldLessonEnforcedByWellFormed $_.enforced_by) })
-    if ($badEnf.Count) { Write-Warning "enforced_by 取值认不出是机械守卫（占位符一律拒绝；请写脚本路径 / 闸编号，或写 'none（理由）'）：$(($badEnf | ForEach-Object { "$($_.id)=$($_.enforced_by)" }) -join ' ｜ ')"; $fail = $true } else { Write-Host 'enforced_by 形态可认（非空取值皆为守卫引用或 none（理由））✓' }
+    if ($badEnf.Count) { Write-Warning "[LESSONS-ENFORCED-BY-INVALID] enforced_by 取值认不出是机械守卫（占位符一律拒绝；请写脚本路径 / 闸编号，或写 'none（理由）'）：$(($badEnf | ForEach-Object { "$($_.id)=$($_.enforced_by)" }) -join ' ｜ ')"; $fail = $true } else { Write-Host 'enforced_by 形态可认（非空取值皆为守卫引用或 none（理由））✓' }
     # enforced_by 判据自检（确定性 fixture，不依赖总账内容）：守卫判定必须**双向**成立且对未知取值 fail-closed——
     #   真脚本路径/闸编号判有守卫；none（理由）、空字段、以及 TODO/N/A/待补 这类占位符一律判**无**守卫。
     #   少了占位符那一段，「已有守卫」就能被一个待办事项冒充（上游 issue #183 的反面）。
@@ -325,12 +327,45 @@ switch ($Command) {
                     -not (Test-ScaffoldLessonGuarded '待补') -and
                     -not (Test-ScaffoldLessonGuarded '无闸门（只能靠人）') -and
                     -not (Test-ScaffoldLessonGuarded '人工/评审') -and
-                    -not (Test-ScaffoldLessonGuarded '闸，靠人') -and
-                    -not (Test-ScaffoldLessonGuarded 'gate 讨论') -and
-                    -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
-                    -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
-                    (Test-ScaffoldLessonEnforcedByWellFormed '') -and
-                    (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）')
+                     -not (Test-ScaffoldLessonGuarded '闸，靠人') -and
+                     -not (Test-ScaffoldLessonGuarded 'gate 讨论') -and
+                     -not (Test-ScaffoldLessonGuarded 'TODO: add scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'TBD scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'FIXME scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded '待补 scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'N/A (.json)') -and
+                     -not (Test-ScaffoldLessonGuarded 'no gate 1') -and
+                     -not (Test-ScaffoldLessonGuarded '无闸1') -and
+                     -not (Test-ScaffoldLessonGuarded 'planned future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'manual only; docs/manual') -and
+                     -not (Test-ScaffoldLessonGuarded 'there is no gate 1') -and
+                     -not (Test-ScaffoldLessonGuarded '没有闸1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO: add scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TBD scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'FIXME scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '待补 scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A (.json)') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'no gate 1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'planned future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'manual only; docs/manual') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'there is no gate 1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '没有闸1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none TODO') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed '待补（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO，scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'no gate（scripts/future.ps1）') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none: scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none：scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none, scripts/future.ps1') -and
+                     (Test-ScaffoldLessonEnforcedByWellFormed '') -and
+                     (Test-ScaffoldLessonEnforcedByWellFormed 'none（理由）') -and
+                     (Test-ScaffoldLessonEnforcedByWellFormed 'none(reason)')
     if ($guardProbeOk) { Write-Host 'enforced_by 守卫判定自检（真引用/圈码闸号/none/空/ASCII 占位符/中文伪守卫 各判对）✓' } else { Write-Warning 'enforced_by 守卫判定回归（Test-ScaffoldLessonGuarded：真引用或圈码闸号未判有守卫，或 none/空/占位符/中文伪守卫（无闸门…、人工/评审）被误判为已有守卫——fail-open 方向）。'; $fail = $true }
     # search 语义自检（确定性 fixture，不依赖总账内容）：多词=AND 全命中、缺一词即不命中、单词行为不变——
     #   守 search 的召回契约（selftest 闸② 借道本命令免费回归）。

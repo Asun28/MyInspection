@@ -30,7 +30,7 @@ allow_paths:
   # 以上五处漏改一处即由 selftest 闸 14g 的两条枚举断言当场变红——L97 的「一次扫齐」从此是常设闸、不再是一次性动作。
 forbid:
   - 抬高 `LessonsMustCap`
-  - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`；心跳恒离线、退出码恒 0）
+  - 让心跳探针打网络或调 gh（`delivery-blocked` 只读 `.review/*.json`，并以离线 `git rev-parse HEAD` 绑定当前检出；心跳恒离线、退出码恒 0）
   - 新增第二处「驻留 id 怎么数」的实现——判定核只有 `scripts/_lessons.ps1` 一处
 non_goals:
   - fleet 回路与探针 12 `scaffold-stale`（那是 `T0-SCAFFOLD-FLEET-LOOP`，本卡的下一张）
@@ -58,6 +58,11 @@ acceptance:
   - "A15 L97 权威面一致（两条枚举断言）：① 教「封顶单位」的面（docs/LESSONS.md · lessons skill · _config.ps1 · lessons.ps1 头注 · triage.ps1 头注 · CLAUDE.md 小节）皆不得再含「封顶 N 条 / 条数上限」形态；② 列探针清单的面（docs/LOOP-ENGINEERING.md · triage SKILL.md · docs/DELIVERY-CHAINS.md · docs/scaffold-architecture.html · docs/HARNESS-REVIEW.md）条数须等于 triage.ps1 里 Invoke-Probe* 的实际个数。漏改任一处即红"
   - "A16 常设接线不断：_cards.ps1 的 BOM 分支有常设用例（带前导 U+FEFF 的 front-matter 仍解得出 status，码位只写转义形态）；triage.ps1 经共享 Get-FrontMatter 的调用点数 == 4；_lessons.ps1 进每一份选择性夹具拷贝清单"
 acceptance_notes: |
+  R3 修复历史（供下一轮按完整 PR 复核，非替代 rubric）：
+    - faa28fd：占位符/否定前缀不得被后续路径洗白；delivery-blocked 裁决绑定当前本地 HEAD，并固定来源优先级。
+    - 73c39e3：必须层同条目内或跨条目的重复驻留 id 以稳定哨兵 fail-closed。
+    - b8ec021：五处探针清单改为精确集合校验，同时拒绝 stale extra 与重复探针名；同步权威文档。
+    - 本轮：守卫引用改为字段起始锚定的完整声明；文件后缀、仓库路径、英文 gate、中文闸号四种前导否定/计划文本均覆盖 promote、demote 与 check。
   逐条落点（验收即在这些位置可证伪）：
     A1  scripts/selftest.ps1 闸 2a（生产路径，两个期望值各自精确断言、且断言二者不相等）
     A2  scripts/triage.ps1 用例 5（foreach 两侧边界，阈值全部由 $MustCap 算出）
@@ -69,12 +74,20 @@ acceptance_notes: |
     A7  scripts/triage.ps1 用例 7      A8 用例 4      A9 用例 8      A10 用例 9      A12 用例 9b
     A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
     A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
-  A11 的**偏离**（人裁待办，不自行弱化清单）：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
+  R3 后续加固（不改上述 pinned acceptance 的语义）：
+    - A6 的拒收前缀覆盖完整占位符声明，而不是只拒 TODO/N/A/待补；`TBD scripts/future.ps1` 在 must 侧不得降层，
+      `FIXME scripts/future.ps1` 在 ledger 侧必须晋升，且 lessons.ps1 check 的形态自检同步拒绝二者。
+    - delivery-blocked 只接纳 `sha` 与**产物所属仓库当前 HEAD**逐字一致的裁决；worktree 与主检出两份都当前时，
+      固定按来源优先级选择 worktree，不再用可漂移/可伪造的 LastWriteTimeUtc。用例 9c 覆盖 stale block/current pass、
+      stale pass/current block，以及两份都当前时两种相反 verdict（并故意把较新的 mtime 给低优先来源）。
+    - 驻留 id 在同一 bullet 或跨 bullet 重复时，以 `[LESSONS-DUPLICATE-RESIDENT-ID]` fail-closed；不得先 Unique
+      再计数而把任意多个重复驻留压成一个。用例 5c 的两种 hermetic 夹具均穿过 triage 与 lessons.ps1 check 两个消费者。
+  A11 的实现说明：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
     FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item` 传入一条含 `..` 段的路径时，它交出的 FullName
     已无 `..`），故「去掉 GetFullPath」这枚变异**不可能**让任何用例变红，A11 那半条无法成立。已按「不留写不出
     变异的守卫」处理：删掉该恒等调用、键改为 $vf.FullName，并把注释里「Windows 路径大小写不敏感」这句普适宣称
     换成按 OS 取比较器的实际规则。A11 的另一半（大小写不同的目录段仍只报 1 条 + 比较器换 Ordinal 即红）由
-    用例 9b 满足，实测该枚变异击杀。
+    用例 9b 满足，并同时用纯候选列表钉住大小写敏感/不敏感两侧的分组结果。
   A6 的**反方向补洞**（R3 再评审 rr127 的唯一 block，已修）：把 A6 从否定清单改成允许清单时，只覆盖了
     ASCII 占位符，允许清单本身却朝反方向过宽——判定核用 .NET 正则，而 .NET 的 `\w` **认 CJK**，于是
     `[\w.-]{2,}[\\/][\w.-]{2,}` 把任何含斜杠的中文短语读成「仓库路径」（人工/评审、手动/人工核验、
@@ -90,9 +103,7 @@ acceptance_notes: |
     · L908（人工/评审，须晋升）· L909（闸，靠人，须晋升）· L910（gate 讨论，须晋升）· L911（selftest 闸⑯，
     tier ledger 但**有**守卫，不得晋升——钉住「收紧不得连带拒真引用」这一侧）；lessons.ps1 的守卫自检探针
     同步加这五种取值。
-  两处措辞说明（清单逐字保留，不就地改写）：① A4 里的 `Get-ScaffoldMustLayerBullet` 已随本轮更名为
-    `Get-ScaffoldMustLayerSection`（同一枚判定核，多返回 Found/Reason 两个字段，好让「标题没找到」与
-    「小节在、零驻留」可分辨）；② A9/A10/A13 的路径形态已改用中文描述（原先的尖括号记号会触发 check-cards 的占位符启发式），
+  措辞说明：A9/A10/A13 的路径形态已改用中文描述（原先的尖括号记号会触发 check-cards 的占位符启发式），
     check-cards 的占位符启发式会据此发一条 advisory 告警（非阻断，`check-cards: PASS`）。
 dod_command: pwsh -NoProfile -Command "if (-not ((((& pwsh -NoProfile -File scripts/triage.ps1 selfcheck) -match 'triage selfcheck: PASS').Count -eq 1) -and (((& pwsh -NoProfile -File scripts/lessons.ps1 check) -match 'id=9').Count -eq 1))) { exit 1 }"
 dod_exit: 0
@@ -124,6 +135,11 @@ hygiene: |
     ㉓ 闸分支去掉 U+2460-U+24FF 圈码范围           → L911 被提名晋升（收紧过头，真守卫报成没守卫）
     ㉔ 整行退回改前拼法                            → lessons.ps1 check 打出「enforced_by 守卫判定回归」并非零退出
   ⑲-㉔ 6/6 击杀；批次全程只写 `%TEMP%` 副本，跑完核工作树四个被测脚本 SHA-256 与基线逐字节一致（L196）。
+  R3 后续加固由常设 selfcheck 直接覆盖：用例 6 的 L914/L915 分别钉住 TBD/FIXME 复合占位符在降层/晋升两侧；
+  用例 9c 的 stale/current SHA 交叉夹具在去掉 SHA 匹配守卫时变红，两份 current 的反向 verdict + 反向 mtime
+  夹具在选择器退回 LastWriteTimeUtc 时变红；另用临时 git 仓真实执行 `git rev-parse HEAD`，钉住离线读 HEAD 的边界。
+  用例 5c 另以同 bullet 重复与跨 bullet 重复两种夹具真跑两个消费者；任一层恢复提前 Unique 都会让 triage 无 finding、
+  lessons.ps1 check 缺失稳定哨兵，从而同时变红。
 doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层表 Tier-1 容量格 + PURIFY 步骤 ·
   .claude/skills/lessons/SKILL.md 三层描述 + PURIFY 步骤 · scripts/_config.ps1 的 LessonsMustCap 定义处注释 ·
   scripts/lessons.ps1 与 scripts/triage.ps1 的头注（子命令说明 / 探针清单）· docs/LOOP-ENGINEERING.md 与
@@ -140,7 +156,7 @@ doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层�
 
 - `scripts/_lessons.ps1`（新）—— 判定核**只此一处**，`lessons.ps1 check` 与心跳探针 5 共用，不会漂移。
 - 探针 1 `lessons-promote` 加 `enforced_by` 闸与批量窗口；新增探针 10 `lessons-demote`（逆向）。
-- 新增探针 11 `delivery-blocked` —— 唯一读**交付**状态的探针，离线读 `.review/*.json`。
+- 新增探针 11 `delivery-blocked` —— 唯一读**交付**状态的探针，离线读 `.review/*.json`，并读取本地仓库 HEAD 拒绝陈旧裁决。
 - `_cards.ps1` front-matter 容忍前导 U+FEFF（上游 v0.41.0 TD130）。
 
 ## 这三条修复的来历
@@ -157,7 +173,7 @@ doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层�
 ## 禁止 / 非目标
 
 见 front-matter。心跳的「只读、离线、确定性」是刻意不变量（`docs/LOOP-ENGINEERING.md`）：
-`delivery-blocked` 不调 gh，因为 `review.ps1` 每次跑都已把归一化裁决写在本地。
+`delivery-blocked` 不调 gh，因为 `review.ps1` 每次跑都已把归一化裁决写在本地；它只额外执行本地 `git rev-parse HEAD` 来核对裁决 SHA，不访问网络。
 
 ## 验收（DoD = 命令 + 退出码 + 断言）
 
@@ -167,8 +183,3 @@ pwsh -NoProfile -File scripts\lessons.ps1 check
 ```
 - 期望退出码：0
 - 断言：`triage selfcheck: PASS` + `lessons.ps1 check` 报驻留 `id=9`
-
-DoD 是**最小闸**，不是完成定义：完成定义 = front-matter 的 `acceptance` 封闭集合 A1–A16
-（清单内每条都有可证伪测试，落点见 `acceptance_notes`；**清单外的发现记 `[FOLLOW-UP]`**）。
-其中 A1/A4/A14/A15 由 `pwsh -NoProfile -File scripts\selftest.ps1 -Shard core` 常设看守
-（闸 2a / 2d / 10d(接线/review→triage) / 14g①②），其余由 `triage.ps1 selfcheck` 的 hermetic 用例看守。

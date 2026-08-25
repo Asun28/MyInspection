@@ -1658,11 +1658,23 @@ try {
     '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
   ) -join "`n"
   Set-Content $l2Ledger $l2Entry -Encoding utf8
+  # A present resident section with zero lesson ids is distinct from a missing CLAUDE.md; both must be legal.
+  Set-Content (Join-Path $l2Repo 'CLAUDE.md') "## 经验铁律（必须加载）`n当前无驻留经验。`n`n## 下一节" -Encoding utf8
   $c2Out = (& pwsh -NoProfile -File $l2Lessons check 2>&1 | Out-String)
   $c2Exit = $LASTEXITCODE
-  if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
+  if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER + 在场但零 resident-id 的 CLAUDE.md 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
   elseif ($c2Out -notmatch 'check: PASS') { Fail '闸2b(b)：check 退出 0 但输出无「check: PASS」——zero-must fixture 未正常通过（可能崩在别处或断言点漂移）。' }
-  else { Write-Host '  2b lessons.ps1 空 LEDGER add / zero-must check 均不崩（TD39/TD-102，覆盖生产裸调用路径）OK' -ForegroundColor Green }
+  $invalidEntries = @(
+    @{ id = 'L1'; value = 'TODO' }, @{ id = 'L2'; value = 'N/A' }, @{ id = 'L3'; value = '待补' }
+  ) | ForEach-Object {
+    @("## $($_.id)", '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1', '- symptom: seed', '- root_cause: seed', '- rule: seed', "- enforced_by: $($_.value)", '- refs:', '') -join "`n"
+  }
+  Set-Content $l2Ledger (('# invalid enforced_by fixture', '') + $invalidEntries -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2Repo 'CLAUDE.md') "## 经验铁律（必须加载）`n- zero resident ids`n`n## 下一节" -Encoding utf8
+  $invalidOut = (& pwsh -NoProfile -File $l2Lessons check 2>&1 | Out-String); $invalidExit = $LASTEXITCODE
+  if ($invalidExit -eq 0 -or $invalidOut -notmatch '\[LESSONS-ENFORCED-BY-INVALID\]' -or $invalidOut -notmatch 'L1=TODO' -or $invalidOut -notmatch 'L2=N/A' -or $invalidOut -notmatch 'L3=待补') {
+    Fail "闸2b(c)：真实 lessons.ps1 check 未逐项拒绝 TODO/N/A/待补 enforced_by。exit=$invalidExit output=[$invalidOut]"
+  } else { Write-Host '  2b lessons.ps1 空/zero-must 与 invalid enforced_by 生产路径 OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2Repo -ErrorAction SilentlyContinue
 }
@@ -1708,7 +1720,7 @@ try {
 #   而此刻真实驻留数其实远超上限（实测旧码：标题改一个字 → 11 个 id 的夹具报 0，封顶静默通过）。
 #   本闸种同一个坏输入：夹具仓的 CLAUDE.md 带一条 11 个 id 的铁律、标题写成别的，断言 check
 #   **非零退出**且打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]（机检认哨兵，本地化文案只给人读，L165）。
-$l2hRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
+$l2hRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2h-$PID"
 if (Test-Path $l2hRepo) { Remove-Item -Recurse -Force $l2hRepo }
 New-Item -ItemType Directory -Force $l2hRepo | Out-Null
 try {
@@ -1717,26 +1729,31 @@ try {
   $l2hLedger = Join-Path $l2hRepo 'docs/lessons/LEDGER.md'
   New-Item -ItemType Directory -Force (Split-Path $l2hLedger) | Out-Null
   Set-Content $l2hLedger (@(
-    '# 经验总账（2d fixture：零 must，令唯一红点只可能来自分节解析）', '',
+    '# 经验总账（2h fixture）', '',
     '## L1',
-    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- date: 2026-01-01 ｜ tags: seed ｜ tier: must ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
     '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
   ) -join "`n") -Encoding utf8
-  # 正例恰好取那个**最容易被混淆**的状态：小节在、但一个 [Lx] 都没驻留。旧码给这个状态和「标题找不到」
-  #   同一个答案（0 条），新码必须把它判成 PASS——否则「fail-closed」就是把正常的空必须层也一并拦了。
   Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
     '## 经验铁律（必须加载 · fixture）',
-    '- 本夹具的铁律小节故意不驻留任何 id（证「小节在、零驻留」仍须放行）', '', '## 下一节') -join "`n") -Encoding utf8
+    '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@(
+    '## 经验铁律（必须加载 · fixture）',
+    '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
   $okOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $okExit = $LASTEXITCODE
   # 负例：只把标题换掉，其余一字不动
   Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
     '## 必载经验（标题已漂移）',
     '- **[L901][L902][L903][L904][L905][L906][L907][L908][L909][L910][L911]** 11 个驻留 id，远超上限', '', '## 下一节') -join "`n") -Encoding utf8
   $driftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $driftExit = $LASTEXITCODE
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@('## 经验铁律（必须加载 · fixture）', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@('## 模板铁律标题已漂移', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  $tplDriftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $tplDriftExit = $LASTEXITCODE
   if ($okExit -ne 0) { Fail "闸2h(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
   elseif ($driftExit -eq 0) { Fail "闸2h：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
   elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
-  else { Write-Host '  2h lessons.ps1 check 分节 fail-closed OK（标题漂移 → 非零 + [LESSONS-SECTION-NOT-FOUND]；小节在场仍 PASS）' -ForegroundColor Green }
+  elseif ($tplDriftExit -eq 0 -or $tplDriftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h(template)：CLAUDE.template.md 标题漂移未非零并给稳定哨兵。exit=$tplDriftExit output=[$tplDriftOut]" }
+  else { Write-Host '  2h CLAUDE.md/template resident-id 分节均 fail-closed OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
 }
@@ -3518,14 +3535,14 @@ try {
   Remove-Item $tmpLedger -Force -ErrorAction SilentlyContinue
   Remove-Item Env:SCAFFOLD_EFFECTIVENESS_LEDGER -ErrorAction SilentlyContinue
 }
-# 12c. triage selfcheck 常设接线（TD23）：PR #26 引入的 hermetic 探针自测（探针 4 跨 worktree，临时夹具）
+# 12c. triage selfcheck 常设接线（TD23）：探针 1/4/5/10/11 的 hermetic 自测（含探针 4 跨 worktree）
 #   此前「可跑不被跑」；接进常设闸使改探针即回归。triage 退出码恒 0（reporter 契约），故同 12b 只断言输出——
 #   且钉**末行**（selfcheck 的 PASS/FAIL 总结行恒为最后输出）：防「输出里早处出现 PASS、随后才报错」的假绿。
 $selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
 $selfcheckLines = @($selfcheckOut -split "`r?`n" | ForEach-Object { ($_ -replace "`e\[[0-9;]*m", '').Trim() } | Where-Object { $_ -ne '' })   # 去 ANSI 色码 + 空行（防终端差异）
 $selfcheckLast = if ($selfcheckLines.Count) { $selfcheckLines[-1] } else { '' }
 if ($selfcheckLast -notmatch '^triage selfcheck: PASS') { Fail "triage selfcheck 未过（期望末行为 'triage selfcheck: PASS…'，实际末行「$selfcheckLast」）：`n$selfcheckOut" }
-else { Write-Host '  triage selfcheck OK（探针 4 hermetic 自检：末行 PASS）' }
+else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：末行 PASS）' }
 
 # 12d. tech-debt 探针（探针2）位置解析硬化（TD57/TD-120）：旧码硬编码 `$cells[5]` 为状态列、且用朴素
 #   `.Split('|')` 分列——单元格内出现字面竖线（如位置列 backtick 代码片段里的正则析取 `a\|b`）会
@@ -4021,15 +4038,69 @@ if (Test-Path $triageForCount) {
   elseif ($probeCount -ge 1 -and $probeFnCount -ne $probeCount) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ 「# ── 探针 N」标记 $probeCount 个——triage.ps1 自身先对不齐。" }
   elseif ($probeNames.Count -ge 1 -and $probeFnCount -ne $probeNames.Count) { Fail "14g②：Invoke-Probe* 函数 $probeFnCount 个 ≠ Add-Finding 探针名 $($probeNames.Count) 个——有探针不上报或有名字没有函数。" }
   else {
-    # 「列探针清单」的五处面：任一处漏列新探针即红（新探针的 next 常直接把读者送到这些文档，它们不能不知道它存在）。
-    foreach ($rel in @('docs/LOOP-ENGINEERING.md', '.claude/skills/triage/SKILL.md', 'docs/DELIVERY-CHAINS.md', 'docs/scaffold-architecture.html', 'docs/HARNESS-REVIEW.md')) {
+    # Parse each authoritative roster itself, not the whole file: every one also discusses some probe names
+    # elsewhere, so a full-file substring search survives deletion from the actual roster.
+    function Get-ProbeRosterSpan([string[]]$Lines, [string]$StartPattern, [string]$EndPattern, [string]$Label) {
+      $starts = @(0..($Lines.Count - 1) | Where-Object { $Lines[$_] -match $StartPattern })
+      if ($starts.Count -ne 1) { throw "$Label start anchor count=$($starts.Count), expected 1" }
+      if (-not $EndPattern) { return $Lines[$starts[0]] }
+      $ends = @($starts[0]..($Lines.Count - 1) | Where-Object { $Lines[$_] -match $EndPattern })
+      if ($ends.Count -ne 1 -or $ends[0] -lt $starts[0]) { throw "$Label end anchor count=$($ends.Count), expected 1 after start" }
+      return ($Lines[$starts[0]..$ends[0]] -join "`n")
+    }
+    function Get-ProbeRosterNames([string]$Text, [string]$Mode) {
+      $tokenPattern = if ($Mode -ceq 'code') {
+        '(?<=`)[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?=`)'
+      } else {
+        '(?<![a-z0-9-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![a-z0-9-])'
+      }
+      return @([regex]::Matches($Text, $tokenPattern) | ForEach-Object Value | Sort-Object)
+    }
+    $rosterSpecs = @(
+      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*severity=blocking'; Mode='code' },
+      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*退出码恒'; Mode='code' },
+      @{ Rel='docs/DELIVERY-CHAINS.md'; Start='^\|\s*心跳\s*/\s*triage'; End=''; Mode='plain'; Body='子系统（(?<body>[^）]+)）→' },
+      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+10\s+探针'; End=''; Mode='plain'; Body='10\s+探针（(?<body>[^）]+)）→' },
+      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另五枚.*\x60delivery-blocked\x60'; Mode='code' }
+    )
+    foreach ($spec in $rosterSpecs) {
+      $rel = $spec.Rel
       $p = Join-Path $RepoRoot $rel
       if (-not (Test-Path $p)) { Skip-SelftestCheck -GateId "14g(roster/$rel)" -Reason 'FILE-MISSING' -Message "  14g：$rel 不存在，跳过。"; continue }
-      $raw = Get-Content $p -Raw
-      $listed = @($probeNames | Where-Object { $raw -like "*$_*" })
-      if ($listed.Count -ne $probeFnCount) {
-        $missing = @($probeNames | Where-Object { $raw -notlike "*$_*" })
-        Fail "14g②：$rel 枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')。"
+      try { $roster = Get-ProbeRosterSpan -Lines @(Get-Content $p) -StartPattern $spec.Start -EndPattern $spec.End -Label $rel }
+      catch { Fail "14g②：$rel 的权威探针清单边界不可唯一解析：$($_.Exception.Message)"; continue }
+      $rosterBody = $roster
+      if ($spec.ContainsKey('Body')) {
+        $bodyMatches = @([regex]::Matches($roster, $spec.Body))
+        if ($bodyMatches.Count -ne 1) { Fail "14g②：$rel 的权威探针清单正文边界命中 $($bodyMatches.Count) 次，期望 1。"; continue }
+        $rosterBody = $bodyMatches[0].Groups['body'].Value
+      }
+      $listed = @(Get-ProbeRosterNames -Text $rosterBody -Mode $spec.Mode)
+      if (($listed -join ',') -cne (@($probeNames | Sort-Object) -join ',')) {
+        $missing = @($probeNames | Where-Object { $listed -cnotcontains $_ })
+        $extra = @($listed | Where-Object { $probeNames -cnotcontains $_ })
+        Fail "14g②：$rel 的权威清单枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')；多列/陈旧：$($extra -join ', ')。"
+      }
+      # Fifty cheap deletion mutations (five rosters × ten names): each removal must be visible even when the
+      # same name appears elsewhere in that file. This is the regression proof for the bounded parser above.
+      foreach ($probeName in $probeNames) {
+        $namePattern = '(?<![a-z0-9-])' + [regex]::Escape($probeName) + '(?![a-z0-9-])'
+        $mutant = ([regex]::new($namePattern)).Replace($rosterBody, '', 1)
+        $mutantNames = @(Get-ProbeRosterNames -Text $mutant -Mode $spec.Mode)
+        if ($mutant -ceq $roster -or $mutantNames -ccontains $probeName -or $mutantNames.Count -ne ($probeFnCount - 1)) {
+          Fail "14g②(mut/$rel/$probeName)：从权威清单单删该探针后，边界解析未精确少 1 枚（实得 $($mutantNames.Count)）。"
+        }
+      }
+      $extraToken = if ($spec.Mode -ceq 'code') { ' `stale-probe`' } else { ' stale-probe' }
+      $extraMutantNames = @(Get-ProbeRosterNames -Text ($rosterBody + $extraToken) -Mode $spec.Mode)
+      if ($extraMutantNames.Count -ne ($probeFnCount + 1) -or $extraMutantNames -cnotcontains 'stale-probe') {
+        Fail "14g②(mut/$rel/stale-extra)：权威清单新增未知探针 stale-probe 后未被解析为第 $($probeFnCount + 1) 枚（实得 $($extraMutantNames.Count)）。"
+      }
+      $duplicateName = $probeNames[0]
+      $duplicateToken = if ($spec.Mode -ceq 'code') { " ``$duplicateName``" } else { " $duplicateName" }
+      $duplicateMutantNames = @(Get-ProbeRosterNames -Text ($rosterBody + $duplicateToken) -Mode $spec.Mode)
+      if ($duplicateMutantNames.Count -ne ($probeFnCount + 1) -or @($duplicateMutantNames | Where-Object { $_ -ceq $duplicateName }).Count -ne 2) {
+        Fail "14g②(mut/$rel/duplicate)：权威清单重复探针 $duplicateName 后未保留两次出现（总数 $($duplicateMutantNames.Count)）。"
       }
     }
     if (Test-SelftestAggregatePassEligible -Failed $fail -SkipCountBefore $probeRosterSkipBefore -SkipCountAfter $skippedSelftestChecks.Count) {

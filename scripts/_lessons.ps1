@@ -6,8 +6,9 @@
   mechanical guard.
 
 .DESCRIPTION
-  Two call sites need the same answer and used to compute it from the same regex, copied twice
-  (lessons.ps1 `check` and triage.ps1's lessons-cap probe). Both counted markdown bullets, so
+  Two consumers make three invocations and need the same answer: lessons.ps1 `check` reads CLAUDE.md and,
+  when present, CLAUDE.template.md; triage.ps1's lessons-cap probe reads CLAUDE.md. Both consumers used to
+  compute it from the same regex, copied twice. They counted markdown bullets, so
   merging several lesson IDs into one bullet satisfied LessonsMustCap while the resident rule
   count - and the per-turn context it costs - kept growing. The one measurement quoted in this
   PR carries its commit and lives at its own call site (lessons.ps1 `check`); no unattributed
@@ -20,7 +21,8 @@
   T89-DOC-BUDGETS' unit, not this one.
 
   "The section" also has exactly one definition, and it is the Ids this parser returns: the cap,
-  the id-existence check and the tier-drift check all read that same set. While the cap counted
+  the id-existence check and the tier-drift check all read that same set. Duplicate occurrences fail
+  closed before any consumer counts the set, so deduplication cannot hide context growth. While the cap counted
   bullets and the other two regexed the whole section text, a `tier: must` lesson mentioned only
   in the intro blockquote read as registered yet cost nothing against the cap - the merged-bullet
   loophole in miniature.
@@ -33,8 +35,15 @@
 
 # 分节解析失败的 ASCII 哨兵（L165：机检认 ASCII，本地化文案只给人读）。两个消费者引用同一枚字面量。
 $ScaffoldMustLayerNotFound = '[LESSONS-SECTION-NOT-FOUND]'
+$ScaffoldDuplicateResidentId = '[LESSONS-DUPLICATE-RESIDENT-ID]'
 # 「显式声明无守卫」的唯一形态。守卫判定与形态判定对它给相反答案，故字面量只写这一处。
-$ScaffoldNoGuardDeclRe = '^none\b'
+$ScaffoldNoGuardDeclRe = '^none(?:（[^\r\n]+）|\([^\r\n]+\))$'
+# Placeholder/negation prefixes win before any later path/extension/gate-looking substring can launder them.
+$ScaffoldRejectedGuardPrefixRe = '^(?i:(?:TODO|TBD|FIXME|XXX|TBC|TK|WIP|PENDING|N/?A)(?=$|[^A-Za-z0-9_])|no[ \t]+gate(?=$|[^A-Za-z0-9_])|none(?=$|[^A-Za-z0-9_]))|^(?:待补|待定|未定|待议|暂无|无闸)'
+# Canonical declarations start with the guard reference; later prose cannot launder an unrelated prefix.
+# The final `.*$` permits the explanatory suffixes already used by the ledger while keeping the accepted
+# file, repo-path, English gate, Chinese gate, and explicit self-guard forms anchored to the whole field.
+$ScaffoldGuardReferenceRe = '(?i)^(?:(?:[A-Za-z0-9._-]+[\\/])*[A-Za-z0-9._-]+\.(?:ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)(?=$|[ \t+;（(])|[A-Za-z0-9._-]{2,}[\\/][A-Za-z0-9._-]{2,}(?:[\\/][A-Za-z0-9._-]+)*(?=$|[ \t+;（(])|gate[ \t]+[0-9A-Za-z\u2460-\u24FF][0-9A-Za-z._\u2460-\u24FF-]*(?=$|[ \t+;（(])|(?:[A-Za-z0-9._-]+[ \t]+)?闸[ \t]*[0-9A-Za-z\u2460-\u24FF][0-9A-Za-z._\u2460-\u24FF-]*(?=$|[ \t+;（(])|check-cards[ \t]+该断言自身(?=$|[ \t+;（(])).*$'
 
 function Get-ScaffoldLessonEnforcedBy {
   <#
@@ -64,7 +73,7 @@ function Test-ScaffoldLessonGuarded {
     context on the same rule (upstream issue #183). (Section/row text, not line numbers: those drift on
     the next edit of that document.)
 
-    Allowlist, not denylist. "Guarded" requires the value to NAME a mechanical artifact: a repo path
+    Anchored allowlist, not denylist. "Guarded" requires the value to START by naming a mechanical artifact: a repo path
     (>=2 characters either side of the separator, so `N/A` is not one), a file with a code/config
     extension, or a gate reference (`闸 <id>` / `gate <id>`). Everything else reads as UNGUARDED -
     the sanctioned `none（reason）` form, an empty field, and placeholders such as TODO / N/A / 待补 /
@@ -93,10 +102,10 @@ function Test-ScaffoldLessonGuarded {
   param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)
   if ([string]::IsNullOrWhiteSpace($EnforcedBy)) { return $false }
   $v = $EnforcedBy.Trim()
-  if ($v -match $ScaffoldNoGuardDeclRe) { return $false }
+  if ($v -match $ScaffoldNoGuardDeclRe -or $v -match $ScaffoldRejectedGuardPrefixRe) { return $false }
   # 闸编号的字符类写成 \u 转义而非字面圈码（L193：不可见/易错码位只写转义形态，落盘可逐字节复核）。
   # ①-⓿ = Enclosed Alphanumerics，整块无表意文字，故收它进来不会重开中文那个口子。
-  return ($v -match '(?i)(\.(ps1|psm1|mjs|cjs|js|ts|kts?|py|ya?ml|json|sqm?)\b|[A-Za-z0-9._-]{2,}[\\/][A-Za-z0-9._-]{2,}|\bgate\s+[0-9A-Za-z\u2460-\u24FF]|闸\s*[0-9A-Za-z\u2460-\u24FF])')
+  return ($v -match $ScaffoldGuardReferenceRe)
 }
 
 function Test-ScaffoldLessonEnforcedByWellFormed {
@@ -121,13 +130,14 @@ function Test-ScaffoldLessonEnforcedByWellFormed {
 function Get-ScaffoldMustLayerSection {
   <#
   .SYNOPSIS
-    Parse CLAUDE.md's must-load lessons section once: Found / Reason / Bullets / Ids.
+    Parse CLAUDE.md's must-load lessons section once: Found / Reason / Bullets / Ids / DuplicateIds.
   .DESCRIPTION
-    Reason is 'OK' | 'FILE-MISSING' | 'HEADING-NOT-FOUND'. The two failure states are deliberately
+    Reason is 'OK' | 'FILE-MISSING' | 'HEADING-NOT-FOUND' | 'DUPLICATE-RESIDENT-ID'. Failure states are deliberately
     distinct and are NOT the same as "section present, zero bullets":
       FILE-MISSING      graceful - a repo with no CLAUDE.md has no must layer at all (empty-config rule).
       HEADING-NOT-FOUND drift - every consumer must fail closed, because the alternative reading is
                         "zero resident rules", which passes any cap while having measured nothing.
+      DUPLICATE-RESIDENT-ID invalid - repeated resident occurrences must not collapse before cap accounting.
     The anchor is the section's own localized heading (the file it parses is Chinese prose); the ASCII
     sentinel $ScaffoldMustLayerNotFound is on the failure signal, which is the part machines match (L165).
   #>
@@ -138,20 +148,51 @@ function Get-ScaffoldMustLayerSection {
     return [pscustomobject]@{ Found = $false; Reason = 'FILE-MISSING'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
   }
   $bullets = @()
+  $residentOccurrences = [System.Collections.Generic.List[string]]::new()
+  $items = [System.Collections.Generic.List[string]]::new()
+  $currentItem = $null
   $inSection = $false
   foreach ($line in @(Get-Content -LiteralPath $Path)) {
     if (-not $inSection) {
       if ($line -match '^##\s+经验铁律') { $inSection = $true }
       continue
     }
-    if ($line -match '^##\s') { break }           # next level-2 heading ends the section
-    if ($line -notmatch '^\s*-\s+') { continue }  # only list items can declare a resident rule
-    $ids = @([regex]::Matches($line, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    if ($line -match '^##\s') {
+      if ($null -ne $currentItem) { $items.Add($currentItem) }
+      $currentItem = $null
+      break
+    }
+    if ($line -match '^\s*-\s+') {
+      if ($null -ne $currentItem) { $items.Add($currentItem) }
+      $currentItem = $line
+      continue
+    }
+    # Inside this bounded section, every physical line after a list marker belongs to that item until the
+    # next marker or section heading. This covers CommonMark lazy continuations and an indented paragraph
+    # after a blank line; ending on either shape silently drops resident ids from the cap.
+    if ($null -ne $currentItem) { $currentItem += "`n$line"; continue }
+  }
+  if ($null -ne $currentItem) { $items.Add($currentItem) }
+  foreach ($item in $items) {
+    $occurrences = @([regex]::Matches($item, '\[(L\d+)\]') | ForEach-Object { $_.Groups[1].Value })
+    foreach ($id in $occurrences) { $residentOccurrences.Add($id) }
+    $ids = @($occurrences | Sort-Object -Unique)
     if ($ids.Count -eq 0) { continue }
-    $bullets += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $line.Trim() }
+    $bullets += [pscustomobject]@{ Ids = $ids; IdCount = $ids.Count; Text = $item.Trim() }
   }
   if (-not $inSection) {
     return [pscustomobject]@{ Found = $false; Reason = 'HEADING-NOT-FOUND'; Sentinel = $ScaffoldMustLayerNotFound; Bullets = $none; Ids = $none }
+  }
+  $duplicateIds = @($residentOccurrences | Group-Object | Where-Object Count -gt 1 | ForEach-Object Name | Sort-Object)
+  if ($duplicateIds.Count -ne 0) {
+    return [pscustomobject]@{
+      Found        = $false
+      Reason       = 'DUPLICATE-RESIDENT-ID'
+      Sentinel     = $ScaffoldDuplicateResidentId
+      Bullets      = $bullets
+      Ids          = @($residentOccurrences | Sort-Object -Unique)
+      DuplicateIds = $duplicateIds
+    }
   }
   return [pscustomobject]@{
     Found    = $true
@@ -159,5 +200,6 @@ function Get-ScaffoldMustLayerSection {
     Sentinel = ''            # 解析成功没有失败信号；消费者照样只拼 .Sentinel，不必各自记住那枚字面量
     Bullets  = $bullets
     Ids      = @($bullets | ForEach-Object Ids | Sort-Object -Unique)
+    DuplicateIds = $none
   }
 }

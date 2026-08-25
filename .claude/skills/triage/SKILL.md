@@ -20,7 +20,7 @@ description: >-
 ## 回路（DISCOVER → TRIAGE → ACT，单向喂既有链）
 1. **DISCOVER（只读扫描，不行动）**：
    `pwsh -File scripts\triage.ps1 scan`
-   纯文件解析、不打网络/不调 gh；产出 `_local/triage-inbox.md`（gitignored）。11 探针：
+   读取本地文件、不打网络/不调 gh；`delivery-blocked` 另以离线 `git rev-parse HEAD` 把裁决绑定到当前检出；产出 `_local/triage-inbox.md`（gitignored）。11 探针：
    `lessons-promote`（经验该晋升）· `tech-debt-open`（债该还）· `cards-active`（卡在飞）·
    `handoff-open`（交接未收口）· `lessons-cap`（必须层**驻留经验 id 数**达/超封顶，该做减法；标题找不到即 fail-closed 报）·
    `harness-refresh`（judgment 经验累积达门槛，该双向复审：删旧闸 + 搜更优工具/方法纳新）·
@@ -31,9 +31,9 @@ description: >-
    `scaffold-stale`（落后上游脚手架几版未议）。退出码恒 0（reporter，非闸门）。
 2. **TRIAGE（读收件箱，定路由）**：按 severity 读，据项的性质分两路——心跳只发现，方向仍归人/agent 判断（RSI）。
    - **判断类/定方向**（`tech-debt-open` 转不转卡、`harness-refresh`/`lessons-cap` 的减法、`cards-active` 续不续）：一次挑**一件**、逐条由人/agent 确认，别无脑平推（会牺牲方向判断）。
-   - **可逆机械项**（`lessons-promote`、`worktree-orphan` 清残留及同类）：确认可逆后可**并行委派子代理**执行，编排者不必逐件等——独立且可逆的发现就 fan out、主线继续。
+   - **可逆机械项**（`worktree-orphan` 清残留及同类）：确认可逆后可并行执行。`lessons-promote` 候选不超过 5 条时逐 id 走 lessons 动作；超过 5 条时只建一项 HARNESS-REVIEW 批量复审，避免卡片风暴。
 3. **ACT（喂既有交付链，别另起炉灶）**：
-   - `lessons-promote` → `lessons` skill：`pwsh -File scripts\lessons.ps1 promote <id>`（晋升进按需/必须层）。
+   - `lessons-promote` → 候选 `<=5` 时逐 id 用 `lessons` skill：`pwsh -File scripts\lessons.ps1 promote <id>`；候选 `>5` 时只开一个 `docs\HARNESS-REVIEW.md` 批量项。
    - `tech-debt-open`  → 转卡：写 `specs\tasks\<id>.md` 走 `task-loop` 偿还，或记 `docs\adr\` 接受；改 tracker status。
    - `cards-active`    → `task-loop` skill：续 `task.ps1 ship` 或补 `review.ps1`。
    - `handoff-open`    → `planning-with-files` skill：填 `progress.md` 末尾 HANDOFF 块 + `handoff.ps1 check`。
@@ -53,4 +53,4 @@ description: >-
 ## 边界（不造新东西）
 - 心跳**不写**仓内被跟踪文件、**不做** git/gh 写操作——只读发现。所有改动走既有链的闸门（worktree/TDD/Codex/CI）。
 - 收件箱是**运行时态**（`_local/`，每次 scan 覆盖），不是真相源；真相源仍是 LEDGER / tech-debt-tracker / specs/tasks。
-- **判断/定方向类**一次挑一件做完再扫，别当批处理无脑平推（会牺牲方向判断）；**可逆机械项**（lessons-promote/worktree-orphan 等）可并行委派子代理、主线继续。
+- **判断/定方向类**一次挑一件做完再扫；**可逆机械项**可并行，但 `lessons-promote` 仍遵守 `<=5` 逐 id、`>5` 单个 HARNESS-REVIEW 批次的阈值。
