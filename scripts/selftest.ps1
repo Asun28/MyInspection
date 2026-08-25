@@ -1676,8 +1676,21 @@ if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
 
 # --- 2. 经验系统自检 ---
 Step '2/17 经验系统（lessons.ps1 check）'
-& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check
-if ($LASTEXITCODE -ne 0) { Fail '经验系统 check 未过（见上）。' }
+$lessonsCheckOut = (& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check 2>&1 | Out-String)
+$lessonsCheckExit = $LASTEXITCODE
+Write-Host $lessonsCheckOut
+if ($lessonsCheckExit -ne 0) { Fail '经验系统 check 未过（见上）。' }
+# 2a. 计量单位钉在**生产路径**上（本仓真实 CLAUDE.md，非夹具）：驻留经验 id 数与承载它们的条目数
+#   **两个数各断言精确值**。只断言其一证不出「单位换了」——两个数必须**不相等**，那正是「合并条目」
+#   这条静默失效路径的形状；相等时旧口径（数 bullet）与新口径（数 id）不可分辨。
+#   数字变了就该在这里红：加/减铁律、或把两条并进一条 bullet，都要求作者回来同步这两个期望值。
+$expectedResidentIds = 9    # CLAUDE.md「经验铁律」小节当前驻留的经验 id 数（上限 LessonsMustCap=10）
+$expectedBullets = 7        # 承载它们的 markdown 条目数——比 id 少，因为有两条是合并条目
+if ($lessonsCheckOut -notmatch "驻留 id=$expectedResidentIds（承载于 $expectedBullets 条目）") {
+  Fail "闸2a：lessons.ps1 check 未在生产 CLAUDE.md 上报出「驻留 id=$expectedResidentIds（承载于 $expectedBullets 条目）」——要么铁律增删了（同步本闸的两个期望值），要么封顶又退回按 markdown 条目计量。实际输出：$(($lessonsCheckOut -split "`r?`n" | Where-Object { $_ -match '必须层：' }) -join ' ')"
+} elseif ($expectedResidentIds -eq $expectedBullets) {
+  Fail '闸2a：期望的 id 数与条目数相等——此时两种口径不可分辨，本闸证不了单位是 id。请让夹具/生产数据保留至少一条合并条目。'
+} else { Write-Host "  2a 计量单位 OK（生产路径：驻留 id=$expectedResidentIds ≠ 条目数 $expectedBullets，两个数各自精确断言）" -ForegroundColor Green }
 
 # 2b. TD39/TD-102：lessons.ps1 在【空 / 零-must LEDGER】下 StrictMode 崩溃（TD24 标 paid 实为未真修）。
 #   根因：add 走【裸】Next-Id（默认绑定 = (Get-Lessons)）。空 LEDGER 时 Get-Lessons 返回 @()，经 [array] 默认参数
@@ -1712,9 +1725,11 @@ try {
     '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
   ) -join "`n"
   Set-Content $l2Ledger $l2Entry -Encoding utf8
+  # A present resident section with zero lesson ids is distinct from a missing CLAUDE.md; both must be legal.
+  Set-Content (Join-Path $l2Repo 'CLAUDE.md') "## 经验铁律（必须加载）`n当前无驻留经验。`n`n## 下一节" -Encoding utf8
   $c2Out = (& pwsh -NoProfile -File $l2Lessons check 2>&1 | Out-String)
   $c2Exit = $LASTEXITCODE
-  if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
+  if ($c2Exit -ne 0) { Fail "闸2b(b)：zero-must LEDGER + 在场但零 resident-id 的 CLAUDE.md 上 lessons.ps1 check 非零退出（$c2Exit）——(…|Where tier -eq 'must').Count 在零匹配 AutomationNull 上取 .Count 抛（TD39 Claim B）。删净示例 must 经验是合法下游态、却令 selftest 闸② 整挂。" }
   elseif ($c2Out -notmatch 'check: PASS') { Fail '闸2b(b)：check 退出 0 但输出无「check: PASS」——zero-must fixture 未正常通过（可能崩在别处或断言点漂移）。' }
   else {
     $l2Archive = Join-Path $l2Repo 'specs/archive/lessons-archive.md'
@@ -1727,6 +1742,18 @@ try {
       Fail "闸2b(c)：真实 add 未以冷库最大 L500 的下一号 L501 入账，归档 id 被复用。exit=$coldAddExit output=[$coldAddOut]"
     } else { Write-Host '  2b lessons.ps1 空账本、zero-must 与 cold-max add 生产路径 OK' -ForegroundColor Green }
   }
+
+  $invalidEntries = @(
+    @{ id = 'L1'; value = 'TODO' }, @{ id = 'L2'; value = 'N/A' }, @{ id = 'L3'; value = '待补' }
+  ) | ForEach-Object {
+    @("## $($_.id)", '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1', '- symptom: seed', '- root_cause: seed', '- rule: seed', "- enforced_by: $($_.value)", '- refs:', '') -join "`n"
+  }
+  Set-Content $l2Ledger (('# invalid enforced_by fixture', '') + $invalidEntries -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2Repo 'CLAUDE.md') "## 经验铁律（必须加载）`n- zero resident ids`n`n## 下一节" -Encoding utf8
+  $invalidOut = (& pwsh -NoProfile -File $l2Lessons check 2>&1 | Out-String); $invalidExit = $LASTEXITCODE
+  if ($invalidExit -eq 0 -or $invalidOut -notmatch '\[LESSONS-ENFORCED-BY-INVALID\]' -or $invalidOut -notmatch 'L1=TODO' -or $invalidOut -notmatch 'L2=N/A' -or $invalidOut -notmatch 'L3=待补') {
+    Fail "闸2b(c)：真实 lessons.ps1 check 未逐项拒绝 TODO/N/A/待补 enforced_by。exit=$invalidExit output=[$invalidOut]"
+  } else { Write-Host '  2b lessons.ps1 空/zero-must 与 invalid enforced_by 生产路径 OK' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $l2Repo -ErrorAction SilentlyContinue
 }
@@ -1790,6 +1817,82 @@ try {
   }
 } finally {
   Remove-Item -Recurse -Force $l2cRepo -ErrorAction SilentlyContinue
+}
+
+# 2h. 分节解析 fail-closed：CLAUDE.md **在**、但「经验铁律」小节标题漂移时，旧码返回 0 条 bullet，
+#   与「小节在、零驻留」逐字不可分辨——于是 check 打印「驻留 id=0」、`-gt $MustCap` 判否、**exit 0 放行**，
+#   而此刻真实驻留数其实远超上限（实测旧码：标题改一个字 → 11 个 id 的夹具报 0，封顶静默通过）。
+#   本闸种同一个坏输入：夹具仓的 CLAUDE.md 带一条 11 个 id 的铁律、标题写成别的，断言 check
+#   **非零退出**且打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]（机检认哨兵，本地化文案只给人读，L165）。
+$l2hRepo = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2h-$PID"
+if (Test-Path $l2hRepo) { Remove-Item -Recurse -Force $l2hRepo }
+New-Item -ItemType Directory -Force $l2hRepo | Out-Null
+try {
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2hRepo -Recurse -Force   # 同 2b/2c：整目录拷免隐式漏依赖（lessons.ps1 dot-source _config/_lessons/check-secrets）
+  $l2hLessons = Join-Path $l2hRepo 'scripts/lessons.ps1'
+  $l2hLedger = Join-Path $l2hRepo 'docs/lessons/LEDGER.md'
+  New-Item -ItemType Directory -Force (Split-Path $l2hLedger) | Out-Null
+  Set-Content $l2hLedger (@(
+    '# 经验总账（2h fixture）', '',
+    '## L1',
+    '- date: 2026-01-01 ｜ tags: seed ｜ tier: must ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1',
+    '- symptom: seed', '- root_cause: seed', '- rule: seed rule one', '- enforced_by: none（seed）', '- refs:'
+  ) -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
+    '## 经验铁律（必须加载 · fixture）',
+    '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@(
+    '## 经验铁律（必须加载 · fixture）',
+    '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  $okOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $okExit = $LASTEXITCODE
+  # 负例：只把标题换掉，其余一字不动
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@(
+    '## 必载经验（标题已漂移）',
+    '- **[L901][L902][L903][L904][L905][L906][L907][L908][L909][L910][L911]** 11 个驻留 id，远超上限', '', '## 下一节') -join "`n") -Encoding utf8
+  $driftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $driftExit = $LASTEXITCODE
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') (@('## 经验铁律（必须加载 · fixture）', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') (@('## 模板铁律标题已漂移', '- **[L1]** resident fixture', '', '## 下一节') -join "`n") -Encoding utf8
+  $tplDriftOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $tplDriftExit = $LASTEXITCODE
+  $validResident = @('## 经验铁律（必须加载 · fixture）', '- **[L1]** resident fixture', '', '## 下一节') -join "`n"
+  $duplicateResident = @('## 经验铁律（必须加载 · fixture）', '- **[L1]** first occurrence', '+ **[L1]** duplicate occurrence', '', '## 下一节') -join "`n"
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') $duplicateResident -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') $validResident -Encoding utf8
+  $dupOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $dupExit = $LASTEXITCODE
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.md') $validResident -Encoding utf8
+  Set-Content (Join-Path $l2hRepo 'CLAUDE.template.md') $duplicateResident -Encoding utf8
+  $tplDupOut = (& pwsh -NoProfile -File $l2hLessons check 2>&1 | Out-String); $tplDupExit = $LASTEXITCODE
+  if ($okExit -ne 0) { Fail "闸2h(正例)：小节在场时 check 反而非零退出（$okExit）——fail-closed 写过头，把正常仓也拦了：$okOut" }
+  elseif ($driftExit -eq 0) { Fail "闸2h：CLAUDE.md 在、但「经验铁律」小节标题漂移时 check 仍 exit 0——分节解析静默返回 0 条，封顶遂恒绿（夹具真实驻留 11 个 id，上限 10）：$driftOut" }
+  elseif ($driftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h：check 确实非零，但没打出 ASCII 哨兵 [LESSONS-SECTION-NOT-FOUND]——机检面必须是哨兵而非本地化文案（L165），且非零可能来自别的原因：$driftOut" }
+  elseif ($tplDriftExit -eq 0 -or $tplDriftOut -notmatch '\[LESSONS-SECTION-NOT-FOUND\]') { Fail "闸2h(template)：CLAUDE.template.md 标题漂移未非零并给稳定哨兵。exit=$tplDriftExit output=[$tplDriftOut]" }
+  elseif ($dupExit -eq 0 -or $dupOut -notmatch '\[LESSONS-DUPLICATE-RESIDENT-ID\].*CLAUDE\.md.*L1') { Fail "闸2h(duplicate)：CLAUDE.md 重复驻留 L1 未非零并给稳定哨兵/明细。exit=$dupExit output=[$dupOut]" }
+  elseif ($tplDupExit -eq 0 -or $tplDupOut -notmatch '\[LESSONS-DUPLICATE-RESIDENT-ID\].*CLAUDE\.template\.md.*L1') { Fail "闸2h(template duplicate)：CLAUDE.template.md 重复驻留 L1 未非零并给稳定哨兵/明细。exit=$tplDupExit output=[$tplDupOut]" }
+  else { Write-Host '  2h CLAUDE.md/template resident-id 分节漂移与重复 id 均 fail-closed OK' -ForegroundColor Green }
+} finally {
+  Remove-Item -Recurse -Force $l2hRepo -ErrorAction SilentlyContinue
+}
+
+# 2h2. 共享 resident parser 遵守受限 CommonMark：三种无序列表标记都计项；空行后的仓外段落/
+# blockquote 不续进前一项；围栏代码里的标题、列表与 id 都只是正文诱饵。
+$l2h2File = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2h2-$PID.md"
+try {
+  . (Join-Path $RepoRoot 'scripts/_lessons.ps1')
+  $l2h2Text = @(
+    '```markdown', '## 经验铁律（必须加载）', '- **[L900]** fenced decoy', '```',
+    '## 经验铁律（必须加载 · fixture）',
+    '* **[L901]** star item', '  lazy continuation [L902]',
+    '+ **[L903]** plus item', '', 'outside paragraph [L904]', '> outside quote [L905]',
+    '- **[L906]** dash item', '~~~text', '## fake heading', '- **[L907]** fenced decoy', '~~~',
+    'outside after fence [L908]', '', '## 下一节'
+  ) -join "`n"
+  Set-Content $l2h2File $l2h2Text -Encoding utf8
+  $l2h2 = Get-ScaffoldMustLayerSection -Path $l2h2File
+  $l2h2Ids = @($l2h2.Ids) -join ','
+  if (-not $l2h2.Found -or $l2h2.Bullets.Count -ne 3 -or $l2h2Ids -ne 'L901,L902,L903,L906') {
+    Fail "闸2h2：resident parser 未守 CommonMark marker/boundary/fence；Found=$($l2h2.Found) Bullets=$($l2h2.Bullets.Count) Ids=$l2h2Ids"
+  } else { Write-Host '  2h2 resident parser CommonMark marker/boundary/fence OK' -ForegroundColor Green }
+} finally {
+  Remove-Item $l2h2File -Force -ErrorAction SilentlyContinue
 }
 
 # 2g. T0-LESSONS-COLD-RECALL：选择器只把一次性 ledger 经验交给既有 archive.ps1；冷项仍可召回，
@@ -4147,6 +4250,14 @@ else { Write-Host '  种子缺陷 10d(接线/triage+archive) OK：三个 triage 
 $dashTailFm = Get-FrontMatter "---`nid: T9-DASH`n--- 这行以三短横开头但有尾随文字，不是闭合符`nstatus: merged`n---`n正文"
 if (-not $dashTailFm -or $dashTailFm -notmatch '(?m)^status\s*:\s*merged\s*$') { Fail '闸10d(锚定/纯函数)：dash-tail 行被误判为 front-matter 闭合符，其后的 status 键不可见——task.ps1 范围闸与 triage 三探针会拿到被截断的 front-matter（TD60/TD-123 的未锚定回归）。' }
 else { Write-Host '  种子缺陷 10d(锚定/纯函数) OK：dash-tail 行不被当闭合符，其后键仍可见（钉住 task/triage 四处原未锚定站点的收敛）' -ForegroundColor Green }
+
+# 10d(BOM/纯函数)：经**管道**取来的卡片文本（git show BASEREF:specs/tasks/<id>.md）保留文件的 UTF-8 BOM
+# ——只有 Get-Content 的文件读取器会剥它。裸 \A--- 锚会失配 → front-matter 解析成 null → allow_paths 取空 →
+# 完整式 check-scope 必判 [SCOPE-UNDECIDABLE]，且把原因误报成「卡没写 allow_paths」，恰在中断恢复场景失效。
+# 码位只写转义形态，源码里不出现字面 BOM 字节（L193）。
+$bomFm = Get-FrontMatter ([string][char]0xFEFF + "---`nid: T9-BOM`nstatus: merged`n---`n正文")
+if (-not $bomFm -or $bomFm -notmatch '(?m)^status\s*:\s*merged\s*$') { Fail '闸10d(BOM/纯函数)：前导 U+FEFF 使 front-matter 解析成 null——经管道取得的基线卡会让 allow_paths 取空、完整式 check-scope 误判为「卡没写 allow_paths」（上游 v0.41.0 TD130 回归）。' }
+else { Write-Host '  种子缺陷 10d(BOM/纯函数) OK：前导 U+FEFF 不阻断 front-matter 解析（管道取来的基线卡仍可判 allow_paths）' -ForegroundColor Green }
 
 # 10e. 种子缺陷（TD63 item5）：YAML block-scalar `dod_command: |` 被单行取值器（Get-Scalar，非多行 YAML 解析）
 # 截断成字面量 `|`——既通过非空校验，又通过 no-op 判定（按 &&/||/;/| 分段后两侧皆空串、Where-Object 过滤后
