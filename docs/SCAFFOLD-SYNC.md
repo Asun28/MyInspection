@@ -27,7 +27,7 @@ pwsh -File scripts\scaffold-sync.ps1 report `
   -LessonId 'L97'
 ```
 
-That composes the issue body, stamps it with provenance (scaffold version, OS, PowerShell version),
+That composes the issue body, stamps it with provenance (scaffold origin/current versions, OS, PowerShell version),
 scans it with `check-secrets.ps1` because the issue is public, prints it, writes it to
 `_local/scaffold-issue.md`, and **stops**. Read it, then re-run with `-Send` to actually create it.
 
@@ -72,7 +72,8 @@ R3 blocking—with round cap, diff budget, and head binding—so advisory-only f
 <!-- One row per upstream release, newest first. Every release gets a row,
      including the ones skipped. `scaffold-sync.ps1 check` treats the newest version here as the
      high-water mark of what this project has evaluated, whatever the decision was; with no rows it
-     falls back to the provenance stamp in scripts/_config.ps1 (ScaffoldVersion). Decisions:
+     falls back to the immutable provenance stamp in scripts/_config.ps1 (ScaffoldOriginVersion).
+     ScaffoldVersion mirrors the latest evaluated ledger high-water mark. Decisions:
      applied = took it whole | partial = took some, reason says which and why | skipped = took none.
      Do not delete rows: a removed row silently reopens a settled question.
      This marker is executable scope, not decoration: only version-first rows below it whose second
@@ -81,6 +82,7 @@ R3 blocking—with round cap, diff budget, and head binding—so advisory-only f
 
 | version | decision | date | reason / what was taken | issue |
 |---|---|---|---|---|
+| v0.45.0 | partial | 2026-08-26 | Took the seeded shard split (2 OS × 5 shards; gate 17 split into git/remote/scanner) and group 2 already applied locally at `f9070ff`: strict ledger, public report guards, and exact remote identity. Groups 1/3 remain partial; the remaining group 4 features are deferred. Origin is v0.29.0; current is v0.45.0. Tag `db835867e6f1bab740f13b48e4bae009a34521ef`. | upstream #259/#260/#261 / v0.45.0 |
 | v0.44.0 | partial | 2026-08-24 | Took #201's bounded sync-ledger reader. Deferred card validation (31 live-card migration), seven shared-core selfchecks (overlaps PR #127), and handoff throttling (outside scope). Upstream `DocSyncMap` is N/A to this custom four-pair map. Tag `af4f5724cc5403bfa0521a68c552362bb96f4dd5`. | upstream #201 / v0.44.0 |
 | v0.43.0 | partial | 2026-08-23 | Took our #188 ID cap, #189 guarded promote/demote, and #190 delivery-blocked fixes with hermetic triage tests. Deferred #180/#181/#182/#186/#187/#191–#195; #197 and required-CI fan-in are N/A. | our #183/#184/#185 |
 | v0.42.0 | partial | 2026-08-23 | Took the fleet command, upstream config, `scaffold-stale`, and this ledger. Deferred divergent selftest 1g/12f wiring to its own card. | upstream #201 |
@@ -113,3 +115,4 @@ Each deferred item below is a future card, not a patch hunk.
 | Card scalar/rule package, including empty-scalar fix | `v0.44.0` | overlaps `T0-CARD-ACCEPTANCE-FIELD`; migrate 31 cards |
 | Shared-core selfchecks | `v0.44.0` | add local examples for seven cores after PR #127 |
 | Content-aware handoff throttle | `v0.44.0` | hooks/selftest need a RED-first card |
+| Shared metadata, PSGallery hardening, and remaining R3 review package | `v0.45.0` groups 1/3/4 | local equivalents are partial or overlap active work; migrate in dedicated cards |

@@ -211,7 +211,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
-18. `docs/SCAFFOLD-SYNC.md` — **fleet 双向回路 + 决策账**：本项目 ↔ 生成它的脚手架（`Asun28/claude-devops-scaffold`）。`scripts/scaffold-sync.ps1 check` 只打印落后区间每一版的 CHANGELOG「Downstream 块」（**耦合组**是 raw `git diff` 推不出来的那半，也是只拿一半时最贵的失败模式）；`report` 把元层缺陷反哺成上游 issue。**决策账一版一行**（applied / partial / skipped + 理由）——**不回填是一等结果，不登记不是**。`_config.ps1` 的 `ScaffoldVersion` 是**生成来源**戳、**不是**「已回填到哪版」，后者只在这份账里。心跳探针 `scaffold-stale` 只读已取到本地的 ref、绝不 fetch
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 双向回路 + 决策账**：本项目 ↔ 生成它的脚手架（`Asun28/claude-devops-scaffold`）。`scripts/scaffold-sync.ps1 check` 只打印落后区间每一版的 CHANGELOG「Downstream 块」（**耦合组**是 raw `git diff` 推不出来的那半，也是只拿一半时最贵的失败模式）；`report` 把元层缺陷反哺成上游 issue。**决策账一版一行**（applied / partial / skipped + 理由）——**不回填是一等结果，不登记不是**。`_config.ps1` 的 `ScaffoldOriginVersion` 保存不可变生成来源（本仓 v0.29.0），`ScaffoldVersion` 镜像决策账已裁决高水位（当前 v0.45.0）；账缺失/损坏只回退 origin，不能拿 current 掩盖未裁决版本。心跳探针 `scaffold-stale` 只读已取到本地的 ref、绝不 fetch
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
@@ -221,7 +221,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 在 `[main, master]` 的 **push + pull_request** 运行；push 用 `paths-ignore: ['**.md', 'docs/**']`，PR 不过滤，因为 `verify` 是支持的规则集必需检查。完整 `scaffold-selftest.yml` 不进入 PR 关键路径，只在 `[main, master]` push 与 `workflow_dispatch` 运行，作为合并后/手动 harness canary；仍保留每个 OS 的 `core/workflow/seeded` 三分片（3 分片 × Windows/Ubuntu 2 OS，闸 **8.2e** 锁死接线）。合并前由任务卡 DoD + `ci.yml` verify + R3 守门；闸 **8.2d** 锁死两种工作流的不同触发职责。
+- **CI 触发形态**：`ci.yml` 在 `[main, master]` 的 **push + pull_request** 运行；push 用 `paths-ignore: ['**.md', 'docs/**']`，PR 不过滤，因为 `verify` 是支持的规则集必需检查。完整 `scaffold-selftest.yml` 不进入 PR 关键路径，只在 `[main, master]` push 与 `workflow_dispatch` 运行，作为合并后/手动 harness canary；每个 OS 跑 `core/workflow/seeded-git/seeded-remote/seeded-scanner` 五分片（5 分片 × Windows/Ubuntu 2 OS，闸 **8.2e** 锁死接线），把原先超过 20 分钟的 seeded job 拆并行而不减覆盖。合并前由任务卡 DoD + `ci.yml` verify + R3 守门；闸 **8.2d** 锁死两种工作流的不同触发职责。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -257,7 +257,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流脚本自检**（任务卡按改动选定相关 shard/断言作 DoD）：`pwsh -File scripts\selftest.ps1`（默认聚合 `core/workflow/seeded`，排障可单跑 `-Shard <name>`；完整 17 闸在默认分支 push 后或手动由 `.github/workflows/scaffold-selftest.yml` 跑，不作为 PR 合并硬闸）
+- **工作流脚本自检**（任务卡按改动选定相关 shard/断言作 DoD）：`pwsh -File scripts\selftest.ps1`（本地默认仍聚合 `core/workflow/seeded`；排障可单跑 `-Shard core|workflow|seeded|seeded-git|seeded-remote|seeded-scanner`；完整 17 闸在默认分支 push 后或手动由 `.github/workflows/scaffold-selftest.yml` 的 2 OS × 5 分片跑，不作为 PR 合并硬闸）
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
@@ -350,4 +350,4 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 - 并行工具调用时把只读诊断与写操作分批（L1）；触碰冻结契约会被 `guard-frozen` 钩子拒绝（需演进走版本评审）。
 
 ---
-<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成。回填上游脚手架改进时对照此版本；当前版本见 `scripts/_config.ps1` 的 `ScaffoldVersion`。</sub>
+<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.45.0**（`ScaffoldVersion`）。</sub>

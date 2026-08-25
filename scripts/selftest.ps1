@@ -103,8 +103,9 @@
        dot-source check-licenses.ps1 -AsLibrary 直测 Scan：Distributes=$false 只降**纯 GPL**（分发触发），AGPL(网络)/SSPL(SaaS)/EUPL(通信)/非商用(用途) 仍致命、LGPL 恒黄牌（C21 · T6-LICENSE-DISTRIBUTES）；17q handoff check 存活性——合法存活基线放行、WORKTREE 路径/BRANCH 不存在即拒续接（C31 · T6-HANDOFF-VALIDATE）；17r R3 评审 prompt 注入卡片前中和 verdict 样式 token——夹具卡 review_gate 携该字面量、stub 后端捕获送达 prompt，断言送达文本已 redacted（TD35 · T7-REVIEW-PROMPT-HYGIENE）；17ac R3 卡片权威——diff/card/rubric/FrozenPaths 同钉一个不可变基线 OID，区分 absent/empty，并在 reviewer 前拒 tree/symlink/gitlink。缺 git 跳过。
 
   下游项目 init 后本脚本随之保留（TD15）——继续用它当自己的工作流自检；元仓专属子检查已自动跳过。
-.PARAMETER Shard  运行分片：all（默认聚合 core/workflow/seeded；两个长分片先并行、短 core 错峰加入）、core（闸 1–14+16）、
-  workflow（闸 15）、seeded（闸 17）。任一子进程非零时 all 非零退出。
+.PARAMETER Shard  运行分片：all（默认聚合 core/workflow/seeded）、core（闸 1–14+16）、workflow（闸 15）、
+  seeded（完整闸 17，兼容本地入口），以及 CI 用的 seeded-git / seeded-remote / seeded-scanner 三个互补子片。
+  三个子片并集等于 seeded；任一子进程非零时 all 非零退出。
 .PARAMETER StrictLint  PSScriptAnalyzer 的 Warning 也视为失败（未显式传参时的默认值见 TD77：元仓自身
   ($isPostInit 为假) 自动置真、已初始化下游仍是 Warning 建议性的旧默认；显式传 -StrictLint / -StrictLint:$false
   恒覆盖该默认，含在元仓自身也能用 -StrictLint:$false 退回建议性）。
@@ -117,7 +118,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('all', 'core', 'workflow', 'seeded')][string]$Shard = 'all',
+  [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
   [ValidateSet('', 'canary-harness', 'skip-ledger', 'seeded-nogit-routing')][string]$Fixture = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
@@ -291,7 +292,7 @@ function ConvertTo-SelftestAsciiGateId([string]$Value) {
 function ConvertFrom-SelftestFailureSentinel {
   param(
     [AllowEmptyString()][string]$StdOut,
-    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded')][string]$Shard,
+    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard,
     [int]$ExitCode
   )
   $sentinelLines = @($StdOut -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-FAILED-GATES]', [System.StringComparison]::Ordinal) })
@@ -301,7 +302,7 @@ function ConvertFrom-SelftestFailureSentinel {
   if ($sentinelLines.Count -ne 1) {
     return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'SENTINEL-COUNT' }
   }
-  $match = [regex]::Match($sentinelLines[0], '^\[SELFTEST-FAILED-GATES\] shard=(?<shard>core|workflow|seeded) gates=(?<gates>[A-Za-z0-9.,()/_-]+)$')
+  $match = [regex]::Match($sentinelLines[0], '^\[SELFTEST-FAILED-GATES\] shard=(?<shard>core|workflow|seeded(?:-(?:git|remote|scanner))?) gates=(?<gates>[A-Za-z0-9.,()/_-]+)$')
   if (-not $match.Success -or $match.Groups['shard'].Value -ne $Shard) {
     return [PSCustomObject]@{ ProtocolValid = $false; FailedGates = @(); Reason = 'SENTINEL-SHAPE' }
   }
@@ -344,7 +345,7 @@ function Add-SelftestFailedGateId {
 
 function Format-SelftestFailureSentinel {
   param(
-    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded')][string]$Shard,
+    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard,
     [Parameter(Mandatory)][System.Collections.Generic.List[string]]$GateIds
   )
   return "[SELFTEST-FAILED-GATES] shard=$Shard gates=$($GateIds -join ',')"
@@ -471,7 +472,7 @@ function Test-SelftestPrerequisite {
 
 function Format-SelftestSkipSummary {
   param(
-    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded')][string]$Shard,
+    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard,
     [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Records
   )
   $items = if ($Records.Count -eq 0) { 'NONE' } else { $Records -join ',' }
@@ -725,9 +726,12 @@ function Test-SelftestCiMatrixContract([string]$WorkflowText) {
   $matrix = [regex]::Match($WorkflowText, '(?ms)^\s{6}matrix:\s*\r?\n(?<body>.*?)(?=^\s{4}runs-on:)')
   if (-not $matrix.Success -or $matrix.Groups['body'].Value -match '(?m)^\s*exclude\s*:') { return $false }
   if ($WorkflowText -notmatch '(?m)^\s{4}runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}\s*$') { return $false }
-  $pairs = @([regex]::Matches($matrix.Groups['body'].Value, '(?m)^\s{10}- os:\s*(windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard:\s*(core|workflow|seeded)\s*$') |
+  $pairs = @([regex]::Matches($matrix.Groups['body'].Value, '(?m)^\s{10}- os:\s*(windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard:\s*(core|workflow|seeded-git|seeded-remote|seeded-scanner)\s*$') |
     ForEach-Object { "$($_.Groups[1].Value)/$($_.Groups[2].Value)" })
-  $expected = @('ubuntu-latest/core', 'ubuntu-latest/seeded', 'ubuntu-latest/workflow', 'windows-latest/core', 'windows-latest/seeded', 'windows-latest/workflow')
+  $expected = @(
+    'ubuntu-latest/core', 'ubuntu-latest/seeded-git', 'ubuntu-latest/seeded-remote', 'ubuntu-latest/seeded-scanner', 'ubuntu-latest/workflow',
+    'windows-latest/core', 'windows-latest/seeded-git', 'windows-latest/seeded-remote', 'windows-latest/seeded-scanner', 'windows-latest/workflow'
+  )
   return (($pairs.Count -eq $expected.Count) -and ((@($pairs | Sort-Object -Unique) -join ',') -eq ($expected -join ',')))
 }
 
@@ -918,7 +922,7 @@ function Invoke-SelftestAll {
   try {
     New-Item -ItemType Directory -Force $aggregateRoot -ErrorAction Stop | Out-Null
     # 两个长分片先占用 CPU/磁盘；短 core 在热路径过后低优先级加入。Windows 上三者同时冷启动会把
-    # 两个关键路径从约 250s 拖到约 390s。CI 仍把三分片放在独立 runner，此错峰只作用于本地 all。
+    # 两个关键路径从约 250s 拖到约 390s。此处仍是本地 all 的三分片；CI 另将 seeded 拆为三个独立 runner。
     foreach ($name in @('seeded', 'workflow')) {
       $snapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot $name) -Name $name -GitExe $gitExe
       $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -Quiet:$Quiet
@@ -1270,6 +1274,22 @@ function Fail($m) {
 }
 $RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime', '.pytest_cache', '.ruff_cache', '.mypy_cache')  # 运行时/工具产物：存在即忽略，非交付物
 $executedGateGroups = [System.Collections.Generic.List[string]]::new()
+
+# v0.45 latency backport: CI splits the formerly 22m34s Windows seeded shard into three independent
+# top-level regions. The legacy `seeded` selector still means the complete gate 17 for local callers.
+function Test-SeededShardRegionSelected([ValidateSet('git','remote','scanner')][string]$Region) {
+  if ($Shard -eq 'seeded') { return $true }
+  return ($Shard -ceq "seeded-$Region")
+}
+
+# Shared by the git region's moving-ref fixture and the scanner region's forced-POSIX regression.
+function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
+  if ($UseWindows) {
+    return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
+  }
+  $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
+  return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
+}
 
 # T44-W6FIXTURES
 function New-InitSmokeCopy([string]$LeafName) {
@@ -3048,10 +3068,34 @@ if ($slCase1 -ne $true -or $slCase2 -ne $false -or $slCase3 -ne $false) {
 # --- 8. init-scaffold 干跑冒烟：拷到临时目录跑 init，核验产出，绝不动元仓 ---
 # 自动化 CLAUDE.md 原本要求人工做的「拷到 scratch 跑 init 确认无残留 {{TOKEN}}」。
 Step '8/17 init-scaffold 干跑冒烟（临时目录，绝不动元仓）'
-# 8.0 脚手架版本元数据：_config ScaffoldVersion 必须是 semver（init 据此戳下游溯源）。
-$svMeta = ([regex]::Match((Get-Content (Join-Path $RepoRoot 'scripts/_config.ps1') -Raw), "ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
-if (-not $svMeta) { Fail '_config.ps1 缺 ScaffoldVersion 字段（溯源戳源）。' }
+# 8.0 脚手架版本元数据：origin 保存首次生成来源，current 保存已裁决上游高水位；两者均为 semver。
+$versionConfigRaw = Get-Content (Join-Path $RepoRoot 'scripts/_config.ps1') -Raw
+$svMeta = ([regex]::Match($versionConfigRaw, "(?m)^\s*ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
+$svOriginMeta = ([regex]::Match($versionConfigRaw, "(?m)^\s*ScaffoldOriginVersion\s*=\s*'([^']*)'")).Groups[1].Value
+if (-not $svMeta) { Fail '_config.ps1 缺 ScaffoldVersion current 字段。' }
 elseif ($svMeta -notmatch '^\d+\.\d+\.\d+$') { Fail "ScaffoldVersion='$svMeta' 非 semver（应 x.y.z）。" }
+if (-not $svOriginMeta) { Fail '_config.ps1 缺 ScaffoldOriginVersion provenance 字段。' }
+elseif ($svOriginMeta -notmatch '^\d+\.\d+\.\d+$') { Fail "ScaffoldOriginVersion='$svOriginMeta' 非 semver（应 x.y.z）。" }
+elseif ($svMeta -match '^\d+\.\d+\.\d+$' -and [version]$svOriginMeta -gt [version]$svMeta) { Fail "ScaffoldOriginVersion '$svOriginMeta' 不得高于 current '$svMeta'。" }
+
+# 8.0b 新建项目 stamping：即使本仓已经 init、完整模板冒烟会跳过，也要用最小真实生成物证明 child origin=current。
+$versionInitRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-version-init-$PID-$([guid]::NewGuid().ToString('N'))"
+try {
+  New-Item -ItemType Directory -Force (Join-Path $versionInitRoot 'scripts') | Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'init-scaffold.ps1') -Destination (Join-Path $versionInitRoot 'init-scaffold.ps1')
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/_config.ps1') -Destination (Join-Path $versionInitRoot 'scripts/_config.ps1')
+  Set-Content -LiteralPath (Join-Path $versionInitRoot 'CLAUDE.template.md') -Value 'generated by scaffold v{{SCAFFOLD_VERSION}}' -Encoding utf8
+  & pwsh -NoProfile -File (Join-Path $versionInitRoot 'init-scaffold.ps1') -ProjectName 'Version Child' -ProjectSlug 'version-child' -GhAccount 'smoke' -Force *> $null
+  $versionInitExit = $LASTEXITCODE
+  $versionChildConfig = Get-Content -LiteralPath (Join-Path $versionInitRoot 'scripts/_config.ps1') -Raw
+  $versionChildOrigin = ([regex]::Match($versionChildConfig, "(?m)^\s*ScaffoldOriginVersion\s*=\s*'([^']*)'")).Groups[1].Value
+  $versionChildCurrent = ([regex]::Match($versionChildConfig, "(?m)^\s*ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
+  if ($versionInitExit -ne 0 -or -not $svMeta -or $versionChildOrigin -cne $svMeta -or $versionChildCurrent -cne $svMeta) {
+    Fail "8.0b init stamping：child origin/current 应都等于源树 current '$svMeta'，实得 origin='$versionChildOrigin' current='$versionChildCurrent' exit=$versionInitExit。"
+  } else { Write-Host "  8.0b init child origin=current=$svMeta OK" -ForegroundColor Green }
+} finally {
+  Remove-Item -LiteralPath $versionInitRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # 8.0c CHANGELOG ↔ ScaffoldVersion 一致（TD12/C04「CHANGELOG.md 按 ScaffoldVersion」机械化）：
 #   CHANGELOG.md 顶层版本条目（## [x.y.z]）须 == _config 的 ScaffoldVersion——否则 bump 了版本却漏更 CHANGELOG，
@@ -3352,12 +3396,12 @@ if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
 }
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
-  Fail '8.2e：scaffold-selftest.yml 的 2 OS×3 分片、runner、脚本参数或 lint 依赖接线不完整。'
+  Fail '8.2e：scaffold-selftest.yml 的 2 OS×5 分片、runner、脚本参数或 lint 依赖接线不完整。'
 } elseif ((Get-SelftestAggregateExitCode @(0, 0, 0)) -ne 0 -or (Get-SelftestAggregateExitCode @(0, 1, 0)) -ne 1) {
   Fail '8.2e：selftest all 聚合器未 fail-closed（全绿须 0，任一红须 1）。'
 } else {
-  $missingPairMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: ubuntu-latest\s*\r?\n\s{12}shard: seeded\s*\r?\n?', '', 1)
-  $excludeMutation = $selftestWorkflow -replace '(?m)^(\s{8}include:\s*)$', "`$1`n        exclude:`n          - os: ubuntu-latest`n            shard: seeded"
+  $missingPairMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: ubuntu-latest\s*\r?\n\s{12}shard: seeded-scanner\s*\r?\n?', '', 1)
+  $excludeMutation = $selftestWorkflow -replace '(?m)^(\s{8}include:\s*)$', "`$1`n        exclude:`n          - os: ubuntu-latest`n            shard: seeded-scanner"
   $runnerMutation = $selftestWorkflow -replace '(?m)^\s{4}runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}\s*$', '    runs-on: windows-latest'
   $allCoreMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
   $runShardMutation = $selftestWorkflow -replace '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$', '        run: pwsh -NoProfile -File scripts/selftest.ps1'
@@ -3512,7 +3556,7 @@ exit 0
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
     Remove-Item -LiteralPath $aggFixture, $aggLogs, $aggOrigin -Recurse -Force -ErrorAction SilentlyContinue
   }
-  if (-not $fail) { Write-Host '  8.2e 6 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
+  if (-not $fail) { Write-Host '  8.2e 10 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
 }
 
 if ($isPostInit) {
@@ -5466,7 +5510,7 @@ else {
 
 }
 
-if ($Shard -eq 'seeded') {
+if (Test-SeededShardRegionSelected -Region 'git') {
 # 17gg（TD21）：CLAUDE 当前阶段只指向活卡/归档真相源，不手抄会随 create/archive 立即漂移的库存数字。
 # 只解析「当前阶段」内同时含 `任务卡` + `specs/tasks/` 的唯一库存句；历史交付叙事里的任务卡数量不属于库存、不得误伤。
 function Test-CurrentStageTaskInventory([string]$Root) {
@@ -7659,8 +7703,14 @@ else {
 
 }
 
-if ($Shard -eq 'seeded') {
-[void]$executedGateGroups.Add('seeded:17')
+if ($Shard -in @('seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')) {
+$seededExecutedGroup = switch ($Shard) {
+  'seeded-git' { 'seeded:17-git' }
+  'seeded-remote' { 'seeded:17-remote' }
+  'seeded-scanner' { 'seeded:17-scanner' }
+  default { 'seeded:17' }
+}
+[void]$executedGateGroups.Add($seededExecutedGroup)
 # --- 17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂已知坏输入，断言它确实 BLOCK ---
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
@@ -7671,13 +7721,14 @@ $seededGitAvailable = if ($noGitFixtureChild) {
   [bool](Get-Command git -ErrorAction SilentlyContinue)
 }
 $runSeededGitGates = Invoke-SelftestSeededGitRouting -GitAvailable $seededGitAvailable
-if (-not $runSeededGitGates) {
+$runSeededGitRegion = Test-SeededShardRegionSelected -Region 'git'
+if ($runSeededGitRegion -and -not $runSeededGitGates) {
   if ($noGitFixtureChild) {
     Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=SKIP"
     Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
     exit 0
   }
-} else {
+} elseif ($runSeededGitRegion) {
   if ($noGitFixtureChild) {
     Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=RUN"
     Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
@@ -9488,15 +9539,8 @@ exit $realExit
 '@
       $acMoveShimScript = Join-Path $acMoveShim 'git-shim.ps1'
       Set-Content $acMoveShimScript $acMoveShimBody -Encoding utf8
-      # Keep the two platform wrappers in one local emitter. TD27's forced-POSIX probe below passes an
-      # independently located absolute shim path; only the extensionless POSIX body embeds that safe literal.
-      function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
-        if ($UseWindows) {
-          return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
-        }
-        $quotedShimScript = "'" + $ShimScript.Replace("'", "''") + "'"
-        return (@('#!/usr/bin/env pwsh', "& $quotedShimScript @args", 'exit $LASTEXITCODE') -join "`n")
-      }
+      # The shared wrapper emitter is hoisted above the seeded region selectors because the scanner
+      # sub-shard also consumes it in the forced-POSIX regression.
       $acMoveWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $acMoveShimScript -UseWindows $IsWindows
       if ($IsWindows) {
         Set-Content -LiteralPath (Join-Path $acMoveShim 'git.ps1') -Value $acMoveWrapperBody -Encoding utf8
@@ -10698,6 +10742,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
   }
 }
 
+if (Test-SeededShardRegionSelected -Region 'remote') {
 # ── 17z. R3 模型/推理档位钉在**项目**配置，且**真送达**后端 ──
 #   动机（实证 2026-07-10）：Codex 桌面应用改写**用户级** ~/.codex/config.toml 的 model，
 #   使评审者启动即 400 → review.ps1 fail-closed block → 合并闸对所有 PR 静默失效（根因在仓库之外）。
@@ -11850,7 +11895,9 @@ exit 0
   }
 }
 }
+}
 
+if (Test-SeededShardRegionSelected -Region 'scanner') {
 # ── 17cc/17dd（T0-GATE-HARDENING）+ 17cc(case)/17ee（T0-GATE-FIXFORWARD）：许可闸 Gradle 清单递归发现
 #   （含 libs.versions.toml）+ verify.ps1 --no-daemon + 路径比较大小写语义跟随文件系统 + 发布清单 Gradle
 #   阻断项单一解锁，各配单句删除变异。判据一律走独立子进程 + 专属断言 MARKER：子进程内部完成
@@ -11949,7 +11996,7 @@ function Invoke-Td27PosixShimProbe([string]$HarnessPath, [string]$ExpectedReceip
   return [PSCustomObject]@{ Exit = $semanticExit; StdOut = "MARKER:${MarkerId}:$code`nRAW_EXIT=$rawExit`n$raw"; RawExit = $rawExit; Raw = $raw }
 }
 
-if ($Shard -eq 'seeded') {
+if (Test-SeededShardRegionSelected -Region 'scanner') {
   # 17ac(TD27). Force the extensionless POSIX body through pwsh even on Windows. The shim target deliberately
   # lives in a different directory with whitespace and an apostrophe, so PSScriptRoot/current-directory fallback
   # cannot accidentally pass. The real Linux shebang+chmod path remains covered by 17ac(moving-ref) above.
@@ -13086,10 +13133,15 @@ else { Write-Host '  17cc/17dd/17ee 收尾：真实 check-licenses.ps1 / verify.
 
 }
 
+}
+
 $expectedGateGroups = @(switch ($Shard) {
   'core' { 'core:1-14'; 'core:16' }
   'workflow' { 'workflow:15' }
   'seeded' { 'seeded:17' }
+  'seeded-git' { 'seeded:17-git' }
+  'seeded-remote' { 'seeded:17-remote' }
+  'seeded-scanner' { 'seeded:17-scanner' }
 })
 if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
   Fail "分片执行组不完整：Shard=$Shard，实际=$($executedGateGroups -join ',')，期望=$($expectedGateGroups -join ',')。"
