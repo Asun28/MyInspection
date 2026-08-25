@@ -867,10 +867,14 @@ if ($Suite -eq 'integration') {
         ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'uv run --with pip-licenses==5.5.5 pip-licenses --version' -and
         (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path pyproject.toml') -RequiredIfConditions @('Test-Path pyproject.toml'))
       }).Count
+      $npmDependencyRuns = @($provisionCommands | Where-Object {
+        ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'npm ci --prefix frontend --ignore-scripts --no-audit --no-fund' -and
+        (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path frontend/package.json', 'Test-Path frontend/package-lock.json') -RequiredIfConditions @('Test-Path frontend/package.json', 'Test-Path frontend/package-lock.json'))
+      })
       $npmProvisionRuns = @($provisionCommands | Where-Object {
         ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1' -and
-        (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path frontend/package.json') -RequiredIfConditions @('Test-Path frontend/package.json'))
-      }).Count
+        (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path frontend/package.json', 'Test-Path frontend/package-lock.json') -RequiredIfConditions @('Test-Path frontend/package.json', 'Test-Path frontend/package-lock.json'))
+      })
       $handoffProvisionRuns = @($provisionCommands | Where-Object {
         ($_.Extent.Text -replace '\s+', ' ').Trim() -ceq 'pwsh -NoProfile -File scripts/license-scanner-check.ps1 -Suite provision-handoff' -and
         (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @('Test-Path pyproject.toml') -RequiredIfConditions @('Test-Path pyproject.toml'))
@@ -878,9 +882,10 @@ if ($Suite -eq 'integration') {
       if (-not $provisionKeys.Contains('if') -or $provisionKeys['if'] -cne $expectedGateCondition -or
           -not $provisionKeys.Contains('shell') -or $provisionKeys['shell'] -cne 'pwsh' -or
           $provisionUvCaches.Count -ne 1 -or $provisionUvCaches[0] -cne $expectedUvCache -or
-          $provisionErrors.Count -ne 0 -or $uvProvisionRuns -ne 1 -or $npmProvisionRuns -ne 1 -or
+          $provisionErrors.Count -ne 0 -or $uvProvisionRuns -ne 1 -or $npmDependencyRuns.Count -ne 1 -or
+          $npmProvisionRuns.Count -ne 1 -or $npmDependencyRuns[0].Extent.EndOffset -ge $npmProvisionRuns[0].Extent.StartOffset -or
           $handoffProvisionRuns -ne 1) {
-        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must execute exact pins and the real uv handoff suite under their manifest guards, warm the isolated versioned uv cache, and share the docs-only condition')
+        $found.Add('[INTEGRATION-CI-ACTIVE] online provisioning must install the locked frontend dependency tree before the exact scanner pin, execute the real uv handoff suite under manifest guards, warm the isolated versioned uv cache, and share the docs-only condition')
       }
     }
     if ($stepLine.ContainsKey('E2E verify gate')) {
@@ -998,6 +1003,8 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-strict-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?m)^(?<head>[ \t]*if \(Test-Path \$f\) \{ pwsh -NoProfile -File \$f)[ \t]+-Strict(?<tail>[ \t]*\} else \{.*)$' },
     @{ Id = 'ci-provision-pip-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*uv run --with pip-licenses==)5\.5\.5(?: pip-licenses --version[ \t]*)$'; Text = '6.0.0a1 pip-licenses --version' },
     @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
+    @{ Id = 'ci-provision-app-deps-deleted'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*npm ci --prefix frontend --ignore-scripts --no-audit --no-fund[ \t]*\r?\n' },
+    @{ Id = 'ci-provision-app-deps-moved-after-scanner'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = '(?m)^[ \t]*npm ci --prefix frontend --ignore-scripts --no-audit --no-fund[ \t]*\r?$'; AnchorPattern = '(?m)^[ \t]*npm install --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*\r?$' },
     @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
     @{ Id = 'ci-provision-npm-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>npm install --no-save --package-lock=false --ignore-scripts license-checker@25\.0\.1[ \t]*)$' },
     @{ Id = 'ci-provision-handoff-deleted'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'delete'; Pattern = '(?m)^[ \t]*pwsh -NoProfile -File scripts/license-scanner-check\.ps1 -Suite provision-handoff[ \t]*\r?\n' },
@@ -1234,35 +1241,57 @@ if ($Suite -eq 'integration') {
     $handoffScripts = Join-Path $handoffRoot 'scripts'
     $handoffFrontend = Join-Path $handoffRoot 'frontend'
     $handoffPackage = Join-Path $handoffRoot 'fixture-license-checker'
+    $handoffAppPackage = Join-Path $handoffRoot 'fixture-app-dep'
     $handoffCache = Join-Path $handoffRoot 'npm-cache'
     $handoffMarker = Join-Path $handoffRoot 'license-checker-invoked.txt'
     $priorNpmCacheHandoff = [Environment]::GetEnvironmentVariable('npm_config_cache', 'Process')
     $priorNpmOfflineHandoff = [Environment]::GetEnvironmentVariable('npm_config_offline', 'Process')
     $priorHandoffMarker = [Environment]::GetEnvironmentVariable('LICENSE_CHECKER_HANDOFF_MARKER', 'Process')
     try {
-      New-Item -ItemType Directory -Force -Path $handoffScripts, $handoffFrontend, $handoffPackage, $handoffCache | Out-Null
+      New-Item -ItemType Directory -Force -Path $handoffScripts, $handoffFrontend, $handoffPackage, $handoffAppPackage, $handoffCache | Out-Null
       foreach ($sibling in @('check-licenses.ps1', '_config.ps1', '_unicode.ps1', '_encoding.ps1')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$sibling") -Destination (Join-Path $handoffScripts $sibling)
       }
-      Set-Content -LiteralPath (Join-Path $handoffFrontend 'package.json') -Encoding utf8 -Value '{"name":"handoff-app","private":true}'
+      Set-Content -LiteralPath (Join-Path $handoffFrontend 'package.json') -Encoding utf8 -Value '{"name":"handoff-app","private":true,"dependencies":{"fixture-app-dep":"file:../fixture-app-dep"}}'
+      Set-Content -LiteralPath (Join-Path $handoffAppPackage 'package.json') -Encoding utf8 -Value '{"name":"fixture-app-dep","version":"1.0.0","license":"MIT"}'
       Set-Content -LiteralPath (Join-Path $handoffPackage 'package.json') -Encoding utf8 -Value '{"name":"license-checker","version":"25.0.1","bin":{"license-checker":"cli.js"}}'
       Set-Content -LiteralPath (Join-Path $handoffPackage 'cli.js') -Encoding utf8 -Value @'
 #!/usr/bin/env node
 const fs = require('fs');
-fs.writeFileSync(process.env.LICENSE_CHECKER_HANDOFF_MARKER, 'invoked');
-process.stdout.write('{}');
+const path = require('path');
+const startIndex = process.argv.indexOf('--start');
+const start = startIndex >= 0 ? process.argv[startIndex + 1] : '';
+const dep = path.join(start, 'node_modules', 'fixture-app-dep', 'package.json');
+if (!start || !fs.existsSync(dep)) {
+  process.stderr.write('fixture app dependency missing from --start tree');
+  process.exit(31);
+}
+fs.writeFileSync(process.env.LICENSE_CHECKER_HANDOFF_MARKER, 'fixture-app-dep@1.0.0');
+process.stdout.write(JSON.stringify({'fixture-app-dep@1.0.0': {licenses: 'MIT'}}));
 '@
       $env:npm_config_cache = $handoffCache
       $env:npm_config_offline = 'true'
       $env:LICENSE_CHECKER_HANDOFF_MARKER = $handoffMarker
-      $handoffInstallOutput = (& npm install --prefix $handoffRoot --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String)
-      $handoffInstallExit = $LASTEXITCODE
-      $handoffResult = if ($handoffInstallExit -eq 0) {
+      $handoffLockOutput = (& npm install --prefix $handoffFrontend --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | Out-String)
+      $handoffLockExit = $LASTEXITCODE
+      $handoffCiOutput = if ($handoffLockExit -eq 0) { (& npm ci --prefix $handoffFrontend --ignore-scripts --no-audit --no-fund 2>&1 | Out-String) } else { '' }
+      $handoffCiExit = if ($handoffLockExit -eq 0) { $LASTEXITCODE } else { $handoffLockExit }
+      $handoffInstallOutput = if ($handoffCiExit -eq 0) { (& npm install --prefix $handoffRoot --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String) } else { '' }
+      $handoffInstallExit = if ($handoffCiExit -eq 0) { $LASTEXITCODE } else { $handoffCiExit }
+      $handoffResult = if ($handoffLockExit -eq 0 -and $handoffCiExit -eq 0 -and $handoffInstallExit -eq 0) {
         Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
       } else { [pscustomobject]@{ ExitCode = $handoffInstallExit; Output = $handoffInstallOutput } }
       Assert-Integration (
-        $handoffInstallExit -eq 0 -and $handoffResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $handoffMarker)
-      ) "[INTEGRATION-NPM-HANDOFF] repository-root warm-up did not feed the real offline npx scan (install=$handoffInstallExit scan=$($handoffResult.ExitCode) marker=$([bool](Test-Path -LiteralPath $handoffMarker))): install=[$handoffInstallOutput] scan=[$($handoffResult.Output)]"
+        $handoffLockExit -eq 0 -and $handoffCiExit -eq 0 -and $handoffInstallExit -eq 0 -and
+        $handoffResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $handoffMarker) -and
+        (Get-Content -LiteralPath $handoffMarker -Raw) -ceq 'fixture-app-dep@1.0.0'
+      ) "[INTEGRATION-NPM-HANDOFF] locked app dependency tree + repository-root scanner warm-up did not feed the real offline scan (lock=$handoffLockExit ci=$handoffCiExit install=$handoffInstallExit scan=$($handoffResult.ExitCode)): lock=[$handoffLockOutput] ci=[$handoffCiOutput] install=[$handoffInstallOutput] scan=[$($handoffResult.Output)]"
+      Remove-Item -LiteralPath (Join-Path $handoffFrontend 'node_modules') -Recurse -Force
+      Remove-Item -LiteralPath $handoffMarker -Force
+      $missingModulesResult = Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
+      Assert-Integration (
+        $missingModulesResult.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $handoffMarker)
+      ) "[INTEGRATION-NPM-NODE-MODULES] missing frontend/node_modules did not fail the real strict offline scan (exit=$($missingModulesResult.ExitCode)): $($missingModulesResult.Output)"
     } finally {
       if ($null -eq $priorNpmCacheHandoff) { Remove-Item Env:npm_config_cache -ErrorAction SilentlyContinue } else { $env:npm_config_cache = $priorNpmCacheHandoff }
       if ($null -eq $priorNpmOfflineHandoff) { Remove-Item Env:npm_config_offline -ErrorAction SilentlyContinue } else { $env:npm_config_offline = $priorNpmOfflineHandoff }

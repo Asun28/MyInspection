@@ -190,8 +190,12 @@ jobs:
             if ($LASTEXITCODE -ne 0) { Write-Error "real uv handoff proof failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
           }
           if (Test-Path frontend/package.json) {
-            npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1
-            if ($LASTEXITCODE -ne 0) { Write-Error "license-checker provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+            if (Test-Path frontend/package-lock.json) {
+              npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+              if ($LASTEXITCODE -ne 0) { Write-Error "frontend dependency provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+              npm install --no-save --package-lock=false --ignore-scripts license-checker@25.0.1
+              if ($LASTEXITCODE -ne 0) { Write-Error "license-checker provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+            } else { Write-Error 'frontend/package-lock.json missing; cannot audit an unlocked dependency tree'; exit 1 }
           }
 
       - name: License gate

@@ -126,7 +126,9 @@
    fail-closed。CI 先安装精确版本 `uv==0.7.9`，再在独立在线步骤以精确版本
    `pip-licenses==5.5.5` / `license-checker@25.0.1` 预热工具：
    uv 使用仅供该 job 的版本化 `UV_CACHE_DIR`，且预热与闸门复用同一目录；npm 工具安装在仓根
-   `node_modules`，与扫描器的仓根 cwd 一致，因此离线 `npx` 可确定性解析预热版本。
+   `node_modules`，与扫描器的仓根 cwd 一致，因此离线 `npx` 可确定性解析预热版本；若有
+   `frontend/package.json`，还必须有 lockfile，并先以 `npm ci --prefix frontend --ignore-scripts --no-audit --no-fund`
+   安装锁定的应用依赖树。缺 lockfile、`frontend/node_modules` 或任一安装失败均不得进入假绿扫描。
    真实 uv 的空缓存预热→离线扫描交接证明只由该在线步骤调用 `-Suite provision-handoff`；常规
    integration / seeded selftest 不运行这条联网证明。
    License gate 以 `-Strict` 执行，并与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
