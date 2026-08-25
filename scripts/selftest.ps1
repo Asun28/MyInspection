@@ -4241,9 +4241,21 @@ elseif ($wireTask -match '(?m)^\s*[^#\r\n]*Get-Yaml(Block)?ListItems') { Fail '�
 else { Write-Host '  种子缺陷 10d(接线/_scope+task) OK：判定核接的是块式专用取值器、核内无宽取值器，task.ps1 经共享核取值且不再自行解析（变异必红）' -ForegroundColor Green }
 $wireTriage = @(Select-String -Path (Join-Path $RepoRoot 'scripts/triage.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
 $wireArchive = @(Select-String -Path (Join-Path $RepoRoot 'scripts/archive.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
-if ($wireTriage -ne 3) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 3（三个探针：cards-active / handoff-open / worktree-orphan）——有探针退回手写正则或被删。" }
+if ($wireTriage -ne 4) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 4（四个探针：cards-active / handoff-open / worktree-orphan / delivery-blocked）——有探针退回手写正则或被删。" }
 elseif ($wireArchive -lt 1) { Fail "闸10d(接线/archive)：archive.ps1 未调用共享 Get-FrontMatter——Get-CardField 退回手写正则。" }
-else { Write-Host '  种子缺陷 10d(接线/triage+archive) OK：三个 triage 探针与 archive 取值器均走共享锚定解析器' -ForegroundColor Green }
+else { Write-Host "  种子缺陷 10d(接线/triage+archive) OK：$wireTriage 个 triage 探针与 archive 取值器均走共享锚定解析器" -ForegroundColor Green }
+# 10d(接线/review→triage)：`delivery-blocked` 的归属判据横跨两个脚本——triage.ps1 读裁决里的 `branch`，
+#   而写它的是 review.ps1，中间没有任何东西把两端钉住。review.ps1 不在本卡 allow_paths，故这里只立**静态**
+#   断言、不动它：裁决必须带 `branch` 字段，且该字段取自 `git rev-parse --abbrev-ref HEAD`（**分支名**，
+#   不是 `refs/heads/…` 那种 ref 路径，也不是 sha——那些值与卡 id 永不相等，归属第一道会把每份裁决都判成
+#   「不是本卡」，探针遂静默退回文件名兜底或干脆漏报）。任一端漂移，`delivery-blocked` 都只是安静下来，
+#   而一个安静的 reporter 读起来恰恰像「什么都没堵着」。
+$wireReview = Get-Content (Join-Path $RepoRoot 'scripts/review.ps1') -Raw
+if ($wireReview -notmatch '(?m)^\s*\$branch\s*=\s*\(&\s*git[^\r\n]*rev-parse\s+--abbrev-ref\s+HEAD\)') {
+  Fail '闸10d(接线/review→triage)：review.ps1 不再用 `git rev-parse --abbrev-ref HEAD` 取分支名——triage 探针 11 的 branch 归属判据要求该值是**分支名**（ref 路径 / sha 与卡 id 永不相等，归属会把每份裁决都判成别人的）。'
+} elseif ($wireReview -notmatch '(?m)branch\s*=\s*\$branch\b') {
+  Fail '闸10d(接线/review→triage)：review.ps1 写裁决时不再落 branch 字段——triage 探针 11 只剩文件名兜底，隔壁分支留在同一 .review 里的 block 会被算到本卡头上，或本卡的 block 因文件名不符而静默漏报。'
+} else { Write-Host '  种子缺陷 10d(接线/review→triage) OK：裁决带 branch 字段且取自 git rev-parse --abbrev-ref HEAD（探针 11 的归属判据两端对得上）' -ForegroundColor Green }
 # 10d(锚定/纯函数)：闸 10c 从 check-cards 侧证锚定，但 check-cards 在 master 上本来就是锚定的——
 # 真正**改了行为**的是 task.ps1:459 与 triage 三处（原为未锚定）。它们现在共用本函数，故直接证本函数：
 # front-matter 内一行「以 --- 开头但有尾随文字」不得被当作闭合符，其后的键仍须可见。
@@ -4514,14 +4526,26 @@ try {
   Remove-Item $tmpLedger -Force -ErrorAction SilentlyContinue
   Remove-Item Env:SCAFFOLD_EFFECTIVENESS_LEDGER -ErrorAction SilentlyContinue
 }
-# 12c. triage selfcheck 常设接线（TD23）：PR #26 引入的 hermetic 探针自测（探针 4 跨 worktree，临时夹具）
+# 12c. triage selfcheck 常设接线（TD23）：探针 1/4/5/10/11 的 hermetic 自测（含探针 4 跨 worktree）
 #   此前「可跑不被跑」；接进常设闸使改探针即回归。triage 退出码恒 0（reporter 契约），故同 12b 只断言输出——
 #   且钉**末行**（selfcheck 的 PASS/FAIL 总结行恒为最后输出）：防「输出里早处出现 PASS、随后才报错」的假绿。
-$selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
+#   用命令级 Git 配置注入强制签名，证明夹具提交显式覆盖用户/系统签名设置（R3 #137）。
+$gitConfigNames12c = @('GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0')
+$gitConfigBefore12c = @{}
+foreach ($name12c in $gitConfigNames12c) { $gitConfigBefore12c[$name12c] = [Environment]::GetEnvironmentVariable($name12c, 'Process') }
+try {
+  $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'commit.gpgSign'; $env:GIT_CONFIG_VALUE_0 = 'true'
+  $selfcheckOut = & pwsh -NoProfile -File $triagePath selfcheck 2>&1 | Out-String
+} finally {
+  foreach ($name12c in $gitConfigNames12c) {
+    $before12c = $gitConfigBefore12c[$name12c]
+    if ($null -eq $before12c) { Remove-Item "Env:$name12c" -ErrorAction SilentlyContinue } else { Set-Item "Env:$name12c" $before12c }
+  }
+}
 $selfcheckLines = @($selfcheckOut -split "`r?`n" | ForEach-Object { ($_ -replace "`e\[[0-9;]*m", '').Trim() } | Where-Object { $_ -ne '' })   # 去 ANSI 色码 + 空行（防终端差异）
 $selfcheckLast = if ($selfcheckLines.Count) { $selfcheckLines[-1] } else { '' }
 if ($selfcheckLast -notmatch '^triage selfcheck: PASS') { Fail "triage selfcheck 未过（期望末行为 'triage selfcheck: PASS…'，实际末行「$selfcheckLast」）：`n$selfcheckOut" }
-else { Write-Host '  triage selfcheck OK（探针 4 hermetic 自检：末行 PASS）' }
+else { Write-Host '  triage selfcheck OK（探针 1/4/5/10/11 hermetic 自检：敌意 Git 配置下末行 PASS）' }
 
 # 12d. tech-debt 探针（探针2）位置解析硬化（TD57/TD-120）：旧码硬编码 `$cells[5]` 为状态列、且用朴素
 #   `.Split('|')` 分列——单元格内出现字面竖线（如位置列 backtick 代码片段里的正则析取 `a\|b`）会
@@ -4536,6 +4560,9 @@ if (Test-Path $td12) { Remove-Item -Recurse -Force $td12 }
 New-Item -ItemType Directory -Force (Join-Path $td12 'scripts') | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $td12 'specs') | Out-Null
 Copy-Item $triagePath (Join-Path $td12 'scripts/triage.ps1') -Force
+# L229：新加的 dot-source 库必须进每一份**选择性**夹具拷贝清单——triage.ps1 现在还 dot-source _lessons.ps1
+# （必须层驻留 id + enforced_by 的共享判定核）。漏拷不是「少测一点」，是夹具在加载期就崩、整闸红得看不出病因。
+Copy-Item (Join-Path $PSScriptRoot '_lessons.ps1') (Join-Path $td12 'scripts/_lessons.ps1') -Force
 Copy-Item (Join-Path $PSScriptRoot '_cards.ps1') (Join-Path $td12 'scripts/_cards.ps1') -Force
 $tdFixture = @(
   '# Fixture 技术债追踪器（选顶 12d · TD57/TD-120 种子缺陷）', '',
