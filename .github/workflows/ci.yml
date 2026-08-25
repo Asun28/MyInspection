@@ -208,7 +208,7 @@ jobs:
           $env:UV_OFFLINE = '1'
           $env:npm_config_offline = 'true'
           $f = 'scripts/check-licenses.ps1'
-          if (Test-Path $f) { pwsh -NoProfile -File $f } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
+          if (Test-Path $f) { pwsh -NoProfile -File $f -Strict } else { Write-Error 'check-licenses.ps1 missing (gate removed?)'; exit 1 }
 
       - name: E2E verify gate
         if: ${{ steps.docs_scope.outputs.docs_only != 'true' }}

@@ -129,7 +129,7 @@
    `node_modules`，与扫描器的仓根 cwd 一致，因此离线 `npx` 可确定性解析预热版本。
    真实 uv 的空缓存预热→离线扫描交接证明只由该在线步骤调用 `-Suite provision-handoff`；常规
    integration / seeded selftest 不运行这条联网证明。
-   License gate 与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
+   License gate 以 `-Strict` 执行，并与 integration 真实扫描随后对 uv 设置 `UV_OFFLINE=1`、对 npm 设置
    `npm_config_offline=true`，Gradle 继续使用 `--offline --no-daemon`。三种生态在扫描阶段均禁止网络，
    缓存或工具缺失即 fail-closed；integration 的冷缓存探针会验证工具确实被调用且没有 outbound attempt。
 2. 模型/权重/数据/字体/素材**逐项**记录到 §3/§4 表（自动许可扫描不覆盖这些资产）。

@@ -843,6 +843,11 @@ if ($Suite -eq 'integration') {
           (Get-LiveLiteralAssignmentValueBefore -Root $runAst -Target $_ -VariableName 'env:npm_config_offline') -ceq 'true'
         }).Count -ne $scannerRuns.Count) {
           $found.Add('[INTEGRATION-CI-SCANNER] License gate must set UV_OFFLINE=1 and npm_config_offline=true before the scanner so uv/npx cannot make network requests')
+        } elseif (@($scannerRuns | Where-Object {
+          $strict = Get-BoundParameter -Command $_ -Name 'Strict'
+          $null -eq $strict -or ($null -ne $strict.Argument -and $strict.Argument.Extent.Text -cne '$true')
+        }).Count -ne 0) {
+          $found.Add('[INTEGRATION-CI-SCANNER] License gate must execute check-licenses.ps1 with the enabled -Strict switch so every coverage gap fails closed')
         }
       }
     }
@@ -988,6 +993,9 @@ if ($Suite -eq 'integration') {
     @{ Id = 'ci-scanner-uv-offline-moved-after'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = "(?m)^[ \t]*\`$env:UV_OFFLINE[ \t]*=[ \t]*'1'[ \t]*\r?$"; AnchorPattern = '(?m)^[ \t]*if \(Test-Path \$f\).*check-licenses\.ps1.*\r?$' },
     @{ Id = 'ci-scanner-npm-offline-dead-guard'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = "(?m)^(?<keep>[ \t]*)(?<body>\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*)$" },
     @{ Id = 'ci-scanner-npm-offline-moved-after'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'move-after-line'; Pattern = "(?m)^[ \t]*\`$env:npm_config_offline[ \t]*=[ \t]*'true'[ \t]*\r?$"; AnchorPattern = '(?m)^[ \t]*if \(Test-Path \$f\).*check-licenses\.ps1.*\r?$' },
+    # Break caught: offline mode turns a cold/missing PyPI or npm cache into a coverage gap; without -Strict the
+    # scanner reports that gap but exits zero, so CI can claim a successful license audit after scanning nothing.
+    @{ Id = 'ci-scanner-strict-removed'; Codes = @('INTEGRATION-CI-SCANNER'); Target = 'Workflow'; Kind = 'strip-token'; Pattern = '(?m)^(?<head>[ \t]*if \(Test-Path \$f\) \{ pwsh -NoProfile -File \$f)[ \t]+-Strict(?<tail>[ \t]*\} else \{.*)$' },
     @{ Id = 'ci-provision-pip-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*uv run --with pip-licenses==)5\.5\.5(?: pip-licenses --version[ \t]*)$'; Text = '6.0.0a1 pip-licenses --version' },
     @{ Id = 'ci-provision-npm-pin-drift'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'replace-line'; Pattern = '(?m)^(?<keep>[ \t]*npm install --no-save --package-lock=false --ignore-scripts license-checker@)25\.0\.1[ \t]*$'; Text = '24.0.0' },
     @{ Id = 'ci-provision-pip-dead-guard'; Codes = @('INTEGRATION-CI-ACTIVE'); Target = 'Workflow'; Kind = 'wrap-false-indented'; Pattern = '(?m)^(?<keep>[ \t]*)(?<body>uv run --with pip-licenses==5\.5\.5 pip-licenses --version[ \t]*)$' },
