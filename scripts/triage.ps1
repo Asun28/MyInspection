@@ -339,6 +339,15 @@ function Invoke-ProbeLessonsDemote {
 # 刻意**离线**、不调 gh：心跳不把外部信号当决策（docs/LOOP-ENGINEERING.md），而这个信号本就不需要网络——
 # review.ps1 每次跑都把归一化裁决写进 <worktree>/.review/<分支>.json。severity 取 blocking（既有排序表的最高档），
 # 于是「交付停摆」排在一切自我维护发现之上，无须新增排序码。
+function Get-ScaffoldRepositoryHead {
+  param([Parameter(Mandatory)][string]$Path)
+  try {
+    $head = (& git -C $Path rev-parse HEAD 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $head -cmatch '^[0-9a-f]{40}$') { return $head }
+  } catch { }
+  return $null
+}
+
 function Invoke-ProbeDeliveryBlocked {
   if (-not (Test-Path $TasksDir)) { return }
   $wtRoot = $null
@@ -355,13 +364,20 @@ function Invoke-ProbeDeliveryBlocked {
     $id = [IO.Path]::GetFileNameWithoutExtension($c.FullName)
     # 卡自己的 worktree 存着为它写过的每一份裁决；主检出里那份按分支名落盘（-Local ship），
     # 故在主检出只有 <id>.json 可能属于本卡。
-    $files = @()
+    $evidenceFiles = @()
     if ($wtRoot) {
-      $wtReview = Join-Path (Join-Path $wtRoot $id) '.review'
-      if (Test-Path $wtReview) { $files += @(Get-ChildItem $wtReview -Filter *.json -ErrorAction SilentlyContinue) }
+      $cardWorktree = Join-Path $wtRoot $id
+      $wtReview = Join-Path $cardWorktree '.review'
+      if (Test-Path $wtReview) {
+        $evidenceFiles += @(Get-ChildItem $wtReview -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
+          [pscustomobject]@{ File = $_; Root = $cardWorktree; SourceRank = 0 }
+        })
+      }
     }
     $localReview = Join-Path (Join-Path $RepoRoot '.review') "$id.json"
-    if (Test-Path $localReview) { $files += @(Get-Item $localReview) }
+    if (Test-Path $localReview) {
+      $evidenceFiles += [pscustomobject]@{ File = (Get-Item $localReview); Root = $RepoRoot; SourceRank = 1 }
+    }
     # 两条取证路径会互相干扰，各有一种坏法：
     #   ① **同一份裁决被数两次**——卡的 worktree 恰是主检出时，通配与按 id 拼出的路径指向同一个文件；
     #   ② **捞到别人的 block**——worktree 侧是 `*.json` 通配，别的分支在同一 .review 里留下的裁决会被当成本卡的。
@@ -372,23 +388,32 @@ function Invoke-ProbeDeliveryBlocked {
     # **唯一真会变的是大小写**。去重与 branchless 旧产物的文件名归属都走运行 OS 的路径语义；
     # branch/verdict 则是 JSON schema 字段，始终逐字精确，不能借文件系统语义放宽。
     $seenPath = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+    $headByRoot = [System.Collections.Generic.Dictionary[string,string]]::new($pathComparer)
     $verdictCandidates = @()
-    foreach ($vf in $files) {
+    foreach ($evidence in $evidenceFiles) {
+      $vf = $evidence.File
       if (-not $seenPath.Add($vf.FullName)) { continue }   # ① 同一文件只算一次
-      $verdict = ''; $reasons = 0; $owner = ''
+      $verdict = ''; $reasons = 0; $owner = ''; $artifactSha = ''
       try {
         $o = Get-Content $vf.FullName -Raw | ConvertFrom-Json
         if ($o -and ($o.PSObject.Properties.Name -contains 'verdict')) { $verdict = [string]$o.verdict }
         if ($o -and ($o.PSObject.Properties.Name -contains 'reasons')) { $reasons = @($o.reasons).Count }
         if ($o -and ($o.PSObject.Properties.Name -contains 'branch'))  { $owner   = [string]$o.branch }
+        if ($o -and ($o.PSObject.Properties.Name -contains 'sha'))     { $artifactSha = [string]$o.sha }
       } catch { continue }   # 一份读不出的裁决绝不能把心跳带崩（同探针 8 的 fail-safe 契约）
+      if (-not $headByRoot.ContainsKey($evidence.Root)) {
+        $resolvedHead = Get-ScaffoldRepositoryHead -Path $evidence.Root
+        $headByRoot[$evidence.Root] = if ($resolvedHead) { $resolvedHead } else { '' }
+      }
+      if (-not $artifactSha -or -not [string]::Equals($artifactSha, $headByRoot[$evidence.Root], [System.StringComparison]::Ordinal)) { continue }
       # ② 归属：review.ps1 会把被审分支写进 branch，按它判；旧产物无该字段时退回文件名（<id>.json 即本卡命名）。
       # 判不出归属就跳过——reporter 宁可漏报，也不该拿别人的 block 冤枉本卡（假阳性会把注意力引向错的地方）。
       if ($owner) { if (-not [string]::Equals($owner, $id, [System.StringComparison]::Ordinal)) { continue } }
       elseif (-not $pathComparer.Equals([IO.Path]::GetFileNameWithoutExtension($vf.Name), $id)) { continue }
       if (-not ([string]::Equals($verdict, 'pass', [System.StringComparison]::Ordinal) -or
                 [string]::Equals($verdict, 'block', [System.StringComparison]::Ordinal))) { continue }
-      $verdictCandidates += [pscustomobject]@{ id = $id; path = $vf.FullName; name = $vf.Name; verdict = $verdict; reasons = $reasons; when = $vf.LastWriteTimeUtc }
+      # mtime is display/sort metadata only after SHA + deterministic source selection; it never decides currency.
+      $verdictCandidates += [pscustomobject]@{ id = $id; path = $vf.FullName; name = $vf.Name; verdict = $verdict; reasons = $reasons; when = $vf.LastWriteTimeUtc; sourceRank = $evidence.SourceRank }
     }
     $current = @(Select-ScaffoldCurrentVerdicts -Candidates $verdictCandidates -PathComparer $pathComparer)
     foreach ($candidate in $current) {
@@ -415,7 +440,7 @@ function Select-ScaffoldCurrentVerdicts {
     $groups[$key].Add($candidate)
   }
   foreach ($group in $groups.Values) {
-    $group | Sort-Object @{ Expression = 'when'; Descending = $true }, @{ Expression = 'path'; Descending = $false } | Select-Object -First 1
+    $group | Sort-Object @{ Expression = 'sourceRank'; Descending = $false }, @{ Expression = 'path'; Descending = $false } | Select-Object -First 1
   }
 }
 
@@ -428,6 +453,15 @@ if ($Verb -eq 'selfcheck') {
   $fxRoot = Join-Path ([IO.Path]::GetTempPath()) "scaffold-triage-selfcheck-$PID"
   $fails = [System.Collections.Generic.List[string]]::new()
   try {
+    $fixtureHeadRepo = Join-Path $fxRoot 'head-reader'
+    New-Item -ItemType Directory -Force $fixtureHeadRepo | Out-Null
+    & git -C $fixtureHeadRepo init -q
+    & git -C $fixtureHeadRepo -c user.name=fixture -c user.email=fixture@example.invalid commit --allow-empty -m fixture -q
+    $fixtureHead = (& git -C $fixtureHeadRepo rev-parse HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or (Get-ScaffoldRepositoryHead -Path $fixtureHeadRepo) -cne $fixtureHead) {
+      $fails.Add('用例4a Get-ScaffoldRepositoryHead 未离线读出夹具仓当前 HEAD')
+    }
+    function Get-ScaffoldRepositoryHead { param([string]$Path) $null = $Path; return $fixtureHead }
     # 夹具：4 张卡覆盖四态——A in-progress+未收口(须报) / B in-review+blocked(须报) / C todo(须忽略) / D in-progress+已收口(须忽略)
     $fxCards = Join-Path $fxRoot 'cards'; $fxWt = Join-Path $fxRoot 'wt'; $fxCwd = Join-Path $fxRoot 'cwd'
     New-Item -ItemType Directory -Force $fxCards, $fxCwd | Out-Null
@@ -458,9 +492,9 @@ if ($Verb -eq 'selfcheck') {
     # ── 用例 4：delivery-blocked（探针 11）——四态：block 须报 / pass 不报 / todo 卡不报 / 坏 JSON 不崩 ──
     # 一个从不触发的探针比没有探针更糟，它读起来就像「一切正常」，故这里必须有能让它红的正例。
     foreach ($t in @(
-        @{ id = 'T8-SC-A'; json = '{"verdict":"block","reasons":["r1","r2"]}' },   # in-progress + block → 须报
-        @{ id = 'T8-SC-D'; json = '{"verdict":"pass","reasons":[]}' },             # in-progress + pass  → 不报
-        @{ id = 'T8-SC-C'; json = '{"verdict":"block","reasons":["r1"]}' },        # todo 卡 + block     → 不报（状态闸）
+        @{ id = 'T8-SC-A'; json = "{`"verdict`":`"block`",`"reasons`":[`"r1`",`"r2`"],`"sha`":`"$fixtureHead`"}" },   # in-progress + block → 须报
+        @{ id = 'T8-SC-D'; json = "{`"verdict`":`"pass`",`"reasons`":[],`"sha`":`"$fixtureHead`"}" },             # in-progress + pass  → 不报
+        @{ id = 'T8-SC-C'; json = "{`"verdict`":`"block`",`"reasons`":[`"r1`"],`"sha`":`"$fixtureHead`"}" },        # todo 卡 + block     → 不报（状态闸）
         @{ id = 'T8-SC-B'; json = '{ this is not json' })) {                       # in-review + 坏 JSON → 不崩、不报
       $rv = Join-Path (Join-Path $fxWt $t.id) '.review'
       New-Item -ItemType Directory -Force $rv | Out-Null
@@ -573,6 +607,16 @@ if ($Verb -eq 'selfcheck') {
       '- tier: ledger',
       '- severity: blocking',
       '- enforced_by: N/A (.json)',
+      '',
+      '## L914 TBD 路径复合占位符的必须层',
+      '- tier: must',
+      '- severity: blocking',
+      '- enforced_by: TBD scripts/future.ps1',
+      '',
+      '## L915 FIXME 路径复合占位符的总账层',
+      '- tier: ledger',
+      '- severity: blocking',
+      '- enforced_by: FIXME scripts/future.ps1',
       '')
     $Ledger = $fxLedger          # 注入：两个探针都读脚本作用域
     $findings.Clear(); Invoke-ProbeLessonsDemote
@@ -583,17 +627,20 @@ if ($Verb -eq 'selfcheck') {
     if ($demWhat -match 'L902') { $fails.Add('用例6 显式 none（理由）的 L902 被提名降层——none 必须判为**无**守卫') }
     if ($demWhat -match 'L905') { $fails.Add('用例6 占位符 enforced_by: TODO 的 L905 被提名降层——心跳在替一条无守卫的铁律说「机器已在守它」（fail-open）') }
     if ($demWhat -match 'L912') { $fails.Add('用例6 复合占位符 TODO: add scripts/future.ps1 的 L912 被提名降层——占位前缀不能被后续真路径洗白') }
+    if ($demWhat -match 'L914') { $fails.Add('用例6 复合占位符 TBD scripts/future.ps1 的 L914 被提名降层——未知占位前缀不能被后续真路径洗白') }
     $findings.Clear(); Invoke-ProbeLessons
     $pro = @($findings | Where-Object probe -eq 'lessons-promote')
     $proWhat = ($pro | ForEach-Object what) -join ' '
-    if ($pro.Count -ne 3) { $fails.Add("用例6 期望恰 3 条 lessons-promote（空字段 L904 + 占位符 L906 + 伪后缀占位符 L913），实得 $($pro.Count)") }
+    if ($pro.Count -ne 4) { $fails.Add("用例6 期望恰 4 条 lessons-promote（空字段 L904 + 占位符 L906/L913/L915），实得 $($pro.Count)") }
     if ($proWhat -match 'L903') { $fails.Add('用例6 已有守卫的 L903 仍被提名晋升（enforced_by 闸未生效）') }
     if ($proWhat -notmatch 'L904') { $fails.Add('用例6 空 enforced_by 的 L904 未被提名——空字段被误读成「已有守卫」（跨行捕获 fail-open）') }
     if ($proWhat -notmatch 'L906') { $fails.Add('用例6 占位符 enforced_by: N/A 的 L906 未被提名——认不出的取值被误读成「已有守卫」（fail-open）') }
     if ($proWhat -notmatch 'L913') { $fails.Add('用例6 复合占位符 N/A (.json) 的 L913 未被提名——占位前缀不能被括号内文件后缀洗白') }
+    if ($proWhat -notmatch 'L915') { $fails.Add('用例6 复合占位符 FIXME scripts/future.ps1 的 L915 未被提名——未知占位前缀不能被后续真路径洗白') }
 
     foreach ($invalidEnforcedBy in @(
-      'TODO: add scripts/future.ps1', '待补 scripts/future.ps1', 'N/A (.json)', 'no gate 1', '无闸1',
+      'TODO: add scripts/future.ps1', 'TBD scripts/future.ps1', 'FIXME scripts/future.ps1',
+      '待补 scripts/future.ps1', 'N/A (.json)', 'no gate 1', '无闸1',
       'TODO（scripts/future.ps1）', 'N/A（scripts/future.ps1）', '待补（scripts/future.ps1）',
       'TODO，scripts/future.ps1', 'no gate（scripts/future.ps1）',
       'none', 'none TODO', 'none: scripts/future.ps1', 'none：scripts/future.ps1',
@@ -657,7 +704,7 @@ if ($Verb -eq 'selfcheck') {
     # 探针有两条取证路径：卡自己的 worktree，以及主检出按**卡 id** 命名的那份。只测前者会让后者静默失效。
     $fxLocalReview = Join-Path $fxRoot 'localrepo/.review'
     New-Item -ItemType Directory -Force $fxLocalReview | Out-Null
-    Set-Content -Path (Join-Path $fxLocalReview 'T8-SC-A.json') -Value '{"verdict":"block","reasons":["only-local"]}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxLocalReview 'T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"only-local`"],`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $RepoRoot = Join-Path $fxRoot 'localrepo'      # 注入：探针读脚本作用域 $RepoRoot
     function Get-ScaffoldWorktreeRoot { Join-Path $fxRoot 'no-such-wt' }   # worktree 侧刻意缺席，只剩本地那条路径
     $findings.Clear()
@@ -671,7 +718,7 @@ if ($Verb -eq 'selfcheck') {
     $fxOv = Join-Path $fxRoot 'overlap'
     $fxOvCard = Join-Path $fxOv 'T8-SC-A'
     New-Item -ItemType Directory -Force (Join-Path $fxOvCard '.review') | Out-Null
-    Set-Content -Path (Join-Path $fxOvCard '.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["dup"],"branch":"T8-SC-A"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxOvCard '.review/T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"dup`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $RepoRoot = $fxOvCard                                 # 主检出恰是卡自己的 worktree
     function Get-ScaffoldWorktreeRoot { $fxOv }           # 于是两条路径解析到同一个文件
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
@@ -690,8 +737,8 @@ if ($Verb -eq 'selfcheck') {
     $fxCase = Join-Path $fxRoot 'oscase'
     $fxCaseCard = Join-Path $fxCase 'T8-SC-A'
     New-Item -ItemType Directory -Force (Join-Path $fxCaseCard '.review') | Out-Null
-    Set-Content -Path (Join-Path $fxCaseCard '.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["upper"],"branch":"T8-SC-A"}' -Encoding utf8
-    Set-Content -Path (Join-Path $fxCaseCard '.review/t8-sc-a.json') -Value '{"verdict":"block","reasons":["lower"],"branch":"T8-SC-A"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxCaseCard '.review/T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"upper`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    Set-Content -Path (Join-Path $fxCaseCard '.review/t8-sc-a.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"lower`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $RepoRoot = $fxCaseCard.ToUpperInvariant()            # 主检出路径整体大写：与通配侧字符串不等，指向同一文件（仅在不敏感 FS 上）
     function Get-ScaffoldWorktreeRoot { $fxCase }
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
@@ -704,8 +751,8 @@ if ($Verb -eq 'selfcheck') {
     }
     elseif (($osCase | Where-Object { $_.what -notmatch 'T8-SC-A' })) { $fails.Add('用例9b 报出的裁决不属于本卡（A）') }
     $logicalCaseCandidates = @(
-      [pscustomobject]@{ path = (Join-Path $fxCase 'T8-SC-A.json'); name = 'T8-SC-A.json'; verdict = 'block'; when = [datetime]::UtcNow.AddMinutes(-2) },
-      [pscustomobject]@{ path = (Join-Path $fxCase 't8-sc-a.json'); name = 't8-sc-a.json'; verdict = 'block'; when = [datetime]::UtcNow.AddMinutes(-1) }
+      [pscustomobject]@{ path = (Join-Path $fxCase 'T8-SC-A.json'); name = 'T8-SC-A.json'; verdict = 'block'; sourceRank = 0 },
+      [pscustomobject]@{ path = (Join-Path $fxCase 't8-sc-a.json'); name = 't8-sc-a.json'; verdict = 'block'; sourceRank = 0 }
     )
     $sensitiveCurrent = @(Select-ScaffoldCurrentVerdicts -Candidates $logicalCaseCandidates -PathComparer ([System.StringComparer]::Ordinal))
     $insensitiveCurrent = @(Select-ScaffoldCurrentVerdicts -Candidates $logicalCaseCandidates -PathComparer ([System.StringComparer]::OrdinalIgnoreCase))
@@ -713,23 +760,32 @@ if ($Verb -eq 'selfcheck') {
       $fails.Add("用例9b OS 两侧分组未同时成立（sensitive=$($sensitiveCurrent.Count), insensitive=$($insensitiveCurrent.Count)）")
     }
 
-    # 用例 9c：同卡两条取证路径冲突时，只认较新的当前裁决。
+    # 用例 9c：裁决必须匹配所属检出的当前 HEAD；两份都当前时固定优先 worktree，不读取可伪造的 mtime。
     $fxCurrentWt = Join-Path $fxRoot 'current-wt'; $fxCurrentRepo = Join-Path $fxRoot 'current-repo'
     $wtCurrentReview = Join-Path $fxCurrentWt 'T8-SC-A/.review'; $localCurrentReview = Join-Path $fxCurrentRepo '.review'
     New-Item -ItemType Directory -Force $wtCurrentReview, $localCurrentReview | Out-Null
-    $olderVerdict = Join-Path $wtCurrentReview 'T8-SC-A.json'; $newerVerdict = Join-Path $localCurrentReview 'T8-SC-A.json'
-    Set-Content $olderVerdict '{"verdict":"block","reasons":["stale"],"branch":"T8-SC-A"}' -Encoding utf8
-    Set-Content $newerVerdict '{"verdict":"pass","reasons":[],"branch":"T8-SC-A"}' -Encoding utf8
-    [IO.File]::SetLastWriteTimeUtc($olderVerdict, [datetime]::UtcNow.AddHours(-2)); [IO.File]::SetLastWriteTimeUtc($newerVerdict, [datetime]::UtcNow.AddHours(-1))
+    $worktreeVerdict = Join-Path $wtCurrentReview 'T8-SC-A.json'; $localVerdict = Join-Path $localCurrentReview 'T8-SC-A.json'
+    $staleSha = '0000000000000000000000000000000000000000'
+    Set-Content $worktreeVerdict "{`"verdict`":`"block`",`"reasons`":[`"stale`"],`"branch`":`"T8-SC-A`",`"sha`":`"$staleSha`"}" -Encoding utf8
+    Set-Content $localVerdict "{`"verdict`":`"pass`",`"reasons`":[],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $RepoRoot = $fxCurrentRepo; function Get-ScaffoldWorktreeRoot { $fxCurrentWt }
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
-    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例9c 较旧 block + 较新 pass 仍报告 stale block') }
-    Set-Content $olderVerdict '{"verdict":"pass","reasons":[],"branch":"T8-SC-A"}' -Encoding utf8
-    Set-Content $newerVerdict '{"verdict":"block","reasons":["current"],"branch":"T8-SC-A"}' -Encoding utf8
-    [IO.File]::SetLastWriteTimeUtc($olderVerdict, [datetime]::UtcNow.AddHours(-2)); [IO.File]::SetLastWriteTimeUtc($newerVerdict, [datetime]::UtcNow.AddHours(-1))
+    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例9c SHA 过期的 worktree block 遮住当前 local pass') }
+    Set-Content $worktreeVerdict "{`"verdict`":`"pass`",`"reasons`":[],`"branch`":`"T8-SC-A`",`"sha`":`"$staleSha`"}" -Encoding utf8
+    Set-Content $localVerdict "{`"verdict`":`"block`",`"reasons`":[`"current`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $currentBlocked = @($findings | Where-Object probe -eq 'delivery-blocked')
-    if ($currentBlocked.Count -ne 1 -or $currentBlocked[0].next -notmatch [regex]::Escape($newerVerdict)) { $fails.Add('用例9c 较旧 pass + 较新 block 未只报告当前 block') }
+    if ($currentBlocked.Count -ne 1 -or $currentBlocked[0].next -notmatch [regex]::Escape($localVerdict)) { $fails.Add('用例9c 当前 local block 未胜过 SHA 过期的 worktree pass') }
+    Set-Content $worktreeVerdict "{`"verdict`":`"block`",`"reasons`":[`"worktree-current`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    Set-Content $localVerdict "{`"verdict`":`"pass`",`"reasons`":[],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    [IO.File]::SetLastWriteTimeUtc($worktreeVerdict, [datetime]::UtcNow.AddHours(-2)); [IO.File]::SetLastWriteTimeUtc($localVerdict, [datetime]::UtcNow.AddHours(-1))
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $worktreeCurrent = @($findings | Where-Object probe -eq 'delivery-blocked')
+    if ($worktreeCurrent.Count -ne 1 -or $worktreeCurrent[0].next -notmatch [regex]::Escape($worktreeVerdict)) { $fails.Add('用例9c 两份 SHA 都当前时未按固定来源优先级选择 worktree block（疑似仍依赖 mtime）') }
+    Set-Content $worktreeVerdict "{`"verdict`":`"pass`",`"reasons`":[],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    Set-Content $localVerdict "{`"verdict`":`"block`",`"reasons`":[`"local-loses`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例9c 两份 SHA 都当前时 local block 越过固定来源优先级遮住 worktree pass') }
 
     # ── 用例 10：归属校验的**两道**各测一条 ──
     # (a) 文件名就不是本卡的（隔壁分支按自己分支名落盘）——由文件名兜底挡下；
@@ -737,14 +793,14 @@ if ($Verb -eq 'selfcheck') {
     # 少测 (b)，branch 归属那半就是死代码：删掉它测试照绿。
     $fxFor = Join-Path $fxRoot 'foreign'
     New-Item -ItemType Directory -Force (Join-Path $fxFor 'T8-SC-A/.review') | Out-Null
-    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/codex-other-branch.json') -Value '{"verdict":"block","reasons":["not-ours"],"branch":"T9-SOMEONE-ELSE"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/codex-other-branch.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"not-ours`"],`"branch`":`"T9-SOMEONE-ELSE`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $RepoRoot = Join-Path $fxRoot 'no-such-repo'
     function Get-ScaffoldWorktreeRoot { $fxFor }
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $fo = @($findings | Where-Object probe -eq 'delivery-blocked')
     if ($fo.Count -ne 0) { $fails.Add("用例10(a) 文件名非本卡的裁决被算到本卡头上（实得 $($fo.Count) 条）") }
     # (b)：同一目录再放一份**文件名对得上、branch 对不上**的，仍不得上报
-    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["renamed-branch"],"branch":"T9-SOMEONE-ELSE"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"renamed-branch`"],`"branch`":`"T9-SOMEONE-ELSE`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $fo2 = @($findings | Where-Object probe -eq 'delivery-blocked')
     if ($fo2.Count -ne 0) { $fails.Add("用例10(b) 文件名对得上但 branch 自述属于别人的裁决仍被上报（实得 $($fo2.Count) 条）——branch 归属校验是死代码") }
@@ -752,7 +808,7 @@ if ($Verb -eq 'selfcheck') {
     # 少了这条，文件名兜底同样是死代码：(a)/(b) 里 branch 都在场，第一道就把它们挡了，兜底永远走不到。
     $fxLegacy = Join-Path $fxRoot 'legacy'
     New-Item -ItemType Directory -Force (Join-Path $fxLegacy 'T8-SC-A/.review') | Out-Null
-    Set-Content -Path (Join-Path $fxLegacy 'T8-SC-A/.review/codex-legacy-no-branch.json') -Value '{"verdict":"block","reasons":["legacy-artifact"]}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxLegacy 'T8-SC-A/.review/codex-legacy-no-branch.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"legacy-artifact`"],`"sha`":`"$fixtureHead`"}" -Encoding utf8
     function Get-ScaffoldWorktreeRoot { $fxLegacy }
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $fo3 = @($findings | Where-Object probe -eq 'delivery-blocked')
@@ -760,15 +816,15 @@ if ($Verb -eq 'selfcheck') {
     # (d/e) branch 与 verdict 是 JSON schema 字段，大小写必须逐字精确；PowerShell 的 -eq/-in 默认不敏感。
     function Get-ScaffoldWorktreeRoot { $fxFor }
     Get-ChildItem -LiteralPath (Join-Path $fxFor 'T8-SC-A/.review') -Filter '*.json' | Remove-Item -Force
-    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value '{"verdict":"block","reasons":["case-owner"],"branch":"t8-sc-a"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"case-owner`"],`"branch`":`"t8-sc-a`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例10(d) branch 只有大小写不同仍被当成本卡所有——schema 归属必须 Ordinal') }
-    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value '{"verdict":"BLOCK","reasons":["case-verdict"],"branch":"T8-SC-A"}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value "{`"verdict`":`"BLOCK`",`"reasons`":[`"case-verdict`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例10(e) 大写 BLOCK 被当成合法 block——verdict enum 必须区分大小写') }
     # (f) 仅旧产物的文件名归属跟随运行 OS 的路径大小写语义。
     Get-ChildItem -LiteralPath (Join-Path $fxFor 'T8-SC-A/.review') -Filter '*.json' | Remove-Item -Force
-    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/t8-sc-a.json') -Value '{"verdict":"block","reasons":["legacy-case"]}' -Encoding utf8
+    Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/t8-sc-a.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"legacy-case`"],`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $legacyIgnoreCase = ($IsWindows -or $IsMacOS)
     $RepoRoot = $fxFor
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
@@ -789,7 +845,7 @@ if ($Verb -eq 'selfcheck') {
     foreach ($f in $fails) { Write-Host "  FAIL $f" -ForegroundColor Red }
     Write-Host 'triage selfcheck: FAIL'
   } else {
-    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前裁决优先+OS 路径语义去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
+    Write-Host 'triage selfcheck: PASS（探针 4 跨 worktree · 探针 11 block 四态+本地 .review+路径重合去重+当前 SHA/固定来源优先+OS 路径语义去重/旧文件归属+JSON 字段大小写+隔壁分支归属 · 探针 5 按驻留 id 计数的封顶两侧边界+标题漂移 fail-closed · 探针 1/10 的 enforced_by 四向、空字段/ASCII 占位符/中文伪守卫（无闸门…、含斜杠短语、闸后非编号）+圈码闸编号仍判有守卫，与批量窗口）' -ForegroundColor Green
   }
   exit 0
 }

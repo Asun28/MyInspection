@@ -37,7 +37,7 @@ $ScaffoldMustLayerNotFound = '[LESSONS-SECTION-NOT-FOUND]'
 # 「显式声明无守卫」的唯一形态。守卫判定与形态判定对它给相反答案，故字面量只写这一处。
 $ScaffoldNoGuardDeclRe = '^none(?:（[^\r\n]+）|\([^\r\n]+\))$'
 # Placeholder/negation prefixes win before any later path/extension/gate-looking substring can launder them.
-$ScaffoldRejectedGuardPrefixRe = '^(?i:(?:TODO|N/A)(?=$|[^A-Za-z0-9_])|no[ \t]+gate(?=$|[^A-Za-z0-9_])|none(?=$|[^A-Za-z0-9_]))|^(?:待补|无闸)'
+$ScaffoldRejectedGuardPrefixRe = '^(?i:(?:TODO|TBD|FIXME|XXX|TBC|TK|WIP|PENDING|N/?A)(?=$|[^A-Za-z0-9_])|no[ \t]+gate(?=$|[^A-Za-z0-9_])|none(?=$|[^A-Za-z0-9_]))|^(?:待补|待定|未定|待议|暂无|无闸)'
 
 function Get-ScaffoldLessonEnforcedBy {
   <#

@@ -328,6 +328,8 @@ switch ($Command) {
                      -not (Test-ScaffoldLessonGuarded '闸，靠人') -and
                      -not (Test-ScaffoldLessonGuarded 'gate 讨论') -and
                      -not (Test-ScaffoldLessonGuarded 'TODO: add scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'TBD scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonGuarded 'FIXME scripts/future.ps1') -and
                      -not (Test-ScaffoldLessonGuarded '待补 scripts/future.ps1') -and
                      -not (Test-ScaffoldLessonGuarded 'N/A (.json)') -and
                      -not (Test-ScaffoldLessonGuarded 'no gate 1') -and
@@ -335,6 +337,8 @@ switch ($Command) {
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '无闸门（只能靠人）') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO: add scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'TBD scripts/future.ps1') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'FIXME scripts/future.ps1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '待补 scripts/future.ps1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A (.json)') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'no gate 1') -and

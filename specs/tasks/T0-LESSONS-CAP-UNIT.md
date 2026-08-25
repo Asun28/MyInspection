@@ -69,6 +69,12 @@ acceptance_notes: |
     A7  scripts/triage.ps1 用例 7      A8 用例 4      A9 用例 8      A10 用例 9      A12 用例 9b
     A13 scripts/triage.ps1 用例 10(a)(b)(c)          A14 scripts/selftest.ps1 闸 10d(接线/review→triage)
     A15 scripts/selftest.ps1 闸 14g①②                A16 闸 10d(BOM/纯函数)、闸 10d(接线/triage)、闸 12d 拷贝清单
+  R3 后续加固（不改上述 pinned acceptance 的语义）：
+    - A6 的拒收前缀覆盖完整占位符声明，而不是只拒 TODO/N/A/待补；`TBD scripts/future.ps1` 在 must 侧不得降层，
+      `FIXME scripts/future.ps1` 在 ledger 侧必须晋升，且 lessons.ps1 check 的形态自检同步拒绝二者。
+    - delivery-blocked 只接纳 `sha` 与**产物所属仓库当前 HEAD**逐字一致的裁决；worktree 与主检出两份都当前时，
+      固定按来源优先级选择 worktree，不再用可漂移/可伪造的 LastWriteTimeUtc。用例 9c 覆盖 stale block/current pass、
+      stale pass/current block，以及两份都当前时两种相反 verdict（并故意把较新的 mtime 给低优先来源）。
   A11 的实现说明：`[IO.Path]::GetFullPath($vf.FullName)` 实测是恒等变换——
     FileInfo.FullName 本就完全限定且已折叠 `.`/`..` 段（`Get-Item` 传入一条含 `..` 段的路径时，它交出的 FullName
     已无 `..`），故「去掉 GetFullPath」这枚变异**不可能**让任何用例变红，A11 那半条无法成立。已按「不留写不出
@@ -122,6 +128,9 @@ hygiene: |
     ㉓ 闸分支去掉 U+2460-U+24FF 圈码范围           → L911 被提名晋升（收紧过头，真守卫报成没守卫）
     ㉔ 整行退回改前拼法                            → lessons.ps1 check 打出「enforced_by 守卫判定回归」并非零退出
   ⑲-㉔ 6/6 击杀；批次全程只写 `%TEMP%` 副本，跑完核工作树四个被测脚本 SHA-256 与基线逐字节一致（L196）。
+  R3 后续加固由常设 selfcheck 直接覆盖：用例 6 的 L914/L915 分别钉住 TBD/FIXME 复合占位符在降层/晋升两侧；
+  用例 9c 的 stale/current SHA 交叉夹具在去掉 SHA 匹配守卫时变红，两份 current 的反向 verdict + 反向 mtime
+  夹具在选择器退回 LastWriteTimeUtc 时变红；另用临时 git 仓真实执行 `git rev-parse HEAD`，钉住离线读 HEAD 的边界。
 doc_sync: CLAUDE.md 计量单位说明与铁律小节 · docs/LESSONS.md 三层表 Tier-1 容量格 + PURIFY 步骤 ·
   .claude/skills/lessons/SKILL.md 三层描述 + PURIFY 步骤 · scripts/_config.ps1 的 LessonsMustCap 定义处注释 ·
   scripts/lessons.ps1 与 scripts/triage.ps1 的头注（子命令说明 / 探针清单）· docs/LOOP-ENGINEERING.md 与
