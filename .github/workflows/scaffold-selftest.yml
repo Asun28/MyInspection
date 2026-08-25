@@ -42,8 +42,9 @@ jobs:
           - os: ubuntu-latest
             shard: seeded
     runs-on: ${{ matrix.os }}
-    # 两 OS 都是合并后 canary：任一红都须修复，但不阻塞当前 PR。
-    timeout-minutes: 20
+    # 两 OS 都是合并后 canary：任一红都须修复，但不阻塞当前 PR。seeded 含完整 mutation matrix，
+    # Windows runner 已实测会撞 20 分钟硬上限；只给该分片 30 分钟，其余分片保持 20 分钟。
+    timeout-minutes: ${{ matrix.shard == 'seeded' && 30 || 20 }}
     steps:
       # 三方 Action 钉 40-hex commit SHA（非可变 tag），同 ci.yml（TD56/TD-119；selftest 闸 8.2a 机检）。
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

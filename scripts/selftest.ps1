@@ -5079,11 +5079,11 @@ if (Test-Path $triageForCount) {
       return @([regex]::Matches($Text, $tokenPattern) | ForEach-Object Value | Sort-Object)
     }
     $rosterSpecs = @(
-      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*severity=blocking'; Mode='code' },
-      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*退出码恒'; Mode='code' },
+      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60scaffold-stale\x60.*绝不 fetch'; Mode='code' },
+      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60scaffold-stale\x60.*退出码恒'; Mode='code' },
       @{ Rel='docs/DELIVERY-CHAINS.md'; Start='^\|\s*心跳\s*/\s*triage'; End=''; Mode='plain'; Body='子系统（(?<body>[^）]+)）→' },
-      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+10\s+探针'; End=''; Mode='plain'; Body='10\s+探针（(?<body>[^）]+)）→' },
-      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另五枚.*\x60delivery-blocked\x60'; Mode='code' }
+      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+11\s+探针'; End=''; Mode='plain'; Body='11\s+探针（(?<body>[^）]+)）→' },
+      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另六枚.*\x60scaffold-stale\x60'; Mode='code' }
     )
     foreach ($spec in $rosterSpecs) {
       $rel = $spec.Rel
@@ -5103,7 +5103,7 @@ if (Test-Path $triageForCount) {
         $extra = @($listed | Where-Object { $probeNames -cnotcontains $_ })
         Fail "14g②：$rel 的权威清单枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')；多列/陈旧：$($extra -join ', ')。"
       }
-      # Fifty cheap deletion mutations (five rosters × ten names): each removal must be visible even when the
+      # One deletion mutation per roster/name pair: each removal must be visible even when the
       # same name appears elsewhere in that file. This is the regression proof for the bounded parser above.
       foreach ($probeName in $probeNames) {
         $namePattern = '(?<![a-z0-9-])' + [regex]::Escape($probeName) + '(?![a-z0-9-])'
