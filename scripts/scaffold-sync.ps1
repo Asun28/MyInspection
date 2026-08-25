@@ -70,7 +70,8 @@ function Get-SyncedVersion {
   if ($markers.Count -eq 0) { return $Fallback }
   if ($markers.Count -ne 1) { throw '[FLEET-LEDGER-INVALID] expected exactly one whole-line ledger marker' }
   $decisions = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
-  foreach ($line in $lines[($markers[0] + 1)..($lines.Count - 1)]) {
+  for ($i = $markers[0] + 1; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i]
     $m = [regex]::Match($line, '^\s*\|\s*(?<version>v?\d+\.\d+\.\d+)\s*\|\s*(?<decision>[^|]*?)\s*\|')
     if (-not $m.Success) { continue }
     $v = ConvertTo-ScaffoldVersion $m.Groups['version'].Value; $decision = $m.Groups['decision'].Value
@@ -266,10 +267,6 @@ function Invoke-Check {
   Write-Host '  git apply --3way _local/scaffold-backfill.patch'
 }
 
-# ---------------------------------------------------------------------------
-# report
-# ---------------------------------------------------------------------------
-
 function Format-IssueBody {
   param([string]$BodySummary, [string]$BodyRepro, [string]$BodySurface, [string]$BodyLesson)
   $osText = if ($IsWindows) { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
@@ -306,7 +303,6 @@ function Invoke-Report {
     exit 1
   }
 
-  # The issue is public. Reuse the deterministic secret scanner rather than inventing a second one.
   $hits = @(); $scannerAvailable = $false
   try {
     . (Join-Path $PSScriptRoot 'check-secrets.ps1') -AsLibrary
@@ -432,6 +428,7 @@ body with no downstream block at all
 | v0.99.0 | applied | marker was deleted |
 '@
   if ((Get-SyncedVersion $noSentinel '0.30.0') -ne '0.30.0') { $fails.Add('Get-SyncedVersion accepted a table with no ledger sentinel (#201)') }
+  if ((Get-SyncedVersion '<!-- SCAFFOLD-SYNC-LEDGER -->' '0.30.0') -ne '0.30.0') { $fails.Add('marker-only ledger did not return provenance fallback') }
 
   $versionFirstDecoy = @'
 <!-- SCAFFOLD-SYNC-LEDGER -->
