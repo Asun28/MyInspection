@@ -312,6 +312,11 @@ components:
   evidence-rail:
     compose: custom merged-semantics Layout
     codeName: EvidenceRail
+    backgroundColor: "{colors.surface-container}"
+    completeColor: "{colors.primary}"
+    missingRequiredColor: "{colors.tertiary}"
+    blockedColor: "{colors.error}"
+    optionalColor: "{colors.outline}"
     width: 6px
     segmentGap: 2px
     segmentOrder: [STATUS, PHOTO, NOTE]
@@ -320,8 +325,10 @@ components:
   inspection-item-card:
     compose: Surface
     codeName: InspectionItemCard
-    backgroundColor: "{colors.surface-container-low}"
+    backgroundColor: "{colors.surface-container}"
     textColor: "{colors.on-surface}"
+    boundaryColor: "{colors.outline}"
+    boundaryAdjacentColor: "{colors.surface-container-low}"
     rounded: "{rounded.lg}"
     padding: "{spacing.lg}"
     variants: [DEFAULT, ATTENTION, READ_ONLY]
@@ -1210,24 +1217,174 @@ Password entry, restore preflight, tenant-contact detail, and full-screen tenant
 
 ## Colors
 
+### Contrast threshold contract
+
+Contrast uses WCAG relative luminance for sRGB. For each 8-bit channel, first set `c_srgb = channel / 255`; then set `c = c_srgb / 12.92` when `c_srgb <= 0.04045`, otherwise `c = ((c_srgb + 0.055) / 1.055) ^ 2.4`. Calculate `L = 0.2126R + 0.7152G + 0.0722B`, then `(Llighter + 0.05) / (Ldarker + 0.05)`. Ratios are rounded to two decimals for reports; CI compares the unrounded value.
+
+| Usage | Size definition | Minimum | Level |
+| --- | --- | ---: | --- |
+| Normal text | `<24sp` regular or `<18.66sp` bold | `4.50:1` | WCAG AA |
+| Normal text, enhanced target | Same as above | `7.00:1` | WCAG AAA |
+| Large text | `≥24sp` regular or `≥18.66sp` bold | `3.00:1` | WCAG AA |
+| Large text, enhanced target | Same as above | `4.50:1` | WCAG AAA |
+| Essential icon, focus ring, input/card boundary, evidence segment | Any size | `3.00:1` against adjacent surface | WCAG non-text AA |
+| Decorative divider | Carries no state, grouping, or focus meaning | No WCAG threshold; metadata sets `essential=false` | Exempt |
+
+### Dark token contrast map
+
+The following bindings are immutable. A foreground token is not used on a background token absent from this table.
+
+| Foreground token | Hex | Required background token | Hex | Ratio | Result |
+| --- | --- | --- | --- | ---: | --- |
+| `dark.on-primary` | `#003730` | `dark.primary` | `#94D7CA` | `8.07:1` | AAA text |
+| `dark.on-primary-container` | `#C9ECE5` | `dark.primary-container` | `#0B5D52` | `6.15:1` | AA text |
+| `dark.on-secondary` | `#233E49` | `dark.secondary` | `#B8CBD4` | `6.75:1` | AA text |
+| `dark.on-secondary-container` | `#D9EAF1` | `dark.secondary-container` | `#314E59` | `7.18:1` | AAA text |
+| `dark.on-tertiary` | `#4A3300` | `dark.tertiary` | `#F1BD68` | `6.92:1` | AA text |
+| `dark.on-tertiary-container` | `#FFDEA8` | `dark.tertiary-container` | `#5E4100` | `7.29:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface` | `#0F1513` | `14.80:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface-container-low` | `#151D1A` | `13.77:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface-container` | `#1C2622` | `12.47:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface-container-high` | `#26312D` | `10.79:1` | AAA text |
+| `dark.on-surface-variant` | `#BEC9C3` | `dark.surface` | `#0F1513` | `10.85:1` | AAA text |
+| `dark.outline` | `#89968F` | `dark.surface` | `#0F1513` | `6.00:1` | AA non-text |
+| `dark.outline-variant` | `#3F4B46` | `dark.surface` | `#0F1513` | `2.03:1` | Decorative only |
+| `dark.primary` | `#94D7CA` | `dark.surface-container` | `#1C2622` | `9.51:1` | AA evidence segment |
+| `dark.tertiary` | `#F1BD68` | `dark.surface-container` | `#1C2622` | `9.05:1` | AA evidence segment |
+| `dark.error` | `#FFB4AB` | `dark.surface-container` | `#1C2622` | `9.16:1` | AA evidence segment |
+| `dark.outline` | `#89968F` | `dark.surface-container` | `#1C2622` | `5.06:1` | AA evidence/boundary |
+| `dark.outline` | `#89968F` | `dark.surface-container-low` | `#151D1A` | `5.58:1` | AA card boundary |
+| `dark.on-error` | `#690005` | `dark.error` | `#FFB4AB` | `7.72:1` | AAA text |
+| `dark.on-error-container` | `#FFDAD5` | `dark.error-container` | `#93000A` | `7.23:1` | AAA text |
+| `dark.on-privacy` | `#35205A` | `dark.privacy` | `#D1BCFF` | `8.20:1` | AAA text |
+| `dark.on-privacy-container` | `#EADDFF` | `dark.privacy-container` | `#48306D` | `8.49:1` | AAA text |
+| `dark.primary` focus ring | `#94D7CA` | `dark.surface` | `#0F1513` | `11.29:1` | AA non-text |
+| `dark.primary` | `#94D7CA` | `dark.on-primary` | `#003730` | `8.07:1` | AA non-text icon |
+
+`dark.outline-variant` is restricted to decorative separators. Inputs, cards, evidence segments, selected states, and focus indicators use `dark.outline`, a semantic container, or the focus token.
+
+### Visual physics contract
+
+- `#000000` is forbidden for app backgrounds, surfaces, cards, sheets, and dialogs. It is permitted only as the camera scrim source token at `64%` opacity over live preview.
+- `#FFFFFF` is forbidden for dark-mode app backgrounds, surfaces, and body text. It is permitted for camera controls over the camera scrim and for existing light-theme `on-*` roles already present in the approved palette.
+- Dark broad-surface semantic containers use the fixed values in `dark-colors`; runtime HSL transformation is forbidden. Future broad-surface dark tokens are generated from the approved hue with HSL saturation reduced by exactly `15` percentage points, then frozen as a hex token and contrast-tested.
+- Brand anchors `primary`, `tertiary`, and `privacy` are never algorithmically desaturated at runtime. The fixed dark roles above are their only dark mappings.
+- Dark elevation is tonal, not shadow-led. Surface luminance is strictly increasing: level 0 `surface #0F1513` (`L=0.00685`) → level 1 `surface-container-low #151D1A` (`L=0.01113`) → level 2 `surface-container #1C2622` (`L=0.01749`) → level 3 `surface-container-high #26312D` (`L=0.02798`). Components never skip more than one level inside another surface.
+- Level 0 is the screen, level 1 is a grouped region or bottom dock, level 2 is an active card, and level 3 is a selected/raised non-modal region. Sheets and dialogs use level 3 plus the standard modal scrim. Shadows do not communicate hierarchy in dark mode.
+
+### CI contrast gate metadata
+
+Every rendered foreground/background pair for text, icons, focus indicators, essential boundaries, and evidence segments has one metadata entry. New rendered pairs without exact-pair metadata fail the build.
+
+```json
+{
+  "schemaVersion": 2,
+  "namespaceResolution": {
+    "light.<role>": "frontmatter.colors.<role>",
+    "dark.<role>": "frontmatter.dark-colors.<role>",
+    "camera.scrim": "frontmatter.interaction.cameraScrim",
+    "camera.on-scrim": "frontmatter.interaction.onCameraScrim",
+    "camera.scrim-over-white": "alphaCompositeSrgb(camera.scrim, 0.64, #FFFFFF)"
+  },
+  "pureColorAllowlist": [
+    "light.on-primary", "light.on-secondary", "light.on-tertiary",
+    "light.surface-container-low", "light.on-error", "light.on-privacy",
+    "camera.scrim", "camera.on-scrim"
+  ],
+  "bindings": [
+    {"foreground":"light.on-primary","value":"#FFFFFF","background":"light.primary","backgroundValue":"#0B5D52","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-primary-container","value":"#073B35","background":"light.primary-container","backgroundValue":"#C9ECE5","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-secondary","value":"#FFFFFF","background":"light.secondary","backgroundValue":"#3E5B67","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-secondary-container","value":"#183842","background":"light.secondary-container","backgroundValue":"#D9EAF1","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-tertiary","value":"#FFFFFF","background":"light.tertiary","backgroundValue":"#8B5C00","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-tertiary-container","value":"#352000","background":"light.tertiary-container","backgroundValue":"#FFDEA8","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-surface","value":"#17201D","background":"light.surface","backgroundValue":"#F7F9F7","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-surface","value":"#17201D","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-surface","value":"#17201D","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-surface","value":"#17201D","background":"light.surface-container-high","backgroundValue":"#E2E8E4","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-surface-variant","value":"#44504B","background":"light.surface","backgroundValue":"#F7F9F7","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.outline","value":"#6F7C76","background":"light.surface","backgroundValue":"#F7F9F7","usage":"boundary","minRatio":3.0,"essential":true},
+    {"foreground":"light.outline-variant","value":"#C3CCC7","background":"light.surface","backgroundValue":"#F7F9F7","usage":"decorative","minRatio":0.0,"essential":false},
+    {"foreground":"light.on-error","value":"#FFFFFF","background":"light.error","backgroundValue":"#B3261E","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-error-container","value":"#410002","background":"light.error-container","backgroundValue":"#FFDAD5","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-privacy","value":"#FFFFFF","background":"light.privacy","backgroundValue":"#60458E","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.on-privacy-container","value":"#241047","background":"light.privacy-container","backgroundValue":"#EADDFF","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.surface","backgroundValue":"#F7F9F7","usage":"focus","minRatio":3.0,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.on-primary","backgroundValue":"#FFFFFF","usage":"icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"light.tertiary","value":"#8B5C00","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"light.error","value":"#B3261E","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"light.outline","value":"#6F7C76","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"light.outline","value":"#6F7C76","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"card-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"dark.on-primary","value":"#003730","background":"dark.primary","backgroundValue":"#94D7CA","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-primary-container","value":"#C9ECE5","background":"dark.primary-container","backgroundValue":"#0B5D52","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-secondary","value":"#233E49","background":"dark.secondary","backgroundValue":"#B8CBD4","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-secondary-container","value":"#D9EAF1","background":"dark.secondary-container","backgroundValue":"#314E59","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-tertiary","value":"#4A3300","background":"dark.tertiary","backgroundValue":"#F1BD68","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-tertiary-container","value":"#FFDEA8","background":"dark.tertiary-container","backgroundValue":"#5E4100","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-surface","value":"#E0E8E4","background":"dark.surface","backgroundValue":"#0F1513","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-surface","value":"#E0E8E4","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-surface","value":"#E0E8E4","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-surface","value":"#E0E8E4","background":"dark.surface-container-high","backgroundValue":"#26312D","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-surface-variant","value":"#BEC9C3","background":"dark.surface","backgroundValue":"#0F1513","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.outline","value":"#89968F","background":"dark.surface","backgroundValue":"#0F1513","usage":"boundary","minRatio":3.0,"essential":true},
+    {"foreground":"dark.outline-variant","value":"#3F4B46","background":"dark.surface","backgroundValue":"#0F1513","usage":"decorative","minRatio":0.0,"essential":false},
+    {"foreground":"dark.on-error","value":"#690005","background":"dark.error","backgroundValue":"#FFB4AB","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-error-container","value":"#FFDAD5","background":"dark.error-container","backgroundValue":"#93000A","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-privacy","value":"#35205A","background":"dark.privacy","backgroundValue":"#D1BCFF","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.on-privacy-container","value":"#EADDFF","background":"dark.privacy-container","backgroundValue":"#48306D","usage":"text","minRatio":4.5,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface","backgroundValue":"#0F1513","usage":"focus","minRatio":3.0,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.on-primary","backgroundValue":"#003730","usage":"icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"dark.tertiary","value":"#F1BD68","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"dark.error","value":"#FFB4AB","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"card-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"camera.on-scrim","value":"#FFFFFF","background":"camera.scrim-over-white","backgroundValue":"#5C5C5C","usage":"text-icon","minRatio":4.5,"essential":true}
+  ]
+}
+```
+
+Build gate pseudocode:
+
+```text
+for binding in metadata.bindings:
+  require binding.foreground and binding.background resolve through namespaceResolution
+  require binding.value == resolvedValue(binding.foreground)
+  require validHex(binding.value)
+  require binding.backgroundValue == resolvedValueOrComposite(binding.background)
+  ratio = wcagContrast(binding.value, binding.backgroundValue)
+  if ratio + 0.0001 < binding.minRatio: BUILD_FAIL(CONTRAST_RATIO)
+  if binding.essential && binding.usage == "decorative": BUILD_FAIL(INVALID_CLASSIFICATION)
+
+for token in resolvedDesignTokensAndCameraTokens:
+  if token.value in ["#000000", "#FFFFFF"] && !pureColorAllowlist.contains(token.name):
+      BUILD_FAIL(PURE_COLOR_USE)
+
+for pair in renderedForegroundBackgroundPairs:
+  if metadata.bindings lacks exact (pair.foreground, pair.background): BUILD_FAIL(MISSING_METADATA)
+```
+
 The palette is light-first for daylight legibility. Large fields of pure white are avoided; the cool stone background reduces glare while keeping dark text crisp.
 
 - **Primary — fern ink (`#0B5D52`):** main actions, completed progress, selected controls, and camera alignment guidance. Use it sparingly enough that it still signals commitment.
-- **Secondary — survey slate (`#3E5B67`):** navigation and structural controls. It should feel quieter than the primary action.
+- **Secondary — survey slate (`#3E5B67`):** navigation and structural controls only; it never replaces the primary action color.
 - **Tertiary — site amber (`#8B5C00`):** incomplete evidence, attention states, and the persistent missing-items strip. Amber means “resolve before completion,” not generic emphasis.
 - **Error — ledger red (`#B3261E`):** legal/compliance blocks, destructive actions, and significant defects. Never use it for ordinary validation hints.
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
-- **Surfaces:** use `surface` for the screen, `surface-container-low` for active item cards, and darker container steps for grouping and pressed states. Borders use `outline-variant`; `outline` is reserved for focus and high-contrast separation.
+- **Surfaces:** use `surface` for the screen, `surface-container-low` for grouped regions, `surface-container` for active item cards, and `surface-container-high` for selected or raised states. Decorative separators use `outline-variant`; essential card boundaries and focus use `outline`.
 
 Status must never rely on color alone. Pair every status with a label and stable symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy.
+
+All light foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference. Camera controls use white over a `64%` black sRGB scrim; the worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
 
 ## Typography
 
 Use Android system families only: `sans-serif` for readable prose and controls, and `sans-serif-condensed` for room labels, counts, timestamps, and evidence metadata. This avoids a bundled-font dependency while giving field data a compact, instrument-like voice.
 
-- **Headlines:** bold, sentence case, and brief. A room name or next action should be understood at a glance.
+- **Headlines:** bold, sentence case, and brief. A room name or next action is readable in one glance.
 - **Body:** never below 16px for primary instructions. Use 14px only for supporting metadata that is not needed to complete the current step.
-- **Labels:** buttons remain sentence case. Condensed labels may use modest tracking, but do not use all caps for sentences.
+- **Labels:** buttons remain sentence case. Condensed labels use the declared tracking token; sentences never use all caps.
 - **Data:** counts such as `3 photos` or `8 of 12 complete` use `data-lg` when they are the screen’s decision-driving fact.
 - **Compose mapping:** treat token `px` values as density-independent `sp` for text and `dp` for spacing, size, and radius. Respect the user’s font scale; do not clamp text or hide overflow that contains a requirement, date, or status.
 
@@ -1241,6 +1398,8 @@ Design portrait-first for a compact Android handset. Tablet and landscape optimi
 - Use one dominant vertical list. Horizontal scrolling is reserved for room navigation and chronological history, where direction has meaning.
 - Item cards reveal detail progressively: name and current status first; note, phrase, voice, photo, and history controls only when relevant.
 - Leave enough bottom inset for system navigation and enough space above the action dock that the final card is not obscured.
+- Apply system-bar and gesture insets to app bars, camera controls, sheets, and the bottom dock. The last list item must scroll fully above the dock.
+- Compact width (`<600dp`) and medium width (`600–839dp`) are single-pane in v1. Expanded width constrains prose and forms to a `720dp` column. Reading order remains room then items at every width.
 
 Core capture shape:
 
@@ -1268,8 +1427,8 @@ The camera screen is the exception to the surface layout: the live preview fills
 Use **tonal layers and rails**, not floating-card shadows, to express hierarchy. The app will often be used in bright conditions where subtle shadows disappear.
 
 - Screen background → grouped room surface → active item card is the normal three-layer stack.
-- Cards use a 1px `outline-variant` edge only when adjacent tones do not separate clearly.
-- Dialogs and bottom sheets may use standard Material 3 elevation because they represent a true modal layer.
+- Cards use a 1px `outline` edge only when adjacent tones do not separate clearly; `outline-variant` remains decorative-only.
+- Dialogs and bottom sheets use standard Material 3 modal elevation because they represent a true modal layer.
 - Pressed state is a darker tonal container plus immediate haptic feedback where Android conventions allow it. Do not animate cards upward.
 
 ## Shapes
