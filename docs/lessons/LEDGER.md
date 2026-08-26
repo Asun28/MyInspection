@@ -1746,9 +1746,9 @@
 - date: 2026-08-22 ｜ tags: git, gates, review, toctou, identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
 - symptom: 给流水线加「被测对象身份」守卫：测量阶段拿到 OID，之后每个副作用前复核 refs/heads/<TaskId> 仍等于它。全部断言通过、测试全绿，评审仍指出可以「审 A、合 B」——因为下游评审读的是工作树 HEAD，而 detached HEAD / 切分支**不会移动**那条分支引用。
 - root_cause: 把「钉住一个引用」当成了「钉住被审对象」。git 里 refs/heads/<branch> 与工作树 HEAD 是两个独立可动的指针：checkout --detach、checkout 别的分支都只动 HEAD。守卫查的是前者，消费者（review.ps1 用 git rev-parse HEAD 取 sha、构建/测试也跑工作树内容）读的是后者，于是「被测量的 / 被合并的」与「被评审的」可以是不同提交，而每一道断言都显示正常。L164 ① 说「按卡 id 取分支引用、不看该检出的 HEAD」是对**范围闸**而言（它按 id 定位、不依赖检出状态）；本条是同一枚硬币的另一面：**当消费者读的是 HEAD 时，只钉引用就是漏钉**。
-- rule: 设计身份守卫时先问一句「下游到底读哪个指针」，然后**钉住下游真正读的那一个**，而不是最方便查的那一个；两者都被消费就两者都钉。跨进程时不要指望调用方守卫够用——把 OID 作为显式参数传给被调方（如 review.ps1 -ExpectHead <oid>），让闸自己 fail-closed，因为①调用方断言与被调方执行之间仍有时间窗，②手工直接调被调方时根本不经过调用方。配套夹具必须**只动 HEAD、不动分支引用**（git checkout --detach HEAD~1），否则测的还是已经被覆盖的那一半。
-- enforced_by: scripts/review.ps1 的 -ExpectHead / [R3-HEAD-MISMATCH] 闸 + scripts/task.ps1 的 Assert-MeasuredTip（分支引用与 HEAD 双钉）+ selftest 闸 15b4（分支引用不动、HEAD 走开）
-- refs: scripts/review.ps1; scripts/task.ps1; scripts/selftest.ps1
+- rule: 设计身份守卫时先问一句「下游到底读哪个指针」，然后**钉住下游真正读的那一个**，而不是最方便查的那一个；两者都被消费就两者都钉。跨进程时不要指望调用方守卫够用——把 OID 作为显式参数传给被调方，让闸自己 fail-closed，因为①调用方断言与被调方执行之间仍有时间窗，②手工直接调被调方时根本不经过调用方。配套夹具必须**只动 HEAD、不动分支引用**（git checkout --detach HEAD~1），否则测的还是已经被覆盖的那一半。
+- enforced_by: none（设计经验；当前尚无机械守卫）
+- refs: docs/lessons/LEDGER.md; git refs/HEAD identity analysis
 
 ## L244
 - date: 2026-08-23 ｜ tags: git, rebuild, split, worktree, regression ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
