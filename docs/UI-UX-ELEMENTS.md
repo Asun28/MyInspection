@@ -82,10 +82,10 @@
 | finalize / discard / clear / remove confirmation | `ALERT_DIALOG` | `confirmation-dialog`; 明确对象、范围、不可逆性 | triggering action |
 | restore replacement confirmation | `ALERT_DIALOG` | `preflight-summary`, `confirmation-input`, `button-destructive` | Replace action or first blocker |
 | Android permission dialog | `SYSTEM_SURFACE` | 进入前可显示 `recovery-panel:PERMISSION`; 拒绝后不自动重复请求 | original trigger or recovery panel |
-| Folder/file/create picker | `SYSTEM_SURFACE` | 进入前保存 request ID；显示 provider 边界；禁止 raw URI 出现在普通 UI | `destination-row` / source action |
+| Folder/file/create picker | `SYSTEM_SURFACE` | `destination-row`; 进入前保存 request ID；显示 provider 边界；禁止 raw URI 出现在普通 UI | `destination-row` / source action |
 | PDF viewer / Sharesheet | `SYSTEM_SURFACE` | 前置 `share-boundary-callout`; 仅授予临时 scoped URI | originating action |
-| Android app settings | `SYSTEM_SURFACE` | 仅由用户点 `Open settings` 启动；回前台重新检查权限 | permission recovery panel |
-| Speech recognizer | `SYSTEM_SURFACE` | 无离线包时隐藏/降级；不阻塞键盘和短语 | voice trigger or note field |
+| Android app settings | `SYSTEM_SURFACE` | `recovery-panel`; 仅由用户点 `Open settings` 启动；回前台重新检查权限 | permission recovery panel |
+| Speech recognizer | `SYSTEM_SURFACE` | `input-field`, `phrase-sheet`; 无离线包时隐藏/降级；不阻塞键盘和短语 | voice trigger or note field |
 
 ## 5. 状态覆盖矩阵
 
