@@ -1724,7 +1724,7 @@
 - root_cause: ① [regex]::Replace 的**静态**重载里没有 count 这一档（count 只存在于实例方法 Regex.Replace(input, evaluator, count)），第四个 int 实参遂被隐式当成 RegexOptions——1 = IgnoreCase，于是既没限次数、还悄悄改了匹配语义。本仓 TD51 已因同一重载在 lessons.ps1 bump 上踩过一次（闸 2c 即为此而设），说明这是复发型陷阱而非一次性手滑。② \s 匹配 \r 与 \n，在跨整份文本的 (?m) 模式里 ^\s* 会向前吞掉换行，匹配遂从上一个空行开始，前缀型变异（加 #、加 <!-- ）就插到了错误位置。
 - rule: 写单点变异（或任何「只改第一处」的替换）时：① 用实例方法 [regex]::new($pat).Replace($input, $evaluator, 1)，绝不用四参静态 [regex]::Replace(..., 1)；② 逐行语义的模式里用 [ \t] 而非 \s，把 \s 留给确实允许跨行的场合；③ 变异后**立刻断言产物确实与原文不同**（-ceq 比对），相同即判本枚作废而非「测不出」；④ 更强的一档：断言变异后目标行本身变了（而不只是整份文本变了），否则前缀插错行仍会通过第 ③ 关。
 - enforced_by: scripts/selftest.ps1 闸 2c（lessons bump 只改 meta 计数器）+ scripts/license-scanner-check.ps1 的 INTEGRATION-WIRING-MUTATION 无效变异守卫（变异后与原文相同即失败）
-- refs: 
+- refs: scripts/selftest.ps1; scripts/license-scanner-check.ps1; docs/lessons/LEDGER.md
 
 ## L238
 - date: 2026-08-22 ｜ tags: git, gates, review, toctou, identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -1732,7 +1732,7 @@
 - root_cause: 把「钉住一个引用」当成了「钉住被审对象」。git 里 refs/heads/<branch> 与工作树 HEAD 是两个独立可动的指针：checkout --detach、checkout 别的分支都只动 HEAD。守卫查的是前者，消费者（review.ps1 用 git rev-parse HEAD 取 sha、构建/测试也跑工作树内容）读的是后者，于是「被测量的 / 被合并的」与「被评审的」可以是不同提交，而每一道断言都显示正常。L164 ① 说「按卡 id 取分支引用、不看该检出的 HEAD」是对**范围闸**而言（它按 id 定位、不依赖检出状态）；本条是同一枚硬币的另一面：**当消费者读的是 HEAD 时，只钉引用就是漏钉**。
 - rule: 设计身份守卫时先问一句「下游到底读哪个指针」，然后**钉住下游真正读的那一个**，而不是最方便查的那一个；两者都被消费就两者都钉。跨进程时不要指望调用方守卫够用——把 OID 作为显式参数传给被调方（如 review.ps1 -ExpectHead <oid>），让闸自己 fail-closed，因为①调用方断言与被调方执行之间仍有时间窗，②手工直接调被调方时根本不经过调用方。配套夹具必须**只动 HEAD、不动分支引用**（git checkout --detach HEAD~1），否则测的还是已经被覆盖的那一半。
 - enforced_by: scripts/review.ps1 的 -ExpectHead / [R3-HEAD-MISMATCH] 闸 + scripts/task.ps1 的 Assert-MeasuredTip（分支引用与 HEAD 双钉）+ selftest 闸 15b4（分支引用不动、HEAD 走开）
-- refs: 
+- refs: scripts/review.ps1; scripts/task.ps1; scripts/selftest.ps1
 
 ## L239
 - date: 2026-08-23 ｜ tags: harness, background-jobs, workflow, waste ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
@@ -1748,7 +1748,7 @@
 - root_cause: 整文件拷贝搬的是「那条分支的文件全文」，而那条分支的 merge-base 可能远落后于当前 master。本次实测：源分支 merge-base 落后 master **89 个提交**，selftest.ps1 在源分支是 11,177 行、master 已是 12,330 行——一次拷贝就静默回退了约 1,150 行他人已合并的工作。L114 的补救条目说「内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠」，那条建议**只在基线未前移时成立**；基线已走远时它就是这个坑本身。危险在于本卡自己的测试全绿（拷来的实现确实完整），红的是别人的闸——若当时把红归因为「我拆分拆错了」并去改自己的代码，就会一路带着回退合并。
 - rule: 搬运旧分支成果到新基线，一律用**相对其自身 merge-base 的 patch 重放**，不用整文件拷贝：`mb=$(git merge-base <旧分支> origin/master)`；`git diff $mb <旧分支> -- <文件…> | git apply --3way`。三方合并会保留基线新增、只落你的增量。落地后立刻验两件事：① `git diff --numstat origin/master` 必须**只有增量**、没有大段删除；② 抽查基线新内容仍在（如某新函数/新闸的哨兵）。**判读信号**：与本次改动无关的闸门集体变红，优先怀疑「我回退了别人的工作」，而不是「我的拆分有问题」——先跑上面两条核验再改任何代码。
 - enforced_by: none（搬运手法纪律）；检出手段=git diff --numstat origin/master 只应有增量 + 基线哨兵抽查
-- refs: 
+- refs: docs/lessons/LEDGER.md; git merge-base / git apply --3way workflow evidence
 
 ## L244
 - date: 2026-08-23 ｜ tags: refactor, scripted-edit, verification, split ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -1756,7 +1756,7 @@
 - root_cause: 剥离脚本里把一部分匹配写成了「可选」（if m: 才切、找不到就跳过），本意是容错，实际效果是**没命中也报成功**。被剥离的往往是「代码 + 紧邻注释」两段，代码那段命中了、注释那段的正则因缩进/换行/措辞微差没命中，于是留下一段自信描述着已不存在行为的散文。语法检查发现不了（注释永远合法），本卡自己的测试也发现不了（测的是行为，不是叙述）。评审者却一眼看出，因为他读的正是「注释说的」与「代码做的」之间的差。
 - rule: 脚本化剥离/替换，每一处都必须**断言自己确实改动了**：required 的匹配用 assert（找不到即中止，不要 if m: 静默跳过）；确实可选的，跑完打印「skip」清单并**逐条人工确认**，不要淹没在成功输出里。收尾统一复核两件事：① git diff 的删除行数 == 预期；② 对被剥离特性的关键词做一次全文 grep，命中数必须为 0（关键词要同时覆盖标识符与**注释里的说法**，如 OID/refspec/被测提交，而不只是变量名）。判读口径：注释与代码不一致时，注释即缺陷——它是给下一个人读的唯一说明。
 - enforced_by: none（脚本化编辑纪律）；收尾检出手段=剥离特性关键词全文 grep 命中数为 0 + git diff 删除行数对账
-- refs: 
+- refs: docs/lessons/LEDGER.md; scripted-edit mutation checks
 
 ## L245
 - date: 2026-08-23 ｜ tags: measurement, budget, encoding, review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -1764,7 +1764,7 @@
 - root_cause: 两把尺量的不是同一个东西。闸门（review.ps1）取的是 PowerShell 里 `(… | Out-String).Length`，即 **UTF-16 码元数**；`wc -c` 数的是 **UTF-8 字节数**。本仓 diff 中文占比高，一个汉字 UTF-8 三字节、UTF-16 一个码元，故 wc -c 系统性高估 20–30%。实测同一分支：wc -c 报 63,023，闸门报 51,882。偏差方向恒为高估，于是「看起来超限」远多于真超限，人就会去做无谓的瘦身。
 - rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。
 - enforced_by: scripts/review.ps1 -SizeOnly（唯一权威度量）；T0-R3-DIFF-BUDGET 的 dod_assert 已要求它 exit 0
-- refs: 
+- refs: scripts/review.ps1; specs/tasks/T0-R3-DIFF-BUDGET.md
 
 ## L246
 - date: 2026-08-24 ｜ tags: process,review,docs ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -1788,4 +1788,4 @@
 - root_cause: doc_sync 字段管的是**叙述性**文档（CLAUDE.md / TASK-BOARD / status），而 specs/archive/cards-index.md 不是文档、是 archive.ps1 逐字节比对 Get-CardsIndexText 输出的**机检投影**。把「投影」误当「文档」，于是它落在 doc_sync 的语义之外、也没有任何 R5 步骤强制重建。归档动作本身有两条腿（搬文件 + 重建投影），只做了一条。
 - rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。
 - enforced_by: 
-- refs: 
+- refs: scripts/archive.ps1; specs/archive/cards-index.md
