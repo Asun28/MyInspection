@@ -29,7 +29,7 @@ dod_exit: 0
 dod_assert: 新建巡检/物业抑制只接受活跃 property/tenancy/template；historical 历史报告与已软删 tenancy 联系方式清理仍可读取 any-lifecycle 行；purged_at 后联系方式不可回填；初始 INGOING 与 finalized fallback baseline 各有独立守卫，跨物业/跨租约/不合格类型均拒绝；deleted override 不可更新；对应单句删除变异逐一使测试翻红；迁移验证绿
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
-doc_sync: specs/tech-debt-tracker.md 将 TD135 置 paid；docs/DATABASE-DESIGN.md 与 TASK-BOARD 记录证据（R5）
+doc_sync: specs/tech-debt-tracker.md 将 TD160 置 paid；docs/DATABASE-DESIGN.md 与 TASK-BOARD 记录证据（R5）
 version_review: this card = the version review
 ---
 
