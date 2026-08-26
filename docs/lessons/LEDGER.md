@@ -1787,5 +1787,5 @@
 - symptom: R5 归档一张卡（git mv 进 specs/archive/tasks/）后推 master，CI 在**另一张毫不相干的 PR** 上红：verify / "Validate archive card index" 报 [ARCHIVE-CARDS-INDEX-DRIFT]。本卡的 doc_sync 字段写的是「无」，我据此认为归档只需 git mv。实际后果被放大：verify 在**每个 PR** 上都跑，所以一个坏的 master 提交把整条 PR 队列一起挡住，而红灯出现在别人的 PR 上、第一反应会去查那张 PR。
 - root_cause: doc_sync 字段管的是**叙述性**文档（CLAUDE.md / TASK-BOARD / status），而 specs/archive/cards-index.md 不是文档、是 archive.ps1 逐字节比对 Get-CardsIndexText 输出的**机检投影**。把「投影」误当「文档」，于是它落在 doc_sync 的语义之外、也没有任何 R5 步骤强制重建。归档动作本身有两条腿（搬文件 + 重建投影），只做了一条。
 - rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。
-- enforced_by: 
+- enforced_by: scripts/archive.ps1 -CheckCardsIndex + scripts/verify.ps1 archive index gate
 - refs: scripts/archive.ps1; specs/archive/cards-index.md
