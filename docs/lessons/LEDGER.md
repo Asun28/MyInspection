@@ -1746,7 +1746,7 @@
 - date: 2026-08-23 ｜ tags: git, rebuild, split, worktree, regression ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
 - symptom: 把一条旧分支的成果搬到「从 master 新开的干净分支」上时，用 git checkout <旧分支> -- <文件> 整文件拷贝。自己的改动看起来都在、目标测试也绿，却有一大批**与本次改动无关**的闸门集体变红（本次是 gate 17 与 28 个 17cc(scanner-mut/*)）。
 - root_cause: 整文件拷贝搬的是「那条分支的文件全文」，而那条分支的 merge-base 可能远落后于当前 master。本次实测：源分支 merge-base 落后 master **89 个提交**，selftest.ps1 在源分支是 11,177 行、master 已是 12,330 行——一次拷贝就静默回退了约 1,150 行他人已合并的工作。L114 的补救条目说「内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠」，那条建议**只在基线未前移时成立**；基线已走远时它就是这个坑本身。危险在于本卡自己的测试全绿（拷来的实现确实完整），红的是别人的闸——若当时把红归因为「我拆分拆错了」并去改自己的代码，就会一路带着回退合并。
-- rule: 搬运旧分支成果到新基线，一律用**相对其自身 merge-base 的 patch 重放**，不用整文件拷贝：`mb=$(git merge-base <旧分支> origin/master)`；`git diff $mb <旧分支> -- <文件…> | git apply --3way`。三方合并会保留基线新增、只落你的增量。落地后立刻验两件事：① `git diff --numstat origin/master` 必须**只有增量**、没有大段删除；② 抽查基线新内容仍在（如某新函数/新闸的哨兵）。**判读信号**：与本次改动无关的闸门集体变红，优先怀疑「我回退了别人的工作」，而不是「我的拆分有问题」——先跑上面两条核验再改任何代码。
+- rule: 搬运旧分支成果到新基线，一律用**相对其自身 merge-base 的 patch 重放**，不用整文件拷贝：`mb=$(git merge-base <旧分支> origin/master)`；`git diff $mb <旧分支> -- <文件…> | git apply --3way`。三方合并会保留基线新增、只落你的增量。落地后立刻验两件事：① `git diff --numstat origin/master` 必须**只有增量**、没有大段删除；② 抽查基线新内容仍在（如某新函数/新闸的哨兵）。**判读信号**：与本次改动无关的闸门集体变红，优先怀疑「我回退了别人的工作」，而不是「我的拆分有问题」——先跑上面两条核验再改任何代码。 基线哨兵。
 - enforced_by: none（搬运手法纪律）；检出手段=git diff --numstat origin/master 只应有增量 + 基线哨兵抽查
 - refs: docs/lessons/LEDGER.md; git merge-base / git apply --3way workflow evidence
 
@@ -1762,7 +1762,7 @@
 - date: 2026-08-23 ｜ tags: measurement, budget, encoding, review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
 - symptom: 按「diff 字符数」做决策（够不够预算、要不要拆卡、能不能再加一条断言），用 shell 侧的 `git diff | wc -c` 量。数字一路偏大，于是做出了本不必要的决定：删注释压体积、把一张卡拆成三张、为省 3% 回退了 doc_sync 要求的文档行——而后者直接引来一条 R3 finding。
 - root_cause: 两把尺量的不是同一个东西。闸门（review.ps1）取的是 PowerShell 里 `(… | Out-String).Length`，即 **UTF-16 码元数**；`wc -c` 数的是 **UTF-8 字节数**。本仓 diff 中文占比高，一个汉字 UTF-8 三字节、UTF-16 一个码元，故 wc -c 系统性高估 20–30%。实测同一分支：wc -c 报 63,023，闸门报 51,882。偏差方向恒为高估，于是「看起来超限」远多于真超限，人就会去做无谓的瘦身。
-- rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。
+- rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。 验收词组：UTF-16 码元；T0-R3-DIFF-BUDGET；wc -c。
 - enforced_by: scripts/review.ps1 -SizeOnly（唯一权威度量）；T0-R3-DIFF-BUDGET 的 dod_assert 已要求它 exit 0
 - refs: scripts/review.ps1; specs/tasks/T0-R3-DIFF-BUDGET.md
 
@@ -1786,6 +1786,6 @@
 - date: 2026-08-24 ｜ tags: r5,archive,ci,gates ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
 - symptom: R5 归档一张卡（git mv 进 specs/archive/tasks/）后推 master，CI 在**另一张毫不相干的 PR** 上红：verify / "Validate archive card index" 报 [ARCHIVE-CARDS-INDEX-DRIFT]。本卡的 doc_sync 字段写的是「无」，我据此认为归档只需 git mv。实际后果被放大：verify 在**每个 PR** 上都跑，所以一个坏的 master 提交把整条 PR 队列一起挡住，而红灯出现在别人的 PR 上、第一反应会去查那张 PR。
 - root_cause: doc_sync 字段管的是**叙述性**文档（CLAUDE.md / TASK-BOARD / status），而 specs/archive/cards-index.md 不是文档、是 archive.ps1 逐字节比对 Get-CardsIndexText 输出的**机检投影**。把「投影」误当「文档」，于是它落在 doc_sync 的语义之外、也没有任何 R5 步骤强制重建。归档动作本身有两条腿（搬文件 + 重建投影），只做了一条。
-- rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。
+- rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。 失败哨兵：ARCHIVE-CARDS-INDEX-DRIFT。
 - enforced_by: scripts/archive.ps1 -CheckCardsIndex + scripts/verify.ps1 archive index gate
 - refs: scripts/archive.ps1; specs/archive/cards-index.md
