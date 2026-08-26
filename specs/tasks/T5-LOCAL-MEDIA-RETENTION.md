@@ -5,6 +5,12 @@ depends_on: [T5-BACKUP-IO, T3-PDF-RENDERER, T3-HISTORY-COMPARE, T5-MEDIA-ARCHIVE
 status: todo
 branch: T5-LOCAL-MEDIA-RETENTION
 worktree: C:\wt\T5-LOCAL-MEDIA-RETENTION
+plan_ref: context/DESIGN.md#offline-and-data-protection-experience
+acceptance:
+  - "A1 settings offer 1/3/5/10/Always retention with a 30-day grace period and explain the selected policy before planning"
+  - "A2 cleanup preflight shows counts, bytes, destination risk, and protected refs before any confirmation is enabled"
+  - "A3 explicit confirmation starts deletion with visible progress, interruption-safe recovery, and no false archived state"
+  - "A4 archive and restore recheck hash/size and never delete DB/PDF/backup/cloud assets or their authority records"
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/media/archive/
   - android/core/src/test/kotlin/nz/myinspection/core/media/archive/

@@ -1,11 +1,20 @@
 ---
 id: T5-BACKUP-IO
 title: 备份落地：SAF 目的地 + 可验证资产回执 + 自动导出 + 恢复「先试跑后落刀」
-depends_on: [T5-BACKUP-FORMAT, T2-PHOTO-PROPERTY-DEDUPE, T5-MEDIA-ARCHIVE-CONTRACT]
+depends_on: [T5-BACKUP-FORMAT, T2-PHOTO-PROPERTY-DEDUPE, T5-MEDIA-ARCHIVE-CONTRACT, T1-SHARE-SCREEN-PRIVACY, T1-LOCAL-DATA-SECURITY]
 parallelizable_with: [T3-PDF-RENDERER, T3-HISTORY-COMPARE, T4-COMPLIANCE-ENGINE]
 status: todo
 branch: T5-BACKUP-IO
 worktree: C:\wt\T5-BACKUP-IO
+plan_ref: context/DESIGN.md#offline-and-data-protection-experience
+backup_scopes: [full, property]
+backup_states: [NOT_CONFIGURED, READY, RUNNING, VERIFIED, PROVIDER_UNAVAILABLE, AUTHORIZATION_REVOKED, NEEDS_UNLOCK, NEEDS_PASSPHRASE, LOW_STORAGE, FAILED]
+acceptance:
+  - "A1 full and property backup states expose NOT_CONFIGURED through FAILED and PREPARING then ENCRYPTING then WRITING then VERIFYING; supported full backups only finish with a verified receipt, while property v1 compatibility exports have no recoverable receipt and are not restorable"
+  - "A2 restore expands into staging, supports recovery cleanup and rollback, and uses verify-before-replace so the live data is untouched until verification passes"
+  - "A3 provider, authorization, storage, and secret failures are distinct; secrets are referenced from protected storage and never exported or logged"
+  - "A4 local/USB export and restore work in flight-mode without an account or network dependency"
+  - "A5 the backup format remains the versioned authority for manifest, encryption, compatibility, and restore validation"
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/export/backup/
   - android/core/src/main/kotlin/nz/myinspection/core/backup/receipt/
