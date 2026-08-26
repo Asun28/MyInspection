@@ -2,7 +2,7 @@
 
 > 状态：v1 设计覆盖索引
 >
-> 唯一规范源：[`context/DESIGN.md`](../context/DESIGN.md)
+> Normative source: `context/DESIGN.md`
 >
 > 本文用途：检查每个页面是否使用了完整、统一的 Elements；不复制颜色、字号、间距、状态值或交互细节，不形成第二套 design system。
 
@@ -114,8 +114,8 @@
 3. 触控：目标至少 48×48dp，相邻目标至少 8dp；相机快门 72dp。
 4. 字体：200% 时完整换行，底部操作垂直增长；日期、状态、错误、缺失原因不可省略号截断。
 5. 主题：Light/Dark 使用同一语义 token；隐私、警告、错误、完成状态仍有文本和图标，不靠颜色。
-6. 动效：Reduced Motion 下取消位移、缩放、脉冲和重复动画，只保留最多 100ms 淡入淡出及静态状态变化。
-7. 方向/尺寸：Compact/Medium 保持单列；Expanded 内容最大 720dp；横屏时 Back、主要状态、快门和确认操作不可被遮挡。
+6. 动效：Reduce Motion 下取消位移、缩放、脉冲和重复动画，只保留最多 100ms 淡入淡出及静态状态变化。
+7. 方向/尺寸（compact / medium / expanded）：Compact/Medium 保持单列；Expanded 内容最大 720dp；横屏时 Back、主要状态、快门和确认操作不可被遮挡。
 8. 系统区域：状态栏、手势导航、IME、安全绘制区域只由最外层容器消费一次；最后一项可滚到固定 dock 上方。
 
 ## 7. 明确排除的 Elements
