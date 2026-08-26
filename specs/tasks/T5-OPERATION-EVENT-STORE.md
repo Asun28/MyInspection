@@ -18,7 +18,7 @@ forbid:
 non_goals:
   - 面向支持人员的导出 UI（交 T5-DIAGNOSTIC-EXPORT）
   - 崩溃上报 SaaS、远程告警、跨设备日志聚合、法定不可否认审计
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.diagnostics.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.diagnostics.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check
 dod_exit: 0
 dod_assert: 独立 diagnostics DB 仅含设计基线的 diagnostic_run/operation_event 字段与索引，run-stable app/schema/device context 不在 event 重复；typed recorder 拒绝未知 code/key、CRLF、超 2KiB context 与禁记字段；90 天或 20000 event 行先到即小批物理裁剪，最后事件删除后才清 orphan run；注入 DB 损坏/空间满/写异常时业务调用结果不变；数据库不进入 .mibk/Android backup；飞行模式全绿
 review_gate: codex {verdict:pass}

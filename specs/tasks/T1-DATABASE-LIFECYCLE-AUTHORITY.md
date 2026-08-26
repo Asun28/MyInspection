@@ -23,7 +23,7 @@ non_goals:
 diagnosis:
   root_cause: 生成查询把 active 与 historical 两种语义折叠为 selectById，且 tenancy baseline 的机械 setter 暴露得比领域权限更宽；UI 过滤无法构成写权限边界。
   same_class: 点查 parent、软删后写入、终态字段回填、baseline 赋值四类须全库扫描；只改 createInspection 不算闭合。
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.capture.*" --tests "nz.myinspection.core.retention.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.capture.*" --tests "nz.myinspection.core.retention.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check
 dod_exit: 0
 dod_assert: 新建巡检/物业抑制只接受活跃 property/tenancy/template；历史报告与已软删 tenancy 联系方式清理仍可读取 any-lifecycle 行；purged_at 后联系方式不可回填；初始 INGOING 与 finalized fallback baseline 各有独立守卫，跨物业/跨租约/不合格类型均拒绝；deleted override 不可更新；对应单句删除变异逐一使测试翻红；迁移验证绿
 review_gate: codex {verdict:pass}
@@ -50,4 +50,3 @@ doc_sync: specs/tech-debt-tracker.md 将 TD135 置 paid；docs/DATABASE-DESIGN.m
 ## 验收
 
 见 front-matter。测试必须证明：删除 active predicate、终态 CHECK、same-property/tenancy 检查或 deleted-row guard 中任一句，均有对应红灯；不得仅验证异常类型或影响行数而不读回最终状态。
-
