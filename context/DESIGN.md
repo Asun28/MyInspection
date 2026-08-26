@@ -312,6 +312,11 @@ components:
   evidence-rail:
     compose: custom merged-semantics Layout
     codeName: EvidenceRail
+    backgroundColor: "{colors.surface-container}"
+    completeColor: "{colors.primary}"
+    missingRequiredColor: "{colors.tertiary}"
+    blockedColor: "{colors.error}"
+    optionalColor: "{colors.outline}"
     width: 6px
     segmentGap: 2px
     segmentOrder: [STATUS, PHOTO, NOTE]
@@ -320,8 +325,10 @@ components:
   inspection-item-card:
     compose: Surface
     codeName: InspectionItemCard
-    backgroundColor: "{colors.surface-container-low}"
+    backgroundColor: "{colors.surface-container}"
     textColor: "{colors.on-surface}"
+    boundaryColor: "{colors.outline}"
+    boundaryAdjacentColor: "{colors.surface-container-low}"
     rounded: "{rounded.lg}"
     padding: "{spacing.lg}"
     variants: [DEFAULT, ATTENTION, READ_ONLY]
