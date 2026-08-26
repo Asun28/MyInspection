@@ -733,6 +733,8 @@ function Test-SelftestCiMatrixContract([string]$WorkflowText) {
 
 function Test-SelftestCiWiringContract([string]$WorkflowText) {
   if (-not (Test-SelftestCiMatrixContract $WorkflowText)) { return $false }
+  # seeded alone needs the measured 30-minute budget; widening every shard would hide hangs in the cheaper lanes.
+  if ([regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*matrix\.shard == 'seeded' && 30 \|\| 20\s*\}\}\s*$").Count -ne 1) { return $false }
   if ($WorkflowText -notmatch '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$') { return $false }
   if ($WorkflowText -notmatch "(?ms)- name: Provision PSScriptAnalyzer.*?\n\s*if:\s*matrix\.shard == 'core'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*Install-Module PSScriptAnalyzer") { return $false }
   return $true
@@ -3362,8 +3364,10 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $allCoreMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
   $runShardMutation = $selftestWorkflow -replace '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$', '        run: pwsh -NoProfile -File scripts/selftest.ps1'
   $lintConditionMutation = $selftestWorkflow -replace "(?m)^\s*if:\s*matrix\.shard == 'core'\s*$", "        if: matrix.shard == 'workflow'"
-  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation)) {
-    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件变异。'
+  $seededTimeoutRevertMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 20'
+  $allTimeoutWidenMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 30'
+  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation)) {
+    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/seeded 独享超时预算变异。'
   }
 
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
