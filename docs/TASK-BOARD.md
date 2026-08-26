@@ -43,18 +43,18 @@
 | W0 | T0-TRIAGE-EVIDENCE-CASE | triage 裁决证据身份、HEAD 绑定与失败可观测性 | T0-LESSONS-CAP-TRIAGE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | PR #137 R3 fix-forward；独立于 exact extraction；actual-root case、per-root SHA、unreadable/unknown finding |
 | W0 | T0-LESSONS-CMD-DOCSYNC | lessons.ps1 纳入 doc-drift 机检 + archive 子命令同步三处命令清单 | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 缺口不在那三行文档而在 `_config.ps1` 的 DocSyncMap——它只有 4 个键、不含 lessons.ps1，故闸 14f/17 对它完全沉默。补文档只修一次，补键才让下一次也红。匹配须排除 `_lessons.ps1`（判定核，改它不该要求动用户文档） |
 | W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `edc2770`，PR #129；R3 第 4 轮 pass 零发现——前 3 轮：1 轮 3 条全是基线陈旧假象、2/3 轮各 1 条真缺陷；另有 R3 前 codex 预审再出 2 条真缺陷，合计 8 枚变异全杀） |
-| W0 | T0-RECONCILE-DATA-AUTHORITY | 同步数据库生命周期、离线安全与备份权威文档 | T0-RECONCILE-LESSONS | S | GPT-5.6 Terra · high | Sonnet 5 max | 本地 master 设计审计片 1/12；纯文档，不宣称已实现；Sol 只作 R3 |
-| W0 | T0-RECONCILE-T1-SECURITY-CARDS | 登记数据库生命周期与 Android 本地安全三张实现卡 | T0-RECONCILE-DATA-AUTHORITY | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 2/12；三张卡各守一个安全边界；Sol 只作 R3 |
-| W0 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | 登记事件、诊断、清除与本机健康四张实现卡 | T0-RECONCILE-T1-SECURITY-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 3/12；无远程 admin/遥测；Sol 只作 R3 |
-| W0 | T0-RECONCILE-ROADMAP-INDEX | 将七张卡投影到任务表和技术债索引 | T0-RECONCILE-T1-SECURITY-CARDS,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 4/12；只投影路线，不实现产品；Sol 只作 R3 |
-| W0 | T0-RECONCILE-DESIGN-METADATA | Field Ledger 可机读 tokens 与组件注册表 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 5/12；与 data/lessons 可并行；Sol 只作 R3 |
-| W0 | T0-RECONCILE-DESIGN-JOURNEYS | 信息架构、导航恢复与离线隐私旅程 | T0-RECONCILE-DESIGN-METADATA | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 6/12；同文件串行；Sol 只作 R3 |
-| W0 | T0-RECONCILE-DESIGN-COMPONENTS | 组件合同、对比度、动效与无障碍规则 | T0-RECONCILE-DESIGN-JOURNEYS | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 7/12；同文件串行；Sol 只作 R3 |
-| W0 | T0-RECONCILE-UI-COVERAGE | UI elements 页面与组件覆盖索引 | T0-RECONCILE-DESIGN-COMPONENTS,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 8/12；索引不是第二真相源；Sol 只作 R3 |
-| W0 | T0-RECONCILE-UI-CAPTURE | 采集、历史与 PDF 卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 9/12；删除重复长 prose；Sol 只作 R3 |
-| W0 | T0-RECONCILE-UI-NOTICE-SCHEDULE | 通知与日程卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 10/12；不改变合规/送达语义；Sol 只作 R3 |
-| W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 11/12；核心 app 无网可用；Sol 只作 R3 |
-| W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 片 12/12；保留上游新增 id，排除瞬时事实；Sol 只作 R3 |
+| W0 | T0-RECONCILE-DATA-AUTHORITY | 同步数据库生命周期、离线安全与备份权威文档 | T0-RECONCILE-LESSONS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 1/12；纯文档 |
+| W0 | T0-RECONCILE-T1-SECURITY-CARDS | 登记数据库生命周期与 Android 本地安全三张实现卡 | T0-RECONCILE-DATA-AUTHORITY | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 2/12；安全边界 |
+| W0 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | 登记事件、诊断、清除与本机健康四张实现卡 | T0-RECONCILE-T1-SECURITY-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 3/12；无遥测 |
+| W0 | T0-RECONCILE-ROADMAP-INDEX | 将七张卡投影到任务表和技术债索引 | T0-RECONCILE-T1-SECURITY-CARDS,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 4/12；路线投影 |
+| W0 | T0-RECONCILE-DESIGN-METADATA | Field Ledger 可机读 tokens 与组件注册表 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 5/12；可并行 |
+| W0 | T0-RECONCILE-DESIGN-JOURNEYS | 信息架构、导航恢复与离线隐私旅程 | T0-RECONCILE-DESIGN-METADATA,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 6/12；串行 |
+| W0 | T0-RECONCILE-DESIGN-COMPONENTS | 组件合同、对比度、动效与无障碍规则 | T0-RECONCILE-DESIGN-JOURNEYS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 7/12；串行 |
+| W0 | T0-RECONCILE-UI-COVERAGE | UI elements 页面与组件覆盖索引 | T0-RECONCILE-DESIGN-COMPONENTS,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 8/12；非权威索引 |
+| W0 | T0-RECONCILE-UI-CAPTURE | 采集、历史与 PDF 卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 9/12；去重 |
+| W0 | T0-RECONCILE-UI-NOTICE-SCHEDULE | 通知与日程卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 10/12；语义不变 |
+| W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 11/12；离线 |
+| W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 12/12；保留新 id |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
 | W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
