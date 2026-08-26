@@ -35,7 +35,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 - 保留 ADR-0002 的 app-specific external/SAF 存储与导出范围。
 - 数据库、settings、receipts、secret envelopes、restore journal 和 staging metadata 只使用 credential-encrypted internal/no-backup；大照片/音频可用 app-specific external，卷缺失/低空间返回结构化状态。
-- Keystore alias/version/purpose 分离；ciphertext 可持久化，key/明文不可导出。JVM 测状态/codec，真 Keystore 行为留收官真机卡。
+- Keystore alias/version/purpose 分离；ciphertext 可持久化，key/明文不可导出。JVM 测状态/codec；锁屏、凭据清除、key invalidation 与损坏 envelope 的真 Keystore 证据明确交给 `T7-SMOKE-POLISH` 清单，缺任一结果不得发布。
 - 日志调用方只传 operation/reason + opaque id/count/duration；现有 media 删除失败日志移除绝对路径。
 
 ## 验收
