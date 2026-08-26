@@ -730,19 +730,20 @@ enum class BottomNavVisibility { VISIBLE, HIDDEN }
 flowchart TD
     P[Properties · L1 ROOT_STATIC] --> PC[Add property · L2 FULLSCREEN_TASK]
     P --> PH[Property hub · L2 HUB_STATIC]
+    P -. first-run restore .-> RT
     PH --> IS[Inspection setup · L2 FULLSCREEN_TASK]
     IS --> IC[Room capture · L2 STREAM_CAPTURE]
     IC --> IR[Review & finalize · L2 FULLSCREEN_TASK]
-    IR --> RE[Report export · L2 FULLSCREEN_TASK]
+    IR -. replace task subgraph .-> RE[Post-finalize export · L2 FULLSCREEN_TASK]
     IC --> CAM[Camera · L3 CAMERA_TASK]
     IC --> SS[Status / phrase sheets · L3 MODAL_SHEET]
     PH --> NA[Notices · L2 PUSH_DETAIL]
     NA --> NC[Notice compose · L3 FULLSCREEN_TASK]
     PH --> HHC[Healthy Homes snapshot · L2 FULLSCREEN_TASK]
     PH --> RA[Existing report actions · L3 MODAL_SHEET]
+    RA --> RX[Re-export quality · L2 FULLSCREEN_TASK]
 
     S[Schedule · L1 ROOT_STATIC] --> PH
-    S --> IS
 
     ST[Settings · L1 ROOT_STATIC] --> BS[Backup · L2 PUSH_DETAIL]
     BS --> RT[Restore · L3 FULLSCREEN_TASK]
@@ -767,7 +768,8 @@ flowchart TD
 | 2 | `INSPECTION_SETUP` | `properties/{propertyId}/inspection/new` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T2-CAPTURE-UI` |
 | 2 | `INSPECTION_CAPTURE` | `inspections/{inspectionId}/capture` | `STREAM_CAPTURE` | `PROPERTY_HUB` | Hidden | `T2-CAPTURE-UI` |
 | 2 | `INSPECTION_REVIEW` | `inspections/{inspectionId}/review` | `FULLSCREEN_TASK` | `INSPECTION_CAPTURE` | Hidden | `T2-CAPTURE-UI` / `T3-FINALIZE` |
-| 2 | `REPORT_EXPORT` | `inspections/{inspectionId}/export` | `FULLSCREEN_TASK` | `INSPECTION_REVIEW` | Hidden | `T3-PDF-RENDERER` |
+| 2 | `REPORT_EXPORT` | `inspections/{inspectionId}/export` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-PDF-RENDERER` |
+| 2 | `REPORT_REEXPORT` | `inspections/{inspectionId}/re-export` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-PDF-RENDERER` |
 | 2 | `NOTICE_CENTER` | `properties/{propertyId}/notices` | `PUSH_DETAIL` | `PROPERTY_HUB` | Hidden | `T4-NOTICES` |
 | 3 | `NOTICE_COMPOSE` | `inspections/{inspectionId}/notice/new` | `FULLSCREEN_TASK` | `NOTICE_CENTER` | Hidden | `T4-NOTICES` |
 | 2 | `HHC_CAPTURE` | `properties/{propertyId}/healthy-homes` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T6-HHC` |
@@ -815,7 +817,7 @@ These rules remove page-level interpretation from implementation. Cards group on
 | `PROPERTY_CREATE` | `Add property` heading and address | One scrolling form in decision order: address → occupancy → boarding-house status | Bottom CTA is `Save property` | Validation stays inline; Cancel returns to the originating Add property action without creating a partial property |
 | `PROPERTY_HUB` | Address, compliance block if present, then exactly one `Start inspection` or `Continue inspection` hero | One compact facts group for due inspection, last finalized inspection, last verified backup, and notice status; history is a dated list, not dashboard metrics | `Continue inspection` or `Start inspection` | Missing tenancy or baseline is explained beside the affected inspection type; no generic empty illustration |
 | `INSPECTION_SETUP` | Inspection type and date/time | One scrolling form in decision order: type → tenancy/baseline → date/time → template; conditional fields appear directly after their cause | Bottom CTA uses `Start inspection` and remains above IME/system insets | Core compliance failures show the entered value and valid correction inline; an unavailable tenancy-creation path is a blocking task-graph gap, never a fake selector value |
-| `INSPECTION_CAPTURE` | Property/room identity, exact missing evidence, room navigation | Room panorama, safe bulk action, then the item stream | Dock shows only `Next room`, `Review missing`, or `Finish inspection` | Save, permission, media, and restoration failures preserve the current room/item and expose one recovery action |
+| `INSPECTION_CAPTURE` | Property/room identity, exact missing evidence, room navigation | Room panorama, safe bulk action, then the item stream | Dock shows only `Next room`, `Review {N} missing items`, or `Review inspection` | Save, permission, media, and restoration failures preserve the current room/item and expose one recovery action |
 | `INSPECTION_REVIEW` | Decision fact: `{complete} of {total} items complete` | Missing state groups by room; each row names item, exact missing evidence, and `Fix`; when complete, show evidence totals and the permanence handoff | `Review {N} missing items` until complete; then `Finish inspection` | No disabled `Finish inspection` button and no undifferentiated error list; selecting a row returns to and focuses the exact control |
 
 Property cards never combine a clickable card surface with nested buttons. The surface is structural; one labelled full-width `Open property` action owns navigation. Search/filter stays absent until the active property count exceeds eight, avoiding permanent chrome for a small self-use list.
@@ -934,18 +936,19 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | `Open property` | Property exists | `PUSH` | `PROPERTY_HUB(propertyId)` | Push | Pop → source Open property button |
 | `Start inspection` | No active draft | `PUSH` | `INSPECTION_SETUP(propertyId)` | Push | Cancel → property primary card |
 | `Continue inspection` | Active draft exists | `PUSH` | `INSPECTION_CAPTURE(inspectionId)` | Push | Save barrier, then Pop → Continue card |
-| Schedule due-property card | Property exists | Switch to Properties stack, then `PUSH` | Existing draft → `INSPECTION_CAPTURE`; no draft → `INSPECTION_SETUP` | Top-level crossfade, then Push | Pop → `PROPERTY_HUB`, then Properties root |
+| Schedule due-property card | Property exists | Select Properties; replace its stack with `PROPERTIES_ROOT → PROPERTY_HUB(propertyId)`; then `PUSH` | Existing draft → `INSPECTION_CAPTURE`; no draft → `INSPECTION_SETUP` | Top-level crossfade, stack commit, then Push | Pop → target `PROPERTY_HUB`, then Properties root |
 | Setup `Start inspection` | Required fields valid | `REPLACE` setup entry | `INSPECTION_CAPTURE(inspectionId)` | Push visual | Save and exit → property primary card |
 | Room segment | Target room exists | No route; persist current room then select | Same `INSPECTION_CAPTURE` instance | `150ms` content crossfade | Focus selected room heading |
 | `Take photo` | Camera permission granted and target requires evidence | `PUSH` | `CAMERA_CAPTURE(targetType,targetId)` | Camera fade | Close → original Take photo button |
 | Camera shutter | Camera state `PREVIEW_READY` | `PUSH` | `CAMERA_REVIEW(tempAssetId)` | Camera fade | Retake → shutter; Use photo → evidence thumbnail |
 | `Review N missing items` | Missing count `N > 0` | `PUSH` | `INSPECTION_REVIEW(inspectionId)` | Push | Select gap → Pop capture and focus exact item status group |
-| `Finish inspection` | Missing count `0`; state `READY` | `SHOW_DIALOG` | `FINALIZE_CONFIRMATION` | Dialog | Cancel → Finish inspection button; confirm → finalize progress heading |
+| `Review inspection` | Missing count `0`; latest revision durably saved | `PUSH` | `INSPECTION_REVIEW(inspectionId)` | Push | Back → editable capture at Review inspection action |
+| Review `Finish inspection` | Current page is `INSPECTION_REVIEW`; missing count `0`; state `READY` | `SHOW_DIALOG` | `FINALIZE_CONFIRMATION` | Dialog | Cancel → Finish inspection button; confirm → finalize progress heading |
 | Finalize succeeds | Finalized record and immutable evidence seal committed | Replace capture task subgraph | `REPORT_EXPORT(inspectionId)` | Push visual | Close → `PROPERTY_HUB`, focus finalized inspection row |
 | Finalized inspection row | Finalized PDF metadata exists | `SHOW_SHEET` | `REPORT_ACTION_SHEET` | Sheet | Dismiss → source report row |
 | Report action `Open PDF` | PDF exists or render succeeds | `LAUNCH_SYSTEM` | `PDF_VIEWER` | System | Return → Open PDF action |
 | Report action `Share` | Share URI granted | `LAUNCH_SYSTEM` | `SHARE_SHEET` | System | Return → Share action |
-| Report action `Export another quality` | Inspection finalized | `PUSH` | `REPORT_EXPORT(inspectionId)` | Push | Pop → source report row |
+| Report action `Export another quality` | Inspection finalized | Dismiss sheet, then `PUSH` from `PROPERTY_HUB` | `REPORT_REEXPORT(inspectionId)` | Push | Pop → source finalized inspection row |
 
 `T2-CAPTURE-UI` emits the single-use `InspectionFinalized(inspectionId)` event. `T3-PDF-RENDERER` consumes it and performs the declared task-subgraph replacement. Recomposition never re-emits or re-consumes the event.
 
@@ -956,6 +959,7 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | Property hub `Notices` | `PUSH` | `NOTICE_CENTER(propertyId)` | Back Pop | Notices card |
 | Notice center `New notice` | `PUSH` | `NOTICE_COMPOSE(inspectionId)` | Dirty-state guard | New notice button |
 | Property hub `Healthy Homes` | `PUSH` | `HHC_CAPTURE(propertyId)` | Dirty-state guard | Healthy Homes card |
+| First-run `Restore encrypted backup` | First-run state active | Select Settings; reset its stack to `SETTINGS_ROOT → BACKUP_SETTINGS → RESTORE_TASK`; then `LAUNCH_SYSTEM` | `BACKUP_FILE_PICKER` | Cancel restores `PROPERTIES_ROOT` first-run state; successful restore relaunches | Restore encrypted backup action |
 | Settings `Backup` | `PUSH` | `BACKUP_SETTINGS` | Back Pop | Backup row |
 | Backup `Choose destination` | `LAUNCH_SYSTEM` | `DOCUMENT_TREE_PICKER` | System result | Choose destination row |
 | Backup `Restore` | `PUSH`, then `LAUNCH_SYSTEM` | `RESTORE_TASK`, then `BACKUP_FILE_PICKER` | Cancel Pop; committing blocks Back | Restore row |
@@ -1141,12 +1145,22 @@ Setup explains three facts before choosing a folder: `Backups are encrypted`, `T
 
 Backup health has two permanent rows:
 
-1. `Last verified backup` — absolute date/time, full-dataset scope, inspection/photo counts, and destination display name.
+1. `Last verified backup` — absolute date/time, format/scope, effective data coverage, inspection/photo counts, and destination display name.
 2. `Latest attempt` — current phase or exact failure and its recovery action.
 
 One failed attempt never erases or visually downgrades a previous verified receipt.
 
 Format v1 offers both `All app data` and `This property` backup scopes.
+
+| Package | Export disclosure | Recoverable verified receipt | Restore preflight and result |
+| --- | --- | --- | --- |
+| v1 `full` | `Includes all app data and media` | Yes, only after reopen/decrypt/manifest verification | Accepted after full validation; show `All app data`; action `Replace all data on this device` |
+| v1 `property` | `Compatibility export: database contains all properties; only media for this property is included. This file is not property-isolated and cannot be restored.` | No; completion reads `Compatibility export created — not restorable` | Reject after manifest inspection, before replacement confirmation; action `Choose another backup` |
+| v2 `full` after its frozen-format version review | `Includes all app data and media` | Yes, only after full verification | Accepted after full validation; show `All app data`; action `Replace all data on this device` |
+| v2 `property` after its frozen-format version review | `Contains only {property}; restoring replaces current app data with this property` | Yes, only after row-set, logical-reference, media, and manifest completeness verification | Accepted after isolated-snapshot validation; show `This property`; action `Replace current data with this property`; when other data exists, recommend `Back up all current data first` |
+| Unknown scope, future format, or unsupported schema | `This backup version or scope is not supported` | No | Reject before replacement confirmation; action `Choose another backup` |
+
+Until the v2 frozen-format version review ships, v2 rows are reserved behavior, not an available export choice. No UI may describe v1 `property` as isolated, verified for recovery, suitable for property delivery, or restorable.
 
 | State | Required message | Primary action |
 | --- | --- | --- |
@@ -1165,9 +1179,9 @@ Progress shown for more than 300ms is announced politely at phase changes, not o
 
 #### Restore as a guarded task
 
-Restore is full-screen and sequential: choose package → enter password → verify into staging → review preflight → confirm replacement → commit/relaunch. Before confirmation it shows backup date, format compatibility, `All app data`, property/inspection/photo counts, required free space, and whether the selected provider must remain connected.
+Restore is full-screen and sequential: choose package → enter password → inspect and verify into staging → review scope-specific preflight → confirm replacement → commit/relaunch. Preflight always shows backup date, exact format and scope, effective data coverage, property/inspection/photo counts, required free space, and whether the selected provider must remain connected. A v1 `property`, unknown scope, future format, or unsupported schema stops at the rejection copy in the matrix and never reaches replacement confirmation.
 
-The destructive action reads `Replace all data on this device`, never `Continue`. It stays unavailable until verification and space checks pass; the adjacent explanation names the unmet condition. Confirmation requires typing `RESTORE`. Cancel and any failure leave current data untouched. Before commit, offer `Back up current data first` as the recommended secondary action.
+For accepted full packages, the destructive action reads `Replace all data on this device`. For an accepted v2 `property`, it reads `Replace current data with this property` and explains that every other current property and setting will be removed. Neither action ever reads `Continue`. It stays unavailable until the applicable verification, completeness, compatibility, and space checks pass; the adjacent explanation names the unmet condition. Confirmation requires typing `RESTORE`. Cancel and any failure leave current data untouched. Before a full replacement offer `Back up current data first`; before a property replacement with other current data offer `Back up all current data first`.
 
 Wrong password, corrupt package, unsupported version, insufficient space, provider disconnect, and interrupted verification each have distinct copy and one safe next action. After a process restart, the restore journal resolves first; the UI reports either `Current data restored safely` or `Backup restored`, never exposes a half-restored home screen.
 
