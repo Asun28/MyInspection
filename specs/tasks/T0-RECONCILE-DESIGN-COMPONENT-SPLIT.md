@@ -19,9 +19,10 @@ acceptance:
   - "A1 新基础卡只落 Colors 到 Components 前的精确源区域"
   - "A2 原组件卡改为依赖基础卡，最终设计内容不变"
   - "A3 两卡均保留完整自验证 DoD，未放宽预算"
-dod_command: pwsh -NoProfile -File scripts/check-cards.ps1;if($LASTEXITCODE-ne0){exit 1};$base='85bdf1df8eeb920bce019739ed49eefe541e4863';$p='specs/tasks/T0-RECONCILE-DESIGN-COMPONENTS.md';$e=(&git show ($base+':'+$p)|Out-String);if($LASTEXITCODE-ne0){throw 'baseline'};$old='depends_on: [T0-RECONCILE-DESIGN-JOURNEYS]';$new='depends_on: [T0-RECONCILE-DESIGN-FOUNDATIONS]';if([regex]::Matches($e,[regex]::Escape($old)).Count-ne1){throw 'dependency baseline'};$e=$e.Replace($old,$new);function N($x){($x-replace'\r\n',"`n").TrimEnd()};if((N (Get-Content $p -Raw))-cne(N $e)){throw 'component exact'};$f=Get-Content 'specs/tasks/T0-RECONCILE-DESIGN-FOUNDATIONS.md' -Raw;if($f-notmatch'(?m)^depends_on: \[T0-RECONCILE-DESIGN-JOURNEYS\]$'-or$f-notmatch'(?m)^allow_paths:\r?\n  - context/DESIGN\.md$'-or$f-notmatch'63429'-and$f-notmatch'完整评审预算'){throw 'foundation card'};if($f-notmatch'85bdf1df8eeb920bce019739ed49eefe541e4863'-or$f-notmatch'c9a34b314cdf38986b2584c35371b17a73438003'){throw 'pinned refs'}
+  - "A4 现有组件分支必须合入 Foundations 后的最新主线并通过 SizeOnly"
+dod_command: pwsh -NoProfile -File scripts/check-cards.ps1;if($LASTEXITCODE-ne0){exit 1};$sha=[Security.Cryptography.SHA256]::Create();function ExactHash($p,$e){$s=(Get-Content $p -Raw).Replace([string][char]13,'').TrimEnd();$a=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($s)))-replace'-','').ToLower();if($a-cne$e){throw ('exact card '+$p)}};ExactHash 'specs/tasks/T0-RECONCILE-DESIGN-FOUNDATIONS.md' '0c67782d8aa27b96134fd0311b429e83a1fa3be024bb7c43eb9fdeee53b00c53';ExactHash 'specs/tasks/T0-RECONCILE-DESIGN-COMPONENTS.md' '1a8f6224e8de7147d87d3629e1dba9f293ae0355ba95baefec59dbd1abc20baa';$f=Get-Content 'specs/tasks/T0-RECONCILE-DESIGN-FOUNDATIONS.md' -Raw;$c=Get-Content 'specs/tasks/T0-RECONCILE-DESIGN-COMPONENTS.md' -Raw;if(-not$f.Contains('$foundation=Region $src ')-or-not$f.Contains("'Colors' 'Components'")-or-not$f.Contains('$prefix+$foundation+$suffix')-or-not$c.Contains('&git merge-base --is-ancestor $remote HEAD')-or-not$c.Contains('review.ps1 -WorktreePath $PWD.Path -SizeOnly')){throw 'split sentinel'}
 dod_exit: 0
-dod_assert: A1–A3 exact split/card dependency；删内容或放宽预算即 RED
+dod_assert: A1–A4 两张卡全文 hash + region/equality/ancestry/SizeOnly sentinels；任一删除变异即 RED
 review_gate: codex {verdict:pass}
 hygiene: 预算拆分以语义边界为单位
 doc_sync: 无
@@ -30,4 +31,3 @@ doc_sync: 无
 # T0-RECONCILE-DESIGN-COMPONENT-SPLIT
 
 只登记预算拆卡，不改变产品设计。
-
