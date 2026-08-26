@@ -1096,7 +1096,9 @@ Backup health has two permanent rows:
 1. `Last verified backup` — absolute date/time, full-dataset scope, inspection/photo counts, and destination display name.
 2. `Latest attempt` — current phase or exact failure and its recovery action.
 
-One failed attempt never erases or visually downgrades a previous verified receipt. Format v1 offers both `All app data` and `This property` backup scopes.
+One failed attempt never erases or visually downgrades a previous verified receipt.
+
+Format v1 offers both `All app data` and `This property` backup scopes.
 
 | State | Required message | Primary action |
 | --- | --- | --- |
