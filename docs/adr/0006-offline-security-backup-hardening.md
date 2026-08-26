@@ -1,6 +1,8 @@
 # 0006 — 离线、安全与备份加固
 
-日期：2026-08-20 · 状态：**accepted（用户已签认 2026-08-20）** · amends：ADR-0002 的密钥、失败隔离与恢复验证细节；保留其存储/provider 与整包/按物业范围
+日期：2026-08-20 · 状态：**accepted（依据需求 §11 的 `[定]` 范围合同）** · amends：ADR-0002 的密钥、失败隔离与恢复验证细节；保留其存储/provider 与整包/按物业范围
+
+这里“保留存储/provider”只保留 **app-private** 安全边界、用户自选 SAF provider 与两种导出范围；本 ADR 明确 supersede ADR-0002 决策 1 的“全部活数据放 app-specific external storage”：SQLite、设置、回执、密钥信封与恢复控制状态改放 credential-encrypted internal storage，只有大体积媒体可放 app-specific external storage。
 
 ## 背景
 
@@ -57,7 +59,7 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 - 恢复先解密到 internal staging，并在落盘前完成：header/KDF 上限、format/schema 兼容、canonical manifest、路径白名单、重复项、文件数、每项与总字节溢出、可用空间、逐项 hash/size 和双向完备性检查。任何条目超过 manifest 声明大小立即停止。
 - 空间预检必须保留 `max(512 MiB, 可用空间 10%)` 安全余量；空间不够不开始 commit。文件数和 manifest 大小设明确实现上限并由 hostile tests 固定。
 - commit 进入 maintenance mode，写独立恢复 journal，按“旧数据改名保底 → 新数据就位 → 重开 DB/抽查资产 → 标记完成 → 清理旧数据”执行。崩溃后依据 journal 确定性回滚或完成，不允许新旧数据混合。
-- 未来格式/不支持 schema 直接拒绝；旧备份允许恢复但必须显示备份日期与将回退的数据范围，并再次确认。恢复前现有数据不自动删除；建议先生成一份当前全量备份。
+- 恢复矩阵必须按解密后 manifest fail closed：v1 `full` 包在全部验证通过后可恢复并整包替换；v1 `property` 包即使可解密也必须拒绝，因为它含整库 DB 但媒体不完整；v2 `full` 包整包替换；v2 `property` 包在隔离/完备性验证后，以该物业快照替换当前 app 数据。未知 scope、未来格式或不支持 schema 一律拒绝。任何允许的旧包恢复都显示备份日期与将回退的数据范围并再次确认；恢复前现有数据不自动删除，建议先生成当前全量备份。
 
 ### 5. 产品状态与隐私反馈
 
