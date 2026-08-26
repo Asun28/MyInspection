@@ -99,13 +99,15 @@ Process-stable environment fields are normalized into one row per app process ra
 
 | Field | Type / nullability | Contract |
 | --- | --- | --- |
-| `id` | TEXT, required, PK | Random opaque run ID |
+| `id` | TEXT, required, PK | UUIDv7; process-run identity and deterministic tie-breaker |
 | `started_at` | INTEGER, required | UTC epoch milliseconds |
 | `app_version` | TEXT, required | User-visible app version |
 | `app_build` | INTEGER, required | Build/version code |
 | `main_schema_version` | INTEGER, required | Evidence database schema at process start |
 | `os_api_level` | INTEGER, required | Android API level; no device unique ID |
 | `device_model` | TEXT, required | Bounded model name for compatibility diagnosis |
+| `updated_at` | INTEGER, required | UTC epoch milliseconds; initially equals `started_at`, changed only by retention maintenance |
+| `deleted_at` | INTEGER, optional | Soft-delete marker set only by retention maintenance |
 
 There is no `ended_at`: Android may kill the process without a callback, so a nullable end time would mostly encode unreliable absence. A new run row is created at the next process start.
 
@@ -125,21 +127,25 @@ There is no `ended_at`: Android may kill the process without a callback, so a nu
 | `duration_ms` | INTEGER, optional | Non-negative |
 | `item_count` | INTEGER, optional | Non-negative aggregate only |
 | `context_json` | TEXT, required, default `{}` | Valid JSON, max 2 KiB, event-specific allowlisted keys only |
+| `updated_at` | INTEGER, required | UTC epoch milliseconds; initially equals `occurred_at`, changed only by retention maintenance |
+| `deleted_at` | INTEGER, optional | Soft-delete marker set only by retention maintenance |
 
-Deliberately absent: `created_at` (duplicates `occurred_at`), `updated_at`, `deleted_at`, user/admin IDs, severity (derived from outcome/reason), raw stack traces, free-form messages, paths, URIs, hashes, addresses, names, contact details, notes, transcriptions, media, credentials, and provider bodies.
+Deliberately absent: `created_at` (duplicates `occurred_at`), user/admin IDs, severity (derived from outcome/reason), raw stack traces, free-form messages, paths, URIs, hashes, addresses, names, contact details, notes, transcriptions, media, credentials, and provider bodies.
 
 Recommended indexes:
 
-1. `(occurred_at DESC, id DESC)` for bounded timeline reads/pruning.
-2. `(run_id, occurred_at, id)` for one process lifetime.
-3. `(correlation_id, occurred_at, id)` for reconstructing one operation.
-4. `(operation_code, outcome, occurred_at DESC)` for failure diagnosis.
+1. `(occurred_at DESC, id DESC) WHERE deleted_at IS NULL` for bounded timeline reads/pruning.
+2. `(run_id, occurred_at, id) WHERE deleted_at IS NULL` for one process lifetime.
+3. `(correlation_id, occurred_at, id) WHERE deleted_at IS NULL` for reconstructing one operation.
+4. `(operation_code, outcome, occurred_at DESC) WHERE deleted_at IS NULL` for failure diagnosis.
 
-No foreign keys point into the evidence database. The table is append-only; only retention maintenance may physically delete the oldest rows.
+No foreign keys point into the evidence database. Both tables are append-only for normal operations; only retention maintenance may set `updated_at`/`deleted_at` and later physically purge soft-deleted rows. All ordinary reads include `deleted_at IS NULL`.
 
 ### Retention and failure behavior
 
-- Keep at most 90 days and 20,000 event rows, whichever limit is reached first; delete run rows only after their final event has been pruned.
+- Create each `diagnostic_run` and its first `APP_START` event in one diagnostics-database transaction. If opening or writing that transaction fails, abandon that logging attempt; never leave an intentional run-only row and never fail app startup.
+- As crash/corruption recovery defence, retention also soft-deletes any run with no event once `started_at` is older than the startup grace window. This rule covers legacy rows and interruption before a transaction commit.
+- Keep at most 90 days and 20,000 active event rows, whichever limit is reached first. Retention first soft-deletes expired events, then soft-deletes run rows after their final active event is gone, and finally purges bounded batches of soft-deleted rows.
 - Prune in small batches after app start and successful event batches; never during a critical evidence commit.
 - Event recording is best-effort and isolated. A full/corrupt diagnostics database cannot fail capture, finalization, backup, or restore.
 - Critical facts remain in domain tables. For example, finalization is proven by `finalized_at/data_hash`, not by a `FINALIZE_SUCCESS` event.
@@ -169,6 +175,7 @@ Support/admin receives no database console and no mutation endpoint. Any repair 
 - Removing each finalized/draft guard makes a focused invariant test fail.
 - Logger tests inject full disk, corrupt diagnostics DB, invalid context keys, oversized JSON, CR/LF, and every forbidden sensitive field.
 - A logger failure leaves the business operation successful and evidence unchanged.
+- Killing the process before the first diagnostics transaction commits leaves no run row; a seeded legacy zero-event run is soft-deleted by `started_at` after the startup grace window and later purged.
 - Diagnostic exports contain only allowlisted fields and work in airplane mode.
 
 ## 10. References
