@@ -1,0 +1,154 @@
+{
+  "fixtureVersion": 1,
+  "template": {
+    "resource": "/routine-v1.json",
+    "type": "ROUTINE",
+    "version": 1,
+    "expectedId": "0193ba74-3c00-72af-8def-012311223344",
+    "expectedContentHash": "0abb0dbe5b71970ee79c5fadc488d8f581d5a0bc4ef78feb204e7a5b753964fb",
+    "panoramaRooms": [
+      "LOUNGE",
+      "KITCHEN-DINING",
+      "BATHROOM",
+      "LAUNDRY",
+      "BEDROOM",
+      "GENERAL",
+      "EXTERIOR"
+    ]
+  },
+  "property": {
+    "id": "property-golden-001",
+    "address": "12 Golden Evidence Lane, Wellington",
+    "kind": "RENTAL",
+    "isBoardingHouse": false
+  },
+  "tenancy": {
+    "id": "tenancy-golden-001",
+    "startMs": 1700000000000,
+    "endMs": null
+  },
+  "inspection": {
+    "expectedId": "0193ba74-3c01-72af-8def-012311223344",
+    "type": "ROUTINE",
+    "scheduledAt": 1734000000001,
+    "finalizedAt": 1734000001001,
+    "defaultStatus": "GOOD",
+    "itemOverrides": [
+      {
+        "stableId": "LNG-WALL-01",
+        "status": "POOR",
+        "note": "PUBLIC_OBJECTIVE_GOLDEN_SENTINEL"
+      }
+    ]
+  },
+  "photos": [
+    {
+      "key": "room-lounge",
+      "target": { "kind": "ROOM", "key": "LOUNGE" },
+      "bytesHex": "ffd84c4f554e4745ffd9",
+      "expectedContentHash": "693d20df1e0cee173de5a4b1db19ca901d0a866301d04a83ea2bb001e82486fd",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000011,
+      "privacy": false,
+      "reportReference": "ROOM-LOUNGE-1"
+    },
+    {
+      "key": "room-kitchen-dining",
+      "target": { "kind": "ROOM", "key": "KITCHEN-DINING" },
+      "bytesHex": "ffd84b49544348454effd9",
+      "expectedContentHash": "dc1b2173cc0ed67a72468de41f5c3fadea0255383c934147024fb9b99241bc5b",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000021,
+      "privacy": false,
+      "reportReference": "ROOM-KITCHEN-DINING-1"
+    },
+    {
+      "key": "room-bathroom",
+      "target": { "kind": "ROOM", "key": "BATHROOM" },
+      "bytesHex": "ffd842415448524f4f4dffd9",
+      "expectedContentHash": "b59ec3d45c5ff869898063e34d39417b997c337f9d4135e5402b346b43f73ef2",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000031,
+      "privacy": false,
+      "reportReference": "ROOM-BATHROOM-1"
+    },
+    {
+      "key": "room-laundry",
+      "target": { "kind": "ROOM", "key": "LAUNDRY" },
+      "bytesHex": "ffd84c41554e445259ffd9",
+      "expectedContentHash": "8bf6e9fa10db33300d55bf9fc8104c829f34685b1ad9a60416da098d16218629",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000041,
+      "privacy": false,
+      "reportReference": "ROOM-LAUNDRY-1"
+    },
+    {
+      "key": "room-bedroom",
+      "target": { "kind": "ROOM", "key": "BEDROOM" },
+      "bytesHex": "ffd8424544524f4f4dffd9",
+      "expectedContentHash": "6fc318355dea42422fd912e8d7bbd65e9e570e355ddea6d64abee1975c44bfa3",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000051,
+      "privacy": false,
+      "reportReference": "ROOM-BEDROOM-1"
+    },
+    {
+      "key": "room-general",
+      "target": { "kind": "ROOM", "key": "GENERAL" },
+      "bytesHex": "ffd847454e4552414cffd9",
+      "expectedContentHash": "5625a32ed368ee94d9418e11822797c6e9590ee78b76e5c441c5c2e7234a7f2a",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000061,
+      "privacy": false,
+      "reportReference": "ROOM-GENERAL-1"
+    },
+    {
+      "key": "room-exterior",
+      "target": { "kind": "ROOM", "key": "EXTERIOR" },
+      "bytesHex": "ffd84558544552494f52ffd9",
+      "expectedContentHash": "3f1ad9ebe309715d181dac0b9d71ae1992462340355db110e5313e5fb2aa250f",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000071,
+      "privacy": false,
+      "reportReference": "ROOM-EXTERIOR-1"
+    },
+    {
+      "key": "item-public",
+      "target": { "kind": "ITEM", "key": "LNG-WALL-01" },
+      "bytesHex": "ffd85055424c4943ffd9",
+      "expectedContentHash": "2a5d00c8b74598678643cd3f6cb09e8165401f61f5df2e6da62509a8ebb5903e",
+      "source": "CAMERA",
+      "exifTimeMs": 1734000000101,
+      "privacy": false,
+      "reportReference": "PUBLIC-EVIDENCE-1"
+    },
+    {
+      "key": "item-private",
+      "target": { "kind": "ITEM", "key": "LNG-WALL-01" },
+      "bytesHex": "ffd850524956415445ffd9",
+      "expectedContentHash": "2d5afc3f067fd489c2e4fa2fc45a3e66266cac0f1426eee7bf886132da16c48c",
+      "source": "IMPORTED",
+      "exifTimeMs": 1734000000111,
+      "privacy": true,
+      "reportReference": "PRIVATE_PHOTO_GOLDEN_SENTINEL"
+    }
+  ],
+  "expectedDataHash": "67889661e35bfa7dbc060b5d2e97d2428c3e75f8563c455c50558135a6bee2d0",
+  "report": {
+    "remediationStableId": "LNG-WALL-01",
+    "landlordIncludePrivacyPhotos": true,
+    "tenantIncludePrivacyPhotos": false,
+    "landlordExpectedSentinels": [
+      "PUBLIC_OBJECTIVE_GOLDEN_SENTINEL",
+      "LANDLORD_ONLY_GOLDEN_SENTINEL",
+      "PRIVATE_PHOTO_GOLDEN_SENTINEL"
+    ],
+    "tenantExpectedSentinels": [
+      "PUBLIC_OBJECTIVE_GOLDEN_SENTINEL"
+    ],
+    "tenantForbiddenSentinels": [
+      "LANDLORD_ONLY_GOLDEN_SENTINEL",
+      "PRIVATE_PHOTO_GOLDEN_SENTINEL"
+    ]
+  }
+}
