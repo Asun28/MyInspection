@@ -733,6 +733,8 @@ function Test-SelftestCiMatrixContract([string]$WorkflowText) {
 
 function Test-SelftestCiWiringContract([string]$WorkflowText) {
   if (-not (Test-SelftestCiMatrixContract $WorkflowText)) { return $false }
+  # seeded alone needs the measured 30-minute budget; widening every shard would hide hangs in the cheaper lanes.
+  if ([regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*matrix\.shard == 'seeded' && 30 \|\| 20\s*\}\}\s*$").Count -ne 1) { return $false }
   if ($WorkflowText -notmatch '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$') { return $false }
   if ($WorkflowText -notmatch "(?ms)- name: Provision PSScriptAnalyzer.*?\n\s*if:\s*matrix\.shard == 'core'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*Install-Module PSScriptAnalyzer") { return $false }
   return $true
@@ -3362,8 +3364,10 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $allCoreMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
   $runShardMutation = $selftestWorkflow -replace '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$', '        run: pwsh -NoProfile -File scripts/selftest.ps1'
   $lintConditionMutation = $selftestWorkflow -replace "(?m)^\s*if:\s*matrix\.shard == 'core'\s*$", "        if: matrix.shard == 'workflow'"
-  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation)) {
-    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件变异。'
+  $seededTimeoutRevertMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 20'
+  $allTimeoutWidenMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 30'
+  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation)) {
+    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/seeded 独享超时预算变异。'
   }
 
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
@@ -5079,11 +5083,11 @@ if (Test-Path $triageForCount) {
       return @([regex]::Matches($Text, $tokenPattern) | ForEach-Object Value | Sort-Object)
     }
     $rosterSpecs = @(
-      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*severity=blocking'; Mode='code' },
-      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60delivery-blocked\x60.*退出码恒'; Mode='code' },
+      @{ Rel='docs/LOOP-ENGINEERING.md'; Start='\x60lessons-promote\x60'; End='\x60scaffold-stale\x60.*绝不 fetch'; Mode='code' },
+      @{ Rel='.claude/skills/triage/SKILL.md'; Start='^\s+\x60lessons-promote\x60'; End='\x60scaffold-stale\x60.*退出码恒'; Mode='code' },
       @{ Rel='docs/DELIVERY-CHAINS.md'; Start='^\|\s*心跳\s*/\s*triage'; End=''; Mode='plain'; Body='子系统（(?<body>[^）]+)）→' },
-      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+10\s+探针'; End=''; Mode='plain'; Body='10\s+探针（(?<body>[^）]+)）→' },
-      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另五枚.*\x60delivery-blocked\x60'; Mode='code' }
+      @{ Rel='docs/scaffold-architecture.html'; Start='<p>只读扫各子系统的\s+11\s+探针'; End=''; Mode='plain'; Body='11\s+探针（(?<body>[^）]+)）→' },
+      @{ Rel='docs/HARNESS-REVIEW.md'; Start='^\s*\x60lessons-cap\x60'; End='^\s*另六枚.*\x60scaffold-stale\x60'; Mode='code' }
     )
     foreach ($spec in $rosterSpecs) {
       $rel = $spec.Rel
@@ -5103,7 +5107,7 @@ if (Test-Path $triageForCount) {
         $extra = @($listed | Where-Object { $probeNames -cnotcontains $_ })
         Fail "14g②：$rel 的权威清单枚举了 $($listed.Count) 枚探针、triage.ps1 实有 $probeFnCount 枚——漏列：$($missing -join ', ')；多列/陈旧：$($extra -join ', ')。"
       }
-      # Fifty cheap deletion mutations (five rosters × ten names): each removal must be visible even when the
+      # One deletion mutation per roster/name pair: each removal must be visible even when the
       # same name appears elsewhere in that file. This is the regression proof for the bounded parser above.
       foreach ($probeName in $probeNames) {
         $namePattern = '(?<![a-z0-9-])' + [regex]::Escape($probeName) + '(?![a-z0-9-])'
