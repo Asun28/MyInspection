@@ -140,6 +140,7 @@ Recommended indexes:
 3. `(correlation_id, sequence_no) WHERE deleted_at IS NULL` for reconstructing one operation.
 4. `(operation_code, outcome, sequence_no DESC) WHERE deleted_at IS NULL` for failure diagnosis.
 5. Unique `(correlation_id) WHERE operation_code = 'BACKUP_RESULT'` so retries cannot append two terminal backup outcomes.
+6. Unique `(correlation_id) WHERE operation_code = 'PREVIOUS_CRASH'` so restart recovery cannot report one exit twice.
 
 No foreign keys point into the evidence database. Both tables are append-only for normal operations; only retention maintenance may set `updated_at`/`deleted_at` and later physically purge soft-deleted rows. All ordinary reads include `deleted_at IS NULL`.
 
@@ -158,6 +159,7 @@ This bounded materialized projection is intentional: event rows are diagnostic h
 | `is_active` | INTEGER, required | Boolean latch |
 | `failure_streak` | INTEGER, required, default 0 | `0..3`; non-zero only for `BACKUP_FAILED_3X` |
 | `transition_sequence_no` | INTEGER, required | Last applied `operation_event.sequence_no`; remains meaningful after source-event pruning |
+| `authority_revision` | INTEGER, optional | Required only for `INTEGRITY_FAILED` BACKUP/RESTORE receipt sources; last applied monotonic receipt revision |
 | `activated_at` | INTEGER, optional | UTC epoch milliseconds for display only |
 | `updated_at` | INTEGER, required | UTC epoch milliseconds for display only |
 
@@ -182,14 +184,14 @@ The registry version is stored with the diagnostics schema and exported manifest
 | `RESTORE_ROLLBACK` | `SUCCESS`, `FAILURE` | `RESTORE_RUNTIME` | `scope_kind` | `RESTORE` + opaque ID required |
 | `LOCAL_DATA_ERASE` | all four | `ERASURE` | `erasure_category` | none |
 | `DIAGNOSTICS_EXPORT` | all four | `EXPORT` | `window_days` | none |
-| `DATABASE_INTEGRITY_CHECK` | `SUCCESS`, `FAILURE` | `INTEGRITY` | `check_kind` | none |
+| `DATABASE_INTEGRITY_CHECK` | `SUCCESS`, `FAILURE` | `INTEGRITY` | `integrity_context` | conditional by source |
 
 Reason sets are closed unions, never persisted as values themselves:
 
 | Set | Exact allowed reason codes |
 | --- | --- |
 | `DOMAIN` | rejected: `VALIDATION_FAILED`, `NOT_FOUND`, `STATE_CONFLICT`; failure: `INVARIANT_FAILED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
-| `CRASH` | failure: `UNCAUGHT_EXCEPTION`, `NATIVE_CRASH`, `ANR`, `PROCESS_DEATH_UNKNOWN` |
+| `CRASH` | failure: `UNCAUGHT_EXCEPTION`, `NATIVE_CRASH`, `ANR`, `INITIALIZATION_FAILURE`, `RESOURCE_LIMIT` |
 | `MEDIA` | rejected: `VALIDATION_FAILED`, `NOT_FOUND`, `PERMISSION_DENIED`, `LOW_STORAGE`; failure: `IO_ERROR`, `MEDIA_UNAVAILABLE`, `HASH_MISMATCH`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
 | `REPORT` | rejected: `VALIDATION_FAILED`, `LOW_STORAGE`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `MEDIA_UNAVAILABLE`, `RENDER_FAILED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
 | `BACKUP` | rejected: `LOW_STORAGE`, `AUTHORIZATION_REVOKED`, `NEEDS_UNLOCK`, `NEEDS_PASSPHRASE`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `HASH_MISMATCH`, `INTEGRITY_FAILED`, `PROCESS_INTERRUPTED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
@@ -201,9 +203,13 @@ Reason sets are closed unions, never persisted as values themselves:
 
 `context_json` has no implicit keys. `threshold_ms` is an integer millisecond duration in `1..120000`; `scope_kind` is `FULL` or `PROPERTY`; `media_kind` is `PHOTO` or `AUDIO`; `report_variant` is `LANDLORD` or `TENANT`; `window_days` is `7`, `30`, or `90`; `check_kind` is `QUICK_CHECK`, `MANIFEST`, or `FILE_HASH`; `erasure_category` is `MAIN_DB`, `DIAGNOSTICS_DB`, `MEDIA`, `REPORTS`, `SETTINGS`, `KEYSTORE`, `CACHE`, `JOURNAL`, or `URI_GRANTS`. `crash_context` contains exactly: required `build_id` (`[A-Za-z0-9._-]{1,64}`), required `exception_class_code` (`ILLEGAL_STATE`, `ILLEGAL_ARGUMENT`, `IO`, `SQLITE`, `OUT_OF_MEMORY`, `SECURITY`, or `UNKNOWN`), and required `frame_ids` (array of 0–8 allowlisted identifiers, each `[A-Za-z0-9_.$#-]{1,96}`). It never contains an exception message, class name outside the closed mapping, line number, path, URI, business value, payload, or stack dump.
 
+`integrity_context` supersedes bare `check_kind`: MAIN_DB is exactly `{source_kind: MAIN_DB, check_kind: QUICK_CHECK}` and unscoped; BACKUP/RESTORE is exactly `{source_kind, check_kind: ARCHIVE_VERIFICATION, authority_revision}` with matching scope and receipt ID. Revision is a positive database counter; mismatched source/check/scope or extra/missing keys fail.
+
 Each operation accepts exactly the listed context schema or `{}`; additional/missing keys fail validation. `duration_ms` and `item_count` use their typed columns, respectively milliseconds and unitless row/file counts, never duplicate context keys. JSON is canonical UTF-8 and remains within 2 KiB. The closed non-null `scope_type` values are `INSPECTION`, `TENANCY`, `BACKUP`, and `RESTORE`; each requires an opaque `scope_id`, while unscoped operations require both fields NULL.
 
 Health transitions are closed and deterministic. Event-driven transitions are materialized into `diagnostic_health` in `sequence_no` order; retention never derives state again from the surviving event window. Direct operation results drive the same UI immediately, so diagnostics failure cannot hide or alter the business result.
+
+Backup/restore receipts allocate `verification_revision INTEGER PRIMARY KEY AUTOINCREMENT` with the outcome. A mirror integrity event copies it; each source accepts only a greater revision. Missing mirrors are reconciled from the highest receipt revision at startup, while the receipt remains UI authority.
 
 | Health state | Source and activation | Clear condition |
 | --- | --- | --- |
@@ -212,13 +218,20 @@ Health transitions are closed and deterministic. Event-driven transitions are ma
 | `PDF_FAILED` | `PDF_GENERATE/FAILURE` or `/REJECTED`, keyed by inspection + `report_variant` | later `PDF_GENERATE/SUCCESS` for the same inspection + variant |
 | `BACKUP_LAST_FAILED` | `BACKUP_RESULT/FAILURE` or `/REJECTED` | later `BACKUP_RESULT/SUCCESS` |
 | `BACKUP_FAILED_3X` | each non-cancelled `BACKUP_RESULT/FAILURE` or `/REJECTED` increments the materialized streak, capped at 3; reaching 3 activates | `BACKUP_RESULT/SUCCESS` atomically resets streak to 0 and clears |
-| `INTEGRITY_FAILED` | `DATABASE_INTEGRITY_CHECK/FAILURE`, or an authoritative failed backup/restore verification receipt, keyed by source kind | newer successful check/verification for the same source |
+| `INTEGRITY_FAILED` | source-matched `DATABASE_INTEGRITY_CHECK/FAILURE`, or highest-revision authoritative failed backup/restore verification receipt, keyed independently by `MAIN_DB`, `BACKUP`, or `RESTORE` | a later event sequence for MAIN_DB, or greater successful receipt revision for the same BACKUP/RESTORE source |
 | `RESTORE_FAILED` | `RESTORE_PREFLIGHT` or `RESTORE_COMMIT` is `FAILURE` or `REJECTED` | later `RESTORE_COMMIT/SUCCESS` |
 | `RESTORE_ROLLED_BACK` | `RESTORE_ROLLBACK/SUCCESS` | later `RESTORE_COMMIT/SUCCESS` |
 | `PREVIOUS_CRASH` | current run records `PREVIOUS_CRASH/FAILURE` with valid `CRASH` reason and `crash_context` | next run's atomic `APP_START` transaction when it has no marker |
 | `STARTUP_SLOW` | current run records `STARTUP_SLOW/SUCCESS`; measured startup exceeds stored `threshold_ms` | next run's atomic `APP_START` transaction when it has no slow marker |
 
 Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and explicit clear sequence for every health state. Ordering tests insert causally later events with an earlier wall-clock value and equal timestamps, proving the database-assigned sequence alone wins. Retention tests prune every source event for each active state at both the age and row-count boundary, prove the projection remains active, then apply only its declared clear transition and prove it clears. PDF tests cover both variants, every outcome/reason rule, per-inspection isolation, one-second UI projection, and unknown context rejection. Backup tests prove `BACKUP_START` is unknown, two weekly logical occurrences use different UUIDv7 correlation IDs, a process-death retry reuses its occurrence ID, and the unique terminal-result rule rejects a second `BACKUP_RESULT`. Crash tests reject messages, raw/unmapped class names, paths, oversized/build-invalid values, more than eight frames, and unsafe frame characters. Scope tests prove `CONTACT_PURGE` accepts a real tenancy with zero or many inspections and rejects an inspection scope. Logger failure still leaves business results unchanged.
+
+Integrity tests reject source/check/scope mismatches, cross-source clearing and stale revisions, then reconcile a missed mirror. Crash tests cover every mapping, normal exits, pre-30 normal death, repeated launch, and kills around the durable claim; one exit creates at most one alert/event.
+
+#### Crash evidence and deduplication
+
+- Android 11+ reads at most 32 own-package `ApplicationExitInfo` rows. CRASH/CRASH_NATIVE/ANR/INITIALIZATION_FAILURE/EXCESSIVE_RESOURCE map to the five `CRASH` reasons in order; all other reasons, including low-memory, user stop and package update, never alert. A startup-set random process token yields `source_id = SHA-256(version, token, exit time, pid, reason)`. Description, trace, memory data and raw summary are never read; invalid summary uses build/class `UNKNOWN` and no frames.
+- Android 10 and below never infers from missing clean shutdown: only an atomic delegated uncaught-Java marker (random ID, bounded build, closed class, ≤8 safe app frames) qualifies; its hashed ID is `source_id`. An atomic no-backup ledger claims all inspected IDs before best-effort event insertion, retains them while present and ≥90 days, and uses `source_id` as correlation. Thus a kill may lose a log but cannot repeat an alert, even after diagnostics DB rebuild; normal/native/ANR/system deaths never alert pre-30.
 
 ### Retention and failure behavior
 

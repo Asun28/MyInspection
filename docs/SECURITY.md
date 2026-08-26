@@ -67,7 +67,7 @@
 - 用户可见通知只写 `Backup needs attention` 等通用文案；锁屏通知不显示物业地址、租客名、照片缩略图或恢复范围。
 - 剪贴板仅用于用户显式复制通知文案；app 不自动复制秘密，敏感字段不提供复制动作。复制不等于发送，不生成 sent 状态。
 - 本机健康状态只从 typed events、其不受事件保留期清除的本地 projection 与权威回执派生；因果先后只看数据库自增序列，时间戳只用于显示/年龄。operation/reason/context 封闭码、单位、outcome 约束及 `FINALIZE_FAILED / PDF_FAILED / BACKUP_LAST_FAILED / BACKUP_STALE_7D / BACKUP_FAILED_3X / INTEGRITY_FAILED / RESTORE_FAILED / RESTORE_ROLLED_BACK / PREVIOUS_CRASH / STARTUP_SLOW` 的精确派生/清除规则以 `docs/DATABASE-DESIGN.md`“Diagnostic registry v1”为唯一注册表。来源变化后 1 秒内显示一个可操作动作。它不是远程监控；v1 不自动遥测、Wi-Fi 上传或发送远程告警。
-- 崩溃 marker 使用 registry 的 `PREVIOUS_CRASH/FAILURE`：reason 仅为 `UNCAUGHT_EXCEPTION / NATIVE_CRASH / ANR / PROCESS_DEATH_UNKNOWN`，context 仅含格式受限的 build id、封闭映射后的异常类型和最多 8 个安全帧标识。禁 exception message、原始类名、业务字段、行号、路径/URI、payload、token 或内存转储。每个 release 的 mapping/符号证据仅保存在受控本地发布工件中，不进 APK、仓库、诊断包或自动上传链。
+- 崩溃 marker 使用 registry 的 `PREVIOUS_CRASH/FAILURE`：Android 11+ 只把本 app `ApplicationExitInfo` 的 crash/native-crash/ANR/initialization-failure/excessive-resource 明确原因映射为封闭 reason；其他系统退出原因不告警。Android 10 及以下只接受 app 自写的未捕获 Java 异常 marker，不从“没有正常退出标记”猜崩溃。context 仅含来源枚举、格式受限 build id、封闭异常类型和最多 8 个安全帧标识；禁 system description/trace、message、原始类名、业务字段、行号、路径/URI、payload、token 或内存转储。opaque 消费账本与唯一 correlation 防重复，每个 release 的 mapping/符号证据仅保存在受控本地发布工件中，不进 APK、仓库、诊断包或自动上传链。
 
 ### 2.5 威胁边界与验证
 
