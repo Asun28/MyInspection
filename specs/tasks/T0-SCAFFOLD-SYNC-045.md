@@ -42,11 +42,11 @@ acceptance:
   - "A5 决策账恰有一条 v0.45.0 partial 行，日期为 2026-08-26，并钉住 release tag db835867e6f1bab740f13b48e4bae009a34521ef"
   - "A6 group 2 明记为本地等价实现已取；group 1/3 明记部分等价与缺口；group 4 明记 deferred，不把未实现能力伪报 applied"
   - "A7 CLAUDE、sync/交付/workflow 文档、architecture 与旧 fleet 卡统一解释 origin/current 与十分片 CI；不再称 ScaffoldVersion 为不可变生成来源"
-  - "A8 v0.45 selftest 分片：CI 每个 OS 从 core/workflow/seeded 三片改为 core/workflow/seeded-git/seeded-remote/seeded-scanner 五片；legacy -Shard seeded 与本地 all 仍跑完整 gate 17；license scanner liveness 同时钉住 seeded 外门与 scanner region 内门"
+  - "A8 selftest 分片：CI 每个 OS 跑五片；legacy seeded/all 仍覆盖完整 gate 17；四个实际 region 各在末尾写收据，缺任一收据的变异必须翻红"
   - "A9 运行时验收：三个新 seeded 子片分别独立全绿；任何子片仍沿用 20 分钟硬上限，解决最近 Windows seeded 22m34s 的超时风险"
   - "A10 diff 只含 allow_paths，不改产品代码、依赖或冻结物"
 review_gate: codex {verdict:pass}
-hygiene: RED 分四腿——current 字段未 bump、origin getter 未定义、init 未把 child origin 改写为 current、CI 仍只有单个 seeded shard；GREEN 后删除 origin fallback/init 改写/任一 seeded 子片至少一腿必红；既有 group 2 行为自检不得回归
+hygiene: RED 覆盖 current/origin/init/CI 四腿；GREEN 后删除 origin fallback、init 改写或任一 region 收据必红；既有 group 2 自检不得回归
 doc_sync: CLAUDE.md + docs/SCAFFOLD-SYNC.md + docs/DELIVERY-CHAINS.md + docs/DEVOPS-WORKFLOW.md + docs/scaffold-architecture.html + 旧 fleet 卡语义；合并后按常规 R5 归档本卡
 ---
 
@@ -54,41 +54,6 @@ doc_sync: CLAUDE.md + docs/SCAFFOLD-SYNC.md + docs/DELIVERY-CHAINS.md + docs/DEV
 
 ## 产出
 
-拆分原来重载的 `ScaffoldVersion`：`ScaffoldOriginVersion` 保留 v0.29.0 生成来源，
-`ScaffoldVersion` 表示已裁决到 v0.45.0，并以 fleet `partial` 决策账留痕。
-
-## 已核对结论
-
-- group 2 已由 `f9070ff` 等价或更强实现：严格账本、公共 issue 守卫、远端身份判断。
-- group 1/3 仍缺完整共享 metadata 路径与 PSGallery 硬化，只能记 partial。
-- group 4 仍 deferred；本卡仅取与 20 分钟超时直接相关的 seeded shard split。
-
-## Selftest 时延
-
-- GitHub run `32903457840` 的 Windows `seeded` job 为 22m34s。
-- gate 17 与双 OS 不变；CI 拆为 git/remote/scanner，legacy `seeded` 与本地 `all` 语义不变。
-- Windows 本地：12m39s / 3m45s / 8m28s，均低于 20 分钟；workflow 7m53s、verify 17s。
-- core 新断言通过；随后仅在已 deferred 的 14g 历史漂移处失败，不扩卡处理。
-
-## 版本语义
-
-- `ScaffoldOriginVersion`：首次生成版本；init 新项目时设为源树 current。
-- `ScaffoldVersion`：已裁决的当前版本，与决策账高水位一致。
-- ledger 缺失或损坏时只允许回退 origin；回退 current 会把未裁决版本静默隐藏。
-
-## 验收（DoD = 命令 + 退出码 + 断言）
-
-```powershell
-pwsh -NoProfile -File scripts\check-cards.ps1 -TaskId T0-SCAFFOLD-SYNC-045
-$config = . scripts\_config.ps1
-if ((Get-ScaffoldOriginVersion) -ne '0.29.0' -or (Get-ScaffoldVersion) -ne '0.45.0') { exit 1 }
-$out = (& pwsh -NoProfile -File scripts\scaffold-sync.ps1 check 2>&1 | Out-String)
-if ($out -notmatch '\[FLEET-CURRENT\] evaluated up to v0\.45\.0; no newer upstream release on disk\.') { exit 1 }
-pwsh -NoProfile -File scripts\scaffold-sync.ps1 selfcheck
-pwsh -NoProfile -File scripts\selftest.ps1 -Shard seeded-git
-pwsh -NoProfile -File scripts\selftest.ps1 -Shard seeded-remote
-pwsh -NoProfile -File scripts\selftest.ps1 -Shard seeded-scanner
-```
-
-- 期望退出码：0
-- 断言：任务卡合法；origin/current 分离且精确；fleet 高水位为 v0.45.0；三个 seeded 子片独立全绿。
+保留 origin v0.29.0，将 current 推进到 v0.45.0；group 2 已有本地等价实现，group 1/3 partial，
+group 4 deferred。Windows seeded 22m34s 拆为 12m39s / 3m45s / 8m28s，且每个实际 region
+以末尾收据证明执行。权威验收命令与断言见 front matter。

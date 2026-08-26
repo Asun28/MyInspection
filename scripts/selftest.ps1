@@ -1275,6 +1275,10 @@ function Fail($m) {
 $RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime', '.pytest_cache', '.ruff_cache', '.mypy_cache')  # 运行时/工具产物：存在即忽略，非交付物
 $executedGateGroups = [System.Collections.Generic.List[string]]::new()
 
+function Test-SelftestGateGroupCompletion([string[]]$Actual, [string[]]$Expected) {
+  return ([string]::Join([char]0, $Actual) -ceq [string]::Join([char]0, $Expected))
+}
+
 # v0.45 latency backport: CI splits the formerly 22m34s Windows seeded shard into three independent
 # top-level regions. The legacy `seeded` selector still means the complete gate 17 for local callers.
 function Test-SeededShardRegionSelected([ValidateSet('git','remote','scanner')][string]$Region) {
@@ -5609,6 +5613,7 @@ if (-not $taskInventoryBase.Ok) {
   }
 }
 
+[void]$executedGateGroups.Add('seeded:17-git-pre')
 }
 
 if ($Shard -eq 'workflow') {
@@ -7704,13 +7709,6 @@ else {
 }
 
 if ($Shard -in @('seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')) {
-$seededExecutedGroup = switch ($Shard) {
-  'seeded-git' { 'seeded:17-git' }
-  'seeded-remote' { 'seeded:17-remote' }
-  'seeded-scanner' { 'seeded:17-scanner' }
-  default { 'seeded:17' }
-}
-[void]$executedGateGroups.Add($seededExecutedGroup)
 # --- 17. 种子缺陷闸（seeded-defect）：把关键 enforcer 喂已知坏输入，断言它确实 BLOCK ---
 # 治本「闸只做语法/存在性检查，从不做行为/检出测试」——把『严格/fail-closed/难绕过』从断言升级为可机检回归。
 # 每条子测在临时目录造一个已知坏输入，跑对应 enforcer，断言其非零/拦截。缺 git 优雅跳过。绝不动元仓 / 真实工作树。
@@ -7728,6 +7726,7 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
     Write-Host (Format-SelftestSkipSummary -Shard seeded -Records $skippedSelftestChecks)
     exit 0
   }
+  [void]$executedGateGroups.Add('seeded:17-git-main')
 } elseif ($runSeededGitRegion) {
   if ($noGitFixtureChild) {
     Write-Host "[SELFTEST-NOGIT-ROUTING] case=$NoGitFixtureCase decision=RUN"
@@ -10740,6 +10739,7 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
     Set-Location $RepoRoot
     Remove-Item -Recurse -Force $sd -ErrorAction SilentlyContinue
   }
+  [void]$executedGateGroups.Add('seeded:17-git-main')
 }
 
 if (Test-SeededShardRegionSelected -Region 'remote') {
@@ -11894,6 +11894,7 @@ exit 0
     }
   }
 }
+[void]$executedGateGroups.Add('seeded:17-remote')
 }
 }
 
@@ -13131,6 +13132,7 @@ elseif ($realVfHashAfter -ne $realVfHashBefore) { Fail "17cc/17dd 收尾：真�
 elseif ($realRcHashAfter -ne $realRcHashBefore) { Fail "17ee 收尾：真实 docs/RELEASE-CHECKLIST.md 的 SHA256 在本闸前后不一致（前=$realRcHashBefore，后=$realRcHashAfter）——理应全程只读却被写入（L196）。" }
 else { Write-Host '  17cc/17dd/17ee 收尾：真实 check-licenses.ps1 / verify.ps1 / docs/RELEASE-CHECKLIST.md 三份生产文件 SHA256 全程未变 OK（L196 纵深防御）' -ForegroundColor Green }
 
+[void]$executedGateGroups.Add('seeded:17-scanner')
 }
 
 }
@@ -13138,12 +13140,20 @@ else { Write-Host '  17cc/17dd/17ee 收尾：真实 check-licenses.ps1 / verify.
 $expectedGateGroups = @(switch ($Shard) {
   'core' { 'core:1-14'; 'core:16' }
   'workflow' { 'workflow:15' }
-  'seeded' { 'seeded:17' }
-  'seeded-git' { 'seeded:17-git' }
+  'seeded' { 'seeded:17-git-pre'; 'seeded:17-git-main'; 'seeded:17-remote'; 'seeded:17-scanner' }
+  'seeded-git' { 'seeded:17-git-pre'; 'seeded:17-git-main' }
   'seeded-remote' { 'seeded:17-remote' }
   'seeded-scanner' { 'seeded:17-scanner' }
 })
-if (($executedGateGroups -join ',') -ne ($expectedGateGroups -join ',')) {
+if ($Shard -in @('seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')) {
+  foreach ($disabledRegion in $expectedGateGroups) {
+    $disabledReceipts = @($expectedGateGroups | Where-Object { $_ -cne $disabledRegion })
+    if (Test-SelftestGateGroupCompletion -Actual $disabledReceipts -Expected $expectedGateGroups) {
+      Fail "分片执行组收据变异存活：Shard=$Shard，禁用 region=$disabledRegion 后仍被判完整。"
+    }
+  }
+}
+if (-not (Test-SelftestGateGroupCompletion -Actual $executedGateGroups -Expected $expectedGateGroups)) {
   Fail "分片执行组不完整：Shard=$Shard，实际=$($executedGateGroups -join ',')，期望=$($expectedGateGroups -join ',')。"
 } else { Write-Host "  分片执行组：$($expectedGateGroups -join ',') OK" -ForegroundColor Green }
 
