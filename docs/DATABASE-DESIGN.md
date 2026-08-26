@@ -154,6 +154,7 @@ The registry version is stored with the diagnostics schema and exported manifest
 | `CONTACT_PURGE` | all four | `DOMAIN` | `{}` | `TENANCY` + opaque ID required |
 | `PHOTO_INGEST`, `AUDIO_INGEST` | all four | `MEDIA` | `{}` | `INSPECTION` + opaque ID required |
 | `MEDIA_CLEANUP`, `MEDIA_REHYDRATE` | all four | `MEDIA` | `media_kind` | none |
+| `BACKUP_START` | `SUCCESS`; at most one start per correlation ID and it precedes its terminal result | none | `scope_kind` | `BACKUP` + opaque ID required |
 | `BACKUP_RESULT` | all four; exactly one terminal result per correlation ID | `BACKUP` | `scope_kind` | `BACKUP` + opaque ID required |
 | `RESTORE_PREFLIGHT`, `RESTORE_COMMIT` | all four | `RESTORE` | `scope_kind` | `RESTORE` + opaque ID required |
 | `RESTORE_ROLLBACK` | `SUCCESS`, `FAILURE` | `RESTORE_RUNTIME` | `scope_kind` | `RESTORE` + opaque ID required |
@@ -190,7 +191,7 @@ Health derivation is also closed and deterministic over active rows ordered by `
 | `PREVIOUS_CRASH` | current run contains `PREVIOUS_CRASH/FAILURE` with valid `CRASH` reason and `crash_context` | the next `APP_START` run without that marker |
 | `STARTUP_SLOW` | current run contains `STARTUP_SLOW/SUCCESS`; measured startup exceeds its stored `threshold_ms` | the next `APP_START` run without a slow marker |
 
-Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Crash tests reject messages, raw/unmapped class names, paths, oversized/build-invalid values, more than eight frames, and unsafe frame characters. Scope tests prove `CONTACT_PURGE` accepts a real tenancy with zero or many inspections and rejects an inspection scope. Logger failure still leaves business results unchanged.
+Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Backup-sequence tests prove a recorded `BACKUP_START/SUCCESS` has no reason, uses the same `scope_kind`, `BACKUP` scope ID, and correlation ID as its later sole `BACKUP_RESULT`, reject duplicate or post-terminal starts and duplicate results, and allow no start row when the best-effort logger failed before recording it. Crash tests reject messages, raw/unmapped class names, paths, oversized/build-invalid values, more than eight frames, and unsafe frame characters. Scope tests prove `CONTACT_PURGE` accepts a real tenancy with zero or many inspections and rejects an inspection scope. Logger failure still leaves business results unchanged.
 
 ### Retention and failure behavior
 
