@@ -141,6 +141,52 @@ Recommended indexes:
 
 No foreign keys point into the evidence database. Both tables are append-only for normal operations; only retention maintenance may set `updated_at`/`deleted_at` and later physically purge soft-deleted rows. All ordinary reads include `deleted_at IS NULL`.
 
+### Diagnostic registry v1
+
+The registry version is stored with the diagnostics schema and exported manifest. Unknown operation codes, reason codes, context keys, enum values, or registry versions are rejected before insert. A success has `reason_code = NULL`; `CANCELLED` requires `USER_CANCELLED`; `REJECTED` accepts only precondition reasons; `FAILURE` accepts only execution reasons. Marker events permit `SUCCESS` only.
+
+| Operation code(s) | Allowed outcomes | Non-success reason set | `context_json` schema | Scope |
+| --- | --- | --- | --- | --- |
+| `APP_START`, `PREVIOUS_CRASH` | `SUCCESS` | none | `{}` | none |
+| `STARTUP_SLOW` | `SUCCESS` | none | `threshold_ms` | none |
+| `INSPECTION_CREATE`, `INSPECTION_FINALIZE`, `SUPPLEMENT_APPEND`, `SUPPLEMENT_VERIFY`, `NOTICE_GENERATE`, `NOTICE_DELIVERY_RECORD`, `CONTACT_PURGE` | all four | `DOMAIN` | `{}` | `INSPECTION` + opaque ID required |
+| `PHOTO_INGEST`, `AUDIO_INGEST` | all four | `MEDIA` | `{}` | `INSPECTION` + opaque ID required |
+| `MEDIA_CLEANUP`, `MEDIA_REHYDRATE` | all four | `MEDIA` | `media_kind` | none |
+| `BACKUP_RESULT` | all four; exactly one terminal result per correlation ID | `BACKUP` | `scope_kind` | `BACKUP` + opaque ID required |
+| `RESTORE_PREFLIGHT`, `RESTORE_COMMIT` | all four | `RESTORE` | `scope_kind` | `RESTORE` + opaque ID required |
+| `RESTORE_ROLLBACK` | `SUCCESS`, `FAILURE` | `RESTORE_RUNTIME` | `scope_kind` | `RESTORE` + opaque ID required |
+| `LOCAL_DATA_ERASE` | all four | `ERASURE` | `erasure_category` | none |
+| `DIAGNOSTICS_EXPORT` | all four | `EXPORT` | `window_days` | none |
+| `DATABASE_INTEGRITY_CHECK` | `SUCCESS`, `FAILURE` | `INTEGRITY` | `check_kind` | none |
+
+Reason sets are closed unions, never persisted as values themselves:
+
+| Set | Exact allowed reason codes |
+| --- | --- |
+| `DOMAIN` | rejected: `VALIDATION_FAILED`, `NOT_FOUND`, `STATE_CONFLICT`; failure: `INVARIANT_FAILED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `MEDIA` | rejected: `VALIDATION_FAILED`, `NOT_FOUND`, `PERMISSION_DENIED`, `LOW_STORAGE`; failure: `IO_ERROR`, `MEDIA_UNAVAILABLE`, `HASH_MISMATCH`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `BACKUP` | rejected: `LOW_STORAGE`, `AUTHORIZATION_REVOKED`, `NEEDS_UNLOCK`, `NEEDS_PASSPHRASE`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `HASH_MISMATCH`, `INTEGRITY_FAILED`, `PROCESS_INTERRUPTED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `RESTORE` | rejected: `LOW_STORAGE`, `AUTHORIZATION_REVOKED`, `NEEDS_UNLOCK`, `WRONG_PASSPHRASE`, `UNSUPPORTED_FORMAT`, `UNSUPPORTED_SCHEMA`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `CORRUPT_ARCHIVE`, `HASH_MISMATCH`, `INTEGRITY_FAILED`, `PROCESS_INTERRUPTED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `RESTORE_RUNTIME` | failure: `IO_ERROR`, `INTEGRITY_FAILED`, `PROCESS_INTERRUPTED`, `UNKNOWN_SAFE` |
+| `ERASURE` | rejected: `VALIDATION_FAILED`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `DELETE_INCOMPLETE`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `EXPORT` | rejected: `AUTHORIZATION_REVOKED`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `INTEGRITY` | failure: `INTEGRITY_FAILED`, `CORRUPT_ARCHIVE`, `HASH_MISMATCH`, `IO_ERROR`, `UNKNOWN_SAFE` |
+
+`context_json` has no implicit keys. `threshold_ms` is an integer millisecond duration in `1..120000`; `scope_kind` is `FULL` or `PROPERTY`; `media_kind` is `PHOTO` or `AUDIO`; `window_days` is `7`, `30`, or `90`; `check_kind` is `QUICK_CHECK`, `MANIFEST`, or `FILE_HASH`; `erasure_category` is `MAIN_DB`, `DIAGNOSTICS_DB`, `MEDIA`, `REPORTS`, `SETTINGS`, `KEYSTORE`, `CACHE`, `JOURNAL`, or `URI_GRANTS`. Each operation accepts exactly the listed key or `{}`; additional keys fail validation. `duration_ms` and `item_count` use their typed columns, respectively milliseconds and unitless row/file counts, never duplicate context keys. JSON is canonical UTF-8 and remains within 2 KiB.
+
+Health derivation is also closed and deterministic over active rows ordered by `(occurred_at, id)`:
+
+| Health state | Source and activation | Clear condition |
+| --- | --- | --- |
+| `BACKUP_STALE_7D` | no authoritative VerifiedBackupReceipt, or `now - verified_at >= 604800000` ms | a newer verified receipt |
+| `BACKUP_FAILED_3X` | the latest three non-cancelled `BACKUP_RESULT` events after the last `SUCCESS` are each `FAILURE` or `REJECTED` | a later `BACKUP_RESULT/SUCCESS` |
+| `INTEGRITY_FAILED` | latest `DATABASE_INTEGRITY_CHECK` is `FAILURE`, or the authoritative backup/restore verification receipt is failed | a newer successful check/verification for the same source |
+| `RESTORE_ROLLED_BACK` | latest successful `RESTORE_ROLLBACK` is later than the latest successful `RESTORE_COMMIT` | a later `RESTORE_COMMIT/SUCCESS` |
+| `PREVIOUS_CRASH` | current run contains `PREVIOUS_CRASH/SUCCESS` | the next `APP_START` run without that marker |
+| `STARTUP_SLOW` | current run contains `STARTUP_SLOW/SUCCESS`; measured startup exceeds its stored `threshold_ms` | the next `APP_START` run without a slow marker |
+
+Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Logger failure still leaves business results unchanged.
+
 ### Retention and failure behavior
 
 - Create each `diagnostic_run` and its first `APP_START` event in one diagnostics-database transaction. If opening or writing that transaction fails, abandon that logging attempt; never leave an intentional run-only row and never fail app startup.
@@ -174,6 +220,7 @@ Support/admin receives no database console and no mutation endpoint. Any repair 
 - Any attempt to repopulate contact after purge fails.
 - Removing each finalized/draft guard makes a focused invariant test fail.
 - Logger tests inject full disk, corrupt diagnostics DB, invalid context keys, oversized JSON, CR/LF, and every forbidden sensitive field.
+- Registry mutation tests remove each operation/reason/context/health mapping in turn and must fail; three backup failures followed by success activates then clears `BACKUP_FAILED_3X` deterministically.
 - A logger failure leaves the business operation successful and evidence unchanged.
 - Killing the process before the first diagnostics transaction commits leaves no run row; a seeded legacy zero-event run is soft-deleted by `started_at` after the startup grace window and later purged.
 - Diagnostic exports contain only allowlisted fields and work in airplane mode.

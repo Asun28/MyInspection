@@ -52,7 +52,7 @@
 
 ### 2.3 备份、恢复与分享
 
-- 产品范围同时保留整包与按物业导出。format v1 的按物业兼容导出仍含整库 `db.sqlite`，必须明示“数据库包含全部物业、仅媒体按物业筛选”，不得获得物业隔离/可恢复回执或用于物业级交付。ADR-0006 只批准下一版按物业范围与逐表数据闭包，不批准冻结格式：实现卡仍须完成 version review。物业包 staging 必须按 ADR-0006 列出的每张表比较源/目标 `(PK, canonical-row-hash)` 集合，并验证所有逻辑关系及媒体/manifest 双向完备；任一表遗漏、多行、改值或无规则均不得写 Verified 回执。
+- 产品范围同时保留整包与按物业导出。format v1 的按物业兼容导出仍含整库 `db.sqlite`，必须明示“数据库包含全部物业、仅媒体按物业筛选”，不得获得物业隔离/可恢复回执或用于物业级交付。ADR-0006 只批准下一版按物业范围与逐表数据闭包，不批准冻结格式：实现卡仍须完成 version review。物业包 staging 必须按 ADR-0006 列出的每张表比较源/目标 `(PK, canonical-row-hash)` 集合，并验证所有逻辑关系及媒体/manifest 双向完备；所有活跃模板/定义与已引用历史版本必须保留，内置短语须在成功前按锁定版本/hash 重建。任一表遗漏、多行、改值或无规则均不得写 Verified 回执。
 - 恢复矩阵固定为：v1 `full` 全验后可整包替换；v1 `property` 因整库 DB + 不完整媒体必须拒绝；完成冻结契约评审后的 v2 `full` 整包替换，v2 `property` 全验后以隔离快照替换当前 app 数据，不做隐式合并。旧 reader 拒绝 v2，新 reader 仅接受 v1 full 与 v2 full/property；未知 scope、未来格式或不支持 schema 一律拒绝。
 - 自动目录树备份采用新 `.partial` → 重开全验 → rename，或复制到新最终文档并再次重开复核；手动 `ACTION_CREATE_DOCUMENT` 只写并重开同一授权 URI，不假设 rename/copy。两条路径都只在最终可读对象全验成功后写回执；失败残留尽力删除，无法删除时提示用户处理且保留旧的已验证状态。
 - 恢复是敌意输入边界：限制 KDF、manifest、文件数、路径、逐项/总字节和可用空间；先 staging 全验，再通过独立 journal 原子替换。错误口令、损坏、未来版本、空间不足、授权收回或进程中断都保持当前数据不动。
@@ -66,7 +66,7 @@
 - “Admin/support” 无远程入口或写权限。只有设备所有者可在设置页明确查看包含/排除项后，离线导出最近 7/30/90 天的脱敏诊断包；支持人员不能借诊断功能修改 finalized evidence。字段与验收合同见 `docs/DATABASE-DESIGN.md`。
 - 用户可见通知只写 `Backup needs attention` 等通用文案；锁屏通知不显示物业地址、租客名、照片缩略图或恢复范围。
 - 剪贴板仅用于用户显式复制通知文案；app 不自动复制秘密，敏感字段不提供复制动作。复制不等于发送，不生成 sent 状态。
-- 本机健康状态只从 typed events 与权威回执派生：备份超过 7 天、连续 3 次失败、完整性失败、恢复回滚、上次崩溃与慢启动在来源变化后 1 秒内显示一个可操作动作。它不是远程监控；v1 不自动遥测、Wi-Fi 上传或发送远程告警。
+- 本机健康状态只从 typed events 与权威回执派生；operation/reason/context 封闭码、单位、outcome 约束及 `BACKUP_STALE_7D / BACKUP_FAILED_3X / INTEGRITY_FAILED / RESTORE_ROLLED_BACK / PREVIOUS_CRASH / STARTUP_SLOW` 的精确派生/清除规则以 `docs/DATABASE-DESIGN.md`“Diagnostic registry v1”为唯一注册表。来源变化后 1 秒内显示一个可操作动作。它不是远程监控；v1 不自动遥测、Wi-Fi 上传或发送远程告警。
 - 崩溃 marker 只含异常类、build id、allowlisted/有界帧标识与 reason code，禁 exception message、业务字段、路径/URI、payload、token 或内存转储。每个 release 的 mapping/符号证据仅保存在受控本地发布工件中，不进 APK、仓库、诊断包或自动上传链。
 
 ### 2.5 威胁边界与验证
