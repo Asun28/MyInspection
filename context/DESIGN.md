@@ -1242,6 +1242,11 @@ The following bindings are immutable. A foreground token is not used on a backgr
 | `dark.on-surface-variant` | `#BEC9C3` | `dark.surface` | `#0F1513` | `10.85:1` | AAA text |
 | `dark.outline` | `#89968F` | `dark.surface` | `#0F1513` | `6.00:1` | AA non-text |
 | `dark.outline-variant` | `#3F4B46` | `dark.surface` | `#0F1513` | `2.03:1` | Decorative only |
+| `dark.primary` | `#94D7CA` | `dark.surface-container` | `#1C2622` | `9.51:1` | AA evidence segment |
+| `dark.tertiary` | `#F1BD68` | `dark.surface-container` | `#1C2622` | `9.05:1` | AA evidence segment |
+| `dark.error` | `#FFB4AB` | `dark.surface-container` | `#1C2622` | `9.16:1` | AA evidence segment |
+| `dark.outline` | `#89968F` | `dark.surface-container` | `#1C2622` | `5.06:1` | AA evidence/boundary |
+| `dark.outline` | `#89968F` | `dark.surface-container-low` | `#151D1A` | `5.58:1` | AA card boundary |
 | `dark.on-error` | `#690005` | `dark.error` | `#FFB4AB` | `7.72:1` | AAA text |
 | `dark.on-error-container` | `#FFDAD5` | `dark.error-container` | `#93000A` | `7.23:1` | AAA text |
 | `dark.on-privacy` | `#35205A` | `dark.privacy` | `#D1BCFF` | `8.20:1` | AAA text |
@@ -1258,11 +1263,11 @@ The following bindings are immutable. A foreground token is not used on a backgr
 - Dark broad-surface semantic containers use the fixed values in `dark-colors`; runtime HSL transformation is forbidden. Future broad-surface dark tokens are generated from the approved hue with HSL saturation reduced by exactly `15` percentage points, then frozen as a hex token and contrast-tested.
 - Brand anchors `primary`, `tertiary`, and `privacy` are never algorithmically desaturated at runtime. The fixed dark roles above are their only dark mappings.
 - Dark elevation is tonal, not shadow-led. Surface luminance is strictly increasing: level 0 `surface #0F1513` (`L=0.00685`) → level 1 `surface-container-low #151D1A` (`L=0.01113`) → level 2 `surface-container #1C2622` (`L=0.01749`) → level 3 `surface-container-high #26312D` (`L=0.02798`). Components never skip more than one level inside another surface.
-- Level 0 is the screen, level 1 is an active card, level 2 is a grouped region or bottom dock, and level 3 is a selected/raised non-modal region. Sheets and dialogs use level 3 plus the standard modal scrim. Shadows do not communicate hierarchy in dark mode.
+- Level 0 is the screen, level 1 is a grouped region or bottom dock, level 2 is an active card, and level 3 is a selected/raised non-modal region. Sheets and dialogs use level 3 plus the standard modal scrim. Shadows do not communicate hierarchy in dark mode.
 
 ### CI contrast gate metadata
 
-Every color token that renders text, an icon, a focus indicator, or an essential boundary has one metadata entry. New visual tokens without metadata fail the build.
+Every rendered foreground/background pair for text, icons, focus indicators, essential boundaries, and evidence segments has one metadata entry. New rendered pairs without exact-pair metadata fail the build.
 
 ```json
 {
@@ -1299,6 +1304,11 @@ Every color token that renders text, an icon, a focus indicator, or an essential
     {"foreground":"light.on-privacy-container","value":"#241047","background":"light.privacy-container","backgroundValue":"#EADDFF","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"light.primary","value":"#0B5D52","background":"light.surface","backgroundValue":"#F7F9F7","usage":"focus","minRatio":3.0,"essential":true},
     {"foreground":"light.primary","value":"#0B5D52","background":"light.on-primary","backgroundValue":"#FFFFFF","usage":"icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"light.tertiary","value":"#8B5C00","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"light.error","value":"#B3261E","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"light.outline","value":"#6F7C76","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"evidence-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"light.outline","value":"#6F7C76","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"card-boundary","minRatio":3.0,"essential":true},
     {"foreground":"dark.on-primary","value":"#003730","background":"dark.primary","backgroundValue":"#94D7CA","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.on-primary-container","value":"#C9ECE5","background":"dark.primary-container","backgroundValue":"#0B5D52","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.on-secondary","value":"#233E49","background":"dark.secondary","backgroundValue":"#B8CBD4","usage":"text","minRatio":4.5,"essential":true},
@@ -1318,6 +1328,11 @@ Every color token that renders text, an icon, a focus indicator, or an essential
     {"foreground":"dark.on-privacy-container","value":"#EADDFF","background":"dark.privacy-container","backgroundValue":"#48306D","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface","backgroundValue":"#0F1513","usage":"focus","minRatio":3.0,"essential":true},
     {"foreground":"dark.primary","value":"#94D7CA","background":"dark.on-primary","backgroundValue":"#003730","usage":"icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"dark.tertiary","value":"#F1BD68","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"dark.error","value":"#FFB4AB","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
+    {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"card-boundary","minRatio":3.0,"essential":true},
     {"foreground":"camera.on-scrim","value":"#FFFFFF","background":"camera.scrim-over-white","backgroundValue":"#5C5C5C","usage":"text-icon","minRatio":4.5,"essential":true}
   ]
 }
@@ -1339,8 +1354,8 @@ for token in resolvedDesignTokensAndCameraTokens:
   if token.value in ["#000000", "#FFFFFF"] && !pureColorAllowlist.contains(token.name):
       BUILD_FAIL(PURE_COLOR_USE)
 
-for token in renderedForegroundFocusAndBoundaryTokens:
-  if metadata.bindings lacks token: BUILD_FAIL(MISSING_METADATA)
+for pair in renderedForegroundBackgroundPairs:
+  if metadata.bindings lacks exact (pair.foreground, pair.background): BUILD_FAIL(MISSING_METADATA)
 ```
 
 The palette is light-first for daylight legibility. Large fields of pure white are avoided; the cool stone background reduces glare while keeping dark text crisp.
@@ -1350,7 +1365,7 @@ The palette is light-first for daylight legibility. Large fields of pure white a
 - **Tertiary — site amber (`#8B5C00`):** incomplete evidence, attention states, and the persistent missing-items strip. Amber means “resolve before completion,” not generic emphasis.
 - **Error — ledger red (`#B3261E`):** legal/compliance blocks, destructive actions, and significant defects. Never use it for ordinary validation hints.
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
-- **Surfaces:** use `surface` for the screen, `surface-container-low` for active item cards, and darker container steps for grouping and pressed states. Borders use `outline-variant`; `outline` is reserved for focus and high-contrast separation.
+- **Surfaces:** use `surface` for the screen, `surface-container-low` for grouped regions, `surface-container` for active item cards, and `surface-container-high` for selected or raised states. Decorative separators use `outline-variant`; essential card boundaries and focus use `outline`.
 
 Status must never rely on color alone. Pair every status with a label and stable symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy.
 
@@ -1405,7 +1420,7 @@ The camera screen is the exception to the surface layout: the live preview fills
 Use **tonal layers and rails**, not floating-card shadows, to express hierarchy. The app will often be used in bright conditions where subtle shadows disappear.
 
 - Screen background → grouped room surface → active item card is the normal three-layer stack.
-- Cards use a 1px `outline-variant` edge only when adjacent tones do not separate clearly.
+- Cards use a 1px `outline` edge only when adjacent tones do not separate clearly; `outline-variant` remains decorative-only.
 - Dialogs and bottom sheets use standard Material 3 modal elevation because they represent a true modal layer.
 - Pressed state is a darker tonal container plus immediate haptic feedback where Android conventions allow it. Do not animate cards upward.
 
