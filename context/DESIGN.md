@@ -333,8 +333,8 @@ components:
     textColor: "{colors.on-surface}"
     rounded: "{rounded.lg}"
     padding: "{spacing.lg}"
-    variants: [START, CONTINUE, DUE, BLOCKED]
-    states: [DEFAULT, PRESSED, FOCUSED]
+    variants: [DEFAULT, DUE, BLOCKED]
+    states: [DEFAULT]
   photo-evidence-tile:
     compose: Surface
     codeName: PhotoEvidenceTile
@@ -716,6 +716,7 @@ enum class PageType {
     CAMERA_TASK,
     MODAL_SHEET,
     ALERT_DIALOG,
+    MODAL_DIALOG,
     SYSTEM_SURFACE
 }
 
@@ -797,6 +798,7 @@ Existing finalized inspections do not open an in-app report viewer. Selecting on
 | `CAMERA_TASK` | `CameraCaptureScaffold` | Edge-to-edge task subgraph | Persist temp asset ID only | Use Photo Pops to Capture; discard returns Preview; Close Pops to Capture |
 | `MODAL_SHEET` | `FieldLedgerModalSheet` | Overlay, not back-stack destination | Persist committed selection only | Dismiss matrix controls Back/drag/scrim/Close |
 | `ALERT_DIALOG` | `FieldLedgerAlertDialog` | Blocking overlay | No route state | Cancel returns trigger; Confirm executes one named command |
+| `MODAL_DIALOG` | Component-owned full-screen dialog | Overlay, not back-stack destination | Persist selected asset and viewport state | Close returns to the exact source control |
 | `SYSTEM_SURFACE` | Android-owned | External activity/dialog | Persist launch request ID | Result callback returns to stored focus key |
 
 The property hub is the operational home for one property. Its primary card is `Continue inspection` when a draft exists and `Start inspection` otherwise. Due date, last finalized inspection, last verified backup, notices, and compliance blockers remain supporting facts on the same page.
@@ -836,6 +838,8 @@ All app-bar titles are start-aligned. v1 has no centered-title variant, Home ico
 | `CAMERA_TASK` | No app bar | Overlay Close | None | Flash only during preview | Camera control region |
 | `MODAL_SHEET` | Sheet header | Close | Sheet label | None | Sheet content or fixed footer |
 | `ALERT_DIALOG` | No app bar | None | Start-aligned dialog title | None | Dialog action row |
+| `MODAL_DIALOG` | Dialog header | Close | Content label | Contextual action only | Dialog content |
+| `SYSTEM_SURFACE` | Android-owned | Android-owned | Provider/picker label | Android-owned | Android-owned |
 
 Toolbar commands follow these fixed rules:
 
@@ -964,7 +968,16 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | Theme setting row | `SHOW_SHEET` | `THEME_MODE_SHEET` | Commit on selection, then dismiss | Theme row |
 | Status field | `SHOW_SHEET` | `STATUS_SHEET(itemId)` | Commit on selection, then dismiss | Status field |
 | `Insert phrase` | `SHOW_SHEET` | `PHRASE_SHEET(fieldId)` | Insert on selection, then dismiss with Undo snackbar | Text field at insertion point |
+| Evidence source action | `SHOW_SHEET` | `MEDIA_SOURCE_SHEET(targetId)` | Dismiss after source choice or Close | Originating evidence source action |
+| Evidence tile `Open preview` | `SHOW_DIALOG` | `MEDIA_PREVIEW(assetId)` | Close dialog | Originating evidence tile |
+| Dirty task Cancel/Back | `SHOW_DIALOG` | `DISCARD_CHANGES` | Cancel keeps task; Discard exits | Original Cancel/Back action |
+| Camera review Back | `SHOW_DIALOG` | `DISCARD_CAPTURE` | Keep returns to review; Discard returns to shutter | Camera review Keep action |
+| Contact clear action | `SHOW_DIALOG` | `CLEAR_CONTACT_CONFIRMATION` | Cancel keeps data; confirm runs one clear command | Clear contact info action |
+| Local media removal action | `SHOW_DIALOG` | `REMOVE_LOCAL_MEDIA_CONFIRMATION` | Cancel keeps bytes; confirm runs one removal command | Remove local photos action |
 | Evidence `Import` | `LAUNCH_SYSTEM` | `MEDIA_IMPORT_PICKER` | System result | Source Import action |
+| Date/time field | `LAUNCH_SYSTEM` | `DATE_TIME_PICKER(fieldId)` | System result | Originating date/time field |
+| Diagnostics `Save report` | `LAUNCH_SYSTEM` | `DIAGNOSTIC_SAVE_DOCUMENT` | System result | Save report action |
+| Diagnostics `Share report` | `LAUNCH_SYSTEM` | `DIAGNOSTIC_SHARE_SHEET` | System result | Share report action |
 | Permission-gated action | `LAUNCH_SYSTEM` | `PERMISSION_DIALOG(capability)` | System result | Original triggering action |
 | Denied-permission `Open settings` | `LAUNCH_SYSTEM` | `ANDROID_APP_SETTINGS` | System return | Original recovery panel |
 
@@ -978,12 +991,19 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | `THEME_MODE_SHEET` | `MODAL_SHEET` | Theme row in `SETTINGS_ROOT` | Shared settings shell | Selection/dismiss restores Theme row | `sheet:theme-mode:title` |
 | `STATUS_SHEET(itemId)` | `MODAL_SHEET` | Status field in `INSPECTION_CAPTURE` | `T2-CAPTURE-UI` | Selection/dismiss restores exact item status field | `sheet:status:{itemId}:title` |
 | `PHRASE_SHEET(fieldId)` | `MODAL_SHEET` | Note field in `INSPECTION_CAPTURE` | `T2-CAPTURE-UI` | Insert/dismiss restores field insertion point | `sheet:phrase:{fieldId}:title` |
+| `MEDIA_SOURCE_SHEET(targetId)` | `MODAL_SHEET` | Evidence source action | `T2-CAPTURE-UI` | Choice/dismiss restores originating evidence action | `sheet:media-source:{targetId}:title` |
+| `MEDIA_PREVIEW(assetId)` | `MODAL_DIALOG` | Evidence tile in history/capture | `T2-CAPTURE-UI` | Close restores originating evidence tile and viewport | `dialog:media-preview:{assetId}:title` |
 | `DISCARD_CAPTURE` | `ALERT_DIALOG` | `CAMERA_REVIEW` | `T2-CAPTURE-UI` | Keep restores camera review; discard focuses shutter | `dialog:discard-capture:keep` |
+| `CLEAR_CONTACT_CONFIRMATION` | `ALERT_DIALOG` | Clear contact info action | `T5-CONTACT-PURGE` | Cancel restores clear action; confirm focuses progress | `dialog:clear-contact:cancel` |
+| `REMOVE_LOCAL_MEDIA_CONFIRMATION` | `ALERT_DIALOG` | Local media removal action | `T5-LOCAL-MEDIA-RETENTION` | Cancel restores removal action; confirm focuses progress | `dialog:remove-local-media:cancel` |
 | `DOCUMENT_TREE_PICKER` | `SYSTEM_SURFACE` | `BACKUP_SETTINGS` destination row | `T5-BACKUP-IO` | Result restores Choose destination row | `system:document-tree-picker` |
 | `BACKUP_FILE_PICKER` | `SYSTEM_SURFACE` | `RESTORE_TASK` package step | `T5-BACKUP-IO` | Result restores package field | `system:backup-file-picker` |
 | `PDF_VIEWER` | `SYSTEM_SURFACE` | `REPORT_ACTION_SHEET` Open PDF | `T3-PDF-RENDERER` | Return restores Open PDF action | `system:pdf-viewer` |
 | `SHARE_SHEET` | `SYSTEM_SURFACE` | `REPORT_ACTION_SHEET` Share | `T3-PDF-RENDERER` | Return restores Share action | `system:share-sheet` |
 | `MEDIA_IMPORT_PICKER` | `SYSTEM_SURFACE` | Evidence Import action | `T2-CAPTURE-UI` | Result restores originating evidence slot | `system:media-import-picker` |
+| `DATE_TIME_PICKER(fieldId)` | `SYSTEM_SURFACE` | Date/time field | Owning task | Result restores originating date/time field | `system:date-time-picker:{fieldId}` |
+| `DIAGNOSTIC_SAVE_DOCUMENT` | `SYSTEM_SURFACE` | Diagnostics Save report | `T5-DIAGNOSTIC-EXPORT` | Result restores Save report action and selected range | `system:diagnostic-save` |
+| `DIAGNOSTIC_SHARE_SHEET` | `SYSTEM_SURFACE` | Diagnostics Share report | `T5-DIAGNOSTIC-EXPORT` | Return restores Share report action and selected range | `system:diagnostic-share` |
 | `PERMISSION_DIALOG(capability)` | `SYSTEM_SURFACE` | Exact permission-gated action | Owning task | Result resumes once or restores trigger with fallback | `system:permission:{capability}` |
 | `ANDROID_APP_SETTINGS` | `SYSTEM_SURFACE` | Permission recovery panel | Owning task | Return restores original recovery panel | `system:app-settings` |
 
@@ -1460,7 +1480,7 @@ semantic base token
 | `missing-evidence-strip` | icon, exact count copy, jump action | `HIDDEN / VISIBLE / FOCUSED` | Hidden only when `missingTotal=0`; first gap resolves by room order → item sort → `STATUS, PHOTO, NOTE` | One button node; focus moves to the missing control | `Surface` |
 | `bottom-action-dock` | primary action, optional progress summary | `NEXT_ROOM / REVIEW_MISSING / FINALIZE_READY / BUSY` | State derives only from core completeness; list reserves dock height plus system inset | One primary button; Busy announces once and rejects duplicate activation | `Surface` |
 | `divider` | one-pixel semantic separator | `VISIBLE` | Uses outline-variant and never substitutes for spacing or a labelled section boundary | Decorative and hidden from accessibility services | `HorizontalDivider` |
-| `property-summary-card` | address, next action, due/status facts, supporting count | `START / CONTINUE / DUE / BLOCKED`; `DEFAULT / PRESSED / FOCUSED` | One card exposes one next route; blocked state names the prerequisite and never hides readable history | Role `button`; address is heading and action/state are announced in one label | `Surface` |
+| `property-summary-card` | address, due/status facts, supporting count, explicit `Open property` child action | `DEFAULT / DUE / BLOCKED` | Structural card never handles click; only the child action opens the property; blocked state names the prerequisite and never hides readable history | Card is a labelled group; address is a heading; child has role `button` and label `Open property` | `Surface` + `Button` |
 
 ### Evidence and input component matrix
 
