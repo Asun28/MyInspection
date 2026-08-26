@@ -214,6 +214,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.45.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
+21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
