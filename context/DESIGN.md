@@ -1297,6 +1297,7 @@ Every color token that renders text, an icon, a focus indicator, or an essential
     {"foreground":"light.on-privacy","value":"#FFFFFF","background":"light.privacy","backgroundValue":"#60458E","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"light.on-privacy-container","value":"#241047","background":"light.privacy-container","backgroundValue":"#EADDFF","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"light.primary","value":"#0B5D52","background":"light.surface","backgroundValue":"#F7F9F7","usage":"focus","minRatio":3.0,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.on-primary","backgroundValue":"#FFFFFF","usage":"icon","minRatio":3.0,"essential":true},
     {"foreground":"dark.on-primary","value":"#003730","background":"dark.primary","backgroundValue":"#94D7CA","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.on-primary-container","value":"#C9ECE5","background":"dark.primary-container","backgroundValue":"#0B5D52","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.on-secondary","value":"#233E49","background":"dark.secondary","backgroundValue":"#B8CBD4","usage":"text","minRatio":4.5,"essential":true},
@@ -1315,6 +1316,7 @@ Every color token that renders text, an icon, a focus indicator, or an essential
     {"foreground":"dark.on-privacy","value":"#35205A","background":"dark.privacy","backgroundValue":"#D1BCFF","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.on-privacy-container","value":"#EADDFF","background":"dark.privacy-container","backgroundValue":"#48306D","usage":"text","minRatio":4.5,"essential":true},
     {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface","backgroundValue":"#0F1513","usage":"focus","minRatio":3.0,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.on-primary","backgroundValue":"#003730","usage":"icon","minRatio":3.0,"essential":true},
     {"foreground":"camera.on-scrim","value":"#FFFFFF","background":"camera.scrim-over-white","backgroundValue":"#5C5C5C","usage":"text-icon","minRatio":4.5,"essential":true}
   ]
 }
