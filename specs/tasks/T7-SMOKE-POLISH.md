@@ -1,10 +1,17 @@
 ---
 id: T7-SMOKE-POLISH
 title: 真机全流程冒烟清单（产出 docs/SMOKE-CHECKLIST.md）+ 微修捆绑
-depends_on: [T3-E2E-CORE, T5-BACKUP-IO, T4-NOTICES, T2-CAPTURE-UI, T7-REMEDIATION]
+depends_on: [T3-E2E-CORE, T5-BACKUP-IO, T5-LOCAL-DATA-ERASURE, T4-NOTICES, T2-CAPTURE-UI, T3-FIELD-UX-ACCEPTANCE, T7-REMEDIATION, T7-LOCAL-HEALTH-RELEASE]
 status: todo
 branch: T7-SMOKE-POLISH
 worktree: C:\wt\T7-SMOKE-POLISH
+plan_ref: context/DESIGN.md#primary-inspection-journey
+acceptance:
+  - "A1 verify the complete flight-mode end-to-end inspection journey without hidden connectivity assumptions"
+  - "A2 exercise provider, permission, storage, and process-death failures with deterministic recovery evidence"
+  - "A3 exercise backup, restore, erase, health, and share boundaries without claiming external delivery"
+  - "A4 verify TalkBack, 200% font scaling, light and dark theme, and measured performance on the target device"
+  - "A5 attach exact evidence for every checklist result and register each unresolved defect in its owning card"
 allow_paths:
   - docs/SMOKE-CHECKLIST.md
   - android/app/src/main/
