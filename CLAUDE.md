@@ -212,6 +212,8 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
 18. `docs/SCAFFOLD-SYNC.md` — **fleet 双向回路 + 决策账**：本项目 ↔ 生成它的脚手架（`Asun28/claude-devops-scaffold`）。`scripts/scaffold-sync.ps1 check` 只打印落后区间每一版的 CHANGELOG「Downstream 块」（**耦合组**是 raw `git diff` 推不出来的那半，也是只拿一半时最贵的失败模式）；`report` 把元层缺陷反哺成上游 issue。**决策账一版一行**（applied / partial / skipped + 理由）——**不回填是一等结果，不登记不是**。`_config.ps1` 的 `ScaffoldVersion` 是**生成来源**戳、**不是**「已回填到哪版」，后者只在这份账里。心跳探针 `scaffold-stale` 只读已取到本地的 ref、绝不 fetch
+19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
+20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
