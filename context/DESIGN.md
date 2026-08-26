@@ -1,5 +1,5 @@
 ---
-version: alpha
+version: beta
 name: MyInspection Field Ledger
 description: A daylight-readable, evidence-first design system for a local-first Android property inspection tool.
 colors:
@@ -31,6 +31,35 @@ colors:
   on-privacy: "#FFFFFF"
   privacy-container: "#EADDFF"
   on-privacy-container: "#241047"
+dark-colors:
+  primary: "#94D7CA"
+  on-primary: "#003730"
+  primary-container: "#0B5D52"
+  on-primary-container: "#C9ECE5"
+  secondary: "#B8CBD4"
+  on-secondary: "#233E49"
+  secondary-container: "#314E59"
+  on-secondary-container: "#D9EAF1"
+  tertiary: "#F1BD68"
+  on-tertiary: "#4A3300"
+  tertiary-container: "#5E4100"
+  on-tertiary-container: "#FFDEA8"
+  surface: "#0F1513"
+  surface-container-low: "#151D1A"
+  surface-container: "#1C2622"
+  surface-container-high: "#26312D"
+  on-surface: "#E0E8E4"
+  on-surface-variant: "#BEC9C3"
+  outline: "#89968F"
+  outline-variant: "#3F4B46"
+  error: "#FFB4AB"
+  on-error: "#690005"
+  error-container: "#93000A"
+  on-error-container: "#FFDAD5"
+  privacy: "#D1BCFF"
+  on-privacy: "#35205A"
+  privacy-container: "#48306D"
+  on-privacy-container: "#EADDFF"
 typography:
   display-md:
     fontFamily: sans-serif-condensed
@@ -117,117 +146,518 @@ spacing:
   touch: 48px
   action: 56px
   screen-gutter: 16px
+iconography:
+  family: Material Symbols
+  defaultStyle: outlined
+  selectedStyle: filled
+  sizes:
+    sm: 18px
+    md: 24px
+    lg: 32px
+  strokeWeight: 400
+interaction:
+  minTouchTarget: 48px
+  adjacentTargetGap: 8px
+  stateLayers:
+    pressedOpacity: 0.12
+    focusedOpacity: 0.12
+    draggedOpacity: 0.16
+    disabledContentOpacity: 0.38
+    disabledContainerOpacity: 0.12
+  focusRingWidth: 3px
+  cameraScrim: "#000000"
+  cameraScrimOpacity: 0.64
+  onCameraScrim: "#FFFFFF"
+motion:
+  pressFeedbackMs: 100
+  stateChangeMs: 180
+  expandMs: 200
+  sheetEnterMs: 250
+  exitMs: 150
+  easingEnter: material-emphasized-decelerate
+  easingExit: material-emphasized-accelerate
+  reducedMotionTranslation: 0px
 components:
+  app-shell:
+    compose: Scaffold
+    codeName: FieldLedgerAppShell
+    regions: [TOP_APP_BAR, CONTENT, BOTTOM_NAVIGATION, OVERLAY_HOST]
+    destinations: [PROPERTIES, SCHEDULE, SETTINGS]
+    states: [ROOT, HUB, TRANSITIONING, RESTORED]
+  detail-scaffold:
+    compose: Scaffold
+    codeName: FieldLedgerDetailScaffold
+    regions: [TOP_APP_BAR, CONTENT, FEEDBACK_HOST]
+    bottomNavigation: hidden
+    states: [READY, LOADING, ERROR]
+  task-scaffold:
+    compose: Scaffold
+    codeName: FieldLedgerTaskScaffold
+    regions: [TASK_APP_BAR, CONTENT, BOTTOM_ACTION_DOCK, FEEDBACK_HOST]
+    bottomNavigation: hidden
+    states: [CLEAN, DIRTY, COMMITTING, ERROR]
+  inspection-capture-scaffold:
+    compose: Scaffold
+    codeName: InspectionCaptureScaffold
+    regions: [TOP_APP_BAR, MISSING_EVIDENCE_STRIP, ROOM_PROGRESS_STRIP, CONTENT, CAPTURE_ACTION_DOCK]
+    bottomNavigation: hidden
+    states: [READY, SAVING, SAVE_FAILED, RESTORED]
+  camera-capture-scaffold:
+    compose: Box
+    codeName: CameraCaptureScaffold
+    regions: [LIVE_PREVIEW, TOP_CONTROLS, OVERLAY_CONTROL, SHUTTER, REVIEW_BAR]
+    edgeToEdge: true
+    states: [OPENING, PREVIEW_READY, CAPTURING, REVIEW, COMMITTING, ERROR]
+  modal-sheet:
+    compose: ModalBottomSheet
+    codeName: FieldLedgerModalSheet
+    regions: [DRAG_HANDLE, HEADER, CONTENT, OPTIONAL_FOOTER]
+    states: [OPENING, OPEN, COMMITTING, CLOSING]
+  alert-dialog:
+    compose: AlertDialog
+    codeName: FieldLedgerAlertDialog
+    regions: [TITLE, CONSEQUENCE, ACTIONS]
+    dismissOnScrim: false
+    states: [OPEN, CONFIRMING, ERROR, CLOSED]
+  navigation-bar:
+    compose: NavigationBar
+    codeName: FieldLedgerNavigationBar
+    destinations: [PROPERTIES, SCHEDULE, SETTINGS]
+    height: 80px
+    labelVisibility: always
+    states: [INACTIVE, ACTIVE, DISABLED]
+  navigation-destination:
+    compose: NavigationBarItem
+    codeName: FieldLedgerNavigationDestination
+    iconSize: "{iconography.sizes.md}"
+    minTarget: "{interaction.minTouchTarget}"
+    states: [INACTIVE, ACTIVE, PRESSED, FOCUSED, DISABLED]
+  top-app-bar:
+    compose: TopAppBar
+    codeName: FieldLedgerTopAppBar
+    height: 64px
+    actionsMax: 2
+    states: [DEFAULT, SCROLLED]
+  room-progress-strip:
+    compose: LazyRow
+    codeName: RoomProgressStrip
+    itemGap: "{spacing.sm}"
+    edgeControls: required
+    states: [READY, SCROLLING, FOCUSED]
+  room-progress-segment:
+    compose: FilterChip
+    codeName: RoomProgressSegment
+    height: "{spacing.touch}"
+    states: [INCOMPLETE, COMPLETE, CURRENT, BLOCKED]
+  missing-evidence-strip:
+    compose: Surface
+    codeName: MissingEvidenceStrip
+    backgroundColor: "{colors.tertiary}"
+    textColor: "{colors.on-tertiary}"
+    typography: "{typography.label-lg}"
+    heightMin: "{spacing.touch}"
+    states: [HIDDEN, VISIBLE, FOCUSED]
   button-primary:
+    compose: Button
+    codeName: FieldLedgerPrimaryButton
     backgroundColor: "{colors.primary}"
     textColor: "{colors.on-primary}"
     typography: "{typography.label-lg}"
     rounded: "{rounded.md}"
     padding: "{spacing.lg}"
-    height: "{spacing.action}"
+    heightMin: "{spacing.action}"
+    states: [ENABLED, PRESSED, FOCUSED, BUSY, DISABLED]
   button-secondary:
+    compose: FilledTonalButton
+    codeName: FieldLedgerSecondaryButton
     backgroundColor: "{colors.secondary-container}"
     textColor: "{colors.on-secondary-container}"
     typography: "{typography.label-lg}"
     rounded: "{rounded.md}"
     padding: "{spacing.lg}"
-    height: "{spacing.action}"
+    heightMin: "{spacing.action}"
+    states: [ENABLED, PRESSED, FOCUSED, BUSY, DISABLED]
   button-destructive:
+    compose: Button
+    codeName: FieldLedgerDestructiveButton
     backgroundColor: "{colors.error}"
     textColor: "{colors.on-error}"
     typography: "{typography.label-lg}"
     rounded: "{rounded.md}"
     padding: "{spacing.lg}"
-    height: "{spacing.action}"
-  status-ok:
-    backgroundColor: "{colors.primary-container}"
-    textColor: "{colors.on-primary-container}"
-    typography: "{typography.label-md}"
-    rounded: "{rounded.md}"
-    padding: "{spacing.md}"
-    height: "{spacing.touch}"
-  status-attention:
-    backgroundColor: "{colors.tertiary-container}"
-    textColor: "{colors.on-tertiary-container}"
-    typography: "{typography.label-md}"
-    rounded: "{rounded.md}"
-    padding: "{spacing.md}"
-    height: "{spacing.touch}"
-  status-critical:
-    backgroundColor: "{colors.error-container}"
-    textColor: "{colors.on-error-container}"
-    typography: "{typography.label-md}"
-    rounded: "{rounded.md}"
-    padding: "{spacing.md}"
-    height: "{spacing.touch}"
-  status-not-applicable:
-    backgroundColor: "{colors.surface-container-high}"
-    textColor: "{colors.on-surface-variant}"
-    typography: "{typography.label-md}"
-    rounded: "{rounded.md}"
-    padding: "{spacing.md}"
-    height: "{spacing.touch}"
-  status-privacy:
+    heightMin: "{spacing.action}"
+    states: [ENABLED, PRESSED, FOCUSED, BUSY, DISABLED]
+  icon-button:
+    compose: IconButton
+    codeName: FieldLedgerIconButton
+    iconSize: "{iconography.sizes.md}"
+    targetSize: "{interaction.minTouchTarget}"
+    variants: [STANDARD, TONAL, CAMERA]
+    states: [ENABLED, PRESSED, FOCUSED, SELECTED, DISABLED]
+  status-choice:
+    compose: Surface selectableGroup
+    codeName: StatusChoice
+    variants: [OK, ATTENTION, CRITICAL, NOT_APPLICABLE]
+    heightMin: "{spacing.action}"
+    states: [UNSELECTED, SELECTED, PRESSED, FOCUSED, DISABLED]
+  privacy-chip:
+    compose: FilterChip
+    codeName: PrivacyChip
+    label: Contains tenant belongings
     backgroundColor: "{colors.privacy-container}"
     textColor: "{colors.on-privacy-container}"
     typography: "{typography.label-sm}"
     rounded: "{rounded.full}"
-    padding: "{spacing.sm}"
-  missing-strip:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
-    typography: "{typography.label-lg}"
-    rounded: "{rounded.none}"
-    padding: "{spacing.md}"
-    height: "{spacing.touch}"
+    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
+  evidence-rail:
+    compose: custom merged-semantics Layout
+    codeName: EvidenceRail
+    width: 6px
+    segmentGap: 2px
+    segmentOrder: [STATUS, PHOTO, NOTE]
+    segmentStates: [COMPLETE, MISSING_REQUIRED, BLOCKED, OPTIONAL, NOT_APPLICABLE]
+    states: [READY, UPDATING]
+  inspection-item-card:
+    compose: Surface
+    codeName: InspectionItemCard
+    backgroundColor: "{colors.surface-container-low}"
+    textColor: "{colors.on-surface}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.lg}"
+    variants: [DEFAULT, ATTENTION, READ_ONLY]
+    states: [COLLAPSED, EXPANDED, FOCUSED, SAVE_FAILED]
+  property-summary-card:
+    compose: Surface
+    codeName: PropertySummaryCard
+    backgroundColor: "{colors.surface-container}"
+    textColor: "{colors.on-surface}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.lg}"
+    variants: [START, CONTINUE, DUE, BLOCKED]
+    states: [DEFAULT, PRESSED, FOCUSED]
+  photo-evidence-tile:
+    compose: Surface
+    codeName: PhotoEvidenceTile
+    aspectRatio: 1.3333
+    rounded: "{rounded.md}"
+    states: [EMPTY_OPTIONAL, EMPTY_REQUIRED, TEMPORARY, PRESENT, PRIVACY, ARCHIVED, FAILED]
+  save-status:
+    compose: Row liveRegion-polite
+    codeName: SaveStateIndicator
+    typography: "{typography.label-sm}"
+    states: [CLEAN, DIRTY, SAVING, SAVED, FAILED, RECOVERED]
+  feedback-banner:
+    compose: Surface liveRegion-polite
+    codeName: FeedbackBanner
+    rounded: "{rounded.md}"
+    padding: "{spacing.lg}"
+    variants: [INFO, SUCCESS, WARNING, ERROR, BLOCKING]
+    states: [VISIBLE, ACTION_BUSY, DISMISSED]
   compliance-block:
+    compose: Surface liveRegion-polite
+    codeName: ComplianceBlock
     backgroundColor: "{colors.error-container}"
     textColor: "{colors.on-error-container}"
     typography: "{typography.body-md}"
     rounded: "{rounded.md}"
     padding: "{spacing.lg}"
-  card-item:
-    backgroundColor: "{colors.surface-container-low}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.body-md}"
-    rounded: "{rounded.lg}"
-    padding: "{spacing.lg}"
-  card-room-summary:
-    backgroundColor: "{colors.surface-container}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.title-md}"
-    rounded: "{rounded.lg}"
-    padding: "{spacing.lg}"
+    states: [BLOCKED, CORRECTING, CLEARED]
   input-field:
+    compose: OutlinedTextField
+    codeName: FieldLedgerInputField
     backgroundColor: "{colors.surface-container-low}"
     textColor: "{colors.on-surface}"
     typography: "{typography.body-md}"
     rounded: "{rounded.md}"
     padding: "{spacing.md}"
-    height: "{spacing.action}"
+    heightMin: "{spacing.action}"
+    states: [EMPTY, FOCUSED, FILLED, ERROR, DISABLED]
+  phrase-sheet:
+    compose: ModalBottomSheet
+    codeName: PhraseSheet
+    rounded: "{rounded.xl}"
+    states: [OPENING, OPEN, FILTERED, EMPTY, CLOSING]
+  confirmation-dialog:
+    compose: AlertDialog
+    codeName: ConfirmationDialog
+    variants: [FINALIZE, DISCARD_TEMP_PHOTO, CLEAR_CONTACT, REMOVE_LOCAL_MEDIA]
+    states: [OPEN, CONFIRMING, ERROR, CLOSED]
+  undo-snackbar:
+    compose: Snackbar
+    codeName: UndoSnackbar
+    action: UNDO
+    timeoutMs: 5000
+    states: [VISIBLE, ACTION_BUSY, DISMISSED]
   bottom-action-dock:
+    compose: Surface
+    codeName: FieldLedgerBottomActionDock
     backgroundColor: "{colors.secondary}"
     textColor: "{colors.on-secondary}"
     typography: "{typography.label-lg}"
     rounded: "{rounded.none}"
     padding: "{spacing.lg}"
+    states: [NEXT_ROOM, REVIEW_MISSING, FINALIZE_READY, BUSY]
+  camera-control:
+    compose: IconButton
+    codeName: CameraControl
+    backgroundColor: "{interaction.cameraScrim}"
+    textColor: "{interaction.onCameraScrim}"
+    targetSize: "{interaction.minTouchTarget}"
+    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
   camera-shutter:
+    compose: custom Button
+    codeName: CameraShutter
     backgroundColor: "{colors.on-primary}"
     textColor: "{colors.primary}"
     rounded: "{rounded.full}"
     size: 72px
+    states: [READY, PRESSED, CAPTURING, DISABLED]
+  camera-review-bar:
+    compose: Surface
+    codeName: CameraReviewBar
+    backgroundColor: "{interaction.cameraScrim}"
+    textColor: "{interaction.onCameraScrim}"
+    actions: [RETAKE, PRIVACY, USE_PHOTO]
+    states: [READY, COMMITTING, ERROR]
   privacy-action:
+    compose: FilledTonalButton
+    codeName: PrivacyAction
     backgroundColor: "{colors.privacy}"
     textColor: "{colors.on-privacy}"
     typography: "{typography.label-lg}"
     rounded: "{rounded.md}"
     padding: "{spacing.md}"
+    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
   divider:
+    compose: HorizontalDivider
+    codeName: FieldLedgerDivider
     backgroundColor: "{colors.outline-variant}"
     size: 1px
+    states: [VISIBLE]
   focus-indicator:
-    backgroundColor: "{colors.outline}"
-    size: 3px
+    compose: Modifier.drawBehind
+    codeName: FieldLedgerFocusIndicator
+    backgroundColor: "{colors.primary}"
+    width: "{interaction.focusRingWidth}"
+    offset: 2px
+    states: [HIDDEN, VISIBLE]
+  camera-overlay-control:
+    compose: Row
+    codeName: CameraOverlayControl
+    controls: [Switch, Slider]
+    backgroundColor: "{interaction.cameraScrim}"
+    textColor: "{interaction.onCameraScrim}"
+    states: [UNAVAILABLE, OFF, ON, ADJUSTING, DISABLED]
+  section-header:
+    compose: Row
+    codeName: FieldLedgerSectionHeader
+    typography: "{typography.title-md}"
+    variants: [STANDARD, DATE, DANGER]
+    states: [DEFAULT, ACTION_AVAILABLE, COLLAPSED, EXPANDED]
+  result-list-row:
+    compose: ListItem
+    codeName: FieldLedgerResultRow
+    variants: [PROPERTY, HISTORY, SCHEDULE, NOTICE]
+    heightMin: "{spacing.action}"
+    states: [DEFAULT, PRESSED, FOCUSED, SELECTED, UNAVAILABLE]
+  settings-row:
+    compose: ListItem
+    codeName: FieldLedgerSettingsRow
+    variants: [NAVIGATION, VALUE, TOGGLE, DANGER]
+    heightMin: "{spacing.action}"
+    states: [DEFAULT, PRESSED, FOCUSED, BUSY, DISABLED]
+  metadata-row:
+    compose: Row
+    codeName: FieldLedgerMetadataRow
+    typography: "{typography.body-sm}"
+    variants: [ICON_TEXT, LABEL_VALUE, SOURCE_TIME]
+    states: [DEFAULT, WARNING, ERROR]
+  overflow-menu:
+    compose: DropdownMenu
+    codeName: FieldLedgerOverflowMenu
+    states: [CLOSED, OPEN, ITEM_FOCUSED, ACTION_BUSY]
+  tooltip:
+    compose: PlainTooltip
+    codeName: FieldLedgerTooltip
+    states: [HIDDEN, VISIBLE]
+  state-badge:
+    compose: Badge
+    codeName: FieldLedgerStateBadge
+    variants: [COUNT, DOT, STATUS, SOURCE]
+    states: [NEUTRAL, DUE, ATTENTION, BLOCKED, PRIVATE, VERIFIED]
+  search-field:
+    compose: SearchBar
+    codeName: FieldLedgerSearchField
+    heightMin: "{spacing.action}"
+    states: [COLLAPSED, FOCUSED, QUERY, NO_RESULTS, DISABLED]
+  filter-chip-group:
+    compose: LazyRow selectableGroup
+    codeName: FieldLedgerFilterChipGroup
+    states: [READY, FILTERED, FOCUSED, DISABLED]
+  switch-row:
+    compose: ListItem + Switch
+    codeName: FieldLedgerSwitchRow
+    heightMin: "{spacing.action}"
+    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
+  checkbox-row:
+    compose: Row + Checkbox
+    codeName: FieldLedgerCheckboxRow
+    heightMin: "{spacing.touch}"
+    states: [UNCHECKED, CHECKED, INDETERMINATE, FOCUSED, DISABLED]
+  radio-group:
+    compose: Column selectableGroup
+    codeName: FieldLedgerRadioGroup
+    states: [UNSELECTED, SELECTED, ERROR, DISABLED]
+  segmented-control:
+    compose: SingleChoiceSegmentedButtonRow
+    codeName: FieldLedgerSegmentedControl
+    states: [UNSELECTED, SELECTED, FOCUSED, DISABLED]
+  choice-field:
+    compose: ExposedDropdownMenuBox
+    codeName: FieldLedgerChoiceField
+    heightMin: "{spacing.action}"
+    states: [EMPTY, OPEN, SELECTED, ERROR, DISABLED]
+  date-time-field:
+    compose: OutlinedTextField readOnly
+    codeName: FieldLedgerDateTimeField
+    heightMin: "{spacing.action}"
+    states: [EMPTY, SELECTED, FOCUSED, ERROR, DISABLED]
+  secure-input-field:
+    compose: OutlinedTextField
+    codeName: FieldLedgerSecureInputField
+    variants: [PASSPHRASE, API_KEY]
+    heightMin: "{spacing.action}"
+    states: [EMPTY, HIDDEN, REVEALED, ERROR, VERIFIED, DISABLED]
+  confirmation-input:
+    compose: OutlinedTextField
+    codeName: FieldLedgerConfirmationInput
+    variants: [RESTORE, ERASE, CLEAR]
+    heightMin: "{spacing.action}"
+    states: [EMPTY, MISMATCH, MATCHED, DISABLED]
+  slider-field:
+    compose: Column + Slider
+    codeName: FieldLedgerSliderField
+    states: [READY, ADJUSTING, FOCUSED, DISABLED]
+  empty-state-panel:
+    compose: Column
+    codeName: FieldLedgerEmptyStatePanel
+    variants: [FIRST_RUN, NO_CONTENT, NO_RESULTS, NO_HISTORY]
+    states: [VISIBLE, ACTION_BUSY]
+  loading-indicator:
+    compose: CircularProgressIndicator
+    codeName: FieldLedgerLoadingIndicator
+    variants: [INDETERMINATE, DETERMINATE, INLINE]
+    states: [HIDDEN, DELAYED, VISIBLE, COMPLETE]
+  task-progress-card:
+    compose: Surface liveRegion-polite
+    codeName: FieldLedgerTaskProgressCard
+    variants: [BACKUP, RESTORE, EXPORT, ERASE, MEDIA_RECOVERY]
+    rounded: "{rounded.lg}"
+    states: [PREPARING, RUNNING, VERIFYING, SUCCEEDED, FAILED, CANCELLED]
+  validation-summary:
+    compose: Surface liveRegion-polite
+    codeName: FieldLedgerValidationSummary
+    states: [HIDDEN, INVALID, FOCUSED, CLEARED]
+  recovery-panel:
+    compose: Surface liveRegion-polite
+    codeName: FieldLedgerRecoveryPanel
+    variants: [PERMISSION, PROVIDER, LOW_STORAGE, INTEGRITY, ARCHIVED_MEDIA, RESTORED_SESSION]
+    rounded: "{rounded.md}"
+    states: [VISIBLE, ACTION_BUSY, RESOLVED]
+  verification-receipt:
+    compose: Surface
+    codeName: VerificationReceiptCard
+    variants: [BACKUP, EXPORT, RESTORE, INTEGRITY]
+    rounded: "{rounded.lg}"
+    states: [VERIFIED, STALE, FAILED, UNAVAILABLE]
+  history-evidence-strip:
+    compose: LazyRow
+    codeName: HistoryEvidenceStrip
+    states: [EMPTY, READY, SCROLLING, BASELINE_SELECTED, PREVIOUS_SELECTED, ARCHIVED]
+  review-gap-row:
+    compose: ListItem
+    codeName: ReviewGapRow
+    heightMin: "{spacing.action}"
+    states: [MISSING_STATUS, MISSING_PHOTO, MISSING_NOTE, BLOCKED, FIXING]
+  summary-stat:
+    compose: Column
+    codeName: FieldLedgerSummaryStat
+    typography: "{typography.data-lg}"
+    states: [NEUTRAL, COMPLETE, ATTENTION, BLOCKED]
+  evidence-grid:
+    compose: LazyVerticalGrid
+    codeName: EvidenceGrid
+    states: [EMPTY, READY, SELECTION, ARCHIVED, LOADING]
+  media-source-sheet:
+    compose: ModalBottomSheet
+    codeName: MediaSourceSheet
+    variants: [SINGLE_PHOTO, BULK_PHOTO, AUDIO]
+    states: [OPEN, CAMERA_AVAILABLE, IMPORT_ONLY, COMMITTING, ERROR]
+  media-assignment-row:
+    compose: ListItem
+    codeName: MediaAssignmentRow
+    states: [UNASSIGNED, ASSIGNED, DUPLICATE, INVALID, SAVING]
+  audio-evidence-control:
+    compose: Surface
+    codeName: AudioEvidenceControl
+    states: [IDLE, LISTENING, PROCESSING_ON_DEVICE, SAVED, PLAYING, FAILED, UNAVAILABLE, READ_ONLY]
+  media-preview:
+    compose: Dialog
+    codeName: EvidenceMediaPreview
+    variants: [PHOTO, AUDIO]
+    states: [LOADING, READY, PRIVACY, ARCHIVED, ERROR]
+  backup-health-card:
+    compose: Surface
+    codeName: BackupHealthCard
+    rounded: "{rounded.lg}"
+    states: [NOT_CONFIGURED, READY, RUNNING, VERIFIED, STALE, FAILED]
+  destination-row:
+    compose: ListItem
+    codeName: BackupDestinationRow
+    states: [NOT_SELECTED, AVAILABLE, PROVIDER_OFFLINE, ACCESS_REVOKED, LOW_SPACE]
+  task-stepper:
+    compose: Column
+    codeName: FieldLedgerTaskStepper
+    variants: [BACKUP, RESTORE, ERASE]
+    states: [UPCOMING, CURRENT, COMPLETE, FAILED]
+  preflight-summary:
+    compose: Surface
+    codeName: FieldLedgerPreflightSummary
+    variants: [RESTORE, ERASE, MEDIA_CLEANUP, SHARE]
+    rounded: "{rounded.lg}"
+    states: [CHECKING, READY, BLOCKED, STALE]
+  disclosure-list:
+    compose: Column
+    codeName: FieldLedgerDisclosureList
+    variants: [INCLUDED, EXCLUDED, IMPACT, RETAINED]
+    states: [COLLAPSED, EXPANDED]
+  health-issue-row:
+    compose: ListItem
+    codeName: HealthIssueRow
+    states: [BACKUP_STALE, BACKUP_FAILED, INTEGRITY_FAILED, RESTORE_ROLLED_BACK, PREVIOUS_CRASH, STARTUP_SLOW]
+  share-boundary-callout:
+    compose: Surface
+    codeName: ShareBoundaryCallout
+    variants: [PDF, NOTICE, DIAGNOSTIC]
+    states: [VISIBLE, ACKNOWLEDGED]
+  notice-delivery-row:
+    compose: ListItem
+    codeName: NoticeDeliveryRow
+    states: [DRAFT, VALID, BLOCKED, COPIED, RECORDED]
+  compliance-check-row:
+    compose: ListItem
+    codeName: ComplianceCheckRow
+    states: [NOT_CHECKED, PASS, FAIL, NOT_APPLICABLE, CORRECTING]
+  remediation-suggestion-card:
+    compose: Surface
+    codeName: RemediationSuggestionCard
+    variants: [ON_DEVICE, REMOTE]
+    states: [READY, GENERATING, ACCEPTED, REJECTED, FAILED, OFFLINE]
+  report-action-sheet:
+    compose: ModalBottomSheet
+    codeName: ReportActionSheet
+    actions: [OPEN_PDF, SHARE, EXPORT_ANOTHER_QUALITY]
+    states: [OPEN, PREPARING, HANDING_OFF, ERROR, CLOSED]
 ---
 
 # MyInspection Field Ledger
