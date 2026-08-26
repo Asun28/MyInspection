@@ -1247,6 +1247,7 @@ The following bindings are immutable. A foreground token is not used on a backgr
 | `dark.on-privacy` | `#35205A` | `dark.privacy` | `#D1BCFF` | `8.20:1` | AAA text |
 | `dark.on-privacy-container` | `#EADDFF` | `dark.privacy-container` | `#48306D` | `8.49:1` | AAA text |
 | `dark.primary` focus ring | `#94D7CA` | `dark.surface` | `#0F1513` | `11.29:1` | AA non-text |
+| `dark.primary` | `#94D7CA` | `dark.on-primary` | `#003730` | `8.07:1` | AA non-text icon |
 
 `dark.outline-variant` is restricted to decorative separators. Inputs, cards, evidence segments, selected states, and focus indicators use `dark.outline`, a semantic container, or the focus token.
 
