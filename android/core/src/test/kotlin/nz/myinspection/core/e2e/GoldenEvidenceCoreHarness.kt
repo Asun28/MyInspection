@@ -55,6 +55,9 @@ internal class GoldenEvidenceCoreHarness private constructor(
     val fixture: GoldenEvidenceFixture,
     val dbDataHash: String,
     val landlordPlan: DocumentPlan,
+    val tenantPlan: DocumentPlan,
+    val judgmentLandlordPlan: DocumentPlan,
+    val judgmentTenantPlan: DocumentPlan,
     val independentDataHash: String,
     val persistedPhotoHashes: List<String>,
     val assetContentHashes: List<String>,
@@ -150,6 +153,25 @@ internal class GoldenEvidenceCoreHarness private constructor(
                     nz.myinspection.core.report.Audience.LANDLORD,
                     ReportOptions(fixture.report.landlordIncludePrivacyPhotos),
                 )
+                val tenantPlan = composer.compose(
+                    reportSnapshot,
+                    nz.myinspection.core.report.Audience.TENANT,
+                    ReportOptions(fixture.report.tenantIncludePrivacyPhotos),
+                )
+                val judgmentReport = reportSnapshot.withInternalJudgment(
+                    fixture.report.remediationStableId,
+                    "DAMAGE",
+                )
+                val judgmentLandlordPlan = composer.compose(
+                    judgmentReport,
+                    nz.myinspection.core.report.Audience.LANDLORD,
+                    ReportOptions(fixture.report.landlordIncludePrivacyPhotos),
+                )
+                val judgmentTenantPlan = composer.compose(
+                    judgmentReport,
+                    nz.myinspection.core.report.Audience.TENANT,
+                    ReportOptions(fixture.report.tenantIncludePrivacyPhotos),
+                )
                 val persistedPhotoHashes = roomByKey.values
                     .flatMap { database.photoQueries.selectByRoomInstance(it.id).executeAsList() }
                     .map { it.content_hash }
@@ -158,6 +180,9 @@ internal class GoldenEvidenceCoreHarness private constructor(
                     fixture = fixture,
                     dbDataHash = dbDataHash,
                     landlordPlan = landlordPlan,
+                    tenantPlan = tenantPlan,
+                    judgmentLandlordPlan = judgmentLandlordPlan,
+                    judgmentTenantPlan = judgmentTenantPlan,
                     independentDataHash = independentHashFromFinalizedDatabase(database, created.inspectionId),
                     persistedPhotoHashes = persistedPhotoHashes,
                     assetContentHashes = assetHashes,
@@ -323,6 +348,25 @@ internal class GoldenEvidenceCoreHarness private constructor(
                 ),
             )
         }
+
+        private fun ReportSnapshot.withInternalJudgment(stableId: String, judgment: String): ReportSnapshot = copy(
+            canonical = canonical.copy(
+                items = canonical.items.map { item ->
+                    if (item.stableId == stableId) item.copy(wearOrDamage = judgment) else item
+                },
+            ),
+            rooms = rooms.map { room ->
+                room.copy(
+                    items = room.items.map { item ->
+                        if (item.snapshot.stableId == stableId) {
+                            item.copy(snapshot = item.snapshot.copy(wearOrDamage = judgment))
+                        } else {
+                            item
+                        }
+                    },
+                )
+            },
+        )
 
         /** Reads finalized rows directly and does not call production snapshot/canonical/hash helpers. */
         private fun independentHashFromFinalizedDatabase(database: MyInspectionDatabase, inspectionId: String): String {
