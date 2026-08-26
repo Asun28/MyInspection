@@ -82,7 +82,7 @@ R3 blocking—with round cap, diff budget, and head binding—so advisory-only f
 
 | version | decision | date | reason / what was taken | issue |
 |---|---|---|---|---|
-| v0.45.0 | partial | 2026-08-26 | Took the seeded shard split (2 OS × 5 shards; gate 17 split into git/remote/scanner) and group 2 already applied locally at `f9070ff`: strict ledger, public report guards, and exact remote identity. Groups 1/3 remain partial; the remaining group 4 features are deferred. Origin is v0.29.0; current is v0.45.0. Tag `db835867e6f1bab740f13b48e4bae009a34521ef`. | upstream #259/#260/#261 / our #266 / v0.45.0 |
+| v0.45.0 | partial | 2026-08-26 | Took seeded shard split (2 OS × 5) and local group-2 equivalent (`f9070ff`); groups 1/3 partial, 4 deferred. Origin v0.29.0; current v0.45.0. Tag `db835867e6f1bab740f13b48e4bae009a34521ef`. | upstream #259/#260/#261 / our #266 |
 | v0.44.0 | partial | 2026-08-24 | Took #201's bounded sync-ledger reader. Deferred card validation (31 live-card migration), seven shared-core selfchecks (overlaps PR #127), and handoff throttling (outside scope). Upstream `DocSyncMap` is N/A to this custom four-pair map. Tag `af4f5724cc5403bfa0521a68c552362bb96f4dd5`. | upstream #201 / v0.44.0 |
 | v0.43.0 | partial | 2026-08-23 | Took our #188 ID cap, #189 guarded promote/demote, and #190 delivery-blocked fixes with hermetic triage tests. Deferred #180/#181/#182/#186/#187/#191–#195; #197 and required-CI fan-in are N/A. | our #183/#184/#185 |
 | v0.42.0 | partial | 2026-08-23 | Took the fleet command, upstream config, `scaffold-stale`, and this ledger. Deferred divergent selftest 1g/12f wiring to its own card. | upstream #201 |
@@ -115,4 +115,4 @@ Each deferred item below is a future card, not a patch hunk.
 | Card scalar/rule package, including empty-scalar fix | `v0.44.0` | overlaps `T0-CARD-ACCEPTANCE-FIELD`; migrate 31 cards |
 | Shared-core selfchecks | `v0.44.0` | add local examples for seven cores after PR #127 |
 | Content-aware handoff throttle | `v0.44.0` | hooks/selftest need a RED-first card |
-| Shared metadata, PSGallery hardening, and remaining R3 review package | `v0.45.0` groups 1/3/4 | local equivalents are partial or overlap active work; migrate in dedicated cards |
+| Shared metadata, PSGallery and R3 remainder | v0.45 groups 1/3/4 | partial/overlapping; use dedicated cards |

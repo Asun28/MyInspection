@@ -176,6 +176,14 @@ function Get-TriageScaffoldProbeContract {
     Registered = $Text -cmatch '(?m)^[ \t]*Invoke-ProbeScaffoldStale[ \t]*$'
     Documented = $Text -cmatch '(?m)^[ \t]*-[ \t]+scaffold-stale[ \t]*:'
     Offline = @($errors).Count -eq 0 -and -not $fetch
+    OriginFallback = ($Text -cmatch '(?m)^\s*try \{ \$provenance = Get-ScaffoldOriginVersion \}\r?$' -and $Text -cmatch '(?m)^\s*catch \{ try \{ \$provenance = Get-ScaffoldVersion \}' -and $Text -cmatch '(?m)^\s*try \{ \$synced = Get-SyncedVersion \$ledgerText \$provenance \$tags \}')
+  }
+}
+
+function Get-ScaffoldOriginCurrentContract([string]$Text) {
+  return [pscustomobject]@{
+    Check = $Text -cmatch '(?m)^\s*try \{ \$synced = Get-SyncedVersion \$ledgerText \$OriginVersion \$tags \}'
+    Report = ($Text -cmatch '(?m)^\s*\[void\]\$sb\.AppendLine\("\| scaffold origin version \| \$OriginVersion \|"\)' -and $Text -cmatch '(?m)^\s*\[void\]\$sb\.AppendLine\("\| scaffold current version \| \$LocalVersion \|"\)')
   }
 }
 
@@ -491,6 +499,11 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
   $resolvedOriginVersion = if ($hasOriginVersion) { [string]$resolvedConfig.OriginVersion } else { '' }
   if ((Get-SyncedVersion $realLedger '0.29.0') -ne '0.45.0' -or $resolvedConfig.Version -cne '0.45.0' -or $resolvedOriginVersion -cne '0.29.0' -or $realV45.Count -ne 1 -or $realV45[0] -notmatch 'db835867e6f1bab740f13b48e4bae009a34521ef' -or $realV45[0] -notmatch 'seeded shard') { $fails.Add('real v0.45 partial ledger row or origin/current version split is absent') }
   if ((Get-SyncedVersion '' '0.29.0' @('v0.29.0','v0.45.0')) -ne '0.29.0') { $fails.Add('missing ledger did not fail closed to ScaffoldOriginVersion') }
+  $syncRaw = Get-Content $PSCommandPath -Raw
+  $routes = Get-ScaffoldOriginCurrentContract $syncRaw
+  if (-not $routes.Check -or -not $routes.Report) { $fails.Add('check/report origin-current caller contract is absent') }
+  if ((Get-ScaffoldOriginCurrentContract $syncRaw.Replace('Get-SyncedVersion $ledgerText $OriginVersion $tags','Get-SyncedVersion $ledgerText $LocalVersion $tags')).Check) { $fails.Add('check origin-to-current mutation survived') }
+  if ((Get-ScaffoldOriginCurrentContract $syncRaw.Replace('scaffold origin version | $OriginVersion','scaffold origin version | $LocalVersion')).Report -or (Get-ScaffoldOriginCurrentContract $syncRaw.Replace('scaffold current version | $LocalVersion','scaffold current version | $OriginVersion')).Report) { $fails.Add('report origin/current mutation survived') }
   $legacyConfig = Join-Path ([IO.Path]::GetTempPath()) "scaffold-legacy-config-$PID.ps1"
   try {
     Set-Content $legacyConfig "function Get-ScaffoldVersion { '0.29.0' }" -Encoding utf8
@@ -520,10 +533,13 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
     if (-not $contract.Registered) { $fails.Add('triage.ps1 does not invoke scaffold-stale on its own anchored line') }
     if (-not $contract.Documented) { $fails.Add('triage.ps1 DESCRIPTION omits scaffold-stale') }
     if (-not $contract.Offline) { $fails.Add('triage.ps1 contains a git fetch - the heartbeat must stay offline') }
+    if (-not $contract.OriginFallback) { $fails.Add('triage scaffold-stale does not route missing/marker-only ledgers through origin') }
     $noInvoke = [regex]::Replace($tRaw, '(?m)^Invoke-ProbeScaffoldStale\s*$', '# invocation removed', 1)
     if ((Get-TriageScaffoldProbeContract $noInvoke).Registered) { $fails.Add('scaffold-stale registration assertion survived invocation deletion') }
     $fetchMutant = [regex]::Replace($tRaw, '\bfor-each-ref\b', 'fetch', 1)
     if ((Get-TriageScaffoldProbeContract $fetchMutant).Offline) { $fails.Add('offline assertion missed a git -C ... fetch mutation') }
+    $originMutant = $tRaw.Replace('Get-ScaffoldOriginVersion', 'Get-ScaffoldVersion')
+    if ((Get-TriageScaffoldProbeContract $originMutant).OriginFallback) { $fails.Add('triage origin-to-current fallback mutation survived') }
   }
 
   if ($fails.Count -gt 0) {

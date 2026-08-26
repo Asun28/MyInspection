@@ -103,9 +103,7 @@
        dot-source check-licenses.ps1 -AsLibrary 直测 Scan：Distributes=$false 只降**纯 GPL**（分发触发），AGPL(网络)/SSPL(SaaS)/EUPL(通信)/非商用(用途) 仍致命、LGPL 恒黄牌（C21 · T6-LICENSE-DISTRIBUTES）；17q handoff check 存活性——合法存活基线放行、WORKTREE 路径/BRANCH 不存在即拒续接（C31 · T6-HANDOFF-VALIDATE）；17r R3 评审 prompt 注入卡片前中和 verdict 样式 token——夹具卡 review_gate 携该字面量、stub 后端捕获送达 prompt，断言送达文本已 redacted（TD35 · T7-REVIEW-PROMPT-HYGIENE）；17ac R3 卡片权威——diff/card/rubric/FrozenPaths 同钉一个不可变基线 OID，区分 absent/empty，并在 reviewer 前拒 tree/symlink/gitlink。缺 git 跳过。
 
   下游项目 init 后本脚本随之保留（TD15）——继续用它当自己的工作流自检；元仓专属子检查已自动跳过。
-.PARAMETER Shard  运行分片：all（默认聚合 core/workflow/seeded）、core（闸 1–14+16）、workflow（闸 15）、
-  seeded（完整闸 17，兼容本地入口），以及 CI 用的 seeded-git / seeded-remote / seeded-scanner 三个互补子片。
-  三个子片并集等于 seeded；任一子进程非零时 all 非零退出。
+.PARAMETER Shard  all 聚合 core/workflow/seeded；CI 可单跑 seeded-git/remote/scanner，三者并集为完整 seeded。
 .PARAMETER StrictLint  PSScriptAnalyzer 的 Warning 也视为失败（未显式传参时的默认值见 TD77：元仓自身
   ($isPostInit 为假) 自动置真、已初始化下游仍是 Warning 建议性的旧默认；显式传 -StrictLint / -StrictLint:$false
   恒覆盖该默认，含在元仓自身也能用 -StrictLint:$false 退回建议性）。
@@ -292,7 +290,7 @@ function ConvertTo-SelftestAsciiGateId([string]$Value) {
 function ConvertFrom-SelftestFailureSentinel {
   param(
     [AllowEmptyString()][string]$StdOut,
-    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard,
+    [Parameter(Mandatory)][string]$Shard,
     [int]$ExitCode
   )
   $sentinelLines = @($StdOut -split '\r?\n' | Where-Object { $_.StartsWith('[SELFTEST-FAILED-GATES]', [System.StringComparison]::Ordinal) })
@@ -345,7 +343,7 @@ function Add-SelftestFailedGateId {
 
 function Format-SelftestFailureSentinel {
   param(
-    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard,
+    [Parameter(Mandatory)][string]$Shard,
     [Parameter(Mandatory)][System.Collections.Generic.List[string]]$GateIds
   )
   return "[SELFTEST-FAILED-GATES] shard=$Shard gates=$($GateIds -join ',')"
@@ -472,7 +470,7 @@ function Test-SelftestPrerequisite {
 
 function Format-SelftestSkipSummary {
   param(
-    [Parameter(Mandatory)][ValidateSet('core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard,
+    [Parameter(Mandatory)][string]$Shard,
     [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Records
   )
   $items = if ($Records.Count -eq 0) { 'NONE' } else { $Records -join ',' }
@@ -1279,14 +1277,11 @@ function Test-SelftestGateGroupCompletion([string[]]$Actual, [string[]]$Expected
   return ([string]::Join([char]0, $Actual) -ceq [string]::Join([char]0, $Expected))
 }
 
-# v0.45 latency backport: CI splits the formerly 22m34s Windows seeded shard into three independent
-# top-level regions. The legacy `seeded` selector still means the complete gate 17 for local callers.
 function Test-SeededShardRegionSelected([ValidateSet('git','remote','scanner')][string]$Region) {
   if ($Shard -eq 'seeded') { return $true }
   return ($Shard -ceq "seeded-$Region")
 }
 
-# Shared by the git region's moving-ref fixture and the scanner region's forced-POSIX regression.
 function Get-AcMoveGitWrapperBody([string]$ShimScript, [bool]$UseWindows) {
   if ($UseWindows) {
     return (@('& "$PSScriptRoot/git-shim.ps1" @args', 'exit $LASTEXITCODE') -join "`n")
@@ -3072,7 +3067,6 @@ if ($slCase1 -ne $true -or $slCase2 -ne $false -or $slCase3 -ne $false) {
 # --- 8. init-scaffold 干跑冒烟：拷到临时目录跑 init，核验产出，绝不动元仓 ---
 # 自动化 CLAUDE.md 原本要求人工做的「拷到 scratch 跑 init 确认无残留 {{TOKEN}}」。
 Step '8/17 init-scaffold 干跑冒烟（临时目录，绝不动元仓）'
-# 8.0 脚手架版本元数据：origin 保存首次生成来源，current 保存已裁决上游高水位；两者均为 semver。
 $versionConfigRaw = Get-Content (Join-Path $RepoRoot 'scripts/_config.ps1') -Raw
 $svMeta = ([regex]::Match($versionConfigRaw, "(?m)^\s*ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
 $svOriginMeta = ([regex]::Match($versionConfigRaw, "(?m)^\s*ScaffoldOriginVersion\s*=\s*'([^']*)'")).Groups[1].Value
@@ -3082,7 +3076,6 @@ if (-not $svOriginMeta) { Fail '_config.ps1 缺 ScaffoldOriginVersion provenance
 elseif ($svOriginMeta -notmatch '^\d+\.\d+\.\d+$') { Fail "ScaffoldOriginVersion='$svOriginMeta' 非 semver（应 x.y.z）。" }
 elseif ($svMeta -match '^\d+\.\d+\.\d+$' -and [version]$svOriginMeta -gt [version]$svMeta) { Fail "ScaffoldOriginVersion '$svOriginMeta' 不得高于 current '$svMeta'。" }
 
-# 8.0b 新建项目 stamping：即使本仓已经 init、完整模板冒烟会跳过，也要用最小真实生成物证明 child origin=current。
 $versionInitRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-version-init-$PID-$([guid]::NewGuid().ToString('N'))"
 try {
   New-Item -ItemType Directory -Force (Join-Path $versionInitRoot 'scripts') | Out-Null
@@ -3095,7 +3088,7 @@ try {
   $versionChildOrigin = ([regex]::Match($versionChildConfig, "(?m)^\s*ScaffoldOriginVersion\s*=\s*'([^']*)'")).Groups[1].Value
   $versionChildCurrent = ([regex]::Match($versionChildConfig, "(?m)^\s*ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
   if ($versionInitExit -ne 0 -or -not $svMeta -or $versionChildOrigin -cne $svMeta -or $versionChildCurrent -cne $svMeta) {
-    Fail "8.0b init stamping：child origin/current 应都等于源树 current '$svMeta'，实得 origin='$versionChildOrigin' current='$versionChildCurrent' exit=$versionInitExit。"
+    Fail "8.0b child 版本错：want=$svMeta origin=$versionChildOrigin current=$versionChildCurrent exit=$versionInitExit"
   } else { Write-Host "  8.0b init child origin=current=$svMeta OK" -ForegroundColor Green }
 } finally {
   Remove-Item -LiteralPath $versionInitRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -9538,8 +9531,6 @@ exit $realExit
 '@
       $acMoveShimScript = Join-Path $acMoveShim 'git-shim.ps1'
       Set-Content $acMoveShimScript $acMoveShimBody -Encoding utf8
-      # The shared wrapper emitter is hoisted above the seeded region selectors because the scanner
-      # sub-shard also consumes it in the forced-POSIX regression.
       $acMoveWrapperBody = Get-AcMoveGitWrapperBody -ShimScript $acMoveShimScript -UseWindows $IsWindows
       if ($IsWindows) {
         Set-Content -LiteralPath (Join-Path $acMoveShim 'git.ps1') -Value $acMoveWrapperBody -Encoding utf8
@@ -12052,13 +12043,14 @@ exit 41
           if ($td27InvocationLines.Count -ne 1) {
             Fail "闸17ac(td27-posix-shim-mut)(setup)：emitted POSIX invocation line count=$($td27InvocationLines.Count) (expected 1)——不能把定位漂移记为 deletion mutation death。"
           } else {
+            $td27PosixProbe = ${function:Invoke-Td27PosixShimProbe}
             $td27MutationProbe = {
               $mutantParseErrors = $null
               [void][System.Management.Automation.Language.Parser]::ParseFile($td27MutantHarness, [ref]$null, [ref]$mutantParseErrors)
               if ($mutantParseErrors.Count -ne 0) {
                 return [PSCustomObject]@{ Exit = 1; StdOut = "MARKER:TD27-POSIX-MUT:SETUP-PARSE($($mutantParseErrors[0].Message))"; RawExit = -1 }
               }
-              $result = Invoke-Td27PosixShimProbe -HarnessPath $td27MutantHarness -ExpectedReceipt $td27Receipt -MarkerId 'TD27-POSIX-MUT'
+              $result = & $td27PosixProbe -HarnessPath $td27MutantHarness -ExpectedReceipt $td27Receipt -MarkerId 'TD27-POSIX-MUT'
               if ($result.RawExit -ne 0) {
                 return [PSCustomObject]@{ Exit = 1; StdOut = "MARKER:TD27-POSIX-MUT:SETUP-RUNTIME(raw-exit=$($result.RawExit))`n$($result.Raw)"; RawExit = $result.RawExit }
               }
@@ -13149,12 +13141,12 @@ if ($Shard -in @('seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')) {
   foreach ($disabledRegion in $expectedGateGroups) {
     $disabledReceipts = @($expectedGateGroups | Where-Object { $_ -cne $disabledRegion })
     if (Test-SelftestGateGroupCompletion -Actual $disabledReceipts -Expected $expectedGateGroups) {
-      Fail "分片执行组收据变异存活：Shard=$Shard，禁用 region=$disabledRegion 后仍被判完整。"
+      Fail "收据缺失变异存活：shard=$Shard region=$disabledRegion"
     }
   }
 }
 if (-not (Test-SelftestGateGroupCompletion -Actual $executedGateGroups -Expected $expectedGateGroups)) {
-  Fail "分片执行组不完整：Shard=$Shard，实际=$($executedGateGroups -join ',')，期望=$($expectedGateGroups -join ',')。"
+  Fail "分片收据错：shard=$Shard actual=$($executedGateGroups -join ',') expected=$($expectedGateGroups -join ',')"
 } else { Write-Host "  分片执行组：$($expectedGateGroups -join ',') OK" -ForegroundColor Green }
 
 Step "结论 [$Shard]"
