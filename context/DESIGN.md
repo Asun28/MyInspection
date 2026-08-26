@@ -1096,7 +1096,7 @@ Backup health has two permanent rows:
 1. `Last verified backup` — absolute date/time, full-dataset scope, inspection/photo counts, and destination display name.
 2. `Latest attempt` — current phase or exact failure and its recovery action.
 
-One failed attempt never erases or visually downgrades a previous verified receipt. Format v1 never offers `This property only`; the only scope label is `All app data`.
+One failed attempt never erases or visually downgrades a previous verified receipt. Format v1 offers both `All app data` and `This property` backup scopes.
 
 | State | Required message | Primary action |
 | --- | --- | --- |
@@ -1530,7 +1530,7 @@ Use skeletons only when the shape of delayed external/provider content is known.
 
 | Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
 | --- | --- | --- | --- | --- | --- |
-| `backup-health-card` | last verified receipt, latest attempt, scope, primary action | not configured/ready/running/verified/stale/failed | Always preserves the previous verified fact; v1 scope is fixed to `All app data` | Heading + grouped receipt; failure recovery is the final focus stop | `Surface` |
+| `backup-health-card` | last verified receipt, latest attempt, scope, primary action | not configured/ready/running/verified/stale/failed | Always preserves the previous verified fact; v1 scopes are `All app data` and `This property` | Heading + grouped receipt; failure recovery is the final focus stop | `Surface` |
 | `destination-row` | provider icon, display name, availability, free-space/access state, choose action | not selected/available/offline/revoked/low space; machine `NOT_SELECTED / AVAILABLE / PROVIDER_OFFLINE / ACCESS_REVOKED / LOW_SPACE` | Shows provider display name, never raw URI; changing destination does not delete prior backups | Role `button`; label states current destination and result of activation | `ListItem` |
 | `task-stepper` | ordered labelled phases and one current marker | `BACKUP / RESTORE / ERASE`; upcoming/current/complete/failed | Shows no fake percentage; completed steps remain visible; restore uses choose → unlock → verify → review → replace | One progress group; current phase is announced once | `Column` |
 | `preflight-summary` | object/scope, counts, space, retained/removed facts, blockers | `RESTORE / ERASE / MEDIA_CLEANUP / SHARE`; checking/ready/blocked/stale | Must be recomputed before irreversible commit; stale preview blocks execution and offers Refresh | Heading and included/retained lists; blocker action focuses the cause | `Surface` |
