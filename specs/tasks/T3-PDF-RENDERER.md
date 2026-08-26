@@ -21,8 +21,8 @@ non_goals:
 plan_ref: context/DESIGN.md#backup-report-health-and-compliance-component-matrix
 acceptance:
   - "A1 quality selection shows progress and a verified receipt"
-  - "A2 output contract exposes Open PDF, Share, and Export another quality labels; the renderer does not launch or deliver Share"
-  - "A3 the verified artifact supports a downstream temporary content URI handoff; chooser delivery remains outside this card"
+  - "A2 Open PDF, Share, and Export another quality are actions; Share invokes ShareStaging and ShareGrant, launches the system chooser, and succeeds only when the handoff opens"
+  - "A3 the chooser receives a temporary content URI with a temporary read grant; delivery and storage remain non_goals"
   - "A4 CJK rendering, memory bounds, offline use, and failure recovery are verified"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
