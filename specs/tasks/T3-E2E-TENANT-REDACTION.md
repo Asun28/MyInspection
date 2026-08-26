@@ -6,6 +6,7 @@ status: todo
 branch: T3-E2E-TENANT-REDACTION
 worktree: C:\wt\T3-E2E-TENANT-REDACTION
 allow_paths:
+  - android/core/src/test/kotlin/nz/myinspection/core/e2e/GoldenEvidenceCoreHarness.kt
   - android/core/src/test/kotlin/nz/myinspection/core/e2e/GoldenEvidenceTenantRedactionE2ETest.kt
 forbid:
   - 通过全局删除用户客观备注来让泄露断言假绿
@@ -29,4 +30,3 @@ doc_sync: TASK-BOARD W5 redaction 节点（R5）
 # T3-E2E-TENANT-REDACTION
 
 只验证报告受众边界。Android renderer 和设备行为继续留给 T7-SMOKE-POLISH。
-

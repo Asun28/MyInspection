@@ -2,7 +2,7 @@
 id: T3-E2E-HASH
 title: Golden Evidence JVM 闭环与 DB/报告/独立重算三源 hash
 depends_on: [T3-E2E-GOLDEN-FIXTURE, T3-FINALIZE, T3-REPORT-COMPOSER, T2-CAPTURE-CORE, T2-PHOTO-PIPELINE]
-status: todo
+status: merged
 branch: T3-E2E-HASH
 worktree: C:\wt\T3-E2E-HASH
 allow_paths:
@@ -33,4 +33,3 @@ doc_sync: TASK-BOARD W5 hash 节点（R5）
 
 这是纯 JVM 核心业务闭环，不是 Android UI E2E。报告输入只从 finalize 后持久化数据与真实模板投影；
 独立重算刻意不复用生产 canonical/hash 实现，避免同一个 bug 自证。
-
