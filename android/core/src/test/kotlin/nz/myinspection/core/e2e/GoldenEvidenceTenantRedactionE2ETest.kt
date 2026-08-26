@@ -3,6 +3,7 @@ package nz.myinspection.core.e2e
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import nz.myinspection.core.report.FooterBlock
@@ -40,18 +41,37 @@ class GoldenEvidenceTenantRedactionE2ETest {
 
             val tenantBlocks = tenant.pages.flatMap { it.blocks }.map { it.content }
             assertTrue(tenantBlocks.none { it is RemediationBlock })
-            val landlordJudgments = evidence.judgmentLandlordPlan.pages
+            val publicSentinel = evidence.fixture.report.tenantExpectedSentinels.single()
+            val landlordJudgmentRows = evidence.judgmentLandlordPlan.pages
                 .flatMap { it.blocks }
                 .map { it.content }
                 .filterIsInstance<ItemRowBlock>()
-                .mapNotNull { it.wearOrDamage }
-            val tenantJudgmentRows = evidence.judgmentTenantPlan.pages
+            val judgmentTenant = evidence.judgmentTenantPlan
+            val judgmentTenantBlocks = judgmentTenant.pages
                 .flatMap { it.blocks }
                 .map { it.content }
-                .filterIsInstance<ItemRowBlock>()
-            assertEquals(listOf("DAMAGE"), landlordJudgments, "control report must carry a non-null internal judgment")
-            assertTrue(tenantJudgmentRows.isNotEmpty())
-            tenantJudgmentRows.forEach { assertNull(it.wearOrDamage) }
+            val judgmentTenantRows = judgmentTenantBlocks.filterIsInstance<ItemRowBlock>()
+            val judgmentTenantDrawnText = judgmentTenant.pages.flatMap { page ->
+                page.blocks.flatMap { placed ->
+                    val direct = (placed.content as? TextBearingBlock)?.textRuns.orEmpty()
+                    val thumbnails = (placed.content as? ItemRowBlock)?.thumbnails.orEmpty().flatMap { it.textRuns }
+                    direct + thumbnails
+                }
+            }.joinToString("\n") { it.text }
+            val landlordTarget = landlordJudgmentRows.single { it.note == publicSentinel }
+            val tenantTarget = judgmentTenantRows.single { it.note == publicSentinel }
+            assertEquals(evidence.judgmentLandlordPlan.dataHash, judgmentTenant.dataHash)
+            assertNotEquals(evidence.fixture.expectedDataHash, judgmentTenant.dataHash, "judgment control must use its modified canonical input")
+            assertEquals("DAMAGE", landlordTarget.wearOrDamage, "control report must carry a non-null internal judgment")
+            assertNull(tenantTarget.wearOrDamage, "the same objective row must remain while its internal judgment is removed")
+            judgmentTenantRows.forEach { assertNull(it.wearOrDamage) }
+            assertTrue(publicSentinel in judgmentTenant.toString())
+            assertTrue(publicSentinel in judgmentTenantDrawnText)
+            assertTrue(judgmentTenantBlocks.none { it is RemediationBlock })
+            evidence.fixture.report.tenantForbiddenSentinels.forEach { sentinel ->
+                assertFalse(sentinel in judgmentTenant.toString(), "judgment-bearing tenant structure leaked $sentinel")
+                assertFalse(sentinel in judgmentTenantDrawnText, "judgment-bearing tenant drawing leaked $sentinel")
+            }
 
             assertEquals(evidence.fixture.expectedDataHash, tenant.dataHash)
             tenant.pages.forEach { page ->
