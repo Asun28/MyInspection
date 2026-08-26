@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-RENDERER
 title: PdfDocument 渲染器：DocumentPlan → 双版本 PDF（四档质量 + CJK 字体 + 逐页内存策略）
-depends_on: [T3-REPORT-COMPOSER]
+depends_on: [T3-REPORT-COMPOSER, T1-SHARE-SCREEN-PRIVACY]
 parallelizable_with: [T3-HISTORY-COMPARE, T5-BACKUP-IO]
 status: todo
 branch: T3-PDF-RENDERER
@@ -18,6 +18,12 @@ forbid:
 non_goals:
   - 报告结构/分页（composer 已定）；分享/云盘上传（生成后落私有目录 + SAF 另存交 T5-BACKUP-IO 同类机制）
   - 改写或重压已存照片；承诺任意报告的绝对 MB 上限
+plan_ref: context/DESIGN.md#backup-report-health-and-compliance-component-matrix
+acceptance:
+  - "A1 quality selection shows progress and a verified receipt"
+  - "A2 Open PDF, Share, and Export another quality are actions; Share invokes ShareStaging and ShareGrant, launches the system chooser, and succeeds only when the handoff opens"
+  - "A3 the chooser receives a temporary content URI with a temporary read grant; delivery and storage remain non_goals"
+  - "A4 CJK rendering, memory bounds, offline use, and failure recovery are verified"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
 dod_assert: PdfExportQuality 的 LOW/MEDIUM/HIGH/EXTRA_HIGH 参数与需求 §8 一致且每次导出可选、默认 MEDIUM；固定 80 照 fixture 四档均成功且输出大小总体单调（相邻档若因内容熵例外须有逐图证据，不伪造绝对 MB 上限）；assembleDebug 与 composer 黄金测试绿；真机出两版 PDF 人工核：中文字形完整、High 档铭牌小字可读、内存不 OOM、附录编号回链正确、页脚哈希与 DB data_hash 一致——核验记录附 PR

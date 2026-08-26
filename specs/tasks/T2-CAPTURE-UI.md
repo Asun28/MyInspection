@@ -1,7 +1,7 @@
 ---
 id: T2-CAPTURE-UI
 title: Field Ledger Compose 走查：房间导航 + 状态/证据 + 备注/拍照
-depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T2-FIELD-LEDGER-THEME-R3-CLOSURE, T2-REPEATABLE-ROOM-RUNTIME]
+depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T1-SHARE-SCREEN-PRIVACY, T2-FIELD-LEDGER-THEME-R3-CLOSURE, T2-REPEATABLE-ROOM-RUNTIME]
 parallelizable_with: [T3-REPORT-COMPOSER, T3-FINALIZE]
 status: todo
 branch: T2-CAPTURE-UI
@@ -18,6 +18,13 @@ forbid:
 non_goals:
   - ghost overlay 与历史条（T3-HISTORY-COMPARE 在本卡骨架上加）
   - 报告/导出入口（T3/T5 各卡）；平板/横屏适配（单手竖屏优先）
+plan_ref: context/DESIGN.md#primary-inspection-journey
+acceptance:
+  - "A1 setup, capture, review, and camera routes follow the primary inspection journey"
+  - "A2 resume rereads core save and evidence progress, then UI-owned stable keys restore focus, expanded item, and scroll context"
+  - "A3 permission denial preserves an offline fallback"
+  - "A4 controls meet 48dp, 200% text, and TalkBack requirements"
+  - "A5 main-thread work stays bounded with LRU and performance checks"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
 dod_exit: 0
 dod_assert: app 主题/语义单测 + assembleDebug + capture 核测试全绿（UI 未旁路核心规则）；真机走完一个两房间 fixture：Field Ledger 固定主题、状态大按钮、短语/听写、全景与不利发现拍照提示、杀进程恢复；记录附 PR

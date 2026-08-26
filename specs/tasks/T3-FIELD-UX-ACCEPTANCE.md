@@ -15,6 +15,13 @@ forbid:
 non_goals:
   - 平板/横屏重设计（首版仍按单手竖屏）
   - 用户研究招募、遥测平台或远程分析服务
+plan_ref: context/DESIGN.md#accessibility-contract
+acceptance:
+  - "A1 evidence records the device and build"
+  - "A2 verify daylight and one-hand operation"
+  - "A3 verify TalkBack, 200% text, and Reduce Motion"
+  - "A4 verify process death, offline use, and provider recovery"
+  - "A5 every P0/P1 finding has a closure reference"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Test-Path docs/ux/FIELD-UX-ACCEPTANCE.md)) { exit 1 }; if (Select-String -Path docs/ux/FIELD-UX-ACCEPTANCE.md -Pattern '⬜|PENDING|待验证') { exit 1 }
 dod_exit: 0
 dod_assert: 真机报告逐项含设备/构建、步骤、截图或录屏、结果与发现 TD：日光、单手拇指、48dp、TalkBack、200% 字号、保存/失败反馈、减少动态效果、相机/历史对位；所有 P0/P1 发现都有偿还指针
