@@ -12,7 +12,7 @@
 
 - 颜色只使用 `colors` / `dark-colors` 语义 token；禁止页面自定义色值。
 - 字体只使用 Android `sans-serif` / `sans-serif-condensed` 和已声明 typography token。
-- 间距遵循 4dp 基线，屏幕边距 16dp，触控区域不小于 48dp，主操作不小于 56dp。
+- 间距遵循 4dp 基线，屏幕边距 16dp；触控区域与主操作尺寸服从设计系统的无障碍合同。
 - 普通图标只用 Material Symbols Outlined；已选顶层导航和已提交状态可用同名 Filled。
 - 控件默认 8dp、卡片 12dp、大型 sheet 16dp 圆角；除标签和相机快门外不使用胶囊/圆形容器。
 - 普通页面靠 tonal surface、边线和 evidence rail 建立层级，不用悬浮卡片阴影。
