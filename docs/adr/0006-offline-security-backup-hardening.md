@@ -38,18 +38,21 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
 - 临时明文只放 internal cache/staging，使用不可预测名称；成功、失败、崩溃恢复后都清理。文件名、日志和通知不含地址、姓名、备注或租客信息。
 - 数据不进 MediaStore/相册。对外打开或分享 PDF 时只用 `FileProvider` `content://` URI 和临时只读授权；不暴露原始路径，不永久导出 provider。
-- `allowBackup=false`、旧版 `backup_rules.xml` 和 Android 12+ `data_extraction_rules.xml` 继续排除所有域及设备迁移。唯一支持的数据出口是用户显式生成的 PDF/通知文案或加密 `.mibk`。
+- `allowBackup=false`、旧版 `backup_rules.xml` 和 Android 12+ `data_extraction_rules.xml` 继续排除所有域及设备迁移。受支持的用户主动出口只有 PDF/通知文案、加密 `.mibk`，以及只含白名单聚合与脱敏事件的诊断包；其中只有 `.mibk` 是可恢复的完整证据数据出口。
 
 ### 3. 备份范围与密钥保管
 
-- **format v1 UI 同时保留全量与按物业备份。** 这是产品范围合同，不是对当前冻结格式的实现声明：现有 v1 按物业包仍含整库 `db.sqlite`，不具备物业隔离，入口不得把它作为安全的物业级交付或恢复。过滤后的最小 SQLite 快照是未来版本评审目标；落地前必须继续保留两种范围需求，但按物业入口显示不可用及原因。恢复仍采用“全部验证后整包替换”，不做隐式合并。
+- **format v1 UI 同时保留全量与按物业备份。** 现有 v1 按物业包仍含整库 `db.sqlite`，所以只能明确标为“包含全部物业数据库、仅媒体按物业筛选”的兼容导出；它不得获得物业隔离或可恢复回执，也不得用于物业级交付/恢复。
+- **本 ADR 是按物业备份的显式 format v2 版本评审与范围批准。** v2 的 `property` 包必须生成独立最小 SQLite 快照：只含目标物业、其租约/巡检/通知/检查结果/媒体记录、被这些行引用的模板版本与必要配置，且不得含其他物业、全局秘密或无关设置。导出后须在 staging 中重开数据库，验证逻辑引用闭包、`scope.property_id`、媒体集合与 manifest 双向完备；任何跨物业行或孤儿引用均拒绝生成回执。实现须另立任务卡修改冻结格式并以 hostile fixtures 证明隔离，不能把本设计文档当成已交付代码。
+- v2 按物业恢复仍不做隐式合并：用户确认影响范围后，以该隔离快照替换当前 app 数据，使恢复后的 app 只包含该物业；若当前 app 有其他数据，必须先提示生成全量备份。全量包继续替换全部数据。
 - 用户口令是跨设备恢复的根；无服务端找回。每个 `.mibk` 继续按冻结格式使用 PBKDF2-HMAC-SHA256 + 分块 AES-256-GCM。
 - 为支持 finalize 后和每周后台备份，设置时把口令 `CharArray` 用 Android Keystore 内不可导出的 AES-GCM key 加密，信封只保存在 internal `noBackupFilesDir`。信封、nonce 和版本可持久化；明文口令和派生密钥不写盘、不进日志/通知，使用后尽力清零。
 - Keystore 信封只是本机便利，不写入 `.mibk`，也不替代用户记住口令。换机时用户直接用口令恢复。Keystore 被清除、失效、设备尚未解锁或信封损坏时，后台任务进入 `NEEDS_UNLOCK`/`NEEDS_PASSPHRASE`，保留旧回执并请求重新验证；不得生成未加密包或阻断巡检。
 
 ### 4. 可验证写入与恢复
 
-- 每次备份创建新对象，不覆盖上一份已验证备份。写入 `.partial` → 关闭 → 重新打开 → 解密并逐项核对 manifest/path/hash/size → 形成最终对象 → 再次确认可打开，最后才写 `VerifiedBackupReceipt`。provider 不支持安全 rename 时采用复制到最终对象并复核；失败残留不得显示为成功。
+- 自动备份使用用户授予的 SAF 目录树：每次创建新的 `.partial` 文档，关闭并重开完成解密与 manifest/path/hash/size 校验后，优先安全 rename；provider 不支持安全 rename 时采用复制到最终对象并复核。只有最终文档复核成功才写 `VerifiedBackupReceipt`；随后尽力删除 `.partial`，删除失败则记脱敏 reason code 并在下次维护时按 app 自建标记清理，绝不把残留显示为成功。
+- 手动 `ACTION_CREATE_DOCUMENT` 是单文档协议，不假设目录、同级新建、rename 或 copy 权限：写入用户授予的新文档 URI，关闭后通过同一 URI 重开并完整解密复核，成功后才写回执。写入或重开失败时不写回执，尽力删除该 URI；若 provider 不支持删除，明确提示“未完成文件可能残留，请删除后重试”，且最近一次已验证备份状态保持不变。
 - DB 快照优先使用 SQLite online backup/一致性快照；checkpoint + 文件复制仅允许在 DB 写屏障内。不得一边写 WAL 一边裸复制。
 - 恢复先解密到 internal staging，并在落盘前完成：header/KDF 上限、format/schema 兼容、canonical manifest、路径白名单、重复项、文件数、每项与总字节溢出、可用空间、逐项 hash/size 和双向完备性检查。任何条目超过 manifest 声明大小立即停止。
 - 空间预检必须保留 `max(512 MiB, 可用空间 10%)` 安全余量；空间不够不开始 commit。文件数和 manifest 大小设明确实现上限并由 hostile tests 固定。

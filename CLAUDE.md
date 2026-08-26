@@ -69,7 +69,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 <!-- 随 R5 文档同步更新。 -->
-需求已收口 + **设计已定稿**（ADR-0001–0004）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
+需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段；2026-08-20：ADR-0006 离线安全、诊断与备份加固；见 `docs/TASK-BOARD.md`「用户已定」）。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
 > 评审途中拆出新卡 **`T0-GATE-HARDENING`**（许可闸递归发现 + verify 确定性 + 两枚闸门自测 + 许可政策），承接被撤销的三次破例，见该卡「拆分依据」与仲裁段。
@@ -269,7 +269,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 | 路径 | 职责 |
 |---|---|
 | `docs/inspection-app-requirements.md` | **需求真相源**（[定]=已决定 / [待]=需确认 / [验]=需 spike） |
-| `docs/adr/0001–0004` + `docs/TASK-BOARD.md` | 设计决策 + 任务/模型路由总表（状态以卡为准） |
+| `docs/adr/0001–0004`、`docs/adr/0006-offline-security-backup-hardening.md` + `docs/TASK-BOARD.md` | 设计决策 + 任务/模型路由总表（状态以卡为准） |
 | `android/core/` | **纯 JVM 领域**：model / db(SQLDelight ★) / template / compliance / report / backup / canon ★ |
 | `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写 · PdfDocument 渲染 · WorkManager |
 | `configs/compliance/` | 可更新的 NZ 合规规则配置（不硬编码；schema 含 entryPurpose，ADR-0004） |
