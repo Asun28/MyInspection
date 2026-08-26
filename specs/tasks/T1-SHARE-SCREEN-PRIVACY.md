@@ -19,7 +19,7 @@ non_goals:
   - PDF 渲染/chooser 产品流程（T3-PDF-RENDERER）；remediation HTTP（T7-REMEDIATION）；SAF 备份/恢复（T5-BACKUP-IO）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: app JVM 测试与 assemble 绿：合并 manifest 保持 allowBackup=false、旧版/Android12+ 全域 backup+D2D 排除、cleartext=false，且无全相册读取权限；SelectedMediaPolicy 只允许系统 Photo Picker/SAF 返回的单项授权，ClipboardPolicy 禁止任何读取并只允许显式通知复制写入；FileProvider exported=false+grantUriPermissions=true 且 paths XML 只暴露 internal reports/export 子树；ShareStaging 只接受 internal reports/{propertyId}/ 下的已完成 PDF，原子复制并复核到 reports/export 随机名副本，拒绝越界/非 PDF/未完成文件，启动与下次分享清理超过 24 小时副本且不删源报告；ShareGrant 只生成 content:// + temporary read grant；SensitiveSurfacePolicy 仅把 backup password、restore preflight、tenant contact、full sensitive photo 标 secure，普通 capture/list/report action 不受全局截图封锁
+dod_assert: app JVM 测试与 assemble 绿：合并 manifest 保持 allowBackup=false、旧版/Android12+ 全域 backup+D2D 排除、cleartext=false，且无全相册读取权限；SelectedMediaPolicy 只允许系统 Photo Picker/SAF 返回的单项授权，ClipboardPolicy 禁止任何读取并只允许显式通知复制写入；FileProvider exported=false+grantUriPermissions=true 且 paths XML 只暴露 internal reports/export 子树；ShareStaging 只接受 internal reports/{propertyId}/ 下的已完成 PDF，原子复制并复核到 reports/export 随机名副本，拒绝越界/非 PDF/未完成文件，启动与下次分享清理超过 24 小时副本且不删源报告；真实文件系统夹具覆盖 symlink 越界与复制期间 concurrent writer/source mutation，两者均不得发布可分享副本；ShareGrant 只生成 content:// + temporary read grant；SensitiveSurfacePolicy 仅把 backup password、restore preflight、tenant contact、full sensitive photo 标 secure，普通 capture/list/report action 不受全局截图封锁
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
