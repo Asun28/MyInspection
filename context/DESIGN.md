@@ -308,7 +308,7 @@ components:
     textColor: "{colors.on-privacy-container}"
     typography: "{typography.label-sm}"
     rounded: "{rounded.full}"
-    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
+    states: ['OFF', 'ON', PRESSED, FOCUSED, DISABLED]
   evidence-rail:
     compose: custom merged-semantics Layout
     codeName: EvidenceRail
@@ -403,7 +403,7 @@ components:
     backgroundColor: "{interaction.cameraScrim}"
     textColor: "{interaction.onCameraScrim}"
     targetSize: "{interaction.minTouchTarget}"
-    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
+    states: ['OFF', 'ON', PRESSED, FOCUSED, DISABLED]
   camera-shutter:
     compose: custom Button
     codeName: CameraShutter
@@ -427,7 +427,7 @@ components:
     typography: "{typography.label-lg}"
     rounded: "{rounded.md}"
     padding: "{spacing.md}"
-    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
+    states: ['OFF', 'ON', PRESSED, FOCUSED, DISABLED]
   divider:
     compose: HorizontalDivider
     codeName: FieldLedgerDivider
@@ -447,7 +447,7 @@ components:
     controls: [Switch, Slider]
     backgroundColor: "{interaction.cameraScrim}"
     textColor: "{interaction.onCameraScrim}"
-    states: [UNAVAILABLE, OFF, ON, ADJUSTING, DISABLED]
+    states: [UNAVAILABLE, 'OFF', 'ON', ADJUSTING, DISABLED]
   section-header:
     compose: Row
     codeName: FieldLedgerSectionHeader
@@ -498,7 +498,7 @@ components:
     compose: ListItem + Switch
     codeName: FieldLedgerSwitchRow
     heightMin: "{spacing.action}"
-    states: [OFF, ON, PRESSED, FOCUSED, DISABLED]
+    states: ['OFF', 'ON', PRESSED, FOCUSED, DISABLED]
   checkbox-row:
     compose: Row + Checkbox
     codeName: FieldLedgerCheckboxRow
