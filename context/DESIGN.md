@@ -727,7 +727,8 @@ enum class BottomNavVisibility { VISIBLE, HIDDEN }
 
 ```mermaid
 flowchart TD
-    P[Properties · L1 ROOT_STATIC] --> PH[Property hub · L2 HUB_STATIC]
+    P[Properties · L1 ROOT_STATIC] --> PC[Add property · L2 FULLSCREEN_TASK]
+    P --> PH[Property hub · L2 HUB_STATIC]
     PH --> IS[Inspection setup · L2 FULLSCREEN_TASK]
     IS --> IC[Room capture · L2 STREAM_CAPTURE]
     IC --> IR[Review & finalize · L2 FULLSCREEN_TASK]
@@ -760,6 +761,7 @@ flowchart TD
 | 1 | `PROPERTIES_ROOT` | `properties` | `ROOT_STATIC` | — | Visible | `T2-CAPTURE-UI` |
 | 1 | `SCHEDULE_ROOT` | `schedule` | `ROOT_STATIC` | — | Visible | `T4-SCHEDULE` |
 | 1 | `SETTINGS_ROOT` | `settings` | `ROOT_STATIC` | — | Visible | Shared settings shell |
+| 2 | `PROPERTY_CREATE` | `properties/new` | `FULLSCREEN_TASK` | `PROPERTIES_ROOT` | Hidden | `T2-CAPTURE-UI` |
 | 2 | `PROPERTY_HUB` | `properties/{propertyId}` | `HUB_STATIC` | `PROPERTIES_ROOT` | Visible | `T2-CAPTURE-UI` |
 | 2 | `INSPECTION_SETUP` | `properties/{propertyId}/inspection/new` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T2-CAPTURE-UI` |
 | 2 | `INSPECTION_CAPTURE` | `inspections/{inspectionId}/capture` | `STREAM_CAPTURE` | `PROPERTY_HUB` | Hidden | `T2-CAPTURE-UI` |
@@ -778,6 +780,8 @@ flowchart TD
 | 2 | `REMEDIATION_SETTINGS` | `settings/remediation` | `PUSH_DETAIL` | `SETTINGS_ROOT` | Hidden | `T7-REMEDIATION` |
 | 3 | `CAMERA_CAPTURE` | `inspections/{inspectionId}/camera/{targetType}/{targetId}` | `CAMERA_TASK` | `INSPECTION_CAPTURE` | Hidden | `T2-CAPTURE-UI` |
 | 3 | `CAMERA_REVIEW` | `inspections/{inspectionId}/camera-review/{tempAssetId}` | `CAMERA_TASK` | `CAMERA_CAPTURE` | Hidden | `T2-CAPTURE-UI` |
+
+The page inventory is exhaustive for route-backed surfaces. The overlay/system-surface registry below is exhaustive for non-route surfaces.
 
 Existing finalized inspections do not open an in-app report viewer. Selecting one opens `REPORT_ACTION_SHEET`, which exposes Open PDF through the system viewer, Share, and Export another quality. This preserves the explicit v1 exclusion of a read-only history/report viewer.
 
@@ -806,12 +810,13 @@ These rules remove page-level interpretation from implementation. Cards group on
 | Screen | First viewport priority | Main content | Persistent action | Empty / exceptional state |
 | --- | --- | --- | --- | --- |
 | `PROPERTIES_ROOT` | `Properties` heading, then an active draft when one exists | Non-clickable `property-summary-card` surfaces sorted active draft → due date → address; each shows address, property type, next-inspection fact, last finalized date, and one result action | `Add property` remains visible without overflow | `No properties yet` explains that a property is required before an inspection and exposes `Add property`; its route and owner task must be declared before this state can ship |
+| `PROPERTY_CREATE` | `Add property` heading and address | One scrolling form in decision order: address → occupancy → boarding-house status | Bottom CTA is `Save property` | Validation stays inline; Cancel returns to the originating Add property action without creating a partial property |
 | `PROPERTY_HUB` | Address, compliance block if present, then exactly one Start/Continue hero | One compact facts group for due inspection, last finalized inspection, last verified backup, and notice status; history is a dated list, not dashboard metrics | `Continue inspection` or `Start inspection` | Missing tenancy or baseline is explained beside the affected inspection type; no generic empty illustration |
 | `INSPECTION_SETUP` | Inspection type and date/time | One scrolling form in decision order: type → tenancy/baseline → date/time → template; conditional fields appear directly after their cause | Bottom CTA uses `Start inspection` and remains above IME/system insets | Core compliance failures show the entered value and valid correction inline; an unavailable tenancy-creation path is a blocking task-graph gap, never a fake selector value |
 | `INSPECTION_CAPTURE` | Property/room identity, exact missing evidence, room navigation | Room panorama, safe bulk action, then the item stream | Dock shows only Next room, Review missing, or Finish | Save, permission, media, and restoration failures preserve the current room/item and expose one recovery action |
 | `INSPECTION_REVIEW` | Decision fact: `{complete} of {total} items complete` | Missing state groups by room; each row names item, exact missing evidence, and `Fix`; when complete, show evidence totals and the permanence handoff | `Review {N} missing items` until complete; then `Finish inspection` | No disabled Finish button and no undifferentiated error list; selecting a row returns to and focuses the exact control |
 
-Property cards never combine a clickable card surface with nested buttons. The surface is structural; one labelled full-width action owns navigation. Search/filter stays absent until the active property count exceeds eight, avoiding permanent chrome for a small self-use list.
+Property cards never combine a clickable card surface with nested buttons. The surface is structural; one labelled full-width `Open property` action owns navigation. Search/filter stays absent until the active property count exceeds eight, avoiding permanent chrome for a small self-use list.
 
 Setup never exposes raw IDs, enum names, or an empty dropdown. Dates use the device locale with the full month name at widths `≥320dp` and abbreviated month name below `320dp`; timestamps and UUIDs are never user-facing. A conditional section keeps its prior valid value while temporarily hidden; core validation alone determines whether that value is submitted.
 
@@ -921,20 +926,21 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 
 | Trigger source | Preconditions / guard | Navigation action | Target | Transition | Exit and focus return |
 | --- | --- | --- | --- | --- | --- |
-| Property card | Property exists | `PUSH` | `PROPERTY_HUB(propertyId)` | Push | Pop → source property card |
+| `Add property` | Always | `PUSH` | `PROPERTY_CREATE` | Push | Cancel → originating Add property action |
+| `Open property` | Property exists | `PUSH` | `PROPERTY_HUB(propertyId)` | Push | Pop → source Open property button |
 | `Start inspection` | No active draft | `PUSH` | `INSPECTION_SETUP(propertyId)` | Push | Cancel → property primary card |
 | `Continue inspection` | Active draft exists | `PUSH` | `INSPECTION_CAPTURE(inspectionId)` | Push | Save barrier, then Pop → Continue card |
 | Schedule due-property card | Property exists | Switch to Properties stack, then `PUSH` | Existing draft → `INSPECTION_CAPTURE`; no draft → `INSPECTION_SETUP` | Top-level crossfade, then Push | Pop → `PROPERTY_HUB`, then Properties root |
-| Setup `Begin inspection` | Required fields valid | `REPLACE` setup entry | `INSPECTION_CAPTURE(inspectionId)` | Push visual | Save and exit → property primary card |
+| Setup `Start inspection` | Required fields valid | `REPLACE` setup entry | `INSPECTION_CAPTURE(inspectionId)` | Push visual | Save and exit → property primary card |
 | Room segment | Target room exists | No route; persist current room then select | Same `INSPECTION_CAPTURE` instance | `150ms` content crossfade | Focus selected room heading |
 | `Take photo` | Camera permission granted and target requires evidence | `PUSH` | `CAMERA_CAPTURE(targetType,targetId)` | Camera fade | Close → original Take photo button |
 | Camera shutter | Camera state `PREVIEW_READY` | `PUSH` | `CAMERA_REVIEW(tempAssetId)` | Camera fade | Retake → shutter; Use photo → evidence thumbnail |
 | `Review N missing items` | Missing count `N > 0` | `PUSH` | `INSPECTION_REVIEW(inspectionId)` | Push | Select gap → Pop capture and focus exact item status group |
-| `Finalize inspection` | Missing count `0`; state `READY` | `SHOW_DIALOG` | `FINALIZE_CONFIRMATION` | Dialog | Cancel → Finalize button; confirm → finalize progress heading |
+| `Finish inspection` | Missing count `0`; state `READY` | `SHOW_DIALOG` | `FINALIZE_CONFIRMATION` | Dialog | Cancel → Finish inspection button; confirm → finalize progress heading |
 | Finalize succeeds | Finalized record and immutable evidence seal committed | Replace capture task subgraph | `REPORT_EXPORT(inspectionId)` | Push visual | Close → `PROPERTY_HUB`, focus finalized inspection row |
 | Finalized inspection row | Finalized PDF metadata exists | `SHOW_SHEET` | `REPORT_ACTION_SHEET` | Sheet | Dismiss → source report row |
-| Report action `Open PDF` | PDF exists or render succeeds | `LAUNCH_SYSTEM` | Android PDF viewer | System | Return → Open PDF action |
-| Report action `Share` | Share URI granted | `LAUNCH_SYSTEM` | Android Sharesheet | System | Return → Share action |
+| Report action `Open PDF` | PDF exists or render succeeds | `LAUNCH_SYSTEM` | `PDF_VIEWER` | System | Return → Open PDF action |
+| Report action `Share` | Share URI granted | `LAUNCH_SYSTEM` | `SHARE_SHEET` | System | Return → Share action |
 | Report action `Export another quality` | Inspection finalized | `PUSH` | `REPORT_EXPORT(inspectionId)` | Push | Pop → source report row |
 
 `T2-CAPTURE-UI` emits the single-use `InspectionFinalized(inspectionId)` event. `T3-PDF-RENDERER` consumes it and performs the declared task-subgraph replacement. Recomposition never re-emits or re-consumes the event.
@@ -947,8 +953,8 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | Notice center `New notice` | `PUSH` | `NOTICE_COMPOSE(inspectionId)` | Dirty-state guard | New notice button |
 | Property hub `Healthy Homes` | `PUSH` | `HHC_CAPTURE(propertyId)` | Dirty-state guard | Healthy Homes card |
 | Settings `Backup` | `PUSH` | `BACKUP_SETTINGS` | Back Pop | Backup row |
-| Backup `Choose destination` | `LAUNCH_SYSTEM` | Android document tree picker | System result | Choose destination row |
-| Backup `Restore` | `PUSH`, then `LAUNCH_SYSTEM` | `RESTORE_TASK`, then file picker | Cancel Pop; committing blocks Back | Restore row |
+| Backup `Choose destination` | `LAUNCH_SYSTEM` | `DOCUMENT_TREE_PICKER` | System result | Choose destination row |
+| Backup `Restore` | `PUSH`, then `LAUNCH_SYSTEM` | `RESTORE_TASK`, then `BACKUP_FILE_PICKER` | Cancel Pop; committing blocks Back | Restore row |
 | Settings `Photo and PDF quality` | `PUSH` | `QUALITY_SETTINGS` | Back Pop | Quality row |
 | Settings `Local photo storage` | `PUSH` | `LOCAL_MEDIA_SETTINGS` | Back Pop | Local storage row |
 | Settings `App health` | `PUSH` | `HEALTH_STATUS` | Back Pop | App health row |
@@ -958,6 +964,28 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | Theme setting row | `SHOW_SHEET` | `THEME_MODE_SHEET` | Commit on selection, then dismiss | Theme row |
 | Status field | `SHOW_SHEET` | `STATUS_SHEET(itemId)` | Commit on selection, then dismiss | Status field |
 | `Insert phrase` | `SHOW_SHEET` | `PHRASE_SHEET(fieldId)` | Insert on selection, then dismiss with Undo snackbar | Text field at insertion point |
+| Evidence `Import` | `LAUNCH_SYSTEM` | `MEDIA_IMPORT_PICKER` | System result | Source Import action |
+| Permission-gated action | `LAUNCH_SYSTEM` | `PERMISSION_DIALOG(capability)` | System result | Original triggering action |
+| Denied-permission `Open settings` | `LAUNCH_SYSTEM` | `ANDROID_APP_SETTINGS` | System return | Original recovery panel |
+
+### Overlay and system-surface registry
+
+| Target | Page type | Parent / launch context | Owner | Restoration policy | Entry focus key |
+| --- | --- | --- | --- | --- | --- |
+| `DISCARD_CHANGES` | `ALERT_DIALOG` | Dirty `FULLSCREEN_TASK` | Owning task | Cancel restores triggering Back/Cancel action | `dialog:discard-changes:cancel` |
+| `FINALIZE_CONFIRMATION` | `ALERT_DIALOG` | `INSPECTION_REVIEW` | `T3-FINALIZE` | Cancel restores Finish inspection; confirm focuses progress heading | `dialog:finalize:cancel` |
+| `REPORT_ACTION_SHEET` | `MODAL_SHEET` | Finalized row in `PROPERTY_HUB` | `T3-PDF-RENDERER` | Dismiss restores finalized row | `sheet:report-actions:title` |
+| `THEME_MODE_SHEET` | `MODAL_SHEET` | Theme row in `SETTINGS_ROOT` | Shared settings shell | Selection/dismiss restores Theme row | `sheet:theme-mode:title` |
+| `STATUS_SHEET(itemId)` | `MODAL_SHEET` | Status field in `INSPECTION_CAPTURE` | `T2-CAPTURE-UI` | Selection/dismiss restores exact item status field | `sheet:status:{itemId}:title` |
+| `PHRASE_SHEET(fieldId)` | `MODAL_SHEET` | Note field in `INSPECTION_CAPTURE` | `T2-CAPTURE-UI` | Insert/dismiss restores field insertion point | `sheet:phrase:{fieldId}:title` |
+| `DISCARD_CAPTURE` | `ALERT_DIALOG` | `CAMERA_REVIEW` | `T2-CAPTURE-UI` | Keep restores camera review; discard focuses shutter | `dialog:discard-capture:keep` |
+| `DOCUMENT_TREE_PICKER` | `SYSTEM_SURFACE` | `BACKUP_SETTINGS` destination row | `T5-BACKUP-IO` | Result restores Choose destination row | `system:document-tree-picker` |
+| `BACKUP_FILE_PICKER` | `SYSTEM_SURFACE` | `RESTORE_TASK` package step | `T5-BACKUP-IO` | Result restores package field | `system:backup-file-picker` |
+| `PDF_VIEWER` | `SYSTEM_SURFACE` | `REPORT_ACTION_SHEET` Open PDF | `T3-PDF-RENDERER` | Return restores Open PDF action | `system:pdf-viewer` |
+| `SHARE_SHEET` | `SYSTEM_SURFACE` | `REPORT_ACTION_SHEET` Share | `T3-PDF-RENDERER` | Return restores Share action | `system:share-sheet` |
+| `MEDIA_IMPORT_PICKER` | `SYSTEM_SURFACE` | Evidence Import action | `T2-CAPTURE-UI` | Result restores originating evidence slot | `system:media-import-picker` |
+| `PERMISSION_DIALOG(capability)` | `SYSTEM_SURFACE` | Exact permission-gated action | Owning task | Result resumes once or restores trigger with fallback | `system:permission:{capability}` |
+| `ANDROID_APP_SETTINGS` | `SYSTEM_SURFACE` | Permission recovery panel | Owning task | Return restores original recovery panel | `system:app-settings` |
 
 ### Overlay dismissal and interception
 
@@ -1016,7 +1044,7 @@ Focus keys use domain identity, never list index: `page:<page-id>:<entity-id>:<p
 3. **Room capture:** select room, take required panorama, rate items, and add evidence. The bottom dock offers only the next room or review action.
 4. **Review:** group missing evidence by room. An incomplete primary action reads `Review N missing items` and jumps to the first gap; it does not appear inert or rely on a disabled button.
 5. **Finalize:** once complete, show a concise permanence confirmation naming the inspection, property, and effect: original evidence becomes read-only and later changes are Supplements.
-6. **Export:** generate landlord and tenant PDFs, show progress per audience, then expose `Open`, `Share`, and `Save another quality` without losing the finalized summary.
+6. **Export:** generate landlord and tenant PDFs, show progress per audience, then expose `Open PDF`, `Share`, and `Export another quality` without losing the finalized summary.
 
 ### End-to-end experience contract
 
