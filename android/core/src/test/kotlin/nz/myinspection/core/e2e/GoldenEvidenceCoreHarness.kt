@@ -55,6 +55,7 @@ internal class GoldenEvidenceCoreHarness private constructor(
     val fixture: GoldenEvidenceFixture,
     val dbDataHash: String,
     val landlordPlan: DocumentPlan,
+    val tenantPlan: DocumentPlan,
     val independentDataHash: String,
     val persistedPhotoHashes: List<String>,
     val assetContentHashes: List<String>,
@@ -150,6 +151,11 @@ internal class GoldenEvidenceCoreHarness private constructor(
                     nz.myinspection.core.report.Audience.LANDLORD,
                     ReportOptions(fixture.report.landlordIncludePrivacyPhotos),
                 )
+                val tenantPlan = composer.compose(
+                    reportSnapshot,
+                    nz.myinspection.core.report.Audience.TENANT,
+                    ReportOptions(fixture.report.tenantIncludePrivacyPhotos),
+                )
                 val persistedPhotoHashes = roomByKey.values
                     .flatMap { database.photoQueries.selectByRoomInstance(it.id).executeAsList() }
                     .map { it.content_hash }
@@ -158,6 +164,7 @@ internal class GoldenEvidenceCoreHarness private constructor(
                     fixture = fixture,
                     dbDataHash = dbDataHash,
                     landlordPlan = landlordPlan,
+                    tenantPlan = tenantPlan,
                     independentDataHash = independentHashFromFinalizedDatabase(database, created.inspectionId),
                     persistedPhotoHashes = persistedPhotoHashes,
                     assetContentHashes = assetHashes,
