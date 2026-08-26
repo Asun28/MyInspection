@@ -21,7 +21,7 @@ non_goals:
 plan_ref: context/DESIGN.md#primary-inspection-journey
 acceptance:
   - "A1 setup, capture, review, and camera routes follow the primary inspection journey"
-  - "A2 resume restores save state, focus, and evidence context"
+  - "A2 resume rereads core save and evidence progress, then UI-owned stable keys restore focus, expanded item, and scroll context"
   - "A3 permission denial preserves an offline fallback"
   - "A4 controls meet 48dp, 200% text, and TalkBack requirements"
   - "A5 main-thread work stays bounded with LRU and performance checks"
