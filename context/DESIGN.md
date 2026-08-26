@@ -1210,10 +1210,124 @@ Password entry, restore preflight, tenant-contact detail, and full-screen tenant
 
 ## Colors
 
+### Contrast threshold contract
+
+Contrast uses WCAG relative luminance for sRGB. Implementations linearize each RGB channel, calculate `L = 0.2126R + 0.7152G + 0.0722B`, then calculate `(Llighter + 0.05) / (Ldarker + 0.05)`. Ratios are rounded to two decimals for reports; CI compares the unrounded value.
+
+| Usage | Size definition | Minimum | Level |
+| --- | --- | ---: | --- |
+| Normal text | `<24sp` regular or `<18.66sp` bold | `4.50:1` | WCAG AA |
+| Normal text, enhanced target | Same as above | `7.00:1` | WCAG AAA |
+| Large text | `≥24sp` regular or `≥18.66sp` bold | `3.00:1` | WCAG AA |
+| Large text, enhanced target | Same as above | `4.50:1` | WCAG AAA |
+| Essential icon, focus ring, input/card boundary, evidence segment | Any size | `3.00:1` against adjacent surface | WCAG non-text AA |
+| Decorative divider | Carries no state, grouping, or focus meaning | No WCAG threshold; metadata sets `essential=false` | Exempt |
+
+Disabled content remains identifiable but is exempt from WCAG contrast. A disabled action always has adjacent text explaining why it is unavailable. Disabled styling never carries the only explanation.
+
+### Dark token contrast map
+
+The following bindings are immutable. A foreground token is not used on a background token absent from this table.
+
+| Foreground token | Hex | Required background token | Hex | Ratio | Result |
+| --- | --- | --- | --- | ---: | --- |
+| `dark.on-primary` | `#003730` | `dark.primary` | `#94D7CA` | `8.07:1` | AAA text |
+| `dark.on-primary-container` | `#C9ECE5` | `dark.primary-container` | `#0B5D52` | `6.15:1` | AA text |
+| `dark.on-secondary` | `#233E49` | `dark.secondary` | `#B8CBD4` | `6.75:1` | AA text |
+| `dark.on-secondary-container` | `#D9EAF1` | `dark.secondary-container` | `#314E59` | `7.18:1` | AAA text |
+| `dark.on-tertiary` | `#4A3300` | `dark.tertiary` | `#F1BD68` | `6.92:1` | AA text |
+| `dark.on-tertiary-container` | `#FFDEA8` | `dark.tertiary-container` | `#5E4100` | `7.29:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface` | `#0F1513` | `14.80:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface-container-low` | `#151D1A` | `13.77:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface-container` | `#1C2622` | `12.47:1` | AAA text |
+| `dark.on-surface` | `#E0E8E4` | `dark.surface-container-high` | `#26312D` | `10.79:1` | AAA text |
+| `dark.on-surface-variant` | `#BEC9C3` | `dark.surface` | `#0F1513` | `10.85:1` | AAA text |
+| `dark.outline` | `#89968F` | `dark.surface` | `#0F1513` | `6.00:1` | AA non-text |
+| `dark.outline-variant` | `#3F4B46` | `dark.surface` | `#0F1513` | `2.03:1` | Decorative only |
+| `dark.on-error` | `#690005` | `dark.error` | `#FFB4AB` | `7.72:1` | AAA text |
+| `dark.on-error-container` | `#FFDAD5` | `dark.error-container` | `#93000A` | `7.23:1` | AAA text |
+| `dark.on-privacy` | `#35205A` | `dark.privacy` | `#D1BCFF` | `8.20:1` | AAA text |
+| `dark.on-privacy-container` | `#EADDFF` | `dark.privacy-container` | `#48306D` | `8.49:1` | AAA text |
+| `dark.primary` focus ring | `#94D7CA` | `dark.surface` | `#0F1513` | `11.29:1` | AA non-text |
+
+`dark.outline-variant` is restricted to decorative separators. Inputs, cards, evidence segments, selected states, and focus indicators use `dark.outline`, a semantic container, or the focus token.
+
+### Visual physics contract
+
+- `#000000` is forbidden for app backgrounds, surfaces, cards, sheets, and dialogs. It is permitted only as the camera scrim source token at `64%` opacity over live preview.
+- `#FFFFFF` is forbidden for dark-mode app backgrounds, surfaces, and body text. It is permitted for camera controls over the camera scrim and for existing light-theme `on-*` roles already present in the approved palette.
+- Dark broad-surface semantic containers use the fixed values in `dark-colors`; runtime HSL transformation is forbidden. Future broad-surface dark tokens are generated from the approved hue with HSL saturation reduced by exactly `15` percentage points, then frozen as a hex token and contrast-tested.
+- Brand anchors `primary`, `tertiary`, and `privacy` are never algorithmically desaturated at runtime. The fixed dark roles above are their only dark mappings.
+- Dark elevation is tonal, not shadow-led. Surface luminance is strictly increasing: level 0 `surface #0F1513` (`L=0.00685`) → level 1 `surface-container-low #151D1A` (`L=0.01113`) → level 2 `surface-container #1C2622` (`L=0.01749`) → level 3 `surface-container-high #26312D` (`L=0.02798`). Components never skip more than one level inside another surface.
+- Level 0 is the screen, level 1 is an active card, level 2 is a grouped region or bottom dock, and level 3 is a selected/raised non-modal region. Sheets and dialogs use level 3 plus the standard modal scrim. Shadows do not communicate hierarchy in dark mode.
+
+### CI contrast gate metadata
+
+Every color token that renders text, an icon, a focus indicator, or an essential boundary has one metadata entry. New visual tokens without metadata fail the build.
+
+```json
+{
+  "schemaVersion": 1,
+  "tokens": [
+    {
+      "name": "dark.on-primary",
+      "value": "#003730",
+      "usage": "text",
+      "targetSurface": "dark.primary",
+      "targetSurfaceValue": "#94D7CA",
+      "minRatio": 4.5,
+      "essential": true,
+      "allowedComponents": ["button-primary", "status-choice"]
+    },
+    {
+      "name": "dark.outline",
+      "value": "#89968F",
+      "usage": "boundary",
+      "targetSurface": "dark.surface",
+      "targetSurfaceValue": "#0F1513",
+      "minRatio": 3.0,
+      "essential": true,
+      "allowedComponents": ["input-field", "focus-indicator"]
+    },
+    {
+      "name": "dark.outline-variant",
+      "value": "#3F4B46",
+      "usage": "decorative",
+      "targetSurface": "dark.surface",
+      "targetSurfaceValue": "#0F1513",
+      "minRatio": 0.0,
+      "essential": false,
+      "allowedComponents": ["divider"]
+    }
+  ]
+}
+```
+
+Build gate pseudocode:
+
+```text
+for token in metadata.tokens:
+  require validHex(token.value)
+  require token.targetSurface exists
+  require token.targetSurfaceValue == resolvedValue(token.targetSurface)
+  ratio = wcagContrast(token.value, token.targetSurfaceValue)
+  if ratio + 0.0001 < token.minRatio: BUILD_FAIL(CONTRAST_RATIO)
+  if token.essential && token.usage == "decorative": BUILD_FAIL(INVALID_CLASSIFICATION)
+  if token.value in ["#000000", "#FFFFFF"] && !pureColorAllowlist.contains(token.name):
+      BUILD_FAIL(PURE_COLOR_SURFACE)
+
+for colorToken in resolvedDesignTokens:
+  if colorToken is rendered && metadata lacks colorToken: BUILD_FAIL(MISSING_METADATA)
+
+for component in componentContracts:
+  for tokenBinding in component.colorBindings:
+    require component.name in metadata[tokenBinding].allowedComponents
+```
+
 The palette is light-first for daylight legibility. Large fields of pure white are avoided; the cool stone background reduces glare while keeping dark text crisp.
 
 - **Primary — fern ink (`#0B5D52`):** main actions, completed progress, selected controls, and camera alignment guidance. Use it sparingly enough that it still signals commitment.
-- **Secondary — survey slate (`#3E5B67`):** navigation and structural controls. It should feel quieter than the primary action.
+- **Secondary — survey slate (`#3E5B67`):** navigation and structural controls only; it never replaces the primary action color.
 - **Tertiary — site amber (`#8B5C00`):** incomplete evidence, attention states, and the persistent missing-items strip. Amber means “resolve before completion,” not generic emphasis.
 - **Error — ledger red (`#B3261E`):** legal/compliance blocks, destructive actions, and significant defects. Never use it for ordinary validation hints.
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
@@ -1221,19 +1335,21 @@ The palette is light-first for daylight legibility. Large fields of pure white a
 
 Status must never rely on color alone. Pair every status with a label and stable symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy.
 
+All light foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference, while the camera overlay controls use an opaque high-contrast scrim independent of the live preview. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
+
 ## Typography
 
 Use Android system families only: `sans-serif` for readable prose and controls, and `sans-serif-condensed` for room labels, counts, timestamps, and evidence metadata. This avoids a bundled-font dependency while giving field data a compact, instrument-like voice.
 
-- **Headlines:** bold, sentence case, and brief. A room name or next action should be understood at a glance.
+- **Headlines:** bold, sentence case, and brief. A room name or next action is readable in one glance.
 - **Body:** never below 16px for primary instructions. Use 14px only for supporting metadata that is not needed to complete the current step.
-- **Labels:** buttons remain sentence case. Condensed labels may use modest tracking, but do not use all caps for sentences.
+- **Labels:** buttons remain sentence case. Condensed labels use the declared tracking token; sentences never use all caps.
 - **Data:** counts such as `3 photos` or `8 of 12 complete` use `data-lg` when they are the screen’s decision-driving fact.
 - **Compose mapping:** treat token `px` values as density-independent `sp` for text and `dp` for spacing, size, and radius. Respect the user’s font scale; do not clamp text or hide overflow that contains a requirement, date, or status.
 
 ## Layout
 
-Design portrait-first for a compact Android handset. Tablet and landscape optimisation are outside the current UI card, but content must remain structurally responsive rather than depending on fixed screen coordinates.
+Design portrait-first for a compact Android handset. Tablet optimisation is outside the current UI card, but content must remain structurally responsive rather than depending on fixed screen coordinates.
 
 - Use a `16dp` screen gutter and a strict `4dp` base rhythm.
 - Keep primary controls at least `48dp` high; primary actions and status choices are `56dp` high.
@@ -1241,6 +1357,9 @@ Design portrait-first for a compact Android handset. Tablet and landscape optimi
 - Use one dominant vertical list. Horizontal scrolling is reserved for room navigation and chronological history, where direction has meaning.
 - Item cards reveal detail progressively: name and current status first; note, phrase, voice, photo, and history controls only when relevant.
 - Leave enough bottom inset for system navigation and enough space above the action dock that the final card is not obscured.
+- Apply system-bar and gesture insets to app bars, camera controls, sheets, and the bottom dock. The last list item must scroll fully above the dock at 200% font scale.
+- Compact width (`<600dp`) and medium width (`600–839dp`) are single-pane in v1. Expanded width constrains prose and forms to a `720dp` column. Reading order remains room then items at every width.
+- Landscape is a supported fallback, not a primary composition: essential status, shutter, Back, and confirmation controls remain reachable without overlap; fixed portrait coordinates are forbidden.
 
 Core capture shape:
 
@@ -1261,7 +1380,7 @@ Core capture shape:
 └────────────────────────────┘
 ```
 
-The camera screen is the exception to the surface layout: the live preview fills the screen, with only capture-critical controls over it. Room panoramas may default to the history overlay; item photos do not. The overlay control, privacy flag, and shutter stay in the lower reach zone.
+The camera screen is the exception to the surface layout: the live preview fills the screen, with only capture-critical controls over it. Room panoramas default to the history overlay; item photos default to overlay off. The overlay control, privacy flag, and shutter stay in the lower reach zone.
 
 ## Elevation & Depth
 
@@ -1269,7 +1388,7 @@ Use **tonal layers and rails**, not floating-card shadows, to express hierarchy.
 
 - Screen background → grouped room surface → active item card is the normal three-layer stack.
 - Cards use a 1px `outline-variant` edge only when adjacent tones do not separate clearly.
-- Dialogs and bottom sheets may use standard Material 3 elevation because they represent a true modal layer.
+- Dialogs and bottom sheets use standard Material 3 modal elevation because they represent a true modal layer.
 - Pressed state is a darker tonal container plus immediate haptic feedback where Android conventions allow it. Do not animate cards upward.
 
 ## Shapes
