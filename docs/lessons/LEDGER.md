@@ -1733,3 +1733,51 @@
 - rule: **「拆卡」是轮次通胀的次要杠杆，不是主因**——可复算数据（n=14 张已合并产品卡，r=0.6316 / **r^2=0.3989**；入选规则与逐行来源见 PR#124 的卡）：规模解释约 **40%** 的轮次方差，余下约 60% 由别的东西驱动。故拆卡确实有用（且它本来就治 allow_paths 蔓延与单 PR 过大，L206 的适用面），但**指望拆卡把轮次压下去会落空**。不依赖入选口径的硬证据是两个极端：T2-ROUTINE-CONTENT 277 行跑 9 轮、T5-BACKUP-FORMAT 2740 行跑 4 轮——规模差 9.9 倍而轮次反向，说明规模不**决定**轮次。（**订正史**：本条初稿写 r^2=0.19，取的是没有入选规则的八行样本；R3 第 3 轮指出漏了合规则的卡，补齐 14 行后为 0.3989，结论由「基本无关」下调为「中等相关」。旧值属过度解读，勿再引用。）**封闭验收清单要不要写，与写到什么精度，是两个问题；本仓的数据只回答了后者**：㊀ PR#124 第一稿给两张 round-cap 卡各写 15/16 条**粗清单**（如「断言公开 API 面无 disable/skip/force 形态参数」），第 1 轮零条 #6，第 2 轮出现 2 条 #6 且**全部指向清单本身**（这一分类与上面那组 `.review` 计数不同，**是可审计的**：来源为该分支自己的提交信息——`e40d74e` 记第 1 轮两条 finding 为 #14 与 #7、无 #6；`d7cdc27` 记第 2 轮 2 条 #6 全部指向清单本身、含「A1 与 A9 在默认/非默认配置上互相矛盾」——**复现路径**：这两个提交是本特性分支的中间提交，本仓远端配的是 **squash 合并**，合并后普通克隆的 `git log` **不含**它们；可审计来源是 **GitHub PR #124 页面的提交列表**（squash 后仍保留），本地克隆无法复现）——名字黑名单证明不了不存在别名旁路；两条清单项在默认/非默认配置上互相矛盾；不可变项未要求「被拒绝的修改之后原集合仍未变」。㊁ 同期 PR#126 拆出的三张卡各带**夹具级**清单（如「恰好 999 changed lines 放行、恰好 60000 字符放行，各断言精确度量值而不只断言 exit 0」）。**两点合起来读作：粗清单只是把无界搜索上移一层（从「有没有漏测」变成「清单有没有漏项」），夹具级清单才把它落地。**故 PR#124 的处置不是撤回清单，而是**按 #126 的精度重写**。**清单是否真能压低轮次，仍无定论**——判别要看这几张带清单的卡实际跑出的轮次，届时回填本条。可确定的只有两点：清单值得写（作者一次想清「完成=哪些事实」比在 N 轮里被动发现便宜），以及**清单的价值全在精度上——写不到夹具级就不如不写**，因为它会额外招来针对清单自身的 #6。
 - enforced_by: none（判断类经验，无机检；且本条的结论之一正是「别指望机械化封闭验收集合来收敛评审」）
 - refs: PR#124（两张 round-cap 卡的封闭清单；第一稿粗、第 2 轮 #6 反指清单自身，遂按 #126 精度重写后交付）; e40d74e / d7cdc27（PR#124 第 1 / 2 轮 #6 分类的来源＝分支提交信息；**仅可经 GitHub PR #124 的提交列表审计**——squash 合并后本地 `git log` 不含这两个提交，区别于不入库的 `.review` 计数）; PR#126 / 24c0a33（精确到夹具级的清单，本条的精度基准）; PR#39 / PR#43（清单所属的两张卡，其轮次是本条的待回填判据）; docs/TASK-BOARD.md（14 行中 **10 行** R3 轮次的权威源；另 4 行 T1-SKELETON-E2E/T1-CANON-HASH/T1-TEMPLATE-ENGINE/T1-SCHEMA-CORE 只有 CLAUDE.md 有记录）; L206（拆卡的适用面）; L165（「断言面必须恰好等于被测契约」——粗清单招 #6 是它在卡片层的同一形态）; 上游 Asun28/claude-devops-scaffold#203 #204 #205
+
+## L242
+- date: 2026-08-22 ｜ tags: powershell, dotnet, regex, mutation-testing, selftest ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: 单点变异脚本报告「变异了但判据没红」，看起来像被测断言不严；实则变异根本没落在目标上。两种具体走法：① [regex]::Replace($s, $pat, $evaluator, 1) 想只替换第一处，实际把整份文本的每一处都替换了；② 用 (?m)^\s*- name: X\s*$ 去「注释掉那一行」，# 落在了上方的空行上，目标行原封不动。
+- root_cause: ① [regex]::Replace 的**静态**重载里没有 count 这一档（count 只存在于实例方法 Regex.Replace(input, evaluator, count)），第四个 int 实参遂被隐式当成 RegexOptions——1 = IgnoreCase，于是既没限次数、还悄悄改了匹配语义。本仓 TD51 已因同一重载在 lessons.ps1 bump 上踩过一次（闸 2c 即为此而设），说明这是复发型陷阱而非一次性手滑。② \s 匹配 \r 与 \n，在跨整份文本的 (?m) 模式里 ^\s* 会向前吞掉换行，匹配遂从上一个空行开始，前缀型变异（加 #、加 <!-- ）就插到了错误位置。
+- rule: 写单点变异（或任何「只改第一处」的替换）时：① 用实例方法 [regex]::new($pat).Replace($input, $evaluator, 1)，绝不用四参静态 [regex]::Replace(..., 1)；② 逐行语义的模式里用 [ \t] 而非 \s，把 \s 留给确实允许跨行的场合；③ 变异后**立刻断言产物确实与原文不同**（-ceq 比对），相同即判本枚作废而非「测不出」；④ 更强的一档：断言变异后目标行本身变了（而不只是整份文本变了），否则前缀插错行仍会通过第 ③ 关。
+- enforced_by: scripts/selftest.ps1 闸 2c（lessons bump 只改 meta 计数器）+ scripts/license-scanner-check.ps1 的 INTEGRATION-WIRING-MUTATION 无效变异守卫（变异后与原文相同即失败）
+- refs: scripts/selftest.ps1; scripts/license-scanner-check.ps1; docs/lessons/LEDGER.md; mutation guard
+
+## L243
+- date: 2026-08-22 ｜ tags: git, gates, review, toctou, identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 给流水线加「被测对象身份」守卫：测量阶段拿到 OID，之后每个副作用前复核 refs/heads/<TaskId> 仍等于它。全部断言通过、测试全绿，评审仍指出可以「审 A、合 B」——因为下游评审读的是工作树 HEAD，而 detached HEAD / 切分支**不会移动**那条分支引用。
+- root_cause: 把「钉住一个引用」当成了「钉住被审对象」。git 里 refs/heads/<branch> 与工作树 HEAD 是两个独立可动的指针：checkout --detach、checkout 别的分支都只动 HEAD。守卫查的是前者，消费者（review.ps1 用 git rev-parse HEAD 取 sha、构建/测试也跑工作树内容）读的是后者，于是「被测量的 / 被合并的」与「被评审的」可以是不同提交，而每一道断言都显示正常。L164 ① 说「按卡 id 取分支引用、不看该检出的 HEAD」是对**范围闸**而言（它按 id 定位、不依赖检出状态）；本条是同一枚硬币的另一面：**当消费者读的是 HEAD 时，只钉引用就是漏钉**。
+- rule: 设计身份守卫时先问一句「下游到底读哪个指针」，然后**钉住下游真正读的那一个**，而不是最方便查的那一个；两者都被消费就两者都钉。跨进程时不要指望调用方守卫够用——把 OID 作为显式参数传给被调方，让闸自己 fail-closed，因为①调用方断言与被调方执行之间仍有时间窗，②手工直接调被调方时根本不经过调用方。配套夹具必须**只动 HEAD、不动分支引用**（git checkout --detach HEAD~1），否则测的还是已经被覆盖的那一半。
+- enforced_by: none（设计经验；当前尚无机械守卫）
+- refs: docs/lessons/LEDGER.md; git refs/HEAD identity analysis
+
+## L244
+- date: 2026-08-23 ｜ tags: git, rebuild, split, worktree, regression ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 把一条旧分支的成果搬到「从 master 新开的干净分支」上时，用 git checkout <旧分支> -- <文件> 整文件拷贝。自己的改动看起来都在、目标测试也绿，却有一大批**与本次改动无关**的闸门集体变红（本次是 gate 17 与 28 个 17cc(scanner-mut/*)）。
+- root_cause: 整文件拷贝搬的是「那条分支的文件全文」，而那条分支的 merge-base 可能远落后于当前 master。本次实测：源分支 merge-base 落后 master **89 个提交**，selftest.ps1 在源分支是 11,177 行、master 已是 12,330 行——一次拷贝就静默回退了约 1,150 行他人已合并的工作。L114 的补救条目说「内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠」，那条建议**只在基线未前移时成立**；基线已走远时它就是这个坑本身。危险在于本卡自己的测试全绿（拷来的实现确实完整），红的是别人的闸——若当时把红归因为「我拆分拆错了」并去改自己的代码，就会一路带着回退合并。
+- rule: 搬运旧分支成果到新基线，一律用**相对其自身 merge-base 的 patch 重放**，不用整文件拷贝：`mb=$(git merge-base <旧分支> origin/master)`；`git diff $mb <旧分支> -- <文件…> | git apply --3way`。三方合并会保留基线新增、只落你的增量。落地后立刻验两件事：① `git diff --numstat origin/master` 必须**只有增量**、没有大段删除；② 抽查基线新内容仍在（如某新函数/新闸的哨兵）。**判读信号**：与本次改动无关的闸门集体变红，优先怀疑「我回退了别人的工作」，而不是「我的拆分有问题」——先跑上面两条核验再改任何代码。 基线哨兵。
+- enforced_by: none（搬运手法纪律；检出手段=git diff --numstat origin/master 只应有增量 + 基线哨兵抽查）
+- refs: docs/lessons/LEDGER.md; git merge-base / git apply --3way workflow evidence
+
+## L245
+- date: 2026-08-23 ｜ tags: refactor, scripted-edit, verification, split ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 用脚本从文件里剥离一批代码块（拆卡、回退某个特性），脚本跑完报告「已剥离」，语法检查也过，随后评审指出：**代码删了、描述它的注释还在**——注释声称的行为在这份代码里根本不存在。
+- root_cause: 剥离脚本里把一部分匹配写成了「可选」（if m: 才切、找不到就跳过），本意是容错，实际效果是**没命中也报成功**。被剥离的往往是「代码 + 紧邻注释」两段，代码那段命中了、注释那段的正则因缩进/换行/措辞微差没命中，于是留下一段自信描述着已不存在行为的散文。语法检查发现不了（注释永远合法），本卡自己的测试也发现不了（测的是行为，不是叙述）。评审者却一眼看出，因为他读的正是「注释说的」与「代码做的」之间的差。
+- rule: 脚本化剥离/替换，每一处都必须**断言自己确实改动了**：required 的匹配用 assert（找不到即中止，不要 if m: 静默跳过）；确实可选的，跑完打印「skip」清单并**逐条人工确认**，不要淹没在成功输出里。收尾统一复核两件事：① git diff 的删除行数 == 预期；② 对被剥离特性的关键词做一次全文 grep，命中数必须为 0（关键词要同时覆盖标识符与**注释里的说法**，如 OID/refspec/被测提交，而不只是变量名）。判读口径：注释与代码不一致时，注释即缺陷——它是给下一个人读的唯一说明。
+- enforced_by: none（脚本化编辑纪律；收尾检出手段=剥离特性关键词全文 grep 命中数为 0 + git diff 删除行数对账）
+- refs: docs/lessons/LEDGER.md; scripted-edit mutation checks
+
+## L246
+- date: 2026-08-23 ｜ tags: measurement, budget, encoding, review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 按「diff 字符数」做决策（够不够预算、要不要拆卡、能不能再加一条断言），用 shell 侧的 `git diff | wc -c` 量。数字一路偏大，于是做出了本不必要的决定：删注释压体积、把一张卡拆成三张、为省 3% 回退了 doc_sync 要求的文档行——而后者直接引来一条 R3 finding。
+- root_cause: 两把尺量的不是同一个东西。闸门（review.ps1）取的是 PowerShell 里 `(… | Out-String).Length`，即 **UTF-16 码元数**；`wc -c` 数的是 **UTF-8 字节数**。本仓 diff 中文占比高，一个汉字 UTF-8 三字节、UTF-16 一个码元，故 wc -c 系统性高估 20–30%。实测同一分支：wc -c 报 63,023，闸门报 51,882。偏差方向恒为高估，于是「看起来超限」远多于真超限，人就会去做无谓的瘦身。
+- rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。 验收词组：UTF-16 码元；T0-R3-DIFF-BUDGET；wc -c。
+- enforced_by: scripts/review.ps1 -SizeOnly（唯一权威度量）；T0-R3-DIFF-BUDGET 的 dod_assert 已要求它 exit 0
+- refs: scripts/review.ps1; specs/tasks/T0-R3-DIFF-BUDGET.md
+
+## L247
+- date: 2026-08-24 ｜ tags: r5,archive,ci,gates ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R5 归档一张卡（git mv 进 specs/archive/tasks/）后推 master，CI 在**另一张毫不相干的 PR** 上红：verify / "Validate archive card index" 报 [ARCHIVE-CARDS-INDEX-DRIFT]。本卡的 doc_sync 字段写的是「无」，我据此认为归档只需 git mv。实际后果被放大：verify 在**每个 PR** 上都跑，所以一个坏的 master 提交把整条 PR 队列一起挡住，而红灯出现在别人的 PR 上、第一反应会去查那张 PR。
+- root_cause: doc_sync 字段管的是**叙述性**文档（CLAUDE.md / TASK-BOARD / status），而 specs/archive/cards-index.md 不是文档、是 archive.ps1 逐字节比对 Get-CardsIndexText 输出的**机检投影**。把「投影」误当「文档」，于是它落在 doc_sync 的语义之外、也没有任何 R5 步骤强制重建。归档动作本身有两条腿（搬文件 + 重建投影），只做了一条。
+- rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。 失败哨兵：ARCHIVE-CARDS-INDEX-DRIFT。
+- enforced_by: scripts/archive.ps1 -CheckCardsIndex + scripts/verify.ps1 archive index gate
+- refs: scripts/archive.ps1; specs/archive/cards-index.md
