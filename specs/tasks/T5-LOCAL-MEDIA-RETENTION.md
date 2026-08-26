@@ -34,10 +34,11 @@ doc_sync: 需求 §11、TD133 与 TASK-BOARD 备注（R5）
 - “最近 N 次”按**每个物业的已完成巡检代数**计算，不按天数，也不删逻辑记录。选项 `1 / 3 / 5 / 10 / Always`，默认 3。
 - 当前巡检、`previous_inspection_id`、`baseline_inspection_id`、手动保留、30 天内项目、PDF 未生成、或没有 exact verified receipt 的资产永不成为候选。
 - 一个已验证加密备份允许用户手动归档；UI 同时提示 3-2-1-1 多副本更安全，但 v1 不强制第二份副本。默认没有无人值守自动清理。
+- 清理预览必须区分 `已验证` 与 `当前可取回`：本地目录/已连接 USB 可在现场恢复；云 SAF provider 的既有回执仍证明当时内容正确，但离线/授权收回时不宣称可立即恢复。若唯一回执当前不可达，默认主动作改为 `Create another local backup`，用户仍可在明确风险确认后手动归档；不得影响巡检或既有逻辑记录。
 - 删除的只是 app 私有目录里的全尺寸照片字节。DB 记录、哈希、PDF、音频和 `.mibk` 不删；Google Photos 不在证明链中。
 
 ## 历史与恢复
-历史 UI 遇到 ARCHIVED 资产显示占位、哈希和“从备份恢复”，不当作损坏或消失。用户选择包含该 exact tuple 的 `.mibk` 后，流式解密到临时文件，核对 hash/size，再原子落位并置 PRESENT；失败保持 ARCHIVED 且不影响其它数据。
+历史 UI 遇到 ARCHIVED 资产显示占位、哈希和“从备份恢复”，不当作损坏或消失。离线且 provider 不可达时显示 `Backup unavailable offline` + `Choose another backup`，不自动启动网络设置。用户选择包含该 exact tuple 的 `.mibk` 后，流式解密到 internal 临时文件，核对 hash/size，再原子落位并置 PRESENT；失败保持 ARCHIVED 且不影响其它数据。
 
 ## 执行安全
 候选计算生成不可变计划；确认前重新检查所有保护条件和文件身份，防止预览后状态变化。删除逐文件记账，中途杀进程后可继续或准确报告剩余项。

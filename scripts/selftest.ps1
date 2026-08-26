@@ -10984,4 +10984,4 @@ Step "结论 [$Shard]"
 if ($fail) { Write-Host 'selftest: FAIL' -ForegroundColor Red; exit 1 }
 Write-Host "selftest($Shard): PASS" -ForegroundColor Green
 Write-Host 'selftest: PASS' -ForegroundColor Green
-exit 0
+    $b5WtExpect = ($b5 -replace '\\','/') + '/wt'

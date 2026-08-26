@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   单任务闭环编排器（R1 worktree + R2 TDD + R3 Codex-PR闸门 + R4 测试卫生 + R5 文档同步）。

@@ -150,10 +150,10 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 3
-- symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 4
+- symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。 ③**与 .ps1 无关的第三种**（2026-08-24）：Bash 工具吞的是**任何**字符串里的反斜杠层级，**引号 heredoc 也不例外**。给 Python heredoc 传 ``scripts\\review.ps1`` 时到达 Python 的是单反斜杠，`\r` 遂被解析成回车、`\w` 报 SyntaxWarning——字符串锚点静默失配，而失败现象（"anchor not unique: 0"）完全不指向反斜杠。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
-- rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
+- rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。**推论（不限 .ps1）**：经 Bash 传给任何解释器的字符串都不要含字面反斜杠——锚点/正则/路径一律选无反斜杠的等价写法，确需反斜杠就用 `chr(92)` 之类在目标语言里拼（同 L193）；heredoc 加引号只挡变量展开，挡不住这一层。
 - refs:
 
 ## L18
@@ -671,10 +671,10 @@
 - refs: 
 
 ## L97
-- date: 2026-07-11 ｜ tags: review,r3,doc-sync,task-loop,scoping ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
+- date: 2026-07-11 ｜ tags: review,r3,doc-sync,task-loop,scoping ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
 - symptom: 把一条散布在多处文档的横切纪律（如 L86「相位命令只在主检出跑」）从「文档提醒」升级为 in-code fail-closed 守卫时，R3 会逐轮外溢：每修好一处教该纪律的权威面，它就揪出下一处仍教旧工作流的面（rubric #7 文档同步）。T13 连续 5 轮 block，第 3/4/5 轮全是「还有 N 处文档没同步」，allow_paths 从 5 涨到 11、check-cards 一路告警卡过大。**内向半**同样成立：改了行为后，**同一文件内**用现在时描述旧行为的注释、以及卡片 front-matter（title/diagnosis）会与新码自相矛盾——T12 R3 第 2 轮点了 review.ps1 一条 stale 注释、我只修了它点名的那行漏了同类的另一行；合并后 fresh-context verifier 复审才揪出（review.ps1:163 旧「倾向 block」注释 + T13 卡 title/root_cause 仍称「base==TaskId 是真因」）。**第 8 次（T56 r15，2026-08-05）**：r14 把 t36set 取样换成全码位双向时扫了卡与 rubric，却漏了被改文件 `selftest.ps1` **自身**的载荷注释、t36 失败文案与 17t 总结行——「内向半」写进 rule 了照样漏，因为 grep 关键词只圈「教分工的文档面」、没把被改文件本身列进扫描清单；且失败文案把**历史病因**写死在文本里（任何族点幸存都报「CGJ 幸存 + 只剥 Cc/Cf」），报错措辞同属「现在时正面陈述」。
 - root_cause: 行为一变，凡教「怎么用这条工作流」的面（CLAUDE.md/template/LEDGER/task-loop skill/DEVOPS-WORKFLOW/TEMPLATE-README/脚本头注）就全部自相矛盾。R3 每轮只判本次 diff 且只报它当轮看到的最刺眼一处，故须逐轮外溢而非一次点全。
-- rule: 把横切纪律行为化前，先 grep 出教该纪律的全部权威面（rg 关键词 + 看 CLAUDE.md/template/相关 skill/操作手册/README/脚本头注），一次性同步 + 配一道机检子闸断言这 N 处一致（如 selftest 遍历文档列表断言都含新哨兵），别等 R3 逐轮挤牙膏。这类卡的 allow_paths 天然大（含那 N 处 + 机检），是「横切不变量行为化」的固有形态、非 scoping 失误——刻意保持单卡以免行为改与文档同步分处不同 PR 出现自相矛盾窗口（登记 sizing 例外，见 TD70）。check-cards「>5 告警」对这类卡是误报但不放宽阈值。**内向半**：同一 grep 也要扫**改动文件自身的注释**与**卡片 front-matter**（title/diagnosis），揪出用现在时描述旧行为的句子；R3 点名一条 stale 注释时当**一类**处理、自己 grep 全文补齐，别只修它点名那行。ship 后对重大改动派 fresh-context verifier 复审 master（task-loop 4.7），专找「prose 与 shipped 码矛盾」。**扫到之后还要判对——判据写死，别凭感觉**（T56 r11/r12 连栽两次，且第二次不是漏 grep、是 grep 完误判）：**凡「用现在时正面陈述当前行为」的句子一律要改**；**只有把旧实现明确标为「被否决 / 历史 / 反例」的才留**。带对照的句子最容易误判——`剥的是 A 而不是 B` 里，`不是 B` 那半正当，`剥的是 A` 那半仍是正面陈述，A 过时就得改；别因为句子里有「不是 B」就整句放行。**扫描清单必须显式含「本次 diff 改到的每个文件自身」**（注释 + 失败/日志文案 + 总结行），不是只扫「教这条规则的文档」；**失败文案里别写死具体病因**——那是一条必然过时的正面陈述，能从现场数据动态报就动态报（报「幸存的是哪个点」而不是「一定是 CGJ」）。
+- rule: 把横切纪律行为化前，先 grep 出教该纪律的全部权威面（rg 关键词 + 看 CLAUDE.md/template/相关 skill/操作手册/README/脚本头注），一次性同步 + 配一道机检子闸断言这 N 处一致（如 selftest 遍历文档列表断言都含新哨兵），别等 R3 逐轮挤牙膏。这类卡的 allow_paths 天然大（含那 N 处 + 机检），是「横切不变量行为化」的固有形态、非 scoping 失误——刻意保持单卡以免行为改与文档同步分处不同 PR 出现自相矛盾窗口（登记 sizing 例外，见 TD70）。check-cards「>5 告警」对这类卡是误报但不放宽阈值。**内向半**：同一 grep 也要扫**改动文件自身的注释**与**卡片 front-matter**（title/diagnosis），揪出用现在时描述旧行为的句子；R3 点名一条 stale 注释时当**一类**处理、自己 grep 全文补齐，别只修它点名那行。ship 后对重大改动派 fresh-context verifier 复审 master（task-loop 4.7），专找「prose 与 shipped 码矛盾」。**扫到之后还要判对——判据写死，别凭感觉**（T56 r11/r12 连栽两次，且第二次不是漏 grep、是 grep 完误判）：**凡「用现在时正面陈述当前行为」的句子一律要改**；**只有把旧实现明确标为「被否决 / 历史 / 反例」的才留**。带对照的句子最容易误判——`剥的是 A 而不是 B` 里，`不是 B` 那半正当，`剥的是 A` 那半仍是正面陈述，A 过时就得改；别因为句子里有「不是 B」就整句放行。**扫描清单必须显式含「本次 diff 改到的每个文件自身」**（注释 + 失败/日志文案 + 总结行），不是只扫「教这条规则的文档」；**失败文案里别写死具体病因**——那是一条必然过时的正面陈述，能从现场数据动态报就动态报（报「幸存的是哪个点」而不是「一定是 CGJ」）。 **数值型结论是本条最密集的犯案面**（PR#124 连吃 3 轮 R3，每轮点中同一个数字的不同陈旧面）：一个统计量被改动时，陈旧面不止「写着旧数字的那一行」，还包括——用形容词转述它的散文（「只解释约两成」）、**修订史里说「现已统一记这个值」的那句**（它会把上一轮的值钉成现行结论）、以及经验条目自己的 symptom/root_cause。改数值前先 grep 出该数字**及其所有口语化转述**，一次改完。**另一条同源**：经验条目必须自带证据、不得只写「详见 specs/tasks/某卡」——任务卡终将归档，而 LEDGER 是长期真相源；验收条目若要求某经验「自带入选规则与全量数据」，那就得真写进该经验的正文，不是写进卡。
 - enforced_by: 
 - refs: 
 
@@ -727,10 +727,10 @@
 - refs: 
 
 ## L106
-- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: PowerShell 工具对 C:\wt\<worktree> 等主检出之外的路径默认沙箱化：cd/写入表面成功（无报错、'done' 打印），但下一次调用读回验证却是旧内容；未加 dangerouslyDisableSandbox 时的一次写脚本还曾把 cd 静默重置回主检出，导致后续相对路径写操作真的落进了主检出（误把 BOM 加进 7 个生产脚本），须 git restore 撤销。
 - root_cause: PowerShell 工具默认沙箱模式对主工作目录之外路径的读写不可靠——未显式传 dangerouslyDisableSandbox:true 时，跨目录操作可能被静默重定向/回退到主目录而非报错，造成'看起来成功、实际操作了错误位置'的假象。
-- rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。
+- rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。 **2026-08-24 第三次，后果升级为「差点写坏另一棵树」**：在 `C:\wt\<card>` 里做 selftest.ps1 的锚点拼接，`$p = 'scripts\selftest.ps1'` 传给 `ReadAllLines`/`WriteAllLines`——`Set-Location` 到了 worktree，但 .NET CWD 仍是主检出，于是读的是**主检出**那份（少 2000 行、没有本卡新增的闸），锚点自然找不到。若那份恰好含同名锚点，`WriteAllLines` 会**把拼接结果写进主检出**、而 git status 只在主检出显示改动，本工作树全程干净——排查会指向完全错误的方向。判据：`[System.IO.Directory]::GetCurrentDirectory()` 与 `(Get-Location).Path` 不是同一个东西，跨检出作业前先把两者都打出来。凡 .NET 静态 IO 一律 `(Resolve-Path $p)` 或绝对路径；本次三处 `WriteAllText((Resolve-Path $p), ...)` 因为写了 Resolve-Path 而正确，两处裸相对路径的 `ReadAllLines` 就读错了树——**同一段脚本里两种写法混用，正是最难看出来的形态**。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。
 - enforced_by: 
 - refs: 
 
@@ -1367,7 +1367,7 @@
 - refs: 
 
 ## L193
-- date: 2026-08-03 ｜ tags: verification,harness,stop-rule,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-08-03 ｜ tags: verification,harness,stop-rule,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: 给「区间收窄」做变异判别时，离线脚本报「FE00–FE0F 收窄成 FE00 测不出」，但独立复核显示 U+FE0F 属 `Mn`、不被 `\p{Cf}`/`\p{Cc}` 命中、也不落任何代理对分支——**两个结论直接矛盾**。连查三次没定位到脚本哪一层出错（疑似字符类字面量/转义层）
 - root_cause: **（2026-08-03 重建判别器后更正——原先记的「疑似字符类字面量/转义层」是当场的猜测，实测证伪）**真因是判别器**只模拟了链条的前一半**：它跑完「实现侧剥不可见字符」就去查**字面** `[R3-`，而载荷本就写成 `[R`+不可见字符+`3-`，字面比对**在任何实现下都扫不到** ⇒ 它对每一种收窄都回答「测不出」。断言侧真正的判据是**再剥一次后的渲染等价形态**，那一段被漏掉了。故这与「U+FE0F 属 `Mn`」的复核结论根本不在同一层，两者从未真的矛盾。**这就是 L185 的同型坑长在判别器上**：一条永远不可能成立的比对
 - rule: **判别工具与被测实现互相矛盾时，先停下修工具，别继续产证据**——此时产出的任何「变异 OK / 覆盖完整」都是无效证据，比没有更坏（会被写进卡当作已验）。具体防线：① 判别脚本一律从**被测文件里读出真实模式**再操作，不在测试侧另抄一份；② 一切不可见码位只写转义形态、源码里绝不嵌真字符——**但光这么说不够**：实测**写文件的工具本身**会把源码里 反斜杠-u-四位十六进制 的字面形态**自动换成真字符**，故转义形态要**用代码拼**（如 `[char]92 + 'u'`）让该字面形态根本不出现在源码里，并在用它之前**断言靶串真能在被测文件里找到**（找不到就是本枚作废，不是「测不出」）；③ 判别脚本自己要有 sanity case（已知必命中/必不命中各一），它先绿了才信它的结论；④ **判别器必须模拟到断言点那一层**，不能只模拟被测实现就下结论——少模拟一段，得到的必然是「哪儿都测不出」这种假阴性
@@ -1717,3 +1717,75 @@
 - rule: verifying a "continues past X" claim requires ordering the fixture so a later item exists AFTER the exception-causing item, then mutating specifically the post-catch control flow (e.g. insert an explicit break/return in the catch body) — not just deleting the whole catch/guard. A coarse "remove the whole mechanism" mutation only proves "the mechanism exists", never "the mechanism has the specific narrow behavior claimed". Rule of thumb: before trusting a mutation kill, ask "what is the minimal code change that would also turn this test red — does that minimal change match the actual claim in the test name/comment, or is it a stronger regression the test happens to also catch?"
 - enforced_by: 
 - refs: T2-PHOTO-PIPELINE round 5 block (codex): OrphanedAssetCleanupTest 的批处理连续性测试用倒序 fixture 重写 + break 变异重新证明；L165 同族（断言面/变异粒度必须恰好等于契约，这里把"粒度"从断言延伸到变异靶点本身）
+
+## L242
+- date: 2026-08-22 ｜ tags: powershell, dotnet, regex, mutation-testing, selftest ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: 单点变异脚本报告「变异了但判据没红」，看起来像被测断言不严；实则变异根本没落在目标上。两种具体走法：① [regex]::Replace($s, $pat, $evaluator, 1) 想只替换第一处，实际把整份文本的每一处都替换了；② 用 (?m)^\s*- name: X\s*$ 去「注释掉那一行」，# 落在了上方的空行上，目标行原封不动。
+- root_cause: ① [regex]::Replace 的**静态**重载里没有 count 这一档（count 只存在于实例方法 Regex.Replace(input, evaluator, count)），第四个 int 实参遂被隐式当成 RegexOptions——1 = IgnoreCase，于是既没限次数、还悄悄改了匹配语义。本仓 TD51 已因同一重载在 lessons.ps1 bump 上踩过一次（闸 2c 即为此而设），说明这是复发型陷阱而非一次性手滑。② \s 匹配 \r 与 \n，在跨整份文本的 (?m) 模式里 ^\s* 会向前吞掉换行，匹配遂从上一个空行开始，前缀型变异（加 #、加 <!-- ）就插到了错误位置。
+- rule: 写单点变异（或任何「只改第一处」的替换）时：① 用实例方法 [regex]::new($pat).Replace($input, $evaluator, 1)，绝不用四参静态 [regex]::Replace(..., 1)；② 逐行语义的模式里用 [ \t] 而非 \s，把 \s 留给确实允许跨行的场合；③ 变异后**立刻断言产物确实与原文不同**（-ceq 比对），相同即判本枚作废而非「测不出」；④ 更强的一档：断言变异后目标行本身变了（而不只是整份文本变了），否则前缀插错行仍会通过第 ③ 关。
+- enforced_by: scripts/selftest.ps1 闸 2c（lessons bump 只改 meta 计数器）+ scripts/license-scanner-check.ps1 的 INTEGRATION-WIRING-MUTATION 无效变异守卫（变异后与原文相同即失败）
+- refs: 
+
+## L238
+- date: 2026-08-22 ｜ tags: git, gates, review, toctou, identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 给流水线加「被测对象身份」守卫：测量阶段拿到 OID，之后每个副作用前复核 refs/heads/<TaskId> 仍等于它。全部断言通过、测试全绿，评审仍指出可以「审 A、合 B」——因为下游评审读的是工作树 HEAD，而 detached HEAD / 切分支**不会移动**那条分支引用。
+- root_cause: 把「钉住一个引用」当成了「钉住被审对象」。git 里 refs/heads/<branch> 与工作树 HEAD 是两个独立可动的指针：checkout --detach、checkout 别的分支都只动 HEAD。守卫查的是前者，消费者（review.ps1 用 git rev-parse HEAD 取 sha、构建/测试也跑工作树内容）读的是后者，于是「被测量的 / 被合并的」与「被评审的」可以是不同提交，而每一道断言都显示正常。L164 ① 说「按卡 id 取分支引用、不看该检出的 HEAD」是对**范围闸**而言（它按 id 定位、不依赖检出状态）；本条是同一枚硬币的另一面：**当消费者读的是 HEAD 时，只钉引用就是漏钉**。
+- rule: 设计身份守卫时先问一句「下游到底读哪个指针」，然后**钉住下游真正读的那一个**，而不是最方便查的那一个；两者都被消费就两者都钉。跨进程时不要指望调用方守卫够用——把 OID 作为显式参数传给被调方（如 review.ps1 -ExpectHead <oid>），让闸自己 fail-closed，因为①调用方断言与被调方执行之间仍有时间窗，②手工直接调被调方时根本不经过调用方。配套夹具必须**只动 HEAD、不动分支引用**（git checkout --detach HEAD~1），否则测的还是已经被覆盖的那一半。
+- enforced_by: scripts/review.ps1 的 -ExpectHead / [R3-HEAD-MISMATCH] 闸 + scripts/task.ps1 的 Assert-MeasuredTip（分支引用与 HEAD 双钉）+ selftest 闸 15b4（分支引用不动、HEAD 走开）
+- refs: 
+
+## L239
+- date: 2026-08-23 ｜ tags: harness, background-jobs, workflow, waste ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 一次会话里堆出 20+ 个后台任务，其中约四成是纯轮询的看门任务（until grep ...; do sleep; done）；有的在被监视的任务已被停掉后还在空转，还出现过两个同样的 12 分钟 seeded 分片并发跑、互相抢机器。
+- root_cause: 把长命令写成 $out = (... | Out-String) 后再打印：输出被缓冲到进程结束才落到任务输出文件，于是中途每次查看都是「空文件」，与「还在跑但没进展」不可区分。看不到进展就想再起一个任务去盯它——看门任务因此层层叠加，而 harness 本来就会在任务结束时主动通知，看门任务全是多余的。另两个助推：foreground sleep 被 harness 拒绝（被引导去 run_in_background，反而加剧叠加）；工具 600s 超时会把长命令自动转后台，于是「我没打算起后台」也会多出后台任务。
+- rule: 长命令的输出直接落文件、不要先 Out-String 缓冲（用重定向或 Tee-Object），这样中途就能读到真实进度；**不要为已在后台的任务再起看门任务**——完成通知足够，下一轮直接读输出文件即可；同一时刻只跑一个长分片/长套件，起新的之前先确认没有同名进程在跑（Get-CimInstance Win32_Process 按命令行过滤，注意 L170 的自匹配陷阱）；离场或用户喊停时，除了 TaskStop 还要核一遍子孙进程（selftest/review/codex 不一定随任务一起死）。
+- enforced_by: none（会话内工作习惯，无脚本可强制；靠本条 + 离场前的进程核查）
+- refs: 
+
+## L243
+- date: 2026-08-23 ｜ tags: git, rebuild, split, worktree, regression ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 把一条旧分支的成果搬到「从 master 新开的干净分支」上时，用 git checkout <旧分支> -- <文件> 整文件拷贝。自己的改动看起来都在、目标测试也绿，却有一大批**与本次改动无关**的闸门集体变红（本次是 gate 17 与 28 个 17cc(scanner-mut/*)）。
+- root_cause: 整文件拷贝搬的是「那条分支的文件全文」，而那条分支的 merge-base 可能远落后于当前 master。本次实测：源分支 merge-base 落后 master **89 个提交**，selftest.ps1 在源分支是 11,177 行、master 已是 12,330 行——一次拷贝就静默回退了约 1,150 行他人已合并的工作。L114 的补救条目说「内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠」，那条建议**只在基线未前移时成立**；基线已走远时它就是这个坑本身。危险在于本卡自己的测试全绿（拷来的实现确实完整），红的是别人的闸——若当时把红归因为「我拆分拆错了」并去改自己的代码，就会一路带着回退合并。
+- rule: 搬运旧分支成果到新基线，一律用**相对其自身 merge-base 的 patch 重放**，不用整文件拷贝：`mb=$(git merge-base <旧分支> origin/master)`；`git diff $mb <旧分支> -- <文件…> | git apply --3way`。三方合并会保留基线新增、只落你的增量。落地后立刻验两件事：① `git diff --numstat origin/master` 必须**只有增量**、没有大段删除；② 抽查基线新内容仍在（如某新函数/新闸的哨兵）。**判读信号**：与本次改动无关的闸门集体变红，优先怀疑「我回退了别人的工作」，而不是「我的拆分有问题」——先跑上面两条核验再改任何代码。
+- enforced_by: none（搬运手法纪律）；检出手段=git diff --numstat origin/master 只应有增量 + 基线哨兵抽查
+- refs: 
+
+## L244
+- date: 2026-08-23 ｜ tags: refactor, scripted-edit, verification, split ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 用脚本从文件里剥离一批代码块（拆卡、回退某个特性），脚本跑完报告「已剥离」，语法检查也过，随后评审指出：**代码删了、描述它的注释还在**——注释声称的行为在这份代码里根本不存在。
+- root_cause: 剥离脚本里把一部分匹配写成了「可选」（if m: 才切、找不到就跳过），本意是容错，实际效果是**没命中也报成功**。被剥离的往往是「代码 + 紧邻注释」两段，代码那段命中了、注释那段的正则因缩进/换行/措辞微差没命中，于是留下一段自信描述着已不存在行为的散文。语法检查发现不了（注释永远合法），本卡自己的测试也发现不了（测的是行为，不是叙述）。评审者却一眼看出，因为他读的正是「注释说的」与「代码做的」之间的差。
+- rule: 脚本化剥离/替换，每一处都必须**断言自己确实改动了**：required 的匹配用 assert（找不到即中止，不要 if m: 静默跳过）；确实可选的，跑完打印「skip」清单并**逐条人工确认**，不要淹没在成功输出里。收尾统一复核两件事：① git diff 的删除行数 == 预期；② 对被剥离特性的关键词做一次全文 grep，命中数必须为 0（关键词要同时覆盖标识符与**注释里的说法**，如 OID/refspec/被测提交，而不只是变量名）。判读口径：注释与代码不一致时，注释即缺陷——它是给下一个人读的唯一说明。
+- enforced_by: none（脚本化编辑纪律）；收尾检出手段=剥离特性关键词全文 grep 命中数为 0 + git diff 删除行数对账
+- refs: 
+
+## L245
+- date: 2026-08-23 ｜ tags: measurement, budget, encoding, review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 按「diff 字符数」做决策（够不够预算、要不要拆卡、能不能再加一条断言），用 shell 侧的 `git diff | wc -c` 量。数字一路偏大，于是做出了本不必要的决定：删注释压体积、把一张卡拆成三张、为省 3% 回退了 doc_sync 要求的文档行——而后者直接引来一条 R3 finding。
+- root_cause: 两把尺量的不是同一个东西。闸门（review.ps1）取的是 PowerShell 里 `(… | Out-String).Length`，即 **UTF-16 码元数**；`wc -c` 数的是 **UTF-8 字节数**。本仓 diff 中文占比高，一个汉字 UTF-8 三字节、UTF-16 一个码元，故 wc -c 系统性高估 20–30%。实测同一分支：wc -c 报 63,023，闸门报 51,882。偏差方向恒为高估，于是「看起来超限」远多于真超限，人就会去做无谓的瘦身。
+- rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。
+- enforced_by: scripts/review.ps1 -SizeOnly（唯一权威度量）；T0-R3-DIFF-BUDGET 的 dod_assert 已要求它 exit 0
+- refs: 
+
+## L246
+- date: 2026-08-24 ｜ tags: process,review,docs ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 评审裁决否掉了某种措辞/写法，修正只落在被发现问题的那条分支上，master 上同形态的其它文件原样不动。于是 master 继续教着已被否的形态，后续会话照 master 抄，把它复制进更多文件——本次 acceptance 头注就并存了三种口径，且我自己在 603fde6 又把旧措辞复制进两张卡，那时订正已经存在了 20 小时。用 git log -S 搜订正后的措辞，master 上零命中。
+- root_cause: 裁决的作用域天然是「这一个 PR」，但被否的是一类写法。分支修完即闭环，没有任何机检会问「master 上还有几处同形态」。并行窗口把它放大：#126 在 12:50 合入该措辞，#124 在 13:00 才收到否掉它的 finding——两者都没错，但订正与传播分别落在两棵树上，之后就再无交点。
+- rule: 收到「这类写法不行」的裁决后，先 grep 出全仓同形态的全部实例再谈修：本分支能改的当场改，改不了的一次性开一张统一收口的卡。判据是「master 上还剩几处」而不是「本 PR 干净了没有」——前者为零才算修完。并行窗口尤其要查：同期合入的 PR 可能刚把被否的形态带进 master。
+- enforced_by: 
+- refs: 
+
+## L247
+- date: 2026-08-24 ｜ tags: handoff,process,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 照交接块里存的命令跑，三个参数一次性全报「A parameter cannot be found that matches parameter name」：review.ps1 的 -SizeOnly、check-cards.ps1 与 check-secrets.ps1 的 -Path。命令本身没写错，写它的会话跑通过——但那是在某条特性分支的工作树里跑的，而 -SizeOnly 正是尚未合并的 PR #128 新增的能力。主检出上根本没有它。
+- root_cause: 交接块记的是「我当时怎么跑通的」，而当时的 PATH/工作树带着未合并分支的脚本。命令文本不携带「它依赖哪个分支的哪次改动」这一信息，读者默认它对 master 成立。分支越多、在飞时间越长，这类命令的失效面越大，而失效表现为参数报错——看起来像手抄错了，于是第一反应是改拼写而不是查能力来源。
+- rule: 交接块里的命令一律按**主检出 + 当前 master** 写；确需用到未合并分支才有的能力时，显式标注「需 PR #N 合并后可用」并同时给出 master 上的等价写法（如用 review.ps1 :288 的 Out-String 公式手算 diffChars 代替 -SizeOnly）。照交接跑命令遇参数不存在，先查该参数是不是某条在飞分支引入的，别先改拼写。
+- enforced_by: 
+- refs: 
+
+## L248
+- date: 2026-08-24 ｜ tags: r5,archive,ci,gates ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R5 归档一张卡（git mv 进 specs/archive/tasks/）后推 master，CI 在**另一张毫不相干的 PR** 上红：verify / "Validate archive card index" 报 [ARCHIVE-CARDS-INDEX-DRIFT]。本卡的 doc_sync 字段写的是「无」，我据此认为归档只需 git mv。实际后果被放大：verify 在**每个 PR** 上都跑，所以一个坏的 master 提交把整条 PR 队列一起挡住，而红灯出现在别人的 PR 上、第一反应会去查那张 PR。
+- root_cause: doc_sync 字段管的是**叙述性**文档（CLAUDE.md / TASK-BOARD / status），而 specs/archive/cards-index.md 不是文档、是 archive.ps1 逐字节比对 Get-CardsIndexText 输出的**机检投影**。把「投影」误当「文档」，于是它落在 doc_sync 的语义之外、也没有任何 R5 步骤强制重建。归档动作本身有两条腿（搬文件 + 重建投影），只做了一条。
+- rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。
+- enforced_by: 
+- refs: 

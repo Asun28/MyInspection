@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-RENDERER
 title: PdfDocument 渲染器：DocumentPlan → 双版本 PDF（四档质量 + CJK 字体 + 逐页内存策略）
-depends_on: [T3-REPORT-COMPOSER]
+depends_on: [T3-REPORT-COMPOSER, T1-SHARE-SCREEN-PRIVACY]
 parallelizable_with: [T3-HISTORY-COMPARE, T5-BACKUP-IO]
 status: todo
 branch: T3-PDF-RENDERER
@@ -20,7 +20,7 @@ non_goals:
   - 改写或重压已存照片；承诺任意报告的绝对 MB 上限
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
-dod_assert: PdfExportQuality 的 LOW/MEDIUM/HIGH/EXTRA_HIGH 参数与需求 §8 一致且每次导出可选、默认 MEDIUM；固定 80 照 fixture 四档均成功且输出大小总体单调（相邻档若因内容熵例外须有逐图证据，不伪造绝对 MB 上限）；assembleDebug 与 composer 黄金测试绿；真机出两版 PDF 人工核：中文字形完整、High 档铭牌小字可读、内存不 OOM、附录编号回链正确、页脚哈希与 DB data_hash 一致——核验记录附 PR
+dod_assert: PdfExportQuality 的 LOW/MEDIUM/HIGH/EXTRA_HIGH 参数与需求 §8 一致、默认 MEDIUM；双 audience UI 状态互不连坐，生成前做空间/内存预检，>1s 按 Prepare/Render/Write/Verify 分阶段且 TalkBack 有界播报，页面离开/进程恢复按 operation id 查询并保留上一份 verified 文件，取消只删未验证临时文件；Ready 只在文件关闭后重开成功，失败可单独 Retry，默认导出不强迫先选质量；固定 80 照 fixture 四档均成功且输出大小总体单调（相邻档若因内容熵例外须有逐图证据，不伪造绝对 MB 上限）；assembleDebug 与 composer 黄金测试绿；真机出两版 PDF 人工核：中文字形完整、High 档铭牌小字可读、峰值内存不超过 spike 预算且不 OOM、附录编号回链正确、页脚哈希与 DB data_hash 一致——核验记录附 PR
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: TASK-BOARD 备注（R5）
@@ -30,6 +30,35 @@ doc_sync: TASK-BOARD 备注（R5）
 
 ## 产出
 `core/report/pdf` 的四档纯数据契约 + `app/export/pdf`：DocumentPlan → PDF 文件的渲染器（真 Paint 量宽实现 TextMeasurer + 位图槽渲染）+ 字体资产。质量是**每次导出**的选择，不改源照片。
+
+## Report export experience
+
+Finalize lands on one persistent summary route. The finalized property/type/date/hash summary stays visible while the two audience jobs progress independently.
+
+```kotlin
+enum class AudienceExportState { NOT_STARTED, GENERATING, READY, FAILED }
+
+data class ReportExportUiState(
+    val quality: PdfExportQuality = PdfExportQuality.MEDIUM,
+    val landlord: AudienceExportState,
+    val tenant: AudienceExportState
+)
+```
+
+| State | Audience card content | Actions |
+| --- | --- | --- |
+| `NOT_STARTED` | Audience name, `Medium · recommended for sharing` | Generate |
+| `GENERATING` | Stable card height, stage text and determinate page progress when known | No duplicate Generate; leaving the route does not delete completed output |
+| `READY` | `Report ready`, audience, quality, generated time, page count, file size | Open, Share, `Generate another quality` |
+| `FAILED` | Specific cause that is safe to expose; finalized inspection remains intact | Retry this report; choose a lower quality only for memory/size failures |
+
+Both reports start at Medium after finalize without presenting a mandatory quality chooser. `Change quality` opens a labelled choice sheet before generation; every option explains purpose rather than promising an absolute MB size. High is labelled `Evidence archive`; Extra High is `Large file · maximum print detail`.
+
+One audience failure never cancels, hides, or downgrades the other. `READY` is set only after the PDF stream closes and the app reopens the file successfully. Open delegates to a system PDF viewer; Share delegates to the Android share sheet. Returning from either restores the exact audience card and focus.
+
+The screen distinguishes derived-file lifecycle from evidence lifecycle: a PDF failure never changes `Inspection finalized`. Generating another quality may replace the app-private derived copy for that audience only after the new file verifies; the previous verified copy remains until atomic replacement succeeds.
+
+Before generation, preflight estimates private staging space and the spike-bounded peak decode memory. A rejection names the shortage and keeps the prior verified output. Work expected to exceed one second exposes `Preparing → Rendering {page}/{total} → Writing → Verifying`; TalkBack announces stage changes and coarse progress only. Back may detach from a running job, and Cancel may stop only before atomic verification/replace begins; both delete unverified temporary bytes and never the prior verified report. Route or process restoration resolves the persisted operation ID against durable output/temp state before enabling Generate again.
 
 ## 上下文包（执行模型必读）
 - 单位换算：plan 用 mm；PdfDocument PageInfo 用 1/72 inch 点——A4 = 595×842pt，mm→pt = ×72/25.4。

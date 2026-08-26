@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   第二模型评审闸门（R3）：用一个**独立模型**（默认 Codex CLI；可经 _config.ps1 ReviewCommand 换）

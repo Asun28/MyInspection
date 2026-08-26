@@ -3,7 +3,6 @@
 > EN: Defines what must never enter the repo (secrets, credentials, databases, session state) and how that is enforced: the `check-secrets` leak gate wired into `task.ps1 ship` and the `pre-push` git hook, plus the `-Strict` full-history scan required before going public, the gh personal-account guard, and main-branch protection. Also states the honest threat boundary — these are self-discipline gates for a single personal account, not tamper-proof controls for multi-collaborator orgs.
 
 > 本文件说明机密、边界与评审闸门的安全约定。建议仓库**私有**。
-> 下方「运行时硬边界」是**模板占位**——按你项目实际的产品边界改写（示例取自一个全 mock / 离线 demo）。
 > 文档漂移纪律闸（非安全闸）的边界见 `docs/adr/0005-doc-drift-gate.md`。
 
 ## 1. 机密永不入库
@@ -34,12 +33,47 @@
 先人工读一遍该字段，确认没有意外的网络出站/文件删除/凭据读取，再执行任何会跑该命令的相位。
 同账号/同人自建的卡片不在此边界内（本仓单人个人账号定位，见 §4）。
 
-## 2. 运行时硬边界（被构建的产品，非开发工具）— 按项目改写
-- 示例：全 **mock provider**、**禁出站网络**、不依赖 GPU（确定性/离线/可复现的 demo 边界）。
-- 无平台自动发布、不写任何登录态。
-- 结构化日志脱敏，防 cookie/token 落盘。
-- 产品含 LLM 功能时的运行时防护（减幻觉 / 抗越狱与提示注入 / 防 prompt 泄漏——如「不可信第三方内容只进 tool_result」）：方法论见 `docs/references/claude-guardrails-llms.txt`。
-> 注：开发期工具（git/gh/codex/uv/Claude Code 插件）运行在开发者机器上，不在此边界内，也永不链接进产品。
+## 2. 运行时硬边界（MyInspection Android 产品）
+
+### 2.1 离线与出站
+
+- 本地 SQLite 是唯一真相源。物业、租约、巡检、照片、保存、finalize、历史、规则、本地 PDF、日程、本地/USB 备份与恢复不依赖网络。
+- v1 无账号、同步、遥测、广告、崩溃上传或后台数据上传。远程 remediation 是唯一允许的网络 adapter，且只在用户点 `Generate remote suggestions` 后调用；离线 seed-map 先行，网络失败不改本地证据、不阻断报告。
+- `core`、capture、report、compliance、backup format/restore 不得依赖 HTTP client。引入 `INTERNET` 时必须同时显式禁用 cleartext、限定远程 adapter、测试无隐式请求；新增目的地或 payload 另走 ADR/任务卡。
+- remediation payload 默认只含不利项 stable id、状态、经用户确认的必要备注和本地 seed 结果；不送地址、姓名、联系方式、照片、音频、完整报告、API key 或备份内容。响应只接受有上限的 schema JSON，自由文本/未知字段拒绝。
+
+### 2.2 本机数据与密钥
+
+- SQLite、设置、回执、恢复 journal、Keystore 密文信封和 staging 元数据放 credential-encrypted internal/no-backup storage；device-protected storage 不存租客数据。大照片/音频可放 app-specific external storage，但卷缺失不得破坏 DB 一致性。
+- Android 系统备份/云恢复/设备迁移全部关闭：manifest `allowBackup=false`，Android 11 及以下和 Android 12+ 规则逐域排除。唯一支持的完整数据出口是用户选择目的地的加密 `.mibk`。
+- 备份口令是用户掌握的跨设备恢复秘密。后台自动备份只读取 Android Keystore 加密的本机口令信封；信封不导出，Keystore key 不可导出。口令/派生 key 只以可清零缓冲短暂存在，不进数据库、日志、通知、崩溃信息或剪贴板历史。
+- remediation API key 使用 Keystore 支持的本机加密存储，不入仓库、备份、日志或报告。产品不承诺在 root、恶意 OS、已解锁设备或恶意无障碍/键盘下保密。
+- 产品无账号，故“注销”等价为设备所有者显式执行 `Delete all local data`：影响预览后输入 `ERASE`，清除 app-owned 主/诊断 DB、媒体、报告、设置、Keystore aliases/信封、缓存、journal/staging 与持久 URI 授权。用户经 SAF 保存到外部 provider 的加密 `.mibk` 不属于 app-owned 本机数据，绝不删除并在确认前明示。
+
+### 2.3 备份、恢复与分享
+
+- format v1 只生成全量包；按物业 scope 因整库 `db.sqlite` 会跨物业泄露而禁用。备份始终认证加密、流式写入、关闭后重新打开并逐 manifest/hash/size 验证，才可写 Verified 回执。
+- 恢复是敌意输入边界：限制 KDF、manifest、文件数、路径、逐项/总字节和可用空间；先 staging 全验，再通过独立 journal 原子替换。错误口令、损坏、未来版本、空间不足、授权收回或进程中断都保持当前数据不动。
+- PDF/备份分享只用 SAF 或 `FileProvider content://` + 临时只读 URI grant；禁 `file://`、宽目录授权、永久 exported provider 和原始路径。分享前提示 PDF 离开 app 后不再受本产品控制。
+- 口令、恢复预检、租客联系方式和全屏敏感照片启用 secure-window/recents 防护；不全局禁截图，以保留普通巡检和明确分享流程的实用性。
+
+### 2.4 日志、通知与界面泄露
+
+- 生产日志只写操作名、非敏感 reason code、耗时/计数和随机 request/asset id。禁地址、姓名、联系方式、备注/转写、文件绝对路径、SAF URI、备份对象名、照片内容/hash、口令、key、Authorization header 和 provider 原始错误体。
+- 持久诊断事件只进独立的 credential-encrypted/no-backup 诊断库，不进主证据库、canonical hash、PDF、通知、Android backup 或 `.mibk`；最多保留 90 天/20,000 行，先到即小批物理裁剪。日志写入失败不得改变巡检、finalize、备份或恢复结果。
+- “Admin/support” 无远程入口或写权限。只有设备所有者可在设置页明确查看包含/排除项后，离线导出最近 7/30/90 天的脱敏诊断包；支持人员不能借诊断功能修改 finalized evidence。字段与验收合同见 `docs/DATABASE-DESIGN.md`。
+- 用户可见通知只写 `Backup needs attention` 等通用文案；锁屏通知不显示物业地址、租客名、照片缩略图或恢复范围。
+- 剪贴板仅用于用户显式复制通知文案；app 不自动复制秘密，敏感字段不提供复制动作。复制不等于发送，不生成 sent 状态。
+- 本机健康状态只从 typed events 与权威回执派生：备份超过 7 天、连续 3 次失败、完整性失败、恢复回滚、上次崩溃与慢启动在来源变化后 1 秒内显示一个可操作动作。它不是远程监控；v1 不自动遥测、Wi-Fi 上传或发送远程告警。
+- 崩溃 marker 只含异常类、build id、allowlisted/有界帧标识与 reason code，禁 exception message、业务字段、路径/URI、payload、token 或内存转储。每个 release 的 mapping/符号证据仅保存在受控本地发布工件中，不进 APK、仓库、诊断包或自动上传链。
+
+### 2.5 威胁边界与验证
+
+- 保护目标：遗失但锁定设备、被复制/篡改备份、敌意归档、路径穿越/压缩炸弹、错误口令、低空间、授权收回、进程中断和意外回退。
+- 不保护：root/已解锁或恶意系统控制的设备、用户主动导出的明文、忘记的口令、provider 删除密文或拒绝服务。硬件 Keystore 是优先能力，不假设所有设备都具备同等级硬件保护。
+- 发布前必须真机演练：飞行模式完整巡检/PDF、本地备份恢复、云 provider 离线/授权收回、低空间、进程被杀、Keystore 失效、错误口令、损坏/敌意包和回滚恢复。
+
+> 开发期工具（git/gh/codex/uv/Claude Code 插件）运行在开发者机器上，不在产品运行时边界内，也永不链接进 APK。完整决策见 ADR-0006。
 
 ## 3. 凭据与评审
 - **GitHub**：仅用 `gh` keyring 凭据；本会话进程环境里若存在无效 `GITHUB_TOKEN`，脚本会在调用前清空，强制走 keyring。
