@@ -9,7 +9,7 @@
   做的事：
     1. 填 scripts\_config.ps1：GhAccount / ProjectName / PythonVersion / FrozenPaths；
      并**清空** ReviewModel / ReviewEffort（元仓的实测组合不随模板下发；下游自测后再回填）。
-    2. 全仓替换 {{TOKENS}}：PROJECT_NAME / PROJECT_SLUG / PROJECT_TAGLINE / PYTHON_VERSION / LESSONS_MUST_CAP / GH_ACCOUNT / SCAFFOLD_VERSION（后者源自 _config，非 CLI）。
+    2. 全仓替换 {{TOKENS}}：PROJECT_NAME / PROJECT_SLUG / PROJECT_TAGLINE / PYTHON_VERSION / LESSONS_MUST_CAP / GH_ACCOUNT / SCAFFOLD_VERSION（后者是源树 current，非 CLI）。
     3. 重命名 CLAUDE.template.md -> CLAUDE.md；可选 pyproject.toml.example -> pyproject.toml（-WithPython）。
     4. 可选清理元仓专属物（-Cleanup）：删模板自述 + 元仓 CHANGELOG；init-scaffold.ps1 本身**保留**、待你确认后手动删。
        scripts\selftest.ps1 + 其 CI（scaffold-selftest.yml）**不删**（TD15）：约 12/17 闸测的是随下游保留的
@@ -109,7 +109,7 @@ Step '填 scripts\_config.ps1'
 $cfgPath = Join-Path $Root 'scripts/_config.ps1'
 if (-not (Test-Path $cfgPath)) { throw "找不到 scripts\_config.ps1（确认在模板根目录跑本脚本）。" }
 $cfg = Get-Content $cfgPath -Raw
-# 取脚手架版本（溯源戳，源自 _config 的 ScaffoldVersion，非 CLI 参数）；缺失回退 unknown。
+# 取源树当前已裁决版本；child 从这一版生成，因此 origin/current 都从该值起步。
 $scaffoldVersion = ([regex]::Match($cfg, "ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
 if (-not $scaffoldVersion) { $scaffoldVersion = 'unknown' }
 # 写进 _config.ps1 的值是**单引号 PS 字面量**：值里的单引号必须翻倍转义，否则一个撇号（如 "O'Brien Studio"）
@@ -127,6 +127,8 @@ $cfg = $cfg.Replace("ProjectName = ''", "ProjectName = '$pnEsc'")
 # 陈旧值而 init 仍报成功。正则只认字段名与形状（'...'/数字），值本身随便改都不受影响。
 $cfg = [regex]::Replace($cfg, "PythonVersion\s*=\s*'[^']*'", "PythonVersion = '$pyEsc'")
 $cfg = [regex]::Replace($cfg, "LessonsMustCap\s*=\s*\d+", "LessonsMustCap = $LessonsMustCap")
+# 新项目的 origin 是生成它的源树 current；不得继承源项目更早的历史 origin。
+$cfg = [regex]::Replace($cfg, "ScaffoldOriginVersion\s*=\s*'[^']*'", "ScaffoldOriginVersion = '$scaffoldVersion'")
 # R3 评审模型/推理档位：元仓把它们钉成自己**实测过**的组合（免疫用户级 codex 配置漂移），但那是
 # 「某个模型名 + 某个 codex CLI 版本」的一次性证据——**不该随模板下发**给下游（L26：别把易变当恒久；
 # 模型会改名、档位支持随模型而异、CLI 版本各异）。故 init 一律清空：下游先跑通后端默认，
@@ -163,7 +165,7 @@ $tokens = @{
   # 不经这张 token map；{{GH_ACCOUNT}} 目前只出现在文档正文（CLAUDE.md/TEMPLATE-README.md）里被提及自身，
   # 无 .example/.yml/.toml payload 真正消费它。保留（非删除）以防未来模板文件需要内嵌账号名。
   '{{GH_ACCOUNT}}'       = $(if ($GhAccount) { $GhAccount } else { '<your-github-account>' })
-  '{{SCAFFOLD_VERSION}}' = $scaffoldVersion   # 溯源戳：源自 _config ScaffoldVersion（非 CLI 参数）
+  '{{SCAFFOLD_VERSION}}' = $scaffoldVersion   # current 版本戳：源自 _config ScaffoldVersion（非 CLI 参数）
 }
 $exts = '*.md', '*.json', '*.yml', '*.yaml', '*.toml', '*.example'
 # -Force：Linux 把 .github/.claude 等点目录标记 Hidden，Get-ChildItem -Recurse 默认跳过隐藏目录，

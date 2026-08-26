@@ -6,7 +6,7 @@ name: scaffold-selftest
 # 元仓专属子检查（模板哨兵/占位符/token 覆盖/init 干跑）在 selftest.ps1 内检测到「已初始化」会自动跳过。
 # 触发分支同覆盖 main 与 master（同 ci.yml 的理由：避开「主分支名漂移→CI 静默不跑」，见 ci.yml 头注）。
 # 注：windows runner 计 2× Actions 分钟；node/git 预装，故闸 ①(.mjs)/⑧/⑮ 都能真跑。每 OS 把
-# core(1–14+16) / workflow(15) / seeded(17) 三分片并行，任一分片红即该 OS 矩阵红；不减少闸或跨 OS 覆盖。
+# core / workflow / seeded-git / seeded-remote / seeded-scanner 五分片并行；三枚 seeded 子片并集等于完整闸 17。
 # 跨 OS：matrix 同时跑 windows + ubuntu（pwsh 在 ubuntu 上预装），两者都保留完整覆盖。
 # 本工作流只在默认分支 push 或手动触发时运行，作为合并后 harness canary；不进入 PR 合并关键路径。
 # 合并前由任务卡 DoD + ci.yml verify + R3 守门，避免无关历史 selftest 闸阻塞产品推进。
@@ -34,13 +34,21 @@ jobs:
           - os: windows-latest
             shard: workflow
           - os: windows-latest
-            shard: seeded
+            shard: seeded-git
+          - os: windows-latest
+            shard: seeded-remote
+          - os: windows-latest
+            shard: seeded-scanner
           - os: ubuntu-latest
             shard: core
           - os: ubuntu-latest
             shard: workflow
           - os: ubuntu-latest
-            shard: seeded
+            shard: seeded-git
+          - os: ubuntu-latest
+            shard: seeded-remote
+          - os: ubuntu-latest
+            shard: seeded-scanner
     runs-on: ${{ matrix.os }}
     # 两 OS 都是合并后 canary：任一红都须修复，但不阻塞当前 PR。seeded 含完整 mutation matrix，
     # Windows runner 已实测会撞 20 分钟硬上限；只给该分片 30 分钟，其余分片保持 20 分钟。

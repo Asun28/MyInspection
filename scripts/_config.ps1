@@ -150,12 +150,11 @@ $script:ScaffoldConfig = @{
   # 纯软提示：AI/人据此裁剪流程；**不做强制机制、不做 init 物理裁剪**。按规模档位表见 docs/IDEA-TO-PLAN.md。
   ProjectTier = 'T1'
 
-  # ── 脚手架版本（溯源 + fleet 回填锚点）──：本模板自身的版本，**非**项目级可填项。
-  # init-scaffold 把它戳进下游 CLAUDE.md footer，便于日后对照上游、回填脚手架改进。
-  # 发布脚手架改进的仪式（TD12）：① 在此 bump（semver x.y.z）；② 在 CHANGELOG.md 顶部加一条
-  #   `## [x.y.z] - YYYY-MM-DD`（selftest 闸 ⑧ 8.0c 强制：顶条目须 == 本字段）；③ 合并后打 git tag `vx.y.z` 并推送
-  #   （下游据 tag + CHANGELOG 回填，见 TEMPLATE-README「升级已 init 的下游」）。selftest 闸 ⑧ 校验格式并验证戳入下游。
-  ScaffoldVersion = '0.29.0'
+  # ── 脚手架版本（原始 provenance + 当前已裁决高水位）──：均非项目级可填项。
+  # Origin 保存本项目首次生成来源，之后不可随 fleet 回填改写；Version 表示已逐版裁决到的当前上游版本。
+  # init-scaffold 生成一个新项目时把 child 的 origin 设为源树 current，因此新项目从当前版本起步。
+  ScaffoldOriginVersion = '0.29.0'
+  ScaffoldVersion = '0.45.0'
 
   # ── 上游脚手架仓库（fleet 双向回路）──：scaffold-sync.ps1 据此取 release tag 与 CHANGELOG、
   # 并在 report 时把元层缺陷反哺回该仓。留空 '' => 各调用方回退到自带默认地址。
@@ -179,11 +178,20 @@ function Get-ScaffoldGhAccount {
   return $a
 }
 
-# 便捷解析：取脚手架版本（溯源戳；未设回退 'unknown'）。
+# 便捷解析：取当前已裁决脚手架版本（未设回退 'unknown'）。
 function Get-ScaffoldVersion {
   $v = $script:ScaffoldConfig.ScaffoldVersion
   if (-not $v) { return 'unknown' }
   return $v
+}
+
+# 便捷解析：取首次生成来源。旧配置没有独立字段时回退当时唯一的 ScaffoldVersion。
+function Get-ScaffoldOriginVersion {
+  if ($script:ScaffoldConfig.ContainsKey('ScaffoldOriginVersion')) {
+    $v = $script:ScaffoldConfig.ScaffoldOriginVersion
+    if ($v) { return $v }
+  }
+  return (Get-ScaffoldVersion)
 }
 
 # 便捷解析：取上游脚手架仓库（fleet 回路）。ContainsKey 守卫：旧 _config（未含该键）在

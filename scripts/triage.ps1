@@ -454,7 +454,8 @@ function Invoke-ProbeScaffoldStale {
   $ledgerPath = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
   $ledgerText = if (Test-Path $ledgerPath) { Get-Content $ledgerPath -Raw } else { '' }
   $provenance = 'unknown'
-  try { $provenance = Get-ScaffoldVersion } catch { }
+  try { $provenance = Get-ScaffoldOriginVersion }
+  catch { try { $provenance = Get-ScaffoldVersion } catch { } }
   try { $synced = Get-SyncedVersion $ledgerText $provenance $tags } catch {
     Add-Finding 'scaffold-stale' 'major' $_.Exception.Message '修 docs/SCAFFOLD-SYNC.md 决策账后重跑 pwsh -File scripts\scaffold-sync.ps1 check'
     return
