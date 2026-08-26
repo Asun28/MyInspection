@@ -32,13 +32,3 @@ review_gate: codex {verdict:pass}
 hygiene: 同一规则只保留一个权威定义，其余文档用引用或职责投影避免重复
 doc_sync: CLAUDE 索引与四个权威面内部链接、术语一致（R5）
 ---
-
-# T0-RECONCILE-DATA-AUTHORITY
-
-## 产出
-
-把本地有效的数据库生命周期、独立诊断库、离线安全、敏感分享、本机备份与恢复失败语义整理为互不矛盾的权威文档。文档必须区分“设计目标”和“已经实现”，不得扩大 v1 到账号或云同步。
-
-## 验收
-
-执行 front matter 的 `dod_command`，并运行 `scripts/check-cards.ps1`、`scripts/verify.ps1` 与 diff 预算检查。

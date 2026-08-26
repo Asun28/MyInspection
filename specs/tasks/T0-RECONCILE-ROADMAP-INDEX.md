@@ -27,13 +27,3 @@ review_gate: codex {verdict:pass}
 hygiene: 任务表只投影卡片事实，不复制完整实现规格
 doc_sync: Task Board、tech-debt tracker 与七张卡互相引用一致（R5）
 ---
-
-# T0-RECONCILE-ROADMAP-INDEX
-
-## 产出
-
-把前两张卡已经登记的七个未来实现单元投影到当前任务图，并保留现有备份/媒体生命周期决策。完整规格继续以任务卡为准。
-
-## 验收
-
-执行 front matter 的 `dod_command`，随后运行 `scripts/check-cards.ps1` 与 `scripts/verify.ps1`。

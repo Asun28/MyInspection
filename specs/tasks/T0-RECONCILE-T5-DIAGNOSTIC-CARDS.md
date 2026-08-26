@@ -29,13 +29,3 @@ review_gate: codex {verdict:pass}
 hygiene: 事件、导出、清除、健康各有单一 owner
 doc_sync: 引用数据库/安全权威与备份卡（R5）
 ---
-
-# T0-RECONCILE-T5-DIAGNOSTIC-CARDS
-
-## 产出
-
-登记离线、脱敏、只读诊断及本机清除/发布证据四卡。
-
-## 验收
-
-执行 `dod_command`。

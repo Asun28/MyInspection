@@ -28,13 +28,3 @@ review_gate: codex {verdict:pass}
 hygiene: 每卡一个安全边界产出
 doc_sync: 引用已合并数据库/安全权威（R5）
 ---
-
-# T0-RECONCILE-T1-SECURITY-CARDS
-
-## 产出
-
-登记数据库写权限、设备本地保护、Android 分享/屏幕隐私三卡。
-
-## 验收
-
-执行 `dod_command`。

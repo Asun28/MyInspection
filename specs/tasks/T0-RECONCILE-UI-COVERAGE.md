@@ -27,13 +27,3 @@ review_gate: codex {verdict:pass}
 hygiene: 覆盖投影而非第二真相源
 doc_sync: DESIGN、UI-UX-ELEMENTS 与下游卡闭环（R5）
 ---
-
-# T0-RECONCILE-UI-COVERAGE
-
-## 产出
-
-增加页面、overlay、状态、组件与 owning card 的可检查投影；细节仍由 DESIGN 定义。
-
-## 验收
-
-执行 `dod_command`，确认索引不复制 canonical token/行为正文。

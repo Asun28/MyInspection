@@ -29,13 +29,3 @@ review_gate: codex {verdict:pass}
 hygiene: 使用 lessons.ps1 add/check 规范化，不手工复制旧账本块；相同根因合并为复发计数或现有规则增量
 doc_sync: CLAUDE.md 只接晋升后的最小规则增量（R5）
 ---
-
-# T0-RECONCILE-LESSONS
-
-## 产出
-
-把本地账本中仍然可证、对当前上游仍有价值的经验重新编号并按现行 schema 登记；重复项并入既有 lesson，已被上游实现消解的瞬时说明不迁移。
-
-## 验收
-
-执行 front matter 的 `dod_command`，并逐条复核 evidence、enforced_by 与 refs 是否仍指向当前仓库事实。
