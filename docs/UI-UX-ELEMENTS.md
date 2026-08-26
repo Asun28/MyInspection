@@ -120,6 +120,8 @@
 
 ## 7. 明确排除的 Elements
 
+v1 explicitly excludes FAB, drawer, carousel, charts, global snackbar, and remote telemetry.
+
 v1 不设计也不预留以下入口：账户/头像、登录注册、云同步状态、团队协作、聊天/评论、通知收件箱、远程 admin、SQL/数据库编辑器、遥测开关、Dashboard 图表、只读报告查看器、自动照片差异比较、成本估算、应用内发短信/邮件、导航抽屉、汉堡菜单、平板双栏或 navigation rail。
 
 如果未来范围变化，必须先更新产品边界与页面契约，再新增 Elements；不得通过“通用组件”偷偷引入未批准能力。
