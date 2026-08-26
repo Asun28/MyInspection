@@ -1,10 +1,16 @@
 ---
 id: T7-REMEDIATION
 title: LLM remediation 建议：mock 优先 + 仅房东版 + 措辞边界 + 免责声明
-depends_on: [T3-PDF-RENDERER]
+depends_on: [T3-PDF-RENDERER, T1-SHARE-SCREEN-PRIVACY]
 status: todo
 branch: T7-REMEDIATION
 worktree: C:\wt\T7-REMEDIATION
+plan_ref: context/DESIGN.md#offline-and-data-protection-experience
+acceptance:
+  - "A1 remediation is on-device first using the approved seed table and wording gate"
+  - "A2 remote explicit generation is user-triggered, cancellable, and is the sole approved runtime network boundary"
+  - "A3 offline fallback uses the local seed source, sends only a safe payload when remote is chosen, and displays source and disclaimer"
+  - "A4 remediation failures never block inspection finalize or either report; the optional section is omitted cleanly"
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/remediation/
   - android/core/src/test/kotlin/nz/myinspection/core/remediation/
