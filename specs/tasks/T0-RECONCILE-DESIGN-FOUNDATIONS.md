@@ -29,14 +29,4 @@ doc_sync: R5 同步 owning docs
 
 # T0-RECONCILE-DESIGN-FOUNDATIONS
 
-仅把颜色、排版、布局、层级与形状基础合同从已审源夹具落入主设计文档，使后续 81 组件矩阵能在 R3 完整读取预算内独立评审。));if(-not$refs.Count){continue};$covered++;$by=@{};foreach($ref in $refs){$by[$ref.Groups[1].Value]=$ref.Groups[2].Value+'.'+$ref.Groups[3].Value};if(@($by.Keys|?{$_-cnotin @('backgroundColor','textColor')}).Count){throw ('unknown color field '+$id)};$bg=$by.backgroundColor;$fg=$by.textColor;if($fg-and$bg){if($fg-like'colors.*'-and$bg-like'colors.*'){foreach($theme in 'light','dark'){$key=$theme+'.'+$fg.Substring(7)+'|'+$theme+'.'+$bg.Substring(7);if($decl-notcontains$key){throw ('component binding '+$id+' '+$key)}}}elseif($fg-ceq'interaction.onCameraScrim'-and$bg-ceq'interaction.cameraScrim'){if($decl-notcontains'camera.on-scrim|camera.scrim-over-white'){throw ('component binding '+$id)}}else{throw ('unmapped color pair '+$id)}}elseif(-not$fg-and$bg-ceq'colors.outline-variant'-and$id-ceq'divider'){foreach($theme in 'light','dark'){if($decl-notcontains($theme+'.outline-variant|'+$theme+'.surface')){throw ('component binding '+$id)}}}elseif(-not$fg-and$bg-ceq'colors.primary'-and$id-ceq'focus-indicator'){foreach($theme in 'light','dark'){if($decl-notcontains($theme+'.primary|'+$theme+'.surface')){throw ('component binding '+$id)}}}else{throw ('incomplete color pair '+$id)}};if($covered-ne17){throw ('component color coverage '+$covered)};foreach($bad in 'allowedComponents','componentContracts','200% font scale','Landscape is a supported fallback','Room panoramas default to the history overlay','opaque high-contrast scrim'){if($foundation.Contains($bad)){throw ('scope regression '+$bad)}};foreach($s in 'c_srgb = channel / 255','c_srgb <= 0.04045','c_srgb / 12.92','((c_srgb + 0.055) / 1.055) ^ 2.4','Tablet and landscape optimisation are outside the current UI card','Room panoramas may default to the history overlay; item photos do not.','worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast'){if(-not$foundation.Contains($s)){throw ('review fix '+$s)}}
-dod_exit: 0
-dod_assert: A1–A5 exact source region；37 bindings/namespace/allowlist/ratio 与 R3 scope/camera 语义漂移即 RED
-review_gate: codex {verdict:pass}
-hygiene: 以独立区域拆卡，不删减源设计
-doc_sync: R5 同步 owning docs
----
-
-# T0-RECONCILE-DESIGN-FOUNDATIONS
-
 仅把颜色、排版、布局、层级与形状基础合同从已审源夹具落入主设计文档，使后续 81 组件矩阵能在 R3 完整读取预算内独立评审。
