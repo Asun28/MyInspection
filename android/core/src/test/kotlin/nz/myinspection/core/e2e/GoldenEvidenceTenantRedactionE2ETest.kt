@@ -40,7 +40,18 @@ class GoldenEvidenceTenantRedactionE2ETest {
 
             val tenantBlocks = tenant.pages.flatMap { it.blocks }.map { it.content }
             assertTrue(tenantBlocks.none { it is RemediationBlock })
-            tenantBlocks.filterIsInstance<ItemRowBlock>().forEach { assertNull(it.wearOrDamage) }
+            val landlordJudgments = evidence.judgmentLandlordPlan.pages
+                .flatMap { it.blocks }
+                .map { it.content }
+                .filterIsInstance<ItemRowBlock>()
+                .mapNotNull { it.wearOrDamage }
+            val tenantJudgmentRows = evidence.judgmentTenantPlan.pages
+                .flatMap { it.blocks }
+                .map { it.content }
+                .filterIsInstance<ItemRowBlock>()
+            assertEquals(listOf("DAMAGE"), landlordJudgments, "control report must carry a non-null internal judgment")
+            assertTrue(tenantJudgmentRows.isNotEmpty())
+            tenantJudgmentRows.forEach { assertNull(it.wearOrDamage) }
 
             assertEquals(evidence.fixture.expectedDataHash, tenant.dataHash)
             tenant.pages.forEach { page ->
