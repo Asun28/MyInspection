@@ -26,7 +26,7 @@ diagnosis:
   same_class: 本卡只闭合 db/capture/retention 允许路径内的 parent 点查、软删后写入、终态字段回填与 baseline 赋值；现有 finalize/InspectionSnapshotAssembler 与 template/TemplateStore 是只读 historical 消费者，登记为不改清单，任何需改动的其他 caller 必须另开有对应实现/测试路径的卡。
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.db.*" --tests "nz.myinspection.core.capture.*" --tests "nz.myinspection.core.retention.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check
 dod_exit: 0
-dod_assert: 新建巡检/物业抑制只接受活跃 property/tenancy/template；historical 历史报告与已软删 tenancy 联系方式清理仍可读取 any-lifecycle 行；purged_at 后联系方式不可回填；初始 INGOING 与 finalized fallback baseline 各有独立守卫，跨物业/跨租约/不合格类型均拒绝；deleted override 不可更新；所有影响输出/哈希/进度的新增批量查询以主排序键相同且反向插入的夹具证明 ID 全序完全一致，删除 ORDER BY 或唯一 tie-breaker 即 RED；对应单句删除变异逐一使测试翻红；迁移验证绿
+dod_assert: 新建巡检/物业抑制只接受活跃 property/tenancy/template；historical 历史报告与已软删 tenancy 联系方式清理仍可读取 any-lifecycle 行；purged_at 后联系方式不可回填；初始 baseline 只允许空指针时的 INGOING，finalized fallback baseline 只允许同 property/tenancy 的 ROUTINE；INGOING/EXIT、DRAFT 或其他新增 inspection type 的 exhaustive negative 集合均拒绝，新增 enum 未同步测试即 RED；跨物业/跨租约均拒绝；deleted override 不可更新；所有影响输出/哈希/进度的新增批量查询以主排序键相同且反向插入的夹具证明 ID 全序完全一致，删除 ORDER BY 或唯一 tie-breaker 即 RED；对应单句删除变异逐一使测试翻红；迁移验证绿
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: specs/tech-debt-tracker.md 将 TD160 置 paid；docs/DATABASE-DESIGN.md 与 TASK-BOARD 记录证据（R5）
@@ -41,7 +41,7 @@ version_review: this card = the version review
 
 1. 为 property、tenancy、template 增加语义明确的 `selectActiveById`；历史/保留期路径使用明确的 any-lifecycle 读取。
 2. 本卡允许路径内所有开始新工作的入口改用 active parent；报告、链复验和隐私到期清理通过 any-lifecycle 查询继续读软删历史。`core/finalize/InspectionSnapshotAssembler.kt` 与 `core/template/TemplateStore.kt` 只列入 historical caller 清单，不在本卡修改；扫描发现的其他越界 caller 必须先登记独立卡，不能偷带进本卡。
-3. 用两个具名 baseline 操作替代通用 setter：仅在空指针时立当前 INGOING；或把同 property/tenancy 的合格 finalized 检查指定为存量租约基线。
+3. 用两个具名 baseline 操作替代通用 setter：仅在空指针时立当前 INGOING；或把同 property/tenancy 的 finalized `ROUTINE` 指定为存量租约 fallback baseline。`INGOING`、`EXIT`、未 finalized 的 `ROUTINE` 以及未来新增类型默认拒绝，直到独立版本评审扩展闭合集合。
 4. 数据库约束钉死 `purged_at != NULL => tenant_name/contact 均为 NULL`，并阻止 deleted override 更新。
 5. 为受输出、哈希、进度影响的新增批量查询提供显式全序；不依赖索引偶然返回序。
 
