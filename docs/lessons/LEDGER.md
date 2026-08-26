@@ -1724,7 +1724,7 @@
 - root_cause: ① [regex]::Replace 的**静态**重载里没有 count 这一档（count 只存在于实例方法 Regex.Replace(input, evaluator, count)），第四个 int 实参遂被隐式当成 RegexOptions——1 = IgnoreCase，于是既没限次数、还悄悄改了匹配语义。本仓 TD51 已因同一重载在 lessons.ps1 bump 上踩过一次（闸 2c 即为此而设），说明这是复发型陷阱而非一次性手滑。② \s 匹配 \r 与 \n，在跨整份文本的 (?m) 模式里 ^\s* 会向前吞掉换行，匹配遂从上一个空行开始，前缀型变异（加 #、加 <!-- ）就插到了错误位置。
 - rule: 写单点变异（或任何「只改第一处」的替换）时：① 用实例方法 [regex]::new($pat).Replace($input, $evaluator, 1)，绝不用四参静态 [regex]::Replace(..., 1)；② 逐行语义的模式里用 [ \t] 而非 \s，把 \s 留给确实允许跨行的场合；③ 变异后**立刻断言产物确实与原文不同**（-ceq 比对），相同即判本枚作废而非「测不出」；④ 更强的一档：断言变异后目标行本身变了（而不只是整份文本变了），否则前缀插错行仍会通过第 ③ 关。
 - enforced_by: scripts/selftest.ps1 闸 2c（lessons bump 只改 meta 计数器）+ scripts/license-scanner-check.ps1 的 INTEGRATION-WIRING-MUTATION 无效变异守卫（变异后与原文相同即失败）
-- refs: scripts/selftest.ps1; scripts/license-scanner-check.ps1; docs/lessons/LEDGER.md
+- refs: scripts/selftest.ps1; scripts/license-scanner-check.ps1; docs/lessons/LEDGER.md; mutation guard
 
 ## L238
 - date: 2026-08-22 ｜ tags: git, gates, review, toctou, identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
