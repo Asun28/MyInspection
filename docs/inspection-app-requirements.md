@@ -333,7 +333,7 @@ Google Drive、OneDrive、本地目录或 USB 通过 Android SAF 作为备份目
 
 - 图片导入只使用 Android Photo Picker/SAF，禁止申请全相册权限；app 不读取剪贴板，只有用户点 `Copy notice` 才写入通知文本。
 - 密钥和凭据进入 Keystore 支持的本机加密存储；系统备份/设备迁移不得携带 app 数据；敏感文件只用临时只读 `content://` 分享。
-- 本产品没有账号，故“账号物理注销”等价为 `Delete all local data`：二次输入确认后清除本机数据库、媒体、报告、设置、密钥、诊断、缓存与授权；用户自行保存的外部加密 `.mibk` 不删除且确认前明确说明。
+- 本产品没有账号，故“账号物理注销”等价为 `Delete all local data`：二次输入确认后以可恢复擦除标记清除本机数据库、媒体、报告、设置、密钥、诊断、缓存与授权；诊断库最后删除，成功不写日志、不重建数据库并回到 first-run，取消/前置失败只在诊断存储仍存在时记录。用户自行保存的外部加密 `.mibk` 不删除且确认前明确说明。
 - Remediation 是唯一联网点（仅指 app-owned HTTP adapter）：显式触发、最小 payload、HTTPS/平台 TLS、禁止 cleartext 和自定义信任绕过。自动 SAF 写入与 provider-managed 密文传输不属于 app 网络 adapter。无自有服务端时不得伪造 Timestamp+Nonce 防重放或额外引入 HTTPDNS；若未来新增可验证服务端/解析信任边界，必须先立 ADR 与威胁模型。
 
 ### 本地监控与发布证据

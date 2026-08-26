@@ -48,7 +48,7 @@
 - Android 系统备份/云恢复/设备迁移全部关闭：manifest `allowBackup=false`，Android 11 及以下和 Android 12+ 规则逐域排除。唯一支持的完整数据出口是用户选择目的地的加密 `.mibk`。
 - 备份口令是用户掌握的跨设备恢复秘密。后台自动备份只读取 Android Keystore 加密的本机口令信封；信封不导出，Keystore key 不可导出。口令/派生 key 只以可清零缓冲短暂存在，不进数据库、日志、通知、崩溃信息或剪贴板历史。
 - remediation API key 使用 Keystore 支持的本机加密存储，不入仓库、备份、日志或报告。产品不承诺在 root、恶意 OS、已解锁设备或恶意无障碍/键盘下保密。
-- 产品无账号，故“注销”等价为设备所有者显式执行 `Delete all local data`：影响预览后输入 `ERASE`，清除 app-owned 主/诊断 DB、媒体、报告、设置、Keystore aliases/信封、缓存、journal/staging 与持久 URI 授权。用户经 SAF 保存到外部 provider 的加密 `.mibk` 不属于 app-owned 本机数据，绝不删除并在确认前明示。
+- 产品无账号，故“注销”等价为设备所有者显式执行 `Delete all local data`：影响预览后输入 `ERASE`，以最小擦除标记恢复中断，清除 app-owned 主/诊断 DB、媒体、报告、设置、Keystore aliases/信封、缓存、journal/staging 与持久 URI 授权。诊断库最后删除；成功后不重建它或写成功事件，直接回到 first-run。仅在诊断存储仍合法存在时记录取消/前置失败。用户经 SAF 保存到外部 provider 的加密 `.mibk` 不属于 app-owned 本机数据，绝不删除并在确认前明示。
 
 ### 2.3 备份、恢复与分享
 
