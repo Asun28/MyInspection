@@ -1439,11 +1439,234 @@ The evidence rail and progress segments are square-ended. This deliberate contra
 
 ## Components
 
+### Component naming standard
+
+Names encode role, domain, and API type. Visual appearance, screen coordinates, and implementation accidents never enter a component name.
+
+| Artifact | Format | Rule | Valid example | Invalid example |
+| --- | --- | --- | --- | --- |
+| Design component ID / token path | `kebab-case` | Stable public ID; role before variant | `inspection-item-card`, `color.surface.dark` | `green-card`, `newCard2` |
+| Public Composable | `PascalCase` | Noun phrase; generic DS primitives use `FieldLedger` prefix | `FieldLedgerTopAppBar`, `InspectionItemCard` | `CustomCard`, `BuildItem` |
+| Kotlin file | `<PrimaryComposable>.kt` | Exactly matches the file's primary public Composable | `InspectionItemCard.kt` | `Cards.kt` |
+| State model | `<Component>State` | Represents renderable state only | `InspectionItemCardState` | `CardData` |
+| Visual variant enum | `<Component>Variant` | Represents a finite visual axis | `FeedbackBannerVariant` | `BannerType` |
+| Event callback | `on<Action>` | Verb names the committed user intent | `onTakePhoto`, `onDismiss` | `callback`, `handleClick` |
+| Boolean | `is/has/can` prefix | Positive proposition | `isReadOnly`, `hasMissingEvidence` | `disabledFlag`, `noPhoto` |
+| Slot parameter | Noun or `<region>Content` | Names rendered region | `headline`, `supportingContent` | `customThing` |
+| Preview | `<Component>_<Variant>_Preview` | One named state per preview | `InspectionItemCard_Attention_Preview` | `Preview1` |
+| Test tag | `<component-id>:<entity-id>:<part>` | Stable domain ID; never list index or localized copy | `inspection-item-card:item-42:take-photo` | `card-3:button` |
+
+`Custom`, `Base`, `Common`, `General`, `My`, `Widget`, `View`, `Thing`, numeric suffixes, colors, and screen coordinates are prohibited as differentiators. `Button2`, `BlueChip`, and `LeftCard` fail the naming gate.
+
+Generic system primitives and containers use the `FieldLedger` namespace. Domain components use the domain noun without the prefix.
+
+| Design ID | Compose API | File | State / variant type |
+| --- | --- | --- | --- |
+| `app-shell` | `FieldLedgerAppShell` | `FieldLedgerAppShell.kt` | `FieldLedgerAppShellState` |
+| `detail-scaffold` | `FieldLedgerDetailScaffold` | `FieldLedgerDetailScaffold.kt` | `FieldLedgerDetailScaffoldState` |
+| `task-scaffold` | `FieldLedgerTaskScaffold` | `FieldLedgerTaskScaffold.kt` | `FieldLedgerTaskScaffoldState` |
+| `modal-sheet` | `FieldLedgerModalSheet` | `FieldLedgerModalSheet.kt` | `FieldLedgerModalSheetState` |
+| `alert-dialog` | `FieldLedgerAlertDialog` | `FieldLedgerAlertDialog.kt` | `FieldLedgerAlertDialogVariant` |
+| `top-app-bar` | `FieldLedgerTopAppBar` | `FieldLedgerTopAppBar.kt` | `FieldLedgerTopAppBarVariant` |
+| `navigation-bar` | `FieldLedgerNavigationBar` | `FieldLedgerNavigationBar.kt` | `FieldLedgerNavigationBarState` |
+| `bottom-action-dock` | `FieldLedgerBottomActionDock` | `FieldLedgerBottomActionDock.kt` | `FieldLedgerBottomActionDockState` |
+| `inspection-capture-scaffold` | `InspectionCaptureScaffold` | `InspectionCaptureScaffold.kt` | `InspectionCaptureScaffoldState` |
+| `camera-capture-scaffold` | `CameraCaptureScaffold` | `CameraCaptureScaffold.kt` | `CameraCaptureScaffoldState` |
+| `inspection-item-card` | `InspectionItemCard` | `InspectionItemCard.kt` | `InspectionItemCardState`, `InspectionItemCardVariant` |
+| `evidence-rail` | `EvidenceRail` | `EvidenceRail.kt` | `EvidenceRailState` |
+| `room-progress-strip` | `RoomProgressStrip` | `RoomProgressStrip.kt` | `RoomProgressStripState` |
+
+One file exposes one primary public component. Private anatomy stays in the same file until it is reused by two public components; at that point it receives its own contract and file. Route functions use `<PageId>Route`, screen content uses `<PageId>Screen`, and navigation commands use verb-first names such as `openInspection`, `closeSheet`, and `returnToProperty`.
+
+### Component contract schema
+
+Every reusable component exposes the following metadata. An implementation that omits a required field is incomplete.
+
+```json
+{
+  "name": "inspection-item-card",
+  "codeName": "InspectionItemCard",
+  "fileName": "InspectionItemCard.kt",
+  "stateType": "InspectionItemCardState",
+  "variantType": "InspectionItemCardVariant",
+  "composeBase": "Surface",
+  "anatomy": ["evidenceRail", "title", "history", "statusChoices", "evidenceActions"],
+  "variants": ["DEFAULT", "ATTENTION", "READ_ONLY"],
+  "semanticStates": ["UNRATED", "OK", "ATTENTION", "NOT_APPLICABLE", "BLOCKED"],
+  "interactionStates": ["ENABLED", "PRESSED", "FOCUSED", "BUSY", "DISABLED"],
+  "focusKey": "inspection-item:{inspectionId}:{roomInstanceId}:{stableId}",
+  "semanticsRole": "merged traversal group (isTraversalGroup=true; no Role)",
+  "liveRegion": "none",
+  "minTouchTargetDp": 48,
+  "testTagPattern": "inspection-item-card:{stableId}:{part}"
+}
+```
+
+State axes remain orthogonal. Rendering resolves in this order:
+
+```text
+semantic base token
+→ selected variant
+→ BLOCKED/ERROR override
+→ DISABLED opacity
+→ PRESSED/FOCUSED state layer
+→ external 3dp focus ring
+```
+
+`BUSY` rejects duplicate activation, keeps the label width stable, and replaces the leading icon with an `18dp` progress indicator. `DISABLED` is used only when the adjacent copy names the unmet prerequisite. `PRESSED` and `FOCUSED` never replace semantic color.
+
+### Navigation and structure component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `app-shell` | top app bar, content, bottom navigation, overlay host | `ROOT / HUB / TRANSITIONING / RESTORED` | Exactly one root destination owns each back stack; overlays never replace saved route state | Root content is the traversal start; restore returns to its saved focus key | `Scaffold` |
+| `detail-scaffold` | top app bar, content, feedback host | `READY / LOADING / ERROR` | Bottom navigation stays hidden; loading preserves readable local content; error owns one recovery action | Back names the parent; error focus moves only after a failed action | `Scaffold` |
+| `task-scaffold` | task app bar, content, bottom action dock, feedback host | `CLEAN / DIRTY / COMMITTING / ERROR` | Dirty state survives recreation; committing rejects duplicate actions and disables Back only when replacement is unsafe | Heading precedes task fields; first invalid field receives focus after submit | `Scaffold` |
+| `inspection-capture-scaffold` | app bar, missing strip, room strip, item list, capture dock | `READY / SAVING / SAVE_FAILED / RESTORED` | Room changes cross a save barrier; failure retains edits and exposes Retry; restore returns to the exact item | Current room is announced once; stable room/item focus keys survive list changes | `Scaffold` |
+| `camera-capture-scaffold` | live preview, top controls, overlay, shutter, review bar | `OPENING / PREVIEW_READY / CAPTURING / REVIEW / COMMITTING / ERROR` | Preview is edge-to-edge; capture and commit are single-flight; error keeps Import or Retake available | Controls follow visual order; preview is not an unlabeled focus stop | `Box` |
+| `modal-sheet` | drag handle, header, content, optional footer | `OPENING / OPEN / COMMITTING / CLOSING` | One declared result closes the sheet; committing rejects duplicate actions; swipe and Close share cancellation output | `paneTitle` names the task; close restores the trigger focus key | `ModalBottomSheet` |
+| `alert-dialog` | title, concrete consequence, cancel, confirm | `OPEN / CONFIRMING / ERROR / CLOSED` | Scrim never dismisses; Cancel owns initial focus; error retains the dialog and exact recovery | `paneTitle` equals title; completion or cancel restores the trigger | `AlertDialog` |
+| `navigation-bar` | 3 destinations, icon, label, active indicator | `PROPERTIES / SCHEDULE / SETTINGS`; `ACTIVE / INACTIVE / DISABLED` | Exactly three labelled destinations; hidden on setup, capture, review, and camera routes | `selectableGroup()` + `isTraversalGroup=true`; no Role; selected destination exposes `selected=true`; Pop restores its prior focus key | `NavigationBar` |
+| `navigation-destination` | icon, label, active indicator, 48dp target | `INACTIVE / ACTIVE / PRESSED / FOCUSED / DISABLED` | Activation switches to one existing root stack and never creates duplicate destinations | Role `tab`; label and selected state are exposed together | `NavigationBarItem` |
+| `top-app-bar` | Back, title, up to 2 actions, overflow | `DEFAULT / SCROLLED` | More than 2 actions move into overflow; destructive actions remain separated from routine actions | Title has heading semantics; Back label is `Back to {parent}` | `TopAppBar` |
+| `room-progress-strip` | Previous, labelled room segments, next | `READY / SCROLLING / FOCUSED` | Current room is centered; previous/next controls exist whenever another room exists | `selectableGroup()` + `isTraversalGroup=true`; no Role; each room announces `{label}, {complete}/{total}, current|not current` | `LazyRow` + buttons |
+| `room-progress-segment` | Room label, completion count, state mark | `INCOMPLETE / COMPLETE / CURRENT / BLOCKED` | Tap changes room after a save barrier; swipe is never the only control | Role `tab`; stable focus key uses `roomInstanceId` | `FilterChip` |
+| `missing-evidence-strip` | icon, exact count copy, jump action | `HIDDEN / VISIBLE / FOCUSED` | Hidden only when `missingTotal=0`; first gap resolves by room order → item sort → `STATUS, PHOTO, NOTE` | One button node; focus moves to the missing control | `Surface` |
+| `bottom-action-dock` | primary action, optional progress summary | `NEXT_ROOM / REVIEW_MISSING / FINALIZE_READY / BUSY` | State derives only from core completeness; list reserves dock height plus system inset | One primary button; Busy announces once and rejects duplicate activation | `Surface` |
+| `divider` | one-pixel semantic separator | `VISIBLE` | Uses outline-variant and never substitutes for spacing or a labelled section boundary | Decorative and hidden from accessibility services | `HorizontalDivider` |
+| `property-summary-card` | address, due/status facts, supporting count, explicit `Open property` child action | `DEFAULT / DUE / BLOCKED` | Structural card never handles click; only the child action opens the property; blocked state names the prerequisite and never hides readable history | Card is a labelled group; address is a heading; child has role `button` and label `Open property` | `Surface` + `Button` |
+
+### Evidence and input component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `button-primary` | text label, optional leading icon, progress replacement | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | One primary action per decision region; Busy is single-flight and keeps bounds stable | Role `button`; label is verb-object; progress announces the action once | `Button` |
+| `button-secondary` | text label, optional leading icon | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | Used for reversible alternatives; Busy rejects duplicate activation without becoming the visual primary | Role `button`; label states the distinct alternative outcome | `FilledTonalButton` |
+| `button-destructive` | consequence verb, optional progress | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | Enabled only after impact preview and required confirmation; Busy cannot be cancelled when rollback is unsafe | Role `button`; label names the object affected and never uses generic `OK` | `Button` |
+| `icon-button` | 24dp symbol, opaque 48dp target, tooltip | `STANDARD / TONAL / CAMERA`; `ENABLED / PRESSED / FOCUSED / SELECTED / DISABLED` | Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds | Role `button`; accessible name is mandatory and selected state is explicit | `IconButton` |
+| `inspection-item-card` | 6dp rail, title, prior evidence, status choices, note/photo actions | `DEFAULT / ATTENTION / READ_ONLY`; `COLLAPSED / EXPANDED / SAVE_FAILED`; machine `COLLAPSED / EXPANDED / FOCUSED / SAVE_FAILED` | `OK` remains compact; `ATTENTION` expands evidence controls; defects never auto-collapse or auto-advance | Card is a group; title is focus anchor; collapse returns focus to title | `Surface` |
+| `evidence-rail` | `STATUS / PHOTO / NOTE` in fixed order | `COMPLETE / MISSING_REQUIRED / BLOCKED / OPTIONAL / NOT_APPLICABLE`; machine `READY / UPDATING` | Width `6dp`; gap `2dp`; state comes from core completeness only | Entire rail merges to one description; child segments are hidden from TalkBack | Custom `Layout` |
+| `status-choice` | icon, label, selected indicator | `OK / ATTENTION / CRITICAL / NOT_APPLICABLE`; interaction state axis; machine `UNSELECTED / SELECTED / PRESSED / FOCUSED / DISABLED` | Two equal-width primary choices show `OK` and `Needs attention`; detailed states open a visible sheet | Parent uses `selectableGroup`; each choice is a `radioButton` | `Surface` + `selectable` |
+| `input-field` | persistent label, value, helper/error, trailing action | `EMPTY / FOCUSED / FILLED / ERROR / DISABLED` | Validation runs on blur or submit; error remains below field until corrected | Error is polite live region; keyboard type comes from field metadata | `OutlinedTextField` |
+| `phrase-sheet` | pane title, category filter, phrase rows, close | `OPENING / OPEN / FILTERED / EMPTY / CLOSING` | Selecting a phrase inserts immediately and exposes Undo; swipe-dismiss and Close have identical output | `paneTitle="Suggested phrases"`; close returns to trigger | `ModalBottomSheet` |
+| `photo-evidence-tile` | 4:3 image/placeholder, requirement, source/time, privacy, action | `EMPTY_OPTIONAL / EMPTY_REQUIRED / TEMPORARY / PRESENT / PRIVACY / ARCHIVED / FAILED` | Required empty names reason; temporary never appears as persisted evidence; archived exposes Restore | One node announces item, state, source, time, privacy; action is separate | `Surface` |
+| `privacy-chip` | shield, `Contains tenant belongings` label | `OFF / ON / PRESSED / FOCUSED / DISABLED` | This classifies the photo; `ON` uses privacy token and is excluded from both reports by default | Role `switch`; announces `Tenant belongings: marked, excluded from reports by default` or `not marked` | `FilterChip` |
+| `privacy-action` | shield, explicit privacy verb, current classification | `OFF / ON / PRESSED / FOCUSED / DISABLED` | Uses privacy tokens; toggles only the selected asset and never changes report inclusion silently | Role `button`; label names mark/unmark outcome and resulting report default | `FilledTonalButton` |
+
+### Feedback and decision component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `save-status` | state icon, label, optional Retry | `CLEAN / DIRTY / SAVING / SAVED / FAILED / RECOVERED` | `SAVING` appears after 300ms; `SAVED` is quiet; `FAILED` persists | Only Failed and Recovered use polite live region | `Row` |
+| `feedback-banner` | icon, title, body, recovery, optional dismiss | `INFO / SUCCESS / WARNING / ERROR / BLOCKING`; machine `VISIBLE / ACTION_BUSY / DISMISSED` | Error and Blocking persist; every Error has exactly one primary recovery action | Polite live region; Blocking action focuses invalid field | `Surface` |
+| `compliance-block` | rule, entered value, valid range/time, correction | `BLOCKED / CORRECTING / CLEARED` | Cannot dismiss; removed only after core returns Pass | Heading + polite live region; action focuses exact field | `Surface` |
+| `undo-snackbar` | result text, Undo | `VISIBLE / ACTION_BUSY / DISMISSED` | Only reversible non-blocking actions; timeout `5000ms`; second action commits and replaces first | Undo is labelled; save failure never uses snackbar | `Snackbar` |
+| `confirmation-dialog` | title, concrete consequence, cancel, confirm | `FINALIZE / DISCARD_TEMP_PHOTO / CLEAR_CONTACT / REMOVE_LOCAL_MEDIA`; lifecycle axis; machine `OPEN / CONFIRMING / ERROR / CLOSED` | Default focus Cancel; destructive confirm uses error; Finalize uses primary; background tap never dismisses | `paneTitle` equals title; close returns to trigger | `AlertDialog` |
+| `focus-indicator` | 3dp ring, 2dp external offset | `HIDDEN / VISIBLE` | Uses primary; never changes component bounds | Visual only; platform accessibility focus remains authoritative | Modifier |
+
+### Camera component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `camera-control` | 24dp icon, opaque 48dp target | `FLASH / OVERLAY / CLOSE / IMPORT`; `OFF / ON / PRESSED / FOCUSED / DISABLED` | Uses 64% black scrim and white icon on every frame | Label describes action and current state | `IconButton` |
+| `camera-shutter` | outer 72dp circle, inner state mark | `READY / PRESSED / CAPTURING / DISABLED` | One activation per capture; Capturing blocks repeated taps without changing bounds | Role `button`; label `Take photo`; state announced once | Custom `Button` |
+| `camera-overlay-control` | thumbnail, on/off, opacity | `UNAVAILABLE / OFF / ON`; machine `UNAVAILABLE / OFF / ON / ADJUSTING / DISABLED` | Panorama default `ON` at 30%; item photo default `OFF`; overlay never enters output bytes | Switch state plus `Historical photo overlay, 30 percent` | `Switch` + slider |
+| `camera-review-bar` | Retake, privacy, Use photo | `READY / COMMITTING / ERROR` | Use photo is primary; commit error retains temp and exposes Retry | Entry focuses preview heading; success focuses new evidence tile | `Surface` |
+
+### Structure, list, and discovery component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `section-header` | heading, optional count/action, divider | `STANDARD / DATE / DANGER`; collapsed/expanded where allowed; machine `DEFAULT / ACTION_AVAILABLE / COLLAPSED / EXPANDED` | Groups one related region; Danger appears only at the end of Settings and never collapses | Heading semantics; action follows heading in focus order | `Row` |
+| `result-list-row` | title, supporting facts, status, one trailing affordance | `PROPERTY / HISTORY / SCHEDULE / NOTICE`; default/selected/unavailable; machine `DEFAULT / PRESSED / FOCUSED / SELECTED / UNAVAILABLE` | The whole row performs one navigation intent; never contains a second nested button | Role `button`; label includes destination and critical state | `ListItem` |
+| `settings-row` | icon, label, optional summary/current value, trailing affordance | `NAVIGATION / VALUE / TOGGLE / DANGER`; machine `DEFAULT / PRESSED / FOCUSED / BUSY / DISABLED` | Navigation rows open one declared route; toggle rows use the whole row and switch as one target | One merged node except independent help action; value is announced after label | `ListItem` |
+| `metadata-row` | optional icon, label/value or source/time | `ICON_TEXT / LABEL_VALUE / SOURCE_TIME`; neutral/warning/error; machine `DEFAULT / WARNING / ERROR` | Supports a decision but never owns the only action or encodes state by color alone | Merged sentence; decorative icon hidden | `Row` |
+| `overflow-menu` | anchored menu, labelled items, optional separator | closed/open/item focused/action busy | Opens only when at least two secondary commands exist; destructive items are last and visually separated | Trigger announces `More options`; focus enters first enabled item and returns to trigger | `DropdownMenu` |
+| `tooltip` | short action label | hidden/visible | Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
+| `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; never the sole state channel | `Badge` |
+
+Search is conditional chrome: `search-field` appears only when a collection has more than eight active records or a page contract explicitly needs a query. Filters persist per top-level stack, expose `Clear filters`, and never hide the only recovery action.
+
+### Form and selection component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `search-field` | search icon, query, clear, optional result count | collapsed/focused/query/no results; machine `COLLAPSED / FOCUSED / QUERY / NO_RESULTS / DISABLED` | Debounce affects filtering only, not visible typing; Clear restores the unfiltered list and heading | SearchBar supplies editable-text semantics; no Role; results count is a polite announcement after the query settles | `SearchBar` |
+| `filter-chip-group` | visible labelled chips, optional Clear | ready/filtered/focused/disabled | Multi-select only when filters are independent; single-select uses selected semantics | Group label names what is filtered; each chip announces selected state | `LazyRow` + `FilterChip` |
+| `switch-row` | title, consequence/summary, switch | off/on/focused/disabled; machine `OFF / ON / PRESSED / FOCUSED / DISABLED` | Entire row toggles once; use only for immediate reversible preferences, never a destructive action | Role `switch`; label includes current state and consequence | `ListItem` + `Switch` |
+| `checkbox-row` | checkbox, full label, optional helper | unchecked/checked/indeterminate/error; machine `UNCHECKED / CHECKED / INDETERMINATE / FOCUSED / DISABLED` | Used for independent acknowledgements or inclusion choices; label tap changes only this value | Role `checkbox`; error is linked to the group summary | `Checkbox` |
+| `radio-group` | group label, options, helper/error | selected/unselected/error/disabled | Used for one choice from a short vertical set; no option is preselected when a conscious decision is required | `selectableGroup`; each option is a radio button | `Column` |
+| `segmented-control` | 2–4 visible choices | selected/unselected/focused/disabled | Used for compact, frequent, mutually exclusive choices such as 7/30/90 days or quality; labels never truncate | Single-choice group; arrow-key order follows visual order | `SingleChoiceSegmentedButtonRow` |
+| `choice-field` | persistent label, selected value, menu affordance, helper/error | empty/open/selected/error/disabled | Reserved for longer infrequent enumerations; status and destructive choices never use it | Announces label, current value, expanded state, and error | `ExposedDropdownMenuBox` |
+| `date-time-field` | persistent label, localized value, picker icon, helper/error | empty/selected/focused/error; machine `EMPTY / SELECTED / FOCUSED / ERROR / DISABLED` | Read-only text launches the Android/Material picker; stores UTC while showing locale-correct time | Role `button`, not editable text; return focus restores to the field | Read-only `OutlinedTextField` |
+| `secure-input-field` | persistent label, obscured value, Show/Hide, helper/error | `PASSPHRASE / API_KEY`; hidden/revealed/verified/error; machine `EMPTY / HIDDEN / REVEALED / ERROR / VERIFIED / DISABLED` | Paste is allowed; reveal is explicit and resets when the app backgrounds; value never appears in logs, recents, or summaries | Announces visibility and validation only, never reads the secret aloud automatically | `OutlinedTextField` |
+| `confirmation-input` | instruction, exact token, input, match state | `RESTORE / ERASE / CLEAR`; empty/mismatch/matched; machine `EMPTY / MISMATCH / MATCHED / DISABLED` | Case-sensitive exact match enables the adjacent action; paste may be allowed but cannot bypass preflight | Error explains mismatch without repeating sensitive data | `OutlinedTextField` |
+| `slider-field` | label, current value, min/max, slider | ready/adjusting/focused/disabled | Used only when intermediate values matter, currently camera overlay opacity; every value is also editable through accessibility actions | Announces label and percentage; increase/decrease actions are exposed | `Slider` |
+| `validation-summary` | heading, count, ordered error links | hidden/invalid/focused/cleared | Appears after submit when two or more fields fail; field errors remain inline; selecting a row focuses the exact field | Assertive only for blocked submit; first error receives focus once | `Surface` |
+
+Controls never silently reset a valid hidden value. Disabled controls are exceptional: adjacent text must name the prerequisite and the preferred correction. At 200% font size, segmented choices may wrap into a vertical radio group rather than truncate.
+
+### State, progress, and recovery component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `empty-state-panel` | heading, factual explanation, optional one primary action | `FIRST_RUN / NO_CONTENT / NO_RESULTS / NO_HISTORY`; machine `VISIBLE / ACTION_BUSY` | Uses no decorative illustration; no-results preserves query/filter and exposes Clear; no-history never invents sample evidence | Heading first; action follows explanation | `Column` |
+| `loading-indicator` | indicator, optional stable label/percentage | indeterminate/determinate/inline; machine `HIDDEN / DELAYED / VISIBLE / COMPLETE` | Delayed until 300ms; never replaces already-readable local content; determinate mode uses authoritative progress only | Announces start and completion once, plus meaningful phase changes | Progress indicator |
+| `task-progress-card` | task heading, current phase, progress, prior safe state, cancel/retry where legal | `BACKUP / RESTORE / EXPORT / ERASE / MEDIA_RECOVERY`; lifecycle states; machine `PREPARING / RUNNING / VERIFYING / SUCCEEDED / FAILED / CANCELLED` | Phase names come from the operation contract; duplicate activation reuses the operation; irreversible phases remove Cancel | Polite phase announcements; focus stays on heading unless a failure action appears | `Surface` |
+| `recovery-panel` | cause, effect boundary, one primary recovery, optional safe fallback | `PERMISSION / PROVIDER / LOW_STORAGE / INTEGRITY / ARCHIVED_MEDIA / RESTORED_SESSION`; machine `VISIBLE / ACTION_BUSY / RESOLVED` | Names what still works; never implies local data loss when only a provider failed; one primary action owns recovery | Persistent live region; focus moves here only after the triggering action fails | `Surface` |
+| `verification-receipt` | verified/stale state, absolute time, scope/counts, destination or hash summary | `BACKUP / EXPORT / RESTORE / INTEGRITY`; verified/stale/failed/unavailable | A failed new attempt never overwrites the last verified receipt; technical IDs stay behind explicit details | Summary is one group; Details expands without moving primary action | `Surface` |
+
+Use skeletons only when the shape of delayed external/provider content is known. Local database lists render content, a factual empty state, or a persistent read error—never a fake network skeleton. A full-screen blocking spinner without phase text is prohibited.
+
+### History, evidence, and media component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `history-evidence-strip` | date/status, note excerpt, thumbnail, previous/baseline marker, visible previous/next controls | empty/ready/baseline/previous/archived; machine `EMPTY / READY / SCROLLING / BASELINE_SELECTED / PREVIOUS_SELECTED / ARCHIVED` | Newest relevant record starts selected; Exit defaults to tenancy baseline; horizontal swipe always has visible controls | `Modifier.semantics { collectionInfo = CollectionInfo(rowCount = 1, columnCount = itemCount) }`; no Role; selected evidence announces absolute date and relation | `LazyRow` |
+| `review-gap-row` | room/item, exact missing evidence, `Fix` | missing status/photo/note/blocked/fixing; machine `MISSING_STATUS / MISSING_PHOTO / MISSING_NOTE / BLOCKED / FIXING` | Ordered by room → item sort → evidence type; Fix returns to the exact control and does not mark completion | One button node; label includes missing requirement | `ListItem` |
+| `summary-stat` | decision number, full label, optional status icon | neutral/complete/attention/blocked | Used only for evidence totals and required decisions, never vanity metrics or charts | Number and label merge into one phrase | `Column` |
+| `evidence-grid` | 4:3 tiles, add/import affordance, selection summary | empty/ready/selection/archived/loading | Uses adaptive columns with minimum `144dp`; ordering is capture time then stable ID; selection never hides privacy/source metadata | `Modifier.semantics { collectionInfo = CollectionInfo(rowCount = resolvedRowCount, columnCount = resolvedColumnCount) }`; no Role; grid position is secondary to meaningful tile description | `LazyVerticalGrid` |
+| `media-source-sheet` | Camera, Import, optional bulk import; dependency explanation | single/bulk/audio; camera available/import only/error; machine `OPEN / CAMERA_AVAILABLE / IMPORT_ONLY / COMMITTING / ERROR` | Shows only sources the route can complete; permission denial keeps Import visible; selection launches one system surface | Pane title names target item; close returns to source action | `ModalBottomSheet` |
+| `media-assignment-row` | thumbnail, source/time, current room/item destination, assign action | unassigned/assigned/duplicate/invalid/saving | Bulk import copies and hashes first; duplicate/invalid items explain why they cannot commit; one asset maps to one explicit target per action | Announces file order without exposing raw path; action label names destination | `ListItem` |
+| `audio-evidence-control` | record/stop, state text, duration, saved-recording playback/history | idle/listening/processing/saved/playing/failed/unavailable/read only; machine `IDLE / LISTENING / PROCESSING_ON_DEVICE / SAVED / PLAYING / FAILED / UNAVAILABLE / READ_ONLY` | Each successful recording appends; saved recordings remain playable and are never deleted or detached. Finalized audio is read-only; original bytes and audit associations remain available for recovery and future reprocessing | Timer updates are throttled; state changes announced, waveform decorative | `Surface` |
+| `media-preview` | protected full media, metadata, privacy/archive state, close, contextual action | photo/audio; loading/ready/privacy/archived/error | Tenant-belongings photo uses secure surface; archived media offers recovery rather than broken-image copy | Pane title identifies room/item; zoom/playback has labelled controls; close restores source tile | Full-screen `Dialog` |
+### Backup, report, health, and compliance component matrix
+
+| Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
+| --- | --- | --- | --- | --- | --- |
+| `backup-health-card` | last verified receipt, latest attempt, scope, primary action | not configured/ready/running/verified/stale/failed | Always preserves the previous verified fact; v1 scopes are `All app data` and `This property` | Heading + grouped receipt; failure recovery is the final focus stop | `Surface` |
+| `destination-row` | provider icon, display name, availability, free-space/access state, choose action | not selected/available/offline/revoked/low space; machine `NOT_SELECTED / AVAILABLE / PROVIDER_OFFLINE / ACCESS_REVOKED / LOW_SPACE` | Shows provider display name, never raw URI; changing destination does not delete prior backups | Role `button`; label states current destination and result of activation | `ListItem` |
+| `task-stepper` | ordered labelled phases and one current marker | `BACKUP / RESTORE / ERASE`; upcoming/current/complete/failed | Shows no fake percentage; completed steps remain visible; restore uses choose → unlock → verify → review → replace | One progress group; current phase is announced once | `Column` |
+| `preflight-summary` | object/scope, counts, space, retained/removed facts, blockers | `RESTORE / ERASE / MEDIA_CLEANUP / SHARE`; checking/ready/blocked/stale | Must be recomputed before irreversible commit; stale preview blocks execution and offers Refresh | Heading and included/retained lists; blocker action focuses the cause | `Surface` |
+| `disclosure-list` | labelled included/excluded/retained items, optional details | included/excluded/impact/retained; collapsed/expanded | Critical privacy or deletion facts start expanded; collapse never hides the sole warning | List semantics; expansion state announced | `Column` |
+| `health-issue-row` | state, occurrence time, exact impact, one owning action | six authoritative health states; machine `BACKUP_STALE / BACKUP_FAILED / INTEGRITY_FAILED / RESTORE_ROLLED_BACK / PREVIOUS_CRASH / STARTUP_SLOW` | No healthy vanity rows or charts; only current actionable states render | Row label includes issue, time, and action result | `ListItem` |
+| `share-boundary-callout` | boundary icon, what leaves, temporary-grant fact | PDF/notice/diagnostic; machine `VISIBLE / ACKNOWLEDGED` | Appears before every external open/share/copy handoff; acknowledgement does not claim delivery | Grouped warning; external action follows immediately | `Surface` |
+| `notice-delivery-row` | notice date, inspection date, delivery method/time, validation | draft/valid/blocked/copied/recorded | Copy means copied, never sent; Record delivery requires method and time and reruns compliance checks | Status is text + icon; blocked action focuses exact invalid field | `ListItem` |
+| `compliance-check-row` | requirement, current evidence/value, result, correction | not checked/pass/fail/not applicable/correcting | Core result is authoritative; Fail remains visible and cannot be dismissed | Result and reason merge; correction action focuses evidence/value | `ListItem` |
+| `remediation-suggestion-card` | source, classification, safe suggestion, include/exclude, disclaimer link | on-device/remote; ready/generating/accepted/rejected/failed/offline | On-device remains available; remote generation is explicit, cancellable, and never blocks report/finalize | Source and non-professional boundary are announced before Include | `Surface` |
+| `report-action-sheet` | Open PDF, Share, Export another quality, boundary copy | open/preparing/handing off/error/closed | Actions are mutually exclusive while busy; success means system handoff opened, not delivery/storage | Pane title `Report actions`; focus returns to finalized report row | `ModalBottomSheet` |
+
+Report audience uses `radio-group` (`Landlord report`, `Tenant report`) because the consequence copy differs. PDF/photo quality and diagnostic date range use `segmented-control` when all labels fit; at 200% text they become the same choices in a vertical `radio-group`. Theme mode uses `radio-group` in `THEME_MODE_SHEET`. Backup password and provider API key use `secure-input-field`; `RESTORE`, `ERASE`, and contact-clear tokens use `confirmation-input`.
+
+### Element completeness gate
+
+An in-scope screen is design-complete only when all of the following are declared:
+
+1. Page type, shell, parent, entry focus, Back/Cancel result, and process-restoration rule.
+2. First-viewport decision, main content, one primary action, and scroll/inset owner.
+3. Empty, loading, populated, busy, success, recoverable failure, blocking failure, offline/provider, permission, and low-storage states where the page can encounter them.
+4. Every control's enabled, pressed, focused, selected, busy, error, and disabled rendering where applicable; disabled copy names the prerequisite.
+5. TalkBack role/name/state/value, focus entry/return, 48dp touch target, 200% text reflow, dark theme, and reduced-motion outcome.
+6. Destructive scope and confirmation, sensitive-surface protection, and external-sharing boundary where applicable.
+7. Stable component ID, Compose name, state model, focus key, test-tag pattern, and owning route/task.
+
+If a state cannot occur, the page contract marks it `NOT_APPLICABLE` with the invariant that excludes it. Omitting a state silently is not acceptable.
+
 ### App bars and progress
 
-The top app bar names the current property or room and exposes only navigation and one overflow menu. The missing-evidence strip sits immediately below it whenever work remains. Its copy names the exact next gap, for example `2 photos and 1 note still needed`; tapping moves focus to the next missing item.
+Outside capture, labelled bottom navigation contains `Properties`, `Schedule`, and `Settings`; the selected destination uses a filled Material symbol and the others use the matching outlined form. Inside capture, the top app bar names the property and room and exposes Back plus one overflow menu. The missing-evidence strip sits immediately below it whenever work remains. Its copy names the exact next gap, for example `2 photos and 1 note still needed`; tapping moves focus to the next missing item.
 
-Room navigation is a horizontally scrollable row of labelled progress segments. Each room shows name plus completion count. Do not reduce rooms to unlabeled dots.
+Room navigation is a horizontally scrollable row of labelled progress segments. Each room shows name plus completion count. Visible previous/next controls and the bottom dock provide alternatives to swiping; do not reduce rooms to unlabeled dots or make a gesture the only route.
 
 ### Inspection item card
 
@@ -1451,11 +1674,33 @@ An item card is the central component. Its default state shows the item name, ev
 
 The evidence rail has three semantic segments in a stable order: status, photo, note. A complete segment uses primary; missing-required evidence uses amber; a compliance-blocked segment uses red; optional/irrelevant evidence uses neutral with a dash. Add a short accessible description such as `Status complete, photo missing, note complete`.
 
+The whole rail is one TalkBack node, not three tiny focus stops. A status change announces the new status and any newly required evidence. Expanding an item preserves its position; collapsing it returns focus to the item heading.
+
+#### Card density and interaction contract
+
+Exactly one item is expanded at a time because restoration stores one `expandedStableId`. Opening another item first crosses the save barrier, then collapses the previous detail while preserving its visible status and missing-evidence summary.
+
+| Card state | Visible content | Interaction rule |
+| --- | --- | --- |
+| `UNRATED` | Rail, item title, optional prior-status summary, paired `OK` / `Needs attention` choices | The title row toggles detail only; it never changes status. Status controls are separate focus/tap targets |
+| `OK_COMPACT` | Check, `OK`, retained photo/note counts, `Change` | Evidence is preserved. Re-rating never deletes notes or photos |
+| `ATTENTION_EXPANDED` | Detailed status, exact required evidence, phrase/voice/note, photo actions | No auto-advance or auto-collapse; the user verifies evidence before leaving |
+| `ATTENTION_COMPACT` | Attention label, detailed status, missing/complete evidence sentence, `Review` | Amber remains only while core reports missing required evidence |
+| `NOT_APPLICABLE` | Dash, explicit label, `Change` | Existing evidence is retained but labelled optional; no silent deletion |
+| `SAVE_FAILED` | Current state plus persistent failure banner | Keeps current value, focus, and editing controls; navigation waits for recovery |
+| `READ_ONLY` | Sealed status/evidence summary and finalized timestamp | Editing affordances are removed rather than rendered as dead controls; Supplements belong to the later owning card |
+
+Status changes follow a preservation rule: changing `Needs attention` to `OK` or `Not applicable` never deletes evidence; changing to an adverse status immediately recomputes and states the newly required photo/note. `Mark remaining items OK` names the exact count, affects only eligible unrated items in the current room, requires confirmation, and offers Undo. It never overwrites an existing status or a suppressed property item.
+
+At widths where two 56dp choices cannot fit their full labels, they stack vertically instead of abbreviating. No card fixes its height; at 200% text the title, status, and exact missing reason wrap in full.
+
 ### Buttons and selection controls
 
 Use full-width or paired large buttons, never dropdowns, for condition/status choices. Only one visually primary action appears in a decision region. Secondary actions use a filled tonal treatment; tertiary actions use text plus icon without adding another card.
 
 Button labels describe the result: `Start inspection`, `Take room photo`, `Mark remaining items OK`, `Finish inspection`, and `Clear contact info`. Keep the same verb in confirmation and success feedback.
+
+Use Material Symbols Outlined at `24dp` for ordinary actions and the filled equivalent only for the selected top-level destination or a committed state. Icons never replace labels for capture, compliance, privacy, delete, finalize, backup, or restore. Every target is at least `48×48dp` with at least `8dp` between adjacent targets; pressed feedback begins within 100ms without changing layout bounds.
 
 ### Notes, phrases, and voice
 
@@ -1467,7 +1712,20 @@ Voice recording and transcription states are explicit: `Listening`, `Processing 
 
 Photo slots use a 4:3 thumbnail, source label (`Camera` or `Imported`), capture time, and privacy state. Required photos show an amber empty slot with the exact reason. Do not use a generic image placeholder when the user needs to know whether a room panorama or defect close-up is missing.
 
-The camera view keeps the shutter as the largest control. Ghost overlay is approximately 30% opacity with a labelled slider and `Overlay off/on`; it must never be baked into the saved photo. After capture, show rotation-correct preview, retake, privacy flag, and confirm before leaving the item.
+The camera view keeps the shutter as the largest control. Ghost overlay is approximately 30% opacity with a labelled slider and `Overlay off/on`; it must never be baked into the saved photo. Capture first creates a temporary asset. The review step then shows the rotation-correct preview, source/time, `Retake`, privacy flag, and `Use photo`; only `Use photo` associates it with evidence. System Back from this review confirms discarding the temporary capture.
+
+The shutter remains operable with TalkBack and hardware volume keys where platform behaviour permits. Flash, overlay, privacy, and close controls sit on opaque scrims and never depend on the preview image for contrast. Rotation or camera failure preserves the inspection item and offers a specific retry or import fallback.
+
+`privacy_flag` means **the photo contains tenant belongings**. It is an evidence classification, not a generic “hide this photo” preference. The capture and photo-tile label is therefore `Contains tenant belongings`; when on, supporting copy reads `Excluded from landlord and tenant reports by default`. Export includes it only after an explicit override; capture UI never implies that toggling the flag deletes, encrypts, or hides local evidence.
+
+### Product language contract
+
+- Use plain English outcome labels. Never show ISO timestamps, UUIDs, database enums, operation IDs, `privacy_flag`, or temporary-file terminology.
+- Counts use complete, plural-aware phrases: `1 photo needed`, `2 photos needed`, `1 item needs review`; never `1 items` or icon-only badges.
+- Save copy is local and factual: `Saved on this device`, `Saving…`, `Couldn’t save Kitchen sink. Try again or keep editing.` Offline is not mentioned for local writes.
+- Camera recovery names the next step: `Camera permission is off. Allow it in Settings or import a photo.` Avoid `Something went wrong` where a recovery is known.
+- Confirmation text names object, scope, and persistence: `Mark 12 unrated Kitchen items OK? Existing ratings will not change.`
+- Relative time supports but never replaces an absolute date on evidence: `3 months ago · 19 May 2026`.
 
 ### Compliance and destructive actions
 
@@ -1477,7 +1735,36 @@ Irreversible contact clearing uses the established type-to-confirm dialog. The d
 
 ### Empty, loading, and offline states
 
-Empty states provide a next action: `No properties yet` pairs with `Add property`; an item with no history says `No earlier inspection for this item` without inventing sample data. Local reads should not show network-style spinners. Save feedback is quiet (`Saved on this device`) and only becomes prominent when a write fails.
+Empty states provide a next action: `No properties yet` pairs with `Add property`; an item with no history says `No earlier inspection for this item` without inventing sample data. Local reads never show network-style spinners.
+
+Draft writes use one deterministic feedback ladder:
+
+- **Saved:** quiet `Saved on this device` metadata; no toast for every edit.
+- **Saving:** shown only when a write exceeds 300ms; the edited value stays visible and controls do not jump.
+- **Failed:** persistent inline banner with the affected room/item, `Try again`, and `Keep editing`; user input remains in memory until saved or explicitly abandoned.
+- **Recovered:** after process death, a single acknowledgement names the restored property and room, then focus returns to the last item. Do not show a generic success toast.
+- **Provider unavailable:** backup, restoration, or optional LLM actions explain the missing permission/network and offer the exact recovery action. Capture remains usable.
+
+Use snackbar only for transient, non-blocking results with an immediate undo, such as reverting an item just marked `Not present`. Field errors stay beside the field; compliance/data-integrity failures use persistent panels; destructive confirmation uses a dialog or full-screen review.
+
+## Motion and haptics
+
+- Press feedback is immediate; standard state transitions use `motion.stateChangeMs` (`180ms`), sheet entry 250ms, and exit 150ms with Material easing. Motion communicates expansion, hierarchy, or save completion and never decorates a static screen.
+- Animate opacity and transform only; card-height animation never moves the next tap target under the user. Item detail uses `AnimatedVisibility` only when interruption leaves the final state deterministic.
+- Reduced-motion mode removes translation, shared-element, pulsing, and repeated progress animation. State changes remain legible through text, icons, and a brief non-moving tonal change.
+- Use one light haptic for a committed status, photo confirmation, or successful finalize. Use a stronger warning haptic only for a blocking failure or destructive confirmation; never vibrate on scrolling, typing, or every navigation tap.
+
+Infinite pulse and indefinite ambient animation are forbidden.
+Motion must not cause layout shift.
+
+## Accessibility contract
+
+- Reading order follows visible order: screen title → blocking/missing summary → room progress → item list → bottom action. Custom semantics must not reorder evidence away from its item.
+- Every meaningful photo description includes room/item, source, capture time if present, and privacy/archived state. Decorative rails and dividers have no separate content description.
+- Status, save, camera, and compliance changes are announced as state changes, not encoded only through color or motion. Repeated save announcements are suppressed.
+- At 200% system font size, labels wrap, bottom actions grow vertically, and counts use full words. No required action, date, status, or missing-evidence message is ellipsized.
+- Focus returns predictably after sheets, dialogs, camera review, and error correction. `Review missing evidence` focuses the exact missing control, not merely the containing screen.
+- Touch exploration and Android predictive Back must not conflict with room/history horizontal scrolling. Every swipe-only affordance has a visible control alternative.
 
 ## Do's and Don'ts
 
@@ -1488,10 +1775,14 @@ Empty states provide a next action: `No properties yet` pairs with `Add property
 - Do show the exact missing evidence and navigate directly to it.
 - Do use plain English UI terms even when reports contain parallel English and Chinese.
 - Do preserve system back, font scaling, screen-reader order, and minimum `48dp` targets.
+- Do restore property, room, item expansion, and scroll context after interruption.
+- Do keep one visible recovery action with every persistent error.
 - Don't treat the temporary walking skeleton as a component or spacing reference.
 - Don't use dropdowns for inspection status or hide primary capture actions in overflow.
-- Don't turn every block into a rounded card; grouping should come from spacing and tonal layers first.
+- Don't turn every block into a rounded card; grouping comes from spacing and tonal layers first.
 - Don't use gradients, glass effects, decorative illustrations, or soft floating shadows in the capture flow.
 - Don't use red for ordinary incompleteness, amber for destructive actions, or privacy violet for defects.
 - Don't auto-advance after a destructive choice or a newly recorded defect; let the user verify evidence first.
+- Don't make finalize look available-but-dead; use `Review N missing items` until the inspection is complete.
+- Don't use toast-only save errors, gesture-only navigation, or disabled controls without an explanation.
 - Don't imply cloud sync, automatic notice sending, diagnosis, cost estimates, or any other excluded capability.
