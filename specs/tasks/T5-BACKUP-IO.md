@@ -10,7 +10,7 @@ plan_ref: context/DESIGN.md#offline-and-data-protection-experience
 backup_scopes: [full, property]
 backup_states: [NOT_CONFIGURED, READY, RUNNING, VERIFIED, PROVIDER_UNAVAILABLE, AUTHORIZATION_REVOKED, NEEDS_UNLOCK, NEEDS_PASSPHRASE, LOW_STORAGE, FAILED]
 acceptance:
-  - "A1 full and property backup states expose NOT_CONFIGURED through FAILED, PREPARING then ENCRYPTING then WRITING then VERIFYING, and only finish with a verified receipt"
+  - "A1 full and property backup states expose NOT_CONFIGURED through FAILED and PREPARING then ENCRYPTING then WRITING then VERIFYING; supported full backups only finish with a verified receipt, while property v1 compatibility exports have no recoverable receipt and are not restorable"
   - "A2 restore expands into staging, supports recovery cleanup and rollback, and uses verify-before-replace so the live data is untouched until verification passes"
   - "A3 provider, authorization, storage, and secret failures are distinct; secrets are referenced from protected storage and never exported or logged"
   - "A4 local/USB export and restore work in flight-mode without an account or network dependency"
