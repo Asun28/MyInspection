@@ -54,33 +54,26 @@ doc_sync: CLAUDE.md + docs/SCAFFOLD-SYNC.md + docs/DELIVERY-CHAINS.md + docs/DEV
 
 ## 产出
 
-把原来重载的单一 `ScaffoldVersion` 拆成两个事实：`ScaffoldOriginVersion` 保存 MyInspection 的
-v0.29.0 生成来源，`ScaffoldVersion` 表示已裁决到的当前上游版本 v0.45.0。同时在 fleet 决策账新增
-一条可审计的 `partial` 结论，让外部工具与上游不再把本仓误认成仍停在 v0.29.0。
+拆分原来重载的 `ScaffoldVersion`：`ScaffoldOriginVersion` 保留 v0.29.0 生成来源，
+`ScaffoldVersion` 表示已裁决到 v0.45.0，并以 fleet `partial` 决策账留痕。
 
 ## 已核对结论
 
-- group 2 已由本地下游先行实现并合入 `f9070ff`：账本完整性、公共 issue 内容守卫与远端身份判断
-  均有本地等价或更强实现，`scaffold-sync selfcheck` 已覆盖其敌意输入。
-- group 1 与 group 3 有本地部分等价实现，但仍分别缺 upstream 的完整共享 metadata 路径与
-  PSGallery 注册/重试硬化；不能记作完整 applied。
-- group 4 的 round corpus/memory、conditional rubric、tracked redacted record、size-keyed effort 与
-  `rubric-detail.md` 拆分未落地；但本卡会回填与当前 20 分钟超时直接相关的 seeded shard split，其余仍 deferred。
+- group 2 已由 `f9070ff` 等价或更强实现：严格账本、公共 issue 守卫、远端身份判断。
+- group 1/3 仍缺完整共享 metadata 路径与 PSGallery 硬化，只能记 partial。
+- group 4 仍 deferred；本卡仅取与 20 分钟超时直接相关的 seeded shard split。
 
 ## Selftest 时延
 
-- GitHub run `32903457840` 的 Windows `seeded` job 实测 22m34s；core 约 3m、workflow 约 6m。
-- 保留 gate 17 全覆盖与双 OS，只把现有 seeded 内容按独立顶层区分成 git/remote/scanner 三片。
-- 兼容的 `-Shard seeded` 与本地 `all` 不改语义；CI 增加并行度以把 wall time 限制在最慢子片。
-- Windows 本地实测（并行启动）：`seeded-git` 12m39s、`seeded-remote` 3m45s、修正 liveness 后的
-  `seeded-scanner` 8m28s；最慢子片比 20 分钟上限少 7m21s。
-- `workflow` 7m53s、`scripts/verify.ps1` 17s 均全绿。`core` 的新 8.0b/8.2e 断言已通过，随后只在
-  既有且已另卡 deferred 的 14g 探针清单漂移处失败；本卡不扩张修该历史债。
+- GitHub run `32903457840` 的 Windows `seeded` job 为 22m34s。
+- gate 17 与双 OS 不变；CI 拆为 git/remote/scanner，legacy `seeded` 与本地 `all` 语义不变。
+- Windows 本地：12m39s / 3m45s / 8m28s，均低于 20 分钟；workflow 7m53s、verify 17s。
+- core 新断言通过；随后仅在已 deferred 的 14g 历史漂移处失败，不扩卡处理。
 
 ## 版本语义
 
-- `ScaffoldOriginVersion`：本项目首次生成时的版本，只在重新生成一个新项目时由 init 设成源树的 current。
-- `ScaffoldVersion`：本项目已经逐版裁决到的当前版本，须与决策账高水位一致。
+- `ScaffoldOriginVersion`：首次生成版本；init 新项目时设为源树 current。
+- `ScaffoldVersion`：已裁决的当前版本，与决策账高水位一致。
 - ledger 缺失或损坏时只允许回退 origin；回退 current 会把未裁决版本静默隐藏。
 
 ## 验收（DoD = 命令 + 退出码 + 断言）
