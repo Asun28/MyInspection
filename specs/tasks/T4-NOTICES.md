@@ -14,6 +14,12 @@ forbid:
   - app 发送任何通知（短信/邮件皆禁——生成+复制，人工发送后回记；需求 §10 [定]）
 non_goals:
   - 送达凭证附件管理（v1 只记录字段）；通知模板编辑 UI（永不做）
+plan_ref: context/DESIGN.md#backup-report-health-and-compliance-component-matrix
+acceptance:
+  - "A1 notice center and compose cover draft, valid, blocked, copied, and recorded states"
+  - "A2 Copy never means sent; Record delivery requires method and time and states the notice was not sent by the app"
+  - "A3 compliance correction preserves the share boundary"
+  - "A4 focus return is deterministic, lock-screen address is redacted, and there is no background send"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.notice.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
 dod_assert: 生成前先过合规引擎（Blocked 则拒并给 reason）；生成产物=渲染后全文（含物业/时间/法定提前量声明，双语）；存档记录含全文快照/生成时间/预定巡检时间/送达方式枚举/送达时间/计算提前量小时/校验结果快照——**存快照非模板 id**（需求 §10）；回记送达后提前量重算并锁定；测试覆盖「送达时刻使提前量掉出 48h–14d 窗」告警

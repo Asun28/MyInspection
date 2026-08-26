@@ -14,6 +14,12 @@ forbid:
   - 把提醒节奏当法律限制展示（13 周是提醒节奏；法律上限在合规引擎——两层别混，需求 §3）
 non_goals:
   - 日历集成/外部日历写入（v1.1）；自定义节奏 UI（默认 13 周，常量配置即可）
+plan_ref: context/DESIGN.md#structure-list-and-discovery-component-matrix
+acceptance:
+  - "A1 due, empty, and filter views use a state badge"
+  - "A2 each property opens the correct inspection route"
+  - "A3 schedule uses a 13-week local reminder cadence"
+  - "A4 scheduling works offline and explains permission failure"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.schedule.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
 dod_exit: 0
 dod_assert: 下次应巡建议 = 上次同类型 finalize 后 +13 周（按物业/类型算，测试绿）；建议时刻先过合规引擎再入提醒；到期本地通知（AlarmManager/WorkManager 任一，重启后存活）；assembleDebug 绿
