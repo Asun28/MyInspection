@@ -21,7 +21,7 @@ non_goals:
 health_states: [BACKUP_STALE_7D, BACKUP_FAILED_3X, INTEGRITY_FAILED, RESTORE_ROLLED_BACK, PREVIOUS_CRASH, STARTUP_SLOW]
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleRelease
 dod_exit: 0
-dod_assert: HealthStateReducer 只从 typed events/authoritative receipts 产生 BACKUP_STALE_7D、BACKUP_FAILED_3X、INTEGRITY_FAILED、RESTORE_ROLLED_BACK、PREVIOUS_CRASH 与 STARTUP_SLOW 状态，跨 retention 保持 latch，跨不同 occurrence 清除全局状态，事件到可见提示 ≤1s 且每状态只有一个明确恢复动作；崩溃边界只保存 source kind/exception class/build id/allowlisted frame identifiers/reason code，不存 message/业务内容，Android 11+ 只映射明确异常 ApplicationExitInfo、pre-30 只认原子 uncaught marker，同一 source 只提示一次；诊断/健康写入失败不改变任何业务结果；每个 release 生成受保护符号回执：minified 构建记录 build id/mapping SHA-256/受控存放确认并以固定 obfuscated fixture 本地反混淆，错 build 拒绝，未混淆构建显式 NOT_MINIFIED 且不得宣称存在 mapping；app unit tests、assembleRelease 与 release checklist 断言全绿
+dod_assert: HealthStateReducer 只从 typed events/authoritative receipts 产生 BACKUP_STALE_7D、BACKUP_FAILED_3X、INTEGRITY_FAILED、RESTORE_ROLLED_BACK、PREVIOUS_CRASH 与 STARTUP_SLOW 状态，跨 retention 保持 latch，跨不同 occurrence 清除全局状态，事件到可见提示 ≤1s 且每状态只有一个明确恢复动作；崩溃边界只保存 source kind/exception class/build id/allowlisted frame identifiers/reason code，不存 message/业务内容；port 单测穷举 Android 11+ 所有 ApplicationExitInfo reason，精确接受 CRASH/CRASH_NATIVE/ANR/INITIALIZATION_FAILURE/EXCESSIVE_RESOURCE 并拒绝其余，pre-30 只认原子 uncaught marker，同一 source 只提示一次；API30+ 真机记录受控 crash 后连续两次重启仅一次提示/event、force-stop/正常退出零提示、诊断写失败仍启动且不重复，pre-30 真机或受控兼容设备记录 marker 一次消费；每个 release 生成受保护符号回执：minified 构建记录 build id/mapping SHA-256/受控存放确认并以固定 obfuscated fixture 本地反混淆，错 build 拒绝，未混淆构建显式 NOT_MINIFIED 且不得宣称存在 mapping；app unit tests、assembleRelease 与 release checklist 断言全绿
 review_gate: codex {verdict:pass}
 hygiene: 每个阈值、脱敏字段和 mapping 回执条件各有单点变异，任何删除/放宽均命中具名失败（R4）
 doc_sync: SECURITY、DATABASE-DESIGN、TASK-BOARD 与 T7-SMOKE-POLISH 记录 release 证据（R5）
@@ -36,6 +36,8 @@ doc_sync: SECURITY、DATABASE-DESIGN、TASK-BOARD 与 T7-SMOKE-POLISH 记录 rel
 ## 崩溃边界
 
 Android 11+ 仅把 CRASH/CRASH_NATIVE/ANR/INITIALIZATION_FAILURE/EXCESSIVE_RESOURCE 映射为 actionable reason；低内存、用户停止、更新等不提示，source ID 只由 immutable exit fields 派生且不读取 description/trace/summary。Android 10 及以下只认 no-backup 原子 uncaught-Java marker，不从缺少 clean shutdown 推断。durable claim ledger 保证同一 source 至多一次提示，即使诊断写入失败也不重复。
+
+发布证据必须包含可审计设备记录：API30+ 受控 crash 后连续启动两次，仅第一次出现提示且仅一条事件；force-stop 与正常退出不提示；注入 diagnostics 打开/写失败后业务仍启动、同一 source 不重复。pre-30 在真机或受控兼容设备上触发一次 uncaught marker，连续启动证明一次消费。每条记录设备/API/build ID、步骤、预期/实际、事件计数和截图/日志摘要；port 单测另穷举平台 reason 闭集及所有 ignored reasons。
 
 ## Release mapping 证据
 

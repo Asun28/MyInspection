@@ -32,7 +32,7 @@ version_review: this card = the version review
 
 ## 产出
 
-新增独立 `MyInspectionDiagnosticsDatabase`。本卡以 version review 建立独立 diagnostics schema version、对应 `.sqm` 与 schema snapshot。`diagnostic_run` 归一化进程稳定环境，`operation_event` 保存 UUIDv7 事件 ID 与数据库分配的因果 `sequence_no`，`diagnostic_counter` 在同事务分配序号，`diagnostic_health` 保存有界 latch。普通读取只见 `deleted_at IS NULL`；仅 retention owner 可软删并分批物理裁剪。
+新增独立 `MyInspectionDiagnosticsDatabase`。本卡以 version review 建立独立 diagnostics schema version、对应 `.sqm` 与 schema snapshot。`diagnostic_run` 归一化进程稳定环境，`operation_event` 保存 UUIDv7 事件 ID 与数据库分配的因果 `sequence_no`，`diagnostic_counter` 在同事务分配序号，`diagnostic_health` 保存有界 latch。普通读取只见 `deleted_at IS NULL`。retention owner 只能软删/分批物理裁剪过期 event 及已无 active event 的 orphan run；counter 行永不删除，active/global health 永不裁剪，只有超过 90 天的 inactive scoped health 行可软删后分批物理裁剪。
 
 事件只能由 sealed/typed `OperationEventRecorder` 产生。operation、outcome、reason、scope、context 和健康转移必须逐项实现 `docs/DATABASE-DESIGN.md` 的 registry v1；未知值 fail closed。备份只记 terminal `BACKUP_RESULT`，不记 start；周期触发与每次逻辑 occurrence 的 UUIDv7 correlation ID 分离，retry 复用同一 occurrence。
 

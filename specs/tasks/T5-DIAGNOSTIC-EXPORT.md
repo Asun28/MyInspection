@@ -20,9 +20,9 @@ forbid:
 non_goals:
   - 数据库修复/编辑器、客服账号、云端日志平台、崩溃分析 SDK
   - 备份替代品；诊断包不能恢复数据
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.diagnostics.export.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.diagnostics.export.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: 设置页明确展示包含/排除项；默认 7 天且只允许 7/30/90 天、最多 90 天；导出只含版本化 manifest、allowlisted events、quick_check 结果与计数摘要；无 serial/account/network id/精确路径；SAF 保存和临时只读 content:// 分享均可离线完成；取消/失败不留可分享残件且临时授权按生命周期撤回；输出 manifest/hash 自校验，恶意夹具验证成品零命中地址、姓名、联系方式、备注/转写、URI、token 与 CRLF；admin/support 无写入口
+dod_assert: 设置页明确展示包含/排除项；默认 7 天且只允许 7/30/90 天、最多 90 天；导出只含版本化 manifest、allowlisted events、quick_check 结果与计数摘要；无 serial/account/network id/精确路径；core+app unit tests 与 assemble 绿；SAF 保存和临时只读 content:// 分享均可离线完成；所有取消/失败路径不留可分享残件，单元测试和真机记录分别证明 chooser 取消、SAF 拒绝/写失败、自校验失败均删除 staging/未发布副本，分享完成或取消后显式 revoke 且旧 URI 再读失败；输出 manifest/hash 自校验，恶意夹具验证成品零命中地址、姓名、联系方式、备注/转写、URI、token 与 CRLF；admin/support 无写入口
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: specs/tech-debt-tracker.md 将 TD136 置 paid；docs/DATABASE-DESIGN.md、SECURITY.md、TASK-BOARD 更新（R5）
@@ -38,4 +38,4 @@ doc_sync: specs/tech-debt-tracker.md 将 TD136 置 paid；docs/DATABASE-DESIGN.m
 
 ## 验收
 
-真机飞行模式完成一次 SAF 保存与一次系统分享。成品禁地址、姓名、联系方式、备注/转写、媒体路径、SAF URI、token、provider body 与 CRLF；恶意夹具对最终包解包逐字节扫描，全部禁项零命中。manifest 缺项、额外文件、hash/size 不符、越界时间窗和未知 registry version 都 fail closed。
+真机飞行模式记录五条独立证据：SAF 成功保存、chooser 取消、SAF provider 拒绝/中途失败、分享成功后 revoke、分享取消后 revoke。每条记录步骤、构建、前后 staging 文件集合与旧 `content://` 再读结果；取消/失败后不得有可分享残件，两条 revoke 后旧 URI 必须不可读。成品禁地址、姓名、联系方式、备注/转写、媒体路径、SAF URI、token、provider body 与 CRLF；恶意夹具对最终包解包逐字节扫描，全部禁项零命中。manifest 缺项、额外文件、hash/size 不符、越界时间窗和未知 registry version 都 fail closed。
