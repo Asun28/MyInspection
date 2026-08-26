@@ -117,7 +117,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'skip-ledger', 'seeded-nogit-routing')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'skip-ledger', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
   [string]$NoGitMutationNonce = '',
@@ -3945,6 +3945,12 @@ try {
 }
 
 # --- 9. .claude 设置 / 钩子完整性：settings.json 合法 + 其引用的钩子文件存在 ---
+if ($Fixture -eq 'through-gate8') {
+  if ($fail) { Write-Host (Format-SelftestFailureSentinel -Shard core -GateIds $failedSelftestGateIds) -ForegroundColor Red; exit 1 }
+  Write-Host '[SELFTEST-FIXTURE] through-gate8 PASS' -ForegroundColor Green
+  exit 0
+}
+
 Step '9/17 .claude 设置/钩子完整性（settings.json 合法 + 引用钩子存在 + .mcp.json 合法 + vendored skill NOTICE 溯源）'
 $settings = Join-Path $RepoRoot '.claude/settings.json'
 if (-not (Test-Path $settings)) { Skip-SelftestCheck -GateId '9' -Reason 'FILE-MISSING' -Message '  无 .claude\settings.json，跳过。' }

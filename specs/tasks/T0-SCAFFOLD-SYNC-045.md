@@ -28,9 +28,9 @@ non_goals:
 diagnosis:
   root_cause: ScaffoldVersion 混用了 origin/current；Windows seeded 实测 22m34s，超过 20 分钟预算
   same_class: 已扫配置、check/report、triage、init、gate 8/17、license 接线、CI 与权威文档
-dod_command: pwsh -NoProfile -File scripts/check-cards.ps1 -TaskId T0-SCAFFOLD-SYNC-045; if ($LASTEXITCODE) { exit 1 }; & pwsh -NoProfile -File scripts/scaffold-sync.ps1 selfcheck; if ($LASTEXITCODE) { exit 1 }; $out = (& pwsh -NoProfile -File scripts/scaffold-sync.ps1 check 2>&1 | Out-String); if ($LASTEXITCODE -or $out -notmatch 'evaluated up to v0\.45\.0; no newer upstream release') { exit 1 }; foreach ($s in 'git','remote','scanner') { & pwsh -NoProfile -File scripts/selftest.ps1 -Shard "seeded-$s"; if ($LASTEXITCODE) { exit 1 } }
+dod_command: pwsh -NoProfile -File scripts/check-cards.ps1 -TaskId T0-SCAFFOLD-SYNC-045; if ($LASTEXITCODE) { exit 1 }; & pwsh -NoProfile -File scripts/scaffold-sync.ps1 selfcheck; if ($LASTEXITCODE) { exit 1 }; $out = (& pwsh -NoProfile -File scripts/scaffold-sync.ps1 check 2>&1 | Out-String); if ($LASTEXITCODE -or $out -notmatch 'evaluated up to v0\.45\.0; no newer upstream release') { exit 1 }; & pwsh -NoProfile -File scripts/selftest.ps1 -Shard core -Fixture through-gate8; if ($LASTEXITCODE) { exit 1 }; foreach ($s in 'git','remote','scanner') { & pwsh -NoProfile -File scripts/selftest.ps1 -Shard "seeded-$s"; if ($LASTEXITCODE) { exit 1 } }
 dod_exit: 0
-dod_assert: origin=0.29.0、current=0.45.0；缺账回退 origin；check/triage/report 变异必红；三个子片绿
+dod_assert: origin=0.29.0、current=0.45.0；缺账回退 origin；core 1–8（init/CI/17 闸）与三个 seeded 子片绿
 acceptance:
   - A1 双版本、旧配置兼容；child origin=current；账本 fail-closed
   - A2 v0.45 partial 钉 tag；group 2 equivalent、1/3 partial、4 deferred
