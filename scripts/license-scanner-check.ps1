@@ -1272,12 +1272,24 @@ process.stdout.write(JSON.stringify({'fixture-app-dep@1.0.0': {licenses: 'MIT'}}
       $env:npm_config_cache = $handoffCache
       $env:npm_config_offline = 'true'
       $env:LICENSE_CHECKER_HANDOFF_MARKER = $handoffMarker
-      $handoffLockOutput = (& npm install --prefix $handoffFrontend --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | Out-String)
-      $handoffLockExit = $LASTEXITCODE
-      $handoffCiOutput = if ($handoffLockExit -eq 0) { (& npm ci --prefix $handoffFrontend --ignore-scripts --no-audit --no-fund 2>&1 | Out-String) } else { '' }
-      $handoffCiExit = if ($handoffLockExit -eq 0) { $LASTEXITCODE } else { $handoffLockExit }
-      $handoffInstallOutput = if ($handoffCiExit -eq 0) { (& npm install --prefix $handoffRoot --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String) } else { '' }
-      $handoffInstallExit = if ($handoffCiExit -eq 0) { $LASTEXITCODE } else { $handoffCiExit }
+      # Windows runners intermittently resolved `npm install --prefix <temp>` from the caller's repository cwd.
+      # Enter each intended package root instead, so npm's discovery scope and the later removal proof are identical.
+      Push-Location $handoffFrontend
+      try {
+        $handoffLockOutput = (& npm install --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | Out-String)
+        $handoffLockExit = $LASTEXITCODE
+        $handoffCiOutput = if ($handoffLockExit -eq 0) { (& npm ci --ignore-scripts --no-audit --no-fund 2>&1 | Out-String) } else { '' }
+        $handoffCiExit = if ($handoffLockExit -eq 0) { $LASTEXITCODE } else { $handoffLockExit }
+      } finally {
+        Pop-Location
+      }
+      Push-Location $handoffRoot
+      try {
+        $handoffInstallOutput = if ($handoffCiExit -eq 0) { (& npm install --no-save --package-lock=false --ignore-scripts $handoffPackage 2>&1 | Out-String) } else { '' }
+        $handoffInstallExit = if ($handoffCiExit -eq 0) { $LASTEXITCODE } else { $handoffCiExit }
+      } finally {
+        Pop-Location
+      }
       $handoffResult = if ($handoffLockExit -eq 0 -and $handoffCiExit -eq 0 -and $handoffInstallExit -eq 0) {
         Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
       } else { [pscustomobject]@{ ExitCode = $handoffInstallExit; Output = $handoffInstallOutput } }
@@ -1286,8 +1298,12 @@ process.stdout.write(JSON.stringify({'fixture-app-dep@1.0.0': {licenses: 'MIT'}}
         $handoffResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $handoffMarker) -and
         (Get-Content -LiteralPath $handoffMarker -Raw) -ceq 'fixture-app-dep@1.0.0'
       ) "[INTEGRATION-NPM-HANDOFF] locked app dependency tree + repository-root scanner warm-up did not feed the real offline scan (lock=$handoffLockExit ci=$handoffCiExit install=$handoffInstallExit scan=$($handoffResult.ExitCode)): lock=[$handoffLockOutput] ci=[$handoffCiOutput] install=[$handoffInstallOutput] scan=[$($handoffResult.Output)]"
-      Remove-Item -LiteralPath (Join-Path $handoffFrontend 'node_modules') -Recurse -Force
-      Remove-Item -LiteralPath $handoffMarker -Force
+      $handoffNodeModules = Join-Path $handoffFrontend 'node_modules'
+      Remove-Item -LiteralPath $handoffNodeModules -Recurse -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $handoffMarker -Force -ErrorAction SilentlyContinue
+      Assert-Integration (
+        -not (Test-Path -LiteralPath $handoffNodeModules) -and -not (Test-Path -LiteralPath $handoffMarker)
+      ) '[INTEGRATION-NPM-NEGATIVE-PREP] failed to remove node_modules or the invocation marker before the missing-tree proof'
       $missingModulesResult = Invoke-StrictOfflineLicenseScan -Path (Join-Path $handoffScripts 'check-licenses.ps1')
       Assert-Integration (
         $missingModulesResult.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $handoffMarker)
@@ -2829,11 +2845,11 @@ $constraintCoordinates = @($constraintResult.Coordinates)
 Assert-Graph ($constraintResult.Errors.Count -eq 0) "constraint fixture produced parser errors: $($constraintResult.Errors -join ' | ')"
 Assert-Graph (
   @($constraintCoordinates | Where-Object { $_ -ceq 'fixture.constraint:only:1.0' }).Count -eq 0
-) "constraint-only row entered resolved GAV set: $($constraintCoordinates -join ', ')"
+  ) "[GRAPH-CONSTRAINT-EXCLUSION] constraint-only row entered resolved GAV set: $($constraintCoordinates -join ', ')"
 Assert-Graph (
   $constraintCoordinates.Count -eq 1 -and
   $constraintCoordinates[0] -ceq 'fixture.actual:node:2.0'
-) "resolved duplicate GAV was not deduplicated: $($constraintCoordinates -join ', ')"
+  ) "[GRAPH-DEDUPLICATION] resolved duplicate GAV was not deduplicated: $($constraintCoordinates -join ', ')"
 
 $parserCases = @(
   @{
@@ -2905,11 +2921,11 @@ foreach ($case in $parserCases) {
   $actualCodes = @($result.Errors | ForEach-Object {
     if ($_ -match '\[(GRADLE-[A-Z-]+)\]\s*$') { $Matches[1] } else { 'UNCLASSIFIED' }
   })
-  Assert-Graph (($actualCoordinates -join ',') -ceq ($case.Coordinates -join ',')) "parser/$($case.Name) returned wrong GAVs: $($actualCoordinates -join ', ')"
-  Assert-Graph (($actualCodes -join ',') -ceq ($case.ErrorCodes -join ',')) "parser/$($case.Name) returned wrong error codes: $($actualCodes -join ', ')"
+  Assert-Graph (($actualCoordinates -join ',') -ceq ($case.Coordinates -join ',')) "[GRAPH-PARSER-GAVS:$($case.Name)] parser/$($case.Name) returned wrong GAVs: $($actualCoordinates -join ', ')"
+  Assert-Graph (($actualCodes -join ',') -ceq ($case.ErrorCodes -join ',')) "[GRAPH-PARSER-ERROR-CODES:$($case.Name)] parser/$($case.Name) returned wrong error codes: $($actualCodes -join ', ')"
   $diagnosticEdges = if ($case.ContainsKey('DiagnosticEdges')) { @($case.DiagnosticEdges) } else { @() }
   foreach ($diagnosticEdge in $diagnosticEdges) {
-    Assert-Graph (($result.Errors -join "`n").Contains($diagnosticEdge)) "parser/$($case.Name) omitted original edge text: $diagnosticEdge"
+    Assert-Graph (($result.Errors -join "`n").Contains($diagnosticEdge)) "[GRAPH-PARSER-DIAGNOSTIC:$($case.Name)] parser/$($case.Name) omitted original edge text: $diagnosticEdge"
   }
 }
 
@@ -2967,7 +2983,7 @@ try {
     $graphResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     $resolvedCoordinates = @($graphResult.Resolved | ForEach-Object Coordinate)
     Assert-Graph ($graphResult.Errors.Count -eq 0) "graph collector returned errors: $($graphResult.Errors | ConvertTo-Json -Compress)"
-    Assert-Graph ($invocations.Count -eq 4) "graph collector invoked $($invocations.Count) configurations instead of 4"
+    Assert-Graph ($invocations.Count -eq 4) "[GRAPH-CONFIGURATION-SET] graph collector invoked $($invocations.Count) configurations instead of 4"
     Assert-Graph (
       ($resolvedCoordinates -join ',') -ceq 'fixture.app:debug:1.0,fixture.app:release:1.0,fixture.core:runtime:1.0,org.testng:testng:7.0.0'
     ) "graph collector returned wrong concrete GAV set: $($resolvedCoordinates -join ', ')"
@@ -2987,12 +3003,12 @@ try {
         $_.Command -ceq $expectedWindowsWrapper -and
         ($_.Arguments -join "`u{001F}") -match "(?:^|`u{001F})--configuration`u{001F}$([regex]::Escape($configuration))(?:$|`u{001F})"
       })
-      Assert-Graph ($matchingCall.Count -eq 1) "Windows graph call for $configuration was not exact"
+      Assert-Graph ($matchingCall.Count -eq 1) "[GRAPH-WINDOWS-WRAPPER] Windows graph call for $configuration was not exact"
       if ($matchingCall.Count -eq 1) {
-        Assert-Graph ($matchingCall[0].GradleUserHome -ceq $gradleHome) "Windows $configuration did not bind preflighted GradleUserHome"
-        Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq '--offline' }).Count -eq 1) "Windows $configuration call omitted --offline"
+        Assert-Graph ($matchingCall[0].GradleUserHome -ceq $gradleHome) "[GRAPH-GRADLE-USER-HOME] Windows $configuration did not bind preflighted GradleUserHome"
+        Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq '--offline' }).Count -eq 1) "[GRAPH-OFFLINE] Windows $configuration call omitted --offline"
         Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq '--no-daemon' }).Count -eq 1) "Windows $configuration call omitted --no-daemon"
-        Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq $expectedConfigurations[$configuration] }).Count -eq 1) "Windows $configuration used wrong Gradle project task"
+        Assert-Graph (@($matchingCall[0].Arguments | Where-Object { $_ -ceq $expectedConfigurations[$configuration] }).Count -eq 1) "[GRAPH-PROJECT-CONFIGURATION] Windows $configuration used wrong Gradle project task"
       }
     }
     Assert-Graph ($env:GRADLE_USER_HOME -ceq $ambientColdHome) "graph collector did not restore ambient GradleUserHome"
@@ -3005,7 +3021,7 @@ try {
     Assert-Graph ($invocations.Count -eq 4) "Unix graph collector invoked $($invocations.Count) configurations instead of 4"
     foreach ($call in $invocations) {
       Assert-Graph ($call.Command -ceq 'sh') "Unix graph collector did not invoke sh: $($call.Command)"
-      Assert-Graph ($call.Arguments.Count -gt 0 -and $call.Arguments[0] -ceq $expectedUnixWrapper) "Unix graph collector did not pass gradlew as sh argv[0]"
+      Assert-Graph ($call.Arguments.Count -gt 0 -and $call.Arguments[0] -ceq $expectedUnixWrapper) "[GRAPH-POSIX-WRAPPER] Unix graph collector did not pass gradlew as sh argv[0]"
     }
 
     # Break caught: each nonzero Gradle subprocess must remain a graph error with target and exit code.
@@ -3021,9 +3037,9 @@ try {
     $failureLabels = @($failureResult.Errors.Configuration | Sort-Object)
     Assert-Graph (
       ($failureLabels -join ',') -ceq ':app:debugRuntimeClasspath,:app:releaseRuntimeClasspath,:core:runtimeClasspath,:core:testRuntimeClasspath'
-    ) "nonzero Gradle error lost target provenance"
+    ) "[GRAPH-SUBPROCESS-TARGET] nonzero Gradle error lost target provenance"
     foreach ($errorRecord in $failureResult.Errors) {
-      Assert-Graph ($errorRecord.Code -ceq 'GRADLE-SUBPROCESS' -and $errorRecord.ExitCode -eq 42) "nonzero Gradle error lost code/exit"
+      Assert-Graph ($errorRecord.Code -ceq 'GRADLE-SUBPROCESS' -and $errorRecord.ExitCode -eq 42) "[GRAPH-SUBPROCESS-EXIT] nonzero Gradle error lost code/exit"
     }
 
     # Break caught: a zero-exit Gradle report that yields no parseable GAV **and** no parser error must
@@ -3063,7 +3079,7 @@ try {
     $missingCacheResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     Assert-Graph (
       $missingCacheResult.Errors.Count -eq 1 -and $missingCacheResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
-    ) "missing native cache did not return GRADLE-CACHE-OFFLINE"
+    ) "[GRAPH-CACHE-PREFLIGHT] missing native cache did not return GRADLE-CACHE-OFFLINE"
     Assert-Graph ($invocations.Count -eq 0) "missing native cache still started $($invocations.Count) wrapper calls"
 
     # Break caught: an empty files-2.1 directory is not a warmed native dependency cache.
@@ -3081,7 +3097,7 @@ try {
     $emptyArtifactResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     Assert-Graph (
       $emptyArtifactResult.Errors.Count -eq 1 -and $emptyArtifactResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
-    ) "empty artifact subtree did not return GRADLE-CACHE-OFFLINE"
+    ) "[GRAPH-CACHE-ARTIFACT] empty artifact subtree did not return GRADLE-CACHE-OFFLINE"
     Assert-Graph ($invocations.Count -eq 0) "empty artifact subtree still started $($invocations.Count) wrapper calls"
 
     # Cached files without Gradle's module-resolution metadata cannot prove an offline graph is ready.
@@ -3091,7 +3107,7 @@ try {
     $missingMetadataResult = Get-GradleResolvedGraphs -Root $fixtureRoot -GradleUserHome $gradleHome -UseWindows $true -Invoker $invoker
     Assert-Graph (
       $missingMetadataResult.Errors.Count -eq 1 -and $missingMetadataResult.Errors[0].Code -ceq 'GRADLE-CACHE-OFFLINE'
-    ) "missing native metadata did not return GRADLE-CACHE-OFFLINE"
+    ) "[GRAPH-CACHE-METADATA] missing native metadata did not return GRADLE-CACHE-OFFLINE"
     Assert-Graph ($invocations.Count -eq 0) "missing native metadata still started $($invocations.Count) wrapper calls"
 
     New-Item -ItemType Directory -Force -Path $nativeMetadataRoot | Out-Null
@@ -3190,115 +3206,115 @@ if (-not $SkipMutations) {
       Name = 'constraint'
       From = '    if ($body -match ''\s+\(c\)\s*$'') { continue } # exclude Gradle constraint-only edge'
       To = '    if ($false) { continue } # exclude Gradle constraint-only edge'
-      Expected = 'constraint-only row entered resolved GAV set'
+      Expected = '[GRAPH-CONSTRAINT-EXCLUSION]'
     },
     @{
       Name = 'concrete-gav'
       From = '    if ($null -eq (Get-GradleGavParts -Coordinate $resolvedCoordinate)) {'
       To = '    if ($false) {'
-      Expected = 'parser/non-concrete returned wrong GAVs'
+      Expected = '[GRAPH-PARSER-GAVS:non-concrete]'
     },
     @{
       Name = 'direct-project'
       From = '        continue # direct internal Gradle project edge'
       To = '        $body = $body # direct internal Gradle project edge'
-      Expected = 'parser/project-boundary returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:project-boundary]'
     },
     @{
       Name = 'redirected-internal-project'
       From = '        if ($body -match $internalProjectPattern) { continue }'
       To = '        if ($false) { continue }'
-      Expected = 'parser/project-boundary returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:project-boundary]'
     },
     @{
       Name = 'selected-project-target'
       From = '      if ($selectedTarget -match $internalProjectPattern) { continue } # selected internal project target'
       To = '      if ($false) { continue } # selected internal project target'
-      Expected = 'parser/selected-targets returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:selected-targets]'
     },
     @{
       Name = 'selected-module-target'
       From = '        $body = $selectedTarget # selected external module target'
       To = '        continue # selected external module target'
-      Expected = 'parser/selected-targets returned wrong GAVs'
+      Expected = '[GRAPH-PARSER-GAVS:selected-targets]'
     },
     @{
       Name = 'deduplication'
       From = '  $coordinates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)'
       To = '  $coordinates = [System.Collections.Generic.List[string]]::new()'
-      Expected = 'resolved duplicate GAV was not deduplicated'
+      Expected = '[GRAPH-DEDUPLICATION]'
     },
     @{
       Name = 'selected-version'
       From = '      $resolvedVersion = $Matches.resolved # selected version after replacement'
       To = '      $resolvedVersion = ($tail -replace ''^:'', '''' -replace ''\s+->.*$'', '''') # selected version after replacement'
-      Expected = 'parser/resolved-version returned wrong GAVs'
+      Expected = '[GRAPH-PARSER-GAVS:resolved-version]'
     },
     @{
       Name = 'project-external'
       From = '        $body = $Matches.resolved.Trim() # project external substitution target'
       To = '        continue # project external substitution target'
-      Expected = 'parser/project-boundary returned wrong GAVs'
+      Expected = '[GRAPH-PARSER-GAVS:project-boundary]'
     },
     @{
       Name = 'unresolved'
       From = '    if ($body -match ''(?:^|\s)(?:FAILED|\(n\))(?:\s|$)'') { # graph unresolved edge guard'
       To = '    if ($false) { # graph unresolved edge guard'
-      Expected = 'parser/unresolved-and-malformed returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:unresolved-and-malformed]'
     },
     @{
       Name = 'configuration-set'
       From = '  [PSCustomObject]@{ Project = '':core''; Configuration = ''runtimeClasspath''; Label = '':core:runtimeClasspath'' }, # graph target core runtime'
       To = ''
-      Expected = 'invoked 3 configurations instead of 4'
+      Expected = '[GRAPH-CONFIGURATION-SET]'
     },
     @{
       Name = 'project-configuration-pair'
       From = '  [PSCustomObject]@{ Project = '':core''; Configuration = ''runtimeClasspath''; Label = '':core:runtimeClasspath'' }, # graph target core runtime'
       To = '  [PSCustomObject]@{ Project = '':app''; Configuration = ''runtimeClasspath''; Label = '':core:runtimeClasspath'' }, # graph target core runtime'
-      Expected = 'runtimeClasspath used wrong Gradle project task'
+      Expected = '[GRAPH-PROJECT-CONFIGURATION]'
     },
     @{
       Name = 'offline'
       From = '    $gradleArguments = @(''-p'', $androidRoot, ''--offline'', ''--no-daemon'', "$($target.Project):dependencies", ''--configuration'', $target.Configuration) # graph offline invocation'
       To = '    $gradleArguments = @(''-p'', $androidRoot, ''--online'', ''--no-daemon'', "$($target.Project):dependencies", ''--configuration'', $target.Configuration) # graph offline invocation'
-      Expected = 'omitted --offline'
+      Expected = '[GRAPH-OFFLINE]'
     },
     @{
       Name = 'posix-sh'
       From = '    $commandArguments = if ($UseWindows) { $gradleArguments } else { @($wrapper) + $gradleArguments } # POSIX wrapper via sh'
       To = '    $commandArguments = $gradleArguments # POSIX wrapper via sh'
-      Expected = 'did not pass gradlew as sh argv[0]'
+      Expected = '[GRAPH-POSIX-WRAPPER]'
     },
     @{
       Name = 'windows-wrapper'
       From = '  return (Join-Path $AndroidRoot $(if ($UseWindows) { ''gradlew.bat'' } else { ''gradlew'' }))'
       To = '  return (Join-Path $AndroidRoot ''gradlew'')'
-      Expected = 'Windows graph call for runtimeClasspath was not exact'
+      Expected = '[GRAPH-WINDOWS-WRAPPER]'
     },
     @{
       Name = 'wrapper-preflight'
       From = '  if (-not $distribution.Ready) { # graph wrapper zero-start guard'
       To = '  if ($false) { # graph wrapper zero-start guard'
-      Expected = 'missing wrapper completion marker'
+      Expected = '[GRAPH-WRAPPER-OK-MARKER]'
     },
     @{
       Name = 'cache-preflight'
       From = '  if (-not $nativeCacheReady) { # graph native cache zero-start guard'
       To = '  if ($false) { # graph native cache zero-start guard'
-      Expected = 'missing native cache'
+      Expected = '[GRAPH-CACHE-PREFLIGHT]'
     },
     @{
       Name = 'cache-artifact-readiness'
       From = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness'
       To = '      $nativeCacheReady = $metadataReady # native cache readiness'
-      Expected = 'empty artifact subtree did not return GRADLE-CACHE-OFFLINE'
+      Expected = '[GRAPH-CACHE-ARTIFACT]'
     },
     @{
       Name = 'cache-metadata-readiness'
       From = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 -and $metadataReady # native cache readiness'
       To = '      $nativeCacheReady = $cachedArtifact.Count -eq 1 # native cache readiness'
-      Expected = 'missing native metadata did not return GRADLE-CACHE-OFFLINE'
+      Expected = '[GRAPH-CACHE-METADATA]'
     },
     @{
       Name = 'cache-metadata-version'
@@ -3310,19 +3326,19 @@ if (-not $SkipMutations) {
       Name = 'gradle-user-home-binding'
       From = '    $env:GRADLE_USER_HOME = $GradleUserHome # bind preflighted cache to child'
       To = '    $env:GRADLE_USER_HOME = $savedGradleUserHome # bind preflighted cache to child'
-      Expected = 'did not bind preflighted GradleUserHome'
+      Expected = '[GRAPH-GRADLE-USER-HOME]'
     },
     @{
       Name = 'subprocess-exit'
       From = '    if ($gradleExit -ne 0) { # graph nonzero subprocess guard'
       To = '    if ($false) { # graph nonzero subprocess guard'
-      Expected = 'nonzero Gradle error lost code/exit'
+      Expected = '[GRAPH-SUBPROCESS-EXIT]'
     },
     @{
       Name = 'subprocess-target'
       From = '      $errors.Add([PSCustomObject]@{ Code = ''GRADLE-SUBPROCESS''; Configuration = $target.Label; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance'
       To = '      $errors.Add([PSCustomObject]@{ Code = ''GRADLE-SUBPROCESS''; Configuration = $null; ExitCode = $gradleExit; Detail = $null; Output = @($output) }) # graph subprocess target provenance'
-      Expected = 'nonzero Gradle error lost target provenance'
+      Expected = '[GRAPH-SUBPROCESS-TARGET]'
     },
     # wrapper 就绪的七个合取各一枚：把该合取改成恒真，只有它对应的用例会红。此前只有 `.ok` 完成标记
     # 那一条有用例，其余六条删掉后四个套件全绿（实测：六枚变异全部存活）。
@@ -3373,27 +3389,27 @@ if (-not $SkipMutations) {
       Name = 'unresolved-failed-half'
       From = '    if ($body -match ''(?:^|\s)(?:FAILED|\(n\))(?:\s|$)'') { # graph unresolved edge guard'
       To = '    if ($body -match ''(?:^|\s)(?:\(n\))(?:\s|$)'') { # graph unresolved edge guard'
-      Expected = 'parser/unresolved-failed returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:unresolved-failed]'
     },
     # 外部依赖边尾部判定的 fail-closed（此前零覆盖）：改成静默 continue 即漏计一条覆盖缺口。
     @{
       Name = 'external-tail-failclosed'
       From = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge'
       To = '      $null = $displayBody # malformed external edge'
-      Expected = 'parser/empty-redirect-tail returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:empty-redirect-tail]'
     },
     @{
       Name = 'external-tail-diagnostic-edge'
       From = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边：$displayBody [GRADLE-PARSE]") # malformed external edge'
       To = '      $errors.Add("$module => 无法判定 Gradle 外部依赖边 [GRADLE-PARSE]") # malformed external edge'
-      Expected = 'omitted original edge text'
+      Expected = '[GRAPH-PARSER-DIAGNOSTIC:empty-redirect-tail]'
     },
     # 「选中目标是畸形 project 边」的 fail-closed（此前零覆盖）。
     @{
       Name = 'selected-project-failclosed'
       From = '        $errors.Add("无法判定 Gradle 选中 project 目标：$displayBody [GRADLE-PARSE]")'
       To = '        $null = $displayBody'
-      Expected = 'parser/malformed-selected-project returned wrong error codes'
+      Expected = '[GRAPH-PARSER-ERROR-CODES:malformed-selected-project]'
     },
     # 「Gradle 退出 0、却零个可解析坐标且零个解析错误」的 fail-closed（此前零覆盖：唯一夹具随 selftest
     # -1434 行删除）。关掉它 = 许可闸绿着报告「什么都没扫到」——本卡守的那条硬边界正是它。
