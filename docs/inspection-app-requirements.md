@@ -338,5 +338,5 @@ Google Drive、OneDrive、本地目录或 USB 通过 Android SAF 作为备份目
 
 - 核心操作写入有界、脱敏、本机诊断事件；事件失败不影响业务。v1 不做 app-owned 自动遥测、Wi-Fi 诊断上传或远程秒级告警，用户只在明确确认后导出诊断包；这不禁止已授权的自动 SAF 加密备份。
 - finalize/PDF/备份/恢复失败、连续 3 次备份失败、备份超过 7 天、完整性失败、恢复回滚和上次崩溃恢复必须在本机 1 秒内形成可操作状态提示。
-- 崩溃记录只保存脱敏类型、构建版本和安全帧标识；每个 release 保留对应 Android mapping/符号证据与校验值，不把符号表、崩溃或日志自动上传。
+- 崩溃记录按 Diagnostic registry v1 保存 `PREVIOUS_CRASH/FAILURE`、封闭 reason、格式受限 build id、封闭异常类型和最多 8 个安全帧标识；不保存 message、原始类名、行号、路径、URI 或业务值。每个 release 保留对应 Android mapping/符号证据与校验值，不把符号表、崩溃或日志自动上传。
 - 发布前必须完成权限拒绝、飞行模式、进程死亡、备份/恢复、数据清除、崩溃恢复和临时分享授权矩阵。

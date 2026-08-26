@@ -143,13 +143,15 @@ No foreign keys point into the evidence database. Both tables are append-only fo
 
 ### Diagnostic registry v1
 
-The registry version is stored with the diagnostics schema and exported manifest. Unknown operation codes, reason codes, context keys, enum values, or registry versions are rejected before insert. A success has `reason_code = NULL`; `CANCELLED` requires `USER_CANCELLED`; `REJECTED` accepts only precondition reasons; `FAILURE` accepts only execution reasons. Marker events permit `SUCCESS` only.
+The registry version is stored with the diagnostics schema and exported manifest. Unknown operation codes, reason codes, context keys, enum values, or registry versions are rejected before insert. A success has `reason_code = NULL`; `CANCELLED` requires `USER_CANCELLED`; `REJECTED` accepts only precondition reasons; `FAILURE` accepts only execution reasons. App/startup markers permit `SUCCESS` only; a previous-crash marker is a typed `FAILURE` about the preceding process.
 
 | Operation code(s) | Allowed outcomes | Non-success reason set | `context_json` schema | Scope |
 | --- | --- | --- | --- | --- |
-| `APP_START`, `PREVIOUS_CRASH` | `SUCCESS` | none | `{}` | none |
+| `APP_START` | `SUCCESS` | none | `{}` | none |
+| `PREVIOUS_CRASH` | `FAILURE` | `CRASH` | `crash_context` | none |
 | `STARTUP_SLOW` | `SUCCESS` | none | `threshold_ms` | none |
-| `INSPECTION_CREATE`, `INSPECTION_FINALIZE`, `SUPPLEMENT_APPEND`, `SUPPLEMENT_VERIFY`, `NOTICE_GENERATE`, `NOTICE_DELIVERY_RECORD`, `CONTACT_PURGE` | all four | `DOMAIN` | `{}` | `INSPECTION` + opaque ID required |
+| `INSPECTION_CREATE`, `INSPECTION_FINALIZE`, `SUPPLEMENT_APPEND`, `SUPPLEMENT_VERIFY`, `NOTICE_GENERATE`, `NOTICE_DELIVERY_RECORD` | all four | `DOMAIN` | `{}` | `INSPECTION` + opaque ID required |
+| `CONTACT_PURGE` | all four | `DOMAIN` | `{}` | `TENANCY` + opaque ID required |
 | `PHOTO_INGEST`, `AUDIO_INGEST` | all four | `MEDIA` | `{}` | `INSPECTION` + opaque ID required |
 | `MEDIA_CLEANUP`, `MEDIA_REHYDRATE` | all four | `MEDIA` | `media_kind` | none |
 | `BACKUP_RESULT` | all four; exactly one terminal result per correlation ID | `BACKUP` | `scope_kind` | `BACKUP` + opaque ID required |
@@ -164,6 +166,7 @@ Reason sets are closed unions, never persisted as values themselves:
 | Set | Exact allowed reason codes |
 | --- | --- |
 | `DOMAIN` | rejected: `VALIDATION_FAILED`, `NOT_FOUND`, `STATE_CONFLICT`; failure: `INVARIANT_FAILED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
+| `CRASH` | failure: `UNCAUGHT_EXCEPTION`, `NATIVE_CRASH`, `ANR`, `PROCESS_DEATH_UNKNOWN` |
 | `MEDIA` | rejected: `VALIDATION_FAILED`, `NOT_FOUND`, `PERMISSION_DENIED`, `LOW_STORAGE`; failure: `IO_ERROR`, `MEDIA_UNAVAILABLE`, `HASH_MISMATCH`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
 | `BACKUP` | rejected: `LOW_STORAGE`, `AUTHORIZATION_REVOKED`, `NEEDS_UNLOCK`, `NEEDS_PASSPHRASE`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `HASH_MISMATCH`, `INTEGRITY_FAILED`, `PROCESS_INTERRUPTED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
 | `RESTORE` | rejected: `LOW_STORAGE`, `AUTHORIZATION_REVOKED`, `NEEDS_UNLOCK`, `WRONG_PASSPHRASE`, `UNSUPPORTED_FORMAT`, `UNSUPPORTED_SCHEMA`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `CORRUPT_ARCHIVE`, `HASH_MISMATCH`, `INTEGRITY_FAILED`, `PROCESS_INTERRUPTED`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
@@ -172,7 +175,9 @@ Reason sets are closed unions, never persisted as values themselves:
 | `EXPORT` | rejected: `AUTHORIZATION_REVOKED`, `PERMISSION_DENIED`; failure: `IO_ERROR`, `PROVIDER_UNAVAILABLE`, `UNKNOWN_SAFE`; cancelled: `USER_CANCELLED` |
 | `INTEGRITY` | failure: `INTEGRITY_FAILED`, `CORRUPT_ARCHIVE`, `HASH_MISMATCH`, `IO_ERROR`, `UNKNOWN_SAFE` |
 
-`context_json` has no implicit keys. `threshold_ms` is an integer millisecond duration in `1..120000`; `scope_kind` is `FULL` or `PROPERTY`; `media_kind` is `PHOTO` or `AUDIO`; `window_days` is `7`, `30`, or `90`; `check_kind` is `QUICK_CHECK`, `MANIFEST`, or `FILE_HASH`; `erasure_category` is `MAIN_DB`, `DIAGNOSTICS_DB`, `MEDIA`, `REPORTS`, `SETTINGS`, `KEYSTORE`, `CACHE`, `JOURNAL`, or `URI_GRANTS`. Each operation accepts exactly the listed key or `{}`; additional keys fail validation. `duration_ms` and `item_count` use their typed columns, respectively milliseconds and unitless row/file counts, never duplicate context keys. JSON is canonical UTF-8 and remains within 2 KiB.
+`context_json` has no implicit keys. `threshold_ms` is an integer millisecond duration in `1..120000`; `scope_kind` is `FULL` or `PROPERTY`; `media_kind` is `PHOTO` or `AUDIO`; `window_days` is `7`, `30`, or `90`; `check_kind` is `QUICK_CHECK`, `MANIFEST`, or `FILE_HASH`; `erasure_category` is `MAIN_DB`, `DIAGNOSTICS_DB`, `MEDIA`, `REPORTS`, `SETTINGS`, `KEYSTORE`, `CACHE`, `JOURNAL`, or `URI_GRANTS`. `crash_context` contains exactly: required `build_id` (`[A-Za-z0-9._-]{1,64}`), required `exception_class_code` (`ILLEGAL_STATE`, `ILLEGAL_ARGUMENT`, `IO`, `SQLITE`, `OUT_OF_MEMORY`, `SECURITY`, or `UNKNOWN`), and required `frame_ids` (array of 0–8 allowlisted identifiers, each `[A-Za-z0-9_.$#-]{1,96}`). It never contains an exception message, class name outside the closed mapping, line number, path, URI, business value, payload, or stack dump.
+
+Each operation accepts exactly the listed context schema or `{}`; additional/missing keys fail validation. `duration_ms` and `item_count` use their typed columns, respectively milliseconds and unitless row/file counts, never duplicate context keys. JSON is canonical UTF-8 and remains within 2 KiB. The closed non-null `scope_type` values are `INSPECTION`, `TENANCY`, `BACKUP`, and `RESTORE`; each requires an opaque `scope_id`, while unscoped operations require both fields NULL.
 
 Health derivation is also closed and deterministic over active rows ordered by `(occurred_at, id)`:
 
@@ -182,10 +187,10 @@ Health derivation is also closed and deterministic over active rows ordered by `
 | `BACKUP_FAILED_3X` | the latest three non-cancelled `BACKUP_RESULT` events after the last `SUCCESS` are each `FAILURE` or `REJECTED` | a later `BACKUP_RESULT/SUCCESS` |
 | `INTEGRITY_FAILED` | latest `DATABASE_INTEGRITY_CHECK` is `FAILURE`, or the authoritative backup/restore verification receipt is failed | a newer successful check/verification for the same source |
 | `RESTORE_ROLLED_BACK` | latest successful `RESTORE_ROLLBACK` is later than the latest successful `RESTORE_COMMIT` | a later `RESTORE_COMMIT/SUCCESS` |
-| `PREVIOUS_CRASH` | current run contains `PREVIOUS_CRASH/SUCCESS` | the next `APP_START` run without that marker |
+| `PREVIOUS_CRASH` | current run contains `PREVIOUS_CRASH/FAILURE` with valid `CRASH` reason and `crash_context` | the next `APP_START` run without that marker |
 | `STARTUP_SLOW` | current run contains `STARTUP_SLOW/SUCCESS`; measured startup exceeds its stored `threshold_ms` | the next `APP_START` run without a slow marker |
 
-Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Logger failure still leaves business results unchanged.
+Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Crash tests reject messages, raw/unmapped class names, paths, oversized/build-invalid values, more than eight frames, and unsafe frame characters. Scope tests prove `CONTACT_PURGE` accepts a real tenancy with zero or many inspections and rejects an inspection scope. Logger failure still leaves business results unchanged.
 
 ### Retention and failure behavior
 
