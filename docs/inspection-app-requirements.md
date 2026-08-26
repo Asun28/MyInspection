@@ -213,6 +213,8 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 
 **[定]** 做法:一个 prompt + 一份「检查项 → 建议」种子对照表,用 LLM 生成。可以跑云端 API(自己的 key),生成建议时联一次网,可完全跳过。这不违背 local-first——数据始终在本地。
 
+**[定,ADR-0006]** 远程请求不发送现场备注或任何自由文本；payload 只投影版本号、版本锁定模板中的检查项 stable id、该模板允许的状态枚举和版本锁定 seed 建议码。发送前必须展示精确 canonical JSON 供确认，adapter 对字段全集、模板成员关系和长度 fail closed；地址、姓名、电话、邮箱、路径/URI、媒体引用、报告、key 与备份内容的逐类负向夹具必须证明不会进入最终请求字节。
+
 **[定]** 风险可控的理由:我自己看得出建议靠不靠谱,不会照单执行。但——
 
 **[定]** 建议**只出现在房东版**。房客版只保留客观描述。
@@ -262,11 +264,19 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 
 ## 11. 数据、备份、隐私
 
-**[定,ADR-0002]** 工作数据留在 app 私有目录；用户通过 Android SAF 自选加密备份目的地（Google Drive / OneDrive / 本地目录 / USB 等 provider）。这是可恢复的归档导出，不宣称双向同步。
+**[定,ADR-0002]** 工作数据留在 app 私有目录；用户通过 Android SAF 自选加密备份目的地（Google Drive / OneDrive / 本地目录 / USB 等 provider）。ADR-0006 明确 supersede ADR-0002“全部活数据放 app-specific external storage”的具体落位：SQLite、设置、回执与恢复日志收紧到 credential-encrypted internal storage，只有体积大的照片/音频可放 app-specific external storage；app-private 边界、SAF provider 范围与本地数据库唯一真相源保持不变。这是可恢复的归档导出，不宣称双向同步，云 provider 失联不得影响巡检、finalize、历史或本地 PDF。
 
 **[定]** 单设备 = 单点故障。手机丢了、摔了,几年的基线全没。**备份是 MVP 必需项,不是 nice-to-have。**
 
-**[定]** 备份形态:整包导出 + 按物业导出。备份包加密(里面有租客照片和联系方式)。
+**[定]** 备份形态:整包导出 + 按物业导出，这是必须保留的产品范围。format v1 按物业兼容导出仍含整库 `db.sqlite`，必须明示“数据库包含全部物业、仅媒体按物业筛选”，不得获得物业隔离/可恢复回执或用于物业级交付。ADR-0006 只批准下一版按物业范围与逐表数据闭包，不是冻结格式的版本评审；实现卡仍须完成 version review。物业包须按 ADR-0006 的每表规则比较源/staging `(PK, canonical-row-hash)` 集合，并证明逻辑引用及数据库/媒体/manifest 双向完备；所有活跃模板/定义及已引用历史版本必须保留，内置短语须按锁定版本/hash 重建，确保零巡检物业也能开始新巡检。任一遗漏、多行、改值或无规则都失败。通过后按物业恢复以隔离快照替换当前 app 数据，不做隐式合并；当前有其他数据时先提示生成全量备份。
+
+**[定,ADR-0006]** 恢复矩阵：v1 `full` 全验后可整包替换；v1 `property` 因整库 DB + 不完整媒体必须拒绝；完成冻结契约评审后的 v2 `full` 整包替换，v2 `property` 全验后以隔离快照替换当前 app 数据。旧 reader 拒绝 v2；新 reader 仅接受 v1 full 与 v2 full/property。未知 scope、未来格式或不支持 schema 一律拒绝，不得从标签猜测恢复语义。
+
+**[定,ADR-0006]** 自动备份的目录树协议使用新 `.partial`，关闭重开全验后安全 rename，或复制到新最终文档并再次复核；手动 `ACTION_CREATE_DOCUMENT` 只依赖单个授权 URI，写完关闭后从同一 URI 重开全验，不假设 rename/copy。只有最终可读对象通过解密与 manifest/hash/size 校验才更新 Verified 回执；失败残留尽力删除，无法删除时提示用户且不得覆盖最近已验证状态。
+
+**[定,ADR-0006]** 本地目录/USB 备份和本地包恢复可完全离线；Drive/OneDrive 等 SAF provider 是否离线可用由 provider 决定。provider 不可达、授权收回、低空间或后台密钥不可用，只影响该次备份/恢复，保留最近已验证回执并给出重试/重选/重新输入口令动作。
+
+**[定,ADR-0006]** 自动备份仍为 finalize 后 + 每周，通过 Android SAF/DocumentsProvider 写入用户选择的目录；云 provider 对密文的后续传输由 provider 管理，不是 app-owned HTTP 上传。用户口令是跨设备恢复根；本机只保存由 Android Keystore 加密的口令信封供后台任务使用，不保存明文，信封不进入备份。Keystore 失效时自动备份暂停并要求重新输入口令，绝不降级成明文包。
 
 **[定,2026-08-19]** 联系方式仍按租约结束后 12 个月一键清理。照片记录、哈希、PDF 和加密备份不按“保留几轮”删除；“保留几轮”只控制本机是否继续保留可重建的全尺寸照片字节。
 
@@ -278,7 +288,7 @@ Google Drive、OneDrive、本地目录或 USB 通过 Android SAF 作为备份目
 
 **[未来设计,不在 v1]** 可增加付费托管云备份，但必须作为同一归档接口的另一种 provider，而不是把 S3 细节写进领域层。app 仍先在设备端生成加密 `.mibk`；服务端只在认证和订阅有效时签发短时上传/下载授权，S3 保存不含地址/租客名的 opaque object key 与密文。APK 不内置 AWS key，服务端不持有备份口令。云备份与多设备同步是两个产品，后者须另立方案。
 
-**[定]** 安全基线(个人项目,轻量):数据库本身不加密,备份包加密。不做云端账号,不做遥测。
+**[定,ADR-0006]** 安全基线（个人项目、轻量）：数据库本身不做应用级加密，依赖 Android 文件加密、app sandbox 和设备锁；备份包必须认证加密。系统 Auto Backup/设备迁移排除全部 app 数据；不做云端账号、同步、遥测或 app-owned 后台 HTTP 上传。远程 remediation 是唯一 app-owned 联网点，必须显式触发、payload 最小化，离线失败不影响核心流程；自动 SAF 写入及 provider-managed 密文传输继续允许。
 
 ---
 
@@ -314,3 +324,21 @@ Google Drive、OneDrive、本地目录或 USB 通过 Android SAF 作为备份目
 8. 备份/导出
 9. Ingoing / Exit / 自住年检模板
 10. Remediation 建议
+
+---
+
+## 14. 生产可用性与非功能验收 **[定,2026-08-20]**
+
+### 安全与隐私
+
+- 图片导入只使用 Android Photo Picker/SAF，禁止申请全相册权限；app 不读取剪贴板，只有用户点 `Copy notice` 才写入通知文本。
+- 密钥和凭据进入 Keystore 支持的本机加密存储；系统备份/设备迁移不得携带 app 数据；敏感文件只用临时只读 `content://` 分享。
+- 本产品没有账号，故“账号物理注销”等价为 `Delete all local data`：二次输入确认后以可恢复擦除标记清除本机数据库、媒体、报告、设置、密钥、诊断、缓存与授权；诊断库最后删除，成功不写日志、不重建数据库并回到 first-run，取消/前置失败只在诊断存储仍存在时记录。用户自行保存的外部加密 `.mibk` 不删除且确认前明确说明。
+- Remediation 是唯一联网点（仅指 app-owned HTTP adapter）：显式触发、最小 payload、HTTPS/平台 TLS、禁止 cleartext 和自定义信任绕过。自动 SAF 写入与 provider-managed 密文传输不属于 app 网络 adapter。无自有服务端时不得伪造 Timestamp+Nonce 防重放或额外引入 HTTPDNS；若未来新增可验证服务端/解析信任边界，必须先立 ADR 与威胁模型。
+
+### 本地监控与发布证据
+
+- 核心操作写入有界、脱敏、本机诊断事件；事件失败不影响业务。v1 不做 app-owned 自动遥测、Wi-Fi 诊断上传或远程秒级告警，用户只在明确确认后导出诊断包；这不禁止已授权的自动 SAF 加密备份。
+- finalize/PDF/备份/恢复失败、连续 3 次备份失败、备份超过 7 天、完整性失败、恢复回滚和上次崩溃恢复必须在本机 1 秒内形成可操作状态提示。PDF 使用 registry 的 `PDF_GENERATE` 封闭事件并按巡检与房东/房客版本分别清除；事件先后只按 UUIDv7-keyed counter 分配的唯一单调序列（不是主键），活动告警投影不得因 90 天/20,000 行事件裁剪而消失。
+- 崩溃记录按 Diagnostic registry v1 保存 `PREVIOUS_CRASH/FAILURE`、封闭来源/reason、格式受限 build id、封闭异常类型和最多 8 个安全帧标识；Android 11+ 只接受明确异常的系统退出原因，Android 10 及以下只接受 app 自写的未捕获 Java 异常 marker，正常回收/用户停止/升级不告警且同一退出只消费一次。不保存系统 description/trace、message、原始类名、行号、路径、URI 或业务值。每个 release 保留对应 Android mapping/符号证据与校验值，不把符号表、崩溃或日志自动上传。
+- 发布前必须完成权限拒绝、飞行模式、进程死亡、备份/恢复、数据清除、崩溃恢复和临时分享授权矩阵。
