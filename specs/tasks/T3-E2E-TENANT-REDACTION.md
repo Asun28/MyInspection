@@ -2,7 +2,7 @@
 id: T3-E2E-TENANT-REDACTION
 title: Golden Evidence tenant report landlord/private sentinel 防泄露
 depends_on: [T3-E2E-HASH]
-status: todo
+status: merged
 branch: T3-E2E-TENANT-REDACTION
 worktree: C:\wt\T3-E2E-TENANT-REDACTION
 allow_paths:
