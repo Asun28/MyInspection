@@ -2,7 +2,7 @@
 id: T3-E2E-GOLDEN-FIXTURE
 title: 冻结 JVM Core E2E 的 canonical Golden Evidence Fixture
 depends_on: [T2-ROUTINE-CONTENT]
-status: todo
+status: merged
 branch: T3-E2E-GOLDEN-FIXTURE
 worktree: C:\wt\T3-E2E-GOLDEN-FIXTURE
 allow_paths:
@@ -31,4 +31,3 @@ doc_sync: TASK-BOARD W5 拆分登记（R5）
 
 只冻结一份可跨层复用的证据输入与手工期望，不执行业务闭环。真实模板内容继续以
 `data/templates/routine-v1.json` 为唯一真相源；fixture 仅引用它并选择确定性的房间/条目。
-
