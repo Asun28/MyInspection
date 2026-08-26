@@ -45,8 +45,15 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 ### 3. 备份范围与密钥保管
 
 - **format v1 UI 同时保留全量与按物业备份。** 现有 v1 按物业包仍含整库 `db.sqlite`，所以只能明确标为“包含全部物业数据库、仅媒体按物业筛选”的兼容导出；它不得获得物业隔离或可恢复回执，也不得用于物业级交付/恢复。
-- **本 ADR 是按物业备份的显式 format v2 版本评审与范围批准。** v2 的 `property` 包必须生成独立最小 SQLite 快照：只含目标物业、其租约/巡检/通知/检查结果/媒体记录、被这些行引用的模板版本与必要配置，且不得含其他物业、全局秘密或无关设置。导出后须在 staging 中重开数据库，验证逻辑引用闭包、`scope.property_id`、媒体集合与 manifest 双向完备；任何跨物业行或孤儿引用均拒绝生成回执。实现须另立任务卡修改冻结格式并以 hostile fixtures 证明隔离，不能把本设计文档当成已交付代码。
+- **本 ADR 只批准安全按物业备份的产品范围与数据闭包，不是冻结格式的版本评审。** 下文用 `v2` 作为规划标签；精确 header/manifest/reader/writer 契约及 frozen-path 修改仍须由实现卡声明 `version_review: this card = the version review` 后批准。该包必须生成独立最小 SQLite 快照，不得含其他物业、全局秘密或无关设置。
 - v2 按物业恢复仍不做隐式合并：用户确认影响范围后，以该隔离快照替换当前 app 数据，使恢复后的 app 只包含该物业；若当前 app 有其他数据，必须先提示生成全量备份。全量包继续替换全部数据。
+
+#### v2 按物业数据闭包与完备性闸
+
+- 逐表期望集合固定为：`property` = 目标 PK；`tenancy`/`inspection`/`property_item_override` = `property_id` 为目标的全部历史与活跃行；`room_instance`/`notice`/`supplement` = 父 `inspection` 在集合内；`inspection_item` = 父 `inspection` 与 `room_instance` 均在集合内；`photo` = 父 `room_instance` 在集合内且可选 `inspection_item_id` 为空或在集合内；`audio` = 父 `inspection_item` 在集合内；`template_version` = 被所选巡检引用的版本；`check_item_def` = 父 `template_version` 在集合内；全局且不属于物业的 `phrase_entry` 不入包，恢复后由 app 自带内容初始化。`previous_inspection_id`、`baseline_inspection_id` 与 tenancy baseline 非空时必须指向所选巡检集合，否则 fail closed。
+- 导出必须在同一源快照中为上述每张表生成按 PK 排序的 `(PK, canonical-row-hash)` 集合；staging 重开后逐表重算并要求与源集合完全相等，同时要求 staged schema 中每张表都有显式 include/exclude 规则。新增表没有规则、任一源行遗漏、多出一行、字段被改、逻辑引用不闭合，均不得写回执。
+- 媒体集合由所选 `photo`/`audio` 行的相对路径、内容 hash 与 size 唯一推导，并与 manifest/归档条目双向相等。hostile fixtures 必须对每张非空表分别删除一行、加入跨物业行、修改一行，并对每条逻辑关系造孤儿；每个夹具都必须在替换当前数据前失败。
+- 兼容性固定为：旧 v1 reader 对任何 v2 header fail closed；完成冻结契约评审后的新 writer 对 full/property 都写 v2；新 reader 只接受 v1 `full`、v2 `full`、v2 `property`，明确拒绝 v1 `property` 与未知/未来版本。该矩阵不预先批准 v2 的具体字段布局。
 - 用户口令是跨设备恢复的根；无服务端找回。每个 `.mibk` 继续按冻结格式使用 PBKDF2-HMAC-SHA256 + 分块 AES-256-GCM。
 - 为支持 finalize 后和每周后台备份，设置时把口令 `CharArray` 用 Android Keystore 内不可导出的 AES-GCM key 加密，信封只保存在 internal `noBackupFilesDir`。信封、nonce 和版本可持久化；明文口令和派生密钥不写盘、不进日志/通知，使用后尽力清零。
 - Keystore 信封只是本机便利，不写入 `.mibk`，也不替代用户记住口令。换机时用户直接用口令恢复。Keystore 被清除、失效、设备尚未解锁或信封损坏时，后台任务进入 `NEEDS_UNLOCK`/`NEEDS_PASSPHRASE`，保留旧回执并请求重新验证；不得生成未加密包或阻断巡检。
@@ -59,7 +66,7 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 - 恢复先解密到 internal staging，并在落盘前完成：header/KDF 上限、format/schema 兼容、canonical manifest、路径白名单、重复项、文件数、每项与总字节溢出、可用空间、逐项 hash/size 和双向完备性检查。任何条目超过 manifest 声明大小立即停止。
 - 空间预检必须保留 `max(512 MiB, 可用空间 10%)` 安全余量；空间不够不开始 commit。文件数和 manifest 大小设明确实现上限并由 hostile tests 固定。
 - commit 进入 maintenance mode，写独立恢复 journal，按“旧数据改名保底 → 新数据就位 → 重开 DB/抽查资产 → 标记完成 → 清理旧数据”执行。崩溃后依据 journal 确定性回滚或完成，不允许新旧数据混合。
-- 恢复矩阵必须按解密后 manifest fail closed：v1 `full` 包在全部验证通过后可恢复并整包替换；v1 `property` 包即使可解密也必须拒绝，因为它含整库 DB 但媒体不完整；v2 `full` 包整包替换；v2 `property` 包在隔离/完备性验证后，以该物业快照替换当前 app 数据。未知 scope、未来格式或不支持 schema 一律拒绝。任何允许的旧包恢复都显示备份日期与将回退的数据范围并再次确认；恢复前现有数据不自动删除，建议先生成当前全量备份。
+- 恢复矩阵必须按解密后 manifest fail closed：v1 `full` 包在全部验证通过后可恢复并整包替换；v1 `property` 包即使可解密也必须拒绝，因为它含整库 DB 但媒体不完整；经独立冻结契约评审实现的 v2 `full` 包整包替换，v2 `property` 包在上述逐表源/staging 等值与媒体完备性验证后，以该物业快照替换当前 app 数据。未知 scope、未来格式或不支持 schema 一律拒绝。任何允许的旧包恢复都显示备份日期与将回退的数据范围并再次确认；恢复前现有数据不自动删除，建议先生成当前全量备份。
 
 ### 5. 产品状态与隐私反馈
 
