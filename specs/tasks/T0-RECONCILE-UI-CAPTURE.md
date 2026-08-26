@@ -25,6 +25,6 @@ dod_command: function ExactIds($r,$e){$q=[regex]::Match($r,'(?ms)^acceptance:\r?
 dod_exit: 0
 dod_assert: A1–A5 field/dependency mutations
 review_gate: codex {verdict:pass}
-hygiene: 新验收只指向唯一设计条目
-doc_sync: 四卡与 UI 覆盖索引一致（R5）
+hygiene: 单一权威；无重复
+doc_sync: R5 同步 owning docs
 ---

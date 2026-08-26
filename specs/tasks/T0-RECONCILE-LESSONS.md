@@ -26,6 +26,6 @@ dod_command: $r=Get-Content 'docs/lessons/LEDGER.md' -Raw;function Block($id,$ps
 dod_exit: 0
 dod_assert: A1–A6 block/exclusion mutations
 review_gate: codex {verdict:pass}
-hygiene: 使用 lessons.ps1 add/check 规范化，不手工复制旧账本块；相同根因合并为复发计数或现有规则增量
-doc_sync: CLAUDE.md 只接晋升后的最小规则增量（R5）
+hygiene: 单一权威；无重复
+doc_sync: R5 同步 owning docs
 ---

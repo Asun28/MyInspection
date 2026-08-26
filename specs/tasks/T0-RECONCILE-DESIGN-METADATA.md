@@ -23,6 +23,6 @@ dod_command: $r=Get-Content 'context/DESIGN.md' -Raw;$f=[regex]::Match($r,'(?s)^
 dod_exit: 0
 dod_assert: A1–A5 exact schema/value mutations
 review_gate: codex {verdict:pass}
-hygiene: 元数据键稳定，无同义重复
-doc_sync: 后续两卡补行为合同（R5）
+hygiene: 单一权威；无重复
+doc_sync: R5 同步 owning docs
 ---

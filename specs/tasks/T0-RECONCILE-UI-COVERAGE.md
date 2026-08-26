@@ -24,6 +24,6 @@ dod_command: function Run($id){$p=@("specs/tasks/$id.md","specs/archive/tasks/$i
 dod_exit: 0
 dod_assert: A1–A5 schema/ban mutations
 review_gate: codex {verdict:pass}
-hygiene: 覆盖投影而非第二真相源
-doc_sync: DESIGN、UI-UX-ELEMENTS 与下游卡闭环（R5）
+hygiene: 单一权威；无重复
+doc_sync: R5 同步 owning docs
 ---

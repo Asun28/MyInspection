@@ -24,6 +24,6 @@ dod_command: pwsh -NoProfile -File scripts/check-cards.ps1;if($LASTEXITCODE-ne0)
 dod_exit: 0
 dod_assert: A1–A5 projection/status mutations
 review_gate: codex {verdict:pass}
-hygiene: 任务表只投影卡片事实，不复制完整实现规格
-doc_sync: Task Board、tech-debt tracker 与七张卡互相引用一致（R5）
+hygiene: 单一权威；无重复
+doc_sync: R5 同步 owning docs
 ---
