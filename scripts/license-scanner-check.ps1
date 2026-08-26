@@ -665,12 +665,18 @@ if ($Suite -eq 'integration') {
     if ($coldCalls -ne 1) { $found.Add("[INTEGRATION-SELFTEST-COLD] expected the seeded integration invocation to pass -SkipRealScan, found $coldCalls") }
 
     # 「调用存在」不等于「调用会执行」：把那一行包进 `if ($false) { … }`、或埋进一个没人调的函数，
-    # 上面两条断言照样绿而闸 17cc 已被静默停用。故再判一条**正面存活契约**：调用的祖先链只允许
-    # 当前真实分片门 `$Shard -eq 'seeded'`；其它 if/loop、else、函数/脚本块定义一概不能充当执行证据。
-    # 边界照实说：这只证明它没有被**静态**停用；「seeded 分片确实走到了它」这条证据不在本套件里——
-    # 那是 seeded 自己那行 `17cc(scanner-integration) … OK`，它只有真跑过才会打印。
-    $deadCalls = @($integrationCalls | Where-Object { -not (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions @("`$Shard -eq 'seeded'")) })
-    if ($deadCalls.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-LIVENESS] the integration invocation in selftest.ps1 is not under the exact seeded-shard ancestor contract, so its presence proves nothing about execution ($($deadCalls.Count) such call(s))") }
+    # 上面两条断言照样绿而闸 17cc 已被静默停用。故再判一条**正面存活契约**：调用的祖先链必须恰好
+    # 穿过完整 seeded 集合的外门与 scanner region 内门；其它 if/loop、else、函数/脚本块定义一概不能
+    # 充当执行证据。这样 legacy `seeded` 与 CI `seeded-scanner` 都执行它，而 git/remote 子片不会误跑。
+    # 边界照实说：这只证明它没有被**静态**停用；「分片确实走到了它」的动态证据是 scanner 子片自己
+    # 打印的 `17cc(scanner-integration) … OK`。
+    $seededOuterCondition = "`$Shard -in @('seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')"
+    $scannerRegionCondition = "Test-SeededShardRegionSelected -Region 'scanner'"
+    $seededScannerConditions = @($seededOuterCondition, $scannerRegionCondition)
+    $deadCalls = @($integrationCalls | Where-Object {
+      -not (Test-AstCommandStaticallyLive -Command $_ -AllowedIfConditions $seededScannerConditions -RequiredIfConditions $seededScannerConditions)
+    })
+    if ($deadCalls.Count -ne 0) { $found.Add("[INTEGRATION-SELFTEST-LIVENESS] the integration invocation in selftest.ps1 is not under the exact seeded scanner-region ancestor contract, so its presence proves nothing about execution ($($deadCalls.Count) such call(s))") }
 
     # A15 的正面契约：selftest.ps1 里**不存在写文件动作、其目标路径静态可见地指向 gradlew / gradlew.bat**。
     # 旧断言是变量名黑名单（「不得存在名为 scannerFixtureRoot 的变量」）——改个名字整棵 1400 行 fixture 就能

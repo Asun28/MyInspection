@@ -123,8 +123,8 @@ function Test-ScaffoldReportComplete {
 
 function Resolve-ScaffoldConfiguration {
   param([string]$Path, [string]$DefaultUpstream)
-  $version = 'unknown'; $upstream = $DefaultUpstream; $errorText = ''
-  if (-not (Test-Path $Path)) { return [pscustomobject]@{ Version=$version; Upstream=$upstream; Error='' } }
+  $version = 'unknown'; $originVersion = 'unknown'; $upstream = $DefaultUpstream; $errorText = ''
+  if (-not (Test-Path $Path)) { return [pscustomobject]@{ Version=$version; OriginVersion=$originVersion; Upstream=$upstream; Error='' } }
   try {
     $tokens = $null; $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
@@ -132,9 +132,11 @@ function Resolve-ScaffoldConfiguration {
     $names = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object Name)
     . $Path
     if ($names -contains 'Get-ScaffoldVersion') { $version = Get-ScaffoldVersion }
+    if ($names -contains 'Get-ScaffoldOriginVersion') { $originVersion = Get-ScaffoldOriginVersion }
+    elseif ($version) { $originVersion = $version }
     if ($names -contains 'Get-ScaffoldUpstreamRepo') { $configured = Get-ScaffoldUpstreamRepo; if ($configured) { $upstream = $configured } }
   } catch { $errorText = $_.Exception.Message }
-  return [pscustomobject]@{ Version=$version; Upstream=$upstream; Error=$errorText }
+  return [pscustomobject]@{ Version=$version; OriginVersion=$originVersion; Upstream=$upstream; Error=$errorText }
 }
 
 function ConvertTo-ScaffoldRepositoryIdentity {
@@ -174,6 +176,14 @@ function Get-TriageScaffoldProbeContract {
     Registered = $Text -cmatch '(?m)^[ \t]*Invoke-ProbeScaffoldStale[ \t]*$'
     Documented = $Text -cmatch '(?m)^[ \t]*-[ \t]+scaffold-stale[ \t]*:'
     Offline = @($errors).Count -eq 0 -and -not $fetch
+    OriginFallback = ($Text -cmatch '(?m)^\s*try \{ \$provenance = Get-ScaffoldOriginVersion \}\r?$' -and $Text -cmatch '(?m)^\s*catch \{ try \{ \$provenance = Get-ScaffoldVersion \}' -and $Text -cmatch '(?m)^\s*try \{ \$synced = Get-SyncedVersion \$ledgerText \$provenance \$tags \}')
+  }
+}
+
+function Get-ScaffoldOriginCurrentContract([string]$Text) {
+  return [pscustomobject]@{
+    Check = $Text -cmatch '(?m)^\s*try \{ \$synced = Get-SyncedVersion \$ledgerText \$OriginVersion \$tags \}'
+    Report = ($Text -cmatch '(?m)^\s*\[void\]\$sb\.AppendLine\("\| scaffold origin version \| \$OriginVersion \|"\)' -and $Text -cmatch '(?m)^\s*\[void\]\$sb\.AppendLine\("\| scaffold current version \| \$LocalVersion \|"\)')
   }
 }
 
@@ -224,12 +234,12 @@ function Invoke-Check {
     return
   }
   $ledgerText = if (Test-Path $LedgerDoc) { Get-Content $LedgerDoc -Raw } else { '' }
-  try { $synced = Get-SyncedVersion $ledgerText $LocalVersion $tags } catch {
+  try { $synced = Get-SyncedVersion $ledgerText $OriginVersion $tags } catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
   }
   $syncedV = ConvertTo-ScaffoldVersion $synced
-  $syncedLabel = if ($syncedV) { "v$synced" } else { 'an unrecorded baseline (no ledger row and no ScaffoldVersion)' }
+  $syncedLabel = if ($syncedV) { "v$synced" } else { 'an unrecorded baseline (no ledger row and no ScaffoldOriginVersion)' }
   $behind = @(Get-NewerVersion $tags $synced)
 
   if ($behind.Count -eq 0) {
@@ -258,7 +268,7 @@ function Invoke-Check {
   Write-Host '  docs/SCAFFOLD-SYNC.md -> one row per version: applied | partial | skipped, plus the reason.'
   if (-not $syncedV) {
     Write-Host '  This project has no recorded baseline, so there is no range to diff against yet. Record the version'
-    Write-Host '  you are actually on as the first ledger row (or set ScaffoldVersion in scripts/_config.ps1), then re-run.'
+    Write-Host '  you are actually on as the first ledger row (or set ScaffoldOriginVersion in scripts/_config.ps1), then re-run.'
     return
   }
   Write-Host 'To inspect or apply one version (use the paths from that version''s block above, not these defaults):'
@@ -283,7 +293,8 @@ function Format-IssueBody {
   [void]$sb.AppendLine('')
   [void]$sb.AppendLine('| field | value |')
   [void]$sb.AppendLine('|---|---|')
-  [void]$sb.AppendLine("| scaffold version | $LocalVersion |")
+  [void]$sb.AppendLine("| scaffold origin version | $OriginVersion |")
+  [void]$sb.AppendLine("| scaffold current version | $LocalVersion |")
   [void]$sb.AppendLine("| surface at fault | $(if ($BodySurface) { $BodySurface } else { '(unspecified)' }) |")
   [void]$sb.AppendLine("| related lesson | $(if ($BodyLesson) { $BodyLesson } else { '(none)' }) |")
   [void]$sb.AppendLine("| os | $osText |")
@@ -483,13 +494,23 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
   } catch { $fails.Add("real public report scanner fixture failed: $($_.Exception.Message)") }
 
   $realLedger = Get-Content $LedgerDoc -Raw
-  $realV44 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.44\.0 \| partial \|' })
-  if ((Get-SyncedVersion $realLedger $LocalVersion) -ne '0.44.0' -or $LocalVersion -cne '0.29.0' -or $realV44.Count -ne 1 -or $realV44[0] -notmatch '31 live-card' -or $realV44[0] -notmatch 'seven shared-core' -or $realV44[0] -notmatch 'handoff') { $fails.Add('real v0.44 partial ledger row or 0.29.0 provenance drifted') }
+  $realV45 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.45\.0 \| partial \|' })
+  $hasOriginVersion = $resolvedConfig.PSObject.Properties.Name -contains 'OriginVersion'
+  $resolvedOriginVersion = if ($hasOriginVersion) { [string]$resolvedConfig.OriginVersion } else { '' }
+  if ((Get-SyncedVersion $realLedger '0.29.0') -ne '0.45.0' -or $resolvedConfig.Version -cne '0.45.0' -or $resolvedOriginVersion -cne '0.29.0' -or $realV45.Count -ne 1 -or $realV45[0] -notmatch 'db835867e6f1bab740f13b48e4bae009a34521ef' -or $realV45[0] -notmatch 'seeded shard') { $fails.Add('real v0.45 partial ledger row or origin/current version split is absent') }
+  if ((Get-SyncedVersion '' '0.29.0' @('v0.29.0','v0.45.0')) -ne '0.29.0') { $fails.Add('missing ledger did not fail closed to ScaffoldOriginVersion') }
+  $syncRaw = Get-Content $PSCommandPath -Raw
+  $routes = Get-ScaffoldOriginCurrentContract $syncRaw
+  if (-not $routes.Check -or -not $routes.Report) { $fails.Add('check/report origin-current caller contract is absent') }
+  if ((Get-ScaffoldOriginCurrentContract $syncRaw.Replace('Get-SyncedVersion $ledgerText $OriginVersion $tags','Get-SyncedVersion $ledgerText $LocalVersion $tags')).Check) { $fails.Add('check origin-to-current mutation survived') }
+  if ((Get-ScaffoldOriginCurrentContract $syncRaw.Replace('scaffold origin version | $OriginVersion','scaffold origin version | $LocalVersion')).Report -or (Get-ScaffoldOriginCurrentContract $syncRaw.Replace('scaffold current version | $LocalVersion','scaffold current version | $OriginVersion')).Report) { $fails.Add('report origin/current mutation survived') }
   $legacyConfig = Join-Path ([IO.Path]::GetTempPath()) "scaffold-legacy-config-$PID.ps1"
   try {
     Set-Content $legacyConfig "function Get-ScaffoldVersion { '0.29.0' }" -Encoding utf8
     $legacy = Resolve-ScaffoldConfiguration $legacyConfig 'Asun28/claude-devops-scaffold'
-    if ($legacy.Error -or $legacy.Version -cne '0.29.0' -or $legacy.Upstream -cne 'Asun28/claude-devops-scaffold') { $fails.Add('legacy config without Get-ScaffoldUpstreamRepo did not retain canonical defaults') }
+    $legacyHasOrigin = $legacy.PSObject.Properties.Name -contains 'OriginVersion'
+    $legacyOrigin = if ($legacyHasOrigin) { [string]$legacy.OriginVersion } else { '' }
+    if ($legacy.Error -or $legacy.Version -cne '0.29.0' -or $legacyOrigin -cne '0.29.0' -or $legacy.Upstream -cne 'Asun28/claude-devops-scaffold') { $fails.Add('legacy config did not treat its sole ScaffoldVersion as both current and origin') }
   } finally { Remove-Item $legacyConfig -Force -ErrorAction SilentlyContinue }
 
   $localOrigin = 'https://github.com/Asun28/project.git'; $upstream = 'Asun28/claude-devops-scaffold'
@@ -512,10 +533,13 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
     if (-not $contract.Registered) { $fails.Add('triage.ps1 does not invoke scaffold-stale on its own anchored line') }
     if (-not $contract.Documented) { $fails.Add('triage.ps1 DESCRIPTION omits scaffold-stale') }
     if (-not $contract.Offline) { $fails.Add('triage.ps1 contains a git fetch - the heartbeat must stay offline') }
+    if (-not $contract.OriginFallback) { $fails.Add('triage scaffold-stale does not route missing/marker-only ledgers through origin') }
     $noInvoke = [regex]::Replace($tRaw, '(?m)^Invoke-ProbeScaffoldStale\s*$', '# invocation removed', 1)
     if ((Get-TriageScaffoldProbeContract $noInvoke).Registered) { $fails.Add('scaffold-stale registration assertion survived invocation deletion') }
     $fetchMutant = [regex]::Replace($tRaw, '\bfor-each-ref\b', 'fetch', 1)
     if ((Get-TriageScaffoldProbeContract $fetchMutant).Offline) { $fails.Add('offline assertion missed a git -C ... fetch mutation') }
+    $originMutant = $tRaw.Replace('Get-ScaffoldOriginVersion', 'Get-ScaffoldVersion')
+    if ((Get-TriageScaffoldProbeContract $originMutant).OriginFallback) { $fails.Add('triage origin-to-current fallback mutation survived') }
   }
 
   if ($fails.Count -gt 0) {
@@ -539,7 +563,10 @@ $LedgerDoc     = Join-Path $RepoRoot 'docs/SCAFFOLD-SYNC.md'
 # Legacy/absent config degrades safely.
 $configPath = Join-Path $PSScriptRoot '_config.ps1'
 $resolvedConfig = Resolve-ScaffoldConfiguration $configPath 'Asun28/claude-devops-scaffold'
-$UpstreamRepo = $resolvedConfig.Upstream; $LocalVersion = $resolvedConfig.Version; $ConfigLoadError = $resolvedConfig.Error
+$UpstreamRepo = $resolvedConfig.Upstream
+$LocalVersion = $resolvedConfig.Version
+$OriginVersion = $resolvedConfig.OriginVersion
+$ConfigLoadError = $resolvedConfig.Error
 
 switch ($Verb) {
   'check'     { Invoke-Check -Remote $Remote -Fetch:$Fetch }
