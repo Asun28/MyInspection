@@ -40,7 +40,7 @@
 - 本地 SQLite 是唯一真相源。物业、租约、巡检、照片、保存、finalize、历史、规则、本地 PDF、日程、本地/USB 备份与恢复不依赖网络。
 - v1 无账号、同步、遥测、广告、崩溃上传或 app-owned 后台 HTTP/数据上传。远程 remediation 是唯一允许的运行期出站请求，且只在用户点 `Generate remote suggestions` 后经独立 adapter 调用；离线 seed-map 先行，网络失败不改本地证据、不阻断报告。自动加密备份仍可通过 SAF/DocumentsProvider 写入用户选择的目录；云 provider 对密文的后续传输由 provider 管理，不属于 app 网络 adapter。
 - `core`、capture、report、compliance、backup format/restore 不得依赖 HTTP client。引入 `INTERNET` 时必须同时显式禁用 cleartext、限定远程 adapter、测试无隐式请求；新增目的地或 payload 另走 ADR/任务卡。
-- remediation payload 默认只含不利项 stable id、状态、经用户确认的必要备注和本地 seed 结果；不送地址、姓名、联系方式、照片、音频、完整报告、API key 或备份内容。响应只接受有上限的 schema JSON，自由文本/未知字段拒绝。
+- remediation 出站 payload 是封闭投影，只含 `schema_version`、来自版本锁定模板的 `stable_id`、该模板允许的状态枚举和版本锁定 seed 资产中的 `seed_suggestion_code`；不得含备注或任何自由文本。发送前显示将发送的精确 canonical JSON 并再次确认；adapter 重新验证字段全集、模板成员关系和长度后才发送，未知/额外字段 fail closed。负向测试把地址、姓名、电话、邮箱、备注、路径、URI、照片/音频引用、完整报告、API key 和备份内容分别植入所有源记录，断言最终请求字节均不含这些值；响应只接受有上限的 schema JSON，自由文本/未知字段拒绝。
 
 ### 2.2 本机数据与密钥
 

@@ -138,6 +138,7 @@ Recommended indexes:
 2. `(run_id, occurred_at, id) WHERE deleted_at IS NULL` for one process lifetime.
 3. `(correlation_id, occurred_at, id) WHERE deleted_at IS NULL` for reconstructing one operation.
 4. `(operation_code, outcome, occurred_at DESC) WHERE deleted_at IS NULL` for failure diagnosis.
+5. Unique `(correlation_id) WHERE operation_code = 'BACKUP_RESULT'` so retries cannot append two terminal backup outcomes.
 
 No foreign keys point into the evidence database. Both tables are append-only for normal operations; only retention maintenance may set `updated_at`/`deleted_at` and later physically purge soft-deleted rows. All ordinary reads include `deleted_at IS NULL`.
 
@@ -154,7 +155,6 @@ The registry version is stored with the diagnostics schema and exported manifest
 | `CONTACT_PURGE` | all four | `DOMAIN` | `{}` | `TENANCY` + opaque ID required |
 | `PHOTO_INGEST`, `AUDIO_INGEST` | all four | `MEDIA` | `{}` | `INSPECTION` + opaque ID required |
 | `MEDIA_CLEANUP`, `MEDIA_REHYDRATE` | all four | `MEDIA` | `media_kind` | none |
-| `BACKUP_START` | `SUCCESS`; at most one start per correlation ID and it precedes its terminal result | none | `scope_kind` | `BACKUP` + opaque ID required |
 | `BACKUP_RESULT` | all four; exactly one terminal result per correlation ID | `BACKUP` | `scope_kind` | `BACKUP` + opaque ID required |
 | `RESTORE_PREFLIGHT`, `RESTORE_COMMIT` | all four | `RESTORE` | `scope_kind` | `RESTORE` + opaque ID required |
 | `RESTORE_ROLLBACK` | `SUCCESS`, `FAILURE` | `RESTORE_RUNTIME` | `scope_kind` | `RESTORE` + opaque ID required |
@@ -191,7 +191,7 @@ Health derivation is also closed and deterministic over active rows ordered by `
 | `PREVIOUS_CRASH` | current run contains `PREVIOUS_CRASH/FAILURE` with valid `CRASH` reason and `crash_context` | the next `APP_START` run without that marker |
 | `STARTUP_SLOW` | current run contains `STARTUP_SLOW/SUCCESS`; measured startup exceeds its stored `threshold_ms` | the next `APP_START` run without a slow marker |
 
-Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Backup-sequence tests prove a recorded `BACKUP_START/SUCCESS` has no reason, uses the same `scope_kind`, `BACKUP` scope ID, and correlation ID as its later sole `BACKUP_RESULT`, reject duplicate or post-terminal starts and duplicate results, and allow no start row when the best-effort logger failed before recording it. Crash tests reject messages, raw/unmapped class names, paths, oversized/build-invalid values, more than eight frames, and unsafe frame characters. Scope tests prove `CONTACT_PURGE` accepts a real tenancy with zero or many inspections and rejects an inspection scope. Logger failure still leaves business results unchanged.
+Registry tests must reject every unknown code/key/value and every illegal outcome/reason pair, verify milliseconds versus count units, and exercise the activation and clear sequence for every health state. Backup tests prove `BACKUP_START` is unknown, a retry reuses its persisted UUIDv7 correlation ID, and the unique terminal-result rule rejects a second `BACKUP_RESULT`. Crash tests reject messages, raw/unmapped class names, paths, oversized/build-invalid values, more than eight frames, and unsafe frame characters. Scope tests prove `CONTACT_PURGE` accepts a real tenancy with zero or many inspections and rejects an inspection scope. Logger failure still leaves business results unchanged.
 
 ### Retention and failure behavior
 
@@ -203,7 +203,9 @@ Registry tests must reject every unknown code/key/value and every illegal outcom
 - Critical facts remain in domain tables. For example, finalization is proven by `finalized_at/data_hash`, not by a `FINALIZE_SUCCESS` event.
 - No per-row hash chain is added. On a single offline device it would detect some accidental edits but would not create honest non-repudiation and would add hot-write/concurrency complexity. The exported diagnostic package instead carries a manifest and file hash.
 
-Initial operation families: app start/slow start, previous-crash recovery marker, inspection create/finalize, supplement append/verify, photo/audio ingest, notice generate/delivery record, contact purge, backup start/verify/fail, restore preflight/commit/rollback, local-media cleanup/rehydration, full local-data erasure outcome, diagnostics export, and database integrity check. Do not log item autosave keystrokes, content, per-frame samples, or per-image performance events; performance stores only bounded aggregates and threshold reason codes.
+Backup diagnostics intentionally record only the terminal `BACKUP_RESULT`, never a start event. A scheduled worker owns one UUIDv7 correlation ID persisted in its WorkManager input and reuses it across process-death retries; it appends the terminal event only when the operation reaches `SUCCESS`, `FAILURE`, `REJECTED`, or `CANCELLED`. `RUNNING` comes directly from the current WorkManager/UI operation state, not event history, so there is no orphan diagnostic start to age or reconcile; after restart WorkManager's `ENQUEUED`/`RUNNING` state remains the authority until a terminal result. Manual work uses the same rule but its running state is process-local. A kill/restart test terminates after bytes are written but before verification, proves no start/terminal event exists yet, restarts with the same correlation ID, and proves exactly one terminal result and no false Verified receipt. Logger failure may leave no terminal event and never changes the authoritative receipt or business result.
+
+Initial operation families: app start/slow start, previous-crash recovery marker, inspection create/finalize, supplement append/verify, photo/audio ingest, notice generate/delivery record, contact purge, terminal backup verify/fail/cancel/reject, restore preflight/commit/rollback, local-media cleanup/rehydration, full local-data erasure outcome, diagnostics export, and database integrity check. Do not log item autosave keystrokes, content, per-frame samples, or per-image performance events; performance stores only bounded aggregates and threshold reason codes.
 
 ## 8. Diagnostic export contract
 
