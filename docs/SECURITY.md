@@ -38,7 +38,7 @@
 ### 2.1 离线与出站
 
 - 本地 SQLite 是唯一真相源。物业、租约、巡检、照片、保存、finalize、历史、规则、本地 PDF、日程、本地/USB 备份与恢复不依赖网络。
-- v1 无账号、同步、遥测、广告、崩溃上传或后台数据上传。远程 remediation 是唯一允许的运行期出站请求，且只在用户点 `Generate remote suggestions` 后经独立 adapter 调用；离线 seed-map 先行，网络失败不改本地证据、不阻断报告。
+- v1 无账号、同步、遥测、广告、崩溃上传或 app-owned 后台 HTTP/数据上传。远程 remediation 是唯一允许的运行期出站请求，且只在用户点 `Generate remote suggestions` 后经独立 adapter 调用；离线 seed-map 先行，网络失败不改本地证据、不阻断报告。自动加密备份仍可通过 SAF/DocumentsProvider 写入用户选择的目录；云 provider 对密文的后续传输由 provider 管理，不属于 app 网络 adapter。
 - `core`、capture、report、compliance、backup format/restore 不得依赖 HTTP client。引入 `INTERNET` 时必须同时显式禁用 cleartext、限定远程 adapter、测试无隐式请求；新增目的地或 payload 另走 ADR/任务卡。
 - remediation payload 默认只含不利项 stable id、状态、经用户确认的必要备注和本地 seed 结果；不送地址、姓名、联系方式、照片、音频、完整报告、API key 或备份内容。响应只接受有上限的 schema JSON，自由文本/未知字段拒绝。
 
@@ -52,7 +52,7 @@
 
 ### 2.3 备份、恢复与分享
 
-- format v1 同时支持整包与按物业导出；按物业包必须从授权 read model 重建最小数据库与所需媒体，绝不直接打包会跨物业泄露的整库 `db.sqlite`。两种范围都始终认证加密、流式写入、关闭后重新打开并逐 manifest/hash/size 验证，才可写 Verified 回执。
+- 产品范围同时保留整包与按物业导出。当前冻结 format v1 的按物业包仍含整库 `db.sqlite`，不具备物业隔离，因此不得作为安全的物业级交付或恢复；过滤后的最小数据库须经格式版本评审后再启用。任何可用范围都必须认证加密、流式写入、关闭后重新打开并逐 manifest/hash/size 验证，才可写 Verified 回执。
 - 恢复是敌意输入边界：限制 KDF、manifest、文件数、路径、逐项/总字节和可用空间；先 staging 全验，再通过独立 journal 原子替换。错误口令、损坏、未来版本、空间不足、授权收回或进程中断都保持当前数据不动。
 - PDF/备份分享只用 SAF 或 `FileProvider content://` + 临时只读 URI grant；禁 `file://`、宽目录授权、永久 exported provider 和原始路径。分享前提示 PDF 离开 app 后不再受本产品控制。
 - 口令、恢复预检、租客联系方式和全屏敏感照片启用 secure-window/recents 防护；不全局禁截图，以保留普通巡检和明确分享流程的实用性。
