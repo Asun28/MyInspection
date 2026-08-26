@@ -29,7 +29,6 @@ import nz.myinspection.core.media.PhotoTarget
 import nz.myinspection.core.media.StreamDigests
 import nz.myinspection.core.model.InspectionItemSnapshot
 import nz.myinspection.core.model.PhotoSnapshot
-import nz.myinspection.core.report.Audience
 import nz.myinspection.core.report.BilingualText
 import nz.myinspection.core.report.DocumentPlan
 import nz.myinspection.core.report.MeasuredText
@@ -59,15 +58,9 @@ internal class GoldenEvidenceCoreHarness private constructor(
     val independentDataHash: String,
     val persistedPhotoHashes: List<String>,
     val assetContentHashes: List<String>,
-    private val reportSnapshot: ReportSnapshot,
-    private val composer: ReportComposer,
     private val driver: JdbcSqliteDriver,
     private val assetRoot: Path,
 ) : AutoCloseable {
-
-    fun compose(audience: Audience, includePrivacyPhotos: Boolean): DocumentPlan =
-        composer.compose(reportSnapshot, audience, ReportOptions(includePrivacyPhotos))
-
     override fun close() {
         driver.close()
         if (Files.exists(assetRoot)) {
@@ -154,7 +147,7 @@ internal class GoldenEvidenceCoreHarness private constructor(
                 val composer = ReportComposer(DETERMINISTIC_MEASURER)
                 val landlordPlan = composer.compose(
                     reportSnapshot,
-                    Audience.LANDLORD,
+                    nz.myinspection.core.report.Audience.LANDLORD,
                     ReportOptions(fixture.report.landlordIncludePrivacyPhotos),
                 )
                 val persistedPhotoHashes = roomByKey.values
@@ -168,8 +161,6 @@ internal class GoldenEvidenceCoreHarness private constructor(
                     independentDataHash = independentHashFromFinalizedDatabase(database, created.inspectionId),
                     persistedPhotoHashes = persistedPhotoHashes,
                     assetContentHashes = assetHashes,
-                    reportSnapshot = reportSnapshot,
-                    composer = composer,
                     driver = driver,
                     assetRoot = assetRoot,
                 )
