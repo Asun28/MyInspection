@@ -201,6 +201,10 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 `gradlew`（不依赖 executable bit）；wrapper 缺失、命令未执行、任务错误或测试非零一律 fail-closed；Android UI、
 权限、TalkBack、模拟器/真机与进程死亡仍只属于 `T7-SMOKE-POLISH`，不混入 JVM E2E。
 
+**W0 闸号协调债已结清**（2026-08-28，PR #186，master `b1e5f0b5`）：`selftest.ps1` 现在从闸头注释与真实
+`Fail` 文案解析 gate id，重复声明会点名 id 与全部位置；同时强制唯一 raw 插入锚、源码可解析、双面集合与词法 owner
+一致，并以 6 类删除变异防止守卫静默失效。TD146 已 paid。
+
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
 2. `docs/LICENSE-POLICY.md` — 依赖许可硬规则

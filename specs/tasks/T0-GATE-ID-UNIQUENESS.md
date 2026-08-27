@@ -3,7 +3,7 @@ id: T0-GATE-ID-UNIQUENESS
 title: 闸号唯一性做成机检，并让按锚点拼接的编辑不再静默错位
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-GATE-ID-UNIQUENESS
 worktree: C:\wt\T0-GATE-ID-UNIQUENESS
 allow_paths:

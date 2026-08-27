@@ -1797,3 +1797,11 @@
 - rule: 跨平台 Gradle 闸必须按 IsWindows 分派：Windows 用 cmd 执行 gradlew.bat，Unix 显式用 sh 执行 gradlew；Unix fixture 保持与真实 wrapper 相同的 100644 模式，动态自测在两种 OS 都跑并精确断言参数与失败传导，禁止依赖 executable bit 或跳过非 Windows。
 - enforced_by: scripts/selftest.ps1 gate 15e2
 - refs: PR #185; scripts/verify.ps1; scripts/selftest.ps1; scripts/fixtures/gate2/android/gradlew; GitHub Actions run 33041473166
+
+## L250
+- date: 2026-08-28 ｜ tags: selftest,parsing,ownership,guards,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 闸头 id 集合与 Fail 文案 id 集合完全相等且各自无重复，但后一闸内误复制的旧闸号仍通过全局集合检查。
+- root_cause: 守卫只证明全局集合相等和消息属于某个声明，解析时丢掉了源码顺序与当前词法 owner，因此无法区分合法复用和跨闸 stale label。
+- rule: 结构标签校验须同时证明全局集合与局部归属：按源码顺序维护 active lexical owner；夹具至少包含连续两个合法 owner 后再复用前一个 label，且删除 owner 守卫必须命中专属红灯。
+- enforced_by: scripts/selftest.ps1 gate 1i GATE-ID-GUARD-ACTIVE-OWNER
+- refs: PR #186; scripts/selftest.ps1; T0-GATE-ID-UNIQUENESS
