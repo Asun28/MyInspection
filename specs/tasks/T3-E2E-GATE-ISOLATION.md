@@ -22,13 +22,13 @@ non_goals:
   - 新增 E2E 场景、调整 canonical hash/report 契约、设备侧冒烟
 acceptance:
   - "A1 :core 建立独立 e2eTest source set 与同名 Test task；Golden Evidence Kotlin/fixture 资源迁出默认 test source set"
-  - "A2 :core:test 与 :core:check 不执行 Golden Evidence，check 不依赖 e2eTest；用默认 test 的 e2e 包选择器无匹配红灯证明隔离"
+  - "A2 :core:test 与 :core:check 不执行 Golden Evidence，check 任务图包含默认 test 且不依赖 e2eTest；source-set 目录契约证明默认 test 无 E2E 源码/资源"
   - "A3 :core:e2eTest 继续完整验证 DB data_hash、报告页脚 hash、独立重算 hash 与 tenant sentinel redaction"
   - "A4 Gate 2 精确执行 :core:e2eTest，保留 --offline --no-daemon；wrapper 缺失、命令未执行或任务非零继续 fail-closed"
   - "A5 selftest 锁定 source set 布局、Gate 1/Gate 2 完整参数序列及 success/failure/missing/命令变异"
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"; if ($LASTEXITCODE -eq 0) { exit 1 }; pwsh -NoProfile -File scripts\selftest.ps1 -Shard workflow
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check --dry-run > android\core\build\gate-isolation-dry-run.txt; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Select-String -LiteralPath android\core\build\gate-isolation-dry-run.txt -Pattern ':core:test' -Quiet)) { exit 1 }; if (Select-String -LiteralPath android\core\build\gate-isolation-dry-run.txt -Pattern ':core:e2eTest' -Quiet) { exit 1 }; pwsh -NoProfile -File scripts\selftest.ps1 -Shard workflow
 dod_exit: 0
-dod_assert: :core:check 与 :core:e2eTest 各自全绿；默认 :core:test 精确选择 e2e 包必须无匹配非零；workflow selftest 锁定独立 source set/task 与 Gate 2 fail-closed
+dod_assert: :core:check 与 :core:e2eTest 各自全绿；check dry-run 任务图包含默认 :core:test 且不含 :core:e2eTest；workflow selftest 锁定独立 source set/task 与 Gate 2 fail-closed
 review_gate: codex {verdict:pass}
 hygiene: source set/layout、Gate 2 task 名、额外参数、失败传导、执行哨兵与命令删除均有单点变异或反向断言（R4）
 doc_sync: CLAUDE.md W5 状态与本卡 status（R5）
@@ -52,8 +52,8 @@ doc_sync: CLAUDE.md W5 状态与本卡 status（R5）
 ```powershell
 cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check
 cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest
-cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"
+cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check --dry-run
 pwsh -NoProfile -File scripts\selftest.ps1 -Shard workflow
 ```
-- 期望退出码：前两项与 selftest 为 0；默认 test 的 e2e 选择器必须因无匹配而非零。
+- 期望退出码：全部为 0；dry-run 任务图必须包含默认 `:core:test` 且不含 `:core:e2eTest`。
 - 断言：默认测试与 Golden Evidence 执行隔离；Gate 2 保持离线、确定性、fail-closed。
