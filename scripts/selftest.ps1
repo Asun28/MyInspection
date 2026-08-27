@@ -6839,8 +6839,10 @@ try {
 # 真跑 success/failure/missing 三态，并对 invocation / 非零传导 / execution sentinel 各做一枚单点变异。
 # 假 wrapper 从独立 fixture 整目录复制（禁止 selftest 内联构造）；生产 verify.ps1 全程只读，所有变异只发生在临时夹具。
 $gate2InvocationLiteral = 'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+$gate2InvocationStatement = "  & cmd /c '$gate2InvocationLiteral'"
 $gate2Source = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
-$gate2InvocationCount = [regex]::Matches($gate2Source, [regex]::Escape($gate2InvocationLiteral)).Count
+$gate2SourceLines = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1')
+$gate2InvocationCount = @($gate2SourceLines | Where-Object { $_ -ceq $gate2InvocationStatement }).Count
 if ($gate2InvocationCount -ne 1 -or $gate2Source -notmatch '\[GATE2-FAILED\]' -or $gate2Source -notmatch '\[GATE2-MISSING\]' -or
     $gate2Source -notmatch '\[GATE2-NOT-RUN\]' -or $gate2Source -match '\$gate2Pending') {
   Fail "闸15e2：Gate 2 源码契约不完整（invocationCount=$gate2InvocationCount；须含 FAILED/MISSING/NOT-RUN，且不得残留 gate2Pending）。"
@@ -6856,13 +6858,14 @@ else {
     Add-SelftestGate2PassFixture -DestinationRoot $gate2Root
     $gate2SuccessOut = & pwsh -NoProfile -File (Join-Path $gate2Root 'scripts/verify.ps1') 2>&1 | Out-String
     $gate2SuccessExit = $LASTEXITCODE
-    $gate2Log = if (Test-Path (Join-Path $gate2Root 'android/gradle-invocations.log')) {
-      Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log') -Raw
-    } else { '' }
-    if ($gate2SuccessExit -ne 0 -or $gate2Log -notmatch ':core:check' -or $gate2Log -notmatch ':core:test' -or
-        $gate2Log -notmatch '--offline' -or $gate2Log -notmatch '--no-daemon' -or
-        $gate2Log -notmatch 'nz\.myinspection\.core\.e2e\.\*') {
-      Fail "闸15e2(success)：假 Gradle 全绿时 verify 未绿，或未精确执行 Gate 1 + Gate 2 E2E 选择器（exit=$gate2SuccessExit log=$gate2Log）：$gate2SuccessOut"
+    $gate2LogLines = if (Test-Path (Join-Path $gate2Root 'android/gradle-invocations.log')) {
+      @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    } else { @() }
+    $gate1ExpectedArgs = '--offline --no-daemon -q :core:check'
+    $gate2ExpectedArgs = '-p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+    if ($gate2SuccessExit -ne 0 -or $gate2LogLines.Count -ne 2 -or
+        $gate2LogLines[0] -cne $gate1ExpectedArgs -or $gate2LogLines[1] -cne $gate2ExpectedArgs) {
+      Fail "闸15e2(success)：假 Gradle 全绿时 verify 未绿，或 Gate 1/Gate 2 完整参数序列不精确（exit=$gate2SuccessExit log=$($gate2LogLines -join ' | ')）：$gate2SuccessOut"
     }
 
     New-Item -ItemType File -Force (Join-Path $gate2Root 'android/fail-gate2') | Out-Null
@@ -6882,12 +6885,25 @@ else {
     Set-Content -LiteralPath $gate2InvocationMutationPath -Value $gate2InvocationMutation -Encoding utf8
     $gate2InvocationMutationOut = & pwsh -NoProfile -File $gate2InvocationMutationPath 2>&1 | Out-String
     $gate2InvocationMutationExit = $LASTEXITCODE
-    $gate2InvocationMutationLog = Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log') -Raw
+    $gate2InvocationMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
     if ($gate2InvocationMutation -ceq $gate2Source -or $gate2InvocationMutationExit -eq 0 -or
         $gate2InvocationMutationOut -notmatch '\[GATE2-FAILED\]' -or
-        $gate2InvocationMutationLog -notmatch 'nz\.myinspection\.core\.e2e\.MUTANT' -or
-        $gate2InvocationMutationLog -match 'nz\.myinspection\.core\.e2e\.\*') {
-      Fail "闸15e2 [MUTATION-GATE2-INVOCATION]：错误 selector 单点变异未被专用 wrapper 精确击杀（exit=$gate2InvocationMutationExit log=$gate2InvocationMutationLog）：$gate2InvocationMutationOut"
+        $gate2InvocationMutationLog.Count -ne 2 -or
+        $gate2InvocationMutationLog[1] -cne '-p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.MUTANT"') {
+      Fail "闸15e2 [MUTATION-GATE2-INVOCATION]：错误 selector 单点变异未被专用 wrapper 精确击杀（exit=$gate2InvocationMutationExit log=$($gate2InvocationMutationLog -join ' | ')）：$gate2InvocationMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+    $gate2ExtraArgMutation = $gate2Source.Replace($gate2InvocationLiteral, "$gate2InvocationLiteral :core:classes")
+    $gate2ExtraArgMutationPath = Join-Path $gate2Root 'scripts/verify-extra-arg-mutant.ps1'
+    Set-Content -LiteralPath $gate2ExtraArgMutationPath -Value $gate2ExtraArgMutation -Encoding utf8
+    $gate2ExtraArgMutationOut = & pwsh -NoProfile -File $gate2ExtraArgMutationPath 2>&1 | Out-String
+    $gate2ExtraArgMutationExit = $LASTEXITCODE
+    $gate2ExtraArgMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    if ($gate2ExtraArgMutation -ceq $gate2Source -or $gate2ExtraArgMutationExit -eq 0 -or
+        $gate2ExtraArgMutationOut -notmatch '\[GATE2-FAILED\]' -or $gate2ExtraArgMutationLog.Count -ne 2 -or
+        $gate2ExtraArgMutationLog[1] -cne "$gate2ExpectedArgs :core:classes") {
+      Fail "闸15e2 [MUTATION-GATE2-EXTRA-ARG]：追加 task 的单点变异未被完整参数比较击杀（exit=$gate2ExtraArgMutationExit log=$($gate2ExtraArgMutationLog -join ' | ')）：$gate2ExtraArgMutationOut"
     }
 
     Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
@@ -6908,16 +6924,29 @@ else {
     }
 
     Remove-Item -LiteralPath (Join-Path $gate2Root 'android/fail-gate2'), (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
-    $gate2SentinelMutation = $gate2Source.Replace('  $gate2Executed = $true', '  # mutation: execution sentinel assignment removed')
+    $gate2SentinelMutation = $gate2Source.Replace('  $gate2Executed = $null -ne $gate2Exit', '  # mutation: execution sentinel assignment removed')
     $gate2SentinelMutationPath = Join-Path $gate2Root 'scripts/verify-sentinel-mutant.ps1'
     Set-Content -LiteralPath $gate2SentinelMutationPath -Value $gate2SentinelMutation -Encoding utf8
     $gate2SentinelMutationOut = & pwsh -NoProfile -File $gate2SentinelMutationPath 2>&1 | Out-String
     $gate2SentinelMutationExit = $LASTEXITCODE
-    $gate2SentinelMutationLog = Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log') -Raw
+    $gate2SentinelMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
     if ($gate2SentinelMutation -ceq $gate2Source -or $gate2SentinelMutationExit -eq 0 -or
         $gate2SentinelMutationOut -notmatch '\[GATE2-NOT-RUN\]' -or
-        $gate2SentinelMutationLog -notmatch 'nz\.myinspection\.core\.e2e\.\*') {
-      Fail "闸15e2 [MUTATION-GATE2-SENTINEL]：执行哨兵单点变异未在命令实际运行后 fail-closed（exit=$gate2SentinelMutationExit log=$gate2SentinelMutationLog）：$gate2SentinelMutationOut"
+        $gate2SentinelMutationLog.Count -ne 2 -or $gate2SentinelMutationLog[1] -cne $gate2ExpectedArgs) {
+      Fail "闸15e2 [MUTATION-GATE2-SENTINEL]：执行哨兵单点变异未在命令实际运行后 fail-closed（exit=$gate2SentinelMutationExit log=$($gate2SentinelMutationLog -join ' | ')）：$gate2SentinelMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+    $gate2CommandRemovalMutation = $gate2Source.Replace($gate2InvocationStatement, '  # mutation: native Gate 2 command removed')
+    $gate2CommandRemovalMutationPath = Join-Path $gate2Root 'scripts/verify-command-removal-mutant.ps1'
+    Set-Content -LiteralPath $gate2CommandRemovalMutationPath -Value $gate2CommandRemovalMutation -Encoding utf8
+    $gate2CommandRemovalMutationOut = & pwsh -NoProfile -File $gate2CommandRemovalMutationPath 2>&1 | Out-String
+    $gate2CommandRemovalMutationExit = $LASTEXITCODE
+    $gate2CommandRemovalMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    if ($gate2CommandRemovalMutation -ceq $gate2Source -or $gate2CommandRemovalMutationExit -eq 0 -or
+        $gate2CommandRemovalMutationOut -notmatch '\[GATE2-NOT-RUN\]' -or
+        $gate2CommandRemovalMutationLog.Count -ne 1 -or $gate2CommandRemovalMutationLog[0] -cne $gate1ExpectedArgs) {
+      Fail "闸15e2 [MUTATION-GATE2-COMMAND-REMOVAL]：删除原生命令后未由清零退出码 + execution sentinel fail-closed（exit=$gate2CommandRemovalMutationExit log=$($gate2CommandRemovalMutationLog -join ' | ')）：$gate2CommandRemovalMutationOut"
     }
 
     Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log'), (Join-Path $gate2Root 'android/gradlew.bat') -Force
@@ -6926,7 +6955,7 @@ else {
     if ($gate2MissingExit -eq 0 -or $gate2MissingOut -notmatch '\[GATE2-MISSING\]' -or $gate2MissingOut -notmatch '\[GATE2-NOT-RUN\]') {
       Fail "闸15e2(missing)：Gradle wrapper 缺失未 fail-closed，或缺 MISSING/NOT-RUN markers（exit=$gate2MissingExit）：$gate2MissingOut"
     }
-    if (-not $fail) { Write-Host '  15e2 Gate 2 三态 + invocation/propagation/sentinel 单点变异 OK（真实 verify 副本 + 专用假 gradlew.bat fixture）' -ForegroundColor Green }
+    if (-not $fail) { Write-Host '  15e2 Gate 2 三态 + 精确 invocation/extra-arg/propagation/sentinel/command-removal 单点变异 OK（真实 verify 副本 + 专用假 gradlew.bat fixture）' -ForegroundColor Green }
   } finally {
     Remove-Item -LiteralPath $gate2Root -Recurse -Force -ErrorAction SilentlyContinue
   }
