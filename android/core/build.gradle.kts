@@ -19,6 +19,17 @@ sourceSets {
     }
 }
 
+// T3-E2E-GATE-ISOLATION：Golden Evidence 是 Gate 2 的完整闭环，不属于普通单测。
+// 独立 source set 防止 :core:test/:core:check 编译或执行它；真实模板仍作为该闭环的只读 classpath resource。
+val e2eTest = sourceSets.create("e2eTest") {
+    compileClasspath += sourceSets.main.get().output
+    runtimeClasspath += output + compileClasspath
+    resources.srcDir("../../data/templates")
+}
+
+configurations[e2eTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
+configurations[e2eTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
+
 // T1-SCHEMA-CORE：.sq 是全量 schema 真相源（version 1 = 零 .sqm，SQLDelight 官方约定「first schema
 // version is 1」——.sqm 按「迁移起点版本号」命名，v1 本身无需迁移文件；未来加表/改列才落新 .sqm）。
 //
@@ -50,4 +61,13 @@ dependencies {
 
 tasks.test {
     useTestNG()
+}
+
+tasks.register<Test>("e2eTest") {
+    description = "Runs the Golden Evidence JVM Core E2E suite."
+    group = "verification"
+    testClassesDirs = e2eTest.output.classesDirs
+    classpath = e2eTest.runtimeClasspath
+    useTestNG()
+    shouldRunAfter(tasks.test)
 }
