@@ -2,7 +2,7 @@
 id: T3-E2E-GATE-ISOLATION
 title: 将 Golden Evidence 拆入独立 e2eTest source set 并由 Gate 2 单独执行
 depends_on: [T3-E2E-CORE]
-status: todo
+status: merged
 branch: T3-E2E-GATE-ISOLATION
 worktree: C:\wt\T3-E2E-GATE-ISOLATION
 allow_paths:
