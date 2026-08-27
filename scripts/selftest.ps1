@@ -550,6 +550,10 @@ function Test-SelftestSkipPassExclusivitySourceContract([string]$ScriptText) {
   return (@($requiredSnippets | Where-Object { -not $ScriptText.Contains($_) }).Count -eq 0)
 }
 
+function Test-SelftestSkipCommandName([string]$CommandName) {
+  return @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip') -contains $CommandName
+}
+
 function Invoke-SelftestSkipLedgerFixture {
   param(
     [Parameter(Mandatory)][string]$ScriptText,
@@ -725,11 +729,13 @@ exit 0
     if (-not $passed) { throw 'fixture outcome contract failed' }
     if ($VerifyMutationBudget) {
       # The full script is parsed once above. Mutants are compact fixture sources and run sequentially.
-      $skipCommandNames = @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip')
+      if (-not (Test-SelftestSkipCommandName -CommandName 'sKiP-SeLfTeStChEcK')) {
+        throw '[SELFTEST-SKIP-MUTATION-CASE-VARIANT]'
+      }
       $skipIdentityInventory = @($ast.FindAll({
         param($node)
         $node -is [System.Management.Automation.Language.CommandAst] -and
-          $skipCommandNames -ccontains $node.GetCommandName()
+          (Test-SelftestSkipCommandName -CommandName ($node.GetCommandName()))
       }, $true) | ForEach-Object { "$($_.GetCommandName())@$($_.Extent.StartOffset)" })
       $mutationSpecs = @(
         [PSCustomObject]@{
@@ -829,7 +835,16 @@ exit 0
 }
 
 function Invoke-SelftestSkipMutationBudgetFixture([string]$ScriptText) {
-  return Invoke-SelftestSkipLedgerFixture -ScriptText $ScriptText -VerifyMutationBudget
+  $budgetInformation = @()
+  $result = Invoke-SelftestSkipLedgerFixture -ScriptText $ScriptText -VerifyMutationBudget -InformationVariable +budgetInformation
+  $budgetDiagnostics = @($budgetInformation | ForEach-Object { [string]$_.MessageData } | Where-Object {
+    $_.StartsWith('[SELFTEST-SKIP-MUTATION-BUDGET]', [System.StringComparison]::Ordinal)
+  })
+  if ($budgetDiagnostics.Count -ne 1 -or
+      $budgetDiagnostics[0] -cnotmatch '^\[SELFTEST-SKIP-MUTATION-BUDGET\] candidates=[1-9][0-9]* executed=4 peak_compact_sources=2 resident_compact_sources=1 retention_mutants=1$') {
+    throw "[SELFTEST-SKIP-MUTATION-DIAGNOSTIC] actual=$($budgetDiagnostics -join '|')"
+  }
+  return $result
 }
 
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
