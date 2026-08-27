@@ -118,7 +118,7 @@
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
   [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
-  [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET')][string]$GateIdMutation = '',
+  [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
   [string]$NoGitMutationNonce = '',
@@ -1264,6 +1264,25 @@ function Test-SelftestGateIdContract {
       [pscustomobject]@{ Id = $id; Line = $token.Extent.StartLineNumber }
     }
   )
+  $gateContexts = @(
+    foreach ($token in $tokens) {
+      if ($token.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment) { continue }
+      $context = [regex]::Match($token.Text,
+        '^#\s+(?:---\s+)?(?<id>\d+(?:\.\d+)?[a-z]*\d*)(?:(?:[.:：])|(?:\([^)]*\)[.:：]?)|(?:（[^）]*）[.:：]?)|(?:/(?:\d+(?:\.\d+)?[a-z]*\d*)[.:：]))')
+      if (-not $context.Success) { continue }
+      $contextId = $context.Groups['id'].Value
+      $isCanonical = @($declarations | Where-Object { $_.Line -eq $token.Extent.StartLineNumber -and $_.Id -ceq $contextId }).Count -eq 1
+      [pscustomobject]@{ Id = $contextId; Line = $token.Extent.StartLineNumber; IsCanonical = $isCanonical }
+    }
+  )
+  $isMessageOwnedBy = {
+    param([string]$MessageId, [string]$OwnerId)
+    if ($MessageId -ceq $OwnerId) { return $true }
+    if (-not $MessageId.StartsWith($OwnerId, [System.StringComparison]::Ordinal)) { return $false }
+    $suffix = $MessageId.Substring($OwnerId.Length)
+    if (-not $suffix) { return $false }
+    return $(if ($OwnerId -match '[a-z]$') { $suffix[0] -match '[0-9]' } else { $suffix[0] -match '[a-z]' })
+  }
 
   $failCommands = @($ast.FindAll({
         param($node)
@@ -1294,20 +1313,24 @@ function Test-SelftestGateIdContract {
   # Fail. Write-Warning is deliberately excluded because it is not a failure-message report.
   $reportedMessageIds = [System.Collections.Generic.List[string]]::new()
   $previousFailLine = 0
+  $previousExplicitFailLine = 0
+  $activeCanonicalOwnerId = ''
   foreach ($failCommand in $failCommands) {
     $messageKey = [string]$failCommand.Extent.StartOffset
     if ($failMessageByOffset.ContainsKey($messageKey)) {
       $message = $failMessageByOffset[$messageKey]
+      $newContexts = @($gateContexts | Where-Object {
+          $_.Line -gt $previousExplicitFailLine -and $_.Line -lt $message.Line
+        } | Sort-Object Line)
+      if ($newContexts.Count -gt 0) {
+        $latestContext = $newContexts[-1]
+        $activeCanonicalOwnerId = if ($latestContext.IsCanonical -and (& $isMessageOwnedBy $message.Id $latestContext.Id)) { $latestContext.Id } else { '' }
+      }
+      if ($newContexts.Count -eq 0 -and $activeCanonicalOwnerId -and -not (& $isMessageOwnedBy $message.Id $activeCanonicalOwnerId)) { return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = $message.Id; Locations = @($message.Line); Detail = "failure message id=$($message.Id) is under active gate=$activeCanonicalOwnerId" } } # GATE-ID-GUARD-ACTIVE-OWNER
+      $previousExplicitFailLine = $message.Line
       $owners = @(
         foreach ($declaration in $declarations | Where-Object Line -lt $message.Line) {
-          $owns = $message.Id -ceq $declaration.Id
-          if (-not $owns -and $message.Id.StartsWith($declaration.Id, [System.StringComparison]::Ordinal)) {
-            $suffix = $message.Id.Substring($declaration.Id.Length)
-            if ($suffix) {
-              $owns = if ($declaration.Id -match '[a-z]$') { $suffix[0] -match '[0-9]' } else { $suffix[0] -match '[a-z]' }
-            }
-          }
-          if ($owns) { $declaration }
+          if (& $isMessageOwnedBy $message.Id $declaration.Id) { $declaration }
         }
       )
       if ($owners.Count -eq 0) {
@@ -1389,6 +1412,9 @@ if ($Fixture -eq 'gate-id-mutant') {
       [pscustomobject]@{ Name = 'message-owner'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource.Replace($gateIdMutantAnchor, "# 2e. wrong owner`nif (`$false) { Fail '闸2d：does not own 2e' }`n$gateIdMutantAnchor") }
       [pscustomobject]@{ Name = 'warning-only'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource.Replace($gateIdMutantAnchor, "# 2e. warning is not a failure`nWrite-Warning 'unnumbered warning'`n$gateIdMutantAnchor") }
       [pscustomobject]@{ Name = 'heading-only'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource + "`n# 2e. declaration without a failure`n" }
+    }
+    'ACTIVE-OWNER' {
+      [pscustomobject]@{ Name = 'stale-copy'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource.Replace($gateIdMutantAnchor, "# 2e. next gate`nif (`$false) { Fail '闸2e：valid next gate' }`nif (`$false) { Fail '闸2d：stale copied label' }`n$gateIdMutantAnchor") }
     }
   })
   $gateIdMutationSurvived = $false
@@ -1993,6 +2019,8 @@ if (-not $gateIdContractCommand) {
     "# 2e. heading owned by neither following message`nif (`$false) { Fail '闸2d：still reports 2d' }`n$gateIdInsertionAnchor")
   $warningOnlyGateIdSource = $validGateIdSource.Replace($gateIdInsertionAnchor,
     "# 2e. warning is not a failure message`nWrite-Warning 'unnumbered warning'`n$gateIdInsertionAnchor")
+  $staleCopiedGateIdSource = $validGateIdSource.Replace($gateIdInsertionAnchor,
+    "# 2e. next gate`nif (`$false) { Fail '闸2e：valid next gate' }`nif (`$false) { Fail '闸2d：stale copied label' }`n$gateIdInsertionAnchor")
   $headingOnlyGateIdSource = $validGateIdSource + "`n# 2e. declared after the last failure without a message`n"
   $embeddedStringAnchorSource = $validGateIdSource + "`n`$embedded = '$gateIdInsertionAnchor'`n"
   $embeddedCommentAnchorSource = $validGateIdSource + "`n# summary repeats $gateIdInsertionAnchor and is ambiguous`n"
@@ -2008,6 +2036,7 @@ if (-not $gateIdContractCommand) {
     [pscustomobject]@{ Name = 'message-owner'; Source = $wrongOwnerGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '' },
     [pscustomobject]@{ Name = 'warning-only'; Source = $warningOnlyGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '' },
     [pscustomobject]@{ Name = 'heading-only'; Source = $headingOnlyGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '' },
+    [pscustomobject]@{ Name = 'stale-copy'; Source = $staleCopiedGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2d'; Locations = '7' },
     [pscustomobject]@{ Name = 'anchor'; Source = $duplicateAnchorGateIdSource; Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = '5,6' },
     [pscustomobject]@{ Name = 'anchor-string'; Source = $embeddedStringAnchorSource; Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = '5,6' },
     [pscustomobject]@{ Name = 'anchor-comment'; Source = $embeddedCommentAnchorSource; Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = '5,6' },
@@ -2028,7 +2057,8 @@ if (-not $gateIdContractCommand) {
     [pscustomobject]@{ Suffix = 'SCAN-EMPTY'; Assertions = @('[GATE-ID-FIXTURE-empty]') },
     [pscustomobject]@{ Suffix = 'ANCHOR'; Assertions = @('[GATE-ID-FIXTURE-anchor]') },
     [pscustomobject]@{ Suffix = 'PARSE'; Assertions = @('[GATE-ID-FIXTURE-parse]') },
-    [pscustomobject]@{ Suffix = 'MESSAGE-SET'; Assertions = @('[GATE-ID-FIXTURE-message-owner]', '[GATE-ID-FIXTURE-warning-only]', '[GATE-ID-FIXTURE-heading-only]') }
+    [pscustomobject]@{ Suffix = 'MESSAGE-SET'; Assertions = @('[GATE-ID-FIXTURE-message-owner]', '[GATE-ID-FIXTURE-warning-only]', '[GATE-ID-FIXTURE-heading-only]') },
+    [pscustomobject]@{ Suffix = 'ACTIVE-OWNER'; Assertions = @('[GATE-ID-FIXTURE-stale-copy]') }
   )
   foreach ($mutationAssertion in $gateIdMutationAssertions) {
     $mutationOutput = (& pwsh -NoProfile -File $PSCommandPath -Fixture gate-id-mutant -GateIdMutation $mutationAssertion.Suffix 2>&1 | Out-String)
