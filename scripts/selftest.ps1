@@ -6835,9 +6835,9 @@ try {
   Remove-Item -LiteralPath $verifyBareRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 15e2. T3-E2E-GATE-ISOLATION Gate 2：静态锁独立 source set/task 与精确 Gradle 调用，Windows 再用
-# 真实 verify 副本 + 专用假 gradlew.bat 真跑 success/failure/missing 三态，并对 source-set/layout、
-# invocation / 非零传导 / execution sentinel 各做单点变异。
+# 15e2. T3-E2E-GATE-ISOLATION / T3-E2E-GATE-PORTABILITY Gate 2：静态锁独立 source set/task
+# 与 Windows/Linux 精确 Gradle 调用；再用真实 verify 副本 + 本平台专用假 wrapper 真跑
+# success/failure/missing 三态，并对 source-set/layout、invocation / 非零传导 / execution sentinel 各做单点变异。
 # 假 wrapper 从独立 fixture 整目录复制（禁止 selftest 内联构造）；生产 verify.ps1 全程只读，所有变异只发生在临时夹具。
 function Test-GoldenEvidenceIsolationContract {
   param(
@@ -6896,19 +6896,35 @@ if (-not (Test-GoldenEvidenceIsolationContract -BuildSource $coreBuildSource -Ob
   Fail '闸15e2：Golden Evidence 独立 source set/task 或目录契约缺失，或 source-set/task/default-layout 单点变异存活。'
 }
 
-$gate2InvocationLiteral = 'android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest'
-$gate2InvocationStatement = "  & cmd /c '$gate2InvocationLiteral'"
 $gate2Source = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
-$gate2SourceLines = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1')
-$gate2InvocationCount = @($gate2SourceLines | Where-Object { $_ -ceq $gate2InvocationStatement }).Count
-if ($gate2InvocationCount -ne 1 -or $gate2Source -notmatch '\[GATE2-FAILED\]' -or $gate2Source -notmatch '\[GATE2-MISSING\]' -or
-    $gate2Source -notmatch '\[GATE2-NOT-RUN\]' -or $gate2Source -match '\$gate2Pending') {
-  Fail "闸15e2：Gate 2 源码契约不完整（invocationCount=$gate2InvocationCount；须含 FAILED/MISSING/NOT-RUN，且不得残留 gate2Pending）。"
+$gate1WindowsInvocationStatement = "& cmd /c '.\gradlew.bat --offline --no-daemon -q :core:check'"
+$gate1UnixInvocationStatement = "& sh './gradlew' --offline --no-daemon -q :core:check"
+$gate2WindowsInvocationStatement = "& cmd /c 'android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest'"
+$gate2UnixInvocationStatement = "& sh './android/gradlew' -p android --offline --no-daemon -q :core:e2eTest"
+$requiredWrapperInvocations = @(
+  $gate1WindowsInvocationStatement,
+  $gate1UnixInvocationStatement,
+  $gate2WindowsInvocationStatement,
+  $gate2UnixInvocationStatement
+)
+function Test-GradleWrapperPortabilityContract {
+  param([Parameter(Mandatory)][string]$Source)
+  $sourceLines = @($Source -split '\r?\n' | ForEach-Object { $_.Trim() })
+  foreach ($statement in $requiredWrapperInvocations) {
+    if (@($sourceLines | Where-Object { $_ -ceq $statement }).Count -ne 1) { return $false }
+  }
+  if ($Source -notmatch '\[GATE2-FAILED\]' -or $Source -notmatch '\[GATE2-MISSING\]' -or
+      $Source -notmatch '\[GATE2-NOT-RUN\]' -or $Source -match '\$gate2Pending') { return $false }
+  return $true
 }
-elseif (-not $IsWindows) {
-  Write-Host '  15e2 Gate 2 静态契约 OK；假 gradlew.bat 三态仅在 Windows 分片执行' -ForegroundColor Green
+$unixRoutingMutation = $gate2Source.Replace($gate2UnixInvocationStatement, $gate2WindowsInvocationStatement)
+if (-not (Test-GradleWrapperPortabilityContract -Source $gate2Source) -or
+    (Test-GradleWrapperPortabilityContract -Source $unixRoutingMutation)) {
+  Fail '闸15e2：Windows/Linux Gate 1/Gate 2 wrapper 路由或 FAILED/MISSING/NOT-RUN 契约不完整，或 Unix 路由单点变异存活。'
 }
-else {
+$gate2InvocationStatement = if ($IsWindows) { $gate2WindowsInvocationStatement } else { $gate2UnixInvocationStatement }
+$selectedWrapperRelativePath = if ($IsWindows) { 'android/gradlew.bat' } else { 'android/gradlew' }
+& {
   $gate2Root = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-gate2-$PID-$([guid]::NewGuid().ToString('N'))"
   try {
     New-Item -ItemType Directory -Force (Join-Path $gate2Root 'scripts') | Out-Null
@@ -6935,10 +6951,7 @@ else {
 
     Remove-Item -LiteralPath (Join-Path $gate2Root 'android/fail-gate2'), (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
 
-    $gate2InvocationMutation = $gate2Source.Replace(
-      $gate2InvocationLiteral,
-      'android\gradlew.bat -p android --offline --no-daemon -q :core:test'
-    )
+    $gate2InvocationMutation = $gate2Source.Replace(':core:e2eTest', ':core:test')
     $gate2InvocationMutationPath = Join-Path $gate2Root 'scripts/verify-invocation-mutant.ps1'
     Set-Content -LiteralPath $gate2InvocationMutationPath -Value $gate2InvocationMutation -Encoding utf8
     $gate2InvocationMutationOut = & pwsh -NoProfile -File $gate2InvocationMutationPath 2>&1 | Out-String
@@ -6952,7 +6965,7 @@ else {
     }
 
     Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
-    $gate2ExtraArgMutation = $gate2Source.Replace($gate2InvocationLiteral, "$gate2InvocationLiteral :core:classes")
+    $gate2ExtraArgMutation = $gate2Source.Replace(':core:e2eTest', ':core:e2eTest :core:classes')
     $gate2ExtraArgMutationPath = Join-Path $gate2Root 'scripts/verify-extra-arg-mutant.ps1'
     Set-Content -LiteralPath $gate2ExtraArgMutationPath -Value $gate2ExtraArgMutation -Encoding utf8
     $gate2ExtraArgMutationOut = & pwsh -NoProfile -File $gate2ExtraArgMutationPath 2>&1 | Out-String
@@ -7007,13 +7020,13 @@ else {
       Fail "闸15e2 [MUTATION-GATE2-COMMAND-REMOVAL]：删除原生命令后未由清零退出码 + execution sentinel fail-closed（exit=$gate2CommandRemovalMutationExit log=$($gate2CommandRemovalMutationLog -join ' | ')）：$gate2CommandRemovalMutationOut"
     }
 
-    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log'), (Join-Path $gate2Root 'android/gradlew.bat') -Force
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log'), (Join-Path $gate2Root $selectedWrapperRelativePath) -Force
     $gate2MissingOut = & pwsh -NoProfile -File (Join-Path $gate2Root 'scripts/verify.ps1') 2>&1 | Out-String
     $gate2MissingExit = $LASTEXITCODE
     if ($gate2MissingExit -eq 0 -or $gate2MissingOut -notmatch '\[GATE2-MISSING\]' -or $gate2MissingOut -notmatch '\[GATE2-NOT-RUN\]') {
       Fail "闸15e2(missing)：Gradle wrapper 缺失未 fail-closed，或缺 MISSING/NOT-RUN markers（exit=$gate2MissingExit）：$gate2MissingOut"
     }
-    if (-not $fail) { Write-Host '  15e2 Gate 2 三态 + 精确 invocation/extra-arg/propagation/sentinel/command-removal 单点变异 OK（真实 verify 副本 + 专用假 gradlew.bat fixture）' -ForegroundColor Green }
+    if (-not $fail) { Write-Host '  15e2 Gate 2 跨平台三态 + 精确 invocation/extra-arg/propagation/sentinel/command-removal 单点变异 OK（真实 verify 副本 + 本平台假 wrapper）' -ForegroundColor Green }
   } finally {
     Remove-Item -LiteralPath $gate2Root -Recurse -Force -ErrorAction SilentlyContinue
   }
