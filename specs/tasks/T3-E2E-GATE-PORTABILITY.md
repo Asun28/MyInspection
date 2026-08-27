@@ -16,7 +16,7 @@ forbid:
 non_goals:
   - 调整 Golden Evidence 内容、普通 :core:check 隔离、CI matrix 或产品运行时
 acceptance:
-  - "A1 verify 按主机选择 wrapper：Windows 使用 android/gradlew.bat，经 cmd 执行；非 Windows 使用 android/gradlew，直接执行"
+  - "A1 verify 按主机选择 wrapper：Windows 使用 android/gradlew.bat，经 cmd 执行；非 Windows 使用 android/gradlew，经 sh 执行且不依赖 executable bit"
   - "A2 Gate 1 在两平台都精确执行 --offline --no-daemon -q :core:check；Gate 2 都精确执行 -p android --offline --no-daemon -q :core:e2eTest"
   - "A3 任一平台所需 wrapper 缺失、命令未执行或任务非零仍输出 Gate 2 marker 并使 verify 非零"
   - "A4 selftest 的真实 verify 夹具在 Windows/Linux 都执行本平台 fake wrapper，不再把非 Windows 三态跳过；错误 task、额外参数、失败传导、执行哨兵与命令删除变异继续被击杀"
