@@ -2,7 +2,7 @@
 id: T3-E2E-CORE
 title: 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2
 depends_on: [T3-E2E-TENANT-REDACTION]
-status: todo
+status: merged
 branch: T3-E2E-CORE
 worktree: C:\wt\T3-E2E-CORE
 allow_paths:
