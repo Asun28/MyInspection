@@ -192,12 +192,13 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 没发生」），8 枚变异全杀；末轮 pass 零发现。**方法论**：ship 前先把 `origin/master` 合上来——第 1 轮 3 条 finding
 全是「分支落后一个提交」被评审读成「本分支在撤销它」的假象，白烧一轮。
 
-**W5 Golden Evidence JVM Core E2E 已闭环并隔离**（2026-08-27，PR #180–#184，终态 master `f49f6a5`）：真实
+**W5 Golden Evidence JVM Core E2E 已闭环、隔离并修复跨平台 Gate**（2026-08-27，PR #180–#185，终态 master `56f2bc51`）：真实
 `routine-v1`（83 项）+ inspection/9 张 photo evidence + expected `data_hash` + landlord/tenant sentinel 已冻结；纯 JVM
 链路经真实 SQLite/finalize/report 验证 **DB hash = 报告页脚 hash = 独立 DB 重读重算 hash**，tenant report 保留 public
 内容且不泄露 landlord/private/remediation sentinel。Golden Evidence 已迁入独立 `e2eTest` source set；普通
 `:core:test` / `:core:check` 不再编译或执行它，`scripts/verify.ps1` Gate 2 精确执行
-`:core:e2eTest --offline --no-daemon`。wrapper 缺失、命令未执行、任务错误或测试非零一律 fail-closed；Android UI、
+`:core:e2eTest --offline --no-daemon`。Gate 1/2 在 Windows 经 `cmd` 执行 `.bat` wrapper，在 Unix 经 `sh` 执行
+`gradlew`（不依赖 executable bit）；wrapper 缺失、命令未执行、任务错误或测试非零一律 fail-closed；Android UI、
 权限、TalkBack、模拟器/真机与进程死亡仍只属于 `T7-SMOKE-POLISH`，不混入 JVM E2E。
 
 ## 权威文档（按序读）

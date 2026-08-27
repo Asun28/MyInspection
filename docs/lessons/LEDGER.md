@@ -1789,3 +1789,11 @@
 - rule: 卡片 DoD 中每个 native 进程都必须在期望路径返回 0。若要证明不存在/应失败，先用成功返回的 dry-run 或导出结果，再用 PowerShell 内建断言检查；或用专用 helper 把预期失败归一成最终 0。不要直接调用预期非零的 native 命令后再读 LASTEXITCODE。
 - enforced_by: none（任务卡 DoD 设计纪律；ship 的 native fail-fast 是触发条件，dry-run/PowerShell 内建断言是检出手段）
 - refs: scripts/task.ps1; specs/tasks/T3-E2E-GATE-ISOLATION.md
+
+## L249
+- date: 2026-08-27 ｜ tags: ci,linux,windows,gradle,wrapper,powershell,fixtures ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Windows 本地与 PR verify 全绿，但默认分支 Ubuntu scaffold-selftest 在 Gate 1/Gate 2 因 cmd 不存在而失败；若改成直接执行 gradlew，又会被仓库中 100644 的 wrapper 模式绊倒。
+- root_cause: scripts/verify.ps1 把 Windows cmd/gradlew.bat 路径写死；动态 fake-wrapper 自测仅在 Windows 执行，且没有复刻 Unix wrapper 的非可执行位，因此未覆盖真实 Linux 调度契约。
+- rule: 跨平台 Gradle 闸必须按 IsWindows 分派：Windows 用 cmd 执行 gradlew.bat，Unix 显式用 sh 执行 gradlew；Unix fixture 保持与真实 wrapper 相同的 100644 模式，动态自测在两种 OS 都跑并精确断言参数与失败传导，禁止依赖 executable bit 或跳过非 Windows。
+- enforced_by: scripts/selftest.ps1 gate 15e2
+- refs: PR #185; scripts/verify.ps1; scripts/selftest.ps1; scripts/fixtures/gate2/android/gradlew; GitHub Actions run 33041473166

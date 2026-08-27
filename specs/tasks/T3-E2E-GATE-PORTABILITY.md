@@ -2,7 +2,7 @@
 id: T3-E2E-GATE-PORTABILITY
 title: 修复 verify Gradle wrapper 的 Windows/Linux 跨平台执行
 depends_on: [T3-E2E-GATE-ISOLATION]
-status: todo
+status: merged
 branch: T3-E2E-GATE-PORTABILITY
 worktree: C:\wt\T3-E2E-GATE-PORTABILITY
 allow_paths:
