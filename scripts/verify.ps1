@@ -9,8 +9,8 @@
             （ruff 经 uv run --no-sync 离线跑；pytest exit 5 未收集到视为通过）；frontend/package.json 与
             node_modules 同在才跑前端检查（未 npm install 只警不挡；已引导而 npm 缺 → fail-closed 红）。
             未引导缺件一律优雅跳过，绝不误红。
-    闸门 2：Golden Evidence JVM Core E2E —— 必须精确选择 nz.myinspection.core.e2e.*，以 --offline --no-daemon
-            运行；不启动 Android UI/权限/模拟器/真机。Gradle wrapper 缺失、命令未执行、选择器错误或测试非零均
+    闸门 2：Golden Evidence JVM Core E2E —— 必须精确执行独立 :core:e2eTest，以 --offline --no-daemon
+            运行；不启动 Android UI/权限/模拟器/真机。Gradle wrapper 缺失、命令未执行、任务错误或测试非零均
             fail-closed，绝不以 Gate 1 的结果或占位警告假绿。
 
 .EXAMPLE
@@ -120,12 +120,12 @@ if (Test-Path $gwBat) {
 
 # --- 闸门 2：Golden Evidence JVM Core E2E 闭环 ---
 Step '闸门 2/2：集成 / e2e 闭环（确定性 / 离线 / 可复现）'
-# 纯 JVM，只选 core/e2e 包；不启动 Android UI/权限/模拟器/真机。wrapper、选择器或执行任一缺失都必须红。
+# 纯 JVM，只跑独立 e2eTest source set；不启动 Android UI/权限/模拟器/真机。wrapper、任务或执行任一缺失都必须红。
 $gate2Executed = $false
 if (Test-Path -LiteralPath $gwBat -PathType Leaf) {
   # 清空原生命令退出码，避免调用被删/注释时沿用 Gate 1 的零退出码形成假执行证据。
   $global:LASTEXITCODE = $null
-  & cmd /c 'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+  & cmd /c 'android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest'
   $gate2Exit = $LASTEXITCODE
   $gate2Executed = $null -ne $gate2Exit
   if ($gate2Executed -and $gate2Exit -ne 0) {

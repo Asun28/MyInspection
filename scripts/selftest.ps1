@@ -6835,10 +6835,68 @@ try {
   Remove-Item -LiteralPath $verifyBareRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 15e2. T3-E2E-CORE Gate 2：静态锁精确 Gradle 选择器，Windows 再用真实 verify 副本 + 专用假 gradlew.bat
-# 真跑 success/failure/missing 三态，并对 invocation / 非零传导 / execution sentinel 各做一枚单点变异。
+# 15e2. T3-E2E-GATE-ISOLATION Gate 2：静态锁独立 source set/task 与精确 Gradle 调用，Windows 再用
+# 真实 verify 副本 + 专用假 gradlew.bat 真跑 success/failure/missing 三态，并对 source-set/layout、
+# invocation / 非零传导 / execution sentinel 各做单点变异。
 # 假 wrapper 从独立 fixture 整目录复制（禁止 selftest 内联构造）；生产 verify.ps1 全程只读，所有变异只发生在临时夹具。
-$gate2InvocationLiteral = 'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+function Test-GoldenEvidenceIsolationContract {
+  param(
+    [Parameter(Mandatory)][string]$BuildSource,
+    [Parameter(Mandatory)][string[]]$ObservedPaths
+  )
+  $requiredPaths = @(
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceCoreE2ETest.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceCoreHarness.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceFixture.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceFixtureTest.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceTenantRedactionE2ETest.kt',
+    'android/core/src/e2eTest/resources/e2e/golden-inspection-v1.json'
+  )
+  foreach ($path in $requiredPaths) {
+    if ($ObservedPaths -cnotcontains $path) { return $false }
+  }
+  if (@($ObservedPaths | Where-Object {
+        $_.StartsWith('android/core/src/test/kotlin/nz/myinspection/core/e2e/', [StringComparison]::Ordinal) -or
+        $_.StartsWith('android/core/src/test/resources/e2e/', [StringComparison]::Ordinal)
+      }).Count -ne 0) { return $false }
+
+  $requiredPatterns = @(
+    '(?ms)^val e2eTest = sourceSets\.create\("e2eTest"\)\s*\{.*?^\s+resources\.srcDir\("\.\./\.\./data/templates"\)\s*$',
+    '(?m)^\s+compileClasspath \+= sourceSets\.main\.get\(\)\.output\s*$',
+    '(?m)^\s+runtimeClasspath \+= output \+ compileClasspath\s*$',
+    '(?m)^configurations\[e2eTest\.implementationConfigurationName\]\.extendsFrom\(configurations\.testImplementation\.get\(\)\)\s*$',
+    '(?m)^configurations\[e2eTest\.runtimeOnlyConfigurationName\]\.extendsFrom\(configurations\.testRuntimeOnly\.get\(\)\)\s*$',
+    '(?ms)^tasks\.register<Test>\("e2eTest"\)\s*\{.*?^\s+useTestNG\(\)\s*$.*?^\}\s*$',
+    '(?m)^\s+testClassesDirs = e2eTest\.output\.classesDirs\s*$',
+    '(?m)^\s+classpath = e2eTest\.runtimeClasspath\s*$'
+  )
+  foreach ($pattern in $requiredPatterns) {
+    if ([regex]::Matches($BuildSource, $pattern).Count -ne 1) { return $false }
+  }
+  if ($BuildSource -match '(?ms)(?:tasks\.)?check\s*\{[^}]*e2eTest' -or
+      $BuildSource -match '(?ms)tasks\.named(?:<[^>]+>)?\("check"\)\s*\{[^}]*e2eTest') { return $false }
+  return $true
+}
+
+$coreBuildSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'android/core/build.gradle.kts') -Raw
+$goldenEvidencePaths = @(
+  'android/core/src/e2eTest',
+  'android/core/src/test/kotlin/nz/myinspection/core/e2e',
+  'android/core/src/test/resources/e2e'
+) | ForEach-Object {
+  Get-ChildItem -LiteralPath (Join-Path $RepoRoot $_) -File -Recurse -ErrorAction SilentlyContinue
+} | ForEach-Object { [IO.Path]::GetRelativePath($RepoRoot, $_.FullName) -replace '\\', '/' }
+$sourceSetNameMutation = $coreBuildSource.Replace('sourceSets.create("e2eTest")', 'sourceSets.create("e2eMutant")')
+$sourceSetTaskMutation = $coreBuildSource.Replace('testClassesDirs = e2eTest.output.classesDirs', 'testClassesDirs = sourceSets.test.get().output.classesDirs')
+$defaultLayoutMutation = @($goldenEvidencePaths) + 'android/core/src/test/kotlin/nz/myinspection/core/e2e/GoldenEvidenceMutantTest.kt'
+if (-not (Test-GoldenEvidenceIsolationContract -BuildSource $coreBuildSource -ObservedPaths $goldenEvidencePaths) -or
+    (Test-GoldenEvidenceIsolationContract -BuildSource $sourceSetNameMutation -ObservedPaths $goldenEvidencePaths) -or
+    (Test-GoldenEvidenceIsolationContract -BuildSource $sourceSetTaskMutation -ObservedPaths $goldenEvidencePaths) -or
+    (Test-GoldenEvidenceIsolationContract -BuildSource $coreBuildSource -ObservedPaths $defaultLayoutMutation)) {
+  Fail '闸15e2：Golden Evidence 独立 source set/task 或目录契约缺失，或 source-set/task/default-layout 单点变异存活。'
+}
+
+$gate2InvocationLiteral = 'android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest'
 $gate2InvocationStatement = "  & cmd /c '$gate2InvocationLiteral'"
 $gate2Source = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
 $gate2SourceLines = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1')
@@ -6862,7 +6920,7 @@ else {
       @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
     } else { @() }
     $gate1ExpectedArgs = '--offline --no-daemon -q :core:check'
-    $gate2ExpectedArgs = '-p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+    $gate2ExpectedArgs = '-p android --offline --no-daemon -q :core:e2eTest'
     if ($gate2SuccessExit -ne 0 -or $gate2LogLines.Count -ne 2 -or
         $gate2LogLines[0] -cne $gate1ExpectedArgs -or $gate2LogLines[1] -cne $gate2ExpectedArgs) {
       Fail "闸15e2(success)：假 Gradle 全绿时 verify 未绿，或 Gate 1/Gate 2 完整参数序列不精确（exit=$gate2SuccessExit log=$($gate2LogLines -join ' | ')）：$gate2SuccessOut"
@@ -6879,7 +6937,7 @@ else {
 
     $gate2InvocationMutation = $gate2Source.Replace(
       $gate2InvocationLiteral,
-      'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.MUTANT"'
+      'android\gradlew.bat -p android --offline --no-daemon -q :core:test'
     )
     $gate2InvocationMutationPath = Join-Path $gate2Root 'scripts/verify-invocation-mutant.ps1'
     Set-Content -LiteralPath $gate2InvocationMutationPath -Value $gate2InvocationMutation -Encoding utf8
@@ -6889,8 +6947,8 @@ else {
     if ($gate2InvocationMutation -ceq $gate2Source -or $gate2InvocationMutationExit -eq 0 -or
         $gate2InvocationMutationOut -notmatch '\[GATE2-FAILED\]' -or
         $gate2InvocationMutationLog.Count -ne 2 -or
-        $gate2InvocationMutationLog[1] -cne '-p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.MUTANT"') {
-      Fail "闸15e2 [MUTATION-GATE2-INVOCATION]：错误 selector 单点变异未被专用 wrapper 精确击杀（exit=$gate2InvocationMutationExit log=$($gate2InvocationMutationLog -join ' | ')）：$gate2InvocationMutationOut"
+        $gate2InvocationMutationLog[1] -cne '-p android --offline --no-daemon -q :core:test') {
+      Fail "闸15e2 [MUTATION-GATE2-INVOCATION]：错误 task 单点变异未被专用 wrapper 精确击杀（exit=$gate2InvocationMutationExit log=$($gate2InvocationMutationLog -join ' | ')）：$gate2InvocationMutationOut"
     }
 
     Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
