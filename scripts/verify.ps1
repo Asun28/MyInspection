@@ -118,17 +118,30 @@ if (Test-Path $gwBat) {
   Write-Host '无 android/gradlew.bat，跳过 Android 闸（Gradle 工程未引导时正常；T0 引导卡落地后本闸自动收紧）。'
 }
 
-# --- 闸门 2：集成 / e2e 闭环（项目特定）---
+# --- 闸门 2：Golden Evidence JVM Core E2E 闭环 ---
 Step '闸门 2/2：集成 / e2e 闭环（确定性 / 离线 / 可复现）'
-# TODO（项目特定）：接集成/e2e——确定性 env + CLI 直跑 + 产物强校验 + fail-closed；接法见 docs/DELIVERY-OPS.md。
-# 占位未接时**别静默假绿**：醒目 WARNING 提醒「CI 绿 ≠ 装起来能跑」，但脚手架期仍不 fail（exit 0）。
-$gate2Pending = $true   # TODO：接好 e2e 闭环后置 $false（并把上面的真校验填进来）
-if ($gate2Pending) {
-  Write-Warning '⚠️ 闸门2（集成/e2e）未接 —— CI 绿 ≠ 装起来能跑；接法见 docs/DELIVERY-OPS.md。'
+# 纯 JVM，只选 core/e2e 包；不启动 Android UI/权限/模拟器/真机。wrapper、选择器或执行任一缺失都必须红。
+$gate2Executed = $false
+if (Test-Path -LiteralPath $gwBat -PathType Leaf) {
+  $gate2Executed = $true
+  & cmd /c 'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+  $gate2Exit = $LASTEXITCODE
+  if ($gate2Exit -ne 0) {
+    Write-Warning "[GATE2-FAILED] Golden Evidence JVM Core E2E 失败（退出码 $gate2Exit）。"
+    $failed = $true
+  } else {
+    Write-Host 'Golden Evidence JVM Core E2E 全绿。'
+  }
+} else {
+  Write-Warning '[GATE2-MISSING] android/gradlew.bat 缺失，Golden Evidence JVM Core E2E 未执行。'
+  $failed = $true
+}
+if (-not $gate2Executed) {
+  Write-Warning '[GATE2-NOT-RUN] Gate 2 命令未执行。'
+  $failed = $true
 }
 
 Step '结论'
 if ($failed) { Write-Host 'verify: FAIL' -ForegroundColor Red; exit 1 }
-$gate2Note = if ($gate2Pending) { '（闸门2 占位未接）' } else { '' }
-Write-Host "verify: PASS$gate2Note（注：随实现，闸门会自动收紧到完整闭环）" -ForegroundColor Green
+Write-Host 'verify: PASS（含 Golden Evidence JVM Core E2E 闭环）' -ForegroundColor Green
 exit 0
