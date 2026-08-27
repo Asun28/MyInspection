@@ -54,7 +54,7 @@
    15. 动态 E2E 冒烟：临时目录里 git init（刻意把默认分支设成 master≠main）→ 写最小卡 → check-cards →
        task.ps1 -Phase start，断言能从「当前分支」建出 worktree 且 exit 0；再 ship -Local 全链到合并提交，
        并对 ship 两道确定性闸种子缺陷断言必拦（15c verify 红 / 15d 越界改动，均须记效果账本）；
-       15e：真实 verify.ps1 在隔离裸项目中干跑，断言优雅降级 exit 0（不需 git，锁「装了 uv 无 pyproject 误红」类回归）；
+       15e：真实 verify.ps1 在隔离裸项目中干跑，断言 Gate 2 缺失 fail-closed（不需 git）；
        15f：stub uv/npm 夹具自证收紧路径——pyproject 在则 ruff 经 --no-sync 被真调（离线证据）、前端引导后
        check/test 真跑且非零传导为 verify 红（防假绿）；15g：RED-first 闸种子缺陷（TD36）——伪造空 .red 证据经内容校验被识破、-SkipRed 旁路落账本 gate=skip-red、GREEN dod 下 -Phase red 必抛、sha 与当前 HEAD 不符的陈旧/伪造证据必拦（TD63 item3）；15h：cleanup 脏树守卫（TD47）——脏树无 -Force 须拒（零删除）、脏树 +-Force 放行、干净树正路径不误伤；
        15i：ship push 失败护栏（TD44）——git push 静默失败须在 push 步 fail-fast abort（含 token、非零退出），不得续跑到 gh/合并陈旧远端 head。专抓静态闸
@@ -131,6 +131,11 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # pwsh 日志中变字节，导致断言假红。入口先与其它生产脚本一样钉 UTF-8/native 语义。
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }
 . (Join-Path $PSScriptRoot '_gitbase.ps1')
+
+function Add-SelftestGate2PassFixture {
+  param([Parameter(Mandatory)][string]$DestinationRoot)
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/fixtures/gate2/android') -Destination $DestinationRoot -Recurse -Force
+}
 
 # 纯函数：聚合器必须 fail-closed，只有所有分片均为 0 才返回 0。闸 8.2e 直测此函数，
 # 而默认 all 路径实际用它裁决进程退出码，避免「并行了但吞掉红分片」。
@@ -4782,10 +4787,11 @@ else {
   $cardsCheckRebuiltCode = $LASTEXITCODE
   if ($cardsRebuildCode -ne 0 -or $cardsCheckRebuiltCode -ne 0) { $arFail += "正常 archive 未能重建并通过卡索引检查（rebuild=$cardsRebuildCode check=$cardsCheckRebuiltCode）：$cardsCheckRebuiltOut" }
 
-  # verify 接线用极小真实仓夹具：不含 Android/Python/frontend，故唯一失败必须来自 archive cards index drift。
+  # verify 接线用极小真实仓夹具；专用 wrapper 只让 Gate 2 通过，使退出码仍由 archive cards index 独占。
   $verifyArchiveRoot = Join-Path $ar 'verify-wire'
   New-Item -ItemType Directory -Force (Join-Path $verifyArchiveRoot 'scripts'), (Join-Path $verifyArchiveRoot 'specs/archive/tasks') | Out-Null
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify.ps1'), $arScript, (Join-Path $PSScriptRoot '_cards.ps1'), (Join-Path $PSScriptRoot '_encoding.ps1') -Destination (Join-Path $verifyArchiveRoot 'scripts')
+  Add-SelftestGate2PassFixture -DestinationRoot $verifyArchiveRoot
   Set-Content -LiteralPath (Join-Path $verifyArchiveRoot 'specs/archive/tasks/TV1.md') -Value "---`nid: TV1`ntitle: verify one`nstatus: merged`n---" -Encoding utf8
   Set-Content -LiteralPath (Join-Path $verifyArchiveRoot 'specs/archive/tasks/TV2.md') -Value "---`nid: TV2`ntitle: verify two`nstatus: merged`n---" -Encoding utf8
   & pwsh -NoProfile -File (Join-Path $verifyArchiveRoot 'scripts/archive.ps1') -RepoRoot $verifyArchiveRoot -Quiet *> $null
@@ -6807,8 +6813,8 @@ if (-not $gitRC) {
   }
 }
 
-# 15e. 真实 verify.ps1 裸项目干跑（T2-VERIFY-LINT 常设自证）：只复制被测脚本到隔离目录，故 Python、前端、
-#   Android 均确定未引导；各步须优雅跳过并 exit 0——锁「uv 在 PATH 而无 pyproject 时误跑 pytest 误红」类回归。
+# 15e. 真实 verify.ps1 裸项目干跑：只复制被测脚本到隔离目录，故 Python、前端、Android 均确定未引导；
+#   Gate 1 继续优雅跳过，但 Gate 2 是交付必需闭环，wrapper 缺失必须 fail-closed 非零，不能再以脚手架期假绿。
 #   不得直接在 $RepoRoot 跑：项目后来新增的任一清单会收紧 verify，使此“裸项目”用例随 runner 工具链漂移。
 $verifyBareRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-verify-bare-$PID"
 try {
@@ -6819,11 +6825,140 @@ try {
       (Test-Path (Join-Path $verifyBareRoot 'android/gradlew.bat'))) {
     Fail '闸15e：未引导裸项目夹具被 Python/前端/Android 清单污染——结果会依赖 runner 工具链。'
   }
-  & pwsh -NoProfile -File (Join-Path $verifyBareRoot 'scripts/verify.ps1') *> $null
-  if ($LASTEXITCODE -ne 0) { Fail "闸15e：真实 verify.ps1 在裸项目干跑非零退出（$LASTEXITCODE）——未引导时须优雅跳过、exit 0。" }
-  else { Write-Host '  15e 真实 verify 裸项目干跑 OK（Python/前端/Android 均未引导 → 优雅降级 exit 0）' -ForegroundColor Green }
+  $verifyBareOut = & pwsh -NoProfile -File (Join-Path $verifyBareRoot 'scripts/verify.ps1') 2>&1 | Out-String
+  $verifyBareExit = $LASTEXITCODE
+  if ($verifyBareExit -eq 0 -or $verifyBareOut -notmatch '\[GATE2-MISSING\]' -or $verifyBareOut -notmatch '\[GATE2-NOT-RUN\]') {
+    Fail "闸15e：真实 verify.ps1 在裸项目未因 Gate 2 缺失 fail-closed，或缺少执行哨兵（exit=$verifyBareExit）：$verifyBareOut"
+  }
+  else { Write-Host '  15e 真实 verify 裸项目 OK（Gate 1 优雅跳过；Gate 2 缺失 → MISSING + NOT-RUN + exit 1）' -ForegroundColor Green }
 } finally {
   Remove-Item -LiteralPath $verifyBareRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# 15e2. T3-E2E-CORE Gate 2：静态锁精确 Gradle 选择器，Windows 再用真实 verify 副本 + 专用假 gradlew.bat
+# 真跑 success/failure/missing 三态，并对 invocation / 非零传导 / execution sentinel 各做一枚单点变异。
+# 假 wrapper 从独立 fixture 整目录复制（禁止 selftest 内联构造）；生产 verify.ps1 全程只读，所有变异只发生在临时夹具。
+$gate2InvocationLiteral = 'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+$gate2InvocationStatement = "  & cmd /c '$gate2InvocationLiteral'"
+$gate2Source = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
+$gate2SourceLines = Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/verify.ps1')
+$gate2InvocationCount = @($gate2SourceLines | Where-Object { $_ -ceq $gate2InvocationStatement }).Count
+if ($gate2InvocationCount -ne 1 -or $gate2Source -notmatch '\[GATE2-FAILED\]' -or $gate2Source -notmatch '\[GATE2-MISSING\]' -or
+    $gate2Source -notmatch '\[GATE2-NOT-RUN\]' -or $gate2Source -match '\$gate2Pending') {
+  Fail "闸15e2：Gate 2 源码契约不完整（invocationCount=$gate2InvocationCount；须含 FAILED/MISSING/NOT-RUN，且不得残留 gate2Pending）。"
+}
+elseif (-not $IsWindows) {
+  Write-Host '  15e2 Gate 2 静态契约 OK；假 gradlew.bat 三态仅在 Windows 分片执行' -ForegroundColor Green
+}
+else {
+  $gate2Root = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-gate2-$PID-$([guid]::NewGuid().ToString('N'))"
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $gate2Root 'scripts') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $gate2Root 'scripts/verify.ps1') -Force
+    Add-SelftestGate2PassFixture -DestinationRoot $gate2Root
+    $gate2SuccessOut = & pwsh -NoProfile -File (Join-Path $gate2Root 'scripts/verify.ps1') 2>&1 | Out-String
+    $gate2SuccessExit = $LASTEXITCODE
+    $gate2LogLines = if (Test-Path (Join-Path $gate2Root 'android/gradle-invocations.log')) {
+      @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    } else { @() }
+    $gate1ExpectedArgs = '--offline --no-daemon -q :core:check'
+    $gate2ExpectedArgs = '-p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.*"'
+    if ($gate2SuccessExit -ne 0 -or $gate2LogLines.Count -ne 2 -or
+        $gate2LogLines[0] -cne $gate1ExpectedArgs -or $gate2LogLines[1] -cne $gate2ExpectedArgs) {
+      Fail "闸15e2(success)：假 Gradle 全绿时 verify 未绿，或 Gate 1/Gate 2 完整参数序列不精确（exit=$gate2SuccessExit log=$($gate2LogLines -join ' | ')）：$gate2SuccessOut"
+    }
+
+    New-Item -ItemType File -Force (Join-Path $gate2Root 'android/fail-gate2') | Out-Null
+    $gate2FailureOut = & pwsh -NoProfile -File (Join-Path $gate2Root 'scripts/verify.ps1') 2>&1 | Out-String
+    $gate2FailureExit = $LASTEXITCODE
+    if ($gate2FailureExit -eq 0 -or $gate2FailureOut -notmatch '\[GATE2-FAILED\]') {
+      Fail "闸15e2(failure)：假 Gate 2 exit 9 未传导为 verify 红灯，或缺 FAILED marker（exit=$gate2FailureExit）：$gate2FailureOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/fail-gate2'), (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+
+    $gate2InvocationMutation = $gate2Source.Replace(
+      $gate2InvocationLiteral,
+      'android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.MUTANT"'
+    )
+    $gate2InvocationMutationPath = Join-Path $gate2Root 'scripts/verify-invocation-mutant.ps1'
+    Set-Content -LiteralPath $gate2InvocationMutationPath -Value $gate2InvocationMutation -Encoding utf8
+    $gate2InvocationMutationOut = & pwsh -NoProfile -File $gate2InvocationMutationPath 2>&1 | Out-String
+    $gate2InvocationMutationExit = $LASTEXITCODE
+    $gate2InvocationMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    if ($gate2InvocationMutation -ceq $gate2Source -or $gate2InvocationMutationExit -eq 0 -or
+        $gate2InvocationMutationOut -notmatch '\[GATE2-FAILED\]' -or
+        $gate2InvocationMutationLog.Count -ne 2 -or
+        $gate2InvocationMutationLog[1] -cne '-p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.e2e.MUTANT"') {
+      Fail "闸15e2 [MUTATION-GATE2-INVOCATION]：错误 selector 单点变异未被专用 wrapper 精确击杀（exit=$gate2InvocationMutationExit log=$($gate2InvocationMutationLog -join ' | ')）：$gate2InvocationMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+    $gate2ExtraArgMutation = $gate2Source.Replace($gate2InvocationLiteral, "$gate2InvocationLiteral :core:classes")
+    $gate2ExtraArgMutationPath = Join-Path $gate2Root 'scripts/verify-extra-arg-mutant.ps1'
+    Set-Content -LiteralPath $gate2ExtraArgMutationPath -Value $gate2ExtraArgMutation -Encoding utf8
+    $gate2ExtraArgMutationOut = & pwsh -NoProfile -File $gate2ExtraArgMutationPath 2>&1 | Out-String
+    $gate2ExtraArgMutationExit = $LASTEXITCODE
+    $gate2ExtraArgMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    if ($gate2ExtraArgMutation -ceq $gate2Source -or $gate2ExtraArgMutationExit -eq 0 -or
+        $gate2ExtraArgMutationOut -notmatch '\[GATE2-FAILED\]' -or $gate2ExtraArgMutationLog.Count -ne 2 -or
+        $gate2ExtraArgMutationLog[1] -cne "$gate2ExpectedArgs :core:classes") {
+      Fail "闸15e2 [MUTATION-GATE2-EXTRA-ARG]：追加 task 的单点变异未被完整参数比较击杀（exit=$gate2ExtraArgMutationExit log=$($gate2ExtraArgMutationLog -join ' | ')）：$gate2ExtraArgMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+    $gate2PropagationMutation = [regex]::Replace(
+      $gate2Source,
+      '(?m)(^\s*Write-Warning "\[GATE2-FAILED\][^\r\n]*\r?\n)\s*\$failed = \$true',
+      '$1    $failed = $false',
+      1
+    )
+    $gate2PropagationMutationPath = Join-Path $gate2Root 'scripts/verify-propagation-mutant.ps1'
+    Set-Content -LiteralPath $gate2PropagationMutationPath -Value $gate2PropagationMutation -Encoding utf8
+    New-Item -ItemType File -Force (Join-Path $gate2Root 'android/fail-gate2') | Out-Null
+    $gate2PropagationMutationOut = & pwsh -NoProfile -File $gate2PropagationMutationPath 2>&1 | Out-String
+    $gate2PropagationMutationExit = $LASTEXITCODE
+    if ($gate2PropagationMutation -ceq $gate2Source -or $gate2PropagationMutationExit -ne 0 -or
+        $gate2PropagationMutationOut -notmatch '\[GATE2-FAILED\]' -or $gate2PropagationMutationOut -notmatch 'verify: PASS') {
+      Fail "闸15e2 [MUTATION-GATE2-PROPAGATION]：移除失败传导的单点变异未产生可分类假绿（exit=$gate2PropagationMutationExit）：$gate2PropagationMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/fail-gate2'), (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+    $gate2SentinelMutation = $gate2Source.Replace('  $gate2Executed = $null -ne $gate2Exit', '  # mutation: execution sentinel assignment removed')
+    $gate2SentinelMutationPath = Join-Path $gate2Root 'scripts/verify-sentinel-mutant.ps1'
+    Set-Content -LiteralPath $gate2SentinelMutationPath -Value $gate2SentinelMutation -Encoding utf8
+    $gate2SentinelMutationOut = & pwsh -NoProfile -File $gate2SentinelMutationPath 2>&1 | Out-String
+    $gate2SentinelMutationExit = $LASTEXITCODE
+    $gate2SentinelMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    if ($gate2SentinelMutation -ceq $gate2Source -or $gate2SentinelMutationExit -eq 0 -or
+        $gate2SentinelMutationOut -notmatch '\[GATE2-NOT-RUN\]' -or
+        $gate2SentinelMutationLog.Count -ne 2 -or $gate2SentinelMutationLog[1] -cne $gate2ExpectedArgs) {
+      Fail "闸15e2 [MUTATION-GATE2-SENTINEL]：执行哨兵单点变异未在命令实际运行后 fail-closed（exit=$gate2SentinelMutationExit log=$($gate2SentinelMutationLog -join ' | ')）：$gate2SentinelMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log') -Force
+    $gate2CommandRemovalMutation = $gate2Source.Replace($gate2InvocationStatement, '  # mutation: native Gate 2 command removed')
+    $gate2CommandRemovalMutationPath = Join-Path $gate2Root 'scripts/verify-command-removal-mutant.ps1'
+    Set-Content -LiteralPath $gate2CommandRemovalMutationPath -Value $gate2CommandRemovalMutation -Encoding utf8
+    $gate2CommandRemovalMutationOut = & pwsh -NoProfile -File $gate2CommandRemovalMutationPath 2>&1 | Out-String
+    $gate2CommandRemovalMutationExit = $LASTEXITCODE
+    $gate2CommandRemovalMutationLog = @(Get-Content (Join-Path $gate2Root 'android/gradle-invocations.log'))
+    if ($gate2CommandRemovalMutation -ceq $gate2Source -or $gate2CommandRemovalMutationExit -eq 0 -or
+        $gate2CommandRemovalMutationOut -notmatch '\[GATE2-NOT-RUN\]' -or
+        $gate2CommandRemovalMutationLog.Count -ne 1 -or $gate2CommandRemovalMutationLog[0] -cne $gate1ExpectedArgs) {
+      Fail "闸15e2 [MUTATION-GATE2-COMMAND-REMOVAL]：删除原生命令后未由清零退出码 + execution sentinel fail-closed（exit=$gate2CommandRemovalMutationExit log=$($gate2CommandRemovalMutationLog -join ' | ')）：$gate2CommandRemovalMutationOut"
+    }
+
+    Remove-Item -LiteralPath (Join-Path $gate2Root 'android/gradle-invocations.log'), (Join-Path $gate2Root 'android/gradlew.bat') -Force
+    $gate2MissingOut = & pwsh -NoProfile -File (Join-Path $gate2Root 'scripts/verify.ps1') 2>&1 | Out-String
+    $gate2MissingExit = $LASTEXITCODE
+    if ($gate2MissingExit -eq 0 -or $gate2MissingOut -notmatch '\[GATE2-MISSING\]' -or $gate2MissingOut -notmatch '\[GATE2-NOT-RUN\]') {
+      Fail "闸15e2(missing)：Gradle wrapper 缺失未 fail-closed，或缺 MISSING/NOT-RUN markers（exit=$gate2MissingExit）：$gate2MissingOut"
+    }
+    if (-not $fail) { Write-Host '  15e2 Gate 2 三态 + 精确 invocation/extra-arg/propagation/sentinel/command-removal 单点变异 OK（真实 verify 副本 + 专用假 gradlew.bat fixture）' -ForegroundColor Green }
+  } finally {
+    Remove-Item -LiteralPath $gate2Root -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 # 15l. TaskId 绑定期校验（TD50/TD-113）：start 外的相（red/ship/cleanup）此前拿未净化 -TaskId 拼 $Wt/$Card 路径，
@@ -6863,6 +6998,7 @@ try {
   $env:PATH = $vfxBin + [System.IO.Path]::PathSeparator + $env:PATH
   # (a) Python 已引导夹具：裸 pyproject → ruff 须被真调且含 --no-sync；stub 全绿 → verify exit 0。
   Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $vfx 'a/scripts/verify.ps1')
+  Add-SelftestGate2PassFixture -DestinationRoot (Join-Path $vfx 'a')
   Set-Content (Join-Path $vfx 'a/pyproject.toml') '[project]' -Encoding utf8
   & pwsh -NoProfile -File (Join-Path $vfx 'a/scripts/verify.ps1') *> $null
   $vfxAExit = $LASTEXITCODE
@@ -6872,6 +7008,7 @@ try {
   else { Write-Host '  15f(a) ruff 真调 OK（uv run --no-sync ruff check 被调用、stub 绿 → verify exit 0）' -ForegroundColor Green }
   # (b) 前端已引导夹具：package.json + node_modules → npm run check / run test 须被真调；stub 红 → verify 必 exit 1。
   Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $vfx 'b/scripts/verify.ps1')
+  Add-SelftestGate2PassFixture -DestinationRoot (Join-Path $vfx 'b')
   Set-Content (Join-Path $vfx 'b/frontend/package.json') '{"name":"vfx","version":"0.0.0","scripts":{"check":"exit 1","test":"exit 1"}}' -Encoding utf8
   & pwsh -NoProfile -File (Join-Path $vfx 'b/scripts/verify.ps1') *> $null
   $vfxBExit = $LASTEXITCODE
@@ -6886,7 +7023,7 @@ try {
 
 # 15f(c). TD43：pyproject.toml 在场（真已引导 Python 项目）但 uv 不在 PATH 时，ruff/pytest 两分支须 fail-closed（非零退出）——
 #   镜像前端分支（:80-82）的既有先例；旧码两分支只打印跳过提示、$failed 不置位 → 误报绿（零 lint 零测试却 verify: PASS）。
-#   裸骨架（无 pyproject.toml）在同样缺 uv 时须仍优雅跳过 exit 0（15e 已证的降级路径不可回归）。
+#   裸骨架（无 pyproject.toml）在同样缺 uv 时须仍优雅跳过 exit 0（15e 的 Gate 1 降级语义不可回归）。
 #   PATH 只在**子进程内部**被 shim（一个写到临时目录的包装脚本，自己进程内把 $env:PATH 收窄到不含 uv 的极简目录表，
 #   再用 pwsh 全路径去调 verify.ps1）——本 selftest（父/会话）进程的 $env:PATH 全程不动，亦不碰真实仓库。
 $vfxC = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfxc-$PID"
@@ -6895,6 +7032,8 @@ try {
   New-Item -ItemType Directory -Force (Join-Path $vfxC 'py/scripts'), (Join-Path $vfxC 'bare/scripts') | Out-Null
   Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $vfxC 'py/scripts/verify.ps1')
   Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $vfxC 'bare/scripts/verify.ps1')
+  Add-SelftestGate2PassFixture -DestinationRoot (Join-Path $vfxC 'py')
+  Add-SelftestGate2PassFixture -DestinationRoot (Join-Path $vfxC 'bare')
   Set-Content (Join-Path $vfxC 'py/pyproject.toml') '[project]' -Encoding utf8   # 'bare' 夹具故意不放 pyproject.toml
   $pwshExe = (Get-Command pwsh | Select-Object -First 1).Source
   $shimPath = if ($IsWindows) { (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot } else { '/usr/bin:/bin' }
@@ -6911,7 +7050,7 @@ exit $LASTEXITCODE
   & pwsh -NoProfile -File $wrapC -PwshExe $pwshExe -VerifyPath (Join-Path $vfxC 'bare/scripts/verify.ps1') -ShimPath $shimPath *> $null
   $vfxCBareExit = $LASTEXITCODE
   if ($vfxCPyExit -eq 0) { Fail "闸15f(c)：pyproject.toml 在场但 uv 不在 PATH（子进程内 shim，父进程 PATH 未动）时 verify.ps1 仍 exit 0（TD43：ruff/pytest 两分支静默跳过、`$failed` 未置位，零 lint 零测试却报绿，违反 verify.ps1:17 fail-closed 自称，且与前端分支 :80-82 不对称）。" }
-  elseif ($vfxCBareExit -ne 0) { Fail "闸15f(c)：无 pyproject.toml（裸骨架）+ uv 不在 PATH 时 verify.ps1 非零退出（$vfxCBareExit）——裸骨架优雅跳过路径回归（TD43 修复不应影响此分支，15e 已证的降级路径被破坏）。" }
+  elseif ($vfxCBareExit -ne 0) { Fail "闸15f(c)：无 pyproject.toml（裸骨架）+ uv 不在 PATH 时 verify.ps1 非零退出（$vfxCBareExit）——裸骨架优雅跳过路径回归。" }
   else { Write-Host '  15f(c) TD43 uv 缺席 fail-closed OK（pyproject 在+uv 缺 → 非零；裸骨架+uv 缺 → 仍 exit 0 绿）' -ForegroundColor Green }
 } finally {
   Remove-Item -Recurse -Force $vfxC -ErrorAction SilentlyContinue
