@@ -117,7 +117,8 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'skip-ledger', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
   [string]$NoGitMutationNonce = '',
@@ -1227,6 +1228,211 @@ if ($Fixture -eq 'canary-harness') {
   }
 }
 
+function Test-SelftestGateIdContract {
+  param(
+    [Parameter(Mandatory)][string]$Source,
+    [Parameter(Mandatory)][string]$InsertionAnchor
+  )
+
+  $tokens = $null
+  $parseErrors = $null
+  $parseFixturePath = Join-Path ([System.IO.Path]::GetTempPath()) ("selftest-gate-id-" + [guid]::NewGuid().ToString('N') + '.ps1')
+  try {
+    [System.IO.File]::WriteAllText($parseFixturePath, $Source, [System.Text.UTF8Encoding]::new($false))
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($parseFixturePath, [ref]$tokens, [ref]$parseErrors)
+  } finally {
+    [System.IO.File]::Delete($parseFixturePath)
+  }
+  if ($parseErrors -and $parseErrors.Count -gt 0) { return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-PARSE-ERROR'; Id = ''; Locations = @($parseErrors[0].Extent.StartLineNumber); Detail = $parseErrors[0].Message } } # GATE-ID-GUARD-PARSE
+
+  # This is deliberately raw text, matching the actual anchor-based edit mechanism. A marker inside
+  # a string or a longer comment is just as ambiguous to a text inserter as a standalone comment.
+  $anchorLocations = @([regex]::Matches($Source, [regex]::Escape($InsertionAnchor)) | ForEach-Object {
+      [regex]::Matches($Source.Substring(0, $_.Index), "`n").Count + 1
+    })
+  if ($anchorLocations.Count -ne 1) { return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = $anchorLocations; Detail = "anchor count=$($anchorLocations.Count)" } } # GATE-ID-GUARD-ANCHOR
+
+  $declarations = @(
+    foreach ($token in $tokens) {
+      if ($token.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment) { continue }
+      # Exactly one space after # distinguishes a gate heading from indented prose such as "#   15j:".
+      # The lookahead prevents "8.0c" from backtracking to a false "8." declaration.
+      $heading = [regex]::Match($token.Text, '^# (?:--- )?(?<id>[0-9A-Za-z.]+)(?<separator>[.:：])(?=\s|[^\w.]|$)')
+      if (-not $heading.Success) { continue }
+      $id = $heading.Groups['id'].Value
+      if ($id -notmatch '^\d+(?:\.\d+)?[a-z]*\d*$') { continue }
+      [pscustomobject]@{ Id = $id; Line = $token.Extent.StartLineNumber }
+    }
+  )
+  $gateContexts = @(
+    foreach ($token in $tokens) {
+      if ($token.Kind -ne [System.Management.Automation.Language.TokenKind]::Comment) { continue }
+      $context = [regex]::Match($token.Text,
+        '^#\s+(?:---\s+)?(?<id>\d+(?:\.\d+)?[a-z]*\d*)(?:(?:[.:：])|(?:\([^)]*\)[.:：]?)|(?:（[^）]*）[.:：]?)|(?:/(?:\d+(?:\.\d+)?[a-z]*\d*)[.:：]))')
+      if (-not $context.Success) { continue }
+      $contextId = $context.Groups['id'].Value
+      $isCanonical = @($declarations | Where-Object { $_.Line -eq $token.Extent.StartLineNumber -and $_.Id -ceq $contextId }).Count -eq 1
+      [pscustomobject]@{ Id = $contextId; Line = $token.Extent.StartLineNumber; IsCanonical = $isCanonical }
+    }
+  )
+  $isMessageOwnedBy = {
+    param([string]$MessageId, [string]$OwnerId)
+    if ($MessageId -ceq $OwnerId) { return $true }
+    if (-not $MessageId.StartsWith($OwnerId, [System.StringComparison]::Ordinal)) { return $false }
+    $suffix = $MessageId.Substring($OwnerId.Length)
+    if (-not $suffix) { return $false }
+    return $(if ($OwnerId -match '[a-z]$') { $suffix[0] -match '[0-9]' } else { $suffix[0] -match '[a-z]' })
+  }
+
+  $failCommands = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Fail'
+      }, $true) | Sort-Object { $_.Extent.StartLineNumber })
+  $failMessageByOffset = @{}
+  $failMessages = @(
+    foreach ($command in $failCommands) {
+      if ($command.CommandElements.Count -lt 2) { continue }
+      # Read the first argument AST rather than the command's raw prefix. This covers both
+      # Fail '闸17t:...' and expression forms such as Fail ('闸17t(doc):...' + $detail).
+      $messageId = [regex]::Match($command.CommandElements[1].Extent.Text,
+        '^\s*\(*\s*["'']闸(?<id>\d+(?:\.\d+)?[a-z]*\d*)')
+      if ($messageId.Success) {
+        $message = [pscustomobject]@{ Id = $messageId.Groups['id'].Value; Line = $command.Extent.StartLineNumber }
+        $failMessageByOffset[[string]$command.Extent.StartOffset] = $message
+        $message
+      }
+    }
+  )
+  if ($failMessages.Count -eq 0) { return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-SCAN-EMPTY'; Id = ''; Locations = @(); Detail = 'no 闸<id> failure messages found' } } # GATE-ID-GUARD-SCAN-EMPTY
+
+  $duplicate = @($declarations | Group-Object Id | Where-Object Count -gt 1 | Sort-Object Name | Select-Object -First 1)
+  if ($duplicate.Count -gt 0) { return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-DUPLICATE'; Id = $duplicate[0].Name; Locations = @($duplicate[0].Group.Line | Sort-Object); Detail = "[GATE-ID-DUPLICATE] id=$($duplicate[0].Name) locations=$(@($duplicate[0].Group.Line | Sort-Object) -join ',')" } } # GATE-ID-GUARD-DUPLICATE
+
+  # Build the report side from actual Fail ownership. An explicit 闸<id> contributes only its
+  # preceding lexical heading owners; an unnumbered Fail owns headings opened since the previous
+  # Fail. Write-Warning is deliberately excluded because it is not a failure-message report.
+  $reportedMessageIds = [System.Collections.Generic.List[string]]::new()
+  $previousFailLine = 0
+  $previousExplicitFailLine = 0
+  $activeCanonicalOwnerId = ''
+  foreach ($failCommand in $failCommands) {
+    $messageKey = [string]$failCommand.Extent.StartOffset
+    if ($failMessageByOffset.ContainsKey($messageKey)) {
+      $message = $failMessageByOffset[$messageKey]
+      $newContexts = @($gateContexts | Where-Object {
+          $_.Line -gt $previousExplicitFailLine -and $_.Line -lt $message.Line
+        } | Sort-Object Line)
+      if ($newContexts.Count -gt 0) {
+        $latestContext = $newContexts[-1]
+        $activeCanonicalOwnerId = if ($latestContext.IsCanonical -and (& $isMessageOwnedBy $message.Id $latestContext.Id)) { $latestContext.Id } else { '' }
+      }
+      if ($newContexts.Count -eq 0 -and $activeCanonicalOwnerId -and -not (& $isMessageOwnedBy $message.Id $activeCanonicalOwnerId)) { return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = $message.Id; Locations = @($message.Line); Detail = "failure message id=$($message.Id) is under active gate=$activeCanonicalOwnerId" } } # GATE-ID-GUARD-ACTIVE-OWNER
+      $previousExplicitFailLine = $message.Line
+      $owners = @(
+        foreach ($declaration in $declarations | Where-Object Line -lt $message.Line) {
+          if (& $isMessageOwnedBy $message.Id $declaration.Id) { $declaration }
+        }
+      )
+      if ($owners.Count -eq 0) {
+        return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = $message.Id; Locations = @($message.Line); Detail = "failure message id=$($message.Id) has no preceding gate heading" }
+      }
+      foreach ($owner in $owners) { [void]$reportedMessageIds.Add($owner.Id) }
+    } else {
+      foreach ($declaration in $declarations | Where-Object {
+          $_.Line -gt $previousFailLine -and $_.Line -lt $failCommand.Extent.StartLineNumber
+        }) {
+        [void]$reportedMessageIds.Add($declaration.Id)
+      }
+    }
+    $previousFailLine = $failCommand.Extent.StartLineNumber
+  }
+  $reportedHeadingIdSet = @($declarations | ForEach-Object { $_.Id } | Sort-Object -Unique)
+  $reportedMessageIdSet = @($reportedMessageIds | Sort-Object -Unique)
+  if ([string]::Join([char]0, $reportedHeadingIdSet) -cne [string]::Join([char]0, $reportedMessageIdSet)) { $firstMismatch = @($reportedHeadingIdSet + $reportedMessageIdSet | Group-Object | Where-Object Count -eq 1 | Sort-Object Name | Select-Object -First 1); return [pscustomobject]@{ Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = if ($firstMismatch) { $firstMismatch[0].Name } else { '' }; Locations = @(); Detail = "heading ids=$($reportedHeadingIdSet -join ','); failure-owner ids=$($reportedMessageIdSet -join ',')" } } # GATE-ID-GUARD-MESSAGE-SET
+
+  return [pscustomobject]@{ Ok = $true; Code = 'OK'; Id = ''; Locations = @(); Detail = "gate headings=$($declarations.Count); failure-owner ids=$($reportedMessageIdSet.Count); explicit messages=$($failMessages.Count)" }
+}
+
+if ($Fixture -eq 'gate-id-mutant') {
+  if (-not $GateIdMutation) { throw '[GATE-ID-MUTATION-SETUP] -GateIdMutation is required.' }
+  $gateIdMutantSource = Get-Content -LiteralPath $PSCommandPath -Raw
+  $gateIdMutantTokens = $null
+  $gateIdMutantParseErrors = $null
+  $gateIdMutantAst = [System.Management.Automation.Language.Parser]::ParseInput(
+    $gateIdMutantSource, [ref]$gateIdMutantTokens, [ref]$gateIdMutantParseErrors)
+  $gateIdMutantFunctions = @($gateIdMutantAst.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+          $node.Name -ceq 'Test-SelftestGateIdContract'
+      }, $true))
+  if ($gateIdMutantParseErrors -or $gateIdMutantFunctions.Count -ne 1) {
+    throw "[GATE-ID-MUTATION-SETUP] contract function parse/count invalid: parseErrors=$(@($gateIdMutantParseErrors).Count) functions=$($gateIdMutantFunctions.Count)."
+  }
+  $gateIdMutantFunctionLines = @($gateIdMutantFunctions[0].Extent.Text -split "`r?`n")
+  $gateIdMutantMarker = 'GATE-ID-GUARD-' + $GateIdMutation
+  $gateIdMutantGuardIndexes = @(for ($lineIndex = 0; $lineIndex -lt $gateIdMutantFunctionLines.Count; $lineIndex++) {
+      if ($gateIdMutantFunctionLines[$lineIndex].Contains($gateIdMutantMarker)) { $lineIndex }
+    })
+  if ($gateIdMutantGuardIndexes.Count -ne 1) {
+    throw "[GATE-ID-MUTATION-SETUP] expected one $gateIdMutantMarker sentence, found $($gateIdMutantGuardIndexes.Count)."
+  }
+  $gateIdMutatedFunctionLines = @(for ($lineIndex = 0; $lineIndex -lt $gateIdMutantFunctionLines.Count; $lineIndex++) {
+      if ($lineIndex -ne $gateIdMutantGuardIndexes[0]) { $gateIdMutantFunctionLines[$lineIndex] }
+    })
+  if ($gateIdMutatedFunctionLines.Count -ne ($gateIdMutantFunctionLines.Count - 1)) {
+    throw '[GATE-ID-MUTATION-SETUP] mutation did not delete exactly one sentence.'
+  }
+  $gateIdMutantName = 'Test-SelftestGateIdContractMutant' + ($GateIdMutation -replace '-', '')
+  $gateIdMutatedFunctionSource = $gateIdMutatedFunctionLines -join "`n"
+  $gateIdMutatedFunctionSource = ([regex]::new('function Test-SelftestGateIdContract\b')).Replace(
+    $gateIdMutatedFunctionSource, "function $gateIdMutantName", 1)
+  . ([scriptblock]::Create($gateIdMutatedFunctionSource))
+
+  $gateIdMutantAnchor = '# GATE-ID-' + 'CONTRACT-INSERTION-ANCHOR'
+  $gateIdMutantValidSource = @(
+    '# --- 2. root gate ---',
+    '# 2d. child gate',
+    "if (`$false) { Fail '闸2d：reported' }",
+    $gateIdMutantAnchor
+  ) -join "`n"
+  $gateIdMutantCases = @(switch ($GateIdMutation) {
+    'DUPLICATE' {
+      [pscustomobject]@{ Name = 'duplicate'; Code = 'GATE-ID-DUPLICATE'; Source = $gateIdMutantValidSource.Replace("# 2d. child gate", "# 2d. first gate`nif (`$false) { Fail '闸2d：first' }`n# 2d. second gate") }
+    }
+    'SCAN-EMPTY' {
+      [pscustomobject]@{ Name = 'empty'; Code = 'GATE-ID-SCAN-EMPTY'; Source = "$gateIdMutantAnchor`n" }
+    }
+    'ANCHOR' {
+      [pscustomobject]@{ Name = 'anchor'; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Source = $gateIdMutantValidSource + "`n$gateIdMutantAnchor`n" }
+    }
+    'PARSE' {
+      [pscustomobject]@{ Name = 'parse'; Code = 'GATE-ID-PARSE-ERROR'; Source = $gateIdMutantValidSource + "`nif (`n" }
+    }
+    'MESSAGE-SET' {
+      [pscustomobject]@{ Name = 'message-owner'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource.Replace($gateIdMutantAnchor, "# 2e. wrong owner`nif (`$false) { Fail '闸2d：does not own 2e' }`n$gateIdMutantAnchor") }
+      [pscustomobject]@{ Name = 'warning-only'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource.Replace($gateIdMutantAnchor, "# 2e. warning is not a failure`nWrite-Warning 'unnumbered warning'`n$gateIdMutantAnchor") }
+      [pscustomobject]@{ Name = 'heading-only'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource + "`n# 2e. declaration without a failure`n" }
+    }
+    'ACTIVE-OWNER' {
+      [pscustomobject]@{ Name = 'stale-copy'; Code = 'GATE-ID-MESSAGE-MISMATCH'; Source = $gateIdMutantValidSource.Replace($gateIdMutantAnchor, "# 2e. next gate`nif (`$false) { Fail '闸2e：valid next gate' }`nif (`$false) { Fail '闸2d：stale copied label' }`n$gateIdMutantAnchor") }
+    }
+  })
+  $gateIdMutationSurvived = $false
+  $gateIdMutationFailures = [System.Collections.Generic.List[string]]::new()
+  foreach ($gateIdMutantCase in $gateIdMutantCases) {
+    $gateIdMutantResult = & $gateIdMutantName -Source $gateIdMutantCase.Source -InsertionAnchor $gateIdMutantAnchor
+    if ($gateIdMutantResult.Code -ceq $gateIdMutantCase.Code) {
+      Write-Host "[GATE-ID-MUTATION-SURVIVED-$GateIdMutation] deleted guard still returned $($gateIdMutantCase.Code) for $($gateIdMutantCase.Name)."
+      $gateIdMutationSurvived = $true
+    } else {
+      [void]$gateIdMutationFailures.Add("[GATE-ID-FIXTURE-$($gateIdMutantCase.Name)] expected code=$($gateIdMutantCase.Code); actual code=$($gateIdMutantResult.Code).")
+    }
+  }
+  if ($gateIdMutationSurvived) { exit 0 }
+  Write-Error ($gateIdMutationFailures -join ' ')
+  exit 1
+}
+
 # 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
 if ($Shard -ne 'all') {
   $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
@@ -1279,6 +1485,22 @@ function Fail($m) {
 }
 $RootIgnore = @('.git', 'node_modules', '.venv', '.review', '.secrets', 'runtime', '.pytest_cache', '.ruff_cache', '.mypy_cache')  # 运行时/工具产物：存在即忽略，非交付物
 $executedGateGroups = [System.Collections.Generic.List[string]]::new()
+
+# A1's original false-green was a workflow run. Enforce the repository contract in the two dynamic
+# gate shards named by the card; workflow also owns the full Gate 1i fixture/mutation matrix below.
+if ($Shard -ceq 'workflow' -or $Shard -like 'seeded*') {
+  $gateIdPreflightAnchor = '# GATE-ID-' + 'CONTRACT-INSERTION-ANCHOR'
+  $gateIdPreflightSource = Get-Content -LiteralPath $PSCommandPath -Raw
+  $gateIdPreflightResult = Test-SelftestGateIdContract -Source $gateIdPreflightSource -InsertionAnchor $gateIdPreflightAnchor
+  if (-not $gateIdPreflightResult.Ok) {
+    if ($gateIdPreflightResult.Code -ceq 'GATE-ID-DUPLICATE') {
+      Fail "[GATE-ID-DUPLICATE] id=$($gateIdPreflightResult.Id) locations=$(@($gateIdPreflightResult.Locations) -join ',') detail=$($gateIdPreflightResult.Detail)"
+    } else {
+      Fail "[GATE-ID-PREFLIGHT-$($gateIdPreflightResult.Code)] id=$($gateIdPreflightResult.Id) locations=$(@($gateIdPreflightResult.Locations) -join ',') detail=$($gateIdPreflightResult.Detail)"
+    }
+    exit 1
+  }
+}
 
 function Test-SelftestGateGroupCompletion([string[]]$Actual, [string[]]$Expected) {
   return ([string]::Join([char]0, $Actual) -ceq [string]::Join([char]0, $Expected))
@@ -1717,7 +1939,151 @@ if (-not (Test-Path -LiteralPath $unicodeScalarHelper -PathType Leaf)) {
   }
   if ($unicodeScalarOk) { Write-Host '  1h Unicode scalar control/format helper OK' -ForegroundColor Green }
 }
+}
 
+# 1i. Gate identifiers are coordination keys: a duplicate declaration makes concurrent additions
+# indistinguishable in logs even though both blocks still execute. Exercise one source parser against
+# synthetic blocks and this file; failure-message repetition and child labels remain legal.
+if ($Shard -ceq 'workflow') {
+Step '1i/17 gate identifier uniqueness and insertion-anchor contract'
+$gateIdInsertionAnchor = '# GATE-ID-' + 'CONTRACT-INSERTION-ANCHOR'
+$gateIdContractCommand = Get-Command Test-SelftestGateIdContract -CommandType Function -ErrorAction SilentlyContinue
+if (-not $gateIdContractCommand) {
+  Fail '[GATE-ID-CONTRACT-MISSING] Test-SelftestGateIdContract is absent.'
+} else {
+  $gateIdFixtureOk = $true
+  # Retained real RED receipt (2026-08-27): command=pwsh -NoProfile -File
+  # scripts\selftest.ps1 -Shard workflow; sourceSha256=689290A8A48A164006A60CFC582C022A2025AFCABAA515B12E714DF54E0DA3AF;
+  # exit=0; tail="selftest(workflow): PASS | selftest: PASS". Re-run the same pre-guard
+  # behavior hermetically so A1 remains executable rather than relying only on the historical receipt.
+  $a1DuplicateSource = @(
+    '$ErrorActionPreference = ''Stop''',
+    '$script:a1Failed = $false',
+    'function Fail { param([string]$Message) $script:a1Failed = $true; Write-Error $Message }',
+    '# 15q. first declaration', "if (`$false) { Fail '闸15q：first block' }",
+    '# 15q. second declaration', "if (`$false) { Fail '闸15q：second block' }",
+    $gateIdInsertionAnchor,
+    'if ($script:a1Failed) { exit 1 }',
+    "Write-Output 'selftest(workflow): PASS'", "Write-Output 'selftest: PASS'", 'exit 0'
+  ) -join "`n"
+  $a1HarnessPath = Join-Path ([System.IO.Path]::GetTempPath()) ("selftest-gate-id-a1-" + [guid]::NewGuid().ToString('N') + '.ps1')
+  try {
+    [System.IO.File]::WriteAllText($a1HarnessPath, $a1DuplicateSource, [System.Text.UTF8Encoding]::new($false))
+    $a1HarnessOutput = (& pwsh -NoProfile -File $a1HarnessPath 2>&1 | Out-String)
+    $a1HarnessExit = $LASTEXITCODE
+  } finally {
+    [System.IO.File]::Delete($a1HarnessPath)
+  }
+  $a1PostGuardResult = Test-SelftestGateIdContract -Source $a1DuplicateSource -InsertionAnchor $gateIdInsertionAnchor
+  if ($a1HarnessExit -ne 0 -or $a1HarnessOutput -notmatch 'selftest\(workflow\): PASS' -or
+      $a1HarnessOutput -notmatch 'selftest: PASS') {
+    Fail "[GATE-ID-A1-BASELINE] expected pre-guard workflow harness exit=0 plus both PASS tails; exit=$a1HarnessExit output=$(($a1HarnessOutput -replace '\s+', ' ').Trim())"
+    $gateIdFixtureOk = $false
+  } elseif ($a1PostGuardResult.Code -cne 'GATE-ID-DUPLICATE' -or $a1PostGuardResult.Id -cne '15q') {
+    Fail "[GATE-ID-A2-POSTGUARD] the same duplicate source was not rejected; code=$($a1PostGuardResult.Code) id=$($a1PostGuardResult.Id)."
+    $gateIdFixtureOk = $false
+  } else {
+    Write-Host '  1i A1/A2 paired regression OK (pre-guard workflow harness exit 0 + PASS tails; same source post-guard GATE-ID-DUPLICATE id=15q)' -ForegroundColor Green
+  }
+  $validGateIdSource = @(
+    '# --- 2. root gate ---', '# 2d. child gate',
+    "if (`$false) { Fail '闸2d：first failure path' }",
+    "if (`$false) { Fail '闸2d(a)：second failure path in the same gate' }",
+    $gateIdInsertionAnchor
+  ) -join "`n"
+  $duplicateGateIdSource = @(
+    '# --- 2. root gate ---', '# 2d. first declaration',
+    "if (`$false) { Fail '闸2d：first block' }", '# 2d. second declaration',
+    "if (`$false) { Fail '闸2d：second block' }", $gateIdInsertionAnchor
+  ) -join "`n"
+  $childGateIdSource = @(
+    '# --- 2. root gate ---', '# 2d. parenthesized child owner',
+    "if (`$false) { Fail '闸2d(a)：parenthesized child' }",
+    '# --- 15. workflow root ---', '# 15b. digit child owner',
+    "if (`$false) { Fail '闸15b5：digit child' }",
+    '# --- 16. lesson root ---', "if (`$false) { Fail '闸16a：letter child' }",
+    $gateIdInsertionAnchor
+  ) -join "`n"
+  $parenthesizedGateIdSource = @(
+    '# --- 17. seeded root ---', '# 17t. parenthesized expression owner',
+    "if (`$false) { Fail (`"闸17t(t18)：format {0}`" -f 'x') }",
+    "if (`$false) { Fail ('闸17t(doc)：concat ' + 'x') }",
+    $gateIdInsertionAnchor
+  ) -join "`n"
+  $emptyGateIdSource = "$gateIdInsertionAnchor`n"
+  $mismatchedGateIdSource = @(
+    '# 2d. declared gate', "if (`$false) { Fail '闸2e：message has no corresponding heading' }",
+    $gateIdInsertionAnchor
+  ) -join "`n"
+  $wrongOwnerGateIdSource = $validGateIdSource.Replace($gateIdInsertionAnchor,
+    "# 2e. heading owned by neither following message`nif (`$false) { Fail '闸2d：still reports 2d' }`n$gateIdInsertionAnchor")
+  $warningOnlyGateIdSource = $validGateIdSource.Replace($gateIdInsertionAnchor,
+    "# 2e. warning is not a failure message`nWrite-Warning 'unnumbered warning'`n$gateIdInsertionAnchor")
+  $staleCopiedGateIdSource = $validGateIdSource.Replace($gateIdInsertionAnchor,
+    "# 2e. next gate`nif (`$false) { Fail '闸2e：valid next gate' }`nif (`$false) { Fail '闸2d：stale copied label' }`n$gateIdInsertionAnchor")
+  $headingOnlyGateIdSource = $validGateIdSource + "`n# 2e. declared after the last failure without a message`n"
+  $embeddedStringAnchorSource = $validGateIdSource + "`n`$embedded = '$gateIdInsertionAnchor'`n"
+  $embeddedCommentAnchorSource = $validGateIdSource + "`n# summary repeats $gateIdInsertionAnchor and is ambiguous`n"
+  $duplicateAnchorGateIdSource = $validGateIdSource + "`n$gateIdInsertionAnchor`n"
+  $invalidSyntaxGateIdSource = $validGateIdSource + "`nif (`n"
+  $gateIdCases = @(
+    [pscustomobject]@{ Name = 'valid'; Source = $validGateIdSource; Ok = $true; Code = 'OK'; Id = ''; Locations = '' },
+    [pscustomobject]@{ Name = 'duplicate'; Source = $duplicateGateIdSource; Ok = $false; Code = 'GATE-ID-DUPLICATE'; Id = '2d'; Locations = '2,4' },
+    [pscustomobject]@{ Name = 'children'; Source = $childGateIdSource; Ok = $true; Code = 'OK'; Id = ''; Locations = '' },
+    [pscustomobject]@{ Name = 'parenthesized'; Source = $parenthesizedGateIdSource; Ok = $true; Code = 'OK'; Id = ''; Locations = '' },
+    [pscustomobject]@{ Name = 'empty'; Source = $emptyGateIdSource; Ok = $false; Code = 'GATE-ID-SCAN-EMPTY'; Id = ''; Locations = '' },
+    [pscustomobject]@{ Name = 'message-set'; Source = $mismatchedGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '2' },
+    [pscustomobject]@{ Name = 'message-owner'; Source = $wrongOwnerGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '' },
+    [pscustomobject]@{ Name = 'warning-only'; Source = $warningOnlyGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '' },
+    [pscustomobject]@{ Name = 'heading-only'; Source = $headingOnlyGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2e'; Locations = '' },
+    [pscustomobject]@{ Name = 'stale-copy'; Source = $staleCopiedGateIdSource; Ok = $false; Code = 'GATE-ID-MESSAGE-MISMATCH'; Id = '2d'; Locations = '7' },
+    [pscustomobject]@{ Name = 'anchor'; Source = $duplicateAnchorGateIdSource; Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = '5,6' },
+    [pscustomobject]@{ Name = 'anchor-string'; Source = $embeddedStringAnchorSource; Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = '5,6' },
+    [pscustomobject]@{ Name = 'anchor-comment'; Source = $embeddedCommentAnchorSource; Ok = $false; Code = 'GATE-ID-ANCHOR-NONUNIQUE'; Id = ''; Locations = '5,6' },
+    [pscustomobject]@{ Name = 'parse'; Source = $invalidSyntaxGateIdSource; Ok = $false; Code = 'GATE-ID-PARSE-ERROR'; Id = ''; Locations = '6' }
+  )
+  foreach ($gateIdCase in $gateIdCases) {
+    $gateIdResult = Test-SelftestGateIdContract -Source $gateIdCase.Source -InsertionAnchor $gateIdInsertionAnchor
+    $gateIdLocations = @($gateIdResult.Locations) -join ','
+    if ($gateIdResult.Ok -ne $gateIdCase.Ok -or $gateIdResult.Code -cne $gateIdCase.Code -or
+        $gateIdResult.Id -cne $gateIdCase.Id -or $gateIdLocations -cne $gateIdCase.Locations) {
+      Fail "[GATE-ID-FIXTURE-$($gateIdCase.Name)] expected ok=$($gateIdCase.Ok) code=$($gateIdCase.Code) id=$($gateIdCase.Id) locations=$($gateIdCase.Locations); actual ok=$($gateIdResult.Ok) code=$($gateIdResult.Code) id=$($gateIdResult.Id) locations=$gateIdLocations."
+      $gateIdFixtureOk = $false
+    }
+  }
+  $repositoryGateIdSource = Get-Content -LiteralPath $PSCommandPath -Raw
+  $gateIdMutationAssertions = @(
+    [pscustomobject]@{ Suffix = 'DUPLICATE'; Assertions = @('[GATE-ID-FIXTURE-duplicate]') },
+    [pscustomobject]@{ Suffix = 'SCAN-EMPTY'; Assertions = @('[GATE-ID-FIXTURE-empty]') },
+    [pscustomobject]@{ Suffix = 'ANCHOR'; Assertions = @('[GATE-ID-FIXTURE-anchor]') },
+    [pscustomobject]@{ Suffix = 'PARSE'; Assertions = @('[GATE-ID-FIXTURE-parse]') },
+    [pscustomobject]@{ Suffix = 'MESSAGE-SET'; Assertions = @('[GATE-ID-FIXTURE-message-owner]', '[GATE-ID-FIXTURE-warning-only]', '[GATE-ID-FIXTURE-heading-only]') },
+    [pscustomobject]@{ Suffix = 'ACTIVE-OWNER'; Assertions = @('[GATE-ID-FIXTURE-stale-copy]') }
+  )
+  foreach ($mutationAssertion in $gateIdMutationAssertions) {
+    $mutationOutput = (& pwsh -NoProfile -File $PSCommandPath -Fixture gate-id-mutant -GateIdMutation $mutationAssertion.Suffix 2>&1 | Out-String)
+    $mutationExit = $LASTEXITCODE
+    $missingMutationAssertions = @($mutationAssertion.Assertions | Where-Object { $mutationOutput -notmatch [regex]::Escape($_) })
+    if ($mutationExit -eq 0 -or $missingMutationAssertions.Count -gt 0) {
+      Fail "[GATE-ID-MUTATION-$($mutationAssertion.Suffix)] expected nonzero plus $($mutationAssertion.Assertions -join ','); missing=$($missingMutationAssertions -join ',') exit=$mutationExit output=$(($mutationOutput -replace '\s+', ' ').Trim())"
+      $gateIdFixtureOk = $false
+    }
+  }
+  $repositoryGateIdResult = Test-SelftestGateIdContract -Source $repositoryGateIdSource -InsertionAnchor $gateIdInsertionAnchor
+  if (-not $repositoryGateIdResult.Ok) {
+    if ($repositoryGateIdResult.Code -ceq 'GATE-ID-DUPLICATE') {
+      Fail "[GATE-ID-DUPLICATE] id=$($repositoryGateIdResult.Id) locations=$(@($repositoryGateIdResult.Locations) -join ',') detail=$($repositoryGateIdResult.Detail)"
+    } else {
+      Fail "[GATE-ID-REPOSITORY-$($repositoryGateIdResult.Code)] id=$($repositoryGateIdResult.Id) locations=$(@($repositoryGateIdResult.Locations) -join ',') detail=$($repositoryGateIdResult.Detail)"
+    }
+    $gateIdFixtureOk = $false
+  }
+  if ($gateIdFixtureOk) { Write-Host '  1i gate identifier contract fixtures OK' -ForegroundColor Green }
+}
+# GATE-ID-CONTRACT-INSERTION-ANCHOR
+}
+
+if ($Shard -eq 'core') {
 # --- 2. 经验系统自检 ---
 Step '2/17 经验系统（lessons.ps1 check）'
 $lessonsCheckOut = (& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'lessons.ps1') check 2>&1 | Out-String)
