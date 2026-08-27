@@ -211,7 +211,7 @@
 - symptom: AI 给前端选测试时易被 2026 的 self-healing/AI-视觉验证带偏,或把跨 OS 像素截图当默认回归,导致闸门非确定性/联网/在 Linux CI 全红
 - root_cause: 运行期有 LLM/视觉模型在验证回路=非确定性+联网,与离线 exit0/1 闸结构冲突;字体渲染由 OS 决定,Windows 生成的 screenshot baseline 在 Linux CI 必失配
 - rule: 前端闸=纯 Playwright 断言脚本(getByRole/toHaveText/零console-error/无失败请求, exit0/1);模型(playwright-mcp/webapp-testing)只在上游探索写断言、绝不进闸。优先 DOM/文本断言而非像素截图;视觉回归仅当布局本身被测,且 baseline 只在固定 mcr.microsoft.com/playwright Docker 生成、agent 绝不自动 --update-snapshots。跳过所有 AI self-healing SaaS。最小基线只需 Vitest+Playwright+route-mock(+1条axe)。**此为软完成/Ralph Wiggum 失败的前端特例**——done 必须是客观 exit0/1、不是模型意见;通则(命名+/loop vs /goal 节律+安全税)见 docs/LOOP-ENGINEERING.md 软完成失败节
-- enforced_by: 
+- enforced_by: none（任务卡 DoD 设计纪律；ship 的 native fail-fast 是触发条件，dry-run/PowerShell 内建断言是检出手段）
 - refs: 
 
 ## L26
@@ -1781,3 +1781,11 @@
 - rule: 归档/搬运类动作完成后，先跑该目录对应的**投影自检**再提交（cards-index 走 `archive.ps1 -CheckCardsIndex`），别只看 git status 干净。判据：凡是「由脚本从目录生成、且有 -Check* 开关逐字节比对」的文件都是投影不是文档，doc_sync 写「无」不豁免它。重建走错误信息指定的正常流程（先 -DryRun 确认不会顺带搬别的东西），别手工编辑投影文件。**推论**：master 上任何一个能让 verify 红的提交都会阻塞全部 PR，故推 master 前至少跑一遍 verify 里那几道只读闸。 失败哨兵：ARCHIVE-CARDS-INDEX-DRIFT。
 - enforced_by: scripts/archive.ps1 -CheckCardsIndex + scripts/verify.ps1 archive index gate
 - refs: scripts/archive.ps1; specs/archive/cards-index.md
+
+## L248
+- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 任务卡 dod_command 直接运行一个预期非零的 native 命令，再准备读取 LASTEXITCODE 判断；手工终端可处理，但 task.ps1 ship 在判定语句前就抛 NativeCommandExitException，DoD 被误判失败。
+- root_cause: ship 为防多个 native 命令中途假绿，会在子 PowerShell 中设置 PSNativeCommandUseErrorActionPreference=true；因此预期非零的探测不能依赖同一脚本块后续的 LASTEXITCODE 分支。RED 相刻意设为 false，不代表 GREEN/ship DoD 也如此。
+- rule: 卡片 DoD 中每个 native 进程都必须在期望路径返回 0。若要证明不存在/应失败，先用成功返回的 dry-run 或导出结果，再用 PowerShell 内建断言检查；或用专用 helper 把预期失败归一成最终 0。不要直接调用预期非零的 native 命令后再读 LASTEXITCODE。
+- enforced_by: 
+- refs: scripts/task.ps1; specs/tasks/T3-E2E-GATE-ISOLATION.md
