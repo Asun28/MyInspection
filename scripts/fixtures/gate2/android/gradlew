@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+printf '%s\n' "$*" >> "$(dirname "$0")/gradle-invocations.log"
+if [ "$1" != "-p" ]; then
+  exit 0
+fi
+if [ "$2" != "android" ] || [ "$3" != "--offline" ] || [ "$4" != "--no-daemon" ] || [ "$5" != "-q" ] || [ "$6" != ":core:e2eTest" ] || [ -n "$7" ]; then
+  exit 8
+fi
+if [ -f "$(dirname "$0")/fail-gate2" ]; then
+  exit 9
+fi
+exit 0

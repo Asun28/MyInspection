@@ -98,34 +98,44 @@ if ($feBootstrapped -and (Get-Command npm -ErrorAction SilentlyContinue)) {
   Write-Warning '⚠️ 前端闸未引导，跳过——npm install 后 verify 会收紧。'
 }
 
-# Android/Gradle 闸（本项目主实现面）：android/gradlew.bat 在（Gradle 工程已引导）才跑并计红；未引导 → 优雅跳过。
+# Android/Gradle 闸（本项目主实现面）：本平台 Gradle wrapper 在（Gradle 工程已引导）才跑并计红；未引导 → 优雅跳过。
 # 测试面 = :core 纯 JVM 单测/静检（确定性；--offline 保证闸内绝不联网拉依赖——依赖缓存由引导卡先在线 build 一次填充，
 # 缓存缺料即非零计红，fail-closed，同上方 uv --no-sync 立场）。JDK 缺失时 gradlew 自身非零 → 同样计红。
 # 不留守护进程的 no-daemon flag（T0-GATE-HARDENING item3，与 CLAUDE.md「命令」节口径一致）：残留 Gradle
 # daemon 曾累计 800+ 秒 CPU，破坏 verify 的确定性/可复现——每次跑一个不留后台进程的一次性 JVM（flag 拼写见下方调用行）。
-# .\gradlew.bat 显式相对路径（T0-GATE-HARDENING item5）：裸文件名依赖「当前目录参与 exe 搜索」，Claude Code 的
+# Windows 的 .\gradlew.bat 显式相对路径（T0-GATE-HARDENING item5）：裸文件名依赖「当前目录参与 exe 搜索」，Claude Code 的
 # shell 会话带进程级 NoDefaultCurrentDirectoryInExePath=1 时该行为被关闭，裸 'gradlew.bat' 会报
-# "is not recognized"——显式路径免疫此环境差异，真实终端/CI 行为不变。
+# "is not recognized"——显式路径免疫此环境差异；非 Windows 经 sh 执行仓内 ./gradlew，不依赖 cmd 或 executable bit。
 $gwBat = Join-Path $RepoRoot 'android/gradlew.bat'
-if (Test-Path $gwBat) {
+$gwSh = Join-Path $RepoRoot 'android/gradlew'
+$gwPath = if ($IsWindows) { $gwBat } else { $gwSh }
+if (Test-Path -LiteralPath $gwPath -PathType Leaf) {
   Push-Location (Join-Path $RepoRoot 'android')
   try {
-    & cmd /c '.\gradlew.bat --offline --no-daemon -q :core:check'
+    if ($IsWindows) {
+      & cmd /c '.\gradlew.bat --offline --no-daemon -q :core:check'
+    } else {
+      & sh './gradlew' --offline --no-daemon -q :core:check
+    }
     if ($LASTEXITCODE -ne 0) { Write-Warning "Android :core check 失败（退出码 $LASTEXITCODE；JDK 缺失/依赖缓存缺料/测试红均计红）"; $failed = $true }
     else { Write-Host 'Android :core check 全绿。' }
   } finally { Pop-Location }
 } else {
-  Write-Host '无 android/gradlew.bat，跳过 Android 闸（Gradle 工程未引导时正常；T0 引导卡落地后本闸自动收紧）。'
+  Write-Host "无本平台 Android Gradle wrapper（$gwPath），跳过 Android 闸（Gradle 工程未引导时正常；T0 引导卡落地后本闸自动收紧）。"
 }
 
 # --- 闸门 2：Golden Evidence JVM Core E2E 闭环 ---
 Step '闸门 2/2：集成 / e2e 闭环（确定性 / 离线 / 可复现）'
 # 纯 JVM，只跑独立 e2eTest source set；不启动 Android UI/权限/模拟器/真机。wrapper、任务或执行任一缺失都必须红。
 $gate2Executed = $false
-if (Test-Path -LiteralPath $gwBat -PathType Leaf) {
+if (Test-Path -LiteralPath $gwPath -PathType Leaf) {
   # 清空原生命令退出码，避免调用被删/注释时沿用 Gate 1 的零退出码形成假执行证据。
   $global:LASTEXITCODE = $null
-  & cmd /c 'android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest'
+  if ($IsWindows) {
+    & cmd /c 'android\gradlew.bat -p android --offline --no-daemon -q :core:e2eTest'
+  } else {
+    & sh './android/gradlew' -p android --offline --no-daemon -q :core:e2eTest
+  }
   $gate2Exit = $LASTEXITCODE
   $gate2Executed = $null -ne $gate2Exit
   if ($gate2Executed -and $gate2Exit -ne 0) {
@@ -135,7 +145,7 @@ if (Test-Path -LiteralPath $gwBat -PathType Leaf) {
     Write-Host 'Golden Evidence JVM Core E2E 全绿。'
   }
 } else {
-  Write-Warning '[GATE2-MISSING] android/gradlew.bat 缺失，Golden Evidence JVM Core E2E 未执行。'
+  Write-Warning "[GATE2-MISSING] 本平台 Gradle wrapper 缺失（$gwPath），Golden Evidence JVM Core E2E 未执行。"
   $failed = $true
 }
 if (-not $gate2Executed) {
