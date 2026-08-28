@@ -170,7 +170,9 @@ UNCLASSIFIABLE 影响结果）——评审用本仓自己的单一真相源原�
 L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 · TD9（selftest 可诊断性+load-flake）· **TD5 → paid**
 （本 PR 为偿还指针）· TD10（多连接契约仲裁：**评审不得再以多连接证明 block 单连接卡**）· TD12/TD13。
 
-**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T1-DATABASE-LIFECYCLE-AUTHORITY`（schema v2 已合并，可进入下一版本评审）· `T2-REPEATABLE-ROOM-RUNTIME`（接 repeatable 运行时实例维度）· `T4-COMPLIANCE-ENGINE`
+**数据库生命周期权限已合并**：`T1-DATABASE-LIFECYCLE-AUTHORITY`（2026-08-29，master `3d50f690`，PR #191）完成 schema v3 active/any 读取分流、具名 baseline 守卫、purge 终态与 deleted override 防写；TD160 paid。
+
+**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T2-REPEATABLE-ROOM-RUNTIME`（接 repeatable 运行时实例维度）· `T4-COMPLIANCE-ENGINE`
 （依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture+finalize，均已合——
 关键路径下一站，快照装配正门与 TD5 黄金测试已随 T3-FINALIZE 落地，可直接开工）。
 
