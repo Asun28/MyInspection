@@ -48,7 +48,8 @@ val e2eTest = sourceSets.create("e2eTest") {
  *      Files\.readAllBytes|\.readText\(Charsets\.UTF_8\)' android/core/src/test/kotlin/nz/myinspection/core
  *    ComplianceEngineTest -> configs/compliance/nz-rules-v1.json; ReportSourcePurityTest -> every
  *    Kotlin file in the report test package; PhotoOrphanCleanupWiringTest -> CameraPhotoIngestPipeline,
- *    PhotoIngestPendingLease, PendingPhotoLease, PhotoRuntimeStorage, PhotoOrphanCleanupWorker,
+ *    PhotoImportPipeline, PhotoIngestPendingLease, PendingPhotoLease, PhotoRuntimeStorage,
+ *    PhotoOrphanCleanupWorker,
  *    PhotoDirectoryDurability, PhotoAssetCleanupExecutor, NoFollowLeafDeletion,
  *    PhotoOrphanCleanupScheduler, and MainActivity; PhotoStreamingWiringTest -> PhotoJpegEncoder,
  *    CameraPhotoIngestPipeline, PhotoImportPipeline, and PhotoQualitySettings. RoutineContentTest and
@@ -58,11 +59,14 @@ val e2eTest = sourceSets.create("e2eTest") {
  *    --offline --no-daemon -q :core:test --tests
  *    "nz.myinspection.core.media.PhotoStreamingWiringTest"`; :core:test remained UP-TO-DATE, exit 0.
  *    Restoring the comment changed no declared input.
- * A5 | Mutation: append " [A5]" to KIT-FRIDGE-01.textEn in data/templates/routine-v1.json. Command:
+ * A5 | RoutineContentTest hashes the sorted sequence of every stableId/textEn/textZh tuple against an
+ *    independent literal. Mutation: append " [A5]" to previously unpinned LNG-WALL-01.textZh. Command:
  *    cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test
  *      --tests "nz.myinspection.core.content.*"
- *    processTestResources reran and the command exited 1; failure reported expected
- *    "Refrigerator condition and operation" versus the mutated text.
+ *    processTestResources reran and the command exited 1; failure = "stableId/textEn/textZh tuple digest
+ *    drifted expected [88e176b5442050532b520e5b561c5a77e7984069a686bf1cdeb5c6887e41ac8b]
+ *    but found [ead3014b474b7edda1234b68579e4a0bff3e482df164be9c7bc3dfda9e82be24]".
+ *    Restored command exit = 0.
  * A6 | cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check exited 0 in a
  *    detached clean baseline and exited 0 again after these declarations.
  * A7 | Deletion mutation: remove the two-line inputs.file(nz-rules-v1.json) statement, establish a

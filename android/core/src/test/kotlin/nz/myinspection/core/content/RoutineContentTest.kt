@@ -3,6 +3,7 @@ package nz.myinspection.core.content
 import nz.myinspection.core.template.LoadedTemplate
 import nz.myinspection.core.template.TemplateLoader
 import nz.myinspection.core.template.TemplateValidationException
+import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -59,6 +60,22 @@ class RoutineContentTest {
         val template = loadRoutine().template
         assertEquals("ROUTINE", template.type)
         assertEquals(1, template.version)
+    }
+
+    @Test
+    fun `every authored bilingual text tuple is pinned`() {
+        val canonicalTuples = loadRoutine().template.items
+            .sortedBy { it.stableId }
+            .joinToString("\n") { "${it.stableId}\u001f${it.textEn}\u001f${it.textZh}" }
+        val actualDigest = MessageDigest.getInstance("SHA-256")
+            .digest(canonicalTuples.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+        assertEquals(
+            "88e176b5442050532b520e5b561c5a77e7984069a686bf1cdeb5c6887e41ac8b",
+            actualDigest,
+            "stableId/textEn/textZh tuple digest drifted",
+        )
     }
 
     @Test
