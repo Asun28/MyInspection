@@ -4037,9 +4037,16 @@ exit 0
     $probeLogLines = @($probeLogs | ForEach-Object { Get-Content $_.FullName -Raw })
     $readyTicks = @(@('seeded', 'workflow', 'core') | ForEach-Object { [long](Get-Content (Join-Path $aggLogs "ready/$_.ready") -Raw) })
     $coreStaggerMs = [TimeSpan]::FromTicks($readyTicks[2] - [math]::Max($readyTicks[0], $readyTicks[1])).TotalMilliseconds
-    if ($probeFail -ne 1 -or $probeFailOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/8\.2e,workflow/17aa\(8\)' -or
-        $probeLogs.Count -ne 3 -or $coreStaggerMs -lt 700 -or @($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|True$' }).Count -gt 0) {
-      Fail '8.2e：all 聚合器 stub 夹具未证明真实子进程多 gate 哨兵、shard/gate 汇总、并发错峰、dirty overlay、StrictLint 转发或失败传播。'
+    if ($probeFail -ne 1 -or $probeFailOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/8\.2e,workflow/17aa\(8\)') {
+      Fail '[SELFTEST-8.2E-FAILURE-PROPAGATION] child failure did not reach the aggregate summary.'
+    }
+    if ($probeLogs.Count -ne 3) { Fail '[SELFTEST-8.2E-CHILD-LOGS] expected one log from each aggregate child.' }
+    if ($coreStaggerMs -lt 700) { Fail '[SELFTEST-8.2E-CORE-STAGGER] core did not start after both long shards.' }
+    if (@($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|(True|False)\|(True|False)\|True$' }).Count -gt 0) {
+      Fail '[SELFTEST-8.2E-DIRTY-OVERLAY] aggregate child lost rename/delete/untracked overlay state.'
+    }
+    if (@($probeLogLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|True\|(True|False)$' }).Count -gt 0) {
+      Fail '[SELFTEST-8.2E-STRICTLINT-TRUE] explicit true was not forwarded to every child.'
     }
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
 
@@ -4059,9 +4066,11 @@ exit 0
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue
     $probePassOutput = & { $script:probePass = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 1 } 6>&1 | Out-String
     $probeUnboundLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
-    if ($probePass -ne 0 -or $probePassOutput -notmatch 'selftest\(all\): PASS' -or $probePassOutput -match '\[SELFTEST-ALL-FAIL\]' -or
-        @($probeUnboundLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|False\|False\|True$' }).Count -gt 0) {
-      Fail '8.2e：all 聚合器三分片全绿或未绑定 StrictLint 语义不正确。'
+    if ($probePass -ne 0 -or $probePassOutput -notmatch 'selftest\(all\): PASS' -or $probePassOutput -match '\[SELFTEST-ALL-FAIL\]') {
+      Fail '[SELFTEST-8.2E-PASS-CONTROL] all-green aggregate did not pass cleanly.'
+    }
+    if (@($probeUnboundLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|False\|False\|(True|False)$' }).Count -gt 0) {
+      Fail '[SELFTEST-8.2E-STRICTLINT-UNBOUND] omitted StrictLint did not remain unbound in every child.'
     }
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
@@ -4119,6 +4128,33 @@ exit 0
         "        -not (Test-Path (Join-Path `$readyRoot 'workflow.ready')))) {"
       ) -join "`n")
       'OVERLAP-ASSERTION' = ('$loadReadySkewMs -lt 5500 -or $loadDelayClock.ElapsedMilliseconds -lt 6000 -or -not ' + '$longShardsOverlapped')
+      'FAILURE-PROPAGATION' = (@(
+        'if ($probeFail -ne 1 -or $probeFailOutput -notmatch ''\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/8\.2e,workflow/17aa\(8\)'') {'
+        "      Fail '[SELFTEST-8.2E-FAILURE-" + "PROPAGATION] child failure did not reach the aggregate summary.'"
+        '    }'
+      ) -join "`n")
+      'CHILD-LOG-COVERAGE' = ("if (`$probeLogs.Count -ne 3) { Fail '[SELFTEST-8.2E-CHILD-" + "LOGS] expected one log from each aggregate child.' }")
+      'CORE-STAGGER' = ("if (`$coreStaggerMs -lt 700) { Fail '[SELFTEST-8.2E-CORE-" + "STAGGER] core did not start after both long shards.' }")
+      'DIRTY-OVERLAY' = (@(
+        'if (@($probeLogLines | Where-Object { $_.Trim() -notmatch ''^(core|workflow|seeded)\|(True|False)\|(True|False)\|True$'' }).Count -gt 0) {'
+        "      Fail '[SELFTEST-8.2E-DIRTY-" + "OVERLAY] aggregate child lost rename/delete/untracked overlay state.'"
+        '    }'
+      ) -join "`n")
+      'STRICTLINT-TRUE' = (@(
+        'if (@($probeLogLines | Where-Object { $_.Trim() -notmatch ''^(core|workflow|seeded)\|True\|True\|(True|False)$'' }).Count -gt 0) {'
+        "      Fail '[SELFTEST-8.2E-STRICTLINT-" + "TRUE] explicit true was not forwarded to every child.'"
+        '    }'
+      ) -join "`n")
+      'STRICTLINT-UNBOUND' = (@(
+        'if (@($probeUnboundLines | Where-Object { $_.Trim() -notmatch ''^(core|workflow|seeded)\|False\|False\|(True|False)$'' }).Count -gt 0) {'
+        "      Fail '[SELFTEST-8.2E-STRICTLINT-" + "UNBOUND] omitted StrictLint did not remain unbound in every child.'"
+        '    }'
+      ) -join "`n")
+      'STRICTLINT-FALSE' = (@(
+        'if (@($probeFalseLines | Where-Object { $_.Trim() -notmatch ''^(core|workflow|seeded)\|True\|False\|(True|False)$'' }).Count -gt 0) {'
+        "      Fail '[SELFTEST-8.2E-STRICTLINT-" + "FALSE] explicit false was not forwarded to every child.'"
+        '    }'
+      ) -join "`n")
     }
     $normalizedSelftestSource82 = ([System.IO.File]::ReadAllText($PSCommandPath)) -replace "`r`n", "`n"
     $rendezvousContractFailures82 = {
@@ -4139,8 +4175,9 @@ exit 0
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -CoreDelaySeconds 1 -Quiet
     $probeFalseLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
-    if ($probeFalse -ne 0 -or @($probeFalseLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|False\|True$' }).Count -gt 0) {
-      Fail '8.2e：all 聚合器未保真转发显式 -StrictLint:$false（须 bound=true、IsPresent=false）。'
+    if ($probeFalse -ne 0) { Fail '[SELFTEST-8.2E-FALSE-CONTROL] explicit-false aggregate did not stay green.' }
+    if (@($probeFalseLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|False\|(True|False)$' }).Count -gt 0) {
+      Fail '[SELFTEST-8.2E-STRICTLINT-FALSE] explicit false was not forwarded to every child.'
     }
     Remove-Item -LiteralPath (Join-Path $aggFixture '.git') -Recurse -Force -ErrorAction Stop
     $nonGitBlocked = $false
