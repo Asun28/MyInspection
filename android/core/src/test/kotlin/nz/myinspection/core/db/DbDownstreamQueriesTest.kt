@@ -162,6 +162,26 @@ class DbDownstreamQueriesTest {
         assertEquals(overrideId, restored.id, "restore reuses the existing row rather than inserting a new one")
     }
 
+    @Test
+    fun `property_item_override refuses to update a soft-deleted row`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val overrideId = uuid.next()
+        database.propertyItemOverrideQueries.insert(
+            id = overrideId, property_id = propertyId, stable_id = "hallway.light", suppressed = 1,
+            created_at = now, updated_at = now,
+        )
+        driver.execute(null, "UPDATE property_item_override SET deleted_at = ${now + 1} WHERE id = '$overrideId'", 0)
+
+        val affected = database.propertyItemOverrideQueries.setSuppressed(
+            suppressed = 0, updated_at = now + 2, id = overrideId,
+        ).value
+
+        assertEquals(0L, affected, "a deleted override is immutable")
+        val stored = database.propertyItemOverrideQueries.selectById(overrideId).executeAsOne()
+        assertEquals(1L, stored.suppressed, "the rejected update must not alter suppressed")
+        assertEquals(now, stored.updated_at, "the rejected update must not alter timestamps")
+    }
+
     private fun insertUnsentNotice(inspectionId: String, scheduledAt: Long = now + 200_000L): String {
         val noticeId = uuid.next()
         database.noticeQueries.insert(

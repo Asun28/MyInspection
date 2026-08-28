@@ -1,5 +1,6 @@
 package nz.myinspection.core.db
 
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -15,9 +16,8 @@ import kotlin.test.assertTrue
  *     也不能 INSERT 新的 inspection_item/room_instance/photo/audio；supplement 是唯一的
  *     append-only 例外，不适用此闸。
  *  2. inspection 的 status/finalized_at/data_hash 三者必须联动一致（结构性 CHECK 约束）。
- *  3. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线，且真建一个 EXIT 巡检、
- *     经这个指针解析出同一个 Routine（不是只测指针本身被设对了——那样测不出 Exit 侧是否仍在假设
- *     "必有 INGOING"）。
+ *  3. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线；EXIT 消费夹具读取这个
+ *     已存指针并把同一个 Routine 写入自己的 baseline_inspection_id，不另行假设“必有 INGOING”。
  *
  * 引用完整性的缺失/错配父行测试（EXISTS 守卫拦孤儿行/跨巡检串接数据）另见 DbReferentialIntegrityTest。
  */
@@ -40,6 +40,48 @@ class DbInvariantsTest {
     }
 
     private val now = DbTestFixtures.NOW
+
+    /**
+     * Read the inspection type CHECK itself so a future schema type is automatically added to both baseline
+     * negative matrices. This makes "new enum without synchronized authority tests" impossible to pass vacuously.
+     */
+    private fun inspectionTypes(): Set<String> {
+        val schemaSql = driver.executeQuery(
+            null,
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'inspection'",
+            { cursor ->
+                check(cursor.next().value) { "inspection schema row is missing" }
+                QueryResult.Value(cursor.getString(0)!!)
+            },
+            0,
+        ).value
+        val values = checkNotNull(
+            Regex("""CHECK\s*\(\s*type\s+IN\s*\(([^)]*)\)\s*\)""").find(schemaSql),
+        ) { "inspection type CHECK is missing" }.groupValues[1]
+        return values.split(',').map { it.trim().trim('\'') }.toSet()
+    }
+
+    private fun createV2TenancySchema(target: JdbcSqliteDriver) {
+        target.execute(
+            null,
+            """CREATE TABLE tenancy (
+                id TEXT NOT NULL PRIMARY KEY,
+                property_id TEXT NOT NULL,
+                start_ms INTEGER NOT NULL,
+                end_ms INTEGER,
+                tenant_name TEXT,
+                contact TEXT,
+                baseline_inspection_id TEXT,
+                purged_at INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                deleted_at INTEGER
+            )""".trimIndent(),
+            0,
+        )
+        target.execute(null, "CREATE INDEX idx_tenancy_property ON tenancy (property_id)", 0)
+        target.execute(null, "CREATE INDEX idx_tenancy_baseline_inspection ON tenancy (baseline_inspection_id)", 0)
+    }
 
     private fun setUpFinalizedInspectionWithItem(): Triple<String, String, String> {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
@@ -212,6 +254,22 @@ class DbInvariantsTest {
     }
 
     @Test
+    fun `active and any-lifecycle id reads diverge for soft-deleted parents`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        driver.execute(null, "UPDATE property SET deleted_at = ${now + 1} WHERE id = '$propertyId'", 0)
+        driver.execute(null, "UPDATE template_version SET deleted_at = ${now + 1} WHERE id = '$templateVersionId'", 0)
+
+        assertNull(database.propertyQueries.selectActiveById(propertyId).executeAsOneOrNull())
+        assertEquals(propertyId, database.propertyQueries.selectAnyById(propertyId).executeAsOne().id)
+        assertNull(database.templateVersionQueries.selectActiveById(templateVersionId).executeAsOneOrNull())
+        assertEquals(
+            templateVersionId,
+            database.templateVersionQueries.selectAnyById(templateVersionId).executeAsOne().id,
+        )
+    }
+
+    @Test
     fun `inspection rejects an unknown type`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
@@ -347,44 +405,261 @@ class DbInvariantsTest {
     }
 
     @Test
-    fun `tenancy with no Ingoing can designate a Routine inspection as its baseline, and an EXIT resolves it`() {
+    fun `initial baseline accepts only an active INGOING on the same active tenancy and an empty pointer`() {
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, type = "INGOING", now = now)
+
+        fun newTenancy(propertyId: String): String = uuid.next().also { tenancyId ->
+            database.tenancyQueries.insert(
+                id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = null,
+                tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null,
+                created_at = now, updated_at = now,
+            )
+        }
+
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val tenancyId = newTenancy(propertyId)
+        val ingoingId = DbTestFixtures.insertDraftInspection(
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "INGOING", now = now,
+        )
+        assertEquals(
+            1L,
+            database.tenancyQueries.assignInitialIngoingBaseline(ingoingId, now + 1, tenancyId).value,
+            "the valid initial INGOING transition must succeed",
+        )
+        assertEquals(ingoingId, database.tenancyQueries.selectAnyById(tenancyId).executeAsOne().baseline_inspection_id)
+
+        fun assertRejected(
+            label: String,
+            type: String = "INGOING",
+            crossProperty: Boolean = false,
+            crossTenancy: Boolean = false,
+            deletedInspection: Boolean = false,
+            deletedTenancy: Boolean = false,
+        ) {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val candidatePropertyId = if (crossProperty) DbTestFixtures.insertProperty(database, uuid, now) else targetPropertyId
+            val targetTenancyId = newTenancy(targetPropertyId)
+            val candidateTenancyId = if (crossTenancy) newTenancy(targetPropertyId) else targetTenancyId
+            val candidateId = DbTestFixtures.insertDraftInspection(
+                database, uuid, candidatePropertyId, templateVersionId,
+                tenancyId = candidateTenancyId, type = type, now = now,
+            )
+            if (deletedInspection) {
+                driver.execute(null, "UPDATE inspection SET deleted_at = ${now + 1} WHERE id = '$candidateId'", 0)
+            }
+            if (deletedTenancy) {
+                driver.execute(null, "UPDATE tenancy SET deleted_at = ${now + 1} WHERE id = '$targetTenancyId'", 0)
+            }
+
+            assertEquals(
+                0L,
+                database.tenancyQueries.assignInitialIngoingBaseline(candidateId, now + 2, targetTenancyId).value,
+                label,
+            )
+            assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id, label)
+        }
+
+        run {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val targetTenancyId = newTenancy(targetPropertyId)
+            DbTestFixtures.insertDraftInspection(
+                database, uuid, targetPropertyId, templateVersionId,
+                tenancyId = targetTenancyId, type = "INGOING", now = now,
+            )
+            val missingCandidateId = uuid.next()
+
+            assertEquals(
+                0L,
+                database.tenancyQueries.assignInitialIngoingBaseline(missingCandidateId, now + 2, targetTenancyId).value,
+                "a qualifying INGOING must not let a different missing candidate id become the baseline",
+            )
+            assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id)
+        }
+
+        inspectionTypes().filterNot { it == "INGOING" }.forEach { type ->
+            assertRejected("$type is not an initial INGOING baseline", type = type)
+        }
+        assertRejected("a cross-property inspection must be rejected", crossProperty = true)
+        assertRejected("a cross-tenancy inspection must be rejected", crossTenancy = true)
+        assertRejected("a deleted inspection must be rejected", deletedInspection = true)
+        assertRejected("a deleted tenancy must be rejected", deletedTenancy = true)
+
+        val replacementId = DbTestFixtures.insertDraftInspection(
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "INGOING", now = now + 3,
+        )
+        assertEquals(
+            0L,
+            database.tenancyQueries.assignInitialIngoingBaseline(replacementId, now + 3, tenancyId).value,
+            "an existing baseline pointer is immutable",
+        )
+        assertEquals(ingoingId, database.tenancyQueries.selectAnyById(tenancyId).executeAsOne().baseline_inspection_id)
+    }
+
+    @Test
+    fun `fallback baseline accepts only a finalized ROUTINE on the same active tenancy and an empty pointer`() {
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
-        val tenancyId = uuid.next()
-        // 既有租约：app 装机时租约已在进行中，从未建过 Ingoing 巡检（真实用户情形，见 findings.md #2）。
-        database.tenancyQueries.insert(
-            id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = null,
-            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null, created_at = now, updated_at = now,
-        )
+
+        fun newTenancy(propertyId: String): String = uuid.next().also { tenancyId ->
+            database.tenancyQueries.insert(
+                id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = null,
+                tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null,
+                created_at = now, updated_at = now,
+            )
+        }
+
+        fun finalize(inspectionId: String) {
+            assertEquals(
+                1L,
+                database.inspectionQueries.finalizeIfDraft(now + 1, "hash-$inspectionId", now + 1, inspectionId).value,
+            )
+        }
+
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val tenancyId = newTenancy(propertyId)
         val routineInspectionId = DbTestFixtures.insertDraftInspection(
-            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, now = now,
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "ROUTINE", now = now,
         )
-
-        val before = database.tenancyQueries.selectById(tenancyId).executeAsOne()
-        assertNull(before.baseline_inspection_id, "no baseline designated yet")
-
-        database.tenancyQueries.updateBaselineInspection(
-            baseline_inspection_id = routineInspectionId, updated_at = now + 1, id = tenancyId,
+        finalize(routineInspectionId)
+        assertEquals(
+            1L,
+            database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(routineInspectionId, now + 2, tenancyId).value,
+            "the valid finalized ROUTINE fallback must succeed",
         )
+        val designatedBaseline = database.tenancyQueries.selectAnyById(tenancyId).executeAsOne().baseline_inspection_id
+        assertEquals(routineInspectionId, designatedBaseline)
 
-        val afterDesignation = database.tenancyQueries.selectById(tenancyId).executeAsOne()
-        assertEquals(routineInspectionId, afterDesignation.baseline_inspection_id, "Routine inspection must resolve as the tenancy baseline")
-
-        // 真建一个 EXIT 巡检，其 baseline_inspection_id 从 tenancy 指针解析写入（模拟 T2/T3 应用层在建
-        // EXIT 时会做的事：读 tenancy.baseline_inspection_id，不假设存在 type=INGOING 的巡检）。
+        // Exercise the historical EXIT consumer shape: it reads the tenancy pointer and persists that exact
+        // snapshot on the new EXIT row; it never searches for an INGOING implicitly.
         val exitInspectionId = DbTestFixtures.insertDraftInspection(
             database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "EXIT",
-            previousInspectionId = routineInspectionId,
-            baselineInspectionId = afterDesignation.baseline_inspection_id,
-            now = now + 2,
+            previousInspectionId = routineInspectionId, baselineInspectionId = designatedBaseline, now = now + 3,
         )
-
-        val exit = database.inspectionQueries.selectById(exitInspectionId).executeAsOne()
         assertEquals(
             routineInspectionId,
-            exit.baseline_inspection_id,
-            "EXIT must resolve its baseline via the tenancy pointer, not assume an INGOING inspection exists",
+            database.inspectionQueries.selectById(exitInspectionId).executeAsOne().baseline_inspection_id,
         )
+
+        fun assertRejected(
+            label: String,
+            type: String = "ROUTINE",
+            finalized: Boolean = true,
+            crossProperty: Boolean = false,
+            crossTenancy: Boolean = false,
+            deletedInspection: Boolean = false,
+            deletedTenancy: Boolean = false,
+            existingIngoing: Boolean = false,
+            deletedExistingIngoing: Boolean = false,
+        ) {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val candidatePropertyId = if (crossProperty) DbTestFixtures.insertProperty(database, uuid, now) else targetPropertyId
+            val targetTenancyId = newTenancy(targetPropertyId)
+            val candidateTenancyId = if (crossTenancy) newTenancy(targetPropertyId) else targetTenancyId
+            if (existingIngoing) {
+                val existingIngoingId = DbTestFixtures.insertDraftInspection(
+                    database, uuid, targetPropertyId, templateVersionId,
+                    tenancyId = targetTenancyId, type = "INGOING", now = now,
+                )
+                if (deletedExistingIngoing) {
+                    driver.execute(null, "UPDATE inspection SET deleted_at = ${now + 1} WHERE id = '$existingIngoingId'", 0)
+                }
+            }
+            val candidateId = DbTestFixtures.insertDraftInspection(
+                database, uuid, candidatePropertyId, templateVersionId,
+                tenancyId = candidateTenancyId, type = type, now = now,
+            )
+            if (finalized) finalize(candidateId)
+            if (deletedInspection) {
+                driver.execute(null, "UPDATE inspection SET deleted_at = ${now + 1} WHERE id = '$candidateId'", 0)
+            }
+            if (deletedTenancy) {
+                driver.execute(null, "UPDATE tenancy SET deleted_at = ${now + 1} WHERE id = '$targetTenancyId'", 0)
+            }
+
+            assertEquals(
+                0L,
+                database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(candidateId, now + 2, targetTenancyId).value,
+                label,
+            )
+            assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id, label)
+        }
+
+        run {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val targetTenancyId = newTenancy(targetPropertyId)
+            val qualifyingId = DbTestFixtures.insertDraftInspection(
+                database, uuid, targetPropertyId, templateVersionId,
+                tenancyId = targetTenancyId, type = "ROUTINE", now = now,
+            )
+            finalize(qualifyingId)
+            val missingCandidateId = uuid.next()
+
+            assertEquals(
+                0L,
+                database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(missingCandidateId, now + 2, targetTenancyId).value,
+                "a qualifying ROUTINE must not let a different missing candidate id become the baseline",
+            )
+            assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id)
+        }
+
+        inspectionTypes().filterNot { it == "ROUTINE" }.forEach { type ->
+            assertRejected("$type is not a ROUTINE fallback", type = type)
+        }
+        assertRejected("a DRAFT ROUTINE must be rejected", finalized = false)
+        assertRejected("a cross-property ROUTINE must be rejected", crossProperty = true)
+        assertRejected("a cross-tenancy ROUTINE must be rejected", crossTenancy = true)
+        assertRejected("a deleted ROUTINE must be rejected", deletedInspection = true)
+        assertRejected("a deleted tenancy must be rejected", deletedTenancy = true)
+        assertRejected("an active INGOING history disqualifies fallback", existingIngoing = true)
+        assertRejected(
+            "a soft-deleted INGOING remains history and disqualifies fallback",
+            existingIngoing = true,
+            deletedExistingIngoing = true,
+        )
+
+        fun assertAllowedWithUnrelatedIngoing(label: String, crossProperty: Boolean, crossTenancy: Boolean) {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val otherPropertyId = if (crossProperty) DbTestFixtures.insertProperty(database, uuid, now) else targetPropertyId
+            val targetTenancyId = newTenancy(targetPropertyId)
+            val otherTenancyId = if (crossTenancy) newTenancy(targetPropertyId) else targetTenancyId
+            DbTestFixtures.insertDraftInspection(
+                database, uuid, otherPropertyId, templateVersionId,
+                tenancyId = otherTenancyId, type = "INGOING", now = now,
+            )
+            val candidateId = DbTestFixtures.insertDraftInspection(
+                database, uuid, targetPropertyId, templateVersionId,
+                tenancyId = targetTenancyId, type = "ROUTINE", now = now,
+            )
+            finalize(candidateId)
+
+            assertEquals(
+                1L,
+                database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(candidateId, now + 2, targetTenancyId).value,
+                label,
+            )
+            assertEquals(candidateId, database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id)
+        }
+
+        assertAllowedWithUnrelatedIngoing(
+            "an INGOING on another property does not disqualify this tenancy",
+            crossProperty = true,
+            crossTenancy = false,
+        )
+        assertAllowedWithUnrelatedIngoing(
+            "an INGOING on another tenancy does not disqualify this tenancy",
+            crossProperty = false,
+            crossTenancy = true,
+        )
+
+        val replacementId = DbTestFixtures.insertDraftInspection(
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "ROUTINE", now = now + 3,
+        )
+        finalize(replacementId)
+        assertEquals(
+            0L,
+            database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(replacementId, now + 4, tenancyId).value,
+            "an existing baseline pointer is immutable",
+        )
+        assertEquals(routineInspectionId, database.tenancyQueries.selectAnyById(tenancyId).executeAsOne().baseline_inspection_id)
     }
 
     @Test
@@ -402,5 +677,114 @@ class DbInvariantsTest {
         assertNull(purged.tenant_name, "tenant_name must be cleared")
         assertNull(purged.contact, "contact must be cleared")
         assertEquals(now + 1, purged.purged_at, "purged_at must be recorded for a real purge call")
+    }
+
+    @Test
+    fun `purged tenancy contact fields are a terminal database state`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val tenancyId = uuid.next()
+        database.tenancyQueries.insert(
+            id = tenancyId, property_id = propertyId, start_ms = now - 86_400_000L, end_ms = now,
+            tenant_name = "J Doe", contact = "j@example.com", baseline_inspection_id = null,
+            created_at = now, updated_at = now,
+        )
+        assertEquals(1L, database.tenancyQueries.purgeContactInfo(now + 1, now + 1, tenancyId).value)
+
+        listOf(
+            "tenant_name = 'Restored'" to "tenant_name",
+            "contact = 'restored@example.com'" to "contact",
+        ).forEach { (assignment, field) ->
+            val ex = assertFailsWith<Exception> {
+                driver.execute(null, "UPDATE tenancy SET $assignment WHERE id = '$tenancyId'", 0)
+            }
+            assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "expected $field backfill to fail the terminal CHECK")
+            val row = database.tenancyQueries.selectAnyById(tenancyId).executeAsOne()
+            assertNull(row.tenant_name)
+            assertNull(row.contact)
+            assertEquals(now + 1, row.purged_at)
+        }
+    }
+
+    @Test
+    fun `v2 to v3 migration preserves every valid tenancy field and recreates its indexes`() {
+        val v2Driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        try {
+            createV2TenancySchema(v2Driver)
+            v2Driver.execute(
+                null,
+                """INSERT INTO tenancy (
+                    id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id,
+                    purged_at, created_at, updated_at, deleted_at
+                ) VALUES ('tenancy-1', 'property-1', 1, 2, 'J Doe', 'j@example.com', 'inspection-1', NULL, 3, 4, 5)""".trimIndent(),
+                0,
+            )
+
+            MyInspectionDatabase.Schema.migrate(v2Driver, 2, 3)
+
+            val row = v2Driver.executeQuery(
+                null,
+                """SELECT id, property_id, start_ms, end_ms, tenant_name, contact,
+                    baseline_inspection_id, purged_at, created_at, updated_at, deleted_at
+                    FROM tenancy""".trimIndent(),
+                { cursor ->
+                    check(cursor.next().value)
+                    QueryResult.Value(
+                        listOf(
+                            cursor.getString(0), cursor.getString(1), cursor.getLong(2), cursor.getLong(3),
+                            cursor.getString(4), cursor.getString(5), cursor.getString(6), cursor.getLong(7),
+                            cursor.getLong(8), cursor.getLong(9), cursor.getLong(10),
+                        ),
+                    )
+                },
+                0,
+            ).value
+            assertEquals(
+                listOf("tenancy-1", "property-1", 1L, 2L, "J Doe", "j@example.com", "inspection-1", null, 3L, 4L, 5L),
+                row,
+            )
+
+            val indexes = v2Driver.executeQuery(
+                null,
+                "PRAGMA index_list(tenancy)",
+                { cursor ->
+                    val names = mutableSetOf<String>()
+                    while (cursor.next().value) names += cursor.getString(1)!!
+                    QueryResult.Value(names)
+                },
+                0,
+            ).value
+            assertTrue(indexes.contains("idx_tenancy_property"))
+            assertTrue(indexes.contains("idx_tenancy_baseline_inspection"))
+        } finally {
+            v2Driver.close()
+        }
+    }
+
+    @Test
+    fun `v2 to v3 migration fails closed on an already-inconsistent purged tenancy`() {
+        fun assertMigrationRejected(tenantNameSql: String, contactSql: String, field: String) {
+            val v2Driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            try {
+                createV2TenancySchema(v2Driver)
+                v2Driver.execute(
+                    null,
+                    """INSERT INTO tenancy (
+                        id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id,
+                        purged_at, created_at, updated_at, deleted_at
+                    ) VALUES ('tenancy-1', 'property-1', 1, 2, $tenantNameSql, $contactSql, NULL, 3, 1, 1, NULL)""".trimIndent(),
+                    0,
+                )
+
+                val ex = assertFailsWith<Exception> {
+                    MyInspectionDatabase.Schema.migrate(v2Driver, 2, 3)
+                }
+                assertTrue(ex.message.orEmpty().contains("CHECK", ignoreCase = true), "migration must reject retained $field")
+            } finally {
+                v2Driver.close()
+            }
+        }
+
+        assertMigrationRejected("'J Doe'", "NULL", "tenant_name")
+        assertMigrationRejected("NULL", "'j@example.com'", "contact")
     }
 }
