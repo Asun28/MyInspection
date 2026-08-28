@@ -16,9 +16,8 @@ import kotlin.test.assertTrue
  *     也不能 INSERT 新的 inspection_item/room_instance/photo/audio；supplement 是唯一的
  *     append-only 例外，不适用此闸。
  *  2. inspection 的 status/finalized_at/data_hash 三者必须联动一致（结构性 CHECK 约束）。
- *  3. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线，且真建一个 EXIT 巡检、
- *     经这个指针解析出同一个 Routine（不是只测指针本身被设对了——那样测不出 Exit 侧是否仍在假设
- *     "必有 INGOING"）。
+ *  3. 既有租约没有 Ingoing 时，可把某次 Routine 巡检指定为该 tenancy 的基线；EXIT 消费夹具读取这个
+ *     已存指针并把同一个 Routine 写入自己的 baseline_inspection_id，不另行假设“必有 INGOING”。
  *
  * 引用完整性的缺失/错配父行测试（EXISTS 守卫拦孤儿行/跨巡检串接数据）另见 DbReferentialIntegrityTest。
  */
@@ -444,6 +443,23 @@ class DbInvariantsTest {
             assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id, label)
         }
 
+        run {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val targetTenancyId = newTenancy(targetPropertyId)
+            DbTestFixtures.insertDraftInspection(
+                database, uuid, targetPropertyId, templateVersionId,
+                tenancyId = targetTenancyId, type = "INGOING", now = now,
+            )
+            val missingCandidateId = uuid.next()
+
+            assertEquals(
+                0L,
+                database.tenancyQueries.assignInitialIngoingBaseline(missingCandidateId, now + 2, targetTenancyId).value,
+                "a qualifying INGOING must not let a different missing candidate id become the baseline",
+            )
+            assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id)
+        }
+
         inspectionTypes().filterNot { it == "INGOING" }.forEach { type ->
             assertRejected("$type is not an initial INGOING baseline", type = type)
         }
@@ -493,7 +509,19 @@ class DbInvariantsTest {
             database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(routineInspectionId, now + 2, tenancyId).value,
             "the valid finalized ROUTINE fallback must succeed",
         )
-        assertEquals(routineInspectionId, database.tenancyQueries.selectAnyById(tenancyId).executeAsOne().baseline_inspection_id)
+        val designatedBaseline = database.tenancyQueries.selectAnyById(tenancyId).executeAsOne().baseline_inspection_id
+        assertEquals(routineInspectionId, designatedBaseline)
+
+        // Exercise the historical EXIT consumer shape: it reads the tenancy pointer and persists that exact
+        // snapshot on the new EXIT row; it never searches for an INGOING implicitly.
+        val exitInspectionId = DbTestFixtures.insertDraftInspection(
+            database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "EXIT",
+            previousInspectionId = routineInspectionId, baselineInspectionId = designatedBaseline, now = now + 3,
+        )
+        assertEquals(
+            routineInspectionId,
+            database.inspectionQueries.selectById(exitInspectionId).executeAsOne().baseline_inspection_id,
+        )
 
         fun assertRejected(
             label: String,
@@ -503,11 +531,22 @@ class DbInvariantsTest {
             crossTenancy: Boolean = false,
             deletedInspection: Boolean = false,
             deletedTenancy: Boolean = false,
+            existingIngoing: Boolean = false,
+            deletedExistingIngoing: Boolean = false,
         ) {
             val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
             val candidatePropertyId = if (crossProperty) DbTestFixtures.insertProperty(database, uuid, now) else targetPropertyId
             val targetTenancyId = newTenancy(targetPropertyId)
             val candidateTenancyId = if (crossTenancy) newTenancy(targetPropertyId) else targetTenancyId
+            if (existingIngoing) {
+                val existingIngoingId = DbTestFixtures.insertDraftInspection(
+                    database, uuid, targetPropertyId, templateVersionId,
+                    tenancyId = targetTenancyId, type = "INGOING", now = now,
+                )
+                if (deletedExistingIngoing) {
+                    driver.execute(null, "UPDATE inspection SET deleted_at = ${now + 1} WHERE id = '$existingIngoingId'", 0)
+                }
+            }
             val candidateId = DbTestFixtures.insertDraftInspection(
                 database, uuid, candidatePropertyId, templateVersionId,
                 tenancyId = candidateTenancyId, type = type, now = now,
@@ -528,6 +567,24 @@ class DbInvariantsTest {
             assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id, label)
         }
 
+        run {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val targetTenancyId = newTenancy(targetPropertyId)
+            val qualifyingId = DbTestFixtures.insertDraftInspection(
+                database, uuid, targetPropertyId, templateVersionId,
+                tenancyId = targetTenancyId, type = "ROUTINE", now = now,
+            )
+            finalize(qualifyingId)
+            val missingCandidateId = uuid.next()
+
+            assertEquals(
+                0L,
+                database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(missingCandidateId, now + 2, targetTenancyId).value,
+                "a qualifying ROUTINE must not let a different missing candidate id become the baseline",
+            )
+            assertNull(database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id)
+        }
+
         inspectionTypes().filterNot { it == "ROUTINE" }.forEach { type ->
             assertRejected("$type is not a ROUTINE fallback", type = type)
         }
@@ -536,6 +593,46 @@ class DbInvariantsTest {
         assertRejected("a cross-tenancy ROUTINE must be rejected", crossTenancy = true)
         assertRejected("a deleted ROUTINE must be rejected", deletedInspection = true)
         assertRejected("a deleted tenancy must be rejected", deletedTenancy = true)
+        assertRejected("an active INGOING history disqualifies fallback", existingIngoing = true)
+        assertRejected(
+            "a soft-deleted INGOING remains history and disqualifies fallback",
+            existingIngoing = true,
+            deletedExistingIngoing = true,
+        )
+
+        fun assertAllowedWithUnrelatedIngoing(label: String, crossProperty: Boolean, crossTenancy: Boolean) {
+            val targetPropertyId = DbTestFixtures.insertProperty(database, uuid, now)
+            val otherPropertyId = if (crossProperty) DbTestFixtures.insertProperty(database, uuid, now) else targetPropertyId
+            val targetTenancyId = newTenancy(targetPropertyId)
+            val otherTenancyId = if (crossTenancy) newTenancy(targetPropertyId) else targetTenancyId
+            DbTestFixtures.insertDraftInspection(
+                database, uuid, otherPropertyId, templateVersionId,
+                tenancyId = otherTenancyId, type = "INGOING", now = now,
+            )
+            val candidateId = DbTestFixtures.insertDraftInspection(
+                database, uuid, targetPropertyId, templateVersionId,
+                tenancyId = targetTenancyId, type = "ROUTINE", now = now,
+            )
+            finalize(candidateId)
+
+            assertEquals(
+                1L,
+                database.tenancyQueries.assignFinalizedRoutineFallbackBaseline(candidateId, now + 2, targetTenancyId).value,
+                label,
+            )
+            assertEquals(candidateId, database.tenancyQueries.selectAnyById(targetTenancyId).executeAsOne().baseline_inspection_id)
+        }
+
+        assertAllowedWithUnrelatedIngoing(
+            "an INGOING on another property does not disqualify this tenancy",
+            crossProperty = true,
+            crossTenancy = false,
+        )
+        assertAllowedWithUnrelatedIngoing(
+            "an INGOING on another tenancy does not disqualify this tenancy",
+            crossProperty = false,
+            crossTenancy = true,
+        )
 
         val replacementId = DbTestFixtures.insertDraftInspection(
             database, uuid, propertyId, templateVersionId, tenancyId = tenancyId, type = "ROUTINE", now = now + 3,

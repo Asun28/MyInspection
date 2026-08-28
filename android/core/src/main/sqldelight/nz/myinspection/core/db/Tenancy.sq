@@ -64,8 +64,9 @@ WHERE id = :id
         AND inspection.tenancy_id = tenancy.id
   );
 
--- 没有 INGOING 的存量租约只能指定一条已 FINALIZED 的 ROUTINE 作为 fallback。与初始入口相同，
--- 指针只能从 NULL 写一次，且跨物业、跨租约、软删候选或软删 tenancy 都是 0 行拒写。
+-- 没有 INGOING 的存量租约只能指定一条已 FINALIZED 的 ROUTINE 作为 fallback。INGOING 历史按
+-- any-lifecycle 判定：软删除不会抹掉“曾有入场巡检”这个事实。与初始入口相同，指针只能从 NULL 写一次，
+-- 且跨物业、跨租约、软删候选或软删 tenancy 都是 0 行拒写。
 assignFinalizedRoutineFallbackBaseline:
 UPDATE tenancy
 SET baseline_inspection_id = :baseline_inspection_id, updated_at = :updated_at
@@ -81,6 +82,13 @@ WHERE id = :id
         AND inspection.status = 'FINALIZED'
         AND inspection.property_id = tenancy.property_id
         AND inspection.tenancy_id = tenancy.id
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM inspection AS ingoing
+      WHERE ingoing.type = 'INGOING'
+        AND ingoing.property_id = tenancy.property_id
+        AND ingoing.tenancy_id = tenancy.id
   );
 
 -- 保留期清理的机械执行面（何时/是否清理的判断归 T5-RETENTION，此处只提供执行路径）：
