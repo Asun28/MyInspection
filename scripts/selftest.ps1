@@ -3928,6 +3928,14 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   }
   $rendezvousHarnessBudgetMilliseconds82 = $rendezvousHarnessBudgetSeconds82 * 1000
   $rendezvousLegacyWindowMilliseconds82 = 5000
+  $rendezvousShortTimeoutSeconds82 = 1
+  $rendezvousShortTimeoutMinimumMilliseconds82 = 900
+  # Permit three seconds of scheduler jitter while staying strictly below the legacy five-second floor.
+  $rendezvousShortTimeoutToleranceMilliseconds82 = 3000
+  $rendezvousShortTimeoutMaximumMilliseconds82 = ($rendezvousShortTimeoutSeconds82 * 1000) + $rendezvousShortTimeoutToleranceMilliseconds82
+  if ($rendezvousShortTimeoutMaximumMilliseconds82 -ge $rendezvousLegacyWindowMilliseconds82) {
+    throw '[SELFTEST-8.2E-SHORT-TIMEOUT-BOUND] upper elapsed bound must stay below the legacy window'
+  }
   $rendezvousLoadDelayMilliseconds82 = $rendezvousLegacyWindowMilliseconds82 + 1000
   $rendezvousSetupDelayMilliseconds82 = $rendezvousLegacyWindowMilliseconds82 + 1000
   if ($rendezvousLoadDelayMilliseconds82 -ge $rendezvousHarnessBudgetMilliseconds82 -or
@@ -4042,6 +4050,9 @@ try {
   if ($Mode -eq 'load') {
     $delayClock = [System.Diagnostics.Stopwatch]::StartNew()
     while ($delayClock.ElapsedMilliseconds -lt $DelayMilliseconds) { Start-Sleep -Milliseconds 20 }
+    if (Test-Path -LiteralPath (Join-Path $ReadyRoot 'seeded.done')) {
+      throw 'seeded completed before delayed workflow release'
+    }
     "setup-delay-ms=$($setupDelayClock.ElapsedMilliseconds);delay-ms=$($delayClock.ElapsedMilliseconds);seeded-running=True" | Set-Content (Join-Path $ReadyRoot 'load.observed')
   } else {
     Wait-RendezvousMarker 'seeded.timeout'
@@ -4241,6 +4252,30 @@ try {
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    $earlyExitTarget82 = 'if ($readyClock.Elapsed.TotalSeconds -ge $readyTimeoutSeconds) {'
+    if ([regex]::Matches($aggregateStubSource, [regex]::Escape($earlyExitTarget82)).Count -ne 1) {
+      Fail '[SELFTEST-8.2E-EARLY-EXIT-MUTATION] rendezvous comparison target is not unique.'
+    }
+    $earlyExitMutant82 = $aggregateStubSource.Replace(
+      $earlyExitTarget82,
+      "if (`$readyClock.Elapsed.TotalSeconds -ge 8) { break }`n  $earlyExitTarget82")
+    $earlyExitMutant82 | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
+    $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
+    $earlyExitController82 = & $startRendezvousController82 'load' $rendezvousLoadDelayMilliseconds82 $rendezvousSetupDelayMilliseconds82
+    $earlyExitOutput82 = & { $script:earlyExitResult82 = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
+    $earlyExitControllerResult82 = & $completeRendezvousController82 $earlyExitController82
+    $earlyExitWatchdogPath82 = Join-Path $aggLogs 'ready/load.watchdog'
+    $earlyExitWatchdog82 = if (Test-Path -LiteralPath $earlyExitWatchdogPath82) { Get-Content -LiteralPath $earlyExitWatchdogPath82 -Raw } else { '' }
+    if (-not $earlyExitControllerResult82.Completed -or $earlyExitControllerResult82.ExitCode -ne 41 -or
+        $earlyExitWatchdog82 -notmatch '^seeded completed before delayed workflow release\s*$' -or
+        (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/load.observed'))) {
+      $earlyExitObserved82 = Test-Path -LiteralPath (Join-Path $aggLogs 'ready/load.observed')
+      Fail "[SELFTEST-8.2E-EARLY-EXIT-MUTATION] aggregate-exit=$earlyExitResult82 aggregate-pass=$($earlyExitOutput82 -match 'selftest\(all\): PASS') controller-completed=$($earlyExitControllerResult82.Completed) controller-exit=$($earlyExitControllerResult82.ExitCode) watchdog=$($earlyExitWatchdog82.Trim()) load-observed=$earlyExitObserved82"
+    }
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
+    $aggregateStubSource | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
+
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $defaultBudgetTarget82 = '$readyTimeoutSeconds = 30'
     if ([regex]::Matches($aggregateStubSource, [regex]::Escape($defaultBudgetTarget82)).Count -ne 1) {
       Fail '[SELFTEST-8.2E-DEFAULT-BUDGET-MUTATION] default timeout target is not unique.'
@@ -4261,7 +4296,7 @@ try {
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
-    $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = '1'
+    $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = [string]$rendezvousShortTimeoutSeconds82
     $timeoutController82 = & $startRendezvousController82 'timeout' 0 $rendezvousSetupDelayMilliseconds82
     $probeTimeoutOutput = & { $script:probeTimeout = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
     $timeoutControllerResult82 = & $completeRendezvousController82 $timeoutController82
@@ -4275,7 +4310,8 @@ try {
         -not $timeoutControllerResult82.Completed -or $timeoutControllerResult82.ExitCode -ne 0 -or
         $timeoutObserved82 -notmatch '^setup-delay-ms=(?<setup>\d+);seeded-timeout=True\s*$' -or
         [int]$Matches.setup -lt $rendezvousSetupDelayMilliseconds82 -or
-        $timeoutElapsedMs -lt 900 -or $timeoutElapsedMs -gt $rendezvousHarnessBudgetMilliseconds82 -or
+        $timeoutElapsedMs -lt $rendezvousShortTimeoutMinimumMilliseconds82 -or
+        $timeoutElapsedMs -gt $rendezvousShortTimeoutMaximumMilliseconds82 -or
         (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/timeout.watchdog'))) {
       Fail '8.2e：all 聚合器 stub 的短 rendezvous 预算未以专属诊断快速 fail-closed。'
     }
@@ -4302,7 +4338,7 @@ try {
       $psi.RedirectStandardError = $true
       foreach ($argument in @('-NoProfile', '-File', (Join-Path $aggFixture 'scripts/selftest.ps1'), '-Shard', 'seeded')) { [void]$psi.ArgumentList.Add($argument) }
       $psi.Environment['SCAFFOLD_SELFTEST_STUB_LOG_ROOT'] = $probeLogRoot
-      $psi.Environment['SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS'] = '1'
+      $psi.Environment['SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS'] = [string]$rendezvousShortTimeoutSeconds82
       [void]$psi.Environment.Remove('SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS')
       $process = [System.Diagnostics.Process]::new()
       try {
@@ -4327,13 +4363,15 @@ try {
     $timeoutBehaviorMutations82 = [ordered]@{
       'DEADLINE-START' = @('$readyClock = [System.Diagnostics.Stopwatch]::StartNew()', '')
       'DEADLINE-COMPARISON' = @('if ($readyClock.Elapsed.TotalSeconds -ge $readyTimeoutSeconds) {', 'if ($true) {')
+      'TIMEOUT-FLOOR' = @('if ($readyClock.Elapsed.TotalSeconds -ge $readyTimeoutSeconds) {', 'if ($readyClock.Elapsed.TotalSeconds -ge [Math]::Max($readyTimeoutSeconds, 5)) {')
       'READY-WAIT' = @("while (`$Shard -ne 'core' -and", 'while ($false -and')
       'TIMEOUT-DIAGNOSTIC' = @('Write-Output "[SELFTEST-8.2E-RENDEZVOUS] shard=$Shard state=timeout timeout-seconds=$readyTimeoutSeconds waiting-for=$($waitingFor -join '','')"', 'Write-Output "timeout"')
       'TIMEOUT-EXIT' = @('exit 29', 'exit 0')
     }
     $baselineTimeoutProbe82 = & $invokeTimeoutProbe82 $aggregateStubSource 'baseline'
     if (-not $baselineTimeoutProbe82.Completed -or $baselineTimeoutProbe82.ExitCode -ne 29 -or
-        $baselineTimeoutProbe82.ElapsedMilliseconds -lt 900 -or $baselineTimeoutProbe82.ElapsedMilliseconds -gt $rendezvousHarnessBudgetMilliseconds82 -or
+        $baselineTimeoutProbe82.ElapsedMilliseconds -lt $rendezvousShortTimeoutMinimumMilliseconds82 -or
+        $baselineTimeoutProbe82.ElapsedMilliseconds -gt $rendezvousShortTimeoutMaximumMilliseconds82 -or
         $baselineTimeoutProbe82.Output -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=1 waiting-for=workflow\.ready') {
       Fail '[SELFTEST-8.2E-TIMEOUT-BASELINE] bounded timeout control did not emit the dedicated nonzero rendezvous diagnostic.'
     }
@@ -4342,7 +4380,8 @@ try {
       if ([regex]::Matches($aggregateStubSource, [regex]::Escape($target)).Count -ne 1) { return $true }
       $probe = & $invokeTimeoutProbe82 ($aggregateStubSource.Replace($target, $replacement)) ([string]$_.Key)
       $probe.Completed -and $probe.ExitCode -eq 29 -and
-        $probe.ElapsedMilliseconds -ge 900 -and $probe.ElapsedMilliseconds -le $rendezvousHarnessBudgetMilliseconds82 -and
+        $probe.ElapsedMilliseconds -ge $rendezvousShortTimeoutMinimumMilliseconds82 -and
+        $probe.ElapsedMilliseconds -le $rendezvousShortTimeoutMaximumMilliseconds82 -and
         $probe.Output -match '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=1 waiting-for=workflow\.ready'
     } | ForEach-Object { [string]$_.Key })
     $aggregateStubSource | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
