@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 39 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 40 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -44,3 +44,4 @@
 | TD8 | minor | paid | `TemplateVersion.sq`(第 5 行注释，schema 冻结物) | **冻结 schema 注释把 content_hash 的来源指错**：注释写「canonical JSON 的 SHA-256（由 T1-CANON-HASH 算出并写入）」，而卡片 T1-TEMPLATE-ENGINE 与已合并实现… |
 | TD7 | minor | paid | `core/template/TemplateStore.read()` ↔ `CheckItemDef.sq` 的… | **软删语义在模板读回路上前后不一致**：`read()` 刻意**不看** `template_version.deleted_at`（依据 CheckItemDef.sq 自己写的原则「软删的巡检其报告仍须可一致重渲」），但它取项定义… |
 | TD6 | minor | paid | `Supplement.sq`(第 8 行注释，schema 冻结物) | **冻结 schema 注释把链哈希域指错方向**：注释写 `chain_hash = SHA-256(canonical(本行) + prev_hash)`，而其点名的权威实现 supplementChainHash 只把 {creat… |
+| TD160 | major | paid | SQLDelight 点查与 capture/retention 写入口 | **active 与 historical 生命周期语义未分流，写权限依赖调用方自律**。后果：软删父记录可能被新业务引用，通用基线 setter 可绕过同物业、租约、类型与 finalized 守卫，清理终态字段也可能被回填。修法：ac… |

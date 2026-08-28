@@ -1,6 +1,6 @@
 # Database design baseline
 
-> Status: design baseline · 2026-08-20. This document reviews the current schema; it does not authorize an unreviewed migration. Existing frozen SQLDelight schema changes require version review and TD4 migration verification first.
+> Status: design baseline · 2026-08-20; lifecycle hardening implemented in schema v3 by PR #191 on 2026-08-29. This document does not authorize an unreviewed migration. Existing frozen SQLDelight schema changes require version review and TD4 migration verification first.
 
 ## 1. Verdict
 
@@ -73,15 +73,15 @@ Logical foreign keys remain intentional. Soft-deleted parents must stay referenc
 
 ## 6. Confirmed hardening work
 
-### Must change in the next reviewed schema window
+### Implemented in schema v3 (PR #191)
 
-- Add active-by-ID reads for property, tenancy, and template selection; use them in all new-work paths.
-- Replace the generic tenancy baseline setter with two explicit operations:
+- Active-by-ID reads now guard property, tenancy, and template selection in new-work paths; historical and retention paths use explicit any-lifecycle reads.
+- The generic tenancy baseline setter is replaced by two explicit operations:
   - initial INGOING assignment when the pointer is empty;
   - finalized fallback baseline assignment for an eligible inspection from the same property/tenancy.
-- Enforce the terminal purge invariant: once `purged_at` is set, `tenant_name` and `contact` remain NULL.
-- Prevent updates to deleted `property_item_override` rows.
-- Give every multi-row read that affects output/hash/progress an explicit total order.
+- The schema enforces the terminal purge invariant: once `purged_at` is set, `tenant_name` and `contact` remain NULL.
+- Deleted `property_item_override` rows cannot be updated.
+- Lifecycle and baseline guards are covered by positive, negative, migration, and single-clause mutation tests; `:core:check` and the project verify gate passed at merge commit `3d50f690`.
 
 ### Keep as designed
 

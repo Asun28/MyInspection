@@ -1829,3 +1829,11 @@
 - rule: Kotlin 与 .kts 的块注释里不要写会形成斜杠星号的 glob；改用自然语言或行注释，并在证据注释变更后至少编译对应模块。
 - enforced_by: none（文字证据约束，靠评审与编译验证）
 - refs: PR #188; android/core/build.gradle.kts
+
+## L254
+- date: 2026-08-29 ｜ tags: mutation,apply-patch,repeated-block,restore ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 还原 fallback baseline 的单句删除变异时，通用补丁上下文把 NOT EXISTS 插回了相邻的 initial baseline 查询；若只看测试退出码，可能把错位恢复误当成干净基线。
+- root_cause: 同一 SQL 文件有两个结构相似的 UPDATE/EXISTS 块，恢复补丁只锚定重复的 WHERE/EXISTS 片段，没有同时锚定唯一查询标签与邻接语义。
+- rule: 对重复结构文件做变异与恢复时，补丁必须同时包含唯一查询/函数标签和被改语句的唯一邻接上下文；恢复后先查看完整目标块与 git diff，再运行绿测，禁止用通用片段跨块恢复。
+- enforced_by: none（流程纪律，靠评审与变异后 diff 核验）
+- refs: PR #191; android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq

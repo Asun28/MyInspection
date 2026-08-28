@@ -3,7 +3,7 @@ id: T1-DATABASE-LIFECYCLE-AUTHORITY
 title: 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫
 depends_on: [T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST]
 plan_ref: docs/DATABASE-DESIGN.md#5-active-versus-historical-reads
-status: todo
+status: merged
 branch: T1-DATABASE-LIFECYCLE-AUTHORITY
 worktree: C:\wt\T1-DATABASE-LIFECYCLE-AUTHORITY
 allow_paths:
