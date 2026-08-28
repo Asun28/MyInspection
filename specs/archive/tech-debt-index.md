@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 35 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 36 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -40,3 +40,4 @@
 | TD159 | major | paid | `.github/workflows/ci.yml` pull_request `verify` | **纯文档 PR 仍无差别启动完整 Windows Android 工具链**：PR #111 只做 R5 元数据时，run 32524624342 依次 provision Java/Android/Gradle、在线 build 与许… |
 | TD24 | major | paid | `Photo.sq` `selectActiveAssetsByContentHash` → `PhotoIngest… | **照片按内容哈希全局复用，却要求备份源为单一物业 owner**：查询不按物业过滤，`PhotoIngest` 也只校验路径形状；现有 recorder 测试已允许 B 物业照片复用 A 物业的同一 `rel_path`。但 `Back… |
 | TD157 | major | paid | `scripts/check-licenses.ps1` + `scripts/check-secrets.ps1`… | **增补平面格式标量可穿过许可与 secrets 信任边界**：.NET regex 按 UTF-16 码元分类，U+1BCA0/U+E0001 等 Cf 在正则眼里是两个 Cs，现有 guard/sanitizer 因此漏判；L190… |
+| TD146 | minor | paid | `scripts/selftest.ps1` 闸号命名 | 三方同时各自挑「下一个空号」，`T0-LESSONS-BUMP-PLANE`(#129)、`T0-LESSONS-COLD-RECALL`(#51)、`T0-LESSONS-CAP-UNIT`(#127) 都取了 `2d`——同号不同闸，… |

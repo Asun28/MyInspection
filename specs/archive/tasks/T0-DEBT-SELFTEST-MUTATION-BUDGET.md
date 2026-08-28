@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-MUTATION-BUDGET
 title: 将 skip mutation 证明收敛到紧凑身份清单
 depends_on: [T0-DEBT-SELFTEST-NOGIT-ROUTING]
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-MUTATION-BUDGET
 worktree: C:\wt\T0-DEBT-SELFTEST-MUTATION-BUDGET
 allow_paths:

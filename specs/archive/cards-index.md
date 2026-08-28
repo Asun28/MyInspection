@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 67 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 75 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -30,6 +30,7 @@
 | T0-DEBT-SELFTEST-CANARY-HARNESS | merged | 让 post-merge selftest canary 离线确定且失败可定位 |
 | T0-DEBT-SELFTEST-CRITICAL-PATH | merged | 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径 |
 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | merged | 让 selftest 分片与 all 汇总稳定点名失败闸 |
+| T0-DEBT-SELFTEST-MUTATION-BUDGET | merged | 将 skip mutation 证明收敛到紧凑身份清单 |
 | T0-DEBT-SELFTEST-NOGIT-ROUTING | merged | 用有界生产夹具证明 seeded no-git 路由 |
 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | merged | 让 selftest 有意跳过与前置失败裁剪均可见 |
 | T0-DEBT-SELFTEST-SNAPSHOT-BASELINE | merged | 让 selftest all 快照钉住调用者 HEAD 与权威 master（偿还 TD156） |
@@ -43,6 +44,7 @@
 | T0-DEBT-WINDOWS-PYTHON-UTF8 | merged | 把 Windows Python UTF-8 工具纪律合并晋升为必须层（偿还 TD152 / L162） |
 | T0-GATE-FIXFORWARD | merged | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径（T0-GATE-HARDENING 事后 R3 两条 block 的 fix-forward） |
 | T0-GATE-HARDENING | merged | 许可闸看得见 Gradle + verify 确定性 + 两枚闸门自测（从 T0-TOOLCHAIN 拆出） |
+| T0-GATE-ID-UNIQUENESS | merged | 闸号唯一性做成机检，并让按锚点拼接的编辑不再静默错位 |
 | T0-HANDOFF-REVALIDATE | merged | 续接旧 HANDOFF 前重验下一动作仍成立 |
 | T0-HARNESS-PERF | merged | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness/测试改动） |
 | T0-HARNESS-SUBTRACTION-PROTOCOL | merged | 为常驻 harness 文本增加量化、可回滚的减负协议 |
@@ -69,6 +71,12 @@
 | T2-PHOTO-STREAMING-ENCODE | merged | 照片流式编码：去掉整份 JPEG ByteArray 内存峰值（偿还 TD15） |
 | T2-PHRASELIB | merged | 双语短语库种子内容 + 查询接口 |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
+| T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |
+| T3-E2E-GATE-ISOLATION | merged | 将 Golden Evidence 拆入独立 e2eTest source set 并由 Gate 2 单独执行 |
+| T3-E2E-GATE-PORTABILITY | merged | 修复 verify Gradle wrapper 的 Windows/Linux 跨平台执行 |
+| T3-E2E-GOLDEN-FIXTURE | merged | 冻结 JVM Core E2E 的 canonical Golden Evidence Fixture |
+| T3-E2E-HASH | merged | Golden Evidence JVM 闭环与 DB/报告/独立重算三源 hash |
+| T3-E2E-TENANT-REDACTION | merged | Golden Evidence tenant report landlord/private sentinel 防泄露 |
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |

@@ -205,6 +205,11 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 `Fail` 文案解析 gate id，重复声明会点名 id 与全部位置；同时强制唯一 raw 插入锚、源码可解析、双面集合与词法 owner
 一致，并以 6 类删除变异防止守卫静默失效。TD146 已 paid。
 
+**TD9 mutation 预算已收敛**（2026-08-28，PR #187，master `86a895a9`）：skip 接线先 parse once 投影为紧凑
+identity inventory；91 个候选只执行 4 个能独立杀死 reason、gate、batch truncation 与 outcome overlap 的代表性变异，
+完整源码集合峰值 2、终态 1，并有稳定 ASCII 预算哨兵。TD9 保持 carded，下一站为 `T0-DEBT-SELFTEST-LOAD-STABILITY`，
+其合并后仍须重放一次 post-merge core，才可置 paid。
+
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
 2. `docs/LICENSE-POLICY.md` — 依赖许可硬规则

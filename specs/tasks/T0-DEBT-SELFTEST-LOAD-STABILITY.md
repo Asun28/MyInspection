@@ -38,4 +38,4 @@ run `31941736470` 在同一 SHA 上前两次仅 Ubuntu core 的 8.2e 假红、�
 
 ## 资源冲突
 
-本卡与尚未合并的 mutation-budget 前置卡共享 `scripts/selftest.ps1`；必须在其合并后的最新基线上串行执行并重放验收。
+mutation-budget 前置卡已合并；本卡必须从包含 PR #187（master `86a895a9`）的最新基线开工并重放验收。

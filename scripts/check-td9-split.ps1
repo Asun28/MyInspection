@@ -132,11 +132,11 @@ $boardRows = @(
   '| W0 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | 单分片与 all 汇总以稳定哨兵点名失败 shard/gate（TD9 1/5） | T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b8dee45`，PR #31；稳定 ASCII gate、协议 fail-closed、hermetic/mutation 覆盖、core/verify/R3 绿；TD9 仍 carded） |',
   '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `c745015`，PR #33；机器 skip 台账、汇总与 bounded helper，core/verify/R3 PASS；生产 no-git routing 与 mutation 预算按卡拆分） |',
   '| W0 | T0-DEBT-SELFTEST-NOGIT-ROUTING | 有界 fixture mode 证明生产 seeded git-present/absent routing 与 outcome ledger（TD9 3/5） | T0-DEBT-SELFTEST-SKIP-VISIBILITY | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `02425dd`，PR #110；完整 130-gate 身份、nonce 子进程与 route inversion mutation；DoD/verify 绿，两轮 R3 finding 修复后人裁；TD9 仍 carded） |',
-  '| W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING | M | GPT-5.6 Terra · high | Sonnet 5 max | R3 实测旧形态约 1.6 GB / 500+ CPU 秒；须有机器预算上界 |',
+  '| W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `86a895a9`，PR #187；91 个候选只执行 4 个代表性变异，峰值完整源码集合 2、终态 1；DoD/verify/R3 PASS；TD9 仍 carded） |',
   '| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 五卡全 merged + post-merge core 重放后才可 paid |'
 )
-$trackerChain = '`T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
-$trackerGuard = '两卡 merged 后再做一次 post-merge core 重放，才可把 TD9 置 paid'
+$trackerChain = '`T0-DEBT-SELFTEST-LOAD-STABILITY`'
+$trackerGuard = '该卡 merged 后再做一次 post-merge core 重放，才可把 TD9 置 paid'
 $planChain = '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
 $planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1。'
 
@@ -253,7 +253,7 @@ $cardContract = [ordered]@{
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-MUTATION-BUDGET'
       title = '将 skip mutation 证明收敛到紧凑身份清单'
-      status = 'todo'
+      status = 'merged'
       depends_on = '[T0-DEBT-SELFTEST-NOGIT-ROUTING]'
       branch = 'T0-DEBT-SELFTEST-MUTATION-BUDGET'
       worktree = 'C:\wt\T0-DEBT-SELFTEST-MUTATION-BUDGET'
@@ -301,7 +301,7 @@ $cardContract = [ordered]@{
       '- load-delay 控制组必须超过旧五秒阈值，并证明两个长分片确实重叠而非串行放宽断言。',
       '- timeout 负例必须快速、专属地失败，防无限等待或静默跳过。',
       '- 8.2e 原有五类证明继续各自可证伪，不再用一个合取式告警掩盖具体失败面。',
-      '本卡与尚未合并的 mutation-budget 前置卡共享 `scripts/selftest.ps1`；必须在其合并后的最新基线上串行执行并重放验收。'
+      'mutation-budget 前置卡已合并；本卡必须从包含 PR #187（master `86a895a9`）的最新基线开工并重放验收。'
     )
   }
 }
@@ -431,9 +431,9 @@ foreach ($sourceName in $cardContract.Keys) {
 $boardOrderMutant = Copy-Sources $sources
 $boardOrderMutant.Board = $boardOrderMutant.Board.Replace($boardRows[1], '__TD9_BOARD_SWAP__').Replace($boardRows[2], $boardRows[1]).Replace('__TD9_BOARD_SWAP__', $boardRows[2])
 Assert-MutantKilled 'reorder-board' $boardOrderMutant
-$trackerOrderMutant = Copy-Sources $sources
-$trackerOrderMutant.Tracker = $trackerOrderMutant.Tracker.Replace($trackerChain, '`T0-DEBT-SELFTEST-LOAD-STABILITY` → `T0-DEBT-SELFTEST-MUTATION-BUDGET`')
-Assert-MutantKilled 'reorder-tracker' $trackerOrderMutant
+$staleTrackerPointerMutant = Copy-Sources $sources
+$staleTrackerPointerMutant.Tracker = $staleTrackerPointerMutant.Tracker.Replace($trackerChain, '`T0-DEBT-SELFTEST-MUTATION-BUDGET`')
+Assert-MutantKilled 'stale-tracker-pointer' $staleTrackerPointerMutant
 
 $structuralWeakening = @(
   @{ Name = 'weaken-tracker-status'; Source = 'Tracker'; From = '| major | carded |'; To = '| major | paid |' },
