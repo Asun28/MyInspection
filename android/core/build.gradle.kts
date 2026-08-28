@@ -16,6 +16,7 @@ kotlin {
 sourceSets {
     test {
         resources.srcDir("../../data/templates")
+        resources.include("routine-v1.json", "phrases-v1.json")
     }
 }
 
@@ -25,7 +26,46 @@ val e2eTest = sourceSets.create("e2eTest") {
     compileClasspath += sourceSets.main.get().output
     runtimeClasspath += output + compileClasspath
     resources.srcDir("../../data/templates")
+    resources.include("e2e/**", "routine-v1.json")
 }
+
+// These tests read repository files directly instead of through their compiled runtime classpath. Keep the
+// inventory exact so unrelated repository edits do not invalidate :core:test.
+/*
+ * Verification receipt (2026-08-29; all temporary mutations restored):
+ * - Before this declaration, a compliance-config mutation stayed UP-TO-DATE (exit 0), while --rerun-tasks
+ *   exposed the expected-list failure (exit 1). Afterwards, the ordinary command exposed it (exit 1).
+ * - A same-line report-source mutation was restored FROM-CACHE after cleanTest (exit 0), but failed with
+ *   --no-build-cache and, after this declaration, also failed under the ordinary command (exit 1).
+ * - A listed app wiring-source mutation reran and failed; an unlisted source edit stayed UP-TO-DATE (exit 0).
+ * - Deleting the compliance input declaration made the stale green return; classifier GRADLE-INPUT-A2
+ *   rejected it (exit 1). Template mutation already reran processTestResources and failed (exit 1).
+ * - :core:check passed before and after; the hardened T3/T4 DoD commands both passed (exit 0).
+ */
+val repositoryRoot = layout.projectDirectory.dir("../..")
+val reportTestSources = fileTree("src/test/kotlin/nz/myinspection/core/report") {
+    include("*.kt")
+}
+val coreMediaWiringSources = fileTree("src/main/kotlin/nz/myinspection/core/media") {
+    include("PendingPhotoLease.kt", "NoFollowLeafDeletion.kt")
+}
+val appMediaWiringSources = fileTree("../app/src/main/kotlin/nz/myinspection/app/media") {
+    include(
+        "CameraPhotoIngestPipeline.kt",
+        "PhotoAssetCleanupExecutor.kt",
+        "PhotoDirectoryDurability.kt",
+        "PhotoImportPipeline.kt",
+        "PhotoIngestPendingLease.kt",
+        "PhotoJpegEncoder.kt",
+        "PhotoOrphanCleanupScheduler.kt",
+        "PhotoOrphanCleanupWorker.kt",
+        "PhotoRuntimeStorage.kt",
+    )
+}
+val otherAppWiringSources = files(
+    "../app/src/main/kotlin/nz/myinspection/app/MainActivity.kt",
+    "../app/src/main/kotlin/nz/myinspection/app/feature/settings/media/PhotoQualitySettings.kt",
+)
 
 configurations[e2eTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
 configurations[e2eTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
@@ -61,6 +101,10 @@ dependencies {
 
 tasks.test {
     useTestNG()
+    inputs.file(repositoryRoot.file("configs/compliance/nz-rules-v1.json"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(reportTestSources, coreMediaWiringSources, appMediaWiringSources, otherAppWiringSources)
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.register<Test>("e2eTest") {

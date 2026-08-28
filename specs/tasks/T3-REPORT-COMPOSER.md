@@ -44,7 +44,7 @@ acceptance:
   - "A17 尾页与页脚的固定文案槽（`dod_assert` 点名「页脚含 data_hash 与免责声明槽」，且 CLAUDE.md 硬边界写死「报告必带免责声明」）：每页 footer 的唯一 TextRun 文本精确等于「dataHash 前 12 字符」+ ` · ` + 页码 + `/` + 总页数——对 A1 的固定 fixture，首页那串以字面量 `ea9cd02e76bf · 1/` 开头，首末两页各断言一个**写死的完整字符串**（总页数取 A1 钉死的字面量 **6**，不从 plan 现算——现算会让分页缺陷同时改掉断言与被断言的值）；FooterBlock.pageNumber / totalPages 与之一致；尾页恰好含 1 个 DisclaimerBlock，其 textRuns 为 en/zh 成对且文本精确等于 REPORT_DISCLAIMER 的两支；带 supplement 的夹具尾页含与 report.supplements 等长的 SupplementBlock 序列、reference 序列精确相等；TENANT plan 尾页恰好含 1 个 TenantAgreementBlock（官方表的租客同意/签名空白栏），LANDLORD 侧恰好 0 个。删掉 disclaimerBlock() 调用一句后本条必红——A1 的黄金序列只钉「当前实现输出了什么」，若免责声明从未实现它照样全绿，证明不了尾页**必须**有"
   - "A18 摘要页回链：adverseItems 的每一项在 SummaryItemBlock 里恰好出现一次，(roomId · itemId · status) 序列精确等于按房间序/项序展开的期望列表，且每个 SummaryItemBlock.itemId 都能在同一 plan 内找到同 id 的 ItemRowBlock"
   - "A19 变异证明：A1–A18 中**每条有可执行守卫的条目**各配一枚最小变异（生产代码的单句删除/反转；A16 的守卫只能由『在某个测试源里插入一处 `ReportComposer.` 引用』杀死，允许以插入型变异计），跑一遍并把「变异 → 哪一条断言变红 → 失败文本」的对照表落进 **diff 本身**——写进被改测试类的 KDoc 或同包一份新的证据注释块，**不要只写 PR body**：`review.ps1` 只把 git diff 喂给评审者，PR 描述从不进入其上下文（L227），只写 PR body 等同没写。任一条守卫找不到能杀死它的变异，即视为该条未完成。判据按 L165 的分类器：**非零退出且命中指定断言文本**才算击杀，仅凭非零不算。"
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
 dod_assert: 黄金布局树测试绿（固定巡检 fixture → 固定 DocumentPlan：页数/块序列/图槽位）；80 照 fixture 分页无溢出/无孤行；房东版含建议插槽+紧急度、房客版仅客观节；双语行配对（en 行+zh 行成对不拆页）；页脚含 data_hash 与免责声明槽
 review_gate: codex {verdict:pass}
