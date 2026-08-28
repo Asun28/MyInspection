@@ -4205,7 +4205,6 @@ try {
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
-    $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = [string]$rendezvousHarnessBudgetSeconds82
     $loadController82 = & $startRendezvousController82 'load' $rendezvousLoadDelayMilliseconds82 $rendezvousSetupDelayMilliseconds82
     $probeLoadDelayOutput = & { $script:probeLoadDelay = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
     $loadControllerResult82 = & $completeRendezvousController82 $loadController82
@@ -4222,7 +4221,25 @@ try {
       Fail '8.2e：all 聚合器未在超过旧五秒窗口的真实长分片启动延迟下保持并发并通过。'
     }
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
-    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
+
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    $defaultBudgetTarget82 = '$readyTimeoutSeconds = 30'
+    if ([regex]::Matches($aggregateStubSource, [regex]::Escape($defaultBudgetTarget82)).Count -ne 1) {
+      Fail '[SELFTEST-8.2E-DEFAULT-BUDGET-MUTATION] default timeout target is not unique.'
+    }
+    $legacyDefaultMutant82 = $aggregateStubSource.Replace($defaultBudgetTarget82, '$readyTimeoutSeconds = 5')
+    $legacyDefaultMutant82 | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
+    $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
+    $legacyDefaultController82 = & $startRendezvousController82 'load' $rendezvousLoadDelayMilliseconds82 0
+    $legacyDefaultOutput82 = & { $script:legacyDefaultExit82 = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
+    $legacyDefaultControllerResult82 = & $completeRendezvousController82 $legacyDefaultController82
+    if ($legacyDefaultExit82 -ne 1 -or
+        $legacyDefaultOutput82 -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=5 waiting-for=workflow\.ready' -or
+        -not $legacyDefaultControllerResult82.Completed -or $legacyDefaultControllerResult82.ExitCode -ne 0) {
+      Fail '[SELFTEST-8.2E-DEFAULT-BUDGET-MUTATION] reverting the default rendezvous budget to five seconds survived.'
+    }
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
+    $aggregateStubSource | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
