@@ -3919,10 +3919,22 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $oldFailShard = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_FAIL_SHARD', 'Process')
   $oldGateSpec = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_GATE_SPEC', 'Process')
   $oldLogRoot = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_LOG_ROOT', 'Process')
+  $oldStartDelayShard = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD', 'Process')
+  $oldStartDelayMilliseconds = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS', 'Process')
+  $oldReadyTimeoutSeconds = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS', 'Process')
   try {
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD -ErrorAction SilentlyContinue
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS -ErrorAction SilentlyContinue
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force (Join-Path $aggFixture 'scripts'), $aggLogs | Out-Null
-    @'
+    $aggregateStubSource = @'
 param([string]$Shard = 'all', [switch]$StrictLint)
+$startDelayMilliseconds = 0
+if ($env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD -eq $Shard) {
+  if (-not [int]::TryParse($env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS, [ref]$startDelayMilliseconds) -or
+      $startDelayMilliseconds -lt 0 -or $startDelayMilliseconds -gt 10000) { exit 32 }
+  if ($startDelayMilliseconds -gt 0) { Start-Sleep -Milliseconds $startDelayMilliseconds }
+}
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $overlayOk = (Test-Path (Join-Path $root 'renamed.txt')) -and
   (-not (Test-Path (Join-Path $root 'old.txt'))) -and
@@ -3933,15 +3945,31 @@ $strictBound = $PSBoundParameters.ContainsKey('StrictLint')
 if (-not $overlayOk) { exit 23 }
 $readyRoot = Join-Path $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT 'ready'
 New-Item -ItemType Directory -Force $readyRoot | Out-Null
+$readyTimeoutSeconds = 30
+$readyTimeoutText = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS', 'Process')
+if ($null -ne $readyTimeoutText -and
+    (-not [int]::TryParse($readyTimeoutText, [ref]$readyTimeoutSeconds) -or
+     $readyTimeoutSeconds -lt 1 -or $readyTimeoutSeconds -gt 120)) {
+  Write-Output "[SELFTEST-8.2E-RENDEZVOUS] shard=$Shard state=invalid-timeout"
+  exit 33
+}
 if ($Shard -eq 'core' -and
     (-not (Test-Path (Join-Path $readyRoot 'seeded.ready')) -or
      -not (Test-Path (Join-Path $readyRoot 'workflow.ready')))) { exit 31 }
 [DateTime]::UtcNow.Ticks | Set-Content (Join-Path $readyRoot "$Shard.ready")
-$deadline = [DateTime]::UtcNow.AddSeconds(5)
+$deadline = [DateTime]::UtcNow.AddSeconds($readyTimeoutSeconds)
 while ($Shard -ne 'core' -and
        (-not (Test-Path (Join-Path $readyRoot 'seeded.ready')) -or
         -not (Test-Path (Join-Path $readyRoot 'workflow.ready')))) {
-  if ([DateTime]::UtcNow -ge $deadline) { exit 29 }
+  if ([DateTime]::UtcNow -ge $deadline) {
+    $waitingFor = @('seeded', 'workflow') |
+      Where-Object { -not (Test-Path (Join-Path $readyRoot "$_.ready")) } |
+      ForEach-Object { "$_.ready" }
+    if ($waitingFor.Count -eq 0) { continue }
+    [DateTime]::UtcNow.Ticks | Set-Content (Join-Path $readyRoot "$Shard.timeout")
+    Write-Output "[SELFTEST-8.2E-RENDEZVOUS] shard=$Shard state=timeout timeout-seconds=$readyTimeoutSeconds waiting-for=$($waitingFor -join ',')"
+    exit 29
+  }
   Start-Sleep -Milliseconds 20
 }
 if ($env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -eq $Shard) {
@@ -3952,8 +3980,10 @@ if ($env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -eq $Shard) {
   }
   exit 17
 }
+[DateTime]::UtcNow.Ticks | Set-Content (Join-Path $readyRoot "$Shard.done")
 exit 0
-'@ | Set-Content (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
+'@
+    $aggregateStubSource | Set-Content (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
     'old' | Set-Content (Join-Path $aggFixture 'old.txt')
     'delete' | Set-Content (Join-Path $aggFixture 'deleted.txt')
     & git -C $aggFixture init -q; if ($LASTEXITCODE -ne 0) { throw 'aggregate fixture git init failed' }
@@ -4035,6 +4065,78 @@ exit 0
     }
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    $env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD = 'workflow'
+    $env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS = '6000'
+    $loadDelayClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $probeLoadDelayOutput = & { $script:probeLoadDelay = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 7 } 6>&1 | Out-String
+    $loadDelayClock.Stop()
+    $loadReadyTicks = @(@('seeded', 'workflow') | ForEach-Object { [long](Get-Content (Join-Path $aggLogs "ready/$_.ready") -Raw) })
+    $loadDonePaths = @(@('seeded', 'workflow') | ForEach-Object { Join-Path $aggLogs "ready/$_.done" })
+    $loadDoneTicks = @($loadDonePaths | ForEach-Object { if (Test-Path -LiteralPath $_) { [long](Get-Content -LiteralPath $_ -Raw) } else { 0L } })
+    $loadReadySkewMs = [TimeSpan]::FromTicks($loadReadyTicks[1] - $loadReadyTicks[0]).TotalMilliseconds
+    $longShardsOverlapped = @($loadDonePaths | Where-Object { Test-Path -LiteralPath $_ }).Count -eq 2 -and
+      $loadDoneTicks[0] -ge $loadReadyTicks[1] -and $loadDoneTicks[1] -ge $loadReadyTicks[0]
+    if ($probeLoadDelay -ne 0 -or $probeLoadDelayOutput -notmatch 'selftest\(all\): PASS' -or
+        $loadReadySkewMs -lt 5500 -or $loadDelayClock.ElapsedMilliseconds -lt 6000 -or -not $longShardsOverlapped) {
+      Fail '8.2e：all 聚合器未在超过旧五秒窗口的真实长分片启动延迟下保持并发并通过。'
+    }
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD -ErrorAction SilentlyContinue
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS -ErrorAction SilentlyContinue
+
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    $env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD = 'workflow'
+    $env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS = '3000'
+    $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = '1'
+    $probeTimeoutOutput = & { $script:probeTimeout = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 4 } 6>&1 | Out-String
+    $timeoutTickPaths = @('ready/seeded.ready', 'ready/seeded.timeout', 'ready/workflow.ready') | ForEach-Object { Join-Path $aggLogs $_ }
+    $timeoutTickValues = @($timeoutTickPaths | ForEach-Object { if (Test-Path -LiteralPath $_) { [long](Get-Content -LiteralPath $_ -Raw) } else { 0L } })
+    $timeoutReadyTick, $timeoutFiredTick, $delayedWorkflowReadyTick = $timeoutTickValues
+    $timeoutElapsedMs = [TimeSpan]::FromTicks($timeoutFiredTick - $timeoutReadyTick).TotalMilliseconds
+    if ($probeTimeout -ne 1 -or
+        $probeTimeoutOutput -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=1 waiting-for=workflow\.ready' -or
+        $probeTimeoutOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=seeded failed-gates=seeded/UNKNOWN\(exit=29\)' -or
+        @($timeoutTickPaths | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 3 -or
+        $timeoutElapsedMs -lt 900 -or $timeoutElapsedMs -gt 2500 -or $timeoutFiredTick -ge $delayedWorkflowReadyTick) {
+      Fail '8.2e：all 聚合器 stub 的短 rendezvous 预算未以专属诊断快速 fail-closed。'
+    }
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD -ErrorAction SilentlyContinue
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS -ErrorAction SilentlyContinue
+
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
+    $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = '121'
+    $probeUnboundedOutput = & { $script:probeUnbounded = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 1 } 6>&1 | Out-String
+    if ($probeUnbounded -ne 1 -or
+        $probeUnboundedOutput -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=(seeded|workflow) state=invalid-timeout') {
+      Fail '8.2e：all 聚合器 stub 未拒绝超过上限的 rendezvous 预算。'
+    }
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
+
+    $rendezvousContracts82 = [ordered]@{
+      'TIMEOUT-BOUND' = ('$readyTimeoutSeconds -lt 1 -or $readyTimeoutSeconds -gt ' + '120')
+      'READY-CONDITION' = (@(
+        "while (`$Shard -ne 'core' -and"
+        "       (-not (Test-Path (Join-Path `$readyRoot 'seeded.ready')) -or"
+        "        -not (Test-Path (Join-Path `$readyRoot 'workflow.ready')))) {"
+      ) -join "`n")
+      'OVERLAP-ASSERTION' = ('$loadReadySkewMs -lt 5500 -or $loadDelayClock.ElapsedMilliseconds -lt 6000 -or -not ' + '$longShardsOverlapped')
+    }
+    $normalizedSelftestSource82 = ([System.IO.File]::ReadAllText($PSCommandPath)) -replace "`r`n", "`n"
+    $rendezvousContractFailures82 = {
+      param([string]$Source)
+      @($rendezvousContracts82.GetEnumerator() | Where-Object {
+        [regex]::Matches($Source, [regex]::Escape([string]$_.Value)).Count -ne 1
+      } | ForEach-Object { [string]$_.Key })
+    }
+    $liveRendezvousFailures82 = @(& $rendezvousContractFailures82 $normalizedSelftestSource82)
+    $survivingRendezvousMutations82 = @($rendezvousContracts82.GetEnumerator() | Where-Object {
+      $mutant = $normalizedSelftestSource82.Replace([string]$_.Value, '')
+      (@(& $rendezvousContractFailures82 $mutant) -join ',') -cne [string]$_.Key
+    } | ForEach-Object { [string]$_.Key })
+    if ($liveRendezvousFailures82.Count -ne 0 -or $survivingRendezvousMutations82.Count -ne 0) {
+      Fail "8.2e：rendezvous timeout/readiness/overlap mutation contract failed: live=$($liveRendezvousFailures82 -join ',') survivors=$($survivingRendezvousMutations82 -join ',')"
+    }
+
+    Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -CoreDelaySeconds 1 -Quiet
     $probeFalseLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
     if ($probeFalse -ne 0 -or @($probeFalseLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|False\|True$' }).Count -gt 0) {
@@ -4055,6 +4157,9 @@ exit 0
     if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
     if ($null -eq $oldGateSpec) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = $oldGateSpec }
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
+    if ($null -eq $oldStartDelayShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_START_DELAY_SHARD = $oldStartDelayShard }
+    if ($null -eq $oldStartDelayMilliseconds) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_START_DELAY_MILLISECONDS = $oldStartDelayMilliseconds }
+    if ($null -eq $oldReadyTimeoutSeconds) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = $oldReadyTimeoutSeconds }
     Remove-Item -LiteralPath $aggFixture, $aggLogs, $aggOrigin -Recurse -Force -ErrorAction SilentlyContinue
   }
   if (-not $fail) { Write-Host '  8.2e 10 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
