@@ -3921,9 +3921,24 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $oldLogRoot = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_LOG_ROOT', 'Process')
   $oldReadyTimeoutSeconds = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS', 'Process')
   $oldReleaseShards = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS', 'Process')
+  $oldHarnessTimeoutSeconds = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS', 'Process')
+  $rendezvousHarnessBudgetSeconds82 = 30
+  if ($rendezvousHarnessBudgetSeconds82 -lt 1 -or $rendezvousHarnessBudgetSeconds82 -gt 120) {
+    throw '[SELFTEST-8.2E-HARNESS-BUDGET] expected 1..120 seconds'
+  }
+  $rendezvousHarnessBudgetMilliseconds82 = $rendezvousHarnessBudgetSeconds82 * 1000
+  $rendezvousLegacyWindowMilliseconds82 = 5000
+  $rendezvousLoadDelayMilliseconds82 = $rendezvousLegacyWindowMilliseconds82 + 1000
+  $rendezvousSetupDelayMilliseconds82 = $rendezvousLegacyWindowMilliseconds82 + 1000
+  if ($rendezvousLoadDelayMilliseconds82 -ge $rendezvousHarnessBudgetMilliseconds82 -or
+      $rendezvousSetupDelayMilliseconds82 -ge $rendezvousHarnessBudgetMilliseconds82) {
+    throw '[SELFTEST-8.2E-HARNESS-BUDGET] delay stimuli must fit inside the harness budget'
+  }
+  $aggregateHarnessProcesses82 = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
   try {
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force (Join-Path $aggFixture 'scripts'), $aggLogs | Out-Null
     $aggregateStubSource = @'
 param([string]$Shard = 'all', [switch]$StrictLint)
@@ -3937,13 +3952,21 @@ $strictBound = $PSBoundParameters.ContainsKey('StrictLint')
 if (-not $overlayOk) { exit 23 }
 $readyRoot = Join-Path $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT 'ready'
 New-Item -ItemType Directory -Force $readyRoot | Out-Null
+$harnessTimeoutSeconds = 30
+$harnessTimeoutText = [Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS', 'Process')
+if ($null -ne $harnessTimeoutText -and
+    (-not [int]::TryParse($harnessTimeoutText, [ref]$harnessTimeoutSeconds) -or
+     $harnessTimeoutSeconds -lt 1 -or $harnessTimeoutSeconds -gt 120)) {
+  Write-Output "[SELFTEST-8.2E-RENDEZVOUS] shard=$Shard state=invalid-harness-timeout"
+  exit 35
+}
 $releaseShards = @(([Environment]::GetEnvironmentVariable('SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS', 'Process') -split ',') |
   ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($releaseShards -contains $Shard) {
   'blocked' | Set-Content (Join-Path $readyRoot "$Shard.blocked")
   $releaseWatchdog = [System.Diagnostics.Stopwatch]::StartNew()
   while (-not (Test-Path -LiteralPath (Join-Path $readyRoot "$Shard.release"))) {
-    if ($releaseWatchdog.Elapsed.TotalSeconds -ge 20) {
+    if ($releaseWatchdog.Elapsed.TotalSeconds -ge $harnessTimeoutSeconds) {
       Write-Output "[SELFTEST-8.2E-RENDEZVOUS] shard=$Shard state=barrier-watchdog"
       exit 34
     }
@@ -3995,13 +4018,16 @@ param(
   [ValidateSet('load', 'timeout')][string]$Mode,
   [string]$ReadyRoot,
   [int]$DelayMilliseconds = 0,
-  [int]$WatchdogMilliseconds = 15000
+  [int]$SetupDelayMilliseconds = 0,
+  [ValidateRange(1000, 120000)][int]$HarnessBudgetMilliseconds
 )
+$setupDelayClock = [System.Diagnostics.Stopwatch]::StartNew()
+while ($setupDelayClock.ElapsedMilliseconds -lt $SetupDelayMilliseconds) { Start-Sleep -Milliseconds 20 }
 $watchdog = [System.Diagnostics.Stopwatch]::StartNew()
 function Wait-RendezvousMarker([string]$Name) {
   $path = Join-Path $ReadyRoot $Name
   while (-not (Test-Path -LiteralPath $path)) {
-    if ($watchdog.ElapsedMilliseconds -ge $WatchdogMilliseconds) {
+    if ($watchdog.ElapsedMilliseconds -ge $HarnessBudgetMilliseconds) {
       throw "watchdog waiting for $Name"
     }
     Start-Sleep -Milliseconds 20
@@ -4016,47 +4042,76 @@ try {
   if ($Mode -eq 'load') {
     $delayClock = [System.Diagnostics.Stopwatch]::StartNew()
     while ($delayClock.ElapsedMilliseconds -lt $DelayMilliseconds) { Start-Sleep -Milliseconds 20 }
-    "delay-ms=$($delayClock.ElapsedMilliseconds);seeded-running=True" | Set-Content (Join-Path $ReadyRoot 'load.observed')
+    "setup-delay-ms=$($setupDelayClock.ElapsedMilliseconds);delay-ms=$($delayClock.ElapsedMilliseconds);seeded-running=True" | Set-Content (Join-Path $ReadyRoot 'load.observed')
   } else {
     Wait-RendezvousMarker 'seeded.timeout'
-    'seeded-timeout=True' | Set-Content (Join-Path $ReadyRoot 'timeout.observed')
+    "setup-delay-ms=$($setupDelayClock.ElapsedMilliseconds);seeded-timeout=True" | Set-Content (Join-Path $ReadyRoot 'timeout.observed')
   }
   'release' | Set-Content (Join-Path $ReadyRoot 'workflow.release')
   Wait-RendezvousMarker 'workflow.ready'
   'release' | Set-Content (Join-Path $ReadyRoot 'core.release')
   exit 0
 } catch {
-    New-Item -ItemType Directory -Force $ReadyRoot | Out-Null
-    $_.Exception.Message | Set-Content (Join-Path $ReadyRoot "$Mode.watchdog")
-  'release' | Set-Content (Join-Path $ReadyRoot 'workflow.release')
-  'release' | Set-Content (Join-Path $ReadyRoot 'core.release')
+  if (Test-Path -LiteralPath $ReadyRoot -PathType Container) {
+    $_.Exception.Message | Set-Content (Join-Path $ReadyRoot "$Mode.watchdog") -ErrorAction SilentlyContinue
+    'release' | Set-Content (Join-Path $ReadyRoot 'workflow.release') -ErrorAction SilentlyContinue
+    'release' | Set-Content (Join-Path $ReadyRoot 'core.release') -ErrorAction SilentlyContinue
+  }
   exit 41
 }
 '@ | Set-Content -LiteralPath $rendezvousControllerPath82 -Encoding utf8
+    $disposeAggregateHarnessProcess82 = {
+      param([System.Diagnostics.Process]$Process)
+      if ($null -eq $Process) { return }
+      try {
+        $hasExited = $true
+        try { $hasExited = $Process.HasExited } catch { }
+        if (-not $hasExited) {
+          try { $Process.Kill($true) } catch { }
+          try { $Process.WaitForExit() } catch { }
+        }
+      } finally {
+        [void]$aggregateHarnessProcesses82.Remove($Process)
+        $Process.Dispose()
+      }
+    }
     $startRendezvousController82 = {
-      param([string]$Mode, [int]$DelayMilliseconds, [int]$WatchdogMilliseconds)
+      param([string]$Mode, [int]$DelayMilliseconds, [int]$SetupDelayMilliseconds)
       $psi = [System.Diagnostics.ProcessStartInfo]::new()
       $psi.FileName = (Get-Command pwsh -ErrorAction Stop).Source
       $psi.UseShellExecute = $false
       $psi.RedirectStandardOutput = $true
       $psi.RedirectStandardError = $true
-      foreach ($argument in @('-NoProfile', '-File', $rendezvousControllerPath82, '-Mode', $Mode, '-ReadyRoot', (Join-Path $aggLogs 'ready'), '-DelayMilliseconds', [string]$DelayMilliseconds, '-WatchdogMilliseconds', [string]$WatchdogMilliseconds)) {
+      foreach ($argument in @('-NoProfile', '-File', $rendezvousControllerPath82, '-Mode', $Mode, '-ReadyRoot', (Join-Path $aggLogs 'ready'), '-DelayMilliseconds', [string]$DelayMilliseconds, '-SetupDelayMilliseconds', [string]$SetupDelayMilliseconds, '-HarnessBudgetMilliseconds', [string]$rendezvousHarnessBudgetMilliseconds82)) {
         [void]$psi.ArgumentList.Add($argument)
       }
       $process = [System.Diagnostics.Process]::new()
       $process.StartInfo = $psi
       if (-not $process.Start()) { throw "rendezvous controller failed to start: $Mode" }
+      [void]$aggregateHarnessProcesses82.Add($process)
       return $process
     }
     $completeRendezvousController82 = {
-      param([System.Diagnostics.Process]$Process, [int]$OuterTimeoutMilliseconds)
-      $completed = $Process.WaitForExit($OuterTimeoutMilliseconds)
-      if (-not $completed) { try { $Process.Kill($true) } catch { } }
-      $stdout = $Process.StandardOutput.ReadToEnd()
-      $stderr = $Process.StandardError.ReadToEnd()
-      $exitCode = if ($completed) { $Process.ExitCode } else { -1 }
-      $Process.Dispose()
-      return [PSCustomObject]@{ Completed = $completed; ExitCode = $exitCode; Output = "$stdout$stderr" }
+      param([System.Diagnostics.Process]$Process)
+      try {
+        $completed = $Process.WaitForExit($rendezvousHarnessBudgetMilliseconds82)
+        if (-not $completed) {
+          try { $Process.Kill($true) } catch { }
+          try { $Process.WaitForExit() } catch { }
+        }
+        $stdout = $Process.StandardOutput.ReadToEnd()
+        $stderr = $Process.StandardError.ReadToEnd()
+        $exitCode = if ($completed) { $Process.ExitCode } else { -1 }
+        return [PSCustomObject]@{ Completed = $completed; ExitCode = $exitCode; Output = "$stdout$stderr" }
+      } finally {
+        & $disposeAggregateHarnessProcess82 $Process
+      }
+    }
+    $lifecycleController82 = & $startRendezvousController82 'timeout' 0 0
+    $lifecycleControllerId82 = $lifecycleController82.Id
+    & $disposeAggregateHarnessProcess82 $lifecycleController82
+    if (Get-Process -Id $lifecycleControllerId82 -ErrorAction SilentlyContinue) {
+      Fail '[SELFTEST-8.2E-PROCESS-LIFECYCLE] controller remained alive after deterministic disposal.'
     }
     'old' | Set-Content (Join-Path $aggFixture 'old.txt')
     'delete' | Set-Content (Join-Path $aggFixture 'deleted.txt')
@@ -4104,6 +4159,7 @@ try {
     Remove-Item -LiteralPath $td156Snapshot -Recurse -Force -ErrorAction Stop
 
     $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $aggLogs
+    $env:SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS = [string]$rendezvousHarnessBudgetSeconds82
     $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = 'workflow'
     $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = '8.2e,17aa(8)'
     $probeFailOutput = & { $script:probeFail = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $true -CoreDelaySeconds 1 } 6>&1 | Out-String
@@ -4149,37 +4205,42 @@ try {
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
-    $loadController82 = & $startRendezvousController82 'load' 6000 15000
+    $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = [string]$rendezvousHarnessBudgetSeconds82
+    $loadController82 = & $startRendezvousController82 'load' $rendezvousLoadDelayMilliseconds82 $rendezvousSetupDelayMilliseconds82
     $probeLoadDelayOutput = & { $script:probeLoadDelay = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
-    $loadControllerResult82 = & $completeRendezvousController82 $loadController82 30000
+    $loadControllerResult82 = & $completeRendezvousController82 $loadController82
     $loadObservedPath82 = Join-Path $aggLogs 'ready/load.observed'
     $loadObserved82 = if (Test-Path -LiteralPath $loadObservedPath82) { Get-Content -LiteralPath $loadObservedPath82 -Raw } else { '' }
     $loadRequiredMarkers82 = @('workflow.blocked', 'seeded.ready', 'workflow.ready', 'core.blocked', 'core.ready', 'seeded.done', 'workflow.done') |
       ForEach-Object { Join-Path $aggLogs "ready/$_" }
     if ($probeLoadDelay -ne 0 -or $probeLoadDelayOutput -notmatch 'selftest\(all\): PASS' -or
         -not $loadControllerResult82.Completed -or $loadControllerResult82.ExitCode -ne 0 -or
-        $loadObserved82 -notmatch '^delay-ms=(?<elapsed>\d+);seeded-running=True\s*$' -or
-        [int]$Matches.elapsed -lt 6000 -or
+        $loadObserved82 -notmatch '^setup-delay-ms=(?<setup>\d+);delay-ms=(?<delay>\d+);seeded-running=True\s*$' -or
+        [int]$Matches.setup -lt $rendezvousSetupDelayMilliseconds82 -or [int]$Matches.delay -lt $rendezvousLoadDelayMilliseconds82 -or
         @($loadRequiredMarkers82 | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -ne 0 -or
         (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/load.watchdog'))) {
       Fail '8.2e：all 聚合器未在超过旧五秒窗口的真实长分片启动延迟下保持并发并通过。'
     }
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
+    Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
     $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = '1'
-    $timeoutController82 = & $startRendezvousController82 'timeout' 0 10000
+    $timeoutController82 = & $startRendezvousController82 'timeout' 0 $rendezvousSetupDelayMilliseconds82
     $probeTimeoutOutput = & { $script:probeTimeout = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
-    $timeoutControllerResult82 = & $completeRendezvousController82 $timeoutController82 15000
+    $timeoutControllerResult82 = & $completeRendezvousController82 $timeoutController82
     $timeoutElapsedPath82 = Join-Path $aggLogs 'ready/seeded.timeout'
     $timeoutElapsedMs = if (Test-Path -LiteralPath $timeoutElapsedPath82) { [long](Get-Content -LiteralPath $timeoutElapsedPath82 -Raw) } else { -1L }
+    $timeoutObservedPath82 = Join-Path $aggLogs 'ready/timeout.observed'
+    $timeoutObserved82 = if (Test-Path -LiteralPath $timeoutObservedPath82) { Get-Content -LiteralPath $timeoutObservedPath82 -Raw } else { '' }
     if ($probeTimeout -ne 1 -or
         $probeTimeoutOutput -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=1 waiting-for=workflow\.ready' -or
         $probeTimeoutOutput -notmatch '\[SELFTEST-ALL-FAIL\] shards=seeded failed-gates=seeded/UNKNOWN\(exit=29\)' -or
         -not $timeoutControllerResult82.Completed -or $timeoutControllerResult82.ExitCode -ne 0 -or
-        -not (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/timeout.observed')) -or
-        $timeoutElapsedMs -lt 900 -or $timeoutElapsedMs -gt 2500 -or
+        $timeoutObserved82 -notmatch '^setup-delay-ms=(?<setup>\d+);seeded-timeout=True\s*$' -or
+        [int]$Matches.setup -lt $rendezvousSetupDelayMilliseconds82 -or
+        $timeoutElapsedMs -lt 900 -or $timeoutElapsedMs -gt $rendezvousHarnessBudgetMilliseconds82 -or
         (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/timeout.watchdog'))) {
       Fail '8.2e：all 聚合器 stub 的短 rendezvous 预算未以专属诊断快速 fail-closed。'
     }
@@ -4209,25 +4270,35 @@ try {
       $psi.Environment['SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS'] = '1'
       [void]$psi.Environment.Remove('SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS')
       $process = [System.Diagnostics.Process]::new()
-      $process.StartInfo = $psi
-      if (-not $process.Start()) { throw "timeout mutation probe failed to start: $Id" }
-      $completed = $process.WaitForExit(4000)
-      if (-not $completed) { try { $process.Kill($true) } catch { } }
-      $stdout = $process.StandardOutput.ReadToEnd()
-      $stderr = $process.StandardError.ReadToEnd()
-      $exitCode = if ($completed) { $process.ExitCode } else { -1 }
-      $process.Dispose()
-      return [PSCustomObject]@{ Completed = $completed; ExitCode = $exitCode; Output = "$stdout$stderr" }
+      try {
+        $process.StartInfo = $psi
+        if (-not $process.Start()) { throw "timeout mutation probe failed to start: $Id" }
+        [void]$aggregateHarnessProcesses82.Add($process)
+        $completed = $process.WaitForExit($rendezvousHarnessBudgetMilliseconds82)
+        if (-not $completed) {
+          try { $process.Kill($true) } catch { }
+          try { $process.WaitForExit() } catch { }
+        }
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $exitCode = if ($completed) { $process.ExitCode } else { -1 }
+        $elapsedPath = Join-Path $probeLogRoot 'ready/seeded.timeout'
+        $elapsedMilliseconds = if (Test-Path -LiteralPath $elapsedPath) { [long](Get-Content -LiteralPath $elapsedPath -Raw) } else { -1L }
+        return [PSCustomObject]@{ Completed = $completed; ExitCode = $exitCode; Output = "$stdout$stderr"; ElapsedMilliseconds = $elapsedMilliseconds }
+      } finally {
+        & $disposeAggregateHarnessProcess82 $process
+      }
     }
     $timeoutBehaviorMutations82 = [ordered]@{
-      'DEADLINE-START' = @('$readyClock = [System.Diagnostics.Stopwatch]::StartNew()', '$readyClock = [System.Diagnostics.Stopwatch]::new()')
-      'DEADLINE-COMPARISON' = @('if ($readyClock.Elapsed.TotalSeconds -ge $readyTimeoutSeconds) {', 'if ($false) {')
+      'DEADLINE-START' = @('$readyClock = [System.Diagnostics.Stopwatch]::StartNew()', '')
+      'DEADLINE-COMPARISON' = @('if ($readyClock.Elapsed.TotalSeconds -ge $readyTimeoutSeconds) {', 'if ($true) {')
       'READY-WAIT' = @("while (`$Shard -ne 'core' -and", 'while ($false -and')
       'TIMEOUT-DIAGNOSTIC' = @('Write-Output "[SELFTEST-8.2E-RENDEZVOUS] shard=$Shard state=timeout timeout-seconds=$readyTimeoutSeconds waiting-for=$($waitingFor -join '','')"', 'Write-Output "timeout"')
       'TIMEOUT-EXIT' = @('exit 29', 'exit 0')
     }
     $baselineTimeoutProbe82 = & $invokeTimeoutProbe82 $aggregateStubSource 'baseline'
     if (-not $baselineTimeoutProbe82.Completed -or $baselineTimeoutProbe82.ExitCode -ne 29 -or
+        $baselineTimeoutProbe82.ElapsedMilliseconds -lt 900 -or $baselineTimeoutProbe82.ElapsedMilliseconds -gt $rendezvousHarnessBudgetMilliseconds82 -or
         $baselineTimeoutProbe82.Output -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=1 waiting-for=workflow\.ready') {
       Fail '[SELFTEST-8.2E-TIMEOUT-BASELINE] bounded timeout control did not emit the dedicated nonzero rendezvous diagnostic.'
     }
@@ -4236,6 +4307,7 @@ try {
       if ([regex]::Matches($aggregateStubSource, [regex]::Escape($target)).Count -ne 1) { return $true }
       $probe = & $invokeTimeoutProbe82 ($aggregateStubSource.Replace($target, $replacement)) ([string]$_.Key)
       $probe.Completed -and $probe.ExitCode -eq 29 -and
+        $probe.ElapsedMilliseconds -ge 900 -and $probe.ElapsedMilliseconds -le $rendezvousHarnessBudgetMilliseconds82 -and
         $probe.Output -match '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=1 waiting-for=workflow\.ready'
     } | ForEach-Object { [string]$_.Key })
     $aggregateStubSource | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
@@ -4244,6 +4316,12 @@ try {
     }
 
     $rendezvousContracts82 = [ordered]@{
+      'HARNESS-BUDGET' = (@(
+        '$rendezvousHarnessBudgetSeconds82 = 30'
+        '  if ($rendezvousHarnessBudgetSeconds82 -lt 1 -or $rendezvousHarnessBudgetSeconds82 -gt 120) {'
+        "    throw '[SELFTEST-8.2E-HARNESS-BUDGET] expected 1..120 seconds'"
+        '  }'
+      ) -join "`n")
       'TIMEOUT-CONFIG-BOUND' = ('$readyTimeoutSeconds -lt 1 -or $readyTimeoutSeconds -gt ' + '120')
       'READY-CONDITION' = (@(
         "while (`$Shard -ne 'core' -and"
@@ -4253,12 +4331,20 @@ try {
       'LOAD-MARKER-ASSERTION' = (@(
         'if ($probeLoadDelay -ne 0 -or $probeLoadDelayOutput -notmatch ''selftest\(all\): PASS'' -or'
         '        -not $loadControllerResult82.Completed -or $loadControllerResult82.ExitCode -ne 0 -or'
-        '        $loadObserved82 -notmatch ''^delay-ms=(?<elapsed>\d+);seeded-running=True\s*$'' -or'
-        '        [int]$Matches.elapsed -lt 6000 -or'
+        '        $loadObserved82 -notmatch ''^setup-delay-ms=(?<setup>\d+);delay-ms=(?<delay>\d+);seeded-running=True\s*$'' -or'
+        '        [int]$Matches.setup -lt $rendezvousSetupDelayMilliseconds82 -or [int]$Matches.delay -lt $rendezvousLoadDelayMilliseconds82 -or'
         '        @($loadRequiredMarkers82 | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -ne 0 -or'
         '        (Test-Path -LiteralPath (Join-Path $aggLogs ''ready/load.watchdog''))) {'
         "      Fail '8.2e：all 聚合器未在超过旧五秒窗口的真实长分片启动延迟下保持并发并通过。'"
         '    }'
+      ) -join "`n")
+      'PROCESS-FINALLY' = ('foreach ($process in @($aggregateHarnessProcesses82)) { & $disposeAggregateHarness' + 'Process82 $process }')
+      'CONTROLLER-NO-RECREATE' = (@(
+        'if (Test-Path -LiteralPath $ReadyRoot -PathType Container) {'
+        '    $_.Exception.Message | Set-Content (Join-Path $ReadyRoot "$Mode.watchdog") -ErrorAction SilentlyContinue'
+        '    ''release'' | Set-Content (Join-Path $ReadyRoot ''workflow.release'') -ErrorAction SilentlyContinue'
+        '    ''release'' | Set-Content (Join-Path $ReadyRoot ''core.release'') -ErrorAction SilentlyContinue'
+        '  }'
       ) -join "`n")
       'FAILURE-PROPAGATION' = (@(
         'if ($probeFail -ne 1 -or $probeFailOutput -notmatch ''\[SELFTEST-ALL-FAIL\] shards=workflow failed-gates=workflow/8\.2e,workflow/17aa\(8\)'') {'
@@ -4323,11 +4409,13 @@ try {
     if (@(Compare-Object $aggRootsBefore $aggRootsAfter).Count -ne 0) { Fail '8.2e：all 聚合器留下了临时快照目录。' }
   } catch { Fail "8.2e：all 聚合器 hermetic 夹具异常：$($_.Exception.Message)" }
   finally {
+    foreach ($process in @($aggregateHarnessProcesses82)) { & $disposeAggregateHarnessProcess82 $process }
     if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
     if ($null -eq $oldGateSpec) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = $oldGateSpec }
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
     if ($null -eq $oldReadyTimeoutSeconds) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_READY_TIMEOUT_SECONDS = $oldReadyTimeoutSeconds }
     if ($null -eq $oldReleaseShards) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = $oldReleaseShards }
+    if ($null -eq $oldHarnessTimeoutSeconds) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS = $oldHarnessTimeoutSeconds }
     Remove-Item -LiteralPath $aggFixture, $aggLogs, $aggOrigin -Recurse -Force -ErrorAction SilentlyContinue
   }
   if (-not $fail) { Write-Host '  8.2e 10 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
