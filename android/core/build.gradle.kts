@@ -32,15 +32,60 @@ val e2eTest = sourceSets.create("e2eTest") {
 // These tests read repository files directly instead of through their compiled runtime classpath. Keep the
 // inventory exact so unrelated repository edits do not invalidate :core:test.
 /*
- * Verification receipt (2026-08-29; all temporary mutations restored):
- * - Before this declaration, a compliance-config mutation stayed UP-TO-DATE (exit 0), while --rerun-tasks
- *   exposed the expected-list failure (exit 1). Afterwards, the ordinary command exposed it (exit 1).
- * - A same-line report-source mutation was restored FROM-CACHE after cleanTest (exit 0), but failed with
- *   --no-build-cache and, after this declaration, also failed under the ordinary command (exit 1).
- * - A listed app wiring-source mutation reran and failed; an unlisted source edit stayed UP-TO-DATE (exit 0).
- * - Deleting the compliance input declaration made the stale green return; classifier GRADLE-INPUT-A2
- *   rejected it (exit 1). Template mutation already reran processTestResources and failed (exit 1).
- * - :core:check passed before and after; the hardened T3/T4 DoD commands both passed (exit 0).
+ * Runtime-input verification receipt (2026-08-29; every temporary mutation was restored).
+ * Commands below ran from the repository root; "plain" means no --rerun-tasks or --no-build-cache.
+ *
+ * A1 | Mutation: append "ANNUAL" to configs/compliance/nz-rules-v1.json at
+ *    rules.inspection.frequencyLimit.exemptTypes. Plain command:
+ *    cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test
+ *      --tests "nz.myinspection.core.compliance.*"
+ *    Before this declaration: :core:test UP-TO-DATE, exit 0. Adding --rerun-tasks: exit 1;
+ *    failure = "expected [[INGOING, EXIT]] but found [[INGOING, EXIT, ANNUAL]]".
+ * A2 | With this declaration and the same mutation, the plain command executed and exited 1 with the
+ *    same failure. Restoring the JSON and repeating the plain command exited 0.
+ * A3 | Inventory command:
+ *    rg -n 'System\.getProperty\("user\.dir"\)|getResourceAsStream|Files\.readString|
+ *      Files\.readAllBytes|\.readText\(Charsets\.UTF_8\)' android/core/src/test/kotlin/nz/myinspection/core
+ *    ComplianceEngineTest -> configs/compliance/nz-rules-v1.json; ReportSourcePurityTest -> every
+ *    Kotlin file in the report test package; PhotoOrphanCleanupWiringTest -> CameraPhotoIngestPipeline,
+ *    PhotoIngestPendingLease, PendingPhotoLease, PhotoRuntimeStorage, PhotoOrphanCleanupWorker,
+ *    PhotoDirectoryDurability, PhotoAssetCleanupExecutor, NoFollowLeafDeletion,
+ *    PhotoOrphanCleanupScheduler, and MainActivity; PhotoStreamingWiringTest -> PhotoJpegEncoder,
+ *    CameraPhotoIngestPipeline, PhotoImportPipeline, and PhotoQualitySettings. RoutineContentTest and
+ *    PhraseLibraryContentTest read routine-v1.json and phrases-v1.json from the test classpath.
+ * A4 | The inventory below uses explicit files/includes. Probe: append " [A4]" to a same-line comment
+ *    in unlisted app/media/PhotoBitmapScaler.kt, then run `cmd /c android\gradlew.bat -p android
+ *    --offline --no-daemon -q :core:test --tests
+ *    "nz.myinspection.core.media.PhotoStreamingWiringTest"`; :core:test remained UP-TO-DATE, exit 0.
+ *    Restoring the comment changed no declared input.
+ * A5 | Mutation: append " [A5]" to KIT-FRIDGE-01.textEn in data/templates/routine-v1.json. Command:
+ *    cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test
+ *      --tests "nz.myinspection.core.content.*"
+ *    processTestResources reran and the command exited 1; failure reported expected
+ *    "Refrigerator condition and operation" versus the mutated text.
+ * A6 | cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check exited 0 in a
+ *    detached clean baseline and exited 0 again after these declarations.
+ * A7 | Deletion mutation: remove the two-line inputs.file(nz-rules-v1.json) statement, establish a
+ *    green baseline, then repeat A1. The plain task returned stale UP-TO-DATE, exit 0; the classifier
+ *    `(exit -eq 1) -and (XML contains the A1 failure)` rejected it, exiting 1 with
+ *    "[GRADLE-INPUT-A2] deletion mutation survived". Restoring the statement killed the mutation.
+ * A8 | Same-line, bytecode-neutral mutation: replace the split `ReportComposer` + `.` text in
+ *    ReportComposerGoldenTest.kt with `ReportComposer.Companion`. Run `cmd /c android\gradlew.bat
+ *    -p android --offline --no-daemon -q :core:cleanTest`, then `cmd /c android\gradlew.bat -p android
+ *    --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"`: :core:test was
+ *    FROM-CACHE, exit 0. Repeat cleanTest, then add --no-build-cache to that test command: exit 1 with
+ *    "a test names the composer's companion instead of writing the value out". With reportTestSources
+ *    declared, the ordinary mutated test command executed and exited 1 with that failure.
+ * A9 | A1/A2 are an undeclared file read through user.dir; A8 is a source-text assertion hidden by a
+ *    bytecode-equivalent cache hit. Their reproductions and input declarations remain distinct above.
+ * A10 | T3 pre-fix command (the plain report command) returned FROM-CACHE, exit 0 under the A8
+ *    mutation. Exact hardened command `cmd /c android\gradlew.bat -p android --offline --no-daemon -q
+ *    --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.*"` executed the
+ *    same mutation and exited 1 with the A8 failure. T4 pre-fix plain command returned UP-TO-DATE,
+ *    exit 0 under A1; exact hardened command `cmd /c android\gradlew.bat -p android --offline
+ *    --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests
+ *    "nz.myinspection.core.compliance.*"` executed it and exited 1 with the A1 failure. After restore,
+ *    the exact hardened T3 and T4 commands both exited 0.
  */
 val repositoryRoot = layout.projectDirectory.dir("../..")
 val reportTestSources = fileTree("src/test/kotlin/nz/myinspection/core/report") {
