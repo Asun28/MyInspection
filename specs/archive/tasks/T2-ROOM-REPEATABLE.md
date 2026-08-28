@@ -2,7 +2,7 @@
 id: T2-ROOM-REPEATABLE
 title: 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8）
 depends_on: [T1-TEMPLATE-ENGINE, T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST]
-status: todo
+status: merged
 branch: T2-ROOM-REPEATABLE
 worktree: C:\wt\T2-ROOM-REPEATABLE
 allow_paths:

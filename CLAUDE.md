@@ -109,8 +109,8 @@ Sol 评审时自行复算），**14 枚单点变异逐一击杀**（判据分类
 目录已登记 FrozenPaths（**黄金向量测试即契约本体，一并冻结**）；演进走版本评审。方法论沉淀：步骤 4.6 本地自检
 先吃掉 10 条发现（省一轮 R3 往返），R3 首轮仍抓到 2 条真问题（`HexFormat` 需 Android API 34 而 minSdk 26；
 键序测试纯 ASCII 区分不了 UTF-16 码元序与码点序）——**`:core` 纯 JVM 只是测试形态，运行载体是 ART，
-JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层机检归 T3-FINALIZE）/ TD6（Supplement.sq
-注释哈希域指向）已登记 tracker。
+JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层机检归 T3-FINALIZE）与 TD6（Supplement.sq
+注释哈希域指向）均已由后续卡偿还（TD6 见 PR #190）。
 
 **★第三冻结点已合并**：`T1-TEMPLATE-ENGINE` **merged**（2026-08-16，master `72ec5e6`，**5 轮 R3 后经人裁合并**）——
 `core/template/`：模板 JSON schema（`Template`/`TemplateItem`/`TemplateDomains`）+ 加载校验器 + 入库读回 +
@@ -124,9 +124,15 @@ JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层�
 > 于是"合法模板配假哈希入库"这条路不是被运行期拦下，而是写不出来——`persist` 的重复校验遂成死代码，一并删掉。
 > **争点经人裁**：房间 `repeatable` 标记被评审者连提 4 轮（其自己第 1 轮判为 `[FOLLOW-UP]`），因持久化它须改
 > 已冻结的 `sqldelight/`、只加 JSON 字段又会造出"入库静默丢字段"路径，故拆出 `T2-ROOM-REPEATABLE`
-> （已进 board + 本卡 `non_goals`），用户裁定按此办并授权合并。
+> （已进 board + 本卡 `non_goals`），用户裁定按此办并授权合并；该承接卡现已由 PR #190 合并。
 > **同工作树并发事故**：另一会话（刚合完 T1-CANON-HASH）依陈旧 handoff 也开了本卡、在同一 worktree 改文件，
 > 撞在变异批中途——靠变异脚本的 SHA 基线守卫当场停住（L196 生效），未污染任何提交。
+
+**模板房间契约与 schema v2 已合并**：`T2-ROOM-REPEATABLE` **merged**（2026-08-29，master `deb01fe1`，
+PR #190，R3 第 **2** 轮 pass）——`Template.rooms[]` 以向后兼容默认接入，房间 key / repeatable / 模板序经
+`template_room_def` 持久化并完整读回；`1.sqm` + `databases/2.db` 通过真实迁移闸。历史模板读取现在包含软删的
+item/room 定义，并用 `(template_version_id, sort, id)` 索引保持有序读；TD6/TD7/TD8 同窗口 paid。运行时
+`room_instance` 多实例状态机仍是明确非目标，由 `T2-REPEATABLE-ROOM-RUNTIME` 承接。
 
 **★第四冻结点已合并**：`T5-BACKUP-FORMAT` **merged**（2026-08-16，master `efedcfb`，R3 pass 于第 **4** 轮，
 其中两次经人裁）——`core/backup/format/`：47 字节明文头（magic `MYINSPBK`/format_version/kdf_id/迭代数/盐/
@@ -164,7 +170,7 @@ UNCLASSIFIABLE 影响结果）——评审用本仓自己的单一真相源原�
 L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 · TD9（selftest 可诊断性+load-flake）· **TD5 → paid**
 （本 PR 为偿还指针）· TD10（多连接契约仲裁：**评审不得再以多连接证明 block 单连接卡**）· TD12/TD13。
 
-**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T2-ROOM-REPEATABLE`（TD4 已 paid，进入 schema 版本评审）· `T4-COMPLIANCE-ENGINE`
+**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T1-DATABASE-LIFECYCLE-AUTHORITY`（schema v2 已合并，可进入下一版本评审）· `T2-REPEATABLE-ROOM-RUNTIME`（接 repeatable 运行时实例维度）· `T4-COMPLIANCE-ENGINE`
 （依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture+finalize，均已合——
 关键路径下一站，快照装配正门与 TD5 黄金测试已随 T3-FINALIZE 落地，可直接开工）。
 

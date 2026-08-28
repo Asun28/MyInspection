@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 76 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 77 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -71,6 +71,7 @@
 | T2-PHOTO-QUALITY-PROFILES | merged | 新照片四档质量：Low / Medium / High / Extra High（默认 Medium） |
 | T2-PHOTO-STREAMING-ENCODE | merged | 照片流式编码：去掉整份 JPEG ByteArray 内存峰值（偿还 TD15） |
 | T2-PHRASELIB | merged | 双语短语库种子内容 + 查询接口 |
+| T2-ROOM-REPEATABLE | merged | 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8） |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
 | T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |
 | T3-E2E-GATE-ISOLATION | merged | 将 Golden Evidence 拆入独立 e2eTest source set 并由 Gate 2 单独执行 |

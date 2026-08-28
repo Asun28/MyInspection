@@ -1287,10 +1287,10 @@
 - refs: 
 
 ## L183
-- date: 2026-08-02 ｜ tags: tech-debt,verification,staleness,tracker ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
-- symptom: 按记忆或文档里的数字/状态登记技术债，事后核实全错：同一轮内两次——把 R3 超时预算写成内建 600s（_config.ps1:99 早已钉 1800），又断言在飞 T56 会顺带偿还 TD124（其 excerpt 只接 [R3-NO-VERDICT-JSON]，根本到不了 [R3-NO-OUTPUT] 那支）；同夜 TD82 的 3 张 S2 评审卡若照卡开卡也全是空炮，实际早被 T20/T21/T29 修掉且各有回归闸
+- date: 2026-08-02 ｜ tags: tech-debt,verification,staleness,tracker ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- symptom: 按记忆或文档里的数字/状态登记技术债，事后核实全错：同一轮内两次——把 R3 超时预算写成内建 600s（_config.ps1:99 早已钉 1800），又断言在飞 T56 会顺带偿还 TD124（其 excerpt 只接 [R3-NO-VERDICT-JSON]，根本到不了 [R3-NO-OUTPUT] 那支）；同夜 TD82 的 3 张 S2 评审卡若照卡开卡也全是空炮，实际早被 T20/T21/T29 修掉且各有回归闸。第三次是 T2-ROOM-REPEATABLE：卡片仍假定 README 已在测试资源、`databases/2.db` 会被既有清单自动放行，但其间合并的 PR #188 已把资源收窄为两个 JSON，而防泄露清单实际只登记 `1.db`，两处都在 RED 前/提交前才被活值核验纠正
 - root_cause: 关于仓库现状的陈述会衰减：注释、文档、交接、评审背包写下时为真，随后被别的卡顺带改掉，而登记者凭记忆或凭那份陈旧文本下笔，不去读活值或那张卡的真实 diff。评审背包尤甚——本仓 _local 那份自陈评审树落后 origin/master 九个提交
-- rule: 登记债项或写断言时，凡引用配置值、行号、或「另一张在飞卡会不会顺带修掉它」，先读活值/读那张卡的真实 diff 再下笔；照陈旧评审卡开卡前先做约一分钟的只读三问核验（还在吗 / 被哪个提交或卡修的 / 有无回归闸）——核验比开卡便宜两个数量级
+- rule: 登记债项或写断言时，凡引用配置值、行号、或「另一张在飞卡会不会顺带修掉它」，先读活值/读那张卡的真实 diff 再下笔；照陈旧评审卡开卡前先做约一分钟的只读三问核验（还在吗 / 被哪个提交或卡修的 / 有无回归闸）——核验比开卡便宜两个数量级。卡片已存在也不代表前提永久有效：开工时、以及 base 在 RED 前后每次前移时，都重放一次「acceptance 引用的外部资源/allowlist/输入清单是否仍真实存在」核验；若须扩 scope，先在受信 base 改卡，再决定是 RED 前重开还是按水位线规则保留原证据，禁止悄悄把卡外修补塞进功能提交
 - enforced_by: 
 - refs: 
 

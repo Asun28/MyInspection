@@ -30,9 +30,6 @@
 
 
 
-| TD8 | 2026-08-16 | `TemplateVersion.sq`(第 5 行注释，schema 冻结物) | **冻结 schema 注释把 content_hash 的来源指错**：注释写「canonical JSON 的 SHA-256（由 T1-CANON-HASH 算出并写入）」，而卡片 T1-TEMPLATE-ENGINE 与已合并实现都定的是**模板文件字节**的 SHA-256（`LoadedTemplate.parse` 对源字节算，与 canon 包无关）。两者不是同一个值：canonical 化会抹掉缩进/键序差异，而本列的用途恰恰是检出「同版本号、文件内容却变了」的静默漂移——按注释实现会让这项检出失效。后果：将来写校验/重算的人若按注释走，会得到与库中值永远不符的哈希，或反过来把漂移检出削弱成"语义相同即可" / 修法：下一次 schema 版本评审窗口把该注释改为「模板文件字节的 SHA-256（T1-TEMPLATE-ENGINE 写入）」（纯注释、无行为差异，仍走冻结物流程，可与 TD6 同窗口做） / 可测：注释语义与 `LoadedTemplate.parse` 的 KDoc 及 `TemplateLoaderTest` 的黄金向量一致（人审，无行为面） / 前置：任一 schema 版本评审窗口 | minor | carded | `specs/tasks/T2-ROOM-REPEATABLE.md`（同一 schema 版本评审窗口） |
-| TD7 | 2026-08-16 | `core/template/TemplateStore.read()` ↔ `CheckItemDef.sq` 的 `selectByTemplateVersion`（schema 冻结物） | **软删语义在模板读回路上前后不一致**：`read()` 刻意**不看** `template_version.deleted_at`（依据 CheckItemDef.sq 自己写的原则「软删的巡检其报告仍须可一致重渲」），但它取项定义用的冻结查询 `selectByTemplateVersion` 带 `deleted_at IS NULL` 过滤。于是一旦将来给 `check_item_def` 加了软删路径，同一次 `read()` 会返回「版本行还在、条目少了几条」的模板——报告重渲会**静默缺项**，而 content_hash 仍是当初那份完整文件的哈希，对不上却无人报错。**当前不可达**：两张表都还没有任何软删查询（`update`/`delete` 查询根本没提供），故这是为将来预留的不一致，不是已发生的缺陷 / 修法：给模板读回路补一条不过滤软删的查询（须走 schema 版本评审，与 `T2-ROOM-REPEATABLE` 的评审窗口合并做最省），或在 `read()` 侧显式对齐语义并让不一致当场抛错 / 可测：给 check_item_def 造一条软删行，`read()` 要么返回完整模板、要么明确失败，不得静默少项 / 前置：任一 schema 版本评审窗口（软删查询落地前不构成实际风险） | minor | carded | `specs/tasks/T2-ROOM-REPEATABLE.md`（同一 schema 版本评审窗口） |
-| TD6 | 2026-08-16 | `Supplement.sq`(第 8 行注释，schema 冻结物) | **冻结 schema 注释把链哈希域指错方向**：注释写 `chain_hash = SHA-256(canonical(本行) + prev_hash)`，而其点名的权威实现 supplementChainHash 只把 {created_at, text} canonical 化——「本行」会引导未来 verifyChain 作者把整行（id/inspection_id/prev_hash…）算进去，得到永远 mismatch 的哈希。后果：复验实现若按注释写会全量对不上；文件已冻结不能顺手改 / 修法：下一次 schema 版本评审窗口把「本行」改为「该 supplement 的 {created_at, text} 快照」（纯注释、无行为差异，仍走冻结物流程） / 可测：注释语义与 supplementChainHash KDoc 一致（人审，无行为面） / 前置：任一 schema 版本评审窗口 | minor | carded | `specs/tasks/T2-ROOM-REPEATABLE.md`（同一 schema 版本评审窗口） |
 
 
 
@@ -47,7 +44,7 @@
 
 
 
-| TD26 | 2026-08-17 | `T2-ROOM-REPEATABLE` ↔ `InspectionRepository` / `CompletenessPort` / history | **重复房间 schema 卡明确排除了运行时状态机，却没有后续卡接住实例维度**：当前 capture 只为每个 `room_key` 建 `instance_no=1`，baseline 写入又只按 `stable_id` 取首项；schema 已允许同一巡检的 BEDROOM #1/#2 各有同一 `stable_id`，相关查询无顺序保证。后果：重复房间落地后，Exit 的 #2 可能误拿 Ingoing #1 作基线，分类随未定义行序变化；progress/finalize 也无法按声明数量验证缺失实例 / 修法：在专属运行时交接卡中定义并持久化或派生物业的重复房间数量，所有基线匹配改用 `(room_key, instance_no, stable_id)`，走查按模板房间序再按 `instance_no`，finalize 验证所需实例数，并同步后续 history/Exit 卡的旧前提 / 可测：B1/B2 同 stable_id 不同状态时 Exit B2 必与 B2 比；交换 baseline 插入顺序结果不变；progress 顺序稳定；声明两间却缺 B2 时 finalize 拒绝 / 前置：TD4 已 paid；再完成 `T2-ROOM-REPEATABLE` 的 schema/版本评审；不得与该 schema 卡合卡，必须全新 worktree，并在 capture UI/history/Exit 内容上线前偿还 | major | carded | `specs/tasks/T2-REPEATABLE-ROOM-RUNTIME.md` |
+| TD26 | 2026-08-17 | `T2-ROOM-REPEATABLE` ↔ `InspectionRepository` / `CompletenessPort` / history | **重复房间 schema 卡明确排除了运行时状态机，却没有后续卡接住实例维度**：当前 capture 只为每个 `room_key` 建 `instance_no=1`，baseline 写入又只按 `stable_id` 取首项；schema 已允许同一巡检的 BEDROOM #1/#2 各有同一 `stable_id`，相关查询无顺序保证。后果：重复房间落地后，Exit 的 #2 可能误拿 Ingoing #1 作基线，分类随未定义行序变化；progress/finalize 也无法按声明数量验证缺失实例 / 修法：在专属运行时交接卡中定义并持久化或派生物业的重复房间数量，所有基线匹配改用 `(room_key, instance_no, stable_id)`，走查按模板房间序再按 `instance_no`，finalize 验证所需实例数，并同步后续 history/Exit 卡的旧前提 / 可测：B1/B2 同 stable_id 不同状态时 Exit B2 必与 B2 比；交换 baseline 插入顺序结果不变；progress 顺序稳定；声明两间却缺 B2 时 finalize 拒绝 / 前置：TD4 已 paid；`T2-ROOM-REPEATABLE` 已由 PR #190 完成 schema/版本评审；不得与该 schema 卡合卡，必须全新 worktree，并在 capture UI/history/Exit 内容上线前偿还 | major | carded | `specs/tasks/T2-REPEATABLE-ROOM-RUNTIME.md` |
 
 
 
