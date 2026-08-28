@@ -33,6 +33,9 @@ CREATE TABLE check_item_def (
 -- 恒为 NULL 的活跃行之间表级约束形同虚设，拦不住重复。
 CREATE UNIQUE INDEX idx_check_item_def_active ON check_item_def (template_version_id, stable_id) WHERE deleted_at IS NULL;
 
+-- Historical reads include soft-deleted rows and return template order without a temporary sort.
+CREATE INDEX idx_check_item_def_history ON check_item_def (template_version_id, sort, id);
+
 insert:
 INSERT INTO check_item_def (id, template_version_id, stable_id, area, room, text_en, text_zh, allowed_statuses, photo_rule, sort, created_at, updated_at)
 SELECT :id, :template_version_id, :stable_id, :area, :room, :text_en, :text_zh, :allowed_statuses, :photo_rule, :sort, :created_at, :updated_at
@@ -50,4 +53,11 @@ selectByTemplateVersion:
 SELECT *
 FROM check_item_def
 WHERE template_version_id = :template_version_id AND deleted_at IS NULL
+ORDER BY sort ASC, id ASC;
+
+-- 历史重渲必须读回该版本的完整定义，不能因后续软删而静默少项（TD7）。
+selectByTemplateVersionIncludingDeleted:
+SELECT *
+FROM check_item_def
+WHERE template_version_id = :template_version_id
 ORDER BY sort ASC, id ASC;

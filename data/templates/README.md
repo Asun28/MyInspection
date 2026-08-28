@@ -29,12 +29,49 @@
 
 **未知字段一律报错**，不是被忽略——`textZH` 这种拼错的键会当场让加载失败，而不是静默变成空文案。
 
+## 房间定义
+
+`rooms` 声明模板允许使用的房间键；`repeatable: true` 表示后续采集流程可为该键建立多个实例。
+只要 `rooms` 非空，每条 item 的 `room` 就必须与其中一个 `key` **逐字精确相等**。数组顺序即房间模板序。
+
+```json
+{
+  "type": "ROUTINE",
+  "version": 1,
+  "rooms": [
+    { "key": "BEDROOM", "repeatable": true },
+    { "key": "KITCHEN", "repeatable": false }
+  ],
+  "items": [
+    {
+      "stableId": "BED-WALL-01",
+      "area": "INTERIOR",
+      "room": "BEDROOM",
+      "textEn": "Walls and ceiling",
+      "textZh": "墙面与天花",
+      "allowedStatuses": ["GOOD"],
+      "photoRule": null
+    },
+    {
+      "stableId": "KIT-BENCH-01",
+      "area": "INTERIOR",
+      "room": "KITCHEN",
+      "textEn": "Bench tops",
+      "textZh": "厨房台面",
+      "allowedStatuses": ["GOOD"],
+      "photoRule": null
+    }
+  ]
+}
+```
+
 ## 字段规则
 
 | 字段 | 规则 |
 |---|---|
 | `type` | `ROUTINE` / `INGOING` / `EXIT` / `ANNUAL` 四选一，大写。拼错不会被当成第五类收下 |
 | `version` | ≥ 1 的整数。同一 `type` 下**同一 version 只能有一份活跃内容**（数据库唯一索引拦） |
+| `rooms` | 可省略；省略或空数组保持旧模板兼容。非空时 `key` 不得空白或重复，`repeatable` 省略即 `false` |
 | `items` | 非空数组。**数组顺序即模板序**：报告按它排版、内容哈希按它定序，改顺序 = 改内容 |
 | `stableId` | 模板内唯一、跨版本恒定。建议 `房间缩写-对象-序号`（`KIT-BENCH-01`），只为可读，不承载语义 |
 | `area` | 报告分区，如 `INTERIOR` / `EXTERIOR` / `GROUNDS`。非空 |

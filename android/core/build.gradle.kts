@@ -16,7 +16,7 @@ kotlin {
 sourceSets {
     test {
         resources.srcDir("../../data/templates")
-        resources.include("routine-v1.json", "phrases-v1.json")
+        resources.include("routine-v1.json", "phrases-v1.json", "README.md")
     }
 }
 
@@ -115,6 +115,10 @@ val otherAppWiringSources = files(
     "../app/src/main/kotlin/nz/myinspection/app/MainActivity.kt",
     "../app/src/main/kotlin/nz/myinspection/app/feature/settings/media/PhotoQualitySettings.kt",
 )
+val templateContractSources = files(
+    "src/main/sqldelight/nz/myinspection/core/db/TemplateVersion.sq",
+    "src/main/sqldelight/nz/myinspection/core/db/Supplement.sq",
+)
 
 configurations[e2eTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
 configurations[e2eTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
@@ -152,7 +156,13 @@ tasks.test {
     useTestNG()
     inputs.file(repositoryRoot.file("configs/compliance/nz-rules-v1.json"))
         .withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(reportTestSources, coreMediaWiringSources, appMediaWiringSources, otherAppWiringSources)
+    inputs.files(
+        reportTestSources,
+        coreMediaWiringSources,
+        appMediaWiringSources,
+        otherAppWiringSources,
+        templateContractSources,
+    )
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

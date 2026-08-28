@@ -70,8 +70,8 @@ object TemplateLoader {
     /**
      * 校验一份已解析的模板，返回全部问题；空列表 = 通过。内容卡的 DoD 直接拿它当闸。
      *
-     * 发出顺序是契约的一部分（作者从上往下改）：先模板层，再按 items 数组序逐条，
-     * 同一条内按 身份(blank/duplicate) → 文案(blank) → 评级域 → 拍照规则。
+     * 发出顺序是契约的一部分（作者从上往下改）：先模板层（含 rooms 数组序），再按 items 数组序逐条，
+     * 同一条内按 身份(blank/duplicate) → 必填字段/房间引用 → 评级域 → 拍照规则。
      */
     fun validate(template: Template): List<String> {
         val errors = mutableListOf<String>()
@@ -83,6 +83,15 @@ object TemplateLoader {
         if (allowedStatuses == null) errors += "template: unknown type ${template.type}"
         if (template.version < 1) errors += "template: version must be >= 1"
         if (template.items.isEmpty()) errors += "template: items is empty"
+
+        val declaredRoomKeys = mutableSetOf<String>()
+        template.rooms.forEachIndexed { index, room ->
+            if (room.key.isBlank()) {
+                errors += "template: rooms[$index].key is blank"
+            } else if (!declaredRoomKeys.add(room.key)) {
+                errors += "template: duplicate room key ${room.key}"
+            }
+        }
 
         val seenStableIds = mutableSetOf<String>()
         template.items.forEachIndexed { index, item ->
@@ -97,6 +106,9 @@ object TemplateLoader {
             }
             if (item.area.isBlank()) errors += "$label: area is blank"
             if (item.room.isBlank()) errors += "$label: room is blank"
+            if (template.rooms.isNotEmpty() && item.room.isNotBlank() && item.room !in declaredRoomKeys) {
+                errors += "$label: room ${item.room} is not declared in rooms"
+            }
             if (item.textEn.isBlank()) errors += "$label: textEn is blank"
             if (item.textZh.isBlank()) errors += "$label: textZh is blank"
             if (item.allowedStatuses.isEmpty()) {
@@ -138,6 +150,7 @@ private fun decodeUtf8Strict(bytes: ByteArray): String =
  * 一份哈希完还能被改的模板等于没有哈希。
  */
 private fun freeze(template: Template): Template = template.copy(
+    rooms = Collections.unmodifiableList(template.rooms.map { it.copy() }),
     items = Collections.unmodifiableList(
         template.items.map { it.copy(allowedStatuses = Collections.unmodifiableList(it.allowedStatuses)) },
     ),

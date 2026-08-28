@@ -21,7 +21,18 @@ import java.util.Collections
 data class Template(
     val type: String,
     val version: Int,
+    val rooms: List<TemplateRoom> = emptyList(),
     val items: List<TemplateItem>,
+)
+
+/**
+ * A room declared by a template. [key] is the stable grouping value used by [TemplateItem.room];
+ * [repeatable] tells the later capture flow whether that room may have multiple instances.
+ */
+@Serializable
+data class TemplateRoom(
+    val key: String,
+    val repeatable: Boolean = false,
 )
 
 /**

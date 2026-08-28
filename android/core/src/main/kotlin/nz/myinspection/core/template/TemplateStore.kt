@@ -43,6 +43,20 @@ class TemplateStore(
                 created_at = now,
                 updated_at = now,
             )
+            loaded.template.rooms.forEachIndexed { index, room ->
+                val affected = db.templateRoomDefQueries.insert(
+                    id = uuid.next(),
+                    template_version_id = versionId,
+                    room_key = room.key,
+                    repeatable = if (room.repeatable) 1L else 0L,
+                    sort = index.toLong(),
+                    created_at = now,
+                    updated_at = now,
+                ).value
+                check(affected == 1L) {
+                    "template_room_def insert affected $affected rows for ${room.key} (guard rejected the write)"
+                }
+            }
             loaded.template.items.forEachIndexed { index, item ->
                 val affected = db.checkItemDefQueries.insert(
                     id = uuid.next(),
@@ -76,15 +90,15 @@ class TemplateStore(
      * 按 `template_version.id` 读回模板文档；版本行不存在时返回 null。
      *
      * **刻意不看 `deleted_at`**：报告多年后仍须能一致重渲，一个被软删的模板版本照样要读得出来
-     * （同 CheckItemDef.sq「软删的巡检其报告仍须可一致重渲」之理）。项定义那侧由冻结的
-     * `selectByTemplateVersion` 过滤软删行，不在本卡可改范围。
+     * （同 CheckItemDef.sq「软删的巡检其报告仍须可一致重渲」之理）。项与房间定义都使用
+     * including-deleted 查询，避免历史模板因软删静默缺段。
      */
     fun read(templateVersionId: String): Template? {
         val version = db.templateVersionQueries.selectById(templateVersionId).executeAsOneOrNull() ?: return null
         // 读回的集合同样包成不可变，与 [TemplateLoader.load] 的产物一致——否则"从库里读的模板"
         // 比"从文件读的模板"多一条可被强转改写的口子，同一个类型两种保证是更难查的坑。
         val items = Collections.unmodifiableList(
-            db.checkItemDefQueries.selectByTemplateVersion(templateVersionId).executeAsList().map { row ->
+            db.checkItemDefQueries.selectByTemplateVersionIncludingDeleted(templateVersionId).executeAsList().map { row ->
                 TemplateItem(
                     stableId = row.stable_id,
                     area = row.area,
@@ -96,7 +110,12 @@ class TemplateStore(
                 )
             },
         )
-        return Template(type = version.type, version = version.version.toInt(), items = items)
+        val rooms = Collections.unmodifiableList(
+            db.templateRoomDefQueries.selectByTemplateVersionIncludingDeleted(templateVersionId).executeAsList().map { row ->
+                TemplateRoom(key = row.room_key, repeatable = row.repeatable == 1L)
+            },
+        )
+        return Template(type = version.type, version = version.version.toInt(), rooms = rooms, items = items)
     }
 
     private companion object {

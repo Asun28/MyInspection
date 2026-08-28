@@ -12,12 +12,17 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * 入库/读回的往返测试，跑在 JdbcSqliteDriver 内存库上（真 SQLite，非 mock——`check_item_def` 的
  * 守卫与唯一索引都是真的在起作用）。
+ * A6 mutation receipt: deleting the complete `templateRoomDefQueries.insert` statement and running the
+ * single round-trip test with `--rerun-tasks --no-build-cache` exited 1; the classifier matched expected
+ * BEDROOM/KITCHEN rooms versus `rooms=[]`. Before this receipt comment was appended, the source restored
+ * byte-exact to SHA-256 9a1f0ffc...f88e88.
  */
 class TemplateStoreTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -42,9 +47,12 @@ class TemplateStoreTest {
     private fun loadRoutine(): LoadedTemplate =
         TemplateLoader.load(TemplateTestFixtures.routineTemplate().byteInputStream())
 
+    private fun loadRoutineWithRooms(): LoadedTemplate =
+        TemplateLoader.load(TemplateTestFixtures.routineTemplateWithRooms().byteInputStream())
+
     @Test
     fun `persist then read round-trips the whole template`() {
-        val loaded = loadRoutine()
+        val loaded = loadRoutineWithRooms()
 
         val versionId = store.persist(loaded)
 
@@ -52,8 +60,68 @@ class TemplateStoreTest {
     }
 
     @Test
+    fun `repeatable rooms persist with their exact values and array sort`() {
+        val versionId = store.persist(loadRoutineWithRooms())
+
+        val rows = roomRows(versionId)
+        assertEquals(listOf("BEDROOM", "KITCHEN"), rows.map { it.key })
+        assertEquals(listOf(1L, 0L), rows.map { it.repeatable })
+        assertEquals(listOf(0L, 1L), rows.map { it.sort })
+        val read = store.read(versionId) ?: error("persisted template must be readable")
+        assertEquals(true, read.rooms.single { it.key == "BEDROOM" }.repeatable)
+        assertEquals(false, read.rooms.single { it.key == "KITCHEN" }.repeatable)
+        assertNotEquals(read.rooms[0], read.rooms[1])
+    }
+
+    @Test
+    fun `read keeps historical items and rooms after their definitions are soft deleted`() {
+        val versionId = store.persist(loadRoutineWithRooms())
+        driver.execute(null, "UPDATE check_item_def SET deleted_at = 1700000000001 WHERE stable_id = 'KIT-BENCH-01'", 0)
+        driver.execute(null, "UPDATE template_room_def SET deleted_at = 1700000000001 WHERE room_key = 'BEDROOM'", 0)
+
+        assertEquals(2, database.checkItemDefQueries.selectByTemplateVersion(versionId).executeAsList().size)
+        val historical = store.read(versionId) ?: error("persisted template must be readable")
+        assertEquals(3, historical.items.size)
+        assertEquals(2, historical.rooms.size)
+    }
+
+    @Test
+    fun `room read order stays deterministic when sort values collide`() {
+        val versionId = store.persist(loadRoutineWithRooms())
+        driver.execute(
+            null,
+            """UPDATE template_room_def
+                SET sort = 0,
+                    id = CASE room_key WHEN 'BEDROOM' THEN 'z-room' ELSE 'a-room' END
+                WHERE template_version_id = '$versionId'""".trimIndent(),
+            0,
+        )
+
+        val first = store.read(versionId)?.rooms ?: error("persisted template must be readable")
+        val second = store.read(versionId)?.rooms ?: error("persisted template must be readable")
+        assertEquals(listOf("KITCHEN", "BEDROOM"), first.map { it.key })
+        assertEquals(first, second)
+    }
+
+    private data class RoomRow(val key: String, val repeatable: Long, val sort: Long)
+
+    private fun roomRows(versionId: String): List<RoomRow> =
+        driver.executeQuery(
+            null,
+            "SELECT room_key, repeatable, sort FROM template_room_def WHERE template_version_id = '$versionId' ORDER BY sort, id",
+            { cursor ->
+                val rows = mutableListOf<RoomRow>()
+                while (cursor.next().value) {
+                    rows += RoomRow(cursor.getString(0)!!, cursor.getLong(1)!!, cursor.getLong(2)!!)
+                }
+                QueryResult.Value(rows)
+            },
+            0,
+        ).value
+
+    @Test
     fun `read items reject element replacement through a mutable list cast`() {
-        val versionId = store.persist(loadRoutine())
+        val versionId = store.persist(loadRoutineWithRooms())
         val read = store.read(versionId) ?: error("persisted template must be readable")
         val beforeReplacement = read.items.toList()
         val mutableItems = read.items as MutableList<TemplateItem>
@@ -63,6 +131,9 @@ class TemplateStoreTest {
         }
 
         assertEquals(beforeReplacement, read.items)
+        assertFailsWith<UnsupportedOperationException> {
+            (read.rooms as MutableList).clear()
+        }
     }
 
     @Test
@@ -145,6 +216,23 @@ class TemplateStoreTest {
         assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
     }
 
+    @Test
+    fun `a room definition that writes zero rows aborts the whole persist`() {
+        val guardedStore = TemplateStore(
+            MyInspectionDatabase(RoomInsertZeroRows(driver)),
+            Uuid7Generator(),
+            ClockMs { now },
+        )
+
+        val ex = assertFailsWith<IllegalStateException> { guardedStore.persist(loadRoutineWithRooms()) }
+
+        assertTrue(
+            ex.message.orEmpty().contains("template_room_def insert affected 0 rows"),
+            "expected the room affected-rows guard to fire, got: ${ex.message}",
+        )
+        assertEquals(emptyList(), database.templateVersionQueries.selectActive().executeAsList())
+    }
+
     private fun storeOn(mode: ItemInsertFault.Mode): TemplateStore =
         TemplateStore(MyInspectionDatabase(ItemInsertFault(driver, mode)), Uuid7Generator(), ClockMs { now })
 
@@ -187,6 +275,24 @@ private class ItemInsertFault(
                 Mode.THROW -> throw IllegalStateException("injected driver failure on the 2nd item definition")
                 Mode.RETURN_ZERO_ROWS -> return QueryResult.Value(0L)
             }
+        }
+        return delegate.execute(identifier, sql, parameters, binders)
+    }
+}
+
+/** Makes the first guarded room-definition insert report success with zero affected rows. */
+private class RoomInsertZeroRows(private val delegate: SqlDriver) : SqlDriver by delegate {
+    private var intercepted = false
+
+    override fun execute(
+        identifier: Int?,
+        sql: String,
+        parameters: Int,
+        binders: (SqlPreparedStatement.() -> Unit)?,
+    ): QueryResult<Long> {
+        if (!intercepted && sql.contains("INSERT INTO template_room_def")) {
+            intercepted = true
+            return QueryResult.Value(0L)
         }
         return delegate.execute(identifier, sql, parameters, binders)
     }

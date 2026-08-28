@@ -2,7 +2,7 @@ CREATE TABLE template_version (
     id TEXT NOT NULL PRIMARY KEY,
     type TEXT NOT NULL, -- ROUTINE / INGOING / EXIT / ANNUAL
     version INTEGER NOT NULL,
-    content_hash TEXT NOT NULL, -- canonical JSON 的 SHA-256（由 T1-CANON-HASH 算出并写入；此处只建列）
+    content_hash TEXT NOT NULL, -- SHA-256(template file raw bytes)，由 T1-TEMPLATE-ENGINE 写入；此处只建列
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
     deleted_at INTEGER,
