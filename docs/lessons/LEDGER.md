@@ -1821,3 +1821,11 @@
 - rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。
 - enforced_by: none（流程顺序约定，task.ps1 尚未支持 archived card）
 - refs: PR #187; scripts/task.ps1; scripts/archive.ps1
+
+## L253
+- date: 2026-08-29 ｜ tags: gradle,kotlin,kotlin-dsl,comments ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 在 build.gradle.kts 的块注释证据中写入带斜杠星号的 glob 文本后，脚本后半段被当作注释，依赖配置随之消失并产生误导性的编译错误。
+- root_cause: Kotlin 支持嵌套块注释；glob 中相邻的斜杠与星号会开启内层注释，原本的结尾只关闭内层，外层继续吞掉后续脚本。
+- rule: Kotlin 与 .kts 的块注释里不要写会形成斜杠星号的 glob；改用自然语言或行注释，并在证据注释变更后至少编译对应模块。
+- enforced_by: none（文字证据约束，靠评审与编译验证）
+- refs: PR #188; android/core/build.gradle.kts

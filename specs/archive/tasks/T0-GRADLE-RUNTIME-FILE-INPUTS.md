@@ -3,7 +3,7 @@ id: T0-GRADLE-RUNTIME-FILE-INPUTS
 title: 让 Gradle 看见测试真正的输入，消除两类「改了东西仍报绿、测试其实没跑」
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-GRADLE-RUNTIME-FILE-INPUTS
 worktree: C:\wt\T0-GRADLE-RUNTIME-FILE-INPUTS
 allow_paths:

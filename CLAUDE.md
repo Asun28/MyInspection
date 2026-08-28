@@ -210,6 +210,10 @@ identity inventory；91 个候选只执行 4 个能独立杀死 reason、gate、
 完整源码集合峰值 2、终态 1，并有稳定 ASCII 预算哨兵。TD9 保持 carded，下一站为 `T0-DEBT-SELFTEST-LOAD-STABILITY`，
 其合并后仍须重放一次 post-merge core，才可置 paid。
 
+**Gradle 测试输入假绿已封口**（2026-08-29，PR #188，master `6fda9f88`）：`:core:test` / `:core:e2eTest` 现在精确声明
+运行期读取的 compliance 配置、双语模板与源码文件，权威文件或 source-purity 目标变化不会再被 UP-TO-DATE / FROM-CACHE
+静默吞掉；T3/T4 的 Gradle DoD 同时强制 `--rerun-tasks --no-build-cache`。配置、模板与字节码中性源码变异均已证明先红后绿。
+
 ## 权威文档（按序读）
 1. `docs/DEVOPS-WORKFLOW.md` — worktree+TDD+Codex评审+文档同步 闭环（操作手册）
 2. `docs/LICENSE-POLICY.md` — 依赖许可硬规则
