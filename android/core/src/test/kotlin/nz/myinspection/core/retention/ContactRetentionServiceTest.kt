@@ -132,6 +132,22 @@ class ContactRetentionServiceTest {
     }
 
     @Test
+    fun `purge deliberately reads and clears a soft-deleted historical tenancy`() {
+        val propertyId = DbTestFixtures.insertProperty(db, uuid, now)
+        val tenancyId = insertTenancy(propertyId, endMs = expiredEndMs())
+        driver.execute(null, "UPDATE tenancy SET deleted_at = $now WHERE id = '$tenancyId'", 0)
+        val service = ContactRetentionService(db, ClockMs { now })
+
+        assertEquals(ContactRetentionState.PURGED, service.purge(tenancyId).state)
+
+        val row = db.tenancyQueries.selectAnyById(tenancyId).executeAsOne()
+        assertNull(row.tenant_name)
+        assertNull(row.contact)
+        assertEquals(now, row.purged_at)
+        assertEquals(now, row.deleted_at, "privacy cleanup must preserve the historical soft-delete marker")
+    }
+
+    @Test
     fun `purge succeeds exactly at the expiry instant — the boundary is inclusive here too`() {
         // statusOf's `nowMs >= expiresAtMs` boundary is covered in ContactRetentionPolicyTest, but
         // purge() carries its own separate `now < expiresAtMs` rejection check (ContactRetentionService.kt) —

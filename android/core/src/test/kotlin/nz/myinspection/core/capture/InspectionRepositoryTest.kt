@@ -149,6 +149,18 @@ class InspectionRepositoryTest {
     }
 
     @Test
+    fun `createInspection rejects a soft-deleted property`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        driver.execute(null, "UPDATE property SET deleted_at = $now WHERE id = '$propertyId'", 0)
+
+        assertFailsWith<IllegalStateException> {
+            repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        }
+        assertTrue(database.inspectionQueries.selectActive().executeAsList().isEmpty())
+    }
+
+    @Test
     fun `createInspection throws when the template version id does not exist`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val bogusTemplateId = uuid.next()
@@ -156,6 +168,18 @@ class InspectionRepositoryTest {
         assertFailsWith<IllegalStateException> {
             repo.createInspection("ROUTINE", propertyId, null, bogusTemplateId, scheduledAt = now)
         }
+    }
+
+    @Test
+    fun `createInspection rejects a soft-deleted template version`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        driver.execute(null, "UPDATE template_version SET deleted_at = $now WHERE id = '$templateId'", 0)
+
+        assertFailsWith<IllegalStateException> {
+            repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
+        }
+        assertTrue(database.inspectionQueries.selectActive().executeAsList().isEmpty())
     }
 
     @Test
@@ -183,8 +207,21 @@ class InspectionRepositoryTest {
     }
 
     @Test
+    fun `createInspection rejects a soft-deleted tenancy`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
+        val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId)
+        driver.execute(null, "UPDATE tenancy SET deleted_at = $now WHERE id = '$tenancyId'", 0)
+
+        assertFailsWith<IllegalStateException> {
+            repo.createInspection("EXIT", propertyId, tenancyId, templateId, scheduledAt = now)
+        }
+        assertTrue(database.inspectionQueries.selectActive().executeAsList().isEmpty())
+    }
+
+    @Test
     fun `creating an INGOING with no existing baseline assigns itself as the tenancy's baseline`() {
-        // 不经手工调 tenancyQueries.updateBaselineInspection——建 INGOING 这一动作本身就该把指针立起来
+        // 不经手工调 baseline 查询——建 INGOING 这一动作本身就该经具名的初始入口把指针立起来
         // （需求 §6「baseline_inspection = 该 tenancy 的 Ingoing」）。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
@@ -217,7 +254,6 @@ class InspectionRepositoryTest {
 
         val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
         CaptureTestFixtures.finalize(database, ingoing.inspectionId, now)
-        database.tenancyQueries.updateBaselineInspection(baseline_inspection_id = ingoing.inspectionId, updated_at = now, id = tenancyId)
 
         now += 1_000
         val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)
@@ -390,6 +426,18 @@ class InspectionRepositoryTest {
             repo.setItemSuppression(bogusPropertyId, "BED-WALL-01", suppressed = true)
         }
         assertTrue(database.propertyItemOverrideQueries.selectByProperty(bogusPropertyId).executeAsList().isEmpty())
+    }
+
+    @Test
+    fun `setItemSuppression rejects a soft-deleted property`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid)
+        CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        driver.execute(null, "UPDATE property SET deleted_at = $now WHERE id = '$propertyId'", 0)
+
+        assertFailsWith<IllegalStateException> {
+            repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
+        }
+        assertTrue(database.propertyItemOverrideQueries.selectByProperty(propertyId).executeAsList().isEmpty())
     }
 
     @Test
@@ -634,7 +682,6 @@ class InspectionRepositoryTest {
         val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
         repo.setItemStatus(ingoing.inspectionId, ingoing.roomInstanceIds.first(), "KIT-BENCH-01", baselineStatus, null)
         CaptureTestFixtures.finalize(database, ingoing.inspectionId, now)
-        database.tenancyQueries.updateBaselineInspection(baseline_inspection_id = ingoing.inspectionId, updated_at = now, id = tenancyId)
 
         now += 1_000
         val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)
@@ -766,7 +813,6 @@ class InspectionRepositoryTest {
         val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
         // 基线巡检故意不给 KIT-BENCH-01 置状态。
         CaptureTestFixtures.finalize(database, ingoing.inspectionId, now)
-        database.tenancyQueries.updateBaselineInspection(baseline_inspection_id = ingoing.inspectionId, updated_at = now, id = tenancyId)
 
         now += 1_000
         val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)

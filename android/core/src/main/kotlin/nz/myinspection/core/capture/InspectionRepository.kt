@@ -95,17 +95,17 @@ class InspectionRepository(
         templateVersionId: String,
         scheduledAt: Long,
     ): CreatedInspection {
-        checkNotNull(db.propertyQueries.selectById(propertyId).executeAsOneOrNull()) {
-            "no such property: $propertyId"
+        checkNotNull(db.propertyQueries.selectActiveById(propertyId).executeAsOneOrNull()) {
+            "no such active property: $propertyId"
         }
-        val templateVersion = checkNotNull(db.templateVersionQueries.selectById(templateVersionId).executeAsOneOrNull()) {
-            "no such template version: $templateVersionId"
+        val templateVersion = checkNotNull(db.templateVersionQueries.selectActiveById(templateVersionId).executeAsOneOrNull()) {
+            "no such active template version: $templateVersionId"
         }
         require(templateVersion.type == type) {
             "template version $templateVersionId is type '${templateVersion.type}', not '$type'"
         }
         val tenancy = tenancyId?.let {
-            checkNotNull(db.tenancyQueries.selectById(it).executeAsOneOrNull()) { "no such tenancy: $it" }
+            checkNotNull(db.tenancyQueries.selectActiveById(it).executeAsOneOrNull()) { "no such active tenancy: $it" }
         }
         if (tenancy != null) {
             require(tenancy.property_id == propertyId) {
@@ -124,8 +124,8 @@ class InspectionRepository(
             // "是否需要把这次 INGOING 立成基线"的判断必须出自同一份、事务当下的真实状态，两处若各用
             // 各的快照会互相矛盾。
             val freshTenancy = tenancy?.let {
-                checkNotNull(db.tenancyQueries.selectById(it.id).executeAsOneOrNull()) {
-                    "tenancy ${it.id} disappeared mid-transaction"
+                checkNotNull(db.tenancyQueries.selectActiveById(it.id).executeAsOneOrNull()) {
+                    "active tenancy ${it.id} disappeared mid-transaction"
                 }
             }
             previousId = resolvePrevious(propertyId, type, scheduledAt)
@@ -148,11 +148,16 @@ class InspectionRepository(
             )
             // 建 INGOING 时，若该 tenancy 尚无基线指针，把这次 INGOING 自身立成基线（需求 §6「baseline_inspection
             // = 该 tenancy 的 Ingoing」）。不覆盖已有指针——一个 tenancy 只能有一个权威基线，重复建 INGOING
-            // 不应该悄悄把基线换掉；"没有 Ingoing 时改指某次 Routine" 那条例外路径仍走 tenancy.updateBaselineInspection
-            // 的既有机制，非本卡自动化范围（见 Tenancy.sq 注释）。这条 INGOING 自身的 baseline_inspection_id 列
+            // 不应该悄悄把基线换掉；"没有 Ingoing 时改指某次 finalized Routine" 那条例外路径只走
+            // tenancy.assignFinalizedRoutineFallbackBaseline（见 Tenancy.sq）。这条 INGOING 自身的 baseline_inspection_id 列
             // 仍解析为 null（上面 resolveBaseline 在指针更新前就已算出）——它不需要引用自己。
             if (type == "INGOING" && freshTenancy != null && freshTenancy.baseline_inspection_id == null) {
-                db.tenancyQueries.updateBaselineInspection(baseline_inspection_id = inspectionId, updated_at = now, id = freshTenancy.id)
+                val affected = db.tenancyQueries.assignInitialIngoingBaseline(
+                    baseline_inspection_id = inspectionId,
+                    updated_at = now,
+                    id = freshTenancy.id,
+                ).value
+                check(affected == 1L) { "initial INGOING baseline guard rejected inspection $inspectionId" }
             }
             activeRoomKeysInOrder(propertyId, templateVersionId).forEach { roomKey ->
                 val roomInstanceId = uuid.next()
@@ -333,8 +338,8 @@ class InspectionRepository(
     fun setItemSuppression(propertyId: String, stableId: String, suppressed: Boolean) {
         val now = clock.nowMs()
         db.transaction {
-            checkNotNull(db.propertyQueries.selectById(propertyId).executeAsOneOrNull()) {
-                "no such property: $propertyId"
+            checkNotNull(db.propertyQueries.selectActiveById(propertyId).executeAsOneOrNull()) {
+                "no such active property: $propertyId"
             }
             require(stableIdIsKnownToAnyTemplate(stableId)) {
                 "stable_id '$stableId' is not defined in any template version"

@@ -42,4 +42,4 @@ WHERE property_id = :property_id AND stable_id = :stable_id AND deleted_at IS NU
 setSuppressed:
 UPDATE property_item_override
 SET suppressed = :suppressed, updated_at = :updated_at
-WHERE id = :id;
+WHERE id = :id AND deleted_at IS NULL;

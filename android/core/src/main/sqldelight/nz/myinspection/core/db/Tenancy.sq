@@ -11,7 +11,9 @@ CREATE TABLE tenancy (
     purged_at INTEGER, -- 可空：保留期清理（T5-RETENTION）执行时间戳；NULL=尚未清理
     created_at INTEGER NOT NULL, -- 行创建时间（见 Property.sq 同名列注释）
     updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- 联系方式清理是终态：一旦 purged_at 有值，任意写路径都不能把个人信息回填回来。
+    CHECK (purged_at IS NULL OR (tenant_name IS NULL AND contact IS NULL))
 );
 
 CREATE INDEX idx_tenancy_property ON tenancy (property_id);
@@ -27,17 +29,59 @@ SELECT *
 FROM tenancy
 WHERE id = :id;
 
+-- Historical compatibility for callers outside T1's allow_paths. New lifecycle-sensitive callers must choose
+-- selectActiveById or selectAnyById explicitly instead of relying on this legacy ambiguous name.
+selectAnyById:
+SELECT *
+FROM tenancy
+WHERE id = :id;
+
+selectActiveById:
+SELECT *
+FROM tenancy
+WHERE id = :id AND deleted_at IS NULL;
+
 selectActive:
 SELECT *
 FROM tenancy
 WHERE deleted_at IS NULL;
 
--- 既有租约没有 Ingoing 时，把某次 Routine 巡检指定为该 tenancy 的基线（用户已签认决策，见卡片正文）。
--- Exit 的对照方一律读这一列，不得假设「必有 type=INGOING 的巡检」。
-updateBaselineInspection:
+-- 新建 INGOING 时立初始基线。目标 tenancy 必须活跃且指针仍为空；候选巡检必须活跃、同物业、同租约、
+-- 且类型明确为 INGOING。未来新增 inspection type 默认不在这个闭合集合内。
+assignInitialIngoingBaseline:
 UPDATE tenancy
 SET baseline_inspection_id = :baseline_inspection_id, updated_at = :updated_at
-WHERE id = :id;
+WHERE id = :id
+  AND deleted_at IS NULL
+  AND baseline_inspection_id IS NULL
+  AND EXISTS (
+      SELECT 1
+      FROM inspection
+      WHERE inspection.id = :baseline_inspection_id
+        AND inspection.deleted_at IS NULL
+        AND inspection.type = 'INGOING'
+        AND inspection.property_id = tenancy.property_id
+        AND inspection.tenancy_id = tenancy.id
+  );
+
+-- 没有 INGOING 的存量租约只能指定一条已 FINALIZED 的 ROUTINE 作为 fallback。与初始入口相同，
+-- 指针只能从 NULL 写一次，且跨物业、跨租约、软删候选或软删 tenancy 都是 0 行拒写。
+assignFinalizedRoutineFallbackBaseline:
+UPDATE tenancy
+SET baseline_inspection_id = :baseline_inspection_id, updated_at = :updated_at
+WHERE id = :id
+  AND deleted_at IS NULL
+  AND baseline_inspection_id IS NULL
+  AND EXISTS (
+      SELECT 1
+      FROM inspection
+      WHERE inspection.id = :baseline_inspection_id
+        AND inspection.deleted_at IS NULL
+        AND inspection.type = 'ROUTINE'
+        AND inspection.status = 'FINALIZED'
+        AND inspection.property_id = tenancy.property_id
+        AND inspection.tenancy_id = tenancy.id
+  );
 
 -- 保留期清理的机械执行面（何时/是否清理的判断归 T5-RETENTION，此处只提供执行路径）：
 -- 置空联系方式 + 标记 purged_at，绝不 DELETE 行——巡检/照片/报告哈希链仍是法定证据。何时/是否清理归

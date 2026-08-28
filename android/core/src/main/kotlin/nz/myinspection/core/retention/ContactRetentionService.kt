@@ -41,7 +41,8 @@ class ContactRetentionService(
      */
     fun purge(tenancyId: String): TenancyRetentionStatus = db.transactionWithResult {
         val now = clock.nowMs()
-        val row = db.tenancyQueries.selectById(tenancyId).executeAsOneOrNull()
+        // Privacy expiry applies to historical rows too; this is deliberately not an active-only read.
+        val row = db.tenancyQueries.selectAnyById(tenancyId).executeAsOneOrNull()
             ?: throw ContactPurgeRejected.TenancyNotFound(tenancyId)
         val purgedAt = row.purged_at
         if (purgedAt != null) {
@@ -59,7 +60,7 @@ class ContactRetentionService(
         // enlistment 语义另有 TD10 追踪，不在本卡处理范围。
         db.tenancyQueries.purgeContactInfo(purged_at = now, updated_at = now, id = tenancyId)
 
-        statusOf(db.tenancyQueries.selectById(tenancyId).executeAsOne(), now)
+        statusOf(db.tenancyQueries.selectAnyById(tenancyId).executeAsOne(), now)
     }
 }
 

@@ -1,0 +1,34 @@
+-- schema 2 -> 3: make contact purge terminal at the storage boundary.
+-- Copying through the constrained table intentionally fails closed if a legacy v2 row already has
+-- purged_at set while retaining personal information; this migration never silently rewrites evidence.
+CREATE TABLE tenancy_v3 (
+    id TEXT NOT NULL PRIMARY KEY,
+    property_id TEXT NOT NULL,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER,
+    tenant_name TEXT,
+    contact TEXT,
+    baseline_inspection_id TEXT,
+    purged_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    CHECK (purged_at IS NULL OR (tenant_name IS NULL AND contact IS NULL))
+);
+
+INSERT INTO tenancy_v3 (
+    id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id,
+    purged_at, created_at, updated_at, deleted_at
+)
+SELECT
+    id, property_id, start_ms, end_ms, tenant_name, contact, baseline_inspection_id,
+    purged_at, created_at, updated_at, deleted_at
+FROM tenancy;
+
+DROP INDEX idx_tenancy_property;
+DROP INDEX idx_tenancy_baseline_inspection;
+DROP TABLE tenancy;
+ALTER TABLE tenancy_v3 RENAME TO tenancy;
+
+CREATE INDEX idx_tenancy_property ON tenancy (property_id);
+CREATE INDEX idx_tenancy_baseline_inspection ON tenancy (baseline_inspection_id);
