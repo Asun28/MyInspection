@@ -254,6 +254,22 @@ class DbInvariantsTest {
     }
 
     @Test
+    fun `active and any-lifecycle id reads diverge for soft-deleted parents`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        driver.execute(null, "UPDATE property SET deleted_at = ${now + 1} WHERE id = '$propertyId'", 0)
+        driver.execute(null, "UPDATE template_version SET deleted_at = ${now + 1} WHERE id = '$templateVersionId'", 0)
+
+        assertNull(database.propertyQueries.selectActiveById(propertyId).executeAsOneOrNull())
+        assertEquals(propertyId, database.propertyQueries.selectAnyById(propertyId).executeAsOne().id)
+        assertNull(database.templateVersionQueries.selectActiveById(templateVersionId).executeAsOneOrNull())
+        assertEquals(
+            templateVersionId,
+            database.templateVersionQueries.selectAnyById(templateVersionId).executeAsOne().id,
+        )
+    }
+
+    @Test
     fun `inspection rejects an unknown type`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
