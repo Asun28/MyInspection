@@ -59,10 +59,6 @@ class TemplateContractTest {
         assertNotEquals(golden, supplementChainHash(prev, snapshot.copy(createdAt = snapshot.createdAt + 1)))
         assertNotEquals(golden, supplementChainHash(prev, snapshot.copy(text = "y")))
 
-        data class Row(val id: String, val inspectionId: String, val snapshot: SupplementSnapshot)
-        val first = Row("row-a", "inspection-a", snapshot)
-        val second = Row("row-b", "inspection-b", snapshot)
-        assertEquals(supplementChainHash(prev, first.snapshot), supplementChainHash(prev, second.snapshot))
     }
 
     @Test

@@ -15,6 +15,9 @@ CREATE UNIQUE INDEX idx_template_room_def_active
 ON template_room_def (template_version_id, room_key)
 WHERE deleted_at IS NULL;
 
+-- Historical reads include soft-deleted rows and return template order without a temporary sort.
+CREATE INDEX idx_template_room_def_history ON template_room_def (template_version_id, sort, id);
+
 insert:
 INSERT INTO template_room_def (
     id, template_version_id, room_key, repeatable, sort, created_at, updated_at

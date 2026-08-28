@@ -13,3 +13,9 @@ CREATE TABLE template_room_def (
 CREATE UNIQUE INDEX idx_template_room_def_active
 ON template_room_def (template_version_id, room_key)
 WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_template_room_def_history
+ON template_room_def (template_version_id, sort, id);
+
+CREATE INDEX idx_check_item_def_history
+ON check_item_def (template_version_id, sort, id);
