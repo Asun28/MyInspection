@@ -44,6 +44,16 @@ internal object TemplateTestFixtures {
         ),
     )
 
+    /** T2-ROOM-REPEATABLE 的持久层夹具：房间顺序与 repeatable 两态都可精确断言。 */
+    fun routineTemplateWithRooms(): String =
+        """{"type":"ROUTINE","version":1,"rooms":[{"key":"BEDROOM","repeatable":true},{"key":"KITCHEN","repeatable":false}],"items":[${
+            listOf(
+                item(stableId = "BED-WALL-01", room = "BEDROOM", textEn = "Walls and ceiling", textZh = "墙面与天花", photoRule = "null"),
+                item(),
+                item(stableId = "KIT-ROOM-01", textEn = "Kitchen overview", textZh = "厨房整体", photoRule = "\"ROOM_PANORAMA\""),
+            ).joinToString(",")
+        }]}"""
+
     /**
      * content_hash 的黄金向量。**单行**且逐字节钉死：Kotlin 原始字符串会原样保留源文件的换行，
      * 多行 fixture 的哈希会随 CRLF/LF（`.gitattributes` 与各人的检出设置）漂移，那样的"黄金向量"

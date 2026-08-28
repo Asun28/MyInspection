@@ -1,0 +1,15 @@
+CREATE TABLE template_room_def (
+    id TEXT NOT NULL PRIMARY KEY,
+    template_version_id TEXT NOT NULL,
+    room_key TEXT NOT NULL,
+    repeatable INTEGER NOT NULL,
+    sort INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    CHECK (repeatable IN (0, 1))
+);
+
+CREATE UNIQUE INDEX idx_template_room_def_active
+ON template_room_def (template_version_id, room_key)
+WHERE deleted_at IS NULL;

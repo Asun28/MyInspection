@@ -51,3 +51,10 @@ SELECT *
 FROM check_item_def
 WHERE template_version_id = :template_version_id AND deleted_at IS NULL
 ORDER BY sort ASC, id ASC;
+
+-- 历史重渲必须读回该版本的完整定义，不能因后续软删而静默少项（TD7）。
+selectByTemplateVersionIncludingDeleted:
+SELECT *
+FROM check_item_def
+WHERE template_version_id = :template_version_id
+ORDER BY sort ASC, id ASC;

@@ -8,6 +8,9 @@ import nz.myinspection.core.template.TemplateTestFixtures.item
 import nz.myinspection.core.template.TemplateTestFixtures.routineTemplate
 import nz.myinspection.core.template.TemplateTestFixtures.template
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.nio.charset.CharacterCodingException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,6 +31,109 @@ class TemplateLoaderTest {
 
     private fun errorsOf(json: String): List<String> =
         assertFailsWith<TemplateValidationException> { load(json) }.errors
+
+    private fun templateWithRooms(
+        rooms: String,
+        items: List<String> = listOf(item()),
+    ): String =
+        """{"type":"ROUTINE","version":1,"rooms":$rooms,"items":[${items.joinToString(",")}]}"""
+
+    @Test
+    fun `rooms load with their exact key and repeatable values`() {
+        val json =
+            """{"type":"ROUTINE","version":1,"rooms":[{"key":"BEDROOM","repeatable":true},{"key":"KITCHEN","repeatable":false}],"items":[${item(room = "BEDROOM")},${item(stableId = "KIT-ROOM-01", room = "KITCHEN")}]}"""
+
+        val encoded = Json { encodeDefaults = true }
+            .encodeToJsonElement(Template.serializer(), load(json).template)
+            .jsonObject
+
+        assertEquals(
+            Json.parseToJsonElement(
+                """[{"key":"BEDROOM","repeatable":true},{"key":"KITCHEN","repeatable":false}]""",
+            ),
+            encoded["rooms"],
+        )
+    }
+
+    @Test
+    fun `templates without rooms keep the backward-compatible empty default`() {
+        val loaded = load(routineTemplate())
+
+        assertEquals(emptyList<TemplateRoom>(), loaded.template.rooms)
+        assertEquals(emptyList<String>(), TemplateLoader.validate(loaded.template))
+    }
+
+    @Test
+    fun `repeatable defaults to false when the room omits it`() {
+        val loaded = load(templateWithRooms("""[{"key":"KITCHEN"}]"""))
+
+        assertEquals(false, loaded.template.rooms.single().repeatable)
+    }
+
+    @Test
+    fun `loaded room definitions cannot be mutated through a cast`() {
+        val loaded = load(templateWithRooms("""[{"key":"KITCHEN","repeatable":false}]"""))
+
+        assertFailsWith<UnsupportedOperationException> {
+            (loaded.template.rooms as MutableList).clear()
+        }
+    }
+
+    @Test
+    fun `blank and duplicate room keys are rejected with exact template errors`() {
+        assertEquals(
+            listOf("template: rooms[0].key is blank"),
+            errorsOf(templateWithRooms("""[{"key":""},{"key":"KITCHEN"}]""")),
+        )
+        assertEquals(
+            listOf("template: duplicate room key KITCHEN"),
+            errorsOf(templateWithRooms("""[{"key":"KITCHEN"},{"key":"KITCHEN"}]""")),
+        )
+    }
+
+    @Test
+    fun `item rooms must exactly match a declared room key`() {
+        assertEquals(
+            listOf("KIT-BENCH-01: room KITCHEN is not declared in rooms"),
+            errorsOf(templateWithRooms("""[{"key":"KITCHE"}]""")),
+        )
+        assertEquals(
+            listOf("KIT-BENCH-01: room kitchen is not declared in rooms"),
+            errorsOf(
+                templateWithRooms(
+                    """[{"key":"KITCHEN"}]""",
+                    items = listOf(item(room = "kitchen")),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `undeclared rooms for every item are reported in one pass`() {
+        val json = templateWithRooms(
+            """[{"key":"BATHROOM"}]""",
+            items = listOf(
+                item(stableId = "KIT-BENCH-01", room = "KITCHEN"),
+                item(stableId = "BED-WALL-01", room = "BEDROOM"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "KIT-BENCH-01: room KITCHEN is not declared in rooms",
+                "BED-WALL-01: room BEDROOM is not declared in rooms",
+            ),
+            errorsOf(json),
+        )
+    }
+
+    @Test
+    fun `a misspelled rooms field remains a strict decoding error`() {
+        val json =
+            """{"type":"ROUTINE","version":1,"roomsX":[{"key":"KITCHEN"}],"items":[${item()}]}"""
+
+        assertFailsWith<SerializationException> { load(json) }
+    }
 
     @Test
     fun `load maps every template and item field`() {

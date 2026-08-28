@@ -5,7 +5,7 @@ CREATE TABLE supplement (
     text TEXT NOT NULL,
     prev_hash TEXT NOT NULL, -- 链上一环的 chain_hash；首条锚 inspection.data_hash（T1-CANON-HASH「prev_hash(1) = inspection.data_hash」），
     -- 不是"链首没有上一条"——每一条都有确定的 prev_hash，只是首条的值来自 inspection 而非另一条 supplement。
-    chain_hash TEXT NOT NULL, -- 本行的链哈希 = SHA-256(canonical(本行) + prev_hash)，T1-CANON-HASH 的 supplementChainHash
+    chain_hash TEXT NOT NULL, -- SHA-256(canonical({created_at, text}) + prev_hash)，T1-CANON-HASH 的 supplementChainHash
     -- 算出、T3-FINALIZE 写入（此处只建列，不算哈希）。没有这一列，链尾/单条记录的哈希无处可核对，
     -- verifyChain 拿不到"这一行当时算出的哈希应该是多少"这个锚点。
     updated_at INTEGER NOT NULL,

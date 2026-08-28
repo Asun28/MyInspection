@@ -1,0 +1,37 @@
+CREATE TABLE template_room_def (
+    id TEXT NOT NULL PRIMARY KEY,
+    template_version_id TEXT NOT NULL, -- logical reference -> template_version.id
+    room_key TEXT NOT NULL, -- exact value consumed by TemplateItem.room
+    repeatable INTEGER NOT NULL, -- 0 = singleton, 1 = multiple runtime instances allowed
+    sort INTEGER NOT NULL, -- template rooms[] array index
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    CHECK (repeatable IN (0, 1))
+);
+
+-- SQLite UNIQUE treats NULL values as distinct, so active business-key uniqueness needs a partial index.
+CREATE UNIQUE INDEX idx_template_room_def_active
+ON template_room_def (template_version_id, room_key)
+WHERE deleted_at IS NULL;
+
+insert:
+INSERT INTO template_room_def (
+    id, template_version_id, room_key, repeatable, sort, created_at, updated_at
+)
+SELECT :id, :template_version_id, :room_key, :repeatable, :sort, :created_at, :updated_at
+WHERE EXISTS (
+    SELECT 1 FROM template_version
+    WHERE id = :template_version_id AND deleted_at IS NULL
+)
+AND NOT EXISTS (
+    SELECT 1 FROM inspection
+    WHERE template_version_id = :template_version_id
+);
+
+-- Historical template re-rendering must retain soft-deleted definitions.
+selectByTemplateVersionIncludingDeleted:
+SELECT *
+FROM template_room_def
+WHERE template_version_id = :template_version_id
+ORDER BY sort ASC, id ASC;
