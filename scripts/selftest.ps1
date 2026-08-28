@@ -117,7 +117,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
@@ -550,7 +550,15 @@ function Test-SelftestSkipPassExclusivitySourceContract([string]$ScriptText) {
   return (@($requiredSnippets | Where-Object { -not $ScriptText.Contains($_) }).Count -eq 0)
 }
 
-function Invoke-SelftestSkipLedgerFixture([string]$ScriptText) {
+function Test-SelftestSkipCommandName([string]$CommandName) {
+  return @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip') -contains $CommandName
+}
+
+function Invoke-SelftestSkipLedgerFixture {
+  param(
+    [Parameter(Mandatory)][string]$ScriptText,
+    [switch]$VerifyMutationBudget
+  )
   $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
   try {
     $tokens = $null; $errors = $null
@@ -621,8 +629,8 @@ switch ($Mode) {
     if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
   }
   'overlap' {
-    Fail '17aa(7): fixture failed unit'
-    if (-not (Test-SelftestPrerequisite -GateIds @('17aa(7)'))) { $script:fixtureOutcome = 'SKIP' }
+    [void](Add-SelftestFailedGateId -GateIds $failedSelftestGateIds -Message '17aa(7): fixture failed unit')
+    [void](Register-SelftestSkip -GateId '17aa(7)' -Reason 'PREREQUISITE-FAIL')
   }
   'aggregate-pass' {
     $before = $skippedSelftestChecks.Count
@@ -644,7 +652,7 @@ switch ($Mode) {
 }
 
 $outcomeOverlap = @(Get-SelftestOutcomeOverlap -FailedGateIds $failedSelftestGateIds -SkippedRecords $skippedSelftestChecks)
-if ($outcomeOverlap.Count -gt 0) { Write-Output "OVERLAP=$($outcomeOverlap -join ',')" }
+if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join ',')" }
 Write-Host (Format-SelftestSkipSummary -Shard core -Records $skippedSelftestChecks)
 if ($fail) {
   $failureSentinel = Format-SelftestFailureSentinel -Shard core -GateIds $failedSelftestGateIds
@@ -704,8 +712,8 @@ exit 0
       $prerequisiteFailOutput -match '(?m)^\[SELFTEST-SKIP-SUMMARY\] shard=core count=1 items=17aa\(7\)/PREREQUISITE-FAIL\r?$' -and
       $prerequisiteFailOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(6\)\r?$' -and
       $prerequisiteFailOutput -match '(?m)^OUTCOME=FAIL\r?$' -and $prerequisiteFailOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
-      $overlapExit -eq 1 -and $overlapOutput -match '(?m)^OVERLAP=17aa\(7\)\r?$' -and
-      $overlapOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(7\)\r?$' -and
+      $overlapExit -eq 1 -and $overlapOutput -match 'FAIL/SKIP outcome overlap: 17aa\(7\)' -and
+      $overlapOutput -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=17aa\(7\),8\.2e\r?$' -and
       $overlapOutput -match '(?m)^OUTCOME=FAIL\r?$' -and $overlapOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
       $aggregatePassExit -eq 0 -and $aggregatePassOutput -match '(?m)^OUTCOME=PASS\r?$' -and
       $aggregateSkipExit -eq 0 -and $aggregateSkipOutput -match '(?m)^OUTCOME=SKIP\r?$' -and $aggregateSkipOutput -notmatch '(?m)^OUTCOME=PASS\r?$' -and
@@ -719,10 +727,124 @@ exit 0
       $normalOutput -match '(?m)^OUTCOME=PASS\r?$' -and $normalOutput -notmatch '(?m)^OUTCOME=SKIP\r?$'
     )
     if (-not $passed) { throw 'fixture outcome contract failed' }
+    if ($VerifyMutationBudget) {
+      # The full script is parsed once above. Mutants are compact fixture sources and run sequentially.
+      if (-not (Test-SelftestSkipCommandName -CommandName 'sKiP-SeLfTeStChEcK')) {
+        throw '[SELFTEST-SKIP-MUTATION-CASE-VARIANT]'
+      }
+      $skipIdentityInventory = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+          (Test-SelftestSkipCommandName -CommandName ($node.GetCommandName()))
+      }, $true) | ForEach-Object { "$($_.GetCommandName())@$($_.Extent.StartOffset)" })
+      $mutationSpecs = @(
+        [PSCustomObject]@{
+          Id = 'reason'
+          Mode = 'invalid-reason'
+          Target = "return (`$Reason -cmatch '^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$')"
+          Replacement = 'return $true'
+        },
+        [PSCustomObject]@{
+          Id = 'gate'
+          Mode = 'environment-missing'
+          Target = 'return "[SELFTEST-SKIP] gate=$GateId reason=$Reason"'
+          Replacement = 'return "[SELFTEST-SKIP] gate=WRONG reason=$Reason"'
+        },
+        [PSCustomObject]@{
+          Id = 'batch-truncation'
+          Mode = 'batch'
+          Target = 'foreach ($gateId in $GateIds) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }'
+          Replacement = 'foreach ($gateId in @($GateIds | Select-Object -First 1)) { [void](Register-SelftestSkip -GateId $gateId -Reason $Reason) }'
+        },
+        [PSCustomObject]@{
+          Id = 'outcome-overlap'
+          Mode = 'overlap'
+          Target = 'if ($outcomeOverlap.Count -gt 0) { Fail "FAIL/SKIP outcome overlap: $($outcomeOverlap -join '','')" }'
+          Replacement = ''
+        }
+      )
+      $requiredMutationIds = @('reason', 'gate', 'batch-truncation', 'outcome-overlap')
+      $actualMutationIds = @($mutationSpecs | ForEach-Object {
+        $idProperty = $_.PSObject.Properties['Id']
+        if ($null -eq $idProperty) { 'MISSING' } else { [string]$idProperty.Value }
+      })
+      if (($actualMutationIds -join ',') -cne ($requiredMutationIds -join ',')) {
+        throw "[SELFTEST-SKIP-MUTATION-IDENTITIES] expected=$($requiredMutationIds -join ',') actual=$($actualMutationIds -join ',')"
+      }
+      $candidateLimit = 128
+      $assertMutationBudget = {
+        param([int]$CandidateCount, [int]$ExecutedCount, [int]$PeakCount, [int]$ResidentCount)
+        if ($CandidateCount -lt $requiredMutationIds.Count -or
+            $CandidateCount -gt $candidateLimit -or
+            $ExecutedCount -ne $requiredMutationIds.Count -or
+            $PeakCount -gt 2 -or
+            $ResidentCount -ne 1) {
+          throw "[SELFTEST-SKIP-MUTATION-BUDGET-EXCEEDED] candidates=$CandidateCount executed=$ExecutedCount peak_compact_sources=$PeakCount resident_compact_sources=$ResidentCount"
+        }
+      }
+      $retainedCompactSources = [System.Collections.Generic.List[string]]::new()
+      [void]$retainedCompactSources.Add($fixtureSource)
+      foreach ($spec in $mutationSpecs) {
+        [void]$retainedCompactSources.Add($fixtureSource.Replace($spec.Target, $spec.Replacement))
+      }
+      $retentionMutationRejected = $false
+      try {
+        & $assertMutationBudget $skipIdentityInventory.Count $requiredMutationIds.Count $retainedCompactSources.Count $retainedCompactSources.Count
+      } catch {
+        $retentionMutationRejected = $_.Exception.Message.Contains('[SELFTEST-SKIP-MUTATION-BUDGET-EXCEEDED]')
+      }
+      $retainedCompactSources.Clear()
+      if (-not $retentionMutationRejected) { throw '[SELFTEST-SKIP-MUTATION-RETENTION-SURVIVED]' }
+      $executedMutations = 0
+      $residentCompactSources = [System.Collections.Generic.List[string]]::new()
+      [void]$residentCompactSources.Add($fixtureSource)
+      $peakCompactSources = $residentCompactSources.Count
+      foreach ($spec in $mutationSpecs) {
+        if ([regex]::Matches($fixtureSource, [regex]::Escape($spec.Target)).Count -ne 1) {
+          throw "[SELFTEST-SKIP-MUTATION-TARGET] id=$($spec.Id)"
+        }
+        $mutantSource = $fixtureSource.Replace($spec.Target, $spec.Replacement)
+        [void]$residentCompactSources.Add($mutantSource)
+        $peakCompactSources = [math]::Max($peakCompactSources, $residentCompactSources.Count)
+        Set-Content -LiteralPath $fixturePath -Value $mutantSource -Encoding utf8
+        $mutantOutput = (& pwsh -NoProfile -File $fixturePath -Mode $spec.Mode 2>&1 | Out-String)
+        $mutantExit = $LASTEXITCODE
+        $killed = switch ($spec.Id) {
+          'reason' { $mutantExit -eq 0 -and $mutantOutput -notmatch 'Invalid selftest skip reason code' }
+          'gate' { $mutantExit -eq 0 -and $mutantOutput -match '(?m)^\[SELFTEST-SKIP\] gate=WRONG reason=FILE-MISSING\r?$' }
+          'batch-truncation' { $mutantExit -eq 0 -and @([regex]::Matches($mutantOutput, '(?m)^\[SELFTEST-SKIP\] ')).Count -eq 1 }
+          'outcome-overlap' { $mutantExit -eq 0 -and $mutantOutput -match '(?m)^OUTCOME=PASS\r?$' -and $mutantOutput -notmatch '(?m)^\[SELFTEST-FAILED-GATES\]' }
+          default { $false }
+        }
+        if (-not $killed) {
+          throw "[SELFTEST-SKIP-MUTATION-SURVIVED] id=$($spec.Id) exit=$mutantExit"
+        }
+        $executedMutations++
+        if (-not $residentCompactSources.Remove($mutantSource)) {
+          throw "[SELFTEST-SKIP-MUTATION-RESIDENCY] id=$($spec.Id)"
+        }
+        $mutantSource = $null
+      }
+      & $assertMutationBudget $skipIdentityInventory.Count $executedMutations $peakCompactSources $residentCompactSources.Count
+      Write-Host "[SELFTEST-SKIP-MUTATION-BUDGET] candidates=$($skipIdentityInventory.Count) executed=$executedMutations peak_compact_sources=$peakCompactSources resident_compact_sources=$($residentCompactSources.Count) retention_mutants=1"
+    }
     return $true
   } finally {
     Remove-Item -LiteralPath $fixturePath -Force -ErrorAction SilentlyContinue
   }
+}
+
+function Invoke-SelftestSkipMutationBudgetFixture([string]$ScriptText) {
+  $budgetInformation = @()
+  $result = Invoke-SelftestSkipLedgerFixture -ScriptText $ScriptText -VerifyMutationBudget -InformationVariable +budgetInformation
+  $budgetDiagnostics = @($budgetInformation | ForEach-Object { [string]$_.MessageData } | Where-Object {
+    $_.StartsWith('[SELFTEST-SKIP-MUTATION-BUDGET]', [System.StringComparison]::Ordinal)
+  })
+  if ($budgetDiagnostics.Count -ne 1 -or
+      $budgetDiagnostics[0] -cnotmatch '^\[SELFTEST-SKIP-MUTATION-BUDGET\] candidates=[1-9][0-9]* executed=4 peak_compact_sources=2 resident_compact_sources=1 retention_mutants=1$') {
+    throw "[SELFTEST-SKIP-MUTATION-DIAGNOSTIC] actual=$($budgetDiagnostics -join '|')"
+  }
+  return $result
 }
 
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
@@ -1159,6 +1281,13 @@ if ($Fixture -eq 'skip-ledger') {
   if (-not (Test-SelftestSkipPassExclusivitySourceContract $source)) { throw '[SELFTEST-SKIP-PASS-EXCLUSIVITY-CONTRACT]' }
   if (-not (Invoke-SelftestSkipLedgerFixture $source)) { throw '[SELFTEST-SKIP-BEHAVIOR-CONTRACT]' }
   Write-Host '[SELFTEST-FIXTURE] skip-ledger PASS'
+  exit 0
+}
+
+if ($Fixture -eq 'skip-mutation-budget') {
+  $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
+  if (-not (Invoke-SelftestSkipMutationBudgetFixture $source)) { throw '[SELFTEST-SKIP-MUTATION-BUDGET-CONTRACT]' }
+  Write-Host '[SELFTEST-FIXTURE] skip-mutation-budget PASS'
   exit 0
 }
 
