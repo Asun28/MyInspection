@@ -1805,3 +1805,19 @@
 - rule: 结构标签校验须同时证明全局集合与局部归属：按源码顺序维护 active lexical owner；夹具至少包含连续两个合法 owner 后再复用前一个 label，且删除 owner 守卫必须命中专属红灯。
 - enforced_by: scripts/selftest.ps1 gate 1i GATE-ID-GUARD-ACTIVE-OWNER
 - refs: PR #186; scripts/selftest.ps1; T0-GATE-ID-UNIQUENESS
+
+## L251
+- date: 2026-08-28 ｜ tags: task-loop,concurrency,r3,reset,shared-worktree ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 同一张卡的两会话同时收到一次人裁授权，各自重置 R3 并评审，产生相反 verdict，后到会话又在已合并 worktree 留下未提交修复。
+- root_cause: R3 reset 授权没有单一 owner 或一次性 token；共享 worktree 的重复会话都把同一句批准视为自己的执行权。
+- rule: 一张卡进入人裁 reset 后必须指定唯一执行会话；该会话先通知其它会话只读，再执行唯一一次 ResetRounds。合并后出现的并发 reviewer finding 只登记 R5 技术债，不继续编辑已合并 worktree。
+- enforced_by: none（目前仅为会话协调规则，尚无单次 reset token）
+- refs: PR #187; TD162; T0-DEBT-SELFTEST-MUTATION-BUDGET
+
+## L252
+- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R5 先把 merged 卡移入 cold storage 后，task.ps1 cleanup 因只读取 specs/tasks 中的 live 卡而在任何删除前报任务卡不存在。
+- root_cause: archive.ps1 的正常 R5 搬运与 task.ps1 cleanup 的 live-only 卡路径存在顺序耦合，但流程没有显式规定 cleanup 必须先于归档。
+- rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。
+- enforced_by: none（流程顺序约定，task.ps1 尚未支持 archived card）
+- refs: PR #187; scripts/task.ps1; scripts/archive.ps1
