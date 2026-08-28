@@ -16,6 +16,7 @@ kotlin {
 sourceSets {
     test {
         resources.srcDir("../../data/templates")
+        resources.include("routine-v1.json", "phrases-v1.json")
     }
 }
 
@@ -25,7 +26,95 @@ val e2eTest = sourceSets.create("e2eTest") {
     compileClasspath += sourceSets.main.get().output
     runtimeClasspath += output + compileClasspath
     resources.srcDir("../../data/templates")
+    resources.include("e2e/**", "routine-v1.json")
 }
+
+// These tests read repository files directly instead of through their compiled runtime classpath. Keep the
+// inventory exact so unrelated repository edits do not invalidate :core:test.
+/*
+ * Runtime-input verification receipt (2026-08-29; every temporary mutation was restored).
+ * Commands below ran from the repository root; "plain" means no --rerun-tasks or --no-build-cache.
+ *
+ * A1 | Mutation: append "ANNUAL" to configs/compliance/nz-rules-v1.json at
+ *    rules.inspection.frequencyLimit.exemptTypes. Plain command:
+ *    cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test
+ *      --tests "nz.myinspection.core.compliance.*"
+ *    Before this declaration: :core:test UP-TO-DATE, exit 0. Adding --rerun-tasks: exit 1;
+ *    failure = "expected [[INGOING, EXIT]] but found [[INGOING, EXIT, ANNUAL]]".
+ * A2 | With this declaration and the same mutation, the plain command executed and exited 1 with the
+ *    same failure. Restoring the JSON and repeating the plain command exited 0.
+ * A3 | Inventory command:
+ *    rg -n 'System\.getProperty\("user\.dir"\)|getResourceAsStream|Files\.readString|
+ *      Files\.readAllBytes|\.readText\(Charsets\.UTF_8\)' android/core/src/test/kotlin/nz/myinspection/core
+ *    ComplianceEngineTest -> configs/compliance/nz-rules-v1.json; ReportSourcePurityTest -> every
+ *    Kotlin file in the report test package; PhotoOrphanCleanupWiringTest -> CameraPhotoIngestPipeline,
+ *    PhotoImportPipeline, PhotoIngestPendingLease, PendingPhotoLease, PhotoRuntimeStorage,
+ *    PhotoOrphanCleanupWorker,
+ *    PhotoDirectoryDurability, PhotoAssetCleanupExecutor, NoFollowLeafDeletion,
+ *    PhotoOrphanCleanupScheduler, and MainActivity; PhotoStreamingWiringTest -> PhotoJpegEncoder,
+ *    CameraPhotoIngestPipeline, PhotoImportPipeline, and PhotoQualitySettings. RoutineContentTest and
+ *    PhraseLibraryContentTest read routine-v1.json and phrases-v1.json from the test classpath.
+ * A4 | The inventory below uses explicit files/includes. Probe: append " [A4]" to a same-line comment
+ *    in unlisted app/media/PhotoBitmapScaler.kt, then run `cmd /c android\gradlew.bat -p android
+ *    --offline --no-daemon -q :core:test --tests
+ *    "nz.myinspection.core.media.PhotoStreamingWiringTest"`; :core:test remained UP-TO-DATE, exit 0.
+ *    Restoring the comment changed no declared input.
+ * A5 | RoutineContentTest hashes the sorted sequence of every stableId/textEn/textZh tuple against an
+ *    independent literal. Mutation: append " [A5]" to previously unpinned LNG-WALL-01.textZh. Command:
+ *    cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test
+ *      --tests "nz.myinspection.core.content.*"
+ *    processTestResources reran and the command exited 1; failure = "stableId/textEn/textZh tuple digest
+ *    drifted expected [88e176b5442050532b520e5b561c5a77e7984069a686bf1cdeb5c6887e41ac8b]
+ *    but found [ead3014b474b7edda1234b68579e4a0bff3e482df164be9c7bc3dfda9e82be24]".
+ *    Restored command exit = 0.
+ * A6 | cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check exited 0 in a
+ *    detached clean baseline and exited 0 again after these declarations.
+ * A7 | Deletion mutation: remove the two-line inputs.file(nz-rules-v1.json) statement, establish a
+ *    green baseline, then repeat A1. The plain task returned stale UP-TO-DATE, exit 0; the classifier
+ *    `(exit -eq 1) -and (XML contains the A1 failure)` rejected it, exiting 1 with
+ *    "[GRADLE-INPUT-A2] deletion mutation survived". Restoring the statement killed the mutation.
+ * A8 | Same-line, bytecode-neutral mutation: replace the split `ReportComposer` + `.` text in
+ *    ReportComposerGoldenTest.kt with `ReportComposer.Companion`. Run `cmd /c android\gradlew.bat
+ *    -p android --offline --no-daemon -q :core:cleanTest`, then `cmd /c android\gradlew.bat -p android
+ *    --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"`: :core:test was
+ *    FROM-CACHE, exit 0. Repeat cleanTest, then add --no-build-cache to that test command: exit 1 with
+ *    "a test names the composer's companion instead of writing the value out". With reportTestSources
+ *    declared, the ordinary mutated test command executed and exited 1 with that failure.
+ * A9 | A1/A2 are an undeclared file read through user.dir; A8 is a source-text assertion hidden by a
+ *    bytecode-equivalent cache hit. Their reproductions and input declarations remain distinct above.
+ * A10 | T3 pre-fix command (the plain report command) returned FROM-CACHE, exit 0 under the A8
+ *    mutation. Exact hardened command `cmd /c android\gradlew.bat -p android --offline --no-daemon -q
+ *    --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.*"` executed the
+ *    same mutation and exited 1 with the A8 failure. T4 pre-fix plain command returned UP-TO-DATE,
+ *    exit 0 under A1; exact hardened command `cmd /c android\gradlew.bat -p android --offline
+ *    --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests
+ *    "nz.myinspection.core.compliance.*"` executed it and exited 1 with the A1 failure. After restore,
+ *    the exact hardened T3 and T4 commands both exited 0.
+ */
+val repositoryRoot = layout.projectDirectory.dir("../..")
+val reportTestSources = fileTree("src/test/kotlin/nz/myinspection/core/report") {
+    include("*.kt")
+}
+val coreMediaWiringSources = fileTree("src/main/kotlin/nz/myinspection/core/media") {
+    include("PendingPhotoLease.kt", "NoFollowLeafDeletion.kt")
+}
+val appMediaWiringSources = fileTree("../app/src/main/kotlin/nz/myinspection/app/media") {
+    include(
+        "CameraPhotoIngestPipeline.kt",
+        "PhotoAssetCleanupExecutor.kt",
+        "PhotoDirectoryDurability.kt",
+        "PhotoImportPipeline.kt",
+        "PhotoIngestPendingLease.kt",
+        "PhotoJpegEncoder.kt",
+        "PhotoOrphanCleanupScheduler.kt",
+        "PhotoOrphanCleanupWorker.kt",
+        "PhotoRuntimeStorage.kt",
+    )
+}
+val otherAppWiringSources = files(
+    "../app/src/main/kotlin/nz/myinspection/app/MainActivity.kt",
+    "../app/src/main/kotlin/nz/myinspection/app/feature/settings/media/PhotoQualitySettings.kt",
+)
 
 configurations[e2eTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
 configurations[e2eTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
@@ -61,6 +150,10 @@ dependencies {
 
 tasks.test {
     useTestNG()
+    inputs.file(repositoryRoot.file("configs/compliance/nz-rules-v1.json"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(reportTestSources, coreMediaWiringSources, appMediaWiringSources, otherAppWiringSources)
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.register<Test>("e2eTest") {
