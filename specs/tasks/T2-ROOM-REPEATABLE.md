@@ -6,6 +6,7 @@ status: todo
 branch: T2-ROOM-REPEATABLE
 worktree: C:\wt\T2-ROOM-REPEATABLE
 allow_paths:
+  - configs/secrets/tracked-sensitive-allowlist.json
   - android/core/build.gradle.kts
   - android/core/src/main/sqldelight/
   - android/core/src/main/kotlin/nz/myinspection/core/template/
@@ -36,7 +37,7 @@ acceptance:
   - "A11 TD6 注释与权威实现一致，且哈希行为逐字节不变：`Supplement.sq` 的 `chain_hash` 行注释携带 ASCII 哨兵 `SHA-256(canonical({created_at, text}) + prev_hash)`（同 A10 的文件读法断言存在，且旧文案 `canonical(本行)` 不存在）；同测试用固定黄金向量钉住行为——`supplementChainHash(prev = \"0\" × 64, SupplementSnapshot(createdAt = 1_700_000_000_000L, text = \"x\"))` 等于本卡记录的那一个精确 64 位小写十六进制串；只改 `createdAt`（+1ms）与只改 `text`（`\"y\"`）两例返回值各自**不等于**该串，而同一 `SupplementSnapshot` 配不同 `supplement.id` / `inspection_id` 行值时返回值**相等**（证明哈希域恰为 {created_at, text} 两字段，不多不少）"
   - "A12 README 房间段与实现同源：`data/templates/README.md` 新增房间段，内含一个最小 `rooms` 片段；`android/core/build.gradle.kts` 的 test resources 精确 include 集合须加入 `README.md`（不恢复整个目录通配），测试从测试类路径读该资源，抽出其中标为 json 的代码块字节喂给 `LoadedTemplate.parse`，断言解析成功且 `TemplateLoader.validate` 返回**空列表**；删除 `README.md` 这一枚 include 后该测试因资源缺失精确翻红——文档示例因此不会随实现漂移成假"
   - "A13 非目标边界可证：本卡全部测试的夹具**从不插入 `room_instance` 行**，在此前提下 A1–A12 全绿（不做采集期实例化状态机，`room_instance` 的写入路径留给 T2-CAPTURE-CORE）；并断言 `data/templates/routine-v1.json` 与 `data/templates/phrases-v1.json` 的原始字节 SHA-256 各等于本卡开工前记录的那两个精确 64 位串（真实模板内容未被本卡改动）"
-  - "A14 离线确定性与两道既有闸：全部测试零出站网络、零 wall-clock、零随机——`TemplateStore(db, uuid = Uuid7Generator(clock = ClockMs { 1_700_000_000_000L }, randomSource = FixedUuid7RandomSource(seed = 0x1234L)), clock = ClockMs { 1_700_000_000_000L })`，同一夹具连跑两次后对 `template_version` + `check_item_def` + `template_room_def` 三表按主键升序全量导出，两次字符串逐字节相等；`pwsh -File scripts\\check-secrets.ps1 -Strict` 退出 0（新增的 `databases/2.db` 走既有精确路径清单放行，不新增通配豁免）；本卡唯一验收出口是 `dod_command` 的退出码 0，清单内无任何发布/推送/写登录态动作"
+  - "A14 离线确定性与两道既有闸：全部测试零出站网络、零 wall-clock、零随机——`TemplateStore(db, uuid = Uuid7Generator(clock = ClockMs { 1_700_000_000_000L }, randomSource = FixedUuid7RandomSource(seed = 0x1234L)), clock = ClockMs { 1_700_000_000_000L })`，同一夹具连跑两次后对 `template_version` + `check_item_def` + `template_room_def` 三表按主键升序全量导出，两次字符串逐字节相等；`configs/secrets/tracked-sensitive-allowlist.json` 只新增 `android/core/src/main/sqldelight/databases/2.db` 这一条精确路径（不新增目录/glob/扩展名豁免），`pwsh -File scripts\\check-secrets.ps1 -Strict` 退出 0；本卡唯一验收出口是 `dod_command` 的退出码 0，清单内无任何发布/推送/写登录态动作"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.template.*"
 dod_exit: 0
 dod_assert: 模板 JSON 的房间定义带 repeatable 标记，经加载→校验→**入库→读回**往返不丢失；每条 item.room 必须在房间定义里声明（未声明即拒，错误点名条目）；repeatable 房间与单例房间在读回结果里可区分；模板历史读回不得因 check_item_def 软删过滤而静默缺项；两处冻结 schema 哈希注释与权威实现一致
