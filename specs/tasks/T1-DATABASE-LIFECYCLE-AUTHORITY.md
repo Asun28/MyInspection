@@ -13,6 +13,7 @@ allow_paths:
   - android/core/src/test/kotlin/nz/myinspection/core/capture/
   - android/core/src/test/kotlin/nz/myinspection/core/retention/
   - android/core/src/test/kotlin/nz/myinspection/core/db/
+  - android/core/src/test/kotlin/nz/myinspection/core/template/TemplateRoomSchemaTest.kt
 forbid:
   - 未经版本评审改哈希域、finalized 证据形状或已有备份格式
   - 新增账号、角色、ACL、admin 绕过或物理级联删除
