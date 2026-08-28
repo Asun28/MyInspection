@@ -4060,20 +4060,37 @@ try {
   exit 41
 }
 '@ | Set-Content -LiteralPath $rendezvousControllerPath82 -Encoding utf8
+    $stopAggregateHarnessProcess82 = {
+      param([System.Diagnostics.Process]$Process, [string]$Context)
+      if ($null -eq $Process) { return $true }
+      $hasExited = $false
+      try { $hasExited = $Process.HasExited }
+      catch {
+        Fail "[SELFTEST-8.2E-PROCESS-STATE] context=$Context state=unreadable"
+        return $false
+      }
+      if ($hasExited) { return $true }
+      try { $Process.Kill($true) }
+      catch {
+        Fail "[SELFTEST-8.2E-PROCESS-KILL] context=$Context state=failed"
+        return $false
+      }
+      try {
+        if (-not $Process.WaitForExit($rendezvousHarnessBudgetMilliseconds82)) {
+          Fail "[SELFTEST-8.2E-PROCESS-TERMINATION-TIMEOUT] context=$Context budget-seconds=$rendezvousHarnessBudgetSeconds82"
+          return $false
+        }
+      } catch {
+        Fail "[SELFTEST-8.2E-PROCESS-WAIT] context=$Context state=failed"
+        return $false
+      }
+      return $true
+    }
     $disposeAggregateHarnessProcess82 = {
       param([System.Diagnostics.Process]$Process)
       if ($null -eq $Process) { return }
-      try {
-        $hasExited = $true
-        try { $hasExited = $Process.HasExited } catch { }
-        if (-not $hasExited) {
-          try { $Process.Kill($true) } catch { }
-          try { $Process.WaitForExit() } catch { }
-        }
-      } finally {
-        [void]$aggregateHarnessProcesses82.Remove($Process)
-        $Process.Dispose()
-      }
+      [void]$aggregateHarnessProcesses82.Remove($Process)
+      $Process.Dispose()
     }
     $startRendezvousController82 = {
       param([string]$Mode, [int]$DelayMilliseconds, [int]$SetupDelayMilliseconds)
@@ -4095,12 +4112,12 @@ try {
       param([System.Diagnostics.Process]$Process)
       try {
         $completed = $Process.WaitForExit($rendezvousHarnessBudgetMilliseconds82)
+        $canReadOutput = $completed
         if (-not $completed) {
-          try { $Process.Kill($true) } catch { }
-          try { $Process.WaitForExit() } catch { }
+          $canReadOutput = & $stopAggregateHarnessProcess82 $Process 'controller-timeout'
         }
-        $stdout = $Process.StandardOutput.ReadToEnd()
-        $stderr = $Process.StandardError.ReadToEnd()
+        $stdout = if ($canReadOutput) { $Process.StandardOutput.ReadToEnd() } else { '' }
+        $stderr = if ($canReadOutput) { $Process.StandardError.ReadToEnd() } else { '' }
         $exitCode = if ($completed) { $Process.ExitCode } else { -1 }
         return [PSCustomObject]@{ Completed = $completed; ExitCode = $exitCode; Output = "$stdout$stderr" }
       } finally {
@@ -4109,8 +4126,9 @@ try {
     }
     $lifecycleController82 = & $startRendezvousController82 'timeout' 0 0
     $lifecycleControllerId82 = $lifecycleController82.Id
+    $lifecycleStopped82 = & $stopAggregateHarnessProcess82 $lifecycleController82 'lifecycle-control'
     & $disposeAggregateHarnessProcess82 $lifecycleController82
-    if (Get-Process -Id $lifecycleControllerId82 -ErrorAction SilentlyContinue) {
+    if (-not $lifecycleStopped82 -or (Get-Process -Id $lifecycleControllerId82 -ErrorAction SilentlyContinue)) {
       Fail '[SELFTEST-8.2E-PROCESS-LIFECYCLE] controller remained alive after deterministic disposal.'
     }
     'old' | Set-Content (Join-Path $aggFixture 'old.txt')
@@ -4292,12 +4310,12 @@ try {
         if (-not $process.Start()) { throw "timeout mutation probe failed to start: $Id" }
         [void]$aggregateHarnessProcesses82.Add($process)
         $completed = $process.WaitForExit($rendezvousHarnessBudgetMilliseconds82)
+        $canReadOutput = $completed
         if (-not $completed) {
-          try { $process.Kill($true) } catch { }
-          try { $process.WaitForExit() } catch { }
+          $canReadOutput = & $stopAggregateHarnessProcess82 $process "mutation-$Id"
         }
-        $stdout = $process.StandardOutput.ReadToEnd()
-        $stderr = $process.StandardError.ReadToEnd()
+        $stdout = if ($canReadOutput) { $process.StandardOutput.ReadToEnd() } else { '' }
+        $stderr = if ($canReadOutput) { $process.StandardError.ReadToEnd() } else { '' }
         $exitCode = if ($completed) { $process.ExitCode } else { -1 }
         $elapsedPath = Join-Path $probeLogRoot 'ready/seeded.timeout'
         $elapsedMilliseconds = if (Test-Path -LiteralPath $elapsedPath) { [long](Get-Content -LiteralPath $elapsedPath -Raw) } else { -1L }
@@ -4355,7 +4373,18 @@ try {
         "      Fail '8.2e：all 聚合器未在超过旧五秒窗口的真实长分片启动延迟下保持并发并通过。'"
         '    }'
       ) -join "`n")
-      'PROCESS-FINALLY' = ('foreach ($process in @($aggregateHarnessProcesses82)) { & $disposeAggregateHarness' + 'Process82 $process }')
+      'BOUNDED-PROCESS-TERMINATION' = (@(
+        'if (-not $Process.WaitForExit($rendezvousHarnessBudgetMilliseconds82)) {'
+        '          Fail "[SELFTEST-8.2E-PROCESS-TERMINATION-' + 'TIMEOUT] context=$Context budget-seconds=$rendezvousHarnessBudgetSeconds82"'
+        '          return $false'
+        '        }'
+      ) -join "`n")
+      'PROCESS-FINALLY' = (@(
+        'foreach ($process in @($aggregateHarnessProcesses82)) {'
+        '      try { [void](& $stopAggregateHarnessProcess82 $process ''outer-finally'') }'
+        '      finally { & $disposeAggregateHarness' + 'Process82 $process }'
+        '    }'
+      ) -join "`n")
       'CONTROLLER-NO-RECREATE' = (@(
         'if (Test-Path -LiteralPath $ReadyRoot -PathType Container) {'
         '    $_.Exception.Message | Set-Content (Join-Path $ReadyRoot "$Mode.watchdog") -ErrorAction SilentlyContinue'
@@ -4426,7 +4455,10 @@ try {
     if (@(Compare-Object $aggRootsBefore $aggRootsAfter).Count -ne 0) { Fail '8.2e：all 聚合器留下了临时快照目录。' }
   } catch { Fail "8.2e：all 聚合器 hermetic 夹具异常：$($_.Exception.Message)" }
   finally {
-    foreach ($process in @($aggregateHarnessProcesses82)) { & $disposeAggregateHarnessProcess82 $process }
+    foreach ($process in @($aggregateHarnessProcesses82)) {
+      try { [void](& $stopAggregateHarnessProcess82 $process 'outer-finally') }
+      finally { & $disposeAggregateHarnessProcess82 $process }
+    }
     if ($null -eq $oldFailShard) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_FAIL_SHARD = $oldFailShard }
     if ($null -eq $oldGateSpec) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_GATE_SPEC = $oldGateSpec }
     if ($null -eq $oldLogRoot) { Remove-Item Env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT = $oldLogRoot }
