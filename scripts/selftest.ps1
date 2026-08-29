@@ -3337,10 +3337,11 @@ try {
 #   旧实现把 $Ledger 绑到 $PSScriptRoot/..，于是在 linked worktree 里跑 bump 就写进了**卡片分支**的
 #   LEDGER.md，被范围闸与 R3 #7（夹带无关改动）正确拦下——计数遂无处可去。丢失是**结构性**的：
 #   卡片工作全在 worktree 里做，所以「工作中发现的复发」几乎必然记不上，晋升门槛被系统性低估。
-#   修法：bump 经 git rev-parse --git-common-dir 解析**主检出**的账本，只此一条平面、无静默回落。
+#   修法：bump 以 normalized common-dir 锚仓；普通仓取首条真实 checkout，submodule 按 local core.worktree
+#   相对 common-dir 解析，再用候选 show-toplevel + common-dir 反向验同仓，只此一条平面、无静默回落。
 #   夹具 LSN-PLANE-WORKTREE：真 git 仓 + 一棵 linked worktree，三条断言——
 #     (a) 从 worktree 跑 bump → 主检出账本 +1，且 worktree 账本**逐字节不变**；
-#     (b) 从主检出直跑 → 仍正确 +1（覆盖 --git-common-dir 返回**相对** `.git` 的形态，Split-Path 得空串）；
+#     (b) 从主检出直跑 → 仍正确 +1；
 #     (e) 继承的 GIT_COMMON_DIR 不得劫持写入平面；(c) 主检出账本缺失 → 非零退出 + [LSN-PLANE-UNRESOLVED]（fail-closed，禁止回落到当前检出）。
 $l2dRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
 if (Test-Path $l2dRoot) { Remove-Item -Recurse -Force $l2dRoot }
@@ -3385,13 +3386,13 @@ try {
       Fail "闸2d(a)：bump 改动了 **worktree** 那份 LEDGER（SHA256 $l2dWtHashBefore -> $l2dWtHashAfter）——仓库级元数据不得进入卡片分支 diff。"
     }
     else {
-      # (b) 从主检出直跑 —— 覆盖 --git-common-dir 返回相对 `.git` 的形态。
+      # (b) 从主检出直跑 —— 第一条 worktree 记录仍须指向当前主检出。
       $l2dOutB = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
       $l2dExitB = $LASTEXITCODE
       $l2dMainB = Get-Content $l2dMainLedger -Raw
       $l2dTailB = ($l2dOutB -replace '\s+', ' ').Trim()
       if ($l2dExitB -ne 0 -or $l2dMainB -notmatch '(?m)^- date:.*?recurrence:\s*5\b') {
-        Fail "闸2d(b)：从**主检出**直跑 bump 未正确递增到 5（exit=$l2dExitB）——git 在主检出返回的是**相对**路径 `.git`，Split-Path 取父级得空串，须先相对检出根解析成绝对路径。输出=$l2dTailB"
+        Fail "闸2d(b)：从**主检出**直跑 bump 未正确递增到 5（exit=$l2dExitB）——normalized common-dir 与首条真实 worktree 应共同指回当前主检出。输出=$l2dTailB"
       }
       else {
         # (d) git 失败但**往 stdout 吐了看似路径的东西** —— 只判空会当成解析成功、把账本指到一个不存在的
@@ -3421,9 +3422,98 @@ try {
           Fail "闸2d(d)：git shim 从未被调用（marker 缺席）——本用例在当前平台根本没跑到回落路径，recurrence 5→6 是**真 git 成功**的结果，断言假绿（R3 r3 #6）。Windows 需 git.cmd、Unix 需无扩展名且 chmod +x 的 git，且 shim 目录须在 PATH 首位（分隔符按 [System.IO.Path]::PathSeparator）。"
         }
         elseif ($l2dExitD -ne 0 -or $l2dMainD -notmatch '(?m)^- date:.*?recurrence:\s*6\b') {
-          Fail "闸2d(d)：git 非零退出但 stdout 有内容时未回落到调用方检出（exit=$l2dExitD）——解析器只判了 stdout 空、漏判退出码，于是把账本指到 shim 吐出的假路径上。契约是「非零退出**或**空输出 → 回落」。输出=$l2dTailD"
+          Fail "闸2d(d)：初始 common-dir 探针非零却带 stdout 时未回落调用方检出（exit=$l2dExitD）——只有该首探针失败允许 fallback，且必须同时相信退出码。输出=$l2dTailD"
         }
         else {
+        # (f) git 成功却不给合法 worktree 首条记录是 malformed success，不等于「这里不是 git 仓」；
+        #   空输出与非 worktree 首行都必须 fail-closed 且零写入。
+        $l2dHeadF = "$(& git -C $l2dMain rev-parse HEAD 2>$null)".Trim()
+        foreach ($l2dCaseF in @(
+          @{ Name = 'empty'; Outputs = @() },
+          @{ Name = 'invalid-first'; Outputs = @('HEAD deadbeef') },
+          @{ Name = 'contradictory-state'; Outputs = @("worktree $l2dMain", "HEAD $l2dHeadF", 'branch refs/heads/master', 'detached', '') }
+        )) {
+          $l2dCommonF = Join-Path $l2dMain '.git'
+          $l2dCmdOutputF = (@($l2dCaseF.Outputs) | ForEach-Object { if ($_ -eq '') { "echo.`r`n" } else { "echo $_`r`n" } }) -join ''
+          $l2dShOutputF = (@($l2dCaseF.Outputs) | ForEach-Object { "printf '%s\n' '$_'`n" }) -join ''
+          $l2dCmdF = "@echo off`r`n> `"%~dp0invoked.txt`" echo invoked`r`necho %* | findstr /C:`"--git-common-dir`" >nul`r`nif not errorlevel 1 goto common`r`necho %* | findstr /C:`"worktree list --porcelain`" >nul`r`nif not errorlevel 1 goto worktree`r`nexit /b 2`r`n:common`r`necho $l2dCommonF`r`nexit /b 0`r`n:worktree`r`n${l2dCmdOutputF}exit /b 0`r`n"
+          Set-Content (Join-Path $l2dShim 'git.cmd') $l2dCmdF -Encoding ascii
+          $l2dSh = "#!/bin/sh`necho invoked > `"`$(dirname `"`$0`")/invoked.txt`"`ncase `"`$*`" in *`"--git-common-dir`"*) printf '%s\n' '$l2dCommonF'; exit 0;; *`"worktree list --porcelain`"*) ${l2dShOutputF}exit 0;; *) exit 2;; esac`n"
+          [System.IO.File]::WriteAllText((Join-Path $l2dShim 'git'), $l2dSh, (New-Object System.Text.UTF8Encoding($false)))
+          if (-not $IsWindows) { & chmod +x (Join-Path $l2dShim 'git') 2>&1 | Out-Null }
+          Remove-Item -Force $l2dMark -ErrorAction SilentlyContinue
+          $l2dMainHashPreF = (Get-FileHash $l2dMainLedger -Algorithm SHA256).Hash
+          $l2dPathOld = $env:PATH
+          try {
+            $env:PATH = "$l2dShim$([System.IO.Path]::PathSeparator)$l2dPathOld"
+            $l2dOutF = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+            $l2dExitF = $LASTEXITCODE
+          }
+          finally { $env:PATH = $l2dPathOld }
+          $l2dMainHashPostF = (Get-FileHash $l2dMainLedger -Algorithm SHA256).Hash
+          $l2dTailF = ($l2dOutF -replace '\s+', ' ').Trim()
+          if (-not (Test-Path $l2dMark)) {
+            Fail "[LSN-PLANE-SUBMODULE] 闸2d(f/shim-$($l2dCaseF.Name))：git malformed-success shim 未被调用。"
+          }
+          elseif ($l2dExitF -eq 0 -or $l2dTailF -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or $l2dMainHashPostF -ne $l2dMainHashPreF) {
+            Fail "[LSN-PLANE-SUBMODULE] 闸2d(f/$($l2dCaseF.Name))：git 成功但无合法 worktree 首条记录时未 fail-closed 且零写入。exit=$l2dExitF hash=$l2dMainHashPreF->$l2dMainHashPostF output=[$l2dTailF]"
+          }
+        }
+
+        # (g) 初始 common-dir 仓库探针成功后，后续 worktree list 失败不得回落写当前检出。
+        $l2dCommonG = Join-Path $l2dMain '.git'
+        $l2dCmdG = "@echo off`r`n> `"%~dp0invoked.txt`" echo invoked`r`necho %* | findstr /C:`"worktree list --porcelain`" >nul`r`nif not errorlevel 1 exit /b 2`r`necho $l2dCommonG`r`nexit /b 0`r`n"
+        Set-Content (Join-Path $l2dShim 'git.cmd') $l2dCmdG -Encoding ascii
+        $l2dSh = "#!/bin/sh`necho invoked > `"`$(dirname `"`$0`")/invoked.txt`"`ncase `"`$*`" in *`"worktree list --porcelain`"*) exit 2;; esac`nprintf '%s\n' '$l2dCommonG'`nexit 0`n"
+        [System.IO.File]::WriteAllText((Join-Path $l2dShim 'git'), $l2dSh, (New-Object System.Text.UTF8Encoding($false)))
+        if (-not $IsWindows) { & chmod +x (Join-Path $l2dShim 'git') 2>&1 | Out-Null }
+        Remove-Item -Force $l2dMark -ErrorAction SilentlyContinue
+        $l2dMainHashPreG = (Get-FileHash $l2dMainLedger -Algorithm SHA256).Hash
+        $l2dPathOld = $env:PATH
+        try {
+          $env:PATH = "$l2dShim$([System.IO.Path]::PathSeparator)$l2dPathOld"
+          $l2dOutG = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+          $l2dExitG = $LASTEXITCODE
+        }
+        finally { $env:PATH = $l2dPathOld }
+        $l2dMainHashPostG = (Get-FileHash $l2dMainLedger -Algorithm SHA256).Hash
+        $l2dTailG = ($l2dOutG -replace '\s+', ' ').Trim()
+        if (-not (Test-Path $l2dMark) -or $l2dExitG -eq 0 -or
+            $l2dTailG -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or $l2dMainHashPostG -ne $l2dMainHashPreG) {
+          Fail "[LSN-PLANE-SUBMODULE] 闸2d(g/later-command)：仓库探针成功后的 worktree list 失败未 fail-closed 且零写入。exit=$l2dExitG hash=$l2dMainHashPreG->$l2dMainHashPostG output=[$l2dTailG]"
+        }
+
+        # (h) local core.worktree 明确返回空值或重复值都属 ambiguous success；不能当成 key absent。
+        $l2dHeadH = "$(& git -C $l2dMain rev-parse HEAD 2>$null)".Trim()
+        $l2dConfigMarkH = Join-Path $l2dShim 'config-invoked.txt'
+        foreach ($l2dCaseH in @(
+          @{ Name = 'empty-config'; Outputs = @() },
+          @{ Name = 'duplicate-config'; Outputs = @($l2dMain, $l2dWt) }
+        )) {
+          $l2dCmdConfigH = (@($l2dCaseH.Outputs) | ForEach-Object { "echo $_`r`n" }) -join ''
+          $l2dShConfigH = (@($l2dCaseH.Outputs) | ForEach-Object { "printf '%s\n' '$_'`n" }) -join ''
+          $l2dCmdH = "@echo off`r`n> `"%~dp0invoked.txt`" echo invoked`r`necho %* | findstr /C:`"--git-common-dir`" >nul`r`nif not errorlevel 1 goto common`r`necho %* | findstr /C:`"worktree list --porcelain`" >nul`r`nif not errorlevel 1 goto worktree`r`necho %* | findstr /C:`"config --local --get-all core.worktree`" >nul`r`nif not errorlevel 1 goto config`r`nexit /b 2`r`n:common`r`necho $l2dCommonG`r`nexit /b 0`r`n:worktree`r`necho worktree $l2dMain`r`necho HEAD $l2dHeadH`r`necho branch refs/heads/master`r`necho.`r`nexit /b 0`r`n:config`r`n> `"%~dp0config-invoked.txt`" echo config`r`n${l2dCmdConfigH}exit /b 0`r`n"
+          Set-Content (Join-Path $l2dShim 'git.cmd') $l2dCmdH -Encoding ascii
+          $l2dSh = "#!/bin/sh`necho invoked > `"`$(dirname `"`$0`")/invoked.txt`"`ncase `"`$*`" in *`"--git-common-dir`"*) printf '%s\n' '$l2dCommonG'; exit 0;; *`"worktree list --porcelain`"*) printf '%s\n' 'worktree $l2dMain' 'HEAD $l2dHeadH' 'branch refs/heads/master' ''; exit 0;; *`"config --local --get-all core.worktree`"*) echo config > `"`$(dirname `"`$0`")/config-invoked.txt`"; ${l2dShConfigH}exit 0;; *) exit 2;; esac`n"
+          [System.IO.File]::WriteAllText((Join-Path $l2dShim 'git'), $l2dSh, (New-Object System.Text.UTF8Encoding($false)))
+          if (-not $IsWindows) { & chmod +x (Join-Path $l2dShim 'git') 2>&1 | Out-Null }
+          Remove-Item -Force $l2dMark, $l2dConfigMarkH -ErrorAction SilentlyContinue
+          $l2dMainHashPreH = (Get-FileHash $l2dMainLedger -Algorithm SHA256).Hash
+          $l2dPathOld = $env:PATH
+          try {
+            $env:PATH = "$l2dShim$([System.IO.Path]::PathSeparator)$l2dPathOld"
+            $l2dOutH = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+            $l2dExitH = $LASTEXITCODE
+          }
+          finally { $env:PATH = $l2dPathOld }
+          $l2dMainHashPostH = (Get-FileHash $l2dMainLedger -Algorithm SHA256).Hash
+          $l2dTailH = ($l2dOutH -replace '\s+', ' ').Trim()
+          if (-not (Test-Path $l2dMark) -or -not (Test-Path $l2dConfigMarkH) -or $l2dExitH -eq 0 -or
+              $l2dTailH -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or $l2dMainHashPostH -ne $l2dMainHashPreH) {
+            Fail "[LSN-PLANE-SUBMODULE] 闸2d(h/$($l2dCaseH.Name))：core.worktree 空/重复输出未 fail-closed 且零写入。exit=$l2dExitH hash=$l2dMainHashPreH->$l2dMainHashPostH output=[$l2dTailH]"
+          }
+        }
+
         # (e) 继承的 GIT_COMMON_DIR 不得劫持写入平面（R3 预审 #1）：git 执行 hook 时本就会设 GIT_DIR，
         #   这类变量会盖过 -C，未清理时解析会落到**另一个仓库**、把计数静默加到别人的账本上。
         #   夹具造第二个仓（自带同路径账本，故「误写」确实能成功），设 GIT_COMMON_DIR 指向它再跑 bump：
@@ -3468,7 +3558,7 @@ try {
         elseif ($l2dTailC -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]')) {
           Fail "闸2d(c)：主检出账本缺失时 bump 虽非零退出，但未打印 ASCII 失败码 [LSN-PLANE-UNRESOLVED]（机检认哨兵、不认本地化文案，L165）。输出=$l2dTailC"
         }
-        else { Write-Host '  2d lessons.ps1 bump 只写主检出账本（worktree 那份逐字节不变 / 相对 .git 形态 / git 非零即回落 / GIT_COMMON_DIR 劫持无效 / 缺账本 fail-closed 且不写回落账本）OK' -ForegroundColor Green }
+        else { Write-Host '  2d lessons.ps1 bump 只写 Git 声明的主检出账本（worktree 零写入 / 主检出直跑 / 初始仓库探针失败才 fallback / 后续失败与 malformed success fail-closed / GIT_* 劫持无效 / 缺账本零写入）OK' -ForegroundColor Green }
         }
       }
     }
@@ -3477,6 +3567,184 @@ try {
 finally {
   & git -C $l2dMain worktree remove --force $l2dWt 2>&1 | Out-Null
   Remove-Item -Recurse -Force $l2dRoot -ErrorAction SilentlyContinue
+}
+
+# 2d(s). TD145：submodule 的首条 worktree 是 common-dir，不是 checkout；linked submodule 的 show-toplevel
+# 又指向 linked checkout。必须按 local core.worktree 解析并反向验同仓，证明带空格路径下只改 primary 账本。
+Step '2ds/17 lessons.ps1 submodule 主检出写入平面（TD145）'
+$l2dSubRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold lessons2d-submodule-$PID"
+$l2dSubSeed = Join-Path $l2dSubRoot 'seed'
+$l2dSubSuper = Join-Path $l2dSubRoot 'super project'
+$l2dSubCheckout = Join-Path $l2dSubSuper 'nested module'
+$l2dSubLinked = Join-Path $l2dSubRoot 'submodule linked checkout'
+try {
+  if (Test-Path $l2dSubRoot) { Remove-Item -Recurse -Force -LiteralPath $l2dSubRoot }
+  New-Item -ItemType Directory -Force (Join-Path $l2dSubSeed 'docs/lessons'), (Join-Path $l2dSubSeed 'specs/archive'),
+    (Join-Path $l2dSubSuper 'docs/lessons') | Out-Null
+  Copy-Item (Join-Path $RepoRoot 'scripts') $l2dSubSeed -Recurse -Force
+  $l2dSubEntry = @(
+    '# submodule ledger ([LSN-PLANE-SUBMODULE] fixture)', '',
+    '## L1',
+    '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
+    '- symptom: seed', '- root_cause: seed', '- rule: seed rule', '- enforced_by: none（seed）', '- refs:'
+  ) -join "`n"
+  $l2dSubSeedLedger = Join-Path $l2dSubSeed 'docs/lessons/LEDGER.md'
+  Set-Content -LiteralPath $l2dSubSeedLedger -Value $l2dSubEntry -Encoding utf8
+  Set-Content -LiteralPath (Join-Path $l2dSubSeed 'specs/archive/lessons-archive.md') -Value '# archive' -Encoding utf8
+  $l2dSubGit = @('-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false')
+  & git -C $l2dSubSeed init -q 2>&1 | Out-Null
+  & git -C $l2dSubSeed @l2dSubGit add -A 2>&1 | Out-Null
+  & git -C $l2dSubSeed @l2dSubGit commit -qm 'submodule seed' 2>&1 | Out-Null
+  $l2dSubSeedOk = ($LASTEXITCODE -eq 0)
+
+  $l2dSuperLedger = Join-Path $l2dSubSuper 'docs/lessons/LEDGER.md'
+  Set-Content -LiteralPath $l2dSuperLedger -Value '# superproject ledger must stay byte-identical' -Encoding utf8
+  & git -C $l2dSubSuper init -q 2>&1 | Out-Null
+  & git -C $l2dSubSuper @l2dSubGit add -A 2>&1 | Out-Null
+  & git -C $l2dSubSuper @l2dSubGit commit -qm 'superproject seed' 2>&1 | Out-Null
+  $l2dSubAddOut = (& git -C $l2dSubSuper -c protocol.file.allow=always submodule add -q $l2dSubSeed 'nested module' 2>&1 | Out-String)
+  $l2dSubAddOk = ($LASTEXITCODE -eq 0)
+  $l2dSubCommitOk = $false
+  if ($l2dSubAddOk) {
+    & git -C $l2dSubSuper @l2dSubGit add -A 2>&1 | Out-Null
+    & git -C $l2dSubSuper @l2dSubGit commit -qm 'add nested module' 2>&1 | Out-Null
+    $l2dSubCommitOk = ($LASTEXITCODE -eq 0)
+  }
+  $l2dSubWtOut = ''
+  $l2dSubWtOk = $false
+  if ($l2dSubCommitOk) {
+    $l2dSubWtOut = (& git -C $l2dSubCheckout worktree add -q --detach $l2dSubLinked 2>&1 | Out-String)
+    $l2dSubWtOk = ($LASTEXITCODE -eq 0)
+  }
+  $l2dSubSetupOk = $l2dSubSeedOk -and $l2dSubAddOk -and $l2dSubCommitOk -and $l2dSubWtOk
+  $l2dSubLedger = Join-Path $l2dSubCheckout 'docs/lessons/LEDGER.md'
+  $l2dSubLessons = Join-Path $l2dSubCheckout 'scripts/lessons.ps1'
+  $l2dSubLinkedLedger = Join-Path $l2dSubLinked 'docs/lessons/LEDGER.md'
+  $l2dSubLinkedLessons = Join-Path $l2dSubLinked 'scripts/lessons.ps1'
+  if (-not $l2dSubSetupOk -or -not (Test-Path $l2dSubLedger) -or -not (Test-Path $l2dSubLessons) -or
+      -not (Test-Path $l2dSubLinkedLedger) -or -not (Test-Path $l2dSubLinkedLessons)) {
+    Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/setup)：无法建立真实嵌套 submodule + linked worktree 夹具；本闸不可跳过。submodule-add=[$(($l2dSubAddOut -replace '\s+', ' ').Trim())] worktree-add=[$(($l2dSubWtOut -replace '\s+', ' ').Trim())]"
+  }
+  else {
+    $l2dSubBefore = Get-Content -LiteralPath $l2dSubLedger -Raw
+    $l2dSubExpected = [regex]::Replace($l2dSubBefore, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)3\b', '${1}4', 1)
+    $l2dSubSuperHash = (Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash
+    $l2dSubSeedHash = (Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash
+    $l2dSubLinkedHashBeforePrimary = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
+    $l2dSubCommon = "$(& git -C $l2dSubCheckout rev-parse --git-common-dir 2>$null)".Trim()
+    $l2dSubInternalLedger = Join-Path $l2dSubCommon 'docs/lessons/LEDGER.md'
+    if (-not [System.IO.Path]::IsPathFullyQualified($l2dSubCommon) -or (Test-Path -LiteralPath $l2dSubInternalLedger)) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/common-fixture)：submodule common-dir 非绝对路径或内部预先存在伪 LEDGER，夹具不能证明零写入。'
+    }
+    $l2dSubOut = (& pwsh -NoProfile -File $l2dSubLessons bump L1 2>&1 | Out-String)
+    $l2dSubExit = $LASTEXITCODE
+    $l2dSubAfter = Get-Content -LiteralPath $l2dSubLedger -Raw
+    if ($l2dSubExit -ne 0 -or $l2dSubAfter -cne $l2dSubExpected) {
+      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/target)：submodule 内 bump 未把自己的主检出 recurrence 精确从 3 改为 4。exit=$l2dSubExit output=[$l2dSubOut]"
+    }
+    if ((Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashBeforePrimary) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-linked-zero-write)：从 submodule 主检出 bump 改写了 linked worktree LEDGER。'
+    }
+    if ((Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash -ne $l2dSubSuperHash) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-super-zero-write)：从 submodule 主检出 bump 改写了 superproject LEDGER。'
+    }
+    if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-source-zero-write)：从 submodule 主检出 bump 改写了源 seed 仓库。'
+    }
+    if (Test-Path -LiteralPath $l2dSubInternalLedger) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-internal-zero-write)：从 submodule 主检出 bump 在 common-dir 内创建了伪 LEDGER。'
+    }
+
+    # linked worktree 继承 submodule 的 core.worktree；show-toplevel 指向 linked checkout，不能拿它当 primary。
+    $l2dSubLinkedHashBeforeLinked = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
+    $l2dSubExpectedLinked = [regex]::Replace($l2dSubAfter, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)4\b', '${1}5', 1)
+    $l2dSubHijackSaved = @{}
+    foreach ($l2dSubEnv in @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0')) {
+      $l2dSubHijackSaved[$l2dSubEnv] = [Environment]::GetEnvironmentVariable($l2dSubEnv)
+    }
+    try {
+      $env:GIT_DIR = Join-Path $l2dSubSuper '.git'
+      $env:GIT_COMMON_DIR = Join-Path $l2dSubSuper '.git'
+      $env:GIT_WORK_TREE = $l2dSubSuper
+      $env:GIT_CONFIG_COUNT = '1'
+      $env:GIT_CONFIG_KEY_0 = 'core.worktree'
+      $env:GIT_CONFIG_VALUE_0 = $l2dSubSeed
+      $l2dSubLinkedOut = (& pwsh -NoProfile -File $l2dSubLinkedLessons bump L1 2>&1 | Out-String)
+      $l2dSubLinkedExit = $LASTEXITCODE
+    }
+    finally {
+      foreach ($l2dSubEnv in $l2dSubHijackSaved.Keys) {
+        if ($null -eq $l2dSubHijackSaved[$l2dSubEnv]) { Remove-Item "Env:$l2dSubEnv" -ErrorAction SilentlyContinue }
+        else { Set-Item "Env:$l2dSubEnv" $l2dSubHijackSaved[$l2dSubEnv] }
+      }
+    }
+    $l2dSubAfterLinked = Get-Content -LiteralPath $l2dSubLedger -Raw
+    if ($l2dSubLinkedExit -ne 0 -or $l2dSubAfterLinked -cne $l2dSubExpectedLinked) {
+      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/linked-target)：submodule linked worktree 内 bump 未把 submodule 主检出从 4 精确改为 5。exit=$l2dSubLinkedExit output=[$l2dSubLinkedOut]"
+    }
+    if ((Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashBeforeLinked) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-zero-write)：submodule bump 改写了 linked worktree 自己的 LEDGER；不得用 show-toplevel 当 primary。'
+    }
+    if ((Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash -ne $l2dSubSuperHash) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-super-zero-write)：从 submodule linked worktree bump 改写了 superproject LEDGER。'
+    }
+    if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-source-zero-write)：从 submodule linked worktree bump 改写了源 seed 仓库。'
+    }
+    if (Test-Path -LiteralPath $l2dSubInternalLedger) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-internal-zero-write)：从 submodule linked worktree bump 在 common-dir 内创建了伪 LEDGER。'
+    }
+
+    # core.worktree 即便来自 local config 也必须反向验证同仓身份；跨仓候选有账本也不得写。
+    $l2dSubCoreOriginal = "$(& git --git-dir $l2dSubCommon config --get core.worktree 2>$null)".Trim()
+    $l2dSubOther = Join-Path $l2dSubRoot 'other repository'
+    $l2dSubOtherLedger = Join-Path $l2dSubOther 'docs/lessons/LEDGER.md'
+    New-Item -ItemType Directory -Force (Split-Path $l2dSubOtherLedger) | Out-Null
+    Set-Content -LiteralPath $l2dSubOtherLedger -Value ($l2dSubEntry -replace 'recurrence: 3', 'recurrence: 9') -Encoding utf8
+    & git -C $l2dSubOther init -q 2>&1 | Out-Null
+    & git -C $l2dSubOther @l2dSubGit add -A 2>&1 | Out-Null
+    & git -C $l2dSubOther @l2dSubGit commit -qm 'other repository' 2>&1 | Out-Null
+    $l2dSubPrimaryHashPreCross = (Get-FileHash -LiteralPath $l2dSubLedger -Algorithm SHA256).Hash
+    $l2dSubLinkedHashPreCross = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
+    $l2dSubOtherHashPreCross = (Get-FileHash -LiteralPath $l2dSubOtherLedger -Algorithm SHA256).Hash
+    $l2dSubRestoreRc = 1
+    try {
+      & git --git-dir $l2dSubCommon config core.worktree $l2dSubOther 2>&1 | Out-Null
+      $l2dSubCrossOut = (& pwsh -NoProfile -File $l2dSubLinkedLessons bump L1 2>&1 | Out-String)
+      $l2dSubCrossExit = $LASTEXITCODE
+    }
+    finally {
+      & git --git-dir $l2dSubCommon config core.worktree $l2dSubCoreOriginal 2>&1 | Out-Null
+      $l2dSubRestoreRc = $LASTEXITCODE
+    }
+    $l2dSubCrossTail = ($l2dSubCrossOut -replace '\s+', ' ').Trim()
+    if ($l2dSubRestoreRc -ne 0 -or $l2dSubCrossExit -eq 0 -or $l2dSubCrossTail -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or
+        (Get-FileHash -LiteralPath $l2dSubLedger -Algorithm SHA256).Hash -ne $l2dSubPrimaryHashPreCross -or
+        (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashPreCross -or
+        (Get-FileHash -LiteralPath $l2dSubOtherLedger -Algorithm SHA256).Hash -ne $l2dSubOtherHashPreCross) {
+      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/cross-repo)：跨仓 core.worktree 候选未 fail-closed 且三账本零写入。exit=$l2dSubCrossExit output=[$l2dSubCrossTail]"
+    }
+    if (Test-Path -LiteralPath $l2dSubInternalLedger) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/internal-zero-write)：bump 在 submodule common-dir 内创建了伪 LEDGER。'
+    }
+    if ((Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash -ne $l2dSubSuperHash) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/super-zero-write)：submodule bump 改写了 superproject LEDGER。'
+    }
+    if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/source-zero-write)：submodule bump 改写了源 seed 仓库而非 checkout。'
+    }
+  }
+}
+finally {
+  if ((Test-Path -LiteralPath $l2dSubCheckout) -and (Test-Path -LiteralPath $l2dSubLinked)) {
+    & git -C $l2dSubCheckout worktree remove --force $l2dSubLinked 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/cleanup-worktree)：linked submodule worktree 无法显式移除。' }
+  }
+  Remove-Item -Recurse -Force -LiteralPath $l2dSubRoot -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $l2dSubRoot) { Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/cleanup-root)：临时 submodule 根目录清理失败。' }
+}
+if (-not $failedSelftestGateIds.Contains('2ds')) {
+  Write-Host '  [LSN-PLANE-SUBMODULE] 2ds submodule primary/linked 归属、反向验仓与逐阶段零写入 OK' -ForegroundColor Green
 }
 
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---

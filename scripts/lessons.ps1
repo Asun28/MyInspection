@@ -119,46 +119,194 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 # R3 #7（夹带无关改动）正确拦下 —— 计数遂无处可去。且丢失是结构性的：卡片工作全在 worktree 里做。
 # 故 bump 一律解析到**主检出**。只有 bump 走这条平面：add 的新经验属有意随卡入库（L241 即先例），
 # promote 只打印建议、不写盘。
+function Get-LessonsPrimaryWorktree([string[]]$Lines) {
+  $recordCount = 0
+  $inRecord = $false
+  $headSeen = $false
+  $topology = ''
+  $optionalSeen = @{}
+  $firstWorktree = ''
+  foreach ($lineValue in $Lines) {
+    $line = "$lineValue"
+    if (-not $line) {
+      if ($inRecord -and -not (($topology -eq 'bare' -and -not $headSeen) -or ($headSeen -and $topology -in @('branch', 'detached')))) {
+        throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 记录的 HEAD/bare/branch/detached 组合不完整或矛盾。'
+      }
+      $inRecord = $false
+      $headSeen = $false
+      $topology = ''
+      $optionalSeen = @{}
+      continue
+    }
+    if (-not $inRecord) {
+      if ($line -notmatch '^worktree (?<path>.+)$' -or -not [System.IO.Path]::IsPathFullyQualified($Matches['path'])) {
+        throw "[LSN-PLANE-UNRESOLVED] worktree porcelain 记录起点不合法：'$line'。"
+      }
+      try { $normalizedPath = [System.IO.Path]::GetFullPath($Matches['path']) }
+      catch { throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 路径无法规范化。' }
+      $recordCount++
+      if ($recordCount -eq 1) { $firstWorktree = $normalizedPath }
+      $inRecord = $true
+      continue
+    }
+    if ($line -match '^HEAD (?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$') {
+      if ($headSeen -or $topology -eq 'bare') { throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 含重复或矛盾 HEAD。' }
+      $headSeen = $true
+    }
+    elseif ($line -eq 'bare') {
+      if ($headSeen -or $topology) { throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 的 bare 与 HEAD/branch/detached 矛盾。' }
+      $topology = 'bare'
+    }
+    elseif ($line -match '^branch refs/.+$') {
+      if ($topology) { throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 含重复或矛盾 branch/detached。' }
+      $topology = 'branch'
+    }
+    elseif ($line -eq 'detached') {
+      if ($topology) { throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 含重复或矛盾 branch/detached。' }
+      $topology = 'detached'
+    }
+    elseif ($line -match '^(?<field>locked|prunable)(?: .*)?$') {
+      if ($optionalSeen.ContainsKey($Matches['field'])) { throw "[LSN-PLANE-UNRESOLVED] worktree porcelain 含重复 $($Matches['field']) 字段。" }
+      $optionalSeen[$Matches['field']] = $true
+    }
+    else {
+      throw "[LSN-PLANE-UNRESOLVED] worktree porcelain 含未知或错位字段：'$line'。"
+    }
+  }
+  if ($inRecord -and -not (($topology -eq 'bare' -and -not $headSeen) -or ($headSeen -and $topology -in @('branch', 'detached')))) {
+    throw '[LSN-PLANE-UNRESOLVED] worktree porcelain 尾记录的身份组合不完整或矛盾。'
+  }
+  if ($recordCount -eq 0 -or -not $firstWorktree) {
+    throw '[LSN-PLANE-UNRESOLVED] worktree list 成功但没有合法记录。'
+  }
+  return $firstWorktree
+}
+
 function Resolve-BumpLedger {
   param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Fallback)
-  # 继承来的 GIT_DIR / GIT_COMMON_DIR / GIT_WORK_TREE 会盖过 -C，把解析劫持到**另一个仓库**——
-  # git 执行 hook 时本就会设 GIT_DIR，届时计数会静默加到别的仓库的账本上。本函数语义是「$Root 所属仓库
-  # 的主检出」，故先清掉这三个再问 git（清用 Remove-Item，赋空串仍算「已设置」，同 L3）。
-  # 已知限制（R3 预审 #2）：若本仓被当作 submodule 使用，--git-common-dir 返回 <super>/.git/modules/<path>，
-  # 其父级并非检出根，此处会 fail-closed 报错而非误写。本仓不以 submodule 形式使用，按「宁停勿猜」处理。
-  $gitEnvNames = @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE')
+  # 继承的 GIT_DIR / GIT_COMMON_DIR / GIT_WORK_TREE 与 GIT_CONFIG_* 注入都能劫持仓库身份或 core.worktree。
+  # 本函数只认 $Root 所属仓库，故所有 Git 探针共用同一段清理窗口（赋空串仍算已设置，同 L3）。
+  $gitEnvNames = @(
+    'GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS'
+  ) + @((Get-ChildItem Env:) | Where-Object { $_.Name -match '^GIT_CONFIG_(KEY|VALUE)_\d+$' } | ForEach-Object Name)
+  $gitEnvNames = @($gitEnvNames | Sort-Object -Unique)
   $gitEnvSaved = @{}
   foreach ($n in $gitEnvNames) {
     $gitEnvSaved[$n] = [Environment]::GetEnvironmentVariable($n)
     if ($null -ne $gitEnvSaved[$n]) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
   }
-  $gcd = ''
-  $rc = 1
+  $pathComparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
   try {
-    $gcd = "$(& git -C $Root rev-parse --git-common-dir 2>$null)".Trim()
-    # 退出码必须**紧接着**取：_encoding.ps1 置 $PSNativeCommandUseErrorActionPreference = $false，原生非零
-    # **不抛**，try/catch 只兜得住「git 根本不在 PATH」。只判 stdout 空会漏掉「git 失败却往 stdout 吐了个
-    # 看似路径的东西」——那会把账本解析到一个不存在的检出上，正好是本函数最不该犯的错。
-    $rc = $LASTEXITCODE
+    # 只有这枚仓库探针失败可回落：2b/2c 是只拷 scripts/ 的非 git 夹具。Git 一旦确认仓库，
+    # 后续 topology 不明就必须 fail-closed，不能把当前 worktree 当主检出写掉。
+    try {
+      $commonDirLines = @(& git -C $Root rev-parse --git-common-dir 2>$null)
+      $commonDirRc = $LASTEXITCODE
+    }
+    catch { return $Fallback }
+    if ($commonDirRc -ne 0) { return $Fallback }
+    if ($commonDirLines.Count -ne 1 -or -not "$($commonDirLines[0])") {
+      throw '[LSN-PLANE-UNRESOLVED] git-common-dir 仓库探针成功但输出为空或不唯一；bump 不猜写入平面。'
+    }
+    try {
+      $commonDirPath = "$($commonDirLines[0])"
+      $commonDir = if ([System.IO.Path]::IsPathRooted($commonDirPath)) {
+        if (-not [System.IO.Path]::IsPathFullyQualified($commonDirPath)) { throw 'drive-relative common-dir' }
+        [System.IO.Path]::GetFullPath($commonDirPath)
+      }
+      else {
+        [System.IO.Path]::GetFullPath((Join-Path $Root $commonDirPath))
+      }
+    }
+    catch {
+      throw '[LSN-PLANE-UNRESOLVED] Git 返回的 common-dir 路径无法规范化；bump 不猜写入平面。'
+    }
+
+    try {
+      $worktreeLines = @(& git -C $Root -c core.quotepath=false worktree list --porcelain 2>$null)
+      $worktreeRc = $LASTEXITCODE
+    }
+    catch { throw '[LSN-PLANE-UNRESOLVED] Git 已识别仓库，但 worktree list 无法执行；bump 不回落。' }
+    if ($worktreeRc -ne 0) {
+      throw '[LSN-PLANE-UNRESOLVED] Git 已识别仓库，但 worktree list 非零退出；bump 不回落。'
+    }
+    $firstWorktree = Get-LessonsPrimaryWorktree $worktreeLines
+
+    try {
+      $coreWorktreeLines = @(& git -C $Root config --local --get-all core.worktree 2>$null)
+      $coreWorktreeRc = $LASTEXITCODE
+    }
+    catch { throw '[LSN-PLANE-UNRESOLVED] Git 已识别仓库，但 core.worktree 探针无法执行；bump 不回落。' }
+    if ($coreWorktreeRc -eq 1 -and $coreWorktreeLines.Count -eq 0) {
+      $coreWorktree = ''
+    }
+    elseif ($coreWorktreeRc -eq 0 -and $coreWorktreeLines.Count -eq 1 -and "$($coreWorktreeLines[0])") {
+      $coreWorktree = "$($coreWorktreeLines[0])"
+    }
+    else {
+      throw '[LSN-PLANE-UNRESOLVED] core.worktree 输出为空、重复或探针异常；bump 不猜写入平面。'
+    }
+
+    if ([string]::Equals($firstWorktree, $commonDir, $pathComparison)) {
+      if (-not $coreWorktree) {
+        throw '[LSN-PLANE-UNRESOLVED] 首条 worktree 是 common-dir，但 Git 未声明 core.worktree；bump 不猜 checkout。'
+      }
+      try {
+        if ([System.IO.Path]::IsPathRooted($coreWorktree)) {
+          if (-not [System.IO.Path]::IsPathFullyQualified($coreWorktree)) { throw 'drive-relative core.worktree' }
+          $mainCheckout = [System.IO.Path]::GetFullPath($coreWorktree)
+        }
+        else {
+          $mainCheckout = [System.IO.Path]::GetFullPath((Join-Path $commonDir $coreWorktree))
+        }
+      }
+      catch { throw '[LSN-PLANE-UNRESOLVED] core.worktree 路径无法规范化；bump 不猜 checkout。' }
+      $commonPrefix = $commonDir.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+      if ([string]::Equals($mainCheckout, $commonDir, $pathComparison) -or $mainCheckout.StartsWith($commonPrefix, $pathComparison)) {
+        throw '[LSN-PLANE-UNRESOLVED] core.worktree 指回 common-dir 内部；bump 拒绝把 Git 元数据目录当 checkout。'
+      }
+    }
+    else {
+      $mainCheckout = $firstWorktree
+    }
+
+    try {
+      $topLines = @(& git -C $mainCheckout rev-parse --show-toplevel 2>$null)
+      $topRc = $LASTEXITCODE
+      $candidateCommonLines = @(& git -C $mainCheckout rev-parse --git-common-dir 2>$null)
+      $candidateCommonRc = $LASTEXITCODE
+    }
+    catch { throw '[LSN-PLANE-UNRESOLVED] 主检出候选无法由 Git 反向验证；bump 不回落。' }
+    if ($topRc -ne 0 -or $topLines.Count -ne 1 -or -not "$($topLines[0])" -or
+        $candidateCommonRc -ne 0 -or $candidateCommonLines.Count -ne 1 -or -not "$($candidateCommonLines[0])") {
+      throw '[LSN-PLANE-UNRESOLVED] 主检出候选的 Git 身份输出缺失或不唯一；bump 不回落。'
+    }
+    try {
+      $validatedTop = [System.IO.Path]::GetFullPath("$($topLines[0])")
+      $candidateCommonPath = "$($candidateCommonLines[0])"
+      $validatedCommon = if ([System.IO.Path]::IsPathRooted($candidateCommonPath)) {
+        if (-not [System.IO.Path]::IsPathFullyQualified($candidateCommonPath)) { throw 'drive-relative candidate common-dir' }
+        [System.IO.Path]::GetFullPath($candidateCommonPath)
+      }
+      else {
+        [System.IO.Path]::GetFullPath((Join-Path $mainCheckout $candidateCommonPath))
+      }
+    }
+    catch { throw '[LSN-PLANE-UNRESOLVED] 主检出候选的 Git 身份路径无法规范化；bump 不回落。' }
+    if (-not [string]::Equals($validatedTop, $mainCheckout, $pathComparison) -or
+        -not [string]::Equals($validatedCommon, $commonDir, $pathComparison)) {
+      throw '[LSN-PLANE-UNRESOLVED] 主检出候选不属于同一 Git 仓库或不是其 checkout 根；bump 拒绝跨仓写入。'
+    }
+
+    $candidate = Join-Path $mainCheckout 'docs/lessons/LEDGER.md'
+    if (-not (Test-Path -LiteralPath $candidate)) {
+      throw "[LSN-PLANE-UNRESOLVED] 主检出账本不存在：$candidate。recurrence 是仓库级元数据，bump 只写主检出；此处不回落到当前检出的账本。"
+    }
+    return $candidate
   }
-  catch { $gcd = ''; $rc = 1 }
   finally {
     foreach ($n in $gitEnvNames) { if ($null -ne $gitEnvSaved[$n]) { Set-Item "Env:$n" $gitEnvSaved[$n] } }
   }
-  # 非零退出**或**空输出 → 回落调用方检出（卡片契约原文）。这一步必需：selftest 闸 2b/2c 的 hermetic
-  # 夹具是「只拷 scripts/ 的非 git 临时目录」，此处硬失败会把两枚既有闸打红。
-  if ($rc -ne 0 -or -not $gcd) { return $Fallback }
-  # 主检出里 git 返回**相对**的 `.git`（Split-Path 取父级得空串）；linked worktree 里才返回主仓 .git 的绝对
-  # 路径。故先相对 $Root 解析成绝对路径，两种形态才走同一条路。
-  $gitDir = if ([System.IO.Path]::IsPathRooted($gcd)) { $gcd } else { Join-Path $Root $gcd }
-  $mainCheckout = Split-Path ([System.IO.Path]::GetFullPath($gitDir)) -Parent
-  $candidate = Join-Path $mainCheckout 'docs/lessons/LEDGER.md'
-  # fail-closed：解析到了主检出却没有账本，就停下报错。**绝不**回落到当前检出那份 —— 那正是本函数要根治的
-  # 形态（计数悄悄写进卡片分支，再被范围闸吞掉）。
-  if (-not (Test-Path $candidate)) {
-    throw "[LSN-PLANE-UNRESOLVED] 主检出账本不存在：$candidate。recurrence 是仓库级元数据，bump 只写主检出；请确认该检出完好，或直接从主检出跑 bump。此处不回落到当前检出的账本。"
-  }
-  return $candidate
 }
 
 # 解析总账为对象数组（按 "## L<n>" 分块）
