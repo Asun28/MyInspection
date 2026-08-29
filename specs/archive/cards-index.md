@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 78 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 79 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -30,6 +30,7 @@
 | T0-DEBT-SELFTEST-CANARY-HARNESS | merged | 让 post-merge selftest canary 离线确定且失败可定位 |
 | T0-DEBT-SELFTEST-CRITICAL-PATH | merged | 阶段性偿还 TD9：完整 scaffold selftest 退出 PR 合并关键路径 |
 | T0-DEBT-SELFTEST-FAIL-DIAGNOSTICS | merged | 让 selftest 分片与 all 汇总稳定点名失败闸 |
+| T0-DEBT-SELFTEST-LOAD-STABILITY | merged | 消除 8.2e 高负载下固定五秒 rendezvous 假红 |
 | T0-DEBT-SELFTEST-MUTATION-BUDGET | merged | 将 skip mutation 证明收敛到紧凑身份清单 |
 | T0-DEBT-SELFTEST-NOGIT-ROUTING | merged | 用有界生产夹具证明 seeded no-git 路由 |
 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | merged | 让 selftest 有意跳过与前置失败裁剪均可见 |
