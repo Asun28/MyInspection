@@ -29,7 +29,7 @@ non_goals:
 acceptance:
   - "A1 以下 27 张卡均有可追溯到 master 的实现提交；它们从 specs/tasks 移到 specs/archive/tasks，唯一内容变化是 status: merged"
   - "A2 specs/archive/cards-index.md 由 archive.ps1 重建，-CheckCardsIndex 通过；活动卡计数从 84 加本卡后减 27，得到 58"
-  - "A3 docs/TASK-BOARD.md 中 14 个本批次条目与 6 个已归档但仍写等待/评审的条目均改成带 PR 或提交证据的 merged 终态"
+  - "A3 docs/TASK-BOARD.md 中 16 个本批次条目与 6 个已归档但仍写等待/评审的条目均改成带 PR 或提交证据的 merged 终态"
   - "A4 CLAUDE.md、docs/DELIVERY-CHAINS.md、.claude/skills/task-loop/SKILL.md 三处 R1-R5/ship 摘要均明确包含 push 前的真实 diff 预算闸"
   - "A5 docs/lessons/LEDGER.md 对 T0-R3-DIFF-BUDGET 的 live path 引用改指 specs/archive/tasks；不得编辑冻结 archive 历史"
   - "A6 check-cards、lessons check、archive cards-index check 与适用的 verify/selftest 分片均通过"
