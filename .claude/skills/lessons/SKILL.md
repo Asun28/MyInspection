@@ -21,6 +21,8 @@ description: >-
 - **总账（Tier3）**：`docs/lessons/LEDGER.md`，全量、append-only、唯一真相源。
 
 ## 何时做什么
+完整命令集：`add|archive|bump|check|list|promote|search`。
+
 1. **RECALL（遇到问题先查）**：`pwsh -File scripts\lessons.ps1 search <关键词>`，命中就照 `rule` 做，别重导。
    涉及 PowerShell/gh 主题时连带读 `docs/lessons/powershell-and-gh.md`。
 2. **CAPTURE（解决后入账，低摩擦）**：

@@ -341,7 +341,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 ## 经验铁律（必须加载 · Tier 1 · 封顶 10 个驻留 id）
 > 自净化经验系统的**必须层**：踩过且会复发的硬坑，每轮都在上下文里，**同样问题不再重导**。
 > 全量见 `docs/lessons/LEDGER.md`；按需细则 `docs/lessons/<topic>.md`；流程见 `docs/LESSONS.md`。
-> 增删经验用 `scripts/lessons.ps1`（add/search/check/promote）；本节超上限须淘汰最不活跃项回按需层。
+> `scripts/lessons.ps1` 完整命令集：`add|archive|bump|check|list|promote|search`；本节超上限须淘汰最不活跃项回按需层。
 > **封顶的计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 Markdown bullet 包含 2 个驻留 id、
 > 占 2 个封顶单位；封顶要管的是驻留 id。判定核 `scripts/_lessons.ps1`，`lessons.ps1 check` 与心跳探针 5 共用。
 - **[L1] 并行工具批次**：只读诊断与写操作**分批**；首个命令非零退出会**连带取消整批**、丢失已写文件。
