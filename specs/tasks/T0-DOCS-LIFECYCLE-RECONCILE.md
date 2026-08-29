@@ -26,6 +26,7 @@ non_goals:
   - 清理远端分支或本地 worktree
   - 重写历史性计划、发现或进度记录
   - 归档 17 张 design-reconciliation 卡与 7 张 lessons-reconciliation 卡，或修复两张 lessons fixture 活动卡中的超长 dod_command 路径（24-card follow-up 另卡处理，避免本卡超过真实 diff 预算）
+  - 关闭 T3-REPORT-COMPOSER-R3-CLOSURE 或 TD139（需 focused report DoD 与吸收实现收据，另卡处理）
 acceptance:
   - "A1 以下 27 张卡均有可追溯到 master 的实现提交；它们从 specs/tasks 移到 specs/archive/tasks，唯一内容变化是 status: merged"
   - "A2 specs/archive/cards-index.md 由 archive.ps1 重建，-CheckCardsIndex 通过；活动卡计数从 84 加本卡后减 27，得到 58"
