@@ -21,12 +21,12 @@ non_goals:
   - 重开 T3-REPORT-COMPOSER 已闭合的状态域与长文本分页问题
   - 新建根 README.md 或改写历史计划记录
 acceptance:
-  - "A1 fresh focused report DoD 在当前 master exit 0，并与 PR #39 / bc3b6bcd 的 A1-A6 行为测试对应"
+  - "A1 hardened focused report DoD 使用 --rerun-tasks --no-build-cache 在 master 6eb5d377 exit 0，并与 PR #39 / bc3b6bcd 的 A1-A6 行为测试对应"
   - "A2 T3-REPORT-COMPOSER-R3-CLOSURE 仅改 status: merged 后移入 archive；登记本卡后的活动卡数 34 减 1 得 33"
   - "A3 TD139 从 carded 改为 paid，偿还指针明确 PR #39/bc3b6bcd 是实现、PR #40/d130ca13 仅登记、focused DoD exit 0；archive.ps1 将其移入 debt archive 并重建索引"
   - "A4 docs/TASK-BOARD.md 的 T3 主卡与 closure 两行均为带上述双收据和 focused exit 0 的 merged 终态"
   - "A5 check-cards、archive 双索引检查、lessons check、verify 与适用 selftest 分片通过"
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*" && pwsh -NoProfile -Command "if ((Get-ChildItem specs/tasks/T*.md).Count -ne 33) { exit 1 }; if ((Test-Path specs/tasks/T3-REPORT-COMPOSER-R3-CLOSURE.md) -or (-not (Test-Path specs/archive/tasks/T3-REPORT-COMPOSER-R3-CLOSURE.md))) { exit 1 }; exit 0"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.*" && pwsh -NoProfile -Command "if ((Get-ChildItem specs/tasks/T*.md).Count -ne 33) { exit 1 }; if ((Test-Path specs/tasks/T3-REPORT-COMPOSER-R3-CLOSURE.md) -or (-not (Test-Path specs/archive/tasks/T3-REPORT-COMPOSER-R3-CLOSURE.md))) { exit 1 }; exit 0"
 dod_exit: 0
 dod_assert: PR #39 已吸收实现 A1-A6 且 focused report DoD 绿；closure 卡、TD139、Task Board 与两份 archive 索引形成一致终态
 review_gate: codex {verdict:pass}
@@ -40,10 +40,12 @@ doc_sync: R5 把本卡标 merged 后归档并重建 cards-index
 
 PR #39 / master `bc3b6bcd` absorbed all six renderer-ready findings that were later registered as the closure card in PR #40 /
 master `d130ca13`. The closure card and TD139 remained active because no fresh focused report receipt had been recorded. The
-focused command now exits 0 on current `master`; this card closes only that lifecycle/documentation gap.
+hardened focused command exits 0 with `--rerun-tasks --no-build-cache` against master `6eb5d377`; this card closes only that
+lifecycle/documentation gap.
 
 ## Evidence boundary
 
 - Implementation: PR #39 / master `bc3b6bcd` contains A1-A6 and their report tests.
 - Registration only: PR #40 / master `d130ca13` creates the closure card; it is not an implementation receipt.
-- Fresh verifier: `:core:test --tests "nz.myinspection.core.report.*"` exits 0 on the current master before this card is registered.
+- Fresh verifier: `--rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.*"` exits 0 against master
+  `6eb5d377`; cache reuse cannot satisfy this receipt.
