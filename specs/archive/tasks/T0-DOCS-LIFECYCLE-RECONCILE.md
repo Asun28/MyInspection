@@ -3,7 +3,7 @@ id: T0-DOCS-LIFECYCLE-RECONCILE
 title: Reconcile merged-card lifecycle and documentation workflow surfaces
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-DOCS-LIFECYCLE-RECONCILE
 worktree: C:\wt\T0-DOCS-LIFECYCLE-RECONCILE
 allow_paths:
