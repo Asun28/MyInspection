@@ -28,6 +28,9 @@ dod_exit: 0
 dod_assert: schema v5 的四表、封闭域、唯一约束、迁移保真、确定查询面与受审 databases/4.db 全部由真实 SQLite/SQLDelight 证明
 review_gate: codex {verdict:pass}
 version_review: approved 2026-08-29 — schema v4→v5；4.sqm 新增四表，databases/4.db 固定迁移起点；LANDLORD/TENANT 与 LOW/MEDIUM/HIGH/EXTRA_HIGH 为封闭域；backup FORMAT_VERSION 保持 1
+boundary_exceptions:
+  - "本次版本评审显式批准 A2–A5 的 exact column sets 作为通用 updated_at/deleted_at 规则的窄例外：local_asset_state 是以 rel_path 为自然键的当前物理状态；三张 receipt/entry 表是不可变证据账本，撤销只追加 revoked_at，不更新或软删既有证据，且查询面不得提供硬删除"
+  - "本次版本评审显式批准 local_asset_state.rel_path 与 verified_backup_receipt_entry(receipt_id,rel_path) 作为通用 UUIDv7 主键规则的窄例外；report_export_receipt.id 与 verified_backup_receipt.id 仍由 Kotlin 服务生成 UUIDv7"
 hygiene: 只交付 schema/query surface；按单点约束/谓词删除做 mutation-survivor 剪枝（R4）
 doc_sync: 由最终 T5-MEDIA-ARCHIVE-CONTRACT 在 R5 统一同步 TD132 与 TASK-BOARD
 ---
