@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-JOURNEY-ROW-FIXTURE
 title: 固定支持路由列形与通知选择失败路径
 depends_on: [T0-RECONCILE-DESIGN-JOURNEY-INVARIANT-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-JOURNEY-ROW-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-JOURNEY-ROW-FIXTURE
 allow_paths:

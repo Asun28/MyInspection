@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-FOUNDATION-R3-PAIR-FIXTURE
 title: 登记 Foundations 精确渲染配对与层级修订源
 depends_on: [T0-RECONCILE-DESIGN-FOUNDATION-R3-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-FOUNDATION-R3-PAIR-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-FOUNDATION-R3-PAIR-FIXTURE
 allow_paths:

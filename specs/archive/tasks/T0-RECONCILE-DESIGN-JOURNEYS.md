@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-JOURNEYS
 title: 补齐 Field Ledger 信息架构、导航、恢复与离线隐私旅程
 depends_on: [T0-RECONCILE-DESIGN-METADATA, T0-RECONCILE-T5-DIAGNOSTIC-CARDS]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-JOURNEYS
 worktree: C:\wt\T0-RECONCILE-DESIGN-JOURNEYS
 source_ref: c9a34b314cdf38986b2584c35371b17a73438003:context/DESIGN.md

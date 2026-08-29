@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-COMPONENTS
 title: 补齐 Field Ledger 组件合同、对比度、动效与无障碍规则
 depends_on: [T0-RECONCILE-DESIGN-FOUNDATIONS]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-COMPONENTS
 worktree: C:\wt\T0-RECONCILE-DESIGN-COMPONENTS
 source_ref: d041b1c13312591d82891e5de29442028dc441fd:context/DESIGN.md

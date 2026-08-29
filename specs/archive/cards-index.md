@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 117 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 141 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -70,6 +70,30 @@
 | T0-R3-DIFF-BUDGET | merged | 在 push/R3 前按真实 diff 预算硬阻断超大任务卡 |
 | T0-R3-FLOW-ENUM-SYNC | merged | 把真实 diff 预算闸补进每一处确定性闸枚举，并各配锚定断言（承接 T0-R3-DIFF-BUDGET 的 A13） |
 | T0-RECONCILE-DATA-AUTHORITY | merged | 同步离线数据库、安全与备份设计权威 |
+| T0-RECONCILE-DESIGN-COMPONENT-AUDIO-FIXTURE | merged | 登记 Components 原始音频保留修订源 |
+| T0-RECONCILE-DESIGN-COMPONENT-R3-FIXTURE | merged | 登记 Components 动效与 Compose 语义修订源 |
+| T0-RECONCILE-DESIGN-COMPONENT-SPLIT | merged | 将超预算设计组件卡拆为基础与组件两个完整评审单元 |
+| T0-RECONCILE-DESIGN-COMPONENTS | merged | 补齐 Field Ledger 组件合同、对比度、动效与无障碍规则 |
+| T0-RECONCILE-DESIGN-DOWNSTREAM-FIXTURE | merged | 同步旅程与组件卡到可移植的设计元数据源夹具 |
+| T0-RECONCILE-DESIGN-FOUNDATION-R3-FIXTURE | merged | 登记 Foundations R3 修订源与两张下游卡的新钉点 |
+| T0-RECONCILE-DESIGN-FOUNDATION-R3-PAIR-FIXTURE | merged | 登记 Foundations 精确渲染配对与层级修订源 |
+| T0-RECONCILE-DESIGN-FOUNDATION-TARGET-FIXTURE | merged | 登记 Foundations 目标组件映射与非空洞 DoD |
+| T0-RECONCILE-DESIGN-FOUNDATIONS | merged | 拆分 Field Ledger 设计基础合同以满足完整评审预算 |
+| T0-RECONCILE-DESIGN-JOURNEY-DOD-FIXTURE | merged | 规范化设计旅程卡源文本换行后再执行区域验收 |
+| T0-RECONCILE-DESIGN-JOURNEY-FIXTURE | merged | 修正设计旅程备份范围断言的可执行源夹具 |
+| T0-RECONCILE-DESIGN-JOURNEY-INVARIANT-FIXTURE | merged | 固定备份范围矩阵与完整旅程栈不变量 |
+| T0-RECONCILE-DESIGN-JOURNEY-ROW-FIXTURE | merged | 固定支持路由列形与通知选择失败路径 |
+| T0-RECONCILE-DESIGN-JOURNEY-TRACE-FIXTURE | merged | 固定完整旅程表面注册与统一动作命名的设计源 |
+| T0-RECONCILE-DESIGN-JOURNEYS | merged | 补齐 Field Ledger 信息架构、导航、恢复与离线隐私旅程 |
+| T0-RECONCILE-DESIGN-METADATA-FIXTURE | merged | 修正设计元数据 YAML 状态的可执行源夹具 |
+| T0-RECONCILE-DESIGN-METADATA | merged | 建立 Field Ledger 可机读设计令牌与组件注册表 |
+| T0-RECONCILE-LESSONS-FINAL-FIXTURE | merged | 最终收口 lessons 可执行源与唯一模式 |
+| T0-RECONCILE-LESSONS-FIXTURE | merged | 修正本地调和 lessons 的可执行源夹具 |
+| T0-RECONCILE-LESSONS-R3-FIXTURE | merged | 移除 lessons 夹具中的未合并身份守卫声明 |
+| T0-RECONCILE-LESSONS-R3-PATTERN-FIXTURE | merged | 对齐 lessons 身份原则的 R3 验收词组 |
+| T0-RECONCILE-LESSONS-VALIDATOR-DOD-FIXTURE | merged | 修正 lessons validator 修复卡的 PowerShell 检查列表 |
+| T0-RECONCILE-LESSONS-VALIDATOR-FIXTURE | merged | 收口 lessons 夹具的 enforced_by 校验兼容性 |
+| T0-RECONCILE-LESSONS | merged | 按当前 schema 归并本地经验 |
 | T0-RECONCILE-ROADMAP-INDEX | merged | 将离线安全与诊断卡投影到任务表和技术债索引 |
 | T0-RECONCILE-T1-SECURITY-CARDS | merged | 登记数据库与本地安全三卡 |
 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | merged | 登记事件、诊断、清除与健康四卡 |

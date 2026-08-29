@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-METADATA-FIXTURE
 title: 修正设计元数据 YAML 状态的可执行源夹具
 depends_on: []
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-METADATA-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-METADATA-FIXTURE
 allow_paths:

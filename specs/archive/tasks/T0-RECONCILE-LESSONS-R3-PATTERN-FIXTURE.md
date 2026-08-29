@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-R3-PATTERN-FIXTURE
 title: 对齐 lessons 身份原则的 R3 验收词组
 depends_on: [T0-RECONCILE-LESSONS-R3-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-R3-PATTERN-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-R3-PATTERN-FIXTURE
 allow_paths:

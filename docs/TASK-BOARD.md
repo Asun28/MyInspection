@@ -48,14 +48,14 @@
 | W0 | T0-RECONCILE-T1-SECURITY-CARDS | 登记数据库生命周期与 Android 本地安全三张实现卡 | T0-RECONCILE-DATA-AUTHORITY | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `a403a757`，PR #152；调和 2/12） |
 | W0 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | 登记事件、诊断、清除与本机健康四张实现卡 | T0-RECONCILE-T1-SECURITY-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `bdc85f10`，PR #153；调和 3/12） |
 | W0 | T0-RECONCILE-ROADMAP-INDEX | 将七张卡投影到任务表和技术债索引 | T0-RECONCILE-T1-SECURITY-CARDS,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `782471da`，PR #154；调和 4/12） |
-| W0 | T0-RECONCILE-DESIGN-METADATA | Field Ledger 可机读 tokens 与组件注册表 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 5/12；可并行 |
-| W0 | T0-RECONCILE-DESIGN-JOURNEYS | 信息架构、导航恢复与离线隐私旅程 | T0-RECONCILE-DESIGN-METADATA,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 6/12；串行 |
-| W0 | T0-RECONCILE-DESIGN-COMPONENTS | 组件合同、对比度、动效与无障碍规则 | T0-RECONCILE-DESIGN-JOURNEYS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 7/12；串行 |
+| W0 | T0-RECONCILE-DESIGN-METADATA | Field Ledger 可机读 tokens 与组件注册表 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（primary master `5e67e0cd`，PR #155；fixture follow-up master `281dff2e`，PR #156；调和 5/12） |
+| W0 | T0-RECONCILE-DESIGN-JOURNEYS | 信息架构、导航恢复与离线隐私旅程 | T0-RECONCILE-DESIGN-METADATA,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（primary master `85bdf1df`，PR #160；fixture follow-up master `94b92146`，PR #163；调和 6/12） |
+| W0 | T0-RECONCILE-DESIGN-COMPONENTS | 组件合同、对比度、动效与无障碍规则 | T0-RECONCILE-DESIGN-JOURNEYS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（primary master `e139eee2`，PR #169；fixture follow-up master `e7ce52cc`，PR #171；调和 7/12） |
 | W0 | T0-RECONCILE-UI-COVERAGE | UI elements 页面与组件覆盖索引 | T0-RECONCILE-DESIGN-COMPONENTS,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `9c8cfcda`，PR #175；调和 8/12） |
 | W0 | T0-RECONCILE-UI-CAPTURE | 采集、历史与 PDF 卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `622ebea8`，PR #176；调和 9/12） |
 | W0 | T0-RECONCILE-UI-NOTICE-SCHEDULE | 通知与日程卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `96dbc81d`，PR #177；调和 10/12） |
 | W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（PR #178 先入 integration；同一结果由 PR #179 合入 master `5235ffe4`；调和 11/12） |
-| W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 12/12；保留新 id |
+| W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（primary master `e60fec91`，PR #148；fixture follow-up master `3bcd1cc9`，PR #150；调和 12/12） |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
 | W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |

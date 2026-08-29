@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-JOURNEY-TRACE-FIXTURE
 title: 固定完整旅程表面注册与统一动作命名的设计源
 depends_on: [T0-RECONCILE-DESIGN-JOURNEY-DOD-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-JOURNEY-TRACE-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-JOURNEY-TRACE-FIXTURE
 allow_paths:

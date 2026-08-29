@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-FIXTURE
 title: 修正本地调和 lessons 的可执行源夹具
 depends_on: []
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-FIXTURE
 allow_paths:

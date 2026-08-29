@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-VALIDATOR-FIXTURE
 title: 收口 lessons 夹具的 enforced_by 校验兼容性
 depends_on: [T0-RECONCILE-LESSONS-FINAL-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-VALIDATOR-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-VALIDATOR-FIXTURE
 allow_paths:

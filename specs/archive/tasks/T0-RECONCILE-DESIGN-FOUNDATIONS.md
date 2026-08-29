@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-FOUNDATIONS
 title: 拆分 Field Ledger 设计基础合同以满足完整评审预算
 depends_on: [T0-RECONCILE-DESIGN-JOURNEYS]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-FOUNDATIONS
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-FOUNDATIONS
 source_ref: 9bdcf966d4beb676e286175158f5b17175ae8f71:context/DESIGN.md

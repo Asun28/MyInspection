@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-R3-FIXTURE
 title: 移除 lessons 夹具中的未合并身份守卫声明
 depends_on: [T0-RECONCILE-LESSONS-VALIDATOR-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-R3-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-R3-FIXTURE
 allow_paths:

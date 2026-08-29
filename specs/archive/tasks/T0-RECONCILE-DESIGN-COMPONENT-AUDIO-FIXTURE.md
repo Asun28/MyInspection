@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-COMPONENT-AUDIO-FIXTURE
 title: 登记 Components 原始音频保留修订源
 depends_on: [T0-RECONCILE-DESIGN-COMPONENT-R3-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-COMPONENT-AUDIO-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-COMPONENT-AUDIO-FIXTURE
 allow_paths:
