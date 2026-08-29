@@ -2,7 +2,7 @@
 id: T0-R3-DIFF-BUDGET
 title: 在 push/R3 前按真实 diff 预算硬阻断超大任务卡
 depends_on: [T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH]
-status: todo
+status: merged
 branch: T0-R3-DIFF-BUDGET
 worktree: C:\wt\T0-R3-DIFF-BUDGET
 allow_paths:

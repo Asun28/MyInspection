@@ -3,7 +3,7 @@ id: T0-SCAFFOLD-SYNC-045
 title: 区分 scaffold origin/current，并推进到 v0.45.0
 depends_on: [T0-SCAFFOLD-FLEET-LOOP]
 parallelizable_with: []
-status: in-progress
+status: merged
 branch: T0-SCAFFOLD-SYNC-045
 worktree: C:\wt\T0-SCAFFOLD-SYNC-045
 allow_paths:

@@ -3,7 +3,7 @@ id: T0-LESSONS-TIER1-CUT
 title: 必须层减法——驻留经验 id 从 19 降到 9，依据全取自 LEDGER 自己的字段
 depends_on: []
 parallelizable_with: []
-status: in-progress
+status: merged
 branch: T0-LESSONS-TIER1-CUT
 worktree: C:\wt\T0-LESSONS-TIER1-CUT
 allow_paths:

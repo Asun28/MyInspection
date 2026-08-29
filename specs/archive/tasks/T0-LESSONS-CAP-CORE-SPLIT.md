@@ -2,7 +2,7 @@
 id: T0-LESSONS-CAP-CORE-SPLIT
 title: 从超预算 PR #127 提取 resident-id 共享判定核与 lessons 消费者
 depends_on: []
-status: todo
+status: merged
 branch: T0-LESSONS-CAP-CORE-SPLIT
 worktree: C:\wt\T0-LESSONS-CAP-CORE-SPLIT
 allow_paths:

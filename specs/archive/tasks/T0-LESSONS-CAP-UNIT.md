@@ -3,7 +3,7 @@ id: T0-LESSONS-CAP-UNIT
 title: 必须层封顶改按驻留经验 id 计量，并把 enforced_by 做成双向判据（横切卡，尺寸见 allow_paths）
 depends_on: [T0-LESSONS-TIER1-CUT]
 parallelizable_with: []
-status: in-progress
+status: merged
 branch: T0-LESSONS-CAP-UNIT
 worktree: C:\wt\T0-LESSONS-CAP-UNIT
 allow_paths:

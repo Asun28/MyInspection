@@ -2,7 +2,7 @@
 id: T0-RECONCILE-UI-COVERAGE-DOD-FIXTURE
 title: 修正 UI Elements 覆盖卡的 Windows CRLF 表格解析
 depends_on: [T0-RECONCILE-DESIGN-COMPONENTS]
-status: todo
+status: merged
 branch: T0-RECONCILE-UI-COVERAGE-DOD-FIXTURE
 worktree: C:\wt\T0-RECONCILE-UI-COVERAGE-DOD-FIXTURE
 allow_paths:

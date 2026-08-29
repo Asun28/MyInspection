@@ -2,7 +2,7 @@
 id: T0-RECONCILE-T5-DIAGNOSTIC-CARDS
 title: 登记事件、诊断、清除与健康四卡
 depends_on: [T0-RECONCILE-T1-SECURITY-CARDS]
-status: todo
+status: merged
 branch: T0-RECONCILE-T5-DIAGNOSTIC-CARDS
 worktree: C:\wt\T0-RECONCILE-T5-DIAGNOSTIC-CARDS
 allow_paths:

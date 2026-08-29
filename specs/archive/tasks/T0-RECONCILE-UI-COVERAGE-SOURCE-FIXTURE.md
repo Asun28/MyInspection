@@ -2,7 +2,7 @@
 id: T0-RECONCILE-UI-COVERAGE-SOURCE-FIXTURE
 title: 登记可完整验收的 UI Elements 覆盖源
 depends_on: [T0-RECONCILE-UI-COVERAGE-ELEMENT-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-UI-COVERAGE-SOURCE-FIXTURE
 worktree: C:\wt\T0-RECONCILE-UI-COVERAGE-SOURCE-FIXTURE
 allow_paths:

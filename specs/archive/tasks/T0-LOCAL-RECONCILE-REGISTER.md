@@ -3,7 +3,7 @@ id: T0-LOCAL-RECONCILE-REGISTER
 title: 注册落后本地 master 的十二张可评审文档调和卡
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-LOCAL-RECONCILE-REGISTER
 worktree: C:\wt\T0-LOCAL-RECONCILE-REGISTER
 allow_paths:

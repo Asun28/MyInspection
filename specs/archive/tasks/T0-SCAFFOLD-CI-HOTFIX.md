@@ -3,7 +3,7 @@ id: T0-SCAFFOLD-CI-HOTFIX
 title: 修复合并后 scaffold-selftest 的跨分支与跨 PowerShell 回归
 depends_on: []
 plan_ref: docs/TASK-BOARD.md#current-stage
-status: in-progress
+status: merged
 branch: T0-SCAFFOLD-CI-HOTFIX
 worktree: C:\wt\T0-SCAFFOLD-CI-HOTFIX
 allow_paths:

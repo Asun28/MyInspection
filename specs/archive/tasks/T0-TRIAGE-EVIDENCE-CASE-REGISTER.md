@@ -2,7 +2,7 @@
 id: T0-TRIAGE-EVIDENCE-CASE-REGISTER
 title: 登记 triage 裁决证据目录大小写语义修复卡
 depends_on: []
-status: todo
+status: merged
 branch: T0-TRIAGE-EVIDENCE-CASE-REGISTER
 worktree: C:\wt\T0-TRIAGE-EVIDENCE-CASE-REGISTER
 allow_paths:

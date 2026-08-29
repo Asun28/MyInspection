@@ -2,7 +2,7 @@
 id: T0-RECONCILE-UI-COVERAGE-ELEMENT-FIXTURE
 title: 登记 UI Elements 恢复确认组件修订源
 depends_on: [T0-RECONCILE-UI-COVERAGE-DOD-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-UI-COVERAGE-ELEMENT-FIXTURE
 worktree: C:\wt\T0-RECONCILE-UI-COVERAGE-ELEMENT-FIXTURE
 allow_paths:

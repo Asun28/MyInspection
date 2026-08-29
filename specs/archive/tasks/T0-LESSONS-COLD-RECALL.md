@@ -4,7 +4,7 @@ title: 让一次性 lessons 可安全归冷且仍能统一检索
 depends_on: []
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: [T0-HARNESS-SUBTRACTION-PROTOCOL]
-status: in-progress
+status: merged
 branch: T0-LESSONS-COLD-RECALL
 worktree: C:\wt\T0-LESSONS-COLD-RECALL
 allow_paths:

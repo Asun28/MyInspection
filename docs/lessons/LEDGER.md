@@ -1772,7 +1772,7 @@
 - root_cause: 两把尺量的不是同一个东西。闸门（review.ps1）取的是 PowerShell 里 `(… | Out-String).Length`，即 **UTF-16 码元数**；`wc -c` 数的是 **UTF-8 字节数**。本仓 diff 中文占比高，一个汉字 UTF-8 三字节、UTF-16 一个码元，故 wc -c 系统性高估 20–30%。实测同一分支：wc -c 报 63,023，闸门报 51,882。偏差方向恒为高估，于是「看起来超限」远多于真超限，人就会去做无谓的瘦身。
 - rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。 验收词组：UTF-16 码元；T0-R3-DIFF-BUDGET；wc -c。
 - enforced_by: scripts/review.ps1 -SizeOnly（唯一权威度量）；T0-R3-DIFF-BUDGET 的 dod_assert 已要求它 exit 0
-- refs: scripts/review.ps1; specs/tasks/T0-R3-DIFF-BUDGET.md
+- refs: scripts/review.ps1; specs/archive/tasks/T0-R3-DIFF-BUDGET.md
 
 ## L247
 - date: 2026-08-24 ｜ tags: r5,archive,ci,gates ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1

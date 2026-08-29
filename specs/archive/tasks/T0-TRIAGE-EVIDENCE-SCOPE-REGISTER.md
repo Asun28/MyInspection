@@ -2,7 +2,7 @@
 id: T0-TRIAGE-EVIDENCE-SCOPE-REGISTER
 title: 把 PR #137 其余裁决证据 finding 并入独立修复卡
 depends_on: []
-status: todo
+status: merged
 branch: T0-TRIAGE-EVIDENCE-SCOPE-REGISTER
 worktree: C:\wt\T0-TRIAGE-EVIDENCE-SCOPE-REGISTER
 allow_paths:

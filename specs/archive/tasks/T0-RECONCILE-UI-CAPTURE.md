@@ -2,7 +2,7 @@
 id: T0-RECONCILE-UI-CAPTURE
 title: 对齐采集、历史与 PDF 实现卡的设计系统指针
 depends_on: [T0-RECONCILE-UI-COVERAGE]
-status: todo
+status: merged
 branch: T0-RECONCILE-UI-CAPTURE
 worktree: C:\wt\T0-RECONCILE-UI-CAPTURE
 allow_paths:
