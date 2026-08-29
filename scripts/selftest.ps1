@@ -877,8 +877,6 @@ function Test-Td145FileHashMapEqual([hashtable]$Expected, [hashtable]$Actual) {
   return $true
 }
 
-# 供 TD145 持久变异子进程调用的真实行为夹具：建立 nested submodule + linked checkout，
-# 真跑变异后的 lessons.ps1。这里的 RED 来自目标行为，而不是源码锚点是否还在。
 function Invoke-Td145BehaviorFixture([string]$SourceRoot) {
   $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "td145-behavior-$PID-$([guid]::NewGuid().ToString('N'))"
   $seed = Join-Path $fixtureRoot 'seed'
@@ -916,36 +914,51 @@ function Invoke-Td145BehaviorFixture([string]$SourceRoot) {
     $setupOk = $setupOk -and ($LASTEXITCODE -eq 0)
     $primaryLedger = Join-Path $checkout 'docs/lessons/LEDGER.md'
     $linkedLedger = Join-Path $linked 'docs/lessons/LEDGER.md'
-    if (-not $setupOk -or -not (Test-Path -LiteralPath $primaryLedger) -or -not (Test-Path -LiteralPath $linkedLedger)) {
-      [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/setup real submodule fixture failed')
+    $seedLedger = Join-Path $seed 'docs/lessons/LEDGER.md'
+    $commonDir = "$(& git -C $checkout rev-parse --path-format=absolute --git-common-dir 2>$null)".Trim()
+    $setupOk = $setupOk -and ($LASTEXITCODE -eq 0) -and [System.IO.Path]::IsPathFullyQualified($commonDir)
+    $internalLedger = if ($commonDir) { Join-Path $commonDir 'docs/lessons/LEDGER.md' } else { '' }
+    if (-not $setupOk -or -not (Test-Path -LiteralPath $primaryLedger) -or -not (Test-Path -LiteralPath $linkedLedger) -or -not (Test-Path -LiteralPath $seedLedger)) {
+      [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/setup')
     }
     else {
       $superBaseline = Get-Td145OutsideFileHashMap -Root $super -ExcludedRoots @($checkout)
       $before = Get-Content -LiteralPath $primaryLedger -Raw
+      $primaryHash = (Get-FileHash -LiteralPath $primaryLedger -Algorithm SHA256).Hash
+      $linkedHash = (Get-FileHash -LiteralPath $linkedLedger -Algorithm SHA256).Hash
+      $seedHash = (Get-FileHash -LiteralPath $seedLedger -Algorithm SHA256).Hash
       $expectedPrimary = [regex]::Replace($before, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)3\b', '${1}4', 1)
       $primaryOut = (& pwsh -NoProfile -File (Join-Path $checkout 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
       $primaryExit = $LASTEXITCODE
       $afterPrimary = Get-Content -LiteralPath $primaryLedger -Raw
       $primaryOk = ($primaryExit -eq 0 -and $afterPrimary -ceq $expectedPrimary)
       if (-not $primaryOk) {
-        [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/target primary recurrence 3->4 failed exit=$primaryExit output=[$primaryOut]")
+        [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/target exit=$primaryExit")
+        if ($primaryExit -eq 0) { [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/target-exit') }
+        if ($primaryOut -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]')) { [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/target-class') }
+        if ((Get-FileHash -LiteralPath $primaryLedger -Algorithm SHA256).Hash -cne $primaryHash) { [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/target-zero-write') }
       }
       if ($primaryOk) {
-        $linkedHash = (Get-FileHash -LiteralPath $linkedLedger -Algorithm SHA256).Hash
         $expectedLinked = [regex]::Replace($afterPrimary, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)4\b', '${1}5', 1)
-        $linkedOut = (& pwsh -NoProfile -File (Join-Path $linked 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+        $null = (& pwsh -NoProfile -File (Join-Path $linked 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
         $linkedExit = $LASTEXITCODE
         $afterLinked = Get-Content -LiteralPath $primaryLedger -Raw
         if ($linkedExit -ne 0 -or $afterLinked -cne $expectedLinked) {
-          [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/linked-target linked bump did not update primary 4->5 exit=$linkedExit output=[$linkedOut]")
+          [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/linked-target exit=$linkedExit")
         }
-        if ((Get-FileHash -LiteralPath $linkedLedger -Algorithm SHA256).Hash -cne $linkedHash) {
-          [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/linked-zero-write linked checkout ledger changed')
-        }
+      }
+      if ((Get-FileHash -LiteralPath $linkedLedger -Algorithm SHA256).Hash -cne $linkedHash) {
+        [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/linked-zero-write')
+      }
+      if ((Get-FileHash -LiteralPath $seedLedger -Algorithm SHA256).Hash -cne $seedHash) {
+        [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/source-zero-write')
+      }
+      if (Test-Path -LiteralPath $internalLedger) {
+        [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/internal-zero-write')
       }
       $superAfter = Get-Td145OutsideFileHashMap -Root $super -ExcludedRoots @($checkout)
       if (-not (Test-Td145FileHashMapEqual -Expected $superBaseline -Actual $superAfter)) {
-        [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/super-tree-zero-write superproject file map changed')
+        [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/super-tree-zero-write')
       }
     }
   }
@@ -3460,11 +3473,8 @@ try {
 #   旧实现把 $Ledger 绑到 $PSScriptRoot/..，于是在 linked worktree 里跑 bump 就写进了**卡片分支**的
 #   LEDGER.md，被范围闸与 R3 #7（夹带无关改动）正确拦下——计数遂无处可去。丢失是**结构性**的：
 #   卡片工作全在 worktree 里做，所以「工作中发现的复发」几乎必然记不上，晋升门槛被系统性低估。
-#   修法：bump 以 normalized common-dir 锚仓；普通仓取首条真实 checkout，submodule 按 local core.worktree
-#   相对 common-dir 解析，再用候选 show-toplevel + common-dir 反向验同仓，只此一条平面、无静默回落。
 #   夹具 LSN-PLANE-WORKTREE：真 git 仓 + 一棵 linked worktree，三条断言——
 #     (a) 从 worktree 跑 bump → 主检出账本 +1，且 worktree 账本**逐字节不变**；
-#     (b) 从主检出直跑 → 仍正确 +1；
 #     (e) 继承的 GIT_COMMON_DIR 不得劫持写入平面；(c) 主检出账本缺失 → 非零退出 + [LSN-PLANE-UNRESOLVED]（fail-closed，禁止回落到当前检出）。
 $l2dRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
 if (Test-Path $l2dRoot) { Remove-Item -Recurse -Force $l2dRoot }
@@ -3509,13 +3519,12 @@ try {
       Fail "闸2d(a)：bump 改动了 **worktree** 那份 LEDGER（SHA256 $l2dWtHashBefore -> $l2dWtHashAfter）——仓库级元数据不得进入卡片分支 diff。"
     }
     else {
-      # (b) 从主检出直跑 —— 第一条 worktree 记录仍须指向当前主检出。
       $l2dOutB = (& pwsh -NoProfile -File (Join-Path $l2dMain 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
       $l2dExitB = $LASTEXITCODE
       $l2dMainB = Get-Content $l2dMainLedger -Raw
       $l2dTailB = ($l2dOutB -replace '\s+', ' ').Trim()
       if ($l2dExitB -ne 0 -or $l2dMainB -notmatch '(?m)^- date:.*?recurrence:\s*5\b') {
-        Fail "闸2d(b)：从**主检出**直跑 bump 未正确递增到 5（exit=$l2dExitB）——normalized common-dir 与首条真实 worktree 应共同指回当前主检出。输出=$l2dTailB"
+        Fail "闸2d(b)：primary bump exit=$l2dExitB output=$l2dTailB"
       }
       else {
         # (d) git 失败但**往 stdout 吐了看似路径的东西** —— 只判空会当成解析成功、把账本指到一个不存在的
@@ -3545,11 +3554,9 @@ try {
           Fail "闸2d(d)：git shim 从未被调用（marker 缺席）——本用例在当前平台根本没跑到回落路径，recurrence 5→6 是**真 git 成功**的结果，断言假绿（R3 r3 #6）。Windows 需 git.cmd、Unix 需无扩展名且 chmod +x 的 git，且 shim 目录须在 PATH 首位（分隔符按 [System.IO.Path]::PathSeparator）。"
         }
         elseif ($l2dExitD -ne 0 -or $l2dMainD -notmatch '(?m)^- date:.*?recurrence:\s*6\b') {
-          Fail "闸2d(d)：初始 common-dir 探针非零却带 stdout 时未回落调用方检出（exit=$l2dExitD）——只有该首探针失败允许 fallback，且必须同时相信退出码。输出=$l2dTailD"
+          Fail "闸2d(d)：initial-probe fallback exit=$l2dExitD output=$l2dTailD"
         }
         else {
-        # (f) git 成功却不给合法 worktree 首条记录是 malformed success，不等于「这里不是 git 仓」；
-        #   空输出与非 worktree 首行都必须 fail-closed 且零写入。
         $l2dHeadF = "$(& git -C $l2dMain rev-parse HEAD 2>$null)".Trim()
         foreach ($l2dCaseF in @(
           @{ Name = 'empty'; Outputs = @() },
@@ -3579,11 +3586,10 @@ try {
             Fail "[LSN-PLANE-SUBMODULE] 闸2d(f/shim-$($l2dCaseF.Name))：git malformed-success shim 未被调用。"
           }
           elseif ($l2dExitF -eq 0 -or $l2dTailF -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or $l2dMainHashPostF -ne $l2dMainHashPreF) {
-            Fail "[LSN-PLANE-SUBMODULE] 闸2d(f/$($l2dCaseF.Name))：git 成功但无合法 worktree 首条记录时未 fail-closed 且零写入。exit=$l2dExitF hash=$l2dMainHashPreF->$l2dMainHashPostF output=[$l2dTailF]"
+            Fail "[LSN-PLANE-SUBMODULE] 闸2d(f/$($l2dCaseF.Name)) fail-closed/zero-write exit=$l2dExitF"
           }
         }
 
-        # (g) 初始 common-dir 仓库探针成功后，后续 worktree list 失败不得回落写当前检出。
         $l2dCommonG = Join-Path $l2dMain '.git'
         $l2dCmdG = "@echo off`r`n> `"%~dp0invoked.txt`" echo invoked`r`necho %* | findstr /C:`"worktree list --porcelain`" >nul`r`nif not errorlevel 1 exit /b 2`r`necho $l2dCommonG`r`nexit /b 0`r`n"
         Set-Content (Join-Path $l2dShim 'git.cmd') $l2dCmdG -Encoding ascii
@@ -3603,10 +3609,9 @@ try {
         $l2dTailG = ($l2dOutG -replace '\s+', ' ').Trim()
         if (-not (Test-Path $l2dMark) -or $l2dExitG -eq 0 -or
             $l2dTailG -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or $l2dMainHashPostG -ne $l2dMainHashPreG) {
-          Fail "[LSN-PLANE-SUBMODULE] 闸2d(g/later-command)：仓库探针成功后的 worktree list 失败未 fail-closed 且零写入。exit=$l2dExitG hash=$l2dMainHashPreG->$l2dMainHashPostG output=[$l2dTailG]"
+          Fail "[LSN-PLANE-SUBMODULE] 闸2d(g/later-command) fail-closed/zero-write exit=$l2dExitG"
         }
 
-        # (h) local core.worktree 明确返回空值或重复值都属 ambiguous success；不能当成 key absent。
         $l2dHeadH = "$(& git -C $l2dMain rev-parse HEAD 2>$null)".Trim()
         $l2dConfigMarkH = Join-Path $l2dShim 'config-invoked.txt'
         foreach ($l2dCaseH in @(
@@ -3633,7 +3638,7 @@ try {
           $l2dTailH = ($l2dOutH -replace '\s+', ' ').Trim()
           if (-not (Test-Path $l2dMark) -or -not (Test-Path $l2dConfigMarkH) -or $l2dExitH -eq 0 -or
               $l2dTailH -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or $l2dMainHashPostH -ne $l2dMainHashPreH) {
-            Fail "[LSN-PLANE-SUBMODULE] 闸2d(h/$($l2dCaseH.Name))：core.worktree 空/重复输出未 fail-closed 且零写入。exit=$l2dExitH hash=$l2dMainHashPreH->$l2dMainHashPostH output=[$l2dTailH]"
+            Fail "[LSN-PLANE-SUBMODULE] 闸2d(h/$($l2dCaseH.Name)) fail-closed/zero-write exit=$l2dExitH"
           }
         }
 
@@ -3681,7 +3686,7 @@ try {
         elseif ($l2dTailC -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]')) {
           Fail "闸2d(c)：主检出账本缺失时 bump 虽非零退出，但未打印 ASCII 失败码 [LSN-PLANE-UNRESOLVED]（机检认哨兵、不认本地化文案，L165）。输出=$l2dTailC"
         }
-        else { Write-Host '  2d lessons.ps1 bump 只写 Git 声明的主检出账本（worktree 零写入 / 主检出直跑 / 初始仓库探针失败才 fallback / 后续失败与 malformed success fail-closed / GIT_* 劫持无效 / 缺账本零写入）OK' -ForegroundColor Green }
+        else { Write-Host '  2d lessons bump plane/fail-closed checks OK' -ForegroundColor Green }
         }
       }
     }
@@ -3692,8 +3697,7 @@ finally {
   Remove-Item -Recurse -Force $l2dRoot -ErrorAction SilentlyContinue
 }
 
-# 2d(s). TD145：submodule 的首条 worktree 是 common-dir，不是 checkout；linked submodule 的 show-toplevel
-# 又指向 linked checkout。必须按 local core.worktree 解析并反向验同仓，证明带空格路径下只改 primary 账本。
+# 2d(s). TD145 real submodule ownership and zero-write fixture.
 Step '2ds/17 lessons.ps1 submodule 主检出写入平面（TD145）'
 $l2dSubRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold lessons2d-submodule-$PID"
 $l2dSubSeed = Join-Path $l2dSubRoot 'seed'
@@ -3746,7 +3750,7 @@ try {
   $l2dSubLinkedLessons = Join-Path $l2dSubLinked 'scripts/lessons.ps1'
   if (-not $l2dSubSetupOk -or -not (Test-Path $l2dSubLedger) -or -not (Test-Path $l2dSubLessons) -or
       -not (Test-Path $l2dSubLinkedLedger) -or -not (Test-Path $l2dSubLinkedLessons)) {
-    Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/setup)：无法建立真实嵌套 submodule + linked worktree 夹具；本闸不可跳过。submodule-add=[$(($l2dSubAddOut -replace '\s+', ' ').Trim())] worktree-add=[$(($l2dSubWtOut -replace '\s+', ' ').Trim())]"
+    Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/setup) add=[$l2dSubAddOut] worktree=[$l2dSubWtOut]"
   }
   else {
     $l2dSubBefore = Get-Content -LiteralPath $l2dSubLedger -Raw
@@ -3756,51 +3760,54 @@ try {
     $l2dSubLinkedHashBeforePrimary = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
     $l2dSubSuperTreeBaseline = Get-Td145OutsideFileHashMap -Root $l2dSubSuper -ExcludedRoots @($l2dSubCheckout)
     if (-not $l2dSubSuperTreeBaseline.ContainsKey('.gitmodules')) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/super-tree-fixture)：superproject 全文件快照未覆盖 .gitmodules，夹具不能证明 submodule 外零写入。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/super-tree-fixture)'
     }
     $l2dSubCommon = "$(& git -C $l2dSubCheckout rev-parse --git-common-dir 2>$null)".Trim()
     $l2dSubInternalLedger = Join-Path $l2dSubCommon 'docs/lessons/LEDGER.md'
     if (-not [System.IO.Path]::IsPathFullyQualified($l2dSubCommon) -or (Test-Path -LiteralPath $l2dSubInternalLedger)) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/common-fixture)：submodule common-dir 非绝对路径或内部预先存在伪 LEDGER，夹具不能证明零写入。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/common-fixture)'
     }
-    $l2dSubOut = (& pwsh -NoProfile -File $l2dSubLessons bump L1 2>&1 | Out-String)
+    $null = (& pwsh -NoProfile -File $l2dSubLessons bump L1 2>&1 | Out-String)
     $l2dSubExit = $LASTEXITCODE
     $l2dSubAfter = Get-Content -LiteralPath $l2dSubLedger -Raw
     if ($l2dSubExit -ne 0 -or $l2dSubAfter -cne $l2dSubExpected) {
-      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/target)：submodule 内 bump 未把自己的主检出 recurrence 精确从 3 改为 4。exit=$l2dSubExit output=[$l2dSubOut]"
+      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/target) exit=$l2dSubExit"
     }
     if ((Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashBeforePrimary) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-linked-zero-write)：从 submodule 主检出 bump 改写了 linked worktree LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-linked-zero-write)'
     }
     if ((Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash -ne $l2dSubSuperHash) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-super-zero-write)：从 submodule 主检出 bump 改写了 superproject LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-super-zero-write)'
     }
     if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-source-zero-write)：从 submodule 主检出 bump 改写了源 seed 仓库。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-source-zero-write)'
     }
     $l2dSubSuperTreeAfterPrimary = Get-Td145OutsideFileHashMap -Root $l2dSubSuper -ExcludedRoots @($l2dSubCheckout)
     if (-not (Test-Td145FileHashMapEqual -Expected $l2dSubSuperTreeBaseline -Actual $l2dSubSuperTreeAfterPrimary)) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-super-tree-zero-write)：从 submodule 主检出 bump 改写、新增或删除了 submodule 外的 superproject 文件（含 .gitmodules）。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-super-tree-zero-write)'
     }
     if (Test-Path -LiteralPath $l2dSubInternalLedger) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-internal-zero-write)：从 submodule 主检出 bump 在 common-dir 内创建了伪 LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-internal-zero-write)'
     }
 
-    # linked worktree 继承 submodule 的 core.worktree；show-toplevel 指向 linked checkout，不能拿它当 primary。
     $l2dSubLinkedHashBeforeLinked = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
     $l2dSubExpectedLinked = [regex]::Replace($l2dSubAfter, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)4\b', '${1}5', 1)
     $l2dSubHijackSaved = @{}
-    foreach ($l2dSubEnv in @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0')) {
+    foreach ($l2dSubEnv in @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_PARAMETERS')) {
       $l2dSubHijackSaved[$l2dSubEnv] = [Environment]::GetEnvironmentVariable($l2dSubEnv)
     }
+    $l2dSubConfigParametersEffective = $false
     try {
+      $env:GIT_CONFIG_PARAMETERS = 'TD145_INVALID_CONFIG_PARAMETERS'
+      & git -C $l2dSubLinked rev-parse --git-common-dir 2>$null | Out-Null
+      $l2dSubConfigParametersEffective = ($LASTEXITCODE -ne 0)
       $env:GIT_DIR = Join-Path $l2dSubSuper '.git'
       $env:GIT_COMMON_DIR = Join-Path $l2dSubSuper '.git'
       $env:GIT_WORK_TREE = $l2dSubSuper
       $env:GIT_CONFIG_COUNT = '1'
       $env:GIT_CONFIG_KEY_0 = 'core.worktree'
       $env:GIT_CONFIG_VALUE_0 = $l2dSubSeed
-      $l2dSubLinkedOut = (& pwsh -NoProfile -File $l2dSubLinkedLessons bump L1 2>&1 | Out-String)
+      $null = (& pwsh -NoProfile -File $l2dSubLinkedLessons bump L1 2>&1 | Out-String)
       $l2dSubLinkedExit = $LASTEXITCODE
     }
     finally {
@@ -3810,71 +3817,90 @@ try {
       }
     }
     $l2dSubAfterLinked = Get-Content -LiteralPath $l2dSubLedger -Raw
-    if ($l2dSubLinkedExit -ne 0 -or $l2dSubAfterLinked -cne $l2dSubExpectedLinked) {
-      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/linked-target)：submodule linked worktree 内 bump 未把 submodule 主检出从 4 精确改为 5。exit=$l2dSubLinkedExit output=[$l2dSubLinkedOut]"
+    if (-not $l2dSubConfigParametersEffective -or $l2dSubLinkedExit -ne 0 -or $l2dSubAfterLinked -cne $l2dSubExpectedLinked) {
+      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/linked-target) exit=$l2dSubLinkedExit"
     }
     if ((Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashBeforeLinked) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-zero-write)：submodule bump 改写了 linked worktree 自己的 LEDGER；不得用 show-toplevel 当 primary。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-zero-write)'
     }
     if ((Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash -ne $l2dSubSuperHash) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-super-zero-write)：从 submodule linked worktree bump 改写了 superproject LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-super-zero-write)'
     }
     if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-source-zero-write)：从 submodule linked worktree bump 改写了源 seed 仓库。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-source-zero-write)'
     }
     $l2dSubSuperTreeAfterLinked = Get-Td145OutsideFileHashMap -Root $l2dSubSuper -ExcludedRoots @($l2dSubCheckout)
     if (-not (Test-Td145FileHashMapEqual -Expected $l2dSubSuperTreeBaseline -Actual $l2dSubSuperTreeAfterLinked)) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-super-tree-zero-write)：从 submodule linked worktree bump 改写、新增或删除了 submodule 外的 superproject 文件（含 .gitmodules）。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-super-tree-zero-write)'
     }
     if (Test-Path -LiteralPath $l2dSubInternalLedger) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-internal-zero-write)：从 submodule linked worktree bump 在 common-dir 内创建了伪 LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-internal-zero-write)'
     }
 
-    # core.worktree 即便来自 local config 也必须反向验证同仓身份；跨仓候选有账本也不得写。
-    $l2dSubCoreOriginal = "$(& git --git-dir $l2dSubCommon config --get core.worktree 2>$null)".Trim()
+    $l2dSubCoreOriginalLines = @(& git --git-dir $l2dSubCommon config --get-all core.worktree 2>$null)
+    $l2dSubCoreOriginalOk = ($LASTEXITCODE -eq 0 -and $l2dSubCoreOriginalLines.Count -eq 1 -and "$($l2dSubCoreOriginalLines[0])")
+    $l2dSubCoreOriginal = if ($l2dSubCoreOriginalOk) { "$($l2dSubCoreOriginalLines[0])" } else { '' }
     $l2dSubOther = Join-Path $l2dSubRoot 'other repository'
     $l2dSubOtherLedger = Join-Path $l2dSubOther 'docs/lessons/LEDGER.md'
     New-Item -ItemType Directory -Force (Split-Path $l2dSubOtherLedger) | Out-Null
     Set-Content -LiteralPath $l2dSubOtherLedger -Value ($l2dSubEntry -replace 'recurrence: 3', 'recurrence: 9') -Encoding utf8
     & git -C $l2dSubOther init -q 2>&1 | Out-Null
+    $l2dSubOtherSetupOk = ($LASTEXITCODE -eq 0)
     & git -C $l2dSubOther @l2dSubGit add -A 2>&1 | Out-Null
+    $l2dSubOtherSetupOk = $l2dSubOtherSetupOk -and ($LASTEXITCODE -eq 0)
     & git -C $l2dSubOther @l2dSubGit commit -qm 'other repository' 2>&1 | Out-Null
+    $l2dSubOtherSetupOk = $l2dSubOtherSetupOk -and ($LASTEXITCODE -eq 0)
+    $l2dSubOtherHead = "$(& git -C $l2dSubOther rev-parse --verify HEAD 2>$null)".Trim()
+    $l2dSubOtherSetupOk = $l2dSubOtherSetupOk -and ($LASTEXITCODE -eq 0) -and $l2dSubOtherHead -and (Test-Path -LiteralPath $l2dSubOtherLedger)
     $l2dSubPrimaryHashPreCross = (Get-FileHash -LiteralPath $l2dSubLedger -Algorithm SHA256).Hash
     $l2dSubLinkedHashPreCross = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
     $l2dSubOtherHashPreCross = (Get-FileHash -LiteralPath $l2dSubOtherLedger -Algorithm SHA256).Hash
     $l2dSubRestoreRc = 1
+    $l2dSubCoreRewriteRc = 1
+    $l2dSubCrossExit = 0
+    $l2dSubCrossOut = ''
     try {
       & git --git-dir $l2dSubCommon config core.worktree $l2dSubOther 2>&1 | Out-Null
-      $l2dSubCrossOut = (& pwsh -NoProfile -File $l2dSubLinkedLessons bump L1 2>&1 | Out-String)
-      $l2dSubCrossExit = $LASTEXITCODE
+      $l2dSubCoreRewriteRc = $LASTEXITCODE
+      $l2dSubCoreReadback = "$(& git --git-dir $l2dSubCommon config --get core.worktree 2>$null)".Trim()
+      $l2dSubCoreRewriteOk = ($l2dSubCoreRewriteRc -eq 0 -and $LASTEXITCODE -eq 0 -and $l2dSubCoreReadback -ceq $l2dSubOther)
+      if ($l2dSubCoreOriginalOk -and $l2dSubOtherSetupOk -and $l2dSubCoreRewriteOk) {
+        $l2dSubCrossOut = (& pwsh -NoProfile -File $l2dSubLinkedLessons bump L1 2>&1 | Out-String)
+        $l2dSubCrossExit = $LASTEXITCODE
+      }
     }
     finally {
       & git --git-dir $l2dSubCommon config core.worktree $l2dSubCoreOriginal 2>&1 | Out-Null
       $l2dSubRestoreRc = $LASTEXITCODE
+      $l2dSubRestoredValue = "$(& git --git-dir $l2dSubCommon config --get core.worktree 2>$null)".Trim()
+      $l2dSubRestoreOk = ($l2dSubRestoreRc -eq 0 -and $LASTEXITCODE -eq 0 -and $l2dSubRestoredValue -ceq $l2dSubCoreOriginal)
     }
     $l2dSubCrossTail = ($l2dSubCrossOut -replace '\s+', ' ').Trim()
-    if ($l2dSubRestoreRc -ne 0 -or $l2dSubCrossExit -eq 0 -or $l2dSubCrossTail -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or
+    if (-not $l2dSubCoreOriginalOk -or -not $l2dSubOtherSetupOk -or -not $l2dSubCoreRewriteOk -or -not $l2dSubRestoreOk -or
+        $l2dSubCrossExit -eq 0 -or $l2dSubCrossTail -notmatch [regex]::Escape('[LSN-PLANE-UNRESOLVED]') -or
         (Get-FileHash -LiteralPath $l2dSubLedger -Algorithm SHA256).Hash -ne $l2dSubPrimaryHashPreCross -or
         (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashPreCross -or
         (Get-FileHash -LiteralPath $l2dSubOtherLedger -Algorithm SHA256).Hash -ne $l2dSubOtherHashPreCross) {
-      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/cross-repo)：跨仓 core.worktree 候选未 fail-closed 且三账本零写入。exit=$l2dSubCrossExit output=[$l2dSubCrossTail]"
+      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/cross-repo) exit=$l2dSubCrossExit"
     }
     if (Test-Path -LiteralPath $l2dSubInternalLedger) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/internal-zero-write)：bump 在 submodule common-dir 内创建了伪 LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/internal-zero-write)'
     }
     if ((Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash -ne $l2dSubSuperHash) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/super-zero-write)：submodule bump 改写了 superproject LEDGER。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/super-zero-write)'
     }
     if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
-      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/source-zero-write)：submodule bump 改写了源 seed 仓库而非 checkout。'
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/source-zero-write)'
     }
 
-    # A5 持久行为变异：primary resolver 删除须使真实 fixture RED；两个断言各先注入隔离坏行为
-    # 观察专属 RED，再只删该断言并要求坏行为存活为 GREEN。每案均在 scratch 还原源文件 SHA-256。
     $l2dSubWriteAnchor = 'Set-Content -Path $BumpLedger -Value $raw -Encoding utf8 -NoNewline'
     $l2dSubOwnershipMarker = ('TD145-BEHAVIOR/' + 'linked-zero-write')
     $l2dSubSuperMarker = ('TD145-BEHAVIOR/' + 'super-tree-zero-write')
     $l2dSubPrimaryAnchor = ('$mainCheckout = [System.IO.Path]::GetFullPath((Join-Path $commonDir ' + '$coreWorktree))')
+    $l2dSubConfigProbe = '$coreWorktreeLines = @(& git -C $Root config --local --get-all core.worktree 2>$null)'
+    $l2dSubTopProbe = '$topLines = @(& git -C $mainCheckout rev-parse --show-toplevel 2>$null)'
+    $l2dSubCommonProbe = '$candidateCommonLines = @(& git -C $mainCheckout rev-parse --git-common-dir 2>$null)'
+    $l2dSubRedCase = { param($id,$anchor,$replacement) [PSCustomObject]@{ Id=$id; Expect='red'; Marker='TD145-BEHAVIOR/target'; Edits=@([PSCustomObject]@{ Target='lessons.ps1'; Mode='replace'; Anchor=$anchor; Replacement=$replacement }) } }
     $l2dSubOwnershipFault = $l2dSubWriteAnchor + "`n    Set-Content -Path `$Ledger -Value `$raw -Encoding utf8 -NoNewline"
     $l2dSubSuperFault = $l2dSubWriteAnchor + "`n    Set-Content -Path (Join-Path (Split-Path -Parent `$BumpRoot) 'docs/lessons/LEDGER.md') -Value 'TD145 bad super write' -Encoding utf8"
     $l2dSubMutationCases = @(
@@ -3882,6 +3908,12 @@ try {
       [PSCustomObject]@{ Id='primary-resolution-delete'; Expect='red'; Marker='TD145-BEHAVIOR/target'; Edits=@(
         [PSCustomObject]@{ Target='lessons.ps1'; Mode='delete-line'; Anchor=$l2dSubPrimaryAnchor; Replacement='' }
       ) },
+      (& $l2dSubRedCase 'config-fail' $l2dSubConfigProbe '$coreWorktreeLines = @(& git -C $Root config --local --get-all 2>$null)'),
+      (& $l2dSubRedCase 'top-fail' $l2dSubTopProbe '$topLines = @(& git -C $mainCheckout rev-parse --verify refs/heads/TD145-MISSING 2>$null)'),
+      (& $l2dSubRedCase 'top-ambiguous' $l2dSubTopProbe ($l2dSubTopProbe + '; $topLines = @($mainCheckout, $mainCheckout)')),
+      (& $l2dSubRedCase 'common-fail' $l2dSubCommonProbe '$candidateCommonLines = @(& git -C $mainCheckout rev-parse --verify refs/heads/TD145-MISSING 2>$null)'),
+      (& $l2dSubRedCase 'common-ambiguous' $l2dSubCommonProbe ($l2dSubCommonProbe + '; $candidateCommonLines = @($commonDir, $commonDir)')),
+      (& $l2dSubRedCase 'common-internal' $l2dSubPrimaryAnchor ("`$coreWorktree = 'internal'`n        $l2dSubPrimaryAnchor")),
       [PSCustomObject]@{ Id='ownership-fault'; Expect='red'; Marker=$l2dSubOwnershipMarker; Edits=@(
         [PSCustomObject]@{ Target='lessons.ps1'; Mode='replace'; Anchor=$l2dSubWriteAnchor; Replacement=$l2dSubOwnershipFault }
       ) },
@@ -3945,22 +3977,23 @@ try {
         $l2dSubBehaviorMatch = [regex]::Match($_, '^\[LSN-PLANE-SUBMODULE\][ \t]+(?<id>TD145-BEHAVIOR/[^ \t\r\n]+)')
         if ($l2dSubBehaviorMatch.Success) { $l2dSubBehaviorMatch.Groups['id'].Value }
       })
-      $l2dSubMutationRedOk = ($l2dSubMutationCase.Expect -eq 'red' -and $l2dSubMutationExit -ne 0 -and
-        $l2dSubBehaviorFailures.Count -eq 1 -and $l2dSubBehaviorFailures[0] -ceq $l2dSubMutationCase.Marker -and
+      $l2dSubExactRed = ($l2dSubBehaviorFailures.Count -eq 1 -and $l2dSubBehaviorFailures[0] -ceq $l2dSubMutationCase.Marker)
+      if ($l2dSubMutationCase.Id -eq 'primary-resolution-delete') { $l2dSubExactRed = ($l2dSubBehaviorFailures -join ',') -ceq 'TD145-BEHAVIOR/target,TD145-BEHAVIOR/target-class' }
+      $l2dSubMutationRedOk = ($l2dSubMutationCase.Expect -eq 'red' -and $l2dSubMutationExit -ne 0 -and $l2dSubExactRed -and
         $l2dSubMutationOut -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=2ds\r?$')
       $l2dSubMutationGreenOk = ($l2dSubMutationCase.Expect -eq 'green' -and $l2dSubMutationExit -eq 0 -and
         $l2dSubBehaviorFailures.Count -eq 0 -and $l2dSubMutationOut -match '(?m)^\[TD145-BEHAVIOR\] PASS\r?$' -and
         $l2dSubMutationOut -notmatch '(?m)^\[SELFTEST-FAILED-GATES\]')
       if ($l2dSubMutationError) {
-        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id))：行为变异未能执行：$l2dSubMutationError"
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)) error=$l2dSubMutationError"
       }
       elseif (-not $l2dSubMutationRestored) {
-        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)-restore)：scratch 源码未恢复到原 SHA256。"
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)-restore)"
       }
       elseif (-not $l2dSubMutationRedOk -and -not $l2dSubMutationGreenOk) {
-        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id))：真实行为夹具裁决不符。expect=$($l2dSubMutationCase.Expect) exit=$l2dSubMutationExit marker=$($l2dSubMutationCase.Marker) output=[$(($l2dSubMutationOut -replace '\s+', ' ').Trim())]"
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)) expect=$($l2dSubMutationCase.Expect) exit=$l2dSubMutationExit output=[$(($l2dSubMutationOut -replace '\s+', ' ').Trim())]"
       }
-      else { Write-Host "  [LSN-PLANE-SUBMODULE] TD145 behavior mutation $($l2dSubMutationCase.Id) $($l2dSubMutationCase.Expect.ToUpperInvariant()); scratch SHA256 restored" -ForegroundColor Green }
+      else { Write-Host "  [LSN-PLANE-SUBMODULE] TD145 mutation $($l2dSubMutationCase.Id) $($l2dSubMutationCase.Expect.ToUpperInvariant())" -ForegroundColor Green }
     }
   }
 }
