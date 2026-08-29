@@ -26,11 +26,11 @@ acceptance:
   - "A4 selftest 对两条 OS 的完整调用分别保留锚定源码契约；只删除任一条调用的 `--continue` 时，其专属契约必须变红，且别处的同名参数不能满足。另在 detached fixture 同时注入稳定的 :core:test 失败与 missing-migration probe：无参数时输出有 test marker 且没有 migration marker；加参数后退出仍非零、两个 marker 都在场，证明真实任务图继续执行"
   - "A5 夹具 cleanup 的目录与 Git worktree 登记仍清除；失败时保留既有逐次诊断，不新增跳过或 fail-open 分支"
   - "A6 `pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded` exit 0；`scripts/verify.ps1` 与 R3 均通过"
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch 'cmd /c android\gradlew.bat -p android --offline --no-daemon --continue -q :core:check' -Quiet) -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'sh android/gradlew -p android --offline --no-daemon --continue -q :core:check' -Quiet))) { exit 1 }"
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded -Fixture canary-harness
 dod_exit: 0
-dod_assert: 17a3 migration fixture 的 Windows/POSIX 两条完整 core:check 调用均采用已验证的 --continue 位置；A1–A6 均有可证伪收据。
+dod_assert: focused canary 执行两条 OS scoped source/delete/relocate/diffuse 变异且零退出；正常 seeded 入口也强制调用该 canary，真实 behavior/cleanup 与聚合零退出由 A3–A6 的 seeded 收据证明。
 review_gate: codex {verdict:pass}
-hygiene: 扩展既有 17a3 与 canary source contracts，不建平行测试文件；源码单句删除与真实 wrong-1.sqm 删除变异各自证明静态接线和行为 oracle，变异后逐字节还原。
+hygiene: 扩展既有 17a3 与 canary source contracts，不建平行测试文件；两条源码单句删除、一枚移位/扩散、以及真实 no-continue 同时失败变异分别证明静态接线和行为 oracle，变异后逐字节还原。
 doc_sync: 合并后在 master 归档本卡，并在 TASK-BOARD 记录 PR、merge SHA、R5 与 selftest release receipt；无用户文档改动。
 ---
 
