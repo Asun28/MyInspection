@@ -3,7 +3,7 @@ id: T3-REPORT-COMPOSER-R3-CLOSURE
 title: 报告布局 R3 收口：40mm 内联缩略图、不可拆图槽、可读时间与引用完整性
 depends_on: [T3-REPORT-COMPOSER]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-COMPOSER-R3-CLOSURE
 worktree: C:\wt\T3-REPORT-COMPOSER-R3-CLOSURE
 allow_paths:
