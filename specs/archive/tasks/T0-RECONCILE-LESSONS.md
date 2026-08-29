@@ -3,7 +3,7 @@ id: T0-RECONCILE-LESSONS
 title: 按当前 schema 归并本地经验
 depends_on: []
 parallelizable_with: [T0-RECONCILE-DESIGN-METADATA]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS
 worktree: C:\wt\T0-RECONCILE-LESSONS
 ledger_source_ref: ff7e5e4fdf1553b1c4d0fe6301b609bef82102c6:docs/lessons/LEDGER.md

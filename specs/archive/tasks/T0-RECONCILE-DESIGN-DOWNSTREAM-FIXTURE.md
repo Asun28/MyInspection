@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-DOWNSTREAM-FIXTURE
 title: 同步旅程与组件卡到可移植的设计元数据源夹具
 depends_on: [T0-RECONCILE-DESIGN-METADATA-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-DOWNSTREAM-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-DOWNSTREAM-FIXTURE
 allow_paths:

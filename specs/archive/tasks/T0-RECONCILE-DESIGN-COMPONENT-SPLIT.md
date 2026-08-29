@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-COMPONENT-SPLIT
 title: 将超预算设计组件卡拆为基础与组件两个完整评审单元
 depends_on: [T0-RECONCILE-DESIGN-JOURNEYS]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-COMPONENT-SPLIT
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-COMPONENT-SPLIT
 allow_paths:

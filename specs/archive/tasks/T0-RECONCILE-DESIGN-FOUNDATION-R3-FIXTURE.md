@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-FOUNDATION-R3-FIXTURE
 title: 登记 Foundations R3 修订源与两张下游卡的新钉点
 depends_on: [T0-RECONCILE-DESIGN-COMPONENT-SPLIT]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-FOUNDATION-R3-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-FOUNDATION-R3-FIXTURE
 allow_paths:

@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-JOURNEY-FIXTURE
 title: 修正设计旅程备份范围断言的可执行源夹具
 depends_on: [T0-RECONCILE-DESIGN-DOWNSTREAM-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-JOURNEY-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-JOURNEY-FIXTURE
 allow_paths:

@@ -62,5 +62,6 @@ Lessons family (7): `T0-RECONCILE-LESSONS`, `T0-RECONCILE-LESSONS-FINAL-FIXTURE`
 ## Evidence rule
 
 Each archived card must compare with its pre-card `master` form as an exact path move plus one `status` line change. Current
-Task Board receipts use the substantive family implementation commits: metadata PR #156 / `281dff2e`, journeys PR #163 /
-`94b92146`, components PR #171 / `e7ce52cc`, and lessons PR #150 / `3bcd1cc9`.
+Task Board receipts cite both the primary family delivery and its final fixture follow-up: metadata PR #155 / `5e67e0cd`
+plus PR #156 / `281dff2e`; journeys PR #160 / `85bdf1df` plus PR #163 / `94b92146`; components PR #169 /
+`e139eee2` plus PR #171 / `e7ce52cc`; lessons PR #148 / `e60fec91` plus PR #150 / `3bcd1cc9`.

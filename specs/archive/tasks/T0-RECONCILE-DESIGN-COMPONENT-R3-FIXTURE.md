@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-COMPONENT-R3-FIXTURE
 title: 登记 Components 动效与 Compose 语义修订源
 depends_on: [T0-RECONCILE-DESIGN-FOUNDATIONS]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-COMPONENT-R3-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-COMPONENT-R3-FIXTURE
 allow_paths:

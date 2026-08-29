@@ -3,7 +3,7 @@ id: T0-RECONCILE-DESIGN-METADATA
 title: 建立 Field Ledger 可机读设计令牌与组件注册表
 depends_on: []
 parallelizable_with: [T0-RECONCILE-DATA-AUTHORITY, T0-RECONCILE-LESSONS]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-METADATA
 worktree: C:\wt\T0-RECONCILE-DESIGN-METADATA
 source_ref: c66fd137dc2e869a04b0938ce1b41cf14a8f50f1:context/DESIGN.md

@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-FINAL-FIXTURE
 title: 最终收口 lessons 可执行源与唯一模式
 depends_on: [T0-RECONCILE-LESSONS-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-FINAL-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-FINAL-FIXTURE
 allow_paths:

@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-VALIDATOR-DOD-FIXTURE
 title: 修正 lessons validator 修复卡的 PowerShell 检查列表
 depends_on: [T0-RECONCILE-LESSONS-FINAL-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-VALIDATOR-DOD-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-VALIDATOR-DOD-FIXTURE
 allow_paths:

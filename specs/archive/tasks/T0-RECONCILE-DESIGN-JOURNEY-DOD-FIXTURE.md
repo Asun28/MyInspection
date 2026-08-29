@@ -2,7 +2,7 @@
 id: T0-RECONCILE-DESIGN-JOURNEY-DOD-FIXTURE
 title: 规范化设计旅程卡源文本换行后再执行区域验收
 depends_on: [T0-RECONCILE-DESIGN-JOURNEY-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-DESIGN-JOURNEY-DOD-FIXTURE
 worktree: C:\\wt\\T0-RECONCILE-DESIGN-JOURNEY-DOD-FIXTURE
 allow_paths:
