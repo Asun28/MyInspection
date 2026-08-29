@@ -117,7 +117,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
@@ -847,6 +847,121 @@ function Invoke-SelftestSkipMutationBudgetFixture([string]$ScriptText) {
   return $result
 }
 
+function Test-Td145PathWithin([string]$Path, [string]$Root) {
+  $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+  $pathFull = [System.IO.Path]::GetFullPath($Path)
+  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+  $prefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+  return ([string]::Equals($pathFull, $rootFull, $comparison) -or $pathFull.StartsWith($prefix, $comparison))
+}
+
+function Get-Td145OutsideFileHashMap([string]$Root, [string[]]$ExcludedRoots) {
+  $rootFull = [System.IO.Path]::GetFullPath($Root)
+  $gitMetadata = Join-Path $rootFull '.git'
+  $map = @{}
+  foreach ($file in @(Get-ChildItem -LiteralPath $rootFull -Recurse -Force -File)) {
+    $full = [System.IO.Path]::GetFullPath($file.FullName)
+    if (Test-Td145PathWithin -Path $full -Root $gitMetadata) { continue }
+    if (@($ExcludedRoots | Where-Object { Test-Td145PathWithin -Path $full -Root $_ }).Count -gt 0) { continue }
+    $relative = [System.IO.Path]::GetRelativePath($rootFull, $full).Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+    $map[$relative] = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash
+  }
+  return $map
+}
+
+function Test-Td145FileHashMapEqual([hashtable]$Expected, [hashtable]$Actual) {
+  if ($Expected.Count -ne $Actual.Count) { return $false }
+  foreach ($key in $Expected.Keys) {
+    if (-not $Actual.ContainsKey($key) -or $Actual[$key] -cne $Expected[$key]) { return $false }
+  }
+  return $true
+}
+
+# 供 TD145 持久变异子进程调用的真实行为夹具：建立 nested submodule + linked checkout，
+# 真跑变异后的 lessons.ps1。这里的 RED 来自目标行为，而不是源码锚点是否还在。
+function Invoke-Td145BehaviorFixture([string]$SourceRoot) {
+  $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "td145-behavior-$PID-$([guid]::NewGuid().ToString('N'))"
+  $seed = Join-Path $fixtureRoot 'seed'
+  $super = Join-Path $fixtureRoot 'super project'
+  $checkout = Join-Path $super 'nested module'
+  $linked = Join-Path $fixtureRoot 'linked checkout'
+  $errors = [System.Collections.Generic.List[string]]::new()
+  $gitIdentity = @('-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false')
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $seed 'docs/lessons'), (Join-Path $seed 'specs/archive'),
+      (Join-Path $super 'docs/lessons') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'scripts') -Destination (Join-Path $seed 'scripts') -Recurse -Force
+    $entry = @(
+      '# TD145 behavior ledger', '', '## L1',
+      '- date: 2026-01-01 ｜ tags: seed ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3',
+      '- symptom: seed', '- root_cause: seed', '- rule: seed rule', '- enforced_by: none（seed）', '- refs:'
+    ) -join "`n"
+    Set-Content -LiteralPath (Join-Path $seed 'docs/lessons/LEDGER.md') -Value $entry -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $seed 'specs/archive/lessons-archive.md') -Value '# archive' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $super 'docs/lessons/LEDGER.md') -Value '# superproject must remain byte-identical' -Encoding utf8
+    & git -C $seed init -q 2>&1 | Out-Null
+    & git -C $seed @gitIdentity add -A 2>&1 | Out-Null
+    & git -C $seed @gitIdentity commit -qm seed 2>&1 | Out-Null
+    $setupOk = ($LASTEXITCODE -eq 0)
+    & git -C $super init -q 2>&1 | Out-Null
+    & git -C $super @gitIdentity add -A 2>&1 | Out-Null
+    & git -C $super @gitIdentity commit -qm super 2>&1 | Out-Null
+    $setupOk = $setupOk -and ($LASTEXITCODE -eq 0)
+    & git -C $super -c protocol.file.allow=always submodule add -q $seed 'nested module' 2>&1 | Out-Null
+    $setupOk = $setupOk -and ($LASTEXITCODE -eq 0)
+    & git -C $super @gitIdentity add -A 2>&1 | Out-Null
+    & git -C $super @gitIdentity commit -qm submodule 2>&1 | Out-Null
+    $setupOk = $setupOk -and ($LASTEXITCODE -eq 0)
+    & git -C $checkout worktree add -q --detach $linked 2>&1 | Out-Null
+    $setupOk = $setupOk -and ($LASTEXITCODE -eq 0)
+    $primaryLedger = Join-Path $checkout 'docs/lessons/LEDGER.md'
+    $linkedLedger = Join-Path $linked 'docs/lessons/LEDGER.md'
+    if (-not $setupOk -or -not (Test-Path -LiteralPath $primaryLedger) -or -not (Test-Path -LiteralPath $linkedLedger)) {
+      [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/setup real submodule fixture failed')
+    }
+    else {
+      $superBaseline = Get-Td145OutsideFileHashMap -Root $super -ExcludedRoots @($checkout)
+      $before = Get-Content -LiteralPath $primaryLedger -Raw
+      $expectedPrimary = [regex]::Replace($before, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)3\b', '${1}4', 1)
+      $primaryOut = (& pwsh -NoProfile -File (Join-Path $checkout 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+      $primaryExit = $LASTEXITCODE
+      $afterPrimary = Get-Content -LiteralPath $primaryLedger -Raw
+      $primaryOk = ($primaryExit -eq 0 -and $afterPrimary -ceq $expectedPrimary)
+      if (-not $primaryOk) {
+        [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/target primary recurrence 3->4 failed exit=$primaryExit output=[$primaryOut]")
+      }
+      if ($primaryOk) {
+        $linkedHash = (Get-FileHash -LiteralPath $linkedLedger -Algorithm SHA256).Hash
+        $expectedLinked = [regex]::Replace($afterPrimary, '(?m)(^-[ \t]+date:.*?recurrence[ \t]*:[ \t]*)4\b', '${1}5', 1)
+        $linkedOut = (& pwsh -NoProfile -File (Join-Path $linked 'scripts/lessons.ps1') bump L1 2>&1 | Out-String)
+        $linkedExit = $LASTEXITCODE
+        $afterLinked = Get-Content -LiteralPath $primaryLedger -Raw
+        if ($linkedExit -ne 0 -or $afterLinked -cne $expectedLinked) {
+          [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/linked-target linked bump did not update primary 4->5 exit=$linkedExit output=[$linkedOut]")
+        }
+        if ((Get-FileHash -LiteralPath $linkedLedger -Algorithm SHA256).Hash -cne $linkedHash) {
+          [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/linked-zero-write linked checkout ledger changed')
+        }
+      }
+      $superAfter = Get-Td145OutsideFileHashMap -Root $super -ExcludedRoots @($checkout)
+      if (-not (Test-Td145FileHashMapEqual -Expected $superBaseline -Actual $superAfter)) {
+        [void]$errors.Add('[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/super-tree-zero-write superproject file map changed')
+      }
+    }
+  }
+  catch { [void]$errors.Add("[LSN-PLANE-SUBMODULE] TD145-BEHAVIOR/exception $($_.Exception.Message)") }
+  finally {
+    if ((Test-Path -LiteralPath $checkout) -and (Test-Path -LiteralPath $linked)) {
+      & git -C $checkout worktree remove --force $linked 2>&1 | Out-Null
+    }
+    Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($errorLine in $errors) { Write-Host $errorLine -ForegroundColor Red }
+  if ($errors.Count -gt 0) { return $false }
+  Write-Host '[TD145-BEHAVIOR] PASS' -ForegroundColor Green
+  return $true
+}
+
 # CI 使用显式 include，避免 exclude 或矩阵展开规则悄悄漏掉某个 OS×分片组合。
 function Test-SelftestCiMatrixContract([string]$WorkflowText) {
   $matrix = [regex]::Match($WorkflowText, '(?ms)^\s{6}matrix:\s*\r?\n(?<body>.*?)(?=^\s{4}runs-on:)')
@@ -1295,6 +1410,14 @@ if ($Fixture -eq 'skip-mutation-budget') {
   $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
   if (-not (Invoke-SelftestSkipMutationBudgetFixture $source)) { throw '[SELFTEST-SKIP-MUTATION-BUDGET-CONTRACT]' }
   Write-Host '[SELFTEST-FIXTURE] skip-mutation-budget PASS'
+  exit 0
+}
+
+if ($Fixture -eq 'td145-behavior-fixture') {
+  if (-not (Invoke-Td145BehaviorFixture -SourceRoot $RepoRoot)) {
+    Write-Host '[SELFTEST-FAILED-GATES] shard=core gates=2ds' -ForegroundColor Red
+    exit 1
+  }
   exit 0
 }
 
@@ -3631,6 +3754,10 @@ try {
     $l2dSubSuperHash = (Get-FileHash -LiteralPath $l2dSuperLedger -Algorithm SHA256).Hash
     $l2dSubSeedHash = (Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash
     $l2dSubLinkedHashBeforePrimary = (Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash
+    $l2dSubSuperTreeBaseline = Get-Td145OutsideFileHashMap -Root $l2dSubSuper -ExcludedRoots @($l2dSubCheckout)
+    if (-not $l2dSubSuperTreeBaseline.ContainsKey('.gitmodules')) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/super-tree-fixture)：superproject 全文件快照未覆盖 .gitmodules，夹具不能证明 submodule 外零写入。'
+    }
     $l2dSubCommon = "$(& git -C $l2dSubCheckout rev-parse --git-common-dir 2>$null)".Trim()
     $l2dSubInternalLedger = Join-Path $l2dSubCommon 'docs/lessons/LEDGER.md'
     if (-not [System.IO.Path]::IsPathFullyQualified($l2dSubCommon) -or (Test-Path -LiteralPath $l2dSubInternalLedger)) {
@@ -3650,6 +3777,10 @@ try {
     }
     if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-source-zero-write)：从 submodule 主检出 bump 改写了源 seed 仓库。'
+    }
+    $l2dSubSuperTreeAfterPrimary = Get-Td145OutsideFileHashMap -Root $l2dSubSuper -ExcludedRoots @($l2dSubCheckout)
+    if (-not (Test-Td145FileHashMapEqual -Expected $l2dSubSuperTreeBaseline -Actual $l2dSubSuperTreeAfterPrimary)) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-super-tree-zero-write)：从 submodule 主检出 bump 改写、新增或删除了 submodule 外的 superproject 文件（含 .gitmodules）。'
     }
     if (Test-Path -LiteralPath $l2dSubInternalLedger) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-internal-zero-write)：从 submodule 主检出 bump 在 common-dir 内创建了伪 LEDGER。'
@@ -3690,6 +3821,10 @@ try {
     }
     if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-source-zero-write)：从 submodule linked worktree bump 改写了源 seed 仓库。'
+    }
+    $l2dSubSuperTreeAfterLinked = Get-Td145OutsideFileHashMap -Root $l2dSubSuper -ExcludedRoots @($l2dSubCheckout)
+    if (-not (Test-Td145FileHashMapEqual -Expected $l2dSubSuperTreeBaseline -Actual $l2dSubSuperTreeAfterLinked)) {
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-super-tree-zero-write)：从 submodule linked worktree bump 改写、新增或删除了 submodule 外的 superproject 文件（含 .gitmodules）。'
     }
     if (Test-Path -LiteralPath $l2dSubInternalLedger) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-internal-zero-write)：从 submodule linked worktree bump 在 common-dir 内创建了伪 LEDGER。'
@@ -3732,6 +3867,100 @@ try {
     }
     if ((Get-FileHash -LiteralPath $l2dSubSeedLedger -Algorithm SHA256).Hash -ne $l2dSubSeedHash) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/source-zero-write)：submodule bump 改写了源 seed 仓库而非 checkout。'
+    }
+
+    # A5 持久行为变异：primary resolver 删除须使真实 fixture RED；两个断言各先注入隔离坏行为
+    # 观察专属 RED，再只删该断言并要求坏行为存活为 GREEN。每案均在 scratch 还原源文件 SHA-256。
+    $l2dSubWriteAnchor = 'Set-Content -Path $BumpLedger -Value $raw -Encoding utf8 -NoNewline'
+    $l2dSubOwnershipMarker = ('TD145-BEHAVIOR/' + 'linked-zero-write')
+    $l2dSubSuperMarker = ('TD145-BEHAVIOR/' + 'super-tree-zero-write')
+    $l2dSubPrimaryAnchor = ('$mainCheckout = [System.IO.Path]::GetFullPath((Join-Path $commonDir ' + '$coreWorktree))')
+    $l2dSubOwnershipFault = $l2dSubWriteAnchor + "`n    Set-Content -Path `$Ledger -Value `$raw -Encoding utf8 -NoNewline"
+    $l2dSubSuperFault = $l2dSubWriteAnchor + "`n    Set-Content -Path (Join-Path (Split-Path -Parent `$BumpRoot) 'docs/lessons/LEDGER.md') -Value 'TD145 bad super write' -Encoding utf8"
+    $l2dSubMutationCases = @(
+      [PSCustomObject]@{ Id='baseline'; Expect='green'; Marker=''; Edits=@() },
+      [PSCustomObject]@{ Id='primary-resolution-delete'; Expect='red'; Marker='TD145-BEHAVIOR/target'; Edits=@(
+        [PSCustomObject]@{ Target='lessons.ps1'; Mode='delete-line'; Anchor=$l2dSubPrimaryAnchor; Replacement='' }
+      ) },
+      [PSCustomObject]@{ Id='ownership-fault'; Expect='red'; Marker=$l2dSubOwnershipMarker; Edits=@(
+        [PSCustomObject]@{ Target='lessons.ps1'; Mode='replace'; Anchor=$l2dSubWriteAnchor; Replacement=$l2dSubOwnershipFault }
+      ) },
+      [PSCustomObject]@{ Id='ownership-survivor'; Expect='green'; Marker=''; Edits=@(
+        [PSCustomObject]@{ Target='lessons.ps1'; Mode='replace'; Anchor=$l2dSubWriteAnchor; Replacement=$l2dSubOwnershipFault },
+        [PSCustomObject]@{ Target='selftest.ps1'; Mode='delete-line'; Anchor=$l2dSubOwnershipMarker; Replacement='' }
+      ) },
+      [PSCustomObject]@{ Id='super-zero-write-fault'; Expect='red'; Marker=$l2dSubSuperMarker; Edits=@(
+        [PSCustomObject]@{ Target='lessons.ps1'; Mode='replace'; Anchor=$l2dSubWriteAnchor; Replacement=$l2dSubSuperFault }
+      ) },
+      [PSCustomObject]@{ Id='super-zero-write-survivor'; Expect='green'; Marker=''; Edits=@(
+        [PSCustomObject]@{ Target='lessons.ps1'; Mode='replace'; Anchor=$l2dSubWriteAnchor; Replacement=$l2dSubSuperFault },
+        [PSCustomObject]@{ Target='selftest.ps1'; Mode='delete-line'; Anchor=$l2dSubSuperMarker; Replacement='' }
+      ) }
+    )
+    foreach ($l2dSubMutationCase in $l2dSubMutationCases) {
+      $l2dSubMutationRoot = Join-Path ([System.IO.Path]::GetTempPath()) "td145-behavior-mutant-$($l2dSubMutationCase.Id)-$PID-$([guid]::NewGuid().ToString('N'))"
+      $l2dSubMutationBytes = @{}
+      $l2dSubMutationHashes = @{}
+      $l2dSubMutationRestored = $true
+      $l2dSubMutationExit = 0
+      $l2dSubMutationOut = ''
+      $l2dSubMutationError = ''
+      try {
+        New-Item -ItemType Directory -Force $l2dSubMutationRoot | Out-Null
+        Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts') -Destination (Join-Path $l2dSubMutationRoot 'scripts') -Recurse -Force
+        foreach ($l2dSubMutationEdit in $l2dSubMutationCase.Edits) {
+          $l2dSubMutationTarget = Join-Path $l2dSubMutationRoot "scripts/$($l2dSubMutationEdit.Target)"
+          if (-not $l2dSubMutationBytes.ContainsKey($l2dSubMutationTarget)) {
+            $l2dSubMutationBytes[$l2dSubMutationTarget] = [System.IO.File]::ReadAllBytes($l2dSubMutationTarget)
+            $l2dSubMutationHashes[$l2dSubMutationTarget] = (Get-FileHash -LiteralPath $l2dSubMutationTarget -Algorithm SHA256).Hash
+          }
+          $l2dSubMutationSource = [System.IO.File]::ReadAllText($l2dSubMutationTarget)
+          if ($l2dSubMutationEdit.Mode -eq 'delete-line') {
+            $l2dSubMutationPattern = '(?m)^[^\r\n]*' + [regex]::Escape($l2dSubMutationEdit.Anchor) + '[^\r\n]*(?:\r?\n|$)'
+            $l2dSubMutationMatches = @([regex]::Matches($l2dSubMutationSource, $l2dSubMutationPattern))
+            if ($l2dSubMutationMatches.Count -ne 1) { throw "delete anchor=$($l2dSubMutationCase.Id) count=$($l2dSubMutationMatches.Count)" }
+            $l2dSubMutationSource = [regex]::new($l2dSubMutationPattern).Replace($l2dSubMutationSource, '', 1)
+          }
+          else {
+            $l2dSubMutationMatches = @([regex]::Matches($l2dSubMutationSource, [regex]::Escape($l2dSubMutationEdit.Anchor)))
+            if ($l2dSubMutationMatches.Count -ne 1) { throw "replace anchor=$($l2dSubMutationCase.Id) count=$($l2dSubMutationMatches.Count)" }
+            $l2dSubMutationSource = $l2dSubMutationSource.Replace($l2dSubMutationEdit.Anchor, $l2dSubMutationEdit.Replacement)
+          }
+          [System.IO.File]::WriteAllText($l2dSubMutationTarget, $l2dSubMutationSource, [System.Text.UTF8Encoding]::new($false))
+        }
+        $l2dSubMutationOut = (& pwsh -NoProfile -File (Join-Path $l2dSubMutationRoot 'scripts/selftest.ps1') -Shard core -Fixture td145-behavior-fixture 2>&1 | Out-String)
+        $l2dSubMutationExit = $LASTEXITCODE
+      }
+      catch { $l2dSubMutationError = $_.Exception.Message }
+      finally {
+        foreach ($l2dSubMutationTarget in $l2dSubMutationBytes.Keys) {
+          [System.IO.File]::WriteAllBytes($l2dSubMutationTarget, $l2dSubMutationBytes[$l2dSubMutationTarget])
+          if ((Get-FileHash -LiteralPath $l2dSubMutationTarget -Algorithm SHA256).Hash -cne $l2dSubMutationHashes[$l2dSubMutationTarget]) {
+            $l2dSubMutationRestored = $false
+          }
+        }
+        Remove-Item -LiteralPath $l2dSubMutationRoot -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      $l2dSubBehaviorFailures = @($l2dSubMutationOut -split '\r?\n' | ForEach-Object {
+        $l2dSubBehaviorMatch = [regex]::Match($_, '^\[LSN-PLANE-SUBMODULE\][ \t]+(?<id>TD145-BEHAVIOR/[^ \t\r\n]+)')
+        if ($l2dSubBehaviorMatch.Success) { $l2dSubBehaviorMatch.Groups['id'].Value }
+      })
+      $l2dSubMutationRedOk = ($l2dSubMutationCase.Expect -eq 'red' -and $l2dSubMutationExit -ne 0 -and
+        $l2dSubBehaviorFailures.Count -eq 1 -and $l2dSubBehaviorFailures[0] -ceq $l2dSubMutationCase.Marker -and
+        $l2dSubMutationOut -match '(?m)^\[SELFTEST-FAILED-GATES\] shard=core gates=2ds\r?$')
+      $l2dSubMutationGreenOk = ($l2dSubMutationCase.Expect -eq 'green' -and $l2dSubMutationExit -eq 0 -and
+        $l2dSubBehaviorFailures.Count -eq 0 -and $l2dSubMutationOut -match '(?m)^\[TD145-BEHAVIOR\] PASS\r?$' -and
+        $l2dSubMutationOut -notmatch '(?m)^\[SELFTEST-FAILED-GATES\]')
+      if ($l2dSubMutationError) {
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id))：行为变异未能执行：$l2dSubMutationError"
+      }
+      elseif (-not $l2dSubMutationRestored) {
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)-restore)：scratch 源码未恢复到原 SHA256。"
+      }
+      elseif (-not $l2dSubMutationRedOk -and -not $l2dSubMutationGreenOk) {
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id))：真实行为夹具裁决不符。expect=$($l2dSubMutationCase.Expect) exit=$l2dSubMutationExit marker=$($l2dSubMutationCase.Marker) output=[$(($l2dSubMutationOut -replace '\s+', ' ').Trim())]"
+      }
+      else { Write-Host "  [LSN-PLANE-SUBMODULE] TD145 behavior mutation $($l2dSubMutationCase.Id) $($l2dSubMutationCase.Expect.ToUpperInvariant()); scratch SHA256 restored" -ForegroundColor Green }
     }
   }
 }
