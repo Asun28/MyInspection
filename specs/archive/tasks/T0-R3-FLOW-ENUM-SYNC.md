@@ -3,7 +3,7 @@ id: T0-R3-FLOW-ENUM-SYNC
 title: 把真实 diff 预算闸补进每一处确定性闸枚举，并各配锚定断言（承接 T0-R3-DIFF-BUDGET 的 A13）
 depends_on: [T0-R3-DIFF-BUDGET]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-R3-FLOW-ENUM-SYNC
 worktree: C:\wt\T0-R3-FLOW-ENUM-SYNC
 allow_paths:
