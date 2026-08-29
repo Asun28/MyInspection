@@ -3,7 +3,7 @@ id: T0-DOCS-T3-REPORT-CLOSURE
 title: Close absorbed T3 report R3 lifecycle and TD139
 depends_on: [T3-REPORT-COMPOSER-R3-CLOSURE]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-DOCS-T3-REPORT-CLOSURE
 worktree: C:\wt\T0-DOCS-T3-REPORT-CLOSURE
 allow_paths:
