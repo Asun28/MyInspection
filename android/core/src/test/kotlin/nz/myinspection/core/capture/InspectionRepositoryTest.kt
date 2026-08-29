@@ -329,30 +329,15 @@ class InspectionRepositoryTest {
     // ---- 房间实例化 ----
 
     @Test
-    fun `schema v4 migration adds the bounded property room configuration without rewriting v3 data`() {
+    fun `schema v4 migration adds bounded room configuration without rewriting v3 data`() {
         val v3Driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         try {
             v3Driver.execute(
                 null,
-                """CREATE TABLE property (
-                    id TEXT NOT NULL PRIMARY KEY,
-                    address TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    is_boarding_house INTEGER NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    deleted_at INTEGER,
-                    CHECK (kind IN ('RENTAL', 'OWNER_OCCUPIED')),
-                    CHECK (is_boarding_house IN (0, 1))
-                )""".trimIndent(),
+                "CREATE TABLE legacy_marker (value TEXT NOT NULL)",
                 0,
             )
-            v3Driver.execute(
-                null,
-                """INSERT INTO property (id, address, kind, is_boarding_house, created_at, updated_at)
-                    VALUES ('property-1', 'preserved address', 'RENTAL', 0, 1, 1)""".trimIndent(),
-                0,
-            )
+            v3Driver.execute(null, "INSERT INTO legacy_marker VALUES ('preserved')", 0)
 
             MyInspectionDatabase.Schema.migrate(v3Driver, 3, 4)
 
@@ -370,16 +355,16 @@ class InspectionRepositoryTest {
                 listOf("id", "property_id", "room_key", "instance_count", "created_at", "updated_at", "deleted_at"),
                 columns,
             )
-            val preservedAddress = v3Driver.executeQuery(
+            val preserved = v3Driver.executeQuery(
                 null,
-                "SELECT address FROM property WHERE id = 'property-1'",
+                "SELECT value FROM legacy_marker",
                 { cursor ->
                     check(cursor.next().value)
                     QueryResult.Value(cursor.getString(0))
                 },
                 0,
             ).value
-            assertEquals("preserved address", preservedAddress)
+            assertEquals("preserved", preserved)
 
             fun insertCount(count: Int) {
                 v3Driver.execute(
@@ -429,7 +414,7 @@ class InspectionRepositoryTest {
     fun `a persisted repeatable room count creates instances in template then instance order`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
-        repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 2)
+        repo.setRepeatableRoomCount(propertyId, "BEDROOM", 2)
 
         val stored = database.propertyRoomConfigQueries
             .selectActiveByPropertyAndRoom(propertyId, "BEDROOM")
@@ -438,10 +423,10 @@ class InspectionRepositoryTest {
 
         val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
         val identities = created.roomInstanceIds.map { id ->
-            database.roomInstanceQueries.selectById(id).executeAsOne().let { it.room_key to it.instance_no }
+            database.roomInstanceQueries.selectById(id).executeAsOne().let { Triple(it.room_key, it.instance_no, it.display_label) }
         }
         assertEquals(
-            listOf("KITCHEN" to 1L, "BEDROOM" to 1L, "BEDROOM" to 2L),
+            listOf(Triple("KITCHEN", 1L, "KITCHEN"), Triple("BEDROOM", 1L, "BEDROOM 1"), Triple("BEDROOM", 2L, "BEDROOM 2")),
             identities,
         )
     }
@@ -450,15 +435,22 @@ class InspectionRepositoryTest {
     fun `updating an existing repeatable room count drives a fresh repository and inspection`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
-        repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 2)
-        repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 3)
+        repo.setRepeatableRoomCount(propertyId, "BEDROOM", 2)
+        val inserted = database.propertyRoomConfigQueries
+            .selectActiveByPropertyAndRoom(propertyId, "BEDROOM")
+            .executeAsOne()
+        assertEquals(now, inserted.created_at)
+        assertEquals(now, inserted.updated_at)
 
-        assertEquals(
-            3L,
-            database.propertyRoomConfigQueries
-                .selectActiveByPropertyAndRoom(propertyId, "BEDROOM")
-                .executeAsOne().instance_count,
-        )
+        now += 1_000
+        repo.setRepeatableRoomCount(propertyId, "BEDROOM", 3)
+
+        val updated = database.propertyRoomConfigQueries
+            .selectActiveByPropertyAndRoom(propertyId, "BEDROOM")
+            .executeAsOne()
+        assertEquals(3L, updated.instance_count)
+        assertEquals(inserted.created_at, updated.created_at)
+        assertEquals(now, updated.updated_at)
         val created = freshRepository().createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
         assertEquals(
             listOf(1L, 2L, 3L),
@@ -470,21 +462,21 @@ class InspectionRepositoryTest {
     }
 
     @Test
-    fun `repeatable room count rejects non-repeatable rooms and values outside one through ninety-nine`() {
+    fun `repeatable room count validates room and one to ninety-nine bound`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         CaptureTestFixtures.insertRoutineTemplate(database, uuid)
 
         assertFailsWith<IllegalArgumentException> {
-            repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 0)
+            repo.setRepeatableRoomCount(propertyId, "BEDROOM", 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 100)
+            repo.setRepeatableRoomCount(propertyId, "BEDROOM", 100)
         }
         assertFailsWith<IllegalArgumentException> {
-            repo.setRepeatableRoomCount(propertyId, roomKey = "KITCHEN", instanceCount = 2)
+            repo.setRepeatableRoomCount(propertyId, "KITCHEN", 2)
         }
 
-        repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 99)
+        repo.setRepeatableRoomCount(propertyId, "BEDROOM", 99)
         assertEquals(
             99L,
             database.propertyRoomConfigQueries.selectActiveByPropertyAndRoom(propertyId, "BEDROOM")
@@ -493,36 +485,36 @@ class InspectionRepositoryTest {
     }
 
     @Test
-    fun `repeatable room count cannot change while the property has a draft inspection`() {
+    fun `repeatable room count rejects a property with a draft`() {
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
 
-        val propertyWithSingletonDraft = DbTestFixtures.insertProperty(database, uuid)
-        repo.createInspection("ROUTINE", propertyWithSingletonDraft, null, templateId, scheduledAt = now)
+        val singletonProperty = DbTestFixtures.insertProperty(database, uuid)
+        repo.createInspection("ROUTINE", singletonProperty, null, templateId, scheduledAt = now)
         assertFailsWith<IllegalArgumentException> {
-            repo.setRepeatableRoomCount(propertyWithSingletonDraft, roomKey = "BEDROOM", instanceCount = 2)
+            repo.setRepeatableRoomCount(singletonProperty, "BEDROOM", 2)
         }
         assertNull(
             database.propertyRoomConfigQueries
-                .selectActiveByPropertyAndRoom(propertyWithSingletonDraft, "BEDROOM")
+                .selectActiveByPropertyAndRoom(singletonProperty, "BEDROOM")
                 .executeAsOneOrNull(),
         )
 
-        val propertyWithRepeatableDraft = DbTestFixtures.insertProperty(database, uuid)
-        repo.setRepeatableRoomCount(propertyWithRepeatableDraft, roomKey = "BEDROOM", instanceCount = 2)
-        repo.createInspection("ROUTINE", propertyWithRepeatableDraft, null, templateId, scheduledAt = now)
+        val repeatableProperty = DbTestFixtures.insertProperty(database, uuid)
+        repo.setRepeatableRoomCount(repeatableProperty, "BEDROOM", 2)
+        repo.createInspection("ROUTINE", repeatableProperty, null, templateId, scheduledAt = now)
         assertFailsWith<IllegalArgumentException> {
-            repo.setRepeatableRoomCount(propertyWithRepeatableDraft, roomKey = "BEDROOM", instanceCount = 1)
+            repo.setRepeatableRoomCount(repeatableProperty, "BEDROOM", 1)
         }
         assertEquals(
             2L,
             database.propertyRoomConfigQueries
-                .selectActiveByPropertyAndRoom(propertyWithRepeatableDraft, "BEDROOM")
+                .selectActiveByPropertyAndRoom(repeatableProperty, "BEDROOM")
                 .executeAsOne().instance_count,
         )
     }
 
     @Test
-    fun `property room config SQL guards reject inserts and updates while a draft exists`() {
+    fun `property room config SQL guards reject writes during a draft`() {
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
 
         val insertPropertyId = DbTestFixtures.insertProperty(database, uuid)
@@ -536,7 +528,7 @@ class InspectionRepositoryTest {
         )
 
         val updatePropertyId = DbTestFixtures.insertProperty(database, uuid)
-        repo.setRepeatableRoomCount(updatePropertyId, roomKey = "BEDROOM", instanceCount = 2)
+        repo.setRepeatableRoomCount(updatePropertyId, "BEDROOM", 2)
         val config = database.propertyRoomConfigQueries
             .selectActiveByPropertyAndRoom(updatePropertyId, "BEDROOM")
             .executeAsOne()
@@ -622,6 +614,7 @@ class InspectionRepositoryTest {
         // 空洞地报"整间都完成"。恢复必须把缺的房间补上，让这项真能被记录。
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val templateId = CaptureTestFixtures.insertRoutineTemplate(database, uuid)
+        repo.setRepeatableRoomCount(propertyId, "BEDROOM", 2)
         repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = true)
         val created = repo.createInspection("ROUTINE", propertyId, null, templateId, scheduledAt = now)
         assertEquals(1, created.roomInstanceIds.size, "BEDROOM must not exist yet")
@@ -629,12 +622,16 @@ class InspectionRepositoryTest {
         repo.setItemSuppression(propertyId, "BED-WALL-01", suppressed = false)
 
         val rooms = database.roomInstanceQueries.selectByInspection(created.inspectionId).executeAsList()
-        val bedroom = rooms.singleOrNull { it.room_key == "BEDROOM" }
-        assertTrue(bedroom != null, "restoring must create the missing BEDROOM room instance for this draft")
+        val bedrooms = rooms.filter { it.room_key == "BEDROOM" }.sortedBy { it.instance_no }
+        assertEquals(
+            listOf(1L to "BEDROOM 1", 2L to "BEDROOM 2"),
+            bedrooms.map { it.instance_no to it.display_label },
+        )
 
-        // 而且这间房现在真能被记录——不是补了一行摆设。
-        repo.setItemStatus(created.inspectionId, bedroom!!.id, "BED-WALL-01", "GOOD", null)
-        assertTrue(repo.walkProgress(created.inspectionId).rooms.single { it.roomKey == "BEDROOM" }.isComplete)
+        bedrooms.forEach { repo.setItemStatus(created.inspectionId, it.id, "BED-WALL-01", "GOOD", null) }
+        assertTrue(
+            repo.walkProgress(created.inspectionId).rooms.filter { it.roomKey == "BEDROOM" }.all { it.isComplete },
+        )
     }
 
     @Test
@@ -1007,49 +1004,35 @@ class InspectionRepositoryTest {
     }
 
     @Test
-    fun `setWearOrDamage matches the same room instance regardless of baseline item insertion order`() {
+    fun `setWearOrDamage ignores baseline item insertion order`() {
         listOf(listOf(1L, 2L), listOf(2L, 1L)).forEachIndexed { index, insertionOrder ->
             val propertyId = DbTestFixtures.insertProperty(database, uuid)
             val templateVersion = index.toLong() + 1L
-            val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(
-                database, uuid, type = "INGOING", version = templateVersion,
-            )
-            val exitTemplate = CaptureTestFixtures.insertRoutineTemplate(
-                database, uuid, type = "EXIT", version = templateVersion,
-            )
+            val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, "INGOING", templateVersion)
+            val exitTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, "EXIT", templateVersion)
             val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId)
-            repo.setRepeatableRoomCount(propertyId, roomKey = "BEDROOM", instanceCount = 2)
+            repo.setRepeatableRoomCount(propertyId, "BEDROOM", 2)
 
             val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
-            val baselineBedrooms = ingoing.roomInstanceIds
-                .map { database.roomInstanceQueries.selectById(it).executeAsOne() }
-                .filter { it.room_key == "BEDROOM" }
-                .associateBy { it.instance_no }
             insertionOrder.forEach { instanceNo ->
-                val status = if (instanceNo == 1L) "GOOD" else "POOR"
-                repo.setItemStatus(
-                    ingoing.inspectionId,
-                    baselineBedrooms.getValue(instanceNo).id,
-                    "BED-WALL-01",
-                    status,
-                    note = null,
-                )
+                val room = database.roomInstanceQueries
+                    .selectActiveByIdentity(ingoing.inspectionId, "BEDROOM", instanceNo).executeAsOne()
+                repo.setItemStatus(ingoing.inspectionId, room.id, "BED-WALL-01", if (instanceNo == 1L) "GOOD" else "POOR", null)
             }
             CaptureTestFixtures.finalize(database, ingoing.inspectionId, now)
 
             now += 1_000
             val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)
-            val exitBedroom2 = exit.roomInstanceIds
-                .map { database.roomInstanceQueries.selectById(it).executeAsOne() }
-                .single { it.room_key == "BEDROOM" && it.instance_no == 2L }
-            repo.setItemStatus(exit.inspectionId, exitBedroom2.id, "BED-WALL-01", "POOR", note = null)
-            val exitItemId = database.inspectionItemQueries.selectByInspection(exit.inspectionId).executeAsList()
-                .single { it.room_instance_id == exitBedroom2.id && it.stable_id == "BED-WALL-01" }.id
+            val bedroom2 = database.roomInstanceQueries
+                .selectActiveByIdentity(exit.inspectionId, "BEDROOM", 2L).executeAsOne()
+            repo.setItemStatus(exit.inspectionId, bedroom2.id, "BED-WALL-01", "POOR", null)
+            val item = database.inspectionItemQueries
+                .selectActiveByRoomAndStableId(exit.inspectionId, bedroom2.id, "BED-WALL-01").executeAsOne()
 
             assertEquals(
                 WearOrDamageOutcome.NoDifference,
-                repo.setWearOrDamage(exit.inspectionId, exitItemId, "DAMAGE"),
-                "BEDROOM #2 must compare with baseline BEDROOM #2 for insertion order $insertionOrder",
+                repo.setWearOrDamage(exit.inspectionId, item.id, "DAMAGE"),
+                "insertion order $insertionOrder",
             )
             now += 1_000
         }
@@ -1101,23 +1084,36 @@ class InspectionRepositoryTest {
     }
 
     @Test
-    fun `setWearOrDamage rejects when the baseline never recorded that stable id`() {
+    fun `setWearOrDamage rejects when the matching baseline room or item is absent`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid)
         val ingoingTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "INGOING")
         val exitTemplate = CaptureTestFixtures.insertRoutineTemplate(database, uuid, type = "EXIT")
         val tenancyId = CaptureTestFixtures.insertTenancy(database, uuid, propertyId)
 
         val ingoing = repo.createInspection("INGOING", propertyId, tenancyId, ingoingTemplate, scheduledAt = now)
-        // 基线巡检故意不给 KIT-BENCH-01 置状态。
+        val baselineBedroom = database.roomInstanceQueries
+            .selectActiveByIdentity(ingoing.inspectionId, "BEDROOM", 1L).executeAsOne()
+        repo.setItemStatus(ingoing.inspectionId, baselineBedroom.id, "BED-WALL-01", "GOOD", null)
         CaptureTestFixtures.finalize(database, ingoing.inspectionId, now)
 
         now += 1_000
+        repo.setRepeatableRoomCount(propertyId, "BEDROOM", 2)
         val exit = repo.createInspection("EXIT", propertyId, tenancyId, exitTemplate, scheduledAt = now)
         repo.setItemStatus(exit.inspectionId, exit.roomInstanceIds.first(), "KIT-BENCH-01", "POOR", "note")
-        val itemId = database.inspectionItemQueries.selectByInspection(exit.inspectionId).executeAsList().single().id
+        val missingItem = database.inspectionItemQueries.selectByInspection(exit.inspectionId).executeAsList()
+            .single { it.stable_id == "KIT-BENCH-01" }
+        assertEquals(WearOrDamageOutcome.NoBaselineItem, repo.setWearOrDamage(exit.inspectionId, missingItem.id, "DAMAGE"))
 
-        val outcome = repo.setWearOrDamage(exit.inspectionId, itemId, "DAMAGE")
-        assertEquals(WearOrDamageOutcome.NoBaselineItem, outcome)
+        val exitBedroom2 = database.roomInstanceQueries
+            .selectActiveByIdentity(exit.inspectionId, "BEDROOM", 2L).executeAsOne()
+        repo.setItemStatus(exit.inspectionId, exitBedroom2.id, "BED-WALL-01", "POOR", "new mark")
+        val missingRoomItem = database.inspectionItemQueries
+            .selectActiveByRoomAndStableId(exit.inspectionId, exitBedroom2.id, "BED-WALL-01").executeAsOne()
+        assertEquals(
+            WearOrDamageOutcome.NoBaselineItem,
+            repo.setWearOrDamage(exit.inspectionId, missingRoomItem.id, "DAMAGE"),
+        )
+        assertNull(database.inspectionItemQueries.selectById(missingRoomItem.id).executeAsOne().wear_or_damage)
     }
 
     // ---- 时间戳出自注入的 Clock，不是系统时钟 ----

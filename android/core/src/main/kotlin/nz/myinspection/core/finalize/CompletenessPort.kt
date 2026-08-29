@@ -17,7 +17,6 @@ import nz.myinspection.core.template.TemplateDomains
  */
 data class MissingItem(val roomInstanceId: String, val stableId: String)
 
-/** A concrete planned room identity that was not instantiated. */
 data class MissingRoomInstance(val roomKey: String, val instanceNo: Long)
 
 /**
@@ -123,7 +122,6 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             suppressedStableIds,
         )
         val plannedOrder = plannedRooms.mapIndexed { index, room -> (room.roomKey to room.instanceNo) to index }.toMap()
-        // room_instance.selectByInspection（冻结物）没有 ORDER BY；模板序、instance_no、稳定兜底组成确定全序。
         val roomInstances = database.roomInstanceQueries.selectByInspection(inspectionId).executeAsList()
             .sortedWith(
                 compareBy(
@@ -137,7 +135,6 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
             .selectByTemplateVersion(inspection.template_version_id)
             .executeAsList()
 
-        // 共享 capture 的计划器，从模板与物业配置独立推导完整身份；不能拿现有实例反推应有实例。
         val instantiatedIdentities = roomInstances.mapTo(mutableSetOf()) { it.room_key to it.instance_no }
         val roomsMissingInstance = plannedRooms
             .filterNot { (it.roomKey to it.instanceNo) in instantiatedIdentities }

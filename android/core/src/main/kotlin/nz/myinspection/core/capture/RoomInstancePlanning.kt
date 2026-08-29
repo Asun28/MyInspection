@@ -2,17 +2,13 @@ package nz.myinspection.core.capture
 
 import nz.myinspection.core.db.MyInspectionDatabase
 
-/** Stable room identity used by capture creation and finalize completeness. */
 internal data class PlannedRoomInstance(
     val roomKey: String,
     val instanceNo: Long,
     val displayLabel: String,
 )
 
-/**
- * Derive the complete ordered room-instance set from template authority plus property configuration.
- * Item rooms missing a declaration (legacy or partially migrated templates) remain singleton instead of disappearing.
- */
+/** Ordered template/config room plan; undeclared legacy item rooms remain singleton. */
 internal fun MyInspectionDatabase.planRoomInstances(
     propertyId: String,
     templateVersionId: String,

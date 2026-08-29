@@ -66,11 +66,7 @@ class InspectionRepository(
     private val uuid: Uuid7Generator = Uuid7Generator(),
     private val clock: ClockMs = SystemClockMs,
 ) {
-    /**
-     * 持久化某物业的重复房间数量。数量只允许 1..99，且 [roomKey] 必须由至少一个活跃模板声明为
-     * repeatable；缺少配置仍表示 1，故调用方无需为单例房间写冗余行。物业存在 DRAFT 巡检时拒绝变更，
-     * 避免当前草稿的实例集合与完备性权威在中途分叉。
-     */
+    /** 持久化活跃 repeatable 房间的 1..99 数量；物业有 DRAFT 时拒绝变更。 */
     fun setRepeatableRoomCount(propertyId: String, roomKey: String, instanceCount: Int) {
         require(instanceCount in 1..99) { "instanceCount must be between 1 and 99" }
         val now = clock.nowMs()
