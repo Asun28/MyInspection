@@ -6,6 +6,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import nz.myinspection.core.backup.format.BackupFormat
+import nz.myinspection.core.backup.format.BackupFormatException
 import nz.myinspection.core.backup.format.BackupManifest
 import nz.myinspection.core.backup.format.BackupScope
 import nz.myinspection.core.backup.format.BackupSourceFile
@@ -27,6 +28,136 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MediaArchiveContractTest {
+    @Test
+    fun `write failures are classified and never create evidence`() {
+        val cases = listOf(
+            BackupFormatException("writer rejected input") to ArchiveReceiptFailure.VERIFY_READBACK_MISMATCH,
+            IOException("provider write unavailable") to ArchiveReceiptFailure.VERIFY_UNAVAILABLE,
+        )
+
+        cases.forEach { (failure, expected) ->
+            MediaArchiveDbFixture().use { fixture ->
+                val store = InMemoryArchiveStore().apply { writeFailure = failure }
+                val result = receiptService(fixture, store).createVerifiedReceipt(
+                    archiveTarget(),
+                    BackupScope.Full,
+                    TEST_PASSPHRASE,
+                    archiveWriter(BackupScope.Full, onePhotoFiles()),
+                )
+
+                assertRejected(expected, result, failure.message.orEmpty())
+                assertEvidenceCounts(fixture, receipts = 0, entries = 0)
+                assertEquals(0, store.reopenCalls)
+            }
+        }
+    }
+
+    @Test
+    fun `every incomplete identity returned after write fails closed`() {
+        val complete = archiveTarget()
+        val cases = listOf(
+            complete.copy(destinationKind = null),
+            complete.copy(destinationKind = ""),
+            complete.copy(destinationRef = null),
+            complete.copy(destinationRef = ""),
+            complete.copy(objectRef = null),
+            complete.copy(objectRef = ""),
+            complete.copy(versionRef = ""),
+        )
+
+        cases.forEach { returnedIdentity ->
+            MediaArchiveDbFixture().use { fixture ->
+                val store = InMemoryArchiveStore().apply { writeIdentity = { returnedIdentity } }
+                val result = receiptService(fixture, store).createVerifiedReceipt(
+                    complete,
+                    BackupScope.Full,
+                    TEST_PASSPHRASE,
+                    archiveWriter(BackupScope.Full, onePhotoFiles()),
+                )
+
+                assertRejected(ArchiveReceiptFailure.RECEIPT_INCOMPLETE, result, returnedIdentity.toString())
+                assertEvidenceCounts(fixture, receipts = 0, entries = 0)
+                assertEquals(0, store.reopenCalls)
+            }
+        }
+    }
+
+    @Test
+    fun `reopen format and availability failures are classified without evidence`() {
+        val cases = listOf(
+            BackupFormatException("provider rejected stored object") to ArchiveReceiptFailure.VERIFY_READBACK_MISMATCH,
+            IOException("provider unavailable") to ArchiveReceiptFailure.VERIFY_UNAVAILABLE,
+        )
+
+        cases.forEach { (failure, expected) ->
+            MediaArchiveDbFixture().use { fixture ->
+                val store = InMemoryArchiveStore().apply { reopenFailure = failure }
+                val result = receiptService(fixture, store).createVerifiedReceipt(
+                    archiveTarget(),
+                    BackupScope.Full,
+                    TEST_PASSPHRASE,
+                    archiveWriter(BackupScope.Full, onePhotoFiles()),
+                )
+
+                assertRejected(expected, result, failure.message.orEmpty())
+                assertEvidenceCounts(fixture, receipts = 0, entries = 0)
+            }
+        }
+    }
+
+    @Test
+    fun `readback source and close failures are unavailable and never create evidence`() {
+        var closeAttempted = false
+        val inputs: List<(ByteArray) -> InputStream> = listOf(
+            {
+                object : InputStream() {
+                    override fun read(): Int = throw IOException("source disconnected")
+                }
+            },
+            { bytes ->
+                object : ByteArrayInputStream(bytes) {
+                    override fun close() {
+                        closeAttempted = true
+                        throw IOException("source close failed")
+                    }
+                }
+            },
+        )
+
+        inputs.forEach { inputFactory ->
+            MediaArchiveDbFixture().use { fixture ->
+                val store = InMemoryArchiveStore().apply { readbackInput = inputFactory }
+                val result = receiptService(fixture, store).createVerifiedReceipt(
+                    archiveTarget(),
+                    BackupScope.Full,
+                    TEST_PASSPHRASE,
+                    archiveWriter(BackupScope.Full, onePhotoFiles()),
+                )
+
+                assertRejected(ArchiveReceiptFailure.VERIFY_UNAVAILABLE, result)
+                assertEvidenceCounts(fixture, receipts = 0, entries = 0)
+            }
+        }
+        assertTrue(closeAttempted)
+    }
+
+    @Test
+    fun `valid readback with different manifest is rejected without evidence`() {
+        MediaArchiveDbFixture().use { fixture ->
+            val differentArchive = archiveBytes(BackupScope.Full, twoPhotoFiles())
+            val store = InMemoryArchiveStore().apply { readbackBytes = { differentArchive } }
+            val result = receiptService(fixture, store).createVerifiedReceipt(
+                archiveTarget(),
+                BackupScope.Full,
+                TEST_PASSPHRASE,
+                archiveWriter(BackupScope.Full, onePhotoFiles()),
+            )
+
+            assertRejected(ArchiveReceiptFailure.VERIFY_READBACK_MISMATCH, result)
+            assertEvidenceCounts(fixture, receipts = 0, entries = 0)
+        }
+    }
+
     @Test
     fun `all six required receipt fields fail closed while null version succeeds`() {
         val target = archiveTarget()
@@ -102,6 +233,14 @@ class MediaArchiveContractTest {
             assertTrue(result is ArchiveReceiptResult.Recorded)
             val entries = fixture.db.mediaArchiveQueries.selectVerifiedBackupReceiptEntries(result.receiptId).executeAsList()
             assertEquals(listOf("photos/b.jpg", "photos/a.jpg", "db.sqlite"), entries.map { it.rel_path })
+            assertEquals(
+                listOf(
+                    Triple("photos/b.jpg", ContentHash.sha256Hex(PHOTO_B_BYTES), PHOTO_B_BYTES.size.toLong()),
+                    Triple(PHOTO_A_PATH, PHOTO_A_HASH, PHOTO_A_BYTES.size.toLong()),
+                    Triple("db.sqlite", DB_HASH, DB_BYTES.size.toLong()),
+                ),
+                entries.map { Triple(it.rel_path, it.content_hash, it.byte_size) },
+            )
             assertEvidenceCounts(fixture, receipts = 1, entries = 3)
         }
     }
@@ -377,12 +516,15 @@ private class FixedSequenceClock(vararg values: Long) : ClockMs {
 }
 
 private class InMemoryArchiveStore : ArchiveStore {
+    var writeFailure: IOException? = null
     var writeIdentity: (ArchiveIdentity) -> ArchiveIdentity = { it }
     var readbackIdentity: (ArchiveIdentity) -> ArchiveIdentity = { it }
     var readbackBytes: (ByteArray) -> ByteArray = { it.copyOf() }
+    var readbackInput: (ByteArray) -> InputStream = { ByteArrayInputStream(it) }
     var reopenFailure: IOException? = null
     var revokedAtMs: Long? = null
     var storedBytes: ByteArray = byteArrayOf()
+    var reopenCalls: Int = 0
 
     override fun <T> write(
         target: ArchiveIdentity,
@@ -390,16 +532,19 @@ private class InMemoryArchiveStore : ArchiveStore {
     ): WrittenArchive<T> {
         val output = ByteArrayOutputStream()
         val value = producer(output)
+        output.close()
         storedBytes = output.toByteArray()
+        writeFailure?.let { throw it }
         return WrittenArchive(writeIdentity(target), value)
     }
 
     override fun reopen(written: ArchiveIdentity): ArchiveReadback {
+        reopenCalls++
         reopenFailure?.let { throw it }
         return ArchiveReadback(
             identity = readbackIdentity(written),
             revokedAtMs = revokedAtMs,
-            input = ByteArrayInputStream(readbackBytes(storedBytes)),
+            input = readbackInput(readbackBytes(storedBytes)),
         )
     }
 }
@@ -437,6 +582,12 @@ private fun archiveWriter(
         random = ScriptedRandom(byteArrayOf(1, 2, 3, 4)),
     )
 }
+
+private fun archiveBytes(scope: BackupScope, files: List<BackupSourceFile>): ByteArray =
+    ByteArrayOutputStream().use { output ->
+        archiveWriter(scope, files)(output)
+        output.toByteArray()
+    }
 
 private fun onePhotoFiles(): List<BackupSourceFile> = listOf(
     sourceFile("db.sqlite", DB_BYTES),
