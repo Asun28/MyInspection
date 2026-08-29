@@ -6990,6 +6990,26 @@ function Test-LessonsCommandDocContract {
   return [pscustomobject]@{ Ok=$true; Code='PASS'; Message='' }
 }
 
+function Remove-LessonsCommandInventoryToken {
+  param(
+    [Parameter(Mandatory)][string]$Inventory,
+    [Parameter(Mandatory)][string]$Token
+  )
+
+  $usesEscapedSeparator = $Inventory.Contains('\|')
+  $normalized = $Inventory.Replace('\|', '|')
+  $tokens = @($normalized -split '\|')
+  $tokenMatches = @($tokens | Where-Object { $_ -ceq $Token })
+  if ($tokenMatches.Count -ne 1 -or @($tokens | Where-Object { $_ -cne '' }).Count -ne $tokens.Count) {
+    return [pscustomobject]@{ Ok=$false; Value=$Inventory }
+  }
+  $separator = if ($usesEscapedSeparator) { '\|' } else { '|' }
+  return [pscustomobject]@{
+    Ok=$true
+    Value=(@($tokens | Where-Object { $_ -cne $Token }) -join $separator)
+  }
+}
+
 function Invoke-LessonsContractChild {
   param(
     [Parameter(Mandatory)][string[]]$FunctionNames,
@@ -7139,44 +7159,6 @@ foreach ($profileCase in $lessonsProfileCases) {
 $lessonsStockProfile = Test-LessonsStockDocSyncProfile -Map $realMap
 $lessonsMapUnderTest = if ($lessonsStockProfile) { $realMap } else { @{ 'scripts/lessons\.ps1' = @('docs/LESSONS.md') } }
 
-# A1/A2 真进程收据：同一份 stock-without-new-pair 映射下，lessons-only 变更须 exit 0；只补新键后须
-# exit 1 且哨兵同时点名 source/doc。父进程只看返回对象会把「分类器算对了」误当成「真实闸会红」。
-$lessonsPreChild = Invoke-LessonsContractChild -FunctionNames @('Get-DocDriftMissing') -Body @'
-$stockWithoutLessons = @{
-  'scripts/task\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
-  'scripts/review\.ps1' = @('docs/QUALITY-RUBRIC.md')
-  'scripts/check-licenses\.ps1' = @('docs/LICENSE-POLICY.md')
-  'scripts/check-scope\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
-}
-$missing = @(Get-DocDriftMissing -ChangedFiles @('scripts/lessons.ps1') -Map $stockWithoutLessons -EscapeHatch $false)
-if ($missing.Count -eq 0) { Write-Output '[LESSONS-DOCSYNC-PRE-PASS]'; exit 0 }
-Write-Output "[LESSONS-DOCSYNC-PRE-UNEXPECTED] missing=$($missing -join ',')"
-exit 1
-'@
-if ($lessonsPreChild.Exit -ne 0 -or -not $lessonsPreChild.Output.Contains('[LESSONS-DOCSYNC-PRE-PASS]')) {
-  Fail "14f lessons pre-coupling child：[LESSONS-DOCSYNC-PRE-CHILD] stock-without-new-pair 的 lessons-only 变更未 exit 0 + PRE-PASS。exit=$($lessonsPreChild.Exit) output=$($lessonsPreChild.Output)"
-}
-$lessonsPostChild = Invoke-LessonsContractChild -FunctionNames @('Get-DocDriftMissing', 'Format-DocDriftMissing') -Body @'
-$stockWithLessons = @{
-  'scripts/task\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
-  'scripts/review\.ps1' = @('docs/QUALITY-RUBRIC.md')
-  'scripts/check-licenses\.ps1' = @('docs/LICENSE-POLICY.md')
-  'scripts/check-scope\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
-  'scripts/lessons\.ps1' = @('docs/LESSONS.md')
-}
-$missing = @(Get-DocDriftMissing -ChangedFiles @('scripts/lessons.ps1') -Map $stockWithLessons -EscapeHatch $false)
-if ($missing.Count -gt 0) {
-  Write-Output "[LESSONS-DOCSYNC-POST-RED] 14f doc-drift: $((Format-DocDriftMissing -MissingPaths $missing) -join ', ')"
-  exit 1
-}
-Write-Output '[LESSONS-DOCSYNC-POST-UNEXPECTED-PASS]'
-exit 0
-'@
-if ($lessonsPostChild.Exit -eq 0 -or -not $lessonsPostChild.Output.Contains('[LESSONS-DOCSYNC-POST-RED]') -or
-    -not $lessonsPostChild.Output.Contains('scripts/lessons.ps1') -or -not $lessonsPostChild.Output.Contains('docs/LESSONS.md')) {
-  Fail "14f lessons post-coupling child：[LESSONS-DOCSYNC-POST-CHILD] 新键在场的 lessons-only 变更未 exit nonzero + 两路径 POST-RED。exit=$($lessonsPostChild.Exit) output=$($lessonsPostChild.Output)"
-}
-
 $lessonsMapContract = Test-LessonsDocSyncMapContract -Map $lessonsMapUnderTest
 if (-not $lessonsMapContract.Ok) {
   Fail "14f lessons map：$($lessonsMapContract.Code) $($lessonsMapContract.Message)"
@@ -7210,7 +7192,7 @@ exit 0
     if (-not $additionalTargetContract.Ok) {
       Fail "14f lessons map additional-target：[LESSONS-DOCSYNC-ADDITIONAL-TARGET] DocSyncMap 合法多目标被误拒。$($additionalTargetContract.Code) $($additionalTargetContract.Message)"
     } else {
-      Write-Host '  14f lessons DocSyncMap 精确耦合 OK（pre/post 真进程 exit · source+doc · 多目标 · _lessons decoy · 映射删除子进程变异）' -ForegroundColor Green
+      Write-Host '  14f lessons DocSyncMap 精确耦合 OK（source+doc · 多目标 · _lessons decoy · 映射删除子进程变异）' -ForegroundColor Green
     }
   }
 }
@@ -7246,12 +7228,25 @@ if (-not $lessonsCommandSource.Ok) {
     Fail "14f lessons commands child baseline：[LESSONS-CMD-DOC-BASELINE-CHILD] 完整三文档未 exit 0 + PASS。exit=$($lessonsDocsBaselineChild.Exit) output=$($lessonsDocsBaselineChild.Output)"
   } else {
     $lessonsDocsMutationOk = $true
+    $archivePositionCases = @(
+      [pscustomobject]@{ Name='first'; Inventory='archive|add|search'; Expected='add|search' },
+      [pscustomobject]@{ Name='middle-escaped'; Inventory='add\|archive\|search'; Expected='add\|search' },
+      [pscustomobject]@{ Name='last'; Inventory='add|search|archive'; Expected='add|search' }
+    )
+    foreach ($positionCase in $archivePositionCases) {
+      $positionResult = Remove-LessonsCommandInventoryToken -Inventory $positionCase.Inventory -Token 'archive'
+      if (-not $positionResult.Ok -or $positionResult.Value -cne $positionCase.Expected) {
+        Fail "14f lessons commands mutation position($($positionCase.Name))：[LESSONS-CMD-DOC-TOKEN-DELETE] expected=$($positionCase.Expected) actual=$($positionResult.Value)"
+        $lessonsDocsMutationOk = $false
+      }
+    }
     foreach ($definition in $lessonsCommandDocs) {
       $baselineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot $definition.Path))
       $inventoryMatch = [regex]::Match($baselineText, $definition.Pattern)
       $inventoryGroup = $inventoryMatch.Groups['commands']
-      $mutatedInventory = $inventoryGroup.Value.Replace('archive\|', '').Replace('archive|', '')
-      if (-not $inventoryMatch.Success -or $mutatedInventory -ceq $inventoryGroup.Value) {
+      $archiveDeletion = Remove-LessonsCommandInventoryToken -Inventory $inventoryGroup.Value -Token 'archive'
+      $mutatedInventory = $archiveDeletion.Value
+      if (-not $inventoryMatch.Success -or -not $archiveDeletion.Ok -or $mutatedInventory -ceq $inventoryGroup.Value) {
         Fail "14f lessons commands mutation($($definition.Id))：[LESSONS-CMD-DOC-MUTATION-SETUP] 无法只删 archive。"
         $lessonsDocsMutationOk = $false
         continue
@@ -7373,6 +7368,77 @@ function Get-DocDriftBaseOrSkip {
   finally { $PSNativeCommandUseErrorActionPreference = $prevNative }
 }
 
+function Get-DocDriftProductionGateResult {
+  param(
+    [Parameter(Mandatory)][string]$RepoPath,
+    [Parameter(Mandatory)][hashtable]$Map
+  )
+
+  $decision = Get-DocDriftBaseOrSkip -RepoPath $RepoPath
+  if ($decision.ContainsKey('Skip')) {
+    return [pscustomobject]@{ Outcome='skip'; Diagnostic=[string]$decision.Skip; Changed=@(); Missing=@() }
+  }
+  $escape = (@($decision.Messages) -join "`n").Contains('[doc-sync:none]')
+  $missing = @(Get-DocDriftMissing -ChangedFiles @($decision.Changed) -Map $Map -EscapeHatch $escape)
+  if ($missing.Count -gt 0) {
+    return [pscustomobject]@{
+      Outcome='block'
+      Diagnostic="14f doc-drift：源脚本已变更但缺配对文档：$((Format-DocDriftMissing -MissingPaths $missing) -join ', ')"
+      Changed=@($decision.Changed)
+      Missing=$missing
+    }
+  }
+  return [pscustomobject]@{ Outcome='pass'; Diagnostic=''; Changed=@($decision.Changed); Missing=@() }
+}
+
+function Invoke-DocDriftProductionGateChild {
+  param(
+    [Parameter(Mandatory)][string]$RepoPath,
+    [Parameter(Mandatory)][string]$PassSentinel,
+    [Parameter(Mandatory)][string]$BlockSentinel,
+    [string]$OutcomeOverride = ''
+  )
+
+  $definitions = [System.Collections.Generic.List[string]]::new()
+  foreach ($functionName in @('Get-DocDriftBaseOrSkip', 'Get-DocDriftMissing', 'Format-DocDriftMissing', 'Get-DocDriftProductionGateResult')) {
+    $functionCommand = Get-Command -Name $functionName -CommandType Function -ErrorAction SilentlyContinue
+    if (-not $functionCommand) { return [pscustomobject]@{ Exit=98; Output="[LESSONS-DOCSYNC-GIT-CHILD-SETUP] missing function=$functionName" } }
+    $definitions.Add("function $functionName {`n$($functionCommand.Definition)`n}")
+  }
+  $payloadJson = @{ RepoPath=$RepoPath; PassSentinel=$PassSentinel; BlockSentinel=$BlockSentinel; OutcomeOverride=$OutcomeOverride } | ConvertTo-Json -Compress
+  $payloadBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payloadJson))
+  $scriptText = @"
+Set-StrictMode -Version Latest
+`$ErrorActionPreference = 'Stop'
+$($definitions -join "`n")
+`$payload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$payloadBase64')) | ConvertFrom-Json
+`$repoPath = [string]`$payload.RepoPath
+. (Join-Path `$repoPath 'scripts/_config.ps1')
+`$result = Get-DocDriftProductionGateResult -RepoPath `$repoPath -Map (Get-ScaffoldDocSyncMap)
+if ([string]`$payload.OutcomeOverride) { `$result = [pscustomobject]@{ Outcome=[string]`$payload.OutcomeOverride; Diagnostic='forced mutation' } }
+if (`$result.Outcome -ceq 'skip') { Write-Output "[LESSONS-DOCSYNC-GIT-UNEXPECTED-SKIP] `$(`$result.Diagnostic)"; exit 2 }
+if (`$result.Outcome -ceq 'block') { Write-Output "`$(`$payload.BlockSentinel) `$(`$result.Diagnostic)"; exit 1 }
+if (`$result.Outcome -ceq 'pass') { Write-Output ([string]`$payload.PassSentinel); exit 0 }
+Write-Output "[LESSONS-DOCSYNC-UNKNOWN-OUTCOME] outcome=`$(`$result.Outcome)"
+exit 3
+"@
+  $childRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('lessons-docsync-child-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  $childScript = Join-Path $childRoot 'run.ps1'
+  New-Item -ItemType Directory -Force -Path $childRoot | Out-Null
+  [System.IO.File]::WriteAllText($childScript, $scriptText, [System.Text.UTF8Encoding]::new($false))
+  $prevNative = if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference } else { $true }
+  $PSNativeCommandUseErrorActionPreference = $false
+  try {
+    $output = @(& pwsh -NoProfile -File $childScript 2>&1)
+    $exitCode = $LASTEXITCODE
+    return [pscustomobject]@{ Exit=$exitCode; Output=(@($output | ForEach-Object { [string]$_ }) -join "`n") }
+  }
+  finally {
+    $PSNativeCommandUseErrorActionPreference = $prevNative
+    Remove-Item -Recurse -Force $childRoot -ErrorAction SilentlyContinue
+  }
+}
+
 # fail-open 状态夹具（R3 #6，仿 15 系临时仓）：每个无-base 态断言返回 Skip、绝不 Fail；
 # 正例（正常仓 master 祖先）须返回 Base——否则 Skip 断言在「恒 Skip」实现下全 vacuous（正例即非-vacuous 证明）。
 if (Get-Command git -ErrorAction SilentlyContinue) {
@@ -7392,6 +7458,52 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
     }
     function Assert-FoSkip([hashtable]$D, [string]$Label) {
       if (-not $D.ContainsKey('Skip')) { Fail "14f fail-open($Label)：无-base 态未 skip（返回 $($D.Keys -join ',')）。"; $script:docDriftFoOk = $false }
+    }
+    function New-LessonsDocSyncRepo([string]$Name, [bool]$IncludeLessonsPair) {
+      $p = New-FoRepo $Name
+      & git -C $p checkout -q -b master 2>$null
+      New-Item -ItemType Directory -Force -Path (Join-Path $p 'scripts'), (Join-Path $p 'docs') | Out-Null
+      $configText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/_config.ps1'))
+      if (-not $IncludeLessonsPair) {
+        $configWithoutLessons = [regex]::Replace($configText, "(?m)^\s*'scripts/lessons\\\.ps1'\s*=\s*@\('docs/LESSONS\.md'\)\r?\n", '', 1)
+        if ($configWithoutLessons -ceq $configText) { throw 'pre-coupling fixture could not remove exact lessons DocSyncMap pair' }
+        $configText = $configWithoutLessons
+      }
+      [System.IO.File]::WriteAllText((Join-Path $p 'scripts/_config.ps1'), $configText, [System.Text.UTF8Encoding]::new($false))
+      Set-Content -LiteralPath (Join-Path $p 'scripts/lessons.ps1') -Value '# baseline lessons command' -Encoding utf8
+      Set-Content -LiteralPath (Join-Path $p 'docs/LESSONS.md') -Value '# baseline lessons documentation' -Encoding utf8
+      & git -C $p add -A 2>$null
+      & git -C $p commit -qm seed 2>$null
+      & git -C $p checkout -q -b feature 2>$null
+      Add-Content -LiteralPath (Join-Path $p 'scripts/lessons.ps1') -Value '# source-only feature change' -Encoding utf8
+      & git -C $p add -- 'scripts/lessons.ps1' 2>$null
+      & git -C $p commit -qm 'source-only lessons change' 2>$null
+      $changed = @(& git -C $p diff --name-only master HEAD 2>$null)
+      if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or [string]$changed[0] -cne 'scripts/lessons.ps1') {
+        throw "source-only fixture changed unexpected paths: $($changed -join ',')"
+      }
+      return $p
+    }
+    # A1/A2：两份仓只在 master 的生产 DocSyncMap 是否含新 pair 上不同；feature commit 都精确只改 lessons.ps1。
+    # 新 pwsh 子进程 dot-source 该仓真实 _config.ps1，经 production gate 共用核读取 Git base/diff/log 与访问器，再以真实 exit+哨兵裁决。
+    $lessonsPreRepo = New-LessonsDocSyncRepo -Name 'lessons-pre' -IncludeLessonsPair $false
+    $lessonsPreChild = Invoke-DocDriftProductionGateChild -RepoPath $lessonsPreRepo -PassSentinel '[LESSONS-DOCSYNC-PRE-PASS]' -BlockSentinel '[LESSONS-DOCSYNC-PRE-UNEXPECTED-BLOCK]'
+    if ($lessonsPreChild.Exit -ne 0 -or -not $lessonsPreChild.Output.Contains('[LESSONS-DOCSYNC-PRE-PASS]')) {
+      Fail "14f lessons A1 production child：[LESSONS-DOCSYNC-PRE-CHILD] pre-pair 的 source-only 真提交未 exit 0 + PRE-PASS。exit=$($lessonsPreChild.Exit) output=$($lessonsPreChild.Output)"
+      $docDriftFoOk = $false
+    }
+    $lessonsUnknownChild = Invoke-DocDriftProductionGateChild -RepoPath $lessonsPreRepo -PassSentinel '[LESSONS-DOCSYNC-UNKNOWN-UNEXPECTED-PASS]' -BlockSentinel '[LESSONS-DOCSYNC-UNKNOWN-UNEXPECTED-BLOCK]' -OutcomeOverride 'mutated-unknown'
+    if ($lessonsUnknownChild.Exit -eq 0 -or -not $lessonsUnknownChild.Output.Contains('[LESSONS-DOCSYNC-UNKNOWN-OUTCOME]') -or
+        -not $lessonsUnknownChild.Output.Contains('mutated-unknown')) {
+      Fail "14f lessons production child unknown mutation：[LESSONS-DOCSYNC-UNKNOWN-MUTATION] 未 fail-closed + 专用哨兵。exit=$($lessonsUnknownChild.Exit) output=$($lessonsUnknownChild.Output)"
+      $docDriftFoOk = $false
+    }
+    $lessonsPostRepo = New-LessonsDocSyncRepo -Name 'lessons-post' -IncludeLessonsPair $true
+    $lessonsPostChild = Invoke-DocDriftProductionGateChild -RepoPath $lessonsPostRepo -PassSentinel '[LESSONS-DOCSYNC-POST-UNEXPECTED-PASS]' -BlockSentinel '[LESSONS-DOCSYNC-POST-RED]'
+    if ($lessonsPostChild.Exit -eq 0 -or -not $lessonsPostChild.Output.Contains('[LESSONS-DOCSYNC-POST-RED]') -or
+        -not $lessonsPostChild.Output.Contains('scripts/lessons.ps1') -or -not $lessonsPostChild.Output.Contains('docs/LESSONS.md')) {
+      Fail "14f lessons A2 production child：[LESSONS-DOCSYNC-POST-CHILD] post-pair 的 source-only 真提交未 exit nonzero + 两路径 POST-RED。exit=$($lessonsPostChild.Exit) output=$($lessonsPostChild.Output)"
+      $docDriftFoOk = $false
     }
     Assert-FoSkip (Get-DocDriftBaseOrSkip -RepoPath (New-FoRepo 'unborn')) 'unborn'
     $rDet = New-FoRepo 'detached'; Set-Content (Join-Path $rDet 'a.txt') 'x'; & git -C $rDet add -A 2>$null; & git -C $rDet commit -qm c1 2>$null
@@ -7443,25 +7555,24 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
     $PSNativeCommandUseErrorActionPreference = $prevFoNative
     Remove-Item -Recurse -Force $foRoot -ErrorAction SilentlyContinue
   }
-  if ($docDriftFoOk) { Write-Host '  14f fail-open + 硬化夹具 OK（unborn/detached/no-master/no-merge-base/shallow skip + 正常仓 base/Changed/Messages + 决策端到端 + CJK/quotepath + 改名/renames=false）' -ForegroundColor Green }
+  if ($docDriftFoOk) { Write-Host '  14f fail-open + 硬化夹具 OK（A1/A2 source-only 真 Git 提交→production gate 子进程 exit+哨兵 · unborn/detached/no-master/no-merge-base/shallow skip · 正常仓 base/Changed/Messages · 决策端到端 · CJK/quotepath · 改名/renames=false）' -ForegroundColor Green }
 }
 else {
   Skip-SelftestCheck -GateId '14f(fail-open-fixture)' -Reason 'TOOL-GIT-MISSING' -Message '  14f fail-open 状态夹具跳过（git 未安装）。'
 }
 
-$docDriftDecision = Get-DocDriftBaseOrSkip -RepoPath $RepoRoot
-if ($docDriftDecision.ContainsKey('Skip')) {
-  Skip-SelftestCheck -GateId '14f(real-run)' -Reason 'GIT-BASE-UNAVAILABLE' -Message "  14f real-run 跳过（$($docDriftDecision.Skip)）。"
+$docDriftGate = Get-DocDriftProductionGateResult -RepoPath $RepoRoot -Map (Get-ScaffoldDocSyncMap)
+if ($docDriftGate.Outcome -ceq 'skip') {
+  Skip-SelftestCheck -GateId '14f(real-run)' -Reason 'GIT-BASE-UNAVAILABLE' -Message "  14f real-run 跳过（$($docDriftGate.Diagnostic)）。"
+}
+elseif ($docDriftGate.Outcome -ceq 'block') {
+  Fail $docDriftGate.Diagnostic
+}
+elseif ($docDriftGate.Outcome -ceq 'pass') {
+  Write-Host '  14f real-run DocSyncMap 耦合 OK' -ForegroundColor Green
 }
 else {
-  $docDriftEscape = (@($docDriftDecision.Messages) -join "`n").Contains('[doc-sync:none]')
-  $docDriftMissing = @(Get-DocDriftMissing -ChangedFiles @($docDriftDecision.Changed) -Map (Get-ScaffoldDocSyncMap) -EscapeHatch $docDriftEscape)
-  if ($docDriftMissing.Count -gt 0) {
-    Fail "14f doc-drift：源脚本已变更但缺配对文档：$((Format-DocDriftMissing -MissingPaths $docDriftMissing) -join ', ')"
-  }
-  else {
-    Write-Host '  14f real-run DocSyncMap 耦合 OK' -ForegroundColor Green
-  }
+  Fail "14f real-run：[LESSONS-DOCSYNC-UNKNOWN-OUTCOME] production gate 返回未知 outcome=$($docDriftGate.Outcome)，fail-closed。"
 }
 
 }
