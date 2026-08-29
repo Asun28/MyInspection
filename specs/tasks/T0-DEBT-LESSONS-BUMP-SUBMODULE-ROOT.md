@@ -11,6 +11,7 @@ allow_paths:
   - scripts/selftest.ps1
   - docs/LESSONS.md
   - CLAUDE.md
+  - specs/tasks/T0-DEBT-LESSONS-BUMP-SUBMODULE-ROOT.md
 forbid:
   - 改动 add、promote、archive、冷存选择器或 lesson schema
   - 改动 task.ps1 中独立的收据与 saga git-common-dir 逻辑
