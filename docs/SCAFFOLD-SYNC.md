@@ -33,6 +33,8 @@ scans it with `check-secrets.ps1` because the issue is public, prints it, writes
 
 This loop already returned local #183/#184/#185 as upstream v0.43 fixes #189/#188/#190. It also found
 its own unbounded-ledger bug (#201), fixed upstream in v0.44 and backfilled here with adversarial tests.
+The dynamic sensitive-allowlist baseline closure defect is tracked upstream as
+[#305](https://github.com/Asun28/claude-devops-scaffold/issues/305), with downstream proof in PR #192 and L256.
 
 ## Direction 2 — deciding whether to take an upstream release
 

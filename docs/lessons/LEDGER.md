@@ -1845,3 +1845,11 @@
 - rule: 并发夹具用唯一 marker handshake 建立 happens-before；timeout 与 early-exit 使用各自 marker 专用控制器，并以单调时钟、有界终止和残留进程断言锁住生命周期。
 - enforced_by: scripts/selftest.ps1
 - refs: PR #189; scripts/selftest.ps1
+
+## L256
+- date: 2026-08-29 ｜ tags: selftest,fixture,git,security,allowlist ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A hermetic workflow fixture copied an authoritative sensitive-path allowlist but force-added only the original first ignored file; adding a second reviewed path made check-secrets correctly reject the fixture baseline as untracked.
+- root_cause: The fixture reproduced configuration bytes without reproducing the configuration-derived Git state. A hardcoded singleton setup silently became a second source of truth and stopped being closed under allowlist growth.
+- rule: When a hermetic repository copies an authoritative manifest, derive every setup action that manifest controls from the copied manifest itself. For ignored allowlisted paths, validate each exact leaf and force-add the full collection; keep a multi-member positive control plus a first-only mutation that must fail on the omitted member.
+- enforced_by: scripts/selftest.ps1 (`canary-harness` multi-member control + first-only executable mutation)
+- refs: PR #192; Actions runs #33215637748/#33226580801; upstream #305

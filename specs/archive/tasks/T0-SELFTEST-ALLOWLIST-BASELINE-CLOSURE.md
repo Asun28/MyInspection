@@ -2,7 +2,7 @@
 id: T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE
 title: 让动态 E2E 基线追踪完整敏感清单
 depends_on: []
-status: todo
+status: merged
 branch: T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE
 worktree: C:\wt\T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE
 allow_paths:
