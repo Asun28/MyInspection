@@ -13,7 +13,7 @@ CREATE TABLE local_asset_state (
 );
 
 CREATE INDEX idx_local_asset_state_state
-ON local_asset_state (state, rel_path);
+ON local_asset_state (state, rel_path DESC);
 
 CREATE TABLE report_export_receipt (
     id TEXT NOT NULL PRIMARY KEY,

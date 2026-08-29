@@ -13,7 +13,7 @@ CREATE TABLE local_asset_state (
 );
 
 CREATE INDEX idx_local_asset_state_state
-ON local_asset_state (state, rel_path);
+ON local_asset_state (state, rel_path DESC);
 
 CREATE TABLE report_export_receipt (
     id TEXT NOT NULL PRIMARY KEY,
@@ -80,7 +80,7 @@ CREATE INDEX idx_verified_backup_receipt_entry_exact
 ON verified_backup_receipt_entry (rel_path, content_hash, byte_size, receipt_id);
 
 insertLocalAssetState:
-INSERT OR IGNORE INTO local_asset_state (rel_path, content_hash, byte_size, state, changed_at, reason)
+INSERT INTO local_asset_state (rel_path, content_hash, byte_size, state, changed_at, reason)
 VALUES (:rel_path, :content_hash, :byte_size, :state, :changed_at, :reason);
 
 updateLocalAssetStateIfIdentityMatches:
@@ -117,16 +117,14 @@ selectReportExportReceiptsByInspection:
 SELECT *
 FROM report_export_receipt
 WHERE inspection_id = :inspection_id
-ORDER BY audience ASC, quality ASC, id ASC;
+ORDER BY
+    CASE audience WHEN 'LANDLORD' THEN 0 WHEN 'TENANT' THEN 1 END ASC,
+    CASE quality WHEN 'LOW' THEN 0 WHEN 'MEDIUM' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'EXTRA_HIGH' THEN 3 END ASC;
 
 selectAllReportExportReceipts:
 SELECT *
 FROM report_export_receipt
 ORDER BY id ASC;
-
-deleteReportExportReceipt:
-DELETE FROM report_export_receipt
-WHERE id = :id;
 
 insertVerifiedBackupReceipt:
 INSERT INTO verified_backup_receipt (
@@ -160,7 +158,7 @@ selectVerifiedBackupReceiptEntries:
 SELECT *
 FROM verified_backup_receipt_entry
 WHERE receipt_id = :receipt_id
-ORDER BY rel_path ASC;
+ORDER BY rel_path DESC;
 
 selectCandidateReceiptEntriesByPath:
 SELECT
