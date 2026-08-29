@@ -148,7 +148,7 @@ ORDER BY id ASC;
 revokeVerifiedBackupReceipt:
 UPDATE verified_backup_receipt
 SET revoked_at = :revoked_at
-WHERE id = :id AND revoked_at IS NULL;
+WHERE id = :id AND revoked_at IS NULL AND :revoked_at IS NOT NULL;
 
 insertVerifiedBackupReceiptEntry:
 INSERT INTO verified_backup_receipt_entry (receipt_id, rel_path, content_hash, byte_size)

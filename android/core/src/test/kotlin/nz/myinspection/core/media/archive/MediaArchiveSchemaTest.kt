@@ -28,6 +28,10 @@ class MediaArchiveSchemaTest {
     @Test
     fun `schema v5 exposes four exact text-and-integer tables`() {
         assertEquals(5L, MyInspectionDatabase.Schema.version)
+        assertArchiveTables()
+    }
+
+    private fun assertArchiveTables() {
         assertTable(
             "local_asset_state",
             listOf("rel_path", "content_hash", "byte_size", "state", "changed_at", "reason"),
@@ -42,6 +46,7 @@ class MediaArchiveSchemaTest {
                 "id", "destination_kind", "destination_ref", "object_ref", "version_ref",
                 "exported_at", "verified_at", "scope_kind", "scope_property_id", "revoked_at",
             ),
+            nullableColumns = setOf("version_ref", "scope_property_id", "revoked_at"),
         )
         assertTable(
             "verified_backup_receipt_entry",
@@ -256,6 +261,7 @@ class MediaArchiveSchemaTest {
         assertEquals(1L, queries.revokeVerifiedBackupReceipt(NOW + 1, "a-new").value)
         assertEquals(0L, queries.revokeVerifiedBackupReceipt(NOW + 2, "a-new").value)
         assertEquals(NOW + 1, queries.selectVerifiedBackupReceiptById("a-new").executeAsOne().revoked_at)
+        assertEquals(0L, queries.revokeVerifiedBackupReceipt(null, "b-new").value)
         assertNull(queries.selectVerifiedBackupReceiptById("b-new").executeAsOne().revoked_at)
     }
 
@@ -266,6 +272,7 @@ class MediaArchiveSchemaTest {
         seedOwnedPhoto("property-2", "inspection-2", "room-2", "photo-2", HASH_B)
         seedOwnedPhoto("property-1", "inspection-1", "room-1", "photo-1", HASH_B)
         insertPhoto("photo-1a", "room-1", "media/a.jpg", HASH_A)
+        seedAdditionalOwnedPhoto("property-1", "template-property-1", "inspection-1b", "room-1b", "photo-1b", HASH_A)
         seedOwnedPhoto("property-3", "inspection-3", "room-3", "photo-3", HASH_A, relPath = "media/other.jpg")
         seedOwnedPhoto("property-4", "inspection-4", "room-4", "photo-4", HASH_A, deletedPhoto = true)
         seedOwnedPhoto("property-5", "inspection-5", "room-5", "photo-5", HASH_A, deletedRoom = true)
@@ -293,13 +300,28 @@ class MediaArchiveSchemaTest {
         assertEquals(photoBefore, rowStrings("SELECT * FROM photo ORDER BY id", 11))
         assertEquals(inspectionBefore, rowStrings("SELECT * FROM inspection ORDER BY id", 14))
         assertEquals(4L, listOf("local_asset_state", "report_export_receipt", "verified_backup_receipt", "verified_backup_receipt_entry").count { columnInfo(it).isNotEmpty() }.toLong())
+        assertArchiveTables()
     }
 
-    private fun assertTable(table: String, expectedColumns: List<String>) {
-        val info = columnInfo(table)
-        assertEquals(expectedColumns, info.map { it.first }, "$table column set/order drifted")
-        assertEquals(setOf("TEXT", "INTEGER"), info.map { it.second }.toSet(), "$table may contain only TEXT/INTEGER")
+    private fun assertTable(
+        table: String,
+        expectedColumns: List<String>,
+        nullableColumns: Set<String> = emptySet(),
+    ) {
+        val details = columnDetails(table)
+        assertEquals(expectedColumns, details.map { it.name }, "$table column set/order drifted")
+        assertEquals(setOf("TEXT", "INTEGER"), details.map { it.type }.toSet(), "$table may contain only TEXT/INTEGER")
+        assertEquals(expectedColumns.filterNot(nullableColumns::contains), details.filter { it.notNull }.map { it.name }, "$table NOT NULL set drifted")
     }
+
+    private data class ColumnDetail(val name: String, val type: String, val notNull: Boolean)
+
+    private fun columnDetails(table: String): List<ColumnDetail> =
+        driver.executeQuery(null, "PRAGMA table_info($table)", { cursor ->
+            val rows = mutableListOf<ColumnDetail>()
+            while (cursor.next().value) rows += ColumnDetail(cursor.getString(1)!!, cursor.getString(2)!!, cursor.getLong(3) == 1L)
+            QueryResult.Value(rows)
+        }, 0).value
 
     private fun columnInfo(table: String): List<Pair<String, String>> =
         driver.executeQuery(null, "PRAGMA table_info($table)", { cursor ->
@@ -354,6 +376,19 @@ class MediaArchiveSchemaTest {
             bindString(2, relPath)
             bindString(3, hash)
         }
+    }
+
+    private fun seedAdditionalOwnedPhoto(
+        propertyId: String,
+        templateId: String,
+        inspectionId: String,
+        roomId: String,
+        photoId: String,
+        hash: String,
+    ) {
+        driver.execute(null, "INSERT INTO inspection (id,type,property_id,template_version_id,scheduled_at,status,created_at,updated_at) VALUES ('$inspectionId','ROUTINE','$propertyId','$templateId',1,'DRAFT',1,1)", 0)
+        driver.execute(null, "INSERT INTO room_instance (id,inspection_id,room_key,instance_no,display_label,created_at,updated_at) VALUES ('$roomId','$inspectionId','LOUNGE',1,'Lounge',1,1)", 0)
+        insertPhoto(photoId, roomId, "media/a.jpg", hash)
     }
 
     private fun createV4EvidenceTables() {
