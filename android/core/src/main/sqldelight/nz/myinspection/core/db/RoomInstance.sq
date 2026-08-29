@@ -36,3 +36,11 @@ selectByInspection:
 SELECT *
 FROM room_instance
 WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
+
+selectActiveByIdentity:
+SELECT *
+FROM room_instance
+WHERE inspection_id = :inspection_id
+  AND room_key = :room_key
+  AND instance_no = :instance_no
+  AND deleted_at IS NULL;

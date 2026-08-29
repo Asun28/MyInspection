@@ -347,8 +347,32 @@ class DbCompletenessCheckerTest {
 
         val result = DbCompletenessChecker(database).check(inspectionId)
 
-        assertEquals(listOf("KITCHEN"), result.roomsMissingInstance)
+        assertEquals(listOf(MissingRoomInstance("KITCHEN", 1L)), result.roomsMissingInstance)
         assertTrue(!result.isComplete, "a missing room must make the inspection incomplete")
+    }
+
+    @Test
+    fun `a configured second repeatable room instance that is absent blocks finalize`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertTemplateRoomDef(
+            database, uuid, templateVersionId, roomKey = "BEDROOM", repeatable = true, sort = 0, now = now,
+        )
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 0, now = now,
+        )
+        FinalizeTestFixtures.insertPropertyRoomConfig(
+            database, uuid, propertyId, roomKey = "BEDROOM", instanceCount = 2L, now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        DbTestFixtures.insertRoomInstance(
+            database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1L, now = now,
+        )
+
+        val result = DbCompletenessChecker(database).check(inspectionId)
+
+        assertEquals(listOf(MissingRoomInstance("BEDROOM", 2L)), result.roomsMissingInstance)
+        assertTrue(!result.isComplete, "a declared BEDROOM #2 must not be inferred from the existing #1")
     }
 
     @Test
@@ -386,14 +410,9 @@ class DbCompletenessCheckerTest {
         assertTrue(result.isComplete)
     }
 
-    /**
-     * `room_instance.selectByInspection`（冻结物，不可改）没有 `ORDER BY`。这里用显式 id（绕开
-     * [Uuid7Generator]）把"插入顺序"与"id 顺序"故意错开——先插入 id 更大的房间，再插入 id 更小的
-     * 房间，这样若实现没有显式排序，输出会先出插入序第一的那间（id 更大），与断言的 id 升序相反，
-     * 才是能造出反例的差异测试（不是插入序恰好等于 id 序的巧合钉子）。
-     */
+    /** `room_instance` 没有 ORDER BY；重复房间清单必须按 instance_no，而不是 id 或插入序。 */
     @Test
-    fun `missing-item lists across multiple rooms are ordered by room_instance id, not insertion order`() {
+    fun `missing-item lists across repeatable rooms are ordered by instance number, not id`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
         FinalizeTestFixtures.insertCheckItemDef(database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 1, now = now)
@@ -414,9 +433,9 @@ class DbCompletenessCheckerTest {
         val result = DbCompletenessChecker(database).check(inspectionId)
 
         assertEquals(
-            listOf(MissingItem(smallId, "wall.paint"), MissingItem(largeId, "wall.paint")),
+            listOf(MissingItem(largeId, "wall.paint"), MissingItem(smallId, "wall.paint")),
             result.itemsMissingStatus,
-            "list order must follow room_instance.id ascending, not insertion order",
+            "list order must follow instance_no ascending, independent of id",
         )
     }
 }

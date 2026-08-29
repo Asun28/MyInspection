@@ -50,6 +50,28 @@ internal object CaptureTestFixtures {
         return id
     }
 
+    fun insertTemplateRoomDef(
+        db: MyInspectionDatabase,
+        uuid: Uuid7Generator,
+        templateVersionId: String,
+        roomKey: String,
+        repeatable: Boolean,
+        sort: Long,
+        now: Long = NOW,
+    ): String {
+        val id = uuid.next()
+        db.templateRoomDefQueries.insert(
+            id = id,
+            template_version_id = templateVersionId,
+            room_key = roomKey,
+            repeatable = if (repeatable) 1L else 0L,
+            sort = sort,
+            created_at = now,
+            updated_at = now,
+        )
+        return id
+    }
+
     /**
      * 两间房：KITCHEN（KIT-ROOM-01 房间全景强制 + KIT-BENCH-01 不利发现强制拍照）、
      * BEDROOM（BED-WALL-01 无拍照要求）。三条项定义的 allowedStatuses 都是出租四态域。
@@ -58,9 +80,12 @@ internal object CaptureTestFixtures {
         db: MyInspectionDatabase,
         uuid: Uuid7Generator,
         type: String = "ROUTINE",
+        version: Long = 1,
         now: Long = NOW,
     ): String {
-        val versionId = DbTestFixtures.insertTemplateVersion(db, uuid, type = type, now = now)
+        val versionId = DbTestFixtures.insertTemplateVersion(db, uuid, type = type, version = version, now = now)
+        insertTemplateRoomDef(db, uuid, versionId, roomKey = "KITCHEN", repeatable = false, sort = 0, now = now)
+        insertTemplateRoomDef(db, uuid, versionId, roomKey = "BEDROOM", repeatable = true, sort = 1, now = now)
         insertCheckItemDef(db, uuid, versionId, "KIT-ROOM-01", "KITCHEN", sort = 0, photoRule = "ROOM_PANORAMA", now = now)
         insertCheckItemDef(db, uuid, versionId, "KIT-BENCH-01", "KITCHEN", sort = 1, photoRule = "ADVERSE_ONLY", now = now)
         insertCheckItemDef(db, uuid, versionId, "BED-WALL-01", "BEDROOM", sort = 2, photoRule = null, now = now)
