@@ -3,7 +3,7 @@ id: T0-SELFTEST-MIGRATION-CHECK-CONTINUE
 title: 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-SELFTEST-MIGRATION-CHECK-CONTINUE
 worktree: C:\\wt\\T0-SELFTEST-MIGRATION-CHECK-CONTINUE
 allow_paths:
