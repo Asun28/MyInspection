@@ -10,6 +10,13 @@ import kotlin.test.assertTrue
 
 class MediaArchiveLedgerTest {
     @Test
+    fun `archive identity rejects empty components and negative size`() {
+        assertFailsWith<IllegalArgumentException> { ArchiveAssetIdentity("", HASH_A, 0) }
+        assertFailsWith<IllegalArgumentException> { ArchiveAssetIdentity("media/a.jpg", "", 0) }
+        assertFailsWith<IllegalArgumentException> { ArchiveAssetIdentity("media/a.jpg", HASH_A, -1) }
+    }
+
+    @Test
     fun `state writes use one injected instant reject empty reason and preserve finalized evidence`() {
         MediaArchiveDbFixture().use { fixture ->
             seedFinalizedPhoto(fixture)
@@ -37,14 +44,29 @@ class MediaArchiveLedgerTest {
             assertEquals(inspectionBefore, fixture.db.inspectionQueries.selectById("inspection-final").executeAsOne())
             assertEquals(photoBefore, fixture.db.photoQueries.selectById("photo-final").executeAsOne())
 
+            val stableRow = fixture.db.mediaArchiveQueries.selectLocalAssetStateByPath(entry.relPath).executeAsOne()
             assertFailsWith<IllegalStateException> {
                 ledger.recordAssetState(
-                    ArchiveAssetIdentity(entry.relPath, HASH_B, 101),
+                    ArchiveAssetIdentity(entry.relPath, HASH_A, 101),
                     MediaArchiveState.ARCHIVED,
-                    "different bytes",
+                    "different size",
                 )
             }
-            assertEquals(HASH_A, fixture.db.mediaArchiveQueries.selectLocalAssetStateByPath(entry.relPath).executeAsOne().content_hash)
+            assertEquals(
+                stableRow,
+                fixture.db.mediaArchiveQueries.selectLocalAssetStateByPath(entry.relPath).executeAsOne(),
+            )
+            assertFailsWith<IllegalStateException> {
+                ledger.recordAssetState(
+                    ArchiveAssetIdentity(entry.relPath, HASH_B, 100),
+                    MediaArchiveState.ARCHIVED,
+                    "different hash",
+                )
+            }
+            assertEquals(
+                stableRow,
+                fixture.db.mediaArchiveQueries.selectLocalAssetStateByPath(entry.relPath).executeAsOne(),
+            )
         }
     }
 

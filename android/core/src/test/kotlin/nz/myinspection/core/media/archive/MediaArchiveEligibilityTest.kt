@@ -19,6 +19,43 @@ class MediaArchiveEligibilityTest {
     }
 
     @Test
+    fun `receipt evidence cannot replace a missing or different local identity`() {
+        MediaArchiveDbFixture().use { fixture ->
+            val ledger = fixture.ledger()
+            val path = "media/local-identity.jpg"
+            fixture.insertReceipt("local-identity")
+            fixture.insertEntry("local-identity", path, HASH_B, 100)
+
+            assertIneligible(
+                ArchiveIneligibility.ASSET_NOT_COVERED,
+                ledger.archivedEligible(path, HASH_B, 100),
+            )
+            ledger.recordAssetState(
+                ArchiveAssetIdentity(path, HASH_A, 100),
+                MediaArchiveState.ARCHIVED,
+                "archived",
+            )
+            assertIneligible(
+                ArchiveIneligibility.ASSET_NOT_COVERED,
+                ledger.archivedEligible(path, HASH_B, 100),
+            )
+        }
+    }
+
+    @Test
+    fun `property receipt without an authoritative owner cannot cover an asset`() {
+        MediaArchiveDbFixture().use { fixture ->
+            val ledger = fixture.ledger()
+            val asset = ArchiveAssetIdentity("media/ownerless.jpg", HASH_A, 100)
+            ledger.recordAssetState(asset, MediaArchiveState.ARCHIVED, "archived")
+            fixture.insertReceipt("ownerless", scopeKind = "property", propertyId = "property-1")
+            fixture.insertEntry("ownerless", asset.relPath)
+
+            assertIneligible(ArchiveIneligibility.PROPERTY_MISMATCH, ledger.archivedEligible(asset))
+        }
+    }
+
+    @Test
     fun `path candidates distinguish hash then size before exact coverage`() {
         MediaArchiveDbFixture().use { fixture ->
             val ledger = fixture.ledger()
@@ -166,9 +203,20 @@ class MediaArchiveEligibilityTest {
             fixture.insertEntry("valid", "media/b.jpg")
             fixture.insertReceipt("revoked", revokedAt = NOW)
             fixture.insertEntry("revoked", "media/a.jpg")
+            ledger.recordAssetState(
+                ArchiveAssetIdentity("media/d.jpg", HASH_A, 100),
+                MediaArchiveState.ARCHIVED,
+                "archived",
+            )
+            fixture.seedOwner("property-scope", "4", "media/d.jpg", HASH_A)
+            fixture.insertReceipt("wrong-property", scopeKind = "property", propertyId = "property-other")
+            fixture.insertEntry("wrong-property", "media/d.jpg")
             val before = fixture.db.mediaArchiveQueries.selectAllLocalAssetStates().executeAsList()
 
-            assertEquals(listOf("media/a.jpg", "media/c.jpg"), ledger.assetsArchivedWithoutValidReceipt())
+            assertEquals(
+                listOf("media/a.jpg", "media/c.jpg", "media/d.jpg"),
+                ledger.assetsArchivedWithoutValidReceipt(),
+            )
             assertEquals(before, fixture.db.mediaArchiveQueries.selectAllLocalAssetStates().executeAsList())
         }
     }
