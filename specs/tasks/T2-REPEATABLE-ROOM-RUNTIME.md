@@ -12,6 +12,7 @@ allow_paths:
   - android/core/src/test/kotlin/nz/myinspection/core/capture/
   - android/core/src/test/kotlin/nz/myinspection/core/finalize/
   - android/core/src/test/kotlin/nz/myinspection/core/template/TemplateRoomSchemaTest.kt
+  - configs/secrets/tracked-sensitive-allowlist.json
 forbid:
   - 未经版本评审修改冻结 schema 或把 room count 仅存在 UI/内存
   - 用 stable_id 单键或未排序查询匹配重复房间历史
@@ -20,11 +21,11 @@ non_goals:
   - Compose 房间导航与项目卡片（T2-CAPTURE-UI）
   - ghost overlay 与历史条 UI（T3-HISTORY-COMPARE）
   - 自动从地址、照片或旧报告猜测房间数量
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*" --tests "nz.myinspection.core.finalize.*"
+dod_command: cmd /c "android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests \"nz.myinspection.core.capture.*\" --tests \"nz.myinspection.core.finalize.*\" && android\gradlew.bat -p android --offline --no-daemon -q :core:check"
 dod_exit: 0
 dod_assert: 属性的重复房间数量经版本评审后可持久化；建巡检按模板房间序再按 instance_no 稳定实例化；B1/B2 同 stable_id 不同状态时 Exit B2 必与 B2 对齐且交换插入顺序结果不变；声明两间却缺 B2 时 finalize 拒绝
 review_gate: codex {verdict:pass}
-version_review: approved 2026-08-29 — schema v3→v4 adds property_room_config(property_id, room_key, instance_count 1..99); missing config means 1; migration is additive 3.sqm; no UI or inferred counts
+version_review: approved 2026-08-29 — schema v3→v4 adds property_room_config(property_id, room_key, instance_count 1..99); missing config means 1; migration is additive 3.sqm with audited databases/3.db; no UI or inferred counts
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: specs/tech-debt-tracker.md 将 TD26 置 paid；同步 T2-CAPTURE-UI 与 T3-HISTORY-COMPARE 的已满足前提（R5）
 ---
