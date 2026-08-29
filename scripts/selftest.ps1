@@ -9828,8 +9828,7 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
     }
 
     # verifyMigrations 必须由真实 :core:check 承载：在独立 detached worktree 依次注入“改 .sq 不迁移”与
-    # “错误 1.sqm”。--continue 让同样会拒绝错误 runtime 输入的 :core:test 失败后仍运行 migration verifier，
-    # 两个负例才能继续精确观察 verifyMainMyInspectionDatabaseMigration，而不是只看到前置单测噪声。
+    # “错误 1.sqm”，要求都精确死在 verifyMainMyInspectionDatabaseMigration，而不是编译/fixture 噪声。
     $td4GradleUserHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' }
     $td4SkipRecordCount = $skippedSelftestChecks.Count
     $td4MigrationGate = Invoke-SelftestGradleMigrationGate -AndroidRoot (Join-Path $RepoRoot 'android') -GradleUserHome $td4GradleUserHome -RunCases {
@@ -9856,8 +9855,8 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
           $invokeTd4CoreCheck = {
             Push-Location $td4MigrationRepo
             try {
-              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon --continue -q :core:check 2>&1 | Out-String }
-              else { $output = & sh android/gradlew -p android --offline --no-daemon --continue -q :core:check 2>&1 | Out-String }
+              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+              else { $output = & sh android/gradlew -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
               [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
             } finally { Pop-Location }
           }
@@ -14765,6 +14764,7 @@ exit $realExit
     @{ Id='task-r3-pass'; File='task'; Start='R3 已 pass、合并腿未完成'; End='R3 已 pass、合并腿未完成'; Needles=@('防泄露闸', '真实 diff 预算', 'gh pr merge') }
     @{ Id='task-pr-open'; File='task'; Start='PR #$sagaPrNum 已开'; End='PR #$sagaPrNum 已开'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1') }
     @{ Id='task-pr-unknown'; File='task'; Start='commit 已落、PR 状态未知'; End='commit 已落、PR 状态未知'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1') }
+    @{ Id='docs-english-overview'; File='docs'; Start='> EN: The authoritative operating manual'; End='> EN: The authoritative operating manual'; Budget='real-diff budget'; Needles=@('secret-leak', 'real-diff budget', 'push/PR-base validation', 'codex R3 review') }
     @{ Id='docs-ship'; File='docs'; Start='# 远端基线定向 fetch'; End='# 远端基线定向 fetch'; Needles=@('防泄露闸', '真实 diff 预算', 'push', 'PR', 'R3') }
     @{ Id='docs-resume'; File='docs'; Start='ship 非原子 → 重跑同一条'; End='ship 非原子 → 重跑同一条'; Needles=@('防泄露', '真实 diff 预算', 'push/PR', 'R3') }
     @{ Id='docs-s1'; File='docs'; Start='S1 committed-unpushed'; End='S1 committed-unpushed'; Needles=@('防泄露', '真实 diff 预算') }
@@ -14787,14 +14787,15 @@ exit $realExit
 
   function Remove-EnumSyncBudgetAtSite([string]$Text, [hashtable]$Site) {
     $segment = Get-EnumSyncSegment $Text $Site.Start $Site.End
+    $budgetPhrase = if ($Site.ContainsKey('Budget')) { [string]$Site.Budget } else { '真实 diff 预算' }
     $budgetHits = 0
     for ($i = $segment.Start; $i -le $segment.End; $i++) {
-      $budgetHits += ([regex]::Matches($segment.Lines[$i], [regex]::Escape('真实 diff 预算'))).Count
+      $budgetHits += ([regex]::Matches($segment.Lines[$i], [regex]::Escape($budgetPhrase))).Count
     }
     if ($budgetHits -ne 1) { throw "site '$($Site.Id)' must contain exactly one budget phrase to mutate (found $budgetHits)" }
     for ($i = $segment.Start; $i -le $segment.End; $i++) {
-      if ($segment.Lines[$i].Contains('真实 diff 预算')) {
-        $segment.Lines[$i] = $segment.Lines[$i].Replace('真实 diff 预算', '')
+      if ($segment.Lines[$i].Contains($budgetPhrase)) {
+        $segment.Lines[$i] = $segment.Lines[$i].Replace($budgetPhrase, '')
         break
       }
     }
@@ -14803,6 +14804,7 @@ exit $realExit
 
   # A1 的 grep 权威面：每条当前命中均逐条登记；enum 绑定上面的 site，note 明确判为非枚举说明。
   $enumSyncDiscovery = @(
+    @{ File='docs'; Anchor='> EN: The authoritative operating manual'; Class='enum'; Site='docs-english-overview' }
     @{ File='docs'; Anchor='# 远端基线定向 fetch'; Class='enum'; Site='docs-ship' }
     @{ File='docs'; Anchor='ship 非原子 → 重跑同一条'; Class='enum'; Site='docs-resume' }
     @{ File='docs'; Anchor='S1 committed-unpushed'; Class='enum'; Site='docs-s1' }
@@ -14837,7 +14839,7 @@ exit $realExit
   foreach ($sourceSpec in @(@{ Id='task'; Text=$taskSizeText }, @{ Id='docs'; Text=$a14Devops })) {
     $sourceLines = @(($sourceSpec.Text -replace "`r`n", "`n") -split "`n")
     $hits = @(for ($i = 0; $i -lt $sourceLines.Count; $i++) {
-      if ($sourceLines[$i].Contains('确定性闸') -or $sourceLines[$i].Contains('防泄露')) {
+      if ($sourceLines[$i].Contains('确定性闸') -or $sourceLines[$i].Contains('防泄露') -or $sourceLines[$i].Contains('secret-leak')) {
         [pscustomobject]@{ Line=$i + 1; Text=$sourceLines[$i] }
       }
     })
