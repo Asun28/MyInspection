@@ -2,7 +2,7 @@
 id: T5-MEDIA-ARCHIVE-SCHEMA
 title: 媒体归档 schema v5：四表形态、约束、索引与查询面
 depends_on: [T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST, T2-PHOTO-PROPERTY-DEDUPE, T5-BACKUP-FORMAT]
-status: todo
+status: merged
 branch: T5-MEDIA-ARCHIVE-SCHEMA
 worktree: C:\wt\T5-MEDIA-ARCHIVE-SCHEMA
 allow_paths:
@@ -39,3 +39,7 @@ doc_sync: 由最终 T5-MEDIA-ARCHIVE-CONTRACT 在 R5 统一同步 TD132 与 TASK
 
 Light Plan Forge 1/3。一次性冻结后续两个实现卡需要的四表与查询面，避免同一 schema 设计被多次迁移。
 本卡只证明存储边界，不宣称任何资产已经通过内容回读验证。
+
+## R5
+
+PR #195 / master `902228e1` 已合并；R3 pass。schema v5、v4 迁移基线、四表约束与完整查询面已冻结，`T5-MEDIA-ARCHIVE-ELIGIBILITY` 可开始。
