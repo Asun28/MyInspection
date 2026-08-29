@@ -8,6 +8,7 @@ import nz.myinspection.core.capture.RecordedItem
 import nz.myinspection.core.capture.RoomSnapshot
 import nz.myinspection.core.capture.computeMissingNotes
 import nz.myinspection.core.capture.computeMissingPhotos
+import nz.myinspection.core.capture.planRoomInstances
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.template.TemplateDomains
 
@@ -16,10 +17,12 @@ import nz.myinspection.core.template.TemplateDomains
  */
 data class MissingItem(val roomInstanceId: String, val stableId: String)
 
+data class MissingRoomInstance(val roomKey: String, val instanceNo: Long)
+
 /**
  * 完备性校验结果：finalize 前置闸的判定输出，逐项清单直接喂给 UI（"哪几项还没做完"）。
  *
- * [roomsMissingInstance]：模板要求（至少一项未被抑制）却连 `room_instance` 都没有的房间键——整间房
+ * [roomsMissingInstance]：模板与物业配置要求、却没有对应 `room_instance` 的具体房间身份——整间房
  * 从未被走查过，是"缺项"里最强的一种。[itemsMissingNote]：不利发现却备注空白（`core/capture` 的
  * `computeMissingNotes`，需求 §5「不利发现强制备注」）。[itemsWithInvalidStatus]：`ADVERSE_ONLY`/
  * 不利发现分类遇到一个不在冻结域内的评级字符串——分类不出来就不能悄悄当成"非不利"放行（见
@@ -31,7 +34,7 @@ data class MissingItem(val roomInstanceId: String, val stableId: String)
 data class CompletenessResult(
     val itemsMissingStatus: List<MissingItem>,
     val itemsMissingMandatoryPhoto: List<MissingItem>,
-    val roomsMissingInstance: List<String> = emptyList(),
+    val roomsMissingInstance: List<MissingRoomInstance> = emptyList(),
     val itemsWithInvalidStatus: List<MissingItem> = emptyList(),
     val itemsMissingNote: List<MissingItem> = emptyList(),
     val itemsWithDisallowedStatus: List<MissingItem> = emptyList(),
@@ -101,33 +104,41 @@ fun interface CompletenessPort {
  *    （`InspectionRepository.setItemStatus` 的 `require(status in allowed)`）；本类在 finalize 闸再核
  *    一次，是铸造点之外的第二道防线，守护即将写入报告的既成证据，不是重复劳动。
  *
- * 六类问题分别用 [MissingItem]/[MissingItem]/房间键字符串/[MissingItem]/[MissingItem]/[MissingItem]
+ * 六类问题分别用 [MissingItem]/[MissingItem]/[MissingRoomInstance]/[MissingItem]/[MissingItem]/[MissingItem]
  * 报告，UI 侧可以统一渲染。
  */
 class DbCompletenessChecker(private val database: MyInspectionDatabase) : CompletenessPort {
 
     override fun check(inspectionId: String): CompletenessResult {
         val inspection = database.inspectionQueries.selectById(inspectionId).executeAsOne()
-        // room_instance.selectByInspection（冻结物）没有 ORDER BY；显式重排使输出清单顺序确定。
-        val roomInstances = database.roomInstanceQueries.selectByInspection(inspectionId).executeAsList()
-            .sortedBy { it.id }
-        val checkItemDefs = database.checkItemDefQueries
-            .selectByTemplateVersion(inspection.template_version_id)
-            .executeAsList()
         val suppressedStableIds = database.propertyItemOverrideQueries
             .selectByProperty(inspection.property_id)
             .executeAsList()
             .filter { it.suppressed == 1L }
             .mapTo(mutableSetOf()) { it.stable_id }
+        val plannedRooms = database.planRoomInstances(
+            inspection.property_id,
+            inspection.template_version_id,
+            suppressedStableIds,
+        )
+        val plannedOrder = plannedRooms.mapIndexed { index, room -> (room.roomKey to room.instanceNo) to index }.toMap()
+        val roomInstances = database.roomInstanceQueries.selectByInspection(inspectionId).executeAsList()
+            .sortedWith(
+                compareBy(
+                    { plannedOrder[it.room_key to it.instance_no] ?: Int.MAX_VALUE },
+                    { it.room_key },
+                    { it.instance_no },
+                    { it.id },
+                ),
+            )
+        val checkItemDefs = database.checkItemDefQueries
+            .selectByTemplateVersion(inspection.template_version_id)
+            .executeAsList()
 
-        // 模板要求（至少一项未被抑制）却一个 room_instance 都没有的房间键——独立对照模板算出"应有哪些
-        // 房间"，不从 room_instance 现有的行反推，否则漏建的房间永远不会被这份判定看见。
-        val instantiatedRoomKeys = roomInstances.mapTo(mutableSetOf()) { it.room_key }
-        val roomsMissingInstance = checkItemDefs
-            .filter { it.stable_id !in suppressedStableIds }
-            .map { it.room }
-            .toSortedSet()
-            .filterNot { it in instantiatedRoomKeys }
+        val instantiatedIdentities = roomInstances.mapTo(mutableSetOf()) { it.room_key to it.instance_no }
+        val roomsMissingInstance = plannedRooms
+            .filterNot { (it.roomKey to it.instanceNo) in instantiatedIdentities }
+            .map { MissingRoomInstance(it.roomKey, it.instanceNo) }
 
         val existingItems = database.inspectionItemQueries.selectByInspection(inspectionId).executeAsList()
         val existingByKey = existingItems.associateBy { it.room_instance_id to it.stable_id }
@@ -190,8 +201,7 @@ class DbCompletenessChecker(private val database: MyInspectionDatabase) : Comple
         // 房间实例缺全景"展开成该实例下每一条 ROOM_PANORAMA 项定义各一条 MissingItem，判定本身（缺不缺）
         // 仍是 capture 算出来的，这里只做输出粒度的映射，不是重新判定。**必须按 roomInstanceId 匹配、
         // 不能退化成按 room_key 匹配**：同一 room_key 今天已可对应多个 room_instance（唯一索引是
-        // `(inspection_id, room_key, instance_no)`，不是单纯 `room_key`——T2-ROOM-REPEATABLE 落地前，
-        // 现有 mint 点固定写 `instance_no = 1` 故实际不会出现，但索引本身已允许），按 room_key 匹配会把
+        // `(inspection_id, room_key, instance_no)`，不是单纯 `room_key`）；按 room_key 匹配会把
         // "只有其中一个实例缺全景"误报成"两个实例都缺"。
         val photoCompleteness = computeMissingPhotos(inspection.type, roomSnapshots)
         val missingPanoramaRoomInstanceIds = photoCompleteness.missingRoomPanoramas.mapTo(mutableSetOf()) { it.roomInstanceId }

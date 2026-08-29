@@ -12,6 +12,44 @@ import nz.myinspection.core.template.TemplateDomains
  */
 internal object FinalizeTestFixtures {
 
+    fun insertTemplateRoomDef(
+        db: MyInspectionDatabase,
+        uuid: Uuid7Generator,
+        templateVersionId: String,
+        roomKey: String,
+        repeatable: Boolean,
+        sort: Long,
+        now: Long = DbTestFixtures.NOW,
+    ): String = uuid.next().also { id ->
+        db.templateRoomDefQueries.insert(
+            id = id,
+            template_version_id = templateVersionId,
+            room_key = roomKey,
+            repeatable = if (repeatable) 1L else 0L,
+            sort = sort,
+            created_at = now,
+            updated_at = now,
+        )
+    }
+
+    fun insertPropertyRoomConfig(
+        db: MyInspectionDatabase,
+        uuid: Uuid7Generator,
+        propertyId: String,
+        roomKey: String,
+        instanceCount: Long,
+        now: Long = DbTestFixtures.NOW,
+    ): String = uuid.next().also { id ->
+        db.propertyRoomConfigQueries.insert(
+            id = id,
+            property_id = propertyId,
+            room_key = roomKey,
+            instance_count = instanceCount,
+            created_at = now,
+            updated_at = now,
+        )
+    }
+
     /**
      * `check_item_def.insert` 带守卫：父版本须存在、且**尚未被任何巡检引用**——故须先于建巡检调用。
      * `allowed_statuses` 默认按 [type] 从冻结域 [TemplateDomains.allowedStatusesFor] 取值（该类型全域，

@@ -41,6 +41,14 @@ SELECT *
 FROM inspection_item
 WHERE inspection_id = :inspection_id AND deleted_at IS NULL;
 
+selectActiveByRoomAndStableId:
+SELECT *
+FROM inspection_item
+WHERE inspection_id = :inspection_id
+  AND room_instance_id = :room_instance_id
+  AND stable_id = :stable_id
+  AND deleted_at IS NULL;
+
 -- 快照投影用的**全序**查询。canonical 哈希要求同样的数据每次算出同样的 items[]，而
 -- `check_item_def.sort` **不是全序键**：同一 stable_id 可以合法地落在多个 room_instance 上
 -- （活跃唯一索引是 (inspection_id, room_instance_id, stable_id)，见上），两条的 sort 值相同；

@@ -48,6 +48,12 @@ SELECT *
 FROM inspection
 WHERE deleted_at IS NULL;
 
+selectDraftByProperty:
+SELECT *
+FROM inspection
+WHERE property_id = :property_id AND status = 'DRAFT' AND deleted_at IS NULL
+ORDER BY scheduled_at ASC, id ASC;
+
 -- finalize 只读强制（关键不变量）：guard 就是这条语句本身——只有当前仍是 DRAFT（finalized_at IS NULL）
 -- 才允许把它标记为 FINALIZED；对已 FINALIZED 的行重复调用必须 0 行受影响（幂等安全阀，防止 finalized_at 被覆盖）。
 finalizeIfDraft:

@@ -1,0 +1,75 @@
+-- Property-level authority for repeatable room counts. A missing row means one instance.
+CREATE TABLE property_room_config (
+    id TEXT NOT NULL PRIMARY KEY,
+    property_id TEXT NOT NULL, -- logical reference -> property.id
+    room_key TEXT NOT NULL, -- logical reference to an active repeatable template_room_def.room_key
+    instance_count INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    CHECK (instance_count BETWEEN 1 AND 99)
+);
+
+-- One active count per property/room; soft-deleted history does not reserve the business key.
+CREATE UNIQUE INDEX idx_property_room_config_active
+ON property_room_config (property_id, room_key)
+WHERE deleted_at IS NULL;
+
+insert:
+INSERT INTO property_room_config (
+    id, property_id, room_key, instance_count, created_at, updated_at
+)
+SELECT :id, :property_id, :room_key, :instance_count, :created_at, :updated_at
+WHERE EXISTS (
+    SELECT 1 FROM property
+    WHERE id = :property_id AND deleted_at IS NULL
+)
+AND EXISTS (
+    SELECT 1
+    FROM template_room_def trd
+    JOIN template_version tv ON tv.id = trd.template_version_id
+    WHERE trd.room_key = :room_key
+      AND trd.repeatable = 1
+      AND trd.deleted_at IS NULL
+      AND tv.deleted_at IS NULL
+)
+AND NOT EXISTS (
+    SELECT 1 FROM inspection
+    WHERE property_id = :property_id AND status = 'DRAFT' AND deleted_at IS NULL
+);
+
+updateCount:
+UPDATE property_room_config
+SET instance_count = :instance_count, updated_at = :updated_at
+WHERE id = :id
+  AND deleted_at IS NULL
+  AND EXISTS (
+      SELECT 1 FROM property
+      WHERE property.id = property_room_config.property_id AND property.deleted_at IS NULL
+  )
+  AND EXISTS (
+      SELECT 1
+      FROM template_room_def trd
+      JOIN template_version tv ON tv.id = trd.template_version_id
+      WHERE trd.room_key = property_room_config.room_key
+        AND trd.repeatable = 1
+        AND trd.deleted_at IS NULL
+        AND tv.deleted_at IS NULL
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM inspection
+      WHERE inspection.property_id = property_room_config.property_id
+        AND inspection.status = 'DRAFT'
+        AND inspection.deleted_at IS NULL
+  );
+
+selectActiveByPropertyAndRoom:
+SELECT *
+FROM property_room_config
+WHERE property_id = :property_id AND room_key = :room_key AND deleted_at IS NULL;
+
+selectActiveByProperty:
+SELECT *
+FROM property_room_config
+WHERE property_id = :property_id AND deleted_at IS NULL
+ORDER BY room_key ASC, id ASC;

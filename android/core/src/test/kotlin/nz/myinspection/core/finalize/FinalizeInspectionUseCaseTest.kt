@@ -93,6 +93,37 @@ class FinalizeInspectionUseCaseTest {
     }
 
     @Test
+    fun `a configured second repeatable room instance that is absent is rejected and stays DRAFT`() {
+        val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
+        val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)
+        FinalizeTestFixtures.insertTemplateRoomDef(
+            database, uuid, templateVersionId, roomKey = "BEDROOM", repeatable = true, sort = 0, now = now,
+        )
+        FinalizeTestFixtures.insertCheckItemDef(
+            database, uuid, templateVersionId, stableId = "wall.paint", room = "BEDROOM", sort = 0, now = now,
+        )
+        FinalizeTestFixtures.insertPropertyRoomConfig(
+            database, uuid, propertyId, roomKey = "BEDROOM", instanceCount = 2L, now = now,
+        )
+        val inspectionId = DbTestFixtures.insertDraftInspection(database, uuid, propertyId, templateVersionId, now = now)
+        val bedroom1 = DbTestFixtures.insertRoomInstance(
+            database, uuid, inspectionId, roomKey = "BEDROOM", instanceNo = 1L, now = now,
+        )
+        DbTestFixtures.insertInspectionItem(
+            database, uuid, inspectionId, bedroom1, stableId = "wall.paint", status = "GOOD", now = now,
+        )
+        val useCase = FinalizeInspectionUseCase(database, DbCompletenessChecker(database), fixedClock(now + 1))
+
+        val rejected = assertIs<FinalizeOutcome.RejectedIncomplete>(useCase.finalize(inspectionId))
+
+        assertEquals(listOf(MissingRoomInstance("BEDROOM", 2L)), rejected.result.roomsMissingInstance)
+        val row = database.inspectionQueries.selectById(inspectionId).executeAsOne()
+        assertEquals("DRAFT", row.status)
+        assertNull(row.finalized_at)
+        assertNull(row.data_hash)
+    }
+
+    @Test
     fun `an inspection missing a mandatory photo is rejected with the missing item listed`() {
         val propertyId = DbTestFixtures.insertProperty(database, uuid, now)
         val templateVersionId = DbTestFixtures.insertTemplateVersion(database, uuid, now = now)

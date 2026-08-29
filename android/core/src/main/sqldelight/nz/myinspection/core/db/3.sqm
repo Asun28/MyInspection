@@ -1,0 +1,14 @@
+CREATE TABLE property_room_config (
+    id TEXT NOT NULL PRIMARY KEY,
+    property_id TEXT NOT NULL,
+    room_key TEXT NOT NULL,
+    instance_count INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    CHECK (instance_count BETWEEN 1 AND 99)
+);
+
+CREATE UNIQUE INDEX idx_property_room_config_active
+ON property_room_config (property_id, room_key)
+WHERE deleted_at IS NULL;

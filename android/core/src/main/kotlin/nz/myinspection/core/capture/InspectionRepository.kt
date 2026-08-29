@@ -41,7 +41,7 @@ sealed class WearOrDamageOutcome {
     /** 该巡检没有可用基线（tenancy 无、tenancy 尚未指定 baseline_inspection_id、或基线巡检尚未 FINALIZED）。 */
     object NoBaseline : WearOrDamageOutcome()
 
-    /** 基线巡检里没有同 stable_id 的已记录项——差异无从计算。 */
+    /** 基线巡检里没有同 `(room_key, instance_no, stable_id)` 的已记录项——差异无从计算。 */
     object NoBaselineItem : WearOrDamageOutcome()
 
     /** 当前状态与基线状态相同——没有差异，`wear_or_damage` 不适用（卡片正文「有差异时可写」）。 */
@@ -54,13 +54,9 @@ sealed class WearOrDamageOutcome {
  * "进程死亡恢复"这条不变量的实现手段，也是它成立的理由（新建一个仓储实例即等价于恢复：本就没有
  * 进程内状态要恢复）。
  *
- * **房间实例化的当前范围**：模板契约里的 `repeatable` 房间标记 + 物业房型数尚未落地——那是
- * `specs/tasks/T2-ROOM-REPEATABLE.md` 的产出，其 own `non_goals` 明文写着「采集期真正实例化
- * room_instance 的状态机（T2-CAPTURE-CORE 消费本卡产出）」，即由那张卡先把 `repeatable` 标记落进模板
- * JSON + schema（须先过版本评审，动的是本卡 `allow_paths` 之外、已冻结的 `sqldelight/` 与
- * `template/Template.kt`），本卡再消费。在其落地前，本仓储按模板 `check_item_def.room` 出现的**每个
- * 不同房间键实例化一个 room_instance**（`instance_no = 1`，`display_label` = 房间键本身），即"单例房间"
- * 这一子集——多卧室/多卫生间的多实例支持留给 T2-ROOM-REPEATABLE 落地后的后续演进。
+ * 房间实例化由模板房间序、`repeatable` 标记与物业级持久化数量共同决定；缺少物业配置时数量默认为 1，
+ * 因而旧物业与不含 `template_room_def` 的旧模板保持原有单例行为。重复房间的稳定身份是
+ * `(room_key, instance_no)`，不能从数据库自然行序推断。
  *
  * **本仓储只有一个数据库连接**：每个公开方法内部的读（判断依据）与写都包在同一个 `db.transaction{}` 里，
  * 这样该方法对同连接上的其它调用而言是不可分割的一步——判断依据与写入结果保证出自同一个数据库状态。
@@ -70,13 +66,52 @@ class InspectionRepository(
     private val uuid: Uuid7Generator = Uuid7Generator(),
     private val clock: ClockMs = SystemClockMs,
 ) {
+    /** 持久化活跃 repeatable 房间的 1..99 数量；物业有 DRAFT 时拒绝变更。 */
+    fun setRepeatableRoomCount(propertyId: String, roomKey: String, instanceCount: Int) {
+        require(instanceCount in 1..99) { "instanceCount must be between 1 and 99" }
+        val now = clock.nowMs()
+        db.transaction {
+            checkNotNull(db.propertyQueries.selectActiveById(propertyId).executeAsOneOrNull()) {
+                "no such active property: $propertyId"
+            }
+            require(db.hasActiveRepeatableRoom(roomKey)) {
+                "room '$roomKey' is not declared repeatable by an active template"
+            }
+            require(db.inspectionQueries.selectDraftByProperty(propertyId).executeAsList().isEmpty()) {
+                "repeatable room counts cannot change while property $propertyId has a DRAFT inspection"
+            }
+            val existing = db.propertyRoomConfigQueries
+                .selectActiveByPropertyAndRoom(propertyId, roomKey)
+                .executeAsOneOrNull()
+            val affected = if (existing == null) {
+                db.propertyRoomConfigQueries.insert(
+                    id = uuid.next(),
+                    property_id = propertyId,
+                    room_key = roomKey,
+                    instance_count = instanceCount.toLong(),
+                    created_at = now,
+                    updated_at = now,
+                ).value
+            } else {
+                db.propertyRoomConfigQueries.updateCount(
+                    instance_count = instanceCount.toLong(),
+                    updated_at = now,
+                    id = existing.id,
+                ).value
+            }
+            check(affected == 1L) {
+                "property_room_config write affected $affected rows for '$roomKey'"
+            }
+        }
+    }
+
     /**
      * 建一次新巡检：校验入参的逻辑父行确实存在且互相一致 → 解析 previous/baseline 双轨引用 → 落
      * `inspection` 行 → 按模板房间键（排除本物业当前 suppressed 的项后）实例化 `room_instance`。
      * 单事务——半份巡检（有巡检行、房间缺几间）比整体失败更坏。
      *
      * **入参校验先于任何写入**：property/template_version/tenancy 都是逻辑外键（schema 不强制）——
-     * 放行错误 id 会静默造出零房间的空壳巡检（模板 id 不存在，`activeRoomKeysInOrder` 查不到任何项定义，
+     * 放行错误 id 会静默造出零房间的空壳巡检（模板 id 不存在，房间计划器查不到任何项定义，
      * `WalkProgress.isComplete` 因"没有房间"而空洞为真），或写进一条悬空引用（tenancy id 不存在，且会被
      * [resolveBaseline] 误判成"这处物业没有基线"这一正常业务态）。`template_version.type` 与入参 `type`
      * 不一致同样必须拦，否则状态合法性检查会用错评级域判定。
@@ -159,19 +194,20 @@ class InspectionRepository(
                 ).value
                 check(affected == 1L) { "initial INGOING baseline guard rejected inspection $inspectionId" }
             }
-            activeRoomKeysInOrder(propertyId, templateVersionId).forEach { roomKey ->
+            db.planRoomInstances(propertyId, templateVersionId, suppressedStableIds(propertyId)).forEach { planned ->
                 val roomInstanceId = uuid.next()
                 val affected = db.roomInstanceQueries.insert(
                     id = roomInstanceId,
                     inspection_id = inspectionId,
-                    room_key = roomKey,
-                    instance_no = 1,
-                    display_label = roomKey,
+                    room_key = planned.roomKey,
+                    instance_no = planned.instanceNo,
+                    display_label = planned.displayLabel,
                     created_at = now,
                     updated_at = now,
                 ).value
                 check(affected == 1L) {
-                    "room_instance insert affected $affected rows for room '$roomKey' (guard rejected the write)"
+                    "room_instance insert affected $affected rows for room '${planned.roomKey}' " +
+                        "#${planned.instanceNo} (guard rejected the write)"
                 }
                 roomInstanceIds.add(roomInstanceId)
             }
@@ -257,8 +293,8 @@ class InspectionRepository(
     }
 
     /**
-     * 置 `wear_or_damage`：仅 EXIT 巡检、且该项状态与基线巡检里同 stable_id 的状态有差异时才允许写
-     * （差异按 stable_id 对齐比较 status，卡片正文已定）。四种非成功态都是合法结果，不是异常——
+     * 置 `wear_or_damage`：仅 EXIT 巡检、且该项状态与基线巡检里同
+     * `(room_key, instance_no, stable_id)` 的状态有差异时才允许写。四种非成功态都是合法结果，不是异常——
      * 调用方（UI）据此渲染相应提示，不需要 try/catch。
      *
      * [itemId] 必须真的属于 [inspectionId]——两者各自独立解析，若不核对，调用方能拿一个属于**另一次**
@@ -297,8 +333,26 @@ class InspectionRepository(
             require(item.inspection_id == inspectionId) {
                 "inspection_item $itemId belongs to inspection ${item.inspection_id}, not $inspectionId"
             }
-            val baselineItem = db.inspectionItemQueries.selectByInspection(baselineId).executeAsList()
-                .find { it.stable_id == item.stable_id }
+            val currentRoom = checkNotNull(db.roomInstanceQueries.selectById(item.room_instance_id).executeAsOneOrNull()) {
+                "room_instance ${item.room_instance_id} referenced by item $itemId does not exist"
+            }
+            require(currentRoom.inspection_id == inspectionId) {
+                "room_instance ${currentRoom.id} belongs to inspection ${currentRoom.inspection_id}, not $inspectionId"
+            }
+            val baselineRoom = db.roomInstanceQueries.selectActiveByIdentity(
+                inspection_id = baselineId,
+                room_key = currentRoom.room_key,
+                instance_no = currentRoom.instance_no,
+            ).executeAsOneOrNull()
+            if (baselineRoom == null) {
+                outcome = WearOrDamageOutcome.NoBaselineItem
+                return@transaction
+            }
+            val baselineItem = db.inspectionItemQueries.selectActiveByRoomAndStableId(
+                inspection_id = baselineId,
+                room_instance_id = baselineRoom.id,
+                stable_id = item.stable_id,
+            ).executeAsOneOrNull()
             if (baselineItem == null) {
                 outcome = WearOrDamageOutcome.NoBaselineItem
                 return@transaction
@@ -327,7 +381,7 @@ class InspectionRepository(
      * 只占着索引位的死 override 行（[stableId] 跨模板校验，不绑定某一版本——见 [stableIdIsKnownToAnyTemplate]）。
      *
      * **恢复时补建缺失的 room_instance**：若某房间的唯一项在建巡检时已被抑制，该房间当时不会被实例化
-     * （见 [activeRoomKeysInOrder]）；此后若在**该巡检仍是 DRAFT 期间**恢复这项，完备性查询会立刻把它
+     * （见 [planRoomInstances]）；此后若在**该巡检仍是 DRAFT 期间**恢复这项，完备性查询会立刻把它
      * 算作"活跃"（天然不看创建时快照，见 `activeCheckItemDefs`），但没有房间可挂——[setItemStatus] 无
      * room_instance 可传，这条项事实上无法被记录，`WalkProgress.isComplete` 却因"压根没这间房"而空洞
      * 为真。故恢复时为每个当前仍是 DRAFT 的巡检补建缺失的房间实例，抑制则不需要对称处理——抑制不使
@@ -361,24 +415,28 @@ class InspectionRepository(
         }
     }
 
-    /** [setItemSuppression] 恢复路径的补建逻辑——见其 KDoc。逐个仍是 DRAFT 的巡检检查并按需补一间。 */
+    /** [setItemSuppression] 恢复路径的补建逻辑——见其 KDoc。逐个仍是 DRAFT 的巡检补齐全部计划实例。 */
     private fun ensureRoomInstancesForRestoredItem(propertyId: String, stableId: String, now: Long) {
         db.inspectionQueries.selectActive().executeAsList()
             .filter { it.property_id == propertyId && it.status == "DRAFT" }
             .forEach { inspection ->
                 val def = db.checkItemDefQueries.selectByTemplateVersion(inspection.template_version_id).executeAsList()
                     .find { it.stable_id == stableId } ?: return@forEach
-                val alreadyInstantiated = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
-                    .any { it.room_key == def.room }
-                if (!alreadyInstantiated) {
-                    val affected = db.roomInstanceQueries.insert(
-                        id = uuid.next(), inspection_id = inspection.id, room_key = def.room,
-                        instance_no = 1, display_label = def.room, created_at = now, updated_at = now,
-                    ).value
-                    check(affected == 1L) {
-                        "room_instance insert affected $affected rows for restored room '${def.room}' (guard rejected the write)"
+                val existingIdentities = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
+                    .mapTo(mutableSetOf()) { it.room_key to it.instance_no }
+                db.planRoomInstances(propertyId, inspection.template_version_id, suppressedStableIds(propertyId))
+                    .filter { it.roomKey == def.room && (it.roomKey to it.instanceNo) !in existingIdentities }
+                    .forEach { planned ->
+                        val affected = db.roomInstanceQueries.insert(
+                            id = uuid.next(), inspection_id = inspection.id, room_key = planned.roomKey,
+                            instance_no = planned.instanceNo, display_label = planned.displayLabel,
+                            created_at = now, updated_at = now,
+                        ).value
+                        check(affected == 1L) {
+                            "room_instance insert affected $affected rows for restored room '${planned.roomKey}' " +
+                                "#${planned.instanceNo} (guard rejected the write)"
+                        }
                     }
-                }
             }
     }
 
@@ -407,16 +465,6 @@ class InspectionRepository(
         return computeMissingNotes(inspection.type, loadRoomSnapshots(inspection))
     }
 
-    /**
-     * 该模板版本里、本物业当前**未被抑制**的项，按房间键**首次出现的模板序**去重后的房间键列表。
-     * `check_item_def.selectByTemplateVersion` 已按 (sort, id) 排好模板序，`LinkedHashSet` 保留这个
-     * 首次出现顺序。
-     */
-    private fun activeRoomKeysInOrder(propertyId: String, templateVersionId: String): List<String> {
-        val defs = activeCheckItemDefs(propertyId, templateVersionId)
-        return LinkedHashSet(defs.map { it.room }).toList()
-    }
-
     /** 本物业当前 suppressed=1 的 stable_id 集合。 */
     private fun suppressedStableIds(propertyId: String): Set<String> =
         db.propertyItemOverrideQueries.selectByProperty(propertyId).executeAsList()
@@ -442,9 +490,8 @@ class InspectionRepository(
     /**
      * `room_instance.selectByInspection`（冻结查询）没有 ORDER BY，返回顺序由 SQLite 的查询计划决定
      * （实测：常走 `idx_room_instance_active`，按 room_key 字典序而非插入/模板序），故本方法**在 Kotlin
-     * 侧显式排序**——[WalkProgress.rooms] 及两条完备性查询的房间顺序因此**保证**等于模板序（同
-     * [activeRoomKeysInOrder] 的口径），不随 SQLite 查询计划或进程重启而漂移；同一房间键不会在活跃行里
-     * 重复（`idx_room_instance_active` 唯一索引），故这里的排序键已构成全序，无需再加 tie-breaker。
+     * 侧显式排序**——[WalkProgress.rooms] 及两条完备性查询的房间顺序因此保证等于模板房间序、再按
+     * `instance_no`；计划外历史行以 `(room_key, instance_no, id)` 收尾，仍形成确定全序。
      *
      * 整份读组在一个事务里完成（理由同 [createInspection]）：definitions/room_instances/items/photos
      * 四组各自独立的 SELECT 必须出自同一个数据库状态——这份快照正是 [missingPhotos]/[missingNotes] 共用
@@ -455,8 +502,20 @@ class InspectionRepository(
         db.transaction {
             val defsByRoom = activeCheckItemDefs(inspection.property_id, inspection.template_version_id)
                 .groupBy { it.room }
-            val roomOrder = activeRoomKeysInOrder(inspection.property_id, inspection.template_version_id)
+            val plannedOrder = db.planRoomInstances(
+                inspection.property_id,
+                inspection.template_version_id,
+                suppressedStableIds(inspection.property_id),
+            ).mapIndexed { index, room -> (room.roomKey to room.instanceNo) to index }.toMap()
             val roomInstances = db.roomInstanceQueries.selectByInspection(inspection.id).executeAsList()
+                .sortedWith(
+                    compareBy(
+                        { plannedOrder[it.room_key to it.instance_no] ?: Int.MAX_VALUE },
+                        { it.room_key },
+                        { it.instance_no },
+                        { it.id },
+                    ),
+                )
             val items = db.inspectionItemQueries.selectByInspection(inspection.id).executeAsList()
 
             snapshots = roomInstances.mapNotNull { ri ->
@@ -481,7 +540,7 @@ class InspectionRepository(
                     roomPhotoCount = roomPhotoCount,
                     itemPhotoCounts = itemPhotoCounts,
                 )
-            }.sortedBy { roomOrder.indexOf(it.roomKey) }
+            }
         }
         return snapshots
     }
