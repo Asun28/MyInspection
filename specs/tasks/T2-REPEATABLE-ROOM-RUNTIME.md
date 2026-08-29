@@ -11,6 +11,7 @@ allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/finalize/
   - android/core/src/test/kotlin/nz/myinspection/core/capture/
   - android/core/src/test/kotlin/nz/myinspection/core/finalize/
+  - android/core/src/test/kotlin/nz/myinspection/core/template/TemplateRoomSchemaTest.kt
 forbid:
   - 未经版本评审修改冻结 schema 或把 room count 仅存在 UI/内存
   - 用 stable_id 单键或未排序查询匹配重复房间历史
