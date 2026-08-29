@@ -21,14 +21,14 @@ non_goals:
 diagnosis: released base d0de0501 上，17a3 的错误 1.sqm 同时触发 :core:test 与 verifyMainMyInspectionDatabaseMigration；Gradle 默认在前者失败后停止，导致真实 migration verifier 未运行、精确 REMOVED oracle 消失。直接基线 :core:test 通过，故不是仓库既有测试损坏；这是 seeded fixture 缺少继续执行参数的编排回归。
 acceptance:
   - "A1 先记录 released base d0de0501 的真实 RED：直接 `:core:test` exit 0；`-Shard seeded` 至少连续两次非零，错误 1.sqm 输出含 :core:test 失败但不含 verifyMainMyInspectionDatabaseMigration，证明是 Gradle 短路而非基线测试常红"
-  - "A2 17a3 migration fixture 的 Windows `gradlew.bat` 与 POSIX `sh gradlew` 两条真实 `:core:check` 调用都在 task 后追加同一个 `--continue` 参数；该参数在两条调用中各恰好一次，且不扩散到其它 Gradle/selftest 路径"
+  - "A2 17a3 migration fixture 的 Windows `gradlew.bat` 与 POSIX `sh gradlew` 两条真实调用都采用已验证的 `--no-daemon --continue -q :core:check` 参数顺序；该参数在两条调用中各恰好一次，且不扩散到其它 Gradle/selftest 路径"
   - "A3 缺 migration 与错误 1.sqm 两个真实 detached-worktree 负例仍均非零；输出分别精确命中 verifyMainMyInspectionDatabaseMigration + probe 名 + ADDED/REMOVED，不以 :core:test 的先行失败冒充 migration oracle"
-  - "A4 selftest 对两条 OS 调用保留锚定源码契约；只删除任一条调用的 `--continue` 时，其专属契约必须变红。另以真实 wrong-1.sqm 删除变异证明缺旗标会让 migration verifier marker 消失"
+  - "A4 selftest 对两条 OS 的完整调用分别保留锚定源码契约；只删除任一条调用的 `--continue` 时，其专属契约必须变红，且别处的同名参数不能满足。另在 detached fixture 同时注入稳定的 :core:test 失败与 missing-migration probe：无参数时输出有 test marker 且没有 migration marker；加参数后退出仍非零、两个 marker 都在场，证明真实任务图继续执行"
   - "A5 夹具 cleanup 的目录与 Git worktree 登记仍清除；失败时保留既有逐次诊断，不新增跳过或 fail-open 分支"
   - "A6 `pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded` exit 0；`scripts/verify.ps1` 与 R3 均通过"
-dod_command: pwsh -NoProfile -Command "if (@(Select-String -Path scripts/selftest.ps1 -SimpleMatch ':core:check --continue').Count -ne 2) { exit 1 }"
+dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch 'cmd /c android\gradlew.bat -p android --offline --no-daemon --continue -q :core:check' -Quiet) -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'sh android/gradlew -p android --offline --no-daemon --continue -q :core:check' -Quiet))) { exit 1 }"
 dod_exit: 0
-dod_assert: 17a3 migration fixture 的 Windows/POSIX 两条真实 core:check 调用恰有两个 --continue 命中；A1–A6 均有可证伪收据。
+dod_assert: 17a3 migration fixture 的 Windows/POSIX 两条完整 core:check 调用均采用已验证的 --continue 位置；A1–A6 均有可证伪收据。
 review_gate: codex {verdict:pass}
 hygiene: 扩展既有 17a3 与 canary source contracts，不建平行测试文件；源码单句删除与真实 wrong-1.sqm 删除变异各自证明静态接线和行为 oracle，变异后逐字节还原。
 doc_sync: 合并后在 master 归档本卡，并在 TASK-BOARD 记录 PR、merge SHA、R5 与 selftest release receipt；无用户文档改动。
@@ -44,7 +44,7 @@ doc_sync: 合并后在 master 归档本卡，并在 TASK-BOARD 记录 PR、merge
 ## Light Plan Forge
 
 1. 在 released base `d0de0501` 记录直接 `:core:test` 绿、seeded wrong-`1.sqm` 缺 verifier marker 的 RED。
-2. 先补 Windows/POSIX 两条调用的锚定契约与删除变异，再只给 17a3 的真实 `:core:check` 加参数。
+2. 先补 Windows/POSIX 两条完整调用的锚定契约与删除变异，再只给 17a3 的真实 `:core:check` 加参数。
 3. 跑真实 missing/wrong migration 负例、删除参数变异、seeded 全分片与 verify。
 4. 过 scope、R3、PR/merge、cleanup、R5；释放 `scripts/selftest.ps1` 给 PR #200。
 
