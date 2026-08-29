@@ -1133,17 +1133,22 @@ function Invoke-SelftestGradleMigrationGate {
 function Add-SelftestE2eBaseline {
   param(
     [Parameter(Mandatory)][string]$RepoRoot,
-    [Parameter(Mandatory)][string]$TrackedSensitivePath
+    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string[]]$TrackedSensitivePaths
   )
 
   & git -C $RepoRoot add -A 2>$null
   if ($LASTEXITCODE -ne 0) { throw "E2E baseline git add failed: $RepoRoot" }
-  $sensitiveFile = Join-Path $RepoRoot $TrackedSensitivePath
-  if (-not (Test-Path -LiteralPath $sensitiveFile -PathType Leaf)) {
-    throw "E2E reviewed sensitive baseline is missing: $TrackedSensitivePath"
+  foreach ($trackedSensitivePath in $TrackedSensitivePaths) {
+    if ([string]::IsNullOrWhiteSpace($trackedSensitivePath)) {
+      throw 'E2E reviewed sensitive baseline path is empty.'
+    }
+    $sensitiveFile = Join-Path $RepoRoot $trackedSensitivePath
+    if (-not (Test-Path -LiteralPath $sensitiveFile -PathType Leaf)) {
+      throw "E2E reviewed sensitive baseline is missing: $trackedSensitivePath"
+    }
+    & git -C $RepoRoot add -f -- $trackedSensitivePath 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "E2E reviewed sensitive baseline force-add failed: $trackedSensitivePath" }
   }
-  & git -C $RepoRoot add -f -- $TrackedSensitivePath 2>$null
-  if ($LASTEXITCODE -ne 0) { throw "E2E reviewed sensitive baseline force-add failed: $TrackedSensitivePath" }
 }
 
 function Get-SelftestCanarySourceContracts {
@@ -1156,6 +1161,8 @@ function Get-SelftestCanarySourceContracts {
     [PSCustomObject]@{ Code = 'MIGRATION-PREFLIGHT'; Text = ('      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot ' + '-GradleUserHome $gradleHome') }
     [PSCustomObject]@{ Code = 'MIGRATION-ADDED'; Text = ('          $td4MissingExact = $td4MissingResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4MissingResult.Output -match ''td4_missing_migration_probe'' -and $td4MissingResult.Output -match ' + '''ADDED''') }
     [PSCustomObject]@{ Code = 'MIGRATION-REMOVED'; Text = ('          $td4WrongExact = $td4WrongResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4WrongResult.Output -match ''td4_wrong_migration_probe'' -and $td4WrongResult.Output -match ' + '''REMOVED''') }
+    [PSCustomObject]@{ Code = 'E2E-SENSITIVE-ALLOWLIST'; Text = ('    $reviewedSensitivePaths = @(Get-Content -LiteralPath (Join-Path $e2e ''configs/secrets/tracked-sensitive-' + 'allowlist.json'') -Raw | ConvertFrom-Json | ForEach-Object { [string]$_.path })') }
+    [PSCustomObject]@{ Code = 'E2E-SENSITIVE-BASELINE'; Text = ('    Add-SelftestE2eBaseline -RepoRoot $e2e -TrackedSensitivePaths $reviewed' + 'SensitivePaths') }
   )
 }
 
@@ -1328,11 +1335,49 @@ if ($Fixture -eq 'canary-harness') {
     & git -C $baselineRepo init -q
     Set-Content -LiteralPath (Join-Path $baselineRepo '.gitignore') -Value '*.db' -Encoding utf8
     Set-Content -LiteralPath (Join-Path $baselineRepo 'normal.txt') -Value 'normal' -Encoding utf8
-    Set-Content -LiteralPath (Join-Path $baselineRepo 'ignored/1.db') -Value 'reviewed baseline' -Encoding utf8
-    Add-SelftestE2eBaseline -RepoRoot $baselineRepo -TrackedSensitivePath 'ignored/1.db'
-    $trackedBaseline = "$(& git -C $baselineRepo ls-files --error-unmatch -- 'ignored/1.db' 2>$null)".Trim()
-    if ($LASTEXITCODE -ne 0 -or $trackedBaseline -cne 'ignored/1.db') {
-      throw 'canary-harness E2E baseline did not force-add the reviewed ignored file.'
+    $reviewedBaselines = @('ignored/1.db', 'ignored/2.db')
+    $assertReviewedBaselinesTracked = {
+      param([string]$Repo, [string[]]$Paths)
+      foreach ($path in $Paths) {
+        $trackedBaseline = "$(& git -C $Repo ls-files --error-unmatch -- $path 2>$null)".Trim()
+        if ($LASTEXITCODE -ne 0 -or $trackedBaseline -cne $path) {
+          throw "canary-harness E2E baseline did not force-add reviewed ignored file: $path"
+        }
+      }
+    }
+    Set-Content -LiteralPath (Join-Path $baselineRepo $reviewedBaselines[0]) -Value 'single reviewed baseline' -Encoding utf8
+    Add-SelftestE2eBaseline -RepoRoot $baselineRepo -TrackedSensitivePaths $reviewedBaselines[0]
+    & $assertReviewedBaselinesTracked $baselineRepo $reviewedBaselines[0]
+
+    Set-Content -LiteralPath (Join-Path $baselineRepo $reviewedBaselines[1]) -Value 'second reviewed baseline' -Encoding utf8
+    Add-SelftestE2eBaseline -RepoRoot $baselineRepo -TrackedSensitivePaths $reviewedBaselines
+    & $assertReviewedBaselinesTracked $baselineRepo $reviewedBaselines
+    $missingBaselineRejected = $false
+    try {
+      Add-SelftestE2eBaseline -RepoRoot $baselineRepo -TrackedSensitivePaths @($reviewedBaselines[0], 'ignored/missing.db')
+    } catch {
+      $missingBaselineRejected = $_.Exception.Message -match 'reviewed sensitive baseline is missing: ignored[/\\]missing\.db'
+    }
+    if (-not $missingBaselineRejected) {
+      throw 'canary-harness E2E baseline did not reject one missing path in a reviewed collection.'
+    }
+
+    $firstOnlyMutantRepo = Join-Path $fixtureRoot 'baseline-first-only-mutant'
+    New-Item -ItemType Directory -Force (Join-Path $firstOnlyMutantRepo 'ignored') | Out-Null
+    & git -C $firstOnlyMutantRepo init -q
+    Set-Content -LiteralPath (Join-Path $firstOnlyMutantRepo '.gitignore') -Value '*.db' -Encoding utf8
+    foreach ($reviewedBaseline in $reviewedBaselines) {
+      Set-Content -LiteralPath (Join-Path $firstOnlyMutantRepo $reviewedBaseline) -Value "mutant baseline $reviewedBaseline" -Encoding utf8
+    }
+    Add-SelftestE2eBaseline -RepoRoot $firstOnlyMutantRepo -TrackedSensitivePaths $reviewedBaselines[0]
+    $firstOnlyMutantRejected = $false
+    try {
+      & $assertReviewedBaselinesTracked $firstOnlyMutantRepo $reviewedBaselines
+    } catch {
+      $firstOnlyMutantRejected = $_.Exception.Message -match 'reviewed ignored file: ignored[/\\]2\.db'
+    }
+    if (-not $firstOnlyMutantRejected) {
+      throw 'canary-harness first-only executable mutant survived the two-path tracking oracle.'
     }
 
     $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
@@ -6640,7 +6685,8 @@ if (-not $git) {
     & git -C $e2e symbolic-ref HEAD refs/heads/master                 # 版本无关地强制默认分支 = master
     & git -C $e2e config user.email 'selftest@local'                  # 仓级身份：15b ship 的内部 commit/merge 据此（非 -c 内联）
     & git -C $e2e config user.name  'selftest'
-    Add-SelftestE2eBaseline -RepoRoot $e2e -TrackedSensitivePath 'android/core/src/main/sqldelight/databases/1.db'
+    $reviewedSensitivePaths = @(Get-Content -LiteralPath (Join-Path $e2e 'configs/secrets/tracked-sensitive-allowlist.json') -Raw | ConvertFrom-Json | ForEach-Object { [string]$_.path })
+    Add-SelftestE2eBaseline -RepoRoot $e2e -TrackedSensitivePaths $reviewedSensitivePaths
     & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'e2e base' *> $null
     $baseLicenseStub = (& git -C $e2e show 'HEAD:scripts/check-licenses.ps1' 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $baseLicenseStub -cne 'exit 0') {
