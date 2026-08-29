@@ -14800,13 +14800,203 @@ exit $realExit
   if ($blockedFullReview.Rounds -lt 1) { $sizeFailures += 'rounds counter is inert: a reviewer-blocked run left no .rounds file, so "zero rounds" proves nothing' }
   if (@($sizeCases | Where-Object { $_.Rounds -ne 0 }).Count -ne 0) { $sizeFailures += 'size evaluation created/incremented an R3 round counter' }
   if ($reviewSizeText -notmatch '\[int\]\$MaxChangedLines\s*=\s*1000' -or $reviewSizeText -notmatch '\[int\]\$MaxDiffChars\s*=\s*60000') { $sizeFailures += 'production parameter defaults are not 1000 lines / 60000 chars' }
-  $sizeOnlyPos = $taskSizeText.IndexOf("Step '真实 diff 预算闸", [System.StringComparison]::Ordinal)
-  $pushPos = $taskSizeText.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
-  if ($sizeOnlyPos -lt 0 -or $pushPos -lt 0 -or $sizeOnlyPos -ge $pushPos) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
+  function Test-SizeStepBeforePush([string]$Text) {
+    $sizeStepPos = $Text.IndexOf("Step '真实 diff 预算闸", [System.StringComparison]::Ordinal)
+    $pushStepPos = $Text.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
+    return $sizeStepPos -ge 0 -and $pushStepPos -ge 0 -and $sizeStepPos -lt $pushStepPos
+  }
+  if (-not (Test-SizeStepBeforePush $taskSizeText)) { $sizeFailures += 'task.ps1 does not run SizeOnly before push + PR' }
   if ($taskSizeText -notmatch "Add-CatchRecord 'review-size'") { $sizeFailures += 'task.ps1 does not record review-size gate blocks' }
   if ($taskSizeText -match '尚未 push、开 PR' -or $taskSizeText -notmatch '本次调用' -or $taskSizeText -notmatch '现有远端') { $sizeFailures += 'task.ps1 overclaims that no earlier push or PR can exist after a size block' }
   $a14Devops = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
   $a14Rubric = Get-Content -LiteralPath (Join-Path $RepoRoot 'docs/QUALITY-RUBRIC.md') -Raw
+
+  # T0-R3-FLOW-ENUM-SYNC：所有“确定性闸/防泄露”发现命中先显式分类，再对每个枚举文本块做有序断言。
+  # 新命中若没有登记会直接变红；登记为 enum 的命中必须绑定一个具名 site，不能靠全文中别处的词满足。
+  function Get-EnumSyncSegment([string]$Text, [string]$StartAnchor, [string]$EndAnchor) {
+    $lines = @(($Text -replace "`r`n", "`n") -split "`n")
+    $starts = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i].Contains($StartAnchor)) { $i } })
+    if ($starts.Count -ne 1) { throw "start anchor '$StartAnchor' must occur once (found $($starts.Count))" }
+    $start = [int]$starts[0]
+    if ($EndAnchor -eq $StartAnchor) { $end = $start }
+    else {
+      $ends = @(for ($i = $start; $i -lt $lines.Count; $i++) { if ($lines[$i].Contains($EndAnchor)) { $i } })
+      if ($ends.Count -ne 1) { throw "end anchor '$EndAnchor' after '$StartAnchor' must occur once (found $($ends.Count))" }
+      $end = [int]$ends[0]
+    }
+    [pscustomobject]@{ Text = ($lines[$start..$end] -join "`n"); Lines = $lines; Start = $start; End = $end }
+  }
+
+  function Test-EnumSyncOrdered([string]$Text, [string[]]$Needles) {
+    $cursor = 0
+    foreach ($needle in $Needles) {
+      $at = $Text.IndexOf($needle, $cursor, [System.StringComparison]::Ordinal)
+      if ($at -lt 0) { return $false }
+      $cursor = $at + $needle.Length
+    }
+    return $true
+  }
+
+  $enumSyncSites = @(
+    @{ Id='task-help'; File='task'; Start='ship    : DoD(必绿)'; End='故本地闸门(DoD/verify/范围/许可/密钥/预算/Codex)即权威'; Needles=@('防泄露闸', '真实 diff 预算', 'push', '开 PR', 'Codex 评审') }
+    @{ Id='task-saga-legs'; File='task'; Start='$sagaLegs = @('; End='$sagaLegs = @('; Needles=@('防泄露闸', '真实 diff 预算', 'push+PR', 'R3 评审') }
+    @{ Id='task-resume-hint'; File='task'; Start='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; End='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1', 'gh pr merge') }
+    @{ Id='task-phase-label'; File='task'; Start="Step '真实 diff 预算闸"; End="Step '真实 diff 预算闸"; Needles=@("Step '真实 diff 预算闸") }
+    @{ Id='task-local-gates'; File='task'; Start='# 本地闸门（DoD + verify'; End='# 本地闸门（DoD + verify'; Needles=@('防泄露闸', '真实 diff 预算', 'Codex 评审') }
+    @{ Id='task-saga-rule-comment'; File='task'; Start='# 必须先在 worktree **手动补跑全部确定性闸'; End='# 必须先在 worktree **手动补跑全部确定性闸'; Needles=@('防泄露闸', '真实 diff 预算') }
+    @{ Id='task-saga-rule-output'; File='task'; Start='【闸门保真总则】已推送恢复合并前'; End='【闸门保真总则】已推送恢复合并前'; Needles=@('防泄露闸', '真实 diff 预算') }
+    @{ Id='task-r3-pass'; File='task'; Start='R3 已 pass、合并腿未完成'; End='R3 已 pass、合并腿未完成'; Needles=@('防泄露闸', '真实 diff 预算', 'gh pr merge') }
+    @{ Id='task-pr-open'; File='task'; Start='PR #$sagaPrNum 已开'; End='PR #$sagaPrNum 已开'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1') }
+    @{ Id='task-pr-unknown'; File='task'; Start='commit 已落、PR 状态未知'; End='commit 已落、PR 状态未知'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1') }
+    @{ Id='docs-english-overview'; File='docs'; Start='> EN: The authoritative operating manual'; End='> EN: The authoritative operating manual'; Budget='real-diff budget'; Needles=@('secret-leak', 'real-diff budget', 'push/PR-base validation', 'codex R3 review') }
+    @{ Id='docs-ship'; File='docs'; Start='# 远端基线定向 fetch'; End='# 远端基线定向 fetch'; Needles=@('防泄露闸', '真实 diff 预算', 'push', 'PR', 'R3') }
+    @{ Id='docs-resume'; File='docs'; Start='ship 非原子 → 重跑同一条'; End='ship 非原子 → 重跑同一条'; Needles=@('防泄露', '真实 diff 预算', 'push/PR', 'R3') }
+    @{ Id='docs-s1'; File='docs'; Start='S1 committed-unpushed'; End='S1 committed-unpushed'; Needles=@('防泄露', '真实 diff 预算') }
+    @{ Id='docs-gate-fidelity'; File='docs'; Start='任何已 push 状态的手工恢复都必须保持闸门保真'; End='任何已 push 状态的手工恢复都必须保持闸门保真'; Needles=@('防泄露', '真实 diff 预算') }
+    @{ Id='docs-manual-commands'; File='docs'; Start='# 4. 商用许可闸'; End='-SizeOnly'; Needles=@('check-secrets.ps1', '真实 diff 预算', '-SizeOnly') }
+    @{ Id='docs-last-resort'; File='docs'; Start='receipt 丢失且已 push 时的最后手段'; End='receipt 丢失且已 push 时的最后手段'; Needles=@('防泄露', '真实 diff 预算') }
+  )
+
+  function Get-EnumSyncFailures([string]$TaskText, [string]$DocsText) {
+    $failures = @()
+    foreach ($site in $enumSyncSites) {
+      try {
+        $source = if ($site.File -eq 'task') { $TaskText } else { $DocsText }
+        $segment = Get-EnumSyncSegment $source $site.Start $site.End
+        if (-not (Test-EnumSyncOrdered $segment.Text $site.Needles)) { $failures += $site.Id }
+      } catch { $failures += $site.Id }
+    }
+    return @($failures)
+  }
+
+  function Remove-EnumSyncBudgetAtSite([string]$Text, [hashtable]$Site) {
+    $segment = Get-EnumSyncSegment $Text $Site.Start $Site.End
+    $budgetPhrase = if ($Site.ContainsKey('Budget')) { [string]$Site.Budget } else { '真实 diff 预算' }
+    $budgetHits = 0
+    for ($i = $segment.Start; $i -le $segment.End; $i++) {
+      $budgetHits += ([regex]::Matches($segment.Lines[$i], [regex]::Escape($budgetPhrase))).Count
+    }
+    if ($budgetHits -ne 1) { throw "site '$($Site.Id)' must contain exactly one budget phrase to mutate (found $budgetHits)" }
+    for ($i = $segment.Start; $i -le $segment.End; $i++) {
+      if ($segment.Lines[$i].Contains($budgetPhrase)) {
+        $segment.Lines[$i] = $segment.Lines[$i].Replace($budgetPhrase, '')
+        break
+      }
+    }
+    return ($segment.Lines -join "`n")
+  }
+
+  # A1 的 grep 权威面：每条当前命中均逐条登记；enum 绑定上面的 site，note 明确判为非枚举说明。
+  $enumSyncDiscovery = @(
+    @{ File='docs'; Anchor='> EN: The authoritative operating manual'; Class='enum'; Site='docs-english-overview' }
+    @{ File='docs'; Anchor='# 远端基线定向 fetch'; Class='enum'; Site='docs-ship' }
+    @{ File='docs'; Anchor='ship 非原子 → 重跑同一条'; Class='enum'; Site='docs-resume' }
+    @{ File='docs'; Anchor='S1 committed-unpushed'; Class='enum'; Site='docs-s1' }
+    @{ File='docs'; Anchor='S2 pushed-no-PR'; Class='note' }
+    @{ File='docs'; Anchor='S9 evidence lost'; Class='note' }
+    @{ File='docs'; Anchor='任何已 push 状态的手工恢复都必须保持闸门保真'; Class='enum'; Site='docs-gate-fidelity' }
+    @{ File='docs'; Anchor='# 5. 防泄露闸'; Class='enum'; Site='docs-manual-commands' }
+    @{ File='docs'; Anchor='receipt 丢失且已 push 时的最后手段'; Class='enum'; Site='docs-last-resort' }
+    @{ File='docs'; Anchor='if ($baseOid2 -ne $baseOid)'; Class='note' }
+    @{ File='docs'; Anchor='**不**做【R3 评审】subagent'; Class='note' }
+    @{ File='docs'; Anchor='防泄露闸 `check-secrets.ps1` 已接入'; Class='note' }
+    @{ File='docs'; Anchor='`/security-review-local` 是模型在环'; Class='note' }
+    @{ File='task'; Anchor='ship    : DoD(必绿)'; Class='enum'; Site='task-help' }
+    @{ File='task'; Anchor='$sagaLegs = @('; Class='enum'; Site='task-saga-legs' }
+    @{ File='task'; Anchor='# 收据在位 ='; Class='note' }
+    @{ File='task'; Anchor='# PR head =='; Class='note' }
+    @{ File='task'; Anchor='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; Class='enum'; Site='task-resume-hint' }
+    @{ File='task'; Anchor='T35-RECEIPT：已铸水位线收据'; Class='note' }
+    @{ File='task'; Anchor="Step '防泄露闸"; Class='note' }
+    @{ File='task'; Anchor='$sagaDone += ''防泄露闸'''; Class='note' }
+    @{ File='task'; Anchor='# 本地闸门（DoD + verify'; Class='enum'; Site='task-local-gates' }
+    @{ File='task'; Anchor='# 铸造/RED 闸的收据 resume'; Class='note' }
+    @{ File='task'; Anchor='$sagaSafeWhy ='; Class='note' }
+    @{ File='task'; Anchor='-Local（提交未推送）'; Class='note' }
+    @{ File='task'; Anchor='# 必须先在 worktree **手动补跑全部确定性闸'; Class='enum'; Site='task-saga-rule-comment' }
+    @{ File='task'; Anchor='【闸门保真总则】已推送恢复合并前'; Class='enum'; Site='task-saga-rule-output' }
+    @{ File='task'; Anchor='R3 已 pass、合并腿未完成'; Class='enum'; Site='task-r3-pass' }
+    @{ File='task'; Anchor='PR #$sagaPrNum 已开'; Class='enum'; Site='task-pr-open' }
+    @{ File='task'; Anchor='commit 已落、PR 状态未知'; Class='enum'; Site='task-pr-unknown' }
+  )
+
+  foreach ($sourceSpec in @(@{ Id='task'; Text=$taskSizeText }, @{ Id='docs'; Text=$a14Devops })) {
+    $sourceLines = @(($sourceSpec.Text -replace "`r`n", "`n") -split "`n")
+    $hits = @(for ($i = 0; $i -lt $sourceLines.Count; $i++) {
+      if ($sourceLines[$i].Contains('确定性闸') -or $sourceLines[$i].Contains('防泄露') -or $sourceLines[$i].Contains('secret-leak')) {
+        [pscustomobject]@{ Line=$i + 1; Text=$sourceLines[$i] }
+      }
+    })
+    foreach ($hit in $hits) {
+      $matches = @($enumSyncDiscovery | Where-Object { $_.File -eq $sourceSpec.Id -and $hit.Text.Contains($_.Anchor) })
+      if ($matches.Count -ne 1) { $sizeFailures += "enum discovery $($sourceSpec.Id):$($hit.Line) must have one classification (found $($matches.Count))" }
+    }
+    foreach ($entry in @($enumSyncDiscovery | Where-Object File -eq $sourceSpec.Id)) {
+      $matchingHits = @($hits | Where-Object { $_.Text.Contains($entry.Anchor) })
+      if ($matchingHits.Count -ne 1) { $sizeFailures += "enum discovery inventory '$($entry.Anchor)' must match one $($sourceSpec.Id) hit (found $($matchingHits.Count))" }
+    }
+  }
+  $discoveredSites = @($enumSyncDiscovery | Where-Object Class -eq 'enum' | ForEach-Object Site | Sort-Object -Unique)
+  $expectedDiscoveredSites = @($enumSyncSites | Where-Object Id -ne 'task-phase-label' | ForEach-Object Id | Sort-Object -Unique)
+  if (($discoveredSites -join '|') -ne ($expectedDiscoveredSites -join '|')) { $sizeFailures += 'enum discovery registrations and anchored sites are not one-to-one' }
+
+  $enumSyncFailures = @(Get-EnumSyncFailures $taskSizeText $a14Devops)
+  foreach ($enumFailure in $enumSyncFailures) { $sizeFailures += "enum site '$enumFailure' is missing or out of order" }
+  if ($enumSyncFailures.Count -eq 0) {
+    foreach ($site in $enumSyncSites) {
+      $mutTask = $taskSizeText; $mutDocs = $a14Devops
+      if ($site.File -eq 'task') { $mutTask = Remove-EnumSyncBudgetAtSite $mutTask $site }
+      else { $mutDocs = Remove-EnumSyncBudgetAtSite $mutDocs $site }
+      $mutFailures = @(Get-EnumSyncFailures $mutTask $mutDocs)
+      if (($mutFailures -join '|') -ne $site.Id) { $sizeFailures += "enum mutant '$($site.Id)' must kill only its own assertion (got: $($mutFailures -join ', '))" }
+    }
+  }
+
+  # A4/A6：三行注释必须以段落而非锚点单行判定；预算挪到 push 后必须被有序子序列拒绝。
+  $multiLineEnum = "ship : 防泄露闸 → 真实 diff 预算`n       → push → 开 PR`n       → Codex 评审"
+  $multiLineNeedles = @('防泄露闸', '真实 diff 预算', 'push', '开 PR', 'Codex 评审')
+  $multiLineBlock = Get-EnumSyncSegment $multiLineEnum 'ship :' 'Codex 评审'
+  if ($multiLineBlock.Start -ne 0 -or $multiLineBlock.End -ne 2 -or -not (Test-EnumSyncOrdered $multiLineBlock.Text $multiLineNeedles)) { $sizeFailures += 'multiline enum block was not extracted and accepted as one segment' }
+  if (Test-EnumSyncOrdered (($multiLineEnum -split "`n")[0]) $multiLineNeedles) { $sizeFailures += 'single-line extraction control is inert' }
+  $misorderedEnum = "ship : 防泄露闸 → push → 真实 diff 预算 → 开 PR → Codex 评审"
+  if (Test-EnumSyncOrdered $misorderedEnum $multiLineNeedles) { $sizeFailures += 'out-of-order budget-after-push fixture was accepted' }
+
+  # A7：说明性 -SizeOnly decoy 位于真实调用点之前，顺序判定仍只锚 Step 标签。
+  $decoyTaskText = $taskSizeText.Replace("Step '真实 diff 预算闸", "# explanatory -SizeOnly decoy`n      Step '真实 diff 预算闸")
+  $decoyPos = $decoyTaskText.IndexOf('# explanatory -SizeOnly decoy', [System.StringComparison]::Ordinal)
+  $decoyStepPos = $decoyTaskText.IndexOf("Step '真实 diff 预算闸", [System.StringComparison]::Ordinal)
+  if ($decoyPos -lt 0 -or $decoyPos -ge $decoyStepPos) { $sizeFailures += 'SizeOnly decoy fixture is inert' }
+  if (-not (Test-SizeStepBeforePush $decoyTaskText)) { $sizeFailures += 'Step-anchored size-before-push predicate failed under a SizeOnly decoy' }
+  $missingStepWithDecoy = $taskSizeText.Replace("Step '真实 diff 预算闸", '# explanatory -SizeOnly decoy')
+  $naiveSizePos = $missingStepWithDecoy.IndexOf('-SizeOnly', [System.StringComparison]::Ordinal)
+  $naivePushPos = $missingStepWithDecoy.IndexOf("Step 'push + 开 PR", [System.StringComparison]::Ordinal)
+  if ($naiveSizePos -lt 0 -or $naivePushPos -lt 0 -or $naiveSizePos -ge $naivePushPos) { $sizeFailures += 'first-SizeOnly decoy control did not falsely pass' }
+  if (Test-SizeStepBeforePush $missingStepWithDecoy) { $sizeFailures += 'Step-anchored predicate accepted a decoy after the real size phase label was removed' }
+
+  # A8：last-resort 命令须保留逐字反斜杠路径；文件和显式 lone-CR mutation 都由 byte oracle 判。
+  try {
+    $lastResortBlock = Get-EnumSyncSegment $a14Devops 'receipt 丢失且已 push 时的最后手段' 'gh pr merge <PR号> --squash --match-head-commit $head'
+    $expectedReviewCommand = '> pwsh -NoProfile -File scripts\review.ps1 -WorktreePath <worktree> -Base <base> -PostStatus -PrNumber <PR号>'
+    $reviewCommandLines = @($lastResortBlock.Text -split "`n" | Where-Object { $_.Contains('pwsh -NoProfile -File') -and $_.Contains('-PostStatus') })
+    if ($reviewCommandLines.Count -ne 1 -or $reviewCommandLines[0].Trim() -cne $expectedReviewCommand) { $sizeFailures += 'last-resort review command line no longer exactly preserves literal scripts\review.ps1' }
+  } catch { $sizeFailures += "last-resort review command block is not extractable: $($_.Exception.Message)" }
+  function Get-LoneCrCount([byte[]]$Bytes) {
+    $count = 0
+    for ($i = 0; $i -lt $Bytes.Length; $i++) {
+      if ($Bytes[$i] -eq 13 -and ($i + 1 -ge $Bytes.Length -or $Bytes[$i + 1] -ne 10)) { $count++ }
+    }
+    return $count
+  }
+  function Test-NoLoneCr([byte[]]$Bytes) { return (Get-LoneCrCount $Bytes) -eq 0 }
+  $devopsBytes = [System.IO.File]::ReadAllBytes((Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md'))
+  if (-not (Test-NoLoneCr $devopsBytes)) { $sizeFailures += 'DEVOPS-WORKFLOW contains a lone CR byte' }
+  $crInsertAt = [Math]::Min(32, $devopsBytes.Length)
+  $loneCrMutant = New-Object byte[] ($devopsBytes.Length + 1)
+  [Array]::Copy($devopsBytes, 0, $loneCrMutant, 0, $crInsertAt)
+  $loneCrMutant[$crInsertAt] = 13
+  [Array]::Copy($devopsBytes, $crInsertAt, $loneCrMutant, $crInsertAt + 1, $devopsBytes.Length - $crInsertAt)
+  if ((Get-LoneCrCount $loneCrMutant) -ne 1 -or (Test-NoLoneCr $loneCrMutant)) { $sizeFailures += 'lone-CR mutation was not rejected by the production-file predicate' }
+
   $a14DevopsPara = @($a14Devops -split "`r?`n" | Where-Object { $_.Contains('allow_paths` 的条目数只在建卡期') })
   if ($a14DevopsPara.Count -ne 1) { $sizeFailures += "A14: DEVOPS-WORKFLOW's 'allow_paths is not a size proof' paragraph is missing or duplicated (found $($a14DevopsPara.Count))" }
   else {
