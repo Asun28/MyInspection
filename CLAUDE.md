@@ -132,7 +132,11 @@ JDK API 可用性按 Android API level 判**（L217）。TD5（数组序跨层�
 PR #190，R3 第 **2** 轮 pass）——`Template.rooms[]` 以向后兼容默认接入，房间 key / repeatable / 模板序经
 `template_room_def` 持久化并完整读回；`1.sqm` + `databases/2.db` 通过真实迁移闸。历史模板读取现在包含软删的
 item/room 定义，并用 `(template_version_id, sort, id)` 索引保持有序读；TD6/TD7/TD8 同窗口 paid。运行时
-`room_instance` 多实例状态机仍是明确非目标，由 `T2-REPEATABLE-ROOM-RUNTIME` 承接。
+`room_instance` 多实例状态机由下述运行时卡承接并已闭合。
+
+**重复房间运行时已合并**：`T2-REPEATABLE-ROOM-RUNTIME` **merged**（2026-08-29，master `6a92aa58`，PR #193，
+R3 第 **2** 轮 pass）——schema v4 的物业级数量、模板序 + `instance_no` 实例化、缺实例 finalize 闸与
+`(room_key, instance_no, stable_id)` baseline 对齐已统一落地；TD26 paid，capture UI/history 前置已同步。
 
 **★第四冻结点已合并**：`T5-BACKUP-FORMAT` **merged**（2026-08-16，master `efedcfb`，R3 pass 于第 **4** 轮，
 其中两次经人裁）——`core/backup/format/`：47 字节明文头（magic `MYINSPBK`/format_version/kdf_id/迭代数/盐/
@@ -172,7 +176,7 @@ L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 · TD9（se
 
 **数据库生命周期权限已合并**：`T1-DATABASE-LIFECYCLE-AUTHORITY`（2026-08-29，master `3d50f690`，PR #191）完成 schema v3 active/any 读取分流、具名 baseline 守卫、purge 终态与 deleted override 防写；TD160 paid。
 
-**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T2-REPEATABLE-ROOM-RUNTIME`（接 repeatable 运行时实例维度）· `T4-COMPLIANCE-ENGINE`
+**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`
 （依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture+finalize，均已合——
 关键路径下一站，快照装配正门与 TD5 黄金测试已随 T3-FINALIZE 落地，可直接开工）。
 

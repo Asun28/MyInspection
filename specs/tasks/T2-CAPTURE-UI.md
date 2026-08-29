@@ -43,6 +43,7 @@ doc_sync: TASK-BOARD 备注（R5）
 - **二值主评级 + 长按/二段细分**（synthesis #2：NZ 官方表与 myInspections 双双二值）：主控件两枚大按钮 [OK ✓]（落库 GOOD/NO_ISSUE）与 [需注意]（弹出 FAIR/POOR（或年检三档）+ 备注/拍照面板）；N_A 与「本物业不存在」（写 property_item_override，永久抑制）收进溢出菜单。存储枚举不变，纯 UI 层。
 - **缺失计数橙条**（HappyCo 模式，synthesis #8）：顶部常驻「还差 N 项/N 照/N 备注」，点击滚动到下一缺失处；数据全来自 :core 完备性查询。**警示不硬拦**——硬闸只在 finalize。
 - **房间级批量**：「余项全标 OK」带确认（HappyCo Rate All 先例；防 PI 式逐格 N/A 差评根因）。
+- **重复房间前置已满足**：PR #193 / master `6a92aa58` 已提供物业级数量、稳定的模板序 + `instance_no` 与实例级完备性。UI 直接消费 `:core` 的房间列表、`displayLabel` 和缺口结果，不自行推导数量或合并同 `room_key` 实例。
 - **照片隐私**（synthesis NZ 节）：拍照/导入后可点「含租客物品」标记（privacy_flag，报告可排除）；例行巡检照片数超 ~12 时一次性软提示（OPC 判例标尺）。
 - 结构：Scaffold + 房间横向进度条（房间完成度来自 `:core` capture 的完备性查询）；项目卡片列表纵向滚动；房间级顶部「拍全景」卡片（1–2 张，ROOM_PANORAMA 规则）；项目级状态为不利发现时卡片内出现「必须拍照」标记（missingPhotos 驱动，UI 不自算规则）。
 - 相机：CameraX 拍摄页（本卡纯拍摄，无 overlay；预留 overlay 插槽参数给 T3-HISTORY-COMPARE）；出片走 T2-PHOTO-PIPELINE 的保存管线（转正烘焙+哈希）。

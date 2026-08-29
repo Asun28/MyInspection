@@ -44,7 +44,6 @@
 
 
 
-| TD26 | 2026-08-17 | `T2-ROOM-REPEATABLE` ↔ `InspectionRepository` / `CompletenessPort` / history | **重复房间 schema 卡明确排除了运行时状态机，却没有后续卡接住实例维度**：当前 capture 只为每个 `room_key` 建 `instance_no=1`，baseline 写入又只按 `stable_id` 取首项；schema 已允许同一巡检的 BEDROOM #1/#2 各有同一 `stable_id`，相关查询无顺序保证。后果：重复房间落地后，Exit 的 #2 可能误拿 Ingoing #1 作基线，分类随未定义行序变化；progress/finalize 也无法按声明数量验证缺失实例 / 修法：在专属运行时交接卡中定义并持久化或派生物业的重复房间数量，所有基线匹配改用 `(room_key, instance_no, stable_id)`，走查按模板房间序再按 `instance_no`，finalize 验证所需实例数，并同步后续 history/Exit 卡的旧前提 / 可测：B1/B2 同 stable_id 不同状态时 Exit B2 必与 B2 比；交换 baseline 插入顺序结果不变；progress 顺序稳定；声明两间却缺 B2 时 finalize 拒绝 / 前置：TD4 已 paid；`T2-ROOM-REPEATABLE` 已由 PR #190 完成 schema/版本评审；不得与该 schema 卡合卡，必须全新 worktree，并在 capture UI/history/Exit 内容上线前偿还 | major | carded | `specs/tasks/T2-REPEATABLE-ROOM-RUNTIME.md` |
 
 
 
