@@ -1861,3 +1861,11 @@
 - rule: When a contract says the written artifact must reopen exactly, fingerprint both raw streams while they flow: compare byte count and SHA-256 after EOF, then separately validate the parsed format and manifest. Include a valid same-manifest/different-randomness negative control; corruption-only tests cannot prove raw equality.
 - enforced_by: android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt
 - refs: PR #198; android/core/src/main/kotlin/nz/myinspection/core/media/archive/VerifiedArchiveReceiptService.kt; android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt
+
+## L258
+- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Task Loop cleanup removed the worktree registration and branch but left the physical worktree because a generated Gradle path exceeded the normal Windows path limit.
+- root_cause: git worktree remove could not delete the long generated build path; after registration vanished, the cleanup retry no longer had a registered worktree target.
+- rule: After Windows cleanup reports Filename too long, verify the exact residual path is inside the configured worktree root and absent from git worktree list, then remove only that literal path through the \\?\ extended-length form; never broaden the delete target.
+- enforced_by: none（需人工核对精确路径及 worktree 注册状态后恢复）
+- refs: scripts/task.ps1; docs/WORKTREE-RUNBOOK.md

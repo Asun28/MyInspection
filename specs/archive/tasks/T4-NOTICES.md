@@ -3,7 +3,7 @@ id: T4-NOTICES
 title: 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照）
 depends_on: [T4-COMPLIANCE-ENGINE]
 parallelizable_with: [T4-SCHEDULE, T5-RETENTION]
-status: todo
+status: merged
 branch: T4-NOTICES
 worktree: C:\wt\T4-NOTICES
 allow_paths:

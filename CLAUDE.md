@@ -213,6 +213,11 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 `gradlew`（不依赖 executable bit）；wrapper 缺失、命令未执行、任务错误或测试非零一律 fail-closed；Android UI、
 权限、TalkBack、模拟器/真机与进程死亡仍只属于 `T7-SMOKE-POLISH`，不混入 JVM E2E。
 
+**W5 T4-NOTICES 已合并**（2026-08-29，PR #199，master `b77fbc21`）：通知生成先过配置驱动合规闸，固定双语
+全文、生成/巡检时间、提前量和校验结果均存审计快照；app 只在用户确认边界后写带 sensitive metadata 的剪贴板，
+不发送短信/邮件。人工回记要求方式与真实时刻，生成前/未来时刻不落库，首条送达原子锁定；掉出通知窗口仍诚实存档并
+以 error 文案、颜色和无障碍语义提示改期。7 个 SQLite JVM 测试与 7 枚定向变异覆盖关键门。
+
 **W0 闸号协调债已结清**（2026-08-28，PR #186，master `b1e5f0b5`）：`selftest.ps1` 现在从闸头注释与真实
 `Fail` 文案解析 gate id，重复声明会点名 id 与全部位置；同时强制唯一 raw 插入锚、源码可解析、双面集合与词法 owner
 一致，并以 6 类删除变异防止守卫静默失效。TD146 已 paid。

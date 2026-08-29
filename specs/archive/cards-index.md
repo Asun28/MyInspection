@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 84 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 85 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -84,6 +84,7 @@
 | T3-E2E-HASH | merged | Golden Evidence JVM 闭环与 DB/报告/独立重算三源 hash |
 | T3-E2E-TENANT-REDACTION | merged | Golden Evidence tenant report landlord/private sentinel 防泄露 |
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
+| T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |
 | T5-MEDIA-ARCHIVE-CONTRACT | merged | 媒体归档收口：重新打开逐字节核验、原子回执与 finalized 不变性 |
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
