@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 43 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 44 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -48,3 +48,4 @@
 | TD26 | major | paid | `T2-ROOM-REPEATABLE` ↔ `InspectionRepository` / `Completene… | **重复房间 schema 卡明确排除了运行时状态机，却没有后续卡接住实例维度**：当前 capture 只为每个 `room_key` 建 `instance_no=1`，baseline 写入又只按 `stable_id` 取首项；s… |
 | TD132 | critical | paid | T5 备份成功状态 ↔ 本机照片删除资格 | **现有计划只有目的地和上次成功时间，没有“某个照片 exact bytes 已在某包回读验证”的持久证明**。后果：若仅凭 Worker 成功、SAF URI 或云盘品牌清理本机字节，授权撤销、短写、缺文件或错误 scope 会把唯一证… |
 | TD145 | minor | paid | `scripts/lessons.ps1` Resolve-BumpLedger | bump 的主检出解析取 `--git-common-dir` 的父级作为检出根。本仓被当作 submodule 使用时 git 返回 `<super>/.git/modules/<path>`，其父级并非检出根，函数会 fail-clo… |
+| TD139 | major | paid | `T3-REPORT-COMPOSER` PR #39 R3 round cap | 原卡两轮 R3 后仍剩六项 renderer-ready 布局证据缺口：项目内联缩略图未落 40mm 表格列几何、长 caption 可能拆图槽、实际页脚绘了完整哈希、空房标题可孤行、引用/照片层级校验不足、封面/照片实际文本仍绘 epo… |
