@@ -1869,3 +1869,11 @@
 - rule: After Windows cleanup reports Filename too long, verify the exact residual path is inside the configured worktree root and absent from git worktree list, then remove only that literal path through the \\?\ extended-length form; never broaden the delete target.
 - enforced_by: none（需人工核对精确路径及 worktree 注册状态后恢复）
 - refs: scripts/task.ps1; docs/WORKTREE-RUNBOOK.md
+
+## L259
+- date: 2026-08-30 ｜ tags: task-loop,r3,selftest,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 blocked a feature PR because it carried an unrelated shared-selftest repair, while the released baseline could not pass the feature card full seeded gate without that repair.
+- root_cause: The feature branch patched a shared harness regression as a drive-by instead of first releasing the regression through its own card and serial ownership receipt.
+- rule: When a card needs a shared-harness fix outside its contract, pause the feature PR; ship the fix as a dedicated prerequisite through merge, R5, cleanup, and released-master selftest; then merge the released base into the post-watershed feature branch, prove the drive-by is absent from its net diff, and rerun all gates.
+- enforced_by: none（需按卡片边界与共享 harness 归属人工判断是否拆成专属前置卡）
+- refs: specs/archive/tasks/T0-R3-FLOW-ENUM-SYNC.md; specs/archive/tasks/T0-SELFTEST-MIGRATION-CHECK-CONTINUE.md; .claude/skills/task-loop/SKILL.md
