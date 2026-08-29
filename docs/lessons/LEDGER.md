@@ -1877,3 +1877,11 @@
 - rule: When a card needs a shared-harness fix outside its contract, pause the feature PR; ship the fix as a dedicated prerequisite through merge, R5, cleanup, and released-master selftest; then merge the released base into the post-watershed feature branch, prove the drive-by is absent from its net diff, and rerun all gates.
 - enforced_by: none（需按卡片边界与共享 harness 归属人工判断是否拆成专属前置卡）
 - refs: specs/archive/tasks/T0-R3-FLOW-ENUM-SYNC.md; specs/archive/tasks/T0-SELFTEST-MIGRATION-CHECK-CONTINUE.md; .claude/skills/task-loop/SKILL.md
+
+## L260
+- date: 2026-08-30 ｜ tags: testing,mutation,process-boundary ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 回归测试仅检查进程内分类结果或手工选择退出码，声称已证明 CLI/闸门会真实非零退出；生产包装层、Git 变更发现或未知 outcome 仍可能静默放行。
+- root_cause: 测试停在纯函数返回对象，没有让与生产 real-run 共用的判定路径在全新进程中读取真实配置与 hermetic Git 提交，也没有同时断言退出码、专用哨兵和诊断路径。
+- rule: 凡验收声称 CLI/闸门 fail-closed 或变异会使真实进程变红：构造最小 hermetic 状态/提交，在全新进程执行与 production real-run 共用的判定路径；同时断言非零退出、专用哨兵与关键诊断；pass 只接受显式已知 outcome，未知值一律 fail-closed 并留变异。
+- enforced_by: scripts/selftest.ps1 gate 14f
+- refs:
