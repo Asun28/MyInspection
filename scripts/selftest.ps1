@@ -3474,6 +3474,7 @@ try {
 #   LEDGER.md，被范围闸与 R3 #7（夹带无关改动）正确拦下——计数遂无处可去。丢失是**结构性**的：
 #   卡片工作全在 worktree 里做，所以「工作中发现的复发」几乎必然记不上，晋升门槛被系统性低估。
 #   夹具 LSN-PLANE-WORKTREE：真 git 仓 + 一棵 linked worktree，三条断言——
+#   当前 2d：普通仓取 worktree 首条；首条为 common-dir 时取唯一 local core.worktree，再反向验证 top/common 同仓。
 #     (a) 从 worktree 跑 bump → 主检出账本 +1，且 worktree 账本**逐字节不变**；
 #     (e) 继承的 GIT_COMMON_DIR 不得劫持写入平面；(c) 主检出账本缺失 → 非零退出 + [LSN-PLANE-UNRESOLVED]（fail-closed，禁止回落到当前检出）。
 $l2dRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-lessons2d-$PID"
@@ -3697,7 +3698,7 @@ finally {
   Remove-Item -Recurse -Force $l2dRoot -ErrorAction SilentlyContinue
 }
 
-# 2d(s). TD145 real submodule ownership and zero-write fixture.
+# 当前 2ds：真实 submodule 覆盖 common-dir 首条 + local core.worktree + 反向同仓验证及全平面零写入。
 Step '2ds/17 lessons.ps1 submodule 主检出写入平面（TD145）'
 $l2dSubRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold lessons2d-submodule-$PID"
 $l2dSubSeed = Join-Path $l2dSubRoot 'seed'
@@ -3750,7 +3751,7 @@ try {
   $l2dSubLinkedLessons = Join-Path $l2dSubLinked 'scripts/lessons.ps1'
   if (-not $l2dSubSetupOk -or -not (Test-Path $l2dSubLedger) -or -not (Test-Path $l2dSubLessons) -or
       -not (Test-Path $l2dSubLinkedLedger) -or -not (Test-Path $l2dSubLinkedLessons)) {
-    Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/setup) add=[$l2dSubAddOut] worktree=[$l2dSubWtOut]"
+    Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/setup)'
   }
   else {
     $l2dSubBefore = Get-Content -LiteralPath $l2dSubLedger -Raw
@@ -3771,7 +3772,7 @@ try {
     $l2dSubExit = $LASTEXITCODE
     $l2dSubAfter = Get-Content -LiteralPath $l2dSubLedger -Raw
     if ($l2dSubExit -ne 0 -or $l2dSubAfter -cne $l2dSubExpected) {
-      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/target) exit=$l2dSubExit"
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/target)'
     }
     if ((Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashBeforePrimary) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/primary-linked-zero-write)'
@@ -3818,7 +3819,7 @@ try {
     }
     $l2dSubAfterLinked = Get-Content -LiteralPath $l2dSubLedger -Raw
     if (-not $l2dSubConfigParametersEffective -or $l2dSubLinkedExit -ne 0 -or $l2dSubAfterLinked -cne $l2dSubExpectedLinked) {
-      Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/linked-target) exit=$l2dSubLinkedExit"
+      Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-target)'
     }
     if ((Get-FileHash -LiteralPath $l2dSubLinkedLedger -Algorithm SHA256).Hash -ne $l2dSubLinkedHashBeforeLinked) {
       Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/linked-zero-write)'
@@ -3991,7 +3992,7 @@ try {
         Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)-restore)"
       }
       elseif (-not $l2dSubMutationRedOk -and -not $l2dSubMutationGreenOk) {
-        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)) expect=$($l2dSubMutationCase.Expect) exit=$l2dSubMutationExit output=[$(($l2dSubMutationOut -replace '\s+', ' ').Trim())]"
+        Fail "[LSN-PLANE-SUBMODULE] 闸2d(s/mutation-$($l2dSubMutationCase.Id)) expect=$($l2dSubMutationCase.Expect) exit=$l2dSubMutationExit"
       }
       else { Write-Host "  [LSN-PLANE-SUBMODULE] TD145 mutation $($l2dSubMutationCase.Id) $($l2dSubMutationCase.Expect.ToUpperInvariant())" -ForegroundColor Green }
     }
@@ -4006,7 +4007,7 @@ finally {
   if (Test-Path -LiteralPath $l2dSubRoot) { Fail '[LSN-PLANE-SUBMODULE] 闸2d(s/cleanup-root)：临时 submodule 根目录清理失败。' }
 }
 if (-not $failedSelftestGateIds.Contains('2ds')) {
-  Write-Host '  [LSN-PLANE-SUBMODULE] 2ds submodule primary/linked 归属、反向验仓与逐阶段零写入 OK' -ForegroundColor Green
+  Write-Host '  [LSN-PLANE-SUBMODULE] 2ds PASS' -ForegroundColor Green
 }
 
 # --- 3 + 4. 模板哨兵 / 占位符完好 ---
