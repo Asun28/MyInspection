@@ -124,6 +124,7 @@ class NoticeServiceTest {
 
         assertEquals(created.notice.fullText, copy?.fullText)
         assertEquals("Inspection notice ready to copy", copy?.lockScreenText)
+        assertTrue(copy?.isSensitive == true)
         assertFalse(copy!!.lockScreenText.contains("12 Test St"))
         assertNull(row.sent_via)
         assertNull(row.sent_at)
@@ -142,6 +143,9 @@ class NoticeServiceTest {
         )
         assertEquals(listOf(ComplianceReasonKey.NOTICE_TOO_SHORT), first.reasonKeys)
         assertFalse(first.isCompliant)
+        val presentation = recordedNoticeStatus(first.isCompliant)
+        assertEquals("⚠ Delivery recorded — notice period failed", presentation.label)
+        assertTrue(presentation.isError)
 
         val firstRow = db.noticeQueries.selectById(created.notice.id).executeAsOne()
         assertEquals("EMAIL", firstRow.sent_via)

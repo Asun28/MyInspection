@@ -1,5 +1,9 @@
 package nz.myinspection.app.feature.notice
 
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.os.PersistableBundle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,12 +28,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import nz.myinspection.core.compliance.ComplianceReasonKey
+import nz.myinspection.core.notice.NoticeCopy
 import nz.myinspection.core.notice.NoticeDeliveryMethod
+import nz.myinspection.core.notice.NoticeStatusText
 import nz.myinspection.core.notice.noticeReasonText
+import nz.myinspection.core.notice.recordedNoticeStatus
 
 enum class NoticeUiStatus {
     DRAFT,
@@ -67,6 +75,7 @@ data class NoticeComposeActions(
     val onSenderNameChange: (String) -> Unit,
     val onGenerate: () -> Unit,
     val onAcknowledgeShareBoundary: () -> Unit,
+    val onCopy: () -> NoticeCopy?,
     val onCopied: () -> Unit,
     val onDeliveryMethodChange: (NoticeDeliveryMethod) -> Unit,
     val onDeliveryTimeChange: (String) -> Unit,
@@ -118,7 +127,10 @@ fun NoticeComposeScreen(
     state: NoticeComposeUi,
     actions: NoticeComposeActions,
 ) {
-    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val clipboard = remember(context) {
+        requireNotNull(context.getSystemService(ClipboardManager::class.java))
+    }
     val recipientFocus = remember { FocusRequester() }
     val statusFocus = remember { FocusRequester() }
     val correctionFocus = remember { FocusRequester() }
@@ -145,7 +157,7 @@ fun NoticeComposeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Prepare inspection notice", style = MaterialTheme.typography.titleLarge)
-        NoticeStatusBanner(state.status, statusFocus)
+        NoticeStatusBanner(state.status, state.validationPassed, statusFocus)
 
         if (state.status == NoticeUiStatus.DRAFT) {
             OutlinedTextField(
@@ -214,8 +226,10 @@ fun NoticeComposeScreen(
             }
             Button(
                 onClick = {
-                    clipboard.setText(AnnotatedString(state.fullText))
-                    actions.onCopied()
+                    actions.onCopy()?.let { copy ->
+                        clipboard.copyNotice(copy)
+                        actions.onCopied()
+                    }
                 },
                 enabled = state.shareBoundaryAcknowledged,
                 modifier = Modifier.focusRequester(copyFocus),
@@ -233,8 +247,14 @@ fun NoticeComposeScreen(
 
 @Composable
 private fun NoticeDeliveryRow(notice: NoticeListItemUi, onOpen: () -> Unit) {
+    val presentation = statusPresentation(notice.status, notice.validationPassed)
     ListItem(
-        headlineContent = { Text(statusLabel(notice.status)) },
+        headlineContent = {
+            Text(
+                presentation.label,
+                color = if (presentation.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+        },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Notice prepared: ${notice.noticeDate}")
@@ -246,20 +266,33 @@ private fun NoticeDeliveryRow(notice: NoticeListItemUi, onOpen: () -> Unit) {
             }
         },
         trailingContent = { TextButton(onClick = onOpen) { Text("Open notice") } },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (presentation.isError) Modifier.semantics { error(presentation.label) } else Modifier,
+            ),
     )
 }
 
 @Composable
-private fun NoticeStatusBanner(status: NoticeUiStatus, focusRequester: FocusRequester) {
+private fun NoticeStatusBanner(
+    status: NoticeUiStatus,
+    validationPassed: Boolean?,
+    focusRequester: FocusRequester,
+) {
+    val presentation = statusPresentation(status, validationPassed)
     Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 2.dp) {
         Text(
-            statusLabel(status),
+            presentation.label,
             modifier = Modifier
                 .padding(12.dp)
                 .focusRequester(focusRequester)
-                .focusable(),
+                .focusable()
+                .then(
+                    if (presentation.isError) Modifier.semantics { error(presentation.label) } else Modifier,
+                ),
             style = MaterialTheme.typography.titleMedium,
+            color = if (presentation.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -273,7 +306,13 @@ private fun ComplianceResult(
     onCorrectSchedule: () -> Unit,
 ) {
     if (passed == null && reasonKeys.isEmpty()) return
-    Text(if (passed == true) "Compliance check: Pass" else "Compliance check: Fail")
+    val failed = passed != true
+    val resultLabel = if (failed) "Compliance check: Fail" else "Compliance check: Pass"
+    Text(
+        resultLabel,
+        color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        modifier = if (failed) Modifier.semantics { error(resultLabel) } else Modifier,
+    )
     reasonKeys.forEach { key ->
         val copy = noticeReasonText(key)
         ListItem(
@@ -344,10 +383,18 @@ private fun NoticeDeliveryMethod.label(): String = when (this) {
     NoticeDeliveryMethod.LETTER -> "Letter"
 }
 
-private fun statusLabel(status: NoticeUiStatus): String = when (status) {
-    NoticeUiStatus.DRAFT -> "○ Draft"
-    NoticeUiStatus.VALID -> "✓ Valid"
-    NoticeUiStatus.BLOCKED -> "⚠ Blocked"
-    NoticeUiStatus.COPIED -> "✓ Copied — not sent"
-    NoticeUiStatus.RECORDED -> "✓ Delivery recorded"
+private fun statusPresentation(status: NoticeUiStatus, validationPassed: Boolean?): NoticeStatusText = when (status) {
+    NoticeUiStatus.DRAFT -> NoticeStatusText("○ Draft", isError = false)
+    NoticeUiStatus.VALID -> NoticeStatusText("✓ Valid", isError = false)
+    NoticeUiStatus.BLOCKED -> NoticeStatusText("⚠ Blocked", isError = true)
+    NoticeUiStatus.COPIED -> NoticeStatusText("✓ Copied — not sent", isError = false)
+    NoticeUiStatus.RECORDED -> recordedNoticeStatus(validationPassed == true)
+}
+
+private fun ClipboardManager.copyNotice(copy: NoticeCopy) {
+    val clip = ClipData.newPlainText(copy.lockScreenText, copy.fullText)
+    clip.description.extras = PersistableBundle().apply {
+        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, copy.isSensitive)
+    }
+    setPrimaryClip(clip)
 }

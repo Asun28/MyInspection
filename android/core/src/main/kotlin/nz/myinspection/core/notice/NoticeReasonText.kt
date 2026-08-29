@@ -7,6 +7,17 @@ data class NoticeReasonText(
     val chinese: String,
 )
 
+data class NoticeStatusText(
+    val label: String,
+    val isError: Boolean,
+)
+
+fun recordedNoticeStatus(isCompliant: Boolean): NoticeStatusText = if (isCompliant) {
+    NoticeStatusText(label = "✓ Delivery recorded", isError = false)
+} else {
+    NoticeStatusText(label = "⚠ Delivery recorded — notice period failed", isError = true)
+}
+
 /** Fixed user-facing correction copy for the compliance engine's stable reason keys. */
 fun noticeReasonText(key: ComplianceReasonKey): NoticeReasonText = when (key) {
     ComplianceReasonKey.UNKNOWN_ENTRY_PURPOSE -> NoticeReasonText(

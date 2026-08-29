@@ -45,6 +45,8 @@ data class NoticeCopy(
     val fullText: String,
     /** Safe for an ambient/lock-screen confirmation; the actual clipboard still receives [fullText]. */
     val lockScreenText: String = "Inspection notice ready to copy",
+    /** Android clipboard adapters use this to suppress sensitive preview content. */
+    val isSensitive: Boolean = true,
 )
 
 sealed interface NoticeGeneration {
