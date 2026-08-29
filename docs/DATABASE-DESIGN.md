@@ -91,7 +91,22 @@ Logical foreign keys remain intentional. Soft-deleted parents must stay referenc
 - Do not add `created_by`, `updated_by`, `admin_id`, role tables, ACL tables, or account tables to a single-user offline app.
 - Do not add database triggers that mutate finalized evidence or hide domain behavior from tests.
 
-## 7. Diagnostics database schema
+## 7. Media archive evidence (schema v5)
+
+Schema v5 adds four provider-neutral evidence tables without changing finalized `photo` or `inspection` rows:
+
+| Table | Authority | Contract |
+| --- | --- | --- |
+| `local_asset_state` | `MediaArchiveLedger` | One exact `(rel_path, content_hash, byte_size)` identity with `PRESENT`, `ARCHIVED`, or `RESTORING`; every transition records the injected clock value and a non-empty reason. |
+| `report_export_receipt` | Report export completion | Immutable audience/quality and exact PDF path/hash/size proof. Cleanup requires both landlord and tenant completion receipts. |
+| `verified_backup_receipt` | `VerifiedArchiveReceiptService` | Opaque destination/object/version identity, export/verification times, full-or-property scope, and nullable provider revocation time. Provider brands, credentials, signed URLs, and tokens are absent. |
+| `verified_backup_receipt_entry` | Same receipt transaction | Every verified manifest entry keyed by `(receipt_id, rel_path)` with exact hash and byte size. |
+
+A verified receipt is created only after the provider write has completed and the same opaque object is reopened. Both streams are consumed incrementally and compared by byte count plus SHA-256; the reopened stream also passes the real `BackupReader` authentication, decryption, manifest, file-size, file-hash, and EOF checks. Destination identity must match field-for-field, and the canonical manifest and requested scope must match. The receipt and all reopened manifest entries are then inserted in one database transaction; any unavailable source, corrupt or different bytes, incomplete identity, scope mismatch, or SQL failure produces no partial receipt evidence. Provider revocation is instead preserved exactly in `revoked_at`, so the receipt remains auditable but cannot grant eligibility.
+
+`MediaArchiveLedger.archivedEligible` additionally requires an `ARCHIVED` local identity and an exact receipt entry. A current unrevoked full receipt covers every owner; a property receipt covers only assets whose active owners are all that property. Hash/size disagreement, revoked receipts, future verification times, and property mismatch fail closed and remain visible through `assetsArchivedWithoutValidReceipt()`. This evidence only authorizes downstream cleanup decisions; actual SAF/provider I/O belongs to `T5-BACKUP-IO`, and byte deletion/rehydration belongs to `T5-LOCAL-MEDIA-RETENTION`.
+
+## 8. Diagnostics database schema
 
 ### `diagnostic_run`
 

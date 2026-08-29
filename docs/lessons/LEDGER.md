@@ -1853,3 +1853,11 @@
 - rule: When a hermetic repository copies an authoritative manifest, derive every setup action that manifest controls from the copied manifest itself. For ignored allowlisted paths, validate each exact leaf and force-add the full collection; keep a multi-member positive control plus a first-only mutation that must fail on the omitted member.
 - enforced_by: scripts/selftest.ps1 (`canary-harness` multi-member control + first-only executable mutation)
 - refs: PR #192; Actions runs #33215637748/#33226580801; upstream #305
+
+## L257
+- date: 2026-08-29 ｜ tags: backup,verification,streaming,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A reopened encrypted archive passed full BackupReader verification and had the same canonical manifest, yet it could still be a separately encrypted byte sequence; the first exact-readback implementation therefore accepted a non-identical provider object.
+- root_cause: The test oracle equated authenticated semantic content with byte-for-byte provider readback. Encryption randomness is outside the manifest, so equal files and manifest do not imply equal archive bytes.
+- rule: When a contract says the written artifact must reopen exactly, fingerprint both raw streams while they flow: compare byte count and SHA-256 after EOF, then separately validate the parsed format and manifest. Include a valid same-manifest/different-randomness negative control; corruption-only tests cannot prove raw equality.
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt
+- refs: PR #198; android/core/src/main/kotlin/nz/myinspection/core/media/archive/VerifiedArchiveReceiptService.kt; android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt

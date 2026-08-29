@@ -2,7 +2,7 @@
 id: T5-MEDIA-ARCHIVE-CONTRACT
 title: 媒体归档收口：重新打开逐字节核验、原子回执与 finalized 不变性
 depends_on: [T5-MEDIA-ARCHIVE-ELIGIBILITY]
-status: todo
+status: merged
 branch: T5-MEDIA-ARCHIVE-CONTRACT
 worktree: C:\wt\T5-MEDIA-ARCHIVE-CONTRACT
 allow_paths:
