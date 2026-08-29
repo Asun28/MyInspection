@@ -69,6 +69,7 @@ $script:ScaffoldConfig = @{
     'scripts/task\.ps1'           = @('docs/DEVOPS-WORKFLOW.md')
     'scripts/review\.ps1'         = @('docs/QUALITY-RUBRIC.md')
     'scripts/check-licenses\.ps1' = @('docs/LICENSE-POLICY.md')
+    'scripts/lessons\.ps1'        = @('docs/LESSONS.md')
     # check-scope.ps1 是 DEVOPS-WORKFLOW「已推送恢复」序列第 3 步的可执行投影，二者今后必须同步改（TD93 item①）。
     'scripts/check-scope\.ps1'    = @('docs/DEVOPS-WORKFLOW.md')
   }

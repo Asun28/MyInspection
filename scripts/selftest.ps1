@@ -6856,6 +6856,136 @@ function Get-DocDriftMissing {
   return @($missing | Sort-Object -Unique)
 }
 
+function Format-DocDriftMissing {
+  param([string[]]$MissingPaths)
+  return @($MissingPaths | ForEach-Object {
+      if ([string]$_ -ceq 'docs/LESSONS.md') { 'scripts/lessons.ps1 -> docs/LESSONS.md' } else { [string]$_ }
+    })
+}
+
+function Test-LessonsDocSyncMapContract {
+  param([Parameter(Mandatory)][hashtable]$Map)
+
+  $sourceKey = 'scripts/lessons\.ps1'
+  $sourcePath = 'scripts/lessons.ps1'
+  $docPath = 'docs/LESSONS.md'
+  $context = "source=$sourcePath doc=$docPath"
+  if (-not $Map.ContainsKey($sourceKey)) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="缺精确映射键 $sourceKey；$context" }
+  }
+  $targets = @($Map[$sourceKey])
+  if ($targets.Count -ne 1 -or $targets[0] -cne $docPath) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="映射目标须精确且唯一；$context actual=$($targets -join ',')" }
+  }
+  if ($sourcePath -cnotmatch $sourceKey -or 'scripts/_lessons.ps1' -cmatch $sourceKey) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源正则须命中 $sourcePath 且拒绝 scripts/_lessons.ps1；$context" }
+  }
+
+  $sourceOnly = @(Get-DocDriftMissing -ChangedFiles @($sourcePath) -Map $Map -EscapeHatch $false)
+  if ($sourceOnly.Count -ne 1 -or $sourceOnly[0] -cne $docPath) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源单改未精确报告配对文档；$context missing=$($sourceOnly -join ',')" }
+  }
+  $synced = @(Get-DocDriftMissing -ChangedFiles @($sourcePath, $docPath) -Map $Map -EscapeHatch $false)
+  if ($synced.Count -ne 0) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源与文档同改仍误报；$context missing=$($synced -join ',')" }
+  }
+  $decoy = @(Get-DocDriftMissing -ChangedFiles @('scripts/_lessons.ps1') -Map $Map -EscapeHatch $false)
+  if ($decoy.Count -ne 0) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="decoy scripts/_lessons.ps1 误触发；$context missing=$($decoy -join ',')" }
+  }
+  $diagnostic = @(Format-DocDriftMissing -MissingPaths $sourceOnly) -join ', '
+  if (-not $diagnostic.Contains($sourcePath) -or -not $diagnostic.Contains($docPath)) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="real-run 诊断未同时点名 source/doc；$context diagnostic=$diagnostic" }
+  }
+  return [pscustomobject]@{ Ok=$true; Code='PASS'; Message=$context }
+}
+
+function Test-LessonsStockDocSyncProfile {
+  param([Parameter(Mandatory)][hashtable]$Map)
+  $stockPairs = @{
+    'scripts/task\.ps1'           = 'docs/DEVOPS-WORKFLOW.md'
+    'scripts/review\.ps1'         = 'docs/QUALITY-RUBRIC.md'
+    'scripts/check-licenses\.ps1' = 'docs/LICENSE-POLICY.md'
+    'scripts/check-scope\.ps1'    = 'docs/DEVOPS-WORKFLOW.md'
+  }
+  foreach ($stockKey in @($stockPairs.Keys)) {
+    if (-not $Map.ContainsKey($stockKey) -or @($Map[$stockKey]) -cnotcontains $stockPairs[$stockKey]) { return $false }
+  }
+  return $true
+}
+
+function Get-LessonsCommandSourceContract {
+  param([Parameter(Mandatory)][string]$SourcePath)
+
+  $tokens = $null
+  $parseErrors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile($SourcePath, [ref]$tokens, [ref]$parseErrors)
+  if (@($parseErrors).Count -ne 0) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="scripts/lessons.ps1 AST 解析失败：$($parseErrors[0].Message)"; Commands=@() }
+  }
+  $commandParams = @($ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq 'Command' })
+  if ($commandParams.Count -ne 1) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="Command 参数须精确一处，实际=$($commandParams.Count)"; Commands=@() }
+  }
+  $validateSets = @($commandParams[0].Attributes | Where-Object { $_.TypeName.Name -ceq 'ValidateSet' })
+  if ($validateSets.Count -ne 1) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="Command 参数 ValidateSet 须精确一处，实际=$($validateSets.Count)"; Commands=@() }
+  }
+  try { $parameterCommands = @($validateSets[0].PositionalArguments | ForEach-Object { [string]$_.SafeGetValue() }) }
+  catch { return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="Command ValidateSet 非静态字符串：$($_.Exception.Message)"; Commands=@() } }
+
+  $commandSwitches = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.SwitchStatementAst] -and $node.Condition.Extent.Text.Trim() -ceq '$Command'
+      }, $true))
+  if ($commandSwitches.Count -ne 1) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="switch (`$Command) 须精确一处，实际=$($commandSwitches.Count)"; Commands=@() }
+  }
+  try { $switchCommands = @($commandSwitches[0].Clauses | ForEach-Object { [string]$_.Item1.SafeGetValue() }) }
+  catch { return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="switch (`$Command) case 非静态字符串：$($_.Exception.Message)"; Commands=@() } }
+
+  $parameterKey = (@($parameterCommands | Sort-Object -CaseSensitive) -join '|')
+  $switchKey = (@($switchCommands | Sort-Object -CaseSensitive) -join '|')
+  $parameterUnique = @($parameterCommands | Sort-Object -CaseSensitive -Unique)
+  $switchUnique = @($switchCommands | Sort-Object -CaseSensitive -Unique)
+  if ($parameterCommands.Count -ne $parameterUnique.Count -or $switchCommands.Count -ne $switchUnique.Count -or $parameterKey -cne $switchKey) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-SOURCE-CONTRACT]'; Message="ValidateSet 与 switch 命令集不一致或含重复：param=$parameterKey switch=$switchKey"; Commands=@() }
+  }
+  return [pscustomobject]@{ Ok=$true; Code='PASS'; Message=''; Commands=$parameterUnique }
+}
+
+function Test-LessonsCommandDocContract {
+  param(
+    [Parameter(Mandatory)][object[]]$Definitions,
+    [Parameter(Mandatory)][string[]]$ExpectedCommands,
+    [hashtable]$TextOverrides = @{}
+  )
+
+  $expectedIds = @('claude', 'delivery', 'skill')
+  $actualIds = @($Definitions | ForEach-Object { [string]$_.Id } | Sort-Object -CaseSensitive)
+  if (($actualIds -join '|') -cne ($expectedIds -join '|')) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-CMD-DOC-CONTRACT-SET]'; Message="须精确比较 delivery/skill/claude 三份命令清单，实际=$($actualIds -join ',')" }
+  }
+  $expectedKey = (@($ExpectedCommands | Sort-Object -CaseSensitive) -join '|')
+  foreach ($definition in $Definitions) {
+    $text = if ($TextOverrides.ContainsKey($definition.Id)) {
+      [string]$TextOverrides[$definition.Id]
+    } else {
+      [System.IO.File]::ReadAllText((Join-Path $RepoRoot $definition.Path))
+    }
+    $inventoryMatches = @([regex]::Matches($text, $definition.Pattern))
+    if ($inventoryMatches.Count -ne 1) {
+      return [pscustomobject]@{ Ok=$false; Code=$definition.Code; Message="$($definition.Path) 命令清单锚点须精确一处，实际=$($inventoryMatches.Count)" }
+    }
+    $rawInventory = $inventoryMatches[0].Groups['commands'].Value
+    $commands = @(($rawInventory.Replace('\|', '|') -split '\|') | Where-Object { $_ } | Sort-Object -CaseSensitive)
+    if (($commands -join '|') -cne $expectedKey -or $commands.Count -ne $ExpectedCommands.Count) {
+      return [pscustomobject]@{ Ok=$false; Code=$definition.Code; Message="$($definition.Path) 命令清单与 scripts/lessons.ps1 不一致：expected=$expectedKey actual=$($commands -join '|')" }
+    }
+  }
+  return [pscustomobject]@{ Ok=$true; Code='PASS'; Message='' }
+}
+
 Step '14f/17 doc-drift（DocSyncMap 耦合）'
 $docDriftFixtureMap = @{
   'scripts/task\.ps1'           = @('docs/DEVOPS-WORKFLOW.md')
@@ -6922,10 +7052,105 @@ finally { $script:ScaffoldConfig = $docDriftSavedCfg }
 if ($docDriftAccOk) { Write-Host '  14f Get-ScaffoldDocSyncMap 访问器 OK（缺键/空/非空 → 优雅）' -ForegroundColor Green }
 
 # 生产映射内容断言（R3 r5 #6a）：夹具全用局部副本 map、访问器测又替换了 config——无一消费【真实】DocSyncMap，
-# 故删/错改 _config.ps1 的生产耦合仍假绿。对【复原后的真实配置】断言首批 3 条精确耦合在场（不锁数量，容后续加宽）。
-# 但空 DocSyncMap 是允许的（graceful-degrade 铁律，R3 r6 #2）：下游可清空/自定义耦合。故默认 3 键断言
+# 故删/错改 _config.ps1 的生产耦合仍假绿。对【复原后的真实配置】断言基线精确耦合在场（不锁数量，容后续加宽）。
+# 但空 DocSyncMap 是允许的（graceful-degrade 铁律，R3 r6 #2）：下游可清空/自定义耦合。故通用基线断言
 # 仅在【元仓（非 post-init）且 map 非空】跑——元仓自检出厂 3 耦合完好；下游/空配置跳过，令空配置 14f 全绿。
 $realMap = Get-ScaffoldDocSyncMap
+
+# lessons 操作器与流程说明是 stock DocSyncMap 的同一公开契约：保留既有四条 stock 耦合时就必须补齐这一条；
+# 明确清空/替换为自定义映射仍沿用 graceful-degrade。自定义态改用 hermetic stock fixture 测判定核，不反向强加默认配置。
+$lessonsStockFixture = @{
+  'scripts/task\.ps1'           = 'docs/DEVOPS-WORKFLOW.md'
+  'scripts/review\.ps1'         = 'docs/QUALITY-RUBRIC.md'
+  'scripts/check-licenses\.ps1' = 'docs/LICENSE-POLICY.md'
+  'scripts/check-scope\.ps1'    = 'docs/DEVOPS-WORKFLOW.md'
+}
+$lessonsProfileCases = @(
+  [pscustomobject]@{ Name='stock-without-new-pair'; Map=$lessonsStockFixture; Expected=$true },
+  [pscustomobject]@{ Name='empty-disabled'; Map=@{}; Expected=$false },
+  [pscustomobject]@{ Name='post-init-custom'; Map=@{ 'scripts/custom\.ps1'=@('docs/custom.md') }; Expected=$false }
+)
+foreach ($profileCase in $lessonsProfileCases) {
+  $profileActual = Test-LessonsStockDocSyncProfile -Map $profileCase.Map
+  if ($profileActual -ne $profileCase.Expected) {
+    Fail "14f lessons map profile($($profileCase.Name))：[LESSONS-DOCSYNC-PROFILE] expected=$($profileCase.Expected) actual=$profileActual"
+  }
+}
+$lessonsStockProfile = Test-LessonsStockDocSyncProfile -Map $realMap
+$lessonsMapUnderTest = if ($lessonsStockProfile) { $realMap } else { @{ 'scripts/lessons\.ps1' = @('docs/LESSONS.md') } }
+$lessonsMapContract = Test-LessonsDocSyncMapContract -Map $lessonsMapUnderTest
+if (-not $lessonsMapContract.Ok) {
+  Fail "14f lessons map：$($lessonsMapContract.Code) $($lessonsMapContract.Message)"
+} else {
+  $lessonsMapWithoutPair = @{}
+  foreach ($mapKey in @($lessonsMapUnderTest.Keys)) {
+    if ([string]$mapKey -cne 'scripts/lessons\.ps1') { $lessonsMapWithoutPair[$mapKey] = @($lessonsMapUnderTest[$mapKey]) }
+  }
+  $lessonsMapMutation = Test-LessonsDocSyncMapContract -Map $lessonsMapWithoutPair
+  if ($lessonsMapMutation.Ok -or $lessonsMapMutation.Code -cne '[LESSONS-DOCSYNC-MAP]' -or
+      -not $lessonsMapMutation.Message.Contains('scripts/lessons.ps1') -or -not $lessonsMapMutation.Message.Contains('docs/LESSONS.md')) {
+    Fail "14f lessons map mutation：[LESSONS-DOCSYNC-MAP-MUTATION] 删除精确映射行后未得到含 source/doc 的 [LESSONS-DOCSYNC-MAP]，actual=$($lessonsMapMutation.Code) $($lessonsMapMutation.Message)"
+  } else {
+    Write-Host '  14f lessons DocSyncMap 精确耦合 OK（source-only 红 / source+doc 绿 / _lessons decoy / 映射删除变异）' -ForegroundColor Green
+  }
+}
+if (-not $lessonsStockProfile) {
+  Skip-SelftestCheck -GateId '14f(lessons-map-profile)' -Reason 'CONFIG-CUSTOM' -Message '  14f lessons stock 映射在自定义/空 DocSyncMap 下不强加；判定核与删除变异已用 hermetic fixture 验证。'
+}
+
+# lessons.ps1 的实际命令集只经 AST 解析一次：ValidateSet 与 switch 先互证，再复用同一结果逐份比对三处文档。
+# 每份文档单删 archive 均须落入自己的专用码；再删一份 comparison descriptor，须落入 contract-set 专用码。
+$lessonsCommandSource = Get-LessonsCommandSourceContract -SourcePath (Join-Path $RepoRoot 'scripts/lessons.ps1')
+if (-not $lessonsCommandSource.Ok) {
+  Fail "14f lessons commands：$($lessonsCommandSource.Code) $($lessonsCommandSource.Message)"
+} else {
+  $lessonsCommandDocs = @(
+    [pscustomobject]@{
+      Id='delivery'; Path='docs/DELIVERY-CHAINS.md'; Code='[LESSONS-CMD-DOC-DELIVERY]'
+      Pattern='(?m)^\| 自净化经验系统 \| `scripts/lessons\.ps1 (?<commands>[^`]+)` \|'
+    },
+    [pscustomobject]@{
+      Id='skill'; Path='.claude/skills/lessons/SKILL.md'; Code='[LESSONS-CMD-DOC-SKILL]'
+      Pattern='(?m)^完整命令集：`(?<commands>[^`]+)`。\r?$'
+    },
+    [pscustomobject]@{
+      Id='claude'; Path='CLAUDE.md'; Code='[LESSONS-CMD-DOC-CLAUDE]'
+      Pattern='(?m)^> `scripts/lessons\.ps1` 完整命令集：`(?<commands>[^`]+)`；[^\r\n]*$'
+    }
+  )
+  $lessonsDocsBaseline = Test-LessonsCommandDocContract -Definitions $lessonsCommandDocs -ExpectedCommands @($lessonsCommandSource.Commands)
+  if (-not $lessonsDocsBaseline.Ok) {
+    Fail "14f lessons commands：$($lessonsDocsBaseline.Code) $($lessonsDocsBaseline.Message)"
+  } else {
+    $lessonsDocsMutationOk = $true
+    foreach ($definition in $lessonsCommandDocs) {
+      $baselineText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot $definition.Path))
+      $inventoryMatch = [regex]::Match($baselineText, $definition.Pattern)
+      $inventoryGroup = $inventoryMatch.Groups['commands']
+      $mutatedInventory = $inventoryGroup.Value.Replace('archive\|', '').Replace('archive|', '')
+      if (-not $inventoryMatch.Success -or $mutatedInventory -ceq $inventoryGroup.Value) {
+        Fail "14f lessons commands mutation($($definition.Id))：[LESSONS-CMD-DOC-MUTATION-SETUP] 无法只删 archive。"
+        $lessonsDocsMutationOk = $false
+        continue
+      }
+      $mutatedText = $baselineText.Substring(0, $inventoryGroup.Index) + $mutatedInventory + $baselineText.Substring($inventoryGroup.Index + $inventoryGroup.Length)
+      $mutatedResult = Test-LessonsCommandDocContract -Definitions $lessonsCommandDocs -ExpectedCommands @($lessonsCommandSource.Commands) -TextOverrides @{ $definition.Id = $mutatedText }
+      if ($mutatedResult.Ok -or $mutatedResult.Code -cne $definition.Code) {
+        Fail "14f lessons commands mutation($($definition.Id))：[LESSONS-CMD-DOC-ARCHIVE-MUTATION] 单删 archive 未得到 $($definition.Code)，actual=$($mutatedResult.Code)"
+        $lessonsDocsMutationOk = $false
+      }
+    }
+    $comparisonDeletion = Test-LessonsCommandDocContract -Definitions @($lessonsCommandDocs | Where-Object { $_.Id -cne 'skill' }) -ExpectedCommands @($lessonsCommandSource.Commands)
+    if ($comparisonDeletion.Ok -or $comparisonDeletion.Code -cne '[LESSONS-CMD-DOC-CONTRACT-SET]') {
+      Fail "14f lessons commands mutation(comparison)：[LESSONS-CMD-DOC-COMPARISON-MUTATION] 删除 skill comparison 后未得到 [LESSONS-CMD-DOC-CONTRACT-SET]，actual=$($comparisonDeletion.Code)"
+      $lessonsDocsMutationOk = $false
+    }
+    if ($lessonsDocsMutationOk) {
+      Write-Host "  14f lessons 命令文档同步 OK（AST 单次解析=$(@($lessonsCommandSource.Commands) -join '|')；三文档 archive 删除 + comparison 删除变异）" -ForegroundColor Green
+    }
+  }
+}
+
 $realMapOk = $true
 if ($realMap -isnot [hashtable]) { Fail '14f 生产映射：Get-ScaffoldDocSyncMap 未返回 hashtable。'; $realMapOk = $false }
 else {
@@ -6949,12 +7174,13 @@ if ($realMapDisposition -ceq 'ASSERT') {
     'scripts/task\.ps1'           = 'docs/DEVOPS-WORKFLOW.md'
     'scripts/review\.ps1'         = 'docs/QUALITY-RUBRIC.md'
     'scripts/check-licenses\.ps1' = 'docs/LICENSE-POLICY.md'
+    'scripts/lessons\.ps1'        = 'docs/LESSONS.md'
   }
   foreach ($k in $expectedPairs.Keys) {
     if (-not $realMap.ContainsKey($k)) { Fail "14f 生产映射：DocSyncMap 缺源键『$k』（生产耦合被删/错改）。"; $realMapOk = $false }
     elseif (@($realMap[$k]) -cnotcontains $expectedPairs[$k]) { Fail "14f 生产映射：源『$k』未精确配对到『$($expectedPairs[$k])』（得到 $(@($realMap[$k]) -join ',')）。"; $realMapOk = $false }
   }
-  if ($realMapOk) { Write-Host '  14f 生产 DocSyncMap 首批 3 条耦合精确在场 OK（元仓自检）' -ForegroundColor Green }
+  if ($realMapOk) { Write-Host '  14f 生产 DocSyncMap 基线耦合精确在场 OK（元仓自检）' -ForegroundColor Green }
 }
 elseif ($realMapDisposition -ceq 'POST-INIT-NOT-APPLICABLE') {
   Skip-SelftestCheck -GateId '14f(config-map)' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  14f 生产 DocSyncMap 元仓默认耦合断言跳过（post-init 下游可自定义映射）。'
@@ -7098,7 +7324,7 @@ else {
   $docDriftEscape = (@($docDriftDecision.Messages) -join "`n").Contains('[doc-sync:none]')
   $docDriftMissing = @(Get-DocDriftMissing -ChangedFiles @($docDriftDecision.Changed) -Map (Get-ScaffoldDocSyncMap) -EscapeHatch $docDriftEscape)
   if ($docDriftMissing.Count -gt 0) {
-    Fail "14f doc-drift：源脚本已变更但缺配对文档：$($docDriftMissing -join ', ')"
+    Fail "14f doc-drift：源脚本已变更但缺配对文档：$((Format-DocDriftMissing -MissingPaths $docDriftMissing) -join ', ')"
   }
   else {
     Write-Host '  14f real-run DocSyncMap 耦合 OK' -ForegroundColor Green
