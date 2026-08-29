@@ -4023,7 +4023,7 @@ exit 0
     $rendezvousControllerPath82 = Join-Path $aggFixture 'scripts/rendezvous-controller.ps1'
     @'
 param(
-  [ValidateSet('load', 'timeout')][string]$Mode,
+  [ValidateSet('load', 'timeout', 'early-exit')][string]$Mode,
   [string]$ReadyRoot,
   [int]$DelayMilliseconds = 0,
   [int]$SetupDelayMilliseconds = 0,
@@ -4044,6 +4044,10 @@ function Wait-RendezvousMarker([string]$Name) {
 try {
   Wait-RendezvousMarker 'workflow.blocked'
   Wait-RendezvousMarker 'seeded.ready'
+  if ($Mode -eq 'early-exit') {
+    Wait-RendezvousMarker 'seeded.done'
+    throw 'seeded completed before early-exit workflow release'
+  }
   if (Test-Path -LiteralPath (Join-Path $ReadyRoot 'seeded.done')) {
     throw 'seeded completed before workflow release'
   }
@@ -4261,16 +4265,14 @@ try {
       "if (`$readyClock.Elapsed.TotalSeconds -ge 8) { break }`n  $earlyExitTarget82")
     $earlyExitMutant82 | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
-    $earlyExitController82 = & $startRendezvousController82 'load' $rendezvousLoadDelayMilliseconds82 $rendezvousSetupDelayMilliseconds82
+    $earlyExitController82 = & $startRendezvousController82 'early-exit' 0 0
     $earlyExitOutput82 = & { $script:earlyExitResult82 = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
     $earlyExitControllerResult82 = & $completeRendezvousController82 $earlyExitController82
-    $earlyExitWatchdogPath82 = Join-Path $aggLogs 'ready/load.watchdog'
+    $earlyExitWatchdogPath82 = Join-Path $aggLogs 'ready/early-exit.watchdog'
     $earlyExitWatchdog82 = if (Test-Path -LiteralPath $earlyExitWatchdogPath82) { Get-Content -LiteralPath $earlyExitWatchdogPath82 -Raw } else { '' }
     if (-not $earlyExitControllerResult82.Completed -or $earlyExitControllerResult82.ExitCode -ne 41 -or
-        $earlyExitWatchdog82 -notmatch '^seeded completed before delayed workflow release\s*$' -or
-        (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/load.observed'))) {
-      $earlyExitObserved82 = Test-Path -LiteralPath (Join-Path $aggLogs 'ready/load.observed')
-      Fail "[SELFTEST-8.2E-EARLY-EXIT-MUTATION] aggregate-exit=$earlyExitResult82 aggregate-pass=$($earlyExitOutput82 -match 'selftest\(all\): PASS') controller-completed=$($earlyExitControllerResult82.Completed) controller-exit=$($earlyExitControllerResult82.ExitCode) watchdog=$($earlyExitWatchdog82.Trim()) load-observed=$earlyExitObserved82"
+        $earlyExitWatchdog82 -notmatch '^seeded completed before early-exit workflow release\s*$') {
+      Fail "[SELFTEST-8.2E-EARLY-EXIT-MUTATION] aggregate-exit=$earlyExitResult82 aggregate-pass=$($earlyExitOutput82 -match 'selftest\(all\): PASS') controller-completed=$($earlyExitControllerResult82.Completed) controller-exit=$($earlyExitControllerResult82.ExitCode) watchdog=$($earlyExitWatchdog82.Trim())"
     }
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
     $aggregateStubSource | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
@@ -4283,12 +4285,16 @@ try {
     $legacyDefaultMutant82 = $aggregateStubSource.Replace($defaultBudgetTarget82, '$readyTimeoutSeconds = 5')
     $legacyDefaultMutant82 | Set-Content -LiteralPath (Join-Path $aggFixture 'scripts/selftest.ps1') -Encoding utf8
     $env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS = 'workflow,core'
-    $legacyDefaultController82 = & $startRendezvousController82 'load' $rendezvousLoadDelayMilliseconds82 0
+    $legacyDefaultController82 = & $startRendezvousController82 'timeout' 0 0
     $legacyDefaultOutput82 = & { $script:legacyDefaultExit82 = Invoke-SelftestAll -SourceRoot $aggFixture -CoreDelaySeconds 0 } 6>&1 | Out-String
     $legacyDefaultControllerResult82 = & $completeRendezvousController82 $legacyDefaultController82
+    $legacyDefaultObservedPath82 = Join-Path $aggLogs 'ready/timeout.observed'
+    $legacyDefaultObserved82 = if (Test-Path -LiteralPath $legacyDefaultObservedPath82) { Get-Content -LiteralPath $legacyDefaultObservedPath82 -Raw } else { '' }
     if ($legacyDefaultExit82 -ne 1 -or
         $legacyDefaultOutput82 -notmatch '\[SELFTEST-8\.2E-RENDEZVOUS\] shard=seeded state=timeout timeout-seconds=5 waiting-for=workflow\.ready' -or
-        -not $legacyDefaultControllerResult82.Completed -or $legacyDefaultControllerResult82.ExitCode -ne 0) {
+        -not $legacyDefaultControllerResult82.Completed -or $legacyDefaultControllerResult82.ExitCode -ne 0 -or
+        $legacyDefaultObserved82 -notmatch '^setup-delay-ms=\d+;seeded-timeout=True\s*$' -or
+        (Test-Path -LiteralPath (Join-Path $aggLogs 'ready/timeout.watchdog'))) {
       Fail '[SELFTEST-8.2E-DEFAULT-BUDGET-MUTATION] reverting the default rendezvous budget to five seconds survived.'
     }
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_RELEASE_SHARDS -ErrorAction SilentlyContinue
@@ -4402,6 +4408,14 @@ try {
         "       (-not (Test-Path (Join-Path `$readyRoot 'seeded.ready')) -or"
         "        -not (Test-Path (Join-Path `$readyRoot 'workflow.ready')))) {"
       ) -join "`n")
+      'EARLY-EXIT-HANDSHAKE' = (@(
+        "if (`$Mode -eq 'early-exit') {"
+        "    Wait-RendezvousMarker 'seeded.done'"
+        "    throw 'seeded completed before early-exit workflow release'"
+        '  }'
+      ) -join "`n")
+      'EARLY-EXIT-CONTROLLER' = ('$earlyExitController82 = & $startRendezvous' + 'Controller82 ''early-exit'' 0 0')
+      'DEFAULT-FIVE-TIMEOUT-CONTROLLER' = ('$legacyDefaultController82 = & $startRendezvous' + 'Controller82 ''timeout'' 0 0')
       'LOAD-MARKER-ASSERTION' = (@(
         'if ($probeLoadDelay -ne 0 -or $probeLoadDelayOutput -notmatch ''selftest\(all\): PASS'' -or'
         '        -not $loadControllerResult82.Completed -or $loadControllerResult82.ExitCode -ne 0 -or'
