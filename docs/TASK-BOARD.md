@@ -96,7 +96,7 @@
 | W0 | T0-DEBT-TD9-SPLIT-ARCHIVE-CONSUMER | 让 TD9 split checker 在规划卡冷存后仍验证历史合同 | T0-DEBT-SELFTEST-SPLIT-PLAN | S | GPT-5.6 Terra · high | Codex R3 | **merged**（master `3922dd5`，PR #107；bounded live/archive consumer 夹具、verify/R3 PASS） |
 | W0 | T0-HANDOFF-REVALIDATE | 续接旧 HANDOFF 前重验阻塞前提、卡状态与更小方案仍成立 | — | S | GPT-5.6 Terra · high | Codex R3 | **merged**（master `17d6cf2`，PR #100；verify/R3 PASS，真实 init/check/SessionStart 三臂 DoD） |
 | W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `86a895a9`，PR #187；91 个候选只执行 4 个代表性变异，峰值完整源码集合 2、终态 1；DoD/verify/R3 PASS；TD9 仍 carded） |
-| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 五卡全 merged + post-merge core 重放后才可 paid |
+| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `95f74222`，PR #189；具名默认/注入预算、marker handshake、timeout/early-exit/cleanup mutations；DoD/focused gate8/verify/R3 PASS；TD9 仍 carded，等待 post-merge core 重放） |
 | W0 | T0-DEBT-MIGRATION-FIXTURE-CLEANUP | PR #47 round-cap 后收敛 Windows migration fixture 清理（TD145） | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `19e4646`，PR #93；短路径、有界重试、完整诊断与清理终态通过，解除 TD4 R5 阻塞） |
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | —（人工真机验收） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | 冻结前 Opus 5 抽审 |

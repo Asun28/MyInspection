@@ -133,10 +133,10 @@ $boardRows = @(
   '| W0 | T0-DEBT-SELFTEST-SKIP-VISIBILITY | 有意 skip 与前置失败裁剪进入确定性执行台账（TD9 2/5） | T0-DEBT-SELFTEST-CRITICAL-PATH + T0-LICENSE-SELFTEST-DRIFT | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `c745015`，PR #33；机器 skip 台账、汇总与 bounded helper，core/verify/R3 PASS；生产 no-git routing 与 mutation 预算按卡拆分） |',
   '| W0 | T0-DEBT-SELFTEST-NOGIT-ROUTING | 有界 fixture mode 证明生产 seeded git-present/absent routing 与 outcome ledger（TD9 3/5） | T0-DEBT-SELFTEST-SKIP-VISIBILITY | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `02425dd`，PR #110；完整 130-gate 身份、nonce 子进程与 route inversion mutation；DoD/verify 绿，两轮 R3 finding 修复后人裁；TD9 仍 carded） |',
   '| W0 | T0-DEBT-SELFTEST-MUTATION-BUDGET | parse-once 紧凑 identity inventory，消除数百份整脚本 mutation 副本（TD9 4/5） | T0-DEBT-SELFTEST-NOGIT-ROUTING | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `86a895a9`，PR #187；91 个候选只执行 4 个代表性变异，峰值完整源码集合 2、终态 1；DoD/verify/R3 PASS；TD9 仍 carded） |',
-  '| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 五卡全 merged + post-merge core 重放后才可 paid |'
+  '| W0 | T0-DEBT-SELFTEST-LOAD-STABILITY | 8.2e 用具名有界预算承受超过五秒的 runner 调度延迟（TD9 5/5） | T0-DEBT-SELFTEST-MUTATION-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `95f74222`，PR #189；具名默认/注入预算、marker handshake、timeout/early-exit/cleanup mutations；DoD/focused gate8/verify/R3 PASS；TD9 仍 carded，等待 post-merge core 重放） |'
 )
 $trackerChain = '`T0-DEBT-SELFTEST-LOAD-STABILITY`'
-$trackerGuard = '该卡 merged 后再做一次 post-merge core 重放，才可把 TD9 置 paid'
+$trackerGuard = '仅余一次 post-merge core 重放，稳定后才可把 TD9 置 paid'
 $planChain = '`T0-DEBT-SELFTEST-SKIP-VISIBILITY` → `T0-DEBT-SELFTEST-NOGIT-ROUTING` → `T0-DEBT-SELFTEST-MUTATION-BUDGET` → `T0-DEBT-SELFTEST-LOAD-STABILITY`'
 $planWidth = '四卡均修改 `scripts/selftest.ps1`，执行宽度固定为 1。'
 
@@ -279,7 +279,7 @@ $cardContract = [ordered]@{
     Scalars = [ordered]@{
       id = 'T0-DEBT-SELFTEST-LOAD-STABILITY'
       title = '消除 8.2e 高负载下固定五秒 rendezvous 假红'
-      status = 'todo'
+      status = 'merged'
       depends_on = '[T0-DEBT-SELFTEST-MUTATION-BUDGET]'
       branch = 'T0-DEBT-SELFTEST-LOAD-STABILITY'
       worktree = 'C:\wt\T0-DEBT-SELFTEST-LOAD-STABILITY'

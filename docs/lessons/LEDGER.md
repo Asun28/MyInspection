@@ -1837,3 +1837,11 @@
 - rule: 对重复结构文件做变异与恢复时，补丁必须同时包含唯一查询/函数标签和被改语句的唯一邻接上下文；恢复后先查看完整目标块与 git diff，再运行绿测，禁止用通用片段跨块恢复。
 - enforced_by: none（流程纪律，靠评审与变异后 diff 核验）
 - refs: PR #191; android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq
+
+## L255
+- date: 2026-08-29 ｜ tags: powershell,testing,determinism,process ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 并发子进程夹具靠固定墙钟等待和统一控制器编排 timeout、early-exit；高负载下目标进程尚未到达就被误判超时，且控制器竞态令证明偶发翻转。
+- root_cause: 测试把调度时机当成可观察状态；不同失败语义共享同一时序控制器，未等待各自的就绪 marker，也未把终止与清理纳入有界生命周期。
+- rule: 并发夹具用唯一 marker handshake 建立 happens-before；timeout 与 early-exit 使用各自 marker 专用控制器，并以单调时钟、有界终止和残留进程断言锁住生命周期。
+- enforced_by: scripts/selftest.ps1
+- refs: PR #189; scripts/selftest.ps1

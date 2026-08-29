@@ -2,7 +2,7 @@
 id: T0-DEBT-SELFTEST-LOAD-STABILITY
 title: 消除 8.2e 高负载下固定五秒 rendezvous 假红
 depends_on: [T0-DEBT-SELFTEST-MUTATION-BUDGET]
-status: todo
+status: merged
 branch: T0-DEBT-SELFTEST-LOAD-STABILITY
 worktree: C:\wt\T0-DEBT-SELFTEST-LOAD-STABILITY
 allow_paths:

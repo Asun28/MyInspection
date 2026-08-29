@@ -213,10 +213,10 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 `Fail` 文案解析 gate id，重复声明会点名 id 与全部位置；同时强制唯一 raw 插入锚、源码可解析、双面集合与词法 owner
 一致，并以 6 类删除变异防止守卫静默失效。TD146 已 paid。
 
-**TD9 mutation 预算已收敛**（2026-08-28，PR #187，master `86a895a9`）：skip 接线先 parse once 投影为紧凑
-identity inventory；91 个候选只执行 4 个能独立杀死 reason、gate、batch truncation 与 outcome overlap 的代表性变异，
-完整源码集合峰值 2、终态 1，并有稳定 ASCII 预算哨兵。TD9 保持 carded，下一站为 `T0-DEBT-SELFTEST-LOAD-STABILITY`，
-其合并后仍须重放一次 post-merge core，才可置 paid。
+**TD9 五张子卡已全部合并**（2026-08-29，PR #189，master `95f74222`）：8.2e rendezvous 现用具名的
+30 秒默认预算与可注入的 1..120 秒测试预算；marker handshake、单调时钟及有界子进程清理共同覆盖旧 5 秒调度延迟、
+真实 timeout 与 early-exit，并由删除/替换变异锁住确定性。DoD、focused gate8、verify 与 R3 均通过；TD9 仍保持
+carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 
 **Gradle 测试输入假绿已封口**（2026-08-29，PR #188，master `6fda9f88`）：`:core:test` / `:core:e2eTest` 现在精确声明
 运行期读取的 compliance 配置、双语模板与源码文件，权威文件或 source-purity 目标变化不会再被 UP-TO-DATE / FROM-CACHE
