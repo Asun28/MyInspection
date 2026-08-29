@@ -1287,6 +1287,8 @@ function Get-SelftestCanarySourceContracts {
     [PSCustomObject]@{ Code = 'SHIP-DIAGNOSTIC'; Text = ('        $shipDiagnostic = Get-SelftestNestedShipDiagnostic -ExitCode $shipExit -Output $shipOutput -LedgerPath ' + '(Join-Path $e2e ''_local/effectiveness-ledger.jsonl'')') }
     [PSCustomObject]@{ Code = 'SHIP-FAIL'; Text = ('        Fail "$shipDiagnostic task.ps1 -Phase ship -Local ' + '非零退出。"') }
     [PSCustomObject]@{ Code = 'MIGRATION-PREFLIGHT'; Text = ('      Get-GradleWrapperDistributionState -AndroidRoot $androidRoot ' + '-GradleUserHome $gradleHome') }
+    [PSCustomObject]@{ Code = 'MIGRATION-CONTINUE-WINDOWS'; Scope = 'MIGRATION-CORE-CHECK'; Text = ('              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon ' + '--continue -q :core:check 2>&1 | Out-String }') }
+    [PSCustomObject]@{ Code = 'MIGRATION-CONTINUE-POSIX'; Scope = 'MIGRATION-CORE-CHECK'; Text = ('              else { $output = & sh android/gradlew -p android --offline --no-daemon ' + '--continue -q :core:check 2>&1 | Out-String }') }
     [PSCustomObject]@{ Code = 'MIGRATION-ADDED'; Text = ('          $td4MissingExact = $td4MissingResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4MissingResult.Output -match ''td4_missing_migration_probe'' -and $td4MissingResult.Output -match ' + '''ADDED''') }
     [PSCustomObject]@{ Code = 'MIGRATION-REMOVED'; Text = ('          $td4WrongExact = $td4WrongResult.Output -match ''verifyMainMyInspectionDatabaseMigration'' -and $td4WrongResult.Output -match ''td4_wrong_migration_probe'' -and $td4WrongResult.Output -match ' + '''REMOVED''') }
     [PSCustomObject]@{ Code = 'E2E-SENSITIVE-ALLOWLIST'; Text = ('    $reviewedSensitivePaths = @(Get-Content -LiteralPath (Join-Path $e2e ''configs/secrets/tracked-sensitive-' + 'allowlist.json'') -Raw | ConvertFrom-Json | ForEach-Object { [string]$_.path })') }
@@ -1299,11 +1301,29 @@ function Get-SelftestCanarySourceContractFailures {
 
   $failures = [Collections.Generic.List[string]]::new()
   foreach ($contract in @(Get-SelftestCanarySourceContracts)) {
-    if ([regex]::Matches($Source, [regex]::Escape($contract.Text)).Count -ne 1) {
+    $contractSource = $Source
+    $scopeProperty = $contract.PSObject.Properties['Scope']
+    if ($scopeProperty -and $scopeProperty.Value -ceq 'MIGRATION-CORE-CHECK') {
+      $migrationBlockStart = $Source.IndexOf(('          $invokeTd4Core' + 'Check = {'), [StringComparison]::Ordinal)
+      $migrationBlockEnd = if ($migrationBlockStart -ge 0) { $Source.IndexOf(('          $td4Tenancy' + 'File = '), $migrationBlockStart, [StringComparison]::Ordinal) } else { -1 }
+      $contractSource = if ($migrationBlockStart -ge 0 -and $migrationBlockEnd -gt $migrationBlockStart) { $Source.Substring($migrationBlockStart, $migrationBlockEnd - $migrationBlockStart) } else { '' }
+    }
+    if ([regex]::Matches($contractSource, [regex]::Escape($contract.Text)).Count -ne 1) {
       $failures.Add([string]$contract.Code)
     }
   }
   return @($failures)
+}
+
+function Get-SelftestGradleContinueInvocationCount {
+  param([Parameter(Mandatory)][string]$Source)
+
+  $gradleWrapperPattern = '(?:& cmd /c android\\gradlew\.bat|& sh android/gradlew)'
+  return @($Source -split '\r?\n' | Where-Object {
+      $_ -match $gradleWrapperPattern -and
+      $_ -match '(?:^|\s)--continue(?:\s|$)' -and
+      $_ -notmatch '^\s*\[PSCustomObject\]'
+    }).Count
 }
 
 $noGitFixtureChild = (
@@ -1518,7 +1538,10 @@ if ($Fixture -eq 'canary-harness') {
 
     $source = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/selftest.ps1'))
     $contractFailures = @(Get-SelftestCanarySourceContractFailures -Source $source)
+    $migrationContinuePattern = '(?m)^\s+(?:if \(\$IsWindows\) \{ \$output = & cmd /c android\\gradlew\.bat|else \{ \$output = & sh android/gradlew) -p android --offline --no-daemon --con' + 'tinue -q :core:check 2>&1 \| Out-String \}\r?$'
     if ($contractFailures.Count -ne 0 -or
+        [regex]::Matches($source, $migrationContinuePattern).Count -ne 2 -or
+        (Get-SelftestGradleContinueInvocationCount -Source $source) -ne 2 -or
         [regex]::Matches($source, '(?m)^\s+\$(?:cold|ready|td4MigrationGate) = Invoke-SelftestGradleMigrationGate -AndroidRoot').Count -ne 3 -or
         [regex]::Matches($source, '(?m)^\s+Add-SelftestE2eBaseline -RepoRoot \$e2e ').Count -ne 1 -or
         $source.Contains("-TaskId T0-SMOKE -Phase ship -Local -SkipRed *> `$null`n      `$shipExit")) {
@@ -1530,12 +1553,39 @@ if ($Fixture -eq 'canary-harness') {
       if ($mutationFailures.Count -ne 1 -or $mutationFailures[0] -cne $contract.Code) {
         throw "canary-harness source mutation did not isolate $($contract.Code): $($mutationFailures -join ',')"
       }
+      $scopeProperty = $contract.PSObject.Properties['Scope']
+      if ($scopeProperty -and $scopeProperty.Value -ceq 'MIGRATION-CORE-CHECK') {
+        $relocatedSource = $mutatedSource + [Environment]::NewLine + $contract.Text + [Environment]::NewLine
+        $relocationFailures = @(Get-SelftestCanarySourceContractFailures -Source $relocatedSource)
+        if ($relocationFailures.Count -ne 1 -or $relocationFailures[0] -cne $contract.Code -or [regex]::Matches($relocatedSource, $migrationContinuePattern).Count -ne 2) {
+          throw "canary-harness source relocation mutation did not isolate $($contract.Code): $($relocationFailures -join ',')"
+        }
+        $diffusedSource = $source + [Environment]::NewLine + $contract.Text + [Environment]::NewLine
+        if ([regex]::Matches($diffusedSource, $migrationContinuePattern).Count -ne 3 -or (Get-SelftestGradleContinueInvocationCount -Source $diffusedSource) -ne 3) {
+          throw "canary-harness source diffusion mutation did not widen the invocation surface for $($contract.Code)."
+        }
+      }
+    }
+    $otherRouteMutant = $source + [Environment]::NewLine +
+      ('              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon --con' + 'tinue -q :app:check 2>&1 | Out-String }') + [Environment]::NewLine +
+      ('              else { $output = & sh android/gradlew -p android --offline --no-daemon --con' + 'tinue -q :app:check 2>&1 | Out-String }') + [Environment]::NewLine
+    if ((Get-SelftestGradleContinueInvocationCount -Source $otherRouteMutant) -ne 4 -or [regex]::Matches($otherRouteMutant, $migrationContinuePattern).Count -ne 2) {
+      throw 'canary-harness other-route diffusion mutation survived generic Gradle --continue cardinality or polluted the exact migration-task count.'
     }
     Write-Host '[SELFTEST-FIXTURE] canary-harness PASS'
     exit 0
   } finally {
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
+}
+
+if (-not $Fixture -and $Shard -eq 'seeded') {
+  $sourceCanaryOutput = & pwsh -NoProfile -File $PSCommandPath -Shard seeded -Fixture canary-harness 2>&1 | Out-String
+  $sourceCanaryExit = $LASTEXITCODE
+  if ($sourceCanaryExit -ne 0 -or $sourceCanaryOutput -notmatch '\[SELFTEST-FIXTURE\] canary-harness PASS') {
+    throw "seeded source-contract canary failed or was not reached (exit=$sourceCanaryExit): $sourceCanaryOutput"
+  }
+  Write-Host '  seeded source-contract canary：两平台删除/移位/扩散变异均被 scoped production block 精确击杀 OK' -ForegroundColor Green
 }
 
 function Test-SelftestGateIdContract {
@@ -9838,6 +9888,8 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
       Join-Path ([System.IO.Path]::GetTempPath()) "st4-$PID"
     }
     $td4MigrationWorktreeAdded = $false
+    $td4ComplianceOriginal = $null
+    $td4ComplianceFile = $null
     $td4TenancyOriginal = $null
     $td4TenancyFile = $null
     $td4WrongMigration = $null
@@ -9852,7 +9904,7 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         if ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
           Fail '闸17a3(migration/setup)：fixture HEAD 未含 verifyMigrations=true + tracked 1.db，迁移负例会 vacuous。'
         } else {
-          $invokeTd4CoreCheck = {
+          $invokeTd4CoreCheckWithoutContinue = {
             Push-Location $td4MigrationRepo
             try {
               if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
@@ -9860,16 +9912,45 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
               [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
             } finally { Pop-Location }
           }
+          $invokeTd4CoreCheck = {
+            Push-Location $td4MigrationRepo
+            try {
+              if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon --continue -q :core:check 2>&1 | Out-String }
+              else { $output = & sh android/gradlew -p android --offline --no-daemon --continue -q :core:check 2>&1 | Out-String }
+              [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+            } finally { Pop-Location }
+          }
 
           $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
           $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
-          $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
-          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
-          $td4MissingResult = & $invokeTd4CoreCheck
-          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
-          $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
-          if ($td4MissingResult.Exit -eq 0 -or -not $td4MissingExact) {
-            Fail "种子缺陷 17a3(migration-missing)：改 .sq 不带 .sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+          $td4ComplianceFile = Join-Path $td4MigrationRepo 'configs/compliance/nz-rules-v1.json'
+          $td4ComplianceOriginal = [System.IO.File]::ReadAllText($td4ComplianceFile)
+          $td4ComplianceMutant = $td4ComplianceOriginal | ConvertFrom-Json
+          $td4ExemptTypes = @($td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes | ForEach-Object { "$_" })
+          if ($td4ExemptTypes.Count -ne 2 -or $td4ExemptTypes[0] -cne 'INGOING' -or $td4ExemptTypes[1] -cne 'EXIT') {
+            Fail "闸17a3(migration-continue/setup)：runtime config 的 exemptTypes 基线漂移，无法构造稳定 :core:test 失败（actual=$($td4ExemptTypes -join ',')）。"
+          } else {
+            $td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes = @($td4ExemptTypes + 'ANNUAL')
+            [System.IO.File]::WriteAllText($td4ComplianceFile, ($td4ComplianceMutant | ConvertTo-Json -Depth 20), [System.Text.UTF8Encoding]::new($false))
+
+            $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+            [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
+            $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
+            $td4MissingResult = & $invokeTd4CoreCheck
+            [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+
+            $td4TestFailureMarker = "Execution failed for task ':core:test'."
+            $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
+            if (-not $td4WithoutContinueExact) {
+              Fail "闸17a3(migration-continue/mutant)：无 --continue 的真实 :core:check 未精确复现 test 先红、migration verifier 未运行的 blind spot（exit=$($td4WithoutContinueResult.Exit)）。输出：$($td4WithoutContinueResult.Output)"
+            }
+
+            $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
+            $td4ContinuedExact = $td4MissingResult.Exit -ne 0 -and $td4MissingResult.Output.Contains($td4TestFailureMarker) -and $td4MissingExact
+            if (-not $td4ContinuedExact) {
+              Fail "种子缺陷 17a3(migration-continue)：:core:test 先红后未继续执行真实 migration verifier，或任一稳定诊断缺失（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+            }
           }
 
           $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
@@ -9884,6 +9965,9 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         }
       }
     } finally {
+      if ($td4ComplianceFile -and $null -ne $td4ComplianceOriginal -and (Test-Path -LiteralPath $td4ComplianceFile)) {
+        [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
+      }
       if ($td4TenancyFile -and $null -ne $td4TenancyOriginal -and (Test-Path -LiteralPath $td4TenancyFile)) {
         [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
       }
