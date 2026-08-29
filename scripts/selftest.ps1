@@ -6874,20 +6874,24 @@ function Test-LessonsDocSyncMapContract {
     return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="缺精确映射键 $sourceKey；$context" }
   }
   $targets = @($Map[$sourceKey])
-  if ($targets.Count -ne 1 -or $targets[0] -cne $docPath) {
-    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="映射目标须精确且唯一；$context actual=$($targets -join ',')" }
+  if ($targets -cnotcontains $docPath) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="映射目标须包含配对文档；$context actual=$($targets -join ',')" }
   }
   if ($sourcePath -cnotmatch $sourceKey -or 'scripts/_lessons.ps1' -cmatch $sourceKey) {
     return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源正则须命中 $sourcePath 且拒绝 scripts/_lessons.ps1；$context" }
   }
 
   $sourceOnly = @(Get-DocDriftMissing -ChangedFiles @($sourcePath) -Map $Map -EscapeHatch $false)
-  if ($sourceOnly.Count -ne 1 -or $sourceOnly[0] -cne $docPath) {
-    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源单改未精确报告配对文档；$context missing=$($sourceOnly -join ',')" }
+  if ($sourceOnly -cnotcontains $docPath) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源单改未报告配对文档；$context missing=$($sourceOnly -join ',')" }
   }
   $synced = @(Get-DocDriftMissing -ChangedFiles @($sourcePath, $docPath) -Map $Map -EscapeHatch $false)
-  if ($synced.Count -ne 0) {
-    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源与文档同改仍误报；$context missing=$($synced -join ',')" }
+  if ($synced -ccontains $docPath) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源与指定文档同改仍误报该文档；$context missing=$($synced -join ',')" }
+  }
+  $allSynced = @(Get-DocDriftMissing -ChangedFiles (@($sourcePath) + $targets) -Map $Map -EscapeHatch $false)
+  if ($allSynced.Count -ne 0) {
+    return [pscustomobject]@{ Ok=$false; Code='[LESSONS-DOCSYNC-MAP]'; Message="源与全部映射文档同改仍误报；$context missing=$($allSynced -join ',')" }
   }
   $decoy = @(Get-DocDriftMissing -ChangedFiles @('scripts/_lessons.ps1') -Map $Map -EscapeHatch $false)
   if ($decoy.Count -ne 0) {
@@ -6986,6 +6990,62 @@ function Test-LessonsCommandDocContract {
   return [pscustomobject]@{ Ok=$true; Code='PASS'; Message='' }
 }
 
+function Invoke-LessonsContractChild {
+  param(
+    [Parameter(Mandatory)][string[]]$FunctionNames,
+    [Parameter(Mandatory)][string]$Body
+  )
+
+  $definitions = [System.Collections.Generic.List[string]]::new()
+  foreach ($functionName in $FunctionNames) {
+    $functionCommand = Get-Command -Name $functionName -CommandType Function -ErrorAction SilentlyContinue
+    if (-not $functionCommand) {
+      return [pscustomobject]@{ Exit=98; Output="[LESSONS-CONTRACT-CHILD-SETUP] missing function=$functionName" }
+    }
+    $definitions.Add("function $functionName {`n$($functionCommand.Definition)`n}")
+  }
+  $childScript = @(
+    'Set-StrictMode -Version Latest'
+    '$ErrorActionPreference = ''Stop'''
+    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)'
+    $definitions
+    $Body
+  ) -join "`n"
+  $previousNativePreference = if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference } else { $true }
+  $PSNativeCommandUseErrorActionPreference = $false
+  try {
+    $childOutput = (& pwsh -NoProfile -Command $childScript 2>&1 | Out-String)
+    $childExit = $LASTEXITCODE
+    return [pscustomobject]@{ Exit=$childExit; Output=$childOutput }
+  }
+  catch { return [pscustomobject]@{ Exit=99; Output=$_.Exception.ToString() } }
+  finally { $PSNativeCommandUseErrorActionPreference = $previousNativePreference }
+}
+
+function Invoke-LessonsCommandDocChild {
+  param(
+    [Parameter(Mandatory)][object[]]$Definitions,
+    [Parameter(Mandatory)][string[]]$ExpectedCommands,
+    [hashtable]$TextOverrides = @{}
+  )
+
+  $payloadJson = @{ RepoRoot=$RepoRoot; Definitions=$Definitions; ExpectedCommands=$ExpectedCommands; TextOverrides=$TextOverrides } |
+    ConvertTo-Json -Depth 8 -Compress
+  $payloadBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payloadJson))
+  $childBody = @"
+`$payloadText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$payloadBase64'))
+`$payload = `$payloadText | ConvertFrom-Json
+`$RepoRoot = [string]`$payload.RepoRoot
+`$childOverrides = @{}
+foreach (`$property in @(`$payload.TextOverrides.PSObject.Properties)) { `$childOverrides[[string]`$property.Name] = [string]`$property.Value }
+`$result = Test-LessonsCommandDocContract -Definitions @(`$payload.Definitions) -ExpectedCommands @(`$payload.ExpectedCommands | ForEach-Object { [string]`$_ }) -TextOverrides `$childOverrides
+if (-not `$result.Ok) { Write-Output "`$(`$result.Code) `$(`$result.Message)"; exit 1 }
+Write-Output '[LESSONS-CMD-DOCS-PASS]'
+exit 0
+"@
+  return Invoke-LessonsContractChild -FunctionNames @('Test-LessonsCommandDocContract') -Body $childBody
+}
+
 Step '14f/17 doc-drift（DocSyncMap 耦合）'
 $docDriftFixtureMap = @{
   'scripts/task\.ps1'           = @('docs/DEVOPS-WORKFLOW.md')
@@ -7078,6 +7138,45 @@ foreach ($profileCase in $lessonsProfileCases) {
 }
 $lessonsStockProfile = Test-LessonsStockDocSyncProfile -Map $realMap
 $lessonsMapUnderTest = if ($lessonsStockProfile) { $realMap } else { @{ 'scripts/lessons\.ps1' = @('docs/LESSONS.md') } }
+
+# A1/A2 真进程收据：同一份 stock-without-new-pair 映射下，lessons-only 变更须 exit 0；只补新键后须
+# exit 1 且哨兵同时点名 source/doc。父进程只看返回对象会把「分类器算对了」误当成「真实闸会红」。
+$lessonsPreChild = Invoke-LessonsContractChild -FunctionNames @('Get-DocDriftMissing') -Body @'
+$stockWithoutLessons = @{
+  'scripts/task\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
+  'scripts/review\.ps1' = @('docs/QUALITY-RUBRIC.md')
+  'scripts/check-licenses\.ps1' = @('docs/LICENSE-POLICY.md')
+  'scripts/check-scope\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
+}
+$missing = @(Get-DocDriftMissing -ChangedFiles @('scripts/lessons.ps1') -Map $stockWithoutLessons -EscapeHatch $false)
+if ($missing.Count -eq 0) { Write-Output '[LESSONS-DOCSYNC-PRE-PASS]'; exit 0 }
+Write-Output "[LESSONS-DOCSYNC-PRE-UNEXPECTED] missing=$($missing -join ',')"
+exit 1
+'@
+if ($lessonsPreChild.Exit -ne 0 -or -not $lessonsPreChild.Output.Contains('[LESSONS-DOCSYNC-PRE-PASS]')) {
+  Fail "14f lessons pre-coupling child：[LESSONS-DOCSYNC-PRE-CHILD] stock-without-new-pair 的 lessons-only 变更未 exit 0 + PRE-PASS。exit=$($lessonsPreChild.Exit) output=$($lessonsPreChild.Output)"
+}
+$lessonsPostChild = Invoke-LessonsContractChild -FunctionNames @('Get-DocDriftMissing', 'Format-DocDriftMissing') -Body @'
+$stockWithLessons = @{
+  'scripts/task\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
+  'scripts/review\.ps1' = @('docs/QUALITY-RUBRIC.md')
+  'scripts/check-licenses\.ps1' = @('docs/LICENSE-POLICY.md')
+  'scripts/check-scope\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
+  'scripts/lessons\.ps1' = @('docs/LESSONS.md')
+}
+$missing = @(Get-DocDriftMissing -ChangedFiles @('scripts/lessons.ps1') -Map $stockWithLessons -EscapeHatch $false)
+if ($missing.Count -gt 0) {
+  Write-Output "[LESSONS-DOCSYNC-POST-RED] 14f doc-drift: $((Format-DocDriftMissing -MissingPaths $missing) -join ', ')"
+  exit 1
+}
+Write-Output '[LESSONS-DOCSYNC-POST-UNEXPECTED-PASS]'
+exit 0
+'@
+if ($lessonsPostChild.Exit -eq 0 -or -not $lessonsPostChild.Output.Contains('[LESSONS-DOCSYNC-POST-RED]') -or
+    -not $lessonsPostChild.Output.Contains('scripts/lessons.ps1') -or -not $lessonsPostChild.Output.Contains('docs/LESSONS.md')) {
+  Fail "14f lessons post-coupling child：[LESSONS-DOCSYNC-POST-CHILD] 新键在场的 lessons-only 变更未 exit nonzero + 两路径 POST-RED。exit=$($lessonsPostChild.Exit) output=$($lessonsPostChild.Output)"
+}
+
 $lessonsMapContract = Test-LessonsDocSyncMapContract -Map $lessonsMapUnderTest
 if (-not $lessonsMapContract.Ok) {
   Fail "14f lessons map：$($lessonsMapContract.Code) $($lessonsMapContract.Message)"
@@ -7087,11 +7186,32 @@ if (-not $lessonsMapContract.Ok) {
     if ([string]$mapKey -cne 'scripts/lessons\.ps1') { $lessonsMapWithoutPair[$mapKey] = @($lessonsMapUnderTest[$mapKey]) }
   }
   $lessonsMapMutation = Test-LessonsDocSyncMapContract -Map $lessonsMapWithoutPair
+  $lessonsMapMutationChild = Invoke-LessonsContractChild -FunctionNames @('Get-DocDriftMissing', 'Format-DocDriftMissing', 'Test-LessonsDocSyncMapContract') -Body @'
+$stockWithoutLessons = @{
+  'scripts/task\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
+  'scripts/review\.ps1' = @('docs/QUALITY-RUBRIC.md')
+  'scripts/check-licenses\.ps1' = @('docs/LICENSE-POLICY.md')
+  'scripts/check-scope\.ps1' = @('docs/DEVOPS-WORKFLOW.md')
+}
+$result = Test-LessonsDocSyncMapContract -Map $stockWithoutLessons
+if (-not $result.Ok) { Write-Output "$($result.Code) $($result.Message)"; exit 1 }
+Write-Output '[LESSONS-DOCSYNC-MAP-DELETE-UNEXPECTED-PASS]'
+exit 0
+'@
   if ($lessonsMapMutation.Ok -or $lessonsMapMutation.Code -cne '[LESSONS-DOCSYNC-MAP]' -or
       -not $lessonsMapMutation.Message.Contains('scripts/lessons.ps1') -or -not $lessonsMapMutation.Message.Contains('docs/LESSONS.md')) {
     Fail "14f lessons map mutation：[LESSONS-DOCSYNC-MAP-MUTATION] 删除精确映射行后未得到含 source/doc 的 [LESSONS-DOCSYNC-MAP]，actual=$($lessonsMapMutation.Code) $($lessonsMapMutation.Message)"
+  } elseif ($lessonsMapMutationChild.Exit -eq 0 -or -not $lessonsMapMutationChild.Output.Contains('[LESSONS-DOCSYNC-MAP]') -or
+      -not $lessonsMapMutationChild.Output.Contains('scripts/lessons.ps1') -or -not $lessonsMapMutationChild.Output.Contains('docs/LESSONS.md')) {
+    Fail "14f lessons map mutation child：[LESSONS-DOCSYNC-MAP-MUTATION-CHILD] 删除精确映射行后未 exit nonzero + 专用哨兵/两路径。exit=$($lessonsMapMutationChild.Exit) output=$($lessonsMapMutationChild.Output)"
   } else {
-    Write-Host '  14f lessons DocSyncMap 精确耦合 OK（source-only 红 / source+doc 绿 / _lessons decoy / 映射删除变异）' -ForegroundColor Green
+    $additionalTargetMap = @{ 'scripts/lessons\.ps1' = @('docs/LESSONS.md', 'docs/EXTRA-LESSONS.md') }
+    $additionalTargetContract = Test-LessonsDocSyncMapContract -Map $additionalTargetMap
+    if (-not $additionalTargetContract.Ok) {
+      Fail "14f lessons map additional-target：[LESSONS-DOCSYNC-ADDITIONAL-TARGET] DocSyncMap 合法多目标被误拒。$($additionalTargetContract.Code) $($additionalTargetContract.Message)"
+    } else {
+      Write-Host '  14f lessons DocSyncMap 精确耦合 OK（pre/post 真进程 exit · source+doc · 多目标 · _lessons decoy · 映射删除子进程变异）' -ForegroundColor Green
+    }
   }
 }
 if (-not $lessonsStockProfile) {
@@ -7119,8 +7239,11 @@ if (-not $lessonsCommandSource.Ok) {
     }
   )
   $lessonsDocsBaseline = Test-LessonsCommandDocContract -Definitions $lessonsCommandDocs -ExpectedCommands @($lessonsCommandSource.Commands)
+  $lessonsDocsBaselineChild = Invoke-LessonsCommandDocChild -Definitions $lessonsCommandDocs -ExpectedCommands @($lessonsCommandSource.Commands)
   if (-not $lessonsDocsBaseline.Ok) {
     Fail "14f lessons commands：$($lessonsDocsBaseline.Code) $($lessonsDocsBaseline.Message)"
+  } elseif ($lessonsDocsBaselineChild.Exit -ne 0 -or -not $lessonsDocsBaselineChild.Output.Contains('[LESSONS-CMD-DOCS-PASS]')) {
+    Fail "14f lessons commands child baseline：[LESSONS-CMD-DOC-BASELINE-CHILD] 完整三文档未 exit 0 + PASS。exit=$($lessonsDocsBaselineChild.Exit) output=$($lessonsDocsBaselineChild.Output)"
   } else {
     $lessonsDocsMutationOk = $true
     foreach ($definition in $lessonsCommandDocs) {
@@ -7133,20 +7256,30 @@ if (-not $lessonsCommandSource.Ok) {
         $lessonsDocsMutationOk = $false
         continue
       }
-      $mutatedText = $baselineText.Substring(0, $inventoryGroup.Index) + $mutatedInventory + $baselineText.Substring($inventoryGroup.Index + $inventoryGroup.Length)
+      $inventoryOffset = $inventoryGroup.Index - $inventoryMatch.Index
+      $mutatedText = $inventoryMatch.Value.Substring(0, $inventoryOffset) + $mutatedInventory + $inventoryMatch.Value.Substring($inventoryOffset + $inventoryGroup.Length)
       $mutatedResult = Test-LessonsCommandDocContract -Definitions $lessonsCommandDocs -ExpectedCommands @($lessonsCommandSource.Commands) -TextOverrides @{ $definition.Id = $mutatedText }
+      $mutatedChild = Invoke-LessonsCommandDocChild -Definitions $lessonsCommandDocs -ExpectedCommands @($lessonsCommandSource.Commands) -TextOverrides @{ $definition.Id = $mutatedText }
       if ($mutatedResult.Ok -or $mutatedResult.Code -cne $definition.Code) {
         Fail "14f lessons commands mutation($($definition.Id))：[LESSONS-CMD-DOC-ARCHIVE-MUTATION] 单删 archive 未得到 $($definition.Code)，actual=$($mutatedResult.Code)"
         $lessonsDocsMutationOk = $false
+      } elseif ($mutatedChild.Exit -eq 0 -or -not $mutatedChild.Output.Contains($definition.Code)) {
+        Fail "14f lessons commands mutation child($($definition.Id))：[LESSONS-CMD-DOC-ARCHIVE-MUTATION-CHILD] 单删 archive 未 exit nonzero + $($definition.Code)。exit=$($mutatedChild.Exit) output=$($mutatedChild.Output)"
+        $lessonsDocsMutationOk = $false
       }
     }
-    $comparisonDeletion = Test-LessonsCommandDocContract -Definitions @($lessonsCommandDocs | Where-Object { $_.Id -cne 'skill' }) -ExpectedCommands @($lessonsCommandSource.Commands)
+    $comparisonDefinitions = @($lessonsCommandDocs | Where-Object { $_.Id -cne 'skill' })
+    $comparisonDeletion = Test-LessonsCommandDocContract -Definitions $comparisonDefinitions -ExpectedCommands @($lessonsCommandSource.Commands)
+    $comparisonDeletionChild = Invoke-LessonsCommandDocChild -Definitions $comparisonDefinitions -ExpectedCommands @($lessonsCommandSource.Commands)
     if ($comparisonDeletion.Ok -or $comparisonDeletion.Code -cne '[LESSONS-CMD-DOC-CONTRACT-SET]') {
       Fail "14f lessons commands mutation(comparison)：[LESSONS-CMD-DOC-COMPARISON-MUTATION] 删除 skill comparison 后未得到 [LESSONS-CMD-DOC-CONTRACT-SET]，actual=$($comparisonDeletion.Code)"
       $lessonsDocsMutationOk = $false
+    } elseif ($comparisonDeletionChild.Exit -eq 0 -or -not $comparisonDeletionChild.Output.Contains('[LESSONS-CMD-DOC-CONTRACT-SET]')) {
+      Fail "14f lessons commands mutation child(comparison)：[LESSONS-CMD-DOC-COMPARISON-MUTATION-CHILD] 删除 skill comparison 后未 exit nonzero + contract-set 哨兵。exit=$($comparisonDeletionChild.Exit) output=$($comparisonDeletionChild.Output)"
+      $lessonsDocsMutationOk = $false
     }
     if ($lessonsDocsMutationOk) {
-      Write-Host "  14f lessons 命令文档同步 OK（AST 单次解析=$(@($lessonsCommandSource.Commands) -join '|')；三文档 archive 删除 + comparison 删除变异）" -ForegroundColor Green
+      Write-Host "  14f lessons 命令文档同步 OK（AST 单次解析=$(@($lessonsCommandSource.Commands) -join '|')；baseline/三 archive 删除/comparison 删除均真子进程 exit+哨兵）" -ForegroundColor Green
     }
   }
 }
