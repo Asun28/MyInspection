@@ -278,6 +278,9 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **`.claude/skills/shape-idea`**=想法→计划漏斗**第一步（1-brief）**：AI 自驱**发散→收敛**——发散(做加法：web 搜+社交/论坛 挖痛点/竞品/跨域/What-if → 机会地图)，收敛(做减法：KANO/MoSCoW 排序 → 砍伪需求 → MVP → 用户故事+验收标准) → 写 `_local/1-brief.md`。**适配 AI 不适配人**：AI 干活、人只在两个闸口定方向。说「我有个想法 / 帮我理需求 / brainstorm」即触发；批准后进第二步 `scout-options`。总览见 `docs/IDEA-TO-PLAN.md`。
 - **`.claude/skills/grill-design`**=漏斗**第三步写 PLAN 前**的设计决策交互式拷问:沿设计决策树**一次一问、每问给推荐、消解依赖**,把技术设计(数据模型/契约/状态机/模块边界/错误路径)敲定再落 `PLAN-TEMPLATE` → `plan-forge`。介于 shape-idea(需求层)与 plan-forge(自动审计)之间,减少 `fix-first` 往返。说「grill / 拷问设计 / 写计划前敲定设计」即触发。
 - **`.claude/skills/lessons`**=自净化经验系统（遇复发问题先查、解决后入账、自动提纯/封顶）；说「复盘/这个坑/经验」即触发。
+  `lessons.ps1 bump` 的当前路由先规范 common-dir 与 `git worktree list --porcelain`：普通仓取首条真实 checkout；
+  submodule 仅在首条等于 common-dir 时按 repository-local `core.worktree` 解析，并以候选 `show-toplevel` + common-dir
+  反向验同仓。初始仓库探针失败才回落；仓已识别后的拓扑失败统一 `[LSN-PLANE-UNRESOLVED]` fail-closed。
   配套 **Stop hook `.claude/hooks/lessons-reminder.ps1`**（会话结束打印经验捕获模板）。
 - **`.claude/skills/planning-with-files`**=文件化规划 + **不能模糊交接**（和 AI agent 跨 session 接力）。跨会话/交接/多 agent 接力**必用** cwd 三件套
   `task_plan.md`/`findings.md`/`progress.md` 跟踪（同 session 内按判断，>5 步仅启发非硬闸）；离场前写 `progress.md` 末尾 HANDOFF 块并 `pwsh scripts\handoff.ps1 check`（必 PASS）。

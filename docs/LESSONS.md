@@ -32,7 +32,8 @@ fail-closed 报错，不把「测不出」读成「未超」。
 ### 2. PROMOTE（晋升，客观门槛）
 - **复发一次就计数**：老坑又踩到时用 `pwsh -File scripts\lessons.ps1 bump <id>`，别新增一条近义经验。
   `recurrence` 是**仓库级元数据**，与任何卡片无关，故 `bump` 一律写**主检出**的账本（经
-  `git rev-parse --git-common-dir` 解析）——在卡片 worktree 里跑也一样，写不进卡片 diff，
+  normalized common-dir + `git worktree list --porcelain` 解析；submodule 再按 repository-local `core.worktree`
+  相对 common-dir 取 checkout，并以 show-toplevel/common-dir 反向验同仓）——在卡片 worktree 或 submodule 里跑也一样，写不进卡片 diff，
   于是不会再被范围闸/R3 #7 当作夹带改动拦掉而丢失。解析得到主检出却没有账本时 fail-closed
   报 `[LSN-PLANE-UNRESOLVED]`，**不**回落到当前检出。`add` 不走这条平面（新经验随卡入库是有意的）。
 - `severity=blocking` **或** `recurrence≥2` → 够格进**必须层**（写一行进 CLAUDE.md 经验铁律 + 改 tier=must）。
