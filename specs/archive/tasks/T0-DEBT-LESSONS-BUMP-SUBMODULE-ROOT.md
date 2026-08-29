@@ -2,7 +2,7 @@
 id: T0-DEBT-LESSONS-BUMP-SUBMODULE-ROOT
 title: 让 lessons bump 在 submodule 中解析自己的主检出账本
 depends_on: []
-status: todo
+status: merged
 branch: T0-DEBT-LESSONS-BUMP-SUBMODULE-ROOT
 worktree: C:\\wt\\T0-DEBT-LESSONS-BUMP-SUBMODULE-ROOT
 plan_ref: specs/tech-debt-tracker.md#td145

@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 85 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 86 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -13,6 +13,7 @@
 | T0-DEBT-ARCHIVED-CARD-PATHS | merged | Repair inbound references to archived task cards (repay TD22) |
 | T0-DEBT-CASE-PROBE-CLOSURE-SCOPE | merged | Make 17cc case mutation probes host-independent (repay TD25) |
 | T0-DEBT-GATE-ENTRY-TRUST-BINDINGS | merged | 把 fail-closed 新入口信任绑定纪律晋升为必须层（偿还 TD154 / L164） |
+| T0-DEBT-LESSONS-BUMP-SUBMODULE-ROOT | merged | 让 lessons bump 在 submodule 中解析自己的主检出账本 |
 | T0-DEBT-LICENSE-SCALAR-FORMAT | merged | 让许可元数据与诊断拒绝或清洗增补平面格式标量 |
 | T0-DEBT-MIGRATION-FIXTURE-CLEANUP | merged | 收敛 TD4 migration fixture 的 Windows worktree 清理 |
 | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | merged | 偿还 TD4：只豁免 SQLDelight schema 快照并恢复迁移验证 |
