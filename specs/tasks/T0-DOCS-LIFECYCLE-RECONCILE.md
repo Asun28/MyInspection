@@ -18,7 +18,7 @@ allow_paths:
   - CLAUDE.md
 forbid:
   - 改生产代码、schema、依赖或任何闸门行为
-  - 改卡片契约；本卡只允许把清单内卡片的 status 从 todo/in-progress 改成 merged 并原样移入 archive
+  - 改卡片契约；本卡只允许把清单内卡片的 status 从 todo/in-progress 改成 merged 并原样移入 archive，以及把两张仍在活动目录的 lessons fixture 卡中的旧入链路径等值改指 archive
   - 归档本卡清单以外的任何卡片
   - 删除远端分支、worktree 或其他会话资产
 non_goals:
@@ -31,7 +31,7 @@ acceptance:
   - "A2 specs/archive/cards-index.md 由 archive.ps1 重建，-CheckCardsIndex 通过；活动卡计数从 84 加本卡后减 52，得到 33"
   - "A3 docs/TASK-BOARD.md 中 19 个本批次条目与 6 个已归档但仍写等待/评审的条目均改成带 PR 或提交证据的 merged 终态"
   - "A4 CLAUDE.md、docs/DELIVERY-CHAINS.md、.claude/skills/task-loop/SKILL.md 三处 R1-R5/ship 摘要均明确包含 push 前的真实 diff 预算闸"
-  - "A5 docs/lessons/LEDGER.md 与 specs/tech-debt-tracker.md 对本批次归档卡的 live path 引用改指 specs/archive/tasks；不得编辑冻结 archive 历史"
+  - "A5 docs/lessons/LEDGER.md、specs/tech-debt-tracker.md、T0-RECONCILE-LESSONS-PATTERN-FIXTURE 与 T0-RECONCILE-LESSONS-CONTRACT-FIXTURE 对本批次归档卡的 live path 引用改指 specs/archive/tasks；不得编辑冻结 archive 历史"
   - "A6 check-cards、lessons check、archive cards-index check 与适用的 verify/selftest 分片均通过"
 dod_command: pwsh -NoProfile -Command "if ((Get-ChildItem specs/tasks/T*.md).Count -ne 33) { exit 1 }; if ((Test-Path specs/tasks/T0-LESSONS-COLD-RECALL.md) -or (-not (Test-Path specs/archive/tasks/T0-LESSONS-COLD-RECALL.md)) -or (Test-Path specs/tasks/T4-COMPLIANCE-ENGINE.md) -or (-not (Test-Path specs/archive/tasks/T4-COMPLIANCE-ENGINE.md))) { exit 1 }; exit 0"
 dod_exit: 0
