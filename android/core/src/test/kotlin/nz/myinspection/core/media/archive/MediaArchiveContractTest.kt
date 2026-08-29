@@ -159,6 +159,23 @@ class MediaArchiveContractTest {
     }
 
     @Test
+    fun `valid readback with the same manifest but different archive bytes is rejected without evidence`() {
+        MediaArchiveDbFixture().use { fixture ->
+            val differentlyEncrypted = archiveBytes(BackupScope.Full, onePhotoFiles(), randomSeed = 9)
+            val store = InMemoryArchiveStore().apply { readbackBytes = { differentlyEncrypted } }
+            val result = receiptService(fixture, store).createVerifiedReceipt(
+                archiveTarget(),
+                BackupScope.Full,
+                TEST_PASSPHRASE,
+                archiveWriter(BackupScope.Full, onePhotoFiles(), randomSeed = 1),
+            )
+
+            assertRejected(ArchiveReceiptFailure.VERIFY_READBACK_MISMATCH, result)
+            assertEvidenceCounts(fixture, receipts = 0, entries = 0)
+        }
+    }
+
+    @Test
     fun `all six required receipt fields fail closed while null version succeeds`() {
         val target = archiveTarget()
         val cases = listOf(
@@ -570,6 +587,7 @@ private fun archiveTarget(): ArchiveIdentity = ArchiveIdentity(
 private fun archiveWriter(
     scope: BackupScope,
     files: List<BackupSourceFile>,
+    randomSeed: Byte = 1,
 ): (OutputStream) -> BackupManifest = { output ->
     BackupWriter.writeWith(
         out = output,
@@ -579,13 +597,13 @@ private fun archiveWriter(
         appVersion = "test",
         files = files,
         kdfIterations = TEST_ITERATIONS,
-        random = ScriptedRandom(byteArrayOf(1, 2, 3, 4)),
+        random = ScriptedRandom(byteArrayOf(randomSeed, (randomSeed + 1).toByte(), (randomSeed + 2).toByte())),
     )
 }
 
-private fun archiveBytes(scope: BackupScope, files: List<BackupSourceFile>): ByteArray =
+private fun archiveBytes(scope: BackupScope, files: List<BackupSourceFile>, randomSeed: Byte = 1): ByteArray =
     ByteArrayOutputStream().use { output ->
-        archiveWriter(scope, files)(output)
+        archiveWriter(scope, files, randomSeed)(output)
         output.toByteArray()
     }
 

@@ -3,6 +3,7 @@ package nz.myinspection.core.media.archive
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 import nz.myinspection.core.backup.format.BackupException
 import nz.myinspection.core.backup.format.BackupManifest
 import nz.myinspection.core.backup.format.BackupReader
@@ -82,7 +83,10 @@ class VerifiedArchiveReceiptService(
         if (!identityComplete(target) || exportedAt <= 0 || scope == null) return incomplete()
 
         val written = try {
-            store.write(target, writeArchive)
+            store.write(target) { output ->
+                val fingerprinting = FingerprintingOutputStream(output)
+                WrittenEvidence(writeArchive(fingerprinting), fingerprinting.fingerprint())
+            }
         } catch (_: BackupException) {
             return rejected(ArchiveReceiptFailure.VERIFY_READBACK_MISMATCH)
         } catch (_: IOException) {
@@ -98,12 +102,16 @@ class VerifiedArchiveReceiptService(
             return rejected(ArchiveReceiptFailure.VERIFY_UNAVAILABLE)
         }
 
-        val reopenedManifest = try {
+        val reopened = try {
             readback.input.use { input ->
                 if (readback.identity != written.identity) {
                     return rejected(ArchiveReceiptFailure.VERIFY_IDENTITY_MISMATCH)
                 }
-                BackupReader.read(input, passphrase, VERIFY_ONLY_SINK)
+                val fingerprinting = FingerprintingInputStream(input)
+                VerifiedReadback(
+                    manifest = BackupReader.read(fingerprinting, passphrase, VERIFY_ONLY_SINK),
+                    fingerprint = fingerprinting.fingerprint(),
+                )
             }
         } catch (_: BackupSourceException) {
             return rejected(ArchiveReceiptFailure.VERIFY_UNAVAILABLE)
@@ -113,7 +121,11 @@ class VerifiedArchiveReceiptService(
             return rejected(ArchiveReceiptFailure.VERIFY_UNAVAILABLE)
         }
 
-        if (reopenedManifest.canonicalJson != written.value.canonicalJson || reopenedManifest.scope != scope) {
+        if (
+            reopened.fingerprint != written.value.fingerprint ||
+            reopened.manifest.canonicalJson != written.value.manifest.canonicalJson ||
+            reopened.manifest.scope != scope
+        ) {
             return rejected(ArchiveReceiptFailure.VERIFY_READBACK_MISMATCH)
         }
 
@@ -134,7 +146,7 @@ class VerifiedArchiveReceiptService(
                 scope_property_id = scopeFields.propertyId,
                 revoked_at = readback.revokedAtMs,
             )
-            reopenedManifest.files.forEach { file ->
+            reopened.manifest.files.forEach { file ->
                 db.mediaArchiveQueries.insertVerifiedBackupReceiptEntry(
                     receipt_id = receiptId,
                     rel_path = file.relPath,
@@ -163,6 +175,10 @@ class VerifiedArchiveReceiptService(
 
     private data class ReceiptScope(val kind: String, val propertyId: String?)
 
+    private data class WrittenEvidence(val manifest: BackupManifest, val fingerprint: ArchiveFingerprint)
+
+    private data class VerifiedReadback(val manifest: BackupManifest, val fingerprint: ArchiveFingerprint)
+
     private companion object {
         const val FULL_SCOPE = "full"
         const val PROPERTY_SCOPE = "property"
@@ -174,3 +190,52 @@ class VerifiedArchiveReceiptService(
         }
     }
 }
+
+private data class ArchiveFingerprint(val byteCount: Long, val sha256: String)
+
+private class FingerprintingOutputStream(private val delegate: OutputStream) : OutputStream() {
+    private val digest = MessageDigest.getInstance("SHA-256")
+    private var byteCount = 0L
+
+    override fun write(value: Int) {
+        delegate.write(value)
+        digest.update(value.toByte())
+        byteCount++
+    }
+
+    override fun write(bytes: ByteArray, offset: Int, length: Int) {
+        delegate.write(bytes, offset, length)
+        digest.update(bytes, offset, length)
+        byteCount += length
+    }
+
+    override fun flush() = delegate.flush()
+
+    fun fingerprint(): ArchiveFingerprint = ArchiveFingerprint(byteCount, digest.digest().toHexLower())
+}
+
+private class FingerprintingInputStream(private val delegate: InputStream) : InputStream() {
+    private val digest = MessageDigest.getInstance("SHA-256")
+    private var byteCount = 0L
+
+    override fun read(): Int = delegate.read().also { value ->
+        if (value >= 0) {
+            digest.update(value.toByte())
+            byteCount++
+        }
+    }
+
+    override fun read(bytes: ByteArray, offset: Int, length: Int): Int =
+        delegate.read(bytes, offset, length).also { read ->
+            if (read > 0) {
+                digest.update(bytes, offset, read)
+                byteCount += read
+            }
+        }
+
+    override fun close() = delegate.close()
+
+    fun fingerprint(): ArchiveFingerprint = ArchiveFingerprint(byteCount, digest.digest().toHexLower())
+}
+
+private fun ByteArray.toHexLower(): String = joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
