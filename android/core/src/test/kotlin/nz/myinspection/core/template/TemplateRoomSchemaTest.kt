@@ -29,10 +29,10 @@ class TemplateRoomSchemaTest {
     }
 
     @Test
-    fun `schema v4 exposes the exact room definition columns`() {
+    fun `schema v5 exposes the exact room definition columns`() {
         MyInspectionDatabase.Schema.create(driver)
 
-        assertEquals(4L, MyInspectionDatabase.Schema.version)
+        assertEquals(5L, MyInspectionDatabase.Schema.version)
         assertEquals(
             listOf("id", "template_version_id", "room_key", "repeatable", "sort", "created_at", "updated_at", "deleted_at"),
             columnNames("template_room_def"),
