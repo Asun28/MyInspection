@@ -3,7 +3,7 @@ id: T0-LESSONS-CMD-DOCSYNC
 title: 把 lessons.ps1 纳入 doc-drift 机检，并同步 archive 子命令到三处命令清单
 depends_on: [T0-LESSONS-COLD-RECALL]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-LESSONS-CMD-DOCSYNC
 worktree: C:\wt\T0-LESSONS-CMD-DOCSYNC
 allow_paths:
