@@ -2,7 +2,7 @@
 id: T0-RECONCILE-T1-SECURITY-CARDS
 title: 登记数据库与本地安全三卡
 depends_on: [T0-RECONCILE-DATA-AUTHORITY]
-status: todo
+status: merged
 branch: T0-RECONCILE-T1-SECURITY-CARDS
 worktree: C:\wt\T0-RECONCILE-T1-SECURITY-CARDS
 allow_paths:

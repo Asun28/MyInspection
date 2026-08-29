@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 89 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 116 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -52,17 +52,42 @@
 | T0-HARNESS-PERF | merged | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness/测试改动） |
 | T0-HARNESS-SUBTRACTION-PROTOCOL | merged | 为常驻 harness 文本增加量化、可回滚的减负协议 |
 | T0-LESSONS-BUMP-PLANE | merged | bump 写主检出账本，复发计数不再随卡片 diff 丢失 |
+| T0-LESSONS-CAP-CORE-SPLIT | merged | 从超预算 PR |
+| T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | merged | 从超预算 PR |
+| T0-LESSONS-CAP-TRIAGE-SPLIT | merged | 从超预算 PR |
+| T0-LESSONS-CAP-UNIT | merged | 必须层封顶改按驻留经验 id 计量，并把 enforced_by 做成双向判据（横切卡，尺寸见 allow_paths） |
 | T0-LESSONS-CMD-DOCSYNC | merged | 把 lessons.ps1 纳入 doc-drift 机检，并同步 archive 子命令到三处命令清单 |
+| T0-LESSONS-COLD-RECALL | merged | 让一次性 lessons 可安全归冷且仍能统一检索 |
+| T0-LESSONS-TIER1-CUT | merged | 必须层减法——驻留经验 id 从 19 降到 9，依据全取自 LEDGER 自己的字段 |
+| T0-LICENSE-CI-INTEGRATION | merged | Gradle 许可扫描套件接线与 TD2 总验收（TD2 收口卡 5/5） |
 | T0-LICENSE-DIAGNOSTICS | merged | Gradle 许可扫描统一诊断边界与脱敏套件（TD2 收口卡 3/5） |
 | T0-LICENSE-GAV-BOUNDS | merged | Gradle/Maven GAV 分段上界与有界诊断契约（TD135；TD2 4/5） |
 | T0-LICENSE-POLICY | merged | Gradle POM 许可策略合同与 exact-GAV 专用套件（TD2 收口卡 2/4） |
 | T0-LICENSE-SCANNER | merged | Gradle 已解析坐标图合同提取与离线图套件（TD2 收口卡 1/4） |
 | T0-LICENSE-SELFTEST-DRIFT | merged | 恢复 Gradle diagnostics 的 selftest 回归覆盖并消除权威套件漂移 |
+| T0-LOCAL-RECONCILE-REGISTER | merged | 注册落后本地 master 的十二张可评审文档调和卡 |
+| T0-R3-DIFF-BUDGET | merged | 在 push/R3 前按真实 diff 预算硬阻断超大任务卡 |
 | T0-R3-FLOW-ENUM-SYNC | merged | 把真实 diff 预算闸补进每一处确定性闸枚举，并各配锚定断言（承接 T0-R3-DIFF-BUDGET 的 A13） |
+| T0-RECONCILE-DATA-AUTHORITY | merged | 同步离线数据库、安全与备份设计权威 |
+| T0-RECONCILE-ROADMAP-INDEX | merged | 将离线安全与诊断卡投影到任务表和技术债索引 |
+| T0-RECONCILE-T1-SECURITY-CARDS | merged | 登记数据库与本地安全三卡 |
+| T0-RECONCILE-T5-DIAGNOSTIC-CARDS | merged | 登记事件、诊断、清除与健康四卡 |
+| T0-RECONCILE-UI-CAPTURE | merged | 对齐采集、历史与 PDF 实现卡的设计系统指针 |
+| T0-RECONCILE-UI-COVERAGE-DOD-FIXTURE | merged | 修正 UI Elements 覆盖卡的 Windows CRLF 表格解析 |
+| T0-RECONCILE-UI-COVERAGE-ELEMENT-FIXTURE | merged | 登记 UI Elements 恢复确认组件修订源 |
+| T0-RECONCILE-UI-COVERAGE-SOURCE-FIXTURE | merged | 登记可完整验收的 UI Elements 覆盖源 |
+| T0-RECONCILE-UI-COVERAGE | merged | 建立 UI Elements 覆盖索引 |
+| T0-RECONCILE-UI-NOTICE-SCHEDULE | merged | 对齐通知与日程实现卡的设计系统指针 |
+| T0-RECONCILE-UI-OFFLINE-OPERATIONS | merged | 对齐备份、媒体、remediation 与收官 smoke 的离线体验指针 |
+| T0-SCAFFOLD-CI-HOTFIX | merged | 修复合并后 scaffold-selftest 的跨分支与跨 PowerShell 回归 |
+| T0-SCAFFOLD-FLEET-LOOP | merged | fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
+| T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
+| T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
+| T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
 | T1-DATABASE-LIFECYCLE-AUTHORITY | merged | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 |
 | T1-SCHEMA-CORE | merged | SQLDelight 全量 schema + UUIDv7 + 基线迁移 + JVM 测试（★冻结点） |
@@ -88,6 +113,8 @@
 | T3-E2E-HASH | merged | Golden Evidence JVM 闭环与 DB/报告/独立重算三源 hash |
 | T3-E2E-TENANT-REDACTION | merged | Golden Evidence tenant report landlord/private sentinel 防泄露 |
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
+| T3-REPORT-COMPOSER | merged | 纯 Kotlin 报告布局引擎：分页/缩略图排版/双语行配对/哈希页脚 + 黄金布局树（★冻结点级质量） |
+| T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |
 | T5-MEDIA-ARCHIVE-CONTRACT | merged | 媒体归档收口：重新打开逐字节核验、原子回执与 finalized 不变性 |

@@ -3,7 +3,7 @@ id: T0-SCAFFOLD-FLEET-LOOP
 title: fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账
 depends_on: [T0-LESSONS-CAP-UNIT]
 parallelizable_with: []
-status: in-progress
+status: merged
 branch: T0-SCAFFOLD-FLEET-LOOP
 worktree: C:\wt\T0-SCAFFOLD-FLEET-LOOP
 allow_paths:

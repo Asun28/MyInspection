@@ -2,7 +2,7 @@
 id: T0-RECONCILE-ROADMAP-INDEX
 title: 将离线安全与诊断卡投影到任务表和技术债索引
 depends_on: [T0-RECONCILE-T1-SECURITY-CARDS, T0-RECONCILE-T5-DIAGNOSTIC-CARDS]
-status: todo
+status: merged
 branch: T0-RECONCILE-ROADMAP-INDEX
 worktree: C:\wt\T0-RECONCILE-ROADMAP-INDEX
 allow_paths:

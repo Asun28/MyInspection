@@ -2,7 +2,7 @@
 id: T0-LICENSE-CI-INTEGRATION
 title: Gradle 许可扫描套件接线与 TD2 总验收（TD2 收口卡 5/5）
 depends_on: [T0-LICENSE-GAV-BOUNDS]
-status: todo
+status: merged
 branch: T0-LICENSE-CI-INTEGRATION
 worktree: C:\wt\T0-LICENSE-CI-INTEGRATION
 allow_paths:

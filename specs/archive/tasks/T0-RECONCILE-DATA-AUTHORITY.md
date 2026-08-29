@@ -3,7 +3,7 @@ id: T0-RECONCILE-DATA-AUTHORITY
 title: 同步离线数据库、安全与备份设计权威
 depends_on: [T0-RECONCILE-LESSONS]
 parallelizable_with: [T0-RECONCILE-DESIGN-METADATA]
-status: todo
+status: merged
 branch: T0-RECONCILE-DATA-AUTHORITY
 worktree: C:\wt\T0-RECONCILE-DATA-AUTHORITY
 allow_paths:

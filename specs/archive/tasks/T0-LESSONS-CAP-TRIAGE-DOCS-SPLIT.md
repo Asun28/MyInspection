@@ -2,7 +2,7 @@
 id: T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT
 title: 从超预算 PR #127 提取 triage 探针 roster 文档同步
 depends_on: [T0-LESSONS-CAP-CORE-SPLIT]
-status: todo
+status: merged
 branch: T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT
 worktree: C:\wt\T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT
 allow_paths:

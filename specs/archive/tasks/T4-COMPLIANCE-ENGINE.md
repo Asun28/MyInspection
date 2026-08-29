@@ -3,7 +3,7 @@ id: T4-COMPLIANCE-ENGINE
 title: 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结）
 depends_on: [T1-SCHEMA-CORE]
 parallelizable_with: [T3-PDF-RENDERER, T3-HISTORY-COMPARE, T5-BACKUP-IO]
-status: todo
+status: merged
 branch: T4-COMPLIANCE-ENGINE
 worktree: C:\wt\T4-COMPLIANCE-ENGINE
 allow_paths:

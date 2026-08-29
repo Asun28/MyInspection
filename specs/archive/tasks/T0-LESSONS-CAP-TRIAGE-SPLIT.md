@@ -2,7 +2,7 @@
 id: T0-LESSONS-CAP-TRIAGE-SPLIT
 title: 从超预算 PR #127 提取 lessons triage 探针与 hermetic 夹具
 depends_on: [T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT]
-status: todo
+status: merged
 branch: T0-LESSONS-CAP-TRIAGE-SPLIT
 worktree: C:\wt\T0-LESSONS-CAP-TRIAGE-SPLIT
 allow_paths:

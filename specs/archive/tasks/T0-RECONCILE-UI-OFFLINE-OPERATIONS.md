@@ -2,7 +2,7 @@
 id: T0-RECONCILE-UI-OFFLINE-OPERATIONS
 title: 对齐备份、媒体、remediation 与收官 smoke 的离线体验指针
 depends_on: [T0-RECONCILE-UI-COVERAGE, T0-RECONCILE-ROADMAP-INDEX]
-status: todo
+status: merged
 branch: T0-RECONCILE-UI-OFFLINE-OPERATIONS
 worktree: C:\wt\T0-RECONCILE-UI-OFFLINE-OPERATIONS
 allow_paths:

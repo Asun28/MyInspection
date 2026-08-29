@@ -259,7 +259,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
 - **R1 worktree**：每卡建 `<WorktreeRoot>\<ID>` 隔离分支（.venv/node_modules 每树独立、gitignored）
 - **R2 TDD**：先写失败测试→实现到绿→重构；契约测试 mock 必 100% 过
-- **R3 PR+Codex 评审代替人工**：`review.ps1` 按 `docs/QUALITY-RUBRIC.md` 判（注入 rubric + 反自我开脱立场），出 `{verdict:pass|block}`→回贴 `codex-review` 状态；
+- **R3 pre-push + PR/Codex 评审代替人工**：ship 在 push 前依次强制 DoD、verify、范围、许可、防泄露与**真实 diff 预算闸**；随后 `review.ps1` 按 `docs/QUALITY-RUBRIC.md` 判（注入 rubric + 反自我开脱立场），出 `{verdict:pass|block}`→回贴 `codex-review` 状态；
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block

@@ -3,7 +3,7 @@ id: T3-REPORT-COMPOSER
 title: 纯 Kotlin 报告布局引擎：分页/缩略图排版/双语行配对/哈希页脚 + 黄金布局树（★冻结点级质量）
 depends_on: [T1-CANON-HASH, T2-CAPTURE-CORE]
 parallelizable_with: [T2-CAPTURE-UI, T3-FINALIZE]
-status: todo
+status: merged
 branch: T3-REPORT-COMPOSER
 worktree: C:\wt\T3-REPORT-COMPOSER
 allow_paths:

@@ -2,7 +2,7 @@
 id: T0-RECONCILE-UI-NOTICE-SCHEDULE
 title: 对齐通知与日程实现卡的设计系统指针
 depends_on: [T0-RECONCILE-UI-COVERAGE]
-status: todo
+status: merged
 branch: T0-RECONCILE-UI-NOTICE-SCHEDULE
 worktree: C:\wt\T0-RECONCILE-UI-NOTICE-SCHEDULE
 allow_paths:

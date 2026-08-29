@@ -19,11 +19,11 @@
 ## 总表（波次 = 依赖拓扑；同波卡可并行，allow_paths 互不重叠）
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 内容交叉复核 |
 |---|---|---|---|---|---|---|---|
-| W0 | T0-TOOLCHAIN | JDK17+SDK+`android/` Gradle 骨架空编译绿+verify/ci 收紧 | — | M | Sonnet 5 · max | Opus 5 | — |
-| W0 | T0-GATE-HARDENING | 许可闸递归发现+verify 确定性+两枚闸门自测（拆自 T0-TOOLCHAIN） | T0-TOOLCHAIN | M | Sonnet 5 · max | DeepSeek V4 Pro | —（事后 R3 block ×2 → 见 T0-GATE-FIXFORWARD） |
-| W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | — |
+| W0 | T0-TOOLCHAIN | JDK17+SDK+`android/` Gradle 骨架空编译绿+verify/ci 收紧 | — | M | Sonnet 5 · max | Opus 5 | **merged**（本地合并 `eb22da38`；R3 pass 证据 `5fec73c`） |
+| W0 | T0-GATE-HARDENING | 许可闸递归发现+verify 确定性+两枚闸门自测（拆自 T0-TOOLCHAIN） | T0-TOOLCHAIN | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（本地合并 `5ba3319e`；事后 R3 finding 由 T0-GATE-FIXFORWARD PR #4 `6f255d35` 结清） |
+| W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `fc1e763f`，PR #1） |
 | W0 | T0-SCAFFOLD-LEAN-CI | 普通产品 PR 不启动 scaffold-only 六分片；脚手架权威面变化仍全跑 | T0-HARNESS-PERF | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `f976d0f`，PR #22；R3 零发现；基线产品 PR #5–#11 = 60 runs / 360 shard jobs；本次 `.github/**` PR 实测 1 run / 6 jobs 全保留；无新增脚本/job/依赖） |
-| W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **已拆为 3 张**（2026-08-23）：本卡只留度量/边界/ship 接线；见下两行。原 PR #53 四轮 R3 均命中真缺陷、修复后 61,674 字符超出自身 60,000 上限 |
+| W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b82054bc`，PR #128；度量/边界/ship 接线已落地，输入可信与 OID 绑定仍由后两张专卡承接） |
 | W0 | T0-R3-DIFF-INPUT-TRUST | diff 预算的输入只信 git 自己：ext-diff/textconv/属性二进制均不可缩小体量 | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | A5 是**已复现**的真绕过：一行 .gitattributes `-diff` 让 1001 行量成 1 行 |
 | W0 | T0-R3-MEASURED-OID-BINDING | 被测量的提交＝被 push/评审/合并的那一个（分支引用与 HEAD 双钉） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 第 3 轮 finding：只钉分支引用时 detached HEAD 可「审 A 合 B」 |
 | W0 | T0-R3-FLOW-ENUM-SYNC | 预算闸补进每一处确定性闸枚举 + 每处一条锚定断言（承接母卡 A13） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `d19a4c22`，PR #200；17 个枚举面一一登记并逐处删除变异，补齐 English overview、跨行/顺序/Step 锚定与 lone-CR 防回归；workflow + seeded + SizeOnly、Luna/Terra Max 复核与 Sol R3 均 PASS；R5 candidate `74328b2d` released-master verify + seeded exit 0，含 canary、ADDED/REMOVED、cleanup 与 `selftest: PASS`） |
@@ -36,36 +36,36 @@
 | W0 | T0-CI-UNICODE-DEP-FIXTURE | 补齐 license scanner 自检夹具的 Unicode helper 依赖并防止 17p3 假绿 | T0-DEBT-LICENSE-SCALAR-FORMAT | S | GPT-5.6 Terra · high | Codex R3 | **merged**（PR #120 · master `bb0c199`；两处 fixture 依赖齐备，17p3 锚定 `gpl-pkg@1.0.0`，seeded/R3 PASS） |
 | W0 | T0-CI-LICENSE-GATE-HASH-SYNC | 同步 docs-only License gate 的 8.2b2 规范块哈希 | T0-CI-DOCS-FAST-PATH | S | GPT-5.6 Terra · high | Codex R3 | **merged**（失败 run `32535429955` 定位到 8.2b2 基线漂移；PR #122 · master `5b2e5a5`；本地 core/verify 与 R3 PASS，合并后 run `32538957860` 的 Windows/Linux core 双绿） |
 | W0 | T0-HARNESS-SUBTRACTION-PROTOCOL | 量化、可迁移、按组可回滚的 harness 减负协议（TD134 2/6） | — | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `e971ef8`，PR #24；R3 零发现；只增 15 行协议文本，无实际删减或脚本行为变化） |
-| W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | PR #51 两轮 R3 达上限，原 PR 先人裁；剩余 meta 解析转专卡 |
-| W0 | T0-LESSONS-CAP-CORE-SPLIT | 从超预算 PR #127 提取 resident-id 共享核与 lessons 消费者 | — | S | GPT-5.6 Sol · high | Codex R3 | #128 合并后 #127 为 1441 行 / 126905 字符；第一片约 51k 字符，不改语义/历史 |
-| W0 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | 先同步 triage 探针 roster，解除代码片的既有 doc-count 闸循环 | T0-LESSONS-CAP-CORE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | 三份 exact #127 文档约 10k 字符；docs-only 先落，代码片仍保持约 53k |
-| W0 | T0-LESSONS-CAP-TRIAGE-SPLIT | 从超预算 PR #127 提取 lessons triage 探针与 hermetic 夹具 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | 第二代码片约 53k 字符；合并后原 #127 仅余其它教学/配置尾卡 |
+| W0 | T0-LESSONS-COLD-RECALL | 一次性 lesson 归冷、热冷统一检索和 ID 并集（TD134 3/6） | — | M | DeepSeek V4 Pro · high | GPT-5.6 Terra · high | **merged**（master `1e302201`，PR #51；round-cap 后人裁，剩余 meta 解析转专卡） |
+| W0 | T0-LESSONS-CAP-CORE-SPLIT | 从超预算 PR #127 提取 resident-id 共享核与 lessons 消费者 | — | S | GPT-5.6 Sol · high | Codex R3 | **merged**（master `116a5f76`，PR #133） |
+| W0 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | 先同步 triage 探针 roster，解除代码片的既有 doc-count 闸循环 | T0-LESSONS-CAP-CORE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | **merged**（master `65fcfa08`，PR #136） |
+| W0 | T0-LESSONS-CAP-TRIAGE-SPLIT | 从超预算 PR #127 提取 lessons triage 探针与 hermetic 夹具 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | **merged**（master `74d09a69`，PR #137） |
 | W0 | T0-TRIAGE-EVIDENCE-CASE | triage 裁决证据身份、HEAD 绑定与失败可观测性 | T0-LESSONS-CAP-TRIAGE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | PR #137 R3 fix-forward；独立于 exact extraction；actual-root case、per-root SHA、unreadable/unknown finding |
-| W0 | T0-LESSONS-CMD-DOCSYNC | lessons.ps1 纳入 doc-drift 机检 + archive 子命令同步三处命令清单 | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 缺口不在那三行文档而在 `_config.ps1` 的 DocSyncMap——它只有 4 个键、不含 lessons.ps1，故闸 14f/17 对它完全沉默。补文档只修一次，补键才让下一次也红。匹配须排除 `_lessons.ps1`（判定核，改它不该要求动用户文档） |
+| W0 | T0-LESSONS-CMD-DOCSYNC | lessons.ps1 纳入 doc-drift 机检 + archive 子命令同步三处命令清单 | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `c92018d2`，PR #202；R5 `c163ae89`，released-master final `6dd963a4`；DocSyncMap 已含 `lessons.ps1`） |
 | W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `edc2770`，PR #129；R3 第 4 轮 pass 零发现——前 3 轮：1 轮 3 条全是基线陈旧假象、2/3 轮各 1 条真缺陷；另有 R3 前 codex 预审再出 2 条真缺陷，合计 8 枚变异全杀） |
 | W0 | T0-DEBT-LESSONS-BUMP-SUBMODULE-ROOT | bump 在 submodule 中按 Git 声明的主工作树写自己的仓库级账本（TD145） | — | S | GPT-5.6 Terra · max | GPT-5.6 Luna · max | **merged**（master `6c227115`，PR #197；真实 primary/linked submodule、fail-closed 变异、verify 与 R3 全绿） |
-| W0 | T0-RECONCILE-DATA-AUTHORITY | 同步数据库生命周期、离线安全与备份权威文档 | T0-RECONCILE-LESSONS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 1/12；纯文档 |
-| W0 | T0-RECONCILE-T1-SECURITY-CARDS | 登记数据库生命周期与 Android 本地安全三张实现卡 | T0-RECONCILE-DATA-AUTHORITY | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 2/12；安全边界 |
-| W0 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | 登记事件、诊断、清除与本机健康四张实现卡 | T0-RECONCILE-T1-SECURITY-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 3/12；无遥测 |
-| W0 | T0-RECONCILE-ROADMAP-INDEX | 将七张卡投影到任务表和技术债索引 | T0-RECONCILE-T1-SECURITY-CARDS,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 4/12；路线投影 |
+| W0 | T0-RECONCILE-DATA-AUTHORITY | 同步数据库生命周期、离线安全与备份权威文档 | T0-RECONCILE-LESSONS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `86c86eec`，PR #151；调和 1/12） |
+| W0 | T0-RECONCILE-T1-SECURITY-CARDS | 登记数据库生命周期与 Android 本地安全三张实现卡 | T0-RECONCILE-DATA-AUTHORITY | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `a403a757`，PR #152；调和 2/12） |
+| W0 | T0-RECONCILE-T5-DIAGNOSTIC-CARDS | 登记事件、诊断、清除与本机健康四张实现卡 | T0-RECONCILE-T1-SECURITY-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `bdc85f10`，PR #153；调和 3/12） |
+| W0 | T0-RECONCILE-ROADMAP-INDEX | 将七张卡投影到任务表和技术债索引 | T0-RECONCILE-T1-SECURITY-CARDS,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `782471da`，PR #154；调和 4/12） |
 | W0 | T0-RECONCILE-DESIGN-METADATA | Field Ledger 可机读 tokens 与组件注册表 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 5/12；可并行 |
 | W0 | T0-RECONCILE-DESIGN-JOURNEYS | 信息架构、导航恢复与离线隐私旅程 | T0-RECONCILE-DESIGN-METADATA,T0-RECONCILE-T5-DIAGNOSTIC-CARDS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 6/12；串行 |
 | W0 | T0-RECONCILE-DESIGN-COMPONENTS | 组件合同、对比度、动效与无障碍规则 | T0-RECONCILE-DESIGN-JOURNEYS | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 7/12；串行 |
-| W0 | T0-RECONCILE-UI-COVERAGE | UI elements 页面与组件覆盖索引 | T0-RECONCILE-DESIGN-COMPONENTS,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 8/12；非权威索引 |
-| W0 | T0-RECONCILE-UI-CAPTURE | 采集、历史与 PDF 卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 9/12；去重 |
-| W0 | T0-RECONCILE-UI-NOTICE-SCHEDULE | 通知与日程卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 10/12；语义不变 |
-| W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 11/12；离线 |
+| W0 | T0-RECONCILE-UI-COVERAGE | UI elements 页面与组件覆盖索引 | T0-RECONCILE-DESIGN-COMPONENTS,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `9c8cfcda`，PR #175；调和 8/12） |
+| W0 | T0-RECONCILE-UI-CAPTURE | 采集、历史与 PDF 卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `622ebea8`，PR #176；调和 9/12） |
+| W0 | T0-RECONCILE-UI-NOTICE-SCHEDULE | 通知与日程卡的设计指针 | T0-RECONCILE-UI-COVERAGE | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `96dbc81d`，PR #177；调和 10/12） |
+| W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（PR #178 先入 integration；同一结果由 PR #179 合入 master `5235ffe4`；调和 11/12） |
 | W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | 调和 12/12；保留新 id |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
 | W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
 | W0 | T0-ASCII-REVIEW-ARCHIVE-CODES | review/archive/init 剩余状态码迁移与 TD134 总验收入口（TD134 6/6） | T0-ASCII-CARD-SECRET-CODES | M | GPT-5.6 Terra · high | Sonnet 5 max | 全六卡 merged + 总验收才可 paid |
-| W0 | T0-GATE-FIXFORWARD | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径 | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | —（**三张 T0 卡共用 selftest.ps1，须串行**：HARNESS-PERF → 本卡 → LICENSE-SCANNER） |
+| W0 | T0-GATE-FIXFORWARD | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径 | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `6f255d35`，PR #4；R3 pass） |
 | W0 | T0-LICENSE-SCANNER | 产出四张批准 classpath 图的 concrete GAV + offline wrapper 基础（TD2 1/5；PR #20 缩 scope） | T0-GATE-HARDENING | M | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `035df10`，PR #25；23 个 graph mutation、4 图/150 GAV 真实离线扫描、Sol R3 pass；TD2 仍 carded） |
 | W0 | T0-LICENSE-POLICY | POM 安全读取、许可分类与 exact-GAV exception（TD2 2/5） | T0-LICENSE-SCANNER | M | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `04f80fd`，PR #26；30 个 policy mutation、150 GAV strict 离线扫描、verify/CI 绿；R3 两轮修复后达 cap，经用户人裁批准；TD2 仍 carded） |
 | W0 | T0-LICENSE-DIAGNOSTICS | scanner 诊断有界、脱敏、不可注入且不改失败语义（TD2 3/5） | T0-LICENSE-POLICY | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `e3b52c7`，PR #27；18 个 diagnostics mutation、graph/policy 回归、150 GAV strict 离线扫描与 verify 绿；R3 round cap 后按记录人裁；TD2 仍 carded） |
 | W0 | T0-LICENSE-GAV-BOUNDS | GAV 每段上界，使 exact accepted coordinate 与有界诊断可同时成立（TD135；TD2 4/5） | T0-LICENSE-DIAGNOSTICS | M | GPT-5.6 Terra · max | Sonnet 5 max | **merged**（master `f61f586`，PR #28；255/256 共享边界、5 个入口 mutation、graph 23/policy 30 回归、150 GAV strict 离线扫描、R3 pass；TD135 paid，TD2 仍 carded） |
-| W0 | T0-LICENSE-CI-INTEGRATION | CI warm-up→offline scan、文档同步与 TD2 总验收（TD2 5/5） | T0-LICENSE-GAV-BOUNDS | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **ready**；fan-in closure，本卡 merge 后才可 paid |
+| W0 | T0-LICENSE-CI-INTEGRATION | CI warm-up→offline scan、文档同步与 TD2 总验收（TD2 5/5） | T0-LICENSE-GAV-BOUNDS | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `1e283297`，PR #49） |
 | W0 | T0-LICENSE-CI-INTEGRATION-R3-CLOSURE | PR #49 round-cap 后活跃接线断言与 cold 聚合语义（TD143） | T0-LICENSE-CI-INTEGRATION | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 原 PR 先人裁；不恢复旧内联 fixture、不重审 scanner 核心 |
 | W0 | T0-DEBT-TASK-INVENTORY | 移除 CLAUDE.md 易漂移的静态任务卡库存数（偿还 TD21） | — | S | GPT-5.6 Terra · max | Sonnet 5 max | **merged**（master `53eebf9`，PR #13；当前阶段改用活卡/归档真相源，无静态库存；句级分类器覆盖同栏历史计数、`cardboard` 边界与 `active cards`，Sol R3 pass；TD22 另卡） |
 | W0 | T0-DEBT-SEEDED-CLOSURE-SCOPE | 让 17cc 变异闭包显式携带断言器（偿还 TD23；TD21 再审前置） | — | S | GPT-5.6 Terra · max | Sonnet 5 max | **merged**（master `39ea794`，PR #14；独立 worktree，真实 A/B mutation 在外层 helper 解绑后仍保持 exact marker/exit/control/SHA，Sol R3 pass；未混入 TD21） |
@@ -101,13 +101,13 @@
 | W0 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | 让动态 E2E 基线从权威清单追踪全部已审敏感路径 | — | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `9c47b97d`，PR #192；失败 run #33215637748 定位 gate 15 的 `2.db` 未追踪基线；双路径控制、first-only 变异、两次完整 workflow 重放与 R3 PASS；post-merge run #33226580801 的 Windows/Linux workflow shards PASS；上游 #305、L256） |
 | W0 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task | — | S | GPT-5.6 Sol · high | GPT-5.6 Luna/Terra · max | **merged**（master `770ffb7f`，PR #201；Windows/POSIX 17a3 调用精确加入 `--continue`，scoped 删除/移位/扩散 canary、真实 ADDED/REMOVED 行为、cleanup、verify 与 R3 全绿；R5 candidate `5565bb17` released-master `selftest -Shard seeded` exit 0，含 canary + ADDED/REMOVED + cleanup + `selftest: PASS`） |
 | W0 | T0-DEBT-MIGRATION-FIXTURE-CLEANUP | PR #47 round-cap 后收敛 Windows migration fixture 清理（TD145） | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `19e4646`，PR #93；短路径、有界重试、完整诊断与清理终态通过，解除 TD4 R5 阻塞） |
-| W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | —（人工真机验收） |
-| W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | 冻结前 Opus 5 抽审 |
+| W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | **merged**（本地合并 `19fd908e`；R5 `320f8dac`） |
+| W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
 | W1 | T1-SPIKE-PLATFORM | 真机可行性 ×4：overlay/离线听写/SAF/80 照 PDF 压力 | T0 | H | Opus 5 · max | Sonnet 5 max | —（人工真机验收） |
 | W1 | T1-LOCAL-DATA-SECURITY | 本地数据安全底座：内外存储分层 + Keystore secret box + 脱敏日志 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；不改 schema/backup format |
 | W1 | T1-SHARE-SCREEN-PRIVACY | Android 隐私出口：安全文件分享 + 敏感窗口分级 + cleartext/系统备份清单闸 | T1-LOCAL-DATA-SECURITY | S–M | GPT-5.6 Terra · high | Sonnet 5 max | 下游统一隐私出口 |
-| W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | Terra 对向量复算 |
-| W1 | T1-TEMPLATE-ENGINE ★ | 模板 schema+加载器+stable-id/版本对齐+按类型枚举 | T1-SCHEMA-CORE | M | DeepSeek V4 Pro · high | Sonnet 5 max | — |
+| W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
+| W1 | T1-TEMPLATE-ENGINE ★ | 模板 schema+加载器+stable-id/版本对齐+按类型枚举 | T1-SCHEMA-CORE | M | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `72ec5e67`，PR #3；R5/冻结登记 `774022e7`） |
 | W2 | T2-ROUTINE-CONTENT | Routine 双语模板 80–120 项+校验测试 | T1-TEMPLATE-ENGINE | S | DeepSeek V4 Pro · medium | Luna Max | **merged**（master `00cb5f0`；deepseek-rescue 替代 Luna Max 复核，卡文已同步登记；9 轮 R3 后合并——烟雾报警器声明组连续 4 轮被拦：内容照抄→许可风险→中性标签改写丢事实→措辞被压缩丢法定 or 替代方案，详见 PR #5） |
 | W2 | T2-PHOTO-PIPELINE | 照片存储/EXIF 转正(8 向)/哈希去重/导入 | T1-SCHEMA-CORE | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `2a3fa6b`，PR #6；R3 第 9 轮触 `ReviewRoundCap` 转人裁，用户裁定选项①：合并+剩余两条登记 TD14（跨 FS+DB 共享临界区式真原子性）/TD15（编码字节上界形式证明），均写入卡 `non_goals`；裁后 3 轮各拦到真缺陷并逐一修复——去重复用漏判存在性校验/位图内存无界/EXIF 亚秒精度缺失、日志缺结构化上下文（round 10），以及本卡收尾时最深的一处：`PhotoAssociationRecorder` 补偿逻辑按内容哈希判活，而同一 rel_path 允许不同哈希并存，导致同 photoId 但哈希不同的重试会误删赢家仍引用的证据文件——改按 `selectById(photoId)` 判活 + 安全性不对称（判不清就不删）、`clock.nowMs()` 移入 try、补偿内部查询失败不再顶掉主异常、导入临时文件改逐次调用唯一命名、SAF 流从函数入口起就纳入所有权（round 11，含两次 L205 独立对抗复核）。78 个 JVM 测试、变异逐一击杀+SHA 复核；L236 登记（变异靶点粒度须与被证明的叙事性主张等宽，同 L165 族）） |
 | W2 | T2-PHOTO-STREAMING-ENCODE | 流式 JPEG 编码+同流哈希/落盘，偿还 TD15 | T2-PHOTO-PIPELINE | M | Sonnet 5 · max | GPT-5.6 Terra · high | **merged**（master `c8f3b63`，PR #29；生产共用 workflow、4096² 真实暂存文件夹具、故障/顺序变异；R3 round 2 pass；TD15 paid） |
@@ -126,12 +126,12 @@
 | W3 | T5-MEDIA-ARCHIVE-SCHEMA ★ | schema v5 四表形态、约束、迁移快照与完整查询面 | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST,T2-PHOTO-PROPERTY-DEDUPE,T5-BACKUP-FORMAT | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `902228e1`，PR #195；v4→v5 迁移、四表约束/查询面与 mutation 证据全绿，R3 pass） |
 | W3 | T5-MEDIA-ARCHIVE-ELIGIBILITY ★ | 本机状态+PDF 回执+exact tuple/scope/revocation 资格 | T5-MEDIA-ARCHIVE-SCHEMA | M | GPT-5.6 Terra · max | GPT-5.6 Luna · max | **merged**（master `f7bd3f1e`，PR #196；exact tuple/scope/revocation/future-time 资格与 mutation 证据全绿，R3 pass） |
 | W3 | T5-MEDIA-ARCHIVE-CONTRACT ★ | 重新打开逐字节核验+原子 verified receipt+finalized 不变性 | T5-MEDIA-ARCHIVE-ELIGIBILITY | M | GPT-5.6 Terra · max | GPT-5.6 Luna · max | **merged**（master `abb12837`，PR #198；provider-neutral 流式写入/重开按字节数+SHA-256 精确核验，identity/scope/revocation 可见，receipt+entries 原子落库，finalized 证据不变；R3 reset 后 pass） |
-| W3 | T3-REPORT-COMPOSER ★ | 纯 Kotlin 布局引擎：分页/双语配对/哈希页脚+黄金布局树 | T1-CANON-HASH,T2-CAPTURE-CORE | H+ | Opus 5 · max | Sonnet 5 max | — |
+| W3 | T3-REPORT-COMPOSER ★ | 纯 Kotlin 布局引擎：分页/双语配对/哈希页脚+黄金布局树 | T1-CANON-HASH,T2-CAPTURE-CORE | H+ | Opus 5 · max | Sonnet 5 max | **merged**（master `bc3b6bcd`，PR #39；报告布局实现及六项收口代码已落地；formal closure/TD139 focused receipt 仍由专卡处理） |
 | W3 | T3-REPORT-COMPOSER-R3-CLOSURE | PR #39 round-cap 后六项 renderer-ready 布局收口（TD139） | T3-REPORT-COMPOSER | M | DeepSeek V4 Pro · high | Sonnet 5 max | 原 PR 先人裁；本卡不重审已闭合事项 |
 | W3 | T3-FINALIZE | finalize 事务+只读强制+Supplement 哈希链 | T1-CANON-HASH | M | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `a5a71ed`；PR #7，15 轮 R3 后合并，48 测试）——唯一悬点（DbCompletenessChecker 逐项 allowed_statuses 重验，评审三度提出，round 5/12/13 均按 mint-point/L220 驳回）触发两轮争议转人裁，用户裁**选项 A**（实现该检查，防御纵深）：新增 `itemsWithDisallowedStatus`；裁后评审又拦两条真发现——① 删掉自己此前引入的重复权威 `classifyAdverseness`/`Adverseness`（ADVERSE/NOT_ADVERSE 从未被消费），简化为 `isInDomain` 纯域成员判定；② 只读强制此前只证过冻结 SQL 谓词，补一条经真实 `InspectionRepository.setItemStatus`/`setWearOrDamage` 的集成测试。TD5 → paid（本 PR 为偿还指针） |
 | W4 | T3-PDF-RENDERER | :app PdfDocument 渲染+CJK+逐页内存+四档导出质量+双版本 | T3-REPORT-COMPOSER | H | Sonnet 5 · max | Opus 5 | 默认 Medium；High 为证据归档建议；不承诺绝对 MB |
 | W4 | T3-HISTORY-COMPARE | 历史条(上次状态/滑动)+ghost overlay 集成+双轨基线 | T2-CAPTURE-UI,T1-SPIKE-PLATFORM,T2-REPEATABLE-ROOM-RUNTIME | H | Sonnet 5 · max | Opus 5 | 实例级 baseline 前置已由 PR #193 / master `6a92aa58` 满足；禁止退回 stable_id 单键匹配 |
-| W4 | T4-COMPLIANCE-ENGINE ★ | 配置驱动合规引擎+阻断 API+NZ DST 边界测试 | T1-SCHEMA-CORE | H | Opus 5 · high | DeepSeek V4 Pro | Terra 对规则夹具与需求逐条比对 |
+| W4 | T4-COMPLIANCE-ENGINE ★ | 配置驱动合规引擎+阻断 API+NZ DST 边界测试 | T1-SCHEMA-CORE | H | Opus 5 · high | DeepSeek V4 Pro | **merged**（master `525b0111`，PR #43；配置驱动引擎与测试已落地；round-cap 余项由 T4-COMPLIANCE-ENGINE-R3-CLOSURE 承接） |
 | W4 | T4-COMPLIANCE-ENGINE-R3-CLOSURE | PR #43 round-cap 后配置驱动/改期身份/拒绝与不可变证据收口（TD141） | T4-COMPLIANCE-ENGINE | M | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只接第 2 轮四项 finding |
 | W4 | T5-BACKUP-IO | SAF 目的地+内容回读验证回执+自动导出+恢复先试跑后落刀 | T5-BACKUP-FORMAT,T2-PHOTO-PROPERTY-DEDUPE,T5-MEDIA-ARCHIVE-CONTRACT | H | Sonnet 5 · max | Terra | Google Photos 状态不算回执；不接云账号 |
 | W5 | T5-OPERATION-EVENT-STORE | 独立本机诊断库：有界脱敏 operation_event 与失败隔离 | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST, T1-LOCAL-DATA-SECURITY | H | Sonnet 5 · max | GPT-5.6 Terra · high | 不进主库/备份/证据哈希；TD161 1/2 |
