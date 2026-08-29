@@ -24,6 +24,7 @@ dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :cor
 dod_exit: 0
 dod_assert: 属性的重复房间数量经版本评审后可持久化；建巡检按模板房间序再按 instance_no 稳定实例化；B1/B2 同 stable_id 不同状态时 Exit B2 必与 B2 对齐且交换插入顺序结果不变；声明两间却缺 B2 时 finalize 拒绝
 review_gate: codex {verdict:pass}
+version_review: approved 2026-08-29 — schema v3→v4 adds property_room_config(property_id, room_key, instance_count 1..99); missing config means 1; migration is additive 3.sqm; no UI or inferred counts
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: specs/tech-debt-tracker.md 将 TD26 置 paid；同步 T2-CAPTURE-UI 与 T3-HISTORY-COMPARE 的已满足前提（R5）
 ---
