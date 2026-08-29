@@ -56,6 +56,10 @@ class MediaArchiveSchemaTest {
             assertEquals(1L, queries.insertLocalAssetState("media/$index.jpg", HASH_A, 100, state, NOW, "a").value)
         }
         assertEquals(3L, count("local_asset_state"))
+        assertFailsWith<Exception> {
+            queries.insertLocalAssetState("media/0.jpg", HASH_B, 101, "ARCHIVED", NOW + 1, "valid duplicate key").value
+        }
+        assertEquals(3L, count("local_asset_state"))
 
         assertFailsWith<Exception> { queries.insertLocalAssetState("", HASH_A, 100, "PRESENT", NOW, "a").value }
         assertFailsWith<Exception> { queries.insertLocalAssetState("media/empty-hash.jpg", "", 100, "PRESENT", NOW, "a").value }
@@ -83,6 +87,7 @@ class MediaArchiveSchemaTest {
         assertFailsWith<Exception> { insertReport("r9", "inspection-3", "LANDLORD", "LOW", byteSize = -1) }
         assertFailsWith<Exception> { insertReport("r10", "inspection-3", "LANDLORD", "LOW", exportedAt = 0) }
         assertFailsWith<Exception> { insertReport("r11", "inspection-3", "LANDLORD", "LOW", exportedAt = -1) }
+        assertFailsWith<Exception> { insertReport("r-landlord-0", "inspection-9", "TENANT", "HIGH") }
         assertEquals(5L, count("report_export_receipt"))
     }
 
@@ -117,6 +122,10 @@ class MediaArchiveSchemaTest {
         assertFailsWith<Exception> { insertReceipt("negative-verified", verifiedAt = -1, scopeKind = "full", propertyId = null) }
 
         insertReceipt("nullable-version", versionRef = null, scopeKind = "full", propertyId = null)
+        assertFailsWith<Exception> {
+            insertReceipt("nullable-version", objectRef = "another.mibk", scopeKind = "full", propertyId = null)
+        }
+        assertEquals(fields.size.toLong() + 1, count("verified_backup_receipt"))
         assertNull(
             driver.executeQuery(
                 null,
