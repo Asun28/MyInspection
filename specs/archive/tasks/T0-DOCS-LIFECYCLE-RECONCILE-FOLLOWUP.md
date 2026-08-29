@@ -3,7 +3,7 @@ id: T0-DOCS-LIFECYCLE-RECONCILE-FOLLOWUP
 title: Reconcile remaining design and lessons card lifecycles
 depends_on: [T0-DOCS-LIFECYCLE-RECONCILE]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-DOCS-LIFECYCLE-RECONCILE-FOLLOWUP
 worktree: C:\wt\T0-DOCS-LIFECYCLE-RECONCILE-FOLLOWUP
 allow_paths:
