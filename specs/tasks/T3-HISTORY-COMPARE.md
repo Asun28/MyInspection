@@ -37,6 +37,7 @@ doc_sync: TASK-BOARD 备注（R5）
 ## 上下文包（执行模型必读）
 - **范围收窄立场（需求 §6 [定]）**：只做「拍的时候能看到前几次」。历史条出现在项目卡片内：上次 status 徽标 + note 摘要 + 缩略图，横滑看更早（倒序取 3–5 次足够）。
 - 双轨（T2-CAPTURE-CORE 已解析引用）：`historyFor(stableId, mode)`——EXIT 默认 baseline（tenancy 的 Ingoing）、可切 previous；ROUTINE/ANNUAL 默认 previous。模板版本差异用 T1-TEMPLATE-ENGINE 的 alignHistory：交集项正常、移除项标「旧模板项」、新增项无历史（空态）。
+- **实例维度前置已满足**：PR #193 / master `6a92aa58` 已把 baseline 对齐收紧为 `(room_key, instance_no, stable_id)` 并提供确定房间序。历史查询与 UI 必须保留该身份，不得退回仅按 `stable_id` 或 `room_key` 取首行。
 - **Overlay（spike ① 结论驱动）**：成立 → 拍照页可选「叠层」开关：上次同项照片（room 级用全景）alpha ~0.3 叠 PreviewView，沿 spike 记录的 UseCaseGroup/ViewPort 参数；照片已转正（T2-PHOTO-PIPELINE 烘焙），不再旋转。降级 → 拍照页分屏并排（上历史下取景）。**读 docs/spike/PLATFORM-SPIKE.md 第①节定走哪条，卡不重开决策**。
 - ROOM_PANORAMA 是 overlay 主战场（需求 §5：机位一致性在全景上价值最大）——房间全景拍摄默认开叠层，项目级默认关（可开）。
 

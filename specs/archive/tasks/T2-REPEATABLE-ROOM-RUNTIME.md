@@ -2,7 +2,7 @@
 id: T2-REPEATABLE-ROOM-RUNTIME
 title: 偿还 TD26：重复房间实例化、完备性与历史基线统一到实例维度
 depends_on: [T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST, T2-ROOM-REPEATABLE]
-status: todo
+status: merged
 branch: T2-REPEATABLE-ROOM-RUNTIME
 worktree: C:\wt\T2-REPEATABLE-ROOM-RUNTIME
 allow_paths:
@@ -43,3 +43,7 @@ doc_sync: specs/tech-debt-tracker.md 将 TD26 置 paid；同步 T2-CAPTURE-UI �
 
 ## 验收
 见 front-matter。该卡合并前，T2/T3 不得把重复房间 UI 或历史匹配上线。
+
+## R5
+
+PR #193 / master `6a92aa58` 已合并；第二轮 R3 pass。TD26 已偿还，下游 `T2-CAPTURE-UI` 与 `T3-HISTORY-COMPARE` 已同步为消费实例维度核心合同。
