@@ -2,7 +2,7 @@
 id: T5-MEDIA-ARCHIVE-ELIGIBILITY
 title: 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定
 depends_on: [T5-MEDIA-ARCHIVE-SCHEMA]
-status: todo
+status: merged
 branch: T5-MEDIA-ARCHIVE-ELIGIBILITY
 worktree: C:\wt\T5-MEDIA-ARCHIVE-ELIGIBILITY
 allow_paths:
