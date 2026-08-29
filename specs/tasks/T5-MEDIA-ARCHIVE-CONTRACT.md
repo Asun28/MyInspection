@@ -1,66 +1,39 @@
 ---
 id: T5-MEDIA-ARCHIVE-CONTRACT
-title: 媒体归档契约：本机物理状态 + 内容特定的已验证备份回执
-depends_on: [T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST, T2-PHOTO-PROPERTY-DEDUPE, T5-BACKUP-FORMAT]
+title: 媒体归档收口：重新打开逐字节核验、原子回执与 finalized 不变性
+depends_on: [T5-MEDIA-ARCHIVE-ELIGIBILITY]
 status: todo
 branch: T5-MEDIA-ARCHIVE-CONTRACT
 worktree: C:\wt\T5-MEDIA-ARCHIVE-CONTRACT
 allow_paths:
-  - android/core/src/main/sqldelight/
   - android/core/src/main/kotlin/nz/myinspection/core/media/archive/
   - android/core/src/test/kotlin/nz/myinspection/core/media/archive/
 forbid:
-  - 绕过 FrozenPaths；修改既有 photo 内容哈希或 finalized 行
-  - 把 SAF URI、云盘品牌、Worker 成功或“上次备份时间”当成内容已验证
+  - 修改 frozen schema、既有 photo/inspection/finalized 行或备份 FORMAT_VERSION
+  - 注入 SAF/S3/账号/计费类型，或持久化 token、签名 URL、云凭据
 non_goals:
-  - 实际导出/回读（T5-BACKUP-IO）；清理/恢复照片字节（T5-LOCAL-MEDIA-RETENTION）；备份格式 v2；S3/账号/订阅实现
+  - 实际导出/恢复（T5-BACKUP-IO）与照片字节清理/回填（T5-LOCAL-MEDIA-RETENTION）
+  - 备份格式 v2、provider adapter、S3、账号或订阅实现
 acceptance:
-  # 作者声明的验收清单：以下是本卡认为「完成」所需的事实，每条应有可证伪测试。
-  # **这是一份声明，不改变任何评审语义**——裁决仍完全按 docs/QUALITY-RUBRIC.md 现行 rubric 判，
-  # 清单未列到的问题照常按现行 rubric 处理（含其现行的 [FOLLOW-UP] 适用条件）。
-  # 「把清单当排他性判据、清单外一律 FOLLOW-UP」是上游提案 Asun28/claude-devops-scaffold#203
-  # 的内容，**上游落地前本仓不采用**。
-  - "A1 迁移即版本评审的可执行证据：落新 `1.sqm`（schema 1→2）+ 受审快照 `databases/2.db`，测试用 `JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)` 建 v1 baseline 后调 `MyInspectionDatabase.Schema.migrate(driver, 1, 2)`，断言迁移前后既有 13 张表（photo/inspection/room_instance/…）的 `PRAGMA table_info` 列集合逐列相等、且 photo 行的 `rel_path`/`content_hash` 逐字段相等；`android/core/build.gradle.kts` 的 `verifyMigrations.set(true)` 保持 true（不改这一行、不加豁免），`verifyMainMyInspectionDatabaseMigration` 随 `:core:check` 全绿"
-  - "A2 状态域封闭：`local_asset_state.state` 带 `CHECK (state IN ('PRESENT','ARCHIVED','RESTORING'))`；三个合法值各成功插入一次，`'present'`（小写）与 `'ARCHIVED '`（尾随空格）各抛 SQLite 约束异常——同 `photo.privacy_flag`/`photo.source` 的 CHECK 先例（一个域外值就绕开全部按值过滤的查询）"
-  - "A3 转换带时间与原因：每次状态写入落 `changed_at`（epoch 毫秒）+ `reason`（NOT NULL）；用固定 `nz.myinspection.core.db.ClockMs { 1_700_000_000_000L }` 注入，断言 `changed_at` 恰等 1700000000000（不是「大于 0」）；`reason` 传空串 `\"\"` 被拒并带新增状态码 `[ARCHIVE-STATE-REASON-EMPTY]`，传 1 字符 `\"a\"` 通过"
-  - "A4 归档不动证据行：把一张 photo 置 ARCHIVED 前后各调一次 `photoQueries.selectById`，断言 `content_hash`/`rel_path`/`deleted_at`/`updated_at` 四列逐字段相等（`deleted_at` 两侧都为 NULL），且其父 `inspection.data_hash` 相等；`local_asset_state` 是按 `photo.rel_path` 追加的独立行，不是对 photo 的 UPDATE"
-  - "A5 finalized 面逐字节不变：在 `inspection.status='FINALIZED'` 的巡检上跑完「置 ARCHIVED → 建回执 → 判 archivedEligible」整条链路，对 `photo` 与 `inspection` 两表按主键升序导出全部列拼成 canonical 字符串取 SHA-256，链路前后两个哈希字符串相等；把实现里任一处改成写 photo/inspection 即让该断言变红（配一枚单句变异证明）"
-  - "A6 回执六必填 + 一可空：`verified_backup_receipt` 的 `destination_kind`/`destination_ref`/`object_ref`/`exported_at`/`verified_at`/`scope_kind` 六字段必填，`version_ref` 可空；六字段逐一置 NULL 共 6 个用例，各以新增状态码 `[ARCHIVE-RECEIPT-INCOMPLETE]` 拒绝且 `verified_backup_receipt` 行数仍为 0；六字段齐备而 `version_ref = NULL` 的一例创建成功并读回 `version_ref` 为 null"
-  - "A7 exact tuple 覆盖：`archivedEligible(relPath, contentHash, byteSize)` 仅在存在 entry 三元组逐字段全等时为 true；正例（三元组全等）为 true；同 rel_path 但 `content_hash` 差 1 个十六进制字符为 false 且理由 `[ARCHIVE-HASH-MISMATCH]`；同 rel_path 同 hash 但 `byte_size` 取 N-1 与 N+1 两例均为 false 且理由 `[ARCHIVE-SIZE-MISMATCH]`（N = 正例的精确字节数，断言精确值而非「不等即可」）"
-  - "A8 撤销边界与状态不回退：`revoked_at IS NULL` 的回执判 true；把同一回执 `revoked_at` 置为与 `verified_at` **相同**的毫秒值（最早可撤销点）即 false 且理由 `[ARCHIVE-RECEIPT-REVOKED]`，置为 `verified_at - 1` 同样 false；撤销后再查 `local_asset_state`，该 rel_path 仍读回 `'ARCHIVED'`（行数与值前后相等）——资格翻假但状态不被自动改写"
-  - "A9 物业边界同一把尺子：entry 的 rel_path 归属物业（经 photo→room_instance→inspection.property_id 两跳求得）与回执 `scope_kind='property'` 的 `scope_property_id` 相等即 true，不等即 false 且理由 `[ARCHIVE-PROPERTY-MISMATCH]`；`scope_kind='full'` 对上述两个物业均为 true——判定复用已冻结的 `BackupScope.Property.includes` 语义，同测试断言 `BackupFormat.FORMAT_VERSION == 1` 未被改动"
-  - "A10 未来时间与时钟注入：`verified_at == clock.nowMs()` 通过（等号边界放行），`verified_at == clock.nowMs() + 1` 被拒且理由 `[ARCHIVE-RECEIPT-FUTURE-TIME]`；时间源恒为注入的 `ClockMs`——同一固定值 `ClockMs` 下同一夹具连跑两次，写入的 `exported_at`/`verified_at`/`changed_at` 三列逐字段相等（直读 `System.currentTimeMillis()` 会让该断言变红）"
-  - "A11 双版本 PDF 回执才够清理资格：`report_export_receipt` 对 (`inspection_id`, `audience`, `quality`) 建唯一索引（重复插入抛约束异常）；`audience` 带 CHECK 封闭域（待核实：房东版/房客版两值的字面量由 T3-REPORT-COMPOSER 钉定，本卡以 CHECK 固化）；两版回执齐备时 `cleanupEligible(inspectionId)` 为 true，删房东版一例、删房客版一例共 2 例均为 false 且理由 `[ARCHIVE-EXPORT-RECEIPT-MISSING]`（含缺失的 audience 值）"
-  - "A12 表形态闭集（正面清单，非名字黑名单）：对 `local_asset_state`/`report_export_receipt`/`verified_backup_receipt`/`verified_backup_receipt_entry` 四表各跑 `PRAGMA table_info`，断言列名有序集合**逐一等于**本卡声明的清单（多一列即红，故短时签名 URL/token/云凭据这类列加不进来），且四表列 `type` 的取值集合 ⊆ {TEXT, INTEGER}（无 BLOB，照片字节仍只在文件系统）"
-  - "A13 回执须经重新打开并解密核验：全链路只注入一个 `ArchiveStore` 测试替身（能力恰为写入 / 重新打开 / 读身份与版本 / 读撤销可见性）+ 固定 `ClockMs`，不注入 SAF/S3/账号/计费类型；替身「重新打开」返回与写入时差 1 字节的内容 → 创建被拒、抛新增状态码 `[ARCHIVE-VERIFY-READBACK-MISMATCH]` 且 `verified_backup_receipt` 与 entries 两表行数均为 0；返回逐字节相同的内容 → 创建成功、entries 行数等于资产数"
-  - "A14 目标离线不伪造成功：`ArchiveStore` 替身在「重新打开」时抛 `IOException`，创建以新增状态码 `[ARCHIVE-VERIFY-UNAVAILABLE]` 失败，断言两张回执表行数前后都为 0（不落半条）；同时 `local_asset_state` 里既有的 `'ARCHIVED'` 行数与 `state` 值前后相等，并由公开只读查询 `assetsArchivedWithoutValidReceipt()` 返回该 rel_path（正例——有有效回执时返回空列表）"
-  - "A15 provider 信号一律不构成「内容已验证」：构造夹具「有 SAF URI 形态的 `destination_ref` + 有较新的 `exported_at`（模拟『上次备份时间』）+ 状态已置 ARCHIVED，但 entries 表中没有任何行覆盖该 rel_path」，`archivedEligible` 为 false 且理由 `[ARCHIVE-ASSET-NOT-COVERED]`；仅当补上一条逐字段全等的 entry 后同一调用才翻为 true——同一断言即证明 destination_kind 的取值（云盘品牌）不参与资格判定"
-  - "A16 确定性与离线：本包全部测试零网络、零 wall-clock、零随机——主键用 `Uuid7Generator(clock = ClockMs { 1_700_000_000_000L }, randomSource = <固定 Uuid7RandomSource>)` 生成，同一夹具连跑两次后对四张新表按主键升序全量导出取 SHA-256，两次哈希字符串相等"
+  - "A1 创建输入的 destination_kind/destination_ref/object_ref/exported_at/verified_at/scope 六项逐一缺失时均以 `[ARCHIVE-RECEIPT-INCOMPLETE]` 拒绝且 receipt/entry 行数为 0；version_ref=null 成功并读回 null"
+  - "A2 全链路只注入 provider-neutral ArchiveStore（写入、重新打开、读 identity/version/revocation）+ ClockMs + Uuid7Generator；重新打开内容差 1 字节时以 `[ARCHIVE-VERIFY-READBACK-MISMATCH]` 拒绝且两表为 0，逐字节相同时原子写入 receipt 与全部 entries"
+  - "A3 ArchiveStore 重新打开抛 IOException 时以 `[ARCHIVE-VERIFY-UNAVAILABLE]` 失败且 receipt/entry 均不落半条；既有 ARCHIVED 状态不变，并由 `assetsArchivedWithoutValidReceipt()` 暴露风险"
+  - "A4 重新打开返回的 destination/object/version identity 必须与写入结果逐字段相等，revocation 可见性落 revoked_at；身份不符不得创建可用回执"
+  - "A5 FINALIZED 巡检执行 ARCHIVED→写入→重新打开→建回执→资格判断全链前后，photo 与 inspection 按主键导出的全部列 SHA-256 逐字节相等；任一实现写入证据表的单句变异使测试变红"
+  - "A6 固定 ClockMs 与固定 Uuid7RandomSource 的两套新数据库运行相同夹具，四张归档表按主键全量导出的 SHA-256 完全相等；全部测试零网络、零 wall-clock、零随机"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.archive.*"
 dod_exit: 0
-dod_assert: 新 schema 以追加表表达 PRESENT/ARCHIVED/RESTORING 状态、PDF 生成回执、VerifiedBackupReceipt 及逐资产 rel_path/hash/size；finalized photo 行和 canonical hash 不被更新；只有完整且未撤销的回执覆盖 exact tuple 才可判 archivedEligible；缺一字段、哈希/大小变化、回执撤销、跨物业或未来时间均拒绝；迁移升级/读回测试与版本评审全绿
+dod_assert: 只有重新打开逐字节一致且 identity/version/revocation 可见的 provider-neutral 归档才能原子创建 exact entries；离线/错字节/缺字段均 fail-closed，finalized 证据不变且结果确定
 review_gate: codex {verdict:pass}
-hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
-doc_sync: TD132 状态、schema 契约与 TASK-BOARD 备注（R5）
+version_review: approved 2026-08-29 via T5-MEDIA-ARCHIVE-SCHEMA — schema v4→v5，backup FORMAT_VERSION 保持 1
+hygiene: ArchiveStore fake 只替代外部存储边界；真实服务/数据库/哈希路径不 mock；关键失败分支逐一 mutation-survivor 剪枝（R4）
+doc_sync: TD132 置 paid；同步 docs/DATABASE-DESIGN.md 与 docs/TASK-BOARD.md，并归档三个串行卡（R5）
 ---
 
 # T5-MEDIA-ARCHIVE-CONTRACT
 
-## 产出
-不改 `photo` 证据行，新增独立的物理资产状态与归档证明：
+Light Plan Forge 3/3，也是对下游保持稳定的最终卡 ID。只有本卡合并后，T5-BACKUP-IO 与 T5-LOCAL-MEDIA-RETENTION 才可消费归档资格合同。
 
-- `local_asset_state`：照片逻辑记录仍在时，其本机字节为 PRESENT / ARCHIVED / RESTORING；状态转换带时间与原因。
-- `report_export_receipt`：某 inspection/audience/quality 的 PDF 已成功原子落盘；清理资格至少要求房东版和房客版按产品契约生成完成。
-- `verified_backup_receipt` + entries：provider-neutral 的 `destination_kind + opaque destination_ref + opaque object_ref + optional version_ref`、导出/验证时间、scope，以及每个资产的 `rel_path + content_hash + byte_size`；只有目标重新打开并解密核验后才能创建。短时签名 URL、token 和云凭据不得持久化。
+## 已批准版本评审
 
-## 冻结物版本评审
-`android/core/src/main/sqldelight/` 已冻结。本卡就是该新增表版本的显式评审卡：先获用户放行并确认 schema version，再落新 `.sqm` 和快照；TD4 已偿还，必须沿用其恢复的迁移校验，禁止关掉校验或绕过 `guard-frozen`。备份 manifest 的字段已经足以验证资产，本卡不改冻结的 format_version。
-
-## 不变量
-- “记录是否存在”和“本机字节是否存在”分离；归档绝不软删 photo/inspection/report 元数据。
-- 回执可失效/撤销，不能因目标暂时离线自动伪造成功；既有 ARCHIVED 状态仍保留并向 UI 暴露风险。
-- 时间计算使用注入 Clock；物业边界与 rel_path 归属必须一致。
-- 领域层只依赖 `ArchiveStore` 能力（写入、重新打开、读取身份/版本、撤销可见性），不依赖 SAF、S3 SDK、计费或账号类型。v1 只有 SAF adapter；未来 hosted adapter 必须复用同一 exact-content 资格判定。
-
-## 验收
-见 front-matter。首选 Opus 5 · max；备选 Sonnet 5 · max。难度 H。
+2026-08-29 用户批准 schema v4→v5：第一张子卡用 `4.sqm` 与受审 `databases/4.db` 一次性冻结四表和完整查询面；后两张卡不得静默增表、改列或提升备份 format_version。
