@@ -1,0 +1,199 @@
+CREATE TABLE local_asset_state (
+    rel_path TEXT NOT NULL PRIMARY KEY,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    changed_at INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0),
+    CHECK (state IN ('PRESENT', 'ARCHIVED', 'RESTORING')),
+    CHECK (length(reason) > 0)
+);
+
+CREATE INDEX idx_local_asset_state_state
+ON local_asset_state (state, rel_path);
+
+CREATE TABLE report_export_receipt (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL,
+    audience TEXT NOT NULL,
+    quality TEXT NOT NULL,
+    rel_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    exported_at INTEGER NOT NULL,
+    CHECK (length(id) > 0),
+    CHECK (length(inspection_id) > 0),
+    CHECK (audience IN ('LANDLORD', 'TENANT')),
+    CHECK (quality IN ('LOW', 'MEDIUM', 'HIGH', 'EXTRA_HIGH')),
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0),
+    CHECK (exported_at > 0)
+);
+
+CREATE UNIQUE INDEX idx_report_export_receipt_identity
+ON report_export_receipt (inspection_id, audience, quality);
+
+CREATE TABLE verified_backup_receipt (
+    id TEXT NOT NULL PRIMARY KEY,
+    destination_kind TEXT NOT NULL,
+    destination_ref TEXT NOT NULL,
+    object_ref TEXT NOT NULL,
+    version_ref TEXT,
+    exported_at INTEGER NOT NULL,
+    verified_at INTEGER NOT NULL,
+    scope_kind TEXT NOT NULL,
+    scope_property_id TEXT,
+    revoked_at INTEGER,
+    CHECK (length(id) > 0),
+    CHECK (length(destination_kind) > 0),
+    CHECK (length(destination_ref) > 0),
+    CHECK (length(object_ref) > 0),
+    CHECK (version_ref IS NULL OR length(version_ref) > 0),
+    CHECK (exported_at > 0),
+    CHECK (verified_at > 0),
+    CHECK (
+        (scope_kind = 'full' AND scope_property_id IS NULL)
+        OR (scope_kind = 'property' AND scope_property_id IS NOT NULL AND length(scope_property_id) > 0)
+    )
+);
+
+CREATE INDEX idx_verified_backup_receipt_verified
+ON verified_backup_receipt (verified_at, id);
+
+CREATE TABLE verified_backup_receipt_entry (
+    receipt_id TEXT NOT NULL,
+    rel_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    PRIMARY KEY (receipt_id, rel_path),
+    CHECK (length(receipt_id) > 0),
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0)
+);
+
+CREATE INDEX idx_verified_backup_receipt_entry_exact
+ON verified_backup_receipt_entry (rel_path, content_hash, byte_size, receipt_id);
+
+insertLocalAssetState:
+INSERT OR IGNORE INTO local_asset_state (rel_path, content_hash, byte_size, state, changed_at, reason)
+VALUES (:rel_path, :content_hash, :byte_size, :state, :changed_at, :reason);
+
+updateLocalAssetStateIfIdentityMatches:
+UPDATE local_asset_state
+SET state = :state, changed_at = :changed_at, reason = :reason
+WHERE rel_path = :rel_path
+  AND content_hash = :content_hash
+  AND byte_size = :byte_size;
+
+selectLocalAssetStateByPath:
+SELECT *
+FROM local_asset_state
+WHERE rel_path = :rel_path;
+
+selectArchivedAssetStates:
+SELECT *
+FROM local_asset_state
+WHERE state = 'ARCHIVED'
+ORDER BY rel_path ASC;
+
+selectAllLocalAssetStates:
+SELECT *
+FROM local_asset_state
+ORDER BY rel_path ASC;
+
+insertReportExportReceipt:
+INSERT INTO report_export_receipt (
+    id, inspection_id, audience, quality, rel_path, content_hash, byte_size, exported_at
+) VALUES (
+    :id, :inspection_id, :audience, :quality, :rel_path, :content_hash, :byte_size, :exported_at
+);
+
+selectReportExportReceiptsByInspection:
+SELECT *
+FROM report_export_receipt
+WHERE inspection_id = :inspection_id
+ORDER BY audience ASC, quality ASC, id ASC;
+
+selectAllReportExportReceipts:
+SELECT *
+FROM report_export_receipt
+ORDER BY id ASC;
+
+deleteReportExportReceipt:
+DELETE FROM report_export_receipt
+WHERE id = :id;
+
+insertVerifiedBackupReceipt:
+INSERT INTO verified_backup_receipt (
+    id, destination_kind, destination_ref, object_ref, version_ref,
+    exported_at, verified_at, scope_kind, scope_property_id, revoked_at
+) VALUES (
+    :id, :destination_kind, :destination_ref, :object_ref, :version_ref,
+    :exported_at, :verified_at, :scope_kind, :scope_property_id, :revoked_at
+);
+
+selectVerifiedBackupReceiptById:
+SELECT *
+FROM verified_backup_receipt
+WHERE id = :id;
+
+selectAllVerifiedBackupReceipts:
+SELECT *
+FROM verified_backup_receipt
+ORDER BY id ASC;
+
+revokeVerifiedBackupReceipt:
+UPDATE verified_backup_receipt
+SET revoked_at = :revoked_at
+WHERE id = :id AND revoked_at IS NULL;
+
+insertVerifiedBackupReceiptEntry:
+INSERT INTO verified_backup_receipt_entry (receipt_id, rel_path, content_hash, byte_size)
+VALUES (:receipt_id, :rel_path, :content_hash, :byte_size);
+
+selectVerifiedBackupReceiptEntries:
+SELECT *
+FROM verified_backup_receipt_entry
+WHERE receipt_id = :receipt_id
+ORDER BY rel_path ASC;
+
+selectCandidateReceiptEntriesByPath:
+SELECT
+    e.receipt_id,
+    e.rel_path,
+    e.content_hash,
+    e.byte_size,
+    r.destination_kind,
+    r.destination_ref,
+    r.object_ref,
+    r.version_ref,
+    r.exported_at,
+    r.verified_at,
+    r.scope_kind,
+    r.scope_property_id,
+    r.revoked_at
+FROM verified_backup_receipt_entry e
+JOIN verified_backup_receipt r ON r.id = e.receipt_id
+WHERE e.rel_path = :rel_path
+ORDER BY r.verified_at DESC, r.id ASC;
+
+selectAllVerifiedBackupReceiptEntries:
+SELECT *
+FROM verified_backup_receipt_entry
+ORDER BY receipt_id ASC, rel_path ASC;
+
+selectActiveAssetIdentitiesByPath:
+SELECT DISTINCT i.property_id, p.content_hash
+FROM photo p
+JOIN room_instance ri ON ri.id = p.room_instance_id
+JOIN inspection i ON i.id = ri.inspection_id
+WHERE p.rel_path = :rel_path
+  AND p.deleted_at IS NULL
+  AND ri.deleted_at IS NULL
+  AND i.deleted_at IS NULL
+ORDER BY i.property_id ASC, p.content_hash ASC;

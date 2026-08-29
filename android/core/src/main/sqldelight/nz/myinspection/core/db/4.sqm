@@ -1,0 +1,80 @@
+CREATE TABLE local_asset_state (
+    rel_path TEXT NOT NULL PRIMARY KEY,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    changed_at INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0),
+    CHECK (state IN ('PRESENT', 'ARCHIVED', 'RESTORING')),
+    CHECK (length(reason) > 0)
+);
+
+CREATE INDEX idx_local_asset_state_state
+ON local_asset_state (state, rel_path);
+
+CREATE TABLE report_export_receipt (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL,
+    audience TEXT NOT NULL,
+    quality TEXT NOT NULL,
+    rel_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    exported_at INTEGER NOT NULL,
+    CHECK (length(id) > 0),
+    CHECK (length(inspection_id) > 0),
+    CHECK (audience IN ('LANDLORD', 'TENANT')),
+    CHECK (quality IN ('LOW', 'MEDIUM', 'HIGH', 'EXTRA_HIGH')),
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0),
+    CHECK (exported_at > 0)
+);
+
+CREATE UNIQUE INDEX idx_report_export_receipt_identity
+ON report_export_receipt (inspection_id, audience, quality);
+
+CREATE TABLE verified_backup_receipt (
+    id TEXT NOT NULL PRIMARY KEY,
+    destination_kind TEXT NOT NULL,
+    destination_ref TEXT NOT NULL,
+    object_ref TEXT NOT NULL,
+    version_ref TEXT,
+    exported_at INTEGER NOT NULL,
+    verified_at INTEGER NOT NULL,
+    scope_kind TEXT NOT NULL,
+    scope_property_id TEXT,
+    revoked_at INTEGER,
+    CHECK (length(id) > 0),
+    CHECK (length(destination_kind) > 0),
+    CHECK (length(destination_ref) > 0),
+    CHECK (length(object_ref) > 0),
+    CHECK (version_ref IS NULL OR length(version_ref) > 0),
+    CHECK (exported_at > 0),
+    CHECK (verified_at > 0),
+    CHECK (
+        (scope_kind = 'full' AND scope_property_id IS NULL)
+        OR (scope_kind = 'property' AND scope_property_id IS NOT NULL AND length(scope_property_id) > 0)
+    )
+);
+
+CREATE INDEX idx_verified_backup_receipt_verified
+ON verified_backup_receipt (verified_at, id);
+
+CREATE TABLE verified_backup_receipt_entry (
+    receipt_id TEXT NOT NULL,
+    rel_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    PRIMARY KEY (receipt_id, rel_path),
+    CHECK (length(receipt_id) > 0),
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0)
+);
+
+CREATE INDEX idx_verified_backup_receipt_entry_exact
+ON verified_backup_receipt_entry (rel_path, content_hash, byte_size, receipt_id);
