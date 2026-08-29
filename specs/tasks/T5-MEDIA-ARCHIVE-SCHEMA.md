@@ -8,6 +8,7 @@ worktree: C:\wt\T5-MEDIA-ARCHIVE-SCHEMA
 allow_paths:
   - android/core/src/main/sqldelight/
   - android/core/src/test/kotlin/nz/myinspection/core/media/archive/
+  - android/core/src/test/kotlin/nz/myinspection/core/template/TemplateRoomSchemaTest.kt
   - configs/secrets/tracked-sensitive-allowlist.json
 forbid:
   - 关闭 verifyMigrations、绕过 FrozenPaths 或改写既有 1/2/3.sqm 与 1/2/3.db
