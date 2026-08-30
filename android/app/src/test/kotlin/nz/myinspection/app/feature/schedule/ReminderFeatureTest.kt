@@ -220,7 +220,10 @@ class ReminderFeatureTest {
         assertEquals(WorkerOutcome.FAILURE, execute(spec, rejected, logger, attempt = 2))
         assertEquals(ReceiptState.RETRYABLE, rejected.read(spec.occurrenceId))
         val throwing = enqueuedStore(spec).apply { throwOnWrite = true }
-        assertEquals(WorkerOutcome.FAILURE, execute(spec, throwing, logger, attempt = 2))
+        var alerts = 0
+        assertEquals(WorkerOutcome.RETRY, execute(spec, throwing, logger) { alerts += if (it.onlyAlertOnce) 1 else 100 })
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, throwing, logger, attempt = 2) { alerts += if (it.onlyAlertOnce) 1 else 100 })
+        assertEquals(2, alerts)
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
         assertEquals(ReceiptState.ENQUEUED, throwing.read(spec.occurrenceId))
         throwing.throwOnWrite = false

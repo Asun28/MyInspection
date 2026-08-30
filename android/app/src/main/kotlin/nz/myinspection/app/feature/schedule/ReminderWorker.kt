@@ -75,7 +75,7 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             .setContentText(delivery.copy.body)
             .setStyle(Notification.BigTextStyle().bigText(delivery.copy.body))
             .setVisibility(Notification.VISIBILITY_PRIVATE)
-            .setAutoCancel(true)
+            .setAutoCancel(true).setOnlyAlertOnce(delivery.onlyAlertOnce)
             .setContentIntent(routePendingIntent(delivery.intent))
             .build()
         postReminderNotification(reminderNotificationIdentity(delivery.intent), notification, manager::notify)

@@ -30,11 +30,8 @@ interface ReceiptStore {
     fun read(occurrenceId: String): ReceiptState
     fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): Boolean
 }
-internal fun ReceiptStore.readSafely(occurrenceId: String): ReceiptState = try {
-    read(occurrenceId)
-} catch (_: RuntimeException) {
-    ReceiptState.CORRUPT
-}
+internal fun ReceiptStore.readSafely(occurrenceId: String): ReceiptState =
+    try { read(occurrenceId) } catch (_: RuntimeException) { ReceiptState.CORRUPT }
 internal fun ReceiptStore.compareAndSetSafely(
     occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
 ): Boolean = try {
@@ -139,7 +136,7 @@ fun scheduleNotificationCopy(type: InspectionScheduleType): NotificationCopy {
 }
 sealed interface DeliveryPlan {
     data object Retry : DeliveryPlan
-    data class Notify(val copy: NotificationCopy, val intent: RouteIntentSpec) : DeliveryPlan
+    data class Notify(val copy: NotificationCopy, val intent: RouteIntentSpec, val onlyAlertOnce: Boolean = true) : DeliveryPlan
 }
 fun reminderDeliveryPlan(
     sdkInt: Int,
