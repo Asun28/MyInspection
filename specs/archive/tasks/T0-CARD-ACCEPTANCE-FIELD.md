@@ -3,7 +3,7 @@ id: T0-CARD-ACCEPTANCE-FIELD
 title: 把 acceptance 作者声明的验收清单登记为正式卡片字段，并给它一道形态机检
 depends_on: [T0-R3-DIFF-BUDGET]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-CARD-ACCEPTANCE-FIELD
 worktree: C:\wt\T0-CARD-ACCEPTANCE-FIELD
 allow_paths:
