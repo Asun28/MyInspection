@@ -27,13 +27,17 @@ class ScheduleReminderWorker(
             ?: return Result.failure()
         val dueAtMillis = inputData.getLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, Long.MIN_VALUE)
         if (dueAtMillis == Long.MIN_VALUE) return Result.failure()
+        val occurrenceId = inputData.getString(ReminderWorkData.OCCURRENCE_ID) ?: return Result.failure()
         val route = ScheduleRoutePayload(propertyId, type)
 
         val permissionGranted = Build.VERSION.SDK_INT < 33 ||
             applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (reminderDeliveryAction(Build.VERSION.SDK_INT, permissionGranted) == ReminderDeliveryAction.RETRY) {
-            return Result.retry()
-        }
+        val delivery = reminderDeliveryPlan(Build.VERSION.SDK_INT, permissionGranted, route, Instant.ofEpochMilli(dueAtMillis))
+        if (delivery is ReminderDeliveryPlan.Retry) return Result.retry()
+        delivery as ReminderDeliveryPlan.Notify
+        if (!SharedPreferencesReminderOccurrenceStore(applicationContext)
+                .write(occurrenceId, ReminderReceiptState.CONFIRMED)
+        ) return Result.retry()
 
         val notificationManager = applicationContext.getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(
@@ -43,21 +47,19 @@ class ScheduleReminderWorker(
                 NotificationManager.IMPORTANCE_DEFAULT,
             ),
         )
-        val copy = scheduleNotificationCopy(type)
         val notification = Notification.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(copy.title)
-            .setContentText(copy.body)
-            .setStyle(Notification.BigTextStyle().bigText(copy.body))
+            .setContentTitle(delivery.copy.title)
+            .setContentText(delivery.copy.body)
+            .setStyle(Notification.BigTextStyle().bigText(delivery.copy.body))
             .setAutoCancel(true)
-            .setContentIntent(routePendingIntent(route, Instant.ofEpochMilli(dueAtMillis)))
+            .setContentIntent(routePendingIntent(delivery.intent))
             .build()
-        notificationManager.notify(reminderRouteIntentSpec(route, Instant.ofEpochMilli(dueAtMillis)).requestCode, notification)
+        notificationManager.notify(delivery.intent.requestCode, notification)
         return Result.success()
     }
 
-    private fun routePendingIntent(route: ScheduleRoutePayload, dueAt: Instant): PendingIntent {
-        val intentSpec = reminderRouteIntentSpec(route, dueAt)
+    private fun routePendingIntent(intentSpec: ReminderRouteIntentSpec): PendingIntent {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             action = ACTION_OPEN_SCHEDULE
             putExtra(EXTRA_PROPERTY_ID, intentSpec.propertyId)

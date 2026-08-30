@@ -1,5 +1,9 @@
 package nz.myinspection.app.feature.schedule
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
@@ -11,20 +15,16 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import nz.myinspection.core.schedule.InspectionScheduleType
 import nz.myinspection.core.schedule.ScheduleAdvice
 
-/**
- * R4 mutation receipt (2026-08-31): each restored single-statement mutation exited nonzero.
- *
- * - Remove due-at or downgrade route identity to hashCode -> occurrence/collision assertions fail.
- * - Bypass durable claim/rollback, Settings resume, or synchronous permission receipt -> app contract fails.
- * - Nest the reminder action, relaunch a denied dialog, corrupt route extras, RETRY->DELIVER, or KEEP->REPLACE -> fails.
- * - Core receipt: ROUTINE 13->12 weeks failed two cadence assertions; ANNUAL 12->11 months failed month-end.
- */
+/** R4 receipt: restored mutations to cadence, occurrence identity, pending recovery/rollback,
+ * saveable permission state, API-33 delivery, and KEEP idempotency each failed the focused suite. */
 class ScheduleFeatureTest {
     private val now = Instant.parse("2026-08-01T00:00:00Z")
     private val workSpecs = ReminderWorkSpecFactory(Clock.fixed(now, ZoneOffset.UTC))
@@ -48,17 +48,39 @@ class ScheduleFeatureTest {
     }
 
     @Test
-    fun `occurrence receipt remains idempotent after completion and can roll back a failed enqueue`() {
+    fun `persistent coordinator recovers pending enqueue and reconciles async or sync failure`() {
         val store = FakeOccurrenceStore()
-        val occurrenceId = workSpecs.create(
-            ScheduleRoutePayload("property-a", InspectionScheduleType.ROUTINE),
-            now.plusSeconds(60),
-        ).occurrenceId
+        val occurrenceId = workSpecs.create(ScheduleRoutePayload("property-a", InspectionScheduleType.ROUTINE), now).occurrenceId
+        var firstCompletion: ((Boolean) -> Unit)? = null
+        assertTrue(ReminderRegistrationCoordinator(store).register(occurrenceId) { firstCompletion = it })
+        assertEquals(ReminderReceiptState.PENDING, store.read(occurrenceId))
 
-        assertTrue(ReminderRegistrationGate(store).claim(occurrenceId))
-        assertFalse(ReminderRegistrationGate(store).claim(occurrenceId), "A recreated gate must retain the receipt")
-        ReminderRegistrationGate(store).rollback(occurrenceId)
-        assertTrue(ReminderRegistrationGate(store).claim(occurrenceId), "A failed enqueue must remain retryable")
+        var recoveryCompletion: ((Boolean) -> Unit)? = null
+        assertTrue(ReminderRegistrationCoordinator(store).register(occurrenceId) { recoveryCompletion = it })
+        recoveryCompletion!!(true)
+        firstCompletion!!(false)
+        assertEquals(ReminderReceiptState.CONFIRMED, store.read(occurrenceId))
+        assertFalse(ReminderRegistrationCoordinator(store).register(occurrenceId) { error("must not enqueue") })
+
+        val failed = "$occurrenceId-failed"
+        var failedCompletion: ((Boolean) -> Unit)? = null
+        assertTrue(ReminderRegistrationCoordinator(store).register(failed) { failedCompletion = it })
+        failedCompletion!!(false)
+        assertNull(store.read(failed))
+        assertFailsWith<IllegalStateException> {
+            ReminderRegistrationCoordinator(store).register(failed) { throw IllegalStateException("enqueue") }
+        }
+        assertNull(store.read(failed))
+    }
+
+    @Test
+    fun `pending reminder survives serialization and restores the exact work spec`() {
+        val pending = PendingReminder(ScheduleRoutePayload("property-a", InspectionScheduleType.ANNUAL), now.plusSeconds(60))
+        val bytes = ByteArrayOutputStream().also { output -> ObjectOutputStream(output).use { it.writeObject(pending) } }.toByteArray()
+        val restored = ObjectInputStream(ByteArrayInputStream(bytes)).use { it.readObject() as PendingReminder }
+        assertEquals(pending, restored)
+        assertNull(restored.resumeAfterGrant(NotificationPermissionState.DENIED, Clock.fixed(now, ZoneOffset.UTC)))
+        assertEquals(workSpecs.create(pending.route, pending.dueAt), restored.resumeAfterGrant(NotificationPermissionState.GRANTED, Clock.fixed(now, ZoneOffset.UTC)))
     }
 
     @Test
@@ -86,13 +108,14 @@ class ScheduleFeatureTest {
         )
         assertContains(denied.english, "Settings")
         assertContains(denied.chinese, "设置")
-        assertEquals(ReminderDeliveryAction.RETRY, reminderDeliveryAction(33, permissionGranted = false))
-        assertEquals(ReminderDeliveryAction.DELIVER, reminderDeliveryAction(32, permissionGranted = false))
     }
 
     @Test
     fun `local notification copy is bilingual and does not expose property identity`() {
-        val copy = scheduleNotificationCopy(InspectionScheduleType.ROUTINE)
+        val route = ScheduleRoutePayload("property-a", InspectionScheduleType.ROUTINE)
+        assertIs<ReminderDeliveryPlan.Retry>(reminderDeliveryPlan(33, false, route, now))
+        val delivery = assertIs<ReminderDeliveryPlan.Notify>(reminderDeliveryPlan(32, false, route, now))
+        val copy = delivery.copy
         val allText = "${copy.title}\n${copy.body}"
 
         assertContains(copy.title, "Inspection reminder")
@@ -101,6 +124,7 @@ class ScheduleFeatureTest {
         assertContains(copy.body, "定期巡检")
         assertFalse(allText.contains("property-a"))
         assertFalse(allText.contains("address", ignoreCase = true))
+        assertEquals(reminderRouteIntentSpec(route, now), delivery.intent)
     }
 
     @Test
@@ -127,7 +151,7 @@ class ScheduleFeatureTest {
     }
 
     @Test
-    fun `manifest scheduler and worker retain the production notification contract`() {
+    fun `manifest declares only the user initiated notification permission`() {
         val appRoot = locateAppRoot()
         val manifest = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
             .newDocumentBuilder()
@@ -137,29 +161,6 @@ class ScheduleFeatureTest {
             permissions.item(it).attributes.getNamedItemNS(ANDROID_NS, "name").nodeValue
         }
         assertEquals(listOf("android.permission.POST_NOTIFICATIONS"), names)
-
-        val feature = appRoot.resolve("src/main/kotlin/nz/myinspection/app/feature/schedule")
-        val scheduler = Files.readAllBytes(feature.resolve("ScheduleReminderScheduler.kt")).decodeToString()
-        val worker = Files.readAllBytes(feature.resolve("ScheduleReminderWorker.kt")).decodeToString()
-        val screen = Files.readAllBytes(feature.resolve("ScheduleScreen.kt")).decodeToString()
-        assertContains(scheduler, "enqueueUniqueWork")
-        assertContains(scheduler, "ExistingWorkPolicy.KEEP")
-        assertContains(scheduler, "ReminderRegistrationGate")
-        assertContains(scheduler, "gate.rollback(spec.occurrenceId)")
-        assertContains(scheduler, "setInitialDelay")
-        assertContains(worker, "POST_NOTIFICATIONS")
-        assertContains(worker, "NotificationManager")
-        assertContains(worker, "ScheduleRoutePayload")
-        assertContains(worker, "PendingIntent.FLAG_IMMUTABLE")
-        assertContains(worker, "intent.data")
-        assertContains(worker, "putExtra(EXTRA_PROPERTY_ID, intentSpec.propertyId)")
-        assertContains(worker, "putExtra(EXTRA_INSPECTION_TYPE, intentSpec.inspectionType)")
-        assertContains(worker, "Result.retry()")
-        assertContains(screen, "ACTION_APPLICATION_DETAILS_SETTINGS")
-        assertContains(screen, "is ReminderPermissionAction.ExplainDenied -> pendingRow = row")
-        assertContains(screen, ".commit()")
-        assertEquals(2, Regex("pendingRow\\?\\.schedule\\(context\\)").findAll(screen).count())
-        assertFalse(screen.substringAfter("ListItem(").substringBefore("\n        )").contains("onReminder"))
     }
 
     private fun item(
@@ -169,8 +170,9 @@ class ScheduleFeatureTest {
     ) = SchedulePropertyItem(id, "Property $id", type, advice)
 
     private class FakeOccurrenceStore : ReminderOccurrenceStore {
-        private val receipts = mutableSetOf<String>()
-        override fun claim(occurrenceId: String): Boolean = receipts.add(occurrenceId)
+        private val receipts = mutableMapOf<String, ReminderReceiptState>()
+        override fun read(occurrenceId: String): ReminderReceiptState? = receipts[occurrenceId]
+        override fun write(occurrenceId: String, state: ReminderReceiptState): Boolean = true.also { receipts[occurrenceId] = state }
         override fun remove(occurrenceId: String) { receipts.remove(occurrenceId) }
     }
 

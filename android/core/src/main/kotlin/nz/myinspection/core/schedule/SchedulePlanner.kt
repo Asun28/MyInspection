@@ -3,24 +3,12 @@ package nz.myinspection.core.schedule
 import java.time.Instant
 import java.time.ZoneId
 
-enum class InspectionScheduleType {
-    ROUTINE,
-    ANNUAL,
-    INGOING,
-    EXIT,
-}
+enum class InspectionScheduleType { ROUTINE, ANNUAL, INGOING, EXIT }
 
-data class FinalizedInspection(
-    val propertyId: String,
-    val inspectionType: InspectionScheduleType,
-    val finalizedAt: Instant,
-)
+data class FinalizedInspection(val propertyId: String, val inspectionType: InspectionScheduleType, val finalizedAt: Instant)
 
 sealed interface ScheduleAdvice {
-    data class Due(
-        val dueAt: Instant,
-        val previousFinalizedAt: Instant,
-    ) : ScheduleAdvice
+    data class Due(val dueAt: Instant, val previousFinalizedAt: Instant) : ScheduleAdvice
 
     data object FirstInspection : ScheduleAdvice
 
