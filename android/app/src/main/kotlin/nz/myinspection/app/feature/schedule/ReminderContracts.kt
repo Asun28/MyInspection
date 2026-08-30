@@ -9,10 +9,8 @@ data class PendingReminder(val route: ScheduleRoute, val dueAt: Instant) : Seria
     fun toSpec(): ReminderSpec = WorkSpecFactory().create(route, dueAt)
 }
 data class ReminderSpec(
-    val uniqueWorkName: String, val occurrenceId: String,
-    val route: ScheduleRoute, val dueAt: Instant,
+    val uniqueWorkName: String, val occurrenceId: String, val route: ScheduleRoute, val dueAt: Instant,
 )
-
 class WorkSpecFactory {
     fun create(route: ScheduleRoute, dueAt: Instant): ReminderSpec {
         require(route.propertyId.isNotBlank()) { "propertyId must not be blank" }
@@ -26,12 +24,12 @@ class WorkSpecFactory {
     }
 }
 fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
-    val occurrence = "${route.propertyId}\u0000${route.inspectionType.name}\u0000${dueAt.toEpochMilli()}"
+    val occurrence = "${route.propertyId}\u0000${route.inspectionType.name}\u0000${dueAt.epochSecond}\u0000${dueAt.nano}"
     return MessageDigest.getInstance("SHA-256")
         .digest(occurrence.encodeToByteArray())
         .toHex()
 }
-enum class ReceiptState { MISSING, ENQUEUED, DELIVERED, RETRYABLE, CORRUPT }
+enum class ReceiptState { MISSING, ENQUEUED, DELIVERED, RETRYABLE, TERMINAL, CORRUPT }
 enum class RegistrationResult { SUCCESS, RETRYABLE_FAILURE, PERMANENT_FAILURE }
 interface ReceiptStore {
     fun read(occurrenceId: String): ReceiptState
@@ -51,7 +49,6 @@ internal fun ReceiptStore.compareAndSetSafely(
 } catch (_: RuntimeException) {
     false
 }
-
 internal class RegistrationCoordinator(
     private val store: ReceiptStore, private val onCorruptReceipt: () -> Unit,
     private val onWriteFailure: () -> Unit,
@@ -74,7 +71,7 @@ internal class RegistrationCoordinator(
                 onResult(
                     when {
                         current in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED) -> RegistrationResult.SUCCESS
-                        current == ReceiptState.CORRUPT -> RegistrationResult.PERMANENT_FAILURE
+                        current in setOf(ReceiptState.TERMINAL, ReceiptState.CORRUPT) -> RegistrationResult.PERMANENT_FAILURE
                         else -> RegistrationResult.RETRYABLE_FAILURE
                     },
                 )
@@ -86,29 +83,29 @@ internal class RegistrationCoordinator(
             onResult(RegistrationResult.SUCCESS)
             return false
         }
-        if (initialState == ReceiptState.CORRUPT) {
-            onCorruptReceipt()
+        if (initialState in setOf(ReceiptState.TERMINAL, ReceiptState.CORRUPT)) {
+            if (initialState == ReceiptState.CORRUPT) onCorruptReceipt()
             onResult(RegistrationResult.PERMANENT_FAILURE)
             return false
         }
         enqueue { result ->
-            if (result != RegistrationResult.SUCCESS) {
+            if (result == RegistrationResult.RETRYABLE_FAILURE) {
                 onResult(result)
                 return@enqueue
             }
-            val durable = store.compareAndSetSafely(
-                occurrenceId,
-                setOf(initialState),
-                ReceiptState.ENQUEUED,
-            )
+            val target = if (result == RegistrationResult.SUCCESS) {
+                ReceiptState.ENQUEUED
+            } else {
+                ReceiptState.TERMINAL
+            }
+            store.compareAndSetSafely(occurrenceId, setOf(initialState), target)
             val current = store.readSafely(occurrenceId)
-            val complete = durable || current in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)
-            if (!complete && current == ReceiptState.CORRUPT) onCorruptReceipt()
-            if (!complete && current == ReceiptState.MISSING) onWriteFailure()
+            if (current == ReceiptState.CORRUPT) onCorruptReceipt()
+            if (current == ReceiptState.MISSING) onWriteFailure()
             onResult(
                 when {
-                    complete -> RegistrationResult.SUCCESS
-                    current == ReceiptState.CORRUPT -> RegistrationResult.PERMANENT_FAILURE
+                    current in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED) -> RegistrationResult.SUCCESS
+                    current in setOf(ReceiptState.TERMINAL, ReceiptState.CORRUPT) -> RegistrationResult.PERMANENT_FAILURE
                     else -> RegistrationResult.RETRYABLE_FAILURE
                 },
             )
@@ -116,7 +113,6 @@ internal class RegistrationCoordinator(
         return true
     }
 }
-
 data class RouteIntentSpec(
     val data: String, val notificationTag: String, val notificationId: Int,
     val requestCode: Int, val propertyId: String, val inspectionType: String,
@@ -133,8 +129,7 @@ fun reminderRouteIntentSpec(route: ScheduleRoute, dueAt: Instant): RouteIntentSp
         inspectionType = route.inspectionType.name,
     )
 }
-fun reminderNotificationIdentity(intent: RouteIntentSpec) =
-    NotificationIdentity(intent.notificationTag, intent.notificationId)
+fun reminderNotificationIdentity(intent: RouteIntentSpec) = NotificationIdentity(intent.notificationTag, intent.notificationId)
 data class NotificationCopy(val title: String, val body: String)
 fun scheduleNotificationCopy(type: InspectionScheduleType): NotificationCopy {
     val label = when (type) {

@@ -19,18 +19,16 @@ import nz.myinspection.core.schedule.InspectionScheduleType
 internal object WorkKeys {
     const val PROPERTY_ID = "property_id"
     const val INSPECTION_TYPE = "inspection_type"
-    const val DUE_AT_EPOCH_MILLIS = "due_at_epoch_millis"
+    const val DUE_AT_INSTANT = "due_at_instant"
     const val OCCURRENCE_ID = "occurrence_id"
 }
 data class EnqueueSpec(
-    val uniqueName: String, val route: ScheduleRoute, val dueAtEpochMillis: Long,
+    val uniqueName: String, val route: ScheduleRoute, val dueAt: Instant,
     val occurrenceId: String,
     val existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
 ) {
     companion object {
-        fun from(spec: ReminderSpec) = EnqueueSpec(
-            spec.uniqueWorkName, spec.route, spec.dueAt.toEpochMilli(), spec.occurrenceId,
-        )
+        fun from(spec: ReminderSpec) = EnqueueSpec(spec.uniqueWorkName, spec.route, spec.dueAt, spec.occurrenceId)
     }
 }
 sealed interface EnqueueResult {
@@ -69,9 +67,7 @@ data class LogRecord(
     val stage: LogStage, val occurrenceId: String?, val type: InspectionScheduleType?,
     val retryable: Boolean, val errorCode: LogError, val causeCode: FailureCauseCode,
 )
-internal fun interface EventLogger {
-    fun log(record: LogRecord)
-}
+internal fun interface EventLogger { fun log(record: LogRecord) }
 internal fun reminderLogMessage(record: LogRecord): String {
     val occurrence = record.occurrenceId
         ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
@@ -86,13 +82,11 @@ internal fun reminderLogMessage(record: LogRecord): String {
         "\"cause_code\":\"${record.causeCode.wireValue()}\"}"
 }
 private fun Enum<*>.wireValue() = name.lowercase().replace('_', '-')
-
 internal object AndroidReminderLogger : EventLogger {
     override fun log(record: LogRecord) {
         Log.w("ScheduleReminder", reminderLogMessage(record))
     }
 }
-
 object ReminderScheduler {
     @Synchronized
     fun schedule(
@@ -184,14 +178,14 @@ internal fun enqueueWorkManagerReminder(
     val input = Data.Builder()
         .putString(WorkKeys.PROPERTY_ID, work.route.propertyId)
         .putString(WorkKeys.INSPECTION_TYPE, work.route.inspectionType.name)
-        .putLong(WorkKeys.DUE_AT_EPOCH_MILLIS, work.dueAtEpochMillis)
+        .putString(WorkKeys.DUE_AT_INSTANT, work.dueAt.toString())
         .putString(WorkKeys.OCCURRENCE_ID, work.occurrenceId)
         .build()
     val request = OneTimeWorkRequestBuilder<ReminderWorker>()
         .setInitialDelay(
             maxOf(
                 0L,
-                Duration.between(clock.instant(), Instant.ofEpochMilli(work.dueAtEpochMillis)).toMillis(),
+                Duration.between(clock.instant(), work.dueAt).toMillis(),
             ),
             TimeUnit.MILLISECONDS,
         )
@@ -204,18 +198,14 @@ internal fun decodeReceipt(raw: String?): ReceiptState = when (raw) {
     ReceiptState.ENQUEUED.name -> ReceiptState.ENQUEUED
     ReceiptState.DELIVERED.name -> ReceiptState.DELIVERED
     ReceiptState.RETRYABLE.name -> ReceiptState.RETRYABLE
+    ReceiptState.TERMINAL.name -> ReceiptState.TERMINAL
     else -> ReceiptState.CORRUPT
 }
-internal fun readReceipt(readRaw: () -> String?): ReceiptState = try {
-    decodeReceipt(readRaw())
-} catch (_: RuntimeException) {
-    ReceiptState.CORRUPT
-}
-
+internal fun readReceipt(readRaw: () -> String?): ReceiptState = try { decodeReceipt(readRaw()) }
+catch (_: RuntimeException) { ReceiptState.CORRUPT }
 internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    override fun read(occurrenceId: String) =
-        readReceipt { preferences.getString(occurrenceId, null) }
+    override fun read(occurrenceId: String) = readReceipt { preferences.getString(occurrenceId, null) }
     override fun compareAndSet(
         occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
     ): Boolean = synchronized(LOCK) {

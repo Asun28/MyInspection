@@ -17,13 +17,13 @@ import nz.myinspection.core.schedule.InspectionScheduleType
 
 internal data class WorkerInput(
     val propertyId: String?, val type: String?,
-    val dueAtMillis: Long?, val occurrenceId: String?,
+    val dueAt: Instant?, val occurrenceId: String?,
 ) {
     companion object {
         fun from(spec: ReminderSpec) = WorkerInput(
             spec.route.propertyId,
             spec.route.inspectionType.name,
-            spec.dueAt.toEpochMilli(),
+            spec.dueAt,
             spec.occurrenceId,
         )
     }
@@ -44,8 +44,8 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             WorkerInput(
                 inputData.getString(WorkKeys.PROPERTY_ID),
                 inputData.getString(WorkKeys.INSPECTION_TYPE),
-                inputData.getLong(WorkKeys.DUE_AT_EPOCH_MILLIS, Long.MIN_VALUE)
-                    .takeUnless { it == Long.MIN_VALUE },
+                inputData.getString(WorkKeys.DUE_AT_INSTANT)
+                    ?.let { runCatching { Instant.parse(it) }.getOrNull() },
                 inputData.getString(WorkKeys.OCCURRENCE_ID),
             ),
             Build.VERSION.SDK_INT,
@@ -110,6 +110,7 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             val (route, dueAt, occurrenceId) = valid
             when (store.readSafely(occurrenceId)) {
                 ReceiptState.DELIVERED -> return WorkerOutcome.SUCCESS
+                ReceiptState.TERMINAL -> return WorkerOutcome.FAILURE
                 ReceiptState.CORRUPT -> return corruptReceipt(occurrenceId, route.inspectionType, logger)
                 ReceiptState.MISSING, ReceiptState.ENQUEUED, ReceiptState.RETRYABLE -> Unit
             }
@@ -165,7 +166,7 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             val type = input.type
                 ?.let { runCatching { InspectionScheduleType.valueOf(it) }.getOrNull() }
                 ?: return null
-            val dueAt = input.dueAtMillis?.let(Instant::ofEpochMilli) ?: return null
+            val dueAt = input.dueAt ?: return null
             val occurrenceId = input.occurrenceId ?: return null
             val route = ScheduleRoute(propertyId, type)
             return if (occurrenceId == reminderOccurrenceId(route, dueAt)) {
@@ -206,21 +207,23 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             val retryable = disposition.kind == FailureKind.TRANSIENT && attempt + 1 < MAX_ATTEMPTS
             logger.record(stage, occurrenceId, type, retryable, errorCode, disposition.causeCode)
             if (retryable) return WorkerOutcome.RETRY
-            val released = store.readSafely(occurrenceId) == ReceiptState.RETRYABLE ||
+            val target = if (disposition.kind == FailureKind.PERMANENT) ReceiptState.TERMINAL
+            else ReceiptState.RETRYABLE
+            val current = store.readSafely(occurrenceId)
+            if (current != target) {
                 store.compareAndSetSafely(
-                occurrenceId,
-                setOf(ReceiptState.MISSING, ReceiptState.ENQUEUED),
-                ReceiptState.RETRYABLE,
-            )
-            if (!released && store.readSafely(occurrenceId) != ReceiptState.DELIVERED) {
-                logger.record(
-                    LogStage.RECEIPT_ENQUEUED,
                     occurrenceId,
-                    type,
-                    false,
-                    LogError.RECEIPT_WRITE_FAILED,
-                    FailureCauseCode.STORAGE_WRITE,
+                    setOf(ReceiptState.MISSING, ReceiptState.ENQUEUED, ReceiptState.RETRYABLE),
+                    target,
                 )
+            }
+            val finalState = store.readSafely(occurrenceId)
+            if (finalState == ReceiptState.CORRUPT) {
+                return corruptReceipt(occurrenceId, type, logger)
+            }
+            if (finalState != target && finalState !in setOf(ReceiptState.DELIVERED, ReceiptState.TERMINAL)) {
+                logger.record(LogStage.RECEIPT_ENQUEUED, occurrenceId, type, false,
+                    LogError.RECEIPT_WRITE_FAILED, FailureCauseCode.STORAGE_WRITE)
             }
             return WorkerOutcome.FAILURE
         }
@@ -228,7 +231,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             FailureDisposition(FailureKind.TRANSIENT, FailureCauseCode.PERMISSION_DENIED)
     }
 }
-
 private data class ValidatedInput(val route: ScheduleRoute, val dueAt: Instant, val occurrenceId: String)
 
 private fun EventLogger.record(
