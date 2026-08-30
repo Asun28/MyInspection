@@ -1,5 +1,4 @@
 package nz.myinspection.app.feature.schedule
-
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -43,7 +42,6 @@ import nz.myinspection.app.ui.theme.FieldLedgerStatusColor
 import nz.myinspection.app.ui.theme.fieldLedgerDarkStatusColors
 import nz.myinspection.app.ui.theme.fieldLedgerLightStatusColors
 import nz.myinspection.app.ui.theme.fieldLedgerShapes
-
 @Composable
 fun ScheduleRouteContent(
     items: List<SchedulePropertyItem>,
@@ -92,7 +90,6 @@ fun ScheduleRouteContent(
             pendingReminder = null
         }
     }
-
     ScheduleScreen(
         rows = rows,
         filter = filter,
@@ -111,22 +108,22 @@ fun ScheduleRouteContent(
         onReminderAction = { row ->
             val rationaleRequired = context.findActivity()
                 ?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true
-            when (ReminderPermissionPolicy.next(Build.VERSION.SDK_INT, permissionState, rationaleRequired)) {
+            val transition = scheduleRouteContentTransition(row, Build.VERSION.SDK_INT, permissionState, rationaleRequired)
+            when (transition.action) {
                 ReminderPermissionAction.Schedule -> row.schedule(context)
                 ReminderPermissionAction.RequestPermission -> {
-                    pendingReminder = row.pendingReminder()
+                    pendingReminder = transition.pending
                     requestPermission()
                 }
                 is ReminderPermissionAction.ShowRationale -> {
-                    pendingReminder = row.pendingReminder()
+                    pendingReminder = transition.pending
                     showRationale = true
                 }
-                is ReminderPermissionAction.ExplainDenied -> pendingReminder = row.pendingReminder()
+                is ReminderPermissionAction.ExplainDenied -> pendingReminder = transition.pending
             }
         },
     )
 }
-
 @Composable
 fun ScheduleScreen(
     rows: List<SchedulePropertyRow>,
@@ -213,7 +210,6 @@ fun ScheduleScreen(
         }
     }
 }
-
 @Composable
 private fun ScheduleRow(
     row: SchedulePropertyRow,
@@ -237,7 +233,6 @@ private fun ScheduleRow(
         }
     }
 }
-
 @Composable
 private fun ScheduleStateBadge(badge: ScheduleBadge) {
     val roles = if (isSystemInDarkTheme()) fieldLedgerDarkStatusColors else fieldLedgerLightStatusColors
@@ -257,24 +252,17 @@ private fun ScheduleStateBadge(badge: ScheduleBadge) {
         )
     }
 }
-
 private fun SchedulePropertyRow.schedule(context: android.content.Context) {
     val due = requireNotNull(dueAt) { "Only recurring rows can schedule reminders" }
     val spec = ReminderWorkSpecFactory(Clock.systemUTC()).create(route, due)
     ScheduleReminderScheduler.schedule(context, spec)
 }
-
-private fun SchedulePropertyRow.pendingReminder(): PendingReminder =
-    PendingReminder(route, requireNotNull(dueAt) { "Only recurring rows can schedule reminders" })
-
 private fun Context.notificationPermissionWasRequested(): Boolean =
     getSharedPreferences(PERMISSION_PREFERENCES, Context.MODE_PRIVATE).getBoolean(PERMISSION_REQUESTED, false)
-
 private fun Context.markNotificationPermissionRequested(): Boolean =
     getSharedPreferences(PERMISSION_PREFERENCES, Context.MODE_PRIVATE).edit()
         .putBoolean(PERMISSION_REQUESTED, true)
         .commit()
-
 private fun Context.findActivity(): Activity? {
     var current: Context? = this
     while (current is ContextWrapper) {
@@ -283,6 +271,5 @@ private fun Context.findActivity(): Activity? {
     }
     return current as? Activity
 }
-
 private const val PERMISSION_PREFERENCES = "schedule-notification-permission"
 private const val PERMISSION_REQUESTED = "requested"
