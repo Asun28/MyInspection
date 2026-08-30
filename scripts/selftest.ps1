@@ -13782,7 +13782,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'initial-pr-arg', 'final-pr-arg', 'ci-checked', 'ci-url-head', 'ci-url-heads',
-      'ci-workflow-checked', 'ci-workflow-url-head', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace',
+      'ci-workflow-checked', 'ci-workflow-count', 'ci-workflow-url-head', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace',
       'check-count', 'final-snapshot-count', 'headmove-count', 'base-advanced', 'hang-start', 'hang-completed',
       'hang-tree-start', 'hang-tree-completed')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
@@ -13838,10 +13838,15 @@ if ($args -contains 'api') {
   }
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
+    $workflowCountPath = Join-Path $env:GH_MOCK_ROOT 'ci-workflow-count'
+    $workflowCount = if (Test-Path $workflowCountPath) { 1 + [int]("$(Get-Content $workflowCountPath -Raw)".Trim()) } else { 1 }
+    Set-Content $workflowCountPath $workflowCount
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $prNumber = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
-    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"completed`",`"conclusion`":`"success`",`"run_attempt`":1,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$prNumber}]}]}"
+    $workflowStatus = if (($env:GH_MOCK_CI_MODE -eq 'basic-rerun') -and ($workflowCount -ge 2)) { 'in_progress' } else { 'completed' }
+    $workflowConclusion = if ($workflowStatus -eq 'completed') { '"success"' } else { 'null' }
+    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"$workflowStatus`",`"conclusion`":$workflowConclusion,`"run_attempt`":1,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$prNumber}]}]}"
     exit 0
   }
   $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
@@ -14096,7 +14101,17 @@ if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
             $candidate3Text = Get-Content $candidate3 -Raw
             if ([regex]::Matches($candidate3Text, '(?m)^  verify:').Count -ne 1) { Fail 'T37-REMOTEMX/3：候选 ci.yml 缺唯一 verify job，无法构造 candidate-only 解析证明。' }
             $candidate3Text -replace '(?m)^  verify:', '  verify-basic:' | Set-Content $candidate3 -NoNewline -Encoding utf8
+            Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace'), (Join-Path $fx3.Root 'ci-workflow-count') -ErrorAction SilentlyContinue
+            $env:GH_MOCK_CI_MODE = 'basic-rerun'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '12'
+            $s3Rerun = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
+            $s3RerunExit = $LASTEXITCODE
+            $s3WorkflowCount = if (Test-Path (Join-Path $fx3.Root 'ci-workflow-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-workflow-count') -Raw)".Trim()) } else { 0 }
+            if ($s3RerunExit -eq 0 -or $s3Rerun -notmatch '\[CI-GATE-TIMEOUT\]' -or $s3WorkflowCount -lt 2 -or
+                -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
+              Fail 'T37-REMOTEMX/3：候选 workflow 初绿后在决策复核转 pending，ship 未回到等待直至超时，或错误触达 merge。'
+            }
             Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $fx3.Root 'ci-workflow-count'), (Join-Path $fx3.Root 'ci-workflow-checked'), (Join-Path $fx3.Root 'ci-jobs-consumed'), (Join-Path $fx3.Root 'ci-jobs-run-id') -ErrorAction SilentlyContinue
             $expectedPr3 = "$(Get-Content (Join-Path $fx3.Root 'fixture-pr-number') -Raw)".Trim()
             $expectedRun3 = "$(Get-Content (Join-Path $fx3.Root 'fixture-run-id') -Raw)".Trim()
             $env:GH_MOCK_CI_MODE = 'basic-candidate'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '20'
