@@ -15,12 +15,7 @@ class WorkSpecFactory {
     fun create(route: ScheduleRoute, dueAt: Instant): ReminderSpec {
         require(route.propertyId.isNotBlank()) { "propertyId must not be blank" }
         val occurrenceId = reminderOccurrenceId(route, dueAt)
-        return ReminderSpec(
-            uniqueWorkName = "schedule-reminder:$occurrenceId",
-            occurrenceId = occurrenceId,
-            route = route,
-            dueAt = dueAt,
-        )
+        return ReminderSpec("schedule-reminder:$occurrenceId", occurrenceId, route, dueAt)
     }
 }
 fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
@@ -144,7 +139,6 @@ fun scheduleNotificationCopy(type: InspectionScheduleType): NotificationCopy {
             "已到建议日期，请打开 MyInspection 查看物业。",
     )
 }
-
 sealed interface DeliveryPlan {
     data object Retry : DeliveryPlan
     data class Notify(val copy: NotificationCopy, val intent: RouteIntentSpec) : DeliveryPlan

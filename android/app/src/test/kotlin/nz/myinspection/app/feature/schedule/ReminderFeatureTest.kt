@@ -1,5 +1,6 @@
 package nz.myinspection.app.feature.schedule
 import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,28 +17,29 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 class ReminderFeatureTest {
     private val now = Instant.parse("2026-08-01T00:00:00Z")
     private val factory = WorkSpecFactory()
-
     @Test
     fun `production request is unique kept routed and delayed`() {
         val route = ScheduleRoute("property-a", InspectionScheduleType.ROUTINE)
         val dueAt = now.plus(Duration.ofDays(2)).plusNanos(1)
         val spec = factory.create(route, dueAt)
+        assertTrue(runCatching { factory.create(route.copy(propertyId = ""), dueAt) }.isFailure)
         assertEquals(spec, factory.create(route, dueAt))
-        assertTrue(spec.uniqueWorkName.startsWith("schedule-reminder:"))
+        assertEquals("schedule-reminder:${spec.occurrenceId}", spec.uniqueWorkName)
         assertFalse(spec.uniqueWorkName.contains(route.propertyId))
-        assertNotEquals(spec.occurrenceId, factory.create(route, dueAt.plusNanos(1)).occurrenceId)
-        assertNotEquals(spec.occurrenceId, factory.create(route.copy(propertyId = "b"), dueAt).occurrenceId)
+        assertNotEquals(spec.uniqueWorkName, factory.create(route, dueAt.plusNanos(1)).uniqueWorkName)
+        assertNotEquals(spec.uniqueWorkName, factory.create(route.copy(propertyId = "b"), dueAt).uniqueWorkName)
         val annual = factory.create(route.copy(inspectionType = InspectionScheduleType.ANNUAL), dueAt)
-        assertNotEquals(spec.occurrenceId, annual.occurrenceId)
+        assertNotEquals(spec.uniqueWorkName, annual.uniqueWorkName)
         val enqueueClock = Clock.fixed(now.plus(Duration.ofDays(1)), ZoneOffset.UTC)
+        val submissions = mutableListOf<OneTimeWorkRequest>()
         enqueueWorkManagerReminder(EnqueueSpec.from(spec), enqueueClock) { name, policy, request ->
+            submissions += request
             val work = request.workSpec
             assertEquals(spec.uniqueWorkName, name)
             assertEquals(ExistingWorkPolicy.KEEP, policy)
@@ -48,10 +50,13 @@ class ReminderFeatureTest {
             assertEquals(dueAt.toString(), work.input.getString(WorkKeys.DUE_AT_INSTANT))
             assertEquals(spec.occurrenceId, work.input.getString(WorkKeys.OCCURRENCE_ID))
         }
+        assertEquals(1, submissions.size)
         val alreadyDue = EnqueueSpec.from(factory.create(route, now.minusMillis(1)))
         enqueueWorkManagerReminder(alreadyDue, enqueueClock) { _, _, request ->
+            submissions += request
             assertEquals(0L, request.workSpec.initialDelay)
         }
+        assertEquals(2, submissions.size)
     }
     @Test
     fun `registration receipts are durable idempotent and race safe`() {
@@ -77,13 +82,21 @@ class ReminderFeatureTest {
         assertEquals(RegistrationResult.RETRYABLE_FAILURE, result)
         assertTrue(logger.records.last().retryable)
         assertFalse(logger.messages.last().contains("private path"))
-        val raced = spec(InspectionScheduleType.ROUTINE, 62)
+        val nullError = spec(InspectionScheduleType.ROUTINE, 62)
+        schedule(nullError, store, logger, { result = it }) { it(EnqueueResult.Rejected(null)) }
+        assertEquals(RegistrationResult.RETRYABLE_FAILURE, result)
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"enqueue\",\"occurrence\":\"${nullError.occurrenceId}\"," +
+                "\"type\":\"ROUTINE\",\"retryable\":true,\"error_code\":\"enqueue-failed\",\"cause_code\":\"unknown\"}",
+            logger.messages.last(),
+        )
+        val raced = spec(InspectionScheduleType.ROUTINE, 64)
         schedule(raced, store, logger, { result = it }) { completion = it }
         store.set(raced.occurrenceId, ReceiptState.DELIVERED)
         completion!!(EnqueueResult.Accepted)
         assertEquals(RegistrationResult.SUCCESS, result)
         assertEquals(ReceiptState.DELIVERED, store.read(raced.occurrenceId))
-        val thrown = spec(InspectionScheduleType.ROUTINE, 63)
+        val thrown = spec(InspectionScheduleType.ROUTINE, 65)
         ReminderScheduler.schedule(thrown, store, logger, { result = it }) { _, _ ->
             throw SecurityException("private detail")
         }
@@ -159,13 +172,11 @@ class ReminderFeatureTest {
             assertTrue(logger.records.last().retryable)
         }
         val exhausted = enqueuedStore(spec)
-        val exhaustedOutcome = execute(spec, exhausted, logger, attempt = 2) { throw IOException("offline") }
-        assertEquals(WorkerOutcome.FAILURE, exhaustedOutcome)
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, exhausted, logger, attempt = 2) { throw IOException("offline") })
         assertEquals(ReceiptState.RETRYABLE, exhausted.read(spec.occurrenceId))
         assertFalse(logger.records.last { it.stage == LogStage.NOTIFY }.retryable)
         val permanent = enqueuedStore(spec)
-        val permanentOutcome = execute(spec, permanent, logger) { throw SecurityException("revoked") }
-        assertEquals(WorkerOutcome.FAILURE, permanentOutcome)
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, permanent, logger) { throw SecurityException("revoked") })
         assertEquals(ReceiptState.TERMINAL, permanent.read(spec.occurrenceId))
         assertEquals(FailureCauseCode.SECURITY, logger.records.last { it.stage == LogStage.NOTIFY }.causeCode)
         var permanentPosts = 0
@@ -202,10 +213,9 @@ class ReminderFeatureTest {
         assertEquals(WorkerOutcome.SUCCESS, execute(spec, missing, logger))
         assertEquals(ReceiptState.DELIVERED, missing.read(spec.occurrenceId))
         val concurrent = FakeReceiptStore()
-        val concurrentOutcome = execute(spec, concurrent, logger) {
+        assertEquals(WorkerOutcome.SUCCESS, execute(spec, concurrent, logger) {
             concurrent.set(spec.occurrenceId, ReceiptState.DELIVERED)
-        }
-        assertEquals(WorkerOutcome.SUCCESS, concurrentOutcome)
+        })
         val rejected = enqueuedStore(spec).apply { rejectedTarget = ReceiptState.DELIVERED }
         assertEquals(WorkerOutcome.RETRY, execute(spec, rejected, logger))
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
@@ -215,8 +225,7 @@ class ReminderFeatureTest {
         assertEquals(WorkerOutcome.RETRY, execute(spec, throwing, logger))
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
         val cleanupFailure = enqueuedStore(spec).apply { rejectedTarget = ReceiptState.TERMINAL }
-        val cleanupOutcome = execute(spec, cleanupFailure, logger) { throw SecurityException("permanent") }
-        assertEquals(WorkerOutcome.FAILURE, cleanupOutcome)
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, cleanupFailure, logger) { throw SecurityException("permanent") })
         assertEquals(ReceiptState.ENQUEUED, cleanupFailure.read(spec.occurrenceId))
         assertFalse(ReminderScheduler.schedule(spec, cleanupFailure, logger) { _, _ -> error("fail closed") })
         val cleanupCorrupt = enqueuedStore(spec).apply {
@@ -234,11 +243,15 @@ class ReminderFeatureTest {
         val corrupt = FakeReceiptStore().apply { this.corrupt += spec.occurrenceId }
         assertEquals(WorkerOutcome.FAILURE, execute(spec, corrupt, logger) { posts++ })
         assertEquals(FailureCauseCode.STORAGE_CORRUPT, logger.records.last().causeCode)
-        val malformed = WorkerInput.from(spec).copy(type = "BAD", occurrenceId = "property-a\nprivate")
-        assertEquals(
-            WorkerOutcome.FAILURE,
-            ReminderWorker.execute(malformed, 32, true, 0, FakeReceiptStore(), logger) { posts++ },
-        )
+        val input = WorkerInput.from(spec)
+        val blankId = reminderOccurrenceId(ScheduleRoute("", spec.route.inspectionType), spec.dueAt)
+        listOf(
+            input.copy(propertyId = null), input.copy(propertyId = "", occurrenceId = blankId), input.copy(type = null),
+            input.copy(type = "BAD"), input.copy(dueAt = null), input.copy(occurrenceId = null),
+            input.copy(occurrenceId = "0".repeat(64)), input.copy(occurrenceId = "property-a\nprivate"),
+        ).forEach { malformed ->
+            assertEquals(WorkerOutcome.FAILURE, ReminderWorker.execute(malformed, 32, true, 0, FakeReceiptStore(), logger) { posts++ })
+        }
         assertEquals(0, posts)
         assertContains(logger.messages.last(), "\"occurrence\":\"missing\"")
         assertFalse(logger.messages.last().contains("property-a"))
@@ -254,6 +267,7 @@ class ReminderFeatureTest {
             InterruptedException() to (FailureKind.TRANSIENT to FailureCauseCode.INTERRUPTED),
             RuntimeException() to (FailureKind.TRANSIENT to FailureCauseCode.UNKNOWN_RUNTIME),
             ExecutionException(IOException()) to (FailureKind.TRANSIENT to FailureCauseCode.IO),
+            Exception() to (FailureKind.PERMANENT to FailureCauseCode.UNKNOWN),
         )
         cases.forEach { (error, expected) ->
             val actual = classifyReminderFailure(error)
@@ -305,12 +319,9 @@ class ReminderFeatureTest {
             isXIncludeAware = false
             isExpandEntityReferences = false
         }
-        val manifest = factory.newDocumentBuilder()
-            .parse(locateAppRoot().resolve("src/main/AndroidManifest.xml").toFile())
+        val manifest = factory.newDocumentBuilder().parse(locateAppRoot().resolve("src/main/AndroidManifest.xml").toFile())
         val permissions = manifest.getElementsByTagName("uses-permission")
-        val names = (0 until permissions.length).map { index ->
-            permissions.item(index).attributes.getNamedItemNS(ANDROID_NS, "name").nodeValue
-        }
+        val names = (0 until permissions.length).map { index -> permissions.item(index).attributes.getNamedItemNS(ANDROID_NS, "name").nodeValue }
         assertEquals(listOf("android.permission.POST_NOTIFICATIONS"), names)
     }
     private fun spec(type: InspectionScheduleType, seconds: Long = 0) = factory.create(
@@ -318,18 +329,14 @@ class ReminderFeatureTest {
     )
     private fun schedule(
         spec: ReminderSpec, store: ReceiptStore, logger: EventLogger,
-        onResult: (RegistrationResult) -> Unit = {},
-        capture: ((EnqueueResult) -> Unit) -> Unit,
+        onResult: (RegistrationResult) -> Unit = {}, capture: ((EnqueueResult) -> Unit) -> Unit,
     ) = ReminderScheduler.schedule(spec, store, logger, onResult) { _, done -> capture(done) }
     private fun execute(
         spec: ReminderSpec, store: ReceiptStore, logger: EventLogger,
-        attempt: Int = 0,
-        granted: Boolean = true,
+        attempt: Int = 0, granted: Boolean = true,
         notify: (DeliveryPlan.Notify) -> Unit = {},
     ) = ReminderWorker.execute(WorkerInput.from(spec), 33, granted, attempt, store, logger, notify)
-    private fun enqueuedStore(spec: ReminderSpec) = FakeReceiptStore().apply {
-        set(spec.occurrenceId, ReceiptState.ENQUEUED)
-    }
+    private fun enqueuedStore(spec: ReminderSpec) = FakeReceiptStore().apply { set(spec.occurrenceId, ReceiptState.ENQUEUED) }
     private class FakeReceiptStore : ReceiptStore {
         private val states = mutableMapOf<String, ReceiptState>()
         val corrupt = mutableSetOf<String>()

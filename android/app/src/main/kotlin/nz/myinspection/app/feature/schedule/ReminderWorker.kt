@@ -34,7 +34,6 @@ internal fun <T> postReminderNotification(
     notification: T,
     post: (String, Int, T) -> Unit,
 ) = post(identity.tag, identity.id, notification)
-
 class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker(appContext, parameters) {
     override fun doWork(): Result {
         val permissionGranted = Build.VERSION.SDK_INT < 33 ||
@@ -232,7 +231,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
     }
 }
 private data class ValidatedInput(val route: ScheduleRoute, val dueAt: Instant, val occurrenceId: String)
-
 private fun EventLogger.record(
     stage: LogStage, occurrenceId: String?, type: InspectionScheduleType?,
     retryable: Boolean, error: LogError, cause: FailureCauseCode,
