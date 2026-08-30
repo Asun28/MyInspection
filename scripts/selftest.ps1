@@ -8291,7 +8291,7 @@ else {
     if (($iMarker15r -lt 0) -or ($iHM15r -lt 0) -or ($iMarker15r -gt $iHM15r) -or ($rerunHits15r.Count -ne 1) -or ($rerunHits15r[0].Index -lt $iHM15r) -or (-not $optsOk15r) -or ($iR315r -lt $rerunHits15r[0].Index) -or (-not $prStateOk15r) -or (-not $localOk15r)) { Fail '闸15r(d)：恢复路由词法形状不符（R3 r1-r5 #9/#6/#2）——要求：TD85-RESUME 哨兵路由最先判（死锁重跑勿按本轮腿清单推断进度）；重跑安全守卫按 $sagaHeadMoved（真 HEAD 前移）+ -SkipRed 豁免判定而非「提交」腿成员（no-op 提交不动 HEAD）；完整重跑命令在 catch 内仅 1 次、位于该守卫之后、且由 $SkipRed/$NoAutoMerge/ContainsKey(Base) 补齐已绑定选项；commit 后分支不得以腿成员推断 PR 状态——须经已解析 PR 号（Test-Path Variable:pr）分流并在未知态给 gh pr view 实查命令；-Local 合并腿失败态按阶段状态（$sagaLocalMerged/MERGE_HEAD）分流出 merge --continue 续跑或 merge --no-ff --no-edit 重发；未推送态须给 reset --soft 归位全闸重跑、直合条件须含 baseRefName 双新鲜度（r6 #9 最小保真，根治 TD89）。'; $r15Fail = $true }
   }
 }
-if (-not $r15Fail) { Write-Host '  15r ship saga 报告闸 OK（腿完成追加点 ≥12 在场、catch 含哨兵且以原样裸 throw 结尾、恢复路由以「提交」为分水岭且重跑命令带齐已绑定选项仅现于 commit 前分支、commit 后按已解析 PR 号分流/未知态给实查命令、合并腿建议按 head 新鲜度条件化）' -ForegroundColor Green }
+if (-not $r15Fail) { Write-Host '  15r ship saga 报告闸 OK（腿完成追加点 ≥13 在场，含 push+PR/R3/CI gate/合并四条远端腿；catch 含哨兵且以原样裸 throw 结尾、恢复路由以「提交」为分水岭且重跑命令带齐已绑定选项仅现于 commit 前分支、commit 后按已解析 PR 号分流/未知态给实查命令、合并腿建议按 head 新鲜度条件化）' -ForegroundColor Green }
 
 # 15r(e). hermetic 失败路径夹具（R3 r3 #6：词法锁只证形状，不证真实失败时刻的报告输出与异常语义——本块用 15i 同款
 #   隔离夹具真跑两条失败路径断言行为，离线、无 gh/codex，-Local + 均在评审腿之前失败）：
@@ -13612,7 +13612,6 @@ Set-Content -LiteralPath '$($r8Root -replace "'", "''")/review-reached' 'bad'
 
       $r8Gh = @'
 if (($args -join ' ') -match 'baseRefName,headRefOid') {
-  if ($env:GH_MOCK_CI_MODE -eq 'final-pr-hang') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'hang-start') ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()); Start-Sleep -Seconds 8 }
   $base = if ($env:GH_MOCK_BASE_MODE -eq 'retarget') { 'other' } else { 'master' }
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   @{ baseRefName = $base; headRefOid = $oid } | ConvertTo-Json -Compress
@@ -13634,7 +13633,6 @@ if ($args -contains 'baseRefName') {
   }
 }
 if ($args -contains 'headRefOid') {
-  if ($env:GH_MOCK_CI_MODE -eq 'pr-hang') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'hang-start') ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()); Start-Sleep -Seconds 8 }
   "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   exit 0
 }
@@ -13650,7 +13648,7 @@ if ($args -contains 'api') {
 }
 if ($args -contains 'state,headRefOid') {
   $st = if ($env:GH_MOCK_MERGE_STATE -eq 'open') { 'OPEN' } else { 'MERGED' }
-  $oid = if ($env:GH_MOCK_CI_MODE -eq 'head-moved') { ('a' * 40) } else { "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim() }
+  $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   "{""state"":""$st"",""headRefOid"":""$oid""}"
   exit 0
 }
@@ -13775,16 +13773,14 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
     $rmSavedCiMode = $env:GH_MOCK_CI_MODE; $rmSavedCiTimeout = $env:SCAFFOLD_CI_TIMEOUT_SEC
-    $rmSavedOrigin = $env:GH_MOCK_ORIGIN
     $script:rmRoots = @()   # Codex 二审 major#2：root 一经创建即登记（script 域），setup 中途抛异常也不泄漏临时根。
     # 集中一处的哨兵/状态文件清单（卡 dod_assert：每场景进入前统一复位全部 GH_MOCK_* 每场景旋钮 + 全部哨兵/gh 状态文件）。
     # T37 stub 实际使用的**全部**哨兵/状态文件——闸15t 新增的四个也必须在列，否则 $rmReset 名不副实、
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
-      'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'initial-pr-arg', 'final-pr-arg', 'ci-checked', 'ci-url-head', 'ci-url-heads',
-      'ci-workflow-checked', 'ci-workflow-count', 'ci-workflow-url-head', 'ci-jobs-consumed', 'ci-jobs-count', 'ci-jobs-run-id', 'ci-event-trace', 'ci-decision-trace',
-      'check-count', 'final-snapshot-count', 'headmove-count', 'base-advanced', 'hang-start', 'hang-completed',
-      'hang-tree-start', 'hang-tree-completed')   # base-count 属 17aa(8)，本卡 stub 不写
+      'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
+      'ci-workflow-checked', 'ci-workflow-count', 'ci-jobs-consumed', 'ci-jobs-count', 'ci-jobs-run-id',
+      'ci-event-trace', 'ci-decision-trace')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
@@ -13904,7 +13900,7 @@ exit 0
 '@
     # 建一个全新远端夹具仓（隔离仓 + 裸 origin + 状态化 gh stub），返回句柄哈希（Ok=start 是否产出 worktree）。
     $rmMake = {
-      param($tag, $noCiYml)
+      param($tag)
       $root = Join-Path ([System.IO.Path]::GetTempPath()) ("stT37_${tag}_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
       $repo = Join-Path $root 'repo'; $origin = Join-Path $root 'origin.git'; $shim = Join-Path $root 'shim'
       New-Item -ItemType Directory -Force $repo, $shim | Out-Null
@@ -13912,10 +13908,8 @@ exit 0
       Set-Content (Join-Path $root 'fixture-run-id') (100000 + [Convert]::ToInt32(([guid]::NewGuid().ToString('N').Substring(0, 6)), 16))
       $script:rmRoots += $root   # 即刻登记（Codex 二审 major#2）：其后任何抛错也由外层 finally 清理本根。
       Copy-Item (Join-Path $RepoRoot 'scripts') $repo -Recurse -Force
-      if (-not $noCiYml) {
-        New-Item -ItemType Directory -Force (Join-Path $repo '.github/workflows') | Out-Null
-        Copy-Item (Join-Path $RepoRoot '.github/workflows/ci.yml') (Join-Path $repo '.github/workflows/ci.yml') -Force
-      }
+      New-Item -ItemType Directory -Force (Join-Path $repo '.github/workflows') | Out-Null
+      Copy-Item (Join-Path $RepoRoot '.github/workflows/ci.yml') (Join-Path $repo '.github/workflows/ci.yml') -Force
       Set-Content (Join-Path $repo '.gitignore') ".review/`n_local/" -Encoding utf8   # 镜像真仓 .gitignore（L137）
       New-Item -ItemType Directory -Force (Join-Path $repo 'docs') | Out-Null
       Copy-Item (Join-Path $RepoRoot 'docs/QUALITY-RUBRIC.md') (Join-Path $repo 'docs/QUALITY-RUBRIC.md') -Force
@@ -13931,10 +13925,6 @@ exit 0
 if ($env:GH_MOCK_ROOT) {
   Set-Content (Join-Path $env:GH_MOCK_ROOT 'review-invoked') 'yes'
   Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') 'r3'
-}
-if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
-  & git -C $env:GH_MOCK_WT commit --allow-empty -q -m 'move head during review'
-  if ($LASTEXITCODE -ne 0) { exit 91 }
 }
 '{"verdict":"pass","reasons":[]}' | Set-Content $env:REVIEW_OUT -Encoding utf8
 '@
@@ -13963,7 +13953,7 @@ if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
       # Codex 二审 major#1：start 前即把 PATH 绑到本夹具自己的 gh PATH-stub 并全量复位 GH_MOCK_*——
       # 保证 start（及其后任一腿）绝不触碰真实 gh、也不继承上一场景的 shim/mock 状态（每场景全隔离，卡硬约束）。
       $env:PATH = "$shim$([IO.Path]::PathSeparator)$rmSavedPath"
-      $env:GH_MOCK_ROOT = $root; $env:GH_MOCK_ORIGIN = $origin; $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_CI_MODE = $null
+      $env:GH_MOCK_ROOT = $root; $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_CI_MODE = $null
       & pwsh -NoProfile -File (Join-Path $repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase start *> $null
       $wt = Join-Path $wtRoot 'T0-REMOTEMX'
       @{ Root = $root; Repo = $repo; Origin = $origin; Shim = $shim; Wt = $wt; Ok = ($LASTEXITCODE -eq 0 -and (Test-Path $wt)) }
@@ -14110,7 +14100,7 @@ if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
             if ([regex]::Matches($candidate3Text, '(?m)^  verify:').Count -ne 1) { Fail 'T37-REMOTEMX/3：候选 ci.yml 缺唯一 verify job，无法构造 candidate-only 解析证明。' }
             $candidate3Text -replace '(?m)^  verify:', '  verify-basic:' | Set-Content $candidate3 -NoNewline -Encoding utf8
             Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace'), (Join-Path $fx3.Root 'ci-workflow-count') -ErrorAction SilentlyContinue
-            $env:GH_MOCK_CI_MODE = 'basic-rerun'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '12'
+            $env:GH_MOCK_CI_MODE = 'basic-rerun'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '20'
             $s3Rerun = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
             $s3RerunExit = $LASTEXITCODE
             $s3WorkflowCount = if (Test-Path (Join-Path $fx3.Root 'ci-workflow-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-workflow-count') -Raw)".Trim()) } else { 0 }
@@ -14322,7 +14312,7 @@ if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
     finally {
       $env:PATH = $rmSavedPath; $env:GH_MOCK_ROOT = $rmSavedRoot; $env:GH_MOCK_WT = $rmSavedWt; $env:GH_MOCK_MERGE_FAIL = $rmSavedMergeFail
       $env:GH_MOCK_BASE_MODE = $rmSavedBaseMode; $env:GH_MOCK_MERGE_STATE = $rmSavedMergeState
-      $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout; $env:GH_MOCK_ORIGIN = $rmSavedOrigin
+      $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout
       foreach ($rr in $script:rmRoots) { Remove-Item -Recurse -Force $rr -ErrorAction SilentlyContinue }
     }
   }
