@@ -40,8 +40,8 @@ doc_sync: 本卡只同步 task.ps1 可执行帮助；DEVOPS-WORKFLOW 与 DELIVER
 
 - `ci.yml` job 名从 `$Wt` 指向的候选树解析；PR 若改 job 名，以新树为准。
 - 红 candidate check 必须在 workflow/jobs/merge 之前阻断；绿路径必须真实消费候选 workflow run/jobs 后才触达 merge。
-- 合并调用必须带 reviewed head 的 `--match-head-commit`；R3 前后本地 SHA 与 PR head 不一致即拒绝。
-- 完整 timeout、分页、API shape、workflow identity、base/head TOCTOU 与 `-NoAutoMerge` 证明属于 `T0-CI-HARDENING-MATRIX`。
+- 基本绿路的合并调用必须带当前 reviewed head 的 `--match-head-commit`，并绑定 fixture 实际创建/复用的 PR。
+- R3 前后 local/PR head mismatch、完整 timeout、分页、API shape、workflow identity、base/head TOCTOU 与 `-NoAutoMerge` 证明属于 `T0-CI-HARDENING-MATRIX`。
 - 本卡不复制上游 advisory R3，也不重新等待已退出 PR 触发的 scaffold-selftest 分片。
 
 ## 上游依据
