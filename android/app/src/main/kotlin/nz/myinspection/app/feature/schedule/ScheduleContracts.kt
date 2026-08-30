@@ -4,6 +4,7 @@ import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import nz.myinspection.core.schedule.InspectionScheduleType
 import nz.myinspection.core.schedule.ScheduleAdvice
 data class ScheduleRoutePayload(val propertyId: String, val inspectionType: InspectionScheduleType) : Serializable
@@ -24,9 +25,9 @@ fun reminderOccurrenceId(route: ScheduleRoutePayload, dueAt: Instant): String {
     val occurrence = "${route.propertyId}\u0000${route.inspectionType.name}\u0000${dueAt.toEpochMilli()}"
     return MessageDigest.getInstance("SHA-256").digest(occurrence.encodeToByteArray()).toHex()
 }
-enum class ReceiptState { PENDING, ENQUEUED, DELIVERED }
-enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_PENDING, RECEIPT_ENQUEUED, RECEIPT_ROLLBACK, RECEIPT_DELIVERED, NOTIFY }
-enum class LogError { NONE, ENQUEUE_FAILED, ENQUEUE_EXCEPTION, INVALID_INPUT, PERMISSION_DENIED, RECEIPT_WRITE_FAILED, NOTIFY_EXCEPTION }
+enum class ReceiptState { ENQUEUED, DELIVERED }
+enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_ENQUEUED, RECEIPT_DELIVERED, NOTIFY }
+enum class LogError { ENQUEUE_FAILED, ENQUEUE_EXCEPTION, INVALID_INPUT, PERMISSION_DENIED, RECEIPT_WRITE_FAILED, NOTIFY_EXCEPTION }
 interface ReminderOccurrenceStore {
     fun read(occurrenceId: String): ReceiptState?
     fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState?>, state: ReceiptState?): Boolean
@@ -36,33 +37,28 @@ class ReminderRegistrationCoordinator(
     private val onPersistenceFailure: (LogStage) -> Unit = {},
 ) {
     fun register(occurrenceId: String, enqueue: ((Boolean) -> Unit) -> Unit): Boolean {
-        when (store.read(occurrenceId)) {
-            ReceiptState.ENQUEUED, ReceiptState.DELIVERED -> return false
-            ReceiptState.PENDING -> Unit
-            null -> if (!store.compareAndSet(occurrenceId, setOf(null), ReceiptState.PENDING)) {
-                onPersistenceFailure(LogStage.RECEIPT_PENDING)
-                return false
-            }
-        }
+        if (store.read(occurrenceId) in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) return false
         return try {
             enqueue { succeeded -> complete(occurrenceId, succeeded) }
             true
         } catch (error: RuntimeException) {
-            complete(occurrenceId, false)
             throw error
         }
     }
     private fun complete(occurrenceId: String, succeeded: Boolean) {
-        if (succeeded && !store.compareAndSet(occurrenceId, setOf(ReceiptState.PENDING), ReceiptState.ENQUEUED) && store.read(occurrenceId) !in listOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) onPersistenceFailure(LogStage.RECEIPT_ENQUEUED)
-        else if (!succeeded && !store.compareAndSet(occurrenceId, setOf(ReceiptState.PENDING), null) && store.read(occurrenceId) == ReceiptState.PENDING) onPersistenceFailure(LogStage.RECEIPT_ROLLBACK)
+        if (succeeded && !store.compareAndSet(occurrenceId, setOf(null), ReceiptState.ENQUEUED) && store.read(occurrenceId) !in listOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) onPersistenceFailure(LogStage.RECEIPT_ENQUEUED)
     }
 }
 data class ReminderEnqueueSpec(val uniqueName: String, val initialDelayMillis: Long, val route: ScheduleRoutePayload, val dueAt: Instant, val occurrenceId: String, val existingWorkPolicy: androidx.work.ExistingWorkPolicy)
-data class ReminderRouteIntentSpec(val data: String, val requestCode: Int, val propertyId: String, val inspectionType: String)
+data class ReminderRouteIntentSpec(val data: String, val notificationTag: String, val notificationId: Int, val requestCode: Int, val propertyId: String, val inspectionType: String)
+data class ReminderNotificationIdentity(val tag: String, val id: Int)
+fun reminderNotificationIdentity(intent: ReminderRouteIntentSpec): ReminderNotificationIdentity = ReminderNotificationIdentity(intent.notificationTag, intent.notificationId)
 fun reminderRouteIntentSpec(route: ScheduleRoutePayload, dueAt: Instant): ReminderRouteIntentSpec {
     val occurrenceId = reminderOccurrenceId(route, dueAt)
     return ReminderRouteIntentSpec(
         data = "myinspection://schedule/reminder/$occurrenceId",
+        notificationTag = occurrenceId,
+        notificationId = 0,
         requestCode = occurrenceId.take(8).toLong(16).toInt(),
         propertyId = route.propertyId,
         inspectionType = route.inspectionType.name,
@@ -129,6 +125,7 @@ fun scheduleRows(
     items: List<SchedulePropertyItem>,
     now: Instant,
     filter: ScheduleFilter,
+    zone: ZoneId = ZoneId.of("Pacific/Auckland"),
 ): List<SchedulePropertyRow> = items.map { item ->
     val route = ScheduleRoutePayload(item.propertyId, item.inspectionType)
     when (val advice = item.advice) {
@@ -138,7 +135,7 @@ fun scheduleRows(
                 displayName = item.displayName,
                 route = route,
                 badge = if (isDue) ScheduleBadge.DUE else ScheduleBadge.UPCOMING,
-                nextFact = if (isDue) "Reminder due" else "Next reminder: ${advice.dueAt}",
+                nextFact = if (isDue) "Reminder due" else "Next reminder: ${advice.dueAt.atZone(zone).toLocalDate()}",
                 dueAt = advice.dueAt,
             )
         }

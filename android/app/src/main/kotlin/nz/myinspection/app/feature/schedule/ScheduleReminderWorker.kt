@@ -16,6 +16,7 @@ import nz.myinspection.app.MainActivity
 import nz.myinspection.core.schedule.InspectionScheduleType
 internal data class ReminderWorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
 internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
+internal fun <T> postReminderNotification(identity: ReminderNotificationIdentity, notification: T, post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
 class ScheduleReminderWorker(
     appContext: Context,
     parameters: WorkerParameters,
@@ -59,7 +60,7 @@ class ScheduleReminderWorker(
             .setAutoCancel(true)
             .setContentIntent(routePendingIntent(delivery.intent))
             .build()
-        notificationManager.notify(delivery.intent.requestCode, notification)
+        postReminderNotification(reminderNotificationIdentity(delivery.intent), notification, notificationManager::notify)
     }
     private fun routePendingIntent(intentSpec: ReminderRouteIntentSpec): PendingIntent {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
@@ -107,7 +108,7 @@ class ScheduleReminderWorker(
             delivery as ReminderDeliveryPlan.Notify
             return try {
                 notify(delivery)
-                if (store.compareAndSet(occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PENDING, null), ReceiptState.DELIVERED) || store.read(occurrenceId) == ReceiptState.DELIVERED) WorkerOutcome.SUCCESS
+                if (store.compareAndSet(occurrenceId, setOf(ReceiptState.ENQUEUED, null), ReceiptState.DELIVERED) || store.read(occurrenceId) == ReceiptState.DELIVERED) WorkerOutcome.SUCCESS
                 else WorkerOutcome.RETRY.also { logger.log(LogStage.RECEIPT_DELIVERED, occurrenceId, type, true, LogError.RECEIPT_WRITE_FAILED) }
             } catch (error: RuntimeException) {
                 logger.log(LogStage.NOTIFY, occurrenceId, type, true, LogError.NOTIFY_EXCEPTION)
