@@ -64,7 +64,7 @@ fun ScheduleRouteContent(
             },
         )
     }
-    var pendingReminder by rememberSaveable { mutableStateOf<PendingReminder?>(null) }
+    var pendingReminder by rememberSaveable { mutableStateOf<PendingWork?>(null) }
     var showRationale by rememberSaveable { mutableStateOf(false) }
     var reminderFailed by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -84,12 +84,12 @@ fun ScheduleRouteContent(
         }
     }
     val rows = scheduleRows(items, now, filter)
-    val schedulePending: (PendingReminder) -> Unit = { pending ->
+    val schedulePending: (PendingWork) -> Unit = { pending ->
         pendingReminder = pending; reminderFailed = false
         ReminderScheduler.schedule(context, pending.workSpec()) { success -> if (pendingReminder == pending) { pendingReminder = pending.afterSchedule(success); reminderFailed = !success } }
     }
     LaunchedEffect(permissionState) {
-        if (permissionState == PermissionState.GRANTED && !reminderFailed) pendingReminder?.let(schedulePending)
+        if (!reminderFailed && pendingReminder.resumeAfterGrant(permissionState) != null) pendingReminder?.let(schedulePending)
     }
     ScheduleScreen(
         rows = rows,
@@ -210,7 +210,7 @@ fun ScheduleScreen(
         rows.forEach { row ->
             ScheduleRow(
                 row = row,
-                onOpen = { onOpenInspection(row.route) },
+                onOpen = { row.open(onOpenInspection) },
                 onReminder = { onReminderAction(row) },
             )
         }

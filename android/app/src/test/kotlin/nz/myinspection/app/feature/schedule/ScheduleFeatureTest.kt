@@ -52,14 +52,14 @@ class ScheduleFeatureTest {
         assertEquals(EnqueueSpec(spec.uniqueWorkName, spec.initialDelayMillis, spec.route, spec.dueAt, spec.occurrenceId, ExistingWorkPolicy.KEEP), captured)
         enqueueWorkManagerReminder(captured!!) { name, policy, request ->
             val work = request.workSpec; val input = work.input
-            assertEquals(listOf(spec.uniqueWorkName, "KEEP", ReminderWorker::class.java.name, spec.initialDelayMillis.toString(), spec.route.propertyId, spec.route.inspectionType.name, spec.dueAt.toEpochMilli().toString(), spec.occurrenceId), listOf(name, policy.name, work.workerClassName, work.initialDelay.toString(), input.getString(ReminderWorkData.PROPERTY_ID), input.getString(ReminderWorkData.INSPECTION_TYPE), input.getLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, -1).toString(), input.getString(ReminderWorkData.OCCURRENCE_ID)))
+            assertEquals(listOf(spec.uniqueWorkName, "KEEP", ReminderWorker::class.java.name, spec.initialDelayMillis.toString(), spec.route.propertyId, spec.route.inspectionType.name, spec.dueAt.toEpochMilli().toString(), spec.occurrenceId), listOf(name, policy.name, work.workerClassName, work.initialDelay.toString(), input.getString(WorkKeys.PROPERTY_ID), input.getString(WorkKeys.INSPECTION_TYPE), input.getLong(WorkKeys.DUE_AT_EPOCH_MILLIS, -1).toString(), input.getString(WorkKeys.OCCURRENCE_ID)))
         }
         assertNull(store.read(spec.occurrenceId))
         var retryDone: ((Boolean) -> Unit)? = null
         assertTrue(ReminderScheduler.schedule(spec, store, logger) { _, done -> retryDone = done })
         retryDone!!(true)
         firstDone!!(false)
-        assertEquals(ReceiptState.ENQUEUED, store.read(spec.occurrenceId))
+        assertEquals(Receipt.ENQUEUED, store.read(spec.occurrenceId))
         assertFalse(ReminderScheduler.schedule(spec, store, logger, { result = it }) { _, _ -> error("must not enqueue") }); assertEquals(true, result)
         val failed = workSpecs.create(spec.route, spec.dueAt.plusSeconds(1))
         result = null
@@ -72,8 +72,8 @@ class ScheduleFeatureTest {
         assertTrue(ReminderScheduler.schedule(failed, store, logger, { result = it }) { _, _ -> throw IllegalStateException("enqueue") })
         assertEquals(false, result)
         assertNull(store.read(failed.occurrenceId))
-        val raced = workSpecs.create(spec.route, spec.dueAt.plusSeconds(4)); var raceDone: ((Boolean) -> Unit)? = null; assertTrue(ReminderScheduler.schedule(raced, store, logger) { _, done -> raceDone = done }); store.compareAndSet(raced.occurrenceId, setOf(null), ReceiptState.DELIVERED); raceDone!!(true); assertEquals(ReceiptState.DELIVERED, store.read(raced.occurrenceId))
-        store.reject = ReceiptState.ENQUEUED; result = null; val persistence = workSpecs.create(spec.route, spec.dueAt.plusSeconds(2)); var persistDone: ((Boolean) -> Unit)? = null
+        val raced = workSpecs.create(spec.route, spec.dueAt.plusSeconds(4)); var raceDone: ((Boolean) -> Unit)? = null; assertTrue(ReminderScheduler.schedule(raced, store, logger) { _, done -> raceDone = done }); store.compareAndSet(raced.occurrenceId, setOf(null), Receipt.DELIVERED); raceDone!!(true); assertEquals(Receipt.DELIVERED, store.read(raced.occurrenceId))
+        store.reject = Receipt.ENQUEUED; result = null; val persistence = workSpecs.create(spec.route, spec.dueAt.plusSeconds(2)); var persistDone: ((Boolean) -> Unit)? = null
         assertTrue(ReminderScheduler.schedule(persistence, store, logger, { result = it }) { _, done -> persistDone = done }); persistDone!!(true); assertEquals(false, result); assertNull(store.read(persistence.occurrenceId)); assertContains(logger.stages, LogStage.RECEIPT_ENQUEUED)
         store.reject = null; var badDone: ((Boolean) -> Unit)? = null; assertTrue(ReminderScheduler.schedule(spec.copy(occurrenceId = "property-a\"\n"), store, logger) { _, done -> badDone = done }); badDone!!(false); assertFalse(logger.events.any { it.contains("property-a") })
         assertEquals(4, logger.stages.count { it == LogStage.ENQUEUE })
@@ -85,9 +85,10 @@ class ScheduleFeatureTest {
         assertIs<PermissionAction.RequestPermission>(transition.action)
         val pending = transition.pending
         val bytes = ByteArrayOutputStream().also { output -> ObjectOutputStream(output).use { it.writeObject(pending) } }.toByteArray()
-        val restored = ObjectInputStream(ByteArrayInputStream(bytes)).use { it.readObject() as PendingReminder }
+        val restored = ObjectInputStream(ByteArrayInputStream(bytes)).use { it.readObject() as PendingWork }
         assertEquals(pending, restored)
         assertEquals(restored, restored.afterSchedule(false)); assertNull(restored.afterSchedule(true))
+        assertNull((null as PendingWork?).resumeAfterGrant(PermissionState.GRANTED))
         assertNull(restored.resumeAfterGrant(PermissionState.DENIED, Clock.fixed(now, ZoneOffset.UTC)))
         assertEquals(workSpecs.create(pending.route, pending.dueAt), restored.resumeAfterGrant(PermissionState.GRANTED, Clock.fixed(now, ZoneOffset.UTC)))
         assertIs<PermissionAction.ExplainDenied>(scheduleRouteContentTransition(row, 33, PermissionState.DENIED, false).action)
@@ -95,18 +96,18 @@ class ScheduleFeatureTest {
     @Test
     fun `worker retries failures and marks delivery`() {
         val spec = workSpecs.create(ScheduleRoute("property-a", InspectionScheduleType.ROUTINE), now)
-        val input = ReminderWorkerInput(spec.route.propertyId, spec.route.inspectionType.name, spec.dueAt.toEpochMilli(), spec.occurrenceId)
-        val store = FakeOccurrenceStore().apply { compareAndSet(spec.occurrenceId, setOf(null), ReceiptState.ENQUEUED) }
+        val input = WorkerInput(spec.route.propertyId, spec.route.inspectionType.name, spec.dueAt.toEpochMilli(), spec.occurrenceId)
+        val store = FakeOccurrenceStore().apply { compareAndSet(spec.occurrenceId, setOf(null), Receipt.ENQUEUED) }
         val logger = FakeLogger()
-        val interleaved = FakeOccurrenceStore(); assertEquals(WorkerOutcome.SUCCESS, ReminderWorker.execute(input, 32, true, interleaved, logger) { interleaved.compareAndSet(spec.occurrenceId, setOf(null), ReceiptState.ENQUEUED) }); assertEquals(ReceiptState.DELIVERED, interleaved.read(spec.occurrenceId))
+        val interleaved = FakeOccurrenceStore(); assertEquals(WorkerOutcome.SUCCESS, ReminderWorker.execute(input, 32, true, interleaved, logger) { interleaved.compareAndSet(spec.occurrenceId, setOf(null), Receipt.ENQUEUED) }); assertEquals(Receipt.DELIVERED, interleaved.read(spec.occurrenceId))
         assertEquals(WorkerOutcome.RETRY, ReminderWorker.execute(input, 33, false, store, logger) { error("must not notify") })
-        assertEquals(ReceiptState.ENQUEUED, store.read(spec.occurrenceId))
+        assertEquals(Receipt.ENQUEUED, store.read(spec.occurrenceId))
         assertEquals(WorkerOutcome.RETRY, ReminderWorker.execute(input, 33, true, store, logger) { throw IllegalStateException("notify") })
-        assertEquals(ReceiptState.ENQUEUED, store.read(spec.occurrenceId))
+        assertEquals(Receipt.ENQUEUED, store.read(spec.occurrenceId))
         var posted: DeliveryPlan.Notify? = null
-        store.reject = ReceiptState.DELIVERED; assertEquals(WorkerOutcome.RETRY, ReminderWorker.execute(input, 33, true, store, logger) {}); assertEquals(ReceiptState.ENQUEUED, store.read(spec.occurrenceId)); store.reject = null
+        store.reject = Receipt.DELIVERED; assertEquals(WorkerOutcome.RETRY, ReminderWorker.execute(input, 33, true, store, logger) {}); assertEquals(Receipt.ENQUEUED, store.read(spec.occurrenceId)); store.reject = null
         assertEquals(WorkerOutcome.SUCCESS, ReminderWorker.execute(input, 33, true, store, logger) { posted = it })
-        assertEquals(ReceiptState.DELIVERED, store.read(spec.occurrenceId))
+        assertEquals(Receipt.DELIVERED, store.read(spec.occurrenceId))
         assertEquals(reminderRouteIntentSpec(spec.route, spec.dueAt), posted?.intent)
         var redeliveryPosts = 0; assertEquals(WorkerOutcome.SUCCESS, ReminderWorker.execute(input, 33, true, store, logger) { redeliveryPosts++ }); assertEquals(0, redeliveryPosts)
         assertEquals(WorkerOutcome.FAILURE, ReminderWorker.execute(input.copy(type = "BAD", occurrenceId = "property-a"), 33, true, store, logger) {})
@@ -159,6 +160,7 @@ class ScheduleFeatureTest {
         val all = scheduleRows(items, now, ScheduleFilter.ALL)
         assertEquals(listOf(ScheduleBadge.DUE, ScheduleBadge.UPCOMING, ScheduleBadge.FIRST, ScheduleBadge.ONE_OFF, ScheduleBadge.ONE_OFF), all.map { it.badge })
         assertEquals(ScheduleRoute("due", InspectionScheduleType.ROUTINE), all.first().route)
+        var opened: ScheduleRoute? = null; all.first().open { opened = it }; assertEquals(all.first().route, opened)
         assertEquals(listOf("due"), scheduleRows(items, now, ScheduleFilter.DUE).map { it.route.propertyId })
         assertEquals(listOf("next"), scheduleRows(items, now, ScheduleFilter.ANNUAL).map { it.route.propertyId })
         assertEquals(listOf("due", "first"), scheduleRows(items, now, ScheduleFilter.ROUTINE).map { it.route.propertyId })
@@ -188,12 +190,12 @@ class ScheduleFeatureTest {
         type: InspectionScheduleType,
         advice: ScheduleAdvice,
     ) = ScheduleItem(id, "Property $id", type, advice)
-    private class FakeOccurrenceStore(var reject: ReceiptState? = null) : ReceiptStore {
-        private val receipts = mutableMapOf<String, ReceiptState>()
-        override fun read(occurrenceId: String): ReceiptState? = receipts[occurrenceId]
-        @Synchronized override fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState?>, state: ReceiptState?): Boolean = if (read(occurrenceId) !in expected || state != null && state == reject) false else true.also { if (state == null) receipts.remove(occurrenceId) else receipts[occurrenceId] = state }
+    private class FakeOccurrenceStore(var reject: Receipt? = null) : ReceiptStore {
+        private val receipts = mutableMapOf<String, Receipt>()
+        override fun read(occurrenceId: String): Receipt? = receipts[occurrenceId]
+        @Synchronized override fun compareAndSet(occurrenceId: String, expected: Set<Receipt?>, state: Receipt?): Boolean = if (read(occurrenceId) !in expected || state != null && state == reject) false else true.also { if (state == null) receipts.remove(occurrenceId) else receipts[occurrenceId] = state }
     }
-    private class FakeLogger : ReminderEventLogger {
+    private class FakeLogger : EventLogger {
         val events = mutableListOf<String>(); val stages = mutableListOf<LogStage>()
         override fun log(stage: LogStage, occurrenceId: String?, type: InspectionScheduleType?, retryable: Boolean, errorCode: LogError) { stages += stage; events += reminderLogMessage(stage, occurrenceId, type, retryable, errorCode) }
     }

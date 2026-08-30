@@ -7,7 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
-internal object ReminderWorkData {
+internal object WorkKeys {
     const val PROPERTY_ID = "property_id"
     const val INSPECTION_TYPE = "inspection_type"
     const val DUE_AT_EPOCH_MILLIS = "due_at_epoch_millis"
@@ -15,7 +15,7 @@ internal object ReminderWorkData {
 }
 object ReminderScheduler {
     @Synchronized
-    fun schedule(context: Context, spec: ReminderWorkSpec, onResult: (Boolean) -> Unit = {}): Boolean {
+    fun schedule(context: Context, spec: ReminderSpec, onResult: (Boolean) -> Unit = {}): Boolean {
         val store = SharedPreferencesReceiptStore(context.applicationContext)
         val report: (Boolean) -> Unit = { result -> ContextCompat.getMainExecutor(context).execute { onResult(result) } }
         return schedule(spec, store, AndroidReminderLogger, report) { work, complete ->
@@ -26,9 +26,9 @@ object ReminderScheduler {
         }
     }
     internal fun schedule(
-        spec: ReminderWorkSpec,
+        spec: ReminderSpec,
         store: ReceiptStore,
-        logger: ReminderEventLogger,
+        logger: EventLogger,
         onResult: (Boolean) -> Unit = {},
         enqueue: (EnqueueSpec, (Boolean) -> Unit) -> Unit,
     ): Boolean {
@@ -50,24 +50,24 @@ object ReminderScheduler {
     }
 }
 internal fun enqueueWorkManagerReminder(work: EnqueueSpec, submit: (String, ExistingWorkPolicy, androidx.work.OneTimeWorkRequest) -> Unit) {
-    val input = Data.Builder().putString(ReminderWorkData.PROPERTY_ID, work.route.propertyId).putString(ReminderWorkData.INSPECTION_TYPE, work.route.inspectionType.name).putLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, work.dueAt.toEpochMilli()).putString(ReminderWorkData.OCCURRENCE_ID, work.occurrenceId).build()
+    val input = Data.Builder().putString(WorkKeys.PROPERTY_ID, work.route.propertyId).putString(WorkKeys.INSPECTION_TYPE, work.route.inspectionType.name).putLong(WorkKeys.DUE_AT_EPOCH_MILLIS, work.dueAt.toEpochMilli()).putString(WorkKeys.OCCURRENCE_ID, work.occurrenceId).build()
     submit(work.uniqueName, work.existingWorkPolicy, OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay(work.initialDelayMillis, TimeUnit.MILLISECONDS).setInputData(input).build())
 }
-internal fun interface ReminderEventLogger {
+internal fun interface EventLogger {
     fun log(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError)
 }
 internal fun reminderLogMessage(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError): String =
     "{\"event\":\"schedule-reminder\",\"stage\":\"${stage.name.lowercase().replace('_', '-')}\",\"occurrence\":\"${occurrenceId?.takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: "missing"}\",\"type\":\"${type?.name ?: "unknown"}\",\"retryable\":$retryable,\"error_code\":\"${errorCode.name.lowercase().replace('_', '-')}\"}"
-internal object AndroidReminderLogger : ReminderEventLogger {
+internal object AndroidReminderLogger : EventLogger {
     override fun log(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError) {
         Log.w("ScheduleReminder", reminderLogMessage(stage, occurrenceId, type, retryable, errorCode))
     }
 }
 internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    override fun read(occurrenceId: String): ReceiptState? = preferences.getString(occurrenceId, null)
-        ?.let { runCatching { ReceiptState.valueOf(it) }.getOrNull() }
-    override fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState?>, state: ReceiptState?): Boolean = synchronized(LOCK) {
+    override fun read(occurrenceId: String): Receipt? = preferences.getString(occurrenceId, null)
+        ?.let { runCatching { Receipt.valueOf(it) }.getOrNull() }
+    override fun compareAndSet(occurrenceId: String, expected: Set<Receipt?>, state: Receipt?): Boolean = synchronized(LOCK) {
         if (read(occurrenceId) !in expected) false
         else if (state == null) preferences.edit().remove(occurrenceId).commit()
         else preferences.edit().putString(occurrenceId, state.name).commit()

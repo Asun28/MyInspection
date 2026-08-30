@@ -14,7 +14,7 @@ import androidx.work.WorkerParameters
 import java.time.Instant
 import nz.myinspection.app.MainActivity
 import nz.myinspection.core.schedule.InspectionScheduleType
-internal data class ReminderWorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
+internal data class WorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
 internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
 internal fun <T> postReminderNotification(identity: NotificationIdentity, notification: T, post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
 class ReminderWorker(
@@ -25,11 +25,11 @@ class ReminderWorker(
         val permissionGranted = Build.VERSION.SDK_INT < 33 ||
             applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         val outcome = execute(
-            ReminderWorkerInput(
-                inputData.getString(ReminderWorkData.PROPERTY_ID),
-                inputData.getString(ReminderWorkData.INSPECTION_TYPE),
-                inputData.getLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
-                inputData.getString(ReminderWorkData.OCCURRENCE_ID),
+            WorkerInput(
+                inputData.getString(WorkKeys.PROPERTY_ID),
+                inputData.getString(WorkKeys.INSPECTION_TYPE),
+                inputData.getLong(WorkKeys.DUE_AT_EPOCH_MILLIS, Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
+                inputData.getString(WorkKeys.OCCURRENCE_ID),
             ),
             Build.VERSION.SDK_INT,
             permissionGranted,
@@ -82,11 +82,11 @@ class ReminderWorker(
         const val EXTRA_INSPECTION_TYPE = "nz.myinspection.app.extra.INSPECTION_TYPE"
         private const val CHANNEL_ID = "inspection-reminders"
         internal fun execute(
-            input: ReminderWorkerInput,
+            input: WorkerInput,
             sdkInt: Int,
             permissionGranted: Boolean,
             store: ReceiptStore,
-            logger: ReminderEventLogger,
+            logger: EventLogger,
             notify: (DeliveryPlan.Notify) -> Unit,
         ): WorkerOutcome {
             fun invalid(): WorkerOutcome {
@@ -99,7 +99,7 @@ class ReminderWorker(
             val occurrenceId = input.occurrenceId ?: return invalid()
             val route = ScheduleRoute(propertyId, type)
             if (occurrenceId != reminderOccurrenceId(route, dueAt)) return invalid()
-            if (store.read(occurrenceId) == ReceiptState.DELIVERED) return WorkerOutcome.SUCCESS
+            if (store.read(occurrenceId) == Receipt.DELIVERED) return WorkerOutcome.SUCCESS
             val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)
             if (delivery is DeliveryPlan.Retry) {
                 logger.log(LogStage.PERMISSION, occurrenceId, type, true, LogError.PERMISSION_DENIED)
@@ -108,7 +108,7 @@ class ReminderWorker(
             delivery as DeliveryPlan.Notify
             return try {
                 notify(delivery)
-                if (store.compareAndSet(occurrenceId, setOf(ReceiptState.ENQUEUED, null), ReceiptState.DELIVERED) || store.read(occurrenceId) == ReceiptState.DELIVERED) WorkerOutcome.SUCCESS
+                if (store.compareAndSet(occurrenceId, setOf(Receipt.ENQUEUED, null), Receipt.DELIVERED) || store.read(occurrenceId) == Receipt.DELIVERED) WorkerOutcome.SUCCESS
                 else WorkerOutcome.RETRY.also { logger.log(LogStage.RECEIPT_DELIVERED, occurrenceId, type, true, LogError.RECEIPT_WRITE_FAILED) }
             } catch (error: RuntimeException) {
                 logger.log(LogStage.NOTIFY, occurrenceId, type, true, LogError.NOTIFY_EXCEPTION)
