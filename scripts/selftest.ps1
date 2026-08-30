@@ -8245,7 +8245,7 @@ if (-not $qFail) { Write-Host "  15q ship resume/RED 新鲜度死锁窗口有成
 #   待办腿 + 精确恢复命令（分水岭=「提交」腿：commit 前失败=重跑 -Phase ship；commit 后按 死锁重跑/无PR/已开PR/已合并
 #   分流并指 TD85-RESUME 锚点，见 15q，不复制其正文）——随后**原样裸 throw**（退出码/失败面/上游捕获行为均不变，只加
 #   报告层）。源码级词法断言（同 15p/17p2 手法，剥整行注释防「删代码留哨兵注释」蒙混）：(a) ship 相体存在腿完成跟踪
-#   （有序腿名列表 + 成功路径 ≥12 处追加：共享 7 腿 + -Local 2 腿 + 远端 3 腿）；(b) 存在含哨兵 T26-SHIPSAGA 的 catch
+#   成功路径 ≥13 追加点（含远端四腿）；(b) T26-SHIPSAGA catch
 #   报告块；(c) 该块词法上以原样裸 throw 结尾；(d) 恢复路由词法锁——完整重跑命令仅现于 commit 前分支且带齐已绑定
 #   选项，commit 后 PR 状态以已解析 PR 号为准而非腿成员推断、合并腿建议按 head 新鲜度条件化（R3 r1/r2/r3 #9/#6/#2）。
 #   实现前各断言均 RED（防 vacuous）。(a)-(d) 静态、locale 无关、不需 git/gh（同 15n/15q 手法）；(e) hermetic
@@ -8259,7 +8259,7 @@ else {
   # (a) 腿完成跟踪：有序腿名列表初始化 + 成功路径追加点（漏标的腿会让报告把已完成腿误报成失败腿）
   if ($shipCode15r -notmatch '\$sagaLegs\s*=') { Fail '闸15r(a)：ship 相体无有序腿名列表（$sagaLegs，代码级）——失败时刻无法自述「哪些腿已完成」。'; $r15Fail = $true }
   $appendCount15r = ([regex]::Matches($shipCode15r, '\$sagaDone\s*\+=')).Count
-  if ($appendCount15r -lt 12) { Fail "闸15r(a)：ship 成功路径上的腿完成追加点仅 $appendCount15r 处（要求 ≥12：共享 7 + -Local 2 + 远端 3）——漏标腿会把已完成腿误报成失败腿。"; $r15Fail = $true }
+  if ($appendCount15r -lt 13) { Fail "闸15r(a)：腿仅 $appendCount15r（须 ≥13，含远端四腿）。"; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaHeadMoved\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无真实 HEAD 前移追踪（$sagaHeadMoved 须在真提交后置真）——「提交」腿完成≠HEAD 前移，no-op 提交会被误当死锁态（R3 r5 #9）。'; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaLocalMerged\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无本地合并成功追踪（$sagaLocalMerged 须在 merge 成功后置真）——post-merge 凭据失败会被误报成合并前守卫态（R3 r5 #9）。'; $r15Fail = $true }
   # (b)+(c) catch 报告块：含哨兵且以原样裸 throw 结尾（throw 后除闭合括号外无其他语句——异常语义不变的词法锁）；
@@ -8284,14 +8284,20 @@ else {
     # r3 #2/#9：R3 已 pass 的合并腿失败不得无条件建议直接 gh pr merge——修复若改了 PR head，已录 pass 即失效；
     # 建议文案须含「head 未变才可直合、变了先重跑 review.ps1 -PostStatus 至 pass」的条件路径（词法锚 = -PostStatus 在 R3 分支之后）。
     $prStateOk15r = ($catch15r.IndexOf('Test-Path Variable:pr') -ge 0) -and ($catch15r.LastIndexOf('gh pr view') -gt $iR315r) -and ($iR315r -ge 0) -and ($catch15r.IndexOf('-PostStatus') -gt $iR315r)
+    foreach ($ra15 in @('R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知')) {
+      $rl15 = @($catch15r -split "`n" | Where-Object { $_.Contains($ra15) })
+      $rp15 = if ($ra15 -like 'commit*') { '<PR号>' } else { '42' }
+      $rr15 = if ($rl15.Count -eq 1) { & ([scriptblock]::Create('$Wt=''W X'';$shipBase=''B'';$sagaPrNum=42;$TaskId=''T'';$sagaRemoteReset=''R'';' + $rl15[0].Trim())) 6>&1 | Out-String } else { '' }
+      if ($rl15.Count -ne 1 -or $rr15 -notmatch 'DoD.*verify.*范围闸.*许可闸.*防泄露闸.*真实 diff 预算.*review\.ps1' -or -not $rr15.Contains("-WorktreePath `"W X`" -Base `"B`" -PrNumber $rp15 -PostStatus") -or $rr15 -notmatch '同一 reviewed SHA.*ci\.yml.*jobs completed\+success.*base/head.*--match-head-commit <同一 reviewed SHA>') { Fail "闸15r(d/CI)：$ra15 配方缺失/不可运行。"; $r15Fail = $true }
+    }
     # r4/r5 #9：-Local 合并腿失败态按**阶段状态**分流（$sagaLocalMerged=post-merge 凭据态 / MERGE_HEAD 在盘=合并中
     # merge --continue 续跑 / 皆无=守卫态重发 merge --no-ff --no-edit）——不嗅探异常文案（每个合并失败消息都含「冲突？」）。
     # r6 #9 闸门保真最小提示：未推送态给 reset --soft 归位全闸重跑；直合条件含 base（baseRefName）双新鲜度（根治=TD89）。
-    $localOk15r = ($catch15r.IndexOf('merge --continue') -ge 0) -and ($catch15r.IndexOf('--no-ff --no-edit') -ge 0) -and ($catch15r.IndexOf('$sagaLocalMerged') -ge 0) -and ($catch15r.IndexOf('MERGE_HEAD') -ge 0) -and ($catch15r.IndexOf('reset --soft') -ge 0) -and ($catch15r.IndexOf('baseRefName') -ge 0)
+    $localOk15r = ($catch15r.IndexOf('merge --continue') -ge 0) -and ($catch15r.IndexOf('--no-ff --no-edit') -ge 0) -and ($catch15r.IndexOf('$sagaLocalMerged') -ge 0) -and ($catch15r.IndexOf('MERGE_HEAD') -ge 0) -and ($catch15r.IndexOf('reset --soft') -ge 0) -and ($catch15r.IndexOf('base/head') -ge 0)
     if (($iMarker15r -lt 0) -or ($iHM15r -lt 0) -or ($iMarker15r -gt $iHM15r) -or ($rerunHits15r.Count -ne 1) -or ($rerunHits15r[0].Index -lt $iHM15r) -or (-not $optsOk15r) -or ($iR315r -lt $rerunHits15r[0].Index) -or (-not $prStateOk15r) -or (-not $localOk15r)) { Fail '闸15r(d)：恢复路由词法形状不符（R3 r1-r5 #9/#6/#2）——要求：TD85-RESUME 哨兵路由最先判（死锁重跑勿按本轮腿清单推断进度）；重跑安全守卫按 $sagaHeadMoved（真 HEAD 前移）+ -SkipRed 豁免判定而非「提交」腿成员（no-op 提交不动 HEAD）；完整重跑命令在 catch 内仅 1 次、位于该守卫之后、且由 $SkipRed/$NoAutoMerge/ContainsKey(Base) 补齐已绑定选项；commit 后分支不得以腿成员推断 PR 状态——须经已解析 PR 号（Test-Path Variable:pr）分流并在未知态给 gh pr view 实查命令；-Local 合并腿失败态按阶段状态（$sagaLocalMerged/MERGE_HEAD）分流出 merge --continue 续跑或 merge --no-ff --no-edit 重发；未推送态须给 reset --soft 归位全闸重跑、直合条件须含 baseRefName 双新鲜度（r6 #9 最小保真，根治 TD89）。'; $r15Fail = $true }
   }
 }
-if (-not $r15Fail) { Write-Host '  15r ship saga 报告闸 OK（腿完成追加点 ≥12 在场、catch 含哨兵且以原样裸 throw 结尾、恢复路由以「提交」为分水岭且重跑命令带齐已绑定选项仅现于 commit 前分支、commit 后按已解析 PR 号分流/未知态给实查命令、合并腿建议按 head 新鲜度条件化）' -ForegroundColor Green }
+if (-not $r15Fail) { Write-Host '  15r ship saga ≥13 腿（远端 push+PR/R3/CI gate/合并）与恢复路由 OK' -ForegroundColor Green }
 
 # 15r(e). hermetic 失败路径夹具（R3 r3 #6：词法锁只证形状，不证真实失败时刻的报告输出与异常语义——本块用 15i 同款
 #   隔离夹具真跑两条失败路径断言行为，离线、无 gh/codex，-Local + 均在评审腿之前失败）：
@@ -13574,6 +13580,8 @@ if (Test-SelftestPrerequisite -GateIds @('17aa(8)', '17aa(8/F5)', '17aa(8/origin
       New-Item -ItemType Directory -Force $r8Repo,$r8Shim | Out-Null
       Copy-Item (Join-Path $RepoRoot 'scripts') $r8Repo -Recurse -Force
       Copy-Item (Join-Path $RepoRoot 'specs') $r8Repo -Recurse -Force
+      New-Item -ItemType Directory -Force (Join-Path $r8Repo '.github/workflows') | Out-Null
+      Copy-Item (Join-Path $RepoRoot '.github/workflows/ci.yml') (Join-Path $r8Repo '.github/workflows/ci.yml') -Force
       Set-Content (Join-Path $r8Repo '.gitignore') ".review/`n_local/" -Encoding utf8
       New-Item -ItemType Directory -Force (Join-Path $r8Repo 'docs') | Out-Null
       Set-Content (Join-Path $r8Repo 'docs/QUALITY-RUBRIC.md') '# 17aa8 fixture rubric' -Encoding utf8
@@ -13609,6 +13617,12 @@ Set-Content -LiteralPath '$($r8Root -replace "'", "''")/review-reached' 'bad'
       Set-Content $r8CardPath $r8Card -NoNewline -Encoding utf8
 
       $r8Gh = @'
+if (($args -join ' ') -match 'baseRefName,headRefOid') {
+  $base = if ($env:GH_MOCK_BASE_MODE -eq 'retarget') { 'other' } else { 'master' }
+  $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
+  @{ baseRefName = $base; headRefOid = $oid } | ConvertTo-Json -Compress
+  exit 0
+}
 if ($args -contains 'baseRefName') {
   if ($env:GH_MOCK_BASE_MODE -eq 'retarget') {
     $countPath = Join-Path $env:GH_MOCK_ROOT 'base-count'
@@ -13623,6 +13637,20 @@ if ($args -contains 'baseRefName') {
     'fail'     { exit 23 }
     default    { 'master'; exit 0 }
   }
+}
+if ($args -contains 'headRefOid') {
+  "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
+  exit 0
+}
+if ($args -contains 'api') {
+  $joined = $args -join ' '
+  if ($joined -match 'check-runs') { '{"total_count":1,"check_runs":[{"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
+  if ($joined -match 'actions/workflows/ci\.yml/runs') {
+    $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
+    "{""total_count"":1,""workflow_runs"":[{""id"":9001,""head_sha"":""$oid"",""event"":""pull_request"",""status"":""completed"",""conclusion"":""success"",""run_attempt"":1,""path"":"".github/workflows/ci.yml"",""pull_requests"":[{""number"":102}]}]}"
+    exit 0
+  }
+  if ($joined -match 'actions/runs/9001/attempts/1/jobs') { '{"total_count":1,"jobs":[{"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
 }
 if ($args -contains 'state,headRefOid') {
   $st = if ($env:GH_MOCK_MERGE_STATE -eq 'open') { 'OPEN' } else { 'MERGED' }
@@ -13648,7 +13676,8 @@ exit 0
       & git -C $r8Repo commit -q -m base
       & git -C $r8Repo push -q -u origin master
       & pwsh -NoProfile -File (Join-Path $r8Repo 'scripts/task.ps1') -TaskId T11-R3-BASELINE -Phase start *> $null
-      $r8Wt = Join-Path $r8WtRoot 'T11-R3-BASELINE'
+        $r8Wt = Join-Path $r8WtRoot 'T11-R3-BASELINE'
+        $env:GH_MOCK_WT = $r8Wt
       if ($LASTEXITCODE -ne 0 -or -not (Test-Path $r8Wt)) { Fail '闸17aa(8) setup：task start 未建出 T11 worktree。' }
       else {
         Set-Content (Join-Path $r8Repo 'fresh-base.txt') 'remote base advanced after worktree creation' -Encoding utf8
@@ -13687,7 +13716,7 @@ exit 0
           Remove-Item (Join-Path $r8Root 'review-reached'),(Join-Path $r8Root 'merge-reached'),(Join-Path $r8Root 'base-count') -ErrorAction SilentlyContinue
           $env:GH_MOCK_BASE_MODE = 'retarget'
           $r8RetargetOut = (& pwsh -NoProfile -File (Join-Path $r8Repo 'scripts/task.ps1') -TaskId T11-R3-BASELINE -Phase ship -SkipRed 2>&1 | Out-String)
-          if ($LASTEXITCODE -eq 0 -or $r8RetargetOut -notmatch '合并目标 ≠ 评审基线') { $r8RetargetDiag = if ($r8RetargetOut.Length -gt 1000) { $r8RetargetOut.Substring($r8RetargetOut.Length - 1000) } else { $r8RetargetOut }; Fail "种子缺陷 17aa(8/retarget)：R3 后 PR base 从 master 改为 other 未在 merge 前二次确认并阻断。输出尾段=$r8RetargetDiag" }
+          if ($LASTEXITCODE -eq 0 -or $r8RetargetOut -notmatch '\[CI-GATE-BASE-MISMATCH\]') { Fail '闸17aa(8/retarget)：缺 [CI-GATE-BASE-MISMATCH]。' }
           elseif (-not (Test-Path (Join-Path $r8Root 'review-reached'))) { Fail '闸17aa(8/retarget)：夹具未走过 review，未真正覆盖评审后的 TOCTOU 窗口。' }
           elseif (Test-Path (Join-Path $r8Root 'merge-reached')) { Fail '闸17aa(8/retarget)：二次 base 校验失败后仍调用 gh pr merge。' }
         }
@@ -13749,17 +13778,20 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
+    $rmSavedCiMode = $env:GH_MOCK_CI_MODE; $rmSavedCiTimeout = $env:SCAFFOLD_CI_TIMEOUT_SEC
     $script:rmRoots = @()   # Codex 二审 major#2：root 一经创建即登记（script 域），setup 中途抛异常也不泄漏临时根。
     # 集中一处的哨兵/状态文件清单（卡 dod_assert：每场景进入前统一复位全部 GH_MOCK_* 每场景旋钮 + 全部哨兵/gh 状态文件）。
     # T37 stub 实际使用的**全部**哨兵/状态文件——闸15t 新增的四个也必须在列，否则 $rmReset 名不副实、
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
-      'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg')   # base-count 属 17aa(8)，本卡 stub 不写
+      'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
+      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
       # Codex R3 r5：进入场景前统一复位**全部** GH_MOCK_* 每场景旋钮（含 17aa(8) 的 BASE_MODE/MERGE_STATE，防跨闸继承）；PATH/GH_MOCK_ROOT 由 $rmMake 绑至本夹具。
       $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_BASE_MODE = $null; $env:GH_MOCK_MERGE_STATE = $null
+      $env:GH_MOCK_CI_MODE = $null; $env:SCAFFOLD_CI_TIMEOUT_SEC = $null
     }
     # Finding B（Codex R3 r3 #2）：证远端投影真被更新——push 成功后裸 origin 的任务 ref 须 == worktree HEAD。
     $rmOriginRef = { param($origin) "$(& git --git-dir=$origin rev-parse refs/heads/T0-REMOTEMX 2>$null)".Trim() }
@@ -13767,11 +13799,18 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     #   create → 记 pr-created 号 + 累加 create-count；number → pr-created 在则返号、否则空（=尚无 PR）；
     #   merge → GH_MOCK_MERGE_FAIL=1 时非零退出（注入远端合并失败），否则记 merge-reached；state,headRefOid → MERGED+HEAD。
     $rmGh = @'
+function Add-CiTrace([string]$Event) {
+  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') $Event
+}
+function Add-CiCwd([string]$Call) {
+  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-gh-cwds') "$Call|$((Get-Location).Path)"
+}
 if ($args -contains 'create') {
   # 场景 1(S2) 注入：create-fail-armed 在则首次 create 失败（消耗武装、不记 pr-created/不增 count）→ 模拟 pushed-no-PR 态。
   $armed = Join-Path $env:GH_MOCK_ROOT 'create-fail-armed'
   if (Test-Path $armed) { Remove-Item $armed -Force; [Console]::Error.WriteLine('mock: injected pr-create failure'); exit 1 }
-  Set-Content (Join-Path $env:GH_MOCK_ROOT 'pr-created') '777'
+  $prNumber = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
+  Set-Content (Join-Path $env:GH_MOCK_ROOT 'pr-created') $prNumber
   $cc = Join-Path $env:GH_MOCK_ROOT 'create-count'
   $n = if (Test-Path $cc) { [int]((Get-Content $cc -Raw).Trim()) } else { 0 }
   Set-Content $cc ($n + 1)
@@ -13782,12 +13821,47 @@ if ($args -contains 'number') {
   if (Test-Path $pc) { (Get-Content $pc -Raw).Trim() }
   exit 0
 }
+if (($args -join ' ') -match 'baseRefName,headRefOid') {
+  Add-CiCwd 'final-pr'
+  $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
+  @{ baseRefName = 'master'; headRefOid = $oid } | ConvertTo-Json -Compress
+  exit 0
+}
 if ($args -contains 'baseRefName') { 'master'; exit 0 }
 # gh api：review.ps1 -PostStatus 先 `gh api user -q .login` 取 owner，再 POST .../statuses/<sha>。
 # 落 status-posted 哨兵供闸15t 负例断言「状态回贴腿也没被消费」。对场景 1-3 纯增量。
 if ($args -contains 'api') {
   if ($args -contains 'user') { 'selftest'; exit 0 }
   if (($args -join ' ') -match 'statuses/') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'status-posted') 'yes' }
+  $joined = $args -join ' '
+  if ($joined -match 'check-runs') {
+    Add-CiCwd 'checks'
+    Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
+    Add-CiTrace 'ci'
+    $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red') { 'failure' } else { 'success' }
+    "{`"total_count`":1,`"check_runs`":[{`"name`":`"verify`",`"status`":`"completed`",`"conclusion`":`"$conclusion`"}]}"
+    exit 0
+  }
+  if ($joined -match 'actions/workflows/ci\.yml/runs') {
+    Add-CiCwd 'workflow'
+    Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
+    $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
+    $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
+    $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
+    $pn = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
+    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"completed`",`"conclusion`":`"success`",`"run_attempt`":$try,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$pn}]}]}"
+    exit 0
+  }
+  $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
+  $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
+  if ($joined -match "actions/runs/$runId/attempts/$try/jobs") {
+    Add-CiCwd 'jobs'
+    Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
+    Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
+    $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
+    "{`"total_count`":1,`"jobs`":[{`"name`":`"$jn`",`"status`":`"completed`",`"conclusion`":`"success`"}]}"
+    exit 0
+  }
   exit 0
 }
 if ($args -contains 'comment') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'pr-commented') 'yes'; exit 0 }
@@ -13798,6 +13872,7 @@ if (($args -join ' ') -match '^repo view') { 'remotemx-fixture'; exit 0 }
 # 否则是拿同一来源自比、恒等式（codex R3 r2 #1）。这里回 worktree HEAD：push 过则与 origin ref 相等（正例），
 # 没 push 则不等（变异 B 即靠此暴露）。
 if ($args -contains 'headRefOid') {
+  Add-CiCwd 'head'
   "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   exit 0
 }
@@ -13808,9 +13883,11 @@ if ($args -contains 'state,headRefOid') {
 }
 if ($args -contains 'merge') {
   Set-Content (Join-Path $env:GH_MOCK_ROOT 'merge-attempted') 'yes'   # 证 merge 腿真被触达（防场景 3 更早失败假绿）
+  Set-Content (Join-Path $env:GH_MOCK_ROOT 'merge-pr-arg') "$($args[2])"
   # --match-head-commit 须真绑到 PR head：记下实参并校验，否则「合并绑 head」这条只是文案（codex R3 r2 #1）。
   $mhIdx = [array]::IndexOf($args, '--match-head-commit')
-  if ($mhIdx -ge 0) {
+  if ($mhIdx -lt 0 -or $mhIdx + 1 -ge $args.Count) { [Console]::Error.WriteLine('mock: missing --match-head-commit'); exit 1 }
+  else {
     $mhVal = "$($args[$mhIdx + 1])".Trim()
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'merge-head-arg') $mhVal
     $cur = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
@@ -13829,8 +13906,13 @@ exit 0
       $root = Join-Path ([System.IO.Path]::GetTempPath()) ("stT37_${tag}_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
       $repo = Join-Path $root 'repo'; $origin = Join-Path $root 'origin.git'; $shim = Join-Path $root 'shim'
       New-Item -ItemType Directory -Force $repo, $shim | Out-Null
+      Set-Content (Join-Path $root 'fixture-pr-number') (1000 + [Convert]::ToInt32(([guid]::NewGuid().ToString('N').Substring(0, 4)), 16))
+      Set-Content (Join-Path $root 'fixture-run-id') (100000 + [Convert]::ToInt32(([guid]::NewGuid().ToString('N').Substring(0, 6)), 16))
+      Set-Content (Join-Path $root 'fixture-run-attempt') (2 + (Get-Random -Maximum 7))
       $script:rmRoots += $root   # 即刻登记（Codex 二审 major#2）：其后任何抛错也由外层 finally 清理本根。
       Copy-Item (Join-Path $RepoRoot 'scripts') $repo -Recurse -Force
+      New-Item -ItemType Directory -Force (Join-Path $repo '.github/workflows') | Out-Null
+      Copy-Item (Join-Path $RepoRoot '.github/workflows/ci.yml') (Join-Path $repo '.github/workflows/ci.yml') -Force
       Set-Content (Join-Path $repo '.gitignore') ".review/`n_local/" -Encoding utf8   # 镜像真仓 .gitignore（L137）
       New-Item -ItemType Directory -Force (Join-Path $repo 'docs') | Out-Null
       Copy-Item (Join-Path $RepoRoot 'docs/QUALITY-RUBRIC.md') (Join-Path $repo 'docs/QUALITY-RUBRIC.md') -Force
@@ -13841,7 +13923,15 @@ exit 0
       $revStub = Join-Path $repo 'review-stub.ps1'
       # review 后端 stub：除写裁决外再落一枚 review-invoked 哨兵——闸15t 的负例要断言「评审腿一次都没被消费」，
       # 只看退出码/合并哨兵不够（评审可能已被调用过再失败）。对场景 1-3 是纯增量，它们不读该哨兵。
-      Set-Content $revStub "[Console]::In.ReadToEnd() | Out-Null`nif (`$env:GH_MOCK_ROOT) { Set-Content (Join-Path `$env:GH_MOCK_ROOT 'review-invoked') 'yes' }`n'{`"verdict`":`"pass`",`"reasons`":[]}' | Set-Content `$env:REVIEW_OUT -Encoding utf8" -Encoding utf8
+      $revStubBody = @'
+[Console]::In.ReadToEnd() | Out-Null
+if ($env:GH_MOCK_ROOT) {
+  Set-Content (Join-Path $env:GH_MOCK_ROOT 'review-invoked') 'yes'
+  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') 'r3'
+}
+'{"verdict":"pass","reasons":[]}' | Set-Content $env:REVIEW_OUT -Encoding utf8
+'@
+      Set-Content $revStub $revStubBody -Encoding utf8
       $wtRoot = Join-Path $root 'wt'
       $cfgPath = Join-Path $repo 'scripts/_config.ps1'; $cfg = Get-Content $cfgPath -Raw
       $cfg = [regex]::Replace($cfg, "WorktreeRoot\s*=\s*'[^']*'", { "WorktreeRoot = '$($wtRoot -replace '\\', '/')'" })
@@ -13850,7 +13940,7 @@ exit 0
       Set-Content $cfgPath $cfg -NoNewline -Encoding utf8
       New-Item -ItemType Directory -Force (Join-Path $repo 'specs/tasks') | Out-Null
       @('---', 'id: T0-REMOTEMX', 'title: T37 remote-state fixture card', 'status: todo',
-        'dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path README.md -Pattern GREENMX -Quiet)) { exit 1 }"', 'allow_paths:', '  - README.md', '  - extra.txt', '---') -join "`n" |
+        'dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path README.md -Pattern GREENMX -Quiet)) { exit 1 }"', 'allow_paths:', '  - README.md', '  - extra.txt', '  - .github/workflows/ci.yml', '---') -join "`n" |
         Set-Content (Join-Path $repo 'specs/tasks/T0-REMOTEMX.md') -Encoding utf8
       Set-Content (Join-Path $repo 'README.md') 'remotemx fixture' -Encoding utf8   # 基线无 GREENMX → 每场景 -Phase red 可复现 RED（真 RED→绿→铸收据）
       Set-Content (Join-Path $shim 'gh.ps1') $rmGh -Encoding utf8
@@ -13866,7 +13956,7 @@ exit 0
       # Codex 二审 major#1：start 前即把 PATH 绑到本夹具自己的 gh PATH-stub 并全量复位 GH_MOCK_*——
       # 保证 start（及其后任一腿）绝不触碰真实 gh、也不继承上一场景的 shim/mock 状态（每场景全隔离，卡硬约束）。
       $env:PATH = "$shim$([IO.Path]::PathSeparator)$rmSavedPath"
-      $env:GH_MOCK_ROOT = $root; $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null
+      $env:GH_MOCK_ROOT = $root; $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_CI_MODE = $null
       & pwsh -NoProfile -File (Join-Path $repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase start *> $null
       $wt = Join-Path $wtRoot 'T0-REMOTEMX'
       @{ Root = $root; Repo = $repo; Origin = $origin; Shim = $shim; Wt = $wt; Ok = ($LASTEXITCODE -eq 0 -and (Test-Path $wt)) }
@@ -14000,13 +14090,43 @@ exit 0
             # 真 RED（非 -SkipRed，与场景 1/2 一致）：worktree README 无 GREENMX → -Phase red 落证据；再写 GREENMX 令 DoD 绿。
             & pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
             Set-Content (Join-Path $fx3.Wt 'README.md') 'GREENMX merge-fail work' -Encoding utf8
-            $s3 = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
+            $env:GH_MOCK_CI_MODE = 'basic-red'
+            $s3Red = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
+            $s3Rx = $LASTEXITCODE
+            $s3Rt = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
+            if ($s3Rx -eq 0 -or $s3Red -notmatch '\[CI-GATE-RED\]' -or $s3Red -match '\[CI-GATE-PASS\]' -or -not (Test-Path (Join-Path $fx3.Root 'ci-checked')) -or
+                $s3Rt -ne 'r3>ci' -or (Test-Path (Join-Path $fx3.Root 'ci-workflow-checked')) -or (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
+              Fail 'T37-REMOTEMX/3：候选 check run 红灯未在真实 CI gate fail-closed，或更早/更晚的腿错误满足断言。'
+            }
+            $c3 = Join-Path $fx3.Wt '.github/workflows/ci.yml'
+            $c3t = Get-Content $c3 -Raw
+            if ([regex]::Matches($c3t, '(?m)^  verify:').Count -ne 1) { Fail 'T37-REMOTEMX/3：verify job 非唯一。' }
+            $c3t -replace '(?m)^  verify:', "  verify-basic:`n    name: Verify display" | Set-Content $c3 -NoNewline -Encoding utf8
+            @('review-invoked', 'ci-event-trace', 'ci-checked', 'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-gh-cwds', 'merge-attempted') |
+              ForEach-Object { Remove-Item (Join-Path $fx3.Root $_) -ErrorAction SilentlyContinue }
+            $wantPr3 = "$(Get-Content (Join-Path $fx3.Root 'fixture-pr-number') -Raw)".Trim()
+            $wantRun3 = "$(Get-Content (Join-Path $fx3.Root 'fixture-run-id') -Raw)".Trim() + '/' + "$(Get-Content (Join-Path $fx3.Root 'fixture-run-attempt') -Raw)".Trim()
+            $env:GH_MOCK_CI_MODE = 'basic-candidate'
+            $outside3 = Join-Path $fx3.Root 'unrelated-cwd'; New-Item -ItemType Directory -Force $outside3 | Out-Null
+            Push-Location $outside3
+            try { $s3 = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String) }
+            finally { Pop-Location }
             $s3Exit = $LASTEXITCODE
-            if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：远端 gh pr merge 失败时 ship 仍退出 0（未 fail-closed）。' }
-            elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：ship 未走到 gh pr merge 腿（更早失败）——非零退出来源非远端合并失败，断言失真（Codex 二审 blocking）。' }
-            elseif (Test-Path (Join-Path $fx3.Root 'merge-reached')) { Fail 'T37-REMOTEMX/3：merge 注入失败却写下成功哨兵 merge-reached（负哨兵应缺）。' }
-            elseif ($s3 -notmatch '合并失败') { $s3d = if ($s3.Length -gt 900) { $s3.Substring($s3.Length - 900) } else { $s3 }; Fail "T37-REMOTEMX/3：合并失败但报错未点名『合并失败』（须来自 task.ps1:627 生产 fail-closed，非 stub 输出）。尾段=$s3d" }
-            elseif (Test-Path $tok3) { Fail 'T37-REMOTEMX/3：远端合并失败却铸出 T24 合并凭据——cleanup 将被授权删未合并分支（数据丢失面重开）。' }
+            $s3GreenTrace = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
+            $s3Cwds = @((Get-Content (Join-Path $fx3.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
+            $s3BadCwds = @($s3Cwds | Where-Object { ($_ -split '\|', 2)[1] -ine $fx3.Wt })
+            $s3CwdCalls = @($s3Cwds | ForEach-Object { ($_ -split '\|', 2)[0] }) -join '>'
+            if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：merge 失败却 exit 0。' }
+            elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：未触达 merge。' }
+            elseif ($s3CwdCalls -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or $s3BadCwds.Count -gt 0) { Fail "T37-REMOTEMX/3：wrapped gh 未统一绑定 worktree CWD（calls=$s3CwdCalls, bad=$($s3BadCwds -join ',')）。" }
+            elseif (-not (Test-Path (Join-Path $fx3.Root 'review-invoked')) -or $s3GreenTrace -notmatch '^r3>ci(?:>ci)*$') { Fail "T37-REMOTEMX/3：R3/CI 序列=$s3GreenTrace" }
+            elseif (-not (Test-Path (Join-Path $fx3.Root 'ci-workflow-checked')) -or -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or
+                "$(Get-Content (Join-Path $fx3.Root 'ci-jobs-run-id') -Raw)".Trim() -ne $wantRun3) { Fail "T37-REMOTEMX/3：jobs run≠$wantRun3。" }
+            elseif ("$(Get-Content (Join-Path $fx3.Root 'merge-pr-arg') -Raw)".Trim() -ne $wantPr3) { Fail "T37-REMOTEMX/3：merge PR≠$wantPr3。" }
+            elseif ("$(Get-Content (Join-Path $fx3.Root 'merge-head-arg') -Raw)".Trim() -ne "$(git -C $fx3.Wt rev-parse HEAD)".Trim()) { Fail 'T37-REMOTEMX/3：merge head 未绑定。' }
+            elseif (Test-Path (Join-Path $fx3.Root 'merge-reached')) { Fail 'T37-REMOTEMX/3：失败却有 merge-reached。' }
+            elseif ($s3 -notmatch '合并失败') { Fail 'T37-REMOTEMX/3：缺合并失败诊断。' }
+            elseif (Test-Path $tok3) { Fail 'T37-REMOTEMX/3：失败却铸 T24 凭据。' }
             else { Write-Host '  T37-REMOTEMX/3 远端合并失败态 fail-closed（非零退出 + merge-reached 缺 + 不铸 T24 凭据 + 点名合并失败）OK' -ForegroundColor Green }
           }
         }
@@ -14190,6 +14310,7 @@ exit 0
     finally {
       $env:PATH = $rmSavedPath; $env:GH_MOCK_ROOT = $rmSavedRoot; $env:GH_MOCK_WT = $rmSavedWt; $env:GH_MOCK_MERGE_FAIL = $rmSavedMergeFail
       $env:GH_MOCK_BASE_MODE = $rmSavedBaseMode; $env:GH_MOCK_MERGE_STATE = $rmSavedMergeState
+      $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout
       foreach ($rr in $script:rmRoots) { Remove-Item -Recurse -Force $rr -ErrorAction SilentlyContinue }
     }
   }
@@ -15308,7 +15429,7 @@ exit $realExit
   }
 
   $enumSyncSites = @(
-    @{ Id='task-help'; File='task'; Start='ship    : DoD(必绿)'; End='故本地闸门(DoD/verify/范围/许可/密钥/预算/Codex)即权威'; Needles=@('防泄露闸', '真实 diff 预算', 'push', '开 PR', 'Codex 评审') }
+    @{ Id='task-help'; File='task'; Start='ship    : DoD(必绿)'; End='R3 与候选 CI 都作为 mandatory gate'; Needles=@('防泄露闸', '真实 diff 预算', 'push', '开 PR', 'Codex 评审') }
     @{ Id='task-saga-legs'; File='task'; Start='$sagaLegs = @('; End='$sagaLegs = @('; Needles=@('防泄露闸', '真实 diff 预算', 'push+PR', 'R3 评审') }
     @{ Id='task-resume-hint'; File='task'; Start='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; End='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1', 'gh pr merge') }
     @{ Id='task-phase-label'; File='task'; Start="Step '真实 diff 预算闸"; End="Step '真实 diff 预算闸"; Needles=@("Step '真实 diff 预算闸") }
@@ -15372,6 +15493,7 @@ exit $realExit
     @{ File='docs'; Anchor='防泄露闸 `check-secrets.ps1` 已接入'; Class='note' }
     @{ File='docs'; Anchor='`/security-review-local` 是模型在环'; Class='note' }
     @{ File='task'; Anchor='ship    : DoD(必绿)'; Class='enum'; Site='task-help' }
+    @{ File='task'; Anchor='R3 与候选 CI 都作为 mandatory gate'; Class='note' }
     @{ File='task'; Anchor='$sagaLegs = @('; Class='enum'; Site='task-saga-legs' }
     @{ File='task'; Anchor='# 收据在位 ='; Class='note' }
     @{ File='task'; Anchor='# PR head =='; Class='note' }
@@ -15383,6 +15505,7 @@ exit $realExit
     @{ File='task'; Anchor='# 铸造/RED 闸的收据 resume'; Class='note' }
     @{ File='task'; Anchor='$sagaSafeWhy ='; Class='note' }
     @{ File='task'; Anchor='-Local（提交未推送）'; Class='note' }
+    @{ File='task'; Anchor='[CI-GATE-BASE-MOVED]'; Class='note' }
     @{ File='task'; Anchor='# 必须先在 worktree **手动补跑全部确定性闸'; Class='enum'; Site='task-saga-rule-comment' }
     @{ File='task'; Anchor='【闸门保真总则】已推送恢复合并前'; Class='enum'; Site='task-saga-rule-output' }
     @{ File='task'; Anchor='R3 已 pass、合并腿未完成'; Class='enum'; Site='task-r3-pass' }
