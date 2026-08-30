@@ -49,6 +49,7 @@ selftest 闸 ⑩ 与 CI 也跑——卡写错在动手前即暴露，而非拖�
 | `depends_on` | 前置任务（拓扑序，决定可并行性） |
 | `plan_ref` | **可选**。本卡对应计划节（如 `docs/PLAN.md#节名`）——实现 agent 的最小上下文指针（免读全计划） |
 | `parallelizable_with` | **可选**。可并行卡 id 列表；并行卡 `allow_paths` 必须互不重叠（`check-cards.ps1` 全卡模式机检，对称处理：单向声明即比对） |
+| `acceptance` | **可选**。作者声明的验收清单（块式双引号字符串，严格 `A1..An`，至少 3 条）；只机检形态，本仓当前 rubric 语义不变，清单外问题不会因本字段自动变成 `[FOLLOW-UP]` |
 | `status` | `todo` → `in-progress` → `in-review` → `merged`。已 `merged` 的卡由 `scripts/archive.ps1` 移入 `specs/archive/tasks/`（冷存；`check-cards` 非递归扫 `specs/tasks/*.md`，不再校验冻结卡）+ 精简索引 `specs/archive/cards-index.md`——活目录只留在飞卡，省新任务上下文（TD86/T28，见 `specs/archive/README.md`） |
 | `allow_paths` | 本卡允许改动的路径（评审据此判越界） |
 | `forbid` | 禁止事项（按项目硬边界：横切的网络/登录态/冻结契约） |
