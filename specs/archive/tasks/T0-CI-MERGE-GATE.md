@@ -4,7 +4,7 @@ title: 在所有远端合并路径上等待候选分支 ci.yml 检查全绿
 depends_on: [T0-R3-DIFF-BUDGET]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-CI-MERGE-GATE
 worktree: C:\wt\T0-CI-MERGE-GATE
 allow_paths:
