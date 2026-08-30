@@ -70,9 +70,9 @@ class ReminderFeatureTest {
         completion!!(EnqueueResult.Accepted)
         assertEquals(RegistrationResult.SUCCESS, result)
         assertEquals(ReceiptState.ENQUEUED, store.read(spec.occurrenceId))
-        var duplicateEnqueues = 0
-        assertFalse(ReminderScheduler.schedule(spec, store, logger) { _, _ -> duplicateEnqueues++ })
-        assertEquals(0, duplicateEnqueues)
+        var reconciliations = 0
+        assertTrue(schedule(spec, store, logger) { done -> done(EnqueueResult.Accepted).also { reconciliations++ } })
+        assertEquals(1, reconciliations)
         val rejected = spec(InspectionScheduleType.ROUTINE, 61)
         schedule(rejected, store, logger, { result = it }) {
             it(EnqueueResult.Rejected(IOException("private path")))
@@ -153,10 +153,8 @@ class ReminderFeatureTest {
         val throwingWrite = FakeReceiptStore().apply { throwOnWrite = true }
         schedule(spec, throwingWrite, logger) { it(EnqueueResult.Accepted) }
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
-        val resetFailure = FakeReceiptStore().apply {
-            set(spec.occurrenceId, ReceiptState.RETRYABLE)
-            rejectedTarget = ReceiptState.MISSING
-        }
+        val resetFailure = FakeReceiptStore().apply { set(spec.occurrenceId, ReceiptState.RETRYABLE) }
+            .apply { rejectedTarget = ReceiptState.MISSING }
         assertFalse(ReminderScheduler.schedule(spec, resetFailure, logger) { _, _ -> })
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
     }
@@ -222,16 +220,21 @@ class ReminderFeatureTest {
         assertEquals(WorkerOutcome.FAILURE, execute(spec, rejected, logger, attempt = 2))
         assertEquals(ReceiptState.RETRYABLE, rejected.read(spec.occurrenceId))
         val throwing = enqueuedStore(spec).apply { throwOnWrite = true }
-        assertEquals(WorkerOutcome.RETRY, execute(spec, throwing, logger))
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, throwing, logger, attempt = 2))
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
+        assertEquals(ReceiptState.ENQUEUED, throwing.read(spec.occurrenceId))
+        throwing.throwOnWrite = false
+        var recovery: RegistrationResult? = null
+        assertTrue(schedule(spec, throwing, logger, { recovery = it }) { it(EnqueueResult.Accepted) })
+        assertEquals(RegistrationResult.SUCCESS, recovery)
         val cleanupFailure = enqueuedStore(spec).apply { rejectedTarget = ReceiptState.TERMINAL }
         assertEquals(WorkerOutcome.FAILURE, execute(spec, cleanupFailure, logger) { throw SecurityException("permanent") })
         assertEquals(ReceiptState.ENQUEUED, cleanupFailure.read(spec.occurrenceId))
-        assertFalse(ReminderScheduler.schedule(spec, cleanupFailure, logger) { _, _ -> error("fail closed") })
-        val cleanupCorrupt = enqueuedStore(spec).apply {
-            rejectedTarget = ReceiptState.TERMINAL
-            corruptOnRejectedTarget = true
-        }
+        cleanupFailure.rejectedTarget = null
+        assertTrue(schedule(spec, cleanupFailure, logger, { recovery = it }) { it(EnqueueResult.Accepted) })
+        assertEquals(RegistrationResult.SUCCESS, recovery)
+        val cleanupCorrupt = enqueuedStore(spec).apply { rejectedTarget = ReceiptState.TERMINAL }
+            .apply { corruptOnRejectedTarget = true }
         assertEquals(WorkerOutcome.FAILURE, execute(spec, cleanupCorrupt, logger) { throw SecurityException() })
         assertEquals(FailureCauseCode.STORAGE_CORRUPT, logger.records.last().causeCode)
     }

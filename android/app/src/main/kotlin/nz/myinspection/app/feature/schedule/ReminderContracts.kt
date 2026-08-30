@@ -28,9 +28,7 @@ enum class ReceiptState { MISSING, ENQUEUED, DELIVERED, RETRYABLE, TERMINAL, COR
 enum class RegistrationResult { SUCCESS, RETRYABLE_FAILURE, PERMANENT_FAILURE }
 interface ReceiptStore {
     fun read(occurrenceId: String): ReceiptState
-    fun compareAndSet(
-        occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
-    ): Boolean
+    fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): Boolean
 }
 internal fun ReceiptStore.readSafely(occurrenceId: String): ReceiptState = try {
     read(occurrenceId)
@@ -74,7 +72,7 @@ internal class RegistrationCoordinator(
             }
             initialState = ReceiptState.MISSING
         }
-        if (initialState in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) {
+        if (initialState == ReceiptState.DELIVERED) {
             onResult(RegistrationResult.SUCCESS)
             return false
         }
