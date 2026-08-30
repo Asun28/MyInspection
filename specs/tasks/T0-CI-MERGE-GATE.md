@@ -27,7 +27,7 @@ dod_exit: 0
 dod_assert: 远端 ship 在 R3 后从候选树解析 ci.yml jobs，钉定 reviewed PR head，候选 check 红灯须在 merge 前 fail-closed；绿灯路径必须消费候选 workflow run/jobs，最终 merge 使用 --match-head-commit 绑定过闸 head。
 review_gate: codex {verdict:pass}
 hygiene: 每个失败面只保留一枚最小 hermetic gh 夹具；CI gate 的期望检查解析与运行时共用单一实现
-doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步远端 ship 顺序、人工恢复步骤和 free/private 仓客户端硬闸
+doc_sync: 本卡只同步 task.ps1 可执行帮助；DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 的完整 CI/恢复契约由后继 T0-CI-HARDENING-MATRIX 与 T0-RECEIPT-LOSS-FAIL-CLOSED 分段承接
 ---
 
 # T0-CI-MERGE-GATE
