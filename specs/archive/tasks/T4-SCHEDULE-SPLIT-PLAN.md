@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-SPLIT-PLAN
 title: 将 T4-SCHEDULE 拆成可读且可独立评审的三张串行卡
 depends_on: [T4-COMPLIANCE-ENGINE]
-status: todo
+status: merged
 branch: T4-SCHEDULE-SPLIT-PLAN
 worktree: C:\wt\T4-SCHEDULE-SPLIT-PLAN
 allow_paths:

@@ -146,6 +146,7 @@
 | W5 | T3-E2E-GATE-PORTABILITY | 修复 verify Gradle wrapper 的 Windows/Linux 跨平台执行 | T3-E2E-GATE-ISOLATION | S | GPT-5.6 Sol · high | — | **merged**（master `56f2bc51`，PR #185；Windows 经 `cmd` 执行 `.bat`，Unix 经 `sh` 执行非 executable 的 `gradlew`；两平台精确 Gate 1/2 参数与 fail-closed 动态变异覆盖） |
 | W5 | T4-NOTICES | 48h 通知双语文本+一键复制+送达存档(全文快照) | T4-COMPLIANCE-ENGINE | M | DeepSeek V4 Pro · high | Terra | **merged**（master `b77fbc21`，PR #199；合规先行的固定双语全文快照、显式剪贴板边界与 sensitive metadata、人工送达方式/时刻一次性锁定；伪造的生成前/未来送达时刻拒绝且不锁行，送达后掉出窗口以 error 语义保留真实失败。7 个 SQLite JVM 测试、7 枚定向变异全杀；Luna Max 文案复核 + Terra Max 并发/审计预审，R3 首轮两项 UI/隐私证据缺口修复后 pass） |
 | W5 | ~~T4-SCHEDULE~~ | **已退役**：PR #208 R3 证明正常 Kotlin 格式与完整错误测试无法同时进入 1000/60000 单卡预算 | — | — | — | — | 由下面三张串行卡承接；失败分支保留到抽取完成 |
+| W5 | T4-SCHEDULE-SPLIT-PLAN | 将退役单卡拆为 cadence → reminder → UI 串行交付 | T4-COMPLIANCE-ENGINE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `ba1de2c1`，PR #210；check-cards、verify、CI 与 Sol R3 PASS） |
 | W5 | T4-SCHEDULE-CADENCE | 本地民历 cadence 纯 core | T4-COMPLIANCE-ENGINE,T4-SCHEDULE-SPLIT-PLAN | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
 | W5 | T4-SCHEDULE-REMINDER | WorkManager/通知/回执与失败分类 | T4-SCHEDULE-CADENCE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
 | W5 | T4-SCHEDULE-UI | badge/filter/route 与权限恢复重试 UI | T4-SCHEDULE-REMINDER | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
