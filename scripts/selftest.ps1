@@ -6109,6 +6109,7 @@ try {
 
   $invalidCases = @(
     @{ Id='T9-AC-INLINE'; Entry=1; Lines=@('acceptance: ["A1 one", "A2 two", "A3 three"]') },
+    @{ Id='T9-AC-DUPKEY'; Entry=1; Lines=@('acceptance:', '  - "A1 one"', '  - "A2 two"', '  - "A3 three"', 'acceptance:', '  - A1 bypass') },
     @{ Id='T9-AC-SINGLE'; Entry=1; Lines=@('acceptance:', "  - 'A1 one'", '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-BARE'; Entry=1; Lines=@('acceptance:', '  - A1 one', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-NODASH'; Entry=1; Lines=@('acceptance:', '  "A1 one"', '  "A2 two"', '  "A3 three"') },
