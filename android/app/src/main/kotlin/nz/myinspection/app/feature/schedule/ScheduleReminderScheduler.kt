@@ -1,11 +1,11 @@
 package nz.myinspection.app.feature.schedule
 import android.content.Context
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 internal object ReminderWorkData {
     const val PROPERTY_ID = "property_id"
@@ -13,28 +13,30 @@ internal object ReminderWorkData {
     const val DUE_AT_EPOCH_MILLIS = "due_at_epoch_millis"
     const val OCCURRENCE_ID = "occurrence_id"
 }
-object ScheduleReminderScheduler {
+object ReminderScheduler {
     @Synchronized
-    fun schedule(context: Context, spec: ReminderWorkSpec): Boolean {
-        val store = SharedPreferencesReminderOccurrenceStore(context.applicationContext)
-        return schedule(spec, store, AndroidReminderLogger) { work, complete ->
+    fun schedule(context: Context, spec: ReminderWorkSpec, onResult: (Boolean) -> Unit = {}): Boolean {
+        val store = SharedPreferencesReceiptStore(context.applicationContext)
+        val report: (Boolean) -> Unit = { result -> ContextCompat.getMainExecutor(context).execute { onResult(result) } }
+        return schedule(spec, store, AndroidReminderLogger, report) { work, complete ->
             enqueueWorkManagerReminder(work) { name, policy, request ->
                 val operation = WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(name, policy, request)
-                operation.result.addListener({ complete(runCatching { operation.result.get() }.isSuccess) }, DIRECT_EXECUTOR)
+                operation.result.addListener({ complete(runCatching { operation.result.get() }.isSuccess) }, ContextCompat.getMainExecutor(context))
             }
         }
     }
     internal fun schedule(
         spec: ReminderWorkSpec,
-        store: ReminderOccurrenceStore,
+        store: ReceiptStore,
         logger: ReminderEventLogger,
+        onResult: (Boolean) -> Unit = {},
         enqueue: (EnqueueSpec, (Boolean) -> Unit) -> Unit,
     ): Boolean {
         val work = EnqueueSpec(spec.uniqueWorkName, spec.initialDelayMillis, spec.route, spec.dueAt, spec.occurrenceId, ExistingWorkPolicy.KEEP)
-        val coordinator = ReminderRegistrationCoordinator(store) {
+        val coordinator = RegistrationCoordinator(store) {
             logger.log(it, spec.occurrenceId, spec.route.inspectionType, true, LogError.RECEIPT_WRITE_FAILED)
         }
-        return coordinator.register(spec.occurrenceId) { complete ->
+        return coordinator.register(spec.occurrenceId, onResult) { complete ->
             try {
                 enqueue(work) { succeeded ->
                     if (!succeeded) logger.log(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType, true, LogError.ENQUEUE_FAILED)
@@ -42,15 +44,14 @@ object ScheduleReminderScheduler {
                 }
             } catch (error: RuntimeException) {
                 logger.log(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType, true, LogError.ENQUEUE_EXCEPTION)
-                throw error
+                complete(false)
             }
         }
     }
-    private val DIRECT_EXECUTOR = Executor(Runnable::run)
 }
 internal fun enqueueWorkManagerReminder(work: EnqueueSpec, submit: (String, ExistingWorkPolicy, androidx.work.OneTimeWorkRequest) -> Unit) {
     val input = Data.Builder().putString(ReminderWorkData.PROPERTY_ID, work.route.propertyId).putString(ReminderWorkData.INSPECTION_TYPE, work.route.inspectionType.name).putLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, work.dueAt.toEpochMilli()).putString(ReminderWorkData.OCCURRENCE_ID, work.occurrenceId).build()
-    submit(work.uniqueName, work.existingWorkPolicy, OneTimeWorkRequestBuilder<ScheduleReminderWorker>().setInitialDelay(work.initialDelayMillis, TimeUnit.MILLISECONDS).setInputData(input).build())
+    submit(work.uniqueName, work.existingWorkPolicy, OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay(work.initialDelayMillis, TimeUnit.MILLISECONDS).setInputData(input).build())
 }
 internal fun interface ReminderEventLogger {
     fun log(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError)
@@ -62,7 +63,7 @@ internal object AndroidReminderLogger : ReminderEventLogger {
         Log.w("ScheduleReminder", reminderLogMessage(stage, occurrenceId, type, retryable, errorCode))
     }
 }
-internal class SharedPreferencesReminderOccurrenceStore(context: Context) : ReminderOccurrenceStore {
+internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     override fun read(occurrenceId: String): ReceiptState? = preferences.getString(occurrenceId, null)
         ?.let { runCatching { ReceiptState.valueOf(it) }.getOrNull() }

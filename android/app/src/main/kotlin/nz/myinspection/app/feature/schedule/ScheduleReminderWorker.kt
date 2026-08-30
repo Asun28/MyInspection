@@ -17,7 +17,7 @@ import nz.myinspection.core.schedule.InspectionScheduleType
 internal data class ReminderWorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
 internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
 internal fun <T> postReminderNotification(identity: NotificationIdentity, notification: T, post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
-class ScheduleReminderWorker(
+class ReminderWorker(
     appContext: Context,
     parameters: WorkerParameters,
 ) : Worker(appContext, parameters) {
@@ -33,7 +33,7 @@ class ScheduleReminderWorker(
             ),
             Build.VERSION.SDK_INT,
             permissionGranted,
-            SharedPreferencesReminderOccurrenceStore(applicationContext),
+            SharedPreferencesReceiptStore(applicationContext),
             AndroidReminderLogger,
             ::postNotification,
         )
@@ -85,7 +85,7 @@ class ScheduleReminderWorker(
             input: ReminderWorkerInput,
             sdkInt: Int,
             permissionGranted: Boolean,
-            store: ReminderOccurrenceStore,
+            store: ReceiptStore,
             logger: ReminderEventLogger,
             notify: (DeliveryPlan.Notify) -> Unit,
         ): WorkerOutcome {
@@ -97,7 +97,7 @@ class ScheduleReminderWorker(
             val type = input.type?.let { runCatching { InspectionScheduleType.valueOf(it) }.getOrNull() } ?: return invalid()
             val dueAt = input.dueAtMillis?.let(Instant::ofEpochMilli) ?: return invalid()
             val occurrenceId = input.occurrenceId ?: return invalid()
-            val route = ScheduleRoutePayload(propertyId, type)
+            val route = ScheduleRoute(propertyId, type)
             if (occurrenceId != reminderOccurrenceId(route, dueAt)) return invalid()
             if (store.read(occurrenceId) == ReceiptState.DELIVERED) return WorkerOutcome.SUCCESS
             val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)

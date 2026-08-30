@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import java.time.Clock
 import java.time.Instant
 import nz.myinspection.app.ui.theme.FieldLedgerStatusColor
 import nz.myinspection.app.ui.theme.fieldLedgerDarkStatusColors
@@ -44,11 +43,11 @@ import nz.myinspection.app.ui.theme.fieldLedgerLightStatusColors
 import nz.myinspection.app.ui.theme.fieldLedgerShapes
 @Composable
 fun ScheduleRouteContent(
-    items: List<SchedulePropertyItem>,
+    items: List<ScheduleItem>,
     now: Instant,
     filter: ScheduleFilter,
     onFilterChange: (ScheduleFilter) -> Unit,
-    onOpenInspection: (ScheduleRoutePayload) -> Unit,
+    onOpenInspection: (ScheduleRoute) -> Unit,
 ) {
     val context = LocalContext.current
     var permissionState by remember {
@@ -67,6 +66,7 @@ fun ScheduleRouteContent(
     }
     var pendingReminder by rememberSaveable { mutableStateOf<PendingReminder?>(null) }
     var showRationale by rememberSaveable { mutableStateOf(false) }
+    var reminderFailed by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionState = if (granted) PermissionState.GRANTED else PermissionState.DENIED
     }
@@ -84,17 +84,19 @@ fun ScheduleRouteContent(
         }
     }
     val rows = scheduleRows(items, now, filter)
-    LaunchedEffect(permissionState, pendingReminder) {
-        if (permissionState == PermissionState.GRANTED) {
-            pendingReminder.resumeAfterGrant(permissionState)?.let { ScheduleReminderScheduler.schedule(context, it) }
-            pendingReminder = null
-        }
+    val schedulePending: (PendingReminder) -> Unit = { pending ->
+        pendingReminder = pending; reminderFailed = false
+        ReminderScheduler.schedule(context, pending.workSpec()) { success -> if (pendingReminder == pending) { pendingReminder = pending.afterSchedule(success); reminderFailed = !success } }
+    }
+    LaunchedEffect(permissionState) {
+        if (permissionState == PermissionState.GRANTED && !reminderFailed) pendingReminder?.let(schedulePending)
     }
     ScheduleScreen(
         rows = rows,
         filter = filter,
         permissionState = permissionState,
         showRationale = showRationale,
+        reminderFailed = reminderFailed,
         onFilterChange = onFilterChange,
         onOpenInspection = onOpenInspection,
         onContinuePermission = requestPermission,
@@ -105,12 +107,13 @@ fun ScheduleRouteContent(
                 },
             )
         },
+        onRetryReminder = { pendingReminder?.let(schedulePending) },
         onReminderAction = { row ->
             val rationaleRequired = context.findActivity()
                 ?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true
             val transition = scheduleRouteContentTransition(row, Build.VERSION.SDK_INT, permissionState, rationaleRequired)
             when (transition.action) {
-                PermissionAction.Schedule -> row.schedule(context)
+                PermissionAction.Schedule -> schedulePending(transition.pending)
                 PermissionAction.RequestPermission -> {
                     pendingReminder = transition.pending
                     requestPermission()
@@ -126,15 +129,17 @@ fun ScheduleRouteContent(
 }
 @Composable
 fun ScheduleScreen(
-    rows: List<SchedulePropertyRow>,
+    rows: List<ScheduleRow>,
     filter: ScheduleFilter,
     permissionState: PermissionState,
     showRationale: Boolean,
+    reminderFailed: Boolean,
     onFilterChange: (ScheduleFilter) -> Unit,
-    onOpenInspection: (ScheduleRoutePayload) -> Unit,
+    onOpenInspection: (ScheduleRoute) -> Unit,
     onContinuePermission: () -> Unit,
     onOpenSettings: () -> Unit,
-    onReminderAction: (SchedulePropertyRow) -> Unit,
+    onRetryReminder: () -> Unit,
+    onReminderAction: (ScheduleRow) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -188,6 +193,7 @@ fun ScheduleScreen(
                 }
             }
         }
+        if (reminderFailed) Button(onClick = onRetryReminder) { Text("Retry reminder / 重试提醒") }
         if (rows.isEmpty()) {
             val empty = scheduleEmptyState(filter)
             Surface(
@@ -212,7 +218,7 @@ fun ScheduleScreen(
 }
 @Composable
 private fun ScheduleRow(
-    row: SchedulePropertyRow,
+    row: ScheduleRow,
     onOpen: () -> Unit,
     onReminder: () -> Unit,
 ) {
@@ -251,11 +257,6 @@ private fun ScheduleStateBadge(badge: ScheduleBadge) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
-}
-private fun SchedulePropertyRow.schedule(context: android.content.Context) {
-    val due = requireNotNull(dueAt) { "Only recurring rows can schedule reminders" }
-    val spec = WorkSpecFactory(Clock.systemUTC()).create(route, due)
-    ScheduleReminderScheduler.schedule(context, spec)
 }
 private fun Context.notificationPermissionWasRequested(): Boolean =
     getSharedPreferences(PERMISSION_PREFERENCES, Context.MODE_PRIVATE).getBoolean(PERMISSION_REQUESTED, false)
