@@ -124,12 +124,12 @@ function Invoke-GhBeforeDeadline {
       return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $timedOutStdout; Stderr = $timedOutStderr }
     }
     [void]$proc.WaitForExit()
-    $streamRemainingMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
-    $streamsDone = $false; if ($streamRemainingMs -gt 0) { try { $streamsDone = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), $streamRemainingMs) } catch { $streamsDone = $false } }
-    if (-not $streamsDone) {
+    $streamMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
+    $streamsOk = $false; if ($streamMs -gt 0) { try { $streamsOk = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), $streamMs) } catch { $streamsOk = $false } }
+    if (-not $streamsOk) {
       try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch { }
-      $lateStdout = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }; $lateStderr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
-      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $lateStdout; Stderr = $lateStderr }
+      $lateOut = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }; $lateErr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
+      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $lateOut; Stderr = $lateErr }
     }
     return [pscustomobject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Stdout = $stdoutTask.GetAwaiter().GetResult(); Stderr = $stderrTask.GetAwaiter().GetResult() }
   } finally { $proc.Dispose() }
@@ -680,159 +680,156 @@ switch ($Phase) {
       }
       $sagaDone += 'R3 评审'
       Step 'CI gate（候选树 ci.yml 的全部 job 须在同一 PR head 上 completed+success）'
-      $ciWorkflow = Join-Path $Wt '.github/workflows/ci.yml'
-      if (-not (Test-Path -LiteralPath $ciWorkflow -PathType Leaf)) { Add-CatchRecord 'ci' 'ci.yml missing'; throw '[CI-GATE-WF-MISSING] ci.yml。' }
-      $ciExpected = @(); $ciUnknownDirectKeys = @(); $ciInJobs = $false
-      foreach ($ciLine in @(Get-Content -LiteralPath $ciWorkflow)) {
-        if (-not $ciInJobs) {
-          if ($ciLine -cmatch '^jobs:\s*(?:#.*)?$') { $ciInJobs = $true }
+      $wf = Join-Path $Wt '.github/workflows/ci.yml'
+      if (-not (Test-Path -LiteralPath $wf -PathType Leaf)) { Add-CatchRecord 'ci' 'ci.yml missing'; throw '[CI-GATE-WF-MISSING] ci.yml。' }
+      $decl = @(); $err = @(); $inJobs = $false
+      foreach ($ln in @(Get-Content -LiteralPath $wf)) {
+        if (-not $inJobs) {
+          if ($ln -cmatch '^jobs:\s*(?:#.*)?$') { $inJobs = $true }
           continue
         }
-        if ($ciLine -cmatch '^\S') { break }
-        if ($ciLine -cmatch '^  \S') {
-          if ($ciLine -cmatch '^  (?<job>[A-Za-z0-9_-]+):\s*(?:#.*)?$') { $ciExpected += $Matches['job'] }
-          elseif ($ciLine -cnotmatch '^  #') { $ciUnknownDirectKeys += $ciLine.Trim() }
+        if ($ln -cmatch '^\S') { break }
+        if ($ln -cmatch '^  \S') {
+          if ($ln -cmatch '^  (?<job>[A-Za-z0-9_-]+):\s*(?:#.*)?$') { $decl += $Matches['job'] }
+          elseif ($ln -cnotmatch '^  #') { $err += $ln.Trim() }
         }
+        elseif ($ln -cmatch '^    name:\s*(?<job>[\w ./()_-]+?)\s*(?:#.*)?$') {
+          if ($decl.Count -eq 0) { $err += $ln.Trim() } else { $decl[-1] = $Matches['job'] }
+        }
+        elseif ($ln -cmatch '^    (?:name|strategy|uses):|^      matrix:') { $err += $ln.Trim() }
       }
-      $ciUnique = @($ciExpected | Sort-Object -Unique)
-      if ((-not $ciInJobs) -or ($ciExpected.Count -eq 0) -or ($ciUnique.Count -ne $ciExpected.Count) -or ($ciUnknownDirectKeys.Count -gt 0)) { Add-CatchRecord 'ci' "$($ciExpected.Count)/$($ciUnique.Count):[$($ciUnknownDirectKeys -join ',')]"; throw '[CI-GATE-JOBS-DRIFT] jobs。' }
-      $ciTimeoutSec = 1800
+      $want = @($decl | Sort-Object -Unique)
+      if ((-not $inJobs) -or ($decl.Count -eq 0) -or ($want.Count -ne $decl.Count) -or ($err.Count -gt 0)) { Add-CatchRecord 'ci' "$($decl.Count)/$($want.Count):$err"; throw '[CI-GATE-JOBS-DRIFT] jobs。' }
+      $toSec = 1800
       if ($env:SCAFFOLD_CI_TIMEOUT_SEC) {
-        $ciTimeoutOverride = 0
-        if ((-not [int]::TryParse($env:SCAFFOLD_CI_TIMEOUT_SEC, [ref]$ciTimeoutOverride)) -or ($ciTimeoutOverride -le 0)) { throw "[CI-GATE-TIMEOUT-CONFIG] '$($env:SCAFFOLD_CI_TIMEOUT_SEC)'。" }
-        $ciTimeoutSec = $ciTimeoutOverride
+        $to = 0
+        if ((-not [int]::TryParse($env:SCAFFOLD_CI_TIMEOUT_SEC, [ref]$to)) -or ($to -le 0)) { throw "[CI-GATE-TIMEOUT-CONFIG] '$($env:SCAFFOLD_CI_TIMEOUT_SEC)'。" }
+        $toSec = $to
       }
-      $ciDeadline = [DateTimeOffset]::UtcNow.AddSeconds($ciTimeoutSec)
-      $ciHeadRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'headRefOid', '-q', '.headRefOid') -Deadline $ciDeadline
-      $ciHead = "$($ciHeadRead.Stdout)".Trim()
-      if ($ciHeadRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr head。" }
-      if (($ciHeadRead.ExitCode -ne 0) -or ($ciHead -cnotmatch '^[0-9a-f]{40}$')) { Add-CatchRecord 'ci' "head=$($ciHeadRead.ExitCode):'$ciHead'"; throw "[CI-GATE-NOHEAD] #$pr。" }
-      if ($ciHead -cne $r3Head) { Add-CatchRecord 'ci' "$r3Head!=$ciHead"; throw "[CI-GATE-HEAD-MISMATCH] $ciHead!=$r3Head" }
-      $ciLastState = '尚未读取 check-runs'
+      $ddl = [DateTimeOffset]::UtcNow.AddSeconds($toSec)
+      $hr = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'headRefOid', '-q', '.headRefOid') -Deadline $ddl
+      $head = "$($hr.Stdout)".Trim()
+      if ($hr.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr head。" }
+      if (($hr.ExitCode -ne 0) -or ($head -cnotmatch '^[0-9a-f]{40}$')) { Add-CatchRecord 'ci' "head=$($hr.ExitCode):'$head'"; throw "[CI-GATE-NOHEAD] #$pr。" }
+      if ($head -cne $r3Head) { Add-CatchRecord 'ci' "$r3Head!=$head"; throw "[CI-GATE-HEAD-MISMATCH] $head!=$r3Head" }
+      $last = '尚未读取 check-runs'
       :ciStable while ($true) {
       while ($true) {
-        if ([DateTimeOffset]::UtcNow -ge $ciDeadline) { Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $ciLastState"; throw "[CI-GATE-TIMEOUT] $ciLastState" }
-        $checkState = Get-ExactHeadChecksBeforeDeadline -Head $ciHead -Deadline $ciDeadline
-        if ($checkState.TimedOut) { Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $($checkState.Reason)"; throw "[CI-GATE-TIMEOUT] $($checkState.Reason)" }
-        if (-not $checkState.Readable) { Add-CatchRecord 'ci' "checks:$($checkState.Reason)"; throw "[CI-GATE-API] checks:$($checkState.Reason)" }
-        if ($checkState.Blocking.Count -gt 0) {
-          $ciBad = @($checkState.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
-          Add-CatchRecord 'ci' "red:$ciBad"
-          throw "[CI-GATE-RED] checks: $ciBad"
+        if ([DateTimeOffset]::UtcNow -ge $ddl) { Add-CatchRecord 'ci' "timeout ${toSec}s: $last"; throw "[CI-GATE-TIMEOUT] $last" }
+        $checks = Get-ExactHeadChecksBeforeDeadline -Head $head -Deadline $ddl
+        if ($checks.TimedOut) { Add-CatchRecord 'ci' "timeout ${toSec}s: $($checks.Reason)"; throw "[CI-GATE-TIMEOUT] $($checks.Reason)" }
+        if (-not $checks.Readable) { Add-CatchRecord 'ci' "checks:$($checks.Reason)"; throw "[CI-GATE-API] checks:$($checks.Reason)" }
+        if ($checks.Blocking.Count -gt 0) {
+          $err = @($checks.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
+          Add-CatchRecord 'ci' "red:$err"
+          throw "[CI-GATE-RED] checks: $err"
         }
-        $workflowPages = Get-GhPagedCollectionBeforeDeadline `
-          -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$ciHead&per_page=100&page={page}" `
-          -CollectionProperty 'workflow_runs' -Deadline $ciDeadline
-        if ($workflowPages.TimedOut) {
-          Add-CatchRecord 'ci' "timeout: $($workflowPages.Reason)"
-          throw "[CI-GATE-TIMEOUT] workflow: $($workflowPages.Reason)"
+        $wfPg = Get-GhPagedCollectionBeforeDeadline `
+          -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&per_page=100&page={page}" `
+          -CollectionProperty 'workflow_runs' -Deadline $ddl
+        if ($wfPg.TimedOut) {
+          Add-CatchRecord 'ci' "timeout: $($wfPg.Reason)"
+          throw "[CI-GATE-TIMEOUT] workflow: $($wfPg.Reason)"
         }
-        if (-not $workflowPages.Readable) {
-          Add-CatchRecord 'ci' "workflow API: $($workflowPages.Reason)"
-          throw "[CI-GATE-API] workflow: $($workflowPages.Reason)"
+        if (-not $wfPg.Readable) {
+          Add-CatchRecord 'ci' "workflow API: $($wfPg.Reason)"
+          throw "[CI-GATE-API] workflow: $($wfPg.Reason)"
         }
-        $candidateRuns = @($workflowPages.Items)
-        if ($candidateRuns.Count -eq 0) {
-          $ciLastState = '候选 ci.yml 尚无该 head 的 pull_request workflow run'
-          Wait-CiRetryBeforeDeadline $ciDeadline
+        $wfRuns = @($wfPg.Items)
+        if ($wfRuns.Count -eq 0) {
+          $last = '候选 ci.yml 尚无该 head 的 pull_request workflow run'
+          Wait-CiRetryBeforeDeadline $ddl
           continue
         }
-        if ($candidateRuns.Count -ne 1) {
-          Add-CatchRecord 'ci' "runs=$($candidateRuns.Count)/$ciHead"
-          throw "[CI-GATE-WORKFLOW-AMBIGUOUS] runs=$($candidateRuns.Count)。"
+        if ($wfRuns.Count -ne 1) {
+          Add-CatchRecord 'ci' "runs=$($wfRuns.Count)/$head"
+          throw "[CI-GATE-WORKFLOW-AMBIGUOUS] runs=$($wfRuns.Count)。"
         }
-        $candidateRun = $candidateRuns[0]
-        $runProperties = @($candidateRun.PSObject.Properties.Name)
-        $runMissing = @(@('id', 'head_sha', 'event', 'status', 'conclusion', 'run_attempt', 'path', 'pull_requests') | Where-Object { $runProperties -cnotcontains $_ })
-        if ($runMissing.Count -gt 0) {
-          Add-CatchRecord 'ci' "missing:$($runMissing -join ',')"
-          throw "[CI-GATE-WORKFLOW-IDENTITY] 缺属性：$($runMissing -join ', ')"
+        $run = $wfRuns[0]
+        $prop = @($run.PSObject.Properties.Name)
+        $miss = @(@('id', 'head_sha', 'event', 'status', 'conclusion', 'run_attempt', 'path', 'pull_requests') | Where-Object { $prop -cnotcontains $_ })
+        if ($miss.Count -gt 0) {
+          Add-CatchRecord 'ci' "missing:$($miss -join ',')"
+          throw "[CI-GATE-WORKFLOW-IDENTITY] 缺属性：$($miss -join ', ')"
         }
-        $runId = 0L; $runAttempt = 0; $runPath = "$($candidateRun.path)"
-        $runPullRequests = $candidateRun.pull_requests; $runPrMatches = @()
-        if ($runPullRequests -is [System.Array]) {
-          $runPrMatches = @($runPullRequests | Where-Object { "$($_.number)" -ceq "$pr" })
+        $runId = 0L; $attempt = 0; $path = "$($run.path)"
+        $prs = $run.pull_requests; $pm = @()
+        if ($prs -is [System.Array]) {
+          $pm = @($prs | Where-Object { "$($_.number)" -ceq "$pr" })
         }
-        if ((-not [long]::TryParse("$($candidateRun.id)", [ref]$runId)) -or ($runId -le 0) -or
-            (-not [int]::TryParse("$($candidateRun.run_attempt)", [ref]$runAttempt)) -or ($runAttempt -le 0) -or
-            ("$($candidateRun.head_sha)" -cne $ciHead) -or ("$($candidateRun.event)" -cne 'pull_request') -or
-            ($runPath -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($runPrMatches.Count -ne 1)) {
-          Add-CatchRecord 'ci' "wf=$($candidateRun.id)/$($candidateRun.run_attempt)/$($candidateRun.head_sha)/$($candidateRun.event)/$runPath/prs=$($runPrMatches.Count)"
+        if ((-not [long]::TryParse("$($run.id)", [ref]$runId)) -or ($runId -le 0) -or
+            (-not [int]::TryParse("$($run.run_attempt)", [ref]$attempt)) -or ($attempt -le 0) -or
+            ("$($run.head_sha)" -cne $head) -or ("$($run.event)" -cne 'pull_request') -or
+            ($path -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($pm.Count -ne 1)) {
+          Add-CatchRecord 'ci' "wf=$($run.id)/$($run.run_attempt)/$($run.head_sha)/$($run.event)/$path/prs=$($pm.Count)"
           throw "[CI-GATE-WORKFLOW-IDENTITY] PR #$pr workflow 身份不唯一/不匹配。"
         }
-        $workflowStatus = "$($candidateRun.status)"
-        $workflowConclusion = "$($candidateRun.conclusion)"
-        if (($workflowStatus -ieq 'completed') -and ($workflowConclusion -ine 'success')) {
-          Add-CatchRecord 'ci' "wf:$runId=$workflowStatus/$workflowConclusion"
-          throw "[CI-GATE-RED] workflow $runId=$workflowStatus/$workflowConclusion。"
+        $ws = "$($run.status)"; $wc = "$($run.conclusion)"
+        if (($ws -ieq 'completed') -and ($wc -ine 'success')) {
+          Add-CatchRecord 'ci' "wf:$runId=$ws/$wc"
+          throw "[CI-GATE-RED] workflow $runId=$ws/$wc。"
         }
-        if (($workflowStatus -ine 'completed') -or ($workflowConclusion -ine 'success')) {
-          $ciLastState = "candidate ci.yml run $runId=$workflowStatus/$workflowConclusion"
-          Wait-CiRetryBeforeDeadline $ciDeadline
+        if (($ws -ine 'completed') -or ($wc -ine 'success')) {
+          $last = "workflow $runId=$ws/$wc"
+          Wait-CiRetryBeforeDeadline $ddl
           continue
         }
-        $jobPages = Get-GhPagedCollectionBeforeDeadline `
-          -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/jobs?filter=latest&per_page=100&page={page}" `
-          -CollectionProperty 'jobs' -Deadline $ciDeadline
-        if ($jobPages.TimedOut) {
-          Add-CatchRecord 'ci' "timeout: $($jobPages.Reason)"
-          throw "[CI-GATE-TIMEOUT] jobs: $($jobPages.Reason)"
+        $jobPg = Get-GhPagedCollectionBeforeDeadline `
+          -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/attempts/$attempt/jobs?per_page=100&page={page}" `
+          -CollectionProperty 'jobs' -Deadline $ddl
+        if ($jobPg.TimedOut) {
+          Add-CatchRecord 'ci' "timeout: $($jobPg.Reason)"
+          throw "[CI-GATE-TIMEOUT] jobs: $($jobPg.Reason)"
         }
-        if (-not $jobPages.Readable) {
-          Add-CatchRecord 'ci' "jobs API: $($jobPages.Reason)"
-          throw "[CI-GATE-API] jobs: $($jobPages.Reason)"
+        if (-not $jobPg.Readable) {
+          Add-CatchRecord 'ci' "jobs API: $($jobPg.Reason)"
+          throw "[CI-GATE-API] jobs: $($jobPg.Reason)"
         }
-        $workflowJobs = @($jobPages.Items)
-        $ciPending = @()
-        foreach ($ciJob in $ciUnique) {
-          $ciMatches = @($workflowJobs | Where-Object { "$($_.name)" -ceq $ciJob })
-          if ($ciMatches.Count -ne 1) {
-            $ciPending += "$ciJob=missing-or-duplicate($($ciMatches.Count))"
-            continue
+        $jobs = @($jobPg.Items)
+        $wait = @()
+        foreach ($j in $want) {
+          $jm = @($jobs | Where-Object { "$($_.name)" -ceq $j })
+          if ($jm.Count -ne 1) { $wait += "$j=match($($jm.Count))"; continue }
+          $job = $jm[0]
+          $st = "$($job.status)"; $co = "$($job.conclusion)"
+          if (($st -ieq 'completed') -and ($co -ine 'success')) {
+            Add-CatchRecord 'ci' "$j=$st/$co"
+            throw "[CI-GATE-RED] job '$j'=$st/$co。"
           }
-          $ciRun = $ciMatches[0]
-          $ciStatus = "$($ciRun.status)"
-          $ciConclusion = "$($ciRun.conclusion)"
-          if (($ciStatus -ieq 'completed') -and ($ciConclusion -ine 'success')) {
-            Add-CatchRecord 'ci' "$ciJob=$ciStatus/$ciConclusion"
-            throw "[CI-GATE-RED] job '$ciJob'=$ciStatus/$ciConclusion。"
-          }
-          if (($ciStatus -ine 'completed') -or ($ciConclusion -ine 'success')) { $ciPending += "$ciJob=$ciStatus/$ciConclusion" }
+          if (($st -ine 'completed') -or ($co -ine 'success')) { $wait += "$j=$st/$co" }
         }
-        if (($workflowJobs.Count -ne $ciUnique.Count) -and ($ciPending.Count -eq 0)) {
-          $ciPending += "candidate-job-count=$($workflowJobs.Count)/$($ciUnique.Count)"
-        }
-        if ($ciPending.Count -eq 0) { break }
-        $ciLastState = $ciPending -join ', '
-        Wait-CiRetryBeforeDeadline $ciDeadline
+        if (($jobs.Count -ne $want.Count) -and ($wait.Count -eq 0)) { $wait += "jobs=$($jobs.Count)/$($want.Count)" }
+        if ($wait.Count -eq 0) { break }
+        $last = $wait -join ', '
+        Wait-CiRetryBeforeDeadline $ddl
       }
       & git -C $Wt fetch --quiet --no-tags origin "+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}" 2>$null
       if ($LASTEXITCODE -ne 0) {
         Add-CatchRecord 'ci' "base refresh:origin/$remoteBaseName"
         throw "[CI-GATE-BASE-REFRESH] origin/$remoteBaseName。"
       }
-      $ciBaseAfter = "$(& git -C $Wt rev-parse "refs/remotes/origin/$remoteBaseName" 2>$null)".Trim()
-      if (($ciBaseAfter -cnotmatch '^[0-9a-f]{40}$') -or ($ciBaseAfter -cne $scopeBaseOid)) {
-        Add-CatchRecord 'ci' "base:$scopeBaseOid->$ciBaseAfter"
-        throw "[CI-GATE-BASE-MOVED] $scopeBaseOid -> '$ciBaseAfter'。"
+      $baseNow = "$(& git -C $Wt rev-parse "refs/remotes/origin/$remoteBaseName" 2>$null)".Trim()
+      if (($baseNow -cnotmatch '^[0-9a-f]{40}$') -or ($baseNow -cne $scopeBaseOid)) {
+        Add-CatchRecord 'ci' "base:$scopeBaseOid->$baseNow"
+        throw "[CI-GATE-BASE-MOVED] $scopeBaseOid -> '$baseNow'。"
       }
-      $ciFinalChecks = Get-ExactHeadChecksBeforeDeadline -Head $ciHead -Deadline $ciDeadline
-      if ($ciFinalChecks.TimedOut) {
-        Add-CatchRecord 'ci' "final timeout:$($ciFinalChecks.Reason)"
-        throw "[CI-GATE-TIMEOUT] final checks: $($ciFinalChecks.Reason)"
+      $final = Get-ExactHeadChecksBeforeDeadline -Head $head -Deadline $ddl
+      if ($final.TimedOut) {
+        Add-CatchRecord 'ci' "final timeout:$($final.Reason)"
+        throw "[CI-GATE-TIMEOUT] final checks: $($final.Reason)"
       }
-      if (-not $ciFinalChecks.Readable) {
-        Add-CatchRecord 'ci' "final API:$($ciFinalChecks.Reason)"
-        throw "[CI-GATE-API] final checks: $($ciFinalChecks.Reason)"
+      if (-not $final.Readable) {
+        Add-CatchRecord 'ci' "final API:$($final.Reason)"
+        throw "[CI-GATE-API] final checks: $($final.Reason)"
       }
-      if ($ciFinalChecks.Blocking.Count -gt 0) {
-        $ciFinalBad = @($ciFinalChecks.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
-        Add-CatchRecord 'ci' "final red:$ciFinalBad"
-        throw "[CI-GATE-RED] final checks: $ciFinalBad"
+      if ($final.Blocking.Count -gt 0) {
+        $bad = @($final.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
+        Add-CatchRecord 'ci' "final red:$bad"
+        throw "[CI-GATE-RED] final checks: $bad"
       }
       $fwPg = Get-GhPagedCollectionBeforeDeadline `
-        -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$ciHead&per_page=100&page={page}" `
-        -CollectionProperty 'workflow_runs' -Deadline $ciDeadline
+        -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&per_page=100&page={page}" `
+        -CollectionProperty 'workflow_runs' -Deadline $ddl
       if ($fwPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final workflow: $($fwPg.Reason)" }
       if (-not $fwPg.Readable) { throw "[CI-GATE-API] final workflow: $($fwPg.Reason)" }
       $fwRuns = @($fwPg.Items)
@@ -843,53 +840,53 @@ switch ($Phase) {
       if ($fwPrs -is [System.Array]) { $fwPm = @($fwPrs | Where-Object { "$($_.number)" -ceq "$pr" }) }
       if (@(@('id', 'head_sha', 'event', 'status', 'conclusion', 'run_attempt', 'path', 'pull_requests') | Where-Object { $fwProp -cnotcontains $_ }).Count -gt 0 -or
           (-not [long]::TryParse("$($fwRun.id)", [ref]$fwId)) -or ($fwId -ne $runId) -or
-          (-not [int]::TryParse("$($fwRun.run_attempt)", [ref]$fwTry)) -or ($fwTry -le 0) -or
-          ("$($fwRun.head_sha)" -cne $ciHead) -or ("$($fwRun.event)" -cne 'pull_request') -or
+          (-not [int]::TryParse("$($fwRun.run_attempt)", [ref]$fwTry)) -or ($fwTry -ne $attempt) -or
+          ("$($fwRun.head_sha)" -cne $head) -or ("$($fwRun.event)" -cne 'pull_request') -or
           ("$($fwRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($fwPm.Count -ne 1)) {
         throw "[CI-GATE-WORKFLOW-IDENTITY] 决策前 workflow 身份漂移（id=$($fwRun.id), expected=$runId）。"
       }
       $fwSt = "$($fwRun.status)"; $fwCo = "$($fwRun.conclusion)"
       if (($fwSt -ieq 'completed') -and ($fwCo -ine 'success')) { throw "[CI-GATE-RED] wf:$runId=$fwSt/$fwCo" }
       if (($fwSt -ine 'completed') -or ($fwCo -ine 'success')) {
-        $ciLastState = "decision recheck workflow $runId=$fwSt/$fwCo"; Wait-CiRetryBeforeDeadline $ciDeadline; continue ciStable
+        $last = "final workflow $runId=$fwSt/$fwCo"; Wait-CiRetryBeforeDeadline $ddl; continue ciStable
       }
       $fjPg = Get-GhPagedCollectionBeforeDeadline `
-        -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/jobs?filter=latest&per_page=100&page={page}" `
-        -CollectionProperty 'jobs' -Deadline $ciDeadline
+        -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/attempts/$attempt/jobs?per_page=100&page={page}" `
+        -CollectionProperty 'jobs' -Deadline $ddl
       if ($fjPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final jobs: $($fjPg.Reason)" }
       if (-not $fjPg.Readable) { throw "[CI-GATE-API] final jobs: $($fjPg.Reason)" }
-      $ciFinalJobs = @($fjPg.Items); $fjWait = @()
-      foreach ($ciJob in $ciUnique) {
-        $ciFinalMatches = @($ciFinalJobs | Where-Object { "$($_.name)" -ceq $ciJob })
-        if ($ciFinalMatches.Count -ne 1) { $fjWait += "$ciJob=missing-or-duplicate($($ciFinalMatches.Count))"; continue }
-        $ciFinalStatus = "$($ciFinalMatches[0].status)"; $ciFinalConclusion = "$($ciFinalMatches[0].conclusion)"
-        if (($ciFinalStatus -ieq 'completed') -and ($ciFinalConclusion -ine 'success')) { throw "[CI-GATE-RED] $ciJob=$ciFinalStatus/$ciFinalConclusion" }
-        if (($ciFinalStatus -ine 'completed') -or ($ciFinalConclusion -ine 'success')) { $fjWait += "$ciJob=$ciFinalStatus/$ciFinalConclusion" }
+      $fJobs = @($fjPg.Items); $fjWait = @()
+      foreach ($j in $want) {
+        $fm = @($fJobs | Where-Object { "$($_.name)" -ceq $j })
+        if ($fm.Count -ne 1) { $fjWait += "$j=match($($fm.Count))"; continue }
+        $fs = "$($fm[0].status)"; $fc = "$($fm[0].conclusion)"
+        if (($fs -ieq 'completed') -and ($fc -ine 'success')) { throw "[CI-GATE-RED] $j=$fs/$fc" }
+        if (($fs -ine 'completed') -or ($fc -ine 'success')) { $fjWait += "$j=$fs/$fc" }
       }
-      if (($ciFinalJobs.Count -ne $ciUnique.Count) -and ($fjWait.Count -eq 0)) { $fjWait += "candidate-job-count=$($ciFinalJobs.Count)/$($ciUnique.Count)" }
-      if ($fjWait.Count -gt 0) { $ciLastState = "decision recheck jobs: $($fjWait -join ', ')"; Wait-CiRetryBeforeDeadline $ciDeadline; continue ciStable }
-      $ciFinalPrRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'baseRefName,headRefOid') -Deadline $ciDeadline
-      if ($ciFinalPrRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 最终 base/head 快照超过 ${ciTimeoutSec}s。" }
-      $ciFinalPrRaw = "$($ciFinalPrRead.Stdout)"; $ciFinalPrExit = $ciFinalPrRead.ExitCode
-      $ciFinalBase = ''; $ciHeadAfter = ''
-      if (($ciFinalPrExit -eq 0) -and $ciFinalPrRaw) {
+      if (($fJobs.Count -ne $want.Count) -and ($fjWait.Count -eq 0)) { $fjWait += "jobs=$($fJobs.Count)/$($want.Count)" }
+      if ($fjWait.Count -gt 0) { $last = "final jobs: $($fjWait -join ', ')"; Wait-CiRetryBeforeDeadline $ddl; continue ciStable }
+      $prRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'baseRefName,headRefOid') -Deadline $ddl
+      if ($prRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 最终 base/head 快照超过 ${toSec}s。" }
+      $prRaw2 = "$($prRead.Stdout)"; $prExit = $prRead.ExitCode
+      $base2 = ''; $head2 = ''
+      if (($prExit -eq 0) -and $prRaw2) {
         try {
-          $ciFinalPr = $ciFinalPrRaw | ConvertFrom-Json -ErrorAction Stop
-          $ciFinalBase = "$($ciFinalPr.baseRefName)".Trim()
-          $ciHeadAfter = "$($ciFinalPr.headRefOid)".Trim()
-        } catch { $ciFinalBase = ''; $ciHeadAfter = '' }
+          $pr2 = $prRaw2 | ConvertFrom-Json -ErrorAction Stop
+          $base2 = "$($pr2.baseRefName)".Trim()
+          $head2 = "$($pr2.headRefOid)".Trim()
+        } catch { $base2 = ''; $head2 = '' }
       }
-      if ($ciFinalBase -cne $shipBase) {
-        Add-CatchRecord 'base' "$shipBase!=$ciFinalBase/$ciFinalPrExit"
-        throw "[CI-GATE-BASE-MISMATCH] '$ciFinalBase' != '$shipBase' (exit $ciFinalPrExit)。"
+      if ($base2 -cne $shipBase) {
+        Add-CatchRecord 'base' "$shipBase!=$base2/$prExit"
+        throw "[CI-GATE-BASE-MISMATCH] '$base2' != '$shipBase' (exit $prExit)。"
       }
-      if (($ciHeadAfter -cnotmatch '^[0-9a-f]{40}$') -or ($ciHeadAfter -cne $ciHead)) {
-        Add-CatchRecord 'ci' "head:$ciHead->$ciHeadAfter/$ciFinalPrExit"
-        throw "[CI-GATE-HEAD-MOVED] $ciHead -> '$ciHeadAfter' (exit $ciFinalPrExit)。"
+      if (($head2 -cnotmatch '^[0-9a-f]{40}$') -or ($head2 -cne $head)) {
+        Add-CatchRecord 'ci' "head:$head->$head2/$prExit"
+        throw "[CI-GATE-HEAD-MOVED] $head -> '$head2' (exit $prExit)。"
       }
       break ciStable
       }
-      Write-Host "[CI-GATE-PASS] #$pr/$ciHead [$($ciUnique -join ',')]" -ForegroundColor Green
+      Write-Host "[CI-GATE-PASS] #$pr/$head [$($want -join ',')]" -ForegroundColor Green
       $sagaDone += 'CI gate'
       if (-not $NoAutoMerge) {
         # free + private：服务端无规则集/必需检查，auto-merge 亦未启用。
@@ -897,7 +894,7 @@ switch ($Phase) {
         # 不加 --delete-branch：在 worktree 内它会尝试 checkout base(main) 以删本地分支，
         # 而 main 被主工作树占用 → fatal "'main' is already used by worktree"（合并其实已成功）。
         # 远端分支由仓库 delete_branch_on_merge=true 自动删；本地分支由 cleanup 阶段删。
-        & gh pr merge $pr --squash --match-head-commit $ciHead
+        & gh pr merge $pr --squash --match-head-commit $head
         if ($LASTEXITCODE -ne 0) { throw "PR #$pr squash 合并失败（exit $LASTEXITCODE）。检查 gh 权限/合并冲突后重试。" }
         # T24-MERGETOKEN 铸造（PR squash 合并成功事件）：内容记 PR 号 + 分支 tip（仅溯源），在位即凭据。
         $tokDir = "$(& git -C $RepoRoot rev-parse --git-common-dir 2>$null)".Trim()
@@ -917,7 +914,7 @@ switch ($Phase) {
         $sagaDone += '合并'
         Write-Host "PR #$pr 已 squash 合并（远端分支由仓库设置自动删；已铸 T24-MERGETOKEN 合并凭据）。合并后跑：scripts\task.ps1 -TaskId $TaskId -Phase cleanup，并执行 R5 文档同步。" -ForegroundColor Green
       } else {
-        Write-Host "PR #$pr head $ciHead 已通过 R3 + 候选 CI，就绪待人工合并。" -ForegroundColor Green
+        Write-Host "PR #$pr head $head 已通过 R3 + 候选 CI，就绪待人工合并。" -ForegroundColor Green
       }
     } finally { Pop-Location }
     } catch {
@@ -1009,13 +1006,13 @@ switch ($Phase) {
           if ($sagaDone -contains 'R3 评审') {
             # R3 r3 #2 + r6 #9：修复若改动了 PR head（如解决冲突的新提交），已录的 R3 pass 即对旧 diff 而言；base 被
             # retarget（Assert-RemotePrBase 拦下的正是它）同样令已录 pass 失效——head 与 base **双新鲜度**都满足才可直合。
-            Write-Host "    R3 已 pass、合并腿未完成：MERGED→cleanup；否则 DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber $sagaPrNum -PostStatus；同一 reviewed SHA 重证候选 ci.yml workflow/全部 jobs completed+success/base/head；gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>，缺证即停。" -ForegroundColor Yellow
+            Write-Host "R3 已 pass、合并腿未完成：MERGED→cleanup；否则 DoD→verify→范围闸→许可闸→防泄露闸→真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber $sagaPrNum -PostStatus；同一 reviewed SHA：ci.yml jobs completed+success→base/head→gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>。"
           } elseif ($sagaPrNum -gt 0) {
-            Write-Host "    PR #$sagaPrNum 已开：push 后 DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber $sagaPrNum -PostStatus；同一 reviewed SHA 重证候选 ci.yml workflow/全部 jobs completed+success/base/head；gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>。" -ForegroundColor Yellow
+            Write-Host "PR #$sagaPrNum 已开：DoD→verify→范围闸→许可闸→防泄露闸→真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber $sagaPrNum -PostStatus；同一 reviewed SHA：ci.yml jobs completed+success→base/head→gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>。"
           } else {
             # R3 r7 #17：未推送兜底靶 = evidence.redSha 原值（非 HEAD~1——resume 二次失败的多提交分支上 HEAD~1 制造二次死锁）；证据缺失/占位 → 人工核对。
             $sagaRemoteReset = if ($sagaEvdSha -cmatch '^[0-9a-f]{40}$') { "git reset --soft $sagaEvdSha 撤销本次提交（HEAD 归位 RED 证据 sha，非 HEAD~1）" } else { "人工核对工作树后处置（RED 证据缺失/占位，无自动 reset 靶）" }
-            Write-Host "    commit 已落、PR 状态未知：gh pr view $TaskId；未推送则 $sagaRemoteReset 后重跑 ship；已推送则 DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber <PR号> -PostStatus；同一 reviewed SHA 重证候选 ci.yml workflow/全部 jobs completed+success/base/head；gh pr merge <PR号> --squash --match-head-commit <同一 reviewed SHA>。" -ForegroundColor Yellow
+            Write-Host "commit 已落、PR 状态未知：gh pr view $TaskId；未推送：$sagaRemoteReset→ship；已推送：DoD→verify→范围闸→许可闸→防泄露闸→真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber <PR号> -PostStatus；同一 reviewed SHA：ci.yml jobs completed+success→base/head→gh pr merge <PR号> --squash --match-head-commit <同一 reviewed SHA>。"
           }
         }
       }
