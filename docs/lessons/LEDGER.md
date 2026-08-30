@@ -1893,3 +1893,11 @@
 - rule: 修复历史 verifier 的 fixture/OID 时必须做加法而非替换：保留原有下游输出 oracle、精确构造、排除项和 schema check，只更新源绑定并追加新的唯一性与 mutation 断言。GREEN 前分别变异源绑定和实际输出；只检查命令里出现了某段文本不算输出证据。
 - enforced_by: none（历史 verifier 修复纪律；由任务卡 mutation wiring 与 R3 #6 复核）
 - refs: PR #206; specs/archive/tasks/T0-RECONCILE-LESSONS-CONTRACT-FIXTURE.md
+
+## L262
+- date: 2026-08-31 ｜ tags: powershell,yaml,parser,testing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A constrained front-matter parser passed ordinary fixtures but R3 repeatedly found valid escapes, indentation variants, and duplicate-key bypasses.
+- root_cause: The tests exercised individual accepted/rejected lines without making whole-document lexical boundaries and every same-key occurrence load-bearing.
+- rule: When hand-parsing a constrained YAML subset, test the full front matter: valid boundary forms, invalid near-neighbours, consistent indentation, and duplicate keys in both orders; mutate each guard so no later valid block can mask an earlier or duplicate occurrence.
+- enforced_by: scripts/selftest.ps1 Gate 10h
+- refs: T0-CARD-ACCEPTANCE-FIELD; PR #209
