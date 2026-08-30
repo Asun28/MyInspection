@@ -13782,7 +13782,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'initial-pr-arg', 'final-pr-arg', 'ci-checked', 'ci-url-head', 'ci-url-heads',
-      'ci-workflow-checked', 'ci-workflow-count', 'ci-workflow-url-head', 'ci-jobs-consumed', 'ci-jobs-count', 'ci-jobs-run-id', 'ci-event-trace',
+      'ci-workflow-checked', 'ci-workflow-count', 'ci-workflow-url-head', 'ci-jobs-consumed', 'ci-jobs-count', 'ci-jobs-run-id', 'ci-event-trace', 'ci-decision-trace',
       'check-count', 'final-snapshot-count', 'headmove-count', 'base-advanced', 'hang-start', 'hang-completed',
       'hang-tree-start', 'hang-tree-completed')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
@@ -13832,6 +13832,7 @@ if ($args -contains 'api') {
   if ($joined -match 'check-runs') {
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
+    if ($env:GH_MOCK_CI_MODE -eq 'basic-rerun') { Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-decision-trace') 'checks' }
     $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red') { 'failure' } else { 'success' }
     "{`"total_count`":1,`"check_runs`":[{`"name`":`"verify`",`"status`":`"completed`",`"conclusion`":`"$conclusion`"}]}"
     exit 0
@@ -13841,6 +13842,7 @@ if ($args -contains 'api') {
     $workflowCountPath = Join-Path $env:GH_MOCK_ROOT 'ci-workflow-count'
     $workflowCount = if (Test-Path $workflowCountPath) { 1 + [int]("$(Get-Content $workflowCountPath -Raw)".Trim()) } else { 1 }
     Set-Content $workflowCountPath $workflowCount
+    if ($env:GH_MOCK_CI_MODE -eq 'basic-rerun') { Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-decision-trace') "workflow-$workflowCount" }
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $prNumber = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
@@ -13855,6 +13857,7 @@ if ($args -contains 'api') {
     $jobsCountPath = Join-Path $env:GH_MOCK_ROOT 'ci-jobs-count'
     $jobsCount = if (Test-Path $jobsCountPath) { 1 + [int]("$(Get-Content $jobsCountPath -Raw)".Trim()) } else { 1 }
     Set-Content $jobsCountPath $jobsCount
+    if ($env:GH_MOCK_CI_MODE -eq 'basic-rerun') { Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-decision-trace') "jobs-$jobsCount" }
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') $runId
     $jobName = if ($env:GH_MOCK_CI_MODE -in @('basic-candidate', 'basic-rerun')) { 'verify-basic' } else { 'verify' }
     $jobStatus = if (($env:GH_MOCK_CI_MODE -eq 'basic-rerun') -and ($jobsCount -ge 3) -and (($jobsCount % 2) -eq 1)) { 'in_progress' } else { 'completed' }
@@ -14112,7 +14115,9 @@ if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
             $s3RerunExit = $LASTEXITCODE
             $s3WorkflowCount = if (Test-Path (Join-Path $fx3.Root 'ci-workflow-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-workflow-count') -Raw)".Trim()) } else { 0 }
             $s3JobsCount = if (Test-Path (Join-Path $fx3.Root 'ci-jobs-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-jobs-count') -Raw)".Trim()) } else { 0 }
+            $s3DecisionTrace = @((Get-Content (Join-Path $fx3.Root 'ci-decision-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
             if ($s3RerunExit -eq 0 -or $s3Rerun -notmatch '\[CI-GATE-TIMEOUT\]' -or $s3WorkflowCount -lt 5 -or $s3JobsCount -lt 3 -or
+                $s3DecisionTrace -notmatch '^checks>workflow-1>jobs-1>checks>workflow-2>checks>workflow-3>jobs-2>checks>workflow-4>jobs-3(?:>|$)' -or
                 -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
               Fail "T37-REMOTEMX/3：候选 workflow/job 初绿后分别在决策复核转 pending，ship 未两次回到整轮等待直至超时，或错误触达 merge（workflowReads=$s3WorkflowCount jobsReads=$s3JobsCount）。"
             }
