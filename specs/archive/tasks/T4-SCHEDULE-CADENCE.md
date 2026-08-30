@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-CADENCE
 title: 巡检类型的本地民历提醒节奏
 depends_on: [T4-COMPLIANCE-ENGINE, T4-SCHEDULE-SPLIT-PLAN]
-status: todo
+status: merged
 branch: T4-SCHEDULE-CADENCE
 worktree: C:\wt\T4-SCHEDULE-CADENCE
 allow_paths:
