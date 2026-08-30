@@ -8245,7 +8245,7 @@ if (-not $qFail) { Write-Host "  15q ship resume/RED 新鲜度死锁窗口有成
 #   待办腿 + 精确恢复命令（分水岭=「提交」腿：commit 前失败=重跑 -Phase ship；commit 后按 死锁重跑/无PR/已开PR/已合并
 #   分流并指 TD85-RESUME 锚点，见 15q，不复制其正文）——随后**原样裸 throw**（退出码/失败面/上游捕获行为均不变，只加
 #   报告层）。源码级词法断言（同 15p/17p2 手法，剥整行注释防「删代码留哨兵注释」蒙混）：(a) ship 相体存在腿完成跟踪
-#   （有序腿名列表 + 成功路径 ≥13 处追加：共享 7 腿 + -Local 2 腿 + 远端 4 腿，含 CI gate）；(b) 存在含哨兵 T26-SHIPSAGA 的 catch
+#   成功路径 ≥13 追加点（含远端四腿）；(b) T26-SHIPSAGA catch
 #   报告块；(c) 该块词法上以原样裸 throw 结尾；(d) 恢复路由词法锁——完整重跑命令仅现于 commit 前分支且带齐已绑定
 #   选项，commit 后 PR 状态以已解析 PR 号为准而非腿成员推断、合并腿建议按 head 新鲜度条件化（R3 r1/r2/r3 #9/#6/#2）。
 #   实现前各断言均 RED（防 vacuous）。(a)-(d) 静态、locale 无关、不需 git/gh（同 15n/15q 手法）；(e) hermetic
@@ -8259,7 +8259,7 @@ else {
   # (a) 腿完成跟踪：有序腿名列表初始化 + 成功路径追加点（漏标的腿会让报告把已完成腿误报成失败腿）
   if ($shipCode15r -notmatch '\$sagaLegs\s*=') { Fail '闸15r(a)：ship 相体无有序腿名列表（$sagaLegs，代码级）——失败时刻无法自述「哪些腿已完成」。'; $r15Fail = $true }
   $appendCount15r = ([regex]::Matches($shipCode15r, '\$sagaDone\s*\+=')).Count
-  if ($appendCount15r -lt 13) { Fail "闸15r(a)：ship 成功路径上的腿完成追加点仅 $appendCount15r 处（要求 ≥13：共享 7 + -Local 2 + 远端 4，含 CI gate）——漏标腿会把已完成腿误报成失败腿。"; $r15Fail = $true }
+  if ($appendCount15r -lt 13) { Fail "闸15r(a)：腿仅 $appendCount15r（须 ≥13，含远端四腿）。"; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaHeadMoved\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无真实 HEAD 前移追踪（$sagaHeadMoved 须在真提交后置真）——「提交」腿完成≠HEAD 前移，no-op 提交会被误当死锁态（R3 r5 #9）。'; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaLocalMerged\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无本地合并成功追踪（$sagaLocalMerged 须在 merge 成功后置真）——post-merge 凭据失败会被误报成合并前守卫态（R3 r5 #9）。'; $r15Fail = $true }
   # (b)+(c) catch 报告块：含哨兵且以原样裸 throw 结尾（throw 后除闭合括号外无其他语句——异常语义不变的词法锁）；
@@ -8284,9 +8284,11 @@ else {
     # r3 #2/#9：R3 已 pass 的合并腿失败不得无条件建议直接 gh pr merge——修复若改了 PR head，已录 pass 即失效；
     # 建议文案须含「head 未变才可直合、变了先重跑 review.ps1 -PostStatus 至 pass」的条件路径（词法锚 = -PostStatus 在 R3 分支之后）。
     $prStateOk15r = ($catch15r.IndexOf('Test-Path Variable:pr') -ge 0) -and ($catch15r.LastIndexOf('gh pr view') -gt $iR315r) -and ($iR315r -ge 0) -and ($catch15r.IndexOf('-PostStatus') -gt $iR315r)
-    foreach ($recoveryAnchor15r in @('R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知')) {
-      $recoveryLine15r = @($catch15r -split "`n" | Where-Object { $_.Contains($recoveryAnchor15r) })
-      if ($recoveryLine15r.Count -ne 1 -or $recoveryLine15r[0] -notmatch '同一 reviewed SHA 的候选 ci\.yml workflow 及全部 jobs completed\+success.*base/head.*--match-head-commit <同一 reviewed SHA>') { Fail "闸15r(d/CI)：恢复分支 $recoveryAnchor15r 未重证 CI/base/head/绑定 SHA。"; $r15Fail = $true }
+    foreach ($ra15 in @('R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知')) {
+      $rl15 = @($catch15r -split "`n" | Where-Object { $_.Contains($ra15) })
+      $rp15 = if ($ra15 -like 'commit*') { '<PR号>' } else { '42' }
+      $rr15 = if ($rl15.Count -eq 1) { & ([scriptblock]::Create('$Wt=''W X'';$shipBase=''B'';$sagaPrNum=42;$TaskId=''T'';$sagaRemoteReset=''R'';' + $rl15[0].Trim())) 6>&1 | Out-String } else { '' }
+      if ($rl15.Count -ne 1 -or $rr15 -notmatch 'DoD.*verify.*范围闸.*许可闸.*防泄露闸.*真实 diff 预算.*review\.ps1' -or -not $rr15.Contains("-WorktreePath `"W X`" -Base `"B`" -PrNumber $rp15 -PostStatus") -or $rr15 -notmatch '同一 reviewed SHA.*ci\.yml.*jobs completed\+success.*base/head.*--match-head-commit <同一 reviewed SHA>') { Fail "闸15r(d/CI)：$ra15 配方缺失/不可运行。"; $r15Fail = $true }
     }
     # r4/r5 #9：-Local 合并腿失败态按**阶段状态**分流（$sagaLocalMerged=post-merge 凭据态 / MERGE_HEAD 在盘=合并中
     # merge --continue 续跑 / 皆无=守卫态重发 merge --no-ff --no-edit）——不嗅探异常文案（每个合并失败消息都含「冲突？」）。
@@ -14093,27 +14095,27 @@ if ($env:GH_MOCK_ROOT) {
             Set-Content (Join-Path $fx3.Wt 'README.md') 'GREENMX merge-fail work' -Encoding utf8
             $env:GH_MOCK_CI_MODE = 'basic-red'
             $s3Red = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
-            $s3RedExit = $LASTEXITCODE
-            $s3RedTrace = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
-            if ($s3RedExit -eq 0 -or $s3Red -notmatch '\[CI-GATE-RED\]' -or -not (Test-Path (Join-Path $fx3.Root 'ci-checked')) -or
-                $s3RedTrace -ne 'r3>ci' -or (Test-Path (Join-Path $fx3.Root 'ci-workflow-checked')) -or (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
+            $s3Rx = $LASTEXITCODE
+            $s3Rt = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
+            if ($s3Rx -eq 0 -or $s3Red -notmatch '\[CI-GATE-RED\]' -or $s3Red -match '\[CI-GATE-PASS\]' -or -not (Test-Path (Join-Path $fx3.Root 'ci-checked')) -or
+                $s3Rt -ne 'r3>ci' -or (Test-Path (Join-Path $fx3.Root 'ci-workflow-checked')) -or (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
               Fail 'T37-REMOTEMX/3：候选 check run 红灯未在真实 CI gate fail-closed，或更早/更晚的腿错误满足断言。'
             }
-            $candidate3 = Join-Path $fx3.Wt '.github/workflows/ci.yml'
-            $candidate3Text = Get-Content $candidate3 -Raw
-            if ([regex]::Matches($candidate3Text, '(?m)^  verify:').Count -ne 1) { Fail 'T37-REMOTEMX/3：候选 ci.yml 缺唯一 verify job，无法构造 candidate-only 解析证明。' }
-            $candidate3Text -replace '(?m)^  verify:', '  verify-basic:' | Set-Content $candidate3 -NoNewline -Encoding utf8
+            $c3 = Join-Path $fx3.Wt '.github/workflows/ci.yml'
+            $c3t = Get-Content $c3 -Raw
+            if ([regex]::Matches($c3t, '(?m)^  verify:').Count -ne 1) { Fail 'T37-REMOTEMX/3：verify job 非唯一。' }
+            $c3t -replace '(?m)^  verify:', '  verify-basic:' | Set-Content $c3 -NoNewline -Encoding utf8
             Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace'), (Join-Path $fx3.Root 'ci-workflow-count') -ErrorAction SilentlyContinue
             $env:GH_MOCK_CI_MODE = 'basic-rerun'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '20'
             $s3Rerun = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
-            $s3RerunExit = $LASTEXITCODE
-            $s3WorkflowCount = if (Test-Path (Join-Path $fx3.Root 'ci-workflow-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-workflow-count') -Raw)".Trim()) } else { 0 }
-            $s3JobsCount = if (Test-Path (Join-Path $fx3.Root 'ci-jobs-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-jobs-count') -Raw)".Trim()) } else { 0 }
-            $s3DecisionTrace = @((Get-Content (Join-Path $fx3.Root 'ci-decision-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
-            if ($s3RerunExit -eq 0 -or $s3Rerun -notmatch '\[CI-GATE-TIMEOUT\]' -or $s3WorkflowCount -lt 5 -or $s3JobsCount -lt 3 -or
-                $s3DecisionTrace -notmatch '^checks>workflow-1>jobs-1>checks>workflow-2>checks>workflow-3>jobs-2>checks>workflow-4>jobs-3(?:>|$)' -or
+            $s3X = $LASTEXITCODE
+            $s3W = if (Test-Path (Join-Path $fx3.Root 'ci-workflow-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-workflow-count') -Raw)".Trim()) } else { 0 }
+            $s3J = if (Test-Path (Join-Path $fx3.Root 'ci-jobs-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-jobs-count') -Raw)".Trim()) } else { 0 }
+            $s3Dt = @((Get-Content (Join-Path $fx3.Root 'ci-decision-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
+            if ($s3X -eq 0 -or $s3Rerun -notmatch '\[CI-GATE-TIMEOUT\]' -or $s3Rerun -match '\[CI-GATE-PASS\]' -or $s3W -lt 5 -or $s3J -lt 3 -or
+                $s3Dt -notmatch '^checks>workflow-1>jobs-1>checks>workflow-2>checks>workflow-3>jobs-2>checks>workflow-4>jobs-3(?:>|$)' -or
                 -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
-              Fail "T37-REMOTEMX/3：候选 workflow/job 初绿后分别在决策复核转 pending，ship 未两次回到整轮等待直至超时，或错误触达 merge（workflowReads=$s3WorkflowCount jobsReads=$s3JobsCount）。"
+              Fail "T37-REMOTEMX/3：决策复核未等待 workflow/job（w=$s3W j=$s3J）。"
             }
             Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue
             Remove-Item (Join-Path $fx3.Root 'ci-workflow-count'), (Join-Path $fx3.Root 'ci-workflow-checked'), (Join-Path $fx3.Root 'ci-jobs-consumed'), (Join-Path $fx3.Root 'ci-jobs-count'), (Join-Path $fx3.Root 'ci-jobs-run-id') -ErrorAction SilentlyContinue
@@ -14123,16 +14125,16 @@ if ($env:GH_MOCK_ROOT) {
             $s3 = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
             $s3Exit = $LASTEXITCODE
             $s3GreenTrace = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
-            if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：远端 gh pr merge 失败时 ship 仍退出 0（未 fail-closed）。' }
-            elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { $s3d = if ($s3.Length -gt 900) { $s3.Substring($s3.Length - 900) } else { $s3 }; Fail "T37-REMOTEMX/3：ship 未走到 gh pr merge 腿（更早失败）——非零退出来源非远端合并失败。尾段=$s3d" }
-            elseif (-not (Test-Path (Join-Path $fx3.Root 'review-invoked')) -or $s3GreenTrace -notmatch '^r3>ci(?:>ci)*$') { Fail "T37-REMOTEMX/3：绿灯重跑未以一枚新 R3 开头并随后只消费 CI 扫描；红灯运行的旧哨兵不得令断言假绿。trace=$s3GreenTrace" }
+            if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：merge 失败却 exit 0。' }
+            elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：未触达 merge。' }
+            elseif (-not (Test-Path (Join-Path $fx3.Root 'review-invoked')) -or $s3GreenTrace -notmatch '^r3>ci(?:>ci)*$') { Fail "T37-REMOTEMX/3：R3/CI 序列=$s3GreenTrace" }
             elseif (-not (Test-Path (Join-Path $fx3.Root 'ci-workflow-checked')) -or -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or
-                "$(Get-Content (Join-Path $fx3.Root 'ci-jobs-run-id') -Raw)".Trim() -ne $expectedRun3) { Fail "T37-REMOTEMX/3：绿灯重跑未消费候选 workflow 返回的 run $expectedRun3/jobs，合并失败断言可在 CI 前假绿。" }
-            elseif ("$(Get-Content (Join-Path $fx3.Root 'merge-pr-arg') -Raw)".Trim() -ne $expectedPr3) { Fail "T37-REMOTEMX/3：merge 未绑定夹具实际创建/复用的 PR $expectedPr3。" }
-            elseif ("$(Get-Content (Join-Path $fx3.Root 'merge-head-arg') -Raw)".Trim() -ne "$(git -C $fx3.Wt rev-parse HEAD)".Trim()) { Fail 'T37-REMOTEMX/3：merge 缺失或未绑定通过 R3/CI 的当前 head。' }
-            elseif (Test-Path (Join-Path $fx3.Root 'merge-reached')) { Fail 'T37-REMOTEMX/3：merge 注入失败却写下成功哨兵 merge-reached（负哨兵应缺）。' }
-            elseif ($s3 -notmatch '合并失败') { $s3d = if ($s3.Length -gt 900) { $s3.Substring($s3.Length - 900) } else { $s3 }; Fail "T37-REMOTEMX/3：合并失败但报错未点名『合并失败』（须来自 task.ps1:627 生产 fail-closed，非 stub 输出）。尾段=$s3d" }
-            elseif (Test-Path $tok3) { Fail 'T37-REMOTEMX/3：远端合并失败却铸出 T24 合并凭据——cleanup 将被授权删未合并分支（数据丢失面重开）。' }
+                "$(Get-Content (Join-Path $fx3.Root 'ci-jobs-run-id') -Raw)".Trim() -ne $expectedRun3) { Fail "T37-REMOTEMX/3：jobs run≠$expectedRun3。" }
+            elseif ("$(Get-Content (Join-Path $fx3.Root 'merge-pr-arg') -Raw)".Trim() -ne $expectedPr3) { Fail "T37-REMOTEMX/3：merge PR≠$expectedPr3。" }
+            elseif ("$(Get-Content (Join-Path $fx3.Root 'merge-head-arg') -Raw)".Trim() -ne "$(git -C $fx3.Wt rev-parse HEAD)".Trim()) { Fail 'T37-REMOTEMX/3：merge head 未绑定。' }
+            elseif (Test-Path (Join-Path $fx3.Root 'merge-reached')) { Fail 'T37-REMOTEMX/3：失败却有 merge-reached。' }
+            elseif ($s3 -notmatch '合并失败') { Fail 'T37-REMOTEMX/3：缺合并失败诊断。' }
+            elseif (Test-Path $tok3) { Fail 'T37-REMOTEMX/3：失败却铸 T24 凭据。' }
             else { Write-Host '  T37-REMOTEMX/3 远端合并失败态 fail-closed（非零退出 + merge-reached 缺 + 不铸 T24 凭据 + 点名合并失败）OK' -ForegroundColor Green }
           }
         }
