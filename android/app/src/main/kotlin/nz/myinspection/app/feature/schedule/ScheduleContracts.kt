@@ -24,23 +24,23 @@ fun reminderOccurrenceId(route: ScheduleRoutePayload, dueAt: Instant): String {
     val occurrence = "${route.propertyId}\u0000${route.inspectionType.name}\u0000${dueAt.toEpochMilli()}"
     return MessageDigest.getInstance("SHA-256").digest(occurrence.encodeToByteArray()).toHex()
 }
-enum class ReminderReceiptState { PENDING, ENQUEUED, DELIVERED }
-enum class ReminderLogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_PENDING, RECEIPT_ENQUEUED, RECEIPT_ROLLBACK, RECEIPT_DELIVERED, NOTIFY }
-enum class ReminderLogError { NONE, ENQUEUE_FAILED, ENQUEUE_EXCEPTION, INVALID_INPUT, PERMISSION_DENIED, RECEIPT_WRITE_FAILED, NOTIFY_EXCEPTION }
+enum class ReceiptState { PENDING, ENQUEUED, DELIVERED }
+enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_PENDING, RECEIPT_ENQUEUED, RECEIPT_ROLLBACK, RECEIPT_DELIVERED, NOTIFY }
+enum class LogError { NONE, ENQUEUE_FAILED, ENQUEUE_EXCEPTION, INVALID_INPUT, PERMISSION_DENIED, RECEIPT_WRITE_FAILED, NOTIFY_EXCEPTION }
 interface ReminderOccurrenceStore {
-    fun read(occurrenceId: String): ReminderReceiptState?
-    fun compareAndSet(occurrenceId: String, expected: Set<ReminderReceiptState?>, state: ReminderReceiptState?): Boolean
+    fun read(occurrenceId: String): ReceiptState?
+    fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState?>, state: ReceiptState?): Boolean
 }
 class ReminderRegistrationCoordinator(
     private val store: ReminderOccurrenceStore,
-    private val onPersistenceFailure: (ReminderLogStage) -> Unit = {},
+    private val onPersistenceFailure: (LogStage) -> Unit = {},
 ) {
     fun register(occurrenceId: String, enqueue: ((Boolean) -> Unit) -> Unit): Boolean {
         when (store.read(occurrenceId)) {
-            ReminderReceiptState.ENQUEUED, ReminderReceiptState.DELIVERED -> return false
-            ReminderReceiptState.PENDING -> Unit
-            null -> if (!store.compareAndSet(occurrenceId, setOf(null), ReminderReceiptState.PENDING)) {
-                onPersistenceFailure(ReminderLogStage.RECEIPT_PENDING)
+            ReceiptState.ENQUEUED, ReceiptState.DELIVERED -> return false
+            ReceiptState.PENDING -> Unit
+            null -> if (!store.compareAndSet(occurrenceId, setOf(null), ReceiptState.PENDING)) {
+                onPersistenceFailure(LogStage.RECEIPT_PENDING)
                 return false
             }
         }
@@ -53,8 +53,8 @@ class ReminderRegistrationCoordinator(
         }
     }
     private fun complete(occurrenceId: String, succeeded: Boolean) {
-        if (succeeded && !store.compareAndSet(occurrenceId, setOf(ReminderReceiptState.PENDING), ReminderReceiptState.ENQUEUED) && store.read(occurrenceId) !in listOf(ReminderReceiptState.ENQUEUED, ReminderReceiptState.DELIVERED)) onPersistenceFailure(ReminderLogStage.RECEIPT_ENQUEUED)
-        else if (!succeeded && !store.compareAndSet(occurrenceId, setOf(ReminderReceiptState.PENDING), null) && store.read(occurrenceId) == ReminderReceiptState.PENDING) onPersistenceFailure(ReminderLogStage.RECEIPT_ROLLBACK)
+        if (succeeded && !store.compareAndSet(occurrenceId, setOf(ReceiptState.PENDING), ReceiptState.ENQUEUED) && store.read(occurrenceId) !in listOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) onPersistenceFailure(LogStage.RECEIPT_ENQUEUED)
+        else if (!succeeded && !store.compareAndSet(occurrenceId, setOf(ReceiptState.PENDING), null) && store.read(occurrenceId) == ReceiptState.PENDING) onPersistenceFailure(LogStage.RECEIPT_ROLLBACK)
     }
 }
 data class ReminderEnqueueSpec(val uniqueName: String, val initialDelayMillis: Long, val route: ScheduleRoutePayload, val dueAt: Instant, val occurrenceId: String, val existingWorkPolicy: androidx.work.ExistingWorkPolicy)

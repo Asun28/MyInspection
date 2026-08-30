@@ -44,16 +44,16 @@ object ScheduleReminderScheduler {
     ): Boolean {
         val work = ReminderEnqueueSpec(spec.uniqueWorkName, spec.initialDelayMillis, spec.route, spec.dueAt, spec.occurrenceId, ExistingWorkPolicy.KEEP)
         val coordinator = ReminderRegistrationCoordinator(store) {
-            logger.log(it, spec.occurrenceId, spec.route.inspectionType, true, ReminderLogError.RECEIPT_WRITE_FAILED)
+            logger.log(it, spec.occurrenceId, spec.route.inspectionType, true, LogError.RECEIPT_WRITE_FAILED)
         }
         return coordinator.register(spec.occurrenceId) { complete ->
             try {
                 enqueue(work) { succeeded ->
-                    if (!succeeded) logger.log(ReminderLogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType, true, ReminderLogError.ENQUEUE_FAILED)
+                    if (!succeeded) logger.log(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType, true, LogError.ENQUEUE_FAILED)
                     complete(succeeded)
                 }
             } catch (error: RuntimeException) {
-                logger.log(ReminderLogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType, true, ReminderLogError.ENQUEUE_EXCEPTION)
+                logger.log(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType, true, LogError.ENQUEUE_EXCEPTION)
                 throw error
             }
         }
@@ -61,20 +61,20 @@ object ScheduleReminderScheduler {
     private val DIRECT_EXECUTOR = Executor(Runnable::run)
 }
 internal fun interface ReminderEventLogger {
-    fun log(stage: ReminderLogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: ReminderLogError)
+    fun log(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError)
 }
-internal fun reminderLogMessage(stage: ReminderLogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: ReminderLogError): String =
+internal fun reminderLogMessage(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError): String =
     "{\"event\":\"schedule-reminder\",\"stage\":\"${stage.name.lowercase().replace('_', '-')}\",\"occurrence\":\"${occurrenceId?.takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: "missing"}\",\"type\":\"${type?.name ?: "unknown"}\",\"retryable\":$retryable,\"error_code\":\"${errorCode.name.lowercase().replace('_', '-')}\"}"
 internal object AndroidReminderLogger : ReminderEventLogger {
-    override fun log(stage: ReminderLogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: ReminderLogError) {
+    override fun log(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError) {
         Log.w("ScheduleReminder", reminderLogMessage(stage, occurrenceId, type, retryable, errorCode))
     }
 }
 internal class SharedPreferencesReminderOccurrenceStore(context: Context) : ReminderOccurrenceStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    override fun read(occurrenceId: String): ReminderReceiptState? = preferences.getString(occurrenceId, null)
-        ?.let { runCatching { ReminderReceiptState.valueOf(it) }.getOrNull() }
-    override fun compareAndSet(occurrenceId: String, expected: Set<ReminderReceiptState?>, state: ReminderReceiptState?): Boolean = synchronized(LOCK) {
+    override fun read(occurrenceId: String): ReceiptState? = preferences.getString(occurrenceId, null)
+        ?.let { runCatching { ReceiptState.valueOf(it) }.getOrNull() }
+    override fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState?>, state: ReceiptState?): Boolean = synchronized(LOCK) {
         if (read(occurrenceId) !in expected) false
         else if (state == null) preferences.edit().remove(occurrenceId).commit()
         else preferences.edit().putString(occurrenceId, state.name).commit()

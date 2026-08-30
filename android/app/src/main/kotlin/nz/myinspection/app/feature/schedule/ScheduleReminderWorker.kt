@@ -15,7 +15,7 @@ import java.time.Instant
 import nz.myinspection.app.MainActivity
 import nz.myinspection.core.schedule.InspectionScheduleType
 internal data class ReminderWorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
-internal enum class ReminderWorkerOutcome { SUCCESS, RETRY, FAILURE }
+internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
 class ScheduleReminderWorker(
     appContext: Context,
     parameters: WorkerParameters,
@@ -37,9 +37,9 @@ class ScheduleReminderWorker(
             ::postNotification,
         )
         return when (outcome) {
-            ReminderWorkerOutcome.SUCCESS -> Result.success()
-            ReminderWorkerOutcome.RETRY -> Result.retry()
-            ReminderWorkerOutcome.FAILURE -> Result.failure()
+            WorkerOutcome.SUCCESS -> Result.success()
+            WorkerOutcome.RETRY -> Result.retry()
+            WorkerOutcome.FAILURE -> Result.failure()
         }
     }
     private fun postNotification(delivery: ReminderDeliveryPlan.Notify) {
@@ -87,10 +87,10 @@ class ScheduleReminderWorker(
             store: ReminderOccurrenceStore,
             logger: ReminderEventLogger,
             notify: (ReminderDeliveryPlan.Notify) -> Unit,
-        ): ReminderWorkerOutcome {
-            fun invalid(): ReminderWorkerOutcome {
-                logger.log(ReminderLogStage.INPUT, input.occurrenceId, null, false, ReminderLogError.INVALID_INPUT)
-                return ReminderWorkerOutcome.FAILURE
+        ): WorkerOutcome {
+            fun invalid(): WorkerOutcome {
+                logger.log(LogStage.INPUT, input.occurrenceId, null, false, LogError.INVALID_INPUT)
+                return WorkerOutcome.FAILURE
             }
             val propertyId = input.propertyId?.takeIf(String::isNotBlank) ?: return invalid()
             val type = input.type?.let { runCatching { InspectionScheduleType.valueOf(it) }.getOrNull() } ?: return invalid()
@@ -98,20 +98,20 @@ class ScheduleReminderWorker(
             val occurrenceId = input.occurrenceId ?: return invalid()
             val route = ScheduleRoutePayload(propertyId, type)
             if (occurrenceId != reminderOccurrenceId(route, dueAt)) return invalid()
-            if (store.read(occurrenceId) == ReminderReceiptState.DELIVERED) return ReminderWorkerOutcome.SUCCESS
+            if (store.read(occurrenceId) == ReceiptState.DELIVERED) return WorkerOutcome.SUCCESS
             val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)
             if (delivery is ReminderDeliveryPlan.Retry) {
-                logger.log(ReminderLogStage.PERMISSION, occurrenceId, type, true, ReminderLogError.PERMISSION_DENIED)
-                return ReminderWorkerOutcome.RETRY
+                logger.log(LogStage.PERMISSION, occurrenceId, type, true, LogError.PERMISSION_DENIED)
+                return WorkerOutcome.RETRY
             }
             delivery as ReminderDeliveryPlan.Notify
             return try {
                 notify(delivery)
-                if (store.compareAndSet(occurrenceId, setOf(ReminderReceiptState.ENQUEUED, ReminderReceiptState.PENDING, null), ReminderReceiptState.DELIVERED) || store.read(occurrenceId) == ReminderReceiptState.DELIVERED) ReminderWorkerOutcome.SUCCESS
-                else ReminderWorkerOutcome.RETRY.also { logger.log(ReminderLogStage.RECEIPT_DELIVERED, occurrenceId, type, true, ReminderLogError.RECEIPT_WRITE_FAILED) }
+                if (store.compareAndSet(occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PENDING, null), ReceiptState.DELIVERED) || store.read(occurrenceId) == ReceiptState.DELIVERED) WorkerOutcome.SUCCESS
+                else WorkerOutcome.RETRY.also { logger.log(LogStage.RECEIPT_DELIVERED, occurrenceId, type, true, LogError.RECEIPT_WRITE_FAILED) }
             } catch (error: RuntimeException) {
-                logger.log(ReminderLogStage.NOTIFY, occurrenceId, type, true, ReminderLogError.NOTIFY_EXCEPTION)
-                ReminderWorkerOutcome.RETRY
+                logger.log(LogStage.NOTIFY, occurrenceId, type, true, LogError.NOTIFY_EXCEPTION)
+                WorkerOutcome.RETRY
             }
         }
     }
