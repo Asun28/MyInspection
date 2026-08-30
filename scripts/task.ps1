@@ -102,8 +102,6 @@ $Py = $ScaffoldConfig.PythonVersion
 
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
-# CI gate 内的 `gh` 调用须受同一 wall-clock deadline 约束：同步调用无法打断挂起网络；子 pwsh 保留
-# PATH 上的 gh.ps1 hermetic stub / 真 gh 解析语义，JSON 参数数组避免 shell 重解析，超时杀整棵进程树。
 function Invoke-GhBeforeDeadline {
   param([Parameter(Mandatory)][string[]]$Arguments, [Parameter(Mandatory)][DateTimeOffset]$Deadline)
   $remainingMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
@@ -121,7 +119,6 @@ function Invoke-GhBeforeDeadline {
     if (-not $proc.WaitForExit($remainingMs)) {
       try { $proc.Kill($true) } catch { }
       try { [void]$proc.WaitForExit(1000) } catch { }
-      # deadline 后不无界读管道；顽固后代仍持 handle 时只消费已完成任务。
       $timedOutStdout = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
       $timedOutStderr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
       return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $timedOutStdout; Stderr = $timedOutStderr }
@@ -141,15 +138,13 @@ function Wait-CiRetryBeforeDeadline([DateTimeOffset]$Deadline) {
   $sleepMs = [int][Math]::Min(1000, [Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)))
   if ($sleepMs -gt 0) { Start-Sleep -Milliseconds $sleepMs }
 }
-# GitHub 的三类列表响应共用一枚严格分页核：total_count/集合属性必须在场且非 null，total_count 必须
-# 是非负 JSON 整数，各页总数须稳定，最终实际行数须**恰等于** total_count。低报/多报/提前空页均不可判。
 function Get-GhPagedCollectionBeforeDeadline {
   param([Parameter(Mandatory)][string]$EndpointTemplate, [Parameter(Mandatory)][string]$CollectionProperty, [Parameter(Mandatory)][DateTimeOffset]$Deadline)
   $items = @(); $total = -1L
   for ($page = 1; $page -le 100; $page++) {
     $endpoint = $EndpointTemplate.Replace('{page}', "$page")
     $api = Invoke-GhBeforeDeadline -Arguments @('api', $endpoint) -Deadline $Deadline
-    if ($api.TimedOut) { return [pscustomobject]@{ Readable = $false; TimedOut = $true; Items = @(); Reason = "$CollectionProperty API 调用超过本轮 deadline（page=$page）" } }
+    if ($api.TimedOut) { return [pscustomobject]@{ Readable = $false; TimedOut = $true; Items = @(); Reason = "$CollectionProperty timeout p$page" } }
     try {
       if (($api.ExitCode -ne 0) -or [string]::IsNullOrWhiteSpace($api.Stdout)) { throw "gh api exit $($api.ExitCode) 或空输出" }
       $response = $api.Stdout | ConvertFrom-Json -ErrorAction Stop; $propertyNames = @($response.PSObject.Properties.Name)
@@ -162,15 +157,15 @@ function Get-GhPagedCollectionBeforeDeadline {
       $collectionRaw = $response.$CollectionProperty
       if ($collectionRaw -isnot [System.Array]) { throw "$CollectionProperty 必须是 JSON array，不能是 scalar/object" }
       $pageItems = @($collectionRaw)
-    } catch { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty API 不可读（page=$page, exit=$($api.ExitCode)）：$($_.Exception.Message)" } }
+    } catch { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty invalid p$page exit=$($api.ExitCode): $($_.Exception.Message)" } }
     if ($total -lt 0) { $total = $pageTotal }
-    elseif ($total -ne $pageTotal) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty 分页 total_count 漂移（$total -> $pageTotal）" } }
+    elseif ($total -ne $pageTotal) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty total drift $total->$pageTotal" } }
     $items += $pageItems
-    if ($items.Count -gt $total) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty 实际行数超过 total_count（$($items.Count) > $total）" } }
+    if ($items.Count -gt $total) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty overcount $($items.Count)>$total" } }
     if ($items.Count -eq $total) { return [pscustomobject]@{ Readable = $true; TimedOut = $false; Items = @($items); Reason = '' } }
-    if ($pageItems.Count -eq 0) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty 分页提前为空（已读 $($items.Count)/$total）" } }
+    if ($pageItems.Count -eq 0) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty empty $($items.Count)/$total" } }
   }
-  return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty 分页超过 100 页" }
+  return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty >100 pages" }
 }
 function Get-ExactHeadChecksBeforeDeadline {
   param([Parameter(Mandatory)][string]$Head, [Parameter(Mandatory)][DateTimeOffset]$Deadline)
@@ -674,21 +669,19 @@ switch ($Phase) {
       $r3Head = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
       if ($r3Head -cnotmatch '^[0-9a-f]{40}$') {
         Add-CatchRecord 'review' "R3 前本地 HEAD 不可判：'$r3Head'"
-        throw "[CI-GATE-LOCAL-HEAD] R3 前无法取得候选工作树 40-hex HEAD；拒绝评审/CI/合并身份解耦。"
+        throw '[CI-GATE-LOCAL-HEAD] 候选 HEAD 无效。'
       }
       & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $shipBase -PostStatus -PrNumber $pr
       if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block'; throw 'Codex 裁决 block，已停止。修复后重 ship（PR 已开，重 ship 会更新）。' }
       $r3HeadAfter = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
       if (($r3HeadAfter -cnotmatch '^[0-9a-f]{40}$') -or ($r3HeadAfter -cne $r3Head)) {
         Add-CatchRecord 'review' "R3 期间本地 HEAD 变化（$r3Head -> '$r3HeadAfter'）"
-        throw "[CI-GATE-LOCAL-HEAD-MOVED] 候选工作树 HEAD 在 R3 期间变化（$r3Head -> '$r3HeadAfter'）；裁决未绑定当前树，拒绝继续。"
+        throw "[CI-GATE-LOCAL-HEAD-MOVED] $r3Head -> '$r3HeadAfter'"
       }
       $sagaDone += 'R3 评审'
       Step 'CI gate（候选树 ci.yml 的全部 job 须在同一 PR head 上 completed+success）'
       $ciWorkflow = Join-Path $Wt '.github/workflows/ci.yml'
-      if (-not (Test-Path -LiteralPath $ciWorkflow -PathType Leaf)) { Add-CatchRecord 'ci' 'candidate .github/workflows/ci.yml missing'; throw '[CI-GATE-WF-MISSING] 候选树缺 .github/workflows/ci.yml；无法证明待合并 head 的 CI，拒绝就绪/合并。' }
-      # 本卡不引入 YAML 依赖：只解析 GitHub workflow 的顶层 `jobs:` 与其恰两空格缩进的 job id。
-      # 更复杂/不唯一/空的形状一律 fail-closed，避免静默少等某个候选 job。
+      if (-not (Test-Path -LiteralPath $ciWorkflow -PathType Leaf)) { Add-CatchRecord 'ci' 'candidate ci.yml missing'; throw '[CI-GATE-WF-MISSING] 候选 ci.yml 缺失。' }
       $ciExpected = @(); $ciUnknownDirectKeys = @(); $ciInJobs = $false
       foreach ($ciLine in @(Get-Content -LiteralPath $ciWorkflow)) {
         if (-not $ciInJobs) {
@@ -702,43 +695,41 @@ switch ($Phase) {
         }
       }
       $ciUnique = @($ciExpected | Sort-Object -Unique)
-      if ((-not $ciInJobs) -or ($ciExpected.Count -eq 0) -or ($ciUnique.Count -ne $ciExpected.Count) -or ($ciUnknownDirectKeys.Count -gt 0)) { Add-CatchRecord 'ci' "candidate jobs parse drift (count=$($ciExpected.Count), unique=$($ciUnique.Count), unknown=$($ciUnknownDirectKeys -join ' | '))"; throw "[CI-GATE-JOBS-DRIFT] 候选树 ci.yml 的 jobs 形状不可判（须有唯一、非空、两空格缩进的 plain job id；未知 direct key=[$($ciUnknownDirectKeys -join ', ')]）；拒绝静默漏等 job。" }
+      if ((-not $ciInJobs) -or ($ciExpected.Count -eq 0) -or ($ciUnique.Count -ne $ciExpected.Count) -or ($ciUnknownDirectKeys.Count -gt 0)) { Add-CatchRecord 'ci' "jobs=$($ciExpected.Count)/$($ciUnique.Count), unknown=[$($ciUnknownDirectKeys -join ', ')]"; throw '[CI-GATE-JOBS-DRIFT] 候选 jobs 漂移。' }
       $ciTimeoutSec = 1800
       if ($env:SCAFFOLD_CI_TIMEOUT_SEC) {
         $ciTimeoutOverride = 0
-        if ((-not [int]::TryParse($env:SCAFFOLD_CI_TIMEOUT_SEC, [ref]$ciTimeoutOverride)) -or ($ciTimeoutOverride -le 0)) { throw "[CI-GATE-TIMEOUT-CONFIG] SCAFFOLD_CI_TIMEOUT_SEC 须为正整数，实际='$($env:SCAFFOLD_CI_TIMEOUT_SEC)'。" }
+        if ((-not [int]::TryParse($env:SCAFFOLD_CI_TIMEOUT_SEC, [ref]$ciTimeoutOverride)) -or ($ciTimeoutOverride -le 0)) { throw "[CI-GATE-TIMEOUT-CONFIG] 非正整数：'$($env:SCAFFOLD_CI_TIMEOUT_SEC)'。" }
         $ciTimeoutSec = $ciTimeoutOverride
       }
       $ciDeadline = [DateTimeOffset]::UtcNow.AddSeconds($ciTimeoutSec)
       $ciHeadRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'headRefOid', '-q', '.headRefOid') -Deadline $ciDeadline
       $ciHead = "$($ciHeadRead.Stdout)".Trim()
-      if ($ciHeadRead.TimedOut) { throw "[CI-GATE-TIMEOUT] 读取 PR #$pr head 超过 ${ciTimeoutSec}s。" }
-      if (($ciHeadRead.ExitCode -ne 0) -or ($ciHead -cnotmatch '^[0-9a-f]{40}$')) { Add-CatchRecord 'ci' "PR head query failed (exit=$($ciHeadRead.ExitCode), value='$ciHead')"; throw "[CI-GATE-NOHEAD] 无法取得 PR #$pr 的 40-hex headRefOid（exit $($ciHeadRead.ExitCode)）；拒绝对未钉定 head 等待或合并。" }
-      if ($ciHead -cne $r3Head) { Add-CatchRecord 'ci' "PR head 未绑定 R3-reviewed SHA（reviewed=$r3Head, remote=$ciHead）"; throw "[CI-GATE-HEAD-MISMATCH] PR #$pr 当前 head $ciHead ≠ R3 已审候选 $r3Head；远端含未评审状态，拒绝轮询 CI/就绪/合并。" }
+      if ($ciHeadRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr head。" }
+      if (($ciHeadRead.ExitCode -ne 0) -or ($ciHead -cnotmatch '^[0-9a-f]{40}$')) { Add-CatchRecord 'ci' "head exit=$($ciHeadRead.ExitCode) value='$ciHead'"; throw "[CI-GATE-NOHEAD] PR #$pr。" }
+      if ($ciHead -cne $r3Head) { Add-CatchRecord 'ci' "head reviewed=$r3Head remote=$ciHead"; throw "[CI-GATE-HEAD-MISMATCH] $ciHead != $r3Head" }
       $ciLastState = '尚未读取 check-runs'
       :ciStable while ($true) {
       while ($true) {
-        if ([DateTimeOffset]::UtcNow -ge $ciDeadline) { Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $ciLastState"; throw "[CI-GATE-TIMEOUT] 等待 PR #$pr head $ciHead 的候选 CI 超过 ${ciTimeoutSec}s；最后状态：$ciLastState" }
+        if ([DateTimeOffset]::UtcNow -ge $ciDeadline) { Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $ciLastState"; throw "[CI-GATE-TIMEOUT] PR #$pr/$ciHead 超时：$ciLastState" }
         $checkState = Get-ExactHeadChecksBeforeDeadline -Head $ciHead -Deadline $ciDeadline
-        if ($checkState.TimedOut) { Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $($checkState.Reason)"; throw "[CI-GATE-TIMEOUT] 等待 PR #$pr head $ciHead 的候选 CI 超过 ${ciTimeoutSec}s；最后状态：$($checkState.Reason)" }
-        if (-not $checkState.Readable) { Add-CatchRecord 'ci' "check-runs API unreadable: $($checkState.Reason)"; throw "[CI-GATE-API] PR #$pr head $ciHead 的 check-runs 响应不可判：$($checkState.Reason)" }
+        if ($checkState.TimedOut) { Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $($checkState.Reason)"; throw "[CI-GATE-TIMEOUT] PR #$pr/$ciHead：$($checkState.Reason)" }
+        if (-not $checkState.Readable) { Add-CatchRecord 'ci' "check-runs: $($checkState.Reason)"; throw "[CI-GATE-API] check-runs：$($checkState.Reason)" }
         if ($checkState.Blocking.Count -gt 0) {
           $ciBad = @($checkState.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
           Add-CatchRecord 'ci' "red checks: $ciBad"
-          throw "[CI-GATE-RED] PR #$pr head $ciHead 存在失败检查：$ciBad"
+          throw "[CI-GATE-RED] checks: $ciBad"
         }
-        # 只接受 candidate `.github/workflows/ci.yml` 对同一 PR head 产生的 workflow run；全仓同名
-        # check-run 只能承担「任何红检查都阻断」，绝不能冒充候选 workflow 的 expected job。
         $workflowPages = Get-GhPagedCollectionBeforeDeadline `
           -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$ciHead&per_page=100&page={page}" `
           -CollectionProperty 'workflow_runs' -Deadline $ciDeadline
         if ($workflowPages.TimedOut) {
-          Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $($workflowPages.Reason)"
-          throw "[CI-GATE-TIMEOUT] 等待 PR #$pr head $ciHead 的候选 CI 超过 ${ciTimeoutSec}s；最后状态：$($workflowPages.Reason)"
+          Add-CatchRecord 'ci' "timeout: $($workflowPages.Reason)"
+          throw "[CI-GATE-TIMEOUT] workflow: $($workflowPages.Reason)"
         }
         if (-not $workflowPages.Readable) {
-          Add-CatchRecord 'ci' "workflow-runs API unreadable: $($workflowPages.Reason)"
-          throw "[CI-GATE-API] 候选 ci.yml workflow-runs 响应不可判：$($workflowPages.Reason)"
+          Add-CatchRecord 'ci' "workflow API: $($workflowPages.Reason)"
+          throw "[CI-GATE-API] workflow: $($workflowPages.Reason)"
         }
         $candidateRuns = @($workflowPages.Items)
         if ($candidateRuns.Count -eq 0) {
@@ -747,15 +738,15 @@ switch ($Phase) {
           continue
         }
         if ($candidateRuns.Count -ne 1) {
-          Add-CatchRecord 'ci' "candidate ci.yml workflow run ambiguous (count=$($candidateRuns.Count), head=$ciHead)"
-          throw "[CI-GATE-WORKFLOW-AMBIGUOUS] 候选 ci.yml 对 PR head $ciHead 返回 $($candidateRuns.Count) 个 workflow runs；无法唯一绑定本轮 job，拒绝猜测。"
+          Add-CatchRecord 'ci' "workflow runs=$($candidateRuns.Count) head=$ciHead"
+          throw "[CI-GATE-WORKFLOW-AMBIGUOUS] runs=$($candidateRuns.Count)。"
         }
         $candidateRun = $candidateRuns[0]
         $runProperties = @($candidateRun.PSObject.Properties.Name)
         $runMissing = @(@('id', 'head_sha', 'event', 'status', 'conclusion', 'run_attempt', 'path', 'pull_requests') | Where-Object { $runProperties -cnotcontains $_ })
         if ($runMissing.Count -gt 0) {
-          Add-CatchRecord 'ci' "candidate workflow run missing properties: $($runMissing -join ', ')"
-          throw "[CI-GATE-WORKFLOW-IDENTITY] 候选 workflow run 缺属性：$($runMissing -join ', ')"
+          Add-CatchRecord 'ci' "workflow missing: $($runMissing -join ', ')"
+          throw "[CI-GATE-WORKFLOW-IDENTITY] 缺属性：$($runMissing -join ', ')"
         }
         $runId = 0L; $runAttempt = 0; $runPath = "$($candidateRun.path)"
         $runPullRequests = $candidateRun.pull_requests; $runPrMatches = @()
@@ -766,14 +757,14 @@ switch ($Phase) {
             (-not [int]::TryParse("$($candidateRun.run_attempt)", [ref]$runAttempt)) -or ($runAttempt -le 0) -or
             ("$($candidateRun.head_sha)" -cne $ciHead) -or ("$($candidateRun.event)" -cne 'pull_request') -or
             ($runPath -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($runPrMatches.Count -ne 1)) {
-          Add-CatchRecord 'ci' "candidate workflow identity mismatch (id='$($candidateRun.id)', attempt='$($candidateRun.run_attempt)', head='$($candidateRun.head_sha)', event='$($candidateRun.event)', path='$runPath', prMatches=$($runPrMatches.Count))"
-          throw "[CI-GATE-WORKFLOW-IDENTITY] 候选 workflow run 未唯一绑定 PR #$pr/head/path/event（id='$($candidateRun.id)', attempt='$($candidateRun.run_attempt)', head='$($candidateRun.head_sha)', event='$($candidateRun.event)', path='$runPath', prMatches=$($runPrMatches.Count)）。"
+          Add-CatchRecord 'ci' "workflow id=$($candidateRun.id) try=$($candidateRun.run_attempt) head=$($candidateRun.head_sha) event=$($candidateRun.event) path=$runPath prs=$($runPrMatches.Count)"
+          throw "[CI-GATE-WORKFLOW-IDENTITY] PR #$pr workflow 身份不唯一/不匹配。"
         }
         $workflowStatus = "$($candidateRun.status)"
         $workflowConclusion = "$($candidateRun.conclusion)"
         if (($workflowStatus -ieq 'completed') -and ($workflowConclusion -ine 'success')) {
-          Add-CatchRecord 'ci' "candidate ci.yml run $runId=$workflowStatus/$workflowConclusion"
-          throw "[CI-GATE-RED] 候选 ci.yml workflow run $runId 不是 completed+success（$workflowStatus/$workflowConclusion）。"
+          Add-CatchRecord 'ci' "workflow $runId=$workflowStatus/$workflowConclusion"
+          throw "[CI-GATE-RED] workflow $runId=$workflowStatus/$workflowConclusion。"
         }
         if (($workflowStatus -ine 'completed') -or ($workflowConclusion -ine 'success')) {
           $ciLastState = "candidate ci.yml run $runId=$workflowStatus/$workflowConclusion"
@@ -784,12 +775,12 @@ switch ($Phase) {
           -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/jobs?filter=latest&per_page=100&page={page}" `
           -CollectionProperty 'jobs' -Deadline $ciDeadline
         if ($jobPages.TimedOut) {
-          Add-CatchRecord 'ci' "timeout ${ciTimeoutSec}s: $($jobPages.Reason)"
-          throw "[CI-GATE-TIMEOUT] 等待 PR #$pr head $ciHead 的候选 CI 超过 ${ciTimeoutSec}s；最后状态：$($jobPages.Reason)"
+          Add-CatchRecord 'ci' "timeout: $($jobPages.Reason)"
+          throw "[CI-GATE-TIMEOUT] jobs: $($jobPages.Reason)"
         }
         if (-not $jobPages.Readable) {
-          Add-CatchRecord 'ci' "jobs API unreadable: $($jobPages.Reason)"
-          throw "[CI-GATE-API] 候选 workflow jobs 响应不可判：$($jobPages.Reason)"
+          Add-CatchRecord 'ci' "jobs API: $($jobPages.Reason)"
+          throw "[CI-GATE-API] jobs: $($jobPages.Reason)"
         }
         $workflowJobs = @($jobPages.Items)
         $ciPending = @()
@@ -803,8 +794,8 @@ switch ($Phase) {
           $ciStatus = "$($ciRun.status)"
           $ciConclusion = "$($ciRun.conclusion)"
           if (($ciStatus -ieq 'completed') -and ($ciConclusion -ine 'success')) {
-            Add-CatchRecord 'ci' "candidate workflow job $ciJob=$ciStatus/$ciConclusion"
-            throw "[CI-GATE-RED] 候选 ci.yml job '$ciJob' 不是 completed+success（$ciStatus/$ciConclusion）；skipped/neutral 也不视为通过。"
+            Add-CatchRecord 'ci' "job $ciJob=$ciStatus/$ciConclusion"
+            throw "[CI-GATE-RED] job '$ciJob'=$ciStatus/$ciConclusion。"
           }
           if (($ciStatus -ine 'completed') -or ($ciConclusion -ine 'success')) { $ciPending += "$ciJob=$ciStatus/$ciConclusion" }
         }
@@ -815,42 +806,38 @@ switch ($Phase) {
         $ciLastState = $ciPending -join ', '
         Wait-CiRetryBeforeDeadline $ciDeadline
       }
-      Write-Host "[CI-GATE-PASS] PR #$pr head $ciHead：候选 jobs [$($ciUnique -join ', ')] 均 completed+success。" -ForegroundColor Green
-      # 等待期间 PR 可能 retarget、base 同名向前移动、更新 head，或其它 exact-head check 才转红。
-      # 先刷新并比较 base OID，再重扫 exact-head 全仓红检查；最后一次 PR 元数据快照紧贴决策，同时绑定 base/head。
+      Write-Host "[CI-GATE-PASS] PR #$pr/$ciHead jobs [$($ciUnique -join ', ')] completed+success。" -ForegroundColor Green
       & git -C $Wt fetch --quiet --no-tags origin "+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}" 2>$null
       if ($LASTEXITCODE -ne 0) {
         Add-CatchRecord 'ci' "post-CI base refresh failed: refs/remotes/origin/$remoteBaseName"
-        throw "[CI-GATE-BASE-REFRESH] 候选 CI 后无法刷新远端基线 refs/remotes/origin/$remoteBaseName；拒绝拿陈旧基线宣告就绪/合并。"
+        throw "[CI-GATE-BASE-REFRESH] origin/$remoteBaseName。"
       }
       $ciBaseAfter = "$(& git -C $Wt rev-parse "refs/remotes/origin/$remoteBaseName" 2>$null)".Trim()
       if (($ciBaseAfter -cnotmatch '^[0-9a-f]{40}$') -or ($ciBaseAfter -cne $scopeBaseOid)) {
         Add-CatchRecord 'ci' "base moved after wait ($scopeBaseOid -> '$ciBaseAfter')"
-        throw "[CI-GATE-BASE-MOVED] PR #$pr 基线 '$remoteBaseName' 在确定性闸/R3/CI 期间变化（$scopeBaseOid -> '$ciBaseAfter'）；旧基线上的判定已失效，拒绝就绪/合并。"
+        throw "[CI-GATE-BASE-MOVED] $scopeBaseOid -> '$ciBaseAfter'。"
       }
       $ciFinalChecks = Get-ExactHeadChecksBeforeDeadline -Head $ciHead -Deadline $ciDeadline
       if ($ciFinalChecks.TimedOut) {
         Add-CatchRecord 'ci' "final exact-head scan timeout: $($ciFinalChecks.Reason)"
-        throw "[CI-GATE-TIMEOUT] PR #$pr 决策前 exact-head 最终复扫超过 ${ciTimeoutSec}s：$($ciFinalChecks.Reason)"
+        throw "[CI-GATE-TIMEOUT] final checks: $($ciFinalChecks.Reason)"
       }
       if (-not $ciFinalChecks.Readable) {
         Add-CatchRecord 'ci' "final exact-head scan unreadable: $($ciFinalChecks.Reason)"
-        throw "[CI-GATE-API] PR #$pr 决策前 exact-head 最终复扫不可判：$($ciFinalChecks.Reason)"
+        throw "[CI-GATE-API] final checks: $($ciFinalChecks.Reason)"
       }
       if ($ciFinalChecks.Blocking.Count -gt 0) {
         $ciFinalBad = @($ciFinalChecks.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
         Add-CatchRecord 'ci' "final red checks: $ciFinalBad"
-        throw "[CI-GATE-RED] PR #$pr head $ciHead 在决策前存在失败检查：$ciFinalBad"
+        throw "[CI-GATE-RED] final checks: $ciFinalBad"
       }
-      # check-runs 最终复扫之后，候选 workflow 可能被同 head re-run。必须再读同一 workflow/run/jobs；
-      # pending 回到整轮等待，completed 非 success 立即红灯，避免拿先前成功快照宣告就绪或合并。
       $ciFinalWorkflowPages = Get-GhPagedCollectionBeforeDeadline `
         -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$ciHead&per_page=100&page={page}" `
         -CollectionProperty 'workflow_runs' -Deadline $ciDeadline
-      if ($ciFinalWorkflowPages.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 决策前候选 workflow 复核超过 ${ciTimeoutSec}s：$($ciFinalWorkflowPages.Reason)" }
-      if (-not $ciFinalWorkflowPages.Readable) { throw "[CI-GATE-API] PR #$pr 决策前候选 workflow 复核不可判：$($ciFinalWorkflowPages.Reason)" }
+      if ($ciFinalWorkflowPages.TimedOut) { throw "[CI-GATE-TIMEOUT] final workflow: $($ciFinalWorkflowPages.Reason)" }
+      if (-not $ciFinalWorkflowPages.Readable) { throw "[CI-GATE-API] final workflow: $($ciFinalWorkflowPages.Reason)" }
       $ciFinalRuns = @($ciFinalWorkflowPages.Items)
-      if ($ciFinalRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] PR #$pr 决策前候选 ci.yml 返回 $($ciFinalRuns.Count) 个 workflow runs；拒绝拿旧成功 run 宣告就绪。" }
+      if ($ciFinalRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] final runs=$($ciFinalRuns.Count)。" }
       $ciFinalRun = $ciFinalRuns[0]; $ciFinalRunId = 0L; $ciFinalAttempt = 0
       $ciFinalRunProperties = @($ciFinalRun.PSObject.Properties.Name)
       $ciFinalPullRequests = $ciFinalRun.pull_requests; $ciFinalPrMatches = @()
@@ -860,24 +847,24 @@ switch ($Phase) {
           (-not [int]::TryParse("$($ciFinalRun.run_attempt)", [ref]$ciFinalAttempt)) -or ($ciFinalAttempt -le 0) -or
           ("$($ciFinalRun.head_sha)" -cne $ciHead) -or ("$($ciFinalRun.event)" -cne 'pull_request') -or
           ("$($ciFinalRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($ciFinalPrMatches.Count -ne 1)) {
-        throw "[CI-GATE-WORKFLOW-IDENTITY] PR #$pr 决策前候选 workflow 身份漂移（id='$($ciFinalRun.id)', expected=$runId, head='$($ciFinalRun.head_sha)', attempt='$($ciFinalRun.run_attempt)', prMatches=$($ciFinalPrMatches.Count)）。"
+        throw "[CI-GATE-WORKFLOW-IDENTITY] 决策前 workflow 身份漂移（id=$($ciFinalRun.id), expected=$runId）。"
       }
       $ciFinalWorkflowStatus = "$($ciFinalRun.status)"; $ciFinalWorkflowConclusion = "$($ciFinalRun.conclusion)"
-      if (($ciFinalWorkflowStatus -ieq 'completed') -and ($ciFinalWorkflowConclusion -ine 'success')) { throw "[CI-GATE-RED] PR #$pr 决策前候选 workflow $runId 不是 completed+success（$ciFinalWorkflowStatus/$ciFinalWorkflowConclusion）。" }
+      if (($ciFinalWorkflowStatus -ieq 'completed') -and ($ciFinalWorkflowConclusion -ine 'success')) { throw "[CI-GATE-RED] workflow $runId：$ciFinalWorkflowStatus/$ciFinalWorkflowConclusion" }
       if (($ciFinalWorkflowStatus -ine 'completed') -or ($ciFinalWorkflowConclusion -ine 'success')) {
         $ciLastState = "decision recheck workflow $runId=$ciFinalWorkflowStatus/$ciFinalWorkflowConclusion"; Wait-CiRetryBeforeDeadline $ciDeadline; continue ciStable
       }
       $ciFinalJobPages = Get-GhPagedCollectionBeforeDeadline `
         -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/jobs?filter=latest&per_page=100&page={page}" `
         -CollectionProperty 'jobs' -Deadline $ciDeadline
-      if ($ciFinalJobPages.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 决策前候选 jobs 复核超过 ${ciTimeoutSec}s：$($ciFinalJobPages.Reason)" }
-      if (-not $ciFinalJobPages.Readable) { throw "[CI-GATE-API] PR #$pr 决策前候选 jobs 复核不可判：$($ciFinalJobPages.Reason)" }
+      if ($ciFinalJobPages.TimedOut) { throw "[CI-GATE-TIMEOUT] final jobs: $($ciFinalJobPages.Reason)" }
+      if (-not $ciFinalJobPages.Readable) { throw "[CI-GATE-API] final jobs: $($ciFinalJobPages.Reason)" }
       $ciFinalJobs = @($ciFinalJobPages.Items); $ciFinalPending = @()
       foreach ($ciJob in $ciUnique) {
         $ciFinalMatches = @($ciFinalJobs | Where-Object { "$($_.name)" -ceq $ciJob })
         if ($ciFinalMatches.Count -ne 1) { $ciFinalPending += "$ciJob=missing-or-duplicate($($ciFinalMatches.Count))"; continue }
         $ciFinalStatus = "$($ciFinalMatches[0].status)"; $ciFinalConclusion = "$($ciFinalMatches[0].conclusion)"
-        if (($ciFinalStatus -ieq 'completed') -and ($ciFinalConclusion -ine 'success')) { throw "[CI-GATE-RED] PR #$pr 决策前候选 job '$ciJob' 不是 completed+success（$ciFinalStatus/$ciFinalConclusion）。" }
+        if (($ciFinalStatus -ieq 'completed') -and ($ciFinalConclusion -ine 'success')) { throw "[CI-GATE-RED] job '$ciJob'：$ciFinalStatus/$ciFinalConclusion" }
         if (($ciFinalStatus -ine 'completed') -or ($ciFinalConclusion -ine 'success')) { $ciFinalPending += "$ciJob=$ciFinalStatus/$ciFinalConclusion" }
       }
       if (($ciFinalJobs.Count -ne $ciUnique.Count) -and ($ciFinalPending.Count -eq 0)) { $ciFinalPending += "candidate-job-count=$($ciFinalJobs.Count)/$($ciUnique.Count)" }
@@ -895,18 +882,17 @@ switch ($Phase) {
       }
       if ($ciFinalBase -cne $shipBase) {
         Add-CatchRecord 'base' "post-CI PR base mismatch: expected=$shipBase actual='$ciFinalBase' exit=$ciFinalPrExit"
-        throw "[CI-GATE-BASE-MISMATCH] PR #$pr 在 CI 等待后基线为 '$ciFinalBase'（期望 '$shipBase'，exit $ciFinalPrExit）；拒绝按旧基线判定就绪/合并。"
+        throw "[CI-GATE-BASE-MISMATCH] '$ciFinalBase' != '$shipBase' (exit $ciFinalPrExit)。"
       }
       if (($ciHeadAfter -cnotmatch '^[0-9a-f]{40}$') -or ($ciHeadAfter -cne $ciHead)) {
         Add-CatchRecord 'ci' "head moved after wait ($ciHead -> '$ciHeadAfter', exit=$ciFinalPrExit)"
-        throw "[CI-GATE-HEAD-MOVED] PR #$pr head 在 CI 等待后变化（$ciHead -> '$ciHeadAfter'，exit $ciFinalPrExit）；新 head 未经本轮闸门，拒绝就绪/合并。"
+        throw "[CI-GATE-HEAD-MOVED] $ciHead -> '$ciHeadAfter' (exit $ciFinalPrExit)。"
       }
       break ciStable
       }
       $sagaDone += 'CI gate'
       if (-not $NoAutoMerge) {
         # free + private：服务端无规则集/必需检查，auto-merge 亦未启用。
-        # 本地闸门与上方候选 CI 都已通过；用 --match-head-commit 把合并原子绑定到刚证明的 head。
         Step '本地闸门+候选 CI 已过 → 绑定已证明 head 直接 squash 合并（free private：无服务端必需检查）'
         # 不加 --delete-branch：在 worktree 内它会尝试 checkout base(main) 以删本地分支，
         # 而 main 被主工作树占用 → fatal "'main' is already used by worktree"（合并其实已成功）。
@@ -1023,13 +1009,13 @@ switch ($Phase) {
           if ($sagaDone -contains 'R3 评审') {
             # R3 r3 #2 + r6 #9：修复若改动了 PR head（如解决冲突的新提交），已录的 R3 pass 即对旧 diff 而言；base 被
             # retarget（Assert-RemotePrBase 拦下的正是它）同样令已录 pass 失效——head 与 base **双新鲜度**都满足才可直合。
-            Write-Host "    R3 已 pass、合并腿未完成：先 gh pr view $sagaPrNum 查 state 与 base——已 MERGED 则走 cleanup 在线补验（或确认后 -Phase cleanup -Force）；未合并且 head 与 base 均未变（headRefOid == R3 已审 sha 且 baseRefName == $shipBase）**且已按总则手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算）**才可 gh pr merge $sagaPrNum --squash；head 或 base 任一有变即评审失效，按总则手动补跑全部确定性闸后 pwsh -NoProfile -File scripts\review.ps1 -WorktreePath `"$Wt`" -Base $shipBase -PostStatus -PrNumber $sagaPrNum 重跑至 pass 再合并。" -ForegroundColor Yellow
+            Write-Host "    R3 已 pass、合并腿未完成：MERGED 则 cleanup；否则重跑防泄露闸、真实 diff 预算、review.ps1 -PostStatus，重证同一 reviewed SHA 的候选 ci.yml workflow 及全部 jobs completed+success 与 base/head；仅可 gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>，缺证/漂移即停。" -ForegroundColor Yellow
           } elseif ($sagaPrNum -gt 0) {
-            Write-Host "    PR #$sagaPrNum 已开：修复须新改动时在 worktree 内 git commit 并 git push，**随后按总则手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算——不可仅靠 CI 复跑）**，再对该 PR review.ps1 -PostStatus 重跑评审+合并（对照基线审**全量** diff，修复提交不免检；精确命令见 TD85-RESUME 段）。" -ForegroundColor Yellow
+            Write-Host "    PR #$sagaPrNum 已开：push 后重跑防泄露闸、真实 diff 预算、review.ps1 -PostStatus，重证同一 reviewed SHA 的候选 ci.yml workflow 及全部 jobs completed+success 与 base/head；仅可 gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>。" -ForegroundColor Yellow
           } else {
             # R3 r7 #17：未推送兜底靶 = evidence.redSha 原值（非 HEAD~1——resume 二次失败的多提交分支上 HEAD~1 制造二次死锁）；证据缺失/占位 → 人工核对。
             $sagaRemoteReset = if ($sagaEvdSha -cmatch '^[0-9a-f]{40}$') { "git reset --soft $sagaEvdSha 撤销本次提交（HEAD 归位 RED 证据 sha，非 HEAD~1）" } else { "人工核对工作树后处置（RED 证据缺失/占位，无自动 reset 靶）" }
-            Write-Host "    commit 已落、PR 状态未知（push+PR 段未完成——PR 可能已建而号未解析到）：先 gh pr view $TaskId 实查、再看提交是否已推送（git status 对比 origin/$TaskId）——**未推送**（push 段即失败/未达）则在 worktree 内 $sagaRemoteReset，修复后重跑整条 ship，全部闸重过、无闸门旁路（R3 r6 #9）；**已推送/已有 PR** 则按总则**先手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算——不可仅靠 CI 复跑）**后对 PR review.ps1 -PostStatus 重跑评审+合并（审全量 diff）。" -ForegroundColor Yellow
+            Write-Host "    commit 已落、PR 状态未知：先 gh pr view $TaskId；未推送则 $sagaRemoteReset 后重跑 ship；已推送则重跑防泄露闸、真实 diff 预算、review.ps1 -PostStatus，重证同一 reviewed SHA 的候选 ci.yml workflow 及全部 jobs completed+success 与 base/head；仅可 gh pr merge <PR号> --squash --match-head-commit <同一 reviewed SHA>。" -ForegroundColor Yellow
           }
         }
       }

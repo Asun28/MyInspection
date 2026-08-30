@@ -8284,14 +8284,18 @@ else {
     # r3 #2/#9：R3 已 pass 的合并腿失败不得无条件建议直接 gh pr merge——修复若改了 PR head，已录 pass 即失效；
     # 建议文案须含「head 未变才可直合、变了先重跑 review.ps1 -PostStatus 至 pass」的条件路径（词法锚 = -PostStatus 在 R3 分支之后）。
     $prStateOk15r = ($catch15r.IndexOf('Test-Path Variable:pr') -ge 0) -and ($catch15r.LastIndexOf('gh pr view') -gt $iR315r) -and ($iR315r -ge 0) -and ($catch15r.IndexOf('-PostStatus') -gt $iR315r)
+    foreach ($recoveryAnchor15r in @('R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知')) {
+      $recoveryLine15r = @($catch15r -split "`n" | Where-Object { $_.Contains($recoveryAnchor15r) })
+      if ($recoveryLine15r.Count -ne 1 -or $recoveryLine15r[0] -notmatch '同一 reviewed SHA 的候选 ci\.yml workflow 及全部 jobs completed\+success.*base/head.*--match-head-commit <同一 reviewed SHA>') { Fail "闸15r(d/CI)：恢复分支 $recoveryAnchor15r 未重证 CI/base/head/绑定 SHA。"; $r15Fail = $true }
+    }
     # r4/r5 #9：-Local 合并腿失败态按**阶段状态**分流（$sagaLocalMerged=post-merge 凭据态 / MERGE_HEAD 在盘=合并中
     # merge --continue 续跑 / 皆无=守卫态重发 merge --no-ff --no-edit）——不嗅探异常文案（每个合并失败消息都含「冲突？」）。
     # r6 #9 闸门保真最小提示：未推送态给 reset --soft 归位全闸重跑；直合条件含 base（baseRefName）双新鲜度（根治=TD89）。
-    $localOk15r = ($catch15r.IndexOf('merge --continue') -ge 0) -and ($catch15r.IndexOf('--no-ff --no-edit') -ge 0) -and ($catch15r.IndexOf('$sagaLocalMerged') -ge 0) -and ($catch15r.IndexOf('MERGE_HEAD') -ge 0) -and ($catch15r.IndexOf('reset --soft') -ge 0) -and ($catch15r.IndexOf('baseRefName') -ge 0)
+    $localOk15r = ($catch15r.IndexOf('merge --continue') -ge 0) -and ($catch15r.IndexOf('--no-ff --no-edit') -ge 0) -and ($catch15r.IndexOf('$sagaLocalMerged') -ge 0) -and ($catch15r.IndexOf('MERGE_HEAD') -ge 0) -and ($catch15r.IndexOf('reset --soft') -ge 0) -and ($catch15r.IndexOf('base/head') -ge 0)
     if (($iMarker15r -lt 0) -or ($iHM15r -lt 0) -or ($iMarker15r -gt $iHM15r) -or ($rerunHits15r.Count -ne 1) -or ($rerunHits15r[0].Index -lt $iHM15r) -or (-not $optsOk15r) -or ($iR315r -lt $rerunHits15r[0].Index) -or (-not $prStateOk15r) -or (-not $localOk15r)) { Fail '闸15r(d)：恢复路由词法形状不符（R3 r1-r5 #9/#6/#2）——要求：TD85-RESUME 哨兵路由最先判（死锁重跑勿按本轮腿清单推断进度）；重跑安全守卫按 $sagaHeadMoved（真 HEAD 前移）+ -SkipRed 豁免判定而非「提交」腿成员（no-op 提交不动 HEAD）；完整重跑命令在 catch 内仅 1 次、位于该守卫之后、且由 $SkipRed/$NoAutoMerge/ContainsKey(Base) 补齐已绑定选项；commit 后分支不得以腿成员推断 PR 状态——须经已解析 PR 号（Test-Path Variable:pr）分流并在未知态给 gh pr view 实查命令；-Local 合并腿失败态按阶段状态（$sagaLocalMerged/MERGE_HEAD）分流出 merge --continue 续跑或 merge --no-ff --no-edit 重发；未推送态须给 reset --soft 归位全闸重跑、直合条件须含 baseRefName 双新鲜度（r6 #9 最小保真，根治 TD89）。'; $r15Fail = $true }
   }
 }
-if (-not $r15Fail) { Write-Host '  15r ship saga 报告闸 OK（腿完成追加点 ≥13 在场，含 push+PR/R3/CI gate/合并四条远端腿；catch 含哨兵且以原样裸 throw 结尾、恢复路由以「提交」为分水岭且重跑命令带齐已绑定选项仅现于 commit 前分支、commit 后按已解析 PR 号分流/未知态给实查命令、合并腿建议按 head 新鲜度条件化）' -ForegroundColor Green }
+if (-not $r15Fail) { Write-Host '  15r ship saga ≥13 腿（远端 push+PR/R3/CI gate/合并）与恢复路由 OK' -ForegroundColor Green }
 
 # 15r(e). hermetic 失败路径夹具（R3 r3 #6：词法锁只证形状，不证真实失败时刻的报告输出与异常语义——本块用 15i 同款
 #   隔离夹具真跑两条失败路径断言行为，离线、无 gh/codex，-Local + 均在评审腿之前失败）：
@@ -13710,7 +13714,7 @@ exit 0
           Remove-Item (Join-Path $r8Root 'review-reached'),(Join-Path $r8Root 'merge-reached'),(Join-Path $r8Root 'base-count') -ErrorAction SilentlyContinue
           $env:GH_MOCK_BASE_MODE = 'retarget'
           $r8RetargetOut = (& pwsh -NoProfile -File (Join-Path $r8Repo 'scripts/task.ps1') -TaskId T11-R3-BASELINE -Phase ship -SkipRed 2>&1 | Out-String)
-          if ($LASTEXITCODE -eq 0 -or $r8RetargetOut -notmatch '合并目标 ≠ 评审基线') { $r8RetargetDiag = if ($r8RetargetOut.Length -gt 1000) { $r8RetargetOut.Substring($r8RetargetOut.Length - 1000) } else { $r8RetargetOut }; Fail "种子缺陷 17aa(8/retarget)：R3 后 PR base 从 master 改为 other 未在 merge 前二次确认并阻断。输出尾段=$r8RetargetDiag" }
+          if ($LASTEXITCODE -eq 0 -or $r8RetargetOut -notmatch '\[CI-GATE-BASE-MISMATCH\]') { Fail '闸17aa(8/retarget)：缺 [CI-GATE-BASE-MISMATCH]。' }
           elseif (-not (Test-Path (Join-Path $r8Root 'review-reached'))) { Fail '闸17aa(8/retarget)：夹具未走过 review，未真正覆盖评审后的 TOCTOU 窗口。' }
           elseif (Test-Path (Join-Path $r8Root 'merge-reached')) { Fail '闸17aa(8/retarget)：二次 base 校验失败后仍调用 gh pr merge。' }
         }
