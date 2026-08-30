@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 144 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 145 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -89,6 +89,7 @@
 | T0-RECONCILE-DESIGN-JOURNEYS | merged | 补齐 Field Ledger 信息架构、导航、恢复与离线隐私旅程 |
 | T0-RECONCILE-DESIGN-METADATA-FIXTURE | merged | 修正设计元数据 YAML 状态的可执行源夹具 |
 | T0-RECONCILE-DESIGN-METADATA | merged | 建立 Field Ledger 可机读设计令牌与组件注册表 |
+| T0-RECONCILE-LESSONS-CONTRACT-FIXTURE | merged | 收口 lessons 六块精确模式与守卫夹具 |
 | T0-RECONCILE-LESSONS-FINAL-FIXTURE | merged | 最终收口 lessons 可执行源与唯一模式 |
 | T0-RECONCILE-LESSONS-FIXTURE | merged | 修正本地调和 lessons 的可执行源夹具 |
 | T0-RECONCILE-LESSONS-R3-FIXTURE | merged | 移除 lessons 夹具中的未合并身份守卫声明 |

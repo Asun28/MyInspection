@@ -1885,3 +1885,11 @@
 - rule: 凡验收声称 CLI/闸门 fail-closed 或变异会使真实进程变红：构造最小 hermetic 状态/提交，在全新进程执行与 production real-run 共用的判定路径；同时断言非零退出、专用哨兵与关键诊断；pass 只接受显式已知 outcome，未知值一律 fail-closed 并留变异。
 - enforced_by: scripts/selftest.ps1 gate 14f
 - refs:
+
+## L261
+- date: 2026-08-30 ｜ tags: testing,fixtures,verification,archive ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 修复已归档任务卡的 fixture 绑定时，用新的源夹具结构检查整体替换了原有 DoD；闭合卡本身变绿，但 CLAUDE 与 lessons 输出即使被破坏也不会再被读到。
+- root_cause: 把「源夹具契约正确」误当成「历史输出仍被验证」；元检查只证明正则和 OID 出现在卡里，不能替代原命令对实际产物的精确构造、排除项与 schema 校验。
+- rule: 修复历史 verifier 的 fixture/OID 时必须做加法而非替换：保留原有下游输出 oracle、精确构造、排除项和 schema check，只更新源绑定并追加新的唯一性与 mutation 断言。GREEN 前分别变异源绑定和实际输出；只检查命令里出现了某段文本不算输出证据。
+- enforced_by: none（历史 verifier 修复纪律；由任务卡 mutation wiring 与 R3 #6 复核）
+- refs: PR #206; specs/archive/tasks/T0-RECONCILE-LESSONS-CONTRACT-FIXTURE.md
