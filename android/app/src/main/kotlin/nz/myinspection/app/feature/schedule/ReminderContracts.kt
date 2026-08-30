@@ -1,30 +1,25 @@
 package nz.myinspection.app.feature.schedule
-
 import java.io.Serializable
 import java.security.MessageDigest
-import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 data class ScheduleRoute(val propertyId: String, val inspectionType: InspectionScheduleType) : Serializable
 data class PendingReminder(val route: ScheduleRoute, val dueAt: Instant) : Serializable {
-    fun toSpec(clock: Clock = Clock.systemUTC()): ReminderSpec =
-        WorkSpecFactory(clock).create(route, dueAt)
+    fun toSpec(): ReminderSpec = WorkSpecFactory().create(route, dueAt)
 }
 data class ReminderSpec(
     val uniqueWorkName: String, val occurrenceId: String,
-    val initialDelayMillis: Long, val route: ScheduleRoute, val dueAt: Instant,
+    val route: ScheduleRoute, val dueAt: Instant,
 )
 
-class WorkSpecFactory(private val clock: Clock = Clock.systemUTC()) {
+class WorkSpecFactory {
     fun create(route: ScheduleRoute, dueAt: Instant): ReminderSpec {
         require(route.propertyId.isNotBlank()) { "propertyId must not be blank" }
         val occurrenceId = reminderOccurrenceId(route, dueAt)
         return ReminderSpec(
             uniqueWorkName = "schedule-reminder:$occurrenceId",
             occurrenceId = occurrenceId,
-            initialDelayMillis = maxOf(0L, Duration.between(clock.instant(), dueAt).toMillis()),
             route = route,
             dueAt = dueAt,
         )
@@ -36,8 +31,8 @@ fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
         .digest(occurrence.encodeToByteArray())
         .toHex()
 }
-
 enum class ReceiptState { MISSING, ENQUEUED, DELIVERED, RETRYABLE, CORRUPT }
+enum class RegistrationResult { SUCCESS, RETRYABLE_FAILURE, PERMANENT_FAILURE }
 interface ReceiptStore {
     fun read(occurrenceId: String): ReceiptState
     fun compareAndSet(
@@ -62,8 +57,8 @@ internal class RegistrationCoordinator(
     private val onWriteFailure: () -> Unit,
 ) {
     fun register(
-        occurrenceId: String, onResult: (Boolean) -> Unit,
-        enqueue: ((Boolean) -> Unit) -> Unit,
+        occurrenceId: String, onResult: (RegistrationResult) -> Unit,
+        enqueue: ((RegistrationResult) -> Unit) -> Unit,
     ): Boolean {
         var initialState = store.readSafely(occurrenceId)
         if (initialState == ReceiptState.RETRYABLE) {
@@ -76,23 +71,29 @@ internal class RegistrationCoordinator(
                 val current = store.readSafely(occurrenceId)
                 if (current == ReceiptState.CORRUPT) onCorruptReceipt()
                 if (current == ReceiptState.RETRYABLE) onWriteFailure()
-                onResult(current in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED))
+                onResult(
+                    when {
+                        current in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED) -> RegistrationResult.SUCCESS
+                        current == ReceiptState.CORRUPT -> RegistrationResult.PERMANENT_FAILURE
+                        else -> RegistrationResult.RETRYABLE_FAILURE
+                    },
+                )
                 return false
             }
             initialState = ReceiptState.MISSING
         }
         if (initialState in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) {
-            onResult(true)
+            onResult(RegistrationResult.SUCCESS)
             return false
         }
         if (initialState == ReceiptState.CORRUPT) {
             onCorruptReceipt()
-            onResult(false)
+            onResult(RegistrationResult.PERMANENT_FAILURE)
             return false
         }
-        enqueue { accepted ->
-            if (!accepted) {
-                onResult(false)
+        enqueue { result ->
+            if (result != RegistrationResult.SUCCESS) {
+                onResult(result)
                 return@enqueue
             }
             val durable = store.compareAndSetSafely(
@@ -104,7 +105,13 @@ internal class RegistrationCoordinator(
             val complete = durable || current in setOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)
             if (!complete && current == ReceiptState.CORRUPT) onCorruptReceipt()
             if (!complete && current == ReceiptState.MISSING) onWriteFailure()
-            onResult(complete)
+            onResult(
+                when {
+                    complete -> RegistrationResult.SUCCESS
+                    current == ReceiptState.CORRUPT -> RegistrationResult.PERMANENT_FAILURE
+                    else -> RegistrationResult.RETRYABLE_FAILURE
+                },
+            )
         }
         return true
     }
@@ -114,7 +121,6 @@ data class RouteIntentSpec(
     val data: String, val notificationTag: String, val notificationId: Int,
     val requestCode: Int, val propertyId: String, val inspectionType: String,
 )
-
 data class NotificationIdentity(val tag: String, val id: Int)
 fun reminderRouteIntentSpec(route: ScheduleRoute, dueAt: Instant): RouteIntentSpec {
     val occurrenceId = reminderOccurrenceId(route, dueAt)
@@ -127,11 +133,9 @@ fun reminderRouteIntentSpec(route: ScheduleRoute, dueAt: Instant): RouteIntentSp
         inspectionType = route.inspectionType.name,
     )
 }
-
 fun reminderNotificationIdentity(intent: RouteIntentSpec) =
     NotificationIdentity(intent.notificationTag, intent.notificationId)
 data class NotificationCopy(val title: String, val body: String)
-
 fun scheduleNotificationCopy(type: InspectionScheduleType): NotificationCopy {
     val label = when (type) {
         InspectionScheduleType.ROUTINE -> "Routine inspection / 定期巡检"
@@ -160,7 +164,6 @@ fun reminderDeliveryPlan(
 } else {
     DeliveryPlan.Notify(scheduleNotificationCopy(route.inspectionType), reminderRouteIntentSpec(route, dueAt))
 }
-
 private fun ByteArray.toHex(): String = joinToString("") { byte ->
     "%02x".format(byte.toInt() and 0xff)
 }

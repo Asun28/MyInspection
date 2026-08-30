@@ -1,5 +1,4 @@
 package nz.myinspection.app.feature.schedule
-
 import android.content.Context
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -9,6 +8,9 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import java.io.IOException
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -20,32 +22,27 @@ internal object WorkKeys {
     const val DUE_AT_EPOCH_MILLIS = "due_at_epoch_millis"
     const val OCCURRENCE_ID = "occurrence_id"
 }
-
 data class EnqueueSpec(
-    val uniqueName: String, val initialDelayMillis: Long, val route: ScheduleRoute,
-    val dueAtEpochMillis: Long, val occurrenceId: String,
+    val uniqueName: String, val route: ScheduleRoute, val dueAtEpochMillis: Long,
+    val occurrenceId: String,
     val existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
 ) {
     companion object {
         fun from(spec: ReminderSpec) = EnqueueSpec(
-            spec.uniqueWorkName, spec.initialDelayMillis, spec.route,
-            spec.dueAt.toEpochMilli(), spec.occurrenceId,
+            spec.uniqueWorkName, spec.route, spec.dueAt.toEpochMilli(), spec.occurrenceId,
         )
     }
 }
-
 sealed interface EnqueueResult {
     data object Accepted : EnqueueResult
     data class Rejected(val error: Throwable?) : EnqueueResult
 }
-
 enum class FailureKind { TRANSIENT, PERMANENT }
 enum class FailureCauseCode {
     SECURITY, INVALID_ARGUMENT, ILLEGAL_STATE, IO, CANCELLED, INTERRUPTED,
     UNKNOWN_RUNTIME, UNKNOWN, INVALID_INPUT, PERMISSION_DENIED, STORAGE_CORRUPT, STORAGE_WRITE,
 }
 data class FailureDisposition(val kind: FailureKind, val causeCode: FailureCauseCode)
-
 fun classifyReminderFailure(error: Throwable): FailureDisposition {
     if (error is ExecutionException && error.cause != null) {
         return classifyReminderFailure(requireNotNull(error.cause))
@@ -61,7 +58,6 @@ fun classifyReminderFailure(error: Throwable): FailureDisposition {
         else -> permanent(FailureCauseCode.UNKNOWN)
     }
 }
-
 private fun transient(cause: FailureCauseCode) = FailureDisposition(FailureKind.TRANSIENT, cause)
 private fun permanent(cause: FailureCauseCode) = FailureDisposition(FailureKind.PERMANENT, cause)
 enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_ENQUEUED, RECEIPT_DELIVERED, NOTIFY }
@@ -73,7 +69,6 @@ data class LogRecord(
     val stage: LogStage, val occurrenceId: String?, val type: InspectionScheduleType?,
     val retryable: Boolean, val errorCode: LogError, val causeCode: FailureCauseCode,
 )
-
 internal fun interface EventLogger {
     fun log(record: LogRecord)
 }
@@ -90,7 +85,6 @@ internal fun reminderLogMessage(record: LogRecord): String {
         "\"error_code\":\"${record.errorCode.wireValue()}\"," +
         "\"cause_code\":\"${record.causeCode.wireValue()}\"}"
 }
-
 private fun Enum<*>.wireValue() = name.lowercase().replace('_', '-')
 
 internal object AndroidReminderLogger : EventLogger {
@@ -101,7 +95,11 @@ internal object AndroidReminderLogger : EventLogger {
 
 object ReminderScheduler {
     @Synchronized
-    fun schedule(context: Context, spec: ReminderSpec, onResult: (Boolean) -> Unit = {}): Boolean {
+    fun schedule(
+        context: Context,
+        spec: ReminderSpec,
+        onResult: (RegistrationResult) -> Unit = {},
+    ): Boolean {
         val appContext = context.applicationContext
         val executor = ContextCompat.getMainExecutor(context)
         return schedule(spec, SharedPreferencesReceiptStore(appContext), AndroidReminderLogger, { result ->
@@ -124,10 +122,9 @@ object ReminderScheduler {
             }
         }
     }
-
     internal fun schedule(
         spec: ReminderSpec, store: ReceiptStore, logger: EventLogger,
-        onResult: (Boolean) -> Unit = {},
+        onResult: (RegistrationResult) -> Unit = {},
         enqueue: (EnqueueSpec, (EnqueueResult) -> Unit) -> Unit,
     ): Boolean {
         fun receiptFailure(stage: LogStage, error: LogError, cause: FailureCauseCode) {
@@ -146,21 +143,27 @@ object ReminderScheduler {
             try {
                 enqueue(EnqueueSpec.from(spec)) { result ->
                     if (result == EnqueueResult.Accepted) {
-                        complete(true)
+                        complete(RegistrationResult.SUCCESS)
                     } else {
-                        logEnqueueFailure(spec, (result as EnqueueResult.Rejected).error, logger)
-                        complete(false)
+                        val disposition = logEnqueueFailure(
+                            spec,
+                            (result as EnqueueResult.Rejected).error,
+                            logger,
+                        )
+                        complete(disposition.registrationResult())
                     }
                 }
             } catch (error: Exception) {
-                logEnqueueFailure(spec, error, logger)
-                complete(false)
+                complete(logEnqueueFailure(spec, error, logger).registrationResult())
             }
         }
     }
 }
-
-private fun logEnqueueFailure(spec: ReminderSpec, error: Throwable?, logger: EventLogger) {
+private fun logEnqueueFailure(
+    spec: ReminderSpec,
+    error: Throwable?,
+    logger: EventLogger,
+): FailureDisposition {
     val disposition = error?.let(::classifyReminderFailure) ?: transient(FailureCauseCode.UNKNOWN)
     logger.log(
         LogRecord(
@@ -168,10 +171,15 @@ private fun logEnqueueFailure(spec: ReminderSpec, error: Throwable?, logger: Eve
             disposition.kind == FailureKind.TRANSIENT, LogError.ENQUEUE_FAILED, disposition.causeCode,
         ),
     )
+    return disposition
 }
-
+private fun FailureDisposition.registrationResult() =
+    if (kind == FailureKind.TRANSIENT) RegistrationResult.RETRYABLE_FAILURE
+    else RegistrationResult.PERMANENT_FAILURE
 internal fun enqueueWorkManagerReminder(
-    work: EnqueueSpec, submit: (String, ExistingWorkPolicy, OneTimeWorkRequest) -> Unit,
+    work: EnqueueSpec,
+    clock: Clock = Clock.systemUTC(),
+    submit: (String, ExistingWorkPolicy, OneTimeWorkRequest) -> Unit,
 ) {
     val input = Data.Builder()
         .putString(WorkKeys.PROPERTY_ID, work.route.propertyId)
@@ -180,12 +188,17 @@ internal fun enqueueWorkManagerReminder(
         .putString(WorkKeys.OCCURRENCE_ID, work.occurrenceId)
         .build()
     val request = OneTimeWorkRequestBuilder<ReminderWorker>()
-        .setInitialDelay(work.initialDelayMillis, TimeUnit.MILLISECONDS)
+        .setInitialDelay(
+            maxOf(
+                0L,
+                Duration.between(clock.instant(), Instant.ofEpochMilli(work.dueAtEpochMillis)).toMillis(),
+            ),
+            TimeUnit.MILLISECONDS,
+        )
         .setInputData(input)
         .build()
     submit(work.uniqueName, work.existingWorkPolicy, request)
 }
-
 internal fun decodeReceipt(raw: String?): ReceiptState = when (raw) {
     null -> ReceiptState.MISSING
     ReceiptState.ENQUEUED.name -> ReceiptState.ENQUEUED
@@ -201,10 +214,8 @@ internal fun readReceipt(readRaw: () -> String?): ReceiptState = try {
 
 internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-
     override fun read(occurrenceId: String) =
         readReceipt { preferences.getString(occurrenceId, null) }
-
     override fun compareAndSet(
         occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
     ): Boolean = synchronized(LOCK) {
@@ -213,7 +224,6 @@ internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
         else if (state == ReceiptState.MISSING) preferences.edit().remove(occurrenceId).commit()
         else preferences.edit().putString(occurrenceId, state.name).commit()
     }
-
     private companion object {
         const val PREFERENCES_NAME = "schedule-reminder-occurrences"
         val LOCK = Any()

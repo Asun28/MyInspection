@@ -1,5 +1,4 @@
 package nz.myinspection.app.feature.schedule
-
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
@@ -29,9 +28,7 @@ internal data class WorkerInput(
         )
     }
 }
-
 internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
-
 internal fun <T> postReminderNotification(
     identity: NotificationIdentity,
     notification: T,
@@ -64,7 +61,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             WorkerOutcome.FAILURE -> Result.failure()
         }
     }
-
     private fun postNotification(delivery: DeliveryPlan.Notify) {
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
@@ -85,7 +81,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             .build()
         postReminderNotification(reminderNotificationIdentity(delivery.intent), notification, manager::notify)
     }
-
     private fun routePendingIntent(spec: RouteIntentSpec): PendingIntent {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             action = ACTION_OPEN_SCHEDULE
@@ -100,14 +95,12 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
-
     companion object {
         const val ACTION_OPEN_SCHEDULE = "nz.myinspection.app.action.OPEN_SCHEDULE"
         const val EXTRA_PROPERTY_ID = "nz.myinspection.app.extra.PROPERTY_ID"
         const val EXTRA_INSPECTION_TYPE = "nz.myinspection.app.extra.INSPECTION_TYPE"
         private const val CHANNEL_ID = "inspection-reminders"
         private const val MAX_ATTEMPTS = 3
-
         internal fun execute(
             input: WorkerInput, sdkInt: Int, permissionGranted: Boolean,
             runAttemptCount: Int, store: ReceiptStore, logger: EventLogger,
@@ -120,7 +113,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
                 ReceiptState.CORRUPT -> return corruptReceipt(occurrenceId, route.inspectionType, logger)
                 ReceiptState.MISSING, ReceiptState.ENQUEUED, ReceiptState.RETRYABLE -> Unit
             }
-
             val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)
             if (delivery is DeliveryPlan.Retry) {
                 return failureOutcome(
@@ -134,7 +126,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
                     logger,
                 )
             }
-
             try {
                 notify(delivery as DeliveryPlan.Notify)
             } catch (error: Exception) {
@@ -149,7 +140,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
                     logger,
                 )
             }
-
             val durable = store.compareAndSetSafely(
                 occurrenceId,
                 setOf(ReceiptState.MISSING, ReceiptState.ENQUEUED, ReceiptState.RETRYABLE),
@@ -170,7 +160,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
                 logger,
             )
         }
-
         private fun validate(input: WorkerInput): ValidatedInput? {
             val propertyId = input.propertyId?.takeIf(String::isNotBlank) ?: return null
             val type = input.type
@@ -183,7 +172,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
                 ValidatedInput(route, dueAt, occurrenceId)
             } else null
         }
-
         private fun invalidInput(input: WorkerInput, logger: EventLogger): WorkerOutcome {
             logger.record(
                 LogStage.INPUT,
@@ -195,7 +183,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             )
             return WorkerOutcome.FAILURE
         }
-
         private fun corruptReceipt(
             occurrenceId: String,
             type: InspectionScheduleType,
@@ -211,7 +198,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             )
             return WorkerOutcome.FAILURE
         }
-
         private fun failureOutcome(
             stage: LogStage, occurrenceId: String, type: InspectionScheduleType,
             disposition: FailureDisposition, errorCode: LogError, attempt: Int,
@@ -220,7 +206,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             val retryable = disposition.kind == FailureKind.TRANSIENT && attempt + 1 < MAX_ATTEMPTS
             logger.record(stage, occurrenceId, type, retryable, errorCode, disposition.causeCode)
             if (retryable) return WorkerOutcome.RETRY
-
             val released = store.readSafely(occurrenceId) == ReceiptState.RETRYABLE ||
                 store.compareAndSetSafely(
                 occurrenceId,
@@ -239,7 +224,6 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             }
             return WorkerOutcome.FAILURE
         }
-
         private fun transientPermission() =
             FailureDisposition(FailureKind.TRANSIENT, FailureCauseCode.PERMISSION_DENIED)
     }
