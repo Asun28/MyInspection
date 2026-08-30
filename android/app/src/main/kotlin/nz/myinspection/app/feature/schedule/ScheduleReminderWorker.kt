@@ -16,7 +16,7 @@ import nz.myinspection.app.MainActivity
 import nz.myinspection.core.schedule.InspectionScheduleType
 internal data class ReminderWorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
 internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
-internal fun <T> postReminderNotification(identity: ReminderNotificationIdentity, notification: T, post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
+internal fun <T> postReminderNotification(identity: NotificationIdentity, notification: T, post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
 class ScheduleReminderWorker(
     appContext: Context,
     parameters: WorkerParameters,
@@ -43,7 +43,7 @@ class ScheduleReminderWorker(
             WorkerOutcome.FAILURE -> Result.failure()
         }
     }
-    private fun postNotification(delivery: ReminderDeliveryPlan.Notify) {
+    private fun postNotification(delivery: DeliveryPlan.Notify) {
         val notificationManager = applicationContext.getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(
             NotificationChannel(
@@ -62,7 +62,7 @@ class ScheduleReminderWorker(
             .build()
         postReminderNotification(reminderNotificationIdentity(delivery.intent), notification, notificationManager::notify)
     }
-    private fun routePendingIntent(intentSpec: ReminderRouteIntentSpec): PendingIntent {
+    private fun routePendingIntent(intentSpec: RouteIntentSpec): PendingIntent {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             action = ACTION_OPEN_SCHEDULE
             putExtra(EXTRA_PROPERTY_ID, intentSpec.propertyId)
@@ -87,7 +87,7 @@ class ScheduleReminderWorker(
             permissionGranted: Boolean,
             store: ReminderOccurrenceStore,
             logger: ReminderEventLogger,
-            notify: (ReminderDeliveryPlan.Notify) -> Unit,
+            notify: (DeliveryPlan.Notify) -> Unit,
         ): WorkerOutcome {
             fun invalid(): WorkerOutcome {
                 logger.log(LogStage.INPUT, input.occurrenceId, null, false, LogError.INVALID_INPUT)
@@ -101,11 +101,11 @@ class ScheduleReminderWorker(
             if (occurrenceId != reminderOccurrenceId(route, dueAt)) return invalid()
             if (store.read(occurrenceId) == ReceiptState.DELIVERED) return WorkerOutcome.SUCCESS
             val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)
-            if (delivery is ReminderDeliveryPlan.Retry) {
+            if (delivery is DeliveryPlan.Retry) {
                 logger.log(LogStage.PERMISSION, occurrenceId, type, true, LogError.PERMISSION_DENIED)
                 return WorkerOutcome.RETRY
             }
-            delivery as ReminderDeliveryPlan.Notify
+            delivery as DeliveryPlan.Notify
             return try {
                 notify(delivery)
                 if (store.compareAndSet(occurrenceId, setOf(ReceiptState.ENQUEUED, null), ReceiptState.DELIVERED) || store.read(occurrenceId) == ReceiptState.DELIVERED) WorkerOutcome.SUCCESS

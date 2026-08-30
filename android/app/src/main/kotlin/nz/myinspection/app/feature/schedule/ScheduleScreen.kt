@@ -57,35 +57,35 @@ fun ScheduleRouteContent(
                 Build.VERSION.SDK_INT < 33 ||
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             ) {
-                NotificationPermissionState.GRANTED
+                PermissionState.GRANTED
             } else if (context.notificationPermissionWasRequested()) {
-                NotificationPermissionState.DENIED
+                PermissionState.DENIED
             } else {
-                NotificationPermissionState.UNKNOWN
+                PermissionState.UNKNOWN
             },
         )
     }
     var pendingReminder by rememberSaveable { mutableStateOf<PendingReminder?>(null) }
     var showRationale by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        permissionState = if (granted) NotificationPermissionState.GRANTED else NotificationPermissionState.DENIED
+        permissionState = if (granted) PermissionState.GRANTED else PermissionState.DENIED
     }
     val settingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val granted = Build.VERSION.SDK_INT < 33 ||
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        permissionState = if (granted) NotificationPermissionState.GRANTED else NotificationPermissionState.DENIED
+        permissionState = if (granted) PermissionState.GRANTED else PermissionState.DENIED
     }
     val requestPermission = {
         if (context.markNotificationPermissionRequested()) {
             showRationale = false
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            permissionState = NotificationPermissionState.DENIED
+            permissionState = PermissionState.DENIED
         }
     }
     val rows = scheduleRows(items, now, filter)
     LaunchedEffect(permissionState, pendingReminder) {
-        if (permissionState == NotificationPermissionState.GRANTED) {
+        if (permissionState == PermissionState.GRANTED) {
             pendingReminder.resumeAfterGrant(permissionState)?.let { ScheduleReminderScheduler.schedule(context, it) }
             pendingReminder = null
         }
@@ -110,16 +110,16 @@ fun ScheduleRouteContent(
                 ?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true
             val transition = scheduleRouteContentTransition(row, Build.VERSION.SDK_INT, permissionState, rationaleRequired)
             when (transition.action) {
-                ReminderPermissionAction.Schedule -> row.schedule(context)
-                ReminderPermissionAction.RequestPermission -> {
+                PermissionAction.Schedule -> row.schedule(context)
+                PermissionAction.RequestPermission -> {
                     pendingReminder = transition.pending
                     requestPermission()
                 }
-                is ReminderPermissionAction.ShowRationale -> {
+                is PermissionAction.ShowRationale -> {
                     pendingReminder = transition.pending
                     showRationale = true
                 }
-                is ReminderPermissionAction.ExplainDenied -> pendingReminder = transition.pending
+                is PermissionAction.ExplainDenied -> pendingReminder = transition.pending
             }
         },
     )
@@ -128,7 +128,7 @@ fun ScheduleRouteContent(
 fun ScheduleScreen(
     rows: List<SchedulePropertyRow>,
     filter: ScheduleFilter,
-    permissionState: NotificationPermissionState,
+    permissionState: PermissionState,
     showRationale: Boolean,
     onFilterChange: (ScheduleFilter) -> Unit,
     onOpenInspection: (ScheduleRoutePayload) -> Unit,
@@ -172,8 +172,8 @@ fun ScheduleScreen(
                 }
             }
         }
-        if (permissionState == NotificationPermissionState.DENIED) {
-            val denied = ReminderPermissionPolicy.next(33, permissionState) as ReminderPermissionAction.ExplainDenied
+        if (permissionState == PermissionState.DENIED) {
+            val denied = PermissionPolicy.next(33, permissionState) as PermissionAction.ExplainDenied
             Surface(
                 shape = fieldLedgerShapes.medium,
                 color = MaterialTheme.colorScheme.errorContainer,
@@ -254,7 +254,7 @@ private fun ScheduleStateBadge(badge: ScheduleBadge) {
 }
 private fun SchedulePropertyRow.schedule(context: android.content.Context) {
     val due = requireNotNull(dueAt) { "Only recurring rows can schedule reminders" }
-    val spec = ReminderWorkSpecFactory(Clock.systemUTC()).create(route, due)
+    val spec = WorkSpecFactory(Clock.systemUTC()).create(route, due)
     ScheduleReminderScheduler.schedule(context, spec)
 }
 private fun Context.notificationPermissionWasRequested(): Boolean =

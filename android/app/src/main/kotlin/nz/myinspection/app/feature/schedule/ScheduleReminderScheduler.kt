@@ -18,31 +18,19 @@ object ScheduleReminderScheduler {
     fun schedule(context: Context, spec: ReminderWorkSpec): Boolean {
         val store = SharedPreferencesReminderOccurrenceStore(context.applicationContext)
         return schedule(spec, store, AndroidReminderLogger) { work, complete ->
-            val input = Data.Builder()
-                .putString(ReminderWorkData.PROPERTY_ID, work.route.propertyId)
-                .putString(ReminderWorkData.INSPECTION_TYPE, work.route.inspectionType.name)
-                .putLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, work.dueAt.toEpochMilli())
-                .putString(ReminderWorkData.OCCURRENCE_ID, work.occurrenceId)
-                .build()
-            val request = OneTimeWorkRequestBuilder<ScheduleReminderWorker>()
-                .setInitialDelay(work.initialDelayMillis, TimeUnit.MILLISECONDS)
-                .setInputData(input)
-                .build()
-            val operation = WorkManager.getInstance(context.applicationContext)
-                .enqueueUniqueWork(work.uniqueName, work.existingWorkPolicy, request)
-            operation.result.addListener(
-                { complete(runCatching { operation.result.get() }.isSuccess) },
-                DIRECT_EXECUTOR,
-            )
+            enqueueWorkManagerReminder(work) { name, policy, request ->
+                val operation = WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(name, policy, request)
+                operation.result.addListener({ complete(runCatching { operation.result.get() }.isSuccess) }, DIRECT_EXECUTOR)
+            }
         }
     }
     internal fun schedule(
         spec: ReminderWorkSpec,
         store: ReminderOccurrenceStore,
         logger: ReminderEventLogger,
-        enqueue: (ReminderEnqueueSpec, (Boolean) -> Unit) -> Unit,
+        enqueue: (EnqueueSpec, (Boolean) -> Unit) -> Unit,
     ): Boolean {
-        val work = ReminderEnqueueSpec(spec.uniqueWorkName, spec.initialDelayMillis, spec.route, spec.dueAt, spec.occurrenceId, ExistingWorkPolicy.KEEP)
+        val work = EnqueueSpec(spec.uniqueWorkName, spec.initialDelayMillis, spec.route, spec.dueAt, spec.occurrenceId, ExistingWorkPolicy.KEEP)
         val coordinator = ReminderRegistrationCoordinator(store) {
             logger.log(it, spec.occurrenceId, spec.route.inspectionType, true, LogError.RECEIPT_WRITE_FAILED)
         }
@@ -59,6 +47,10 @@ object ScheduleReminderScheduler {
         }
     }
     private val DIRECT_EXECUTOR = Executor(Runnable::run)
+}
+internal fun enqueueWorkManagerReminder(work: EnqueueSpec, submit: (String, ExistingWorkPolicy, androidx.work.OneTimeWorkRequest) -> Unit) {
+    val input = Data.Builder().putString(ReminderWorkData.PROPERTY_ID, work.route.propertyId).putString(ReminderWorkData.INSPECTION_TYPE, work.route.inspectionType.name).putLong(ReminderWorkData.DUE_AT_EPOCH_MILLIS, work.dueAt.toEpochMilli()).putString(ReminderWorkData.OCCURRENCE_ID, work.occurrenceId).build()
+    submit(work.uniqueName, work.existingWorkPolicy, OneTimeWorkRequestBuilder<ScheduleReminderWorker>().setInitialDelay(work.initialDelayMillis, TimeUnit.MILLISECONDS).setInputData(input).build())
 }
 internal fun interface ReminderEventLogger {
     fun log(stage: LogStage, occurrenceId: String?, type: nz.myinspection.core.schedule.InspectionScheduleType?, retryable: Boolean, errorCode: LogError)

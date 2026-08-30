@@ -10,11 +10,11 @@ import nz.myinspection.core.schedule.ScheduleAdvice
 data class ScheduleRoutePayload(val propertyId: String, val inspectionType: InspectionScheduleType) : Serializable
 data class ReminderWorkSpec(val uniqueWorkName: String, val occurrenceId: String, val initialDelayMillis: Long, val route: ScheduleRoutePayload, val dueAt: Instant)
 data class PendingReminder(val route: ScheduleRoutePayload, val dueAt: Instant) : Serializable {
-    fun workSpec(clock: Clock = Clock.systemUTC()): ReminderWorkSpec = ReminderWorkSpecFactory(clock).create(route, dueAt)
+    fun workSpec(clock: Clock = Clock.systemUTC()): ReminderWorkSpec = WorkSpecFactory(clock).create(route, dueAt)
 }
-fun PendingReminder?.resumeAfterGrant(state: NotificationPermissionState, clock: Clock = Clock.systemUTC()): ReminderWorkSpec? =
-    if (state == NotificationPermissionState.GRANTED) this?.workSpec(clock) else null
-class ReminderWorkSpecFactory(private val clock: Clock = Clock.systemUTC()) {
+fun PendingReminder?.resumeAfterGrant(state: PermissionState, clock: Clock = Clock.systemUTC()): ReminderWorkSpec? =
+    if (state == PermissionState.GRANTED) this?.workSpec(clock) else null
+class WorkSpecFactory(private val clock: Clock = Clock.systemUTC()) {
     fun create(route: ScheduleRoutePayload, dueAt: Instant): ReminderWorkSpec {
         require(route.propertyId.isNotBlank()) { "propertyId must not be blank" }
         val occurrenceId = reminderOccurrenceId(route, dueAt)
@@ -49,13 +49,13 @@ class ReminderRegistrationCoordinator(
         if (succeeded && !store.compareAndSet(occurrenceId, setOf(null), ReceiptState.ENQUEUED) && store.read(occurrenceId) !in listOf(ReceiptState.ENQUEUED, ReceiptState.DELIVERED)) onPersistenceFailure(LogStage.RECEIPT_ENQUEUED)
     }
 }
-data class ReminderEnqueueSpec(val uniqueName: String, val initialDelayMillis: Long, val route: ScheduleRoutePayload, val dueAt: Instant, val occurrenceId: String, val existingWorkPolicy: androidx.work.ExistingWorkPolicy)
-data class ReminderRouteIntentSpec(val data: String, val notificationTag: String, val notificationId: Int, val requestCode: Int, val propertyId: String, val inspectionType: String)
-data class ReminderNotificationIdentity(val tag: String, val id: Int)
-fun reminderNotificationIdentity(intent: ReminderRouteIntentSpec): ReminderNotificationIdentity = ReminderNotificationIdentity(intent.notificationTag, intent.notificationId)
-fun reminderRouteIntentSpec(route: ScheduleRoutePayload, dueAt: Instant): ReminderRouteIntentSpec {
+data class EnqueueSpec(val uniqueName: String, val initialDelayMillis: Long, val route: ScheduleRoutePayload, val dueAt: Instant, val occurrenceId: String, val existingWorkPolicy: androidx.work.ExistingWorkPolicy)
+data class RouteIntentSpec(val data: String, val notificationTag: String, val notificationId: Int, val requestCode: Int, val propertyId: String, val inspectionType: String)
+data class NotificationIdentity(val tag: String, val id: Int)
+fun reminderNotificationIdentity(intent: RouteIntentSpec): NotificationIdentity = NotificationIdentity(intent.notificationTag, intent.notificationId)
+fun reminderRouteIntentSpec(route: ScheduleRoutePayload, dueAt: Instant): RouteIntentSpec {
     val occurrenceId = reminderOccurrenceId(route, dueAt)
-    return ReminderRouteIntentSpec(
+    return RouteIntentSpec(
         data = "myinspection://schedule/reminder/$occurrenceId",
         notificationTag = occurrenceId,
         notificationId = 0,
@@ -64,50 +64,50 @@ fun reminderRouteIntentSpec(route: ScheduleRoutePayload, dueAt: Instant): Remind
         inspectionType = route.inspectionType.name,
     )
 }
-enum class NotificationPermissionState { UNKNOWN, GRANTED, DENIED }
-sealed interface ReminderPermissionAction {
-    data object Schedule : ReminderPermissionAction
-    data object RequestPermission : ReminderPermissionAction
-    data class ShowRationale(val english: String, val chinese: String) : ReminderPermissionAction
-    data class ExplainDenied(val english: String, val chinese: String) : ReminderPermissionAction
+enum class PermissionState { UNKNOWN, GRANTED, DENIED }
+sealed interface PermissionAction {
+    data object Schedule : PermissionAction
+    data object RequestPermission : PermissionAction
+    data class ShowRationale(val english: String, val chinese: String) : PermissionAction
+    data class ExplainDenied(val english: String, val chinese: String) : PermissionAction
 }
-object ReminderPermissionPolicy {
-    fun next(sdkInt: Int, state: NotificationPermissionState, rationaleRequired: Boolean = false): ReminderPermissionAction = when {
-        sdkInt < 33 || state == NotificationPermissionState.GRANTED -> ReminderPermissionAction.Schedule
-        state == NotificationPermissionState.UNKNOWN && rationaleRequired -> ReminderPermissionAction.ShowRationale(
+object PermissionPolicy {
+    fun next(sdkInt: Int, state: PermissionState, rationaleRequired: Boolean = false): PermissionAction = when {
+        sdkInt < 33 || state == PermissionState.GRANTED -> PermissionAction.Schedule
+        state == PermissionState.UNKNOWN && rationaleRequired -> PermissionAction.ShowRationale(
             english = "Allow notifications to receive this local inspection reminder.",
             chinese = "允许通知以接收此本地巡检提醒。",
         )
-        state == NotificationPermissionState.UNKNOWN -> ReminderPermissionAction.RequestPermission
-        else -> ReminderPermissionAction.ExplainDenied(
+        state == PermissionState.UNKNOWN -> PermissionAction.RequestPermission
+        else -> PermissionAction.ExplainDenied(
             english = "Notifications are off. Allow them in Settings, then retry this reminder.",
             chinese = "通知已关闭。请在设置中允许通知，然后重试此提醒。",
         )
     }
 }
-data class ScheduleRouteContentTransition(val pending: PendingReminder, val action: ReminderPermissionAction)
-fun scheduleRouteContentTransition(row: SchedulePropertyRow, sdkInt: Int, state: NotificationPermissionState, rationaleRequired: Boolean): ScheduleRouteContentTransition =
-    ScheduleRouteContentTransition(PendingReminder(row.route, requireNotNull(row.dueAt)), ReminderPermissionPolicy.next(sdkInt, state, rationaleRequired))
-data class ScheduleNotificationCopy(val title: String, val body: String)
-fun scheduleNotificationCopy(type: InspectionScheduleType): ScheduleNotificationCopy {
+data class RouteTransition(val pending: PendingReminder, val action: PermissionAction)
+fun scheduleRouteContentTransition(row: SchedulePropertyRow, sdkInt: Int, state: PermissionState, rationaleRequired: Boolean): RouteTransition =
+    RouteTransition(PendingReminder(row.route, requireNotNull(row.dueAt)), PermissionPolicy.next(sdkInt, state, rationaleRequired))
+data class NotificationCopy(val title: String, val body: String)
+fun scheduleNotificationCopy(type: InspectionScheduleType): NotificationCopy {
     val label = when (type) {
         InspectionScheduleType.ROUTINE -> "Routine inspection / 定期巡检"
         InspectionScheduleType.ANNUAL -> "Annual home check / 年度住宅检查"
         InspectionScheduleType.INGOING -> "Ingoing inspection / 入住巡检"
         InspectionScheduleType.EXIT -> "Exit inspection / 退租巡检"
     }
-    return ScheduleNotificationCopy(
+    return NotificationCopy(
         title = "Inspection reminder / 巡检提醒",
         body = "$label is due. Open MyInspection to review the property. / 已到建议日期，请打开 MyInspection 查看物业。",
     )
 }
-sealed interface ReminderDeliveryPlan {
-    data object Retry : ReminderDeliveryPlan
-    data class Notify(val copy: ScheduleNotificationCopy, val intent: ReminderRouteIntentSpec) : ReminderDeliveryPlan
+sealed interface DeliveryPlan {
+    data object Retry : DeliveryPlan
+    data class Notify(val copy: NotificationCopy, val intent: RouteIntentSpec) : DeliveryPlan
 }
-fun reminderDeliveryPlan(sdkInt: Int, permissionGranted: Boolean, route: ScheduleRoutePayload, dueAt: Instant): ReminderDeliveryPlan =
-    if (sdkInt >= 33 && !permissionGranted) ReminderDeliveryPlan.Retry
-    else ReminderDeliveryPlan.Notify(scheduleNotificationCopy(route.inspectionType), reminderRouteIntentSpec(route, dueAt))
+fun reminderDeliveryPlan(sdkInt: Int, permissionGranted: Boolean, route: ScheduleRoutePayload, dueAt: Instant): DeliveryPlan =
+    if (sdkInt >= 33 && !permissionGranted) DeliveryPlan.Retry
+    else DeliveryPlan.Notify(scheduleNotificationCopy(route.inspectionType), reminderRouteIntentSpec(route, dueAt))
 enum class ScheduleBadge { DUE, UPCOMING, FIRST, ONE_OFF, EMPTY }
 enum class ScheduleFilter { ALL, DUE, ROUTINE, ANNUAL, INGOING, EXIT }
 data class ScheduleEmptyState(val badge: ScheduleBadge, val message: String)
