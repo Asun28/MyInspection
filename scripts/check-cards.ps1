@@ -243,7 +243,7 @@ foreach ($cf in $cards) {
   if ($acKeyLine -lt 0) {
     $cardWarns += "[CARD-ACCEPTANCE-ADVISORY] [$name] acceptance missing (optional author declaration)" # CARD-ACCEPTANCE-ADVISORY-GUARD
   } else {
-    $acEntry = 0; $acShapeBad = [int]$acKeyGlued; $acNumberBad = 0; $acNumberActual = ''
+    $acEntry = 0; $acIndent = $null; $acShapeBad = [int]$acKeyGlued; $acNumberBad = 0; $acNumberActual = ''
     $acInlineValue = ($acInline -replace '^\s*#.*$', '' -replace '\s+#.*$', '').Trim()
     if ($acInlineValue) { $acShapeBad = 1 }
     for ($acI = $acKeyLine + 1; $acI -lt $acLines.Count; $acI++) {
@@ -251,8 +251,11 @@ foreach ($cf in $cards) {
       if ($acLine -match '^[^\s#].*?:') { break }
       if ([string]::IsNullOrWhiteSpace($acLine) -or $acLine -match '^\s*#') { continue }
       $acEntry++
-      $acShape = if ($acLine -match '^\s+-\s+(.+?)\s*$') {
-        [regex]::Match($Matches[1], '^"(?<label>A[0-9]+)\s+(?:[^"\\]|\\(?:[ 0abtnvfre"/N_LP\\]|x[0-9A-Fa-f]{2}|u(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|U(?:0000(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|00(?:0[1-9A-Fa-f]|10)[0-9A-Fa-f]{4})))+"(?:[ \t]+#.*|[ \t]*)$')
+      $acShape = if ($acLine -match '^(?<indent> +)- +(?<value>.+?)\s*$') {
+        $acThisIndent = $Matches['indent']; $acValue = $Matches['value']
+        if ($null -eq $acIndent) { $acIndent = $acThisIndent }
+        if ($acThisIndent -cne $acIndent) { [regex]::Match('', '(?!)') }
+        else { [regex]::Match($acValue, '^"(?<label>A[0-9]+)\s+(?:[^"\\]|\\(?:[ 0abtnvfre"/N_LP\\]|x[0-9A-Fa-f]{2}|u(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|U(?:0000(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|00(?:0[1-9A-Fa-f]|10)[0-9A-Fa-f]{4})))+"(?:[ \t]+#.*|[ \t]*)$') }
       } else { [regex]::Match('', '(?!)') }
       if (-not $acShape.Success -and $acShapeBad -eq 0) { $acShapeBad = $acEntry }
       if ($acShape.Success -and $acShape.Groups['label'].Value -cne "A$acEntry" -and $acNumberBad -eq 0) {

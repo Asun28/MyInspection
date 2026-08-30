@@ -6103,12 +6103,17 @@ try {
   Set-AcFixtureCard 'T9-AC-COMMENT' @('acceptance: # author declaration', '  # fixture comment', '', '  - "A1 one" # item comment', '  - "A2 two"', '  - "A3 three"')
   $acComment = Invoke-AcFixture 'T9-AC-COMMENT'
   if ($acComment.Exit -ne 0) { Fail "[ACCEPTANCE-INLINE-COMMENT] acceptance 键后的 YAML 注释或块内空行/注释被误拒。输出：$($acComment.Out)" }
+  Set-AcFixtureCard 'T9-AC-INDENT4' @('acceptance:', '    - "A1 one"', '    - "A2 two"', '    - "A3 three"')
+  $acIndent4 = Invoke-AcFixture 'T9-AC-INDENT4'
+  if ($acIndent4.Exit -ne 0) { Fail "[ACCEPTANCE-CONSISTENT-INDENT] 一致的四空格 YAML 序列缩进被误拒。输出：$($acIndent4.Out)" }
 
   $invalidCases = @(
     @{ Id='T9-AC-INLINE'; Entry=1; Lines=@('acceptance: ["A1 one", "A2 two", "A3 three"]') },
     @{ Id='T9-AC-SINGLE'; Entry=1; Lines=@('acceptance:', "  - 'A1 one'", '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-BARE'; Entry=1; Lines=@('acceptance:', '  - A1 one', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-NODASH'; Entry=1; Lines=@('acceptance:', '  "A1 one"', '  "A2 two"', '  "A3 three"') },
+    @{ Id='T9-AC-MIXEDINDENT'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '    - "A2 two"', '      - "A3 three"') },
+    @{ Id='T9-AC-TABINDENT'; Entry=1; Lines=@('acceptance:', ([char]9 + '- "A1 one"'), ([char]9 + '- "A2 two"'), ([char]9 + '- "A3 three"')) },
     @{ Id='T9-AC-INNERQUOTE'; Entry=1; Lines=@('acceptance:', '  - "A1 one" trailing"', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-BADESCAPE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\qescape"', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-BADHEX'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\x4Z"', '  - "A2 two"', '  - "A3 three"') },
