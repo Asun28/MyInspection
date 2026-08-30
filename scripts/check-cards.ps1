@@ -23,12 +23,13 @@
     - dod_command 嵌套 `pwsh … -Command "…$var…"` 且内含会被内插的 $ 变量——task.ps1 双层 `pwsh -Command` 执行下
       内层 $var 被中间 shell 内插成空串、孙 shell ParserError exit 1，`-Phase red` 误当合法 RED（vacuous RED；TD69/L95）。
     - allow_paths 缺失（review.ps1 据此判越界）。
+    - acceptance 存在时非 >=3 条块式双引号字符串，或编号非严格 A1..An。
     - 卡文含模板占位符 token 字面量（双大括号包裹**大写蛇形**名，-cmatch 严格大写）——真 token 只应出现在模板产物；
       混进卡文，init 干跑冒烟会替换污染卡 / 留残留占位符触发失败，卡登记直推 master 即 CI 红（L61/TD111；selftest 闸10g 回归）。
     - 全卡模式：parallelizable_with（可选字段）声明并行的卡对，allow_paths 归一化前缀重叠——
       对称处理（单向声明即比对）；并行 worktree 互不重叠是并行前提（单卡 -TaskId 模式跳过跨卡检查）。
       重叠判定与列表解析带内建种子自检（同 selftest 闸 17 思路），逻辑退化即整体 FAIL。
-  警告（仍 exit 0）：title 缺失；字段疑似仍含占位符（path/to/… 或 <…>）；allow_paths > 5 条（右尺寸启发式：卡可能过大，宜拆）；
+  警告（仍 exit 0）：title 缺失；acceptance 缺失（可选作者声明）；字段疑似仍含占位符（path/to/… 或 <…>）；allow_paths > 5 条（右尺寸启发式：卡可能过大，宜拆）；
     动 frontend/ 的卡其 dod_command 未含前端测试闸（verify/vitest/playwright）。
 
   仅校验真实卡，跳过 _TEMPLATE.md（其 T?-EXAMPLE 占位故意违规）。无真实卡 => PASS（脚手架期）。
@@ -227,6 +228,36 @@ foreach ($cf in $cards) {
     if ($dodVarHazard) {
       $cardErrors += "[$name] " + 'dod_command 嵌套 pwsh/powershell 调用，其 -Command 载荷（任意拼写 -c/-Command/--Command）含会被中间 shell 内插的 $ 变量（如 $ok/$_/$env:/$(…)）——task.ps1 以 `& pwsh -NoProfile -Command <dod>` 双层执行本字段，载荷里的 $ 会被中间 shell 内插成空串、孙 shell 收到坏语法 → ParserError exit 1，而 -Phase red 只看退出码非零会把它误当合法 RED（vacuous RED，GREEN 永不可达；TD69/L95）。改用无变量写法：把判断内联进 if，如 pwsh -NoProfile -Command "if (-not ((Select-String …) -and …)) { exit 1 }"（单引号载荷 / 反引号转义 / scriptblock / -File 变量实参 / 载荷外的 $ 均不受限）。'
     }
+  }
+
+  # acceptance：可选作者声明，只判规范形态，不判条目内容是否够精确。
+  # 本仓无 YAML 解析依赖；故只登记块式双引号序列，允许其中的空行/注释，遇下一个顶层键即停。
+  $acKeyLine = -1; $acLines = @($fm -split '\r?\n')
+  for ($acI = 0; $acI -lt $acLines.Count; $acI++) {
+    if ($acLines[$acI] -match '^acceptance\s*:\s*(?<inline>.*)$') { $acKeyLine = $acI; $acInline = $Matches['inline']; break }
+  }
+  if ($acKeyLine -lt 0) {
+    $cardWarns += "[CARD-ACCEPTANCE-ADVISORY] [$name] acceptance missing (optional author declaration)" # CARD-ACCEPTANCE-ADVISORY-GUARD
+  } else {
+    $acEntry = 0; $acShapeBad = 0; $acNumberBad = 0; $acNumberActual = ''
+    $acInlineValue = ($acInline -replace '^\s*#.*$', '' -replace '\s+#.*$', '').Trim()
+    if ($acInlineValue) { $acShapeBad = 1 }
+    for ($acI = $acKeyLine + 1; $acI -lt $acLines.Count; $acI++) {
+      $acLine = $acLines[$acI]
+      if ($acLine -match '^[^\s#].*?:') { break }
+      if ([string]::IsNullOrWhiteSpace($acLine) -or $acLine -match '^\s*#') { continue }
+      $acEntry++
+      $acShape = if ($acLine -match '^\s+-\s+(.+?)\s*$') {
+        [regex]::Match($Matches[1], '^"(?<label>A[0-9]+)\s+(?:[^"\\]|\\.)+"\s*(?:#.*)?$')
+      } else { [regex]::Match('', '(?!)') }
+      if (-not $acShape.Success -and $acShapeBad -eq 0) { $acShapeBad = $acEntry }
+      if ($acShape.Success -and $acShape.Groups['label'].Value -cne "A$acEntry" -and $acNumberBad -eq 0) {
+        $acNumberBad = $acEntry; $acNumberActual = $acShape.Groups['label'].Value
+      }
+    }
+    if ($acEntry -lt 3 -and $acShapeBad -eq 0) { $acShapeBad = $acEntry + 1 }
+    if ($acShapeBad -gt 0) { $cardErrors += "[CARD-ACCEPTANCE-INVALID] [$name] entry=$acShapeBad reason=shape expected=>=3-block-double-quoted-strings" } # CARD-ACCEPTANCE-SHAPE-GUARD
+    if ($acNumberBad -gt 0) { $cardErrors += "[CARD-ACCEPTANCE-INVALID] [$name] entry=$acNumberBad reason=number expected=A$acNumberBad actual=$acNumberActual" } # CARD-ACCEPTANCE-NUMBER-GUARD
   }
 
   # allow_paths：评审越界判定所需

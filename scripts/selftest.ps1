@@ -29,8 +29,9 @@
        本闸的 init 干跑子检查（8.0c 及以下）已初始化即跳过；根目录洁净（8.1）与 _config 结构检查（8.0/8.0b）
        通用、下游仍跑。
     9. .claude 设置/钩子完整性：settings.json 合法 JSON + 其引用的钩子文件存在。
-   10. 任务卡校验：转调 check-cards.ps1（id=文件名、status 枚举、branch/worktree 不漂移、dod_command/allow_paths 完整、
-       拒卡文占位符 token 字面量）。子闸种子缺陷：10b（no-op 链）/10c/10d（front-matter 锚定·块式列表）/10g（占位符 token，TD111）。
+  10. 任务卡校验：转调 check-cards.ps1（id=文件名、status 枚举、branch/worktree 不漂移、dod_command/allow_paths 完整、
+      拒卡文占位符 token 字面量）。子闸种子缺陷：10b（no-op 链）/10c/10d（front-matter 锚定·块式列表）/10g（占位符 token，TD111）/
+      10h（可选 acceptance 块式双引号序列 + A1..An 连续编号 + 可定位诊断 + 缺失 advisory + 三枚单句删除变异）。
        10c（TD60/TD-123）：front-matter 结束标记须锚定到整行——正文一行以 `---` 开头但有尾随内容（非真正闭合符）
        不得把 front-matter 提前截断致后续键（dod_command/allow_paths）「消失」误报缺失；10d（TD60/TD-123）：
        allow_paths 须有 ≥1 个块式列表项——空值（`allow_paths:`）与行内 flow（`allow_paths: [a, b]`）此前只判
@@ -6068,6 +6069,125 @@ foreach ($tc in $td111Cases) {
   }
 }
 if ($ok10g -and -not $fail) { Write-Host '  种子缺陷 10g OK：卡文大写蛇形 token 字面量被 check-cards 建卡期拒绝、点名卡 + 可操作信息；小写/混合形态不被过度拒绝（-cmatch，TD111/L61 机检下沉）' -ForegroundColor Green }
+
+# 10h. acceptance 是可选的作者声明，只机检形态：>=3 条块式双引号字符串，严格 A1..An。
+# 夹具一律在临时根运行被测 checker；真卡和真 checker 只读。变异的基线与删句副本复用同一枚子进程 oracle。
+$acReadme = Get-Content -LiteralPath (Join-Path $RepoRoot 'specs/README.md') -Raw
+$acTemplate = Get-Content -LiteralPath (Join-Path $RepoRoot 'specs/tasks/_TEMPLATE.md') -Raw
+if ($acReadme -notmatch '(?m)^\| `acceptance` \|.*\*\*可选\*\*.*rubric.*\[FOLLOW-UP\]') { Fail '[ACCEPTANCE-DOC-REGISTRY] README acceptance 字段行未同时锁定可选/声明性/现行 rubric/不自动 FOLLOW-UP。' }
+if ($acTemplate -notmatch '(?m)^# acceptance:' -or $acTemplate -notmatch '(?m)^#\s+- "A1 .*\b3\b.*"$' -or $acTemplate -notmatch '(?m)^#\s+- "A2 .*\[RESULT-READY\].*"$') {
+  Fail '[ACCEPTANCE-TEMPLATE-EXAMPLE] _TEMPLATE 缺注释态 acceptance 块、A1 具体数值或 A2 ASCII 哨兵。'
+}
+$acRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-card-acceptance-$PID"
+Remove-Item -LiteralPath $acRoot -Recurse -Force -ErrorAction SilentlyContinue
+$acScripts = Join-Path $acRoot 'scripts'; $acTasks = Join-Path $acRoot 'specs/tasks'
+New-Item -ItemType Directory -Force $acScripts, $acTasks | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Destination $acScripts
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '_cards.ps1') -Destination $acScripts
+$acCheck = Join-Path $acScripts 'check-cards.ps1'
+function Set-AcFixtureCard([string]$Id, [string[]]$AcceptanceLines) {
+  $rows = @('---', "id: $Id", 'title: acceptance fixture', 'status: todo') + @($AcceptanceLines) + @(
+    'dod_command: "pwsh -NoProfile -File scripts/check-cards.ps1"', 'allow_paths:', '  - README.md', '---', '# fixture')
+  Set-Content -LiteralPath (Join-Path $acTasks "$Id.md") -Value ($rows -join "`n") -Encoding utf8
+}
+function Invoke-AcFixture([string]$Id) {
+  $out = & pwsh -NoProfile -File $acCheck -TaskId $Id 2>&1 | Out-String
+  [pscustomobject]@{ Exit = $LASTEXITCODE; Out = $out }
+}
+try {
+  $validLines = @('acceptance:', '  - "A1 exact value=3"', '  - "A2 sentinel=ASCII-OK"', '  - "A3 final assertion"')
+  Set-AcFixtureCard 'T9-AC-VALID' $validLines
+  $acValid = Invoke-AcFixture 'T9-AC-VALID'
+  if ($acValid.Exit -ne 0) { Fail "[ACCEPTANCE-VALID] 合法 acceptance 被拒绝（exit=$($acValid.Exit)）。输出：$($acValid.Out)" }
+  elseif ($acValid.Out -match '\[CARD-ACCEPTANCE-ADVISORY\].*T9-AC-VALID') { Fail '[ACCEPTANCE-PRESENT-NO-ADVISORY] 已写 acceptance 的卡仍产生缺失 advisory。' }
+  Set-AcFixtureCard 'T9-AC-COMMENT' @('acceptance: # author declaration', '  # fixture comment', '', '  - "A1 one"', '  - "A2 two"', '  - "A3 three"')
+  $acComment = Invoke-AcFixture 'T9-AC-COMMENT'
+  if ($acComment.Exit -ne 0) { Fail "[ACCEPTANCE-INLINE-COMMENT] acceptance 键后的 YAML 注释或块内空行/注释被误拒。输出：$($acComment.Out)" }
+
+  $invalidCases = @(
+    @{ Id='T9-AC-INLINE'; Entry=1; Lines=@('acceptance: ["A1 one", "A2 two", "A3 three"]') },
+    @{ Id='T9-AC-SINGLE'; Entry=1; Lines=@('acceptance:', "  - 'A1 one'", '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BARE'; Entry=1; Lines=@('acceptance:', '  - A1 one', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-NODASH'; Entry=1; Lines=@('acceptance:', '  "A1 one"', '  "A2 two"', '  "A3 three"') },
+    @{ Id='T9-AC-INNERQUOTE'; Entry=1; Lines=@('acceptance:', '  - "A1 one" trailing"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-SHORT'; Entry=3; Lines=@('acceptance:', '  - "A1 one"', '  - "A2 two"') },
+    @{ Id='T9-AC-GAP'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '  - "A3 three"', '  - "A4 four"') },
+    @{ Id='T9-AC-DUP'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '  - "A1 again"', '  - "A3 three"') },
+    @{ Id='T9-AC-ORDER'; Entry=1; Lines=@('acceptance:', '  - "A2 two"', '  - "A1 one"', '  - "A3 three"') },
+    @{ Id='T9-AC-ZERO'; Entry=1; Lines=@('acceptance:', '  - "A0 zero"', '  - "A1 one"', '  - "A2 two"') },
+    @{ Id='T9-AC-LEADINGZERO'; Entry=1; Lines=@('acceptance:', '  - "A01 one"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-HUGE'; Entry=1; Lines=@('acceptance:', '  - "A999999999999999999999999999999999 one"', '  - "A2 two"', '  - "A3 three"') }
+  )
+  foreach ($case in $invalidCases) {
+    Set-AcFixtureCard $case.Id $case.Lines
+    $got = Invoke-AcFixture $case.Id
+    if ($got.Exit -eq 0 -or $got.Out -notmatch '\[CARD-ACCEPTANCE-INVALID\]') {
+      Fail "[ACCEPTANCE-INVALID-$($case.Id)] 非法 acceptance 未以专属码拒绝（exit=$($got.Exit)）。输出：$($got.Out)"
+    } elseif ($got.Out -notmatch [regex]::Escape("[$($case.Id)]")) {
+      Fail "[ACCEPTANCE-DIAGNOSTIC-CARD] 诊断未点名 $($case.Id)。输出：$($got.Out)"
+    } elseif ($got.Out -notmatch "entry=$($case.Entry)(?!\d)") {
+      Fail "[ACCEPTANCE-DIAGNOSTIC-ENTRY] $($case.Id) 诊断未点名首个违例的 1-based entry=$($case.Entry)。输出：$($got.Out)"
+    }
+  }
+
+  Set-AcFixtureCard 'T9-AC-MISSING' @()
+  $acMissing = Invoke-AcFixture 'T9-AC-MISSING'
+  if ($acMissing.Exit -ne 0) { Fail "[ACCEPTANCE-MISSING-PASS] 缺 acceptance 的卡应只告警，却 exit=$($acMissing.Exit)。输出：$($acMissing.Out)" }
+  elseif ($acMissing.Out -notmatch '\[CARD-ACCEPTANCE-ADVISORY\].*T9-AC-MISSING') { Fail "[ACCEPTANCE-MISSING-ADVISORY] 缺失 advisory 或未点名卡。输出：$($acMissing.Out)" }
+
+  Get-ChildItem -LiteralPath $acTasks -Filter *.md | Remove-Item -Force
+  Set-AcFixtureCard 'T9-AC-VALID' $validLines
+  Set-Content -LiteralPath (Join-Path $acTasks '_TEMPLATE.md') -Value (@('---','acceptance:','  - "A2 wrong"','  - "A1 order"','  - "A3 here"','---') -join "`n") -Encoding utf8
+  $acTemplateOut = & pwsh -NoProfile -File $acCheck 2>&1 | Out-String; $acTemplateExit = $LASTEXITCODE
+  if ($acTemplateExit -ne 0) { Fail "[ACCEPTANCE-TEMPLATE-EXEMPT] _TEMPLATE.md 内故意乱序的 acceptance 没有继续豁免。输出：$acTemplateOut" }
+
+  $acProbe = Join-Path $acRoot 'acceptance-oracle.ps1'
+  @'
+param([string]$Checker, [string]$TaskId, [ValidateSet('reject','advisory')][string]$Mode, [string]$Marker)
+$out = & pwsh -NoProfile -File $Checker -TaskId $TaskId 2>&1 | Out-String; $code = $LASTEXITCODE
+$id = [regex]::Escape("[$TaskId]")
+if ($Mode -eq 'reject') {
+  if ($code -eq 0) { Write-Output "MARKER:${Marker}:ABSENT-REJECT"; exit 1 }
+  if ($out -notmatch '\[CARD-ACCEPTANCE-INVALID\]' -or $out -notmatch $id) { Write-Output "MARKER:${Marker}:CHECKER-ERROR"; exit 2 }
+} else {
+  if ($code -ne 0) { Write-Output "MARKER:${Marker}:CHECKER-ERROR"; exit 2 }
+  if ($out -notmatch '\[CARD-ACCEPTANCE-ADVISORY\]' -or $out -notmatch $id) { Write-Output "MARKER:${Marker}:ABSENT-ADVISORY"; exit 1 }
+}
+exit 0
+'@ | Set-Content -LiteralPath $acProbe -Encoding utf8
+  $mutations = @(
+    @{ Code='ACCEPTANCE-MUT-SHAPE'; Source='CARD-ACCEPTANCE-SHAPE-GUARD'; Id='T9-AC-MUT-SHAPE'; Mode='reject'; Lines=@('acceptance:', "  - 'A1 one'", '  - "A2 two"', '  - "A3 three"') },
+    @{ Code='ACCEPTANCE-MUT-NUMBER'; Source='CARD-ACCEPTANCE-NUMBER-GUARD'; Id='T9-AC-MUT-NUMBER'; Mode='reject'; Lines=@('acceptance:', '  - "A1 one"', '  - "A3 three"', '  - "A4 four"') },
+    @{ Code='ACCEPTANCE-MUT-ADVISORY'; Source='CARD-ACCEPTANCE-ADVISORY-GUARD'; Id='T9-AC-MUT-ADVISORY'; Mode='advisory'; Lines=@() }
+  )
+  $acRealHash = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Algorithm SHA256).Hash
+  foreach ($mutation in $mutations) {
+    Set-AcFixtureCard $mutation.Id $mutation.Lines
+    $baseOut = & pwsh -NoProfile -File $acProbe -Checker $acCheck -TaskId $mutation.Id -Mode $mutation.Mode -Marker $mutation.Code 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { Fail "[$($mutation.Code)-BASELINE] 共享 oracle 在未变异 checker 上已红。输出：$baseOut"; continue }
+    $src = @(Get-Content -LiteralPath $acCheck)
+    $hit = @(0..($src.Count - 1) | Where-Object { $src[$_] -match [regex]::Escape($mutation.Source) })
+    if ($hit.Count -ne 1) { Fail "[$($mutation.Code)-SETUP] 单句靶点 $($mutation.Source) 命中数=$($hit.Count)，期望 1。"; continue }
+    $mutant = Join-Path $acScripts 'check-cards-mutant.ps1'
+    Set-Content -LiteralPath $mutant -Value @($src[0..($hit[0]-1)] + $src[($hit[0]+1)..($src.Count-1)]) -Encoding utf8
+    $mutOut = & pwsh -NoProfile -File $acProbe -Checker $mutant -TaskId $mutation.Id -Mode $mutation.Mode -Marker $mutation.Code 2>&1 | Out-String
+    $mutExpected = "MARKER:$($mutation.Code):ABSENT-$(if ($mutation.Mode -eq 'reject') { 'REJECT' } else { 'ADVISORY' })"
+    if ($LASTEXITCODE -eq 0 -or $mutOut -notmatch "(?m)^$([regex]::Escape($mutExpected))\r?$") {
+      Fail "[$($mutation.Code)] 删除单句守卫后未以专属断言码变红。输出：$mutOut"
+    }
+  }
+  $brokenMutant = Join-Path $acScripts 'check-cards-broken.ps1'
+  Set-Content -LiteralPath $brokenMutant -Value 'if (' -Encoding utf8
+  $brokenOut = & pwsh -NoProfile -File $acProbe -Checker $brokenMutant -TaskId 'T9-AC-MUT-NUMBER' -Mode reject -Marker 'ACCEPTANCE-MUT-CRASH' 2>&1 | Out-String
+  if ($LASTEXITCODE -eq 0 -or $brokenOut -notmatch '^MARKER:ACCEPTANCE-MUT-CRASH:CHECKER-ERROR' -or $brokenOut -match 'ABSENT-') {
+    Fail "[ACCEPTANCE-MUT-CRASH-CLASSIFIER] 损坏 checker 未被区分为 CHECKER-ERROR，通用崩溃仍可能冒充 mutation death。输出：$brokenOut"
+  }
+  $acRealHashAfter = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Algorithm SHA256).Hash
+  if ($acRealHashAfter -ne $acRealHash) { Fail '[ACCEPTANCE-MUT-RESTORE] 真 check-cards.ps1 在变异夹具前后 SHA-256 漂移。' }
+  elseif (-not $fail) { Write-Host '  种子缺陷 10h OK：acceptance 形态/编号/诊断/advisory/模板豁免 + 三枚单句删除变异均经同一 oracle 可证伪' -ForegroundColor Green }
+} finally {
+  Remove-Item -LiteralPath $acRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # --- 11. 交叉链接完整性：agent 入口图引用的工件须存在 ---
 # OpenAI《Harness Engineering》：linters verify cross-link integrity automatically。

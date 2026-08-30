@@ -7,6 +7,10 @@ title: 一句话可交付产出物
 depends_on: []
 plan_ref: docs/PLAN.md#节名        # 可选。本卡对应计划节 —— 实现 agent 的最小上下文指针（免读全计划）
 parallelizable_with: []           # 可选。可并行卡 id；并行卡 allow_paths 必须互不重叠（check-cards 机检）
+# acceptance:                    # 可选。作者声明的验收清单；启用时去掉注释并保留 >=3 条严格 A1..An
+#   - "A1 fixture returns exactly 3 rows"
+#   - "A2 output contains ASCII sentinel [RESULT-READY]"
+#   - "A3 deleting the named guard makes its dedicated test fail"
 status: todo            # todo | in-progress | in-review | merged
 branch: T?-EXAMPLE
 worktree: C:\wt\T?-EXAMPLE   # = <WorktreeRoot>\<id>（默认 <系统盘>\wt），WorktreeRoot 见 scripts/_config.ps1
