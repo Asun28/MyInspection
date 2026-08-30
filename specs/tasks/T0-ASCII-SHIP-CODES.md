@@ -1,7 +1,7 @@
 ---
 id: T0-ASCII-SHIP-CODES
 title: 将 ship saga 与 CI gate 的机器判定迁到稳定 ASCII 状态码
-depends_on: [T0-CI-MERGE-GATE]
+depends_on: [T0-RECEIPT-LOSS-FAIL-CLOSED]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 status: todo
 branch: T0-ASCII-SHIP-CODES
@@ -30,7 +30,7 @@ doc_sync: DEVOPS-WORKFLOW 记录 code roster；QUALITY-RUBRIC 规定机器消费
 
 ## 产出
 
-在 `T0-CI-MERGE-GATE` 的最终行为稳定后，选择性回填上游 v0.34 的 ship 状态码思路。先迁 saga、ship 和新 CI gate，避免功能实现与锚点机械迁移混在同一 PR。
+在 `T0-RECEIPT-LOSS-FAIL-CLOSED` 完成整条 CI/恢复链后，选择性回填上游 v0.34 的 ship 状态码思路。先稳定 saga、候选 CI 与 receipt-loss，再迁移机械锚点，避免功能实现与状态码变更混在同一 PR。
 
 ## 验收原则
 

@@ -28,7 +28,9 @@
 | W0 | T0-R3-MEASURED-OID-BINDING | 被测量的提交＝被 push/评审/合并的那一个（分支引用与 HEAD 双钉） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 第 3 轮 finding：只钉分支引用时 detached HEAD 可「审 A 合 B」 |
 | W0 | T0-R3-FLOW-ENUM-SYNC | 预算闸补进每一处确定性闸枚举 + 每处一条锚定断言（承接母卡 A13） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `d19a4c22`，PR #200；17 个枚举面一一登记并逐处删除变异，补齐 English overview、跨行/顺序/Step 锚定与 lone-CR 防回归；workflow + seeded + SizeOnly、Luna/Terra Max 复核与 Sol R3 均 PASS；R5 candidate `74328b2d` released-master verify + seeded exit 0，含 canary、ADDED/REMOVED、cleanup 与 `selftest: PASS`） |
 | W0 | ~~T0-R3-DIFF-BUDGET-R3-CLOSURE~~ | **已退役**（2026-08-23）：人裁选路线 2，第 2 轮两项 finding 已在原卡修完；余下契约由上面两张拆卡承接 | — | — | — | — | 退役理由见 T0-R3-DIFF-BUDGET「拆分依据」 |
-| W0 | T0-CI-MERGE-GATE | R3 后等待候选分支 ci.yml 全绿并绑定 head 合并（TD134 1/6） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Terra · high | Sonnet 5 max | 选择性回填 v0.32+v0.37 最终形态；不等待 scaffold matrix。2026-08-23 修正本栏：原写已退役的 closure 卡，与卡内 `depends_on` 不符 |
+| W0 | T0-CI-MERGE-GATE | 候选 CI 运行时 + 一红一绿的远端行为证明（TD134 1a/6） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 原实现超过 R3 60000 字符预算后按 Light Plan Forge 拆分；本卡只交付 runtime/basic proof |
+| W0 | T0-CI-HARDENING-MATRIX | 候选 CI 的身份、分页、deadline、TOCTOU 与 NoAutoMerge mutation 矩阵（TD134 1b/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行占用 selftest；完整 target-reaching hardening，不改 CI job 集 |
+| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | receipt-loss 禁止第二套 review/CI/merge，恢复不到 T35 receipt 就保持未合并（TD134 1c/6） | T0-CI-HARDENING-MATRIX | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行终点；下游 ASCII ship codes 依赖本卡 |
 | W0 | T0-GATE-ID-UNIQUENESS | 闸号唯一性机检 + 锚点唯一性与自身 parse 自检 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b1e5f0b5`，PR #186；闸头/Fail 文案双面 AST+token 扫描、重复 id 全位置诊断、唯一 raw 插入锚、ParseFile、6 类删除变异；core/workflow/verify 与 R3 全绿；TD146 paid） |
 | W0 | T0-GRADLE-RUNTIME-FILE-INPUTS | 测试运行期读的仓内文件声明为 Gradle 测试输入，消除「改了权威文件仍 UP-TO-DATE」的假绿 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（2026-08-29，master `6fda9f88`，PR #188；精确声明配置、模板与源码输入，补全双语 tuple 哈希守卫，T3/T4 DoD 强制真实执行；变异、verify、R3 全绿） |
 | W0 | T0-CARD-ACCEPTANCE-FIELD | 把 acceptance 封闭验收集合登记为正式卡片字段 + 形态机检（可选字段、缺失只告警） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 四张卡已在用该字段而 `specs/README.md` 字段表无此行；机检只判形态（编号 A1..An 连续），不判条目精度。与 5 张在飞卡共用 selftest.ps1，须排在其后 |
@@ -57,7 +59,7 @@
 | W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（PR #178 先入 integration；同一结果由 PR #179 合入 master `5235ffe4`；调和 11/12） |
 | W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（primary master `e60fec91`，PR #148；fixture follow-up master `3bcd1cc9`，PR #150；调和 12/12） |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
-| W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
+| W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-RECEIPT-LOSS-FAIL-CLOSED | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
 | W0 | T0-ASCII-REVIEW-ARCHIVE-CODES | review/archive/init 剩余状态码迁移与 TD134 总验收入口（TD134 6/6） | T0-ASCII-CARD-SECRET-CODES | M | GPT-5.6 Terra · high | Sonnet 5 max | 全六卡 merged + 总验收才可 paid |
 | W0 | T0-GATE-FIXFORWARD | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径 | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `6f255d35`，PR #4；R3 pass） |
@@ -167,7 +169,9 @@ flowchart LR
   A --> A4[T0-CARD-ACCEPTANCE-FIELD]
   A --> A5[T0-R3-FLOW-ENUM-SYNC]
   A --> B[T0-CI-MERGE-GATE]
-  B --> E[T0-ASCII-SHIP-CODES]
+  B --> B2[T0-CI-HARDENING-MATRIX]
+  B2 --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
+  B3 --> E[T0-ASCII-SHIP-CODES]
   E --> F[T0-ASCII-CARD-SECRET-CODES]
   F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]
   C[T0-HARNESS-SUBTRACTION-PROTOCOL]
