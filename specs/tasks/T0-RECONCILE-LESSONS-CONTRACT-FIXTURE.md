@@ -2,7 +2,7 @@
 id: T0-RECONCILE-LESSONS-CONTRACT-FIXTURE
 title: 收口 lessons 六块精确模式与守卫夹具
 depends_on: [T0-RECONCILE-LESSONS-FIXTURE]
-status: todo
+status: merged
 branch: T0-RECONCILE-LESSONS-CONTRACT-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-CONTRACT-FIXTURE
 allow_paths:
