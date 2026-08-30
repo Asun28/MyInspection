@@ -13650,7 +13650,7 @@ if ($args -contains 'api') {
     "{""total_count"":1,""workflow_runs"":[{""id"":9001,""head_sha"":""$oid"",""event"":""pull_request"",""status"":""completed"",""conclusion"":""success"",""run_attempt"":1,""path"":"".github/workflows/ci.yml"",""pull_requests"":[{""number"":102}]}]}"
     exit 0
   }
-  if ($joined -match 'actions/runs/9001/jobs') { '{"total_count":1,"jobs":[{"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
+  if ($joined -match 'actions/runs/9001/attempts/1/jobs') { '{"total_count":1,"jobs":[{"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
 }
 if ($args -contains 'state,headRefOid') {
   $st = if ($env:GH_MOCK_MERGE_STATE -eq 'open') { 'OPEN' } else { 'MERGED' }
@@ -13785,8 +13785,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
-      'ci-workflow-checked', 'ci-workflow-count', 'ci-jobs-consumed', 'ci-jobs-count', 'ci-jobs-run-id',
-      'ci-event-trace', 'ci-decision-trace')   # base-count 属 17aa(8)，本卡 stub 不写
+      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
@@ -13802,6 +13801,9 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     $rmGh = @'
 function Add-CiTrace([string]$Event) {
   Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') $Event
+}
+function Add-CiCwd([string]$Call) {
+  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-gh-cwds') "$Call|$((Get-Location).Path)"
 }
 if ($args -contains 'create') {
   # 场景 1(S2) 注入：create-fail-armed 在则首次 create 失败（消耗武装、不记 pr-created/不增 count）→ 模拟 pushed-no-PR 态。
@@ -13820,6 +13822,7 @@ if ($args -contains 'number') {
   exit 0
 }
 if (($args -join ' ') -match 'baseRefName,headRefOid') {
+  Add-CiCwd 'final-pr'
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   @{ baseRefName = 'master'; headRefOid = $oid } | ConvertTo-Json -Compress
   exit 0
@@ -13832,44 +13835,31 @@ if ($args -contains 'api') {
   if (($args -join ' ') -match 'statuses/') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'status-posted') 'yes' }
   $joined = $args -join ' '
   if ($joined -match 'check-runs') {
+    Add-CiCwd 'checks'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
-    if ($env:GH_MOCK_CI_MODE -eq 'basic-rerun') { Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-decision-trace') 'checks' }
-    $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red' -or (Test-Path (Join-Path $env:GH_MOCK_ROOT 'ci-late-red'))) { 'failure' } else { 'success' }
+    $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red') { 'failure' } else { 'success' }
     "{`"total_count`":1,`"check_runs`":[{`"name`":`"verify`",`"status`":`"completed`",`"conclusion`":`"$conclusion`"}]}"
     exit 0
   }
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
+    Add-CiCwd 'workflow'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
-    $wp = Join-Path $env:GH_MOCK_ROOT 'ci-workflow-count'
-    $wn = if (Test-Path $wp) { 1 + [int]("$(Get-Content $wp -Raw)".Trim()) } else { 1 }
-    Set-Content $wp $wn
-    if ($env:GH_MOCK_CI_MODE -eq 'basic-rerun') { Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-decision-trace') "workflow-$wn" }
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
     $pn = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
-    if ($env:GH_MOCK_CI_MODE -eq 'basic-attempt-drift' -and $wn -gt 1) { $try++ }
-    $ws = if (($env:GH_MOCK_CI_MODE -eq 'basic-rerun') -and ($wn -eq 2)) { 'in_progress' } else { 'completed' }
-    $wc = if ($ws -eq 'completed') { '"success"' } else { 'null' }
-    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"$ws`",`"conclusion`":$wc,`"run_attempt`":$try,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$pn}]}]}"
+    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"completed`",`"conclusion`":`"success`",`"run_attempt`":$try,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$pn}]}]}"
     exit 0
   }
   $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
   $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
   if ($joined -match "actions/runs/$runId/attempts/$try/jobs") {
+    Add-CiCwd 'jobs'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
-    $jp = Join-Path $env:GH_MOCK_ROOT 'ci-jobs-count'
-    $jc = if (Test-Path $jp) { 1 + [int]("$(Get-Content $jp -Raw)".Trim()) } else { 1 }
-    Set-Content $jp $jc
-    if ($env:GH_MOCK_CI_MODE -in @('basic-wrong-name','basic-extra-job') -and $jc -eq 3) { Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-late-red') 'yes' }
-    if ($env:GH_MOCK_CI_MODE -eq 'basic-rerun') { Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-decision-trace') "jobs-$jc" }
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
-    $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-wrong-name' -and ($jc % 2)) { 'Wrong display' } elseif ($env:GH_MOCK_CI_MODE -in @('basic-candidate', 'basic-rerun', 'basic-attempt-drift', 'basic-wrong-name', 'basic-extra-job')) { 'Verify display' } else { 'verify' }
-    $js = if (($env:GH_MOCK_CI_MODE -eq 'basic-rerun') -and ($jc -ge 3) -and (($jc % 2) -eq 1)) { 'in_progress' } else { 'completed' }
-    $co = if ($js -eq 'completed') { '"success"' } else { 'null' }
-    $extra = if ($env:GH_MOCK_CI_MODE -eq 'basic-extra-job' -and ($jc % 2)) { ',{"name":"other","status":"completed","conclusion":"success"}' } else { '' }
-    "{`"total_count`":$(1+[int][bool]$extra),`"jobs`":[{`"name`":`"$jn`",`"status`":`"$js`",`"conclusion`":$co}$extra]}"
+    $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
+    "{`"total_count`":1,`"jobs`":[{`"name`":`"$jn`",`"status`":`"completed`",`"conclusion`":`"success`"}]}"
     exit 0
   }
   exit 0
@@ -13882,6 +13872,7 @@ if (($args -join ' ') -match '^repo view') { 'remotemx-fixture'; exit 0 }
 # 否则是拿同一来源自比、恒等式（codex R3 r2 #1）。这里回 worktree HEAD：push 过则与 origin ref 相等（正例），
 # 没 push 则不等（变异 B 即靠此暴露）。
 if ($args -contains 'headRefOid') {
+  Add-CiCwd 'head'
   "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   exit 0
 }
@@ -14111,43 +14102,23 @@ if ($env:GH_MOCK_ROOT) {
             $c3t = Get-Content $c3 -Raw
             if ([regex]::Matches($c3t, '(?m)^  verify:').Count -ne 1) { Fail 'T37-REMOTEMX/3：verify job 非唯一。' }
             $c3t -replace '(?m)^  verify:', "  verify-basic:`n    name: Verify display" | Set-Content $c3 -NoNewline -Encoding utf8
-            Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace'), (Join-Path $fx3.Root 'ci-workflow-count') -ErrorAction SilentlyContinue
-            $env:GH_MOCK_CI_MODE = 'basic-rerun'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '20'
-            $s3Rerun = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
-            $s3X = $LASTEXITCODE
-            $s3W = if (Test-Path (Join-Path $fx3.Root 'ci-workflow-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-workflow-count') -Raw)".Trim()) } else { 0 }
-            $s3J = if (Test-Path (Join-Path $fx3.Root 'ci-jobs-count')) { [int]("$(Get-Content (Join-Path $fx3.Root 'ci-jobs-count') -Raw)".Trim()) } else { 0 }
-            $s3Dt = @((Get-Content (Join-Path $fx3.Root 'ci-decision-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
-            if ($s3X -eq 0 -or $s3Rerun -notmatch '\[CI-GATE-TIMEOUT\]' -or $s3Rerun -match '\[CI-GATE-PASS\]' -or $s3W -lt 5 -or $s3J -lt 3 -or
-                $s3Dt -notmatch '^checks>workflow-1>jobs-1>checks>workflow-2>checks>workflow-3>jobs-2>checks>workflow-4>jobs-3(?:>|$)' -or
-                -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) {
-              Fail "T37-REMOTEMX/3：决策复核未等待 workflow/job（w=$s3W j=$s3J）。"
-            }
-            $m3 = @('review-invoked','ci-event-trace','ci-checked','ci-workflow-count','ci-workflow-checked','ci-jobs-consumed','ci-jobs-count','ci-jobs-run-id','ci-late-red','merge-attempted')
-            foreach ($x3 in @(@('basic-wrong-name','CI-GATE-RED',3),@('basic-extra-job','CI-GATE-RED',3),@('basic-attempt-drift','CI-GATE-WORKFLOW-IDENTITY',1))) {
-              $m3 | ForEach-Object { Remove-Item (Join-Path $fx3.Root $_) -ErrorAction SilentlyContinue }
-              $env:GH_MOCK_CI_MODE = $x3[0]; $env:SCAFFOLD_CI_TIMEOUT_SEC = '10'
-              $o3 = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
-              $n3 = [int](Get-Content (Join-Path $fx3.Root 'ci-jobs-count') -ErrorAction Ignore)
-              if ($LASTEXITCODE -eq 0 -or $o3 -notmatch $x3[1] -or $n3 -lt $x3[2] -or -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail "T37-REMOTEMX/3：$($x3[0]) 未关闭。" }
-            }
-            $m3 | ForEach-Object { Remove-Item (Join-Path $fx3.Root $_) -ErrorAction SilentlyContinue }
-            $c3t = Get-Content $c3 -Raw
-            $c3t.Replace('    name: Verify display', "    name: Verify display`n    strategy:`n      matrix:`n        os: [ubuntu, windows]") | Set-Content $c3 -NoNewline -Encoding utf8
-            $env:GH_MOCK_CI_MODE = 'basic-candidate'
-            $s3Mx = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
-            $hit3 = @($m3[2..6] | Where-Object { Test-Path (Join-Path $fx3.Root $_) })
-            if ($LASTEXITCODE -eq 0 -or $s3Mx -notmatch '\[CI-GATE-JOBS-DRIFT\]' -or -not (Test-Path (Join-Path $fx3.Root 'review-invoked')) -or $hit3.Count -or (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：matrix 未在 API 前 fail-closed。' }
-            Set-Content $c3 $c3t -NoNewline -Encoding utf8
-            Remove-Item (Join-Path $fx3.Root 'review-invoked'), (Join-Path $fx3.Root 'ci-event-trace'), (Join-Path $fx3.Root 'ci-jobs-consumed'), (Join-Path $fx3.Root 'ci-jobs-run-id') -ErrorAction SilentlyContinue
+            @('review-invoked', 'ci-event-trace', 'ci-checked', 'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-gh-cwds', 'merge-attempted') |
+              ForEach-Object { Remove-Item (Join-Path $fx3.Root $_) -ErrorAction SilentlyContinue }
             $wantPr3 = "$(Get-Content (Join-Path $fx3.Root 'fixture-pr-number') -Raw)".Trim()
             $wantRun3 = "$(Get-Content (Join-Path $fx3.Root 'fixture-run-id') -Raw)".Trim() + '/' + "$(Get-Content (Join-Path $fx3.Root 'fixture-run-attempt') -Raw)".Trim()
-            $env:GH_MOCK_CI_MODE = 'basic-candidate'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '20'
-            $s3 = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
+            $env:GH_MOCK_CI_MODE = 'basic-candidate'
+            $outside3 = Join-Path $fx3.Root 'unrelated-cwd'; New-Item -ItemType Directory -Force $outside3 | Out-Null
+            Push-Location $outside3
+            try { $s3 = (& pwsh -NoProfile -File (Join-Path $fx3.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String) }
+            finally { Pop-Location }
             $s3Exit = $LASTEXITCODE
             $s3GreenTrace = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
+            $s3Cwds = @((Get-Content (Join-Path $fx3.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
+            $s3BadCwds = @($s3Cwds | Where-Object { ($_ -split '\|', 2)[1] -ine $fx3.Wt })
+            $s3CwdCalls = @($s3Cwds | ForEach-Object { ($_ -split '\|', 2)[0] }) -join '>'
             if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：merge 失败却 exit 0。' }
             elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：未触达 merge。' }
+            elseif ($s3CwdCalls -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or $s3BadCwds.Count -gt 0) { Fail "T37-REMOTEMX/3：wrapped gh 未统一绑定 worktree CWD（calls=$s3CwdCalls, bad=$($s3BadCwds -join ',')）。" }
             elseif (-not (Test-Path (Join-Path $fx3.Root 'review-invoked')) -or $s3GreenTrace -notmatch '^r3>ci(?:>ci)*$') { Fail "T37-REMOTEMX/3：R3/CI 序列=$s3GreenTrace" }
             elseif (-not (Test-Path (Join-Path $fx3.Root 'ci-workflow-checked')) -or -not (Test-Path (Join-Path $fx3.Root 'ci-jobs-consumed')) -or
                 "$(Get-Content (Join-Path $fx3.Root 'ci-jobs-run-id') -Raw)".Trim() -ne $wantRun3) { Fail "T37-REMOTEMX/3：jobs run≠$wantRun3。" }

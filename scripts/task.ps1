@@ -103,11 +103,16 @@ $Py = $ScaffoldConfig.PythonVersion
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
 function Invoke-GhBeforeDeadline {
-  param([Parameter(Mandatory)][string[]]$Arguments, [Parameter(Mandatory)][DateTimeOffset]$Deadline)
+  param(
+    [Parameter(Mandatory)][string[]]$Arguments,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
   $remainingMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
   if ($remainingMs -le 0) { return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = ''; Stderr = '' } }
   $psi = [Diagnostics.ProcessStartInfo]::new()
   $psi.FileName = (Get-Command pwsh -ErrorAction Stop).Source; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+  $psi.WorkingDirectory = $WorkingDirectory
   $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
   [void]$psi.ArgumentList.Add('-NoProfile'); [void]$psi.ArgumentList.Add('-Command')
   [void]$psi.ArgumentList.Add('$ghArgs = @($env:SCAFFOLD_GH_ARGS_JSON | ConvertFrom-Json); & gh @ghArgs; exit $LASTEXITCODE')
@@ -139,11 +144,16 @@ function Wait-CiRetryBeforeDeadline([DateTimeOffset]$Deadline) {
   if ($sleepMs -gt 0) { Start-Sleep -Milliseconds $sleepMs }
 }
 function Get-GhPagedCollectionBeforeDeadline {
-  param([Parameter(Mandatory)][string]$EndpointTemplate, [Parameter(Mandatory)][string]$CollectionProperty, [Parameter(Mandatory)][DateTimeOffset]$Deadline)
+  param(
+    [Parameter(Mandatory)][string]$EndpointTemplate,
+    [Parameter(Mandatory)][string]$CollectionProperty,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
   $items = @(); $total = -1L
   for ($page = 1; $page -le 100; $page++) {
     $endpoint = $EndpointTemplate.Replace('{page}', "$page")
-    $api = Invoke-GhBeforeDeadline -Arguments @('api', $endpoint) -Deadline $Deadline
+    $api = Invoke-GhBeforeDeadline -Arguments @('api', $endpoint) -Deadline $Deadline -WorkingDirectory $WorkingDirectory
     if ($api.TimedOut) { return [pscustomobject]@{ Readable = $false; TimedOut = $true; Items = @(); Reason = "$CollectionProperty timeout/$page" } }
     try {
       if (($api.ExitCode -ne 0) -or [string]::IsNullOrWhiteSpace($api.Stdout)) { throw "gh api exit $($api.ExitCode) 或空输出" }
@@ -168,10 +178,14 @@ function Get-GhPagedCollectionBeforeDeadline {
   return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty >100" }
 }
 function Get-ExactHeadChecksBeforeDeadline {
-  param([Parameter(Mandatory)][string]$Head, [Parameter(Mandatory)][DateTimeOffset]$Deadline)
+  param(
+    [Parameter(Mandatory)][string]$Head,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
   $pages = Get-GhPagedCollectionBeforeDeadline `
     -EndpointTemplate "repos/{owner}/{repo}/commits/$Head/check-runs?per_page=100&page={page}" `
-    -CollectionProperty 'check_runs' -Deadline $Deadline
+    -CollectionProperty 'check_runs' -Deadline $Deadline -WorkingDirectory $WorkingDirectory
   if (-not $pages.Readable) { return [pscustomobject]@{ Readable = $false; TimedOut = $pages.TimedOut; Runs = @(); Blocking = @(); Reason = $pages.Reason } }
   $runs = @($pages.Items)
   $blocking = @($runs | Where-Object {
@@ -707,7 +721,7 @@ switch ($Phase) {
         $toSec = $to
       }
       $ddl = [DateTimeOffset]::UtcNow.AddSeconds($toSec)
-      $hr = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'headRefOid', '-q', '.headRefOid') -Deadline $ddl
+      $hr = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'headRefOid', '-q', '.headRefOid') -Deadline $ddl -WorkingDirectory $Wt
       $head = "$($hr.Stdout)".Trim()
       if ($hr.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr head。" }
       if (($hr.ExitCode -ne 0) -or ($head -cnotmatch '^[0-9a-f]{40}$')) { Add-CatchRecord 'ci' "head=$($hr.ExitCode):'$head'"; throw "[CI-GATE-NOHEAD] #$pr。" }
@@ -716,7 +730,7 @@ switch ($Phase) {
       :ciStable while ($true) {
       while ($true) {
         if ([DateTimeOffset]::UtcNow -ge $ddl) { Add-CatchRecord 'ci' "timeout ${toSec}s: $last"; throw "[CI-GATE-TIMEOUT] $last" }
-        $checks = Get-ExactHeadChecksBeforeDeadline -Head $head -Deadline $ddl
+        $checks = Get-ExactHeadChecksBeforeDeadline -Head $head -Deadline $ddl -WorkingDirectory $Wt
         if ($checks.TimedOut) { Add-CatchRecord 'ci' "timeout ${toSec}s: $($checks.Reason)"; throw "[CI-GATE-TIMEOUT] $($checks.Reason)" }
         if (-not $checks.Readable) { Add-CatchRecord 'ci' "checks:$($checks.Reason)"; throw "[CI-GATE-API] checks:$($checks.Reason)" }
         if ($checks.Blocking.Count -gt 0) {
@@ -726,7 +740,7 @@ switch ($Phase) {
         }
         $wfPg = Get-GhPagedCollectionBeforeDeadline `
           -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&per_page=100&page={page}" `
-          -CollectionProperty 'workflow_runs' -Deadline $ddl
+          -CollectionProperty 'workflow_runs' -Deadline $ddl -WorkingDirectory $Wt
         if ($wfPg.TimedOut) {
           Add-CatchRecord 'ci' "timeout: $($wfPg.Reason)"
           throw "[CI-GATE-TIMEOUT] workflow: $($wfPg.Reason)"
@@ -776,7 +790,7 @@ switch ($Phase) {
         }
         $jobPg = Get-GhPagedCollectionBeforeDeadline `
           -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/attempts/$attempt/jobs?per_page=100&page={page}" `
-          -CollectionProperty 'jobs' -Deadline $ddl
+          -CollectionProperty 'jobs' -Deadline $ddl -WorkingDirectory $Wt
         if ($jobPg.TimedOut) {
           Add-CatchRecord 'ci' "timeout: $($jobPg.Reason)"
           throw "[CI-GATE-TIMEOUT] jobs: $($jobPg.Reason)"
@@ -813,7 +827,7 @@ switch ($Phase) {
         Add-CatchRecord 'ci' "base:$scopeBaseOid->$baseNow"
         throw "[CI-GATE-BASE-MOVED] $scopeBaseOid -> '$baseNow'。"
       }
-      $final = Get-ExactHeadChecksBeforeDeadline -Head $head -Deadline $ddl
+      $final = Get-ExactHeadChecksBeforeDeadline -Head $head -Deadline $ddl -WorkingDirectory $Wt
       if ($final.TimedOut) {
         Add-CatchRecord 'ci' "final timeout:$($final.Reason)"
         throw "[CI-GATE-TIMEOUT] final checks: $($final.Reason)"
@@ -829,7 +843,7 @@ switch ($Phase) {
       }
       $fwPg = Get-GhPagedCollectionBeforeDeadline `
         -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&per_page=100&page={page}" `
-        -CollectionProperty 'workflow_runs' -Deadline $ddl
+        -CollectionProperty 'workflow_runs' -Deadline $ddl -WorkingDirectory $Wt
       if ($fwPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final workflow: $($fwPg.Reason)" }
       if (-not $fwPg.Readable) { throw "[CI-GATE-API] final workflow: $($fwPg.Reason)" }
       $fwRuns = @($fwPg.Items)
@@ -852,7 +866,7 @@ switch ($Phase) {
       }
       $fjPg = Get-GhPagedCollectionBeforeDeadline `
         -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/attempts/$attempt/jobs?per_page=100&page={page}" `
-        -CollectionProperty 'jobs' -Deadline $ddl
+        -CollectionProperty 'jobs' -Deadline $ddl -WorkingDirectory $Wt
       if ($fjPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final jobs: $($fjPg.Reason)" }
       if (-not $fjPg.Readable) { throw "[CI-GATE-API] final jobs: $($fjPg.Reason)" }
       $fJobs = @($fjPg.Items); $fjWait = @()
@@ -865,7 +879,7 @@ switch ($Phase) {
       }
       if (($fJobs.Count -ne $want.Count) -and ($fjWait.Count -eq 0)) { $fjWait += "jobs=$($fJobs.Count)/$($want.Count)" }
       if ($fjWait.Count -gt 0) { $last = "final jobs: $($fjWait -join ', ')"; Wait-CiRetryBeforeDeadline $ddl; continue ciStable }
-      $prRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'baseRefName,headRefOid') -Deadline $ddl
+      $prRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'baseRefName,headRefOid') -Deadline $ddl -WorkingDirectory $Wt
       if ($prRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 最终 base/head 快照超过 ${toSec}s。" }
       $prRaw2 = "$($prRead.Stdout)"; $prExit = $prRead.ExitCode
       $base2 = ''; $head2 = ''
