@@ -6095,12 +6095,12 @@ function Invoke-AcFixture([string]$Id) {
   [pscustomobject]@{ Exit = $LASTEXITCODE; Out = $out }
 }
 try {
-  $validLines = @('acceptance:', '  - "A1 exact value=3"', '  - "A2 sentinel=ASCII-OK"', '  - "A3 final assertion"')
+  $validLines = @('acceptance:', '  - "A1 escape=\\ quote=\" space=\  line=\n hex=\x41 unicode=\u0041 low=\uD7FF high=\uE000"', '  - "A2 sentinel=ASCII-OK wide-low=\U0000D7FF wide-high=\U0000E000 astral=\U00010000 max=\U0010FFFF"', '  - "A3 final assertion"')
   Set-AcFixtureCard 'T9-AC-VALID' $validLines
   $acValid = Invoke-AcFixture 'T9-AC-VALID'
   if ($acValid.Exit -ne 0) { Fail "[ACCEPTANCE-VALID] 合法 acceptance 被拒绝（exit=$($acValid.Exit)）。输出：$($acValid.Out)" }
   elseif ($acValid.Out -match '\[CARD-ACCEPTANCE-ADVISORY\].*T9-AC-VALID') { Fail '[ACCEPTANCE-PRESENT-NO-ADVISORY] 已写 acceptance 的卡仍产生缺失 advisory。' }
-  Set-AcFixtureCard 'T9-AC-COMMENT' @('acceptance: # author declaration', '  # fixture comment', '', '  - "A1 one"', '  - "A2 two"', '  - "A3 three"')
+  Set-AcFixtureCard 'T9-AC-COMMENT' @('acceptance: # author declaration', '  # fixture comment', '', '  - "A1 one" # item comment', '  - "A2 two"', '  - "A3 three"')
   $acComment = Invoke-AcFixture 'T9-AC-COMMENT'
   if ($acComment.Exit -ne 0) { Fail "[ACCEPTANCE-INLINE-COMMENT] acceptance 键后的 YAML 注释或块内空行/注释被误拒。输出：$($acComment.Out)" }
 
@@ -6110,6 +6110,14 @@ try {
     @{ Id='T9-AC-BARE'; Entry=1; Lines=@('acceptance:', '  - A1 one', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-NODASH'; Entry=1; Lines=@('acceptance:', '  "A1 one"', '  "A2 two"', '  "A3 three"') },
     @{ Id='T9-AC-INNERQUOTE'; Entry=1; Lines=@('acceptance:', '  - "A1 one" trailing"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BADESCAPE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\qescape"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BADHEX'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\x4Z"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BADUNICODE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\u12G4"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BADSURROGATE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\uD800"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BADWIDESURROGATE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\U0000D800"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-BADRANGE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\U00110000"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-GLUEDKEY'; Entry=1; Lines=@('acceptance:#comment', '  - "A1 one"', '  - "A2 two"', '  - "A3 three"') },
+    @{ Id='T9-AC-GLUEDCOMMENT'; Entry=1; Lines=@('acceptance:', '  - "A1 one"#comment', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-SHORT'; Entry=3; Lines=@('acceptance:', '  - "A1 one"', '  - "A2 two"') },
     @{ Id='T9-AC-GAP'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '  - "A3 three"', '  - "A4 four"') },
     @{ Id='T9-AC-DUP'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '  - "A1 again"', '  - "A3 three"') },

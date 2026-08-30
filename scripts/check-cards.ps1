@@ -232,14 +232,18 @@ foreach ($cf in $cards) {
 
   # acceptance：可选作者声明，只判规范形态，不判条目内容是否够精确。
   # 本仓无 YAML 解析依赖；故只登记块式双引号序列，允许其中的空行/注释，遇下一个顶层键即停。
-  $acKeyLine = -1; $acLines = @($fm -split '\r?\n')
+  $acKeyLine = -1; $acKeyGlued = $false; $acLines = @($fm -split '\r?\n')
   for ($acI = 0; $acI -lt $acLines.Count; $acI++) {
-    if ($acLines[$acI] -match '^acceptance\s*:\s*(?<inline>.*)$') { $acKeyLine = $acI; $acInline = $Matches['inline']; break }
+    if ($acLines[$acI] -match '^acceptance\s*:(?<sep>[ \t]*)(?<inline>.*)$') {
+      $acKeyLine = $acI; $acInline = $Matches['inline']
+      $acKeyGlued = $Matches['sep'].Length -eq 0 -and $acInline.StartsWith('#')
+      break
+    }
   }
   if ($acKeyLine -lt 0) {
     $cardWarns += "[CARD-ACCEPTANCE-ADVISORY] [$name] acceptance missing (optional author declaration)" # CARD-ACCEPTANCE-ADVISORY-GUARD
   } else {
-    $acEntry = 0; $acShapeBad = 0; $acNumberBad = 0; $acNumberActual = ''
+    $acEntry = 0; $acShapeBad = [int]$acKeyGlued; $acNumberBad = 0; $acNumberActual = ''
     $acInlineValue = ($acInline -replace '^\s*#.*$', '' -replace '\s+#.*$', '').Trim()
     if ($acInlineValue) { $acShapeBad = 1 }
     for ($acI = $acKeyLine + 1; $acI -lt $acLines.Count; $acI++) {
@@ -248,7 +252,7 @@ foreach ($cf in $cards) {
       if ([string]::IsNullOrWhiteSpace($acLine) -or $acLine -match '^\s*#') { continue }
       $acEntry++
       $acShape = if ($acLine -match '^\s+-\s+(.+?)\s*$') {
-        [regex]::Match($Matches[1], '^"(?<label>A[0-9]+)\s+(?:[^"\\]|\\.)+"\s*(?:#.*)?$')
+        [regex]::Match($Matches[1], '^"(?<label>A[0-9]+)\s+(?:[^"\\]|\\(?:[ 0abtnvfre"/N_LP\\]|x[0-9A-Fa-f]{2}|u(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|U(?:0000(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|00(?:0[1-9A-Fa-f]|10)[0-9A-Fa-f]{4})))+"(?:[ \t]+#.*|[ \t]*)$')
       } else { [regex]::Match('', '(?!)') }
       if (-not $acShape.Success -and $acShapeBad -eq 0) { $acShapeBad = $acEntry }
       if ($acShape.Success -and $acShape.Groups['label'].Value -cne "A$acEntry" -and $acNumberBad -eq 0) {
