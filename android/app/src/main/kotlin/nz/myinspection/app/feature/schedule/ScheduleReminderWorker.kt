@@ -1,0 +1,119 @@
+package nz.myinspection.app.feature.schedule
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import androidx.work.Worker
+import androidx.work.WorkerParameters
+import java.time.Instant
+import nz.myinspection.app.MainActivity
+import nz.myinspection.core.schedule.InspectionScheduleType
+internal data class WorkerInput(val propertyId: String?, val type: String?, val dueAtMillis: Long?, val occurrenceId: String?)
+internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
+internal fun <T> postReminderNotification(identity: NotificationIdentity, notification: T, post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
+class ReminderWorker(
+    appContext: Context,
+    parameters: WorkerParameters,
+) : Worker(appContext, parameters) {
+    override fun doWork(): Result {
+        val permissionGranted = Build.VERSION.SDK_INT < 33 ||
+            applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val outcome = execute(
+            WorkerInput(
+                inputData.getString(WorkKeys.PROPERTY_ID),
+                inputData.getString(WorkKeys.INSPECTION_TYPE),
+                inputData.getLong(WorkKeys.DUE_AT_EPOCH_MILLIS, Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
+                inputData.getString(WorkKeys.OCCURRENCE_ID),
+            ),
+            Build.VERSION.SDK_INT,
+            permissionGranted,
+            SharedPreferencesReceiptStore(applicationContext),
+            AndroidReminderLogger,
+            ::postNotification,
+        )
+        return when (outcome) {
+            WorkerOutcome.SUCCESS -> Result.success()
+            WorkerOutcome.RETRY -> Result.retry()
+            WorkerOutcome.FAILURE -> Result.failure()
+        }
+    }
+    private fun postNotification(delivery: DeliveryPlan.Notify) {
+        val notificationManager = applicationContext.getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Inspection reminders / 巡检提醒",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
+        val notification = Notification.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle(delivery.copy.title)
+            .setContentText(delivery.copy.body)
+            .setStyle(Notification.BigTextStyle().bigText(delivery.copy.body))
+            .setAutoCancel(true)
+            .setContentIntent(routePendingIntent(delivery.intent))
+            .build()
+        postReminderNotification(reminderNotificationIdentity(delivery.intent), notification, notificationManager::notify)
+    }
+    private fun routePendingIntent(intentSpec: RouteIntentSpec): PendingIntent {
+        val intent = Intent(applicationContext, MainActivity::class.java).apply {
+            action = ACTION_OPEN_SCHEDULE
+            putExtra(EXTRA_PROPERTY_ID, intentSpec.propertyId)
+            putExtra(EXTRA_INSPECTION_TYPE, intentSpec.inspectionType)
+        }
+        intent.data = Uri.parse(intentSpec.data)
+        return PendingIntent.getActivity(
+            applicationContext,
+            intentSpec.requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+    companion object {
+        const val ACTION_OPEN_SCHEDULE = "nz.myinspection.app.action.OPEN_SCHEDULE"
+        const val EXTRA_PROPERTY_ID = "nz.myinspection.app.extra.PROPERTY_ID"
+        const val EXTRA_INSPECTION_TYPE = "nz.myinspection.app.extra.INSPECTION_TYPE"
+        private const val CHANNEL_ID = "inspection-reminders"
+        internal fun execute(
+            input: WorkerInput,
+            sdkInt: Int,
+            permissionGranted: Boolean,
+            store: ReceiptStore,
+            logger: EventLogger,
+            notify: (DeliveryPlan.Notify) -> Unit,
+        ): WorkerOutcome {
+            fun invalid(): WorkerOutcome {
+                logger.log(LogStage.INPUT, input.occurrenceId, null, false, LogError.INVALID_INPUT)
+                return WorkerOutcome.FAILURE
+            }
+            val propertyId = input.propertyId?.takeIf(String::isNotBlank) ?: return invalid()
+            val type = input.type?.let { runCatching { InspectionScheduleType.valueOf(it) }.getOrNull() } ?: return invalid()
+            val dueAt = input.dueAtMillis?.let(Instant::ofEpochMilli) ?: return invalid()
+            val occurrenceId = input.occurrenceId ?: return invalid()
+            val route = ScheduleRoute(propertyId, type)
+            if (occurrenceId != reminderOccurrenceId(route, dueAt)) return invalid()
+            if (store.read(occurrenceId) == Receipt.DELIVERED) return WorkerOutcome.SUCCESS
+            val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)
+            if (delivery is DeliveryPlan.Retry) {
+                logger.log(LogStage.PERMISSION, occurrenceId, type, true, LogError.PERMISSION_DENIED)
+                return WorkerOutcome.RETRY
+            }
+            delivery as DeliveryPlan.Notify
+            return try {
+                notify(delivery)
+                if (store.compareAndSet(occurrenceId, setOf(Receipt.ENQUEUED, null), Receipt.DELIVERED) || store.read(occurrenceId) == Receipt.DELIVERED) WorkerOutcome.SUCCESS
+                else WorkerOutcome.RETRY.also { logger.log(LogStage.RECEIPT_DELIVERED, occurrenceId, type, true, LogError.RECEIPT_WRITE_FAILED) }
+            } catch (error: RuntimeException) {
+                logger.log(LogStage.NOTIFY, occurrenceId, type, true, LogError.NOTIFY_EXCEPTION)
+                WorkerOutcome.RETRY
+            }
+        }
+    }
+}

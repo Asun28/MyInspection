@@ -1,0 +1,180 @@
+package nz.myinspection.app.feature.schedule
+import java.io.Serializable
+import java.security.MessageDigest
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import nz.myinspection.core.schedule.InspectionScheduleType
+import nz.myinspection.core.schedule.ScheduleAdvice
+data class ScheduleRoute(val propertyId: String, val inspectionType: InspectionScheduleType) : Serializable
+data class ReminderSpec(val uniqueWorkName: String, val occurrenceId: String, val initialDelayMillis: Long, val route: ScheduleRoute, val dueAt: Instant)
+data class PendingWork(val route: ScheduleRoute, val dueAt: Instant) : Serializable {
+    fun workSpec(clock: Clock = Clock.systemUTC()): ReminderSpec = WorkSpecFactory(clock).create(route, dueAt)
+}
+fun PendingWork?.resumeAfterGrant(state: PermissionState, clock: Clock = Clock.systemUTC()): ReminderSpec? =
+    if (state == PermissionState.GRANTED) this?.workSpec(clock) else null
+fun PendingWork?.afterSchedule(success: Boolean): PendingWork? = if (success) null else this
+class WorkSpecFactory(private val clock: Clock = Clock.systemUTC()) {
+    fun create(route: ScheduleRoute, dueAt: Instant): ReminderSpec {
+        require(route.propertyId.isNotBlank()) { "propertyId must not be blank" }
+        val occurrenceId = reminderOccurrenceId(route, dueAt)
+        return ReminderSpec("schedule-reminder:$occurrenceId", occurrenceId, maxOf(0L, Duration.between(clock.instant(), dueAt).toMillis()), route, dueAt)
+    }
+}
+fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
+    val occurrence = "${route.propertyId}\u0000${route.inspectionType.name}\u0000${dueAt.toEpochMilli()}"
+    return MessageDigest.getInstance("SHA-256").digest(occurrence.encodeToByteArray()).toHex()
+}
+enum class Receipt { ENQUEUED, DELIVERED }
+enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_ENQUEUED, RECEIPT_DELIVERED, NOTIFY }
+enum class LogError { ENQUEUE_FAILED, ENQUEUE_EXCEPTION, INVALID_INPUT, PERMISSION_DENIED, RECEIPT_WRITE_FAILED, NOTIFY_EXCEPTION }
+interface ReceiptStore {
+    fun read(occurrenceId: String): Receipt?
+    fun compareAndSet(occurrenceId: String, expected: Set<Receipt?>, state: Receipt?): Boolean
+}
+class RegistrationCoordinator(
+    private val store: ReceiptStore,
+    private val onPersistenceFailure: (LogStage) -> Unit = {},
+) {
+    fun register(occurrenceId: String, onResult: (Boolean) -> Unit = {}, enqueue: ((Boolean) -> Unit) -> Unit): Boolean {
+        if (store.read(occurrenceId) in setOf(Receipt.ENQUEUED, Receipt.DELIVERED)) { onResult(true); return false }
+        return try {
+            enqueue { succeeded -> onResult(complete(occurrenceId, succeeded)) }
+            true
+        } catch (error: RuntimeException) {
+            throw error
+        }
+    }
+    private fun complete(occurrenceId: String, succeeded: Boolean): Boolean {
+        if (!succeeded) return false
+        val durable = store.compareAndSet(occurrenceId, setOf(null), Receipt.ENQUEUED) || store.read(occurrenceId) in listOf(Receipt.ENQUEUED, Receipt.DELIVERED)
+        if (!durable) onPersistenceFailure(LogStage.RECEIPT_ENQUEUED)
+        return durable
+    }
+}
+data class EnqueueSpec(val uniqueName: String, val initialDelayMillis: Long, val route: ScheduleRoute, val dueAt: Instant, val occurrenceId: String, val existingWorkPolicy: androidx.work.ExistingWorkPolicy)
+data class RouteIntentSpec(val data: String, val notificationTag: String, val notificationId: Int, val requestCode: Int, val propertyId: String, val inspectionType: String)
+data class NotificationIdentity(val tag: String, val id: Int)
+fun reminderNotificationIdentity(intent: RouteIntentSpec): NotificationIdentity = NotificationIdentity(intent.notificationTag, intent.notificationId)
+fun reminderRouteIntentSpec(route: ScheduleRoute, dueAt: Instant): RouteIntentSpec {
+    val occurrenceId = reminderOccurrenceId(route, dueAt)
+    return RouteIntentSpec(
+        data = "myinspection://schedule/reminder/$occurrenceId",
+        notificationTag = occurrenceId,
+        notificationId = 0,
+        requestCode = occurrenceId.take(8).toLong(16).toInt(),
+        propertyId = route.propertyId,
+        inspectionType = route.inspectionType.name,
+    )
+}
+enum class PermissionState { UNKNOWN, GRANTED, DENIED }
+sealed interface PermissionAction {
+    data object Schedule : PermissionAction
+    data object RequestPermission : PermissionAction
+    data class ShowRationale(val english: String, val chinese: String) : PermissionAction
+    data class ExplainDenied(val english: String, val chinese: String) : PermissionAction
+}
+object PermissionPolicy {
+    fun next(sdkInt: Int, state: PermissionState, rationaleRequired: Boolean = false): PermissionAction = when {
+        sdkInt < 33 || state == PermissionState.GRANTED -> PermissionAction.Schedule
+        state == PermissionState.UNKNOWN && rationaleRequired -> PermissionAction.ShowRationale(
+            english = "Allow notifications to receive this local inspection reminder.",
+            chinese = "允许通知以接收此本地巡检提醒。",
+        )
+        state == PermissionState.UNKNOWN -> PermissionAction.RequestPermission
+        else -> PermissionAction.ExplainDenied(
+            english = "Notifications are off. Allow them in Settings, then retry this reminder.",
+            chinese = "通知已关闭。请在设置中允许通知，然后重试此提醒。",
+        )
+    }
+}
+data class RouteTransition(val pending: PendingWork, val action: PermissionAction)
+fun scheduleRouteContentTransition(row: ScheduleRow, sdkInt: Int, state: PermissionState, rationaleRequired: Boolean): RouteTransition =
+    RouteTransition(PendingWork(row.route, requireNotNull(row.dueAt)), PermissionPolicy.next(sdkInt, state, rationaleRequired))
+data class NotificationCopy(val title: String, val body: String)
+fun scheduleNotificationCopy(type: InspectionScheduleType): NotificationCopy {
+    val label = when (type) {
+        InspectionScheduleType.ROUTINE -> "Routine inspection / 定期巡检"
+        InspectionScheduleType.ANNUAL -> "Annual home check / 年度住宅检查"
+        InspectionScheduleType.INGOING -> "Ingoing inspection / 入住巡检"
+        InspectionScheduleType.EXIT -> "Exit inspection / 退租巡检"
+    }
+    return NotificationCopy(
+        title = "Inspection reminder / 巡检提醒",
+        body = "$label is due. Open MyInspection to review the property. / 已到建议日期，请打开 MyInspection 查看物业。",
+    )
+}
+sealed interface DeliveryPlan {
+    data object Retry : DeliveryPlan
+    data class Notify(val copy: NotificationCopy, val intent: RouteIntentSpec) : DeliveryPlan
+}
+fun reminderDeliveryPlan(sdkInt: Int, permissionGranted: Boolean, route: ScheduleRoute, dueAt: Instant): DeliveryPlan =
+    if (sdkInt >= 33 && !permissionGranted) DeliveryPlan.Retry
+    else DeliveryPlan.Notify(scheduleNotificationCopy(route.inspectionType), reminderRouteIntentSpec(route, dueAt))
+enum class ScheduleBadge { DUE, UPCOMING, FIRST, ONE_OFF, EMPTY }
+enum class ScheduleFilter { ALL, DUE, ROUTINE, ANNUAL, INGOING, EXIT }
+data class ScheduleEmptyState(val badge: ScheduleBadge, val message: String)
+fun scheduleEmptyState(filter: ScheduleFilter): ScheduleEmptyState = ScheduleEmptyState(
+    badge = ScheduleBadge.EMPTY,
+    message = when (filter) {
+        ScheduleFilter.ALL -> "No properties are available for scheduling."
+        ScheduleFilter.DUE -> "No properties are due."
+        else -> "No ${filter.label()} inspections match this filter."
+    },
+)
+data class ScheduleItem(val propertyId: String, val displayName: String, val inspectionType: InspectionScheduleType, val advice: ScheduleAdvice)
+data class ScheduleRow(val displayName: String, val route: ScheduleRoute, val badge: ScheduleBadge, val nextFact: String, val dueAt: Instant?)
+fun ScheduleRow.open(callback: (ScheduleRoute) -> Unit) = callback(route)
+fun scheduleRows(
+    items: List<ScheduleItem>,
+    now: Instant,
+    filter: ScheduleFilter,
+    zone: ZoneId = ZoneId.of("Pacific/Auckland"),
+): List<ScheduleRow> = items.map { item ->
+    val route = ScheduleRoute(item.propertyId, item.inspectionType)
+    when (val advice = item.advice) {
+        is ScheduleAdvice.Due -> {
+            val isDue = !advice.dueAt.isAfter(now)
+            ScheduleRow(
+                displayName = item.displayName,
+                route = route,
+                badge = if (isDue) ScheduleBadge.DUE else ScheduleBadge.UPCOMING,
+                nextFact = if (isDue) "Reminder due" else "Next reminder: ${advice.dueAt.atZone(zone).toLocalDate()}",
+                dueAt = advice.dueAt,
+            )
+        }
+        ScheduleAdvice.FirstInspection -> ScheduleRow(
+            displayName = item.displayName,
+            route = route,
+            badge = ScheduleBadge.FIRST,
+            nextFact = "Plan the first ${item.inspectionType.name.lowercase()} inspection",
+            dueAt = null,
+        )
+        ScheduleAdvice.NoRecurrence -> ScheduleRow(
+            displayName = item.displayName,
+            route = route,
+            badge = ScheduleBadge.ONE_OFF,
+            nextFact = "One-off inspection",
+            dueAt = null,
+        )
+    }
+}.filter { row ->
+    when (filter) {
+        ScheduleFilter.ALL -> true
+        ScheduleFilter.DUE -> row.badge == ScheduleBadge.DUE
+        ScheduleFilter.ROUTINE -> row.route.inspectionType == InspectionScheduleType.ROUTINE
+        ScheduleFilter.ANNUAL -> row.route.inspectionType == InspectionScheduleType.ANNUAL
+        ScheduleFilter.INGOING -> row.route.inspectionType == InspectionScheduleType.INGOING
+        ScheduleFilter.EXIT -> row.route.inspectionType == InspectionScheduleType.EXIT
+    }
+}
+fun ScheduleFilter.label(): String = name.lowercase().replaceFirstChar(Char::titlecase)
+fun ScheduleBadge.label(): String = when (this) {
+    ScheduleBadge.DUE -> "Due"
+    ScheduleBadge.UPCOMING -> "Upcoming"
+    ScheduleBadge.FIRST -> "First inspection"
+    ScheduleBadge.ONE_OFF -> "One-off"
+    ScheduleBadge.EMPTY -> "No results"
+}
+private fun ByteArray.toHex(): String = joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
