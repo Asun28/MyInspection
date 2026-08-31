@@ -1,7 +1,7 @@
 ---
 id: T4-SCHEDULE-UI
 title: 排程列表、权限恢复与显式重试界面
-depends_on: [T4-SCHEDULE-REMINDER]
+depends_on: [T4-SCHEDULE-REMINDER-SCHEDULER]
 status: todo
 branch: T4-SCHEDULE-UI
 worktree: C:\wt\T4-SCHEDULE-UI
@@ -12,6 +12,7 @@ allow_paths:
 forbid:
   - app 启动时请求通知权限或用陈旧 GRANTED 状态排程
   - 修改 MainActivity、根导航、依赖、schema 或后台自动创建巡检
+  - 用源码字符串读取代替 reducer、permission、route 或 Compose 行为测试
 non_goals:
   - 日历集成、自定义节奏、精确闹钟、T2-CAPTURE-UI 接线
 acceptance:
@@ -19,7 +20,7 @@ acceptance:
   - "A2 API 33 permission is refreshed on resume and immediately before the user reminder action; pre-33 schedules directly"
   - "A3 grant schedules the saved occurrence while denial and revoked permission show settings recovery without startup prompts"
   - "A4 enqueue or tracking failure retains only the matching pending occurrence and exposes a non-crashing retry"
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ScheduleUiTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
+dod_command: $kotlin = @('android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleModels.kt','android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleScreen.kt','android/app/src/test/kotlin/nz/myinspection/app/feature/schedule/ScheduleUiTest.kt'); if ($kotlin | Where-Object { -not (Test-Path $_) }) { exit 1 }; if (Select-String -Path $kotlin -Pattern '\btypealias\b|;' -Quiet) { exit 1 }; if ($kotlin | ForEach-Object { Get-Content $_ | Where-Object { $_.Length -gt 120 } }) { exit 1 }; $tests = @($kotlin | Where-Object { $_ -like '*src/test*' }); if (Select-String -Path $tests -Pattern 'readText\(|readLines\(|Files\.readString' -Quiet) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ScheduleUiTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
 dod_exit: 0
 dod_assert: focused production-state tests pin no startup request, action-time/resume permission refresh, grant/revoke/deny/settings/retry transitions, badges, filters and route callbacks; assembleDebug compiles Compose wiring.
 review_gate: codex {verdict:pass}
