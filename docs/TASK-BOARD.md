@@ -29,8 +29,11 @@
 | W0 | T0-R3-FLOW-ENUM-SYNC | 预算闸补进每一处确定性闸枚举 + 每处一条锚定断言（承接母卡 A13） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `d19a4c22`，PR #200；17 个枚举面一一登记并逐处删除变异，补齐 English overview、跨行/顺序/Step 锚定与 lone-CR 防回归；workflow + seeded + SizeOnly、Luna/Terra Max 复核与 Sol R3 均 PASS；R5 candidate `74328b2d` released-master verify + seeded exit 0，含 canary、ADDED/REMOVED、cleanup 与 `selftest: PASS`） |
 | W0 | ~~T0-R3-DIFF-BUDGET-R3-CLOSURE~~ | **已退役**（2026-08-23）：人裁选路线 2，第 2 轮两项 finding 已在原卡修完；余下契约由上面两张拆卡承接 | — | — | — | — | 退役理由见 T0-R3-DIFF-BUDGET「拆分依据」 |
 | W0 | T0-CI-MERGE-GATE | 候选 CI 运行时 + 一红一绿的远端行为证明（TD134 1a/6） | T0-R3-DIFF-BUDGET | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `56c02c0f`，PR #207；R3 后钉定候选 head，消费 ci.yml workflow/jobs，复核 base/head 后以 `--match-head-commit` 合并；一红一绿 hermetic + unrelated-CWD 证明；DoD/verify/R3 PASS；R5 candidate `25d3a95c` released-master `selftest -Shard seeded-remote` exit 0，含 T37-REMOTEMX/1–4 与 `selftest: PASS`） |
-| W0 | T0-CI-HARDENING-MATRIX | 候选 CI 的身份、分页、deadline、TOCTOU 与 NoAutoMerge mutation 矩阵（TD134 1b/6） | T0-CI-MERGE-GATE | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行占用 selftest；完整 target-reaching hardening，不改 CI job 集 |
-| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | receipt-loss 禁止第二套 review/CI/merge，恢复不到 T35 receipt 就保持未合并（TD134 1c/6） | T0-CI-HARDENING-MATRIX | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行终点；下游 ASCII ship codes 依赖本卡 |
+| W0 | ~~T0-CI-HARDENING-MATRIX~~ | **已退役且未合并**：PR #214 reviewed head `cce6fa5e`（verify green，量测 59713/60000）经 R3 第 1 轮 block「分页条目无稳定身份 ⇒ 重放页凑满 total_count、掩盖未读到的红 run 并走到 merge」；修复该发现后又暴露 PR 关联大小写不敏感与旧 mock 缺 id 两处真缺陷，exact head `2ce7aa0f` 本地量测 **61092** 超 60000 闸（超限主因是长 JSON 行区的 hunk 上下文，非行数：524/1000） | — | — | — | — | 由 PAGED-CONTRACT→IDENTITY-DEADLINE 承接；成果只读保全于 `wip/T0-CI-hardening-validated` |
+| W0 | T0-CI-HARDENING-SPLIT-PLAN | 把候选 CI 硬化卡拆成分页契约与身份/deadline 两张可读串行卡（TD134 1b/6 规划） | T0-CI-MERGE-GATE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 只改卡片元数据与看板，不碰 scripts/ |
+| W0 | T0-CI-PAGED-CONTRACT | 分页读取的形态、总数、稳定身份与跨页重放契约（TD134 1b/6 之一） | T0-CI-HARDENING-SPLIT-PLAN | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行占用 selftest；承接 R3 已验证的 id 去重与 page-replay 夹具 |
+| W0 | T0-CI-IDENTITY-DEADLINE | run 身份绑定、jobs 漂移、单一 deadline 与最终 exact-head/base 快照（TD134 1b/6 之二） | T0-CI-PAGED-CONTRACT | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 身份比较一律大小写敏感；承接两份文档同步 |
+| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | receipt-loss 禁止第二套 review/CI/merge，恢复不到 T35 receipt 就保持未合并（TD134 1c/6） | T0-CI-IDENTITY-DEADLINE | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行终点；下游 ASCII ship codes 依赖本卡 |
 | W0 | T0-GATE-ID-UNIQUENESS | 闸号唯一性机检 + 锚点唯一性与自身 parse 自检 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b1e5f0b5`，PR #186；闸头/Fail 文案双面 AST+token 扫描、重复 id 全位置诊断、唯一 raw 插入锚、ParseFile、6 类删除变异；core/workflow/verify 与 R3 全绿；TD146 paid） |
 | W0 | T0-GRADLE-RUNTIME-FILE-INPUTS | 测试运行期读的仓内文件声明为 Gradle 测试输入，消除「改了权威文件仍 UP-TO-DATE」的假绿 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（2026-08-29，master `6fda9f88`，PR #188；精确声明配置、模板与源码输入，补全双语 tuple 哈希守卫，T3/T4 DoD 强制真实执行；变异、verify、R3 全绿） |
 | W0 | T0-CARD-ACCEPTANCE-FIELD | 把 acceptance 封闭验收集合登记为正式卡片字段 + 形态机检（可选字段、缺失只告警） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 四张卡已在用该字段而 `specs/README.md` 字段表无此行；机检只判形态（编号 A1..An 连续），不判条目精度。与 5 张在飞卡共用 selftest.ps1，须排在其后 |
@@ -178,8 +181,10 @@ flowchart LR
   A --> A4[T0-CARD-ACCEPTANCE-FIELD]
   A --> A5[T0-R3-FLOW-ENUM-SYNC]
   A --> B[T0-CI-MERGE-GATE]
-  B --> B2[T0-CI-HARDENING-MATRIX]
-  B2 --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
+  B --> BS[T0-CI-HARDENING-SPLIT-PLAN]
+  BS --> B2a[T0-CI-PAGED-CONTRACT]
+  B2a --> B2b[T0-CI-IDENTITY-DEADLINE]
+  B2b --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
   B3 --> E[T0-ASCII-SHIP-CODES]
   E --> F[T0-ASCII-CARD-SECRET-CODES]
   F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]

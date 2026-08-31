@@ -1,4 +1,4 @@
-﻿---
+---
 id: T0-CI-HARDENING-SPLIT-PLAN
 title: 将候选 CI 硬化卡拆为分页契约与身份/deadline 两张可读串行卡
 depends_on: [T0-CI-MERGE-GATE]
@@ -7,7 +7,7 @@ parallelizable_with: []
 acceptance:
   - "A1 退役未合并的 T0-CI-HARDENING-MATRIX，并在 TASK-BOARD 钉住 PR #214 的精确证据：exact head 2ce7aa0f 的本地量测 61092 字符超 60000 闸、reviewed head cce6fa5e、verify green、R3 第 1 轮 block 原文"
   - "A2 PAGED-CONTRACT → IDENTITY-DEADLINE → RECEIPT-LOSS 构成一条串行依赖链，两张新卡 parallelizable_with 均为空（允许共享 task.ps1/selftest.ps1，因串行无并发写风险）"
-  - "A3 两张承接卡各自保留 1000/60000 预算闸与 mandatory R3，并各带可机检 dod_command 与 >=3 条严格 acceptance"
+  - "A3 两张承接卡各自保留 1000/60000 预算闸与 mandatory R3；其 dod_command 必须**执行** seeded-remote 分片并要求各目标闸的大小写敏感成功哨兵 `<gate> OK`（正向证据，闸缺失即红），而非搜索字符串或仅拒绝跳过记录（本卡 DoD 机检这一点）"
   - "A4 下游 T0-RECEIPT-LOSS-FAIL-CLOSED 的 depends_on 重新指向链条终点 T0-CI-IDENTITY-DEADLINE，依赖图与 TASK-BOARD 同步"
   - "A5 已验证成果以只读方式保全（分支 wip/T0-CI-hardening-validated tip 2ce7aa0f 与 patch series），两张承接卡各自声明可承接的部分，且仍须自行重跑 DoD 与 selftest"
 status: todo
@@ -29,9 +29,9 @@ non_goals:
   - 实现分页契约、身份绑定、deadline 或最终快照本身
   - 在两张承接卡完成抽取前删除 wip/T0-CI-hardening-validated 的只读证据
   - receipt-loss 恢复策略
-dod_command: pwsh -NoProfile -File scripts/check-cards.ps1; if ($LASTEXITCODE -ne 0) { exit 1 }; if ((Test-Path 'specs/tasks/T0-CI-HARDENING-MATRIX.md') -or -not (Test-Path 'specs/tasks/T0-CI-PAGED-CONTRACT.md') -or -not (Test-Path 'specs/tasks/T0-CI-IDENTITY-DEADLINE.md')) { exit 1 }; if (-not (Get-Content -Raw 'specs/tasks/T0-CI-PAGED-CONTRACT.md').Contains('depends_on: [T0-CI-MERGE-GATE, T0-CI-HARDENING-SPLIT-PLAN]')) { exit 1 }; if (-not (Get-Content -Raw 'specs/tasks/T0-CI-IDENTITY-DEADLINE.md').Contains('depends_on: [T0-CI-PAGED-CONTRACT]')) { exit 1 }; if (-not (Get-Content -Raw 'specs/tasks/T0-RECEIPT-LOSS-FAIL-CLOSED.md').Contains('depends_on: [T0-CI-IDENTITY-DEADLINE]')) { exit 1 }; $b = Get-Content -Raw 'docs/TASK-BOARD.md'; foreach ($e in @('~~T0-CI-HARDENING-MATRIX~~','2ce7aa0f','cce6fa5e','61092','T0-CI-PAGED-CONTRACT','T0-CI-IDENTITY-DEADLINE')) { if (-not $b.Contains($e)) { exit 1 } }
+dod_command: pwsh -NoProfile -File scripts/check-cards.ps1; if ($LASTEXITCODE -ne 0) { exit 1 }; if ((Test-Path 'specs/tasks/T0-CI-HARDENING-MATRIX.md') -or -not (Test-Path 'specs/tasks/T0-CI-PAGED-CONTRACT.md') -or -not (Test-Path 'specs/tasks/T0-CI-IDENTITY-DEADLINE.md')) { exit 1 }; if (-not (Get-Content -Raw 'specs/tasks/T0-CI-PAGED-CONTRACT.md').Contains('depends_on: [T0-CI-MERGE-GATE, T0-CI-HARDENING-SPLIT-PLAN]')) { exit 1 }; if (-not (Get-Content -Raw 'specs/tasks/T0-CI-IDENTITY-DEADLINE.md').Contains('depends_on: [T0-CI-PAGED-CONTRACT]')) { exit 1 }; if (-not (Get-Content -Raw 'specs/tasks/T0-RECEIPT-LOSS-FAIL-CLOSED.md').Contains('depends_on: [T0-CI-IDENTITY-DEADLINE]')) { exit 1 }; $b = Get-Content -Raw 'docs/TASK-BOARD.md'; foreach ($e in @('~~T0-CI-HARDENING-MATRIX~~','2ce7aa0f','cce6fa5e','61092','T0-CI-PAGED-CONTRACT','T0-CI-IDENTITY-DEADLINE')) { if (-not $b.Contains($e)) { exit 1 } }; foreach ($pair in @(@('specs/tasks/T0-CI-PAGED-CONTRACT.md','T37-CIGATE/API-CONTRACT'),@('specs/tasks/T0-CI-IDENTITY-DEADLINE.md','T37-CIGATE/JOBS-DRIFT'))) { $ln = @(Get-Content $pair[0] | Where-Object { $_.StartsWith('dod_command:') }); if ($ln.Count -ne 1) { exit 1 }; if (-not $ln[0].Contains('selftest.ps1 -Shard seeded-remote') -or -not $ln[0].Contains($pair[1] + ' OK') -or -not $ln[0].Contains('-cnotmatch')) { exit 1 } }
 dod_exit: 0
-dod_assert: 原硬化卡退出活目录；两张承接卡存在且串行依赖成链、下游已重指向；TASK-BOARD 钉住 PR #214 的精确未合并证据与两张承接卡。
+dod_assert: 原硬化卡退出活目录；两张承接卡存在且串行依赖成链、下游已重指向；TASK-BOARD 钉住 PR #214 的精确未合并证据与两张承接卡；两张承接卡的 dod_command 均真实执行 seeded-remote 并以大小写敏感的 `<gate> OK` 成功哨兵为通过条件。
 review_gate: codex {verdict:pass}
 hygiene: check-cards 校验全部活卡；拆分卡只改卡片元数据与看板，不借拆分放宽任何质量闸。
 doc_sync: TASK-BOARD 记录 split-plan 合并 OID 与依赖图；本规划卡 R5 归档，两张承接卡保持 todo。
@@ -51,7 +51,7 @@ R3 第 1 轮以「分页条目无稳定身份 ⇒ 重放页可掩盖未读到的
    导致 `T37-REMOTEMX/3` 未触达 merge。修夹具只改 2 行，但那两行位于长 JSON 字面量区，
    新 hunk 拖入约 1265 字符上下文，**实际代价 1281 字符**。
 
-第 2 条说明本卡的体量瓶颈不是行数（522/1000，绰绰有余）而是**字符数与 hunk 上下文**：在长行密集区
+第 2 条说明本卡的体量瓶颈不是行数（524/1000，绰绰有余）而是**字符数与 hunk 上下文**：在长行密集区
 改动 2 行的代价与改动数十行相当。继续压缩只会重蹈原卡「靠折叠 param 块、删守卫、单行化换预算」的老路，
 而那正是本次拆卡要根除的形态。
 
