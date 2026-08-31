@@ -1,7 +1,7 @@
----
+﻿---
 id: T0-RECEIPT-LOSS-FAIL-CLOSED
 title: receipt 丢失或不自洽时停止第二套 review/CI/merge 恢复旁路
-depends_on: [T0-CI-HARDENING-MATRIX]
+depends_on: [T0-CI-IDENTITY-DEADLINE]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
 status: todo
