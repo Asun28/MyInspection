@@ -23,7 +23,7 @@ class ReminderFeatureTest {
     private val now = Instant.parse("2026-08-01T00:00:00Z")
     private val factory = WorkSpecFactory()
     @Test
-    fun `production request is unique kept routed and delayed`() {
+    fun `production request is exact`() {
         val route = ScheduleRoute("property-a", InspectionScheduleType.ROUTINE)
         val dueAt = now.plus(Duration.ofDays(2)).plusNanos(1)
         val spec = factory.create(route, dueAt)
@@ -51,7 +51,7 @@ class ReminderFeatureTest {
         assertEquals(1, submissions)
     }
     @Test
-    fun `registration receipts are durable idempotent and race safe`() {
+    fun `registration is durable and race safe`() {
         val spec = spec(InspectionScheduleType.ROUTINE, 60)
         val store = FakeReceiptStore()
         val logger = FakeLogger()
@@ -81,15 +81,15 @@ class ReminderFeatureTest {
         completion!!(EnqueueResult.Accepted)
         assertEquals(RegistrationResult.PERMANENT_FAILURE, result)
         assertEquals(ReceiptState.INDETERMINATE, store.read(raced.occurrenceId))
-        val thrown = spec(InspectionScheduleType.ROUTINE, 65)
-        ReminderScheduler.schedule(thrown, store, logger, { result = it }) { _, _ ->
-            throw SecurityException("private detail")
-        }
-        assertEquals(FailureCauseCode.SECURITY, logger.records.last().causeCode)
+        val unknown = spec(InspectionScheduleType.ROUTINE, 65)
+        schedule(unknown, store, logger, { result = it }) { it(EnqueueResult.Rejected(null)) }
+        assertEquals(FailureCauseCode.UNKNOWN, logger.records.last().causeCode)
         assertFalse(logger.records.last().retryable)
         assertEquals(RegistrationResult.PERMANENT_FAILURE, result)
+        assertEquals(ReceiptState.TERMINAL, store.read(unknown.occurrenceId))
+        assertFalse(schedule(unknown, store, logger) { error("no retry") })
+        val thrown = spec(InspectionScheduleType.ROUTINE, 66); assertTrue(ReminderScheduler.schedule(thrown, store, logger) { _, _ -> throw SecurityException() })
         assertEquals(ReceiptState.TERMINAL, store.read(thrown.occurrenceId))
-        assertFalse(schedule(thrown, store, logger) { error("no retry") })
     }
     @Test
     fun `worker owned permission retry wins a late enqueue rejection`() {
@@ -122,11 +122,8 @@ class ReminderFeatureTest {
         val corrupt = FakeReceiptStore().apply { corrupt += spec.occurrenceId }
         assertFalse(ReminderScheduler.schedule(spec, corrupt, logger) { _, _ -> error("no enqueue") })
         assertEquals(FailureCauseCode.STORAGE_CORRUPT, logger.records.last().causeCode)
-        val rejected = FakeReceiptStore().apply { rejectedTarget = ReceiptState.ENQUEUED }
+        val rejected = FakeReceiptStore().apply { failTarget = ReceiptState.ENQUEUED }
         assertFalse(schedule(spec, rejected, logger) { error("no enqueue") })
-        assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
-        val throwingWrite = FakeReceiptStore().apply { throwOnWrite = true }
-        assertFalse(schedule(spec, throwingWrite, logger) { error("no enqueue") })
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
         val quarantine = FakeReceiptStore().apply { set(spec.occurrenceId, ReceiptState.INDETERMINATE) }
         assertFalse(schedule(spec, quarantine, logger) { error("no enqueue") })
@@ -142,20 +139,17 @@ class ReminderFeatureTest {
         assertEquals(RegistrationResult.PERMANENT_FAILURE, ownerResult)
         assertEquals(ownerResult, followerResult)
         assertEquals(ReceiptState.TERMINAL, sharedStore.read(shared.occurrenceId))
-        val lostReservation = FakeReceiptStore().apply {
-            rejectedTarget = ReceiptState.ENQUEUED
-            stateOnReject = ReceiptState.ENQUEUED
-        }
+        val mismatchStore = FakeReceiptStore().apply { mismatchTarget = ReceiptState.ENQUEUED }
         var reconciled = 0
-        assertTrue(schedule(spec, lostReservation, logger) { reconciled++; it(EnqueueResult.Accepted) })
+        assertTrue(schedule(spec(InspectionScheduleType.ANNUAL, 73), mismatchStore, logger) { reconciled++; it(EnqueueResult.Accepted) })
         assertEquals(1, reconciled)
         val doubleFailureSpec = spec(InspectionScheduleType.ANNUAL, 71)
         val doubleFailure = FakeReceiptStore()
         var completion: ((EnqueueResult) -> Unit)? = null
         var quarantined: RegistrationResult? = null
         schedule(doubleFailureSpec, doubleFailure, logger, { quarantined = it }) { completion = it }
-        doubleFailure.throwOnWrite = true
-        completion!!(EnqueueResult.Rejected(SecurityException()))
+        doubleFailure.failTarget = ReceiptState.RETRYABLE
+        completion!!(EnqueueResult.Rejected(IOException()))
         assertEquals(RegistrationResult.PERMANENT_FAILURE, quarantined)
         assertFalse(schedule(doubleFailureSpec, doubleFailure, logger) { error("process quarantine") })
         val retryRace = spec(InspectionScheduleType.ANNUAL, 72)
@@ -170,7 +164,7 @@ class ReminderFeatureTest {
         assertEquals(RegistrationResult.RETRYABLE_FAILURE, retryResult)
     }
     @Test
-    fun `worker quarantines notify failures and retries permission before claim`() {
+    fun `worker notify and permission failures are safe`() {
         val spec = spec(InspectionScheduleType.ROUTINE)
         val logger = FakeLogger()
         val transient = enqueuedStore(spec)
@@ -188,6 +182,9 @@ class ReminderFeatureTest {
             throw PrePostNotificationException(IOException("before post"))
         })
         assertEquals(ReceiptState.ENQUEUED, prePost.read(spec.occurrenceId))
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, failedStore(spec, ReceiptState.ENQUEUED), logger) {
+            throw PrePostNotificationException(IOException("failed rollback"))
+        })
         val permanent = enqueuedStore(spec)
         assertEquals(WorkerOutcome.FAILURE, execute(spec, permanent, logger) { throw SecurityException("revoked") })
         assertEquals(ReceiptState.TERMINAL, permanent.read(spec.occurrenceId))
@@ -201,6 +198,8 @@ class ReminderFeatureTest {
         assertEquals(0, permanentPosts)
         val denied = enqueuedStore(spec)
         assertEquals(WorkerOutcome.RETRY, execute(spec, denied, logger, granted = false))
+        assertEquals(WorkerOutcome.FAILURE,
+            execute(spec, failedStore(spec, ReceiptState.PERMISSION_RETRY), logger, granted = false))
         assertEquals(WorkerOutcome.SUCCESS, execute(spec, denied, logger, granted = true))
         assertEquals(ReceiptState.DELIVERED, denied.read(spec.occurrenceId))
         val deniedExhausted = enqueuedStore(spec)
@@ -208,7 +207,7 @@ class ReminderFeatureTest {
         assertEquals(ReceiptState.RETRYABLE, deniedExhausted.read(spec.occurrenceId))
     }
     @Test
-    fun `delivery is idempotent and receipt failures are explicit`() {
+    fun `delivery is idempotent and fails closed`() {
         val spec = spec(InspectionScheduleType.EXIT)
         val logger = FakeLogger()
         val store = enqueuedStore(spec)
@@ -224,30 +223,28 @@ class ReminderFeatureTest {
             .forEach { stale -> assertEquals(WorkerOutcome.FAILURE, execute(spec, stale, logger) { stalePosts++ }) }
         assertEquals(0, stalePosts)
         assertEquals(FailureCauseCode.STORAGE_MISSING, logger.records.last().causeCode)
-        val rejected = enqueuedStore(spec).apply { rejectedTarget = ReceiptState.DELIVERED }
-        var rejectedPosts = 0
-        assertEquals(WorkerOutcome.FAILURE, execute(spec, rejected, logger) { rejectedPosts++ })
-        assertEquals(1, rejectedPosts)
-        assertEquals(ReceiptState.INDETERMINATE, rejected.read(spec.occurrenceId))
+        val rejected = failedStore(spec, ReceiptState.DELIVERED)
+        var posts = 0
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, rejected, logger) { posts++ })
+        assertEquals(1, posts)
+        assertEquals(ReceiptState.DELIVERED, rejected.read(spec.occurrenceId)); assertEquals(ReceiptState.INDETERMINATE, rejected.read(spec.occurrenceId))
         assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
-        assertEquals(WorkerOutcome.FAILURE, execute(spec, rejected, logger) { rejectedPosts++ })
-        assertEquals(1, rejectedPosts)
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, rejected, logger) { posts++ })
+        assertEquals(1, posts)
         var recovery: RegistrationResult? = null
         assertFalse(schedule(spec, rejected, logger, { recovery = it }) { error("no re-enqueue") })
         assertEquals(RegistrationResult.PERMANENT_FAILURE, recovery)
-        val throwing = enqueuedStore(spec).apply { throwOnWrite = true }
+        val throwing = failedStore(spec, ReceiptState.INDETERMINATE)
         var alerts = 0
         assertEquals(WorkerOutcome.FAILURE, execute(spec, throwing, logger) { alerts++ })
         assertEquals(0, alerts)
-        assertEquals(FailureCauseCode.STORAGE_WRITE, logger.records.last().causeCode)
-        assertEquals(ReceiptState.ENQUEUED, throwing.read(spec.occurrenceId))
-        val cleanupFailure = enqueuedStore(spec).apply { rejectedTarget = ReceiptState.TERMINAL }
-        assertEquals(WorkerOutcome.FAILURE, execute(spec, cleanupFailure, logger) { throw SecurityException("permanent") })
-        assertEquals(ReceiptState.INDETERMINATE, cleanupFailure.read(spec.occurrenceId))
-        assertFalse(schedule(spec, cleanupFailure, logger) { error("no re-enqueue") })
+        val cleanup = failedStore(spec, ReceiptState.TERMINAL)
+        assertEquals(WorkerOutcome.FAILURE, execute(spec, cleanup, logger) { throw SecurityException("permanent") })
+        assertEquals(ReceiptState.TERMINAL, cleanup.read(spec.occurrenceId))
+        assertFalse(schedule(spec, cleanup, logger) { error("no re-enqueue") })
     }
     @Test
-    fun `invalid and corrupt worker inputs never post or leak identifiers`() {
+    fun `invalid worker inputs never post or leak identifiers`() {
         val spec = spec(InspectionScheduleType.INGOING)
         val logger = FakeLogger()
         var posts = 0
@@ -268,7 +265,7 @@ class ReminderFeatureTest {
         assertFalse(logger.messages.last().contains("property-a"))
     }
     @Test
-    fun `failure classes and all notification types keep safe stable identity`() {
+    fun `failure classes and notification identity are stable`() {
         val cases = listOf(
             SecurityException() to (FailureKind.PERMANENT to FailureCauseCode.SECURITY),
             IllegalArgumentException() to (FailureKind.PERMANENT to FailureCauseCode.INVALID_ARGUMENT),
@@ -276,13 +273,15 @@ class ReminderFeatureTest {
             IOException() to (FailureKind.TRANSIENT to FailureCauseCode.IO),
             CancellationException() to (FailureKind.TRANSIENT to FailureCauseCode.CANCELLED),
             InterruptedException() to (FailureKind.TRANSIENT to FailureCauseCode.INTERRUPTED),
-            RuntimeException() to (FailureKind.TRANSIENT to FailureCauseCode.UNKNOWN_RUNTIME),
             ExecutionException(IOException()) to (FailureKind.TRANSIENT to FailureCauseCode.IO),
             Exception() to (FailureKind.PERMANENT to FailureCauseCode.UNKNOWN),
         )
         cases.forEach { (error, expected) ->
             val actual = classifyReminderFailure(error)
             assertEquals(expected, actual.kind to actual.causeCode)
+        }
+        listOf(RuntimeException(), NullPointerException(), UnsupportedOperationException()).forEach {
+            assertEquals(FailureKind.PERMANENT, classifyReminderFailure(it).kind)
         }
         val labels = mapOf(
             InspectionScheduleType.ROUTINE to ("Routine" to "定期巡检"),
@@ -339,27 +338,30 @@ class ReminderFeatureTest {
         notify: (DeliveryPlan.Notify) -> Unit = {},
     ) = ReminderWorker.execute(WorkerInput.from(spec), 33, granted, attempt, store, logger, notify)
     private fun enqueuedStore(spec: ReminderSpec) = FakeReceiptStore().apply { set(spec.occurrenceId, ReceiptState.ENQUEUED) }
+    private fun failedStore(spec: ReminderSpec, target: ReceiptState) = enqueuedStore(spec).apply { failTarget = target }
     private class FakeReceiptStore : ReceiptStore {
         private val states = mutableMapOf<String, ReceiptState>()
+        private val failed = mutableSetOf<String>()
+        private val visible = mutableSetOf<String>()
         val corrupt = mutableSetOf<String>()
-        var rejectedTarget: ReceiptState? = null
-        var stateOnReject: ReceiptState? = null
-        var throwOnWrite = false
+        var failTarget: ReceiptState? = null
+        var mismatchTarget: ReceiptState? = null
         override fun read(occurrenceId: String): ReceiptState = when {
+            occurrenceId in visible -> states.getValue(occurrenceId).also { visible -= occurrenceId }
+            occurrenceId in failed -> ReceiptState.INDETERMINATE
             occurrenceId in corrupt -> ReceiptState.CORRUPT
             else -> states[occurrenceId] ?: ReceiptState.MISSING
         }
-        override fun compareAndSet(
-            occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
-        ): Boolean {
-            if (throwOnWrite) throw IllegalStateException("write failed")
-            if (read(occurrenceId) !in expected) return false
-            if (state == rejectedTarget) {
-                stateOnReject?.let { set(occurrenceId, it) }
-                return false
+        override fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): WriteResult {
+            if (read(occurrenceId) !in expected) return WriteResult.Mismatch(read(occurrenceId))
+            if (state == mismatchTarget) { set(occurrenceId, state); return WriteResult.Mismatch(state) }
+            if (state == failTarget) {
+                set(occurrenceId, state)
+                failed += occurrenceId; visible += occurrenceId
+                return WriteResult.Failed
             }
             set(occurrenceId, state)
-            return true
+            return WriteResult.Applied
         }
         fun set(occurrenceId: String, state: ReceiptState) {
             if (state == ReceiptState.MISSING) states.remove(occurrenceId)

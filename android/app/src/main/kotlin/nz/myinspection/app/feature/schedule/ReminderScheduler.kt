@@ -47,7 +47,7 @@ fun classifyReminderFailure(error: Throwable): FailureDisposition {
         is IllegalStateException -> permanent(FailureCauseCode.ILLEGAL_STATE)
         is IOException -> transient(FailureCauseCode.IO)
         is InterruptedException -> transient(FailureCauseCode.INTERRUPTED)
-        is RuntimeException -> transient(FailureCauseCode.UNKNOWN_RUNTIME)
+        is RuntimeException -> permanent(FailureCauseCode.UNKNOWN_RUNTIME)
         else -> permanent(FailureCauseCode.UNKNOWN)
     }
 }
@@ -151,7 +151,7 @@ private fun logEnqueueFailure(
     error: Throwable?,
     logger: EventLogger,
 ): FailureDisposition {
-    val disposition = error?.let(::classifyReminderFailure) ?: transient(FailureCauseCode.UNKNOWN)
+    val disposition = error?.let(::classifyReminderFailure) ?: permanent(FailureCauseCode.UNKNOWN)
     logger.log(LogRecord(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType,
         disposition.kind == FailureKind.TRANSIENT, LogError.ENQUEUE_FAILED, disposition.causeCode))
     return disposition
@@ -196,17 +196,27 @@ internal fun readReceipt(readRaw: () -> String?): ReceiptState = try { decodeRec
 catch (_: RuntimeException) { ReceiptState.CORRUPT }
 internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    override fun read(occurrenceId: String) = readReceipt { preferences.getString(occurrenceId, null) }
-    override fun compareAndSet(
-        occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
-    ): Boolean = synchronized(LOCK) {
+    override fun read(occurrenceId: String) = synchronized(LOCK) {
+        if (occurrenceId in UNCERTAIN) ReceiptState.INDETERMINATE
+        else readReceipt { preferences.getString(occurrenceId, null) }
+    }
+    override fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): WriteResult = synchronized(LOCK) {
         require(state != ReceiptState.CORRUPT) { "CORRUPT is a read-only receipt state" }
-        if (read(occurrenceId) !in expected) false
-        else if (state == ReceiptState.MISSING) preferences.edit().remove(occurrenceId).commit()
-        else preferences.edit().putString(occurrenceId, state.name).commit()
+        if (occurrenceId in UNCERTAIN) return@synchronized WriteResult.Failed
+        try {
+            val current = read(occurrenceId)
+            if (current !in expected) WriteResult.Mismatch(current)
+            else {
+                val committed = if (state == ReceiptState.MISSING) preferences.edit().remove(occurrenceId).commit()
+                    else preferences.edit().putString(occurrenceId, state.name).commit()
+                if (committed) WriteResult.Applied else failedWrite(occurrenceId)
+            }
+        } catch (_: RuntimeException) { failedWrite(occurrenceId) }
     }
     private companion object {
         const val PREFERENCES_NAME = "schedule-reminder-occurrences"
         val LOCK = Any()
+        val UNCERTAIN = mutableSetOf<String>()
+        fun failedWrite(id: String) = WriteResult.Failed.also { UNCERTAIN += id }
     }
 }

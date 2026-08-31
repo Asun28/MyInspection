@@ -20,14 +20,12 @@ fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
 }
 enum class ReceiptState { MISSING, ENQUEUED, PERMISSION_RETRY, INDETERMINATE, DELIVERED, RETRYABLE, TERMINAL, CORRUPT }
 enum class RegistrationResult { SUCCESS, RETRYABLE_FAILURE, PERMANENT_FAILURE }
-interface ReceiptStore {
-    fun read(occurrenceId: String): ReceiptState
-    fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): Boolean
-}
+sealed interface WriteResult { data object Applied : WriteResult; data class Mismatch(val state: ReceiptState) : WriteResult; data object Failed : WriteResult }
+interface ReceiptStore { fun read(occurrenceId: String): ReceiptState
+    fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): WriteResult }
 internal fun ReceiptStore.readSafely(occurrenceId: String) = try { read(occurrenceId) } catch (_: RuntimeException) { ReceiptState.CORRUPT }
-internal fun ReceiptStore.compareAndSetSafely(
-    occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState,
-): Boolean = try { compareAndSet(occurrenceId, expected, state) } catch (_: RuntimeException) { false }
+internal fun ReceiptStore.compareAndSetSafely(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState) =
+    try { compareAndSet(occurrenceId, expected, state) } catch (_: RuntimeException) { WriteResult.Failed }
 internal object RegistrationFlights {
     class Flight(val waiters: MutableList<(RegistrationResult) -> Unit>, var settling: Boolean = false)
     private val active = mutableMapOf<String, Flight>()
@@ -46,10 +44,8 @@ internal object RegistrationFlights {
             active.remove(id); if (quarantine) quarantined += id
         }
 }
-internal class RegistrationCoordinator(
-    private val store: ReceiptStore, private val onCorruptReceipt: () -> Unit,
-    private val onWriteFailure: () -> Unit,
-) {
+internal class RegistrationCoordinator(private val store: ReceiptStore, private val onCorruptReceipt: () -> Unit,
+    private val onWriteFailure: () -> Unit) {
     fun register(
         occurrenceId: String, onResult: (RegistrationResult) -> Unit,
         enqueue: ((RegistrationResult) -> Unit) -> Unit,
@@ -68,15 +64,11 @@ internal class RegistrationCoordinator(
             return finishFlight(occurrenceId, flight, current)
         }
         if (current != ReceiptState.ENQUEUED) {
-            val reserved = store.compareAndSetSafely(
-                occurrenceId, setOf(current), ReceiptState.ENQUEUED,
-            )
-            if (!reserved) {
-                val observed = store.readSafely(occurrenceId)
-                if (observed != ReceiptState.ENQUEUED) {
-                    if (observed in setOf(ReceiptState.MISSING, ReceiptState.RETRYABLE)) onWriteFailure()
-                    return finishFlight(occurrenceId, flight, observed)
-                }
+            when (val write = store.compareAndSetSafely(occurrenceId, setOf(current), ReceiptState.ENQUEUED)) {
+                WriteResult.Applied -> Unit
+                WriteResult.Failed -> return finishFlight(occurrenceId, flight, ReceiptState.INDETERMINATE, true)
+                is WriteResult.Mismatch -> if (write.state != ReceiptState.ENQUEUED)
+                    return finishFlight(occurrenceId, flight, write.state)
             }
         }
         try {
@@ -100,20 +92,15 @@ internal class RegistrationCoordinator(
                 resolved = resultFor(store.readSafely(occurrenceId))
             } else {
                 val target = if (result == RegistrationResult.RETRYABLE_FAILURE) ReceiptState.RETRYABLE else ReceiptState.TERMINAL
-                if (!store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.ENQUEUED), target)) {
-                    var current = store.readSafely(occurrenceId)
-                    if (current == ReceiptState.ENQUEUED) {
-                        onWriteFailure()
-                        store.compareAndSetSafely(
-                            occurrenceId, setOf(ReceiptState.ENQUEUED), ReceiptState.INDETERMINATE,
-                        )
-                        current = store.readSafely(occurrenceId)
-                        quarantine = current == ReceiptState.ENQUEUED
+                when (val write = store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.ENQUEUED), target)) {
+                    WriteResult.Applied -> Unit
+                    is WriteResult.Mismatch -> resolved = resultFor(write.state)
+                    WriteResult.Failed -> {
+                        onWriteFailure(); quarantine = true; resolved = RegistrationResult.PERMANENT_FAILURE
                     }
-                    resolved = resultFor(current)
                 }
             }
-            if (resolved == RegistrationResult.PERMANENT_FAILURE && store.readSafely(occurrenceId) == ReceiptState.CORRUPT) onCorruptReceipt()
+            if (!quarantine && resolved == RegistrationResult.PERMANENT_FAILURE && store.readSafely(occurrenceId) == ReceiptState.CORRUPT) onCorruptReceipt()
             val waiters = RegistrationFlights.finish(occurrenceId, flight, quarantine)
             settled = true
             waiters.forEach { it(if (quarantine) RegistrationResult.PERMANENT_FAILURE else resolved) }
@@ -126,10 +113,10 @@ internal class RegistrationCoordinator(
         onResult(resultFor(state))
         return false
     }
-    private fun finishFlight(occurrenceId: String, flight: RegistrationFlights.Flight, state: ReceiptState): Boolean {
+    private fun finishFlight(occurrenceId: String, flight: RegistrationFlights.Flight, state: ReceiptState, quarantine: Boolean = false): Boolean {
         if (state == ReceiptState.CORRUPT) onCorruptReceipt()
         if (state == ReceiptState.INDETERMINATE) onWriteFailure()
-        RegistrationFlights.finish(occurrenceId, flight, false).forEach { it(resultFor(state)) }
+        RegistrationFlights.finish(occurrenceId, flight, quarantine).forEach { it(resultFor(state)) }
         return false
     }
     private fun resultFor(state: ReceiptState) = when (state) {

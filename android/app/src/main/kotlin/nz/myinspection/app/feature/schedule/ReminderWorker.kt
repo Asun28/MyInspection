@@ -109,11 +109,12 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             if (delivery is DeliveryPlan.Retry) {
                 return permissionFailure(occurrenceId, route.inspectionType, runAttemptCount, store, logger)
             }
-            if (!store.compareAndSetSafely(
-                    occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY), ReceiptState.INDETERMINATE,
-                )
-            ) {
-                return when (store.readSafely(occurrenceId)) {
+            when (val write = store.compareAndSetSafely(
+                occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY), ReceiptState.INDETERMINATE,
+            )) {
+                WriteResult.Applied -> Unit
+                WriteResult.Failed -> return receiptWriteFailure(occurrenceId, route.inspectionType, logger)
+                is WriteResult.Mismatch -> return when (write.state) {
                     ReceiptState.DELIVERED -> WorkerOutcome.SUCCESS
                     ReceiptState.CORRUPT -> corruptReceipt(occurrenceId, route.inspectionType, logger)
                     else -> receiptWriteFailure(occurrenceId, route.inspectionType, logger)
@@ -124,14 +125,12 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             } catch (error: Exception) {
                 return notifyFailure(occurrenceId, route.inspectionType, error, runAttemptCount, store, logger)
             }
-            val durable = store.compareAndSetSafely(
+            return transitionOutcome(
+                occurrenceId, route.inspectionType, ReceiptState.DELIVERED, WorkerOutcome.SUCCESS,
+                store.compareAndSetSafely(
                 occurrenceId, setOf(ReceiptState.INDETERMINATE), ReceiptState.DELIVERED,
-            ) || store.readSafely(occurrenceId) == ReceiptState.DELIVERED
-            if (durable) return WorkerOutcome.SUCCESS
-            if (store.readSafely(occurrenceId) == ReceiptState.CORRUPT) {
-                return corruptReceipt(occurrenceId, route.inspectionType, logger)
-            }
-            return receiptWriteFailure(occurrenceId, route.inspectionType, logger)
+                ), logger,
+            )
         }
         private fun validate(input: WorkerInput): ValidatedInput? {
             val propertyId = input.propertyId?.takeIf(String::isNotBlank) ?: return null
@@ -174,14 +173,12 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             logger.record(LogStage.PERMISSION, occurrenceId, type, retryable,
                 LogError.PERMISSION_DENIED, FailureCauseCode.PERMISSION_DENIED)
             val target = if (retryable) ReceiptState.PERMISSION_RETRY else ReceiptState.RETRYABLE
-            store.compareAndSetSafely(
-                occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY), target,
+            return transitionOutcome(
+                occurrenceId, type, target, if (retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE,
+                store.compareAndSetSafely(
+                    occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY), target,
+                ), logger,
             )
-            val finalState = store.readSafely(occurrenceId)
-            if (finalState == ReceiptState.CORRUPT) return corruptReceipt(occurrenceId, type, logger)
-            if (finalState != target && finalState !in setOf(ReceiptState.DELIVERED, ReceiptState.TERMINAL))
-                receiptWriteFailure(occurrenceId, type, logger)
-            return if (finalState == target && retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE
         }
         private fun notifyFailure(
             occurrenceId: String, type: InspectionScheduleType, error: Exception, attempt: Int,
@@ -193,22 +190,26 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             logger.record(LogStage.NOTIFY, occurrenceId, type, retryable, LogError.NOTIFY_FAILED, disposition.causeCode)
             if (beforePost != null && disposition.kind == FailureKind.TRANSIENT) {
                 val target = if (retryable) ReceiptState.ENQUEUED else ReceiptState.RETRYABLE
-                store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.INDETERMINATE), target)
-                return when (store.readSafely(occurrenceId)) {
-                    target -> if (retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE
-                    ReceiptState.DELIVERED -> WorkerOutcome.SUCCESS
-                    ReceiptState.TERMINAL, ReceiptState.RETRYABLE -> WorkerOutcome.FAILURE
-                    ReceiptState.CORRUPT -> corruptReceipt(occurrenceId, type, logger)
-                    else -> receiptWriteFailure(occurrenceId, type, logger)
-                }
+                return transitionOutcome(occurrenceId, type, target,
+                    if (retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE,
+                    store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.INDETERMINATE), target), logger)
             }
             if (disposition.kind == FailureKind.TRANSIENT) return WorkerOutcome.FAILURE
-            store.compareAndSetSafely(
-                occurrenceId, setOf(ReceiptState.INDETERMINATE), ReceiptState.TERMINAL,
+            return transitionOutcome(
+                occurrenceId, type, ReceiptState.TERMINAL, WorkerOutcome.FAILURE,
+                store.compareAndSetSafely(
+                    occurrenceId, setOf(ReceiptState.INDETERMINATE), ReceiptState.TERMINAL,
+                ), logger,
             )
-            return when (store.readSafely(occurrenceId)) {
-                ReceiptState.TERMINAL -> WorkerOutcome.FAILURE
+        }
+        private fun transitionOutcome(occurrenceId: String, type: InspectionScheduleType, target: ReceiptState,
+            targetOutcome: WorkerOutcome, write: WriteResult, logger: EventLogger): WorkerOutcome = when (write) {
+            WriteResult.Applied -> targetOutcome
+            WriteResult.Failed -> receiptWriteFailure(occurrenceId, type, logger)
+            is WriteResult.Mismatch -> when (val observed = write.state) {
+                target -> targetOutcome
                 ReceiptState.DELIVERED -> WorkerOutcome.SUCCESS
+                ReceiptState.TERMINAL, ReceiptState.RETRYABLE -> WorkerOutcome.FAILURE
                 ReceiptState.CORRUPT -> corruptReceipt(occurrenceId, type, logger)
                 else -> receiptWriteFailure(occurrenceId, type, logger)
             }
