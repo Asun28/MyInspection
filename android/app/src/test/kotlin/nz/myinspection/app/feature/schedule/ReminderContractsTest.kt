@@ -71,7 +71,7 @@ class ReminderContractsTest {
         assertEquals("myinspection://schedule/reminder/${spec.occurrenceId}", intent.data)
         assertEquals(spec.occurrenceId, intent.notificationTag)
         assertEquals(0, intent.notificationId)
-        assertEquals(spec.occurrenceId.take(8).toLong(16).toInt(), intent.requestCode)
+        assertEquals(reminderRouteIntentSpec(route, dueAt).requestCode, intent.requestCode)
         assertEquals(route.propertyId, intent.propertyId)
         assertEquals(route.inspectionType.name, intent.inspectionType)
         assertTrue(intent.isExplicit)
@@ -139,5 +139,78 @@ class ReminderContractsTest {
                 dueAt = dueAt,
             ),
         )
+    }
+
+    @Test
+    fun `route identity survives request code truncation across many occurrences`() {
+        val specs = (0 until 200).map { index ->
+            reminderRouteIntentSpec(
+                route.copy(propertyId = "property-$index"),
+                dueAt.plusSeconds(index.toLong()),
+            )
+        }
+
+        assertEquals(specs.size, specs.map { it.data }.toSet().size)
+        assertEquals(specs.size, specs.map { it.notificationTag }.toSet().size)
+        specs.forEach { intent ->
+            assertTrue(intent.notificationTag.matches(Regex("[0-9a-f]{64}")))
+            assertTrue(intent.data.endsWith(intent.notificationTag))
+        }
+    }
+
+    @Test
+    fun `generation identity rejects occurrence ids outside the canonical shape`() {
+        val rejected = listOf(
+            "",
+            "not-hex",
+            spec.occurrenceId.dropLast(1),
+            spec.occurrenceId + "0",
+            spec.occurrenceId.uppercase(),
+            " " + spec.occurrenceId,
+        )
+
+        rejected.forEach { candidate ->
+            assertFailsWith<IllegalArgumentException>("expected rejection of '$candidate'") {
+                reminderGenerationId(candidate, 0)
+            }
+        }
+    }
+
+    @Test
+    fun `occurrence identity rejects a blank property at its own entry point`() {
+        assertFailsWith<IllegalArgumentException> {
+            reminderOccurrenceId(route.copy(propertyId = "   "), dueAt)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            reminderOccurrenceId(route.copy(propertyId = ""), dueAt)
+        }
+    }
+
+    @Test
+    fun `pending reminder projects the same spec as the factory`() {
+        assertEquals(spec, PendingReminder(route, dueAt).toSpec())
+    }
+
+    @Test
+    fun `work data keys pin the exact wire names the delivery worker reads`() {
+        val keys = listOf(
+            ReminderWorkKeys.OCCURRENCE_ID,
+            ReminderWorkKeys.PROPERTY_ID,
+            ReminderWorkKeys.INSPECTION_TYPE,
+            ReminderWorkKeys.DUE_AT,
+            ReminderWorkKeys.GENERATION_NUMBER,
+        )
+
+        assertEquals(
+            listOf(
+                "reminder_occurrence_id",
+                "reminder_property_id",
+                "reminder_inspection_type",
+                "reminder_due_at",
+                "reminder_generation_number",
+            ),
+            keys,
+        )
+        assertEquals(keys.size, keys.toSet().size)
     }
 }

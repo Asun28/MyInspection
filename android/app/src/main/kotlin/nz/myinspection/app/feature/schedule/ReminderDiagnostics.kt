@@ -63,7 +63,7 @@ fun reminderLogMessage(record: LogRecord): String {
         ?.takeIf { it.matches(OCCURRENCE_ID_PATTERN) }
         ?: "missing"
     val generationNumber = record.generationNumber?.takeIf { it >= 0 }
-    val workRequestId = record.workRequestId?.takeIf(::isCanonicalUuid)
+    val workRequestId = record.workRequestId?.let(::canonicalUuidOrNull)
     return buildString {
         append("{\"event\":\"schedule-reminder\"")
         append(",\"stage\":\"")
@@ -100,6 +100,13 @@ internal object AndroidReminderDiagnosticPort : ReminderDiagnosticPort {
     }
 }
 
-private fun isCanonicalUuid(value: String): Boolean = runCatching {
-    UUID.fromString(value).toString() == value.lowercase()
-}.getOrDefault(false)
+/**
+ * Returns the canonical lowercase spelling, or null when [value] is not exactly one UUID.
+ *
+ * The canonical form is returned rather than the caller's spelling so the same work request always
+ * correlates under one `work_request_id`. Loose forms such as `1-1-1-1-1` parse but are not
+ * canonical, so they are dropped instead of being silently widened.
+ */
+private fun canonicalUuidOrNull(value: String): String? = runCatching {
+    UUID.fromString(value).toString().takeIf { it == value.lowercase() }
+}.getOrNull()
