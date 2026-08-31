@@ -38,7 +38,7 @@ sealed interface EnqueueResult {
 enum class FailureKind { TRANSIENT, PERMANENT }
 enum class FailureCauseCode {
     SECURITY, INVALID_ARGUMENT, ILLEGAL_STATE, IO, CANCELLED, INTERRUPTED,
-    UNKNOWN_RUNTIME, UNKNOWN, INVALID_INPUT, PERMISSION_DENIED, STORAGE_CORRUPT, STORAGE_WRITE,
+    UNKNOWN_RUNTIME, UNKNOWN, INVALID_INPUT, PERMISSION_DENIED, STORAGE_CORRUPT, STORAGE_WRITE, STORAGE_MISSING,
 }
 data class FailureDisposition(val kind: FailureKind, val causeCode: FailureCauseCode)
 fun classifyReminderFailure(error: Throwable): FailureDisposition {
@@ -61,7 +61,7 @@ private fun permanent(cause: FailureCauseCode) = FailureDisposition(FailureKind.
 enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_ENQUEUED, RECEIPT_DELIVERED, NOTIFY }
 enum class LogError {
     ENQUEUE_FAILED, INVALID_INPUT, PERMISSION_DENIED,
-    RECEIPT_CORRUPT, RECEIPT_WRITE_FAILED, NOTIFY_FAILED,
+    RECEIPT_CORRUPT, RECEIPT_MISSING, RECEIPT_WRITE_FAILED, NOTIFY_FAILED,
 }
 data class LogRecord(
     val stage: LogStage, val occurrenceId: String?, val type: InspectionScheduleType?,
@@ -196,6 +196,8 @@ internal fun enqueueWorkManagerReminder(
 internal fun decodeReceipt(raw: String?): ReceiptState = when (raw) {
     null -> ReceiptState.MISSING
     ReceiptState.ENQUEUED.name -> ReceiptState.ENQUEUED
+    ReceiptState.PERMISSION_RETRY.name -> ReceiptState.PERMISSION_RETRY
+    ReceiptState.INDETERMINATE.name -> ReceiptState.INDETERMINATE
     ReceiptState.DELIVERED.name -> ReceiptState.DELIVERED
     ReceiptState.RETRYABLE.name -> ReceiptState.RETRYABLE
     ReceiptState.TERMINAL.name -> ReceiptState.TERMINAL
