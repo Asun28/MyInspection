@@ -3,6 +3,7 @@
 > 本文件是脚手架各交付链的**细节真相源**（每条链：入口脚本 · 配套件 · 权威文档）。
 > 从 `CLAUDE.md` 的「交付链速览」按需跳来；改任一脚本前先读对应链的**权威文档**那一列。
 > CLAUDE.md 只保留 3 列速览（链路 · 入口 · 权威文档）以省每轮上下文预算；详解（配套件那一列）在此。
+> `R3 → base → merge` = `R3 → candidate CI → final exact-head/base/local-head → merge`：PR/reviewed-head/ci.yml run/attempt/jobs 精确绑定，严格分页 API、统一 deadline，fail-closed；`-NoAutoMerge` 仅跳过 merge。
 
 | 链路 | 入口脚本 | 配套 | 权威文档 |
 |---|---|---|---|

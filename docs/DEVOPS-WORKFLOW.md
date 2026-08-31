@@ -2,6 +2,8 @@
 
 > EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` enforces RED evidence → DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope/review gates, then runs scope `allow_paths` → license → secret-leak → real-diff budget → push/PR-base validation → deliberately non-deterministic codex R3 review → pre-merge base revalidation → squash merge.
 
+> `R3 → base → merge` = `R3 → candidate CI → final exact-head/base/local-head → merge`: fail-closed exact PR/reviewed-head/ci.yml run/attempt/jobs, strict paged API and one process-tree deadline. `-NoAutoMerge` skips merge; receipt-loss is successor scope.
+
 > 本文件是工作流的唯一操作手册。它把 5 条要求（R1–R5）落到 Windows/PowerShell 原生、
 > 零新增运行时依赖的闭环上。核心理念：**计划/任务卡 own 规划/冻结/验收，脚手架只补 git+TDD+评审接线**，
 > 故用「已装原语的 DIY 接线」而非再叠一个规划框架。

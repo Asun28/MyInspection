@@ -443,6 +443,7 @@ function Get-SelftestSeededGitGateIds {
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
     'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
+    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT',
     '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
@@ -1353,8 +1354,8 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
   $inventorySha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($inventoryBytes)).ToLowerInvariant()
   if ($gateIds.Count -eq 0 -or @($gateIds | Select-Object -Unique).Count -ne $gateIds.Count -or
       @($gateIds | Where-Object { -not (Test-SelftestGateId $_) }).Count -ne 0 -or
-      $gateIds.Count -ne 130 -or
-      $inventorySha256 -cne '6bacd569c7f8909846a3339d0ad394d217c5c53128bfa1a1a349901015fab9a5') {
+      $gateIds.Count -ne 133 -or
+      $inventorySha256 -cne 'f1bb8881db583e29d6d8390aa33fa93015774b455369b85d8e17f85338059fee') {
     throw "[SELFTEST-NOGIT-ROUTING-INVENTORY] seeded git gate inventory identity mismatch: count=$($gateIds.Count) sha256=$inventorySha256"
   }
   $expectedAbsentRecords = @($gateIds | ForEach-Object { "$_/TOOL-GIT-MISSING" })
@@ -4442,6 +4443,9 @@ $gateIdFamilies82 = [ordered]@{
   'T37-REMOTEMX/2' = 'T37-REMOTEMX/2'
   'T37-REMOTEMX/2-rerun' = 'T37-REMOTEMX/2-rerun'
   'T37-REMOTEMX/3' = 'T37-REMOTEMX/3'
+  'T37-CIGATE/API-CONTRACT' = 'T37-CIGATE/API-CONTRACT'
+  'T37-CIGATE/WORKFLOW-BINDING' = 'T37-CIGATE/WORKFLOW-BINDING'
+  'T37-CIGATE/JOBS-DRIFT' = 'T37-CIGATE/JOBS-DRIFT'
 }
 $badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
   $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
@@ -8319,6 +8323,7 @@ $tp15p = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
 # 代码级断言（R3 #6：铸造 site 的注释本身含哨兵，凑「距离内出现哨兵」的正则会被「删代码留注释」满足）——
 # 剥整行注释后，要求两处合并成功调用点之后各出现一次**具体的 token 写盘操作**（Set-Content 到 <tokDir>/<TaskId>）。
 $tpCode15p = (($tp15p -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+$tpCode15p = $tpCode15p -replace '\$mergeRun = Invoke-GhBeforeDeadline -Arguments @\(''pr'',''merge'',"\$pr",''--squash'',''--match-head-commit'',\$head\)', 'gh pr merge $pr --squash'
 if ($tpCode15p -notmatch '(?s)merge --no-ff --no-edit \$TaskId.{0,1500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：-Local 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）——cleanup 删除点失去「已合并」机检信号。'; $p15Fail = $true }
 if ($tpCode15p -notmatch '(?s)gh pr merge \$pr --squash.{0,2500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：PR squash 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）。'; $p15Fail = $true }
 if ($tpCode15p -notmatch "(?s)gh pr merge \`$pr --squash.{0,2500}?-ine 'MERGED'") { Fail '闸15p：远端铸造前未按 state 门禁（gh pr merge exit 0 ≠ 已合并——auto-merge/队列仅入队时不得铸凭据，R3 r5 #17）。'; $p15Fail = $true }
@@ -13899,7 +13904,8 @@ exit 0
 # （create 前 `gh pr view --json number` 返回空→走 PR 新建腿；create 后返回号→走复用腿）+ 可注入远端 merge 失败。
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
 if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
-  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4')) {
+  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
+  'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
@@ -13909,23 +13915,28 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/2-rerun' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/2-rerun 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/3' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/3 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/4' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/4 跳过：远端态矩阵仅 Windows 执行。'
+    foreach ($ciGateId in @('T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT')) {
+      Skip-SelftestCheck -GateId $ciGateId -Reason 'OS-WINDOWS-ONLY' -Message "  $ciGateId 跳过：CI gate 远端态夹具仅 Windows 执行。"
+    }
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
     $rmSavedCiMode = $env:GH_MOCK_CI_MODE; $rmSavedCiTimeout = $env:SCAFFOLD_CI_TIMEOUT_SEC
+    $rmSavedOrigin = $env:GH_MOCK_ORIGIN
     $script:rmRoots = @()   # Codex 二审 major#2：root 一经创建即登记（script 域），setup 中途抛异常也不泄漏临时根。
     # 集中一处的哨兵/状态文件清单（卡 dod_assert：每场景进入前统一复位全部 GH_MOCK_* 每场景旋钮 + 全部哨兵/gh 状态文件）。
     # T37 stub 实际使用的**全部**哨兵/状态文件——闸15t 新增的四个也必须在列，否则 $rmReset 名不副实、
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
-      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds')   # base-count 属 17aa(8)，本卡 stub 不写
+      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-jobs-names', 'ci-event-trace', 'ci-gh-cwds',
+      'ci-check-count', 'ci-workflow-count', 'ci-jobs-count', 'ci-final-pr-count', 'ci-original-base', 'ci-tree-start', 'ci-tree-completed')
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
       # Codex R3 r5：进入场景前统一复位**全部** GH_MOCK_* 每场景旋钮（含 17aa(8) 的 BASE_MODE/MERGE_STATE，防跨闸继承）；PATH/GH_MOCK_ROOT 由 $rmMake 绑至本夹具。
       $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_BASE_MODE = $null; $env:GH_MOCK_MERGE_STATE = $null
-      $env:GH_MOCK_CI_MODE = $null; $env:SCAFFOLD_CI_TIMEOUT_SEC = $null
+      $env:GH_MOCK_CI_MODE = $null; $env:SCAFFOLD_CI_TIMEOUT_SEC = $null; $env:GH_MOCK_ORIGIN = $null
     }
     # Finding B（Codex R3 r3 #2）：证远端投影真被更新——push 成功后裸 origin 的任务 ref 须 == worktree HEAD。
     $rmOriginRef = { param($origin) "$(& git --git-dir=$origin rev-parse refs/heads/T0-REMOTEMX 2>$null)".Trim() }
@@ -13936,8 +13947,27 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
 function Add-CiTrace([string]$Event) {
   Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') $Event
 }
-function Add-CiCwd([string]$Call) {
-  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-gh-cwds') "$Call|$((Get-Location).Path)"
+function Add-CiCwd([string]$Call, [string]$Payload = '') {
+  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-gh-cwds') "$Call|$((Get-Location).Path)|$Payload"
+}
+function Next-CiCount([string]$Name) {
+  $p = Join-Path $env:GH_MOCK_ROOT $Name
+  $n = if (Test-Path $p) { [int](Get-Content $p -Raw) } else { 0 }
+  Set-Content $p ($n + 1)
+  return ($n + 1)
+}
+function Set-CiJobNames([string[]]$Names) { Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-names') ($Names -join ',') }
+function Send-CiShape([string]$Prefix, [string]$Name, $Item, [int]$Page) {
+  $m = "$env:GH_MOCK_CI_MODE"; if (-not $m.StartsWith("$Prefix-")) { return }
+  $k = $m.Substring($Prefix.Length + 1)
+  if ($k -notin @('missing-total','null-total','empty','fraction-total','object','item-shape','total-drift')) { return }
+  $o = [ordered]@{}; if ($k -ne 'missing-total') { $o.total_count = switch ($k) { 'null-total' {$null} 'empty' {0} 'fraction-total' {[double]1} 'total-drift' {if ($Page -eq 1) {2} else {3}} default {1} } }
+  if ($k -eq 'empty') { $o[$Name] = [object[]]@() }
+  elseif ($k -eq 'object') { $o[$Name] = $Item }
+  elseif ($k -eq 'item-shape') { $o[$Name] = [object[]]@($null) }
+  else { $o[$Name] = [object[]]@($Item) }
+  if ($Name -eq 'jobs') { Set-CiJobNames $(if ($k -eq 'empty') {@()} elseif ($k -eq 'item-shape') {@('<null>')} else {@("$($Item.name)")}) }
+  $o | ConvertTo-Json -Depth 6 -Compress; exit 0
 }
 if ($args -contains 'create') {
   # 场景 1(S2) 注入：create-fail-armed 在则首次 create 失败（消耗武装、不记 pr-created/不增 count）→ 模拟 pushed-no-PR 态。
@@ -13956,9 +13986,16 @@ if ($args -contains 'number') {
   exit 0
 }
 if (($args -join ' ') -match 'baseRefName,headRefOid') {
-  Add-CiCwd 'final-pr'
+  Add-CiCwd 'final-pr' ($args -join ' ')
+  [void](Next-CiCount 'ci-final-pr-count')
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
-  @{ baseRefName = 'master'; headRefOid = $oid } | ConvertTo-Json -Compress
+  if ($env:GH_MOCK_CI_MODE -eq 'final-head-moved') { $oid = 'a' * 40 }
+  if ($env:GH_MOCK_CI_MODE -eq 'final-local-head-move') { & git -C $env:GH_MOCK_WT commit --allow-empty -q -m late-head }
+  $baseName = if ($env:GH_MOCK_CI_MODE -eq 'final-retarget') { 'other' } else { 'master' }
+  if ($env:GH_MOCK_CI_MODE -eq 'final-base-move') {
+    & git --git-dir=$env:GH_MOCK_ORIGIN update-ref refs/heads/master $oid
+  }
+  @{ baseRefName = $baseName; headRefOid = $oid } | ConvertTo-Json -Compress
   exit 0
 }
 if ($args -contains 'baseRefName') { 'master'; exit 0 }
@@ -13969,31 +14006,110 @@ if ($args -contains 'api') {
   if (($args -join ' ') -match 'statuses/') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'status-posted') 'yes' }
   $joined = $args -join ' '
   if ($joined -match 'check-runs') {
-    Add-CiCwd 'checks'
+    Add-CiCwd 'checks' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
+    $checkRead = Next-CiCount 'ci-check-count'
+    $page = if ($joined -match '(?:\?|&)page=(\d+)') { [int]$Matches[1] } else { 1 }
+    $checkItem = [ordered]@{ name = 'verify'; status = 'completed'; conclusion = 'success' }
+    Send-CiShape 'check' 'check_runs' $checkItem $page
+    switch ($env:GH_MOCK_CI_MODE) {
+      'check-neutral' { '{"total_count":1,"check_runs":[{"name":"verify","status":"completed","conclusion":"neutral"}]}'; exit 0 }
+      'check-skipped' { '{"total_count":1,"check_runs":[{"name":"verify","status":"completed","conclusion":"skipped"}]}'; exit 0 }
+      'check-numeric-name' { '{"total_count":1,"check_runs":[{"name":1,"status":"completed","conclusion":"success"}]}'; exit 0 }
+      'check-paged' {
+        if ($page -eq 1) { '{"total_count":2,"check_runs":[{"name":"verify","status":"completed","conclusion":"success"}]}' }
+        else { '{"total_count":2,"check_runs":[{"name":"audit","status":"completed","conclusion":"success"}]}' }
+        exit 0
+      }
+      'check-late-red' {
+        if ($checkRead -ge 2) { '{"total_count":2,"check_runs":[{"name":"verify","status":"completed","conclusion":"success"},{"name":"late-audit","status":"completed","conclusion":"failure"}]}' }
+        else { '{"total_count":1,"check_runs":[{"name":"verify","status":"completed","conclusion":"success"}]}' }
+        exit 0
+      }
+      'api-hang-tree' {
+        Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-tree-start') ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+        $done = Join-Path $env:GH_MOCK_ROOT 'ci-tree-completed'
+        $child = Start-Process pwsh -ArgumentList @('-NoProfile','-Command',"Start-Sleep -Seconds 7; Set-Content -LiteralPath '$($done.Replace("'", "''"))' yes") -WindowStyle Hidden -PassThru
+        Start-Sleep -Seconds 15
+        exit 0
+      }
+    }
     $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red') { 'failure' } else { 'success' }
     "{`"total_count`":1,`"check_runs`":[{`"name`":`"verify`",`"status`":`"completed`",`"conclusion`":`"$conclusion`"}]}"
     exit 0
   }
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
-    Add-CiCwd 'workflow'
+    Add-CiCwd 'workflow' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
+    $workflowRead = Next-CiCount 'ci-workflow-count'
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
     $pn = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
-    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"completed`",`"conclusion`":`"success`",`"run_attempt`":$try,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$pn}]}]}"
+    $run = [ordered]@{ id = [long]$runId; head_sha = $oid; event = 'pull_request'; status = 'completed'; conclusion = 'success'; run_attempt = $try; path = '.github/workflows/ci.yml'; pull_requests = @(@{ number = [int]$pn }) }
+    $page = if ($joined -match '(?:\?|&)page=(\d+)') { [int]$Matches[1] } else { 1 }
+    Send-CiShape 'workflow' 'workflow_runs' $run $page
+    switch ($env:GH_MOCK_CI_MODE) {
+      'workflow-extra-pr' { $run.pull_requests = @(@{ number = [int]$pn }, @{ number = ([int]$pn + 1) }) }
+      'workflow-null-prs' { $run.pull_requests = $null }
+      'workflow-final-extra-pr' { if ($workflowRead -ge 2) { $run.pull_requests = @(@{ number = [int]$pn }, @{ number = ([int]$pn + 1) }) } }
+      'workflow-final-missing-prs' { if ($workflowRead -ge 2) { $run.Remove('pull_requests') } }
+      'workflow-final-run-id' { if ($workflowRead -ge 2) { $run.id = [long]$runId + 1 } }
+      'workflow-final-head' { if ($workflowRead -ge 2) { $run.head_sha = 'a' * 40 } }
+      'workflow-final-attempt' { if ($workflowRead -ge 2) { $run.run_attempt = $try + 1 } }
+      'workflow-final-path' { if ($workflowRead -ge 2) { $run.path = '.github/workflows/other.yml' } }
+      'wfr'{if($workflowRead -ge 2){$run.conclusion='failure'}}
+      'wfp'{if($workflowRead -eq 2){$run.status='in_progress';$run.conclusion=$null}elseif($workflowRead -gt 2){$run.conclusion='failure'}}
+      'workflow-wrong-pr' { $run.pull_requests = @(@{ number = ([int]$pn + 1) }) }
+      'workflow-wrong-head' { $run.head_sha = 'a' * 40 }
+      'workflow-wrong-event' { $run.event = 'push' }
+      'workflow-path-suffix' { $run.path = '.github/workflows/ci.yml@refs/heads/master' }
+      'workflow-bad-run' { $run.id = 0 }
+      'workflow-string-run' { $run.id = "$runId" }
+      'workflow-bad-attempt' { $run.run_attempt = 0 }
+      'workflow-string-attempt' { $run.run_attempt = "$try" }
+      'workflow-string-pr' { $run.pull_requests = @(@{ number = "$pn" }) }
+      'workflow-pending-red' { if ($workflowRead -eq 1) { $run.status = 'in_progress'; $run.conclusion = $null } else { $run.conclusion = 'failure' } }
+      'workflow-paged-ambiguous' {
+        if ($page -gt 1) { $run.id = [long]$runId + 1 }
+        @{ total_count = 2; workflow_runs = @($run) } | ConvertTo-Json -Depth 6 -Compress; exit 0
+      }
+    }
+    @{ total_count = 1; workflow_runs = @($run) } | ConvertTo-Json -Depth 6 -Compress
     exit 0
   }
   $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
   $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
   if ($joined -match "actions/runs/$runId/attempts/$try/jobs") {
-    Add-CiCwd 'jobs'
+    Add-CiCwd 'jobs' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
+    $jobRead = Next-CiCount 'ci-jobs-count'
+    if ($env:GH_MOCK_CI_MODE -eq 'initial-base-transient') {
+      $saved = Join-Path $env:GH_MOCK_ROOT 'ci-original-base'
+      if ($jobRead -eq 1) { Set-Content $saved "$(& git --git-dir=$env:GH_MOCK_ORIGIN rev-parse refs/heads/master)" -NoNewline; & git --git-dir=$env:GH_MOCK_ORIGIN update-ref refs/heads/master "$(& git -C $env:GH_MOCK_WT rev-parse HEAD)" }
+      elseif (Test-Path $saved) { & git --git-dir=$env:GH_MOCK_ORIGIN update-ref refs/heads/master "$(Get-Content $saved -Raw)" }
+    }
     $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
-    "{`"total_count`":1,`"jobs`":[{`"name`":`"$jn`",`"status`":`"completed`",`"conclusion`":`"success`"}]}"
+    $job = [ordered]@{ name = $jn; status = 'completed'; conclusion = 'success' }
+    $page = if ($joined -match '(?:\?|&)page=(\d+)') { [int]$Matches[1] } else { 1 }
+    Send-CiShape 'jobs' 'jobs' $job $page
+    switch ($env:GH_MOCK_CI_MODE) {
+      'jobs-extra' { Set-CiJobNames @($jn,'audit'); @{ total_count = 2; jobs = @($job, [ordered]@{ name='audit'; status='completed'; conclusion='success' }) } | ConvertTo-Json -Depth 5 -Compress; exit 0 }
+      'jobs-paged' {
+        $pagedJob = if ($page -eq 1) { $job } else { [ordered]@{ name='audit'; status='completed'; conclusion='success' } }
+        Set-CiJobNames $(if ($page -eq 1) { @($jn) } else { @($jn,'audit') }); @{ total_count = 2; jobs = @($pagedJob) } | ConvertTo-Json -Depth 5 -Compress; exit 0
+      }
+      'job-red' { $job.conclusion = 'failure' }
+      'job-neutral' { $job.conclusion = 'neutral' }
+      'job-skipped' { $job.conclusion = 'skipped' }
+      'job-missing-red' { if ($jobRead -eq 1) { $job.name = 'other' } else { $job.conclusion = 'failure' } }
+      'jfr'{if($jobRead -ge 2){$job.conclusion='failure'}}
+      'jfp'{if($jobRead -eq 2){$job.status='in_progress';$job.conclusion=$null}elseif($jobRead -gt 2){$job.conclusion='failure'}}
+    }
+    Set-CiJobNames @($job.name)
+    @{ total_count = 1; jobs = @($job) } | ConvertTo-Json -Depth 5 -Compress
     exit 0
   }
   exit 0
@@ -14006,7 +14122,8 @@ if (($args -join ' ') -match '^repo view') { 'remotemx-fixture'; exit 0 }
 # 否则是拿同一来源自比、恒等式（codex R3 r2 #1）。这里回 worktree HEAD：push 过则与 origin ref 相等（正例），
 # 没 push 则不等（变异 B 即靠此暴露）。
 if ($args -contains 'headRefOid') {
-  Add-CiCwd 'head'
+  Add-CiCwd 'head' ($args -join ' ')
+  if ($env:GH_MOCK_CI_MODE -eq 'initial-head-mismatch') { 'a' * 40; exit 0 }
   "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   exit 0
 }
@@ -14062,6 +14179,9 @@ exit 0
 if ($env:GH_MOCK_ROOT) {
   Set-Content (Join-Path $env:GH_MOCK_ROOT 'review-invoked') 'yes'
   Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') 'r3'
+  if ($env:GH_MOCK_CI_MODE -eq 'review-head-moved') {
+    & git -C $env:GH_MOCK_WT commit --allow-empty -q -m 'mutate head during review'
+  }
 }
 '{"verdict":"pass","reasons":[]}' | Set-Content $env:REVIEW_OUT -Encoding utf8
 '@
@@ -14091,6 +14211,7 @@ if ($env:GH_MOCK_ROOT) {
       # 保证 start（及其后任一腿）绝不触碰真实 gh、也不继承上一场景的 shim/mock 状态（每场景全隔离，卡硬约束）。
       $env:PATH = "$shim$([IO.Path]::PathSeparator)$rmSavedPath"
       $env:GH_MOCK_ROOT = $root; $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_CI_MODE = $null
+      $env:GH_MOCK_ORIGIN = $origin
       & pwsh -NoProfile -File (Join-Path $repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase start *> $null
       $wt = Join-Path $wtRoot 'T0-REMOTEMX'
       @{ Root = $root; Repo = $repo; Origin = $origin; Shim = $shim; Wt = $wt; Ok = ($LASTEXITCODE -eq 0 -and (Test-Path $wt)) }
@@ -14248,8 +14369,8 @@ if ($env:GH_MOCK_ROOT) {
             $s3Exit = $LASTEXITCODE
             $s3GreenTrace = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
             $s3Cwds = @((Get-Content (Join-Path $fx3.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
-            $s3BadCwds = @($s3Cwds | Where-Object { ($_ -split '\|', 2)[1] -ine $fx3.Wt })
-            $s3CwdCalls = @($s3Cwds | ForEach-Object { ($_ -split '\|', 2)[0] }) -join '>'
+            $s3BadCwds = @($s3Cwds | Where-Object { ($_ -split '\|', 3)[1] -ine $fx3.Wt })
+            $s3CwdCalls = @($s3Cwds | ForEach-Object { ($_ -split '\|', 3)[0] }) -join '>'
             if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：merge 失败却 exit 0。' }
             elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：未触达 merge。' }
             elseif ($s3CwdCalls -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or $s3BadCwds.Count -gt 0) { Fail "T37-REMOTEMX/3：wrapped gh 未统一绑定 worktree CWD（calls=$s3CwdCalls, bad=$($s3BadCwds -join ',')）。" }
@@ -14265,6 +14386,180 @@ if ($env:GH_MOCK_ROOT) {
           }
         }
         finally { Remove-Item -Recurse -Force $fx3.Root -ErrorAction SilentlyContinue }
+      }
+
+      $runCiGateCase = {
+        param([string]$Mode, [switch]$NoAutoMerge, [switch]$RenameCandidateJob, [switch]$AddSecondCandidateJob)
+        $Tag=if($Mode){$Mode}else{'green'}
+        $fx = $null
+        try {
+          $fx = & $rmMake $Tag
+          if (-not $fx.Ok) { return [pscustomobject]@{ S=$false; X=-1; O=''; M=$false } }
+          & $rmReset $fx.Root
+          $env:GH_MOCK_ROOT = $fx.Root; $env:GH_MOCK_WT = $fx.Wt; $env:GH_MOCK_ORIGIN = $fx.Origin; $env:GH_MOCK_CI_MODE = $Mode
+          $env:SCAFFOLD_CI_TIMEOUT_SEC = if ($Mode -eq 'api-hang-tree') { '4' } elseif ($Mode -eq 'workflow-empty') { '12' } else { '30' }
+          & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+          Set-Content (Join-Path $fx.Wt 'README.md') "GREENMX $Tag" -Encoding utf8
+          $ciYml = Join-Path $fx.Wt '.github/workflows/ci.yml'
+          if ($RenameCandidateJob) {
+            $txt = Get-Content $ciYml -Raw; $pat = '(?m)^  verify:(?<tail>\s*(?:#.*)?)$'
+            if ([regex]::Matches($txt, $pat).Count -ne 1) { throw 'T37-CIGATE candidate fixture requires one verify job' }
+            [regex]::Replace($txt, $pat, { param($m) "  verify-basic:$($m.Groups['tail'].Value)`n    name: Verify display" }, 1) | Set-Content $ciYml -NoNewline -Encoding utf8
+          }
+          if ($AddSecondCandidateJob) { Add-Content $ciYml "`n  audit:`n    runs-on: windows-latest`n    steps: []" -Encoding utf8 }
+          $args = @('-NoProfile','-File',(Join-Path $fx.Repo 'scripts/task.ps1'),'-TaskId','T0-REMOTEMX','-Phase','ship')
+          if ($NoAutoMerge) { $args += '-NoAutoMerge' }
+          $out = (& pwsh @args 2>&1 | Out-String); $exit = $LASTEXITCODE
+          $startFile = Join-Path $fx.Root 'ci-tree-start'
+          $treeMs = if (Test-Path $startFile) { [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [long](Get-Content $startFile -Raw) } else { 0 }
+          if ($Mode -eq 'api-hang-tree') { Start-Sleep -Milliseconds 7500 }
+          $has = { param($n) Test-Path (Join-Path $fx.Root $n) }
+          $txt = { param($n) if (& $has $n) { "$(Get-Content (Join-Path $fx.Root $n) -Raw)".Trim() } else { '' } }
+          $num = { param($n) $v = & $txt $n; if ($v) { [int]$v } else { 0 } }
+          $callLines = @((Get-Content (Join-Path $fx.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
+          $badCwd = @($callLines | Where-Object { (($_ -split '\|',3)[1]) -ine $fx.Wt })
+          [pscustomobject]@{
+            S=$true; X=$exit; O=$out; TM=$treeMs
+            H="$(git -C $fx.Wt rev-parse HEAD)".Trim(); P=& $txt 'fixture-pr-number'; R=& $txt 'fixture-run-id'; A=& $txt 'fixture-run-attempt'
+            M=& $has 'merge-reached'; MA=& $has 'merge-attempted'; MP=& $txt 'merge-pr-arg'; MH=& $txt 'merge-head-arg'
+            RK=& $txt 'ci-jobs-run-id'; JN=& $txt 'ci-jobs-names'
+            CR=& $num 'ci-check-count'; WR=& $num 'ci-workflow-count'; JR=& $num 'ci-jobs-count'; FR=& $num 'ci-final-pr-count'
+            TS=& $has 'ci-tree-start'; TC=& $has 'ci-tree-completed'
+            T=@($callLines | ForEach-Object { ($_ -split '\|',3)[0] }) -join '>'; C=$callLines; BC=$badCwd
+          }
+        } finally {
+          $env:GH_MOCK_CI_MODE=$null; $env:SCAFFOLD_CI_TIMEOUT_SEC=$null; $env:GH_MOCK_ORIGIN=$null
+          if ($fx -and $fx.Root) { Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+      }
+      $expectCiBlock = {
+        param($r, [string]$Code, [string]$Endpoint, [int]$Reads = 1)
+        $target = switch ($Endpoint) {
+          'Checks' { "commits/$($r.H)/check-runs" }
+          'Workflow' { "head_sha=$($r.H)" }
+          'Jobs' { "runs/$($r.R)/attempts/$($r.A)/jobs" }
+          default { '' }
+        }
+        $allowed = switch ($Endpoint) { 'Checks' {'^(?:head|checks)$'} 'Workflow' {'^(?:head|checks|workflow)$'} 'Jobs' {'^(?:head|checks|workflow|jobs)$'} default {'.*'} }
+        $calls = @($r.C | ForEach-Object { ($_ -split '\|',3)[0] })
+        $readCount = switch ($Endpoint) { 'Checks' {$r.CR} 'Workflow' {$r.WR} 'Jobs' {$r.JR} default {0} }
+        $stoppedAtTarget = $calls.Count -gt 1 -and $calls[-1] -ceq $Endpoint.ToLowerInvariant() -and ($Reads -le 0 -or $readCount -eq $Reads) -and
+          @($calls | Where-Object { $_ -notmatch $allowed }).Count -eq 0 -and $r.FR -eq 0
+        return $r.S -and $r.X -ne 0 -and $r.O -match $Code -and $readCount -gt 0 -and
+          (-not $target -or (@($r.C | Where-Object { $_ -like "*${target}*" }).Count -gt 0)) -and
+          $stoppedAtTarget -and $r.BC.Count -eq 0 -and -not $r.MA -and -not $r.M
+      }
+      $hasExactCiTrace = {
+        param($r)
+        if ($r.T -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or $r.BC.Count -gt 0 -or $r.C.Count -ne 8) { return $false }
+        $payloads = @($r.C | ForEach-Object { ($_ -split '\|',3)[2] })
+        return $payloads[0] -match "pr view $($r.P).*headRefOid" -and
+          $payloads[1] -like "*commits/$($r.H)/check-runs*" -and $payloads[2] -like "*head_sha=$($r.H)*" -and
+          $payloads[3] -like "*runs/$($r.R)/attempts/$($r.A)/jobs*" -and
+          $payloads[4] -like "*commits/$($r.H)/check-runs*" -and $payloads[5] -like "*head_sha=$($r.H)*" -and
+          $payloads[6] -like "*runs/$($r.R)/attempts/$($r.A)/jobs*" -and $payloads[7] -match "pr view $($r.P).*baseRefName,headRefOid"
+      }
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/API-CONTRACT')) {
+        $problem = $null
+        $t = & $runCiGateCase 'api-hang-tree'
+        $tag = $t.O -match '\[CI-GATE-TIMEOUT\]'
+        if ($t.X -eq 0 -or -not $tag -or -not $t.TS -or $t.TC -or $t.TM -ge 5500 -or $t.MA) {
+          $problem = "tree:$($t.X)/$tag/$($t.TS)/$($t.TC)/$($t.TM)/$($t.MA)"
+        }
+        if (-not $problem) {
+          $we = & $runCiGateCase 'workflow-empty'
+          $je = & $runCiGateCase 'jobs-empty'
+          $weTarget = @($we.C | Where-Object { $_ -like "*head_sha=$($we.H)*" }).Count -gt 0
+          if (-not $we.S -or $we.X -eq 0 -or $we.O -notmatch '\[CI-GATE-TIMEOUT\]' -or -not $weTarget -or $we.WR -lt 1 -or
+              $we.T -notmatch '^head>checks>workflow(?:>checks>workflow)*(?:>checks)?$' -or $we.JR -or $we.FR -or $we.BC.Count -or $we.MA -or $we.M) {
+            $problem = "wf-empty:$($we.X)/$($we.T)/$($we.CR)/$($we.WR)/$($we.JR)"
+          }
+          elseif (-not (& $expectCiBlock $je '\[CI-GATE-JOBS-DRIFT\]' 'Jobs')) { $problem = 'jobs-empty' }
+        }
+        if (-not $problem) { foreach ($m in @('check-empty','check-neutral','check-skipped')) {
+          $r = & $runCiGateCase $m -NoAutoMerge:($m -eq 'check-neutral')
+          if (-not (& $expectCiBlock $r '\[CI-GATE-(?:RED|API)\]' 'Checks') -or $r.WR) { $problem = $m; break }
+        } }
+        if (-not $problem) {
+          foreach ($m in @(
+            'check-missing-total','check-null-total','check-fraction-total','check-numeric-name','check-object','check-item-shape','check-total-drift',
+            'workflow-missing-total','workflow-null-total','workflow-fraction-total','workflow-object','workflow-item-shape','workflow-total-drift',
+            'jobs-missing-total','jobs-null-total','jobs-fraction-total','jobs-object','jobs-item-shape','jobs-total-drift')) {
+            $ep = switch -Wildcard ($m) { 'check-*' {'Checks'} 'workflow-*' {'Workflow'} default {'Jobs'} }
+            $r = & $runCiGateCase $m
+            $code = switch ($m) { 'workflow-item-shape' {'\[CI-GATE-WORKFLOW-IDENTITY\]'} 'jobs-item-shape' {'\[CI-GATE-JOBS-DRIFT\]'} default {'\[CI-GATE-API\]'} }
+            $reads = if ($m -like '*total-drift') { 2 } else { 1 }
+            if (-not (& $expectCiBlock $r $code $ep $reads)) { $problem = $m; break }
+          }
+        }
+        if (-not $problem) {
+          $p = & $runCiGateCase 'check-paged'
+          if ($p.X -ne 0 -or -not $p.M -or $p.CR -lt 4 -or $p.MH -ne $p.H) { $problem = 'check pages' }
+        }
+        if (-not $problem) {
+          $p = & $runCiGateCase 'jobs-paged' -AddSecondCandidateJob
+          if ($p.X -ne 0 -or -not $p.M -or $p.JR -lt 4 -or $p.RK -ne "$($p.R)/$($p.A)") { $problem = 'jobs pages' }
+        }
+        if (-not $problem) {
+          $p = & $runCiGateCase 'workflow-paged-ambiguous'
+          if (-not (& $expectCiBlock $p '\[CI-GATE-WORKFLOW-AMBIGUOUS\]' 'Workflow' 2)) { $problem = 'workflow pages' }
+        }
+        if ($problem) { Fail "T37-CIGATE/API-CONTRACT: $problem" } else { Write-Host '  T37-CIGATE/API-CONTRACT OK' -ForegroundColor Green }
+      }
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/WORKFLOW-BINDING')) {
+        $problem = $null
+        $a = & $runCiGateCase '' -NoAutoMerge
+        $b = & $runCiGateCase 'basic-candidate' -RenameCandidateJob
+        if ($a.X -ne 0 -or $a.MA -or $a.O -notmatch '\[CI-GATE-PASS\]' -or -not (& $hasExactCiTrace $a) -or $a.JN -cne 'verify' -or
+            $b.X -ne 0 -or -not $b.M -or -not (& $hasExactCiTrace $b) -or $b.JN -cne 'Verify display' -or $a.P -eq $b.P -or $a.R -eq $b.R -or
+            $b.MP -ne $b.P -or $b.RK -ne "$($b.R)/$($b.A)" -or $b.MH -ne $b.H) {
+          $problem = 'identity'
+        }
+        if (-not $problem) { foreach ($s in @('extra-pr','null-prs','wrong-pr','wrong-head','wrong-event','path-suffix','bad-run','string-run','bad-attempt','string-attempt','string-pr')) {
+          $m = "workflow-$s"
+          $r = & $runCiGateCase $m -NoAutoMerge:($m -eq 'workflow-extra-pr')
+          if (-not (& $expectCiBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 'Workflow')) { $problem = $m; break }
+        } }
+        if (-not $problem) {
+          foreach ($s in @('extra-pr','missing-prs','run-id','head','attempt','path')) {
+            $m = "workflow-final-$s"
+            $r = & $runCiGateCase $m
+            if ($r.X -eq 0 -or $r.O -notmatch '\[CI-GATE-WORKFLOW-IDENTITY\]' -or $r.T -cne 'head>checks>workflow>jobs>checks>workflow' -or $r.BC.Count -or $r.MA) { $problem = $m; break }
+          }
+        }
+        if (-not $problem) {
+          $r = & $runCiGateCase 'workflow-pending-red'
+          if (-not (& $expectCiBlock $r '\[CI-GATE-RED\]' 'Workflow' 0) -or $r.JR -or $r.WR -lt 2) { $problem = 'pending-red' }
+        }
+        if ($problem) { Fail "T37-CIGATE/WORKFLOW-BINDING: $problem" } else { Write-Host '  T37-CIGATE/WORKFLOW-BINDING OK' -ForegroundColor Green }
+      }
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/JOBS-DRIFT')) {
+        $problem = $null
+        foreach ($m in @('job-red','job-neutral','job-skipped')) {
+          $r = & $runCiGateCase $m -NoAutoMerge:($m -eq 'job-neutral')
+          if (-not (& $expectCiBlock $r '\[CI-GATE-RED\]' 'Jobs')) { $problem = $m; break }
+        }
+        if (-not $problem) {
+          foreach ($m in @('job-missing-red','jobs-extra')) {
+            $r = & $runCiGateCase $m -NoAutoMerge:($m -eq 'jobs-extra')
+            if (-not (& $expectCiBlock $r '\[CI-GATE-JOBS-DRIFT\]' 'Jobs')) { $problem = $m; break }
+          }
+        }
+        if (-not $problem) {
+          $q='head>checks>workflow>jobs>checks>workflow'
+          foreach($c in @(@('wfr','',2),@('wfp','>checks>workflow',3),@('jfr','>jobs',2),@('jfp','>jobs>checks>workflow>jobs',3))){
+            $r=& $runCiGateCase $c[0];$n=if($c[0] -like 'w*'){$r.WR}else{$r.JR}
+            if($r.X -eq 0 -or $r.O -notmatch '\[CI-GATE-RED\]' -or $r.T -cne "$q$($c[1])" -or $n -ne $c[2] -or $r.FR -or $r.BC.Count -or $r.MA -or $r.M){$problem=$c[0];break}
+          }
+        }
+        if (-not $problem) {
+          foreach ($m in @('initial-head-mismatch','review-head-moved','initial-base-transient','check-late-red','final-retarget','final-head-moved','final-local-head-move','final-base-move')) {
+            $code = switch ($m) { 'initial-head-mismatch' {'HEAD-MISMATCH'} {$_ -in @('review-head-moved','final-local-head-move')} {'LOCAL-HEAD-MOVED'} 'check-late-red' {'RED'} 'final-retarget' {'BASE-MISMATCH'} 'final-head-moved' {'HEAD-MOVED'} default {'BASE-MOVED'} }
+            $r = & $runCiGateCase $m -NoAutoMerge:($m -eq 'final-base-move')
+            if ($r.X -eq 0 -or $r.O -notmatch "\[CI-GATE-$code\]" -or $r.MA) { $problem = $m; break }
+          }
+        }
+        if ($problem) { Fail "T37-CIGATE/JOBS-DRIFT: $problem" } else { Write-Host '  T37-CIGATE/JOBS-DRIFT OK' -ForegroundColor Green }
       }
 
       # 场景 4 = 闸15t（TD94）：**收据缺失 + 已 push** 这条「最后手段」恢复平面的端到端夹具。
@@ -14444,7 +14739,7 @@ if ($env:GH_MOCK_ROOT) {
     finally {
       $env:PATH = $rmSavedPath; $env:GH_MOCK_ROOT = $rmSavedRoot; $env:GH_MOCK_WT = $rmSavedWt; $env:GH_MOCK_MERGE_FAIL = $rmSavedMergeFail
       $env:GH_MOCK_BASE_MODE = $rmSavedBaseMode; $env:GH_MOCK_MERGE_STATE = $rmSavedMergeState
-      $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout
+      $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout; $env:GH_MOCK_ORIGIN = $rmSavedOrigin
       foreach ($rr in $script:rmRoots) { Remove-Item -Recurse -Force $rr -ErrorAction SilentlyContinue }
     }
   }
