@@ -4,14 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 import java.time.Instant
 import java.util.Base64
+import java.util.IdentityHashMap
 import java.util.UUID
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 /**
- * Lifecycle position of one reminder occurrence as recorded in its durable receipt.
- *
- * [QUARANTINED] is a phase a receipt is deliberately parked in. It is not the same thing as
- * [ReminderReceiptLookup.Quarantined], which reports stored evidence the store refused to trust.
+ * Lifecycle position of one occurrence. [QUARANTINED] is a phase a receipt is deliberately parked
+ * in, unlike [ReminderReceiptLookup.Quarantined], which reports evidence the store refused to trust.
  */
 enum class ReminderPhase {
     ADMISSION_PENDING,
@@ -25,9 +24,9 @@ enum class ReminderPhase {
 }
 
 /**
- * Closed vocabulary of reasons a receipt reached a phase whose name does not already say why. Only
- * [ReminderPhase.TERMINAL] is reached for more than one reason, so only it carries a cause. The
- * vocabulary is closed so a record naming anything else is refused rather than kept as opaque text.
+ * Reasons a receipt reached a phase whose name does not say why. Only [ReminderPhase.TERMINAL] is
+ * reached for more than one reason, so only it carries a cause, and the vocabulary is closed so a
+ * record naming anything else is refused rather than kept as opaque text.
  */
 enum class ReminderCause {
     DELIVERY_ACKNOWLEDGED,
@@ -85,6 +84,9 @@ sealed interface ReminderReceiptTransitionResult {
  * file and would turn a lost write into a confident success.
  */
 interface ReminderPreferencePort {
+    /** The backing file. Two ports over one file must return the same instance, compared by identity. */
+    val backingStore: Any
+
     fun readAll(): Map<String, String>
 
     fun commit(writes: Map<String, String>): Boolean
@@ -97,14 +99,16 @@ interface ReminderPreferencePort {
  * a fresh occurrence, which stops a half wiped store from silently re-admitting an occurrence that
  * already fired. Deletion of every key stays deliberately indistinguishable from fresh app data.
  *
- * [reminderReceiptStore] memoises one store per process. The write uncertainty guard is instance
- * scoped, so a second store built by hand over the same file would not inherit its poison.
+ * The write uncertainty guard is keyed by the backing file rather than by this object, so every
+ * store over one file shares one poison set however many instances exist.
+ *
+ * Failures are reported as typed results rather than logged here. The caller that owns
+ * [ReminderDiagnosticPort] holds the stage, generation and work id this file never sees, so logging
+ * from both places would emit one failure twice with less context on this side.
  */
 class ReminderReceiptStore(
     private val preferences: ReminderPreferencePort,
 ) {
-    private val uncertainOccurrences = mutableSetOf<String>()
-
     fun lookup(occurrenceId: String): ReminderReceiptLookup = withProcessLock {
         lookupLocked(occurrenceId)
     }
@@ -123,7 +127,7 @@ class ReminderReceiptStore(
             seenKey(receipt.occurrenceId) to MARKER_VALUE,
             recordKey(receipt.occurrenceId) to encodeReceipt(receipt),
         )
-        if (commitLocked(receipt.occurrenceId, writes)) {
+        if (commitLocked(receipt.occurrenceId, null, writes)) {
             ReminderReceiptAdmissionResult.Admitted
         } else {
             ReminderReceiptAdmissionResult.WriteUncertain
@@ -160,7 +164,7 @@ class ReminderReceiptStore(
         if (!isAllowedTransition(current.phase, nextPhase) || !isValidReceipt(next)) {
             return@withProcessLock ReminderReceiptTransitionResult.Rejected
         }
-        commitTransitionLocked(next)
+        commitTransitionLocked(current, next)
     }
 
     /**
@@ -188,6 +192,7 @@ class ReminderReceiptStore(
             }
             val nextGeneration = current.generationNumber + 1
             commitTransitionLocked(
+                current,
                 current.copy(
                     generationNumber = nextGeneration,
                     workRequestId = reminderGenerationId(current.occurrenceId, nextGeneration),
@@ -197,9 +202,12 @@ class ReminderReceiptStore(
             )
         }
 
-    private fun commitTransitionLocked(next: ReminderReceipt): ReminderReceiptTransitionResult {
+    private fun commitTransitionLocked(
+        prior: ReminderReceipt,
+        next: ReminderReceipt,
+    ): ReminderReceiptTransitionResult {
         val write = mapOf(recordKey(next.occurrenceId) to encodeReceipt(next))
-        return if (commitLocked(next.occurrenceId, write)) {
+        return if (commitLocked(next.occurrenceId, prior, write)) {
             ReminderReceiptTransitionResult.Applied(next)
         } else {
             ReminderReceiptTransitionResult.WriteUncertain
@@ -214,19 +222,20 @@ class ReminderReceiptStore(
         if (!occurrenceId.matches(OCCURRENCE_ID_PATTERN)) {
             return ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.INVALID_OCCURRENCE_ID)
         }
+        val poison = poisonLocked()
+        if (poison.containsKey(occurrenceId)) {
+            // The file may already hold the bytes of the write that was never confirmed, so it is
+            // not consulted at all. Only the receipt that was durable before that write is exposed.
+            return poison[occurrenceId]?.let { ReminderReceiptLookup.Present(it, writeUncertain = true) }
+                ?: ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.WRITE_UNCERTAIN)
+        }
         val entries = try {
             preferences.readAll()
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             return ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.PREFERENCE_READ_FAILED)
         }
-        val uncertain = occurrenceId in uncertainOccurrences
-        val absent = if (uncertain) {
-            ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.WRITE_UNCERTAIN)
-        } else {
-            ReminderReceiptLookup.Missing
-        }
         if (entries.isEmpty()) {
-            return absent
+            return ReminderReceiptLookup.Missing
         }
         if (entries[STORE_KEY] != STORE_VALUE) {
             return ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.STORE_SENTINEL_INVALID)
@@ -235,7 +244,7 @@ class ReminderReceiptStore(
         val seen = entries[seenKey(occurrenceId)]
         val encoded = entries[recordKey(occurrenceId)]
         if (admitted == null && seen == null && encoded == null) {
-            return absent
+            return ReminderReceiptLookup.Missing
         }
         if (admitted != MARKER_VALUE || seen != MARKER_VALUE || encoded == null) {
             return ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.OCCURRENCE_KEYS_INVALID)
@@ -243,20 +252,27 @@ class ReminderReceiptStore(
         val receipt = decodeReceipt(encoded)
             ?.takeIf { it.occurrenceId == occurrenceId && isValidReceipt(it) }
             ?: return ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.RECEIPT_INVALID)
-        return ReminderReceiptLookup.Present(receipt, writeUncertain = uncertain)
+        return ReminderReceiptLookup.Present(receipt)
     }
 
-    private fun commitLocked(occurrenceId: String, writes: Map<String, String>): Boolean {
+    private fun commitLocked(
+        occurrenceId: String,
+        prior: ReminderReceipt?,
+        writes: Map<String, String>,
+    ): Boolean {
         val committed = try {
             preferences.commit(writes)
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             false
         }
         if (!committed) {
-            uncertainOccurrences.add(occurrenceId)
+            poisonLocked()[occurrenceId] = prior
         }
         return committed
     }
+
+    private fun poisonLocked(): MutableMap<String, ReminderReceipt?> =
+        POISON.getOrPut(preferences.backingStore) { mutableMapOf() }
 
     companion object {
         const val PREFERENCES_NAME = "reminder-receipts-v1"
@@ -267,6 +283,10 @@ class ReminderReceiptStore(
         private const val NO_CAUSE = "-"
         private val PROCESS_LOCK = Any()
 
+        // Keyed by identity, not equality, so a port that implements equals cannot borrow another
+        // file's poison. One entry per backing file, which in the app is one for the process life.
+        private val POISON = IdentityHashMap<Any, MutableMap<String, ReminderReceipt?>>()
+
         private fun admittedKey(occurrenceId: String): String = "admitted:$occurrenceId"
 
         private fun seenKey(occurrenceId: String): String = "seen:$occurrenceId"
@@ -275,8 +295,7 @@ class ReminderReceiptStore(
 
         private fun isValidReceipt(receipt: ReminderReceipt): Boolean {
             // A cause is carried exactly where the phase name does not say why, and TERMINAL is
-            // the only such phase. Every ReminderCause belongs to it, so which causes exist at all
-            // is decided by the type rather than by a second table here.
+            // the only such phase, so the type alone decides which causes exist.
             val pairing = (receipt.causeCode != null) == (receipt.phase == ReminderPhase.TERMINAL)
             val derivedWorkId = receipt.occurrenceId.matches(OCCURRENCE_ID_PATTERN) &&
                 receipt.generationNumber >= 0 &&
@@ -333,7 +352,7 @@ class ReminderReceiptStore(
          * test could make fail, and too few fields never reach the comparison because indexing
          * past the end throws inside the same catch.
          */
-        private fun decodeReceipt(encoded: String): ReminderReceipt? = runCatching {
+        private fun decodeReceipt(encoded: String): ReminderReceipt? = try {
             val fields = encoded.split('|')
             val occurrenceId = fields[1]
             val generationNumber = fields[2].toLong()
@@ -351,7 +370,9 @@ class ReminderReceiptStore(
             )
             require(encodeReceipt(receipt) == encoded)
             receipt
-        }.getOrNull()
+        } catch (_: Exception) {
+            null
+        }
 
         private fun encodeText(value: String): String = Base64.getUrlEncoder()
             .withoutPadding()
@@ -366,6 +387,9 @@ class ReminderReceiptStore(
 internal class SharedPreferencesReminderPreferencePort(
     private val sharedPreferences: SharedPreferences,
 ) : ReminderPreferencePort {
+    override val backingStore: Any
+        get() = sharedPreferences
+
     override fun readAll(): Map<String, String> = sharedPreferences.all.mapValues { (_, value) ->
         value as? String ?: error("reminder preference value is not a string")
     }
@@ -377,23 +401,17 @@ internal class SharedPreferencesReminderPreferencePort(
     }
 }
 
-private val storeLock = Any()
-
-private var memoisedStore: ReminderReceiptStore? = null
-
 /**
  * The process wide store over the application private preference file. The default [Context]
  * resolves to credential encrypted storage, so the file stays unreadable until first unlock after a
  * reboot. Device protected storage is deliberately not used: reminder evidence names a property a
  * tenant lives in and need not be legible before the user has unlocked the device.
  */
-internal fun reminderReceiptStore(context: Context): ReminderReceiptStore = synchronized(storeLock) {
-    memoisedStore ?: ReminderReceiptStore(
-        SharedPreferencesReminderPreferencePort(
-            context.applicationContext.getSharedPreferences(
-                ReminderReceiptStore.PREFERENCES_NAME,
-                Context.MODE_PRIVATE,
-            ),
+internal fun reminderReceiptStore(context: Context): ReminderReceiptStore = ReminderReceiptStore(
+    SharedPreferencesReminderPreferencePort(
+        context.applicationContext.getSharedPreferences(
+            ReminderReceiptStore.PREFERENCES_NAME,
+            Context.MODE_PRIVATE,
         ),
-    ).also { memoisedStore = it }
-}
+    ),
+)

@@ -163,7 +163,7 @@ class ReminderReceiptStoreTest {
 
     @Test
     fun `a false or throwing first admission leaves no receipt and quarantines the occurrence`() {
-        listOf(CommitPlan.RETURN_FALSE, CommitPlan.THROW).forEach { plan ->
+        FAILING_COMMITS.forEach { plan ->
             val preferences = FakeReminderPreferences(plans = listOf(plan))
             val store = ReminderReceiptStore(preferences)
 
@@ -185,14 +185,15 @@ class ReminderReceiptStoreTest {
         assertIs<ReminderReceiptAdmissionResult.Admitted>(optimist.admit(receipt()))
 
         assertEquals(GOLDEN_RECORD_GENERATION_ZERO, landedButFailed.snapshot()[RECORD])
-        assertTrue(assertIs<ReminderReceiptLookup.Present>(pessimist.lookup(OCCURRENCE_ID)).writeUncertain)
+        val unconfirmed = assertIs<ReminderReceiptLookup.Quarantined>(pessimist.lookup(OCCURRENCE_ID))
+        assertEquals(ReminderQuarantineReason.WRITE_UNCERTAIN, unconfirmed.reason)
         assertEquals(emptyMap<String, String>(), lostButSucceeded.snapshot())
         assertEquals(ReminderReceiptLookup.Missing, optimist.lookup(OCCURRENCE_ID))
     }
 
     @Test
     fun `a failed transition preserves the prior receipt and poisons later mutations`() {
-        listOf(CommitPlan.RETURN_FALSE, CommitPlan.THROW).forEach { plan ->
+        FAILING_COMMITS.forEach { plan ->
             val preferences = FakeReminderPreferences(plans = listOf(CommitPlan.COMMIT, plan))
             val store = ReminderReceiptStore(preferences)
             val admitted = receipt()
@@ -213,6 +214,21 @@ class ReminderReceiptStoreTest {
             assertIs<ReminderReceiptAdmissionResult.Rejected>(store.admit(admitted), "$plan")
             assertEquals(2, preferences.commits.size, "$plan")
         }
+    }
+
+    @Test
+    fun `write uncertainty poisons every store over the same backing file`() {
+        val backing = Any()
+        val failing = FakeReminderPreferences(plans = listOf(CommitPlan.RETURN_FALSE), backingStore = backing)
+        val other = FakeReminderPreferences(backingStore = backing)
+        assertIs<ReminderReceiptAdmissionResult.WriteUncertain>(ReminderReceiptStore(failing).admit(receipt()))
+
+        val second = ReminderReceiptStore(other)
+
+        val lookup = assertIs<ReminderReceiptLookup.Quarantined>(second.lookup(OCCURRENCE_ID))
+        assertEquals(ReminderQuarantineReason.WRITE_UNCERTAIN, lookup.reason)
+        assertIs<ReminderReceiptAdmissionResult.Rejected>(second.admit(receipt()))
+        assertEquals(0, other.commits.size)
     }
 
     @Test
@@ -415,6 +431,7 @@ class ReminderReceiptStoreTest {
         initial: Map<String, String> = emptyMap(),
         plans: List<CommitPlan> = emptyList(),
         private val throwOnRead: Boolean = false,
+        override val backingStore: Any = Any(),
     ) : ReminderPreferencePort {
         private val entries = initial.toMutableMap()
         private val remainingPlans = plans.toMutableList()
@@ -431,11 +448,11 @@ class ReminderReceiptStoreTest {
         override fun commit(writes: Map<String, String>): Boolean {
             commits += writes
             val plan = remainingPlans.removeFirstOrNull() ?: CommitPlan.COMMIT
-            if (plan == CommitPlan.THROW) {
-                throw IllegalStateException("simulated commit failure")
-            }
-            if (plan == CommitPlan.COMMIT || plan == CommitPlan.APPLY_THEN_FAIL) {
+            if (plan != CommitPlan.RETURN_FALSE && plan != CommitPlan.DROP_THEN_SUCCEED) {
                 entries.putAll(writes)
+            }
+            if (plan == CommitPlan.THROW || plan == CommitPlan.APPLY_THEN_THROW) {
+                throw IllegalStateException("simulated commit failure")
             }
             return plan == CommitPlan.COMMIT || plan == CommitPlan.DROP_THEN_SUCCEED
         }
@@ -443,9 +460,15 @@ class ReminderReceiptStoreTest {
         fun snapshot(): Map<String, String> = entries.toMap()
     }
 
-    private enum class CommitPlan { COMMIT, RETURN_FALSE, THROW, APPLY_THEN_FAIL, DROP_THEN_SUCCEED }
+    private enum class CommitPlan {
+        COMMIT, RETURN_FALSE, THROW, APPLY_THEN_FAIL, APPLY_THEN_THROW, DROP_THEN_SUCCEED
+    }
 
     private companion object {
+        val FAILING_COMMITS = listOf(
+            CommitPlan.RETURN_FALSE, CommitPlan.THROW, CommitPlan.APPLY_THEN_FAIL,
+            CommitPlan.APPLY_THEN_THROW,
+        )
         const val PROPERTY_A = "property-a"
         const val PROPERTY_B = "property-b"
         const val TIMEOUT_SECONDS = 30L
@@ -468,27 +491,21 @@ class ReminderReceiptStoreTest {
         val WORK_ID_1: UUID = UUID.fromString("590ca815-2783-322a-acde-39ab31dafd39")
         val DUE_AT: Instant = Instant.parse("2026-08-03T00:00:00.000000001Z")
         val PARTIAL_KEY_SETS = listOf(
-            setOf(ADMITTED), setOf(SEEN), setOf(RECORD),
-            setOf(ADMITTED, SEEN), setOf(ADMITTED, RECORD), setOf(SEEN, RECORD),
+            setOf(ADMITTED), setOf(SEEN), setOf(RECORD), setOf(ADMITTED, SEEN),
+            setOf(ADMITTED, RECORD), setOf(SEEN, RECORD),
         )
 
         // The transition table and the routes to each phase, written out rather than derived.
         val LIVE = setOf(ENQUEUED, RETRYABLE, DELIVERY_UNCERTAIN, PERMISSION_BLOCKED, TERMINAL, QUARANTINED)
         val LEGAL_TRANSITIONS: Map<ReminderPhase, Set<ReminderPhase>> = mapOf(
             ADMISSION_PENDING to setOf(ENQUEUED, RETRYABLE, TERMINAL, QUARANTINED),
-            ENQUEUED to LIVE,
-            RETRYABLE to LIVE,
-            DELIVERY_UNCERTAIN to setOf(DELIVERED),
-            DELIVERED to emptySet(),
-            PERMISSION_BLOCKED to emptySet(),
-            TERMINAL to emptySet(),
-            QUARANTINED to emptySet(),
+            ENQUEUED to LIVE, RETRYABLE to LIVE, DELIVERY_UNCERTAIN to setOf(DELIVERED),
+            DELIVERED to emptySet(), PERMISSION_BLOCKED to emptySet(),
+            TERMINAL to emptySet(), QUARANTINED to emptySet(),
         )
         val PATHS: Map<ReminderPhase, List<ReminderPhase>> = mapOf(
-            ADMISSION_PENDING to emptyList(),
-            ENQUEUED to listOf(ENQUEUED),
-            RETRYABLE to listOf(RETRYABLE),
-            TERMINAL to listOf(TERMINAL),
+            ADMISSION_PENDING to emptyList(), ENQUEUED to listOf(ENQUEUED),
+            RETRYABLE to listOf(RETRYABLE), TERMINAL to listOf(TERMINAL),
             QUARANTINED to listOf(QUARANTINED),
             DELIVERY_UNCERTAIN to listOf(ENQUEUED, DELIVERY_UNCERTAIN),
             PERMISSION_BLOCKED to listOf(ENQUEUED, PERMISSION_BLOCKED),
@@ -547,53 +564,15 @@ class ReminderReceiptStoreTest {
 }
 
 /*
- * Semantic mutation receipts for ReminderReceiptStore.kt (R4). Each row was applied alone to
- * the final snapshot as one line deleted or rewritten, the suite was run expecting a non-zero
- * exit, and the file was restored and re-hashed. Every row exited 1 with the named test red and
- * none survived, so no guard in that file is dead code. SHA-256 of the production file before
- * and after every mutation: da87bc2a0f5eb679b5dbdfddc0179428976e7a9708ccace73b0c785c9f785dd9
- *
- * M01 A1 admit drops the generation-zero gate -> only a fresh generation zero receipt is admissible
- * M02 A1 admit drops the admission-pending phase gate -> only a fresh generation zero receipt is admissible
- * M03 A1 admit stops validating the receipt -> only a fresh generation zero receipt is admissible
- * M04 A1 admit stops requiring the occurrence to be missing -> a failed transition preserves the prior receipt and...
- * M05 A1 admission commit omits the seen marker -> a failed transition preserves the prior receipt and poisons lat...
- * M06 A1 admission commit omits the store sentinel -> a failed transition preserves the prior receipt and poisons ...
- * M07 A4 admission reports success on a failed commit -> a false or throwing first admission leaves no receipt and...
- * M08 A4 compareAndSet ignores the write-uncertain poison -> a failed transition preserves the prior receipt and p...
- * M09 A5 compareAndSet stops comparing the work request id -> compare and set advances only on the exact expected ...
- * M10 A5 compareAndSet stops comparing the generation -> compare and set advances only on the exact expected tuple
- * M11 A5 compareAndSet stops comparing the phase -> compare and set advances only on the exact expected tuple
- * M12 A5 compareAndSet stops consulting the transition table -> only the declared transitions and their own causes...
- * M13 A5 compareAndSet stops validating the next receipt -> only the declared transitions and their own causes adv...
- * M14 A5 compareAndSet calls an untrusted lookup stale rather than rejected -> a compare and set without a trusted...
- * M15 A5 recovery stops matching the caller receipt against the store -> an old generation cannot overwrite the re...
- * M16 A5 recovery stops requiring the permission-blocked phase -> recovery outside a matched permission blocked re...
- * M17 A5 recovery drops the generation overflow guard -> recovery at the maximum generation is rejected instead of...
- * M18 A4 recovery ignores the write-uncertain poison -> a failed transition preserves the prior receipt and poison...
- * M19 A5 recovery reuses the current generation instead of deriving the next -> an old generation cannot overwrite...
- * M20 A4 a transition reports success on a failed commit -> a failed transition preserves the prior receipt and po...
- * M21 A5 operations stop taking the process lock -> the process lock linearises concurrent compare and set attempts
- * M22 A3 lookup accepts an occurrence id that is not a digest -> an unreadable occurrence id or preference file is...
- * M23 A3 an unreadable preference file reads as an empty one -> an unreadable occurrence id or preference file is ...
- * M24 A4 an absent occurrence after a failed write reads as fresh -> a false or throwing first admission leaves no...
- * M25 A2 a blank store no longer short circuits to absent -> a failed transition preserves the prior receipt and p...
- * M26 A3 lookup stops checking the store sentinel -> corrupt and non canonical evidence is quarantined with a type...
- * M27 A3 lookup stops checking both occurrence markers -> a compare and set without a trusted receipt is rejected
- * M28 A3 lookup stops binding the record to the queried occurrence -> corrupt and non canonical evidence is quaran...
- * M29 A3 lookup stops validating the decoded receipt -> corrupt and non canonical evidence is quarantined with a t...
- * M30 A4 a present receipt never reports write uncertainty -> a failed transition preserves the prior receipt and ...
- * M31 A4 a failed commit stops poisoning the occurrence -> a failed transition preserves the prior receipt and poi...
- * M32 A4 a throwing commit is treated as a successful one -> a failed transition preserves the prior receipt and p...
- * M33 A3 receipt validation stops checking the phase and cause pair -> corrupt and non canonical evidence is quara...
- * M34 A3 receipt validation stops binding the spec to the occurrence id -> only a fresh generation zero receipt is...
- * M35 A1 receipt validation stops requiring a canonical spec -> only a fresh generation zero receipt is admissible
- * M36 A3 receipt validation stops deriving the work request id -> only a fresh generation zero receipt is admissible
- * M37 A1 receipt validation drops the non-negative generation guard -> only a fresh generation zero receipt is adm...
- * M38 A1 receipt validation drops the occurrence id shape guard -> only a fresh generation zero receipt is admissible
- * M39 A5 delivery uncertainty can no longer resolve to delivered -> only the declared transitions and their own ca...
- * M40 A5 terminal phases stop being terminal -> only the declared transitions and their own causes advance a receipt
- * M41 A1 encode stamps a different envelope -> admission commits the sentinel both markers and the canonical recor...
- * M42 A3 encode emits padded base64 -> admission commits the sentinel both markers and the canonical record together
- * M43 A3 decode drops the canonical round trip comparison -> corrupt and non canonical evidence is quarantined wit...
+ * R4 mutation receipts. 46 single line semantic mutations, covering every function in
+ * ReminderReceiptStore.kt, were each applied alone to the final snapshot, the suite was run
+ * expecting a non-zero exit, and the file was restored. All 46 exited 1 with a named test red and
+ * none survived. SHA-256 of that file before and after every mutation:
+ * 329bbc0585e045f7e415400355b4930f328a49237365462f0163fa51aebe5b82
+ * One exemplar per acceptance criterion, as selector -> the test that turned red:
+ * A1 `receipt.generationNumber == 0L &&` -> only a fresh generation zero receipt is admissible
+ * A2 `if (entries.isEmpty()) {` -> an occurrence is missing only on a blank store or beside others
+ * A3 `require(encodeReceipt(receipt) == encoded)` -> corrupt and non canonical evidence is quarantined
+ * A4 `poisonLocked()[occurrenceId] = prior` -> a failed transition preserves the prior receipt
+ * A5 `val nextGeneration = current.generationNumber + 1` -> an old generation cannot overwrite it
  */
