@@ -81,6 +81,19 @@ data class NotificationCopy(
     val body: String,
 )
 
+/**
+ * Lock-screen visibility the delivery adapter must apply.
+ *
+ * A reminder names a property the tenant lives in, so its body never belongs on a locked screen.
+ * Both values exist because a descriptor that cannot express the wrong answer cannot constrain
+ * anything: with only PRIVATE declared, asserting PRIVATE would hold no matter what the adapter
+ * did. PUBLIC is the value this contract exists to rule out, not an option offered to callers.
+ */
+enum class NotificationVisibility {
+    PRIVATE,
+    PUBLIC,
+}
+
 sealed interface DeliveryPlan {
     data object Retry : DeliveryPlan
 
@@ -88,6 +101,7 @@ sealed interface DeliveryPlan {
         val copy: NotificationCopy,
         val intent: RouteIntentSpec,
         val onlyAlertOnce: Boolean = true,
+        val visibility: NotificationVisibility = NotificationVisibility.PRIVATE,
     ) : DeliveryPlan
 }
 

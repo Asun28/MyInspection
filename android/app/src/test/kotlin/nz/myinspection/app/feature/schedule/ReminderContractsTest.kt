@@ -119,27 +119,42 @@ class ReminderContractsTest {
     }
 
     @Test
-    fun `delivery plan preserves immutable alert once intent and permission gate`() {
-        val notify = assertIs<DeliveryPlan.Notify>(
-            reminderDeliveryPlan(
-                sdkInt = 32,
-                permissionGranted = false,
-                route = route,
-                dueAt = dueAt,
-            ),
-        )
+    fun `delivery plan declares an immutable private alert once policy`() {
+        val notify = assertIs<DeliveryPlan.Notify>(plan(sdkInt = 32, permissionGranted = false))
 
         assertEquals(true, notify.onlyAlertOnce)
-        assertEquals(reminderRouteIntentSpec(route, dueAt), notify.intent)
-        assertIs<DeliveryPlan.Retry>(
-            reminderDeliveryPlan(
-                sdkInt = 33,
-                permissionGranted = false,
-                route = route,
-                dueAt = dueAt,
-            ),
+        assertEquals(NotificationVisibility.PRIVATE, notify.visibility)
+        // PUBLIC exists so this assertion can fail. Its presence is what makes the
+        // PRIVATE choice a constraint rather than a restatement of the only option.
+        assertEquals(listOf("PRIVATE", "PUBLIC"), NotificationVisibility.entries.map { it.name })
+        assertTrue(notify.intent.isExplicit)
+        assertTrue(notify.intent.isImmutable)
+        assertEquals(
+            "myinspection://schedule/reminder/" +
+                "c118fefec6ee20d89eafa5533048237237d39116af40aa85123fb1f70c404108",
+            notify.intent.data,
         )
+        assertEquals(-1055326466, notify.intent.requestCode)
     }
+
+    @Test
+    fun `permission only gates delivery from API 33 and only while it is withheld`() {
+        assertIs<DeliveryPlan.Retry>(plan(sdkInt = 33, permissionGranted = false))
+        // Granted on API 33+ must still notify. Without the permissionGranted term in the
+        // condition this stays Retry forever and the user is never reminded.
+        assertIs<DeliveryPlan.Notify>(plan(sdkInt = 33, permissionGranted = true))
+        // Below API 33 there is no runtime permission, so neither value may gate delivery.
+        assertIs<DeliveryPlan.Notify>(plan(sdkInt = 32, permissionGranted = false))
+        assertIs<DeliveryPlan.Notify>(plan(sdkInt = 32, permissionGranted = true))
+    }
+
+    private fun plan(sdkInt: Int, permissionGranted: Boolean): DeliveryPlan =
+        reminderDeliveryPlan(
+            sdkInt = sdkInt,
+            permissionGranted = permissionGranted,
+            route = route,
+            dueAt = dueAt,
+        )
 
     @Test
     fun `request code truncation collides while route identity stays distinct`() {
@@ -242,8 +257,8 @@ class ReminderContractsTest {
  * expecting a non-zero exit, and the file was restored and re-hashed. Every mutation was
  * killed and the file returned to the identical digest, so no row below is a survivor.
  *
- * SHA-256 before all mutations: de23fd779d284f6d0ca44401af7269347db7e1a6cee28dc407b7b46dd236b44c
- * SHA-256 after all mutations:  de23fd779d284f6d0ca44401af7269347db7e1a6cee28dc407b7b46dd236b44c
+ * SHA-256 before all mutations: cb40ba26d198ee651c76c5262b8389ecf573b5d1575c6f7fabe5f9d36b4c06b8
+ * SHA-256 after all mutations:  cb40ba26d198ee651c76c5262b8389ecf573b5d1575c6f7fabe5f9d36b4c06b8
  *
  * M1 [A1] RED exit 1
  *   selector: append(dueAt.nano)
@@ -277,4 +292,10 @@ class ReminderContractsTest {
  *   selector: internal fun reminderRequestCode(occurrenceId: String): Int {
  *     require(occurrenceId.matches(OCCURRENCE_ID_PATTE
  *   effect: request code derived from an unvalidated string, so a short id throws NumberFormatException
+ * M16 [A3] RED exit 1
+ *   selector: ): DeliveryPlan = if (sdkInt >= 33 && !permissionGranted) {
+ *   effect: granting notification permission still yields Retry: the user is never reminded
+ * M17 [A3] RED exit 1
+ *   selector: val visibility: NotificationVisibility = NotificationVisibility.PRIVATE,
+ *   effect: reminder body naming the tenant's property is shown on the lock screen
  */
