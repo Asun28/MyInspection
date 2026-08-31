@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-REMINDER-SPLIT-PLAN
 title: 将超限提醒卡拆为 delivery 与 scheduler 两张可读串行卡
 depends_on: [T4-SCHEDULE-CADENCE]
-status: todo
+status: merged
 branch: T4-SCHEDULE-REMINDER-SPLIT-PLAN
 worktree: C:\wt\T4-SCHEDULE-REMINDER-SPLIT-PLAN
 allow_paths:

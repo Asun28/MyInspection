@@ -149,7 +149,7 @@
 | W5 | T4-SCHEDULE-SPLIT-PLAN | 将退役单卡拆为 cadence → reminder → UI 串行交付 | T4-COMPLIANCE-ENGINE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `ba1de2c1`，PR #210；check-cards、verify、CI 与 Sol R3 PASS） |
 | W5 | T4-SCHEDULE-CADENCE | 本地民历 cadence 纯 core | T4-COMPLIANCE-ENGINE,T4-SCHEDULE-SPLIT-PLAN | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `a413ac91`，PR #211；focused core、verify、Luna/Terra Max、Sol R3 与 CI PASS） |
 | W5 | ~~T4-SCHEDULE-REMINDER~~ | **已退役且未合并**：PR #212 exact head `a0ed8da4ed2f374a48ddeef9de146f9be2696d7d`（CI run `33356482177` green）虽入 1000/60000，仍靠 12 aliases/39 分号行；三角度 Sol Max 预审拦 callback、状态恢复、极值 delay 与测试证伪缺口 | — | — | — | — | 由 DELIVERY→SCHEDULER 承接；只读保留至抽取完成 |
-| W5 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | 将退役 reminder 拆为 delivery → scheduler 串行交付 | T4-SCHEDULE-CADENCE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
+| W5 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | 将退役 reminder 拆为 delivery → scheduler 串行交付 | T4-SCHEDULE-CADENCE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `20cc0222`，PR #213；三角度 Sol Max 预审、Luna/Terra Max、DoD、verify、Sol R3 与 CI PASS；冻结 dual-key loss、全 WorkInfo 六态与 worker-before-callback 合同） |
 | W5 | T4-SCHEDULE-REMINDER-DELIVERY | 身份、耐久回执、诊断与通知交付边界 | T4-SCHEDULE-CADENCE,T4-SCHEDULE-REMINDER-SPLIT-PLAN | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
 | W5 | T4-SCHEDULE-REMINDER-SCHEDULER | WorkManager 唯一注册、恢复与 callback 并发边界 | T4-SCHEDULE-REMINDER-DELIVERY | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
 | W5 | T4-SCHEDULE-UI | badge/filter/route 与权限恢复重试 UI | T4-SCHEDULE-REMINDER-SCHEDULER | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
