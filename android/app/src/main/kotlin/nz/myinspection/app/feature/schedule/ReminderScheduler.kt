@@ -34,6 +34,7 @@ enum class FailureKind { TRANSIENT, PERMANENT }
 enum class FailureCauseCode {
     SECURITY, INVALID_ARGUMENT, ILLEGAL_STATE, IO, CANCELLED, INTERRUPTED,
     UNKNOWN_RUNTIME, UNKNOWN, INVALID_INPUT, PERMISSION_DENIED, STORAGE_CORRUPT, STORAGE_WRITE, STORAGE_MISSING,
+    DELIVERY_UNCERTAIN, RETRYABLE_STATE,
 }
 data class FailureDisposition(val kind: FailureKind, val causeCode: FailureCauseCode)
 fun classifyReminderFailure(error: Throwable): FailureDisposition {
@@ -56,7 +57,7 @@ private fun permanent(cause: FailureCauseCode) = FailureDisposition(FailureKind.
 enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_ENQUEUED, RECEIPT_DELIVERED, NOTIFY }
 enum class LogError {
     ENQUEUE_FAILED, INVALID_INPUT, PERMISSION_DENIED,
-    RECEIPT_CORRUPT, RECEIPT_MISSING, RECEIPT_WRITE_FAILED, NOTIFY_FAILED,
+    RECEIPT_CORRUPT, RECEIPT_MISSING, RECEIPT_WRITE_FAILED, NOTIFY_FAILED, DELIVERY_UNCERTAIN, RETRYABLE_RECEIPT,
 }
 data class LogRecord(
     val stage: LogStage, val occurrenceId: String?, val type: InspectionScheduleType?,
@@ -114,18 +115,19 @@ object ReminderScheduler {
         onResult: (RegistrationResult) -> Unit = {},
         enqueue: (EnqueueSpec, (EnqueueResult) -> Unit) -> Unit,
     ): Boolean {
+        if (runCatching { WorkSpecFactory().create(spec.route, spec.dueAt) }.getOrNull() != spec) {
+            logger.log(LogRecord(LogStage.INPUT, null, spec.route.inspectionType, false, LogError.INVALID_INPUT, FailureCauseCode.INVALID_INPUT))
+            onResult(RegistrationResult.PERMANENT_FAILURE); return false
+        }
         fun receiptFailure(stage: LogStage, error: LogError, cause: FailureCauseCode) {
             logger.log(LogRecord(stage, spec.occurrenceId, spec.route.inspectionType, false, error, cause))
         }
-        val coordinator = RegistrationCoordinator(
-            store,
-            onCorruptReceipt = {
-                receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_CORRUPT, FailureCauseCode.STORAGE_CORRUPT)
-            },
-            onWriteFailure = {
-                receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_WRITE_FAILED, FailureCauseCode.STORAGE_WRITE)
-            },
-        )
+        val coordinator = RegistrationCoordinator(store) { state -> when (state) {
+            ReceiptState.CORRUPT -> receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_CORRUPT, FailureCauseCode.STORAGE_CORRUPT)
+            ReceiptState.INDETERMINATE -> receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_WRITE_FAILED, FailureCauseCode.STORAGE_WRITE)
+            ReceiptState.DELIVERY_UNCERTAIN -> receiptFailure(LogStage.NOTIFY, LogError.DELIVERY_UNCERTAIN, FailureCauseCode.DELIVERY_UNCERTAIN)
+            else -> Unit
+        } }
         return coordinator.register(spec.occurrenceId, onResult) { complete ->
             try {
                 enqueue(EnqueueSpec.from(spec)) { result ->

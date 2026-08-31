@@ -18,7 +18,7 @@ fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
     val occurrence = "${route.propertyId}\u0000${route.inspectionType.name}\u0000${dueAt.epochSecond}\u0000${dueAt.nano}"
     return MessageDigest.getInstance("SHA-256").digest(occurrence.encodeToByteArray()).toHex()
 }
-enum class ReceiptState { MISSING, ENQUEUED, PERMISSION_RETRY, INDETERMINATE, DELIVERED, RETRYABLE, TERMINAL, CORRUPT }
+enum class ReceiptState { MISSING, ENQUEUED, PERMISSION_RETRY, DELIVERY_UNCERTAIN, INDETERMINATE, DELIVERED, RETRYABLE, TERMINAL, CORRUPT }
 enum class RegistrationResult { SUCCESS, RETRYABLE_FAILURE, PERMANENT_FAILURE }
 sealed interface WriteResult { data object Applied : WriteResult; data class Mismatch(val state: ReceiptState) : WriteResult; data object Failed : WriteResult }
 interface ReceiptStore { fun read(id: String): ReceiptState
@@ -44,18 +44,15 @@ internal object RegistrationFlights {
             active.remove(id); if (quarantine) quarantined += id
         }
 }
-internal class RegistrationCoordinator(private val store: ReceiptStore, private val onCorruptReceipt: () -> Unit,
-    private val onWriteFailure: () -> Unit) {
+internal class RegistrationCoordinator(private val store: ReceiptStore, private val onState: (ReceiptState) -> Unit) {
     fun register(
         occurrenceId: String, onResult: (RegistrationResult) -> Unit,
         enqueue: ((RegistrationResult) -> Unit) -> Unit,
     ): Boolean {
         val initial = store.readSafely(occurrenceId)
         if (initial in setOf(ReceiptState.PERMISSION_RETRY, ReceiptState.DELIVERED)) return finish(initial, onResult)
-        if (initial in setOf(ReceiptState.INDETERMINATE, ReceiptState.TERMINAL, ReceiptState.CORRUPT)) {
-            if (initial == ReceiptState.CORRUPT) onCorruptReceipt() else if (initial == ReceiptState.INDETERMINATE) onWriteFailure()
+        if (initial in setOf(ReceiptState.DELIVERY_UNCERTAIN, ReceiptState.INDETERMINATE, ReceiptState.TERMINAL, ReceiptState.CORRUPT))
             return finish(initial, onResult)
-        }
         val (flight, quarantined) = RegistrationFlights.join(occurrenceId, onResult)
         if (quarantined) return finish(ReceiptState.INDETERMINATE, onResult)
         if (flight == null) return false
@@ -89,18 +86,17 @@ internal class RegistrationCoordinator(private val store: ReceiptStore, private 
             var resolved = result
             var quarantine = false
             if (result == RegistrationResult.SUCCESS) {
-                resolved = resultFor(store.readSafely(occurrenceId))
+                val state = store.readSafely(occurrenceId); onState(state); resolved = resultFor(state)
             } else {
                 val target = if (result == RegistrationResult.RETRYABLE_FAILURE) ReceiptState.RETRYABLE else ReceiptState.TERMINAL
                 when (val write = store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.ENQUEUED), target)) {
                     WriteResult.Applied -> Unit
-                    is WriteResult.Mismatch -> resolved = resultFor(write.state)
+                    is WriteResult.Mismatch -> { onState(write.state); resolved = resultFor(write.state) }
                     WriteResult.Failed -> {
-                        onWriteFailure(); quarantine = true; resolved = RegistrationResult.PERMANENT_FAILURE
+                        onState(ReceiptState.INDETERMINATE); quarantine = true; resolved = RegistrationResult.PERMANENT_FAILURE
                     }
                 }
             }
-            if (!quarantine && resolved == RegistrationResult.PERMANENT_FAILURE && store.readSafely(occurrenceId) == ReceiptState.CORRUPT) onCorruptReceipt()
             val waiters = RegistrationFlights.finish(occurrenceId, flight, quarantine)
             settled = true
             waiters.forEach { it(if (quarantine) RegistrationResult.PERMANENT_FAILURE else resolved) }
@@ -110,19 +106,19 @@ internal class RegistrationCoordinator(private val store: ReceiptStore, private 
         }
     }
     private fun finish(state: ReceiptState, onResult: (RegistrationResult) -> Unit): Boolean {
+        onState(state)
         onResult(resultFor(state))
         return false
     }
     private fun finishFlight(occurrenceId: String, flight: RegistrationFlights.Flight, state: ReceiptState, quarantine: Boolean = false): Boolean {
-        if (state == ReceiptState.CORRUPT) onCorruptReceipt()
-        if (state == ReceiptState.INDETERMINATE) onWriteFailure()
+        onState(state)
         RegistrationFlights.finish(occurrenceId, flight, quarantine).forEach { it(resultFor(state)) }
         return false
     }
     private fun resultFor(state: ReceiptState) = when (state) {
             ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY, ReceiptState.DELIVERED -> RegistrationResult.SUCCESS
             ReceiptState.MISSING, ReceiptState.RETRYABLE -> RegistrationResult.RETRYABLE_FAILURE
-            ReceiptState.INDETERMINATE, ReceiptState.TERMINAL, ReceiptState.CORRUPT -> RegistrationResult.PERMANENT_FAILURE
+            ReceiptState.DELIVERY_UNCERTAIN, ReceiptState.INDETERMINATE, ReceiptState.TERMINAL, ReceiptState.CORRUPT -> RegistrationResult.PERMANENT_FAILURE
     }
 }
 data class RouteIntentSpec(val data: String, val notificationTag: String, val notificationId: Int,
