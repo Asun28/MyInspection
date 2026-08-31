@@ -21,8 +21,8 @@ fun reminderOccurrenceId(route: ScheduleRoute, dueAt: Instant): String {
 enum class ReceiptState { MISSING, ENQUEUED, PERMISSION_RETRY, INDETERMINATE, DELIVERED, RETRYABLE, TERMINAL, CORRUPT }
 enum class RegistrationResult { SUCCESS, RETRYABLE_FAILURE, PERMANENT_FAILURE }
 sealed interface WriteResult { data object Applied : WriteResult; data class Mismatch(val state: ReceiptState) : WriteResult; data object Failed : WriteResult }
-interface ReceiptStore { fun read(occurrenceId: String): ReceiptState
-    fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): WriteResult }
+interface ReceiptStore { fun read(id: String): ReceiptState
+    fun compareAndSet(id: String, expected: Set<ReceiptState>, state: ReceiptState): WriteResult }
 internal fun ReceiptStore.readSafely(occurrenceId: String) = try { read(occurrenceId) } catch (_: RuntimeException) { ReceiptState.CORRUPT }
 internal fun ReceiptStore.compareAndSetSafely(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState) =
     try { compareAndSet(occurrenceId, expected, state) } catch (_: RuntimeException) { WriteResult.Failed }

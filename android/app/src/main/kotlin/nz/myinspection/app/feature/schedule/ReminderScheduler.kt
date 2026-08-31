@@ -170,53 +170,39 @@ internal fun enqueueWorkManagerReminder(
         .putString(WorkKeys.DUE_AT_INSTANT, work.dueAt.toString())
         .putString(WorkKeys.OCCURRENCE_ID, work.occurrenceId)
         .build()
-    val request = OneTimeWorkRequestBuilder<ReminderWorker>()
-        .setInitialDelay(
-            maxOf(
-                0L,
-                Duration.between(clock.instant(), work.dueAt).toMillis(),
-            ),
-            TimeUnit.MILLISECONDS,
-        )
-        .setInputData(input)
-        .build()
+    val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay(
+        maxOf(0L, Duration.between(clock.instant(), work.dueAt).toMillis()), TimeUnit.MILLISECONDS,
+    ).setInputData(input).build()
     submit(work.uniqueName, work.existingWorkPolicy, request)
 }
 internal fun decodeReceipt(raw: String?): ReceiptState = when (raw) {
     null -> ReceiptState.MISSING
-    ReceiptState.ENQUEUED.name -> ReceiptState.ENQUEUED
-    ReceiptState.PERMISSION_RETRY.name -> ReceiptState.PERMISSION_RETRY
-    ReceiptState.INDETERMINATE.name -> ReceiptState.INDETERMINATE
-    ReceiptState.DELIVERED.name -> ReceiptState.DELIVERED
-    ReceiptState.RETRYABLE.name -> ReceiptState.RETRYABLE
-    ReceiptState.TERMINAL.name -> ReceiptState.TERMINAL
-    else -> ReceiptState.CORRUPT
+    ReceiptState.MISSING.name -> ReceiptState.CORRUPT
+    else -> runCatching { ReceiptState.valueOf(raw) }.getOrDefault(ReceiptState.CORRUPT)
 }
-internal fun readReceipt(readRaw: () -> String?): ReceiptState = try { decodeReceipt(readRaw()) }
-catch (_: RuntimeException) { ReceiptState.CORRUPT }
-internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore {
-    private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    override fun read(occurrenceId: String) = synchronized(LOCK) {
-        if (occurrenceId in UNCERTAIN) ReceiptState.INDETERMINATE
-        else readReceipt { preferences.getString(occurrenceId, null) }
+private val STORE_LOCK = Any()
+private val TAINTED = mutableSetOf<String>()
+internal fun receiptStore(readRaw: (String) -> String?, writeRaw: (String, String?) -> Boolean) = object : ReceiptStore {
+    override fun read(id: String) = synchronized(STORE_LOCK) {
+        if (id in TAINTED) ReceiptState.INDETERMINATE
+        else try { decodeReceipt(readRaw(id)) } catch (_: RuntimeException) { ReceiptState.CORRUPT }
     }
-    override fun compareAndSet(occurrenceId: String, expected: Set<ReceiptState>, state: ReceiptState): WriteResult = synchronized(LOCK) {
-        require(state != ReceiptState.CORRUPT) { "CORRUPT is a read-only receipt state" }
-        if (occurrenceId in UNCERTAIN) return@synchronized WriteResult.Failed
+    override fun compareAndSet(id: String, expected: Set<ReceiptState>, state: ReceiptState) = synchronized(STORE_LOCK) {
+        require(state != ReceiptState.CORRUPT)
+        if (id in TAINTED) return@synchronized WriteResult.Failed
         try {
-            val current = read(occurrenceId)
+            val current = read(id)
             if (current !in expected) WriteResult.Mismatch(current)
-            else {
-                val committed = if (state == ReceiptState.MISSING) preferences.edit().remove(occurrenceId).commit()
-                    else preferences.edit().putString(occurrenceId, state.name).commit()
-                if (committed) WriteResult.Applied else failedWrite(occurrenceId)
-            }
-        } catch (_: RuntimeException) { failedWrite(occurrenceId) }
-    }
-    private companion object {
-        const val PREFERENCES_NAME = "schedule-reminder-occurrences"
-        val LOCK = Any()
-        val UNCERTAIN = mutableSetOf<String>()
-        fun failedWrite(id: String) = WriteResult.Failed.also { UNCERTAIN += id }
+            else if (writeRaw(id, state.takeUnless { it == ReceiptState.MISSING }?.name)) WriteResult.Applied
+            else taint(id)
+        } catch (_: RuntimeException) { taint(id) }
     }
 }
+private fun taint(id: String) = WriteResult.Failed.also { TAINTED += id }
+private const val STORE_NAME = "schedule-reminder-occurrences"
+private fun preferenceStore(context: Context) = context.getSharedPreferences(STORE_NAME, Context.MODE_PRIVATE).let { preferences ->
+    receiptStore({ preferences.getString(it, null) }) { id, value ->
+        (if (value == null) preferences.edit().remove(id) else preferences.edit().putString(id, value)).commit()
+    }
+}
+internal class SharedPreferencesReceiptStore(context: Context) : ReceiptStore by preferenceStore(context)
