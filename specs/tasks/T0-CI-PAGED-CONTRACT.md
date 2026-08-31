@@ -26,9 +26,9 @@ non_goals:
   - receipt-loss 恢复策略；由 T0-RECEIPT-LOSS-FAIL-CLOSED 承接
   - 自动重跑、取消或修复 GitHub Actions
   - 两份运维文档的候选 CI 章节同步（随 T0-CI-IDENTITY-DEADLINE 一并落地）
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch 'T37-CIGATE/API-CONTRACT') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'page-replay') -and (Select-String -Path scripts/task.ps1 -SimpleMatch 'id invalid/duplicate'))) { exit 1 }"
+dod_command: $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -match 'gate=T37-CIGATE/API-CONTRACT reason=') { exit 1 }; if ($t -notmatch 'selftest: PASS') { exit 1 }
 dod_exit: 0
-dod_assert: selftest 注册 T37-CIGATE/API-CONTRACT 闸与 page-replay 夹具；task.ps1 的分页读取函数带 id 无效/重复的 fail-closed 出口。
+dod_assert: seeded-remote 分片真实执行且退出 0，输出含 selftest: PASS；T37-CIGATE/API-CONTRACT 实际跑过——未以任何 reason（含 PREREQUISITE-FAIL）跳过。断言的是行为，不是文本存在。
 review_gate: codex {verdict:pass}
 hygiene: 每个负例配对应正例或单点变异；重放夹具必须证明命中的是 id 去重出口，而非更早的 total 漂移 / count>total / 通用 API 错误。
 doc_sync: 本卡不改文档；候选 CI 的文档同步由 T0-CI-IDENTITY-DEADLINE 承担。
@@ -71,9 +71,9 @@ workflow 身份绑定 / jobs 漂移 / deadline / 最终快照 / 文档同步 / r
 ## 验收（DoD = 命令 + 退出码 + 断言）
 
 ```powershell
-pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/selftest.ps1 -SimpleMatch 'T37-CIGATE/API-CONTRACT') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'page-replay') -and (Select-String -Path scripts/task.ps1 -SimpleMatch 'id invalid/duplicate'))) { exit 1 }"
+$t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -match 'gate=T37-CIGATE/API-CONTRACT reason=') { exit 1 }; if ($t -notmatch 'selftest: PASS') { exit 1 }
 ```
 
 - 期望退出码：0
-- 断言：见 `dod_assert`；另须 `pwsh -File scripts/selftest.ps1 -Shard seeded-remote` 退出 0，
-  且 `T37-CIGATE/API-CONTRACT` 未以 `PREREQUISITE-FAIL` 跳过。
+- 断言：见 `dod_assert`。DoD **执行**闸门而非搜索字符串：只有 seeded-remote 真跑通、
+  且 API-CONTRACT 闸没被任何 reason 跳过，才算通过。A4 的单点删除变异须在本命令下变红。

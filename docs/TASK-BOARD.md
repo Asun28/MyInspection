@@ -1,4 +1,4 @@
-﻿# TASK-BOARD — 任务/模型路由总表（v1 · 2026-08-14）
+# TASK-BOARD — 任务/模型路由总表（v1 · 2026-08-14）
 
 > **这张表管「谁做哪张卡、用什么档」**；每张卡的完整上下文包/验收在 `specs/tasks/<id>.md`；**状态以卡为准**（本表不追状态，防双源漂移）。
 > 计划真相源 `_local/PLAN.md`；设计决策 `docs/adr/0001–0004`；需求 `docs/inspection-app-requirements.md`。
