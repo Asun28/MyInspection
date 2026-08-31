@@ -49,7 +49,11 @@ doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步候选 CI 身份、deadline�
 本卡从 `T0-CI-HARDENING-MATRIX` 拆出。原卡的身份部分成果保存在分支 `wip/T0-CI-hardening-validated`
 （tip `2ce7aa0f`）与 patch series `pr214-validated-work/0001..0005`，其中与本卡相关的是 PR 关联属性名的
 大小写敏感修复、`workflow-path-case` / `workflow-case-pr` 两条负例，以及两份文档的候选 CI 段落。
-承接时须自行重跑 DoD 与 `selftest -Shard seeded-remote`。
+承接时须自行重跑 DoD 与 `selftest -Shard seeded-remote`，不得以「上游已验证」替代本卡自己的机检。
+**并行卡的实测背书**：`T4-SCHEDULE-REMINDER-CONTRACTS`（PR #215）R3 前两轮 5 条 finding 里有 **4 条是被保全的
+种子代码里的缺陷**——那份种子此前通过了它自己的 DoD、看上去已完工（其一把一个合法但无关的 UUID 当作
+已校验的关联发布，其二让「已授予通知权限」走进永久 Retry）。故种子按**未经审阅的新代码**逐行读，
+上游绿相不构成关于它的任何证据。
 
 ## 大小写敏感是本卡的硬约束（有实际缺陷背书）
 

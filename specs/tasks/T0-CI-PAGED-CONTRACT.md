@@ -51,6 +51,10 @@ doc_sync: 本卡不改文档；候选 CI 的文档同步由 T0-CI-IDENTITY-DEADL
 
 其中与本卡相关的是 `$seen` 去重守卫、三个 endpoint 的 `page-replay` 夹具，以及旧 mock 的 check-runs / jobs
 补 id。承接时须自行重跑 DoD 与 `selftest -Shard seeded-remote`，不得以「上游已验证」替代本卡自己的机检。
+**并行卡的实测背书**：`T4-SCHEDULE-REMINDER-CONTRACTS`（PR #215）R3 前两轮 5 条 finding 里有 **4 条是被保全的
+种子代码里的缺陷**——那份种子此前通过了它自己的 DoD、看上去已完工（其一把一个合法但无关的 UUID 当作
+已校验的关联发布，其二让「已授予通知权限」走进永久 Retry）。故种子按**未经审阅的新代码**逐行读，
+上游绿相不构成关于它的任何证据。
 
 ## 为什么 id 是必需的而非可选的
 
