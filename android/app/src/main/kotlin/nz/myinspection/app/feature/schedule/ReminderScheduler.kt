@@ -16,7 +16,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import nz.myinspection.core.schedule.InspectionScheduleType
 private typealias SRS = ReceiptState
-private typealias FC = FailureCauseCode
+private typealias FC = FailureCauseCode; private typealias SR = RegistrationResult; private class CallbackFailure(val failure: Throwable) : RuntimeException(failure)
 internal object WorkKeys {
     const val PROPERTY_ID = "property_id"
     const val INSPECTION_TYPE = "inspection_type"
@@ -87,7 +87,7 @@ object ReminderScheduler {
     fun schedule(
         context: Context,
         spec: ReminderSpec,
-        onResult: (RegistrationResult) -> Unit = {},
+        onResult: (SR) -> Unit = {},
     ): Boolean {
         val appContext = context.applicationContext
         val executor = ContextCompat.getMainExecutor(context)
@@ -113,12 +113,12 @@ object ReminderScheduler {
     }
     internal fun schedule(
         spec: ReminderSpec, store: ReceiptStore, logger: EventLogger,
-        onResult: (RegistrationResult) -> Unit = {},
+        onResult: (SR) -> Unit = {},
         enqueue: (EnqueueSpec, (EnqueueResult) -> Unit) -> Unit,
     ): Boolean {
         if (runCatching { WorkSpecFactory().create(spec.route, spec.dueAt) }.getOrNull() != spec) {
             logger.log(LogRecord(LogStage.INPUT, null, spec.route.inspectionType, false, LogError.INVALID_INPUT, FC.INVALID_INPUT))
-            onResult(RegistrationResult.PERMANENT_FAILURE); return false
+            onResult(SR.PERMANENT_FAILURE); return false
         }
         fun receiptFailure(stage: LogStage, error: LogError, cause: FC) {
             logger.log(LogRecord(stage, spec.occurrenceId, spec.route.inspectionType, false, error, cause))
@@ -132,20 +132,12 @@ object ReminderScheduler {
         return coordinator.register(spec.occurrenceId, onResult) { complete ->
             try {
                 enqueue(EnqueueSpec.from(spec)) { result ->
-                    if (result == EnqueueResult.Accepted) {
-                        complete(RegistrationResult.SUCCESS)
-                    } else {
-                        val disposition = logEnqueueFailure(
-                            spec,
-                            (result as EnqueueResult.Rejected).error,
-                            logger,
-                        )
-                        complete(disposition.registrationResult())
-                    }
+                    try { if (result == EnqueueResult.Accepted) complete(SR.SUCCESS)
+                        else complete(logEnqueueFailure(spec, (result as EnqueueResult.Rejected).error, logger).registrationResult())
+                    } catch (error: Throwable) { throw CallbackFailure(error) }
                 }
-            } catch (error: Exception) {
-                complete(logEnqueueFailure(spec, error, logger).registrationResult())
-            }
+            } catch (error: CallbackFailure) { throw error.failure
+            } catch (error: Exception) { complete(logEnqueueFailure(spec, error, logger).registrationResult()) }
         }
     }
 }
@@ -160,8 +152,8 @@ private fun logEnqueueFailure(
     return disposition
 }
 private fun FailureDisposition.registrationResult() =
-    if (kind == FailureKind.TRANSIENT) RegistrationResult.RETRYABLE_FAILURE
-    else RegistrationResult.PERMANENT_FAILURE
+    if (kind == FailureKind.TRANSIENT) SR.RETRYABLE_FAILURE
+    else SR.PERMANENT_FAILURE
 internal fun enqueueWorkManagerReminder(
     work: EnqueueSpec,
     clock: Clock = Clock.systemUTC(),
@@ -173,11 +165,11 @@ internal fun enqueueWorkManagerReminder(
         .putString(WorkKeys.DUE_AT_INSTANT, work.dueAt.toString())
         .putString(WorkKeys.OCCURRENCE_ID, work.occurrenceId)
         .build()
-    val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay(
-        maxOf(0L, Duration.between(clock.instant(), work.dueAt).toMillis()), TimeUnit.MILLISECONDS,
-    ).setInputData(input).build()
+    val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay(reminderDelayMillis(clock.instant(), work.dueAt), TimeUnit.MILLISECONDS).setInputData(input).build()
     submit(work.uniqueName, work.existingWorkPolicy, request)
 }
+internal fun reminderDelayMillis(now: Instant, dueAt: Instant): Long { val delay = Duration.between(now, dueAt)
+    return if (delay.isNegative || delay.isZero) 0L else Math.addExact(delay.toMillis(), if (delay.nano % 1_000_000 == 0) 0L else 1L) }
 internal fun decodeReceipt(raw: String?): SRS = when (raw) {
     null -> SRS.MISSING
     SRS.MISSING.name -> SRS.CORRUPT
