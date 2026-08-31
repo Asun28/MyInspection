@@ -23,6 +23,7 @@ internal data class WorkerInput(
         spec.route.propertyId, spec.route.inspectionType.name, spec.dueAt, spec.occurrenceId) }
 }
 internal enum class WorkerOutcome { SUCCESS, RETRY, FAILURE }
+internal class PrePostNotificationException(cause: Exception) : Exception(cause)
 internal fun <T> postReminderNotification(identity: NotificationIdentity, notification: T,
     post: (String, Int, T) -> Unit) = post(identity.tag, identity.id, notification)
 class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker(appContext, parameters) {
@@ -52,24 +53,22 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
         }
     }
     private fun postNotification(delivery: DeliveryPlan.Notify) {
-        val manager = applicationContext.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Inspection reminders / 巡检提醒",
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ),
-        )
-        val notification = Notification.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(delivery.copy.title)
-            .setContentText(delivery.copy.body)
-            .setStyle(Notification.BigTextStyle().bigText(delivery.copy.body))
-            .setVisibility(Notification.VISIBILITY_PRIVATE)
-            .setAutoCancel(true).setOnlyAlertOnce(delivery.onlyAlertOnce)
-            .setContentIntent(routePendingIntent(delivery.intent))
-            .build()
-        postReminderNotification(reminderNotificationIdentity(delivery.intent), notification, manager::notify)
+        val prepared = try {
+            val manager = applicationContext.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Inspection reminders / 巡检提醒", NotificationManager.IMPORTANCE_DEFAULT),
+            )
+            manager to Notification.Builder(applicationContext, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle(delivery.copy.title).setContentText(delivery.copy.body)
+                .setStyle(Notification.BigTextStyle().bigText(delivery.copy.body))
+                .setVisibility(Notification.VISIBILITY_PRIVATE)
+                .setAutoCancel(true).setOnlyAlertOnce(delivery.onlyAlertOnce)
+                .setContentIntent(routePendingIntent(delivery.intent)).build()
+        } catch (error: Exception) {
+            throw PrePostNotificationException(error)
+        }
+        postReminderNotification(reminderNotificationIdentity(delivery.intent), prepared.second, prepared.first::notify)
     }
     private fun routePendingIntent(spec: RouteIntentSpec): PendingIntent {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
@@ -123,7 +122,7 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             try {
                 notify(delivery as DeliveryPlan.Notify)
             } catch (error: Exception) {
-                return notifyFailure(occurrenceId, route.inspectionType, error, store, logger)
+                return notifyFailure(occurrenceId, route.inspectionType, error, runAttemptCount, store, logger)
             }
             val durable = store.compareAndSetSafely(
                 occurrenceId, setOf(ReceiptState.INDETERMINATE), ReceiptState.DELIVERED,
@@ -185,11 +184,24 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             return if (finalState == target && retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE
         }
         private fun notifyFailure(
-            occurrenceId: String, type: InspectionScheduleType, error: Exception,
+            occurrenceId: String, type: InspectionScheduleType, error: Exception, attempt: Int,
             store: ReceiptStore, logger: EventLogger,
         ): WorkerOutcome {
-            val disposition = classifyReminderFailure(error)
-            logger.record(LogStage.NOTIFY, occurrenceId, type, false, LogError.NOTIFY_FAILED, disposition.causeCode)
+            val beforePost = error as? PrePostNotificationException
+            val disposition = classifyReminderFailure(beforePost?.cause ?: error)
+            val retryable = beforePost != null && disposition.kind == FailureKind.TRANSIENT && attempt + 1 < MAX_ATTEMPTS
+            logger.record(LogStage.NOTIFY, occurrenceId, type, retryable, LogError.NOTIFY_FAILED, disposition.causeCode)
+            if (beforePost != null && disposition.kind == FailureKind.TRANSIENT) {
+                val target = if (retryable) ReceiptState.ENQUEUED else ReceiptState.RETRYABLE
+                store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.INDETERMINATE), target)
+                return when (store.readSafely(occurrenceId)) {
+                    target -> if (retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE
+                    ReceiptState.DELIVERED -> WorkerOutcome.SUCCESS
+                    ReceiptState.TERMINAL, ReceiptState.RETRYABLE -> WorkerOutcome.FAILURE
+                    ReceiptState.CORRUPT -> corruptReceipt(occurrenceId, type, logger)
+                    else -> receiptWriteFailure(occurrenceId, type, logger)
+                }
+            }
             if (disposition.kind == FailureKind.TRANSIENT) return WorkerOutcome.FAILURE
             store.compareAndSetSafely(
                 occurrenceId, setOf(ReceiptState.INDETERMINATE), ReceiptState.TERMINAL,

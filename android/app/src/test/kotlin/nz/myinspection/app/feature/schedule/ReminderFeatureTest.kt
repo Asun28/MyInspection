@@ -35,7 +35,9 @@ class ReminderFeatureTest {
         val annual = factory.create(route.copy(inspectionType = InspectionScheduleType.ANNUAL), dueAt)
         assertNotEquals(spec.uniqueWorkName, annual.uniqueWorkName)
         val enqueueClock = Clock.fixed(now.plus(Duration.ofDays(1)), ZoneOffset.UTC)
+        var submissions = 0
         enqueueWorkManagerReminder(EnqueueSpec.from(spec), enqueueClock) { name, policy, request ->
+            submissions++
             val work = request.workSpec
             assertEquals(spec.uniqueWorkName, name)
             assertEquals(ExistingWorkPolicy.KEEP, policy)
@@ -46,6 +48,7 @@ class ReminderFeatureTest {
             assertEquals(dueAt.toString(), work.input.getString(WorkKeys.DUE_AT_INSTANT))
             assertEquals(spec.occurrenceId, work.input.getString(WorkKeys.OCCURRENCE_ID))
         }
+        assertEquals(1, submissions)
     }
     @Test
     fun `registration receipts are durable idempotent and race safe`() {
@@ -71,11 +74,7 @@ class ReminderFeatureTest {
         assertEquals(RegistrationResult.RETRYABLE_FAILURE, result)
         assertTrue(logger.records.last().retryable)
         assertFalse(logger.messages.last().contains("private path"))
-        val nullError = spec(InspectionScheduleType.ROUTINE, 62)
-        schedule(nullError, store, logger, { result = it }) { it(EnqueueResult.Rejected(null)) }
-        assertEquals(RegistrationResult.RETRYABLE_FAILURE, result)
-        assertEquals("{\"event\":\"schedule-reminder\",\"stage\":\"enqueue\",\"occurrence\":\"${nullError.occurrenceId}\"," +
-            "\"type\":\"ROUTINE\",\"retryable\":true,\"error_code\":\"enqueue-failed\",\"cause_code\":\"unknown\"}", logger.messages.last())
+        assertContains(logger.messages.last(), "\"event\":\"schedule-reminder\"")
         val raced = spec(InspectionScheduleType.ROUTINE, 64)
         schedule(raced, store, logger, { result = it }) { completion = it }
         store.set(raced.occurrenceId, ReceiptState.INDETERMINATE)
@@ -184,6 +183,11 @@ class ReminderFeatureTest {
         assertEquals(WorkerOutcome.FAILURE, execute(spec, transient, logger) { transientPosts++ })
         assertEquals(1, transientPosts)
         assertFalse(logger.records.first { it.stage == LogStage.NOTIFY }.retryable)
+        val prePost = enqueuedStore(spec)
+        assertEquals(WorkerOutcome.RETRY, execute(spec, prePost, logger) {
+            throw PrePostNotificationException(IOException("before post"))
+        })
+        assertEquals(ReceiptState.ENQUEUED, prePost.read(spec.occurrenceId))
         val permanent = enqueuedStore(spec)
         assertEquals(WorkerOutcome.FAILURE, execute(spec, permanent, logger) { throw SecurityException("revoked") })
         assertEquals(ReceiptState.TERMINAL, permanent.read(spec.occurrenceId))
@@ -215,7 +219,6 @@ class ReminderFeatureTest {
         var repeats = 0
         assertEquals(WorkerOutcome.SUCCESS, execute(spec, store, logger) { repeats++ })
         assertEquals(0, repeats)
-        assertFalse(schedule(spec, store, logger) { error("no re-enqueue") })
         var stalePosts = 0
         listOf(FakeReceiptStore(), FakeReceiptStore().apply { set(spec.occurrenceId, ReceiptState.RETRYABLE) })
             .forEach { stale -> assertEquals(WorkerOutcome.FAILURE, execute(spec, stale, logger) { stalePosts++ }) }

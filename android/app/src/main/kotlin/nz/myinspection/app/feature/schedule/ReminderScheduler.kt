@@ -22,14 +22,9 @@ internal object WorkKeys {
     const val DUE_AT_INSTANT = "due_at_instant"
     const val OCCURRENCE_ID = "occurrence_id"
 }
-data class EnqueueSpec(
-    val uniqueName: String, val route: ScheduleRoute, val dueAt: Instant,
-    val occurrenceId: String,
-    val existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
-) {
-    companion object {
-        fun from(spec: ReminderSpec) = EnqueueSpec(spec.uniqueWorkName, spec.route, spec.dueAt, spec.occurrenceId)
-    }
+data class EnqueueSpec(val uniqueName: String, val route: ScheduleRoute, val dueAt: Instant,
+    val occurrenceId: String, val existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
+    companion object { fun from(spec: ReminderSpec) = EnqueueSpec(spec.uniqueWorkName, spec.route, spec.dueAt, spec.occurrenceId) }
 }
 sealed interface EnqueueResult {
     data object Accepted : EnqueueResult
@@ -83,9 +78,7 @@ internal fun reminderLogMessage(record: LogRecord): String {
 }
 private fun Enum<*>.wireValue() = name.lowercase().replace('_', '-')
 internal object AndroidReminderLogger : EventLogger {
-    override fun log(record: LogRecord) {
-        Log.w("ScheduleReminder", reminderLogMessage(record))
-    }
+    override fun log(record: LogRecord) = Log.w("ScheduleReminder", reminderLogMessage(record)).let { Unit }
 }
 object ReminderScheduler {
     @Synchronized
@@ -159,12 +152,8 @@ private fun logEnqueueFailure(
     logger: EventLogger,
 ): FailureDisposition {
     val disposition = error?.let(::classifyReminderFailure) ?: transient(FailureCauseCode.UNKNOWN)
-    logger.log(
-        LogRecord(
-            LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType,
-            disposition.kind == FailureKind.TRANSIENT, LogError.ENQUEUE_FAILED, disposition.causeCode,
-        ),
-    )
+    logger.log(LogRecord(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType,
+        disposition.kind == FailureKind.TRANSIENT, LogError.ENQUEUE_FAILED, disposition.causeCode))
     return disposition
 }
 private fun FailureDisposition.registrationResult() =
