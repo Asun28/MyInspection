@@ -14,7 +14,8 @@ import androidx.work.WorkerParameters
 import java.time.Instant
 import nz.myinspection.app.MainActivity
 import nz.myinspection.core.schedule.InspectionScheduleType
-
+private typealias WRS = ReceiptState
+private typealias WFC = FailureCauseCode
 internal data class WorkerInput(
     val propertyId: String?, val type: String?,
     val dueAt: Instant?, val occurrenceId: String?,
@@ -89,7 +90,7 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
         const val EXTRA_PROPERTY_ID = "nz.myinspection.app.extra.PROPERTY_ID"
         const val EXTRA_INSPECTION_TYPE = "nz.myinspection.app.extra.INSPECTION_TYPE"
         private const val CHANNEL_ID = "inspection-reminders"
-        private const val MAX_ATTEMPTS = 3
+        private const val MAX_RETRIES = 3
         internal fun execute(
             input: WorkerInput, sdkInt: Int, permissionGranted: Boolean,
             runAttemptCount: Int, store: ReceiptStore, logger: EventLogger,
@@ -98,14 +99,14 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             val valid = validate(input) ?: return invalidInput(input, logger)
             val (route, dueAt, occurrenceId) = valid
             val receipt = store.readSafely(occurrenceId)
-            if (receipt !in setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY))
+            if (receipt !in setOf(WRS.ENQUEUED, WRS.PERMISSION_RETRY, WRS.DELIVERY_RETRY))
                 return stoppedBy(receipt, occurrenceId, route.inspectionType, logger)
             val delivery = reminderDeliveryPlan(sdkInt, permissionGranted, route, dueAt)
             if (delivery is DeliveryPlan.Retry) {
                 return permissionFailure(occurrenceId, route.inspectionType, runAttemptCount, store, logger)
             }
             when (val write = store.compareAndSetSafely(
-                occurrenceId, setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY), ReceiptState.DELIVERY_UNCERTAIN,
+                occurrenceId, setOf(WRS.ENQUEUED, WRS.PERMISSION_RETRY, WRS.DELIVERY_RETRY), WRS.DELIVERY_UNCERTAIN,
             )) {
                 WriteResult.Applied -> Unit
                 WriteResult.Failed -> return receiptWriteFailure(occurrenceId, route.inspectionType, logger)
@@ -117,9 +118,9 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
                 return notifyFailure(occurrenceId, route.inspectionType, sdkInt, error, runAttemptCount, store, logger)
             }
             return transitionOutcome(
-                occurrenceId, route.inspectionType, ReceiptState.DELIVERED, WorkerOutcome.SUCCESS,
+                occurrenceId, route.inspectionType, WRS.DELIVERED, WorkerOutcome.SUCCESS,
                 store.compareAndSetSafely(
-                occurrenceId, setOf(ReceiptState.DELIVERY_UNCERTAIN), ReceiptState.DELIVERED,
+                occurrenceId, setOf(WRS.DELIVERY_UNCERTAIN), WRS.DELIVERED,
                 ), logger,
             )
         }
@@ -137,18 +138,18 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
         }
         private fun invalidInput(input: WorkerInput, logger: EventLogger): WorkerOutcome {
             logger.record(LogStage.INPUT, input.occurrenceId, null, false,
-                LogError.INVALID_INPUT, FailureCauseCode.INVALID_INPUT)
+                LogError.INVALID_INPUT, WFC.INVALID_INPUT)
             return WorkerOutcome.FAILURE
         }
         private fun permissionFailure(
             occurrenceId: String, type: InspectionScheduleType, attempt: Int,
             store: ReceiptStore, logger: EventLogger,
-            expected: Set<ReceiptState> = setOf(ReceiptState.ENQUEUED, ReceiptState.PERMISSION_RETRY),
+            expected: Set<WRS> = setOf(WRS.ENQUEUED, WRS.PERMISSION_RETRY, WRS.DELIVERY_RETRY),
         ): WorkerOutcome {
-            val retryable = attempt + 1 < MAX_ATTEMPTS
+            val retryable = attempt < MAX_RETRIES
             logger.record(LogStage.PERMISSION, occurrenceId, type, retryable,
-                LogError.PERMISSION_DENIED, FailureCauseCode.PERMISSION_DENIED)
-            val target = if (retryable) ReceiptState.PERMISSION_RETRY else ReceiptState.RETRYABLE
+                LogError.PERMISSION_DENIED, WFC.PERMISSION_DENIED)
+            val target = if (retryable) WRS.PERMISSION_RETRY else WRS.TERMINAL
             return transitionOutcome(
                 occurrenceId, type, target, if (retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE,
                 store.compareAndSetSafely(occurrenceId, expected, target), logger,
@@ -159,45 +160,45 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
             store: ReceiptStore, logger: EventLogger,
         ): WorkerOutcome {
             if (sdkInt >= 33 && error is SecurityException) return permissionFailure(occurrenceId, type, attempt, store, logger,
-                setOf(ReceiptState.DELIVERY_UNCERTAIN))
+                setOf(WRS.DELIVERY_UNCERTAIN))
             val beforePost = error as? PrePostNotificationException
             val disposition = classifyReminderFailure(beforePost?.cause ?: error)
-            val retryable = beforePost != null && disposition.kind == FailureKind.TRANSIENT && attempt + 1 < MAX_ATTEMPTS
+            val retryable = beforePost != null && disposition.kind == FailureKind.TRANSIENT && attempt < MAX_RETRIES
             logger.record(LogStage.NOTIFY, occurrenceId, type, retryable, LogError.NOTIFY_FAILED, disposition.causeCode)
             if (beforePost != null && disposition.kind == FailureKind.TRANSIENT) {
-                val target = if (retryable) ReceiptState.ENQUEUED else ReceiptState.RETRYABLE
+                val target = if (retryable) WRS.DELIVERY_RETRY else WRS.TERMINAL
                 return transitionOutcome(occurrenceId, type, target,
                     if (retryable) WorkerOutcome.RETRY else WorkerOutcome.FAILURE,
-                    store.compareAndSetSafely(occurrenceId, setOf(ReceiptState.DELIVERY_UNCERTAIN), target), logger)
+                    store.compareAndSetSafely(occurrenceId, setOf(WRS.DELIVERY_UNCERTAIN), target), logger)
             }
             if (disposition.kind == FailureKind.TRANSIENT) return WorkerOutcome.FAILURE
             return transitionOutcome(
-                occurrenceId, type, ReceiptState.TERMINAL, WorkerOutcome.FAILURE,
+                occurrenceId, type, WRS.TERMINAL, WorkerOutcome.FAILURE,
                 store.compareAndSetSafely(
-                    occurrenceId, setOf(ReceiptState.DELIVERY_UNCERTAIN), ReceiptState.TERMINAL,
+                    occurrenceId, setOf(WRS.DELIVERY_UNCERTAIN), WRS.TERMINAL,
                 ), logger,
             )
         }
-        private fun transitionOutcome(occurrenceId: String, type: InspectionScheduleType, target: ReceiptState,
+        private fun transitionOutcome(occurrenceId: String, type: InspectionScheduleType, target: WRS,
             targetOutcome: WorkerOutcome, write: WriteResult, logger: EventLogger): WorkerOutcome = when (write) {
             WriteResult.Applied -> targetOutcome
             WriteResult.Failed -> receiptWriteFailure(occurrenceId, type, logger)
             is WriteResult.Mismatch -> if (write.state == target) targetOutcome
                 else stoppedBy(write.state, occurrenceId, type, logger)
         }
-        private fun stoppedBy(state: ReceiptState, id: String, type: InspectionScheduleType, logger: EventLogger) = when (state) {
-            ReceiptState.DELIVERED -> WorkerOutcome.SUCCESS
-            ReceiptState.TERMINAL -> WorkerOutcome.FAILURE
-            ReceiptState.CORRUPT -> receiptFailure(id, type, logger, LogStage.RECEIPT_DELIVERED, LogError.RECEIPT_CORRUPT, FailureCauseCode.STORAGE_CORRUPT)
-            ReceiptState.DELIVERY_UNCERTAIN -> receiptFailure(id, type, logger, LogStage.NOTIFY, LogError.DELIVERY_UNCERTAIN, FailureCauseCode.DELIVERY_UNCERTAIN)
-            ReceiptState.RETRYABLE -> receiptFailure(id, type, logger, LogStage.RECEIPT_ENQUEUED, LogError.RETRYABLE_RECEIPT, FailureCauseCode.RETRYABLE_STATE)
-            ReceiptState.MISSING -> receiptFailure(id, type, logger, LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_MISSING, FailureCauseCode.STORAGE_MISSING)
+        private fun stoppedBy(state: WRS, id: String, type: InspectionScheduleType, logger: EventLogger) = when (state) {
+            WRS.DELIVERED -> WorkerOutcome.SUCCESS
+            WRS.TERMINAL -> WorkerOutcome.FAILURE
+            WRS.CORRUPT -> receiptFailure(id, type, logger, LogStage.RECEIPT_DELIVERED, LogError.RECEIPT_CORRUPT, WFC.STORAGE_CORRUPT)
+            WRS.DELIVERY_UNCERTAIN -> receiptFailure(id, type, logger, LogStage.NOTIFY, LogError.DELIVERY_UNCERTAIN, WFC.DELIVERY_UNCERTAIN)
+            WRS.RETRYABLE -> receiptFailure(id, type, logger, LogStage.RECEIPT_ENQUEUED, LogError.RETRYABLE_RECEIPT, WFC.RETRYABLE_STATE)
+            WRS.MISSING -> receiptFailure(id, type, logger, LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_MISSING, WFC.STORAGE_MISSING)
             else -> receiptWriteFailure(id, type, logger)
         }
         private fun receiptWriteFailure(id: String, type: InspectionScheduleType, logger: EventLogger) =
-            receiptFailure(id, type, logger, LogStage.RECEIPT_DELIVERED, LogError.RECEIPT_WRITE_FAILED, FailureCauseCode.STORAGE_WRITE)
+            receiptFailure(id, type, logger, LogStage.RECEIPT_DELIVERED, LogError.RECEIPT_WRITE_FAILED, WFC.STORAGE_WRITE)
         private fun receiptFailure(id: String, type: InspectionScheduleType, logger: EventLogger,
-            stage: LogStage, error: LogError, cause: FailureCauseCode): WorkerOutcome {
+            stage: LogStage, error: LogError, cause: WFC): WorkerOutcome {
             logger.record(stage, id, type, false, error, cause)
             return WorkerOutcome.FAILURE
         }
@@ -206,5 +207,5 @@ class ReminderWorker(appContext: Context, parameters: WorkerParameters) : Worker
 private data class ValidatedInput(val route: ScheduleRoute, val dueAt: Instant, val occurrenceId: String)
 private fun EventLogger.record(
     stage: LogStage, occurrenceId: String?, type: InspectionScheduleType?,
-    retryable: Boolean, error: LogError, cause: FailureCauseCode,
+    retryable: Boolean, error: LogError, cause: WFC,
 ) = log(LogRecord(stage, occurrenceId, type, retryable, error, cause))

@@ -15,7 +15,8 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import nz.myinspection.core.schedule.InspectionScheduleType
-
+private typealias SRS = ReceiptState
+private typealias FC = FailureCauseCode
 internal object WorkKeys {
     const val PROPERTY_ID = "property_id"
     const val INSPECTION_TYPE = "inspection_type"
@@ -36,24 +37,24 @@ enum class FailureCauseCode {
     UNKNOWN_RUNTIME, UNKNOWN, INVALID_INPUT, PERMISSION_DENIED, STORAGE_CORRUPT, STORAGE_WRITE, STORAGE_MISSING,
     DELIVERY_UNCERTAIN, RETRYABLE_STATE,
 }
-data class FailureDisposition(val kind: FailureKind, val causeCode: FailureCauseCode)
+data class FailureDisposition(val kind: FailureKind, val causeCode: FC)
 fun classifyReminderFailure(error: Throwable): FailureDisposition {
     if (error is ExecutionException && error.cause != null) {
         return classifyReminderFailure(requireNotNull(error.cause))
     }
     return when (error) {
-        is SecurityException -> FailureDisposition(FailureKind.PERMANENT, FailureCauseCode.SECURITY)
-        is CancellationException -> FailureDisposition(FailureKind.TRANSIENT, FailureCauseCode.CANCELLED)
-        is IllegalArgumentException -> permanent(FailureCauseCode.INVALID_ARGUMENT)
-        is IllegalStateException -> permanent(FailureCauseCode.ILLEGAL_STATE)
-        is IOException -> transient(FailureCauseCode.IO)
-        is InterruptedException -> transient(FailureCauseCode.INTERRUPTED)
-        is RuntimeException -> permanent(FailureCauseCode.UNKNOWN_RUNTIME)
-        else -> permanent(FailureCauseCode.UNKNOWN)
+        is SecurityException -> FailureDisposition(FailureKind.PERMANENT, FC.SECURITY)
+        is CancellationException -> FailureDisposition(FailureKind.TRANSIENT, FC.CANCELLED)
+        is IllegalArgumentException -> permanent(FC.INVALID_ARGUMENT)
+        is IllegalStateException -> permanent(FC.ILLEGAL_STATE)
+        is IOException -> transient(FC.IO)
+        is InterruptedException -> transient(FC.INTERRUPTED)
+        is RuntimeException -> permanent(FC.UNKNOWN_RUNTIME)
+        else -> permanent(FC.UNKNOWN)
     }
 }
-private fun transient(cause: FailureCauseCode) = FailureDisposition(FailureKind.TRANSIENT, cause)
-private fun permanent(cause: FailureCauseCode) = FailureDisposition(FailureKind.PERMANENT, cause)
+private fun transient(cause: FC) = FailureDisposition(FailureKind.TRANSIENT, cause)
+private fun permanent(cause: FC) = FailureDisposition(FailureKind.PERMANENT, cause)
 enum class LogStage { ENQUEUE, INPUT, PERMISSION, RECEIPT_ENQUEUED, RECEIPT_DELIVERED, NOTIFY }
 enum class LogError {
     ENQUEUE_FAILED, INVALID_INPUT, PERMISSION_DENIED,
@@ -61,7 +62,7 @@ enum class LogError {
 }
 data class LogRecord(
     val stage: LogStage, val occurrenceId: String?, val type: InspectionScheduleType?,
-    val retryable: Boolean, val errorCode: LogError, val causeCode: FailureCauseCode,
+    val retryable: Boolean, val errorCode: LogError, val causeCode: FC,
 )
 internal fun interface EventLogger { fun log(record: LogRecord) }
 internal fun reminderLogMessage(record: LogRecord): String {
@@ -116,16 +117,16 @@ object ReminderScheduler {
         enqueue: (EnqueueSpec, (EnqueueResult) -> Unit) -> Unit,
     ): Boolean {
         if (runCatching { WorkSpecFactory().create(spec.route, spec.dueAt) }.getOrNull() != spec) {
-            logger.log(LogRecord(LogStage.INPUT, null, spec.route.inspectionType, false, LogError.INVALID_INPUT, FailureCauseCode.INVALID_INPUT))
+            logger.log(LogRecord(LogStage.INPUT, null, spec.route.inspectionType, false, LogError.INVALID_INPUT, FC.INVALID_INPUT))
             onResult(RegistrationResult.PERMANENT_FAILURE); return false
         }
-        fun receiptFailure(stage: LogStage, error: LogError, cause: FailureCauseCode) {
+        fun receiptFailure(stage: LogStage, error: LogError, cause: FC) {
             logger.log(LogRecord(stage, spec.occurrenceId, spec.route.inspectionType, false, error, cause))
         }
         val coordinator = RegistrationCoordinator(store) { state -> when (state) {
-            ReceiptState.CORRUPT -> receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_CORRUPT, FailureCauseCode.STORAGE_CORRUPT)
-            ReceiptState.INDETERMINATE -> receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_WRITE_FAILED, FailureCauseCode.STORAGE_WRITE)
-            ReceiptState.DELIVERY_UNCERTAIN -> receiptFailure(LogStage.NOTIFY, LogError.DELIVERY_UNCERTAIN, FailureCauseCode.DELIVERY_UNCERTAIN)
+            SRS.CORRUPT -> receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_CORRUPT, FC.STORAGE_CORRUPT)
+            SRS.INDETERMINATE -> receiptFailure(LogStage.RECEIPT_ENQUEUED, LogError.RECEIPT_WRITE_FAILED, FC.STORAGE_WRITE)
+            SRS.DELIVERY_UNCERTAIN -> receiptFailure(LogStage.NOTIFY, LogError.DELIVERY_UNCERTAIN, FC.DELIVERY_UNCERTAIN)
             else -> Unit
         } }
         return coordinator.register(spec.occurrenceId, onResult) { complete ->
@@ -153,7 +154,7 @@ private fun logEnqueueFailure(
     error: Throwable?,
     logger: EventLogger,
 ): FailureDisposition {
-    val disposition = error?.let(::classifyReminderFailure) ?: permanent(FailureCauseCode.UNKNOWN)
+    val disposition = error?.let(::classifyReminderFailure) ?: permanent(FC.UNKNOWN)
     logger.log(LogRecord(LogStage.ENQUEUE, spec.occurrenceId, spec.route.inspectionType,
         disposition.kind == FailureKind.TRANSIENT, LogError.ENQUEUE_FAILED, disposition.causeCode))
     return disposition
@@ -177,25 +178,25 @@ internal fun enqueueWorkManagerReminder(
     ).setInputData(input).build()
     submit(work.uniqueName, work.existingWorkPolicy, request)
 }
-internal fun decodeReceipt(raw: String?): ReceiptState = when (raw) {
-    null -> ReceiptState.MISSING
-    ReceiptState.MISSING.name -> ReceiptState.CORRUPT
-    else -> runCatching { ReceiptState.valueOf(raw) }.getOrDefault(ReceiptState.CORRUPT)
+internal fun decodeReceipt(raw: String?): SRS = when (raw) {
+    null -> SRS.MISSING
+    SRS.MISSING.name -> SRS.CORRUPT
+    else -> runCatching { SRS.valueOf(raw) }.getOrDefault(SRS.CORRUPT)
 }
 private val STORE_LOCK = Any()
 private val TAINTED = mutableSetOf<String>()
 internal fun receiptStore(readRaw: (String) -> String?, writeRaw: (String, String?) -> Boolean) = object : ReceiptStore {
     override fun read(id: String) = synchronized(STORE_LOCK) {
-        if (id in TAINTED) ReceiptState.INDETERMINATE
-        else try { decodeReceipt(readRaw(id)) } catch (_: RuntimeException) { ReceiptState.CORRUPT }
+        if (id in TAINTED) SRS.INDETERMINATE
+        else try { decodeReceipt(readRaw(id)) } catch (_: RuntimeException) { SRS.CORRUPT }
     }
-    override fun compareAndSet(id: String, expected: Set<ReceiptState>, state: ReceiptState) = synchronized(STORE_LOCK) {
-        require(state != ReceiptState.CORRUPT)
+    override fun compareAndSet(id: String, expected: Set<SRS>, state: SRS) = synchronized(STORE_LOCK) {
+        require(state != SRS.CORRUPT)
         if (id in TAINTED) return@synchronized WriteResult.Failed
         try {
             val current = read(id)
             if (current !in expected) WriteResult.Mismatch(current)
-            else if (writeRaw(id, state.takeUnless { it == ReceiptState.MISSING }?.name)) WriteResult.Applied
+            else if (writeRaw(id, state.takeUnless { it == SRS.MISSING }?.name)) WriteResult.Applied
             else taint(id)
         } catch (_: RuntimeException) { taint(id) }
     }
