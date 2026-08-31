@@ -61,4 +61,4 @@ doc_sync: TASK-BOARD 记录合并 OID；本卡 R5 归档，scheduler 卡转为 r
 | sentinel/key/编码/ID 损坏或 adapter 读异常 | 隔离并记录稳定 cause | `QUARANTINED` |
 | `DELIVERED` / `TERMINAL` / `DELIVERY_UNCERTAIN` / `QUARANTINED` | 重复注册 | skip 或 fail closed；不得 enqueue/notify |
 
-Mutation tests 必须钉住 generation 算法与递增、reservation 写失败零 enqueue、`DELIVERY_UNCERTAIN` 写失败零 notify、notify 后 final-write 失败不重投、权限耗尽与旧 KEEP callback 交错时旧 generation 不得覆盖新状态。
+Mutation tests 必须钉住 generation 算法、sentinel/key/编码/ID 损坏、`DELIVERY_UNCERTAIN` 写失败零 notify，以及 notify 后 final-write 失败保持 uncertain 且不重投。Reservation、KEEP callback 与 permission-recovery 交错只由后继 scheduler 卡验证。
