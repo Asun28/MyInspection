@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-REMINDER-CONTRACTS
 title: 提醒身份、路由文案与精确诊断合同
 depends_on: [T4-SCHEDULE-CADENCE, T4-SCHEDULE-REMINDER-SPLIT-PLAN]
-status: todo
+status: merged
 branch: T4-SCHEDULE-REMINDER-CONTRACTS
 worktree: C:\wt\T4-SCHEDULE-REMINDER-CONTRACTS
 allow_paths:
