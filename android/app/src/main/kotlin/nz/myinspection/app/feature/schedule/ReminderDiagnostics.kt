@@ -2,7 +2,6 @@ package nz.myinspection.app.feature.schedule
 
 import android.util.Log
 import java.io.IOException
-import java.util.UUID
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 enum class LogStage(val wireValue: String) {
@@ -59,17 +58,15 @@ fun classifyReminderFailure(error: Throwable): FailureDisposition = when (error)
 }
 
 fun reminderLogMessage(record: LogRecord): String {
-    val occurrenceId = record.occurrenceId
-        ?.takeIf { it.matches(OCCURRENCE_ID_PATTERN) }
-        ?: "missing"
+    val occurrenceId = record.occurrenceId?.takeIf { it.matches(OCCURRENCE_ID_PATTERN) }
     val generationNumber = record.generationNumber?.takeIf { it >= 0 }
-    val workRequestId = record.workRequestId?.let(::canonicalUuidOrNull)
+    val workRequestId = correlatedWorkRequestId(occurrenceId, generationNumber, record.workRequestId)
     return buildString {
         append("{\"event\":\"schedule-reminder\"")
         append(",\"stage\":\"")
         append(record.stage.wireValue)
         append("\",\"occurrence_id\":\"")
-        append(occurrenceId)
+        append(occurrenceId ?: "missing")
         append("\",\"type\":")
         append(record.type?.name?.let { "\"$it\"" } ?: "null")
         append(",\"generation_number\":")
@@ -101,12 +98,23 @@ internal object AndroidReminderDiagnosticPort : ReminderDiagnosticPort {
 }
 
 /**
- * Returns the canonical lowercase spelling, or null when [value] is not exactly one UUID.
+ * Returns the work request id only when [claimed] is exactly the one derived from [occurrenceId]
+ * and [generationNumber].
  *
- * The canonical form is returned rather than the caller's spelling so the same work request always
- * correlates under one `work_request_id`. Loose forms such as `1-1-1-1-1` parse but are not
- * canonical, so they are dropped instead of being silently widened.
+ * A4 asks for a validated occurrence/generation/work correlation, not three independently
+ * plausible values. Checking the fields separately would let a valid but unrelated UUID be
+ * published as though it belonged to this occurrence, and would keep a work id alive next to a
+ * generation that could not be validated, so both of those become null here.
+ *
+ * The derived spelling is emitted rather than the caller's, so one work request always correlates
+ * under a single canonical `work_request_id` whatever case it arrived in.
  */
-private fun canonicalUuidOrNull(value: String): String? = runCatching {
-    UUID.fromString(value).toString().takeIf { it == value.lowercase() }
-}.getOrNull()
+private fun correlatedWorkRequestId(
+    occurrenceId: String?,
+    generationNumber: Long?,
+    claimed: String?,
+): String? {
+    if (occurrenceId == null || generationNumber == null || claimed == null) return null
+    val derived = reminderGenerationId(occurrenceId, generationNumber).toString()
+    return derived.takeIf { it == claimed.lowercase() }
+}

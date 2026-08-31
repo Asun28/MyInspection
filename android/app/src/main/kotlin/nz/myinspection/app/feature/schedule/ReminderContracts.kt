@@ -97,12 +97,24 @@ fun reminderRouteIntentSpec(route: ScheduleRoute, dueAt: Instant): RouteIntentSp
         data = "myinspection://schedule/reminder/$occurrenceId",
         notificationTag = occurrenceId,
         notificationId = 0,
-        requestCode = occurrenceId.take(8).toLong(16).toInt(),
+        requestCode = reminderRequestCode(occurrenceId),
         propertyId = route.propertyId,
         inspectionType = route.inspectionType.name,
         isExplicit = true,
         isImmutable = true,
     )
+}
+
+/**
+ * Projects an occurrence id onto the 32 bits Android allows for a PendingIntent request code.
+ *
+ * The projection is lossy, so two occurrences sharing a 32-bit prefix collide here. That is safe
+ * only because PendingIntent equality also compares the intent data, which carries the whole
+ * occurrence id. Identity must therefore never be read from this value alone.
+ */
+internal fun reminderRequestCode(occurrenceId: String): Int {
+    require(occurrenceId.matches(OCCURRENCE_ID_PATTERN)) { "invalid occurrenceId" }
+    return occurrenceId.take(8).toLong(16).toInt()
 }
 
 fun reminderNotificationIdentity(intent: RouteIntentSpec): NotificationIdentity = NotificationIdentity(

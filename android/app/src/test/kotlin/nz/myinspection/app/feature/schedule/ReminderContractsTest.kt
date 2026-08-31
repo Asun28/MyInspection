@@ -71,7 +71,7 @@ class ReminderContractsTest {
         assertEquals("myinspection://schedule/reminder/${spec.occurrenceId}", intent.data)
         assertEquals(spec.occurrenceId, intent.notificationTag)
         assertEquals(0, intent.notificationId)
-        assertEquals(reminderRouteIntentSpec(route, dueAt).requestCode, intent.requestCode)
+        assertEquals(-1055326466, intent.requestCode)
         assertEquals(route.propertyId, intent.propertyId)
         assertEquals(route.inspectionType.name, intent.inspectionType)
         assertTrue(intent.isExplicit)
@@ -142,7 +142,27 @@ class ReminderContractsTest {
     }
 
     @Test
-    fun `route identity survives request code truncation across many occurrences`() {
+    fun `request code truncation collides while route identity stays distinct`() {
+        val shared = "c118fefe"
+        val first = shared + "0".repeat(56)
+        val second = shared + "f".repeat(56)
+
+        assertEquals(-1055326466, reminderRequestCode(first))
+        assertEquals(reminderRequestCode(first), reminderRequestCode(second))
+        assertNotEquals(first, second)
+        // Both rejects below keep a parseable 8-hex prefix, so only the shape guard can refuse
+        // them. An input with a non-hex prefix would raise NumberFormatException, a subclass of
+        // IllegalArgumentException, and would pass this assertion with the guard deleted.
+        assertFailsWith<IllegalArgumentException> {
+            reminderRequestCode(first.dropLast(1))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            reminderRequestCode(first.uppercase())
+        }
+    }
+
+    @Test
+    fun `route identity stays unique across many occurrences`() {
         val specs = (0 until 200).map { index ->
             reminderRouteIntentSpec(
                 route.copy(propertyId = "property-$index"),
@@ -214,3 +234,47 @@ class ReminderContractsTest {
         assertEquals(keys.size, keys.toSet().size)
     }
 }
+
+/*
+ * Semantic mutation receipts for ReminderContracts.kt (card A5).
+ *
+ * Each row was applied alone to the final snapshot, the two focused test classes were run
+ * expecting a non-zero exit, and the file was restored and re-hashed. Every mutation was
+ * killed and the file returned to the identical digest, so no row below is a survivor.
+ *
+ * SHA-256 before all mutations: de23fd779d284f6d0ca44401af7269347db7e1a6cee28dc407b7b46dd236b44c
+ * SHA-256 after all mutations:  de23fd779d284f6d0ca44401af7269347db7e1a6cee28dc407b7b46dd236b44c
+ *
+ * M1 [A1] RED exit 1
+ *   selector: append(dueAt.nano)
+ *   effect: nano dropped from canonical identity: two instants 1ns apart collide
+ * M2 [A1] RED exit 1
+ *   selector: append(dueAt.epochSecond)
+ *   effect: seconds dropped from canonical identity: every due time collides
+ * M3 [A1] RED exit 1
+ *   selector: require(route.propertyId.isNotBlank()) { "propertyId must not be blank" } val canonical
+ *   effect: blank property accepted, minting an identity for a property that does not exist
+ * M4 [A2] RED exit 1
+ *   selector: require(generationNumber >= 0) { "generationNumber must be non-negative" }
+ *   effect: negative generations accepted, minting work ids for impossible generations
+ * M5 [A2] RED exit 1
+ *   selector: fun reminderGenerationId(occurrenceId: String, generationNumber: Long): UUID {
+ *     require(occurrenceId.matches(OC
+ *   effect: arbitrary strings accepted as occurrence ids when deriving work request ids
+ * M6 [A3] RED exit 1
+ *   selector: notificationTag = occurrenceId,
+ *   effect: notification tag truncated to 32 bits: distinct occurrences replace each other
+ * M7 [A3] RED exit 1
+ *   selector: isImmutable = true,
+ *   effect: PendingIntent no longer declared immutable, allowing intent field injection
+ * M8 [A3] RED exit 1
+ *   selector: body = "$label is due. Open MyInspection to review the property. / " +
+ *   effect: notification body copy silently altered away from the agreed bilingual text
+ * M9 [A3] RED exit 1
+ *   selector: const val DUE_AT = "reminder_due_at"
+ *   effect: work data key renamed: downstream ReminderWorker reads a key that is never written
+ * M10 [A3] RED exit 1
+ *   selector: internal fun reminderRequestCode(occurrenceId: String): Int {
+ *     require(occurrenceId.matches(OCCURRENCE_ID_PATTE
+ *   effect: request code derived from an unvalidated string, so a short id throws NumberFormatException
+ */
