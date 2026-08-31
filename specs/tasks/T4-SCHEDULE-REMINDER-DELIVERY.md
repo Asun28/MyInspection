@@ -54,7 +54,10 @@ doc_sync: TASK-BOARD 记录合并 OID；本卡 R5 归档，scheduler 卡转为 r
 | 当前 phase | 唯一合法写入/动作 | 后继 phase 或结果 |
 |---|---|---|
 | 全新空 store，或 valid store 中 admitted+seen+record 均不存在 | scheduler 一次 commit sentinel+admitted+seen+完整 record + 新 generation | `ADMISSION_PENDING`；写失败/不确定则不得 enqueue |
-| `ADMISSION_PENDING` | KEEP 接受且确认 retained WorkRequest ID 等于 generation | `ENQUEUED`；ID 不同即 `QUARANTINED` |
+| `ADMISSION_PENDING` | query 唯一命中当前 generation UUID，state=`ENQUEUED`/`RUNNING` | CAS `ENQUEUED`；CAS 竞争失败则重读较新 phase |
+| `ADMISSION_PENDING` | 当前 UUID state=`BLOCKED` | `QUARANTINED/RETAINED_WORK_BLOCKED`；本请求无 prerequisite，不得假称 admission |
+| 当前 generation active phase | 当前 UUID state=`SUCCEEDED` | under lock 重读；只有 closed phase 原样返回，否则 CAS `QUARANTINED/RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT`，绝不返回/回写 active admission |
+| 当前 generation active phase | 当前 UUID state=`FAILED`/`CANCELLED` | under lock CAS `TERMINAL/RETAINED_WORK_FAILED` 或 `TERMINAL/RETAINED_WORK_CANCELLED`；竞争后重读仍 active 就重试协调，绝不返回 active admission |
 | `ADMISSION_PENDING` | enqueue 明确可重试/永久失败 | `RETRYABLE` / `TERMINAL`，并返回 admission 失败 |
 | `ADMISSION_PENDING` | 30 秒单调时钟 watchdog 未收到 operation callback | 保持 `ADMISSION_PENDING`，记录 `ENQUEUE_CALLBACK_TIMEOUT`，全部 waiter 收 `RETRYABLE_FAILURE` 并清 flight；不得二次 enqueue |
 | `ENQUEUED` / `RETRYABLE` | post 调用前的权限检查、channel 或输入准备明确 transient，attempt 为 0 或 1 | `RETRYABLE` + WorkManager retry，同 generation |
@@ -72,4 +75,4 @@ doc_sync: TASK-BOARD 记录合并 OID；本卡 R5 归档，scheduler 卡转为 r
 
 Runtime acceptance tests are black-box behavioral tests：每个测试调用具名 production entry point，并用实际 production seam 注入 preference、WorkRequest ID、notifier 或 diagnostic port；只断言返回领域结果与 port 记录的边界效果。测试不得读取 repository/generated source、source-derived resource 或反射/反编译 compiled artifact 作为 acceptance oracle；本卡唯一 static 例外是具名 AndroidManifest.xml 的 namespace-aware declaration count，且不冒充运行期行为。
 
-Mutation tests 必须钉住两个 generation golden、第二个新 occurrence 三键全 absent 时仍为 MISSING、retained admitted + seen/record 双丢失以及 admitted/seen/record 其它 partial 组合全部 quarantine、commit false/throw 零外部副作用、`DELIVERY_UNCERTAIN` 写失败零 notify、post SecurityException，以及 post 后 final-write 失败保持 uncertain 且不重投。每项 acceptance 在 GREEN 后至少做一个 production semantic mutation，未改测试地重跑对应 selector 必须 nonzero；receipt 记录 acceptance、selector、变异的 production branch/port effect、RED exit 与 mutation 前/还原后逐字节相同的 SHA-256。源码文本、测试期望值或仅改注释的 mutation 无效。Reservation、KEEP callback 与 permission-recovery 交错只由后继 scheduler 卡验证。
+Mutation tests 必须钉住两个 generation golden、第二个新 occurrence 三键全 absent 时仍为 MISSING、retained admitted + seen/record 双丢失以及 admitted/seen/record 其它 partial 组合全部 quarantine、commit false/throw 零外部副作用、`DELIVERY_UNCERTAIN` 写失败零 notify、post SecurityException，以及 post 后 final-write 失败保持 uncertain 且不重投。每项 acceptance 在 GREEN 后至少做一个 production semantic mutation，未改测试地重跑对应 selector 必须 nonzero；receipt 记录 acceptance、selector、变异的 production branch/port effect、RED exit 与 mutation 前/还原后逐字节相同的 SHA-256。源码文本、测试期望值或仅改注释的 mutation 无效。Reservation、full WorkInfo-state reconciliation、KEEP callback 与 permission-recovery 交错只由后继 scheduler 卡验证。
