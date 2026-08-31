@@ -28,9 +28,9 @@ non_goals:
   - receipt-loss 恢复策略；由 T0-RECEIPT-LOSS-FAIL-CLOSED 承接
   - 自动重跑、取消或修复 GitHub Actions
   - 把 scaffold-selftest.yml 放回 PR 关键路径
-dod_command: $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -match 'gate=T37-CIGATE/WORKFLOW-BINDING reason=' -or $t -match 'gate=T37-CIGATE/JOBS-DRIFT reason=') { exit 1 }; if ($t -notmatch 'selftest: PASS') { exit 1 }; if (-not (Select-String -Path docs/DEVOPS-WORKFLOW.md -SimpleMatch 'candidate CI')) { exit 1 }
+dod_command: $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -cnotmatch 'T37-CIGATE/WORKFLOW-BINDING OK' -or $t -cnotmatch 'T37-CIGATE/JOBS-DRIFT OK') { exit 1 }; if ($t -cnotmatch 'selftest: PASS') { exit 1 }; foreach ($d in @('docs/DEVOPS-WORKFLOW.md','docs/DELIVERY-CHAINS.md')) { $x = Get-Content -Raw $d; foreach ($k in @('candidate CI','exact-head','deadline','-NoAutoMerge')) { if (-not $x.Contains($k)) { exit 1 } } }
 dod_exit: 0
-dod_assert: seeded-remote 分片真实执行且退出 0，输出含 selftest: PASS；WORKFLOW-BINDING 与 JOBS-DRIFT 两闸均实际跑过、未被任何 reason 跳过；DEVOPS-WORKFLOW 已同步候选 CI 章节。
+dod_assert: seeded-remote 真实执行且退出 0；输出必须含大小写敏感哨兵 `T37-CIGATE/WORKFLOW-BINDING OK`、`T37-CIGATE/JOBS-DRIFT OK` 与 `selftest: PASS`；**两份**文档 DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 均须含 candidate CI / exact-head / deadline / -NoAutoMerge 四个契约要素，缺一即红。
 review_gate: codex {verdict:pass}
 hygiene: 每个负例配对应正例或单点变异；大小写负例必须证明是被身份闸拦下，而非更早的通用错误。
 doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步候选 CI 身份、deadline、最终 exact-head/base 快照和 NoAutoMerge 契约。
@@ -75,7 +75,7 @@ PowerShell 的属性访问与 `-in` / `-notin` / `-contains` / `-eq` **默认大
 ## 验收（DoD = 命令 + 退出码 + 断言）
 
 ```powershell
-$t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -match 'gate=T37-CIGATE/WORKFLOW-BINDING reason=' -or $t -match 'gate=T37-CIGATE/JOBS-DRIFT reason=') { exit 1 }; if ($t -notmatch 'selftest: PASS') { exit 1 }; if (-not (Select-String -Path docs/DEVOPS-WORKFLOW.md -SimpleMatch 'candidate CI')) { exit 1 }
+$t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -cnotmatch 'T37-CIGATE/WORKFLOW-BINDING OK' -or $t -cnotmatch 'T37-CIGATE/JOBS-DRIFT OK') { exit 1 }; if ($t -cnotmatch 'selftest: PASS') { exit 1 }; foreach ($d in @('docs/DEVOPS-WORKFLOW.md','docs/DELIVERY-CHAINS.md')) { $x = Get-Content -Raw $d; foreach ($k in @('candidate CI','exact-head','deadline','-NoAutoMerge')) { if (-not $x.Contains($k)) { exit 1 } } }
 ```
 
 - 期望退出码：0
