@@ -10,7 +10,7 @@ acceptance:
   - "A3 两张承接卡各自保留 1000/60000 预算闸与 mandatory R3；其 dod_command 必须**执行** seeded-remote 分片并要求各目标闸的大小写敏感成功哨兵 `<gate> OK`（正向证据，闸缺失即红），而非搜索字符串或仅拒绝跳过记录（本卡 DoD 机检这一点）"
   - "A4 下游 T0-RECEIPT-LOSS-FAIL-CLOSED 的 depends_on 重新指向链条终点 T0-CI-IDENTITY-DEADLINE，依赖图与 TASK-BOARD 同步"
   - "A5 已验证成果以只读方式保全（分支 wip/T0-CI-hardening-validated tip 2ce7aa0f 与 patch series），两张承接卡各自声明可承接的部分，且仍须自行重跑 DoD 与 selftest"
-status: todo
+status: merged
 branch: T0-CI-HARDENING-SPLIT-PLAN
 worktree: C:\wt\T0-CI-HARDENING-SPLIT-PLAN
 allow_paths:

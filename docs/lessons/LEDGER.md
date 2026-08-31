@@ -150,7 +150,7 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 3
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 4
 - symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
 - rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
@@ -615,7 +615,7 @@
 - refs: 
 
 ## L88
-- date: 2026-07-08 ｜ tags: task-loop,worktree,ship,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-07-08 ｜ tags: task-loop,worktree,ship,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: task.ps1 -Phase ship 的 RED 证据闸报「证据 sha 与当前 HEAD 不符」——即便先前已正确跑过 -Phase red 并确认过 GREEN，只要 worktree 分支在那之后又产生了新提交（如 merge master 拉取任务卡自身的后续修正、或上一次 ship 因下游步骤失败而中途已跑完自己的 "提交改动" 步骤），HEAD 就会前移、令已记录的 RED 证据 sha 过期，ship 立即拒绝。
 - root_cause: RED 证据机制（TD36）把 .review/<id>.red 的 sha 字段与当前 git HEAD 做逐位比对，语义是「这份 RED 结果绑定在这一个具体提交上」——任何让 HEAD 前移的动作（新提交/合并）都会使其失效，且 ship 内部的自动 commit 步骤本身就会制造这种前移；这是机制的必然代价，不是 bug。
 - rule: 每次 HEAD 因合并/ship 部分执行而前移后，重 ship 前先在工作树里对一个只在 dod_command 检查中出现、且不会与其它检查项重复匹配的唯一标记做「临时破坏（不 commit）→ 确认非零退出（RED）→ -Phase red 记录证据（sha 落在当前 HEAD）→ 复原该标记（工作树与 HEAD 重新一致）→ 确认零退出（GREEN）」，再重 ship；-Phase ship 的内部 commit 步骤会在无变更时优雅跳过（"无新增改动可提交"），故只要工作树在复原后确实与 HEAD 一致即可安全重跑。（补丁：本仓子闸惯例是每条 Fail()/成功 Write-Host 都重复自己的编号标签，挑的标记若正是子闸自身 id 字符串，会在文件里出现多处——单点编辑不会翻转 dod_command 的 -Pattern 匹配、GREEN 恒 GREEN，须二次排查才发觉。用本配方前先 grep 该标记出现次数；若 >1，用 replace_all（非单点 Edit）一次性切换全部出现处到一个不会被大小写不敏感匹配误撞的替代词，复原时再 replace_all 换回。）
@@ -647,7 +647,7 @@
 - refs: PR #94 (b2546d5 -> b3ecf70) 与 PR #95 (1703e23 -> febe0be) 现场；docs/HARNESS-REVIEW.md「评审者须在自改回路之外」；关联 L50（合并前独立评审）、L91（共享检出并发）
 
 ## L93
-- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
+- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
 - symptom: 在 pwsh 里把原生命令的输出管进 Select-Object -First N，之后再读 $LASTEXITCODE，读到的是上一条命令的退出码（陈旧值）：失败的命令被读成 exit 0，产生假绿。本会话现场——git apply --check 明明打印 patch does not apply，紧随其后的 $LASTEXITCODE 却是 0，那个 0 其实来自上一条 git worktree add。
 - root_cause: Select-Object -First N 取够 N 条就停掉上游管道（PipelineStopped），原生命令被提前终止，它的退出码从未写进 $LASTEXITCODE，于是变量仍保留上一条命令的旧值。-Last N 与 Select-String 会读完整个流，故退出码保真。实测：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 时 $LASTEXITCODE=0，换成 -Last 1 或 Select-String 时为 1。
 - rule: 作判据用的退出码，绝不读在 Select-Object -First N 之后。三选一：① 先把命令跑完（必要时管到 Out-Null），立刻把 $LASTEXITCODE 存进变量，再去筛输出；② 需要截断输出就用 -Last N 或 Select-String，二者读完整流、退出码保真；③ 完全不接管道，直接取退出码。凡是以 exit 0/1 为判据的场景（verify.ps1 / selftest.ps1 / review.ps1 / 卡片 dod_command / CI 步骤）尤其致命——它产生的是假绿，不是假红。一行自检：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 再管进 Out-Null，随后 $LASTEXITCODE 应为 1；若得 0 即中招。已核本仓 .ps1 脚本无此形态，坑主要出在 agent 临时敲的校验命令里。另：同一 cmdlet 还有第二个与退出码无关的坑——用 -First N 截断的诊断输出，不足以支撑「已穷尽」的结论。凡要据某段输出判断覆盖面（某工具改了哪些文件、装了哪些 agent、命中哪些路径），必须不截断地取全量：重定向到文件后整份读、Out-String 全量、或改用结构化查询。注意 -Last N 同样只发 N 条，它保真的是退出码、不是覆盖面——本条前半管退出码、后半管覆盖面，两者别互相借用（-Last 可解退出码，不可解「已穷尽」）。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1631,7 +1631,7 @@
 - refs: 
 
 ## L226
-- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
+- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 5
 - symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
 - root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
 - rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装 **2026-08-23 裁断（recurrence 1→4，当日触发 3 次）**：仍**不进必须层**。本条规则纯机械可检（写回前后核前 3 字节），该落成守卫而不是占每轮上下文的铁律；Tier-1 名额有限（上限 10、master 现 9），且「写完立刻复核」的通用形态已由 L165 覆盖。当日 3 次触发集中在同一段整文件拼装作业里，属单次作业的密集暴露、非广谱复发。
@@ -1901,3 +1901,27 @@
 - rule: When hand-parsing a constrained YAML subset, test the full front matter: valid boundary forms, invalid near-neighbours, consistent indentation, and duplicate keys in both orders; mutate each guard so no later valid block can mask an earlier or duplicate occurrence.
 - enforced_by: scripts/selftest.ps1 Gate 10h
 - refs: T0-CARD-ACCEPTANCE-FIELD; PR #209
+
+## L263
+- date: 2026-09-01 ｜ tags: powershell,cli,false-green ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: pwsh scripts/archive.ps1 check 打印「任务卡归档 0 张（活目录留 0）」并 exit 0，看起来像一次通过的只读检查；实际上活目录有 36 张卡，且它在仓库根静默新建了一个 check/ 目录。真正的只读开关是 -CheckCardsIndex。
+- root_cause: 这些脚本没有子命令概念，param 块第一个位置参数是 [string]，于是一个子命令样子的裸词直接绑到它上面：archive.ps1 绑 -RepoRoot、gh-bootstrap.ps1 绑 -RepoName、review.ps1 绑 -Base。PowerShell 在存在位置参数时不会对多余裸词报错，脚本遂对着一个不存在的根/错误的基线跑完并 exit 0。
+- rule: 给仓内任何 .ps1 传裸词前，先读它的 param 块确认真有这个子命令；本仓当前会吞裸词的三个是 archive.ps1(-RepoRoot)、gh-bootstrap.ps1(-RepoName)、review.ps1(-Base)。判定只读检查是否真的跑过，看输出与现实是否自洽（活目录明明 36 张卡却报 0 张 = 它根本没在读你的仓），不要看 exit 0。gh-bootstrap 尤其危险：裸词会变成仓库名。
+- enforced_by: 
+- refs: 
+
+## L264
+- date: 2026-09-01 ｜ tags: dod,review,assertions,cards ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 任务卡 dod_command 与闸门断言只拒绝负面记录（skip / reason= / 非零退出），在被测闸门整个不存在时依然全绿——卡片可以在实现落地前就是绿的，宣称的 acceptance 一条没实现也照样过。
+- root_cause: 断言极性错了：拒绝失败记录不等于要求成功证据。闸缺失时不会打印任何 skip 或失败行，全局 selftest: PASS 仍照常输出，于是「没有坏消息」被当成了「好消息」。这是 L165（断言面恰好等于契约）在卡片契约层的变体，且更危险——DoD 是下游一切信任的那一层。
+- rule: 闸门/DoD 一律以正向成功哨兵为通过条件（大小写敏感匹配 "<gate> OK" 这类只在真跑通时才打印的串），不以「没有失败记录」为通过条件。自检：把被测闸从套件里整个删掉，DoD 必须变红——只删一条 skip 记录不算数。四种失败态各测一次：闸缺失+全局PASS、闸被跳过、哨兵大小写变体、闸OK但套件失败。
+- enforced_by: none（暂无通用守卫：本次只在 specs/tasks/T0-CI-HARDENING-SPLIT-PLAN.md 的 dod_command 内对其两张承接卡做了局部机检，要求它们的 dod_command 含 -cnotmatch 与 " OK" 正向哨兵；通用化需 scripts/check-cards.ps1 增一道闸，判 dod_command 是否只有负面判据）
+- refs: 
+
+## L265
+- date: 2026-09-01 ｜ tags: testing,mutation,false-confidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 一批 15 枚语义变异全部击杀（15/15），据此判定覆盖充分并 ship；R3 随即在 reminderDeliveryPlan 找到未测分支——(sdkInt, permissionGranted) 四角只断言了 2 角，删掉 && !permissionGranted 后全部测试仍绿，而真实后果是用户授予通知权限后永远拿到 Retry、永不被提醒。
+- root_cause: 击杀率量的是「你写的那些变异会不会死」，不是「你的变异集有没有覆盖到代码」。那 15 枚选择器一枚都没落在 reminderDeliveryPlan 上，于是这批变异对该函数结构性沉默。覆盖完整的集合拿 100% 与漏掉整个函数的集合拿 100%，从分数上完全无法区分——高击杀率反而制造了「已验证」的错觉。
+- rule: 拿击杀数当覆盖证据前，先枚举变异选择器实际落在哪些函数/分支上，与本次 diff 的函数清单对账；任何零选择器的生产函数，无论总分多少都等于没被这批变异测过。布尔条件按 2^N 角覆盖：两个项就是 4 个组合，只测 2 个会让其中任一项被删而无人发现（不可达的角要写明理由）。批次报告里除击杀数外，另记一行「未被任何选择器触及的函数」。
+- enforced_by: 
+- refs: 
