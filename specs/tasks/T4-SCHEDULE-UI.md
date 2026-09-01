@@ -1,7 +1,7 @@
 ---
 id: T4-SCHEDULE-UI
 title: 排程列表、权限恢复与显式重试界面
-depends_on: [T4-SCHEDULE-REMINDER-FLIGHT]
+depends_on: [T4-SCHEDULE-REMINDER-RECOVERY]
 status: todo
 branch: T4-SCHEDULE-UI
 worktree: C:\wt\T4-SCHEDULE-UI

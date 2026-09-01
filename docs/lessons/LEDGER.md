@@ -2021,3 +2021,19 @@
 - rule: 卡片在 R3 过程中要改（拆卡/改 acceptance）时：先合并 base、再跑 -Phase red，顺序反了就得重做。已经反了的话，诚实重铸即可——把生产文件移到 scratchpad、跑 -Phase red（DoD 因缺文件真红）、把文件移回并核 SHA 与变异收据一致；这不是绕闸，是把闸所证明的那件事在当前 HEAD 上重演一遍。
 - enforced_by: 
 - refs: 
+
+## L278
+- date: 2026-09-02 ｜ tags: task-loop,ship,red-gate,worktree ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: ship 的 RED 证据闸报「证据 sha 与当前 HEAD 不符」并进入 TD85 死锁：RED 记录在分支基点，随后为避开「分支落后 master 被评审读成撤销 master」而手工 commit + merge origin/master，HEAD 遂前移。
+- root_cause: RED 证据把 HEAD sha 钉死在 -Phase red 的那一刻，而 ship 之前的任何提交（包括合上游 master 这种正当动作）都会让它失配；TD85 给出的 reset --soft 恢复路径在「分支已合并 master」时反而有害——reset 到 RED sha 会把 master 的提交内容变成本卡的改动，范围闸随即炸。
+- rule: 先合 origin/master、再跑 -Phase red、再实现、最后 ship（ship 自己提交，中途不要手工 commit）。若已经合过头：把工作拆成 tests.patch 与 prod.patch，git reset --hard origin/master，只 apply 测试补丁重取 RED，再 apply 生产补丁到 GREEN，然后 ship——顺序修好了，证据也就真实。
+- enforced_by: 
+- refs: 
+
+## L279
+- date: 2026-09-02 ｜ tags: r3,review,mutation,dead-guard ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R3 指某个公共入口对某状态「无守卫、会抛未结构化异常」，但该状态其实因构造器私有 + 唯一出生点在上游而不可表达。
+- root_cause: 评审只读 diff，看不到上游构造路径；照它字面补一道 require 会得到一道任何单点变异都杀不掉的死守卫，与本仓「每道守卫配一枚能让它红的变异」（L165）直接冲突。
+- rule: 先判该状态是否真的不可表达（构造器可见性 + 唯一出生点 + 上游丢弃/拒绝逻辑）。可表达就补守卫；不可表达就补「证明其不可表达」的测试，并对上游那处丢弃/拒绝逻辑做一枚变异，证明该测试确实会红——把这枚收据连同判断写进 PR，评审者通常自己就给了这条备选。
+- enforced_by: 
+- refs: 
