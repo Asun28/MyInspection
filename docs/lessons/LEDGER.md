@@ -1007,7 +1007,7 @@
 - refs: 
 
 ## L148
-- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
+- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
 - symptom: -Phase ship 在「RED 证据闸」失败：证据 sha 与当前 HEAD 不符（陈旧/伪造证据），saga 报告只完成「卡校验」腿。实现明明是对的、DoD 也绿。
 - root_cause: RED 证据把 -Phase red 当时的 HEAD 钉死；ship 要求证据 sha == 此刻 HEAD。而正常流程里实现应当**留在工作区不提交**，由 ship 自己的「提交」腿落盘——任何 post-RED 提交（含 git commit 实现、含按 L145 把 master merge 进分支）都会让 HEAD 前移、证据变陈旧。**L145 与本闸直接冲突**：L145 教你中途改卡就 merge master 进任务分支，照做即制造 post-RED 提交。
 - rule: 顺序反过来：**先** merge master / 改卡 / 对齐基线，**再**跑 -Phase red，然后实现但**不提交**，直接 -Phase ship。已经撞上了就按未推/已推分流恢复——未推分支（gh pr list 与 rev-parse origin/分支 均空）用**软**恢复、别用 reset --hard：git -C 该worktree reset --soft origin/master（HEAD 归位、改动全留在暂存区，此时 diff 恰好只剩本卡文件，merge 进来的 master 提交自动从 diff 里消失）→ git stash push → -Phase red 重铸证据（此刻 DoD 必须真红，故须先 stash 掉实现）→ git stash pop → -Phase ship。已推分支改走 TD85-RESUME 的 merge-safe 分流，勿 reset。**（复发 2，T48-TD88-W10 补）常见简化形态**：若实现一直**未提交**（正常流程本就如此），分支便没有自己的提交，`git merge origin/master` 是一次**快进**——此刻 HEAD 已等于 origin/master，`reset --soft origin/master` 是 no-op，恢复缩成 **stash → -Phase red → stash pop → ship** 三步。先 `git rev-parse HEAD` 与 `git rev-parse origin/master` 比一下再决定要不要 reset：相等就别 reset（省一步、也不会误伤）；不等才说明分支有自己的提交，照上面的软恢复走。**另注**：撞上这闸时别急着怀疑证据被伪造——最常见的成因就是照 L145 补了一次 master 合并，属流程顺序问题，不是证据问题。

@@ -1,6 +1,6 @@
 ---
 id: T0-CI-IDENTITY-DEADLINE
-title: 候选 CI 的 run 身份绑定、jobs 漂移、单一 deadline 与最终 exact-head/base 快照
+title: 候选 CI 的 run 身份绑定、单一 deadline 与最终 exact-head/base 快照
 depends_on: [T0-CI-PAGED-CONTRACT]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
@@ -25,12 +25,15 @@ forbid:
   - 用大小写不敏感的运算符（-in / -notin / -contains / -eq）承担身份比较
 non_goals:
   - 分页读取的形态、总数与 id 重放契约；由前置 T0-CI-PAGED-CONTRACT 承接，本卡不重复实现
+  - 候选 ci.yml 声明 job 集 ↔ run 返回 job 集的漂移判定（API 侧那一平面）与 `T37-CIGATE/JOBS-DRIFT` 闸；
+    实现期实测本卡 diff 达 61233 字符、超 R3 完整读取预算 60000，按 DEVOPS-WORKFLOW §35「超限卡必须拆卡」
+    拆给承接卡 T0-CI-JOBS-DRIFT（用户 2026-09-01 裁定）。本卡只保留既有的 ci.yml 声明面解析闸
   - receipt-loss 恢复策略；由 T0-RECEIPT-LOSS-FAIL-CLOSED 承接
   - 自动重跑、取消或修复 GitHub Actions
   - 把 scaffold-selftest.yml 放回 PR 关键路径
-dod_command: $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -cnotmatch '(?m)^\s*T37-CIGATE/WORKFLOW-BINDING OK\s*$' -or $t -cnotmatch '(?m)^\s*T37-CIGATE/JOBS-DRIFT OK\s*$') { exit 1 }; if ($t -cnotmatch '(?m)^selftest: PASS\s*$') { exit 1 }; foreach ($d in @('docs/DEVOPS-WORKFLOW.md','docs/DELIVERY-CHAINS.md')) { $hit = @(Get-Content $d | Where-Object { $_.Contains('candidate CI') -and $_.Contains('exact-head') -and $_.Contains('deadline') -and $_.Contains('-NoAutoMerge') }); if ($hit.Count -lt 1) { exit 1 } }
+dod_command: $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | Out-String); if ($LASTEXITCODE -ne 0) { exit 1 }; if ($t -cnotmatch '(?m)^\s*T37-CIGATE/WORKFLOW-BINDING OK\s*$') { exit 1 }; if ($t -cnotmatch '(?m)^selftest: PASS\s*$') { exit 1 }; foreach ($d in @('docs/DEVOPS-WORKFLOW.md','docs/DELIVERY-CHAINS.md')) { $hit = @(Get-Content $d | Where-Object { $_.Contains('candidate CI') -and $_.Contains('exact-head') -and $_.Contains('deadline') -and $_.Contains('-NoAutoMerge') }); if ($hit.Count -lt 1) { exit 1 } }
 dod_exit: 0
-dod_assert: seeded-remote 真实执行且退出 0；输出必须含大小写敏感哨兵 `T37-CIGATE/WORKFLOW-BINDING OK`、`T37-CIGATE/JOBS-DRIFT OK` 与 `selftest: PASS`；**两份**文档 DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 均须含 candidate CI / exact-head / deadline / -NoAutoMerge 四个契约要素，缺一即红。
+dod_assert: seeded-remote 真实执行且退出 0；输出必须含大小写敏感哨兵 `T37-CIGATE/WORKFLOW-BINDING OK` 与 `selftest: PASS`；**两份**文档 DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 均须含 candidate CI / exact-head / deadline / -NoAutoMerge 四个契约要素，缺一即红。
 review_gate: codex {verdict:pass}
 hygiene: 每个负例配对应正例或单点变异；大小写负例必须证明是被身份闸拦下，而非更早的通用错误。
 doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步候选 CI 身份、deadline、最终 exact-head/base 快照和 NoAutoMerge 契约。
@@ -40,9 +43,15 @@ doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步候选 CI 身份、deadline�
 
 ## 产出
 
-候选 CI 的**身份与时序**收口：workflow run 身份逐层绑定、jobs 漂移检测、单一 wall-clock deadline 与进程树
-清理、最终 exact-head/base 快照，以及 `T37-CIGATE/WORKFLOW-BINDING` 与 `T37-CIGATE/JOBS-DRIFT` 两闸的
-正反夹具；并同步两份运维文档。
+候选 CI 的**身份与时序**收口：workflow run 身份逐层绑定、单一 wall-clock deadline 与进程树清理、
+最终 exact-head/base 快照，以及 `T37-CIGATE/WORKFLOW-BINDING` 闸的正反夹具；并同步两份运维文档。
+
+> **拆卡记录（2026-09-01，用户裁定）**：本卡原含 API 侧 job 集漂移判定与 `T37-CIGATE/JOBS-DRIFT` 闸。
+> 实现完成、R3 首轮三条 finding 全部修完后实测 diff = **61233 字符 > 60000 预算**（行数 675/1000 不超）。
+> 按 `docs/DEVOPS-WORKFLOW.md` §35「超限卡必须拆成有依赖的 1→N 卡，不能扩 allow_paths 或提高 CLI 参数绕过」，
+> 把该平面整体拆给承接卡 **`T0-CI-JOBS-DRIFT`**。seam 干净的依据：jobs 漂移**不在** A1–A5 任何一条里，
+> 它只出现在原标题与 DoD 哨兵中。本卡保留既有的 ci.yml **声明面**解析闸（那一枚 `[CI-GATE-JOBS-DRIFT]`
+> 抛点在 master 上早已存在、本卡未改）。
 
 ## 已验证的前置工作（可直接承接）
 
