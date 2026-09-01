@@ -1989,3 +1989,11 @@
 - rule: 主检出里可能有并行会话时：① 写 progress.md 前先读一眼 HANDOFF 块的 TASK 字段，不是自己那张卡就**别覆盖**——把自己的交接另存到会话 scratchpad（或 _local/handoff-<TaskId>.md），并在汇报里说明 progress.md 归属别人；② 别把 handoff.ps1 check 的 PASS 当作「我的交接还在」的证据，它只校验格式、不校验归属；③ 真要接力时以 git 里的持久物（分支、PR、卡片、scratchpad 补丁）为准，progress.md 只当尽力而为的便签。
 - enforced_by: 
 - refs: 
+
+## L274
+- date: 2026-09-02 ｜ tags: selftest,line-endings,git,false-red ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 本地 selftest 某个用正则锚行尾的闸（本次是 14f 的 [LESSONS-CMD-DOC-CLAUDE]，模式形如 `(?m)^...；[^\r\n]*$`）报「锚点须精确一处，实际=0」，可 grep 一看那行明明在；同时 git status 显示该文件干净、git diff 为空，于是很容易误判成「闸坏了」或「别人改坏了」。
+- root_cause: 工作树里的文件是 CRLF，而 .NET 的 `(?m)$` 只匹配 `\n` 之前的位置——CRLF 行上 `[^\r\n]*` 停在 `\r` 前，那里不是 `$` 能匹配的位置，故恒不命中。git 提交时按 text=auto 归一为 LF，所以「工作树 CRLF」与「仓库 LF」内容等价、status 干净，差异对 git 完全隐形；只有按字节读文件的闸看得见。凡用 ReadAllText+WriteAllText 就地改文件的工具都会**原样保留**这份 CRLF，不会自愈。
+- rule: 闸报「锚点 0 命中」而 grep 找得到那行时，第一步不是查正则、是查行尾：`([regex]::Matches([IO.File]::ReadAllText($f), "`r`n")).Count`。与 `git show <ref>:<path>` 导出的版本对比即可定位（导出恒 LF）。判定「是不是我改坏的」也要用这条：`git checkout -- <file>` 后重测，git 给出的才是仓库真值。修法是把文件归一回 LF（`$t.Replace("`r`n","`n")` 后 WriteAllText），git 看不出差异、闸即转绿。写正则闸时则应写 `\r?$` 而非依赖 `$` 自己吃掉 CR。
+- enforced_by: 
+- refs: 
