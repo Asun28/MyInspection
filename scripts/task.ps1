@@ -143,6 +143,22 @@ function Wait-CiRetryBeforeDeadline([DateTimeOffset]$Deadline) {
   $sleepMs = [int][Math]::Min(1000, [Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)))
   if ($sleepMs -gt 0) { Start-Sleep -Milliseconds $sleepMs }
 }
+# 「这是不是一个 JSON 整数」只能按 **CLR 类型** 判，不能按「能不能转成 long」判：
+# ConvertFrom-Json 把 JSON 整数字面量映射成 Int64、小数映射成 Double、超出 Int64 的整数映射成 BigInteger、
+# 带引号的映射成 String（本仓 PS 7.6 实测）。而 [long]'11' 与 [long]11.0 都会成功——那两种形态正是要拒的，
+# 用 TryParse/强转做判据等于放行它们。列表只收能**无损**落进 Int64 的整数类型；UInt64 刻意不在列
+# （它超出 Int64 时无法无损承载，而 total_count 与 id 去重集都以 Int64 承载，放它进来会把一次拒绝
+# 变成一次强转溢出异常）。
+function Test-JsonInteger($Value) {
+  return ($Value -is [byte]) -or ($Value -is [sbyte]) -or ($Value -is [int16]) -or ($Value -is [uint16]) -or
+    ($Value -is [int32]) -or ($Value -is [uint32]) -or ($Value -is [int64])
+}
+# 分页读取的身份契约（T0-CI-PAGED-CONTRACT）：check-runs / workflow-runs / jobs 三个 endpoint 共用本函数，
+# 故契约在此一次收口、三处同时生效。
+# 为什么 id 是必需的而非可选的：条目没有稳定身份时，一页被重放（或与下一页重叠）会把同一个绿 run 计成两条、
+# 凑满 total_count 提前满足终止条件，从而**掩盖一个从未被读到的红 run 并走到 merge**。
+# `$items.Count -eq $total` 只证明数量对得上，不证明读到的是 N 个**不同**的 run。真实 GitHub API 的这三个
+# endpoint 都返回正整数 id，故「要求 id」是向真实形态收紧、不是新增假设。
 function Get-GhPagedCollectionBeforeDeadline {
   param(
     [Parameter(Mandatory)][string]$EndpointTemplate,
@@ -150,7 +166,8 @@ function Get-GhPagedCollectionBeforeDeadline {
     [Parameter(Mandatory)][DateTimeOffset]$Deadline,
     [Parameter(Mandatory)][string]$WorkingDirectory
   )
-  $items = @(); $total = -1L
+  # $seen 跨页存活（声明在页循环之外）——跨页重放正是它要拦的形态，每页新建一个集合等于没有去重。
+  $items = @(); $total = -1L; $seen = [Collections.Generic.HashSet[long]]::new()
   for ($page = 1; $page -le 100; $page++) {
     $endpoint = $EndpointTemplate.Replace('{page}', "$page")
     $api = Invoke-GhBeforeDeadline -Arguments @('api', $endpoint) -Deadline $Deadline -WorkingDirectory $WorkingDirectory
@@ -161,15 +178,29 @@ function Get-GhPagedCollectionBeforeDeadline {
       if (($propertyNames -cnotcontains 'total_count') -or ($null -eq $response.total_count)) { throw 'total_count 缺失/null' }
       if (($propertyNames -cnotcontains $CollectionProperty) -or ($null -eq $response.$CollectionProperty)) { throw "$CollectionProperty 缺失/null" }
       $totalRaw = $response.total_count
-      if (($totalRaw -is [string]) -or ($totalRaw -is [bool]) -or ($totalRaw -isnot [ValueType])) { throw 'total_count 非 JSON 数值整数' }
+      if (-not (Test-JsonInteger $totalRaw)) { throw 'total_count 非 JSON integer' }
       $pageTotal = [long]$totalRaw
-      if (($pageTotal -lt 0) -or ([decimal]$totalRaw -ne [decimal]$pageTotal)) { throw 'total_count 非负整数契约失败' }
+      if ($pageTotal -lt 0) { throw 'total_count 非负整数契约失败' }
       $collectionRaw = $response.$CollectionProperty
       if ($collectionRaw -isnot [System.Array]) { throw "$CollectionProperty 必须是 JSON array，不能是 scalar/object" }
       $pageItems = @($collectionRaw)
     } catch { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page/$($api.ExitCode):$($_.Exception.Message)" } }
     if ($total -lt 0) { $total = $pageTotal }
     elseif ($total -ne $pageTotal) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty total $total->$pageTotal" } }
+    # 身份校验必须在 `$items +=` **之前**：不合格/重复的条目一律不得进入累积，否则它已经把 total 凑近一格，
+    # 后面无论怎么判都晚了。三个出口的 Reason 各自可辨（非对象 / id 非正整数 / id 重复），夹具才能证明
+    # 命中的是去重出口，而不是更早的 total 漂移或 count>total（hygiene 要求）。
+    foreach ($item in $pageItems) {
+      if ($item -isnot [pscustomobject]) {
+        return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page item-not-object" }
+      }
+      if ((@($item.PSObject.Properties.Name) -cnotcontains 'id') -or (-not (Test-JsonInteger $item.id)) -or ([long]$item.id -le 0)) {
+        return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page id-not-positive-integer" }
+      }
+      if (-not $seen.Add([long]$item.id)) {
+        return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page id-duplicate:$($item.id)" }
+      }
+    }
     $items += $pageItems
     if ($items.Count -gt $total) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty count $($items.Count)>$total" } }
     if ($items.Count -eq $total) { return [pscustomobject]@{ Readable = $true; TimedOut = $false; Items = @($items); Reason = '' } }
