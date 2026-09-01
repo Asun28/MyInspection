@@ -2,7 +2,7 @@
 id: T4-REMINDER-CORRESPONDS-TRIM
 title: 删掉 corresponds 中两个被 store 不变量蕴含的比较
 depends_on: [T4-SCHEDULE-REMINDER-DELIVERY]
-status: todo
+status: merged
 branch: T4-REMINDER-CORRESPONDS-TRIM
 worktree: C:\wt\T4-REMINDER-CORRESPONDS-TRIM
 allow_paths:
@@ -49,3 +49,16 @@ R4 事前声明其中两项无法被任何输入证伪并如实记为幸存变�
 
 删除改动了 `ReminderWorker.kt` 的字节，**旧收据当场作废**（L270）。必须重跑整批 16 枚、按新 SHA-256 重钉，
 并删除 S01/S02 两行与「事前声明幸存」整段。DoD 会把收据里的 SHA 与文件真实哈希逐字比对，钉错即闸红。
+
+## 交付记录（R5）
+
+**merged**：master `f91cfb81`，PR #221，R3 第 **1** 轮 pass（零 finding）。diff 32 changed lines。
+
+`corresponds` 整个删除，唯一可证伪的比较（generation）内联到判定点，并把蕴含论证就地写在那里——
+否则下一个读者会「好心」把另外两项加回来。行为不变已由两条证据承担：15 个用例一个不删全绿，
+且 16 枚既有语义变异按新 SHA-256 `8fe2cb22…` 重跑后**全部仍击杀、零幸存**。
+
+**过程中的一处自伤**：本卡 DoD 用 `Select-String -Pattern 'SURVIVED'` 断言收据里不再有幸存条目，
+而 `Select-String` **默认大小写不敏感**，于是我替换后的散文里写的 "survived" 一词把闸门自己绊红了。
+处置：**改散文、不改闸门**——闸在写卡时已冻结，为过闸把它放宽成大小写敏感正是本仓明令禁止的动作
+（L19/L20），哪怕这次放宽在技术上站得住。

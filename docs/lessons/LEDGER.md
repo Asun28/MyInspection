@@ -1095,7 +1095,7 @@
 - refs: T52-TD111-CARD-TOKEN-GATE 改钉 10e->10g（commit dd83dfb）；T53-TD93-SCOPE-CHECKER 按此法取 15s；同族 L19/L83
 
 ## L159
-- date: 2026-07-25 ｜ tags: powershell,regex,validator ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: R3 一轮 block
+- date: 2026-07-25 ｜ tags: powershell,regex,validator ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: R3 一轮 block
 - symptom: 新校验断言声明「只拒大写蛇形形态」，实现写 -match 加字符类 A-Z，实际把小写与混合形态一并拒掉（过度拒绝），R3 首轮抓出。
 - root_cause: PowerShell 的 -match/-notmatch/-replace/-split 默认**大小写不敏感**，故字符类 A-Z 同样匹配小写——与多数语言的正则默认相反，只读代码看不出来。
 - rule: 契约里含大小写语义的匹配一律用 -cmatch/-cnotmatch/-creplace（或 [regex] 显式选项）；并**必配负夹具**（小写/混合形态须放行）证明没有过度拒绝——只写正夹具的断言对大小写敏感性完全盲。同理：核 selftest 结果 grep WARNING 时要加 -CaseSensitive。
@@ -1971,5 +1971,13 @@
 - symptom: R3 首轮 block：重试阶梯（attempt 0/1 重试、attempt 2 关闭）的参数化测试表看着覆盖了整条阶梯，实际每个 attempt 都新建同一个起始态夹具，于是只有第一级被测——attempt 1 从未真的从「上一次写下的中间态」出发，耗尽时也从未真的从该中间态关闭。
 - root_cause: 把「阶梯」写成了「一组互相独立的用例」。参数化表天然鼓励每次迭代重建夹具（互不干扰是好习惯），但阶梯的语义恰恰在于状态在迭代之间被携带——重建夹具把被测的那条状态转移悄悄换成了另一条。
 - rule: 判据先问：这张表的各行是【独立用例】还是【一条序列的各步】？独立用例（各种畸形输入、各种异常类型、各种终态）每行必须新建夹具；序列（重试阶梯、多次运行、状态机走线）必须复用同一个夹具按序跑完，并逐步断言 outcome/持久态/累计副作用条数（如诊断记录数用 index+1，而不是 single()——single() 恰好会掩盖「第二次运行什么都没做」）。配套变异：把「携带」改回「每步重建」，若无测试变红，说明这条序列没被测。
+- enforced_by: 
+- refs: 
+
+## L272
+- date: 2026-09-01 ｜ tags: mutation,r4,yagni,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R4 出现「事前声明的幸存变异」：某个条件被上游不变量蕴含，无任何输入能证伪它，于是收据里如实记为幸存并配一段「为何保留」的论证。合并后用户裁定删除，遂多开一张承接卡、重跑整批变异、改三处文档。
+- root_cause: 把「无法被测试证伪」当成需要辩护的既成事实，而不是当成「这段代码不该存在」的信号。写下的辩护（信任边界 / 防御纵深 / 卡片验收点名了它）都成立，但它们辩护的是一段没有任何输入能改变其结果的代码。
+- rule: 变异幸存且根因是「上游不变量已蕴含该条件」时，默认动作是**删除**，不是记录。删之前先把蕴含链逐环写出来（哪个调用返回什么、哪条不变量强制什么），确认删后行为不可观测地相同；删完让既有用例与整批变异重跑作为不变性证据。只有当上游不变量**不在本仓控制之下**（外部库/跨进程/未来可能放宽的第三方契约）时，保留才值得辩护——此时把辩护写成「对方放宽时这里会怎样红」，而不是「这是信任边界」。推论：这个判断要在 R4 当场做，别拖到评审后——那时删除的代价是一整张承接卡。
 - enforced_by: 
 - refs: 
