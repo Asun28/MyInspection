@@ -28,6 +28,7 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_SU
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.GENERATION_SUPERSEDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.INVALID_ROUTE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.OCCURRENCE_CLOSED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_CONTENDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_WRITE_UNCERTAIN
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_BLOCKED
@@ -38,7 +39,7 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_W
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT
-import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.WORKER_CONFIRMED_ADMISSION
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REJECTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.ADMITTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.PERMANENT_FAILURE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.RETRYABLE_FAILURE
@@ -48,10 +49,9 @@ import nz.myinspection.core.schedule.InspectionScheduleType.ROUTINE
 /**
  * Black box acceptance tests for the scheduler, driven through the same ports the production
  * factory injects, over the real receipt store on an in memory preference file. The occurrence
- * digest and both generation work ids are the golden vectors frozen by the contracts card, so a
- * drifting identity is caught rather than mirrored, and a test that needs the matching worker to
- * have run runs the production runner over the same store. The fixture nests because the merged
- * worker tests own these names at package level.
+ * digest and the generation work id are golden vectors frozen by the contracts card, and a worker
+ * that has to have run is the production runner over this same store. The fixture nests because
+ * the merged worker tests own these names at package level.
  */
 class ReminderSchedulerTest {
     @Test
@@ -69,11 +69,12 @@ class ReminderSchedulerTest {
         assertEquals(WORK_ID_0, submission.request.id)
         assertEquals(60_000L, submission.request.workSpec.initialDelay)
         assertEquals(ReminderWorker::class.java.name, submission.request.workSpec.workerClassName)
-        // The request is right only if the merged Worker accepts it, so the runner reads it back.
         assertEquals(ReminderRunOutcome.SUCCESS, fixture.runWorker(submission.request))
         assertEquals(DELIVERED, fixture.phase())
         assertEquals(
-            ReminderRegistrationRecord(OCCURRENCE_ID, ROUTINE, 0L, CALLBACK_CONFIRMED_ADMISSION),
+            ReminderRegistrationRecord(
+                ReminderRegistrationIdentity(OCCURRENCE_ID, 0L), ROUTINE, CALLBACK_CONFIRMED_ADMISSION,
+            ),
             fixture.diagnostics.records.single(),
         )
     }
@@ -129,7 +130,7 @@ class ReminderSchedulerTest {
 
     @Test
     fun `an occurrence that already left the schedulable phases is skipped`() {
-        listOf(DELIVERY_UNCERTAIN, DELIVERED, TERMINAL, QUARANTINED).forEach { phase ->
+        listOf(DELIVERY_UNCERTAIN, DELIVERED, TERMINAL, QUARANTINED, PERMISSION_BLOCKED).forEach { phase ->
             val fixture = Fixture(phase, retained = listOf(RetainedWork(WORK_ID_0, WorkInfo.State.SUCCEEDED)))
 
             val cause = fixture.register()
@@ -233,25 +234,20 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `an interrupted query stays retryable and hands the interrupt back to this thread`() {
-        val fixture = Fixture(ADMISSION_PENDING, queryFailure = InterruptedException("cancelled"))
+    fun `a failing query is retryable, and an interrupted one also hands the interrupt back`() {
+        val failed = Fixture(ADMISSION_PENDING, queryFailure = IOException("work database locked"))
 
-        assertEquals(RETAINED_WORK_QUERY_FAILED, fixture.register())
-        // Reading the flag also clears it, so this assertion cannot leak into another test.
-        assertEquals(true, Thread.interrupted())
-        assertEquals(emptyList(), fixture.enqueue.submissions)
-    }
-
-    @Test
-    fun `a query that fails is retryable and enqueues nothing`() {
-        val fixture = Fixture(ADMISSION_PENDING, queryFailure = IOException("work database locked"))
-
-        val cause = fixture.register()
+        val cause = failed.register()
 
         assertEquals(RETAINED_WORK_QUERY_FAILED, cause)
-        assertEquals(RETRYABLE_FAILURE, cause.outcome)
-        assertEquals(ADMISSION_PENDING, fixture.phase())
-        assertEquals(emptyList(), fixture.enqueue.submissions)
+        assertEquals(ADMISSION_PENDING, failed.phase())
+        assertEquals(emptyList(), failed.enqueue.submissions)
+
+        val interrupted = Fixture(ADMISSION_PENDING, queryFailure = InterruptedException("cancelled"))
+
+        assertEquals(RETAINED_WORK_QUERY_FAILED, interrupted.register())
+        // Reading the flag also clears it, so this assertion cannot leak into another test.
+        assertEquals(true, Thread.interrupted())
     }
 
     @Test
@@ -288,9 +284,8 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `a worker that confirms admission first is reported as admitted, never as a failure`() {
-        // One confirmation and one failure, which are the two ways this run would otherwise have
-        // written the receipt itself.
+    fun `a worker that ran first leaves an occurrence this registration reports as closed`() {
+        // One confirmation and one failure: neither may be read as an admission this cannot prove.
         val signals = listOf(ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent)
 
         signals.forEach { signal ->
@@ -302,10 +297,38 @@ class ReminderSchedulerTest {
             val label = signal.toString()
             val cause = fixture.register()
 
-            assertEquals(WORKER_CONFIRMED_ADMISSION, cause, label)
+            assertEquals(OCCURRENCE_CLOSED, cause, label)
+            assertEquals(SKIPPED, cause.outcome, label)
             assertEquals(DELIVERED, fixture.phase(), label)
             assertEquals(1, fixture.enqueue.submissions.size, label)
         }
+    }
+
+    @Test
+    fun `a same generation change this registration did not make is contention, not admission`() {
+        val fixture = Fixture(ADMISSION_PENDING)
+        // Another registration moved the receipt while this submission was in flight.
+        fixture.enqueue.beforeSignal = {
+            fixture.store.compareAndSet(OCCURRENCE_ID, 0L, WORK_ID_0, ADMISSION_PENDING, RETRYABLE, null)
+        }
+
+        val cause = fixture.register()
+
+        assertEquals(RECEIPT_CONTENDED, cause)
+        assertEquals(RETRYABLE_FAILURE, cause.outcome)
+        assertEquals(RETRYABLE, fixture.phase())
+    }
+
+    @Test
+    fun `evidence that disappears under a transition is refused rather than rewritten`() {
+        val fixture = Fixture(ADMISSION_PENDING)
+        fixture.enqueue.beforeSignal = { fixture.preferences.wipe() }
+
+        val cause = fixture.register()
+
+        assertEquals(RECEIPT_REJECTED, cause)
+        assertEquals(PERMANENT_FAILURE, cause.outcome)
+        assertEquals(null, fixture.phase())
     }
 
     @Test
@@ -336,7 +359,7 @@ class ReminderSchedulerTest {
         assertEquals(emptyList(), fixture.enqueue.submissions)
         // An unresolvable occurrence publishes no half of an identity that correlates with nothing.
         assertEquals(
-            ReminderRegistrationRecord(null, ROUTINE, null, INVALID_ROUTE),
+            ReminderRegistrationRecord(null, ROUTINE, INVALID_ROUTE),
             fixture.diagnostics.records.single(),
         )
     }
@@ -424,6 +447,9 @@ class ReminderSchedulerTest {
 
         /** Overwrites one stored entry, which is how corruption reaches an otherwise live store. */
         fun tamper(key: String, value: String) = synchronized(entries) { entries[key] = value }
+
+        /** Drops every entry, which is how a cleared preference file reaches a live registration. */
+        fun wipe() = synchronized(entries) { entries.clear() }
     }
 
     private class FixedPermission(private val granted: Boolean) : ReminderPermissionPort {
@@ -530,23 +556,25 @@ class ReminderSchedulerTest {
 }
 
 /* R4 semantic mutation receipts. Each row was applied alone to ReminderScheduler.kt at SHA-256
- * 578f204083225f092b5ed23172c91be3468088770ae83677c2e8fa969219b4ad, run through this card's test
+ * 96835499e8eb215ff0398235e89cb031f9a9a13904cd546047c9bed8fa45c41a, run through this card's test
  * task, then reverted and re-hashed to that same value. A kill is exit 1 with the named test among
- * the failing cases, and every run reported 16 executed cases, which rules out a compile break.
- *
+ * the failing cases, and every run reported 17 executed cases, which rules out a compile break.
  * A1 M01 never round a sub millisecond delay up           delay table: one nanosecond before
  * A1 M02 drop the clamp on an unrepresentable delay       delay table: past the cap
  * A1 M03 write the property id under the occurrence key   fresh occurrence: the runner refuses it
  * A2 M04 read quarantined evidence as a fresh occurrence  refused evidence: reserved and enqueued
  * A2 M05 submit without a durable reservation             lost reservation: submitted anyway
  * A2 M06 read a persisted active receipt as settled       persisted receipt: skipped, not resumed
- * A3 M07 treat finished foreign work as a live conflict   foreign work: no enqueue at all
- * A3 M08 look for foreign work only when this one is idle mixed retained ids: enqueued anyway
- * A3 M09 read retained BLOCKED work as this admission     retained states: admitted instead
- * A4 M10 write the receipt before the operation answers   enqueue outcomes: left RETRYABLE
- * A4 M11 close on a transient submission failure          submission: terminal, not still pending
- * A4 M12 downgrade an admission the worker proved         worker first: reported as a failure
- * A4 M13 write into the generation that superseded this   supersession: overwrote generation one
- * A4 M14 report a lost CAS without re-reading it          supersession: reported contention
- * A4 M15 swallow the interrupt instead of handing it back interrupted query: flag never restored
+ * A2 M07 treat a refused transition as an applied one     wiped evidence: reported as admitted
+ * A3 M08 treat finished foreign work as a live conflict   foreign work: no enqueue at all
+ * A3 M09 look for foreign work only when this one is idle mixed retained ids: enqueued anyway
+ * A3 M10 read retained BLOCKED work as this admission     retained states: admitted instead
+ * A4 M11 write the receipt before the operation answers   enqueue outcomes: left RETRYABLE
+ * A4 M12 close on a transient submission failure          submission: terminal, not still pending
+ * A4 M13 read a closed occurrence as a confirmed admission worker ran first: claimed admission
+ * A4 M14 read another registration's change as admission  contention: claimed admission
+ * A4 M15 write into the generation that superseded this   supersession: overwrote generation one
+ * A4 M16 report a lost CAS without re-reading it          supersession: reported contention
+ * A4 M17 swallow the interrupt instead of handing it back interrupted query: flag never restored
+ * A5 M18 derive the id from an unreserved generation      fresh occurrence: the runner refuses it
  */

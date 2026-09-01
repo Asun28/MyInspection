@@ -29,7 +29,6 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_CO
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REJECTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_WRITE_UNCERTAIN
-import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.WORKER_CONFIRMED_ADMISSION
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 /** What a registration achieved. Every cause below maps onto exactly one of these. */
@@ -48,7 +47,6 @@ enum class ReminderRegistrationOutcome {
  */
 enum class ReminderRegistrationCause(val outcome: ReminderRegistrationOutcome) {
     CALLBACK_CONFIRMED_ADMISSION(ReminderRegistrationOutcome.ADMITTED),
-    WORKER_CONFIRMED_ADMISSION(ReminderRegistrationOutcome.ADMITTED),
     RETAINED_WORK_ENQUEUED(ReminderRegistrationOutcome.ADMITTED),
     ENQUEUE_CALLBACK_NULL(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
     ENQUEUE_CALLBACK_ERROR(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
@@ -73,14 +71,19 @@ enum class ReminderRegistrationCause(val outcome: ReminderRegistrationOutcome) {
 }
 
 /**
- * One settled registration, as the log sees it. The work request id is derived from the occurrence
- * and generation wherever it is needed rather than carried here, which keeps the three from ever
- * being published out of correlation. No property, date or exception text is carried.
+ * The occurrence and generation a registration settled under. They are one value because half an
+ * identity correlates with nothing: the work request id is derived from both wherever it is
+ * needed, so publishing either alone would publish a correlation that does not exist.
+ */
+data class ReminderRegistrationIdentity(val occurrenceId: String, val generationNumber: Long)
+
+/**
+ * One settled registration, as the log sees it. [identity] is absent whenever this registration
+ * could not establish both halves. No property, date, path or exception text is ever carried.
  */
 data class ReminderRegistrationRecord(
-    val occurrenceId: String?,
+    val identity: ReminderRegistrationIdentity?,
     val type: InspectionScheduleType,
-    val generationNumber: Long?,
     val cause: ReminderRegistrationCause,
 )
 
@@ -145,11 +148,10 @@ class ReminderScheduler(
             null
         }
         val settled = spec?.let { coordinate(it) } ?: Settlement(ReminderRegistrationCause.INVALID_ROUTE)
-        diagnostics.record(
-            ReminderRegistrationRecord(
-                spec?.occurrenceId, reminder.route.inspectionType, settled.generationNumber, settled.cause,
-            ),
-        )
+        val identity = spec?.let { known ->
+            settled.generationNumber?.let { ReminderRegistrationIdentity(known.occurrenceId, it) }
+        }
+        diagnostics.record(ReminderRegistrationRecord(identity, reminder.route.inspectionType, settled.cause))
         return settled.cause
     }
 
@@ -240,10 +242,7 @@ class ReminderScheduler(
         }
     }
 
-    /**
-     * Records a submission that never produced an operation. Only a permanent failure closes the
-     * occurrence: after a transient one nothing was scheduled, so the reservation stays as it is.
-     */
+    /** Only a permanent submission failure closes the occurrence: nothing was scheduled either way. */
     private fun refuseSubmission(receipt: ReminderReceipt, failure: Throwable): Settlement =
         if (classifyReminderFailure(failure).kind == FailureKind.PERMANENT) {
             terminate(receipt, ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
@@ -252,31 +251,28 @@ class ReminderScheduler(
         }
 
     private fun confirm(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, ENQUEUED, null, applied, WORKER_CONFIRMED_ADMISSION)
+        advance(receipt, ENQUEUED, null, applied)
 
     private fun holdForRetry(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, RETRYABLE, null, applied, WORKER_CONFIRMED_ADMISSION)
+        advance(receipt, RETRYABLE, null, applied)
 
     private fun quarantine(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, QUARANTINED, null, applied, null)
+        advance(receipt, QUARANTINED, null, applied)
 
     private fun terminate(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, TERMINAL, ReminderCause.PERMANENT_DELIVERY_FAILURE, applied, null)
+        advance(receipt, TERMINAL, ReminderCause.PERMANENT_DELIVERY_FAILURE, applied)
 
     /**
      * Applies one phase change, re-reading rather than overwriting when the store says the caller's
-     * view is stale. [proved] is the cause to report when the same generation has already left
-     * ADMISSION_PENDING, which only the matching worker can do and which therefore proves the
-     * admission this registration was establishing. A lost compare and set is reported rather than
-     * retried in a loop: the re-read already names why it was lost, and a registration that reports
-     * contention is one the caller repeats from the top rather than one that spins here.
+     * view is stale. A lost compare and set is reported rather than retried in a loop: the re-read
+     * already names why it was lost, and a registration that reports contention is one the caller
+     * repeats from the top rather than one that spins here.
      */
     private fun advance(
         receipt: ReminderReceipt,
         next: ReminderPhase,
         cause: ReminderCause?,
         applied: ReminderRegistrationCause,
-        proved: ReminderRegistrationCause?,
     ): Settlement {
         val result = store.compareAndSet(
             receipt.occurrenceId, receipt.generationNumber, receipt.workRequestId,
@@ -288,25 +284,25 @@ class ReminderScheduler(
             // for, so it is a fail closed default rather than a reachable branch.
             ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
             ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
-            is ReminderReceiptTransitionResult.Stale -> reread(result.lookup, receipt, proved)
+            is ReminderReceiptTransitionResult.Stale -> reread(result.lookup, receipt)
         }
     }
 
-    private fun reread(
-        lookup: ReminderReceiptLookup,
-        current: ReminderReceipt,
-        proved: ReminderRegistrationCause?,
-    ): Settlement {
-        val present = lookup as? ReminderReceiptLookup.Present ?: return Settlement(RECEIPT_QUARANTINED)
-        val fresh = present.receipt
+    /**
+     * Reports what replaced this registration's view of the receipt. Nothing here claims an
+     * admission: within one generation both the matching worker and another registration can leave
+     * ADMISSION_PENDING, and the phase alone cannot tell them apart, so a same generation change
+     * this registration did not make is contention rather than proof of anything.
+     */
+    private fun reread(lookup: ReminderReceiptLookup, current: ReminderReceipt): Settlement {
+        // The store reports Stale only with the receipt it read under its own lock, and answers a
+        // missing or unreadable occurrence with Rejected instead, so this is a fail closed default.
+        val fresh = (lookup as? ReminderReceiptLookup.Present)?.receipt
+            ?: return Settlement(RECEIPT_QUARANTINED)
         return when {
-            present.writeUncertain -> current.settle(RECEIPT_WRITE_UNCERTAIN)
             fresh.generationNumber != current.generationNumber ->
                 fresh.settle(ReminderRegistrationCause.GENERATION_SUPERSEDED)
-            proved != null && fresh.phase != ADMISSION_PENDING -> fresh.settle(proved)
             fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
-            // Same generation, still schedulable, and no worker proof: another registration moved
-            // it, so this one reports contention and the caller coordinates again from the top.
             else -> fresh.settle(RECEIPT_CONTENDED)
         }
     }
@@ -370,10 +366,7 @@ private const val OPERATION_TIMEOUT_SECONDS = 30L
 /** The phases a registration can still act on. Everything else has settled this generation. */
 private val ACTIVE_PHASES = setOf(ADMISSION_PENDING, ENQUEUED, RETRYABLE)
 
-/**
- * Submits through WorkManager and reads that operation's own result. The read is bounded, and a
- * timeout is reported as such rather than as a failure, because the operation may still be running.
- */
+/** Submits through WorkManager and reads that operation's own result under a bounded wait. */
 internal class WorkManagerReminderEnqueuePort(private val context: Context) : ReminderEnqueuePort {
     override fun enqueueUnique(
         name: String,
