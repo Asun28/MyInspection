@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   脚手架自检（本元仓的「verify」）：本仓交付物就是这些脚本/钩子/模板本身，故需要一个
@@ -443,7 +443,7 @@ function Get-SelftestSeededGitGateIds {
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
     'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
-    'T37-CIGATE/API-CONTRACT',
+    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING',
     '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
@@ -4444,6 +4444,7 @@ $gateIdFamilies82 = [ordered]@{
   'T37-REMOTEMX/2-rerun' = 'T37-REMOTEMX/2-rerun'
   'T37-REMOTEMX/3' = 'T37-REMOTEMX/3'
   'T37-CIGATE/API-CONTRACT' = 'T37-CIGATE/API-CONTRACT'
+  'T37-CIGATE/WORKFLOW-BINDING' = 'T37-CIGATE/WORKFLOW-BINDING'
 }
 $badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
   $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
@@ -13901,7 +13902,8 @@ exit 0
 # （create 前 `gh pr view --json number` 返回空→走 PR 新建腿；create 后返回号→走复用腿）+ 可注入远端 merge 失败。
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
 if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
-  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4', 'T37-CIGATE/API-CONTRACT')) {
+  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4', 'T37-CIGATE/API-CONTRACT',
+  'T37-CIGATE/WORKFLOW-BINDING')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
@@ -13912,6 +13914,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/3' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/3 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/4' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/4 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/API-CONTRACT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/API-CONTRACT 跳过：候选 CI 分页夹具复用远端态矩阵，仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-CIGATE/WORKFLOW-BINDING' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/WORKFLOW-BINDING 跳过：候选 CI 身份/时序夹具复用远端态矩阵，仅 Windows 执行。'
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
@@ -13923,7 +13926,9 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
       'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds',
-      'ci-check-count', 'ci-workflow-count', 'ci-jobs-count')   # base-count 属 17aa(8)，本卡 stub 不写
+      'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
+      # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
+      'r3-head-moved')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
@@ -13933,6 +13938,57 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     }
     # Finding B（Codex R3 r3 #2）：证远端投影真被更新——push 成功后裸 origin 的任务 ref 须 == worktree HEAD。
     $rmOriginRef = { param($origin) "$(& git --git-dir=$origin rev-parse refs/heads/T0-REMOTEMX 2>$null)".Trim() }
+    # 一次 ship：复位全部哨兵 → 设模式 → 跑 ship → 把 gh 调用轨迹/读计数/合并哨兵收成一个可断言的对象。
+    # T0-CI-PAGED-CONTRACT 起由 API-CONTRACT 使用；本卡提到夹具作用域，供 WORKFLOW-BINDING / JOBS-DRIFT 共用
+    # （同一驱动器 ⇒ 三闸对「拦住了」的取证口径逐字一致）。$Extra 走 -NoAutoMerge 一类附加实参；$Sec 是本次
+    # ship 墙钟（deadline 负例据它判预算）；PrN/RunId 取自本夹具自己的随机身份文件（⇒ 断言里不得硬编码）。
+    $ciShip = {
+      param($fx, [string]$Mode, [string[]]$Extra = @(), [string]$TimeoutSec = '30')
+      & $rmReset $fx.Root
+      # 效果账本随每次 ship 复位：闸的**逐字段拒因**只落在这里（Add-CatchRecord，不打印到 stdout），
+      # 身份负例要证明「命中的是被造坏的那一处」就得读它——跨轮残留会让上一例的拒因冒充本例的证据。
+      $ledger = Join-Path $fx.Repo '_local/effectiveness-ledger.jsonl'
+      Remove-Item $ledger -ErrorAction SilentlyContinue
+      # 每场景旋钮一律在 $rmReset **之后**设置：$rmReset 会把它们全部清空（防跨场景继承），在外面先设再调本闭包等于白设。
+      $env:GH_MOCK_WT = $fx.Wt; $env:GH_MOCK_CI_MODE = $Mode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $TimeoutSec
+      $sw = [Diagnostics.Stopwatch]::StartNew()
+      $out = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship @Extra 2>&1 | Out-String)
+      $exit = $LASTEXITCODE
+      $sw.Stop()
+      $lines = @((Get-Content (Join-Path $fx.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
+      $num = { param($n) $p = Join-Path $fx.Root $n; if (Test-Path $p) { [int]((Get-Content $p -Raw).Trim()) } else { 0 } }
+      $txt = { param($n) $p = Join-Path $fx.Root $n; if (Test-Path $p) { "$(Get-Content $p -Raw)".Trim() } else { '' } }
+      [pscustomobject]@{
+        Mode = $Mode; X = $exit; O = $out; Sec = $sw.Elapsed.TotalSeconds
+        Calls = @($lines | ForEach-Object { ($_ -split '\|', 3)[0] })
+        Urls = @($lines | ForEach-Object { ($_ -split '\|', 3)[2] })
+        BadCwd = @($lines | Where-Object { (($_ -split '\|', 3)[1]) -ine $fx.Wt })
+        CR = (& $num 'ci-check-count'); WR = (& $num 'ci-workflow-count'); JR = (& $num 'ci-jobs-count')
+        MA = [bool](Test-Path (Join-Path $fx.Root 'merge-attempted'))
+        M = [bool](Test-Path (Join-Path $fx.Root 'merge-reached'))
+        MH = (& $txt 'merge-head-arg')
+        JobsRunId = (& $txt 'ci-jobs-run-id')
+        PrN = (& $txt 'fixture-pr-number'); RunId = (& $txt 'fixture-run-id'); Try = (& $txt 'fixture-run-attempt')
+        Led = @((Get-Content $ledger -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join "`n"
+        H = "$(& git -C $fx.Wt rev-parse HEAD 2>$null)".Trim()
+      }
+    }
+    # T0-CI-IDENTITY-DEADLINE：身份/时序负例的**共用**判据（空串=通过）。与 API-CONTRACT 的 $ciExpectBlock 不同轴：
+    # 那条按「停在哪条分页腿 + 读了几页」取证；身份/快照负例可能停在 CI 闸之前（如 R3 期间 HEAD 前移），硬套页数会假红。
+    # $C/$W/$J = 期望的 checks/workflow/jobs 读计数（-1=不校验），把「停在链上哪一环」变成可断言的；
+    # $Led = 账本里必须出现的「被造坏的那一处」（空=不校验），排除「其实是被更早的通用错误拦下」。
+    $ciExpectIdBlock = {
+      param($r, [string]$Sentinel, [int]$C = -1, [int]$W = -1, [int]$J = -1, [string]$Led = '')
+      if ($r.X -eq 0) { return 'exit 0（未 fail-closed）' }
+      if ($r.O -cnotmatch $Sentinel) { return "缺哨兵 $Sentinel；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 400)))" }
+      if ($r.MA -or $r.M) { return "触达合并腿（attempted=$($r.MA) reached=$($r.M)）" }
+      if ($r.BadCwd.Count -gt 0) { return "gh 调用未绑 worktree CWD：$($r.BadCwd -join ',')" }
+      if ((($C -ge 0) -and ($r.CR -ne $C)) -or (($W -ge 0) -and ($r.WR -ne $W)) -or (($J -ge 0) -and ($r.JR -ne $J))) {
+        return "读计数 $($r.CR)/$($r.WR)/$($r.JR)，期望 $C/$W/$J——链没有停在该环"
+      }
+      if ($Led -and ($r.Led -cnotmatch $Led)) { return "账本未点名被造坏处（期望 '$Led'，实际 $($r.Led)）" }
+      return ''
+    }
     # 状态化 gh stub 源（各场景各写一份到自己的 shim；17aa(8) 的 stub 不动）：
     #   create → 记 pr-created 号 + 累加 create-count；number → pr-created 在则返号、否则空（=尚无 PR）；
     #   merge → GH_MOCK_MERGE_FAIL=1 时非零退出（注入远端合并失败），否则记 merge-reached；state,headRefOid → MERGED+HEAD。
@@ -14019,7 +14075,10 @@ if ($args -contains 'number') {
 if (($args -join ' ') -match 'baseRefName,headRefOid') {
   Add-CiCwd 'final-pr'
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
-  @{ baseRefName = 'master'; headRefOid = $oid } | ConvertTo-Json -Compress
+  # A4 终局快照负例：这一读是「决策前最后一眼」。retarget = base 分支被改；head-moved = PR head 已前移。
+  $bn = if ($env:GH_MOCK_CI_MODE -ceq 'snap-retarget') { 'release' } else { 'master' }
+  if ($env:GH_MOCK_CI_MODE -ceq 'snap-head-moved') { $oid = ('b' * 40) }
+  @{ baseRefName = $bn; headRefOid = $oid } | ConvertTo-Json -Compress
   exit 0
 }
 if ($args -contains 'baseRefName') { 'master'; exit 0 }
@@ -14054,7 +14113,7 @@ if ($args -contains 'api') {
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
     Add-CiCwd 'workflow' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
-    [void](Next-CiCount 'ci-workflow-count')
+    $wfN = Next-CiCount 'ci-workflow-count'
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
@@ -14063,6 +14122,21 @@ if ($args -contains 'api') {
     $run = [ordered]@{ id = [long]$runId; head_sha = $oid; event = 'pull_request'; status = 'completed'
       conclusion = 'success'; run_attempt = $try; path = '.github/workflows/ci.yml'
       pull_requests = @([ordered]@{ number = [int]$pn }) }
+    # T0-CI-IDENTITY-DEADLINE 的候选 run 身份负例：每条**只**动身份的一处，其余保持合法 ⇒ 被拒的只能是那一处。
+    # 三条 `-case` 负例是本卡的硬约束（PowerShell 的 -in/-contains/-eq 与属性访问默认大小写不敏感）：
+    # 只把大小写改掉、值本身仍是「正确的那一个」，故只有大小写敏感的比较才拦得住它们。
+    $idm = "$env:GH_MOCK_CI_MODE"
+    if ($idm -ceq 'wfid-head') { $run.head_sha = ('a' * 40) }
+    elseif ($idm -ceq 'wfid-event-case') { $run.event = 'Pull_Request' }
+    elseif ($idm -ceq 'wfid-path-case') { $run.path = '.github/workflows/CI.yml' }
+    elseif ($idm -ceq 'wfid-pr-key-case') { $run.pull_requests = @([ordered]@{ Number = [int]$pn }) }
+    elseif ($idm -ceq 'wfid-pr-other') { $run.pull_requests = @([ordered]@{ number = [int]$pn + 1 }) }
+    # 决策前漂移：稳定态那一读（第 1 次）身份正确、终局快照那一读（第 2 次起）才变。两条各打一处终局判据：
+    #   wfid-final-drift        → run id 换掉（终局的 `$fwId -ne $runId`）
+    #   wfid-final-pr-key-case  → PR 关联属性名换成 `Number`（终局那次 Get-CandidateRunPrMatchCount）
+    # 没有这类「首读合法、次读才漂」的用例，终局那几条判据删掉也全绿——首读就非法的负例永远走不到它们（R3 r1 #6）。
+    elseif (($idm -ceq 'wfid-final-drift') -and ($wfN -ge 2)) { $run.id = [long]$runId + 7 }
+    elseif (($idm -ceq 'wfid-final-pr-key-case') -and ($wfN -ge 2)) { $run.pull_requests = @([ordered]@{ Number = [int]$pn }) }
     Send-CiShapeCase 'workflow' 'workflow_runs' $run $page
     if ($env:GH_MOCK_CI_MODE -eq 'workflow-paged') {
       # workflow-runs 的有效分页正例只能以「下游拿到 2 条」显形：生产侧要求该 head 恰有 1 个 run，
@@ -14082,6 +14156,18 @@ if ($args -contains 'api') {
     $page = Get-CiPage $joined
     $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
     $jobItem = [ordered]@{ id = [long]21; name = $jn; status = 'completed'; conclusion = 'success' }
+    # A4 的 base 前移负例：本腿是「稳定态已判绿、终局 base 快照尚未取」之间**唯一**的注入点——
+    # 在这里让裸 origin 的 master 长出一个新提交，ship 随后的 base 刷新就会读到与 scopeBaseOid 不同的 OID。
+    $djm = "$env:GH_MOCK_CI_MODE"
+    if ($djm -ceq 'base-moved') {
+      $bare = Join-Path $env:GH_MOCK_ROOT 'origin.git'
+      $parent = "$(& git --git-dir=$bare rev-parse refs/heads/master 2>$null)".Trim()
+      $tree = "$(& git --git-dir=$bare rev-parse 'refs/heads/master^{tree}' 2>$null)".Trim()
+      if ($parent -and $tree) {
+        $moved = "$(& git --git-dir=$bare -c user.email=selftest@local -c user.name=selftest commit-tree $tree -p $parent -m basemove 2>$null)".Trim()
+        if ($moved) { & git --git-dir=$bare update-ref refs/heads/master $moved *> $null }
+      }
+    }
     Send-CiShapeCase 'jobs' 'jobs' $jobItem $page
     if ($env:GH_MOCK_CI_MODE -eq 'jobs-paged') {
       # 有效分页正例 + 消费证明：候选 ci.yml 声明 verify/audit 两个 job，夹具把 audit **只**放在第二页。
@@ -14102,6 +14188,8 @@ if (($args -join ' ') -match '^repo view') { 'remotemx-fixture'; exit 0 }
 # 没 push 则不等（变异 B 即靠此暴露）。
 if ($args -contains 'headRefOid') {
   Add-CiCwd 'head'
+  # A1 第一层绑定的负例：PR head 与刚被 R3 评审过的本地 HEAD 不是同一个提交（评审对象 ≠ 待合并对象）。
+  if ($env:GH_MOCK_CI_MODE -ceq 'pr-head-mismatch') { ('c' * 40); exit 0 }
   "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   exit 0
 }
@@ -14157,6 +14245,15 @@ exit 0
 if ($env:GH_MOCK_ROOT) {
   Set-Content (Join-Path $env:GH_MOCK_ROOT 'review-invoked') 'yes'
   Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') 'r3'
+  # T0-CI-IDENTITY-DEADLINE A4：评审**进行中**本地 HEAD 前移——「被评审的提交」与「被拿去比对/合并的提交」
+  # 就此分家。只在评审后端里做得到（那正是 R3 占用的那段窗口），且只做一次（哨兵防重跑时再动一次）。
+  $mv = Join-Path $env:GH_MOCK_ROOT 'r3-head-moved'
+  if (($env:GH_MOCK_CI_MODE -ceq 'r3-head-move') -and $env:GH_MOCK_WT -and -not (Test-Path $mv)) {
+    Set-Content $mv 'yes'
+    Add-Content (Join-Path $env:GH_MOCK_WT 'extra.txt') 'r3 window head move'
+    & git -C $env:GH_MOCK_WT add extra.txt *> $null
+    & git -C $env:GH_MOCK_WT commit -q -m 'r3 window head move' *> $null
+  }
 }
 '{"verdict":"pass","reasons":[]}' | Set-Content $env:REVIEW_OUT -Encoding utf8
 '@
@@ -14375,27 +14472,6 @@ if ($env:GH_MOCK_ROOT) {
       #   (d) merge-attempted 与 merge-reached 双双缺席——「拦住了」的定义是没走到合并，不是退出码不为 0。
       if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/API-CONTRACT')) {
         $ciProblem = $null
-        # 一次 ship：复位全部哨兵 → 设模式 → 跑 ship → 把 gh 调用轨迹/读计数/合并哨兵收成一个可断言的对象。
-        $ciShip = {
-          param($fx, [string]$Mode)
-          & $rmReset $fx.Root
-          $env:GH_MOCK_WT = $fx.Wt; $env:GH_MOCK_CI_MODE = $Mode; $env:SCAFFOLD_CI_TIMEOUT_SEC = '30'
-          $out = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
-          $exit = $LASTEXITCODE
-          $lines = @((Get-Content (Join-Path $fx.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
-          $num = { param($n) $p = Join-Path $fx.Root $n; if (Test-Path $p) { [int]((Get-Content $p -Raw).Trim()) } else { 0 } }
-          [pscustomobject]@{
-            Mode = $Mode; X = $exit; O = $out
-            Calls = @($lines | ForEach-Object { ($_ -split '\|', 3)[0] })
-            Urls = @($lines | ForEach-Object { ($_ -split '\|', 3)[2] })
-            BadCwd = @($lines | Where-Object { (($_ -split '\|', 3)[1]) -ine $fx.Wt })
-            CR = (& $num 'ci-check-count'); WR = (& $num 'ci-workflow-count'); JR = (& $num 'ci-jobs-count')
-            MA = [bool](Test-Path (Join-Path $fx.Root 'merge-attempted'))
-            M = [bool](Test-Path (Join-Path $fx.Root 'merge-reached'))
-            MH = $(if (Test-Path (Join-Path $fx.Root 'merge-head-arg')) { "$(Get-Content (Join-Path $fx.Root 'merge-head-arg') -Raw)".Trim() } else { '' })
-            H = "$(& git -C $fx.Wt rev-parse HEAD 2>$null)".Trim()
-          }
-        }
         # 负例判据（返回空串=通过，否则返回可诊断的失败描述）。$Leg 既是 ci-gh-cwds 里的调用名，也是「应停在这一腿」。
         $ciExpectBlock = {
           param($r, [string]$Sentinel, [string]$Leg, [int]$Pages)
@@ -14514,6 +14590,103 @@ if ($env:GH_MOCK_ROOT) {
         }
         if ($ciProblem) { Fail "T37-CIGATE/API-CONTRACT: $ciProblem" }
         else { Write-Host '  T37-CIGATE/API-CONTRACT OK' -ForegroundColor Green }
+      }
+
+      # --- T37-CIGATE/WORKFLOW-BINDING（T0-CI-IDENTITY-DEADLINE）：逐层身份绑定 · 单一 deadline · 终局快照 ---
+      # 绑定链（A1）：本地 HEAD → PR headRefOid → run 的 head_sha/event/path/pull_requests → run id+attempt
+      # （jobs 只按这一对取）→ 终局 base/head 快照 → `gh pr merge --match-head-commit`。每条负例只切断**一环**，
+      # 四件同时成立才算拦下：非零退出 · 该环专属哨兵 · 读计数恰等于「应停在此处」的计数 · 未触达合并。
+      # 三条 `-case` 负例（event/path/pull_requests 属性名）**值全对、只差大小写**，而 PS 的 -eq/-in/-contains
+      # 与属性访问默认不敏感；它们与绿路正例 nomerge-green 逐字之差就在大小写。
+      # R4 变异收据（各改生产侧一处，判据=本闸变红且 [SELFTEST-FAILED-GATES] 点名本闸）：
+      #   M1 `-ccontains 'number'`→`-contains` ⇒ wfid-pr-key-case exit 0（`Number` 条目重新过闸并合并=原卡那个洞）
+      #   M2 `event -cne`→`-ne` / M3 `$path -cnotmatch`→`-notmatch` ⇒ 各自读计数 2/2/1（期望 1/1/0）
+      # M2/M3 的**死法本身**是证据：只松了稳定态那处、终局那处仍在，于是「停在哪一环」变了而非干脆过闸——
+      # 只看退出码会把这种半失守读成「还是拦住了」。
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/WORKFLOW-BINDING')) {
+        # 读计数含义：稳定态一轮各读 1 次、终局快照再各读 1 次 ⇒ 停在稳定态身份判定=1/1/0、停在终局快照=2/2/2。
+        $wbProblem = $null
+        $wbNeg = & $rmMake 'wfbind'
+        try {
+          if (-not $wbNeg.Ok) { $wbProblem = 'setup：身份负例夹具 start 未产出 worktree' }
+          else {
+            $env:GH_MOCK_WT = $wbNeg.Wt
+            & pwsh -NoProfile -File (Join-Path $wbNeg.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+            Set-Content (Join-Path $wbNeg.Wt 'README.md') 'GREENMX workflow binding' -Encoding utf8
+          }
+          # 账本 pattern 逐条只匹配「被造坏的那一处 + 其余各处仍然合法」的完整形状：例如 pr-key-case 要求
+          # event/path 都还是合法值、只有 prs=0，从而排除「其实是被更早的通用错误拦下」。
+          $wbCases = @(
+            @{ M = 'pr-head-mismatch'; S = '\[CI-GATE-HEAD-MISMATCH\]'; C = 0; W = 0; J = 0; L = 'c{40}' }
+            @{ M = 'wfid-head'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 1; W = 1; J = 0; L = '/a{40}/pull_request/\.github/workflows/ci\.yml/prs=1' }
+            @{ M = 'wfid-event-case'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 1; W = 1; J = 0; L = '/Pull_Request/\.github/workflows/ci\.yml/prs=1' }
+            @{ M = 'wfid-path-case'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 1; W = 1; J = 0; L = '/pull_request/\.github/workflows/CI\.yml/prs=1' }
+            @{ M = 'wfid-pr-key-case'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 1; W = 1; J = 0; L = '/pull_request/\.github/workflows/ci\.yml/prs=0' }
+            @{ M = 'wfid-pr-other'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 1; W = 1; J = 0; L = '/pull_request/\.github/workflows/ci\.yml/prs=0' }
+            @{ M = 'snap-retarget'; S = '\[CI-GATE-BASE-MISMATCH\]'; C = 2; W = 2; J = 2; L = 'master!=release' }
+            @{ M = 'snap-head-moved'; S = '\[CI-GATE-HEAD-MOVED\]'; C = 2; W = 2; J = 2; L = '->b{40}' }
+          )
+          foreach ($c in $wbCases) {
+            if ($wbProblem) { break }
+            $r = & $ciShip $wbNeg $c.M
+            $why = & $ciExpectIdBlock $r $c.S $c.C $c.W $c.J $c.L
+            if ($why) { $wbProblem = "$($c.M)：$why" }
+          }
+          # 决策前身份漂移：稳定态那一读身份完全正确、**终局快照**那一读才变。两条各打终局的一处判据——
+          # 没有它们，终局那几行删掉也全绿（首读就非法的负例根本走不到终局，R3 r1 #6）。
+          # run id 那条另核诊断点名夹具自己的 run id（期望值取自随机身份文件 ⇒ 断言里不可能是硬编码常数）。
+          if (-not $wbProblem) {
+            $r = & $ciShip $wbNeg 'wfid-final-drift'
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
+            if ($why) { $wbProblem = "wfid-final-drift：$why" }
+            elseif ($r.O -cnotmatch "expected=$($r.RunId)\b") { $wbProblem = "wfid-final-drift：诊断未点名本夹具的 run id（expected=$($r.RunId)）" }
+          }
+          if (-not $wbProblem) {
+            $r = & $ciShip $wbNeg 'wfid-final-pr-key-case'
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
+            if ($why) { $wbProblem = "wfid-final-pr-key-case：$why（终局那次 PR 关联判定若不是大小写敏感的，本例会一路走到合并）" }
+          }
+          # A5：-NoAutoMerge 只跳过合并腿，不放松任何一层——同一条身份负例带上它仍须被同一个哨兵拦下。
+          if (-not $wbProblem) {
+            $r = & $ciShip $wbNeg 'wfid-path-case' @('-NoAutoMerge')
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 1 1 0 '/pull_request/\.github/workflows/CI\.yml/prs=1'
+            if ($why) { $wbProblem = "nomerge-blocked：$why" }
+          }
+          # A5 绿路 + 三条 `-case` 负例的对照组：同一份载荷、属性名/取值全部小写合法 ⇒ 逐层绑定全过、
+          # 打印 [CI-GATE-PASS]，但因 -NoAutoMerge 不触达合并腿。jobs 必须是按**本夹具自己的** run id/attempt 取的。
+          if (-not $wbProblem) {
+            $r = & $ciShip $wbNeg '' @('-NoAutoMerge')
+            if ($r.X -ne 0) { $wbProblem = "nomerge-green：绿路未走通（exit $($r.X)）；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 500)))" }
+            elseif ($r.O -cnotmatch '\[CI-GATE-PASS\]') { $wbProblem = 'nomerge-green：缺 [CI-GATE-PASS]' }
+            elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $wbProblem = "nomerge-green：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 2/2/2——放松了某一层" }
+            elseif ($r.MA -or $r.M) { $wbProblem = '-NoAutoMerge 却触达了合并腿' }
+            elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $wbProblem = "nomerge-green：jobs 未按本夹具 run 身份取（$($r.JobsRunId)）" }
+          }
+        }
+        finally { if ($wbNeg -and $wbNeg.Root) { Remove-Item -Recurse -Force $wbNeg.Root -ErrorAction SilentlyContinue } }
+        # A4 的两条负例各改仓状态（一条在 R3 窗口里前移本地 HEAD，一条让裸 origin 的 master 长出新提交），
+        # 故各用一棵全新夹具——与阻断类共用会把「下一条负例的基线」也一并改掉。
+        foreach ($mv in @(
+            @{ M = 'r3-head-move'; S = '\[CI-GATE-LOCAL-HEAD-MOVED\]'; C = 0; W = 0; J = 0 }
+            @{ M = 'base-moved'; S = '\[CI-GATE-BASE-MOVED\]'; C = 1; W = 1; J = 1 })) {
+          if ($wbProblem) { break }
+          $fxm = & $rmMake ($mv.M -replace '-', '')
+          try {
+            if (-not $fxm.Ok) { $wbProblem = "$($mv.M) setup：夹具 start 未产出 worktree"; break }
+            $env:GH_MOCK_WT = $fxm.Wt
+            & pwsh -NoProfile -File (Join-Path $fxm.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+            Set-Content (Join-Path $fxm.Wt 'README.md') "GREENMX $($mv.M)" -Encoding utf8
+            $r = & $ciShip $fxm $mv.M
+            $why = & $ciExpectIdBlock $r $mv.S $mv.C $mv.W $mv.J ''
+            if ($why) { $wbProblem = "$($mv.M)：$why" }
+            elseif (($mv.M -ceq 'r3-head-move') -and (-not (Test-Path (Join-Path $fxm.Root 'r3-head-moved')))) {
+              $wbProblem = 'r3-head-move：评审后端没有真的移动本地 HEAD，负例未构造出来'
+            }
+          }
+          finally { if ($fxm -and $fxm.Root) { Remove-Item -Recurse -Force $fxm.Root -ErrorAction SilentlyContinue } }
+        }
+        if ($wbProblem) { Fail "T37-CIGATE/WORKFLOW-BINDING: $wbProblem" }
+        else { Write-Host '  T37-CIGATE/WORKFLOW-BINDING OK' -ForegroundColor Green }
       }
 
       # 场景 4 = 闸15t（TD94）：**收据缺失 + 已 push** 这条「最后手段」恢复平面的端到端夹具。
