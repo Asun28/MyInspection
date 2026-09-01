@@ -114,6 +114,45 @@ class ReportContentAdapterTest {
         )
     }
 
+    /**
+     * The direct entry point reads a photo-only room's first picture without checking there is one, and it
+     * is right not to: the projection never yields a room with neither items nor pictures. A room the
+     * privacy filter empties is removed there, and a room that had neither to begin with is refused by the
+     * bridge one step earlier, where the author can still be told which room it was. Since [ReportContent]
+     * has a private constructor and is reachable only through that projection, the state the layout would
+     * fail on is unrepresentable rather than merely unhandled - which is what this pins, for both readers
+     * and through the direct entry point that owns no guard of its own.
+     */
+    @Test
+    fun `a room with neither items nor pictures cannot reach the layout through any entry point`() {
+        Audience.entries.forEach { audience ->
+            val content = adapter.adapt(reportWithPrivatePhotoOnlyRoom(), audience)
+
+            assertTrue(
+                content.rooms.none { it.items.isEmpty() && it.photos.isEmpty() },
+                "$audience content carries a room the layout would have nothing to draw for",
+            )
+            assertTrue(content.rooms.none { it.id == PRIVATE_ROOM_ID }, "$audience kept the emptied room")
+            val plan = composer.compose(content)
+            assertTrue(
+                plan.blocks().filterIsInstance<RoomTitleBlock>().none { it.roomId == PRIVATE_ROOM_ID },
+                "$audience drew a heading for a room with nothing left under it",
+            )
+        }
+    }
+
+    /** A photo-only room whose only picture is private, so the default projection empties it completely. */
+    private fun reportWithPrivatePhotoOnlyRoom(): ReportSnapshot {
+        val base = ReportTestFixtures.report()
+        val snapshot = PhotoSnapshot("ph-ensuite-private", "camera", 1_755_400_000_000L, isRoomLevel = true)
+        val photo = ReportPhoto("photo-ensuite-private", snapshot, true, "3.R.1", 1_755_400_000_000L)
+        return base.copy(
+            canonical = base.canonical.copy(photos = base.canonical.photos + snapshot),
+            rooms = base.rooms +
+                ReportRoom(PRIVATE_ROOM_ID, BilingualText("Ensuite", "套间"), emptyList(), listOf(photo)),
+        )
+    }
+
     /** A photo-only room carrying two pictures; the fixtures elsewhere give such a room only one. */
     private fun reportWithTwoPhotoRoom(): ReportSnapshot {
         val base = ReportTestFixtures.report()
@@ -290,14 +329,22 @@ class ReportContentAdapterTest {
      * M14 A1  privacy option dropped on the way to the projection                    KILLED
      * M15 A2  room with items redraws the picture that opened it                     KILLED
      * M16 A5  projector's rendered capture-time guard relaxed to > -1                KILLED
+     * M17 A5  projection stops dropping a room left with neither items nor photos    KILLED
      *
      * M4 survived the first pass: nothing then distinguished a photo-only room's opening picture from the
      * run that follows it, because every such fixture in the suite holds exactly one picture. The room
      * photography test above and its two-picture fixture were added for it, and M15 was added with it to
      * cover the same cut in the branch for rooms that do have items.
+     *
+     * M16 and M17 mutate ReportContentProjector, which this card does not change. R3 round 1 asked whether
+     * the direct entry point can meet a room it cannot draw; the answer is that the projection makes that
+     * state unrepresentable, and an unreachable guard in the layout would be one no mutation could kill.
+     * These two receipts are what stands in for it: they show the upstream guards are live and that this
+     * suite still fails when either is removed.
      */
     private companion object {
         const val PROVENANCE_KEY = "provenance"
+        const val PRIVATE_ROOM_ID = "room-ensuite-private"
 
         /** The footer draws a prefix of the digest; the vocabulary has to admit that prefix, not a new value. */
         const val SHORT_HASH_CHARS = 12
