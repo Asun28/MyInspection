@@ -176,9 +176,23 @@ L221/L227/L228（完备性门须全函数 fail-closed）/L229–L232 · TD9（se
 
 **数据库生命周期权限已合并**：`T1-DATABASE-LIFECYCLE-AUTHORITY`（2026-08-29，master `3d50f690`，PR #191）完成 schema v3 active/any 读取分流、具名 baseline 守卫、purge 终态与 deleted override 防写；TD160 paid。
 
-**当前已解锁待做**：`T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`
-（依 schema；**设计前置=L228 fail-closed 门纪律**）· **`T3-REPORT-COMPOSER`★（依 canon+capture+finalize，均已合——
-关键路径下一站，快照装配正门与 TD5 黄金测试已随 T3-FINALIZE 落地，可直接开工）。
+**报告语义边界已收口**：`T3-REPORT-CONTENT-ADAPTER` **merged**（2026-09-02，master `4ec952df`，PR #225，
+R3 pass 于第 **2** 轮）——`ReportComposer` 的排版入口收为 `compose(content: ReportContent)`，签名里**没有**
+`Audience` 也没有 `ReportOptions`，于是「受众/隐私在排版层被再判一次」不是被规则禁止，而是**写不出来**；
+快照入口保留，经 `ReportContentAdapter` 投影后转调同一方法。页脚哈希改读 `content.nativeIntegrity.dataHash`
+（不再由过滤后的快照重算），composer 与 projector 重复的 `validateProjection` 整段删除、单一权威归 projector。
+新增 `ProvenanceBlock` 与独立标注的 provenance 分节，仅导入报告发出，原生报告页数/块序/几何逐字不变。
+**17 枚单点变异全杀**；其中 M4 首轮存活，暴露「套件里每个 photo-only room 夹具都只有一张照片，无人能区分
+房间开场照被取出与没取」这一真实覆盖缺口，补双照片夹具后连同 M15 一并封住。
+> **两处值得复用的判断**：① A3 要的 provenance block 是 `DocumentBlock` 密封层级成员，须与 12 个同级块同文件，
+> 而 `DocumentPlan.kt` 不在原 allow_paths ⇒ **动手前**请用户裁定扩 allow_paths（master `e237545a`），
+> 而非把类型塞进别的文件绕开范围闸。② R3 第 1 轮指「直接入口对空房间无守卫」——该状态因 `ReportContent`
+> 构造器私有 + projector 是唯一出生点而**不可表达**，遂按评审者给出的备选补「证明其不可表达」的测试，
+> 并以 M17 证明该测试确实会红；**没有**补一道任何变异都杀不掉的死守卫。
+
+**当前已解锁待做**：`T3-PDF-RENDERER`★（依本卡，**关键路径下一站**，可直接开工）· `T3-REPORT-HTML-RENDERER`
+· `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
+`T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
 block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**

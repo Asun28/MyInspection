@@ -24,7 +24,7 @@ The reader enforces entry/byte/ratio/XML/image bounds; rejects ambiguous or trav
 
 ### Shared semantic boundary
 
-One immutable `ReportContent` is created after audience/photo filtering. It carries ordered identity, glossary, rooms/items/statuses/notes, reviewed photos, supplements, disclaimer, tenant agreement and separately labelled provenance—never Android, URI/path, A4 geometry, pagination or renderer fields. PDF `DocumentPlan` is layout-only; renderers cannot query, refilter or reintroduce removed bytes.
+One immutable `ReportContent` is created after audience/photo filtering. It carries ordered identity, glossary, rooms/items/statuses/notes, reviewed photos, supplements, disclaimer, tenant agreement and separately labelled provenance—never Android, URI/path, A4 geometry, pagination or renderer fields. PDF `DocumentPlan` is layout-only; renderers cannot query, refilter or reintroduce removed bytes. The A4 layout engine reaches that content only through `ReportContentAdapter`, and its layout entry point accepts no audience and no photo option, so re-deciding either downstream is unrepresentable rather than merely forbidden. The layout restates the native `data_hash` it was given and never recomputes one from filtered content; import provenance is drawn under its own heading, never as native integrity.
 
 Integrity labels remain distinct:
 
