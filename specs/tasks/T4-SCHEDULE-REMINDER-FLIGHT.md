@@ -65,6 +65,33 @@ Matching worker 若先看到 `ADMISSION_PENDING`，以其 `actualId == generatio
 
 同时把 A4 原文的「still ADMISSION_PENDING」改为「still sits exactly where the flight submitted it」：`place` 会从已 `ENQUEUED`/`RETRYABLE` 的回执**恢复**并重新提交（SCHEDULER 卡已合并并冻结的路径，且本卡 `non_goals` 明令不得重做），故 watchdog 合法地会遇到非 pending 的起点。原措辞假定 flight 总是从新预留出发，过窄；修订后的措辞**更严**——它额外点名了不可读/不确定/跨代三种必须各报其因的读数。
 
+## R4 语义变异收据（15/15 全杀）
+
+每一枚**单独**施加到 `ReminderScheduler.kt` 的 SHA-256
+`b118a0d349c5ea794f720281a7a3e3d83cd2e996a2b280c82e823b5037e1d86e`，跑本卡 test 任务后还原并重新哈希得**同一值**
+（`FINAL-SHA … baseline-match=True`）。判为 kill 的条件是 exit 1 **且**日志中无编译诊断——排除「变异根本没跑」的假杀；
+每行的具名失败用例即该变异的专属判据。收据落在卡内而非测试文件，因 PR diff 已逼近 R3 的 60000 字符硬闸（同 RECEIPTS 卡先例）。
+
+| id | 验收 | 变异（生产语义） | 击杀它的用例 |
+|---|---|---|---|
+| M01 | A1 | 从不加入已存在的 flight | concurrent registrations … exactly once |
+| M02 | A1 | 只 settle flight 的第一个 waiter | concurrent registrations …；waiter that throws |
+| M03 | A2 | 把平台报错读成「操作不存在」 | each enqueue callback outcome settles under its own cause |
+| M04 | A2 | 不再隔离抛错的 waiter | a waiter that throws starves neither … |
+| M05 | A2 | 提交失败后仍留着 flight | a fatal submission …, and both clear the flight |
+| M06 | A3 | 把已证实的 admission 降级成 callback 失败 | a worker that proved admission is never downgraded … |
+| M07 | A3 | 把跨代回执读成本代 | a registration overtaken by a newer generation … |
+| M08 | A3 | 允许任意 flight 去 settle 当前 flight | a callback naming a superseded generation …；late callback |
+| M09 | A4 | deadline 未到也 settle | a watchdog that wakes early reschedules … |
+| M10 | A4 | 重排整轮 watchdog 而非剩余量 | a watchdog that wakes early reschedules … |
+| M11 | A4 | 把未变动的回执读成 worker proof | expired watchdog（两个用例）；superseded/late callback |
+| M12 | A5 | 丢掉迟到 callback 的诊断 | a callback that arrives after the flight settled … |
+| M13 | A4 | 对读不出的证据报 timeout | an expired watchdog reports unreadable, uncertain and superseded … |
+| M14 | A4 | 对跨代回执报 timeout | an expired watchdog reports unreadable, uncertain and superseded … |
+| M15 | A4 | 相信 store 从未确认的写入 | an expired watchdog reports unreadable, uncertain and superseded … |
+
+M13–M15 是 R3 首轮 finding 的专属反证：三者各自只被新增的那条用例杀掉，故该用例确实在测「逐读数分类」这件事本身。
+
 ## 测试纪律
 
 Runtime acceptance tests are black-box behavioral tests：测试调用 compiled scheduler entry point，并在同一 fake receipt store/flight 上调用 delivery 卡的 compiled production delivery runner 来制造真实 worker-admission transition；production-used injected ports 覆盖 enqueue/query/deadline/clock，只断言领域结果与记录的边界 effects。不得读取 repository/generated source、source-derived resource 或反射/反编译 compiled artifact 作为 oracle。A1–A5 各至少一个 production semantic mutation 必须在测试不变时让具名 selector nonzero；receipt 记录 acceptance、selector、变异 branch/port effect、RED exit 与 mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 mutation 无效。

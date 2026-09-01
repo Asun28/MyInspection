@@ -1,50 +1,86 @@
 ---
 id: T3-PDF-RENDERER
-title: PdfDocument renderer from shared semantic content and A4 layout plan
+title: Pure JVM PDF render program, four export qualities, sampling bounds and artifact paths
 depends_on: [T3-REPORT-CONTENT-ADAPTER]
-parallelizable_with: [T3-HISTORY-COMPARE, T5-BACKUP-IO]
+parallelizable_with: [T3-HISTORY-COMPARE, T5-BACKUP-IO, T3-REPORT-HTML-RENDERER]
 status: todo
 branch: T3-PDF-RENDERER
 worktree: C:\wt\T3-PDF-RENDERER
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/pdf/
   - android/core/src/test/kotlin/nz/myinspection/core/report/pdf/
-  - android/app/src/main/kotlin/nz/myinspection/app/export/pdf/
-  - android/app/src/main/assets/fonts/
-  - android/app/src/test/kotlin/nz/myinspection/app/export/pdf/
 forbid:
-  - 布局判断混进渲染器（plan 说画哪就画哪；发现布局缺陷回 T3-REPORT-COMPOSER 修）
+  - 布局判断混进渲染程序（plan 说画哪就画哪；发现布局缺陷回 T3-REPORT-COMPOSER 修）
   - 引入 PDF 三方库（iText=AGPL 禁；平台 PdfDocument 足够，ADR-0003）
+  - 在 :core 里 import android.* / androidx.*（纯 JVM 模块，见 CLAUDE.md 架构大图）
 non_goals:
   - 报告语义/受众/隐私/分页（shared content + adapter 已定）；分享、SAF、chooser 与回执（T3-REPORT-EXPORT-CORE/UI）
+  - 任何 Android 运行期渲染：PdfDocument/Canvas/Paint/BitmapFactory、字体资产、真机内存实测（T3-PDF-RENDER-DEVICE）
+  - 产物落盘、关闭、重开与逐字节核验（T3-REPORT-EXPORT-CORE A2）
   - 改写或重压已存照片；承诺任意报告的绝对 MB 上限
 plan_ref: context/DESIGN.md#backup-report-health-and-compliance-component-matrix
 acceptance:
-  - "A1 all four PDF quality profiles render the same DocumentPlan semantics and embedded semantic fingerprint"
-  - "A2 output is closed before success and can be reopened as a valid PDF with expected pages, footer hashes, images, and CJK glyphs"
-  - "A3 private filenames include inspection, audience, and quality so one verified quality never overwrites another"
-  - "A4 page-at-a-time bitmap sampling respects the measured memory bound and a failure leaves no completed artifact claim"
-dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.report.*"
+  - "A1 the four qualities build render programs whose drawable semantics and document identity are identical, and differ only in image sampling parameters"
+  - "A2 every mm coordinate in the plan converts to points by the single stated rule, A4 pages are 595x842pt, and no emitted operation escapes its page box"
+  - "A3 an artifact path names inspection, audience and quality, so no two qualities or audiences collide, and unsafe segments are refused"
+  - "A4 each image slot samples at its purpose's dpi and a page's decoded-byte bound is the maximum over that page's slots, never the sum; no slot is split, dropped or drawn twice"
+dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.*"
 dod_exit: 0
-dod_assert: PdfExportQuality 的 LOW/MEDIUM/HIGH/EXTRA_HIGH 参数与需求 §8 一致；固定 80 照 fixture 四档均成功且输出大小总体单调（相邻档若因内容熵例外须有逐图证据，不伪造绝对 MB 上限）；assembleDebug 与 composer 黄金测试绿；真机出两版 PDF 人工核：中文字形完整、High 档铭牌小字可读、内存不 OOM、附录编号回链正确、页脚原生哈希与 semantic fingerprint 一致——核验记录附 PR
+dod_assert: PdfExportQuality 的 LOW/MEDIUM/HIGH/EXTRA_HIGH 内联/附录 dpi 与需求 §8 逐档相符且默认 MEDIUM；四档程序的 identity 与可绘语义逐操作相等（仅采样参数不同）；mm→pt 换算与 A4 595x842pt 有定点断言；artifact 路径含 audience+quality 且拒非法段；逐页解码字节上界取该页各槽最大值而非求和；composer 既有黄金/分页/adapter 测试保持绿
 review_gate: codex {verdict:pass}
-hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
+hygiene: 冗余测试经 mutation-survivor 剪枝（R4），每条 acceptance 至少一枚具名单点变异被击杀
 doc_sync: ADR-0007 + TASK-BOARD 备注（R5）
 ---
 
 # T3-PDF-RENDERER
 
 ## 产出
-`core/report/pdf` 的四档纯数据契约 + `app/export/pdf`：shared ReportContent 经 adapter 形成的 DocumentPlan → PDF 文件的渲染器（真 Paint 量宽实现 TextMeasurer + 位图槽渲染）+ 字体资产。质量是**每次导出**的选择，不改源照片。本卡不拥有导出 UI、系统分享或数据库回执。
+`core/report/pdf`：**纯 JVM** 的 PDF 渲染程序层——四档质量契约、mm→pt 几何、逐槽采样与逐页内存上界、产物路径派生，以及把 `DocumentPlan` 翻译成有序绘制操作的 builder。Android 侧真正拿起 `PdfDocument`/`Canvas`/`Paint` 执行这份程序的壳，连同 CJK 字体资产与真机实测，属 **T3-PDF-RENDER-DEVICE**。
+
+## 拆分依据（2026-09-02 用户裁定）
+原卡把「可被本仓闸门证明的纯数据契约」与「只有真机能跑的 Android 渲染」写在一张卡里，三处因此不可测：
+
+1. **`:app` 单测跑不了 Android graphics**。`android/app/build.gradle.kts` 无 `testOptions { unitTests.returnDefaultValues }`，且 T0-TOOLCHAIN 的 non_goals 禁 Robolectric/仪器测试 ⇒ `PdfDocument`/`Canvas`/`Paint` 在 JVM 单测里抛 `Stub!`。
+2. **原 `dod_command` 根本不跑任何 `:app` 测试**（只有 `:app:assembleDebug` 编译 + `:core:test`），`verify.ps1` 也只跑 `:core:check` 与 `:core:e2eTest` ⇒ 写在 `app/src/test/**/export/pdf/` 的测试永不执行，是结构性 vacuous pass。补救所需的「读 app 源码文本」断言要在 `android/core/build.gradle.kts` 声明 `inputs.files`，而该文件不在任何一版 allow_paths 内。
+3. **A2 的重开核验另有归属**：`T3-REPORT-EXPORT-CORE` A2 已要求 "closes, reopens, verifies exact bytes, size, SHA-256, and fingerprint"；A4 的「measured memory bound」依赖尚未跑的 spike ④（`T1-SPIKE-PLATFORM`，需真机）。
+
+体量同时越界：逐文件估算约 1660 行，R3 硬上限 1000 changed lines（L266 要求动手前量、别等 ship）。故按可证明性切一刀：本卡留纯 JVM 半边（`:core:test --tests "nz.myinspection.core.report.*"` 已实测覆盖 `report.pdf` 子包），设备半边下沉。
 
 ## 上下文包（执行模型必读）
-- 单位换算：plan 用 mm；PdfDocument PageInfo 用 1/72 inch 点——A4 = 595×842pt，mm→pt = ×72/25.4。
-- 字体：assets/fonts/DroidSansFallback.ttf（Apache-2.0，随卡引入并在 PR 里附许可来源链接，check-licenses 须绿）；Typeface.createFromAsset；en 可用平台 sans，zh 一律 fallback 字体（composer 的双语对块标记语言）。
-- **质量档位（最终像素帽由 spike ④ 实测收口）**：Low = 内联约 96dpi/附录约 120dpi；Medium = 120/160（默认分享）；High = 150/200（证据归档建议，保持原计划质量）；Extra High = 200/300。档位只改变按槽解码/采样参数，不改变内容、布局、页脚哈希或源文件。
-- **内存策略（spike ④ 实测参数为准）**：一次只 startPage 一页；该页 ImageSlot 逐个 BitmapFactory bounds→inSampleSize（按所选档位与从槽尺寸派生的长边帽）→draw→recycle；页 finish 后再下一页；写 FileOutputStream 流式。固定夹具含房间全景、铭牌小字、低光与高熵图，不能只测易压缩样图。
-- TextMeasurer 实现：Paint.measureText 按块字号/字体；量宽结果供 composer 复排？——**不**：plan 已定稿（JVM 假 measurer 排的版），渲染器只按块坐标画、超宽做尾部省略号并记 warning 日志（布局缺陷回 composer 修，本卡不自行重排——单一职责红线）。
-- 输出落位：reports/{propertyId}/{inspectionId}-{audience}-{quality}.pdf（路径派生走 core/media 同一派生点扩展）；每个受众/质量独立生成，不互相覆盖。
-- 免责声明双语固定文案（需求 §8 [定]）由 composer 提供，渲染照画。
+
+### 输入与边界
+- 唯一输入 = `DocumentPlan`（`core/report/DocumentPlan.kt`，**不在 allow_paths**，只读不改）+ 一份 `PdfDocumentIdentity`。plan 已定稿：**渲染程序不重排、不分页、不做布局判断**；超宽文本只标记「按框裁切并加尾部省略号」，由设备侧执行——布局缺陷回 composer 修，这是单一职责红线。
+- 遍历 plan 时**每个 `TextBearingBlock` 只画它的 `textRuns`**，块上的 address/status/note/dataHash 等字段是身份元数据、**不可绘制**（`DocumentPlan.kt` 头注：跨页切块时每个 chunk 都带整份 payload，画它就会重复出现）。
+- 图片只有两处来源：`ImageSlotBlock`（附录/房间内联）与 `ItemRowBlock.thumbnails`（嵌在行坐标系内）。`ImageSlotBlock.xMm/yMm` **相对所属块原点**，程序须折算成页面绝对坐标。
+
+### 几何
+- A4 = 595×842pt（1/72 inch），mm→pt = ×72/25.4。换算规则在代码里**只写一处**并被测试逐点钉住（含 `A4_WIDTH_MM`=210 / `A4_HEIGHT_MM`=297 两个端点）。
+- 页盒外的操作是缺陷：builder 对越界 fail closed 并点名块与坐标，而不是静默裁掉。
+
+### 四档质量（需求 §8 `[定,2026-08-19]`）
+| 档 | 内联 dpi | 附录 dpi |
+|---|---|---|
+| Low | 96 | 120 |
+| Medium（默认分享） | 120 | 160 |
+| High（证据归档建议） | 150 | 200 |
+| Extra High | 200 | 300 |
+
+默认 `MEDIUM`。形态照抄已有的 `core/media/PhotoQualityProfile`（`storedValue` + `fromStoredValue` 回落默认，不发明新值）。**档位只改采样参数**，不改内容、布局、页脚哈希或源照片。「最终像素上限以真机为准」（需求 §8）指设备侧复核这里派生出的数：目标像素 = 槽宽/高(mm) × dpi ÷ 25.4，是算术不是猜测；spike ④ 之后若需收紧，改的是这张表而非结构。
+
+### 采样与内存上界
+- 逐槽：目标像素由槽几何 + 该槽 purpose 的 dpi 派生；`inSampleSize` 按 `BitmapFactory` 语义取**不小于目标的最大 2 的幂降采样**（即最大的 2^k 使两边都仍 ≥ 目标），程序只产出参数、不解码。
+- 解码字节按 `ARGB_8888` = w×h×4 计。**逐页上界 = 该页各槽的最大值，不是求和**——这正是「一次只 startPage 一页、逐槽 decode→draw→recycle」策略的可证明形式；写成求和就等于承认没有 recycle。
+- 本卡不测真机峰值内存（那是 T3-PDF-RENDER-DEVICE + spike ④），只保证上界的算法与单调性可被 JVM 测试钉死。
+
+### 语义指纹的落点（已决，勿再重开）
+`android.graphics.pdf.PdfDocument` 的公开面只有 `startPage`/`finishPage`/`writeTo`/`close`/`getPages`（2026-09-02 经 Context7 核 Android 官方 reference），**没有任何文档元数据/info dictionary API**；而把指纹画到页面上属于渲染器自造内容，既违反 plan-only 红线，也会让 PDF 与 HTML 两版内容不一致。故 `ReportContent.semanticFingerprint` 作为**程序身份**（`PdfDocumentIdentity`）随程序旅行，由 `T3-REPORT-EXPORT-CORE` 的 receipt 承担落账（该卡 A1/A2 已要求两种格式携带同一 fingerprint）。本卡的 A1 只证明：四档程序的 identity 与可绘语义**逐操作相等**。
+
+### 产物路径
+`reports/{propertyId}/{inspectionId}-{audience}-{quality}.pdf`。派生点与形状判定共用同一真相源正则，形态照抄 `core/media/MediaPaths`（含 `requireSafeSegment`，防损坏输入把 `/`、`\`、`.`、`..` 带进路径）。**只产相对路径**，根由 :app 注入。文件名同时含 audience 与 quality，于是一档已核验的产物不会被另一档覆盖。
+
+### 落测位置
+`android/core/src/test/kotlin/nz/myinspection/core/report/pdf/`。注意 `ReportSourcePurityTest` 与 `android/core/build.gradle.kts` 的 `reportTestSources` 都只扫 `report/` **顶层** `*.kt`（`listFiles` / `include("*.kt")`），子目录不在其内——本卡无需、也不能改 build 脚本。
 
 ## 验收 / 执行建议
-dod 见 front-matter。首选 Sonnet 5 · max；备选 Opus 5。难度 H。
+dod 见 front-matter。首选 Sonnet 5 · max；备选 Opus 5。难度 M。
+动手前按 L266 量体量：产线 + 测试 + R4 收据合计目标 ≤ 850 行，逼近 1000 就先拆再写。
