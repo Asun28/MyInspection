@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -1959,7 +1959,7 @@
 - refs: 
 
 ## L270
-- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
 - root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
 - rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
@@ -1995,5 +1995,29 @@
 - symptom: 本地 selftest 某个用正则锚行尾的闸（本次是 14f 的 [LESSONS-CMD-DOC-CLAUDE]，模式形如 `(?m)^...；[^\r\n]*$`）报「锚点须精确一处，实际=0」，可 grep 一看那行明明在；同时 git status 显示该文件干净、git diff 为空，于是很容易误判成「闸坏了」或「别人改坏了」。
 - root_cause: 工作树里的文件是 CRLF，而 .NET 的 `(?m)$` 只匹配 `\n` 之前的位置——CRLF 行上 `[^\r\n]*` 停在 `\r` 前，那里不是 `$` 能匹配的位置，故恒不命中。git 提交时按 text=auto 归一为 LF，所以「工作树 CRLF」与「仓库 LF」内容等价、status 干净，差异对 git 完全隐形；只有按字节读文件的闸看得见。凡用 ReadAllText+WriteAllText 就地改文件的工具都会**原样保留**这份 CRLF，不会自愈。
 - rule: 闸报「锚点 0 命中」而 grep 找得到那行时，第一步不是查正则、是查行尾：`([regex]::Matches([IO.File]::ReadAllText($f), "`r`n")).Count`。与 `git show <ref>:<path>` 导出的版本对比即可定位（导出恒 LF）。判定「是不是我改坏的」也要用这条：`git checkout -- <file>` 后重测，git 给出的才是仓库真值。修法是把文件归一回 LF（`$t.Replace("`r`n","`n")` 后 WriteAllText），git 看不出差异、闸即转绿。写正则闸时则应写 `\r?$` 而非依赖 `$` 自己吃掉 CR。
+- enforced_by: 
+- refs: 
+
+## L275
+- date: 2026-09-02 ｜ tags: r3,review,arbitration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 连续五轮 block 全部落在同一个设计点上（一次 CAS 失败后本次注册可以断定什么），而评审者自己在该点上先后给出四种互不相同的立场：任何同代变化都只能记 contention → 同代 ENQUEUED 是 admission → 只限 confirm 路径 → 该路径上 RETRYABLE 也应算。每一轮的裁定单看都成立，maker 每轮都照办，于是循环不收敛。
+- root_cause: 「同一争点两轮互不认可即停」这条规则默认的是 maker 与 checker 互不认可；本例是 checker 自己的立场在轮次间反向移动（第 2 轮与第 5 轮互反），maker 每轮都同意并照改，所以规则的触发条件表面上从未满足，实际却是同一个争点在空转。
+- rule: 每轮 R3 之后记一行「本轮争点 + 裁定」。若某一争点出现第三次，且新裁定与该争点的旧裁定**方向相反**（不是收窄或细化），立即停止迭代转人裁——不管 maker 是否同意本轮说法。判据是「立场是否反向」，不是「是否有人不认可」；把四种立场并排写给人裁者看，比再改一轮便宜得多。
+- enforced_by: 
+- refs: 
+
+## L276
+- date: 2026-09-02 ｜ tags: r3,diff-budget,planning ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 按 L266 在写 RED 之前量过体量、据此拆了一次卡；实现完仍贴住 1000 行上限，R3 首轮要求补约 50 行用例，于是又被迫拆第二次（把诊断 JSON 渲染与权限恢复移进承接卡），此后每一轮 R3 的修复都要先在别处砍等量的行数才放得下。
+- root_cause: 第一次估算量的是「我打算写多少」（生产 + 我设想的测试 + 收据），没有量「评审会要求多少」。R3 的维度 #6 会按卡片 acceptance 逐条要覆盖面，而 acceptance 里每一个并列的名词（六种状态、五种结局、并存/重复/被中断……）都可能各要一个用例；这部分体量在动手前是可数的，但不在「我打算写的东西」里。
+- rule: 动手前的体量估算要按**卡片 acceptance 逐条数用例**，不是按打算写的代码数：把每条 acceptance 里并列的状态/结局/边界各算一个黑盒用例（约 10-15 行），加上生产实现与收据，再对 1000 行/60000 字符报预算。若这样算出来超过约 800 行，就在动手前拆——拆的边界优先切「整条 acceptance」，别切实现内部，否则每轮 R3 都要用别处的行数去换。
+- enforced_by: 
+- refs: 
+
+## L277
+- date: 2026-09-02 ｜ tags: workflow,red-receipt,worktree ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: ship 在 RED 证据闸停下：证据 sha 是 -Phase red 当时的 HEAD，而之后为了让 worktree 拿到更新过的卡片而 git merge master，HEAD 前移，闸判定证据陈旧。脚本给的 reset-safe 恢复是 reset --soft 回证据 sha，但那会把新卡片变成待提交改动（越出 allow_paths）或退回旧卡片正文——而 review.ps1 恰恰是从 **worktree** 读卡片喂给评审者的。
+- root_cause: RED 收据把「证据新鲜」定义为 sha == 当前 HEAD，无法区分「又提交了代码」与「只是合并了 base 的文档改动」；而卡片正文必须随分支走，两个约束在合并 base 后直接冲突。
+- rule: 卡片在 R3 过程中要改（拆卡/改 acceptance）时：先合并 base、再跑 -Phase red，顺序反了就得重做。已经反了的话，诚实重铸即可——把生产文件移到 scratchpad、跑 -Phase red（DoD 因缺文件真红）、把文件移回并核 SHA 与变异收据一致；这不是绕闸，是把闸所证明的那件事在当前 HEAD 上重演一遍。
 - enforced_by: 
 - refs: 
