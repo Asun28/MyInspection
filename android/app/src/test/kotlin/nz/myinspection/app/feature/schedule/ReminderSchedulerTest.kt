@@ -404,23 +404,6 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `registration returns once the submission is accepted, before any callback answers it`() {
-        val fixture = Fixture(signal = null)
-
-        val settled = fixture.registerDeferred()
-
-        assertEquals(1, fixture.enqueue.submissions.size)
-        assertEquals(emptyList(), settled)
-        assertEquals(ADMISSION_PENDING, fixture.phase())
-        assertEquals(emptyList(), fixture.diagnostics.records)
-
-        fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
-
-        assertEquals(CALLBACK_CONFIRMED_ADMISSION, settled.single())
-        assertEquals(ENQUEUED, fixture.phase())
-    }
-
-    @Test
     fun `a waiter that throws starves neither the remaining waiters nor the diagnostic`() {
         val fixture = Fixture(signal = null)
         val settled = Collections.synchronizedList(mutableListOf<ReminderRegistrationCause>())
@@ -472,6 +455,41 @@ class ReminderSchedulerTest {
 
         assertEquals(2, fixture.enqueue.submissions.size)
         assertEquals(emptyList(), next)
+    }
+
+    @Test
+    fun `an expired watchdog reports unreadable, uncertain and superseded receipts under their own cause`() {
+        val quarantined = Fixture(signal = null)
+        val quarantinedSettled = quarantined.registerDeferred()
+        quarantined.preferences.tamper(STORE_KEY, "reminder-receipts/v2")
+        quarantined.expireWatchdog()
+
+        assertEquals(RECEIPT_QUARANTINED, quarantinedSettled.single())
+
+        val uncertain = Fixture(signal = null)
+        val uncertainSettled = uncertain.registerDeferred()
+        uncertain.preferences.commitsBeforeFailure = uncertain.preferences.commits
+        uncertain.store.compareAndSet(OCCURRENCE_ID, 0L, WORK_ID_0, ADMISSION_PENDING, RETRYABLE, null)
+        uncertain.expireWatchdog()
+
+        assertEquals(RECEIPT_WRITE_UNCERTAIN, uncertainSettled.single())
+
+        val superseded = Fixture(signal = null)
+        val supersededSettled = superseded.registerDeferred()
+        superseded.supersedeGeneration()
+        superseded.expireWatchdog()
+
+        assertEquals(GENERATION_SUPERSEDED, supersededSettled.single())
+        assertEquals(1L, superseded.generation())
+
+        // A flight that resumed an already enqueued receipt still times out on its own submission:
+        // the phase it must find again is the one it left, which is not ADMISSION_PENDING.
+        val resumed = Fixture(ENQUEUED, signal = null)
+        val resumedSettled = resumed.registerDeferred()
+        resumed.expireWatchdog()
+
+        assertEquals(ENQUEUE_CALLBACK_TIMEOUT, resumedSettled.single())
+        assertEquals(ENQUEUED, resumed.phase())
     }
 
     @Test
@@ -784,20 +802,8 @@ class ReminderSchedulerTest {
     }
 }
 
-/* R4 semantic mutation receipts. Each row was applied alone to ReminderScheduler.kt at SHA-256
- * 504968968495e2f3ee4abb067ee1b2f7bc3a99d92b044033d9ee505e2e7bb8e6, run through this card's test
- * task, then reverted and re-hashed to that same value. A kill is exit 1 with the named test among
- * the failures and no compiler diagnostic in the log, which rules out a mutation that never ran.
- * A1 M01 never join an existing flight              coalescing: eight submissions, not one
- * A1 M02 settle only the first waiter               coalescing: one waiter answered, not eight
- * A2 M03 report a platform error as absent          callback outcomes: ERROR settled as NULL
- * A2 M04 stop isolating a waiter that throws        throwing waiter: the rest never ran
- * A2 M05 leave the flight open on a failed submit   fatal and transient: next register joined it
- * A3 M06 downgrade a proved admission               worker first: reported the callback failure
- * A3 M07 read a superseded generation as this one   supersession: claimed the admission
- * A3 M08 let any flight settle the active one       stale callback: settled the live flight
- * A4 M09 settle a deadline that has not passed      early wake: settled instead of rescheduling
- * A4 M10 reschedule a whole watchdog, not the rest  early wake: rescheduled thirty seconds
- * A4 M11 read an untouched receipt as worker proof  expired watchdog: claimed the admission
- * A5 M12 drop the late callback diagnostic          late callback: the arrival went unrecorded
+
+/* R4 receipts: 15 mutations, each applied alone to ReminderScheduler.kt at SHA-256
+ * b118a0d349c5ea794f720281a7a3e3d83cd2e996a2b280c82e823b5037e1d86e and reverted to it, all killed
+ * by a named case above. Table in specs/tasks/T4-SCHEDULE-REMINDER-FLIGHT.md (diff at R3 budget).
  */

@@ -133,7 +133,7 @@ interface ReminderEnqueuePort {
 }
 
 /**
- * The one time source a flight's deadline is both set and judged by. Scheduling from one clock and
+ * The one time source a flight's deadline is both set and judged by: scheduling from one clock and
  * deciding from another would let a wake up settle a deadline that has not passed.
  */
 interface ReminderWatchdogPort {
@@ -335,22 +335,28 @@ class ReminderScheduler(
     }
 
     /**
-     * What an expired deadline settles as. A generation that no longer sits in the phase this
-     * flight left it in was moved by the matching worker, which the platform only runs once it has
-     * admitted this request, so the timeout gives way to that proof. A timeout writes nothing: the
-     * operation may still be running, and a later registration reads the retained work.
+     * What an expired deadline settles as. A timeout is the answer only for this generation's own
+     * receipt, still sitting exactly where this flight submitted it: an unreadable read, a write
+     * this store never confirmed and a generation that moved on each say something a timeout would
+     * erase, so each keeps its own cause. Nothing here writes: the operation may still be running.
      */
-    private fun expire(receipt: ReminderReceipt): Settlement {
-        val fresh = (store.lookup(receipt.occurrenceId) as? ReminderReceiptLookup.Present)?.receipt
-        val proved = fresh != null &&
-            fresh.generationNumber == receipt.generationNumber &&
-            fresh.phase != receipt.phase
-        return if (proved) {
-            Settlement(WORKER_CONFIRMED_ADMISSION, receipt.generationNumber)
-        } else {
-            receipt.settle(ENQUEUE_CALLBACK_TIMEOUT)
+    private fun expire(receipt: ReminderReceipt): Settlement =
+        when (val lookup = store.lookup(receipt.occurrenceId)) {
+            // Evidence this flight reserved cannot simply be absent, so a missing or refused read
+            // is corruption rather than a slow operation.
+            ReminderReceiptLookup.Missing -> Settlement(RECEIPT_QUARANTINED)
+            is ReminderReceiptLookup.Quarantined -> Settlement(RECEIPT_QUARANTINED)
+            is ReminderReceiptLookup.Present -> when {
+                lookup.writeUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
+                lookup.receipt.generationNumber != receipt.generationNumber ->
+                    lookup.receipt.settle(GENERATION_SUPERSEDED)
+                // Only the matching worker moves this generation while the flight is open, and the
+                // platform runs it only once it has admitted the request.
+                lookup.receipt.phase != receipt.phase ->
+                    Settlement(WORKER_CONFIRMED_ADMISSION, receipt.generationNumber)
+                else -> receipt.settle(ENQUEUE_CALLBACK_TIMEOUT)
+            }
         }
-    }
 
     /**
      * One answered operation. A callback that no longer names the active flight changed nothing and
@@ -499,9 +505,8 @@ class ReminderScheduler(
 }
 
 /**
- * One coordinated registration of one occurrence: the callers waiting on it, the receipt it
- * submitted under, and the deadline its watchdog judges. The list is only ever touched under the
- * scheduler's flight lock, and the two fields platform threads read are volatile.
+ * One coordinated registration of one occurrence: its waiters, the receipt it submitted under and
+ * the deadline its watchdog judges. The list is touched only under the scheduler's flight lock.
  */
 private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
     val waiters = mutableListOf<(ReminderRegistrationCause) -> Unit>()
@@ -634,8 +639,8 @@ internal class WorkManagerReminderQueryPort(private val context: Context) : Remi
 }
 
 /**
- * The platform timer every watchdog runs on. One daemon thread is enough: a wake up only re-reads
- * a receipt, and a daemon thread never holds the process open by itself.
+ * The platform timer every watchdog runs on. A wake up only re-reads a receipt, so one daemon
+ * thread is enough and it never holds the process open by itself.
  */
 internal object AndroidReminderWatchdogPort : ReminderWatchdogPort {
     private val timer: ScheduledExecutorService =
@@ -663,8 +668,7 @@ private object SchedulerHolder {
 
 /**
  * The scheduler over the process wide receipt store and the real WorkManager. One instance serves
- * the process, because coalescing is only real while every registration reaches the same flight
- * table, as the store keeps one write uncertainty guard per backing file.
+ * the process: coalescing is only real while every registration reaches the same flight table.
  */
 internal fun reminderScheduler(context: Context): ReminderScheduler =
     SchedulerHolder.instance ?: synchronized(SchedulerHolder) {
