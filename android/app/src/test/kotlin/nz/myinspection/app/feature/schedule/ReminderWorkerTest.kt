@@ -191,31 +191,27 @@ class ReminderWorkerTest {
         }
     }
 
+    /**
+     * One occurrence carried through the attempts in order, so attempt one really starts from the
+     * RETRYABLE its predecessor wrote and the exhausted attempt really closes out of it.
+     */
     @Test
     fun `a denied notification permission retries attempts zero and one then blocks`() {
-        val cases = mapOf(
-            0 to (ReminderRunOutcome.RETRY to RETRYABLE),
-            1 to (ReminderRunOutcome.RETRY to RETRYABLE),
-            2 to (ReminderRunOutcome.FAILURE to PERMISSION_BLOCKED),
-            9 to (ReminderRunOutcome.FAILURE to PERMISSION_BLOCKED),
-        )
+        val fixture = Fixture(ENQUEUED, granted = false)
 
-        cases.forEach { (attempt, expected) ->
-            val fixture = Fixture(ENQUEUED, granted = false)
-
-            val outcome = fixture.run(sdkInt = 33, attempt = attempt)
-
+        attemptsClosingAs(PERMISSION_BLOCKED).forEachIndexed { index, (attempt, outcome, phase) ->
             val label = "attempt $attempt"
-            assertEquals(expected.first, outcome, label)
-            assertEquals(expected.second, fixture.phase(), label)
+            assertEquals(outcome, fixture.run(sdkInt = 33, attempt = attempt), label)
+            assertEquals(phase, fixture.phase(), label)
             assertEquals(emptyList(), fixture.preparation.plans, label)
             assertEquals(emptyList(), fixture.notifier.posts, label)
+            assertEquals(index + 1, fixture.diagnostics.records.size, label)
             assertEquals(
                 record(
                     LogStage.PERMISSION, LogError.PERMISSION_DENIED, FailureCauseCode.SECURITY,
-                    expected.first == ReminderRunOutcome.RETRY,
+                    outcome == ReminderRunOutcome.RETRY,
                 ),
-                fixture.diagnostics.records.single(),
+                fixture.diagnostics.records.last(),
                 label,
             )
         }
@@ -232,29 +228,24 @@ class ReminderWorkerTest {
         assertEquals(1, fixture.notifier.posts.size)
     }
 
+    /** The same carried sequence as the permission case, closing as TERMINAL instead. */
     @Test
     fun `a transient preparation failure retries attempts zero and one then terminates`() {
-        val cases = mapOf(
-            0 to (ReminderRunOutcome.RETRY to RETRYABLE),
-            1 to (ReminderRunOutcome.RETRY to RETRYABLE),
-            2 to (ReminderRunOutcome.FAILURE to TERMINAL),
-        )
+        val fixture = Fixture(ENQUEUED, preparationFailure = IOException("channel unavailable"))
 
-        cases.forEach { (attempt, expected) ->
-            val fixture = Fixture(ENQUEUED, preparationFailure = IOException("channel unavailable"))
-
-            val outcome = fixture.run(attempt = attempt)
-
+        attemptsClosingAs(TERMINAL).forEachIndexed { index, (attempt, outcome, phase) ->
             val label = "attempt $attempt"
-            assertEquals(expected.first, outcome, label)
-            assertEquals(expected.second, fixture.phase(), label)
+            assertEquals(outcome, fixture.run(attempt = attempt), label)
+            assertEquals(phase, fixture.phase(), label)
+            assertEquals(index + 1, fixture.preparation.plans.size, label)
             assertEquals(emptyList(), fixture.notifier.posts, label)
+            assertEquals(index + 1, fixture.diagnostics.records.size, label)
             assertEquals(
                 record(
                     LogStage.PREPARATION, LogError.PREPARATION_FAILED, FailureCauseCode.IO,
-                    expected.first == ReminderRunOutcome.RETRY,
+                    outcome == ReminderRunOutcome.RETRY,
                 ),
-                fixture.diagnostics.records.single(),
+                fixture.diagnostics.records.last(),
                 label,
             )
         }
@@ -522,6 +513,18 @@ private fun storeAt(phase: ReminderPhase?, preferences: FakePreferences): Remind
     }
     return store
 }
+
+/**
+ * The attempt sequence a pre-post transient failure must produce on one occurrence: attempt and
+ * expected outcome and phase, with the exhausted attempt closing as [exhausted].
+ */
+private fun attemptsClosingAs(
+    exhausted: ReminderPhase,
+): List<Triple<Int, ReminderRunOutcome, ReminderPhase>> = listOf(
+    Triple(0, ReminderRunOutcome.RETRY, RETRYABLE),
+    Triple(1, ReminderRunOutcome.RETRY, RETRYABLE),
+    Triple(2, ReminderRunOutcome.FAILURE, exhausted),
+)
 
 /** The generation zero record every failure of this occurrence must correlate under. */
 private fun record(
