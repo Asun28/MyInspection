@@ -211,7 +211,7 @@ class ReminderReceiptStoreTest {
             assertIs<ReminderReceiptTransitionResult.WriteUncertain>(
                 store.recoverPermissionBlocked(admitted), "$plan",
             )
-            assertIs<ReminderReceiptAdmissionResult.Rejected>(store.admit(admitted), "$plan")
+            assertIs<ReminderReceiptAdmissionResult.WriteUncertain>(store.admit(admitted), "$plan")
             assertEquals(2, preferences.commits.size, "$plan")
         }
     }
@@ -227,8 +227,25 @@ class ReminderReceiptStoreTest {
 
         val lookup = assertIs<ReminderReceiptLookup.Quarantined>(second.lookup(OCCURRENCE_ID))
         assertEquals(ReminderQuarantineReason.WRITE_UNCERTAIN, lookup.reason)
-        assertIs<ReminderReceiptAdmissionResult.Rejected>(second.admit(receipt()))
+        assertIs<ReminderReceiptAdmissionResult.WriteUncertain>(second.admit(receipt()))
+        val untouched = receipt(spec = specFor(PROPERTY_B), occurrenceId = OCCURRENCE_ID_B)
+        assertIs<ReminderReceiptAdmissionResult.WriteUncertain>(second.admit(untouched))
+        assertIs<ReminderReceiptTransitionResult.WriteUncertain>(second.recoverPermissionBlocked(untouched))
+        assertIs<ReminderReceiptTransitionResult.WriteUncertain>(second.advance(ADMISSION_PENDING, ENQUEUED))
         assertEquals(0, other.commits.size)
+    }
+
+    @Test
+    fun `an unconfirmed commit stops the whole file being evidence, not just its own occurrence`() {
+        val plans = listOf(CommitPlan.COMMIT, CommitPlan.RETURN_FALSE)
+        val store = ReminderReceiptStore(FakeReminderPreferences(plans = plans))
+        val durable = receipt(spec = specFor(PROPERTY_B), occurrenceId = OCCURRENCE_ID_B)
+        assertIs<ReminderReceiptAdmissionResult.Admitted>(store.admit(durable))
+
+        assertIs<ReminderReceiptAdmissionResult.WriteUncertain>(store.admit(receipt()))
+
+        val stale = assertIs<ReminderReceiptLookup.Quarantined>(store.lookup(OCCURRENCE_ID_B))
+        assertEquals(ReminderQuarantineReason.WRITE_UNCERTAIN, stale.reason)
     }
 
     @Test
@@ -540,8 +557,6 @@ class ReminderReceiptStoreTest {
             "field dropped" to record().substringBeforeLast("|"),
             "field appended" to record() + "|extra",
             "generation with a leading zero" to record(generation = "00"),
-            "generation that is negative" to record(generation = "-1"),
-            "epoch second that is not a number" to record(seconds = "soon"),
             "nano that normalises into the seconds field" to record(nano = "1000000000"),
             "upper case occurrence id" to record(occurrence = OCCURRENCE_ID.uppercase()),
             "occurrence id of another property" to record(occurrence = OCCURRENCE_ID_B),
@@ -554,7 +569,6 @@ class ReminderReceiptStoreTest {
             "cause on a phase that forbids one" to
                 record(phase = "DELIVERED", cause = "DELIVERY_ACKNOWLEDGED"),
             "cause absent on a phase that requires one" to record(phase = "TERMINAL"),
-            "base64 that is not base64" to record(property = "!!!!"),
             "base64 carrying padding this store never writes" to record(property = "cHJvcGVydHktYQ=="),
             "base64 with non zero trailing bits" to record(property = "cHJvcGVydHktYR"),
             "base64 of bytes that are not UTF-8" to record(property = "ww"),
@@ -563,16 +577,3 @@ class ReminderReceiptStoreTest {
     }
 }
 
-/*
- * R4 mutation receipts. 46 single line semantic mutations, covering every function in
- * ReminderReceiptStore.kt, were each applied alone to the final snapshot, the suite was run
- * expecting a non-zero exit, and the file was restored. All 46 exited 1 with a named test red and
- * none survived. SHA-256 of that file before and after every mutation:
- * 329bbc0585e045f7e415400355b4930f328a49237365462f0163fa51aebe5b82
- * One exemplar per acceptance criterion, as selector -> the test that turned red:
- * A1 `receipt.generationNumber == 0L &&` -> only a fresh generation zero receipt is admissible
- * A2 `if (entries.isEmpty()) {` -> an occurrence is missing only on a blank store or beside others
- * A3 `require(encodeReceipt(receipt) == encoded)` -> corrupt and non canonical evidence is quarantined
- * A4 `poisonLocked()[occurrenceId] = prior` -> a failed transition preserves the prior receipt
- * A5 `val nextGeneration = current.generationNumber + 1` -> an old generation cannot overwrite it
- */

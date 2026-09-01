@@ -99,8 +99,9 @@ interface ReminderPreferencePort {
  * a fresh occurrence, which stops a half wiped store from silently re-admitting an occurrence that
  * already fired. Deletion of every key stays deliberately indistinguishable from fresh app data.
  *
- * The write uncertainty guard is keyed by the backing file rather than by this object, so every
- * store over one file shares one poison set however many instances exist.
+ * The write uncertainty guard is keyed by the backing file, not by this object, so every store
+ * over one file shares it, and one unconfirmed commit stops mutations for every occurrence in that
+ * file rather than only the one it named.
  *
  * Failures are reported as typed results rather than logged here. The caller that owns
  * [ReminderDiagnosticPort] holds the stage, generation and work id this file never sees, so logging
@@ -115,6 +116,9 @@ class ReminderReceiptStore(
 
     /** Admits a fresh occurrence. Only generation zero is ever a first admission. */
     fun admit(receipt: ReminderReceipt): ReminderReceiptAdmissionResult = withProcessLock {
+        if (poisonLocked().isNotEmpty()) {
+            return@withProcessLock ReminderReceiptAdmissionResult.WriteUncertain
+        }
         val admissible = isValidReceipt(receipt) &&
             receipt.generationNumber == 0L &&
             receipt.phase == ReminderPhase.ADMISSION_PENDING
@@ -147,12 +151,12 @@ class ReminderReceiptStore(
         nextPhase: ReminderPhase,
         causeCode: ReminderCause?,
     ): ReminderReceiptTransitionResult = withProcessLock {
+        if (poisonLocked().isNotEmpty()) {
+            return@withProcessLock ReminderReceiptTransitionResult.WriteUncertain
+        }
         val lookup = lookupLocked(occurrenceId)
         val present = lookup as? ReminderReceiptLookup.Present
             ?: return@withProcessLock ReminderReceiptTransitionResult.Rejected
-        if (present.writeUncertain) {
-            return@withProcessLock ReminderReceiptTransitionResult.WriteUncertain
-        }
         val current = present.receipt
         val expected = current.generationNumber == expectedGenerationNumber &&
             current.workRequestId == expectedWorkRequestId &&
@@ -176,12 +180,12 @@ class ReminderReceiptStore(
      */
     fun recoverPermissionBlocked(current: ReminderReceipt): ReminderReceiptTransitionResult =
         withProcessLock {
+            if (poisonLocked().isNotEmpty()) {
+                return@withProcessLock ReminderReceiptTransitionResult.WriteUncertain
+            }
             val lookup = lookupLocked(current.occurrenceId)
             val present = lookup as? ReminderReceiptLookup.Present
                 ?: return@withProcessLock ReminderReceiptTransitionResult.Rejected
-            if (present.writeUncertain) {
-                return@withProcessLock ReminderReceiptTransitionResult.WriteUncertain
-            }
             if (present.receipt != current) {
                 return@withProcessLock ReminderReceiptTransitionResult.Stale(lookup)
             }
@@ -223,9 +227,9 @@ class ReminderReceiptStore(
             return ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.INVALID_OCCURRENCE_ID)
         }
         val poison = poisonLocked()
-        if (poison.containsKey(occurrenceId)) {
-            // The file may already hold the bytes of the write that was never confirmed, so it is
-            // not consulted at all. Only the receipt that was durable before that write is exposed.
+        if (poison.isNotEmpty()) {
+            // One unconfirmed commit rewrites the whole file, so only a receipt this process saw
+            // durable before that write is still evidence of anything.
             return poison[occurrenceId]?.let { ReminderReceiptLookup.Present(it, writeUncertain = true) }
                 ?: ReminderReceiptLookup.Quarantined(ReminderQuarantineReason.WRITE_UNCERTAIN)
         }
