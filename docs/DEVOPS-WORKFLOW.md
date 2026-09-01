@@ -164,6 +164,8 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 两闸门分工：`verify` 是确定性 e2e 验收——**本地 ship 亦跑 verify（free+private 下本地即权威）**，CI 在 PR 上信息性复跑；`codex-review` 是不变量/边界定性评审。**两者皆绿方可合并。**
 
+远端 ship 的 **candidate CI** 闸（`task.ps1` 的 CI gate）按「逐层身份绑定 → 单一 deadline → 决策前 exact-head/base 快照」收口，**每一层不匹配即 fail-closed、绝不合并**：① 已过 R3 的本地 HEAD ≡ PR `headRefOid` ≡ 候选 run 的 `head_sha`（评审对象必须就是待合并对象，R3 期间本地 HEAD 前移即 `[CI-GATE-LOCAL-HEAD-MOVED]`）；② 该 run 的 `path` / `event` / `pull_requests[].number` 三处身份比较一律**大小写敏感**——PowerShell 的 `-eq` / `-in` / `-notin` / `-contains` 与属性访问默认不敏感，`CI.yml@MASTER` 或只带 `Number` 的关联条目会被静默放行，故这三处禁用不敏感运算符；③ 候选 `ci.yml` 声明的 job 集与该 run 返回的 job 集须逐名大小写敏感地相等（jobs 只在 run 已 completed+success 之后读，那时集合已终局），不等即 `[CI-GATE-JOBS-DRIFT]`；④ 整段只有**一个** wall-clock deadline（`SCAFFOLD_CI_TIMEOUT_SEC`，默认 1800s），所有 gh 与 git 子进程都在它之内启动、超时即杀**进程树**，重试 sleep 只花剩余预算；⑤ 决策前再取一次 exact-head/base 快照——base 前移、PR 被 retarget、head 前移、workflow run 身份漂移，任一发生都不合并。`-NoAutoMerge` **只**跳过最后的合并腿，上述每一层照跑照拦。机检：`selftest.ps1 -Shard seeded-remote` 的 `T37-CIGATE/WORKFLOW-BINDING`（身份链 / 大小写变体 / deadline 进程树 / 终局快照 / `-NoAutoMerge` 不放松）与 `T37-CIGATE/JOBS-DRIFT`（job 集漂移两平面）。
+
 纯文档 PR 仍产生同名 `verify` 状态，避免 required check 因 `pull_request.paths-ignore` 永久停在 Expected。只有非空改动全部位于 `docs/**`、`specs/**` 或为 Markdown 时才走轻量通道；该通道仍 fail-closed 运行卡片校验、归档索引投影与普通密钥扫描，跳过 Python/Java/Android/Gradle、许可和产品 E2E。源码、脚本、workflow、混合或分类失败一律完整 CI。默认分支纯文档 push 继续由既有 `paths-ignore` 跳过；含代码 push 与手动触发完整执行。
 
 `scaffold-selftest` 不进 PR 必需检查；仅默认分支权威面 push 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。

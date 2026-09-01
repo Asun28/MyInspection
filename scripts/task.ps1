@@ -102,8 +102,14 @@ $Py = $ScaffoldConfig.PythonVersion
 
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
-function Invoke-GhBeforeDeadline {
+# 候选 CI 闸的**唯一**外部调用出口（T0-CI-IDENTITY-DEADLINE）：gh 与 git 都从这里起子进程。
+# 为什么必须是同一个出口：这一段只允许存在一个 wall-clock deadline。任何绕开它的直调（旧码里的
+# `& git fetch` / `& git rev-parse`）都是一条不受预算约束的腿——网络挂起时闸会无限期停在那里，
+# 而调用方以为自己配了 30 分钟上限。超时一律 `Kill($true)` 杀**整棵进程树**（子进程可能又派了孙进程；
+# 只杀直接子进程会把孤儿留在后台继续跑）。
+function Invoke-ExternalBeforeDeadline {
   param(
+    [Parameter(Mandatory)][string]$Command,
     [Parameter(Mandatory)][string[]]$Arguments,
     [Parameter(Mandatory)][DateTimeOffset]$Deadline,
     [Parameter(Mandatory)][string]$WorkingDirectory
@@ -115,11 +121,12 @@ function Invoke-GhBeforeDeadline {
   $psi.WorkingDirectory = $WorkingDirectory
   $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
   [void]$psi.ArgumentList.Add('-NoProfile'); [void]$psi.ArgumentList.Add('-Command')
-  [void]$psi.ArgumentList.Add('$ghArgs = @($env:SCAFFOLD_GH_ARGS_JSON | ConvertFrom-Json); & gh @ghArgs; exit $LASTEXITCODE')
-  $psi.Environment['SCAFFOLD_GH_ARGS_JSON'] = ($Arguments | ConvertTo-Json -Compress)
+  [void]$psi.ArgumentList.Add('$a = @($env:SCAFFOLD_EXTERNAL_ARGS_JSON | ConvertFrom-Json); & $env:SCAFFOLD_EXTERNAL_COMMAND @a; exit $LASTEXITCODE')
+  $psi.Environment['SCAFFOLD_EXTERNAL_COMMAND'] = $Command
+  $psi.Environment['SCAFFOLD_EXTERNAL_ARGS_JSON'] = ($Arguments | ConvertTo-Json -Compress)
   $proc = [Diagnostics.Process]::new(); $proc.StartInfo = $psi
   try {
-    if (-not $proc.Start()) { throw "无法启动 gh 子进程：$($Arguments -join ' ')" }
+    if (-not $proc.Start()) { throw "无法启动 $Command 子进程：$($Arguments -join ' ')" }
     $stdoutTask = $proc.StandardOutput.ReadToEndAsync(); $stderrTask = $proc.StandardError.ReadToEndAsync()
     if (-not $proc.WaitForExit($remainingMs)) {
       try { $proc.Kill($true) } catch { }
@@ -138,6 +145,28 @@ function Invoke-GhBeforeDeadline {
     }
     return [pscustomobject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Stdout = $stdoutTask.GetAwaiter().GetResult(); Stderr = $stderrTask.GetAwaiter().GetResult() }
   } finally { $proc.Dispose() }
+}
+function Invoke-GhBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string[]]$Arguments,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  return (Invoke-ExternalBeforeDeadline -Command 'gh' -Arguments $Arguments -Deadline $Deadline -WorkingDirectory $WorkingDirectory)
+}
+# 候选 CI 闸内的 git 也走同一个 deadline。返回空串 = 该 ref 读不出来（调用方按「基线不可判」fail-closed）；
+# 超时**不**退化成空串，而是直接抛超时哨兵——否则「网络挂了」会伪装成「基线变了」，恢复路由指错方向。
+function Get-GitOidBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$Ref,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  $r = Invoke-ExternalBeforeDeadline -Command 'git' -Arguments @('-C', $WorkingDirectory, 'rev-parse', $Ref) `
+    -Deadline $Deadline -WorkingDirectory $WorkingDirectory
+  if ($r.TimedOut) { throw "[CI-GATE-TIMEOUT] git rev-parse $Ref。" }
+  if ($r.ExitCode -ne 0) { return '' }
+  return "$($r.Stdout)".Trim()
 }
 function Wait-CiRetryBeforeDeadline([DateTimeOffset]$Deadline) {
   $sleepMs = [int][Math]::Min(1000, [Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)))
@@ -224,6 +253,59 @@ function Get-ExactHeadChecksBeforeDeadline {
     ("$($_.conclusion)" -in @('failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale'))
   })
   return [pscustomobject]@{ Readable = $true; TimedOut = $false; Runs = $runs; Blocking = $blocking; Reason = '' }
+}
+
+# 候选 run 与本 PR 的关联判定（T0-CI-IDENTITY-DEADLINE）。返回**恰好匹配的条目数**，调用方要求 == 1。
+# 为什么不能写成 `$prs | Where-Object { "$($_.number)" -ceq "$pr" }`：PowerShell 的**属性访问本身**大小写不敏感，
+# 于是一个只带 `Number` 的条目照样被读成 `number` 而通过关联校验——载荷形状与我们校验过的那一份并不相同，
+# 「这个 run 属于这个 PR」这条证据就此失去意义（原卡实测踩中）。故属性名走 `-ccontains` 敏感核对，
+# 值走 `Test-JsonInteger`（字符串 "218" 与 218.0 都不是 JSON 整数，不得靠 [long] 强转把它们洗白）。
+function Get-CandidateRunPrMatchCount {
+  param([AllowNull()]$PullRequests, [Parameter(Mandatory)][int]$Pr)
+  if ($PullRequests -isnot [System.Array]) { return 0 }
+  return @($PullRequests | Where-Object {
+    ($_ -is [pscustomobject]) -and (@($_.PSObject.Properties.Name) -ccontains 'number') -and
+    (Test-JsonInteger $_.number) -and ([long]$_.number -eq [long]$Pr)
+  }).Count
+}
+
+# 候选 run 的 job 集判定（T0-CI-IDENTITY-DEADLINE）。**只在 workflow run 自身已 completed+success 之后调用**，
+# 那一刻 job 集已终局——故「声明集 ≠ 返回集」是漂移、不是「还没跑出来」，必须当场 fail-closed。旧实现把它并进
+# 等待清单，于是多一个未声明的 job / 少一个已声明的 job 都只是让闸静静等到 deadline 耗尽，报出来的还是超时，
+# 既误导又白烧整个预算。名字比较一律大小写敏感：GitHub 的 job 名区分大小写，`Verify` 不是 `verify`。
+# 三态是全集（漂移 / 阻断 / 待定），无法归类的 status 归漂移而非默认放行——闸的分类器必须是全函数（L228）。
+function Get-ExactCandidateJobState {
+  param([AllowEmptyCollection()][object[]]$Jobs, [Parameter(Mandatory)][string[]]$Wanted)
+  $drift = { param($why) [pscustomobject]@{ Drift = $true; Reason = $why; Blocking = @(); Pending = @() } }
+  $names = @()
+  foreach ($job in @($Jobs)) {
+    if ($job -isnot [pscustomobject]) { return (& $drift 'job 条目不是 JSON object') }
+    $props = @($job.PSObject.Properties.Name)
+    if ((@(@('name', 'status', 'conclusion') | Where-Object { $props -cnotcontains $_ }).Count -gt 0) -or
+        ($job.name -isnot [string]) -or ($job.status -isnot [string]) -or
+        (($null -ne $job.conclusion) -and ($job.conclusion -isnot [string])) -or
+        [string]::IsNullOrWhiteSpace($job.name)) {
+      return (& $drift 'job 条目缺 name/status/conclusion 或类型不符')
+    }
+    $names += "$($job.name)"
+  }
+  # 集合相等 = 「同一批名字 + 同样的重数」。两个判据各管一半、互不复述：计数不看名字（且是 Compare-Object
+  # 的入参前置——该 cmdlet 不接受空集合，两侧都空时它根本不会被调用）；Compare-Object 只管逐名内容，
+  # 且必须带 -CaseSensitive——GitHub 的 job 名区分大小写，默认不敏感会把 `Verify` 当成 `verify` 放过去。
+  $actual = @($names | Sort-Object); $expected = @($Wanted | Sort-Object)
+  if (($actual.Count -ne $expected.Count) -or
+      (($expected.Count -gt 0) -and (@(Compare-Object -ReferenceObject $expected -DifferenceObject $actual -CaseSensitive).Count -gt 0))) {
+    return (& $drift "expected=$($expected -join ','); actual=$($actual -join ',')")
+  }
+  $blocking = @(); $pending = @()
+  foreach ($job in @($Jobs)) {
+    $status = "$($job.status)"; $conclusion = "$($job.conclusion)"
+    if ($status -ieq 'completed') { if ($conclusion -ine 'success') { $blocking += $job } }
+    elseif ((-not [string]::IsNullOrWhiteSpace($conclusion)) -and ($conclusion -ine 'success')) { $blocking += $job }
+    elseif ($status -cin @('queued', 'in_progress', 'pending', 'requested', 'waiting')) { $pending += $job }
+    else { return (& $drift "job '$($job.name)' status '$status' 不可判") }
+  }
+  return [pscustomobject]@{ Drift = $false; Reason = ''; Blocking = $blocking; Pending = $pending }
 }
 
 # TD45：卡片解析共享自 _cards.ps1（front-matter-only 提取 + 大小写敏感取值 + 注释剥离）。
@@ -798,15 +880,15 @@ switch ($Phase) {
           throw "[CI-GATE-WORKFLOW-IDENTITY] 缺属性：$($miss -join ', ')"
         }
         $runId = 0L; $attempt = 0; $path = "$($run.path)"
-        $prs = $run.pull_requests; $pm = @()
-        if ($prs -is [System.Array]) {
-          $pm = @($prs | Where-Object { "$($_.number)" -ceq "$pr" })
-        }
+        # 身份三处（event / path / PR 关联属性名）全部走大小写敏感比较：`-cne` / `-cnotmatch` /
+        # Get-CandidateRunPrMatchCount。换成 -ne / -notin / -notmatch 会让 `Pull_Request`、`CI.yml@MASTER`、
+        # 只带 `Number` 的关联条目一并过闸——闸被静默放宽，而放宽是看不见的。
+        $prMatch = Get-CandidateRunPrMatchCount -PullRequests $run.pull_requests -Pr $pr
         if ((-not [long]::TryParse("$($run.id)", [ref]$runId)) -or ($runId -le 0) -or
             (-not [int]::TryParse("$($run.run_attempt)", [ref]$attempt)) -or ($attempt -le 0) -or
             ("$($run.head_sha)" -cne $head) -or ("$($run.event)" -cne 'pull_request') -or
-            ($path -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($pm.Count -ne 1)) {
-          Add-CatchRecord 'ci' "wf=$($run.id)/$($run.run_attempt)/$($run.head_sha)/$($run.event)/$path/prs=$($pm.Count)"
+            ($path -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($prMatch -ne 1)) {
+          Add-CatchRecord 'ci' "wf=$($run.id)/$($run.run_attempt)/$($run.head_sha)/$($run.event)/$path/prs=$prMatch"
           throw "[CI-GATE-WORKFLOW-IDENTITY] PR #$pr workflow 身份不唯一/不匹配。"
         }
         $ws = "$($run.status)"; $wc = "$($run.conclusion)"
@@ -830,30 +912,31 @@ switch ($Phase) {
           Add-CatchRecord 'ci' "jobs API: $($jobPg.Reason)"
           throw "[CI-GATE-API] jobs: $($jobPg.Reason)"
         }
-        $jobs = @($jobPg.Items)
-        $wait = @()
-        foreach ($j in $want) {
-          $jm = @($jobs | Where-Object { "$($_.name)" -ceq $j })
-          if ($jm.Count -ne 1) { $wait += "$j=match($($jm.Count))"; continue }
-          $job = $jm[0]
-          $st = "$($job.status)"; $co = "$($job.conclusion)"
-          if (($st -ieq 'completed') -and ($co -ine 'success')) {
-            Add-CatchRecord 'ci' "$j=$st/$co"
-            throw "[CI-GATE-RED] job '$j'=$st/$co。"
-          }
-          if (($st -ine 'completed') -or ($co -ine 'success')) { $wait += "$j=$st/$co" }
+        $jobState = Get-ExactCandidateJobState -Jobs @($jobPg.Items) -Wanted $want
+        if ($jobState.Drift) {
+          Add-CatchRecord 'ci' "jobs:$($jobState.Reason)"
+          throw "[CI-GATE-JOBS-DRIFT] $($jobState.Reason)。"
         }
-        if (($jobs.Count -ne $want.Count) -and ($wait.Count -eq 0)) { $wait += "jobs=$($jobs.Count)/$($want.Count)" }
-        if ($wait.Count -eq 0) { break }
-        $last = $wait -join ', '
+        if ($jobState.Blocking.Count -gt 0) {
+          $badJob = $jobState.Blocking[0]
+          Add-CatchRecord 'ci' "$($badJob.name)=$($badJob.status)/$($badJob.conclusion)"
+          throw "[CI-GATE-RED] job '$($badJob.name)'=$($badJob.status)/$($badJob.conclusion)。"
+        }
+        if ($jobState.Pending.Count -eq 0) { break }
+        $last = @($jobState.Pending | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
         Wait-CiRetryBeforeDeadline $ddl
       }
-      & git -C $Wt fetch --quiet --no-tags origin "+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}" 2>$null
-      if ($LASTEXITCODE -ne 0) {
+      # 这次 fetch 是网络调用：它必须和 gh 共用同一个 deadline，否则整段的「单一 wall-clock 上限」在这里破口，
+      # 一个挂起的 origin 会让闸无限期停在合并前的最后一步（旧码此处是不受预算约束的直调 `& git fetch`）。
+      $baseFetch = Invoke-ExternalBeforeDeadline -Command 'git' `
+        -Arguments @('-C', $Wt, 'fetch', '--quiet', '--no-tags', 'origin', "+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}") `
+        -Deadline $ddl -WorkingDirectory $Wt
+      if ($baseFetch.TimedOut) { Add-CatchRecord 'ci' "timeout ${toSec}s: base fetch"; throw "[CI-GATE-TIMEOUT] base fetch origin/$remoteBaseName。" }
+      if ($baseFetch.ExitCode -ne 0) {
         Add-CatchRecord 'ci' "base refresh:origin/$remoteBaseName"
         throw "[CI-GATE-BASE-REFRESH] origin/$remoteBaseName。"
       }
-      $baseNow = "$(& git -C $Wt rev-parse "refs/remotes/origin/$remoteBaseName" 2>$null)".Trim()
+      $baseNow = Get-GitOidBeforeDeadline -Ref "refs/remotes/origin/$remoteBaseName" -Deadline $ddl -WorkingDirectory $Wt
       if (($baseNow -cnotmatch '^[0-9a-f]{40}$') -or ($baseNow -cne $scopeBaseOid)) {
         Add-CatchRecord 'ci' "base:$scopeBaseOid->$baseNow"
         throw "[CI-GATE-BASE-MOVED] $scopeBaseOid -> '$baseNow'。"
@@ -881,13 +964,14 @@ switch ($Phase) {
       if ($fwRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] final runs=$($fwRuns.Count)。" }
       $fwRun = $fwRuns[0]; $fwId = 0L; $fwTry = 0
       $fwProp = @($fwRun.PSObject.Properties.Name)
-      $fwPrs = $fwRun.pull_requests; $fwPm = @()
-      if ($fwPrs -is [System.Array]) { $fwPm = @($fwPrs | Where-Object { "$($_.number)" -ceq "$pr" }) }
+      # 终局快照与稳定态复用同一个大小写敏感的关联判定——两处口径必须逐字一致，否则「决策前再看一眼」
+      # 看的是一套更松的标准，等于没看。
+      $fwPrMatch = Get-CandidateRunPrMatchCount -PullRequests $fwRun.pull_requests -Pr $pr
       if (@(@('id', 'head_sha', 'event', 'status', 'conclusion', 'run_attempt', 'path', 'pull_requests') | Where-Object { $fwProp -cnotcontains $_ }).Count -gt 0 -or
           (-not [long]::TryParse("$($fwRun.id)", [ref]$fwId)) -or ($fwId -ne $runId) -or
           (-not [int]::TryParse("$($fwRun.run_attempt)", [ref]$fwTry)) -or ($fwTry -ne $attempt) -or
           ("$($fwRun.head_sha)" -cne $head) -or ("$($fwRun.event)" -cne 'pull_request') -or
-          ("$($fwRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($fwPm.Count -ne 1)) {
+          ("$($fwRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($fwPrMatch -ne 1)) {
         throw "[CI-GATE-WORKFLOW-IDENTITY] 决策前 workflow 身份漂移（id=$($fwRun.id), expected=$runId）。"
       }
       $fwSt = "$($fwRun.status)"; $fwCo = "$($fwRun.conclusion)"
@@ -900,16 +984,20 @@ switch ($Phase) {
         -CollectionProperty 'jobs' -Deadline $ddl -WorkingDirectory $Wt
       if ($fjPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final jobs: $($fjPg.Reason)" }
       if (-not $fjPg.Readable) { throw "[CI-GATE-API] final jobs: $($fjPg.Reason)" }
-      $fJobs = @($fjPg.Items); $fjWait = @()
-      foreach ($j in $want) {
-        $fm = @($fJobs | Where-Object { "$($_.name)" -ceq $j })
-        if ($fm.Count -ne 1) { $fjWait += "$j=match($($fm.Count))"; continue }
-        $fs = "$($fm[0].status)"; $fc = "$($fm[0].conclusion)"
-        if (($fs -ieq 'completed') -and ($fc -ine 'success')) { throw "[CI-GATE-RED] $j=$fs/$fc" }
-        if (($fs -ine 'completed') -or ($fc -ine 'success')) { $fjWait += "$j=$fs/$fc" }
+      $fjState = Get-ExactCandidateJobState -Jobs @($fjPg.Items) -Wanted $want
+      if ($fjState.Drift) {
+        Add-CatchRecord 'ci' "final jobs:$($fjState.Reason)"
+        throw "[CI-GATE-JOBS-DRIFT] final $($fjState.Reason)。"
       }
-      if (($fJobs.Count -ne $want.Count) -and ($fjWait.Count -eq 0)) { $fjWait += "jobs=$($fJobs.Count)/$($want.Count)" }
-      if ($fjWait.Count -gt 0) { $last = "final jobs: $($fjWait -join ', ')"; Wait-CiRetryBeforeDeadline $ddl; continue ciStable }
+      if ($fjState.Blocking.Count -gt 0) {
+        $fBad = $fjState.Blocking[0]
+        Add-CatchRecord 'ci' "final $($fBad.name)=$($fBad.status)/$($fBad.conclusion)"
+        throw "[CI-GATE-RED] final job '$($fBad.name)'=$($fBad.status)/$($fBad.conclusion)。"
+      }
+      if ($fjState.Pending.Count -gt 0) {
+        $last = "final jobs: $(@($fjState.Pending | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', ')"
+        Wait-CiRetryBeforeDeadline $ddl; continue ciStable
+      }
       $prRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'baseRefName,headRefOid') -Deadline $ddl -WorkingDirectory $Wt
       if ($prRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 最终 base/head 快照超过 ${toSec}s。" }
       $prRaw2 = "$($prRead.Stdout)"; $prExit = $prRead.ExitCode
