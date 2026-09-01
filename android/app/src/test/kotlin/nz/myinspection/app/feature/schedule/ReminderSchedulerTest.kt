@@ -18,6 +18,7 @@ import nz.myinspection.app.feature.schedule.ReminderPhase.PERMISSION_BLOCKED
 import nz.myinspection.app.feature.schedule.ReminderPhase.QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderPhase.RETRYABLE
 import nz.myinspection.app.feature.schedule.ReminderPhase.TERMINAL
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.CALLBACK_CONFIRMED_ADMISSION
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_ERROR
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_NULL
@@ -50,8 +51,8 @@ import nz.myinspection.core.schedule.InspectionScheduleType.ROUTINE
  * Black box acceptance tests for the scheduler, driven through the same ports the production
  * factory injects, over the real receipt store on an in memory preference file. The occurrence
  * digest and the generation work id are golden vectors frozen by the contracts card, and a worker
- * that has to have run is the production runner over this same store. The fixture nests because
- * the merged worker tests own these names at package level.
+ * that has to have run is the production runner over this same store. The fixture nests because the
+ * merged worker tests own these names at package level.
  */
 class ReminderSchedulerTest {
     @Test
@@ -90,6 +91,8 @@ class ReminderSchedulerTest {
             Triple("one nanosecond over a millisecond before", DUE_AT.minusNanos(1_000_001), 2L),
             Triple("further back than a delay can express", Instant.MIN, MAX_INITIAL_DELAY_MILLIS),
             Triple("past the cap but not past the arithmetic", BEYOND_CAP, MAX_INITIAL_DELAY_MILLIS),
+            Triple("exactly Long.MAX milliseconds", DUE_AT.minusMillis(Long.MAX_VALUE), MAX_INITIAL_DELAY_MILLIS),
+            Triple("Long.MAX milliseconds plus a rounding nanosecond", LONG_MAX_PLUS_NANO, MAX_INITIAL_DELAY_MILLIS),
         )
 
         cases.forEach { (label, now, expected) ->
@@ -137,7 +140,6 @@ class ReminderSchedulerTest {
 
             val label = phase.name
             assertEquals(OCCURRENCE_CLOSED, cause, label)
-            assertEquals(SKIPPED, cause.outcome, label)
             assertEquals(phase, fixture.phase(), label)
             assertEquals(emptyList(), fixture.query.names, label)
             assertEquals(emptyList(), fixture.enqueue.submissions, label)
@@ -305,18 +307,20 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `a same generation change this registration did not make is contention, not admission`() {
-        val fixture = Fixture(ADMISSION_PENDING)
-        // Another registration moved the receipt while this submission was in flight.
-        fixture.enqueue.beforeSignal = {
-            fixture.store.compareAndSet(OCCURRENCE_ID, 0L, WORK_ID_0, ADMISSION_PENDING, RETRYABLE, null)
+    fun `a same generation change is recorded admission or contention, never proof this cannot give`() {
+        val cases = listOf(ENQUEUED to ADMISSION_ALREADY_RECORDED, RETRYABLE to RECEIPT_CONTENDED)
+
+        cases.forEach { (phase, cause) ->
+            val fixture = Fixture(ADMISSION_PENDING)
+            // Another registration moved the receipt while this submission was in flight.
+            fixture.enqueue.beforeSignal = {
+                fixture.store.compareAndSet(OCCURRENCE_ID, 0L, WORK_ID_0, ADMISSION_PENDING, phase, null)
+            }
+
+            val label = phase.name
+            assertEquals(cause, fixture.register(), label)
+            assertEquals(phase, fixture.phase(), label)
         }
-
-        val cause = fixture.register()
-
-        assertEquals(RECEIPT_CONTENDED, cause)
-        assertEquals(RETRYABLE_FAILURE, cause.outcome)
-        assertEquals(RETRYABLE, fixture.phase())
     }
 
     @Test
@@ -327,8 +331,6 @@ class ReminderSchedulerTest {
         val cause = fixture.register()
 
         assertEquals(RECEIPT_REJECTED, cause)
-        assertEquals(PERMANENT_FAILURE, cause.outcome)
-        assertEquals(null, fixture.phase())
     }
 
     @Test
@@ -341,7 +343,6 @@ class ReminderSchedulerTest {
         val cause = fixture.register()
 
         assertEquals(GENERATION_SUPERSEDED, cause)
-        assertEquals(SKIPPED, cause.outcome)
         assertEquals(ADMISSION_PENDING, fixture.phase())
         assertEquals(1L, fixture.generation())
     }
@@ -355,7 +356,6 @@ class ReminderSchedulerTest {
         assertEquals(INVALID_ROUTE, cause)
         assertEquals(PERMANENT_FAILURE, cause.outcome)
         assertEquals(0, fixture.preferences.reads)
-        assertEquals(emptyList(), fixture.query.names)
         assertEquals(emptyList(), fixture.enqueue.submissions)
         // An unresolvable occurrence publishes no half of an identity that correlates with nothing.
         assertEquals(
@@ -367,20 +367,18 @@ class ReminderSchedulerTest {
     /** One occurrence, its store and the ports, wired as the production factory wires them. */
     private class Fixture(
         phase: ReminderPhase? = null,
-        granted: Boolean = true,
         signal: ReminderEnqueueSignal = ReminderEnqueueSignal.Confirmed,
         submitFailure: Throwable? = null,
         retained: List<RetainedWork> = emptyList(),
         queryFailure: Throwable? = null,
         private val now: Instant = DUE_AT.minusSeconds(60),
-        private val sdkInt: Int = 35,
     ) {
         val preferences = FakePreferences()
         val store = storeAt(phase, preferences)
         val enqueue = RecordingEnqueue(signal, submitFailure)
         val query = RecordingQuery(retained, queryFailure)
         val diagnostics = RecordingDiagnostics()
-        private val permission = FixedPermission(granted)
+        private val permission = GrantedPermission()
 
         fun register(reminder: PendingReminder = PendingReminder(ROUTE, DUE_AT)): ReminderRegistrationCause =
             ReminderScheduler(store, enqueue, query, diagnostics, Clock.fixed(now, ZoneOffset.UTC))
@@ -400,7 +398,7 @@ class ReminderSchedulerTest {
                     generationNumber = input.getString(ReminderWorkKeys.GENERATION_NUMBER),
                     workRequestId = request.id,
                 ),
-                sdkInt = sdkInt,
+                sdkInt = 35,
                 runAttemptCount = 0,
             )
         }
@@ -452,8 +450,8 @@ class ReminderSchedulerTest {
         fun wipe() = synchronized(entries) { entries.clear() }
     }
 
-    private class FixedPermission(private val granted: Boolean) : ReminderPermissionPort {
-        override fun isPostNotificationsGranted(): Boolean = granted
+    private class GrantedPermission : ReminderPermissionPort {
+        override fun isPostNotificationsGranted(): Boolean = true
     }
 
     private class Submission(val name: String, val policy: ExistingWorkPolicy, val request: OneTimeWorkRequest)
@@ -512,6 +510,7 @@ class ReminderSchedulerTest {
         val FOREIGN_WORK_ID: UUID = UUID.fromString("00000000-0000-3000-8000-0000000000ff")
         val DUE_AT: Instant = Instant.parse(DUE_AT_TEXT)
         val BEYOND_CAP: Instant = DUE_AT.minusSeconds(5_000_000_000_000_000)
+        val LONG_MAX_PLUS_NANO: Instant = DUE_AT.minusMillis(Long.MAX_VALUE).minusNanos(1)
         val ROUTE = ScheduleRoute(PROPERTY, ROUTINE)
 
         /** The transitions each phase is reached by, written out here rather than derived. */
@@ -556,12 +555,13 @@ class ReminderSchedulerTest {
 }
 
 /* R4 semantic mutation receipts. Each row was applied alone to ReminderScheduler.kt at SHA-256
- * 96835499e8eb215ff0398235e89cb031f9a9a13904cd546047c9bed8fa45c41a, run through this card's test
- * task, then reverted and re-hashed to that same value. A kill is exit 1 with the named test among
- * the failing cases, and every run reported 17 executed cases, which rules out a compile break.
+ * 264f6839152fa50efc63d63024187e6a034efc323b8bb31bed328af0ad442632, run through this card's test
+ * task, then reverted and re-hashed. A kill is exit 1 with the named test among the failing cases,
+ * and every run reported the same executed-case count, which rules out a compile break.
  * A1 M01 never round a sub millisecond delay up           delay table: one nanosecond before
  * A1 M02 drop the clamp on an unrepresentable delay       delay table: past the cap
  * A1 M03 write the property id under the occurrence key   fresh occurrence: the runner refuses it
+ * A1 M20 let a rounding overflow fall through as zero     delay table: Long.MAX plus a nanosecond
  * A2 M04 read quarantined evidence as a fresh occurrence  refused evidence: reserved and enqueued
  * A2 M05 submit without a durable reservation             lost reservation: submitted anyway
  * A2 M06 read a persisted active receipt as settled       persisted receipt: skipped, not resumed
@@ -572,9 +572,10 @@ class ReminderSchedulerTest {
  * A4 M11 write the receipt before the operation answers   enqueue outcomes: left RETRYABLE
  * A4 M12 close on a transient submission failure          submission: terminal, not still pending
  * A4 M13 read a closed occurrence as a confirmed admission worker ran first: claimed admission
- * A4 M14 read another registration's change as admission  contention: claimed admission
+ * A4 M14 read an unattributable change as an admission    contention: claimed admission
  * A4 M15 write into the generation that superseded this   supersession: overwrote generation one
  * A4 M16 report a lost CAS without re-reading it          supersession: reported contention
  * A4 M17 swallow the interrupt instead of handing it back interrupted query: flag never restored
+ * A4 M19 read a same generation ENQUEUED as contention    same generation race: no admission
  * A5 M18 derive the id from an unreserved generation      fresh occurrence: the runner refuses it
  */

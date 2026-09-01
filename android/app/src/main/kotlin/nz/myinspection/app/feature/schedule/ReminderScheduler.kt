@@ -48,6 +48,7 @@ enum class ReminderRegistrationOutcome {
 enum class ReminderRegistrationCause(val outcome: ReminderRegistrationOutcome) {
     CALLBACK_CONFIRMED_ADMISSION(ReminderRegistrationOutcome.ADMITTED),
     RETAINED_WORK_ENQUEUED(ReminderRegistrationOutcome.ADMITTED),
+    ADMISSION_ALREADY_RECORDED(ReminderRegistrationOutcome.ADMITTED),
     ENQUEUE_CALLBACK_NULL(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
     ENQUEUE_CALLBACK_ERROR(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
     ENQUEUE_CALLBACK_THROWABLE(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
@@ -265,8 +266,7 @@ class ReminderScheduler(
     /**
      * Applies one phase change, re-reading rather than overwriting when the store says the caller's
      * view is stale. A lost compare and set is reported rather than retried in a loop: the re-read
-     * already names why it was lost, and a registration that reports contention is one the caller
-     * repeats from the top rather than one that spins here.
+     * already names why it was lost, and the caller repeats a contended registration from the top.
      */
     private fun advance(
         receipt: ReminderReceipt,
@@ -289,10 +289,10 @@ class ReminderScheduler(
     }
 
     /**
-     * Reports what replaced this registration's view of the receipt. Nothing here claims an
-     * admission: within one generation both the matching worker and another registration can leave
-     * ADMISSION_PENDING, and the phase alone cannot tell them apart, so a same generation change
-     * this registration did not make is contention rather than proof of anything.
+     * Reports what replaced this registration's view of the receipt. Only ENQUEUED is admission:
+     * it is written after WorkManager accepted this generation's request, by the matching worker or
+     * by a registration that saw the same acceptance. RETRYABLE is not, because a failed enqueue
+     * callback writes it too, so an unattributable same generation change is contention.
      */
     private fun reread(lookup: ReminderReceiptLookup, current: ReminderReceipt): Settlement {
         // The store reports Stale only with the receipt it read under its own lock, and answers a
@@ -302,6 +302,7 @@ class ReminderScheduler(
         return when {
             fresh.generationNumber != current.generationNumber ->
                 fresh.settle(ReminderRegistrationCause.GENERATION_SUPERSEDED)
+            fresh.phase == ENQUEUED -> fresh.settle(ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED)
             fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
             else -> fresh.settle(RECEIPT_CONTENDED)
         }
