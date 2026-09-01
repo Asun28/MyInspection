@@ -40,7 +40,7 @@
 
 ### 2.5 长任务、安全与外部边界
 
-`empty-state-panel`、`loading-indicator`、`task-progress-card`、`recovery-panel`、`backup-health-card`、`destination-row`、`task-stepper`、`preflight-summary`、`confirmation-dialog`、`undo-snackbar`、`share-boundary-callout`、`report-action-sheet`、`notice-delivery-row`、`compliance-check-row`、`remediation-suggestion-card`、`focus-indicator`。
+`empty-state-panel`、`loading-indicator`、`task-progress-card`、`recovery-panel`、`backup-health-card`、`destination-row`、`task-stepper`、`preflight-summary`、`import-mapping-summary`、`import-mapping-row`、`confirmation-dialog`、`undo-snackbar`、`share-boundary-callout`、`report-action-sheet`、`notice-delivery-row`、`compliance-check-row`、`remediation-suggestion-card`、`focus-indicator`。
 
 ## 3. 页面 → Elements 覆盖表
 
@@ -55,7 +55,8 @@
 | `INSPECTION_SETUP` | 以最少步骤建立有效巡检 | `task-scaffold`, `radio-group` 或 `segmented-control`, `date-time-field`, `choice-field`, `input-field`, `bottom-action-dock` | `validation-summary`, `compliance-block`, `recovery-panel` | `T2-CAPTURE-UI` |
 | `INSPECTION_CAPTURE` | 在当前房间完成证据 | `inspection-capture-scaffold`, `top-app-bar`, `missing-evidence-strip`, `room-progress-strip`, `room-progress-segment`, `inspection-item-card`, `evidence-rail`, `status-choice`, `photo-evidence-tile`, `save-status`, `bottom-action-dock` | `history-evidence-strip`, `phrase-sheet`, `audio-evidence-control`, `media-source-sheet`, `feedback-banner`, `recovery-panel`, `undo-snackbar` | `T2-CAPTURE-UI` |
 | `INSPECTION_REVIEW` | 找齐缺失证据并安全 finalize | `task-scaffold`, `summary-stat`, `section-header`, `review-gap-row`, `bottom-action-dock` | 完整时显示证据摘要；缺失时显示 `review-gap-row`; finalize 使用 `confirmation-dialog`; 失败使用 `feedback-banner` | `T2-CAPTURE-UI` / `T3-FINALIZE` |
-| `REPORT_EXPORT` | 选择受众/质量并导出 PDF | `task-scaffold`, `radio-group`, `segmented-control`, `disclosure-list`, `share-boundary-callout`, `bottom-action-dock` | `remediation-suggestion-card`（房东版）, `task-progress-card`, `verification-receipt`, `recovery-panel` | `T3-PDF-RENDERER` |
+| `REPORT_IMPORT` | 审核 Routine DOCX 并创建可编辑草稿 | `task-scaffold`, `task-stepper`, `choice-field`, `date-time-field`, `metadata-row`, `preflight-summary`, `disclosure-list`, `import-mapping-summary`, `import-mapping-row`, `bottom-action-dock` | `evidence-grid`, `media-preview`, `validation-summary`, `task-progress-card`, `recovery-panel`; 有 active draft 或任一 blocker 时不可提交 | `T3-REPORT-IMPORT-UI` |
+| `REPORT_EXPORT` | 选择受众/格式并生成一致报告 | `task-scaffold`, `radio-group`, `segmented-control`, `disclosure-list`, `share-boundary-callout`, `bottom-action-dock` | PDF 默认并显示质量选择；HTML 不显示质量；另有 `remediation-suggestion-card`（房东版）, `task-progress-card`, `verification-receipt`, `recovery-panel` | `T3-REPORT-EXPORT-UI` |
 | `NOTICE_CENTER` | 查看通知记录并新建通知 | `detail-scaffold`, `top-app-bar`, `section-header`, `notice-delivery-row` | `empty-state-panel`, `state-badge`, `feedback-banner` | `T4-NOTICES` |
 | `NOTICE_COMPOSE` | 生成合规通知并记录送达 | `task-scaffold`, `date-time-field`, `choice-field`, `input-field`, `compliance-block`, `share-boundary-callout`, `bottom-action-dock` | `validation-summary`, `notice-delivery-row`, `confirmation-dialog` | `T4-NOTICES` |
 | `HHC_CAPTURE` | 完成五类 Healthy Homes 快照 | `task-scaffold`, `section-header`, `compliance-check-row`, `input-field`, `bottom-action-dock` | `photo-evidence-tile`, `evidence-grid`, `compliance-block`, `recovery-panel` | `T6-HHC` |
@@ -70,6 +71,8 @@
 | `CAMERA_CAPTURE` | 高对比、单手取证 | `camera-capture-scaffold`, `camera-control`, `camera-shutter` | `camera-overlay-control`, `recovery-panel`; Import 始终是权限/相机失败的可用替代（平台允许时） | `T2-CAPTURE-UI` |
 | `CAMERA_REVIEW` | 审核临时照片再提交为证据 | `camera-capture-scaffold`, `media-preview`, `camera-review-bar`, `privacy-action`, `metadata-row` | `task-progress-card`, `recovery-panel`, `confirmation-dialog`（丢弃临时照片） | `T2-CAPTURE-UI` |
 
+`REPORT_IMPORT` 的固定阶段词汇是 `Details → Choose file → Scan → Match → Review → Create draft`。`Details` 必须由用户选择/确认 tenancy 和 report date，并把 current Routine template 显示为只读 metadata；缺失或无效值在相邻字段内阻塞提交并接收焦点，任务恢复时保留已确认值、当前阶段和焦点键。
+
 ## 4. Overlay 与系统界面覆盖
 
 | Surface | 类型 | 使用 Elements / 约束 | 返回焦点 |
@@ -82,8 +85,8 @@
 | finalize / discard / clear / remove confirmation | `ALERT_DIALOG` | `confirmation-dialog`; 明确对象、范围、不可逆性 | triggering action |
 | restore replacement confirmation | `ALERT_DIALOG` | `preflight-summary`, `confirmation-input`, `button-destructive` | Replace action or first blocker |
 | Android permission dialog | `SYSTEM_SURFACE` | 进入前可显示 `recovery-panel:PERMISSION`; 拒绝后不自动重复请求 | original trigger or recovery panel |
-| Folder/file/create picker | `SYSTEM_SURFACE` | `destination-row`; 进入前保存 request ID；显示 provider 边界；禁止 raw URI 出现在普通 UI | `destination-row` / source action |
-| PDF viewer / Sharesheet | `SYSTEM_SURFACE` | 前置 `share-boundary-callout`; 仅授予临时 scoped URI | originating action |
+| File/create picker | `SYSTEM_SURFACE` | DOCX 只选单文件；报告只保存已验证产物；保存 request ID，禁 raw URI/名称进入普通错误 | originating source/save action |
+| Report viewer / Sharesheet | `SYSTEM_SURFACE` | PDF/HTML 前置 `share-boundary-callout`; 只授予已验证产物临时 scoped URI | originating action |
 | Android app settings | `SYSTEM_SURFACE` | `recovery-panel`; 仅由用户点 `Open settings` 启动；回前台重新检查权限 | permission recovery panel |
 | Speech recognizer | `SYSTEM_SURFACE` | `input-field`, `phrase-sheet`; 无离线包时隐藏/降级；不阻塞键盘和短语 | voice trigger or note field |
 
@@ -104,6 +107,7 @@
 | Success | 普通自动保存保持安静；需要证明时显示绝对时间/计数/范围 | `save-status`, `verification-receipt` |
 | Destructive | 先预览影响，再明确动词/输入确认，执行中禁止重复/Back | `preflight-summary`, `confirmation-input`, `confirmation-dialog` |
 | External handoff | 明示副本将离开 app；“打开 chooser”不等于送达/保存 | `share-boundary-callout` |
+| Import mapping | 摘要持续显示 mapped/excluded/blocker 数量；blocker 直达稳定行；源内容只按数据呈现，绝不成为应用指令 | `import-mapping-summary`, `import-mapping-row` |
 
 ## 6. 无障碍与响应式验收
 

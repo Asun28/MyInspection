@@ -558,7 +558,7 @@ components:
   task-progress-card:
     compose: Surface liveRegion-polite
     codeName: FieldLedgerTaskProgressCard
-    variants: [BACKUP, RESTORE, EXPORT, ERASE, MEDIA_RECOVERY]
+    variants: [BACKUP, RESTORE, EXPORT, REPORT_IMPORT, ERASE, MEDIA_RECOVERY]
     rounded: "{rounded.lg}"
     states: [PREPARING, RUNNING, VERIFYING, SUCCEEDED, FAILED, CANCELLED]
   validation-summary:
@@ -604,6 +604,14 @@ components:
     compose: ListItem
     codeName: MediaAssignmentRow
     states: [UNASSIGNED, ASSIGNED, DUPLICATE, INVALID, SAVING]
+  import-mapping-row:
+    compose: ListItem
+    codeName: ImportMappingRow
+    states: [MATCHED, ACTION_REQUIRED, EXCLUDED, CONFIRMED]
+  import-mapping-summary:
+    compose: Surface
+    codeName: ImportMappingSummary
+    states: [SCANNING, REVIEW_REQUIRED, READY, COMMITTING, RECOVERY]
   audio-evidence-control:
     compose: Surface
     codeName: AudioEvidenceControl
@@ -625,12 +633,12 @@ components:
   task-stepper:
     compose: Column
     codeName: FieldLedgerTaskStepper
-    variants: [BACKUP, RESTORE, ERASE]
+    variants: [BACKUP, RESTORE, ERASE, REPORT_IMPORT]
     states: [UPCOMING, CURRENT, COMPLETE, FAILED]
   preflight-summary:
     compose: Surface
     codeName: FieldLedgerPreflightSummary
-    variants: [RESTORE, ERASE, MEDIA_CLEANUP, SHARE]
+    variants: [RESTORE, ERASE, MEDIA_CLEANUP, SHARE, IMPORT]
     rounded: "{rounded.lg}"
     states: [CHECKING, READY, BLOCKED, STALE]
   disclosure-list:
@@ -645,7 +653,7 @@ components:
   share-boundary-callout:
     compose: Surface
     codeName: ShareBoundaryCallout
-    variants: [PDF, NOTICE, DIAGNOSTIC]
+    variants: [PDF, HTML, NOTICE, DIAGNOSTIC]
     states: [VISIBLE, ACKNOWLEDGED]
   notice-delivery-row:
     compose: ListItem
@@ -663,7 +671,7 @@ components:
   report-action-sheet:
     compose: ModalBottomSheet
     codeName: ReportActionSheet
-    actions: [OPEN_PDF, SHARE, EXPORT_ANOTHER_QUALITY]
+    actions: [OPEN, SAVE, SHARE, EXPORT_ANOTHER]
     states: [OPEN, PREPARING, HANDING_OFF, ERROR, CLOSED]
 ---
 
@@ -739,8 +747,10 @@ flowchart TD
     P --> PH[Property hub · L2 HUB_STATIC]
     P -. first-run restore .-> RT
     PH --> IS[Inspection setup · L2 FULLSCREEN_TASK]
+    PH --> RI[Import Routine DOCX · L2 FULLSCREEN_TASK]
     IS --> IC[Room capture · L2 STREAM_CAPTURE]
     IC --> IR[Review & finalize · L2 FULLSCREEN_TASK]
+    RI -. atomic draft; rebuild IC parent .-> IR
     IR -. replace task subgraph .-> RE[Post-finalize export · L2 FULLSCREEN_TASK]
     IC --> CAM[Camera · L3 CAMERA_TASK]
     IC --> SS[Status / phrase sheets · L3 MODAL_SHEET]
@@ -748,7 +758,7 @@ flowchart TD
     NA --> NC[Notice compose · L3 FULLSCREEN_TASK]
     PH --> HHC[Healthy Homes snapshot · L2 FULLSCREEN_TASK]
     PH --> RA[Existing report actions · L3 MODAL_SHEET]
-    RA --> RX[Re-export quality · L2 FULLSCREEN_TASK]
+    RA --> RX[Re-export report · L2 FULLSCREEN_TASK]
 
     S[Schedule · L1 ROOT_STATIC] --> PH
 
@@ -773,10 +783,11 @@ flowchart TD
 | 2 | `PROPERTY_CREATE` | `properties/new` | `FULLSCREEN_TASK` | `PROPERTIES_ROOT` | Hidden | `T2-CAPTURE-UI` |
 | 2 | `PROPERTY_HUB` | `properties/{propertyId}` | `HUB_STATIC` | `PROPERTIES_ROOT` | Visible | `T2-CAPTURE-UI` |
 | 2 | `INSPECTION_SETUP` | `properties/{propertyId}/inspection/new` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T2-CAPTURE-UI` |
+| 2 | `REPORT_IMPORT` | `properties/{propertyId}/inspection/import` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-REPORT-IMPORT-UI` |
 | 2 | `INSPECTION_CAPTURE` | `inspections/{inspectionId}/capture` | `STREAM_CAPTURE` | `PROPERTY_HUB` | Hidden | `T2-CAPTURE-UI` |
 | 2 | `INSPECTION_REVIEW` | `inspections/{inspectionId}/review` | `FULLSCREEN_TASK` | `INSPECTION_CAPTURE` | Hidden | `T2-CAPTURE-UI` / `T3-FINALIZE` |
-| 2 | `REPORT_EXPORT` | `inspections/{inspectionId}/export` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-PDF-RENDERER` |
-| 2 | `REPORT_REEXPORT` | `inspections/{inspectionId}/re-export` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-PDF-RENDERER` |
+| 2 | `REPORT_EXPORT` | `inspections/{inspectionId}/export` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-REPORT-EXPORT-UI` |
+| 2 | `REPORT_REEXPORT` | `inspections/{inspectionId}/re-export` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T3-REPORT-EXPORT-UI` |
 | 2 | `NOTICE_CENTER` | `properties/{propertyId}/notices` | `PUSH_DETAIL` | `PROPERTY_HUB` | Hidden | `T4-NOTICES` |
 | 3 | `NOTICE_COMPOSE` | `inspections/{inspectionId}/notice/new` | `FULLSCREEN_TASK` | `NOTICE_CENTER` | Hidden | `T4-NOTICES` |
 | 2 | `HHC_CAPTURE` | `properties/{propertyId}/healthy-homes` | `FULLSCREEN_TASK` | `PROPERTY_HUB` | Hidden | `T6-HHC` |
@@ -793,7 +804,7 @@ flowchart TD
 
 The page inventory is exhaustive for route-backed surfaces. The overlay/system-surface registry below is exhaustive for non-route surfaces.
 
-Existing finalized inspections do not open an in-app report viewer. Selecting one opens `REPORT_ACTION_SHEET`, which exposes Open PDF through the system viewer, Share, and Export another quality. This preserves the explicit v1 exclusion of a read-only history/report viewer.
+Existing finalized inspections do not open an in-app report viewer. Selecting one opens `REPORT_ACTION_SHEET`, which exposes typed PDF/HTML Open, Save, Share, and Export another actions through system surfaces. This preserves the explicit exclusion of an in-app read-only history/report viewer.
 
 ### Page type contract
 
@@ -826,6 +837,8 @@ These rules remove page-level interpretation from implementation. Cards group on
 | `INSPECTION_SETUP` | Inspection type and date/time | One scrolling form in decision order: type → tenancy/baseline → date/time → template; conditional fields appear directly after their cause | Bottom CTA uses `Start inspection` and remains above IME/system insets | Core compliance failures show the entered value and valid correction inline; an unavailable tenancy-creation path is a blocking task-graph gap, never a fake selector value |
 | `INSPECTION_CAPTURE` | Property/room identity, exact missing evidence, room navigation | Room panorama, safe bulk action, then the item stream | Dock shows only `Next room`, `Review {N} missing items`, or `Review inspection` | Save, permission, media, and restoration failures preserve the current room/item and expose one recovery action |
 | `INSPECTION_REVIEW` | Decision fact: `{complete} of {total} items complete` | Missing state groups by room; each row names item, exact missing evidence, and `Fix`; when complete, show evidence totals and the permanence handoff | `Review {N} missing items` until complete; then `Finish inspection` | No disabled `Finish inspection` button and no undifferentiated error list; selecting a row returns to and focuses the exact control |
+| `REPORT_IMPORT` | Current step, selected property, user-confirmed tenancy and report date, current locked Routine template, and exact blocker count | `Details → Choose file → Scan → Match → Review → Create draft`; Details owns tenancy and report-date fields, while mapping summary then leads stable rows/photos. Exact status matches alone permit previewed bulk confirmation; unknown status, photo association and transient `UNREVIEWED_EXCLUDED` privacy each require explicit resolution | `Create editable draft` appears as the sole primary action only at zero blockers | Existing draft blocks entry. Missing/invalid tenancy or report date, picker/provider/space/process failure, or unresolved mapping is an adjacent blocker; focus moves to its exact field/row and restored task state preserves confirmed details and the last safe step |
+| `REPORT_EXPORT` | Finalized summary plus selected `PDF` or `HTML` format | Landlord and tenant cards keep independent format-keyed `Generating / Ready / Failed` evidence; PDF shows contextual quality, HTML never shows quality | One context action: Generate, Retry, Open, Save or Share | A failed sibling never removes a verified artifact; completion means close/reopen verification, never delivery or backup |
 
 Property cards never combine a clickable card surface with nested buttons. The surface is structural; one labelled full-width `Open property` action owns navigation. Search/filter stays absent until the active property count exceeds eight, avoiding permanent chrome for a small self-use list.
 
@@ -942,6 +955,8 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | `Add property` | Always | `PUSH` | `PROPERTY_CREATE` | Push | Cancel → originating Add property action |
 | `Open property` | Property exists | `PUSH` | `PROPERTY_HUB(propertyId)` | Push | Pop → source Open property button |
 | `Start inspection` | No active draft | `PUSH` | `INSPECTION_SETUP(propertyId)` | Push | Cancel → property primary card |
+| `Import existing report` | No active draft | `PUSH` | `REPORT_IMPORT(propertyId)` | Push | Cancel → originating import action |
+| Import `Create editable draft` | Zero blockers; reviewed media staged; draft/receipt transaction succeeds | `REPLACE` import with `INSPECTION_CAPTURE(inspectionId)`, then `PUSH` | `INSPECTION_REVIEW(inspectionId)` | Push | Entry focuses completeness summary/first gap; Back → editable Capture; Save and exit → property hub |
 | `Continue inspection` | Active draft exists | `PUSH` | `INSPECTION_CAPTURE(inspectionId)` | Push | Save barrier, then Pop → Continue card |
 | Schedule due-property card | Property exists | Select Properties; replace its stack with `PROPERTIES_ROOT → PROPERTY_HUB(propertyId)`; then `PUSH` | Existing draft → `INSPECTION_CAPTURE`; no draft → `INSPECTION_SETUP` | Top-level crossfade, stack commit, then Push | Pop → target `PROPERTY_HUB`, then Properties root |
 | Setup `Start inspection` | Required fields valid | `REPLACE` setup entry | `INSPECTION_CAPTURE(inspectionId)` | Push visual | Save and exit → property primary card |
@@ -952,12 +967,13 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | `Review inspection` | Missing count `0`; latest revision durably saved | `PUSH` | `INSPECTION_REVIEW(inspectionId)` | Push | Back → editable capture at Review inspection action |
 | Review `Finish inspection` | Current page is `INSPECTION_REVIEW`; missing count `0`; state `READY` | `SHOW_DIALOG` | `FINALIZE_CONFIRMATION` | Dialog | Cancel → Finish inspection button; confirm → finalize progress heading |
 | Finalize succeeds | Finalized record and immutable evidence seal committed | Replace capture task subgraph | `REPORT_EXPORT(inspectionId)` | Push visual | Close → `PROPERTY_HUB`, focus finalized inspection row |
-| Finalized inspection row | Finalized PDF metadata exists | `SHOW_SHEET` | `REPORT_ACTION_SHEET` | Sheet | Dismiss → source report row |
-| Report action `Open PDF` | PDF exists or render succeeds | `LAUNCH_SYSTEM` | `PDF_VIEWER` | System | Return → Open PDF action |
+| Finalized inspection row | At least one verified report artifact or a renderable finalized record exists | `SHOW_SHEET` | `REPORT_ACTION_SHEET` | Sheet | Dismiss → source report row |
+| Report action `Open` | Selected verified format exists or render succeeds | `LAUNCH_SYSTEM` | PDF → `PDF_VIEWER`; HTML → `HTML_VIEWER` | System | Return → source Open action |
+| Report action `Save` | Selected verified format exists | `LAUNCH_SYSTEM` | `REPORT_CREATE_DOCUMENT` | System | Return → source Save action |
 | Report action `Share` | Share URI granted | `LAUNCH_SYSTEM` | `SHARE_SHEET` | System | Return → Share action |
-| Report action `Export another quality` | Inspection finalized | Dismiss sheet, then `PUSH` from `PROPERTY_HUB` | `REPORT_REEXPORT(inspectionId)` | Push | Pop → source finalized inspection row |
+| Report action `Export another` | Inspection finalized | Dismiss sheet, then `PUSH` from `PROPERTY_HUB` | `REPORT_REEXPORT(inspectionId)` | Push | Pop → source finalized inspection row |
 
-`T2-CAPTURE-UI` emits the single-use `InspectionFinalized(inspectionId)` event. `T3-PDF-RENDERER` consumes it and performs the declared task-subgraph replacement. Recomposition never re-emits or re-consumes the event.
+`T2-CAPTURE-UI` emits the single-use `InspectionFinalized(inspectionId)` event. `T3-REPORT-EXPORT-UI` consumes it and performs the declared task-subgraph replacement. Recomposition never re-emits or re-consumes the event.
 
 ### Supporting routes and overlays
 
@@ -998,7 +1014,7 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | --- | --- | --- | --- | --- | --- |
 | `DISCARD_CHANGES` | `ALERT_DIALOG` | Dirty `FULLSCREEN_TASK` | Owning task | Cancel restores triggering Back/Cancel action | `dialog:discard-changes:cancel` |
 | `FINALIZE_CONFIRMATION` | `ALERT_DIALOG` | `INSPECTION_REVIEW` | `T3-FINALIZE` | Cancel restores Finish inspection; confirm focuses progress heading | `dialog:finalize:cancel` |
-| `REPORT_ACTION_SHEET` | `MODAL_SHEET` | Finalized row in `PROPERTY_HUB` | `T3-PDF-RENDERER` | Dismiss restores finalized row | `sheet:report-actions:title` |
+| `REPORT_ACTION_SHEET` | `MODAL_SHEET` | Finalized row in `PROPERTY_HUB` | `T3-REPORT-EXPORT-UI` | Dismiss restores finalized row | `sheet:report-actions:title` |
 | `THEME_MODE_SHEET` | `MODAL_SHEET` | Theme row in `SETTINGS_ROOT` | Shared settings shell | Selection/dismiss restores Theme row | `sheet:theme-mode:title` |
 | `STATUS_SHEET(itemId)` | `MODAL_SHEET` | Status field in `INSPECTION_CAPTURE` | `T2-CAPTURE-UI` | Selection/dismiss restores exact item status field | `sheet:status:{itemId}:title` |
 | `PHRASE_SHEET(fieldId)` | `MODAL_SHEET` | Note field in `INSPECTION_CAPTURE` | `T2-CAPTURE-UI` | Insert/dismiss restores field insertion point | `sheet:phrase:{fieldId}:title` |
@@ -1009,8 +1025,11 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | `REMOVE_LOCAL_MEDIA_CONFIRMATION` | `ALERT_DIALOG` | Local media removal action | `T5-LOCAL-MEDIA-RETENTION` | Cancel restores removal action; confirm focuses progress | `dialog:remove-local-media:cancel` |
 | `DOCUMENT_TREE_PICKER` | `SYSTEM_SURFACE` | `BACKUP_SETTINGS` destination row | `T5-BACKUP-IO` | Result restores Choose destination row | `system:document-tree-picker` |
 | `BACKUP_FILE_PICKER` | `SYSTEM_SURFACE` | `RESTORE_TASK` package step | `T5-BACKUP-IO` | Result restores package field | `system:backup-file-picker` |
-| `PDF_VIEWER` | `SYSTEM_SURFACE` | `REPORT_ACTION_SHEET` Open PDF | `T3-PDF-RENDERER` | Return restores Open PDF action | `system:pdf-viewer` |
-| `SHARE_SHEET` | `SYSTEM_SURFACE` | `REPORT_ACTION_SHEET` Share | `T3-PDF-RENDERER` | Return restores Share action | `system:share-sheet` |
+| `PDF_VIEWER` | `SYSTEM_SURFACE` | Report Open PDF | `T3-REPORT-EXPORT-UI` | Return restores source Open action | `system:pdf-viewer` |
+| `HTML_VIEWER` | `SYSTEM_SURFACE` | Report Open HTML | `T3-REPORT-EXPORT-UI` | Return restores source Open action | `system:html-viewer` |
+| `REPORT_CREATE_DOCUMENT` | `SYSTEM_SURFACE` | Report Save | `T3-REPORT-EXPORT-UI` | Result restores source Save action | `system:report-create-document` |
+| `DOCX_FILE_PICKER` | `SYSTEM_SURFACE` | `REPORT_IMPORT` Choose file | `T3-REPORT-IMPORT-UI` | Result restores request ID without exposing URI | `system:docx-file-picker` |
+| `SHARE_SHEET` | `SYSTEM_SURFACE` | Report Share | `T3-REPORT-EXPORT-UI` | Return restores Share action | `system:share-sheet` |
 | `MEDIA_IMPORT_PICKER` | `SYSTEM_SURFACE` | Evidence Import action | `T2-CAPTURE-UI` | Result restores originating evidence slot | `system:media-import-picker` |
 | `DATE_TIME_PICKER(fieldId)` | `SYSTEM_SURFACE` | Date/time field | Owning task | Result restores originating date/time field | `system:date-time-picker:{fieldId}` |
 | `DIAGNOSTIC_SAVE_DOCUMENT` | `SYSTEM_SURFACE` | Diagnostics Save report | `T5-DIAGNOSTIC-EXPORT` | Result restores Save report action and selected range | `system:diagnostic-save` |
@@ -1075,7 +1094,7 @@ Focus keys use domain identity, never list index: `page:<page-id>:<entity-id>:<p
 3. **Room capture:** select room, take required panorama, rate items, and add evidence. The bottom dock offers only the next room or review action.
 4. **Review:** group missing evidence by room. An incomplete primary action reads `Review N missing items` and jumps to the first gap; it does not appear inert or rely on a disabled button.
 5. **Finalize:** once complete, show a concise permanence confirmation naming the inspection, property, and effect: original evidence becomes read-only and later changes are Supplements.
-6. **Export:** generate landlord and tenant PDFs, show progress per audience, then expose `Open PDF`, `Share`, and `Export another quality` without losing the finalized summary.
+6. **Export:** PDF defaults to Medium; HTML has no quality choice. Preserve independent landlord/tenant × format states, then expose typed Open, Save and Share actions without losing the finalized summary.
 
 ### End-to-end experience contract
 
@@ -1118,7 +1137,7 @@ This checkpoint must not claim `Backed up`, `Report ready`, or `Notice sent`. Th
 
 #### Post-finalize handoff
 
-After finalize, keep the finalized summary visible while landlord and tenant reports generate independently. The default Medium quality is shown inline; `Change quality` is secondary and does not force a four-option decision every time. Each audience card owns `Generating`, `Ready`, and `Failed` states with one recovery action.
+After finalize, landlord and tenant artifacts generate independently per format. PDF defaults to Medium; HTML has no quality control. Each audience/format card owns `Generating`, `Ready`, and `Failed`, and sibling success survives failure.
 
 The product uses four non-interchangeable completion labels:
 
@@ -1126,7 +1145,7 @@ The product uses four non-interchangeable completion labels:
 | --- | --- |
 | `Saved on this device` | Draft write completed |
 | `Inspection finalized` | Immutable snapshot and hash committed |
-| `Report ready` | PDF closed and reopened successfully |
+| `Report ready` | Selected PDF or HTML closed, reopened and verified successfully |
 | `Encrypted backup verified` | Destination archive reopened, decrypted, and manifest/assets verified |
 
 No screen promotes a weaker state using the wording or icon of a stronger state.
@@ -1137,7 +1156,7 @@ Offline is the ordinary field state, not a persistent banner. The shell does not
 
 | Capability | Offline presentation | Core-flow effect |
 | --- | --- | --- |
-| Local inspection, history, rules, finalize, PDF | No network copy or network spinner | Fully available |
+| Local inspection, Routine DOCX import, history, rules, finalize, PDF and HTML | No network copy or network spinner | Fully available |
 | Voice without an installed offline recognizer | `Voice unavailable offline` beside the microphone; keyboard remains visible | No block |
 | Local/USB backup | Normal backup phases while the selected volume is available | No block on inspection |
 | Cloud SAF backup/restore | `Backup provider unavailable` with `Try again` or `Choose another folder` | Only that operation stops |
@@ -1213,7 +1232,7 @@ Export launches the system save/share surface only after explicit activation. `P
 
 Password entry, restore preflight, tenant-contact detail, and full-screen tenant-belongings photos are protected from screenshots/recents. Ordinary property lists and capture remain usable for legitimate screenshots; security is not presented as a global guarantee.
 
-`Open PDF`, `Share`, and `Copy notice` always name the boundary: `A copy will leave MyInspection and may be stored by another app.` Sharing uses a scoped, temporary read grant. Success means the chooser/file handoff opened—not that a notice was sent or that another app stored the file.
+Report PDF/HTML `Open`, `Save`, `Share`, and `Copy notice` always name the boundary: `A copy will leave MyInspection and may be stored by another app.` Sharing uses a scoped, temporary read grant. Success means the system handoff opened—not delivery or storage.
 
 ## Colors
 
@@ -1612,7 +1631,7 @@ Controls never silently reset a valid hidden value. Disabled controls are except
 | --- | --- | --- | --- | --- | --- |
 | `empty-state-panel` | heading, factual explanation, optional one primary action | `FIRST_RUN / NO_CONTENT / NO_RESULTS / NO_HISTORY`; machine `VISIBLE / ACTION_BUSY` | Uses no decorative illustration; no-results preserves query/filter and exposes Clear; no-history never invents sample evidence | Heading first; action follows explanation | `Column` |
 | `loading-indicator` | indicator, optional stable label/percentage | indeterminate/determinate/inline; machine `HIDDEN / DELAYED / VISIBLE / COMPLETE` | Delayed until 300ms; never replaces already-readable local content; determinate mode uses authoritative progress only | Announces start and completion once, plus meaningful phase changes | Progress indicator |
-| `task-progress-card` | task heading, current phase, progress, prior safe state, cancel/retry where legal | `BACKUP / RESTORE / EXPORT / ERASE / MEDIA_RECOVERY`; lifecycle states; machine `PREPARING / RUNNING / VERIFYING / SUCCEEDED / FAILED / CANCELLED` | Phase names come from the operation contract; duplicate activation reuses the operation; irreversible phases remove Cancel | Polite phase announcements; focus stays on heading unless a failure action appears | `Surface` |
+| `task-progress-card` | task heading, current phase, progress, prior safe state, cancel/retry where legal | `BACKUP / RESTORE / EXPORT / REPORT_IMPORT / ERASE / MEDIA_RECOVERY`; lifecycle states; machine `PREPARING / RUNNING / VERIFYING / SUCCEEDED / FAILED / CANCELLED` | Phase names come from the operation contract; duplicate activation reuses the operation; irreversible phases remove Cancel | Polite phase announcements; focus stays on heading unless a failure action appears | `Surface` |
 | `recovery-panel` | cause, effect boundary, one primary recovery, optional safe fallback | `PERMISSION / PROVIDER / LOW_STORAGE / INTEGRITY / ARCHIVED_MEDIA / RESTORED_SESSION`; machine `VISIBLE / ACTION_BUSY / RESOLVED` | Names what still works; never implies local data loss when only a provider failed; one primary action owns recovery | Persistent live region; focus moves here only after the triggering action fails | `Surface` |
 | `verification-receipt` | verified/stale state, absolute time, scope/counts, destination or hash summary | `BACKUP / EXPORT / RESTORE / INTEGRITY`; verified/stale/failed/unavailable | A failed new attempt never overwrites the last verified receipt; technical IDs stay behind explicit details | Summary is one group; Details expands without moving primary action | `Surface` |
 
@@ -1636,15 +1655,17 @@ Use skeletons only when the shape of delayed external/provider content is known.
 | --- | --- | --- | --- | --- | --- |
 | `backup-health-card` | last verified receipt, latest attempt, scope, primary action | not configured/ready/running/verified/stale/failed | Always preserves the previous verified fact; v1 scopes are `All app data` and `This property` | Heading + grouped receipt; failure recovery is the final focus stop | `Surface` |
 | `destination-row` | provider icon, display name, availability, free-space/access state, choose action | not selected/available/offline/revoked/low space; machine `NOT_SELECTED / AVAILABLE / PROVIDER_OFFLINE / ACCESS_REVOKED / LOW_SPACE` | Shows provider display name, never raw URI; changing destination does not delete prior backups | Role `button`; label states current destination and result of activation | `ListItem` |
-| `task-stepper` | ordered labelled phases and one current marker | `BACKUP / RESTORE / ERASE`; upcoming/current/complete/failed | Shows no fake percentage; completed steps remain visible; restore uses choose → unlock → verify → review → replace | One progress group; current phase is announced once | `Column` |
-| `preflight-summary` | object/scope, counts, space, retained/removed facts, blockers | `RESTORE / ERASE / MEDIA_CLEANUP / SHARE`; checking/ready/blocked/stale | Must be recomputed before irreversible commit; stale preview blocks execution and offers Refresh | Heading and included/retained lists; blocker action focuses the cause | `Surface` |
+| `task-stepper` | ordered labelled phases and one current marker | `BACKUP / RESTORE / REPORT_IMPORT / ERASE`; upcoming/current/complete/failed | Shows no fake percentage; completed steps remain visible; import uses Details → Choose file → Scan → Match → Review → Create draft | One progress group; current phase is announced once | `Column` |
+| `preflight-summary` | object/scope, counts, space, retained/removed facts, blockers | `RESTORE / IMPORT / ERASE / MEDIA_CLEANUP / SHARE`; checking/ready/blocked/stale | Must be recomputed before commit; stale import/replacement preview blocks execution and offers Refresh | Heading and included/retained lists; blocker action focuses the cause | `Surface` |
 | `disclosure-list` | labelled included/excluded/retained items, optional details | included/excluded/impact/retained; collapsed/expanded | Critical privacy or deletion facts start expanded; collapse never hides the sole warning | List semantics; expansion state announced | `Column` |
 | `health-issue-row` | state, occurrence time, exact impact, one owning action | six authoritative health states; machine `BACKUP_STALE / BACKUP_FAILED / INTEGRITY_FAILED / RESTORE_ROLLED_BACK / PREVIOUS_CRASH / STARTUP_SLOW` | No healthy vanity rows or charts; only current actionable states render | Row label includes issue, time, and action result | `ListItem` |
-| `share-boundary-callout` | boundary icon, what leaves, temporary-grant fact | PDF/notice/diagnostic; machine `VISIBLE / ACKNOWLEDGED` | Appears before every external open/share/copy handoff; acknowledgement does not claim delivery | Grouped warning; external action follows immediately | `Surface` |
+| `share-boundary-callout` | boundary icon, what leaves, temporary-grant fact | PDF/HTML/notice/diagnostic; machine `VISIBLE / ACKNOWLEDGED` | Appears before every external open/share/copy handoff; acknowledgement does not claim delivery | Grouped warning; external action follows immediately | `Surface` |
 | `notice-delivery-row` | notice date, inspection date, delivery method/time, validation | draft/valid/blocked/copied/recorded | Copy means copied, never sent; Record delivery requires method and time and reruns compliance checks | Status is text + icon; blocked action focuses exact invalid field | `ListItem` |
 | `compliance-check-row` | requirement, current evidence/value, result, correction | not checked/pass/fail/not applicable/correcting | Core result is authoritative; Fail remains visible and cannot be dismissed | Result and reason merge; correction action focuses evidence/value | `ListItem` |
 | `remediation-suggestion-card` | source, classification, safe suggestion, include/exclude, disclaimer link | on-device/remote; ready/generating/accepted/rejected/failed/offline | On-device remains available; remote generation is explicit, cancellable, and never blocks report/finalize | Source and non-professional boundary are announced before Include | `Surface` |
-| `report-action-sheet` | Open PDF, Share, Export another quality, boundary copy | open/preparing/handing off/error/closed | Actions are mutually exclusive while busy; success means system handoff opened, not delivery/storage | Pane title `Report actions`; focus returns to finalized report row | `ModalBottomSheet` |
+| `import-mapping-summary` | step, mapped/excluded/blocker counts, first-blocker action | `SCANNING / REVIEW_REQUIRED / READY / COMMITTING / RECOVERY` | Counts derive from the complete manifest; Ready requires every element terminal and zero blockers; only Create editable draft is primary | Persistent live region; blocker action focuses its stable row; phase is announced once | `Surface` |
+| `import-mapping-row` | inert source description, target/exclusion, suggestion/confirmation, inline error/action | `MATCHED / ACTION_REQUIRED / EXCLUDED / CONFIRMED` | Stable mapping key restores position; suggestions never self-confirm; photos start `UNREVIEWED_EXCLUDED`; every change recomputes the summary | Source text is data; error is linked; resolution controls are separate 48dp stops and return focus to this row | `ListItem` |
+| `report-action-sheet` | selected PDF/HTML artifact, Open, Save, Share, Export another, boundary copy | open/preparing/handing off/error/closed | Typed actions use only verified artifacts and are exclusive while busy; chooser/viewer launch is not delivery/storage | Pane title `Report actions`; focus returns to finalized report row or source action after system return | `ModalBottomSheet` |
 
 Report audience uses `radio-group` (`Landlord report`, `Tenant report`) because the consequence copy differs. PDF/photo quality and diagnostic date range use `segmented-control` when all labels fit; at 200% text they become the same choices in a vertical `radio-group`. Theme mode uses `radio-group` in `THEME_MODE_SHEET`. Backup password and provider API key use `secure-input-field`; `RESTORE`, `ERASE`, and contact-clear tokens use `confirmation-input`.
 
