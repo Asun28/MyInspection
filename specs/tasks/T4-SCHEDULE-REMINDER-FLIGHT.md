@@ -90,6 +90,8 @@ Matching worker 若先看到 `ADMISSION_PENDING`，以其 `actualId == generatio
 | M14 | A4 | 对跨代回执报 timeout | an expired watchdog reports unreadable, uncertain and superseded … |
 | M15 | A4 | 相信 store 从未确认的写入 | an expired watchdog reports unreadable, uncertain and superseded … |
 
+R4 剪枝：`registration returns once the submission is accepted` 一条被删——15 枚变异无一只被它杀掉，而它断言的「提交已记录、waiter 尚未被回答」已由并发用例在更强的前提下断言（8 个注册全部返回后 `settled` 仍为空且恰有一次提交）。R3 第 2 轮的两条 finding 均属实并已修：waiter 断言改为**逐 waiter 计数**（原先只比总数，重复调用一个而饿死另一个照样通过），并让 callback 由**另一条线程**在 flight 活动期作答，补上 `hygiene` 早已声明却未覆盖的「活动期跨线程」。
+
 M13–M15 是 R3 首轮 finding 的专属反证：三者各自只被新增的那条用例杀掉，故该用例确实在测「逐读数分类」这件事本身。
 
 ## 测试纪律
