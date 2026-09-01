@@ -1,7 +1,7 @@
 ---
 id: T3-REPORT-CONTENT-CONTRACT
 title: Shared privacy-filtered report content for native PDF and HTML parity
-depends_on: [T3-REPORT-COMPOSER]
+depends_on: [T3-REPORT-INTERCHANGE-AUTHORITY]
 parallelizable_with: []
 status: todo
 branch: T3-REPORT-CONTENT-CONTRACT
@@ -9,11 +9,6 @@ worktree: C:\wt\T3-REPORT-CONTENT-CONTRACT
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/content/
   - android/core/src/test/kotlin/nz/myinspection/core/report/content/
-  - docs/inspection-app-requirements.md
-  - context/DESIGN.md
-  - docs/UI-UX-ELEMENTS.md
-  - docs/SECURITY.md
-  - docs/adr/0007-report-interchange.md
 forbid:
   - Android, HTML, PDF, DOCX, database, filesystem, or network dependencies in the semantic contract
   - CSS-only audience/privacy hiding or claims that the native data hash attests the source DOCX
@@ -25,13 +20,12 @@ acceptance:
   - "A2 audience and privacy filtering happens before ReportContent exists: tenant content has no landlord remediation and private photos are absent unless explicitly included"
   - "A3 the semantic fingerprint is deterministic across repeated projection and changes when one included semantic field changes"
   - "A4 ReportContent has no A4 geometry, DocumentPlan, Android, file path, URI, or renderer-specific field"
-  - "A5 product, navigation, element, security, and ADR authorities consistently define editable ROUTINE DOCX import plus self-contained HTML and PDF export"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.content.*"
 dod_exit: 0
 dod_assert: focused tests prove ordered semantic projection, pre-serialization audience/privacy removal, separate integrity labels, and deterministic format-neutral fingerprinting
 review_gate: codex {verdict:pass}
 hygiene: redundant tests removed only when a named mutation remains killed by another real-behaviour assertion
-doc_sync: requirements + DESIGN + UI-UX-ELEMENTS + SECURITY + ADR-0007 + TASK-BOARD
+doc_sync: report-interchange authorities are owned by T3-REPORT-INTERCHANGE-AUTHORITY
 ---
 
 # T3-REPORT-CONTENT-CONTRACT
