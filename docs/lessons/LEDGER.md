@@ -1981,3 +1981,11 @@
 - rule: 变异幸存且根因是「上游不变量已蕴含该条件」时，默认动作是**删除**，不是记录。删之前先把蕴含链逐环写出来（哪个调用返回什么、哪条不变量强制什么），确认删后行为不可观测地相同；删完让既有用例与整批变异重跑作为不变性证据。只有当上游不变量**不在本仓控制之下**（外部库/跨进程/未来可能放宽的第三方契约）时，保留才值得辩护——此时把辩护写成「对方放宽时这里会怎样红」，而不是「这是信任边界」。推论：这个判断要在 R4 当场做，别拖到评审后——那时删除的代价是一整张承接卡。
 - enforced_by: 
 - refs: 
+
+## L273
+- date: 2026-09-01 ｜ tags: handoff,parallel-session,planning-with-files ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 两个会话同时在同一个主检出里干活时，progress.md 的 HANDOFF 块会被后写的那个会话整段覆盖；Stop 钩子打印出来的「下一步」突然变成另一张卡的内容，自己那份交接无声消失（本次：T0-CI-IDENTITY-DEADLINE 的交接被 T4-SCHEDULE-REMINDER-SCHEDULER 的覆盖）。
+- root_cause: planning-with-files 三件套（task_plan/findings/progress.md）按 **cwd** 定位，不按卡或分支；worktree 只隔离了代码，没隔离这三个文件。两个会话的 cwd 都是主检出 ⇒ 同一个 progress.md，最后写的赢，且没有任何冲突提示。
+- rule: 主检出里可能有并行会话时：① 写 progress.md 前先读一眼 HANDOFF 块的 TASK 字段，不是自己那张卡就**别覆盖**——把自己的交接另存到会话 scratchpad（或 _local/handoff-<TaskId>.md），并在汇报里说明 progress.md 归属别人；② 别把 handoff.ps1 check 的 PASS 当作「我的交接还在」的证据，它只校验格式、不校验归属；③ 真要接力时以 git 里的持久物（分支、PR、卡片、scratchpad 补丁）为准，progress.md 只当尽力而为的便签。
+- enforced_by: 
+- refs: 
