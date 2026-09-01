@@ -21,7 +21,7 @@ acceptance:
   - "A1 concurrent registrations of one occurrence coalesce into a single reservation, query and enqueue, and every waiter of that flight settles exactly once with the same exact cause"
   - "A2 the enqueue seam becomes asynchronous: registration returns after submission, the operation callback settles the flight with its exact class and cause, and a waiter that throws Throwable never starves the remaining waiters or the diagnostic"
   - "A3 a matching worker that leaves ADMISSION_PENDING before the callback settles every waiter as admitted, later callback failures record ENQUEUE_CALLBACK_AFTER_WORKER_STARTED with their original class without downgrading a proved admission, and a callback naming a superseded generation changes no waiter or receipt"
-  - "A4 one monotonic 30 second watchdog per flight settles all waiters as a retryable timeout only while the under-lock receipt is still ADMISSION_PENDING with no worker proof, keeps the receipt pending, clears the flight, never enqueues a second time, and reschedules rather than settling when the monotonic deadline has not actually passed"
+  - "A4 one monotonic 30 second watchdog per flight settles all waiters as a retryable timeout only while this generation own receipt still sits exactly where the flight submitted it and no worker has moved it, reports an unreadable, write uncertain or superseded receipt under that receipt own cause instead of a timeout, writes no receipt at all, clears the flight, never enqueues a second time, and reschedules rather than settling when the monotonic deadline has not actually passed"
   - "A5 a callback arriving after settlement changes no waiter or receipt yet is still recorded exactly, and fatal enqueue failures clear the active flight so the next registration re-coordinates instead of joining a dead one"
   - "A6 runtime acceptance tests invoke the compiled scheduler and the production delivery runner over one shared receipt store and scheduler-owned flight with concrete inputs and production-used injected enqueue, query, deadline and clock ports, assert only domain results and recorded effects, and carry executable semantic mutation receipts; source, resources, and inspected compiled artifacts are never an oracle"
 dod_command: $kotlin = @('android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ReminderScheduler.kt','android/app/src/test/kotlin/nz/myinspection/app/feature/schedule/ReminderSchedulerTest.kt'); if ($kotlin | Where-Object { -not (Test-Path $_) }) { exit 1 }; if (Select-String -Path $kotlin -Pattern '\btypealias\b|;' -Quiet) { exit 1 }; if ($kotlin | ForEach-Object { Get-Content $_ | Where-Object { $_.Length -gt 120 } }) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ReminderSchedulerTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
@@ -58,6 +58,12 @@ Callback 与 watchdog 都在 store 的原子结果上线性化：仍 pending 的
 Matching worker 若先看到 `ADMISSION_PENDING`，以其 `actualId == generationId` 证明 WorkManager 已 admission 并自行 CAS `ENQUEUED` 后再 delivery；随后 callback success、callback Throwable/null/error 或 watchdog 都重读回执：若当前 generation 已离开 pending，全部 waiter 得 `ADMITTED`（`WORKER_CONFIRMED_ADMISSION`）并清 flight，callback 异常只以原始 class/cause 记 `ENQUEUE_CALLBACK_AFTER_WORKER_STARTED`，**不得把已证实的 admission 改成失败**。Worker、callback、watchdog 三者第一个成功的 transition 决定 flight；已经 settle 后的迟到 callback 不改 waiter/receipt，仍须记录精确 late 诊断。
 
 单调 30 秒 watchdog 每个 flight 一枚：唤醒时先用**同一个单调源**核对 deadline 是否真的到达，未到即按剩余量重新排期而不 settle；到达且回执仍为 `ADMISSION_PENDING`、无 worker proof 时，才以 `ENQUEUE_CALLBACK_TIMEOUT/RETRYABLE_FAILURE` 结束全部 waiter、清 flight 并保持 pending，本次不得再次 enqueue。deadline 与其核对必须来自同一个注入的时间源，否则排期与判定会各按一把钟走。
+
+## A4 的措辞修订（R3 第 1 轮）
+
+首轮 R3 正确指出 `expire` 把「未被证明」一律折成 timeout，于是 lookup 不可读、write-uncertain 与**跨代**三种读数都会被报成可重试超时——其中跨代与 callback 路径（`proved`）对同一情形的判定直接矛盾。三处均属实，已修为逐读数穷尽分类。
+
+同时把 A4 原文的「still ADMISSION_PENDING」改为「still sits exactly where the flight submitted it」：`place` 会从已 `ENQUEUED`/`RETRYABLE` 的回执**恢复**并重新提交（SCHEDULER 卡已合并并冻结的路径，且本卡 `non_goals` 明令不得重做），故 watchdog 合法地会遇到非 pending 的起点。原措辞假定 flight 总是从新预留出发，过窄；修订后的措辞**更严**——它额外点名了不可读/不确定/跨代三种必须各报其因的读数。
 
 ## 测试纪律
 
