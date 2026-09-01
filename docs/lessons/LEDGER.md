@@ -1767,7 +1767,7 @@
 - refs: docs/lessons/LEDGER.md; scripted-edit mutation checks
 
 ## L246
-- date: 2026-08-23 ｜ tags: measurement, budget, encoding, review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-23 ｜ tags: measurement, budget, encoding, review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 按「diff 字符数」做决策（够不够预算、要不要拆卡、能不能再加一条断言），用 shell 侧的 `git diff | wc -c` 量。数字一路偏大，于是做出了本不必要的决定：删注释压体积、把一张卡拆成三张、为省 3% 回退了 doc_sync 要求的文档行——而后者直接引来一条 R3 finding。
 - root_cause: 两把尺量的不是同一个东西。闸门（review.ps1）取的是 PowerShell 里 `(… | Out-String).Length`，即 **UTF-16 码元数**；`wc -c` 数的是 **UTF-8 字节数**。本仓 diff 中文占比高，一个汉字 UTF-8 三字节、UTF-16 一个码元，故 wc -c 系统性高估 20–30%。实测同一分支：wc -c 报 63,023，闸门报 51,882。偏差方向恒为高估，于是「看起来超限」远多于真超限，人就会去做无谓的瘦身。
 - rule: 凡是要拿去和闸门阈值比较的度量，一律用**闸门自己那条命令**取值，不要用同类工具近似：本仓即 `pwsh -File scripts/review.ps1 -WorktreePath <树> -Base origin/master -SizeOnly`，它打印 changedLines 与 diffChars 并按同一公式判定。更一般的规矩：**阈值属于谁，就用谁的尺**；跨语言/跨工具重算同一个量时先问「它数的是字节、码元、还是字素」。若必须近似，只用于「离阈值很远」的粗判，绝不用它触发拆卡、删内容这类不可逆决定。 验收词组：UTF-16 码元；T0-R3-DIFF-BUDGET；wc -c。
@@ -1923,5 +1923,37 @@
 - symptom: 一批 15 枚语义变异全部击杀（15/15），据此判定覆盖充分并 ship；R3 随即在 reminderDeliveryPlan 找到未测分支——(sdkInt, permissionGranted) 四角只断言了 2 角，删掉 && !permissionGranted 后全部测试仍绿，而真实后果是用户授予通知权限后永远拿到 Retry、永不被提醒。
 - root_cause: 击杀率量的是「你写的那些变异会不会死」，不是「你的变异集有没有覆盖到代码」。那 15 枚选择器一枚都没落在 reminderDeliveryPlan 上，于是这批变异对该函数结构性沉默。覆盖完整的集合拿 100% 与漏掉整个函数的集合拿 100%，从分数上完全无法区分——高击杀率反而制造了「已验证」的错觉。
 - rule: 拿击杀数当覆盖证据前，先枚举变异选择器实际落在哪些函数/分支上，与本次 diff 的函数清单对账；任何零选择器的生产函数，无论总分多少都等于没被这批变异测过。布尔条件按 2^N 角覆盖：两个项就是 4 个组合，只测 2 个会让其中任一项被删而无人发现（不可达的角要写明理由）。批次报告里除击杀数外，另记一行「未被任何选择器触及的函数」。
+- enforced_by: 
+- refs: 
+
+## L266
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
+- root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
+- rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
+- enforced_by: 
+- refs: 
+
+## L267
+- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 变异批报 KILLED，实际是植入的代码把源文件写坏、编译失败——不是被测试杀死。两个 PowerShell 坑各制造一次：辅助函数取名 Del 撞上 Remove-Item 别名；数组字面量里 f a b, g c 的逗号绑到 f 的参数上而不是分隔数组元素，于是第二个操作的函数名被当字符串写进源码。
+- root_cause: 变异的判据是「退出码非零」，而编译失败同样非零。只要植入环节自己可能出错，退出码就无法区分「守卫被证明有效」与「我把文件弄坏了」，且方向恰好是把假证据报成好消息。
+- rule: 变异批必须把编译失败与测试失败分开记账：捕获失败的测试名，任何拿不到测试名或命中 compileDebug*Kotlin 的一律标为可疑、不计入击杀。数组字面量里每个函数调用单独加括号 @((f a b), (g c))，辅助函数名加前缀避开 PowerShell 别名（Get-Alias 一查便知）。真正的语义变异应当让测试变红，不是让编译器变红。
+- enforced_by: 
+- refs: 
+
+## L268
+- date: 2026-09-01 ｜ tags: mutation,testing,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 按评审意见把一处守卫补到 admit/CAS/recover 三个写入口后，跨 occurrence 的断言全绿；但把底层读取路径的判据改回评审刚驳回的旧版本（整文件毒化改回按 occurrence 毒化），48 枚变异里唯独这一枚幸存——没有任何测试经由被改的那条路径。
+- root_cause: 守卫加在调用侧时，写入侧的测试都在守卫处就短路返回了，永远走不到被守卫保护的那段读取逻辑。于是「读取逻辑本身的判据」成了无测试覆盖的死角，而它恰恰是修复的实质。
+- rule: 当一处修复表现为「在若干调用点各加一道守卫」时，至少要有一条测试**绕过写入侧守卫、经由读取路径**观察同一状态（本例：occurrence B 先写成功、A 提交失败，然后 lookup(B) 必须不再是证据）。判据：把读取路径的条件改回修复前的版本，必须有测试变红。幸存一枚变异比击杀四十枚更值钱。
+- enforced_by: 
+- refs: 
+
+## L269
+- date: 2026-09-01 ｜ tags: r5,git,archive ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R5 跑完 archive.ps1 后，specs/archive/tech-debt-index.md 出现纯行尾（CRLF）改动、内容一字未变，git 还给出 "CRLF will be replaced by LF" 警告。连续两个会话都撞上。
+- root_cause: archive.ps1 重写索引时按平台默认行尾落盘，与仓内已有的 LF 不一致；文件内容没变，diff 却非空。
+- rule: R5 提交一律用显式 pathspec 逐个点名要提交的文件，先对每个候选跑一次 git diff --numstat 确认它有真实增删；tech-debt-index.md 若只有行尾差异就不要 stage。顺带满足 L114：共享主检出永远不用 git add -A。
 - enforced_by: 
 - refs: 
