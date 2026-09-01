@@ -145,6 +145,20 @@ data class SupplementBlock(
     override val textRuns: List<TextRun>,
 ) : TextBearingBlock
 
+/**
+ * The claim a report makes about a legacy source document it was imported from. It is a separate label
+ * from [FooterBlock.dataHash], which attests the native finalized evidence and nothing else, and it is
+ * emitted only for a report whose content carries import provenance.
+ */
+data class ProvenanceBlock(
+    val sourceSha256: String,
+    val normalizedManifestSha256: String,
+    val mappingReceiptSha256: String,
+    val extractorVersion: String,
+    val sourceReportDate: String?,
+    override val textRuns: List<TextRun>,
+) : TextBearingBlock
+
 data class DisclaimerBlock(val text: BilingualText, override val textRuns: List<TextRun>) : TextBearingBlock
 
 data class TenantAgreementBlock(

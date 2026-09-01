@@ -361,6 +361,7 @@ class ReportComposerGoldenTest {
             is ImageSlotBlock -> "image:${content.photoId}:${content.purpose.name.lowercase()}"
             is RemediationBlock -> "remediation:${content.itemId}:${content.urgency}"
             is SupplementBlock -> "supplement:${content.reference}"
+            is ProvenanceBlock -> "provenance:${content.sourceSha256}"
             is DisclaimerBlock -> "disclaimer"
             is TenantAgreementBlock -> "tenant-agreement"
             is FooterBlock -> "footer"

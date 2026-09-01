@@ -32,6 +32,7 @@ class ReportSourcePurityTest {
                 "ReportComposerGoldenTest.kt",
                 "ReportComposerLayoutContractTest.kt",
                 "ReportComposerPaginationTest.kt",
+                "ReportContentAdapterTest.kt",
                 "ReportSourcePurityTest.kt",
                 "ReportTestFixtures.kt",
             ),
