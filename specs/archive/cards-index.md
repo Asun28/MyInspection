@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 155 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 156 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -149,6 +149,7 @@
 | T3-REPORT-COMPOSER | merged | 纯 Kotlin 报告布局引擎：分页/缩略图排版/双语行配对/哈希页脚 + 黄金布局树（★冻结点级质量） |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
+| T4-REMINDER-CORRESPONDS-TRIM | merged | 删掉 corresponds 中两个被 store 不变量蕴含的比较 |
 | T4-SCHEDULE-CADENCE | merged | 巡检类型的本地民历提醒节奏 |
 | T4-SCHEDULE-REMINDER-CONTRACTS | merged | 提醒身份、路由文案与精确诊断合同 |
 | T4-SCHEDULE-REMINDER-DELIVERY | merged | 提醒 Worker、通知发布与不重投边界 |
