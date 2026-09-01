@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 160 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 161 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -148,8 +148,8 @@
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
 | T3-REPORT-COMPOSER-R3-CLOSURE | merged | 报告布局 R3 收口：40mm 内联缩略图、不可拆图槽、可读时间与引用完整性 |
 | T3-REPORT-COMPOSER | merged | 纯 Kotlin 报告布局引擎：分页/缩略图排版/双语行配对/哈希页脚 + 黄金布局树（★冻结点级质量） |
-| T3-REPORT-CONTENT-CONTRACT | merged | Shared privacy-filtered report content for native PDF and HTML parity |
 | T3-REPORT-CONTENT-ADAPTER | merged | Adapt shared semantic report content into the existing A4 layout plan |
+| T3-REPORT-CONTENT-CONTRACT | merged | Shared privacy-filtered report content for native PDF and HTML parity |
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
