@@ -226,6 +226,19 @@ function Get-ExactHeadChecksBeforeDeadline {
   return [pscustomobject]@{ Readable = $true; TimedOut = $false; Runs = $runs; Blocking = $blocking; Reason = '' }
 }
 
+# 候选 run 与本 PR 的关联判定（T0-CI-IDENTITY-DEADLINE）。返回恰好匹配的条目数，调用方要求 == 1。
+# 不能写成 `$prs | ? { "$($_.number)" -ceq "$pr" }`：PS 的**属性访问本身**大小写不敏感，只带 `Number` 的条目
+# 照样被读成 `number` 而过闸——载荷形状与校验过的那份并不相同，「该 run 属于该 PR」这条证据遂失效（原卡实测
+# 踩中）。故属性名走 `-ccontains`，值走 `Test-JsonInteger`（"218" 与 218.0 都不是 JSON 整数，不得靠强转洗白）。
+function Get-CandidateRunPrMatchCount {
+  param([AllowNull()]$PullRequests, [Parameter(Mandatory)][int]$Pr)
+  if ($PullRequests -isnot [System.Array]) { return 0 }
+  return @($PullRequests | Where-Object {
+    ($_ -is [pscustomobject]) -and (@($_.PSObject.Properties.Name) -ccontains 'number') -and
+    (Test-JsonInteger $_.number) -and ([long]$_.number -ceq [long]$Pr)
+  }).Count
+}
+
 # TD45：卡片解析共享自 _cards.ps1（front-matter-only 提取 + 大小写敏感取值 + 注释剥离）。
 # 旧 Get-CardField 曾整文件 `Select-String`（大小写不敏感、正文/前置元数据不分），与 check-cards 的契约脱节：
 # (a) 卡片正文里一行形似 `dod_command: ...` 的文档示例会被当真；(b) `DOD_COMMAND:`（大小写错）仍被找到；
@@ -798,15 +811,15 @@ switch ($Phase) {
           throw "[CI-GATE-WORKFLOW-IDENTITY] 缺属性：$($miss -join ', ')"
         }
         $runId = 0L; $attempt = 0; $path = "$($run.path)"
-        $prs = $run.pull_requests; $pm = @()
-        if ($prs -is [System.Array]) {
-          $pm = @($prs | Where-Object { "$($_.number)" -ceq "$pr" })
-        }
+        # 身份三处（event / path / PR 关联属性名）全部走大小写敏感比较：`-cne` / `-cnotmatch` /
+        # Get-CandidateRunPrMatchCount。换成 -ne / -notin / -notmatch 会让 `Pull_Request`、`CI.yml@MASTER`、
+        # 只带 `Number` 的关联条目一并过闸——闸被静默放宽，而放宽是看不见的。
+        $prMatch = Get-CandidateRunPrMatchCount -PullRequests $run.pull_requests -Pr $pr
         if ((-not [long]::TryParse("$($run.id)", [ref]$runId)) -or ($runId -le 0) -or
             (-not [int]::TryParse("$($run.run_attempt)", [ref]$attempt)) -or ($attempt -le 0) -or
             ("$($run.head_sha)" -cne $head) -or ("$($run.event)" -cne 'pull_request') -or
-            ($path -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($pm.Count -ne 1)) {
-          Add-CatchRecord 'ci' "wf=$($run.id)/$($run.run_attempt)/$($run.head_sha)/$($run.event)/$path/prs=$($pm.Count)"
+            ($path -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($prMatch -ne 1)) {
+          Add-CatchRecord 'ci' "wf=$($run.id)/$($run.run_attempt)/$($run.head_sha)/$($run.event)/$path/prs=$prMatch"
           throw "[CI-GATE-WORKFLOW-IDENTITY] PR #$pr workflow 身份不唯一/不匹配。"
         }
         $ws = "$($run.status)"; $wc = "$($run.conclusion)"
@@ -881,13 +894,14 @@ switch ($Phase) {
       if ($fwRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] final runs=$($fwRuns.Count)。" }
       $fwRun = $fwRuns[0]; $fwId = 0L; $fwTry = 0
       $fwProp = @($fwRun.PSObject.Properties.Name)
-      $fwPrs = $fwRun.pull_requests; $fwPm = @()
-      if ($fwPrs -is [System.Array]) { $fwPm = @($fwPrs | Where-Object { "$($_.number)" -ceq "$pr" }) }
+      # 终局快照与稳定态复用同一个大小写敏感的关联判定——两处口径必须逐字一致，否则「决策前再看一眼」
+      # 看的是一套更松的标准，等于没看。
+      $fwPrMatch = Get-CandidateRunPrMatchCount -PullRequests $fwRun.pull_requests -Pr $pr
       if (@(@('id', 'head_sha', 'event', 'status', 'conclusion', 'run_attempt', 'path', 'pull_requests') | Where-Object { $fwProp -cnotcontains $_ }).Count -gt 0 -or
           (-not [long]::TryParse("$($fwRun.id)", [ref]$fwId)) -or ($fwId -ne $runId) -or
           (-not [int]::TryParse("$($fwRun.run_attempt)", [ref]$fwTry)) -or ($fwTry -ne $attempt) -or
           ("$($fwRun.head_sha)" -cne $head) -or ("$($fwRun.event)" -cne 'pull_request') -or
-          ("$($fwRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($fwPm.Count -ne 1)) {
+          ("$($fwRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$') -or ($fwPrMatch -ne 1)) {
         throw "[CI-GATE-WORKFLOW-IDENTITY] 决策前 workflow 身份漂移（id=$($fwRun.id), expected=$runId）。"
       }
       $fwSt = "$($fwRun.status)"; $fwCo = "$($fwRun.conclusion)"
