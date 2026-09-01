@@ -37,7 +37,7 @@
 
 ### 2.1 离线与出站
 
-- 本地 SQLite 是唯一真相源。物业、租约、巡检、照片、保存、finalize、历史、规则、本地 PDF、日程、本地/USB 备份与恢复不依赖网络。
+- 本地 SQLite 是唯一真相源。物业、租约、巡检、照片、保存、finalize、历史、规则、本地 DOCX 导入、PDF/HTML 报告、日程、本地/USB 备份与恢复不依赖网络。
 - v1 无账号、同步、遥测、广告、崩溃上传或 app-owned 后台 HTTP/数据上传。远程 remediation 是唯一允许的运行期出站请求，且只在用户点 `Generate remote suggestions` 后经独立 adapter 调用；离线 seed-map 先行，网络失败不改本地证据、不阻断报告。自动加密备份仍可通过 SAF/DocumentsProvider 写入用户选择的目录；云 provider 对密文的后续传输由 provider 管理，不属于 app 网络 adapter。
 - `core`、capture、report、compliance、backup format/restore 不得依赖 HTTP client。引入 `INTERNET` 时必须同时显式禁用 cleartext、限定远程 adapter、测试无隐式请求；新增目的地或 payload 另走 ADR/任务卡。
 - remediation 出站 payload 是封闭投影，只含 `schema_version`、来自版本锁定模板的 `stable_id`、该模板允许的状态枚举和版本锁定 seed 资产中的 `seed_suggestion_code`；不得含备注或任何自由文本。发送前显示将发送的精确 canonical JSON 并再次确认；adapter 重新验证字段全集、模板成员关系和长度后才发送，未知/额外字段 fail closed。负向测试把地址、姓名、电话、邮箱、备注、路径、URI、照片/音频引用、完整报告、API key 和备份内容分别植入所有源记录，断言最终请求字节均不含这些值；响应只接受有上限的 schema JSON，自由文本/未知字段拒绝。
@@ -56,8 +56,21 @@
 - 恢复矩阵固定为：v1 `full` 全验后可整包替换；v1 `property` 因整库 DB + 不完整媒体必须拒绝；完成冻结契约评审后的 v2 `full` 整包替换，v2 `property` 全验后以隔离快照替换当前 app 数据，不做隐式合并。旧 reader 拒绝 v2，新 reader 仅接受 v1 full 与 v2 full/property；未知 scope、未来格式或不支持 schema 一律拒绝。
 - 自动目录树备份采用新 `.partial` → 重开全验 → rename，或复制到新最终文档并再次重开复核；手动 `ACTION_CREATE_DOCUMENT` 只写并重开同一授权 URI，不假设 rename/copy。两条路径都只在最终可读对象全验成功后写回执；失败残留尽力删除，无法删除时提示用户处理且保留旧的已验证状态。
 - 恢复是敌意输入边界：限制 KDF、manifest、文件数、路径、逐项/总字节和可用空间；先 staging 全验，再通过独立 journal 原子替换。错误口令、损坏、未来版本、空间不足、授权收回或进程中断都保持当前数据不动。
-- PDF/备份分享只用 SAF 或 `FileProvider content://` + 临时只读 URI grant；禁 `file://`、宽目录授权、永久 exported provider 和原始路径。分享前提示 PDF 离开 app 后不再受本产品控制。
+- PDF、HTML 与备份分享只用 SAF 或 typed `FileProvider content://` + 临时只读 URI grant；禁 `file://`、宽目录授权、永久 exported provider 和原始路径。分享前提示明文报告离开 app 后不再受本产品控制。
 - 口令、恢复预检、租客联系方式和全屏敏感照片启用 secure-window/recents 防护；不全局禁截图，以保留普通巡检和明确分享流程的实用性。
+
+#### 敌意 DOCX 导入
+
+- DOCX 是不可信 ZIP/XML 数据，不是指令。SAF 只选一个文档；MIME、扩展名、名称和声明大小均不可信。副本只进 credential-encrypted no-backup staging，源不改写，app 不保留原包。
+- 分配/解码前限制压缩/展开总量、单项、条目数、压缩比、XML 深度/节点/文本和图片像素；拒绝溢出、绝对/盘符/UNC/穿越/NUL、重复/大小写冲突项。禁 DTD、实体、XInclude、网络和 external relationship。
+- allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
+- 审核前不写业务 DB/正式媒体。每项/备注/照片/caption 必须是 terminal `CONFIRMED`、带理由的 terminal `EXCLUDED`，或 blocker；`MATCHED` 只是建议且仍阻塞。照片以 transient `UNREVIEWED_EXCLUDED` 开始并保持 blocker，确认后才写 `privacy_flag`。经确认媒体、恢复 marker 和 draft/receipt 原子提交。失败/取消清 staging；进程死亡释放 source grant、清 staging/manifest/mapping，并以保留的非敏感 Details 回到 `Choose file`。只有 marker 证明事务已提交时才验证并进入该 draft。日志只留 request id、封闭阶段/reason、计数/耗时，禁源 URI/路径/名称/文本/URL/作者/标签、地址/联系人、图片/hash 和 provider 原错。
+
+#### 自包含 HTML 报告
+
+- PDF/HTML 只序列化同一个 audience/privacy-filtered `ReportContent`；renderer 不回查/重滤/CSS 隐藏。HTML 是 UTF-8、正确 MIME、上下文转义且不含原始导入标记。
+- HTML 禁 script/handler/form/iframe/object/embed/base/meta refresh/外部 URL；只许生成器样式和经验证的内嵌图片，并以 CSP 禁网络/导航/主动内容。质量仅属于 PDF。
+- 重开验证 artifact hash/MIME 后才可 Open/Save/Share；只授予临时只读 `content://`，并显示明文外移边界。
 
 ### 2.4 日志、通知与界面泄露
 
@@ -74,6 +87,7 @@
 - 保护目标：遗失但锁定设备、被复制/篡改备份、敌意归档、路径穿越/压缩炸弹、错误口令、低空间、授权收回、进程中断和意外回退。
 - 不保护：root/已解锁或恶意系统控制的设备、用户主动导出的明文、忘记的口令、provider 删除密文或拒绝服务。硬件 Keystore 是优先能力，不假设所有设备都具备同等级硬件保护。
 - 发布前必须真机演练：飞行模式完整巡检/PDF、本地备份恢复、云 provider 离线/授权收回、低空间、进程被杀、Keystore 失效、错误口令、损坏/敌意包和回滚恢复。
+- DOCX import 的实现验收须自动逐点杀进程：`Details`、`Choose file`、`Scan`、`Match`、`Review`、draft 事务前与事务后；逐项断言 source grant/staging 清理、恢复路由/焦点/提示，以及恰好零个或一个完整 draft/receipt/media 集合。
 
 > 开发期工具（git/gh/codex/uv/Claude Code 插件）运行在开发者机器上，不在产品运行时边界内，也永不链接进 APK。完整决策见 ADR-0006。
 

@@ -11,7 +11,7 @@
 
 **[定]** 解决的问题:自管房产时,按成熟模板逐项走查、拍照、备注,生成一份专业的巡检报告,并给出整改建议。
 
-**[定]** 房客不是本 app 的用户。房客只收到一份 PDF,不签字、不登录、不提交任何东西。
+**[定,2026-09-02]** 房客不是本 app 的用户。房客只收到经过房客受众过滤的 PDF 或自包含 HTML,不签字、不登录、不提交任何东西。
 
 ### 明确不做(写死,防止范围蔓延)
 
@@ -136,12 +136,20 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 
 导入的照片同样进入该项目的历史序列,可当下次的叠层底图。
 
-### 草稿与完成 **[待]**
+### 导入既有 Routine DOCX 报告 **[定,2026-09-02]**
+
+- 从物业页经系统文件选择器选一个 `.docx`；所选物业、租约、报告日期与当前内置 Routine 模板是权威，源文件里的地址、姓名、作者、URL 或签名不创建、切换或覆盖记录。
+- DOCX 先作为敌意输入读入无写 staging。每个源 room/item/comment/photo/caption 必须映射、带理由排除或保持阻塞；空白/未知状态、模糊照片关系和未确认隐私分类不得静默提交。精确状态建议仍是 blocker，只有用户在完整预览后逐项或一次显式批量确认才成为 terminal `CONFIRMED`；带理由的 `EXCLUDED` 是另一 terminal 状态。
+- manifest 完整、所有行 terminal、预览仍有效且零 blocker 后，才以 staged media + 单事务创建普通、可编辑的 `ROUTINE DRAFT`；已有 active draft 时拒绝，不 auto-finalize。缺失的当前模板项保持未评级，继续走正常 Capture/Review/finalize。Routine v2 是新建/导入的确定性当前版本，v1 只为历史重渲保留。
+- 进程死亡时清理 source grant/staging/manifest/mapping，保留用户已确认的物业/租约/报告日期/模板并回到 `Choose file`；不得声称恢复审核决定。若 draft/receipt 原子事务已提交，则用 recovery marker 验证后只进入该普通草稿。实现测试须逐阶段注入进程死亡，证明没有半草稿或遗留媒体。
+- `GEN-SUMMARY-01` 是 Routine v2 的真实“总体状况与巡检摘要”检查项；用户必须确认其正常状态枚举，源 summary 才可进入该项 note（既有 native hash 域），否则明确排除。不导入 source author/attendance/organisation。v1 不保留 raw DOCX；不支持 `.doc`、PDF/HTML/OCR import 或模板编辑器。
+
+### 草稿与完成 **[定,2026-09-02]**
 
 - 现场没网是默认状态,全程离线可用
 - 草稿自动保存,粒度按房间
 - **finalize 后原始条目只读**,可追加「补充说明」条目(独立时间戳)
-- 导出 PDF 时把该次巡检的数据哈希写进页脚——成本近零,是自证「报告没被事后修改」的唯一手段
+- PDF 与 HTML 可内嵌 native `data_hash`、semantic fingerprint 与可选 source/mapping hashes；它们各自只证明所标范围。artifact SHA-256 必须在产物关闭并重开验证后计算，只显示在外部 receipt/UI，不得循环嵌入自身 bytes，也不得冒充对原 DOCX 或对方收件的证明
 
 ### 触摸优先
 
@@ -177,7 +185,7 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 
 ## 8. 报告输出
 
-**[定]** 输出 PDF。生成后丢进云盘文件夹,在电脑上阅读——**app 负责采集,阅读不必发生在 app 里**。
+**[定,2026-09-02]** 输出原生 PDF（默认/证据归档）与自包含 HTML（离线阅读/打印）。通过系统 viewer/browser/文件选择器阅读与保存——**app 负责采集与验证产物,阅读不必发生在 app 里**。
 
 **[待]** 平行双语一份(中英并列),而不是双份单语。理由:争议发生时,双方手上是同一份文件本身就有价值。
 
@@ -191,6 +199,10 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 - **房客版**:客观描述 + 与房客相关的建议,不含内部判断
 
 **[定]** 报告必须带免责声明:仅供一般参考,不构成法律、建筑或物业建议;标准与规则会变,行动前请咨询持牌从业者。
+
+**[定,2026-09-02]** 两种格式只消费一次 `ReportContent`：它在序列化前完成受众/隐私过滤，并固定 identity、状态词表、房间/项目/状态/备注顺序、摘要回链、编号照片、supplements、免责声明、租客栏、remediation 可见性与完整性/来源标签。PDF/HTML 只可在分页、视觉布局和编码上不同；被排除的 bytes 不得靠 CSS 隐藏。
+
+HTML 是单个 UTF-8 文件：无 JavaScript、表单、外部 URL/资源或运行期网络；文本/属性按上下文转义，CSS/字体/经归一化且有界的 raster images 内嵌，具 semantic headings/tables/figures、meaningful alt/caption、responsive screen CSS 与 A4 print CSS。HTML 质量固定为 `NONE`；Low/Medium/High/Extra High 只属于 PDF。
 
 ### 照片排版
 
