@@ -36,7 +36,7 @@ doc_sync: TASK-BOARD 记录合并 OID；本卡 R5 归档，T4-SCHEDULE-UI 转为
 
 承接 `T4-SCHEDULE-REMINDER-SCHEDULER` 已合并的同步注册路径，把 enqueue seam 改成**异步 callback**并补上并发边界。查询恢复表、WorkRequest 构造、权限恢复判定与回执写法均已冻结在上一张卡里，本卡只改「谁在等、谁来 settle、什么时候超时」。
 
-上一张卡按 R3 diff 预算把三项留给本卡，本卡必须一并交付：⓪ **权限恢复**——`PERMISSION_BLOCKED` 上一张卡按 closed phase 跳过，本卡补「读新鲜授权 → store 自身递增 generation 并派生新 WorkRequest UUID → 以新 generation 走注册」，未授权时不得碰 WorkManager 或回执；① **诊断渲染**——上一张卡只落 typed settlement 记录，本卡补 delivery 精确 JSON 字段的渲染，并加上 `retained_work_request_id` 与失败类别 `cause_code`（迟到/跨代/超时诊断正需要这两项）；② **重读后的竞争语义**——上一张卡把一次失败的 CAS 重读一次即据实回报（含 `RECEIPT_CONTENDED`），本卡的并发合流用例必须让这条竞争路径成为可证伪的行为并配 mutation。
+上一张卡按 R3 diff 预算把三项留给本卡，本卡必须一并交付：⓪ **权限恢复**——`PERMISSION_BLOCKED` 上一张卡按 closed phase 跳过，本卡补「读新鲜授权 → store 自身递增 generation 并派生新 WorkRequest UUID → 以新 generation 走注册」，未授权时不得碰 WorkManager 或回执；① **诊断渲染**——上一张卡只落 typed settlement 记录，本卡补 delivery 精确 JSON 字段的渲染，并加上 `retained_work_request_id` 与失败类别 `cause_code`（迟到/跨代/超时诊断正需要这两项）；② **definitive-admission recovery（TD167）**——`confirm` 自带的 admission 证据（callback 已确认 / retained 查到本代 `ENQUEUED`/`RUNNING`）不得因一次 CAS 失败被降级成 contention：重读只判 superseded/closed，其余沿用调用点已有的结论，并配一枚让该分支变红的变异；③ **重读后的竞争语义**——上一张卡把一次失败的 CAS 重读一次即据实回报（含 `RECEIPT_CONTENDED`），本卡的并发合流用例必须让这条竞争路径成为可证伪的行为并配 mutation。
 
 `register` 提交后即返回，结果经 waiter callback 交付。同一 occurrence 的并发注册**合流**到一个 flight：只做一次 reservation、一次 query、一次 enqueue，全部 waiter 拿到同一个 cause。waiter 在 flight 之外被调用（settle 时先在锁内取快照并清 flight，再逐个 invoke），任一 waiter 抛出的 Throwable 都被隔离，不影响其余 waiter 与诊断——这条边界必须是**结构性**的，不是调用方需要记得的约定。
 

@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-REMINDER-SCHEDULER
 title: WorkRequest 构造、注册预留与保留工作恢复
 depends_on: [T4-SCHEDULE-REMINDER-DELIVERY]
-status: todo
+status: merged
 branch: T4-SCHEDULE-REMINDER-SCHEDULER
 worktree: C:\wt\T4-SCHEDULE-REMINDER-SCHEDULER
 allow_paths:
@@ -56,3 +56,47 @@ enqueue seam 是一次调用：提交 unique KEEP work 并交回该 operation �
 Runtime acceptance tests are black-box behavioral tests：测试调用 compiled scheduler entry point，并在同一 receipt store 上调用 delivery 卡的 compiled production delivery runner，以证明 scheduler 构造的 WorkRequest 正是 Worker 会接受的那一份、并制造真实 worker transition；production-used injected ports 覆盖 enqueue/query/permission/clock，只断言领域结果与记录的边界 effects。不得读取 repository/generated source、source-derived resource 或反射/反编译 compiled artifact 作为 oracle。A1–A5 各至少一个 production semantic mutation 必须在测试不变时让具名 selector nonzero；receipt 记录 acceptance、selector、变异 branch/port effect、RED exit 与 mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 mutation 无效。
 
 测试必须覆盖 reservation 写失败零 enqueue、fresh 与 **persisted `ENQUEUED`/`RETRYABLE` 恢复**、其它 active retained-ID mismatch（含与当前 UUID **并存**时）、当前 UUID duplicate、别代已 finished 的历史不挡本代 enqueue、六种 WorkInfo 状态各自的黑盒结果与稳定 cause、把某态误标 `ENQUEUED` 的 semantic mutation、query 抛错与**被中断**、五种 enqueue 结局、fatal 与 transient 同步失败、**scheduler 自身 CAS 落库不确定**、CAS 失败后重读出 worker 证据与更高 generation，以及 delay `-1ns/0/+1ns/亚毫秒/Long.MAX` 与溢出/钳制边界。每条 settle 的 cause 同时是被记录的那一条。
+
+## 交付记录（R5）
+
+**merged**：master `afc0c3c2`，PR #222，**R3 五轮后经人裁合并**（CI `verify` 绿、全部确定性闸绿、
+`codex-review` 为 block，理由与合并依据见 PR #222 的人裁评论）。diff 996 行 / 约 51k 字符。
+
+### 落地形态
+`ReminderScheduler.register(PendingReminder)` 一次阻塞式后台注册：预留（generation 0 的
+`ADMISSION_PENDING`）→ 查询 WorkManager 在该 unique name 下**仍保留什么** → 只有「当前 UUID 无保留、
+且无其它未结束保留」才提交 → 按 operation 结局落回执。请求 id 由 `reminderGenerationId(occurrence, gen)`
+派生（Worker 会拿平台实际运行的 UUID 与同一派生比对，不派生就每次都在 INPUT 阶段被拒）。
+
+**注入端口三个**：enqueue（提交并交回该 operation 自己的结局：Confirmed/Absent/Reported/Raised/TimedOut）、
+query（retained work）、`java.time.Clock`；外加共用的 `ReminderReceiptStore` 与一个 typed 诊断端口。
+
+### 不变量
+- **查询决定每一次提交**：KEEP 永远不会被读成「本代的 work 已被接纳」——外来 active/重复保留一律 quarantine。
+- **绝不高报 admission**：只有自身正在确立 admission 的调用点（confirm / holdForRetry）在重读到**同代
+  `ENQUEUED`** 时才记 `ADMISSION_ALREADY_RECORDED`；携带 retained 反证的 quarantine/terminate 调用点不得
+  由相位反推 admission（R3 第 4 轮 finding，M21 变异守住）。
+- **身份整体可空**：`ReminderRegistrationIdentity` 把 occurrence 与 generation 绑成一个值，无法发布「只对得上
+  一半」的身份（R3 第 3 轮维度 #12）。
+- 只有**同步抛出的 permanent** 提交失败才把回执关到 `TERMINAL`；transient 与 `TimedOut` 都保持预留不动。
+- delay 向上取整（永不提前交给平台）并钳制而非溢出——WorkManager 自己会拒绝会溢出其排期算术的 delay。
+
+### 证据
+16 个 JVM 黑盒测试（含把**每一种 retained 答案**都竞速到 `ENQUEUED` 的表驱动用例，证明没有一种会变成
+假 admission；以及用 delivery 卡的 **compiled production runner** 跑本卡构造的真实 `OneTimeWorkRequest`，
+证明 Worker 确实接受它）。**21 枚语义变异逐一击杀**，收据钉生产文件 SHA-256
+`ab224f64c0dc418092616b071c5da3e6193b0dd95f79f28c7ec947681690b648`（变异前后同值），写在测试文件末尾。
+
+### R3 五轮与人裁
+五轮 block 全部命中同一个设计点——**一次 CAS 失败后本次注册可以断定什么**——而评审者在该点上先后给出四种
+互不相同的立场（2：同代任何变化都只能记 contention；3：同代 `ENQUEUED` 是 admission；4：只限 confirm 路径；
+5：该路径上 `RETRYABLE` 也应算）。第 2 轮与第 5 轮互为反向，按 CLAUDE.md「同一争点两轮互不认可即停、排队人裁」
+转人裁合并。前四轮的 finding **全部属实且已修**（缺 persisted 恢复/并存保留/自身 CAS 不确定/被中断 query 的用例、
+`place` 吞 `InterruptedException` 不还原中断位、半截身份诊断、由相位反推的假 admission）。
+第 5 轮的剩余缺口是**低报**（该记 admission 处记了 contention），方向安全且自愈：调用方重试后由 retained-work
+查询以证据给出 `RETAINED_WORK_ENQUEUED`。细化归 FLIGHT 卡（TD167）。
+
+### 两次按预算拆卡（动手前 + 首轮后）
+自下而上估算 1250 行 > R3 1000 行预算，故 **动手前**先拆出 `T4-SCHEDULE-REMINDER-FLIGHT`（并发合流、异步
+callback flight、单调 watchdog）；实现后仍贴住上限，又把**诊断 JSON 渲染**与**权限恢复**移入该卡。教训：
+L266 的「写 RED 之前先量」抓住了第一次，但没抓住第二次——量的是**产出**，没量**评审要求的覆盖面**。
