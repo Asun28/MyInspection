@@ -13919,7 +13919,6 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
     $rmSavedCiMode = $env:GH_MOCK_CI_MODE; $rmSavedCiTimeout = $env:SCAFFOLD_CI_TIMEOUT_SEC
-    $rmSavedSlowSec = $env:GH_MOCK_SLOW_SEC; $rmSavedRealGit = $env:GH_MOCK_REAL_GIT   # T0-CI-IDENTITY-DEADLINE 新增旋钮，同样全程 save/restore
     $script:rmRoots = @()   # Codex 二审 major#2：root 一经创建即登记（script 域），setup 中途抛异常也不泄漏临时根。
     # 集中一处的哨兵/状态文件清单（卡 dod_assert：每场景进入前统一复位全部 GH_MOCK_* 每场景旋钮 + 全部哨兵/gh 状态文件）。
     # T37 stub 实际使用的**全部**哨兵/状态文件——闸15t 新增的四个也必须在列，否则 $rmReset 名不副实、
@@ -13928,16 +13927,14 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
       'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds',
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
-      # T0-CI-IDENTITY-DEADLINE 新增：deadline 夹具的进程哨兵 + R3 窗口移 HEAD 的一次性闸 + 单一预算/ git-leg 挂起的账。
-      # 不在列 ⇒ 上一场景残留的 hang-completed 会让下一场景的「未留下完成哨兵」断言假红（同 codex R3 r2 #4）。
-      'hang-started', 'hang-completed', 'hang-child-completed', 'r3-head-moved', 'orphan-started', 'orphan-completed',
-      'slow-legs', 'arm-git-hang', 'git-hang-started', 'git-hang-completed')   # base-count 属 17aa(8)，本卡 stub 不写
+      # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
+      'r3-head-moved')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
       # Codex R3 r5：进入场景前统一复位**全部** GH_MOCK_* 每场景旋钮（含 17aa(8) 的 BASE_MODE/MERGE_STATE，防跨闸继承）；PATH/GH_MOCK_ROOT 由 $rmMake 绑至本夹具。
       $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_BASE_MODE = $null; $env:GH_MOCK_MERGE_STATE = $null
-      $env:GH_MOCK_CI_MODE = $null; $env:SCAFFOLD_CI_TIMEOUT_SEC = $null; $env:GH_MOCK_SLOW_SEC = $null
+      $env:GH_MOCK_CI_MODE = $null; $env:SCAFFOLD_CI_TIMEOUT_SEC = $null
     }
     # Finding B（Codex R3 r3 #2）：证远端投影真被更新——push 成功后裸 origin 的任务 ref 须 == worktree HEAD。
     $rmOriginRef = { param($origin) "$(& git --git-dir=$origin rev-parse refs/heads/T0-REMOTEMX 2>$null)".Trim() }
@@ -13946,16 +13943,14 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # （同一驱动器 ⇒ 三闸对「拦住了」的取证口径逐字一致）。$Extra 走 -NoAutoMerge 一类附加实参；$Sec 是本次
     # ship 墙钟（deadline 负例据它判预算）；PrN/RunId 取自本夹具自己的随机身份文件（⇒ 断言里不得硬编码）。
     $ciShip = {
-      param($fx, [string]$Mode, [string[]]$Extra = @(), [string]$TimeoutSec = '30', [string]$SlowSec = '')
+      param($fx, [string]$Mode, [string[]]$Extra = @(), [string]$TimeoutSec = '30')
       & $rmReset $fx.Root
       # 效果账本随每次 ship 复位：闸的**逐字段拒因**只落在这里（Add-CatchRecord，不打印到 stdout），
       # 身份负例要证明「命中的是被造坏的那一处」就得读它——跨轮残留会让上一例的拒因冒充本例的证据。
       $ledger = Join-Path $fx.Repo '_local/effectiveness-ledger.jsonl'
       Remove-Item $ledger -ErrorAction SilentlyContinue
-      # 每场景旋钮一律在 $rmReset **之后**设置：$rmReset 会把它们全部清空（防跨场景继承），
-      # 在外面先设再调本闭包等于白设——那会让 gh-slow 的睡眠变成 0 秒、整条用例静默退化成一次普通绿跑。
+      # 每场景旋钮一律在 $rmReset **之后**设置：$rmReset 会把它们全部清空（防跨场景继承），在外面先设再调本闭包等于白设。
       $env:GH_MOCK_WT = $fx.Wt; $env:GH_MOCK_CI_MODE = $Mode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $TimeoutSec
-      $env:GH_MOCK_SLOW_SEC = $SlowSec
       $sw = [Diagnostics.Stopwatch]::StartNew()
       $out = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship @Extra 2>&1 | Out-String)
       $exit = $LASTEXITCODE
@@ -14011,23 +14006,6 @@ function Next-CiCount([string]$Name) {
   return ($n + 1)
 }
 function Send-CiJson($o) { $o | ConvertTo-Json -Depth 6 -Compress; exit 0 }
-# 「单一预算」判据（gh-slow）：**每条**被计数的 API 腿都先睡 GH_MOCK_SLOW_SEC 秒，且逐条记账。
-# 只有一个共享 deadline 时，几条腿加起来就把预算吃完、闸在中途超时；若每次调用各起一个新超时，
-# 每条腿都在自己的上限内从容返回、整条链一路走到合并——两种实现的**观测结果完全相反**，
-# 这正是单点挂起的 gh-hang 区分不了的那一维（R3 r1 #6）。
-function Wait-CiSlowLeg {
-  if ($env:GH_MOCK_CI_MODE -ceq 'gh-slow') {
-    Add-Content (Join-Path $env:GH_MOCK_ROOT 'slow-legs') "$((Get-Location).Path)"
-    Start-Sleep -Seconds ([int]"$env:GH_MOCK_SLOW_SEC")
-  }
-}
-# 给 git shim 上膛：jobs 腿是「稳定态判绿」与「CI 闸内那次 git fetch / rev-parse」之间的最后一个 gh 腿，
-# 故在此上膛后，下一次匹配的 git 调用必然是 CI 闸内那一次（不会误伤更早的范围闸那一次）。
-function Set-CiGitHangArmed {
-  if ("$env:GH_MOCK_CI_MODE" -cin @('git-fetch-hang', 'git-revparse-hang')) {
-    Set-Content (Join-Path $env:GH_MOCK_ROOT 'arm-git-hang') "$env:GH_MOCK_CI_MODE"
-  }
-}
 function Get-CiPage([string]$s) { if ($s -match '(?:\?|&)page=(\d+)') { [int]$Matches[1] } else { 1 } }
 # 分页契约夹具注入器（T0-CI-PAGED-CONTRACT）：GH_MOCK_CI_MODE = '<endpoint>-<case>'。
 # 三个分页 endpoint 共用生产侧同一个读取函数，故三者各自把自己的**合法条目原型** $Item 交给本注入器，
@@ -14115,7 +14093,6 @@ if ($args -contains 'api') {
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
     [void](Next-CiCount 'ci-check-count')
-    Wait-CiSlowLeg
     $page = Get-CiPage $joined
     $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red') { 'failure' } else { 'success' }
     $checkItem = [ordered]@{ id = [long]11; name = 'verify'; status = 'completed'; conclusion = $conclusion }
@@ -14137,33 +14114,6 @@ if ($args -contains 'api') {
     Add-CiCwd 'workflow' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
     $wfN = Next-CiCount 'ci-workflow-count'
-    Wait-CiSlowLeg
-    # A3 单一 deadline 夹具：本腿先落 hang-started（证 API 真被启动过），再派一个**孙进程**（stub 自身是子进程，
-    # 它 Start-Process 出来的是孙进程）在 12s 后写 hang-child-completed，然后本进程睡 300s 才写 hang-completed。
-    # 生产侧的 deadline 若真在杀**进程树**，两枚 completed 哨兵都不该出现；若只杀直接子进程，孙进程会留下自己那枚。
-    if ($env:GH_MOCK_CI_MODE -ceq 'gh-hang') {
-      # 起始时刻写进哨兵内容：孙进程的睡眠必须**长于** deadline（否则它在被杀之前就自己写完了，
-      # 那枚缺席的哨兵什么也证明不了），断言侧据这个时刻算出「该等到几时才判定」。
-      Set-Content (Join-Path $env:GH_MOCK_ROOT 'hang-started') ([DateTimeOffset]::UtcNow.ToString('o'))
-      $childDone = (Join-Path $env:GH_MOCK_ROOT 'hang-child-completed')
-      # -NoNewWindow ⇒ UseShellExecute=$false ⇒ 走 CreateProcess，孙进程的父就是本 stub 进程（Kill(entireProcessTree)
-      # 才有得可杀）；实参里只用单引号，免 Start-Process 的引号重组把内嵌双引号吃掉。
-      Start-Process -FilePath (Get-Command pwsh).Source -NoNewWindow `
-        -ArgumentList '-NoProfile', '-Command', "Start-Sleep -Seconds 40; Set-Content -LiteralPath '$childDone' 'yes'"
-      Start-Sleep -Seconds 300
-      Set-Content (Join-Path $env:GH_MOCK_ROOT 'hang-completed') 'yes'
-      exit 0
-    }
-    # gh-orphan：本 stub 派出孙进程后**立刻退出**。孙进程继承了重定向的 stdout ⇒ 流永不到 EOF，而父侧
-    # $proc.HasExited 已为 true ⇒ 「先判 HasExited 再 Kill」那种写法一次也不会执行、孙进程被漏杀（R3 r2 #2）。
-    # gh-hang 证不了这一形态（它自己一直睡着、HasExited 恒 false），故单列一条。
-    if ($env:GH_MOCK_CI_MODE -ceq 'gh-orphan') {
-      Set-Content (Join-Path $env:GH_MOCK_ROOT 'orphan-started') ([DateTimeOffset]::UtcNow.ToString('o'))
-      $orphanDone = (Join-Path $env:GH_MOCK_ROOT 'orphan-completed')
-      Start-Process -FilePath (Get-Command pwsh).Source -NoNewWindow `
-        -ArgumentList '-NoProfile', '-Command', "Start-Sleep -Seconds 40; Set-Content -LiteralPath '$orphanDone' 'yes'"
-      exit 0
-    }
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
@@ -14203,8 +14153,6 @@ if ($args -contains 'api') {
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
     [void](Next-CiCount 'ci-jobs-count')
-    Wait-CiSlowLeg
-    Set-CiGitHangArmed
     $page = Get-CiPage $joined
     $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
     $jobItem = [ordered]@{ id = [long]21; name = $jn; status = 'completed'; conclusion = 'success' }
@@ -14268,32 +14216,6 @@ if ($args -contains 'merge') {
   exit 0
 }
 exit 0
-'@
-    # 条件式 git PATH-stub（T0-CI-IDENTITY-DEADLINE）：**只**给两条 git-leg 挂起负例的夹具装，其余照旧用真 git。
-    # 未上膛/不匹配时逐字透传（实参、stdout/stderr、退出码），行为与没装它一样。上膛信号由 gh stub 的 jobs 腿
-    # 写下 ⇒ 命中的必然是 CI 闸内那次 fetch/rev-parse，不误伤更早的范围闸那次（那次本就不在 deadline 内）。
-    $rmGitShim = @'
-# 透传目标：优先用夹具解析好的绝对路径；万一没传，自己按 Application 类型解析（排除 .ps1，免自指死循环）。
-$real = "$env:GH_MOCK_REAL_GIT"
-if (-not $real) { $real = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
-# 先判环境变量再拼路径：GH_MOCK_ROOT 为空时 Join-Path/Test-Path 会各报一次错，噪声会混进被透传的 git 输出。
-$armed = if ($env:GH_MOCK_ROOT) { Join-Path "$env:GH_MOCK_ROOT" 'arm-git-hang' } else { $null }
-if ($armed -and (Test-Path $armed)) {
-  $mode = "$(Get-Content $armed -Raw)".Trim()
-  $joined = $args -join ' '
-  $hit = ($joined -match 'refs/remotes/origin/') -and (
-    (($mode -ceq 'git-fetch-hang') -and ($joined -match '(?:^| )fetch(?: |$)')) -or
-    (($mode -ceq 'git-revparse-hang') -and ($joined -match '(?:^| )rev-parse(?: |$)')))
-  if ($hit) {
-    Remove-Item $armed -Force -ErrorAction SilentlyContinue   # 只挂一次：后续 git 调用照常透传
-    Set-Content (Join-Path "$env:GH_MOCK_ROOT" 'git-hang-started') "$mode|$joined"
-    Start-Sleep -Seconds 300
-    Set-Content (Join-Path "$env:GH_MOCK_ROOT" 'git-hang-completed') 'yes'
-    exit 0
-  }
-}
-& $real @args
-exit $LASTEXITCODE
 '@
     # 建一个全新远端夹具仓（隔离仓 + 裸 origin + 状态化 gh stub），返回句柄哈希（Ok=start 是否产出 worktree）。
     $rmMake = {
@@ -14679,47 +14601,12 @@ if ($env:GH_MOCK_ROOT) {
       # R4 变异收据（各改生产侧一处，判据=本闸变红且 [SELFTEST-FAILED-GATES] 点名本闸）：
       #   M1 `-ccontains 'number'`→`-contains` ⇒ wfid-pr-key-case exit 0（`Number` 条目重新过闸并合并=原卡那个洞）
       #   M2 `event -cne`→`-ne` / M3 `$path -cnotmatch`→`-notmatch` ⇒ 各自读计数 2/2/1（期望 1/1/0）
-      #   M5 `Kill($true)`→`Kill()` ⇒ gh-hang 孙进程留下完成哨兵
       # M2/M3 的**死法本身**是证据：只松了稳定态那处、终局那处仍在，于是「停在哪一环」变了而非干脆过闸——
       # 只看退出码会把这种半失守读成「还是拦住了」。
       if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/WORKFLOW-BINDING')) {
         # 读计数含义：稳定态一轮各读 1 次、终局快照再各读 1 次 ⇒ 停在稳定态身份判定=1/1/0、停在终局快照=2/2/2。
         $wbProblem = $null
         $wbNeg = & $rmMake 'wfbind'
-        # A3 的**上限本身**要可断言：端到端夹具的墙钟里混着 ship 前段管线，85s 的余量分辨不出「一份清理余量」
-        # 与「两份」（deadline+2s vs deadline+4s）。故这里把候选树里的被测函数单独取出来直调，时序与 ship
-        # 前段完全隔离（R3 r2 #10）。被测命令派出孙进程后立刻退出、孙进程握着重定向 stdout 不放 ⇒ 收流必然
-        # 走到清理期限，于是墙钟恰好显形为「deadline + 一份余量」；退回两份串行余量即超阈变红。
-        if (-not $wbProblem) {
-          try {
-            $uSrc = [IO.File]::ReadAllText((Join-Path $wbNeg.Repo 'scripts/task.ps1'))
-            $uT = $null; $uE = $null
-            $uAst = [System.Management.Automation.Language.Parser]::ParseInput($uSrc, [ref]$uT, [ref]$uE)
-            $uAdd = @($uAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Extent.Text -match 'ScaffoldJobObject' -and $n.Extent.Text -match 'Add-Type' }, $true))
-            $uFn = @($uAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Invoke-ExternalBeforeDeadline' }, $true))
-            if (($uAdd.Count -ne 1) -or ($uFn.Count -ne 1)) { $wbProblem = "隔离计时：候选树里取不到唯一的作业对象声明/被测函数（add=$($uAdd.Count) fn=$($uFn.Count)）" }
-            else {
-              . ([scriptblock]::Create($uAdd[0].Extent.Text))
-              . ([scriptblock]::Create($uFn[0].Extent.Text))
-              $CiCleanupAllowanceMs = 2000            # 与生产同值；本用例判的是它被花了几遍，不是它是多少
-              $uDeadlineSec = 4
-              $uShim = Join-Path $wbNeg.Root 'unit-orphan.ps1'
-              $uDone = Join-Path $wbNeg.Root 'unit-orphan-done'
-              @"
-Start-Process -FilePath '$((Get-Command pwsh).Source)' -NoNewWindow -ArgumentList '-NoProfile','-Command',"Start-Sleep -Seconds 30; Set-Content -LiteralPath '$uDone' 'yes'"
-exit 0
-"@ | Set-Content $uShim -Encoding utf8
-              $uSw = [Diagnostics.Stopwatch]::StartNew()
-              $uR = Invoke-ExternalBeforeDeadline -Command (Get-Command pwsh).Source -Arguments @('-NoProfile', '-File', $uShim) `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds($uDeadlineSec)) -WorkingDirectory $wbNeg.Root
-              $uSw.Stop()
-              $uCap = $uDeadlineSec + ($CiCleanupAllowanceMs / 1000) + 1   # 一份余量 + 1s 松量；两份余量=+4s 必超
-              if (-not $uR.TimedOut) { $wbProblem = "隔离计时：孙进程握着管道却未判超时（TimedOut=$($uR.TimedOut)）" }
-              elseif ($uSw.Elapsed.TotalSeconds -lt $uDeadlineSec) { $wbProblem = "隔离计时：$([math]::Round($uSw.Elapsed.TotalSeconds,1))s < deadline ${uDeadlineSec}s——提前放弃，没有真等满预算" }
-              elseif ($uSw.Elapsed.TotalSeconds -gt $uCap) { $wbProblem = "隔离计时：$([math]::Round($uSw.Elapsed.TotalSeconds,1))s > 上限 ${uCap}s——清理余量被花了不止一遍（deadline + 2×allowance 即此形态）" }
-            }
-          } catch { $wbProblem = "隔离计时用例自身异常：$($_.Exception.Message)" }
-        }
         try {
           if (-not $wbNeg.Ok) { $wbProblem = 'setup：身份负例夹具 start 未产出 worktree' }
           else {
@@ -14759,61 +14646,6 @@ exit 0
             $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
             if ($why) { $wbProblem = "wfid-final-pr-key-case：$why（终局那次 PR 关联判定若不是大小写敏感的，本例会一路走到合并）" }
           }
-          # A3：stub 在 workflow 腿挂起 300s，并派一个**孙进程**在 40s 后写自己的完成哨兵。40s > 20s 上限是刻意的
-          # ——孙进程若在 deadline 前就写完，哨兵缺席只说明「它还没跑到」（本闸第一版实测踩到：12s 孙进程在 20s
-          # deadline 前自己完成了）。三件同时成立才算：① hang-started 在位（排除「没调用所以很快」的假绿）；
-          # ② 墙钟 < 上限+清理余量；③ 等过孙进程该写哨兵的时刻后**两枚**完成哨兵都不在位 ⇒ 杀的是进程树。
-          if (-not $wbProblem) {
-            $wbCap = 20; $wbMargin = 85; $wbChildSleep = 40
-            $r = & $ciShip $wbNeg 'gh-hang' @() "$wbCap"
-            $why = & $ciExpectIdBlock $r '\[CI-GATE-TIMEOUT\]'
-            $wbStartedAt = Join-Path $wbNeg.Root 'hang-started'
-            if ($why) { $wbProblem = "gh-hang：$why" }
-            elseif (-not (Test-Path $wbStartedAt)) { $wbProblem = 'gh-hang：hang-started 缺——挂起的那次 API 根本没被启动，超时不能算证据' }
-            elseif ($r.Sec -ge ($wbCap + $wbMargin)) { $wbProblem = "gh-hang：墙钟 $([int]$r.Sec)s ≥ 上限 ${wbCap}s + 清理余量 ${wbMargin}s——deadline 未按剩余预算收口" }
-            else {
-              # 等到「孙进程起跑 + 睡眠 + 6s 落盘余量」那一刻再判，让「没被杀掉」这一可能性有充分机会显形。
-              $wbSpawnedAt = [DateTimeOffset]::Parse("$(Get-Content $wbStartedAt -Raw)".Trim())
-              $wbRemain = ($wbSpawnedAt.AddSeconds($wbChildSleep + 6) - [DateTimeOffset]::UtcNow).TotalSeconds
-              if ($wbRemain -gt 0) { Start-Sleep -Milliseconds ([int]($wbRemain * 1000)) }
-              if (Test-Path (Join-Path $wbNeg.Root 'hang-child-completed')) { $wbProblem = 'gh-hang：孙进程留下了完成哨兵——只杀了直接子进程，进程树未被清理' }
-              elseif (Test-Path (Join-Path $wbNeg.Root 'hang-completed')) { $wbProblem = 'gh-hang：挂起的子进程自己跑完了——deadline 未真正杀进程' }
-            }
-          }
-          # A3 之二：**一个共享预算**，不是「每次调用各起一个新超时」——gh-hang 只挂一条腿，两种实现观测结果
-          # 一样、区分不开（R3 r1 #6）。本例让**每条** API 腿都睡 cap 的一大半：共享 deadline ⇒ 第一条腿吃掉
-          # 大半、第二条在剩余预算内超时 ⇒ [CI-GATE-TIMEOUT] 不合并；各自计时 ⇒ 每条腿从容返回 ⇒ 一路合并。
-          # 判据同时钉住「预算真跨腿累计」：slow-legs 记账 ≥2 条，且 checks/workflow 都被进入过。
-          if (-not $wbProblem) {
-            # 11 > cap/2 ⇒ 两条腿必然吃穿共享预算，单腿又吃不穿（故「一条腿超时」证不了共享，两条才行）。
-            $wbCap = 20; $wbMargin = 85
-            $r = & $ciShip $wbNeg 'gh-slow' @() "$wbCap" '11'
-            $slowLegs = @((Get-Content (Join-Path $wbNeg.Root 'slow-legs') -ErrorAction SilentlyContinue) | Where-Object { $_ }).Count
-            $why = & $ciExpectIdBlock $r '\[CI-GATE-TIMEOUT\]'
-            if ($why) { $wbProblem = "gh-slow：$why（若走到了合并，说明每次调用各起了一个新超时、不是单一预算）" }
-            elseif ($slowLegs -lt 2) { $wbProblem = "gh-slow：只有 $slowLegs 条腿被计时——预算没有跨腿累计，本例证不了「共享」" }
-            elseif (($r.CR -lt 1) -or ($r.WR -lt 1)) { $wbProblem = "gh-slow：读计数 $($r.CR)/$($r.WR)/$($r.JR)——预算未跨越两个不同 endpoint" }
-            elseif ($r.Sec -ge ($wbCap + $wbMargin)) { $wbProblem = "gh-slow：墙钟 $([int]$r.Sec)s ≥ ${wbCap}+${wbMargin}s——总预算未收口" }
-          }
-          # A3 之四：**子进程早退、孙进程握着管道**这一形态。gh-orphan 的 stub 派出孙进程后立刻退出，于是
-          # 父侧 HasExited 已为 true、流却到不了 EOF；只有把子进程并入作业对象并整组结束，那个孙进程才会死。
-          # 判据：ship 按时返回 [CI-GATE-TIMEOUT]，且**等过孙进程该写哨兵的时刻**后 orphan-completed 仍不在位。
-          # 靠 `if (-not HasExited) { Kill }` 的实现会在这里漏杀，孙进程 40s 后写下哨兵 ⇒ 本例转红（R3 r2 #2）。
-          if (-not $wbProblem) {
-            $wbCap = 20; $wbMargin = 85; $wbOrphanSleep = 40
-            $r = & $ciShip $wbNeg 'gh-orphan' @() "$wbCap"
-            $wbStartedAt = Join-Path $wbNeg.Root 'orphan-started'
-            $why = & $ciExpectIdBlock $r '\[CI-GATE-TIMEOUT\]'
-            if ($why) { $wbProblem = "gh-orphan：$why" }
-            elseif (-not (Test-Path $wbStartedAt)) { $wbProblem = 'gh-orphan：orphan-started 缺——孙进程根本没被派出，本例证不了漏杀' }
-            elseif ($r.Sec -ge ($wbCap + $wbMargin)) { $wbProblem = "gh-orphan：墙钟 $([int]$r.Sec)s ≥ ${wbCap}+${wbMargin}s" }
-            else {
-              $wbAt = [DateTimeOffset]::Parse("$(Get-Content $wbStartedAt -Raw)".Trim())
-              $wbLeft = ($wbAt.AddSeconds($wbOrphanSleep + 6) - [DateTimeOffset]::UtcNow).TotalSeconds
-              if ($wbLeft -gt 0) { Start-Sleep -Milliseconds ([int]($wbLeft * 1000)) }
-              if (Test-Path (Join-Path $wbNeg.Root 'orphan-completed')) { $wbProblem = 'gh-orphan：孙进程写下了完成哨兵——子进程早退后它被漏杀（作业对象未生效）' }
-            }
-          }
           # A5：-NoAutoMerge 只跳过合并腿，不放松任何一层——同一条身份负例带上它仍须被同一个哨兵拦下。
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg 'wfid-path-case' @('-NoAutoMerge')
@@ -14852,40 +14684,6 @@ exit 0
             }
           }
           finally { if ($fxm -and $fxm.Root) { Remove-Item -Recurse -Force $fxm.Root -ErrorAction SilentlyContinue } }
-        }
-        # A3 之三：deadline 罩住的不只有 gh，CI 闸内的 `git fetch`/`git rev-parse` 也在内，而这两条腿此前零覆盖
-        # ——改回直调 `& git`，上面每条用例照样全绿（R3 r1 #6）。条件式 git PATH-stub 由 gh stub 的 jobs 腿上膛后
-        # 挂起 300s：有 deadline ⇒ ship 在 cap+余量内返回 [CI-GATE-TIMEOUT]；直调 ⇒ ship 卡死不返回。故「按时返回
-        # + git-hang-started 在位」即该腿在预算内的证据。单开一棵夹具：装给全体等于每次 git 多经一层 pwsh。
-        if (-not $wbProblem) {
-          $fxg = & $rmMake 'gitleg'
-          try {
-            if (-not $fxg.Ok) { $wbProblem = 'git-leg setup：夹具 start 未产出 worktree' }
-            else {
-              $env:GH_MOCK_WT = $fxg.Wt
-              & pwsh -NoProfile -File (Join-Path $fxg.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
-              Set-Content (Join-Path $fxg.Wt 'README.md') 'GREENMX git leg deadline' -Encoding utf8
-              # 真 git 的绝对路径必须在装 stub **之前**解析——装完之后 `git` 解析到的就是 stub 自己（自指死循环）。
-              $env:GH_MOCK_REAL_GIT = (Get-Command git -CommandType Application | Select-Object -First 1).Source
-              Set-Content (Join-Path $fxg.Shim 'git.ps1') $rmGitShim -Encoding utf8
-              # 余量比别处宽：本夹具每一次 git 都多经一层 pwsh 透传（实测整条 ship 因此多花十几秒），
-              # 而这两条用例要判的是「该 git 腿有没有被预算罩住」，不是 ship 前段有多快。
-              $wbCap = 20; $wbMargin = 140
-              foreach ($leg in @('git-fetch-hang', 'git-revparse-hang')) {
-                if ($wbProblem) { break }
-                $r = & $ciShip $fxg $leg @() "$wbCap"
-                $why = & $ciExpectIdBlock $r '\[CI-GATE-TIMEOUT\]'
-                if ($why) { $wbProblem = "$leg：$why（该 git 腿若是不受预算约束的直调，ship 会卡死而不是超时返回）" }
-                elseif (-not (Test-Path (Join-Path $fxg.Root 'git-hang-started'))) { $wbProblem = "$leg：git-hang-started 缺——那条 git 根本没被挂起，超时不能算证据" }
-                elseif ((Get-Content (Join-Path $fxg.Root 'git-hang-started') -Raw) -cnotmatch [regex]::Escape($leg)) { $wbProblem = "$leg：挂起的不是本例点名的那条 git 腿" }
-                elseif ($r.Sec -ge ($wbCap + $wbMargin)) { $wbProblem = "$leg：墙钟 $([int]$r.Sec)s ≥ ${wbCap}+${wbMargin}s——该 git 腿不在共享预算内" }
-              }
-            }
-          }
-          finally {
-            $env:GH_MOCK_REAL_GIT = $null
-            if ($fxg -and $fxg.Root) { Remove-Item -Recurse -Force $fxg.Root -ErrorAction SilentlyContinue }
-          }
         }
         if ($wbProblem) { Fail "T37-CIGATE/WORKFLOW-BINDING: $wbProblem" }
         else { Write-Host '  T37-CIGATE/WORKFLOW-BINDING OK' -ForegroundColor Green }
@@ -15069,7 +14867,6 @@ exit 0
       $env:PATH = $rmSavedPath; $env:GH_MOCK_ROOT = $rmSavedRoot; $env:GH_MOCK_WT = $rmSavedWt; $env:GH_MOCK_MERGE_FAIL = $rmSavedMergeFail
       $env:GH_MOCK_BASE_MODE = $rmSavedBaseMode; $env:GH_MOCK_MERGE_STATE = $rmSavedMergeState
       $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout
-      $env:GH_MOCK_SLOW_SEC = $rmSavedSlowSec; $env:GH_MOCK_REAL_GIT = $rmSavedRealGit
       foreach ($rr in $script:rmRoots) { Remove-Item -Recurse -Force $rr -ErrorAction SilentlyContinue }
     }
   }
