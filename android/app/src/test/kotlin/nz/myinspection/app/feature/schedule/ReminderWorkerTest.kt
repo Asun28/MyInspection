@@ -539,7 +539,7 @@ private fun record(
 
 /*
  * R4 semantic mutation receipts. Each row was applied alone to ReminderWorker.kt at SHA-256
- * 3f2be2b3ea684e1cabc9b597f3a7a88bfe46be65af82432e5a4d7277894e8ef7, run through
+ * 8fe2cb2264bd8c871a91eea97e9d31d997133facd423ebc0237ea7fb6d63514b, run through
  * `:app:testDebugUnitTest --tests nz.myinspection.app.feature.schedule.ReminderWorkerTest`, then
  * reverted and re-hashed to that same value. A kill required exit 1 with the expected test among
  * the named failing testcases, and every run reported 15 executed cases, which is what rules out
@@ -562,10 +562,8 @@ private fun record(
  * A4 M15 drop the occurrence id from refused input       exit 1  malformed input: wrong record
  * A4 M16 report every post failure as UNKNOWN            exit 1  failed post: wrong cause code
  *
- * Two declared survivors, predicted before the batch rather than found by it: both comparisons in
- * `corresponds` below the generation check are entailed by the store's own receipt invariant, so
- * no input can make either false. They are kept for the reason given there, and recorded here.
- *
- * A1 S01 drop `receipt.workRequestId == valid.workRequestId`   exit 0  SURVIVED as declared
- * A1 S02 force `receipt.spec == valid.spec` to true            exit 0  SURVIVED as declared
+ * Every row above is a kill, and the table has no other rows. The two comparisons this file once
+ * recorded as unkillable by declaration — the work id and the spec, both entailed by the store's
+ * receipt invariant — are now deleted rather than documented, so the correspondence check is
+ * exactly the one comparison a test can falsify.
  */

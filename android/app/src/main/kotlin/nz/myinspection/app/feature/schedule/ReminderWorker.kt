@@ -112,7 +112,13 @@ class ReminderDeliveryRunner<T : Any>(
             noteWriteUncertain(valid)
             return null
         }
-        if (present == null || !corresponds(present.receipt, valid)) {
+        // Generation is the whole correspondence check. The store only returns a receipt whose own
+        // occurrence matches, and its receipt invariant already derives the work id from that
+        // occurrence and generation and keeps the spec canonical for it, while validate derived
+        // this run's work id and spec the same way. Equal generations therefore already mean equal
+        // work ids and equal specs, so re-comparing them here would be a second authority that no
+        // input could ever make disagree.
+        if (present == null || present.receipt.generationNumber != valid.generationNumber) {
             noteInvalidReceipt(valid)
             return null
         }
@@ -196,18 +202,6 @@ class ReminderDeliveryRunner<T : Any>(
             else -> ReminderRunOutcome.FAILURE
         }
     }
-
-    /**
-     * Whether the stored receipt is the one this run was started for. Only the generation can
-     * differ today: the store refuses to return a receipt whose work id or spec disagrees with its
-     * own occurrence, so no input can make those two false and no test can kill them. They stay
-     * because this is the boundary between the platform's claim and the durable record, where a
-     * store that later relaxed its receipt invariant must widen delivery loudly, not silently.
-     */
-    private fun corresponds(receipt: ReminderReceipt, valid: ValidInput): Boolean =
-        receipt.generationNumber == valid.generationNumber &&
-            receipt.workRequestId == valid.workRequestId &&
-            receipt.spec == valid.spec
 
     private fun transition(
         valid: ValidInput,
