@@ -19,11 +19,11 @@ non_goals:
   - OCR, PDF import, template editing, import history viewer, export rendering, or automatic issue resolution
 plan_ref: context/DESIGN.md#primary-inspection-journey
 acceptance:
-  - "A1 a selected property with no active draft exposes Import existing report and the declared Choose file, Scan, Match, Review, Create editable draft task route"
+  - "A1 a selected property with no active draft exposes Import existing report and the declared Details, Choose file, Scan, Match, Review, Create draft task route; Details confirms tenancy/report date and shows the locked current Routine template"
   - "A2 persistent step progress shows exact rows, photos, mappings, exclusions, and blockers; each error is adjacent, announced, and first-blocker focus is deterministic"
-  - "A3 status suggestions require confirmation, photo-caption ambiguity requires assignment or exclusion, and every photo starts visibly private and excluded from reports"
-  - "A4 Create editable draft is the sole primary action only at zero blockers; success replaces the import task with ordinary INSPECTION_REVIEW and never says finalized"
-  - "A5 cancel, picker loss, low storage, process death, and commit recovery preserve the last safe state; 48dp targets, TalkBack order, 200 percent text, dark, landscape, and reduced motion pass"
+  - "A3 MATCHED and ACTION_REQUIRED rows remain blockers; status suggestions require confirmation, photo-caption ambiguity requires assignment/exclusion, and every photo starts visibly transient UNREVIEWED_EXCLUDED rather than with a persisted privacy value"
+  - "A4 Create editable draft is the sole primary action only when the complete manifest is terminal CONFIRMED/EXCLUDED, preview is current, and blockers are zero; success replaces import with ordinary Capture/Review and never says finalized"
+  - "A5 cancel/picker/space failures and live recreation preserve the last safe in-process state; pre-commit process death clears source/staging/mapping and resets to Choose file with Details retained, while post-commit recovery enters the verified draft; 48dp, TalkBack, 200 percent text, dark, landscape, and reduced motion pass"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
 dod_assert: route, state-machine, restoration, focus, semantics, responsive-state previews, and core-boundary tests pass; world-class UX checklist is attached to review evidence

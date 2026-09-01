@@ -21,7 +21,7 @@ acceptance:
   - "A1 every routine-v1 room and item retains its stable ID, bilingual meaning, status domain, and relative order in routine-v2"
   - "A2 routine-v2 adds one bilingual Hallway room contract and one General item GEN-SUMMARY-01 without changing historical v1 bytes"
   - "A3 GEN-SUMMARY-01 accepts a normal status and note so imported summary text enters the existing native hash domain"
-  - "A4 the template loader reads both versions and rejects duplicate IDs, missing translations, or cross-version drift outside the intended additions"
+  - "A4 the template loader reads both versions, resolves routine-v2 as the deterministic current Routine template for new/imported drafts, and rejects duplicate IDs, missing translations, or cross-version drift outside the intended additions"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.content.RoutineContextV2Test"
 dod_exit: 0
 dod_assert: literal cross-version fixture proves v1 immutability and only the approved Hallway plus GEN-SUMMARY-01 additions
@@ -34,4 +34,4 @@ doc_sync: data/templates/README + TASK-BOARD
 
 ## Deliverable
 
-Add a new Routine template version that can faithfully map the sample's Hallway rows and Comments / Summary into ordinary native inspection items. Historical template v1 stays byte-identical and remains available for re-rendering old inspections.
+Add the deterministic current Routine template version for new and imported drafts so the sample's Hallway rows and Comments / Summary map into ordinary native inspection items. Historical template v1 stays byte-identical and remains available for re-rendering old inspections.

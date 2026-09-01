@@ -18,8 +18,8 @@ plan_ref: docs/adr/0007-report-interchange.md
 acceptance:
   - "A1 planning requires one selected property, report date, tenancy context, current Routine template, and no existing active draft"
   - "A2 every extracted row, comment, summary, caption, and substantive photo is mapped, explicitly excluded with a reason, or remains a named blocker"
-  - "A3 exact matches are suggestions only until confirmed; blank or unknown status blocks and missing current-template items remain unrated"
-  - "A4 every photo begins privacy-review-required and excluded from reports; ambiguous caption associations cannot be bulk-confirmed"
+  - "A3 exact allowed matches are non-terminal suggestions until individually confirmed or explicitly bulk-confirmed from a complete preview; blank/unknown status blocks and missing current-template items remain unrated"
+  - "A4 every photo begins transient UNREVIEWED_EXCLUDED and remains a blocker until privacy review; ambiguous caption associations cannot be bulk-confirmed"
   - "A5 canonical mapping receipt JSON and hash are deterministic and contain IDs, decisions, exclusions, source digest, and warnings but no raw path, URL, author, or source bytes"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.importing.plan.*"
 dod_exit: 0

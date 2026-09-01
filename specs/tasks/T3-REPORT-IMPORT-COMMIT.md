@@ -23,11 +23,11 @@ acceptance:
   - "A1 zero-blocker review stages all media and a durable recovery marker before one database transaction creates a normal editable Routine DRAFT plus immutable provenance"
   - "A2 failure or process interruption before commit exposes no inspection and recovery removes unpublished media; failure after commit preserves the complete draft and clears only its marker"
   - "A3 source SHA idempotency prevents duplicate native drafts while allowing a prior abandoned extraction with no committed receipt to restart"
-  - "A4 imported items use current template and room-instance identities, imported photos retain source digest and begin private, and missing native items remain unrated"
+  - "A4 imported items use current template and room-instance identities; only photos with an explicit reviewed privacy classification can reach commit, each retains its source digest, and missing native items remain unrated"
   - "A5 only ordinary completeness and finalize paths can place the record in history; no existing finalized previous_inspection_id or baseline_inspection_id changes"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.importing.commit.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest
 dod_exit: 0
-dod_assert: real SQLite and temporary-file fixtures prove atomic visibility, crash recovery, idempotency, privacy defaults, normal draft editability, and unchanged finalized links
+dod_assert: real SQLite and temporary-file fixtures prove atomic visibility, crash recovery, idempotency, reviewed privacy classification, normal draft editability, and unchanged finalized links
 review_gate: codex {verdict:pass}
 hygiene: transaction, marker, idempotency, and link-protection branches each kill a named mutation
 doc_sync: DATABASE-DESIGN + SECURITY + ADR-0007 + TASK-BOARD

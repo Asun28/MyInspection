@@ -3,7 +3,7 @@ id: T3-REPORT-INTERCHANGE-AUTHORITY
 title: Native Routine DOCX import and shared PDF/HTML product authority
 depends_on: [T3-REPORT-COMPOSER]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-INTERCHANGE-AUTHORITY
 worktree: C:\wt\T3-REPORT-INTERCHANGE-AUTHORITY
 allow_paths:
