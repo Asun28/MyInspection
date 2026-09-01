@@ -3,7 +3,7 @@ id: T3-REPORT-CONTENT-CONTRACT
 title: Shared privacy-filtered report content for native PDF and HTML parity
 depends_on: [T3-REPORT-INTERCHANGE-AUTHORITY]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-CONTENT-CONTRACT
 worktree: C:\wt\T3-REPORT-CONTENT-CONTRACT
 allow_paths:
