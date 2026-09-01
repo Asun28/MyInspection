@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   脚手架自检（本元仓的「verify」）：本仓交付物就是这些脚本/钩子/模板本身，故需要一个
@@ -443,7 +443,7 @@ function Get-SelftestSeededGitGateIds {
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
     'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
-    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT',
+    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING',
     '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
@@ -4445,7 +4445,6 @@ $gateIdFamilies82 = [ordered]@{
   'T37-REMOTEMX/3' = 'T37-REMOTEMX/3'
   'T37-CIGATE/API-CONTRACT' = 'T37-CIGATE/API-CONTRACT'
   'T37-CIGATE/WORKFLOW-BINDING' = 'T37-CIGATE/WORKFLOW-BINDING'
-  'T37-CIGATE/JOBS-DRIFT' = 'T37-CIGATE/JOBS-DRIFT'
 }
 $badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
   $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
@@ -13904,7 +13903,7 @@ exit 0
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
 if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
   'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4', 'T37-CIGATE/API-CONTRACT',
-  'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT')) {
+  'T37-CIGATE/WORKFLOW-BINDING')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
@@ -13916,7 +13915,6 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/4' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/4 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/API-CONTRACT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/API-CONTRACT 跳过：候选 CI 分页夹具复用远端态矩阵，仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/WORKFLOW-BINDING' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/WORKFLOW-BINDING 跳过：候选 CI 身份/时序夹具复用远端态矩阵，仅 Windows 执行。'
-    Skip-SelftestCheck -GateId 'T37-CIGATE/JOBS-DRIFT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/JOBS-DRIFT 跳过：候选 CI job 集夹具复用远端态矩阵，仅 Windows 执行。'
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
@@ -13944,10 +13942,9 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # Finding B（Codex R3 r3 #2）：证远端投影真被更新——push 成功后裸 origin 的任务 ref 须 == worktree HEAD。
     $rmOriginRef = { param($origin) "$(& git --git-dir=$origin rev-parse refs/heads/T0-REMOTEMX 2>$null)".Trim() }
     # 一次 ship：复位全部哨兵 → 设模式 → 跑 ship → 把 gh 调用轨迹/读计数/合并哨兵收成一个可断言的对象。
-    # T0-CI-PAGED-CONTRACT 起由 T37-CIGATE/API-CONTRACT 使用；T0-CI-IDENTITY-DEADLINE 把它提到夹具作用域，
-    # 供 WORKFLOW-BINDING / JOBS-DRIFT 共用（同一驱动器 ⇒ 三闸对「拦住了」的取证口径逐字一致）。
-    # $Extra 走 -NoAutoMerge 一类的附加实参；$Sec 是本次 ship 的墙钟（deadline 负例据它判超时预算）；
-    # PrN/RunId 取自本夹具**自己**的随机身份文件（两条绿路各自不同 ⇒ 断言里不得出现硬编码 PR 号 / run id）。
+    # T0-CI-PAGED-CONTRACT 起由 API-CONTRACT 使用；本卡提到夹具作用域，供 WORKFLOW-BINDING / JOBS-DRIFT 共用
+    # （同一驱动器 ⇒ 三闸对「拦住了」的取证口径逐字一致）。$Extra 走 -NoAutoMerge 一类附加实参；$Sec 是本次
+    # ship 墙钟（deadline 负例据它判预算）；PrN/RunId 取自本夹具自己的随机身份文件（⇒ 断言里不得硬编码）。
     $ciShip = {
       param($fx, [string]$Mode, [string[]]$Extra = @(), [string]$TimeoutSec = '30', [string]$SlowSec = '')
       & $rmReset $fx.Root
@@ -13981,16 +13978,20 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
         H = "$(& git -C $fx.Wt rev-parse HEAD 2>$null)".Trim()
       }
     }
-    # T0-CI-IDENTITY-DEADLINE：身份/时序负例的**共用**判据（返回空串=通过，否则给可诊断描述）。
-    # 与 API-CONTRACT 的 $ciExpectBlock 同源但不同轴：那条按「停在哪条分页腿 + 读了几页」取证，本条按
-    # 「专属闸门哨兵 + 未触达合并」取证——身份/快照负例可能停在 CI 闸之前（如 R3 期间 HEAD 前移），
-    # 没有「该停在哪条 endpoint 腿」这个概念，硬套页数会把负例判成假红。
+    # T0-CI-IDENTITY-DEADLINE：身份/时序负例的**共用**判据（空串=通过）。与 API-CONTRACT 的 $ciExpectBlock 不同轴：
+    # 那条按「停在哪条分页腿 + 读了几页」取证；身份/快照负例可能停在 CI 闸之前（如 R3 期间 HEAD 前移），硬套页数会假红。
+    # $C/$W/$J = 期望的 checks/workflow/jobs 读计数（-1=不校验），把「停在链上哪一环」变成可断言的；
+    # $Led = 账本里必须出现的「被造坏的那一处」（空=不校验），排除「其实是被更早的通用错误拦下」。
     $ciExpectIdBlock = {
-      param($r, [string]$Sentinel)
+      param($r, [string]$Sentinel, [int]$C = -1, [int]$W = -1, [int]$J = -1, [string]$Led = '')
       if ($r.X -eq 0) { return 'exit 0（未 fail-closed）' }
-      if ($r.O -cnotmatch $Sentinel) { return "缺哨兵 $Sentinel（实际尾段：$($r.O.Substring([Math]::Max(0, $r.O.Length - 400))))" }
-      if ($r.MA -or $r.M) { return "触达合并腿（merge-attempted=$($r.MA) merge-reached=$($r.M)）" }
-      if ($r.BadCwd.Count -gt 0) { return "gh 调用未绑定 worktree CWD：$($r.BadCwd -join ',')" }
+      if ($r.O -cnotmatch $Sentinel) { return "缺哨兵 $Sentinel；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 400)))" }
+      if ($r.MA -or $r.M) { return "触达合并腿（attempted=$($r.MA) reached=$($r.M)）" }
+      if ($r.BadCwd.Count -gt 0) { return "gh 调用未绑 worktree CWD：$($r.BadCwd -join ',')" }
+      if ((($C -ge 0) -and ($r.CR -ne $C)) -or (($W -ge 0) -and ($r.WR -ne $W)) -or (($J -ge 0) -and ($r.JR -ne $J))) {
+        return "读计数 $($r.CR)/$($r.WR)/$($r.JR)，期望 $C/$W/$J——链没有停在该环"
+      }
+      if ($Led -and ($r.Led -cnotmatch $Led)) { return "账本未点名被造坏处（期望 '$Led'，实际 $($r.Led)）" }
       return ''
     }
     # 状态化 gh stub 源（各场景各写一份到自己的 shim；17aa(8) 的 stub 不动）：
@@ -14191,7 +14192,7 @@ if ($args -contains 'api') {
     Add-CiCwd 'jobs' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
-    $jobN = Next-CiCount 'ci-jobs-count'
+    [void](Next-CiCount 'ci-jobs-count')
     Wait-CiSlowLeg
     Set-CiGitHangArmed
     $page = Get-CiPage $joined
@@ -14208,23 +14209,6 @@ if ($args -contains 'api') {
         $moved = "$(& git --git-dir=$bare -c user.email=selftest@local -c user.name=selftest commit-tree $tree -p $parent -m basemove 2>$null)".Trim()
         if ($moved) { & git --git-dir=$bare update-ref refs/heads/master $moved *> $null }
       }
-    }
-    # T0-CI-IDENTITY-DEADLINE 的 job 集漂移负例：候选 ci.yml 声明的 job 集与 run 实际返回的 job 集必须
-    # **逐名大小写敏感地相等**。四条各动一处：改名（缺）/ 只改大小写 / 多一个 / 同名重复。
-    if ($djm -ceq 'jobs-name-case') { $jobItem.name = 'Verify' }
-    elseif ($djm -ceq 'jobs-missing') { $jobItem.name = 'audit' }
-    # 首读合法、**终局那读**才漂：四条常规负例都在第一次 jobs 判定就被拦下，于是终局那次
-    # Get-ExactCandidateJobState 删掉也照样全绿。本条专打它（R3 r1 #6）。
-    elseif (($djm -ceq 'jobs-final-drift') -and ($jobN -ge 2)) { $jobItem.name = 'Verify' }
-    elseif ($djm -ceq 'jobs-extra') {
-      Send-CiJson ([ordered]@{ total_count = 2; jobs = @($jobItem, [ordered]@{ id = [long]22; name = 'extra'; status = 'completed'; conclusion = 'success' }) })
-    }
-    elseif ($djm -ceq 'jobs-dup') {
-      Send-CiJson ([ordered]@{ total_count = 2; jobs = @($jobItem, [ordered]@{ id = [long]23; name = $jn; status = 'completed'; conclusion = 'success' }) })
-    }
-    elseif ($djm -ceq 'jobs-set-green') {
-      # 正例：ci.yml 额外声明 audit ⇒ 期望集 = {verify, audit}；返回的两条恰好等于它，逐名相等即放行。
-      Send-CiJson ([ordered]@{ total_count = 2; jobs = @($jobItem, [ordered]@{ id = [long]24; name = 'audit'; status = 'completed'; conclusion = 'success' }) })
     }
     Send-CiShapeCase 'jobs' 'jobs' $jobItem $page
     if ($env:GH_MOCK_CI_MODE -eq 'jobs-paged') {
@@ -14275,11 +14259,9 @@ if ($args -contains 'merge') {
 }
 exit 0
 '@
-    # 条件式 git PATH-stub（T0-CI-IDENTITY-DEADLINE）：**只**给两条 git-leg 挂起负例的夹具装，
-    # 其余夹具照旧用真 git（装了它就等于让整棵夹具的每次 git 都多经一层 pwsh，既慢又扩大失真面）。
-    # 未上膛 / 不匹配时逐字透传真 git（实参、stdout/stderr、退出码），行为与没装它一样。
-    # 上膛信号由 gh stub 的 jobs 腿写下 ⇒ 命中的必然是 CI 闸内那一次 fetch / rev-parse，
-    # 不会误伤更早的范围闸那一次（那一次本就不在 deadline 内，挂起它证不了本卡的东西）。
+    # 条件式 git PATH-stub（T0-CI-IDENTITY-DEADLINE）：**只**给两条 git-leg 挂起负例的夹具装，其余照旧用真 git。
+    # 未上膛/不匹配时逐字透传（实参、stdout/stderr、退出码），行为与没装它一样。上膛信号由 gh stub 的 jobs 腿
+    # 写下 ⇒ 命中的必然是 CI 闸内那次 fetch/rev-parse，不误伤更早的范围闸那次（那次本就不在 deadline 内）。
     $rmGitShim = @'
 # 透传目标：优先用夹具解析好的绝对路径；万一没传，自己按 Application 类型解析（排除 .ps1，免自指死循环）。
 $real = "$env:GH_MOCK_REAL_GIT"
@@ -14679,37 +14661,20 @@ if ($env:GH_MOCK_ROOT) {
       }
 
       # --- T37-CIGATE/WORKFLOW-BINDING（T0-CI-IDENTITY-DEADLINE）：逐层身份绑定 · 单一 deadline · 终局快照 ---
-      # 绑定链（A1）：已过 R3 的本地 HEAD → PR headRefOid → 候选 run 的 head_sha/event/path/pull_requests →
-      # run id + attempt（jobs 只按这一对取）→ 终局 base/head 快照 → `gh pr merge --match-head-commit`。
-      # 每条负例只切断链上**一环**，判据四件同时成立：非零退出 · 该环专属哨兵 · 三个 endpoint 的读计数恰好
-      # 等于「链应停在此处」时的计数（证明停在哪一环，而不是别处出错）· merge-attempted 与 merge-reached 双双缺席。
-      # 三条 `-case` 负例（event / path / pull_requests 的属性名）是本卡硬约束的正身：**值本身全对、只有大小写不同**，
-      # PowerShell 的 -eq/-in/-contains 与属性访问默认大小写不敏感，会照单全收；它们与本闸的绿路正例
-      # （nomerge-green，同一份载荷、属性名小写）逐字之差就在大小写，故绿→红这一对本身即单点变异证明。
-      # R4 单点变异收据（每枚只改生产侧**一处**、其余不动；判据 = 本闸变红且 [SELFTEST-FAILED-GATES] 点名本闸）：
-      #   M1 `-ccontains 'number'` → `-contains`   ⇒ wfid-pr-key-case：exit 0（未 fail-closed）——只带 `Number` 的
-      #      关联条目重新过闸，一路走到合并。这正是原卡实测踩到的那个洞。
-      #   M2 `"$($run.event)" -cne` → `-ne`        ⇒ wfid-event-case：读计数 2/2/1（期望 1/1/0）。
-      #   M3 `$path -cnotmatch` → `-notmatch`      ⇒ wfid-path-case：读计数 2/2/1（期望 1/1/0）。
-      #   M5 `$proc.Kill($true)` → `$proc.Kill()`  ⇒ gh-hang：孙进程留下了完成哨兵（只杀了直接子进程）。
-      # M2/M3 的**死法本身**是一条证据：单点变异只放松了稳定态那一处，终局快照那一处仍在，于是负例「停在哪一环」
-      # 变了而不是干脆过闸——只看退出码的判据会把这种半失守读成「还是拦住了」，读计数断言才抓得到。
+      # 绑定链（A1）：本地 HEAD → PR headRefOid → run 的 head_sha/event/path/pull_requests → run id+attempt
+      # （jobs 只按这一对取）→ 终局 base/head 快照 → `gh pr merge --match-head-commit`。每条负例只切断**一环**，
+      # 四件同时成立才算拦下：非零退出 · 该环专属哨兵 · 读计数恰等于「应停在此处」的计数 · 未触达合并。
+      # 三条 `-case` 负例（event/path/pull_requests 属性名）**值全对、只差大小写**，而 PS 的 -eq/-in/-contains
+      # 与属性访问默认不敏感；它们与绿路正例 nomerge-green 逐字之差就在大小写。
+      # R4 变异收据（各改生产侧一处，判据=本闸变红且 [SELFTEST-FAILED-GATES] 点名本闸）：
+      #   M1 `-ccontains 'number'`→`-contains` ⇒ wfid-pr-key-case exit 0（`Number` 条目重新过闸并合并=原卡那个洞）
+      #   M2 `event -cne`→`-ne` / M3 `$path -cnotmatch`→`-notmatch` ⇒ 各自读计数 2/2/1（期望 1/1/0）
+      #   M5 `Kill($true)`→`Kill()` ⇒ gh-hang 孙进程留下完成哨兵
+      # M2/M3 的**死法本身**是证据：只松了稳定态那处、终局那处仍在，于是「停在哪一环」变了而非干脆过闸——
+      # 只看退出码会把这种半失守读成「还是拦住了」。
       if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/WORKFLOW-BINDING')) {
+        # 读计数含义：稳定态一轮各读 1 次、终局快照再各读 1 次 ⇒ 停在稳定态身份判定=1/1/0、停在终局快照=2/2/2。
         $wbProblem = $null
-        # 读计数判据：C/W/R = 该负例被拦下时 check-runs / workflow-runs / jobs 三个 endpoint 的期望读取次数。
-        # 稳定态一轮各读 1 次，终局快照再各读 1 次 ⇒ 停在稳定态身份判定=1/1/0、停在终局快照=2/2/2。
-        $wbExpect = {
-          param($r, [string]$Sentinel, [int]$C, [int]$W, [int]$J, [string]$LedgerPattern)
-          $why = & $ciExpectIdBlock $r $Sentinel
-          if ($why) { return $why }
-          if (($r.CR -ne $C) -or ($r.WR -ne $W) -or ($r.JR -ne $J)) {
-            return "读计数 checks/workflow/jobs=$($r.CR)/$($r.WR)/$($r.JR)，期望 $C/$W/$J——链没有停在该环"
-          }
-          if ($LedgerPattern -and ($r.Led -cnotmatch $LedgerPattern)) {
-            return "效果账本未点名被造坏的那一处（期望匹配 '$LedgerPattern'，实际：$($r.Led)）"
-          }
-          return ''
-        }
         $wbNeg = & $rmMake 'wfbind'
         try {
           if (-not $wbNeg.Ok) { $wbProblem = 'setup：身份负例夹具 start 未产出 worktree' }
@@ -14733,7 +14698,7 @@ if ($env:GH_MOCK_ROOT) {
           foreach ($c in $wbCases) {
             if ($wbProblem) { break }
             $r = & $ciShip $wbNeg $c.M
-            $why = & $wbExpect $r $c.S $c.C $c.W $c.J $c.L
+            $why = & $ciExpectIdBlock $r $c.S $c.C $c.W $c.J $c.L
             if ($why) { $wbProblem = "$($c.M)：$why" }
           }
           # 决策前身份漂移：稳定态那一读身份完全正确、**终局快照**那一读才变。两条各打终局的一处判据——
@@ -14741,21 +14706,19 @@ if ($env:GH_MOCK_ROOT) {
           # run id 那条另核诊断点名夹具自己的 run id（期望值取自随机身份文件 ⇒ 断言里不可能是硬编码常数）。
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg 'wfid-final-drift'
-            $why = & $wbExpect $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
             if ($why) { $wbProblem = "wfid-final-drift：$why" }
             elseif ($r.O -cnotmatch "expected=$($r.RunId)\b") { $wbProblem = "wfid-final-drift：诊断未点名本夹具的 run id（expected=$($r.RunId)）" }
           }
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg 'wfid-final-pr-key-case'
-            $why = & $wbExpect $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
             if ($why) { $wbProblem = "wfid-final-pr-key-case：$why（终局那次 PR 关联判定若不是大小写敏感的，本例会一路走到合并）" }
           }
-          # A3 单一 wall-clock deadline：stub 在 workflow 腿挂起 300s，并派一个**孙进程**在 40s 后写自己的完成哨兵。
-          # 40s > 20s 上限是刻意的：孙进程若在 deadline 之前就写完，那枚哨兵的缺席只说明「它还没跑到」，
-          # 证不了进程树被清理（本闸第一版实测踩到——12s 的孙进程在 20s 的 deadline 前自己完成了）。
-          # 三件事同时成立才算数：① API 真被启动过（hang-started 在位，排除「根本没调用所以很快」的假绿）；
-          # ② 整条 ship 的墙钟 < 配置上限 + 明确清理余量（余量 = 本 ship 在 CI 闸之前那段确定性管线的耗时上限）；
-          # ③ 等过孙进程本该写哨兵的时刻之后，**两枚**完成哨兵都不在位 ⇒ 被杀的是进程树，不只是直接子进程。
+          # A3：stub 在 workflow 腿挂起 300s，并派一个**孙进程**在 40s 后写自己的完成哨兵。40s > 20s 上限是刻意的
+          # ——孙进程若在 deadline 前就写完，哨兵缺席只说明「它还没跑到」（本闸第一版实测踩到：12s 孙进程在 20s
+          # deadline 前自己完成了）。三件同时成立才算：① hang-started 在位（排除「没调用所以很快」的假绿）；
+          # ② 墙钟 < 上限+清理余量；③ 等过孙进程该写哨兵的时刻后**两枚**完成哨兵都不在位 ⇒ 杀的是进程树。
           if (-not $wbProblem) {
             $wbCap = 20; $wbMargin = 85; $wbChildSleep = 40
             $r = & $ciShip $wbNeg 'gh-hang' @() "$wbCap"
@@ -14773,11 +14736,10 @@ if ($env:GH_MOCK_ROOT) {
               elseif (Test-Path (Join-Path $wbNeg.Root 'hang-completed')) { $wbProblem = 'gh-hang：挂起的子进程自己跑完了——deadline 未真正杀进程' }
             }
           }
-          # A3 之二：**一个共享预算**，不是「每次调用各起一个新超时」。gh-hang 只挂一条腿，两种实现的观测
-          # 结果一样，故区分不开（R3 r1 #6）。本例让**每条** API 腿都睡 cap 的一大半：
-          #   · 共享 deadline ⇒ 第一条腿花掉大半预算、第二条腿在剩余预算内超时 ⇒ [CI-GATE-TIMEOUT]、不合并；
-          #   · 每次调用各自计时 ⇒ 每条腿都在自己的上限内从容返回 ⇒ 一路走到合并。
-          # 判据同时钉住「预算真的跨腿累计」：slow-legs 记账 ≥2 条，且 checks/workflow 两条都被进入过。
+          # A3 之二：**一个共享预算**，不是「每次调用各起一个新超时」——gh-hang 只挂一条腿，两种实现观测结果
+          # 一样、区分不开（R3 r1 #6）。本例让**每条** API 腿都睡 cap 的一大半：共享 deadline ⇒ 第一条腿吃掉
+          # 大半、第二条在剩余预算内超时 ⇒ [CI-GATE-TIMEOUT] 不合并；各自计时 ⇒ 每条腿从容返回 ⇒ 一路合并。
+          # 判据同时钉住「预算真跨腿累计」：slow-legs 记账 ≥2 条，且 checks/workflow 都被进入过。
           if (-not $wbProblem) {
             # 11 > cap/2 ⇒ 两条腿必然吃穿共享预算，单腿又吃不穿（故「一条腿超时」证不了共享，两条才行）。
             $wbCap = 20; $wbMargin = 85
@@ -14792,18 +14754,18 @@ if ($env:GH_MOCK_ROOT) {
           # A5：-NoAutoMerge 只跳过合并腿，不放松任何一层——同一条身份负例带上它仍须被同一个哨兵拦下。
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg 'wfid-path-case' @('-NoAutoMerge')
-            $why = & $wbExpect $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 1 1 0 '/pull_request/\.github/workflows/CI\.yml/prs=1'
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 1 1 0 '/pull_request/\.github/workflows/CI\.yml/prs=1'
             if ($why) { $wbProblem = "nomerge-blocked：$why" }
           }
           # A5 绿路 + 三条 `-case` 负例的对照组：同一份载荷、属性名/取值全部小写合法 ⇒ 逐层绑定全过、
           # 打印 [CI-GATE-PASS]，但因 -NoAutoMerge 不触达合并腿。jobs 必须是按**本夹具自己的** run id/attempt 取的。
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg '' @('-NoAutoMerge')
-            if ($r.X -ne 0) { $wbProblem = "nomerge-green：绿路却未走通（exit $($r.X)）；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 500)))" }
-            elseif ($r.O -cnotmatch '\[CI-GATE-PASS\]') { $wbProblem = 'nomerge-green：缺 [CI-GATE-PASS]——候选 CI 闸未判绿' }
-            elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $wbProblem = "nomerge-green：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 2/2/2——-NoAutoMerge 放松了某一层" }
+            if ($r.X -ne 0) { $wbProblem = "nomerge-green：绿路未走通（exit $($r.X)）；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 500)))" }
+            elseif ($r.O -cnotmatch '\[CI-GATE-PASS\]') { $wbProblem = 'nomerge-green：缺 [CI-GATE-PASS]' }
+            elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $wbProblem = "nomerge-green：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 2/2/2——放松了某一层" }
             elseif ($r.MA -or $r.M) { $wbProblem = '-NoAutoMerge 却触达了合并腿' }
-            elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $wbProblem = "nomerge-green：jobs 未按本夹具 run 身份取（$($r.JobsRunId) != $($r.RunId)/$($r.Try)）" }
+            elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $wbProblem = "nomerge-green：jobs 未按本夹具 run 身份取（$($r.JobsRunId)）" }
           }
         }
         finally { if ($wbNeg -and $wbNeg.Root) { Remove-Item -Recurse -Force $wbNeg.Root -ErrorAction SilentlyContinue } }
@@ -14820,7 +14782,7 @@ if ($env:GH_MOCK_ROOT) {
             & pwsh -NoProfile -File (Join-Path $fxm.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
             Set-Content (Join-Path $fxm.Wt 'README.md') "GREENMX $($mv.M)" -Encoding utf8
             $r = & $ciShip $fxm $mv.M
-            $why = & $wbExpect $r $mv.S $mv.C $mv.W $mv.J ''
+            $why = & $ciExpectIdBlock $r $mv.S $mv.C $mv.W $mv.J ''
             if ($why) { $wbProblem = "$($mv.M)：$why" }
             elseif (($mv.M -ceq 'r3-head-move') -and (-not (Test-Path (Join-Path $fxm.Root 'r3-head-moved')))) {
               $wbProblem = 'r3-head-move：评审后端没有真的移动本地 HEAD，负例未构造出来'
@@ -14828,13 +14790,10 @@ if ($env:GH_MOCK_ROOT) {
           }
           finally { if ($fxm -and $fxm.Root) { Remove-Item -Recurse -Force $fxm.Root -ErrorAction SilentlyContinue } }
         }
-        # A3 之三：被 deadline 罩住的不只有 gh——CI 闸内的 `git fetch` 与 `git rev-parse` 也在里面。
-        # 这两条腿此前零覆盖：把它们改回不受预算约束的直调 `& git`，上面每一条用例照样全绿（R3 r1 #6）。
-        # 夹具装一枚**条件式 git PATH-stub**（默认逐字透传真 git），由 gh stub 的 jobs 腿上膛后挂起 300s：
-        #   · 有 deadline ⇒ ship 在 cap + 清理余量内返回 [CI-GATE-TIMEOUT]；
-        #   · 无 deadline（直调）⇒ ship 会一直卡在那条 git 上，本例根本不会返回。
-        # 故「按时返回 + git-hang-started 在位」这一对，就是「该 git 腿确实在预算之内」的证据。
-        # 单独一棵夹具：只有它需要那枚 git stub（装给全体等于让每次 git 都多经一层 pwsh，既慢又扩大失真面）。
+        # A3 之三：deadline 罩住的不只有 gh，CI 闸内的 `git fetch`/`git rev-parse` 也在内，而这两条腿此前零覆盖
+        # ——改回直调 `& git`，上面每条用例照样全绿（R3 r1 #6）。条件式 git PATH-stub 由 gh stub 的 jobs 腿上膛后
+        # 挂起 300s：有 deadline ⇒ ship 在 cap+余量内返回 [CI-GATE-TIMEOUT]；直调 ⇒ ship 卡死不返回。故「按时返回
+        # + git-hang-started 在位」即该腿在预算内的证据。单开一棵夹具：装给全体等于每次 git 多经一层 pwsh。
         if (-not $wbProblem) {
           $fxg = & $rmMake 'gitleg'
           try {
@@ -14867,80 +14826,6 @@ if ($env:GH_MOCK_ROOT) {
         }
         if ($wbProblem) { Fail "T37-CIGATE/WORKFLOW-BINDING: $wbProblem" }
         else { Write-Host '  T37-CIGATE/WORKFLOW-BINDING OK' -ForegroundColor Green }
-      }
-
-      # --- T37-CIGATE/JOBS-DRIFT（T0-CI-IDENTITY-DEADLINE）：候选 ci.yml 声明的 job 集 ↔ run 实际返回的 job 集 ---
-      # 两个平面共用一枚哨兵：① 候选树 ci.yml 的 jobs 块本身不可判（矩阵/重名/形态外）；② 已判绿的 run 返回的
-      # job 名集合与声明集合不**逐名大小写敏感地相等**。jobs 腿只在 workflow run 已 completed+success 之后才读，
-      # 那时 job 集已终局——故「集合不等」是漂移、不是「还没跑出来」，必须当场 fail-closed 而不是等到超时。
-      # R4 单点变异收据：去掉 `Compare-Object … -CaseSensitive` ⇒ jobs-name-case：exit 0（未 fail-closed）——
-      # 候选 ci.yml 声明 `verify`、run 返回 `Verify`，集合被判为相等并一路合并（[SELFTEST-FAILED-GATES] 点名本闸）。
-      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/JOBS-DRIFT')) {
-        $jdProblem = $null
-        $jdNeg = & $rmMake 'jobsdrift'
-        try {
-          if (-not $jdNeg.Ok) { $jdProblem = 'setup：job 漂移夹具 start 未产出 worktree' }
-          else {
-            $env:GH_MOCK_WT = $jdNeg.Wt
-            & pwsh -NoProfile -File (Join-Path $jdNeg.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
-            Set-Content (Join-Path $jdNeg.Wt 'README.md') 'GREENMX jobs drift' -Encoding utf8
-          }
-          # 四条 API 侧负例各动一处：改名（声明的那个缺席）/ 只改大小写 / 多一个未声明的 / 同名重复占位。
-          # 读计数恒为 1/1/1：它们都停在稳定态那一次 jobs 判定上，终局快照一次都不该跑到。
-          foreach ($m in @('jobs-missing', 'jobs-name-case', 'jobs-extra', 'jobs-dup')) {
-            if ($jdProblem) { break }
-            $r = & $ciShip $jdNeg $m
-            $why = & $ciExpectIdBlock $r '\[CI-GATE-JOBS-DRIFT\]'
-            if ($why) { $jdProblem = "$m：$why" }
-            elseif (($r.CR -ne 1) -or ($r.WR -ne 1) -or ($r.JR -ne 1)) { $jdProblem = "$m：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 1/1/1——没停在稳定态 jobs 判定" }
-            elseif ($r.O -cnotmatch 'expected=verify') { $jdProblem = "$m：诊断未点名候选 ci.yml 声明的期望集" }
-          }
-          # 首读合法、**终局那读**才漂：上面四条都停在第一次 jobs 判定，于是终局那次 Get-ExactCandidateJobState
-          # 删掉也照样全绿。本条专打它——读计数 2/2/2 即「走到了终局才被拦」的证据（R3 r1 #6）。
-          if (-not $jdProblem) {
-            $r = & $ciShip $jdNeg 'jobs-final-drift'
-            $why = & $ciExpectIdBlock $r '\[CI-GATE-JOBS-DRIFT\]'
-            if ($why) { $jdProblem = "jobs-final-drift：$why" }
-            elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $jdProblem = "jobs-final-drift：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 2/2/2——没走到终局 jobs 判定就被别处拦下了" }
-            elseif ($r.O -cnotmatch 'final expected=verify') { $jdProblem = 'jobs-final-drift：拦下了但不是终局那处判据（诊断缺 final 前缀）' }
-          }
-        }
-        finally { if ($jdNeg -and $jdNeg.Root) { Remove-Item -Recurse -Force $jdNeg.Root -ErrorAction SilentlyContinue } }
-        # 下面两条都要改候选树的 ci.yml（改动会被 ship 提交进分支、推进 HEAD 与水位线收据），故各用一棵全新夹具，
-        # 不与上面共用——共用会让后一条的基线 = 前一条改完的 ci.yml，声明集不再是它自己声明的那一份。
-        #   ciyml-matrix：候选 ci.yml 的 jobs 块自身不可判（矩阵 job 名在运行期展开，声明集无法确定）⇒ 同一枚
-        #     哨兵，且必须在**任何** gh 读取之前拦下（读计数全 0）。
-        #   jobs-set-green：多声明一个 audit，run 返回的两条恰好等于 {verify, audit} ⇒ 逐名相等即放行并合并；
-        #     它证明「集合相等」不是靠恒假谓词换来的（否则这条绿路也会被拦）。
-        foreach ($jc in @(
-            @{ M = ''; Tag = 'ciymlmatrix'; Yaml = "`n  fan:`n    strategy:`n      matrix:`n        os: [a, b]`n    runs-on: windows-latest`n    steps: []" }
-            @{ M = 'jobs-set-green'; Tag = 'jobsgreen'; Yaml = "`n  audit:`n    runs-on: windows-latest`n    steps: []" })) {
-          if ($jdProblem) { break }
-          $fxj = & $rmMake $jc.Tag
-          try {
-            if (-not $fxj.Ok) { $jdProblem = "$($jc.Tag) setup：夹具 start 未产出 worktree"; break }
-            $env:GH_MOCK_WT = $fxj.Wt
-            & pwsh -NoProfile -File (Join-Path $fxj.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
-            Set-Content (Join-Path $fxj.Wt 'README.md') "GREENMX $($jc.Tag)" -Encoding utf8
-            Add-Content (Join-Path $fxj.Wt '.github/workflows/ci.yml') $jc.Yaml -Encoding utf8
-            $r = & $ciShip $fxj $jc.M
-            if ($jc.Tag -ceq 'ciymlmatrix') {
-              $why = & $ciExpectIdBlock $r '\[CI-GATE-JOBS-DRIFT\]'
-              if ($why) { $jdProblem = "ciyml-matrix：$why" }
-              elseif (($r.CR -ne 0) -or ($r.WR -ne 0) -or ($r.JR -ne 0)) { $jdProblem = "ciyml-matrix：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 0/0/0——声明集不可判时不得再去读任何 API" }
-            }
-            elseif ($r.X -ne 0) { $jdProblem = "jobs-set-green：声明集与返回集相等却未走通（exit $($r.X)）；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 500)))" }
-            elseif (-not $r.M) { $jdProblem = 'jobs-set-green：未走到 mock 合并（merge-reached 缺）' }
-            elseif ($r.MH -cne $r.H) { $jdProblem = "jobs-set-green：合并未绑 PR head（--match-head-commit=$($r.MH) != $($r.H)）" }
-            # A5「两条绿路使用不同 PR/run id，stub 拒绝硬编码」：本夹具与 WORKFLOW-BINDING 绿路各自随机身份；
-            # 这里核 jobs 腿确实按**本夹具自己的** run id/attempt 取，且判绿行点名的是本夹具的 PR 号。
-            elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $jdProblem = "jobs-set-green：jobs 未按本夹具 run 身份取（$($r.JobsRunId) != $($r.RunId)/$($r.Try)）" }
-            elseif ($r.O -cnotmatch "#$($r.PrN)/") { $jdProblem = "jobs-set-green：[CI-GATE-PASS] 未点名本夹具的 PR 号 $($r.PrN)" }
-          }
-          finally { if ($fxj -and $fxj.Root) { Remove-Item -Recurse -Force $fxj.Root -ErrorAction SilentlyContinue } }
-        }
-        if ($jdProblem) { Fail "T37-CIGATE/JOBS-DRIFT: $jdProblem" }
-        else { Write-Host '  T37-CIGATE/JOBS-DRIFT OK' -ForegroundColor Green }
       }
 
       # 场景 4 = 闸15t（TD94）：**收据缺失 + 已 push** 这条「最后手段」恢复平面的端到端夹具。
