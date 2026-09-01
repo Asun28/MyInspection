@@ -71,7 +71,7 @@
 | `CAMERA_CAPTURE` | 高对比、单手取证 | `camera-capture-scaffold`, `camera-control`, `camera-shutter` | `camera-overlay-control`, `recovery-panel`; Import 始终是权限/相机失败的可用替代（平台允许时） | `T2-CAPTURE-UI` |
 | `CAMERA_REVIEW` | 审核临时照片再提交为证据 | `camera-capture-scaffold`, `media-preview`, `camera-review-bar`, `privacy-action`, `metadata-row` | `task-progress-card`, `recovery-panel`, `confirmation-dialog`（丢弃临时照片） | `T2-CAPTURE-UI` |
 
-`REPORT_IMPORT` 的固定阶段词汇是 `Details → Choose file → Scan → Match → Review → Create draft`。`Details` 必须由用户选择/确认 tenancy 和 report date，并把 current Routine template 显示为只读 metadata；缺失或无效值在相邻字段内阻塞提交并接收焦点，任务恢复时保留已确认值、当前阶段和焦点键。
+`REPORT_IMPORT` 的固定阶段词汇是 `Details → Choose file → Scan → Match → Review → Create draft`。`Details` 必须由用户选择/确认 tenancy 和 report date，并把 current Routine template 显示为只读 metadata；缺失或无效值在相邻字段内阻塞提交并接收焦点。`MATCHED` 与 `ACTION_REQUIRED` 都是 blocker；只有显式确认后的 `CONFIRMED` 和带理由的 `EXCLUDED` 是 terminal。活进程内的界面重建保留当前阶段/行/焦点；进程死亡则清 staging/source grant/manifest/mapping，保留已确认 Details 并回到 `Choose file` 聚焦文件动作。若原子 draft 事务已提交，则改为验证 receipt/media 后进入普通 Capture/Review。
 
 ## 4. Overlay 与系统界面覆盖
 
@@ -85,8 +85,8 @@
 | finalize / discard / clear / remove confirmation | `ALERT_DIALOG` | `confirmation-dialog`; 明确对象、范围、不可逆性 | triggering action |
 | restore replacement confirmation | `ALERT_DIALOG` | `preflight-summary`, `confirmation-input`, `button-destructive` | Replace action or first blocker |
 | Android permission dialog | `SYSTEM_SURFACE` | 进入前可显示 `recovery-panel:PERMISSION`; 拒绝后不自动重复请求 | original trigger or recovery panel |
-| File/create picker | `SYSTEM_SURFACE` | DOCX 只选单文件；报告只保存已验证产物；保存 request ID，禁 raw URI/名称进入普通错误 | originating source/save action |
-| Report viewer / Sharesheet | `SYSTEM_SURFACE` | PDF/HTML 前置 `share-boundary-callout`; 只授予已验证产物临时 scoped URI | originating action |
+| File/create picker | `SYSTEM_SURFACE` | DOCX 只选单文件；报告 Save 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动；保存 request ID，禁 raw URI/名称进入普通错误 | originating source/save action |
+| Report viewer / Sharesheet | `SYSTEM_SURFACE` | PDF/HTML Open/Share 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动；Share 随后只授予该产物临时 scoped URI | originating action |
 | Android app settings | `SYSTEM_SURFACE` | `recovery-panel`; 仅由用户点 `Open settings` 启动；回前台重新检查权限 | permission recovery panel |
 | Speech recognizer | `SYSTEM_SURFACE` | `input-field`, `phrase-sheet`; 无离线包时隐藏/降级；不阻塞键盘和短语 | voice trigger or note field |
 

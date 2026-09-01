@@ -11,10 +11,11 @@ Privacy-sensitive DOCX reports need to become editable native history. Their ZIP
 ### Native Routine draft
 
 - Import starts in a selected property, is blocked by an active draft, and targets deterministic current Routine v2; v1 remains historical only.
-- Extraction is read-only. Every row, note, photo and caption is mapped, explicitly excluded or a blocker. Status suggestions are never silent; only exact allowed matches may receive previewed bulk confirmation.
+- Extraction is read-only. Every row, note, photo and caption is mapped, explicitly excluded or a blocker. Even exact status suggestions remain blockers until individual or previewed bulk confirmation; only `CONFIRMED` and reasoned `EXCLUDED` rows are terminal.
 - Photos begin transiently `UNREVIEWED_EXCLUDED`; persisted privacy is user-confirmed. Missing template items stay unrated and normal completeness still blocks finalize.
 - Source summary can become the real `GEN-SUMMARY-01` item note only with a user-selected allowed status. Author, attendance, organisation and pagination are provenance exclusions.
 - Commit stages reviewed media with a recovery marker, then atomically creates one ordinary editable ROUTINE `DRAFT` and immutable provenance/mapping receipt. It never auto-finalizes or rewrites finalized history links.
+- Process death before commit releases source access, deletes staging/manifest/mapping and resets to Choose file with confirmed Details retained; process death after the atomic transaction verifies its marker and enters exactly that ordinary draft. No review decision is falsely restored.
 - The source remains untouched; v1 retains no raw DOCX. Raw retention requires a separately reviewed backup-format version.
 
 ### Hostile package boundary

@@ -139,8 +139,9 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 ### 导入既有 Routine DOCX 报告 **[定,2026-09-02]**
 
 - 从物业页经系统文件选择器选一个 `.docx`；所选物业、租约、报告日期与当前内置 Routine 模板是权威，源文件里的地址、姓名、作者、URL 或签名不创建、切换或覆盖记录。
-- DOCX 先作为敌意输入读入无写 staging。每个源 room/item/comment/photo/caption 必须映射、带理由排除或保持阻塞；空白/未知状态、模糊照片关系和未确认隐私分类不得静默提交。精确状态匹配可在完整预览后一次显式批量确认，其余逐项确认。
-- 零阻塞后才以 staged media + 单事务创建普通、可编辑的 `ROUTINE DRAFT`；已有 active draft 时拒绝，不 auto-finalize。缺失的当前模板项保持未评级，继续走正常 Capture/Review/finalize。Routine v2 是新建/导入的确定性当前版本，v1 只为历史重渲保留。
+- DOCX 先作为敌意输入读入无写 staging。每个源 room/item/comment/photo/caption 必须映射、带理由排除或保持阻塞；空白/未知状态、模糊照片关系和未确认隐私分类不得静默提交。精确状态建议仍是 blocker，只有用户在完整预览后逐项或一次显式批量确认才成为 terminal `CONFIRMED`；带理由的 `EXCLUDED` 是另一 terminal 状态。
+- manifest 完整、所有行 terminal、预览仍有效且零 blocker 后，才以 staged media + 单事务创建普通、可编辑的 `ROUTINE DRAFT`；已有 active draft 时拒绝，不 auto-finalize。缺失的当前模板项保持未评级，继续走正常 Capture/Review/finalize。Routine v2 是新建/导入的确定性当前版本，v1 只为历史重渲保留。
+- 进程死亡时清理 source grant/staging/manifest/mapping，保留用户已确认的物业/租约/报告日期/模板并回到 `Choose file`；不得声称恢复审核决定。若 draft/receipt 原子事务已提交，则用 recovery marker 验证后只进入该普通草稿。实现测试须逐阶段注入进程死亡，证明没有半草稿或遗留媒体。
 - `GEN-SUMMARY-01` 是 Routine v2 的真实“总体状况与巡检摘要”检查项；用户必须确认其正常状态枚举，源 summary 才可进入该项 note（既有 native hash 域），否则明确排除。不导入 source author/attendance/organisation。v1 不保留 raw DOCX；不支持 `.doc`、PDF/HTML/OCR import 或模板编辑器。
 
 ### 草稿与完成 **[定,2026-09-02]**

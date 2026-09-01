@@ -64,7 +64,7 @@
 - DOCX 是不可信 ZIP/XML 数据，不是指令。SAF 只选一个文档；MIME、扩展名、名称和声明大小均不可信。副本只进 credential-encrypted no-backup staging，源不改写，app 不保留原包。
 - 分配/解码前限制压缩/展开总量、单项、条目数、压缩比、XML 深度/节点/文本和图片像素；拒绝溢出、绝对/盘符/UNC/穿越/NUL、重复/大小写冲突项。禁 DTD、实体、XInclude、网络和 external relationship。
 - allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
-- 审核前不写业务 DB/正式媒体。每项/备注/照片/caption 必须 mapped、excluded 或 blocker；照片以 transient `UNREVIEWED_EXCLUDED` 开始，确认后才写 `privacy_flag`。经确认媒体、恢复 marker 和 draft/receipt 原子提交；失败/取消/重启清理 staging。日志只留 request id、封闭阶段/reason、计数/耗时，禁源 URI/路径/名称/文本/URL/作者/标签、地址/联系人、图片/hash 和 provider 原错。
+- 审核前不写业务 DB/正式媒体。每项/备注/照片/caption 必须是 terminal `CONFIRMED`、带理由的 terminal `EXCLUDED`，或 blocker；`MATCHED` 只是建议且仍阻塞。照片以 transient `UNREVIEWED_EXCLUDED` 开始并保持 blocker，确认后才写 `privacy_flag`。经确认媒体、恢复 marker 和 draft/receipt 原子提交。失败/取消清 staging；进程死亡释放 source grant、清 staging/manifest/mapping，并以保留的非敏感 Details 回到 `Choose file`。只有 marker 证明事务已提交时才验证并进入该 draft。日志只留 request id、封闭阶段/reason、计数/耗时，禁源 URI/路径/名称/文本/URL/作者/标签、地址/联系人、图片/hash 和 provider 原错。
 
 #### 自包含 HTML 报告
 
@@ -87,6 +87,7 @@
 - 保护目标：遗失但锁定设备、被复制/篡改备份、敌意归档、路径穿越/压缩炸弹、错误口令、低空间、授权收回、进程中断和意外回退。
 - 不保护：root/已解锁或恶意系统控制的设备、用户主动导出的明文、忘记的口令、provider 删除密文或拒绝服务。硬件 Keystore 是优先能力，不假设所有设备都具备同等级硬件保护。
 - 发布前必须真机演练：飞行模式完整巡检/PDF、本地备份恢复、云 provider 离线/授权收回、低空间、进程被杀、Keystore 失效、错误口令、损坏/敌意包和回滚恢复。
+- DOCX import 的实现验收须自动逐点杀进程：`Details`、`Choose file`、`Scan`、`Match`、`Review`、draft 事务前与事务后；逐项断言 source grant/staging 清理、恢复路由/焦点/提示，以及恰好零个或一个完整 draft/receipt/media 集合。
 
 > 开发期工具（git/gh/codex/uv/Claude Code 插件）运行在开发者机器上，不在产品运行时边界内，也永不链接进 APK。完整决策见 ADR-0006。
 
