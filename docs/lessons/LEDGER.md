@@ -1239,7 +1239,7 @@
 - refs: T60-JNPROBE-ITEMVERIFY（PR #147）；根因实测 = ubuntu run 30511675074 红 + WSL 复现脚本；L165 同族（面=产物）
 
 ## L177
-- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
 - symptom: 变异 campaign 报告「跑完」且每枚都 OK，实际只跑了 1 枚；同一脚本把 16 枚的表打印成「3 mutations」。
 - root_cause: PowerShell 变量名**大小写不敏感**：foreach ($m in $M) 里的循环变量 $m 就是集合 $M 本身，第一轮迭代即把 $M 覆盖成末元素（一个哈希表）。此后 $M.Count 返回哈希表键数（3），下一个 foreach ($m in $M) 只迭代那一枚。
 - rule: 循环变量绝不能与集合变量同名（含仅大小写不同）：集合用 $MUTS/$items 之类复数名，循环用 $mut/$item。凡「批量证据」脚本，跑完必须核对**记录条数 == 计划条数**，别只看「每条都 OK」。
