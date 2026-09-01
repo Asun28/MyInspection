@@ -102,6 +102,9 @@ $Py = $ScaffoldConfig.PythonVersion
 
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
+# 清理余量（毫秒）：deadline 到点之后**仅**用于杀进程树、收拢已就绪的流。它是有界的、命名的，
+# 且绝不充当第二个预算——外部调用本身一律只花 deadline 内的剩余时间。
+$CiCleanupAllowanceMs = 2000
 # 候选 CI 闸的**唯一**外部调用出口（T0-CI-IDENTITY-DEADLINE）：gh 与 git 都从这里起子进程。
 # 为什么必须是同一个出口：这一段只允许存在一个 wall-clock deadline。任何绕开它的直调（旧码里的
 # `& git fetch` / `& git rev-parse`）都是一条不受预算约束的腿——网络挂起时闸会无限期停在那里，
@@ -125,25 +128,34 @@ function Invoke-ExternalBeforeDeadline {
   $psi.Environment['SCAFFOLD_EXTERNAL_COMMAND'] = $Command
   $psi.Environment['SCAFFOLD_EXTERNAL_ARGS_JSON'] = ($Arguments | ConvertTo-Json -Compress)
   $proc = [Diagnostics.Process]::new(); $proc.StartInfo = $psi
+  # 清理失败不再被静默吞掉：Kill 抛出、或进程树在清理余量内没消失，都记进 $killNote 并随返回值上浮 + 告警。
+  # 「杀不掉」这件事本身就是要给操作者看的——闸看不见它时，反而显得一切正常（R3 r1 #9）。
+  $killNote = ''
   try {
     if (-not $proc.Start()) { throw "无法启动 $Command 子进程：$($Arguments -join ' ')" }
     $stdoutTask = $proc.StandardOutput.ReadToEndAsync(); $stderrTask = $proc.StandardError.ReadToEndAsync()
-    if (-not $proc.WaitForExit($remainingMs)) {
-      try { $proc.Kill($true) } catch { }
-      try { [void]$proc.WaitForExit(1000) } catch { }
-      $timedOutStdout = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
-      $timedOutStderr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
-      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $timedOutStdout; Stderr = $timedOutStderr }
+    $exited = $proc.WaitForExit($remainingMs)
+    if (-not $exited) {
+      try { $proc.Kill($true) } catch { $killNote += "[KILL-FAILED] $($_.Exception.Message) " }
+      try { [void]$proc.WaitForExit($CiCleanupAllowanceMs) } catch { }
+      try { if (-not $proc.HasExited) { $killNote += '[KILL-INCOMPLETE] 进程树在清理余量内仍未消失 ' } } catch { }
     }
-    [void]$proc.WaitForExit()
-    $streamMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
-    $streamsOk = $false; if ($streamMs -gt 0) { try { $streamsOk = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), $streamMs) } catch { $streamsOk = $false } }
+    # **有界收流**：进程已退出不等于重定向流已到 EOF。无参 `WaitForExit()`（旧码此处正是它）等的就是流关闭，
+    # 而一个继承了管道句柄的孙进程可以让它永不返回——那等于在唯一 deadline 之外又开了一条无界的腿，
+    # 恰好抵消本函数存在的理由。故收尾一律等「deadline 剩余 + 明确清理余量」，等不到就杀进程树并按超时返回。
+    $drainMs = [int][Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)) + $CiCleanupAllowanceMs
+    $streamsOk = $false
+    try { $streamsOk = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), $drainMs) } catch { $streamsOk = $false }
     if (-not $streamsOk) {
-      try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch { }
-      $lateOut = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }; $lateErr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
-      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $lateOut; Stderr = $lateErr }
+      try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch { $killNote += "[KILL-FAILED] $($_.Exception.Message) " }
     }
-    return [pscustomobject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Stdout = $stdoutTask.GetAwaiter().GetResult(); Stderr = $stderrTask.GetAwaiter().GetResult() }
+    $outText = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
+    $errText = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
+    if ($killNote) { Write-Warning "[CI-GATE-CLEANUP] $Command 子进程清理未干净：$killNote" }
+    if ((-not $exited) -or (-not $streamsOk)) {
+      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $outText; Stderr = "$errText$killNote" }
+    }
+    return [pscustomobject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Stdout = $outText; Stderr = "$errText$killNote" }
   } finally { $proc.Dispose() }
 }
 function Invoke-GhBeforeDeadline {
