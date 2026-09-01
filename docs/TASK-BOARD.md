@@ -145,8 +145,9 @@
 | W4 | T3-DOCX-REPORT-EXTRACTOR | 多 story/表格/段落/inline+anchor → 可审 extraction manifest | T3-DOCX-PACKAGE-READER | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 合成 64 row / 89 caption / 67 photo 对抗夹具；私样不入库 |
 | W4 | T3-REPORT-IMPORT-PLANNER | ROUTINE extraction → 穷尽式映射/排除/阻塞 review plan | T2-ROUTINE-CONTEXT-V2,T3-DOCX-REPORT-EXTRACTOR | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 状态只建议不确认；照片默认 privacy-review-required |
 | W4 | T3-REPORT-IMPORT-COMMIT | staged media + recovery marker + 单事务创建正常 editable DRAFT | T3-REPORT-INTERCHANGE-SCHEMA,T3-REPORT-IMPORT-PLANNER,T2-REPEATABLE-ROOM-RUNTIME,T2-CAPTURE-CORE,T2-PHOTO-QUALITY-PROFILES,T3-FINALIZE | H+ | GPT-5.6 Sol · max | GPT-5.6 Terra · max | ROUTINE-only；不留 raw DOCX；不 auto-finalize/回写历史 links |
-| W4 | T3-PDF-RENDERER | shared content 经 adapter → PdfDocument+CJK+逐页内存+四档质量 | T3-REPORT-CONTENT-ADAPTER | H | Sonnet 5 · max | Opus 5 | renderer-only；默认 Medium；文件名含 audience+quality；分享/回执下沉 |
-| W4 | T3-REPORT-EXPORT-CORE | 一次语义投影→PDF/HTML；重开逐字节核验、parity、format receipt | T3-REPORT-INTERCHANGE-SCHEMA,T3-REPORT-HTML-RENDERER,T3-PDF-RENDERER,T5-MEDIA-ARCHIVE-CONTRACT | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | sibling 失败不删 last verified；不宣称 delivery/backup |
+| W4 | T3-PDF-RENDERER | 纯 JVM 渲染程序：四档质量+mm→pt 几何+逐槽采样/逐页内存上界+产物路径 | T3-REPORT-CONTENT-ADAPTER | M | Sonnet 5 · max | Opus 5 | 2026-09-02 用户裁定按可证明性拆卡（见卡内「拆分依据」）；默认 Medium；文件名含 audience+quality；设备渲染下沉 T3-PDF-RENDER-DEVICE |
+| W4 | T3-PDF-RENDER-DEVICE | PdfDocument 执行器 + CJK 字体资产 + 真机四档记录 | T3-PDF-RENDERER,T1-SPIKE-PLATFORM | M | Sonnet 5 · max | Opus 5 | DoD 含 :app:testDebugUnitTest；平台调用收窄成可替换端口；A4 需用户真机 |
+| W4 | T3-REPORT-EXPORT-CORE | 一次语义投影→PDF/HTML；重开逐字节核验、parity、format receipt | T3-REPORT-INTERCHANGE-SCHEMA,T3-REPORT-HTML-RENDERER,T3-PDF-RENDER-DEVICE,T5-MEDIA-ARCHIVE-CONTRACT | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | sibling 失败不删 last verified；不宣称 delivery/backup |
 | W4 | T3-REPORT-IMPORT-UI | 物业内 Choose file→Scan→Match→Review→Create editable draft | T3-REPORT-IMPORT-COMMIT,T2-CAPTURE-UI | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | Field Ledger；阻塞精确聚焦；成功进普通 INSPECTION_REVIEW |
 | W4 | T3-REPORT-EXPORT-UI | PDF/HTML × 房东/房客的 verified open/save/share 状态流 | T3-REPORT-EXPORT-CORE,T2-CAPTURE-UI,T1-SHARE-SCREEN-PRIVACY | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | PDF 默认 Medium；HTML 无伪质量；系统 viewer/browser/chooser |
 | W4 | T3-HISTORY-COMPARE | 历史条(上次状态/滑动)+ghost overlay 集成+双轨基线 | T2-CAPTURE-UI,T1-SPIKE-PLATFORM,T2-REPEATABLE-ROOM-RUNTIME | H | Sonnet 5 · max | Opus 5 | 实例级 baseline 前置已由 PR #193 / master `6a92aa58` 满足；禁止退回 stable_id 单键匹配 |
@@ -177,10 +178,10 @@
 | W5 | T4-SCHEDULE-UI | badge/filter/route 与权限恢复重试 UI | T4-SCHEDULE-REMINDER-RECOVERY | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | todo |
 | W5 | T5-RETENTION | 租客数据保留期+一键清理 | T1-SCHEMA-CORE | S | DeepSeek V4 Pro · medium | Luna Max | **merged**（master `60cee85`；5 轮 R3（两次撞 ReviewRoundCap=2，均经人裁 reset）——round 1 拦法律措辞混淆（联系方式清理期 12 个月被误述为 RTA s123A 本身规定的数字）+ UI type-to-confirm 对空 tenant_name 永久锁死清理按钮；round 2（撞 cap）拦措辞残留（改写后仍暗示"无限期保留系 RTA 要求"）+ 哈希不变量测试造假（DRAFT 巡检+未持久化照片，未验证真实 finalize 记录）+ purge() 自身到期边界无测试覆盖，人裁：findings 属实且卡内可修 → reset；round 3（reset 后首轮）拦 civil-calendar 时区错用（`ZoneOffset.UTC` 误引"存储用 UTC 入库"规则算日历月，应循 ADR-0004 先例改用 Pacific/Auckland + DST 边界测试），人裁 reset；round 4（再撞 cap）拦 5 处测试盲区（sortedBy 排序/isPurgeable/`Collections.unmodifiableList`/`months` 覆盖参数均无证伪测试、UI "12 个月"字符串未溯源常量），人裁：全部属实 → 定裁修法（删 `months` 参数/补 4 处测试/UI 单源化）+ reset；round 5 pass。20 个 JVM 测试、8 处单点变异逐一击杀+SHA 复核（其一因误用 `.clear()` 而非 `.set()` 产出假证明，识破后重做）；新登记 L231（civil-calendar 计算时区与存储格式规则混淆）、L232（产品策略数值与法条数字巧合相同时的措辞混淆）；TD13（`TemplateStore.read()` 同款 `Collections.unmodifiableList` 缺自证测试） |
 | W5 | T5-LOCAL-DATA-ERASURE | 无账号场景的全量本机数据物理清除：影响预览 + ERASE 强确认 + 清除验证 | T5-BACKUP-IO, T1-LOCAL-DATA-SECURITY, T1-SHARE-SCREEN-PRIVACY | M | Sonnet 5 · max | GPT-5.6 Terra · high | 前向新增；外部 `.mibk` 不删 |
-| W5 | T5-LOCAL-MEDIA-RETENTION | 每物业保留最近 1/3/5/10/Always 次全尺寸照片；预览确认+安全归档+回填 | T5-BACKUP-IO,T3-PDF-RENDERER,T3-HISTORY-COMPARE,T5-MEDIA-ARCHIVE-CONTRACT | H | Sonnet 5 · max | Opus 5 | 默认 3；30 天宽限；只删本机字节，不删记录/PDF/备份/云端 |
+| W5 | T5-LOCAL-MEDIA-RETENTION | 每物业保留最近 1/3/5/10/Always 次全尺寸照片；预览确认+安全归档+回填 | T5-BACKUP-IO,T3-PDF-RENDER-DEVICE,T3-HISTORY-COMPARE,T5-MEDIA-ARCHIVE-CONTRACT | H | Sonnet 5 · max | Opus 5 | 默认 3；30 天宽限；只删本机字节，不删记录/PDF/备份/云端 |
 | W6 | T6-TEMPLATES-REST | Ingoing/Exit/Annual 内容+Exit wear/damage+配对约束 | T2-ROUTINE-CONTENT,T3-HISTORY-COMPARE | M | DeepSeek V4 Pro · medium | Luna Max | **Luna Max 全文复核** |
-| W6 | T6-HHC | Healthy Homes 五项子模块+合规快照输出 | T3-PDF-RENDERER | M | DeepSeek V4 Pro · high | Terra | — |
-| W7 | T7-REMEDIATION | LLM 建议：mock 优先+仅房东版+措辞边界+免责声明 | T3-PDF-RENDERER | M | Sonnet 5 · max | Opus 5 | Sol 安全面重点评审 |
+| W6 | T6-HHC | Healthy Homes 五项子模块+合规快照输出 | T3-PDF-RENDER-DEVICE | M | DeepSeek V4 Pro · high | Terra | — |
+| W7 | T7-REMEDIATION | LLM 建议：mock 优先+仅房东版+措辞边界+免责声明 | T3-PDF-RENDER-DEVICE | M | Sonnet 5 · max | Opus 5 | Sol 安全面重点评审 |
 | W7 | T7-LOCAL-HEALTH-RELEASE | 本机健康与发布证据：秒级可操作提示 + 脱敏崩溃恢复 + release mapping 回执 | T5-OPERATION-EVENT-STORE, T5-DIAGNOSTIC-EXPORT, T5-BACKUP-IO, T1-LOCAL-DATA-SECURITY | M | GPT-5.6 Terra · high | Sonnet 5 max | 无遥测/上传 SDK/远程告警；本机可操作提示 |
 | W7 | T7-SMOKE-POLISH | 真机全流程冒烟+微修捆绑（清单产出 docs/SMOKE-CHECKLIST.md） | 全部 MUST + T7-REMEDIATION（收官卡，不并行） | S | Sonnet 5 · medium | DeepSeek V4 Pro | — |
 
@@ -231,7 +232,7 @@ flowchart LR
 4. ✅ **年检评级 5 态**（NO_ISSUE/MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT/NOT_APPLICABLE）——用户未否决，按 5 态做。
 7. ✅ **不做** Condition/Cleanliness 全量双刻度：v1 = 单刻度 + Exit/Ingoing 房间级清洁条目（已在卡内）。
 8. ✅ **不做** 缺陷责任方/费用字段：v1 只保留 Exit 的 `wear_or_damage` 三态。
-9. ✅ **照片/PDF 空间策略（2026-08-19）**：照片存储质量与 PDF 导出质量各有 Low/Medium/High/Extra High，均默认 Medium；本机全尺寸照片按每物业最近 `1/3/5/10/Always` 次已完成巡检保留，默认 3。只有 exact `.mibk` 内容回读验证、PDF 完成、30 天宽限和保护引用检查全绿后才进入人工预览清理；不删记录/PDF/哈希/音频/备份/云端，Google Photos 状态不算验证回执。落地卡 = T2-PHOTO-QUALITY-PROFILES、T3-PDF-RENDERER、T5-MEDIA-ARCHIVE-CONTRACT、T5-BACKUP-IO、T5-LOCAL-MEDIA-RETENTION。
+9. ✅ **照片/PDF 空间策略（2026-08-19）**：照片存储质量与 PDF 导出质量各有 Low/Medium/High/Extra High，均默认 Medium；本机全尺寸照片按每物业最近 `1/3/5/10/Always` 次已完成巡检保留，默认 3。只有 exact `.mibk` 内容回读验证、PDF 完成、30 天宽限和保护引用检查全绿后才进入人工预览清理；不删记录/PDF/哈希/音频/备份/云端，Google Photos 状态不算验证回执。落地卡 = T2-PHOTO-QUALITY-PROFILES、T3-PDF-RENDERER（四档契约/采样算术）、T3-PDF-RENDER-DEVICE（真机执行与实测）、T5-MEDIA-ARCHIVE-CONTRACT、T5-BACKUP-IO、T5-LOCAL-MEDIA-RETENTION。
 
 > **未来云备份（不建卡、不进 v1）**：保留 provider-neutral `ArchiveStore` 与 opaque destination/object/version 回执。若以后做 S3 付费服务，另走账号/订阅/威胁模型 ADR；客户端先加密 `.mibk`，后端签发短时授权，APK 永不持有 AWS 长期凭据。云备份不自动等同多设备同步。
 
