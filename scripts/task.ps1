@@ -102,9 +102,29 @@ $Py = $ScaffoldConfig.PythonVersion
 
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
-# 清理余量（毫秒）：deadline 到点之后**仅**用于杀进程树、收拢已就绪的流。它是有界的、命名的，
+# 清理余量（毫秒）：deadline 到点之后**仅**用于杀进程组、收拢已就绪的流。它是有界的、命名的，
 # 且绝不充当第二个预算——外部调用本身一律只花 deadline 内的剩余时间。
+# 它按「一个绝对期限」使用（$Deadline + 本值），杀进程与收流**共享**其剩余时间：各拿一份会让真实上限
+# 悄悄变成 deadline + 2×本值，而声明的是 1×（R3 r2 #10）。
 $CiCleanupAllowanceMs = 2000
+# Windows 作业对象：`Process.Kill($true)` 只沿**活着的**父子链走，中间那层子进程一旦先退出，它派出的孙进程
+# 就被重新挂到别处、再也杀不到（R3 r2 #2 指出的正是这一形态：stub 退出、孙进程仍握着重定向管道不放，于是
+# 流永不到 EOF，而 $proc.HasExited 已为 true ⇒ 连 Kill 都不会被调用）。把子进程一启动就并入作业对象，
+# TerminateJobObject 便能不管进程树怎么重挂都把整组结束。非 Windows 无此原语，回落到 Kill($true)。
+if ($IsWindows -and -not ('ScaffoldJobObject' -as [type])) {
+  try {
+    Add-Type -Namespace '' -Name 'ScaffoldJobObject' -MemberDefinition @'
+[DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+public static extern IntPtr CreateJobObjectW(IntPtr a, string lpName);
+[DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+[DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
+[DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool CloseHandle(IntPtr hObject);
+'@ -ErrorAction Stop
+  } catch { }   # 编译不出来就当没有：下面按 $useJob 判定回落到 Kill($true)，绝不因此让 ship 失败
+}
 # 候选 CI 闸的**唯一**外部调用出口（T0-CI-IDENTITY-DEADLINE）：gh 与 git 都从这里起子进程，因为这一段只允许
 # 存在一个 wall-clock deadline。任何绕开它的直调（旧码的 `& git fetch` / `& git rev-parse`）都是一条不受预算
 # 约束的腿——网络挂起时闸会无限期停在那，而调用方以为自己配了 30 分钟上限。超时一律 `Kill($true)` 杀**整棵
@@ -127,27 +147,50 @@ function Invoke-ExternalBeforeDeadline {
   $psi.Environment['SCAFFOLD_EXTERNAL_COMMAND'] = $Command
   $psi.Environment['SCAFFOLD_EXTERNAL_ARGS_JSON'] = ($Arguments | ConvertTo-Json -Compress)
   $proc = [Diagnostics.Process]::new(); $proc.StartInfo = $psi
-  # 清理失败不再被静默吞掉：Kill 抛出、或进程树在清理余量内没消失，都记进 $killNote 并随返回值上浮 + 告警。
+  # 清理失败不再被静默吞掉：杀不掉、或组在清理期限内没消失，都记进 $killNote 并随返回值上浮 + 告警。
   # 「杀不掉」这件事本身就是要给操作者看的——闸看不见它时，反而显得一切正常（R3 r1 #9）。
   $killNote = ''
+  $useJob = $IsWindows -and ('ScaffoldJobObject' -as [type])
+  $job = [IntPtr]::Zero
+  # 清理的**唯一绝对期限**：杀进程与收流共享它的剩余时间（见 $CiCleanupAllowanceMs 处注）。
+  $cleanupDeadline = $Deadline.AddMilliseconds($CiCleanupAllowanceMs)
+  $leftMs = { [int][Math]::Max(0, [Math]::Floor(($cleanupDeadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)) }
+  # 整组结束：作业对象在则用它（不受进程重挂影响），否则回落到只能沿活父子链走的 Kill($true)。
+  $killGroup = {
+    try {
+      if ($useJob -and ($job -ne [IntPtr]::Zero)) {
+        if (-not [ScaffoldJobObject]::TerminateJobObject($job, 1)) { $script:ciKillErr = 'TerminateJobObject 返回 false' }
+      } elseif (-not $proc.HasExited) { $proc.Kill($true) }
+    } catch { $script:ciKillErr = "$($_.Exception.Message)" }
+  }
   try {
     if (-not $proc.Start()) { throw "无法启动 $Command 子进程：$($Arguments -join ' ')" }
+    if ($useJob) {
+      # 竞态窗口（启动→并入之间派出的孙进程不在组内）只有毫秒级，且子进程是刚起步的 pwsh；
+      # 彻底消除它需要 CREATE_SUSPENDED，而 ProcessStartInfo 给不了。并入失败即降级并记账，不静默。
+      try {
+        $job = [ScaffoldJobObject]::CreateJobObjectW([IntPtr]::Zero, $null)
+        if (($job -eq [IntPtr]::Zero) -or (-not [ScaffoldJobObject]::AssignProcessToJobObject($job, $proc.Handle))) {
+          $killNote += '[JOB-ASSIGN-FAILED] 已降级为 Kill(tree) '; $job = [IntPtr]::Zero
+        }
+      } catch { $killNote += "[JOB-ASSIGN-FAILED] $($_.Exception.Message) "; $job = [IntPtr]::Zero }
+    }
     $stdoutTask = $proc.StandardOutput.ReadToEndAsync(); $stderrTask = $proc.StandardError.ReadToEndAsync()
     $exited = $proc.WaitForExit($remainingMs)
+    $script:ciKillErr = ''
     if (-not $exited) {
-      try { $proc.Kill($true) } catch { $killNote += "[KILL-FAILED] $($_.Exception.Message) " }
-      try { [void]$proc.WaitForExit($CiCleanupAllowanceMs) } catch { }
-      try { if (-not $proc.HasExited) { $killNote += '[KILL-INCOMPLETE] 进程树在清理余量内仍未消失 ' } } catch { }
+      & $killGroup
+      try { [void]$proc.WaitForExit((& $leftMs)) } catch { }
+      try { if (-not $proc.HasExited) { $killNote += '[KILL-INCOMPLETE] 进程组在清理期限内仍未消失 ' } } catch { }
     }
     # **有界收流**：进程已退出不等于重定向流已到 EOF。无参 `WaitForExit()`（旧码此处正是它）等的就是流关闭，
-    # 而一个继承了管道句柄的孙进程可以让它永不返回——那等于在唯一 deadline 之外又开了一条无界的腿，
-    # 恰好抵消本函数存在的理由。故收尾一律等「deadline 剩余 + 明确清理余量」，等不到就杀进程树并按超时返回。
-    $drainMs = [int][Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)) + $CiCleanupAllowanceMs
+    # 而一个继承了管道句柄的**孙进程**可以让它永不返回。故收尾只等清理期限的剩余时间；等不到就整组结束——
+    # 此处必须走 $killGroup 而非 `if (-not HasExited) { Kill }`：子进程早退时后者一次也不会执行，
+    # 那个仍握着管道的孙进程便被漏杀（R3 r2 #2）。
     $streamsOk = $false
-    try { $streamsOk = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), $drainMs) } catch { $streamsOk = $false }
-    if (-not $streamsOk) {
-      try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch { $killNote += "[KILL-FAILED] $($_.Exception.Message) " }
-    }
+    try { $streamsOk = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), (& $leftMs)) } catch { $streamsOk = $false }
+    if (-not $streamsOk) { & $killGroup }
+    if ($script:ciKillErr) { $killNote += "[KILL-FAILED] $($script:ciKillErr) " }
     $outText = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
     $errText = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
     if ($killNote) { Write-Warning "[CI-GATE-CLEANUP] $Command 子进程清理未干净：$killNote" }
@@ -155,7 +198,10 @@ function Invoke-ExternalBeforeDeadline {
       return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $outText; Stderr = "$errText$killNote" }
     }
     return [pscustomobject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Stdout = $outText; Stderr = "$errText$killNote" }
-  } finally { $proc.Dispose() }
+  } finally {
+    if ($job -ne [IntPtr]::Zero) { try { [void][ScaffoldJobObject]::CloseHandle($job) } catch { } }
+    $proc.Dispose()
+  }
 }
 function Invoke-GhBeforeDeadline {
   param(

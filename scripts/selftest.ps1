@@ -13930,7 +13930,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
       # T0-CI-IDENTITY-DEADLINE 新增：deadline 夹具的进程哨兵 + R3 窗口移 HEAD 的一次性闸 + 单一预算/ git-leg 挂起的账。
       # 不在列 ⇒ 上一场景残留的 hang-completed 会让下一场景的「未留下完成哨兵」断言假红（同 codex R3 r2 #4）。
-      'hang-started', 'hang-completed', 'hang-child-completed', 'r3-head-moved',
+      'hang-started', 'hang-completed', 'hang-child-completed', 'r3-head-moved', 'orphan-started', 'orphan-completed',
       'slow-legs', 'arm-git-hang', 'git-hang-started', 'git-hang-completed')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
@@ -14152,6 +14152,16 @@ if ($args -contains 'api') {
         -ArgumentList '-NoProfile', '-Command', "Start-Sleep -Seconds 40; Set-Content -LiteralPath '$childDone' 'yes'"
       Start-Sleep -Seconds 300
       Set-Content (Join-Path $env:GH_MOCK_ROOT 'hang-completed') 'yes'
+      exit 0
+    }
+    # gh-orphan：本 stub 派出孙进程后**立刻退出**。孙进程继承了重定向的 stdout ⇒ 流永不到 EOF，而父侧
+    # $proc.HasExited 已为 true ⇒ 「先判 HasExited 再 Kill」那种写法一次也不会执行、孙进程被漏杀（R3 r2 #2）。
+    # gh-hang 证不了这一形态（它自己一直睡着、HasExited 恒 false），故单列一条。
+    if ($env:GH_MOCK_CI_MODE -ceq 'gh-orphan') {
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'orphan-started') ([DateTimeOffset]::UtcNow.ToString('o'))
+      $orphanDone = (Join-Path $env:GH_MOCK_ROOT 'orphan-completed')
+      Start-Process -FilePath (Get-Command pwsh).Source -NoNewWindow `
+        -ArgumentList '-NoProfile', '-Command', "Start-Sleep -Seconds 40; Set-Content -LiteralPath '$orphanDone' 'yes'"
       exit 0
     }
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
@@ -14676,6 +14686,40 @@ if ($env:GH_MOCK_ROOT) {
         # 读计数含义：稳定态一轮各读 1 次、终局快照再各读 1 次 ⇒ 停在稳定态身份判定=1/1/0、停在终局快照=2/2/2。
         $wbProblem = $null
         $wbNeg = & $rmMake 'wfbind'
+        # A3 的**上限本身**要可断言：端到端夹具的墙钟里混着 ship 前段管线，85s 的余量分辨不出「一份清理余量」
+        # 与「两份」（deadline+2s vs deadline+4s）。故这里把候选树里的被测函数单独取出来直调，时序与 ship
+        # 前段完全隔离（R3 r2 #10）。被测命令派出孙进程后立刻退出、孙进程握着重定向 stdout 不放 ⇒ 收流必然
+        # 走到清理期限，于是墙钟恰好显形为「deadline + 一份余量」；退回两份串行余量即超阈变红。
+        if (-not $wbProblem) {
+          try {
+            $uSrc = [IO.File]::ReadAllText((Join-Path $wbNeg.Repo 'scripts/task.ps1'))
+            $uT = $null; $uE = $null
+            $uAst = [System.Management.Automation.Language.Parser]::ParseInput($uSrc, [ref]$uT, [ref]$uE)
+            $uAdd = @($uAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Extent.Text -match 'ScaffoldJobObject' -and $n.Extent.Text -match 'Add-Type' }, $true))
+            $uFn = @($uAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Invoke-ExternalBeforeDeadline' }, $true))
+            if (($uAdd.Count -ne 1) -or ($uFn.Count -ne 1)) { $wbProblem = "隔离计时：候选树里取不到唯一的作业对象声明/被测函数（add=$($uAdd.Count) fn=$($uFn.Count)）" }
+            else {
+              . ([scriptblock]::Create($uAdd[0].Extent.Text))
+              . ([scriptblock]::Create($uFn[0].Extent.Text))
+              $CiCleanupAllowanceMs = 2000            # 与生产同值；本用例判的是它被花了几遍，不是它是多少
+              $uDeadlineSec = 4
+              $uShim = Join-Path $wbNeg.Root 'unit-orphan.ps1'
+              $uDone = Join-Path $wbNeg.Root 'unit-orphan-done'
+              @"
+Start-Process -FilePath '$((Get-Command pwsh).Source)' -NoNewWindow -ArgumentList '-NoProfile','-Command',"Start-Sleep -Seconds 30; Set-Content -LiteralPath '$uDone' 'yes'"
+exit 0
+"@ | Set-Content $uShim -Encoding utf8
+              $uSw = [Diagnostics.Stopwatch]::StartNew()
+              $uR = Invoke-ExternalBeforeDeadline -Command (Get-Command pwsh).Source -Arguments @('-NoProfile', '-File', $uShim) `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds($uDeadlineSec)) -WorkingDirectory $wbNeg.Root
+              $uSw.Stop()
+              $uCap = $uDeadlineSec + ($CiCleanupAllowanceMs / 1000) + 1   # 一份余量 + 1s 松量；两份余量=+4s 必超
+              if (-not $uR.TimedOut) { $wbProblem = "隔离计时：孙进程握着管道却未判超时（TimedOut=$($uR.TimedOut)）" }
+              elseif ($uSw.Elapsed.TotalSeconds -lt $uDeadlineSec) { $wbProblem = "隔离计时：$([math]::Round($uSw.Elapsed.TotalSeconds,1))s < deadline ${uDeadlineSec}s——提前放弃，没有真等满预算" }
+              elseif ($uSw.Elapsed.TotalSeconds -gt $uCap) { $wbProblem = "隔离计时：$([math]::Round($uSw.Elapsed.TotalSeconds,1))s > 上限 ${uCap}s——清理余量被花了不止一遍（deadline + 2×allowance 即此形态）" }
+            }
+          } catch { $wbProblem = "隔离计时用例自身异常：$($_.Exception.Message)" }
+        }
         try {
           if (-not $wbNeg.Ok) { $wbProblem = 'setup：身份负例夹具 start 未产出 worktree' }
           else {
@@ -14750,6 +14794,25 @@ if ($env:GH_MOCK_ROOT) {
             elseif ($slowLegs -lt 2) { $wbProblem = "gh-slow：只有 $slowLegs 条腿被计时——预算没有跨腿累计，本例证不了「共享」" }
             elseif (($r.CR -lt 1) -or ($r.WR -lt 1)) { $wbProblem = "gh-slow：读计数 $($r.CR)/$($r.WR)/$($r.JR)——预算未跨越两个不同 endpoint" }
             elseif ($r.Sec -ge ($wbCap + $wbMargin)) { $wbProblem = "gh-slow：墙钟 $([int]$r.Sec)s ≥ ${wbCap}+${wbMargin}s——总预算未收口" }
+          }
+          # A3 之四：**子进程早退、孙进程握着管道**这一形态。gh-orphan 的 stub 派出孙进程后立刻退出，于是
+          # 父侧 HasExited 已为 true、流却到不了 EOF；只有把子进程并入作业对象并整组结束，那个孙进程才会死。
+          # 判据：ship 按时返回 [CI-GATE-TIMEOUT]，且**等过孙进程该写哨兵的时刻**后 orphan-completed 仍不在位。
+          # 靠 `if (-not HasExited) { Kill }` 的实现会在这里漏杀，孙进程 40s 后写下哨兵 ⇒ 本例转红（R3 r2 #2）。
+          if (-not $wbProblem) {
+            $wbCap = 20; $wbMargin = 85; $wbOrphanSleep = 40
+            $r = & $ciShip $wbNeg 'gh-orphan' @() "$wbCap"
+            $wbStartedAt = Join-Path $wbNeg.Root 'orphan-started'
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-TIMEOUT\]'
+            if ($why) { $wbProblem = "gh-orphan：$why" }
+            elseif (-not (Test-Path $wbStartedAt)) { $wbProblem = 'gh-orphan：orphan-started 缺——孙进程根本没被派出，本例证不了漏杀' }
+            elseif ($r.Sec -ge ($wbCap + $wbMargin)) { $wbProblem = "gh-orphan：墙钟 $([int]$r.Sec)s ≥ ${wbCap}+${wbMargin}s" }
+            else {
+              $wbAt = [DateTimeOffset]::Parse("$(Get-Content $wbStartedAt -Raw)".Trim())
+              $wbLeft = ($wbAt.AddSeconds($wbOrphanSleep + 6) - [DateTimeOffset]::UtcNow).TotalSeconds
+              if ($wbLeft -gt 0) { Start-Sleep -Milliseconds ([int]($wbLeft * 1000)) }
+              if (Test-Path (Join-Path $wbNeg.Root 'orphan-completed')) { $wbProblem = 'gh-orphan：孙进程写下了完成哨兵——子进程早退后它被漏杀（作业对象未生效）' }
+            }
           }
           # A5：-NoAutoMerge 只跳过合并腿，不放松任何一层——同一条身份负例带上它仍须被同一个哨兵拦下。
           if (-not $wbProblem) {
