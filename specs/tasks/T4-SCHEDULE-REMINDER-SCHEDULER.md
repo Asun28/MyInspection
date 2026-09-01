@@ -52,8 +52,10 @@ enqueue seam 是一次调用：提交 unique KEEP work 并交回该 operation �
 | 无当前 UUID，且无其它 active UUID | 只有此情形才以同 generation UUID enqueue；旧 generation 的 terminal history 可忽略 |
 | 任一其它 UUID 为 `ENQUEUED`/`RUNNING`/`BLOCKED`，或当前 UUID 重复 | quarantine `RETAINED_WORK_ID_MISMATCH` / `RETAINED_WORK_DUPLICATE`；不得 enqueue |
 
-所有 admission/query/enqueue 诊断沿用 delivery 的精确 JSON 字段，并带不可逆 `occurrence_id`、非负 `generation_number` 与 intended `work_request_id`；retained-ID mismatch 同时用 `retained_work_request_id` 记录实际冲突 UUID，绝不记录 propertyId、日期或异常文本。
+每次注册恰好记录一条 typed settlement（`occurrence_id` / type / `generation_number` / cause），**绝不记录 propertyId、日期、URI 或异常文本**；无法派生 occurrence 时 occurrence 与 generation 一律缺省，不发布只对得上一半的身份。**沿用 delivery 精确 JSON 字段的渲染、`retained_work_request_id` 与失败类别 `cause_code` 一并归 `T4-SCHEDULE-REMINDER-FLIGHT`**（该卡的迟到/跨代/超时诊断正需要这两个字段），本卡只定 typed 记录与「一次注册一条」。
 
 Runtime acceptance tests are black-box behavioral tests：测试调用 compiled scheduler entry point，并在同一 receipt store 上调用 delivery 卡的 compiled production delivery runner，以证明 scheduler 构造的 WorkRequest 正是 Worker 会接受的那一份、并制造真实 worker transition；production-used injected ports 覆盖 enqueue/query/permission/clock，只断言领域结果与记录的边界 effects。不得读取 repository/generated source、source-derived resource 或反射/反编译 compiled artifact 作为 oracle。A1–A5 各至少一个 production semantic mutation 必须在测试不变时让具名 selector nonzero；receipt 记录 acceptance、selector、变异 branch/port effect、RED exit 与 mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 mutation 无效。
 
-测试必须覆盖 reservation 写失败零 enqueue、fresh 与 persisted 恢复、其它 active retained-ID mismatch、当前 UUID duplicate、六种 WorkInfo 状态各自的黑盒结果与稳定 cause、把某态误标 `ENQUEUED` 的 semantic mutation、query 抛错、五种 enqueue 结局、fatal 与 transient 同步失败、CAS 失败后重读出 worker 证据与更高 generation、重读上限耗尽、权限未授予与授予后的 generation 递增，以及 delay `-1ns/0/+1ns/亚毫秒/Long.MAX` 与溢出边界。
+测试必须覆盖 reservation 写失败零 enqueue、fresh 与 persisted 恢复、其它 active retained-ID mismatch、当前 UUID duplicate、别代已 finished 的历史不挡本代 enqueue、六种 WorkInfo 状态各自的黑盒结果与稳定 cause、把某态误标 `ENQUEUED` 的 semantic mutation、query 抛错、五种 enqueue 结局、fatal 与 transient 同步失败、CAS 失败后重读出 worker 证据与更高 generation、权限未授予与授予后的 generation 递增，以及 delay `-1ns/0/+1ns/亚毫秒/Long.MAX` 与溢出边界。
+
+**重读上限耗尽**（`RECEIPT_CONTENDED`）在单次注册下无法由任何输入构造——它要求一个本进程看不见的写者在每次重读之间都改动回执，故本卡**事前声明为 mutation-survivor**，其行为测试随并发注册合流一并落在 `T4-SCHEDULE-REMINDER-FLIGHT`；上限本身仍保留，因为它是这条循环唯一的 fail-closed 终止保证。
