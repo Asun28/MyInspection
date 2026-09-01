@@ -85,7 +85,9 @@
 | finalize / discard / clear / remove confirmation | `ALERT_DIALOG` | `confirmation-dialog`; 明确对象、范围、不可逆性 | triggering action |
 | restore replacement confirmation | `ALERT_DIALOG` | `preflight-summary`, `confirmation-input`, `button-destructive` | Replace action or first blocker |
 | Android permission dialog | `SYSTEM_SURFACE` | 进入前可显示 `recovery-panel:PERMISSION`; 拒绝后不自动重复请求 | original trigger or recovery panel |
-| File/create picker | `SYSTEM_SURFACE` | DOCX 只选单文件；报告 Save 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动；保存 request ID，禁 raw URI/名称进入普通错误 | originating source/save action |
+| Folder/file/create picker | `SYSTEM_SURFACE` | `destination-row`; 进入前保存 request ID；显示 provider 边界；禁止 raw URI 出现在普通 UI | `destination-row` / source action |
+| DOCX file picker | `SYSTEM_SURFACE` | 只选单个 DOCX；保存 request ID；禁 raw URI/名称进入普通错误 | originating source action |
+| Report create picker | `SYSTEM_SURFACE` | Save 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动 | originating Save action |
 | Report viewer / Sharesheet | `SYSTEM_SURFACE` | PDF/HTML Open/Share 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动；Share 随后只授予该产物临时 scoped URI | originating action |
 | Android app settings | `SYSTEM_SURFACE` | `recovery-panel`; 仅由用户点 `Open settings` 启动；回前台重新检查权限 | permission recovery panel |
 | Speech recognizer | `SYSTEM_SURFACE` | `input-field`, `phrase-sheet`; 无离线包时隐藏/降级；不阻塞键盘和短语 | voice trigger or note field |
