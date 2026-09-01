@@ -10,6 +10,7 @@ allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/ReportComposer.kt
   - android/core/src/main/kotlin/nz/myinspection/core/report/ReportModel.kt
   - android/core/src/main/kotlin/nz/myinspection/core/report/ReportContentAdapter.kt
+  - android/core/src/main/kotlin/nz/myinspection/core/report/DocumentPlan.kt
   - android/core/src/test/kotlin/nz/myinspection/core/report/
 forbid:
   - Audience or privacy filtering after ReportContent, HTML or PDF bytes, Android imports, schema changes, or geometry owned by a renderer
