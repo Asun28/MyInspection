@@ -1,7 +1,6 @@
 package nz.myinspection.app.feature.schedule
 
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -38,7 +37,6 @@ enum class ReminderRegistrationOutcome {
     ADMITTED,
     RETRYABLE_FAILURE,
     PERMANENT_FAILURE,
-    PERMISSION_BLOCKED,
     SKIPPED,
 }
 
@@ -72,7 +70,6 @@ enum class ReminderRegistrationCause(val outcome: ReminderRegistrationOutcome) {
     INVALID_ROUTE(ReminderRegistrationOutcome.PERMANENT_FAILURE),
     OCCURRENCE_CLOSED(ReminderRegistrationOutcome.SKIPPED),
     GENERATION_SUPERSEDED(ReminderRegistrationOutcome.SKIPPED),
-    PERMISSION_NOT_GRANTED(ReminderRegistrationOutcome.PERMISSION_BLOCKED),
 }
 
 /**
@@ -138,10 +135,8 @@ class ReminderScheduler(
     private val store: ReminderReceiptStore,
     private val enqueue: ReminderEnqueuePort,
     private val query: ReminderWorkQueryPort,
-    private val permissions: ReminderPermissionPort,
     private val diagnostics: ReminderSchedulerDiagnosticPort,
     private val clock: Clock,
-    private val sdkInt: Int,
 ) {
     fun register(reminder: PendingReminder): ReminderRegistrationCause {
         val spec = try {
@@ -168,7 +163,8 @@ class ReminderScheduler(
             is ReminderReceiptLookup.Present -> when {
                 lookup.writeUncertain -> lookup.receipt.settle(RECEIPT_WRITE_UNCERTAIN)
                 lookup.receipt.phase in ACTIVE_PHASES -> place(lookup.receipt)
-                lookup.receipt.phase == ReminderPhase.PERMISSION_BLOCKED -> recover(lookup.receipt)
+                // A blocked occurrence needs a fresh grant and a new generation, which the flight
+                // card owns along with the rest of the generation machinery.
                 else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
             }
         }
@@ -192,33 +188,15 @@ class ReminderScheduler(
         }
     }
 
-    /**
-     * Recovers a blocked occurrence, but only against a grant read now. The delivery plan is the
-     * single authority on whether this app may post at all, so the rule below API 33 is not
-     * restated here, and the store derives the next generation and work request id itself.
-     */
-    private fun recover(receipt: ReminderReceipt): Settlement {
-        val plan = reminderDeliveryPlan(
-            sdkInt,
-            permissions.isPostNotificationsGranted(),
-            receipt.spec.route,
-            receipt.spec.dueAt,
-        )
-        if (plan !is DeliveryPlan.Notify) {
-            return receipt.settle(ReminderRegistrationCause.PERMISSION_NOT_GRANTED)
-        }
-        return when (val result = store.recoverPermissionBlocked(receipt)) {
-            is ReminderReceiptTransitionResult.Applied -> place(result.receipt)
-            is ReminderReceiptTransitionResult.Stale -> receipt.settle(RECEIPT_CONTENDED)
-            ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
-            ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
-        }
-    }
-
     /** Reconciles retained work first: an absent current id is the only path to a submission. */
     private fun place(receipt: ReminderReceipt): Settlement {
         val retained = try {
             query.retainedWork(receipt.spec.uniqueWorkName)
+        } catch (_: InterruptedException) {
+            // The domain answer is still retryable, but the flag that tells this thread it was
+            // interrupted belongs to the caller and is handed straight back.
+            Thread.currentThread().interrupt()
+            return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
         } catch (_: Throwable) {
             return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
         }
@@ -286,11 +264,12 @@ class ReminderScheduler(
         advance(receipt, TERMINAL, ReminderCause.PERMANENT_DELIVERY_FAILURE, applied, null)
 
     /**
-     * Applies one phase change, re-reading rather than overwriting whenever the store says the
-     * caller's view is stale. [proved] is the cause to report when the same generation has already
-     * left ADMISSION_PENDING, which only the matching worker can do and which therefore proves the
-     * admission this registration was establishing. Attempts are bounded, so a receipt that keeps
-     * moving under every re-read ends as a retryable failure rather than as a spin.
+     * Applies one phase change, re-reading rather than overwriting when the store says the caller's
+     * view is stale. [proved] is the cause to report when the same generation has already left
+     * ADMISSION_PENDING, which only the matching worker can do and which therefore proves the
+     * admission this registration was establishing. A lost compare and set is reported rather than
+     * retried in a loop: the re-read already names why it was lost, and a registration that reports
+     * contention is one the caller repeats from the top rather than one that spins here.
      */
     private fun advance(
         receipt: ReminderReceipt,
@@ -299,52 +278,38 @@ class ReminderScheduler(
         applied: ReminderRegistrationCause,
         proved: ReminderRegistrationCause?,
     ): Settlement {
-        var current = receipt
-        repeat(MAX_RECEIPT_ATTEMPTS) {
-            val result = store.compareAndSet(
-                current.occurrenceId, current.generationNumber, current.workRequestId,
-                current.phase, next, cause,
-            )
-            when (result) {
-                is ReminderReceiptTransitionResult.Applied -> return current.settle(applied)
-                // Rejected means the store forbids this transition, which this scheduler never
-                // asks for, so it is a fail closed default rather than a reachable branch.
-                ReminderReceiptTransitionResult.Rejected -> return current.settle(RECEIPT_REJECTED)
-                ReminderReceiptTransitionResult.WriteUncertain ->
-                    return current.settle(RECEIPT_WRITE_UNCERTAIN)
-                is ReminderReceiptTransitionResult.Stale ->
-                    when (val reread = reread(result.lookup, current, proved)) {
-                        is Reread.Report -> return reread.settlement
-                        is Reread.Retry -> current = reread.receipt
-                    }
-            }
+        val result = store.compareAndSet(
+            receipt.occurrenceId, receipt.generationNumber, receipt.workRequestId,
+            receipt.phase, next, cause,
+        )
+        return when (result) {
+            is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied)
+            // Rejected means the store forbids this transition, which this scheduler never asks
+            // for, so it is a fail closed default rather than a reachable branch.
+            ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
+            ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
+            is ReminderReceiptTransitionResult.Stale -> reread(result.lookup, receipt, proved)
         }
-        return receipt.settle(RECEIPT_CONTENDED)
     }
 
     private fun reread(
         lookup: ReminderReceiptLookup,
         current: ReminderReceipt,
         proved: ReminderRegistrationCause?,
-    ): Reread {
-        val present = lookup as? ReminderReceiptLookup.Present
-            ?: return Reread.Report(Settlement(RECEIPT_QUARANTINED))
+    ): Settlement {
+        val present = lookup as? ReminderReceiptLookup.Present ?: return Settlement(RECEIPT_QUARANTINED)
         val fresh = present.receipt
         return when {
-            present.writeUncertain -> Reread.Report(current.settle(RECEIPT_WRITE_UNCERTAIN))
+            present.writeUncertain -> current.settle(RECEIPT_WRITE_UNCERTAIN)
             fresh.generationNumber != current.generationNumber ->
-                Reread.Report(fresh.settle(ReminderRegistrationCause.GENERATION_SUPERSEDED))
-            proved != null && fresh.phase != ADMISSION_PENDING -> Reread.Report(fresh.settle(proved))
-            fresh.phase !in ACTIVE_PHASES -> Reread.Report(fresh.settle(OCCURRENCE_CLOSED))
-            else -> Reread.Retry(fresh)
+                fresh.settle(ReminderRegistrationCause.GENERATION_SUPERSEDED)
+            proved != null && fresh.phase != ADMISSION_PENDING -> fresh.settle(proved)
+            fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
+            // Same generation, still schedulable, and no worker proof: another registration moved
+            // it, so this one reports contention and the caller coordinates again from the top.
+            else -> fresh.settle(RECEIPT_CONTENDED)
         }
     }
-}
-
-/** The receipt to try again against, or the settlement this registration must report instead. */
-private sealed interface Reread {
-    data class Retry(val receipt: ReminderReceipt) : Reread
-    data class Report(val settlement: Settlement) : Reread
 }
 
 private data class Settlement(
@@ -400,7 +365,6 @@ internal fun reminderDelayMillis(now: Instant, dueAt: Instant): Long {
 internal const val MAX_INITIAL_DELAY_MILLIS: Long = Long.MAX_VALUE / 2
 private const val NANOS_PER_MILLI = 1_000_000
 private const val FIRST_GENERATION = 0L
-private const val MAX_RECEIPT_ATTEMPTS = 4
 private const val OPERATION_TIMEOUT_SECONDS = 30L
 
 /** The phases a registration can still act on. Everything else has settled this generation. */
@@ -454,7 +418,6 @@ internal fun reminderScheduler(context: Context): ReminderScheduler {
     val app = context.applicationContext
     return ReminderScheduler(
         reminderReceiptStore(app), WorkManagerReminderEnqueuePort(app), WorkManagerReminderQueryPort(app),
-        AndroidReminderPermissionPort(app), AndroidReminderSchedulerDiagnosticPort, Clock.systemUTC(),
-        Build.VERSION.SDK_INT,
+        AndroidReminderSchedulerDiagnosticPort, Clock.systemUTC(),
     )
 }

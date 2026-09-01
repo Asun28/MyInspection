@@ -28,7 +28,6 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_SU
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.GENERATION_SUPERSEDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.INVALID_ROUTE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.OCCURRENCE_CLOSED
-import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.PERMISSION_NOT_GRANTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_WRITE_UNCERTAIN
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_BLOCKED
@@ -162,6 +161,7 @@ class ReminderSchedulerTest {
             assertEquals(cause, fixture.register(), label)
             assertEquals(phase, fixture.phase(), label)
             assertEquals(emptyList(), fixture.enqueue.submissions, label)
+            assertEquals(cause, fixture.diagnostics.records.single().cause, label)
         }
     }
 
@@ -190,6 +190,17 @@ class ReminderSchedulerTest {
         assertEquals(QUARANTINED, duplicated.phase())
         assertEquals(emptyList(), duplicated.enqueue.submissions)
 
+        val mixed = Fixture(
+            ADMISSION_PENDING,
+            retained = listOf(
+                RetainedWork(WORK_ID_0, WorkInfo.State.ENQUEUED),
+                RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING),
+            ),
+        )
+
+        assertEquals(RETAINED_WORK_ID_MISMATCH, mixed.register())
+        assertEquals(emptyList(), mixed.enqueue.submissions)
+
         // Work of another generation that the platform already finished is history, not a conflict.
         listOf(WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED).forEach { state ->
             val fixture = Fixture(ADMISSION_PENDING, retained = listOf(RetainedWork(FOREIGN_WORK_ID, state)))
@@ -198,6 +209,37 @@ class ReminderSchedulerTest {
             assertEquals(CALLBACK_CONFIRMED_ADMISSION, fixture.register(), label)
             assertEquals(1, fixture.enqueue.submissions.size, label)
         }
+    }
+
+    @Test
+    fun `a persisted active receipt resumes into a submission under its own generation`() {
+        listOf(ENQUEUED, RETRYABLE).forEach { phase ->
+            val fixture = Fixture(phase)
+
+            val label = phase.name
+            assertEquals(CALLBACK_CONFIRMED_ADMISSION, fixture.register(), label)
+            assertEquals(WORK_ID_0, fixture.enqueue.submissions.single().request.id, label)
+            assertEquals(ENQUEUED, fixture.phase(), label)
+        }
+    }
+
+    @Test
+    fun `a transition this registration cannot confirm durably is retryable`() {
+        val fixture = Fixture(ADMISSION_PENDING, retained = listOf(RetainedWork(WORK_ID_0, WorkInfo.State.RUNNING)))
+        fixture.preferences.commitsBeforeFailure = fixture.preferences.commits
+
+        assertEquals(RECEIPT_WRITE_UNCERTAIN, fixture.register())
+        assertEquals(emptyList(), fixture.enqueue.submissions)
+    }
+
+    @Test
+    fun `an interrupted query stays retryable and hands the interrupt back to this thread`() {
+        val fixture = Fixture(ADMISSION_PENDING, queryFailure = InterruptedException("cancelled"))
+
+        assertEquals(RETAINED_WORK_QUERY_FAILED, fixture.register())
+        // Reading the flag also clears it, so this assertion cannot leak into another test.
+        assertEquals(true, Thread.interrupted())
+        assertEquals(emptyList(), fixture.enqueue.submissions)
     }
 
     @Test
@@ -229,6 +271,7 @@ class ReminderSchedulerTest {
             assertEquals(cause, fixture.register(), label)
             assertEquals(phase, fixture.phase(), label)
             assertEquals(1, fixture.enqueue.submissions.size, label)
+            assertEquals(cause, fixture.diagnostics.records.single().cause, label)
         }
     }
 
@@ -281,34 +324,6 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `permission recovery refuses without a fresh grant and derives the next generation once granted`() {
-        val denied = Fixture(PERMISSION_BLOCKED, granted = false)
-
-        val refused = denied.register()
-
-        assertEquals(PERMISSION_NOT_GRANTED, refused)
-        assertEquals(ReminderRegistrationOutcome.PERMISSION_BLOCKED, refused.outcome)
-        assertEquals(PERMISSION_BLOCKED, denied.phase())
-        assertEquals(0L, denied.generation())
-        assertEquals(emptyList(), denied.query.names)
-        assertEquals(emptyList(), denied.enqueue.submissions)
-
-        val granted = Fixture(PERMISSION_BLOCKED)
-
-        assertEquals(CALLBACK_CONFIRMED_ADMISSION, granted.register())
-        assertEquals(1L, granted.generation())
-        assertEquals(ENQUEUED, granted.phase())
-        val request = granted.enqueue.submissions.single().request
-        assertEquals(WORK_ID_1, request.id)
-        assertEquals(ReminderRunOutcome.SUCCESS, granted.runWorker(request))
-
-        val legacy = Fixture(PERMISSION_BLOCKED, granted = false, sdkInt = 32)
-
-        assertEquals(CALLBACK_CONFIRMED_ADMISSION, legacy.register())
-        assertEquals(1L, legacy.generation())
-    }
-
-    @Test
     fun `a route without a property is refused before any store or platform call`() {
         val fixture = Fixture()
 
@@ -345,9 +360,8 @@ class ReminderSchedulerTest {
         private val permission = FixedPermission(granted)
 
         fun register(reminder: PendingReminder = PendingReminder(ROUTE, DUE_AT)): ReminderRegistrationCause =
-            ReminderScheduler(
-                store, enqueue, query, permission, diagnostics, Clock.fixed(now, ZoneOffset.UTC), sdkInt,
-            ).register(reminder)
+            ReminderScheduler(store, enqueue, query, diagnostics, Clock.fixed(now, ZoneOffset.UTC))
+                .register(reminder)
 
         /** Runs the merged production runner over this store, reading only what the request carries. */
         fun runWorker(request: OneTimeWorkRequest): ReminderRunOutcome {
@@ -469,7 +483,6 @@ class ReminderSchedulerTest {
         const val OCCURRENCE_ID = "c118fefec6ee20d89eafa5533048237237d39116af40aa85123fb1f70c404108"
         const val UNIQUE_WORK_NAME = "schedule-reminder:$OCCURRENCE_ID"
         val WORK_ID_0: UUID = UUID.fromString("40fe7461-9be1-3ce7-8bdf-28b48b76359e")
-        val WORK_ID_1: UUID = UUID.fromString("590ca815-2783-322a-acde-39ab31dafd39")
         val FOREIGN_WORK_ID: UUID = UUID.fromString("00000000-0000-3000-8000-0000000000ff")
         val DUE_AT: Instant = Instant.parse(DUE_AT_TEXT)
         val BEYOND_CAP: Instant = DUE_AT.minusSeconds(5_000_000_000_000_000)
@@ -517,20 +530,23 @@ class ReminderSchedulerTest {
 }
 
 /* R4 semantic mutation receipts. Each row was applied alone to ReminderScheduler.kt at SHA-256
- * 8af09018e1f4b7f0fece530417212f58912c1c4d0f5b7a7cf8896ad32a961689, run through this card's test
+ * 578f204083225f092b5ed23172c91be3468088770ae83677c2e8fa969219b4ad, run through this card's test
  * task, then reverted and re-hashed to that same value. A kill is exit 1 with the named test among
- * the failing cases, and every run reported 14 executed cases, which rules out a compile break.
- * The bounded re-read exhaustion is the survivor this card pre-declared.
+ * the failing cases, and every run reported 16 executed cases, which rules out a compile break.
+ *
  * A1 M01 never round a sub millisecond delay up           delay table: one nanosecond before
  * A1 M02 drop the clamp on an unrepresentable delay       delay table: past the cap
  * A1 M03 write the property id under the occurrence key   fresh occurrence: the runner refuses it
  * A2 M04 read quarantined evidence as a fresh occurrence  refused evidence: reserved and enqueued
  * A2 M05 submit without a durable reservation             lost reservation: submitted anyway
- * A3 M06 treat finished foreign work as a live conflict   foreign work: no enqueue at all
- * A3 M07 read retained BLOCKED work as this admission     retained states: admitted instead
- * A4 M08 write the receipt before the operation answers   enqueue outcomes: left RETRYABLE
- * A4 M09 close on a transient submission failure          submission: terminal, not still pending
- * A4 M10 downgrade an admission the worker proved         worker first: reported as a failure
- * A4 M11 write into the generation that superseded this   supersession: overwrote generation one
- * A5 M12 recover without reading the grant again          permission: recovered while denied
+ * A2 M06 read a persisted active receipt as settled       persisted receipt: skipped, not resumed
+ * A3 M07 treat finished foreign work as a live conflict   foreign work: no enqueue at all
+ * A3 M08 look for foreign work only when this one is idle mixed retained ids: enqueued anyway
+ * A3 M09 read retained BLOCKED work as this admission     retained states: admitted instead
+ * A4 M10 write the receipt before the operation answers   enqueue outcomes: left RETRYABLE
+ * A4 M11 close on a transient submission failure          submission: terminal, not still pending
+ * A4 M12 downgrade an admission the worker proved         worker first: reported as a failure
+ * A4 M13 write into the generation that superseded this   supersession: overwrote generation one
+ * A4 M14 report a lost CAS without re-reading it          supersession: reported contention
+ * A4 M15 swallow the interrupt instead of handing it back interrupted query: flag never restored
  */
