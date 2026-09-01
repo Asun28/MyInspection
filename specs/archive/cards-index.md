@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 156 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 157 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -9,6 +9,7 @@
 | T0-CARD-ACCEPTANCE-SETS | merged | 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据 |
 | T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-CI-HARDENING-SPLIT-PLAN | merged | 将候选 CI 硬化卡拆为分页契约与身份/deadline 两张可读串行卡 |
+| T0-CI-IDENTITY-DEADLINE | merged | 候选 CI 的 run 身份绑定与最终 exact-head/base 快照 |
 | T0-CI-LICENSE-GATE-HASH-SYNC | merged | 同步 docs-only License gate 的 8.2b2 规范块哈希 |
 | T0-CI-MERGE-GATE | merged | 在所有远端合并路径上等待候选分支 ci.yml 检查全绿 |
 | T0-CI-PAGED-CONTRACT | merged | 候选 CI 分页读取的形态、总数、稳定身份与跨页重放契约 |

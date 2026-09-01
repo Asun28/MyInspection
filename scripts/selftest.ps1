@@ -2456,8 +2456,8 @@ if ($lessonsCheckExit -ne 0) { Fail '经验系统 check 未过（见上）。' }
 #   **两个数各断言精确值**。只断言其一证不出「单位换了」——两个数必须**不相等**，那正是「合并条目」
 #   这条静默失效路径的形状；相等时旧口径（数 bullet）与新口径（数 id）不可分辨。
 #   数字变了就该在这里红：加/减铁律、或把两条并进一条 bullet，都要求作者回来同步这两个期望值。
-$expectedResidentIds = 9    # CLAUDE.md「经验铁律」小节当前驻留的经验 id 数（上限 LessonsMustCap=10）
-$expectedBullets = 7        # 承载它们的 markdown 条目数——比 id 少，因为有两条是合并条目
+$expectedResidentIds = 10   # CLAUDE.md「经验铁律」小节当前驻留的经验 id 数（上限 LessonsMustCap=10；L266 于 72fbd58d 晋升）
+$expectedBullets = 8        # 承载它们的 markdown 条目数——比 id 少，因为有两条是合并条目
 if ($lessonsCheckOut -notmatch "驻留 id=$expectedResidentIds（承载于 $expectedBullets 条目）") {
   Fail "闸2a：lessons.ps1 check 未在生产 CLAUDE.md 上报出「驻留 id=$expectedResidentIds（承载于 $expectedBullets 条目）」——要么铁律增删了（同步本闸的两个期望值），要么封顶又退回按 markdown 条目计量。实际输出：$(($lessonsCheckOut -split "`r?`n" | Where-Object { $_ -match '必须层：' }) -join ' ')"
 } elseif ($expectedResidentIds -eq $expectedBullets) {

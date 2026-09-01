@@ -9,7 +9,7 @@ acceptance:
   - "A2 身份比较一律大小写敏感：路径、事件、PR 关联的属性名各有一条大小写变体负例，且该负例只能被身份闸拦下"
   - "A3 最终 exact-head/base 快照后才决策：review 中移动本地 HEAD、CI 中前移 base、快照阶段 retarget 或 head moved 均不触发 merge"
   - "A4 -NoAutoMerge 只跳过 merge，不放松上述任何一层；正常与 alternate identity 两条绿路使用不同 PR/run id，stub 拒绝硬编码"
-status: todo
+status: merged
 branch: T0-CI-IDENTITY-DEADLINE
 worktree: C:\wt\T0-CI-IDENTITY-DEADLINE
 allow_paths:
@@ -43,6 +43,10 @@ doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步候选 CI 身份、deadline�
 ---
 
 # T0-CI-IDENTITY-DEADLINE
+
+> **merged** 2026-09-01，master `424009ee`，PR #220，R3 于**重置后第 2 轮** pass（累计 4 轮评审、3 轮出实质 finding）。
+> 两次拆卡（皆用户裁定）：`T0-CI-JOBS-DRIFT`（API 侧 job 集漂移，因 diff 超 R3 字符预算）与 `T0-CI-DEADLINE-CONTAINMENT`（单一 deadline 扩面 + 进程树容纳，因三轮实质 finding 皆落该段）。
+> 注：squash 提交标题沿用拆卡前的旧标题（含「jobs 漂移、单一 deadline」），实际交付以本卡 A1–A4 为准；watershed 后不改写历史。
 
 ## 产出
 

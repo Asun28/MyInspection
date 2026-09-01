@@ -236,6 +236,19 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 真实 timeout 与 early-exit，并由删除/替换变异锁住确定性。DoD、focused gate8、verify 与 R3 均通过；TD9 仍保持
 carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 
+**候选 CI 的 run 身份绑定已合并**（2026-09-01，PR #220，master `424009ee`）：`T37-CIGATE/WORKFLOW-BINDING`
+把「已过 R3 的本地 HEAD ≡ PR `headRefOid` ≡ run `head_sha` → run id/attempt → 终局 exact-head/base 快照 →
+`merge --match-head-commit`」逐层钉住，任一层不匹配即 fail-closed。`path`/`event`/`pull_requests[].number`
+三处一律**大小写敏感**比较——PS 的 `-eq`/`-in`/`-contains` 与**属性访问本身**默认不敏感，只带 `Number` 的关联
+条目原本可借此过闸并合并（单点变异实测：改回 `-contains` 该负例即 exit 0 一路合并）。每条负例的判据是
+「专属哨兵 + 精确读计数（证明停在链上哪一环）+ 未触达合并 + 效果账本点名被造坏的那一处」，5/5 变异全杀。
+> **本卡被拆了两次，都是用户裁定**：① diff 达 61233 字符 > R3 的 60000 完整读取预算 ⇒ API 侧 job 集漂移拆给
+> `T0-CI-JOBS-DRIFT`（DEVOPS-WORKFLOW §35：超限必须拆卡，不得放宽限额）；② R3 连续三轮的实质 finding **全部**
+> 落在 deadline/进程树那段机器上（无界 `WaitForExit()` · 单点挂起分辨不出「共享预算」与「每调用各计时」·
+> 子进程早退致孙进程漏杀 · 清理余量串行花两遍 · 容纳非 fail-closed 且漏关句柄）⇒ 整段拆给
+> `T0-CI-DEADLINE-CONTAINMENT`。留在本卡的 A1–A4 三轮零实质 finding。**教训**：一处反复吃 finding 的子问题
+> 通常是独立子问题（自带平台原语选型），越早拆越省轮次——而不是「再修一处」。
+
 **Gradle 测试输入假绿已封口**（2026-08-29，PR #188，master `6fda9f88`）：`:core:test` / `:core:e2eTest` 现在精确声明
 运行期读取的 compliance 配置、双语模板与源码文件，权威文件或 source-purity 目标变化不会再被 UP-TO-DATE / FROM-CACHE
 静默吞掉；T3/T4 的 Gradle DoD 同时强制 `--rerun-tasks --no-build-cache`。配置、模板与字节码中性源码变异均已证明先红后绿。
