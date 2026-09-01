@@ -1631,7 +1631,7 @@
 - refs: 
 
 ## L226
-- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 5
+- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 6
 - symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
 - root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
 - rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装 **2026-08-23 裁断（recurrence 1→4，当日触发 3 次）**：仍**不进必须层**。本条规则纯机械可检（写回前后核前 3 字节），该落成守卫而不是占每轮上下文的铁律；Tier-1 名额有限（上限 10、master 现 9），且「写完立刻复核」的通用形态已由 L165 覆盖。当日 3 次触发集中在同一段整文件拼装作业里，属单次作业的密集暴露、非广谱复发。
@@ -1815,7 +1815,7 @@
 - refs: PR #187; TD162; T0-DEBT-SELFTEST-MUTATION-BUDGET
 
 ## L252
-- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: R5 先把 merged 卡移入 cold storage 后，task.ps1 cleanup 因只读取 specs/tasks 中的 live 卡而在任何删除前报任务卡不存在。
 - root_cause: archive.ps1 的正常 R5 搬运与 task.ps1 cleanup 的 live-only 卡路径存在顺序耦合，但流程没有显式规定 cleanup 必须先于归档。
 - rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。
@@ -1863,7 +1863,7 @@
 - refs: PR #198; android/core/src/main/kotlin/nz/myinspection/core/media/archive/VerifiedArchiveReceiptService.kt; android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt
 
 ## L258
-- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: Task Loop cleanup removed the worktree registration and branch but left the physical worktree because a generated Gradle path exceeded the normal Windows path limit.
 - root_cause: git worktree remove could not delete the long generated build path; after registration vanished, the cleanup retry no longer had a registered worktree target.
 - rule: After Windows cleanup reports Filename too long, verify the exact residual path is inside the configured worktree root and absent from git worktree list, then remove only that literal path through the \\?\ extended-length form; never broaden the delete target.
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -1955,5 +1955,21 @@
 - symptom: R5 跑完 archive.ps1 后，specs/archive/tech-debt-index.md 出现纯行尾（CRLF）改动、内容一字未变，git 还给出 "CRLF will be replaced by LF" 警告。连续两个会话都撞上。
 - root_cause: archive.ps1 重写索引时按平台默认行尾落盘，与仓内已有的 LF 不一致；文件内容没变，diff 却非空。
 - rule: R5 提交一律用显式 pathspec 逐个点名要提交的文件，先对每个候选跑一次 git diff --numstat 确认它有真实增删；tech-debt-index.md 若只有行尾差异就不要 stage。顺带满足 L114：共享主检出永远不用 git add -A。
+- enforced_by: 
+- refs: 
+
+## L270
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
+- root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
+- rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
+- enforced_by: 
+- refs: 
+
+## L271
+- date: 2026-09-01 ｜ tags: testing,fixtures,retry,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 首轮 block：重试阶梯（attempt 0/1 重试、attempt 2 关闭）的参数化测试表看着覆盖了整条阶梯，实际每个 attempt 都新建同一个起始态夹具，于是只有第一级被测——attempt 1 从未真的从「上一次写下的中间态」出发，耗尽时也从未真的从该中间态关闭。
+- root_cause: 把「阶梯」写成了「一组互相独立的用例」。参数化表天然鼓励每次迭代重建夹具（互不干扰是好习惯），但阶梯的语义恰恰在于状态在迭代之间被携带——重建夹具把被测的那条状态转移悄悄换成了另一条。
+- rule: 判据先问：这张表的各行是【独立用例】还是【一条序列的各步】？独立用例（各种畸形输入、各种异常类型、各种终态）每行必须新建夹具；序列（重试阶梯、多次运行、状态机走线）必须复用同一个夹具按序跑完，并逐步断言 outcome/持久态/累计副作用条数（如诊断记录数用 index+1，而不是 single()——single() 恰好会掩盖「第二次运行什么都没做」）。配套变异：把「携带」改回「每步重建」，若无测试变红，说明这条序列没被测。
 - enforced_by: 
 - refs: 
