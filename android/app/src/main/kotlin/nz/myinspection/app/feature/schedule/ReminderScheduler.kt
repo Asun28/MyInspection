@@ -252,10 +252,10 @@ class ReminderScheduler(
         }
 
     private fun confirm(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, ENQUEUED, null, applied)
+        advance(receipt, ENQUEUED, null, applied, admissionRecoverable = true)
 
     private fun holdForRetry(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, RETRYABLE, null, applied)
+        advance(receipt, RETRYABLE, null, applied, admissionRecoverable = true)
 
     private fun quarantine(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
         advance(receipt, QUARANTINED, null, applied)
@@ -267,12 +267,15 @@ class ReminderScheduler(
      * Applies one phase change, re-reading rather than overwriting when the store says the caller's
      * view is stale. A lost compare and set is reported rather than retried in a loop: the re-read
      * already names why it was lost, and the caller repeats a contended registration from the top.
+     * [admissionRecoverable] is true only where this call site was itself establishing admission,
+     * because a caller acting on retained work that contradicts admission must not report one.
      */
     private fun advance(
         receipt: ReminderReceipt,
         next: ReminderPhase,
         cause: ReminderCause?,
         applied: ReminderRegistrationCause,
+        admissionRecoverable: Boolean = false,
     ): Settlement {
         val result = store.compareAndSet(
             receipt.occurrenceId, receipt.generationNumber, receipt.workRequestId,
@@ -284,17 +287,22 @@ class ReminderScheduler(
             // for, so it is a fail closed default rather than a reachable branch.
             ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
             ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
-            is ReminderReceiptTransitionResult.Stale -> reread(result.lookup, receipt)
+            is ReminderReceiptTransitionResult.Stale ->
+                reread(result.lookup, receipt, admissionRecoverable)
         }
     }
 
     /**
-     * Reports what replaced this registration's view of the receipt. Only ENQUEUED is admission:
-     * it is written after WorkManager accepted this generation's request, by the matching worker or
-     * by a registration that saw the same acceptance. RETRYABLE is not, because a failed enqueue
-     * callback writes it too, so an unattributable same generation change is contention.
+     * Reports what replaced this registration's view of the receipt. ENQUEUED is admission only to
+     * a caller that was establishing one: it is written after WorkManager accepted this generation's
+     * request, but a caller whose retained work already contradicted admission cannot read it as
+     * proof. Everything else that moved under the same generation is contention.
      */
-    private fun reread(lookup: ReminderReceiptLookup, current: ReminderReceipt): Settlement {
+    private fun reread(
+        lookup: ReminderReceiptLookup,
+        current: ReminderReceipt,
+        admissionRecoverable: Boolean,
+    ): Settlement {
         // The store reports Stale only with the receipt it read under its own lock, and answers a
         // missing or unreadable occurrence with Rejected instead, so this is a fail closed default.
         val fresh = (lookup as? ReminderReceiptLookup.Present)?.receipt
@@ -302,7 +310,8 @@ class ReminderScheduler(
         return when {
             fresh.generationNumber != current.generationNumber ->
                 fresh.settle(ReminderRegistrationCause.GENERATION_SUPERSEDED)
-            fresh.phase == ENQUEUED -> fresh.settle(ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED)
+            admissionRecoverable && fresh.phase == ENQUEUED ->
+                fresh.settle(ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED)
             fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
             else -> fresh.settle(RECEIPT_CONTENDED)
         }

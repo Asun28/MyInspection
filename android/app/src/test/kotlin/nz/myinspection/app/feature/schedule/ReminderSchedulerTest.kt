@@ -147,64 +147,56 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `every retained state of the current work request id reconciles without a second enqueue`() {
-        val cases = listOf(
-            Triple(WorkInfo.State.ENQUEUED, RETAINED_WORK_ENQUEUED, ENQUEUED),
-            Triple(WorkInfo.State.RUNNING, RETAINED_WORK_ENQUEUED, ENQUEUED),
-            Triple(WorkInfo.State.BLOCKED, RETAINED_WORK_BLOCKED, QUARANTINED),
-            Triple(WorkInfo.State.SUCCEEDED, RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT, QUARANTINED),
-            Triple(WorkInfo.State.FAILED, RETAINED_WORK_FAILED, TERMINAL),
-            Triple(WorkInfo.State.CANCELLED, RETAINED_WORK_CANCELLED, TERMINAL),
+    fun `every retained answer reconciles, and a race to enqueued never becomes a false admission`() {
+        val cases = mapOf(
+            "enqueued" to Retained(retained(WorkInfo.State.ENQUEUED), RETAINED_WORK_ENQUEUED, ENQUEUED),
+            "running" to Retained(retained(WorkInfo.State.RUNNING), RETAINED_WORK_ENQUEUED, ENQUEUED),
+            "blocked" to Retained(retained(WorkInfo.State.BLOCKED), RETAINED_WORK_BLOCKED, QUARANTINED),
+            "succeeded" to Retained(
+                retained(WorkInfo.State.SUCCEEDED), RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT, QUARANTINED,
+            ),
+            "failed" to Retained(retained(WorkInfo.State.FAILED), RETAINED_WORK_FAILED, TERMINAL),
+            "cancelled" to Retained(retained(WorkInfo.State.CANCELLED), RETAINED_WORK_CANCELLED, TERMINAL),
+            "duplicated" to Retained(
+                retained(WorkInfo.State.ENQUEUED) + retained(WorkInfo.State.RUNNING),
+                RETAINED_WORK_DUPLICATE, QUARANTINED,
+            ),
+            "foreign active" to Retained(
+                listOf(RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING)),
+                RETAINED_WORK_ID_MISMATCH, QUARANTINED,
+            ),
+            "foreign beside this one" to Retained(
+                retained(WorkInfo.State.ENQUEUED) + RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING),
+                RETAINED_WORK_ID_MISMATCH, QUARANTINED,
+            ),
         )
 
-        cases.forEach { (state, cause, phase) ->
-            val fixture = Fixture(ADMISSION_PENDING, retained = listOf(RetainedWork(WORK_ID_0, state)))
+        cases.forEach { (label, case) ->
+            val plain = Fixture(ADMISSION_PENDING, retained = case.work)
 
-            val label = state.name
-            assertEquals(cause, fixture.register(), label)
-            assertEquals(phase, fixture.phase(), label)
-            assertEquals(emptyList(), fixture.enqueue.submissions, label)
-            assertEquals(cause, fixture.diagnostics.records.single().cause, label)
+            assertEquals(case.settles, plain.register(), label)
+            assertEquals(case.phase, plain.phase(), label)
+            assertEquals(emptyList(), plain.enqueue.submissions, label)
+            assertEquals(case.settles, plain.diagnostics.records.single().cause, label)
+
+            val raced = Fixture(ADMISSION_PENDING, retained = case.work)
+            // The receipt reaches ENQUEUED between this query and the transition it decided on.
+            // Only a caller that was itself establishing admission may read that as one.
+            raced.query.beforeAnswer = {
+                raced.store.compareAndSet(OCCURRENCE_ID, 0L, WORK_ID_0, ADMISSION_PENDING, ENQUEUED, null)
+            }
+            val admissible = case.settles == RETAINED_WORK_ENQUEUED
+
+            assertEquals(
+                if (admissible) ADMISSION_ALREADY_RECORDED else RECEIPT_CONTENDED,
+                raced.register(),
+                label,
+            )
         }
     }
 
     @Test
-    fun `foreign active or duplicated retained work quarantines the registration without enqueueing`() {
-        listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED).forEach { state ->
-            val fixture = Fixture(ADMISSION_PENDING, retained = listOf(RetainedWork(FOREIGN_WORK_ID, state)))
-
-            val label = state.name
-            val cause = fixture.register()
-
-            assertEquals(RETAINED_WORK_ID_MISMATCH, cause, label)
-            assertEquals(QUARANTINED, fixture.phase(), label)
-            assertEquals(emptyList(), fixture.enqueue.submissions, label)
-        }
-
-        val duplicated = Fixture(
-            ADMISSION_PENDING,
-            retained = listOf(
-                RetainedWork(WORK_ID_0, WorkInfo.State.ENQUEUED),
-                RetainedWork(WORK_ID_0, WorkInfo.State.RUNNING),
-            ),
-        )
-
-        assertEquals(RETAINED_WORK_DUPLICATE, duplicated.register())
-        assertEquals(QUARANTINED, duplicated.phase())
-        assertEquals(emptyList(), duplicated.enqueue.submissions)
-
-        val mixed = Fixture(
-            ADMISSION_PENDING,
-            retained = listOf(
-                RetainedWork(WORK_ID_0, WorkInfo.State.ENQUEUED),
-                RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING),
-            ),
-        )
-
-        assertEquals(RETAINED_WORK_ID_MISMATCH, mixed.register())
-        assertEquals(emptyList(), mixed.enqueue.submissions)
-
-        // Work of another generation that the platform already finished is history, not a conflict.
+    fun `finished work of another generation does not stop this generation from enqueueing`() {
         listOf(WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED).forEach { state ->
             val fixture = Fixture(ADMISSION_PENDING, retained = listOf(RetainedWork(FOREIGN_WORK_ID, state)))
 
@@ -303,23 +295,6 @@ class ReminderSchedulerTest {
             assertEquals(SKIPPED, cause.outcome, label)
             assertEquals(DELIVERED, fixture.phase(), label)
             assertEquals(1, fixture.enqueue.submissions.size, label)
-        }
-    }
-
-    @Test
-    fun `a same generation change is recorded admission or contention, never proof this cannot give`() {
-        val cases = listOf(ENQUEUED to ADMISSION_ALREADY_RECORDED, RETRYABLE to RECEIPT_CONTENDED)
-
-        cases.forEach { (phase, cause) ->
-            val fixture = Fixture(ADMISSION_PENDING)
-            // Another registration moved the receipt while this submission was in flight.
-            fixture.enqueue.beforeSignal = {
-                fixture.store.compareAndSet(OCCURRENCE_ID, 0L, WORK_ID_0, ADMISSION_PENDING, phase, null)
-            }
-
-            val label = phase.name
-            assertEquals(cause, fixture.register(), label)
-            assertEquals(phase, fixture.phase(), label)
         }
     }
 
@@ -479,12 +454,23 @@ class ReminderSchedulerTest {
         ReminderWorkQueryPort {
         val names = mutableListOf<String>()
 
+        /** What another actor does between this query and the transition its answer decides on. */
+        var beforeAnswer: () -> Unit = {}
+
         override fun retainedWork(uniqueWorkName: String): List<RetainedWork> {
             names += uniqueWorkName
             failure?.let { throw it }
+            beforeAnswer()
             return retained
         }
     }
+
+    /** One retained-work answer: what it settles as, and the receipt phase it leaves behind. */
+    private class Retained(
+        val work: List<RetainedWork>,
+        val settles: ReminderRegistrationCause,
+        val phase: ReminderPhase,
+    )
 
     private class RecordingDiagnostics : ReminderSchedulerDiagnosticPort {
         val records = mutableListOf<ReminderRegistrationRecord>()
@@ -534,6 +520,8 @@ class ReminderSchedulerTest {
             causeCode = causeFor(phase),
         )
 
+        fun retained(state: WorkInfo.State): List<RetainedWork> = listOf(RetainedWork(WORK_ID_0, state))
+
         fun causeFor(phase: ReminderPhase): ReminderCause? =
             ReminderCause.PERMANENT_DELIVERY_FAILURE.takeIf { phase == TERMINAL }
 
@@ -555,7 +543,7 @@ class ReminderSchedulerTest {
 }
 
 /* R4 semantic mutation receipts. Each row was applied alone to ReminderScheduler.kt at SHA-256
- * 264f6839152fa50efc63d63024187e6a034efc323b8bb31bed328af0ad442632, run through this card's test
+ * ab224f64c0dc418092616b071c5da3e6193b0dd95f79f28c7ec947681690b648, run through this card's test
  * task, then reverted and re-hashed. A kill is exit 1 with the named test among the failing cases,
  * and every run reported the same executed-case count, which rules out a compile break.
  * A1 M01 never round a sub millisecond delay up           delay table: one nanosecond before
@@ -566,16 +554,17 @@ class ReminderSchedulerTest {
  * A2 M05 submit without a durable reservation             lost reservation: submitted anyway
  * A2 M06 read a persisted active receipt as settled       persisted receipt: skipped, not resumed
  * A2 M07 treat a refused transition as an applied one     wiped evidence: reported as admitted
- * A3 M08 treat finished foreign work as a live conflict   foreign work: no enqueue at all
- * A3 M09 look for foreign work only when this one is idle mixed retained ids: enqueued anyway
- * A3 M10 read retained BLOCKED work as this admission     retained states: admitted instead
- * A4 M11 write the receipt before the operation answers   enqueue outcomes: left RETRYABLE
+ * A3 M08 treat finished foreign work as a live conflict   finished history: no enqueue at all
+ * A3 M09 look for foreign work only when this one is idle retained table: foreign beside this one
+ * A3 M10 read retained BLOCKED work as this admission     retained table: blocked admitted
+ * A3 M21 let any call site recover a raced admission      retained table: raced rows admitted
+ * A4 M11 write the receipt for an operation not answered  enqueue outcomes: left RETRYABLE
  * A4 M12 close on a transient submission failure          submission: terminal, not still pending
  * A4 M13 read a closed occurrence as a confirmed admission worker ran first: claimed admission
- * A4 M14 read an unattributable change as an admission    contention: claimed admission
+ * A4 M14 read an unattributable change as an admission    retained table: raced rows admitted
  * A4 M15 write into the generation that superseded this   supersession: overwrote generation one
  * A4 M16 report a lost CAS without re-reading it          supersession: reported contention
  * A4 M17 swallow the interrupt instead of handing it back interrupted query: flag never restored
- * A4 M19 read a same generation ENQUEUED as contention    same generation race: no admission
+ * A4 M19 never recover an admission the enqueue path won  retained table: enqueued row contended
  * A5 M18 derive the id from an unreserved generation      fresh occurrence: the runner refuses it
  */
