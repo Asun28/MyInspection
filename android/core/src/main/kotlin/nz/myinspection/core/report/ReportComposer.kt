@@ -1,66 +1,67 @@
 package nz.myinspection.core.report
 
-import nz.myinspection.core.canon.canonicalJson
-import nz.myinspection.core.canon.sha256Hex
-import nz.myinspection.core.capture.AdverseStatuses
-import nz.myinspection.core.template.TemplateDomains
+import nz.myinspection.core.report.content.LegacyImportProvenance
+import nz.myinspection.core.report.content.ReportContent
+import nz.myinspection.core.report.content.ReportContentItem
+import nz.myinspection.core.report.content.ReportContentPhoto
+import nz.myinspection.core.report.content.ReportContentRoom
+import nz.myinspection.core.report.content.ReportContentSummaryItem
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /** Pure Kotlin layout engine. Renderers consume measured runs and slots without wrapping or pagination. */
 class ReportComposer(private val textMeasurer: TextMeasurer) {
-    fun compose(report: ReportSnapshot, audience: Audience, options: ReportOptions = ReportOptions()): DocumentPlan {
-        validateMeasurer()
-        validateProjection(report)
-        val dataHash = sha256Hex(canonicalJson(report.canonical))
-        val photos = report.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }
-            .filter { options.includePrivacyPhotos || !it.privacy }
-        val adverseItems = report.rooms.flatMap { room ->
-            room.items.filter { AdverseStatuses.isAdverse(report.canonical.type, it.snapshot.status) }
-                .map { room.id to it }
-        }
+    private val adapter = ReportContentAdapter()
+
+    /**
+     * Snapshot entry point. Audience and privacy are settled by the adapter's projection before anything
+     * here runs, so this is a bridge and not a second place where a report's meaning is decided.
+     */
+    fun compose(report: ReportSnapshot, audience: Audience, options: ReportOptions = ReportOptions()): DocumentPlan =
+        compose(adapter.adapt(report, audience, options))
+
+    /**
+     * Lays out one already-projected report. There is deliberately no audience and no privacy option in
+     * this signature: every photograph, judgment, remediation and agreement reaching this point is one the
+     * projection has already decided this reader may see.
+     */
+    fun compose(content: ReportContent): DocumentPlan {
+        validateMeasurer(content.disclaimer)
+        val photos = content.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }
         val pages = mutableListOf<MutableList<PlacedBlock>>()
         val paginator = Paginator(pages)
 
-        paginator.forcePage(listOf(coverBlock(report, audience, adverseItems)))
+        paginator.forcePage(listOf(coverBlock(content)))
         paginator.startSection(
             sectionTitle("status-glossary", BilingualText("Status glossary", "评级词表")),
-            report.statusDefinitions.map(::statusBlock),
+            content.statusDefinitions.map(::statusBlock),
         )
         paginator.startSection(
             sectionTitle("summary", BilingualText("Summary", "摘要")),
-            adverseItems.map { (roomId, item) -> summaryBlock(roomId, item) },
+            content.summary.adverseItems.map(::summaryBlock),
         )
 
-        if (report.rooms.isNotEmpty()) paginator.newPage()
-        for (room in report.rooms) {
-            val visibleRoomPhotos = room.photos.filter { it in photos }
+        if (content.rooms.isNotEmpty()) paginator.newPage()
+        for (room in content.rooms) {
             val title = roomTitleBlock(room)
             if (room.items.isEmpty()) {
-                // A room carrying nothing at all is a malformed projection: its heading could only ever be an
-                // orphan. A room whose photography is entirely privacy-filtered is a different case - that is
-                // the default projection of a room full of the tenant's belongings - so it is simply skipped.
-                require(room.photos.isNotEmpty()) {
-                    "room ${room.id} has neither items nor photos; it would render as an orphan heading"
-                }
-                if (visibleRoomPhotos.isEmpty()) continue
-                // The heading travels with its first picture: otherwise it can end a page and its only
-                // content start the next one.
-                val firstPhoto = imageBlock(visibleRoomPhotos.first(), ImagePurpose.INLINE)
-                paginator.addGroup(listOf(title, firstPhoto))
-                visibleRoomPhotos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
+                // A room reaching the layout with no items always has photographs: one carrying neither is
+                // refused by the adapter, and one the privacy filter emptied is dropped by the projection.
+                // The heading travels with its first picture, which is what stops it ending a page alone
+                // while its only content starts the next one.
+                paginator.addGroup(listOf(title, imageBlock(room.photos.first(), ImagePurpose.INLINE)))
+                room.photos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
                 continue
             }
-            val firstPhoto = visibleRoomPhotos.firstOrNull()?.let { imageBlock(it, ImagePurpose.INLINE) }
+            val firstPhoto = room.photos.firstOrNull()?.let { imageBlock(it, ImagePurpose.INLINE) }
             val openingFixedHeight = title.heightMm + (firstPhoto?.heightMm ?: 0)
-            val firstItem = itemBlock(room.items.first(), audience, room.items.first().photos.filter { it in photos })
-            val firstItemChunks = splitBlock(firstItem, BODY_HEIGHT_MM - openingFixedHeight)
+            val firstItemChunks = splitBlock(itemBlock(room.items.first()), BODY_HEIGHT_MM - openingFixedHeight)
             paginator.addGroup(listOfNotNull(title, firstPhoto, firstItemChunks.first()))
             firstItemChunks.drop(1).forEach(paginator::add)
-            visibleRoomPhotos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
+            room.photos.drop(1).forEach { paginator.add(imageBlock(it, ImagePurpose.INLINE)) }
             for (item in room.items.drop(1)) {
-                paginator.add(itemBlock(item, audience, item.photos.filter { it in photos }))
+                paginator.add(itemBlock(item))
             }
         }
 
@@ -73,40 +74,50 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             paginator.addGroup(listOf(sectionTitle(APPENDIX_TITLE_KEY, APPENDIX_TITLE)) + pair)
         }
 
-        val closingBody = buildList {
-            if (audience == Audience.LANDLORD) addAll(report.remediations.map(::remediationBlock))
-            addAll(report.supplements.map(::supplementBlock))
+        // Only an imported report has a source to attest, so a native one is laid out exactly as before.
+        content.importProvenance?.let { provenance ->
+            paginator.startSection(
+                sectionTitle(PROVENANCE_KEY, BilingualText("Imported source", "导入来源")),
+                listOf(provenanceBlock(provenance)),
+            )
         }
+
+        val closingBody = content.remediations.map(::remediationBlock) + content.supplements.map(::supplementBlock)
         paginator.startSection(sectionTitle("closing", BilingualText("Closing", "报告结尾")), closingBody)
         val closingTail = buildList {
-            add(disclaimerBlock())
-            if (audience == Audience.TENANT) add(tenantAgreementBlock())
+            add(disclaimerBlock(content.disclaimer))
+            content.tenantAgreement?.let { add(tenantAgreementBlock(it)) }
         }
         // The tenant agreement may never create a new final page without the mandatory disclaimer. Treat
         // the fixed tenant tail as one indivisible unit at residual boundaries; the landlord has one block.
         paginator.addGroup(closingTail)
 
+        // The footer restates the hash the projection carried out of the finalized snapshot. Recomputing it
+        // here would digest the filtered report instead, and the two audiences would then disagree about
+        // what the native evidence was.
+        val dataHash = content.nativeIntegrity.dataHash
         val totalPages = pages.size
         val completed = pages.mapIndexed { index, blocks ->
             PagePlan(index + 1, blocks + footerBlock(dataHash, index + 1, totalPages))
         }
-        return DocumentPlan(audience, dataHash, completed)
+        return DocumentPlan(content.audience, dataHash, completed)
     }
 
     /**
      * The measurer is an injected seam, so its line heights are inputs. Two pieces of this layout are fixed
-     * against them and no caller can shorten either: the composer's own bilingual disclaimer, which is never
-     * split across pages, and the appendix page, whose picture box is a constant and whose density is two
-     * per page. A measurer at which either no longer fits the body makes every report ungenerable, so it is
-     * refused here, where the message can name the styles and the measurements, rather than deep inside
-     * pagination where the message can only name the blocks it failed to place.
+     * against them and no caller can shorten either: the report's mandatory bilingual disclaimer, which the
+     * projection always carries in full and which is never split across pages, and the appendix page, whose
+     * picture box is a constant and whose density is two per page. A measurer at which either no longer fits
+     * the body makes every report ungenerable, so it is refused here, where the message can name the styles
+     * and the measurements, rather than deep inside pagination where the message can only name the blocks it
+     * failed to place.
      *
      * The appendix bound is checked whether or not this particular report has photographs. The measurer is a
      * fixed property of the renderer, not of the report, and a precondition that only bites on the first
      * report that happens to carry a picture is a precondition that ships broken.
      */
-    private fun validateMeasurer() {
-        val disclaimer = bilingualRuns(REPORT_DISCLAIMER, TextStyle.CAPTION, BODY_WIDTH_MM)
+    private fun validateMeasurer(disclaimerText: BilingualText) {
+        val disclaimer = bilingualRuns(disclaimerText, TextStyle.CAPTION, BODY_WIDTH_MM)
         val required = disclaimer.endY() + 2
         val captionLineMm = disclaimer.first().heightMm
         require(required <= BODY_HEIGHT_MM) {
@@ -127,94 +138,36 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         }
     }
 
-    private fun validateProjection(report: ReportSnapshot) {
-        require(report.rooms.map { it.id }.toSet().size == report.rooms.size) { "duplicate room id" }
-        val items = report.rooms.flatMap { it.items }
-        val photos = report.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }
-        require(items.map { it.id }.toSet().size == items.size) { "duplicate report item id" }
-        require(photos.map { it.id }.toSet().size == photos.size) { "duplicate report photo id" }
-        require(photos.all { it.id.isNotBlank() && it.reference.isNotBlank() && it.capturedAt > 0 }) {
-            "report photos require an id, reference and positive capture time"
-        }
-        // The caption renders the EXIF instant when the photo has one, so that is the value to guard.
-        // Checking capturedAt alone reports success while every caption for the photo reads 1970-01-01.
-        photos.forEach { photo ->
-            val rendered = photo.snapshot.exifTimeMs ?: photo.capturedAt
-            require(rendered > 0) {
-                "photo ${photo.id} would render capture time $rendered; the drawn instant must be positive"
-            }
-        }
-        // Every back-reference the renderer prints has to resolve: the multiset checks above are satisfied
-        // by blank identifiers and repeated references, which render evidence that traces to nothing.
-        require(report.rooms.all { it.id.isNotBlank() }) { "report rooms require a non-blank id" }
-        require(items.all { it.id.isNotBlank() }) { "report items require a non-blank id" }
-        require(photos.map { it.reference }.toSet().size == photos.size) { "duplicate report photo reference" }
-        // Room-level and item-level photography are different evidence. Nesting that contradicts the canonical
-        // flag misfiles it, and the misfiling is invisible in the rendered output.
-        require(report.rooms.all { room -> room.photos.all { it.snapshot.isRoomLevel } }) {
-            "a room-level photo slot holds a photo whose canonical isRoomLevel is false"
-        }
-        require(report.rooms.all { room -> room.items.all { item -> item.photos.none { it.snapshot.isRoomLevel } } }) {
-            "an item photo slot holds a photo whose canonical isRoomLevel is true"
-        }
-        require(multiset(items.map { it.snapshot }) == multiset(report.canonical.items)) {
-            "report items do not match canonical snapshot"
-        }
-        require(multiset(photos.map { it.snapshot }) == multiset(report.canonical.photos)) {
-            "report photos do not match canonical snapshot"
-        }
-        val itemIds = items.mapTo(mutableSetOf()) { it.id }
-        require(report.remediations.all { it.itemId in itemIds }) { "remediation references unknown item" }
-        val allowedStatuses = requireNotNull(TemplateDomains.allowedStatusesFor(report.canonical.type)) {
-            "unknown inspection type: ${report.canonical.type}"
-        }
-        require(report.statusDefinitions.map { it.status }.toSet().size == report.statusDefinitions.size) {
-            "duplicate status definition"
-        }
-        require(report.statusDefinitions.map { it.status }.toSet() == allowedStatuses) {
-            "report glossary must exactly cover the ${report.canonical.type} status domain"
-        }
-        require(items.all { it.snapshot.status in allowedStatuses }) { "item status is outside the template domain" }
-    }
-
-    private fun <T> multiset(values: List<T>): Map<T, Int> = values.groupingBy { it }.eachCount()
-
     /**
      * The answer sheet, and it is one page. The room-by-status breakdown grows with the property, so the
      * drawn part is capped and says how many rows it left out; [CoverBlock.roomStatusCounts] still carries
      * the whole breakdown, and the summary section lists every adverse item in full.
      */
-    private fun coverBlock(
-        report: ReportSnapshot,
-        audience: Audience,
-        adverseItems: List<Pair<String, ReportItem>>,
-    ): SizedBlock {
+    private fun coverBlock(content: ReportContent): SizedBlock {
+        val identity = content.identity
+        val adverseCount = content.summary.adverseItems.size
         // Pending work is the number of distinct items carrying a remediation, not a second copy of the
         // adverse count. They differ whenever an item is adverse but has no remediation yet, or vice versa.
-        val pendingItemCount = report.remediations.map { it.itemId }.distinct().size
-            .takeIf { audience == Audience.LANDLORD }
-        val counts = report.rooms.flatMap { room ->
-            room.items.groupingBy { it.snapshot.status }.eachCount().entries.map {
-                RoomStatusCount(room.id, it.key, it.value)
-            }
-        }
+        // It is null for a reader the projection gave no remediation data to.
+        val pendingItemCount = content.summary.pendingRemediationCount
+        val counts = content.summary.roomStatusCounts.map { RoomStatusCount(it.roomId, it.status, it.count) }
         val head = buildList {
-            addAll(runs(report.canonical.property.address, TextLanguage.ORIGINAL, TextStyle.TITLE, BODY_WIDTH_MM))
+            addAll(runs(identity.propertyAddress, TextLanguage.ORIGINAL, TextStyle.TITLE, BODY_WIDTH_MM))
             addAll(
                 runs(
-                    "${report.canonical.type} · ${isoUtc(report.canonical.scheduledAt)}",
+                    "${identity.inspectionType} · ${isoUtc(identity.scheduledAt)}",
                     TextLanguage.NEUTRAL,
                     TextStyle.BODY,
                     BODY_WIDTH_MM,
                     endY(),
                 ),
             )
-            report.tenancyReference?.let {
+            identity.tenancyReference?.let {
                 addAll(runs(it, TextLanguage.NEUTRAL, TextStyle.BODY, BODY_WIDTH_MM, endY()))
             }
             addAll(
                 bilingualRuns(
-                    BilingualText("Adverse items: ${adverseItems.size}", "不利项：${adverseItems.size}"),
+                    BilingualText("Adverse items: $adverseCount", "不利项：$adverseCount"),
                     TextStyle.BODY,
                     BODY_WIDTH_MM,
                     endY(),
@@ -267,11 +220,11 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         }
         return sized(
             CoverBlock(
-                report.canonical.property.address,
-                report.canonical.type,
-                report.canonical.scheduledAt,
-                report.tenancyReference,
-                adverseItems.size,
+                identity.propertyAddress,
+                identity.inspectionType,
+                identity.scheduledAt,
+                identity.tenancyReference,
+                adverseCount,
                 pendingItemCount,
                 counts,
                 lines,
@@ -296,12 +249,13 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         return sized(StatusDefinitionBlock(definition.status, definition.label, definition.description, textRuns), 20)
     }
 
-    private fun summaryBlock(roomId: String, item: ReportItem): SizedBlock {
-        val textRuns = runs("$roomId · ${item.id} · ${item.snapshot.status}", TextLanguage.NEUTRAL, TextStyle.BODY, 180)
-        return sized(SummaryItemBlock(item.id, roomId, item.snapshot.status, textRuns), 16)
+    private fun summaryBlock(item: ReportContentSummaryItem): SizedBlock {
+        val textRuns =
+            runs("${item.roomId} · ${item.itemId} · ${item.status}", TextLanguage.NEUTRAL, TextStyle.BODY, 180)
+        return sized(SummaryItemBlock(item.itemId, item.roomId, item.status, textRuns), 16)
     }
 
-    private fun roomTitleBlock(room: ReportRoom): SizedBlock {
+    private fun roomTitleBlock(room: ReportContentRoom): SizedBlock {
         val textRuns = bilingualRuns(room.label, TextStyle.TITLE, 180)
         return sized(RoomTitleBlock(room.id, room.label, textRuns), 12)
     }
@@ -311,26 +265,25 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
      * [ITEM_TEXT_WIDTH_MM] and the pictures occupy a fixed [INLINE_THUMB_MM] column on the right, so the
      * renderer draws a table with a picture column rather than text followed by loose full-width images.
      */
-    private fun itemBlock(item: ReportItem, audience: Audience, visiblePhotos: List<ReportPhoto>): SizedBlock {
-        val visibleJudgment = item.snapshot.wearOrDamage.takeIf { audience == Audience.LANDLORD }
-        val textWidth = if (visiblePhotos.isEmpty()) BODY_WIDTH_MM else ITEM_TEXT_WIDTH_MM
+    private fun itemBlock(item: ReportContentItem): SizedBlock {
+        val textWidth = if (item.photos.isEmpty()) BODY_WIDTH_MM else ITEM_TEXT_WIDTH_MM
         val textRuns = buildList {
             addAll(bilingualRuns(item.label, TextStyle.BODY, textWidth))
             addAll(
                 runs(
-                    listOfNotNull(item.snapshot.status, visibleJudgment).joinToString(" · "),
+                    listOfNotNull(item.status, item.wearOrDamage).joinToString(" · "),
                     TextLanguage.NEUTRAL,
                     TextStyle.BODY,
                     textWidth,
                     endY(),
                 ),
             )
-            item.snapshot.note?.takeIf { it.isNotBlank() }?.let {
+            item.note?.takeIf { it.isNotBlank() }?.let {
                 addAll(runs(it, TextLanguage.ORIGINAL, TextStyle.BODY, textWidth, endY()))
             }
         }
         var thumbY = 0
-        val thumbnails = visiblePhotos.map { photo ->
+        val thumbnails = item.photos.map { photo ->
             val slot = imageSlot(
                 photo,
                 ImagePurpose.INLINE,
@@ -346,9 +299,9 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         val block = ItemRowBlock(
             item.id,
             item.label,
-            item.snapshot.status,
-            item.snapshot.note,
-            visibleJudgment,
+            item.status,
+            item.note,
+            item.wearOrDamage,
             textRuns,
             thumbnails,
         )
@@ -356,7 +309,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     }
 
     /** Room-level photography: a full-width picture that stands on its own between item rows. */
-    private fun imageBlock(photo: ReportPhoto, purpose: ImagePurpose): SizedBlock {
+    private fun imageBlock(photo: ReportContentPhoto, purpose: ImagePurpose): SizedBlock {
         val imageHeight = if (purpose == ImagePurpose.INLINE) PANORAMA_IMAGE_MM else APPENDIX_IMAGE_MM
         val slot = imageSlot(photo, purpose, x = 0, y = 0, widthMm = BODY_WIDTH_MM, imageHeightMm = imageHeight)
         return SizedBlock(slot.heightMm, slot, slot.heightMm)
@@ -369,15 +322,15 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
      * The structural fields keep the full reference regardless of what the caption shows.
      */
     private fun imageSlot(
-        photo: ReportPhoto,
+        photo: ReportContentPhoto,
         purpose: ImagePurpose,
         x: Int,
         y: Int,
         widthMm: Int,
         imageHeightMm: Int,
     ): ImageSlotBlock {
-        val capturedAt = photo.snapshot.exifTimeMs ?: photo.capturedAt
-        val caption = "${photo.reference} · ${photo.snapshot.source} · ${isoUtc(capturedAt)}"
+        val capturedAt = photo.capturedAt
+        val caption = "${photo.reference} · ${photo.source} · ${isoUtc(capturedAt)}"
         val measured = textMeasurer.measure(caption, TextStyle.CAPTION, widthMm)
         val kept = measured.lines.take(MAX_CAPTION_LINES).toMutableList()
         if (measured.lines.size > MAX_CAPTION_LINES) {
@@ -399,7 +352,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             photoId = photo.id,
             purpose = purpose,
             reference = photo.reference,
-            source = photo.snapshot.source,
+            source = photo.source,
             capturedAt = capturedAt,
             textRuns = textRuns,
             xMm = x,
@@ -407,6 +360,35 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
             widthMm = widthMm,
             imageHeightMm = imageHeightMm,
             heightMm = height,
+        )
+    }
+
+    /**
+     * The imported source, under its own heading. Every value is a hash or a version string the projection
+     * carried in, and the native digest is deliberately not among them: the two attest different artifacts,
+     * and a reader who met them in one paragraph would have no way to tell which claim was which.
+     */
+    private fun provenanceBlock(provenance: LegacyImportProvenance): SizedBlock {
+        val lines = buildList {
+            add("Source SHA-256 / 源文件 SHA-256: ${provenance.sourceSha256}")
+            add("Normalized manifest / 归一化清单: ${provenance.normalizedManifestSha256}")
+            add("Mapping receipt / 映射回执: ${provenance.mappingReceiptSha256}")
+            add("Extractor / 提取器: ${provenance.extractorVersion}")
+            provenance.sourceReportDate?.let { add("Source report date / 源报告日期: $it") }
+        }
+        val textRuns = buildList {
+            lines.forEach { addAll(runs(it, TextLanguage.NEUTRAL, TextStyle.CAPTION, 180, endY())) }
+        }
+        return sized(
+            ProvenanceBlock(
+                provenance.sourceSha256,
+                provenance.normalizedManifestSha256,
+                provenance.mappingReceiptSha256,
+                provenance.extractorVersion,
+                provenance.sourceReportDate,
+                textRuns,
+            ),
+            20,
         )
     }
 
@@ -443,13 +425,12 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         return sized(SupplementBlock(supplement.reference, supplement.text, textRuns), 14)
     }
 
-    private fun disclaimerBlock(): SizedBlock {
-        val textRuns = bilingualRuns(REPORT_DISCLAIMER, TextStyle.CAPTION, 180)
-        return sized(DisclaimerBlock(REPORT_DISCLAIMER, textRuns), 24)
+    private fun disclaimerBlock(text: BilingualText): SizedBlock {
+        val textRuns = bilingualRuns(text, TextStyle.CAPTION, 180)
+        return sized(DisclaimerBlock(text, textRuns), 24)
     }
 
-    private fun tenantAgreementBlock(): SizedBlock {
-        val label = BilingualText("Tenant agreement / signature", "租客同意 / 签名")
+    private fun tenantAgreementBlock(label: BilingualText): SizedBlock {
         val textRuns = bilingualRuns(label, TextStyle.BODY, 180)
         return sized(TenantAgreementBlock(label, textRuns), 24)
     }
@@ -633,6 +614,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         is ImageSlotBlock -> "image slot $photoId"
         is RemediationBlock -> "remediation for $itemId"
         is SupplementBlock -> "supplement $reference"
+        is ProvenanceBlock -> "import provenance $extractorVersion"
         is DisclaimerBlock -> "disclaimer"
         is TenantAgreementBlock -> "tenant agreement"
         is FooterBlock -> "footer for page $pageNumber"
@@ -653,6 +635,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         is ImageSlotBlock -> copy(textRuns = runs)
         is RemediationBlock -> copy(textRuns = runs)
         is SupplementBlock -> copy(textRuns = runs)
+        is ProvenanceBlock -> copy(textRuns = runs)
         is DisclaimerBlock -> copy(textRuns = runs)
         is TenantAgreementBlock -> copy(textRuns = runs)
         is FooterBlock -> copy(textRuns = runs)
@@ -737,6 +720,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         const val PANORAMA_IMAGE_MM = 44
         const val APPENDIX_PER_PAGE = 2
         const val APPENDIX_TITLE_KEY = "photo-appendix"
+        const val PROVENANCE_KEY = "provenance"
         private val APPENDIX_TITLE = BilingualText("Photo appendix", "照片附录")
         /**
          * Appendix picture box. The invariant it has to satisfy is that a section title plus

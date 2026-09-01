@@ -689,10 +689,12 @@ class ReportComposerPaginationTest {
                 { r: ReportSnapshot -> r.withItemPhotoLevel(true) },
             ),
             // The caption renders exifTimeMs when present and capturedAt only otherwise, so a guard that
-            // checks capturedAt alone reports success while every caption for that photo reads 1970.
+            // checks capturedAt alone reports success while every caption for that photo reads 1970. That
+            // guard is now the shared projection's, which resolves the same instant this layout draws, so
+            // the refusal it is asserted against is that one and not a second copy kept here beside it.
             Triple(
                 "non-positive exif capture time",
-                "would render capture time 0",
+                "report photos require a positive rendered capture time",
                 { r: ReportSnapshot -> r.withItemPhotoExif(0L) },
             ),
             Triple(
