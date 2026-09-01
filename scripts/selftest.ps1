@@ -443,6 +443,7 @@ function Get-SelftestSeededGitGateIds {
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
     'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
+    'T37-CIGATE/API-CONTRACT',
     '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
@@ -1353,8 +1354,8 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
   $inventorySha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($inventoryBytes)).ToLowerInvariant()
   if ($gateIds.Count -eq 0 -or @($gateIds | Select-Object -Unique).Count -ne $gateIds.Count -or
       @($gateIds | Where-Object { -not (Test-SelftestGateId $_) }).Count -ne 0 -or
-      $gateIds.Count -ne 130 -or
-      $inventorySha256 -cne '6bacd569c7f8909846a3339d0ad394d217c5c53128bfa1a1a349901015fab9a5') {
+      $gateIds.Count -ne 131 -or
+      $inventorySha256 -cne 'c23d21dc5a05c8f6edb77008253caa3c9cadc4dd9bccda5da20f770841e01dfc') {
     throw "[SELFTEST-NOGIT-ROUTING-INVENTORY] seeded git gate inventory identity mismatch: count=$($gateIds.Count) sha256=$inventorySha256"
   }
   $expectedAbsentRecords = @($gateIds | ForEach-Object { "$_/TOOL-GIT-MISSING" })
@@ -4442,6 +4443,7 @@ $gateIdFamilies82 = [ordered]@{
   'T37-REMOTEMX/2' = 'T37-REMOTEMX/2'
   'T37-REMOTEMX/2-rerun' = 'T37-REMOTEMX/2-rerun'
   'T37-REMOTEMX/3' = 'T37-REMOTEMX/3'
+  'T37-CIGATE/API-CONTRACT' = 'T37-CIGATE/API-CONTRACT'
 }
 $badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
   $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
@@ -13778,13 +13780,13 @@ if ($args -contains 'headRefOid') {
 }
 if ($args -contains 'api') {
   $joined = $args -join ' '
-  if ($joined -match 'check-runs') { '{"total_count":1,"check_runs":[{"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
+  if ($joined -match 'check-runs') { '{"total_count":1,"check_runs":[{"id":11,"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     "{""total_count"":1,""workflow_runs"":[{""id"":9001,""head_sha"":""$oid"",""event"":""pull_request"",""status"":""completed"",""conclusion"":""success"",""run_attempt"":1,""path"":"".github/workflows/ci.yml"",""pull_requests"":[{""number"":102}]}]}"
     exit 0
   }
-  if ($joined -match 'actions/runs/9001/attempts/1/jobs') { '{"total_count":1,"jobs":[{"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
+  if ($joined -match 'actions/runs/9001/attempts/1/jobs') { '{"total_count":1,"jobs":[{"id":21,"name":"verify","status":"completed","conclusion":"success"}]}'; exit 0 }
 }
 if ($args -contains 'state,headRefOid') {
   $st = if ($env:GH_MOCK_MERGE_STATE -eq 'open') { 'OPEN' } else { 'MERGED' }
@@ -13899,7 +13901,7 @@ exit 0
 # （create 前 `gh pr view --json number` 返回空→走 PR 新建腿；create 后返回号→走复用腿）+ 可注入远端 merge 失败。
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
 if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
-  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4')) {
+  'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4', 'T37-CIGATE/API-CONTRACT')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
@@ -13909,6 +13911,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/2-rerun' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/2-rerun 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/3' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/3 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/4' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/4 跳过：远端态矩阵仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-CIGATE/API-CONTRACT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/API-CONTRACT 跳过：候选 CI 分页夹具复用远端态矩阵，仅 Windows 执行。'
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
@@ -13919,7 +13922,8 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
-      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds')   # base-count 属 17aa(8)，本卡 stub 不写
+      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds',
+      'ci-check-count', 'ci-workflow-count', 'ci-jobs-count')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
@@ -13936,8 +13940,65 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
 function Add-CiTrace([string]$Event) {
   Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-event-trace') $Event
 }
-function Add-CiCwd([string]$Call) {
-  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-gh-cwds') "$Call|$((Get-Location).Path)"
+function Add-CiCwd([string]$Call, [string]$Payload = '') {
+  Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-gh-cwds') "$Call|$((Get-Location).Path)|$Payload"
+}
+function Next-CiCount([string]$Name) {
+  $p = Join-Path $env:GH_MOCK_ROOT $Name
+  $n = if (Test-Path $p) { [int]((Get-Content $p -Raw).Trim()) } else { 0 }
+  Set-Content $p ($n + 1)
+  return ($n + 1)
+}
+function Send-CiJson($o) { $o | ConvertTo-Json -Depth 6 -Compress; exit 0 }
+function Get-CiPage([string]$s) { if ($s -match '(?:\?|&)page=(\d+)') { [int]$Matches[1] } else { 1 } }
+# 分页契约夹具注入器（T0-CI-PAGED-CONTRACT）：GH_MOCK_CI_MODE = '<endpoint>-<case>'。
+# 三个分页 endpoint 共用生产侧同一个读取函数，故三者各自把自己的**合法条目原型** $Item 交给本注入器，
+# 由它按 case 造出畸形/重放载荷并直接应答；模式不匹配则原样返回，交回该 endpoint 的正常分支。
+# 每个 case 只动一处（total_count 的形态、集合的形态、或条目 id 的形态），其余保持合法——
+# 这样闸被拦下时命中的必然是被造坏的那一处，而不是顺带的其它不合法。
+function Send-CiShapeCase([string]$Endpoint, [string]$Collection, $Item, [int]$Page) {
+  $mode = "$env:GH_MOCK_CI_MODE"; $prefix = "$Endpoint-"
+  if (-not $mode.StartsWith($prefix, [StringComparison]::Ordinal)) { return }
+  $case = $mode.Substring($prefix.Length)
+  $shapeCases = @('missing-total', 'null-total', 'string-total', 'fraction-total', 'negative-total',
+    'object', 'item-not-object', 'total-drift', 'page-replay', 'dup-in-page')
+  $idCases = @('id-missing', 'id-null', 'id-string', 'id-fraction', 'id-zero', 'id-negative', 'id-over-int64')
+  if (($case -notin $shapeCases) -and ($case -notin $idCases)) { return }
+  # total_count：page-replay/total-drift 声明 2（两页才读得完），其余单页 1。total-drift 第二页故意报 3。
+  $o = [ordered]@{}
+  if ($case -cne 'missing-total') {
+    $total = 1
+    if ($case -ceq 'null-total') { $total = $null }
+    elseif ($case -ceq 'string-total') { $total = '1' }
+    elseif ($case -ceq 'fraction-total') { $total = [double]1.0 }
+    elseif ($case -ceq 'negative-total') { $total = [long](-1) }
+    elseif ($case -ceq 'page-replay' -or $case -ceq 'dup-in-page') { $total = 2 }
+    elseif ($case -ceq 'total-drift') { if ($Page -eq 1) { $total = 2 } else { $total = 3 } }
+    $o.total_count = $total
+  }
+  # id 负例一律**从该 endpoint 自己的合法 id 派生**（而不是写死一个常数）：这样被拒的原因只可能是形态，
+  # 不可能是「换了个别的值」。id-over-int64 必须用 BigInteger——[decimal]/[double] 会被 ConvertTo-Json
+  # 渲染成 `9223372036854775808.0`、读回即 Double，那样只是把「小数 id」又测了一遍。
+  $realId = [long]$Item.id
+  if ($case -ceq 'id-missing') { $Item.Remove('id') }
+  elseif ($case -ceq 'id-null') { $Item.id = $null }
+  elseif ($case -ceq 'id-string') { $Item.id = "$realId" }
+  elseif ($case -ceq 'id-fraction') { $Item.id = [double]$realId }
+  elseif ($case -ceq 'id-zero') { $Item.id = [long]0 }
+  elseif ($case -ceq 'id-negative') { $Item.id = -$realId }
+  elseif ($case -ceq 'id-over-int64') { $Item.id = [bigint]::Parse('9223372036854775808') }
+  # total-drift 的第二页给一个**全新合法 id**：让这条只在 total_count 上不合法，不依赖生产侧
+  # 「漂移检查排在去重之前」这个顺序也仍然只可能命中漂移出口。
+  elseif ($case -ceq 'total-drift' -and $Page -gt 1) { $Item.id = $realId + 1 }
+  # 注意：集合值必须逐句赋值，**不能**写成 `$o[$k] = if (...) {...} else {...}`——
+  # if 分支的输出走管线，单元素数组会被解包成标量，于是每个负例都变成「集合不是数组」那一种，
+  # 十几条用例塌缩成同一条（本闸开发期实测踩到）。
+  if ($case -ceq 'object') { $o[$Collection] = $Item }
+  elseif ($case -ceq 'item-not-object') { $o[$Collection] = [object[]]@($null) }
+  # 同页重复：一页内两条 id 相同的条目，total_count=2 ⇒ 去重若失效，这一页自己就把总数凑满并判为读完。
+  elseif ($case -ceq 'dup-in-page') { $o[$Collection] = [object[]]@($Item, $Item) }
+  else { $o[$Collection] = [object[]]@($Item) }
+  Send-CiJson $o
 }
 if ($args -contains 'create') {
   # 场景 1(S2) 注入：create-fail-armed 在则首次 create 失败（消耗武装、不记 pr-created/不增 count）→ 模拟 pushed-no-PR 态。
@@ -13969,32 +14030,66 @@ if ($args -contains 'api') {
   if (($args -join ' ') -match 'statuses/') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'status-posted') 'yes' }
   $joined = $args -join ' '
   if ($joined -match 'check-runs') {
-    Add-CiCwd 'checks'
+    Add-CiCwd 'checks' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
+    [void](Next-CiCount 'ci-check-count')
+    $page = Get-CiPage $joined
     $conclusion = if ($env:GH_MOCK_CI_MODE -eq 'basic-red') { 'failure' } else { 'success' }
-    "{`"total_count`":1,`"check_runs`":[{`"name`":`"verify`",`"status`":`"completed`",`"conclusion`":`"$conclusion`"}]}"
-    exit 0
+    $checkItem = [ordered]@{ id = [long]11; name = 'verify'; status = 'completed'; conclusion = $conclusion }
+    Send-CiShapeCase 'check' 'check_runs' $checkItem $page
+    if ($env:GH_MOCK_CI_MODE -eq 'check-paged') {
+      # 有效分页正例：total_count=2，两页各一条**不同 id** 的绿 check，读取器须跨页累积满 2 条才算读完。
+      if ($page -gt 1) { $checkItem.id = [long]12; $checkItem.name = 'audit' }
+      Send-CiJson ([ordered]@{ total_count = 2; check_runs = @($checkItem) })
+    }
+    if ($env:GH_MOCK_CI_MODE -eq 'check-paged-red') {
+      # 消费证明（本卡威胁模型的正身）：第二页是一条**红** check。读取器若丢掉第二页，本例会被误判全绿并合并；
+      # 只有第二页真的进了累积，红灯才拦得住。
+      if ($page -gt 1) { $checkItem.id = [long]12; $checkItem.name = 'audit'; $checkItem.conclusion = 'failure' }
+      Send-CiJson ([ordered]@{ total_count = 2; check_runs = @($checkItem) })
+    }
+    Send-CiJson ([ordered]@{ total_count = 1; check_runs = @($checkItem) })
   }
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
-    Add-CiCwd 'workflow'
+    Add-CiCwd 'workflow' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
+    [void](Next-CiCount 'ci-workflow-count')
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
     $pn = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-pr-number') -Raw)".Trim()
-    "{`"total_count`":1,`"workflow_runs`":[{`"id`":$runId,`"head_sha`":`"$oid`",`"event`":`"pull_request`",`"status`":`"completed`",`"conclusion`":`"success`",`"run_attempt`":$try,`"path`":`".github/workflows/ci.yml`",`"pull_requests`":[{`"number`":$pn}]}]}"
-    exit 0
+    $page = Get-CiPage $joined
+    $run = [ordered]@{ id = [long]$runId; head_sha = $oid; event = 'pull_request'; status = 'completed'
+      conclusion = 'success'; run_attempt = $try; path = '.github/workflows/ci.yml'
+      pull_requests = @([ordered]@{ number = [int]$pn }) }
+    Send-CiShapeCase 'workflow' 'workflow_runs' $run $page
+    if ($env:GH_MOCK_CI_MODE -eq 'workflow-paged') {
+      # workflow-runs 的有效分页正例只能以「下游拿到 2 条」显形：生产侧要求该 head 恰有 1 个 run，
+      # 故跨页读通的证据是 [CI-GATE-WORKFLOW-AMBIGUOUS] runs=2（读丢第二页则是 runs=1、直接走绿）。
+      if ($page -gt 1) { $run.id = [long]$runId + 1 }
+      Send-CiJson ([ordered]@{ total_count = 2; workflow_runs = @($run) })
+    }
+    Send-CiJson ([ordered]@{ total_count = 1; workflow_runs = @($run) })
   }
   $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
   $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
   if ($joined -match "actions/runs/$runId/attempts/$try/jobs") {
-    Add-CiCwd 'jobs'
+    Add-CiCwd 'jobs' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
+    [void](Next-CiCount 'ci-jobs-count')
+    $page = Get-CiPage $joined
     $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
-    "{`"total_count`":1,`"jobs`":[{`"name`":`"$jn`",`"status`":`"completed`",`"conclusion`":`"success`"}]}"
-    exit 0
+    $jobItem = [ordered]@{ id = [long]21; name = $jn; status = 'completed'; conclusion = 'success' }
+    Send-CiShapeCase 'jobs' 'jobs' $jobItem $page
+    if ($env:GH_MOCK_CI_MODE -eq 'jobs-paged') {
+      # 有效分页正例 + 消费证明：候选 ci.yml 声明 verify/audit 两个 job，夹具把 audit **只**放在第二页。
+      # 读丢第二页 ⇒ 生产侧认定 audit 缺席、等到超时；只有跨页累积真的发生，才走得到 merge。
+      if ($page -gt 1) { $jobItem.id = [long]22; $jobItem.name = 'audit' }
+      Send-CiJson ([ordered]@{ total_count = 2; jobs = @($jobItem) })
+    }
+    Send-CiJson ([ordered]@{ total_count = 1; jobs = @($jobItem) })
   }
   exit 0
 }
@@ -14248,8 +14343,10 @@ if ($env:GH_MOCK_ROOT) {
             $s3Exit = $LASTEXITCODE
             $s3GreenTrace = @((Get-Content (Join-Path $fx3.Root 'ci-event-trace') -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join '>'
             $s3Cwds = @((Get-Content (Join-Path $fx3.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
-            $s3BadCwds = @($s3Cwds | Where-Object { ($_ -split '\|', 2)[1] -ine $fx3.Wt })
-            $s3CwdCalls = @($s3Cwds | ForEach-Object { ($_ -split '\|', 2)[0] }) -join '>'
+            # ci-gh-cwds 每行为 `<调用名>|<cwd>|<请求 URL>`（第三段由 T0-CI-PAGED-CONTRACT 加入，供分页闸核实
+            # 「真的请求到了那个 endpoint / 那一页」）。故此处必须按 3 段切——按 2 段切会把 URL 并进 cwd 段。
+            $s3BadCwds = @($s3Cwds | Where-Object { ($_ -split '\|', 3)[1] -ine $fx3.Wt })
+            $s3CwdCalls = @($s3Cwds | ForEach-Object { ($_ -split '\|', 3)[0] }) -join '>'
             if ($s3Exit -eq 0) { Fail 'T37-REMOTEMX/3：merge 失败却 exit 0。' }
             elseif (-not (Test-Path (Join-Path $fx3.Root 'merge-attempted'))) { Fail 'T37-REMOTEMX/3：未触达 merge。' }
             elseif ($s3CwdCalls -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or $s3BadCwds.Count -gt 0) { Fail "T37-REMOTEMX/3：wrapped gh 未统一绑定 worktree CWD（calls=$s3CwdCalls, bad=$($s3BadCwds -join ',')）。" }
@@ -14265,6 +14362,158 @@ if ($env:GH_MOCK_ROOT) {
           }
         }
         finally { Remove-Item -Recurse -Force $fx3.Root -ErrorAction SilentlyContinue }
+      }
+
+      # --- T37-CIGATE/API-CONTRACT（T0-CI-PAGED-CONTRACT）：候选 CI 分页读取的形态 / 总数 / 稳定身份 / 跨页重放契约 ---
+      # check-runs / workflow-runs / jobs 三个分页 endpoint 共用生产侧同一个 Get-GhPagedCollectionBeforeDeadline。
+      # 负例矩阵分两层（分层理由见下方 $ciSharedCases 处的注释）：三者各跑形态/严格 total/跨页重放三条，
+      # 完整畸形矩阵只在 check-runs 上跑一遍。三个 endpoint 另各配一条「有效分页」正例。
+      # 每条负例的判据都不满足于「非零退出」——那条 ship 管线里能让退出码非零的原因有几十种。要求四件事同时成立：
+      #   (a) 该 endpoint 的真实 URL 真被请求过（Urls 里找得到），且被请求的**页数**恰好是夹具铺的那么多；
+      #   (b) 链**停在**这一腿：它之后的 endpoint 读计数为 0，且最后一次 gh 调用就是它；
+      #   (c) 打印的是该场景**专属**的闸门哨兵（区分 API 形态错 / 红灯 / workflow 不唯一）；
+      #   (d) merge-attempted 与 merge-reached 双双缺席——「拦住了」的定义是没走到合并，不是退出码不为 0。
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/API-CONTRACT')) {
+        $ciProblem = $null
+        # 一次 ship：复位全部哨兵 → 设模式 → 跑 ship → 把 gh 调用轨迹/读计数/合并哨兵收成一个可断言的对象。
+        $ciShip = {
+          param($fx, [string]$Mode)
+          & $rmReset $fx.Root
+          $env:GH_MOCK_WT = $fx.Wt; $env:GH_MOCK_CI_MODE = $Mode; $env:SCAFFOLD_CI_TIMEOUT_SEC = '30'
+          $out = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String)
+          $exit = $LASTEXITCODE
+          $lines = @((Get-Content (Join-Path $fx.Root 'ci-gh-cwds') -ErrorAction SilentlyContinue) | Where-Object { $_ })
+          $num = { param($n) $p = Join-Path $fx.Root $n; if (Test-Path $p) { [int]((Get-Content $p -Raw).Trim()) } else { 0 } }
+          [pscustomobject]@{
+            Mode = $Mode; X = $exit; O = $out
+            Calls = @($lines | ForEach-Object { ($_ -split '\|', 3)[0] })
+            Urls = @($lines | ForEach-Object { ($_ -split '\|', 3)[2] })
+            BadCwd = @($lines | Where-Object { (($_ -split '\|', 3)[1]) -ine $fx.Wt })
+            CR = (& $num 'ci-check-count'); WR = (& $num 'ci-workflow-count'); JR = (& $num 'ci-jobs-count')
+            MA = [bool](Test-Path (Join-Path $fx.Root 'merge-attempted'))
+            M = [bool](Test-Path (Join-Path $fx.Root 'merge-reached'))
+            MH = $(if (Test-Path (Join-Path $fx.Root 'merge-head-arg')) { "$(Get-Content (Join-Path $fx.Root 'merge-head-arg') -Raw)".Trim() } else { '' })
+            H = "$(& git -C $fx.Wt rev-parse HEAD 2>$null)".Trim()
+          }
+        }
+        # 负例判据（返回空串=通过，否则返回可诊断的失败描述）。$Leg 既是 ci-gh-cwds 里的调用名，也是「应停在这一腿」。
+        $ciExpectBlock = {
+          param($r, [string]$Sentinel, [string]$Leg, [int]$Pages)
+          $target = switch ($Leg) { 'checks' { '/check-runs' } 'workflow' { "head_sha=$($r.H)" } 'jobs' { '/jobs' } }
+          $reads = switch ($Leg) { 'checks' { $r.CR } 'workflow' { $r.WR } 'jobs' { $r.JR } }
+          $later = switch ($Leg) { 'checks' { $r.WR + $r.JR } 'workflow' { $r.JR } 'jobs' { 0 } }
+          $hitTarget = @($r.Urls | Where-Object { $_ -like "*$target*" }).Count
+          $hitPage2 = @($r.Urls | Where-Object { $_ -cmatch '[?&]page=2(?:&|$)' }).Count
+          if ($r.X -eq 0) { return 'exit 0（未 fail-closed）' }
+          if ($r.O -cnotmatch $Sentinel) { return "缺哨兵 $Sentinel" }
+          if ($reads -ne $Pages) { return "$Leg 读计数=$reads，期望 $Pages（夹具铺了几页就该读几页）" }
+          if ($later -ne 0) { return "$Leg 之后的腿仍被消费（later=$later）——未停在该腿" }
+          if ($r.Calls.Count -eq 0 -or $r.Calls[-1] -cne $Leg) { return "最后一次 gh 调用=$($r.Calls -join '>')，期望止于 $Leg" }
+          if ($hitTarget -lt 1) { return "未请求到真实 endpoint（找不到含 '$target' 的 URL）" }
+          if ($Pages -ge 2 -and $hitPage2 -lt 1) { return '未请求 page=2——跨页路径根本没走到' }
+          if ($r.MA -or $r.M) { return "触达合并腿（merge-attempted=$($r.MA) merge-reached=$($r.M)）" }
+          if ($r.BadCwd.Count -gt 0) { return "gh 调用未绑定 worktree CWD：$($r.BadCwd -join ',')" }
+          return ''
+        }
+        # 阻断类场景共用一棵夹具：每次 ship 都被 CI 闸拦下、不合并，故仓/worktree 状态不前进；
+        # $rmReset 逐次清空全部哨兵与读计数（PR 号取自夹具固定文件、每轮复用，只是 pr-created 被清掉故每轮重走一次
+        # PR 新建腿）⇒ 每个 mode 拿到的都是干净计数，跨例残留会被「读计数恰好等于铺的页数」当场揭穿。
+        $ciNeg = & $rmMake 'cigate'
+        try {
+          if (-not $ciNeg.Ok) { $ciProblem = 'setup：阻断类夹具 start 未产出 worktree' }
+          else {
+            $env:GH_MOCK_WT = $ciNeg.Wt
+            & pwsh -NoProfile -File (Join-Path $ciNeg.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+            Set-Content (Join-Path $ciNeg.Wt 'README.md') 'GREENMX ci api contract' -Encoding utf8
+          }
+          # 矩阵分两层，理由是「一个函数、三处调用」这件事本身：
+          #   ① 每个 endpoint 都跑的三条 —— 数组形态(object)、严格 total(fraction-total)、有效跨页读取后
+          #      仍按身份拒绝(page-replay)。它们同时钉住 A1 要求的「三处共用同一读取函数」：三处的
+          #      拒绝理由、页数与停腿位置完全同构，且各自命中的是自己那条真实 endpoint URL。
+          #   ② 只在 check-runs 上跑一遍的完整畸形矩阵 —— 生产侧只有**一个** Get-GhPagedCollectionBeforeDeadline，
+          #      同一分支在三处不会有不同行为；page-replay 已在三处各证一次该分支确实被执行。把这 14 条
+          #      也 ×3 只是把同一分支重跑两遍，代价是 seeded-remote 分片多跑约 6 分钟（实测），买不到新覆盖。
+          # 每条负例的 P = 夹具铺了几页 ⇒ 断言该 endpoint 恰好被读了几次（多读少读都算失败）。
+          $ciSharedCases = @(@{ C = 'object'; P = 1 }, @{ C = 'fraction-total'; P = 1 }, @{ C = 'page-replay'; P = 2 })
+          $ciCheckOnlyCases = @(
+            @{ C = 'missing-total'; P = 1 }, @{ C = 'null-total'; P = 1 }, @{ C = 'string-total'; P = 1 }
+            @{ C = 'negative-total'; P = 1 }, @{ C = 'total-drift'; P = 2 }, @{ C = 'item-not-object'; P = 1 }
+            @{ C = 'id-missing'; P = 1 }, @{ C = 'id-null'; P = 1 }, @{ C = 'id-string'; P = 1 }
+            @{ C = 'id-fraction'; P = 1 }, @{ C = 'id-zero'; P = 1 }, @{ C = 'id-negative'; P = 1 }
+            @{ C = 'id-over-int64'; P = 1 }, @{ C = 'dup-in-page'; P = 1 }
+          )
+          $ciLegOf = @{ check = 'checks'; workflow = 'workflow'; jobs = 'jobs' }
+          $ciMatrix = @()
+          foreach ($ep in @('check', 'workflow', 'jobs')) {
+            foreach ($case in $ciSharedCases) { $ciMatrix += @{ EP = $ep; C = $case.C; P = $case.P } }
+          }
+          foreach ($case in $ciCheckOnlyCases) { $ciMatrix += @{ EP = 'check'; C = $case.C; P = $case.P } }
+          foreach ($case in $ciMatrix) {
+            if ($ciProblem) { break }
+            $r = & $ciShip $ciNeg "$($case.EP)-$($case.C)"
+            $why = & $ciExpectBlock $r '\[CI-GATE-API\]' $ciLegOf[$case.EP] $case.P
+            if ($why) { $ciProblem = "$($case.EP)-$($case.C)：$why"; continue }
+            # A3 的要害不是「拦下了」而是「命中的是哪个出口」：重放/同页重复必须停在 **id 去重出口**，
+            # 不是更早的 total 漂移、count>total 或通用 API 错误。三个出口的 Reason 各自可辨，故直接核文本。
+            # 同时这也是「重复条目没进 items 累积」的证据——真进了累积，count 就会等于 total 而判为读完、走绿。
+            if ($case.C -cin @('page-replay', 'dup-in-page') -and $r.O -cnotmatch 'id-duplicate:') {
+              $ciProblem = "$($case.EP)-$($case.C)：拦下了但命中的不是 id 去重出口（诊断里无 id-duplicate:）"
+            }
+            elseif ($case.C -ceq 'total-drift' -and $r.O -cnotmatch 'total 2->3') {
+              $ciProblem = "$($case.EP)-total-drift：拦下了但命中的不是 total 漂移出口"
+            }
+            elseif ($case.C -clike 'id-*' -and $r.O -cnotmatch 'id-not-positive-integer') {
+              $ciProblem = "$($case.EP)-$($case.C)：拦下了但命中的不是 id 形态出口"
+            }
+          }
+          # A1 正例之一（workflow-runs）：该 endpoint 的「有效分页」只能以下游拿到 2 条显形——生产侧要求
+          # 该 head 恰有 1 个 run，故 runs=2 正是「两页都被累积进来了」的证据（读丢第二页就是 runs=1、直接走绿）。
+          if (-not $ciProblem) {
+            $r = & $ciShip $ciNeg 'workflow-paged'
+            $why = & $ciExpectBlock $r '\[CI-GATE-WORKFLOW-AMBIGUOUS\]' 'workflow' 2
+            if ($why) { $ciProblem = "workflow-paged：$why" }
+            elseif ($r.O -cnotmatch 'runs=2') { $ciProblem = 'workflow-paged：未报 runs=2——跨页累积没发生' }
+          }
+          # 消费证明（本卡威胁模型的正身）：第二页是一条**红** check。它必须真的进了判定，
+          # 否则「读到的条目喂给了决策」只是文案。诊断须点名第二页那条 audit=completed/failure。
+          if (-not $ciProblem) {
+            $r = & $ciShip $ciNeg 'check-paged-red'
+            $why = & $ciExpectBlock $r '\[CI-GATE-RED\]' 'checks' 2
+            if ($why) { $ciProblem = "check-paged-red：$why" }
+            elseif ($r.O -cnotmatch 'audit=completed/failure') { $ciProblem = 'check-paged-red：诊断未点名第二页的红 check——第二页未进入判定' }
+          }
+        }
+        finally {
+          if ($ciNeg -and $ciNeg.Root) { Remove-Item -Recurse -Force $ciNeg.Root -ErrorAction SilentlyContinue }
+        }
+        # 会走到 merge 的两条正例各自开一棵新夹具（合并会铸凭据、推进仓状态，不能与阻断类共用）。
+        foreach ($pos in @('check-paged', 'jobs-paged')) {
+          if ($ciProblem) { break }
+          $fxp = & $rmMake ($pos -replace '-', '')
+          try {
+            if (-not $fxp.Ok) { $ciProblem = "$pos setup：夹具 start 未产出 worktree"; break }
+            $env:GH_MOCK_WT = $fxp.Wt
+            & pwsh -NoProfile -File (Join-Path $fxp.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+            Set-Content (Join-Path $fxp.Wt 'README.md') "GREENMX $pos" -Encoding utf8
+            if ($pos -ceq 'jobs-paged') {
+              # 候选 ci.yml 再声明一个 audit job，而夹具把 audit **只**放在 jobs 的第二页：
+              # 读丢第二页 ⇒ 生产侧认定 audit 缺席、等到超时；能走到 merge 本身就是跨页累积的证据。
+              Add-Content (Join-Path $fxp.Wt '.github/workflows/ci.yml') "`n  audit:`n    runs-on: windows-latest`n    steps: []" -Encoding utf8
+            }
+            $r = & $ciShip $fxp $pos
+            $reads = if ($pos -ceq 'check-paged') { $r.CR } else { $r.JR }
+            $page2 = @($r.Urls | Where-Object { $_ -cmatch '[?&]page=2(?:&|$)' }).Count
+            if ($r.X -ne 0) { $ciProblem = "$pos：有效分页却未走通（exit $($r.X)）" }
+            elseif (-not $r.M) { $ciProblem = "$pos：未走到 mock 合并（merge-reached 缺）" }
+            elseif ($page2 -lt 1) { $ciProblem = "$pos：从未请求 page=2——分页路径没走" }
+            elseif ($reads -ne 4) { $ciProblem = "$pos：目标 endpoint 读计数=$reads，期望 4（2 页 × 稳定态/终局快照各一轮）" }
+            elseif ($r.MH -cne $r.H) { $ciProblem = "$pos：合并未绑 PR head（--match-head-commit=$($r.MH) != $($r.H)）" }
+            elseif ($r.BadCwd.Count -gt 0) { $ciProblem = "$pos：gh 调用未绑定 worktree CWD" }
+          }
+          finally { if ($fxp -and $fxp.Root) { Remove-Item -Recurse -Force $fxp.Root -ErrorAction SilentlyContinue } }
+        }
+        if ($ciProblem) { Fail "T37-CIGATE/API-CONTRACT: $ciProblem" }
+        else { Write-Host '  T37-CIGATE/API-CONTRACT OK' -ForegroundColor Green }
       }
 
       # 场景 4 = 闸15t（TD94）：**收据缺失 + 已 push** 这条「最后手段」恢复平面的端到端夹具。
