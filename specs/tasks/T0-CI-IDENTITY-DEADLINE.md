@@ -1,15 +1,14 @@
 ---
 id: T0-CI-IDENTITY-DEADLINE
-title: 候选 CI 的 run 身份绑定、单一 deadline 与最终 exact-head/base 快照
+title: 候选 CI 的 run 身份绑定与最终 exact-head/base 快照
 depends_on: [T0-CI-PAGED-CONTRACT]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
 acceptance:
   - "A1 reviewed local SHA、PR number/head、workflow path/event/PR association、返回 run id 与最终 merge 参数逐层绑定，任一层不匹配即 fail-closed"
   - "A2 身份比较一律大小写敏感：路径、事件、PR 关联的属性名各有一条大小写变体负例，且该负例只能被身份闸拦下"
-  - "A3 单一 wall-clock deadline 杀进程树，重试 sleep 只用剩余预算；超时夹具须证明 API 已启动、子进程树未留下完成哨兵，且墙钟小于配置上限加明确清理余量"
-  - "A4 最终 exact-head/base 快照后才决策：review 中移动本地 HEAD、CI 中前移 base、快照阶段 retarget 或 head moved 均不触发 merge"
-  - "A5 -NoAutoMerge 只跳过 merge，不放松上述任何一层；正常与 alternate identity 两条绿路使用不同 PR/run id，stub 拒绝硬编码"
+  - "A3 最终 exact-head/base 快照后才决策：review 中移动本地 HEAD、CI 中前移 base、快照阶段 retarget 或 head moved 均不触发 merge"
+  - "A4 -NoAutoMerge 只跳过 merge，不放松上述任何一层；正常与 alternate identity 两条绿路使用不同 PR/run id，stub 拒绝硬编码"
 status: todo
 branch: T0-CI-IDENTITY-DEADLINE
 worktree: C:\wt\T0-CI-IDENTITY-DEADLINE
@@ -28,6 +27,10 @@ non_goals:
   - 候选 ci.yml 声明 job 集 ↔ run 返回 job 集的漂移判定（API 侧那一平面）与 `T37-CIGATE/JOBS-DRIFT` 闸；
     实现期实测本卡 diff 达 61233 字符、超 R3 完整读取预算 60000，按 DEVOPS-WORKFLOW §35「超限卡必须拆卡」
     拆给承接卡 T0-CI-JOBS-DRIFT（用户 2026-09-01 裁定）。本卡只保留既有的 ci.yml 声明面解析闸
+  - 单一 wall-clock deadline 的**扩面与进程树容纳**（把预算罩到 git fetch/rev-parse、fail-closed 的 job
+    object / 进程组、assign-before-execute 竞态、失败路径夹具）；R3 连续三轮的实质 finding 全部落在这段
+    机器上，故整体拆给承接卡 T0-CI-DEADLINE-CONTAINMENT（用户 2026-09-01 第二次裁定）。本卡不改
+    `Invoke-GhBeforeDeadline`，沿用 master 既有的 gh 侧 deadline
   - receipt-loss 恢复策略；由 T0-RECEIPT-LOSS-FAIL-CLOSED 承接
   - 自动重跑、取消或修复 GitHub Actions
   - 把 scaffold-selftest.yml 放回 PR 关键路径
@@ -43,8 +46,7 @@ doc_sync: DEVOPS-WORKFLOW 与 DELIVERY-CHAINS 同步候选 CI 身份、deadline�
 
 ## 产出
 
-候选 CI 的**身份与时序**收口：workflow run 身份逐层绑定、单一 wall-clock deadline 与进程树清理、
-最终 exact-head/base 快照，以及 `T37-CIGATE/WORKFLOW-BINDING` 闸的正反夹具；并同步两份运维文档。
+候选 CI 的**身份**收口：workflow run 身份逐层绑定、最终 exact-head/base 快照，以及 `T37-CIGATE/WORKFLOW-BINDING` 闸的正反夹具；并同步两份运维文档。
 
 > **拆卡记录（2026-09-01，用户裁定）**：本卡原含 API 侧 job 集漂移判定与 `T37-CIGATE/JOBS-DRIFT` 闸。
 > 实现完成、R3 首轮三条 finding 全部修完后实测 diff = **61233 字符 > 60000 预算**（行数 675/1000 不超）。
