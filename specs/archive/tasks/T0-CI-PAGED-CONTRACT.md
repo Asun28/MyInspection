@@ -10,7 +10,7 @@ acceptance:
   - "A3 跨页重放与同页重复的 id 一律拒绝：重放夹具须证明 total_count 被凑满却仍不 merge（merge-reached 哨兵缺席），而非仅非零退出"
   - "A4 删除 $seen.Add 这一条语句后，A3 的重放夹具必须变红；删除 id 整数校验后 A2 必须变红"
   - "A5 仓内既有 mock 的 check-runs / jobs 载荷须与真实 API 形态一致（带 id），不得靠放宽生产侧校验迁就不忠实的夹具"
-status: todo
+status: merged
 branch: T0-CI-PAGED-CONTRACT
 worktree: C:\wt\T0-CI-PAGED-CONTRACT
 allow_paths:
