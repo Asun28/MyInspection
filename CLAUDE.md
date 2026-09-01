@@ -218,6 +218,15 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 不发送短信/邮件。人工回记要求方式与真实时刻，生成前/未来时刻不落库，首条送达原子锁定；掉出通知窗口仍诚实存档并
 以 error 文案、颜色和无障碍语义提示改期。7 个 SQLite JVM 测试与 7 枚定向变异覆盖关键门。
 
+**W5 提醒串行链 3/5 已合并**（`T4-SCHEDULE-REMINDER-*`，2026-09-01）：`CONTRACTS`（master `a1fb2bbe`，PR #215）
+定身份/路由/文案/隐私描述符与精确关联诊断 · `RECEIPTS`（master `3c08c2dd`，PR #217）定应用私有 v1 耐久回执、
+损坏隔离与 generation CAS · `DELIVERY`（master `41793005`，PR #219）定 Worker、通知发布与不重投边界。
+**DELIVERY 的形状值得复用**：preparation 与 notifier 是两个独立端口，于是「失败发生在发布之前」由**哪个端口抛的**
+决定，而非一个任何调用方都可能忘记套的异常包装器——A3 重试阶梯与「一旦发布绝不重投」遂是结构性的、非约定性的。
+余 `SCHEDULER`（WorkManager 唯一注册与 callback 边界，**必须用 `reminderGenerationId` 派生的 UUID 建 WorkRequest**，
+否则 Worker 每次运行都在 INPUT 阶段被拒）与 `T4-SCHEDULE-UI`。
+
+
 **W0 闸号协调债已结清**（2026-08-28，PR #186，master `b1e5f0b5`）：`selftest.ps1` 现在从闸头注释与真实
 `Fail` 文案解析 gate id，重复声明会点名 id 与全部位置；同时强制唯一 raw 插入锚、源码可解析、双面集合与词法 owner
 一致，并以 6 类删除变异防止守卫静默失效。TD146 已 paid。
