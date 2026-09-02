@@ -1176,11 +1176,16 @@ class ReminderSchedulerTest {
  * the XML report. Gradle exits 1 for a compile error and for a failing test alike, so an exit code
  * with no failing test name was recorded as SUSPECT and never counted as a kill.
  *
+ * Before any of it ran, every mutation was asserted to produce text that differs from the original,
+ * and the batch records NO-OP for one that does not. No NO-OP was recorded, so no row below is a
+ * mutation that changed nothing.
+ *
  * A SEPARATE probe re-applied all 30 under :app:compileDebugUnitTestKotlin, which compiles and runs
  * nothing, and every one exited 0. So "30/30 compile" and "30/30 are killed by a test" are two
  * independently machine-checked claims, neither inferred from the other.
  *
- * Every production function this card changes carries at least one selector below.
+ * Every production function this card changes carries at least one selector below. A selector that
+ * spans several lines is shown as every line it removes and every line it adds.
  *
  * Killer tests, named exactly as they appear above:
  * [a] a recovery that loses its write reports what the actor that beat it left behind
@@ -1196,20 +1201,33 @@ class ReminderSchedulerTest {
 
  * M01 A1 exit=1 [a] if (!permissions.isPostNotificationsGranted()) { => if (!true) {
  * M02 A1 exit=1 [b] return current.settle(PERMISSION_NOT_GRANTED) => return current.settle(OCCURRENCE_CLOSED)
- * M03 A1 exit=1 [a] lookup.receipt.phase == PERMISSION_BLOCKED -> recover(flight, lookup.receipt)
- *     => else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
+ * M03 A1 exit=1 [a]
+ *     - lookup.receipt.phase == PERMISSION_BLOCKED -> recover(flight, lookup.receipt)
+ *     - else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
+ *     + else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
  * M04 A1 exit=1 [b] is ReminderReceiptTransitionResult.Applied -> return place(flight, result.receipt)
  *     => is ReminderReceiptTransitionResult.Applied -> return result.receipt.settle(ADMISSION_ALREADY_RECORDED)
- * M11 A3 exit=1 [c] fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
- *     => admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
+ * M11 A3 exit=1 [c]
+ *     - fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
+ *     - admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
+ *     + admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
+ *     + fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
  * M12 A3 exit=1 [c] admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
  *     => admitted && fresh.phase == ENQUEUED -> fresh.settle(ADMISSION_ALREADY_RECORDED)
  * M13 A3 exit=1 [c] advance(receipt, ENQUEUED, null, applied, admitted = true)
  *     => advance(receipt, ENQUEUED, null, applied, admitted = false)
  * M14 A4 exit=1 [d] private const val MAX_RECOVERY_READS = 3 => private const val MAX_RECOVERY_READS = 4
  * M15 A4 exit=1 [d] return current.settle(RECEIPT_REREAD_EXHAUSTED) => return current.settle(RECEIPT_CONTENDED)
- * M16 A4 exit=1 [a] if (fresh.phase in ACTIVE_PHASES) { => <deleted>
- * M17 A4 exit=1 [a] if (fresh.phase != PERMISSION_BLOCKED) { => <deleted>
+ * M16 A4 exit=1 [a]
+ *     - if (fresh.phase in ACTIVE_PHASES) {
+ *     - return place(flight, fresh)
+ *     - }
+ *     (removed, nothing added)
+ * M17 A4 exit=1 [a]
+ *     - if (fresh.phase != PERMISSION_BLOCKED) {
+ *     - return fresh.settle(OCCURRENCE_CLOSED)
+ *     - }
+ *     (removed, nothing added)
  * M18 A4 exit=1 [a] ReminderReceiptTransitionResult.WriteUncertain -> return current.settle(RECEIPT_WRITE_UNCERTAIN)
  *     => ReminderReceiptTransitionResult.WriteUncertain -> return current.settle(RECEIPT_REJECTED)
  * M19 A4 exit=1 [a] ReminderReceiptTransitionResult.Rejected -> return current.settle(RECEIPT_REJECTED)
@@ -1236,9 +1254,13 @@ class ReminderSchedulerTest {
  * M36 A2 exit=1 [j] if (foreign.isNotEmpty()) { => if (foreign.size > 1) {
  * M31 A2 exit=1 [j] is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied, retained)
  *     => is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied)
- * M32 A5 exit=1 [e] flight.settledCause = settled.cause => <deleted>
+ * M32 A5 exit=1 [e] flight.settledCause = settled.cause => <line removed>
  * M33 A6 exit=1 [g] ReminderReceiptLookup.Missing -> receipt.settle(RECEIPT_QUARANTINED)
  *     => ReminderReceiptLookup.Missing -> Settlement(RECEIPT_QUARANTINED)
- * M34 A2 exit=1 [h] settled.reported => settled.reported
+ * M34 A2 exit=1 [h]
+ *     - settled.reported,
+ *     - settled.retained,
+ *     + settled.reported,
+ *     + null,
  * M35 A5 exit=1 [f] reported.takeIf { proved } => reported
  */
