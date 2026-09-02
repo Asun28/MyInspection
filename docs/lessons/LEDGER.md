@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 4
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -2043,5 +2043,13 @@
 - symptom: 卡片 allow_paths 邀请测试落进某目录，但 dod_command 与 verify 都不执行那个 source set —— 写在那里的测试永不运行，全绿而零证据（T3-PDF-RENDERER 原卡：allow_paths 含 app/src/test/**/export/pdf/，dod 只跑 :app:assembleDebug + :core:test）
 - root_cause: allow_paths 与 dod_command 是两份独立字段，无人交叉核对；再叠加运行期不可用（:app 单测纯 JVM、无 testOptions.returnDefaultValues、T0-TOOLCHAIN 禁 Robolectric ⇒ 触碰 android.graphics 的代码在单测里抛 Stub!），于是「可以写 RED」（core 半边）与「另半边永不被执行」同时成立，L47 的停机判据不会触发
 - rule: 开卡/接卡第一步把 allow_paths 里每个测试目录，逐个对到 dod_command 与 verify.ps1 实际执行的 task 上：跑一次真命令、看 build/test-results 里有没有该包的 XML，没有就是结构性 vacuous pass。同时核该 source set 的运行期能力（有无 Robolectric/仪器测试/returnDefaultValues），只有真机才能跑的验收条款必须拆卡或改写成 dod_assert 里的人工核验，不得留在自动闸假装被证明。
+- enforced_by: 
+- refs: 
+
+## L281
+- date: 2026-09-02 ｜ tags: mutation,r4,test-design,coverage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 测试全绿、覆盖看着完整，但某条验收其实没有任何断言能证伪——直到为它设计变异时才发现「这枚变异改完，没有一个测试会红」
+- root_cause: 变异测试被当成 GREEN 之后的**验证**步骤，于是「跑一批、看几枚存活」是唯一的发现渠道；但一枚变异要跑一遍全套（本卡每枚约 2 分钟），存活才补测试意味着最贵的循环。实际上「为每条验收写出那枚能杀死它的变异」这个**编排动作本身**就是判据：写不出靶子、或写出来发现现有断言打不到它，缺口当场就暴露了，一次都不用跑
+- rule: 把变异清单当**设计文档**写在跑批之前：逐条验收问「哪一处单点改动会违反它，哪个断言会红」。写不出靶子=该验收没被测；靶子存在但想不出哪个测试会红=覆盖缺口，先补测试再跑批。本卡实例：附录 dpi 与内联 dpi 在多数夹具上舍入到同一个 inSampleSize，「用错密度」原本全绿；「块自身越页」与「块内 run 越页」原本无从区分——两个缺口都在编排阶段发现，零批次成本。跑批只用来**证实**已经想清楚的判据，不用来搜索缺口
 - enforced_by: 
 - refs: 
