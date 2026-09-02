@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -1999,7 +1999,7 @@
 - refs: 
 
 ## L275
-- date: 2026-09-02 ｜ tags: r3,review,arbitration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-02 ｜ tags: r3,review,arbitration ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: R3 连续五轮 block 全部落在同一个设计点上（一次 CAS 失败后本次注册可以断定什么），而评审者自己在该点上先后给出四种互不相同的立场：任何同代变化都只能记 contention → 同代 ENQUEUED 是 admission → 只限 confirm 路径 → 该路径上 RETRYABLE 也应算。每一轮的裁定单看都成立，maker 每轮都照办，于是循环不收敛。
 - root_cause: 「同一争点两轮互不认可即停」这条规则默认的是 maker 与 checker 互不认可；本例是 checker 自己的立场在轮次间反向移动（第 2 轮与第 5 轮互反），maker 每轮都同意并照改，所以规则的触发条件表面上从未满足，实际却是同一个争点在空转。
 - rule: 每轮 R3 之后记一行「本轮争点 + 裁定」。若某一争点出现第三次，且新裁定与该争点的旧裁定**方向相反**（不是收窄或细化），立即停止迭代转人裁——不管 maker 是否同意本轮说法。判据是「立场是否反向」，不是「是否有人不认可」；把四种立场并排写给人裁者看，比再改一轮便宜得多。
@@ -2067,5 +2067,13 @@
 - symptom: 继承自上游卡的实现草稿（已随那张卡的 R3 过审、跑绿）被当成「已验证」，其自带测试直接沿用；本卡自己的变异批一跑才发现有整条守卫从未被任何用例触碰。
 - root_cause: R3 审的是那次 diff 的主张，不是这个单元的变异充分性；而草稿在上游卡里往往只是某条 finding 的顺手落地，从未单独跑过自己的变异批。绿灯与过审都不等于「每道守卫都有能杀掉它的用例」。
 - rule: 拆卡继承来的草稿一律按新代码待遇：先按本卡验收契约重写 RED，再对**本单元**编排完整变异清单（每个 && 子句、每处 require、每个正则组的后置复校各一枚）。特别检查「同一个校验被施加在多个对象上」的地方——本卡的 isSafeSegment 同时复校正则的第 1、2 组，草稿测试只有第 1 组的负例，删掉第 2 组那次复校原本能全绿通过。
+- enforced_by: 
+- refs: 
+
+## L284
+- date: 2026-09-02 ｜ tags: r3,diff-budget,review,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 为压 R3 的 60000 字符闸而精简注释，改完一测反而从 60326 涨到 61122；越修越大。
+- root_cause: diff 字符数只统计 +/- 行。删/改一条【本次未改动】的注释，会把原本不计入的 context 行变成一对 -/+，凭空多出两行；而删一条【已在 diff 里】的新增行才真的减。手感上「哪句啰嗦删哪句」正好会挑中前者。
+- rule: 缩 diff 只许动已经在 diff 里的行（git diff 里带 + 的那些）。动手前先 git diff 看该行是否带 +，不带就别碰——那是 context。配套两条：① 顶到闸时把 R4 变异收据整表移进任务卡（卡在 master 上、不进 PR diff，却仍被注入评审 prompt，RECEIPTS 卡先例），测试文件只留一行指针；② 预算要给 R3 的 2-3 轮修复留头寸，别按首轮实现刚好卡满。
 - enforced_by: 
 - refs: 
