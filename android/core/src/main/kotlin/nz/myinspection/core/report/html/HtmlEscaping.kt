@@ -6,13 +6,22 @@ package nz.myinspection.core.report.html
  * is ever written into `<style>` - so an escaper for a scripting or CSS context would be dead code that
  * only invites someone to open such a context later.
  *
- * ## What is guaranteed, and at which level
+ * ## What is guaranteed
  *
- * Admitted text reaches the file **byte for byte**: nothing is stripped, replaced or reordered. That
- * guarantee is about the bytes of the document, and it deliberately stops there, because an HTML parser
- * is entitled to rewrite what it reads back - it normalises CR and CRLF to LF. Claiming that parsed text
- * equals source text would simply be false, and a guarantee stated above the level where it holds is
- * worse than a narrower one: it stops anybody checking.
+ * Two separate claims. Collapsing them into one sentence is how an earlier version of this file came to
+ * assert something its own code contradicts a few lines below:
+ *
+ * - **the source text is preserved semantically.** Every input character is represented in the output,
+ *   either as itself or as the entity that denotes it. Nothing is dropped and nothing becomes a
+ *   *different* character: `&` becomes `&amp;`, five characters denoting the one that was there;
+ * - **the escaped output encodes to UTF-8 losslessly.** What this function returns survives
+ *   `toByteArray(UTF_8)` and back unchanged. That is precisely why the inputs below are refused instead
+ *   of escaped - they have no such encoding.
+ *
+ * What is deliberately NOT claimed is that an HTML parser hands the source text back. The tokenizer
+ * resolves entities, which restores it, but it also normalises CR and CRLF to LF, which does not. A
+ * guarantee stated above the level where it holds is worse than a narrower one: it stops anybody
+ * checking.
  *
  * ## What is refused, and why refusing beats mangling
  *

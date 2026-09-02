@@ -100,7 +100,8 @@ class HtmlEscapingTest {
     @Test
     fun `everything the policy admits survives a real UTF-8 round trip`() {
         val emoji = String(Character.toChars(0x1F600))
-        val admitted = "tab\there " + zeroWidthSpace + "zwsp 厨房 " + emoji + " <&\"'>"
+        val cr = 0x0D.toChar()
+        val admitted = "tab\there " + zeroWidthSpace + "zwsp 厨房 " + emoji + " <&\"'>" + cr
         for (escaped in listOf(HtmlEscaping.text(admitted), HtmlEscaping.attribute(admitted))) {
             assertEquals(escaped, String(escaped.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
         }
@@ -110,20 +111,29 @@ class HtmlEscapingTest {
     }
 
     /**
-     * CR is admitted and reaches the file unchanged. What is NOT claimed is that a parser gives it back:
-     * the HTML tokenizer normalises CR and CRLF to LF. The guarantee is narrowed to the level where it is
-     * true - the file's bytes - rather than left as a sentence that is simply false above that level.
+     * The whole expected byte array, not merely the presence of a 0x0D somewhere in it: duplication, a
+     * reordering, or an extra byte all satisfy "a CR is still in there" while breaking the actual claim.
+     *
+     * CR is admitted and reaches the file unchanged. What is NOT claimed is that a parser gives it back -
+     * the HTML tokenizer normalises CR and CRLF to LF - so the assertion stops at the bytes and at the
+     * decoded string, which is exactly as far as the guarantee goes.
      */
     @Test
-    fun `a carriage return is preserved in the bytes, and only in the bytes`() {
+    fun `a carriage return and a CRLF survive escaping exactly, in both contexts`() {
         val withCr = "first" + 0x0D.toChar() + 0x0A.toChar() + "second"
-        assertTrue(HtmlEscaping.text(withCr).toByteArray(Charsets.UTF_8).contains(0x0D))
+        val expected = "first".toByteArray(Charsets.UTF_8) + byteArrayOf(0x0D, 0x0A) +
+            "second".toByteArray(Charsets.UTF_8)
+        for (escaped in listOf(HtmlEscaping.text(withCr), HtmlEscaping.attribute(withCr))) {
+            val bytes = escaped.toByteArray(Charsets.UTF_8)
+            assertTrue(bytes.contentEquals(expected), bytes.joinToString(",") { it.toString() })
+            assertEquals(withCr, String(bytes, Charsets.UTF_8))
+        }
     }
 }
 /*
- * R4 receipt. 15 single-point mutations, each applied alone to HtmlEscaping.kt at SHA-256
- * 26c904df72a63f0b3447ec9cf51ecb7ebc41c0c64ddda33305f213a1ed6799e0 and restored to that same hash before
- * the next. 15 killed, 0 survived, 0 compile-kills, 0 no-runs.
+ * R4 receipt. 16 single-point mutations, each applied alone to HtmlEscaping.kt at SHA-256
+ * 2a25567ebec95620a3bdae136b7f7311c64edf9c3e4f66ca1a172624f88b810b and restored to that same hash before
+ * the next. 16 killed, 0 survived, 0 compile-kills, 0 no-runs.
  *
  * Each kill is a failing test. The harness runs the unmutated suite first as a positive control and
  * records a kill only when Gradle reports that tests ran and failed, because a compile error, a failing
@@ -132,7 +142,8 @@ class HtmlEscapingTest {
  * ever starting Gradle).
  *
  * contexts  M1-M5 drop one escaped character each; M6 escapes an attribute as element text; M7 silently
- *           drops every character with no syntactic meaning.
+ *           drops every character with no syntactic meaning; M16 helpfully normalises CR to LF, which
+ *           only the exact expected-byte assertion catches - 'a 0x0D is still in there' does not.
  * policy    M8 removes the policy check from both entry points; M9, M10, M11 admit U+0000, an unpaired
  *           high surrogate and an unpaired low surrogate; M15 refuses U+0001 instead of U+0000.
  * pairing   M12 lets the bounds check read one past the end of the string; M13 drops the index advance so
