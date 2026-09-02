@@ -15,16 +15,20 @@ forbid:
 non_goals:
   - Responsive screen CSS, A4 print CSS, dark mode and forced-colour rules (T3-REPORT-HTML-PRESENTATION, 2026-09-02 用户裁定拆出，见「拆分依据」)
   - PDF, DOCX import, database receipts, Android chooser UI, or in-app report viewer
-  - Reading evidence files, decoding, re-encoding or downscaling images (the byte source is an injected port; :core never touches the filesystem)
+  - Reading evidence files, decoding, re-encoding or downscaling images (the byte source is an injected port; :core never touches the filesystem)。
+    **需求 §8 要求内嵌的是「经归一化且有界」的 raster image，归一化那一半没有 owner** —— `:app` 侧
+    `ReportImageSource` 的实现（读文件、EXIF 旋转、降采样到 `maxBytes` 之内）归 `T3-REPORT-EXPORT-CORE`
+    （其 allow_paths 已含 `app/.../export/core/`），本卡只定义端口形状与上界，不实现它
 plan_ref: docs/adr/0007-report-interchange.md
 acceptance:
   - "A1 one ReportContent renders deterministic UTF-8 HTML with semantic heading order, tables or lists, figures, captions, language metadata, disclaimer, and integrity labels"
   - "A2 output is one offline file with embedded bounded images, no script, no event handler, no external reference, and every text or attribute context correctly escaped"
   - "A3 meaningful image alternatives and native landmark order survive image failure and non-visual reading"
   - "A4 redaction sentinels removed by ReportContent are absent at byte level and the embedded semantic fingerprint equals the input fingerprint"
+  - "A5 every class the document emits is a declared HtmlClass entry and every declared entry is emitted by some document, so the presentation card inherits a contract rather than a convention"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.html.*"
 dod_exit: 0
-dod_assert: exact byte tests prove deterministic self-containment, contextual escaping, landmark and heading order, bounded embedded images with surviving alternatives, byte-level redaction, and fingerprint preservation
+dod_assert: exact byte tests prove deterministic self-containment, contextual escaping, landmark and heading order, bounded embedded images with surviving alternatives, byte-level redaction, fingerprint preservation, and two-way HtmlClass parity over a fixture set that reaches every entry
 review_gate: codex {verdict:pass}
 hygiene: escaping, resource-bound, redaction, and accessibility protections each kill a single realistic renderer mutation
 doc_sync: requirements + SECURITY + ADR-0007 + TASK-BOARD
@@ -47,7 +51,10 @@ Serialize the shared semantic report into one portable HTML file suitable for a 
 被渲染器发出」——在拆开后反而成为承接卡里一条**显式**的双向 parity 测试（每个选择器的 class 都被发出；每个被发出的
 class 都被样式命中），比揉在一张卡里更强。
 
-原 A4/A5 顺延为本卡 A3/A4；本卡的样式表只是 baseline（可读性下限）与 class 契约本体。
+原 A4/A5 顺延为本卡 A3/A4，新增 A5 把 class 契约从散文提为验收；本卡的样式表只是 baseline（可读性下限）。
+
+**拆后实测 994 changed lines / 49599 字符**（`git diff --cached --numstat`，与 R3 闸同一把尺），对 1000 行硬闸只剩 6 行余量，含 26 行 R4 收据（L227：评审者只读 diff，收据必须在里面）。
+余量这么薄意味着：**R3 若提出任何需要「补一道守卫 + 补一条测试」的 finding，按 L266 直接再拆卡，不靠删注释腾地方**（T3-PDF-RENDERER 就是删了 85 行注释仍补不上 146 行缺口）。
 
 ## 上下文包
 
@@ -69,6 +76,11 @@ class 都被样式命中），比揉在一张卡里更强。
 坏字节静默替换正是 T1-TEMPLATE-ENGINE 抓到的缺陷类型。用户自由文本**永不**进入 `<style>`；本文件没有 `<script>`。
 `<title>` 是 RCDATA，用文本转义即可。
 
+### 状态不靠颜色
+评级本身以**文字**写在单元格里（`<td class="item-status">POOR</td>`），不是只有一个待上色的 class。
+承接卡 A3 的「不得以颜色为唯一区分手段」因此有可依赖的载体，不必靠 `::before { content: … }` 现造内容
+（那会撞上它自己「CSS 不得重新引入报告内容」的 forbid）。
+
 ### 语言标注
 `<html lang="en">`；模板双语对用 `<span lang="en">` / `<span lang="zh">` 分别标注。自由文本（听写备注、
 wear/damage）**不猜语言**：只标 `HtmlClass.TEXT_ORIGINAL`，不写 `lang`——写一个猜出来的 `lang` 会让屏幕阅读器
@@ -76,9 +88,17 @@ wear/damage）**不猜语言**：只标 `HtmlClass.TEXT_ORIGINAL`，不写 `lang
 
 ### 图片与失败路径
 每张照片渲染成 `<figure>`：`<img alt>` + `<figcaption>` 携带编号 `reference`、来源 `source`、拍摄时间。
-`ReportImageSource` 返回 null、媒体类型不在允许集（jpeg/png/webp）、单张超 `maxImageBytes` 或本文档累计超
+`ReportImageSource` 返回 null、媒体类型不在允许集、单张超 `maxImageBytes` 或本文档累计超
 `maxTotalImageBytes` 时——**figure 仍然发出**，caption 与编号完整，只是没有 `<img>`，并带一条明示「证据未内嵌」
-的文字。这既是 A3 的「survive image failure」，也让上界成为**不可绕过**的资源闸而非尽力而为。
+的文字。这既是 A3 的「survive image failure」，也让上界成为资源闸而非尽力而为。
+
+两处必须写死、否则会被读成两种意思：
+- **媒体类型由端口声明、由 `EmbeddedImage` 构造器对允许集（jpeg/png/webp）校验**，允许集证明的是
+  「端口声称的类型合法」，不是「字节真是该格式」——`:core` 不解码，嗅探 magic bytes 与 non_goals 冲突。
+  真伪由 `:app` 侧端口实现负责，SVG 永不入集（它是可带脚本的文档，不是位图）。
+- **`maxBytes` 随 `read` 一起传给端口**，而不是等端口交出整个 `ByteArray` 再拒。否则一份损坏或恶意的
+  200 MB 文件会在被拒之前先被完整读进内存，这道「资源闸」就只能在 OOM 之后才生效。渲染器仍复核一次
+  返回值大小（端口可能不守约），但守约的端口有能力一开始就不越界。
 
 ## Rejected alternatives
 
