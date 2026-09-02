@@ -201,10 +201,14 @@ class ReportHtmlRenderer(
         }
 
         private fun embed(photo: ReportContentPhoto): EmbeddedImage? {
-            val image = images.read(photo, bounds.maxImageBytes) ?: return null
-            // The port was told the ceiling; this re-check is the backstop for one that overshoots.
-            if (image.bytes.size > bounds.maxImageBytes) return null
-            if (spentImageBytes + image.bytes.size > bounds.maxTotalImageBytes) return null
+            // The port is offered what this document can still accept, never the per-image ceiling on
+            // its own: offering more would have it materialise bytes that are then refused, which is the
+            // very allocation the ceiling exists to prevent. Once nothing is left the port is not called.
+            val ceiling = minOf(bounds.maxImageBytes.toLong(), bounds.maxTotalImageBytes - spentImageBytes)
+            if (ceiling <= 0L) return null
+            val image = images.read(photo, ceiling.toInt()) ?: return null
+            // The backstop for a port that overshoots the limit it was handed anyway.
+            if (image.bytes.size > ceiling) return null
             spentImageBytes += image.bytes.size
             return image
         }

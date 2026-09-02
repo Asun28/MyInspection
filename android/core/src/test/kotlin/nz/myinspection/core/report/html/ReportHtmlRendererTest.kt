@@ -164,11 +164,17 @@ class ReportHtmlRendererTest {
     @Test
     fun `the document bound is spent across images, not checked against each one`() {
         val bounds = HtmlImageBounds(maxImageBytes = 4, maxTotalImageBytes = 4)
-        val renderer = ReportHtmlRenderer(ReportHtmlFixtures.images, bounds)
+        val offered = mutableListOf<Int>()
+        val source = ReportImageSource { _, max -> offered += max; EmbeddedImage("image/jpeg", ReportHtmlFixtures.jpegBytes) }
+        val renderer = ReportHtmlRenderer(source, bounds)
         val html = renderer.render(ReportHtmlFixtures.content())
         assertEquals(1, Regex("<img ").findAll(html).count())
         assertEquals(1, Regex("class=\"evidence-missing\"").findAll(html).count())
+        // Call count, not just the forwarded limit: once the document's budget is gone the port is not
+        // asked at all, so the second picture is never materialised only to be turned away.
+        assertEquals(listOf(4), offered)
         // The budget belongs to the document: one instance rendering two reports must not spend it once.
+        offered.clear()
         assertEquals(html, renderer.render(ReportHtmlFixtures.content()))
     }
 
@@ -323,26 +329,28 @@ class ReportHtmlRendererTest {
         Regex("<[a-zA-Z][^>]*>").findAll(html).map { it.value }.toList()
 }
 /*
- * R4 receipt. 32 single-point mutations, each applied alone and restored before the next, to files pinned
- * at these SHA-256 digests: HtmlClass 390dbe11bfd0ea94, HtmlEscaping 7858b4b8fb7b0eed, ReportHtmlRenderer
- * e1454bb669a777b0, ReportHtmlStylesheet ac7f91e4a4bbdc8a, ReportImageSource 2a306e36a1b63074. 32 killed.
+ * R4 receipt. 26 single-point mutations, each applied alone and restored before the next, to files pinned
+ * at these SHA-256 digests: HtmlClass 390dbe11bfd0ea94, ReportHtmlRenderer 4815929e321f081c,
+ * ReportHtmlStylesheet ac7f91e4a4bbdc8a, ReportImageSource 2a306e36a1b63074. 26 killed, 0 survived.
  *
  * Every kill is a failing test - not a compile error, and not a command that never ran. The harness runs
  * the unmutated suite first as a positive control and records a kill only when Gradle reports failing
- * tests: a compile error, a failing test and a shell that cannot find the wrapper all exit 1, and the
- * first pass of this batch scored a perfect 31/31 purely because cmd.exe rejected a forward slash in the
- * command name (L282, widened - a kill must be positively attributed, never inferred from an exit code).
+ * tests: a compile error, a failing test and a shell that cannot find the wrapper all exit 1, and an
+ * earlier pass of this batch scored a perfect 31/31 purely because cmd.exe rejected a forward slash in
+ * the command name (L282, widened - a kill must be positively attributed, never inferred from an exit
+ * code). Escaping itself is no longer mutated here: HtmlEscaping belongs to
+ * T3-REPORT-HTML-CHARACTER-POLICY, which carries its own receipt.
  *
- * escaping (A2)   M1-M5 drop one escaped character each; M6 escapes an attribute as element text; M7
- *                 drops every other character; M21 escapes an alternative as element text; M22, M30, M31
- *                 leave a caption, the title and an identity value raw.
- * structure (A1)  M23, M24 weaken or drop the Chinese half; M25 guesses a language for free text; M26
- *                 moves the header inside main; M27 removes the only h1; M28 skips a heading level; M29
- *                 restates the native hash in the fingerprint slot.
- * resources (A2)  M10, M11, M13 widen what an EmbeddedImage accepts; M12 drops a bounds invariant; M14,
- *                 M15, M16 remove or shift a byte bound; M17 never spends the budget; M18 moves the
- *                 budget onto the renderer, costing a second report its pictures; M32 stops handing
- *                 the port the ceiling, so an oversized file is materialised before being refused.
- * evidence (A3)   M19 drops the missing-photograph notice; M20 drops a figure caption.
- * contract        M8, M9 break the derived cssName, caught by the two-way class parity test.
+ * class contract  M8, M9 break the derived cssName, caught by the two-way parity test.
+ * evidence bounds M10, M11, M13 widen what an EmbeddedImage accepts; M12 drops a bounds invariant;
+ *                 M14 calls the port even with the budget exhausted; M15 tells the port the per-image
+ *                 ceiling while ignoring what is left, M16 the reverse; M17 never spends the budget;
+ *                 M18 moves the budget onto the renderer, costing a second report its pictures;
+ *                 M32 drops the backstop against a port that overshoots, M33 makes it off by one.
+ * evidence output M19 drops the missing-photograph notice; M20 drops a figure caption.
+ * escaping use    M21 escapes an image alternative as element text rather than as an attribute;
+ *                 M22, M30, M31 leave a caption, the title and an identity value unescaped.
+ * structure       M23, M24 weaken or drop the Chinese half; M25 guesses a language for free text;
+ *                 M26 moves the header inside main; M27 removes the only h1; M28 skips a heading level;
+ *                 M29 restates the native hash in the fingerprint slot.
  */
