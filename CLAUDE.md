@@ -212,7 +212,22 @@ R3 pass 于第 **2** 轮、零 finding）——`core/report/pdf/`：四档质量
 > **无任何文档元数据 API**（经 Context7 核官方 reference）；画到页面上属渲染器自造内容、且会让 PDF 与 HTML
 > 两版不一致。故 fingerprint 作**程序身份**随程序旅行，落账归 `T3-REPORT-EXPORT-CORE` 的 receipt。
 
-**当前已解锁待做**：`T3-PDF-ARTIFACT-PATHS`（依 T3-PDF-RENDERER，S 档、草稿在 `_local/`）· `T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
+**报告产物路径派生点已合并**：`T3-PDF-ARTIFACT-PATHS` **merged**（2026-09-02，master `ce4b0a86`，PR #228，
+R3 pass 于第 **1** 轮、零 finding）——`core/report/pdf/PdfArtifactPaths`：`reports/{propertyId}/{inspectionId}-{audience}-{quality}.pdf`
+的唯一派生点 + 与派生共用真相源的锚定形状判定（正则的受众/档位 token 由 `Audience.entries` 与
+`PdfExportQuality.entries` 拼出）。**文件名同时含受众与档位**，故一次巡检的 2×4 = 8 份产物可并存、互不覆盖。
+5 个 JVM 测试、197 行、**19 枚单点变异逐一击杀**（并对每枚单独跑 `:core:compileTestKotlin` 证明 exit 0，
+故无一枚是「编译错误穿着测试失败的退出码」）。
+> **三处值得复用的判断**：① 判定用 `matchEntire` 而非 `$`——Java 正则的 `$` 在**结尾换行之前**匹配，
+> `"….pdf\n"` 单靠 `$` 会被放行；该负例连同 `matchEntire`→`find` 的变异一起留在测试里。
+> ② **正则与段安全校验是两道独立闸**（同 `MediaPaths`）：`[^/]+` 之外仍逐组过 `isSafeSegment`，
+> 因为 `..`、`.`、含反斜杠的段都能通过字符类。`_local/` 草稿的测试从未触碰**第二组**（inspection 段）那道
+> 复校，删掉 `isSafeSegment(groupValues[2])` 原本能全绿通过——补 `reports/{prop}/..-landlord-medium.pdf`
+> 与空白段两条负例才封住（L281 的「编排阶段吃掉覆盖缺口」再次生效）。
+> ③ 期望路径写**字面量**、不由被测对象回拼：M5 把 `Audience.storedValue` 改成裸枚举名时派生与判定**一起**改、
+> 仍自洽，识别循环照样绿，只有字面量断言会红（同 `PdfExportQualityTest` 对 `DEFAULT` 的纪律，L165）。
+
+**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
 · `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 
