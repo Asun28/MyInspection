@@ -12,23 +12,29 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import nz.myinspection.app.feature.schedule.ReminderPhase.ADMISSION_PENDING
 import nz.myinspection.app.feature.schedule.ReminderPhase.ENQUEUED
 import nz.myinspection.app.feature.schedule.ReminderPhase.QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderPhase.RETRYABLE
 import nz.myinspection.app.feature.schedule.ReminderPhase.TERMINAL
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.CALLBACK_CONFIRMED_ADMISSION
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_AFTER_WORKER_STARTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_ERROR
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_NULL
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_THROWABLE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_TIMEOUT
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.GENERATION_SUPERSEDED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.INVALID_ROUTE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.OCCURRENCE_CLOSED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_CONTENDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REJECTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_WRITE_UNCERTAIN
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.WORKER_CONFIRMED_ADMISSION
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 /** What a registration achieved. Every cause below maps onto exactly one of these. */
@@ -47,6 +53,8 @@ enum class ReminderRegistrationOutcome {
  */
 enum class ReminderRegistrationCause(val outcome: ReminderRegistrationOutcome) {
     CALLBACK_CONFIRMED_ADMISSION(ReminderRegistrationOutcome.ADMITTED),
+    WORKER_CONFIRMED_ADMISSION(ReminderRegistrationOutcome.ADMITTED),
+    ENQUEUE_CALLBACK_AFTER_WORKER_STARTED(ReminderRegistrationOutcome.ADMITTED),
     RETAINED_WORK_ENQUEUED(ReminderRegistrationOutcome.ADMITTED),
     ADMISSION_ALREADY_RECORDED(ReminderRegistrationOutcome.ADMITTED),
     ENQUEUE_CALLBACK_NULL(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
@@ -81,11 +89,16 @@ data class ReminderRegistrationIdentity(val occurrenceId: String, val generation
 /**
  * One settled registration, as the log sees it. [identity] is absent whenever this registration
  * could not establish both halves. No property, date, path or exception text is ever carried.
+ * [callbackCause] is the class the enqueue callback reported, kept beside [cause] when the two
+ * differ, so a failure that arrived after the worker proved the admission stays legible without
+ * downgrading it. [late] marks a record that changed no waiter and no receipt.
  */
 data class ReminderRegistrationRecord(
     val identity: ReminderRegistrationIdentity?,
     val type: InspectionScheduleType,
     val cause: ReminderRegistrationCause,
+    val callbackCause: ReminderRegistrationCause? = null,
+    val late: Boolean = false,
 )
 
 interface ReminderSchedulerDiagnosticPort {
@@ -95,23 +108,38 @@ interface ReminderSchedulerDiagnosticPort {
 /**
  * What one submitted operation ended up reporting. [Absent], [Reported] and [Raised] are three
  * different facts and stay three: nothing was scheduled, the platform reported this failure, and
- * reading the outcome itself threw. [TimedOut] is none of those, because the operation may still
- * be in flight, so it is the one outcome that leaves the reservation untouched.
+ * reading the outcome itself threw. A submission never answered at all is none of these, because
+ * no answer arrived to classify, and it is the watchdog that ends such a flight.
  */
 sealed interface ReminderEnqueueSignal {
     data object Confirmed : ReminderEnqueueSignal
     data object Absent : ReminderEnqueueSignal
     data class Reported(val error: Throwable) : ReminderEnqueueSignal
     data class Raised(val error: Throwable) : ReminderEnqueueSignal
-    data object TimedOut : ReminderEnqueueSignal
 }
 
 /**
- * Submits unique work and reports that submission's own outcome. Throwing means the submission
- * never produced an operation at all, which is the only failure this card treats as fatal.
+ * Submits unique work and answers that submission's own outcome through [onSettled], which may run
+ * on any thread at any time after the submission was accepted, including before this call returns.
+ * Throwing means the submission never produced an operation at all, so nothing is left to answer.
  */
 interface ReminderEnqueuePort {
-    fun enqueueUnique(name: String, policy: ExistingWorkPolicy, request: OneTimeWorkRequest): ReminderEnqueueSignal
+    fun submitUnique(
+        name: String,
+        policy: ExistingWorkPolicy,
+        request: OneTimeWorkRequest,
+        onSettled: (ReminderEnqueueSignal) -> Unit,
+    )
+}
+
+/**
+ * The one time source a flight's deadline is both set and judged by: scheduling from one clock and
+ * deciding from another would let a wake up settle a deadline that has not passed.
+ */
+interface ReminderWatchdogPort {
+    fun nowNanos(): Long
+
+    fun schedule(delayNanos: Long, wake: () -> Unit)
 }
 
 /** One work request WorkManager still retains under a unique name. */
@@ -124,66 +152,85 @@ interface ReminderWorkQueryPort {
 /**
  * Registers one reminder occurrence with WorkManager.
  *
- * Registration is a blocking background call: it reserves durable evidence, asks WorkManager what
- * it still retains under this occurrence's unique name, and submits only when that answer leaves
- * no retained work of its own. The query is what decides every submission, so a KEEP policy can
- * never be read as admission of work this generation did not put there.
+ * Registration reserves durable evidence, asks WorkManager what it still retains under this
+ * occurrence's unique name, and submits only when that answer leaves no retained work of its own.
+ * The query is what decides every submission, so a KEEP policy can never be read as admission of
+ * work this generation did not put there. The call returns once that submission is accepted, and
+ * the cause reaches the caller through its waiter.
  *
- * The scheduler shares one [ReminderReceiptStore] with the delivery runner and holds no lock of
- * its own: every cross actor decision is an atomic result of admit, compare and set or permission
- * recovery. A lost compare and set is therefore re-read rather than overwritten, and a receipt
- * that has left ADMISSION_PENDING under the same generation proves the matching worker was
- * admitted, which no later failure may downgrade.
+ * Concurrent registrations of one occurrence coalesce into a single flight, so one reservation,
+ * one query and one submission serve all of them and every waiter is answered with the same cause.
+ *
+ * The scheduler shares one [ReminderReceiptStore] with the delivery runner: every cross actor
+ * decision is an atomic result of admit, compare and set or permission recovery.
  */
 class ReminderScheduler(
     private val store: ReminderReceiptStore,
     private val enqueue: ReminderEnqueuePort,
     private val query: ReminderWorkQueryPort,
     private val diagnostics: ReminderSchedulerDiagnosticPort,
+    private val watchdog: ReminderWatchdogPort,
     private val clock: Clock,
 ) {
-    fun register(reminder: PendingReminder): ReminderRegistrationCause {
+    private val flights = mutableMapOf<String, Flight>()
+
+    fun register(reminder: PendingReminder, waiter: (ReminderRegistrationCause) -> Unit) {
         val spec = try {
             reminder.toSpec()
         } catch (_: IllegalArgumentException) {
             null
         }
-        val settled = spec?.let { coordinate(it) } ?: Settlement(ReminderRegistrationCause.INVALID_ROUTE)
-        val identity = spec?.let { known ->
-            settled.generationNumber?.let { ReminderRegistrationIdentity(known.occurrenceId, it) }
+        if (spec == null) {
+            // An unresolvable route has no occurrence to coalesce on, so it is answered here.
+            val record = ReminderRegistrationRecord(null, reminder.route.inspectionType, INVALID_ROUTE)
+            publish(record, listOf(waiter))
+            return
         }
-        diagnostics.record(ReminderRegistrationRecord(identity, reminder.route.inspectionType, settled.cause))
-        return settled.cause
+        val opened = synchronized(flights) {
+            val joined = flights[spec.occurrenceId]
+            if (joined != null) {
+                joined.waiters += waiter
+                null
+            } else {
+                Flight(spec, reminder.route.inspectionType).also { fresh ->
+                    fresh.waiters += waiter
+                    flights[spec.occurrenceId] = fresh
+                }
+            }
+        }
+        opened?.let { coordinate(it) }
     }
 
-    private fun coordinate(spec: ReminderSpec): Settlement =
-        when (val lookup = store.lookup(spec.occurrenceId)) {
-            ReminderReceiptLookup.Missing -> reserve(spec)
+    private fun coordinate(flight: Flight) {
+        val settled = when (val lookup = store.lookup(flight.spec.occurrenceId)) {
+            ReminderReceiptLookup.Missing -> reserve(flight)
             is ReminderReceiptLookup.Quarantined -> Settlement(RECEIPT_QUARANTINED)
             // The stored receipt carries this same spec by construction: the occurrence digest
             // binds property, type and due instant, and the store refuses a receipt whose spec
             // does not match its own occurrence.
             is ReminderReceiptLookup.Present -> when {
                 lookup.writeUncertain -> lookup.receipt.settle(RECEIPT_WRITE_UNCERTAIN)
-                lookup.receipt.phase in ACTIVE_PHASES -> place(lookup.receipt)
-                // A blocked occurrence needs a fresh grant and a new generation, which the flight
-                // card owns along with the rest of the generation machinery.
+                lookup.receipt.phase in ACTIVE_PHASES -> place(flight, lookup.receipt)
+                // A blocked occurrence needs a fresh grant and a new generation, which the
+                // recovery card owns along with the rest of the permission machinery.
                 else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
             }
         }
+        settled?.let { settle(flight) { it } }
+    }
 
     /** Reserves generation zero. Only a durable reservation may be followed by a submission. */
-    private fun reserve(spec: ReminderSpec): Settlement {
+    private fun reserve(flight: Flight): Settlement? {
         val reserved = ReminderReceipt(
-            occurrenceId = spec.occurrenceId,
+            occurrenceId = flight.spec.occurrenceId,
             generationNumber = FIRST_GENERATION,
-            workRequestId = reminderGenerationId(spec.occurrenceId, FIRST_GENERATION),
-            spec = spec,
+            workRequestId = reminderGenerationId(flight.spec.occurrenceId, FIRST_GENERATION),
+            spec = flight.spec,
             phase = ADMISSION_PENDING,
             causeCode = null,
         )
         return when (store.admit(reserved)) {
-            ReminderReceiptAdmissionResult.Admitted -> place(reserved)
+            ReminderReceiptAdmissionResult.Admitted -> place(flight, reserved)
             ReminderReceiptAdmissionResult.WriteUncertain -> reserved.settle(RECEIPT_WRITE_UNCERTAIN)
             // Another registration reserved this occurrence between the lookup and the admission.
             // The evidence is sound, so this is contention rather than corruption.
@@ -191,8 +238,11 @@ class ReminderScheduler(
         }
     }
 
-    /** Reconciles retained work first: an absent current id is the only path to a submission. */
-    private fun place(receipt: ReminderReceipt): Settlement {
+    /**
+     * Reconciles retained work first: an absent current id is the only path to a submission. A
+     * null return means this flight was handed to the platform and its callback owns the answer.
+     */
+    private fun place(flight: Flight, receipt: ReminderReceipt): Settlement? {
         val retained = try {
             query.retainedWork(receipt.spec.uniqueWorkName)
         } catch (_: InterruptedException) {
@@ -211,7 +261,7 @@ class ReminderScheduler(
         if (foreign) {
             return quarantine(receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH)
         }
-        val single = current.singleOrNull() ?: return submit(receipt)
+        val single = current.singleOrNull() ?: return submit(flight, receipt)
         return when (single.state) {
             WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING ->
                 confirm(receipt, ReminderRegistrationCause.RETAINED_WORK_ENQUEUED)
@@ -225,25 +275,29 @@ class ReminderScheduler(
         }
     }
 
-    private fun submit(receipt: ReminderReceipt): Settlement {
+    /**
+     * Hands the request to the platform and arms this flight's single watchdog. The receipt reaches
+     * the flight first, because the callback may answer on another thread before this returns.
+     */
+    private fun submit(flight: Flight, receipt: ReminderReceipt): Settlement? {
+        flight.receipt = receipt
         val request = reminderWorkRequest(receipt.spec, receipt.generationNumber, clock.instant())
-        val signal = try {
-            enqueue.enqueueUnique(receipt.spec.uniqueWorkName, ExistingWorkPolicy.KEEP, request)
+        try {
+            enqueue.submitUnique(receipt.spec.uniqueWorkName, ExistingWorkPolicy.KEEP, request) { signal ->
+                answer(flight, signal)
+            }
         } catch (failure: Throwable) {
             return refuseSubmission(receipt, failure)
         }
-        return when (signal) {
-            ReminderEnqueueSignal.Confirmed -> confirm(receipt, CALLBACK_CONFIRMED_ADMISSION)
-            ReminderEnqueueSignal.Absent -> holdForRetry(receipt, ENQUEUE_CALLBACK_NULL)
-            is ReminderEnqueueSignal.Reported -> holdForRetry(receipt, ENQUEUE_CALLBACK_ERROR)
-            is ReminderEnqueueSignal.Raised -> holdForRetry(receipt, ENQUEUE_CALLBACK_THROWABLE)
-            // The operation may still be running, so the reservation stays exactly as it is and a
-            // later registration reads the retained work rather than submitting a second time.
-            ReminderEnqueueSignal.TimedOut -> receipt.settle(ENQUEUE_CALLBACK_TIMEOUT)
-        }
+        arm(flight)
+        return null
     }
 
-    /** Only a permanent submission failure closes the occurrence: nothing was scheduled either way. */
+    /**
+     * Only a permanent submission failure closes the occurrence: nothing was scheduled either way.
+     * Both settle the flight, because a submission that produced no operation leaves nothing to
+     * wait on and the next registration must re-coordinate rather than join it.
+     */
     private fun refuseSubmission(receipt: ReminderReceipt, failure: Throwable): Settlement =
         if (classifyReminderFailure(failure).kind == FailureKind.PERMANENT) {
             terminate(receipt, ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
@@ -251,11 +305,116 @@ class ReminderScheduler(
             receipt.settle(ReminderRegistrationCause.ENQUEUE_SUBMIT_TRANSIENT)
         }
 
+    /** Arms the one watchdog a flight gets, unless its operation has already been answered. */
+    private fun arm(flight: Flight) {
+        synchronized(flights) {
+            if (flights[flight.spec.occurrenceId] !== flight) {
+                return
+            }
+            flight.deadlineNanos = watchdog.nowNanos() + WATCHDOG_NANOS
+        }
+        watchdog.schedule(WATCHDOG_NANOS) { wake(flight) }
+    }
+
+    /**
+     * One watchdog wake up. The deadline is re-read from the same source that set it, so a wake up
+     * that arrives early reschedules the remainder instead of settling. Nothing here submits.
+     */
+    private fun wake(flight: Flight) {
+        val remaining = synchronized(flights) {
+            if (flights[flight.spec.occurrenceId] !== flight) {
+                return
+            }
+            flight.deadlineNanos - watchdog.nowNanos()
+        }
+        if (remaining > 0) {
+            watchdog.schedule(remaining) { wake(flight) }
+            return
+        }
+        settle(flight) { flight.receipt?.let { receipt -> expire(receipt) } }
+    }
+
+    /**
+     * What an expired deadline settles as. A timeout is the answer only for this generation's own
+     * receipt, still sitting exactly where this flight submitted it: an unreadable read, a write
+     * this store never confirmed and a generation that moved on each say something a timeout would
+     * erase, so each keeps its own cause. Nothing here writes: the operation may still be running.
+     */
+    private fun expire(receipt: ReminderReceipt): Settlement =
+        when (val lookup = store.lookup(receipt.occurrenceId)) {
+            // Evidence this flight reserved cannot simply be absent, so a missing or refused read
+            // is corruption rather than a slow operation.
+            ReminderReceiptLookup.Missing -> Settlement(RECEIPT_QUARANTINED)
+            is ReminderReceiptLookup.Quarantined -> Settlement(RECEIPT_QUARANTINED)
+            is ReminderReceiptLookup.Present -> when {
+                lookup.writeUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
+                lookup.receipt.generationNumber != receipt.generationNumber ->
+                    lookup.receipt.settle(GENERATION_SUPERSEDED)
+                // Only the matching worker moves this generation while the flight is open, and the
+                // platform runs it only once it has admitted the request.
+                lookup.receipt.phase != receipt.phase ->
+                    Settlement(WORKER_CONFIRMED_ADMISSION, receipt.generationNumber)
+                else -> receipt.settle(ENQUEUE_CALLBACK_TIMEOUT)
+            }
+        }
+
+    /**
+     * One answered operation. A callback that no longer names the active flight changed nothing and
+     * is recorded as the late arrival it is, under the class it reported: its flight was already
+     * ended by the worker proof, the watchdog, or a newer generation.
+     */
+    private fun answer(flight: Flight, signal: ReminderEnqueueSignal) {
+        val reported = signal.cause()
+        val settled = settle(flight) {
+            flight.receipt?.let { receipt ->
+                val next = if (reported == CALLBACK_CONFIRMED_ADMISSION) ENQUEUED else RETRYABLE
+                advance(receipt, next, null, reported, reported = reported)
+            }
+        }
+        if (settled == null) {
+            diagnostics.record(ReminderRegistrationRecord(flight.identity(), flight.type, reported, late = true))
+        }
+    }
+
+    /**
+     * Ends [flight] under the flight lock, taking the waiters and clearing the flight before any of
+     * them run. Null means this was no longer the active flight, so nothing was decided or written.
+     */
+    private fun settle(flight: Flight, decide: () -> Settlement?): Settlement? {
+        val ended = synchronized(flights) {
+            if (flights[flight.spec.occurrenceId] !== flight) {
+                return null
+            }
+            val settled = decide() ?: return null
+            flights.remove(flight.spec.occurrenceId)
+            settled to flight.waiters.toList()
+        }
+        publish(flight.record(ended.first), ended.second)
+        return ended.first
+    }
+
+    /**
+     * Reports one settlement to the log first and then to each waiter in isolation, so a waiter
+     * that throws can starve neither the diagnostic nor the waiters after it. Swallowing is the
+     * point: a waiter belongs to a caller, and one caller's failure says nothing about this
+     * occurrence.
+     */
+    private fun publish(
+        record: ReminderRegistrationRecord,
+        waiters: List<(ReminderRegistrationCause) -> Unit>,
+    ) {
+        diagnostics.record(record)
+        waiters.forEach { waiter ->
+            try {
+                waiter(record.cause)
+            } catch (_: Throwable) {
+                Unit
+            }
+        }
+    }
+
     private fun confirm(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
         advance(receipt, ENQUEUED, null, applied, admissionRecoverable = true)
-
-    private fun holdForRetry(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, RETRYABLE, null, applied, admissionRecoverable = true)
 
     private fun quarantine(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
         advance(receipt, QUARANTINED, null, applied)
@@ -269,6 +428,7 @@ class ReminderScheduler(
      * already names why it was lost, and the caller repeats a contended registration from the top.
      * [admissionRecoverable] is true only where this call site was itself establishing admission,
      * because a caller acting on retained work that contradicts admission must not report one.
+     * [reported] is set only by an enqueue callback, the one caller whose lost transition is proof.
      */
     private fun advance(
         receipt: ReminderReceipt,
@@ -276,6 +436,7 @@ class ReminderScheduler(
         cause: ReminderCause?,
         applied: ReminderRegistrationCause,
         admissionRecoverable: Boolean = false,
+        reported: ReminderRegistrationCause? = null,
     ): Settlement {
         val result = store.compareAndSet(
             receipt.occurrenceId, receipt.generationNumber, receipt.workRequestId,
@@ -287,8 +448,35 @@ class ReminderScheduler(
             // for, so it is a fail closed default rather than a reachable branch.
             ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
             ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
-            is ReminderReceiptTransitionResult.Stale ->
-                reread(result.lookup, receipt, admissionRecoverable)
+            is ReminderReceiptTransitionResult.Stale -> reported
+                ?.let { proved(result.lookup, receipt, it) }
+                ?: reread(result.lookup, receipt, admissionRecoverable)
+        }
+    }
+
+    /**
+     * What a callback may conclude once its own transition was lost. While a flight is open the
+     * only other writer of its generation is the matching worker, which the platform runs only
+     * after admitting this request, so a loss under the same generation proves the admission. A
+     * reported failure keeps its own class beside that proof rather than replacing it: failing to
+     * read an operation says nothing about work already running.
+     */
+    private fun proved(
+        lookup: ReminderReceiptLookup,
+        current: ReminderReceipt,
+        reported: ReminderRegistrationCause,
+    ): Settlement {
+        // The store reports Stale only with the receipt it read under its own lock, and answers a
+        // missing or unreadable occurrence with Rejected instead, so this is a fail closed default.
+        val fresh = (lookup as? ReminderReceiptLookup.Present)?.receipt
+            ?: return Settlement(RECEIPT_QUARANTINED)
+        if (fresh.generationNumber != current.generationNumber) {
+            return fresh.settle(GENERATION_SUPERSEDED)
+        }
+        return if (reported == CALLBACK_CONFIRMED_ADMISSION) {
+            fresh.settle(WORKER_CONFIRMED_ADMISSION)
+        } else {
+            Settlement(ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, fresh.generationNumber, reported)
         }
     }
 
@@ -303,13 +491,11 @@ class ReminderScheduler(
         current: ReminderReceipt,
         admissionRecoverable: Boolean,
     ): Settlement {
-        // The store reports Stale only with the receipt it read under its own lock, and answers a
-        // missing or unreadable occurrence with Rejected instead, so this is a fail closed default.
         val fresh = (lookup as? ReminderReceiptLookup.Present)?.receipt
             ?: return Settlement(RECEIPT_QUARANTINED)
         return when {
             fresh.generationNumber != current.generationNumber ->
-                fresh.settle(ReminderRegistrationCause.GENERATION_SUPERSEDED)
+                fresh.settle(GENERATION_SUPERSEDED)
             admissionRecoverable && fresh.phase == ENQUEUED ->
                 fresh.settle(ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED)
             fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
@@ -318,13 +504,46 @@ class ReminderScheduler(
     }
 }
 
+/**
+ * One coordinated registration of one occurrence: its waiters, the receipt it submitted under and
+ * the deadline its watchdog judges. The list is touched only under the scheduler's flight lock.
+ */
+private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
+    val waiters = mutableListOf<(ReminderRegistrationCause) -> Unit>()
+
+    @Volatile
+    var receipt: ReminderReceipt? = null
+
+    @Volatile
+    var deadlineNanos: Long = 0L
+
+    fun identity(): ReminderRegistrationIdentity? =
+        receipt?.let { ReminderRegistrationIdentity(spec.occurrenceId, it.generationNumber) }
+
+    fun record(settled: Settlement): ReminderRegistrationRecord = ReminderRegistrationRecord(
+        settled.generationNumber?.let { ReminderRegistrationIdentity(spec.occurrenceId, it) },
+        type,
+        settled.cause,
+        settled.reported,
+    )
+}
+
 private data class Settlement(
     val cause: ReminderRegistrationCause,
     val generationNumber: Long? = null,
+    val reported: ReminderRegistrationCause? = null,
 )
 
 private fun ReminderReceipt.settle(cause: ReminderRegistrationCause): Settlement =
     Settlement(cause, generationNumber)
+
+/** The class an answered operation reported, which the callback carries wherever it lands. */
+private fun ReminderEnqueueSignal.cause(): ReminderRegistrationCause = when (this) {
+    ReminderEnqueueSignal.Confirmed -> CALLBACK_CONFIRMED_ADMISSION
+    ReminderEnqueueSignal.Absent -> ENQUEUE_CALLBACK_NULL
+    is ReminderEnqueueSignal.Reported -> ENQUEUE_CALLBACK_ERROR
+    is ReminderEnqueueSignal.Raised -> ENQUEUE_CALLBACK_THROWABLE
+}
 
 /**
  * Builds the request this generation runs under. The id is derived rather than allocated, because
@@ -372,34 +591,43 @@ internal const val MAX_INITIAL_DELAY_MILLIS: Long = Long.MAX_VALUE / 2
 private const val NANOS_PER_MILLI = 1_000_000
 private const val FIRST_GENERATION = 0L
 private const val OPERATION_TIMEOUT_SECONDS = 30L
+private const val WATCHDOG_SECONDS = 30L
+private val WATCHDOG_NANOS: Long = TimeUnit.SECONDS.toNanos(WATCHDOG_SECONDS)
 
 /** The phases a registration can still act on. Everything else has settled this generation. */
 private val ACTIVE_PHASES = setOf(ADMISSION_PENDING, ENQUEUED, RETRYABLE)
 
-/** Submits through WorkManager and reads that operation's own result under a bounded wait. */
+/**
+ * Submits through WorkManager and answers when that operation's own result completes. The listener
+ * runs on whichever thread completed the future, so the flight it answers linearises its decisions
+ * through the receipt store rather than through this call.
+ */
 internal class WorkManagerReminderEnqueuePort(private val context: Context) : ReminderEnqueuePort {
-    override fun enqueueUnique(
+    override fun submitUnique(
         name: String,
         policy: ExistingWorkPolicy,
         request: OneTimeWorkRequest,
-    ): ReminderEnqueueSignal {
+        onSettled: (ReminderEnqueueSignal) -> Unit,
+    ) {
         val result = WorkManager.getInstance(context).enqueueUniqueWork(name, policy, request).result
-        return try {
-            result.get(OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                ?.let { ReminderEnqueueSignal.Confirmed }
-                ?: ReminderEnqueueSignal.Absent
-        } catch (_: TimeoutException) {
-            ReminderEnqueueSignal.TimedOut
-        } catch (failure: ExecutionException) {
-            ReminderEnqueueSignal.Reported(failure.cause ?: failure)
-        } catch (failure: InterruptedException) {
-            Thread.currentThread().interrupt()
-            ReminderEnqueueSignal.Raised(failure)
-        } catch (failure: Throwable) {
-            // A cancelled operation arrives this way rather than as a reported failure, and it is
-            // still an operation that existed, so it must not be read as a refused submission.
-            ReminderEnqueueSignal.Raised(failure)
-        }
+        result.addListener(
+            {
+                val signal = try {
+                    result.get()?.let { ReminderEnqueueSignal.Confirmed } ?: ReminderEnqueueSignal.Absent
+                } catch (failure: ExecutionException) {
+                    ReminderEnqueueSignal.Reported(failure.cause ?: failure)
+                } catch (failure: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    ReminderEnqueueSignal.Raised(failure)
+                } catch (failure: Throwable) {
+                    // A cancelled operation arrives this way rather than as a reported failure, and
+                    // it is still an operation that existed, so it is not a refused submission.
+                    ReminderEnqueueSignal.Raised(failure)
+                }
+                onSettled(signal)
+            },
+            Executor { runnable -> runnable.run() },
+        )
     }
 }
 
@@ -410,17 +638,48 @@ internal class WorkManagerReminderQueryPort(private val context: Context) : Remi
             .map { RetainedWork(it.id, it.state) }
 }
 
+/**
+ * The platform timer every watchdog runs on. A wake up only re-reads a receipt, so one daemon
+ * thread is enough and it never holds the process open by itself.
+ */
+internal object AndroidReminderWatchdogPort : ReminderWatchdogPort {
+    private val timer: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "reminder-watchdog").apply { isDaemon = true }
+        }
+
+    override fun nowNanos(): Long = System.nanoTime()
+
+    override fun schedule(delayNanos: Long, wake: () -> Unit) {
+        timer.schedule(Runnable { wake() }, delayNanos, TimeUnit.NANOSECONDS)
+    }
+}
+
 internal object AndroidReminderSchedulerDiagnosticPort : ReminderSchedulerDiagnosticPort {
     override fun record(record: ReminderRegistrationRecord) {
         Log.w("ReminderScheduler", record.toString())
     }
 }
 
-/** The scheduler over the process wide receipt store and the real WorkManager. */
-internal fun reminderScheduler(context: Context): ReminderScheduler {
-    val app = context.applicationContext
-    return ReminderScheduler(
-        reminderReceiptStore(app), WorkManagerReminderEnqueuePort(app), WorkManagerReminderQueryPort(app),
-        AndroidReminderSchedulerDiagnosticPort, Clock.systemUTC(),
-    )
+private object SchedulerHolder {
+    @Volatile
+    var instance: ReminderScheduler? = null
 }
+
+/**
+ * The scheduler over the process wide receipt store and the real WorkManager. One instance serves
+ * the process: coalescing is only real while every registration reaches the same flight table.
+ */
+internal fun reminderScheduler(context: Context): ReminderScheduler =
+    SchedulerHolder.instance ?: synchronized(SchedulerHolder) {
+        SchedulerHolder.instance ?: context.applicationContext.let { app ->
+            ReminderScheduler(
+                reminderReceiptStore(app),
+                WorkManagerReminderEnqueuePort(app),
+                WorkManagerReminderQueryPort(app),
+                AndroidReminderSchedulerDiagnosticPort,
+                AndroidReminderWatchdogPort,
+                Clock.systemUTC(),
+            )
+        }.also { SchedulerHolder.instance = it }
+    }
