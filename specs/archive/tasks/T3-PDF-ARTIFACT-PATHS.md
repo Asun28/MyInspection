@@ -3,7 +3,7 @@ id: T3-PDF-ARTIFACT-PATHS
 title: Report artifact path derivation and anchored shape predicate
 depends_on: [T3-PDF-RENDERER]
 parallelizable_with: [T3-REPORT-HTML-RENDERER]
-status: todo
+status: merged
 branch: T3-PDF-ARTIFACT-PATHS
 worktree: C:\wt\T3-PDF-ARTIFACT-PATHS
 allow_paths:
