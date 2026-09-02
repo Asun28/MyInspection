@@ -37,9 +37,8 @@ sealed interface PdfDrawOp {
 }
 
 /**
- * One measured line, already positioned. Text that overruns [widthPt] is ellipsised at the tail by whoever
- * executes the program: re-wrapping or re-flowing it would be the renderer overruling the layout, and a
- * layout that does not fit is a defect to fix in the composer, not to paper over here.
+ * One measured line, already positioned. Text overrunning [widthPt] is ellipsised at the tail by whoever
+ * executes the program; re-wrapping would be the renderer overruling the layout.
  */
 data class PdfTextOp(
     val text: String,
@@ -81,7 +80,7 @@ data class PdfSourcePixels(val width: Int, val height: Int) {
 /**
  * What the document claims about itself. [dataHash] attests the finalized native evidence and is restated
  * from the plan, never recomputed; [semanticFingerprint] identifies the shared projection both this format
- * and the HTML one were rendered from. Neither is a rendering decision, and neither differs between qualities.
+ * and the HTML one came from. Neither is a rendering decision, and neither differs between qualities.
  */
 data class PdfDocumentIdentity(
     val inspectionId: String,
@@ -97,12 +96,9 @@ data class PdfPageProgram(val number: Int, val ops: List<PdfDrawOp>) {
 
     /**
      * The most decoded bitmap memory this page needs at once: the **largest** single picture, not the total.
-     * That is only true of an executor that decodes one picture, draws it, recycles it and moves on, which is
-     * exactly the contract this bound exists to state. A sum would describe a renderer holding every bitmap
-     * alive for the whole page, and would quietly bless it.
-     *
-     * A picture whose source dimensions are unknown is refused rather than counted as free: an unbounded
-     * decode is the one thing this bound exists to prevent.
+     * That holds only for an executor that decodes one picture, draws it, recycles it and moves on, which is
+     * the contract this bound states. A sum would describe a renderer holding every bitmap alive all page.
+     * A picture whose source dimensions are unknown is refused, not counted as free.
      */
     fun decodedByteBound(sourcePixels: Map<String, PdfSourcePixels>): Long =
         imageOps.maxOfOrNull { op ->

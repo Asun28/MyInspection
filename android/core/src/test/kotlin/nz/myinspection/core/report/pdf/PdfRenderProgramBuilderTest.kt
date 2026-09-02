@@ -20,54 +20,52 @@ import nz.myinspection.core.report.TextRun
 import nz.myinspection.core.report.TextStyle
 
 /**
- * A1, A2 and A4 for the translation itself. The builder is the only place in this card that reads a plan,
+ * A1, A2 and A3 for the translation itself. The builder is the only place in this card that reads a plan,
  * so every clause about "the plan decides, the renderer draws" is proved or lost here.
  *
- * R4 mutation receipt (2026-09-02). Each mutation was applied alone to the production files below, the whole
- * `nz.myinspection.core.report.*` suite was rerun with --rerun-tasks --no-build-cache, and the file was
- * restored and re-hashed before the next one. 25 of 25 killed, every one by a named failing test rather than
- * by a compiler error. Production SHA-256 this receipt is pinned to:
- *   PdfArtifactPaths.kt        804b5cd4f7b6d09abe5175b6f515cddb7e907b98d35ef42d80a8c1ea3a6ba159
+ * R4 mutation receipt (2026-09-02). Each mutation was applied alone, the whole `nz.myinspection.core.report.*`
+ * suite was rerun with --rerun-tasks --no-build-cache, and the file was restored and re-hashed before the
+ * next. 26 of 26 killed, each by a named failing test rather than a compiler error. Pinned production SHA-256:
  *   PdfExportQuality.kt        2a229201f42bd073e8295fb209b8d802edbef1403167b2a38f6765f0a7e859a7
- *   PdfImageSampling.kt        83beb7f94c972a1492969da5e72ad1190a2cdc68ba8d0b5c2583da7144267959
- *   PdfRenderProgram.kt        402057b802eb3d6eeb3fccc215aea07a1c4e2b7478d762f3817bf2bac68d1d16
- *   PdfRenderProgramBuilder.kt 79491e2ca6e42d3b0a33da317adcd9520896d2e570fa5655f6343017780201f0
+ *   PdfImageSampling.kt        45ee06fb21e623e577f56ee4172bd7ab4fb9203b2e5c87656c16c61e0f882456
+ *   PdfRenderProgram.kt        a088665ba1a8342f8c6ada67e38ba06c1d91f8a32158ee6fc218a3d8e5c5e3be
+ *   PdfRenderProgramBuilder.kt 7ace4c385df63213f1974911be4ec587600c8ecbc00c2f6035ec209749d1b5a6
  *
  * | # | A | Mutation | Discriminating failure |
  * | --- | --- | --- | --- |
  * | M1 | A1 | Medium inline dpi 120 -> 128 | `(medium, 120, 160)` vs `(medium, 128, 160)` |
- * | M2 | A1 | DEFAULT = MEDIUM -> HIGH | `expected [MEDIUM] but found [HIGH]` |
+ * | M2 | A1 | DEFAULT = MEDIUM -> HIGH | fallback stopped resolving to Medium |
  * | M3 | A1 | dpiFor(APPENDIX) returns inlineDpi | `expected [120] but found [96]` |
- * | M4 | A1 | identity swaps dataHash and fingerprint | digest lands in the fingerprint slot |
- * | M5 | A2 | mmToPt drops its rounding term | 297 mm gives 841 not 842; every box shifts |
- * | M6 | A2 | widthPt from the length, not the two edges | `did not land on the page edge expected 595 found 596` |
- * | M7 | A2 | delete the page-containment guard | overhanging block completed instead of throwing |
- * | M8 | A3 | drop the quality from the filename | `insp-0001-landlord.pdf` vs `-landlord-medium.pdf` |
- * | M9 | A3 | drop `!= ".."` from the segment guard | `property segment .. was accepted` |
- * | M10 | A4 | page bound sums instead of maximising | `expected [12000000] but found [12188000]` |
- * | M11 | A4 | page bound minimises instead of maximising | `expected [12000000] but found [188000]` |
- * | M12 | A4 | missing source dimensions default to 1x1 | unbounded picture returned 188000, no throw |
- * | M13 | A4 | drop nested thumbnail captions | the row's caption op is missing from the page |
- * | M14 | A4 | drop nested thumbnails entirely | thumbnail op missing; composed-plan coverage also red |
- * | M15 | A4 | picture box uses slot height, not image height | `heightPt=68` becomes the caption-inclusive height |
- * | M16 | A4 | every slot sampled at the inline dpi | appendix plate bound 12000000 -> 3000000 |
- * | M17 | A4 | inSampleSize compares with `>` not `>=` | `expected [4] but found [2]` |
- * | M18 | A4 | targetPixels floors instead of ceiling | `expected [378] but found [377]` |
- * | M19 | A2 | delete the block-level containment call | a block overhanging with fitting runs passed |
- * | M20 | A2 | drop the negative-coordinate clause | a run at x = -5 mm was converted, not refused |
- * | M21 | A4 | drop targetPixels' positive-length guard | a 0 mm box returned 0 pixels instead of throwing |
- * | M22 | A4 | inSampleSize starts at 2 | an 800x600 source was subsampled below its target |
- * | M23 | A4 | decodedBytes floors the decoded width | `4 * 501 * 376` vs `4 * 500 * 376` |
- * | M24 | A1 | fromStoredValue falls back to LOW | an unknown stored value stopped resolving to Medium |
- * | M25 | A1 | High inline dpi 150 -> 100 | the profiles stopped being ordered by density |
+ * | M4 | A1 | fromStoredValue falls back to LOW | an unknown stored value stopped resolving to Medium |
+ * | M5 | A1 | High inline dpi 150 -> 100 | the profiles stopped being ordered by density |
+ * | M6 | A1 | identity swaps dataHash and fingerprint | digest lands in the fingerprint slot |
+ * | M7 | A2 | mmToPt drops its rounding term | 297 mm gives 841 not 842; every box shifts |
+ * | M8 | A2 | widthPt from the length, not the two edges | `did not land on the page edge expected 595 found 596` |
+ * | M9 | A2 | delete the page-containment guard | overhanging block completed instead of throwing |
+ * | M10 | A2 | delete the block-level containment call | a block overhanging with fitting runs passed |
+ * | M11 | A2 | drop the negative-coordinate clause | a run at x = -5 mm was converted, not refused |
+ * | M12 | A2 | far edges summed in Int, not Long | a wrapped coordinate sum read as inside the page |
+ * | M13 | A3 | page bound sums instead of maximising | `expected [12000000] but found [12188000]` |
+ * | M14 | A3 | page bound minimises instead of maximising | `expected [12000000] but found [188000]` |
+ * | M15 | A3 | missing source dimensions default to 1x1 | an unbounded picture returned a number, no throw |
+ * | M16 | A3 | drop nested thumbnail captions | the row's caption op is missing from the page |
+ * | M17 | A3 | drop nested thumbnails entirely | thumbnail op missing; composed-plan coverage also red |
+ * | M18 | A3 | picture box uses slot height, not image height | the caption-inclusive height reached the picture |
+ * | M19 | A3 | every slot sampled at the inline dpi | the appendix plate asked for 851x567, not 1134x756 |
+ * | M20 | A3 | inSampleSize compares with `>` not `>=` | an Int.MAX source stopped resolving to 2^30 |
+ * | M21 | A3 | inSampleSize starts at 2 | an 800x600 source was subsampled below its target |
+ * | M22 | A3 | targetPixels floors instead of ceiling | `expected [378] but found [377]` |
+ * | M23 | A3 | targetPixels bounds relaxed to `> 0` | a 10001 mm box was accepted instead of refused |
+ * | M24 | A3 | decodedBytes floors the decoded width | `4 * 501 * 376` vs `4 * 500 * 376` |
+ * | M25 | A3 | drop the byte-cost saturation guard | the bound wrapped negative instead of saturating |
+ * | M26 | A3 | drop PdfSourcePixels' positive check | a zero source dimension was accepted |
  *
- * Four of these exist because writing the batch, rather than running it, exposed the gaps. M16: nothing
- * pinned that an appendix plate is sampled at the appendix density, and the two densities round to the same
- * decode parameter on most fixtures, so a renderer reading the wrong one passed everything else. M19: nothing
- * distinguished a block that overhangs the page from a run that overhangs it. M24 and M25 came from M2, which
- * in an earlier batch left `an unknown or missing stored value falls back to the default` green - that test
- * named DEFAULT on both sides of the comparison, so it followed the mutation instead of failing it. The
- * expected values are written out now, which is why M2 fails two tests here and one there.
+ * Five of these exist because writing the batch, or reading R3's first round, exposed a gap rather than
+ * confirming coverage. M19: nothing pinned that an appendix plate uses the appendix density, and the two
+ * densities round to the same decode parameter on most fixtures. M10: nothing distinguished a block that
+ * overhangs from a run that overhangs. M12, M23, M25: the arithmetic could wrap for accepted inputs, which
+ * R3 caught. M4 and M2 come from an earlier batch where M2 left the fallback test green - that test named
+ * DEFAULT on both sides, so it followed the mutation instead of failing it; the values are written out now.
  */
 class PdfRenderProgramBuilderTest {
     private val builder = PdfRenderProgramBuilder()
@@ -128,24 +126,6 @@ class PdfRenderProgramBuilderTest {
     }
 
     // --- A2 -----------------------------------------------------------------------------------------
-
-    @Test
-    fun `an A4 page is 595 by 842 points`() {
-        assertEquals(595, PdfGeometry.mmToPt(210))
-        assertEquals(842, PdfGeometry.mmToPt(297))
-        assertEquals(0, PdfGeometry.mmToPt(0))
-        assertEquals(43, PdfGeometry.mmToPt(15))
-
-        val page = builder.build(goldenPlan(), "insp-0001", fingerprint, PdfExportQuality.MEDIUM).pages.first()
-        assertEquals(595, page.widthPt)
-        assertEquals(842, page.heightPt)
-    }
-
-    /**
-     * Boxes are converted edge to edge rather than as an origin plus an independently rounded length. Two
-     * millimetre boxes that touch therefore still touch in points, and a box that ends exactly at the page
-     * edge lands exactly on it instead of one rounded point past it.
-     */
     @Test
     fun `a box is converted by its edges, so adjacent boxes still meet and the last one lands on the edge`() {
         val ops = builder.build(edgeToEdgePlan(), "insp-0001", fingerprint, PdfExportQuality.MEDIUM)
@@ -208,6 +188,23 @@ class PdfRenderProgramBuilderTest {
             builder.build(plan, "insp-0001", fingerprint, PdfExportQuality.MEDIUM)
         }
         assertTrue(failure.message.orEmpty().contains("negative"), "the diagnostic must say what was wrong")
+    }
+
+    /**
+     * Two positive coordinates whose sum overflows an `Int` wrap to a negative number, and a bound written
+     * as `xMm + widthMm <= A4_WIDTH_MM` then reads a block far off the page as comfortably inside it. The
+     * far edges are summed in `Long` for exactly this case.
+     */
+    @Test
+    fun `a coordinate pair that overflows an Int sum is still refused`() {
+        val plan = DocumentPlan(
+            Audience.LANDLORD,
+            DATA_HASH,
+            listOf(PagePlan(1, listOf(placedText("wrapped", xMm = Int.MAX_VALUE - 10, yMm = 10, widthMm = 100)))),
+        )
+        assertFailsWith<IllegalArgumentException> {
+            builder.build(plan, "insp-0001", fingerprint, PdfExportQuality.MEDIUM)
+        }
     }
 
     // --- A4 -----------------------------------------------------------------------------------------
@@ -288,37 +285,6 @@ class PdfRenderProgramBuilderTest {
      * costs the largest single picture, not the total. A bound written as a sum would be describing a
      * renderer that keeps every decoded bitmap alive, which is the behaviour this contract exists to forbid.
      */
-    @Test
-    fun `a page's decoded byte bound is its largest picture, not the sum of its pictures`() {
-        // Both pictures come from one 4000x3000 source. The 30x24 mm thumbnail wants 142x114 px, so it
-        // samples at 16 and decodes 250x188 = 188,000 bytes; the 180x120 mm plate wants 1134x756 px, so it
-        // samples at 2 and decodes 2000x1500 = 12,000,000 bytes. Their sum, 12,188,000, is the answer a
-        // renderer that never recycles would give, and it is the value this assertion exists to reject.
-        val sources = mapOf("thumb" to PdfSourcePixels(4000, 3000), "plate" to PdfSourcePixels(4000, 3000))
-
-        listOf(false, true).forEach { plateFirst ->
-            val plan = twoPicturePlan(plateFirst)
-            val page = builder.build(plan, "insp-0001", fingerprint, PdfExportQuality.MEDIUM).pages.single()
-            assertEquals(12_000_000L, page.decodedByteBound(sources), "plateFirst=$plateFirst")
-        }
-    }
-
-    @Test
-    fun `a page with no pictures needs no decode budget`() {
-        val page = builder.build(edgeToEdgePlan(), "insp-0001", fingerprint, PdfExportQuality.MEDIUM).pages.single()
-        assertEquals(0L, page.decodedByteBound(emptyMap()))
-    }
-
-    /** A picture whose source dimensions are unknown cannot be bounded, so it is refused rather than skipped. */
-    @Test
-    fun `a picture missing from the source dimensions is refused, not treated as free`() {
-        val page = builder.build(twoPicturePlan(), "insp-0001", fingerprint, PdfExportQuality.MEDIUM).pages.single()
-        val failure = assertFailsWith<IllegalArgumentException> {
-            page.decodedByteBound(mapOf("thumb" to PdfSourcePixels(4000, 3000)))
-        }
-        assertTrue(failure.message.orEmpty().contains("plate"), "the message must name the unbounded picture")
-    }
-
     // --- fixtures -----------------------------------------------------------------------------------
 
     private fun goldenPlan(): DocumentPlan =
@@ -366,13 +332,19 @@ class PdfRenderProgramBuilderTest {
         listOf(PagePlan(1, listOf(itemRowWithThumbnail(photoId = "p1", xMm = 10, yMm = 20)))),
     )
 
-    /** [plateFirst] reverses the block order, so neither "the first picture" nor "the last" can pass as a bound. */
-    private fun twoPicturePlan(plateFirst: Boolean = false): DocumentPlan {
-        val thumb = itemRowWithThumbnail(photoId = "thumb", xMm = 10, yMm = 20)
-        val plate = PlacedBlock(15, 60, 180, 130, appendixSlot("plate"))
-        val blocks = if (plateFirst) listOf(plate, thumb) else listOf(thumb, plate)
-        return DocumentPlan(Audience.LANDLORD, DATA_HASH, listOf(PagePlan(1, blocks)))
-    }
+    private fun twoPicturePlan(): DocumentPlan = DocumentPlan(
+        Audience.LANDLORD,
+        DATA_HASH,
+        listOf(
+            PagePlan(
+                1,
+                listOf(
+                    itemRowWithThumbnail(photoId = "thumb", xMm = 10, yMm = 20),
+                    PlacedBlock(15, 60, 180, 130, appendixSlot("plate")),
+                ),
+            ),
+        ),
+    )
 
     private fun itemRowWithThumbnail(photoId: String, xMm: Int, yMm: Int): PlacedBlock = PlacedBlock(
         xMm,

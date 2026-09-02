@@ -13,13 +13,11 @@ import nz.myinspection.core.report.TextRun
 /**
  * Translates a finished layout plan into the ordered draw operations an Android executor replays.
  *
- * The whole of this class is a coordinate lift plus a sampling lookup. It makes no layout decision: it does
- * not wrap, split, re-order, paginate or resize anything, and a block that does not fit its page is reported
- * rather than clipped, because a clipped block is a defect nobody would ever see.
- *
- * What it does draw is fixed by the plan's own contract: a text-bearing block contributes exactly its
- * [TextBearingBlock.textRuns], and everything else on a block - an address, a status, a note, a digest - is
- * identifying metadata. Drawing one would print it once per chunk of a block split across pages.
+ * The whole of this class is a coordinate lift plus a sampling lookup. It makes no layout decision, and a
+ * block that does not fit its page is reported rather than clipped: a clipped block is a defect nobody sees.
+ * What it draws is fixed by the plan's contract: a text-bearing block contributes exactly its
+ * [TextBearingBlock.textRuns], and every other field on a block is identifying metadata, which drawing would
+ * print once per chunk of a block split across pages.
  */
 class PdfRenderProgramBuilder {
     fun build(
@@ -91,18 +89,20 @@ class PdfRenderProgramBuilder {
     }
 
     /**
-     * Converts a millimetre box edge to edge rather than as an origin plus an independently rounded length.
-     * Two boxes that touch in millimetres still touch in points, and a box ending on the page edge lands on
-     * it instead of one rounded point past it - which also makes the containment check below exact.
-     *
-     * The diagnostic names the block type, the page and the geometry, and never the block's text: report
-     * content is the tenant's and the landlord's, and a log is not a place for it.
+     * Converts a millimetre box edge to edge rather than as an origin plus an independently rounded length,
+     * so touching boxes still touch in points and a box ending on the page edge lands on it. The diagnostic
+     * names the block type, page and geometry, never the block's text: a log is no place for report content.
      */
     private fun boxOf(pageNumber: Int, label: String, xMm: Int, yMm: Int, widthMm: Int, heightMm: Int): PointBox {
         require(xMm >= 0 && yMm >= 0 && widthMm >= 0 && heightMm >= 0) {
             "$label on page $pageNumber has negative geometry: ${xMm},$yMm sized ${widthMm}x$heightMm mm"
         }
-        require(xMm + widthMm <= A4_WIDTH_MM && yMm + heightMm <= A4_HEIGHT_MM) {
+        // The far edges are summed in Long. Two Int coordinates that overflow would wrap to a negative sum
+        // and sail through a bound written as `xMm + widthMm <= A4_WIDTH_MM`: the guard would read a block
+        // far off the page as comfortably inside it.
+        val rightMm = xMm.toLong() + widthMm
+        val bottomMm = yMm.toLong() + heightMm
+        require(rightMm <= A4_WIDTH_MM && bottomMm <= A4_HEIGHT_MM) {
             "$label on page $pageNumber at ${xMm},$yMm sized ${widthMm}x$heightMm mm reaches past the " +
                 "${A4_WIDTH_MM}x$A4_HEIGHT_MM mm page"
         }
@@ -111,8 +111,8 @@ class PdfRenderProgramBuilder {
         return PointBox(
             xPt = xPt,
             yPt = yPt,
-            widthPt = PdfGeometry.mmToPt(xMm + widthMm) - xPt,
-            heightPt = PdfGeometry.mmToPt(yMm + heightMm) - yPt,
+            widthPt = PdfGeometry.mmToPt(rightMm.toInt()) - xPt,
+            heightPt = PdfGeometry.mmToPt(bottomMm.toInt()) - yPt,
         )
     }
 

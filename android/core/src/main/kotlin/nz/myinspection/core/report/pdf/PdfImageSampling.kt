@@ -15,13 +15,14 @@ object PdfImageSampling {
     /** 25.4 mm to the inch, scaled by ten so the whole conversion stays in integers. */
     private const val TENTHS_MM_PER_INCH = 254L
 
-    /**
-     * The pixel count a box [lengthMm] long deserves at [dpi], rounded **up**. A picture sampled fractionally
-     * under its box is visibly soft, while one extra row of pixels costs nothing worth naming.
-     */
+    /** Outer bounds so the conversion cannot overflow for any accepted pair; beyond them is a caller error. */
+    private const val MAX_BOX_MM = 10_000
+    private const val MAX_DPI = 10_000
+
+    /** Pixels a box [lengthMm] long deserves at [dpi], rounded **up**: under-sampling is visibly soft. */
     fun targetPixels(lengthMm: Int, dpi: Int): Int {
-        require(lengthMm > 0) { "a picture box must have a positive length: $lengthMm mm" }
-        require(dpi > 0) { "a sampling density must be positive: $dpi dpi" }
+        require(lengthMm in 1..MAX_BOX_MM) { "a picture box must be 1..$MAX_BOX_MM mm: $lengthMm" }
+        require(dpi in 1..MAX_DPI) { "a sampling density must be 1..$MAX_DPI dpi: $dpi" }
         return ceilDiv(lengthMm.toLong() * dpi * 10, TENTHS_MM_PER_INCH).toInt()
     }
 
@@ -38,6 +39,10 @@ object PdfImageSampling {
         require(targetWidthPx > 0 && targetHeightPx > 0) {
             "target pixels must be positive: ${targetWidthPx}x$targetHeightPx"
         }
+        // `size * 2` can only reach 2^31 on the final failing check, where size is 2^30; it wraps to
+        // Int.MIN_VALUE there and the division yields 0, which fails the condition and ends the loop on the
+        // same answer widening to Long would give. `an enormous source still resolves to a power of two`
+        // pins that boundary rather than leaving it to the reader.
         var size = 1
         while (sourceWidthPx / (size * 2) >= targetWidthPx && sourceHeightPx / (size * 2) >= targetHeightPx) {
             size *= 2
@@ -49,15 +54,20 @@ object PdfImageSampling {
      * What one decoded bitmap occupies. Dimensions round **up**, the opposite of [targetPixels]'s reason: this
      * is a bound, and a decoder that hands back the ceiling must not overrun a budget computed from the floor.
      * `ARGB_8888` is the config the photo pipeline already budgets against, so the two agree by construction.
+     *
+     * A pixel count whose byte cost will not fit a `Long` saturates to [Long.MAX_VALUE] rather than wrapping,
+     * the same answer `ImportBounds` gives: a bound that went negative would read as "free" to every caller.
      */
     fun decodedBytes(sourceWidthPx: Int, sourceHeightPx: Int, sampleSize: Int): Long {
         require(sourceWidthPx > 0 && sourceHeightPx > 0) {
             "source pixels must be positive: ${sourceWidthPx}x$sourceHeightPx"
         }
         require(sampleSize >= 1) { "a sample size is at least 1: $sampleSize" }
-        val width = ceilDiv(sourceWidthPx.toLong(), sampleSize.toLong())
-        val height = ceilDiv(sourceHeightPx.toLong(), sampleSize.toLong())
-        return width * height * ImportBounds.BYTES_PER_PIXEL
+        // Two positive Int dimensions multiply safely in Long; multiplying their pixel count by four may not.
+        val pixels = ceilDiv(sourceWidthPx.toLong(), sampleSize.toLong()) *
+            ceilDiv(sourceHeightPx.toLong(), sampleSize.toLong())
+        if (pixels > Long.MAX_VALUE / ImportBounds.BYTES_PER_PIXEL) return Long.MAX_VALUE
+        return pixels * ImportBounds.BYTES_PER_PIXEL
     }
 
     private fun ceilDiv(value: Long, divisor: Long): Long = (value + divisor - 1) / divisor
