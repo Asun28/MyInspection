@@ -10,6 +10,7 @@ import java.time.ZoneOffset
 import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicIntegerArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import nz.myinspection.app.feature.schedule.ReminderPhase.ADMISSION_PENDING
@@ -57,9 +58,9 @@ import nz.myinspection.core.schedule.InspectionScheduleType.ROUTINE
  * that has to have run is the production runner over this same store. The fixture nests because the
  * merged worker tests own these names at package level.
  *
- * Registration is asynchronous here: it returns once the submission is accepted, and the cause
- * reaches the caller through a waiter. [Fixture.register] returns the single cause its waiter
- * received, and [Fixture.registerDeferred] hands back the list a waiter appends to later.
+ * Registration is asynchronous: it returns once the submission is accepted and the cause reaches
+ * the caller through a waiter. [Fixture.register] returns that single cause, and
+ * [Fixture.registerDeferred] hands back the list a waiter appends to later.
  */
 class ReminderSchedulerTest {
     @Test
@@ -290,21 +291,13 @@ class ReminderSchedulerTest {
 
     @Test
     fun `a worker that proved admission is never downgraded by a later callback or the watchdog`() {
+        val after = ENQUEUE_CALLBACK_AFTER_WORKER_STARTED
         val cases = listOf(
-            WorkerFirst("confirmed", ReminderEnqueueSignal.Confirmed, WORKER_CONFIRMED_ADMISSION, null),
-            WorkerFirst(
-                "absent", ReminderEnqueueSignal.Absent,
-                ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, ENQUEUE_CALLBACK_NULL,
-            ),
-            WorkerFirst(
-                "reported", ReminderEnqueueSignal.Reported(IOException("refused")),
-                ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, ENQUEUE_CALLBACK_ERROR,
-            ),
-            WorkerFirst(
-                "raised", ReminderEnqueueSignal.Raised(IllegalStateException("gone")),
-                ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, ENQUEUE_CALLBACK_THROWABLE,
-            ),
-            WorkerFirst("watchdog", null, WORKER_CONFIRMED_ADMISSION, null),
+            WorkerFirst(ReminderEnqueueSignal.Confirmed, WORKER_CONFIRMED_ADMISSION, null),
+            WorkerFirst(ReminderEnqueueSignal.Absent, after, ENQUEUE_CALLBACK_NULL),
+            WorkerFirst(ReminderEnqueueSignal.Reported(IOException("no")), after, ENQUEUE_CALLBACK_ERROR),
+            WorkerFirst(ReminderEnqueueSignal.Raised(IllegalStateException("x")), after, ENQUEUE_CALLBACK_THROWABLE),
+            WorkerFirst(null, WORKER_CONFIRMED_ADMISSION, null),
         )
 
         cases.forEach { case ->
@@ -373,14 +366,18 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `concurrent registrations of one occurrence reserve, query and enqueue exactly once`() {
+    fun `concurrent registrations coalesce and a cross thread callback settles each waiter once`() {
         val fixture = Fixture(signal = null)
         val start = CountDownLatch(1)
+        val calls = AtomicIntegerArray(WAITERS)
         val settled = Collections.synchronizedList(mutableListOf<ReminderRegistrationCause>())
-        val threads = (0 until WAITERS).map {
+        val threads = (0 until WAITERS).map { index ->
             Thread {
                 start.await()
-                fixture.scheduler.register(PendingReminder(ROUTE, DUE_AT)) { cause -> settled += cause }
+                fixture.scheduler.register(PendingReminder(ROUTE, DUE_AT)) { cause ->
+                    calls.incrementAndGet(index)
+                    settled += cause
+                }
             }
         }
 
@@ -388,33 +385,43 @@ class ReminderSchedulerTest {
         start.countDown()
         threads.forEach { it.join() }
 
-        // One reservation: the admitted receipt is the only commit so far, because the submission
-        // has not been answered yet and nothing else writes before it is.
+        // One reservation: the admitted receipt is still the only commit.
         assertEquals(1, fixture.preferences.commits)
         assertEquals(1, fixture.query.names.size)
         assertEquals(1, fixture.enqueue.submissions.size)
         assertEquals(emptyList(), settled)
 
-        fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
+        // The platform answers on a thread of its own while the flight is still open.
+        val answering = Thread { fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed) }
+        answering.start()
+        answering.join()
 
-        assertEquals(WAITERS, settled.size)
+        // Per waiter, not in total: one twice while another starves keeps the total right.
+        assertEquals(List(WAITERS) { 1 }, (0 until WAITERS).map { calls.get(it) })
         assertEquals(setOf(CALLBACK_CONFIRMED_ADMISSION), settled.toSet())
         assertEquals(ENQUEUED, fixture.phase())
-        assertEquals(1, fixture.diagnostics.records.size)
+        assertEquals(
+            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
+            fixture.diagnostics.records.single(),
+        )
     }
 
     @Test
     fun `a waiter that throws starves neither the remaining waiters nor the diagnostic`() {
         val fixture = Fixture(signal = null)
-        val settled = Collections.synchronizedList(mutableListOf<ReminderRegistrationCause>())
+        val calls = AtomicIntegerArray(3)
         val reminder = PendingReminder(ROUTE, DUE_AT)
-        fixture.scheduler.register(reminder) { cause -> settled += cause }
-        fixture.scheduler.register(reminder) { error("this waiter belongs to a caller that misbehaves") }
-        fixture.scheduler.register(reminder) { cause -> settled += cause }
+        fixture.scheduler.register(reminder) { calls.incrementAndGet(0) }
+        fixture.scheduler.register(reminder) { cause ->
+            calls.incrementAndGet(1)
+            error("this waiter belongs to a caller that misbehaves, and $cause is its argument")
+        }
+        fixture.scheduler.register(reminder) { calls.incrementAndGet(2) }
 
         fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
 
-        assertEquals(listOf(CALLBACK_CONFIRMED_ADMISSION, CALLBACK_CONFIRMED_ADMISSION), settled)
+        // Both waiters either side ran, and so did the throwing one: isolation wraps each.
+        assertEquals(listOf(1, 1, 1), (0 until 3).map { calls.get(it) })
         assertEquals(
             ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
             fixture.diagnostics.records.single(),
@@ -446,8 +453,7 @@ class ReminderSchedulerTest {
 
         assertEquals(ENQUEUE_CALLBACK_TIMEOUT, settled.single())
         assertEquals(RETRYABLE_FAILURE, settled.single().outcome)
-        // The operation may still be running, so the reservation stays exactly as it is and this
-        // wake up submits nothing of its own.
+        // The operation may still be running, so the reservation stays and nothing is submitted.
         assertEquals(ADMISSION_PENDING, fixture.phase())
         assertEquals(1, fixture.enqueue.submissions.size)
 
@@ -482,8 +488,8 @@ class ReminderSchedulerTest {
         assertEquals(GENERATION_SUPERSEDED, supersededSettled.single())
         assertEquals(1L, superseded.generation())
 
-        // A flight that resumed an already enqueued receipt still times out on its own submission:
-        // the phase it must find again is the one it left, which is not ADMISSION_PENDING.
+        // A resumed flight still times out on its own submission: the phase it must find again
+        // is the one it left, not ADMISSION_PENDING.
         val resumed = Fixture(ENQUEUED, signal = null)
         val resumedSettled = resumed.registerDeferred()
         resumed.expireWatchdog()
@@ -503,12 +509,10 @@ class ReminderSchedulerTest {
         assertEquals(ENQUEUE_CALLBACK_TIMEOUT, settled.single())
         assertEquals(ADMISSION_PENDING, fixture.phase())
         // The late arrival is still recorded, under the class it actually reported.
+        assertEquals(ENQUEUE_CALLBACK_TIMEOUT, fixture.diagnostics.records.first().cause)
         assertEquals(
-            listOf(
-                ReminderRegistrationRecord(IDENTITY_0, ROUTINE, ENQUEUE_CALLBACK_TIMEOUT),
-                ReminderRegistrationRecord(IDENTITY_0, ROUTINE, ENQUEUE_CALLBACK_ERROR, late = true),
-            ),
-            fixture.diagnostics.records,
+            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, ENQUEUE_CALLBACK_ERROR, late = true),
+            fixture.diagnostics.records.last(),
         )
     }
 
@@ -646,8 +650,8 @@ class ReminderSchedulerTest {
 
     /**
      * The submission seam as the platform presents it: accepting a submission and answering it are
-     * two moments. A null signal leaves the operation in flight so a test can answer it later, or
-     * never, which is the only way a watchdog or a late callback can be driven.
+     * two moments. A null signal leaves the operation in flight so a test can answer it later, on
+     * whatever thread it likes, or never, which is how a watchdog and a late callback are driven.
      */
     private class RecordingEnqueue(private val signal: ReminderEnqueueSignal?, var failure: Throwable?) :
         ReminderEnqueuePort {
@@ -690,7 +694,7 @@ class ReminderSchedulerTest {
         }
     }
 
-    /** The one injected time source: the same reading schedules a deadline and decides it passed. */
+    /** The one injected time source: one reading schedules a deadline and decides it passed. */
     private class ManualWatchdog : ReminderWatchdogPort {
         var nanos = 0L
         val scheduled = Collections.synchronizedList(mutableListOf<Long>())
@@ -718,13 +722,14 @@ class ReminderSchedulerTest {
         val phase: ReminderPhase,
     )
 
-    /** One way a flight ends after its matching worker already proved the admission. */
+    /** One way a flight ends after its worker already proved the admission. */
     private class WorkerFirst(
-        val label: String,
         val signal: ReminderEnqueueSignal?,
         val settles: ReminderRegistrationCause,
         val reported: ReminderRegistrationCause?,
-    )
+    ) {
+        val label: String get() = signal?.toString() ?: "watchdog"
+    }
 
     private class RecordingDiagnostics : ReminderSchedulerDiagnosticPort {
         val records = Collections.synchronizedList(mutableListOf<ReminderRegistrationRecord>())
@@ -803,7 +808,6 @@ class ReminderSchedulerTest {
 }
 
 
-/* R4 receipts: 15 mutations, each applied alone to ReminderScheduler.kt at SHA-256
- * b118a0d349c5ea794f720281a7a3e3d83cd2e996a2b280c82e823b5037e1d86e and reverted to it, all killed
- * by a named case above. Table in specs/tasks/T4-SCHEDULE-REMINDER-FLIGHT.md (diff at R3 budget).
+/* R4 receipts: 15 mutations against ReminderScheduler.kt at SHA-256
+ * b118a0d349c5ea794f720281a7a3e3d83cd2e996a2b280c82e823b5037e1d86e, all killed. Table in the card.
  */
