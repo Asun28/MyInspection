@@ -150,7 +150,7 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 4
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 5
 - symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
 - rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -2035,5 +2035,13 @@
 - symptom: R3 指某个公共入口对某状态「无守卫、会抛未结构化异常」，但该状态其实因构造器私有 + 唯一出生点在上游而不可表达。
 - root_cause: 评审只读 diff，看不到上游构造路径；照它字面补一道 require 会得到一道任何单点变异都杀不掉的死守卫，与本仓「每道守卫配一枚能让它红的变异」（L165）直接冲突。
 - rule: 先判该状态是否真的不可表达（构造器可见性 + 唯一出生点 + 上游丢弃/拒绝逻辑）。可表达就补守卫；不可表达就补「证明其不可表达」的测试，并对上游那处丢弃/拒绝逻辑做一枚变异，证明该测试确实会红——把这枚收据连同判断写进 PR，评审者通常自己就给了这条备选。
+- enforced_by: 
+- refs: 
+
+## L280
+- date: 2026-09-02 ｜ tags: cards,dod,testability,scoping ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片 allow_paths 邀请测试落进某目录，但 dod_command 与 verify 都不执行那个 source set —— 写在那里的测试永不运行，全绿而零证据（T3-PDF-RENDERER 原卡：allow_paths 含 app/src/test/**/export/pdf/，dod 只跑 :app:assembleDebug + :core:test）
+- root_cause: allow_paths 与 dod_command 是两份独立字段，无人交叉核对；再叠加运行期不可用（:app 单测纯 JVM、无 testOptions.returnDefaultValues、T0-TOOLCHAIN 禁 Robolectric ⇒ 触碰 android.graphics 的代码在单测里抛 Stub!），于是「可以写 RED」（core 半边）与「另半边永不被执行」同时成立，L47 的停机判据不会触发
+- rule: 开卡/接卡第一步把 allow_paths 里每个测试目录，逐个对到 dod_command 与 verify.ps1 实际执行的 task 上：跑一次真命令、看 build/test-results 里有没有该包的 XML，没有就是结构性 vacuous pass。同时核该 source set 的运行期能力（有无 Robolectric/仪器测试/returnDefaultValues），只有真机才能跑的验收条款必须拆卡或改写成 dod_assert 里的人工核验，不得留在自动闸假装被证明。
 - enforced_by: 
 - refs: 
