@@ -517,24 +517,24 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `a callback naming a superseded generation disturbs neither the current flight nor the receipt`() {
+    fun `a callback overtaken by a newer generation settles its own waiters and clears the flight`() {
         val fixture = Fixture(signal = null)
-        val stale = fixture.registerDeferred()
-        fixture.expireWatchdog()
+        val overtaken = fixture.registerDeferred()
+        // Recovered onto a new generation while this flight is active and still unanswered.
         fixture.supersedeGeneration()
-        val current = fixture.registerDeferred()
-        assertEquals(2, fixture.enqueue.submissions.size)
 
-        fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed, submission = 0)
+        fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
 
-        assertEquals(ENQUEUE_CALLBACK_TIMEOUT, stale.single())
-        assertEquals(emptyList(), current)
-        assertEquals(ADMISSION_PENDING, fixture.phase())
+        // Its waiters learn they were overtaken, and the newer generation's receipt stands.
+        assertEquals(GENERATION_SUPERSEDED, overtaken.single())
         assertEquals(1L, fixture.generation())
-        assertEquals(
-            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION, late = true),
-            fixture.diagnostics.records.last(),
-        )
+        assertEquals(ADMISSION_PENDING, fixture.phase())
+
+        val next = fixture.registerDeferred()
+
+        // The flight went with it: the next registration re-coordinates under generation one.
+        assertEquals(2, fixture.enqueue.submissions.size)
+        assertEquals(emptyList(), next)
     }
 
     /** One occurrence, its store and the ports, wired as the production factory wires them. */
