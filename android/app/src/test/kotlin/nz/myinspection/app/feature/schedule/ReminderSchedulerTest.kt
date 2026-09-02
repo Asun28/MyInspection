@@ -58,9 +58,8 @@ import nz.myinspection.core.schedule.InspectionScheduleType.ROUTINE
  * that has to have run is the production runner over this same store. The fixture nests because the
  * merged worker tests own these names at package level.
  *
- * Registration is asynchronous: it returns once the submission is accepted and the cause reaches
- * the caller through a waiter. [Fixture.register] returns that single cause, and
- * [Fixture.registerDeferred] hands back the list a waiter appends to later.
+ * Registration is asynchronous: it returns once the submission is accepted, the cause arriving
+ * through a waiter. [Fixture.register] returns that one cause, [Fixture.registerDeferred] the list.
  */
 class ReminderSchedulerTest {
     @Test
@@ -281,12 +280,14 @@ class ReminderSchedulerTest {
         assertEquals(ENQUEUE_SUBMIT_TRANSIENT, transient.register())
         assertEquals(ADMISSION_PENDING, transient.phase())
 
-        // A submission that never produced an operation leaves nothing to wait on, so the next
-        // registration has to re-coordinate rather than join a flight that can never settle.
+        // Neither produced an operation, so both re-coordinate: the transient one submits again,
+        // the fatal one lands on the occurrence it closed and submits nothing more.
         transient.enqueue.failure = null
 
         assertEquals(CALLBACK_CONFIRMED_ADMISSION, transient.register())
         assertEquals(1, transient.enqueue.submissions.size)
+        assertEquals(OCCURRENCE_CLOSED, fatal.register())
+        assertEquals(emptyList(), fatal.enqueue.submissions)
     }
 
     @Test
@@ -385,13 +386,12 @@ class ReminderSchedulerTest {
         start.countDown()
         threads.forEach { it.join() }
 
-        // One reservation: the admitted receipt is still the only commit.
         assertEquals(1, fixture.preferences.commits)
         assertEquals(1, fixture.query.names.size)
         assertEquals(1, fixture.enqueue.submissions.size)
         assertEquals(emptyList(), settled)
 
-        // The platform answers on a thread of its own while the flight is still open.
+        // The platform answers on its own thread while the flight is still open.
         val answering = Thread { fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed) }
         answering.start()
         answering.join()
@@ -441,6 +441,8 @@ class ReminderSchedulerTest {
         assertEquals(listOf(WATCHDOG_NANOS, WATCHDOG_NANOS - EARLY_NANOS), fixture.watchdog.scheduled)
         assertEquals(emptyList(), settled)
         assertEquals(ADMISSION_PENDING, fixture.phase())
+        // Still one commit, the reservation: a same-value write would leave the phase intact.
+        assertEquals(1, fixture.preferences.commits)
         assertEquals(1, fixture.enqueue.submissions.size)
     }
 
@@ -456,11 +458,11 @@ class ReminderSchedulerTest {
         // The operation may still be running, so the reservation stays and nothing is submitted.
         assertEquals(ADMISSION_PENDING, fixture.phase())
         assertEquals(1, fixture.enqueue.submissions.size)
+        assertEquals(1, fixture.preferences.commits)
 
-        val next = fixture.registerDeferred()
+        fixture.registerDeferred()
 
         assertEquals(2, fixture.enqueue.submissions.size)
-        assertEquals(emptyList(), next)
     }
 
     @Test
@@ -488,8 +490,7 @@ class ReminderSchedulerTest {
         assertEquals(GENERATION_SUPERSEDED, supersededSettled.single())
         assertEquals(1L, superseded.generation())
 
-        // A resumed flight still times out on its own submission: the phase it must find again
-        // is the one it left, not ADMISSION_PENDING.
+        // A resumed flight still times out: the phase it must find again is the one it left.
         val resumed = Fixture(ENQUEUED, signal = null)
         val resumedSettled = resumed.registerDeferred()
         resumed.expireWatchdog()
@@ -508,6 +509,7 @@ class ReminderSchedulerTest {
 
         assertEquals(ENQUEUE_CALLBACK_TIMEOUT, settled.single())
         assertEquals(ADMISSION_PENDING, fixture.phase())
+        assertEquals(1, fixture.preferences.commits)
         // The late arrival is still recorded, under the class it actually reported.
         assertEquals(ENQUEUE_CALLBACK_TIMEOUT, fixture.diagnostics.records.first().cause)
         assertEquals(
@@ -522,13 +524,14 @@ class ReminderSchedulerTest {
         val overtaken = fixture.registerDeferred()
         // Recovered onto a new generation while this flight is active and still unanswered.
         fixture.supersedeGeneration()
+        val recovered = fixture.preferences.commits
 
         fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
 
-        // Its waiters learn they were overtaken, and the newer generation's receipt stands.
         assertEquals(GENERATION_SUPERSEDED, overtaken.single())
         assertEquals(1L, fixture.generation())
         assertEquals(ADMISSION_PENDING, fixture.phase())
+        assertEquals(recovered, fixture.preferences.commits)
 
         val next = fixture.registerDeferred()
 
@@ -649,9 +652,8 @@ class ReminderSchedulerTest {
     private class Submission(val name: String, val policy: ExistingWorkPolicy, val request: OneTimeWorkRequest)
 
     /**
-     * The submission seam as the platform presents it: accepting a submission and answering it are
-     * two moments. A null signal leaves the operation in flight so a test can answer it later, on
-     * whatever thread it likes, or never, which is how a watchdog and a late callback are driven.
+     * The submission seam as the platform presents it: accepting and answering are two moments. A
+     * null signal leaves the operation in flight, to be answered later, on any thread, or never.
      */
     private class RecordingEnqueue(private val signal: ReminderEnqueueSignal?, var failure: Throwable?) :
         ReminderEnqueuePort {
@@ -694,7 +696,7 @@ class ReminderSchedulerTest {
         }
     }
 
-    /** The one injected time source: one reading schedules a deadline and decides it passed. */
+    /** The one injected time source: one reading both schedules a deadline and judges it. */
     private class ManualWatchdog : ReminderWatchdogPort {
         var nanos = 0L
         val scheduled = Collections.synchronizedList(mutableListOf<Long>())
@@ -808,6 +810,4 @@ class ReminderSchedulerTest {
 }
 
 
-/* R4 receipts: 15 mutations against ReminderScheduler.kt at SHA-256
- * b118a0d349c5ea794f720281a7a3e3d83cd2e996a2b280c82e823b5037e1d86e, all killed. Table in the card.
- */
+/* R4 receipts (15 mutations, SHA-256 b118a0d3…d86e, all killed): table in this card. */
