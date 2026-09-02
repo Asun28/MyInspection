@@ -3,7 +3,7 @@ id: T3-REPORT-HTML-CHARACTER-POLICY
 title: Contextual HTML escaping and the character policy the document can actually honour
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-HTML-CHARACTER-POLICY
 worktree: C:\wt\T3-REPORT-HTML-CHARACTER-POLICY
 allow_paths:
@@ -70,6 +70,28 @@ substituted」在编码层面根本不成立，必须改。
 `toByteArray(UTF_8)` 后再 `String(bytes, UTF_8)` 比较，只比 String 相等证明不了它。不可见码位
 （NUL、零宽空格、代理项）一律**用数值构造**（`0x200B.toChar()`），绝不写进源文件字面量，也不写
 反斜杠 u 转义——本仓的编辑工具会把后者解码成真字符，落盘后肉眼与 diff 都看不见（L193）。
+
+## 交付记录
+
+**merged** 2026-09-03，master `9a0cac9c`，PR #231，**R3 第 3 轮 pass 零 finding**（前两轮各出一条真 finding，
+均已修；轮次到顶后经用户裁定 `ResetRounds` 再审——理由见下）。225 行、8 个测试、**17/17 变异全杀**，
+`HtmlEscaping.kt` 收据 SHA-256 `2a25567ebec95620…`。
+
+### 三轮 R3 各抓到什么（都是"我写的话与我写的代码不一致"）
+- **第 1 轮 finding A**：KDoc 写「nothing is stripped, **replaced** or reordered」，而三十行下面的代码正是把
+  `&` 替换成 `&amp;`。两条不同的保证被压成了一句假话。改法是拆开说：**源文本语义保留**（每个字符都被表示，
+  或是它自己、或是指代它的实体，不丢字符也不换成别的字符）与**转义结果可无损编码为 UTF-8**（正因如此，
+  未配对代理项只能拒绝、不能转义）。
+- **第 1 轮 finding B**：CR 测试只断言「某处还有一个 0x0D」——重复、乱序、多出字节都能过。改成比对完整的
+  期望字节数组。
+- **第 2 轮**：改完之后测试名叫「a carriage return **and a CRLF**」，构造的却只有 CRLF；而通用往返测试拿
+  转义结果与它自己的 UTF-8 往返比较，于是「只把**孤立** CR 改成 LF」这种变异仍然全绿。补独立的孤立-CR
+  用例（同样比对字面量字节数组），并加 M17 专打这一形态。
+
+### 轮次上限的处置（用户裁定）
+`ReviewRoundCap = 2` 到顶。用户裁定 `ResetRounds` 后重审，理由记此备查：上限是为了止住 maker/checker
+**同一争点**的拉锯，而这三轮不是——每轮提出的是**不同的、成立的**缺陷，每条都被接受并修复，且每次修复都
+带来一枚新的能击杀的变异（M16、M17）。`ResetRounds` 只清计数、不跳过评审，第 3 轮仍是完整的一次真实评审。
 
 ## Rejected alternatives
 
