@@ -16,6 +16,8 @@ import kotlin.test.assertTrue
 class HtmlEscapingTest {
 
     private val nul = 0x00.toChar()
+    private val CR = 0x0D.toChar()
+    private val LF = 0x0A.toChar()
     private val zeroWidthSpace = 0x200B.toChar()
     private val highSurrogate = 0xD83D.toChar()
     private val lowSurrogate = 0xDE00.toChar()
@@ -100,8 +102,7 @@ class HtmlEscapingTest {
     @Test
     fun `everything the policy admits survives a real UTF-8 round trip`() {
         val emoji = String(Character.toChars(0x1F600))
-        val cr = 0x0D.toChar()
-        val admitted = "tab\there " + zeroWidthSpace + "zwsp 厨房 " + emoji + " <&\"'>" + cr
+        val admitted = "tab\there " + zeroWidthSpace + "zwsp 厨房 " + emoji + " <&\"'>" + CR
         for (escaped in listOf(HtmlEscaping.text(admitted), HtmlEscaping.attribute(admitted))) {
             assertEquals(escaped, String(escaped.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
         }
@@ -120,20 +121,26 @@ class HtmlEscapingTest {
      */
     @Test
     fun `a carriage return and a CRLF survive escaping exactly, in both contexts`() {
-        val withCr = "first" + 0x0D.toChar() + 0x0A.toChar() + "second"
-        val expected = "first".toByteArray(Charsets.UTF_8) + byteArrayOf(0x0D, 0x0A) +
-            "second".toByteArray(Charsets.UTF_8)
-        for (escaped in listOf(HtmlEscaping.text(withCr), HtmlEscaping.attribute(withCr))) {
+        // Both forms, each against a literal expected byte array. A standalone CR is its own case, not a
+        // corollary of the CRLF one: the normalisation an HTML parser performs treats a CR *not* followed
+        // by LF differently, so a mutation that rewrites only that form satisfies every CRLF assertion.
+        assertExactBytes("first" + CR + LF + "second", byteArrayOf(0x0D, 0x0A))
+        assertExactBytes("first" + CR + "second", byteArrayOf(0x0D))
+    }
+
+    private fun assertExactBytes(input: String, middle: ByteArray) {
+        val expected = "first".toByteArray(Charsets.UTF_8) + middle + "second".toByteArray(Charsets.UTF_8)
+        for (escaped in listOf(HtmlEscaping.text(input), HtmlEscaping.attribute(input))) {
             val bytes = escaped.toByteArray(Charsets.UTF_8)
             assertTrue(bytes.contentEquals(expected), bytes.joinToString(",") { it.toString() })
-            assertEquals(withCr, String(bytes, Charsets.UTF_8))
+            assertEquals(input, String(bytes, Charsets.UTF_8))
         }
     }
 }
 /*
- * R4 receipt. 16 single-point mutations, each applied alone to HtmlEscaping.kt at SHA-256
+ * R4 receipt. 17 single-point mutations, each applied alone to HtmlEscaping.kt at SHA-256
  * 2a25567ebec95620a3bdae136b7f7311c64edf9c3e4f66ca1a172624f88b810b and restored to that same hash before
- * the next. 16 killed, 0 survived, 0 compile-kills, 0 no-runs.
+ * the next. 17 killed, 0 survived, 0 compile-kills, 0 no-runs.
  *
  * Each kill is a failing test. The harness runs the unmutated suite first as a positive control and
  * records a kill only when Gradle reports that tests ran and failed, because a compile error, a failing
@@ -143,7 +150,9 @@ class HtmlEscapingTest {
  *
  * contexts  M1-M5 drop one escaped character each; M6 escapes an attribute as element text; M7 silently
  *           drops every character with no syntactic meaning; M16 helpfully normalises CR to LF, which
- *           only the exact expected-byte assertion catches - 'a 0x0D is still in there' does not.
+ *           only the exact expected-byte assertion catches - 'a 0x0D is still in there' does not; M17
+ *           normalises a CR only when it is not part of a CRLF, exactly as an HTML parser does, which
+ *           the CRLF case alone cannot catch and the standalone-CR case does.
  * policy    M8 removes the policy check from both entry points; M9, M10, M11 admit U+0000, an unpaired
  *           high surrogate and an unpaired low surrogate; M15 refuses U+0001 instead of U+0000.
  * pairing   M12 lets the bounds check read one past the end of the string; M13 drops the index advance so
