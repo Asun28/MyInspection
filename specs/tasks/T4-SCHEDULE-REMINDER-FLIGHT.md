@@ -21,7 +21,7 @@ non_goals:
   - 边缘路径诊断的 generation 归属（TD169）与 waiter 抛错的结构化诊断（TD170）——同归 T4-SCHEDULE-REMINDER-RECOVERY
 acceptance:
   - "A1 concurrent registrations of one occurrence coalesce into a single reservation, query and enqueue, and every waiter of that flight settles exactly once with the same exact cause"
-  - "A2 the enqueue seam becomes asynchronous: registration returns after submission, the operation callback settles the flight with its exact class and cause, and a waiter that throws Throwable never starves the remaining waiters or the diagnostic"
+  - "A2 the enqueue seam becomes asynchronous: the registration that owns a flight returns once its submission is accepted, a registration that joins an existing flight returns as soon as it has joined and is bound instead by A1 exactly-once settlement under the same cause, the operation callback settles the flight with its exact class and cause, and a waiter that throws any Throwable never starves the remaining waiters or the diagnostic"
   - "A3 a matching worker that leaves ADMISSION_PENDING before the callback settles every waiter as admitted, later callback failures record ENQUEUE_CALLBACK_AFTER_WORKER_STARTED with their original class without downgrading a proved admission, and a callback whose generation the receipt has already moved past writes no receipt at all: while its flight is still the active one it settles that flight own waiters as superseded and clears the flight so the next registration re-coordinates, and once that flight is no longer the active one it changes neither waiter nor receipt and is recorded as a late arrival"
   - "A4 one monotonic 30 second watchdog per flight settles all waiters as a retryable timeout only while this generation own receipt still sits exactly where the flight submitted it and no worker has moved it, reports an unreadable, write uncertain or superseded receipt under that receipt own cause instead of a timeout, writes no receipt at all, clears the flight, never enqueues a second time, and reschedules rather than settling when the monotonic deadline has not actually passed"
   - "A5 a callback arriving after settlement changes no waiter or receipt yet is still recorded exactly, and fatal enqueue failures clear the active flight so the next registration re-coordinates instead of joining a dead one"
@@ -103,6 +103,19 @@ R3 第 4 轮指出：worker 证实 admission 后若 **watchdog** 先 settle 掉 
 ③ 本卡 diff 距 60000 字符硬闸仅剩约 60 字符——TD169 的修复本身只有约 5 处单行改动，但配套的精确诊断断言塞不进来，
 硬塞就只能删掉评审赖以判断的论证性注释（L266 明列的失败模式）。**曾试改并实测顶破至 60680，已整体回退，
 生产文件 SHA 回到 `b118a0d3`，15 枚变异收据因而继续有效。**
+
+## A2 的措辞澄清（R3 第 7 轮 · 用户裁定）
+
+R3 第 7 轮指出：join 到既有 flight 的调用者会在 owner 抵达 `submitUnique` **之前**返回，而 A2 原文写的是
+「registration returns after submission」。**测试缺口属实**——并发用例只在所有 register 都返回之后才看状态，
+根本暴露不了这个先后关系，故本卡新增一条**屏障用例**：把 owner 卡在 query 与 submit 之间，让 joiner 在那个窗口里
+完整地注册并返回，断言它返回的那一刻**尚不存在任何 submission**，且随后 owner 的唯一一次提交被应答时两者
+以同一个 cause 各结算恰好一次。
+
+但**行为不改**，用户裁定如此：joiner 的合同本就由 A1 以「结算」定义（`every waiter of that flight settles exactly
+once with the same exact cause`），而非以返回时刻定义；让 joiner 阻塞到 owner 提交，等于把 `register` 重新变成阻塞调用
+（本卡存在的意义正是把这道 seam 改成异步），并把并发注册串行到 owner 的 lookup/query/submit I/O 之后——那正是合流要消除的开销。
+A2 遂改写为分别写明 owner 与 joiner 两侧的合同，比原文更具体。
 
 ## R4 语义变异收据（15/15 全杀）
 
