@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-REMINDER-FLIGHT
 title: 注册合流、异步 callback flight 与单调 watchdog
 depends_on: [T4-SCHEDULE-REMINDER-SCHEDULER]
-status: todo
+status: merged
 branch: T4-SCHEDULE-REMINDER-FLIGHT
 worktree: C:\wt\T4-SCHEDULE-REMINDER-FLIGHT
 allow_paths:

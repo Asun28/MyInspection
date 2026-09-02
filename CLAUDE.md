@@ -274,8 +274,23 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 损坏隔离与 generation CAS · `DELIVERY`（master `41793005`，PR #219）定 Worker、通知发布与不重投边界。
 **DELIVERY 的形状值得复用**：preparation 与 notifier 是两个独立端口，于是「失败发生在发布之前」由**哪个端口抛的**
 决定，而非一个任何调用方都可能忘记套的异常包装器——A3 重试阶梯与「一旦发布绝不重投」遂是结构性的、非约定性的。
-余 `SCHEDULER`（WorkManager 唯一注册与 callback 边界，**必须用 `reminderGenerationId` 派生的 UUID 建 WorkRequest**，
-否则 Worker 每次运行都在 INPUT 阶段被拒）与 `T4-SCHEDULE-UI`。
+`SCHEDULER`（master `afc0c3c2`，PR #222）定 WorkRequest 构造与同步注册预留（**必须用 `reminderGenerationId` 派生的
+UUID 建 WorkRequest**，否则 Worker 每次运行都在 INPUT 阶段被拒）· **`FLIGHT`（master `8d5c6d1b`，PR #226）**把 enqueue seam
+改为**异步 callback**并给每个 occurrence 一个 flight：一次预留/一次查询/一次提交服务全部并发注册，waiter 在锁外逐个隔离
+调用（一个抛错饿不死其余，也饿不死诊断）；**worker 抢先离开 `ADMISSION_PENDING` 即 admission 证明**——flight 开着时该代
+只有它这一个写者，故任何后到的失败都只记 `ENQUEUE_CALLBACK_AFTER_WORKER_STARTED`、不得降级已证实的 admission；
+单调 30 秒 watchdog 每 flight 一枚，提前唤醒按剩余量重排、到期只在证据未变时报超时且**不写回执**。26 测试 / 15 变异全杀。
+
+> **FLIGHT 的教训值得记住**：R3 跑了 **8 轮 12 条 finding，全部属实，却没有一条落在 flight 机制本身**——全是
+> **边缘情形的分类与断言强度**。最贵的一条是 `expire` 把「未被证明」一律折成 timeout，于是 lookup 不可读、
+> write-uncertain 与**跨代**三种读数都报成可重试超时，其中跨代还与 callback 路径的 `proved` 自相矛盾（fail-open ×3）。
+> **A2/A3/A4 三处措辞都被实现打脸**：原文假定 flight 总从新预留出发、假定「跨代 callback 不改任何 waiter」、
+> 假定「registration 一律在提交后返回」——而 `place` 会从已 `ENQUEUED`/`RETRYABLE` 的回执恢复重提交、
+> 跨代时 waiter 必须当场收到 `GENERATION_SUPERSEDED` 否则白等 30 秒、joiner 的合同本就由 A1 以「结算」定义。
+> 三处均按真实合同**收紧**改写（更严、更具体），理由逐条记在卡内。**写验收清单时先问「这条在合流/恢复路径上还成立吗」。**
+
+余 `RECOVERY`（权限恢复 + 诊断 JSON 渲染 + TD167–TD170 四项诊断债，**FLIGHT 的 3 条诊断类 finding 全部移交此卡**）
+与 `T4-SCHEDULE-UI`。
 
 
 **W0 闸号协调债已结清**（2026-08-28，PR #186，master `b1e5f0b5`）：`selftest.ps1` 现在从闸头注释与真实
