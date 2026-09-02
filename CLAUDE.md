@@ -190,7 +190,29 @@ R3 pass 于第 **2** 轮）——`ReportComposer` 的排版入口收为 `compose
 > 构造器私有 + projector 是唯一出生点而**不可表达**，遂按评审者给出的备选补「证明其不可表达」的测试，
 > 并以 M17 证明该测试确实会红；**没有**补一道任何变异都杀不掉的死守卫。
 
-**当前已解锁待做**：`T3-PDF-RENDERER`★（依本卡，**关键路径下一站**，可直接开工）· `T3-REPORT-HTML-RENDERER`
+**PDF 渲染程序层已合并**：`T3-PDF-RENDERER` **merged**（2026-09-02，master `a3d1e702`，PR #227，
+R3 pass 于第 **2** 轮、零 finding）——`core/report/pdf/`：四档质量契约（需求 §8 的内联/附录 dpi，默认 MEDIUM）
++ mm→pt 几何 + 逐槽采样参数 + 逐页解码字节上界 + `DocumentPlan` → 有序绘制操作的 builder。27 个 JVM 测试、
+**26 枚单点变异逐一击杀**（零编译型假击杀，收据钉四个生产文件的 SHA-256）。**纯数据层，零 Android 依赖**；
+真正拿起 `PdfDocument`/`Canvas` 的壳与真机实测归 `T3-PDF-RENDER-DEVICE`，产物路径归 `T3-PDF-ARTIFACT-PATHS`。
+> **本卡两次拆分，皆用户裁定**：① 开工前发现原卡把「本仓闸门可证明的纯数据契约」与「只有真机能跑的
+> Android 渲染」混在一张卡——`:app` 单测是纯 JVM（无 `returnDefaultValues`、T0-TOOLCHAIN 禁 Robolectric），
+> 且原 `dod_command` **根本不跑任何 `:app` 测试**，于是写进该卡 `app/src/test/**` allow_path 的测试永不执行
+> （结构性 vacuous pass，已记 **L280**）；A2 的重开核验本就归 EXPORT-CORE，A4 的实测内存依赖未跑的 spike ④。
+> ② R3 首轮三条 finding 全部成立并修完后 diff 达 1139 行 / 60679 字符、同时越两道硬闸，可砍注释补不上缺口，
+> 遂把 A3 产物路径拆给 `T3-PDF-ARTIFACT-PATHS`。
+> **R3 首轮三条都是真缺陷**：整数回绕（`decodedBytes` 可返回**负**内存上界；`xMm + widthMm` 回绕后
+> 「越页几何」反而**通过**了 containment 闸——守卫 fail-open）· 缺少卡片自己要求的锚定 shape 判定 ·
+> 测试落点未镜像源码单元。修法分别是照抄 `ImportBounds` 的饱和、给采样入参加上界、远边用 Long 求和。
+> **方法论沉淀**：变异**编排阶段**（不是执行阶段）就吃掉两个覆盖缺口——附录 dpi 与内联 dpi 在多数夹具上
+> 舍入到同一个 `inSampleSize`，故「用错密度」原本能全绿通过；而「块自身越页」与「块内 run 越页」原本无从区分。
+> 另有一处自证反例：`assertEquals(DEFAULT, fromStoredValue(null))` 拿生产值和自己比，`DEFAULT` 被变异成 HIGH
+> 时照样绿——已改写成字面量（同 `ReportSourcePurityTest` 对 composer 的纪律）。
+> **语义指纹不写进 PDF 字节**：`PdfDocument` 公开面只有 `startPage`/`finishPage`/`writeTo`/`close`/`getPages`，
+> **无任何文档元数据 API**（经 Context7 核官方 reference）；画到页面上属渲染器自造内容、且会让 PDF 与 HTML
+> 两版不一致。故 fingerprint 作**程序身份**随程序旅行，落账归 `T3-REPORT-EXPORT-CORE` 的 receipt。
+
+**当前已解锁待做**：`T3-PDF-ARTIFACT-PATHS`（依 T3-PDF-RENDERER，S 档、草稿在 `_local/`）· `T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
 · `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 

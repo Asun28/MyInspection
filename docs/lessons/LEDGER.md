@@ -150,7 +150,7 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 4
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 5
 - symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
 - rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 4
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -2035,5 +2035,21 @@
 - symptom: R3 指某个公共入口对某状态「无守卫、会抛未结构化异常」，但该状态其实因构造器私有 + 唯一出生点在上游而不可表达。
 - root_cause: 评审只读 diff，看不到上游构造路径；照它字面补一道 require 会得到一道任何单点变异都杀不掉的死守卫，与本仓「每道守卫配一枚能让它红的变异」（L165）直接冲突。
 - rule: 先判该状态是否真的不可表达（构造器可见性 + 唯一出生点 + 上游丢弃/拒绝逻辑）。可表达就补守卫；不可表达就补「证明其不可表达」的测试，并对上游那处丢弃/拒绝逻辑做一枚变异，证明该测试确实会红——把这枚收据连同判断写进 PR，评审者通常自己就给了这条备选。
+- enforced_by: 
+- refs: 
+
+## L280
+- date: 2026-09-02 ｜ tags: cards,dod,testability,scoping ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片 allow_paths 邀请测试落进某目录，但 dod_command 与 verify 都不执行那个 source set —— 写在那里的测试永不运行，全绿而零证据（T3-PDF-RENDERER 原卡：allow_paths 含 app/src/test/**/export/pdf/，dod 只跑 :app:assembleDebug + :core:test）
+- root_cause: allow_paths 与 dod_command 是两份独立字段，无人交叉核对；再叠加运行期不可用（:app 单测纯 JVM、无 testOptions.returnDefaultValues、T0-TOOLCHAIN 禁 Robolectric ⇒ 触碰 android.graphics 的代码在单测里抛 Stub!），于是「可以写 RED」（core 半边）与「另半边永不被执行」同时成立，L47 的停机判据不会触发
+- rule: 开卡/接卡第一步把 allow_paths 里每个测试目录，逐个对到 dod_command 与 verify.ps1 实际执行的 task 上：跑一次真命令、看 build/test-results 里有没有该包的 XML，没有就是结构性 vacuous pass。同时核该 source set 的运行期能力（有无 Robolectric/仪器测试/returnDefaultValues），只有真机才能跑的验收条款必须拆卡或改写成 dod_assert 里的人工核验，不得留在自动闸假装被证明。
+- enforced_by: 
+- refs: 
+
+## L281
+- date: 2026-09-02 ｜ tags: mutation,r4,test-design,coverage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 测试全绿、覆盖看着完整，但某条验收其实没有任何断言能证伪——直到为它设计变异时才发现「这枚变异改完，没有一个测试会红」
+- root_cause: 变异测试被当成 GREEN 之后的**验证**步骤，于是「跑一批、看几枚存活」是唯一的发现渠道；但一枚变异要跑一遍全套（本卡每枚约 2 分钟），存活才补测试意味着最贵的循环。实际上「为每条验收写出那枚能杀死它的变异」这个**编排动作本身**就是判据：写不出靶子、或写出来发现现有断言打不到它，缺口当场就暴露了，一次都不用跑
+- rule: 把变异清单当**设计文档**写在跑批之前：逐条验收问「哪一处单点改动会违反它，哪个断言会红」。写不出靶子=该验收没被测；靶子存在但想不出哪个测试会红=覆盖缺口，先补测试再跑批。本卡实例：附录 dpi 与内联 dpi 在多数夹具上舍入到同一个 inSampleSize，「用错密度」原本全绿；「块自身越页」与「块内 run 越页」原本无从区分——两个缺口都在编排阶段发现，零批次成本。跑批只用来**证实**已经想清楚的判据，不用来搜索缺口
 - enforced_by: 
 - refs: 

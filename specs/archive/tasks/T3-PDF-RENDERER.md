@@ -3,7 +3,7 @@ id: T3-PDF-RENDERER
 title: Pure JVM PDF render program, four export qualities, geometry and per-page sampling bounds
 depends_on: [T3-REPORT-CONTENT-ADAPTER]
 parallelizable_with: [T3-HISTORY-COMPARE, T5-BACKUP-IO, T3-REPORT-HTML-RENDERER]
-status: todo
+status: merged
 branch: T3-PDF-RENDERER
 worktree: C:\wt\T3-PDF-RENDERER
 allow_paths:

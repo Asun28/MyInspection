@@ -17,6 +17,7 @@ non_goals:
   - 重做 scheduler 卡已合并的 WorkRequest 构造与保留工作查询表
   - 根导航与启动时权限请求
   - 权限恢复、诊断 JSON 渲染与 TD167 definitive-admission recovery（全部归 T4-SCHEDULE-REMINDER-RECOVERY）
+  - 迟到失败 callback 的 admission 分类（watchdog 先结算时，late 记录未标 `ENQUEUE_CALLBACK_AFTER_WORKER_STARTED`）—— TD168，归 T4-SCHEDULE-REMINDER-RECOVERY
 acceptance:
   - "A1 concurrent registrations of one occurrence coalesce into a single reservation, query and enqueue, and every waiter of that flight settles exactly once with the same exact cause"
   - "A2 the enqueue seam becomes asynchronous: registration returns after submission, the operation callback settles the flight with its exact class and cause, and a waiter that throws Throwable never starves the remaining waiters or the diagnostic"
@@ -78,6 +79,17 @@ waiter 白等一轮超时；② 已合并的 SCHEDULER 卡在同一情形下由 
 故 A3 改为写明真实合同：跨代 callback **一律不写回执**；flight 仍活动时结算它自己的 waiter 并清空 flight
 （下一次注册遂在新 generation 上重新协调），flight 已不活动时则什么都不改、只记 late。这比原措辞更具体，
 且把「不写回执」这条真正的不变量单独拎了出来。
+
+## 迟到 callback 分类移交 RECOVERY（R3 第 4 轮 · 用户裁定）
+
+R3 第 4 轮指出：worker 证实 admission 后若 **watchdog** 先 settle 掉 flight，随后到达的失败 callback 会被记成原始
+`ENQUEUE_CALLBACK_*` 而非 `ENQUEUE_CALLBACK_AFTER_WORKER_STARTED`——同一事实按谁赢得竞速给出两种分类。**属实**。
+
+但**影响仅限日志**：waiter 与回执都已由 worker proof 正确结算，该记录本身带 `late=true`、不改任何状态。
+而第 2/3/4 三轮的 finding 全部落在**边缘情形的诊断分类**上、不在 flight 机制本身（L275：一处反复吃 finding
+的子问题通常是独立子问题，越早拆越省轮次），且本卡 diff 距 60000 字符硬闸只剩约 20 字符，再改必须删掉论证性注释。
+用户遂裁定移交 `T4-SCHEDULE-REMINDER-RECOVERY`——**该卡本就拥有注册诊断渲染与失败类别 `cause_code`**，落点相同；
+已登记 TD168，并列入本卡 `non_goals`。
 
 ## R4 语义变异收据（15/15 全杀）
 
