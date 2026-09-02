@@ -20,7 +20,7 @@ non_goals:
 acceptance:
   - "A1 concurrent registrations of one occurrence coalesce into a single reservation, query and enqueue, and every waiter of that flight settles exactly once with the same exact cause"
   - "A2 the enqueue seam becomes asynchronous: registration returns after submission, the operation callback settles the flight with its exact class and cause, and a waiter that throws Throwable never starves the remaining waiters or the diagnostic"
-  - "A3 a matching worker that leaves ADMISSION_PENDING before the callback settles every waiter as admitted, later callback failures record ENQUEUE_CALLBACK_AFTER_WORKER_STARTED with their original class without downgrading a proved admission, and a callback naming a superseded generation changes no waiter or receipt"
+  - "A3 a matching worker that leaves ADMISSION_PENDING before the callback settles every waiter as admitted, later callback failures record ENQUEUE_CALLBACK_AFTER_WORKER_STARTED with their original class without downgrading a proved admission, and a callback whose generation the receipt has already moved past writes no receipt at all: while its flight is still the active one it settles that flight own waiters as superseded and clears the flight so the next registration re-coordinates, and once that flight is no longer the active one it changes neither waiter nor receipt and is recorded as a late arrival"
   - "A4 one monotonic 30 second watchdog per flight settles all waiters as a retryable timeout only while this generation own receipt still sits exactly where the flight submitted it and no worker has moved it, reports an unreadable, write uncertain or superseded receipt under that receipt own cause instead of a timeout, writes no receipt at all, clears the flight, never enqueues a second time, and reschedules rather than settling when the monotonic deadline has not actually passed"
   - "A5 a callback arriving after settlement changes no waiter or receipt yet is still recorded exactly, and fatal enqueue failures clear the active flight so the next registration re-coordinates instead of joining a dead one"
   - "A6 runtime acceptance tests invoke the compiled scheduler and the production delivery runner over one shared receipt store and scheduler-owned flight with concrete inputs and production-used injected enqueue, query, deadline and clock ports, assert only domain results and recorded effects, and carry executable semantic mutation receipts; source, resources, and inspected compiled artifacts are never an oracle"
@@ -64,6 +64,20 @@ Matching worker 若先看到 `ADMISSION_PENDING`，以其 `actualId == generatio
 首轮 R3 正确指出 `expire` 把「未被证明」一律折成 timeout，于是 lookup 不可读、write-uncertain 与**跨代**三种读数都会被报成可重试超时——其中跨代与 callback 路径（`proved`）对同一情形的判定直接矛盾。三处均属实，已修为逐读数穷尽分类。
 
 同时把 A4 原文的「still ADMISSION_PENDING」改为「still sits exactly where the flight submitted it」：`place` 会从已 `ENQUEUED`/`RETRYABLE` 的回执**恢复**并重新提交（SCHEDULER 卡已合并并冻结的路径，且本卡 `non_goals` 明令不得重做），故 watchdog 合法地会遇到非 pending 的起点。原措辞假定 flight 总是从新预留出发，过窄；修订后的措辞**更严**——它额外点名了不可读/不确定/跨代三种必须各报其因的读数。
+
+## A3 的措辞修订（R3 第 3 轮 · 用户裁定）
+
+R3 第 3 轮正确指出**测试缺口**：原「跨代 callback」用例先让 watchdog 清掉 flight 再 supersede，于是只测到
+「flight 已非活动」这条守卫，从未覆盖「flight 仍活动、回执却已跨代」。该用例已改为直接覆盖后者。
+
+但评审同时要求该路径「change no waiter」，用户裁定**不采纳**，理由两条：① 让 callback 变成纯 no-op 只是把
+同一个 `GENERATION_SUPERSEDED` 结论推迟给 30 秒后的 watchdog（`expire` 对跨代给出的正是同一个 cause），
+waiter 白等一轮超时；② 已合并的 SCHEDULER 卡在同一情形下由 `reread` **同步**返回 `GENERATION_SUPERSEDED`，
+而本卡 `non_goals` 明令不得重做那张表——异步路径若改成 no-op，两条路径对同一事实会给出不同答案。
+
+故 A3 改为写明真实合同：跨代 callback **一律不写回执**；flight 仍活动时结算它自己的 waiter 并清空 flight
+（下一次注册遂在新 generation 上重新协调），flight 已不活动时则什么都不改、只记 late。这比原措辞更具体，
+且把「不写回执」这条真正的不变量单独拎了出来。
 
 ## R4 语义变异收据（15/15 全杀）
 
