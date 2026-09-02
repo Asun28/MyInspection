@@ -18,6 +18,7 @@ non_goals:
   - 根导航与启动时权限请求
   - 权限恢复、诊断 JSON 渲染与 TD167 definitive-admission recovery（全部归 T4-SCHEDULE-REMINDER-RECOVERY）
   - 迟到失败 callback 的 admission 分类（watchdog 先结算时，late 记录未标 `ENQUEUE_CALLBACK_AFTER_WORKER_STARTED`）—— TD168，归 T4-SCHEDULE-REMINDER-RECOVERY
+  - 边缘路径诊断的 generation 归属（TD169）与 waiter 抛错的结构化诊断（TD170）——同归 T4-SCHEDULE-REMINDER-RECOVERY
 acceptance:
   - "A1 concurrent registrations of one occurrence coalesce into a single reservation, query and enqueue, and every waiter of that flight settles exactly once with the same exact cause"
   - "A2 the enqueue seam becomes asynchronous: registration returns after submission, the operation callback settles the flight with its exact class and cause, and a waiter that throws Throwable never starves the remaining waiters or the diagnostic"
@@ -90,6 +91,18 @@ R3 第 4 轮指出：worker 证实 admission 后若 **watchdog** 先 settle 掉 
 的子问题通常是独立子问题，越早拆越省轮次），且本卡 diff 距 60000 字符硬闸只剩约 20 字符，再改必须删掉论证性注释。
 用户遂裁定移交 `T4-SCHEDULE-REMINDER-RECOVERY`——**该卡本就拥有注册诊断渲染与失败类别 `cause_code`**，落点相同；
 已登记 TD168，并列入本卡 `non_goals`。
+
+## 第 6 轮两条诊断 finding 同样移交 RECOVERY（TD169 / TD170）
+
+均属实、且**均只影响日志**：① `expire`/`proved`/`reread` 的不可读与跨代分支把记录记成 `identity=null` 或记在新的那一代
+名下；② `publish` 静默吞掉 waiter 抛出的 Throwable。waiter 结算与回执在两种情形下都正确。
+
+按用户对 TD168 已作的裁定（诊断类缺陷归拥有诊断渲染的 RECOVERY）一并移交，另有两条结构性理由：
+① RECOVERY 的 A2 本就要求诊断渲染带 **non negative generation_number**，TD169 必然经它之手；
+② TD170 需要**新的诊断词汇**（现有 cause 枚举没有「waiter 抛错」这一类），而词汇扩展正是 RECOVERY 的范围。
+③ 本卡 diff 距 60000 字符硬闸仅剩约 60 字符——TD169 的修复本身只有约 5 处单行改动，但配套的精确诊断断言塞不进来，
+硬塞就只能删掉评审赖以判断的论证性注释（L266 明列的失败模式）。**曾试改并实测顶破至 60680，已整体回退，
+生产文件 SHA 回到 `b118a0d3`，15 枚变异收据因而继续有效。**
 
 ## R4 语义变异收据（15/15 全杀）
 
