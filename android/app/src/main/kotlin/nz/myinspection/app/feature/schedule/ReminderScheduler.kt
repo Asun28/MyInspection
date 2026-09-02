@@ -42,7 +42,6 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.WORKER_CON
 import nz.myinspection.app.feature.schedule.ReminderRegistrationNote.LATE_CALLBACK
 import nz.myinspection.app.feature.schedule.ReminderRegistrationNote.WAITER_FAILED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.ADMITTED
-import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.RETRYABLE_FAILURE
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 /** What a registration achieved. Every cause below maps onto exactly one of these. */
@@ -320,13 +319,18 @@ class ReminderScheduler(
             return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
         }
         val current = retained.filter { it.id == receipt.workRequestId }
-        val foreign = retained.firstOrNull { it.id != receipt.workRequestId && !it.state.isFinished }
+        val foreign = retained.filter { it.id != receipt.workRequestId && !it.state.isFinished }
         if (current.size > 1) {
             // Retained twice under this generation's own id, so there is no other work to name.
             return quarantine(receipt, ReminderRegistrationCause.RETAINED_WORK_DUPLICATE)
         }
-        if (foreign != null) {
-            return quarantine(receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, foreign.id)
+        if (foreign.isNotEmpty()) {
+            // Which foreign request the collision is with is only well defined when there is one.
+            // Neither this port nor WorkManager promises an order over what it retains, so naming
+            // one of several would name a different one from run to run over the same state.
+            return quarantine(
+                receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, foreign.singleOrNull()?.id,
+            )
         }
         val single = current.singleOrNull() ?: return submit(flight, receipt)
         return when (single.state) {
@@ -764,74 +768,13 @@ internal object AndroidReminderWatchdogPort : ReminderWatchdogPort {
 }
 
 /**
- * Renders one registration for the log, in the field vocabulary the delivery side already uses.
- *
- * Nothing that does not correlate with this occurrence is published. The occurrence id has to be
- * the irreversible digest shape, the generation has to be a real one, and the work request id is
- * the one those two derive rather than any spelling a caller might hold, so half an identity is
- * dropped instead of published as though it were whole.
- *
- * `retained_work_request_id` is this chain's own addition and names the work this settlement
- * collided with, so a retained id equal to this registration's own is dropped too: publishing it
- * would assert a conflict with a request that does not exist.
+ * Publishes a settled registration. Rendering it into the delivery side's field vocabulary is the
+ * follow-up card's subject, so this stays the record's own spelling until that lands: the record
+ * carries no property, date, path or exception text for a renderer to have to leave out.
  */
-internal fun reminderRegistrationMessage(record: ReminderRegistrationRecord): String {
-    val occurrenceId = record.identity?.occurrenceId?.takeIf { it.matches(OCCURRENCE_ID_PATTERN) }
-    val generationNumber = record.identity?.generationNumber?.takeIf { it >= 0 }
-    val workRequestId = if (occurrenceId != null && generationNumber != null) {
-        reminderGenerationId(occurrenceId, generationNumber)
-    } else {
-        null
-    }
-    val retained = record.retainedWorkRequestId?.takeIf { workRequestId != null && it != workRequestId }
-    return buildString {
-        append("{\"event\":\"schedule-reminder\",\"stage\":\"")
-        append(record.cause.stage().wireValue)
-        append("\",\"occurrence_id\":\"")
-        append(occurrenceId ?: "missing")
-        append("\",\"type\":\"")
-        append(record.type.name)
-        append("\",\"generation_number\":")
-        append(generationNumber ?: "null")
-        append(",\"work_request_id\":")
-        append(workRequestId?.toString().quoted())
-        append(",\"retained_work_request_id\":")
-        append(retained?.toString().quoted())
-        append(",\"retryable\":")
-        append(record.cause.outcome == RETRYABLE_FAILURE)
-        append(",\"cause_code\":\"")
-        append(record.cause.wireValue())
-        append("\",\"callback_cause_code\":")
-        append(record.callbackCause?.wireValue().quoted())
-        append(",\"note\":")
-        append(record.note?.wireValue().quoted())
-        append("}")
-    }
-}
-
-/**
- * Where a registration reached its answer, in the delivery side's own closed set of stages. Only
- * the two causes that are decided somewhere other than the receipt name another stage.
- */
-private fun ReminderRegistrationCause.stage(): LogStage = when (this) {
-    INVALID_ROUTE -> LogStage.INPUT
-    PERMISSION_NOT_GRANTED -> LogStage.PERMISSION
-    else -> LogStage.RECEIPT
-}
-
-/**
- * The logged spelling of one value of a closed vocabulary, derived rather than written out beside
- * it, so a value added later cannot reach the log unspelled. The spellings are still pinned, by
- * tests comparing whole rendered lines against written out ones, so a rename cannot quietly
- * change what this emits either.
- */
-private fun Enum<*>.wireValue(): String = name.lowercase().replace('_', '-')
-
-private fun String?.quoted(): String = this?.let { "\"$it\"" } ?: "null"
-
 internal object AndroidReminderSchedulerDiagnosticPort : ReminderSchedulerDiagnosticPort {
     override fun record(record: ReminderRegistrationRecord) {
-        Log.w("ReminderScheduler", reminderRegistrationMessage(record))
+        Log.w("ReminderScheduler", record.toString())
     }
 }
 

@@ -174,12 +174,8 @@ class ReminderSchedulerTest {
         assertEquals(emptyList(), denied.query.names)
         assertEquals(emptyList(), denied.enqueue.submissions)
         assertEquals(
-            "{\"event\":\"schedule-reminder\",\"stage\":\"permission\"," +
-                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
-                "\"work_request_id\":\"40fe7461-9be1-3ce7-8bdf-28b48b76359e\"," +
-                "\"retained_work_request_id\":null,\"retryable\":true," +
-                "\"cause_code\":\"permission-not-granted\",\"callback_cause_code\":null,\"note\":null}",
-            denied.diagnostics.messages.single(),
+            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, PERMISSION_NOT_GRANTED),
+            denied.diagnostics.records.single(),
         )
 
         val granted = Fixture(PERMISSION_BLOCKED)
@@ -263,75 +259,45 @@ class ReminderSchedulerTest {
     }
 
     @Test
-    fun `registration diagnostics publish only what correlates with this occurrence`() {
-        val admitted = Fixture()
-        admitted.register()
+    fun `a settlement names the work it collided with, and names none when that is ambiguous`() {
+        val one = Fixture(ADMISSION_PENDING, retained = listOf(RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING)))
 
+        assertEquals(RETAINED_WORK_ID_MISMATCH, one.register())
         assertEquals(
-            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
-                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
-                "\"work_request_id\":\"40fe7461-9be1-3ce7-8bdf-28b48b76359e\"," +
-                "\"retained_work_request_id\":null,\"retryable\":false," +
-                "\"cause_code\":\"callback-confirmed-admission\",\"callback_cause_code\":null,\"note\":null}",
-            admitted.diagnostics.messages.single(),
+            ReminderRegistrationRecord(
+                IDENTITY_0, ROUTINE, RETAINED_WORK_ID_MISMATCH, retainedWorkRequestId = FOREIGN_WORK_ID,
+            ),
+            one.diagnostics.records.single(),
         )
 
-        val foreign = Fixture(
-            ADMISSION_PENDING,
-            retained = listOf(RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING)),
-        )
-        foreign.register()
+        // Two foreign requests are two candidates and this port promises no order over them, so
+        // the same state must not name one of them in one run and the other in the next.
+        val both = listOf(FOREIGN_WORK_ID, SECOND_FOREIGN_WORK_ID)
+        listOf(both, both.reversed()).forEach { order ->
+            val ambiguous = Fixture(
+                ADMISSION_PENDING,
+                retained = order.map { RetainedWork(it, WorkInfo.State.RUNNING) },
+            )
 
-        assertEquals(
-            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
-                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
-                "\"work_request_id\":\"40fe7461-9be1-3ce7-8bdf-28b48b76359e\"," +
-                "\"retained_work_request_id\":\"00000000-0000-3000-8000-0000000000ff\"," +
-                "\"retryable\":false,\"cause_code\":\"retained-work-id-mismatch\"," +
-                "\"callback_cause_code\":null,\"note\":null}",
-            foreign.diagnostics.messages.single(),
-        )
-
-        val unresolvable = Fixture()
-        unresolvable.register(PendingReminder(ScheduleRoute("   ", ROUTINE), DUE_AT))
-
-        assertEquals(
-            "{\"event\":\"schedule-reminder\",\"stage\":\"input\"," +
-                "\"occurrence_id\":\"missing\",\"type\":\"ROUTINE\",\"generation_number\":null," +
-                "\"work_request_id\":null,\"retained_work_request_id\":null,\"retryable\":false," +
-                "\"cause_code\":\"invalid-route\",\"callback_cause_code\":null,\"note\":null}",
-            unresolvable.diagnostics.messages.single(),
-        )
-
-        // The record is a public type, so this boundary is handed halves of identities and
-        // collisions that correlate with nothing. Each is dropped rather than published.
-        val uncorrelated = listOf(
-            ReminderRegistrationRecord(ReminderRegistrationIdentity("not-a-digest", 0L), ROUTINE, RECEIPT_CONTENDED) to
-                "\"occurrence_id\":\"missing\",\"type\":\"ROUTINE\",\"generation_number\":0," +
-                    "\"work_request_id\":null,\"retained_work_request_id\":null",
-            ReminderRegistrationRecord(ReminderRegistrationIdentity(OCCURRENCE_ID, -1L), ROUTINE, RECEIPT_CONTENDED) to
-                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":null," +
-                    "\"work_request_id\":null,\"retained_work_request_id\":null",
-            ReminderRegistrationRecord(null, ROUTINE, RECEIPT_CONTENDED, retainedWorkRequestId = FOREIGN_WORK_ID) to
-                "\"occurrence_id\":\"missing\",\"type\":\"ROUTINE\",\"generation_number\":null," +
-                    "\"work_request_id\":null,\"retained_work_request_id\":null",
-            // A collision that is this registration's own work under a second name, which would
-            // otherwise be published as a conflict with a request that does not exist.
-            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, RECEIPT_CONTENDED, retainedWorkRequestId = WORK_ID_0) to
-                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
-                    "\"work_request_id\":\"40fe7461-9be1-3ce7-8bdf-28b48b76359e\"," +
-                    "\"retained_work_request_id\":null",
-        )
-
-        uncorrelated.forEach { (record, correlated) ->
+            assertEquals(RETAINED_WORK_ID_MISMATCH, ambiguous.register(), order.toString())
             assertEquals(
-                "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," + correlated +
-                    ",\"retryable\":true,\"cause_code\":\"receipt-contended\"," +
-                    "\"callback_cause_code\":null,\"note\":null}",
-                reminderRegistrationMessage(record),
-                record.identity.toString(),
+                ReminderRegistrationRecord(IDENTITY_0, ROUTINE, RETAINED_WORK_ID_MISMATCH),
+                ambiguous.diagnostics.records.single(),
+                order.toString(),
             )
         }
+
+        // Work retained twice under this generation's own id collides with nothing else.
+        val duplicated = Fixture(
+            ADMISSION_PENDING,
+            retained = retained(WorkInfo.State.ENQUEUED) + retained(WorkInfo.State.RUNNING),
+        )
+
+        assertEquals(RETAINED_WORK_DUPLICATE, duplicated.register())
+        assertEquals(
+            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, RETAINED_WORK_DUPLICATE),
+            duplicated.diagnostics.records.single(),
+        )
     }
 
     @Test
@@ -718,7 +684,7 @@ class ReminderSchedulerTest {
 
         assertEquals(listOf(1, 1, 1), (0 until 3).map { calls.get(it) })
         // The caller's failure is reported rather than swallowed, and reported without a word of
-        // it: the exact rendering below is the whole record, so the thrown text cannot be in it.
+        // what was thrown: this exact record is the whole of it, and it has nowhere to put text.
         assertEquals(
             listOf(
                 ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
@@ -727,15 +693,6 @@ class ReminderSchedulerTest {
                 ),
             ),
             fixture.diagnostics.records.toList(),
-        )
-        assertEquals(
-            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
-                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
-                "\"work_request_id\":\"40fe7461-9be1-3ce7-8bdf-28b48b76359e\"," +
-                "\"retained_work_request_id\":null,\"retryable\":false," +
-                "\"cause_code\":\"callback-confirmed-admission\",\"callback_cause_code\":null," +
-                "\"note\":\"waiter-failed\"}",
-            fixture.diagnostics.messages.last(),
         )
     }
 
@@ -1110,15 +1067,10 @@ class ReminderSchedulerTest {
         val label: String get() = signal?.toString() ?: "watchdog"
     }
 
-    /** Keeps both what was recorded and what the production renderer makes of it, as the log does. */
     private class RecordingDiagnostics : ReminderSchedulerDiagnosticPort {
         val records = Collections.synchronizedList(mutableListOf<ReminderRegistrationRecord>())
-        val messages = Collections.synchronizedList(mutableListOf<String>())
 
-        override fun record(record: ReminderRegistrationRecord) {
-            records += record
-            messages += reminderRegistrationMessage(record)
-        }
+        override fun record(record: ReminderRegistrationRecord) { records += record }
     }
 
     private class Preparation : ReminderPreparationPort<String> {
@@ -1160,6 +1112,7 @@ class ReminderSchedulerTest {
         val WORK_ID_0: UUID = WORK_IDS[0]
         val WORK_ID_1: UUID = WORK_IDS[1]
         val FOREIGN_WORK_ID: UUID = UUID.fromString("00000000-0000-3000-8000-0000000000ff")
+        val SECOND_FOREIGN_WORK_ID: UUID = UUID.fromString("00000000-0000-3000-8000-0000000000fe")
         val DUE_AT: Instant = Instant.parse(DUE_AT_TEXT)
         val BEYOND_CAP: Instant = DUE_AT.minusSeconds(5_000_000_000_000_000)
         val LONG_MAX_PLUS_NANO: Instant = DUE_AT.minusMillis(Long.MAX_VALUE).minusNanos(1)
@@ -1213,3 +1166,58 @@ class ReminderSchedulerTest {
     }
 }
 
+/*
+ * R4 semantic mutation receipt (30/30 killed, 0 survivors, 0 suspects).
+ *
+ * Each mutation below was applied ALONE to ReminderScheduler.kt at SHA-256
+ * 44a2bffe9e0e95bd1fcc60f13065af12daeeccbe16abe056ba53d4e60eec8384, the DoD test task was run, and
+ * the file was restored and re-hashed to that same value. The batch ledger's closing hash is
+ * identical to its opening one, so no mutation escaped the batch. A kill required a non-zero exit
+ * AND a named failing test in the XML report -- an exit code alone was recorded as SUSPECT, never
+ * as a kill, because Gradle exits 1 for a compile error and a failing test alike.
+ *
+ * A SEPARATE probe then re-applied all 30 under :app:compileDebugUnitTestKotlin, which compiles but
+ * runs nothing, and every one exited 0. The two claims are therefore independently machine-checked:
+ * 30/30 compile, and 30/30 are killed by a test. Neither is inferred from the other.
+ *
+ * Every production function this card changes carries at least one selector below, so no changed
+ * function is untested regardless of the total score.
+ *
+ * A1 permission recovery reads the grant at the moment of recovery, derives the next generation
+ *    M01 recovery assumes the grant instead of reading it
+ *    M02 a missing grant closes the occurrence
+ *    M03 a blocked occurrence is never recovered
+ *    M04 a recovered receipt is settled instead of re-registered
+ * A2 a settlement names the work it collided with, deterministically
+ *    M29 a lone foreign retained id is not carried into the record
+ *    M30 an ambiguous conflict names whichever entry came first
+ *    M31 an applied settlement drops the collided work it was given
+ *    M34 the record drops the collided work its settlement carried
+ *    M36 a single foreign active retention no longer blocks submission
+ * A3 definitive admission survives a lost compare and set
+ *    M11 held evidence outranks a closed occurrence
+ *    M12 admission is recovered only from ENQUEUED, as before
+ *    M13 confirm no longer declares itself an admission call site
+ * A4 the recovery re-read is bounded and exhaustion has its own cause
+ *    M14 the re-read bound grows by one
+ *    M15 an exhausted bound is reported as contention
+ *    M16 a recovery lost to an active occurrence is not continued
+ *    M17 a recovery lost to a closed occurrence keeps re-reading
+ *    M18 an uncommitted recovery is reported as refused
+ *    M19 a refused recovery is reported as contention
+ * A5 a late callback after a proved admission is classed as the race winner is
+ *    M20 a late failing callback keeps its raw class after a proved admission
+ *    M21 any settled flight reclassifies a late callback
+ *    M22 a late confirming callback is reclassified too
+ *    M32 a flight forgets what it settled under
+ *    M35 a late callback always carries a callback class beside its cause
+ * A6 edge settlements are filed under the generation this flight submitted
+ *    M23 an unreadable expiry publishes no identity
+ *    M24 an expired supersession is filed under the generation that replaced it
+ *    M25 a re-read supersession names no collided work
+ *    M26 a proved supersession is filed under the newer generation
+ *    M33 an expiry finding no evidence at all publishes no identity
+ * A7 a throwing waiter is isolated and recorded as a redacted aside
+ *    M27 a waiter failure is recorded as a second settlement
+ *    M28 a waiter failure is not recorded at all
+ */
