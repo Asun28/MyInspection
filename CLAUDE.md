@@ -227,6 +227,24 @@ R3 pass 于第 **1** 轮、零 finding）——`core/report/pdf/PdfArtifactPaths
 > ③ 期望路径写**字面量**、不由被测对象回拼：M5 把 `Audience.storedValue` 改成裸枚举名时派生与判定**一起**改、
 > 仍自洽，识别循环照样绿，只有字面量断言会红（同 `PdfExportQualityTest` 对 `DEFAULT` 的纪律，L165）。
 
+**HTML 字符政策已合并**：`T3-REPORT-HTML-CHARACTER-POLICY` **merged**（2026-09-03，master `9a0cac9c`，
+PR #231，R3 第 **3** 轮 pass）——`core/report/html/HtmlEscaping`：元素内容与双引号属性两个转义上下文，
+外加**文档真正能如实承载哪些字符**的政策。未配对代理项与 U+0000 **拒绝**而非静默替换（前者没有 UTF-8 形式、
+编码时被换成 `?`，两条不同备注会序列化成同一串字节——`core/canon` 早就为同一理由拒绝它；后者被 HTML
+tokenizer 换成 U+FFFD）。8 个测试、**17/17 变异全杀**。
+> **本卡是从 `T3-REPORT-HTML-RENDERER` 拆出来的**（2026-09-03 用户裁定）：该卡 R3 第 1 轮 block 时正卡在
+> **999/1000 changed lines**，两条 finding 合计约 +34 行装不下。
+> **三轮 R3 抓到的都是同一类错误——写下的保证与写下的代码不一致，而测试的断言面窄到看不见这件事**：
+> ① KDoc 声称「nothing is stripped, **replaced** or reordered」，下方代码正把 `&` 换成 `&amp;`；修法是把
+> 「源文本语义保留」与「转义结果可无损 UTF-8 编码」**拆成两句**分别陈述。② CR 断言只查「某处还有个 0x0D」，
+> 重复/乱序/多字节全能过；改成比完整期望字节数组。③ 改完后测试名写着 CR **和** CRLF，实际只构造了 CRLF，
+> 于是「只归一**孤立** CR」的变异仍然全绿——补孤立-CR 用例 + M17 专打它。
+> **收窄措辞不是弱化闸，是让文档停止说假话**：本卡最终保证的是**文件字节**逐字保留，**不**保证解析后文本
+> 与源串相等（tokenizer 会把 CR/CRLF 归一成 LF）。
+> **轮次上限经用户裁定 `ResetRounds`**：`ReviewRoundCap=2` 到顶，但三轮提的是**互不相同**的真缺陷、每条都被
+> 接受并修复、每次修复都带来一枚新的击杀变异，不属该上限要止住的「同一争点拉锯」；`ResetRounds` 只清计数、
+> 不跳过评审。
+
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
 · `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。

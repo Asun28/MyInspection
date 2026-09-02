@@ -1,7 +1,7 @@
 ---
 id: T3-REPORT-HTML-RENDERER
 title: Self-contained accessible HTML document from shared report content
-depends_on: [T3-REPORT-CONTENT-CONTRACT]
+depends_on: [T3-REPORT-CONTENT-CONTRACT, T3-REPORT-HTML-CHARACTER-POLICY]
 parallelizable_with: []
 status: todo
 branch: T3-REPORT-HTML-RENDERER
@@ -9,11 +9,14 @@ worktree: C:\wt\T3-REPORT-HTML-RENDERER
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/html/
   - android/core/src/test/kotlin/nz/myinspection/core/report/html/
+# HtmlEscaping.kt 与 HtmlEscapingTest.kt 虽落在上面两个前缀内，但归 T3-REPORT-HTML-CHARACTER-POLICY；
+# 该卡先行合并后本卡 rebase，届时它们不再出现在本卡 diff 里。
 forbid:
   - JavaScript, external URLs or resources, raw HTML injection, CSS-only privacy hiding, network, filesystem writes, or DocumentPlan as input
   - Renderer-specific business rules, audience decisions, source paths, vendor metadata, or delivery claims
 non_goals:
   - Responsive screen CSS, A4 print CSS, dark mode and forced-colour rules (T3-REPORT-HTML-PRESENTATION, 2026-09-02 用户裁定拆出，见「拆分依据」)
+  - Contextual escaping and the document's character policy (T3-REPORT-HTML-CHARACTER-POLICY, 2026-09-03 用户裁定拆出，见「第二次拆分」)；本卡只调用它
   - PDF, DOCX import, database receipts, Android chooser UI, or in-app report viewer
   - Reading evidence files, decoding, re-encoding or downscaling images (the byte source is an injected port; :core never touches the filesystem)。
     **需求 §8 要求内嵌的是「经归一化且有界」的 raster image，归一化那一半没有 owner** —— `:app` 侧
@@ -53,7 +56,14 @@ class 都被样式命中），比揉在一张卡里更强。
 
 原 A4/A5 顺延为本卡 A3/A4，新增 A5 把 class 契约从散文提为验收；本卡的样式表只是 baseline（可读性下限）。
 
-**拆后实测 994 changed lines / 49599 字符**（`git diff --cached --numstat`，与 R3 闸同一把尺），对 1000 行硬闸只剩 6 行余量，含 26 行 R4 收据（L227：评审者只读 diff，收据必须在里面）。
+**第二次拆分（2026-09-03 用户裁定）**：R3 第 1 轮两条 finding 都成立——① `embed()` 无论文档预算还剩多少，
+都把 `maxImageBytes` 报给端口，于是「先告知上界、让端口不必先分配」这件事在预算将尽时失效，被拒的图片
+照样被 materialize；② `HtmlEscapingTest` 声称的逐字节保留只在内存 String 上成立，编码成 UTF-8 再被
+HTML 解析器读回时，未配对代理项会变 `?`、U+0000 变 U+FFFD、CR 变 LF。两条合计约 +34 行，而当时是
+**999/1000**。故把转义层与字符政策整段拆给 `T3-REPORT-HTML-CHARACTER-POLICY` 先行合并，本卡随后
+rebase 再 ship；finding ① 留在本卡修。
+
+**首次拆分后实测 994 changed lines / 49599 字符**（`git diff --cached --numstat`，与 R3 闸同一把尺），对 1000 行硬闸只剩 6 行余量，含 26 行 R4 收据（L227：评审者只读 diff，收据必须在里面）。
 余量这么薄意味着：**R3 若提出任何需要「补一道守卫 + 补一条测试」的 finding，按 L266 直接再拆卡，不靠删注释腾地方**（T3-PDF-RENDERER 就是删了 85 行注释仍补不上 146 行缺口）。
 
 ## 上下文包

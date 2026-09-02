@@ -2,9 +2,27 @@ package nz.myinspection.core.report.html
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
-/** A2: the two escaping contexts, and the promise that nothing else about the text changes. */
+/**
+ * A1-A4: the two escaping contexts, and the character policy the document can actually honour.
+ *
+ * Every invisible code point here is built from its numeric value. Writing one as a literal, or as a
+ * backslash-u escape, is not an option: the editing tools that produce this file decode such an escape
+ * into the real character, and a literal NUL or lone surrogate would then be invisible in every editor
+ * and every diff, so no reader could tell whether the test still covers what it claims (L193).
+ */
 class HtmlEscapingTest {
+
+    private val nul = 0x00.toChar()
+    private val CR = 0x0D.toChar()
+    private val LF = 0x0A.toChar()
+    private val zeroWidthSpace = 0x200B.toChar()
+    private val highSurrogate = 0xD83D.toChar()
+    private val lowSurrogate = 0xDE00.toChar()
+
+    // ---- A1: the two contexts ------------------------------------------------------------------------
 
     @Test
     fun `element text escapes the three syntactic characters and leaves quotes alone`() {
@@ -23,31 +41,124 @@ class HtmlEscapingTest {
     }
 
     /**
-     * An ampersand that is already part of an entity is escaped again. That is correct, not a defect: the
-     * source is a dictated note, so an entity in it is literal characters the tenant typed and the report
-     * has to show those characters back.
+     * An entity already present in the source is escaped again. That is correct: the source is a dictated
+     * note, so those are literal characters the tenant typed and the report has to show them back.
      */
     @Test
-    fun `escaping is applied once to the raw characters, never to the reader's guess at intent`() {
+    fun `escaping is applied to the raw characters, never to a guess at the author's intent`() {
         assertEquals("&amp;amp; &amp;#60;", HtmlEscaping.text("&amp; &#60;"))
     }
 
+    // ---- A2/A3: what the document refuses to carry ---------------------------------------------------
+
     /**
-     * Nothing is dropped or substituted. A control character cannot escape either context once the
-     * syntactic characters are entities, and deleting it would make the report disagree with the note that
-     * was actually recorded.
-     *
-     * The invisible code points are built from their numeric values rather than typed or written as `\u`
-     * escapes: the editing tools that produce this file decode such an escape into the real character, and
-     * a literal NUL or zero-width space here would then be invisible in every editor and every diff, so no
-     * reader could tell whether the test still covers what it says it covers (L193).
+     * A lone surrogate has no UTF-8 form at all. Kotlin substitutes '?' when encoding one, so two
+     * different notes would serialise to identical bytes - the same defect `core/canon` refuses for the
+     * same reason. Refusing beats mangling: a report is evidence, and evidence that quietly stops
+     * matching what was recorded is worse than a report that fails loudly.
      */
     @Test
-    fun `characters with no syntactic meaning survive byte for byte`() {
-        val nul = 0x00.toChar()
-        val zeroWidthSpace = 0x200B.toChar()
-        val awkward = "tab\there ${nul}nul${zeroWidthSpace}zwsp 厨房 " + String(Character.toChars(0x1F600))
-        assertEquals(awkward, HtmlEscaping.text(awkward))
-        assertEquals(awkward, HtmlEscaping.attribute(awkward))
+    fun `an unpaired surrogate is refused in both contexts`() {
+        val loneHigh = "note " + highSurrogate + " tail"
+        val loneLow = "note " + lowSurrogate + " tail"
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.text(loneHigh) }
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.attribute(loneHigh) }
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.text(loneLow) }
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.attribute(loneLow) }
+    }
+
+    /**
+     * A high surrogate at the very end of the string has no following char to pair with. It is the case a
+     * bounds check written as `index + 1 < length` and one written as `index + 1 <= length` disagree on.
+     */
+    @Test
+    fun `a high surrogate at the end of the string is refused, not read past`() {
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.text("trailing " + highSurrogate) }
+    }
+
+    /** Two high surrogates in a row: the first is unpaired even though a surrogate does follow it. */
+    @Test
+    fun `a high surrogate followed by another high surrogate is refused`() {
+        assertFailsWith<IllegalArgumentException> {
+            HtmlEscaping.text("" + highSurrogate + highSurrogate)
+        }
+    }
+
+    /** U+0000 is replaced with U+FFFD in HTML character data, so the document cannot carry it faithfully. */
+    @Test
+    fun `a null character is refused in both contexts`() {
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.text("note " + nul) }
+        assertFailsWith<IllegalArgumentException> { HtmlEscaping.attribute("note " + nul) }
+    }
+
+    // ---- A4: the preservation claim, proven where it is claimed --------------------------------------
+
+    /**
+     * The claim is about the bytes of the file, so it is asserted on the bytes: encode to UTF-8, decode
+     * again, compare. Comparing Kotlin Strings alone would prove nothing about encoding, which is exactly
+     * how the earlier version of this test managed to assert byte preservation while permitting a lone
+     * surrogate that has no bytes.
+     */
+    @Test
+    fun `everything the policy admits survives a real UTF-8 round trip`() {
+        val emoji = String(Character.toChars(0x1F600))
+        val admitted = "tab\there " + zeroWidthSpace + "zwsp 厨房 " + emoji + " <&\"'>" + CR
+        for (escaped in listOf(HtmlEscaping.text(admitted), HtmlEscaping.attribute(admitted))) {
+            assertEquals(escaped, String(escaped.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
+        }
+        // The paired surrogates of the emoji reach the bytes as one four-byte sequence, so the refusal
+        // above targets unpaired surrogates only and does not simply ban astral characters.
+        assertTrue(HtmlEscaping.text(emoji).toByteArray(Charsets.UTF_8).contentEquals(emoji.toByteArray(Charsets.UTF_8)))
+    }
+
+    /**
+     * The whole expected byte array, not merely the presence of a 0x0D somewhere in it: duplication, a
+     * reordering, or an extra byte all satisfy "a CR is still in there" while breaking the actual claim.
+     *
+     * CR is admitted and reaches the file unchanged. What is NOT claimed is that a parser gives it back -
+     * the HTML tokenizer normalises CR and CRLF to LF - so the assertion stops at the bytes and at the
+     * decoded string, which is exactly as far as the guarantee goes.
+     */
+    @Test
+    fun `a carriage return and a CRLF survive escaping exactly, in both contexts`() {
+        // Both forms, each against a literal expected byte array. A standalone CR is its own case, not a
+        // corollary of the CRLF one: the normalisation an HTML parser performs treats a CR *not* followed
+        // by LF differently, so a mutation that rewrites only that form satisfies every CRLF assertion.
+        assertExactBytes("first" + CR + LF + "second", byteArrayOf(0x0D, 0x0A))
+        assertExactBytes("first" + CR + "second", byteArrayOf(0x0D))
+    }
+
+    private fun assertExactBytes(input: String, middle: ByteArray) {
+        val expected = "first".toByteArray(Charsets.UTF_8) + middle + "second".toByteArray(Charsets.UTF_8)
+        for (escaped in listOf(HtmlEscaping.text(input), HtmlEscaping.attribute(input))) {
+            val bytes = escaped.toByteArray(Charsets.UTF_8)
+            assertTrue(bytes.contentEquals(expected), bytes.joinToString(",") { it.toString() })
+            assertEquals(input, String(bytes, Charsets.UTF_8))
+        }
     }
 }
+/*
+ * R4 receipt. 17 single-point mutations, each applied alone to HtmlEscaping.kt at SHA-256
+ * 2a25567ebec95620a3bdae136b7f7311c64edf9c3e4f66ca1a172624f88b810b and restored to that same hash before
+ * the next. 17 killed, 0 survived, 0 compile-kills, 0 no-runs.
+ *
+ * Each kill is a failing test. The harness runs the unmutated suite first as a positive control and
+ * records a kill only when Gradle reports that tests ran and failed, because a compile error, a failing
+ * test, and a shell that cannot start the wrapper all exit 1 - a kill has to be positively attributed,
+ * never inferred from an exit code (L282, widened after a sibling batch scored a perfect 31/31 without
+ * ever starting Gradle).
+ *
+ * contexts  M1-M5 drop one escaped character each; M6 escapes an attribute as element text; M7 silently
+ *           drops every character with no syntactic meaning; M16 helpfully normalises CR to LF, which
+ *           only the exact expected-byte assertion catches - 'a 0x0D is still in there' does not; M17
+ *           normalises a CR only when it is not part of a CRLF, exactly as an HTML parser does, which
+ *           the CRLF case alone cannot catch and the standalone-CR case does.
+ * policy    M8 removes the policy check from both entry points; M9, M10, M11 admit U+0000, an unpaired
+ *           high surrogate and an unpaired low surrogate; M15 refuses U+0001 instead of U+0000.
+ * pairing   M12 lets the bounds check read one past the end of the string; M13 drops the index advance so
+ *           a well-formed pair's low half is judged unpaired; M14 stops recognising a high surrogate at
+ *           all, which admits every pair as two unpaired halves.
+ *
+ * The receipt is a comment in a test file and is inert: unlike a stylesheet constant, it is not data any
+ * assertion reads, so adding it after the batch cannot change a verdict the batch recorded.
+ */
