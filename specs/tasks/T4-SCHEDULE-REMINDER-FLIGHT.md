@@ -95,16 +95,18 @@ waiter 白等一轮超时；② 已合并的 SCHEDULER 卡在同一情形下由 
 | M05 | A2 | 提交失败后仍留着 flight | a fatal submission …, and both clear the flight |
 | M06 | A3 | 把已证实的 admission 降级成 callback 失败 | a worker that proved admission is never downgraded … |
 | M07 | A3 | 把跨代回执读成本代 | a registration overtaken by a newer generation … |
-| M08 | A3 | 允许任意 flight 去 settle 当前 flight | a callback naming a superseded generation …；late callback |
+| M08 | A3 | 允许任意 flight 去 settle 当前 flight | a callback that arrives after the flight settled … |
 | M09 | A4 | deadline 未到也 settle | a watchdog that wakes early reschedules … |
 | M10 | A4 | 重排整轮 watchdog 而非剩余量 | a watchdog that wakes early reschedules … |
-| M11 | A4 | 把未变动的回执读成 worker proof | expired watchdog（两个用例）；superseded/late callback |
+| M11 | A4 | 把未变动的回执读成 worker proof | expired watchdog（两个用例）；late callback |
 | M12 | A5 | 丢掉迟到 callback 的诊断 | a callback that arrives after the flight settled … |
 | M13 | A4 | 对读不出的证据报 timeout | an expired watchdog reports unreadable, uncertain and superseded … |
 | M14 | A4 | 对跨代回执报 timeout | an expired watchdog reports unreadable, uncertain and superseded … |
 | M15 | A4 | 相信 store 从未确认的写入 | an expired watchdog reports unreadable, uncertain and superseded … |
 
 R4 剪枝：`registration returns once the submission is accepted` 一条被删——15 枚变异无一只被它杀掉，而它断言的「提交已记录、waiter 尚未被回答」已由并发用例在更强的前提下断言（8 个注册全部返回后 `settled` 仍为空且恰有一次提交）。R3 第 2 轮的两条 finding 均属实并已修：waiter 断言改为**逐 waiter 计数**（原先只比总数，重复调用一个而饿死另一个照样通过），并让 callback 由**另一条线程**在 flight 活动期作答，补上 `hygiene` 早已声明却未覆盖的「活动期跨线程」。
+
+第 3 轮改写「跨代 callback」用例后**整批 15 枚重跑**（生产 SHA 未变，但测试面变了，故不沿用旧账）：15/15 仍全杀，M08/M11/M12 改由 late-callback 用例击杀。
 
 M13–M15 是 R3 首轮 finding 的专属反证：三者各自只被新增的那条用例杀掉，故该用例确实在测「逐读数分类」这件事本身。
 
