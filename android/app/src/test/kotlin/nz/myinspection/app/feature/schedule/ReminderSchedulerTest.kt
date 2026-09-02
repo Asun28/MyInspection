@@ -1167,57 +1167,78 @@ class ReminderSchedulerTest {
 }
 
 /*
- * R4 semantic mutation receipt (30/30 killed, 0 survivors, 0 suspects).
+ * R4 semantic mutation receipt: 30 mutations, 30 killed, 0 survivors, 0 suspects.
  *
- * Each mutation below was applied ALONE to ReminderScheduler.kt at SHA-256
+ * Each was applied ALONE to ReminderScheduler.kt at SHA-256
  * 44a2bffe9e0e95bd1fcc60f13065af12daeeccbe16abe056ba53d4e60eec8384, the DoD test task was run, and
- * the file was restored and re-hashed to that same value. The batch ledger's closing hash is
- * identical to its opening one, so no mutation escaped the batch. A kill required a non-zero exit
- * AND a named failing test in the XML report -- an exit code alone was recorded as SUSPECT, never
- * as a kill, because Gradle exits 1 for a compile error and a failing test alike.
+ * the file was restored and re-hashed to that same value. The batch ledger opens and closes on that
+ * hash, so nothing escaped the batch. A kill required a non-zero exit AND a named failing test in
+ * the XML report. Gradle exits 1 for a compile error and for a failing test alike, so an exit code
+ * with no failing test name was recorded as SUSPECT and never counted as a kill.
  *
- * A SEPARATE probe then re-applied all 30 under :app:compileDebugUnitTestKotlin, which compiles but
- * runs nothing, and every one exited 0. The two claims are therefore independently machine-checked:
- * 30/30 compile, and 30/30 are killed by a test. Neither is inferred from the other.
+ * A SEPARATE probe re-applied all 30 under :app:compileDebugUnitTestKotlin, which compiles and runs
+ * nothing, and every one exited 0. So "30/30 compile" and "30/30 are killed by a test" are two
+ * independently machine-checked claims, neither inferred from the other.
  *
- * Every production function this card changes carries at least one selector below, so no changed
- * function is untested regardless of the total score.
+ * Every production function this card changes carries at least one selector below.
  *
- * A1 permission recovery reads the grant at the moment of recovery, derives the next generation
- *    M01 recovery assumes the grant instead of reading it
- *    M02 a missing grant closes the occurrence
- *    M03 a blocked occurrence is never recovered
- *    M04 a recovered receipt is settled instead of re-registered
- * A2 a settlement names the work it collided with, deterministically
- *    M29 a lone foreign retained id is not carried into the record
- *    M30 an ambiguous conflict names whichever entry came first
- *    M31 an applied settlement drops the collided work it was given
- *    M34 the record drops the collided work its settlement carried
- *    M36 a single foreign active retention no longer blocks submission
- * A3 definitive admission survives a lost compare and set
- *    M11 held evidence outranks a closed occurrence
- *    M12 admission is recovered only from ENQUEUED, as before
- *    M13 confirm no longer declares itself an admission call site
- * A4 the recovery re-read is bounded and exhaustion has its own cause
- *    M14 the re-read bound grows by one
- *    M15 an exhausted bound is reported as contention
- *    M16 a recovery lost to an active occurrence is not continued
- *    M17 a recovery lost to a closed occurrence keeps re-reading
- *    M18 an uncommitted recovery is reported as refused
- *    M19 a refused recovery is reported as contention
- * A5 a late callback after a proved admission is classed as the race winner is
- *    M20 a late failing callback keeps its raw class after a proved admission
- *    M21 any settled flight reclassifies a late callback
- *    M22 a late confirming callback is reclassified too
- *    M32 a flight forgets what it settled under
- *    M35 a late callback always carries a callback class beside its cause
- * A6 edge settlements are filed under the generation this flight submitted
- *    M23 an unreadable expiry publishes no identity
- *    M24 an expired supersession is filed under the generation that replaced it
- *    M25 a re-read supersession names no collided work
- *    M26 a proved supersession is filed under the newer generation
- *    M33 an expiry finding no evidence at all publishes no identity
- * A7 a throwing waiter is isolated and recorded as a redacted aside
- *    M27 a waiter failure is recorded as a second settlement
- *    M28 a waiter failure is not recorded at all
+ * Killer tests, named exactly as they appear above:
+ * [a] a recovery that loses its write reports what the actor that beat it left behind
+ * [b] permission recovery reads the grant at that moment and re-registers under the next generation
+ * [c] a lost compare and set keeps the admission its call site proved and reads only for closure
+ * [d] a recovery the store keeps moving under is bounded and reports its own cause
+ * [e] a failure callback the watchdog beat to a worker proof is classed as the winner would be
+ * [f] a callback that arrives after the flight settled changes no waiter and no receipt
+ * [g] an expired watchdog reports unreadable, uncertain and superseded receipts under their own cause
+ * [h] a registration overtaken by a newer generation reports the supersession
+ * [i] a waiter that throws starves neither the remaining waiters nor the diagnostic
+ * [j] a settlement names the work it collided with, and names none when that is ambiguous
+
+ * M01 A1 exit=1 [a] if (!permissions.isPostNotificationsGranted()) { => if (!true) {
+ * M02 A1 exit=1 [b] return current.settle(PERMISSION_NOT_GRANTED) => return current.settle(OCCURRENCE_CLOSED)
+ * M03 A1 exit=1 [a] lookup.receipt.phase == PERMISSION_BLOCKED -> recover(flight, lookup.receipt)
+ *     => else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
+ * M04 A1 exit=1 [b] is ReminderReceiptTransitionResult.Applied -> return place(flight, result.receipt)
+ *     => is ReminderReceiptTransitionResult.Applied -> return result.receipt.settle(ADMISSION_ALREADY_RECORDED)
+ * M11 A3 exit=1 [c] fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
+ *     => admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
+ * M12 A3 exit=1 [c] admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
+ *     => admitted && fresh.phase == ENQUEUED -> fresh.settle(ADMISSION_ALREADY_RECORDED)
+ * M13 A3 exit=1 [c] advance(receipt, ENQUEUED, null, applied, admitted = true)
+ *     => advance(receipt, ENQUEUED, null, applied, admitted = false)
+ * M14 A4 exit=1 [d] private const val MAX_RECOVERY_READS = 3 => private const val MAX_RECOVERY_READS = 4
+ * M15 A4 exit=1 [d] return current.settle(RECEIPT_REREAD_EXHAUSTED) => return current.settle(RECEIPT_CONTENDED)
+ * M16 A4 exit=1 [a] if (fresh.phase in ACTIVE_PHASES) { => <deleted>
+ * M17 A4 exit=1 [a] if (fresh.phase != PERMISSION_BLOCKED) { => <deleted>
+ * M18 A4 exit=1 [a] ReminderReceiptTransitionResult.WriteUncertain -> return current.settle(RECEIPT_WRITE_UNCERTAIN)
+ *     => ReminderReceiptTransitionResult.WriteUncertain -> return current.settle(RECEIPT_REJECTED)
+ * M19 A4 exit=1 [a] ReminderReceiptTransitionResult.Rejected -> return current.settle(RECEIPT_REJECTED)
+ *     => ReminderReceiptTransitionResult.Rejected -> return current.settle(RECEIPT_CONTENDED)
+ * M20 A5 exit=1 [e] if (proved) ENQUEUE_CALLBACK_AFTER_WORKER_STARTED else reported => reported
+ * M21 A5 exit=1 [f] val proved = settledCause?.outcome == ADMITTED && reported != CALLBACK_CONFIRMED_ADMISSION
+ *     => val proved = settledCause != null && reported != CALLBACK_CONFIRMED_ADMISSION
+ * M22 A5 exit=1 [e] val proved = settledCause?.outcome == ADMITTED && reported != CALLBACK_CONFIRMED_ADMISSION
+ *     => val proved = settledCause?.outcome == ADMITTED
+ * M23 A6 exit=1 [g] is ReminderReceiptLookup.Quarantined -> receipt.settle(RECEIPT_QUARANTINED)
+ *     => is ReminderReceiptLookup.Quarantined -> Settlement(RECEIPT_QUARANTINED)
+ * M24 A6 exit=1 [g] receipt.settle(GENERATION_SUPERSEDED, lookup.receipt.workRequestId)
+ *     => lookup.receipt.settle(GENERATION_SUPERSEDED)
+ * M25 A6 exit=1 [h] current.settle(GENERATION_SUPERSEDED, fresh.workRequestId)
+ *     => current.settle(GENERATION_SUPERSEDED)
+ * M26 A6 exit=1 [h] return current.settle(GENERATION_SUPERSEDED, fresh.workRequestId)
+ *     => return fresh.settle(GENERATION_SUPERSEDED)
+ * M27 A7 exit=1 [i] diagnostics.record(record.copy(note = WAITER_FAILED)) => diagnostics.record(record)
+ * M28 A7 exit=1 [i] diagnostics.record(record.copy(note = WAITER_FAILED)) => Unit
+ * M29 A2 exit=1 [j] receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, foreign.singleOrNull()?.id
+ *     => receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, null
+ * M30 A2 exit=1 [j] receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, foreign.singleOrNull()?.id
+ *     => receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, foreign.firstOrNull()?.id
+ * M36 A2 exit=1 [j] if (foreign.isNotEmpty()) { => if (foreign.size > 1) {
+ * M31 A2 exit=1 [j] is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied, retained)
+ *     => is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied)
+ * M32 A5 exit=1 [e] flight.settledCause = settled.cause => <deleted>
+ * M33 A6 exit=1 [g] ReminderReceiptLookup.Missing -> receipt.settle(RECEIPT_QUARANTINED)
+ *     => ReminderReceiptLookup.Missing -> Settlement(RECEIPT_QUARANTINED)
+ * M34 A2 exit=1 [h] settled.reported => settled.reported
+ * M35 A5 exit=1 [f] reported.takeIf { proved } => reported
  */
