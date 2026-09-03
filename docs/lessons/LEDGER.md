@@ -1815,7 +1815,7 @@
 - refs: PR #187; TD162; T0-DEBT-SELFTEST-MUTATION-BUDGET
 
 ## L252
-- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: R5 先把 merged 卡移入 cold storage 后，task.ps1 cleanup 因只读取 specs/tasks 中的 live 卡而在任何删除前报任务卡不存在。
 - root_cause: archive.ps1 的正常 R5 搬运与 task.ps1 cleanup 的 live-only 卡路径存在顺序耦合，但流程没有显式规定 cleanup 必须先于归档。
 - rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。
@@ -1863,7 +1863,7 @@
 - refs: PR #198; android/core/src/main/kotlin/nz/myinspection/core/media/archive/VerifiedArchiveReceiptService.kt; android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt
 
 ## L258
-- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: Task Loop cleanup removed the worktree registration and branch but left the physical worktree because a generated Gradle path exceeded the normal Windows path limit.
 - root_cause: git worktree remove could not delete the long generated build path; after registration vanished, the cleanup retry no longer had a registered worktree target.
 - rule: After Windows cleanup reports Filename too long, verify the exact residual path is inside the configured worktree root and absent from git worktree list, then remove only that literal path through the \\?\ extended-length form; never broaden the delete target.
@@ -1959,7 +1959,7 @@
 - refs: 
 
 ## L270
-- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
 - root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
 - rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
@@ -2091,5 +2091,21 @@
 - symptom: PR 的 CI 红在一处与本卡无关的 gate（master 自己红），另一会话把 master 修好后，gh run rerun 重跑那次 run 仍然红在同一步；随后又出现两次 completed/cancelled，ship 的 CI 闸据此拒绝合并。
 - root_cause: gh run rerun 重放的是记录在案的那次运行（pull_request 事件下即当时的 merge ref），base 前移不会被它看见；而 ci.yml 的 concurrency group 是 ci-${{ github.ref }} 且 cancel-in-progress，于是「手动重跑」与「push 触发的新跑」落进同一组互相取消。
 - rule: base 前移后要让 CI 看见新 base，只有一条路：在卡分支上 git merge origin/master 再 push，触发一次全新的 run；不要指望 gh run rerun。且重跑与 push 二选一、不要并发——同一 PR 的两次触发会被 cancel-in-progress 互相取消，ship 的 CI 闸把 cancelled 一律视为不可合并。先 gh run list 确认没有 in-flight run 再动手。
+- enforced_by: 
+- refs: 
+
+## L287
+- date: 2026-09-03 ｜ tags: acceptance,card,review,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 首轮 block：验收条款按字面读时把一条路径排除在外，而该路径在卡片「拆分依据」里被逐条点名过。本卡 A1 写「a **cause** that carried a real Throwable」，waiter 的抛出不是 cause，于是我据字面把它排除；但拆分依据写着「真实失败类别在 query / submission / callback / receipt / permission / waiter 六条路径上一律丢失」。
+- root_cause: 把 acceptance 当作唯一契约、把卡片正文当作背景说明。实际上 acceptance 是**结论**，理由段里的枚举是**得出该结论时清点过的现场**——两者矛盾时不是理由段作废，而是我的字面解释过窄。
+- rule: 卡片理由段里的**枚举**（六条路径 / 三处调用点 / 四类输入）是清单，不是散文：开工前把每个被点名的项抄成自己的验收清单一项，逐项在 diff 里指出它被哪一行覆盖、被哪个具名测试钉住。一项都指不出来就是漏做，不是「验收没要求」。同理，写完实现后拿理由段再扫一遍，比等 R3 点名便宜一整轮加一整批变异。
+- enforced_by: 
+- refs: 
+
+## L288
+- date: 2026-09-03 ｜ tags: diagnostics,race,classification,design ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 次轮 block：同一个事件的失败分类随竞速顺序漂移。Absent callback 自己结算注册时渲染 cause_code=unknown，但同一个 callback 在 worker 已证明 admission 后到达时渲染 null——因为分类是从「它最终被归入的那个答案」反推的，而那个答案是 admission、不是失败、不带分类。
+- root_cause: 把一个**属于事件本身**的属性（这次 callback 报了什么失败）实现成**在汇聚点由结果反推**的派生值。汇聚点的结果取决于哪个写者先到，于是属性也跟着变——两条路径对同一件事给出两个答案，而且没有任何一条测试同时看这两条路径。
+- rule: 事件自带的属性必须在**事件发生的那一刻**捕获、随事件旅行到汇聚点，不得在汇聚点由「它被归入哪个结果」反推——只要汇聚点存在竞速，反推出来的值就随竞速顺序漂移。判别问句：这个字段的值，会不会因为另一个线程先到而不同？会就把它挪到源头捕获。测试形态：把同一个事件走**两条汇聚路径**各跑一次（赢了竞速的、输了竞速的），逐字比较两条渲染结果，只测其中一条等于没测。
 - enforced_by: 
 - refs: 
