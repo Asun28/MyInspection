@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -2115,5 +2115,13 @@
 - symptom: Acceptance criterion enumerates states as "renders exactly one of A, B, C, D, E" but the assertion cannot be written: two of the listed items legitimately co-exist in one render, so no fixture can satisfy the criterion as worded.
 - root_cause: The criterion flattened two levels of a hierarchy into one mutually-exclusive list. Here due / first-inspection / one-off are per-row kinds decided by each rows own ScheduleAdvice, while no-content / filtered-empty / loading / error are screen states. A screen with three due rows and one one-off row satisfies "exactly one" under no reading. The flaw is invisible while reading the card and only surfaces when writing the first assertion.
 - rule: Before writing RED, take every "renders exactly one of X" acceptance item and ask: can two of these co-exist in a single render? If yes the criterion spans two levels and is untestable as worded. Split it into one clause per level (exactly one screen state, and one kind per row) and tighten the card BEFORE writing the test. This is tightening, not weakening, and it is the task-loop rule "cannot write RED means go fix the card" in its most common concrete form.
+- enforced_by: 
+- refs: 
+
+## L290
+- date: 2026-09-03 ｜ tags: mutation,r4,review,process ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A mutation batch is run, the receipt is written, then R3 blocks on stale or over-claiming comments. Fixing any of them edits production, which voids the whole receipt because it pins production SHA-256, so the entire batch reruns. It can happen twice in a row when the second batch is started before every claim has been audited.
+- root_cause: Comment and KDoc drift is the single most likely R3 finding after a refactor or a card split, and it is the one class of finding whose fix necessarily touches production. Running the batch before auditing the prose means the batch is scheduled against text that is not final yet, even though the code is.
+- rule: Treat the mutation batch as the LAST step, and immediately before starting it read every comment, KDoc and failure message in every touched file and check each claim against the code as it now stands, in one sweep rather than one finding at a time. Ask of each claim: was this written before the most recent refactor or split, and does it still describe what the code does. Only then start the batch. If a claim defect is found while a batch is running, killing it early is cheaper than letting it finish, but the kill skips the restore, so verify the SHA against the recorded baseline and restore before touching anything (L196).
 - enforced_by: 
 - refs: 
