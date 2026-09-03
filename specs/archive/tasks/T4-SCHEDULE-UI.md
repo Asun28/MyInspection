@@ -3,7 +3,7 @@ id: T4-SCHEDULE-UI
 title: 排程 reducer：行种类、屏幕状态、筛选与路由效果
 depends_on: [T4-SCHEDULE-REMINDER-RECOVERY]
 plan_ref: context/DESIGN.md#page-inventory
-status: todo
+status: merged
 branch: T4-SCHEDULE-UI
 worktree: C:\wt\T4-SCHEDULE-UI
 allow_paths:

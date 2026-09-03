@@ -344,7 +344,7 @@ pass 零 finding）——注册诊断按 delivery 字段词汇发布：`error_co
 故**同一个 error_code 可渲染出两种 cause_code**（`IOException` 的 callback = `io`，`SecurityException` 的
 = `security`）。身份**作为一个值**判定：occurrence 非摘要形状或 generation 为负 ⇒ 两半与派生 id **皆 null**
 ——而这两个条件恰是 `reminderGenerationId` 自己的前置条件，故被拒的身份也永不会被拿去派生。
-40 测试 / 26 变异全杀 / 26 枚只编译探针全 exit 0。W5 提醒链至此收口，余 `T4-SCHEDULE-UI`。
+40 测试 / 26 变异全杀 / 26 枚只编译探针全 exit 0。W5 提醒链至此收口。**排程 UI 的 reducer 半亦已合并**：`T4-SCHEDULE-UI`（2026-09-04，master `9ed88c06`，PR #234，R3 第 2 轮 pass）——两层状态模型（互斥屏幕状态 × 逐行 row kind）、单发路由效果、筛选与滚动恢复、单值动作槽；17 测试 / 15 枚变异全杀。余 `T4-SCHEDULE-UI-REMINDER-ACTIONS`（presenter 半）与 `T4-SCHEDULE-UI-PRESENTATION`（呈现半，另需先合 `T4-DESIGN-SYMBOL-CHROME`）。
 > **两条 R3 finding 都属实，且都是「按字面读验收、漏掉理由里点名的路径」**：① A1 写「a **cause** that
 > carried a real Throwable」，我据此把 waiter 排除在外——但**拆分依据枚举的六条丢失路径里 waiter 就在其中**。
 > **卡片理由里的枚举是清单，不是散文**。② `Absent` callback 自己结算时渲染 `unknown`，在 worker 已证明

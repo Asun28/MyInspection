@@ -2125,3 +2125,11 @@
 - rule: Treat the mutation batch as the LAST step, and immediately before starting it read every comment, KDoc and failure message in every touched file and check each claim against the code as it now stands, in one sweep rather than one finding at a time. Ask of each claim: was this written before the most recent refactor or split, and does it still describe what the code does. Only then start the batch. If a claim defect is found while a batch is running, killing it early is cheaper than letting it finish, but the kill skips the restore, so verify the SHA against the recorded baseline and restore before touching anything (L196).
 - enforced_by: 
 - refs: 
+
+## L291
+- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A script writes a file with [System.IO.File]::WriteAllText using a relative path after Set-Location, then runs it with pwsh -File using the same relative name. The run silently uses a stale earlier copy, and an unexpected file appears in the repo root. Here a dry-run reported 12 mutation targets when the table held 15, and dryrun.ps1 turned up as an untracked file at the repository root.
+- root_cause: Set-Location changes the PowerShell provider location, not the .NET process current directory. Any System.IO API given a relative path resolves against the process CWD, which is wherever pwsh was started. PowerShell cmdlets and the -File argument resolve against the provider location instead, so a write and a read using the identical relative string can land on two different files.
+- rule: Never hand a relative path to a System.IO API. Build an absolute path first, for example with Join-Path on an explicit root or $PSScriptRoot, and pass that. If a generated-then-executed script behaves as though the edit did not happen, do not re-reason about the content: print the absolute path actually written and the absolute path actually executed and compare them. Same rule for Get-Content versus File::ReadAllText.
+- enforced_by: 
+- refs: 

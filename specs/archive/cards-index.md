@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 168 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 169 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -168,6 +168,7 @@
 | T4-SCHEDULE-REMINDER-SCHEDULER | merged | WorkRequest 构造、注册预留与保留工作恢复 |
 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | merged | 将超限提醒卡拆为 delivery 与 scheduler 两张可读串行卡 |
 | T4-SCHEDULE-SPLIT-PLAN | merged | 将 T4-SCHEDULE 拆成可读且可独立评审的三张串行卡 |
+| T4-SCHEDULE-UI | merged | 排程 reducer：行种类、屏幕状态、筛选与路由效果 |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |
 | T5-MEDIA-ARCHIVE-CONTRACT | merged | 媒体归档收口：重新打开逐字节核验、原子回执与 finalized 不变性 |
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
