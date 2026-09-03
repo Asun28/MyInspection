@@ -245,6 +245,22 @@ tokenizer 换成 U+FFFD）。8 个测试、**17/17 变异全杀**。
 > 接受并修复、每次修复都带来一枚新的击杀变异，不属该上限要止住的「同一争点拉锯」；`ResetRounds` 只清计数、
 > 不跳过评审。
 
+**HTML 证据端口已合并**：`T3-REPORT-HTML-EVIDENCE-PORT` **merged**（2026-09-03，master `cadfa2b5`，
+PR #232，R3 第 **2** 轮 pass）——`core/report/html/ReportImageSource`：可内嵌证据的定义（三种 raster 允许集，
+SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）、**专属的拒绝类型** `RejectedEvidenceException`、
+端口签名里的 `maxBytes` 上界，以及 `HtmlImageBounds` 不变量。8 个测试、**10/10 变异全杀**。
+> **两条值得复用的判断**：① **只读集合不是不可变集合**——R3 第 1 轮抓到 `setOf(...)` 返回 JVM
+> `LinkedHashSet`，调用方强转回 `MutableSet` 就能加进 `image/svg+xml`，再造出本该被拒的 `EmbeddedImage`。
+> 本仓已为同一缺陷修过 `TemplateDomains` 与 `AdverseStatuses`，后者的定式即答案：**只暴露谓词、不暴露
+> 集合**；改成 `when` 表达式后底下不存在集合，这条路**写不出来**。配一条反射测试（companion 上无任何
+> `Collection` 可达成员）+ P10（把集合发布回去）证明守卫在起作用。
+> ② **compile-kill 什么都不证明**：P3 让拒绝类型不再继承 `IllegalArgumentException` 时，测试把异常按
+> **声明类型**接住，父子关系一断 `x is RejectedEvidenceException` 就成了编译期类型不兼容，编译器抢在任何
+> 断言之前"杀"掉变异体。捕获改标 `Throwable` 后该检查在任何变异下都能编译，P3 才按行为失败——同 L282：
+> **非零退出在你知道它由什么产生之前，什么都不证明**（本会话另有一批 31/31 全绿却从未启动 Gradle）。
+> **本卡是 `T3-REPORT-HTML-RENDERER` 的第三次拆分**（2026-09-03 用户裁定）：该卡修完 R3 第 3 轮后正好
+> 1000/1000 changed lines，连把 CSP 的两枚变异写进收据都放不下。
+
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
 · `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
