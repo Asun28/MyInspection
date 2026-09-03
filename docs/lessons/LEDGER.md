@@ -150,7 +150,7 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 5
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 6
 - symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
 - rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
@@ -1343,7 +1343,7 @@
 - refs: 
 
 ## L190
-- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: r7 我用 `[CharUnicodeInfo]::GetUnicodeCategory()` 验出 U+1BCA0/U+E0001 属 `Cf`，据此断定「正则的 `\p{Cf}` 已覆盖增补平面」并写进权威注释与 rubric；r8 实测 `$s -match '\p{Cf}'` 对这四个增补标量**全 False**，整段增补面其实一个都没被剥，伪造码照样拼得出来
 - root_cause: **验证用的 oracle 与被测实现不是同一套判据**：`GetUnicodeCategory` 按 **Unicode 标量**判类目，而 .NET 正则按 **UTF-16 码元**匹配——增补标量在正则眼里是一对 `Cs` 代理，永远进不了 `\p{Cf}`/`\p{Mn}` 之类的类目类。用前者去证后者，等于拿另一台机器的读数当本机结论。这比不验证更坏：它产生**有据可依的错误自信**，还会被写进文档变成下一轮的假前提
 - rule: 验证一个断言时，**必须用被测代码实际使用的那套机制去验**，不能用「语义上等价」的另一个 API：正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回、别推理；渲染层行为就看渲染器实际输出。判断法：问「我的验证脚本和生产代码，是不是同一个引擎在做同一个判断？」不是就换写法。**且断言的对象若是一个「类目/属性」（`Cf`、default-ignorable 之类），取样证不了它——必须把全集从权威表枚举出来逐个比对**（2026-08-03 r13 更正：本条原写「逐点实测代表码位（BMP 与增补各取样）」，那正是又栽一次的原因——r8 照它取样补完仍漏 18 个增补面 `Cf`，r13 才由全码位枚举挖出）。落地形态：用**标量级** API（`Rune.GetUnicodeCategory`）枚举出「应该命中的全集」，再用**生产代码那套机制**（正则）逐个验它是否真命中；两套 oracle 各司其职、谁也不替谁。好处是 Unicode 升版新增码位时断言会自己红，而不必等下一个评审者发现
@@ -1815,7 +1815,7 @@
 - refs: PR #187; TD162; T0-DEBT-SELFTEST-MUTATION-BUDGET
 
 ## L252
-- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: R5 先把 merged 卡移入 cold storage 后，task.ps1 cleanup 因只读取 specs/tasks 中的 live 卡而在任何删除前报任务卡不存在。
 - root_cause: archive.ps1 的正常 R5 搬运与 task.ps1 cleanup 的 live-only 卡路径存在顺序耦合，但流程没有显式规定 cleanup 必须先于归档。
 - rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。
@@ -1863,7 +1863,7 @@
 - refs: PR #198; android/core/src/main/kotlin/nz/myinspection/core/media/archive/VerifiedArchiveReceiptService.kt; android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveContractTest.kt
 
 ## L258
-- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- date: 2026-08-29 ｜ tags: windows,worktree,cleanup,long-path,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: Task Loop cleanup removed the worktree registration and branch but left the physical worktree because a generated Gradle path exceeded the normal Windows path limit.
 - root_cause: git worktree remove could not delete the long generated build path; after registration vanished, the cleanup retry no longer had a registered worktree target.
 - rule: After Windows cleanup reports Filename too long, verify the exact residual path is inside the configured worktree root and absent from git worktree list, then remove only that literal path through the \\?\ extended-length form; never broaden the delete target.
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -1959,7 +1959,7 @@
 - refs: 
 
 ## L270
-- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
 - root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
 - rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
@@ -2091,5 +2091,29 @@
 - symptom: PR 的 CI 红在一处与本卡无关的 gate（master 自己红），另一会话把 master 修好后，gh run rerun 重跑那次 run 仍然红在同一步；随后又出现两次 completed/cancelled，ship 的 CI 闸据此拒绝合并。
 - root_cause: gh run rerun 重放的是记录在案的那次运行（pull_request 事件下即当时的 merge ref），base 前移不会被它看见；而 ci.yml 的 concurrency group 是 ci-${{ github.ref }} 且 cancel-in-progress，于是「手动重跑」与「push 触发的新跑」落进同一组互相取消。
 - rule: base 前移后要让 CI 看见新 base，只有一条路：在卡分支上 git merge origin/master 再 push，触发一次全新的 run；不要指望 gh run rerun。且重跑与 push 二选一、不要并发——同一 PR 的两次触发会被 cancel-in-progress 互相取消，ship 的 CI 闸把 cancelled 一律视为不可合并。先 gh run list 确认没有 in-flight run 再动手。
+- enforced_by: 
+- refs: 
+
+## L287
+- date: 2026-09-03 ｜ tags: acceptance,card,review,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 首轮 block：验收条款按字面读时把一条路径排除在外，而该路径在卡片「拆分依据」里被逐条点名过。本卡 A1 写「a **cause** that carried a real Throwable」，waiter 的抛出不是 cause，于是我据字面把它排除；但拆分依据写着「真实失败类别在 query / submission / callback / receipt / permission / waiter 六条路径上一律丢失」。
+- root_cause: 把 acceptance 当作唯一契约、把卡片正文当作背景说明。实际上 acceptance 是**结论**，理由段里的枚举是**得出该结论时清点过的现场**——两者矛盾时不是理由段作废，而是我的字面解释过窄。
+- rule: 卡片理由段里的**枚举**（六条路径 / 三处调用点 / 四类输入）是清单，不是散文：开工前把每个被点名的项抄成自己的验收清单一项，逐项在 diff 里指出它被哪一行覆盖、被哪个具名测试钉住。一项都指不出来就是漏做，不是「验收没要求」。同理，写完实现后拿理由段再扫一遍，比等 R3 点名便宜一整轮加一整批变异。
+- enforced_by: 
+- refs: 
+
+## L288
+- date: 2026-09-03 ｜ tags: diagnostics,race,classification,design ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 次轮 block：同一个事件的失败分类随竞速顺序漂移。Absent callback 自己结算注册时渲染 cause_code=unknown，但同一个 callback 在 worker 已证明 admission 后到达时渲染 null——因为分类是从「它最终被归入的那个答案」反推的，而那个答案是 admission、不是失败、不带分类。
+- root_cause: 把一个**属于事件本身**的属性（这次 callback 报了什么失败）实现成**在汇聚点由结果反推**的派生值。汇聚点的结果取决于哪个写者先到，于是属性也跟着变——两条路径对同一件事给出两个答案，而且没有任何一条测试同时看这两条路径。
+- rule: 事件自带的属性必须在**事件发生的那一刻**捕获、随事件旅行到汇聚点，不得在汇聚点由「它被归入哪个结果」反推——只要汇聚点存在竞速，反推出来的值就随竞速顺序漂移。判别问句：这个字段的值，会不会因为另一个线程先到而不同？会就把它挪到源头捕获。测试形态：把同一个事件走**两条汇聚路径**各跑一次（赢了竞速的、输了竞速的），逐字比较两条渲染结果，只测其中一条等于没测。
+- enforced_by: 
+- refs: 
+
+## L289
+- date: 2026-09-03 ｜ tags: spec,acceptance,testability ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Acceptance criterion enumerates states as "renders exactly one of A, B, C, D, E" but the assertion cannot be written: two of the listed items legitimately co-exist in one render, so no fixture can satisfy the criterion as worded.
+- root_cause: The criterion flattened two levels of a hierarchy into one mutually-exclusive list. Here due / first-inspection / one-off are per-row kinds decided by each rows own ScheduleAdvice, while no-content / filtered-empty / loading / error are screen states. A screen with three due rows and one one-off row satisfies "exactly one" under no reading. The flaw is invisible while reading the card and only surfaces when writing the first assertion.
+- rule: Before writing RED, take every "renders exactly one of X" acceptance item and ask: can two of these co-exist in a single render? If yes the criterion spans two levels and is untestable as worded. Split it into one clause per level (exactly one screen state, and one kind per row) and tighten the card BEFORE writing the test. This is tightening, not weakening, and it is the task-loop rule "cannot write RED means go fix the card" in its most common concrete form.
 - enforced_by: 
 - refs: 

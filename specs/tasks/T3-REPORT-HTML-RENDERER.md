@@ -1,7 +1,7 @@
 ---
 id: T3-REPORT-HTML-RENDERER
 title: Self-contained accessible HTML document from shared report content
-depends_on: [T3-REPORT-CONTENT-CONTRACT, T3-REPORT-HTML-CHARACTER-POLICY]
+depends_on: [T3-REPORT-CONTENT-CONTRACT, T3-REPORT-HTML-CHARACTER-POLICY, T3-REPORT-HTML-EVIDENCE-PORT]
 parallelizable_with: []
 status: todo
 branch: T3-REPORT-HTML-RENDERER
@@ -16,7 +16,8 @@ forbid:
   - Renderer-specific business rules, audience decisions, source paths, vendor metadata, or delivery claims
 non_goals:
   - Responsive screen CSS, A4 print CSS, dark mode and forced-colour rules (T3-REPORT-HTML-PRESENTATION, 2026-09-02 用户裁定拆出，见「拆分依据」)
-  - Contextual escaping and the document's character policy (T3-REPORT-HTML-CHARACTER-POLICY, 2026-09-03 用户裁定拆出，见「第二次拆分」)；本卡只调用它
+  - Contextual escaping and the document's character policy (T3-REPORT-HTML-CHARACTER-POLICY, 2026-09-03 用户裁定拆出)；本卡只调用它
+  - 证据字节端口本体：EmbeddedImage / RejectedEvidenceException / HtmlImageBounds 与端口签名 (T3-REPORT-HTML-EVIDENCE-PORT, 2026-09-03 用户裁定拆出，见「第三次拆分」)；本卡留「文档怎么花这份预算」
   - PDF, DOCX import, database receipts, Android chooser UI, or in-app report viewer
   - Reading evidence files, decoding, re-encoding or downscaling images (the byte source is an injected port; :core never touches the filesystem)。
     **需求 §8 要求内嵌的是「经归一化且有界」的 raster image，归一化那一半没有 owner** —— `:app` 侧
@@ -55,6 +56,15 @@ Serialize the shared semantic report into one portable HTML file suitable for a 
 class 都被样式命中），比揉在一张卡里更强。
 
 原 A4/A5 顺延为本卡 A3/A4，新增 A5 把 class 契约从散文提为验收；本卡的样式表只是 baseline（可读性下限）。
+
+**第三次拆分（2026-09-03 用户裁定）**：R3 第 3 轮三条 finding 全部成立——① 文档缺 `docs/SECURITY.md`
+明文要求的 CSP（「并以 CSP 禁网络/导航/主动内容」），也没挡 `meta refresh`；② 自包含测试只扫标签名，
+看不进 `<style>` 正文（里面的 `@import` 会全绿通过），也没要求 CSP；③ `HtmlClass` 与样式表两处 KDoc
+声称「没人 style 的 class 不可表达」，而基线样式表实际只 style 了 2 个 entry、其余 26 个都没有——
+声称超出代码所能兑现。全部修完后正好 **1000/1000 changed lines**，连把 CSP 的两枚变异写进收据都放不下。
+按本卡自己的政策（下方「不靠删注释腾地方」）拆：证据字节端口本体归 `T3-REPORT-HTML-EVIDENCE-PORT`
+先行合并，本卡留 `ceiling = min(perImage, remaining)` 的算术、figure/caption 与被拒证据的降级路径。
+实际释放约 65 行。
 
 **第二次拆分（2026-09-03 用户裁定）**：R3 第 1 轮两条 finding 都成立——① `embed()` 无论文档预算还剩多少，
 都把 `maxImageBytes` 报给端口，于是「先告知上界、让端口不必先分配」这件事在预算将尽时失效，被拒的图片

@@ -35,6 +35,11 @@ This loop already returned local #183/#184/#185 as upstream v0.43 fixes #189/#18
 its own unbounded-ledger bug (#201), fixed upstream in v0.44 and backfilled here with adversarial tests.
 The dynamic sensitive-allowlist baseline closure defect is tracked upstream as
 [#305](https://github.com/Asun28/claude-devops-scaffold/issues/305), with downstream proof in PR #192 and L256.
+The R5 ordering defect — `task.ps1 -Phase cleanup` resolves the card only under `specs/tasks/`, so running
+`archive.ps1` first makes cleanup impossible and its error names the wrong remedy — is tracked upstream as
+[#361](https://github.com/Asun28/claude-devops-scaffold/issues/361), filed after L252 recurred a third time
+(`T4-SCHEDULE-REMINDER-DIAGNOSTICS`). Until a release fixes it the constraint stays memory-enforced:
+**cleanup before archive**.
 
 ## Direction 2 — deciding whether to take an upstream release
 

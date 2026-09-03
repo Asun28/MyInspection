@@ -245,6 +245,22 @@ tokenizer 换成 U+FFFD）。8 个测试、**17/17 变异全杀**。
 > 接受并修复、每次修复都带来一枚新的击杀变异，不属该上限要止住的「同一争点拉锯」；`ResetRounds` 只清计数、
 > 不跳过评审。
 
+**HTML 证据端口已合并**：`T3-REPORT-HTML-EVIDENCE-PORT` **merged**（2026-09-03，master `cadfa2b5`，
+PR #232，R3 第 **2** 轮 pass）——`core/report/html/ReportImageSource`：可内嵌证据的定义（三种 raster 允许集，
+SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）、**专属的拒绝类型** `RejectedEvidenceException`、
+端口签名里的 `maxBytes` 上界，以及 `HtmlImageBounds` 不变量。8 个测试、**10/10 变异全杀**。
+> **两条值得复用的判断**：① **只读集合不是不可变集合**——R3 第 1 轮抓到 `setOf(...)` 返回 JVM
+> `LinkedHashSet`，调用方强转回 `MutableSet` 就能加进 `image/svg+xml`，再造出本该被拒的 `EmbeddedImage`。
+> 本仓已为同一缺陷修过 `TemplateDomains` 与 `AdverseStatuses`，后者的定式即答案：**只暴露谓词、不暴露
+> 集合**；改成 `when` 表达式后底下不存在集合，这条路**写不出来**。配一条反射测试（companion 上无任何
+> `Collection` 可达成员）+ P10（把集合发布回去）证明守卫在起作用。
+> ② **compile-kill 什么都不证明**：P3 让拒绝类型不再继承 `IllegalArgumentException` 时，测试把异常按
+> **声明类型**接住，父子关系一断 `x is RejectedEvidenceException` 就成了编译期类型不兼容，编译器抢在任何
+> 断言之前"杀"掉变异体。捕获改标 `Throwable` 后该检查在任何变异下都能编译，P3 才按行为失败——同 L282：
+> **非零退出在你知道它由什么产生之前，什么都不证明**（本会话另有一批 31/31 全绿却从未启动 Gradle）。
+> **本卡是 `T3-REPORT-HTML-RENDERER` 的第三次拆分**（2026-09-03 用户裁定）：该卡修完 R3 第 3 轮后正好
+> 1000/1000 changed lines，连把 CSP 的两枚变异写进收据都放不下。
+
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
 · `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
@@ -287,7 +303,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 不发送短信/邮件。人工回记要求方式与真实时刻，生成前/未来时刻不落库，首条送达原子锁定；掉出通知窗口仍诚实存档并
 以 error 文案、颜色和无障碍语义提示改期。7 个 SQLite JVM 测试与 7 枚定向变异覆盖关键门。
 
-**W5 提醒串行链 6/7 已合并**（`T4-SCHEDULE-REMINDER-*`，2026-09-01）：`CONTRACTS`（master `a1fb2bbe`，PR #215）
+**W5 提醒串行链 7/7 已合并**（`T4-SCHEDULE-REMINDER-*`，2026-09-01–09-03）：`CONTRACTS`（master `a1fb2bbe`，PR #215）
 定身份/路由/文案/隐私描述符与精确关联诊断 · `RECEIPTS`（master `3c08c2dd`，PR #217）定应用私有 v1 耐久回执、
 损坏隔离与 generation CAS · `DELIVERY`（master `41793005`，PR #219）定 Worker、通知发布与不重投边界。
 **DELIVERY 的形状值得复用**：preparation 与 notifier 是两个独立端口，于是「失败发生在发布之前」由**哪个端口抛的**
@@ -322,7 +338,20 @@ admission 证据」，confirm 被 worker 抢先推到 `RETRYABLE` 时不再低�
 > 另：修 ① 需把真实 `Throwable` 分类穿到 record，总量顶破 60000 硬闸 ⇒ **渲染整体拆给
 > `T4-SCHEDULE-REMINDER-DIAGNOSTICS`**（用户裁定），合并后诊断端口暂停在 `record.toString()`。
 
-余 `T4-SCHEDULE-REMINDER-DIAGNOSTICS`（渲染 + 上面两条继承 finding）与 `T4-SCHEDULE-UI`。
+**链尾已合并**：`T4-SCHEDULE-REMINDER-DIAGNOSTICS`（2026-09-03，master `e7adb439`，PR #233，R3 第 **3** 轮
+pass 零 finding）——注册诊断按 delivery 字段词汇发布：`error_code`（注册侧封闭词汇）与 `cause_code`
+（共享 `FailureCauseCode`）是两个字段答两个问题，携带真实 Throwable 的结算发布**该 Throwable 的**分类，
+故**同一个 error_code 可渲染出两种 cause_code**（`IOException` 的 callback = `io`，`SecurityException` 的
+= `security`）。身份**作为一个值**判定：occurrence 非摘要形状或 generation 为负 ⇒ 两半与派生 id **皆 null**
+——而这两个条件恰是 `reminderGenerationId` 自己的前置条件，故被拒的身份也永不会被拿去派生。
+40 测试 / 26 变异全杀 / 26 枚只编译探针全 exit 0。W5 提醒链至此收口，余 `T4-SCHEDULE-UI`。
+> **两条 R3 finding 都属实，且都是「按字面读验收、漏掉理由里点名的路径」**：① A1 写「a **cause** that
+> carried a real Throwable」，我据此把 waiter 排除在外——但**拆分依据枚举的六条丢失路径里 waiter 就在其中**。
+> **卡片理由里的枚举是清单，不是散文**。② `Absent` callback 自己结算时渲染 `unknown`，在 worker 已证明
+> admission 后到达却渲染 `null`——分类被从「它最终被归入的答案」反推，而那个答案是 admission、不是失败。
+> **分类必须随 callback 旅行**，否则同一个 callback 的失败类别取决于竞速顺序。
+> 修 ① 与 ② 各自作废整批变异收据（收据钉生产文件 SHA-256），三批共 76 枚变异——**这正是「体量在写 RED
+> 之前就量」的姊妹代价：变异批的重跑成本由「还会不会再动产线」决定，故 R3 前的本地自检值这个价**。
 
 
 **W0 闸号协调债已结清**（2026-08-28，PR #186，master `b1e5f0b5`）：`selftest.ps1` 现在从闸头注释与真实
