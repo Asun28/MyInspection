@@ -187,7 +187,28 @@ class ReportHtmlRendererTest {
         assertFalse(EmbeddedImage.ALLOWED_MEDIA_TYPES.contains("image/svg+xml"))
         assertFailsWith<IllegalArgumentException> { EmbeddedImage("image/svg+xml", ReportHtmlFixtures.jpegBytes) }
         assertFailsWith<IllegalArgumentException> { EmbeddedImage("image/jpeg", ByteArray(0)) }
+        // A misconfigured renderer is a caller defect, not a refused picture, so it is NOT the rejection
+        // type and must not be swallowed by the renderer's catch.
         assertFailsWith<IllegalArgumentException> { HtmlImageBounds(maxImageBytes = 8, maxTotalImageBytes = 4) }
+    }
+
+    /**
+     * The rejection happens inside the port, while `read` is executing, so it reaches the renderer as a
+     * thrown exception rather than as a null. Asserting only that the constructor throws proves nothing
+     * about the report: before this was handled, either case aborted the whole render.
+     */
+    @Test
+    fun `a picture the document may not carry costs that picture and nothing else`() {
+        for (bad in listOf({ EmbeddedImage("image/svg+xml", ReportHtmlFixtures.jpegBytes) },
+                           { EmbeddedImage("image/jpeg", ByteArray(0)) })) {
+            val html = ReportHtmlRenderer(ReportImageSource { _, _ -> bad() })
+                .render(ReportHtmlFixtures.content())
+            assertEquals(0, Regex("<img ").findAll(html).count())
+            assertEquals(2, Regex("<figure ").findAll(html).count())
+            assertEquals(2, Regex("class=\"evidence-missing\"").findAll(html).count())
+            assertContains(html, "1.2.1")
+            assertContains(html, "Photograph not embedded")
+        }
     }
 
     /**
@@ -329,9 +350,9 @@ class ReportHtmlRendererTest {
         Regex("<[a-zA-Z][^>]*>").findAll(html).map { it.value }.toList()
 }
 /*
- * R4 receipt. 26 single-point mutations, each applied alone and restored before the next, to files pinned
- * at these SHA-256 digests: HtmlClass 390dbe11bfd0ea94, ReportHtmlRenderer 4815929e321f081c,
- * ReportHtmlStylesheet ac7f91e4a4bbdc8a, ReportImageSource 2a306e36a1b63074. 26 killed, 0 survived.
+ * R4 receipt. 28 single-point mutations, each applied alone and restored before the next, to files pinned
+ * at these SHA-256 digests: HtmlClass 390dbe11bfd0ea94, ReportHtmlRenderer 009b2f65f807f7d7,
+ * ReportHtmlStylesheet ac7f91e4a4bbdc8a, ReportImageSource cd2d84cf02e46481. 28 killed, 0 survived.
  *
  * Every kill is a failing test - not a compile error, and not a command that never ran. The harness runs
  * the unmutated suite first as a positive control and records a kill only when Gradle reports failing
@@ -346,7 +367,9 @@ class ReportHtmlRendererTest {
  *                 M14 calls the port even with the budget exhausted; M15 tells the port the per-image
  *                 ceiling while ignoring what is left, M16 the reverse; M17 never spends the budget;
  *                 M18 moves the budget onto the renderer, costing a second report its pictures;
- *                 M32 drops the backstop against a port that overshoots, M33 makes it off by one.
+ *                 M32 drops the backstop against a port that overshoots, M33 makes it off by one;
+ *                 M34 removes the narrow catch so a refused picture aborts the whole report, and
+ *                 M35 throws the refusal as a plain argument error so that catch no longer matches.
  * evidence output M19 drops the missing-photograph notice; M20 drops a figure caption.
  * escaping use    M21 escapes an image alternative as element text rather than as an attribute;
  *                 M22, M30, M31 leave a caption, the title and an identity value unescaped.

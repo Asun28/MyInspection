@@ -10,8 +10,8 @@ import nz.myinspection.core.report.content.ReportContentPhoto
  */
 class EmbeddedImage(val mediaType: String, val bytes: ByteArray) {
     init {
-        require(mediaType in ALLOWED_MEDIA_TYPES) { "unsupported evidence media type: $mediaType" }
-        require(bytes.isNotEmpty()) { "an embedded image needs bytes" }
+        if (mediaType !in ALLOWED_MEDIA_TYPES) throw RejectedEvidenceException("unsupported type: $mediaType")
+        if (bytes.isEmpty()) throw RejectedEvidenceException("an embedded image needs bytes")
     }
 
     companion object {
@@ -19,6 +19,14 @@ class EmbeddedImage(val mediaType: String, val bytes: ByteArray) {
         val ALLOWED_MEDIA_TYPES = setOf("image/jpeg", "image/png", "image/webp")
     }
 }
+
+/**
+ * One piece of evidence the document will not carry. It is a *refusal*, not a failure of the report: the
+ * renderer turns it into the same missing-photograph figure a null or an oversized picture produces. It
+ * has its own type precisely so the renderer can catch this and nothing else - a blanket catch around a
+ * port call would also swallow real defects in that port and render a silently incomplete report.
+ */
+class RejectedEvidenceException(message: String) : IllegalArgumentException(message)
 
 /**
  * The only way evidence bytes enter the document. [maxBytes] is the ceiling the renderer will accept, so an

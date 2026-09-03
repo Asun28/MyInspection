@@ -206,7 +206,15 @@ class ReportHtmlRenderer(
             // very allocation the ceiling exists to prevent. Once nothing is left the port is not called.
             val ceiling = minOf(bounds.maxImageBytes.toLong(), bounds.maxTotalImageBytes - spentImageBytes)
             if (ceiling <= 0L) return null
-            val image = images.read(photo, ceiling.toInt()) ?: return null
+            // A port that hands back bytes the document may not carry is refusing that one picture,
+            // not failing the report: the figure below still appears, numbered and captioned. Only this
+            // one type is caught, so a genuine defect in the port still surfaces instead of quietly
+            // turning into a report with photographs missing.
+            val image = try {
+                images.read(photo, ceiling.toInt())
+            } catch (rejected: RejectedEvidenceException) {
+                null
+            } ?: return null
             // The backstop for a port that overshoots the limit it was handed anyway.
             if (image.bytes.size > ceiling) return null
             spentImageBytes += image.bytes.size
