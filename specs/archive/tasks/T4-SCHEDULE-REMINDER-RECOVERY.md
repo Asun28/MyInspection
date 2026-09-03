@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-REMINDER-RECOVERY
 title: 权限恢复、注册诊断渲染与确定性 admission 重读
 depends_on: [T4-SCHEDULE-REMINDER-FLIGHT]
-status: todo
+status: merged
 branch: T4-SCHEDULE-REMINDER-RECOVERY
 worktree: C:\wt\T4-SCHEDULE-REMINDER-RECOVERY
 allow_paths:
@@ -35,7 +35,10 @@ doc_sync: TASK-BOARD 记录合并 OID + TD167/TD168/TD169/TD170 置 paid + 登�
 
 # T4-SCHEDULE-REMINDER-RECOVERY
 
-承接 `T4-SCHEDULE-REMINDER-FLIGHT`，收掉提醒串行链在注册侧的最后三项——它们各自独立于 flight 协调器，落点分别是 `coordinate()` 的 PERMISSION_BLOCKED 分支、注册诊断的渲染，以及 `reread()` 的判定策略。
+承接 `T4-SCHEDULE-REMINDER-FLIGHT`，收掉提醒串行链在注册侧的最后三项——它们各自独立于 flight 协调器，落点分别是 `coordinate()` 的 PERMISSION_BLOCKED 分支、settlement 记录的字段，以及 `reread()` 的判定策略。
+
+> 卡名里的「注册诊断渲染」是开卡时的范围。R3 首轮后按预算拆分（用户裁定），**渲染**移入
+> `T4-SCHEDULE-REMINDER-DIAGNOSTICS`，本卡只落「记什么」；标题保留原文以对齐合并提交 `4ffd00d0`。
 
 ## 拆分依据（承接 FLIGHT 的预算拆分，L266/L276）
 
@@ -67,6 +70,44 @@ doc_sync: TASK-BOARD 记录合并 OID + TD167/TD168/TD169/TD170 置 paid + 登�
 
 ## 测试纪律
 
-Runtime acceptance tests are black-box behavioral tests：测试调用 compiled scheduler entry point，并在同一 fake receipt store 上调用 delivery 卡的 compiled production delivery runner 制造真实的 worker 竞速；production-used injected ports 覆盖 enqueue/query/permission/deadline/clock，只断言领域结果、渲染出的诊断字符串与记录的边界 effects。不得读取 repository/generated source、source-derived resource 或反射/反编译 compiled artifact 作为 oracle。A1–A4 各至少一个 production semantic mutation 必须在测试不变时让具名 selector nonzero；receipt 记录 acceptance、selector、变异 branch/port effect、RED exit 与 mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 mutation 无效。
+Runtime acceptance tests are black-box behavioral tests：测试调用 compiled scheduler entry point，并在同一 fake receipt store 上调用 delivery 卡的 compiled production delivery runner 制造真实的 worker 竞速；production-used injected ports 覆盖 enqueue/query/permission/deadline/clock，只断言领域结果与逐字段精确的记录（渲染字符串的断言随渲染一同移入承接卡）。不得读取 repository/generated source、source-derived resource 或反射/反编译 compiled artifact 作为 oracle。A1–A4 各至少一个 production semantic mutation 必须在测试不变时让具名 selector nonzero；receipt 记录 acceptance、selector、变异 branch/port effect、RED exit 与 mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 mutation 无效。
 
 测试必须覆盖权限授予与未授予两态（未授予时零 WorkManager 调用、零回执写入）、恢复后以 n+1 代与派生 UUID 提交、撞上的 retained work id 在恰好一条与多于一条两侧（多条时须对**两种输入顺序**给出同一结果）、confirm 路径被 worker 抢先 CAS 到 `RETRYABLE` 后仍报 ADMITTED 家族、非 confirm 调用点同样情形仍报 contention（两类调用点的分歧必须都被钉住），以及重读上界耗尽。
+
+## 交付记录（R5）
+
+**merged**：master `4ffd00d0`，PR #229，**R3 三轮 block + 两轮 pass**（人裁一次 ResetRounds、按预算拆卡一次）。
+diff 663 行 / 57203 字符（限 1000 / 60000）。
+
+### 落地形态
+`coordinate()` 的 `PERMISSION_BLOCKED` 分支进 `recover()`：**在恢复那一刻**读一次授权（`ReminderPermissionPort`
+新注入本卡），授权在则由 store 自派生 n+1 代与其 work id 并重新注册，不在则既不碰 WorkManager 也不写回执、
+报 `PERMISSION_NOT_GRANTED`（retryable）。恢复的重读**有界**（`MAX_RECOVERY_READS = 3`），耗尽报
+`RECEIPT_REREAD_EXHAUSTED` 而非 contention。`reread()` 改为「先 superseded、再 closed、再看调用点自带的
+admission 证据」，于是 confirm 路径被 worker 抢先推到 `RETRYABLE` 时不再低报（TD167）。
+`ReminderRegistrationRecord` 增 `retainedWorkRequestId` 与 `note`（`late: Boolean` 并入后者，因为 A7 需要第二种
+旁注），迟到失败 callback 在已证实 admission 后与竞速赢家同类（TD168），边缘结算一律落在**本 flight 自己**
+提交的那一代并点名取代它的 work id（TD169），抛错 waiter 除隔离外另记一条脱敏 `WAITER_FAILED`（TD170）。
+
+### 证据
+30 个 JVM 黑盒测试。**30 枚语义变异逐一击杀**（0 幸存 / 0 可疑），收据写在测试文件末尾、逐枚带
+selector、RED 退出码与具名击杀用例；另跑一遍**只编译**探针，30 枚全部 exit 0，故「全部编译」与
+「全部被测试杀死」是两条独立机检结论。生产文件 SHA-256 `44a2bffe…`，变异前后同值。
+
+### R3 三轮 block 全部属实，且**全部落在证据上、无一落在实现上**
+① 渲染把 `cause_code` 挪用为注册 cause 并丢掉 `error_code`，且身份两半各自校验——**而本卡的测试把这个
+泄漏写成了期望值**（照着实现写期望，不是照着契约写，L165 的典型踩法）。修这两条需把真实 `Throwable`
+分类穿到 record，估算后总量顶破 60000 硬闸 ⇒ **用户裁定把渲染整体拆给 `T4-SCHEDULE-REMINDER-DIAGNOSTICS`**。
+② 变异收据缺逐枚 selector / RED 退出码 / 具名击杀用例——为压预算把可审计字段压没了。
+③ 补全后收据仍**内部自相矛盾**：生成器只打印多行 selector 的**首行**，于是 M34 显示成 no-op、M03 显示成
+「多出一个 else」。修法是多行 selector 逐行渲染增删，并给生成器加一道「渲染出的前后必须不同」的自检。
+
+同轮另两条实现类 finding 也属实并已修：`retained.firstOrNull` 让 `retained_work_request_id` 依赖
+`ReminderWorkQueryPort` 不承诺的顺序（多条外来 active 时同一状态两次运行可记出不同 id）⇒ 改为**歧义即不记**，
+并以两种输入顺序的用例钉住。
+
+### CI 侧两次红都不是本卡的缺陷
+`d64b595d` 红在 `[ARCHIVE-CARDS-INDEX-DRIFT]`——master 自己红（`T3-REPORT-HTML-CHARACTER-POLICY` 归档时未重建
+`cards-index.md`，165 卡 / 164 行），由另一会话以 `9b6040aa` 修好后合入本分支才转绿。另两次是 `ci.yml` 的
+`concurrency: ci-${{ github.ref }}` + `cancel-in-progress` 把「`gh run rerun` 的重跑」与「push 触发的新跑」
+互相取消——**`gh run rerun` 重放的是记录在案的 merge ref，base 前移后必须合 master 触发新跑，不能靠重跑**。

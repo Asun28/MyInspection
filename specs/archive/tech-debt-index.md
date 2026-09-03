@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 44 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 48 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -49,3 +49,7 @@
 | TD132 | critical | paid | T5 备份成功状态 ↔ 本机照片删除资格 | **现有计划只有目的地和上次成功时间，没有“某个照片 exact bytes 已在某包回读验证”的持久证明**。后果：若仅凭 Worker 成功、SAF URI 或云盘品牌清理本机字节，授权撤销、短写、缺文件或错误 scope 会把唯一证… |
 | TD145 | minor | paid | `scripts/lessons.ps1` Resolve-BumpLedger | bump 的主检出解析取 `--git-common-dir` 的父级作为检出根。本仓被当作 submodule 使用时 git 返回 `<super>/.git/modules/<path>`，其父级并非检出根，函数会 fail-clo… |
 | TD139 | major | paid | `T3-REPORT-COMPOSER` PR #39 R3 round cap | 原卡两轮 R3 后仍剩六项 renderer-ready 布局证据缺口：项目内联缩略图未落 40mm 表格列几何、长 caption 可能拆图槽、实际页脚绘了完整哈希、空房标题可孤行、引用/照片层级校验不足、封面/照片实际文本仍绘 epo… |
+| TD167 | minor | paid | confirm 路径在 CAS 失败后低报 admission（`T4-SCHEDULE-REMINDER-SCHED… | **`confirm`（enqueue 已确认或 retained 查到本代 `ENQUEUED`/`RUNNING`）本身已握有 admission 证据，但重读只认同代 `ENQUEUED`**：若 worker 抢在该 CAS 之前… |
+| TD168 | minor | paid | 迟到失败 callback 在 watchdog 先结算时丢失 admission 分类（`T4-SCHEDULE-R… | **同一事实按谁赢得竞速而有两种分类**：worker 证实 admission 后，若 **watchdog** 先 settle 掉 flight（`WORKER_CONFIRMED_ADMISSION`，waiter 得 ADMIT… |
+| TD169 | minor | paid | 边缘路径诊断记的 generation 为空或记成了新的那一代（`T4-SCHEDULE-REMINDER-FLIGH… | `expire` 的 Missing/Quarantined 与 `proved`/`reread` 的不可读分支构造 `Settlement(RECEIPT_QUARANTINED)` **不带 generation**，于是 `Fli… |
+| TD170 | minor | paid | waiter 抛出的 Throwable 被静默吞掉、无任何诊断（`T4-SCHEDULE-REMINDER-FLIG… | `publish` 逐个隔离 waiter 是 A2 的硬要求（一个 waiter 抛错不得饿死其余），但当前 `catch (_: Throwable)` **不记录任何东西**，于是调用方的 bug 完全消失、无从排查。修法：继续调用… |

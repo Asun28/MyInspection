@@ -287,7 +287,7 @@ Stop 钩子 `lessons-reminder` 补上了从头到尾缺失的 `bump` 入口。**
 不发送短信/邮件。人工回记要求方式与真实时刻，生成前/未来时刻不落库，首条送达原子锁定；掉出通知窗口仍诚实存档并
 以 error 文案、颜色和无障碍语义提示改期。7 个 SQLite JVM 测试与 7 枚定向变异覆盖关键门。
 
-**W5 提醒串行链 3/5 已合并**（`T4-SCHEDULE-REMINDER-*`，2026-09-01）：`CONTRACTS`（master `a1fb2bbe`，PR #215）
+**W5 提醒串行链 6/7 已合并**（`T4-SCHEDULE-REMINDER-*`，2026-09-01）：`CONTRACTS`（master `a1fb2bbe`，PR #215）
 定身份/路由/文案/隐私描述符与精确关联诊断 · `RECEIPTS`（master `3c08c2dd`，PR #217）定应用私有 v1 耐久回执、
 损坏隔离与 generation CAS · `DELIVERY`（master `41793005`，PR #219）定 Worker、通知发布与不重投边界。
 **DELIVERY 的形状值得复用**：preparation 与 notifier 是两个独立端口，于是「失败发生在发布之前」由**哪个端口抛的**
@@ -307,8 +307,22 @@ UUID 建 WorkRequest**，否则 Worker 每次运行都在 INPUT 阶段被拒）�
 > 跨代时 waiter 必须当场收到 `GENERATION_SUPERSEDED` 否则白等 30 秒、joiner 的合同本就由 A1 以「结算」定义。
 > 三处均按真实合同**收紧**改写（更严、更具体），理由逐条记在卡内。**写验收清单时先问「这条在合流/恢复路径上还成立吗」。**
 
-余 `RECOVERY`（权限恢复 + 诊断 JSON 渲染 + TD167–TD170 四项诊断债，**FLIGHT 的 3 条诊断类 finding 全部移交此卡**）
-与 `T4-SCHEDULE-UI`。
+**`RECOVERY`（master `4ffd00d0`，PR #229）已合并**：`PERMISSION_BLOCKED` 不再当死局——`recover()` **在恢复那一刻**
+读一次授权，在则由 store 自派生 n+1 代与其 work id 重新注册，不在则既不碰 WorkManager 也不写回执；恢复的重读
+**有界**（3 次），耗尽报自己的 cause 而非 contention。`reread()` 改成「先 superseded、再 closed、再认调用点自带的
+admission 证据」，confirm 被 worker 抢先推到 `RETRYABLE` 时不再低报（TD167）。TD168/TD169/TD170 同窗口 paid：
+迟到失败 callback 与竞速赢家同类、边缘结算落**本 flight 自己**那一代并点名取代它的 work id、抛错 waiter 除隔离外
+另记一条脱敏 `WAITER_FAILED`。30 测试 / 30 变异全杀 / 30 枚只编译探针全 exit 0。
+> **RECOVERY 的教训与 FLIGHT 同源却更进一步**：R3 三轮 block 全部属实，**且三条全落在「我给出的证据」上、
+> 无一落在实现上**——① 测试把身份两半泄漏**写成了期望值**（照实现写期望，不是照契约写）；② 变异收据为压
+> 预算把逐枚 selector / RED 退出码 / 具名击杀用例压没了；③ 补全后收据仍自相矛盾（生成器只打印多行 selector
+> 的**首行**，于是一枚显示成 no-op、一枚显示成编译不过）。**推论：mutation adequacy 抓不出「与代码同向错」的
+> 期望值**——30/30 击杀 + 干净的编译探针，仍然为一处契约违反背了书。生成的证据必须再配一道「对着它所描述
+> 的东西自检」的闸（本卡给生成器加了「渲染出的前后必须不同」，并逐条核验具名用例真的存在于该文件）。
+> 另：修 ① 需把真实 `Throwable` 分类穿到 record，总量顶破 60000 硬闸 ⇒ **渲染整体拆给
+> `T4-SCHEDULE-REMINDER-DIAGNOSTICS`**（用户裁定），合并后诊断端口暂停在 `record.toString()`。
+
+余 `T4-SCHEDULE-REMINDER-DIAGNOSTICS`（渲染 + 上面两条继承 finding）与 `T4-SCHEDULE-UI`。
 
 
 **W0 闸号协调债已结清**（2026-08-28，PR #186，master `b1e5f0b5`）：`selftest.ps1` 现在从闸头注释与真实
