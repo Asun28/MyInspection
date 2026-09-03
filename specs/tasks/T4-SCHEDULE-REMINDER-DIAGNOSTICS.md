@@ -2,7 +2,7 @@
 id: T4-SCHEDULE-REMINDER-DIAGNOSTICS
 title: 注册诊断渲染：delivery 字段词汇、真实失败类别与原子身份
 depends_on: [T4-SCHEDULE-REMINDER-RECOVERY]
-status: todo
+status: merged
 branch: T4-SCHEDULE-REMINDER-DIAGNOSTICS
 worktree: C:\wt\T4-SCHEDULE-REMINDER-DIAGNOSTICS
 allow_paths:
@@ -82,3 +82,42 @@ property / date / path 与异常文本永不出现——`ReminderRegistrationRec
 effects；期望字符串**写成字面量**，不由被测对象回拼（L165/L281）。A1–A3 各至少一枚 production
 semantic mutation 必须让具名测试变红，收据钉生产文件的 SHA-256（变异前后同值），并另跑一遍
 **只编译**的探针逐枚要求 exit 0，两条结论分开写（L282）。
+
+## R5 交付记录
+
+**merged** 2026-09-03，master `e7adb439`，PR #233，R3 第 **3** 轮 pass（零 finding）。
+40 个 JVM 测试、**26 枚单点语义变异逐一击杀**、26 枚只编译探针全 exit 0，收据钉生产文件
+SHA-256 `bd643c0588353e05e40a1d7884cb8a18e4a5c66dd2bddce9310f173d96b89818`（变异前后同值）。
+630 changed lines / 52190 字符，R3 预算闸内。
+
+### 落地形状
+
+`error_code` 与 `cause_code` 是两个字段答两个问题：前者是注册侧自己的封闭词汇
+（`ReminderRegistrationCause`），后者是与 delivery 共享的 `FailureCauseCode`。携带真实 Throwable
+的结算发布该 Throwable 的分类，故**同一个 error_code 可渲染出两种 cause_code**——`IOException`
+的 callback 是 `io`，`SecurityException` 的 callback 是 `security`。为此把 `causeClass` 从
+signal 经 `Settlement` / `advance` / `proved` / `Flight.record` / `lateRecord` 一路穿到 record。
+
+身份**作为一个值**判定：occurrence 不是摘要形状、或 generation 为负，则两半与其派生 id **皆 null**。
+这两个条件恰是 `reminderGenerationId` 自己的前置条件，故渲染器拒绝发布的身份也永远不会被拿去派生。
+`retained_work_request_id` 只在身份完整、且不等于本次注册自己的 work id 时发布。
+
+`occurrence_id` 缺失时渲染 `null` 而非 delivery 的 `"missing"`——依本卡字段合同表与 A2 的
+「两者皆 null」，此处刻意不抄 delivery 的拼写。
+
+### R3 三轮，两条真 finding，都落在同一类错误上
+
+① **waiter 路径未修**：`publish` 仍吞掉 waiter 的 Throwable，成功注册的 waiter 抛错后
+`cause_code` 发布成 null。我按 A1 字面「a **cause** that carried a real Throwable」把 waiter
+排除在外，但**拆分依据枚举的六条路径里 waiter 就是其中之一**——卡片理由里的枚举是清单，不是散文。
+修法：该记录发布 waiter 自己的分类，结算记录先前已带自己的分类发出，两条记录各自命名各自的失败。
+
+② **分类随竞速顺序漂移**：`Absent` callback 自己结算注册时渲染 `unknown`，但同一个 callback
+在 worker 已证明 admission 后到达时渲染 `null`——因为 `reportedClass()` 只答真实 Throwable，
+而记录随后被归到 admission 名下，admission 不是失败、不带分类。修法：`reportedClass()` 对每个
+signal 都作答（抛出的取抛出的分类，没抛的取其**答案自身**的分类），分类随 callback 旅行，
+而不是从它最终被归入的答案反推。
+
+第 3 轮零 finding。**轮次上限经用户裁定 `ResetRounds`**：两轮提的是互不相同的真缺陷、各自被接受
+并修复、各自带来新的击杀变异，不属该上限要止住的「同一争点拉锯」（同
+`T3-REPORT-HTML-CHARACTER-POLICY` 先例）；`ResetRounds` 只清计数、不跳过评审。
