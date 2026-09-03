@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 165 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 166 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -162,6 +162,7 @@
 | T4-SCHEDULE-REMINDER-DELIVERY | merged | 提醒 Worker、通知发布与不重投边界 |
 | T4-SCHEDULE-REMINDER-FLIGHT | merged | 注册合流、异步 callback flight 与单调 watchdog |
 | T4-SCHEDULE-REMINDER-RECEIPTS | merged | 提醒耐久回执、损坏隔离与 generation CAS |
+| T4-SCHEDULE-REMINDER-RECOVERY | merged | 权限恢复、注册诊断渲染与确定性 admission 重读 |
 | T4-SCHEDULE-REMINDER-SCHEDULER | merged | WorkRequest 构造、注册预留与保留工作恢复 |
 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | merged | 将超限提醒卡拆为 delivery 与 scheduler 两张可读串行卡 |
 | T4-SCHEDULE-SPLIT-PLAN | merged | 将 T4-SCHEDULE 拆成可读且可独立评审的三张串行卡 |

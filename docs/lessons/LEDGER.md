@@ -727,7 +727,7 @@
 - refs: 
 
 ## L106
-- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: PowerShell 工具对 C:\wt\<worktree> 等主检出之外的路径默认沙箱化：cd/写入表面成功（无报错、'done' 打印），但下一次调用读回验证却是旧内容；未加 dangerouslyDisableSandbox 时的一次写脚本还曾把 cd 静默重置回主检出，导致后续相对路径写操作真的落进了主检出（误把 BOM 加进 7 个生产脚本），须 git restore 撤销。
 - root_cause: PowerShell 工具默认沙箱模式对主工作目录之外路径的读写不可靠——未显式传 dangerouslyDisableSandbox:true 时，跨目录操作可能被静默重定向/回退到主目录而非报错，造成'看起来成功、实际操作了错误位置'的假象。
 - rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。 **2026-08-23 复核（recurrence 2→4）**：结论不变，仍不 promote。2026-07-23 的判定依据（已被 L157「落盘改动先对 diff --stat」覆盖）在计数升到 4 之后依然成立——新增的两次只增加了暴露频次，没有推翻「已有通用形态覆盖它」这一理由。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 4
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 5
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -2075,5 +2075,21 @@
 - symptom: 为压 R3 的 60000 字符闸而精简注释，改完一测反而从 60326 涨到 61122；越修越大。
 - root_cause: diff 字符数只统计 +/- 行。删/改一条【本次未改动】的注释，会把原本不计入的 context 行变成一对 -/+，凭空多出两行；而删一条【已在 diff 里】的新增行才真的减。手感上「哪句啰嗦删哪句」正好会挑中前者。
 - rule: 缩 diff 只许动已经在 diff 里的行（git diff 里带 + 的那些）。动手前先 git diff 看该行是否带 +，不带就别碰——那是 context。配套两条：① 顶到闸时把 R4 变异收据整表移进任务卡（卡在 master 上、不进 PR diff，却仍被注入评审 prompt，RECEIPTS 卡先例），测试文件只留一行指针；② 预算要给 R3 的 2-3 轮修复留头寸，别按首轮实现刚好卡满。
+- enforced_by: 
+- refs: 
+
+## L285
+- date: 2026-09-03 ｜ tags: r4,evidence,mutation,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 连续两轮 block 全部落在「我给出的证据」而非实现上：① 变异收据的生成器只打印多行 selector 的首行，于是一枚显示成 no-op（前后同一行）、一枚显示成「多出一个 else」（编译不过），评审据此判定 A8 证据内部自相矛盾；② 更早一轮里测试把身份两半泄漏写成了期望值。两轮里实现本身零 finding。
+- root_cause: 生成/撰写的证据没有对着「它所描述的东西」做过任何自检。变异批只证明「被测行为与期望一致」，证明不了期望本身是对的——当期望与代码同向错时，30/30 击杀加干净的编译探针照样为契约违反背书；同理收据是从变异表生成的，但没有任何检查确认「渲染出的描述」与「真正施加的替换」一致。
+- rule: 凡是生成或撰写出来、要拿去当证据的东西，都要再配一道对着它所描述之物的自检：① 变异收据的渲染必须逐行展示多行 selector 的增删，并断言「渲染出的前后必须不同」（no-op 渲染即 throw）；② 收据里点名的击杀用例必须能在同一文件里按 fun `<name>`() 找到（找不到即作废）；③ 期望值照契约写、不照实现写——写完问一句「如果实现是错的，这条期望会不会跟着错」，会就换成独立来源（字面量/外部复算/契约原文）。推论：mutation adequacy 不是期望正确性的证据，两者要分别举证。
+- enforced_by: 
+- refs: 
+
+## L286
+- date: 2026-09-03 ｜ tags: ci,github,merge ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: PR 的 CI 红在一处与本卡无关的 gate（master 自己红），另一会话把 master 修好后，gh run rerun 重跑那次 run 仍然红在同一步；随后又出现两次 completed/cancelled，ship 的 CI 闸据此拒绝合并。
+- root_cause: gh run rerun 重放的是记录在案的那次运行（pull_request 事件下即当时的 merge ref），base 前移不会被它看见；而 ci.yml 的 concurrency group 是 ci-${{ github.ref }} 且 cancel-in-progress，于是「手动重跑」与「push 触发的新跑」落进同一组互相取消。
+- rule: base 前移后要让 CI 看见新 base，只有一条路：在卡分支上 git merge origin/master 再 push，触发一次全新的 run；不要指望 gh run rerun。且重跑与 push 二选一、不要并发——同一 PR 的两次触发会被 cancel-in-progress 互相取消，ship 的 CI 闸把 cancelled 一律视为不可合并。先 gh run list 确认没有 in-flight run 再动手。
 - enforced_by: 
 - refs: 
