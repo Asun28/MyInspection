@@ -24,7 +24,7 @@ acceptance:
   - "A1 the reducer renders exactly one screen state among content, no-content-empty, filtered-empty, loading and error, and every row inside a content state carries exactly one row kind among due, first-inspection and one-off together with that kind's declared badge value and its declared due date or absence of one"
   - "A2 a row activation emits exactly one route effect carrying propertyId and inspectionType, a further activation while that route is unsettled emits none, and an activation after it settles emits again"
   - "A3 a type filter retains only the occurrences whose inspectionType equals the selection, a selection matching nothing renders filtered-empty rather than no-content, an empty list with no filter renders no-content, and a reload restores the previously selected filter and scroll position"
-  - "A4 every non-content screen state declares exactly one action slot by carrying one slot rather than a list, so a state offering two actions cannot be constructed"
+  - "A4 the action a screen state offers is a single optional value rather than a collection, so no state can express two: the no-content, filtered-empty and error states each declare exactly one slot, while loading and content declare none by design"
   - "A5 runtime acceptance tests invoke the compiled reducer entry points with concrete inputs and assert only domain state and recorded effects, and carry executable semantic mutation receipts; source, resources and inspected compiled artifacts are never an oracle, while Compose wiring is compile-only"
 dod_command: $kotlin = @('android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleModels.kt','android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleScreen.kt','android/app/src/test/kotlin/nz/myinspection/app/feature/schedule/ScheduleUiTest.kt'); if ($kotlin | Where-Object { -not (Test-Path $_) }) { exit 1 }; if (Select-String -Path $kotlin -Pattern '\btypealias\b|;' -Quiet) { exit 1 }; if ($kotlin | ForEach-Object { Get-Content $_ | Where-Object { $_.Length -gt 120 } }) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ScheduleUiTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
 dod_exit: 0
@@ -122,6 +122,7 @@ mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 m
 | 1 | A1「due, empty, first, one-off and type-filter states expose badges」 | 拆成 REQ-001..009 并分作两层 | 原句一条含五个状态 + 徽标 + 路由回调，失败时无法定位是哪一项；且把行种类与屏幕状态平铺后不可测。 |
 | 2 | 「symbols replace visible interface text」「minimal, top-tier-app schedule interface」 | 整体迁往 `T4-SCHEDULE-UI-PRESENTATION` | 2026-09-03 用户裁定按行为/呈现两半拆卡。 |
 | 3 | 原 A2–A4（权限/pending/retry） | 迁往 `T4-SCHEDULE-UI-REMINDER-ACTIONS` | 2026-09-03 第二次拆卡：实测 1057 行越 R3 1000 行硬闸，按本卡自己声明的止损点执行。 |
+| 4 | A4「every non-content screen state declares exactly one action slot」 | 改为「单值而非集合，故无一状态能表达两个；no-content / filtered-empty / error 各恰好一个，loading 与 content 刻意为零」 | **R3 第 1 轮 finding #1 属实**：`Loading` 是 non-content 却返回 null，实现与该措辞直接矛盾，而测试 `assertNull` 把这处违反**写成了期望值**。两条路：给 Loading 编一个动作，或改正过宽的措辞。前者是凭空发明产品行为（loading 是本地读盘 300ms 阈值态，无可操作对象，且动作文案归呈现卡 OD-11），故选后者。**arity 不变量未放宽**：「不能有两个」仍由单值类型结构性保证，只是把「每个非 content 状态都恰好一个」这句从未成立的过度概括收回。 |
 
 ## 变更记录（Change log）
 
@@ -130,4 +131,5 @@ mutation 前/还原后相同 SHA-256，源码文本、测试期望值或注释 m
 | 2026-09-03 | 需求重写：A1–A4 拆为 REQ-001..023（EARS）；新增上下文包、验收与验证方法、决策记录。 |
 | 2026-09-03 | **三向拆卡（用户裁定）**：呈现层 A6–A9 / REQ-030..060 与 12 条 OD 迁往 `T4-SCHEDULE-UI-PRESENTATION`；DESIGN.md 抵触迁往 `T4-DESIGN-SYMBOL-CHROME`。 |
 | 2026-09-03 | **RED 前收紧 A1 与 REQ-001（不可测 → 可测，非放宽）**：屏幕状态与行种类分作两层。L280 已实测 discharge：`:app:testDebugUnitTest` exit 0 且产出该包的 `TEST-*.xml`。 |
+| 2026-09-03 | **R3 第 1 轮 block，4 条 finding 全部属实**，逐条修：① A4 措辞与 `Loading` 矛盾（见决策记录 4）；② `ScheduleScreen` 的 `onRetry` 回调与可点重试按钮**违反本卡自己的 `forbid`**（retry 归 ACTIONS 卡），改为不可操作的纯文本 Error 分支并删掉该参数；③ `hygiene` 承诺「每个事件分支与每条投影判据均由单点变异击杀」，而收据缺 `OccurrencesLoaded`、`FilterSelected` 与 `visible.isNotEmpty()` 三处，补 M13–M15 并在收据头写明具名 selector；④ 四处注释在拆卡后失效（声称每个分支都带 rows 或 recovery、声称动作槽由状态携带、声称测试含 presenter 断言、引用已迁出的 REQ-023），逐条改正。②③④ 均属实且无争议，①经权衡后按「收回过度概括、不发明产品行为」处置。**改产线即作废整批收据（L270），故 12 枚重跑为 15 枚。** |
 | 2026-09-03 | **第二次拆卡（用户裁定）**：实测 1057 changed lines 越 R3 1000 行闸，按本卡声明的止损点把 REQ-010..023（权限/pending/retry）迁往 `T4-SCHEDULE-UI-REMINDER-ACTIONS`。本卡收为 REQ-001..009 + `ScheduleScreen`，acceptance 重编号为 A1–A5。 |
