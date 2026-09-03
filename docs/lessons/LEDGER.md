@@ -663,7 +663,7 @@
 - refs: 本会话清理 codebase-memory-mcp 注入 ~/.codex/config.toml 的现场（11 行块只删掉 10 行，# <<< 哨兵残留为末行）；rule① 初稿误把「-notmatch 哨兵过滤」当通用解，被 R3（codex）在 PR #101 当场证伪并实测复现（哨兵没了、块体三行全活）——该缺陷此前逃过了 fresh-context 子代理复核，因其只在「块内每行都匹中」的偏置样例上验过；关联 L93（同为 PowerShell 静默假绿：命令自称成功、结果已错）、L25（确定性闸 exit 0/1）
 
 ## L95
-- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
 - symptom: `-Phase red` 打印「RED 已确认（dod 退出 1）」并写下 .review/<id>.red 证据，但那个 1 其实来自 ParserError「Missing expression after unary operator '-not'」——DoD 命令根本没跑起来，一条断言都没执行；该 dod_command 的 GREEN 永远不可达。
 - root_cause: task.ps1 用 `& pwsh -NoProfile -Command <卡片 dod_command 原文>` 执行 DoD，而卡片惯用写法自身又是 `pwsh -NoProfile -Command "..."`。双层包裹下，内层双引号串里的 `$ok` 被子 shell 先行内插成空串，孙 shell 只收到 ` = (...); if (-not ) {...}`。`-Phase red` 只看退出码非零，遂把「语法坏了」当「测试红了」收下 = vacuous RED。
 - rule: dod_command 里一律不写 `$变量`——用 T9-DOCS-DRIFT 的无变量写法 `pwsh -NoProfile -Command "if (-not ((Select-String ...) -and (...))) { exit 1 }"`。跑完 -Phase red 必须读一眼 DoD 的实际输出，确认非零退出来自断言失败而非 ParserError/CommandNotFound；「RED 已确认」这行字不是证据。已合并的 T10-R3-PIN-MODEL 卡即误用 `$ok` 形态，其 DoD 至今无法执行断言（TD69）。
