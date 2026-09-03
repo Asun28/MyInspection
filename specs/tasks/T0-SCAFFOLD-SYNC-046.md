@@ -8,6 +8,7 @@ branch: T0-SCAFFOLD-SYNC-046
 worktree: C:\wt\T0-SCAFFOLD-SYNC-046
 allow_paths:
   - scripts/_config.ps1
+  - scripts/scaffold-sync.ps1
   - docs/SCAFFOLD-SYNC.md
   - specs/tasks/T0-SCAFFOLD-SYNC-046.md
 forbid:
