@@ -691,13 +691,14 @@ class ReminderSchedulerTest {
         fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
 
         assertEquals(listOf(1, 1, 1), (0 until 3).map { calls.get(it) })
-        // The caller's failure is reported rather than swallowed, and reported without a word of
-        // what was thrown: this exact record is the whole of it, and it has nowhere to put text.
+        // The caller's failure is reported rather than swallowed, and reported as its class alone:
+        // this exact record is the whole of it, and it has nowhere to put a word of what was thrown.
         assertEquals(
             listOf(
                 ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
                 ReminderRegistrationRecord(
                     IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION, note = WAITER_FAILED,
+                    causeClass = FailureCauseCode.UNKNOWN,
                 ),
             ),
             fixture.diagnostics.records.toList(),
@@ -840,6 +841,40 @@ class ReminderSchedulerTest {
 
         assertEquals(2, fixture.enqueue.submissions.size)
         assertEquals(emptyList(), next)
+    }
+
+    @Test
+    fun `a throwing waiter is published as its own record, naming the class that waiter threw`() {
+        val fixture = Fixture(signal = null)
+        val reminder = PendingReminder(ROUTE, DUE_AT)
+        fixture.scheduler.register(reminder) { throw SecurityException("caller lost its permission") }
+        // Two classes from two waiters of one settlement, so a class taken from anywhere but the
+        // waiter that threw it renders these two lines the same.
+        fixture.scheduler.register(reminder) { throw AssertionError("misbehaving caller") }
+
+        fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
+
+        val asides = fixture.diagnostics.records.filter { it.note == WAITER_FAILED }
+        assertEquals(
+            listOf(
+                "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                    "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                    "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                    "\"retryable\":false,\"error_code\":\"callback-confirmed-admission\"," +
+                    "\"cause_code\":\"security\",\"callback_cause_code\":null,\"note\":\"waiter-failed\"}",
+                "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                    "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                    "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                    "\"retryable\":false,\"error_code\":\"callback-confirmed-admission\"," +
+                    "\"cause_code\":\"unknown\",\"callback_cause_code\":null,\"note\":\"waiter-failed\"}",
+            ),
+            asides.map { reminderRegistrationMessage(it) },
+        )
+        // The settlement's own record went out first, under its own answer and with no class at all.
+        assertEquals(
+            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
+            fixture.diagnostics.records.first(),
+        )
     }
 
     @Test
@@ -1511,10 +1546,10 @@ class ReminderSchedulerTest {
 
 /*
  * R4 semantic mutation receipt for T4-SCHEDULE-REMINDER-DIAGNOSTICS:
- * 22 mutations, 22 killed, 0 survivors, 0 suspects.
+ * 24 mutations, 24 killed, 0 survivors, 0 suspects.
  *
  * Each was applied ALONE to ReminderScheduler.kt at SHA-256
- * 00a0b7789bf45dc769d66b10bdb2b2513bdaea8bab61249ab833414088c727d2, the card's DoD test task was run, and the
+ * aa6753b521dd8e4f4c217e0db9d81d15127bc8a0a4e2ead2b13407a3038a4d1b, the card's DoD test task was run, and the
  * file was restored and re-hashed to that same value. The batch ledger opens and closes on
  * that hash, so nothing escaped it. A kill required a non-zero exit AND the named test below
  * failing in the JUnit XML: Gradle exits 1 for a compile error and a failing test alike, so an
@@ -1523,8 +1558,8 @@ class ReminderSchedulerTest {
  * Before Gradle was touched, every selector was asserted to occur exactly once and to render a
  * before that differs from its after, so no row below is a mutation that changed nothing.
  *
- * A SEPARATE probe re-applied all 22 under :app:compileDebugUnitTestKotlin, which
- * compiles and runs nothing, and every one exited 0. So "22/22 compile" and "22/22 are killed by
+ * A SEPARATE probe re-applied all 24 under :app:compileDebugUnitTestKotlin, which
+ * compiles and runs nothing, and every one exited 0. So "24/24 compile" and "24/24 are killed by
  * a test" are two independently machine-checked claims, neither inferred from the other.
  *
  * Killer tests, named exactly as they appear above:
@@ -1535,6 +1570,7 @@ class ReminderSchedulerTest {
  * [e] a whole identity publishes both halves, the id they derive and the work it collided with
  * [f] a late failure keeps the admitted answer, the class it threw and the answer it reported
  * [g] the two answers decided away from the receipt name the stage that decided them
+ * [h] a throwing waiter is published as its own record, naming the class that waiter threw
  *
  * M01 A1 exit=1 [a] append((record.causeClass ?: record.cause.failureClass())?.wireValue.quoted())
  *     => append(record.cause.failureClass()?.wireValue.quoted())
@@ -1577,4 +1613,9 @@ class ReminderSchedulerTest {
  * M20 A1 exit=1 [g] append(record.cause.outcome == RETRYABLE_FAILURE) => append(record.cause.outcome != ADMITTED)
  * M21 A1 exit=1 [c] append(record.callbackCause?.wireValue().quoted()) => append(record.cause.wireValue().quoted())
  * M22 A2 exit=1 [e] append(identity?.occurrenceId.quoted()) => append(identity?.occurrenceId?.uppercase().quoted())
+ * M23 A1 exit=1 [h]
+ *     - val thrown = classifyReminderFailure(failure).causeCode
+ *     - diagnostics.record(record.copy(note = WAITER_FAILED, causeClass = thrown))
+ *     + diagnostics.record(record.copy(note = WAITER_FAILED))
+ * M24 A1 exit=1 [h] val thrown = classifyReminderFailure(failure).causeCode => val thrown = FailureCauseCode.UNKNOWN
  */

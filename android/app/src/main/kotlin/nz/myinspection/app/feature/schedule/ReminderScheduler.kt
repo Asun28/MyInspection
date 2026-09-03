@@ -126,8 +126,10 @@ data class ReminderRegistrationIdentity(val occurrenceId: String, val generation
  * downgrading it. [retainedWorkRequestId] is the work this settlement collided with rather than
  * this registration's own, which is what a late or cross generation reading is located by.
  * [causeClass] is the shared failure class of what was actually thrown, carried only where a real
- * Throwable reached this settlement, because the class of a thrown failure is a fact about that
- * failure while the cause above is a fact about the answer this registration reached.
+ * Throwable reached this record, because the class of a thrown failure is a fact about that
+ * failure while the cause above is a fact about the answer this registration reached. On a record
+ * marked [ReminderRegistrationNote.WAITER_FAILED] the Throwable that reached it is the waiter's,
+ * which is what that record is about, so it is that waiter's class this carries.
  */
 data class ReminderRegistrationRecord(
     val identity: ReminderRegistrationIdentity?,
@@ -489,7 +491,10 @@ class ReminderScheduler(
      * that throws can starve neither the diagnostic nor the waiters after it. Not rethrowing is
      * the point: a waiter belongs to a caller, and one caller's failure says nothing about this
      * occurrence. It is still recorded, because a failure nobody can see is a bug nobody can find,
-     * and recorded without a word of what was thrown: this record names an occurrence.
+     * and recorded with the class of what was thrown but never a word of it: a class is a closed
+     * vocabulary this record already publishes, while the text belongs to the caller that threw it.
+     * That class replaces the settlement's own on this record alone, because this record exists on
+     * account of the waiter, and the settlement was already published with its own class above.
      */
     private fun publish(
         record: ReminderRegistrationRecord,
@@ -499,8 +504,9 @@ class ReminderScheduler(
         waiters.forEach { waiter ->
             try {
                 waiter(record.cause)
-            } catch (_: Throwable) {
-                diagnostics.record(record.copy(note = WAITER_FAILED))
+            } catch (failure: Throwable) {
+                val thrown = classifyReminderFailure(failure).causeCode
+                diagnostics.record(record.copy(note = WAITER_FAILED, causeClass = thrown))
             }
         }
     }
