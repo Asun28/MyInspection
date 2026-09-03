@@ -29,6 +29,8 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CA
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_NULL
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_THROWABLE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_TIMEOUT
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_SUBMIT_TRANSIENT
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.GENERATION_SUPERSEDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.INVALID_ROUTE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.OCCURRENCE_CLOSED
@@ -38,10 +40,19 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_QU
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REJECTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REREAD_EXHAUSTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_WRITE_UNCERTAIN
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_BLOCKED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_CANCELLED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_DUPLICATE
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_ENQUEUED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_FAILED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.WORKER_CONFIRMED_ADMISSION
 import nz.myinspection.app.feature.schedule.ReminderRegistrationNote.LATE_CALLBACK
 import nz.myinspection.app.feature.schedule.ReminderRegistrationNote.WAITER_FAILED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.ADMITTED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.RETRYABLE_FAILURE
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 /** What a registration achieved. Every cause below maps onto exactly one of these. */
@@ -114,6 +125,11 @@ data class ReminderRegistrationIdentity(val occurrenceId: String, val generation
  * differ, so a failure that arrived after the worker proved the admission stays legible without
  * downgrading it. [retainedWorkRequestId] is the work this settlement collided with rather than
  * this registration's own, which is what a late or cross generation reading is located by.
+ * [causeClass] is the shared failure class of what was actually thrown, carried only where a real
+ * Throwable reached this record, because the class of a thrown failure is a fact about that
+ * failure while the cause above is a fact about the answer this registration reached. On a record
+ * marked [ReminderRegistrationNote.WAITER_FAILED] the Throwable that reached it is the waiter's,
+ * which is what that record is about, so it is that waiter's class this carries.
  */
 data class ReminderRegistrationRecord(
     val identity: ReminderRegistrationIdentity?,
@@ -122,6 +138,7 @@ data class ReminderRegistrationRecord(
     val callbackCause: ReminderRegistrationCause? = null,
     val retainedWorkRequestId: UUID? = null,
     val note: ReminderRegistrationNote? = null,
+    val causeClass: FailureCauseCode? = null,
 )
 
 interface ReminderSchedulerDiagnosticPort {
@@ -310,13 +327,13 @@ class ReminderScheduler(
     private fun place(flight: Flight, receipt: ReminderReceipt): Settlement? {
         val retained = try {
             query.retainedWork(receipt.spec.uniqueWorkName)
-        } catch (_: InterruptedException) {
+        } catch (failure: InterruptedException) {
             // The domain answer is still retryable, but the flag that tells this thread it was
             // interrupted belongs to the caller and is handed straight back.
             Thread.currentThread().interrupt()
-            return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
-        } catch (_: Throwable) {
-            return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
+            return receipt.failed(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED, failure)
+        } catch (failure: Throwable) {
+            return receipt.failed(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED, failure)
         }
         val current = retained.filter { it.id == receipt.workRequestId }
         val foreign = retained.filter { it.id != receipt.workRequestId && !it.state.isFinished }
@@ -369,12 +386,14 @@ class ReminderScheduler(
      * Both settle the flight, because a submission that produced no operation leaves nothing to
      * wait on and the next registration must re-coordinate rather than join it.
      */
-    private fun refuseSubmission(receipt: ReminderReceipt, failure: Throwable): Settlement =
-        if (classifyReminderFailure(failure).kind == FailureKind.PERMANENT) {
-            terminate(receipt, ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
+    private fun refuseSubmission(receipt: ReminderReceipt, failure: Throwable): Settlement {
+        val disposition = classifyReminderFailure(failure)
+        return if (disposition.kind == FailureKind.PERMANENT) {
+            terminate(receipt, ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL, disposition.causeCode)
         } else {
-            receipt.settle(ReminderRegistrationCause.ENQUEUE_SUBMIT_TRANSIENT)
+            receipt.failed(ReminderRegistrationCause.ENQUEUE_SUBMIT_TRANSIENT, failure)
         }
+    }
 
     /** Arms the one watchdog a flight gets, unless its operation has already been answered. */
     private fun arm(flight: Flight) {
@@ -437,14 +456,15 @@ class ReminderScheduler(
      */
     private fun answer(flight: Flight, signal: ReminderEnqueueSignal) {
         val reported = signal.cause()
+        val reportedClass = signal.reportedClass()
         val settled = settle(flight) {
             flight.receipt?.let { receipt ->
                 val next = if (reported == CALLBACK_CONFIRMED_ADMISSION) ENQUEUED else RETRYABLE
-                advance(receipt, next, null, reported, reported = reported)
+                advance(receipt, next, null, reported, reported = reported, causeClass = reportedClass)
             }
         }
         if (settled == null) {
-            diagnostics.record(flight.lateRecord(reported))
+            diagnostics.record(flight.lateRecord(reported, reportedClass))
         }
     }
 
@@ -471,7 +491,10 @@ class ReminderScheduler(
      * that throws can starve neither the diagnostic nor the waiters after it. Not rethrowing is
      * the point: a waiter belongs to a caller, and one caller's failure says nothing about this
      * occurrence. It is still recorded, because a failure nobody can see is a bug nobody can find,
-     * and recorded without a word of what was thrown: this record names an occurrence.
+     * and recorded with the class of what was thrown but never a word of it: a class is a closed
+     * vocabulary this record already publishes, while the text belongs to the caller that threw it.
+     * That class replaces the settlement's own on this record alone, because this record exists on
+     * account of the waiter, and the settlement was already published with its own class above.
      */
     private fun publish(
         record: ReminderRegistrationRecord,
@@ -481,8 +504,9 @@ class ReminderScheduler(
         waiters.forEach { waiter ->
             try {
                 waiter(record.cause)
-            } catch (_: Throwable) {
-                diagnostics.record(record.copy(note = WAITER_FAILED))
+            } catch (failure: Throwable) {
+                val thrown = classifyReminderFailure(failure).causeCode
+                diagnostics.record(record.copy(note = WAITER_FAILED, causeClass = thrown))
             }
         }
     }
@@ -496,8 +520,12 @@ class ReminderScheduler(
         retained: UUID? = null,
     ): Settlement = advance(receipt, QUARANTINED, null, applied, retained = retained)
 
-    private fun terminate(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, TERMINAL, ReminderCause.PERMANENT_DELIVERY_FAILURE, applied)
+    private fun terminate(
+        receipt: ReminderReceipt,
+        applied: ReminderRegistrationCause,
+        causeClass: FailureCauseCode? = null,
+    ): Settlement =
+        advance(receipt, TERMINAL, ReminderCause.PERMANENT_DELIVERY_FAILURE, applied, causeClass = causeClass)
 
     /**
      * Applies one phase change, re-reading rather than overwriting when the store says the caller's
@@ -507,7 +535,10 @@ class ReminderScheduler(
      * caller acting on retained work that contradicts admission must not report one. [reported] is
      * set only by an enqueue callback, the one caller whose lost transition is proof. [retained]
      * names the work this decision collided with, and belongs to the applied answer alone: every
-     * other answer here is about the receipt rather than about retained work.
+     * other answer here is about the receipt rather than about retained work. [causeClass] is the
+     * class of the Throwable this caller reports, and travels only with an answer still reporting
+     * it: the applied answer, or the admitted reading a lost callback still reports. An answer
+     * about the receipt instead, such as a refused or an unconfirmed transition, drops it.
      */
     private fun advance(
         receipt: ReminderReceipt,
@@ -517,19 +548,20 @@ class ReminderScheduler(
         admitted: Boolean = false,
         reported: ReminderRegistrationCause? = null,
         retained: UUID? = null,
+        causeClass: FailureCauseCode? = null,
     ): Settlement {
         val result = store.compareAndSet(
             receipt.occurrenceId, receipt.generationNumber, receipt.workRequestId,
             receipt.phase, next, cause,
         )
         return when (result) {
-            is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied, retained)
+            is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied, retained, causeClass)
             // Rejected means the store forbids this transition, which this scheduler never asks
             // for, so it is a fail closed default rather than a reachable branch.
             ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
             ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
             is ReminderReceiptTransitionResult.Stale -> reported
-                ?.let { proved(result.lookup, receipt, it) }
+                ?.let { proved(result.lookup, receipt, it, causeClass) }
                 ?: reread(result.lookup, receipt, admitted)
         }
     }
@@ -545,6 +577,7 @@ class ReminderScheduler(
         lookup: ReminderReceiptLookup,
         current: ReminderReceipt,
         reported: ReminderRegistrationCause,
+        causeClass: FailureCauseCode?,
     ): Settlement {
         // The store reports Stale only with the receipt it read under its own lock, and answers a
         // missing or unreadable occurrence with Rejected instead, so this is a fail closed default.
@@ -558,7 +591,10 @@ class ReminderScheduler(
         return if (reported == CALLBACK_CONFIRMED_ADMISSION) {
             fresh.settle(WORKER_CONFIRMED_ADMISSION)
         } else {
-            Settlement(ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, fresh.generationNumber, reported)
+            Settlement(
+                ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, fresh.generationNumber, reported,
+                causeClass = causeClass,
+            )
         }
     }
 
@@ -615,6 +651,7 @@ private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
         settled.cause,
         settled.reported,
         settled.retained,
+        causeClass = settled.causeClass,
     )
 
     /**
@@ -622,7 +659,10 @@ private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
      * generation was admitted classifies a failing callback exactly as the callback winning that
      * same race is classified, so which of the two arrived first cannot change what is reported.
      */
-    fun lateRecord(reported: ReminderRegistrationCause): ReminderRegistrationRecord {
+    fun lateRecord(
+        reported: ReminderRegistrationCause,
+        causeClass: FailureCauseCode?,
+    ): ReminderRegistrationRecord {
         val proved = settledCause?.outcome == ADMITTED && reported != CALLBACK_CONFIRMED_ADMISSION
         return ReminderRegistrationRecord(
             identity(),
@@ -630,6 +670,7 @@ private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
             if (proved) ENQUEUE_CALLBACK_AFTER_WORKER_STARTED else reported,
             reported.takeIf { proved },
             note = LATE_CALLBACK,
+            causeClass = causeClass,
         )
     }
 }
@@ -639,12 +680,23 @@ private data class Settlement(
     val generationNumber: Long? = null,
     val reported: ReminderRegistrationCause? = null,
     val retained: UUID? = null,
+    val causeClass: FailureCauseCode? = null,
 )
 
 private fun ReminderReceipt.settle(
     cause: ReminderRegistrationCause,
     retained: UUID? = null,
-): Settlement = Settlement(cause, generationNumber, retained = retained)
+    causeClass: FailureCauseCode? = null,
+): Settlement = Settlement(cause, generationNumber, retained = retained, causeClass = causeClass)
+
+/**
+ * One settlement whose class is the class of what was thrown, rather than of the answer that
+ * throw became: the two are different facts, and only the first says what actually went wrong.
+ */
+private fun ReminderReceipt.failed(
+    cause: ReminderRegistrationCause,
+    failure: Throwable,
+): Settlement = settle(cause, causeClass = classifyReminderFailure(failure).causeCode)
 
 /** The class an answered operation reported, which the callback carries wherever it lands. */
 private fun ReminderEnqueueSignal.cause(): ReminderRegistrationCause = when (this) {
@@ -652,6 +704,22 @@ private fun ReminderEnqueueSignal.cause(): ReminderRegistrationCause = when (thi
     ReminderEnqueueSignal.Absent -> ENQUEUE_CALLBACK_NULL
     is ReminderEnqueueSignal.Reported -> ENQUEUE_CALLBACK_ERROR
     is ReminderEnqueueSignal.Raised -> ENQUEUE_CALLBACK_THROWABLE
+}
+
+/**
+ * The shared failure class this callback carries wherever it lands: the class of what was thrown
+ * where a real Throwable answered, and otherwise the class its own answer is of.
+ *
+ * It has to travel with the callback rather than be re-derived from the answer the record ends up
+ * filed under, because a callback that arrives once the worker has proved the admission is filed
+ * under that admission, and an admission is not a failure and names no class. Deriving it there
+ * would make the class of one callback depend on which of the two got there first.
+ */
+private fun ReminderEnqueueSignal.reportedClass(): FailureCauseCode? = when (this) {
+    is ReminderEnqueueSignal.Reported -> classifyReminderFailure(error).causeCode
+    is ReminderEnqueueSignal.Raised -> classifyReminderFailure(error).causeCode
+    // Nothing was thrown here, so the answer itself is what names a class, or names none.
+    ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> cause().failureClass()
 }
 
 /**
@@ -768,13 +836,107 @@ internal object AndroidReminderWatchdogPort : ReminderWatchdogPort {
 }
 
 /**
- * Publishes a settled registration. Rendering it into the delivery side's field vocabulary is the
- * follow-up card's subject, so this stays the record's own spelling until that lands: the record
- * carries no property, date, path or exception text for a renderer to have to leave out.
+ * Renders one registration for the log, in the field vocabulary the delivery side already uses.
+ *
+ * `error_code` and `cause_code` answer two different questions and stay two fields. The first is
+ * this registration's own closed vocabulary answer, the second the failure class registration and
+ * delivery share. A settlement that carried a real Throwable publishes that Throwable's class,
+ * because what was thrown is a fact about the failure while the answer it became is a fact about
+ * this registration, and an answer that failed nothing publishes no class at all.
+ *
+ * The identity is judged as one value. The occurrence has to be the irreversible digest shape and
+ * the generation has to be a real one, and failing either publishes neither half nor any id
+ * derived from them: half an identity correlates with nothing, so publishing it would assert a
+ * correlation that does not exist. The work request id is likewise the one those two derive rather
+ * than any spelling a caller might hold. Those two conditions are exactly the two that derivation
+ * requires, so an identity this refuses to publish is also one it never asks to derive from.
+ *
+ * `retained_work_request_id` names the work this settlement collided with, so it is published only
+ * beside a whole identity to correlate it against, and only when it is not this registration's own
+ * id: naming that would assert a conflict with a request that does not exist.
+ *
+ * No property, date, path or exception text can appear here, because the record carries none.
  */
+internal fun reminderRegistrationMessage(record: ReminderRegistrationRecord): String {
+    val identity = record.identity?.takeIf {
+        it.occurrenceId.matches(OCCURRENCE_ID_PATTERN) && it.generationNumber >= 0
+    }
+    val workRequestId = identity?.let { reminderGenerationId(it.occurrenceId, it.generationNumber) }
+    val retained = record.retainedWorkRequestId?.takeIf { workRequestId != null && it != workRequestId }
+    return buildString {
+        append("{\"event\":\"schedule-reminder\",\"stage\":\"")
+        append(record.cause.stage().wireValue)
+        append("\",\"occurrence_id\":")
+        append(identity?.occurrenceId.quoted())
+        append(",\"type\":\"")
+        append(record.type.name)
+        append("\",\"generation_number\":")
+        append(identity?.generationNumber ?: "null")
+        append(",\"work_request_id\":")
+        append(workRequestId?.toString().quoted())
+        append(",\"retained_work_request_id\":")
+        append(retained?.toString().quoted())
+        append(",\"retryable\":")
+        append(record.cause.outcome == RETRYABLE_FAILURE)
+        append(",\"error_code\":\"")
+        append(record.cause.wireValue())
+        append("\",\"cause_code\":")
+        append((record.causeClass ?: record.cause.failureClass())?.wireValue.quoted())
+        append(",\"callback_cause_code\":")
+        append(record.callbackCause?.wireValue().quoted())
+        append(",\"note\":")
+        append(record.note?.wireValue().quoted())
+        append("}")
+    }
+}
+
+/**
+ * Where a registration reached its answer, in the delivery side's own closed set of stages. Only
+ * the two answers decided somewhere other than the receipt name another stage.
+ */
+private fun ReminderRegistrationCause.stage(): LogStage = when (this) {
+    INVALID_ROUTE -> LogStage.INPUT
+    PERMISSION_NOT_GRANTED -> LogStage.PERMISSION
+    else -> LogStage.RECEIPT
+}
+
+/**
+ * The failure class an answer is of by itself, which is what `cause_code` falls back to when no
+ * Throwable reached the settlement to classify. An answer that failed nothing has no class, which
+ * is what keeps the field absent rather than a spelling of success. The answers a Throwable does
+ * reach name unknown here, because those answers classify nothing on their own: in production each
+ * of them travels with the class of what was thrown, and that class is preferred over this one.
+ */
+private fun ReminderRegistrationCause.failureClass(): FailureCauseCode? = when (this) {
+    CALLBACK_CONFIRMED_ADMISSION, WORKER_CONFIRMED_ADMISSION, RETAINED_WORK_ENQUEUED,
+    ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, ADMISSION_ALREADY_RECORDED, OCCURRENCE_CLOSED,
+    GENERATION_SUPERSEDED -> null
+    INVALID_ROUTE -> FailureCauseCode.INVALID_INPUT
+    PERMISSION_NOT_GRANTED -> FailureCauseCode.SECURITY
+    RECEIPT_WRITE_UNCERTAIN -> FailureCauseCode.IO
+    ENQUEUE_CALLBACK_NULL, ENQUEUE_CALLBACK_ERROR, ENQUEUE_CALLBACK_THROWABLE,
+    ENQUEUE_CALLBACK_TIMEOUT, ENQUEUE_SUBMIT_TRANSIENT, ENQUEUE_SUBMIT_FATAL,
+    RETAINED_WORK_QUERY_FAILED -> FailureCauseCode.UNKNOWN
+    RETAINED_WORK_BLOCKED, RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT, RETAINED_WORK_FAILED,
+    RETAINED_WORK_CANCELLED, RETAINED_WORK_ID_MISMATCH, RETAINED_WORK_DUPLICATE,
+    RECEIPT_QUARANTINED, RECEIPT_REJECTED, RECEIPT_CONTENDED,
+    RECEIPT_REREAD_EXHAUSTED -> FailureCauseCode.ILLEGAL_STATE
+}
+
+/**
+ * The logged spelling of one value of a closed vocabulary, derived rather than written out beside
+ * it, so a value added later cannot reach the log unspelled. The spellings are still pinned, by a
+ * test comparing every one of them against a written out table, so a rename cannot quietly change
+ * what this emits either.
+ */
+private fun Enum<*>.wireValue(): String = name.lowercase().replace('_', '-')
+
+private fun String?.quoted(): String = this?.let { "\"$it\"" } ?: "null"
+
+/** Publishes a settled registration in the field vocabulary the delivery side already uses. */
 internal object AndroidReminderSchedulerDiagnosticPort : ReminderSchedulerDiagnosticPort {
     override fun record(record: ReminderRegistrationRecord) {
-        Log.w("ReminderScheduler", record.toString())
+        Log.w("ReminderScheduler", reminderRegistrationMessage(record))
     }
 }
 

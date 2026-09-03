@@ -477,9 +477,17 @@ class ReminderSchedulerTest {
         val after = ENQUEUE_CALLBACK_AFTER_WORKER_STARTED
         val cases = listOf(
             WorkerFirst(ReminderEnqueueSignal.Confirmed, WORKER_CONFIRMED_ADMISSION, null),
-            WorkerFirst(ReminderEnqueueSignal.Absent, after, ENQUEUE_CALLBACK_NULL),
-            WorkerFirst(ReminderEnqueueSignal.Reported(IOException("no")), after, ENQUEUE_CALLBACK_ERROR),
-            WorkerFirst(ReminderEnqueueSignal.Raised(IllegalStateException("x")), after, ENQUEUE_CALLBACK_THROWABLE),
+            WorkerFirst(
+                ReminderEnqueueSignal.Absent, after, ENQUEUE_CALLBACK_NULL, FailureCauseCode.UNKNOWN,
+            ),
+            WorkerFirst(
+                ReminderEnqueueSignal.Reported(IOException("no")), after, ENQUEUE_CALLBACK_ERROR,
+                FailureCauseCode.IO,
+            ),
+            WorkerFirst(
+                ReminderEnqueueSignal.Raised(IllegalStateException("x")), after, ENQUEUE_CALLBACK_THROWABLE,
+                FailureCauseCode.ILLEGAL_STATE,
+            ),
             WorkerFirst(null, WORKER_CONFIRMED_ADMISSION, null),
         )
 
@@ -500,7 +508,9 @@ class ReminderSchedulerTest {
             assertEquals(ADMITTED, settled.single().outcome, case.label)
             assertEquals(DELIVERED, fixture.phase(), case.label)
             assertEquals(
-                ReminderRegistrationRecord(IDENTITY_0, ROUTINE, case.settles, case.reported),
+                ReminderRegistrationRecord(
+                    IDENTITY_0, ROUTINE, case.settles, case.reported, causeClass = case.causeClass,
+                ),
                 fixture.diagnostics.records.single(),
                 case.label,
             )
@@ -526,7 +536,7 @@ class ReminderSchedulerTest {
                 ReminderRegistrationRecord(IDENTITY_0, ROUTINE, WORKER_CONFIRMED_ADMISSION),
                 ReminderRegistrationRecord(
                     IDENTITY_0, ROUTINE, ENQUEUE_CALLBACK_AFTER_WORKER_STARTED, ENQUEUE_CALLBACK_ERROR,
-                    note = LATE_CALLBACK,
+                    note = LATE_CALLBACK, causeClass = FailureCauseCode.IO,
                 ),
             ),
             fixture.diagnostics.records.toList(),
@@ -683,13 +693,14 @@ class ReminderSchedulerTest {
         fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
 
         assertEquals(listOf(1, 1, 1), (0 until 3).map { calls.get(it) })
-        // The caller's failure is reported rather than swallowed, and reported without a word of
-        // what was thrown: this exact record is the whole of it, and it has nowhere to put text.
+        // The caller's failure is reported rather than swallowed, and reported as its class alone:
+        // this exact record is the whole of it, and it has nowhere to put a word of what was thrown.
         assertEquals(
             listOf(
                 ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
                 ReminderRegistrationRecord(
                     IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION, note = WAITER_FAILED,
+                    causeClass = FailureCauseCode.UNKNOWN,
                 ),
             ),
             fixture.diagnostics.records.toList(),
@@ -806,7 +817,10 @@ class ReminderSchedulerTest {
         assertEquals(ENQUEUE_CALLBACK_TIMEOUT, fixture.diagnostics.records.first().cause)
         // Nothing here proved an admission, so this late arrival keeps its own class.
         assertEquals(
-            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, ENQUEUE_CALLBACK_ERROR, note = LATE_CALLBACK),
+            ReminderRegistrationRecord(
+                IDENTITY_0, ROUTINE, ENQUEUE_CALLBACK_ERROR, note = LATE_CALLBACK,
+                causeClass = FailureCauseCode.IO,
+            ),
             fixture.diagnostics.records.last(),
         )
     }
@@ -829,6 +843,303 @@ class ReminderSchedulerTest {
 
         assertEquals(2, fixture.enqueue.submissions.size)
         assertEquals(emptyList(), next)
+    }
+
+    @Test
+    fun `a callback that failed keeps its class under an admission it lost the race to`() {
+        // One callback, one class, whichever of the two got there first. The answer it is filed
+        // under is the admission, which failed nothing and names no class of its own, so a class
+        // read off that answer instead of off the callback would be null on both lines below.
+        val tail = "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+            "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+            "\"retryable\":false,\"error_code\":\"enqueue-callback-after-worker-started\"," +
+            "\"cause_code\":\"unknown\",\"callback_cause_code\":\"enqueue-callback-null\","
+
+        // The worker took this generation out of ADMISSION_PENDING, so the callback's own write is
+        // lost and it settles under the admission that beat it.
+        val lost = Fixture(ADMISSION_PENDING, signal = null)
+        lost.registerDeferred()
+        assertEquals(ReminderRunOutcome.SUCCESS, lost.runWorker(lost.enqueue.submissions.single().request))
+
+        lost.enqueue.answer(ReminderEnqueueSignal.Absent)
+
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," + tail + "\"note\":null}",
+            lost.rendered(),
+        )
+
+        // The same callback arriving once the watchdog had already ended the flight changes
+        // nothing, and is filed as the late arrival it is, under that same admission.
+        val late = Fixture(signal = null)
+        late.registerDeferred()
+        assertEquals(ReminderRunOutcome.SUCCESS, late.runWorker(late.enqueue.submissions.single().request))
+        late.expireWatchdog()
+
+        late.enqueue.answer(ReminderEnqueueSignal.Absent)
+
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," + tail + "\"note\":\"late-callback\"}",
+            reminderRegistrationMessage(late.diagnostics.records.last()),
+        )
+    }
+
+    @Test
+    fun `a throwing waiter is published as its own record, naming the class that waiter threw`() {
+        val fixture = Fixture(signal = null)
+        val reminder = PendingReminder(ROUTE, DUE_AT)
+        fixture.scheduler.register(reminder) { throw SecurityException("caller lost its permission") }
+        // Two classes from two waiters of one settlement, so a class taken from anywhere but the
+        // waiter that threw it renders these two lines the same.
+        fixture.scheduler.register(reminder) { throw AssertionError("misbehaving caller") }
+
+        fixture.enqueue.answer(ReminderEnqueueSignal.Confirmed)
+
+        val asides = fixture.diagnostics.records.filter { it.note == WAITER_FAILED }
+        assertEquals(
+            listOf(
+                "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                    "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                    "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                    "\"retryable\":false,\"error_code\":\"callback-confirmed-admission\"," +
+                    "\"cause_code\":\"security\",\"callback_cause_code\":null,\"note\":\"waiter-failed\"}",
+                "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                    "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                    "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                    "\"retryable\":false,\"error_code\":\"callback-confirmed-admission\"," +
+                    "\"cause_code\":\"unknown\",\"callback_cause_code\":null,\"note\":\"waiter-failed\"}",
+            ),
+            asides.map { reminderRegistrationMessage(it) },
+        )
+        // The settlement's own record went out first, under its own answer and with no class at all.
+        assertEquals(
+            ReminderRegistrationRecord(IDENTITY_0, ROUTINE, CALLBACK_CONFIRMED_ADMISSION),
+            fixture.diagnostics.records.first(),
+        )
+    }
+
+    @Test
+    fun `a whole identity publishes both halves, the id they derive and the work it collided with`() {
+        val fixture = Fixture(
+            ADMISSION_PENDING,
+            retained = listOf(RetainedWork(FOREIGN_WORK_ID, WorkInfo.State.RUNNING)),
+        )
+
+        assertEquals(RETAINED_WORK_ID_MISMATCH, fixture.register())
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":\"$FOREIGN_WORK_ID\"," +
+                "\"retryable\":false,\"error_code\":\"retained-work-id-mismatch\"," +
+                "\"cause_code\":\"illegal-state\",\"callback_cause_code\":null,\"note\":null}",
+            fixture.rendered(),
+        )
+    }
+
+    @Test
+    fun `half an identity is published as no identity at all, and nothing correlates against it`() {
+        // The scheduler cannot reach these: it pairs the occurrence digest it resolved with a
+        // generation the store owns. They are what the record type still admits, and the renderer
+        // is the last place that can refuse to publish a correlation that does not exist.
+        val cases = listOf(
+            "not the digest shape" to ReminderRegistrationIdentity("not-a-digest", 0L),
+            "an uppercased digest" to ReminderRegistrationIdentity(OCCURRENCE_ID.uppercase(), 0L),
+            "a digest one character short" to ReminderRegistrationIdentity(OCCURRENCE_ID.drop(1), 0L),
+            "a digest one character long" to ReminderRegistrationIdentity(OCCURRENCE_ID + "0", 0L),
+            "a negative generation" to ReminderRegistrationIdentity(OCCURRENCE_ID, -1L),
+        )
+
+        cases.forEach { (label, identity) ->
+            val record = ReminderRegistrationRecord(
+                identity, ROUTINE, RECEIPT_QUARANTINED, retainedWorkRequestId = FOREIGN_WORK_ID,
+            )
+
+            assertEquals(
+                "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\",\"occurrence_id\":null," +
+                    "\"type\":\"ROUTINE\",\"generation_number\":null,\"work_request_id\":null," +
+                    "\"retained_work_request_id\":null,\"retryable\":false," +
+                    "\"error_code\":\"receipt-quarantined\",\"cause_code\":\"illegal-state\"," +
+                    "\"callback_cause_code\":null,\"note\":null}",
+                reminderRegistrationMessage(record),
+                label,
+            )
+        }
+    }
+
+    @Test
+    fun `a collision with this registration's own work request is dropped rather than published`() {
+        // The scheduler names a collision only after filtering its own generation's id out of what
+        // WorkManager retains, so this too is a record only the record type still admits.
+        val own = ReminderRegistrationRecord(
+            IDENTITY_0, ROUTINE, RETAINED_WORK_ID_MISMATCH, retainedWorkRequestId = WORK_ID_0,
+        )
+
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                "\"retryable\":false,\"error_code\":\"retained-work-id-mismatch\"," +
+                "\"cause_code\":\"illegal-state\",\"callback_cause_code\":null,\"note\":null}",
+            reminderRegistrationMessage(own),
+        )
+    }
+
+    @Test
+    fun `a settlement that carried a thrown failure publishes that failure's class, not the answer's`() {
+        val locked = IOException("work database locked")
+        val denied = SecurityException("no scheduler access")
+        val gone = IllegalStateException("gone")
+        val cancelled = InterruptedException("cancelled")
+        val reportedIo = Fixture(ADMISSION_PENDING, signal = ReminderEnqueueSignal.Reported(locked))
+        val reportedDenial = Fixture(ADMISSION_PENDING, signal = ReminderEnqueueSignal.Reported(denied))
+        val raised = Fixture(ADMISSION_PENDING, signal = ReminderEnqueueSignal.Raised(gone))
+        val cases = listOf(
+            Triple(reportedIo, "enqueue-callback-error", "io"),
+            // One answer, two classes: a cause_code read off the answer renders this as the line
+            // above it, which is exactly the failure class this chain used to lose.
+            Triple(reportedDenial, "enqueue-callback-error", "security"),
+            Triple(raised, "enqueue-callback-throwable", "illegal-state"),
+            Triple(Fixture(ADMISSION_PENDING, submitFailure = denied), "enqueue-submit-fatal", "security"),
+            Triple(Fixture(ADMISSION_PENDING, submitFailure = locked), "enqueue-submit-transient", "io"),
+            Triple(Fixture(ADMISSION_PENDING, queryFailure = locked), "retained-work-query-failed", "io"),
+            // Interrupted is none of the three the shared classifier names, so it stays unknown.
+            Triple(Fixture(ADMISSION_PENDING, queryFailure = cancelled), "retained-work-query-failed", "unknown"),
+        )
+
+        cases.forEach { (fixture, errorCode, causeCode) ->
+            fixture.register()
+
+            val label = "$errorCode $causeCode"
+            assertEquals("\"$errorCode\"", field(fixture.rendered(), "error_code"), label)
+            assertEquals("\"$causeCode\"", field(fixture.rendered(), "cause_code"), label)
+        }
+        // Reading the flag also clears it, so the interrupted query cannot leak into another test.
+        assertEquals(true, Thread.interrupted())
+    }
+
+    @Test
+    fun `a late failure keeps the admitted answer, the class it threw and the answer it reported`() {
+        val fixture = Fixture(signal = null)
+        fixture.registerDeferred()
+        assertEquals(ReminderRunOutcome.SUCCESS, fixture.runWorker(fixture.enqueue.submissions.single().request))
+        fixture.expireWatchdog()
+
+        fixture.enqueue.answer(ReminderEnqueueSignal.Reported(IOException("refused")))
+
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," +
+                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                "\"retryable\":false,\"error_code\":\"enqueue-callback-after-worker-started\"," +
+                "\"cause_code\":\"io\",\"callback_cause_code\":\"enqueue-callback-error\"," +
+                "\"note\":\"late-callback\"}",
+            reminderRegistrationMessage(fixture.diagnostics.records.last()),
+        )
+    }
+
+    @Test
+    fun `the two answers decided away from the receipt name the stage that decided them`() {
+        val route = Fixture()
+
+        assertEquals(INVALID_ROUTE, route.register(PendingReminder(ScheduleRoute("   ", ROUTINE), DUE_AT)))
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"input\",\"occurrence_id\":null," +
+                "\"type\":\"ROUTINE\",\"generation_number\":null,\"work_request_id\":null," +
+                "\"retained_work_request_id\":null,\"retryable\":false," +
+                "\"error_code\":\"invalid-route\",\"cause_code\":\"invalid-input\"," +
+                "\"callback_cause_code\":null,\"note\":null}",
+            route.rendered(),
+        )
+
+        val blocked = Fixture(PERMISSION_BLOCKED)
+        blocked.permission.granted = false
+
+        assertEquals(PERMISSION_NOT_GRANTED, blocked.register())
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"permission\"," +
+                "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+                "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+                "\"retryable\":true,\"error_code\":\"permission-not-granted\"," +
+                "\"cause_code\":\"security\",\"callback_cause_code\":null,\"note\":null}",
+            blocked.rendered(),
+        )
+    }
+
+    @Test
+    fun `every answer in the closed vocabulary has one spelling and one class of its own`() {
+        // Written out rather than derived from the enum, so a renderer that changes how it spells
+        // an answer, or what class it calls that answer, disagrees with this table rather than
+        // agreeing with itself. A value added later fails the two set comparisons below.
+        val spellings = mapOf(
+            CALLBACK_CONFIRMED_ADMISSION to "\"callback-confirmed-admission\"",
+            WORKER_CONFIRMED_ADMISSION to "\"worker-confirmed-admission\"",
+            ENQUEUE_CALLBACK_AFTER_WORKER_STARTED to "\"enqueue-callback-after-worker-started\"",
+            RETAINED_WORK_ENQUEUED to "\"retained-work-enqueued\"",
+            ADMISSION_ALREADY_RECORDED to "\"admission-already-recorded\"",
+            ENQUEUE_CALLBACK_NULL to "\"enqueue-callback-null\"",
+            ENQUEUE_CALLBACK_ERROR to "\"enqueue-callback-error\"",
+            ENQUEUE_CALLBACK_THROWABLE to "\"enqueue-callback-throwable\"",
+            ENQUEUE_CALLBACK_TIMEOUT to "\"enqueue-callback-timeout\"",
+            ENQUEUE_SUBMIT_TRANSIENT to "\"enqueue-submit-transient\"",
+            ENQUEUE_SUBMIT_FATAL to "\"enqueue-submit-fatal\"",
+            RETAINED_WORK_QUERY_FAILED to "\"retained-work-query-failed\"",
+            RETAINED_WORK_BLOCKED to "\"retained-work-blocked\"",
+            RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT to "\"retained-work-succeeded-without-receipt\"",
+            RETAINED_WORK_FAILED to "\"retained-work-failed\"",
+            RETAINED_WORK_CANCELLED to "\"retained-work-cancelled\"",
+            RETAINED_WORK_ID_MISMATCH to "\"retained-work-id-mismatch\"",
+            RETAINED_WORK_DUPLICATE to "\"retained-work-duplicate\"",
+            RECEIPT_QUARANTINED to "\"receipt-quarantined\"",
+            RECEIPT_REJECTED to "\"receipt-rejected\"",
+            RECEIPT_WRITE_UNCERTAIN to "\"receipt-write-uncertain\"",
+            RECEIPT_CONTENDED to "\"receipt-contended\"",
+            INVALID_ROUTE to "\"invalid-route\"",
+            PERMISSION_NOT_GRANTED to "\"permission-not-granted\"",
+            RECEIPT_REREAD_EXHAUSTED to "\"receipt-reread-exhausted\"",
+            OCCURRENCE_CLOSED to "\"occurrence-closed\"",
+            GENERATION_SUPERSEDED to "\"generation-superseded\"",
+        )
+        // An answer that settled no failure has no class at all, which is what keeps cause_code
+        // absent rather than a spelling of success. The five answers a Throwable reaches name
+        // unknown here because their own answer classifies nothing: the Throwable does that.
+        val classes = mapOf(
+            CALLBACK_CONFIRMED_ADMISSION to "null",
+            WORKER_CONFIRMED_ADMISSION to "null",
+            ENQUEUE_CALLBACK_AFTER_WORKER_STARTED to "null",
+            RETAINED_WORK_ENQUEUED to "null",
+            ADMISSION_ALREADY_RECORDED to "null",
+            ENQUEUE_CALLBACK_NULL to "\"unknown\"",
+            ENQUEUE_CALLBACK_ERROR to "\"unknown\"",
+            ENQUEUE_CALLBACK_THROWABLE to "\"unknown\"",
+            ENQUEUE_CALLBACK_TIMEOUT to "\"unknown\"",
+            ENQUEUE_SUBMIT_TRANSIENT to "\"unknown\"",
+            ENQUEUE_SUBMIT_FATAL to "\"unknown\"",
+            RETAINED_WORK_QUERY_FAILED to "\"unknown\"",
+            RETAINED_WORK_BLOCKED to "\"illegal-state\"",
+            RETAINED_WORK_SUCCEEDED_WITHOUT_RECEIPT to "\"illegal-state\"",
+            RETAINED_WORK_FAILED to "\"illegal-state\"",
+            RETAINED_WORK_CANCELLED to "\"illegal-state\"",
+            RETAINED_WORK_ID_MISMATCH to "\"illegal-state\"",
+            RETAINED_WORK_DUPLICATE to "\"illegal-state\"",
+            RECEIPT_QUARANTINED to "\"illegal-state\"",
+            RECEIPT_REJECTED to "\"illegal-state\"",
+            RECEIPT_WRITE_UNCERTAIN to "\"io\"",
+            RECEIPT_CONTENDED to "\"illegal-state\"",
+            INVALID_ROUTE to "\"invalid-input\"",
+            PERMISSION_NOT_GRANTED to "\"security\"",
+            RECEIPT_REREAD_EXHAUSTED to "\"illegal-state\"",
+            OCCURRENCE_CLOSED to "null",
+            GENERATION_SUPERSEDED to "null",
+        )
+
+        val vocabulary = ReminderRegistrationCause.entries.toSet()
+        assertEquals(vocabulary, spellings.keys)
+        assertEquals(vocabulary, classes.keys)
+        vocabulary.forEach { cause ->
+            val message = reminderRegistrationMessage(ReminderRegistrationRecord(IDENTITY_0, ROUTINE, cause))
+
+            assertEquals(spellings.getValue(cause), field(message, "error_code"), cause.name)
+            assertEquals(classes.getValue(cause), field(message, "cause_code"), cause.name)
+        }
     }
 
     /** One occurrence, its store and the ports, wired as the production factory wires them. */
@@ -919,6 +1230,9 @@ class ReminderSchedulerTest {
             store.compareAndSet(OCCURRENCE_ID, next, workId(next), ADMISSION_PENDING, ENQUEUED, null)
             store.compareAndSet(OCCURRENCE_ID, next, workId(next), ENQUEUED, PERMISSION_BLOCKED, null)
         }
+
+        /** The one record this occurrence settled under, as the production port publishes it. */
+        fun rendered(): String = reminderRegistrationMessage(diagnostics.records.single())
 
         fun phase(): ReminderPhase? = present()?.phase
 
@@ -1063,6 +1377,7 @@ class ReminderSchedulerTest {
         val signal: ReminderEnqueueSignal?,
         val settles: ReminderRegistrationCause,
         val reported: ReminderRegistrationCause?,
+        val causeClass: FailureCauseCode? = null,
     ) {
         val label: String get() = signal?.toString() ?: "watchdog"
     }
@@ -1118,6 +1433,10 @@ class ReminderSchedulerTest {
         val LONG_MAX_PLUS_NANO: Instant = DUE_AT.minusMillis(Long.MAX_VALUE).minusNanos(1)
         val ROUTE = ScheduleRoute(PROPERTY, ROUTINE)
         val IDENTITY_0 = ReminderRegistrationIdentity(OCCURRENCE_ID, 0L)
+
+        /** One field's rendered value, read back out of the line rather than off the record. */
+        fun field(message: String, name: String): String =
+            message.substringAfter("\"$name\":").substringBefore(',').substringBefore('}')
 
         fun workId(generation: Long): UUID = WORK_IDS[generation.toInt()]
 
@@ -1263,4 +1582,87 @@ class ReminderSchedulerTest {
  *     + settled.reported,
  *     + null,
  * M35 A5 exit=1 [f] reported.takeIf { proved } => reported
+ */
+
+/*
+ * R4 semantic mutation receipt for T4-SCHEDULE-REMINDER-DIAGNOSTICS:
+ * 26 mutations, 26 killed, 0 survivors, 0 suspects.
+ *
+ * Each was applied ALONE to ReminderScheduler.kt at SHA-256
+ * bd643c0588353e05e40a1d7884cb8a18e4a5c66dd2bddce9310f173d96b89818, the card's DoD test task was run, and the
+ * file was restored and re-hashed to that same value. The batch ledger opens and closes on
+ * that hash, so nothing escaped it. A kill required a non-zero exit AND the named test below
+ * failing in the JUnit XML: Gradle exits 1 for a compile error and a failing test alike, so an
+ * exit code with no failing test name would have been recorded as SUSPECT, never as a kill.
+ *
+ * Before Gradle was touched, every selector was asserted to occur exactly once and to render a
+ * before that differs from its after, so no row below is a mutation that changed nothing.
+ *
+ * A SEPARATE probe re-applied all 26 under :app:compileDebugUnitTestKotlin, which
+ * compiles and runs nothing, and every one exited 0. So "26/26 compile" and "26/26 are killed by
+ * a test" are two independently machine-checked claims, neither inferred from the other.
+ *
+ * Killer tests, named exactly as they appear above:
+ * [a] a settlement that carried a thrown failure publishes that failure's class, not the answer's
+ * [b] every answer in the closed vocabulary has one spelling and one class of its own
+ * [c] half an identity is published as no identity at all, and nothing correlates against it
+ * [d] a collision with this registration's own work request is dropped rather than published
+ * [e] a whole identity publishes both halves, the id they derive and the work it collided with
+ * [f] a late failure keeps the admitted answer, the class it threw and the answer it reported
+ * [g] the two answers decided away from the receipt name the stage that decided them
+ * [h] a throwing waiter is published as its own record, naming the class that waiter threw
+ * [i] a callback that failed keeps its class under an admission it lost the race to
+ *
+ * M01 A1 exit=1 [a] append((record.causeClass ?: record.cause.failureClass())?.wireValue.quoted())
+ *     => append(record.cause.failureClass()?.wireValue.quoted())
+ * M02 A1 exit=1 [a] append((record.causeClass ?: record.cause.failureClass())?.wireValue.quoted())
+ *     => append((record.cause.failureClass() ?: record.causeClass)?.wireValue.quoted())
+ * M03 A1 exit=1 [b] append(record.cause.wireValue()) => append(record.cause.outcome.wireValue())
+ * M04 A1 exit=1 [b] private fun Enum<*>.wireValue(): String = name.lowercase().replace('_', '-')
+ *     => private fun Enum<*>.wireValue(): String = name.lowercase()
+ * M05 A1 exit=1 [b] RECEIPT_WRITE_UNCERTAIN -> FailureCauseCode.IO
+ *     => RECEIPT_WRITE_UNCERTAIN -> FailureCauseCode.ILLEGAL_STATE
+ * M06 A1 exit=1 [g] PERMISSION_NOT_GRANTED -> FailureCauseCode.SECURITY
+ *     => PERMISSION_NOT_GRANTED -> FailureCauseCode.UNKNOWN
+ * M07 A1 exit=1 [a] is ReminderEnqueueSignal.Reported -> classifyReminderFailure(error).causeCode
+ *     => is ReminderEnqueueSignal.Reported -> FailureCauseCode.UNKNOWN
+ * M08 A1 exit=1 [a] terminate(receipt, ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL, disposition.causeCode)
+ *     => terminate(receipt, ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
+ * M09 A1 exit=1 [a]
+ *     - } catch (failure: Throwable) {
+ *     - return receipt.failed(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED, failure)
+ *     + } catch (failure: Throwable) {
+ *     + return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
+ * M10 A1 exit=1 [a] advance(receipt, next, null, reported, reported = reported, causeClass = reportedClass)
+ *     => advance(receipt, next, null, reported, reported = reported)
+ * M11 A1 exit=1 [f] diagnostics.record(flight.lateRecord(reported, reportedClass))
+ *     => diagnostics.record(flight.lateRecord(reported, null))
+ * M12 A2 exit=1 [c] append(identity?.generationNumber ?: "null") => append(record.identity?.generationNumber ?: "null")
+ * M13 A2 exit=1 [c] append(identity?.occurrenceId.quoted()) => append(record.identity?.occurrenceId.quoted())
+ * M14 A2 exit=1 [c] it.occurrenceId.matches(OCCURRENCE_ID_PATTERN) && it.generationNumber >= 0
+ *     => it.occurrenceId.matches(OCCURRENCE_ID_PATTERN)
+ * M15 A2 exit=1 [c] it.occurrenceId.matches(OCCURRENCE_ID_PATTERN) && it.generationNumber >= 0
+ *     => it.generationNumber >= 0
+ * M16 A3 exit=1 [c]
+ *     - val retained = record.retainedWorkRequestId?.takeIf { workRequestId != null && it != workRequestId }
+ *     + val retained = record.retainedWorkRequestId?.takeIf { it != workRequestId }
+ * M17 A3 exit=1 [d]
+ *     - val retained = record.retainedWorkRequestId?.takeIf { workRequestId != null && it != workRequestId }
+ *     + val retained = record.retainedWorkRequestId?.takeIf { workRequestId != null }
+ * M18 A1 exit=1 [g] INVALID_ROUTE -> LogStage.INPUT => INVALID_ROUTE -> LogStage.RECEIPT
+ * M19 A1 exit=1 [g] PERMISSION_NOT_GRANTED -> LogStage.PERMISSION => PERMISSION_NOT_GRANTED -> LogStage.RECEIPT
+ * M20 A1 exit=1 [g] append(record.cause.outcome == RETRYABLE_FAILURE) => append(record.cause.outcome != ADMITTED)
+ * M21 A1 exit=1 [c] append(record.callbackCause?.wireValue().quoted()) => append(record.cause.wireValue().quoted())
+ * M22 A2 exit=1 [e] append(identity?.occurrenceId.quoted()) => append(identity?.occurrenceId?.uppercase().quoted())
+ * M23 A1 exit=1 [h]
+ *     - val thrown = classifyReminderFailure(failure).causeCode
+ *     - diagnostics.record(record.copy(note = WAITER_FAILED, causeClass = thrown))
+ *     + diagnostics.record(record.copy(note = WAITER_FAILED))
+ * M24 A1 exit=1 [h] val thrown = classifyReminderFailure(failure).causeCode => val thrown = FailureCauseCode.UNKNOWN
+ * M25 A1 exit=1 [i] ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> cause().failureClass()
+ *     => ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> null
+ * M26 A1 exit=1 [h]
+ *     - ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> cause().failureClass()
+ *     + ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent ->
+ *     + cause().failureClass() ?: FailureCauseCode.UNKNOWN
  */
