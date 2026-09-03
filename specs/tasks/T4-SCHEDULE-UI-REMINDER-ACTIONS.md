@@ -144,10 +144,24 @@ REQ-010..023。**代码在拆卡时已写好并 GREEN**（31 测试全绿），�
    `submit()` 这一个出生点，于是重试、resume 与重复动作三条路一体生效，没有哪个调用方是「忘了加
    守卫的那个」。
 
-5. **SKIPPED 连在途标记一起不变。** 两个 SKIPPED cause（`OCCURRENCE_CLOSED` /
-   `GENERATION_SUPERSEDED`）都表示这次注册**无实义**而非失败：occurrence 已关闭，或更晚一代已接手
-   且仍在跑。两者都没给用户留下可重试的东西，故抑制重试的那个标记正该留着，REQ-020 的「unchanged」
-   按字面执行。
+5. **SKIPPED 不改渲染面与效果，但仍把 submission 结算掉。**（R3 第 1 轮后修正：初版把在途标记
+   一起留着，理由是「无实义的注册没什么可重试」。这是错的——两个 SKIPPED cause
+   （`OCCURRENCE_CLOSED` / `GENERATION_SUPERSEDED`）都是这次注册的**终态答复**，飞行确实结束了；
+   留着标记等于把重试永久挂起，而屏幕上若已有 Error，它那唯一的恢复动作就永远按不动。REQ-020 管的
+   是「rendered state 与 effects」，`submission.settled` 两者都不是，故按字面仍然成立。）
+
+7. **权限读取下沉到唯一提交点。** REQ-011 说的是「submitting the registration 之前再读一次」，而
+   注册的入口不止用户那一个动作：`onRetry` 会提交，resume 释放 pending 会提交，`dispatch` 是公开的
+   因而 `ReminderRequested` 也能直接提交。读取只放在 `onReminderAction` 里时，另外三条路都能拿着被
+   撤销的权限完成注册——这正是本卡 `forbid` 第 1 条要禁的「用陈旧 GRANTED 状态排程」。故 API 33 的
+   读取与「在途不重投」的守卫一起落在 `submit()`：两条规则同在唯一出生点，谁都当不成「忘了加守卫的
+   那个调用方」。`onResume` 仍自己读一次，因为那一次是**决定渲染什么**的读（REQ-010），与紧贴提交的
+   那一次目的不同。
+
+8. **Error 只在还有可重放的已结算 submission 时渲染。** 永久失败画出 Error 之后，一次被 ADMITTED
+   的重试会清空 submission；若不同时撤下 Error，屏幕上就留着一个按下去什么也不发生的恢复动作。故
+   ADMITTED 分支在当前屏幕是 Error 时重新投影，其余屏幕原样不动（例如仍在 Loading 时不会被提前
+   投影成空态）。这条与决策 5 合起来把「Error 配着按不动的按钮」这一类缺陷整类关掉。
 
 6. **A5 的变异靶在行投影上。** 渲染面之所以不含 id，是因为 `ScheduleScreenState` 的任何分支都不带
    带 id 的字段——这条性质无法被单点变异**违反**而仍编译。可被违反的只有「名字来自哪个字段」，故
@@ -158,4 +172,12 @@ REQ-010..023。**代码在拆卡时已写好并 GREEN**（31 测试全绿），�
 | 日期 | 变更 |
 |---|---|
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 第二次拆卡（用户裁定）拆出的 presenter 半，原 A2–A4 / REQ-010..023，acceptance 重编号为 A1–A6 并按实现收紧（撤销时机、遍历全部 cause、occurrenceId 而非半个 identity）。 |
+| 2026-09-04 | **R3 第 1 轮 block，2 条 finding 全部属实**，均已修：① 注册的权限闸只装在
+`onReminderAction` 上，而 `onRetry` 与公开的 `dispatch(ReminderRequested)` 都能绕过它完成注册
+（见决策 7，修法是把读取下沉到唯一提交点，并补两条测试：API 33 重试遇撤销、直接派发的请求）；
+② 永久失败后的重试被 ADMITTED 时 Error 不撤，留下按不动的恢复动作（见决策 8 与决策 5 的修正，
+补「永久失败→重试→ADMITTED」与「SKIPPED 后重试仍可用」两条测试）。**改产线即作废整批收据（L270）**，
+37 枚重跑为 40 枚。为把 R3 修复挤回 1000 行硬闸内，合并了两对同一 REQ 的重复用例（REQ-010 的授权/
+拒绝两半、REQ-018 的保留/丢弃两半，覆盖面不变），并把已合并卡的收据块**留在原处只改其两行哈希**
+（而非整块替换）——保住逐枚具名击杀证据的同时省下约 119 行 diff。 |
 | 2026-09-04 | 实现：`_local/` 里那份 presenter 草稿按上面 6 条决策重写后落地，非原样移植。草稿有三处与本卡验收对不上——① 没有任何「settings 恢复态」的领域值（A2 的「one Open settings action」只是一个未被任何测试看见的 Compose 按钮）；② `ScheduleEffect.OpenSettings` 从未被任何 reducer 分支发出（死分支），已删；③ `ScheduleRecovery.OPEN_SETTINGS` 是 `actionSlot` 永不返回的死枚举值，未采用。另修两处 fail-open（决策 2、4）。**M1–M15 随本卡整批重跑**：收据钉的是生产文件的确切 SHA-256，`ScheduleModels.kt` 一改即作废前一批（L270），故 15 枚旧变异与 22 枚新变异同批执行、同一份基线。 |
