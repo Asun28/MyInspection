@@ -67,15 +67,20 @@ sealed interface ScheduleRow {
     }
 }
 
-/** The single recovery a state offers. Each state declares exactly one, never a menu of them. */
+/**
+ * The recovery a state offers when it has one. Only [ScheduleScreenState.Error] carries a recovery
+ * today, and it carries a single value rather than a menu, so a state cannot offer a choice of two.
+ */
 enum class ScheduleRecovery {
     RETRY,
 }
 
 /**
- * The mutually exclusive level. Exactly one of these is rendered at a time, which is what makes
- * "no declared state is blank" checkable: every branch below either carries rows or carries a
- * recovery.
+ * The mutually exclusive level. Exactly one of these is rendered at a time. What each branch
+ * carries differs by design: [Content] carries rows, [FilteredEmpty] carries the filter that
+ * emptied it, [Error] carries its recovery, and [Loading] and [NoContentEmpty] carry neither
+ * because there is nothing yet to carry. The action a branch offers is not held here at all, it is
+ * derived by [actionSlot].
  *
  * [Error] is declared here but never produced by this card: the only transition into it is the
  * PERMANENT_FAILURE branch of a registration, which belongs to T4-SCHEDULE-UI-REMINDER-ACTIONS.
@@ -95,10 +100,14 @@ sealed interface ScheduleScreenState {
 }
 
 /**
- * The one action a screen state offers. Single-valued by construction rather than by rule: a state
- * holds one slot instead of a list of them, so "exactly one action" is not something an
- * implementation can drift away from while still type-checking. Which target each slot points at,
+ * The action a screen state offers. Single-valued by construction rather than by rule: [actionSlot]
+ * returns one of these or none, never a collection, so "this state offers two actions" is not a
+ * thing an implementation can express while still type-checking. Which target each slot points at,
  * and what it is called, belong to T4-SCHEDULE-UI-PRESENTATION.
+ *
+ * [ScheduleScreenState.Loading] and [ScheduleScreenState.Content] deliberately offer none. Loading
+ * is a 300ms-threshold state over a local disk read with nothing to act on yet, and a content
+ * screen's actions belong to its rows.
  */
 enum class ScheduleActionSlot {
     NEXT,

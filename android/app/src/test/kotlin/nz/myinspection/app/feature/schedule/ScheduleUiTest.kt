@@ -250,7 +250,7 @@ class ScheduleUiTest {
     }
 
     @Test
-    fun `REQ-009 every non-content screen state declares its own single action slot`() {
+    fun `REQ-009 each screen state declares at most one action slot and never a collection`() {
         assertEquals(
             listOf(
                 null,
@@ -270,20 +270,26 @@ class ScheduleUiTest {
     }
 }
 
+
 /*
  * R4 mutation receipt for T4-SCHEDULE-UI, acceptance A5.
  *
  * Production SHA-256 before the batch and after every restore, identical, so no file was
  * left mutated and the receipt describes exactly the code that ships (L196, L270):
- *   ScheduleModels.kt  22600da5bdbf09ecc45e5eed5c9bf88fde6f1d7ae4d827b77bcbeab0b47d2034
- *   ScheduleScreen.kt  113d1d78b9da91f7d5ee5d6d8491786fe1bc7536287af3edd2378619acf4c01b
+ *   ScheduleModels.kt  ce64e8963992c1b11c88117b457e26e70e2362e0b4da557c10e08a2e1227d7e5
+ *   ScheduleScreen.kt  c3cdf32d929ff5c9ad64bb25c8707782b38859caa07132d6e7912fc0a1d1f7c7
+ *
+ * Named selector, run once per mutation with the tests unchanged. A nonzero exit from this
+ * exact command is what 'killed' means below:
+ *   gradlew -p android --offline --no-daemon --rerun-tasks --no-build-cache \
+ *     :app:testDebugUnitTest --tests nz.myinspection.app.feature.schedule.ScheduleUiTest
  *
  * Each row below is one single semantic edit to production code, applied with the tests
  * unchanged. Verdicts, exit codes and killing test names are read from the TestNG result
  * XML by the batch, not written by hand. No mutation targets a comment, a string literal
  * or a test, so none of them can be killed for a reason other than behaviour.
  *
- * 12 mutations, 12 killed, 0 survived.
+ * 15 mutations, 15 killed, 0 survived.
  *
  * M1   A1  ScheduleRow.OneOff.badge NONE to DUE
  *      KILLED exit 1, killed by
@@ -321,13 +327,39 @@ class ScheduleUiTest {
  *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
  * M10  A4  actionSlot for NoContentEmpty NEXT to null
  *      KILLED exit 1, killed by
- *        REQ-009 every non-content screen state declares its own single action slot
+ *        REQ-009 each screen state declares at most one action slot and never a collection
  *        REQ-009 no occurrences and no filter renders no-content with exactly one action slot
  * M11  A4  actionSlot for FilteredEmpty CLEAR_FILTER to NEXT
  *      KILLED exit 1, killed by
- *        REQ-009 every non-content screen state declares its own single action slot
+ *        REQ-009 each screen state declares at most one action slot and never a collection
  * M12  A1  rowsOf Due branch fills propertyName from propertyId
  *      KILLED exit 1, killed by
  *        REQ-001 a due row carries name type absolute date and the due badge
  *        REQ-001 a row carries the property name and never the raw property id
+ * M13  A1  OccurrencesLoaded branch ignores the newly loaded occurrences
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-001 a due row carries name type absolute date and the due badge
+ *        REQ-001 a row carries the property name and never the raw property id
+ *        REQ-004 a first-inspection row declares its badge and no due date
+ *        REQ-005 a one-off row declares no due date and no count badge
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-006 clearing the filter restores every occurrence
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ * M14  A3  FilterSelected branch ignores the newly selected filter
+ *      KILLED exit 1, killed by
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ *        REQ-008 a filter matching nothing renders filtered-empty and not the no-content state
+ *        REQ-008 an empty list under a filter is filtered-empty rather than no-content
+ * M15  A1  project screen-selection criterion visible.isNotEmpty() forced to false
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-001 a due row carries name type absolute date and the due badge
+ *        REQ-001 a row carries the property name and never the raw property id
+ *        REQ-004 a first-inspection row declares its badge and no due date
+ *        REQ-005 a one-off row declares no due date and no count badge
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-006 clearing the filter restores every occurrence
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
  */
