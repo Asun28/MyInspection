@@ -23,7 +23,7 @@ class RejectedEvidenceException(message: String) : IllegalArgumentException(mess
  */
 class EmbeddedImage(val mediaType: String, val bytes: ByteArray) {
     init {
-        if (mediaType !in ALLOWED_MEDIA_TYPES) throw RejectedEvidenceException("unsupported type: $mediaType")
+        if (!isSupportedMediaType(mediaType)) throw RejectedEvidenceException("unsupported type: $mediaType")
         if (bytes.isEmpty()) throw RejectedEvidenceException("an embedded image needs bytes")
     }
 
@@ -31,8 +31,18 @@ class EmbeddedImage(val mediaType: String, val bytes: ByteArray) {
         /**
          * The raster formats every current browser decodes without a plugin. SVG is absent by decision,
          * not by omission: it is a document that can carry script, not a picture.
+         *
+         * A **predicate, not a set**. `setOf` returns a JVM `LinkedHashSet`, so a published set can be cast
+         * back to `MutableSet` and added to - a caller could insert `image/svg+xml` and then build an
+         * `EmbeddedImage` this class is supposed to refuse. `core/template` and `core/capture` were both
+         * repaired for exactly that, and `AdverseStatuses` settled on the same shape: expose only a
+         * `Boolean`, hold no collection at all, and the hole stops being something to guard and becomes
+         * something that cannot be written.
          */
-        val ALLOWED_MEDIA_TYPES = setOf("image/jpeg", "image/png", "image/webp")
+        fun isSupportedMediaType(mediaType: String): Boolean = when (mediaType) {
+            "image/jpeg", "image/png", "image/webp" -> true
+            else -> false
+        }
     }
 }
 
