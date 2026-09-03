@@ -20,7 +20,7 @@ non_goals:
   - 视觉呈现层（design token 取值、glyph 化 chrome、动效 token、目标尺寸、对比度、字号）归 T4-SCHEDULE-UI-PRESENTATION
   - 空状态「下一步」动作的具体目标与文案（OD-11，归 T4-SCHEDULE-UI-PRESENTATION）
 acceptance:
-  - "A1 the reducer renders exactly one declared state among due, no-content-empty, first-inspection, one-off, filtered-empty, loading and error, each carrying its declared badge value, and a due row activation emits exactly one route effect carrying propertyId and inspectionType"
+  - "A1 the reducer renders exactly one screen state among content, no-content-empty, filtered-empty, loading and error, every row inside a content state carries exactly one row kind among due, first-inspection and one-off together with that kind's declared badge value, and a due row activation emits exactly one route effect carrying propertyId and inspectionType"
   - "A2 at API 33 and above the presenter re-reads the notification permission on resume and again immediately before the user reminder action, and below API 33 it registers without reading it"
   - "A3 a granted read registers the stored pending occurrence, while a denied or revoked read renders the settings-recovery state with one Open settings action and no startup or repeated system request"
   - "A4 a RETRYABLE_FAILURE cause retains only the pending occurrence whose occurrenceId equals the settled identity, a PERMANENT_FAILURE cause discards it, a SKIPPED cause leaves the rendered state unchanged, and retry re-registers that same occurrenceId without creating a second registration"
@@ -104,7 +104,7 @@ REQ-001..060 的测试面），远超 1000 行 / 60000 字符硬闸。
 
 | ID | Pattern | Requirement | 归属 / 来源 |
 |---|---|---|---|
-| REQ-001 | State-Driven | While the schedule state is `Due`, the schedule view shall render, for each due occurrence, the property name, the inspection type name, the absolute due date, and one `state-badge`. | A1 · [card:context/DESIGN.md:52 元素表] |
+| REQ-001 | State-Driven | While a row's advice is `ScheduleAdvice.Due`, the schedule view shall render, for that row, the property name, the inspection type name, the absolute due date, and one `state-badge`. | A1 · [card:context/DESIGN.md:52 元素表] |
 | REQ-002 | Event-Driven | When the user activates a due row, the schedule view shall emit exactly one route effect carrying `propertyId` and `inspectionType`. | A1 · [code:ReminderContracts.kt:8-11 `ScheduleRoute`] |
 | REQ-003 | Unwanted | If a route effect from the same row activation is still unsettled, then the schedule reducer shall discard the subsequent activation without emitting a second effect. | A1 · [card:context/DESIGN.md:966「Only `IDLE` accepts a new navigation intent」] |
 | REQ-004 | State-Driven | While the advice for an occurrence is `ScheduleAdvice.FirstInspection`, the schedule view shall render the first-inspection state and shall not render a due date. | A1 · [code:SchedulePlanner.kt:25] |
@@ -128,6 +128,11 @@ REQ-001..060 的测试面），远超 1000 行 / 60000 字符硬闸。
 | REQ-022 | Unwanted | If retry is activated while a registration for the same `occurrenceId` is unsettled, then the schedule presenter shall not submit a second registration. | A4 · [code:ReminderScheduler.kt:196-198 flight 合流] |
 | REQ-023 | Ubiquitous | The schedule view shall render no `occurrenceId`, generation number, work-request UUID, enum constant name, file path or exception text. | A4 · [card:context/DESIGN.md:1761]，[code:ReminderScheduler.kt:127-133] |
 
+> **两层状态，不是一层**：`no-content-empty` / `filtered-empty` / `loading` / `error` / `content` 是
+> **屏幕状态**（互斥，恰好一个）；`due` / `first-inspection` / `one-off` 是 **行种类**，由该行的
+> `ScheduleAdvice` 决定（一个 content 屏可同时含三种行）。原 A1 把两层平铺成一个「恰好一个」的枚举，
+> 于是「三条 due 行 + 一条 one-off 行」在任何读法下都不满足它——该措辞不可测，已于 RED 前收紧（非放宽）。
+>
 > **REQ-009 是拆分缝的落点**：状态集合的**穷尽性**属行为（reducer 必须能渲染 no-content 而不是崩在
 > `when` 的缺支上），故留在本卡并只断言「恰好一个动作槽」这个 arity；该动作**指向哪里、叫什么**取决于
 > OD-11，而 OD-11 的两个候选都依赖本卡 `non_goals` 排除的根导航，故整体归呈现卡。
@@ -161,4 +166,5 @@ REQ-001..060 的测试面），远超 1000 行 / 60000 字符硬闸。
 | 日期 | 变更 |
 |---|---|
 | 2026-09-03 | 需求重写：A1–A4 拆为 REQ-001..023（EARS）；新增上下文包、验收与验证方法、决策记录。 |
+| 2026-09-03 | **RED 前收紧 A1 与 REQ-001（不可测 → 可测，非放宽）**：屏幕状态与行种类分作两层。原 A1 把 `due`/`first-inspection`/`one-off`（行种类，由该行 `ScheduleAdvice` 决定）与 `no-content-empty`/`filtered-empty`/`loading`/`error`（屏幕状态）平铺为一个「恰好一个」枚举，而 REQ-004/005 明写「the advice for **an occurrence**」，故一个含三条 due 行与一条 one-off 行的屏幕在任何读法下都不满足原 A1。L280 已实测discharge：`:app:testDebugUnitTest` exit 0 且产出该包的 `TEST-*.xml`，非结构性 vacuous pass。 |
 | 2026-09-03 | **三向拆卡（用户裁定）**：呈现层 A6–A9 / REQ-030..060 与 12 条 OD 迁往 `T4-SCHEDULE-UI-PRESENTATION`；DESIGN.md 抵触迁往 `T4-DESIGN-SYMBOL-CHROME`。本卡回到 A1–A5，新增 REQ-009（no-content 状态 arity）、拆分依据与体量估算，`non_goals` 增两条。`allow_paths`、`dod_command`、`forbid` 未改动。 |
