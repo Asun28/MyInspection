@@ -707,14 +707,19 @@ private fun ReminderEnqueueSignal.cause(): ReminderRegistrationCause = when (thi
 }
 
 /**
- * The shared failure class of what an operation actually reported. Only a real Throwable answers
- * this: an operation that confirmed, or answered with nothing at all, threw nothing to classify.
+ * The shared failure class this callback carries wherever it lands: the class of what was thrown
+ * where a real Throwable answered, and otherwise the class its own answer is of.
+ *
+ * It has to travel with the callback rather than be re-derived from the answer the record ends up
+ * filed under, because a callback that arrives once the worker has proved the admission is filed
+ * under that admission, and an admission is not a failure and names no class. Deriving it there
+ * would make the class of one callback depend on which of the two got there first.
  */
 private fun ReminderEnqueueSignal.reportedClass(): FailureCauseCode? = when (this) {
-    ReminderEnqueueSignal.Confirmed -> null
-    ReminderEnqueueSignal.Absent -> null
     is ReminderEnqueueSignal.Reported -> classifyReminderFailure(error).causeCode
     is ReminderEnqueueSignal.Raised -> classifyReminderFailure(error).causeCode
+    // Nothing was thrown here, so the answer itself is what names a class, or names none.
+    ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> cause().failureClass()
 }
 
 /**

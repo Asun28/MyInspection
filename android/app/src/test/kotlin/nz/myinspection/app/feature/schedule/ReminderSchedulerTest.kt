@@ -477,7 +477,9 @@ class ReminderSchedulerTest {
         val after = ENQUEUE_CALLBACK_AFTER_WORKER_STARTED
         val cases = listOf(
             WorkerFirst(ReminderEnqueueSignal.Confirmed, WORKER_CONFIRMED_ADMISSION, null),
-            WorkerFirst(ReminderEnqueueSignal.Absent, after, ENQUEUE_CALLBACK_NULL),
+            WorkerFirst(
+                ReminderEnqueueSignal.Absent, after, ENQUEUE_CALLBACK_NULL, FailureCauseCode.UNKNOWN,
+            ),
             WorkerFirst(
                 ReminderEnqueueSignal.Reported(IOException("no")), after, ENQUEUE_CALLBACK_ERROR,
                 FailureCauseCode.IO,
@@ -841,6 +843,44 @@ class ReminderSchedulerTest {
 
         assertEquals(2, fixture.enqueue.submissions.size)
         assertEquals(emptyList(), next)
+    }
+
+    @Test
+    fun `a callback that failed keeps its class under an admission it lost the race to`() {
+        // One callback, one class, whichever of the two got there first. The answer it is filed
+        // under is the admission, which failed nothing and names no class of its own, so a class
+        // read off that answer instead of off the callback would be null on both lines below.
+        val tail = "\"occurrence_id\":\"$OCCURRENCE_ID\",\"type\":\"ROUTINE\",\"generation_number\":0," +
+            "\"work_request_id\":\"$WORK_ID_0\",\"retained_work_request_id\":null," +
+            "\"retryable\":false,\"error_code\":\"enqueue-callback-after-worker-started\"," +
+            "\"cause_code\":\"unknown\",\"callback_cause_code\":\"enqueue-callback-null\","
+
+        // The worker took this generation out of ADMISSION_PENDING, so the callback's own write is
+        // lost and it settles under the admission that beat it.
+        val lost = Fixture(ADMISSION_PENDING, signal = null)
+        lost.registerDeferred()
+        assertEquals(ReminderRunOutcome.SUCCESS, lost.runWorker(lost.enqueue.submissions.single().request))
+
+        lost.enqueue.answer(ReminderEnqueueSignal.Absent)
+
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," + tail + "\"note\":null}",
+            lost.rendered(),
+        )
+
+        // The same callback arriving once the watchdog had already ended the flight changes
+        // nothing, and is filed as the late arrival it is, under that same admission.
+        val late = Fixture(signal = null)
+        late.registerDeferred()
+        assertEquals(ReminderRunOutcome.SUCCESS, late.runWorker(late.enqueue.submissions.single().request))
+        late.expireWatchdog()
+
+        late.enqueue.answer(ReminderEnqueueSignal.Absent)
+
+        assertEquals(
+            "{\"event\":\"schedule-reminder\",\"stage\":\"receipt\"," + tail + "\"note\":\"late-callback\"}",
+            reminderRegistrationMessage(late.diagnostics.records.last()),
+        )
     }
 
     @Test
@@ -1546,10 +1586,10 @@ class ReminderSchedulerTest {
 
 /*
  * R4 semantic mutation receipt for T4-SCHEDULE-REMINDER-DIAGNOSTICS:
- * 24 mutations, 24 killed, 0 survivors, 0 suspects.
+ * 26 mutations, 26 killed, 0 survivors, 0 suspects.
  *
  * Each was applied ALONE to ReminderScheduler.kt at SHA-256
- * aa6753b521dd8e4f4c217e0db9d81d15127bc8a0a4e2ead2b13407a3038a4d1b, the card's DoD test task was run, and the
+ * bd643c0588353e05e40a1d7884cb8a18e4a5c66dd2bddce9310f173d96b89818, the card's DoD test task was run, and the
  * file was restored and re-hashed to that same value. The batch ledger opens and closes on
  * that hash, so nothing escaped it. A kill required a non-zero exit AND the named test below
  * failing in the JUnit XML: Gradle exits 1 for a compile error and a failing test alike, so an
@@ -1558,8 +1598,8 @@ class ReminderSchedulerTest {
  * Before Gradle was touched, every selector was asserted to occur exactly once and to render a
  * before that differs from its after, so no row below is a mutation that changed nothing.
  *
- * A SEPARATE probe re-applied all 24 under :app:compileDebugUnitTestKotlin, which
- * compiles and runs nothing, and every one exited 0. So "24/24 compile" and "24/24 are killed by
+ * A SEPARATE probe re-applied all 26 under :app:compileDebugUnitTestKotlin, which
+ * compiles and runs nothing, and every one exited 0. So "26/26 compile" and "26/26 are killed by
  * a test" are two independently machine-checked claims, neither inferred from the other.
  *
  * Killer tests, named exactly as they appear above:
@@ -1571,6 +1611,7 @@ class ReminderSchedulerTest {
  * [f] a late failure keeps the admitted answer, the class it threw and the answer it reported
  * [g] the two answers decided away from the receipt name the stage that decided them
  * [h] a throwing waiter is published as its own record, naming the class that waiter threw
+ * [i] a callback that failed keeps its class under an admission it lost the race to
  *
  * M01 A1 exit=1 [a] append((record.causeClass ?: record.cause.failureClass())?.wireValue.quoted())
  *     => append(record.cause.failureClass()?.wireValue.quoted())
@@ -1618,4 +1659,10 @@ class ReminderSchedulerTest {
  *     - diagnostics.record(record.copy(note = WAITER_FAILED, causeClass = thrown))
  *     + diagnostics.record(record.copy(note = WAITER_FAILED))
  * M24 A1 exit=1 [h] val thrown = classifyReminderFailure(failure).causeCode => val thrown = FailureCauseCode.UNKNOWN
+ * M25 A1 exit=1 [i] ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> cause().failureClass()
+ *     => ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> null
+ * M26 A1 exit=1 [h]
+ *     - ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent -> cause().failureClass()
+ *     + ReminderEnqueueSignal.Confirmed, ReminderEnqueueSignal.Absent ->
+ *     + cause().failureClass() ?: FailureCauseCode.UNKNOWN
  */
