@@ -18,9 +18,11 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import nz.myinspection.app.feature.schedule.ReminderPhase.ADMISSION_PENDING
 import nz.myinspection.app.feature.schedule.ReminderPhase.ENQUEUED
+import nz.myinspection.app.feature.schedule.ReminderPhase.PERMISSION_BLOCKED
 import nz.myinspection.app.feature.schedule.ReminderPhase.QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderPhase.RETRYABLE
 import nz.myinspection.app.feature.schedule.ReminderPhase.TERMINAL
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.CALLBACK_CONFIRMED_ADMISSION
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_AFTER_WORKER_STARTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CALLBACK_ERROR
@@ -30,11 +32,16 @@ import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.ENQUEUE_CA
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.GENERATION_SUPERSEDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.INVALID_ROUTE
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.OCCURRENCE_CLOSED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.PERMISSION_NOT_GRANTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_CONTENDED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_QUARANTINED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REJECTED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_REREAD_EXHAUSTED
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.RECEIPT_WRITE_UNCERTAIN
 import nz.myinspection.app.feature.schedule.ReminderRegistrationCause.WORKER_CONFIRMED_ADMISSION
+import nz.myinspection.app.feature.schedule.ReminderRegistrationNote.LATE_CALLBACK
+import nz.myinspection.app.feature.schedule.ReminderRegistrationNote.WAITER_FAILED
+import nz.myinspection.app.feature.schedule.ReminderRegistrationOutcome.ADMITTED
 import nz.myinspection.core.schedule.InspectionScheduleType
 
 /** What a registration achieved. Every cause below maps onto exactly one of these. */
@@ -75,8 +82,22 @@ enum class ReminderRegistrationCause(val outcome: ReminderRegistrationOutcome) {
     RECEIPT_WRITE_UNCERTAIN(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
     RECEIPT_CONTENDED(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
     INVALID_ROUTE(ReminderRegistrationOutcome.PERMANENT_FAILURE),
+    // The grant may arrive at any time, so a blocked occurrence waits for the next registration
+    // rather than closing: nothing was written and nothing was scheduled.
+    PERMISSION_NOT_GRANTED(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
+    RECEIPT_REREAD_EXHAUSTED(ReminderRegistrationOutcome.RETRYABLE_FAILURE),
     OCCURRENCE_CLOSED(ReminderRegistrationOutcome.SKIPPED),
     GENERATION_SUPERSEDED(ReminderRegistrationOutcome.SKIPPED),
+}
+
+/**
+ * What a record reports beside the settlement it names. Both values mark a record that changed no
+ * waiter and no receipt, and they are one field because a record can only be one of them: the
+ * settlement itself carries no note, so a note is exactly what makes a record an aside.
+ */
+enum class ReminderRegistrationNote {
+    LATE_CALLBACK,
+    WAITER_FAILED,
 }
 
 /**
@@ -91,14 +112,16 @@ data class ReminderRegistrationIdentity(val occurrenceId: String, val generation
  * could not establish both halves. No property, date, path or exception text is ever carried.
  * [callbackCause] is the class the enqueue callback reported, kept beside [cause] when the two
  * differ, so a failure that arrived after the worker proved the admission stays legible without
- * downgrading it. [late] marks a record that changed no waiter and no receipt.
+ * downgrading it. [retainedWorkRequestId] is the work this settlement collided with rather than
+ * this registration's own, which is what a late or cross generation reading is located by.
  */
 data class ReminderRegistrationRecord(
     val identity: ReminderRegistrationIdentity?,
     val type: InspectionScheduleType,
     val cause: ReminderRegistrationCause,
     val callbackCause: ReminderRegistrationCause? = null,
-    val late: Boolean = false,
+    val retainedWorkRequestId: UUID? = null,
+    val note: ReminderRegistrationNote? = null,
 )
 
 interface ReminderSchedulerDiagnosticPort {
@@ -168,6 +191,7 @@ class ReminderScheduler(
     private val store: ReminderReceiptStore,
     private val enqueue: ReminderEnqueuePort,
     private val query: ReminderWorkQueryPort,
+    private val permissions: ReminderPermissionPort,
     private val diagnostics: ReminderSchedulerDiagnosticPort,
     private val watchdog: ReminderWatchdogPort,
     private val clock: Clock,
@@ -211,12 +235,53 @@ class ReminderScheduler(
             is ReminderReceiptLookup.Present -> when {
                 lookup.writeUncertain -> lookup.receipt.settle(RECEIPT_WRITE_UNCERTAIN)
                 lookup.receipt.phase in ACTIVE_PHASES -> place(flight, lookup.receipt)
-                // A blocked occurrence needs a fresh grant and a new generation, which the
-                // recovery card owns along with the rest of the permission machinery.
+                lookup.receipt.phase == PERMISSION_BLOCKED -> recover(flight, lookup.receipt)
                 else -> lookup.receipt.settle(OCCURRENCE_CLOSED)
             }
         }
         settled?.let { settle(flight) { it } }
+    }
+
+    /**
+     * Reopens an occurrence a delivery run left blocked on the notification permission.
+     *
+     * The grant is read here, at the moment of recovery, because one read earlier says nothing
+     * about now, and while it is missing this touches neither WorkManager nor the receipt. The
+     * store derives the next generation and its work request id itself, so the re-registration
+     * below runs under an identity nothing here could have drifted.
+     *
+     * Losing that write means the view this pass held was already stale, so the fresh one is tried
+     * instead. Those passes are bounded: an occurrence another actor keeps blocking again would
+     * otherwise be recovered from here forever, and an exhausted bound is its own answer rather
+     * than the contention a single lost write reports.
+     */
+    private fun recover(flight: Flight, blocked: ReminderReceipt): Settlement? {
+        var current = blocked
+        repeat(MAX_RECOVERY_READS) {
+            if (!permissions.isPostNotificationsGranted()) {
+                return current.settle(PERMISSION_NOT_GRANTED)
+            }
+            val fresh = when (val result = store.recoverPermissionBlocked(current)) {
+                is ReminderReceiptTransitionResult.Applied -> return place(flight, result.receipt)
+                ReminderReceiptTransitionResult.WriteUncertain -> return current.settle(RECEIPT_WRITE_UNCERTAIN)
+                // The store refuses a recovery of an occurrence it can no longer read as a receipt
+                // at all, which a fresh read of that same occurrence would only confirm.
+                ReminderReceiptTransitionResult.Rejected -> return current.settle(RECEIPT_REJECTED)
+                is ReminderReceiptTransitionResult.Stale ->
+                    (result.lookup as? ReminderReceiptLookup.Present)?.receipt
+                        ?: return current.settle(RECEIPT_QUARANTINED)
+            }
+            // Someone else already recovered it, so this registration continues from their
+            // generation rather than opening another one of its own.
+            if (fresh.phase in ACTIVE_PHASES) {
+                return place(flight, fresh)
+            }
+            if (fresh.phase != PERMISSION_BLOCKED) {
+                return fresh.settle(OCCURRENCE_CLOSED)
+            }
+            current = fresh
+        }
+        return current.settle(RECEIPT_REREAD_EXHAUSTED)
     }
 
     /** Reserves generation zero. Only a durable reservation may be followed by a submission. */
@@ -254,12 +319,18 @@ class ReminderScheduler(
             return receipt.settle(ReminderRegistrationCause.RETAINED_WORK_QUERY_FAILED)
         }
         val current = retained.filter { it.id == receipt.workRequestId }
-        val foreign = retained.any { it.id != receipt.workRequestId && !it.state.isFinished }
+        val foreign = retained.filter { it.id != receipt.workRequestId && !it.state.isFinished }
         if (current.size > 1) {
+            // Retained twice under this generation's own id, so there is no other work to name.
             return quarantine(receipt, ReminderRegistrationCause.RETAINED_WORK_DUPLICATE)
         }
-        if (foreign) {
-            return quarantine(receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH)
+        if (foreign.isNotEmpty()) {
+            // Which foreign request the collision is with is only well defined when there is one.
+            // Neither this port nor WorkManager promises an order over what it retains, so naming
+            // one of several would name a different one from run to run over the same state.
+            return quarantine(
+                receipt, ReminderRegistrationCause.RETAINED_WORK_ID_MISMATCH, foreign.singleOrNull()?.id,
+            )
         }
         val single = current.singleOrNull() ?: return submit(flight, receipt)
         return when (single.state) {
@@ -343,13 +414,14 @@ class ReminderScheduler(
     private fun expire(receipt: ReminderReceipt): Settlement =
         when (val lookup = store.lookup(receipt.occurrenceId)) {
             // Evidence this flight reserved cannot simply be absent, so a missing or refused read
-            // is corruption rather than a slow operation.
-            ReminderReceiptLookup.Missing -> Settlement(RECEIPT_QUARANTINED)
-            is ReminderReceiptLookup.Quarantined -> Settlement(RECEIPT_QUARANTINED)
+            // is corruption rather than a slow operation. A reading nothing can be made of still
+            // leaves the generation this flight submitted under known, so it is filed under that.
+            ReminderReceiptLookup.Missing -> receipt.settle(RECEIPT_QUARANTINED)
+            is ReminderReceiptLookup.Quarantined -> receipt.settle(RECEIPT_QUARANTINED)
             is ReminderReceiptLookup.Present -> when {
                 lookup.writeUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
                 lookup.receipt.generationNumber != receipt.generationNumber ->
-                    lookup.receipt.settle(GENERATION_SUPERSEDED)
+                    receipt.settle(GENERATION_SUPERSEDED, lookup.receipt.workRequestId)
                 // Only the matching worker moves this generation while the flight is open, and the
                 // platform runs it only once it has admitted the request.
                 lookup.receipt.phase != receipt.phase ->
@@ -372,7 +444,7 @@ class ReminderScheduler(
             }
         }
         if (settled == null) {
-            diagnostics.record(ReminderRegistrationRecord(flight.identity(), flight.type, reported, late = true))
+            diagnostics.record(flight.lateRecord(reported))
         }
     }
 
@@ -387,6 +459,7 @@ class ReminderScheduler(
             }
             val settled = decide() ?: return null
             flights.remove(flight.spec.occurrenceId)
+            flight.settledCause = settled.cause
             settled to flight.waiters.toList()
         }
         publish(flight.record(ended.first), ended.second)
@@ -395,9 +468,10 @@ class ReminderScheduler(
 
     /**
      * Reports one settlement to the log first and then to each waiter in isolation, so a waiter
-     * that throws can starve neither the diagnostic nor the waiters after it. Swallowing is the
-     * point: a waiter belongs to a caller, and one caller's failure says nothing about this
-     * occurrence.
+     * that throws can starve neither the diagnostic nor the waiters after it. Not rethrowing is
+     * the point: a waiter belongs to a caller, and one caller's failure says nothing about this
+     * occurrence. It is still recorded, because a failure nobody can see is a bug nobody can find,
+     * and recorded without a word of what was thrown: this record names an occurrence.
      */
     private fun publish(
         record: ReminderRegistrationRecord,
@@ -408,16 +482,19 @@ class ReminderScheduler(
             try {
                 waiter(record.cause)
             } catch (_: Throwable) {
-                Unit
+                diagnostics.record(record.copy(note = WAITER_FAILED))
             }
         }
     }
 
     private fun confirm(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, ENQUEUED, null, applied, admissionRecoverable = true)
+        advance(receipt, ENQUEUED, null, applied, admitted = true)
 
-    private fun quarantine(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
-        advance(receipt, QUARANTINED, null, applied)
+    private fun quarantine(
+        receipt: ReminderReceipt,
+        applied: ReminderRegistrationCause,
+        retained: UUID? = null,
+    ): Settlement = advance(receipt, QUARANTINED, null, applied, retained = retained)
 
     private fun terminate(receipt: ReminderReceipt, applied: ReminderRegistrationCause): Settlement =
         advance(receipt, TERMINAL, ReminderCause.PERMANENT_DELIVERY_FAILURE, applied)
@@ -426,31 +503,34 @@ class ReminderScheduler(
      * Applies one phase change, re-reading rather than overwriting when the store says the caller's
      * view is stale. A lost compare and set is reported rather than retried in a loop: the re-read
      * already names why it was lost, and the caller repeats a contended registration from the top.
-     * [admissionRecoverable] is true only where this call site was itself establishing admission,
-     * because a caller acting on retained work that contradicts admission must not report one.
-     * [reported] is set only by an enqueue callback, the one caller whose lost transition is proof.
+     * [admitted] is true only where this call site was itself establishing admission, because a
+     * caller acting on retained work that contradicts admission must not report one. [reported] is
+     * set only by an enqueue callback, the one caller whose lost transition is proof. [retained]
+     * names the work this decision collided with, and belongs to the applied answer alone: every
+     * other answer here is about the receipt rather than about retained work.
      */
     private fun advance(
         receipt: ReminderReceipt,
         next: ReminderPhase,
         cause: ReminderCause?,
         applied: ReminderRegistrationCause,
-        admissionRecoverable: Boolean = false,
+        admitted: Boolean = false,
         reported: ReminderRegistrationCause? = null,
+        retained: UUID? = null,
     ): Settlement {
         val result = store.compareAndSet(
             receipt.occurrenceId, receipt.generationNumber, receipt.workRequestId,
             receipt.phase, next, cause,
         )
         return when (result) {
-            is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied)
+            is ReminderReceiptTransitionResult.Applied -> receipt.settle(applied, retained)
             // Rejected means the store forbids this transition, which this scheduler never asks
             // for, so it is a fail closed default rather than a reachable branch.
             ReminderReceiptTransitionResult.Rejected -> receipt.settle(RECEIPT_REJECTED)
             ReminderReceiptTransitionResult.WriteUncertain -> receipt.settle(RECEIPT_WRITE_UNCERTAIN)
             is ReminderReceiptTransitionResult.Stale -> reported
                 ?.let { proved(result.lookup, receipt, it) }
-                ?: reread(result.lookup, receipt, admissionRecoverable)
+                ?: reread(result.lookup, receipt, admitted)
         }
     }
 
@@ -469,9 +549,11 @@ class ReminderScheduler(
         // The store reports Stale only with the receipt it read under its own lock, and answers a
         // missing or unreadable occurrence with Rejected instead, so this is a fail closed default.
         val fresh = (lookup as? ReminderReceiptLookup.Present)?.receipt
-            ?: return Settlement(RECEIPT_QUARANTINED)
+            ?: return current.settle(RECEIPT_QUARANTINED)
         if (fresh.generationNumber != current.generationNumber) {
-            return fresh.settle(GENERATION_SUPERSEDED)
+            // Filed under the generation this registration submitted, naming the one that replaced
+            // it: the other way round reads as though the newer generation had been superseded.
+            return current.settle(GENERATION_SUPERSEDED, fresh.workRequestId)
         }
         return if (reported == CALLBACK_CONFIRMED_ADMISSION) {
             fresh.settle(WORKER_CONFIRMED_ADMISSION)
@@ -481,24 +563,27 @@ class ReminderScheduler(
     }
 
     /**
-     * Reports what replaced this registration's view of the receipt. ENQUEUED is admission only to
-     * a caller that was establishing one: it is written after WorkManager accepted this generation's
-     * request, but a caller whose retained work already contradicted admission cannot read it as
-     * proof. Everything else that moved under the same generation is contention.
+     * Reports what replaced this registration's view of the receipt.
+     *
+     * A call site that was itself establishing admission held that evidence before this read: the
+     * callback confirmed the operation, or retained work showed this generation ENQUEUED or
+     * RUNNING. A phase that moved afterwards cannot unmake evidence gathered before it moved, so
+     * the read decides only whether a newer generation or a closed occurrence overtook this
+     * registration entirely. A caller whose retained work instead contradicted admission reads the
+     * same movement as the contention it is.
      */
     private fun reread(
         lookup: ReminderReceiptLookup,
         current: ReminderReceipt,
-        admissionRecoverable: Boolean,
+        admitted: Boolean,
     ): Settlement {
         val fresh = (lookup as? ReminderReceiptLookup.Present)?.receipt
-            ?: return Settlement(RECEIPT_QUARANTINED)
+            ?: return current.settle(RECEIPT_QUARANTINED)
         return when {
             fresh.generationNumber != current.generationNumber ->
-                fresh.settle(GENERATION_SUPERSEDED)
-            admissionRecoverable && fresh.phase == ENQUEUED ->
-                fresh.settle(ReminderRegistrationCause.ADMISSION_ALREADY_RECORDED)
+                current.settle(GENERATION_SUPERSEDED, fresh.workRequestId)
             fresh.phase !in ACTIVE_PHASES -> fresh.settle(OCCURRENCE_CLOSED)
+            admitted -> fresh.settle(ADMISSION_ALREADY_RECORDED)
             else -> fresh.settle(RECEIPT_CONTENDED)
         }
     }
@@ -517,6 +602,10 @@ private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
     @Volatile
     var deadlineNanos: Long = 0L
 
+    /** What ended this flight, which is what a callback arriving afterwards is read against. */
+    @Volatile
+    var settledCause: ReminderRegistrationCause? = null
+
     fun identity(): ReminderRegistrationIdentity? =
         receipt?.let { ReminderRegistrationIdentity(spec.occurrenceId, it.generationNumber) }
 
@@ -525,17 +614,37 @@ private class Flight(val spec: ReminderSpec, val type: InspectionScheduleType) {
         type,
         settled.cause,
         settled.reported,
+        settled.retained,
     )
+
+    /**
+     * How a callback that changed nothing is recorded. A flight already ended having proved this
+     * generation was admitted classifies a failing callback exactly as the callback winning that
+     * same race is classified, so which of the two arrived first cannot change what is reported.
+     */
+    fun lateRecord(reported: ReminderRegistrationCause): ReminderRegistrationRecord {
+        val proved = settledCause?.outcome == ADMITTED && reported != CALLBACK_CONFIRMED_ADMISSION
+        return ReminderRegistrationRecord(
+            identity(),
+            type,
+            if (proved) ENQUEUE_CALLBACK_AFTER_WORKER_STARTED else reported,
+            reported.takeIf { proved },
+            note = LATE_CALLBACK,
+        )
+    }
 }
 
 private data class Settlement(
     val cause: ReminderRegistrationCause,
     val generationNumber: Long? = null,
     val reported: ReminderRegistrationCause? = null,
+    val retained: UUID? = null,
 )
 
-private fun ReminderReceipt.settle(cause: ReminderRegistrationCause): Settlement =
-    Settlement(cause, generationNumber)
+private fun ReminderReceipt.settle(
+    cause: ReminderRegistrationCause,
+    retained: UUID? = null,
+): Settlement = Settlement(cause, generationNumber, retained = retained)
 
 /** The class an answered operation reported, which the callback carries wherever it lands. */
 private fun ReminderEnqueueSignal.cause(): ReminderRegistrationCause = when (this) {
@@ -590,6 +699,9 @@ internal fun reminderDelayMillis(now: Instant, dueAt: Instant): Long {
 internal const val MAX_INITIAL_DELAY_MILLIS: Long = Long.MAX_VALUE / 2
 private const val NANOS_PER_MILLI = 1_000_000
 private const val FIRST_GENERATION = 0L
+
+/** How many views of a blocked occurrence one registration may lose before it stops trying. */
+private const val MAX_RECOVERY_READS = 3
 private const val OPERATION_TIMEOUT_SECONDS = 30L
 private const val WATCHDOG_SECONDS = 30L
 private val WATCHDOG_NANOS: Long = TimeUnit.SECONDS.toNanos(WATCHDOG_SECONDS)
@@ -655,6 +767,11 @@ internal object AndroidReminderWatchdogPort : ReminderWatchdogPort {
     }
 }
 
+/**
+ * Publishes a settled registration. Rendering it into the delivery side's field vocabulary is the
+ * follow-up card's subject, so this stays the record's own spelling until that lands: the record
+ * carries no property, date, path or exception text for a renderer to have to leave out.
+ */
 internal object AndroidReminderSchedulerDiagnosticPort : ReminderSchedulerDiagnosticPort {
     override fun record(record: ReminderRegistrationRecord) {
         Log.w("ReminderScheduler", record.toString())
@@ -677,6 +794,7 @@ internal fun reminderScheduler(context: Context): ReminderScheduler =
                 reminderReceiptStore(app),
                 WorkManagerReminderEnqueuePort(app),
                 WorkManagerReminderQueryPort(app),
+                AndroidReminderPermissionPort(app),
                 AndroidReminderSchedulerDiagnosticPort,
                 AndroidReminderWatchdogPort,
                 Clock.systemUTC(),
