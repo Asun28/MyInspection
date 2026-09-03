@@ -18,13 +18,25 @@ class ReportHtmlRendererTest {
 
     private val renderer = ReportHtmlRenderer(ReportHtmlFixtures.images)
 
+    /**
+     * The base64 SHA-256 of the exact stylesheet bytes, computed outside Kotlin. A literal on purpose:
+     * calling the production styleHash to build the expectation would keep agreeing with it even if it
+     * switched digest algorithm, while every browser rejected the stylesheet as unhashed (L165).
+     */
+    private val STYLE_SHA256 = "DSOp1g7PoEHm0Wk5kSKlUWZMeaW9FSFd3k//bscQDPY="
+
     // ---- A1: structure ------------------------------------------------------------------------------
 
     @Test
     fun `the document is a complete utf-8 html file and is byte-identical on a second render`() {
         val content = ReportHtmlFixtures.content()
         val first = renderer.render(content)
-        assertEquals(first, renderer.render(content))
+        // The card's DoD says exact bytes, so the claim is checked on bytes: two renders must encode
+        // identically, and the encoding must round-trip the non-ASCII the report is full of.
+        val bytes = first.toByteArray(Charsets.UTF_8)
+        assertTrue(bytes.contentEquals(renderer.render(content).toByteArray(Charsets.UTF_8)))
+        assertEquals(first, String(bytes, Charsets.UTF_8))
+        assertContains(String(bytes, Charsets.UTF_8), "厨房")
         assertTrue(first.startsWith("<!DOCTYPE html>\n<html lang=\"en\">"), first.take(80))
         assertContains(first, "<meta charset=\"utf-8\">")
         assertContains(first, "<title>ROUTINE · 12 Aroha Ave &amp; Lane</title>")
@@ -86,9 +98,11 @@ class ReportHtmlRendererTest {
         val html = renderer.render(ReportHtmlFixtures.content())
         assertContains(html, "<span class=\"text-en\" lang=\"en\">Carpet</span>")
         assertContains(html, "<span class=\"text-zh\" lang=\"zh\">地毯</span>")
-        // A guessed lang would have a screen reader pronounce a dictated note with the wrong voice.
-        assertContains(html, "<span class=\"text-original\">")
-        assertFalse(Regex("class=\"text-original\" lang=").containsMatchIn(html))
+        // Free text declares `lang=""` - HTML's "undetermined". Asserting the attribute is *absent*
+        // would be asserting the bug: an absent lang inherits `<html lang="en">`, so a Chinese note would
+        // be announced in an English voice. The effective language must be undetermined, not inherited.
+        assertContains(html, "<span class=\"text-original\" lang=\"\">")
+        assertEquals(0, Regex("class=\"text-original\">").findAll(html).count())
     }
 
     // ---- A2: self-containment and escaping ----------------------------------------------------------
@@ -109,8 +123,11 @@ class ReportHtmlRendererTest {
     @Test
     fun `the document denies network, navigation and active content by policy, not just by omission`() {
         val html = renderer.render(ReportHtmlFixtures.content())
+        // The digest is a literal computed independently of Kotlin, not a call to the production
+        // styleHash: rebuilding the expectation from the code under test would keep agreeing with it even
+        // if it switched to MD5, while every browser rejected the stylesheet (L165).
         val expected = "default-src 'none'; img-src data:; style-src 'sha256-" +
-            ReportHtmlRenderer.styleHash(ReportHtmlStylesheet.css) + "'; base-uri 'none'; form-action 'none'"
+            STYLE_SHA256 + "'; base-uri 'none'; form-action 'none'"
         assertContains(html, "<meta http-equiv=\"Content-Security-Policy\" content=\"" + expected + "\">")
         val style = Regex("<style>(.*?)</style>", RegexOption.DOT_MATCHES_ALL).find(html)!!.groupValues[1]
         assertEquals(ReportHtmlStylesheet.css, style, "the hashed policy must cover the exact style body")
@@ -352,9 +369,9 @@ class ReportHtmlRendererTest {
         Regex("<[a-zA-Z][^>]*>").findAll(html).map { it.value }.toList()
 }
 /*
- * R4 receipt. 25 single-point mutations, each applied alone and restored before the next, to files pinned
- * at these SHA-256 digests: HtmlClass cb47e074572a8743, ReportHtmlRenderer 58b159a9524cd132,
- * ReportHtmlStylesheet c8ea88c47b85cc84. 25 killed, 0 survived, 0 compile-kills, 0 no-runs.
+ * R4 receipt. 27 single-point mutations, each applied alone and restored before the next, to files pinned
+ * at these SHA-256 digests: HtmlClass cb47e074572a8743, ReportHtmlRenderer d03ad7778c1229c4,
+ * ReportHtmlStylesheet c8ea88c47b85cc84. 27 killed, 0 survived, 0 compile-kills, 0 no-runs.
  *
  * Every kill is a failing test - not a compile error, and not a command that never ran. The harness runs
  * the unmutated suite first as a positive control and records a kill only when Gradle reports failing
@@ -376,7 +393,10 @@ class ReportHtmlRendererTest {
  * escaping use    M21 escapes an image alternative as element text rather than as an attribute;
  *                 M22, M30, M31 leave a caption, the title and an identity value unescaped.
  * security        M36 ships the document without the CSP docs/SECURITY.md requires; M37 stops that policy
- *                 denying by default.
+ *                 denying by default; M39 hashes the stylesheet with SHA-1, which only a literal
+ *                 expected digest can catch - one built by calling styleHash agrees with any algorithm.
+ * accessibility   M38 drops the empty lang from free text, so it inherits <html lang="en"> and a
+ *                 Chinese note is announced in an English voice.
  * structure       M23, M24 weaken or drop the Chinese half; M25 guesses a language for free text;
  *                 M26 moves the header inside main; M27 removes the only h1; M28 skips a heading level;
  *                 M29 restates the native hash in the fingerprint slot.

@@ -350,11 +350,15 @@ class ReportHtmlRenderer(
                 "<span class=\"${HtmlClass.TEXT_ZH.cssName}\" lang=\"zh\">${text(zh)}</span>"
 
         /**
-         * Free text keeps the language it was dictated in, and this renderer does not know what that is.
-         * Guessing would be worse than inheriting: a wrong `lang` makes a screen reader read a Chinese note
-         * with an English voice, which is unintelligible rather than merely unidiomatic.
+         * Free text keeps the language it was dictated in, and this renderer does not know what that is -
+         * so it says exactly that, with `lang=""`, which is HTML's "undetermined".
+         *
+         * Leaving the attribute off is not the same statement and was the earlier bug here: an absent
+         * `lang` **inherits** `<html lang="en">`, so a Chinese dictated note was announced by a screen
+         * reader in an English voice - the precise outcome this comment used to claim it avoided. Empty
+         * means undetermined and stops that inheritance; a guessed value would be worse still.
          */
         fun original(value: String) =
-            "<span class=\"${HtmlClass.TEXT_ORIGINAL.cssName}\">${text(value)}</span>"
+            "<span class=\"${HtmlClass.TEXT_ORIGINAL.cssName}\" lang=\"\">${text(value)}</span>"
     }
 }
