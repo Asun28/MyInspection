@@ -1,7 +1,7 @@
 ---
 id: T4-SCHEDULE-UI-PRESENTATION
 title: 排程界面的最小呈现契约与符号化 chrome
-depends_on: [T4-SCHEDULE-UI, T4-DESIGN-SYMBOL-CHROME]
+depends_on: [T4-SCHEDULE-UI-REMINDER-ACTIONS, T4-DESIGN-SYMBOL-CHROME]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#page-inventory
 status: todo
@@ -17,7 +17,8 @@ forbid:
   - 改动 T4-SCHEDULE-UI 已钉住的 reducer 状态集、权限时序或 pending/retry 转移语义
   - 用源码字符串读取或反编译产物代替 typed 值断言
 non_goals:
-  - reducer 状态机、权限重读、pending/retry 行为（T4-SCHEDULE-UI 已拥有并已验收）
+  - reducer 状态机与路由效果（T4-SCHEDULE-UI 已拥有并已验收）
+  - 权限时序、授权恢复、pending/retry 行为（T4-SCHEDULE-UI-REMINDER-ACTIONS 已拥有并已验收）
   - 日历集成、自定义节奏、精确闹钟、T2-CAPTURE-UI 接线
   - 新增图标依赖（OD-2 若裁定扩 res/，仍不得引入 material-icons 依赖）
 acceptance:
