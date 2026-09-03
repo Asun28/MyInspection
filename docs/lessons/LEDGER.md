@@ -1343,7 +1343,7 @@
 - refs: 
 
 ## L190
-- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: r7 我用 `[CharUnicodeInfo]::GetUnicodeCategory()` 验出 U+1BCA0/U+E0001 属 `Cf`，据此断定「正则的 `\p{Cf}` 已覆盖增补平面」并写进权威注释与 rubric；r8 实测 `$s -match '\p{Cf}'` 对这四个增补标量**全 False**，整段增补面其实一个都没被剥，伪造码照样拼得出来
 - root_cause: **验证用的 oracle 与被测实现不是同一套判据**：`GetUnicodeCategory` 按 **Unicode 标量**判类目，而 .NET 正则按 **UTF-16 码元**匹配——增补标量在正则眼里是一对 `Cs` 代理，永远进不了 `\p{Cf}`/`\p{Mn}` 之类的类目类。用前者去证后者，等于拿另一台机器的读数当本机结论。这比不验证更坏：它产生**有据可依的错误自信**，还会被写进文档变成下一轮的假前提
 - rule: 验证一个断言时，**必须用被测代码实际使用的那套机制去验**，不能用「语义上等价」的另一个 API：正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回、别推理；渲染层行为就看渲染器实际输出。判断法：问「我的验证脚本和生产代码，是不是同一个引擎在做同一个判断？」不是就换写法。**且断言的对象若是一个「类目/属性」（`Cf`、default-ignorable 之类），取样证不了它——必须把全集从权威表枚举出来逐个比对**（2026-08-03 r13 更正：本条原写「逐点实测代表码位（BMP 与增补各取样）」，那正是又栽一次的原因——r8 照它取样补完仍漏 18 个增补面 `Cf`，r13 才由全码位枚举挖出）。落地形态：用**标量级** API（`Rune.GetUnicodeCategory`）枚举出「应该命中的全集」，再用**生产代码那套机制**（正则）逐个验它是否真命中；两套 oracle 各司其职、谁也不替谁。好处是 Unicode 升版新增码位时断言会自己红，而不必等下一个评审者发现
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -2107,5 +2107,13 @@
 - symptom: R3 次轮 block：同一个事件的失败分类随竞速顺序漂移。Absent callback 自己结算注册时渲染 cause_code=unknown，但同一个 callback 在 worker 已证明 admission 后到达时渲染 null——因为分类是从「它最终被归入的那个答案」反推的，而那个答案是 admission、不是失败、不带分类。
 - root_cause: 把一个**属于事件本身**的属性（这次 callback 报了什么失败）实现成**在汇聚点由结果反推**的派生值。汇聚点的结果取决于哪个写者先到，于是属性也跟着变——两条路径对同一件事给出两个答案，而且没有任何一条测试同时看这两条路径。
 - rule: 事件自带的属性必须在**事件发生的那一刻**捕获、随事件旅行到汇聚点，不得在汇聚点由「它被归入哪个结果」反推——只要汇聚点存在竞速，反推出来的值就随竞速顺序漂移。判别问句：这个字段的值，会不会因为另一个线程先到而不同？会就把它挪到源头捕获。测试形态：把同一个事件走**两条汇聚路径**各跑一次（赢了竞速的、输了竞速的），逐字比较两条渲染结果，只测其中一条等于没测。
+- enforced_by: 
+- refs: 
+
+## L289
+- date: 2026-09-03 ｜ tags: spec,acceptance,testability ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Acceptance criterion enumerates states as "renders exactly one of A, B, C, D, E" but the assertion cannot be written: two of the listed items legitimately co-exist in one render, so no fixture can satisfy the criterion as worded.
+- root_cause: The criterion flattened two levels of a hierarchy into one mutually-exclusive list. Here due / first-inspection / one-off are per-row kinds decided by each rows own ScheduleAdvice, while no-content / filtered-empty / loading / error are screen states. A screen with three due rows and one one-off row satisfies "exactly one" under no reading. The flaw is invisible while reading the card and only surfaces when writing the first assertion.
+- rule: Before writing RED, take every "renders exactly one of X" acceptance item and ask: can two of these co-exist in a single render? If yes the criterion spans two levels and is untestable as worded. Split it into one clause per level (exactly one screen state, and one kind per row) and tighten the card BEFORE writing the test. This is tightening, not weakening, and it is the task-loop rule "cannot write RED means go fix the card" in its most common concrete form.
 - enforced_by: 
 - refs: 
