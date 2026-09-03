@@ -1,5 +1,6 @@
 package nz.myinspection.core.report.html
 
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -45,10 +46,11 @@ class ReportHtmlRenderer(
             line("<head>")
             line("<meta charset=\"utf-8\">")
             line("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
+            val css = ReportHtmlStylesheet.css
+            line("<meta http-equiv=\"Content-Security-Policy\" content=\"$POLICY_HEAD" + "'sha256-${styleHash(css)}'; $POLICY_TAIL\">")
             line("<title>${text("${identity.inspectionType} · ${identity.propertyAddress}")}</title>")
-            line("<style>")
-            line(ReportHtmlStylesheet.css)
-            line("</style>")
+            // One line, so the element's content is exactly the stylesheet text the hash covers.
+            line("<style>$css</style>")
             line("</head>")
             line("<body class=\"${HtmlClass.REPORT.cssName}\">")
             header()
@@ -315,12 +317,26 @@ class ReportHtmlRenderer(
         }
     }
 
-    private companion object {
+    internal companion object {
         /** The spelling the PDF footer and cover use, so one inspection reads the same in both formats. */
         private val ISO_UTC: DateTimeFormatter =
             DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC)
 
         fun isoUtc(epochMillis: Long): String = ISO_UTC.format(Instant.ofEpochMilli(epochMillis))
+
+        /**
+         * `docs/SECURITY.md` requires the report to deny network, navigation and active content *by
+         * policy*, not merely by the renderer emitting none. Everything is denied, then two things are
+         * re-permitted: `data:` images, and the one stylesheet **by hash** rather than `'unsafe-inline'`,
+         * so the policy admits that exact text and no other inline style. `frame-ancestors` is absent on
+         * purpose: it is ignored in a meta policy, and a directive that does nothing where it is written
+         * reads as protection while giving none.
+         */
+        const val POLICY_HEAD = "default-src 'none'; img-src data:; style-src "
+        const val POLICY_TAIL = "base-uri 'none'; form-action 'none'"
+
+        fun styleHash(css: String): String = Base64.getEncoder()
+            .encodeToString(MessageDigest.getInstance("SHA-256").digest(css.toByteArray(Charsets.UTF_8)))
 
         fun text(value: String) = HtmlEscaping.text(value)
 

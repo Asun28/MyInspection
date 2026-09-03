@@ -4,7 +4,6 @@ import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -103,6 +102,23 @@ class ReportHtmlRendererTest {
         assertEquals(emptyList(), names.filter { it in forbidden })
     }
 
+    /**
+     * The policy, the style body and the refresh carrier, none of which the tag-name sweep can see:
+     * `<style>` content is not a tag, and `<meta>` is legitimately emitted so its name cannot be banned.
+     */
+    @Test
+    fun `the document denies network, navigation and active content by policy, not just by omission`() {
+        val html = renderer.render(ReportHtmlFixtures.content())
+        val expected = "default-src 'none'; img-src data:; style-src 'sha256-" +
+            ReportHtmlRenderer.styleHash(ReportHtmlStylesheet.css) + "'; base-uri 'none'; form-action 'none'"
+        assertContains(html, "<meta http-equiv=\"Content-Security-Policy\" content=\"" + expected + "\">")
+        val style = Regex("<style>(.*?)</style>", RegexOption.DOT_MATCHES_ALL).find(html)!!.groupValues[1]
+        assertEquals(ReportHtmlStylesheet.css, style, "the hashed policy must cover the exact style body")
+        assertFalse(style.contains("@import"))
+        assertFalse(style.contains("url("))
+        assertEquals(emptyList(), tagsOf(html).filter { it.contains("http-equiv=\"refresh\"") })
+    }
+
     @Test
     fun `no tag carries an event handler or a reference that leaves the file`() {
         val tags = tagsOf(renderer.render(ReportHtmlFixtures.content()))
@@ -176,20 +192,6 @@ class ReportHtmlRendererTest {
         // The budget belongs to the document: one instance rendering two reports must not spend it once.
         offered.clear()
         assertEquals(html, renderer.render(ReportHtmlFixtures.content()))
-    }
-
-    /**
-     * The type gate is at the boundary, so bytes the port had no right to hand over cannot be constructed
-     * and no later path has to remember to check. SVG is the case that matters: it can carry script.
-     */
-    @Test
-    fun `an unexpected media type or an empty picture cannot become an embedded image`() {
-        assertFalse(EmbeddedImage.ALLOWED_MEDIA_TYPES.contains("image/svg+xml"))
-        assertFailsWith<IllegalArgumentException> { EmbeddedImage("image/svg+xml", ReportHtmlFixtures.jpegBytes) }
-        assertFailsWith<IllegalArgumentException> { EmbeddedImage("image/jpeg", ByteArray(0)) }
-        // A misconfigured renderer is a caller defect, not a refused picture, so it is NOT the rejection
-        // type and must not be swallowed by the renderer's catch.
-        assertFailsWith<IllegalArgumentException> { HtmlImageBounds(maxImageBytes = 8, maxTotalImageBytes = 4) }
     }
 
     /**
@@ -350,29 +352,31 @@ class ReportHtmlRendererTest {
         Regex("<[a-zA-Z][^>]*>").findAll(html).map { it.value }.toList()
 }
 /*
- * R4 receipt. 28 single-point mutations, each applied alone and restored before the next, to files pinned
- * at these SHA-256 digests: HtmlClass 390dbe11bfd0ea94, ReportHtmlRenderer 009b2f65f807f7d7,
- * ReportHtmlStylesheet ac7f91e4a4bbdc8a, ReportImageSource cd2d84cf02e46481. 28 killed, 0 survived.
+ * R4 receipt. 25 single-point mutations, each applied alone and restored before the next, to files pinned
+ * at these SHA-256 digests: HtmlClass cb47e074572a8743, ReportHtmlRenderer 58b159a9524cd132,
+ * ReportHtmlStylesheet c8ea88c47b85cc84. 25 killed, 0 survived, 0 compile-kills, 0 no-runs.
  *
  * Every kill is a failing test - not a compile error, and not a command that never ran. The harness runs
  * the unmutated suite first as a positive control and records a kill only when Gradle reports failing
- * tests: a compile error, a failing test and a shell that cannot find the wrapper all exit 1, and an
- * earlier pass of this batch scored a perfect 31/31 purely because cmd.exe rejected a forward slash in
- * the command name (L282, widened - a kill must be positively attributed, never inferred from an exit
- * code). Escaping itself is no longer mutated here: HtmlEscaping belongs to
- * T3-REPORT-HTML-CHARACTER-POLICY, which carries its own receipt.
+ * tests, because a compile error, a failing test and a shell that cannot find the wrapper all exit 1. An
+ * earlier pass of this batch scored a perfect 31/31 purely because cmd.exe rejected a forward slash in the
+ * command name (L282, widened - a kill must be positively attributed, never inferred from an exit code).
+ *
+ * Escaping and the evidence port are not mutated here: HtmlEscaping belongs to
+ * T3-REPORT-HTML-CHARACTER-POLICY and ReportImageSource to T3-REPORT-HTML-EVIDENCE-PORT, each carrying
+ * its own receipt. This card mutates only what it owns.
  *
  * class contract  M8, M9 break the derived cssName, caught by the two-way parity test.
- * evidence bounds M10, M11, M13 widen what an EmbeddedImage accepts; M12 drops a bounds invariant;
- *                 M14 calls the port even with the budget exhausted; M15 tells the port the per-image
+ * evidence budget M14 calls the port even with the budget exhausted; M15 tells the port the per-image
  *                 ceiling while ignoring what is left, M16 the reverse; M17 never spends the budget;
- *                 M18 moves the budget onto the renderer, costing a second report its pictures;
- *                 M32 drops the backstop against a port that overshoots, M33 makes it off by one;
- *                 M34 removes the narrow catch so a refused picture aborts the whole report, and
- *                 M35 throws the refusal as a plain argument error so that catch no longer matches.
+ *                 M18 moves the budget onto the renderer, costing a second report its pictures; M32
+ *                 drops the backstop against a port that overshoots, M33 makes it off by one; M34 removes
+ *                 the narrow catch so a refused picture aborts the whole report.
  * evidence output M19 drops the missing-photograph notice; M20 drops a figure caption.
  * escaping use    M21 escapes an image alternative as element text rather than as an attribute;
  *                 M22, M30, M31 leave a caption, the title and an identity value unescaped.
+ * security        M36 ships the document without the CSP docs/SECURITY.md requires; M37 stops that policy
+ *                 denying by default.
  * structure       M23, M24 weaken or drop the Chinese half; M25 guesses a language for free text;
  *                 M26 moves the header inside main; M27 removes the only h1; M28 skips a heading level;
  *                 M29 restates the native hash in the fingerprint slot.

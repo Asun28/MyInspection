@@ -1,9 +1,14 @@
 package nz.myinspection.core.report.html
 
 /**
- * Every class name the report document may carry. The renderer emits no bare class string and the
- * stylesheet writes no selector that is not one of these, so "a class nobody styles" and "a selector
- * pointing at a class nobody emits" are both unrepresentable rather than merely discouraged.
+ * Every class name the report document may carry, in one place: the renderer emits no bare class string
+ * and the stylesheet builds its selectors from these entries, so neither side can misspell a name.
+ *
+ * That is a guarantee about *names* only. Nothing here couples emission to selection - a declared class
+ * no rule styles is perfectly representable, and the baseline stylesheet does style only two entries.
+ * Set parity between these entries and the classes a document emits is enforced by the test named
+ * `the classes the renderer emits and the classes HtmlClass declares are the same set`, not by the enum;
+ * `T3-REPORT-HTML-PRESENTATION` adds the stylesheet side.
  *
  * [cssName] is derived, not declared per entry: an entry cannot drift from its own selector, and adding
  * one cannot introduce an underscore-versus-hyphen typo. `lowercase()` without a locale is the

@@ -6,8 +6,11 @@ package nz.myinspection.core.report.html
  * photograph renders at its natural pixel width and an evidence table has no visible cells. Everything
  * else (responsive, print, dark, forced-colour) is `T3-REPORT-HTML-PRESENTATION`, which grows this
  * constant rather than adding a second stylesheet: a second one would be a second place for a rule to
- * hide report content, and privacy is settled upstream. Selectors are built from [HtmlClass], never
- * written as literal class strings, so a rule cannot come to point at a class nothing emits.
+ * hide report content, and privacy is settled upstream.
+ *
+ * Selectors are built from [HtmlClass] rather than written as literal class strings, so a selector cannot
+ * misspell a name the renderer uses. That is a guarantee about names only: it does not follow that every
+ * entry is styled, and in this baseline exactly two are.
  */
 internal object ReportHtmlStylesheet {
 
