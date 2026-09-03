@@ -212,6 +212,22 @@ class ReportHtmlRendererTest {
     }
 
     /**
+     * The partial remainder, which the case above cannot reach: it spends the budget *exactly*, so the
+     * second call is the zero case and `min(perImage, remaining)` is never exercised with anything in
+     * between. An implementation that returned early at zero but otherwise always offered `maxImageBytes`
+     * would satisfy that test while handing the port a ceiling larger than the document can still accept.
+     */
+    @Test
+    fun `the port is offered the remainder when it is smaller than the per-image ceiling`() {
+        val bounds = HtmlImageBounds(maxImageBytes = 4, maxTotalImageBytes = 6)
+        val offered = mutableListOf<Int>()
+        val source = ReportImageSource { _, max -> offered += max; EmbeddedImage("image/jpeg", ReportHtmlFixtures.jpegBytes) }
+        val html = ReportHtmlRenderer(source, bounds).render(ReportHtmlFixtures.content())
+        assertEquals(listOf(4, 2), offered)
+        assertEquals(1, Regex("<img ").findAll(html).count())
+    }
+
+    /**
      * The rejection happens inside the port, while `read` is executing, so it reaches the renderer as a
      * thrown exception rather than as a null. Asserting only that the constructor throws proves nothing
      * about the report: before this was handled, either case aborted the whole render.
@@ -369,9 +385,9 @@ class ReportHtmlRendererTest {
         Regex("<[a-zA-Z][^>]*>").findAll(html).map { it.value }.toList()
 }
 /*
- * R4 receipt. 27 single-point mutations, each applied alone and restored before the next, to files pinned
+ * R4 receipt. 28 single-point mutations, each applied alone and restored before the next, to files pinned
  * at these SHA-256 digests: HtmlClass cb47e074572a8743, ReportHtmlRenderer d03ad7778c1229c4,
- * ReportHtmlStylesheet c8ea88c47b85cc84. 27 killed, 0 survived, 0 compile-kills, 0 no-runs.
+ * ReportHtmlStylesheet c8ea88c47b85cc84. 28 killed, 0 survived, 0 compile-kills, 0 no-runs.
  *
  * Every kill is a failing test - not a compile error, and not a command that never ran. The harness runs
  * the unmutated suite first as a positive control and records a kill only when Gradle reports failing
@@ -388,7 +404,10 @@ class ReportHtmlRendererTest {
  *                 ceiling while ignoring what is left, M16 the reverse; M17 never spends the budget;
  *                 M18 moves the budget onto the renderer, costing a second report its pictures; M32
  *                 drops the backstop against a port that overshoots, M33 makes it off by one; M34 removes
- *                 the narrow catch so a refused picture aborts the whole report.
+ *                 the narrow catch so a refused picture aborts the whole report; M40 ignores a
+ *                 partial remainder and offers the full per-image bound, which only a case with
+ *                 0 < remaining < maxImageBytes can catch - spending the budget exactly makes the
+ *                 second call the zero case and never exercises min(perImage, remaining).
  * evidence output M19 drops the missing-photograph notice; M20 drops a figure caption.
  * escaping use    M21 escapes an image alternative as element text rather than as an attribute;
  *                 M22, M30, M31 leave a caption, the title and an identity value unescaped.
