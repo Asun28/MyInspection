@@ -119,8 +119,43 @@ REQ-010..023。**代码在拆卡时已写好并 GREEN**（31 测试全绿），�
 
 无。
 
+## 决策记录（Decision log）
+
+1. **`pending` 与 `submission` 是两个问题，不是一个槽。** REQ-019 要求 PERMANENT_FAILURE **丢弃**
+   pending，REQ-021 又要求重试重投**失败的那个** `occurrenceId`——只有一个槽时，
+   `ScheduleScreenState.Error` 唯一的恢复动作就是一个什么也做不了的按钮。故 `pending` 只表示
+   「下一次读到授权时可以**不再问用户**就注册的那个 occurrence」（REQ-014 的自动路径），
+   `ScheduleSubmission` 表示「这次提交的是什么、结算了没有」，显式重试重放后者。于是永久失败
+   清掉自动路径（resume 永不静默重投一个已永久失败的 occurrence）而重试仍指名同一个 occurrence。
+
+2. **结算只由它点名的那次注册应用。** waiter 携带的是它被提交时的 `occurrenceId`；若较早
+   occurrence 的回调在 presenter 已转向另一个 occurrence 之后到达，原草图会清掉**不属于它**的在途
+   标记、并画出**不属于它**的错误状态，随后一次重试就能重复注册。这是实现期发现的 fail-open，卡片
+   未写；`settle` 入口先按 `occurrenceId` 认领 submission，认不下就整体不变（REQ-022 的同类保护）。
+
+3. **权限恢复面画在屏幕状态旁边，不取代它。** `ScheduleScreenState` 是互斥层；把 PERMISSION 做成
+   一个屏幕状态会让日程表本身不可读，与 REQ-015 自己要求的「the in-app schedule remains usable」
+   （亦即 `context/DESIGN.md` 给通知权限指定的 fallback）自相矛盾。故新增派生值
+   `ScheduleUiState.permissionRecovery`（单值、可为空，`ScheduleActionSlot` 增 `OPEN_SETTINGS`），
+   与 `actionSlot` 同样「一个或没有、永不是集合」。`ScheduleRecovery` **刻意不**增 `OPEN_SETTINGS`
+   ——那会造出一个 `actionSlot` 永不返回的死枚举值。
+
+4. **提交守卫放在唯一提交点。** REQ-022 只点名重试，但 resume 在未结算时同样会二次注册。守卫落在
+   `submit()` 这一个出生点，于是重试、resume 与重复动作三条路一体生效，没有哪个调用方是「忘了加
+   守卫的那个」。
+
+5. **SKIPPED 连在途标记一起不变。** 两个 SKIPPED cause（`OCCURRENCE_CLOSED` /
+   `GENERATION_SUPERSEDED`）都表示这次注册**无实义**而非失败：occurrence 已关闭，或更晚一代已接手
+   且仍在跑。两者都没给用户留下可重试的东西，故抑制重试的那个标记正该留着，REQ-020 的「unchanged」
+   按字面执行。
+
+6. **A5 的变异靶在行投影上。** 渲染面之所以不含 id，是因为 `ScheduleScreenState` 的任何分支都不带
+   带 id 的字段——这条性质无法被单点变异**违反**而仍编译。可被违反的只有「名字来自哪个字段」，故
+   M12 / M37 分别打 Due 与 FirstInspection 两条分支的 `propertyName`，由逐行名字的字面量断言击杀。
+
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
 |---|---|
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 第二次拆卡（用户裁定）拆出的 presenter 半，原 A2–A4 / REQ-010..023，acceptance 重编号为 A1–A6 并按实现收紧（撤销时机、遍历全部 cause、occurrenceId 而非半个 identity）。 |
+| 2026-09-04 | 实现：`_local/` 里那份 presenter 草稿按上面 6 条决策重写后落地，非原样移植。草稿有三处与本卡验收对不上——① 没有任何「settings 恢复态」的领域值（A2 的「one Open settings action」只是一个未被任何测试看见的 Compose 按钮）；② `ScheduleEffect.OpenSettings` 从未被任何 reducer 分支发出（死分支），已删；③ `ScheduleRecovery.OPEN_SETTINGS` 是 `actionSlot` 永不返回的死枚举值，未采用。另修两处 fail-open（决策 2、4）。**M1–M15 随本卡整批重跑**：收据钉的是生产文件的确切 SHA-256，`ScheduleModels.kt` 一改即作废前一批（L270），故 15 枚旧变异与 22 枚新变异同批执行、同一份基线。 |
