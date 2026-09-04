@@ -349,23 +349,17 @@ class ScheduleUiTest {
     // --------------------------------------------------- A1 permission read timing
 
     @Test
-    fun `REQ-010 at API 33 resume reads the permission and records a grant`() {
-        val harness = Harness(sdkInt = 33, granted = true)
+    fun `REQ-010 at API 33 resume reads once and records what that read said`() {
+        val granted = Harness(sdkInt = 33, granted = true)
+        val denied = Harness(sdkInt = 33, granted = false)
 
-        harness.presenter.onResume()
+        granted.presenter.onResume()
+        denied.presenter.onResume()
 
-        assertEquals(1, harness.permissions.reads)
-        assertEquals(SchedulePermissionState.GRANTED, harness.presenter.state.permission)
-    }
-
-    @Test
-    fun `REQ-010 at API 33 resume records a denied read as blocked`() {
-        val harness = Harness(sdkInt = 33, granted = false)
-
-        harness.presenter.onResume()
-
-        assertEquals(1, harness.permissions.reads)
-        assertEquals(SchedulePermissionState.BLOCKED, harness.presenter.state.permission)
+        assertEquals(1, granted.permissions.reads)
+        assertEquals(1, denied.permissions.reads)
+        assertEquals(SchedulePermissionState.GRANTED, granted.presenter.state.permission)
+        assertEquals(SchedulePermissionState.BLOCKED, denied.presenter.state.permission)
     }
 
     @Test
@@ -481,36 +475,19 @@ class ScheduleUiTest {
     // ------------------------------------------------ A3 settlement by outcome
 
     @Test
-    fun `REQ-018 a retryable settlement retains the pending occurrence that it names`() {
-        val state = loaded(due())
-            .copy(pending = reminder, submission = ScheduleSubmission(reminder, settled = false))
+    fun `REQ-018 a retryable settlement retains the pending it names and discards any other`() {
+        val timeout = ReminderRegistrationCause.ENQUEUE_CALLBACK_TIMEOUT
+        val inFlight = ScheduleSubmission(reminder, settled = false)
+        val named = loaded(due()).copy(pending = reminder, submission = inFlight)
+        val other = loaded(due()).copy(pending = otherReminder, submission = inFlight)
+        val settlement = ScheduleEvent.RegistrationSettled(timeout, occurrenceIdOf(reminder))
 
-        val settled = ScheduleReducer.reduce(
-            state,
-            ScheduleEvent.RegistrationSettled(
-                ReminderRegistrationCause.ENQUEUE_CALLBACK_TIMEOUT,
-                occurrenceIdOf(reminder),
-            ),
-        ).state
+        val keptState = ScheduleReducer.reduce(named, settlement).state
+        val droppedState = ScheduleReducer.reduce(other, settlement).state
 
-        assertEquals(reminder, settled.pending)
-        assertEquals(state.screen, settled.screen)
-    }
-
-    @Test
-    fun `REQ-018 a retryable settlement discards a pending occurrence it does not name`() {
-        val state = loaded(due())
-            .copy(pending = otherReminder, submission = ScheduleSubmission(reminder, settled = false))
-
-        val settled = ScheduleReducer.reduce(
-            state,
-            ScheduleEvent.RegistrationSettled(
-                ReminderRegistrationCause.ENQUEUE_CALLBACK_TIMEOUT,
-                occurrenceIdOf(reminder),
-            ),
-        ).state
-
-        assertNull(settled.pending)
+        assertEquals(reminder, keptState.pending)
+        assertEquals(named.screen, keptState.screen)
+        assertNull(droppedState.pending)
     }
 
     @Test
@@ -566,8 +543,10 @@ class ScheduleUiTest {
                 ScheduleEvent.RegistrationSettled(cause, occurrenceIdOf(reminder)),
             )
 
-            assertEquals(before, transition.state, "skipped cause $cause changed the state")
+            assertEquals(before.screen, transition.state.screen, "skipped cause $cause redrew")
+            assertEquals(before.pending, transition.state.pending, "skipped cause $cause moved it")
             assertEquals(emptyList(), transition.effects, "skipped cause $cause emitted an effect")
+            assertEquals(true, transition.state.submission?.settled, "cause $cause stayed in flight")
         }
     }
 
@@ -685,6 +664,59 @@ class ScheduleUiTest {
         )
     }
 
+    @Test
+    fun `A1 a directly dispatched reminder request cannot skip the action-time read`() {
+        val harness = Harness(sdkInt = 33, granted = false)
+
+        harness.presenter.dispatch(ScheduleEvent.ReminderRequested(reminder))
+
+        assertEquals(1, harness.permissions.reads)
+        assertEquals(emptyList(), harness.registrations.submitted)
+        assertEquals(SchedulePermissionState.BLOCKED, harness.presenter.state.permission)
+        assertEquals(reminder, harness.presenter.state.pending)
+    }
+
+    @Test
+    fun `A1 retry at API 33 reads again and a grant revoked since then stops it`() {
+        val harness = Harness(sdkInt = 33, granted = true)
+        harness.presenter.onReminderAction(reminder)
+        harness.registrations.settle(ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
+        harness.permissions.granted = false
+
+        harness.presenter.onRetry()
+
+        assertEquals(listOf(reminder), harness.registrations.submitted)
+        assertEquals(ScheduleActionSlot.OPEN_SETTINGS, harness.presenter.state.permissionRecovery)
+    }
+
+    @Test
+    fun `A3 a retry that is admitted takes the error state down`() {
+        val harness = Harness(sdkInt = 32, granted = true)
+        harness.presenter.dispatch(ScheduleEvent.OccurrencesLoaded(listOf(due())))
+        harness.presenter.onReminderAction(reminder)
+        harness.registrations.settle(ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
+        assertIs<ScheduleScreenState.Error>(harness.presenter.state.screen)
+
+        harness.presenter.onRetry()
+        harness.registrations.settle(ReminderRegistrationCause.CALLBACK_CONFIRMED_ADMISSION)
+
+        assertEquals(1, contentOf(harness.presenter.state).rows.size)
+        assertNull(harness.presenter.state.submission)
+    }
+
+    @Test
+    fun `A3 a skipped settlement leaves the retry it did not resolve available`() {
+        val harness = Harness(sdkInt = 32, granted = true)
+        harness.presenter.onReminderAction(reminder)
+        harness.registrations.settle(ReminderRegistrationCause.ENQUEUE_SUBMIT_FATAL)
+        harness.presenter.onRetry()
+        harness.registrations.settle(ReminderRegistrationCause.OCCURRENCE_CLOSED)
+
+        harness.presenter.onRetry()
+
+        assertEquals(listOf(reminder, reminder, reminder), harness.registrations.submitted)
+    }
+
     // ------------------------------------------------------------ A5 redaction
 
     @Test
@@ -719,74 +751,127 @@ class ScheduleUiTest {
 
 
 /*
- * R4 mutation receipt for T4-SCHEDULE-UI-REMINDER-ACTIONS, acceptance A6.
+ * R4 mutation receipt for T4-SCHEDULE-UI, acceptance A5.
  *
- * Production SHA-256 before the batch and after every restore, identical, so no file was left
- * mutated and this receipt describes exactly the code that ships (L196, L270):
- *   ScheduleModels.kt  fe6512b9f055eec5ba1ee11b71d3b1f8932c0cb6056015c634ee16220a3da5dc
+ * Production SHA-256 before the batch and after every restore, identical, so no file was
+ * left mutated and the receipt describes exactly the code that ships (L196, L270). These are the
+ * hashes T4-SCHEDULE-UI-REMINDER-ACTIONS ships: editing ScheduleModels.kt voided the original run
+ * (L270), so all fifteen rows below were re-run unchanged against exactly these bytes.
+ *   ScheduleModels.kt  5c379c6cd20cc640485302678ec4ccf009b052a9cad4fd67616a0afdb1818cbf
  *   ScheduleScreen.kt  bc42f48c9e30ca68cc89deb8f2c922bc0c14b45a9e23d15bf8e192abc94d95ce
  *
- * Named selector, run once per mutation with the tests unchanged:
- *   gradlew -p android --offline --no-daemon -q --rerun-tasks --no-build-cache
+ * Named selector, run once per mutation with the tests unchanged. A nonzero exit from this
+ * exact command is what 'killed' means below:
+ *   gradlew -p android --offline --no-daemon --rerun-tasks --no-build-cache \
  *     :app:testDebugUnitTest --tests nz.myinspection.app.feature.schedule.ScheduleUiTest
  *
- * KILLED means that command exited nonzero AND the JUnit XML exists and names failing tests, so a
- * compilation error cannot pass for a behavioural kill (L282). Verdicts, exit codes, failure counts
- * and killing test names are read from that XML by the batch, never written by hand. Every row is
- * one single semantic edit to production code applied with the tests untouched, and no row targets
- * a comment, a string literal or a test.
+ * Each row below is one single semantic edit to production code, applied with the tests
+ * unchanged. Verdicts, exit codes and killing test names are read from the TestNG result
+ * XML by the batch, not written by hand. No mutation targets a comment, a string literal
+ * or a test, so none of them can be killed for a reason other than behaviour.
  *
- * M1-M15 are the T4-SCHEDULE-UI batch re-run against this card's ScheduleModels.kt: a receipt pins
- * an exact production SHA-256, so editing that file voids the previous batch (L270). Their tags are
- * that card's A1-A4. M16-M37 are new and tagged with this card's A1-A5. A6 is discharged by this
- * receipt itself. Each row names one killing test out of the count beside it.
+ * 15 mutations, 15 killed, 0 survived.
  *
- * 37 mutations, 37 killed, 0 survived.
+ * M1   A1  ScheduleRow.OneOff.badge NONE to DUE
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-005 a one-off row declares no due date and no count badge
+ * M2   A1  ScheduleRow.FirstInspection.dueAt null to Instant.EPOCH
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-004 a first-inspection row declares its badge and no due date
+ * M3   A1  rowsOf NoRecurrence branch builds FirstInspection instead of OneOff
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-005 a one-off row declares no due date and no count badge
+ * M4   A2  activate guard state.navigating to false, so nothing is suppressed
+ *      KILLED exit 1, killed by
+ *        REQ-003 a second activation while the route is unsettled emits no second effect
+ * M5   A2  activate sets navigating = false instead of true
+ *      KILLED exit 1, killed by
+ *        REQ-002 activating a due row emits exactly one route effect carrying property and type
+ *        REQ-003 a second activation while the route is unsettled emits no second effect
+ * M6   A2  RouteSettled sets navigating = true instead of false
+ *      KILLED exit 1, killed by
+ *        REQ-003 an activation after the route settles emits again
+ * M7   A3  project filter predicate inspectionType == filter to true
+ *      KILLED exit 1, killed by
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ *        REQ-008 a filter matching nothing renders filtered-empty and not the no-content state
+ * M8   A3  project FilteredEmpty branch made unreachable, falls through to NoContentEmpty
+ *      KILLED exit 1, killed by
+ *        REQ-008 a filter matching nothing renders filtered-empty and not the no-content state
+ *        REQ-008 an empty list under a filter is filtered-empty rather than no-content
+ * M9   A3  ScrollChanged drops the new index and keeps the old state
+ *      KILLED exit 1, killed by
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ * M10  A4  actionSlot for NoContentEmpty NEXT to null
+ *      KILLED exit 1, killed by
+ *        REQ-009 each screen state declares at most one action slot and never a collection
+ *        REQ-009 no occurrences and no filter renders no-content with exactly one action slot
+ * M11  A4  actionSlot for FilteredEmpty CLEAR_FILTER to NEXT
+ *      KILLED exit 1, killed by
+ *        REQ-009 each screen state declares at most one action slot and never a collection
+ * M12  A1  rowsOf Due branch fills propertyName from propertyId
+ *      KILLED exit 1, killed by
+ *        REQ-001 a due row carries name type absolute date and the due badge
+ *        REQ-001 a row carries the property name and never the raw property id
+ * M13  A1  OccurrencesLoaded branch ignores the newly loaded occurrences
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-001 a due row carries name type absolute date and the due badge
+ *        REQ-001 a row carries the property name and never the raw property id
+ *        REQ-004 a first-inspection row declares its badge and no due date
+ *        REQ-005 a one-off row declares no due date and no count badge
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-006 clearing the filter restores every occurrence
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ * M14  A3  FilterSelected branch ignores the newly selected filter
+ *      KILLED exit 1, killed by
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ *        REQ-008 a filter matching nothing renders filtered-empty and not the no-content state
+ *        REQ-008 an empty list under a filter is filtered-empty rather than no-content
+ * M15  A1  project screen-selection criterion visible.isNotEmpty() forced to false
+ *      KILLED exit 1, killed by
+ *        REQ-001 004 005 one content screen carries all three row kinds at once
+ *        REQ-001 a due row carries name type absolute date and the due badge
+ *        REQ-001 a row carries the property name and never the raw property id
+ *        REQ-004 a first-inspection row declares its badge and no due date
+ *        REQ-005 a one-off row declares no due date and no count badge
+ *        REQ-006 a filter retains only the occurrences whose type equals the selection
+ *        REQ-006 clearing the filter restores every occurrence
+ *        REQ-007 restoring after a configuration change keeps the filter and the scroll position
+ */
+
+
+/*
+ * R4 mutation receipt for T4-SCHEDULE-UI-REMINDER-ACTIONS, acceptance A6. The block above is the
+ * merged reducer's, re-run against these same bytes. Same hashes, same selector, same meaning of
+ * KILLED: the command exits nonzero AND the JUnit XML exists and names failing tests, so a
+ * compilation error cannot pass for a behavioural kill (L282). Verdicts, exit codes, failure
+ * counts and killing test names are read from that XML by the batch, never written by hand. Every
+ * row is one single semantic edit to production code applied with the tests untouched, and no row
+ * targets a comment, a string literal or a test. Each row names one killing test of the count
+ * beside it. Rows are tagged with this card's A1-A5. A6 is discharged by the receipts themselves.
  *
- * M1  A1  ScheduleRow.OneOff.badge NONE to DUE
- *     KILLED exit 1, 2 tests, REQ-005 a one-off row declares no due date and no count badge
- * M2  A1  ScheduleRow.FirstInspection.dueAt null to Instant.EPOCH
- *     KILLED exit 1, 2 tests, REQ-004 a first-inspection row declares its badge and no due date
- * M3  A1  rowsOf NoRecurrence branch builds FirstInspection instead of OneOff
- *     KILLED exit 1, 2 tests, REQ-005 a one-off row declares no due date and no count badge
- * M4  A2  activate guard state.navigating to false, so nothing is suppressed
- *     KILLED exit 1, 1 test, REQ-003 a second activation while the route is unsettled emits no second effect
- * M5  A2  activate sets navigating = false instead of true
- *     KILLED exit 1, 2 tests, REQ-003 a second activation while the route is unsettled emits no second effect
- * M6  A2  RouteSettled sets navigating = true instead of false
- *     KILLED exit 1, 1 test, REQ-003 an activation after the route settles emits again
- * M7  A3  project filter predicate inspectionType == filter to true
- *     KILLED exit 1, 3 tests, REQ-006 a filter retains only the occurrences whose type equals the selection
- * M8  A3  project FilteredEmpty branch made unreachable, falls through to NoContentEmpty
- *     KILLED exit 1, 2 tests, REQ-008 an empty list under a filter is filtered-empty rather than no-content
- * M9  A3  ScrollChanged drops the new index and keeps the old state
- *     KILLED exit 1, 1 test, REQ-007 restoring after a configuration change keeps the filter and the scroll position
- * M10 A4  actionSlot for NoContentEmpty NEXT to null
- *     KILLED exit 1, 2 tests, REQ-009 each screen state declares at most one action slot and never a collection
- * M11 A4  actionSlot for FilteredEmpty CLEAR_FILTER to NEXT
- *     KILLED exit 1, 1 test, REQ-009 each screen state declares at most one action slot and never a collection
- * M12 A1  rowsOf Due branch fills propertyName from propertyId
- *     KILLED exit 1, 3 tests, REQ-001 a due row carries name type absolute date and the due badge
- * M13 A1  OccurrencesLoaded branch ignores the newly loaded occurrences
- *     KILLED exit 1, 10 tests, REQ-006 clearing the filter restores every occurrence
- * M14 A3  FilterSelected branch ignores the newly selected filter
- *     KILLED exit 1, 4 tests, REQ-006 a filter retains only the occurrences whose type equals the selection
- * M15 A1  project screen-selection criterion visible.isNotEmpty() forced to false
- *     KILLED exit 1, 10 tests, REQ-006 clearing the filter restores every occurrence
+ * 40 mutations, 40 killed, 0 survived.
+ *
  * M16 A1  onResume drops the API 33 floor, so a pre-33 device reads the permission
  *     KILLED exit 1, 1 test, REQ-012 below API 33 resume and the action never read the permission
  * M17 A1  the runtime-permission floor moves from 33 to 32
  *     KILLED exit 1, 1 test, REQ-012 below API 33 resume and the action never read the permission
- * M18 A1  the action inherits the resume's read instead of reading again
- *     KILLED exit 1, 3 tests, REQ-011 a grant revoked between resume and the action stops that same action
+ * M18 A1  submit inherits the stored permission state instead of reading again
+ *     KILLED exit 1, 5 tests, A1 retry at API 33 reads again and a grant revoked since then stops it
  * M19 A2  readPermission records a grant as blocked and a denial as granted
- *     KILLED exit 1, 8 tests, REQ-010 at API 33 resume records a denied read as blocked
+ *     KILLED exit 1, 9 tests, REQ-010 at API 33 resume reads once and records what that read said
  * M20 A2  a granted resume reads but never registers the stored pending occurrence
  *     KILLED exit 1, 3 tests, REQ-014 a granted read registers the pending occurrence a denial had stored
- * M21 A2  a refused action drops the occurrence instead of storing it
- *     KILLED exit 1, 4 tests, REQ-014 a granted read registers the pending occurrence a denial had stored
+ * M21 A2  a requested reminder is not stored, so a refused read loses it
+ *     KILLED exit 1, 5 tests, A1 a directly dispatched reminder request cannot skip the action-time read
  * M22 A2  permissionRecovery offers nothing while the permission is blocked
- *     KILLED exit 1, 3 tests, REQ-023 no id cause name or property id reaches the error state or the recovery
+ *     KILLED exit 1, 4 tests, A1 retry at API 33 reads again and a grant revoked since then stops it
  * M23 A2  permissionRecovery renders a never-read permission as blocked
  *     KILLED exit 1, 1 test, REQ-012 below API 33 resume and the action never read the permission
  * M24 A2  onOpenSettings reaches no settings port
@@ -794,27 +879,33 @@ class ScheduleUiTest {
  * M25 A3  settle accepts a settlement that names another occurrence
  *     KILLED exit 1, 1 test, A3 a settlement that does not name the current submission changes nothing
  * M26 A3  an admitted settlement keeps the submission it admitted
- *     KILLED exit 1, 1 test, REQ-021 every admitted cause clears the pending and leaves nothing to replay
+ *     KILLED exit 1, 2 tests, A3 a retry that is admitted takes the error state down
  * M27 A3  an admitted settlement keeps the pending occurrence it names
  *     KILLED exit 1, 1 test, REQ-021 every admitted cause clears the pending and leaves nothing to replay
  * M28 A3  a retryable settlement retains only what it does not name
- *     KILLED exit 1, 3 tests, REQ-018 a retryable settlement retains the pending occurrence that it names
+ *     KILLED exit 1, 2 tests, REQ-018 every retryable cause retains the occurrence it names and settles it
  * M29 A3  a retryable settlement leaves its submission unsettled
  *     KILLED exit 1, 2 tests, REQ-018 every retryable cause retains the occurrence it names and settles it
  * M30 A3  a permanent settlement keeps the pending occurrence it names
  *     KILLED exit 1, 1 test, REQ-019 every permanent cause discards the pending and errors with one recovery
  * M31 A3  a permanent settlement renders no error state
- *     KILLED exit 1, 2 tests, REQ-019 every permanent cause discards the pending and errors with one recovery
+ *     KILLED exit 1, 3 tests, A3 a retry that is admitted takes the error state down
  * M32 A3  a skipped settlement clears the pending and the submission
- *     KILLED exit 1, 1 test, REQ-020 every skipped cause leaves the rendered state and the effects unchanged
+ *     KILLED exit 1, 2 tests, A3 a skipped settlement leaves the retry it did not resolve available
  * M33 A4  the submission guard fires on a settled submission instead of an unsettled one
- *     KILLED exit 1, 4 tests, REQ-021 retry after a permanent failure re-registers the occurrence that failed
+ *     KILLED exit 1, 5 tests, A3 a skipped settlement leaves the retry it did not resolve available
  * M34 A4  the submission guard compares the occurrence ids for inequality
  *     KILLED exit 1, 2 tests, REQ-022 retry while the same occurrence is unsettled submits no second registration
  * M35 A4  retry replays the pending occurrence instead of the submitted one
- *     KILLED exit 1, 1 test, REQ-021 retry after a permanent failure re-registers the occurrence that failed
+ *     KILLED exit 1, 3 tests, A3 a skipped settlement leaves the retry it did not resolve available
  * M36 A4  submit records its own registration as already settled
  *     KILLED exit 1, 2 tests, REQ-022 retry while the same occurrence is unsettled submits no second registration
  * M37 A5  rowsOf FirstInspection branch renders the property id as the property name
  *     KILLED exit 1, 1 test, REQ-023 no row kind renders a property id in place of the property name
+ * M38 A1  submit registers without reading the permission at all
+ *     KILLED exit 1, 6 tests, A1 retry at API 33 reads again and a grant revoked since then stops it
+ * M39 A3  an admitted settlement leaves an error state on the screen
+ *     KILLED exit 1, 1 test, A3 a retry that is admitted takes the error state down
+ * M40 A3  a skipped settlement leaves its submission unsettled
+ *     KILLED exit 1, 2 tests, A3 a skipped settlement leaves the retry it did not resolve available
  */

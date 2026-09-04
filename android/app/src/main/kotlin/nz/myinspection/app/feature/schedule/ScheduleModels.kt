@@ -355,10 +355,14 @@ object ScheduleReducer {
      * occurrence closes nothing: the in-flight marker it would clear, and the error it would draw,
      * belong to a registration this settlement knows nothing about.
      *
-     * SKIPPED then returns the state it was given, unchanged down to the submission. Both skipped
-     * causes say the registration was moot rather than unsuccessful: the occurrence was closed, or
-     * a later generation took it over and is still running. Neither leaves the user anything to
-     * retry, so the marker that suppresses a retry is exactly what should stay.
+     * SKIPPED leaves the rendered state and the effects alone but still settles the submission.
+     * Both skipped causes are terminal answers to this registration, moot rather than unsuccessful,
+     * so the flight really is over: keeping it open would suspend the retry for good, and an error
+     * already on screen would then offer a recovery action that cannot act.
+     *
+     * That is the invariant the branches below hold together: an error is rendered only while a
+     * settled submission is there for a retry to replay. The registration that finally succeeds is
+     * therefore what takes the error down.
      */
     private fun settle(
         state: ScheduleUiState,
@@ -367,12 +371,16 @@ object ScheduleReducer {
         val settling = state.submission?.takeIf { it.reminder.isOccurrence(event.occurrenceId) }
             ?: return ScheduleTransition(state, emptyList())
         return when (event.cause.outcome) {
-            ReminderRegistrationOutcome.SKIPPED -> ScheduleTransition(state, emptyList())
+            ReminderRegistrationOutcome.SKIPPED -> ScheduleTransition(
+                state.copy(submission = settling.copy(settled = true)),
+                emptyList(),
+            )
 
             ReminderRegistrationOutcome.ADMITTED -> ScheduleTransition(
                 state.copy(
                     pending = state.pending?.takeUnless { it.isOccurrence(event.occurrenceId) },
                     submission = null,
+                    screen = withoutError(state),
                 ),
                 emptyList(),
             )
@@ -395,6 +403,13 @@ object ScheduleReducer {
             )
         }
     }
+
+    /**
+     * The screen once nothing is left to retry: an error gives way to whatever the occurrences and
+     * the filter say, and every other screen is left exactly as it was.
+     */
+    private fun withoutError(state: ScheduleUiState): ScheduleScreenState =
+        if (state.screen is ScheduleScreenState.Error) project(state).screen else state.screen
 }
 
 /** Whether this reminder is the occurrence a settlement names. */
@@ -426,9 +441,10 @@ class SchedulePresenter(
     /**
      * The resume edge. At API 33 and above it reads first, so a grant or a revocation made outside
      * the app is seen before anything is rendered from it, and a grant that arrived while the user
-     * was in settings registers what the denial had stored. It asks for nothing: the only request a
-     * platform can receive is one a user action makes, and there is no request effect for this path
-     * to reach for.
+     * was in settings releases what the denial had stored. [submit] reads once more of its own
+     * accord: this read decides what is rendered, that one is the one immediately before a
+     * registration. It asks for nothing: the only request a platform can receive is one a user
+     * action makes, and there is no request effect for this path to reach for.
      */
     fun onResume() {
         if (sdkInt < REQUIRES_PERMISSION_SDK) {
@@ -440,17 +456,12 @@ class SchedulePresenter(
     }
 
     /**
-     * The user's reminder action. Below API 33 it submits without reading, because there is no
-     * runtime notification permission to read. At or above it, the read happens immediately before
-     * the submission rather than being inherited from the resume, so a grant revoked in between
-     * stops this action rather than the next one, and the refused occurrence is stored for the next
-     * granted read instead of being lost.
+     * The user's reminder action. It stores the occurrence and asks for the registration, and the
+     * permission read that gates it happens in [submit] rather than here, so no entry point can be
+     * the one that forgets it. A refused read leaves the occurrence stored for the next granted
+     * one rather than losing it, because the reduction records it before the submission is tried.
      */
     fun onReminderAction(reminder: PendingReminder) {
-        if (sdkInt >= REQUIRES_PERMISSION_SDK && !readPermission()) {
-            state = state.copy(pending = reminder)
-            return
-        }
         dispatch(ScheduleEvent.ReminderRequested(reminder))
     }
 
@@ -487,9 +498,12 @@ class SchedulePresenter(
     }
 
     /**
-     * The one place a registration is submitted, which is why "no second registration while this
-     * occurrence is unsettled" holds for a retry, a resume and a repeated action alike: the guard
-     * is here rather than at each caller, so no caller can be the one that forgets it.
+     * The one place a registration is submitted, which is why both rules that gate one hold for a
+     * retry, a resume, an action and a directly dispatched request alike: the API 33 read and the
+     * "no second registration while this occurrence is unsettled" guard are here rather than at
+     * each caller, so no caller can be the one that forgets either. The read is the last thing
+     * before the submission, which is what makes a grant revoked since the resume stop this
+     * registration rather than the next one.
      *
      * The occurrence id comes from the same factory the scheduler uses. A route it cannot resolve
      * is a precondition failure of the caller, not a state to render: whether a route is valid is
@@ -497,6 +511,9 @@ class SchedulePresenter(
      * this card does not add a second place that decides it.
      */
     private fun submit(reminder: PendingReminder) {
+        if (sdkInt >= REQUIRES_PERMISSION_SDK && !readPermission()) {
+            return
+        }
         val occurrenceId = reminder.toSpec().occurrenceId
         val inFlight = state.submission
         if (inFlight != null && !inFlight.settled &&
