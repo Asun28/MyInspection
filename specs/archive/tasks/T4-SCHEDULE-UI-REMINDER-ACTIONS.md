@@ -4,7 +4,7 @@ title: 排程 presenter：权限时序、授权恢复、注册结果分支与显
 depends_on: [T4-SCHEDULE-UI]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#page-inventory
-status: todo
+status: merged
 branch: T4-SCHEDULE-UI-REMINDER-ACTIONS
 worktree: C:\wt\T4-SCHEDULE-UI-REMINDER-ACTIONS
 allow_paths:
@@ -172,6 +172,7 @@ REQ-010..023。**代码在拆卡时已写好并 GREEN**（31 测试全绿），�
 | 日期 | 变更 |
 |---|---|
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 第二次拆卡（用户裁定）拆出的 presenter 半，原 A2–A4 / REQ-010..023，acceptance 重编号为 A1–A6 并按实现收紧（撤销时机、遍历全部 cause、occurrenceId 而非半个 identity）。 |
+| 2026-09-04 | **merged**：master `cad2735c`，PR #235，R3 第 **2** 轮 pass 零 finding。39 测试 / **40 枚变异全杀**（M1–M15 为已合并 reducer 那批的重跑，M16–M40 为本卡）/ 916 changed lines。 |
 | 2026-09-04 | **R3 第 1 轮 block，2 条 finding 全部属实**，均已修：① 注册的权限闸只装在
 `onReminderAction` 上，而 `onRetry` 与公开的 `dispatch(ReminderRequested)` 都能绕过它完成注册
 （见决策 7，修法是把读取下沉到唯一提交点，并补两条测试：API 33 重试遇撤销、直接派发的请求）；
