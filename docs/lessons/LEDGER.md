@@ -775,7 +775,7 @@
 - refs: 本会话 T11→T12/T14/T15/T16/T18 谱系（PR #102 及其拆卡，TD83/T14 是本条判据的原始证据）；关联 L97（R3 逐轮单点外溢）、L101（不同点：L101 讲首轮评审前必须先有卡，本条讲评审**过程中**新发现该修/该回退还是该拆）
 
 ## L114
-- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
+- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
 - symptom: ship 范围闸把大量本卡未改的文件（其他已合并卡的产物/文档）报成越界：origin/master 在本卡 worktree 分支好之后被其他并发会话的真实 PR 合并推进了多次，ship 的范围/评审基线解析到 origin/master，diff 的 merge-base 落在旧共同祖先上，中间所有'本地曾经领先但从未推送'的提交（含另一会话半途合并又撤销的卡）全部混入本卡 diff。
 - root_cause: 多会话共享同一主检出时，本地 master 与 origin/master 会各自独立前移又不同步（他人 gh pr merge --squash 只更新 origin、不回写本地；本地又有会话直接在共享 master 上 commit/revert，即 L112 场景）——本卡的 worktree 分支是从这条已经该会话专属又混乱的本地 master 分出的，其真实 fork point 相对 origin 早已过期。
 - rule: **预防（首选，成本最低）**：多会话共享主检出、本地 master 又脏（他会话未提交改动）又与 origin/master 发散（本地有未推送提交、且缺 origin 新提交）时，`-Phase start` 直接把 worktree 基在 origin 最新 tip——`pwsh -File scripts\task.ps1 -TaskId <id> -Phase start -Base origin/master`（ship 亦传 `-Base origin/master`）——分支从 origin/master 分出，PR diff 天然只含本卡改动、不含本地未推送的中间提交，范围闸/评审基线自始干净；R5 的 doc_sync/lesson 提交同理，在**从 origin/master 新开的干净临时 worktree**（`git worktree add --detach <path> origin/master`）里编辑→只 add 目标文件→push HEAD:master→删该 worktree，全程不 `git add -A`、不 stash、不 rebase 脏主检出（守 L112）。T29-LICENSE-FRONTEND-DIR 实测：主检出 62 个他会话脏文件 + 本地 master 1 ahead/1 behind 时，`-Base origin/master` 全程零污染、PR #113 diff 恰为 3 个 allow_paths 文件、doc_sync 提交只动 2 文件。**补救（已中招时）**：ship 报出大片无关越界文件时，先 git fetch origin 比对 origin/master 与本地 master/本卡分支的 ahead/behind；若已真发散，不要在混乱的中间历史上做多提交 rebase（会牵连他人已合并又走开的分支，冲突面不可控）——改用 git checkout -B <branch> origin/master 把分支基点重置到 origin 最新 tip，再把本卡的最终文件内容重新落到这个干净分支上（内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠）；RED 证据的 sha 会随之失效，须 git stash 退回改动前状态、在新 HEAD 上重新跑 -Phase red、再 git stash pop 续接 GREEN，否则 ship 会因 RED sha 不等于 HEAD 而拒收。 **（复发 2026-08-23，T0-LESSONS-BUMP-PLANE / PR #129，两处各中一次）** ㊀ 本条讲的「基线要干净」还有一个**此前没写的后果**：R3 评审读的是 `branch-vs-origin/master`，所以分支只要落后 master 一个提交，评审就会把「master 领先的那个提交」读成「**本分支在撤销它**」，报出一串「删除了某某卡 / 回退了 TASK-BOARD」式的越界 finding——全是假象，却照样占掉一轮（本次 3 条 finding、白烧第 1 轮，合上 origin/master 后三条同时消失）。故**每次 ship 之前**都先 `git fetch origin master` 并把它合上来，不只是开卡时基一次：并行会话多时 master 每十几分钟就动一次。㊁ 本条明写的「不 `git add -A`」当天又被我违反一次：R5 doc_sync 在干净临时 worktree 里用了 `git add -A`，把刚写的 `.msg.tmp` 一并提交（未推送，`git rm --cached` + `--amend` 修掉）。规矩不变：**只 add 目标文件**，临时文件写到 worktree 之外或立刻删。
@@ -1007,7 +1007,7 @@
 - refs: 
 
 ## L148
-- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: -Phase ship 在「RED 证据闸」失败：证据 sha 与当前 HEAD 不符（陈旧/伪造证据），saga 报告只完成「卡校验」腿。实现明明是对的、DoD 也绿。
 - root_cause: RED 证据把 -Phase red 当时的 HEAD 钉死；ship 要求证据 sha == 此刻 HEAD。而正常流程里实现应当**留在工作区不提交**，由 ship 自己的「提交」腿落盘——任何 post-RED 提交（含 git commit 实现、含按 L145 把 master merge 进分支）都会让 HEAD 前移、证据变陈旧。**L145 与本闸直接冲突**：L145 教你中途改卡就 merge master 进任务分支，照做即制造 post-RED 提交。
 - rule: 顺序反过来：**先** merge master / 改卡 / 对齐基线，**再**跑 -Phase red，然后实现但**不提交**，直接 -Phase ship。已经撞上了就按未推/已推分流恢复——未推分支（gh pr list 与 rev-parse origin/分支 均空）用**软**恢复、别用 reset --hard：git -C 该worktree reset --soft origin/master（HEAD 归位、改动全留在暂存区，此时 diff 恰好只剩本卡文件，merge 进来的 master 提交自动从 diff 里消失）→ git stash push → -Phase red 重铸证据（此刻 DoD 必须真红，故须先 stash 掉实现）→ git stash pop → -Phase ship。已推分支改走 TD85-RESUME 的 merge-safe 分流，勿 reset。**（复发 2，T48-TD88-W10 补）常见简化形态**：若实现一直**未提交**（正常流程本就如此），分支便没有自己的提交，`git merge origin/master` 是一次**快进**——此刻 HEAD 已等于 origin/master，`reset --soft origin/master` 是 no-op，恢复缩成 **stash → -Phase red → stash pop → ship** 三步。先 `git rev-parse HEAD` 与 `git rev-parse origin/master` 比一下再决定要不要 reset：相等就别 reset（省一步、也不会误伤）；不等才说明分支有自己的提交，照上面的软恢复走。**另注**：撞上这闸时别急着怀疑证据被伪造——最常见的成因就是照 L145 补了一次 master 合并，属流程顺序问题，不是证据问题。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 10
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -2131,5 +2131,29 @@
 - symptom: A script writes a file with [System.IO.File]::WriteAllText using a relative path after Set-Location, then runs it with pwsh -File using the same relative name. The run silently uses a stale earlier copy, and an unexpected file appears in the repo root. Here a dry-run reported 12 mutation targets when the table held 15, and dryrun.ps1 turned up as an untracked file at the repository root.
 - root_cause: Set-Location changes the PowerShell provider location, not the .NET process current directory. Any System.IO API given a relative path resolves against the process CWD, which is wherever pwsh was started. PowerShell cmdlets and the -File argument resolve against the provider location instead, so a write and a read using the identical relative string can land on two different files.
 - rule: Never hand a relative path to a System.IO API. Build an absolute path first, for example with Join-Path on an explicit root or $PSScriptRoot, and pass that. If a generated-then-executed script behaves as though the edit did not happen, do not re-reason about the content: print the absolute path actually written and the absolute path actually executed and compare them. Same rule for Get-Content versus File::ReadAllText.
+- enforced_by: 
+- refs: 
+
+## L292
+- date: 2026-09-04 ｜ tags: review,design,guard ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 首轮 block：API 33 权限读取只装在 onReminderAction 上，而 onRetry、resume 释放 pending、公开的 dispatch(ReminderRequested) 三条路都能不读权限就完成注册；同轮第二条 finding 是永久失败画出的 Error 在重试被 ADMITTED 后不撤，留下按不动的恢复动作。
+- root_cause: 需求写的是「用户激活动作时再读一次」，我照字面把闸装在需求点名的那一个入口；但被守护的对象是「注册」，而到达注册的路不止一条。第二条同源：只想了「怎么进入 Error」，没枚举「哪些转移会让 Error 的恢复动作失去可作用的对象」。
+- rule: 装守卫前先枚举能到达被守护动作的全部路径（公开 dispatch/事件入口、恢复路径、后台释放路径都算），把闸放进唯一出生点而非需求点名的入口——于是「谁忘了加守卫」写不出来。对称自查：凡状态渲染一个恢复动作，逐条检查哪些转移会让该动作没有可作用的对象；两类问题同一句话——一条规则只装在一个入口上等于没装。
+- enforced_by: 
+- refs: 
+
+## L293
+- date: 2026-09-04 ｜ tags: review,ship,baseline ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 为「让评审看到刚改的卡 / 避免幻影删除」把 origin/master 合进卡分支，HEAD 随快进前移，ship 在 RED 证据闸拒收（证据 sha 不等于 HEAD），白跑一整条 ship。
+- root_cause: review.ps1 与 _scope.ps1 都用三点式 base...HEAD（从 merge-base 求 diff），卡片又取自 base 那份（origin/master）而非工作树副本——故分支落后 master 既不产生幻影删除、也不会让评审读到旧卡。L114 记的两点式症状是上游早期行为，已被修掉；照旧建议去 merge 反而制造 post-RED 的 HEAD 前移。
+- rule: 卡分支落后 master 时默认什么都不做：中途改卡只需 push 到 master，评审自会从 base 读到新卡。只有确实需要 master 的代码（依赖刚合并的产物）才 merge，且必须按 L148 先 merge 再跑 -Phase red。已经 merge 完才发现的，用 L148 的软恢复重铸 RED，别 -SkipRed。
+- enforced_by: 
+- refs: 
+
+## L294
+- date: 2026-09-04 ｜ tags: mutation,receipt,budget ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R3 修复后 diff 涨到 1042 changed lines、越过 1000 硬闸；第一反应是删注释或把变异收据摘要化。
+- root_cause: 已合并卡的收据块钉在被我改动的生产文件 SHA 上（L270 令其作废），我默认「作废」就等于「整块 93 行替换」。
+- rule: 收据作废不等于必须重写。把旧收据块留在原处、只改其两行哈希并补一句「已按新字节重跑」，本卡收据作为第二块追加——本次省 119 changed lines，且逐枚具名击杀证据一条不丢。顶闸时先穷尽这类无损压缩（就地改哈希、合并同一 REQ 的重复用例），删证据永远是最后手段。
 - enforced_by: 
 - refs: 
