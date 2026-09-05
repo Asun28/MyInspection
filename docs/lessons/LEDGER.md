@@ -2197,3 +2197,11 @@
 - rule: 凡把某条写进卡片/提问/裁决当作前提，先核三样：① 该段自己有没有 [定]/[待] 标记（相邻段落的标记不自动覆盖，无标记就按未定处理并写明是解释）；② 所引用卡片的 status 字段；③ 所引用产物是否真的在仓里（ls 一下，别信卡片描述）。子代理给的事实更正同样逐条实查再采信——本次三条全对，但正因为查了才知道。
 - enforced_by: 
 - refs: 
+
+## L300
+- date: 2026-09-06 ｜ tags: xml,security,tests ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: DOCX 读取器已禁用外部实体，但仍接收 XInclude；仅靠 XML 字节上限也未实现独立节点预算。
+- root_cause: 将不执行的惰性数据与合同要求的显式拒绝混为一谈，并把间接上界当成独立上界。
+- rule: 写 XML 边界测试前逐项对照安全合同：按命名空间构造 XInclude 真实失败夹具；元素预算在全包累计，并测试多个 XML part 各自未超但合计超限。禁扩展不等于已拒绝。
+- enforced_by:
+- refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt

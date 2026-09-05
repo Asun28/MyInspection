@@ -3,7 +3,7 @@ id: T3-REPORT-HTML-PRESENTATION
 title: Responsive, printable, dark and forced-colour stylesheet for the self-contained report
 depends_on: [T3-REPORT-HTML-RENDERER]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-HTML-PRESENTATION
 worktree: C:\wt\T3-REPORT-HTML-PRESENTATION
 allow_paths:
@@ -33,6 +33,10 @@ doc_sync: requirements + SECURITY + ADR-0007 + TASK-BOARD
 ---
 
 # T3-REPORT-HTML-PRESENTATION
+
+## Delivery record — 2026-09-06
+
+Locally merged as `2801e019`; reviewed tip `4508d29783d2578150eae8f00ee8488c746f0be5` received R3 pass in round 2. Exact DoD: 46 tests, zero failures/errors/skips. Final R4: 23 assertion kills bound to the final test SHA. Verify (core check and Golden Evidence E2E), scope, licences and secrets gates passed; actual diff 307 changed lines / 19997 characters. No remote push or PR was created. Browser URL policy rejected local-file visual inspection; CSS-rule and renderer-byte evidence do not certify browser layout or glyph rendering.
 
 ## Deliverable
 

@@ -3,7 +3,7 @@ id: T3-DOCX-PACKAGE-READER
 title: Bounded no-write OOXML package reader for hostile legacy reports
 depends_on: [T3-REPORT-CONTENT-CONTRACT]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-DOCX-PACKAGE-READER
 worktree: C:\wt\T3-DOCX-PACKAGE-READER
 allow_paths:
@@ -29,6 +29,10 @@ doc_sync: SECURITY + ADR-0007 + TASK-BOARD
 ---
 
 # T3-DOCX-PACKAGE-READER
+
+## Delivery record — 2026-09-06
+
+Locally merged as `0a511e96`; reviewed tip `2bb85cad0b2e7c334440a5fc708d7ae8581b514f` received R3 pass in round 1. Exact DoD: 28 tests, zero failures/errors/skips. Final R4: 41 specified assertion failures with source/test SHA binding and restored source copies; three cases verify reason classification while other rejection guards remain. Verify (core check and Golden Evidence E2E), scope, licences and secrets gates passed. No remote push or PR was created. Images are only byte-bounded and signature-checked at this boundary; pixel/decoding validation and semantic extraction remain downstream. No Android device execution is claimed.
 
 ## Deliverable
 

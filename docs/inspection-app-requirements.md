@@ -204,6 +204,8 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 
 HTML 是单个 UTF-8 文件：无 JavaScript、表单、外部 URL/资源或运行期网络；文本/属性按上下文转义，CSS/字体/经归一化且有界的 raster images 内嵌，具 semantic headings/tables/figures、meaningful alt/caption、responsive screen CSS 与 A4 print CSS。HTML 质量固定为 `NONE`；Low/Medium/High/Extra High 只属于 PDF。
 
+**实现记录（2026-09-06）**：`T3-REPORT-HTML-PRESENTATION` 已提供窄屏、相对字号、证据表溢出、A4 print 与 dark/forced-colors 规则，以及真实 renderer 夹具的 class 双向核对。当前按该卡裁决使用系统字体栈；字体内嵌与实际字形覆盖验收仍待承接。此次完成规则形态及输出字节验收，浏览器策略拒绝本地页面，未完成视觉验收。
+
 ### 照片排版
 
 每项缩略图内联 + 附录大图。几十张图的排版是真问题,PDF 生成放在原生侧比在 WebView 里打印稳定。

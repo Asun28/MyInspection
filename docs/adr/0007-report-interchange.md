@@ -22,6 +22,8 @@ Privacy-sensitive DOCX reports need to become editable native history. Their ZIP
 
 The reader enforces entry/byte/ratio/XML/image bounds; rejects ambiguous or traversing paths, external relationships, macros, OLE, ActiveX and encryption; disables entities/network; and reads only allowlisted Word story/relationship/media parts. Strings and links remain inert. No business DB or final-media write occurs before reviewed commit.
 
+Implementation record (2026-09-06): `T3-DOCX-PACKAGE-READER` implements the bounded, no-write package boundary using standard ZIP/SAX APIs. It explicitly rejects XInclude and counts XML elements across all parts; errors retain only closed reasons and numeric counts. Supported image payloads are byte-bounded PNG/JPEG signatures, with pixel and decoding validation remaining downstream.
+
 ### Shared semantic boundary
 
 One immutable `ReportContent` is created after audience/photo filtering. It carries ordered identity, glossary, rooms/items/statuses/notes, reviewed photos, supplements, disclaimer, tenant agreement and separately labelled provenance—never Android, URI/path, A4 geometry, pagination or renderer fields. PDF `DocumentPlan` is layout-only; renderers cannot query, refilter or reintroduce removed bytes. The A4 layout engine reaches that content only through `ReportContentAdapter`, and its layout entry point accepts no audience and no photo option, so re-deciding either downstream is unrepresentable rather than merely forbidden. The layout restates the native `data_hash` it was given and never recomputes one from filtered content; import provenance is drawn under its own heading, never as native integrity.
@@ -39,6 +41,8 @@ Native/semantic and optional source/mapping claims may be embedded. Artifact SHA
 ### Formats
 
 PDF is default, keeps four quality levels and is the only archive-eligible report. HTML is optional, self-contained UTF-8, accessible/responsive/printable, and has no quality selector, script, external resource or active content. Both use the same filtered content, escaped serialization, audience/format naming, re-open verification and typed temporary `content://` sharing.
+
+Implementation record (2026-09-06): `T3-REPORT-HTML-PRESENTATION` supplies responsive, A4 print, dark and forced-colour CSS with renderer/class-enum parity and an independently checked literal CSP style digest. It uses system fonts; embedded fonts remain outside this card. Browser visual validation was unavailable, so the verified evidence covers CSS rules and renderer output bytes.
 
 ## Rejected alternatives
 

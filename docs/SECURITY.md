@@ -66,11 +66,15 @@
 - allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
 - 审核前不写业务 DB/正式媒体。每项/备注/照片/caption 必须是 terminal `CONFIRMED`、带理由的 terminal `EXCLUDED`，或 blocker；`MATCHED` 只是建议且仍阻塞。照片以 transient `UNREVIEWED_EXCLUDED` 开始并保持 blocker，确认后才写 `privacy_flag`。经确认媒体、恢复 marker 和 draft/receipt 原子提交。失败/取消清 staging；进程死亡释放 source grant、清 staging/manifest/mapping，并以保留的非敏感 Details 回到 `Choose file`。只有 marker 证明事务已提交时才验证并进入该 draft。日志只留 request id、封闭阶段/reason、计数/耗时，禁源 URI/路径/名称/文本/URL/作者/标签、地址/联系人、图片/hash 和 provider 原错。
 
+已落地的 `T3-DOCX-PACKAGE-READER` 包边界使用标准 ZIP/SAX API，无文件写入或网络连接；显式拒绝 XInclude，XML 元素计数在全包累计，默认最多 200000 个。其余资源预算见 `DocxPackageLimits`。错误只携带封闭 reason 和数字计数，屏蔽 provider 原错与 XML 诊断。图片在本层仅受字节上限与格式签名检查，像素和完整解码验证仍须由下游完成。
+
 #### 自包含 HTML 报告
 
 - PDF/HTML 只序列化同一个 audience/privacy-filtered `ReportContent`；renderer 不回查/重滤/CSS 隐藏。HTML 是 UTF-8、正确 MIME、上下文转义且不含原始导入标记。
 - HTML 禁 script/handler/form/iframe/object/embed/base/meta refresh/外部 URL；只许生成器样式和经验证的内嵌图片，并以 CSP 禁网络/导航/主动内容。质量仅属于 PDF。
 - 重开验证 artifact hash/MIME 后才可 Open/Save/Share；只授予临时只读 `content://`，并显示明文外移边界。
+
+`T3-REPORT-HTML-PRESENTATION` 已落地 responsive、A4 print、dark/forced-colors 规则与 class 双向核对；样式禁止任何 `url()` 和隐藏证据的规则，只用系统字体栈。固定 CSP 样式摘要通过独立 SHA-256 计算更新并保留字面量断言。
 
 ### 2.4 日志、通知与界面泄露
 
