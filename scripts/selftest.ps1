@@ -1435,6 +1435,12 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
 }
 
 if ($Fixture -eq 'card-acceptance') {
+  if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    throw '[CARD-GENERATOR-NODE-MISSING] Focused card acceptance requires Node.js to validate the generator schema.'
+  }
+  $cardAllOut = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'check-cards.ps1') 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) { throw "[CARD-ALL-CARDS-INVALID] $cardAllOut" }
+  Write-Host $cardAllOut.TrimEnd()
   # Replay the exact core 10h region and its real failure recorder; no copied assertions.
   $cardFixtureSource = [IO.File]::ReadAllText($PSCommandPath)
   $cardFixtureErrors = $null
@@ -6126,6 +6132,7 @@ function Invoke-AcFixture([string]$Id) {
   [pscustomobject]@{ Exit = $LASTEXITCODE; Out = $out }
 }
 try {
+  # The focused fixture requires Node before replay; core retains Gate 1's optional-runtime policy.
   if (Get-Command node -ErrorAction SilentlyContinue) {
     # Execute the workflow with its external agent seam replaced; inspect the schema actually sent.
     $cardSchemaProbe = Join-Path $acRoot 'card-schema.cjs'
@@ -6138,15 +6145,26 @@ let checked = false;
 const agent = async (_prompt, options) => {
   if (options.phase !== 'Decompose') return {issues: []};
   const card = options.schema.properties.cards.items;
-  for (const key of ['id', 'title', 'depends_on', 'allow_paths', 'dod_command', 'dod_exit', 'dod_assert']) {
+  for (const key of ['id', 'title', 'status', 'depends_on', 'allow_paths', 'dod_command', 'dod_exit', 'dod_assert', 'review_gate']) {
     assert(card.required.includes(key), `required core field: ${key}`);
   }
+  for (const [key, value] of [['status', 'todo'], ['review_gate', 'codex {verdict:pass}']]) {
+    assert.equal(card.properties[key].type, 'string', key);
+    assert.deepEqual(card.properties[key].enum, [value], `${key} default`);
+  }
+  assert.equal(card.properties.dod_exit.type, 'integer', 'DoD exit type');
+  assert.deepEqual(card.properties.dod_exit.enum, [0], 'DoD success exit');
   for (const key of ['acceptance', 'requirements']) {
     assert.equal(card.properties[key].type, 'array', key);
     assert.equal(card.properties[key].items.type, 'string', key);
+    assert.equal(card.properties[key].minItems, 1, `${key} permits one item`);
   }
-  for (const key of ['acceptance', 'requirements', 'parallelizable_with', 'forbid', 'non_goals', 'plan_ref', 'hygiene', 'doc_sync', 'notes']) {
+  assert.equal(card.properties.diagnosis.type, 'string', 'diagnosis');
+  for (const key of ['acceptance', 'requirements', 'diagnosis', 'parallelizable_with', 'forbid', 'non_goals', 'plan_ref', 'hygiene', 'doc_sync', 'notes']) {
     assert(!card.required.includes(key), `optional field: ${key}`);
+  }
+  for (const key of ['branch', 'worktree']) {
+    assert(!(key in card.properties) && !card.required.includes(key), `derived field is omitted: ${key}`);
   }
   checked = true;
   return {cards: [], freeze_point: '', topo_valid: true};
