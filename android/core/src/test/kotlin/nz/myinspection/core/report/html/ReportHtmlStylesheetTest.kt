@@ -3,6 +3,7 @@ package nz.myinspection.core.report.html
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import nz.myinspection.core.report.Audience
@@ -61,10 +62,34 @@ class ReportHtmlStylesheetTest {
             Regex("@media\\s+screen\\s+and\\s+\\(prefers-color-scheme:\\s*dark\\)"), "M15 dark query",
         )
         val forced = media(Regex("@media\\s+\\(forced-colors:\\s*active\\)"), "M16 forced colours query")
-        assertEquals("dark", declarations(dark, ".report")["color-scheme"], "M15 dark mode removed")
-        assertEquals("Canvas", declarations(forced, ".report")["--paper"], "M17 forced canvas removed")
-        assertEquals("CanvasText", declarations(forced, ".report")["--ink"], "M17 forced text removed")
-        assertEquals("auto", declarations(forced, ".report")["forced-color-adjust"], "M18 forced colours overridden")
+        val lightReport = declarations(css, ".report")
+        val darkReport = declarations(dark, ".report")
+        val forcedReport = declarations(forced, ".report")
+        assertEquals("dark", darkReport["color-scheme"], "M15 dark mode removed")
+        for ((property, expected) in mapOf(
+            "--paper" to "#182226",
+            "--ink" to "#edf4f5",
+            "--muted" to "#c0d1d5",
+            "--line" to "#7b979f",
+            "--wash" to "#25343a",
+        )) {
+            assertEquals(expected, darkReport[property], "M28 dark palette $property removed or changed")
+            val lightColour = lightReport[property] ?: fail("M30 light palette $property missing")
+            assertNotEquals(
+                lightColour.lowercase(), darkReport[property]?.lowercase(),
+                "M30 dark palette $property still uses light colour",
+            )
+        }
+        for ((property, expected) in mapOf(
+            "--paper" to "Canvas",
+            "--ink" to "CanvasText",
+            "--muted" to "CanvasText",
+            "--line" to "CanvasText",
+            "--wash" to "Canvas",
+        )) {
+            assertEquals(expected, forcedReport[property], "M29 forced palette $property removed or changed")
+        }
+        assertEquals("auto", forcedReport["forced-color-adjust"], "M18 forced colours overridden")
         val status = declarations(css, ".item-status")
         assertEquals("700", status["font-weight"], "M19 status lost its non-colour emphasis")
         assertTrue(status["border"].orEmpty().contains("solid"), "M19 status lost its non-colour border")
