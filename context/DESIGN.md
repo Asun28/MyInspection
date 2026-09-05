@@ -1554,17 +1554,19 @@ semantic base token
 
 ### Symbol-only chrome
 
-Chrome is a control's own explanatory text: its label, tooltip, caption, or state word. Domain content — a count, a date, an address, a property or room name, a status the user must read — is not chrome and never collapses into a glyph.
+Chrome is a control's own explanatory text: its label, tooltip, caption, or state word. Domain content is a value read off a record — a count, a date, an address, a property or room name, an enumerated status — and it never collapses into a glyph. The test is how many readings the value has: a value with more than two possible readings keeps its text, while a binary presence marker whose owner names what it marks may be a glyph. So a count and an inspection item's status keep their text, and the `Settings` error dot does not need any.
 
-A chrome control may omit visible text only when every condition below holds. This is the single admission rule; the clauses elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that govern a symbol-only control resolve here instead of restating these conditions. Admission never overrides a stricter contract: where a component contract requires a visible label, as labelled bottom navigation, labelled room progress segments and `notice-delivery-row` do, that label stays on top of admission.
+A chrome control may omit visible text only when every condition below holds. This is the single admission rule; the clauses elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that govern a symbol-only control resolve here instead of restating these conditions, except the three camera rows named at the end of this section. Admission never overrides a stricter contract: where a component contract requires a visible label, as labelled bottom navigation, labelled room progress segments and `notice-delivery-row` do, that label stays on top of admission.
 
 1. The glyph comes from the declared iconography set and stands for exactly one thing: one action, or one state. Its wording is never derived from the glyph asset name.
 2. The touch target stays at the declared minimum and never shrinks to the visible glyph bounds.
-3. An action glyph carries a tooltip whose text is the verb-object phrase for that action, and exposes that same phrase as its accessible name.
+3. Required by every symbol-only action glyph: a tooltip whose text is the verb-object phrase for that action, exposed unchanged as that control's accessible name.
 4. A state glyph carries no action wording. The control that owns it states the state in its own accessible name, and a change to that state is announced as a state change.
 5. Neither kind depends on color: with color removed, the action stays identifiable and the state stays readable.
 
 A control that fails any condition carries a visible text label.
+
+`camera-control`, `camera-shutter` and `camera-overlay-control` are not yet aligned with this set: their contracts declare no tooltip, and this section does not decide whether the camera surface gains one. Until that decision is taken, those three rows govern their own controls and this set does not claim them.
 
 ### Navigation and structure component matrix
 
@@ -1594,7 +1596,7 @@ A control that fails any condition carries a visible text label.
 | `button-primary` | text label, optional leading icon, progress replacement | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | One primary action per decision region; Busy is single-flight and keeps bounds stable | Role `button`; label is verb-object; progress announces the action once | `Button` |
 | `button-secondary` | text label, optional leading icon | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | Used for reversible alternatives; Busy rejects duplicate activation without becoming the visual primary | Role `button`; label states the distinct alternative outcome | `FilledTonalButton` |
 | `button-destructive` | consequence verb, optional progress | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | Enabled only after impact preview and required confirmation; Busy cannot be cancelled when rollback is unsafe | Role `button`; label names the object affected and never uses generic `OK` | `Button` |
-| `icon-button` | 24dp symbol, opaque 48dp target, tooltip | `STANDARD / TONAL / CAMERA`; `ENABLED / PRESSED / FOCUSED / SELECTED / DISABLED` | Every instance is admitted as symbol-only chrome; no variant relaxes that set | Role `button`; selected state is explicit | `IconButton` |
+| `icon-button` | 24dp symbol, opaque 48dp target, tooltip | `STANDARD / TONAL / CAMERA`; `ENABLED / PRESSED / FOCUSED / SELECTED / DISABLED` | Admitted as symbol-only chrome on the action-glyph branch | Role `button`; selected state is explicit | `IconButton` |
 | `inspection-item-card` | 6dp rail, title, prior evidence, status choices, note/photo actions | `DEFAULT / ATTENTION / READ_ONLY`; `COLLAPSED / EXPANDED / SAVE_FAILED`; machine `COLLAPSED / EXPANDED / FOCUSED / SAVE_FAILED` | `OK` remains compact; `ATTENTION` expands evidence controls; defects never auto-collapse or auto-advance | Card is a group; title is focus anchor; collapse returns focus to title | `Surface` |
 | `evidence-rail` | `STATUS / PHOTO / NOTE` in fixed order | `COMPLETE / MISSING_REQUIRED / BLOCKED / OPTIONAL / NOT_APPLICABLE`; machine `READY / UPDATING` | Width `6dp`; gap `2dp`; state comes from core completeness only | Entire rail merges to one description; child segments are hidden from TalkBack | Custom `Layout` |
 | `status-choice` | icon, label, selected indicator | `OK / ATTENTION / CRITICAL / NOT_APPLICABLE`; interaction state axis; machine `UNSELECTED / SELECTED / PRESSED / FOCUSED / DISABLED` | Two equal-width primary choices show `OK` and `Needs attention`; detailed states open a visible sheet | Parent uses `selectableGroup`; each choice is a `radioButton` | `Surface` + `selectable` |
@@ -1633,7 +1635,7 @@ A control that fails any condition carries a visible text label.
 | `settings-row` | icon, label, optional summary/current value, trailing affordance | `NAVIGATION / VALUE / TOGGLE / DANGER`; machine `DEFAULT / PRESSED / FOCUSED / BUSY / DISABLED` | Navigation rows open one declared route; toggle rows use the whole row and switch as one target | One merged node except independent help action; value is announced after label | `ListItem` |
 | `metadata-row` | optional icon, label/value or source/time | `ICON_TEXT / LABEL_VALUE / SOURCE_TIME`; neutral/warning/error; machine `DEFAULT / WARNING / ERROR` | Supports a decision but never owns the only action or encodes state by color alone | Merged sentence; decorative icon hidden | `Row` |
 | `overflow-menu` | anchored menu, labelled items, optional separator | closed/open/item focused/action busy | Opens only when at least two secondary commands exist; destructive items are last and visually separated | Trigger announces `More options`; focus enters first enabled item and returns to trigger | `DropdownMenu` |
-| `tooltip` | short action label | hidden/visible | Required by every symbol-only action glyph; that branch fixes its wording | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
+| `tooltip` | short action label | hidden/visible | Governed by the action-glyph branch of symbol-only chrome | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
 | `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; a symbol-only badge is a state glyph and follows that branch | `Badge` |
 
 Search is conditional chrome: `search-field` appears only when a collection has more than eight active records or a page contract explicitly needs a query. Filters persist per top-level stack, expose `Clear filters`, and never hide the only recovery action.
