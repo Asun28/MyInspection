@@ -104,8 +104,12 @@ function Convert-ValidationFrozenPaths {
   $tokens = $null; $errors = $null
   $ast = [Management.Automation.Language.Parser]::ParseInput($Config, [ref]$tokens, [ref]$errors)
   if ($errors -and $errors.Count -gt 0) { throw '[SELFTEST-ROUTE-FROZEN-INVALID] baseline _config.ps1 does not parse.' }
-  $pairs = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true) | ForEach-Object { $_.KeyValuePairs } |
-    Where-Object { ($_.Item1 -is [Management.Automation.Language.StringConstantExpressionAst]) -and $_.Item1.Value -ceq 'FrozenPaths' })
+  $owners = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+      $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and $node.Left.VariablePath.UserPath -ceq 'script:ScaffoldConfig' }, $true))
+  if ($owners.Count -ne 1 -or $owners[0].Right -isnot [Management.Automation.Language.CommandExpressionAst] -or
+      $owners[0].Right.Expression -isnot [Management.Automation.Language.HashtableAst]) { throw '[SELFTEST-ROUTE-FROZEN-INVALID] baseline must assign one static $script:ScaffoldConfig hashtable.' }
+  $pairs = @($owners[0].Right.Expression.KeyValuePairs | Where-Object {
+      ($_.Item1 -is [Management.Automation.Language.StringConstantExpressionAst]) -and $_.Item1.Value -ceq 'FrozenPaths' })
   if ($pairs.Count -ne 1) { throw '[SELFTEST-ROUTE-FROZEN-INVALID] baseline _config.ps1 must contain exactly one static FrozenPaths value.' }
   $blocks = @($pairs[0].Item2.FindAll({ param($node) $node -is [Management.Automation.Language.StatementBlockAst] }, $true))
   if ($blocks.Count -ne 1) { throw '[SELFTEST-ROUTE-FROZEN-INVALID] baseline FrozenPaths is not a static literal.' }
@@ -145,12 +149,12 @@ function Resolve-SelftestRiskRoute {
   $criticalDocs = @('docs/SECURITY.md', 'docs/QUALITY-RUBRIC.md', 'docs/DEVOPS-WORKFLOW.md', 'docs/RELEASE-CHECKLIST.md', 'docs/DELIVERY-CHAINS.md', 'docs/DELIVERY-OPS.md')
   foreach ($path in $ChangedPath) {
     if (-not (Test-ValidationRelativePath $path)) { return [pscustomobject]@{ Mode = 'all'; Reason = 'invalid-path' } }
-    if ((Test-ValidationFrozenPath -Path $path -FrozenPaths $FrozenPath) -or $path -in $criticalDocs -or $path -like 'scripts/*' -or
-        $path -like '.github/*' -or $path -like '.claude/*' -or $path -eq 'CLAUDE.md' -or $path -eq 'AGENTS.md' -or $path -eq 'specs/verdict.schema.json') {
+    if ((Test-ValidationFrozenPath -Path $path -FrozenPaths $FrozenPath) -or $criticalDocs -ccontains $path -or $path -clike 'scripts/*' -or
+        $path -clike '.github/*' -or $path -clike '.claude/*' -or $path -ceq 'CLAUDE.md' -or $path -ceq 'AGENTS.md' -or $path -ceq 'specs/verdict.schema.json') {
       return [pscustomobject]@{ Mode = 'all'; Reason = 'critical-or-frozen' }
     }
-    if ($path -like 'android/*' -or $path -like 'configs/compliance/*') { [void]$classes.Add('product'); continue }
-    if (($path -like 'docs/*.md') -or ($path -like 'specs/*.md')) { [void]$classes.Add('docs'); continue }
+    if ($path -clike 'android/*' -or $path -clike 'configs/compliance/*') { [void]$classes.Add('product'); continue }
+    if (($path -clike 'docs/*.md') -or ($path -clike 'specs/*.md')) { [void]$classes.Add('docs'); continue }
     return [pscustomobject]@{ Mode = 'all'; Reason = 'unknown-path' }
   }
   if ($classes.Count -ne 1) { return [pscustomobject]@{ Mode = 'all'; Reason = 'mixed-risk' } }
@@ -209,7 +213,7 @@ function Test-ValidationStatusOnlyCardChange {
 function Resolve-SelftestTaskRoute {
   param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$TaskId, [Parameter(Mandatory)][string]$Base)
 
-  if ($TaskId -notmatch '^T\d+-[A-Z0-9]+(?:-[A-Z0-9]+)*$') { throw "[SELFTEST-TASKID-BADID] '$TaskId' is not a task-card ID." }
+  if ($TaskId -cnotmatch '^T\d+-[A-Z0-9]+(?:-[A-Z0-9]+)*$') { throw "[SELFTEST-TASKID-BADID] '$TaskId' is not a task-card ID." }
   if ($Base -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$') { throw "[SELFTEST-ROUTE-BASE-INVALID] '$Base' is not a local branch name." }
   if ($Base -match '(?:^|/)\.{1,2}(?:/|$)|//|/$') { throw "[SELFTEST-ROUTE-BASE-INVALID] '$Base' is not a local branch name." }
   $baseOid = (Assert-ValidationGit -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', "refs/heads/$Base^{commit}") -Code 'SELFTEST-ROUTE-BASE-MISSING').Trim().ToLowerInvariant()
@@ -249,11 +253,14 @@ function Invoke-ValidationSelfCheck {
   $cases = @(
     @{ Name='product'; Paths=@('android/app/src/main/Main.kt', 'configs/compliance/rules.json'); Mode='not-applicable' }, @{ Name='docs'; Paths=@('docs/guide.md', 'specs/tasks/T0-X.md'); Mode='core' },
     @{ Name='frozen'; Paths=@('android/core/src/main/sqldelight/foo.sq'); Mode='all' }, @{ Name='critical'; Paths=@('scripts/task.ps1'); Mode='all' },
-    @{ Name='unknown'; Paths=@('README.md'); Mode='all' }, @{ Name='mixed'; Paths=@('docs/guide.md', 'android/app/src/main/Main.kt'); Mode='all' }
+    @{ Name='unknown'; Paths=@('README.md'); Mode='all' }, @{ Name='mixed'; Paths=@('docs/guide.md', 'android/app/src/main/Main.kt'); Mode='all' },
+    @{ Name='case-variant-product'; Paths=@('Android/app/Main.kt'); Mode='all' }, @{ Name='case-variant-docs'; Paths=@('Docs/guide.md'); Mode='all' }
   )
   foreach ($case in $cases) { $actual = Resolve-SelftestRiskRoute -ChangedPath $case.Paths -FrozenPath $frozen; Assert-ValidationSelfCheck -Condition ($actual.Mode -ceq $case.Mode) -Message "pure case '$($case.Name)' expected $($case.Mode), got $($actual.Mode)." }
   foreach ($badConfig in @(
     "`$script:ScaffoldConfig = @{}",
+    "`$decoy = @{ FrozenPaths = @('android/') }; `$script:ScaffoldConfig = @{}",
+    "`$script:ScaffoldConfig = @{ Nested = @{ FrozenPaths = @('android/') } }",
     "`$script:ScaffoldConfig = @{ FrozenPaths = @(`$env:USERPROFILE) }",
     "`$script:ScaffoldConfig = @{ FrozenPaths = @('a'); FrozenPaths = @('b') }",
     "`$script:ScaffoldConfig = @{ FrozenPaths = @('[') }"
@@ -277,6 +284,25 @@ function Invoke-ValidationSelfCheck {
     $fixtureBase = (Assert-ValidationGit -RepoRoot $root -Arguments @('rev-parse', 'master^{commit}') -Code 'SELFTEST-ROUTE-SELFCHECK-BASE').Trim()
     $fixtureFrozen = @(Get-ValidationFrozenPaths -RepoRoot $root -BaseOid $fixtureBase)
     Assert-ValidationSelfCheck -Condition ($fixtureFrozen.Count -eq 1 -and $fixtureFrozen[0] -ceq 'android/frozen/') -Message 'static baseline FrozenPaths was not read without execution.'
+    Set-Content -LiteralPath (Join-Path $root 'docs/committed.md') -Encoding utf8 -Value committed; & git -C $root add docs/committed.md; & git -C $root commit -q -m committed
+    $committedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
+    Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $committedPaths -FrozenPath $fixtureFrozen).Mode -ceq 'core') -Message 'committed docs did not route core.'
+    & git -C $root reset --hard -q $fixtureBase
+    & git -C $root mv docs/rename-from.md scripts/rename-to.ps1; & git -C $root add -A
+    $stagedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
+    Assert-ValidationSelfCheck -Condition (('docs/rename-from.md' -in $stagedPaths) -and ('scripts/rename-to.ps1' -in $stagedPaths)) -Message 'staged R100 rename did not retain both paths.'
+    & git -C $root reset --hard -q $fixtureBase
+    Set-Content -LiteralPath (Join-Path $root 'docs/dirty.md') -Encoding utf8 -Value dirty
+    $dirtyPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
+    Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $dirtyPaths -FrozenPath $fixtureFrozen).Mode -ceq 'core') -Message 'dirty docs did not route core.'
+    Remove-Item -LiteralPath (Join-Path $root 'docs/dirty.md') -Force
+    Set-Content -LiteralPath (Join-Path $root 'scripts/untracked.ps1') -Encoding utf8 -Value untracked
+    $untrackedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
+    Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $untrackedPaths -FrozenPath $fixtureFrozen).Mode -ceq 'all') -Message 'untracked critical path did not route all.'
+    Remove-Item -LiteralPath (Join-Path $root 'scripts/untracked.ps1') -Force
+    Set-Content -LiteralPath (Join-Path $root 'scripts/_config.ps1') -Encoding utf8 -Value "`$script:ScaffoldConfig = @{ FrozenPaths = @() }"
+    Assert-ValidationSelfCheck -Condition ((@(Get-ValidationFrozenPaths -RepoRoot $root -BaseOid $fixtureBase))[0] -ceq 'android/frozen/') -Message 'branch-edited config became routing authority.'
+    & git -C $root checkout -- scripts/_config.ps1
     Move-Item -LiteralPath (Join-Path $root 'docs/rename-from.md') -Destination (Join-Path $root 'scripts/rename-to.ps1')
     $renamePaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
     Assert-ValidationSelfCheck -Condition (('docs/rename-from.md' -in $renamePaths) -and ('scripts/rename-to.ps1' -in $renamePaths)) -Message 'an actual rename did not retain both old and new paths.'
@@ -289,6 +315,12 @@ function Invoke-ValidationSelfCheck {
     Assert-ValidationSelfCheck -Condition ($authorityRoute.Mode -ceq 'all' -and $authorityRoute.Reason -ceq 'card-contract-changed' -and $authorityRoute.WorktreePath -ieq $root) -Message 'a branch-side card contract change did not refuse cheaper routing from the registered slim-card worktree.'
     Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $statusCard
     Assert-ValidationSelfCheck -Condition (Test-ValidationStatusOnlyCardChange -BaselineCard $card -CurrentCardPath (Join-Path $root 'specs/tasks/T0-ROUTE.md')) -Message 'status-only card bookkeeping was not recognized separately from contract changes.'
+    foreach ($invalid in @('t0-route', 'T0-MISSING')) {
+      $rejected = $false; try { [void](Resolve-SelftestTaskRoute -RepoRoot $root -TaskId $invalid -Base master) } catch { $rejected = $true }
+      Assert-ValidationSelfCheck -Condition $rejected -Message "invalid or missing task authority '$invalid' was accepted."
+    }
+    $unreadable = $false; try { [void](Get-ValidationChangedPaths -WorktreePath ([IO.Path]::GetTempPath()) -BaseOid $fixtureBase) } catch { $unreadable = $true }
+    Assert-ValidationSelfCheck -Condition $unreadable -Message 'unreadable repository state was accepted.'
   } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
   Write-Host 'selftest-risk-routing: PASS'
 }

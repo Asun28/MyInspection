@@ -1797,14 +1797,6 @@ if ($Fixture -eq 'gate-id-mutant') {
   exit 1
 }
 
-# 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
-if ($Shard -ne 'all') {
-  $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
-  $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
-  if (-not (Test-SelftestCiWiringContract $preflightWorkflow)) { throw 'selftest CI 分片接线契约不完整。' }
-  if (Test-SelftestCiWiringContract $withoutCoreMutation) { throw 'selftest CI 接线契约未检出“删除全部 core 组合”变异。' }
-}
-
 # An explicit task run selects only existing scaffold coverage. The authority is
 # the pinned local base card/config, not the task worktree's editable copies.
 # No TaskId keeps the original full-suite entry point unchanged.
@@ -1823,6 +1815,15 @@ if ($TaskId) {
 }
 elseif ($PSBoundParameters.ContainsKey('Base')) {
   throw '[SELFTEST-BASE-WITHOUT-TASK] -Base only applies with -TaskId.'
+}
+
+# Every explicit shard, including a TaskId-selected core shard, proves the CI
+# wiring before execution so route selection cannot bypass that existing guard.
+if ($Shard -ne 'all') {
+  $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+  $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
+  if (-not (Test-SelftestCiWiringContract $preflightWorkflow)) { throw 'selftest CI 分片接线契约不完整。' }
+  if (Test-SelftestCiWiringContract $withoutCoreMutation) { throw 'selftest CI 接线契约未检出“删除全部 core 组合”变异。' }
 }
 
 if ($Shard -eq 'all') {
