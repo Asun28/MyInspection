@@ -10,6 +10,7 @@ allow_paths:
   - scripts/review.ps1
   - scripts/task.ps1
   - scripts/selftest.ps1
+  - specs/verdict.schema.json
   - docs/QUALITY-RUBRIC.md
   - docs/DEVOPS-WORKFLOW.md
   - specs/README.md
