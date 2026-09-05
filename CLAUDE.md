@@ -68,6 +68,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > rule 只放**指针**（不复制命名表正文，免双源漂移）；只用项目级 `.claude/rules/`，别用用户级 `~/.claude/rules/`（其 paths 有 bug）。详见 `.claude/rules/README.md`。
 
 ## 当前阶段
+
+脚手架维护已合入精简任务卡与按任务改动选择自检范围；状态和验证记录见对应归档卡。其余上游评审、CI 触发和夜间测试调整仍按各自活卡推进。
 <!-- 随 R5 文档同步更新。 -->
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
