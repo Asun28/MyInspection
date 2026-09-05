@@ -1483,6 +1483,119 @@ if ($Fixture -eq 'meta-routing') {
     $ledger['unregistered'] = 'EXECUTED'
     if (Test-SelftestMetaReceipt $ledger $metaMode) { throw 'Unregistered coverage was accepted.' }
   }
+  # Replay the actual 8.2e meta integration, while replacing only its expensive
+  # stress body. This keeps the selector, completion, deferred skip, and receipt
+  # guard tied to production source without running the harness here.
+  $metaIntegrationSourcePath = $PSCommandPath
+  $metaIntegrationOriginalBytes = [IO.File]::ReadAllBytes($metaIntegrationSourcePath)
+  $metaIntegrationOriginalSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($metaIntegrationOriginalBytes)).ToLowerInvariant()
+  $getMetaIntegrationAstParts = {
+    param([string]$Source)
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+    if ($errors.Count -ne 0) { throw '[SELFTEST-META-INTEGRATION] production source did not parse.' }
+    $functions = @('New-SelftestMetaLedger', 'Start-SelftestMetaCheck', 'Complete-SelftestMetaCheck', 'Test-SelftestMetaReceipt') |
+      ForEach-Object {
+        $functionName = $_
+        $matches = @($ast.FindAll({ param($node) ($node -is [Management.Automation.Language.FunctionDefinitionAst]) -and $node.Name -ceq $functionName }, $true))
+        if ($matches.Count -ne 1) { throw "[SELFTEST-META-INTEGRATION] function '$functionName' is missing or ambiguous." }
+        $matches[0].Extent.Text
+      }
+    $ledger = @($ast.FindAll({ param($node) ($node -is [Management.Automation.Language.AssignmentStatementAst]) -and
+        ($node.Left -is [Management.Automation.Language.VariableExpressionAst]) -and $node.Left.VariablePath.UserPath -ceq 'metaLedger82' }, $true))
+    $selector = @($ast.FindAll({ param($node) ($node -is [Management.Automation.Language.IfStatementAst]) -and $node.Clauses.Count -eq 1 -and
+        $node.Clauses[0].Item1.Extent.Text -ceq "Start-SelftestMetaCheck `$metaLedger82 '8.2e/harness' `$IncludeMeta.IsPresent" }, $true))
+    $guard = @($ast.FindAll({ param($node) ($node -is [Management.Automation.Language.IfStatementAst]) -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '-not (Test-SelftestMetaReceipt $metaLedger82 $IncludeMeta.IsPresent)' }, $true))
+    $elseCount = if ($selector.Count -eq 1) { $selector[0].ElseClause.Statements.Count } else { -1 }
+    if ($ledger.Count -ne 1 -or $selector.Count -ne 1 -or $elseCount -ne 1 -or $guard.Count -ne 1) {
+      throw "[SELFTEST-META-INTEGRATION] exact 8.2e ledger, selector, deferred skip, or receipt guard is missing or ambiguous: ledger=$($ledger.Count) selector=$($selector.Count) else=$elseCount guard=$($guard.Count)."
+    }
+    $complete = @($selector[0].Clauses[0].Item2.Statements | Where-Object { $_.Extent.Text -ceq "Complete-SelftestMetaCheck `$metaLedger82 '8.2e/harness'" })
+    if ($complete.Count -ne 1) { throw '[SELFTEST-META-INTEGRATION] exact 8.2e completion call is missing or ambiguous.' }
+    return [pscustomobject]@{ Functions = $functions; Ledger = $ledger[0].Extent.Text; Selector = $selector[0].Clauses[0].Item1.Extent.Text; Complete = $complete[0].Extent.Text; Skip = $selector[0].ElseClause.Statements[0].Extent.Text; Guard = $guard[0].Extent.Text }
+  }
+  $invokeMetaIntegrationReplay = {
+    param([string]$Source, [bool]$Enabled)
+    try { $parts = & $getMetaIntegrationAstParts $Source }
+    catch { return [pscustomobject]@{ ExitCode = 1; Output = $_.Exception.Message } }
+    $replayRoot = Join-Path ([IO.Path]::GetTempPath()) ('selftest-meta-integration-' + [guid]::NewGuid().ToString('N'))
+    $replayPath = Join-Path $replayRoot 'replay.ps1'
+    try {
+      New-Item -ItemType Directory -Path $replayRoot -Force | Out-Null
+      $replay = @"
+param([switch]`$IncludeMeta)
+Set-StrictMode -Version Latest
+`$ErrorActionPreference = 'Stop'
+`$script:metaReplayBodyRan = `$false
+`$script:metaReplayFailed = `$false
+$($parts.Functions -join "`n`n")
+function Skip-SelftestCheck { param([string]`$GateId, [string]`$Reason, [string]`$Message); Write-Host "[META-REPLAY-SKIP] gate=`$GateId reason=`$Reason" }
+function Fail([string]`$Message) { `$script:metaReplayFailed = `$true; Write-Host "[META-REPLAY-FAIL] `$Message" }
+$($parts.Ledger)
+if ($($parts.Selector)) {
+  `$script:metaReplayBodyRan = `$true
+  Write-Host '[META-REPLAY-BODY] ran=True'
+  $($parts.Complete)
+} else {
+  $($parts.Skip)
+}
+$($parts.Guard)
+if (`$script:metaReplayFailed) { exit 1 }
+Write-Host "[META-REPLAY-RESULT] body-ran=`$script:metaReplayBodyRan receipt=`$(`$metaLedger82['8.2e/harness'])"
+exit 0
+"@
+      [IO.File]::WriteAllText($replayPath, $replay, [Text.UTF8Encoding]::new($false))
+      $output = (& pwsh -NoProfile -File $replayPath -IncludeMeta:$Enabled 2>&1 | Out-String)
+      return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    } finally {
+      Remove-Item -LiteralPath $replayRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+  $testMetaIntegrationReplay = {
+    param([pscustomobject]$Result, [bool]$Enabled)
+    $running = '[SELFTEST-META] gate=8.2e/harness state=RUNNING'
+    $deferred = '[SELFTEST-META] gate=8.2e/harness state=DEFERRED'
+    $executed = '[SELFTEST-META] gate=8.2e/harness state=EXECUTED'
+    if ($Enabled) {
+      return $Result.ExitCode -eq 0 -and ([regex]::Matches($Result.Output, [regex]::Escape($running)).Count -eq 1) -and
+        ([regex]::Matches($Result.Output, [regex]::Escape($executed)).Count -eq 1) -and $Result.Output -notmatch [regex]::Escape($deferred) -and
+        $Result.Output -match '\[META-REPLAY-BODY\] ran=True' -and $Result.Output -match '\[META-REPLAY-RESULT\] body-ran=True receipt=EXECUTED'
+    }
+    return $Result.ExitCode -eq 0 -and ([regex]::Matches($Result.Output, [regex]::Escape($deferred)).Count -eq 1) -and
+      $Result.Output -notmatch [regex]::Escape($running) -and $Result.Output -notmatch [regex]::Escape($executed) -and
+      $Result.Output -notmatch '\[META-REPLAY-BODY\]' -and $Result.Output -match '\[META-REPLAY-SKIP\] gate=8\.2e/harness reason=NIGHTLY-META-DEFERRED' -and
+      $Result.Output -match '\[META-REPLAY-RESULT\] body-ran=False receipt=DEFERRED'
+  }
+  $metaIntegrationSource = [Text.Encoding]::UTF8.GetString($metaIntegrationOriginalBytes)
+  $metaIntegrationBaselineFailures = [Collections.Generic.List[string]]::new()
+  foreach ($metaMode in @($true, $false)) {
+    $replay = & $invokeMetaIntegrationReplay $metaIntegrationSource $metaMode
+    if (-not (& $testMetaIntegrationReplay $replay $metaMode)) { [void]$metaIntegrationBaselineFailures.Add([string]$metaMode) }
+  }
+  if ($metaIntegrationBaselineFailures.Count -ne 0) { throw "[SELFTEST-META-INTEGRATION] baseline replay failed modes=$($metaIntegrationBaselineFailures -join ',')." }
+  $metaSelector = "Start-SelftestMetaCheck `$metaLedger82 '8.2e/harness' `$IncludeMeta.IsPresent"
+  $metaComplete = "Complete-SelftestMetaCheck `$metaLedger82 '8.2e/harness'"
+  $metaStartOutput = 'Write-Host ' + '"[SELFTEST-META] gate=$Id state=$($Ledger[$Id])"'
+  $metaCompleteOutput = 'Write-Host ' + '"[SELFTEST-META] gate=$Id state=EXECUTED"'
+  $metaIntegrationMutations = [ordered]@{
+    'SELECTOR-INVERTED' = @($metaSelector, "-not ($metaSelector)")
+    'COMPLETE-DELETED' = @($metaComplete, '')
+    'START-RECEIPT-DELETED' = @($metaStartOutput, '')
+    'EXECUTED-RECEIPT-DELETED' = @($metaCompleteOutput, '')
+  }
+  $survivingMetaIntegrationMutations = @($metaIntegrationMutations.GetEnumerator() | Where-Object {
+    $target, $replacement = @($_.Value)
+    if ([regex]::Matches($metaIntegrationSource, [regex]::Escape($target)).Count -ne 1) { return $true }
+    $mutant = $metaIntegrationSource.Replace($target, $replacement)
+    $trueReplay = & $invokeMetaIntegrationReplay $mutant $true
+    $falseReplay = & $invokeMetaIntegrationReplay $mutant $false
+    (& $testMetaIntegrationReplay $trueReplay $true) -and (& $testMetaIntegrationReplay $falseReplay $false)
+  } | ForEach-Object { [string]$_.Key })
+  $metaIntegrationFinalSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($metaIntegrationSourcePath))).ToLowerInvariant()
+  if ($metaIntegrationOriginalSha -cne $metaIntegrationFinalSha) { throw '[SELFTEST-META-INTEGRATION] mutation replay did not restore original selftest bytes.' }
+  if ($survivingMetaIntegrationMutations.Count -ne 0) { throw "[SELFTEST-META-INTEGRATION] actual selector/receipt mutations survived: $($survivingMetaIntegrationMutations -join ',')." }
+  Write-Host '[SELFTEST-META-INTEGRATION-MUTATIONS] KILLED selector, complete, start-receipt, executed-receipt'
   $metaWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
   if (-not (Test-ScaffoldSelftestTriggerContract $metaWorkflow) -or
       -not (Test-SelftestCiWiringContract $metaWorkflow)) { throw 'Nightly schedule or coverage flag wiring is invalid.' }

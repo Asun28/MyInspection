@@ -41,4 +41,11 @@ DEFERRED receipt. Full enabled replay executed all stress cases and failed only 
 early-exit controller watchdog while concurrent jobs were active; rerunning that exact case
 on unchanged source passed, with EXECUTED receipt. The initial failed log is retained beside
 the passing recheck under `_local/`; no timeout or assertion was changed to obtain it.
+The focused fixture now extracts the production 8.2e ledger setup, selector, completion,
+deferred skip, and final receipt guard from the parsed source, replacing only the stress body
+with an observable body. It proves exact EXECUTED and DEFERRED receipts and body selection,
+and kills independent selector inversion, completion deletion, start-receipt deletion, and
+executed-receipt deletion mutations while confirming the original selftest bytes SHA is
+unchanged. `pwsh -NoProfile -File scripts/selftest.ps1 -Fixture meta-routing` passed after
+this replay addition (log `_local/meta-routing-r3.log`, exit `0`).
 A full integrated selftest remains required before final delivery.
