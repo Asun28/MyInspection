@@ -3,11 +3,12 @@ id: T0-SCAFFOLD-SYNC-046
 title: Evaluate upstream v0.46.0 and advance the scaffold high-water mark
 depends_on: [T0-SCAFFOLD-SYNC-045]
 parallelizable_with: [T0-SELFTEST-PAGED-PERF]
-status: todo
+status: in-progress
 branch: T0-SCAFFOLD-SYNC-046
 worktree: C:\wt\T0-SCAFFOLD-SYNC-046
 allow_paths:
   - scripts/_config.ps1
+  - scripts/scaffold-sync.ps1
   - docs/SCAFFOLD-SYNC.md
   - specs/tasks/T0-SCAFFOLD-SYNC-046.md
 forbid:
