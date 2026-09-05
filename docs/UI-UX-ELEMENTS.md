@@ -32,7 +32,7 @@
 
 `button-primary`、`button-secondary`、`button-destructive`、`icon-button`、`input-field`、`search-field`、`filter-chip-group`、`switch-row`、`checkbox-row`、`radio-group`、`segmented-control`、`choice-field`、`date-time-field`、`secure-input-field`、`confirmation-input`、`slider-field`、`status-choice`、`privacy-chip`、`validation-summary`。
 
-同一决策区只允许一个 `button-primary`。可逆替代动作使用 `button-secondary`；不可逆动作只有在影响预览与确认条件满足后才使用 `button-destructive`；纯图标操作必须使用 `icon-button` 并同时提供 tooltip 和无障碍名称。
+同一决策区只允许一个 `button-primary`。可逆替代动作使用 `button-secondary`；不可逆动作只有在影响预览与确认条件满足后才使用 `button-destructive`；纯图标操作必须使用 `icon-button`，并满足 `context/DESIGN.md` 的 Symbol-only chrome 准入条件（条件正文只在该文件声明，本文不复述）。
 
 ### 2.4 巡检、证据与媒体
 
