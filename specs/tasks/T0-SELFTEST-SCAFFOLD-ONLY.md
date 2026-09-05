@@ -9,6 +9,7 @@ worktree: C:\wt\T0-SELFTEST-SCAFFOLD-ONLY
 allow_paths:
   - .github/workflows/scaffold-selftest.yml
   - scripts/selftest.ps1
+  - scripts/task.ps1
   - CLAUDE.md
   - docs/DEVOPS-WORKFLOW.md
   - docs/DELIVERY-CHAINS.md
@@ -43,7 +44,8 @@ doc_sync: Keep CLAUDE.md, DEVOPS-WORKFLOW.md, DELIVERY-CHAINS.md, and TASK-BOARD
 The user's 2026-09-05 instruction to apply the useful findings authorizes local integration and
 supersedes this card's earlier audit-only merge restriction. Final validation also restores the
 missing note classification for the existing task-help continuation in gate 17ai; every ordered
-gate-enumeration assertion remains intact.
+gate-enumeration assertion remains intact. Restore the deleted local-gate summary comment in
+task.ps1, and remove obsolete note-only discovery entries; no production workflow behavior changes.
 
 Product work uses its relevant tests plus `scripts/verify.ps1`. The full scaffold selftest is reserved for
 changes to scaffold/harness authority, whether run by the post-merge workflow or explicitly by an operator.
