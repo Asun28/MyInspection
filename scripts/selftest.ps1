@@ -118,11 +118,12 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8', 'meta-routing')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
   [string]$NoGitMutationNonce = '',
+  [switch]$IncludeMeta = $true,
   [switch]$StrictLint
 )
 
@@ -144,6 +145,25 @@ function Add-SelftestGate2PassFixture {
 function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
   if (@($ExitCodes | Where-Object { $_ -ne 0 }).Count -gt 0) { return 1 }
   return 0
+}
+
+# Only tests of the aggregation stress harness are deferred; production checks stay on every run.
+function New-SelftestMetaLedger { return [ordered]@{ '8.2e/harness' = 'PENDING' } }
+function Start-SelftestMetaCheck([System.Collections.IDictionary]$Ledger, [string]$Id, [bool]$Enabled) {
+  if (-not $Ledger.Contains($Id) -or $Ledger[$Id] -cne 'PENDING') { throw "Unknown or repeated meta check: $Id" }
+  $Ledger[$Id] = if ($Enabled) { 'RUNNING' } else { 'DEFERRED' }
+  Write-Host "[SELFTEST-META] gate=$Id state=$($Ledger[$Id])"
+  return $Enabled
+}
+function Complete-SelftestMetaCheck([System.Collections.IDictionary]$Ledger, [string]$Id) {
+  if (-not $Ledger.Contains($Id) -or $Ledger[$Id] -cne 'RUNNING') { throw "Meta check was not running: $Id" }
+  $Ledger[$Id] = 'EXECUTED'
+  Write-Host "[SELFTEST-META] gate=$Id state=EXECUTED"
+}
+function Test-SelftestMetaReceipt([System.Collections.IDictionary]$Ledger, [bool]$Enabled) {
+  if ($Ledger.Count -ne 1 -or -not $Ledger.Contains('8.2e/harness')) { return $false }
+  $expected = if ($Enabled) { 'EXECUTED' } else { 'DEFERRED' }
+  return $Ledger['8.2e/harness'] -ceq $expected
 }
 
 function Get-LessonDefinitionIdSet([string]$LedgerPath, [string]$ArchivePath) {
@@ -993,9 +1013,12 @@ function Test-SelftestCiMatrixContract([string]$WorkflowText) {
 
 function Test-SelftestCiWiringContract([string]$WorkflowText) {
   if (-not (Test-SelftestCiMatrixContract $WorkflowText)) { return $false }
-  # seeded alone needs the measured 30-minute budget; widening every shard would hide hangs in the cheaper lanes.
-  if ([regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*matrix\.shard == 'seeded' && 30 \|\| 20\s*\}\}\s*$").Count -ne 1) { return $false }
-  if ($WorkflowText -notmatch '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$') { return $false }
+  # The old seeded expression never matched the three real seeded-* CI shards: all already had 20 minutes.
+  if ([regex]::Matches($WorkflowText, '(?m)^    timeout-minutes: 20\s*$').Count -ne 1) { return $false }
+  $metaRunLine = '        run: pwsh -NoProfile -File scripts/selftest.ps1 -Shard ${{ matrix.shard }} -IncludeMeta:$${{ github.event_name != ''push'' }}'
+  if ([regex]::Matches($WorkflowText, '(?m)^' + [regex]::Escape($metaRunLine) + '\s*$').Count -ne 1) { return $false }
+  $metaConcurrency = '  group: scaffold-selftest-${{ github.ref }}-${{ github.event_name == ''push'' && ''regular'' || ''full'' }}'
+  if ([regex]::Matches($WorkflowText, '(?m)^' + [regex]::Escape($metaConcurrency) + '\s*$').Count -ne 1) { return $false }
   if ($WorkflowText -notmatch "(?ms)- name: Provision PSScriptAnalyzer.*?\n\s*if:\s*matrix\.shard == 'core'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*Install-Module PSScriptAnalyzer") { return $false }
   return $true
 }
@@ -1029,7 +1052,9 @@ function Test-ScaffoldSelftestTriggerContract([string]$WorkflowText) {
   $onBlockText = Get-WorkflowOnBlockText $WorkflowText
   if ($null -eq $onBlockText) { return $false }
   $events = @(Get-WorkflowMappingKeys $onBlockText '  ')
-  if ($events.Count -ne 2 -or (@($events | Sort-Object -Unique) -join ',') -ne 'push,workflow_dispatch') { return $false }
+  if ($events.Count -ne 3 -or (@($events | Sort-Object -Unique) -join ',') -ne 'push,schedule,workflow_dispatch') { return $false }
+  $scheduleBlock = [regex]::Match($onBlockText, '(?ms)^  schedule:\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*\s*:|\z)')
+  if (-not $scheduleBlock.Success -or $scheduleBlock.Groups['body'].Value.TrimEnd() -cne "    - cron: '17 3 * * *'") { return $false }
   $pushBlock = [regex]::Match($onBlockText, '(?ms)^  push:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*\s*:|\z)')
   if (-not $pushBlock.Success) { return $false }
   $pushSelectors = @(Get-WorkflowMappingKeys $pushBlock.Groups['body'].Value '    ')
@@ -1112,6 +1137,7 @@ function Start-SelftestShard {
     [string]$Name,
     [bool]$ForwardStrictLint,
     [bool]$StrictLintValue,
+    [bool]$IncludeMeta = $true,
     [System.Diagnostics.ProcessPriorityClass]$PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal,
     [switch]$Quiet
   )
@@ -1125,6 +1151,7 @@ function Start-SelftestShard {
   $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
   $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
   foreach ($arg in @('-NoProfile', '-File', (Join-Path $SnapshotRoot 'scripts/selftest.ps1'), '-Shard', $Name)) { [void]$psi.ArgumentList.Add($arg) }
+  [void]$psi.ArgumentList.Add("-IncludeMeta:`$$($IncludeMeta.ToString().ToLowerInvariant())")
   if ($ForwardStrictLint) { [void]$psi.ArgumentList.Add("-StrictLint:`$$($StrictLintValue.ToString().ToLowerInvariant())") }
   $process = [System.Diagnostics.Process]::new()
   $process.StartInfo = $psi
@@ -1163,6 +1190,7 @@ function Invoke-SelftestAll {
     [Parameter(Mandatory)][string]$SourceRoot,
     [bool]$ForwardStrictLint = $false,
     [bool]$StrictLintValue = $false,
+    [bool]$IncludeMeta = $true,
     [ValidateRange(0, 300)][int]$CoreDelaySeconds = 75,
     [switch]$Quiet
   )
@@ -1183,11 +1211,11 @@ function Invoke-SelftestAll {
     # 两个关键路径从约 250s 拖到约 390s。此处仍是本地 all 的三分片；CI 另将 seeded 拆为三个独立 runner。
     foreach ($name in @('seeded', 'workflow')) {
       $snapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot $name) -Name $name -GitExe $gitExe
-      $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -Quiet:$Quiet
+      $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -IncludeMeta $IncludeMeta -Quiet:$Quiet
     }
     $coreSnapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot 'core') -Name 'core' -GitExe $gitExe
     if ($CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
-    $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $coreSnapshot -Name 'core' -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -PriorityClass BelowNormal -Quiet:$Quiet
+    $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $coreSnapshot -Name 'core' -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -IncludeMeta $IncludeMeta -PriorityClass BelowNormal -Quiet:$Quiet
     $results = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
     $exitCodes = @($results | ForEach-Object { $_.ExitCode })
     $effectiveExitCodes = @($results | ForEach-Object { if ($_.ExitCode -ne 0 -or -not $_.ProtocolValid) { 1 } else { 0 } })
@@ -1430,6 +1458,102 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
     }
   }
   Write-Host '[SELFTEST-FIXTURE] seeded-nogit-routing PASS'
+  exit 0
+}
+
+if ($Fixture -eq 'meta-routing') {
+  if (-not (Get-Command New-SelftestMetaLedger -ErrorAction SilentlyContinue)) {
+    throw '[SELFTEST-META-MISSING] Explicit meta selection and coverage receipts are required.'
+  }
+  foreach ($metaMode in @($true, $false)) {
+    $ledger = New-SelftestMetaLedger
+    if (Test-SelftestMetaReceipt $ledger $metaMode) { throw 'Missing meta coverage was accepted.' }
+    $selected = Start-SelftestMetaCheck $ledger '8.2e/harness' $metaMode
+    if ($selected -ne $metaMode) { throw 'Meta selection did not follow the requested mode.' }
+    if ($selected) {
+      if (Test-SelftestMetaReceipt $ledger $metaMode) { throw 'Started but incomplete meta check was accepted.' }
+      Complete-SelftestMetaCheck $ledger '8.2e/harness'
+    }
+    if (-not (Test-SelftestMetaReceipt $ledger $metaMode)) { throw 'Exact meta coverage receipt was rejected.' }
+    foreach ($badId in @('unknown', '8.2e/harness')) {
+      $rejected = $false
+      try { [void](Start-SelftestMetaCheck $ledger $badId $metaMode) } catch { $rejected = $true }
+      if (-not $rejected) { throw "Unknown or repeated meta check accepted: $badId" }
+    }
+    $ledger['unregistered'] = 'EXECUTED'
+    if (Test-SelftestMetaReceipt $ledger $metaMode) { throw 'Unregistered coverage was accepted.' }
+  }
+  $metaWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+  if (-not (Test-ScaffoldSelftestTriggerContract $metaWorkflow) -or
+      -not (Test-SelftestCiWiringContract $metaWorkflow)) { throw 'Nightly schedule or coverage flag wiring is invalid.' }
+  foreach ($mutation in @(
+    ($metaWorkflow -replace "(?m)^  schedule:\r?\n    - cron: '17 3 \* \* \*'\r?\n", ''),
+    ($metaWorkflow.Replace("17 3 * * *", "17 3 * * 1")),
+    ($metaWorkflow.Replace("    - cron: '17 3 * * *'", "    - cron: '17 3 * * *'`n    - cron: '*/5 * * * *'")),
+    ($metaWorkflow.Replace("github.event_name != 'push'", "github.event_name == 'push'")),
+    ($metaWorkflow.Replace('-${{ github.event_name == ''push'' && ''regular'' || ''full'' }}', '')),
+    ($metaWorkflow.Replace('timeout-minutes: 20', 'timeout-minutes: 30'))
+  )) {
+    if ((Test-ScaffoldSelftestTriggerContract $mutation) -and
+        (Test-SelftestCiWiringContract $mutation)) { throw 'Nightly coverage/timeout mutation survived.' }
+  }
+  $metaTemp = Join-Path ([IO.Path]::GetTempPath()) ('selftest-meta-forward-' + [guid]::NewGuid().ToString('N'))
+  $metaSavedLog = $env:SCAFFOLD_META_FIXTURE_LOG
+  try {
+    Remove-Item Env:SCAFFOLD_META_FIXTURE_LOG -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path (Join-Path $metaTemp 'scripts') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $metaTemp 'scripts/selftest.ps1') -Value 'param([string]$Shard, [switch]$IncludeMeta = $true); Write-Output "META=$($IncludeMeta.IsPresent)"; if ($env:SCAFFOLD_META_FIXTURE_LOG) { "$($IncludeMeta.IsPresent)" | Set-Content (Join-Path $env:SCAFFOLD_META_FIXTURE_LOG "$Shard.txt") }' -Encoding utf8
+    foreach ($metaMode in @($true, $false)) {
+      $child = Start-SelftestShard -PwshExe (Get-Command pwsh).Source -SnapshotRoot $metaTemp -Name core -IncludeMeta $metaMode -Quiet
+      try {
+        $child.Process.WaitForExit()
+        $output = $child.StdOut.GetAwaiter().GetResult().Trim()
+        $errors = $child.StdErr.GetAwaiter().GetResult()
+        if ($child.Process.ExitCode -ne 0 -or $output -cne "META=$metaMode") { throw "Meta flag lost in actual child invocation: $output $errors" }
+      } finally { $child.Process.Dispose() }
+    }
+    & git -C $metaTemp init -q --initial-branch=master
+    if ($LASTEXITCODE -ne 0) { throw 'Meta aggregate fixture git init failed.' }
+    & git -C $metaTemp add -- scripts/selftest.ps1
+    if ($LASTEXITCODE -ne 0) { throw 'Meta aggregate fixture git add failed.' }
+    & git -C $metaTemp -c user.name=selftest -c user.email=selftest@example.invalid -c commit.gpgsign=false commit -qm fixture
+    if ($LASTEXITCODE -ne 0) { throw 'Meta aggregate fixture git commit failed.' }
+    $metaLog = Join-Path $metaTemp '.git/meta-flags'
+    New-Item -ItemType Directory -Force $metaLog | Out-Null
+    $env:SCAFFOLD_META_FIXTURE_LOG = $metaLog
+    $metaAstTokens = $null; $metaAstErrors = $null
+    $metaAst = [Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$metaAstTokens, [ref]$metaAstErrors)
+    $metaDefaultParameter = @($metaAst.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq 'IncludeMeta' })
+    if ($metaAstErrors.Count -or $metaDefaultParameter.Count -ne 1 -or $metaDefaultParameter[0].DefaultValue.SafeGetValue() -ne $true) { throw 'Local IncludeMeta default must preserve full coverage.' }
+    $metaAllEntry = @($metaAst.FindAll({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq '$Shard -eq ''all''' }, $true))
+    if ($metaAllEntry.Count -ne 1 -or $metaAllEntry[0].Clauses[0].Item2.Statements[0] -isnot [Management.Automation.Language.AssignmentStatementAst]) { throw 'Actual all entry statement is missing or ambiguous.' }
+    $metaEntryStatement = $metaAllEntry[0].Clauses[0].Item2.Statements[0].Extent.Text
+    $metaDelayBound = $PSDefaultParameterValues.ContainsKey('Invoke-SelftestAll:CoreDelaySeconds')
+    $metaSavedDelay = $PSDefaultParameterValues['Invoke-SelftestAll:CoreDelaySeconds']
+    $PSDefaultParameterValues['Invoke-SelftestAll:CoreDelaySeconds'] = 0
+    try {
+    foreach ($metaMode in @($true, $false)) {
+      foreach ($oldLog in @(Get-ChildItem -LiteralPath $metaLog -File)) { Remove-Item -LiteralPath $oldLog.FullName -Force }
+      $metaEntryExit = & {
+        param($TargetRoot, $Requested, $EntryStatement)
+        $RepoRoot = $TargetRoot; $IncludeMeta = [switch]$Requested; $StrictLint = [switch]$false
+        . ([scriptblock]::Create($EntryStatement))
+        return $aggregateExit
+      } $metaTemp $metaMode $metaEntryStatement
+      if ($metaEntryExit -ne 0) { throw 'Actual all entry meta forwarding failed.' }
+      $flags = @(Get-ChildItem -LiteralPath $metaLog -File | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw).Trim() })
+      if ($flags.Count -ne 3 -or @($flags | Where-Object { $_ -cne "$metaMode" }).Count) { throw 'Aggregate lost meta mode for core, workflow or seeded.' }
+    }
+    } finally {
+      if ($metaDelayBound) { $PSDefaultParameterValues['Invoke-SelftestAll:CoreDelaySeconds'] = $metaSavedDelay } else { [void]$PSDefaultParameterValues.Remove('Invoke-SelftestAll:CoreDelaySeconds') }
+    }
+  } finally {
+    if ($null -eq $metaSavedLog) { Remove-Item Env:SCAFFOLD_META_FIXTURE_LOG -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_META_FIXTURE_LOG = $metaSavedLog }
+    $resolvedMetaTemp = [IO.Path]::GetFullPath($metaTemp)
+    if (-not $resolvedMetaTemp.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected meta fixture cleanup target.' }
+    Remove-Item -LiteralPath $resolvedMetaTemp -Recurse -Force -ErrorAction Stop
+  }
+  Write-Host '[SELFTEST-FIXTURE] meta-routing PASS'
   exit 0
 }
 
@@ -1804,7 +1928,7 @@ if ($Shard -ne 'all') {
 }
 
 if ($Shard -eq 'all') {
-  $aggregateExit = Invoke-SelftestAll -SourceRoot $RepoRoot -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent
+  $aggregateExit = Invoke-SelftestAll -SourceRoot $RepoRoot -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent -IncludeMeta $IncludeMeta.IsPresent
   exit $aggregateExit
 }
 # TD15：本脚本随下游保留（不再被 init -Cleanup/-Retrofit 删除），因约 12/17 闸测的是会下发的生产脚本
@@ -4360,7 +4484,7 @@ if ($stText82 -notmatch 'Install-Module\s+PSScriptAnalyzer') {
 }
 elseif (-not $fail) { Write-Host '  8.2c scaffold-selftest.yml provision PSScriptAnalyzer OK' -ForegroundColor Green }
 
-# 8.2d 产品 CI 的 PR 事件是合并闸，默认分支 push 是事后检测；完整 scaffold selftest 是合并后/手动 canary。
+# 8.2d 产品 CI 的 PR 事件是合并闸，默认分支 push 是事后检测；scaffold selftest 是合并后/每日/手动 canary。
 #   任务卡 DoD 与 R3 负责合并前的本卡验证，避免无关历史 harness 闸反复阻塞产品推进。
 $trigMissing82 = $false
 $ciTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
@@ -4378,7 +4502,7 @@ if (Test-MainMasterWorkflowTrigger $ciOutsideOnMutation82 'pull_request') {
 $scaffoldTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
   $trigMissing82 = $true
-  Fail '8.2d：scaffold-selftest.yml 必须只在 main/master push 与 workflow_dispatch 运行，且不得含 pull_request——完整 harness 不进入 PR 关键路径。'
+  Fail '8.2d：scaffold-selftest.yml 必须包含 main/master push、一次每日 schedule 与 workflow_dispatch，且不得含 pull_request——完整 harness 不进入 PR 关键路径。'
 }
 $pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
 $pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
@@ -4413,7 +4537,7 @@ if ($acceptedTriggerMutations82.Count -gt 0) {
   $trigMissing82 = $true
   Fail "8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。"
 }
-if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅 post-merge/manual OK' -ForegroundColor Green }
+if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest post-merge/nightly/manual OK' -ForegroundColor Green }
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
@@ -4523,6 +4647,7 @@ if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     -not $invalidReasonRejected82 -or -not $skipFixtureOk82) {
   Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason 或摘要计数。'
 }
+$metaLedger82 = New-SelftestMetaLedger
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   Fail '8.2e：scaffold-selftest.yml 的 2 OS×5 分片、runner、脚本参数或 lint 依赖接线不完整。'
@@ -4533,14 +4658,15 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $excludeMutation = $selftestWorkflow -replace '(?m)^(\s{8}include:\s*)$', "`$1`n        exclude:`n          - os: ubuntu-latest`n            shard: seeded-scanner"
   $runnerMutation = $selftestWorkflow -replace '(?m)^\s{4}runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}\s*$', '    runs-on: windows-latest'
   $allCoreMutation = [regex]::Replace($selftestWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
-  $runShardMutation = $selftestWorkflow -replace '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$', '        run: pwsh -NoProfile -File scripts/selftest.ps1'
+  $runShardMutation = $selftestWorkflow.Replace('-Shard ${{ matrix.shard }} ', '')
   $lintConditionMutation = $selftestWorkflow -replace "(?m)^\s*if:\s*matrix\.shard == 'core'\s*$", "        if: matrix.shard == 'workflow'"
-  $seededTimeoutRevertMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 20'
+  $seededTimeoutRevertMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: ${{ matrix.shard == ''seeded'' && 30 || 20 }}'
   $allTimeoutWidenMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 30'
   if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation)) {
-    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/seeded 独享超时预算变异。'
+    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/20 分钟有效预算变异。'
   }
 
+  if (Start-SelftestMetaCheck $metaLedger82 '8.2e/harness' $IncludeMeta.IsPresent) {
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
   $aggLogs = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-logs-$PID-$([guid]::NewGuid().ToString('N'))"
   $aggOrigin = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-origin-$PID-$([guid]::NewGuid().ToString('N')).git"
@@ -4579,8 +4705,11 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
     Remove-Item Env:SCAFFOLD_SELFTEST_STUB_HARNESS_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force (Join-Path $aggFixture 'scripts'), $aggLogs | Out-Null
     $aggregateStubSource = @'
-param([string]$Shard = 'all', [switch]$StrictLint)
+param([string]$Shard = 'all', [switch]$StrictLint, [switch]$IncludeMeta = $true)
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$metaLogRoot = Join-Path $env:SCAFFOLD_SELFTEST_STUB_LOG_ROOT 'meta'
+New-Item -ItemType Directory -Force $metaLogRoot | Out-Null
+"$($IncludeMeta.IsPresent)" | Set-Content (Join-Path $metaLogRoot "$Shard.txt")
 $overlayOk = (Test-Path (Join-Path $root 'renamed.txt')) -and
   (-not (Test-Path (Join-Path $root 'old.txt'))) -and
   (-not (Test-Path (Join-Path $root 'deleted.txt'))) -and
@@ -5120,7 +5249,9 @@ try {
     }
 
     Get-ChildItem -LiteralPath $aggLogs -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction Stop
-    $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -CoreDelaySeconds 1 -Quiet
+    $probeFalse = Invoke-SelftestAll -SourceRoot $aggFixture -ForwardStrictLint $true -StrictLintValue $false -IncludeMeta $false -CoreDelaySeconds 1 -Quiet
+    $probeMetaFalse = @(Get-ChildItem (Join-Path $aggLogs 'meta') -File | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() })
+    if ($probeMetaFalse.Count -ne 3 -or @($probeMetaFalse | Where-Object { $_ -cne 'False' }).Count) { Fail '8.2e：IncludeMeta false 未透传到全部聚合子进程。' }
     $probeFalseLines = @(Get-ChildItem $aggLogs -File | ForEach-Object { Get-Content $_.FullName -Raw })
     if ($probeFalse -ne 0) { Fail '[SELFTEST-8.2E-FALSE-CONTROL] explicit-false aggregate did not stay green.' }
     if (@($probeFalseLines | Where-Object { $_.Trim() -notmatch '^(core|workflow|seeded)\|True\|False\|(True|False)$' }).Count -gt 0) {
@@ -5151,7 +5282,12 @@ try {
     Remove-Item -LiteralPath $aggFixture, $aggLogs, $aggOrigin -Recurse -Force -ErrorAction SilentlyContinue
   }
   if (-not $fail) { Write-Host '  8.2e 10 组合 CI 接线 + 变异 + all 长分片并发/core 错峰/Git/StrictLint 三态与清理 OK' -ForegroundColor Green }
+  Complete-SelftestMetaCheck $metaLedger82 '8.2e/harness'
+  } else {
+    Skip-SelftestCheck -GateId '8.2e/harness' -Reason 'NIGHTLY-META-DEFERRED' -Message '  Aggregation stress harness deferred to the daily/manual full run.'
+  }
 }
+if (-not (Test-SelftestMetaReceipt $metaLedger82 $IncludeMeta.IsPresent)) { Fail '8.2e：meta coverage receipt is missing or inconsistent.' }
 
 if ($isPostInit) {
   Skip-SelftestCheck -GateId '8' -Reason 'POST-INIT-NOT-APPLICABLE' -Message '  init 干跑冒烟（-Cleanup / -Retrofit 两路）跳过——已初始化，本闸只测「从模板生成下游」这条元仓专属路径。'

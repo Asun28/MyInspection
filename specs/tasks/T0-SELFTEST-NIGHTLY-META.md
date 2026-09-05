@@ -34,3 +34,11 @@ doc_sync: Document full local default, explicit deferred coverage and daily/manu
 Adapt upstream PRs #362/#365/#369 only at the local selftest aggregation stress harness.
 The regular path retains matrix validation, failure-protocol tests and production-script tests.
 The user's 2026-09-05 instruction authorizes adoption. No runtime saving is claimed before measurement.
+
+Validation (2026-09-06 NZ): meta-routing passed with the actual all entry and every child
+receiving both flag values. Exact 8.2e source replay passed with IncludeMeta=false and a
+DEFERRED receipt. Full enabled replay executed all stress cases and failed only its existing
+early-exit controller watchdog while concurrent jobs were active; rerunning that exact case
+on unchanged source passed, with EXECUTED receipt. The initial failed log is retained beside
+the passing recheck under `_local/`; no timeout or assertion was changed to obtain it.
+A full integrated selftest remains required before final delivery.
