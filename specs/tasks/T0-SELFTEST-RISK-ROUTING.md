@@ -34,3 +34,12 @@ doc_sync: Document explicit task-scoped selftest routing and the separate produc
 
 User approved the useful upstream findings on 2026-09-05. Adapt PRs #357/#358/#360/#367 at the existing
 local shard boundary. Do not import the upstream monolith or add a second verification framework.
+
+Final regression evidence (2026-09-06 NZ): `.review/routing-r3-green.log` and its exit-0
+receipt cover actual TaskId dispatch, committed/staged/worktree card masks, rename paths,
+critical/unknown routing and failure propagation. Baseline card comparisons independently
+cover HEAD, index and working copy. Combined validation also passed core/workflow/scanner
+and project verify; an unrelated 17ac mutation-setup conflict was repaired and its complete
+actual replay passed, followed by seeded-remote PASS on final snapshot `e7b8f567`.
+The source/proof index is in the main checkout's `_local/upstream-integration/`; these
+are affected-check regression results, not a new single full-all run or timing benchmark.

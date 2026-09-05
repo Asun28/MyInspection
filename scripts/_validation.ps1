@@ -195,20 +195,18 @@ function Get-ValidationRegisteredWorktree {
   return (Resolve-Path -LiteralPath $candidates[0]).Path
 }
 
-function Test-ValidationStatusOnlyCardChange {
-  param([Parameter(Mandatory)][string]$BaselineCard, [Parameter(Mandatory)][string]$CurrentCardPath)
+function Test-ValidationStatusOnlyCardText {
+  param([Parameter(Mandatory)][string]$BaselineCard, [Parameter(Mandatory)][string]$CurrentCard)
 
-  $item = Get-Item -LiteralPath $CurrentCardPath -Force -ErrorAction SilentlyContinue
-  if ($null -eq $item -or $item -isnot [IO.FileInfo] -or $item.LinkType) { return $false }
-  $currentCard = [IO.File]::ReadAllText($item.FullName)
   $frontMatterPattern = '(?s)\A\uFEFF?---\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\z)'
-  if ($BaselineCard -notmatch $frontMatterPattern -or $currentCard -notmatch $frontMatterPattern) { return $false }
+  if ($BaselineCard -notmatch $frontMatterPattern -or $CurrentCard -notmatch $frontMatterPattern) { return $false }
   $statusPattern = '(?m)^status\s*:\s*.*$'
-  if ([regex]::Matches($BaselineCard, $statusPattern).Count -ne 1 -or [regex]::Matches($currentCard, $statusPattern).Count -ne 1) { return $false }
+  if ([regex]::Matches($BaselineCard, $statusPattern).Count -ne 1 -or [regex]::Matches($CurrentCard, $statusPattern).Count -ne 1) { return $false }
   $baselineWithoutStatus = [regex]::Replace($BaselineCard, $statusPattern, 'status: <selftest-routing-status>', 1).TrimEnd([char[]]"`r`n")
-  $currentWithoutStatus = [regex]::Replace($currentCard, $statusPattern, 'status: <selftest-routing-status>', 1).TrimEnd([char[]]"`r`n")
+  $currentWithoutStatus = [regex]::Replace($CurrentCard, $statusPattern, 'status: <selftest-routing-status>', 1).TrimEnd([char[]]"`r`n")
   return $baselineWithoutStatus -ceq $currentWithoutStatus
 }
+function Test-ValidationStatusOnlyCardChange { param([string]$BaselineCard,[string]$CurrentCardPath); $item=Get-Item -LiteralPath $CurrentCardPath -Force -ErrorAction SilentlyContinue; if($null -eq $item -or $item -isnot [IO.FileInfo] -or $item.LinkType){return $false}; return (Test-ValidationStatusOnlyCardText $BaselineCard ([IO.File]::ReadAllText($item.FullName))) }
 
 function Resolve-SelftestTaskRoute {
   param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$TaskId, [Parameter(Mandatory)][string]$Base)
@@ -236,8 +234,17 @@ function Resolve-SelftestTaskRoute {
   $branch = (Assert-ValidationGit -RepoRoot $worktreePath -Arguments @('branch', '--show-current') -Code 'SELFTEST-ROUTE-BRANCH').Trim()
   if ($branch -cne $TaskId) { throw "[SELFTEST-ROUTE-BRANCH-MISMATCH] expected '$TaskId', got '$branch'." }
   $allPaths = @(Get-ValidationChangedPaths -WorktreePath $worktreePath -BaseOid $baseOid)
-  if ($cardPath -in $allPaths -and -not (Test-ValidationStatusOnlyCardChange -BaselineCard $card -CurrentCardPath (Join-Path $worktreePath $cardPath))) {
-    return [pscustomobject]@{ Mode = 'all'; Reason = 'card-contract-changed'; BaseOid = $baseOid; WorktreePath = $worktreePath; Paths = $allPaths }
+  if ($cardPath -in $allPaths) {
+    # The aggregated diff spans committed, index, and worktree layers. A
+    # status-only checkout must therefore be status-only in every layer;
+    # otherwise a contract edit in HEAD or index could be hidden by the final
+    # worktree content.
+    $headCard = Assert-ValidationGit -RepoRoot $worktreePath -Arguments @('show', "HEAD:$cardPath") -Code 'SELFTEST-ROUTE-CARD-HEAD'
+    $indexCard = Assert-ValidationGit -RepoRoot $worktreePath -Arguments @('show', ":$cardPath") -Code 'SELFTEST-ROUTE-CARD-INDEX'
+    if (-not ((Test-ValidationStatusOnlyCardText $card $headCard) -and (Test-ValidationStatusOnlyCardText $card $indexCard) -and
+        (Test-ValidationStatusOnlyCardChange -BaselineCard $card -CurrentCardPath (Join-Path $worktreePath $cardPath)))) {
+      return [pscustomobject]@{ Mode = 'all'; Reason = 'card-contract-changed'; BaseOid = $baseOid; WorktreePath = $worktreePath; Paths = $allPaths }
+    }
   }
   $paths = @($allPaths | Where-Object { $_ -cne $cardPath })
   $frozen = Get-ValidationFrozenPaths -RepoRoot $RepoRoot -BaseOid $baseOid
@@ -246,6 +253,51 @@ function Resolve-SelftestTaskRoute {
 }
 
 function Assert-ValidationSelfCheck { param([bool]$Condition, [string]$Message); if (-not $Condition) { throw "[SELFTEST-RISK-ROUTING-SELFCHECK] $Message" } }
+
+function Invoke-ValidationTaskEntrypointFixture {
+  param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][ValidateSet('not-applicable', 'core', 'all', 'failure')][string]$Mode,
+    [Parameter(Mandatory)][string[]]$Arguments)
+
+  $selftestPath = Join-Path $PSScriptRoot 'selftest.ps1'
+  $source = [IO.File]::ReadAllText($selftestPath)
+  $start = $source.IndexOf('# An explicit task run selects only existing scaffold coverage.', [StringComparison]::Ordinal)
+  $end = $source.IndexOf('# TD15：', $start, [StringComparison]::Ordinal)
+  if ($start -lt 0 -or $end -le $start) { throw '[SELFTEST-RISK-ROUTING-SELFCHECK] exact selftest task-entry source block was not found.' }
+  $entry = $source.Substring($start, $end - $start)
+  $scripts = Join-Path $Directory 'scripts'; New-Item -ItemType Directory -Path $scripts -Force | Out-Null
+  $escapedRoot = (Split-Path -Parent $PSScriptRoot).Replace("'", "''")
+  $fixtureValidation = @"
+param([switch]`$SelfCheck)
+function Resolve-SelftestTaskRoute {
+  param([string]`$RepoRoot, [string]`$TaskId, [string]`$Base)
+  if ('$Mode' -ceq 'failure') { throw '[ENTRYPOINT-PROOF-FAILURE]' }
+  return [pscustomobject]@{ Mode = '$Mode'; Reason = 'fixture'; BaseOid = '0000000000000000000000000000000000000000'; Paths = @() }
+}
+"@
+  $prefix = @"
+[CmdletBinding()]
+param(
+  [string]`$TaskId,
+  [string]`$Base,
+  [string]`$Shard = 'all',
+  [string]`$Fixture = '',
+  [string]`$GateIdMutation = '',
+  [string]`$NoGitFixtureCase = '',
+  [string]`$NoGitFixtureNonce = '',
+  [string]`$NoGitMutationNonce = '',
+  [switch]`$StrictLint
+)
+`$RepoRoot = '$escapedRoot'
+function Test-SelftestCiWiringContract { param([string]`$Source); return (`$Source -match '(?m)^\s*shard:\s*core\s*$') }
+function Invoke-SelftestAll { param([string]`$SourceRoot, [bool]`$ForwardStrictLint, [bool]`$StrictLintValue); Write-Host '[ENTRYPOINT-DISPATCH] shard=all'; return 0 }
+"@
+  $suffix = "`nWrite-Output ('[ENTRYPOINT-DISPATCH] shard=' + `$Shard)`nexit 0`n"
+  Set-Content -LiteralPath (Join-Path $scripts '_validation.ps1') -Value $fixtureValidation -Encoding utf8NoBOM
+  $entryPath = Join-Path $scripts 'selftest-entryproof.ps1'
+  Set-Content -LiteralPath $entryPath -Value ($prefix + $entry + $suffix) -Encoding utf8NoBOM
+  $output = (& pwsh -NoProfile -File $entryPath @Arguments 2>&1 | Out-String)
+  return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+}
 
 function Invoke-ValidationSelfCheck {
   Assert-ValidationSelfCheck -Condition ([bool](Get-Command Resolve-SelftestTaskRoute -CommandType Function -ErrorAction SilentlyContinue)) -Message 'Resolve-SelftestTaskRoute is missing.'
@@ -287,6 +339,8 @@ function Invoke-ValidationSelfCheck {
     Set-Content -LiteralPath (Join-Path $root 'docs/committed.md') -Encoding utf8 -Value committed; & git -C $root add docs/committed.md; & git -C $root commit -q -m committed
     $committedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
     Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $committedPaths -FrozenPath $fixtureFrozen).Mode -ceq 'core') -Message 'committed docs did not route core.'
+    $committedRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+    Assert-ValidationSelfCheck -Condition ($committedRoute.Mode -ceq 'core') -Message 'committed docs did not retain core through pinned task routing.'
     & git -C $root reset --hard -q $fixtureBase
     & git -C $root mv docs/rename-from.md scripts/rename-to.ps1; & git -C $root add -A
     $stagedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
@@ -295,10 +349,14 @@ function Invoke-ValidationSelfCheck {
     Set-Content -LiteralPath (Join-Path $root 'docs/dirty.md') -Encoding utf8 -Value dirty
     $dirtyPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
     Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $dirtyPaths -FrozenPath $fixtureFrozen).Mode -ceq 'core') -Message 'dirty docs did not route core.'
+    $dirtyRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+    Assert-ValidationSelfCheck -Condition ($dirtyRoute.Mode -ceq 'core') -Message 'dirty docs did not retain core through pinned task routing.'
     Remove-Item -LiteralPath (Join-Path $root 'docs/dirty.md') -Force
     Set-Content -LiteralPath (Join-Path $root 'scripts/untracked.ps1') -Encoding utf8 -Value untracked
     $untrackedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
     Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $untrackedPaths -FrozenPath $fixtureFrozen).Mode -ceq 'all') -Message 'untracked critical path did not route all.'
+    $untrackedRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+    Assert-ValidationSelfCheck -Condition ($untrackedRoute.Mode -ceq 'all') -Message 'untracked critical path did not retain all through pinned task routing.'
     Remove-Item -LiteralPath (Join-Path $root 'scripts/untracked.ps1') -Force
     Set-Content -LiteralPath (Join-Path $root 'scripts/_config.ps1') -Encoding utf8 -Value "`$script:ScaffoldConfig = @{ FrozenPaths = @() }"
     Assert-ValidationSelfCheck -Condition ((@(Get-ValidationFrozenPaths -RepoRoot $root -BaseOid $fixtureBase))[0] -ceq 'android/frozen/') -Message 'branch-edited config became routing authority.'
@@ -310,11 +368,33 @@ function Invoke-ValidationSelfCheck {
     New-Item -ItemType Directory -Force (Join-Path $root 'android/app') | Out-Null
     Set-Content -LiteralPath (Join-Path $root 'android/app/Main.kt') -Encoding utf8 -Value product
     $statusCard = $card -replace 'status: todo', 'status: doing'
-    Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value ($statusCard -replace 'allow_paths:', 'allow_paths_changed:')
-    $authorityRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
-    Assert-ValidationSelfCheck -Condition ($authorityRoute.Mode -ceq 'all' -and $authorityRoute.Reason -ceq 'card-contract-changed' -and $authorityRoute.WorktreePath -ieq $root) -Message 'a branch-side card contract change did not refuse cheaper routing from the registered slim-card worktree.'
     Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $statusCard
     Assert-ValidationSelfCheck -Condition (Test-ValidationStatusOnlyCardChange -BaselineCard $card -CurrentCardPath (Join-Path $root 'specs/tasks/T0-ROUTE.md')) -Message 'status-only card bookkeeping was not recognized separately from contract changes.'
+    $productRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+    Assert-ValidationSelfCheck -Condition ($productRoute.Mode -ceq 'not-applicable') -Message 'status-only task bookkeeping forced core for ordinary product changes.'
+    $contractCard = $statusCard -replace 'allow_paths:', 'allow_paths_changed:'
+    Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $contractCard
+    & git -C $root add specs/tasks/T0-ROUTE.md
+    Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $statusCard
+    $stagedMaskedRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+    Assert-ValidationSelfCheck -Condition ($stagedMaskedRoute.Mode -ceq 'all' -and $stagedMaskedRoute.Reason -ceq 'card-contract-changed') -Message 'a staged card contract edit was masked by final status-only content.'
+    & git -C $root reset --hard -q $fixtureBase; Set-Content -LiteralPath (Join-Path $root 'android/app/Main.kt') -Encoding utf8 -Value product
+    Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $contractCard; & git -C $root add specs/tasks/T0-ROUTE.md; & git -C $root commit -q -m card-contract
+    Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $statusCard
+    $committedMaskedRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+    Assert-ValidationSelfCheck -Condition ($committedMaskedRoute.Mode -ceq 'all' -and $committedMaskedRoute.Reason -ceq 'card-contract-changed') -Message 'a committed card contract edit was masked by final status-only content.'
+    & git -C $root reset --hard -q $fixtureBase
+    $entryRoot = Join-Path $root 'entrypoint-proof'
+    $notApplicableEntry = Invoke-ValidationTaskEntrypointFixture -Directory $entryRoot -Mode not-applicable -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master')
+    Assert-ValidationSelfCheck -Condition ($notApplicableEntry.ExitCode -eq 0 -and $notApplicableEntry.Output -match '\[SELFTEST-NOT-APPLICABLE\]' -and $notApplicableEntry.Output -notmatch '\[ENTRYPOINT-DISPATCH\]') -Message 'task entrypoint did not stop successfully for not-applicable routing.'
+    $coreEntry = Invoke-ValidationTaskEntrypointFixture -Directory $entryRoot -Mode core -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master')
+    Assert-ValidationSelfCheck -Condition ($coreEntry.ExitCode -eq 0 -and $coreEntry.Output -match '\[ENTRYPOINT-DISPATCH\] shard=core') -Message 'task entrypoint did not select the core shard.'
+    $allEntry = Invoke-ValidationTaskEntrypointFixture -Directory $entryRoot -Mode all -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master')
+    Assert-ValidationSelfCheck -Condition ($allEntry.ExitCode -eq 0 -and $allEntry.Output -match '\[ENTRYPOINT-DISPATCH\] shard=all') -Message 'task entrypoint did not preserve all routing.'
+    $conflictEntry = Invoke-ValidationTaskEntrypointFixture -Directory $entryRoot -Mode core -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master', '-Shard', 'core')
+    Assert-ValidationSelfCheck -Condition ($conflictEntry.ExitCode -ne 0 -and $conflictEntry.Output -match '\[SELFTEST-TASKID-CONFLICT\]') -Message 'task entrypoint accepted an explicit shard conflict.'
+    $failureEntry = Invoke-ValidationTaskEntrypointFixture -Directory $entryRoot -Mode failure -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master')
+    Assert-ValidationSelfCheck -Condition ($failureEntry.ExitCode -ne 0 -and $failureEntry.Output -match '\[ENTRYPOINT-PROOF-FAILURE\]') -Message 'task entrypoint did not propagate routing failure.'
     foreach ($invalid in @('t0-route', 'T0-MISSING')) {
       $rejected = $false; try { [void](Resolve-SelftestTaskRoute -RepoRoot $root -TaskId $invalid -Base master) } catch { $rejected = $true }
       Assert-ValidationSelfCheck -Condition $rejected -Message "invalid or missing task authority '$invalid' was accepted."
