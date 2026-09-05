@@ -19,6 +19,8 @@ non_goals:
   - 落地任何 Schedule / Capture / Report 界面代码（各自的 UI 卡拥有）
   - 底部导航的 icon+label 规则（DESIGN.md:922，本卡不触碰）
   - 新增图标依赖或图标资源
+  - 相机面控件（camera-control / camera-shutter / camera-overlay-control）与具名条件集的对齐——两者今天即纯符号且无 tooltip，对齐须改其 anatomy 或改 tooltip 条件，属设计决策（2026-09-06 用户裁定拆给 T4-DESIGN-SYMBOL-COMPONENT-ROWS）
+  - 其余组件矩阵行「Semantics and focus」列的逐行规范化（同上，归 T4-DESIGN-SYMBOL-COMPONENT-ROWS）
 acceptance:
   - "A1 DESIGN.md carries one named condition set under which a chrome control may be symbol-only, and that condition set is stated once and referenced from every clause that governs symbol-only chrome, so the document holds one rule rather than three"
   - "A2 the amended count clause still requires every count to carry its numeral and to announce the full count, and it no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant the same document declares"
@@ -163,10 +165,36 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 **DoD 第三次收紧（仍只加不减）**：新增 ASCII 正锚点 `Required by every symbol-only action glyph`，
 把这次收窄钉住。实测收紧后命令在 **master 基线仍退出 1（RED）**、本卡工作树退出 0（GREEN）。
 
-## R4 变异收据（2026-09-05 · 9/9 KILLED · 对应 R3 第 2 轮修复后的字节）
+## R3 第 3 轮：两条 finding，一条当场修，一条经用户裁定拆卡
+
+1. **`tooltip` 与 `state-badge` 两行仍在复述条件 3/4，而非解析到它**（`:1636-1637`）。属实：
+   「supplies the phrase that control also exposes as its accessible name」就是条件 3 的正文，
+   「so the owner names the state」就是条件 4 的正文。已改为只指向对应分支
+   （`that branch fixes its wording` / `follows that branch`），组件特有事实留在各自列。
+2. **相机面控件未解析到该集，且我引入的枚举与它们抵触**（`:1559` 与 `:1622-1623`）。
+   两半分开处理：
+   - **我引入的那半当场修**：第 1 轮我把 `:1756` 的动作清单（capture/compliance/privacy/delete/
+     finalize/backup/restore）原样搬进准入段，于是准入段自己宣称「capture 动作保留可见标签」——
+     而同文档的 `camera-shutter` 正是纯符号的 capture 控件。**这是本次 diff 引入的抵触**（L113），
+     已删掉该枚举，改为「凡组件合同要求可见标签者，该标签压在准入之上」并只举三个确有此要求的例子。
+     `:1756` 恢复为本卡未触碰的既有条款。
+   - **相机行的对齐拆出去**：`camera-control`（24dp 图标、anatomy 无 tooltip）与 `camera-shutter`
+     （72dp 圆、无障碍名 `Take photo`、无 tooltip）今天就是纯符号；让它们解析到本集，要么给相机控件加
+     tooltip（改 anatomy，且相机面长按与拍摄手势有冲突风险），要么把「动作字形必带 tooltip」改成
+     「按组件 anatomy 是否声明 tooltip 而定」。**两条都是设计决策、且改动 `T2-CAPTURE-UI` 将要实现的
+     组件合同**，不是文档整理。**2026-09-06 用户裁定拆给 `T4-DESIGN-SYMBOL-COMPONENT-ROWS`**，
+     并进本卡 `non_goals`。
+
+> **拆卡依据（不是回避 finding）**：连续三轮的 finding 同属一类——组件矩阵各行没有解析到新的中心规则。
+> 本仓已记过这条信号（`T0-CI-IDENTITY-DEADLINE` / `T3-REPORT-HTML-RENDERER`：一处反复吃 finding 的
+> 子问题通常是独立子问题，越早拆越省轮次）。据此，**A1「referenced from every clause」在本卡按缩小
+> 范围交付**：条件集本身 + 本卡盘点的那批条款已全部解析，组件矩阵各行归承接卡。此事实在此明记，
+> 不以「已全部解析」措辞蒙混。
+
+## R4 变异收据（2026-09-06 · 9/9 KILLED · 对应 R3 第 3 轮修复后的字节）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批，L270）：
-`context/DESIGN.md` = `93F021E11221F754282FB65389FF08EAFB004F5A613306837E8605C121EDA3E4` ·
+`context/DESIGN.md` = `A41263393E7212F5EE587484A207D000B37206D85DF89C90859F6AE85390C90F` ·
 `docs/UI-UX-ELEMENTS.md` = `F0B69A3148BD9202D0578FCAE8CFAEE8EE4DA094193F48653E6CB5F225FF7EC4`。
 基线 `dod_command` 退出 **0**（GREEN）；9 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚并中止，L190）、断言渲染后文本与 SHA 均已改变
@@ -196,4 +224,5 @@ M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 拆出的 OD-3（用户裁定选项 b）。开卡前已 grep 四处权威面，确认真抵触只有两句。 |
 | 2026-09-05 | 实现：新增具名条件集，四处条款解析到它，计数/状态两句按 A2/A3 重写。R4 6/6 击杀。记两处判断（锚点唯一化、`never the sole state channel` 归位）。 |
 | 2026-09-05 | R3 第 1 轮 block（PR #236），两条 finding 均属实：同类条款漏两处 · 条件集对纯状态字形不自洽。已修；`dod_command` 加两条正锚点把修复钉住（只加不减，master 仍 RED）。R4 重跑 8/8 击杀。 |
-| 2026-09-05 | R3 第 2 轮 block，一条 finding 属实且是第 1 轮修复的回归：`tooltip` 行仍对**全部**准入集声称。已收窄为动作字形，并顺同一透镜修 `state-badge` 姊妹处；`dod_command` 第三次收紧（仍只加不减）。R4 重跑 9/9 击杀。**轮次计数器已达上限 2/2，`-ResetRounds` 待用户裁定。** |
+| 2026-09-05 | R3 第 2 轮 block，一条 finding 属实且是第 1 轮修复的回归：`tooltip` 行仍对**全部**准入集声称。已收窄为动作字形，并顺同一透镜修 `state-badge` 姊妹处；`dod_command` 第三次收紧（仍只加不减）。R4 重跑 9/9 击杀。轮次达上限 2/2，**用户裁定 `-ResetRounds` 重跑**（三轮各为互不相同的真缺陷、逐条接受并修复，不属该闸要止住的同一争点拉锯）。 |
+| 2026-09-06 | R3 第 3 轮 block，两条 finding 均属实：两行仍复述条件 3/4（已改为解析）· 相机行未解析且与我引入的枚举抵触（枚举已删；相机行对齐**经用户裁定拆给 `T4-DESIGN-SYMBOL-COMPONENT-ROWS`** 并进 `non_goals`）。R4 重跑 9/9 击杀。 |
