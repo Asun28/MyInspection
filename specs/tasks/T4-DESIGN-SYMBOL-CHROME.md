@@ -36,6 +36,17 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 
 # T4-DESIGN-SYMBOL-CHROME
 
+> ## 已退役（2026-09-06，用户裁定）
+>
+> 6 轮 R3、**11 条 finding 全部属实**却未收敛（形态全是「新写的中心规则与文档既有实例不符」，
+> 每轮修完措辞下一轮在另一处冒出新缝），两次经用户裁定 `-ResetRounds`。用户裁定**关闭 PR #236、
+> 折进 `T4-DESIGN-SYMBOL-CHROME-V2` 重做**（该卡把「实例代入表」作为写规则正文之前的必做前置，
+> 见 L300）。同日撤销的还有 `T4-DESIGN-SYMBOL-COMPONENT-ROWS`（未曾开工，范围并入 V2）。
+>
+> **本卡不再开工**，保留全文作机构记忆：逐轮 finding、修法、两处判断记账与 R4 收据都是 V2 的输入。
+> 分支 `T4-DESIGN-SYMBOL-CHROME` **保留**（PR 已关但分支未删），其中那份经 6 轮打磨的草案
+> 除「chrome / domain content 边界」一段外可直接复用。
+
 ## Deliverable
 
 在 `context/DESIGN.md` 里把「一个 chrome 控件在什么条件下可以是纯符号」写成**一处具名条件集**，
