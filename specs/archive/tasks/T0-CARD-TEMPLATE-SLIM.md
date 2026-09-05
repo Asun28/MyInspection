@@ -3,7 +3,7 @@ id: T0-CARD-TEMPLATE-SLIM
 title: Adopt concise upstream card templates with compatible acceptance and optional requirement links
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-CARD-TEMPLATE-SLIM
 worktree: C:\wt\T0-CARD-TEMPLATE-SLIM
 allow_paths:

@@ -3,7 +3,7 @@ id: T0-SELFTEST-RISK-ROUTING
 title: Select existing scaffold selftest coverage from pinned task changes
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-SELFTEST-RISK-ROUTING
 worktree: C:\wt\T0-SELFTEST-RISK-ROUTING
 allow_paths:

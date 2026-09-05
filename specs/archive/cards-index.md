@@ -1,12 +1,13 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 172 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 175 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
 |---|---|---|
 | T0-CARD-ACCEPTANCE-FIELD | merged | 把 acceptance 作者声明的验收清单登记为正式卡片字段，并给它一道形态机检 |
 | T0-CARD-ACCEPTANCE-SETS | merged | 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据 |
+| T0-CARD-TEMPLATE-SLIM | merged | Adopt concise upstream card templates with compatible acceptance and optional requirement links |
 | T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-CI-HARDENING-SPLIT-PLAN | merged | 将候选 CI 硬化卡拆为分页契约与身份/deadline 两张可读串行卡 |
 | T0-CI-IDENTITY-DEADLINE | merged | 候选 CI 的 run 身份绑定与最终 exact-head/base 快照 |
@@ -119,6 +120,8 @@
 | T0-SCAFFOLD-SYNC-046 | merged | Evaluate upstream v0.46.0 and advance the scaffold high-water mark |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
+| T0-SELFTEST-NIGHTLY-META | merged | Run selftest aggregation stress checks nightly with explicit coverage receipts |
+| T0-SELFTEST-RISK-ROUTING | merged | Select existing scaffold selftest coverage from pinned task changes |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |

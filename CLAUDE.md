@@ -68,6 +68,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > rule 只放**指针**（不复制命名表正文，免双源漂移）；只用项目级 `.claude/rules/`，别用用户级 `~/.claude/rules/`（其 paths 有 bug）。详见 `.claude/rules/README.md`。
 
 ## 当前阶段
+
+脚手架维护已合入精简任务卡、按任务改动选择自检范围，以及每日/手动运行聚合压力测试；状态和验证记录见对应归档卡。上游评审策略与产品 compliance 触发隔离仍按各自活卡推进。
 <!-- 随 R5 文档同步更新。 -->
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
@@ -436,7 +438,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 的默认分支 push canary 只覆盖脚手架权威面，排除产品 `configs/compliance/**`，保留 license/secret 配置与手动触发；每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，覆盖不减（8.2d/8.2e 锁死）。合并前仍由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 的默认分支 push canary 只覆盖脚手架权威面，排除产品 `configs/compliance/**`，保留 license/secret 配置、每日与手动触发；每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，覆盖不减（8.2d/8.2e 锁死）。push 只将聚合压力夹具延后至每日/手动；生产检查保留，详见 DEVOPS-WORKFLOW。合并前仍由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -476,6 +478,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
 - **工作流自检**：脚手架/harness 改动运行 `pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片。任务卡可用 `pwsh -File scripts\selftest.ps1 -TaskId <id> -Base master` 选既有覆盖：基线卡与 FrozenPaths、分支身份、提交/暂存/脏/未跟踪改动任一不可判即以非零退出拒绝选择；普通产品改动只报 `NOT-APPLICABLE`（仍须做产品 DoD/verify），普通文档/卡片改动跑 core。脚手架卡可选聚焦 fixture 作迭代 DoD，最终验收按卡执行；产品卡使用相关产品测试 + `scripts/verify.ps1`，不把 scaffold selftest 当 DoD。
+  默认 `IncludeMeta=true` 保持完整本地覆盖；显式 `-IncludeMeta:$false` 延后聚合压力夹具，输出 DEFERRED 收据，不表示该夹具已通过。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
