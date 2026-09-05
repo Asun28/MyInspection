@@ -68,3 +68,11 @@ Td4ContinueProbeTest AssertionError; the no-continue test-first case, continue/A
 case, wrong-migration/REMOVED case and fixture cleanup all passed. Focused trigger,
 canary source-contract, actual 17ai inventory/mutations and gate-ID ownership also pass.
 Full integrated selftest remains the final delivery check; no full-suite result is claimed here.
+
+Combined validation update: `ee1ba6e7` passed core/workflow/scanner, the migration canary,
+inventory checks and project verify (32.10 seconds). Its sole 17ac mutation-setup failure
+from the review-policy integration was repaired; complete actual 17ac replay passed in
+574.42 seconds, then `e7b8f567` seeded-remote passed in1007.14 seconds. No prerequisite
+failure skips remain; nine existing environment/post-init skips are reported. Source
+identities and logs are in the main checkout's `_local/upstream-integration/`. These
+source-matched regression results do not claim a new single full-all run or idle timing.
