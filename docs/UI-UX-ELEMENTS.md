@@ -32,7 +32,7 @@
 
 `button-primary`、`button-secondary`、`button-destructive`、`icon-button`、`input-field`、`search-field`、`filter-chip-group`、`switch-row`、`checkbox-row`、`radio-group`、`segmented-control`、`choice-field`、`date-time-field`、`secure-input-field`、`confirmation-input`、`slider-field`、`status-choice`、`privacy-chip`、`validation-summary`。
 
-同一决策区只允许一个 `button-primary`。可逆替代动作使用 `button-secondary`；不可逆动作只有在影响预览与确认条件满足后才使用 `button-destructive`；纯图标操作必须使用 `icon-button` 并同时提供 tooltip 和无障碍名称。
+同一决策区只允许一个 `button-primary`。可逆替代动作使用 `button-secondary`；不可逆动作只有在影响预览与确认条件满足后才使用 `button-destructive`；纯图标操作必须使用 `icon-button`，并满足 `context/DESIGN.md` 的 Symbol-only chrome 准入条件（条件正文只在该文件声明，本文不复述）。
 
 ### 2.4 巡检、证据与媒体
 
@@ -119,7 +119,7 @@
 2. 焦点：进入页先到标题或阻断摘要；sheet/dialog/system surface 关闭后回到原触发点；修复缺失证据直达具体控件。
 3. 触控：目标至少 48×48dp，相邻目标至少 8dp；相机快门 72dp。
 4. 字体：200% 时完整换行，底部操作垂直增长；日期、状态、错误、缺失原因不可省略号截断。
-5. 主题：Light/Dark 使用同一语义 token；隐私、警告、错误、完成状态仍有文本和图标，不靠颜色。
+5. 主题：Light/Dark 使用同一语义 token；隐私、警告、错误、完成状态不靠颜色区分，其载体与「何时必须有可见标签」由 `context/DESIGN.md` 的状态条款与 symbol-only chrome 准入条件规定，本文不复述。
 6. 动效：Reduce Motion 下取消位移、缩放、脉冲和重复动画，只保留最多 100ms 淡入淡出及静态状态变化。
 7. 方向/尺寸（compact / medium / expanded）：Compact/Medium 保持单列；Expanded 内容最大 720dp；横屏时 Back、主要状态、快门和确认操作不可被遮挡。
 8. 系统区域：状态栏、手势导航、IME、安全绘制区域只由最外层容器消费一次；最后一项可滚到固定 dock 上方。
