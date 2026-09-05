@@ -191,10 +191,36 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 > 范围交付**：条件集本身 + 本卡盘点的那批条款已全部解析，组件矩阵各行归承接卡。此事实在此明记，
 > 不以「已全部解析」措辞蒙混。
 
-## R4 变异收据（2026-09-06 · 9/9 KILLED · 对应 R3 第 3 轮修复后的字节）
+## R3 第 4 轮：三条 finding 全部属实，全部当场修
+
+1. **拆卡后规则仍在声称相机控件已对齐**（#14 范围过度声称）。第 3 轮把相机面写进 `non_goals`，
+   但条件 3「每个动作字形都要 tooltip」仍然**绑住**了 `camera-control` / `camera-shutter` /
+   `camera-overlay-control`——它们的合同里根本没有 tooltip。**延期只有在规则显式豁免它们时才自洽**，
+   否则等于一边说「不管」一边把它们判为不合规。已在条件集末尾加一段显式豁免：点名这三个组件，
+   写明本节**不决定**相机面是否加 tooltip，在该决定落地前由它们各自的行管辖、本集不认领它们。
+   同时把 `icon-button` 行的「Every instance is admitted…no variant relaxes that set」收窄为
+   「Admitted as symbol-only chrome on the action-glyph branch」——原措辞的 `CAMERA` 变体读起来
+   像是替相机组件背书。
+2. **`Required by every symbol-only action glyph` 仍在 `tooltip` 行复述条件 3**（#7）。属实。
+   已把这句**移进条件 3 本身**（DoD 锚点随之搬家，仍只出现一次、`dod_command` 一字未改），
+   `tooltip` 行变成纯引用 `Governed by the action-glyph branch of symbol-only chrome`。
+3. **chrome/content 边界没有可判定的判据**（#7）。我写的「a status the user must read 是 domain content、
+   永不折成字形」与条件 4/5 允许状态字形、状态条款允许 glyph 承载状态，三者之间没有任何判据能分开
+   「受保护的领域内容」与「控件自身状态」。属实，是我留的洞。已补**可判定的判据**：**看取值有几种读数**
+   ——超过两种读数的值保留文字；只有二元存在与否、且拥有者已点明它标记什么的标记，才可以是字形。
+   并给出三个落在判据两边的实例（计数与巡检项状态保留文字；`Settings` 错误点不需要文字），
+   与同文档 `:922` 的 unlabelled error dot 和 `state-badge` 的「Merged into owner」自洽。
+
+> **一处过程事故记账**：改完后我在**上一批变异尚未跑完时**又起了一批，两批重叠，于是第二批读到的
+> 「基线」其实是第一批 M6 的变异态（实测该态 SHA = `EB9324…`，正是本批 M6 行记录的那一枚），
+> 遂 fail-closed 报「baseline is not GREEN」并**在任何植入之前中止**——守卫按设计生效，没有污染任何字节。
+> 已确认文件回到基线且 DoD 绿后，重跑单批得下列收据。**L196 又中一次**（其原文已写明「变异批进行中
+> 勿并行跑独立交叉复核」），R5 计数。
+
+## R4 变异收据（2026-09-06 · 9/9 KILLED · 对应 R3 第 4 轮修复后的字节）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批，L270）：
-`context/DESIGN.md` = `A41263393E7212F5EE587484A207D000B37206D85DF89C90859F6AE85390C90F` ·
+`context/DESIGN.md` = `2323854507C0FA26C19CEC39DF123C929739799232C543503B9EE704F032D9AF` ·
 `docs/UI-UX-ELEMENTS.md` = `F0B69A3148BD9202D0578FCAE8CFAEE8EE4DA094193F48653E6CB5F225FF7EC4`。
 基线 `dod_command` 退出 **0**（GREEN）；9 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚并中止，L190）、断言渲染后文本与 SHA 均已改变
@@ -210,7 +236,7 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 | M6 | A2 | DESIGN.md | `state-badge` 行去掉 `announce the full count` | 1 | KILLED |
 | M7 | A1/A3（R3 r1 #1） | DESIGN.md | 把 Colors 章的 label+icon 强制令还原、盖掉解析式状态句 | 1 | KILLED |
 | M8 | A1/A4（R3 r1 #1） | UI-UX-ELEMENTS.md | 删掉主题清单里小写 `symbol-only chrome` 那处解析 | 1 | KILLED |
-| M9 | A1（R3 r2） | DESIGN.md | 把 `tooltip` 行放宽回「所有 symbol-only chrome」，重新对状态字形过度声称 | 1 | KILLED |
+| M9 | A1（R3 r2/r4） | DESIGN.md | 把**条件 3** 放宽回「所有 symbol-only chrome」，等于重新给状态字形强加 tooltip | 1 | KILLED |
 
 M1/M5 证明 A1/A4 的具名锚点由**定义处与跨文档引用处**各自独占承载；M2/M3 证明 A2 的保留项与被删禁令两侧都在测；
 M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 `state-badge` 行蒙混）；M6 证明 DoD 仍在守
@@ -226,3 +252,4 @@ M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 
 | 2026-09-05 | R3 第 1 轮 block（PR #236），两条 finding 均属实：同类条款漏两处 · 条件集对纯状态字形不自洽。已修；`dod_command` 加两条正锚点把修复钉住（只加不减，master 仍 RED）。R4 重跑 8/8 击杀。 |
 | 2026-09-05 | R3 第 2 轮 block，一条 finding 属实且是第 1 轮修复的回归：`tooltip` 行仍对**全部**准入集声称。已收窄为动作字形，并顺同一透镜修 `state-badge` 姊妹处；`dod_command` 第三次收紧（仍只加不减）。R4 重跑 9/9 击杀。轮次达上限 2/2，**用户裁定 `-ResetRounds` 重跑**（三轮各为互不相同的真缺陷、逐条接受并修复，不属该闸要止住的同一争点拉锯）。 |
 | 2026-09-06 | R3 第 3 轮 block，两条 finding 均属实：两行仍复述条件 3/4（已改为解析）· 相机行未解析且与我引入的枚举抵触（枚举已删；相机行对齐**经用户裁定拆给 `T4-DESIGN-SYMBOL-COMPONENT-ROWS`** 并进 `non_goals`）。R4 重跑 9/9 击杀。 |
+| 2026-09-06 | R3 第 4 轮 block，三条 finding 全部属实且全部当场修：延期的相机控件仍被规则绑住（补显式豁免 + 收窄 `icon-button` 行）· 锚点句仍在 `tooltip` 行复述条件 3（移进条件 3 本体，`dod_command` 未改）· chrome/content 边界无可判定判据（补「取值读数是否超过两种」）。R4 重跑 9/9 击杀。**轮次再次达上限 2/2。** |
