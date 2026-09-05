@@ -222,10 +222,22 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 > 却按豁免不解析到本集。已把该句收窄为 `… except the three camera rows named at the end of this section`。
 > 这条本会是第 5 轮的 finding；**声称一旦收窄，就要回头检查所有引用该声称的句子**。
 
-## R4 变异收据（2026-09-06 · 9/9 KILLED · 对应 R3 第 4 轮修复后的字节）
+## R3 第 5 轮：两条 finding 均属实，均是第 4 轮措辞造成的自伤
+
+1. **全额播报的保证被我缩到了 `state-badge` 身上**（A2/REQ-104）。我写的是「计数永远带数字，
+   而 `state-badge` 可以在视觉上截断但不能截断播报」——于是**非徽标的计数**并没有被要求播报完整数值，
+   而 A2 要的是「every count … announce the full count」。已改为「it always carries its numeral
+   **and announces its full value**」，徽标那半作为视觉截断的例外保留在后。
+2. **条件 1 会把我自己举的两个例子判为不合规**（A1/A2 内部一致性）。条件 1 要求字形取自既有
+   iconography set，而我举的 `Settings` 错误点与 `state-badge` 的 `DOT` 都是**几何点标记**、
+   并非该 set 的成员——按条件 1 它们不合规 ⇒ 需要可见标签 ⇒ 正好把 A2 要消除的 DOT 抵触又造回来。
+   已在条件 1 显式接纳**组件自定义的二元状态标记**（`or is a component-defined binary state marker
+   such as a badge dot`），不引入任何图标资源（守本卡 `non_goals` 第 3 条）。
+
+## R4 变异收据（2026-09-06 · 9/9 KILLED · 对应 R3 第 5 轮修复后的字节）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批，L270）：
-`context/DESIGN.md` = `704A0D49AF4ACBB3D3CF50DD9995FF506D597B9291E8746A4ADDA0D1A1218275` ·
+`context/DESIGN.md` = `2970A04E081D0EEA8CC01217B7B742A27EBD479CD2B3F40BE6861195B00F6C4A` ·
 `docs/UI-UX-ELEMENTS.md` = `F0B69A3148BD9202D0578FCAE8CFAEE8EE4DA094193F48653E6CB5F225FF7EC4`。
 基线 `dod_command` 退出 **0**（GREEN）；9 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚并中止，L190）、断言渲染后文本与 SHA 均已改变
@@ -258,3 +270,4 @@ M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 
 | 2026-09-05 | R3 第 2 轮 block，一条 finding 属实且是第 1 轮修复的回归：`tooltip` 行仍对**全部**准入集声称。已收窄为动作字形，并顺同一透镜修 `state-badge` 姊妹处；`dod_command` 第三次收紧（仍只加不减）。R4 重跑 9/9 击杀。轮次达上限 2/2，**用户裁定 `-ResetRounds` 重跑**（三轮各为互不相同的真缺陷、逐条接受并修复，不属该闸要止住的同一争点拉锯）。 |
 | 2026-09-06 | R3 第 3 轮 block，两条 finding 均属实：两行仍复述条件 3/4（已改为解析）· 相机行未解析且与我引入的枚举抵触（枚举已删；相机行对齐**经用户裁定拆给 `T4-DESIGN-SYMBOL-COMPONENT-ROWS`** 并进 `non_goals`）。R4 重跑 9/9 击杀。 |
 | 2026-09-06 | R3 第 4 轮 block，三条 finding 全部属实且全部当场修：延期的相机控件仍被规则绑住（补显式豁免 + 收窄 `icon-button` 行）· 锚点句仍在 `tooltip` 行复述条件 3（移进条件 3 本体，`dod_command` 未改）· chrome/content 边界无可判定判据（补「取值读数是否超过两种」）。R4 重跑 9/9 击杀。**轮次再次达上限 2/2。** |
+| 2026-09-06 | R3 第 5 轮 block，两条 finding 均属实、均是第 4 轮措辞的自伤：全额播报保证被缩到 `state-badge`（已改回「每个计数都播报完整数值」）· 条件 1 会把我自己举的点标记例子判为不合规（已显式接纳组件自定义二元状态标记）。R4 重跑 9/9 击杀。**五轮共 10 条 finding 全部属实；编排者建议就此转人裁，不再请求第三次 reset。** |
