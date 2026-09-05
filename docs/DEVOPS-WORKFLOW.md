@@ -173,7 +173,14 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 纯文档 PR 仍产生同名 `verify` 状态，避免 required check 因 `pull_request.paths-ignore` 永久停在 Expected。只有非空改动全部位于 `docs/**`、`specs/**` 或为 Markdown 时才走轻量通道；该通道仍 fail-closed 运行卡片校验、归档索引投影与普通密钥扫描，跳过 Python/Java/Android/Gradle、许可和产品 E2E。源码、脚本、workflow、混合或分类失败一律完整 CI。默认分支纯文档 push 继续由既有 `paths-ignore` 跳过；含代码 push 与手动触发完整执行。
 
-`scaffold-selftest` 不进 PR 必需检查；仅默认分支权威面 push 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。
+`scaffold-selftest` 不进 PR 必需检查；默认分支权威面 push、每日 03:17 UTC 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。
+
+本地不带参数的 `scripts/selftest.ps1` 保持完整覆盖，`-IncludeMeta` 默认启用。普通 push 显式传
+`-IncludeMeta:$false`，只把 8.2e 的聚合压力夹具延后至每日/手动全量运行；矩阵接线、失败传播及
+生产脚本行为检查仍每次运行。输出 `[SELFTEST-META]` 的 EXECUTED / DEFERRED 收据；未知、重复或
+缺失收据会失败，DEFERRED 不等于夹具通过。可用 `-Fixture meta-routing` 快速验证选择与子进程透传。
+常规 push 与全量每日/手动运行使用不同并发组，避免新 push 取消唯一补跑 meta 的全量运行。
+两 OS 与五分片维持每项 20 分钟的原有效上限；旧配置的 `seeded` 条件从未匹配实际 `seeded-*` 分片。
 
 卡片执行 `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id> -Base master` 时，路由器只读取已钉住本地基线中的卡片和 `FrozenPaths`，并盘点分支的提交、暂存、脏与未跟踪路径（改名两端都计）。普通 `android/` 或 `configs/` 产品路径输出 `NOT-APPLICABLE`，不替代产品 DoD/verify；普通文档/任务卡路径执行既有 core；脚本、冻结、关键安全/交付文档、未知或混合路径一律完整跑。未带 `-TaskId` 仍是完整自检。
 

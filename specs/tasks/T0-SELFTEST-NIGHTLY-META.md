@@ -34,3 +34,19 @@ doc_sync: Document full local default, explicit deferred coverage and daily/manu
 Adapt upstream PRs #362/#365/#369 only at the local selftest aggregation stress harness.
 The regular path retains matrix validation, failure-protocol tests and production-script tests.
 The user's 2026-09-05 instruction authorizes adoption. No runtime saving is claimed before measurement.
+
+Validation (2026-09-06 NZ): the focused fixture replays the full production outer 8.2e
+control envelope, replacing only its expensive stress body with an observable body. It proves
+both IncludeMeta outcomes (EXECUTED and DEFERRED receipts), preserves the real `all` entry and
+its terminating exit, and retains true/false receipts from each real child. Genuine RED
+sources are `_local/meta-routing-genuine-red.log` (the former extracted-fragment replay
+survived a forced preceding branch) and `_local/meta-all-genuine-red.log` (the former extracted
+all-entry replay accepted an exit bypass); the full-envelope replay rejects those failures plus
+selector inversion, completion deletion, and receipt-output deletions. Focused GREEN is
+`_local/meta-routing-final-green.log` (exit `0`); mutation replay preserves the source SHA.
+
+Combined evidence: the original `ee1` full run passed core, workflow, and scanner. A setup
+issue in the separate review-policy integration at `17ac` was fixed in final `e7`, whose full
+actual 17ac run passed in 574.42 s. The final seeded-remote run passed in 1007.14 s with nine
+known skips and no prerequisite skips; `verify.ps1` passed in 32.10 s. These are combined-run
+records only: no new single full-`all` run or idle-speed claim is made here.
