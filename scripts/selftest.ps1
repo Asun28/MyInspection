@@ -1489,12 +1489,12 @@ if ($Fixture -eq 'meta-routing') {
   $metaIntegrationSourcePath = $PSCommandPath
   $metaIntegrationOriginalBytes = [IO.File]::ReadAllBytes($metaIntegrationSourcePath)
   $metaIntegrationOriginalSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($metaIntegrationOriginalBytes)).ToLowerInvariant()
-  $getMetaIntegrationAstParts = {
+  $getMetaIntegrationEnvelope = {
     param([string]$Source)
     $tokens = $null; $errors = $null
     $ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
     if ($errors.Count -ne 0) { throw '[SELFTEST-META-INTEGRATION] production source did not parse.' }
-    $functions = @('New-SelftestMetaLedger', 'Start-SelftestMetaCheck', 'Complete-SelftestMetaCheck', 'Test-SelftestMetaReceipt') |
+    $functions = @('New-SelftestMetaLedger', 'Start-SelftestMetaCheck', 'Complete-SelftestMetaCheck', 'Test-SelftestMetaReceipt', 'Get-SelftestAggregateExitCode', 'Test-SelftestCiMatrixContract', 'Test-SelftestCiWiringContract') |
       ForEach-Object {
         $functionName = $_
         $matches = @($ast.FindAll({ param($node) ($node -is [Management.Automation.Language.FunctionDefinitionAst]) -and $node.Name -ceq $functionName }, $true))
@@ -1513,33 +1513,50 @@ if ($Fixture -eq 'meta-routing') {
     }
     $complete = @($selector[0].Clauses[0].Item2.Statements | Where-Object { $_.Extent.Text -ceq "Complete-SelftestMetaCheck `$metaLedger82 '8.2e/harness'" })
     if ($complete.Count -ne 1) { throw '[SELFTEST-META-INTEGRATION] exact 8.2e completion call is missing or ambiguous.' }
-    return [pscustomobject]@{ Functions = $functions; Ledger = $ledger[0].Extent.Text; Selector = $selector[0].Clauses[0].Item1.Extent.Text; Complete = $complete[0].Extent.Text; Skip = $selector[0].ElseClause.Statements[0].Extent.Text; Guard = $guard[0].Extent.Text }
+    $enclosing = $selector[0].Parent.Parent
+    if ($enclosing -isnot [Management.Automation.Language.IfStatementAst] -or $enclosing.Clauses.Count -ne 2) {
+      throw '[SELFTEST-META-INTEGRATION] 8.2e selector is not inside the expected production enclosing branch.'
+    }
+    $workflow = @($ast.FindAll({ param($node) ($node -is [Management.Automation.Language.AssignmentStatementAst]) -and
+        ($node.Left -is [Management.Automation.Language.VariableExpressionAst]) -and $node.Left.VariablePath.UserPath -ceq 'selftestWorkflow' }, $true))
+    if ($workflow.Count -ne 1) { throw '[SELFTEST-META-INTEGRATION] exact production workflow load is missing or ambiguous.' }
+    $actualBody = $selector[0].Clauses[0].Item2.Extent.Text
+    $stubBody = "{`n  `$script:metaReplayBodyRan = `$true`n  Write-Host '[META-REPLAY-BODY] ran=True'`n  $($complete[0].Extent.Text)`n}"
+    $enclosingSource = $enclosing.Extent.Text
+    if ([regex]::Matches($enclosingSource, [regex]::Escape($actualBody)).Count -ne 1) {
+      throw '[SELFTEST-META-INTEGRATION] exact expensive 8.2e body is missing or ambiguous.'
+    }
+    return [pscustomobject]@{
+      Functions = $functions
+      Ledger = $ledger[0].Extent.Text
+      Workflow = $workflow[0].Extent.Text
+      Enclosing = $enclosingSource.Replace($actualBody, $stubBody)
+      EnclosingBlocker = $enclosing.Clauses[0].Item1.Extent.Text
+      Guard = $guard[0].Extent.Text
+    }
   }
   $invokeMetaIntegrationReplay = {
     param([string]$Source, [bool]$Enabled)
-    try { $parts = & $getMetaIntegrationAstParts $Source }
+    try { $parts = & $getMetaIntegrationEnvelope $Source }
     catch { return [pscustomobject]@{ ExitCode = 1; Output = $_.Exception.Message } }
     $replayRoot = Join-Path ([IO.Path]::GetTempPath()) ('selftest-meta-integration-' + [guid]::NewGuid().ToString('N'))
-    $replayPath = Join-Path $replayRoot 'replay.ps1'
+    $replayPath = Join-Path $replayRoot 'scripts/selftest.ps1'
     try {
-      New-Item -ItemType Directory -Path $replayRoot -Force | Out-Null
+      New-Item -ItemType Directory -Path (Join-Path $replayRoot 'scripts'), (Join-Path $replayRoot '.github/workflows') -Force | Out-Null
+      Copy-Item -LiteralPath (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Destination (Join-Path $replayRoot '.github/workflows/scaffold-selftest.yml') -Force
       $replay = @"
 param([switch]`$IncludeMeta)
 Set-StrictMode -Version Latest
 `$ErrorActionPreference = 'Stop'
+`$RepoRoot = (Resolve-Path (Join-Path `$PSScriptRoot '..')).Path
 `$script:metaReplayBodyRan = `$false
 `$script:metaReplayFailed = `$false
 $($parts.Functions -join "`n`n")
 function Skip-SelftestCheck { param([string]`$GateId, [string]`$Reason, [string]`$Message); Write-Host "[META-REPLAY-SKIP] gate=`$GateId reason=`$Reason" }
 function Fail([string]`$Message) { `$script:metaReplayFailed = `$true; Write-Host "[META-REPLAY-FAIL] `$Message" }
 $($parts.Ledger)
-if ($($parts.Selector)) {
-  `$script:metaReplayBodyRan = `$true
-  Write-Host '[META-REPLAY-BODY] ran=True'
-  $($parts.Complete)
-} else {
-  $($parts.Skip)
-}
+$($parts.Workflow)
+$($parts.Enclosing)
 $($parts.Guard)
 if (`$script:metaReplayFailed) { exit 1 }
 Write-Host "[META-REPLAY-RESULT] body-ran=`$script:metaReplayBodyRan receipt=`$(`$metaLedger82['8.2e/harness'])"
@@ -1576,11 +1593,13 @@ exit 0
   if ($metaIntegrationBaselineFailures.Count -ne 0) { throw "[SELFTEST-META-INTEGRATION] baseline replay failed modes=$($metaIntegrationBaselineFailures -join ',')." }
   $metaSelector = "Start-SelftestMetaCheck `$metaLedger82 '8.2e/harness' `$IncludeMeta.IsPresent"
   $metaComplete = "Complete-SelftestMetaCheck `$metaLedger82 '8.2e/harness'"
+  $metaEnclosingBlocker = (& $getMetaIntegrationEnvelope $metaIntegrationSource).EnclosingBlocker
   $metaStartOutput = 'Write-Host ' + '"[SELFTEST-META] gate=$Id state=$($Ledger[$Id])"'
   $metaCompleteOutput = 'Write-Host ' + '"[SELFTEST-META] gate=$Id state=EXECUTED"'
   $metaIntegrationMutations = [ordered]@{
     'SELECTOR-INVERTED' = @($metaSelector, "-not ($metaSelector)")
     'COMPLETE-DELETED' = @($metaComplete, '')
+    'ENCLOSING-BRANCH-UNREACHABLE' = @($metaEnclosingBlocker, '$true')
     'START-RECEIPT-DELETED' = @($metaStartOutput, '')
     'EXECUTED-RECEIPT-DELETED' = @($metaCompleteOutput, '')
   }
@@ -1645,21 +1664,74 @@ exit 0
     $metaSavedDelay = $PSDefaultParameterValues['Invoke-SelftestAll:CoreDelaySeconds']
     $PSDefaultParameterValues['Invoke-SelftestAll:CoreDelaySeconds'] = 0
     try {
-    foreach ($metaMode in @($true, $false)) {
-      foreach ($oldLog in @(Get-ChildItem -LiteralPath $metaLog -File)) { Remove-Item -LiteralPath $oldLog.FullName -Force }
-      $metaEntryExit = & {
-        param($TargetRoot, $Requested, $EntryStatement)
-        $RepoRoot = $TargetRoot; $IncludeMeta = [switch]$Requested; $StrictLint = [switch]$false
-        . ([scriptblock]::Create($EntryStatement))
-        return $aggregateExit
-      } $metaTemp $metaMode $metaEntryStatement
-      if ($metaEntryExit -ne 0) { throw 'Actual all entry meta forwarding failed.' }
-      $flags = @(Get-ChildItem -LiteralPath $metaLog -File | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw).Trim() })
-      if ($flags.Count -ne 3 -or @($flags | Where-Object { $_ -cne "$metaMode" }).Count) { throw 'Aggregate lost meta mode for core, workflow or seeded.' }
-    }
+      foreach ($metaMode in @($true, $false)) {
+        foreach ($oldLog in @(Get-ChildItem -LiteralPath $metaLog -File)) { Remove-Item -LiteralPath $oldLog.FullName -Force }
+        $metaEntryExit = & {
+          param($TargetRoot, $Requested, $EntryStatement)
+          $RepoRoot = $TargetRoot; $IncludeMeta = [switch]$Requested; $StrictLint = [switch]$false
+          . ([scriptblock]::Create($EntryStatement))
+          return $aggregateExit
+        } $metaTemp $metaMode $metaEntryStatement
+        if ($metaEntryExit -ne 0) { throw 'Actual all entry meta forwarding failed.' }
+        $flags = @(Get-ChildItem -LiteralPath $metaLog -File | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw).Trim() })
+        if ($flags.Count -ne 3 -or @($flags | Where-Object { $_ -cne "$metaMode" }).Count) { throw 'Aggregate lost meta mode for core, workflow or seeded.' }
+      }
     } finally {
       if ($metaDelayBound) { $PSDefaultParameterValues['Invoke-SelftestAll:CoreDelaySeconds'] = $metaSavedDelay } else { [void]$PSDefaultParameterValues.Remove('Invoke-SelftestAll:CoreDelaySeconds') }
     }
+    $metaAllSource = [IO.File]::ReadAllText($PSCommandPath)
+    $metaAllOriginalSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($PSCommandPath))).ToLowerInvariant()
+    $invokeMetaAllEntryReplay = {
+      param([string]$Source, [bool]$Enabled)
+      $tokens = $null; $errors = $null
+      $ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+      if ($errors.Count -ne 0) { return [pscustomobject]@{ ExitCode = 1; Output = '[SELFTEST-META-ALL] production source did not parse.' } }
+      $entries = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses.Count -eq 1 -and $node.Clauses[0].Item1.Extent.Text -ceq '$Shard -eq ''all''' }, $true))
+      $termination = 'exit ' + '$aggregateExit'
+      if ($entries.Count -ne 1 -or [regex]::Matches($entries[0].Extent.Text, [regex]::Escape($termination)).Count -ne 1) {
+        return [pscustomobject]@{ ExitCode = 1; Output = '[SELFTEST-META-ALL] actual all entry or termination is missing or ambiguous.' }
+      }
+      $root = Join-Path ([IO.Path]::GetTempPath()) ('selftest-meta-all-entry-' + [guid]::NewGuid().ToString('N'))
+      $path = Join-Path $root 'scripts/selftest.ps1'
+      try {
+        New-Item -ItemType Directory -Path (Join-Path $root 'scripts') -Force | Out-Null
+        $replay = @"
+param([switch]`$IncludeMeta)
+Set-StrictMode -Version Latest
+`$ErrorActionPreference = 'Stop'
+`$Shard = 'all'
+`$RepoRoot = (Resolve-Path (Join-Path `$PSScriptRoot '..')).Path
+`$StrictLint = [switch]`$false
+function Invoke-SelftestAll {
+  param([string]`$SourceRoot, [bool]`$ForwardStrictLint, [bool]`$StrictLintValue, [bool]`$IncludeMeta)
+  Write-Host "[META-ALL-REPLAY-CALL] include=`$IncludeMeta strict-bound=`$ForwardStrictLint strict=`$StrictLintValue source=`$SourceRoot"
+  return 0
+}
+$($entries[0].Extent.Text)
+Write-Host '[META-ALL-REPLAY-FALLTHROUGH]'
+exit 1
+"@
+        [IO.File]::WriteAllText($path, $replay, [Text.UTF8Encoding]::new($false))
+        $output = (& pwsh -NoProfile -File $path -IncludeMeta:$Enabled 2>&1 | Out-String)
+        return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+      } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    foreach ($metaMode in @($true, $false)) {
+      $replay = & $invokeMetaAllEntryReplay $metaAllSource $metaMode
+      if ($replay.ExitCode -ne 0 -or $replay.Output -notmatch "\[META-ALL-REPLAY-CALL\] include=$metaMode strict-bound=False strict=False" -or $replay.Output -match '\[META-ALL-REPLAY-FALLTHROUGH\]') {
+        throw "Actual all entry meta forwarding failed: $($replay.Output)"
+      }
+    }
+    $metaAllExit = 'exit ' + '$aggregateExit'
+    $metaAllSurvivors = @(@{ 'ALL-EXIT-BYPASSED' = @($metaAllExit, "if (`$false) { $metaAllExit }") }.GetEnumerator() | Where-Object {
+      $target, $replacement = @($_.Value)
+      if ([regex]::Matches($metaAllSource, [regex]::Escape($target)).Count -ne 1) { return $true }
+      $replay = & $invokeMetaAllEntryReplay ($metaAllSource.Replace($target, $replacement)) $true
+      $replay.ExitCode -eq 0 -and $replay.Output -notmatch '\[META-ALL-REPLAY-FALLTHROUGH\]'
+    } | ForEach-Object { [string]$_.Key })
+    $metaAllFinalSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($PSCommandPath))).ToLowerInvariant()
+    if ($metaAllOriginalSha -cne $metaAllFinalSha) { throw '[SELFTEST-META-ALL] mutation replay did not restore original selftest bytes.' }
+    if ($metaAllSurvivors.Count -ne 0) { throw "[SELFTEST-META-ALL] actual all-entry mutations survived: $($metaAllSurvivors -join ',')." }
   } finally {
     if ($null -eq $metaSavedLog) { Remove-Item Env:SCAFFOLD_META_FIXTURE_LOG -ErrorAction SilentlyContinue } else { $env:SCAFFOLD_META_FIXTURE_LOG = $metaSavedLog }
     $resolvedMetaTemp = [IO.Path]::GetFullPath($metaTemp)

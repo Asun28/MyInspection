@@ -35,17 +35,18 @@ Adapt upstream PRs #362/#365/#369 only at the local selftest aggregation stress 
 The regular path retains matrix validation, failure-protocol tests and production-script tests.
 The user's 2026-09-05 instruction authorizes adoption. No runtime saving is claimed before measurement.
 
-Validation (2026-09-06 NZ): meta-routing passed with the actual all entry and every child
-receiving both flag values. Exact 8.2e source replay passed with IncludeMeta=false and a
-DEFERRED receipt. Full enabled replay executed all stress cases and failed only its existing
-early-exit controller watchdog while concurrent jobs were active; rerunning that exact case
-on unchanged source passed, with EXECUTED receipt. The initial failed log is retained beside
-the passing recheck under `_local/`; no timeout or assertion was changed to obtain it.
-The focused fixture now extracts the production 8.2e ledger setup, selector, completion,
-deferred skip, and final receipt guard from the parsed source, replacing only the stress body
-with an observable body. It proves exact EXECUTED and DEFERRED receipts and body selection,
-and kills independent selector inversion, completion deletion, start-receipt deletion, and
-executed-receipt deletion mutations while confirming the original selftest bytes SHA is
-unchanged. `pwsh -NoProfile -File scripts/selftest.ps1 -Fixture meta-routing` passed after
-this replay addition (log `_local/meta-routing-r3.log`, exit `0`).
-A full integrated selftest remains required before final delivery.
+Validation (2026-09-06 NZ): the focused fixture replays the full production outer 8.2e
+control envelope, replacing only its expensive stress body with an observable body. It proves
+both IncludeMeta outcomes (EXECUTED and DEFERRED receipts), preserves the real `all` entry and
+its terminating exit, and retains true/false receipts from each real child. Genuine RED
+sources are `_local/meta-routing-genuine-red.log` (the former extracted-fragment replay
+survived a forced preceding branch) and `_local/meta-all-genuine-red.log` (the former extracted
+all-entry replay accepted an exit bypass); the full-envelope replay rejects those failures plus
+selector inversion, completion deletion, and receipt-output deletions. Focused GREEN is
+`_local/meta-routing-final-green.log` (exit `0`); mutation replay preserves the source SHA.
+
+Combined evidence: the original `ee1` full run passed core, workflow, and scanner. A setup
+issue in the separate review-policy integration at `17ac` was fixed in final `e7`, whose full
+actual 17ac run passed in 574.42 s. The final seeded-remote run passed in 1007.14 s with nine
+known skips and no prerequisite skips; `verify.ps1` passed in 32.10 s. These are combined-run
+records only: no new single full-`all` run or idle-speed claim is made here.
