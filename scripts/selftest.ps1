@@ -124,6 +124,8 @@ param(
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
   [string]$NoGitMutationNonce = '',
+  [string]$TaskId = '',
+  [string]$Base = 'master',
   [switch]$StrictLint
 )
 
@@ -1829,7 +1831,28 @@ if ($Fixture -eq 'gate-id-mutant') {
   exit 1
 }
 
-# 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
+# An explicit task run selects only existing scaffold coverage. The authority is
+# the pinned local base card/config, not the task worktree's editable copies.
+# No TaskId keeps the original full-suite entry point unchanged.
+if ($TaskId) {
+  if ($Fixture -or $GateIdMutation -or $NoGitFixtureCase -or $NoGitFixtureNonce -or $NoGitMutationNonce -or $PSBoundParameters.ContainsKey('Shard')) {
+    throw '[SELFTEST-TASKID-CONFLICT] -TaskId cannot be combined with an explicit shard, fixture, or mutation mode.'
+  }
+  . (Join-Path $PSScriptRoot '_validation.ps1') -SelfCheck:$false
+  $taskRoute = Resolve-SelftestTaskRoute -RepoRoot $RepoRoot -TaskId $TaskId -Base $Base
+  Write-Host "[SELFTEST-TASK-ROUTE] task=$TaskId mode=$($taskRoute.Mode) reason=$($taskRoute.Reason) base=$($taskRoute.BaseOid) paths=$($taskRoute.Paths.Count)" -ForegroundColor DarkGray
+  if ($taskRoute.Mode -eq 'not-applicable') {
+    Write-Host "[SELFTEST-NOT-APPLICABLE] task=$TaskId changed only ordinary product paths. No scaffold selftest was run; complete the card DoD and product verify separately." -ForegroundColor Yellow
+    exit 0
+  }
+  if ($taskRoute.Mode -eq 'core') { $Shard = 'core' }
+}
+elseif ($PSBoundParameters.ContainsKey('Base')) {
+  throw '[SELFTEST-BASE-WITHOUT-TASK] -Base only applies with -TaskId.'
+}
+
+# Every explicit shard, including a TaskId-selected core shard, proves the CI
+# wiring before execution so route selection cannot bypass that existing guard.
 if ($Shard -ne 'all') {
   $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
   $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
@@ -1950,6 +1973,10 @@ if ($Shard -eq 'core') {
 [void]$executedGateGroups.Add('core:1-14')
 # --- 1. PowerShell 语法 ---
 Step '1/17 PowerShell 语法（ParseFile）'
+# T0-SELFTEST-RISK-ROUTING: pure classes and real-git authority fixtures
+# extend core gate 1. This deliberately adds no gate or shard.
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot '_validation.ps1') -SelfCheck
+if ($LASTEXITCODE -ne 0) { Fail '闸1：task-scoped selftest routing helper selfcheck failed.' }
 $ps1 = @(Get-ChildItem -Path (Join-Path $RepoRoot 'scripts') -Filter *.ps1 -Recurse) +
        @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/hooks') -Filter *.ps1 -Recurse -ErrorAction SilentlyContinue) +
        @(Get-Item (Join-Path $RepoRoot 'init-scaffold.ps1'))
