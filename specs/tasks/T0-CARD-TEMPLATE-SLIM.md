@@ -44,3 +44,12 @@ requirements help link obligations to evidence but never invent obligations to f
 The user's fewer-gates instruction authorizes a bounded replay of the existing card tests for
 iteration. This fixture does not change general task routing, CI scheduling or shard contents.
 The full core acceptance in A4 remains mandatory before final delivery.
+
+Final acceptance evidence (2026-09-06 NZ): the full `selftest.ps1 -Shard core` completed
+with exit 0 and `selftest(core): PASS` on the production implementation (1496.5 seconds under
+concurrent machine load; this is validation, not a speed benchmark). The focused fixture
+also passed the complete existing-card checker, generator-schema assertions and seven guard
+mutations (110.3 seconds after adding R0/R01 rejection fixtures). Deleting only the positive-ID
+condition made both new fixtures fail; restoring it made both pass. Production code remained
+unchanged, so the full core run was not repeated for these test additions. Logs are retained
+under this worktree's `_local/` directory.

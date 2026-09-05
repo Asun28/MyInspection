@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   任务卡静态校验：在动手前/CI 里机检 specs\tasks\*.md 的 front-matter 自洽，
@@ -23,7 +23,8 @@
     - dod_command 嵌套 `pwsh … -Command "…$var…"` 且内含会被内插的 $ 变量——task.ps1 双层 `pwsh -Command` 执行下
       内层 $var 被中间 shell 内插成空串、孙 shell ParserError exit 1，`-Phase red` 误当合法 RED（vacuous RED；TD69/L95）。
     - allow_paths 缺失（review.ps1 据此判越界）。
-    - acceptance 存在时非 >=3 条块式双引号字符串，或编号非严格 A1..An。
+    - acceptance 存在时须为一条起的非空块式双引号字符串，编号严格 A1..An。
+    - 可选 requirements 的 R-id 缺失/重复/描述为空，或 acceptance 引用了未定义的 [R-id]。
     - 卡文含模板占位符 token 字面量（双大括号包裹**大写蛇形**名，-cmatch 严格大写）——真 token 只应出现在模板产物；
       混进卡文，init 干跑冒烟会替换污染卡 / 留残留占位符触发失败，卡登记直推 master 即 CI 红（L61/TD111；selftest 闸10g 回归）。
     - 全卡模式：parallelizable_with（可选字段）声明并行的卡对，allow_paths 归一化前缀重叠——
@@ -230,44 +231,28 @@ foreach ($cf in $cards) {
     }
   }
 
-  # acceptance：可选作者声明，只判规范形态，不判条目内容是否够精确。
-  # 本仓无 YAML 解析依赖；故只登记块式双引号序列，允许其中的空行/注释，遇下一个顶层键即停。
-  $acKeyLine = -1; $acKeyCount = 0; $acKeyGlued = $false; $acLines = @($fm -split '\r?\n')
-  for ($acI = 0; $acI -lt $acLines.Count; $acI++) {
-    if ($acLines[$acI] -match '^acceptance\s*:(?<sep>[ \t]*)(?<inline>.*)$') {
-      $acKeyCount++
-      if ($acKeyLine -lt 0) {
-        $acKeyLine = $acI; $acInline = $Matches['inline']
-        $acKeyGlued = $Matches['sep'].Length -eq 0 -and $acInline.StartsWith('#')
-      }
-    }
-  }
-  if ($acKeyLine -lt 0) {
+  # Optional declarations use one quoted-list grammar; absence adds no obligation.
+  $ac = Get-CardQuotedList $fm 'acceptance' 'A'
+  if (-not $ac.Present) {
     $cardWarns += "[CARD-ACCEPTANCE-ADVISORY] [$name] acceptance missing (optional author declaration)" # CARD-ACCEPTANCE-ADVISORY-GUARD
   } else {
-    $acEntry = 0; $acIndent = $null; $acShapeBad = if ($acKeyGlued -or $acKeyCount -gt 1) { 1 } else { 0 }; $acNumberBad = 0; $acNumberActual = ''
-    $acInlineValue = ($acInline -replace '^\s*#.*$', '' -replace '\s+#.*$', '').Trim()
-    if ($acInlineValue) { $acShapeBad = 1 }
-    for ($acI = $acKeyLine + 1; $acI -lt $acLines.Count; $acI++) {
-      $acLine = $acLines[$acI]
-      if ($acLine -match '^[^\s#].*?:') { break }
-      if ([string]::IsNullOrWhiteSpace($acLine) -or $acLine -match '^\s*#') { continue }
-      $acEntry++
-      $acShape = if ($acLine -match '^(?<indent> +)- +(?<value>.+?)\s*$') {
-        $acThisIndent = $Matches['indent']; $acValue = $Matches['value']
-        if ($null -eq $acIndent) { $acIndent = $acThisIndent }
-        if ($acThisIndent -cne $acIndent) { [regex]::Match('', '(?!)') }
-        else { [regex]::Match($acValue, '^"(?<label>A[0-9]+)\s+(?:[^"\\]|\\(?:[ 0abtnvfre"/N_LP\\]|x[0-9A-Fa-f]{2}|u(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|U(?:0000(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|00(?:0[1-9A-Fa-f]|10)[0-9A-Fa-f]{4})))+"(?:[ \t]+#.*|[ \t]*)$') }
-      } else { [regex]::Match('', '(?!)') }
-      if (-not $acShape.Success -and $acShapeBad -eq 0) { $acShapeBad = $acEntry }
-      if ($acShape.Success -and $acShape.Groups['label'].Value -cne "A$acEntry" -and $acNumberBad -eq 0) {
-        $acNumberBad = $acEntry; $acNumberActual = $acShape.Groups['label'].Value
-      }
-    }
-    if ($acEntry -lt 3 -and $acShapeBad -eq 0) { $acShapeBad = $acEntry + 1 }
-    if ($acShapeBad -gt 0) { $cardErrors += "[CARD-ACCEPTANCE-INVALID] [$name] entry=$acShapeBad reason=shape expected=>=3-block-double-quoted-strings" } # CARD-ACCEPTANCE-SHAPE-GUARD
-    if ($acNumberBad -gt 0) { $cardErrors += "[CARD-ACCEPTANCE-INVALID] [$name] entry=$acNumberBad reason=number expected=A$acNumberBad actual=$acNumberActual" } # CARD-ACCEPTANCE-NUMBER-GUARD
+    $acNumberBad = @($ac.Items | Where-Object { $_.Label -cne "A$($_.Entry)" } | Select-Object -First 1)
+    if ($ac.InvalidEntry -gt 0) { $cardErrors += "[CARD-ACCEPTANCE-INVALID] [$name] entry=$($ac.InvalidEntry) reason=shape expected=one-or-more-nonempty-block-double-quoted-strings" } # CARD-ACCEPTANCE-SHAPE-GUARD
+    if ($acNumberBad.Count) { $cardErrors += "[CARD-ACCEPTANCE-INVALID] [$name] entry=$($acNumberBad[0].Entry) reason=number expected=A$($acNumberBad[0].Entry) actual=$($acNumberBad[0].Label)" } # CARD-ACCEPTANCE-NUMBER-GUARD
   }
+  $rq = Get-CardQuotedList $fm 'requirements' 'R'; $requirementIds = @{}
+  if ($rq.InvalidEntry -gt 0) { $cardErrors += "[CARD-REQUIREMENTS-INVALID] [$name] entry=$($rq.InvalidEntry) reason=shape expected=nonempty-block-double-quoted-R-id-strings" } # CARD-REQUIREMENTS-SHAPE-GUARD
+  foreach ($requirement in $rq.Items) {
+    if ($requirement.Label -cnotmatch '^R[1-9][0-9]*$' -or $requirementIds.ContainsKey($requirement.Label)) { $cardErrors += "[CARD-REQUIREMENTS-INVALID] [$name] entry=$($requirement.Entry) reason=id expected=unique-positive-R-id actual=$($requirement.Label)" } # CARD-REQUIREMENTS-ID-GUARD
+    $requirementIds[$requirement.Label] = $true
+  }
+  foreach ($item in $ac.Items) {
+    foreach ($reference in [regex]::Matches($item.Text, '\[(R[0-9]+)\]')) {
+      $referenceId = $reference.Groups[1].Value
+      if (-not $requirementIds.ContainsKey($referenceId)) { $cardErrors += "[CARD-REQUIREMENTS-INVALID] [$name] entry=$($item.Entry) reason=reference missing=$referenceId" } # CARD-REQUIREMENTS-REF-GUARD
+    }
+  }
+
 
   # allow_paths：评审越界判定所需
   if ($fm -notmatch '(?m)^allow_paths\s*:') { $cardErrors += "[$name] allow_paths 缺失（review.ps1 据此判越界）" }
