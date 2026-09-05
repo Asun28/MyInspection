@@ -344,7 +344,9 @@ pass 零 finding）——注册诊断按 delivery 字段词汇发布：`error_co
 故**同一个 error_code 可渲染出两种 cause_code**（`IOException` 的 callback = `io`，`SecurityException` 的
 = `security`）。身份**作为一个值**判定：occurrence 非摘要形状或 generation 为负 ⇒ 两半与派生 id **皆 null**
 ——而这两个条件恰是 `reminderGenerationId` 自己的前置条件，故被拒的身份也永不会被拿去派生。
-40 测试 / 26 变异全杀 / 26 枚只编译探针全 exit 0。W5 提醒链至此收口。**排程 UI 的 reducer 半亦已合并**：`T4-SCHEDULE-UI`（2026-09-04，master `9ed88c06`，PR #234，R3 第 2 轮 pass）——两层状态模型（互斥屏幕状态 × 逐行 row kind）、单发路由效果、筛选与滚动恢复、单值动作槽；17 测试 / 15 枚变异全杀。余 `T4-SCHEDULE-UI-REMINDER-ACTIONS`（presenter 半）与 `T4-SCHEDULE-UI-PRESENTATION`（呈现半，另需先合 `T4-DESIGN-SYMBOL-CHROME`）。
+40 测试 / 26 变异全杀 / 26 枚只编译探针全 exit 0。W5 提醒链至此收口。**排程 UI 的 reducer 半亦已合并**：`T4-SCHEDULE-UI`（2026-09-04，master `9ed88c06`，PR #234，R3 第 2 轮 pass）——两层状态模型（互斥屏幕状态 × 逐行 row kind）、单发路由效果、筛选与滚动恢复、单值动作槽；17 测试 / 15 枚变异全杀。**presenter 半亦已合并**：`T4-SCHEDULE-UI-REMINDER-ACTIONS`（2026-09-04，master `cad2735c`，PR #235，R3 第 **2** 轮 pass 零 finding）——API 33 权限时序、四条授权转移、按 `outcome` 三分支遍历全部 25 个 cause、复用 occurrenceId 的显式重试；39 测试 / 40 枚变异全杀。余 `T4-SCHEDULE-UI-PRESENTATION`（呈现半，另需先合 `T4-DESIGN-SYMBOL-CHROME`）。
+> **R3 两条 finding 的教训同源：一条规则装在一个入口上，就等于没装。** 权限读取原本只在`onReminderAction` 里，而 `onRetry`、resume 释放 pending、公开的 `dispatch(ReminderRequested)` 都能抵达注册——修法是把它与「在途不重投」守卫一起放进唯一提交点 `submit()`，于是「谁忘了加守卫」这件事写不出来。第二条同理由的姊妹缺陷是**恢复动作按不动**：永久失败画出 Error 后，被 ADMITTED 的重试清空 submission 却不撤 Error；顺着这条线扫同类，又发现 SKIPPED 把 submission 留在未结算态会把重试永久挂起。二者合并为一条不变量——**Error 只在还有可重放的已结算 submission 时渲染**。
+> **收据不必整块替换**：编辑 `ScheduleModels.kt` 作废了已合并卡钉在该文件 SHA 上的收据（L270），但把那 93 行**留在原处、只改其两行哈希 + 一句「已按新字节重跑」**，比整块重写省约 119 行 diff，且保住了逐枚具名击杀证据——这是「体量顶闸时先找无损压缩、再谈删证据」的一个可复用手法。
 > **两条 R3 finding 都属实，且都是「按字面读验收、漏掉理由里点名的路径」**：① A1 写「a **cause** that
 > carried a real Throwable」，我据此把 waiter 排除在外——但**拆分依据枚举的六条丢失路径里 waiter 就在其中**。
 > **卡片理由里的枚举是清单，不是散文**。② `Absent` callback 自己结算时渲染 `unknown`，在 worker 已证明

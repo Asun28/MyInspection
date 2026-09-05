@@ -68,11 +68,24 @@ sealed interface ScheduleRow {
 }
 
 /**
- * The recovery a state offers when it has one. Only [ScheduleScreenState.Error] carries a recovery
- * today, and it carries a single value rather than a menu, so a state cannot offer a choice of two.
+ * The recovery a screen state offers when it has one. Only [ScheduleScreenState.Error] carries one,
+ * and it carries a single value rather than a menu, so a state cannot offer a choice of two. A
+ * blocked notification permission is not in here: it does not replace the screen, so it is derived
+ * by [permissionRecovery] instead.
  */
 enum class ScheduleRecovery {
     RETRY,
+}
+
+/**
+ * What the last permission read said. [UNKNOWN] is not a denial: below API 33 the presenter never
+ * reads at all, and before the first read there is nothing to offer a recovery from. Keeping the
+ * three apart is what stops a never-read state from rendering as blocked.
+ */
+enum class SchedulePermissionState {
+    UNKNOWN,
+    GRANTED,
+    BLOCKED,
 }
 
 /**
@@ -82,10 +95,9 @@ enum class ScheduleRecovery {
  * because there is nothing yet to carry. The action a branch offers is not held here at all, it is
  * derived by [actionSlot].
  *
- * [Error] is declared here but never produced by this card: the only transition into it is the
- * PERMANENT_FAILURE branch of a registration, which belongs to T4-SCHEDULE-UI-REMINDER-ACTIONS.
- * Its action-slot arity is asserted here, the path into it is not, because that path does not yet
- * exist and asserting it would be vacuous.
+ * [Error] has exactly one way in: a registration that settled on a cause whose outcome is
+ * PERMANENT_FAILURE. Its recovery is a retry of that same occurrence, which is why
+ * [ScheduleUiState.submission] outlives the pending occurrence a permanent failure discards.
  */
 sealed interface ScheduleScreenState {
     data object Loading : ScheduleScreenState
@@ -100,10 +112,11 @@ sealed interface ScheduleScreenState {
 }
 
 /**
- * The action a screen state offers. Single-valued by construction rather than by rule: [actionSlot]
- * returns one of these or none, never a collection, so "this state offers two actions" is not a
- * thing an implementation can express while still type-checking. Which target each slot points at,
- * and what it is called, belong to T4-SCHEDULE-UI-PRESENTATION.
+ * The action a screen state or the permission recovery offers. Single-valued by construction rather
+ * than by rule: [actionSlot] and [permissionRecovery] each return one of these or none, never a
+ * collection, so "this offers two actions" is not a thing an implementation can express while still
+ * type-checking. Which target each slot points at, and what it is called, belong to
+ * T4-SCHEDULE-UI-PRESENTATION.
  *
  * [ScheduleScreenState.Loading] and [ScheduleScreenState.Content] deliberately offer none. Loading
  * is a 300ms-threshold state over a local disk read with nothing to act on yet, and a content
@@ -113,6 +126,7 @@ enum class ScheduleActionSlot {
     NEXT,
     CLEAR_FILTER,
     RETRY,
+    OPEN_SETTINGS,
 }
 
 /** The action a state offers, or null where the state declares none. */
@@ -126,15 +140,47 @@ val ScheduleScreenState.actionSlot: ScheduleActionSlot?
     }
 
 /**
- * Everything the schedule renders from. [navigating] is the unsettled-route marker that the
- * duplicate-suppression rule is stated against: a second activation is refused by consulting the
- * marker, not by hoping the caller checks.
+ * The recovery offered while notifications are blocked, or none while they are not. It sits beside
+ * the screen rather than replacing it, because a blocked notification permission does not stop the
+ * schedule from being read, and the in-app schedule is exactly the fallback context/DESIGN.md names
+ * for notifications. [SchedulePermissionState.UNKNOWN] offers nothing, so a device that never reads
+ * cannot render as blocked.
+ */
+val ScheduleUiState.permissionRecovery: ScheduleActionSlot?
+    get() = when (permission) {
+        SchedulePermissionState.BLOCKED -> ScheduleActionSlot.OPEN_SETTINGS
+        SchedulePermissionState.UNKNOWN -> null
+        SchedulePermissionState.GRANTED -> null
+    }
+
+/**
+ * The registration this presenter submitted, and whether it has settled. One value rather than two,
+ * because "which occurrence may a retry replay" and "is that occurrence still unsettled" are read
+ * off the same submission and could otherwise disagree.
+ */
+data class ScheduleSubmission(
+    val reminder: PendingReminder,
+    val settled: Boolean,
+)
+
+/**
+ * Everything the schedule renders from. [navigating] and [submission] are the two unsettled-work
+ * markers the duplicate-suppression rules are stated against: a second activation and a second
+ * registration are refused by consulting the marker, not by hoping the caller checks.
+ *
+ * [pending] and [submission] answer different questions about the same occurrence. [pending] is the
+ * one a granted read may register without the user asking again, so a permanent failure clears it
+ * and no later resume can silently resubmit. [submission] is what an explicit retry replays, so the
+ * occurrence that failed outlives the clearing of [pending].
  */
 data class ScheduleUiState(
     val occurrences: List<ScheduleOccurrence>,
     val screen: ScheduleScreenState,
     val filter: InspectionScheduleType?,
     val scrollIndex: Int,
+    val permission: SchedulePermissionState,
+    val pending: PendingReminder?,
+    val submission: ScheduleSubmission?,
     val navigating: Boolean,
 )
 
@@ -152,11 +198,47 @@ sealed interface ScheduleEvent {
     data object RouteSettled : ScheduleEvent
 
     data class ScrollChanged(val index: Int) : ScheduleEvent
+
+    data class ReminderRequested(val reminder: PendingReminder) : ScheduleEvent
+
+    /**
+     * A registration settled. [occurrenceId] is the occurrence this settlement is about, which the
+     * presenter knows because it is the one it submitted: the waiter is handed a cause alone, so
+     * reading a generation number here would mean inventing the other half of an identity.
+     */
+    data class RegistrationSettled(
+        val cause: ReminderRegistrationCause,
+        val occurrenceId: String,
+    ) : ScheduleEvent
 }
 
-/** What the host is asked to do. Recorded rather than performed, so a reducer stays testable. */
+/**
+ * What the host is asked to do. Recorded rather than performed, so a reducer stays testable. There
+ * is no permission-request effect, which is how "this app never asks for notifications by itself"
+ * stays true: a resume has nothing to reach for, rather than a rule telling it not to.
+ */
 sealed interface ScheduleEffect {
     data class Navigate(val route: ScheduleRoute) : ScheduleEffect
+
+    data class Register(val reminder: PendingReminder) : ScheduleEffect
+}
+
+/**
+ * Hands a reminder to the merged registration machinery. Production delegates to
+ * [ReminderScheduler.register], which is why the waiter signature is that method's.
+ */
+interface ScheduleRegistrationPort {
+    fun register(reminder: PendingReminder, waiter: (ReminderRegistrationCause) -> Unit)
+}
+
+/** Performs a navigation the reducer decided on. */
+interface ScheduleRoutePort {
+    fun navigate(route: ScheduleRoute)
+}
+
+/** Opens this app's platform notification settings. Never requests a permission. */
+interface ScheduleSettingsPort {
+    fun openNotificationSettings()
 }
 
 /** One reduction: the state that follows, and everything the host should do about it. */
@@ -167,8 +249,8 @@ data class ScheduleTransition(
 
 /**
  * Projects occurrences and events onto states. Pure: every dependency arrives as an argument, so
- * permission timing and registration, which need a port and a clock, stay out of here and live in
- * T4-SCHEDULE-UI-REMINDER-ACTIONS instead.
+ * what is read and when it is read stay out of here and live in [SchedulePresenter], which is the
+ * only thing here that holds a port.
  */
 object ScheduleReducer {
     /** The state before anything has been read. Loading, not empty: nothing has been looked at. */
@@ -177,6 +259,9 @@ object ScheduleReducer {
         screen = ScheduleScreenState.Loading,
         filter = null,
         scrollIndex = 0,
+        permission = SchedulePermissionState.UNKNOWN,
+        pending = null,
+        submission = null,
         navigating = false,
     )
 
@@ -219,6 +304,13 @@ object ScheduleReducer {
 
         is ScheduleEvent.RouteSettled ->
             ScheduleTransition(state.copy(navigating = false), emptyList())
+
+        is ScheduleEvent.ReminderRequested -> ScheduleTransition(
+            state.copy(pending = event.reminder),
+            listOf(ScheduleEffect.Register(event.reminder)),
+        )
+
+        is ScheduleEvent.RegistrationSettled -> settle(state, event)
     }
 
     /**
@@ -251,5 +343,192 @@ object ScheduleReducer {
                 ),
             ),
         )
+    }
+
+    /**
+     * Applies a settlement by the outcome its cause carries, never by the cause itself: the four
+     * outcomes are the whole vocabulary, so a cause added upstream lands in the right branch
+     * without this file being edited.
+     *
+     * A settlement is applied only by the registration it names. A waiter carries the occurrence it
+     * was submitted for, so a callback that arrives after the presenter moved on to another
+     * occurrence closes nothing: the in-flight marker it would clear, and the error it would draw,
+     * belong to a registration this settlement knows nothing about.
+     *
+     * SKIPPED leaves the rendered state and the effects alone but still settles the submission.
+     * Both skipped causes are terminal answers to this registration, moot rather than unsuccessful,
+     * so the flight really is over: keeping it open would suspend the retry for good, and an error
+     * already on screen would then offer a recovery action that cannot act.
+     *
+     * That is the invariant the branches below hold together: an error is rendered only while a
+     * settled submission is there for a retry to replay. The registration that finally succeeds is
+     * therefore what takes the error down.
+     */
+    private fun settle(
+        state: ScheduleUiState,
+        event: ScheduleEvent.RegistrationSettled,
+    ): ScheduleTransition {
+        val settling = state.submission?.takeIf { it.reminder.isOccurrence(event.occurrenceId) }
+            ?: return ScheduleTransition(state, emptyList())
+        return when (event.cause.outcome) {
+            ReminderRegistrationOutcome.SKIPPED -> ScheduleTransition(
+                state.copy(submission = settling.copy(settled = true)),
+                emptyList(),
+            )
+
+            ReminderRegistrationOutcome.ADMITTED -> ScheduleTransition(
+                state.copy(
+                    pending = state.pending?.takeUnless { it.isOccurrence(event.occurrenceId) },
+                    submission = null,
+                    screen = withoutError(state),
+                ),
+                emptyList(),
+            )
+
+            ReminderRegistrationOutcome.RETRYABLE_FAILURE -> ScheduleTransition(
+                state.copy(
+                    pending = state.pending?.takeIf { it.isOccurrence(event.occurrenceId) },
+                    submission = settling.copy(settled = true),
+                ),
+                emptyList(),
+            )
+
+            ReminderRegistrationOutcome.PERMANENT_FAILURE -> ScheduleTransition(
+                state.copy(
+                    pending = state.pending?.takeUnless { it.isOccurrence(event.occurrenceId) },
+                    submission = settling.copy(settled = true),
+                    screen = ScheduleScreenState.Error(ScheduleRecovery.RETRY),
+                ),
+                emptyList(),
+            )
+        }
+    }
+
+    /**
+     * The screen once nothing is left to retry: an error gives way to whatever the occurrences and
+     * the filter say, and every other screen is left exactly as it was.
+     */
+    private fun withoutError(state: ScheduleUiState): ScheduleScreenState =
+        if (state.screen is ScheduleScreenState.Error) project(state).screen else state.screen
+}
+
+/** Whether this reminder is the occurrence a settlement names. */
+private fun PendingReminder.isOccurrence(occurrenceId: String): Boolean =
+    toSpec().occurrenceId == occurrenceId
+
+/**
+ * Owns what the reducer deliberately does not: what is read, and when. The API level arrives as a
+ * value rather than being read from [android.os.Build], so the API 33 boundary is exercisable on a
+ * plain JVM and the rule is a fact about the argument rather than about the host.
+ */
+class SchedulePresenter(
+    private val sdkInt: Int,
+    private val permissions: ReminderPermissionPort,
+    private val registrations: ScheduleRegistrationPort,
+    private val routes: ScheduleRoutePort,
+    private val settings: ScheduleSettingsPort,
+) {
+    var state: ScheduleUiState = ScheduleReducer.initial()
+        private set
+
+    /** Applies an event and performs whatever the reduction asked for. */
+    fun dispatch(event: ScheduleEvent) {
+        val transition = ScheduleReducer.reduce(state, event)
+        state = transition.state
+        transition.effects.forEach(::perform)
+    }
+
+    /**
+     * The resume edge. At API 33 and above it reads first, so a grant or a revocation made outside
+     * the app is seen before anything is rendered from it, and a grant that arrived while the user
+     * was in settings releases what the denial had stored. [submit] reads once more of its own
+     * accord: this read decides what is rendered, that one is the one immediately before a
+     * registration. It asks for nothing: the only request a platform can receive is one a user
+     * action makes, and there is no request effect for this path to reach for.
+     */
+    fun onResume() {
+        if (sdkInt < REQUIRES_PERMISSION_SDK) {
+            return
+        }
+        if (readPermission()) {
+            state.pending?.let(::submit)
+        }
+    }
+
+    /**
+     * The user's reminder action. It stores the occurrence and asks for the registration, and the
+     * permission read that gates it happens in [submit] rather than here, so no entry point can be
+     * the one that forgets it. A refused read leaves the occurrence stored for the next granted
+     * one rather than losing it, because the reduction records it before the submission is tried.
+     */
+    fun onReminderAction(reminder: PendingReminder) {
+        dispatch(ScheduleEvent.ReminderRequested(reminder))
+    }
+
+    /**
+     * The user's retry. It replays the submission this presenter made, so the occurrence it
+     * registers is the one that failed: no path here derives an occurrence id, and an admitted
+     * registration leaves no submission for this to replay.
+     */
+    fun onRetry() {
+        state.submission?.reminder?.let(::submit)
+    }
+
+    /** The user's recovery on a blocked permission. Leaves the app, requests nothing. */
+    fun onOpenSettings() {
+        settings.openNotificationSettings()
+    }
+
+    /** Reads once and records what was read. Returns what the platform said, not what was stored. */
+    private fun readPermission(): Boolean {
+        val granted = permissions.isPostNotificationsGranted()
+        state = state.copy(
+            permission = if (granted) {
+                SchedulePermissionState.GRANTED
+            } else {
+                SchedulePermissionState.BLOCKED
+            },
+        )
+        return granted
+    }
+
+    private fun perform(effect: ScheduleEffect) = when (effect) {
+        is ScheduleEffect.Navigate -> routes.navigate(effect.route)
+        is ScheduleEffect.Register -> submit(effect.reminder)
+    }
+
+    /**
+     * The one place a registration is submitted, which is why both rules that gate one hold for a
+     * retry, a resume, an action and a directly dispatched request alike: the API 33 read and the
+     * "no second registration while this occurrence is unsettled" guard are here rather than at
+     * each caller, so no caller can be the one that forgets either. The read is the last thing
+     * before the submission, which is what makes a grant revoked since the resume stop this
+     * registration rather than the next one.
+     *
+     * The occurrence id comes from the same factory the scheduler uses. A route it cannot resolve
+     * is a precondition failure of the caller, not a state to render: whether a route is valid is
+     * the scheduler's answer to give, and a schedule row's property id comes from the planner, so
+     * this card does not add a second place that decides it.
+     */
+    private fun submit(reminder: PendingReminder) {
+        if (sdkInt >= REQUIRES_PERMISSION_SDK && !readPermission()) {
+            return
+        }
+        val occurrenceId = reminder.toSpec().occurrenceId
+        val inFlight = state.submission
+        if (inFlight != null && !inFlight.settled &&
+            inFlight.reminder.toSpec().occurrenceId == occurrenceId
+        ) {
+            return
+        }
+        state = state.copy(submission = ScheduleSubmission(reminder, settled = false))
+        registrations.register(reminder) { cause ->
+            dispatch(ScheduleEvent.RegistrationSettled(cause, occurrenceId))
+        }
+    }
+
+    private companion object {
+        /** POST_NOTIFICATIONS became a runtime permission in Android 13. */
+        const val REQUIRES_PERMISSION_SDK = 33
     }
 }
