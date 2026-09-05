@@ -24,7 +24,7 @@ acceptance:
   - "A2 the amended count clause still requires every count to carry its numeral and to announce the full count, and it no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant the same document declares"
   - "A3 the amended status clause still forbids colour from being the sole carrier of state, and states the carriers that satisfy it in terms of glyph, position and text rather than requiring a visible text label unconditionally"
   - "A4 docs/UI-UX-ELEMENTS.md resolves its icon-button rule to the same named condition set, so the two authority surfaces cannot drift apart"
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path context/DESIGN.md -SimpleMatch 'Symbol-only chrome' -CaseSensitive -Quiet) -and (Select-String -Path docs/UI-UX-ELEMENTS.md -SimpleMatch 'Symbol-only chrome' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'plural-aware' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'announce the full count' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'never the sole state channel' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'Every status uses its stable symbol' -CaseSensitive -Quiet) -and (Select-String -Path docs/UI-UX-ELEMENTS.md -SimpleMatch 'symbol-only chrome' -CaseSensitive -Quiet) -and -not (Select-String -Path context/DESIGN.md -SimpleMatch 'or icon-only badges' -CaseSensitive -Quiet))) { exit 1 }"
+dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path context/DESIGN.md -SimpleMatch 'Symbol-only chrome' -CaseSensitive -Quiet) -and (Select-String -Path docs/UI-UX-ELEMENTS.md -SimpleMatch 'Symbol-only chrome' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'plural-aware' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'announce the full count' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'never the sole state channel' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'Every status uses its stable symbol' -CaseSensitive -Quiet) -and (Select-String -Path docs/UI-UX-ELEMENTS.md -SimpleMatch 'symbol-only chrome' -CaseSensitive -Quiet) -and (Select-String -Path context/DESIGN.md -SimpleMatch 'Required by every symbol-only action glyph' -CaseSensitive -Quiet) -and -not (Select-String -Path context/DESIGN.md -SimpleMatch 'or icon-only badges' -CaseSensitive -Quiet))) { exit 1 }"
 dod_exit: 0
 dod_assert: DESIGN.md declares a single named 'Symbol-only chrome' condition set, keeps the plural-aware count rule and the full-count announcement, keeps 'never the sole state channel', no longer carries the unconditional icon-only-badge prohibition, and UI-UX-ELEMENTS.md resolves its icon-button rule to that same named set. Two anchors added after R3 round 1 lock the other two clauses of the same class: the Colors-chapter status clause now resolves instead of mandating label+icon ('Every status uses its stable symbol'), and the UI-UX theme checklist resolves to the admission set in lowercase ('symbol-only chrome', which is case-distinct from the title-case anchor above so each stays singly sited).
 review_gate: codex {verdict:pass}
@@ -110,8 +110,9 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 其变化以 state change 播报 · 两类都不依赖颜色（去掉颜色后动作仍可辨、状态仍可读）。并明写**准入不覆盖更严的
 合同**——带标签的底部导航、带标签的房间进度段、`notice-delivery-row`，以及拍照/合规/隐私/删除/finalize/备份/
 恢复这几个动作，都在准入之上保留可见标签（据此不触碰 `non_goals` 排除的 `DESIGN.md:922`，也与 `:1756`
-「图标不得替代这些动作的标签」相容）。六处条款改为解析到该集：`:890` 顶栏尾部图标 · `icon-button` 行 ·
-`tooltip` 行 · Colors 章状态句 · `docs/UI-UX-ELEMENTS.md:35` 与 `:122`。计数条款与状态条款按 A2/A3 重写。
+「图标不得替代这些动作的标签」相容）。七处条款改为解析到该集：`:890` 顶栏尾部图标 · `icon-button` 行 ·
+`tooltip` 行（**只对动作字形**）· `state-badge` 行（纯符号徽标即状态字形，由拥有者陈述状态）· Colors 章状态句 ·
+`docs/UI-UX-ELEMENTS.md:35` 与 `:122`。计数条款与状态条款按 A2/A3 重写。
 
 **两处判断记账（均为让每条断言拿到可击杀的单点变异）**：
 
@@ -147,12 +148,27 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 在本卡工作树退出 0（GREEN），故原 RED 证据在新命令下依然成立，不存在「改标准换绿灯」。
 小写形态与标题形态**大小写不同**，故两个锚点各自仍只出现一次（见下方判断 1）。
 
-## R4 变异收据（2026-09-05 · 8/8 KILLED · 对应 R3 第 1 轮修复后的字节）
+## R3 第 2 轮：一条 finding，属实，且是我自己第 1 轮修复的回归
+
+`context/DESIGN.md:1636` 的 `tooltip` 行写「Required by **symbol-only chrome**」——把 tooltip 说成**整个**
+准入集的要求；但第 1 轮把条件集按字形种类分岔后，tooltip + 同名无障碍名**只对动作字形**成立，状态字形走的是
+「由拥有者在自己的无障碍名里陈述」。于是同一份文档对状态字形给了两条互斥指令。**改法**：该行收窄为
+`Required by every symbol-only action glyph`。
+
+顺着同一透镜扫同类（L292：一条规则装在一个入口上等于没装），发现姊妹处 `state-badge` 行的语义列
+（我在第 1 轮为腾出 `never the sole state channel` 而改写的那句）仍在**复述**条件 4 而非解析到它，遂一并改为
+`Merged into owner; a symbol-only badge is a state glyph, so the owner names the state`。
+改完复扫 `DESIGN.md` 全部 7 处 `symbol-only` 提及，无一再对状态字形过度声称。
+
+**DoD 第三次收紧（仍只加不减）**：新增 ASCII 正锚点 `Required by every symbol-only action glyph`，
+把这次收窄钉住。实测收紧后命令在 **master 基线仍退出 1（RED）**、本卡工作树退出 0（GREEN）。
+
+## R4 变异收据（2026-09-05 · 9/9 KILLED · 对应 R3 第 2 轮修复后的字节）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批，L270）：
-`context/DESIGN.md` = `7EFFEA3CF4DD12719E3359144F70866004E4BFBE678887E5D80E17FDA01FEA53` ·
+`context/DESIGN.md` = `93F021E11221F754282FB65389FF08EAFB004F5A613306837E8605C121EDA3E4` ·
 `docs/UI-UX-ELEMENTS.md` = `F0B69A3148BD9202D0578FCAE8CFAEE8EE4DA094193F48653E6CB5F225FF7EC4`。
-基线 `dod_command` 退出 **0**（GREEN）；8 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
+基线 `dod_command` 退出 **0**（GREEN）；9 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚并中止，L190）、断言渲染后文本与 SHA 均已改变
 （防 no-op 变异冒充击杀，L297）、断言植入前文件仍等于基线（L196）。
 
@@ -166,10 +182,11 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 | M6 | A2 | DESIGN.md | `state-badge` 行去掉 `announce the full count` | 1 | KILLED |
 | M7 | A1/A3（R3 r1 #1） | DESIGN.md | 把 Colors 章的 label+icon 强制令还原、盖掉解析式状态句 | 1 | KILLED |
 | M8 | A1/A4（R3 r1 #1） | UI-UX-ELEMENTS.md | 删掉主题清单里小写 `symbol-only chrome` 那处解析 | 1 | KILLED |
+| M9 | A1（R3 r2） | DESIGN.md | 把 `tooltip` 行放宽回「所有 symbol-only chrome」，重新对状态字形过度声称 | 1 | KILLED |
 
 M1/M5 证明 A1/A4 的具名锚点由**定义处与跨文档引用处**各自独占承载；M2/M3 证明 A2 的保留项与被删禁令两侧都在测；
 M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 `state-badge` 行蒙混）；M6 证明 DoD 仍在守
-`state-badge` 的全额播报；M7/M8 证明 R3 第 1 轮那两处修复此后**改不回去**——还原任一处即 RED。
+`state-badge` 的全额播报；M7/M8/M9 证明 R3 两轮的三处修复此后**改不回去**——还原任一处即 RED。
 变异脚本不入库（跑在 scratchpad，不属 `allow_paths`）。
 
 ## 变更记录（Change log）
@@ -179,3 +196,4 @@ M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 拆出的 OD-3（用户裁定选项 b）。开卡前已 grep 四处权威面，确认真抵触只有两句。 |
 | 2026-09-05 | 实现：新增具名条件集，四处条款解析到它，计数/状态两句按 A2/A3 重写。R4 6/6 击杀。记两处判断（锚点唯一化、`never the sole state channel` 归位）。 |
 | 2026-09-05 | R3 第 1 轮 block（PR #236），两条 finding 均属实：同类条款漏两处 · 条件集对纯状态字形不自洽。已修；`dod_command` 加两条正锚点把修复钉住（只加不减，master 仍 RED）。R4 重跑 8/8 击杀。 |
+| 2026-09-05 | R3 第 2 轮 block，一条 finding 属实且是第 1 轮修复的回归：`tooltip` 行仍对**全部**准入集声称。已收窄为动作字形，并顺同一透镜修 `state-badge` 姊妹处；`dod_command` 第三次收紧（仍只加不减）。R4 重跑 9/9 击杀。**轮次计数器已达上限 2/2，`-ResetRounds` 待用户裁定。** |
