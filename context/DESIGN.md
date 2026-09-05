@@ -1411,7 +1411,7 @@ The palette is light-first for daylight legibility. Large fields of pure white a
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
 - **Surfaces:** use `surface` for the screen, `surface-container-low` for grouped regions, `surface-container` for active item cards, and `surface-container-high` for selected or raised states. Decorative separators use `outline-variant`; essential card boundaries and focus use `outline`.
 
-Status must never rely on color alone. Pair every status with a label and stable symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy.
+Status never relies on color alone; the status rule in Do's and Don'ts fixes what carries it instead and when a visible label is required. Every status uses its stable symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy.
 
 All light foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference. Camera controls use white over a `64%` black sRGB scrim; the worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
 
@@ -1556,13 +1556,13 @@ semantic base token
 
 Chrome is a control's own explanatory text: its label, tooltip, caption, or state word. Domain content — a count, a date, an address, a property or room name, a status the user must read — is not chrome and never collapses into a glyph.
 
-A chrome control may omit visible text only when every condition below holds. This is the single admission rule; the clauses elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that govern a symbol-only control resolve here instead of restating these conditions. A component contract may still require a visible label on top of admission, as labelled bottom navigation and labelled room progress segments do.
+A chrome control may omit visible text only when every condition below holds. This is the single admission rule; the clauses elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that govern a symbol-only control resolve here instead of restating these conditions. Admission never overrides a stricter contract: labelled bottom navigation, labelled room progress segments, `notice-delivery-row`, and the capture, compliance, privacy, delete, finalize, backup, and restore actions all keep their visible label on top of it.
 
-1. The glyph comes from the declared iconography set and stands for exactly one action or one state.
-2. A tooltip is available and carries the verb-object phrase for that action.
-3. An accessible name is present and is that same verb-object phrase; it is never derived from the glyph asset name.
-4. The touch target stays at the declared minimum and never shrinks to the visible glyph bounds.
-5. Where the glyph stands for a state, that state is announced as a state change and stays legible without color.
+1. The glyph comes from the declared iconography set and stands for exactly one thing: one action, or one state. Its wording is never derived from the glyph asset name.
+2. The touch target stays at the declared minimum and never shrinks to the visible glyph bounds.
+3. An action glyph carries a tooltip whose text is the verb-object phrase for that action, and exposes that same phrase as its accessible name.
+4. A state glyph carries no action wording. The control that owns it states the state in its own accessible name, and a change to that state is announced as a state change.
+5. Neither kind depends on color: with color removed, the action stays identifiable and the state stays readable.
 
 A control that fails any condition carries a visible text label.
 
