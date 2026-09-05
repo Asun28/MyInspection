@@ -1,7 +1,7 @@
 ---
 id: T0-CODEX-ASTRA-GUIDANCE
 title: Add project-scoped Codex and GPT-6 Astra collaboration guidance
-status: in-progress
+status: merged
 depends_on: []
 allow_paths:
   - AGENTS.md
@@ -29,3 +29,13 @@ The content was prepared and approved for this project before this delivery card
 Implementation: AGENTS.md only, approximately 50 added lines; well below the existing R3 limits. Task card registration and R5 metadata are managed by the orchestrator on the baseline per the existing repository workflow.
 
 Verification: run the declared DoD, inspect the actual diff under docs/QUALITY-RUBRIC.md, then use the official ship pipeline with SkipRed. Do not claim runtime validation until the pipeline reports it.
+
+## Delivery evidence — 2026-09-06
+
+- PR: https://github.com/Asun28/MyInspection/pull/237 (merged).
+- Reviewed head: `4be0d89185424972a072d4fd119da1138caea72c`; squash merge: `f65f978ec41ffc21a76ce3be13dc2fcc8e6a19e1`.
+- Official ship passed documentation DoD, offline Android core check and Golden Evidence E2E, scope (AGENTS.md only), dependency licenses (150 unique Gradle coordinates), secret scan (606 tracked files) and diff budget (50 changed lines / 2249 characters).
+- R3 round 1: `pass`, no reasons, bound to the reviewed head; `codex-review=success` posted by review.ps1.
+- Candidate CI: `verify=success`, run https://github.com/Asun28/MyInspection/actions/runs/33990803556; task-loop confirmed the candidate head before squash merge.
+- The supported `-SkipRed` path was used for this documentation-only card; no behavioral RED-to-GREEN claim is made.
+- R5.5: no new recurring implementation/toolchain failure to add to lessons; existing JDK/SDK environment guidance was reused. Advisory preflight noted the older thin-pointer wording; the user's explicit additive request authorizes this scoped adoption without migrating project-contract authority.
