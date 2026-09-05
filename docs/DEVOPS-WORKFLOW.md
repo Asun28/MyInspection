@@ -170,6 +170,8 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 `scaffold-selftest` 不进 PR 必需检查；仅默认分支权威面 push 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。
 
+卡片执行 `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id> -Base master` 时，路由器只读取已钉住本地基线中的卡片和 `FrozenPaths`，并盘点分支的提交、暂存、脏与未跟踪路径（改名两端都计）。普通 `android/` 或 `configs/` 产品路径输出 `NOT-APPLICABLE`，不替代产品 DoD/verify；普通文档/任务卡路径执行既有 core；脚本、冻结、关键安全/交付文档、未知或混合路径一律完整跑。未带 `-TaskId` 仍是完整自检。
+
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
 对每个**候选冗余**测试，逐个验证：
