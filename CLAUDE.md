@@ -261,6 +261,28 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **本卡是 `T3-REPORT-HTML-RENDERER` 的第三次拆分**（2026-09-03 用户裁定）：该卡修完 R3 第 3 轮后正好
 > 1000/1000 changed lines，连把 CSP 的两枚变异写进收据都放不下。
 
+**HTML 报告渲染器已合并**：`T3-REPORT-HTML-RENDERER` **merged**（2026-09-03，master `054f6d58`，PR #230）——
+`core/report/html/`：`ReportContent` → 单文件、无脚本、无外链、可访问的 UTF-8 HTML。977 行、28 测试、
+**28/28 变异全杀**。CSP 以 `default-src 'none'` 全禁，只放行 `data:` 图片与**按 hash** 放行的那一份样式表；
+每个 class 出自 `HtmlClass` 枚举、`cssName` 由 entry 名派生，集合 parity 由具名测试双向钉住；自由文本标
+`lang=""`（未定，非缺省）；证据只经注入端口进入，被交予 `min(perImage, 剩余预算)`，预算耗尽即不再调用，
+被拒的照片仍出编号 figure 与 caption。**无照片附录**——自包含文件否则会把每张照片带两份。
+> **三次拆卡（均用户裁定），每次都由 R3 的 1000 行硬闸逼出**：CSS 归 `T3-REPORT-HTML-PRESENTATION`（动手前
+> 估算 1105 行）· 转义与字符政策归 `T3-REPORT-HTML-CHARACTER-POLICY`（R3 第 1 轮 block 时卡在 999/1000）·
+> 证据字节端口归 `T3-REPORT-HTML-EVIDENCE-PORT`（修完第 3 轮正好 1000/1000，连两枚 CSP 变异的收据都放不下）。
+> **教训**：一处反复吃 finding 的子问题通常是独立子问题，越早拆越省轮次（同 T0-CI-IDENTITY-DEADLINE）。
+> **R3 六轮共 10 条 finding 全部成立**，且形态高度一致——**写下的保证、测试名或卡片不变量，超出了代码或
+> 断言真正兑现的东西**：卡片声称「被拒的照片仍出编号 figure」而该路径其实中止整份报告；KDoc 声称「没人
+> style 的 class 不可表达」而基线只 style 了 2/28；DoD 写「exact byte tests」而断言只比 Kotlin String；
+> CSP 哈希的期望值由调用产线函数得到（改成 MD5 照样绿）；累计预算测试把总额恰好花光，于是
+> `min(perImage, remaining)` 的中间态从未被测。**变异测试抓不到这一类**——它证明代码被执行，不证明散文
+> 属实；这正是第二模型评审在本卡持续兑现价值的地方。
+> **一条真实的无障碍缺陷**：`lang` **缺省不等于「未知」，而是继承 `<html lang="en">`**——中文听写备注会被
+> 屏幕阅读器用英文音朗读，恰是那段注释声称要避免的后果；且旧测试断言该属性**缺席**，等于把 bug 写成期望。
+> 正解是 `lang=""`。
+> **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
+> 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
+
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
 · `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。

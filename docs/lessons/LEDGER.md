@@ -1111,7 +1111,7 @@
 - refs: T52-TD111-CARD-TOKEN-GATE 卡的 hygiene 段与闸 10g 夹具构造
 
 ## L161
-- date: 2026-07-25 ｜ tags: review,evidence,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: R3 多一轮 block + 重跑全套变异实验
+- date: 2026-07-25 ｜ tags: review,evidence,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: R3 多一轮 block + 重跑全套变异实验
 - symptom: 重 ship 时 R3 唯一 block = 卡内变异证据表钉的文件哈希与被审 HEAD 对不上：哈希是上一轮修订**之前**跑的，上一轮的纯注释精简改了字节即令其失效，评审按「证据不可验证」正确拦下。
 - root_cause: 变异证据是「对某棵确切的树做过一次实验」的记录，可验证性绑定在文件字节上；任何后续改动（含不改行为的注释/格式）都让它与被审树脱钩，而人只记得「行为没变、证据还算数」。
 - rule: 写进卡的变异证据/哈希/精确计数都是**对某个确切 HEAD 的声明**：该文件此后任何改动之后必须按新 HEAD 重跑并更新证据，再 ship；重 ship 前对着**交付树**逐条复核证据表，绝不复用上一轮的数字。多条子断言各配各的变异实验（单次变异只证一条非 vacuous）。**推论：变异批在飞时被测文件冻结**——哪怕补一行注释也会让批的基线漂移（runner 的 ExpectedBaseline 会拒跑，或更糟：批已过基线检后改动被还原腿静默回滚）；要改就先停批、重钉基线、再重启（2026-08-05 T56 r17 实测险踩：批飞行中补注释，靠「停批（GREEN 期零植入）→ 重钉基线 → DryRun 全靶复验 → 重启」归零损失）。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 5
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 6
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1983,7 +1983,7 @@
 - refs: 
 
 ## L273
-- date: 2026-09-01 ｜ tags: handoff,parallel-session,planning-with-files ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-01 ｜ tags: handoff,parallel-session,planning-with-files ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 两个会话同时在同一个主检出里干活时，progress.md 的 HANDOFF 块会被后写的那个会话整段覆盖；Stop 钩子打印出来的「下一步」突然变成另一张卡的内容，自己那份交接无声消失（本次：T0-CI-IDENTITY-DEADLINE 的交接被 T4-SCHEDULE-REMINDER-SCHEDULER 的覆盖）。
 - root_cause: planning-with-files 三件套（task_plan/findings/progress.md）按 **cwd** 定位，不按卡或分支；worktree 只隔离了代码，没隔离这三个文件。两个会话的 cwd 都是主检出 ⇒ 同一个 progress.md，最后写的赢，且没有任何冲突提示。
 - rule: 主检出里可能有并行会话时：① 写 progress.md 前先读一眼 HANDOFF 块的 TASK 字段，不是自己那张卡就**别覆盖**——把自己的交接另存到会话 scratchpad（或 _local/handoff-<TaskId>.md），并在汇报里说明 progress.md 归属别人；② 别把 handoff.ps1 check 的 PASS 当作「我的交接还在」的证据，它只校验格式、不校验归属；③ 真要接力时以 git 里的持久物（分支、PR、卡片、scratchpad 补丁）为准，progress.md 只当尽力而为的便签。
@@ -2055,7 +2055,7 @@
 - refs: 
 
 ## L282
-- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 变异批只按退出码判生死，于是「测试变红」与「根本没编译过」共用同一个 exit=1；批跑完宣称「N/N 全杀、零编译型假击杀」时，手上其实没有任何证据支持后半句。
 - root_cause: 构建工具对编译失败与测试失败返回同一个非零码（Gradle 恒为 1），而变异脚本为了跑得快通常把输出丢弃（`*> $null`），连事后翻日志分辨都做不到。一枚编译不过的变异对「测试是否在测」零信息量——它只证明了编译器还在。
 - rule: 变异批之外再跑一遍**只编译**的探针（同一批锚点、同一份单点替换，命令换成 `:core:compileTestKotlin` 之类不跑测试的目标），逐枚要求 exit 0；收据里把两条结论分开写：「19 枚全部编译通过」+「19 枚全部被测试杀死」。两条都有机检输出才允许写「零编译型假击杀」。探针可复用变异定义文件，成本约为主批的三分之一。
@@ -2155,5 +2155,37 @@
 - symptom: R3 修复后 diff 涨到 1042 changed lines、越过 1000 硬闸；第一反应是删注释或把变异收据摘要化。
 - root_cause: 已合并卡的收据块钉在被我改动的生产文件 SHA 上（L270 令其作废），我默认「作废」就等于「整块 93 行替换」。
 - rule: 收据作废不等于必须重写。把旧收据块留在原处、只改其两行哈希并补一句「已按新字节重跑」，本卡收据作为第二块追加——本次省 119 changed lines，且逐枚具名击杀证据一条不丢。顶闸时先穷尽这类无损压缩（就地改哈希、合并同一 REQ 的重复用例），删证据永远是最后手段。
+- enforced_by: 
+- refs: 
+
+## L295
+- date: 2026-09-05 ｜ tags: kotlin,api-design,security,immutability ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 公开 setOf(...) 当允许集/域集：调用方可强转回 MutableSet 加入本该被拒的值。EmbeddedImage.ALLOWED_MEDIA_TYPES 若被加进 image/svg+xml，一份声称禁主动内容的报告就能内嵌可带脚本的 SVG。同一缺陷本仓已在 TemplateDomains、AdverseStatuses 修过，本次第三次。
+- root_cause: Kotlin 的 setOf/listOf 返回 JVM 可变实现（LinkedHashSet 等），只读只存在于静态类型，运行期强转即可改写；Collections.unmodifiable* 也只是包一层。把集合本身作为公开 API 等于把判据交了出去。
+- rule: 判据类集合一律不公开：底下集合设 private，唯一出口只返回 Boolean 谓词（AdverseStatuses.isAdverse 的定式），或直接用 when 表达式连集合都不建——没有引用可拿去强转，这条口子从结构上不存在。配反射测试断言该类型上无任何 Collection 可达成员，并配一枚把公开集合发布回去的变异证明守卫在起作用。
+- enforced_by: none（无通用机检：Kotlin 无「不可变集合」类型，ktlint/detekt 均不查此形态。守卫落在每个判据类型自身的反射测试 + 一枚把公开集合发布回去的变异，如 ReportImageSourceTest 的 P10；R3 维度 #2/#9 兜底）
+- refs: 
+
+## L296
+- date: 2026-09-05 ｜ tags: html,accessibility,i18n ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 自由文本 span 不写 lang，本意是「语言未知、不猜」，实际却继承 <html lang="en">：中文听写备注被屏幕阅读器用英文音朗读，正是那段注释声称要避免的后果。测试还断言该属性「缺席」，等于把 bug 写成了期望。
+- root_cause: HTML 的 lang 是继承属性，缺省不表示未知而表示「同祖先」。把「不写」当成「声明未知」是把两种不同语义当成了一种。
+- rule: 语言未定就显式写 lang=""（HTML 的 undetermined），不要靠省略；断言写「lang 等于空串」，绝不写「属性不存在」。同理适用于任何继承型属性（dir 等）：省略是继承，不是中立。
+- enforced_by: 
+- refs: 
+
+## L297
+- date: 2026-09-05 ｜ tags: mutation,harness,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 给变异清单追加条目时插到了错误的 ] 处，条目落进 main() 里成了 results = [ ("M36"...；而 --check 在那一行之前就 exit，所以自检照样 PASS，损坏是潜伏的、只会在批跑到一半时才现形。
+- root_cause: 自检脚本与被检数据在同一个文件里，且自检的退出点早于被损坏的区域；「工具说没问题」只覆盖了它走到的那一段。
+- rule: 改完清单后，用与自检不同的口径复核一次：--check 报的条目数 vs 文件里正则数出来的条目数，两者必须相等（本次一个报 23、一个报 25，差值即暴露了错位）。凡自检脚本与被检内容同源，都要有一个不经该脚本的独立计数。
+- enforced_by: 
+- refs: 
+
+## L298
+- date: 2026-09-05 ｜ tags: cards,authority-docs,security ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片写完、实现完、R3 前两轮都过了，第 3 轮才被指出文档缺 docs/SECURITY.md 明文要求的 CSP（「并以 CSP 禁网络/导航/主动内容」）与 meta refresh 阻断。写卡时没读该文件的对应小节，属硬边界漏项，代价是一整轮 R3。
+- root_cause: 写卡时只读了需求 §8 与 ADR，没有把「本卡产出的那个面」在各权威文档里的专属小节逐个找出来读。SECURITY.md 有一节就叫「自包含 HTML 报告」，正是本卡的面。
+- rule: 开卡前按产出物的名字 grep 全部权威文档（docs/SECURITY.md · 需求 · ADR · DESIGN · UI-UX-ELEMENTS），把命中的小节逐条抄进卡片上下文包并落成验收；R3 维度 #2「硬边界」判的就是这些文件，漏读等于把它留给评审去发现。
 - enforced_by: 
 - refs: 

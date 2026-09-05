@@ -3,7 +3,7 @@ id: T3-REPORT-HTML-RENDERER
 title: Self-contained accessible HTML document from shared report content
 depends_on: [T3-REPORT-CONTENT-CONTRACT, T3-REPORT-HTML-CHARACTER-POLICY, T3-REPORT-HTML-EVIDENCE-PORT]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-HTML-RENDERER
 worktree: C:\wt\T3-REPORT-HTML-RENDERER
 allow_paths:
@@ -119,6 +119,40 @@ wear/damage）**不猜语言**：只标 `HtmlClass.TEXT_ORIGINAL`，不写 `lang
 - **`maxBytes` 随 `read` 一起传给端口**，而不是等端口交出整个 `ByteArray` 再拒。否则一份损坏或恶意的
   200 MB 文件会在被拒之前先被完整读进内存，这道「资源闸」就只能在 OOM 之后才生效。渲染器仍复核一次
   返回值大小（端口可能不守约），但守约的端口有能力一开始就不越界。
+
+## 交付记录
+
+**merged** 2026-09-03，master `054f6d58`，PR #230。977 行、28 个测试、**28/28 变异全杀**（零 compile-kill、
+零 no-run），收据钉 `HtmlClass cb47e074…` / `ReportHtmlRenderer d03ad777…` / `ReportHtmlStylesheet c8ea88c4…`。
+
+### R3 走了 6 轮、共 10 条 finding，全部成立且全部修掉
+把它们并排看，形态惊人地一致：**写下的保证 / 测试名 / 卡片不变量，超出了代码或断言真正兑现的东西**。
+
+1. `embed()` 无论文档预算还剩多少都把 `maxImageBytes` 报给端口 → 「先告知上界、让端口不必先分配」在预算将
+   尽时失效。改 `ceiling = min(perImage, remaining)`、为零不调端口、按有效上界复核。
+2. 逐字节保留的声明只在内存 String 上成立（未配对代理项 / U+0000 / CR）→ 拆出 `T3-REPORT-HTML-CHARACTER-POLICY`。
+3. 媒体类型/空字节的拒绝**从端口内部抛出**，冒泡上来**中止整份报告**，而卡片声称「被拒的照片仍出编号 figure」
+   ——该路径上这句是假的，且测试只测了构造器。改 `RejectedEvidenceException` + 窄捕获。
+4. 缺 `docs/SECURITY.md` 明文要求的 CSP（「并以 CSP 禁网络/导航/主动内容」），也没挡 `meta refresh`。
+   写卡时没读那一节，属硬边界漏项。
+5. 自包含测试只扫标签名，看不进 `<style>` 正文——里面的 `@import` 会全绿通过。
+6. 两处 KDoc 声称「没人 style 的 class 不可表达」，而基线样式表实际只 style 了 2 / 28 个 entry。
+7. **`lang` 缺省不等于「未知」，而是继承 `<html lang="en">`**——中文听写备注会被屏幕阅读器用英文音朗读，
+   正是那段注释声称要避免的后果。改 `lang=""`；旧测试断言该属性**缺席**，等于把 bug 写成了期望。
+8. CSP 哈希的期望值由调用产线 `styleHash` 得到 → 改成 MD5 也照样绿，而浏览器会拒绝该样式表。改字面量。
+9. 卡片 DoD 写「exact byte tests」，而确定性测试只比 Kotlin `String`。改成编码成 UTF-8 比字节数组。
+10. 累计预算测试把总额**恰好**花光，于是第二次调用永远是「零」分支，`min(perImage, remaining)` 的中间态
+    从未被测——只在零处提前返回、其余一律报 `maxImageBytes` 的实现能全绿通过。补 perImage=4/total=6 用例。
+
+### 三次拆卡（均用户裁定），每次都由 1000 行硬闸逼出
+CSS → `T3-REPORT-HTML-PRESENTATION`（动手前估算 1105 行）· 转义与字符政策 →
+`T3-REPORT-HTML-CHARACTER-POLICY`（R3 第 1 轮 block 时卡在 999/1000）· 证据字节端口 →
+`T3-REPORT-HTML-EVIDENCE-PORT`（修完 R3 第 3 轮正好 1000/1000，连两枚 CSP 变异的收据都放不下）。
+**教训**：一处反复吃 finding 的子问题通常是独立子问题；越早拆越省轮次。
+
+### 轮次上限三次经用户裁定 ResetRounds
+每轮提的都是**互不相同**的真缺陷、每条都被接受并修复、每次修复都带来新的能击杀的变异——不属该上限
+要止住的「同一争点拉锯」。`ResetRounds` 只清计数，评审本身一次没跳过。
 
 ## Rejected alternatives
 
