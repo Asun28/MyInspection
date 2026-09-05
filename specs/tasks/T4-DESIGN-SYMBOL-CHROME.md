@@ -100,8 +100,53 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 无。本卡的唯一决策（三选一）已由用户于 2026-09-03 裁定为「先修订 DESIGN.md」。
 条件集的**具体措辞**属实现自由度，由 A1–A4 的性质断言与 R3 评审约束，不另开 OD。
 
+## 落地形态（2026-09-05）
+
+新增 `context/DESIGN.md` §`Symbol-only chrome`（置于 `Component contract schema` 之后、各组件矩阵之前）：
+先划 chrome / domain content 的界（计数、日期、地址、物业与房间名、用户须读的状态**不是 chrome**，
+永不折成字形），再列 5 条准入条件（字形取自既有 iconography 且只代表一个动作或一个状态 · tooltip 携该动作的
+verb-object 短语 · 无障碍名即同一短语且不得由图标资源名派生 · 触控区不缩到可见字形边界 · 字形代表状态时该状态
+以 state change 播报且脱离颜色仍可读），并明写**准入不覆盖更严的组件合同**——带标签的底部导航与带标签的房间进度
+段仍须有可见标签（据此不触碰 `non_goals` 排除的 `DESIGN.md:922`）。四处条款改为解析到该集：`:890` 顶栏尾部图标 ·
+`icon-button` 行 · `tooltip` 行 · `docs/UI-UX-ELEMENTS.md:35`。计数条款与状态条款按 A2/A3 重写。
+
+**两处判断记账（均为让每条断言拿到可击杀的单点变异）**：
+
+1. **每个 DoD 锚点在被查文件里刻意只出现一次**。锚点若出现两处，「删掉被改写的那一句」删一处仍绿，
+   变异必然存活。故 `Symbol-only chrome` 的精确大小写形态在 `DESIGN.md` 内**只出现在标题**上，文内各条款以
+   小写 `symbol-only chrome` 解析到它（定义在标题、正文小写引用是常规英文写法）；跨文档引用
+   （`docs/UI-UX-ELEMENTS.md`）才用标题形态，那里同样只出现一次。
+2. **`never the sole state channel` 归位到状态条款**。该串原在 `state-badge` 行，其义是「徽标不得是状态的
+   唯一通道」；A3 要的却是**状态条款**承载「颜色不得是状态的唯一通道」——同一串给两个主语会让 A3 无可击杀变异。
+   故该串移至状态条款作颜色规则的唯一权威，`state-badge` 行以
+   `the owner also expresses the state the badge marks` 原义留存（同义改写，非弱化；该行的
+   `announce the full count` 一字未动，仍是 A2 那半的唯一锚点）。
+
+## R4 变异收据（2026-09-05 · 6/6 KILLED）
+
+被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
+`context/DESIGN.md` = `30EE5475DEF67CAA8F4B87B4A791C73EB48BB89A2D580F6FBBB58F6AD81F716E` ·
+`docs/UI-UX-ELEMENTS.md` = `E3222767EBB441B6B76765D6FEFD84D617018E17226A8F9B7598E36C5E902D7F`。
+基线 `dod_command` 退出 **0**（GREEN）；6 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
+每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚并中止，L190）、断言渲染后文本与 SHA 均已改变
+（防 no-op 变异冒充击杀，L297）、断言植入前文件仍等于基线（L196）。
+
+| # | 断言 | 文件 | 单点变异（删/还原被改写的那一句） | dod_exit | 判定 |
+|---|---|---|---|---|---|
+| M1 | A1 | DESIGN.md | 删掉声明具名条件集的 `### Symbol-only chrome` 标题行 | 1 | KILLED |
+| M2 | A2 | DESIGN.md | 计数条款去掉 `plural-aware`（`Counts use complete phrases`） | 1 | KILLED |
+| M3 | A2 | DESIGN.md | 把无条件禁令 `or icon-only badges` 还原进计数条款 | 1 | KILLED |
+| M4 | A3 | DESIGN.md | 状态条款去掉 `never the sole state channel`（换成 `is not the only carrier`） | 1 | KILLED |
+| M5 | A4 | UI-UX-ELEMENTS.md | 删掉 `icon-button` 规则里解析到 `Symbol-only chrome` 的那半句 | 1 | KILLED |
+| M6 | A2 | DESIGN.md | `state-badge` 行去掉 `announce the full count` | 1 | KILLED |
+
+M1/M5 证明 A1/A4 的具名锚点由**定义处与跨文档引用处**各自独占承载；M2/M3 证明 A2 的保留项与被删禁令两侧都在测；
+M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 `state-badge` 行蒙混）；M6 证明 DoD 仍在守
+`state-badge` 的全额播报。变异脚本不入库（跑在 scratchpad，不属 `allow_paths`）。
+
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
 |---|---|
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 拆出的 OD-3（用户裁定选项 b）。开卡前已 grep 四处权威面，确认真抵触只有两句。 |
+| 2026-09-05 | 实现：新增具名条件集，四处条款解析到它，计数/状态两句按 A2/A3 重写。R4 6/6 击杀。记两处判断（锚点唯一化、`never the sole state channel` 归位）。 |
