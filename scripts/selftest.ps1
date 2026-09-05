@@ -31,7 +31,7 @@
     9. .claude 设置/钩子完整性：settings.json 合法 JSON + 其引用的钩子文件存在。
   10. 任务卡校验：转调 check-cards.ps1（id=文件名、status 枚举、branch/worktree 不漂移、dod_command/allow_paths 完整、
       拒卡文占位符 token 字面量）。子闸种子缺陷：10b（no-op 链）/10c/10d（front-matter 锚定·块式列表）/10g（占位符 token，TD111）/
-      10h（可选 acceptance 块式双引号序列 + A1..An 连续编号 + 可定位诊断 + 缺失 advisory + 可选 R-id 引用 + 六枚单句删除变异）。
+      10h（可选 acceptance 块式双引号序列 + A1..An 连续编号 + 可定位诊断 + 缺失 advisory + 可选 R-id 引用 + 七枚守卫删除变异）。
        10c（TD60/TD-123）：front-matter 结束标记须锚定到整行——正文一行以 `---` 开头但有尾随内容（非真正闭合符）
        不得把 front-matter 提前截断致后续键（dod_command/allow_paths）「消失」误报缺失；10d（TD60/TD-123）：
        allow_paths 须有 ≥1 个块式列表项——空值（`allow_paths:`）与行内 flow（`allow_paths: [a, b]`）此前只判
@@ -6201,6 +6201,8 @@ new AsyncFunction('args', 'agent', 'parallel', 'log', source)({}, agent, jobs =>
     @{ Id='T9-RQ-UNUSED'; Reject=$false; Lines=@('requirements: # optional', '  - "R1 文件保留"') },
     @{ Id='T9-RQ-MISSING'; Reject=$true; Lines=@('acceptance:', '  - "A1 [R9] originals remain"') },
     @{ Id='T9-RQ-DUP'; Reject=$true; Lines=@('requirements:', '  - "R1 first"', '  - "R1 second"') },
+    @{ Id='T9-RQ-ZERO'; Reject=$true; Lines=@('requirements:', '  - "R0 zero is not a positive requirement id"') },
+    @{ Id='T9-RQ-LEADINGZERO'; Reject=$true; Lines=@('requirements:', '  - "R01 leading zero is not a canonical requirement id"') },
     @{ Id='T9-RQ-EMPTY'; Reject=$true; Lines=@('requirements:', '  - "R1   "') },
     @{ Id='T9-RQ-EMPTYLIST'; Reject=$true; Lines=@('requirements:') },
     @{ Id='T9-RQ-DUPKEY'; Reject=$true; Lines=@('requirements:', '  - "R1 first"', 'requirements:', '  - "R2 second"') },
@@ -6295,6 +6297,7 @@ exit 0
     @{ Code='ACCEPTANCE-MUT-ADVISORY'; Source='CARD-ACCEPTANCE-ADVISORY-GUARD'; Id='T9-AC-MUT-ADVISORY'; Mode='advisory'; Lines=@() },
     @{ Code='REQUIREMENTS-MUT-SHAPE'; Source='CARD-REQUIREMENTS-SHAPE-GUARD'; Id='T9-RQ-MUT-SHAPE'; Mode='requirements'; Lines=@('requirements:', '  - "R1   "') },
     @{ Code='REQUIREMENTS-MUT-ID'; Source='CARD-REQUIREMENTS-ID-GUARD'; Id='T9-RQ-MUT-ID'; Mode='requirements'; Lines=@('requirements:', '  - "R1 first"', '  - "R1 again"') },
+    @{ Code='REQUIREMENTS-MUT-POSITIVE'; Source='CARD-REQUIREMENTS-ID-GUARD'; RemoveCondition='$requirement.Label -cnotmatch ''^R[1-9][0-9]*$'' -or '; Id='T9-RQ-MUT-POSITIVE'; Mode='requirements'; Lines=@('requirements:', '  - "R0 zero"', '  - "R01 leading zero"') },
     @{ Code='REQUIREMENTS-MUT-REF'; Source='CARD-REQUIREMENTS-REF-GUARD'; Id='T9-RQ-MUT-REF'; Mode='requirements'; Lines=@('acceptance:', '  - "A1 [R1] exactly one row"') }
   )
   $acRealHash = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Algorithm SHA256).Hash
@@ -6306,11 +6309,20 @@ exit 0
     $hit = @(0..($src.Count - 1) | Where-Object { $src[$_] -match [regex]::Escape($mutation.Source) })
     if ($hit.Count -ne 1) { Fail "[$($mutation.Code)-SETUP] 单句靶点 $($mutation.Source) 命中数=$($hit.Count)，期望 1。"; continue }
     $mutant = Join-Path $acScripts 'check-cards-mutant.ps1'
-    Set-Content -LiteralPath $mutant -Value @($src[0..($hit[0]-1)] + $src[($hit[0]+1)..($src.Count-1)]) -Encoding utf8
+    if ($mutation.ContainsKey('RemoveCondition')) {
+      $line = $src[$hit[0]]
+      if ([regex]::Matches($line, [regex]::Escape($mutation.RemoveCondition)).Count -ne 1) {
+        Fail "[$($mutation.Code)-SETUP] 正整数条件未唯一命中；不可改删整个重复 ID 守卫。"; continue
+      }
+      $src[$hit[0]] = $line.Replace($mutation.RemoveCondition, '')
+      Set-Content -LiteralPath $mutant -Value $src -Encoding utf8
+    } else {
+      Set-Content -LiteralPath $mutant -Value @($src[0..($hit[0]-1)] + $src[($hit[0]+1)..($src.Count-1)]) -Encoding utf8
+    }
     $mutOut = & pwsh -NoProfile -File $acProbe -Checker $mutant -TaskId $mutation.Id -Mode $mutation.Mode -Marker $mutation.Code 2>&1 | Out-String
     $mutExpected = "MARKER:$($mutation.Code):ABSENT-$(if ($mutation.Mode -ne 'advisory') { 'REJECT' } else { 'ADVISORY' })"
     if ($LASTEXITCODE -eq 0 -or $mutOut -notmatch "(?m)^$([regex]::Escape($mutExpected))\r?$") {
-      Fail "[$($mutation.Code)] 删除单句守卫后未以专属断言码变红。输出：$mutOut"
+      Fail "[$($mutation.Code)] 删除守卫后未以专属断言码变红。输出：$mutOut"
     }
   }
   $brokenMutant = Join-Path $acScripts 'check-cards-broken.ps1'
@@ -6321,7 +6333,7 @@ exit 0
   }
   $acRealHashAfter = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Algorithm SHA256).Hash
   if ($acRealHashAfter -ne $acRealHash) { Fail '[ACCEPTANCE-MUT-RESTORE] 真 check-cards.ps1 在变异夹具前后 SHA-256 漂移。' }
-  elseif (-not $fail) { Write-Host '  种子缺陷 10h OK：acceptance 与可选 requirement 引用/诊断/模板豁免 + 六枚单句删除变异均经同一 oracle 可证伪' -ForegroundColor Green }
+  elseif (-not $fail) { Write-Host '  种子缺陷 10h OK：acceptance 与可选 requirement 引用/诊断/模板豁免 + 七枚守卫删除变异均经同一 oracle 可证伪' -ForegroundColor Green }
 } finally {
   Remove-Item -LiteralPath $acRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
