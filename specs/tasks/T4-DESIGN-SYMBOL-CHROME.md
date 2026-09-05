@@ -217,10 +217,15 @@ tooltip 并以同一短语作无障碍名 · **状态字形**不携动作措辞�
 > 已确认文件回到基线且 DoD 绿后，重跑单批得下列收据。**L196 又中一次**（其原文已写明「变异批进行中
 > 勿并行跑独立交叉复核」），R5 计数。
 
+> **ship 前自审又吃掉一条**（R3 第 4 轮修完、送审之前自查条件集的每句声称是否在文档里为真）：
+> 「the clauses elsewhere … resolve here」与刚加的相机豁免段**自相矛盾**——相机行确实治理符号化控件、
+> 却按豁免不解析到本集。已把该句收窄为 `… except the three camera rows named at the end of this section`。
+> 这条本会是第 5 轮的 finding；**声称一旦收窄，就要回头检查所有引用该声称的句子**。
+
 ## R4 变异收据（2026-09-06 · 9/9 KILLED · 对应 R3 第 4 轮修复后的字节）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批，L270）：
-`context/DESIGN.md` = `2323854507C0FA26C19CEC39DF123C929739799232C543503B9EE704F032D9AF` ·
+`context/DESIGN.md` = `704A0D49AF4ACBB3D3CF50DD9995FF506D597B9291E8746A4ADDA0D1A1218275` ·
 `docs/UI-UX-ELEMENTS.md` = `F0B69A3148BD9202D0578FCAE8CFAEE8EE4DA094193F48653E6CB5F225FF7EC4`。
 基线 `dod_command` 退出 **0**（GREEN）；9 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚并中止，L190）、断言渲染后文本与 SHA 均已改变
