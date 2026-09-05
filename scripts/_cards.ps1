@@ -1,4 +1,4 @@
-﻿# T46-W8-CARDSLIB
+# T46-W8-CARDSLIB
 
 function Get-FrontMatter($raw) {
   # TD60/TD-123：闭合 `---` 须锚定到整行（其后只允许行尾空白，再接换行或文件末尾）——不锚定时，
@@ -83,6 +83,57 @@ function Get-YamlListItems($fm, $key) {
   }
   return $items
 }
+
+# The same narrow quoted-list grammar serves acceptance and optional requirements.
+# Only front matter is accepted; callers keep their own numbering/reference policy.
+function Get-CardQuotedList([string]$fm, [string]$Key, [string]$Prefix) {
+  $lines = @($fm -split '\r?\n'); $keyLine = -1; $keyCount = 0; $bad = 0
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match "^$([regex]::Escape($Key))\s*:(?<sep>[ \t]*)(?<inline>.*)$") {
+      $keyCount++
+      if ($keyLine -lt 0) {
+        $keyLine = $i; $inline = $Matches['inline']
+        if (($Matches['sep'].Length -eq 0 -and $inline.StartsWith('#')) -or
+            ($inline -replace '^\s*#.*$', '' -replace '\s+#.*$', '').Trim()) { $bad = 1 }
+      }
+    }
+  }
+  if ($keyLine -lt 0) { return [pscustomobject]@{ Present=$false; InvalidEntry=0; Items=@() } }
+  if ($keyCount -gt 1) { $bad = 1 }
+  $items = @(); $entry = 0; $indent = $null
+  # Decode the YAML escapes already accepted by the grammar below. Decoding makes
+  # whitespace-only descriptions and escaped [R1] citations behave as their text.
+  $escapes = [System.Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+  $keys = @(' ', '0', 'a', 'b', 't', 'n', 'v', 'f', 'r', 'e', '"', '/', 'N', '_', 'L', 'P', '\')
+  $codes = @(32, 0, 7, 8, 9, 10, 11, 12, 13, 27, 34, 47, 133, 160, 8232, 8233, 92)
+  for ($i = 0; $i -lt $keys.Count; $i++) { $escapes.Add($keys[$i], $codes[$i]) }
+  for ($i = $keyLine + 1; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i]
+    if ($line -match '^[^\s#].*?:') { break }
+    if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#') { continue }
+    $entry++
+    $shape = [regex]::Match('', '(?!)')
+    if ($line -match '^(?<indent> +)- +(?<value>.+?)\s*$') {
+      $thisIndent = $Matches['indent']; $value = $Matches['value']
+      if ($null -eq $indent) { $indent = $thisIndent }
+      if ($thisIndent -ceq $indent) {
+        $shape = [regex]::Match($value, '^"(?<label>' + [regex]::Escape($Prefix) + '[0-9]+)\s+(?<text>(?:[^"\\]|\\(?:[ 0abtnvfre"/N_LP\\]|x[0-9A-Fa-f]{2}|u(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|U(?:0000(?![dD][89A-Fa-f])[0-9A-Fa-f]{4}|00(?:0[1-9A-Fa-f]|10)[0-9A-Fa-f]{4})))+)"(?:[ \t]+#.*|[ \t]*)$')
+      }
+    }
+    if (-not $shape.Success) { if ($bad -eq 0) { $bad = $entry }; continue }
+    $text = [regex]::Replace($shape.Groups['text'].Value, '\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)', {
+      param($escape)
+      $value = $escape.Groups[1].Value
+      $code = if ($value.Length -gt 1) { [Convert]::ToInt32($value.Substring(1), 16) } else { $escapes[$value] }
+      [char]::ConvertFromUtf32($code)
+    })
+    if ([string]::IsNullOrWhiteSpace($text)) { if ($bad -eq 0) { $bad = $entry }; continue }
+    $items += [pscustomobject]@{ Entry=$entry; Label=$shape.Groups['label'].Value; Text=$text }
+  }
+  if ($entry -eq 0 -and $bad -eq 0) { $bad = 1 }
+  return [pscustomobject]@{ Present=$true; InvalidEntry=$bad; Items=$items }
+}
+
 
 function Split-TdRow([string]$line) {
   ($line.Trim().Trim('|') -split '(?<!\\)\|') | ForEach-Object { $_.Trim() }

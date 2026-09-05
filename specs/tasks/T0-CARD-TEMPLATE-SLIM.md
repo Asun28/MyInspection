@@ -20,11 +20,11 @@ forbid:
   - Product behavior, frozen contracts, new dependencies, or changing the R3 merge decision
   - Making existing cards require new fields or mandatory mutation work merely to satisfy a template
 non_goals:
-  - Risk routing, review arbitration, selftest scheduling, or migrating historical cards
+  - General risk routing, review arbitration, CI/shard scheduling, or migrating historical cards
 diagnosis: The old template and generator repeat optional paperwork and force at least three acceptance items, while neither supports optional requirement links consistently.
 dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Fixture card-acceptance
 dod_exit: 0
-dod_assert: The existing core suite proves small and legacy acceptance lists, requirement references, generator syntax and template compatibility without a new gate or dependency.
+dod_assert: The focused card-acceptance fixture reuses the existing 10h assertions and runs the full existing-card checker. One full core run remains required for final acceptance, separately from edit-and-retry iterations.
 acceptance:
   - "A1 The template and generator agree on concise core fields, optional supporting fields and optional testable requirements; the generator no longer demands every optional field"
   - "A2 One or more meaningful quoted A1..An acceptance items are valid; all existing cards remain valid and malformed or nonsequential declared lists remain rejected"
@@ -40,3 +40,16 @@ doc_sync: Update specs/README.md and plan/workflow guidance with the same option
 User approved applying the useful upstream findings on 2026-09-05. Adapt upstream PRs #363 and #366
 to this project's quoted A-numbered lists. Keep existing cards compatible and adoption proportional:
 requirements help link obligations to evidence but never invent obligations to fill a field.
+
+The user's fewer-gates instruction authorizes a bounded replay of the existing card tests for
+iteration. This fixture does not change general task routing, CI scheduling or shard contents.
+The full core acceptance in A4 remains mandatory before final delivery.
+
+Final acceptance evidence (2026-09-06 NZ): the full `selftest.ps1 -Shard core` completed
+with exit 0 and `selftest(core): PASS` on the production implementation (1496.5 seconds under
+concurrent machine load; this is validation, not a speed benchmark). The focused fixture
+also passed the complete existing-card checker, generator-schema assertions and seven guard
+mutations (110.3 seconds after adding R0/R01 rejection fixtures). Deleting only the positive-ID
+condition made both new fixtures fail; restoring it made both pass. Production code remained
+unchanged, so the full core run was not repeated for these test additions. Logs are retained
+under this worktree's `_local/` directory.
