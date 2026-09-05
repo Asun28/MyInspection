@@ -1558,7 +1558,7 @@ Chrome is a control's own explanatory text: its label, tooltip, caption, or stat
 
 A chrome control may omit visible text only when every condition below holds. This is the single admission rule; the clauses elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that govern a symbol-only control resolve here instead of restating these conditions, except the three camera rows named at the end of this section. Admission never overrides a stricter contract: where a component contract requires a visible label, as labelled bottom navigation, labelled room progress segments and `notice-delivery-row` do, that label stays on top of admission.
 
-1. The glyph comes from the declared iconography set and stands for exactly one thing: one action, or one state. Its wording is never derived from the glyph asset name.
+1. The glyph comes from the declared iconography set, or is a component-defined binary state marker such as a badge dot, and stands for exactly one thing: one action, or one state. Its wording is never derived from the glyph asset name.
 2. The touch target stays at the declared minimum and never shrinks to the visible glyph bounds.
 3. Required by every symbol-only action glyph: a tooltip whose text is the verb-object phrase for that action, exposed unchanged as that control's accessible name.
 4. A state glyph carries no action wording. The control that owns it states the state in its own accessible name, and a change to that state is announced as a state change.
@@ -1776,7 +1776,7 @@ The shutter remains operable with TalkBack and hardware volume keys where platfo
 ### Product language contract
 
 - Use plain English outcome labels. Never show ISO timestamps, UUIDs, database enums, operation IDs, `privacy_flag`, or temporary-file terminology.
-- Counts use complete, plural-aware phrases: `1 photo needed`, `2 photos needed`, `1 item needs review`; never `1 items`. A count is domain content, not chrome: it always carries its numeral, and a `state-badge` may clamp that numeral visually but never the announcement.
+- Counts use complete, plural-aware phrases: `1 photo needed`, `2 photos needed`, `1 item needs review`; never `1 items`. A count is domain content, not chrome: it always carries its numeral and announces its full value, and a `state-badge` may clamp that numeral visually but never the announcement.
 - Save copy is local and factual: `Saved on this device`, `Saving…`, `Couldn’t save Kitchen sink. Try again or keep editing.` Offline is not mentioned for local writes.
 - Camera recovery names the next step: `Camera permission is off. Allow it in Settings or import a photo.` Avoid `Something went wrong` where a recovery is known.
 - Confirmation text names object, scope, and persistence: `Mark 12 unrated Kitchen items OK? Existing ratings will not change.`
