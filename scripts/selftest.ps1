@@ -118,7 +118,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'scaffold-trigger', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
@@ -1035,9 +1035,63 @@ function Test-ScaffoldSelftestTriggerContract([string]$WorkflowText) {
   $pushSelectors = @(Get-WorkflowMappingKeys $pushBlock.Groups['body'].Value '    ')
   if ($pushSelectors.Count -ne 2 -or (@($pushSelectors | Sort-Object -Unique) -join ',') -ne 'branches,paths') { return $false }
   if ($pushBlock.Groups['body'].Value -notmatch '(?m)^    branches:\s*\[\s*main\s*,\s*master\s*\]\s*$') { return $false }
-  if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*$") { return $false }
+  if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!configs/compliance/\*\*', '!\*\*\.md'\]\s*$") { return $false }
   if ($onBlockText -notmatch '(?m)^  workflow_dispatch:\s*\{\}\s*$') { return $false }
   return $true
+}
+
+function Get-ScaffoldSelftestTriggerFailures([string]$SourceRoot) {
+  # Shared by the focused fixture and gate 8.2d: run the same contracts and mutations against real workflows.
+  $failures = [System.Collections.Generic.List[string]]::new()
+  $ciTriggerText82 = Get-Content (Join-Path $SourceRoot '.github/workflows/ci.yml') -Raw
+  foreach ($trig in @('push', 'pull_request')) {
+    if (-not (Test-MainMasterWorkflowTrigger $ciTriggerText82 $trig)) {
+      $failures.Add("8.2d：ci.yml 缺 '${trig}:' 触发（或其 branches 非 [main, master]）。")
+    }
+  }
+  $ciOutsideOnMutation82 = [regex]::Replace($ciTriggerText82, '(?m)^  pull_request:\s*\r?\n    branches:\s*\[\s*main\s*,\s*master\s*\]\s*\r?\n', '', 1) + "`n# 仅为文档示例，不是 on 事件：`n  pull_request:`n    branches: [main, master]"
+  if (Test-MainMasterWorkflowTrigger $ciOutsideOnMutation82 'pull_request') {
+    $failures.Add('8.2d：ci.yml 触发契约被 on: 块之外的 pull_request 形状文本假满足。')
+  }
+  $scaffoldTriggerText82 = Get-Content (Join-Path $SourceRoot '.github/workflows/scaffold-selftest.yml') -Raw
+  if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
+    $failures.Add('8.2d：scaffold-selftest.yml 触发契约不符：需要 main/master 脚手架 push、configs/compliance/** 排除及 workflow_dispatch，禁止额外事件。')
+  }
+  $pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
+  $pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
+  $scheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  schedule:`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+  $quotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request': {}`n  workflow_dispatch: {}"
+  $doubleQuotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request`": {}`n  workflow_dispatch: {}"
+  $quotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request_target': {}`n  workflow_dispatch: {}"
+  $doubleQuotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request_target`": {}`n  workflow_dispatch: {}"
+  $quotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'schedule':`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+  $doubleQuotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"schedule`":`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
+  $tagsMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags: ['**']"
+  $tagsIgnoreMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags-ignore: ['release/**']"
+  $missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!configs/compliance/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
+  $missingProductExclusionMutation82 = $scaffoldTriggerText82 -replace ", '!configs/compliance/\*\*'", ''
+  $alteredPathsMutation82 = $scaffoldTriggerText82 -replace "'configs/\*\*'", "'android/**'"
+  $acceptedTriggerMutations82 = @(
+    $pullRequestTriggerMutation82,
+    $pullRequestTargetMutation82,
+    $scheduleMutation82,
+    $quotedPullRequestMutation82,
+    $doubleQuotedPullRequestMutation82,
+    $quotedPullRequestTargetMutation82,
+    $doubleQuotedPullRequestTargetMutation82,
+    $quotedScheduleMutation82,
+    $doubleQuotedScheduleMutation82,
+    $tagsMutation82,
+    $tagsIgnoreMutation82,
+    $missingPathsMutation82,
+    $missingProductExclusionMutation82,
+    $alteredPathsMutation82 |
+      Where-Object { Test-ScaffoldSelftestTriggerContract $_ }
+  )
+  if ($acceptedTriggerMutations82.Count -gt 0) {
+    $failures.Add("8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。")
+  }
+  return $failures.ToArray()
 }
 
 function New-SelftestSnapshot {
@@ -1430,6 +1484,17 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
     }
   }
   Write-Host '[SELFTEST-FIXTURE] seeded-nogit-routing PASS'
+  exit 0
+}
+
+if ($Fixture -eq 'scaffold-trigger') {
+  $triggerFailures = @(Get-ScaffoldSelftestTriggerFailures -SourceRoot $RepoRoot)
+  if ($triggerFailures.Count -gt 0) {
+    foreach ($failure in $triggerFailures) { Write-Warning $failure }
+    Write-Host '[SELFTEST-FAILED-GATES] shard=core gates=8.2d' -ForegroundColor Red
+    exit 1
+  }
+  Write-Host '[SELFTEST-FIXTURE] scaffold-trigger PASS'
   exit 0
 }
 
@@ -4360,60 +4425,11 @@ if ($stText82 -notmatch 'Install-Module\s+PSScriptAnalyzer') {
 }
 elseif (-not $fail) { Write-Host '  8.2c scaffold-selftest.yml provision PSScriptAnalyzer OK' -ForegroundColor Green }
 
-# 8.2d 产品 CI 的 PR 事件是合并闸，默认分支 push 是事后检测；完整 scaffold selftest 是合并后/手动 canary。
-#   任务卡 DoD 与 R3 负责合并前的本卡验证，避免无关历史 harness 闸反复阻塞产品推进。
-$trigMissing82 = $false
-$ciTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
-foreach ($trig in @('push', 'pull_request')) {
-  if (-not (Test-MainMasterWorkflowTrigger $ciTriggerText82 $trig)) {
-    $trigMissing82 = $true
-    Fail "8.2d：ci.yml 缺 '${trig}:' 触发（或其 branches 非 [main, master]）。"
-  }
-}
-$ciOutsideOnMutation82 = [regex]::Replace($ciTriggerText82, '(?m)^  pull_request:\s*\r?\n    branches:\s*\[\s*main\s*,\s*master\s*\]\s*\r?\n', '', 1) + "`n# 仅为文档示例，不是 on 事件：`n  pull_request:`n    branches: [main, master]"
-if (Test-MainMasterWorkflowTrigger $ciOutsideOnMutation82 'pull_request') {
-  $trigMissing82 = $true
-  Fail '8.2d：ci.yml 触发契约被 on: 块之外的 pull_request 形状文本假满足。'
-}
-$scaffoldTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
-if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
-  $trigMissing82 = $true
-  Fail '8.2d：scaffold-selftest.yml 必须只在 main/master push 与 workflow_dispatch 运行，且不得含 pull_request——完整 harness 不进入 PR 关键路径。'
-}
-$pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
-$pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
-$scheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  schedule:`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
-$quotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request': {}`n  workflow_dispatch: {}"
-$doubleQuotedPullRequestMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request`": {}`n  workflow_dispatch: {}"
-$quotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'pull_request_target': {}`n  workflow_dispatch: {}"
-$doubleQuotedPullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"pull_request_target`": {}`n  workflow_dispatch: {}"
-$quotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  'schedule':`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
-$doubleQuotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"schedule`":`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
-$tagsMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags: ['**']"
-$tagsIgnoreMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags-ignore: ['release/**']"
-$missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
-$alteredPathsMutation82 = $scaffoldTriggerText82 -replace "'configs/\*\*'", "'android/**'"
-$acceptedTriggerMutations82 = @(
-  $pullRequestTriggerMutation82,
-  $pullRequestTargetMutation82,
-  $scheduleMutation82,
-  $quotedPullRequestMutation82,
-  $doubleQuotedPullRequestMutation82,
-  $quotedPullRequestTargetMutation82,
-  $doubleQuotedPullRequestTargetMutation82,
-  $quotedScheduleMutation82,
-  $doubleQuotedScheduleMutation82,
-  $tagsMutation82,
-  $tagsIgnoreMutation82,
-  $missingPathsMutation82,
-  $alteredPathsMutation82 |
-    Where-Object { Test-ScaffoldSelftestTriggerContract $_ }
-)
-if ($acceptedTriggerMutations82.Count -gt 0) {
-  $trigMissing82 = $true
-  Fail "8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。"
-}
-if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅 post-merge/manual OK' -ForegroundColor Green }
+# 8.2d 产品 CI 的 PR 事件是合并闸；scaffold push canary 排除产品 configs/compliance/**。
+#   产品卡使用相关产品测试 + verify + R3；脚手架触发与变异断言和 focused fixture 共用。
+$triggerFailures82 = @(Get-ScaffoldSelftestTriggerFailures -SourceRoot $RepoRoot)
+foreach ($failure in $triggerFailures82) { Fail $failure }
+if ($triggerFailures82.Count -eq 0 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅脚手架权威面 post-merge/manual OK' -ForegroundColor Green }
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
@@ -10501,8 +10517,10 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
       Join-Path ([System.IO.Path]::GetTempPath()) "st4-$PID"
     }
     $td4MigrationWorktreeAdded = $false
-    $td4ComplianceOriginal = $null
-    $td4ComplianceFile = $null
+    $td4BuildFile = $null
+    $td4BuildText = $null
+    $td4ForcedTestFile = $null
+    $td4ForcedTestCreated = $false
     $td4TenancyOriginal = $null
     $td4TenancyFile = $null
     $td4WrongMigration = $null
@@ -10536,21 +10554,46 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
 
           $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
           $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
-          $td4ComplianceFile = Join-Path $td4MigrationRepo 'configs/compliance/nz-rules-v1.json'
-          $td4ComplianceOriginal = [System.IO.File]::ReadAllText($td4ComplianceFile)
-          $td4ComplianceMutant = $td4ComplianceOriginal | ConvertFrom-Json
-          $td4ExemptTypes = @($td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes | ForEach-Object { "$_" })
-          if ($td4ExemptTypes.Count -ne 2 -or $td4ExemptTypes[0] -cne 'INGOING' -or $td4ExemptTypes[1] -cne 'EXIT') {
-            Fail "闸17a3(migration-continue/setup)：runtime config 的 exemptTypes 基线漂移，无法构造稳定 :core:test 失败（actual=$($td4ExemptTypes -join ',')）。"
+          $td4ForcedTestFile = Join-Path $td4MigrationRepo 'android/core/src/test/kotlin/nz/myinspection/core/selftest/Td4ContinueProbeTest.kt'
+          if (Test-Path -LiteralPath $td4ForcedTestFile) {
+            Fail '闸17a3(migration-continue/setup)：临时失败测试路径已存在，拒绝覆盖产品测试。'
           } else {
-            $td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes = @($td4ExemptTypes + 'ANNUAL')
-            [System.IO.File]::WriteAllText($td4ComplianceFile, ($td4ComplianceMutant | ConvertTo-Json -Depth 20), [System.Text.UTF8Encoding]::new($false))
+            New-Item -ItemType Directory -Force (Split-Path -Parent $td4ForcedTestFile) | Out-Null
+            $td4ForcedTestSource = @(
+              'package nz.myinspection.core.selftest',
+              '',
+              'import kotlin.test.Test',
+              'import kotlin.test.fail',
+              '',
+              'class Td4ContinueProbeTest {',
+              '    @Test',
+              '    fun forcedFailureForContinueProbe() {',
+              '        fail("TD4_CONTINUE_TEST_FAILURE")',
+              '    }',
+              '}',
+              ''
+            ) -join "`n"
+            [System.IO.File]::WriteAllText($td4ForcedTestFile, $td4ForcedTestSource, [System.Text.UTF8Encoding]::new($false))
+            $td4ForcedTestCreated = $true
+            $td4ContinueOrdering = @(
+              '',
+              '// selftest fixture: run the forced test failure before migration verification.',
+              'tasks.configureEach {',
+              '    if (name == "verifyMainMyInspectionDatabaseMigration") {',
+              '        mustRunAfter("test")',
+              '    }',
+              '}',
+              ''
+            ) -join "`n"
+            [System.IO.File]::WriteAllText($td4BuildFile, $td4BuildText + "`n" + $td4ContinueOrdering, [System.Text.UTF8Encoding]::new($false))
 
             $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
             [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
             $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
             $td4MissingResult = & $invokeTd4CoreCheck
-            [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
+            Remove-Item -LiteralPath $td4ForcedTestFile -Force -ErrorAction Stop
+            $td4ForcedTestCreated = $false
+            [System.IO.File]::WriteAllText($td4BuildFile, $td4BuildText, [System.Text.UTF8Encoding]::new($false))
             [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
 
             $td4TestFailureMarker = "Execution failed for task ':core:test'."
@@ -10578,8 +10621,11 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         }
       }
     } finally {
-      if ($td4ComplianceFile -and $null -ne $td4ComplianceOriginal -and (Test-Path -LiteralPath $td4ComplianceFile)) {
-        [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
+      if ($td4ForcedTestCreated -and (Test-Path -LiteralPath $td4ForcedTestFile)) {
+        Remove-Item -LiteralPath $td4ForcedTestFile -Force -ErrorAction SilentlyContinue
+      }
+      if ($td4BuildFile -and $null -ne $td4BuildText -and (Test-Path -LiteralPath $td4BuildFile)) {
+        [System.IO.File]::WriteAllText($td4BuildFile, $td4BuildText, [System.Text.UTF8Encoding]::new($false))
       }
       if ($td4TenancyFile -and $null -ne $td4TenancyOriginal -and (Test-Path -LiteralPath $td4TenancyFile)) {
         [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
@@ -16049,7 +16095,7 @@ exit $realExit
     @{ File='docs'; Anchor='防泄露闸 `check-secrets.ps1` 已接入'; Class='note' }
     @{ File='docs'; Anchor='`/security-review-local` 是模型在环'; Class='note' }
     @{ File='task'; Anchor='ship    : DoD(必绿)'; Class='enum'; Site='task-help' }
-    @{ File='task'; Anchor='R3 与候选 CI 都作为 mandatory gate'; Class='note' }
+    @{ File='task'; Anchor='绑定已证明 head 直接 squash 合并。free+private'; Class='note' }
     @{ File='task'; Anchor='$sagaLegs = @('; Class='enum'; Site='task-saga-legs' }
     @{ File='task'; Anchor='# 收据在位 ='; Class='note' }
     @{ File='task'; Anchor='# PR head =='; Class='note' }
@@ -16061,7 +16107,6 @@ exit $realExit
     @{ File='task'; Anchor='# 铸造/RED 闸的收据 resume'; Class='note' }
     @{ File='task'; Anchor='$sagaSafeWhy ='; Class='note' }
     @{ File='task'; Anchor='-Local（提交未推送）'; Class='note' }
-    @{ File='task'; Anchor='[CI-GATE-BASE-MOVED]'; Class='note' }
     @{ File='task'; Anchor='# 必须先在 worktree **手动补跑全部确定性闸'; Class='enum'; Site='task-saga-rule-comment' }
     @{ File='task'; Anchor='【闸门保真总则】已推送恢复合并前'; Class='enum'; Site='task-saga-rule-output' }
     @{ File='task'; Anchor='R3 已 pass、合并腿未完成'; Class='enum'; Site='task-r3-pass' }

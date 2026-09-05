@@ -53,3 +53,18 @@ The card deliberately contains no pagination implementation and requires no old 
 The focused DoD is an iteration check. Final acceptance still includes full selftest and verify,
 including real gate 17a3 and 17ai execution. Coordinate overlapping nightly work by merging
 its exact schedule and meta wiring; this card neither adds nor removes a nightly policy.
+
+## Focused evidence
+
+- Official RED at `18ad0627`: DoD exit 1, missing compliance exclusion, gate `8.2d`; the same focused fixture is now GREEN.
+- The actual `canary-harness` fixture passes with the existing continuation and source-contract mutations intact.
+- Actual gate 17ai inventory and ordered-site mutations: RED before the note/comment repair, PASS afterward.
+- Actual `Test-SelftestGateIdContract` on the final source: PASS, 110 headings / 110 failure owners / 710 explicit messages.
+- Full selftest, real gate 17a3 migration execution, verify and R3 remain required for final integrated acceptance.
+
+Validation (2026-09-06 NZ): the exact production 17a3 migration block passed (exit 0,
+224.24 seconds, no environment skip). Real TestNG output contains one intended
+Td4ContinueProbeTest AssertionError; the no-continue test-first case, continue/ADDED
+case, wrong-migration/REMOVED case and fixture cleanup all passed. Focused trigger,
+canary source-contract, actual 17ai inventory/mutations and gate-ID ownership also pass.
+Full integrated selftest remains the final delivery check; no full-suite result is claimed here.

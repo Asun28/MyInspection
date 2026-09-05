@@ -423,7 +423,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
-18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.45.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.46.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
@@ -436,7 +436,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 仅默认分支 push/手动 canary，每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，拆掉超 20 分钟单片而不减覆盖（8.2d/8.2e 锁死）。合并前仍由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 的默认分支 push canary 只覆盖脚手架权威面，排除产品 `configs/compliance/**`，保留 license/secret 配置与手动触发；每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，覆盖不减（8.2d/8.2e 锁死）。合并前仍由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -475,7 +475,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流自检**：`pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片；任务卡可选单片作 DoD。
+- **工作流自检**：脚手架/harness 改动运行 `pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片。脚手架卡可选聚焦 fixture 作迭代 DoD，最终验收按卡执行；产品卡使用相关产品测试 + `scripts/verify.ps1`，不把 scaffold selftest 当 DoD。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
