@@ -44,6 +44,11 @@
 
 ## 3. 单卡闭环命令
 
+卡片先填 `specs/tasks/_TEMPLATE.md` 的精简核心字段，支持字段按需省略；`branch/worktree` 由 id 派生。
+`acceptance` 可选，声明时一条起、非空白双引号块式 `A1..An`；可选 `requirements` 的唯一非空 `R-id`
+可以被验收用 `[R1] [R2]` 引用。只检查 front-matter，缺字段不新增义务，不因模板要求额外变异工作。
+项目硬边界、既有 DoD 与 R3 裁决仍按本手册执行；完整字段约定见 `specs/README.md`。
+
 ```powershell
 # ⚠ L86：以下所有相位命令都从**主检出**根目录跑。cd 进 worktree 只为编辑文件——
 #   在 worktree 里跑相对路径 scripts\task.ps1 会被 fail-closed 守卫拒（哨兵 L86-WT）：

@@ -31,7 +31,7 @@
     9. .claude 设置/钩子完整性：settings.json 合法 JSON + 其引用的钩子文件存在。
   10. 任务卡校验：转调 check-cards.ps1（id=文件名、status 枚举、branch/worktree 不漂移、dod_command/allow_paths 完整、
       拒卡文占位符 token 字面量）。子闸种子缺陷：10b（no-op 链）/10c/10d（front-matter 锚定·块式列表）/10g（占位符 token，TD111）/
-      10h（可选 acceptance 块式双引号序列 + A1..An 连续编号 + 可定位诊断 + 缺失 advisory + 三枚单句删除变异）。
+      10h（可选 acceptance 块式双引号序列 + A1..An 连续编号 + 可定位诊断 + 缺失 advisory + 可选 R-id 引用 + 七枚守卫删除变异）。
        10c（TD60/TD-123）：front-matter 结束标记须锚定到整行——正文一行以 `---` 开头但有尾随内容（非真正闭合符）
        不得把 front-matter 提前截断致后续键（dod_command/allow_paths）「消失」误报缺失；10d（TD60/TD-123）：
        allow_paths 须有 ≥1 个块式列表项——空值（`allow_paths:`）与行内 flow（`allow_paths: [a, b]`）此前只判
@@ -105,6 +105,7 @@
 
   下游项目 init 后本脚本随之保留（TD15）——继续用它当自己的工作流自检；元仓专属子检查已自动跳过。
 .PARAMETER Shard  all 聚合 core/workflow/seeded；CI 可单跑 seeded-git/remote/scanner，三者并集为完整 seeded。
+.PARAMETER Fixture  card-acceptance 只运行现有 10h 卡片契约测试；完整验收仍跑对应分片。
 .PARAMETER StrictLint  PSScriptAnalyzer 的 Warning 也视为失败（未显式传参时的默认值见 TD77：元仓自身
   ($isPostInit 为假) 自动置真、已初始化下游仍是 Warning 建议性的旧默认；显式传 -StrictLint / -StrictLint:$false
   恒覆盖该默认，含在元仓自身也能用 -StrictLint:$false 退回建议性）。
@@ -118,7 +119,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8', 'card-acceptance')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
@@ -1432,6 +1433,39 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
     }
   }
   Write-Host '[SELFTEST-FIXTURE] seeded-nogit-routing PASS'
+  exit 0
+}
+
+if ($Fixture -eq 'card-acceptance') {
+  if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    throw '[CARD-GENERATOR-NODE-MISSING] Focused card acceptance requires Node.js to validate the generator schema.'
+  }
+  $cardAllOut = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'check-cards.ps1') 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) { throw "[CARD-ALL-CARDS-INVALID] $cardAllOut" }
+  Write-Host $cardAllOut.TrimEnd()
+  # Replay the exact core 10h region and its real failure recorder; no copied assertions.
+  $cardFixtureSource = [IO.File]::ReadAllText($PSCommandPath)
+  $cardFixtureErrors = $null
+  $cardFixtureAst = [System.Management.Automation.Language.Parser]::ParseInput($cardFixtureSource, [ref]$null, [ref]$cardFixtureErrors)
+  $cardStart = [regex]::Matches($cardFixtureSource, '(?m)^# 10h\.[^\r\n]*\r?\n')
+  $cardEnd = [regex]::Matches($cardFixtureSource, '(?m)^# --- 11\.[^\r\n]*\r?\n')
+  if ($cardFixtureErrors -or $cardStart.Count -ne 1 -or $cardEnd.Count -ne 1 -or $cardEnd[0].Index -le $cardStart[0].Index) {
+    throw '[CARD-FIXTURE-SOURCE] core 10h boundaries must be unique, ordered and parseable.'
+  }
+  foreach ($cardFunctionName in @('Fail', 'Resolve-SelftestGateId')) {
+    $cardFunction = @($cardFixtureAst.FindAll({ param($node)
+      $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $cardFunctionName
+    }, $true))
+    if ($cardFunction.Count -ne 1) { throw "[CARD-FIXTURE-SOURCE] expected one $cardFunctionName function." }
+    . ([scriptblock]::Create($cardFunction[0].Extent.Text))
+  }
+  $script:fail = $false; $script:currentSelftestGateId = '10h'
+  $script:failedSelftestGateIds = [System.Collections.Generic.List[string]]::new()
+  # Text-created scriptblocks have no file-bound PSScriptRoot; bind the real scripts directory explicitly.
+  $cardReplay = 'param([string]$RepoRoot); $PSScriptRoot = Join-Path $RepoRoot ''scripts'';' + "`n" + $cardFixtureSource.Substring($cardStart[0].Index, $cardEnd[0].Index - $cardStart[0].Index)
+  & ([scriptblock]::Create($cardReplay)) $RepoRoot
+  if ($script:fail) { Write-Host '[SELFTEST-FAILED-GATES] shard=card-acceptance gates=10h'; exit 1 }
+  Write-Host '[SELFTEST-FIXTURE] card-acceptance PASS'
   exit 0
 }
 
@@ -6100,7 +6134,7 @@ foreach ($tc in $td111Cases) {
 }
 if ($ok10g -and -not $fail) { Write-Host '  种子缺陷 10g OK：卡文大写蛇形 token 字面量被 check-cards 建卡期拒绝、点名卡 + 可操作信息；小写/混合形态不被过度拒绝（-cmatch，TD111/L61 机检下沉）' -ForegroundColor Green }
 
-# 10h. acceptance 是可选的作者声明，只机检形态：>=3 条块式双引号字符串，严格 A1..An。
+# 10h. 可选卡片声明：一条起的 A1..An 与 R-id 引用，复用原 checker 夹具。
 # 夹具一律在临时根运行被测 checker；真卡和真 checker 只读。变异的基线与删句副本复用同一枚子进程 oracle。
 $acReadme = Get-Content -LiteralPath (Join-Path $RepoRoot 'specs/README.md') -Raw
 $acTemplate = Get-Content -LiteralPath (Join-Path $RepoRoot 'specs/tasks/_TEMPLATE.md') -Raw
@@ -6125,6 +6159,50 @@ function Invoke-AcFixture([string]$Id) {
   [pscustomobject]@{ Exit = $LASTEXITCODE; Out = $out }
 }
 try {
+  # The focused fixture requires Node before replay; core retains Gate 1's optional-runtime policy.
+  if (Get-Command node -ErrorAction SilentlyContinue) {
+    # Execute the workflow with its external agent seam replaced; inspect the schema actually sent.
+    $cardSchemaProbe = Join-Path $acRoot 'card-schema.cjs'
+    @'
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const source = fs.readFileSync(process.argv[2], 'utf8').replace(/^export\s+/gm, '');
+let checked = false;
+const agent = async (_prompt, options) => {
+  if (options.phase !== 'Decompose') return {issues: []};
+  const card = options.schema.properties.cards.items;
+  for (const key of ['id', 'title', 'status', 'depends_on', 'allow_paths', 'dod_command', 'dod_exit', 'dod_assert', 'review_gate']) {
+    assert(card.required.includes(key), `required core field: ${key}`);
+  }
+  for (const [key, value] of [['status', 'todo'], ['review_gate', 'codex {verdict:pass}']]) {
+    assert.equal(card.properties[key].type, 'string', key);
+    assert.deepEqual(card.properties[key].enum, [value], `${key} default`);
+  }
+  assert.equal(card.properties.dod_exit.type, 'integer', 'DoD exit type');
+  assert.deepEqual(card.properties.dod_exit.enum, [0], 'DoD success exit');
+  for (const key of ['acceptance', 'requirements']) {
+    assert.equal(card.properties[key].type, 'array', key);
+    assert.equal(card.properties[key].items.type, 'string', key);
+    assert.equal(card.properties[key].minItems, 1, `${key} permits one item`);
+  }
+  assert.equal(card.properties.diagnosis.type, 'string', 'diagnosis');
+  for (const key of ['acceptance', 'requirements', 'diagnosis', 'parallelizable_with', 'forbid', 'non_goals', 'plan_ref', 'hygiene', 'doc_sync', 'notes']) {
+    assert(!card.required.includes(key), `optional field: ${key}`);
+  }
+  for (const key of ['branch', 'worktree']) {
+    assert(!(key in card.properties) && !card.required.includes(key), `derived field is omitted: ${key}`);
+  }
+  checked = true;
+  return {cards: [], freeze_point: '', topo_valid: true};
+};
+new AsyncFunction('args', 'agent', 'parallel', 'log', source)({}, agent, jobs => Promise.all(jobs.map(job => job())), () => {})
+  .then(() => { assert(checked); console.log('[CARD-GENERATOR-SCHEMA-PASS]'); })
+  .catch(error => { console.error(error); process.exitCode = 1; });
+'@ | Set-Content -LiteralPath $cardSchemaProbe -Encoding utf8
+    $schemaOut = & node $cardSchemaProbe (Join-Path $RepoRoot '.claude/workflows/decompose-cards.mjs') 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or $schemaOut -notmatch '\[CARD-GENERATOR-SCHEMA-PASS\]') { Fail "[CARD-GENERATOR-SCHEMA] $schemaOut" }
+  }
   $validLines = @('acceptance:', '  - "A1 escape=\\ quote=\" space=\  line=\n hex=\x41 unicode=\u0041 low=\uD7FF high=\uE000"', '  - "A2 sentinel=ASCII-OK wide-low=\U0000D7FF wide-high=\U0000E000 astral=\U00010000 max=\U0010FFFF"', '  - "A3 final assertion"')
   Set-AcFixtureCard 'T9-AC-VALID' $validLines
   $acValid = Invoke-AcFixture 'T9-AC-VALID'
@@ -6136,6 +6214,40 @@ try {
   Set-AcFixtureCard 'T9-AC-INDENT4' @('acceptance:', '    - "A1 one"', '    - "A2 two"', '    - "A3 three"')
   $acIndent4 = Invoke-AcFixture 'T9-AC-INDENT4'
   if ($acIndent4.Exit -ne 0) { Fail "[ACCEPTANCE-CONSISTENT-INDENT] 一致的四空格 YAML 序列缩进被误拒。输出：$($acIndent4.Out)" }
+
+  foreach ($small in @(@{ Id='T9-AC-ONE'; Lines=@('acceptance:', '  - "A1 exactly one row is returned"') },
+      @{ Id='T9-AC-TWO'; Lines=@('acceptance:', '  - "A1 output is empty"', '  - "A2 exit is zero"') })) {
+    Set-AcFixtureCard $small.Id $small.Lines
+    $got = Invoke-AcFixture $small.Id
+    if ($got.Exit -ne 0) { Fail "[ACCEPTANCE-SMALL-$($small.Id)] 小卡被任意条数下限误拒：$($got.Out)" }
+  }
+
+  # 验证真正的 check-cards 边界；只声明 requirements 不要求补 acceptance 或逐条覆盖。
+  $requirementCases = @(
+    @{ Id='T9-RQ-VALID'; Reject=$false; Lines=@('requirements:', '  - "R1 输出三行"', '  - "R9 keep original files"', 'acceptance:', '  - "A1 [R1] [R9] fixture returns 3 rows; originals remain"') },
+    @{ Id='T9-RQ-UNUSED'; Reject=$false; Lines=@('requirements: # optional', '  - "R1 文件保留"') },
+    @{ Id='T9-RQ-MISSING'; Reject=$true; Lines=@('acceptance:', '  - "A1 [R9] originals remain"') },
+    @{ Id='T9-RQ-DUP'; Reject=$true; Lines=@('requirements:', '  - "R1 first"', '  - "R1 second"') },
+    @{ Id='T9-RQ-ZERO'; Reject=$true; Lines=@('requirements:', '  - "R0 zero is not a positive requirement id"') },
+    @{ Id='T9-RQ-LEADINGZERO'; Reject=$true; Lines=@('requirements:', '  - "R01 leading zero is not a canonical requirement id"') },
+    @{ Id='T9-RQ-EMPTY'; Reject=$true; Lines=@('requirements:', '  - "R1   "') },
+    @{ Id='T9-RQ-EMPTYLIST'; Reject=$true; Lines=@('requirements:') },
+    @{ Id='T9-RQ-DUPKEY'; Reject=$true; Lines=@('requirements:', '  - "R1 first"', 'requirements:', '  - "R2 second"') },
+    @{ Id='T9-RQ-INLINE'; Reject=$true; Lines=@('requirements: ["R1 first"]') },
+    @{ Id='T9-RQ-BARE'; Reject=$true; Lines=@('requirements:', '  - R1 first') },
+    @{ Id='T9-RQ-BODY'; Reject=$false; Lines=@('acceptance:', '  - "A1 output contains [RESULT-READY]"'); Body=@('requirements:', '  - "R1 "', 'acceptance:', '  - "A1 [R99] example only"') },
+    @{ Id='T9-RQ-BODYREF'; Reject=$true; Lines=@('acceptance:', '  - "A1 [R9] originals remain"'); Body=@('requirements:', '  - "R9 body cannot satisfy a front-matter reference"') }
+  )
+  foreach ($case in $requirementCases) {
+    Set-AcFixtureCard $case.Id $case.Lines
+    if ($case.ContainsKey('Body')) { Add-Content -LiteralPath (Join-Path $acTasks "$($case.Id).md") -Value $case.Body -Encoding utf8 }
+    $got = Invoke-AcFixture $case.Id
+    if ($case.Reject) {
+      if ($got.Exit -eq 0 -or $got.Out -notmatch "\[CARD-REQUIREMENTS-INVALID\] \[$($case.Id)\]") {
+        Fail "[REQUIREMENTS-$($case.Id)] 非法 requirement 未以专属码及卡 id 拒绝：$($got.Out)"
+      }
+    } elseif ($got.Exit -ne 0) { Fail "[REQUIREMENTS-$($case.Id)] 合法可选声明被拒：$($got.Out)" }
+  }
 
   $invalidCases = @(
     @{ Id='T9-AC-INLINE'; Entry=1; Lines=@('acceptance: ["A1 one", "A2 two", "A3 three"]') },
@@ -6154,7 +6266,9 @@ try {
     @{ Id='T9-AC-BADRANGE'; Entry=1; Lines=@('acceptance:', '  - "A1 bad\U00110000"', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-GLUEDKEY'; Entry=1; Lines=@('acceptance:#comment', '  - "A1 one"', '  - "A2 two"', '  - "A3 three"') },
     @{ Id='T9-AC-GLUEDCOMMENT'; Entry=1; Lines=@('acceptance:', '  - "A1 one"#comment', '  - "A2 two"', '  - "A3 three"') },
-    @{ Id='T9-AC-SHORT'; Entry=3; Lines=@('acceptance:', '  - "A1 one"', '  - "A2 two"') },
+    @{ Id='T9-AC-EMPTY'; Entry=1; Lines=@('acceptance:') },
+    @{ Id='T9-AC-WHITESPACE'; Entry=1; Lines=@('acceptance:', '  - "A1    "') },
+    @{ Id='T9-AC-ESCAPEDSPACE'; Entry=1; Lines=@('acceptance:', '  - "A1 \t\u0020"') },
     @{ Id='T9-AC-GAP'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '  - "A3 three"', '  - "A4 four"') },
     @{ Id='T9-AC-DUP'; Entry=2; Lines=@('acceptance:', '  - "A1 one"', '  - "A1 again"', '  - "A3 three"') },
     @{ Id='T9-AC-ORDER'; Entry=1; Lines=@('acceptance:', '  - "A2 two"', '  - "A1 one"', '  - "A3 three"') },
@@ -6184,15 +6298,20 @@ try {
   Set-Content -LiteralPath (Join-Path $acTasks '_TEMPLATE.md') -Value (@('---','acceptance:','  - "A2 wrong"','  - "A1 order"','  - "A3 here"','---') -join "`n") -Encoding utf8
   $acTemplateOut = & pwsh -NoProfile -File $acCheck 2>&1 | Out-String; $acTemplateExit = $LASTEXITCODE
   if ($acTemplateExit -ne 0) { Fail "[ACCEPTANCE-TEMPLATE-EXEMPT] _TEMPLATE.md 内故意乱序的 acceptance 没有继续豁免。输出：$acTemplateOut" }
+  $filledTemplate = $acTemplate.Replace('T?-EXAMPLE', 'T9-AC-FROMTEMPLATE').Replace('  - path/to/...', '  - README.md') -replace '(?m)^dod_command:[^\r\n]*', 'dod_command: pwsh -NoProfile -File scripts/check-cards.ps1'
+  Set-Content -LiteralPath (Join-Path $acTasks 'T9-AC-FROMTEMPLATE.md') -Value $filledTemplate -Encoding utf8
+  $templateCard = Invoke-AcFixture 'T9-AC-FROMTEMPLATE'
+  if ($templateCard.Exit -ne 0) { Fail "[CARD-TEMPLATE-COMPATIBILITY] 模板替换 id 后无法通过真实卡校验：$($templateCard.Out)" }
 
   $acProbe = Join-Path $acRoot 'acceptance-oracle.ps1'
   @'
-param([string]$Checker, [string]$TaskId, [ValidateSet('reject','advisory')][string]$Mode, [string]$Marker)
+param([string]$Checker, [string]$TaskId, [ValidateSet('reject','requirements','advisory')][string]$Mode, [string]$Marker)
 $out = & pwsh -NoProfile -File $Checker -TaskId $TaskId 2>&1 | Out-String; $code = $LASTEXITCODE
 $id = [regex]::Escape("[$TaskId]")
-if ($Mode -eq 'reject') {
+if ($Mode -ne 'advisory') {
   if ($code -eq 0) { Write-Output "MARKER:${Marker}:ABSENT-REJECT"; exit 1 }
-  if ($out -notmatch '\[CARD-ACCEPTANCE-INVALID\]' -or $out -notmatch $id) { Write-Output "MARKER:${Marker}:CHECKER-ERROR"; exit 2 }
+  $sentinel = if ($Mode -eq 'requirements') { '\[CARD-REQUIREMENTS-INVALID\]' } else { '\[CARD-ACCEPTANCE-INVALID\]' }
+  if ($out -notmatch $sentinel -or $out -notmatch $id) { Write-Output "MARKER:${Marker}:CHECKER-ERROR"; exit 2 }
 } else {
   if ($code -ne 0) { Write-Output "MARKER:${Marker}:CHECKER-ERROR"; exit 2 }
   if ($out -notmatch '\[CARD-ACCEPTANCE-ADVISORY\]' -or $out -notmatch $id) { Write-Output "MARKER:${Marker}:ABSENT-ADVISORY"; exit 1 }
@@ -6202,7 +6321,11 @@ exit 0
   $mutations = @(
     @{ Code='ACCEPTANCE-MUT-SHAPE'; Source='CARD-ACCEPTANCE-SHAPE-GUARD'; Id='T9-AC-MUT-SHAPE'; Mode='reject'; Lines=@('acceptance:', "  - 'A1 one'", '  - "A2 two"', '  - "A3 three"') },
     @{ Code='ACCEPTANCE-MUT-NUMBER'; Source='CARD-ACCEPTANCE-NUMBER-GUARD'; Id='T9-AC-MUT-NUMBER'; Mode='reject'; Lines=@('acceptance:', '  - "A1 one"', '  - "A3 three"', '  - "A4 four"') },
-    @{ Code='ACCEPTANCE-MUT-ADVISORY'; Source='CARD-ACCEPTANCE-ADVISORY-GUARD'; Id='T9-AC-MUT-ADVISORY'; Mode='advisory'; Lines=@() }
+    @{ Code='ACCEPTANCE-MUT-ADVISORY'; Source='CARD-ACCEPTANCE-ADVISORY-GUARD'; Id='T9-AC-MUT-ADVISORY'; Mode='advisory'; Lines=@() },
+    @{ Code='REQUIREMENTS-MUT-SHAPE'; Source='CARD-REQUIREMENTS-SHAPE-GUARD'; Id='T9-RQ-MUT-SHAPE'; Mode='requirements'; Lines=@('requirements:', '  - "R1   "') },
+    @{ Code='REQUIREMENTS-MUT-ID'; Source='CARD-REQUIREMENTS-ID-GUARD'; Id='T9-RQ-MUT-ID'; Mode='requirements'; Lines=@('requirements:', '  - "R1 first"', '  - "R1 again"') },
+    @{ Code='REQUIREMENTS-MUT-POSITIVE'; Source='CARD-REQUIREMENTS-ID-GUARD'; RemoveCondition='$requirement.Label -cnotmatch ''^R[1-9][0-9]*$'' -or '; Id='T9-RQ-MUT-POSITIVE'; Mode='requirements'; Lines=@('requirements:', '  - "R0 zero"', '  - "R01 leading zero"') },
+    @{ Code='REQUIREMENTS-MUT-REF'; Source='CARD-REQUIREMENTS-REF-GUARD'; Id='T9-RQ-MUT-REF'; Mode='requirements'; Lines=@('acceptance:', '  - "A1 [R1] exactly one row"') }
   )
   $acRealHash = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Algorithm SHA256).Hash
   foreach ($mutation in $mutations) {
@@ -6213,11 +6336,20 @@ exit 0
     $hit = @(0..($src.Count - 1) | Where-Object { $src[$_] -match [regex]::Escape($mutation.Source) })
     if ($hit.Count -ne 1) { Fail "[$($mutation.Code)-SETUP] 单句靶点 $($mutation.Source) 命中数=$($hit.Count)，期望 1。"; continue }
     $mutant = Join-Path $acScripts 'check-cards-mutant.ps1'
-    Set-Content -LiteralPath $mutant -Value @($src[0..($hit[0]-1)] + $src[($hit[0]+1)..($src.Count-1)]) -Encoding utf8
+    if ($mutation.ContainsKey('RemoveCondition')) {
+      $line = $src[$hit[0]]
+      if ([regex]::Matches($line, [regex]::Escape($mutation.RemoveCondition)).Count -ne 1) {
+        Fail "[$($mutation.Code)-SETUP] 正整数条件未唯一命中；不可改删整个重复 ID 守卫。"; continue
+      }
+      $src[$hit[0]] = $line.Replace($mutation.RemoveCondition, '')
+      Set-Content -LiteralPath $mutant -Value $src -Encoding utf8
+    } else {
+      Set-Content -LiteralPath $mutant -Value @($src[0..($hit[0]-1)] + $src[($hit[0]+1)..($src.Count-1)]) -Encoding utf8
+    }
     $mutOut = & pwsh -NoProfile -File $acProbe -Checker $mutant -TaskId $mutation.Id -Mode $mutation.Mode -Marker $mutation.Code 2>&1 | Out-String
-    $mutExpected = "MARKER:$($mutation.Code):ABSENT-$(if ($mutation.Mode -eq 'reject') { 'REJECT' } else { 'ADVISORY' })"
+    $mutExpected = "MARKER:$($mutation.Code):ABSENT-$(if ($mutation.Mode -ne 'advisory') { 'REJECT' } else { 'ADVISORY' })"
     if ($LASTEXITCODE -eq 0 -or $mutOut -notmatch "(?m)^$([regex]::Escape($mutExpected))\r?$") {
-      Fail "[$($mutation.Code)] 删除单句守卫后未以专属断言码变红。输出：$mutOut"
+      Fail "[$($mutation.Code)] 删除守卫后未以专属断言码变红。输出：$mutOut"
     }
   }
   $brokenMutant = Join-Path $acScripts 'check-cards-broken.ps1'
@@ -6228,7 +6360,7 @@ exit 0
   }
   $acRealHashAfter = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'check-cards.ps1') -Algorithm SHA256).Hash
   if ($acRealHashAfter -ne $acRealHash) { Fail '[ACCEPTANCE-MUT-RESTORE] 真 check-cards.ps1 在变异夹具前后 SHA-256 漂移。' }
-  elseif (-not $fail) { Write-Host '  种子缺陷 10h OK：acceptance 形态/编号/诊断/advisory/模板豁免 + 三枚单句删除变异均经同一 oracle 可证伪' -ForegroundColor Green }
+  elseif (-not $fail) { Write-Host '  种子缺陷 10h OK：acceptance 与可选 requirement 引用/诊断/模板豁免 + 七枚守卫删除变异均经同一 oracle 可证伪' -ForegroundColor Green }
 } finally {
   Remove-Item -LiteralPath $acRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
