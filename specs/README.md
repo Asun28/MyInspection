@@ -40,7 +40,7 @@ selftest 闸 ⑩ 与 CI 也跑——卡写错在动手前即暴露，而非拖�
 `check-cards.ps1` 机检它（selftest 闸 ⑩ / CI 同跑），`decompose-cards.mjs` 生成卡时也按此正则产出 id——三处同源，写错在动手前即暴露。
 
 ## 卡片格式
-见 `tasks\_TEMPLATE.md`。front-matter 字段：
+见 `tasks\_TEMPLATE.md`。先填核心字段：id/title/status/depends_on/allow_paths/dod_command/dod_exit/dod_assert/review_gate；其余支持字段按需添加，不用空占位凑齐。branch/worktree 由 id 派生；旧卡中的一致字段继续有效。front-matter 字段：
 
 | 字段 | 含义 |
 |---|---|
@@ -49,16 +49,18 @@ selftest 闸 ⑩ 与 CI 也跑——卡写错在动手前即暴露，而非拖�
 | `depends_on` | 前置任务（拓扑序，决定可并行性） |
 | `plan_ref` | **可选**。本卡对应计划节（如 `docs/PLAN.md#节名`）——实现 agent 的最小上下文指针（免读全计划） |
 | `parallelizable_with` | **可选**。可并行卡 id 列表；并行卡 `allow_paths` 必须互不重叠（`check-cards.ps1` 全卡模式机检，对称处理：单向声明即比对） |
-| `acceptance` | **可选**。作者声明的验收清单（块式双引号字符串，严格 `A1..An`，至少 3 条）；只机检形态，本仓当前 rubric 语义不变，清单外问题不会因本字段自动变成 `[FOLLOW-UP]` |
+| `acceptance` | **可选**。作者声明的验收清单（块式双引号字符串，严格 `A1..An`，至少 1 条且内容非空白）；只机检形态，本仓当前 rubric 语义不变，清单外问题不会因本字段自动变成 `[FOLLOW-UP]` |
+| `requirements` | **可选**。块式双引号字符串，每项为唯一正整数 `R-id` + 非空可测试需求（如 `"R1 返回三行"`），编号可保留间隔。验收用 `[R1] [R2]` 引用；只检查 front-matter 内的声明与引用，拒绝空值/重复 id/悬空引用。缺失不产生新义务，不要求逐项覆盖或特定语言句式 |
 | `status` | `todo` → `in-progress` → `in-review` → `merged`。已 `merged` 的卡由 `scripts/archive.ps1` 移入 `specs/archive/tasks/`（冷存；`check-cards` 非递归扫 `specs/tasks/*.md`，不再校验冻结卡）+ 精简索引 `specs/archive/cards-index.md`——活目录只留在飞卡，省新任务上下文（TD86/T28，见 `specs/archive/README.md`） |
 | `allow_paths` | 本卡允许改动的路径（评审据此判越界） |
-| `forbid` | 禁止事项（按项目硬边界：横切的网络/登录态/冻结契约） |
-| `non_goals` | 本卡**能力级**「不做」（从计划「本版砍掉/推迟」下沉；R3 评审 #14 判「能力级越界/顺手多做」）；无则 `none`。是 `forbid` 的能力级对偶 |
+| `forbid` | **可选**。本卡特有的禁止事项；项目网络/登录态/冻结契约等硬边界始终继承 `CLAUDE.md` |
+| `non_goals` | **可选**。本卡**能力级**「不做」（从计划「本版砍掉/推迟」下沉；R3 评审 #14 判「能力级越界/顺手多做」）；无则省略（旧卡的 `none` 仍兼容）。是 `forbid` 的能力级对偶 |
 | `dod_command` | **DoD = 命令**：`task.ps1 -Phase ship` 直接执行，必须退出码 0 |
+| `dod_exit` | DoD 期望退出码，生成卡明确写 `0` |
 | `dod_assert` | 人/评审可读的断言（与命令配套） |
 | `review_gate` | `codex {verdict:pass}`（见 verdict.schema.json） |
-| `hygiene` | R4 测试卫生承诺（mutation-survivor 剪枝） |
-| `doc_sync` | R5 合并后要同步的文档清单 |
+| `hygiene` | **可选**。本卡适用的 R4 测试卫生工作；不为填模板追加变异任务 |
+| `doc_sync` | **可选**。本卡实际需要同步的文档清单 |
 
 ## 依赖图（示例 · 按你项目替换）
 

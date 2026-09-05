@@ -22,7 +22,7 @@ forbid:
 non_goals:
   - Risk routing, review arbitration, selftest scheduling, or migrating historical cards
 diagnosis: The old template and generator repeat optional paperwork and force at least three acceptance items, while neither supports optional requirement links consistently.
-dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Shard core
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Fixture card-acceptance
 dod_exit: 0
 dod_assert: The existing core suite proves small and legacy acceptance lists, requirement references, generator syntax and template compatibility without a new gate or dependency.
 acceptance:
