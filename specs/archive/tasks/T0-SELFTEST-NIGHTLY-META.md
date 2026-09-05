@@ -2,7 +2,7 @@
 id: T0-SELFTEST-NIGHTLY-META
 title: Run selftest aggregation stress checks nightly with explicit coverage receipts
 depends_on: []
-status: todo
+status: merged
 branch: T0-SELFTEST-NIGHTLY-META
 worktree: C:\wt\T0-SELFTEST-NIGHTLY-META
 allow_paths:

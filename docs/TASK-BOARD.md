@@ -25,6 +25,7 @@
 | W0 | T0-SCAFFOLD-LEAN-CI | 普通产品 PR 不启动 scaffold-only 六分片；脚手架权威面变化仍全跑 | T0-HARNESS-PERF | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `f976d0f`，PR #22；R3 零发现；基线产品 PR #5–#11 = 60 runs / 360 shard jobs；本次 `.github/**` PR 实测 1 run / 6 jobs 全保留；无新增脚本/job/依赖） |
 | W0 | T0-SCAFFOLD-SYNC-046 | 核对 upstream v0.46.0，并推进 origin/current 高水位账 | T0-SCAFFOLD-SYNC-045 | S | GPT-5.6 Luna · high | GPT-5.6 Terra · high | **merged**（master `189f6a60`；实现 `da306c09`）——已登记发布版等价采用与精确 tag；未纳入未发布 tier/meta 工作。 |
 | W0 | T0-SELFTEST-RISK-ROUTING | 显式 TaskId 按已钉基线与真实改动选择既有自检覆盖 | — | S | Codex | Codex R3 | **merged**（master `8cfa60a9`；R3 PASS `f3bcfac2`）；产品 verify 仍独立必跑；无过滤入口保持 all |
+| W0 | T0-SELFTEST-NIGHTLY-META | 普通 push 延后聚合压力测试；本地/手动/每日保持完整 meta | — | S | Codex | Codex R3 | **merged**（master `52ec509c`；R3 PASS `ddc2b8c1`）；执行/延后收据明确；保留两 OS、五 shard |
 | W0 | T0-CARD-TEMPLATE-SLIM | 精简任务卡；acceptance/requirements 可选且兼容旧卡 | — | S | Codex | Codex R3 | **merged**（master `c60a67ba`；R3 PASS `a6a180f8`）；可选字段与引用合同已同步 |
 | W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b82054bc`，PR #128；度量/边界/ship 接线已落地，输入可信与 OID 绑定仍由后两张专卡承接） |
 | W0 | T0-R3-DIFF-INPUT-TRUST | diff 预算的输入只信 git 自己：ext-diff/textconv/属性二进制均不可缩小体量 | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | A5 是**已复现**的真绕过：一行 .gitattributes `-diff` 让 1001 行量成 1 行 |
