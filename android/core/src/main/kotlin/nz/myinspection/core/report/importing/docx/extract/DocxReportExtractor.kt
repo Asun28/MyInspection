@@ -3,8 +3,9 @@ package nz.myinspection.core.report.importing.docx.extract
 import java.io.ByteArrayInputStream
 import java.util.Locale
 import java.security.MessageDigest
-import java.util.zip.CRC32
 import javax.xml.parsers.SAXParserFactory
+import nz.myinspection.core.report.importing.docx.image.DocxImageQualifier
+import nz.myinspection.core.report.importing.docx.image.DocxImageDisposition
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackage
 import nz.myinspection.core.report.importing.docx.`package`.DocxPart
 import nz.myinspection.core.report.importing.docx.`package`.DocxPartKind
@@ -56,13 +57,14 @@ class DocxReportExtractor {
             parts = source.parts.associateBy { it.name }
             source.parts.filter { it.kind == DocxPartKind.IMAGE }.sortedBy { it.name }.forEach { part ->
                 val bytes = part.copyBytes()
-                val size = dimensions(bytes, part.name.endsWith(".png"))
+                val qualification = DocxImageQualifier().qualify(bytes)
+                val size = qualification.dimensions
                 val at = SourceLocation(part.name, 0)
-                if (size != null && size.first <= 24 && size.second <= 24) {
+                if (qualification.disposition == DocxImageDisposition.SHIM_QUALIFIED) {
                     shims.add(part.name)
                     warn(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, at)
                 } else {
-                    images.add(ExtractedImage(part.name, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }, size?.first, size?.second))
+                    images.add(ExtractedImage(part.name, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }, size?.width, size?.height))
                     warn(ExtractionWarningCode.IMAGE_REVIEW_REQUIRED, at)
                 }
             }
@@ -245,61 +247,6 @@ class DocxReportExtractor {
             }
         }
     }
-}
-
-private fun dimensions(bytes: ByteArray, png: Boolean): Pair<Int, Int>? {
-    fun u8(at: Int) = bytes[at].toInt() and 255
-    fun u16(at: Int) = (bytes[at].toInt() and 255) * 256 + (bytes[at + 1].toInt() and 255)
-    fun bounded(width: Long, height: Long): Pair<Int, Int>? {
-        if (width <= 0 || height <= 0) return null
-        require(width <= 40000000 && height <= 40000000 && width * height <= 40000000) { "DOCX_IMAGE_PIXELS" }
-        return width.toInt() to height.toInt()
-    }
-    val signature = if (png) listOf(137, 80, 78, 71, 13, 10, 26, 10) else listOf(255, 216)
-    if (bytes.size < signature.size || signature.indices.any { u8(it) != signature[it] }) return null
-    if (png) {
-        if (bytes.size < 33 || !bytes.copyOfRange(12, 16).contentEquals("IHDR".toByteArray())) return null
-        fun u32(at: Int) = (0..3).fold(0L) { n, i -> n * 256 + (bytes[at + i].toInt() and 255) }
-        if (u32(8) != 13L) return null
-        if (CRC32().apply { update(bytes, 12, 17) }.value != u32(29)) return null
-        // W3C PNG 3, section 11.2.1 / Table 12: IHDR only, not pixel decoding.
-        val depths = when (u8(25)) {
-            0 -> setOf(1, 2, 4, 8, 16)
-            2, 4, 6 -> setOf(8, 16)
-            3 -> setOf(1, 2, 4, 8)
-            else -> emptySet()
-        }
-        if (u8(24) !in depths || u8(26) != 0 || u8(27) != 0 || u8(28) !in 0..1) return null
-        if (u32(16) !in 1L..2147483647L || u32(20) !in 1L..2147483647L) return null
-        return bounded(u32(16), u32(20))
-    }
-    var at = 2
-    while (at + 4 <= bytes.size && bytes[at].toInt() and 255 == 255) {
-        while (at < bytes.size && bytes[at].toInt() and 255 == 255) at++
-        if (at + 3 > bytes.size) return null
-        val marker = bytes[at++].toInt() and 255
-        // T.81 B.2.4: only frame, table, application and comment segments precede SOF.
-        if (marker !in 0xc0..0xcf && marker !in 0xe0..0xef && marker !in setOf(0xdb, 0xdd, 0xfe)) return null
-        val length = u16(at)
-        if (length < 2 || at + length > bytes.size) return null
-        if (marker in 0xc0..0xcf && marker !in setOf(0xc4, 0xcc)) {
-            // ITU-T T.81, B.2.2 / Table B.2; other frame processes stay reviewable.
-            if (marker !in 0xc0..0xc2 || length < 11) return null
-            val components = u8(at + 7)
-            if (components == 0 || length != 8 + 3 * components || (marker == 0xc2 && components > 4)) return null
-            if (u8(at + 2) !in (if (marker == 0xc0) setOf(8) else setOf(8, 12))) return null
-            val identifiers = HashSet<Int>()
-            for (i in 0 until components) {
-                val component = at + 8 + i * 3
-                val sampling = u8(component + 1)
-                if (!identifiers.add(u8(component)) || (sampling ushr 4) !in 1..4 ||
-                    (sampling and 15) !in 1..4 || u8(component + 2) > 3) return null
-            }
-            return bounded(u16(at + 5).toLong(), u16(at + 3).toLong())
-        }
-        at += length
-    }
-    return null
 }
 
 private fun parse(part: DocxPart): Element {

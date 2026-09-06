@@ -41,6 +41,23 @@ internal object DocxExtractorFixture {
     }
     fun forgedImage(bytes: ByteArray, format: String) = DocxPackage(read(parts()).parts +
         DocxPart("word/media/forged.$format", DocxPartKind.IMAGE, bytes))
+    fun imageParts(bytes: ByteArray, format: String) = parts(drawing("image") + drawing("image", "anchor")).apply {
+        this["word/media/bad.$format"] = bytes
+        this["word/_rels/document.xml.rels"] = relationships(relationship("image", "media/bad.$format", "image")).toByteArray()
+    }
+    fun incompleteImages(format: String): List<ByteArray> {
+        val valid = image(1, 1, format)
+        val png = format == "png"
+        val sof = if (png) 0 else (0 until valid.size - 1).first { valid[it] == 255.toByte() && valid[it + 1] == 192.toByte() }
+        val headerEnd = if (png) 33 else sof + 2 + (valid[sof + 2].toInt() and 255) * 256 + (valid[sof + 3].toInt() and 255)
+        val truncated = valid.copyOf(if (png) 45 else valid.size - 3)
+        val damaged = valid.copyOf().apply {
+            val offset = if (png) 41 else (0 until size - 1).first { this[it] == 255.toByte() && this[it + 1] == 218.toByte() } + 1
+            this[offset] = 0
+        }
+        return listOf(valid.copyOf(headerEnd), truncated, damaged,
+            truncated + valid.copyOfRange(valid.size - (if (png) 12 else 2), valid.size))
+    }
     fun parts(body: String = p("Unknown original observation")): LinkedHashMap<String, ByteArray> = linkedMapOf(
         "[Content_Types].xml" to ("<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>" +
             "<Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/>" +

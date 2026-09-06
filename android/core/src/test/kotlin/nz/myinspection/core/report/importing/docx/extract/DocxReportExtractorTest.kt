@@ -1,6 +1,7 @@
 package nz.myinspection.core.report.importing.docx.extract
 
 import kotlin.test.*
+import java.security.MessageDigest
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackageException
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackageReason
 
@@ -162,7 +163,7 @@ class DocxReportExtractorTest {
         assertTrue(result.warnings.any { it.code == ExtractionWarningCode.IMAGE_REVIEW_REQUIRED })
     }
 
-    @Test fun pngAndJpegDimensionsGovernShimExclusionAndPixelBounds() {
+    @Test fun retainedImageDimensionsPreserveClosedPixelBounds() {
         val parts = fixture.parts(fixture.drawing("photo"))
         parts["word/media/photo.jpg"] = fixture.image(32, 4, "jpg")
         parts["word/_rels/document.xml.rels"] = fixture.relationships(fixture.relationship("photo", "media/photo.jpg", "image")).toByteArray()
@@ -295,15 +296,17 @@ class DocxReportExtractorTest {
             assertEquals("DOCX_FIELD_STRUCTURE", assertFailsWith<IllegalArgumentException> { extract(fixture.parts(body)) }.message)
         }
     }
-    private fun assertImageReview(bytes: ByteArray, format: String, forged: Boolean = false) {
+    private fun assertImageReview(bytes: ByteArray, format: String, forged: Boolean = false, width: Int? = null): DocxExtractionManifest {
         val attempt = runCatching { DocxReportExtractor().extract(if (forged) fixture.forgedImage(bytes, format)
-            else fixture.read(fixture.parts().apply { this["word/media/bad.$format"] = bytes })) }
-        assertTrue(attempt.isSuccess, "Invalid image header must remain reviewable")
+            else fixture.read(fixture.imageParts(bytes, format))) }
+        assertTrue(attempt.isSuccess, "Unqualified image must remain reviewable")
         val result = attempt.getOrThrow()
         assertEquals(1, result.images.size)
-        assertNull(result.images.single().width)
+        assertEquals(width, result.images.single().width)
+        assertEquals(width, result.images.single().height)
         assertTrue(result.warnings.any { it.code == ExtractionWarningCode.IMAGE_REVIEW_REQUIRED })
         assertFalse(result.warnings.any { it.code == ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED })
+        return result
     }
     @Test fun forgedSignaturesAreRejectedByReaderAndRetainedByExtractor() {
         for (format in listOf("png", "jpg")) {
@@ -328,20 +331,35 @@ class DocxReportExtractorTest {
         for ((offset, value) in listOf(1 to 195, 3 to 8, 4 to 12, 9 to 0, 9 to 2, 11 to 0, 11 to 16, 11 to 81, 12 to 4, 13 to 1)) {
             assertImageReview(valid.copyOf().apply { this[sof + offset] = value.toByte() }, "jpg")
         }
-        assertTrue(DocxReportExtractor().extract(fixture.forgedImage(valid, "jpg")).images.isEmpty())
+        assertImageReview(valid, "jpg", width = 1)
+    }
+    @Test fun unqualifiedPayloadsKeepEveryPlacementAndBindTheirBytesInTheDigest() {
+        for (format in listOf("png", "jpg")) {
+            val digests = fixture.incompleteImages(format).map { bytes ->
+                val result = assertImageReview(bytes, format, width = 1)
+                val part = "word/media/bad.$format"
+                assertEquals(listOf(part, part), result.placements.map { it.imagePart })
+                assertEquals(listOf(DrawingKind.INLINE, DrawingKind.ANCHORED), result.placements.map { it.kind })
+                assertEquals(2, result.placements.map { it.source }.distinct().size)
+                assertEquals(listOf(ExtractionWarning(ExtractionWarningCode.IMAGE_REVIEW_REQUIRED, SourceLocation(part, 0))),
+                    result.warnings.filter { it.code == ExtractionWarningCode.IMAGE_REVIEW_REQUIRED })
+                assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }, result.images.single().sha256)
+                assertEquals(result.normalizedDigest, extract(fixture.imageParts(bytes, format)).normalizedDigest)
+                result.normalizedDigest
+            }
+            assertEquals(4, digests.toSet().size)
+        }
+    }
+    @Test fun qualifiedPngExclusionAlsoRemovesItsDrawingPlacements() {
+        val result = extract(fixture.imageParts(fixture.image(24, 1), "png"))
+        assertTrue(result.images.isEmpty())
+        assertTrue(result.placements.isEmpty())
+        assertEquals(listOf(ExtractionWarning(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, SourceLocation("word/media/bad.png", 0))),
+            result.warnings.filter { it.code in setOf(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, ExtractionWarningCode.IMAGE_REVIEW_REQUIRED) })
     }
 }
-/* R4 epoch 1: .review/r4-final/summary.json, source Extractor SHA-256
- * D9AA08201EEA85A0F4BD0B5695C0A2C18A2A1C4D8B3C69EDCA115A5FDAC98236.
- * 29-test control passed; 25 story + 8 ambiguity + 15 guards + 3 candidate faults
- * killed. Removing each candidate left 28 passing tests: all three retained.
- * Per-case delta, assertion XML and original/restored source/test SHA are in
- * .review/r4-final/<case>/receipt.json. This predates the R3 image-header fix.
- */
-/* R4 epoch 2: .review/r4-image/summary.json; 32-test control passed and all
- * 18 faults killed: 6 PNG guards, 9 JPEG guards, tiny exclusion, CRC and pixels.
- * Every copied file restored to its recorded SHA; extractor SHA-256:
- * AA98774A4E914AD9331E111BEDE4D1365569F00A67E58311E946ACA2BC99E15A.
- * Each .review/r4-image/<case>/receipt.json binds the delta, assertion XML,
- * source/test SHA and restoration. Only this comment followed the verified run.
+/* Historical R4: .review/r4-final/summary.json retains 51 faults and their SHA/XML;
+ * unchanged visitor segments are audited separately. .review/r4-image/summary.json
+ * retains 18 image-header faults, superseded by the qualification predecessor.
+ * Current image integration evidence: .review/r4-qualification/summary.json.
  */
