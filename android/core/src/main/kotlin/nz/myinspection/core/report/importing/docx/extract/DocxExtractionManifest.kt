@@ -9,7 +9,7 @@ import java.security.MessageDigest
 
 data class SourceLocation(val part: String, val ordinal: Int, val occurrence: Int = 0)
 data class ExtractedText(val source: SourceLocation, val raw: String) {
-    val normalized: String = Normalizer.normalize(raw, Normalizer.Form.NFC).trim().replace(Regex("\\s+"), " ")
+    val normalized: String = Normalizer.normalize(raw, Normalizer.Form.NFC).trim().replace(Regex("[ \\t\\n\\x0B\\f\\r]+"), " ")
 }
 data class ExtractedItem(val room: String?, val name: ExtractedText, val status: ExtractedText?, val comment: ExtractedText?)
 enum class FragmentRole { UNKNOWN, ROOM, ITEM, STATUS, COMMENT, LABEL, IDENTITY, CAPTION, NARRATIVE }
