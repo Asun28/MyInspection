@@ -175,14 +175,15 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 `scaffold-selftest` 不进 PR 必需检查；默认分支权威面 push、每日 03:17 UTC 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。
 
-本地不带参数的 `scripts/selftest.ps1` 保持完整覆盖，`-IncludeMeta` 默认启用。普通 push 显式传
-`-IncludeMeta:$false`，只把 8.2e 的聚合压力夹具延后至每日/手动全量运行；矩阵接线、失败传播及
-生产脚本行为检查仍每次运行。输出 `[SELFTEST-META]` 的 EXECUTED / DEFERRED 收据；未知、重复或
-缺失收据会失败，DEFERRED 不等于夹具通过。可用 `-Fixture meta-routing` 快速验证选择与子进程透传。
+本地 `scripts/selftest.ps1` 默认 `-IncludeMeta:$false`，与普通 push 一样延后三处元层测试：
+`1i/fixtures` 的编号合成用例、`8.2e/protocol` 的失败/跳过协议用例、`8.2e/harness` 的聚合压力夹具。
+每日/手动显式启用 `-IncludeMeta`；本地诊断这些测试时也须带该开关。真实源码编号、CI 接线、
+失败传播和生产脚本行为检查（含本地 17ac）仍保留。每处输出 `[SELFTEST-META]` 的 EXECUTED / DEFERRED
+收据；未知、重复或缺失收据会失败，DEFERRED 不等于通过。`-Fixture meta-routing` 验证选择与透传。
 常规 push 与全量每日/手动运行使用不同并发组，避免新 push 取消唯一补跑 meta 的全量运行。
 两 OS 与五分片维持每项 20 分钟的原有效上限；旧配置的 `seeded` 条件从未匹配实际 `seeded-*` 分片。
 
-卡片执行 `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id> -Base master` 时，路由器只读取已钉住本地基线中的卡片和 `FrozenPaths`，并盘点分支的提交、暂存、脏与未跟踪路径（改名两端都计）。普通 `android/` 或 `configs/` 产品路径输出 `NOT-APPLICABLE`，不替代产品 DoD/verify；普通文档/任务卡路径执行既有 core；脚本、冻结、关键安全/交付文档、未知或混合路径一律完整跑。未带 `-TaskId` 仍是完整自检。
+卡片执行 `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id> -Base master` 时，路由器只读取已钉住本地基线中的卡片和 `FrozenPaths`，并盘点分支的提交、暂存、脏与未跟踪路径（改名两端都计）。普通 `android/` 或 `configs/` 产品路径输出 `NOT-APPLICABLE`，不替代产品 DoD/verify；普通文档/任务卡路径执行既有 core；脚本、冻结、关键安全/交付文档、未知或混合路径一律选择全部分片。未带 `-TaskId` 仍选择全部分片；上述 meta 开关独立控制三处元层测试。
 
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
