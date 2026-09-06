@@ -1,14 +1,15 @@
 ---
 id: T3-DOCX-REPORT-EXTRACTOR
 title: Sample-shaped DOCX report extractor with explicit ambiguity
-depends_on: [T3-DOCX-PACKAGE-READER, T3-DOCX-IMAGE-QUALIFICATION]
+depends_on: [T3-DOCX-PACKAGE-READER, T3-DOCX-IMAGE-QUALIFICATION, T3-DOCX-EXTRACTION-MANIFEST, T3-DOCX-XML-TREE]
 parallelizable_with: []
 status: in-progress
 branch: T3-DOCX-REPORT-EXTRACTOR
 worktree: C:\wt\T3-DOCX-REPORT-EXTRACTOR
 allow_paths:
-  - android/core/src/main/kotlin/nz/myinspection/core/report/importing/docx/extract/
-  - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/
+  - android/core/src/main/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractor.kt
+  - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxFixture.kt
+  - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
 forbid:
   - Private sample bytes or text in git, vendor-specific execution, writes, network, OCR, or automatic native mapping
   - Treating cached page fields, Word anchors, styles, author metadata, URLs, or tiny layout-shim images as report truth
@@ -38,3 +39,7 @@ Transform bounded OOXML parts into a no-write extraction manifest shaped by the 
 ## Approved split (2026-09-06)
 
 After two real R3 blocks, the user approved T3-DOCX-IMAGE-QUALIFICATION as a predecessor. Replace the local image-dimensions helper with that boundary after it merges; only qualified layout shims may be excluded. Unverified PNG/JPEG media remain image evidence with IMAGE_REVIEW_REQUIRED, including complete headers without valid payloads. Preserve both verdicts and the original implementation; restore review rounds only under this explicit split adjudication and rerun every gate. The 64 logical-item / 89-caption / 67-substantive-image synthetic ambiguity contract remains unchanged.
+
+## Second approved split (2026-09-06)
+
+The user approved T3-DOCX-EXTRACTION-MANIFEST and T3-DOCX-XML-TREE as independent predecessors after the complete repair measured 66,391 characters and exceeded the unchanged 60,000-character review cap. Both complete their own R1-R5 before the parent resumes. Preserve all 36 existing integration tests and add the five drawing/identity regressions plus the malicious-XML integration test. The repair rejects unsupported drawing structure, retains empty inline/anchor frames as unresolved evidence, and confines pending identity values to an adjacent paragraph with the same parent while warning on expired labels. Merge the updated master into the preserved extractor branch without rewriting its history. After implementation and real tests-first verification, the user authorizes exactly one additional official review-counter restoration; preserve the preceding verdicts, count, RED and shipped receipts and rerun every gate. This is not permission to raise size limits, skip review or widen the package reader.
