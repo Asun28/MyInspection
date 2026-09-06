@@ -32,4 +32,8 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Approved predecessor (2026-09-06)
 
-The user approved migrating the existing 70-line Manifest unchanged from T3-DOCX-REPORT-EXTRACTOR into an independently verified predecessor. Direct-constructor unit tests do not depend on the reader, extractor or image fixtures. The original extractor integration tests remain in their parent card. No version, public API or digest-format redesign is included.
+The user approved migrating the existing Manifest from T3-DOCX-REPORT-EXTRACTOR into an independently verified predecessor. Direct-constructor unit tests do not depend on the reader, extractor or image fixtures. The original extractor integration tests remain in their parent card. No version, public API or digest-format redesign is included.
+
+## Compatibility correction found before first ship
+
+Fresh preflight found that Android uses Unicode regex character classes while the JDK default whitespace class is ASCII. An interior nonbreaking space therefore has different normalized evidence and digest bytes under the original platform-default pattern. The one-line correction explicitly names the same six ASCII whitespace characters, preserving existing JDK behavior, NFC/trim, raw evidence, API and DOCX-EXTRACT-1 field encoding. An independent JDK Pattern probe verified identical matching sets across all 1,112,064 Unicode scalars; original digest vectors remain unchanged. Android behavior is derived from the installed official SDK source, not claimed as an ART execution result. New direct-constructor whitespace regressions, actual dependency-classpath verification and a fresh complete final-source R4 epoch cover the correction. The new regression is already GREEN on the old JDK behavior and is not represented as a reproduced Android RED. The initial official tests-first RED and all historical evidence remain preserved.
