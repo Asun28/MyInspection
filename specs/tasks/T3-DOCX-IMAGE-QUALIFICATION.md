@@ -3,7 +3,7 @@ id: T3-DOCX-IMAGE-QUALIFICATION
 title: Bounded DOCX image qualification for safe layout-shim exclusion
 depends_on: [T3-DOCX-PACKAGE-READER]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-DOCX-IMAGE-QUALIFICATION
 worktree: C:\wt\T3-DOCX-IMAGE-QUALIFICATION
 allow_paths:
@@ -45,3 +45,7 @@ Provide the read-only image qualification boundary needed before the DOCX extrac
 - PNG: signature/IHDR/CRC/ordering errors; duplicate or separated structural chunks; unknown chunks; overflowing lengths; missing IEND or trailing bytes; empty and fragmented IDAT including a zlib header/trailer split across chunks.
 - Inflation: missing or bad Adler trailer, dictionary requests, short/long output, a second zlib stream or trailing compressed data, no progress, and invalid filter selectors including the final row.
 - Exact edges: 1 and 24 pixel qualifying dimensions, 25 pixel retained dimensions, qualification byte/chunk limits and limit+1, valid over-40MP header rejection, all five scanline filters, RGB and RGBA, deterministic repeat calls and unchanged caller bytes.
+
+## Delivery evidence
+
+2026-09-06: local master `c571ab4f`, implementation `fee3c1803629185e9f82da813edccc0f14433dee`; exact DoD 21 tests passed; 35 named mutation cases produced assertion failures with restored source/test hashes. Official ship completed DoD, verify, scope, license, secret and full-diff budget gates, then R3 pass and local merge. Independent synthetic API/decoder probes also passed. Session-local evidence retains RED, preflight, R4 and ship records. JPEG and unsupported/unproven PNG remain review-required; this does not claim universal image decoding.
