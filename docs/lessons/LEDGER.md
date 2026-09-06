@@ -2245,3 +2245,11 @@
 - rule: 元测试延后前逐层追踪调用；轻量生产检查留在普通路径，并用真实普通入口证明删除生产调用仍然失败。
 - enforced_by: scripts/selftest.ps1
 - refs: T0-SELFTEST-META-EXPANSION
+
+## L306
+- date: 2026-09-06 ｜ tags: powershell,routing,validation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 将内部路由值写回带 ValidateSet 的脚本参数时，运行到分流处抛 ValidationMetadataException。
+- root_cause: PowerShell 参数的验证特性仍约束后续赋值；它不是只在命令行绑定时执行。
+- rule: 私有路由状态用独立变量承载，不写入受 ValidateSet 约束的公开参数；真实入口测试须保留原参数验证以捕获运行期赋值错误。
+- enforced_by: scripts/_validation.ps1 Invoke-ValidationTaskEntrypointFixture
+- refs: specs/archive/tasks/T0-SELFTEST-SKILL-ROUTING.md

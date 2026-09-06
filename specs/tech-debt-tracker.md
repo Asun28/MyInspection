@@ -82,6 +82,8 @@
 | TD166 | 2026-09-01 | 损坏或不可读的回执让提醒静默永久丢失（`T4-SCHEDULE-REMINDER-DELIVERY`，PR #219） | **`ReminderDeliveryRunner` 对 `Missing` / `Quarantined(PREFERENCE_READ_FAILED)` / 写不确定一律返回 `FAILURE` 且不重试**，因此一次瞬时的偏好读失败会让该 occurrence 的提醒永远不再发出（用户表现：到期了但没收到通知，且无任何用户可见线索）。本卡刻意不扩大范围：A3 只授权「权限 + 显式 pre-post 瞬时故障」重试，读失败不在该词表内，故当前行为是 fail-closed 而非疏忽。修法（择一）：① 把「存储读失败」并入可重试词表，与 TD165 的信任重建入口一起做（两者同源：都需要先能重新信任存储）；② 在 `docs/adr/` 记一条「有意接受损坏即丢失」的决定，并要求 scheduler/UI 卡对该态给出可操作文案。可测：注入一次抛异常的 `readAll()`，走法①时 attempt 0/1 必须 `RETRY` 且回执不前移、attempt 2 关闭，三条各有专属红灯 / 前置：`T4-SCHEDULE-REMINDER-SCHEDULER`（恢复面归它） | minor | open | — |
 
 
+| TD173 | 2026-09-06 | `scripts/selftest.ps1 -TaskId` 的既有 core/all 分流 | **SELFTEST-TASK-SOURCE**：从另一检出运行入口时，路由解析返回目标 WorktreePath，但既有 core/all 仍验证脚本所在检出，可能未覆盖目标卡改动。T0-SELFTEST-SKILL-ROUTING 已使新 skills 路径使用目标快照；本卡 A2 保留旧 core/all 行为，故单独登记。修法：将两种旧模式绑定解析后的目标工作区，并用脚本检出与目标检出内容不同的真实入口夹具证明正负例、dirty/untracked 可见性及失败退出；不得改变现有保守分类或公开分片枚举。 | major | open | — |
+
 <!-- 新债项追加到上表。偿还时改 status + 填指针；勿删行（保留还债轨迹）。 -->
 
 ## 可选：背景重构 agent（OpenAI 持续重构循环）
