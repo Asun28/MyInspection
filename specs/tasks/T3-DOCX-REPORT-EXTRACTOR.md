@@ -8,7 +8,7 @@ branch: T3-DOCX-REPORT-EXTRACTOR
 worktree: C:\wt\T3-DOCX-REPORT-EXTRACTOR
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractor.kt
-  - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxFixture.kt
+  - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxExtractorFixture.kt
   - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
 forbid:
   - Private sample bytes or text in git, vendor-specific execution, writes, network, OCR, or automatic native mapping
