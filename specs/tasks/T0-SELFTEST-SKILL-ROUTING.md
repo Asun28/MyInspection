@@ -1,7 +1,7 @@
 ---
 id: T0-SELFTEST-SKILL-ROUTING
 title: Route skill-only changes through existing core and workflow coverage without seeded product-independent regressions
-status: todo
+status: merged
 depends_on: [T0-SELFTEST-META-EXPANSION]
 allow_paths:
   - scripts/_validation.ps1
@@ -56,3 +56,5 @@ the repository has no compatible upstream token dispatcher to copy. Wait for the
 Both emitted their final PASS sentinels. Timed runs and records: `.review/skill-shards/`.
 These are sequential Windows validation durations, not a whole-suite before/after speed benchmark.
 The smaller route and removed fixed wait are established by the real-entry tests above.
+
+Official local delivery: feature `2ef5649857ef90f21b96a5edfcc309cccd2d38cf`, R3 pass on the same SHA, merge `5f0000cf94bf2f4553bcaba6589072d66c53babc`.

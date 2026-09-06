@@ -27,7 +27,7 @@
 | W0 | T0-SELFTEST-RISK-ROUTING | 显式 TaskId 按已钉基线与真实改动选择既有自检覆盖 | — | S | Codex | Codex R3 | **merged**（master `8cfa60a9`；R3 PASS `f3bcfac2`）；产品 verify 仍独立必跑；无过滤入口保持 all |
 | W0 | T0-SELFTEST-NIGHTLY-META | 普通 push 延后聚合压力测试；本地/手动/每日保持完整 meta | — | S | Codex | Codex R3 | **merged**（master `52ec509c`；R3 PASS `ddc2b8c1`）；执行/延后收据明确；保留两 OS、五 shard |
 | W0 | T0-SELFTEST-META-EXPANSION | 默认延后三处元测试；保留实时检查及每日完整覆盖 | — | S | Codex | Codex R3 | **merged**：本地 04b355d4；R3 pass，core/workflow IncludeMeta 全绿 |
-| W0 | T0-SELFTEST-SKILL-ROUTING | 仅技能改动复用 core + workflow，混合及未知范围仍全跑 | T0-SELFTEST-META-EXPANSION | S | Codex | Codex R3 | todo；前置合并后开始 |
+| W0 | T0-SELFTEST-SKILL-ROUTING | 仅技能改动复用 core + workflow，混合及未知范围仍全跑 | T0-SELFTEST-META-EXPANSION | S | Codex | Codex R3 | **merged**：本地 5f0000cf；R3 pass，core/workflow 全绿，8项关键变异被检出 |
 | W0 | T0-SHIP-REVIEW-BASE-BUNDLE | 两条 ship 路径使用同一基线的评审脚本及辅助文件 | T0-SELFTEST-SKILL-ROUTING | M | Codex | Codex R3 | todo；不改变既有评审上限 |
 | W0 | T0-INIT-ASSIGNMENT-ANCHORS | 初始化只匹配真实配置赋值，保留注释及字面量 | T0-SHIP-REVIEW-BASE-BUNDLE | S | Codex | Codex R3 | todo；仅在隔离夹具运行初始化 |
 | W0 | T0-CARD-TEMPLATE-SLIM | 精简任务卡；acceptance/requirements 可选且兼容旧卡 | — | S | Codex | Codex R3 | **merged**（master `c60a67ba`；R3 PASS `a6a180f8`）；可选字段与引用合同已同步 |
