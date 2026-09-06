@@ -1,7 +1,7 @@
 ---
 id: T0-SELFTEST-META-EXPANSION
 title: Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - scripts/selftest.ps1
@@ -70,3 +70,5 @@ not a full-suite before/after benchmark or a CI speed promise. It excludes the a
 aggregation stress harness. Result and output: `.review/meta-cost-r3-repair/result.json` and `stdout.log`.
 Source stayed unchanged throughout. Earlier-source and failed measurement-wrapper logs are retained separately,
 and are not evidence for this final candidate.
+
+Official local delivery: feature `1bcb034cb3e39f790792ced5792e02f1832b59a6`, R3 pass on the same SHA, merge `04b355d43cab0a49383b18105ba5f2e29b447952`.
