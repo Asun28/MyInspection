@@ -9,6 +9,20 @@ class DocxReportExtractorTest {
     private val fixture = DocxExtractorFixture
     private fun extract(parts: Map<String, ByteArray>) = DocxReportExtractor().extract(fixture.read(parts))
 
+    @Test fun runTokensPreserveHyphensAndExcludeLegacyPages() {
+        val result = extract(fixture.parts("<w:p><w:r><w:t>A</w:t><w:noBreakHyphen/><w:softHyphen/><w:pgNum/><w:t>B</w:t></w:r></w:p>"))
+        assertEquals("A\u2011\u00adB", result.fragments.first().text.raw)
+        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.PAGINATION_EXCLUDED })
+    }
+    @Test fun unsupportedRunContentRejectsClosed() {
+        for (element in listOf("sym w:font='Wingdings' w:char='F0FC'", "dayShort", "monthLong", "yearLong", "tab xmlns:w='urn:x'",
+                "annotationRef", "footnoteRef", "endnoteRef", "separator", "continuationSeparator", "ptab", "ruby", "contentPart", "delInstrText")) {
+            assertEquals("DOCX_UNSUPPORTED_TEXT", assertFailsWith<IllegalArgumentException> {
+                extract(fixture.parts("<w:p><w:r><w:$element/></w:r></w:p>"))
+            }.message)
+        }
+    }
+
     @Test fun realTableCellsPreserveNullableStatusAndRawSpelling() {
         val result = extract(fixture.parts(fixture.p("Kitchen") + "<w:tbl>" +
             fixture.row("  Window latch  ", "  FaIr  ", "Slight resistance") +
@@ -38,7 +52,7 @@ class DocxReportExtractorTest {
         val fields = "<w:p><w:r><w:t>Before </w:t></w:r>" +
             "<w:fldSimple w:instr='PAGE'><w:r><w:t>999</w:t></w:r></w:fldSimple>" +
             "<w:r><w:fldChar w:fldCharType='begin'/></w:r><w:r><w:instrText> NUMPAGES </w:instrText></w:r>" +
-            "<w:r><w:fldChar w:fldCharType='separate'/></w:r><w:r><w:t>888</w:t></w:r>" +
+            "<w:r><w:fldChar w:fldCharType='separate'/></w:r><w:r><w:t>888</w:t><w:noBreakHyphen/><w:softHyphen/></w:r>" +
             "<w:r><w:fldChar w:fldCharType='end'/></w:r><w:r><w:t> after</w:t></w:r></w:p>" +
             "<w:fldSimple w:instr='AUTHOR'>${fixture.p("Excluded private author")}</w:fldSimple>" +
             fixture.p("See https://synthetic.invalid/secret for context") +
@@ -289,7 +303,7 @@ class DocxReportExtractorTest {
     }
     @Test fun complexFieldPhasesCannotLeakOrReclassifyCachedContent() {
         val separate = "<w:fldChar w:fldCharType='separate'/>"
-        for (content in listOf("<w:t>Excluded author</w:t>$separate", "$separate$separate",
+        for (content in listOf("<w:t>Excluded author</w:t>$separate", "<w:noBreakHyphen/>$separate", "<w:softHyphen/>$separate", "$separate$separate",
                 "$separate<w:instrText>QUOTE</w:instrText>", "")) {
             val body = "<w:p><w:r><w:fldChar w:fldCharType='begin'/><w:instrText>AUTHOR</w:instrText>" +
                 content + "<w:fldChar w:fldCharType='end'/></w:r></w:p>"
@@ -358,8 +372,4 @@ class DocxReportExtractorTest {
             result.warnings.filter { it.code in setOf(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, ExtractionWarningCode.IMAGE_REVIEW_REQUIRED) })
     }
 }
-/* Historical R4: .review/r4-final/summary.json retains 51 faults and their SHA/XML;
- * unchanged visitor segments are audited separately. .review/r4-image/summary.json
- * retains 18 image-header faults, superseded by the qualification predecessor.
- * Current image integration evidence: .review/r4-qualification/summary.json.
- */
+// R4: .review/r4-run-content/summary.json

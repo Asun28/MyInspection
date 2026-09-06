@@ -18,6 +18,8 @@ private const val W = "http://schemas.openxmlformats.org/wordprocessingml/2006/m
 private const val R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 private const val WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 private const val A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+private val RUN_TOKENS = mapOf("tab" to "\t", "br" to "\n", "cr" to "\n",
+    "noBreakHyphen" to "\u2011", "softHyphen" to "\u00ad")
 private class FieldFrame(val instruction: StringBuilder = StringBuilder(), var excluded: Boolean = false, var separated: Boolean = false)
 private class ParagraphFrame(val element: Element, val source: SourceLocation, val text: StringBuilder = StringBuilder())
 private class Element(val uri: String, val name: String, val attrs: Map<String, String>, val parent: Element?) {
@@ -111,6 +113,13 @@ class DocxReportExtractor {
                 val position = active?.source ?: SourceLocation(part.name, ordinal)
                 require(!(node.uri == W && node.name in setOf("ins", "del", "delText", "moveFrom", "moveTo"))) { "DOCX_TRACKED_CONTENT" }
                 require(!(node.name == "t" && node.value.isNotBlank() && (node.uri != W || active == null))) { "DOCX_UNSUPPORTED_TEXT" }
+                val token = if (node.uri != W) null else if (node.name == "t") node.value.toString() else RUN_TOKENS[node.name]
+                require(node.parent?.isWord("r") != true || token != null || (node.uri == W && node.name in
+                    setOf("rPr", "instrText", "fldChar", "drawing", "lastRenderedPageBreak", "pgNum"))) { "DOCX_UNSUPPORTED_TEXT" }
+                if (node.isWord("pgNum")) {
+                    warn(ExtractionWarningCode.PAGINATION_EXCLUDED, position)
+                    return
+                }
                 if (node.isWord("sdt") && node.children.any { it.isWord("sdtPr") && it.children.any { tag ->
                         tag.isWord("tag") && tag.attr("val").orEmpty().startsWith("MSIP_", true) } }) {
                     warn(ExtractionWarningCode.METADATA_EXCLUDED, position)
@@ -144,8 +153,9 @@ class DocxReportExtractor {
                     require(!frame.separated) { "DOCX_FIELD_STRUCTURE" }
                     frame.instruction.append(node.value)
                 }
-                if (node.uri == W && node.name in setOf("t", "tab", "br", "cr")) {
+                if (token != null) {
                     require(fieldStack.all { it.separated }) { "DOCX_FIELD_STRUCTURE" }
+                    if (fieldStack.none { it.excluded }) active?.text?.append(token)
                 }
                 if (node.isWord("p")) {
                     active?.let(::flush)
@@ -154,12 +164,7 @@ class DocxReportExtractor {
                     val frame = ParagraphFrame(node, location)
                     node.children.forEach { scan(it, frame) }
                     flush(frame)
-                } else {
-                    if (node.isWord("t") && fieldStack.none { it.excluded }) active?.text?.append(node.value)
-                    if (node.isWord("tab") && fieldStack.none { it.excluded }) active?.text?.append('\t')
-                    if ((node.isWord("br") || node.isWord("cr")) && fieldStack.none { it.excluded }) active?.text?.append('\n')
-                    node.children.forEach { scan(it, active) }
-                }
+                } else node.children.forEach { scan(it, active) }
             }
             scan(root)
             require(fieldStack.isEmpty()) { "DOCX_FIELD_STRUCTURE" }
