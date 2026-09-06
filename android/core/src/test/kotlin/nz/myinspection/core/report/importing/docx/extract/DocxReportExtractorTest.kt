@@ -13,10 +13,13 @@ class DocxReportExtractorTest {
     private val fixture = DocxExtractorFixture
     private fun extract(parts: Map<String, ByteArray>) = DocxReportExtractor().extract(fixture.read(parts))
 
+    private fun assertWarning(result: DocxExtractionManifest, code: ExtractionWarningCode) =
+        assertTrue(result.warnings.any { it.code == code }, code.name)
+
     @Test fun runTokensPreserveHyphensAndExcludeLegacyPages() {
         val result = extract(fixture.parts("<w:p><w:r><w:t>A</w:t><w:noBreakHyphen/><w:softHyphen/><w:pgNum/><w:t>B</w:t></w:r></w:p>"))
         assertEquals("A\u2011\u00adB", result.fragments.first().text.raw)
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.PAGINATION_EXCLUDED })
+        assertWarning(result, ExtractionWarningCode.PAGINATION_EXCLUDED)
     }
     @Test fun unsupportedRunContentRejectsClosed() {
         for (element in listOf("sym w:font='Wingdings' w:char='F0FC'", "dayShort", "monthLong", "yearLong", "tab xmlns:w='urn:x'",
@@ -49,17 +52,17 @@ class DocxReportExtractorTest {
             assertTrue("Unique footer observation $i" in texts, "footer $i lost")
         }
         assertEquals(25, result.fragments.map { it.text.source.part }.distinct().size)
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.UNRESOLVED_TEXT })
+        assertWarning(result, ExtractionWarningCode.UNRESOLVED_TEXT)
     }
 
     @Test fun pageAndAuthorFieldsDoNotSwallowAdjacentEvidence() {
         val fields = "<w:p><w:r><w:t>Before </w:t></w:r>" +
-            "<w:fldSimple w:instr='PAGE'><w:r><w:t>999</w:t></w:r></w:fldSimple>" +
-            "<w:r><w:fldChar w:fldCharType='begin'/></w:r><w:r><w:instrText> NUMPAGES </w:instrText></w:r>" +
-            "<w:r><w:fldChar w:fldCharType='separate'/></w:r><w:r><w:t>888</w:t><w:noBreakHyphen/><w:softHyphen/></w:r>" +
-            "<w:r><w:fldChar w:fldCharType='end'/></w:r><w:r><w:t> after</w:t></w:r></w:p>" +
-            "<w:fldSimple w:instr='AUTHOR'>${fixture.p("Excluded private author")}</w:fldSimple>" +
-            fixture.p("See https://synthetic.invalid/secret for context") +
+            fixture.field("PAGE", "<w:r><w:t>999</w:t></w:r>", true) +
+            fixture.field(" NUMPAGES ", "<w:r><w:t>888</w:t><w:noBreakHyphen/><w:softHyphen/></w:r>", false) +
+            "<w:r><w:t> after</w:t></w:r></w:p>" +
+            fixture.field("AUTHOR", fixture.p("Excluded private author"), true) +
+            listOf("https://", "ftp://", "file://", "mailto:", "tel:", "data:", "urn:", "custom+scheme://", "www.")
+                .joinToString("") { fixture.p("See ${it}synthetic.invalid for context; Note:water Profile:aluminium Hotel:damaged") } +
             "<w:sdt><w:sdtPr><w:tag w:val='MSIP_Label_Synthetic'/></w:sdtPr><w:sdtContent>" +
             fixture.p("Excluded sensitivity value") + "</w:sdtContent></w:sdt>"
         val result = extract(fixture.parts(fields))
@@ -69,10 +72,10 @@ class DocxReportExtractorTest {
         for (secret in listOf("999", "888", "Excluded private author", "synthetic.invalid", "Excluded sensitivity value")) {
             assertFalse(secret in text, "excluded source field survived")
         }
-        assertTrue("See " in text && " for context" in text)
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.PAGINATION_EXCLUDED })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.METADATA_EXCLUDED })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.URL_EXCLUDED })
+        assertTrue("See " in text && " for context; Note:water Profile:aluminium Hotel:damaged" in text)
+        assertWarning(result, ExtractionWarningCode.PAGINATION_EXCLUDED)
+        assertWarning(result, ExtractionWarningCode.METADATA_EXCLUDED)
+        assertWarning(result, ExtractionWarningCode.URL_EXCLUDED)
     }
 
     @Test fun nestedTextboxesAndUnknownTableCellsRemainReviewable() {
@@ -106,8 +109,11 @@ class DocxReportExtractorTest {
     }
 
     @Test fun unknownFieldResultsRemainUnresolved() {
-        val unknown = "<w:p><w:fldSimple w:instr='QUOTE'><w:r><w:t>Cached observation</w:t></w:r></w:fldSimple></w:p>"
-        assertTrue(extract(fixture.parts(unknown)).fragments.any { it.text.raw == "Cached observation" })
+        for (instruction in listOf("QUOTE", "HYPERLINK ../source", "QUOTE mailto:synthetic.invalid")) for (simple in listOf(true, false)) {
+            val result = extract(fixture.parts("<w:p>" + fixture.field(instruction, "<w:r><w:t>Cached observation</w:t></w:r>", simple) + "</w:p>"))
+            assertTrue(result.fragments.any { it.text.raw == "Cached observation" })
+            assertEquals(instruction != "QUOTE", result.warnings.any { it.code == ExtractionWarningCode.URL_EXCLUDED })
+        }
     }
     @Test fun openFieldsRejectSafelyInsteadOfSwallowingLaterObservations() {
         val broken = "<w:p><w:r><w:fldChar w:fldCharType='begin'/><w:instrText>PAGE</w:instrText>" +
@@ -133,10 +139,10 @@ class DocxReportExtractorTest {
         assertEquals("Overall impression", result.items.last().name.raw)
         assertEquals(40, result.fragments.count { it.text.raw.startsWith("Unassigned ") })
         assertTrue(result.fragments.any { it.text.raw == "Undecided spelling" })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.AMBIGUOUS_COLUMNS })
+        assertWarning(result, ExtractionWarningCode.AMBIGUOUS_COLUMNS)
         assertEquals(listOf("42 Synthetic Lane", "3 September 2026", "Inspection (03/09/2026)"), result.identity.map { it.text.raw })
         assertEquals("Original synthetic summary.", result.summaryCandidates.single().raw)
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.UNRESOLVED_NARRATIVE })
+        assertWarning(result, ExtractionWarningCode.UNRESOLVED_NARRATIVE)
         assertEquals(89, result.captions.size)
         assertEquals((1..89).map { it.toString().padStart(3, '0') }, result.captions.map { it.number })
         assertEquals(67, result.images.size)
@@ -144,7 +150,7 @@ class DocxReportExtractorTest {
         assertEquals(2, result.placements.count { it.imagePart == "word/media/photo67.png" })
         assertTrue(result.placements.any { it.kind == DrawingKind.INLINE })
         assertTrue(result.placements.any { it.kind == DrawingKind.ANCHORED })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.AMBIGUOUS_CAPTIONS })
+        assertWarning(result, ExtractionWarningCode.AMBIGUOUS_CAPTIONS)
         assertEquals(15, result.warnings.count { it.code == ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED })
     }
 
@@ -158,14 +164,14 @@ class DocxReportExtractorTest {
         assertEquals(2, result.fragments.count { it.text.raw == raw })
         assertTrue(result.fragments.any { it.text.raw == "ABC-Area Alpha 11" })
         assertTrue(result.fragments.any { it.text.raw == "4 5" })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.AMBIGUOUS_CAPTIONS })
+        assertWarning(result, ExtractionWarningCode.AMBIGUOUS_CAPTIONS)
     }
 
     @Test fun unmarkedSignoffStaysInsideBlockedNarrativeCandidates() {
         val result = extract(fixture.parts(fixture.p("Comments X Summary") + fixture.p("Synthetic report narrative") +
             fixture.p("Anonymous signoff candidate") + fixture.p("Images")))
         assertEquals(listOf("Synthetic report narrative", "Anonymous signoff candidate"), result.summaryCandidates.map { it.raw })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.UNRESOLVED_NARRATIVE })
+        assertWarning(result, ExtractionWarningCode.UNRESOLVED_NARRATIVE)
     }
 
     @Test fun missingDrawingTargetsAndMalformedImageHeadersRemainBlockers() {
@@ -177,14 +183,14 @@ class DocxReportExtractorTest {
         assertNull(result.placements[0].imagePart)
         assertEquals(1, result.images.size)
         assertNull(result.images.single().width)
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.MISSING_IMAGE })
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.IMAGE_REVIEW_REQUIRED })
+        assertWarning(result, ExtractionWarningCode.MISSING_IMAGE)
+        assertWarning(result, ExtractionWarningCode.IMAGE_REVIEW_REQUIRED)
     }
 
     @Test fun retainedImageDimensionsPreserveClosedPixelBounds() {
         val parts = fixture.parts(fixture.drawing("photo"))
         parts["word/media/photo.jpg"] = fixture.image(32, 4, "jpg")
-        parts["word/_rels/document.xml.rels"] = fixture.relationships(fixture.relationship("photo", "media/photo.jpg", "image")).toByteArray()
+        parts["word/_rels/document.xml.rels"] = fixture.relationships(fixture.relationship("photo", "MEDIA/Photo.JPG", "image")).toByteArray()
         val result = extract(parts)
         assertEquals(32, result.images.single().width)
         assertEquals(32, result.images.single().height)
@@ -250,8 +256,8 @@ class DocxReportExtractorTest {
     @Test fun explicitStoryReferenceOrderSurvivesRelationshipReordering() {
         val body = "<w:sectPr><w:headerReference r:id='second'/><w:headerReference r:id='first'/></w:sectPr>"
         val parts = fixture.parts(body)
-        parts["word/_rels/document.xml.rels"] = fixture.relationships(fixture.relationship("first", "header1.xml", "header") +
-            fixture.relationship("second", "header2.xml", "header")).toByteArray()
+        parts["word/_rels/document.xml.rels"] = fixture.relationships(fixture.relationship("first", "Header1.XML", "header") +
+            fixture.relationship("second", "HEADER2.xml", "header")).toByteArray()
         assertEquals(listOf("word/header2.xml", "word/header1.xml"), extract(parts).fragments.take(2).map { it.text.source.part })
     }
     @Test fun nestedSensitivityControlDoesNotEraseItsOrdinaryParent() {
@@ -264,7 +270,7 @@ class DocxReportExtractorTest {
     }
     @Test fun additionalPaginationAndInfoAuthorFieldsExcludeOnlyTheirCache() {
         val body = listOf("SECTIONPAGES", "PAGEREF mark", "INFO AUTHOR").joinToString("") { instruction ->
-            "<w:p><w:fldSimple w:instr='$instruction'><w:r><w:t>Excluded cache</w:t></w:r></w:fldSimple>" +
+            "<w:p>" + fixture.field(instruction, "<w:r><w:t>Excluded cache</w:t></w:r>", true) +
                 "<w:r><w:t>Adjacent evidence</w:t></w:r></w:p>"
         }
         val result = extract(fixture.parts(body))
@@ -308,7 +314,7 @@ class DocxReportExtractorTest {
     @Test fun complexFieldPhasesCannotLeakOrReclassifyCachedContent() {
         val separate = "<w:fldChar w:fldCharType='separate'/>"
         for (content in listOf("<w:t>Excluded author</w:t>$separate", "<w:noBreakHyphen/>$separate", "<w:softHyphen/>$separate", "$separate$separate",
-                "$separate<w:instrText>QUOTE</w:instrText>", "")) {
+                "$separate<w:instrText>QUOTE</w:instrText>", "$separate<w:fldChar/>", "$separate<w:fldChar w:fldCharType='unknown'/>", "")) {
             val body = "<w:p><w:r><w:fldChar w:fldCharType='begin'/><w:instrText>AUTHOR</w:instrText>" +
                 content + "<w:fldChar w:fldCharType='end'/></w:r></w:p>"
             assertEquals("DOCX_FIELD_STRUCTURE", assertFailsWith<IllegalArgumentException> { extract(fixture.parts(body)) }.message)
@@ -322,7 +328,7 @@ class DocxReportExtractorTest {
         assertEquals(1, result.images.size)
         assertEquals(width, result.images.single().width)
         assertEquals(width, result.images.single().height)
-        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.IMAGE_REVIEW_REQUIRED })
+        assertWarning(result, ExtractionWarningCode.IMAGE_REVIEW_REQUIRED)
         assertFalse(result.warnings.any { it.code == ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED })
         return result
     }
@@ -385,10 +391,13 @@ class DocxReportExtractorTest {
         }
     }
     @Test fun emptyDrawingFramesRemainUnresolvedPlacements() {
-        for ((frame, kind) in listOf("inline" to DrawingKind.INLINE, "anchor" to DrawingKind.ANCHORED)) {
-            val result = extract(fixture.parts("<w:p><w:r><w:drawing><wp:$frame/></w:drawing></w:r></w:p>"))
-            assertEquals(listOf(DrawingPlacement(SourceLocation("word/document.xml", 0), kind, null)), result.placements)
-            assertTrue(result.warnings.any { it.code == ExtractionWarningCode.MISSING_IMAGE && it.source == result.placements.single().source })
+        for (frames in listOf("inline", "anchor", "inline,inline", "anchor,anchor", "inline,anchor", "anchor,inline")) {
+            val kinds = frames.split(',')
+            val body = kinds.joinToString("") { "<wp:$it/>" }
+            val result = extract(fixture.parts("<w:p><w:r><w:drawing>$body</w:drawing></w:r></w:p>"))
+            assertEquals(kinds.mapIndexed { i, kind -> DrawingPlacement(SourceLocation("word/document.xml", 0, i),
+                if (kind == "inline") DrawingKind.INLINE else DrawingKind.ANCHORED, null) }, result.placements)
+            assertEquals(result.placements.map { it.source }, result.warnings.filter { it.code == ExtractionWarningCode.MISSING_IMAGE }.map { it.source })
         }
     }
     private fun unresolvedIdentity(result: DocxExtractionManifest) {
@@ -397,7 +406,7 @@ class DocxReportExtractorTest {
     @Test fun identityCannotCrossStructuralOrExcludedValueBoundaries() {
         for (between in listOf("<w:tbl/>", "<w:tbl>${fixture.row("Latch", "fair", "Note")}</w:tbl>",
                 "<w:p/>", fixture.p("https://synthetic.invalid/value"), fixture.p("Feature"), fixture.p("Kitchen"),
-                "<w:fldSimple w:instr='AUTHOR'>${fixture.p("Excluded author")}</w:fldSimple>")) {
+                fixture.field("AUTHOR", fixture.p("Excluded author"), true))) {
             val result = extract(fixture.parts(fixture.p("PROPERTY ADDRESS") + between + fixture.p("Unrelated observation")))
             assertTrue(result.identity.isEmpty())
             assertTrue(result.fragments.any { it.text.raw == "Unrelated observation" })
@@ -455,7 +464,4 @@ class DocxReportExtractorTest {
             }
         } finally { System.setSecurityManager(previous) }
     }
-
-
 }
-// R4: .review/r4-run-content/summary.json

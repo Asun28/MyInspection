@@ -38,7 +38,7 @@ class DocxReportExtractor {
         val occurrences = HashMap<Int, Int>()
         fun nextOccurrence(ordinal: Int): Int = (occurrences[ordinal] ?: 0).also { occurrences[ordinal] = it + 1 }
         val roomPattern = Regex("(?i)(Exterior|Hallway|Bathroom|Bedroom(?:\\s+[0-9]+(?:\\s.*)?)?|Lounge|Kitchen|General)")
-        val url = Regex("(?i)(?:https?://|www\\.)[^\\s<>]+")
+        val url = Regex("(?i)(?<![a-z0-9+.-])(?:[a-z][a-z0-9+.-]*://|(?:mailto|tel|sms|data|urn|news|geo|sips?|file|javascript):|www\\.)[^\\s<>]+")
         fun warn(code: ExtractionWarningCode, source: SourceLocation?) { warnings.add(ExtractionWarning(code, source)) }
 
         fun read(source: DocxPackage): DocxExtractionManifest {
@@ -63,15 +63,14 @@ class DocxReportExtractor {
             val fallback = source.parts.sortedWith(compareBy<DocxPart>({ it.kind.ordinal }, { it.name }))
             (listOf(document) + referenced + fallback).distinctBy { it.name }.forEach { part ->
                 when (part.kind) {
-                    DocxPartKind.DOCUMENT -> story(part)
-                    DocxPartKind.HEADER -> story(part)
-                    DocxPartKind.FOOTER -> story(part)
+                    DocxPartKind.DOCUMENT, DocxPartKind.HEADER, DocxPartKind.FOOTER -> story(part)
                     else -> Unit
                 }
             }
             if (captions.isNotEmpty() || images.isNotEmpty()) warn(ExtractionWarningCode.AMBIGUOUS_CAPTIONS, null)
             return DocxExtractionManifest(items, fragments, warnings, identity, summary, captions, images, placements)
         }
+        // Reader validates lowercased word-relative targets, rejecting absolute/dot/external paths.
         fun relationships(part: DocxPart): Map<String?, String> = parts["word/_rels/${part.name.substringAfterLast('/')}.rels"]
             ?.let { parse(it).children.associate { node -> node.attr("Id") to "word/${node.attr("Target").orEmpty().lowercase(Locale.ROOT)}" } }.orEmpty()
 
@@ -102,6 +101,7 @@ class DocxReportExtractor {
                 val token = if (node.uri != W) null else if (node.name == "t") node.value.toString() else RUN_TOKENS[node.name]
                 require(node.parent?.isWord("r") != true || token != null || (node.uri == W && node.name in
                     setOf("rPr", "instrText", "fldChar", "drawing", "lastRenderedPageBreak", "pgNum"))) { "DOCX_UNSUPPORTED_TEXT" }
+                // ECMA-376-4 CT_Drawing permits repeated inline/anchor frames.
                 if (node.isWord("drawing")) require(node.children.isNotEmpty() && node.children.all { it.uri == WP && it.name in setOf("inline", "anchor") }) { "DOCX_DRAWING_STRUCTURE" }
                 if (node.isWord("pgNum")) {
                     warn(ExtractionWarningCode.PAGINATION_EXCLUDED, position)
@@ -113,7 +113,7 @@ class DocxReportExtractor {
                     return
                 }
                 if (node.isWord("fldSimple")) {
-                    val code = fieldWarning(node.attr("instr").orEmpty())
+                    val code = fieldWarning(node.attr("instr").orEmpty(), position)
                     warn(code, position)
                     if (code != ExtractionWarningCode.UNRESOLVED_TEXT) return
                 }
@@ -123,7 +123,7 @@ class DocxReportExtractor {
                         "separate" -> {
                             val frame = fieldStack.lastOrNull() ?: throw IllegalArgumentException("DOCX_FIELD_STRUCTURE")
                             require(!frame.separated) { "DOCX_FIELD_STRUCTURE" }
-                            val code = fieldWarning(frame.instruction.toString())
+                            val code = fieldWarning(frame.instruction.toString(), position)
                             frame.excluded = code != ExtractionWarningCode.UNRESOLVED_TEXT
                             frame.separated = true
                             warn(code, position)
@@ -133,6 +133,7 @@ class DocxReportExtractor {
                             require(fieldStack.last().separated) { "DOCX_FIELD_STRUCTURE" }
                             fieldStack.removeAt(fieldStack.lastIndex)
                         }
+                        else -> throw IllegalArgumentException("DOCX_FIELD_STRUCTURE")
                     }
                 }
                 if (node.isWord("instrText")) {
@@ -240,8 +241,9 @@ class DocxReportExtractor {
             setOf("PROPERTY ADDRESS", "INSPECTION DATE", "IMAGES", "FEATURE", "STATUS") ||
             value.endsWith("Comments", true) || roomPattern.matches(value) ||
             Regex("(?i)comments\\s*.?\\s*summary|(?:Routine )?Inspection(?: Report|\\s*\\(.*\\))?").matches(value)
-        fun fieldWarning(instruction: String): ExtractionWarningCode {
+        fun fieldWarning(instruction: String, source: SourceLocation): ExtractionWarningCode {
             val words = instruction.trim().uppercase(Locale.ROOT).split(Regex("\\s+"))
+            if (words.first() == "HYPERLINK" || url.containsMatchIn(instruction)) warn(ExtractionWarningCode.URL_EXCLUDED, source)
             return when (if (words.first() == "INFO") words.getOrNull(1) else words.first()) {
                 "PAGE", "NUMPAGES", "SECTIONPAGES", "PAGEREF" -> ExtractionWarningCode.PAGINATION_EXCLUDED
                 "AUTHOR", "LASTSAVEDBY", "CREATEDATE", "SAVEDATE", "PRINTDATE", "FILENAME", "DOCPROPERTY",

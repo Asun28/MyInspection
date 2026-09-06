@@ -27,6 +27,10 @@ internal object DocxExtractorFixture {
             "</a:graphicData></a:graphic></wp:$kind></w:drawing></w:r></w:p>"
     fun relationship(id: String, target: String, type: String) =
         "<Relationship Id='$id' Target='$target' Type='$R/$type'/>"
+    fun field(instruction: String, cache: String, simple: Boolean) = if (simple)
+        "<w:fldSimple w:instr='$instruction'>$cache</w:fldSimple>" else
+        "<w:r><w:fldChar w:fldCharType='begin'/></w:r><w:r><w:instrText>$instruction</w:instrText></w:r>" +
+            "<w:r><w:fldChar w:fldCharType='separate'/></w:r>$cache<w:r><w:fldChar w:fldCharType='end'/></w:r>"
     fun relationships(body: String) = "<Relationships xmlns='$PR'>$body</Relationships>"
     fun row(name: String, status: String, comment: String) =
         "<w:tr><w:tc>${p(name)}</w:tc><w:tc>${p(status)}</w:tc><w:tc>${p(comment)}</w:tc></w:tr>"
@@ -111,7 +115,7 @@ internal object DocxExtractorFixture {
             for (i in 1..67) this["word/media/photo$i.png"] = image(32, i)
             for (i in 1..15) this["word/media/shim$i.png"] = image(i, i)
             this["word/header1.xml"] = story("hdr", p("Header observation") + drawing("again", "anchor")).toByteArray()
-            this["word/_rels/header1.xml.rels"] = relationships(relationship("again", "media/photo67.png", "image")).toByteArray()
+            this["word/_rels/header1.xml.rels"] = relationships(relationship("again", "MEDIA/Photo67.PNG", "image")).toByteArray()
             for (i in 1..3) this["word/footer$i.xml"] = story("ftr", p("Good") + p("Fair") + p("Unique footer observation $i")).toByteArray()
         }
     }
