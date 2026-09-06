@@ -2205,3 +2205,11 @@
 - rule: 写 XML 边界测试前逐项对照安全合同：按命名空间构造 XInclude 真实失败夹具；元素预算在全包累计，并测试多个 XML part 各自未超但合计超限。禁扩展不等于已拒绝。
 - enforced_by:
 - refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt
+
+## L301
+- date: 2026-09-06 ｜ tags: parser,evidence,image,validation ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX 提取器两轮 R3 暴露图片头部被当作安全排除资格，完整 IHDR 或 SOF 后缺少负载仍被丢弃。
+- root_cause: 候选尺寸与完整负载验证未分层，头部测试通过被误当作可丢弃源证据的证明。
+- rule: 当解析结论会丢弃源证据时，将候选元信息与完整负载验证资格分开。仅对明确支持且完整验证的子集授权排除；未知、截断或损坏输入保留待审。用完整图头无负载、重算 CRC 后的坏压缩流、伪造尾标记等真实输入证明边界，并检查失败样例确实到达目标守卫。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
+- refs: specs/archive/tasks/T3-DOCX-IMAGE-QUALIFICATION.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
