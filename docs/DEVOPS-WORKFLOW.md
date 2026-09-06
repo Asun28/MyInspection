@@ -184,7 +184,9 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 常规 push 与全量每日/手动运行使用不同并发组，避免新 push 取消唯一补跑 meta 的全量运行。
 两 OS 与五分片维持每项 20 分钟的原有效上限；旧配置的 `seeded` 条件从未匹配实际 `seeded-*` 分片。
 
-卡片执行 `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id> -Base master` 时，路由器只读取已钉住本地基线中的卡片和 `FrozenPaths`，并盘点分支的提交、暂存、脏与未跟踪路径（改名两端都计）。普通 `android/` 或 `configs/` 产品路径输出 `NOT-APPLICABLE`，不替代产品 DoD/verify；普通文档/任务卡路径执行既有 core；脚本、冻结、关键安全/交付文档、未知或混合路径一律选择全部分片。未带 `-TaskId` 仍选择全部分片；上述 meta 开关独立控制三处元层测试。
+卡片执行 `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id> -Base master` 时，路由器只读取已钉住本地基线中的卡片和 `FrozenPaths`，并盘点分支的提交、暂存、脏与未跟踪路径（改名两端都计）。普通 `android/` 或 `configs/compliance/` 产品路径输出 `NOT-APPLICABLE`，不替代产品 DoD/verify；普通文档/任务卡路径执行既有 core。仅 `.claude/skills/` 改动选择 `skills` 路由：从已解析的任务工作区生成独立 core + workflow 快照，覆盖 hooks、技能来源、链接、task-loop 和经验引用；不启动 seeded，也不等待其 75 秒错峰窗口。`skills` 是任务路由名，不是新增 `-Shard` 值。
+
+冻结路径、其余 `.claude/`、脚本、关键安全/交付文档、未知或混合路径仍选择全部分片。Skill 路由先检查目标工作区的 CI 接线，再转发 `IncludeMeta` 的值，以及 `StrictLint` 的值与显式绑定状态；任一子进程失败或失败收据不合法均返回非零，成功和失败都清理快照。未带 `-TaskId` 的 all 仍执行原有三个子分片；上述 meta 开关独立控制三处元层测试。
 
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 

@@ -150,15 +150,17 @@ function Resolve-SelftestRiskRoute {
   foreach ($path in $ChangedPath) {
     if (-not (Test-ValidationRelativePath $path)) { return [pscustomobject]@{ Mode = 'all'; Reason = 'invalid-path' } }
     if ((Test-ValidationFrozenPath -Path $path -FrozenPaths $FrozenPath) -or $criticalDocs -ccontains $path -or $path -clike 'scripts/*' -or
-        $path -clike '.github/*' -or $path -clike '.claude/*' -or $path -ceq 'CLAUDE.md' -or $path -ceq 'AGENTS.md' -or $path -ceq 'specs/verdict.schema.json') {
+        $path -clike '.github/*' -or ($path -clike '.claude/*' -and $path -cnotlike '.claude/skills/*') -or $path -ceq 'CLAUDE.md' -or $path -ceq 'AGENTS.md' -or $path -ceq 'specs/verdict.schema.json') {
       return [pscustomobject]@{ Mode = 'all'; Reason = 'critical-or-frozen' }
     }
     if ($path -clike 'android/*' -or $path -clike 'configs/compliance/*') { [void]$classes.Add('product'); continue }
+    if ($path -clike '.claude/skills/*') { [void]$classes.Add('skills'); continue }
     if (($path -clike 'docs/*.md') -or ($path -clike 'specs/*.md')) { [void]$classes.Add('docs'); continue }
     return [pscustomobject]@{ Mode = 'all'; Reason = 'unknown-path' }
   }
   if ($classes.Count -ne 1) { return [pscustomobject]@{ Mode = 'all'; Reason = 'mixed-risk' } }
   if ($classes.Contains('product')) { return [pscustomobject]@{ Mode = 'not-applicable'; Reason = 'ordinary-product' } }
+  if ($classes.Contains('skills')) { return [pscustomobject]@{ Mode = 'skills'; Reason = 'skill-only' } }
   return [pscustomobject]@{ Mode = 'core'; Reason = 'ordinary-docs' }
 }
 
@@ -255,8 +257,8 @@ function Resolve-SelftestTaskRoute {
 function Assert-ValidationSelfCheck { param([bool]$Condition, [string]$Message); if (-not $Condition) { throw "[SELFTEST-RISK-ROUTING-SELFCHECK] $Message" } }
 
 function Invoke-ValidationTaskEntrypointFixture {
-  param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][ValidateSet('not-applicable', 'core', 'all', 'failure')][string]$Mode,
-    [Parameter(Mandatory)][string[]]$Arguments)
+  param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][ValidateSet('not-applicable', 'core', 'all', 'skills', 'failure')][string]$Mode,
+    [Parameter(Mandatory)][string[]]$Arguments, [string]$TaskRoot, [string]$AggregateFunctions = '')
 
   $selftestPath = Join-Path $PSScriptRoot 'selftest.ps1'
   $source = [IO.File]::ReadAllText($selftestPath)
@@ -266,12 +268,19 @@ function Invoke-ValidationTaskEntrypointFixture {
   $entry = $source.Substring($start, $end - $start)
   $scripts = Join-Path $Directory 'scripts'; New-Item -ItemType Directory -Path $scripts -Force | Out-Null
   $escapedRoot = (Split-Path -Parent $PSScriptRoot).Replace("'", "''")
+  if ($TaskRoot) {
+    $otherCheckout = Join-Path $Directory 'other-checkout'
+    New-Item -ItemType Directory -Force (Join-Path $otherCheckout '.github/workflows') | Out-Null
+    Set-Content (Join-Path $otherCheckout '.github/workflows/scaffold-selftest.yml') '            shard: core'
+    $escapedRoot = $otherCheckout.Replace("'", "''")
+  }
+  $escapedTaskRoot = $TaskRoot.Replace("'", "''")
   $fixtureValidation = @"
 param([switch]`$SelfCheck)
 function Resolve-SelftestTaskRoute {
   param([string]`$RepoRoot, [string]`$TaskId, [string]`$Base)
   if ('$Mode' -ceq 'failure') { throw '[ENTRYPOINT-PROOF-FAILURE]' }
-  return [pscustomobject]@{ Mode = '$Mode'; Reason = 'fixture'; BaseOid = '0000000000000000000000000000000000000000'; Paths = @() }
+  return [pscustomobject]@{ Mode = '$Mode'; Reason = 'fixture'; BaseOid = '0000000000000000000000000000000000000000'; Paths = @(); WorktreePath = '$escapedTaskRoot' }
 }
 "@
   $prefix = @"
@@ -279,34 +288,116 @@ function Resolve-SelftestTaskRoute {
 param(
   [string]`$TaskId,
   [string]`$Base,
-  [string]`$Shard = 'all',
+  [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]`$Shard = 'all',
   [string]`$Fixture = '',
   [string]`$GateIdMutation = '',
   [string]`$NoGitFixtureCase = '',
   [string]`$NoGitFixtureNonce = '',
   [string]`$NoGitMutationNonce = '',
-  [switch]`$StrictLint
+  [switch]`$StrictLint,
+  [switch]`$IncludeMeta = `$false
 )
+Set-StrictMode -Version Latest
+`$ErrorActionPreference = 'Stop'
 `$RepoRoot = '$escapedRoot'
 function Test-SelftestCiWiringContract { param([string]`$Source); return (`$Source -match '(?m)^\s*shard:\s*core\s*$') }
-function Invoke-SelftestAll { param([string]`$SourceRoot, [bool]`$ForwardStrictLint, [bool]`$StrictLintValue); Write-Host '[ENTRYPOINT-DISPATCH] shard=all'; return 0 }
+function Invoke-SelftestAll { [CmdletBinding()]param([string]`$SourceRoot, [bool]`$ForwardStrictLint, [bool]`$StrictLintValue, [bool]`$IncludeMeta, [switch]`$SkillsOnly); Write-Host '[ENTRYPOINT-DISPATCH] shard=all'; return 0 }
 "@
   $suffix = "`nWrite-Output ('[ENTRYPOINT-DISPATCH] shard=' + `$Shard)`nexit 0`n"
   Set-Content -LiteralPath (Join-Path $scripts '_validation.ps1') -Value $fixtureValidation -Encoding utf8NoBOM
   $entryPath = Join-Path $scripts 'selftest-entryproof.ps1'
-  Set-Content -LiteralPath $entryPath -Value ($prefix + $entry + $suffix) -Encoding utf8NoBOM
+  Set-Content -LiteralPath $entryPath -Value ($prefix + "`n" + $AggregateFunctions + "`n" + $entry + $suffix) -Encoding utf8NoBOM
   $output = (& pwsh -NoProfile -File $entryPath @Arguments 2>&1 | Out-String)
   return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
 }
 
+function Invoke-ValidationSkillDispatchFixture {
+  param([Parameter(Mandatory)][string]$Directory)
+  $sourceRoot = Join-Path $Directory 'task'; $logRoot = Join-Path $Directory 'child-log'
+  New-Item -ItemType Directory -Force (Join-Path $sourceRoot 'scripts'), (Join-Path $sourceRoot '.github/workflows'), $logRoot | Out-Null
+  $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'selftest.ps1'))
+  $tokens = $null; $errors = $null
+  $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
+  Assert-ValidationSelfCheck ($errors.Count -eq 0) 'selftest source must parse for real snapshot dispatch.'
+  $definitions = foreach ($name in @('Get-SelftestAggregateExitCode', 'Test-SelftestGateId', 'ConvertFrom-SelftestFailureSentinel', 'Get-SelftestAggregateFailureSummary', 'New-SelftestSnapshot', 'Start-SelftestShard', 'Complete-SelftestShard', 'Invoke-SelftestAll')) {
+    $found = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name }, $true))
+    Assert-ValidationSelfCheck ($found.Count -eq 1) "real aggregate function $name must be unique."
+    $found[0].Extent.Text
+  }
+  $gitbase = (Join-Path $PSScriptRoot '_gitbase.ps1').Replace("'", "''")
+  $functions = ". '$gitbase'`n" + ($definitions -join "`n") + "`nfunction Start-Sleep { throw '[SKILL-UNEXPECTED-DELAY]' }`n"
+  $workflowPath = Join-Path $sourceRoot '.github/workflows/scaffold-selftest.yml'
+  Copy-Item -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) '.github/workflows/scaffold-selftest.yml') -Destination $workflowPath
+  $child = @'
+[CmdletBinding()]
+param([string]$Shard, [switch]$IncludeMeta = $true, [switch]$StrictLint)
+$root = Split-Path -Parent $PSScriptRoot
+$record = @{ Shard = $Shard; Meta = $IncludeMeta.IsPresent; StrictBound = $PSBoundParameters.ContainsKey('StrictLint'); Strict = $StrictLint.IsPresent; Root = $root
+  Tracked = (Get-Content (Join-Path $root 'tracked.txt') -Raw).Trim(); Untracked = (Get-Content (Join-Path $root 'untracked.txt') -Raw).Trim() }
+$record | ConvertTo-Json -Compress | Set-Content (Join-Path $env:SCAFFOLD_SKILL_ROUTE_LOG "$Shard.json")
+if ($env:SCAFFOLD_SKILL_ROUTE_FAILURE -ceq "$Shard/exit") { Write-Output "[SELFTEST-FAILED-GATES] shard=$Shard gates=9"; exit 7 }
+if ($env:SCAFFOLD_SKILL_ROUTE_FAILURE -ceq "$Shard/receipt") { Write-Output '[SELFTEST-FAILED-GATES] malformed'; exit 0 }
+Write-Output 'selftest: PASS'
+exit 0
+'@
+  Set-Content (Join-Path $sourceRoot 'scripts/selftest.ps1') $child
+  Set-Content (Join-Path $sourceRoot 'tracked.txt') 'committed'
+  [void](Assert-ValidationGit $sourceRoot @('init', '-q', '--initial-branch=master') 'SKILL-FIXTURE-GIT')
+  [void](Assert-ValidationGit $sourceRoot @('add', '-A') 'SKILL-FIXTURE-GIT')
+  [void](Assert-ValidationGit $sourceRoot @('-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'baseline') 'SKILL-FIXTURE-GIT')
+  Set-Content (Join-Path $sourceRoot 'tracked.txt') 'dirty snapshot'
+  Set-Content (Join-Path $sourceRoot 'untracked.txt') 'untracked snapshot'
+  $savedLog = $env:SCAFFOLD_SKILL_ROUTE_LOG; $savedFailure = $env:SCAFFOLD_SKILL_ROUTE_FAILURE
+  $env:SCAFFOLD_SKILL_ROUTE_LOG = $logRoot
+  try {
+    $cases = @(
+      @{ Meta=$false; Strict='absent'; Failure='' }, @{ Meta=$true; Strict='absent'; Failure='' },
+      @{ Meta=$false; Strict='False'; Failure='' }, @{ Meta=$true; Strict='True'; Failure='' },
+      @{ Meta=$false; Strict='absent'; Failure='core/exit' }, @{ Meta=$false; Strict='absent'; Failure='workflow/exit' },
+      @{ Meta=$false; Strict='absent'; Failure='core/receipt' }, @{ Meta=$false; Strict='absent'; Failure='workflow/receipt' }
+    )
+    foreach ($case in $cases) {
+      Get-ChildItem -LiteralPath $logRoot -File | Remove-Item -Force
+      $env:SCAFFOLD_SKILL_ROUTE_FAILURE = $case.Failure
+      $arguments = @('-TaskId', 'T0-ROUTE', '-Base', 'master', "-IncludeMeta:`$$($case.Meta)")
+      if ($case.Strict -cne 'absent') { $arguments += "-StrictLint:`$$($case.Strict)" }
+      $result = Invoke-ValidationTaskEntrypointFixture -Directory (Join-Path $Directory 'entry') -Mode skills -Arguments $arguments -TaskRoot $sourceRoot -AggregateFunctions $functions
+      $records = @(Get-ChildItem -LiteralPath $logRoot -File | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
+      Assert-ValidationSelfCheck ($records.Count -eq 2 -and (@($records.Shard | Sort-Object) -join ',') -ceq 'core,workflow') "skills entry must run exactly two real snapshot children: $($result.Output)"
+      foreach ($record in $records) {
+        Assert-ValidationSelfCheck ($record.Meta -eq $case.Meta -and $record.StrictBound -eq ($case.Strict -cne 'absent') -and $record.Strict -eq ($case.Strict -ceq 'True')) 'skills entry lost actual child flags or binding state.'
+        Assert-ValidationSelfCheck ($record.Tracked -ceq 'dirty snapshot' -and $record.Untracked -ceq 'untracked snapshot' -and $record.Root -ine $sourceRoot) 'skills entry did not snapshot the resolved task checkout.'
+        Assert-ValidationSelfCheck (-not (Test-Path -LiteralPath $record.Root)) 'skills snapshot cleanup did not run.'
+      }
+      if ($case.Failure) {
+        $failedShard = $case.Failure.Split('/')[0]
+        Assert-ValidationSelfCheck ($result.ExitCode -ne 0 -and $result.Output -match "\[SELFTEST-ALL-FAIL\] shards=$failedShard " -and $result.Output -match 'selftest\(skills\): FAIL') "skills entry lost $($case.Failure)."
+      } else { Assert-ValidationSelfCheck ($result.ExitCode -eq 0 -and $result.Output -match 'selftest\(skills\): PASS') "skills entry failed: $($result.Output)" }
+    }
+    Get-ChildItem -LiteralPath $logRoot -File | Remove-Item -Force
+    Set-Content -LiteralPath $workflowPath -Value 'invalid task workflow'
+    $invalid = Invoke-ValidationTaskEntrypointFixture -Directory (Join-Path $Directory 'entry') -Mode skills -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master') -TaskRoot $sourceRoot -AggregateFunctions $functions
+    Assert-ValidationSelfCheck ($invalid.ExitCode -ne 0 -and @(Get-ChildItem -LiteralPath $logRoot -File).Count -eq 0) 'skills entry bypassed CI preflight on the resolved task checkout.'
+    Write-Host '[SELFTEST-SKILL-DISPATCH] exact snapshots, flags, failures and preflight PASS'
+  } finally { $env:SCAFFOLD_SKILL_ROUTE_LOG = $savedLog; $env:SCAFFOLD_SKILL_ROUTE_FAILURE = $savedFailure }
+}
+
 function Invoke-ValidationSelfCheck {
   Assert-ValidationSelfCheck -Condition ([bool](Get-Command Resolve-SelftestTaskRoute -CommandType Function -ErrorAction SilentlyContinue)) -Message 'Resolve-SelftestTaskRoute is missing.'
-  $frozen = @('android/core/src/main/sqldelight/')
+  $frozen = @('android/core/src/main/sqldelight/', '\.claude/skills/frozen/')
   $cases = @(
     @{ Name='product'; Paths=@('android/app/src/main/Main.kt', 'configs/compliance/rules.json'); Mode='not-applicable' }, @{ Name='docs'; Paths=@('docs/guide.md', 'specs/tasks/T0-X.md'); Mode='core' },
     @{ Name='frozen'; Paths=@('android/core/src/main/sqldelight/foo.sq'); Mode='all' }, @{ Name='critical'; Paths=@('scripts/task.ps1'); Mode='all' },
     @{ Name='unknown'; Paths=@('README.md'); Mode='all' }, @{ Name='mixed'; Paths=@('docs/guide.md', 'android/app/src/main/Main.kt'); Mode='all' },
     @{ Name='case-variant-product'; Paths=@('Android/app/Main.kt'); Mode='all' }, @{ Name='case-variant-docs'; Paths=@('Docs/guide.md'); Mode='all' }
+    @{ Name='skills'; Paths=@('.claude/skills/task-loop/SKILL.md', '.claude/skills/custom/fixture.ps1'); Mode='skills' },
+    @{ Name='frozen-skill'; Paths=@('.claude/skills/frozen/SKILL.md'); Mode='all' },
+    @{ Name='other-claude'; Paths=@('.claude/hooks/guard.ps1'); Mode='all' },
+    @{ Name='skill-lookalike'; Paths=@('.claude/skills-extra/SKILL.md'); Mode='all' },
+    @{ Name='skills-docs'; Paths=@('.claude/skills/a/SKILL.md', 'docs/guide.md'); Mode='all' },
+    @{ Name='skills-product'; Paths=@('.claude/skills/a/SKILL.md', 'android/app/Main.kt'); Mode='all' },
+    @{ Name='skills-critical'; Paths=@('.claude/skills/a/SKILL.md', 'docs/QUALITY-RUBRIC.md'); Mode='all' },
+    @{ Name='invalid-skill'; Paths=@('.claude/skills/../hooks/guard.ps1'); Mode='all' }
   )
   foreach ($case in $cases) { $actual = Resolve-SelftestRiskRoute -ChangedPath $case.Paths -FrozenPath $frozen; Assert-ValidationSelfCheck -Condition ($actual.Mode -ceq $case.Mode) -Message "pure case '$($case.Name)' expected $($case.Mode), got $($actual.Mode)." }
   foreach ($badConfig in @(
@@ -326,16 +417,42 @@ function Invoke-ValidationSelfCheck {
   Assert-ValidationSelfCheck -Condition $duplicateWorktreeRejected -Message 'duplicate card worktree scalar was accepted.'
   $root = Join-Path ([IO.Path]::GetTempPath()) "selftest-risk-routing-$PID-$([guid]::NewGuid().ToString('N'))"
   try {
-    New-Item -ItemType Directory -Path (Join-Path $root 'scripts'), (Join-Path $root 'specs/tasks'), (Join-Path $root 'docs') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $root 'scripts'), (Join-Path $root 'specs/tasks'), (Join-Path $root 'docs'), (Join-Path $root '.claude/skills/demo'), (Join-Path $root '.claude/hooks'), (Join-Path $root '.claude/skills/frozen') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '_cards.ps1') -Destination (Join-Path $root 'scripts/_cards.ps1') -Force
-    Set-Content -LiteralPath (Join-Path $root 'scripts/_config.ps1') -Encoding utf8 -Value "`$script:ScaffoldConfig = @{ FrozenPaths = @('android/frozen/') }"
+    Set-Content -LiteralPath (Join-Path $root 'scripts/_config.ps1') -Encoding utf8 -Value "`$script:ScaffoldConfig = @{ FrozenPaths = @('android/frozen/', '\.claude/skills/frozen/') }"
+    Set-Content -LiteralPath (Join-Path $root '.claude/skills/demo/SKILL.md') -Encoding utf8 -Value 'tracked skill'
     & git -C $root init -q; & git -C $root config user.name selftest; & git -C $root config user.email selftest@example.invalid; & git -C $root config core.autocrlf false
     $card = @('---', 'id: T0-ROUTE', 'status: todo', 'allow_paths:', '  - docs/', '---') -join "`n"
     Set-Content -LiteralPath (Join-Path $root 'specs/tasks/T0-ROUTE.md') -Encoding utf8 -Value $card; Set-Content -LiteralPath (Join-Path $root 'docs/base.md') -Encoding utf8 -Value base; Set-Content -LiteralPath (Join-Path $root 'docs/rename-from.md') -Encoding utf8 -Value rename
     & git -C $root add --all; & git -C $root commit -q -m base; & git -C $root branch -M master; & git -C $root switch -q -c T0-ROUTE
     $fixtureBase = (Assert-ValidationGit -RepoRoot $root -Arguments @('rev-parse', 'master^{commit}') -Code 'SELFTEST-ROUTE-SELFCHECK-BASE').Trim()
     $fixtureFrozen = @(Get-ValidationFrozenPaths -RepoRoot $root -BaseOid $fixtureBase)
-    Assert-ValidationSelfCheck -Condition ($fixtureFrozen.Count -eq 1 -and $fixtureFrozen[0] -ceq 'android/frozen/') -Message 'static baseline FrozenPaths was not read without execution.'
+    Assert-ValidationSelfCheck -Condition ($fixtureFrozen.Count -eq 2 -and $fixtureFrozen[0] -ceq 'android/frozen/' -and $fixtureFrozen[1] -ceq '\.claude/skills/frozen/') -Message 'static baseline FrozenPaths was not read without execution.'
+    foreach ($layer in @('committed', 'staged', 'dirty', 'untracked', 'within-rename', 'cross-rename', 'frozen', 'edited-config', 'mixed')) {
+      $skillPath = Join-Path $root '.claude/skills/demo/SKILL.md'
+      $expectedMode = if ($layer -in @('cross-rename', 'frozen', 'edited-config', 'mixed')) { 'all' } else { 'skills' }
+      switch ($layer) {
+        'untracked' { Set-Content (Join-Path $root '.claude/skills/demo/new.md') 'untracked skill' }
+        'within-rename' { & git -C $root mv .claude/skills/demo/SKILL.md .claude/skills/demo/RENAMED.md }
+        'cross-rename' { & git -C $root mv .claude/skills/demo/SKILL.md .claude/hooks/renamed.md }
+        'frozen' { Set-Content (Join-Path $root '.claude/skills/frozen/SKILL.md') 'frozen skill' }
+        default {
+          Set-Content -LiteralPath $skillPath -Value 'changed skill'
+          if ($layer -in @('committed', 'staged')) { & git -C $root add -- .claude/skills/demo/SKILL.md }
+          if ($layer -eq 'committed') { & git -C $root commit -q -m skill-change }
+          if ($layer -eq 'edited-config') { Set-Content (Join-Path $root 'scripts/_config.ps1') '$script:ScaffoldConfig = @{ FrozenPaths = @() }' }
+          if ($layer -eq 'mixed') { Set-Content (Join-Path $root 'docs/base.md') 'mixed docs' }
+        }
+      }
+      $skillRoute = Resolve-SelftestTaskRoute -RepoRoot $root -TaskId T0-ROUTE -Base master
+      Assert-ValidationSelfCheck ($skillRoute.Mode -ceq $expectedMode -and $skillRoute.BaseOid -ceq $fixtureBase) "skill $layer expected pinned $expectedMode route."
+      if ($layer -like '*-rename') {
+        $renamedTo = if ($layer -eq 'within-rename') { '.claude/skills/demo/RENAMED.md' } else { '.claude/hooks/renamed.md' }
+        Assert-ValidationSelfCheck ($skillRoute.Paths -ccontains '.claude/skills/demo/SKILL.md' -and $skillRoute.Paths -ccontains $renamedTo) "skill $layer lost a rename endpoint."
+      }
+      & git -C $root reset --hard -q $fixtureBase
+      foreach ($extra in @('.claude/skills/demo/new.md', '.claude/skills/frozen/SKILL.md')) { Remove-Item -LiteralPath (Join-Path $root $extra) -Force -ErrorAction SilentlyContinue }
+    }
     Set-Content -LiteralPath (Join-Path $root 'docs/committed.md') -Encoding utf8 -Value committed; & git -C $root add docs/committed.md; & git -C $root commit -q -m committed
     $committedPaths = Get-ValidationChangedPaths -WorktreePath $root -BaseOid $fixtureBase
     Assert-ValidationSelfCheck -Condition ((Resolve-SelftestRiskRoute -ChangedPath $committedPaths -FrozenPath $fixtureFrozen).Mode -ceq 'core') -Message 'committed docs did not route core.'
@@ -395,6 +512,7 @@ function Invoke-ValidationSelfCheck {
     Assert-ValidationSelfCheck -Condition ($conflictEntry.ExitCode -ne 0 -and $conflictEntry.Output -match '\[SELFTEST-TASKID-CONFLICT\]') -Message 'task entrypoint accepted an explicit shard conflict.'
     $failureEntry = Invoke-ValidationTaskEntrypointFixture -Directory $entryRoot -Mode failure -Arguments @('-TaskId', 'T0-ROUTE', '-Base', 'master')
     Assert-ValidationSelfCheck -Condition ($failureEntry.ExitCode -ne 0 -and $failureEntry.Output -match '\[ENTRYPOINT-PROOF-FAILURE\]') -Message 'task entrypoint did not propagate routing failure.'
+    Invoke-ValidationSkillDispatchFixture -Directory (Join-Path $root 'skill-dispatch')
     foreach ($invalid in @('t0-route', 'T0-MISSING')) {
       $rejected = $false; try { [void](Resolve-SelftestTaskRoute -RepoRoot $root -TaskId $invalid -Base master) } catch { $rejected = $true }
       Assert-ValidationSelfCheck -Condition $rejected -Message "invalid or missing task authority '$invalid' was accepted."

@@ -1202,6 +1202,7 @@ function Invoke-SelftestAll {
     [bool]$StrictLintValue = $false,
     [bool]$IncludeMeta = $false,
     [ValidateRange(0, 300)][int]$CoreDelaySeconds = 75,
+    [switch]$SkillsOnly,
     [switch]$Quiet
   )
   $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
@@ -1211,7 +1212,8 @@ function Invoke-SelftestAll {
     & $gitExe.Source -C $SourceRoot rev-parse --verify HEAD *> $null
     $repoIsGit = ($LASTEXITCODE -eq 0)
   }
-  if (-not $repoIsGit) { throw 'selftest(all) 需要带 HEAD 的 Git 工作树；非 Git 目录请显式运行 -Shard core/workflow/seeded。' }
+  $aggregateMode = if ($SkillsOnly) { 'skills' } else { 'all' }
+  if (-not $repoIsGit) { throw "selftest($aggregateMode) 需要带 HEAD 的 Git 工作树；非 Git 目录请显式运行 -Shard core/workflow/seeded。" }
   $aggregateRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-all-$PID-$([guid]::NewGuid().ToString('N'))"
   $children = @()
   $aggregateExit = 1
@@ -1219,12 +1221,13 @@ function Invoke-SelftestAll {
     New-Item -ItemType Directory -Force $aggregateRoot -ErrorAction Stop | Out-Null
     # 两个长分片先占用 CPU/磁盘；短 core 在热路径过后低优先级加入。Windows 上三者同时冷启动会把
     # 两个关键路径从约 250s 拖到约 390s。此处仍是本地 all 的三分片；CI 另将 seeded 拆为三个独立 runner。
-    foreach ($name in @('seeded', 'workflow')) {
+    $leadingShards = if ($SkillsOnly) { @('workflow') } else { @('seeded', 'workflow') }
+    foreach ($name in $leadingShards) {
       $snapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot $name) -Name $name -GitExe $gitExe
       $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -IncludeMeta $IncludeMeta -Quiet:$Quiet
     }
     $coreSnapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot 'core') -Name 'core' -GitExe $gitExe
-    if ($CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
+    if (-not $SkillsOnly -and $CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
     $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $coreSnapshot -Name 'core' -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -IncludeMeta $IncludeMeta -PriorityClass BelowNormal -Quiet:$Quiet
     $results = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
     $exitCodes = @($results | ForEach-Object { $_.ExitCode })
@@ -1234,10 +1237,10 @@ function Invoke-SelftestAll {
       if ($aggregateExit -ne 0) {
         $failureSummary = Get-SelftestAggregateFailureSummary -Results $results
         Write-Host $failureSummary.Line -ForegroundColor Red
-        Write-Host "selftest(all): FAIL (exit codes: $($exitCodes -join ', '))" -ForegroundColor Red
+        Write-Host "selftest($aggregateMode): FAIL (exit codes: $($exitCodes -join ', '))" -ForegroundColor Red
         Write-Host 'selftest: FAIL' -ForegroundColor Red
       } else {
-        Write-Host 'selftest(all): PASS' -ForegroundColor Green
+        Write-Host "selftest($aggregateMode): PASS" -ForegroundColor Green
         Write-Host 'selftest: PASS' -ForegroundColor Green
       }
     }
@@ -2286,6 +2289,7 @@ if ($Fixture -eq 'gate-id-mutant') {
 # An explicit task run selects only existing scaffold coverage. The authority is
 # the pinned local base card/config, not the task worktree's editable copies.
 # No TaskId keeps the original full-suite entry point unchanged.
+$skillsOnly = $false
 if ($TaskId) {
   if ($Fixture -or $GateIdMutation -or $NoGitFixtureCase -or $NoGitFixtureNonce -or $NoGitMutationNonce -or $PSBoundParameters.ContainsKey('Shard')) {
     throw '[SELFTEST-TASKID-CONFLICT] -TaskId cannot be combined with an explicit shard, fixture, or mutation mode.'
@@ -2298,6 +2302,7 @@ if ($TaskId) {
     exit 0
   }
   if ($taskRoute.Mode -eq 'core') { $Shard = 'core' }
+  $skillsOnly = $taskRoute.Mode -eq 'skills'
 }
 elseif ($PSBoundParameters.ContainsKey('Base')) {
   throw '[SELFTEST-BASE-WITHOUT-TASK] -Base only applies with -TaskId.'
@@ -2305,13 +2310,18 @@ elseif ($PSBoundParameters.ContainsKey('Base')) {
 
 # Every explicit shard, including a TaskId-selected core shard, proves the CI
 # wiring before execution so route selection cannot bypass that existing guard.
-if ($Shard -ne 'all') {
-  $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+if ($Shard -ne 'all' -or $skillsOnly) {
+  $preflightRoot = if ($skillsOnly) { $taskRoute.WorktreePath } else { $RepoRoot }
+  $preflightWorkflow = Get-Content (Join-Path $preflightRoot '.github/workflows/scaffold-selftest.yml') -Raw
   $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
   if (-not (Test-SelftestCiWiringContract $preflightWorkflow)) { throw 'selftest CI 分片接线契约不完整。' }
   if (Test-SelftestCiWiringContract $withoutCoreMutation) { throw 'selftest CI 接线契约未检出“删除全部 core 组合”变异。' }
 }
 
+if ($skillsOnly) {
+  $skillsExit = Invoke-SelftestAll -SourceRoot $taskRoute.WorktreePath -SkillsOnly -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent -IncludeMeta $IncludeMeta.IsPresent
+  exit $skillsExit
+}
 if ($Shard -eq 'all') {
   $aggregateExit = Invoke-SelftestAll -SourceRoot $RepoRoot -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent -IncludeMeta $IncludeMeta.IsPresent
   exit $aggregateExit
