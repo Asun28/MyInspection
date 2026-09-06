@@ -1,6 +1,8 @@
 package nz.myinspection.core.report.importing.docx.extract
 
 import kotlin.test.*
+import nz.myinspection.core.report.importing.docx.`package`.DocxPackageException
+import nz.myinspection.core.report.importing.docx.`package`.DocxPackageReason
 
 class DocxReportExtractorTest {
     private val fixture = DocxExtractorFixture
@@ -169,7 +171,7 @@ class DocxReportExtractorTest {
         assertEquals(32, result.images.single().height)
         val huge = fixture.image(32, 1)
         huge[16] = 127
-        parts["word/media/huge.png"] = huge
+        parts["word/media/huge.png"] = fixture.repairPngCrc(huge)
         val error = assertFailsWith<IllegalArgumentException> { extract(parts) }
         assertEquals("DOCX_IMAGE_PIXELS", error.message)
     }
@@ -293,35 +295,53 @@ class DocxReportExtractorTest {
             assertEquals("DOCX_FIELD_STRUCTURE", assertFailsWith<IllegalArgumentException> { extract(fixture.parts(body)) }.message)
         }
     }
+    private fun assertImageReview(bytes: ByteArray, format: String, forged: Boolean = false) {
+        val attempt = runCatching { DocxReportExtractor().extract(if (forged) fixture.forgedImage(bytes, format)
+            else fixture.read(fixture.parts().apply { this["word/media/bad.$format"] = bytes })) }
+        assertTrue(attempt.isSuccess, "Invalid image header must remain reviewable")
+        val result = attempt.getOrThrow()
+        assertEquals(1, result.images.size)
+        assertNull(result.images.single().width)
+        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.IMAGE_REVIEW_REQUIRED })
+        assertFalse(result.warnings.any { it.code == ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED })
+    }
+    @Test fun forgedSignaturesAreRejectedByReaderAndRetainedByExtractor() {
+        for (format in listOf("png", "jpg")) {
+            val valid = fixture.image(1, 1, format)
+            for (bytes in listOf(valid.copyOf().apply { this[0] = 0 }, valid.copyOfRange(if (format == "png") 8 else 2, valid.size))) {
+                val error = assertFailsWith<DocxPackageException> { fixture.read(fixture.parts().apply { this["word/media/bad.$format"] = bytes }) }
+                assertEquals(DocxPackageReason.UNSUPPORTED_CONTENT, error.reason)
+                assertImageReview(bytes, format, forged = true)
+            }
+        }
+    }
+    @Test fun validCrcCannotMakeInvalidPngHeaderFieldsIntoLayoutShims() {
+        for ((offset, value) in listOf(24 to 1, 25 to 1, 26 to 1, 27 to 1, 28 to 2, 16 to 128)) {
+            assertImageReview(fixture.repairPngCrc(fixture.image(1, 1).apply { this[offset] = value.toByte() }), "png")
+        }
+    }
+    @Test fun malformedJpegFramesCannotBecomeLayoutShims() {
+        val valid = fixture.image(1, 1, "jpg")
+        val sof = (0 until valid.size - 1).first { valid[it] == 255.toByte() && valid[it + 1] == 192.toByte() }
+        val app = (0 until valid.size - 1).first { valid[it] == 255.toByte() && valid[it + 1] == 224.toByte() }
+        for (marker in listOf(0, 2, 220, 240)) assertImageReview(valid.copyOf().apply { this[app + 1] = marker.toByte() }, "jpg")
+        for ((offset, value) in listOf(1 to 195, 3 to 8, 4 to 12, 9 to 0, 9 to 2, 11 to 0, 11 to 16, 11 to 81, 12 to 4, 13 to 1)) {
+            assertImageReview(valid.copyOf().apply { this[sof + offset] = value.toByte() }, "jpg")
+        }
+        assertTrue(DocxReportExtractor().extract(fixture.forgedImage(valid, "jpg")).images.isEmpty())
+    }
 }
-/*
- * R4 receipt (2026-09-06): Kotlin 2.4.10 / JDK 17; actual TestNG 7.0.0 suite.
- * Copy-only compilation; production sources and original test bytes stayed frozen.
- * Original/restored SHA-256, each mutation delta, compiler log and assertion XML:
- * .review/r4-final/<named-case>/receipt.json; aggregate: r4-final/summary.json.
- * Extractor: D9AA08201EEA85A0F4BD0B5695C0A2C18A2A1C4D8B3C69EDCA115A5FDAC98236
- * Manifest: 1DB69984A9312B834E73ECCDB422B7E2153EDE6E41DD318D22708A7AB51B4E6F
- * Fixture: CA947A81DDC42174FC167F503B6FE64E1A8711C7D032AF821EFE049C6A5DAEAB
- * Test before this receipt: 00AB84267085C52BA2466FD94D405A50A1707DC1DDA4E401147337C9C3CC4F15
- * Control: 29 passed. All 51 seeded faults caused AssertionError in the full
- * 29-test suite; compilation/runtime failures were not counted as kills.
- * 25 individual delete-story-* cases: document, header1 through header12,
- * footer1 through footer12. Each deletes precisely that story visit.
- * Eight delete-* ambiguity cases: column-ambiguity, narrative-ambiguity,
- * caption-ambiguity, unknown-table-ambiguity, paragraph-ambiguity,
- * multivalue-row-ambiguity, missing-image-blocker, image-review-blocker.
- * Fifteen delete-* guards: shim-exclusion, png-crc-guard, pixel-guard, url-scrub,
- * metadata-field-exclusion, sensitivity-exclusion, inline-visits, anchored-visits,
- * tracked-content-guard, unsupported-text-guard, field-cache-phase-guard,
- * field-phase-transition-guards (both repeated-phase checks), field-close-guard,
- * raw-digest-binding, image-digest-binding.
- * DEVOPS-WORKFLOW section 4: physical candidate-method deletion, recompile and
- * run the whole remaining 28-test suite; all three targeted faults then survived:
- * candidate-story-completeness / everyStoryIsVisitedIncludingUnreferencedHeadersAndFooters;
- * candidate-unknown-field / unknownFieldResultsRemainUnresolved;
- * candidate-signoff-narrative / unmarkedSignoffStaysInsideBlockedNarrativeCandidates.
- * All three tests retained. Every copied source/test restored to its original SHA.
- * Earlier .review/r4 exploration exposed two table-warning survivors; the final
- * batch above uses source-specific assertions and a multi-name-cell fixture.
- * Only this comment was appended after R4; executable test bytes are unchanged.
+/* R4 epoch 1: .review/r4-final/summary.json, source Extractor SHA-256
+ * D9AA08201EEA85A0F4BD0B5695C0A2C18A2A1C4D8B3C69EDCA115A5FDAC98236.
+ * 29-test control passed; 25 story + 8 ambiguity + 15 guards + 3 candidate faults
+ * killed. Removing each candidate left 28 passing tests: all three retained.
+ * Per-case delta, assertion XML and original/restored source/test SHA are in
+ * .review/r4-final/<case>/receipt.json. This predates the R3 image-header fix.
+ */
+/* R4 epoch 2: .review/r4-image/summary.json; 32-test control passed and all
+ * 18 faults killed: 6 PNG guards, 9 JPEG guards, tiny exclusion, CRC and pixels.
+ * Every copied file restored to its recorded SHA; extractor SHA-256:
+ * AA98774A4E914AD9331E111BEDE4D1365569F00A67E58311E946ACA2BC99E15A.
+ * Each .review/r4-image/<case>/receipt.json binds the delta, assertion XML,
+ * source/test SHA and restoration. Only this comment followed the verified run.
  */

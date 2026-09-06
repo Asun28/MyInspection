@@ -8,6 +8,9 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.imageio.ImageIO
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackageReader
+import nz.myinspection.core.report.importing.docx.`package`.DocxPackage
+import nz.myinspection.core.report.importing.docx.`package`.DocxPart
+import nz.myinspection.core.report.importing.docx.`package`.DocxPartKind
 
 /** Original text and generated pixels; only the fragmented package shape mirrors the audit. */
 internal object DocxExtractorFixture {
@@ -32,6 +35,12 @@ internal object DocxExtractorFixture {
         for (y in 0 until size) for (x in 0 until size) bitmap.setRGB(x, y, (seed * 10007 + x * 503 + y * 59) and 0xffffff)
         return ByteArrayOutputStream().also { check(ImageIO.write(bitmap, format, it)) }.toByteArray()
     }
+    fun repairPngCrc(bytes: ByteArray): ByteArray = bytes.apply {
+        val crc = CRC32().apply { update(bytes, 12, 17) }.value
+        for (i in 0..3) this[29 + i] = (crc ushr (24 - i * 8)).toByte()
+    }
+    fun forgedImage(bytes: ByteArray, format: String) = DocxPackage(read(parts()).parts +
+        DocxPart("word/media/forged.$format", DocxPartKind.IMAGE, bytes))
     fun parts(body: String = p("Unknown original observation")): LinkedHashMap<String, ByteArray> = linkedMapOf(
         "[Content_Types].xml" to ("<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>" +
             "<Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/>" +
