@@ -1,20 +1,13 @@
 package nz.myinspection.core.report.importing.docx.extract
 
-import java.io.ByteArrayInputStream
 import java.util.Locale
 import java.security.MessageDigest
-import javax.xml.parsers.SAXParserFactory
 import nz.myinspection.core.report.importing.docx.image.DocxImageQualifier
 import nz.myinspection.core.report.importing.docx.image.DocxImageDisposition
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackage
 import nz.myinspection.core.report.importing.docx.`package`.DocxPart
 import nz.myinspection.core.report.importing.docx.`package`.DocxPartKind
-import org.xml.sax.Attributes
-import org.xml.sax.InputSource
-import org.xml.sax.SAXParseException
-import org.xml.sax.ext.DefaultHandler2
 
-private const val W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 private const val R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 private const val WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 private const val A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -22,14 +15,7 @@ private val RUN_TOKENS = mapOf("tab" to "\t", "br" to "\n", "cr" to "\n",
     "noBreakHyphen" to "\u2011", "softHyphen" to "\u00ad")
 private class FieldFrame(val instruction: StringBuilder = StringBuilder(), var excluded: Boolean = false, var separated: Boolean = false)
 private class ParagraphFrame(val element: Element, val source: SourceLocation, val text: StringBuilder = StringBuilder())
-private class Element(val uri: String, val name: String, val attrs: Map<String, String>, val parent: Element?) {
-    val children = ArrayList<Element>()
-    val value = StringBuilder()
-    fun isWord(local: String) = uri == W && name == local
-    fun descendants(): Sequence<Element> = sequence { yield(this@Element); children.forEach { yieldAll(it.descendants()) } }
-    fun ancestor(local: String): Element? = generateSequence(parent) { it.parent }.firstOrNull { it.isWord(local) }
-    fun attr(local: String) = attrs["$W|$local"] ?: attrs["|$local"]
-}
+private class IdentityLabel(val element: Element, val text: ExtractedText)
 
 class DocxReportExtractor {
     fun extract(source: DocxPackage): DocxExtractionManifest = Extraction().read(source)
@@ -48,7 +34,7 @@ class DocxReportExtractor {
         var room: String? = null
         var column = FragmentRole.UNKNOWN
         var narrative = false
-        var pendingIdentity: String? = null
+        var pendingIdentity: IdentityLabel? = null
         val occurrences = HashMap<Int, Int>()
         fun nextOccurrence(ordinal: Int): Int = (occurrences[ordinal] ?: 0).also { occurrences[ordinal] = it + 1 }
         val roomPattern = Regex("(?i)(Exterior|Hallway|Bathroom|Bedroom(?:\\s+[0-9]+(?:\\s.*)?)?|Lounge|Kitchen|General)")
@@ -116,6 +102,7 @@ class DocxReportExtractor {
                 val token = if (node.uri != W) null else if (node.name == "t") node.value.toString() else RUN_TOKENS[node.name]
                 require(node.parent?.isWord("r") != true || token != null || (node.uri == W && node.name in
                     setOf("rPr", "instrText", "fldChar", "drawing", "lastRenderedPageBreak", "pgNum"))) { "DOCX_UNSUPPORTED_TEXT" }
+                if (node.isWord("drawing")) require(node.children.isNotEmpty() && node.children.all { it.uri == WP && it.name in setOf("inline", "anchor") }) { "DOCX_DRAWING_STRUCTURE" }
                 if (node.isWord("pgNum")) {
                     warn(ExtractionWarningCode.PAGINATION_EXCLUDED, position)
                     return
@@ -176,7 +163,7 @@ class DocxReportExtractor {
             val rows = HashSet<Element>()
             records.forEach { (node, text) ->
                 val row = node.ancestor("tr")
-                val role = if (row == null) paragraph(text) else if (row in headerRows) FragmentRole.LABEL else FragmentRole.UNKNOWN
+                val role = if (row == null) paragraph(node, text) else if (row in headerRows) FragmentRole.LABEL else FragmentRole.UNKNOWN
                 fragments.add(ExtractedFragment(role, text))
                 if (row == null || row in headerRows || !rows.add(row)) return@forEach
                 val cells = row.children.filter { it.isWord("tc") }
@@ -194,11 +181,12 @@ class DocxReportExtractor {
                     items.add(ExtractedItem(itemRoom, names.single(), cell(1).singleOrNull(), cell(2).singleOrNull()))
                 } else warn(ExtractionWarningCode.UNRESOLVED_TEXT, names.firstOrNull()?.source)
             }
+            pendingIdentity?.let { warn(ExtractionWarningCode.UNRESOLVED_TEXT, it.text.source) }
             val relations = relationships(part)
             root.descendants().filter { it.uri == WP && it.name in setOf("inline", "anchor") }.forEach { drawing ->
                 val position = positions[drawing.ancestor("p")] ?: SourceLocation(part.name, ordinal)
-                drawing.descendants().filter { it.uri == A && it.name == "blip" }.forEach { blip ->
-                    val target = relations[blip.attrs["$R|embed"]]
+                drawing.descendants().filter { it.uri == A && it.name == "blip" }.toList().ifEmpty { listOf(null) }.forEach { blip ->
+                    val target = blip?.attrs?.get("$R|embed")?.let { relations[it] }
                     if (target in shims) return@forEach
                     val location = position.copy(occurrence = nextOccurrence(position.ordinal))
                     val imagePart = target?.takeIf { parts[it]?.kind == DocxPartKind.IMAGE }
@@ -207,16 +195,22 @@ class DocxReportExtractor {
                 }
             }
         }
-        fun paragraph(text: ExtractedText): FragmentRole {
+        fun paragraph(node: Element, text: ExtractedText): FragmentRole {
             val value = text.normalized
-            if (pendingIdentity != null) {
-                identity.add(IdentityCandidate(pendingIdentity!!, text)); pendingIdentity = null; return FragmentRole.IDENTITY
+            pendingIdentity?.let { label ->
+                pendingIdentity = null
+                val siblings = node.parent?.children.orEmpty()
+                if (node.parent === label.element.parent && siblings.indexOf(node) == siblings.indexOf(label.element) + 1 && !identityBoundary(value)) {
+                    identity.add(IdentityCandidate(label.text.normalized.uppercase(Locale.ROOT), text))
+                    return FragmentRole.IDENTITY
+                }
+                warn(ExtractionWarningCode.UNRESOLVED_TEXT, label.text.source)
             }
             if (value.equals("Images", true)) { narrative = false; column = FragmentRole.UNKNOWN; return FragmentRole.LABEL }
             if (Regex("(?i)comments\\s*.?\\s*summary").matches(value)) { narrative = true; return FragmentRole.LABEL }
             if (narrative) { summary.add(text); warn(ExtractionWarningCode.UNRESOLVED_NARRATIVE, text.source); return FragmentRole.NARRATIVE }
             if (value.uppercase(Locale.ROOT) in setOf("PROPERTY ADDRESS", "INSPECTION DATE")) {
-                pendingIdentity = value.uppercase(Locale.ROOT); return FragmentRole.LABEL
+                pendingIdentity = IdentityLabel(node, text); return FragmentRole.LABEL
             }
             if (Regex("(?i)(Routine )?Inspection(?: Report|\\s*\\(.*\\))?").matches(value)) {
                 identity.add(IdentityCandidate("TITLE", text)); return FragmentRole.IDENTITY
@@ -242,6 +236,10 @@ class DocxReportExtractor {
             warn(ExtractionWarningCode.UNRESOLVED_TEXT, text.source)
             return if (column == FragmentRole.COMMENT) FragmentRole.COMMENT else FragmentRole.UNKNOWN
         }
+        fun identityBoundary(value: String): Boolean = value.uppercase(Locale.ROOT) in
+            setOf("PROPERTY ADDRESS", "INSPECTION DATE", "IMAGES", "FEATURE", "STATUS") ||
+            value.endsWith("Comments", true) || roomPattern.matches(value) ||
+            Regex("(?i)comments\\s*.?\\s*summary|(?:Routine )?Inspection(?: Report|\\s*\\(.*\\))?").matches(value)
         fun fieldWarning(instruction: String): ExtractionWarningCode {
             val words = instruction.trim().uppercase(Locale.ROOT).split(Regex("\\s+"))
             return when (if (words.first() == "INFO") words.getOrNull(1) else words.first()) {
@@ -252,34 +250,4 @@ class DocxReportExtractor {
             }
         }
     }
-}
-
-private fun parse(part: DocxPart): Element {
-    var root: Element? = null
-    var current: Element? = null
-    val handler = object : DefaultHandler2() {
-        override fun startElement(uri: String, local: String, qName: String, attrs: Attributes) {
-            val node = Element(uri, local, (0 until attrs.length).associate { "${attrs.getURI(it)}|${attrs.getLocalName(it)}" to attrs.getValue(it) }, current)
-            current?.children?.add(node)
-            if (root == null) root = node
-            current = node
-        }
-        override fun endElement(uri: String?, local: String?, qName: String?) { current = current?.parent }
-        override fun characters(chars: CharArray, start: Int, length: Int) { current?.value?.append(chars, start, length) }
-        override fun startDTD(name: String?, publicId: String?, systemId: String?) { throw IllegalArgumentException("DOCX_XML") }
-        override fun resolveEntity(publicId: String?, systemId: String?): InputSource = throw IllegalArgumentException("DOCX_XML")
-        override fun error(e: SAXParseException?): Unit = throw IllegalArgumentException("DOCX_XML")
-        override fun fatalError(e: SAXParseException?): Unit = throw IllegalArgumentException("DOCX_XML")
-    }
-    try {
-        val reader = SAXParserFactory.newInstance().apply { isNamespaceAware = true; isValidating = false }.newSAXParser().xmlReader
-        reader.setFeature("http://xml.org/sax/features/external-general-entities", false)
-        reader.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-        reader.setProperty("http://xml.org/sax/properties/lexical-handler", handler)
-        reader.contentHandler = handler
-        reader.entityResolver = handler
-        reader.errorHandler = handler
-        reader.parse(InputSource(ByteArrayInputStream(part.copyBytes())))
-        return requireNotNull(root)
-    } catch (_: Exception) { throw IllegalArgumentException("DOCX_XML") }
 }

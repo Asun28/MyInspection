@@ -5,6 +5,10 @@ import java.security.MessageDigest
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackageException
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackageReason
 
+import nz.myinspection.core.report.importing.docx.`package`.DocxPackage
+import nz.myinspection.core.report.importing.docx.`package`.DocxPart
+import nz.myinspection.core.report.importing.docx.`package`.DocxPartKind
+
 class DocxReportExtractorTest {
     private val fixture = DocxExtractorFixture
     private fun extract(parts: Map<String, ByteArray>) = DocxReportExtractor().extract(fixture.read(parts))
@@ -371,5 +375,87 @@ class DocxReportExtractorTest {
         assertEquals(listOf(ExtractionWarning(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, SourceLocation("word/media/bad.png", 0))),
             result.warnings.filter { it.code in setOf(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, ExtractionWarningCode.IMAGE_REVIEW_REQUIRED) })
     }
+    @Test fun unsupportedDrawingsRejectInsteadOfDisappearing() {
+        val extra = "<a:graphic><a:graphicData><a:blip r:embed='absent'/></a:graphicData></a:graphic>"
+        for (content in listOf("", "<a:graphic><a:graphicData/></a:graphic>") +
+                listOf("inline", "anchor").flatMap { listOf("<wp:$it/>$extra", "$extra<wp:$it/>") }) {
+            assertEquals("DOCX_DRAWING_STRUCTURE", assertFailsWith<IllegalArgumentException> {
+                extract(fixture.parts("<w:p><w:r><w:drawing>$content</w:drawing></w:r></w:p>"))
+            }.message)
+        }
+    }
+    @Test fun emptyDrawingFramesRemainUnresolvedPlacements() {
+        for ((frame, kind) in listOf("inline" to DrawingKind.INLINE, "anchor" to DrawingKind.ANCHORED)) {
+            val result = extract(fixture.parts("<w:p><w:r><w:drawing><wp:$frame/></w:drawing></w:r></w:p>"))
+            assertEquals(listOf(DrawingPlacement(SourceLocation("word/document.xml", 0), kind, null)), result.placements)
+            assertTrue(result.warnings.any { it.code == ExtractionWarningCode.MISSING_IMAGE && it.source == result.placements.single().source })
+        }
+    }
+    private fun unresolvedIdentity(result: DocxExtractionManifest) {
+        assertTrue(result.warnings.any { it.code == ExtractionWarningCode.UNRESOLVED_TEXT && it.source == SourceLocation("word/document.xml", 0) })
+    }
+    @Test fun identityCannotCrossStructuralOrExcludedValueBoundaries() {
+        for (between in listOf("<w:tbl/>", "<w:tbl>${fixture.row("Latch", "fair", "Note")}</w:tbl>",
+                "<w:p/>", fixture.p("https://synthetic.invalid/value"), fixture.p("Feature"), fixture.p("Kitchen"),
+                "<w:fldSimple w:instr='AUTHOR'>${fixture.p("Excluded author")}</w:fldSimple>")) {
+            val result = extract(fixture.parts(fixture.p("PROPERTY ADDRESS") + between + fixture.p("Unrelated observation")))
+            assertTrue(result.identity.isEmpty())
+            assertTrue(result.fragments.any { it.text.raw == "Unrelated observation" })
+            unresolvedIdentity(result)
+        }
+    }
+    @Test fun repeatedIdentityLabelsExpireBeforeAnAdjacentValue() {
+        for ((field, value) in listOf("PROPERTY ADDRESS" to "42 Synthetic Lane", "INSPECTION DATE" to "2026-09-06")) {
+            val result = extract(fixture.parts(fixture.p("PROPERTY ADDRESS") + fixture.p(field) + fixture.p(value)))
+            assertEquals(listOf(field to value), result.identity.map { it.field to it.text.raw })
+            unresolvedIdentity(result)
+        }
+    }
+    @Test fun identityLabelAtStoryEndRemainsExplicitlyUnresolved() {
+        val result = extract(fixture.parts(fixture.p("PROPERTY ADDRESS")))
+        assertTrue(result.identity.isEmpty())
+        unresolvedIdentity(result)
+    }
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    @Test fun hostileXmlIsRejectedBeforeExternalAccess() {
+        val target = java.io.File("docx-entity-probe.txt").absoluteFile
+        val targets = listOf(target.toURI().toASCIIString(), "http://xml-probe.invalid/entity")
+        val body = fixture.story("document", "<w:body>${fixture.p("Synthetic XML control")}</w:body>")
+        fun extractXml(xml: String) = DocxReportExtractor().extract(DocxPackage(listOf(
+            DocxPart("word/document.xml", DocxPartKind.DOCUMENT, xml.toByteArray()))))
+        val hostile = listOf("<!DOCTYPE w:document>" + body,
+            "<!DOCTYPE w:document [<!ENTITY a 'xxxx'><!ENTITY b '&a;&a;&a;&a;'>]>" +
+                body.replace("Synthetic XML control", "&b;")) + targets.flatMap { systemId -> listOf(
+            "<!DOCTYPE w:document [<!ENTITY external SYSTEM '$systemId'>]>" +
+                body.replace("Synthetic XML control", "&external;"),
+            "<!DOCTYPE w:document [<!ENTITY % external SYSTEM '$systemId'>%external;]>" + body,
+            "<!DOCTYPE w:document SYSTEM '$systemId'>" + body)
+        }
+        val previous = System.getSecurityManager()
+        var forbiddenCalls = 0
+        val guard = object : SecurityManager() {
+            override fun checkPermission(permission: java.security.Permission?) = Unit
+            private fun reject(): Nothing { forbiddenCalls++; throw SecurityException("Forbidden XML I/O") }
+            override fun checkRead(file: String?) {
+                if (file != null && java.io.File(file).absoluteFile == target) reject()
+            }
+            override fun checkConnect(host: String?, port: Int) = reject()
+        }
+        try {
+            System.setSecurityManager(guard)
+            assertFailsWith<SecurityException> { target.inputStream().close() }
+            assertFailsWith<SecurityException> { java.net.URL(targets.last()).openStream().close() }
+            assertTrue(forbiddenCalls >= 2)
+            forbiddenCalls = 0
+            assertEquals(listOf("Synthetic XML control"), extractXml(body).fragments.map { it.text.raw })
+            for (xml in hostile) {
+                assertEquals("DOCX_XML", assertFailsWith<IllegalArgumentException> { extractXml(xml) }.message)
+                assertEquals(0, forbiddenCalls, "XML must reject before external access")
+            }
+        } finally { System.setSecurityManager(previous) }
+    }
+
+
 }
 // R4: .review/r4-run-content/summary.json
