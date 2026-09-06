@@ -3,7 +3,7 @@ id: T3-DOCX-XML-TREE
 title: Secure in-memory XML tree for validated DOCX parts
 depends_on: [T3-DOCX-PACKAGE-READER]
 parallelizable_with: [T3-DOCX-EXTRACTION-MANIFEST]
-status: in-progress
+status: merged
 branch: T3-DOCX-XML-TREE
 worktree: C:\wt\T3-DOCX-XML-TREE
 allow_paths:
@@ -33,3 +33,7 @@ doc_sync: ADR-0007 + TASK-BOARD
 ## Approved predecessor (2026-09-06)
 
 The user approved moving the existing parser/tree helper from T3-DOCX-REPORT-EXTRACTOR, changing private visibility to internal only where needed. The direct tests use synthetic DocxPart values and have no extractor, Manifest or fixture dependency. Production callers receive parts from DocxPackageReader, whose byte/depth/node/text bounds remain the upstream resource boundary; this helper does not claim an independent input-size sandbox. The malicious-input tests intentionally construct parts internally to verify the parser defense. The original malicious-XML extractor integration test remains in the parent card. No actual external network or target-file access is authorized.
+
+## Delivery evidence
+
+2026-09-06: local master `0c801597`, implementation `32c03d2874f4c17ec00f8ef4ce26287a89eb39fa`; exact DoD 6 tests passed, 18 source mutations failed by assertion, and 6 physical candidate-test deletions were evaluated with source restoration hashes. Official RED, DoD, verify, scope, license, secrets, size and R3 pass completed. The existing parser/tree declarations are now internal in their original package. Direct tests cover namespace, attributes, text, ordering and parent helpers, malformed XML and eight DTD/entity cases, with a calibrated test-only I/O guard. Reader resource limits remain the upstream input boundary. No new technical debt was identified within this boundary; report extraction and original-package compatibility remain in the parent card.
