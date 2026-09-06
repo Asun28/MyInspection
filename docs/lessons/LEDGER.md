@@ -2213,3 +2213,19 @@
 - rule: 当解析结论会丢弃源证据时，将候选元信息与完整负载验证资格分开。仅对明确支持且完整验证的子集授权排除；未知、截断或损坏输入保留待审。用完整图头无负载、重算 CRC 后的坏压缩流、伪造尾标记等真实输入证明边界，并检查失败样例确实到达目标守卫。
 - enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
 - refs: specs/archive/tasks/T3-DOCX-IMAGE-QUALIFICATION.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
+
+## L302
+- date: 2026-09-06 ｜ tags: android,regex,determinism ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX evidence normalization used the default whitespace regex; the same interior nonbreaking space is retained by the JDK default but folded by Android Unicode character classes, affecting the digest.
+- root_cause: A JVM test shape was treated as proof of Android regex defaults. Existing vectors used only ASCII whitespace.
+- rule: For Android core logic, check platform regex defaults as well as API availability. When preserving an existing ASCII contract, name its exact characters and verify that set using the actual matcher over all Unicode scalars; add interior non-ASCII counterexamples. Label SDK-source inference separately from ART execution.
+- enforced_by: 
+- refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190; L217
+
+## L303
+- date: 2026-09-06 ｜ tags: gradle,classpath,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A standalone DOCX mutation runner initially selected TestNG 7.5.1 from a cached POM while the worktree Gradle test runtime actually resolved TestNG 7.0.0.
+- root_cause: The runner selected a cached artifact without checking the resolved Gradle module variant and test worker classpath.
+- rule: Build independent mutation runtimes from the same worktree actual Gradle test worker classpath, pin every dependency jar hash, and compile the complete current source/test inputs. A POM or cache presence does not prove the resolved runtime. Keep mismatched-runtime evidence separate and rerun before claiming final results.
+- enforced_by: 
+- refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190
