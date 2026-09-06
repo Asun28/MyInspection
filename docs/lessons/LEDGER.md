@@ -2229,3 +2229,19 @@
 - rule: Build independent mutation runtimes from the same worktree actual Gradle test worker classpath, pin every dependency jar hash, and compile the complete current source/test inputs. A POM or cache presence does not prove the resolved runtime. Keep mismatched-runtime evidence separate and rerun before claiming final results.
 - enforced_by: 
 - refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190
+
+## L304
+- date: 2026-09-06 ｜ tags: powershell,selftest,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 回放夹具替换 Fail 后，后续真实检查被父作用域的替身截获；嵌套同名函数还会破坏递归 AST 的唯一性检查。
+- root_cause: 未限定作用域的 Function provider 写入会修改最近的同名父函数，而不一定创建局部函数。
+- rule: 隔离回放使用 Function:local: 绑定，并验证父处理器身份和真实失败账本效果；保留生产 AST 唯一性断言。
+- enforced_by: scripts/selftest.ps1
+- refs: T0-SELFTEST-META-EXPANSION
+
+## L305
+- date: 2026-09-06 ｜ tags: selftest,meta,routing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 延后协议夹具时，普通自检同时失去了实际生产调用和终端跳过账本的检查。
+- root_cause: 按代码块的夹具名称分类，没有追踪其中辅助函数实际读取的生产源码。
+- rule: 元测试延后前逐层追踪调用；轻量生产检查留在普通路径，并用真实普通入口证明删除生产调用仍然失败。
+- enforced_by: scripts/selftest.ps1
+- refs: T0-SELFTEST-META-EXPANSION

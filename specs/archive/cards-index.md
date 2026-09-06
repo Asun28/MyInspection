@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 180 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 181 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -119,6 +119,7 @@
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SCAFFOLD-SYNC-046 | merged | Evaluate upstream v0.46.0 and advance the scaffold high-water mark |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
+| T0-SELFTEST-META-EXPANSION | merged | Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-SELFTEST-NIGHTLY-META | merged | Run selftest aggregation stress checks nightly with explicit coverage receipts |
 | T0-SELFTEST-RISK-ROUTING | merged | Select existing scaffold selftest coverage from pinned task changes |
