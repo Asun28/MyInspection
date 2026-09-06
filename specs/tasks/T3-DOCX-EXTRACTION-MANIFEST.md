@@ -3,7 +3,7 @@ id: T3-DOCX-EXTRACTION-MANIFEST
 title: Immutable DOCX extraction manifest and deterministic evidence digest
 depends_on: []
 parallelizable_with: [T3-DOCX-XML-TREE]
-status: in-progress
+status: merged
 branch: T3-DOCX-EXTRACTION-MANIFEST
 worktree: C:\wt\T3-DOCX-EXTRACTION-MANIFEST
 allow_paths:
@@ -37,3 +37,7 @@ The user approved migrating the existing Manifest from T3-DOCX-REPORT-EXTRACTOR 
 ## Compatibility correction found before first ship
 
 Fresh preflight found that Android uses Unicode regex character classes while the JDK default whitespace class is ASCII. An interior nonbreaking space therefore has different normalized evidence and digest bytes under the original platform-default pattern. The one-line correction explicitly names the same six ASCII whitespace characters, preserving existing JDK behavior, NFC/trim, raw evidence, API and DOCX-EXTRACT-1 field encoding. An independent JDK Pattern probe verified identical matching sets across all 1,112,064 Unicode scalars; original digest vectors remain unchanged. Android behavior is derived from the installed official SDK source, not claimed as an ART execution result. New direct-constructor whitespace regressions, actual dependency-classpath verification and a fresh complete final-source R4 epoch cover the correction. The new regression is already GREEN on the old JDK behavior and is not represented as a reproduced Android RED. The initial official tests-first RED and all historical evidence remain preserved.
+
+## Delivery evidence
+
+2026-09-06: local master `2f03a166`, implementation `696329657f0ef708faa09e9faa958f1e2a116f43`; exact DoD 11 tests passed, 42 source mutations failed by assertion, and 1 physical candidate-test deletions were evaluated with source restoration hashes. Official RED, DoD, verify, scope, license, secrets, size and R3 pass completed. The existing immutable evidence API and DOCX-EXTRACT-1 byte encoding remain unchanged; independent constructor vectors, all eight copied/read-only collections, raw/normalized/source preservation and field/order/null/Unicode behavior are tested. No new technical debt was identified within this boundary; report extraction and original-package compatibility remain in the parent card.
