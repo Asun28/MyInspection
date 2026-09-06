@@ -34,7 +34,7 @@
 远端 ship 在 R3 之后、合并之前跑 **candidate CI** 闸，三段收口、任一层不匹配即 fail-closed：① **逐层身份绑定**——本地 HEAD ≡ PR `headRefOid` ≡ run `head_sha`，run 的 `path`/`event`/`pull_requests[].number` 三处一律大小写敏感比较（PS 的 `-eq`/`-in`/`-contains` 与属性访问默认不敏感）；② 等待受既有 wall-clock deadline（`SCAFFOLD_CI_TIMEOUT_SEC`）约束、重试只花剩余预算（扩到 git 腿 + 进程树级清理见承接卡 `T0-CI-DEADLINE-CONTAINMENT`）；③ 决策前再取 **exact-head**/base 快照，base 前移 / retarget / head 前移 / run 身份漂移均不合并。`-NoAutoMerge` 只跳过合并腿、不放松任何一层。机检：`T37-CIGATE/WORKFLOW-BINDING`（API 侧 job 集漂移由承接卡 `T0-CI-JOBS-DRIFT` 补）。
 
 ## selftest 17 闸明细
-本地 `selftest.ps1` 聚合 `core`、`workflow`、完整 `seeded`；CI 把后者等价拆成 git/remote/scanner，并在 Windows/Ubuntu 各跑五片（10 jobs），wall time 取最慢子片。日常默认延后 `1i/fixtures`、`8.2e/protocol`、`8.2e/harness` 三处元层用例，每日/手动及本地 `-IncludeMeta` 补齐；真实源码检查和生产行为回归保留。逐闸明细以脚本头注为准。
+本地 `selftest.ps1` 默认聚合 `core`、`workflow`、完整 `seeded`；带 `-TaskId` 且只改 `.claude/skills/` 时，复用聚合器从目标工作区生成 core + workflow 两份快照，省去 seeded 及其错峰等待；冻结、未知和混合改动仍全跑（路由权威与参数见 DEVOPS-WORKFLOW）。CI 把 seeded 等价拆成 git/remote/scanner，并在 Windows/Ubuntu 各跑五片（10 jobs），wall time 取最慢子片。日常默认延后 `1i/fixtures`、`8.2e/protocol`、`8.2e/harness` 三处元层用例，每日/手动及本地 `-IncludeMeta` 补齐；真实源码检查和生产行为回归保留。逐闸明细以脚本头注为准。
 
 ## Codex 子代理派工（模型路由 + 调用形态）
 > R3 合并闸与「临时派 Codex 干活 / 拿第二意见」共用同一个 codex CLI，但**该用哪个模型随任务性质变**。

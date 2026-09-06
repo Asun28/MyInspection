@@ -32,3 +32,27 @@ doc_sync: Describe the skill route and exact preserved fallback behavior in the 
 Adapt upstream PR #371 using the local shard boundary. Core plus workflow retains gates 9/11/14/15/16;
 the repository has no compatible upstream token dispatcher to copy. Wait for the preceding selftest change.
 
+## Verification evidence (2026-09-06)
+
+- `scripts/selftest.ps1` SHA-256: `EC631C06D93C2BB736ABA88A85F7E42C35D31C70132A89F3557FBFEBAE0FBE46`.
+- `scripts/_validation.ps1` SHA-256: `81BBEF41800282FBEFDB362028212D79AAE6E280AB1465EB4E3C0DDDB0F8DF53`.
+- Official RED observed `pure case 'skills' expected skills, got all` before the implementation.
+  The final DoD passed (`.review/skill-routing-green1.log`), independently repeated during the first-ship prereview.
+- Real Git fixtures select skills for committed, staged, dirty and untracked skill edits and within-skill renames;
+  cross-boundary renames, frozen skills, edited config and mixed paths select all using the pinned base.
+  The actual entry plus actual aggregator runs exactly core and workflow over dirty/untracked task snapshots,
+  preserves meta/lint values and lint binding state, rejects both child failures and invalid receipts, and cleans snapshots.
+  Its delay trap proves this route does not enter the existing 75-second seeded contention wait.
+- Existing `selftest.ps1 -Fixture meta-routing` passed (`.review/skill-meta-aggregation.log`), including all's three children.
+- Eight parseable, isolated actual-source mutants were rejected by named semantic assertions: skill class, frozen priority,
+  subset switch, resolved source, omitted workflow, meta forwarding, entry exit and failure-protocol propagation.
+  Results and unchanged source hashes: `.review/skill-mutations/`. No live source was mutated.
+
+| Complete ordinary shard | Exit | Seconds | Source stable |
+|---|---:|---:|---|
+| core | 0 | 1119.8556 | yes |
+| workflow | 0 | 766.8460 | yes |
+
+Both emitted their final PASS sentinels. Timed runs and records: `.review/skill-shards/`.
+These are sequential Windows validation durations, not a whole-suite before/after speed benchmark.
+The smaller route and removed fixed wait are established by the real-entry tests above.
