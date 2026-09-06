@@ -582,16 +582,7 @@ function Test-SelftestSkipCommandName([string]$CommandName) {
   return @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip') -contains $CommandName
 }
 
-function Invoke-SelftestSkipLedgerFixture {
-  param(
-    [Parameter(Mandatory)][string]$ScriptText,
-    [switch]$VerifyMutationBudget
-  )
-  $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
-  try {
-    $tokens = $null; $errors = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
-    if (@($errors).Count -ne 0) { throw 'source parse failed' }
+function Assert-SelftestSkipTerminalSourceContract([string]$ScriptText) {
     $terminalSummaryCall = 'Write-Host (Format-Selftest' + 'SkipSummary -Shard $Shard -Records $skippedSelftestChecks) -ForegroundColor DarkGray'
     if ([regex]::Matches($ScriptText, [regex]::Escape($terminalSummaryCall)).Count -ne 1) {
       throw 'production terminal skip summary call absent or duplicated'
@@ -614,6 +605,19 @@ function Invoke-SelftestSkipLedgerFixture {
         [regex]::Matches($terminalOverlapMutant, [regex]::Escape($terminalOverlapBlock)).Count -ne 0) {
       throw 'production terminal FAIL/SKIP overlap mutation survived'
     }
+}
+
+function Invoke-SelftestSkipLedgerFixture {
+  param(
+    [Parameter(Mandatory)][string]$ScriptText,
+    [switch]$VerifyMutationBudget
+  )
+  $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
+  try {
+    $tokens = $null; $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
+    if (@($errors).Count -ne 0) { throw 'source parse failed' }
+    Assert-SelftestSkipTerminalSourceContract $ScriptText
     $functionNames = @(
       'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
       'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
@@ -1467,6 +1471,56 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
   exit 0
 }
 
+function Test-SelftestMetaLiveCoverage($Source, $Ast) {
+  $load = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$selftestSource82' }, $true))
+  $selector = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq "Start-SelftestMetaCheck `$metaProtocol82 '8.2e/protocol' `$IncludeMeta.IsPresent" }, $true))
+  $receipt = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq "-not (Test-SelftestMetaReceipt `$metaProtocol82 `$IncludeMeta.IsPresent '8.2e/protocol')" }, $true))
+  if ($load.Count -ne 1 -or $selector.Count -ne 1 -or $receipt.Count -ne 1 -or $load[0].Extent.StartOffset -ge $selector[0].Extent.StartOffset) {
+    throw '[META-LIVE-PLACEMENT] live protocol source checks must precede meta selection.'
+  }
+  $definitions = @('New-SelftestMetaLedger', 'Start-SelftestMetaCheck', 'Complete-SelftestMetaCheck', 'Test-SelftestMetaReceipt',
+    'Test-SelftestFailureProtocolSourceContract', 'Assert-SelftestSkipTerminalSourceContract') | ForEach-Object {
+    $name = $_
+    $found = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name }, $true))
+    if ($found.Count -ne 1) { throw "[META-LIVE-FUNCTION] $name missing or ambiguous." }
+    $found[0].Extent.Text
+  }
+  $begin = $load[0].Extent.StartOffset
+  $body = $selector[0].Clauses[0].Item2
+  $envelope = $Source.Substring($begin, $receipt[0].Extent.EndOffset - $begin)
+  $envelope = $envelope.Remove($body.Extent.StartOffset - $begin, $body.Extent.Text.Length).Insert($body.Extent.StartOffset - $begin,
+    "{ Complete-SelftestMetaCheck `$metaProtocol82 '8.2e/protocol' }")
+  $envelope = $envelope.Replace($load[0].Extent.Text, '$selftestSource82 = $SourceUnderTest')
+  $replay = {
+    param($SourceUnderTest)
+    & {
+      param($Definitions, $Code, $SourceUnderTest)
+      . ([scriptblock]::Create($Definitions -join "`n"))
+      $IncludeMeta = [switch]$false
+      $script:liveFailed = $false
+      Set-Item Function:local:Fail -Value { param($Message); $script:liveFailed = $true }
+      Set-Item Function:local:Skip-SelftestCheck -Value { param($GateId, $Reason, $Message) }
+      . ([scriptblock]::Create($Code))
+      return $script:liveFailed
+    } $definitions $envelope $SourceUnderTest
+  }
+  if (& $replay $Source 6>$null) { throw '[META-LIVE-BASELINE] ordinary live source checks rejected the unchanged source.' }
+  $mutations = [ordered]@{
+    'failure-record' = '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n'
+    'child-receipt' = '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+    'aggregate-summary' = '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n'
+    'failure-sentinel' = '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+    'skip-summary' = '(?m)^[ \t]*Write-Host \(Format-SelftestSkipSummary -Shard \$Shard\b[^\r\n]*\r?\n'
+    'outcome-overlap' = '(?m)^if \(\$outcomeOverlap.Count -gt 0\) \{ Fail [^\r\n]*\r?\n(?=Write-Host \(Format-SelftestSkipSummary -Shard \$Shard\b)'
+  }
+  foreach ($mutation in $mutations.GetEnumerator()) {
+    if ([regex]::Matches($Source, $mutation.Value).Count -ne 1) { throw "[META-LIVE-TARGET] $($mutation.Key) must identify one production statement." }
+    $mutant = [regex]::Replace($Source, $mutation.Value, '', 1)
+    if (-not (& $replay $mutant 6>$null)) { throw "[META-LIVE-MUTATION] ordinary mode accepted deleted $($mutation.Key)." }
+  }
+  Write-Host '[META-LIVE-COVERAGE] ordinary mode rejected all six production-call deletions'
+}
+
 function Test-SelftestMetaExpansion([string]$Source) {
   $tokens = $null; $errors = $null
   $ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
@@ -1540,6 +1594,7 @@ function Test-SelftestMetaExpansion([string]$Source) {
       if (-not $result.Failed) { throw "[META-EXPANSION-MUTATION] $($site.Id)/$($mutant.Name) survived." }
     }
   }
+  Test-SelftestMetaLiveCoverage $Source $ast
   Write-Host '[META-EXPANSION] default and both production scope envelopes OK'
 }
 
@@ -4884,6 +4939,21 @@ if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR�
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
 try { Test-SelftestMetaExpansion ([IO.File]::ReadAllText($PSCommandPath)) }
 catch { Fail "8.2e：meta control envelope failed: $($_.Exception.Message)" }
+$selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
+$protocolCallPatterns82 = @(
+  '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
+  '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
+  '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n',
+  '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+)
+$acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
+  Test-SelftestFailureProtocolSourceContract ([regex]::Replace($selftestSource82, $_, '', 1))
+})
+if (-not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0) {
+  Fail '8.2e：[META-PROTOCOL-LIVE] production failure-protocol wiring or its deletion mutations failed.'
+}
+try { Assert-SelftestSkipTerminalSourceContract $selftestSource82 }
+catch { Fail "8.2e：[META-PROTOCOL-LIVE] $($_.Exception.Message)" }
 $metaProtocol82 = New-SelftestMetaLedger '8.2e/protocol'
 if (Start-SelftestMetaCheck $metaProtocol82 '8.2e/protocol' $IncludeMeta.IsPresent) {
 $gateIdProbe82 = @(
@@ -4960,27 +5030,16 @@ $countDocOrderSummary82 = Format-SelftestSkipSummary -Shard core -Records $count
 $invalidReasonRejected82 = $false
 try { [void](Add-SelftestSkipRecord -Records $skipRecords82 -GateId '1' -Reason 'node missing') }
 catch { $invalidReasonRejected82 = $true }
-$selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
 $skipFixtureOk82 = Invoke-SelftestSkipLedgerFixture $selftestSource82
-$protocolCallPatterns82 = @(
-  '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
-  '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
-  '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n',
-  '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
-)
-$acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
-  Test-SelftestFailureProtocolSourceContract ([regex]::Replace($selftestSource82, $_, '', 1))
-})
 if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or $badGateIdFamilies82.Count -ne 0 -or
     ($dedupedGateIds82 -join ',') -ne '8.2e,17aa(8)' -or
     ($runtimeStableGateIds82 -join ',') -ne '17aa(6)' -or
     $singleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -or
     $multipleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)' -or
-    -not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0 -or
     -not $knownFailure82.ProtocolValid -or (@($knownFailure82.FailedGates) -join ',') -ne '8.2e,17aa(8)' -or
     $missingFailure82.ProtocolValid -or $wrongShard82.ProtocolValid -or -not $greenProtocol82.ProtocolValid -or $sentinelOnGreen82.ProtocolValid -or
     $summary82.Line -ne '[SELFTEST-ALL-FAIL] shards=workflow,core failed-gates=workflow/8.2e,workflow/17aa(8),core/UNKNOWN(exit=29)') {
-  Fail '8.2e：selftest 失败闸协议未证明 Fail 去重、单/多 gate 发射、生产接线 mutation、畸形输入 fail-closed 或 all 的 shard/gate 汇总。'
+  Fail '8.2e：selftest 失败闸协议未证明 Fail 去重、单/多 gate 发射、畸形输入 fail-closed 或 all 的 shard/gate 汇总。'
 }
 if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     ($skipRecords82 -join ',') -ne '1/TOOL-NODE-MISSING,8.2e/PREREQUISITE-FAIL' -or

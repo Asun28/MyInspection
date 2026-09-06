@@ -36,31 +36,37 @@ Shared selftest edits are delivered before the dependent cards; this card does n
 
 ## Verification evidence (2026-09-06)
 
-Final `scripts/selftest.ps1` SHA-256: `745485BFC638D4E2D59A83B17BC5EDCEC65866410FED2DBF0957968ED75BA40A`.
+Final `scripts/selftest.ps1` SHA-256: `3CDA762926FDEC0D8ACE1A8955B738C68975BA21D1A6FDA83C654AD80315A7D2`.
 The real RED rejected the old default with `META-EXPANSION-DEFAULT`. A later handler-isolation
 regression also failed with `META-EXPANSION-SCOPE` before fixing both replay handlers to `Function:local:`.
-Final DoD passed, including actual entry/child forwarding, receipt failures and selector/completion/outer-condition mutations.
-Independent read-only preflight found no remaining issue after these repairs; it is not the official R3 verdict.
+R3 round 1 blocked feature `23120579` because lightweight production source guards were inside the protocol selector.
+The repair keeps all four failure-protocol call checks/deletion mutations and both terminal skip/overlap guards ordinary.
+The new regression failed first with `META-LIVE-PLACEMENT`; the repaired DoD passed (`meta-live-green2.log`).
+It covers actual entry/child forwarding, receipts, selector/completion/outer-condition mutations and six production-call
+deletions through the real ordinary-mode control envelope. Independent source mutations re-deferring either live-check
+group are rejected with `META-LIVE-MUTATION`; deleting the actual terminal overlap-collection assignment is also rejected
+by that ordinary envelope (`meta-live-wiring-mutations2.log`). The standalone `skip-ledger` fixture passed too.
 
 | Final source run | Exit | Seconds | Meta receipts |
 |---|---:|---:|---|
-| `selftest.ps1 -Shard core -IncludeMeta` | 0 | 1095.24 | `8.2e/protocol`, `8.2e/harness`: EXECUTED |
-| `selftest.ps1 -Shard workflow -IncludeMeta` | 0 | 901.72 | `1i/fixtures`: EXECUTED |
+| `selftest.ps1 -Shard core -IncludeMeta` | 0 | 1090.16 | `8.2e/protocol`, `8.2e/harness`: EXECUTED |
+| `selftest.ps1 -Shard workflow -IncludeMeta` | 0 | 688.55 | `1i/fixtures`: EXECUTED |
 
 Both full shard runs kept the source hash unchanged and emitted their PASS sentinels.
-Logs are retained under `.review/meta-shards-final3/`; the focused DoD log is `.review/meta-expansion-final-dod3.log`.
+Logs are retained under `.review/meta-shards-final4/`; focused and mutation logs above are under `.review/`.
 
 Matched scope measurement used the same final source in an isolated instrumented copy, after the shard runs.
 Each real scope ran once with IncludeMeta true (the previously unconditional bodies), then once with false;
-only the source-path environment and measurement wrapper were supplied. The 1i live source check ran in both modes.
+only the source-path environment and measurement wrapper were supplied. Both scopes retain their live source checks in both modes.
 
 | Scope | Included seconds | Ordinary seconds |
 |---|---:|---:|
-| `1i/fixtures` plus live source check | 20.2193 | 2.0871 |
-| `8.2e/protocol` | 13.1930 | 0.0004 |
+| `1i/fixtures` plus live source check | 24.9541 | 2.2949 |
+| `8.2e/protocol` plus live source checks | 24.8368 | 1.4849 |
 
-The added control-envelope check cost 3.5661 seconds. These two scopes saved 31.3248 seconds in this
-single matched run, or about 27.7588 seconds after that added cost. This is a scoped measurement,
+The added control-envelope checks cost 16.4724 seconds. These two scopes saved 46.0111 seconds in this
+single matched run, or about 29.5387 seconds after that added cost. This is a scoped measurement,
 not a full-suite before/after benchmark or a CI speed promise. It excludes the already registered
-aggregation stress harness. Result and output: `.review/meta-cost/result.json` and `stdout.log`.
-The original source remained unchanged; two failed measurement-wrapper attempts are retained separately.
+aggregation stress harness. Result and output: `.review/meta-cost-r3-repair/result.json` and `stdout.log`.
+Source stayed unchanged throughout. Earlier-source and failed measurement-wrapper logs are retained separately,
+and are not evidence for this final candidate.

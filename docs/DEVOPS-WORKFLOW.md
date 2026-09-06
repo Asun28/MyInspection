@@ -178,7 +178,8 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 本地 `scripts/selftest.ps1` 默认 `-IncludeMeta:$false`，与普通 push 一样延后三处元层测试：
 `1i/fixtures` 的编号合成用例、`8.2e/protocol` 的失败/跳过协议用例、`8.2e/harness` 的聚合压力夹具。
 每日/手动显式启用 `-IncludeMeta`；本地诊断这些测试时也须带该开关。真实源码编号、CI 接线、
-失败传播和生产脚本行为检查（含本地 17ac）仍保留。每处输出 `[SELFTEST-META]` 的 EXECUTED / DEFERRED
+失败协议的四处生产调用接线、终态跳过摘要、FAIL/SKIP 互斥及生产脚本行为检查（含本地 17ac）仍保留。
+`meta-routing` 在普通模式删除上述六处生产调用，验证实际接线检查逐一报错。每处元测试输出 `[SELFTEST-META]` 的 EXECUTED / DEFERRED
 收据；未知、重复或缺失收据会失败，DEFERRED 不等于通过。`-Fixture meta-routing` 验证选择与透传。
 常规 push 与全量每日/手动运行使用不同并发组，避免新 push 取消唯一补跑 meta 的全量运行。
 两 OS 与五分片维持每项 20 分钟的原有效上限；旧配置的 `seeded` 条件从未匹配实际 `seeded-*` 分片。
