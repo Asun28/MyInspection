@@ -24,9 +24,12 @@ acceptance:
   - "A3 Open launches the system PDF viewer or browser; Save uses the system document picker; Share uses a temporary typed content URI and returns focus to its source action"
   - "A4 verified wording says Report ready only after core verification and never claims delivered, received, stored, uploaded, or backed up"
   - "A5 process restoration, repeated activation, provider cancellation, 48dp targets, TalkBack order, 200 percent text, dark, landscape, and reduced motion pass without losing a verified sibling artifact"
+  - "A6 [R1] 受众切换、内容刷新、旋转/进程恢复不会继承失效隐私确认；调用 core 绑定确认协议，不向 renderer 传任意 Boolean。"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
 dod_assert: route, reducer, system-surface, restoration, focus, semantics, and responsive-state tests pass for two audiences and both formats
+requirements:
+  - "R1 当用户选择纳入私密照片时，UI 应展示具体受众和照片范围并请求显式确认；切换受众或内容时应清除旧确认。"
 review_gate: codex {verdict:pass}
 hygiene: UI tests assert visible evidence and real state transitions, never framework mechanics or mock presence
 doc_sync: DESIGN + UI-UX-ELEMENTS + TASK-BOARD

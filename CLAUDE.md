@@ -68,7 +68,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > rule 只放**指针**（不复制命名表正文，免双源漂移）；只用项目级 `.claude/rules/`，别用用户级 `~/.claude/rules/`（其 paths 有 bug）。详见 `.claude/rules/README.md`。
 
 ## 当前阶段
+
+**2026-09-08 需求审校远端补交**：新增卡/接口与既有卡修订分别由 `T7-AUDIT-REMOTE-FOUNDATION`、`T7-AUDIT-REMOTE-CARDS` 交付；本次 `T7-AUDIT-REMOTE-DOCS` 同步五份文档。11张新功能卡仍待实施；V1预设/键盘、V1.1批量照片、产品V2语音，物业备份format v2导出/恢复仍属V1。检查与合并状态以各PR记录为准。
+
 <!-- 随 R5 文档同步更新。 -->
+**2026-09-08 远端交付**：`T2-ROUTINE-CONTEXT-V2` 经功能 PR #241 合并（`35cb59f3`）；功能 PR #241 的 21 项验收测试、正式 R3 与 GitHub 候选 CI 通过。92 项 Routine v2 保留全部 83 项历史内容，新增 Hallway 八项与普通摘要项；缺少已安装 active v2 时不回退，历史按 ID 读取保持不变。先前本地合并不代表远端 PR 完成；APK 初始化和应用接入仍属后续工作。
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
@@ -482,14 +486,14 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
 ## 架构大图
-单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 系统听写 / 短语库备注 → 生成双版本 PDF 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
+单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 预设短语与键盘备注（语音产品 V2）→ 生成双受众 PDF/HTML 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
 
 | 路径 | 职责 |
 |---|---|
 | `docs/inspection-app-requirements.md` | **需求真相源**（[定]=已决定 / [待]=需确认 / [验]=需 spike） |
 | `docs/adr/0001–0004`、`docs/adr/0006-offline-security-backup-hardening.md` + `docs/TASK-BOARD.md` | 设计决策 + 任务/模型路由总表（状态以卡为准） |
 | `android/core/` | **纯 JVM 领域**：model / db(SQLDelight ★) / template / compliance / report / backup / canon ★ |
-| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写 · PdfDocument 渲染 · WorkManager |
+| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写（产品 V2）· PdfDocument 渲染 · WorkManager |
 | `configs/compliance/` | 可更新的 NZ 合规规则配置（不硬编码；schema 含 entryPurpose，ADR-0004） |
 | `prompts/remediation/` | LLM prompt + 「检查项 → 建议」种子对照表（需求 §9） |
 | `data/templates/` | 巡检模板内容真相源（四类、双语、带版本号；构建期拷入 assets） |
@@ -498,7 +502,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 ## 硬边界（不可违反）
 - **永不做**（需求 §1 写死，防范围蔓延）：租金/账务 · 房客筛选/背调 · 工单派发 · 房源广告 · 押金托管 · **任何账号体系** · **任何服务端功能** · 多用户/权限 · 模板编辑器 UI。
 - **local-first**：数据（SQLite + 照片/音频文件）永在本地；唯一联网点 = remediation 时调 LLM API（自己的 key，可完全跳过）；不做云账号、不做遥测。app **自己不发送**通知（只生成 + 一键复制，人工发送后回记存档）。
-- **合规校验为阻断闸、不可关闭、不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。
+- **合规校验为阻断闸、不可关闭，校验阈值/开关不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。设置只允许按可信来源策略手动导入规则文件，不提供直接编辑阈值或绕过校验的入口。
 - **LLM 建议只进房东版**报告；定位 = 提示 + 分级（NZS 4306 思路）+ 建议找谁，**不做诊断/处方/成本估算**；报告必带免责声明。
 - 隐私（Privacy Act 2020）：备份包**必加密**（含租客照片/联系方式）；租客数据设明确保留期限 + 可一键清理；`.env` 与密钥永不入库。
 - 测试/verify/CI 走确定性/离线路径（LLM 调用全 mock，禁出站网络）。
@@ -509,8 +513,8 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 主键一律 **UUIDv7**（禁自增整数——同步时是死局）；每表带 `updated_at`（UTC）+ `deleted_at`（软删除）。
 - 照片/音频存**文件系统**，DB 只存相对路径 + 内容哈希，**禁 BLOB**。导入照片必存：EXIF 拍摄时间（与巡检时间分开）+ 来源标记（`camera`/`imported`）+ 内容哈希防重；**复制不移动**原文件，EXIF 旋转必须处理。
 - **finalize 后原始条目只读**，只允许追加带独立时间戳的「补充说明」；导出 PDF 页脚写入该次巡检数据哈希（自证未事后修改）。
-- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 的 Ingoing）；**Exit 默认对照 baseline**、不是上次 Routine。
-- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。
+- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 已指定的 Ingoing 或 Routine 基线）；**Exit 默认对照 baseline**、不是上次 Routine。
+- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。产品 V2 才启用录音/听写；V1 延后功能不删除已有音频或冻结结构。
 - schema/迁移与合规校验引擎落地后登记进 `scripts/_config.ps1` FrozenPaths（`guard-frozen` 钩子拒改），演进走版本评审。
 
 ## 经验铁律（必须加载 · Tier 1 · 封顶 10 个驻留 id）

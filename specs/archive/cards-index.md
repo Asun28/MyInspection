@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 172 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 174 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -117,6 +117,7 @@
 | T0-SCAFFOLD-FLEET-LOOP | merged | fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
+| T0-SCAFFOLD-TRIGGER-REMOTE | merged | Publish scaffold-only selftest trigger on current upstream |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
@@ -140,6 +141,7 @@
 | T2-REPEATABLE-ROOM-RUNTIME | merged | 偿还 TD26：重复房间实例化、完备性与历史基线统一到实例维度 |
 | T2-ROOM-REPEATABLE | merged | 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8） |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
+| T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
 | T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |
 | T3-E2E-GATE-ISOLATION | merged | 将 Golden Evidence 拆入独立 e2eTest source set 并由 Gate 2 单独执行 |
 | T3-E2E-GATE-PORTABILITY | merged | 修复 verify Gradle wrapper 的 Windows/Linux 跨平台执行 |

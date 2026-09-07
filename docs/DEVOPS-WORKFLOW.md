@@ -168,7 +168,7 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 纯文档 PR 仍产生同名 `verify` 状态，避免 required check 因 `pull_request.paths-ignore` 永久停在 Expected。只有非空改动全部位于 `docs/**`、`specs/**` 或为 Markdown 时才走轻量通道；该通道仍 fail-closed 运行卡片校验、归档索引投影与普通密钥扫描，跳过 Python/Java/Android/Gradle、许可和产品 E2E。源码、脚本、workflow、混合或分类失败一律完整 CI。默认分支纯文档 push 继续由既有 `paths-ignore` 跳过；含代码 push 与手动触发完整执行。
 
-`scaffold-selftest` 不进 PR 必需检查；仅默认分支权威面 push 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。
+`scaffold-selftest` 不进 PR 必需检查；仅默认分支脚手架权威面 push（`configs/compliance/**` 等产品规则不触发）或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。产品 PR/push 由相关产品测试、verify、R3 守门。
 
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
