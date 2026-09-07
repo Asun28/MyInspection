@@ -82,4 +82,4 @@ interface SafeOperationEvents {
 
 规则发布者/可信凭证、版本和撤销策略；provider/key 与出站限额；批量提交/取消/重启策略和批次限额；V2 录音格式、语言、资源上限和离线引擎。各项由对应卡标注的前置调查/决策关闭，本规格不填未经确认的默认值。
 
-物业闭包内部的 SnapshotRows 只读已签发的一致性私有快照；编译期表/列 registry 与参数化物业值限定访问，调用方不能传 SQL/identifier 或 live DB。scope row 编码由 format v2 版本评审先定义，与 inspection canonical 分域，不为此修改冻结 SQLDelight 或现有 data_hash。
+物业闭包内部的 SnapshotRows 只消费已签发的一致性私有快照，通过批准的 SQLDelight 生成 API 参数化读取；调用方不能传 SQL/identifier 或 live DB，adapter 不得拼装平行查询。SNAPSHOT-CLOSURE 先完成查询的冻结契约版本评审，列明精确冻结路径、历史/软删覆盖、迁移及schema快照证据，再实施所需变更；已有API足够时须证明逐表覆盖。scope row 编码由 format v2 评审先定义，与 inspection canonical 分域，不改现有 data_hash。

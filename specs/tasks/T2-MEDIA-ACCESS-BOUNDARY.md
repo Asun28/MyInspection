@@ -17,11 +17,11 @@ requirements:
   - "R3 当相机与导入使用公共工作流时，系统应保留相机最终 JPEG 哈希与导入原始 source 哈希的区别；公共路径片段校验应保留各资源命名空间约束。"
 acceptance:
   - "A1 [R1] 未验证引用、路径穿越、跨物业 ID 与过期目标不能读写另一物业；公开业务接口不能任意调用 discardIn。"
-  - "A2 [R2] 真实临时目录验证重复发布、回滚、被引用文件与符号链接保护；宿主不支持的检查必须记录未验证，并在支持目标补证据。"
+  - "A2 [R2] 真实临时目录验证重复发布、回滚、被引用文件与符号链接保护；完成前必须在支持目标执行符号链接负例并取得通过证据，不支持或跳过均不满足DoD。"
   - "A3 [R3] 相机/导入均复用 VerifiedAssetWorkflow；同源不同质量仍保持导入去重身份，独立 hash oracle 不共用被测实现；路径校验抽取前后用同一合法/非法矩阵验证。"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.media.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: 媒体真实目录测试证明归属/穿越/跨物业拒绝、no-follow/no-overwrite/lease/引用保护；相机与导入 hash 语义不变；MediaPaths/PdfArtifactPaths 共享校验矩阵通过，符号链接跳过明确留待支持目标补证据
+dod_assert: 媒体真实目录测试证明归属/穿越/跨物业拒绝、no-follow/no-overwrite/lease/引用保护；相机与导入hash语义不变；路径共享矩阵通过；符号链接测试必须在支持目标实际执行且通过，缺能力/跳过/缺证据则DoD非零，不得完成；删除no-follow守卫须使负例失败
 review_gate: codex {verdict:pass}
 ---
 
