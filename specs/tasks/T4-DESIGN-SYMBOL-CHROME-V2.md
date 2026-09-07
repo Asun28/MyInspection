@@ -28,9 +28,9 @@ acceptance:
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
   - "A5 the amended status clause still forbids colour from being the sole carrier of state, and states its satisfying carriers rather than requiring a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the state the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
+dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the state the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
 dod_exit: 0
-dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
+dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
 hygiene: 每条断言由「删掉被改写的那一句即变红」的单点变异证明；每个 DoD 锚点在被查文件里只出现一次，否则单点删除杀不掉它；变异批钉生产文件 SHA-256，批中不并行跑第二批或独立复核（L196）。
 doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID；解锁 T4-SCHEDULE-UI-PRESENTATION。
@@ -158,7 +158,9 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
 | 顶栏尾部图标 `:894` 第 5 条 | 至多两枚；每枚有可见 tooltip 与 verb+object 无障碍名 | 同上；bar 图标 anatomy 声明 tooltip ✓ | compliant；该条复述了条件正文，改为引用 |
 | `camera-control` `:1614` | 24dp icon、opaque 48dp target、anatomy **无** tooltip；语义为「Label describes action and current state」 | 3 由 OD-1 明写「anatomy 未声明者按原文即满足」✓ 2 明许名字兼带当前状态 ✓ 5 OFF/ON 播报 ✓ | compliant，**anatomy 不改** |
 | `camera-shutter` `:1615` | 72dp 圆 + inner state mark、无障碍名 `Take photo`、anatomy **无** tooltip | 1 说「字形由组件合同声明」而非「取自图标集」，故自定义圆形合格 ✓ 2 verb-object ✓ 3 同上 ✓ 4 72dp ✓ 5 状态播报一次 ✓ | compliant；并在 `:1748` 具名豁免（见丙） |
-| `overflow-menu` 触发器 / `search-field` 的 Clear / `input-field` 尾部动作 / sheet 与 dialog 的 Close / `room-progress-strip` 的 previous-next | 均为 `icon-button` 实例 | 由 `icon-button` 一行统一承载 | compliant（不单独立规则） |
+| `overflow-menu` 触发器 `:1643` | 纯图标；文档已声明其播报 `More options` | **首版规则判它不合规**——条件 2 曾要求 verb-object 短语，而 `More options` 不是 | 由 R3 第 1 轮修法消解：条件 2 改为「名字须命名该动作」，不设短语语法 |
+| `STREAM_CAPTURE` 的 Back `:880` | 纯图标；无障碍标签 `Save and exit` | 同上，`Save and exit` 无宾语 | 同上 |
+| `search-field` 的 Clear / `input-field` 尾部动作 / sheet 与 dialog 的 Close / `room-progress-strip` 的 previous-next | 均为 `icon-button` 实例 | 由 `icon-button` 一行统一承载 | compliant（不单独立规则） |
 
 ### 乙 · 由字形承载领域值（载体规则支）
 
@@ -181,6 +183,7 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
 |---|---|---|
 | 底部导航目的地 `:926` | 「Every destination always displays icon and label」 | 不改；准入段点名其保留可见标签（`non_goals` 已排除改写这条本身） |
 | 房间进度段 `:1714` | 「do not reduce rooms to unlabeled dots」 | 不改；准入段点名 |
+| `docs/UI-UX-ELEMENTS.md:35` 选型句 | 原文「纯图标操作必须使用 `icon-button`」 | **与相机面抵触**：`camera-control` / `camera-shutter` 是各自独立的组件合同（后者 base 是 Custom `Button`），且本卡刚写明 `icon-button` 的 `CAMERA` 变体不外扩准入。按 R3 第 1 轮修法把选型收窄到普通界面，并把三者的准入统一路由到本节 |
 | `:1748` 图标不得替代标签的动作清单 | capture/compliance/privacy/delete/finalize/backup/restore | **基线自相矛盾**：`camera-shutter` 就是纯符号的 capture 控件。按陷阱 2 **不把该清单搬进中心规则**，只在原句加一处具名例外（camera shutter），准入段以「the actions named under Buttons and selection controls」引用之，例外随引用一起旅行 |
 
 ### 丁 · 不受本规则管辖（判定确定，非「以后再说」）
@@ -231,12 +234,12 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
    而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
    **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
 
-## R4 变异收据（2026-09-07 · 22/22 KILLED）
+## R4 变异收据（2026-09-07 · R3 第 1 轮修复后重跑 · 23/23 KILLED）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
-`context/DESIGN.md` = `E9DC157059D98D06DE2DAB5E7358CD7E7304DAFFED35C963C34F92CF2795DD31` ·
-`docs/UI-UX-ELEMENTS.md` = `5C38E593ED02CCDB3BFED1CE6442DD896A9389EC1584401A90B6CCC00B5C31E6`。
-基线 `dod_command` 退出 **0**（GREEN）；22 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
+`context/DESIGN.md` = `5C9F3C47B3C1A70D9CB45A320B151C51837C155FFD9EB9548218F271D9A24F19` ·
+`docs/UI-UX-ELEMENTS.md` = `F1364E4823FA7E3ED41CCC8E7F5C4D51FE27E4822EC1EEF6E60AF4CDBF497BA8`。
+基线 `dod_command` 退出 **0**（GREEN）；23 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚，L190）、断言渲染后文本与 SHA 均已改变
 （防 no-op 冒充击杀，L297）、断言植入前文件仍等于基线（L196）。**无一枚 VOID。**
 
@@ -267,12 +270,29 @@ RED 证据取自真实基线：`-Phase red` 首次运行读到的是主检出卡
 | M19 | A5 | DESIGN | 还原旧 Do 条 | KILLED |
 | M20 | A1 | ELEMENTS | `:35` 去掉跨文档具名锚点 | KILLED |
 | M21 | A1 | ELEMENTS | `:123` 去掉解析引用 | KILLED |
-| M22 | A1 | ELEMENTS | 还原 `:35` 的 tooltip 条件复述（该文件 `tooltip` 计数回到 2） | KILLED |
+| M22 | A1 | ELEMENTS | 还原 `:35` 未按相机合同收窄的旧选型句 | KILLED |
+| M23 | A3 | DESIGN | 还原「无障碍名须为 verb-object 短语」这条全称（`More options` / `Save and exit` 正违反它） | KILLED |
 
 M1/M20/M21 证明具名锚点由定义处与两处跨文档引用各自独占承载；M14/M15/M16/M17/M18/M19/M22
 证明七处被替换的复述措辞两侧都在测；M5 与 M12 成对证明「唯一承载」而非「存在即可」。
 变异脚本不入库（跑在 scratchpad，不属 `allow_paths`）。
 
+
+## R3 第 1 轮（2026-09-07 · block · 3 条 finding 全部属实、全部当场修）
+
+三条同属一类，也正是退役卡的病根：**中心规则里的全称词，被文档既有实例证伪**。
+我的实例代入表按组件行代入过，却漏了两层——**具体已声明的标签取值**，以及**选型类条款**。
+
+| # | finding | 属实性 | 修法 |
+|---|---|---|---|
+| 1 | 条件 2 要求 verb-object 短语，而 `More options`（`:1643`）与 `Save and exit`（`:880`）都不是 | 属实。二者在**基线里就已违反** `:894` 原有的「verb + object」措辞，非本卡引入 | 条件 2 改为「名字须命名它执行的动作」并明写不设短语语法；`tooltip` 行同步去掉 verb-object 字样。新增 DoD 锚点 `names the action it performs` + M23 钉住 |
+| 2 | `UI-UX-ELEMENTS.md:35` 要求纯图标操作一律用 `icon-button`，而相机两个组件是独立合同、`camera-shutter` 的 base 是 Custom `Button`，且本卡刚写明 `CAMERA` 变体不外扩准入 | 属实，且是本卡自己制造的新缝：写下「变体不外扩」的同时没回头看选型句 | `:35` 把选型收窄到普通界面，点名相机两个合同不套用，三者准入统一路由到本节 |
+| 3 | 状态条款写「glyph、position 与 text 三者**together**」，与载体规则允许的「owner 以文字**或播报**给出」及 Do 条允许的「载体是字形而非文字」互相矛盾，令 `Settings` 点与 evidence rail 不可判定 | 属实。ship 前自审已改掉尾句与 Do 条两处，**却漏了主句里的合取** | 主句改为列举允许的载体：字形 + 位置，加上「自己的可见标签 **或** owner 给出的文字或播报」，并显式解析到载体规则 |
+
+**教训（比三条 finding 本身更值钱）**：实例代入表若只代入到**组件行**，会漏掉两类实例——
+① 文档在别处**已声明的具体取值**（一个无障碍名、一个标签字面量）；
+② **选型/归属类条款**（「必须用哪个组件」），它同样在管辖符号化控件。
+下次建表时这两层要单独扫一遍：grep 已声明的标签字面量，grep「必须使用 / 一律用 / 归 X 承载」这类选型措辞。
 
 ## 变更记录（Change log）
 
