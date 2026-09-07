@@ -67,7 +67,7 @@ interface SafeOperationEvents {
 - **报告**：确认显式纳入私密照片时，确认绑定受众、巡检/内容版本及明确照片集合；切换任一维度使旧确认失效。保持既有“显式可纳入”合同，不能擅自禁止房客版显式选择。两种 renderer 只消费已过滤内容，不自行查 DB 或再次决定隐私。
 - **备份**：复用现有 ArchiveStore 与 opaque destination/object/version，只有 adapter 解析 provider 对象。SQLite 在线快照须证明一致性；采用 checkpoint-copy 时必须有同一写入屏障保护整个快照过程，快照完成后即可释放，不把耗时云 provider 写入放在 DB 锁内。最终对象关闭重开并全验后才能签发回执。
 - **恢复**：预检与确认绑定确切包身份、范围和替换影响；确认后换包须重新预检。恢复 journal 先于业务装配执行，成功后重建连接与用例。v1 property 仍拒绝；format v2 property 是替换全部本机数据为单物业快照，不是合并。
-- **规则**：来源可信验证在现有 loader 前，不能用同一来源自带 hash 证明发布者身份。具体摘要/签名、信任根、撤销、日期和回退政策由决策卡确定；导入 UI 无关闭规则开关，法律 work-check 待办保持独立。
+- **规则**：来源验证在现有 loader 前；[ADR-0008](../docs/adr/0008-compliance-update-trust.md) 确定 APK 单公钥、签名包、代次/版本/日期与恢复矩阵（2026-09-08 用户批准设计，前置合并才解除依赖）。inspect 产生私有不可变快照，确认绑定包 hash、active 和 APK 策略；activate 提交前重查，active 与最高版本等状态原子发布。唯一规则服务先完成启动恢复并在业务使用时校验，向调用者返回经验证规则或明确不可用原因，禁止业务自行 raw load 绕过；无有效规则只阻断合规放行，保留原始证据采集与恢复入口。无效 override 不直接回内置，内置也满足 ADR 下限/日期/身份。信任状态不被用户数据恢复覆盖；导入卡负责证明生产接线，超范围先修卡。无阈值/关闭开关，work-check 仍禁用。
 - **整改**：只发送版本号、锁定模板 stable id、合法状态与锁定 seed 建议码。精确 canonical JSON 预览确认后，在 HTTP adapter 最后复查字段全集、成员和长度；拒绝自由文本、媒体、地址、路径和额外字段。provider 身份/端点及请求字节变化令旧确认失效。LocalSecretBox 提供凭据；响应经有界解析和措辞/分级验证，失败不阻断 finalize 或报告。
 - **诊断与权限**：只接受注册 operation/reason 和已批准 opaque id/count/duration；不接受任意 Map、Throwable 或业务原文。写诊断失败不能回滚成功业务。按具体动作申请能力；共享能力结果和错误展示，分别保留相机、通知、SAF、未来麦克风的不同恢复方式。
 
@@ -80,6 +80,6 @@ interface SafeOperationEvents {
 
 ## 仍需决定的参数
 
-规则发布者/可信凭证、版本和撤销策略；provider/key 与出站限额；批量提交/取消/重启策略和批次限额；V2 录音格式、语言、资源上限和离线引擎。各项由对应卡标注的前置调查/决策关闭，本规格不填未经确认的默认值。
+规则技术与责任决策已收口于 ADR-0008（2026-09-08 用户批准），制品/安装证据由导入卡与发布验收提供；provider/key 与出站限额、批量提交/取消/重启策略和限额、V2 录音格式/语言/资源上限/离线引擎仍由对应前置卡决定。设计批准不等于功能完成。
 
 物业闭包内部的 SnapshotRows 只消费已签发的一致性私有快照，通过批准的 SQLDelight 生成 API 参数化读取；调用方不能传 SQL/identifier 或 live DB，adapter 不得拼装平行查询。SNAPSHOT-CLOSURE 先完成查询的冻结契约版本评审，列明精确冻结路径、历史/软删覆盖、迁移及schema快照证据，再实施所需变更；已有API足够时须证明逐表覆盖。scope row 编码由 format v2 评审先定义，与 inspection canonical 分域，不改现有 data_hash。
