@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-07 需求审校**：卡片与安全接口规格已由 `T7-AUDIT-CARDS-CLOSURE` 本地合并（`d6e22084`，正式 R3 第2轮 pass）。11张新产品卡保持待实施；本轮同步版本与页面合同，不代表功能已完成。V1 预设/键盘、V1.1 批量照片、产品 V2 语音；物业备份 format v2 导出与恢复仍在 V1 发布范围。
+
 脚手架维护已合入精简任务卡、按任务改动选择自检范围，以及每日/手动运行聚合压力测试；状态和验证记录见对应归档卡。上游评审策略与产品 compliance 触发隔离仍按各自活卡推进。
 **2026-09-06 脚手架维护**：`T0-SELFTEST-META-EXPANSION` 已本地合并（`04b355d4`，R3 pass）。普通自检默认延后三处元测试，每日/手动完整执行；实时检查保留。最终 core/workflow 全绿；两处新增延后范围的单次局部测量净省约 29.5 秒，非整套自检提速结论。
 **2026-09-06 脚手架维护**：`T0-SELFTEST-SKILL-ROUTING` 已本地合并（`5f0000cf`，R3 pass）。仅 Skill 改动改跑 core + workflow，使用目标工作区的独立快照并省去 seeded 错峰等待；冻结、混合和未知改动仍全跑。DoD、聚合回归、完整两分片及 8 项关键变异验证通过。
@@ -492,14 +494,14 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
 ## 架构大图
-单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 系统听写 / 短语库备注 → 生成双版本 PDF 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
+单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 预设短语与键盘备注（语音产品 V2）→ 生成双受众 PDF/HTML 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
 
 | 路径 | 职责 |
 |---|---|
 | `docs/inspection-app-requirements.md` | **需求真相源**（[定]=已决定 / [待]=需确认 / [验]=需 spike） |
 | `docs/adr/0001–0004`、`docs/adr/0006-offline-security-backup-hardening.md` + `docs/TASK-BOARD.md` | 设计决策 + 任务/模型路由总表（状态以卡为准） |
 | `android/core/` | **纯 JVM 领域**：model / db(SQLDelight ★) / template / compliance / report / backup / canon ★ |
-| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写 · PdfDocument 渲染 · WorkManager |
+| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写（产品 V2）· PdfDocument 渲染 · WorkManager |
 | `configs/compliance/` | 可更新的 NZ 合规规则配置（不硬编码；schema 含 entryPurpose，ADR-0004） |
 | `prompts/remediation/` | LLM prompt + 「检查项 → 建议」种子对照表（需求 §9） |
 | `data/templates/` | 巡检模板内容真相源（四类、双语、带版本号；构建期拷入 assets） |
@@ -508,7 +510,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 ## 硬边界（不可违反）
 - **永不做**（需求 §1 写死，防范围蔓延）：租金/账务 · 房客筛选/背调 · 工单派发 · 房源广告 · 押金托管 · **任何账号体系** · **任何服务端功能** · 多用户/权限 · 模板编辑器 UI。
 - **local-first**：数据（SQLite + 照片/音频文件）永在本地；唯一联网点 = remediation 时调 LLM API（自己的 key，可完全跳过）；不做云账号、不做遥测。app **自己不发送**通知（只生成 + 一键复制，人工发送后回记存档）。
-- **合规校验为阻断闸、不可关闭、不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。
+- **合规校验为阻断闸、不可关闭，校验阈值/开关不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。设置只允许按可信来源策略手动导入规则文件，不能修改阈值或绕过校验。
 - **LLM 建议只进房东版**报告；定位 = 提示 + 分级（NZS 4306 思路）+ 建议找谁，**不做诊断/处方/成本估算**；报告必带免责声明。
 - 隐私（Privacy Act 2020）：备份包**必加密**（含租客照片/联系方式）；租客数据设明确保留期限 + 可一键清理；`.env` 与密钥永不入库。
 - 测试/verify/CI 走确定性/离线路径（LLM 调用全 mock，禁出站网络）。
@@ -519,8 +521,8 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 主键一律 **UUIDv7**（禁自增整数——同步时是死局）；每表带 `updated_at`（UTC）+ `deleted_at`（软删除）。
 - 照片/音频存**文件系统**，DB 只存相对路径 + 内容哈希，**禁 BLOB**。导入照片必存：EXIF 拍摄时间（与巡检时间分开）+ 来源标记（`camera`/`imported`）+ 内容哈希防重；**复制不移动**原文件，EXIF 旋转必须处理。
 - **finalize 后原始条目只读**，只允许追加带独立时间戳的「补充说明」；导出 PDF 页脚写入该次巡检数据哈希（自证未事后修改）。
-- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 的 Ingoing）；**Exit 默认对照 baseline**、不是上次 Routine。
-- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。
+- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 已指定的 Ingoing 或 Routine 基线）；**Exit 默认对照 baseline**、不是上次 Routine。
+- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。产品 V2 才启用录音/听写；V1 延后功能不删除已有音频或冻结结构。
 - schema/迁移与合规校验引擎落地后登记进 `scripts/_config.ps1` FrozenPaths（`guard-frozen` 钩子拒改），演进走版本评审。
 
 ## 经验铁律（必须加载 · Tier 1 · 封顶 10 个驻留 id）
