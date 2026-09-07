@@ -255,3 +255,25 @@ flowchart LR
 
 ## 已由 3 方讨论定稿（原[待] → 已定）
 技术栈原生 Kotlin+Compose（ADR-0001）· 租赁评级 4 档 · Exit 独立 wear/damage 三态且仅差异项 · 两级拍照规则（N_A 不逼拍照）· UI 英文单语 + 报告平行双语 · finalize 锁定+哈希页脚 · SQLDelight/自研 UUIDv7/canonical 规范（ADR-0003）。
+
+## 2026-09-06 审校补卡与版本计划
+
+用户已确认：V1 使用预设选项与键盘；批量照片排 V1.1；app-owned 语音排产品 V2。备份 format v2 与产品 V2 分开，仍保留物业备份范围。规则可信来源、provider 与格式细节待澄清；法律 work-check 待办保持。上述新决定取代旧叙述中的版本安排；卡片状态/依赖以活卡为准。
+
+本批分两张交付卡：T7-AUDIT-CARDS-CLOSURE 登记卡片与接口；其后 T7-AUDIT-REMOTE-DOCS 同步旧需求、页面和本表叙述，不能把第一步当作全批文档同步完成。两步均不实现功能。
+
+新增卡（todo）：
+
+- [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md)
+- [T2-MEDIA-ACCESS-BOUNDARY](../specs/tasks/T2-MEDIA-ACCESS-BOUNDARY.md)
+- [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md)
+- [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md)
+- [T2-ONDEVICE-DICTATION](../specs/tasks/T2-ONDEVICE-DICTATION.md)
+- [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md)
+- [T4-COMPLIANCE-OVERRIDE-IMPORT](../specs/tasks/T4-COMPLIANCE-OVERRIDE-IMPORT.md)
+- [T5-BACKUP-FORMAT-V2](../specs/tasks/T5-BACKUP-FORMAT-V2.md)
+- [T5-PROPERTY-SNAPSHOT-CLOSURE](../specs/tasks/T5-PROPERTY-SNAPSHOT-CLOSURE.md)
+- [T5-PROPERTY-RESTORE-INTEGRATION](../specs/tasks/T5-PROPERTY-RESTORE-INTEGRATION.md)
+- [T7-REMEDIATION-PROVIDER-DECISION](../specs/tasks/T7-REMEDIATION-PROVIDER-DECISION.md)
+
+接口职责与复用约束见 `specs/android-module-boundaries.md`；所有未决参数由相应卡实现前收口。
