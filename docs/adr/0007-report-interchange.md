@@ -35,7 +35,7 @@ Approved split registration: `T3-REPORT-IMPORT-PLAN-SNAPSHOT` → `T3-REPORT-IMP
 
 ### Hostile package boundary
 
-The reader enforces entry/byte/ratio/XML/image bounds; rejects ambiguous or traversing paths, external relationships, macros, OLE, ActiveX and encryption; disables entities/network; and reads only allowlisted Word story/relationship/media parts. Strings and links remain inert. No business DB or final-media write occurs before reviewed commit.
+The reader enforces entry/byte/ratio/XML/image bounds; rejects ambiguous or traversing paths, external relationships, macros, OLE, ActiveX and encryption; disables entities/network; and returns only allowlisted Word story/relationship/media parts. The planned custom-properties exception admits only normalized `docprops/custom.xml` with the exact transitional content type/root and one internal package-root relationship; it applies all existing ZIP/XML checks, then discards the part before returned parts and extraction. Property names, values and comments never enter report evidence or diagnostics; other metadata compatibility is unchanged. Strings and links remain inert. No business DB or final-media write occurs before reviewed commit.
 
 ### DOCX extraction split contract
 
