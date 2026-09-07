@@ -21,10 +21,12 @@ acceptance:
   - "A2 verify daylight and one-hand operation"
   - "A3 verify TalkBack, 200% text, and Reduce Motion"
   - "A4 verify process death, offline use, and provider recovery"
-  - "A5 every P0/P1 finding has a closure reference"
+  - "A5 every P0/P1 finding has a verified fix or explicit user risk-acceptance record within the project hard boundaries; a tracking link alone is not closure"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; if (-not (Test-Path docs/ux/FIELD-UX-ACCEPTANCE.md)) { exit 1 }; if (Select-String -Path docs/ux/FIELD-UX-ACCEPTANCE.md -Pattern '⬜|PENDING|待验证') { exit 1 }
 dod_exit: 0
-dod_assert: 真机报告逐项含设备/构建、步骤、截图或录屏、结果与发现 TD：日光、单手拇指、48dp、TalkBack、200% 字号、保存/失败反馈、减少动态效果、相机/历史对位；所有 P0/P1 发现都有偿还指针
+dod_assert: 真机报告逐项含设备/构建、步骤、截图或录屏、结果与发现 TD：日光、单手拇指、48dp、TalkBack、200% 字号、保存/失败反馈、减少动态效果、相机/历史对位；所有 P0/P1 发现有复测通过的修复，或用户明确风险接受记录（不能豁免项目硬边界）；只有待办指针不算发布通过
+requirements:
+  - "R1 当真机验收发现影响发布的问题时，报告应区分证据采集完成与发布通过；未复测关闭或未经用户明确接受的 P0/P1 不应被标为通过。"
 review_gate: codex {verdict:pass}
 hygiene: 重复证据合并；每个发现只保留能证明风险的一组最小截图/录屏（R4）
 doc_sync: context/DESIGN.md 只同步经证据确认的规则；TASK-BOARD 记录验收结论（R5）
@@ -46,4 +48,4 @@ doc_sync: context/DESIGN.md 只同步经证据确认的规则；TASK-BOARD 记�
 8. 隐私标记与错误/不利发现使用不同颜色和可读文本，不靠颜色单独传意。
 
 ## 发现处理
-验收卡不修生产代码。每个 P0/P1 发现追加到技术债追踪器并开独立卡；报告记录指针后才可通过。
+验收卡不修生产代码。每个 P0/P1 发现追加到技术债追踪器并开独立卡。报告可以记录 FAIL 并完成采集，但本卡发布验收通过须有逐项复测闭合，或用户明确的风险接受记录（不能豁免项目硬边界）；仅开卡/写指针不算关闭。
