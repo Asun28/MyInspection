@@ -2253,3 +2253,11 @@
 - rule: 私有路由状态用独立变量承载，不写入受 ValidateSet 约束的公开参数；真实入口测试须保留原参数验证以捕获运行期赋值错误。
 - enforced_by: scripts/_validation.ps1 Invoke-ValidationTaskEntrypointFixture
 - refs: specs/archive/tasks/T0-SELFTEST-SKILL-ROUTING.md
+
+## L307
+- date: 2026-09-07 ｜ tags: docx,extraction,completeness,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX 提取只处理 w:t 与常见 run 子元素，特殊字符和其他节点的直接字符数据会静默消失，正常段落测试仍全绿。
+- root_cause: 把预期节点名当作全部文本来源，没有对解析树的非空白字符值、命名空间及所在段落逐一界定保留、排除或拒绝。
+- rule: 声明正文完整性前，明确字符值和 run 子元素的处理边界：支持的字符保留原始 Unicode，非正文分页带警告排除，未知非空白字符数据明确拒绝；文本和指令必须匹配受支持的命名空间与上下文，纯格式空白允许。用公开读取入口覆盖字段前后、段落内外及外来命名空间，并以单点故障确认每种分流受断言约束。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
+- refs: specs/archive/tasks/T3-DOCX-REPORT-EXTRACTOR.md; runTokensPreserveHyphensAndExcludeLegacyPages; unsupportedRunContentRejectsClosed; orphanWordTextCannotDisappearFromASuccessfulManifest
