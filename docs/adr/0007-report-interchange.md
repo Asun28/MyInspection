@@ -45,7 +45,7 @@ Only complete bounded non-interlaced RGB8/RGBA8 PNG payloads may qualify as layo
 
 The internal namespace-aware XML tree rejects DTD/entities before external access, with package byte/depth/node/text limits remaining upstream. The immutable manifest preserves the existing API and DOCX-EXTRACT-1 encoding with independent vectors and copied/read-only collections. Normalization explicitly fixes the original six ASCII whitespace characters to avoid platform regex drift.
 
-`T3-DOCX-CUSTOM-PROPERTIES` follows reader and extractor: admit only the fixed transitional custom-properties part with exact content type/root and one internal package-root relationship, apply existing ZIP/XML safety/resource bounds, then discard before returned parts and extraction. Names, values and comments never become report evidence or diagnostics. Inert child XML remains opaque; no broad metadata allowlist, runtime fetching, full private-source import or remote TD174 completion is implied.
+`T3-DOCX-CUSTOM-PROPERTIES` follows reader and extractor: admit only the fixed transitional custom-properties part with exact content type/root and one internal package-root relationship, apply existing ZIP/XML safety/resource bounds, then discard before returned parts and extraction. Names, values and comments never become report evidence or diagnostics. Inert child XML remains opaque; no broad metadata allowlist, runtime fetching, full private-source import or implementation delivery is implied.
 
 ### Shared semantic boundary
 

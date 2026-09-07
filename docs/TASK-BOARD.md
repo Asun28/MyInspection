@@ -151,7 +151,7 @@
 | W4 | T3-DOCX-EXTRACTION-MANIFEST | 不可变提取证据模型与独立摘要向量 | — | M | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 待实施；保留 DOCX-EXTRACT-1 格式和独立摘要向量 |
 | W4 | T3-DOCX-XML-TREE | 已验证 DOCX part 的安全 XML 树与拒绝外部访问测试 | T3-DOCX-PACKAGE-READER | M | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 待实施；独立解析器验收，资源上界沿用 reader |
 | W4 | T3-DOCX-REPORT-EXTRACTOR | 多 story/表格/段落/inline+anchor → 可审 extraction manifest | T3-DOCX-PACKAGE-READER,T3-DOCX-IMAGE-QUALIFICATION,T3-DOCX-EXTRACTION-MANIFEST,T3-DOCX-XML-TREE | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 合成 64 row / 89 caption / 67 photo 对抗夹具；私样不入库 |
-| W4 | T3-DOCX-CUSTOM-PROPERTIES | 有界校验后丢弃 DOCX 自定义属性（TD174） | T3-DOCX-PACKAGE-READER,T3-DOCX-REPORT-EXTRACTOR | M | GPT-6 Astra | GPT-5.6 Sol R3 | 待实施；固定自定义属性有界校验后丢弃，不宣称完整私样导入 |
+| W4 | T3-DOCX-CUSTOM-PROPERTIES | 有界校验后丢弃 DOCX 自定义属性 | T3-DOCX-PACKAGE-READER,T3-DOCX-REPORT-EXTRACTOR | M | GPT-6 Astra | GPT-5.6 Sol R3 | 待实施；固定自定义属性有界校验后丢弃，不宣称完整私样导入 |
 | W4 | T3-REPORT-IMPORT-PLAN-SNAPSHOT | 不可变导入模型、选定上下文与房间目标校验 | T2-ROUTINE-CONTEXT-V2,T3-DOCX-REPORT-EXTRACTOR | M | GPT-5.6 Terra · high | GPT-5.6 Sol · high | 待实施；保留原生计数标签与抑制语义，目标初始未评级 |
 | W4 | T3-REPORT-IMPORT-PLAN-PROJECTION | 不可变来源清单、重复房间目标与保守候选 | T2-ROUTINE-CONTEXT-V2,T3-DOCX-REPORT-EXTRACTOR,T3-REPORT-IMPORT-PLAN-SNAPSHOT | M | GPT-5.6 Terra · high | GPT-5.6 Sol · high | 待实施；消费 SNAPSHOT，与父卡串行，保守状态建议 |
 | W4 | T3-REPORT-IMPORT-PLANNER | ROUTINE extraction → 穷尽式映射/排除/阻塞 review plan | T2-ROUTINE-CONTEXT-V2,T3-DOCX-REPORT-EXTRACTOR,T3-REPORT-IMPORT-PLAN-PROJECTION | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 承接确认、当前预览与回执；状态只建议不确认；照片默认 privacy-review-required |

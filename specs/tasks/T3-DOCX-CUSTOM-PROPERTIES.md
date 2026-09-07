@@ -1,6 +1,6 @@
 ---
 id: T3-DOCX-CUSTOM-PROPERTIES
-title: Bounded custom document properties validation and discard (TD174)
+title: Bounded custom document properties validation and discard
 status: todo
 depends_on: [T3-DOCX-PACKAGE-READER, T3-DOCX-REPORT-EXTRACTOR]
 allow_paths:
@@ -23,12 +23,12 @@ dod_exit: 0
 dod_assert: real in-memory ZIP/XML fixtures verify exact binding, inert discard, unchanged semantic digest, all custom-part limits and privacy-safe rejection
 review_gate: codex {verdict:pass}
 hygiene: directed assertion mutations on final source and actual redundant-test deletion only if all relevant faults remain caught
-doc_sync: SECURITY + ADR-0007 + TASK-BOARD; TD174 paid only for the custom-properties boundary, without claiming full private-source import
+doc_sync: SECURITY + ADR-0007 + TASK-BOARD; record only the custom-properties boundary delivery, without claiming full private-source import
 ---
 
 # T3-DOCX-CUSTOM-PROPERTIES
 
-Custom document properties are a known upstream compatibility rejection (local follow-up TD174); this registration does not mark remote technical debt paid. Extend the existing reader rather than adding a second parser or metadata model. The custom part remains unclassified by `partKind`, so the existing final projection discards it only after complete validation.
+This card registers bounded custom document properties compatibility; implementation remains pending remote delivery. Extend the existing reader rather than adding a second parser or metadata model. The custom part remains unclassified by `partKind`, so the existing final projection discards it only after complete validation.
 
 The exact package path, MIME, relationship type and root namespace follow transitional OOXML. Reference: Microsoft Open XML SDK `CustomFilePropertiesPart` and custom `Properties`. Only the newly supported custom part requires one package-root relationship; existing core/app metadata behaviour is unchanged. An absent custom part needs no relationship. Dangling references and duplicate normalized ZIP names retain existing rejection behaviour.
 
