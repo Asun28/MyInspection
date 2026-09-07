@@ -173,7 +173,7 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 纯文档 PR 仍产生同名 `verify` 状态，避免 required check 因 `pull_request.paths-ignore` 永久停在 Expected。只有非空改动全部位于 `docs/**`、`specs/**` 或为 Markdown 时才走轻量通道；该通道仍 fail-closed 运行卡片校验、归档索引投影与普通密钥扫描，跳过 Python/Java/Android/Gradle、许可和产品 E2E。源码、脚本、workflow、混合或分类失败一律完整 CI。默认分支纯文档 push 继续由既有 `paths-ignore` 跳过；含代码 push 与手动触发完整执行。
 
-`scaffold-selftest` 不进 PR 必需检查；默认分支权威面 push、每日 03:17 UTC 或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。PR 仍由卡 DoD、verify、R3 守门。
+`scaffold-selftest` 不进 PR 必需检查；默认分支 push 仅覆盖脚手架权威面，排除产品 `configs/compliance/**`，保留 `configs/licenses/**`、`configs/secrets/**`、每日 03:17 UTC 与手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。产品卡使用相关产品测试 + verify + R3；脚手架卡可用聚焦 fixture 迭代，最终验收仍按卡执行。
 
 本地 `scripts/selftest.ps1` 默认 `-IncludeMeta:$false`，与普通 push 一样延后三处元层测试：
 `1i/fixtures` 的编号合成用例、`8.2e/protocol` 的失败/跳过协议用例、`8.2e/harness` 的聚合压力夹具。
