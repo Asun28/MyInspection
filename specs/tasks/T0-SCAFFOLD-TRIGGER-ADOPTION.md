@@ -3,7 +3,7 @@ id: T0-SCAFFOLD-TRIGGER-ADOPTION
 title: Adopt product-only scaffold trigger exclusion with shared focused proof
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-SCAFFOLD-TRIGGER-ADOPTION
 worktree: C:\wt\T0-SCAFFOLD-TRIGGER-ADOPTION
 allow_paths:
@@ -86,3 +86,5 @@ when that receipt proves a complete exit-0 run on this exact reviewed candidate.
 `1e8986d0` and combined-shard results above are not substituted for this receipt.
 The sibling `focused.log` replays the actual 17ai inventory and all its ordered-site mutants,
 plus the shared trigger and canary fixtures, against the final integration.
+
+Official local delivery: exact feature `1672386367fe112e7c9cc47a719c2b6aa47dd097`, full selftest exit 0 / 1980.670s with all tracked bytes stable; R3 pass on the same SHA; local merge `9229141a189b83037fa33ac66c05e3e140957d0b`. Final evidence preserved in `_local/upstream-v047-implementation/evidence/T0-SCAFFOLD-TRIGGER-ADOPTION/` before cleanup.
