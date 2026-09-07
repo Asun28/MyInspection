@@ -234,10 +234,10 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
    而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
    **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
 
-## R4 变异收据（2026-09-08 · R3 第 5 轮 + 第五六轮本地对抗复核修复后重跑 · 24/24 KILLED）
+## R4 变异收据（2026-09-08 · R3 第 6 轮 + 双半扫描修复后重跑 · 24/24 KILLED）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
-`context/DESIGN.md` = `0630BD4691EC880320DEEFBA9CC606C209A5310280DF50BA804914B31EFA1A1D` ·
+`context/DESIGN.md` = `64E20D382317BC72D138606AF29A3D4F88BA62A46443159FB4F0DC1AA43332A1` ·
 `docs/UI-UX-ELEMENTS.md` = `F1364E4823FA7E3ED41CCC8E7F5C4D51FE27E4822EC1EEF6E60AF4CDBF497BA8`。
 基线 `dod_command` 退出 **0**（GREEN）；24 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚，L190）、断言渲染后文本与 SHA 均已改变
@@ -442,6 +442,39 @@ WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：
 它声明的每一个状态回答「除颜色之外由什么承载」——于是查出**六处既有的 WCAG 1.4.1 缺口**，
 其中一处在签名组件 evidence rail 的默认态上。这些缺口在规则含糊（播报可替代视觉）时是看不见的。
 
+## R3 第 6 轮 + 双半扫描（2026-09-08）
+
+### R3 第 6 轮（block · 2 条 · 均属实 · 均由第 5 轮修法引入）
+
+两条都落在**播报半**，而非视觉半：`task-stepper` 声明四态却只播报 current 与 failed；
+`metadata-row` 把图标改成必带、只说「状态图标不隐藏」，却没要求任何**已授权的描述**命名该状态，
+于是 warning/error 对辅助技术仍是裸字形。
+
+**我自己的盲点**：规则有两半（视觉线索 + 播报），我把视觉半扫得很彻底，却默认播报半自动成立。
+第 5 轮我给若干行加了**必带字形**——字形恰恰没有文字，正是最需要播报的那一类。
+
+### 双半扫描（本地第六轮复核 · 按两半同时代入每个带状态轴的合同）
+
+改用「A 非颜色视觉线索 / B 无自身可见文字时 owner 另外播报」**两半同时判**，
+再查出 5 处「语义格播报的范围窄于该行自己的状态清单」——与第 6 轮同型：
+
+| 行 | 未覆盖状态 | 修法（统一句式：在确定性格追加一句声明载体） |
+|---|---|---|
+| `history-evidence-strip` | `archived` | `; an archived record names its archived state` |
+| `media-preview` | `error` | `; an error names its cause` |
+| `remediation-suggestion-card` | `failed` | `; a failed generation names its cause and keeps the on-device suggestion` |
+| `report-action-sheet` | `preparing` / `error` | `; preparing and error each name their state` |
+| `media-assignment-row` (V1.1) | `saving` | `; a saving row names that it is saving` |
+
+复核者同时给出**逐行通过清单**（自带可见文字者约 28 行；靠字形/位置但播报已显式声明者 10 行，
+逐条引用救它的那一句），并明确划线说明两处**不**判为失败的理由（`verification-receipt` 的
+`verified/stale state` 按通用状态字段读；`photo-evidence-tile` 的 `TEMPORARY` 由相机复核流的
+`Retake` / `Use photo` 作为 owner 可见文字）。
+
+**方法论第三处补记**：规则若有两半，代入表必须**两半同时判**。只判一半时，
+「为满足另一半而新增的载体」会系统性地制造出未覆盖项——第 5 轮加的每一个必带字形，
+都在播报半上开了一个新口子。
+
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
@@ -452,3 +485,4 @@ WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：
 | 2026-09-08 | R3 第 3 轮 1 条 finding 属实：`state-badge` 语义格只保证「状态」，漏掉同行声明的 `SOURCE` 变体。改为保证「值」并在载体规则举例补 source；DoD 锚点与 M5/M12 同步。R4 按最终字节重跑 23/23。 |
 | 2026-09-08 | R3 第 4 轮 2 条属实（闭集词汇与 `summary-stat` 条件句），本地对抗复核第三/四轮再出 5 条属实。字形词汇那一句累计五次改写失败，复核者按位置统计确认它是独立子问题、其余已收敛。最终不再改措辞，而是同时消掉「太宽」（作用域缩到五个具名状态）与「太窄」（例外按行声明的标记形态给）两个方向的全称。R4 按最终字节重跑 23/23。 |
 | 2026-09-08 | R3 第 5 轮 1 条属实且命中 `forbid` 第 1 条：把播报当作与颜色并列的充分载体，弱化了 WCAG 1.4.1 下限（播报服务屏幕阅读器，不是明眼可见的视觉线索）。句 2 拆为「非颜色视觉线索」+「无自身可见文字时 owner 另外播报」，播报只补充不替代；新增锚点与 M24。收紧后暴露并关掉六处既有无障碍缺口，含签名组件 evidence rail 的默认态与 `task-stepper` 的失败阶段。R4 按最终字节重跑 24/24。 |
+| 2026-09-08 | R3 第 6 轮 2 条属实，均落播报半、均由第 5 轮修法引入（加了必带字形却未加播报）。改用两半同时代入的扫描法，再查出 5 处语义格播报窄于状态清单并统一修法。补记方法论第三处：规则有两半时代入表须两半同时判。R4 按最终字节重跑 24/24。 |
