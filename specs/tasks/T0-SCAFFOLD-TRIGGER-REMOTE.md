@@ -12,6 +12,8 @@ allow_paths:
   - docs/DEVOPS-WORKFLOW.md
   - docs/DELIVERY-CHAINS.md
   - specs/tasks/T0-SCAFFOLD-TRIGGER-REMOTE.md
+  - specs/archive/tasks/T0-SCAFFOLD-TRIGGER-REMOTE.md
+  - specs/archive/cards-index.md
 forbid:
   - Removing or weakening an existing selftest assertion, shard, operating system, job, or manual-dispatch path
   - Changing product tests, verify, R3, timeouts, dependencies, release, or deployment behavior
