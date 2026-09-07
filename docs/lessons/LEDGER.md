@@ -157,7 +157,7 @@
 - refs:
 
 ## L18
-- date: 2026-06-03 ｜ tags: codex,review,allow_paths,ship,card-meta,rebase ｜ tier: ondemand ｜ severity: major ｜ recurrence: 2
+- date: 2026-06-03 ｜ tags: codex,review,allow_paths,ship,card-meta,rebase ｜ tier: ondemand ｜ severity: major ｜ recurrence: 3
 - symptom: codex review.ps1 对必要的跨 allow_paths 改动误判 block；又：把任务卡自身 specs/tasks/<ID>.md 的 allow_paths/status 改动放进功能分支 → codex block「该路径不在本卡 allow_paths」。
 - root_cause: review.ps1 若不读卡片 allow_paths/边界例外，会按通用硬边界误判；卡 allow_paths 过窄未含必要附带改动。
 - rule: review.ps1 改卡片感知（读 specs/tasks/<branch>.md，honor 卡声明的 allow_paths/边界例外）；卡外必要改动单独提交 main 再 rebase 分支，使卡 diff 纯 allow_paths；卡自身的 allow_paths/status 改动属规划，走 main 的 docs 提交、勿入功能分支 PR。
@@ -1959,7 +1959,7 @@
 - refs: 
 
 ## L270
-- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
 - root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
 - rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
@@ -2055,7 +2055,7 @@
 - refs: 
 
 ## L282
-- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 变异批只按退出码判生死，于是「测试变红」与「根本没编译过」共用同一个 exit=1；批跑完宣称「N/N 全杀、零编译型假击杀」时，手上其实没有任何证据支持后半句。
 - root_cause: 构建工具对编译失败与测试失败返回同一个非零码（Gradle 恒为 1），而变异脚本为了跑得快通常把输出丢弃（`*> $null`），连事后翻日志分辨都做不到。一枚编译不过的变异对「测试是否在测」零信息量——它只证明了编译器还在。
 - rule: 变异批之外再跑一遍**只编译**的探针（同一批锚点、同一份单点替换，命令换成 `:core:compileTestKotlin` 之类不跑测试的目标），逐枚要求 exit 0；收据里把两条结论分开写：「19 枚全部编译通过」+「19 枚全部被测试杀死」。两条都有机检输出才允许写「零编译型假击杀」。探针可复用变异定义文件，成本约为主批的三分之一。
