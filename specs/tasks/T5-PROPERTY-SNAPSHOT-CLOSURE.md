@@ -27,6 +27,8 @@ review_gate: codex {verdict:pass}
 
 版本：V1 发布范围，依赖经过评审的 format v2。复用 T5-BACKUP-IO 的一致性快照能力；本卡只拥有 scope 投影与 closure verifier，不另造归档加密/SAF writer。
 
+生产 v2 writer/SAF 导出与最终对象关闭重开全验由 T5-PROPERTY-RESTORE-INTEGRATION 接线验收；本卡通过不代表物业备份端到端可用。
+
 逐表选择规则必须逐字核对 ADR-0006，新增表无规则即失败。格式级摘要与数据闭包完整性是两个不同证明，不能只凭 manifest hash 通过闭包。
 
 
