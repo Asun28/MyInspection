@@ -28,7 +28,7 @@ acceptance:
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
   - "A5 the amended status clause still forbids colour from being the sole carrier of state, and states its satisfying carriers rather than requiring a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the state the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
+dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
 dod_exit: 0
 dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
@@ -234,10 +234,10 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
    而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
    **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
 
-## R4 变异收据（2026-09-07 · R3 第 2 轮 + 本地对抗复核修复后重跑 · 23/23 KILLED）
+## R4 变异收据（2026-09-08 · R3 第 3 轮修复后重跑 · 23/23 KILLED）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
-`context/DESIGN.md` = `FA59ACA33B7BAD6E9CE005DF3E1E8FFB31DC6CF08C5A9FCBA1FD41EEC4F1B836` ·
+`context/DESIGN.md` = `1BE0734ADC1E56CBAD06083AD10A6598250A98CE977F141A194B9B34CF1BFF15` ·
 `docs/UI-UX-ELEMENTS.md` = `F1364E4823FA7E3ED41CCC8E7F5C4D51FE27E4822EC1EEF6E60AF4CDBF497BA8`。
 基线 `dod_command` 退出 **0**（GREEN）；23 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚，L190）、断言渲染后文本与 SHA 均已改变
@@ -347,6 +347,23 @@ L309 说「给成熟文档加中心规则前先做实例代入表」。本卡照
 声明，条件 3「tooltip 携同一短语」因此没有唯一指代。该矛盾在基线即存在，且被本卡替换的
 旧 `icon-button` 行本就带同一依赖；收口它属于 Back 标签合同，超出本卡范围。
 
+## R3 第 3 轮（2026-09-08 · block · 1 条 finding · 属实）
+
+`state-badge` 的语义格被我改写成「owner 也表达该徽标所标记的**状态**」，但同一行还声明了
+`SOURCE` 变体——**来源是记录持有的值、不是状态**，于是该变体落在保证之外，可以违反
+载体规则「领域值永不由字形单独承载」。
+
+**属实，且是本卡自己制造的窄口**：我为给 A5 腾出唯一锚点而改写这一行时，只想着 `DOT`
+标记状态这一种用法，没回头看该行自己声明的四个变体（`COUNT / DOT / STATUS / SOURCE`）。
+
+修法两处：语义格改为「owner 也表达该徽标所标记的**值**」（严格放宽，四个变体全覆盖）；
+载体规则的举例补上 `a source`，让覆盖面在定义处就看得见。DoD 锚点与 M5/M12 同步改到
+`the owner also expresses the value the badge marks`。
+
+**又一次同型**：这已是第四次「新写的句子比它要覆盖的实例窄」。前三次的对象是整份文档的实例，
+这次的对象是**被改写那一行自己声明的变体清单**——代入表连这一层也要扫：
+改写任何一行时，先把该行自己的 variants 逐个代入新措辞。
+
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
@@ -354,3 +371,4 @@ L309 说「给成熟文档加中心规则前先做实例代入表」。本卡照
 | 2026-09-06 | 建卡：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（6 轮 R3 / 11 条 finding 全属实但未收敛，用户裁定关 PR #236 重做）。合并原 `T4-DESIGN-SYMBOL-COMPONENT-ROWS` 的相机面与逐行对齐范围（该卡同日撤销，未曾开工）。新增「必做前置：实例代入表」为本卡与前卡的唯一方法论差别（L309）。 |
 | 2026-09-07 | 实现：新增 `Symbol-only chrome` 具名节（载体规则 + 5 条准入 + 三处更严合同点名）；四处条款改为解析到它，计数/两处状态条款按 A4/A5 重写，`:1748` 加具名相机例外，`:926` 按 OD-2 补播报。OD-1 取 (b)、OD-2 取 (a)（用户裁定）。先建实例代入表后写规则正文（`forbid` 第 7 条）；R4 22/22 击杀。 |
 | 2026-09-07 | R3 第 2 轮 1 条 finding 属实（状态条款仍全称要求字形，九个合同证伪）；按 L309 识别信号停手，从 17 个承载状态的合同反推析取式。随后本地跑两轮 fresh-context 对抗复核，9 条中 7 条属实全部当场修、1 条驳回、1 条记 FOLLOW-UP，未烧 R3 轮次。补记方法论两处缺口：周边被改写条款同样要代入，且实例代入表管不了新句与新句相互矛盾。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 3 轮 1 条 finding 属实：`state-badge` 语义格只保证「状态」，漏掉同行声明的 `SOURCE` 变体。改为保证「值」并在载体规则举例补 source；DoD 锚点与 M5/M12 同步。R4 按最终字节重跑 23/23。 |
