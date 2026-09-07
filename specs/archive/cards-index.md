@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 187 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 188 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -146,6 +146,7 @@
 | T2-REPEATABLE-ROOM-RUNTIME | merged | 偿还 TD26：重复房间实例化、完备性与历史基线统一到实例维度 |
 | T2-ROOM-REPEATABLE | merged | 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8） |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
+| T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
 | T3-DOCX-CUSTOM-PROPERTIES | merged | Bounded custom document properties validation and discard (TD174) |
 | T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
 | T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image qualification for safe layout-shim exclusion |
