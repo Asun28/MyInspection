@@ -44,6 +44,13 @@ Repeatability controls whether multiple instances are allowed; it does not by it
 The snapshot must preserve this existing native convention, with explicit single-instance positive
 and negative tests. This source citation clarifies A4; it does not change its acceptance criterion.
 
+The same native function first filters `check_item_def` by `stable_id !in suppressedStableIds`,
+then forms `activeItemRoomKeys` and retains only declared rooms in that set. Consequently A4's
+required room inventory is the configured inventory for rooms with at least one unsuppressed
+item. A fully suppressed room contributes neither a required room instance nor a target;
+a partially suppressed room remains required. This convention already existed at the
+pre-card baseline `043de67b`; requiring fully suppressed rooms would diverge from capture.
+
 This predecessor follows the projection candidate's independent pre-review. The
 980-line candidate needs input-freezing, date-validation, initial-unrated and source
 coverage corrections; completing its missing behavior coverage exceeds the unchanged
