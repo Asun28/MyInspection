@@ -3,7 +3,7 @@ id: T3-REPORT-IMPORT-PLAN-SNAPSHOT
 title: Immutable import plan model and selected-context preflight snapshot
 depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-IMPORT-PLAN-SNAPSHOT
 worktree: C:\wt\T3-REPORT-IMPORT-PLAN-SNAPSHOT
 allow_paths:
@@ -56,3 +56,21 @@ This predecessor follows the projection candidate's independent pre-review. The
 coverage corrections; completing its missing behavior coverage exceeds the unchanged
 1000-line budget. Preserve its worktree and RED evidence. This new card has its own
 RED, DoD, review and delivery; no review-counter reset or acceptance reduction is implied.
+
+## Delivery record — 2026-09-08
+
+Locally merged as `8fba92e3c99a4fb0e60e1d5aed46d40640b1dd20`; reviewed feature
+`bb6315a0c6e41e29e6b957f794de83f78efef67e` received formal R3 pass after one
+user-authorized counter restoration. Both prior block verdicts and the native
+capture evidence addressing their label/inventory assumptions remain preserved.
+No review bypass or acceptance reduction occurred.
+
+DoD: 6 tests, zero failures/errors/skips. Project verify: 983 core plus 6 E2E
+tests, zero failures/errors; four existing Windows media tests skipped. Thirty
+valid behavior-mutation runs cover 29 distinct faults; one compile-only attempt
+is explicitly excluded. The final production bytes remain unchanged from the
+initial frozen implementation; subsequent tests added missing boundary coverage.
+Scope, license, secrets and size checks passed (394 changed lines, 27291 diff
+characters). Evidence is retained under `_local/card-loop-01a073fa-import-planner/`.
+This delivers the immutable model and selected-context snapshot only; source
+projection, user review, receipt, native writes and device acceptance remain later work.

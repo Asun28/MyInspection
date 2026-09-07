@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-SNAPSHOT` 已合并（master `8fba92e3`，正式 R3 pass，用户批准一次计数重置）；不可变上下文、严格日期、Routine v2 绑定及未抑制目标初始未评级已交付，沿用原生房间标签与抑制规则。6 项本卡测试、983 core + 6 E2E 验证通过，4 项既有 Windows media 测试跳过；30 次有效行为变异覆盖 29 种故障。来源投影、确认与导入写入尚未交付。
+
 **2026-09-07 本地交付**：`T3-DOCX-CUSTOM-PROPERTIES` 已合并（master `b00bcbcd`，R3 pass）；94 项本卡测试、10 项最终源码变异通过。TD174 的固定自定义属性部件有界校验后丢弃已实现，源元数据不进入提取结果；未宣称完整私样导入或真机验收。
 
 **2026-09-07 需求审校**：两张收尾卡已本地合并，卡片/安全接口 `d6e22084`、五文档同步 `bdb428f0`，均正式 R3 第2轮 pass。11张新产品卡保持待实施；文档交付不代表功能完成。V1 预设/键盘、V1.1 批量照片、产品 V2 语音；物业备份 format v2 导出与恢复仍在 V1 发布范围。
