@@ -1639,7 +1639,7 @@
 - refs: 
 
 ## L227
-- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 卡片要求把独立第二模型复核记录/证据附进 PR（如 T2-PHRASELIB 的 deepseek-rescue 复核记录），写进 PR body 后 R3 仍以「未见证据」block——两轮均如此
 - root_cause: scripts/review.ps1 只把 git diff 喂给 codex 评审者（見 gh pr comment 用于回贴结果，全脚本无 gh pr view/--json body 读 PR 描述的调用），PR body/描述从未进入评审者的上下文；凡卡片要求「记录进 PR」的证据，只写 PR body 对 R3 不可见，等同没写
 - rule: 凡卡片/rubric 要求评审者能看到的证据（如独立复核记录），必须落进 diff 本身能读到的位置：改动文件的 KDoc/注释、或 commit message 正文（review.ps1 喂给评审者的是 diff，commit message 是否随 diff 一并喂入需按 review.ps1 实际实现核实，不确定时优先落文件内注释，最可靠）；PR body/描述只对人类可见，别指望它进 R3 评审上下文
