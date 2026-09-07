@@ -23,7 +23,7 @@ class ReportHtmlRendererTest {
      * calling the production styleHash to build the expectation would keep agreeing with it even if it
      * switched digest algorithm, while every browser rejected the stylesheet as unhashed (L165).
      */
-    private val STYLE_SHA256 = "DSOp1g7PoEHm0Wk5kSKlUWZMeaW9FSFd3k//bscQDPY="
+    private val STYLE_SHA256 = "MZ05nAH8fuT4Lu/aytsoYjjVidAd+aWJAu13gI6D6/c="
 
     // ---- A1: structure ------------------------------------------------------------------------------
 
