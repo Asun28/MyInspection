@@ -68,6 +68,8 @@
 
 #### 自包含 HTML 报告
 
+实施记录（2026-09-08，PR #250）：样式表仅使用系统字体，禁止任何 `url()` 与 `@import`；隐私过滤仍在样式生成前完成。固定 CSP 样式摘要与规则/渲染字节测试通过，未宣称实际浏览器视觉验收。
+
 - PDF/HTML 只序列化同一个 audience/privacy-filtered `ReportContent`；renderer 不回查/重滤/CSS 隐藏。HTML 是 UTF-8、正确 MIME、上下文转义且不含原始导入标记。
 - HTML 禁 script/handler/form/iframe/object/embed/base/meta refresh/外部 URL；只许生成器样式和经验证的内嵌图片，并以 CSP 禁网络/导航/主动内容。质量仅属于 PDF。
 - 重开验证 artifact hash/MIME 后才可 Open/Save/Share；只授予临时只读 `content://`，并显示明文外移边界。

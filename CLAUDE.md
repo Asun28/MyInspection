@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 远端交付**：`T3-REPORT-HTML-PRESENTATION` 经 PR #250 合并（`e792ea75`）；46 项测试、正式 R3 与候选 CI 通过。响应式/A4 print/dark/forced-colors 规则、class parity 与 CSP 字节已验证；浏览器布局和字形未验收。
+
 **2026-09-08 需求审校远端补交**：新增卡/接口与既有卡修订分别由 `T7-AUDIT-REMOTE-FOUNDATION`、`T7-AUDIT-REMOTE-CARDS` 交付；本次 `T7-AUDIT-REMOTE-DOCS` 同步五份文档。11张新功能卡仍待实施；V1预设/键盘、V1.1批量照片、产品V2语音，物业备份format v2导出/恢复仍属V1。检查与合并状态以各PR记录为准。
 
 <!-- 随 R5 文档同步更新。 -->
