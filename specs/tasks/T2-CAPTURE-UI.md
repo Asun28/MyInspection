@@ -1,8 +1,8 @@
 ---
 id: T2-CAPTURE-UI
 title: Field Ledger Compose 走查：房间导航 + 状态/证据 + 备注/拍照
-depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T1-SHARE-SCREEN-PRIVACY, T2-FIELD-LEDGER-THEME-R3-CLOSURE, T2-REPEATABLE-ROOM-RUNTIME]
-parallelizable_with: [T3-REPORT-COMPOSER, T3-FINALIZE]
+depends_on: [T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T1-SHARE-SCREEN-PRIVACY, T2-FIELD-LEDGER-THEME-R3-CLOSURE, T2-REPEATABLE-ROOM-RUNTIME, T1-APP-BOUNDARY-ASSEMBLY, T2-MEDIA-ACCESS-BOUNDARY, T2-PHRASELIB]
+parallelizable_with: []
 status: todo
 branch: T2-CAPTURE-UI
 worktree: C:\wt\T2-CAPTURE-UI
@@ -12,6 +12,7 @@ allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/feature/
   - android/app/src/main/kotlin/nz/myinspection/app/media/camera/
   - android/app/src/main/res/
+  - android/app/src/test/kotlin/nz/myinspection/app/feature/capture/
 forbid:
   - 业务判断写进 Composable/ViewModel（判定一律调 :core；UI 只呈现与转发）
   - 下拉框选状态（需求 §5：大按钮）
@@ -25,9 +26,14 @@ acceptance:
   - "A3 permission denial preserves an offline fallback"
   - "A4 controls meet 48dp, 200% text, and TalkBack requirements"
   - "A5 main-thread work stays bounded with LRU and performance checks"
+  - "A6 [R1] 预设选择、撤销、编辑与杀进程恢复保留已保存备注；release 不包含本卡引入的录音/听写入口或麦克风请求。"
+  - "A7 [R2] 真实 fixture 证明保存与证据错误来自核心，ViewModel/Composable 不取得 DB 或任意存储根；导航消费 T1-APP-BOUNDARY-ASSEMBLY。"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.capture.*"
 dod_exit: 0
-dod_assert: app 主题/语义单测 + assembleDebug + capture 核测试全绿（UI 未旁路核心规则）；真机走完一个两房间 fixture：Field Ledger 固定主题、状态大按钮、短语/听写、全景与不利发现拍照提示、杀进程恢复；记录附 PR
+dod_assert: app 主题/语义单测 + assembleDebug + capture 核测试全绿（UI 未旁路核心规则）；真机走完一个两房间 fixture：Field Ledger 固定主题、状态大按钮、预设短语/键盘、全景与不利发现拍照提示、杀进程恢复；记录附 PR
+requirements:
+  - "R1 当用户编辑备注时，V1 应提供简单预设短语与键盘，短语插入可撤销且不覆盖现有文字，不应自动改变评级。"
+  - "R2 当 UI 保存、完成或附加证据时，系统应调用装配入口提供的窄用例，业务校验仍由核心完成。"
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: TASK-BOARD 备注（R5）
@@ -39,7 +45,7 @@ doc_sync: TASK-BOARD 备注（R5）
 可在真机走完整次巡检采集的 Compose 界面（物业列表→建巡检→房间走查→项目卡片→拍照/备注→完成度指示）。
 
 ## 上下文包（执行模型必读）
-- **触摸优先铁律**（需求 §5）：大点击区（≥ 48dp、单手拇指可达）、不用下拉；键盘输入最小化——备注入口顺序：短语库（底部弹层按分类+按项推荐 `suggestFor(stableId,status)`，shortcut 展开）> 系统听写（离线可用性按 spike 报告；不可用则按钮隐藏；**音频随当前项绑定存储**——事后配对成本 45–60 分钟的反面教材见 synthesis #7）> 键盘兜底。
+- **触摸优先铁律**（需求 §5）：大点击区（≥ 48dp、单手拇指可达）、不用下拉；键盘输入最小化——备注入口顺序：短语库（底部弹层按分类+按项推荐 `suggestFor(stableId,status)`，shortcut 展开）> 键盘输入。V1 不显示 app-owned 麦克风/听写或批量导入入口；语音归 V2，批量照片归 V1.1。
 - **二值主评级 + 长按/二段细分**（synthesis #2：NZ 官方表与 myInspections 双双二值）：主控件两枚大按钮 [OK ✓]（落库 GOOD/NO_ISSUE）与 [需注意]（弹出 FAIR/POOR（或年检三档）+ 备注/拍照面板）；N_A 与「本物业不存在」（写 property_item_override，永久抑制）收进溢出菜单。存储枚举不变，纯 UI 层。
 - **缺失计数橙条**（HappyCo 模式，synthesis #8）：顶部常驻「还差 N 项/N 照/N 备注」，点击滚动到下一缺失处；数据全来自 :core 完备性查询。**警示不硬拦**——硬闸只在 finalize。
 - **房间级批量**：「余项全标 OK」带确认（HappyCo Rate All 先例；防 PI 式逐格 N/A 差评根因）。
