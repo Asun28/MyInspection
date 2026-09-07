@@ -428,6 +428,8 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
 
+22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
+
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
 - **R1 worktree**：每卡建 `<WorktreeRoot>\<ID>` 隔离分支（.venv/node_modules 每树独立、gitignored）

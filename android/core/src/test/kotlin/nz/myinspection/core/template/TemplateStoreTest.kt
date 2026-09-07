@@ -19,10 +19,16 @@ import kotlin.test.assertTrue
 /**
  * 入库/读回的往返测试，跑在 JdbcSqliteDriver 内存库上（真 SQLite，非 mock——`check_item_def` 的
  * 守卫与唯一索引都是真的在起作用）。
- * A6 mutation receipt: deleting the complete `templateRoomDefQueries.insert` statement and running the
- * single round-trip test with `--rerun-tasks --no-build-cache` exited 1; the classifier matched expected
- * BEDROOM/KITCHEN rooms versus `rooms=[]`. Before this receipt comment was appended, the source restored
- * byte-exact to SHA-256 9a1f0ffc...f88e88.
+ * Mutation receipt (2026-09-07): TemplateStore.kt SHA-256
+ * ae8412b5d4f8c510d616648937d4c5ee89b989570591811f32f45aaa76b18783.
+ * Command from worktree root: cmd /c android\gradlew.bat -p android --offline --no-daemon -q
+ * --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.template.TemplateStoreTest"
+ * Removing the type predicate, removing the version predicate, and changing 2L to 1L each exited 1
+ * in `current Routine never falls back to v1 other types or a newer version`.
+ * Replacing templateRoomDefQueries.insert(...).value with 1L (no write, claimed success) exited 1
+ * in `persist then read round-trips the whole template`, revalidating the existing A6 room-write guard.
+ * Every required failure was a fresh AssertionError, not a compile failure. Exact source bytes restored;
+ * the same command exited 0 with all 17 tests passing before this receipt comment was appended.
  */
 class TemplateStoreTest {
     private lateinit var driver: JdbcSqliteDriver
@@ -49,6 +55,44 @@ class TemplateStoreTest {
 
     private fun loadRoutineWithRooms(): LoadedTemplate =
         TemplateLoader.load(TemplateTestFixtures.routineTemplateWithRooms().byteInputStream())
+
+    @Test
+    fun `current Routine never falls back to v1 other types or a newer version`() {
+        assertNull(store.currentRoutineVersionId())
+        persistVersion(1)
+        assertNull(store.currentRoutineVersionId())
+        persistVersion(2, "INGOING")
+        assertNull(store.currentRoutineVersionId())
+        persistVersion(3)
+        assertNull(store.currentRoutineVersionId())
+    }
+
+    @Test
+    fun `current Routine selects the stored v2 identity independently of insertion order`() {
+        persistVersion(2, "INGOING")
+        persistVersion(3)
+        persistVersion(1)
+        val v2 = persistVersion(2)
+        assertEquals(v2, store.currentRoutineVersionId())
+        assertEquals(2, store.read(v2)?.version)
+    }
+
+    @Test
+    fun `deleted v2 is unavailable while old identities remain readable`() {
+        val historicalV1 = persistVersion(1)
+        val deletedV2 = persistVersion(2)
+        driver.execute(null, "UPDATE template_version SET deleted_at = 1700000000001 WHERE id = '$deletedV2'", 0)
+        assertNull(store.currentRoutineVersionId())
+        assertEquals(1, store.read(historicalV1)?.version)
+        assertEquals(2, store.read(deletedV2)?.version)
+        val activeV2 = persistVersion(2)
+        assertNotEquals(deletedV2, activeV2)
+        assertEquals(activeV2, store.currentRoutineVersionId())
+        assertEquals(2, store.read(deletedV2)?.version)
+    }
+
+    private fun persistVersion(version: Int, type: String = "ROUTINE"): String =
+        store.persist(TemplateLoader.load(TemplateTestFixtures.template(type = type, version = version).byteInputStream()))
 
     @Test
     fun `persist then read round-trips the whole template`() {
