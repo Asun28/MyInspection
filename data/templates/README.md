@@ -2,12 +2,20 @@
 
 > 写模板内容的人看这一份就够。引擎（解析 / 校验 / 入库 / 版本对齐）在
 > `android/core/src/main/kotlin/nz/myinspection/core/template/`，由 `T1-TEMPLATE-ENGINE` 落地。
-> 本目录当前**只有这份指南**，真实模板内容由 `T2-ROUTINE-CONTENT`（Routine）与
-> `T6-TEMPLATES-REST`（Ingoing / Exit / Annual）填。
+> Routine 内容由 `T2-ROUTINE-CONTENT` 与 `T2-ROUTINE-CONTEXT-V2` 维护；
+> `T6-TEMPLATES-REST` 负责 Ingoing / Exit / Annual。
+
+## Routine 版本
+
+`routine-v1.json` 保留原始字节及 83 项内容，供历史巡检读取。`routine-v2.json` 保留这些项目的全部字段和相对顺序，新增 8 项 Hallway（走廊）检查及 `GEN-SUMMARY-01`（巡检摘要），合计 92 项。摘要使用普通评级和 note，进入既有巡检哈希；不生成独立摘要字段或自动评级。
+
+v2 显式声明全部 8 个房间键，只有 BEDROOM 可重复。旧版未声明 rooms 的兼容行为不变。单份模板的重复 ID、缺失翻译等仍由现有 loader 校验；本卡的字面跨版本测试负责约束内容漂移。
+
+新建和导入草稿使用已定的 Routine v2，不按已安装版本的最大数值选取，也不在缺失 v2 时回退到 v1。APK 资产打包、锁定内容 hash 核验、空库安装和恢复后的装配由 `T1-APP-BOUNDARY-ASSEMBLY` 实现；本目录的 JSON 与 JVM 测试资源本身不证明 APK 已完成这些接线。
 
 ## 文件形态
 
-一类型一文件，命名 `<type 小写>-v<版本号>.json`，如 `routine-v1.json`、`exit-v2.json`。
+每个类型按版本保留文件，命名 `<type 小写>-v<版本号>.json`，如 `routine-v1.json`、`exit-v2.json`。
 
 ```json
 {
