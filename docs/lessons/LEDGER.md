@@ -2261,3 +2261,11 @@
 - rule: 声明正文完整性前，明确字符值和 run 子元素的处理边界：支持的字符保留原始 Unicode，非正文分页带警告排除，未知非空白字符数据明确拒绝；文本和指令必须匹配受支持的命名空间与上下文，纯格式空白允许。用公开读取入口覆盖字段前后、段落内外及外来命名空间，并以单点故障确认每种分流受断言约束。
 - enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
 - refs: specs/archive/tasks/T3-DOCX-REPORT-EXTRACTOR.md; runTokensPreserveHyphensAndExcludeLegacyPages; unsupportedRunContentRejectsClosed; orphanWordTextCannotDisappearFromASuccessfulManifest
+
+## L308
+- date: 2026-09-07 ｜ tags: requirements,cards,integration,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 需求审校卡的独立检查可全绿，但实际物业导出接线没有归属，权威需求仍保留过时单探针说明；两张收尾卡各在首轮R3被拦。
+- root_cause: 只核对模块卡与新增段落，没有沿用户入口到最终产物验证整条生产路径的负责卡，也未逐段对照权威文档的旧说明。
+- rule: 审校任务卡时逐条写出入口、跨模块接线、最终产物和重开验证的负责卡与验收；检查全部权威段落的时间、版本和验证范围，不能以模块单测或新段落覆盖代替完整路径。
+- enforced_by: none（跨卡语义与权威叙述一致性由审校判断，非机械守卫）
+- refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f

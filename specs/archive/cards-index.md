@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 183 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 185 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -188,3 +188,5 @@
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
 | T5-MEDIA-ARCHIVE-SCHEMA | merged | 媒体归档 schema v5：四表形态、约束、索引与查询面 |
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |
+| T7-AUDIT-CARDS-CLOSURE | merged | 需求审校交付一：卡片与安全模块接口 |
+| T7-AUDIT-DOCS-CLOSURE | merged | 需求审校交付二：需求与页面版本一致性 |
