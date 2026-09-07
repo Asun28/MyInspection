@@ -1417,7 +1417,7 @@ The palette is light-first for daylight legibility. Large fields of pure white a
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
 - **Surfaces:** use `surface` for the screen, `surface-container-low` for grouped regions, `surface-container` for active item cards, and `surface-container-high` for selected or raised states. Decorative separators use `outline-variant`; essential card boundaries and focus use `outline`.
 
-Color is never the sole state channel. Status is carried by its glyph, its position and its text together: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy. Where a status carries no visible text, symbol-only chrome governs how it is carried and its state is announced.
+Color is never the sole state channel. Every status is carried by its glyph and its position together with text, and that text is either its own visible label or text or an announcement given by its owner, exactly as the domain-value rule under symbol-only chrome requires: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy. Where a status carries no visible text, symbol-only chrome governs how it is carried and its state is announced.
 
 All light foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference. Camera controls use white over a `64%` black sRGB scrim; the worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
 
@@ -1567,7 +1567,7 @@ A **chrome control** is a control whose meaning is the action it performs. A **d
 A chrome control may omit visible text only when all of the following hold:
 
 1. The glyph is declared by the component contract and stands for exactly one action or one state.
-2. The control carries an authored accessible name naming that action as a verb-object phrase. The name may also state the control's current state. It is never derived from an icon resource name.
+2. The control carries an authored accessible name that names the action it performs. No fixed phrase grammar is imposed, so the accessible names this document already declares for symbol-only controls satisfy this condition as written. The name may also state the control's current state. It is never derived from an icon resource name.
 3. Where the component anatomy declares a tooltip, that tooltip carries the same phrase. A component whose anatomy declares none satisfies this condition as written.
 4. The touch target does not shrink to the visible glyph bounds.
 5. Where the glyph stands for a state, that state is announced as a state change and stays legible without color.
@@ -1641,7 +1641,7 @@ Admission never overrides a stricter component contract. Bottom navigation desti
 | `settings-row` | icon, label, optional summary/current value, trailing affordance | `NAVIGATION / VALUE / TOGGLE / DANGER`; machine `DEFAULT / PRESSED / FOCUSED / BUSY / DISABLED` | Navigation rows open one declared route; toggle rows use the whole row and switch as one target | One merged node except independent help action; value is announced after label | `ListItem` |
 | `metadata-row` | optional icon, label/value or source/time | `ICON_TEXT / LABEL_VALUE / SOURCE_TIME`; neutral/warning/error; machine `DEFAULT / WARNING / ERROR` | Supports a decision but never owns the only action or encodes state by color alone | Merged sentence; decorative icon hidden | `Row` |
 | `overflow-menu` | anchored menu, labelled items, optional separator | closed/open/item focused/action busy | Opens only when at least two secondary commands exist; destructive items are last and visually separated | Trigger announces `More options`; focus enters first enabled item and returns to trigger | `DropdownMenu` |
-| `tooltip` | short action label | hidden/visible | Carries the verb-object phrase named by symbol-only chrome for the components whose anatomy declares it | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
+| `tooltip` | short action label | hidden/visible | Carries the same action name that symbol-only chrome requires, for the components whose anatomy declares it | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
 | `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; the owner also expresses the state the badge marks | `Badge` |
 
 Search is conditional chrome: `search-field` appears only when a collection has more than eight active records or a page contract explicitly needs a query. Filters persist per top-level stack, expose `Clear filters`, and never hide the only recovery action.
