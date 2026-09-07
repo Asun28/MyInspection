@@ -2197,3 +2197,75 @@
 - rule: 凡把某条写进卡片/提问/裁决当作前提，先核三样：① 该段自己有没有 [定]/[待] 标记（相邻段落的标记不自动覆盖，无标记就按未定处理并写明是解释）；② 所引用卡片的 status 字段；③ 所引用产物是否真的在仓里（ls 一下，别信卡片描述）。子代理给的事实更正同样逐条实查再采信——本次三条全对，但正因为查了才知道。
 - enforced_by: 
 - refs: 
+
+## L300
+- date: 2026-09-06 ｜ tags: xml,security,tests ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: DOCX 读取器已禁用外部实体，但仍接收 XInclude；仅靠 XML 字节上限也未实现独立节点预算。
+- root_cause: 将不执行的惰性数据与合同要求的显式拒绝混为一谈，并把间接上界当成独立上界。
+- rule: 写 XML 边界测试前逐项对照安全合同：按命名空间构造 XInclude 真实失败夹具；元素预算在全包累计，并测试多个 XML part 各自未超但合计超限。禁扩展不等于已拒绝。
+- enforced_by:
+- refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt
+
+## L301
+- date: 2026-09-06 ｜ tags: parser,evidence,image,validation ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX 提取器两轮 R3 暴露图片头部被当作安全排除资格，完整 IHDR 或 SOF 后缺少负载仍被丢弃。
+- root_cause: 候选尺寸与完整负载验证未分层，头部测试通过被误当作可丢弃源证据的证明。
+- rule: 当解析结论会丢弃源证据时，将候选元信息与完整负载验证资格分开。仅对明确支持且完整验证的子集授权排除；未知、截断或损坏输入保留待审。用完整图头无负载、重算 CRC 后的坏压缩流、伪造尾标记等真实输入证明边界，并检查失败样例确实到达目标守卫。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
+- refs: specs/archive/tasks/T3-DOCX-IMAGE-QUALIFICATION.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
+
+## L302
+- date: 2026-09-06 ｜ tags: android,regex,determinism ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX evidence normalization used the default whitespace regex; the same interior nonbreaking space is retained by the JDK default but folded by Android Unicode character classes, affecting the digest.
+- root_cause: A JVM test shape was treated as proof of Android regex defaults. Existing vectors used only ASCII whitespace.
+- rule: For Android core logic, check platform regex defaults as well as API availability. When preserving an existing ASCII contract, name its exact characters and verify that set using the actual matcher over all Unicode scalars; add interior non-ASCII counterexamples. Label SDK-source inference separately from ART execution.
+- enforced_by: 
+- refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190; L217
+
+## L303
+- date: 2026-09-06 ｜ tags: gradle,classpath,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A standalone DOCX mutation runner initially selected TestNG 7.5.1 from a cached POM while the worktree Gradle test runtime actually resolved TestNG 7.0.0.
+- root_cause: The runner selected a cached artifact without checking the resolved Gradle module variant and test worker classpath.
+- rule: Build independent mutation runtimes from the same worktree actual Gradle test worker classpath, pin every dependency jar hash, and compile the complete current source/test inputs. A POM or cache presence does not prove the resolved runtime. Keep mismatched-runtime evidence separate and rerun before claiming final results.
+- enforced_by: 
+- refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190
+
+## L304
+- date: 2026-09-06 ｜ tags: powershell,selftest,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 回放夹具替换 Fail 后，后续真实检查被父作用域的替身截获；嵌套同名函数还会破坏递归 AST 的唯一性检查。
+- root_cause: 未限定作用域的 Function provider 写入会修改最近的同名父函数，而不一定创建局部函数。
+- rule: 隔离回放使用 Function:local: 绑定，并验证父处理器身份和真实失败账本效果；保留生产 AST 唯一性断言。
+- enforced_by: scripts/selftest.ps1
+- refs: T0-SELFTEST-META-EXPANSION
+
+## L305
+- date: 2026-09-06 ｜ tags: selftest,meta,routing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 延后协议夹具时，普通自检同时失去了实际生产调用和终端跳过账本的检查。
+- root_cause: 按代码块的夹具名称分类，没有追踪其中辅助函数实际读取的生产源码。
+- rule: 元测试延后前逐层追踪调用；轻量生产检查留在普通路径，并用真实普通入口证明删除生产调用仍然失败。
+- enforced_by: scripts/selftest.ps1
+- refs: T0-SELFTEST-META-EXPANSION
+
+## L306
+- date: 2026-09-06 ｜ tags: powershell,routing,validation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 将内部路由值写回带 ValidateSet 的脚本参数时，运行到分流处抛 ValidationMetadataException。
+- root_cause: PowerShell 参数的验证特性仍约束后续赋值；它不是只在命令行绑定时执行。
+- rule: 私有路由状态用独立变量承载，不写入受 ValidateSet 约束的公开参数；真实入口测试须保留原参数验证以捕获运行期赋值错误。
+- enforced_by: scripts/_validation.ps1 Invoke-ValidationTaskEntrypointFixture
+- refs: specs/archive/tasks/T0-SELFTEST-SKILL-ROUTING.md
+
+## L307
+- date: 2026-09-07 ｜ tags: docx,extraction,completeness,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX 提取只处理 w:t 与常见 run 子元素，特殊字符和其他节点的直接字符数据会静默消失，正常段落测试仍全绿。
+- root_cause: 把预期节点名当作全部文本来源，没有对解析树的非空白字符值、命名空间及所在段落逐一界定保留、排除或拒绝。
+- rule: 声明正文完整性前，明确字符值和 run 子元素的处理边界：支持的字符保留原始 Unicode，非正文分页带警告排除，未知非空白字符数据明确拒绝；文本和指令必须匹配受支持的命名空间与上下文，纯格式空白允许。用公开读取入口覆盖字段前后、段落内外及外来命名空间，并以单点故障确认每种分流受断言约束。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
+- refs: specs/archive/tasks/T3-DOCX-REPORT-EXTRACTOR.md; runTokensPreserveHyphensAndExcludeLegacyPages; unsupportedRunContentRejectsClosed; orphanWordTextCannotDisappearFromASuccessfulManifest
+
+## L308
+- date: 2026-09-07 ｜ tags: requirements,cards,integration,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 需求审校卡的独立检查可全绿，但实际物业导出接线没有归属，权威需求仍保留过时单探针说明；两张收尾卡各在首轮R3被拦。
+- root_cause: 只核对模块卡与新增段落，没有沿用户入口到最终产物验证整条生产路径的负责卡，也未逐段对照权威文档的旧说明。
+- rule: 审校任务卡时逐条写出入口、跨模块接线、最终产物和重开验证的负责卡与验收；检查全部权威段落的时间、版本和验证范围，不能以模块单测或新段落覆盖代替完整路径。
+- enforced_by: none（跨卡语义与权威叙述一致性由审校判断，非机械守卫）
+- refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f

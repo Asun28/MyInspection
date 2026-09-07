@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 175 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 185 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -119,9 +119,11 @@
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SCAFFOLD-SYNC-046 | merged | Evaluate upstream v0.46.0 and advance the scaffold high-water mark |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
+| T0-SELFTEST-META-EXPANSION | merged | Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-SELFTEST-NIGHTLY-META | merged | Run selftest aggregation stress checks nightly with explicit coverage receipts |
 | T0-SELFTEST-RISK-ROUTING | merged | Select existing scaffold selftest coverage from pinned task changes |
+| T0-SELFTEST-SKILL-ROUTING | merged | Route skill-only changes through existing core and workflow coverage without seeded product-indepen… |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
@@ -143,6 +145,11 @@
 | T2-REPEATABLE-ROOM-RUNTIME | merged | 偿还 TD26：重复房间实例化、完备性与历史基线统一到实例维度 |
 | T2-ROOM-REPEATABLE | merged | 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8） |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
+| T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
+| T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image qualification for safe layout-shim exclusion |
+| T3-DOCX-PACKAGE-READER | merged | Bounded no-write OOXML package reader for hostile legacy reports |
+| T3-DOCX-REPORT-EXTRACTOR | merged | Sample-shaped DOCX report extractor with explicit ambiguity |
+| T3-DOCX-XML-TREE | merged | Secure in-memory XML tree for validated DOCX parts |
 | T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |
 | T3-E2E-GATE-ISOLATION | merged | 将 Golden Evidence 拆入独立 e2eTest source set 并由 Gate 2 单独执行 |
 | T3-E2E-GATE-PORTABILITY | merged | 修复 verify Gradle wrapper 的 Windows/Linux 跨平台执行 |
@@ -158,6 +165,7 @@
 | T3-REPORT-CONTENT-CONTRACT | merged | Shared privacy-filtered report content for native PDF and HTML parity |
 | T3-REPORT-HTML-CHARACTER-POLICY | merged | Contextual HTML escaping and the character policy the document can actually honour |
 | T3-REPORT-HTML-EVIDENCE-PORT | merged | The evidence byte port, what it may hand over, and the limits it is handed |
+| T3-REPORT-HTML-PRESENTATION | merged | Responsive, printable, dark and forced-colour stylesheet for the self-contained report |
 | T3-REPORT-HTML-RENDERER | merged | Self-contained accessible HTML document from shared report content |
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
@@ -180,3 +188,5 @@
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
 | T5-MEDIA-ARCHIVE-SCHEMA | merged | 媒体归档 schema v5：四表形态、约束、索引与查询面 |
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |
+| T7-AUDIT-CARDS-CLOSURE | merged | 需求审校交付一：卡片与安全模块接口 |
+| T7-AUDIT-DOCS-CLOSURE | merged | 需求审校交付二：需求与页面版本一致性 |

@@ -124,7 +124,7 @@ param(
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
   [string]$NoGitMutationNonce = '',
-  [switch]$IncludeMeta = $true,
+  [switch]$IncludeMeta = $false,
   [string]$TaskId = '',
   [string]$Base = 'master',
   [switch]$StrictLint
@@ -150,8 +150,11 @@ function Get-SelftestAggregateExitCode([int[]]$ExitCodes) {
   return 0
 }
 
-# Only tests of the aggregation stress harness are deferred; production checks stay on every run.
-function New-SelftestMetaLedger { return [ordered]@{ '8.2e/harness' = 'PENDING' } }
+# Harness-only tests may be deferred; live contracts and production checks stay on every run.
+function New-SelftestMetaLedger {
+  param([ValidateSet('8.2e/harness', '1i/fixtures', '8.2e/protocol')][string]$Id = '8.2e/harness')
+  return [ordered]@{ $Id = 'PENDING' }
+}
 function Start-SelftestMetaCheck([System.Collections.IDictionary]$Ledger, [string]$Id, [bool]$Enabled) {
   if (-not $Ledger.Contains($Id) -or $Ledger[$Id] -cne 'PENDING') { throw "Unknown or repeated meta check: $Id" }
   $Ledger[$Id] = if ($Enabled) { 'RUNNING' } else { 'DEFERRED' }
@@ -163,10 +166,10 @@ function Complete-SelftestMetaCheck([System.Collections.IDictionary]$Ledger, [st
   $Ledger[$Id] = 'EXECUTED'
   Write-Host "[SELFTEST-META] gate=$Id state=EXECUTED"
 }
-function Test-SelftestMetaReceipt([System.Collections.IDictionary]$Ledger, [bool]$Enabled) {
-  if ($Ledger.Count -ne 1 -or -not $Ledger.Contains('8.2e/harness')) { return $false }
+function Test-SelftestMetaReceipt([System.Collections.IDictionary]$Ledger, [bool]$Enabled, [string]$Id = '8.2e/harness') {
+  if ($Id -cnotin @('8.2e/harness', '1i/fixtures', '8.2e/protocol') -or $Ledger.Count -ne 1 -or -not $Ledger.Contains($Id)) { return $false }
   $expected = if ($Enabled) { 'EXECUTED' } else { 'DEFERRED' }
-  return $Ledger['8.2e/harness'] -ceq $expected
+  return $Ledger[$Id] -ceq $expected
 }
 
 function Get-LessonDefinitionIdSet([string]$LedgerPath, [string]$ArchivePath) {
@@ -579,16 +582,7 @@ function Test-SelftestSkipCommandName([string]$CommandName) {
   return @('Skip-SelftestCheck', 'Skip-SelftestChecks', 'Register-SelftestSkip') -contains $CommandName
 }
 
-function Invoke-SelftestSkipLedgerFixture {
-  param(
-    [Parameter(Mandatory)][string]$ScriptText,
-    [switch]$VerifyMutationBudget
-  )
-  $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
-  try {
-    $tokens = $null; $errors = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
-    if (@($errors).Count -ne 0) { throw 'source parse failed' }
+function Assert-SelftestSkipTerminalSourceContract([string]$ScriptText) {
     $terminalSummaryCall = 'Write-Host (Format-Selftest' + 'SkipSummary -Shard $Shard -Records $skippedSelftestChecks) -ForegroundColor DarkGray'
     if ([regex]::Matches($ScriptText, [regex]::Escape($terminalSummaryCall)).Count -ne 1) {
       throw 'production terminal skip summary call absent or duplicated'
@@ -611,6 +605,19 @@ function Invoke-SelftestSkipLedgerFixture {
         [regex]::Matches($terminalOverlapMutant, [regex]::Escape($terminalOverlapBlock)).Count -ne 0) {
       throw 'production terminal FAIL/SKIP overlap mutation survived'
     }
+}
+
+function Invoke-SelftestSkipLedgerFixture {
+  param(
+    [Parameter(Mandatory)][string]$ScriptText,
+    [switch]$VerifyMutationBudget
+  )
+  $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-skip-fixture-$PID-$([guid]::NewGuid().ToString('N')).ps1"
+  try {
+    $tokens = $null; $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$tokens, [ref]$errors)
+    if (@($errors).Count -ne 0) { throw 'source parse failed' }
+    Assert-SelftestSkipTerminalSourceContract $ScriptText
     $functionNames = @(
       'Test-SelftestGateId', 'ConvertTo-SelftestAsciiGateId', 'Resolve-SelftestGateId', 'Add-SelftestFailedGateId', 'Format-SelftestFailureSentinel', 'Fail',
       'Test-SelftestSkipReasonCode', 'Add-SelftestSkipRecord', 'Format-SelftestSkipRecord', 'Register-SelftestSkip', 'Skip-SelftestCheck', 'Skip-SelftestChecks', 'Test-SelftestPrerequisite',
@@ -1194,7 +1201,7 @@ function Start-SelftestShard {
     [string]$Name,
     [bool]$ForwardStrictLint,
     [bool]$StrictLintValue,
-    [bool]$IncludeMeta = $true,
+    [bool]$IncludeMeta = $false,
     [System.Diagnostics.ProcessPriorityClass]$PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal,
     [switch]$Quiet
   )
@@ -1247,8 +1254,9 @@ function Invoke-SelftestAll {
     [Parameter(Mandatory)][string]$SourceRoot,
     [bool]$ForwardStrictLint = $false,
     [bool]$StrictLintValue = $false,
-    [bool]$IncludeMeta = $true,
+    [bool]$IncludeMeta = $false,
     [ValidateRange(0, 300)][int]$CoreDelaySeconds = 75,
+    [switch]$SkillsOnly,
     [switch]$Quiet
   )
   $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
@@ -1258,7 +1266,8 @@ function Invoke-SelftestAll {
     & $gitExe.Source -C $SourceRoot rev-parse --verify HEAD *> $null
     $repoIsGit = ($LASTEXITCODE -eq 0)
   }
-  if (-not $repoIsGit) { throw 'selftest(all) 需要带 HEAD 的 Git 工作树；非 Git 目录请显式运行 -Shard core/workflow/seeded。' }
+  $aggregateMode = if ($SkillsOnly) { 'skills' } else { 'all' }
+  if (-not $repoIsGit) { throw "selftest($aggregateMode) 需要带 HEAD 的 Git 工作树；非 Git 目录请显式运行 -Shard core/workflow/seeded。" }
   $aggregateRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-all-$PID-$([guid]::NewGuid().ToString('N'))"
   $children = @()
   $aggregateExit = 1
@@ -1266,12 +1275,13 @@ function Invoke-SelftestAll {
     New-Item -ItemType Directory -Force $aggregateRoot -ErrorAction Stop | Out-Null
     # 两个长分片先占用 CPU/磁盘；短 core 在热路径过后低优先级加入。Windows 上三者同时冷启动会把
     # 两个关键路径从约 250s 拖到约 390s。此处仍是本地 all 的三分片；CI 另将 seeded 拆为三个独立 runner。
-    foreach ($name in @('seeded', 'workflow')) {
+    $leadingShards = if ($SkillsOnly) { @('workflow') } else { @('seeded', 'workflow') }
+    foreach ($name in $leadingShards) {
       $snapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot $name) -Name $name -GitExe $gitExe
       $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $snapshot -Name $name -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -IncludeMeta $IncludeMeta -Quiet:$Quiet
     }
     $coreSnapshot = New-SelftestSnapshot -SourceRoot $SourceRoot -SnapshotRoot (Join-Path $aggregateRoot 'core') -Name 'core' -GitExe $gitExe
-    if ($CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
+    if (-not $SkillsOnly -and $CoreDelaySeconds -gt 0) { Start-Sleep -Seconds $CoreDelaySeconds }
     $children += Start-SelftestShard -PwshExe $pwshExe -SnapshotRoot $coreSnapshot -Name 'core' -ForwardStrictLint $ForwardStrictLint -StrictLintValue $StrictLintValue -IncludeMeta $IncludeMeta -PriorityClass BelowNormal -Quiet:$Quiet
     $results = @($children | ForEach-Object { Complete-SelftestShard -Child $_ -Quiet:$Quiet })
     $exitCodes = @($results | ForEach-Object { $_.ExitCode })
@@ -1281,10 +1291,10 @@ function Invoke-SelftestAll {
       if ($aggregateExit -ne 0) {
         $failureSummary = Get-SelftestAggregateFailureSummary -Results $results
         Write-Host $failureSummary.Line -ForegroundColor Red
-        Write-Host "selftest(all): FAIL (exit codes: $($exitCodes -join ', '))" -ForegroundColor Red
+        Write-Host "selftest($aggregateMode): FAIL (exit codes: $($exitCodes -join ', '))" -ForegroundColor Red
         Write-Host 'selftest: FAIL' -ForegroundColor Red
       } else {
-        Write-Host 'selftest(all): PASS' -ForegroundColor Green
+        Write-Host "selftest($aggregateMode): PASS" -ForegroundColor Green
         Write-Host 'selftest: PASS' -ForegroundColor Green
       }
     }
@@ -1518,7 +1528,143 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
   exit 0
 }
 
+function Test-SelftestMetaLiveCoverage($Source, $Ast) {
+  $load = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$selftestSource82' }, $true))
+  $selector = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq "Start-SelftestMetaCheck `$metaProtocol82 '8.2e/protocol' `$IncludeMeta.IsPresent" }, $true))
+  $receipt = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq "-not (Test-SelftestMetaReceipt `$metaProtocol82 `$IncludeMeta.IsPresent '8.2e/protocol')" }, $true))
+  if ($load.Count -ne 1 -or $selector.Count -ne 1 -or $receipt.Count -ne 1 -or $load[0].Extent.StartOffset -ge $selector[0].Extent.StartOffset) {
+    throw '[META-LIVE-PLACEMENT] live protocol source checks must precede meta selection.'
+  }
+  $definitions = @('New-SelftestMetaLedger', 'Start-SelftestMetaCheck', 'Complete-SelftestMetaCheck', 'Test-SelftestMetaReceipt',
+    'Test-SelftestFailureProtocolSourceContract', 'Assert-SelftestSkipTerminalSourceContract') | ForEach-Object {
+    $name = $_
+    $found = @($Ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name }, $true))
+    if ($found.Count -ne 1) { throw "[META-LIVE-FUNCTION] $name missing or ambiguous." }
+    $found[0].Extent.Text
+  }
+  $begin = $load[0].Extent.StartOffset
+  $body = $selector[0].Clauses[0].Item2
+  $envelope = $Source.Substring($begin, $receipt[0].Extent.EndOffset - $begin)
+  $envelope = $envelope.Remove($body.Extent.StartOffset - $begin, $body.Extent.Text.Length).Insert($body.Extent.StartOffset - $begin,
+    "{ Complete-SelftestMetaCheck `$metaProtocol82 '8.2e/protocol' }")
+  $envelope = $envelope.Replace($load[0].Extent.Text, '$selftestSource82 = $SourceUnderTest')
+  $replay = {
+    param($SourceUnderTest)
+    & {
+      param($Definitions, $Code, $SourceUnderTest)
+      . ([scriptblock]::Create($Definitions -join "`n"))
+      $IncludeMeta = [switch]$false
+      $script:liveFailed = $false
+      Set-Item Function:local:Fail -Value { param($Message); $script:liveFailed = $true }
+      Set-Item Function:local:Skip-SelftestCheck -Value { param($GateId, $Reason, $Message) }
+      . ([scriptblock]::Create($Code))
+      return $script:liveFailed
+    } $definitions $envelope $SourceUnderTest
+  }
+  if (& $replay $Source 6>$null) { throw '[META-LIVE-BASELINE] ordinary live source checks rejected the unchanged source.' }
+  $mutations = [ordered]@{
+    'failure-record' = '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n'
+    'child-receipt' = '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+    'aggregate-summary' = '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n'
+    'failure-sentinel' = '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+    'skip-summary' = '(?m)^[ \t]*Write-Host \(Format-SelftestSkipSummary -Shard \$Shard\b[^\r\n]*\r?\n'
+    'outcome-overlap' = '(?m)^if \(\$outcomeOverlap.Count -gt 0\) \{ Fail [^\r\n]*\r?\n(?=Write-Host \(Format-SelftestSkipSummary -Shard \$Shard\b)'
+  }
+  foreach ($mutation in $mutations.GetEnumerator()) {
+    if ([regex]::Matches($Source, $mutation.Value).Count -ne 1) { throw "[META-LIVE-TARGET] $($mutation.Key) must identify one production statement." }
+    $mutant = [regex]::Replace($Source, $mutation.Value, '', 1)
+    if (-not (& $replay $mutant 6>$null)) { throw "[META-LIVE-MUTATION] ordinary mode accepted deleted $($mutation.Key)." }
+  }
+  Write-Host '[META-LIVE-COVERAGE] ordinary mode rejected all six production-call deletions'
+}
+
+function Test-SelftestMetaExpansion([string]$Source) {
+  $tokens = $null; $errors = $null
+  $ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+  if ($errors.Count) { throw '[META-EXPANSION-PARSE] source does not parse.' }
+  $metaParameter = @($ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq 'IncludeMeta' })
+  if ($metaParameter.Count -ne 1) { throw '[META-EXPANSION-DEFAULT] IncludeMeta parameter is missing.' }
+  $parameterProbe = [scriptblock]::Create($ast.ParamBlock.Extent.Text + "`n[bool]`$IncludeMeta")
+  if ((& $parameterProbe) -ne $false -or (& $parameterProbe -IncludeMeta) -ne $true -or (& $parameterProbe -IncludeMeta:$false) -ne $false) {
+    throw '[META-EXPANSION-DEFAULT] ordinary runs must default to deferred meta coverage.'
+  }
+  $defaultMutant = $ast.ParamBlock.Extent.Text.Replace($metaParameter[0].Extent.Text, $metaParameter[0].Extent.Text.Replace('$false', '$true'))
+  if ((& ([scriptblock]::Create($defaultMutant + "`n[bool]`$IncludeMeta"))) -ne $true) { throw '[META-EXPANSION-DEFAULT-MUTATION] restored full default was not observed.' }
+  $functions = @('New-SelftestMetaLedger', 'Start-SelftestMetaCheck', 'Complete-SelftestMetaCheck', 'Test-SelftestMetaReceipt') | ForEach-Object {
+    $name = $_
+    $found = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name }, $true))
+    if ($found.Count -ne 1) { throw "[META-EXPANSION-FUNCTION] $name missing or ambiguous." }
+    $found[0].Extent.Text
+  }
+  foreach ($site in @(
+    @{ Id = '1i/fixtures'; Ledger = 'metaLedger1i'; Live = 'repositoryGateIdResult' }
+    @{ Id = '8.2e/protocol'; Ledger = 'metaProtocol82'; Live = 'selftestWorkflow' }
+  )) {
+    $selectorText = "Start-SelftestMetaCheck `$$($site.Ledger) '$($site.Id)' `$IncludeMeta.IsPresent"
+    $selector = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq $selectorText }, $true))
+    $assignment = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq "`$$($site.Ledger)" }, $true))
+    $receiptText = "-not (Test-SelftestMetaReceipt `$$($site.Ledger) `$IncludeMeta.IsPresent '$($site.Id)')"
+    $receipt = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq $receiptText }, $true))
+    if ($selector.Count -ne 1 -or $assignment.Count -ne 1 -or $receipt.Count -ne 1) { throw "[META-EXPANSION-SITE] $($site.Id) must have exactly one selector, ledger and receipt guard." }
+    $completeText = "Complete-SelftestMetaCheck `$$($site.Ledger) '$($site.Id)'"
+    $complete = @($selector[0].Clauses[0].Item2.Statements | Where-Object { $_.Extent.Text -ceq $completeText })
+    if ($complete.Count -ne 1) { throw "[META-EXPANSION-COMPLETE] $($site.Id) completion must follow the selected body." }
+    $live = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq "`$$($site.Live)" }, $true))
+    if ($live.Count -ne 1 -or ($live[0].Extent.StartOffset -gt $selector[0].Extent.StartOffset -and $live[0].Extent.EndOffset -lt $selector[0].Extent.EndOffset)) {
+      throw "[META-EXPANSION-LIVE] $($site.Live) must remain outside the meta selector."
+    }
+    # Keep original statement order and intervening control flow; only the costly body is replaced.
+    $body = $selector[0].Clauses[0].Item2
+    $begin = $assignment[0].Extent.StartOffset; $end = $receipt[0].Extent.EndOffset
+    if ($selector[0].Extent.StartOffset -lt $begin -or $selector[0].Extent.EndOffset -gt $receipt[0].Extent.StartOffset) {
+      throw "[META-EXPANSION-ORDER] $($site.Id) ledger, selector and receipt are out of order."
+    }
+    $envelope = $Source.Substring($begin, $end - $begin)
+    $stubBody = "{ `$script:bodyRan = `$true; $completeText }"
+    $envelope = $envelope.Remove($body.Extent.StartOffset - $begin, $body.Extent.Text.Length).Insert($body.Extent.StartOffset - $begin, $stubBody)
+    $selected = $selector[0].Extent.Text.Remove($body.Extent.StartOffset - $selector[0].Extent.StartOffset, $body.Extent.Text.Length).Insert($body.Extent.StartOffset - $selector[0].Extent.StartOffset, $stubBody)
+    $replay = {
+      param([string]$Code, [bool]$Enabled)
+      & {
+        param($Definitions, $Code, $Enabled, $Id, $LedgerName)
+        . ([scriptblock]::Create($Definitions -join "`n"))
+        $IncludeMeta = [switch]$Enabled
+        $script:bodyRan = $false; $script:receiptFailed = $false
+        Set-Item Function:local:Fail -Value { param($Message); $script:receiptFailed = $true }
+        Set-Item Function:local:Skip-SelftestCheck -Value { param($GateId, $Reason, $Message) }
+        try { . ([scriptblock]::Create($Code)) } catch { $script:receiptFailed = $true }
+        $ledger = Get-Variable -Name $LedgerName -ValueOnly -ErrorAction SilentlyContinue
+        [pscustomobject]@{ Ran = $script:bodyRan; Failed = $script:receiptFailed; State = if ($ledger -and $ledger.Contains($Id)) { $ledger[$Id] } else { 'ABSENT' } }
+      } $functions $Code $Enabled $site.Id $site.Ledger
+    }
+    foreach ($mode in @($false, $true)) {
+      $result = & $replay $envelope $mode 6>$null
+      $expected = if ($mode) { 'EXECUTED' } else { 'DEFERRED' }
+      if ($result.Failed -or $result.Ran -ne $mode -or $result.State -cne $expected) { throw "[META-EXPANSION-REPLAY] $($site.Id) mode=$mode did not produce $expected." }
+    }
+    foreach ($mutant in @(
+      @{ Name = 'selector'; Code = $envelope.Replace($selectorText, '$false'); Mode = $true }
+      @{ Name = 'completion'; Code = $envelope.Replace($completeText, ''); Mode = $true }
+      @{ Name = 'outer-condition'; Code = $envelope.Replace($selected, "if (`$false) {`n$selected`n}"); Mode = $true }
+    )) {
+      $result = & $replay $mutant.Code $mutant.Mode 6>$null
+      if (-not $result.Failed) { throw "[META-EXPANSION-MUTATION] $($site.Id)/$($mutant.Name) survived." }
+    }
+  }
+  Test-SelftestMetaLiveCoverage $Source $ast
+  Write-Host '[META-EXPANSION] default and both production scope envelopes OK'
+}
+
 if ($Fixture -eq 'meta-routing') {
+  & {
+    $parentHandler = { throw '[META-EXPANSION-PARENT] replay escaped its local handler.' }
+    Set-Item Function:local:Fail -Value $parentHandler
+    Set-Item Function:local:Skip-SelftestCheck -Value $parentHandler
+    Test-SelftestMetaExpansion ([IO.File]::ReadAllText($PSCommandPath))
+    foreach ($name in @('Fail', 'Skip-SelftestCheck')) {
+      if ((Get-Item "Function:$name").ScriptBlock -ne $parentHandler) { throw "[META-EXPANSION-SCOPE] replay replaced parent $name." }
+    }
+  }
   if (-not (Get-Command New-SelftestMetaLedger -ErrorAction SilentlyContinue)) {
     throw '[SELFTEST-META-MISSING] Explicit meta selection and coverage receipts are required.'
   }
@@ -1713,7 +1859,7 @@ exit 0
     $metaAstTokens = $null; $metaAstErrors = $null
     $metaAst = [Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$metaAstTokens, [ref]$metaAstErrors)
     $metaDefaultParameter = @($metaAst.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq 'IncludeMeta' })
-    if ($metaAstErrors.Count -or $metaDefaultParameter.Count -ne 1 -or $metaDefaultParameter[0].DefaultValue.SafeGetValue() -ne $true) { throw 'Local IncludeMeta default must preserve full coverage.' }
+    if ($metaAstErrors.Count -or $metaDefaultParameter.Count -ne 1) { throw 'IncludeMeta parameter is missing or ambiguous.' }
     $metaAllEntry = @($metaAst.FindAll({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq '$Shard -eq ''all''' }, $true))
     if ($metaAllEntry.Count -ne 1 -or $metaAllEntry[0].Clauses[0].Item2.Statements[0] -isnot [Management.Automation.Language.AssignmentStatementAst]) { throw 'Actual all entry statement is missing or ambiguous.' }
     $metaEntryStatement = $metaAllEntry[0].Clauses[0].Item2.Statements[0].Extent.Text
@@ -2208,6 +2354,7 @@ if ($Fixture -eq 'gate-id-mutant') {
 # An explicit task run selects only existing scaffold coverage. The authority is
 # the pinned local base card/config, not the task worktree's editable copies.
 # No TaskId keeps the original full-suite entry point unchanged.
+$skillsOnly = $false
 if ($TaskId) {
   if ($Fixture -or $GateIdMutation -or $NoGitFixtureCase -or $NoGitFixtureNonce -or $NoGitMutationNonce -or $PSBoundParameters.ContainsKey('Shard')) {
     throw '[SELFTEST-TASKID-CONFLICT] -TaskId cannot be combined with an explicit shard, fixture, or mutation mode.'
@@ -2220,6 +2367,7 @@ if ($TaskId) {
     exit 0
   }
   if ($taskRoute.Mode -eq 'core') { $Shard = 'core' }
+  $skillsOnly = $taskRoute.Mode -eq 'skills'
 }
 elseif ($PSBoundParameters.ContainsKey('Base')) {
   throw '[SELFTEST-BASE-WITHOUT-TASK] -Base only applies with -TaskId.'
@@ -2227,13 +2375,18 @@ elseif ($PSBoundParameters.ContainsKey('Base')) {
 
 # Every explicit shard, including a TaskId-selected core shard, proves the CI
 # wiring before execution so route selection cannot bypass that existing guard.
-if ($Shard -ne 'all') {
-  $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+if ($Shard -ne 'all' -or $skillsOnly) {
+  $preflightRoot = if ($skillsOnly) { $taskRoute.WorktreePath } else { $RepoRoot }
+  $preflightWorkflow = Get-Content (Join-Path $preflightRoot '.github/workflows/scaffold-selftest.yml') -Raw
   $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
   if (-not (Test-SelftestCiWiringContract $preflightWorkflow)) { throw 'selftest CI 分片接线契约不完整。' }
   if (Test-SelftestCiWiringContract $withoutCoreMutation) { throw 'selftest CI 接线契约未检出“删除全部 core 组合”变异。' }
 }
 
+if ($skillsOnly) {
+  $skillsExit = Invoke-SelftestAll -SourceRoot $taskRoute.WorktreePath -SkillsOnly -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent -IncludeMeta $IncludeMeta.IsPresent
+  exit $skillsExit
+}
 if ($Shard -eq 'all') {
   $aggregateExit = Invoke-SelftestAll -SourceRoot $RepoRoot -ForwardStrictLint:$PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue:$StrictLint.IsPresent -IncludeMeta $IncludeMeta.IsPresent
   exit $aggregateExit
@@ -2749,6 +2902,9 @@ if (-not $gateIdContractCommand) {
   Fail '[GATE-ID-CONTRACT-MISSING] Test-SelftestGateIdContract is absent.'
 } else {
   $gateIdFixtureOk = $true
+  $repositoryGateIdSource = Get-Content -LiteralPath $PSCommandPath -Raw
+  $metaLedger1i = New-SelftestMetaLedger '1i/fixtures'
+  if (Start-SelftestMetaCheck $metaLedger1i '1i/fixtures' $IncludeMeta.IsPresent) {
   # Retained real RED receipt (2026-08-27): command=pwsh -NoProfile -File
   # scripts\selftest.ps1 -Shard workflow; sourceSha256=689290A8A48A164006A60CFC582C022A2025AFCABAA515B12E714DF54E0DA3AF;
   # exit=0; tail="selftest(workflow): PASS | selftest: PASS". Re-run the same pre-guard
@@ -2848,7 +3004,6 @@ if (-not $gateIdContractCommand) {
       $gateIdFixtureOk = $false
     }
   }
-  $repositoryGateIdSource = Get-Content -LiteralPath $PSCommandPath -Raw
   $gateIdMutationAssertions = @(
     [pscustomobject]@{ Suffix = 'DUPLICATE'; Assertions = @('[GATE-ID-FIXTURE-duplicate]') },
     [pscustomobject]@{ Suffix = 'SCAN-EMPTY'; Assertions = @('[GATE-ID-FIXTURE-empty]') },
@@ -2866,6 +3021,11 @@ if (-not $gateIdContractCommand) {
       $gateIdFixtureOk = $false
     }
   }
+  Complete-SelftestMetaCheck $metaLedger1i '1i/fixtures'
+  } else {
+    Skip-SelftestCheck -GateId '1i/fixtures' -Reason 'NIGHTLY-META-DEFERRED' -Message 'Gate-ID synthetic cases are deferred to daily/manual meta runs.'
+  }
+  if (-not (Test-SelftestMetaReceipt $metaLedger1i $IncludeMeta.IsPresent '1i/fixtures')) { Fail '[META-1I-RECEIPT] Missing or inconsistent meta receipt.' }
   $repositoryGateIdResult = Test-SelftestGateIdContract -Source $repositoryGateIdSource -InsertionAnchor $gateIdInsertionAnchor
   if (-not $repositoryGateIdResult.Ok) {
     if ($repositoryGateIdResult.Code -ceq 'GATE-ID-DUPLICATE') {
@@ -2875,7 +3035,7 @@ if (-not $gateIdContractCommand) {
     }
     $gateIdFixtureOk = $false
   }
-  if ($gateIdFixtureOk) { Write-Host '  1i gate identifier contract fixtures OK' -ForegroundColor Green }
+  if ($gateIdFixtureOk) { Write-Host '  1i live gate identifier contract OK' -ForegroundColor Green }
 }
 # GATE-ID-CONTRACT-INSERTION-ANCHOR
 }
@@ -4803,6 +4963,25 @@ if ($triggerFailures82.Count -eq 0 -and -not $fail) { Write-Host '  8.2d 产品 
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。
+try { Test-SelftestMetaExpansion ([IO.File]::ReadAllText($PSCommandPath)) }
+catch { Fail "8.2e：meta control envelope failed: $($_.Exception.Message)" }
+$selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
+$protocolCallPatterns82 = @(
+  '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
+  '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
+  '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n',
+  '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
+)
+$acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
+  Test-SelftestFailureProtocolSourceContract ([regex]::Replace($selftestSource82, $_, '', 1))
+})
+if (-not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0) {
+  Fail '8.2e：[META-PROTOCOL-LIVE] production failure-protocol wiring or its deletion mutations failed.'
+}
+try { Assert-SelftestSkipTerminalSourceContract $selftestSource82 }
+catch { Fail "8.2e：[META-PROTOCOL-LIVE] $($_.Exception.Message)" }
+$metaProtocol82 = New-SelftestMetaLedger '8.2e/protocol'
+if (Start-SelftestMetaCheck $metaProtocol82 '8.2e/protocol' $IncludeMeta.IsPresent) {
 $gateIdProbe82 = @(
   (Resolve-SelftestGateId -Message '8.2e：fixture failure' -Fallback '8'),
   (Resolve-SelftestGateId -Message 'unprefixed failure' -Fallback '7')
@@ -4877,27 +5056,16 @@ $countDocOrderSummary82 = Format-SelftestSkipSummary -Shard core -Records $count
 $invalidReasonRejected82 = $false
 try { [void](Add-SelftestSkipRecord -Records $skipRecords82 -GateId '1' -Reason 'node missing') }
 catch { $invalidReasonRejected82 = $true }
-$selftestSource82 = Get-Content -LiteralPath $PSCommandPath -Raw
 $skipFixtureOk82 = Invoke-SelftestSkipLedgerFixture $selftestSource82
-$protocolCallPatterns82 = @(
-  '(?m)^\s*\[void\]\(Add-SelftestFailedGateId\s+-GateIds\s+\$script:failedSelftestGateIds\b[^\r\n]*\r?\n',
-  '(?m)^\s*\$protocol\s*=\s*ConvertFrom-SelftestFailureSentinel\b[^\r\n]*\r?\n',
-  '(?m)^\s*\$failureSummary\s*=\s*Get-SelftestAggregateFailureSummary\b[^\r\n]*\r?\n',
-  '(?m)^\s*Write-Host\s+\(Format-SelftestFailureSentinel\b[^\r\n]*\r?\n'
-)
-$acceptedProtocolMutations82 = @($protocolCallPatterns82 | Where-Object {
-  Test-SelftestFailureProtocolSourceContract ([regex]::Replace($selftestSource82, $_, '', 1))
-})
 if (($gateIdProbe82 -join ',') -ne '8.2e,7' -or $badGateIdFamilies82.Count -ne 0 -or
     ($dedupedGateIds82 -join ',') -ne '8.2e,17aa(8)' -or
     ($runtimeStableGateIds82 -join ',') -ne '17aa(6)' -or
     $singleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=core gates=8.2e' -or
     $multipleSentinel82 -ne '[SELFTEST-FAILED-GATES] shard=workflow gates=8.2e,17aa(8)' -or
-    -not (Test-SelftestFailureProtocolSourceContract $selftestSource82) -or $acceptedProtocolMutations82.Count -ne 0 -or
     -not $knownFailure82.ProtocolValid -or (@($knownFailure82.FailedGates) -join ',') -ne '8.2e,17aa(8)' -or
     $missingFailure82.ProtocolValid -or $wrongShard82.ProtocolValid -or -not $greenProtocol82.ProtocolValid -or $sentinelOnGreen82.ProtocolValid -or
     $summary82.Line -ne '[SELFTEST-ALL-FAIL] shards=workflow,core failed-gates=workflow/8.2e,workflow/17aa(8),core/UNKNOWN(exit=29)') {
-  Fail '8.2e：selftest 失败闸协议未证明 Fail 去重、单/多 gate 发射、生产接线 mutation、畸形输入 fail-closed 或 all 的 shard/gate 汇总。'
+  Fail '8.2e：selftest 失败闸协议未证明 Fail 去重、单/多 gate 发射、畸形输入 fail-closed 或 all 的 shard/gate 汇总。'
 }
 if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     ($skipRecords82 -join ',') -ne '1/TOOL-NODE-MISSING,8.2e/PREREQUISITE-FAIL' -or
@@ -4909,6 +5077,11 @@ if (-not $firstSkip82 -or $duplicateSkip82 -or -not $secondSkip82 -or
     -not $invalidReasonRejected82 -or -not $skipFixtureOk82) {
   Fail '8.2e：selftest skip 台账未证明环境缺失、前置失败、正常执行、有序去重、稳定 reason 或摘要计数。'
 }
+Complete-SelftestMetaCheck $metaProtocol82 '8.2e/protocol'
+} else {
+  Skip-SelftestCheck -GateId '8.2e/protocol' -Reason 'NIGHTLY-META-DEFERRED' -Message 'Failure/skip protocol fixtures are deferred to daily/manual meta runs.'
+}
+if (-not (Test-SelftestMetaReceipt $metaProtocol82 $IncludeMeta.IsPresent '8.2e/protocol')) { Fail '[META-PROTOCOL-RECEIPT] Missing or inconsistent meta receipt.' }
 $metaLedger82 = New-SelftestMetaLedger
 $selftestWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
