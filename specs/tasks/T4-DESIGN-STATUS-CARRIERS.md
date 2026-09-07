@@ -18,7 +18,7 @@ non_goals:
   - 落地任何界面代码（各 UI 卡拥有）
   - 重做前卡已完成的十一处组件行补齐（已随前卡合并）
 acceptance:
-  - "A1 every rendered foreground/background pair introduced by the state glyphs the predecessor made mandatory has an exact metadata entry, so the contrast gate at the CI contrast metadata block passes without a build failure"
+  - "A1 the additional foreground/background pairs are registered with the contrast gate so the predecessor's constraint confining mandatory state glyphs to already-registered pairs can be relaxed, with each new pair carrying its audited light and dark ratio"
   - "A2 verification-receipt and photo-evidence-tile are each judged explicitly against both duties, and every declared state is recorded as carried, or fixed, or exempted with its reason"
   - "A3 the capture Back control has exactly one declared accessible name across the whole document, so the tooltip condition has a single referent"
 dod_command: TBD（措辞定稿后钉具名 ASCII 锚点；每个锚点在被查文件里只许出现一次，见前卡「DoD 锚点设计规矩」）
@@ -43,16 +43,19 @@ doc_sync: TASK-BOARD 记录合并 OID。
 > 故补齐已还原进前卡，本卡只承接下面三处真正独立的尾巴。这条经验值得记住：
 > **拆卡的切口必须落在「声称」与「证据」之间不产生断裂的地方**。
 
-## A1 · 对比度绑定（前卡产生、未登记）
+## A1 · 放宽前卡的「已登记配对」约束
 
 前卡把若干状态图标从 optional 改为**必带**（`metadata-row` 的 warning/error、`summary-stat` 的
 complete/attention/blocked、`task-stepper` 的 complete/failed 状态标记）。必带状态图标是
-**essential icon**，落在对比度表的 3.00:1 档，而 CI 对比度闸要求**每个渲染前景/背景对**
-都有精确 metadata 条目，缺一即 BUILD_FAIL。
+**essential icon**，落对比度表的 3.00:1 档，而对比度闸要求每个渲染前景/背景对都有精确 metadata 条目。
 
-**已查实缺口**：`light.tertiary` 与 `light.error` 目前只登记了对 `surface-container` 的绑定，
-**缺对 `surface` 的绑定**；`metadata-row` / `summary-stat` 的状态图标渲染在屏幕背景上即命中。
-dark 侧同理须复核。开卡时先重跑一遍实际缺口，勿照抄本段。
+**前卡 R3 第 8 轮的裁定**：把线索定为必带、却没有证据它可被感知，并不能建立下限。
+前卡取了评审给的第二条出路——**约束到已验证配对**，在状态条款写下
+「组件行定为必带的状态字形，只渲染在对比度闸已登记的前景/背景配对上」，不新造绑定、不改色值。
+
+**本卡的活是放宽它**：补登记缺失的配对（已查实 `light.tertiary` / `light.error` 只对
+`surface-container` 有绑定、缺对 `surface`；dark 侧同理须复核），每个新配对带其实测 light/dark 比值，
+之后该约束才可放宽。开卡时先重跑一遍实际缺口，勿照抄本段。
 
 ## A2 · 两处边界行（前卡划过线、明确未判失败）
 

@@ -28,9 +28,9 @@ acceptance:
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
   - "A5 the amended status clause still forbids colour from being the sole carrier of state, states the non-colour visual cue and the announcement as two separate duties with the announcement never substituting for the cue, and no longer requires a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','has a visual cue that is not color',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
+dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','has a visual cue that is not color',1),@('D','already registered with the contrast gate',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
 dod_exit: 0
-dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; every status carries a non-color VISUAL cue and an announcement never substitutes for one, which is the WCAG 1.4.1 floor the card forbids weakening; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
+dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; every status carries a non-color VISUAL cue and an announcement never substitutes for one, which is the WCAG 1.4.1 floor the card forbids weakening, and a mandatory state glyph is confined to a contrast pair the gate already registers so the cue is evidenced as perceptible; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
 hygiene: 每条断言由「删掉被改写的那一句即变红」的单点变异证明；每个 DoD 锚点在被查文件里只出现一次，否则单点删除杀不掉它；变异批钉生产文件 SHA-256，批中不并行跑第二批或独立复核（L196）。
 doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID；解锁 T4-SCHEDULE-UI-PRESENTATION。
@@ -234,12 +234,12 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
    而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
    **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
 
-## R4 变异收据（2026-09-08 · R3 第 6 轮 + 双半扫描修复后重跑 · 24/24 KILLED）
+## R4 变异收据（2026-09-08 · R3 第 8 轮修复后重跑 · 25/25 KILLED）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
-`context/DESIGN.md` = `64E20D382317BC72D138606AF29A3D4F88BA62A46443159FB4F0DC1AA43332A1` ·
+`context/DESIGN.md` = `D637672CF820E1BFD407FA51940D62DE1E7D499975053D8B282C59DD45DCF82F` ·
 `docs/UI-UX-ELEMENTS.md` = `F1364E4823FA7E3ED41CCC8E7F5C4D51FE27E4822EC1EEF6E60AF4CDBF497BA8`。
-基线 `dod_command` 退出 **0**（GREEN）；24 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
+基线 `dod_command` 退出 **0**（GREEN）；25 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚，L190）、断言渲染后文本与 SHA 均已改变
 （防 no-op 冒充击杀，L297）、断言植入前文件仍等于基线（L196）。**无一枚 VOID。**
 
@@ -273,6 +273,7 @@ RED 证据取自真实基线：`-Phase red` 首次运行读到的是主检出卡
 | M22 | A1 | ELEMENTS | 还原 `:35` 未按相机合同收窄的旧选型句 | KILLED |
 | M23 | A3 | DESIGN | 还原「无障碍名须为 verb-object 短语」这条全称（`More options` / `Save and exit` 正违反它） | KILLED |
 | M24 | forbid#1 | DESIGN | 状态条款删掉 `visual` 一词（播报即可满足下限——正是 R3 第 5 轮拦下的那个洞） | KILLED |
+| M25 | forbid#1 | DESIGN | 删掉「必带状态字形只渲染在对比度闸已登记的配对上」这条约束 | KILLED |
 
 M1/M20/M21 证明具名锚点由定义处与两处跨文档引用各自独占承载；M14/M15/M16/M17/M18/M19/M22
 证明七处被替换的复述措辞两侧都在测；M5 与 M12 成对证明「唯一承载」而非「存在即可」。
@@ -475,6 +476,35 @@ WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：
 「为满足另一半而新增的载体」会系统性地制造出未覆盖项——第 5 轮加的每一个必带字形，
 都在播报半上开了一个新口子。
 
+## R3 第 7–8 轮：拆卡切口不可分割，以及「线索须可感知」（2026-09-08）
+
+### 第 7 轮（block · 2 条 · 均属实）——拆卡当轮即被证伪
+
+用户裁定把「非颜色载体分类学 + 组件行补齐」拆给承接卡后，我照办撤回了十一处补齐、
+只在本卡保留下限声明。**R3 当轮就拦下**：
+
+1. `:691`「rail never carries state by color alone」与 `:1736`（complete/missing/blocked
+   仅靠颜色区分、`UNRATED` 无可见文字）**自相矛盾**——撤回补齐后下限声明立刻变成假话。
+2. 我改了产线文件却**没更新卡内 R4 收据**：收据仍钉旧 SHA、仍列着已被删除措辞的 M24。
+   L270 纪律整场都在守，最后一改漏了。
+
+**结论：下限声明与行补齐不可分割**。A5 要求修订状态条款，`forbid` 第 1 条禁止弱化 WCAG 1.4.1，
+而下限只有在各行满足它时才是真的。补齐已全部还原进本卡（还原后 SHA 回到 `64E20D38`，
+与收据所钉一致，第 2 条自解）；承接卡收窄为三处真正独立的尾巴。
+
+> **可复用教训：拆卡的切口必须落在「声称」与「证据」之间不产生断裂的地方。**
+> 我这一刀切在了「规则」与「使规则为真的实例」之间，于是规则当场变成假话。
+
+### 第 8 轮（block · 1 条 · 属实）——线索须有可感知的证据
+
+前一轮把若干状态图标改为**必带**，却把「这些必带图标的对比度绑定」推给了承接卡。
+评审指出：**把线索定为必带、却没有证据它可被感知，并不能建立下限**——而本卡自己
+就记着 `light.tertiary` / `light.error` 只对 `surface-container` 验证过、缺对 `surface` 的绑定。
+
+修法取评审给的第二条出路（**约束到已验证配对**，不新造绑定、不改色值）：状态条款补一句
+「组件行定为必带的状态字形，只渲染在对比度闸已登记的前景/背景配对上」。
+承接卡的 A1 相应改为「补登记更多配对以放宽该约束」，而非「补齐后闸才能过」。
+
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
@@ -486,3 +516,4 @@ WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：
 | 2026-09-08 | R3 第 4 轮 2 条属实（闭集词汇与 `summary-stat` 条件句），本地对抗复核第三/四轮再出 5 条属实。字形词汇那一句累计五次改写失败，复核者按位置统计确认它是独立子问题、其余已收敛。最终不再改措辞，而是同时消掉「太宽」（作用域缩到五个具名状态）与「太窄」（例外按行声明的标记形态给）两个方向的全称。R4 按最终字节重跑 23/23。 |
 | 2026-09-08 | R3 第 5 轮 1 条属实且命中 `forbid` 第 1 条：把播报当作与颜色并列的充分载体，弱化了 WCAG 1.4.1 下限（播报服务屏幕阅读器，不是明眼可见的视觉线索）。句 2 拆为「非颜色视觉线索」+「无自身可见文字时 owner 另外播报」，播报只补充不替代；新增锚点与 M24。收紧后暴露并关掉六处既有无障碍缺口，含签名组件 evidence rail 的默认态与 `task-stepper` 的失败阶段。R4 按最终字节重跑 24/24。 |
 | 2026-09-08 | R3 第 6 轮 2 条属实，均落播报半、均由第 5 轮修法引入（加了必带字形却未加播报）。改用两半同时代入的扫描法，再查出 5 处语义格播报窄于状态清单并统一修法。补记方法论第三处：规则有两半时代入表须两半同时判。R4 按最终字节重跑 24/24。 |
+| 2026-09-08 | R3 第 7 轮 2 条属实并当轮证伪拆卡切口：撤回行补齐后下限声明立即与 rail 规格矛盾，且我改产线未同步收据。补齐全部还原（SHA 回 64E20D38 与收据一致），承接卡收窄为三处遗留。第 8 轮 1 条属实：把状态字形定为必带却未证其可感知。取「约束到对比度闸已登记的配对」这条出路，不新造绑定不改色值；新增 M25 钉住。R4 按最终字节重跑 25/25。 |
