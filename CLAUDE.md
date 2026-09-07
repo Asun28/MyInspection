@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 远端交付**：`T3-DOCX-PACKAGE-READER` 经 PR #242 squash 合并（`a4febb7f`；reviewed head `d56d4e39`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）。最新 DoD 28 项与项目 verify 通过；41 项同源变异仅沿用历史证据，未宣称重跑。完成无写入有界 ZIP/XML reader；图片资格验证、提取器、自定义属性兼容与完整导入仍待各卡交付。
+
 **2026-09-08 远端交付**：`T3-REPORT-HTML-PRESENTATION` 经 PR #250 合并（`e792ea75`）；46 项测试、正式 R3 与候选 CI 通过。响应式/A4 print/dark/forced-colors 规则、class parity 与 CSP 字节已验证；浏览器布局和字形未验收。
 
 **2026-09-08 需求审校远端补交**：新增卡/接口与既有卡修订分别由 `T7-AUDIT-REMOTE-FOUNDATION`、`T7-AUDIT-REMOTE-CARDS` 交付；本次 `T7-AUDIT-REMOTE-DOCS` 同步五份文档。11张新功能卡仍待实施；V1预设/键盘、V1.1批量照片、产品V2语音，物业备份format v2导出/恢复仍属V1。检查与合并状态以各PR记录为准。
