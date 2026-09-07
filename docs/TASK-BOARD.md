@@ -260,7 +260,7 @@ flowchart LR
 
 用户已确认：V1 使用预设选项与键盘；批量照片排 V1.1；app-owned 语音排产品 V2。备份 format v2 与产品 V2 分开，仍保留物业备份范围。规则可信来源、provider 与格式细节待澄清；法律 work-check 待办保持。上述新决定取代旧叙述中的版本安排；卡片状态/依赖以活卡为准。
 
-本批分两张交付卡：T7-AUDIT-CARDS-CLOSURE 登记卡片与接口；其后 T7-AUDIT-REMOTE-DOCS 同步旧需求、页面和本表叙述，不能把第一步当作全批文档同步完成。两步均不实现功能。
+远端补交分三阶段：T7-AUDIT-REMOTE-FOUNDATION 登记新增卡与接口；T7-AUDIT-REMOTE-CARDS 修订既有卡；T7-AUDIT-REMOTE-DOCS 同步旧需求、页面和本表叙述。后两张为计划的后继交付，登记后按序执行；第三阶段完成前不宣称整批远端交付完成，三阶段均不实现功能。
 
 新增卡（todo）：
 
