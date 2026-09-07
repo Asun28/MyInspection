@@ -3,7 +3,7 @@ id: T2-ROUTINE-CONTEXT-V2
 title: Routine template v2 with Hallway and hash-covered inspection summary
 depends_on: [T3-REPORT-CONTENT-CONTRACT, T2-ROUTINE-CONTENT, T2-ROOM-REPEATABLE]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T2-ROUTINE-CONTEXT-V2
 worktree: C:\wt\T2-ROUTINE-CONTEXT-V2
 allow_paths:
@@ -43,3 +43,9 @@ Add the deterministic current Routine template version for new and imported draf
 A4 already requires production version selection; its original allow_paths omitted the production store and its mirrored tests. The exact paths and DoD selector now cover that existing requirement. ADR-0007 fixes current Routine at version 2, not the greatest installed version. Reuse the existing active-version query without changing SQL or the frozen template schema.
 
 The selector only identifies an installed active version. Packaged-asset hash verification, installation into an empty database, recovery readiness and application wiring remain owned by T1-APP-BOUNDARY-ASSEMBLY. Existing duplicate active-version insertion errors are not swallowed, and historical read-by-ID is unchanged. Single-template structure validation remains in TemplateLoader; cross-version content preservation is proved by this card's literal fixture.
+
+## Delivery record — 2026-09-07
+
+Locally merged as `0603b022`; reviewed feature `68779d13c0d3159c099159183bfd4b85afb32159` received formal R3 pass with no findings. Routine v2 contains 92 items: all 83 historical items unchanged, eight Hallway items and one General summary. The installed active Routine v2 selector has no v1/newer-version fallback and preserves historical reads.
+
+The integrated DoD passed 21 tests with no failures/errors/skips. Nine final-production mutations were caught by the specified real assertions; exact source bytes were restored. Default full selftest passed in 1850.423 seconds with seeded/workflow/core all passing, 24 explicitly recorded skips (including three deferred nightly meta checks), and all 650 tracked file hashes unchanged. Normal ship passed verify, scope, licence, secrets and size checks (352 changed lines, 37737 diff characters). Evidence is retained under `_local/android-spike-2026-09-06/routine-*`. These results do not attest APK bootstrap, UI integration or Android device acceptance; assembly remains with T1-APP-BOUNDARY-ASSEMBLY. No new technical debt was found; existing exact-byte evidence rules cover the line-ending verification pitfall.
