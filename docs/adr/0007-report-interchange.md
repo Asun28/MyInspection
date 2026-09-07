@@ -72,3 +72,5 @@ Opaque/read-only attachment; DOCX layout as schema; separate PDF/HTML projection
 ## Consequences
 
 Imports follow ordinary draft, autosave, completeness, finalize and immutable-history rules. Hostile-input and crash-recovery tests are mandatory. Renderer and operational UI remain separate cards; this ADR fixes their shared boundary.
+
+Implementation record (2026-09-08): `T3-REPORT-HTML-PRESENTATION` is remotely merged through PR #250 (`e792ea75`). Responsive, A4 print, dark and forced-colour CSS rules, class parity and the fixed CSP digest pass tests. System fonts remain in use; browser layout and glyph rendering were not verified because local URL access was denied. No alternate route was used, and this delivery does not change the bilingual report requirement.
