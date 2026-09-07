@@ -891,7 +891,7 @@ Toolbar commands follow these fixed rules:
 2. Cancel performs `SHOW_DIALOG(DISCARD_CHANGES)` when the task is dirty; otherwise it performs one `POP`.
 3. Overflow exists only when two or more secondary commands exist.
 4. A destructive command never appears as the direct trailing action. It lives in overflow and requires `FieldLedgerAlertDialog` confirmation.
-5. A bar exposes no more than two trailing icons. Every icon has a visible tooltip and an accessibility label using verb + object.
+5. A bar exposes no more than two trailing icons. Each is admitted by symbol-only chrome, and a bar icon's anatomy declares a tooltip.
 
 ### Bottom navigation and independent stacks
 
@@ -923,7 +923,7 @@ data class AppNavigationState(
 | System Back at a root | Exit app; never reveal a previously selected tab |
 | Process recreation | Restore selected destination and all three stacks; remove invalid entries from the first invalid entry onward |
 
-Bottom navigation is visible only on `ROOT_STATIC` and `HUB_STATIC`. It is hidden before the transition into every other page type and restored after the Pop transition completes. Every destination always displays icon and label. `Schedule` renders a count badge `1`–`99+` for due properties; `Settings` renders an unlabelled error dot only for an actionable local-health state (including failed/revoked backup), never for informational diagnostics; `Properties` has no badge.
+Bottom navigation is visible only on `ROOT_STATIC` and `HUB_STATIC`. It is hidden before the transition into every other page type and restored after the Pop transition completes. Every destination always displays icon and label. `Schedule` renders a count badge `1`–`99+` for due properties; `Settings` renders an unlabelled error dot only for an actionable local-health state (including failed/revoked backup), never for informational diagnostics, and its accessible name states that a local-health issue needs attention; `Properties` has no badge.
 
 ### Container and inset contract
 
@@ -1417,7 +1417,7 @@ The palette is light-first for daylight legibility. Large fields of pure white a
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
 - **Surfaces:** use `surface` for the screen, `surface-container-low` for grouped regions, `surface-container` for active item cards, and `surface-container-high` for selected or raised states. Decorative separators use `outline-variant`; essential card boundaries and focus use `outline`.
 
-Status must never rely on color alone. Pair every status with a label and stable symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy.
+Color is never the sole state channel. Status is carried by its glyph, its position and its text together: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy. Where a status carries no visible text, symbol-only chrome governs how it is carried and its state is announced.
 
 All light foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference. Camera controls use white over a `64%` black sRGB scrim; the worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
 
@@ -1558,6 +1558,22 @@ semantic base token
 
 `BUSY` rejects duplicate activation, keeps the label width stable, and replaces the leading icon with an `18dp` progress indicator. `DISABLED` is used only when the adjacent copy names the unmet prerequisite. `PRESSED` and `FOCUSED` never replace semantic color.
 
+### Symbol-only chrome
+
+A **chrome control** is a control whose meaning is the action it performs. A **domain value** is something the record itself holds: a count, a status, a date, an address, a room or property name. The two are governed differently, and every clause elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that governs a symbol-only control resolves here instead of restating these conditions.
+
+**Domain values are never carried by a glyph alone.** A glyph may mark a domain value in addition, but only where its owner gives that value as text or announces it. This is why `state-badge` merges into its owner, why a dot needs an owner that expresses what the dot marks, and why a count that clamps visually still announces its full value.
+
+A chrome control may omit visible text only when all of the following hold:
+
+1. The glyph is declared by the component contract and stands for exactly one action or one state.
+2. The control carries an authored accessible name naming that action as a verb-object phrase. The name may also state the control's current state. It is never derived from an icon resource name.
+3. Where the component anatomy declares a tooltip, that tooltip carries the same phrase. A component whose anatomy declares none satisfies this condition as written.
+4. The touch target does not shrink to the visible glyph bounds.
+5. Where the glyph stands for a state, that state is announced as a state change and stays legible without color.
+
+Admission never overrides a stricter component contract. Bottom navigation destinations, room progress segments and the actions named under Buttons and selection controls, apart from the one exception that clause itself names, keep their visible labels because their own clauses require them.
+
 ### Navigation and structure component matrix
 
 | Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
@@ -1586,7 +1602,7 @@ semantic base token
 | `button-primary` | text label, optional leading icon, progress replacement | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | One primary action per decision region; Busy is single-flight and keeps bounds stable | Role `button`; label is verb-object; progress announces the action once | `Button` |
 | `button-secondary` | text label, optional leading icon | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | Used for reversible alternatives; Busy rejects duplicate activation without becoming the visual primary | Role `button`; label states the distinct alternative outcome | `FilledTonalButton` |
 | `button-destructive` | consequence verb, optional progress | `ENABLED / PRESSED / FOCUSED / BUSY / DISABLED` | Enabled only after impact preview and required confirmation; Busy cannot be cancelled when rollback is unsafe | Role `button`; label names the object affected and never uses generic `OK` | `Button` |
-| `icon-button` | 24dp symbol, opaque 48dp target, tooltip | `STANDARD / TONAL / CAMERA`; `ENABLED / PRESSED / FOCUSED / SELECTED / DISABLED` | Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds | Role `button`; accessible name is mandatory and selected state is explicit | `IconButton` |
+| `icon-button` | 24dp symbol, opaque 48dp target, tooltip | `STANDARD / TONAL / CAMERA`; `ENABLED / PRESSED / FOCUSED / SELECTED / DISABLED` | Admitted by symbol-only chrome; the CAMERA variant never widens that admission to the camera components | Role `button`; accessible name is mandatory and selected state is explicit | `IconButton` |
 | `inspection-item-card` | 6dp rail, title, prior evidence, status choices, note/photo actions | `DEFAULT / ATTENTION / READ_ONLY`; `COLLAPSED / EXPANDED / SAVE_FAILED`; machine `COLLAPSED / EXPANDED / FOCUSED / SAVE_FAILED` | `OK` remains compact; `ATTENTION` expands evidence controls; defects never auto-collapse or auto-advance | Card is a group; title is focus anchor; collapse returns focus to title | `Surface` |
 | `evidence-rail` | `STATUS / PHOTO / NOTE` in fixed order | `COMPLETE / MISSING_REQUIRED / BLOCKED / OPTIONAL / NOT_APPLICABLE`; machine `READY / UPDATING` | Width `6dp`; gap `2dp`; state comes from core completeness only | Entire rail merges to one description; child segments are hidden from TalkBack | Custom `Layout` |
 | `status-choice` | icon, label, selected indicator | `OK / ATTENTION / CRITICAL / NOT_APPLICABLE`; interaction state axis; machine `UNSELECTED / SELECTED / PRESSED / FOCUSED / DISABLED` | Two equal-width primary choices show `OK` and `Needs attention`; detailed states open a visible sheet | Parent uses `selectableGroup`; each choice is a `radioButton` | `Surface` + `selectable` |
@@ -1625,8 +1641,8 @@ semantic base token
 | `settings-row` | icon, label, optional summary/current value, trailing affordance | `NAVIGATION / VALUE / TOGGLE / DANGER`; machine `DEFAULT / PRESSED / FOCUSED / BUSY / DISABLED` | Navigation rows open one declared route; toggle rows use the whole row and switch as one target | One merged node except independent help action; value is announced after label | `ListItem` |
 | `metadata-row` | optional icon, label/value or source/time | `ICON_TEXT / LABEL_VALUE / SOURCE_TIME`; neutral/warning/error; machine `DEFAULT / WARNING / ERROR` | Supports a decision but never owns the only action or encodes state by color alone | Merged sentence; decorative icon hidden | `Row` |
 | `overflow-menu` | anchored menu, labelled items, optional separator | closed/open/item focused/action busy | Opens only when at least two secondary commands exist; destructive items are last and visually separated | Trigger announces `More options`; focus enters first enabled item and returns to trigger | `DropdownMenu` |
-| `tooltip` | short action label | hidden/visible | Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
-| `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; never the sole state channel | `Badge` |
+| `tooltip` | short action label | hidden/visible | Carries the verb-object phrase named by symbol-only chrome for the components whose anatomy declares it | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
+| `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; the owner also expresses the state the badge marks | `Badge` |
 
 Search is conditional chrome: `search-field` appears only when a collection has more than eight active records or a page contract explicitly needs a query. Filters persist per top-level stack, expose `Clear filters`, and never hide the only recovery action.
 
@@ -1745,7 +1761,7 @@ Use full-width or paired large buttons, never dropdowns, for condition/status ch
 
 Button labels describe the result: `Start inspection`, `Take room photo`, `Mark remaining items OK`, `Finish inspection`, and `Clear contact info`. Keep the same verb in confirmation and success feedback.
 
-Use Material Symbols Outlined at `24dp` for ordinary actions and the filled equivalent only for the selected top-level destination or a committed state. Icons never replace labels for capture, compliance, privacy, delete, finalize, backup, or restore. Every target is at least `48×48dp` with at least `8dp` between adjacent targets; pressed feedback begins within 100ms without changing layout bounds.
+Use Material Symbols Outlined at `24dp` for ordinary actions and the filled equivalent only for the selected top-level destination or a committed state. Icons never replace labels for capture, compliance, privacy, delete, finalize, backup, or restore, with one named exception, the camera shutter, whose whole surface is the capture action and which symbol-only chrome admits. Every target is at least `48×48dp` with at least `8dp` between adjacent targets; pressed feedback begins within 100ms without changing layout bounds.
 
 ### Notes, phrases, and voice
 
@@ -1766,7 +1782,7 @@ The shutter remains operable with TalkBack and hardware volume keys where platfo
 ### Product language contract
 
 - Use plain English outcome labels. Never show ISO timestamps, UUIDs, database enums, operation IDs, `privacy_flag`, or temporary-file terminology.
-- Counts use complete, plural-aware phrases: `1 photo needed`, `2 photos needed`, `1 item needs review`; never `1 items` or icon-only badges.
+- Counts use complete, plural-aware phrases: `1 photo needed`, `2 photos needed`, `1 item needs review`; never `1 items`. Every count carries its numeral and announces its full value even where it clamps visually; a badge that marks a state rather than a count carries no numeral and is governed by symbol-only chrome.
 - Save copy is local and factual: `Saved on this device`, `Saving…`, `Couldn’t save Kitchen sink. Try again or keep editing.` Offline is not mentioned for local writes.
 - Camera recovery names the next step: `Camera permission is off. Allow it in Settings or import a photo.` Avoid `Something went wrong` where a recovery is known.
 - Confirmation text names object, scope, and persistence: `Mark 12 unrated Kitchen items OK? Existing ratings will not change.`
@@ -1815,7 +1831,7 @@ Motion must not cause layout shift.
 
 - Do optimise every capture screen for one hand, bright light, and interrupted attention.
 - Do use the evidence rail consistently for status, photo, and note completion.
-- Do pair every status color with a label and icon; preserve at least WCAG AA contrast.
+- Do give every status a carrier besides color, and follow symbol-only chrome wherever that carrier is a glyph rather than text; preserve at least WCAG AA contrast.
 - Do keep legal, privacy, capture, and defect meanings visually distinct.
 - Do show the exact missing evidence and navigate directly to it.
 - Do use plain English UI terms even when reports contain parallel English and Chinese.
