@@ -127,6 +127,21 @@ class ImportPlanningSnapshotTest {
         assertEquals(setOf(ImportBlockerCode.INVALID_ROOM_INVENTORY),
             ImportPlanningSnapshot.create(input(roomInstances = configured(100))).blockers.map { it.code }.toSet())
 
+        // Mirrors RoomInstancePlanning.kt: count == 1 uses roomKey; only larger counts append instanceNo.
+        val singleBedroom = ImportPlanningSnapshot.create(input(
+            roomInstances = listOf(ImportRoomInstance("BEDROOM", 1, "BEDROOM")),
+            suppressedStableIds = setOf("KIT-BENCH-01"),
+        ))
+        val singleBedroomTarget = listOf(ImportTarget("BEDROOM", 1, "BED-WALL-01", "BEDROOM"))
+        assertEquals(emptyList(), singleBedroom.blockers)
+        assertEquals(singleBedroomTarget, singleBedroom.targets)
+        assertEquals(singleBedroomTarget, singleBedroom.unratedTargets)
+        assertEquals(setOf(ImportBlockerCode.INVALID_ROOM_INVENTORY),
+            ImportPlanningSnapshot.create(input(
+                roomInstances = listOf(ImportRoomInstance("BEDROOM", 1, "BEDROOM 1")),
+                suppressedStableIds = setOf("KIT-BENCH-01"),
+            )).blockers.map { it.code }.toSet())
+
         val sink = TemplateItem("KIT-SINK-01", "INTERIOR", "KITCHEN", "Sink", "水槽", listOf("GOOD"))
         val partial = ImportPlanningSnapshot.create(input(
             template = binding(items = templateItems() + sink), suppressedStableIds = setOf("KIT-BENCH-01"),
