@@ -13,6 +13,34 @@ class DocxReportExtractorTest {
     private val fixture = DocxExtractorFixture
     private fun extract(parts: Map<String, ByteArray>) = DocxReportExtractor().extract(fixture.read(parts))
 
+    @Test fun customPropertiesNeverBecomeExtractionEvidence() {
+        val source = fixture.sample()
+        val expected = extract(source)
+        val markers = listOf("PRIVATE_PROPERTY_NAME", "PRIVATE_PROPERTY_VALUE", "PRIVATE_PROPERTY_COMMENT")
+        source["docProps/custom.xml"] = ("<Properties xmlns='http://schemas.openxmlformats.org/officeDocument/2006/custom-properties' " +
+            "xmlns:vt='http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'>" +
+            "<!--${markers[2]}--><property name='${markers[0]}' pid='2' fmtid='{D5CDD505-2E9C-101B-9397-08002B2CF9AE}'>" +
+            "<vt:lpwstr>${markers[1]}</vt:lpwstr></property></Properties>").toByteArray()
+        source["[Content_Types].xml"] = source.getValue("[Content_Types].xml").toString(Charsets.UTF_8).replace("</Types>",
+            "<Override PartName='/docProps/custom.xml' ContentType='application/vnd.openxmlformats-officedocument.custom-properties+xml'/></Types>").toByteArray()
+        source["_rels/.rels"] = fixture.relationships(fixture.relationship("office", "word/document.xml", "officeDocument") +
+            fixture.relationship("custom", "docProps/custom.xml", "custom-properties")).toByteArray()
+        val read = fixture.read(source)
+        assertFalse(read.parts.any { it.name == "docprops/custom.xml" })
+        for (part in read.parts) for (marker in markers) assertFalse(part.copyBytes().toString(Charsets.UTF_8).contains(marker))
+        val actual = DocxReportExtractor().extract(read)
+        assertEquals(expected.items, actual.items)
+        assertEquals(expected.fragments, actual.fragments)
+        assertEquals(expected.warnings, actual.warnings)
+        assertEquals(expected.identity, actual.identity)
+        assertEquals(expected.summaryCandidates, actual.summaryCandidates)
+        assertEquals(expected.captions, actual.captions)
+        assertEquals(expected.images, actual.images)
+        assertEquals(expected.placements, actual.placements)
+        assertEquals(expected.extractorVersion, actual.extractorVersion)
+        assertEquals(expected.normalizedDigest, actual.normalizedDigest)
+    }
+
     private fun assertWarning(result: DocxExtractionManifest, code: ExtractionWarningCode) =
         assertTrue(result.warnings.any { it.code == code }, code.name)
 
