@@ -8,12 +8,12 @@ name: scaffold-selftest
 # 注：windows runner 计 2× Actions 分钟；node/git 预装，故闸 ①(.mjs)/⑧/⑮ 都能真跑。每 OS 把
 # core / workflow / seeded-git / seeded-remote / seeded-scanner 五分片并行；三枚 seeded 子片并集等于完整闸 17。
 # 跨 OS：matrix 同时跑 windows + ubuntu（pwsh 在 ubuntu 上预装），两者都保留完整覆盖。
-# 本工作流只在默认分支 push 或手动触发时运行，作为合并后 harness canary；不进入 PR 合并关键路径。
-# 合并前由任务卡 DoD + ci.yml verify + R3 守门，避免无关历史 selftest 闸阻塞产品推进。
+# 默认分支 push 仅覆盖脚手架权威面；手动触发保留，作为合并后 harness canary，不进入 PR 合并关键路径。
+# configs/compliance/** 是产品规则：产品改动使用相关产品测试 + ci.yml verify + R3。
 on:
   push:
     branches: [main, master]
-    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!**.md']
+    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!configs/compliance/**', '!**.md']
   workflow_dispatch: {}
 
 permissions:
