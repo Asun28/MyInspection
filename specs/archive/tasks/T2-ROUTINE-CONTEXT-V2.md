@@ -3,7 +3,7 @@ id: T2-ROUTINE-CONTEXT-V2
 title: Routine template v2 with Hallway and hash-covered inspection summary
 depends_on: [T3-REPORT-CONTENT-CONTRACT, T2-ROUTINE-CONTENT, T2-ROOM-REPEATABLE]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T2-ROUTINE-CONTEXT-V2
 worktree: C:\wt\T2-ROUTINE-CONTEXT-V2
 allow_paths:
@@ -43,3 +43,9 @@ Add the deterministic current Routine template version for new and imported draf
 A4 already requires production version selection; its original allow_paths omitted the production store and its mirrored tests. The exact paths and DoD selector now cover that existing requirement. ADR-0007 fixes current Routine at version 2, not the greatest installed version. Reuse the existing active-version query without changing SQL or the frozen template schema.
 
 The selector only identifies an installed active version. Packaged-asset hash verification, installation into an empty database, recovery readiness and application wiring remain owned by T1-APP-BOUNDARY-ASSEMBLY. Existing duplicate active-version insertion errors are not swallowed, and historical read-by-ID is unchanged. Single-template structure validation remains in TemplateLoader; cross-version content preservation is proved by this card's literal fixture.
+
+## Remote delivery — 2026-09-08
+
+Planning PR #238 updated the scope before implementation. Feature PR #241 was merged as `35cb59f379f63771a2f2477cb99d074d6fb88fa2` after formal R3 pass and successful GitHub candidate CI on exact head `4f4c02a550da72e975ef3948642e03e48e100bd1`. The standard remote task-loop regenerated real RED on the remote baseline: four missing-template and three missing-selector assertion failures, with no compile errors. Restored DoD passed all 21 tests; verify, scope, licences, secrets and diff budget passed.
+
+The six delivered files retain the exact bytes covered by the nine directed production-mutation receipts in the tests. Those historical receipts were not relabelled as new executions. The earlier local-only merge was not a GitHub delivery; this record supersedes any broader completion claim. Routine v2 has 92 items, preserves the 83 historical items, and selects only an installed active Routine v2 while retaining historical reads. APK bootstrap, application wiring and device acceptance remain outside this card. No new product debt was found; the delivery-mode mistake is recorded in the lessons ledger.
