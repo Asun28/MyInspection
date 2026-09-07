@@ -9,6 +9,7 @@ worktree: C:\wt\T3-REPORT-HTML-PRESENTATION
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/html/ReportHtmlStylesheet.kt
   - android/core/src/test/kotlin/nz/myinspection/core/report/html/ReportHtmlStylesheetTest.kt
+  - android/core/src/test/kotlin/nz/myinspection/core/report/html/ReportHtmlRendererTest.kt
 forbid:
   - JavaScript, external stylesheets or fonts, @import, any url() at all (data: included: those bytes would sit outside maxTotalImageBytes, the document's only size bound), network at render or view time
   - CSS that hides, reorders or reintroduces report content (privacy is decided before ReportContent exists; display:none is never a filter)
@@ -49,7 +50,7 @@ Grow `ReportHtmlStylesheet` from the renderer card's readability baseline into t
 ## 上下文包
 
 ### 边界
-- 只改 `ReportHtmlStylesheet` 与它的测试。文档结构、转义、图片内嵌、redaction、fingerprint 都是前置卡的，
+- 只改 `ReportHtmlStylesheet` 与它的测试，以及 `ReportHtmlRendererTest` 中独立计算的固定 CSP 样式哈希期望。后者随样式字节变化必须更新；保留 literal hash 断言，不能改成调用生产哈希自证。文档结构、转义、图片内嵌、redaction、fingerprint 都是前置卡的，
   本卡**不动**——若发现结构缺陷，按 L113 判断是回前置卡修还是开新卡，不在本卡顺手改。
 - CSS 里**不得**出现 `@import`、外部 `url()`、web font、`expression()`。字体只用系统字体栈（CJK 与拉丁各给回退）。
 - 隐私不由 CSS 承担：被 `ReportContent` 移除的内容根本不在文件里，样式表**不得**新增任何隐藏规则来"补"它。
@@ -62,7 +63,7 @@ Grow `ReportHtmlStylesheet` from the renderer card's readability baseline into t
 ## 体量预算（L266）
 
 前置卡实测 994 行、只余 6 行余量，故本卡动手前先量一次：样式表正文 + 其测试 + R4 收据合计对着
-1000 changed lines / 60000 字符报预算，超 800 行就在写 RED 之前提拆卡。allow_paths 已收窄到两个具体
+1000 changed lines / 60000 字符报预算，超 800 行就在写 RED 之前提拆卡。allow_paths 已收窄到三个具体
 文件，越界即被范围闸拦下——这也是 A4 双向 parity 的前提：若本卡能改 `HtmlClass.kt`，「样式表选了一个不存在的 class」就能靠**加一个枚举值**修好，而那正是 A4 要抓的漂移。
 
 ## 字体：裁决与其前提（2026-09-05，codex `gpt-5.6-sol` 独立评议）
