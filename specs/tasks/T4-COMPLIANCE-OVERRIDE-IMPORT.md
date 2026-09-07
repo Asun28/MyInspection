@@ -20,7 +20,7 @@ acceptance:
   - "A2 [R2] 源 URI 替换不改变已确认快照；staging 修改、active/策略变化、日期失效使确认失效；取消和旧确认重放无额外写入，并发提交串行化；损坏后的新预检/确认可修复同 release/同保存身份且不降低 H，成功状态与重读完整提交一致。"
   - "A3 [R3] 对 staging、关闭/同步、原子发布、回读/回执的每个中断点注入故障，只恢复完整合法旧/新提交；H 与 active 不分裂，无合格内置/当前版本或状态损坏时明确阻断，绝不无条件回内置。"
   - "A4 [R4] 设置、拒权/撤权、重启及真实生产调用者均使用唯一规则服务；无有效规则不能放行排期/通知和既有巡检合规步骤，但证据采集、只读历史报告和恢复入口可用；work-check 仍禁用。"
-  - "A5 [R1] 覆盖低/同/高 release、同版本异内容、minimumRelease、APK 同代次升级与旧代次拒绝、旧钥撤销、新 epoch 恢复及旧钥伪造 Long.MAX_VALUE 后换钥；旧 digest-only 状态只按明确升级路径初始化。"
+  - "A5 [R1] 覆盖低/同/高 release、同版本异内容、minimumRelease、APK 同代次同根升级与旧代次拒绝、同 epoch 异 trustRootId 拒绝（含更高内置 release）、根身份缺失/损坏阻断、新 epoch 与新根原子恢复及旧钥伪造 Long.MAX_VALUE 后换钥；旧 digest-only 状态只按明确升级路径初始化。"
   - "A6 [R3] Auckland 当日/巡检日期的生效与独占过期边界、无期限、未来包、闰日/非法日期和时钟倒退均按 ADR 判定；数据恢复不覆盖本机信任状态，重装不宣称保留历史反回退保证。"
   - "A7 [R1] [R4] API 26 与目标真机通过独立生成的 JCA 签名向量、首个 release APK 可信安装、规则导入及换钥演练；证据绑定 APK 身份与公开钥指纹，不记录私钥或口令。"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.compliance.update.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
