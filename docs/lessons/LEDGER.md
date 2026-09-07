@@ -1623,7 +1623,7 @@
 - refs: 
 
 ## L225
-- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 给判据新增一条断言并配了变异，评审仍判「该断言无变异可达」——变异确实变红了，但红在更靠前的另一条断言上
 - root_cause: 同一判据里多条断言是短路顺序执行的，靠前的断言会掩护靠后的：删掉底层函数本体时，靠前的断言先失败并退出，靠后那条永远走不到，于是它并未被证明在测
 - rule: 每条断言都要一枚只打中它的变异：靶点选「只会让这条断言失败、不影响更靠前断言」的那一行（如只删遍历循环、保留比较本体）。并且每枚变异必须声明它的期望失败码，判据按码锚定匹配——[regex]::Escape 只转义元字符不锚定，裸子串会让 ABSENT-CANON 被 ABSENT-CANONICAL 白拿分
