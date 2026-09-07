@@ -97,7 +97,7 @@ class DocxReportExtractor {
             fun scan(node: Element, active: ParagraphFrame? = null) {
                 val position = active?.source ?: SourceLocation(part.name, ordinal)
                 require(!(node.uri == W && node.name in setOf("ins", "del", "delText", "moveFrom", "moveTo"))) { "DOCX_TRACKED_CONTENT" }
-                require(!(node.name == "t" && node.value.isNotBlank() && (node.uri != W || active == null))) { "DOCX_UNSUPPORTED_TEXT" }
+                require(node.value.isBlank() || node.uri == W && node.name in setOf("t", "instrText") && active != null) { "DOCX_UNSUPPORTED_TEXT" }
                 val token = if (node.uri != W) null else if (node.name == "t") node.value.toString() else RUN_TOKENS[node.name]
                 require(node.parent?.isWord("r") != true || token != null || (node.uri == W && node.name in
                     setOf("rPr", "instrText", "fldChar", "drawing", "lastRenderedPageBreak", "pgNum"))) { "DOCX_UNSUPPORTED_TEXT" }

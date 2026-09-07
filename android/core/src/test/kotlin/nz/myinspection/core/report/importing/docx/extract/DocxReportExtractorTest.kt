@@ -16,6 +16,10 @@ class DocxReportExtractorTest {
     private fun assertWarning(result: DocxExtractionManifest, code: ExtractionWarningCode) =
         assertTrue(result.warnings.any { it.code == code }, code.name)
 
+    private fun assertUnsupportedText(body: String) {
+        assertEquals("DOCX_UNSUPPORTED_TEXT", assertFailsWith<IllegalArgumentException> { extract(fixture.parts(body)) }.message)
+    }
+
     @Test fun runTokensPreserveHyphensAndExcludeLegacyPages() {
         val result = extract(fixture.parts("<w:p><w:r><w:t>A</w:t><w:noBreakHyphen/><w:softHyphen/><w:pgNum/><w:t>B</w:t></w:r></w:p>"))
         assertEquals("A\u2011\u00adB", result.fragments.first().text.raw)
@@ -24,9 +28,7 @@ class DocxReportExtractorTest {
     @Test fun unsupportedRunContentRejectsClosed() {
         for (element in listOf("sym w:font='Wingdings' w:char='F0FC'", "dayShort", "monthLong", "yearLong", "tab xmlns:w='urn:x'",
                 "annotationRef", "footnoteRef", "endnoteRef", "separator", "continuationSeparator", "ptab", "ruby", "contentPart", "delInstrText")) {
-            assertEquals("DOCX_UNSUPPORTED_TEXT", assertFailsWith<IllegalArgumentException> {
-                extract(fixture.parts("<w:p><w:r><w:$element/></w:r></w:p>"))
-            }.message)
+            assertUnsupportedText("<w:p><w:r><w:$element/></w:r></w:p>")
         }
     }
 
@@ -299,12 +301,13 @@ class DocxReportExtractorTest {
         assertEquals("DOCX_TRACKED_CONTENT", error.message)
     }
     @Test fun orphanWordTextCannotDisappearFromASuccessfulManifest() {
-        val error = assertFailsWith<IllegalArgumentException> { extract(fixture.parts("<w:r><w:t>Orphan observation</w:t></w:r>")) }
-        assertEquals("DOCX_UNSUPPORTED_TEXT", error.message)
+        assertUnsupportedText("<w:r><w:t>Orphan observation</w:t></w:r>")
+        for (node in listOf("w:p", "w:tc", "w:r", "w:body", "w:pPr", "a:ext", "a:instrText")) {
+            assertUnsupportedText("<w:p><$node>Hidden observation</$node></w:p>")
+        }
     }
     @Test fun unsupportedDrawingTextCannotDisappearFromASuccessfulManifest() {
-        val error = assertFailsWith<IllegalArgumentException> { extract(fixture.parts("<a:p><a:r><a:t>Drawing observation</a:t></a:r></a:p>")) }
-        assertEquals("DOCX_UNSUPPORTED_TEXT", error.message)
+        assertUnsupportedText("<a:p><a:r><a:t>Drawing observation</a:t></a:r></a:p>")
     }
     @Test fun unseparatedAuthorFieldRejectsInsteadOfLeakingItsCache() {
         val body = "<w:p><w:r><w:fldChar w:fldCharType='begin'/><w:instrText>AUTHOR</w:instrText>" +
