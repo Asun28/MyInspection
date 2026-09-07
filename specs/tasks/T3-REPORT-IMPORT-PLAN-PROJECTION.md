@@ -1,7 +1,7 @@
 ---
 id: T3-REPORT-IMPORT-PLAN-PROJECTION
 title: Exhaustive source inventory and conservative Routine import candidates
-depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR]
+depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR, T3-REPORT-IMPORT-PLAN-SNAPSHOT]
 parallelizable_with: []
 status: todo
 branch: T3-REPORT-IMPORT-PLAN-PROJECTION
@@ -35,6 +35,8 @@ This card is the source-projection predecessor of T3-REPORT-IMPORT-PLANNER.
 
 This predecessor supplies the pure immutable projection used by
 T3-REPORT-IMPORT-PLANNER. It never claims ready or authorizes a native write.
+Consume the independently delivered SNAPSHOT model and preflight; retain integrated
+context checks. Every target remains unrated until the later explicit review phase.
 Shared matching and source-ownership rules are defined in ADR-0007, Pure import planning contract.
 The calling workflow obtains current template and property room configuration;
 this pure snapshot does not prove live DB state and commit must revalidate it.
