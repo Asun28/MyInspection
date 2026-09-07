@@ -3,7 +3,7 @@ id: T0-SCAFFOLD-TRIGGER-REMOTE
 title: Publish scaffold-only selftest trigger on current upstream
 depends_on: []
 parallelizable_with: []
-status: in-progress
+status: merged
 branch: T0-SCAFFOLD-TRIGGER-REMOTE
 worktree: C:\wt\T0-SCAFFOLD-TRIGGER-REMOTE
 allow_paths:
@@ -35,18 +35,18 @@ acceptance:
   - "A5 The PR is based on current origin/master and contains no unrelated local-master history"
 review_gate: codex {verdict:pass}
 hygiene: Reuse the existing trigger parser and mutation suite; add no dispatcher, job, dependency, schedule, or copied contract.
-doc_sync: Align DEVOPS-WORKFLOW and DELIVERY-CHAINS with the product-only exclusion; archive this card after remote merge.
+doc_sync: Completed in PR #245; archive authorization landed in PR #246.
 ---
 
 # T0-SCAFFOLD-TRIGGER-REMOTE
 
-This card publishes the already validated scaffold-only trigger boundary as a narrow PR rebuilt on
-current `origin/master`. It does not push the divergent local `master` or reuse the preserved stale
-preparation branch.
+PR #245 merged the narrow trigger change as `b4a72de9f9411b527a3140760e1c89cad0abc59e` after
+RED/GREEN, project verify, R3, and candidate CI passed. PR #246 added the base-approved R5 archive
+paths. The divergent local `master` and preserved stale preparation branch were not published.
 
 ## Acceptance
 
 1. Product compliance changes do not spend scaffold selftest time.
 2. Scaffold authority and manual coverage remain unchanged.
 3. A focused executable contract supplies RED/GREEN evidence without running unrelated gates.
-4. Normal task-loop R3, candidate CI, merge, documentation sync, and cleanup complete remotely.
+4. Task-loop R3, candidate CI, remote merge, documentation sync, and cleanup completed.
