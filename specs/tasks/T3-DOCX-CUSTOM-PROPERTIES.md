@@ -28,10 +28,10 @@ doc_sync: SECURITY + ADR-0007 + TASK-BOARD; record only the custom-properties bo
 
 # T3-DOCX-CUSTOM-PROPERTIES
 
-This card registers bounded custom document properties compatibility; implementation remains pending remote delivery. Extend the existing reader rather than adding a second parser or metadata model. The custom part remains unclassified by `partKind`, so the existing final projection discards it only after complete validation.
+Extend the existing reader. Keep the custom part unclassified by `partKind` until final projection discards it after complete validation.
 
-The exact package path, MIME, relationship type and root namespace follow transitional OOXML. Reference: Microsoft Open XML SDK `CustomFilePropertiesPart` and custom `Properties`. Only the newly supported custom part requires one package-root relationship; existing core/app metadata behaviour is unchanged. An absent custom part needs no relationship. Dangling references and duplicate normalized ZIP names retain existing rejection behaviour.
+Exact literals and independent fixtures: [local contract](../../docs/references/docx-extraction-contract-llms.txt). Only this custom part requires one package-root relationship; absence requires none. Core/app metadata, dangling-reference and duplicate-name behaviour stay unchanged.
 
-Inside the correct root, inert child XML remains opaque and bounded. Do not validate property IDs, value types or value semantics. URI-like text is data to discard, never a relationship or a resource to fetch. Root relationship XML remains an existing returned RELATIONSHIPS part and may contain the fixed custom part target; no promise is made to remove that structural reference.
+Inside the correct root, bounded inert children stay opaque: no property-ID or value/type validation. URI-like text is discarded, never fetched. Returned root RELATIONSHIPS may retain the fixed custom target.
 
-Tests extend the existing reader and extractor test files. Synthetic markers cover property names, values and comments. Explicit limits target the custom part, including package-wide accumulation. Private input may only be used for a local read-only follow-up; a later unsupported feature must be reported separately, never admitted by widening this card.
+Extend existing reader/extractor tests with name/value/comment markers and custom-part/aggregate limits. Private follow-ups remain local and read-only; further unsupported features require separate cards.

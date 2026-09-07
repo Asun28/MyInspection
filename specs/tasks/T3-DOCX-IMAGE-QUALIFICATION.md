@@ -35,7 +35,7 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 Return bounded read-only validation. Valid PNG pixels do not prove decoration; unsupported input remains reviewable, not necessarily corrupt. User approval on 2026-09-08 replaces local size-based exclusion with retention.
 
-API: `DocxImageDimensions(width: Int, height: Int)`; `DocxImageDisposition { REVIEW_REQUIRED, VALIDATED_SMALL_CANDIDATE }`; immutable `DocxImageQualification(dimensions: DocxImageDimensions?, disposition: DocxImageDisposition)`; `DocxImageQualifier.qualify(bytes: ByteArray): DocxImageQualification`. The closed pixel-limit error remains `DOCX_IMAGE_PIXELS`. Neither enum value permits exclusion; no shim flag is exposed.
+API: `DocxImageDimensions(width: Int, height: Int)`; `DocxImageDisposition { REVIEW_REQUIRED, VALIDATED_SMALL_CANDIDATE }`; immutable `DocxImageQualification(dimensions: DocxImageDimensions?, disposition: DocxImageDisposition)`; `DocxImageQualifier.qualify(bytes: ByteArray): DocxImageQualification`. In this image package, define `class DocxImagePixelLimitException : RuntimeException("DOCX_IMAGE_PIXELS")`. Proven dimensions above 40000000 pixels throw exactly this type, fixed message and null cause; tests assert all three. No reader error change or input-bearing fields. Neither disposition permits exclusion.
 
 ## Split scope
 
@@ -44,6 +44,6 @@ The extractor retains all accepted images and placements with IMAGE_REVIEW_REQUI
 ## Required adversarial fixtures
 
 - Both formats: complete header without payload, truncated payload, corrupted payload, and truncated data with an appended end marker; JPEG always remains review-required.
-- PNG: signature/IHDR/CRC/ordering errors; duplicate or separated structural chunks; unknown chunks; overflowing lengths; missing IEND or trailing bytes; empty and fragmented IDAT including a zlib header/trailer split across chunks.
+- PNG: signature/IHDR/CRC/ordering errors; duplicate or separated structural chunks; overflowing lengths; missing IEND or trailing bytes; empty/fragmented IDAT including split zlib header/trailer. Only IHDR/IDAT/IEND are supported: every other chunk, critical or ancillary, yields REVIEW_REQUIRED without throwing (subject to the pixel limit). Test unknown critical ABCD and ancillary abCD separately with independently verified lengths/CRCs and a valid RGB control; inserting either preserves dimensions and changes only disposition to REVIEW_REQUIRED. This subset limit does not label ancillary-bearing PNGs corrupt.
 - Inflation: missing or bad Adler trailer, dictionary requests, short/long output, a second zlib stream or trailing compressed data, no progress, and invalid filter selectors including the final row.
 - Exact edges: 1 and 24 pixel validated candidates, 25 pixel unverified candidates, byte/chunk limits and limit+1, valid over-40MP header rejection, all five scanline filters, RGB and RGBA, repeated calls and unchanged bytes. Include a valid small content-pattern image: validation never labels it decorative.
