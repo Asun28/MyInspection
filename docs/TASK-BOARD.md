@@ -111,7 +111,7 @@
 | W0 | T0-DEBT-MIGRATION-FIXTURE-CLEANUP | PR #47 round-cap 后收敛 Windows migration fixture 清理（TD145） | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `19e4646`，PR #93；短路径、有界重试、完整诊断与清理终态通过，解除 TD4 R5 阻塞） |
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | **merged**（本地合并 `19fd908e`；R5 `320f8dac`） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
-| W1 | T1-SPIKE-PLATFORM | 真机可行性 ×4：overlay/离线听写/SAF/80 照 PDF 压力 | T0 | H | Opus 5 · max | Sonnet 5 max | —（人工真机验收） |
+| W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | —（人工真机验收） |
 | W1 | T1-LOCAL-DATA-SECURITY | 本地数据安全底座：内外存储分层 + Keystore secret box + 脱敏日志 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；不改 schema/backup format |
 | W1 | T1-SHARE-SCREEN-PRIVACY | Android 隐私出口：安全文件分享 + 敏感窗口分级 + cleartext/系统备份清单闸 | T1-LOCAL-DATA-SECURITY | S–M | GPT-5.6 Terra · high | Sonnet 5 max | 下游统一隐私出口 |
 | W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
@@ -127,7 +127,7 @@
 | W2 | T2-REPEATABLE-ROOM-RUNTIME | 重复房间配置、实例化、完备性与实例级历史基线（TD26） | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST,T2-ROOM-REPEATABLE | M | GPT-5.6 Sol · high | GPT-5.6 Luna · max | **merged**（master `6a92aa58`，PR #193；schema v4 + 审计快照、确定实例计划、缺实例 finalize 闸与实例级 baseline；Luna/Terra max 协审，R3 第 2 轮 pass，TD26 paid） |
 | W2 | T1-DATABASE-LIFECYCLE-AUTHORITY | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `3d50f690`，PR #191）；schema v3 active/any 分流、具名 baseline 守卫、purge 终态与 deleted override 防写落地，R3 修复三组测试盲区后 pass，TD160 paid |
 | W2 | T5-BACKUP-FORMAT ★ | 流式加密归档格式+manifest+防篡改/错口令测试 | T1-CANON-HASH | H+ | Opus 5 · max | Sonnet 5 max | **merged**（`efedcfb`，R3 第 4 轮 pass，两次人裁：分块 AEAD / CD 非规范性，见卡「格式评审记录」）；Terra 未接线 → DeepSeek V4 Pro 独立复读代替（L26），记录在 PR #9 |
-| W3 | T2-CAPTURE-UI | Compose 走查界面：大按钮/备注/短语/听写/两级拍照 | T2-CAPTURE-CORE,T2-PHOTO-PIPELINE,T1-SPIKE-PLATFORM,T1-SHARE-SCREEN-PRIVACY,T2-FIELD-LEDGER-THEME-R3-CLOSURE,T2-REPEATABLE-ROOM-RUNTIME | M | Sonnet 5 · max | Terra | 重复房间运行时前置已由 PR #193 / master `6a92aa58` 满足；UI 消费实例级 core 合同 |
+| W3 | T2-CAPTURE-UI | Field Ledger 采集、预设短语/键盘、单图导入与生产导航 | T2-CAPTURE-CORE, T2-PHOTO-PIPELINE, T1-SPIKE-PLATFORM, T1-SHARE-SCREEN-PRIVACY, T2-FIELD-LEDGER-THEME-R3-CLOSURE, T2-REPEATABLE-ROOM-RUNTIME, T1-APP-BOUNDARY-ASSEMBLY, T2-MEDIA-ACCESS-BOUNDARY, T2-PHRASELIB | M | Sonnet 5 · max | Terra | 重复房间运行时前置已由 PR #193 / master `6a92aa58` 满足；UI 消费实例级 core 合同 |
 | W3 | T2-PHOTO-QUALITY-PROFILES | 新照片 Low/Medium/High/Extra High；默认 Medium | T2-PHOTO-STREAMING-ENCODE | M | Sonnet 5 · max | GPT-5.6 Terra · high | **merged**（master `703af59`，PR #30；四档持久设置、双管线单次快照、转正后按比例缩小、动态位图峰值预算；同设备 Android 生产编码 16 输出总体大小单调；R3 round 2 pass；TD131 paid） |
 | W3 | T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER | `.jpg.pending` durable lease + 24h WorkManager 回收无行/软删照片孤儿（TD14） | T2-PHOTO-PIPELINE | M | GPT-5.6 Terra · max | Sonnet 5 · max | **merged**（master `4971f1b`，PR #32；内部 `filesDir/media` + `myinspection.db` 固化为唯一运行时组成；目录级掉电顺序拆至 `T2-PHOTO-DIRECTORY-DURABILITY`） |
 | W3 | T2-PHOTO-DIRECTORY-DURABILITY | marker 祖先目录 fsync + JPEG 删除 durable 后再清 sidecar（TD137） | T2-PHOTO-ORPHAN-CLEANUP-SCHEDULER | S | GPT-5.6 Terra · high | Sonnet 5 · high | **merged**（master `e9c56b9`，PR #35；完整祖先目录 fsync、补偿/worker JPEG 删除 durable 后才清 sidecar；TD137 paid） |
@@ -139,7 +139,7 @@
 | W3 | T3-FINALIZE | finalize 事务+只读强制+Supplement 哈希链 | T1-CANON-HASH | M | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `a5a71ed`；PR #7，15 轮 R3 后合并，48 测试）——唯一悬点（DbCompletenessChecker 逐项 allowed_statuses 重验，评审三度提出，round 5/12/13 均按 mint-point/L220 驳回）触发两轮争议转人裁，用户裁**选项 A**（实现该检查，防御纵深）：新增 `itemsWithDisallowedStatus`；裁后评审又拦两条真发现——① 删掉自己此前引入的重复权威 `classifyAdverseness`/`Adverseness`（ADVERSE/NOT_ADVERSE 从未被消费），简化为 `isInDomain` 纯域成员判定；② 只读强制此前只证过冻结 SQL 谓词，补一条经真实 `InspectionRepository.setItemStatus`/`setWearOrDamage` 的集成测试。TD5 → paid（本 PR 为偿还指针） |
 | W3 | T3-REPORT-INTERCHANGE-AUTHORITY | 可编辑 Routine DOCX 导入 + 共用 PDF/HTML 的产品/导航/安全/ADR 权威 | T3-REPORT-COMPOSER | S | GPT-5.6 Sol · high | GPT-5.6 Terra · max | 从内容合同拆出，遵守 R3 60k 完整 diff 硬预算；私样与身份 metadata 不入库 |
 | W3 | T3-REPORT-CONTENT-CONTRACT | PDF/HTML 共用的受众与隐私过滤后语义合同 + parity fingerprint | T3-REPORT-INTERCHANGE-AUTHORITY | M | GPT-5.6 Sol · high | GPT-5.6 Terra · max | 纯 Kotlin 合同；不改 canonical hash v1；产品权威由前置卡冻结 |
-| W3 | T2-ROUTINE-CONTEXT-V2 | Routine v2 增 Hallway + GEN-SUMMARY-01，v1 字节与 stable ID 不变 | T3-REPORT-CONTENT-CONTRACT,T2-ROUTINE-CONTENT,T2-ROOM-REPEATABLE | S–M | GPT-5.6 Sol · high | GPT-5.6 Terra · max | 旧报告摘要映射到普通 item note，进入既有 data_hash |
+| W3 | T2-ROUTINE-CONTEXT-V2 | Routine v2 增 Hallway + GEN-SUMMARY-01，v1 字节与 stable ID 不变 | T3-REPORT-CONTENT-CONTRACT,T2-ROUTINE-CONTENT,T2-ROOM-REPEATABLE | S–M | GPT-5.6 Sol · high | GPT-5.6 Terra · max | PR #241 已合并 `35cb59f3`；21 项测试、R3 与候选 CI 通过；92 项模板及固定 active v2 选择，应用装配另行承接 |
 | W3 | T3-REPORT-INTERCHANGE-SCHEMA ★ | schema v6：不可变导入 provenance/mapping receipt + format-aware export receipt | T3-REPORT-CONTENT-CONTRACT,T5-MEDIA-ARCHIVE-SCHEMA | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 5.sqm/version review；HTML quality=NONE；归档资格仍只认 PDF |
 | W3 | T3-DOCX-PACKAGE-READER | 敌意 DOCX 的有界 ZIP/XML 多 story no-write 读取边界 | T3-REPORT-CONTENT-CONTRACT | M | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 禁宏/OLE/外链/XXE/zip bomb；无三方 DOCX 库 |
 | W3 | T3-REPORT-HTML-EVIDENCE-PORT | 证据字节端口：EmbeddedImage 允许集、专属拒绝类型、端口签名上界与 bounds 不变量 | (none) | S | GPT-5.6 Sol · high | Sonnet 5 · max | **merged**（2026-09-03，master `cadfa2b5`，PR #232，R3 第 2 轮 pass）；10/10 变异全杀；R3 第 1 轮抓到 `setOf` 可强转回 MutableSet 加进 SVG，按 `AdverseStatuses` 定式改成只暴露谓词、不暴露集合；P3 首批是 compile-kill（编译器抢在断言前杀掉变异体），捕获改标 Throwable 后才算数 |
@@ -159,7 +159,7 @@
 | W4 | T3-HISTORY-COMPARE | 历史条(上次状态/滑动)+ghost overlay 集成+双轨基线 | T2-CAPTURE-UI,T1-SPIKE-PLATFORM,T2-REPEATABLE-ROOM-RUNTIME | H | Sonnet 5 · max | Opus 5 | 实例级 baseline 前置已由 PR #193 / master `6a92aa58` 满足；禁止退回 stable_id 单键匹配 |
 | W4 | T4-COMPLIANCE-ENGINE ★ | 配置驱动合规引擎+阻断 API+NZ DST 边界测试 | T1-SCHEMA-CORE | H | Opus 5 · high | DeepSeek V4 Pro | **merged**（master `525b0111`，PR #43；配置驱动引擎与测试已落地；round-cap 余项由 T4-COMPLIANCE-ENGINE-R3-CLOSURE 承接） |
 | W4 | T4-COMPLIANCE-ENGINE-R3-CLOSURE | PR #43 round-cap 后配置驱动/改期身份/拒绝与不可变证据收口（TD141） | T4-COMPLIANCE-ENGINE | M | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只接第 2 轮四项 finding |
-| W4 | T5-BACKUP-IO | SAF 目的地+内容回读验证回执+自动导出+恢复先试跑后落刀 | T5-BACKUP-FORMAT,T2-PHOTO-PROPERTY-DEDUPE,T5-MEDIA-ARCHIVE-CONTRACT | H | Sonnet 5 · max | Terra | Google Photos 状态不算回执；不接云账号 |
+| W4 | T5-BACKUP-IO | SAF 目的地+内容回读验证回执+自动导出+恢复先试跑后落刀 | T5-BACKUP-FORMAT, T2-PHOTO-PROPERTY-DEDUPE, T5-MEDIA-ARCHIVE-CONTRACT, T1-SHARE-SCREEN-PRIVACY, T1-LOCAL-DATA-SECURITY, T1-APP-BOUNDARY-ASSEMBLY | H | Sonnet 5 · max | Terra | Google Photos 状态不算回执；不接云账号 |
 | W5 | T5-OPERATION-EVENT-STORE | 独立本机诊断库：有界脱敏 operation_event 与失败隔离 | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST, T1-LOCAL-DATA-SECURITY | H | Sonnet 5 · max | GPT-5.6 Terra · high | 不进主库/备份/证据哈希；TD161 1/2 |
 | W5 | T5-DIAGNOSTIC-EXPORT | 用户授权的离线诊断导出：只读健康摘要 + 脱敏事件包 | T5-OPERATION-EVENT-STORE, T1-SHARE-SCREEN-PRIVACY | M | GPT-5.6 Terra · high | Sonnet 5 max | 无远程 admin；TD161 2/2 |
 | W5 | T3-E2E-GOLDEN-FIXTURE | 冻结 canonical inspection/photo/report/redaction 黄金夹具 | T2-ROUTINE-CONTENT | S | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `5c93f3a`，PR #180；真实 routine-v1 83 项、9 张 photo evidence、landlord/private/public sentinel 与 expected data_hash `67889661…e2d0`） |
@@ -190,11 +190,11 @@
 | W5 | T5-RETENTION | 租客数据保留期+一键清理 | T1-SCHEMA-CORE | S | DeepSeek V4 Pro · medium | Luna Max | **merged**（master `60cee85`；5 轮 R3（两次撞 ReviewRoundCap=2，均经人裁 reset）——round 1 拦法律措辞混淆（联系方式清理期 12 个月被误述为 RTA s123A 本身规定的数字）+ UI type-to-confirm 对空 tenant_name 永久锁死清理按钮；round 2（撞 cap）拦措辞残留（改写后仍暗示"无限期保留系 RTA 要求"）+ 哈希不变量测试造假（DRAFT 巡检+未持久化照片，未验证真实 finalize 记录）+ purge() 自身到期边界无测试覆盖，人裁：findings 属实且卡内可修 → reset；round 3（reset 后首轮）拦 civil-calendar 时区错用（`ZoneOffset.UTC` 误引"存储用 UTC 入库"规则算日历月，应循 ADR-0004 先例改用 Pacific/Auckland + DST 边界测试），人裁 reset；round 4（再撞 cap）拦 5 处测试盲区（sortedBy 排序/isPurgeable/`Collections.unmodifiableList`/`months` 覆盖参数均无证伪测试、UI "12 个月"字符串未溯源常量），人裁：全部属实 → 定裁修法（删 `months` 参数/补 4 处测试/UI 单源化）+ reset；round 5 pass。20 个 JVM 测试、8 处单点变异逐一击杀+SHA 复核（其一因误用 `.clear()` 而非 `.set()` 产出假证明，识破后重做）；新登记 L231（civil-calendar 计算时区与存储格式规则混淆）、L232（产品策略数值与法条数字巧合相同时的措辞混淆）；TD13（`TemplateStore.read()` 同款 `Collections.unmodifiableList` 缺自证测试） |
 | W5 | T5-LOCAL-DATA-ERASURE | 无账号场景的全量本机数据物理清除：影响预览 + ERASE 强确认 + 清除验证 | T5-BACKUP-IO, T1-LOCAL-DATA-SECURITY, T1-SHARE-SCREEN-PRIVACY | M | Sonnet 5 · max | GPT-5.6 Terra · high | 前向新增；外部 `.mibk` 不删 |
 | W5 | T5-LOCAL-MEDIA-RETENTION | 每物业保留最近 1/3/5/10/Always 次全尺寸照片；预览确认+安全归档+回填 | T5-BACKUP-IO,T3-PDF-RENDER-DEVICE,T3-HISTORY-COMPARE,T5-MEDIA-ARCHIVE-CONTRACT | H | Sonnet 5 · max | Opus 5 | 默认 3；30 天宽限；只删本机字节，不删记录/PDF/备份/云端 |
-| W6 | T6-TEMPLATES-REST | Ingoing/Exit/Annual 内容+Exit wear/damage+配对约束 | T2-ROUTINE-CONTENT,T3-HISTORY-COMPARE | M | DeepSeek V4 Pro · medium | Luna Max | **Luna Max 全文复核** |
+| W6 | T6-TEMPLATES-REST | Ingoing/Exit/Annual 内容+Exit wear/damage+配对约束 | T2-ROUTINE-CONTENT, T3-HISTORY-COMPARE, T1-APP-BOUNDARY-ASSEMBLY | M | DeepSeek V4 Pro · medium | Luna Max | **Luna Max 全文复核** |
 | W6 | T6-HHC | Healthy Homes 五项子模块+合规快照输出 | T3-PDF-RENDER-DEVICE | M | DeepSeek V4 Pro · high | Terra | — |
-| W7 | T7-REMEDIATION | LLM 建议：mock 优先+仅房东版+措辞边界+免责声明 | T3-PDF-RENDER-DEVICE | M | Sonnet 5 · max | Opus 5 | Sol 安全面重点评审 |
+| W7 | T7-REMEDIATION | LLM 建议：mock 优先+仅房东版+措辞边界+免责声明 | T3-PDF-RENDERER, T1-SHARE-SCREEN-PRIVACY, T1-LOCAL-DATA-SECURITY, T7-REMEDIATION-PROVIDER-DECISION | M | Sonnet 5 · max | Opus 5 | Sol 安全面重点评审 |
 | W7 | T7-LOCAL-HEALTH-RELEASE | 本机健康与发布证据：秒级可操作提示 + 脱敏崩溃恢复 + release mapping 回执 | T5-OPERATION-EVENT-STORE, T5-DIAGNOSTIC-EXPORT, T5-BACKUP-IO, T1-LOCAL-DATA-SECURITY | M | GPT-5.6 Terra · high | Sonnet 5 max | 无遥测/上传 SDK/远程告警；本机可操作提示 |
-| W7 | T7-SMOKE-POLISH | 真机全流程冒烟+微修捆绑（清单产出 docs/SMOKE-CHECKLIST.md） | 全部 MUST + T7-REMEDIATION（收官卡，不并行） | S | Sonnet 5 · medium | DeepSeek V4 Pro | — |
+| W7 | T7-SMOKE-POLISH | 真机全流程冒烟+微修捆绑（清单产出 docs/SMOKE-CHECKLIST.md） | T3-E2E-CORE, T5-BACKUP-IO, T5-LOCAL-DATA-ERASURE, T4-NOTICES, T2-CAPTURE-UI, T3-FIELD-UX-ACCEPTANCE, T7-REMEDIATION, T7-LOCAL-HEALTH-RELEASE, T3-REPORT-EXPORT-UI, T3-REPORT-IMPORT-UI, T5-PROPERTY-RESTORE-INTEGRATION, T4-COMPLIANCE-OVERRIDE-IMPORT, T6-TEMPLATES-REST, T6-HHC | S | Sonnet 5 · medium | DeepSeek V4 Pro | — |
 
 ★ = 冻结点卡：合并后其产出登记 `scripts/_config.ps1` FrozenPaths，改动走版本评审。
 并行窗口速查：同波仍须服从 `depends_on` 与 allow_paths；媒体路径关键支线 = STREAMING→QUALITY，DEDUPE→ARCHIVE-CONTRACT→BACKUP-IO→LOCAL-MEDIA-RETENTION；主闭环关键路径仍约为 T0→SCHEMA→CANON→COMPOSER→PDF→E2E。
@@ -234,11 +234,54 @@ flowchart LR
 
 > **调研已回流**（docs/research/synthesis.md + 3 篇深挖）：官方 NZ 巡检表成为 Routine 模板骨架；二值主评级 UI（存储枚举不变）、照片隐私标记、物业级条目抑制、封面卷积/出处页脚等已并入相应卡上下文包；ghost overlay 确认为全品类空白（唯一差异化确认）。
 
+## 2026-09-06 审校补卡与版本计划
+
+用户确认语音移到产品 V2，V1 先用简单预设选项与键盘；批量照片按 V1.1 规划。以下是发布范围和任务投影，未填发布日期，不把卡片登记等同于功能完成。状态以卡为准，沿用新的精简模板；EARS 语言/放置不限，不要求批量改写归档卡。
+
+| 里程碑 | 范围与发布证据 |
+|---|---|
+| V1 当前版本 | 现有四类巡检、拍摄/单图导入、预设短语/键盘、历史、通知/合规、双受众 PDF/HTML、DOCX 导入普通草稿、全量与隔离物业备份恢复、安全与本机诊断。补齐生产装配/接口及可信规则导入；已保留范围不因底层库已完成就跳过真机验证。 |
+| V1.1 | 批量照片选择和逐张分配，服务集中补录旧照片。V1 的现场拍摄与单张补录足够，不为批量功能延后 V1；批次提交/取消/重启策略和限额在对应卡实现前澄清。 |
+| 产品 V2 | 原始录音证据与可替换的设备端听写。设备、语言、格式、限额和原件转写能力留给 V2；V1 不显示 app-owned 语音入口或申请麦克风。 |
+
+**备份 format v2 与产品 V2 分开命名**：物业导出/恢复仍是 V1 保留范围，依次完成格式版本评审、数据闭包、应用导出与恢复三卡；整合卡负责 v2 writer→最终 SAF 对象关闭重开全验→回执→恢复。禁止新建 v1 property 包；旧包含整库 DB，不隔离且拒绝恢复。
+
+V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和规则更新的实际依赖与真机证据。报告须区分“证据采集完成”和“发布通过”；P0/P1 必须复测关闭或有用户明确风险接受记录，不能豁免项目硬边界，也不能仅凭开卡指针算通过。批量/语音卡依赖 V1 汇合卡，不倒挂阻塞 V1。
+
+### 新卡（均为 todo）
+
+| 卡 | 里程碑 | 产出 | 前置 |
+|---|---|---|---|
+| [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md) | V1 | 生产装配入口与巡检用例边界 | T1-LOCAL-DATA-SECURITY, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB |
+| [T2-MEDIA-ACCESS-BOUNDARY](../specs/tasks/T2-MEDIA-ACCESS-BOUNDARY.md) | V1 | 媒体能力收窄与路径校验复用 | T1-LOCAL-DATA-SECURITY, T2-PHOTO-PIPELINE, T2-PHOTO-PROPERTY-DEDUPE |
+| [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md) | V1.1 | 批量照片选择、逐张分配与安全提交 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
+| [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md) | 产品 V2 | V2 原始录音证据、回放与归属 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
+| [T2-ONDEVICE-DICTATION](../specs/tasks/T2-ONDEVICE-DICTATION.md) | 产品 V2 | V2 可替换的离线听写适配 | T2-AUDIO-EVIDENCE |
+| [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | 规则更新的可信来源与版本决策 | 无；先收口真实决策 |
+| [T4-COMPLIANCE-OVERRIDE-IMPORT](../specs/tasks/T4-COMPLIANCE-OVERRIDE-IMPORT.md) | V1 | 手动规则文件预检、可信激活与恢复 | T4-COMPLIANCE-UPDATE-TRUST, T4-COMPLIANCE-ENGINE-R3-CLOSURE, T1-LOCAL-DATA-SECURITY, T2-CAPTURE-UI |
+| [T5-BACKUP-FORMAT-V2](../specs/tasks/T5-BACKUP-FORMAT-V2.md) | V1 | 备份格式 v2 版本评审及兼容读写 | T5-BACKUP-FORMAT |
+| [T5-PROPERTY-SNAPSHOT-CLOSURE](../specs/tasks/T5-PROPERTY-SNAPSHOT-CLOSURE.md) | V1 | 按物业备份的逐表闭包与媒体双向核验 | T5-BACKUP-FORMAT-V2, T5-BACKUP-IO, T5-MEDIA-ARCHIVE-CONTRACT |
+| [T5-PROPERTY-RESTORE-INTEGRATION](../specs/tasks/T5-PROPERTY-RESTORE-INTEGRATION.md) | V1 | 物业包导出、隔离替换与启动恢复接线 | T5-PROPERTY-SNAPSHOT-CLOSURE, T5-LOCAL-DATA-ERASURE, T1-APP-BOUNDARY-ASSEMBLY |
+| [T7-REMEDIATION-PROVIDER-DECISION](../specs/tasks/T7-REMEDIATION-PROVIDER-DECISION.md) | V1 | 整改建议 provider 选择与出站合同决策 | 无；先收口真实决策 |
+
+### 原卡改善归属
+
+- `T1-SPIKE-PLATFORM` 去掉 V1 语音前置，`T3-PDF-RENDER-DEVICE` 同步按 PDF 探针名称引用；`T2-CAPTURE-UI` 接装配与媒体边界，提供预设/键盘；`T1-LOCAL-DATA-SECURITY` 补齐实际旧媒体日志的逐处验收。
+- `T5-BACKUP-IO` 修正 Keystore 口令信封、DB 一致性屏障、SAF 最终对象重开验证与受保护恢复 staging；不重复立一张相同的 v1 restore 卡。
+- `T7-REMEDIATION` 删除自由文本出站与默认 Anthropic，增加 provider 决策；`T6-TEMPLATES-REST` 正确认定已指定 Routine baseline。
+- `T3-REPORT-EXPORT-CORE/UI` 绑定隐私确认、复用一次 ReportContent；`T3-FIELD-UX-ACCEPTANCE` 与 `T7-SMOKE-POLISH` 区分记录缺陷和发布闭合。
+
+接口所有权与复用规格：`specs/android-module-boundaries.md`。不新增 Gradle 模块，不因几行 hash 相似而重写冻结协议。原审查已完成卡保留历史状态，新增卡负责未覆盖行为。
+
+### 保留的待澄清
+
+规则信任根/凭证轮换/生效与回退政策，由信任决策卡先定；remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
+
 ## 用户已定（2026-08-15 签认，下列为**执行契约**，执行模型按此做，勿再问）
 1. ✅ **ADR-0002 已签认**：备份 = app 私有存储 + SAF 加密归档导出；需求 §11 那处[定]以 ADR-0002 为准。T5 线解锁。
 2. ✅ **房产现状 = 2 套以上，部分在租**。两条硬后果：
    - **既有租约补不回 Ingoing** ⇒ schema 必须支持「把某次 Routine 指定为该 tenancy 的基线」（详见 T1-SCHEMA-CORE 上下文包新增段），Exit 对照 `tenancy.baseline_inspection_id` 而非「必有 Ingoing」的假设；
-   - 多物业是**常态不是边缘**：物业切换/按物业筛选是 v1 面（T2-CAPTURE-UI 与 T5-BACKUP-IO 的「按物业导出」照 ADR-0002 已含）。
+   - 多物业是**常态不是边缘**：物业切换/按物业筛选是 V1 面；按物业导出照 ADR-0002 保留，由 T5-PROPERTY-RESTORE-INTEGRATION 使用 format v2 接线，T5-BACKUP-IO 提供基础能力。
 3. ✅ **租客数据保留期 = 租约结束后 12 个月**（对**联系方式**）：`tenant_name`/`contact` 到期一键清空（置 NULL，**不删行**——证据链要留）。照片记录、报告、哈希和加密备份继续保留；本机全尺寸照片字节另按第 9 项归档。落地卡 = T5-RETENTION。
 4. ✅ **年检评级 5 态**（NO_ISSUE/MONITOR/MAINTENANCE_ITEM/SIGNIFICANT_DEFECT/NOT_APPLICABLE）——用户未否决，按 5 态做。
 7. ✅ **不做** Condition/Cleanliness 全量双刻度：v1 = 单刻度 + Exit/Ingoing 房间级清洁条目（已在卡内）。
@@ -251,29 +294,7 @@ flowchart LR
 
 ## 仍待定（不阻塞当前波次）
 5. **s48(2)(c) 复检语义**：向 Tenancy Services/持牌人士确认「查验已约定维修」是否占 4 周限额；确认后只改配置（ADR-0004），不改码。
-6. **Remediation 用哪家 LLM/key**（T7 前定即可；接口做成 provider 可换）。
+6. **Remediation 用哪家 LLM/key**：由 `T7-REMEDIATION-PROVIDER-DECISION` 收口；接口可替换，禁止自由文本出站的合同保持不变。
 
 ## 已由 3 方讨论定稿（原[待] → 已定）
 技术栈原生 Kotlin+Compose（ADR-0001）· 租赁评级 4 档 · Exit 独立 wear/damage 三态且仅差异项 · 两级拍照规则（N_A 不逼拍照）· UI 英文单语 + 报告平行双语 · finalize 锁定+哈希页脚 · SQLDelight/自研 UUIDv7/canonical 规范（ADR-0003）。
-
-## 2026-09-06 审校补卡与版本计划
-
-用户已确认：V1 使用预设选项与键盘；批量照片排 V1.1；app-owned 语音排产品 V2。备份 format v2 与产品 V2 分开，仍保留物业备份范围。规则可信来源、provider 与格式细节待澄清；法律 work-check 待办保持。上述新决定取代旧叙述中的版本安排；卡片状态/依赖以活卡为准。
-
-远端补交分三阶段：T7-AUDIT-REMOTE-FOUNDATION 登记新增卡与接口；T7-AUDIT-REMOTE-CARDS 修订既有卡；T7-AUDIT-REMOTE-DOCS 同步旧需求、页面和本表叙述。后两张为计划的后继交付，登记后按序执行；第三阶段完成前不宣称整批远端交付完成，三阶段均不实现功能。
-
-新增卡（todo）：
-
-- [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md)
-- [T2-MEDIA-ACCESS-BOUNDARY](../specs/tasks/T2-MEDIA-ACCESS-BOUNDARY.md)
-- [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md)
-- [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md)
-- [T2-ONDEVICE-DICTATION](../specs/tasks/T2-ONDEVICE-DICTATION.md)
-- [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md)
-- [T4-COMPLIANCE-OVERRIDE-IMPORT](../specs/tasks/T4-COMPLIANCE-OVERRIDE-IMPORT.md)
-- [T5-BACKUP-FORMAT-V2](../specs/tasks/T5-BACKUP-FORMAT-V2.md)
-- [T5-PROPERTY-SNAPSHOT-CLOSURE](../specs/tasks/T5-PROPERTY-SNAPSHOT-CLOSURE.md)
-- [T5-PROPERTY-RESTORE-INTEGRATION](../specs/tasks/T5-PROPERTY-RESTORE-INTEGRATION.md)
-- [T7-REMEDIATION-PROVIDER-DECISION](../specs/tasks/T7-REMEDIATION-PROVIDER-DECISION.md)
-
-接口职责与复用约束见 `specs/android-module-boundaries.md`；所有未决参数由相应卡实现前收口。

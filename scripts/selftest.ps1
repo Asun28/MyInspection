@@ -118,7 +118,7 @@
 [CmdletBinding()]
 param(
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
-  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
+  [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'scaffold-trigger', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
   [ValidateSet('', 'git-present', 'git-absent')][string]$NoGitFixtureCase = '',
   [string]$NoGitFixtureNonce = '',
@@ -1035,7 +1035,7 @@ function Test-ScaffoldSelftestTriggerContract([string]$WorkflowText) {
   $pushSelectors = @(Get-WorkflowMappingKeys $pushBlock.Groups['body'].Value '    ')
   if ($pushSelectors.Count -ne 2 -or (@($pushSelectors | Sort-Object -Unique) -join ',') -ne 'branches,paths') { return $false }
   if ($pushBlock.Groups['body'].Value -notmatch '(?m)^    branches:\s*\[\s*main\s*,\s*master\s*\]\s*$') { return $false }
-  if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*$") { return $false }
+  if ($pushBlock.Groups['body'].Value -notmatch "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!configs/compliance/\*\*', '!\*\*\.md'\]\s*$") { return $false }
   if ($onBlockText -notmatch '(?m)^  workflow_dispatch:\s*\{\}\s*$') { return $false }
   return $true
 }
@@ -1430,6 +1430,23 @@ if ($Fixture -eq 'seeded-nogit-routing' -and -not $noGitFixtureChild) {
     }
   }
   Write-Host '[SELFTEST-FIXTURE] seeded-nogit-routing PASS'
+  exit 0
+}
+
+if ($Fixture -eq 'scaffold-trigger') {
+  $workflowText = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
+  if (-not (Test-ScaffoldSelftestTriggerContract $workflowText)) {
+    Write-Warning '8.2d：scaffold-selftest.yml 触发契约不符：需要 main/master 脚手架 push、configs/compliance/** 排除及 workflow_dispatch，禁止额外事件。'
+    Write-Host '[SELFTEST-FAILED-GATES] shard=core gates=8.2d' -ForegroundColor Red
+    exit 1
+  }
+  $missingProductExclusion = $workflowText -replace ", '!configs/compliance/\*\*'", ''
+  if (Test-ScaffoldSelftestTriggerContract $missingProductExclusion) {
+    Write-Warning '8.2d：scaffold selftest 触发契约接受了缺少产品配置排除的变异。'
+    Write-Host '[SELFTEST-FAILED-GATES] shard=core gates=8.2d' -ForegroundColor Red
+    exit 1
+  }
+  Write-Host '[SELFTEST-FIXTURE] scaffold-trigger PASS'
   exit 0
 }
 
@@ -4360,8 +4377,8 @@ if ($stText82 -notmatch 'Install-Module\s+PSScriptAnalyzer') {
 }
 elseif (-not $fail) { Write-Host '  8.2c scaffold-selftest.yml provision PSScriptAnalyzer OK' -ForegroundColor Green }
 
-# 8.2d 产品 CI 的 PR 事件是合并闸，默认分支 push 是事后检测；完整 scaffold selftest 是合并后/手动 canary。
-#   任务卡 DoD 与 R3 负责合并前的本卡验证，避免无关历史 harness 闸反复阻塞产品推进。
+# 8.2d 产品 CI 的 PR 事件是合并闸；scaffold push canary 排除产品 configs/compliance/**。
+#   产品卡使用相关产品测试 + verify + R3；focused fixture 与完整闸共用本触发契约。
 $trigMissing82 = $false
 $ciTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
 foreach ($trig in @('push', 'pull_request')) {
@@ -4378,7 +4395,7 @@ if (Test-MainMasterWorkflowTrigger $ciOutsideOnMutation82 'pull_request') {
 $scaffoldTriggerText82 = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
 if (-not (Test-ScaffoldSelftestTriggerContract $scaffoldTriggerText82)) {
   $trigMissing82 = $true
-  Fail '8.2d：scaffold-selftest.yml 必须只在 main/master push 与 workflow_dispatch 运行，且不得含 pull_request——完整 harness 不进入 PR 关键路径。'
+  Fail '8.2d：scaffold-selftest.yml 触发契约不符：需要 main/master 脚手架 push、configs/compliance/** 排除及 workflow_dispatch，禁止额外事件。'
 }
 $pullRequestTriggerMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request: {}`n  workflow_dispatch: {}"
 $pullRequestTargetMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  pull_request_target: {}`n  workflow_dispatch: {}"
@@ -4391,7 +4408,8 @@ $quotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dis
 $doubleQuotedScheduleMutation82 = $scaffoldTriggerText82 -replace '(?m)^  workflow_dispatch:\s*\{\}\s*$', "  `"schedule`":`n    - cron: '0 0 * * *'`n  workflow_dispatch: {}"
 $tagsMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags: ['**']"
 $tagsIgnoreMutation82 = $scaffoldTriggerText82 -replace '(?m)^(    branches:\s*\[\s*main\s*,\s*master\s*\]\s*)$', "`$1`n    tags-ignore: ['release/**']"
-$missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
+$missingPathsMutation82 = $scaffoldTriggerText82 -replace "(?m)^    paths: \['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!configs/compliance/\*\*', '!\*\*\.md'\]\s*\r?\n", ''
+$missingProductExclusionMutation82 = $scaffoldTriggerText82 -replace ", '!configs/compliance/\*\*'", ''
 $alteredPathsMutation82 = $scaffoldTriggerText82 -replace "'configs/\*\*'", "'android/**'"
 $acceptedTriggerMutations82 = @(
   $pullRequestTriggerMutation82,
@@ -4406,6 +4424,7 @@ $acceptedTriggerMutations82 = @(
   $tagsMutation82,
   $tagsIgnoreMutation82,
   $missingPathsMutation82,
+  $missingProductExclusionMutation82,
   $alteredPathsMutation82 |
     Where-Object { Test-ScaffoldSelftestTriggerContract $_ }
 )
@@ -4413,7 +4432,7 @@ if ($acceptedTriggerMutations82.Count -gt 0) {
   $trigMissing82 = $true
   Fail "8.2d：scaffold selftest 触发契约接受了 $($acceptedTriggerMutations82.Count) 个额外事件或 paths 漂移变异。"
 }
-if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅 post-merge/manual OK' -ForegroundColor Green }
+if (-not $trigMissing82 -and -not $fail) { Write-Host '  8.2d 产品 CI push+PR；scaffold selftest 仅脚手架权威面 post-merge/manual OK' -ForegroundColor Green }
 
 # 8.2e selftest 分片契约：CI 显式列齐每个 OS×分片组合；聚合器用短 stub 真跑，覆盖
 # 并行进程、失败传播、StrictLint 转发、dirty rename/delete/untracked 叠加和临时目录清理。

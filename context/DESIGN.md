@@ -598,8 +598,10 @@ components:
   media-source-sheet:
     compose: ModalBottomSheet
     codeName: MediaSourceSheet
+    # Availability: SINGLE_PHOTO V1; BULK_PHOTO V1.1; AUDIO product V2.
     variants: [SINGLE_PHOTO, BULK_PHOTO, AUDIO]
     states: [OPEN, CAMERA_AVAILABLE, IMPORT_ONLY, COMMITTING, ERROR]
+  # V1.1 bulk-photo assignment only; not the V1 DOCX mapping workflow.
   media-assignment-row:
     compose: ListItem
     codeName: MediaAssignmentRow
@@ -612,6 +614,7 @@ components:
     compose: Surface
     codeName: ImportMappingSummary
     states: [SCANNING, REVIEW_REQUIRED, READY, COMMITTING, RECOVERY]
+  # Product V2 only; V1 offers presets and keyboard.
   audio-evidence-control:
     compose: Surface
     codeName: AudioEvidenceControl
@@ -799,6 +802,7 @@ flowchart TD
 | 2 | `DIAGNOSTIC_EXPORT` | `settings/diagnostics` | `PUSH_DETAIL` | `SETTINGS_ROOT` | Hidden | `T5-DIAGNOSTIC-EXPORT` |
 | 2 | `LOCAL_DATA_ERASURE` | `settings/delete-all-data` | `FULLSCREEN_TASK` | `SETTINGS_ROOT` | Hidden | `T5-LOCAL-DATA-ERASURE` |
 | 2 | `REMEDIATION_SETTINGS` | `settings/remediation` | `PUSH_DETAIL` | `SETTINGS_ROOT` | Hidden | `T7-REMEDIATION` |
+| 2 | `COMPLIANCE_RULES_SETTINGS` | `settings/compliance-rules` | `PUSH_DETAIL` | `SETTINGS_ROOT` | Hidden | `T4-COMPLIANCE-OVERRIDE-IMPORT` after trust decision |
 | 3 | `CAMERA_CAPTURE` | `inspections/{inspectionId}/camera/{targetType}/{targetId}` | `CAMERA_TASK` | `INSPECTION_CAPTURE` | Hidden | `T2-CAPTURE-UI` |
 | 3 | `CAMERA_REVIEW` | `inspections/{inspectionId}/camera-review/{tempAssetId}` | `CAMERA_TASK` | `CAMERA_CAPTURE` | Hidden | `T2-CAPTURE-UI` |
 
@@ -1010,6 +1014,7 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | Settings `Diagnostics` | `PUSH` | `DIAGNOSTIC_EXPORT` | Back Pop | Diagnostics row |
 | Settings `Delete all local data` | `PUSH` | `LOCAL_DATA_ERASURE` | Cancel Pop; erasing blocks Back | Delete all local data row |
 | Settings `Remediation provider` | `PUSH` | `REMEDIATION_SETTINGS` | Back Pop | Remediation row |
+| Settings `Rule updates` | `PUSH` | `COMPLIANCE_RULES_SETTINGS` | Back Pop | Rule updates row |
 | Theme setting row | `SHOW_SHEET` | `THEME_MODE_SHEET` | Commit on selection, then dismiss | Theme row |
 | Status field | `SHOW_SHEET` | `STATUS_SHEET(itemId)` | Commit on selection, then dismiss | Status field |
 | `Insert phrase` | `SHOW_SHEET` | `PHRASE_SHEET(fieldId)` | Insert on selection, then dismiss with Undo snackbar | Text field at insertion point |
@@ -1043,6 +1048,7 @@ Only `IDLE` accepts a new navigation intent. `TRANSITIONING`, overlay commit, an
 | `REMOVE_LOCAL_MEDIA_CONFIRMATION` | `ALERT_DIALOG` | Local media removal action | `T5-LOCAL-MEDIA-RETENTION` | Cancel restores removal action; confirm focuses progress | `dialog:remove-local-media:cancel` |
 | `DOCUMENT_TREE_PICKER` | `SYSTEM_SURFACE` | `BACKUP_SETTINGS` destination row | `T5-BACKUP-IO` | Result restores Choose destination row | `system:document-tree-picker` |
 | `BACKUP_FILE_PICKER` | `SYSTEM_SURFACE` | `RESTORE_TASK` package step | `T5-BACKUP-IO` | Result restores package field | `system:backup-file-picker` |
+| `RULE_FILE_PICKER` | `SYSTEM_SURFACE` | `COMPLIANCE_RULES_SETTINGS` Choose file | `T4-COMPLIANCE-OVERRIDE-IMPORT` | Result restores Choose file action | `system:rule-file-picker` |
 | `PDF_VIEWER` | `SYSTEM_SURFACE` | Verified PDF Open after boundary acknowledgement | `T3-REPORT-EXPORT-UI` | Return restores source Open action | `system:pdf-viewer` |
 | `HTML_VIEWER` | `SYSTEM_SURFACE` | Verified HTML Open after boundary acknowledgement | `T3-REPORT-EXPORT-UI` | Return restores source Open action | `system:html-viewer` |
 | `REPORT_CREATE_DOCUMENT` | `SYSTEM_SURFACE` | Verified report Save after boundary acknowledgement | `T3-REPORT-EXPORT-UI` | Result restores source Save action | `system:report-create-document` |
@@ -1124,7 +1130,7 @@ First run is a useful empty state, not an onboarding carousel. The first viewpor
 2. One sentence: `No account. Inspection data stays on this device.`
 3. A secondary `Restore encrypted backup` action for an existing user.
 
-Do not ask for camera, microphone, notification, storage-provider, or backup permissions during launch. Request each permission at the action that needs it and keep a usable fallback: camera → Import, microphone → keyboard, notifications → in-app Schedule, provider access → local data remains unchanged.
+Do not ask for permissions during launch. In V1 request camera, notification, storage-provider, or backup access only at the action that needs it: camera → Import, notifications → in-app Schedule, provider access → local data remains unchanged. V1 has no app-owned recording/dictation control or microphone request; product V2 adds action-scoped microphone access with presets and keyboard retained.
 
 Property creation asks only for the fields needed to begin: address, rental/owner-occupied, and boarding-house status. Tenancy details are requested only when the selected inspection type requires them. Backup setup is recommended after the first finalized inspection, not placed between first launch and first capture.
 
@@ -1175,7 +1181,7 @@ Offline is the ordinary field state, not a persistent banner. The shell does not
 | Capability | Offline presentation | Core-flow effect |
 | --- | --- | --- |
 | Local inspection, Routine DOCX import, history, rules, finalize, PDF and HTML | No network copy or network spinner | Fully available |
-| Voice without an installed offline recognizer | `Voice unavailable offline` beside the microphone; keyboard remains visible | No block |
+| Product V2 voice without an installed offline recognizer | `Voice unavailable offline` beside the microphone; keyboard remains visible | No block |
 | Local/USB backup | Normal backup phases while the selected volume is available | No block on inspection |
 | Cloud SAF backup/restore | `Backup provider unavailable` with `Try again` or `Choose another folder` | Only that operation stops |
 | Offline remediation seed match | Show local suggestion and label `On-device` | No block |
@@ -1194,17 +1200,17 @@ Backup health has two permanent rows:
 
 One failed attempt never erases or visually downgrades a previous verified receipt.
 
-Format v1 offers both `All app data` and `This property` backup scopes.
+Product V1 retains `All app data` and `This property` backup scopes. Format v1 exports only full packages; property export requires the format v2 review, snapshot closure, and production export/restore integration. The format version is separate from the product release version.
 
 | Package | Export disclosure | Recoverable verified receipt | Restore preflight and result |
 | --- | --- | --- | --- |
 | v1 `full` | `Includes all app data and media` | Yes, only after reopen/decrypt/manifest verification | Accepted after full validation; show `All app data`; action `Replace all data on this device` |
-| v1 `property` | `Compatibility export: database contains all properties; only media for this property is included. This file is not property-isolated and cannot be restored.` | No; completion reads `Compatibility export created — not restorable` | Reject after manifest inspection, before replacement confirmation; action `Choose another backup` |
+| Legacy v1 `property` | No export choice; legacy package contains all properties in its database and only selected-property media | No | Reject after manifest inspection, before replacement confirmation; action `Choose another backup` |
 | v2 `full` after its frozen-format version review | `Includes all app data and media` | Yes, only after full verification | Accepted after full validation; show `All app data`; action `Replace all data on this device` |
 | v2 `property` after its frozen-format version review | `Contains only {property}; restoring replaces current app data with this property` | Yes, only after row-set, logical-reference, media, and manifest completeness verification | Accepted after isolated-snapshot validation; show `This property`; action `Replace current data with this property`; when other data exists, recommend `Back up all current data first` |
 | Unknown scope, future format, or unsupported schema | `This backup version or scope is not supported` | No | Reject before replacement confirmation; action `Choose another backup` |
 
-Until the v2 frozen-format version review ships, v2 rows are reserved behavior, not an available export choice. No UI may describe v1 `property` as isolated, verified for recovery, suitable for property delivery, or restorable.
+Until the v2 format, closure, and integration cards ship, v2 rows are reserved behavior, not an available export choice. T5-PROPERTY-RESTORE-INTEGRATION owns selected-property snapshot → v2 writer → final SAF object → close/reopen/full verification → receipt → restore acceptance. Missing this chain blocks product V1 release. No UI may offer new v1 `property` exports or describe legacy packages as isolated, verified for recovery, suitable for property delivery, or restorable.
 
 | State | Required message | Primary action |
 | --- | --- | --- |
@@ -1433,7 +1439,7 @@ Design portrait-first for a compact Android handset. Tablet and landscape optimi
 - Keep primary controls at least `48dp` high; primary actions and status choices are `56dp` high.
 - Put the current room, missing-evidence strip, and room progress near the top. Put the next physical action in a bottom dock within thumb reach.
 - Use one dominant vertical list. Horizontal scrolling is reserved for room navigation and chronological history, where direction has meaning.
-- Item cards reveal detail progressively: name and current status first; note, phrase, voice, photo, and history controls only when relevant.
+- Item cards reveal detail progressively: name and current status first; note, phrase, photo, and history controls only when relevant. Voice controls belong to product V2.
 - Leave enough bottom inset for system navigation and enough space above the action dock that the final card is not obscured.
 - Apply system-bar and gesture insets to app bars, camera controls, sheets, and the bottom dock. The last list item must scroll fully above the dock.
 - Compact width (`<600dp`) and medium width (`600–839dp`) are single-pane in v1. Expanded width constrains prose and forms to a `720dp` column. Reading order remains room then items at every width.
@@ -1448,7 +1454,7 @@ Core capture shape:
 │ ▌Bench top                 │
 │ ▌ Previous: OK · 3 mo ago │  ← evidence rail + optional history
 │ ▌ [ OK ] [ Needs attention]│
-│ ▌ Photo · Phrase · Voice   │
+│ ▌ Photo · Phrase · Note    │
 ├────────────────────────────┤
 │ ▌Sink and taps             │
 │ ▌ ...                      │
@@ -1663,15 +1669,15 @@ Use skeletons only when the shape of delayed external/provider content is known.
 | `review-gap-row` | room/item, exact missing evidence, `Fix` | missing status/photo/note/blocked/fixing; machine `MISSING_STATUS / MISSING_PHOTO / MISSING_NOTE / BLOCKED / FIXING` | Ordered by room → item sort → evidence type; Fix returns to the exact control and does not mark completion | One button node; label includes missing requirement | `ListItem` |
 | `summary-stat` | decision number, full label, optional status icon | neutral/complete/attention/blocked | Used only for evidence totals and required decisions, never vanity metrics or charts | Number and label merge into one phrase | `Column` |
 | `evidence-grid` | 4:3 tiles, add/import affordance, selection summary | empty/ready/selection/archived/loading | Uses adaptive columns with minimum `144dp`; ordering is capture time then stable ID; selection never hides privacy/source metadata | `Modifier.semantics { collectionInfo = CollectionInfo(rowCount = resolvedRowCount, columnCount = resolvedColumnCount) }`; no Role; grid position is secondary to meaningful tile description | `LazyVerticalGrid` |
-| `media-source-sheet` | Camera, Import, optional bulk import; dependency explanation | single/bulk/audio; camera available/import only/error; machine `OPEN / CAMERA_AVAILABLE / IMPORT_ONLY / COMMITTING / ERROR` | Shows only sources the route can complete; permission denial keeps Import visible; selection launches one system surface | Pane title names target item; close returns to source action | `ModalBottomSheet` |
-| `media-assignment-row` | thumbnail, source/time, current room/item destination, assign action | unassigned/assigned/duplicate/invalid/saving | Bulk import copies and hashes first; duplicate/invalid items explain why they cannot commit; one asset maps to one explicit target per action | Announces file order without exposing raw path; action label names destination | `ListItem` |
-| `audio-evidence-control` | record/stop, state text, duration, saved-recording playback/history | idle/listening/processing/saved/playing/failed/unavailable/read only; machine `IDLE / LISTENING / PROCESSING_ON_DEVICE / SAVED / PLAYING / FAILED / UNAVAILABLE / READ_ONLY` | Each successful recording appends; saved recordings remain playable and are never deleted or detached. Finalized audio is read-only; original bytes and audit associations remain available for recovery and future reprocessing | Timer updates are throttled; state changes announced, waveform decorative | `Surface` |
+| `media-source-sheet` | V1 Camera/Import; V1.1 bulk import; dependency explanation | single/bulk/audio; camera available/import only/error; machine `OPEN / CAMERA_AVAILABLE / IMPORT_ONLY / COMMITTING / ERROR` | Shows only sources the route can complete; permission denial keeps Import visible; selection launches one system surface | Pane title names target item; close returns to source action | `ModalBottomSheet` |
+| `media-assignment-row` (V1.1) | thumbnail, source/time, current room/item destination, assign action | unassigned/assigned/duplicate/invalid/saving | Bulk import copies and hashes first; duplicate/invalid items explain why they cannot commit; one asset maps to one explicit target per action | Announces file order without exposing raw path; action label names destination | `ListItem` |
+| `audio-evidence-control` (product V2) | record/stop, state text, duration, saved-recording playback/history | idle/listening/processing/saved/playing/failed/unavailable/read only; machine `IDLE / LISTENING / PROCESSING_ON_DEVICE / SAVED / PLAYING / FAILED / UNAVAILABLE / READ_ONLY` | Each successful recording appends; saved recordings remain playable and are never deleted or detached. Finalized audio is read-only; original bytes and audit associations remain available for recovery and future reprocessing | Timer updates are throttled; state changes announced, waveform decorative | `Surface` |
 | `media-preview` | protected full media, metadata, privacy/archive state, close, contextual action | photo/audio; loading/ready/privacy/archived/error | Tenant-belongings photo uses secure surface; archived media offers recovery rather than broken-image copy | Pane title identifies room/item; zoom/playback has labelled controls; close restores source tile | Full-screen `Dialog` |
 ### Backup, report, health, and compliance component matrix
 
 | Component | Anatomy | Variants / states | Deterministic behaviour | Semantics and focus | Compose base |
 | --- | --- | --- | --- | --- | --- |
-| `backup-health-card` | last verified receipt, latest attempt, scope, primary action | not configured/ready/running/verified/stale/failed | Always preserves the previous verified fact; v1 scopes are `All app data` and `This property` | Heading + grouped receipt; failure recovery is the final focus stop | `Surface` |
+| `backup-health-card` | last verified receipt, latest attempt, scope, primary action | not configured/ready/running/verified/stale/failed | Always preserves the previous verified fact; product V1 offers `All app data` and `This property`, with property export requiring format v2 integration | Heading + grouped receipt; failure recovery is the final focus stop | `Surface` |
 | `destination-row` | provider icon, display name, availability, free-space/access state, choose action | not selected/available/offline/revoked/low space; machine `NOT_SELECTED / AVAILABLE / PROVIDER_OFFLINE / ACCESS_REVOKED / LOW_SPACE` | Shows provider display name, never raw URI; changing destination does not delete prior backups | Role `button`; label states current destination and result of activation | `ListItem` |
 | `task-stepper` | ordered labelled phases and one current marker | `BACKUP / RESTORE / REPORT_IMPORT / ERASE`; upcoming/current/complete/failed | Shows no fake percentage; completed steps remain visible; import uses Details → Choose file → Scan → Match → Review → Create draft | One progress group; current phase is announced once | `Column` |
 | `preflight-summary` | object/scope, counts, space, retained/removed facts, blockers | `RESTORE / IMPORT / ERASE / MEDIA_CLEANUP / SHARE`; checking/ready/blocked/stale | Must be recomputed before commit; stale import/replacement preview blocks execution and offers Refresh | Heading and included/retained lists; blocker action focuses the cause | `Surface` |
@@ -1723,7 +1729,7 @@ Exactly one item is expanded at a time because restoration stores one `expandedS
 | --- | --- | --- |
 | `UNRATED` | Rail, item title, optional prior-status summary, paired `OK` / `Needs attention` choices | The title row toggles detail only; it never changes status. Status controls are separate focus/tap targets |
 | `OK_COMPACT` | Check, `OK`, retained photo/note counts, `Change` | Evidence is preserved. Re-rating never deletes notes or photos |
-| `ATTENTION_EXPANDED` | Detailed status, exact required evidence, phrase/voice/note, photo actions | No auto-advance or auto-collapse; the user verifies evidence before leaving |
+| `ATTENTION_EXPANDED` | Detailed status, exact required evidence, phrase/note, photo actions; voice only in product V2 | No auto-advance or auto-collapse; the user verifies evidence before leaving |
 | `ATTENTION_COMPACT` | Attention label, detailed status, missing/complete evidence sentence, `Review` | Amber remains only while core reports missing required evidence |
 | `NOT_APPLICABLE` | Dash, explicit label, `Change` | Existing evidence is retained but labelled optional; no silent deletion |
 | `SAVE_FAILED` | Current state plus persistent failure banner | Keeps current value, focus, and editing controls; navigation waits for recovery |
@@ -1743,9 +1749,9 @@ Use Material Symbols Outlined at `24dp` for ordinary actions and the filled equi
 
 ### Notes, phrases, and voice
 
-The input order is phrase first, voice second, keyboard last. Suggested phrases open in a bottom sheet grouped by purpose and filtered by the current item and status. Inserting a phrase is immediate but reversible. The microphone control states whether on-device recognition is available; when unavailable, hide it and keep keyboard entry usable.
+V1 input is simple preset phrases first, keyboard for specific descriptions. Suggested phrases open in a bottom sheet grouped by purpose and filtered by the current item and status. Inserting a phrase is immediate but reversible, preserves existing note text and never sets a rating. V1 exposes no app-owned microphone or dictation entry. Product V2 may add voice after app-owned original recording and offline-transcription feasibility are verified; unavailable voice keeps presets and keyboard usable.
 
-Voice recording and transcription states are explicit: `Listening`, `Processing on device`, `Saved with this item`, or a specific recovery action. Never represent recording only with a pulsing color.
+Product V2 voice recording and transcription states are explicit: `Listening`, `Processing on device`, `Saved with this item`, or a specific recovery action. Never represent recording only with a pulsing color.
 
 ### Photos and camera
 
@@ -1825,3 +1831,11 @@ Motion must not cause layout shift.
 - Don't make finalize look available-but-dead; use `Review N missing items` until the inspection is complete.
 - Don't use toast-only save errors, gesture-only navigation, or disabled controls without an explanation.
 - Don't imply cloud sync, automatic notice sending, diagnosis, cost estimates, or any other excluded capability.
+
+## Version availability and rule update workflow (2026-09-06)
+
+The component catalogue includes future states; it is not a V1 implementation checklist. V1 uses presets, keyboard, camera and single-photo import. `media-assignment-row`/`BULK_PHOTO` belong to V1.1; `audio-evidence-control`, audio recording/playback UI and on-device transcription belong to product V2. Existing stored audio is preserved. V1 DOCX import remains in scope and is independent of bulk-photo import. Backup format v2 is a file format, not the product V2 milestone.
+
+`COMPLIANCE_RULES_SETTINGS` is a file-update screen, with current effective version/date/source, `Choose file`, bounded preflight, exact-content confirmation, activation result and one recovery action. It contains no editable compliance thresholds or disable switch. Source trust, rotation, effective-date and fallback decisions must be resolved by `T4-COMPLIANCE-UPDATE-TRUST` before implementation; do not present the existing checksum as publisher authentication. Reuse settings rows, preflight-summary, disclosure-list, confirmation-dialog, task-progress-card and recovery-panel. Picker cancellation returns focus without changing active rules; rejected or interrupted activation follows the approved recovery policy.
+
+Report privacy confirmation binds the selected audience, snapshot/content version and exact photo set; changing any binding invalidates the confirmation. Explicit inclusion remains available under the existing contract for either audience. Rule and report confirmation values come from their use cases, not UI-created Boolean flags. See `specs/android-module-boundaries.md` and owning task cards.

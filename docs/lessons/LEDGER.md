@@ -2205,3 +2205,11 @@
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的**既有实例全部列出**（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。**同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞**（同 L189 的识别信号）。
 - enforced_by: 
 - refs: 
+
+## L310
+- date: 2026-09-08 ｜ tags: task-loop,delivery,git ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: Routine v2 was reported complete after ship -Local although no GitHub feature PR existed.
+- root_cause: A local-only delivery mode was carried forward without checking the remote deliverable; successful local gates were mistaken for completion of the requested PR workflow.
+- rule: When the requested delivery includes a PR, use normal remote ship and verify the PR URL, exact reviewed head, successful candidate CI and remote merge before reporting completion. Report local-only completion explicitly; restore isolated card diffs from the current remote base when local master diverges, never push unrelated local history.
+- enforced_by: none（delivery-mode selection and completion wording still require operator verification; existing remote ship enforces R3 and candidate CI once selected）
+- refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md
