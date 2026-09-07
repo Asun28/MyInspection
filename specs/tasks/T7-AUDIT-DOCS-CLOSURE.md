@@ -1,7 +1,7 @@
 ---
 id: T7-AUDIT-DOCS-CLOSURE
 title: 需求审校交付二：需求与页面版本一致性
-status: todo
+status: merged
 depends_on: [T7-AUDIT-CARDS-CLOSURE]
 allow_paths:
   - CLAUDE.md
@@ -31,3 +31,7 @@ doc_sync: 仅将本收尾卡标为merged并归档；业务功能卡保持原状�
 把已交付卡片的版本、安全、基线与验收合同同步到需求、TASK-BOARD、DESIGN、Elements及CLAUDE。关闭前继阶段保留的旧叙述；不实施产品功能。
 
 用户2026-09-07要求 finish with task loop；本卡为该批已批准文档变更的交付包装。超过完整diff预算而拆两步；依赖顺序交付，不降低评审阈值。卡自身meta在main登记，实际交付在独立worktree；使用本地ship并保留正式R3，不把独立只读复核当成R3。
+
+## 交付证据（2026-09-07）
+
+正式 R3 第2轮 pass 于 `4d46499f`，本地 merge `bdb428f0`。首轮发现需求§2旧的一天相机spike说法，已同步为现行 overlay/SAF/80照PDF 三项真机验证。DoD、Android core check、Golden Evidence JVM Core E2E、范围/许可/防泄露全通过；完整评审251 changed lines / 58,404 chars。五份文档三方合并保留前序DOCX交付与Routine卡更新；本轮两份其他所有者草稿逐字节未变。11张新功能卡仍todo，语音/批量版本与备份format v2范围已同步。本卡无源码或冻结协议变化；纯文档SkipRed，R4未新增镜像测试。
