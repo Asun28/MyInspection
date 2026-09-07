@@ -88,3 +88,5 @@ The sibling `focused.log` replays the actual 17ai inventory and all its ordered-
 plus the shared trigger and canary fixtures, against the final integration.
 
 Official local delivery: exact feature `1672386367fe112e7c9cc47a719c2b6aa47dd097`, full selftest exit 0 / 1980.670s with all tracked bytes stable; R3 pass on the same SHA; local merge `9229141a189b83037fa33ac66c05e3e140957d0b`. Final evidence preserved in `_local/upstream-v047-implementation/evidence/T0-SCAFFOLD-TRIGGER-ADOPTION/` before cleanup.
+
+This delivery supersedes the [earlier preparation](../../tasks/T0-SELFTEST-SCAFFOLD-ONLY.md). Its separate branch and uncommitted files remain preserved; none of its historical RED output is claimed as this card's official RED receipt.
