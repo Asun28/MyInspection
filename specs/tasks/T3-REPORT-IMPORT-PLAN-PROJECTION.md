@@ -31,15 +31,10 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 # T3-REPORT-IMPORT-PLAN-PROJECTION
 
-This card is the source-projection predecessor of T3-REPORT-IMPORT-PLANNER.
-
-This predecessor supplies the pure immutable projection used by
-T3-REPORT-IMPORT-PLANNER. It never claims ready or authorizes a native write.
-Consume the independently delivered SNAPSHOT model and preflight; retain integrated
-context checks. Every target remains unrated until the later explicit review phase.
-Shared matching and source-ownership rules are defined in ADR-0007, Pure import planning contract.
-The calling workflow obtains current template and property room configuration;
-this pure snapshot does not prove live DB state and commit must revalidate it.
+Supply the PLANNER's immutable projection using delivered SNAPSHOT preflight and
+integrated context checks; never mark ready or authorize writes. Targets remain unrated
+until explicit review. Follow ADR-0007 matching/ownership rules. The caller obtains the
+current template/room configuration; commit must revalidate live DB state.
 
 User approved conservative legacy status handling on 2026-09-07. Original values
 remain review evidence; no Excellent/Average/Clean conversion is inferred.

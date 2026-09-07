@@ -32,4 +32,4 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Approved predecessor (2026-09-06)
 
-Implement the internal API and behavior in [the extraction contract](../../docs/references/docx-extraction-contract-llms.txt); no remote parser implementation is assumed. Direct tests use synthetic DocxPart values independently of extractor/Manifest fixtures. Production parts come from DocxPackageReader, whose resource limits stay upstream. Malicious-input tests intentionally construct parts to verify parser defense; the parent retains the contract's integration cases. No target-file/network access is authorized.
+Implement [the internal contract](../../docs/references/docx-extraction-contract-llms.txt). Direct tests independently construct synthetic DocxPart values, including hostile ones; production uses bounded reader parts. Parent integration stays as specified. No file/network access.

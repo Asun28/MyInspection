@@ -32,6 +32,6 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Approved predecessor (2026-09-06)
 
-Implement [the extraction contract](../../docs/references/docx-extraction-contract-llms.txt); no remote implementation is assumed. Constructor tests are independent of reader/extractor/image fixtures; the contract also fixes parent integration cases.
+Implement [the contract](../../docs/references/docx-extraction-contract-llms.txt). Constructor tests are independent of reader/extractor/image fixtures; parent integration stays as specified.
 
-Normalization uses the contract's NFC/trim and six ASCII whitespace characters, preserving raw evidence and independent vectors. Pin interior nonbreaking whitespace; JVM checks do not claim ART execution.
+Pin NFC/trim/six-ASCII-whitespace normalization, raw preservation, interior nonbreaking whitespace and independent vectors. JVM tests do not prove ART behavior.
