@@ -68,6 +68,8 @@
 
 已落地的 `T3-DOCX-PACKAGE-READER` 包边界使用标准 ZIP/SAX API，无文件写入或网络连接；显式拒绝 XInclude，XML 元素计数在全包累计，默认最多 200000 个。其余资源预算见 `DocxPackageLimits`。错误只携带封闭 reason 和数字计数，屏蔽 provider 原错与 XML 诊断。图片在本层仅受字节上限与格式签名检查，像素和完整解码验证仍须由下游完成。
 
+`T3-DOCX-CUSTOM-PROPERTIES` 已本地交付（`b00bcbcd`，R3 pass）：仅新增固定 `docProps/custom.xml` 的有界校验后丢弃兼容。精确内容类型、Properties 根命名空间与唯一内部包级关系均验证；属性名、值和注释不进入返回部件或提取证据，原有根关系部件仍可保留固定目标引用。所有 ZIP/XML 资源与主动内容限制继续生效；不解释属性语义，也不实现完整 VT schema。
+
 #### 自包含 HTML 报告
 
 - PDF/HTML 只序列化同一个 audience/privacy-filtered `ReportContent`；renderer 不回查/重滤/CSS 隐藏。HTML 是 UTF-8、正确 MIME、上下文转义且不含原始导入标记。

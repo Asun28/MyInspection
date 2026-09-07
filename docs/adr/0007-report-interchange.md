@@ -65,3 +65,6 @@ Opaque/read-only attachment; DOCX layout as schema; separate PDF/HTML projection
 ## Consequences
 
 Imports follow ordinary draft, autosave, completeness, finalize and immutable-history rules. Hostile-input and crash-recovery tests are mandatory. Renderer and operational UI remain separate cards; this ADR fixes their shared boundary.
+
+
+Implementation record (2026-09-07): `T3-DOCX-CUSTOM-PROPERTIES` locally merged as `b00bcbcd` after formal R3 pass. The fixed transitional `docProps/custom.xml` part requires its exact content type, Properties root QName and exactly one internal package-root custom-properties relationship. Existing ZIP/CRC/expansion and XML limits run before discard. Inert child XML is opaque; full custom-property/VT schema validation is not claimed. Property names, values and comments are excluded from returned parts and extraction evidence; the existing root relationship part can retain its structural target. Synthetic equivalent packages yield identical manifest fields and normalized digest. TD174 is closed for this boundary only; full private-source import and device acceptance remain separate.
