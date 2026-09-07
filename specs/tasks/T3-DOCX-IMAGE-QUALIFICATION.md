@@ -33,13 +33,13 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Deliverable
 
-Provide a read-only bounded image validation result. Complete PNG validation establishes reconstructible pixels, not decorative meaning. Unsupported input remains reviewable without a corruption claim. The user approved retaining small images for review on 2026-09-08, superseding the local size-based exclusion policy.
+Return bounded read-only validation. Valid PNG pixels do not prove decoration; unsupported input remains reviewable, not necessarily corrupt. User approval on 2026-09-08 replaces local size-based exclusion with retention.
 
 API: `DocxImageDimensions(width: Int, height: Int)`; `DocxImageDisposition { REVIEW_REQUIRED, VALIDATED_SMALL_CANDIDATE }`; immutable `DocxImageQualification(dimensions: DocxImageDimensions?, disposition: DocxImageDisposition)`; `DocxImageQualifier.qualify(bytes: ByteArray): DocxImageQualification`. The closed pixel-limit error remains `DOCX_IMAGE_PIXELS`. Neither enum value permits exclusion; no shim flag is exposed.
 
 ## Split scope
 
-The extractor retains every accepted image and placement with IMAGE_REVIEW_REQUIRED, including validated small candidates. No automatic contextual shim rule is specified or authorized. Its integration tests prove small substantive-image retention; this unit tests validation only. Each card keeps independent delivery gates.
+The extractor retains all accepted images and placements with IMAGE_REVIEW_REQUIRED; no contextual shim exclusion is authorized. Its integration tests prove small-content retention. This unit tests validation; both cards retain independent gates.
 
 ## Required adversarial fixtures
 

@@ -32,20 +32,16 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 # T3-REPORT-IMPORT-PLAN-SNAPSHOT
 
-The shared immutable model and pure context preflight precede source projection.
-Input and output retain one frozen snapshot; downstream commit must independently
-revalidate live property, tenancy, current template, room configuration and draft state.
-Use the existing template validator and capture room-identity semantics without DB access.
+The immutable model and context preflight precede projection. Retain one frozen snapshot;
+commit independently revalidates live property, tenancy, template, rooms and draft state.
+Reuse template validation and capture room identities without DB access.
 
-Native display-label reference: `android/core/src/main/kotlin/nz/myinspection/core/capture/RoomInstancePlanning.kt`
-derives labels from the configured instance count: `if (count == 1L) roomKey else "$roomKey $instanceNo"`.
-A repeatable room configured with one instance therefore uses `BEDROOM`, not `BEDROOM 1`.
-Repeatability controls whether multiple instances are allowed; it does not by itself add a label suffix.
-The snapshot must preserve this existing native convention, with explicit single-instance positive
-and negative tests. This source citation clarifies A4; it does not change its acceptance criterion.
+Native reference: `android/core/src/main/kotlin/nz/myinspection/core/capture/RoomInstancePlanning.kt`.
+A4 preserves its label rule: `if (count == 1L) roomKey else "$roomKey $instanceNo"`.
+One repeatable instance uses `BEDROOM`, not `BEDROOM 1`; repeatability permits multiple instances,
+not a suffix. Include explicit single-instance positive and negative tests.
 
-The same native function first filters `check_item_def` by `stable_id !in suppressedStableIds`,
-then forms `activeItemRoomKeys` and retains only declared rooms in that set. Consequently A4's
-required room inventory is the configured inventory for rooms with at least one unsuppressed
-item. A fully suppressed room contributes neither a required room instance nor a target;
-a partially suppressed room remains required. Requiring fully suppressed rooms would diverge from this native capture contract.
+That function filters `check_item_def` by `stable_id !in suppressedStableIds` before forming
+`activeItemRoomKeys`, retaining only declared rooms in that set. A4 therefore requires configured
+instances only for rooms with unsuppressed items: fully suppressed rooms need no instance or
+target; partially suppressed rooms remain required.
