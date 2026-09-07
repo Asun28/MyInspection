@@ -3,7 +3,7 @@ id: T3-REPORT-HTML-PRESENTATION
 title: Responsive, printable, dark and forced-colour stylesheet for the self-contained report
 depends_on: [T3-REPORT-HTML-RENDERER]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-HTML-PRESENTATION
 worktree: C:\wt\T3-REPORT-HTML-PRESENTATION
 allow_paths:
@@ -33,6 +33,14 @@ doc_sync: requirements + SECURITY + ADR-0007 + TASK-BOARD
 ---
 
 # T3-REPORT-HTML-PRESENTATION
+
+## Remote delivery — 2026-09-08
+
+GitHub PR #250 merged as `e792ea7594df925c4abae6b726ec28b66f2b0e9d` after formal R3 pass and successful candidate CI at `07dc6acdad91bf47a05bf7fe6069402ac6da4f51`. Metadata PR #243 first approved the third allowed test file. Fresh RED compiled and produced six assertion failures; final DoD ran 46 tests with zero failures, errors or skips. Standard remote ship passed verify (core check and Golden Evidence E2E), scope, licences, secrets and the 307-line diff budget.
+
+The three delivered source/test files are byte-identical to historical reviewed tip `4508d29783d2578150eae8f00ee8488c746f0be5`. Its 23 SHA-bound mutation results were reused, not rerun. Earlier local merge `2801e019` alone was not remote delivery. No full scaffold selftest rerun is claimed for this product-only recovery.
+
+Browser access to the local URL was denied; no alternate browser, server or route was used. Tests establish CSS rule shape, class parity and renderer/CSP bytes, not actual browser layout, pagination or glyph rendering. Font embedding and Android export integration remain outside this card.
 
 ## Deliverable
 
