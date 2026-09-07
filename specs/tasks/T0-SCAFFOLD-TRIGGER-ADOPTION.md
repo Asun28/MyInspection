@@ -76,3 +76,13 @@ from the review-policy integration was repaired; complete actual 17ac replay pas
 failure skips remain; nine existing environment/post-init skips are reported. Source
 identities and logs are in the main checkout's `_local/upstream-integration/`. These
 source-matched regression results do not claim a new single full-all run or idle timing.
+
+Final integration for the additional authorized review (2026-09-07): current main
+`e4f8a211` is merged, retaining its meta defaults, skill routing and audited product docs.
+The binding final acceptance receipt is `.review/trigger-final-20260907/full-selftest-result.json`
+and its sibling `full-selftest.log`: exact HEAD before/after, tracked-file hashes before/after,
+exit code, elapsed time and all-shard terminal output. This additional R3 is invoked only
+when that receipt proves a complete exit-0 run on this exact reviewed candidate. Historical
+`1e8986d0` and combined-shard results above are not substituted for this receipt.
+The sibling `focused.log` replays the actual 17ai inventory and all its ordered-site mutants,
+plus the shared trigger and canary fixtures, against the final integration.
