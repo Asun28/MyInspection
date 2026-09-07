@@ -73,6 +73,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **2026-09-06 脚手架维护**：`T0-SELFTEST-META-EXPANSION` 已本地合并（`04b355d4`，R3 pass）。普通自检默认延后三处元测试，每日/手动完整执行；实时检查保留。最终 core/workflow 全绿；两处新增延后范围的单次局部测量净省约 29.5 秒，非整套自检提速结论。
 **2026-09-06 脚手架维护**：`T0-SELFTEST-SKILL-ROUTING` 已本地合并（`5f0000cf`，R3 pass）。仅 Skill 改动改跑 core + workflow，使用目标工作区的独立快照并省去 seeded 错峰等待；冻结、混合和未知改动仍全跑。DoD、聚合回归、完整两分片及 8 项关键变异验证通过。
 <!-- 随 R5 文档同步更新。 -->
+**2026-09-07 本地交付**：`T3-DOCX-REPORT-EXTRACTOR` 已合并（master `71e2b8e5`，R3 pass）；42 项测试与 99 项最终源码变异通过，含 96 项父卡故障与 3 项前置边界集成敏感性验证；drawing/身份边界及字符数据通用守卫修复经真实 RED/GREEN、60 个公开入口探针验证；42 项集成测试完整保留。仅已验证小图可排除；原私样的上游包兼容缺口登记为 TD174，尚未实现原包完整导入。
 **2026-09-06 本地交付**：`T3-DOCX-EXTRACTION-MANIFEST` 已合并（master `2f03a166`，R3 pass）；11 项测试、42 项断言变异与 1 项实际删测验证完成。该前置的独立验收已完成，提取器由父卡继续交付。
 **2026-09-06 本地交付**：`T3-DOCX-XML-TREE` 已合并（master `0c801597`，R3 pass）；6 项测试、18 项断言变异与 6 项实际删测验证完成。该前置的独立验收已完成，提取器由父卡继续交付。
 **2026-09-06 本地交付**：`T3-DOCX-IMAGE-QUALIFICATION` 已合并（master `c571ab4f`，R3 pass）；21 项测试及 35 项变异验证通过。仅限定 PNG 子集可获小图排除资格，JPEG 与未验证负载保留待审；extractor 接入由后续卡完成。
