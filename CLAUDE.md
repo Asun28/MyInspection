@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`，**人裁合并**——8 轮 R3 / 13 条 finding 全部属实且全部当场修，轮次上限达顶后由用户裁定，八道确定性闸全绿、R3 未被唤起）。`context/DESIGN.md` 新增 `Symbol-only chrome` 具名节：领域值永不由字形单独承载 + 五条准入条件 + 准入不覆盖更严组件合同；四处治符号化控件的条款解析到它，计数与状态条款重写。OD-1 裁定 tooltip 要求按组件 anatomy 绑定，故相机 anatomy 未动；OD-2 裁定 `Settings` 目的地播报可行动的本机健康状态。**沿途关掉十一处基线既有 WCAG 1.4.1 缺口**（非本卡引入）：签名组件 evidence rail 在每项默认态 `UNRATED` 下complete/missing/blocked 仅靠颜色区分，`task-stepper` 的失败阶段无非颜色载体而它是 RESTORE/BACKUP/IMPORT/ERASE 四条流程的必需元素，另有 `summary-stat`/`metadata-row` 状态图标 optional 等。R4 25/25 变异全杀。**最贵的一条**：R3 第 5 轮拦下「把无障碍播报当作可见视觉线索的替代项」——播报服务屏幕阅读器、不解决色觉障碍的明眼用户，六轮本地对抗复核全部漏掉，只有第二模型评审抓到。遗留三项开卡 `T4-DESIGN-STATUS-CARRIERS`；本卡解锁 `T4-SCHEDULE-UI-PRESENTATION`。
+
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-SNAPSHOT` 已合并（master `8fba92e3`，正式 R3 pass，用户批准一次计数重置）；不可变上下文、严格日期、Routine v2 绑定及未抑制目标初始未评级已交付，沿用原生房间标签与抑制规则。6 项本卡测试、983 core + 6 E2E 验证通过，4 项既有 Windows media 测试跳过；30 次有效行为变异覆盖 29 种故障。来源投影、确认与导入写入尚未交付。
 
 **2026-09-07 本地交付**：`T3-DOCX-CUSTOM-PROPERTIES` 已合并（master `b00bcbcd`，R3 pass）；94 项本卡测试、10 项最终源码变异通过。TD174 的固定自定义属性部件有界校验后丢弃已实现，源元数据不进入提取结果；未宣称完整私样导入或真机验收。

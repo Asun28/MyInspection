@@ -4,7 +4,7 @@ title: 「符号化 chrome」准入条件收口（承接 T4-DESIGN-SYMBOL-CHROME
 depends_on: []
 parallelizable_with: []
 plan_ref: context/DESIGN.md#components
-status: in-progress
+status: merged
 branch: T4-DESIGN-SYMBOL-CHROME-V2
 worktree: C:\wt\T4-DESIGN-SYMBOL-CHROME-V2
 allow_paths:
