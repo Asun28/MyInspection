@@ -1560,7 +1560,7 @@ semantic base token
 
 ### Symbol-only chrome
 
-A **chrome control** is a control whose meaning is the action it performs. A **domain value** is something the record itself holds: a count, a status, a date, an address, a room or property name. The two are governed differently, and every clause elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that governs a symbol-only control resolves here for those conditions, though a component row still states the facts specific to itself.
+A **chrome control** is a control whose meaning is the action it performs. A **domain value** is something the record itself holds: a count, a status, a date, a source, an address, a room or property name. The two are governed differently, and every clause elsewhere in this document and in `docs/UI-UX-ELEMENTS.md` that governs a symbol-only control resolves here for those conditions, though a component row still states the facts specific to itself.
 
 **Domain values are never carried by a glyph alone.** A glyph may mark a domain value in addition, but only where its owner gives that value as text or announces it. This is why `state-badge` merges into its owner, why a dot needs an owner that expresses what the dot marks, and why a count that clamps visually still announces its full value.
 
@@ -1642,7 +1642,7 @@ Admission never overrides a stricter component contract: where a component row o
 | `metadata-row` | optional icon, label/value or source/time | `ICON_TEXT / LABEL_VALUE / SOURCE_TIME`; neutral/warning/error; machine `DEFAULT / WARNING / ERROR` | Supports a decision but never owns the only action or encodes state by color alone | Merged sentence; decorative icon hidden | `Row` |
 | `overflow-menu` | anchored menu, labelled items, optional separator | closed/open/item focused/action busy | Opens only when at least two secondary commands exist; destructive items are last and visually separated | Trigger announces `More options`; focus enters first enabled item and returns to trigger | `DropdownMenu` |
 | `tooltip` | short action label | hidden/visible | Carries the same action name that symbol-only chrome requires, for the components whose anatomy declares it | Not a separate TalkBack stop; never carries required instructions | `PlainTooltip` |
-| `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; the owner also expresses the state the badge marks | `Badge` |
+| `state-badge` | short count/dot/status/source marker | `COUNT / DOT / STATUS / SOURCE`; semantic states; machine `NEUTRAL / DUE / ATTENTION / BLOCKED / PRIVATE / VERIFIED` | Counts clamp visually to `99+` but announce the full count; dots require an owning row label | Merged into owner; the owner also expresses the value the badge marks | `Badge` |
 
 Search is conditional chrome: `search-field` appears only when a collection has more than eight active records or a page contract explicitly needs a query. Filters persist per top-level stack, expose `Clear filters`, and never hide the only recovery action.
 
