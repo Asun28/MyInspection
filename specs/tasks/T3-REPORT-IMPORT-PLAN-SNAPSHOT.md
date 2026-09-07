@@ -37,6 +37,13 @@ Input and output retain one frozen snapshot; downstream commit must independentl
 revalidate live property, tenancy, current template, room configuration and draft state.
 Use the existing template validator and capture room-identity semantics without DB access.
 
+Native display-label reference: `android/core/src/main/kotlin/nz/myinspection/core/capture/RoomInstancePlanning.kt`
+derives labels from the configured instance count: `if (count == 1L) roomKey else "$roomKey $instanceNo"`.
+A repeatable room configured with one instance therefore uses `BEDROOM`, not `BEDROOM 1`.
+Repeatability controls whether multiple instances are allowed; it does not by itself add a label suffix.
+The snapshot must preserve this existing native convention, with explicit single-instance positive
+and negative tests. This source citation clarifies A4; it does not change its acceptance criterion.
+
 This predecessor follows the projection candidate's independent pre-review. The
 980-line candidate needs input-freezing, date-validation, initial-unrated and source
 coverage corrections; completing its missing behavior coverage exceeds the unchanged
