@@ -28,9 +28,9 @@ acceptance:
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
   - "A5 the amended status clause still forbids colour from being the sole carrier of state, and states its satisfying carriers rather than requiring a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
+dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','has a visual cue that is not color',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
 dod_exit: 0
-dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
+dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; every status carries a non-color VISUAL cue and an announcement never substitutes for one, which is the WCAG 1.4.1 floor the card forbids weakening; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
 hygiene: 每条断言由「删掉被改写的那一句即变红」的单点变异证明；每个 DoD 锚点在被查文件里只出现一次，否则单点删除杀不掉它；变异批钉生产文件 SHA-256，批中不并行跑第二批或独立复核（L196）。
 doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID；解锁 T4-SCHEDULE-UI-PRESENTATION。
@@ -234,12 +234,12 @@ label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the
    而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
    **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
 
-## R4 变异收据（2026-09-08 · R3 第 4 轮 + 第三四轮本地对抗复核修复后重跑 · 23/23 KILLED）
+## R4 变异收据（2026-09-08 · R3 第 5 轮 + 第五六轮本地对抗复核修复后重跑 · 24/24 KILLED）
 
 被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
-`context/DESIGN.md` = `E4AFD22A69F85CF529D368511B702B4A99AEA6257D43CED5F6F6BF3699903D77` ·
+`context/DESIGN.md` = `0630BD4691EC880320DEEFBA9CC606C209A5310280DF50BA804914B31EFA1A1D` ·
 `docs/UI-UX-ELEMENTS.md` = `F1364E4823FA7E3ED41CCC8E7F5C4D51FE27E4822EC1EEF6E60AF4CDBF497BA8`。
-基线 `dod_command` 退出 **0**（GREEN）；23 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
+基线 `dod_command` 退出 **0**（GREEN）；24 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
 每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚，L190）、断言渲染后文本与 SHA 均已改变
 （防 no-op 冒充击杀，L297）、断言植入前文件仍等于基线（L196）。**无一枚 VOID。**
 
@@ -272,6 +272,7 @@ RED 证据取自真实基线：`-Phase red` 首次运行读到的是主检出卡
 | M21 | A1 | ELEMENTS | `:123` 去掉解析引用 | KILLED |
 | M22 | A1 | ELEMENTS | 还原 `:35` 未按相机合同收窄的旧选型句 | KILLED |
 | M23 | A3 | DESIGN | 还原「无障碍名须为 verb-object 短语」这条全称（`More options` / `Save and exit` 正违反它） | KILLED |
+| M24 | forbid#1 | DESIGN | 状态条款删掉 `visual` 一词（播报即可满足下限——正是 R3 第 5 轮拦下的那个洞） | KILLED |
 
 M1/M20/M21 证明具名锚点由定义处与两处跨文档引用各自独占承载；M14/M15/M16/M17/M18/M19/M22
 证明七处被替换的复述措辞两侧都在测；M5 与 M12 成对证明「唯一承载」而非「存在即可」。
@@ -397,6 +398,50 @@ L309 说「给成熟文档加中心规则前先做实例代入表」。本卡照
 最终解法不是第六次改措辞，而是**同时消掉两个方向的全称**：作用域缩到五个具名状态（治太宽），
 例外按「行声明的标记形态」给（治太窄），二者都不再对整份文档做断言。
 
+## R3 第 5 轮：WCAG 1.4.1 下限（2026-09-08 · block · 1 条 · 属实且最重）
+
+**这是全卡唯一一条命中卡片 `forbid` 的 finding，也是唯一一条本地五轮对抗复核都没抓到的。**
+
+评审指出：我的规则把 owner 的**播报**当作与颜色并列的充分载体。播报服务屏幕阅读器，
+**不是视觉线索**——色觉障碍的**明眼**用户仍然只剩颜色。`forbid` 第 1 条禁止弱化的正是
+WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：图标 optional，
+三个非中性状态只活在合并语义短语里。
+
+**病根是我把两件事合并成了一件**：WCAG 1.4.1 要的是**明眼可见的非颜色线索**；
+无障碍播报要的是**屏幕阅读器可达**。二者是两项义务，我却把播报写成了可见文字的**替代项**。
+
+修法：句 2 拆成两句——「每个状态都有一个非颜色的**视觉**线索：自身可见文字、字形、位置、
+或 owner 给出的可见文字」+「若该状态自身没有可见文字，owner **另外**播报它」。
+播报从此只补充、永不替代。新增 DoD 锚点 `has a visual cue that is not color` + M24 钉住。
+
+### 收紧后暴露的既有无障碍缺口（本卡因此关掉六处，全部是基线问题、非本卡引入）
+
+| 组件 | 缺口 | 修法 |
+|---|---|---|
+| `summary-stat` | 图标 optional，非中性状态只在语义短语 | 图标改为「每个非中性状态必带」 |
+| `metadata-row` | 同上形态；该行自己却承诺「never encodes state by color alone」却无载体 | 同上；语义格补「装饰图标隐藏、状态图标不隐藏」 |
+| `evidence-rail` × `UNRATED` | **签名组件**：complete / missing-required / blocked 三态仅靠颜色区分（dash 只给 optional），而 `UNRATED`（每个项的默认态）不声明任何可见文字 | `UNRATED` 可见内容补 `missing-evidence sentence`（照 `ATTENTION_COMPACT` 已有的写法）；`SAVE_FAILED` 按「current state」继承 |
+| `photo-evidence-tile` | `FAILED` 无声明载体（其余六态各有自己的条款救） | 确定性格补 `failed names its error` |
+| `task-stepper` | `complete` / `failed` 无载体：阶段标签只说是哪一步、唯一字形只标 `current`、位置与成败无关、语义只播报当前阶段。**它是 `RESTORE_TASK` / `BACKUP_SETTINGS` / `REPORT_IMPORT` / `LOCAL_DATA_ERASURE` 的必需元素——恢复或清除流程里失败的那一步，色觉障碍用户看不见** | 解剖补「每个 complete 与 failed 阶段带状态标记」；语义补「失败阶段也播报」 |
+| （另见 `:926` `Settings` 点、`room-progress` `BLOCKED`、`history-evidence-strip` relation，本卡前几轮已关） | | |
+
+复核者逐条核实这六处不与既有条款冲突：`metadata-row` 的状态图标属对比度表 `:1273` 的
+`Essential icon`（3.00:1）而非 `:1274` 的装饰豁免，与 `:1824`「装饰性 rail 与 divider 无单独描述」
+不重叠。**实现期遗留**：新增的必带图标会产出新的前景/背景对，`:1408` 的对比度闸要求逐对登记；
+`light.tertiary` / `light.error` 目前只登记了对 `surface-container`、缺对 `surface` 的绑定。
+
+### 遗留 `[FOLLOW-UP]`（同类但更弱，本卡不扩范围）
+
+`media-preview` 的 `error` 与 `remediation-suggestion-card` 的 `failed`：载体由邻近条款**隐含**
+而非声明（前者靠「archived media offers recovery」、后者靠 `:1188` 的离线表），比上表五处弱一档。
+另有 capture Back 的 `Save and exit` / `Back to {parent}` 双名（基线既有，见第 2 轮记录）。
+
+### 本卡真正的产出，比它原定范围更值钱
+
+原定范围是「给符号化 chrome 命名一组准入条件」。但要把这条规则**说成真的**，文档就必须为
+它声明的每一个状态回答「除颜色之外由什么承载」——于是查出**六处既有的 WCAG 1.4.1 缺口**，
+其中一处在签名组件 evidence rail 的默认态上。这些缺口在规则含糊（播报可替代视觉）时是看不见的。
+
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
@@ -406,3 +451,4 @@ L309 说「给成熟文档加中心规则前先做实例代入表」。本卡照
 | 2026-09-07 | R3 第 2 轮 1 条 finding 属实（状态条款仍全称要求字形，九个合同证伪）；按 L309 识别信号停手，从 17 个承载状态的合同反推析取式。随后本地跑两轮 fresh-context 对抗复核，9 条中 7 条属实全部当场修、1 条驳回、1 条记 FOLLOW-UP，未烧 R3 轮次。补记方法论两处缺口：周边被改写条款同样要代入，且实例代入表管不了新句与新句相互矛盾。R4 按最终字节重跑 23/23。 |
 | 2026-09-08 | R3 第 3 轮 1 条 finding 属实：`state-badge` 语义格只保证「状态」，漏掉同行声明的 `SOURCE` 变体。改为保证「值」并在载体规则举例补 source；DoD 锚点与 M5/M12 同步。R4 按最终字节重跑 23/23。 |
 | 2026-09-08 | R3 第 4 轮 2 条属实（闭集词汇与 `summary-stat` 条件句），本地对抗复核第三/四轮再出 5 条属实。字形词汇那一句累计五次改写失败，复核者按位置统计确认它是独立子问题、其余已收敛。最终不再改措辞，而是同时消掉「太宽」（作用域缩到五个具名状态）与「太窄」（例外按行声明的标记形态给）两个方向的全称。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 5 轮 1 条属实且命中 `forbid` 第 1 条：把播报当作与颜色并列的充分载体，弱化了 WCAG 1.4.1 下限（播报服务屏幕阅读器，不是明眼可见的视觉线索）。句 2 拆为「非颜色视觉线索」+「无自身可见文字时 owner 另外播报」，播报只补充不替代；新增锚点与 M24。收紧后暴露并关掉六处既有无障碍缺口，含签名组件 evidence rail 的默认态与 `task-stepper` 的失败阶段。R4 按最终字节重跑 24/24。 |
