@@ -1,7 +1,7 @@
 ---
 id: T4-SCHEDULE-UI-PRESENTATION
 title: 排程界面的最小呈现契约与符号化 chrome
-depends_on: [T4-SCHEDULE-UI-REMINDER-ACTIONS, T4-DESIGN-SYMBOL-CHROME]
+depends_on: [T4-SCHEDULE-UI-REMINDER-ACTIONS, T4-DESIGN-SYMBOL-CHROME-V2]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#page-inventory
 status: todo
