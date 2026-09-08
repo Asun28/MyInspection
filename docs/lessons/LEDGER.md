@@ -2310,3 +2310,11 @@
 - rule: R5 顺序固定为：文档同步 → task.ps1 -Phase cleanup → archive.ps1。若已经先归档，别把卡挪回去，直接 git worktree remove <path> 拆除（先确认 worktree 无未提交改动、分支已并入 base），分支按本仓惯例保留。
 - enforced_by: 
 - refs: scripts/archive.ps1; scripts/task.ps1 cleanup
+
+## L314
+- date: 2026-09-08 ｜ tags: import,privacy,source-alias,identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 身份来源已在 narrative 路径排除，却可借同源 caption、summary 或 item comment 再写入原生备注。
+- root_cause: 守卫只覆盖一个输出分支，未按位置和原文建立跨类别证据归属。
+- rule: 需要排除的来源证据应先建立跨全部可写类别的统一索引，在公共决策入口校验；回归同时覆盖各类别的同源别名，并保留同文字不同位置的合法对照。
+- enforced_by: 
+- refs: 
