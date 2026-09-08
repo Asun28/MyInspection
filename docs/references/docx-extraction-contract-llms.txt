@@ -65,7 +65,11 @@ Image SHA is text, not decoded bytes. This is not the native inspection hash.
 
 ## Independent golden vectors
 
-F/L/T and these literal inputs define independent wire vectors. Empty all eight lists: 17 fields, 151 bytes; SHA-256 `dade39f717f3be4181d418a24a67814806e63b7f73f37dc559aa06aaa886993a`. Literal field sequence is `DOCX-EXTRACT-1,fragments,0,items,0,identity,0,summary,0,captions,0,images,0,placements,0,warnings,0` (commas are separators, not bytes).
+Empty all eight lists: 17 fields, 151 bytes; SHA-256 `dade39f717f3be4181d418a24a67814806e63b7f73f37dc559aa06aaa886993a`. Reproduce without project code:
+
+```powershell
+python -c "import hashlib,struct;f=['DOCX-EXTRACT-1']+sum(([n,'0'] for n in 'fragments items identity summary captions images placements warnings'.split()),[]);b=b''.join(struct.pack('>i',len(s.encode()))+s.encode() for s in f);print(len(f),len(b),hashlib.sha256(b).hexdigest())"
+```
 
 Nonempty literal inputs:
 
