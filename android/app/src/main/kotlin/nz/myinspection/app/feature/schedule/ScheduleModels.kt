@@ -744,14 +744,22 @@ object SchedulePresentation {
      * screen opens with its count phrase, so even a content state constructed with no rows at all
      * still says something true. That is what keeps A2 from resting on the reducer happening never
      * to build an empty one.
+     *
+     * The content screen's rows go through [rowContentOf], so a due occurrence's date reaches the
+     * screen by the same path a test drives rather than by a renderer remembering to format one.
+     * [now] and [zone] are arguments for the same reason nothing else here reads a clock.
      */
-    fun contentOf(screen: ScheduleScreenState): List<ScheduleContentValue> = when (screen) {
+    fun contentOf(
+        screen: ScheduleScreenState,
+        now: Instant,
+        zone: ZoneId,
+    ): List<ScheduleContentValue> = when (screen) {
         is ScheduleScreenState.Loading ->
             listOf(ScheduleContentValue.Message(LOADING_MESSAGE))
 
         is ScheduleScreenState.Content ->
             listOf(countPhrase(screen.rows.size)) +
-                screen.rows.map { row -> ScheduleContentValue.PropertyName(row.propertyName) }
+                screen.rows.flatMap { row -> rowContentOf(row, now, zone) }
 
         is ScheduleScreenState.NoContentEmpty ->
             listOf(ScheduleContentValue.Message(NO_CONTENT_MESSAGE))
@@ -762,6 +770,21 @@ object SchedulePresentation {
         is ScheduleScreenState.Error ->
             listOf(ScheduleContentValue.Message(ERROR_MESSAGE))
     }
+
+    /**
+     * What one row puts on screen. The due line is present exactly when the row carries a due date,
+     * which is a property of the row kind rather than a rule: [ScheduleRow.dueAt] is null on every
+     * kind that declares no due date, so a first-inspection row cannot acquire one here.
+     */
+    fun rowContentOf(
+        row: ScheduleRow,
+        now: Instant,
+        zone: ZoneId,
+    ): List<ScheduleContentValue> = listOfNotNull(
+        ScheduleContentValue.PropertyName(row.propertyName),
+        typeLabel(row.inspectionType),
+        row.dueAt?.let { dueAt -> dueLine(dueAt, now, zone) },
+    )
 
     /**
      * What a blocked permission puts on screen, above the state rather than in place of it. Read
@@ -783,12 +806,6 @@ object SchedulePresentation {
     fun absoluteDate(instant: Instant, zone: ZoneId): String {
         val date = instant.atZone(zone).toLocalDate()
         return "${date.dayOfMonth} ${monthNames[date.monthValue - 1]} ${date.year}"
-    }
-
-    /** An absolute date and a 24-hour clock time, for example `19 May 2026, 14:00`. */
-    fun absoluteDateTime(instant: Instant, zone: ZoneId): String {
-        val time = instant.atZone(zone).toLocalTime()
-        return "${absoluteDate(instant, zone)}, ${twoDigits(time.hour)}:${twoDigits(time.minute)}"
     }
 
     /**
@@ -850,8 +867,6 @@ object SchedulePresentation {
     }
 
     private fun dayCount(days: Long): String = if (days == 1L) "1 day" else "$days days"
-
-    private fun twoDigits(value: Int): String = value.toString().padStart(2, '0')
 
     private const val LOADING_MESSAGE = "Reading the schedule from this device"
 
