@@ -3,7 +3,7 @@ id: T3-REPORT-IMPORT-PLANNER
 title: Explicit import review and deterministic mapping receipt
 depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR, T3-REPORT-IMPORT-PLAN-PROJECTION, T3-REPORT-IMPORT-REVIEW-DECISIONS]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-IMPORT-PLANNER
 worktree: C:\wt\T3-REPORT-IMPORT-PLANNER
 allow_paths:
@@ -50,3 +50,39 @@ state and completes current preview, atomic bulk confirmation, READY and receipt
 Original A1-A6 and integrated DoD remain unchanged; downstream COMMIT/UI still
 depend on this parent, not the predecessor. Both cards run sequentially through
 the existing review-size and delivery gates.
+
+## Delivery record — 2026-09-08
+
+Locally merged as `d7510b02` from `1b37381c`; formal R3 first-round pass with
+empty reasons, bound to `1b37381c86e3727a3f680a372c4f439a34b087b4`.
+The four-file candidate is 401 added lines / 31144 diff characters.
+
+`ImportReviewPreview` binds the complete immutable review revision. Bulk requests
+must enumerate every eligible unresolved exact item suggestion and reject stale,
+partial, duplicate and conflicting commands atomically. Identity and caption
+evidence stay outside bulk; photos and summaries retain individual review gates.
+READY requires the current preview and zero exhaustive review blockers, while
+missing native items remain unrated. `ImportMappingReceipt` uses canonical JSON
+format 1 with the independent `MYINSPECTION-IMPORT-MAPPING-1` newline hash domain.
+It records native context, opaque source/owner IDs, decisions, reasons, privacy,
+warnings and target ratings without source text, paths or metadata.
+
+Verification: exact DoD passes 62 plan tests. Worktree verify passes 1039 core
+tests and six E2E tests; actual main merge-tree verify, including the concurrent
+interchange schema delivery, passes 1044 core tests and six E2E tests. Both core
+runs have zero failures/errors and four existing Windows skips. Scope, license,
+secret and diff-budget gates pass; scaffold selftest explicitly routes to
+NOT-APPLICABLE for the four product files.
+
+R4: 24 unique source mutations fail named behavior assertions, with no compilation
+failure counted as a kill. Exact source SHA-256 baselines are restored; no tests
+pruned. Independent repository-aware code and evidence audits found no actionable
+issues. The formal reviewer returned pass from its injected context/diff; its
+supplemental file-read commands were blocked by the review runtime policy. Do not
+attribute the main-flow test runs to the reviewer. Logs, fresh XML results, RED,
+verdict and mutation evidence are preserved in
+`_local/T3-REPORT-IMPORT-PLANNER-20260908/`.
+
+This completes the pure planner only. Live commit revalidation, database/media
+writes and UI remain downstream. Retrospective found no new lesson beyond the
+predecessor's recorded L314 identity-source guard; no duplicate lesson added.

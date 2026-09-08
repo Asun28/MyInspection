@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLANNER` 已合并（master `d7510b02`，正式 R3 首轮 pass）；完整当前预览、原子批确认、READY 与格式 1 脱敏回执已交付。62 项 plan、实际合并树 1044 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，24 项源码变异被捕获。回执绑定原生上下文与不含原文的来源决策；数据库提交、媒体写入及 UI 仍由后续卡承接。
+
 **2026-09-08 本地交付**：`T3-REPORT-INTERCHANGE-SCHEMA` 已合并（master `800593b4`，正式 R3 首轮 pass）；schema v6 提供不可变导入来源回执与 PDF/HTML 格式回执，历史 PDF 字段无损迁移，HTML 不获得媒体归档资格。50 项定向测试通过；合并后整体验证覆盖 1034 项 core（4 项既有 Windows 跳过）及 6 项 E2E，均无失败。32 项源码变异均被捕获，最终 LF 源码与提交字节一致。映射回执规范化/隐私由 PLANNER 负责，COMMIT 负责写入前复验；本卡仅交付持久化基础。
 
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-REVIEW-DECISIONS` 已合并（master `8f56d01f`，正式 R3 首轮 pass）；逐项显式状态/隐私、跨类别身份来源排除、caption 组成部分处置与按来源顺序汇总摘要已交付。同一目标的条目备注与显式来源备注确定性合并，未评级目标保留。52 项 plan、1029 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，15 项源码变异被捕获。预览、批确认与回执仍由原父卡承接，不具备数据库写入权限。
