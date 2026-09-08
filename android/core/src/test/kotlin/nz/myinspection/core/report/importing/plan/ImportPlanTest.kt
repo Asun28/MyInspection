@@ -151,7 +151,7 @@ class ImportPlanTest {
     }
 
     // R3 repair: bypassing each of the five ImportPlan immutable wrappers independently
-    // fails this assertion test in the 33-test suite; production hashes match the first R4 batch.
+    // fails this assertion test in the 34-test final R4 suite; production bytes restored.
     @Test fun `plan constructor detaches all five caller lists and exposes immutable collections`() {
         val target = ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN")
         val source = ImportSourceId(ImportSourceCategory.IMAGE, 0)

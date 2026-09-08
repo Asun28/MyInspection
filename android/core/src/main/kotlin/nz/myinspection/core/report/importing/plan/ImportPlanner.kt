@@ -137,7 +137,7 @@ class ImportPlanner {
         }
         val status = item.status
         val allowed = target?.let { selected -> templateItems.single { it.stableId == selected.stableId }.allowedStatuses }
-            ?: matchingDefinitions.singleOrNull()?.allowedStatuses.orEmpty()
+            ?: emptyList()
         val suggestedStatus = when {
             status == null || status.normalized.isEmpty() -> {
                 blockers += blocker(ImportBlockerCode.BLANK_STATUS, listOf(source)); null

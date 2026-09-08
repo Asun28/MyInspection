@@ -22,16 +22,17 @@ import nz.myinspection.core.template.Template
 import nz.myinspection.core.template.TemplateItem
 import nz.myinspection.core.template.TemplateRoom
 
-/* R4, 2026-09-08: 11 isolated source mutations each failed a named behavior assertion
- * in the 32-test plan suite (no compile-only failures); original bytes restored.
+/* R4, 2026-09-08: 17 isolated source mutations each failed a named behavior assertion
+ * in the 34-test plan suite (no compile-only failures); original bytes restored.
  * Faults: drop source row; duplicate caption owner; accept unsupported status;
  * invent target; ignore room label; confirm photo initially; rate suggestion;
  * drop second photo; misclassify provenance warning; alias unequal raw text;
- * duplicate image-part placement owner. No tests were pruned.
- * ImportPlanner.kt SHA-256: b1642a10e228b8b2444cbe69f25a0882ecf13863733dd89adca2536226c408f1
+ * duplicate image-part placement owner; targetless status fallback; five constructor-list
+ * wrapper bypasses. No tests were pruned.
+ * ImportPlanner.kt SHA-256: 5a84d2086629094179e9c51b97779ccdd0a5f72f19991554bbc59599837bd504
  * ImportPlan.kt SHA-256: af236cbeefe2e91700258c3de98b1246804a86b3712fdc21b0695dfebb04f777
- * Local recipes: _local/projection-20260908/run_mutations.py in main checkout;
- * per-fault assertion reports and hashes: .review/resume-mutations in task worktree.
+ * Local recipes: main _local/projection-20260908/run_final_projection_mutations.py
+ * and run_final_wrapper_mutations.py; per-fault reports: .review/final-*-mutations.
  */
 class ImportPlannerTest {
     @Test
@@ -441,6 +442,21 @@ class ImportPlannerTest {
         assertEquals(listOf(placement), plan.rows.flatMap { it.placements })
         assertEquals(listOf(emptyList(), emptyList()), plan.photoReviews.map { it.placementSources })
         assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.PLACEMENT, 0)) })
+    }
+
+    @Test fun `status suggestions require one target while a roomless unique name can still suggest`() {
+        val items = listOf(
+            ExtractedItem(null, text(160, "Walls"), text(161, "GOOD"), null),
+            ExtractedItem("Bedroom 2", text(162, "Walls"), text(163, "GOOD"), null),
+            ExtractedItem(null, text(164, "Bench top"), text(165, "GOOD"), null),
+        )
+        val plan = ImportPlanner().project(input(manifest(items = items)))
+        assertEquals(listOf(null, null, "GOOD"), plan.rows.map { it.candidate?.suggestedStatus })
+        assertEquals(listOf(null, null, ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN")), plan.rows.map { it.candidate?.target })
+        assertEquals(items, plan.rows.flatMap { it.items })
+        assertEquals(listOf("GOOD", "GOOD", "GOOD"), plan.rows.map { it.candidate?.sourceStatus?.raw })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.AMBIGUOUS_TARGET && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.ITEM, 0)) })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNKNOWN_TARGET && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.ITEM, 1)) })
     }
 
     private fun ImportPlanningInput.copy(
