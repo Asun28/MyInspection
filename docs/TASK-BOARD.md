@@ -257,7 +257,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 | [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md) | V1.1 | 批量照片选择、逐张分配与安全提交 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md) | 产品 V2 | V2 原始录音证据、回放与归属 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-ONDEVICE-DICTATION](../specs/tasks/T2-ONDEVICE-DICTATION.md) | 产品 V2 | V2 可替换的离线听写适配 | T2-AUDIO-EVIDENCE |
-| [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | 规则更新的可信来源与版本决策 | 无；先收口真实决策 |
+| [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | [ADR-0008](adr/0008-compliance-update-trust.md)：单公钥离线签名、轮换/撤销/日期/恢复矩阵（2026-09-08 用户批准） | 无；技术与责任决策已关闭，本卡 R3 与合并后解除此项前置，导入其余依赖不变 |
 | [T4-COMPLIANCE-OVERRIDE-IMPORT](../specs/tasks/T4-COMPLIANCE-OVERRIDE-IMPORT.md) | V1 | 手动规则文件预检、可信激活与恢复 | T4-COMPLIANCE-UPDATE-TRUST, T4-COMPLIANCE-ENGINE-R3-CLOSURE, T1-LOCAL-DATA-SECURITY, T2-CAPTURE-UI |
 | [T5-BACKUP-FORMAT-V2](../specs/tasks/T5-BACKUP-FORMAT-V2.md) | V1 | 备份格式 v2 版本评审及兼容读写 | T5-BACKUP-FORMAT |
 | [T5-PROPERTY-SNAPSHOT-CLOSURE](../specs/tasks/T5-PROPERTY-SNAPSHOT-CLOSURE.md) | V1 | 按物业备份的逐表闭包与媒体双向核验 | T5-BACKUP-FORMAT-V2, T5-BACKUP-IO, T5-MEDIA-ARCHIVE-CONTRACT |
@@ -275,7 +275,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 ### 保留的待澄清
 
-规则信任根/凭证轮换/生效与回退政策，由信任决策卡先定；remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
+规则信任决策见 ADR-0008（2026-09-08 用户已批准）：APK 单公钥、本人批准规则、受控电脑分开保管两类私钥、USB 首次安装/传递。用户在完整方案和明确责任问题后回复“好的”，关闭用户待决策项；不代表密钥已生成或安装已完成。轮换、撤销、日期、确认绑定与恢复同步导入卡 A1–A8；本卡通过 R3 并合并后解除此项前置，实际制品与安装证据由后续验收提供。remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
 
 ## 用户已定（2026-08-15 签认，下列为**执行契约**，执行模型按此做，勿再问）
 1. ✅ **ADR-0002 已签认**：备份 = app 私有存储 + SAF 加密归档导出；需求 §11 那处[定]以 ADR-0002 为准。T5 线解锁。
