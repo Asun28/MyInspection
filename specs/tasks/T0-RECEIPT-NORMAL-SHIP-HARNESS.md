@@ -11,7 +11,7 @@ acceptance:
   - "A4 逐字节恢复同一 valid receipt 后，-NoAutoMerge 正例再次走完随机 PR/head/run/attempt/CWD 最终快照，且不触达 merge/cleanup/T24，证明 fixture 非惰性"
   - "A5 保留两枚使用可解析错误 OID 的 scope tip/base 身份负例；成功行逐字为卡片 DoD 指定的 H1 marker"
   - "A6 workflow 与 seeded-remote 均 PASS；card-inclusive diff 小于 1000 行/60000 字符"
-status: merged
+status: todo
 branch: T0-RECEIPT-NORMAL-SHIP-HARNESS
 worktree: C:\wt\T0-RECEIPT-NORMAL-SHIP-HARNESS
 allow_paths:
@@ -45,3 +45,9 @@ doc_sync: 本卡只做既有行为的 harness 重构，不改生产或文档；F
 - 不用 `if ($false)`、skip 或只删旧断言制造预算假绿。
 - 不在测试里复制第三套 ship/review/merge 控制流。
 - 不把 H1 描述为 TDD 功能改动；它是保持既有运行时语义的可执行 harness 重构。
+
+## 观察边界
+
+首次铸据和恢复有效收据的两次 `-NoAutoMerge` 分别核验随机 PR/head/run/attempt、CWD 与最终 CI 事件序列；首次观测在清理日志之前完成。missing 与两次成功运行均检查 merge、cleanup、T24 调用观察点，而不只检查状态是否变化。
+
+这些零消费断言完成后，末尾另用同一隔离仓执行允许合并的正常 ship 和 cleanup，证明 T24 与 cleanup 观察点实际可触达。该正控与前面的 `-NoAutoMerge` 运行分开，不把其合并行为算作 NoAutoMerge 的结果。观察只注入隔离驱动器副本，不修改项目生产脚本。

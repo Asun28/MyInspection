@@ -15203,6 +15203,16 @@ public static class DeadlineInheritProbe {
           $run4 = { param($Exe, $A) $o = (& pwsh -NoProfile -File $Exe @A 2>&1 | Out-String); $x = $LASTEXITCODE; [pscustomobject]@{ Out = (& $clean4 $o); Exit = $x } }
           $git4 = { param($p, $a) $v = (& git -C $p @a 2>&1 | Out-String); if ($LASTEXITCODE -ne 0) { throw "git 前置失败：$a；$v" }; $v.TrimEnd() }
           $task4 = Join-Path $fx4.Repo 'scripts/task.ps1'
+          # 观察真实驱动器的 cleanup 入口与两处 T24 铸造入口；不改变其分支或退出行为。
+          $taskText4 = Get-Content $task4 -Raw
+          $cleanupAnchor4 = 'Set-StrictMode -Version Latest'
+          $cleanupBody4 = "  'cleanup' {"
+          $tokenAnchor4 = '        $tokDir = "$(& git -C $RepoRoot rev-parse --git-common-dir 2>$null)".Trim()'
+          if ([regex]::Matches($taskText4, [regex]::Escape($cleanupAnchor4)).Count -ne 1 -or [regex]::Matches($taskText4, [regex]::Escape($cleanupBody4)).Count -ne 1 -or [regex]::Matches($taskText4, [regex]::Escape($tokenAnchor4)).Count -ne 2) { throw 'cleanup/T24 观察入口不唯一或缺失' }
+          $taskText4 = $taskText4.Replace($cleanupAnchor4, 'if ($Phase -eq ''cleanup'') { Add-Content (Join-Path $env:GH_MOCK_ROOT ''cleanup-invoked'') ''yes'' }' + "`n" + $cleanupAnchor4)
+          $taskText4 = $taskText4.Replace($cleanupBody4, $cleanupBody4 + "`n" + '    Add-Content (Join-Path $env:GH_MOCK_ROOT ''cleanup-invoked'') ''entered''')
+          $taskText4 = $taskText4.Replace($tokenAnchor4, '        Add-Content (Join-Path $env:GH_MOCK_ROOT ''t24-invoked'') ''yes''' + "`n" + $tokenAnchor4)
+          Set-Content $task4 $taskText4 -NoNewline -Encoding utf8
           $redRun4 = & $run4 $task4 @('-TaskId','T0-REMOTEMX','-Phase','red')
           if ($redRun4.Exit -ne 0) { throw "真实 RED 建立失败：$($redRun4.Out)" }
           $redPath4 = Join-Path $fx4.Wt '.review/T0-REMOTEMX.red'
@@ -15223,7 +15233,19 @@ public static class DeadlineInheritProbe {
           $validObj4 = [Text.Encoding]::UTF8.GetString($validBytes4) | ConvertFrom-Json
           $head4 = & $git4 $fx4.Wt @('rev-parse','HEAD')
           if ($validObj4.taskId -cne 'T0-REMOTEMX' -or $validObj4.redSha -cne $redObj4.sha -or $validObj4.commitSha -cne $head4 -or (& $git4 $fx4.Origin @('rev-parse','refs/heads/T0-REMOTEMX')) -cne $head4) { throw '真实 receipt/redSha/commitSha/远端 HEAD 绑定不成立' }
-          $down4 = @('review-invoked','status-posted','pr-commented','gh-all-calls','ci-event-trace','ci-checked','ci-workflow-checked','ci-jobs-consumed','ci-jobs-run-id','ci-jobs-names','ci-gh-cwds','ci-check-count','ci-workflow-count','ci-jobs-count','merge-attempted','merge-reached')
+          $forbidden4 = @('merge-attempted','merge-reached','cleanup-invoked','t24-invoked')
+          $down4 = @('review-invoked','status-posted','pr-commented','gh-all-calls','ci-event-trace','ci-checked','ci-workflow-checked','ci-jobs-consumed','ci-jobs-run-id','ci-jobs-names','ci-gh-cwds','ci-check-count','ci-workflow-count','ci-jobs-count') + $forbidden4
+          $assertCi4 = {
+            param($Result, [string]$Stage)
+            if ($Result.Exit -ne 0 -or -not $Result.Out.Contains("[CI-GATE-PASS] #$wantPr4/$head4")) { throw "$Stage 未完成随机 PR/head 最终 CI：$($Result.Out)" }
+            foreach ($s in ($down4 | Where-Object { $_ -notin $forbidden4 })) { if (-not (Test-Path (Join-Path $fx4.Root $s))) { throw "$Stage 正例哨兵未被真实消费：$s" } }
+            if (@($forbidden4 | Where-Object { Test-Path (Join-Path $fx4.Root $_) }).Count -or (Test-Path $mergeTok4)) { throw "$Stage NoAutoMerge 消费 merge/cleanup/T24" }
+            $cwds4 = @(Get-Content (Join-Path $fx4.Root 'ci-gh-cwds'))
+            $calls4 = @($cwds4 | ForEach-Object { ($_ -split '\|',3)[0] }) -join '>'
+            $wantRun4 = (Get-Content (Join-Path $fx4.Root 'fixture-run-id') -Raw).Trim()+'/'+(Get-Content (Join-Path $fx4.Root 'fixture-run-attempt') -Raw).Trim()
+            if ($calls4 -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or @($cwds4 | Where-Object { ($_ -split '\|',3)[1] -ine $fx4.Wt }).Count -or (Get-Content (Join-Path $fx4.Root 'ci-jobs-run-id') -Raw).Trim() -cne $wantRun4 -or ((Get-Content (Join-Path $fx4.Root 'ci-event-trace')) -join '>') -notmatch '^r3>ci(?:>ci)*$') { throw "$Stage 随机 run/attempt/CWD/最终快照序列不完整" }
+          }
+          & $assertCi4 $mint4 '首次铸据'
           $clear4 = { foreach ($s in $down4) { Remove-Item (Join-Path $fx4.Root $s) -ErrorAction SilentlyContinue } }
           $snapshot4 = {
             param([bool]$IncludeTree = $true)
@@ -15248,18 +15270,20 @@ public static class DeadlineInheritProbe {
           & $clear4
           $valid4 = & $run4 $task4 $shipArgs4
           if ($valid4.Exit -ne 0 -or $valid4.Out -notmatch 'T35-RECEIPT resume 放行' -or -not $valid4.Out.Contains("[CI-GATE-PASS] #$wantPr4/$head4")) { throw "有效 receipt 未经 normal ship 完成随机 PR/head 最终 CI：$($valid4.Out)" }
-          foreach ($s in ($down4 | Where-Object { $_ -notin @('merge-attempted','merge-reached') })) { if (-not (Test-Path (Join-Path $fx4.Root $s))) { throw "正例哨兵未被真实消费：$s" } }
-          if ((Test-Path (Join-Path $fx4.Root 'merge-attempted')) -or (Test-Path (Join-Path $fx4.Root 'merge-reached')) -or (Test-Path $mergeTok4) -or (Get-FileHash $rcpt4).Hash -cne $validHash4 -or (& $snapshot4 $false) -cne $stable4) { throw '有效 NoAutoMerge 改变 HEAD/ref/PR/evidence 或消费 merge/cleanup/T24' }
-          $cwds4 = @(Get-Content (Join-Path $fx4.Root 'ci-gh-cwds'))
-          $calls4 = @($cwds4 | ForEach-Object { ($_ -split '\|',3)[0] }) -join '>'
-          $wantRun4 = (Get-Content (Join-Path $fx4.Root 'fixture-run-id') -Raw).Trim()+'/'+(Get-Content (Join-Path $fx4.Root 'fixture-run-attempt') -Raw).Trim()
-          if ($calls4 -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or @($cwds4 | Where-Object { ($_ -split '\|',3)[1] -ine $fx4.Wt }).Count -or (Get-Content (Join-Path $fx4.Root 'ci-jobs-run-id') -Raw).Trim() -cne $wantRun4 -or ((Get-Content (Join-Path $fx4.Root 'ci-event-trace')) -join '>') -notmatch '^r3>ci(?:>ci)*$') { throw 'normal ship 随机 run/attempt/CWD/最终快照序列不完整' }
+          & $assertCi4 $valid4 '恢复有效收据'
+          if ((Get-FileHash $rcpt4).Hash -cne $validHash4 -or (& $snapshot4 $false) -cne $stable4) { throw '有效 NoAutoMerge 改变 HEAD/ref/PR/evidence/receipt' }
           # 保留原 /4 的两枚独立 scope 身份绑定负例；不重建测试内的手工配方。
           $pos4 = @{ Head=$head4; Base=(& $git4 $fx4.Repo @('rev-parse','refs/remotes/origin/master')) }
           $csExe4 = Join-Path $fx4.Repo 'scripts/check-scope.ps1'
           $pinTip4 = & $run4 $csExe4 @('-TaskId','T0-REMOTEMX','-Base','master','-Path',$fx4.Wt,'-ExpectTip',$pos4.Base,'-ExpectBase',$pos4.Base)
           $pinBase4 = & $run4 $csExe4 @('-TaskId','T0-REMOTEMX','-Base','master','-Path',$fx4.Wt,'-ExpectTip',$pos4.Head,'-ExpectBase',$pos4.Head)
           foreach ($pin4 in @($pinTip4,$pinBase4)) { if ($pin4.Exit -eq 0 -or $pin4.Out -notmatch '\[SCOPE-TIPMISMATCH\]' -or $pin4.Out -notmatch 'judged=') { throw "可解析错误 OID 未命中真实 scope 身份比较：$($pin4.Out)" } }
+          # 零消费断言完成后，以同一隔离仓的真实合并/cleanup 正控证明观察点可达。
+          & $clear4
+          $mergeControl4 = & $run4 $task4 @('-TaskId','T0-REMOTEMX','-Phase','ship')
+          if ($mergeControl4.Exit -ne 0 -or -not (Test-Path (Join-Path $fx4.Root 't24-invoked')) -or -not (Test-Path $mergeTok4)) { throw "T24 观察正控未走到真实铸造：$($mergeControl4.Out)" }
+          $cleanupControl4 = & $run4 $task4 @('-TaskId','T0-REMOTEMX','-Phase','cleanup')
+          if ($cleanupControl4.Exit -ne 0 -or ((Get-Content (Join-Path $fx4.Root 'cleanup-invoked')) -join '>') -cne 'yes>entered' -or (Test-Path $fx4.Wt)) { throw "cleanup 观察正控未走到真实入口：$($cleanupControl4.Out)" }
           Write-Host '  T37-REMOTEMX/4 receipt resume OK（真实已铸 receipt→missing 非零停止；零下游且 HEAD/ref/PR/evidence 保留；原始 receipt 恢复后 NoAutoMerge 经 normal ship 完成随机身份最终快照）' -ForegroundColor Green
         } catch { Fail "T37-REMOTEMX/4 receipt resume：$($_.Exception.Message)" }
         finally { if ($fx4 -and $fx4.Root) { Remove-Item -Recurse -Force $fx4.Root -ErrorAction SilentlyContinue } }
