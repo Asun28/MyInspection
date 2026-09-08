@@ -1,7 +1,7 @@
 ---
 id: T4-COMPLIANCE-UPDATE-TRUST
 title: 规则更新的可信来源与版本决策
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - docs/adr/0008-compliance-update-trust.md
@@ -32,3 +32,9 @@ review_gate: codex {verdict:pass}
 ADR 0008 是本计划预留；开工如已占用，先修订卡到下一空号，不能覆盖 accepted ADR。
 
 决策证据（2026-09-08 会话）：向用户提供完整方案后，询问原话：“是否批准这套方案：由你最终批准规则，两类私钥分别保管在你控制的电脑，首个可信 APK 和规则文件通过该电脑经 USB 安装／传递？”用户答复原话：“好的”。用户后续请求 task-loop 合到 remote。本记录只同步批准事实；完整 ADR、恢复矩阵及验收投影须另经本卡正式远端 R3/CI 并合并，当前 todo 不解除任何依赖。
+
+## 远端交付（2026-09-08）
+
+PR #257 已 squash 合入 origin/master（4a1358e），正式远端 R3 第二轮 pass 于 2de8e6c6aca9b4107bb8721be6a2641a27154724。首轮关于批准上下文的发现已通过 ADR 中原始相邻消息、具体消息 ID 及批准层次说明修复；未把本地 R3 自动当成远端批准。DoD、verify（core 与 Golden Evidence JVM Core E2E）、范围、许可、防泄露、真实 diff 预算及同一 head 的 CI verify 全通过。签名制品、导入功能、API 26/真机验收仍由后续导入卡交付，work-check 未启用。
+
+责任记录前置 PR #256 已合并；本设计前置完成，导入卡其他依赖不变。R5 同步状态、看板、CLAUDE 索引并由 archive.ps1 归档。本卡不新增工程经验条目：本轮取回会话证据与已有 L18/L101 的规划/评审边界相关，未改变脚手架规则。

@@ -1,7 +1,7 @@
 ---
 id: T4-COMPLIANCE-TRUST-REMOTE-RECORD
 title: 同步规则信任决策的远端任务记录
-status: in-review
+status: merged
 depends_on: []
 allow_paths:
   - specs/tasks/T4-COMPLIANCE-TRUST-REMOTE-RECORD.md
@@ -25,3 +25,7 @@ review_gate: codex {verdict:pass}
 用户于 2026-09-08 请求将已本地交付的 T4-COMPLIANCE-UPDATE-TRUST 通过 task-loop 合到 remote。远端尚保留批准前描述，本卡只同步决策事实；设计正文在原卡随后运行正式远端 ship。
 
 PR #255 的首轮 R3 要求显式卡片范围和可核对的决策证据；本卡按 L101 补齐，承接该轮 block，不重置轮次。L18 要求原任务自身的规划修改先进入基线，故与原任务功能 diff 分开。原本地设计通过 R3 的 SHA 为 3e5d2bf23d119bd73c1951a2495bc98627cf093c；此历史记录不代替远端 R3/CI。
+
+## 远端交付（2026-09-08）
+
+PR #256 已合入 origin/master（c50fb95），正式 R3 pass 于 391b70cfc25928e2ff2c200332aa6a4a71e20ff8，所有确定性闸和同一 head 的 CI verify 通过。PR #255 由 #256 替代并关闭；两轮阻断后用户明确批准一次计数重置，保留历史裁决并补齐任务范围、相邻问答及责任声明边界。本卡只同步原任务规划事实；后续设计 PR #257 已独立通过 R3 和 CI 并合并。原卡保持 todo 的 A3 是本前置 PR 合并时的验收事实，随后设计交付后由 R5 改为 merged。
