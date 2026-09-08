@@ -867,7 +867,7 @@ class ScheduleUiTest {
             )
             val banner = assertNotNull(SchedulePresentation.feedbackBannerOf(blocked), screen.toString())
             assertEquals(ScheduleActionSlot.OPEN_SETTINGS, banner.recovery.slot)
-            assertTrue(banner.content.isNotEmpty(), screen.toString())
+            assertTrue(banner.content.all { it.text.isNotBlank() }, screen.toString())
         }
     }
 
@@ -878,10 +878,17 @@ class ScheduleUiTest {
 
     // ------------------------- T4-SCHEDULE-UI-PRESENTATION A2 no declared state is blank
 
+    /**
+      * Presence is not the contract, legibility is: a state carrying Message("") has content in the
+      * sense that the list is not empty and renders nothing at all, so both halves are asserted.
+      */
     @Test
-    fun `A2 no declared state renders empty content`() {
+    fun `A2 no declared state renders empty or blank content`() {
         everyScreenState().forEach { screen ->
-            assertTrue(SchedulePresentation.contentOf(screen, may19, nzZone).isNotEmpty(), screen.toString())
+            val content = SchedulePresentation.contentOf(screen, may19, nzZone)
+
+            assertTrue(content.isNotEmpty(), screen.toString())
+            assertTrue(content.all { it.text.isNotBlank() }, screen.toString())
         }
     }
 
@@ -942,7 +949,11 @@ class ScheduleUiTest {
     @Test
     fun `A2 the filtered-empty state names the type that emptied it`() {
         val content = SchedulePresentation.contentOf(filteredEmpty(InspectionScheduleType.ANNUAL), may19, nzZone)
-        assertTrue(content.any { it.text.contains("Annual home check") }, content.toString())
+
+        assertEquals(
+            listOf("No inspections match this filter", "Annual home check"),
+            content.map { it.text },
+        )
     }
 
     @Test
@@ -1318,9 +1329,17 @@ class ScheduleUiTest {
  *
  * Every row is one single semantic edit to production code applied with the tests untouched, and no
  * row targets a comment or a test. Each row names one killing test of the count beside it. Selector
- * uniqueness is asserted for all 24 rows before the first mutation is applied.
+ * uniqueness is asserted for all 27 rows before the first mutation is applied.
  *
- * 24 mutations, 24 killed, 0 survived.
+ * M34, M35 and M36 exist because R3 found an assertion that checked presence where the contract
+ * says legibility, and no mutation blanked any authored message. The non-blank test had in fact
+ * been written and then pruned during a size squeeze, on the reasoning that no mutation killed it
+ * on its own. That reasoning was circular: no mutation killed it because none blanked a message,
+ * and the missing mutation was the very reason the test looked redundant. M34 now dies to exactly
+ * one test, the restored one, which is the evidence the pruning was wrong. Mutation-survivor
+ * pruning is only as sound as the mutation set it is measured against.
+ *
+ * 27 mutations, 27 killed, 0 survived.
  *
  * M8  A1  the top app bar action is named after a different action
  *     KILLED exit 1, 1 test, A1 the top app bar declares at most two actions and names the one it has
@@ -1373,4 +1392,10 @@ class ScheduleUiTest {
  * M29 A3  the content screen bypasses the row projection and emits names only
  *     KILLED exit 1, 4 tests, A2 the row-by-row projection rebuilds exactly the content the state
  *     declares
+ * M34 A2  the no-content empty state renders a blank message
+ *     KILLED exit 1, 1 test, A2 no declared state renders empty or blank content
+ * M35 A2  the filtered-empty state renders a blank message
+ *     KILLED exit 1, 2 tests, A2 no declared state renders empty or blank content
+ * M36 A2  the feedback banner renders a blank message
+ *     KILLED exit 1, 2 tests, A1 a blocked permission adds no second primary action to any screen state
  */
