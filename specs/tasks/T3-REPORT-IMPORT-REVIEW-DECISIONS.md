@@ -3,7 +3,7 @@ id: T3-REPORT-IMPORT-REVIEW-DECISIONS
 title: Explicit immutable import decisions and exhaustive source accounting
 depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR, T3-REPORT-IMPORT-PLAN-PROJECTION]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-IMPORT-REVIEW-DECISIONS
 worktree: C:\wt\T3-REPORT-IMPORT-REVIEW-DECISIONS
 allow_paths:
@@ -37,3 +37,17 @@ individual review decisions only; unresolved sources and native choices are
 facts for the parent, never READY or authority to write. Preserve the delivered
 projection API. The parent T3-REPORT-IMPORT-PLANNER retains all original acceptance
 and supplies current preview, atomic bulk confirmation and deterministic receipt.
+
+## Delivery record — 2026-09-08
+
+Locally merged as `8f56d01f` from `b08d9bdd`; formal R3 first-round pass.
+DoD: 52 plan tests, zero failures/errors/skips. Project verify: 1029 core tests,
+zero failures/errors, four existing Windows skips; six Golden Evidence E2E tests pass.
+R4: 15 isolated source faults killed by named behavior assertions or the bounded
+warning-inventory timeout; exact source SHA-256 restored. No tests pruned.
+Evidence is preserved in `_local/T3-REPORT-IMPORT-REVIEW-DECISIONS-20260908/`.
+The formal reviewer returned pass from the complete injected diff; its additional
+repository-read commands were blocked by the review sandbox. Main-flow deterministic
+checks and prior independent repository-aware inspections ran successfully.
+This delivers individual decisions only. Preview, bulk confirmation, READY and
+mapping receipt remain with the original parent; database writes remain downstream.

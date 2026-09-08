@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-REVIEW-DECISIONS` 已合并（master `8f56d01f`，正式 R3 首轮 pass）；逐项显式状态/隐私、跨类别身份来源排除、caption 组成部分处置与按来源顺序汇总摘要已交付。同一目标的条目备注与显式来源备注确定性合并，未评级目标保留。52 项 plan、1029 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，15 项源码变异被捕获。预览、批确认与回执仍由原父卡承接，不具备数据库写入权限。
+
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
 
 **2026-09-08 本地交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已合并（master `cfb4609c`，正式 R3 第4轮 pass，用户授权一次计数重置）。ADR-0008 确定离线签名、公钥身份与代次绑定、日期/反回退、Keystore 初始化证据及恢复矩阵；用户批准本人发布责任、受控电脑持钥与 USB 首次信任安排。前三轮发现均修正，确定性闸门与 core 自检通过；交付为设计与导入卡 A1–A8 验收，实际公钥/制品、导入与真机证据尚待后续卡，不启用 work-check。
