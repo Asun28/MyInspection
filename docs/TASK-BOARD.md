@@ -39,7 +39,10 @@
 | W0 | T0-CI-IDENTITY-DEADLINE | run 身份绑定与最终 exact-head/base 快照（TD134 1b/6 之二） | T0-CI-PAGED-CONTRACT | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `424009ee`，PR #220，R3 于重置后第 2 轮 pass；累计 4 轮、3 轮出实质 finding）。落地 `T37-CIGATE/WORKFLOW-BINDING`：逐层身份绑定（本地 HEAD ≡ PR headRefOid ≡ run head_sha → run id/attempt → 终局快照 → merge --match-head-commit）、`path`/`event`/`pull_requests[].number` 三处**大小写敏感**比较、终局 exact-head/base 快照四态（LOCAL-HEAD-MOVED / BASE-MOVED / BASE-MISMATCH / HEAD-MOVED）、`-NoAutoMerge` 不放松任何一层；每条负例断言专属哨兵 + 精确读计数 + 未触达合并 + 效果账本点名被造坏那一处；5/5 单点变异 KILLED。**两次拆卡**（皆用户裁定）：diff 超 R3 字符预算 ⇒ `T0-CI-JOBS-DRIFT`；R3 连续三轮实质 finding 皆落 deadline/进程树 ⇒ `T0-CI-DEADLINE-CONTAINMENT` |
 | W0 | T0-CI-JOBS-DRIFT | 候选 run 返回 job 集与 ci.yml 声明集的漂移判定（API 侧平面） | T0-CI-IDENTITY-DEADLINE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（2026-09-08，PR #253，master `297b5245`，reviewed head `8815d99c`；Sol R3、候选 CI、DoD/verify、Luna/Terra Max 终审均 PASS）。稳定态/终局均以大小写敏感精确多重集合拦缺失、额外、改名、大小写、重复与畸形状态；两枚单点变异 KILLED |
 | W0 | T0-CI-DEADLINE-CONTAINMENT | 单一 wall-clock deadline 扩面（gh+git）与 fail-closed 进程树容纳 | T0-CI-IDENTITY-DEADLINE | M | Opus 5 · xhigh | GPT-5.6 Sol · max | **merged**（2026-09-08，PR #265，master `d9da183d`，reviewed head `f5a5bc73`；Sol R3、候选 CI、DoD/verify、三路 Sol 预审与 Luna/Terra Max 终审均 PASS）。Windows suspended CreateProcess + Job Object 消除 assign-before-execute 竞态并整组收口孙进程；全部 gh/git 腿共享一个绝对 deadline，根/流清理只花一份 2s grace；容纳 API 故障、句柄泄漏、孤儿进程与 deadline 复用均有实跑负例 |
-| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | receipt-loss 禁止第二套 review/CI/merge，恢复不到 T35 receipt 就保持未合并（TD134 1c/6） | T0-CI-IDENTITY-DEADLINE | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行终点；下游 ASCII ship codes 依赖本卡 |
+| W0 | T0-RECEIPT-LOSS-SPLIT-PLAN | 将超限 receipt-loss 交付注册为 A/B/C 三张串行卡 | T0-CI-IDENTITY-DEADLINE | S | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 本登记 PR 内投影 merged；不预填 future SHA、不自归档；保留既有 B id/path |
+| W0 | T0-RECEIPT-AUTHORIZATION-BIT | 以本轮四谓词/铸据结果授权 catch resume | T0-RECEIPT-LOSS-SPLIT-PLAN | S | GPT-5.6 Sol · max | GPT-5.6 Luna · max | fresh RED-first；prototype 只读，不作实现历史 |
+| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | 已发布 receipt 四类失效态单一路径 fail-closed（TD134 1c/6） | T0-RECEIPT-AUTHORIZATION-BIT | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 保留原卡全部运行时/T37/doc/reset-safe 责任；只把源码 mutation 后移 C |
+| W0 | T0-RECEIPT-LOSS-SOURCE-CONTRACT | receipt-loss 源码合同、enum/discovery 与 mutation 防回归 | T0-RECEIPT-LOSS-FAIL-CLOSED | S | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 只改 selftest + 自身卡；内部预算 300 行/35000 字符 |
 | W0 | T0-GATE-ID-UNIQUENESS | 闸号唯一性机检 + 锚点唯一性与自身 parse 自检 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b1e5f0b5`，PR #186；闸头/Fail 文案双面 AST+token 扫描、重复 id 全位置诊断、唯一 raw 插入锚、ParseFile、6 类删除变异；core/workflow/verify 与 R3 全绿；TD146 paid） |
 | W0 | T0-GRADLE-RUNTIME-FILE-INPUTS | 测试运行期读的仓内文件声明为 Gradle 测试输入，消除「改了权威文件仍 UP-TO-DATE」的假绿 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（2026-08-29，master `6fda9f88`，PR #188；精确声明配置、模板与源码输入，补全双语 tuple 哈希守卫，T3/T4 DoD 强制真实执行；变异、verify、R3 全绿） |
 | W0 | T0-CARD-ACCEPTANCE-FIELD | 把 acceptance 封闭验收集合登记为正式卡片字段 + 形态机检（可选字段、缺失只告警） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 四张卡已在用该字段而 `specs/README.md` 字段表无此行；机检只判形态（编号 A1..An 连续），不判条目精度。与 5 张在飞卡共用 selftest.ps1，须排在其后 |
@@ -68,7 +71,7 @@
 | W0 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | 备份、媒体、remediation、smoke 的离线体验指针 | T0-RECONCILE-UI-COVERAGE,T0-RECONCILE-ROADMAP-INDEX | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（PR #178 先入 integration；同一结果由 PR #179 合入 master `5235ffe4`；调和 11/12） |
 | W0 | T0-RECONCILE-LESSONS | 当前 schema 下归并仍可复现的本地经验 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（primary master `e60fec91`，PR #148；fixture follow-up master `3bcd1cc9`，PR #150；调和 12/12） |
 | W0 | T0-LESSONS-COLD-RECALL-R3-CLOSURE | PR #51 round-cap 后规范 meta 行锚定解析（TD144） | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | 原 PR 先人裁；只补正文诱饵/缺失/重复/非法 meta fail-closed |
-| W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-RECEIPT-LOSS-FAIL-CLOSED | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
+| W0 | T0-ASCII-SHIP-CODES | ship saga/CI gate 的机器断言改锚 ASCII code（TD134 4/6） | T0-RECEIPT-LOSS-SOURCE-CONTRACT | M | GPT-5.6 Terra · high | DeepSeek V4 Pro | 只改观测面，不改控制流 |
 | W0 | T0-ASCII-CARD-SECRET-CODES | check-cards/check-secrets 状态码迁移（TD134 5/6） | T0-ASCII-SHIP-CODES | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | 状态码 wave 2a |
 | W0 | T0-ASCII-REVIEW-ARCHIVE-CODES | review/archive/init 剩余状态码迁移与 TD134 总验收入口（TD134 6/6） | T0-ASCII-CARD-SECRET-CODES | M | GPT-5.6 Terra · high | Sonnet 5 max | 全六卡 merged + 总验收才可 paid |
 | W0 | T0-GATE-FIXFORWARD | 许可闸路径比较改 OS 感知 + 发布清单收敛为单一解锁路径 | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `6f255d35`，PR #4；R3 pass） |
@@ -224,8 +227,11 @@ flowchart LR
   B2a --> B2b[T0-CI-IDENTITY-DEADLINE]
   B2b --> B2c[T0-CI-JOBS-DRIFT]
   B2b --> B2d[T0-CI-DEADLINE-CONTAINMENT]
-  B2b --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
-  B3 --> E[T0-ASCII-SHIP-CODES]
+  B2b --> RS[T0-RECEIPT-LOSS-SPLIT-PLAN]
+  RS --> RA[T0-RECEIPT-AUTHORIZATION-BIT]
+  RA --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
+  B3 --> RC[T0-RECEIPT-LOSS-SOURCE-CONTRACT]
+  RC --> E[T0-ASCII-SHIP-CODES]
   E --> F[T0-ASCII-CARD-SECRET-CODES]
   F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]
   C[T0-HARNESS-SUBTRACTION-PROTOCOL]
@@ -239,6 +245,7 @@ flowchart LR
 
 - 当前状态（2026-08-23）：`T0-R3-DIFF-BUDGET` 已按自身教义拆成 3 张（度量 / 输入可信 / 提交身份），PR #53 的实现分属三张卡，各自独立评审；`T0-LESSONS-COLD-RECALL` PR #51 已修完第 2 轮 finding 待评审。`T0-CI-MERGE-GATE` 的依赖歧义已收口（2026-08-23）：卡内 `depends_on: [T0-R3-DIFF-BUDGET]` 为准（CLAUDE.md「状态以卡为准」），本表该栏与上图边已同步；此前本行建议的 `T0-R3-MEASURED-OID-BINDING` 未被采纳——OID 绑定与合并闸无产物依赖。
 - 推荐执行宽度 2：文档协议可与任一实现卡并行；所有写 `scripts/selftest.ps1` 的卡合并宽度 1。
+- receipt-loss 拆分证据（仅设计输入，不冒充正式验证）：reviewed WIP `c53ec489f7bb4b89dbe81ec7273deb037bd2e65d` 超 60,000 字符；旧行为 RED `session 54615` raw SHA256 `A6388DA76D404F6292E2905F5E5E7C3E7D904F67B2889CE6ACDB8139EC801637`，exit 1、HEAD PRE=POST `ceb2685e9e3ada76a503377584d512c0c6d2af4d`、receipt 真删除后唯一失败 `15r(e)B`；探索性 A prototype `4495fae854777eb4592d0b5223a9981de13f0ac4` 投影 57+/18-（75 changed lines）/ 17,120 字符。正式执行必须依次 fresh RED、实现、GREEN、R3、merge。
 - 上游只提交通用建议，不要求其修本仓：[#163 TD→1–N cards](https://github.com/Asun28/claude-devops-scaffold/issues/163) · [#164 actual diff budget](https://github.com/Asun28/claude-devops-scaffold/issues/164) · [#165 read-only scaffold diff](https://github.com/Asun28/claude-devops-scaffold/issues/165)。
 
 > **调研已回流**（docs/research/synthesis.md + 3 篇深挖）：官方 NZ 巡检表成为 Routine 模板骨架；二值主评级 UI（存储枚举不变）、照片隐私标记、物业级条目抑制、封面卷积/出处页脚等已并入相应卡上下文包；ghost overlay 确认为全品类空白（唯一差异化确认）。
