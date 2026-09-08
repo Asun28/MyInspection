@@ -1,7 +1,7 @@
 ---
 id: T0-RECEIPT-LOSS-FAIL-CLOSED
 title: 对已发布 receipt 丢失或不自洽状态执行单一路径 fail-closed 停止
-depends_on: [T0-RECEIPT-AUTHORIZATION-BIT]
+depends_on: [T0-RECEIPT-LOSS-FOUNDATION]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
 acceptance:

@@ -41,7 +41,9 @@
 | W0 | T0-CI-DEADLINE-CONTAINMENT | 单一 wall-clock deadline 扩面（gh+git）与 fail-closed 进程树容纳 | T0-CI-IDENTITY-DEADLINE | M | Opus 5 · xhigh | GPT-5.6 Sol · max | **merged**（2026-09-08，PR #265，master `d9da183d`，reviewed head `f5a5bc73`；Sol R3、候选 CI、DoD/verify、三路 Sol 预审与 Luna/Terra Max 终审均 PASS）。Windows suspended CreateProcess + Job Object 消除 assign-before-execute 竞态并整组收口孙进程；全部 gh/git 腿共享一个绝对 deadline，根/流清理只花一份 2s grace；容纳 API 故障、句柄泄漏、孤儿进程与 deadline 复用均有实跑负例 |
 | W0 | T0-RECEIPT-LOSS-SPLIT-PLAN | 将超限 receipt-loss 交付注册为 A/B/C 三张串行卡 | T0-CI-IDENTITY-DEADLINE | S | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 本登记 PR 内投影 merged；不预填 future SHA、不自归档；保留既有 B id/path |
 | W0 | T0-RECEIPT-AUTHORIZATION-BIT | 以本轮四谓词/铸据结果授权 catch resume | T0-RECEIPT-LOSS-SPLIT-PLAN | S | GPT-5.6 Sol · max | GPT-5.6 Luna · max | fresh RED-first；prototype 只读，不作实现历史 |
-| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | 已发布 receipt 四类失效态单一路径 fail-closed（TD134 1c/6） | T0-RECEIPT-AUTHORIZATION-BIT | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 保留原卡全部运行时/T37/doc/reset-safe 责任；只把源码 mutation 后移 C |
+| W0 | T0-RECEIPT-NORMAL-SHIP-HARNESS | 用真实 normal ship 验证既有收据恢复边界 | T0-RECEIPT-AUTHORIZATION-BIT | S | GPT-6 Astra · high | GPT-5.6 Sol · high | 非 TDD 验证重构；替换测试自造配方，不宣称手工配方等价覆盖；生产与文档不变 |
+| W0 | T0-RECEIPT-LOSS-FOUNDATION | 收据失效单一路径基线与旧恢复旁路退役 | T0-RECEIPT-NORMAL-SHIP-HARNESS | M | GPT-6 Astra · high | GPT-5.6 Sol · high | 独立 RED/GREEN；复用真实 missing/valid 夹具；完整四态/reset-safe 留后继 B |
+| W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | 已发布 receipt 四类失效态单一路径 fail-closed（TD134 1c/6） | T0-RECEIPT-LOSS-FOUNDATION | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 保留原卡全部运行时/T37/doc/reset-safe 责任；只把源码 mutation 后移 C |
 | W0 | T0-RECEIPT-LOSS-SOURCE-CONTRACT | receipt-loss 源码合同、enum/discovery 与 mutation 防回归 | T0-RECEIPT-LOSS-FAIL-CLOSED | S | GPT-5.6 Sol · max | GPT-5.6 Terra · max | 只改 selftest + 自身卡；内部预算 300 行/35000 字符 |
 | W0 | T0-GATE-ID-UNIQUENESS | 闸号唯一性机检 + 锚点唯一性与自身 parse 自检 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b1e5f0b5`，PR #186；闸头/Fail 文案双面 AST+token 扫描、重复 id 全位置诊断、唯一 raw 插入锚、ParseFile、6 类删除变异；core/workflow/verify 与 R3 全绿；TD146 paid） |
 | W0 | T0-GRADLE-RUNTIME-FILE-INPUTS | 测试运行期读的仓内文件声明为 Gradle 测试输入，消除「改了权威文件仍 UP-TO-DATE」的假绿 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（2026-08-29，master `6fda9f88`，PR #188；精确声明配置、模板与源码输入，补全双语 tuple 哈希守卫，T3/T4 DoD 强制真实执行；变异、verify、R3 全绿） |
@@ -229,7 +231,9 @@ flowchart LR
   B2b --> B2d[T0-CI-DEADLINE-CONTAINMENT]
   B2b --> RS[T0-RECEIPT-LOSS-SPLIT-PLAN]
   RS --> RA[T0-RECEIPT-AUTHORIZATION-BIT]
-  RA --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
+  RA --> RH[T0-RECEIPT-NORMAL-SHIP-HARNESS]
+  RH --> RF[T0-RECEIPT-LOSS-FOUNDATION]
+  RF --> B3[T0-RECEIPT-LOSS-FAIL-CLOSED]
   B3 --> RC[T0-RECEIPT-LOSS-SOURCE-CONTRACT]
   RC --> E[T0-ASCII-SHIP-CODES]
   E --> F[T0-ASCII-CARD-SECRET-CODES]
