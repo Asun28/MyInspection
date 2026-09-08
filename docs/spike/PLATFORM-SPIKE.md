@@ -11,8 +11,22 @@
 - Build fingerprint：`samsung/a34xdxx/a34x:13/TP1A.220624.014/A346EXXU4AWG8:user/release-keys`
   ——**零售 `user/release-keys` 机器**，而非模拟器的 `userdebug/dev-keys`；API 33 亦低于模拟器的 35，故非重复覆盖。
 - 受测 debug APK：17,401,647 bytes，SHA-256 `593ff461c2ee56ac6b95bb6cfc245a8ef046db52ebf08251e936072122118cca`
-  ——与下方模拟器栏的 APK **不是同一个构建**。该 APK 构建于 master `6814df77`；本卡最终基线前移到 `99a27657` 后
-  **重新构建复核，SHA-256 与字节数完全一致**，故受测物与本卡合并基线所产出的 APK 是同一份，非「测了旧构建」。
+  ——与下方模拟器栏的 APK **不是同一个构建**。
+
+**受测 APK 与候选树的等价性**（三处基线各构建一次，逐次核 SHA-256 与字节数，全部一致）：
+
+| 构建基线 | SHA-256 | 字节数 |
+|---|---|---|
+| master `6814df77` + 本卡 8 文件 | `593ff461…118cca` | 17,401,647 |
+| master `99a27657` + 本卡 8 文件 | `593ff461…118cca` | 17,401,647 |
+| **候选树本身**（本分支吸收 base 后，即实际待合并的树） | `593ff461…118cca` | 17,401,647 |
+
+该值对 base 的移动不敏感，且这一点可机检而非靠巧合：`git log 6814df77..master -- android/ '*.gradle' '*.gradle.kts' 'gradle/' '*.toml' '*.properties'`
+**为空**（区间内全部提交只动 `CLAUDE.md`/`context/`/`docs/`/`specs/`），故这些 docs-only 提交无论以哪一个作合并基线都构不出不同的 APK。
+
+**须如实记下的一处不等价**：若只在本分支的 RED 取证基线 `89ae7657` 上构建（不吸收 base），得到的是
+`f366b5a1…651539` / 17,213,270 bytes，与受测 APK **不同**——因为那个基线落后 master 168 个提交，其区间**确实**动过 `android/`。
+该树不是待合并物，真机结论也不依据它；此处点明，是为免后来者误以为「分支上任意一次构建」都等于受测 APK。
 - 传输通道：**该机 adb 不可用**（USB 调试开启，但手机始终只暴露 MTP class 06 与 CDC-ACM class 02/02/01，
   从未提供 ADB 的 class FF/42/01 接口，故非 PC 侧驱动问题，见 L320）。改由 MTP 装机：APK 复制进 `Download`
   并核对机上 `System.Size` 与 PC 逐字节一致后手动点装；结果由机上截图承载，截图再经 MTP 取回。
