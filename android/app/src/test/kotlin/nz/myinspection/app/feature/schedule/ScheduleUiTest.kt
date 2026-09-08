@@ -913,8 +913,9 @@ class ScheduleUiTest {
 
     /**
      * ScheduleScreen draws the content state row by row, because each row owns a click target, so
-     * the row projection has to rebuild exactly what the state declares. Asserting the equality
-     * here is what stops those two paths from becoming two authorities that can disagree.
+     * the row projection has to rebuild exactly what the state declares. This pins the two
+     * model-level paths to each other and nothing more: it does not execute ScheduleScreen, so it
+     * cannot show that the composable draws the reconstruction. That half is manual review under A4.
      */
     @Test
     fun `A2 the row-by-row projection rebuilds exactly the content the state declares`() {
@@ -1291,7 +1292,7 @@ class ScheduleUiTest {
  * identical, so no file was left mutated and the receipt describes exactly the code that ships
  * (L196, L270):
  *   ScheduleModels.kt 2c5f6159a7e53c3221f3610e62aab1ca8f71d6d152fbf7f5e44812fba1e0c537
- *   ScheduleScreen.kt 41f7d3878abf3089e8dda99aa88ae9f084ce073acf41245fee2baca8d140f4ea
+ *   ScheduleScreen.kt a0a6f7a4d0bffc035ed28a5e1bf485e814a5f529a2932d8e62600ebe5c3a8b7d
  *
  * Fourth batch, run after the R3 round-2 fixes. M1-M7 retired with the token vocabularies, which
  * moved to the successor card so that declaring and drawing a token live on one card. M12 and M16
@@ -1306,7 +1307,9 @@ class ScheduleUiTest {
  * more, once after R3 found stale token-ownership comments and once after it found countPhrase
  * spelling zero away as "No inspections due". Each of those fixes touched a production file, and a
  * receipt that pins bytes cannot be repaired by editing a hash line: the claim it makes is that a
- * batch ran against exactly these bytes, so each time it did.
+ * batch ran against exactly these bytes, so each time it did. A third re-run followed the
+ * comment audit prompted by round 5, and its 24 verdicts came back byte-identical, which is
+ * what a comment-only edit to a file no row targets should produce.
  *
  * KILLED means the command exited nonzero AND the output named failing tests rather than a
  * compilation error, because a nonzero exit proves nothing until you know what produced it (L282).

@@ -19,13 +19,17 @@ import java.time.ZoneId
  * the reducer and the presenter instead.
  *
  * Nothing here decides what a state says or which action it offers. Both are read from
- * SchedulePresentation, so the copy a test asserts is the copy that renders, and a state whose
- * content someone forgot is not a blank screen but a compile error over there.
+ * SchedulePresentation, and that is where the tested copy lives. A state added to the sealed type
+ * later fails to compile there rather than quietly rendering blank, because contentOf reduces over
+ * that type exhaustively.
  *
  * The content screen is drawn row by row rather than from the flat list contentOf returns, because
- * each row owns a click target. Those are not two authorities: the row projection is what contentOf
- * itself composes, and a test asserts the reconstruction equals it element for element, so the two
- * cannot drift into disagreeing about what a screen shows.
+ * each row owns a click target. A test asserts that the reconstruction, countPhrase plus
+ * rowContentOf per row, equals contentOf element for element. Be precise about what that buys: it
+ * pins the two model-level paths to each other, and it says nothing whatever about this file. No
+ * test here executes ScheduleScreen, so dropping the count or the rows from the branch below would
+ * not fail anything. A4 puts the Compose runtime outside the test surface, so that this composable
+ * draws what the projection returns is manual design review, not an automated claim.
  *
  * Chrome still carries visible text here, and this file applies no spacing, type, shape or colour
  * values. Both are T4-SCHEDULE-UI-SYMBOL-CHROME's: it replaces these labels with glyphs and turns
@@ -68,8 +72,9 @@ fun ScheduleScreen(
 
 /**
  * One content value. A due line draws both of its fields: the absolute date is the value's own
- * text, and the relative phrase follows it rather than replacing it, which is REQ-036 as drawn
- * rather than only as declared.
+ * text, and the relative phrase follows it rather than replacing it. That the DueLine value carries
+ * both is asserted. That this composable draws both is compile-only evidence and manual review,
+ * like everything else in this file.
  */
 @Composable
 private fun ContentText(value: ScheduleContentValue) {
