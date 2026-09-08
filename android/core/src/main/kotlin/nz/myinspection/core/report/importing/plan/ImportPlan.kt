@@ -81,3 +81,19 @@ private fun freezeTemplate(template: Template): Template = template.copy(
         item.copy(allowedStatuses = immutable(item.allowedStatuses))
     }),
 )
+
+class ImportPlan(
+    val context: ImportPlanContext,
+    targets: List<ImportTarget>,
+    rows: List<ImportReviewRow>,
+    blockers: List<ImportPlanningBlocker>,
+    photoReviews: List<ImportPhotoReview>,
+    unratedTargets: List<ImportTarget>,
+) {
+    val targets: List<ImportTarget> = immutable(targets)
+    val rows: List<ImportReviewRow> = immutable(rows)
+    val blockers: List<ImportPlanningBlocker> = immutable(blockers)
+    val photoReviews: List<ImportPhotoReview> = immutable(photoReviews)
+    /** Every configured unsuppressed target stays unrated; suggestions never confirm a rating. */
+    val unratedTargets: List<ImportTarget> = immutable(unratedTargets)
+}
