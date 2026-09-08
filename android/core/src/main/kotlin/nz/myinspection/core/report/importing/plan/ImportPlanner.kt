@@ -30,13 +30,22 @@ class ImportPlanner {
     ): List<ImportReviewRow> {
         val drafts = mutableListOf<RowDraft>()
         val claimedFragments = mutableSetOf<Int>()
-        manifest.items.forEachIndexed { itemIndex, item ->
-            val aliases = manifest.fragments.withIndex().filter { (_, fragment) ->
-                listOfNotNull(item.name, item.status, item.comment).any { it == fragment.text } &&
-                    manifest.items.count { other -> listOfNotNull(other.name, other.status, other.comment).any { it == fragment.text } } == 1
+        val definitions = templateItems.associateBy { it.stableId }
+        val candidates = targets.flatMap { target ->
+            val definition = definitions.getValue(target.stableId)
+            setOf(normalize(definition.textEn), normalize(definition.textZh)).flatMap { name ->
+                listOf((name to null) to target, (name to normalize(target.displayLabel)) to target)
             }
+        }.groupBy({ it.first }, { it.second })
+        val itemOwners = manifest.items.withIndex().flatMap { (index, item) ->
+            listOfNotNull(item.name, item.status, item.comment).distinct().map { it to index }
+        }.groupBy({ it.first }, { it.second })
+        val aliasesByItem = manifest.fragments.withIndex().groupBy { itemOwners[it.value.text]?.singleOrNull() }
+        manifest.items.forEachIndexed { itemIndex, item ->
+            val aliases = aliasesByItem[itemIndex].orEmpty()
             claimedFragments += aliases.map { it.index }
-            val candidate = candidate(item, targets, templateItems, blockers, source(ImportSourceCategory.ITEM, itemIndex))
+            val matches = candidates[item.name.normalized to item.room?.let(::normalize)].orEmpty()
+            val candidate = candidate(item, matches, definitions, blockers, source(ImportSourceCategory.ITEM, itemIndex))
             drafts += RowDraft(
                 ids = mutableListOf(source(ImportSourceCategory.ITEM, itemIndex)).apply { aliases.forEach { add(source(ImportSourceCategory.FRAGMENT, it.index)) } },
                 items = mutableListOf(item),
@@ -46,16 +55,13 @@ class ImportPlanner {
         }
 
         val claimedCaptions = mutableSetOf<Int>()
+        val captionsByParagraph = manifest.captions.withIndex().groupBy { paragraph(it.value.text) }
+        val captionParents = manifest.fragments.filter { it.role == FragmentRole.CAPTION }.groupingBy { paragraph(it.text) }.eachCount()
         manifest.fragments.forEachIndexed { fragmentIndex, fragment ->
             if (fragmentIndex in claimedFragments) return@forEachIndexed
             if (fragment.role == FragmentRole.CAPTION) {
-                val captions = manifest.captions.withIndex().filter { (_, caption) ->
-                    caption.text.source.part == fragment.text.source.part && caption.text.source.ordinal == fragment.text.source.ordinal
-                }
-                val parents = manifest.fragments.count { other ->
-                    other.role == FragmentRole.CAPTION && other.text.source.part == fragment.text.source.part &&
-                        other.text.source.ordinal == fragment.text.source.ordinal
-                }
+                val captions = captionsByParagraph[paragraph(fragment.text)].orEmpty()
+                val parents = captionParents[paragraph(fragment.text)]
                 if (captions.isNotEmpty() && parents == 1) {
                     claimedCaptions += captions.map { it.index }
                     val ids = mutableListOf(source(ImportSourceCategory.FRAGMENT, fragmentIndex))
@@ -76,9 +82,11 @@ class ImportPlanner {
                 blockers += blocker(ImportBlockerCode.AMBIGUOUS_CAPTION, listOf(id))
             }
         }
+        val fragmentOwners = drafts.flatMap { draft -> draft.fragments.map { it.text }.distinct().map { it to draft } }
+            .groupBy({ it.first }, { it.second })
         manifest.identity.forEachIndexed { index, identity ->
             val id = source(ImportSourceCategory.IDENTITY, index)
-            val owner = drafts.singleOrNull { draft -> draft.fragments.any { it.text == identity.text } }
+            val owner = fragmentOwners[identity.text]?.singleOrNull()
             if (owner == null) {
                 drafts += RowDraft(mutableListOf(id), identity = mutableListOf(identity))
                 blockers += blocker(ImportBlockerCode.UNRESOLVED_CONTENT, listOf(id))
@@ -86,7 +94,7 @@ class ImportPlanner {
         }
         manifest.summaryCandidates.forEachIndexed { index, summary ->
             val id = source(ImportSourceCategory.SUMMARY, index)
-            val owner = drafts.singleOrNull { draft -> draft.fragments.any { it.text == summary } }
+            val owner = fragmentOwners[summary]?.singleOrNull()
             if (owner == null) {
                 drafts += RowDraft(mutableListOf(id), summaries = mutableListOf(summary))
                 blockers += blocker(ImportBlockerCode.UNRESOLVED_CONTENT, listOf(id))
@@ -95,8 +103,9 @@ class ImportPlanner {
 
         val claimedPlacements = mutableSetOf<Int>()
         val imagesByPart = manifest.images.groupBy { it.part }
+        val placementsByPart = manifest.placements.withIndex().groupBy { it.value.imagePart }
         manifest.images.forEachIndexed { imageIndex, image ->
-            val placements = manifest.placements.withIndex().filter { it.value.imagePart == image.part && imagesByPart[image.part]?.size == 1 }
+            val placements = if (imagesByPart[image.part]?.size == 1) placementsByPart[image.part].orEmpty() else emptyList()
             claimedPlacements += placements.map { it.index }
             val ids = mutableListOf(source(ImportSourceCategory.IMAGE, imageIndex))
             ids += placements.map { source(ImportSourceCategory.PLACEMENT, it.index) }
@@ -112,23 +121,20 @@ class ImportPlanner {
             }
         }
 
-        manifest.warnings.forEachIndexed { index, warning -> attachWarning(drafts, warning, source(ImportSourceCategory.WARNING, index), blockers) }
+        val sourceOwners = drafts.flatMap { draft -> draft.sources().distinct().map { it to draft } }.groupBy({ it.first }, { it.second })
+        manifest.warnings.forEachIndexed { index, warning ->
+            attachWarning(drafts, sourceOwners[warning.source]?.singleOrNull(), warning, source(ImportSourceCategory.WARNING, index), blockers)
+        }
         return drafts.map { it.freeze() }
     }
 
     private fun candidate(
         item: ExtractedItem,
-        targets: List<ImportTarget>,
-        templateItems: List<TemplateItem>,
+        matches: List<ImportTarget>,
+        definitions: Map<String, TemplateItem>,
         blockers: MutableList<ImportPlanningBlocker>,
         source: ImportSourceId,
     ): ImportCandidate {
-        val name = item.name.normalized
-        val matchingDefinitions = templateItems.filter { normalize(it.textEn) == name || normalize(it.textZh) == name }
-        val matches = targets.filter { target ->
-            target.stableId in matchingDefinitions.map { it.stableId } &&
-                (item.room == null || normalize(target.displayLabel) == normalize(item.room))
-        }
         val target = matches.singleOrNull()
         when (matches.size) {
             0 -> blockers += blocker(ImportBlockerCode.UNKNOWN_TARGET, listOf(source))
@@ -136,12 +142,12 @@ class ImportPlanner {
             else -> blockers += blocker(ImportBlockerCode.AMBIGUOUS_TARGET, listOf(source))
         }
         val status = item.status
-        val allowed = target?.let { selected -> templateItems.single { it.stableId == selected.stableId }.allowedStatuses }
-            ?: emptyList()
+        val allowed = target?.let { definitions.getValue(it.stableId).allowedStatuses }.orEmpty()
         val suggestedStatus = when {
             status == null || status.normalized.isEmpty() -> {
                 blockers += blocker(ImportBlockerCode.BLANK_STATUS, listOf(source)); null
             }
+            target == null -> null // Retain raw status; validity depends on the eventual selected target.
             status.normalized in allowed -> status.normalized
             else -> {
                 blockers += blocker(ImportBlockerCode.UNSUPPORTED_STATUS, listOf(source)); null
@@ -153,6 +159,7 @@ class ImportPlanner {
 
     private fun attachWarning(
         drafts: MutableList<RowDraft>,
+        sourceOwner: RowDraft?,
         warning: ExtractionWarning,
         warningId: ImportSourceId,
         blockers: MutableList<ImportPlanningBlocker>,
@@ -160,7 +167,7 @@ class ImportPlanner {
         val owner = when (warning.code) {
             ExtractionWarningCode.UNRESOLVED_TEXT, ExtractionWarningCode.AMBIGUOUS_COLUMNS,
             ExtractionWarningCode.UNRESOLVED_NARRATIVE, ExtractionWarningCode.IMAGE_REVIEW_REQUIRED,
-            ExtractionWarningCode.MISSING_IMAGE -> drafts.singleOrNull { it.hasSource(warning.source) }
+            ExtractionWarningCode.MISSING_IMAGE -> sourceOwner
             else -> null
         }
         val disposition = when (warning.code) {
@@ -176,14 +183,15 @@ class ImportPlanner {
         target.warnings += warning
         target.warningReviews += ImportWarningReview(warning, if (owner == null && disposition == WarningDisposition.SOURCE_OWNER_REQUIRED) WarningDisposition.GLOBAL_BLOCKER else disposition)
         when (warning.code) {
-            ExtractionWarningCode.UNRESOLVED_TEXT, ExtractionWarningCode.AMBIGUOUS_COLUMNS, ExtractionWarningCode.UNRESOLVED_NARRATIVE -> blockers += blocker(ImportBlockerCode.UNRESOLVED_CONTENT, target.ids)
-            ExtractionWarningCode.MISSING_IMAGE -> blockers += blocker(ImportBlockerCode.MISSING_IMAGE, target.ids)
-            ExtractionWarningCode.IMAGE_REVIEW_REQUIRED -> blockers += blocker(ImportBlockerCode.PHOTO_REVIEW_REQUIRED, target.ids)
-            ExtractionWarningCode.AMBIGUOUS_CAPTIONS -> blockers += blocker(ImportBlockerCode.AMBIGUOUS_CAPTION, target.ids)
+            ExtractionWarningCode.UNRESOLVED_TEXT, ExtractionWarningCode.AMBIGUOUS_COLUMNS, ExtractionWarningCode.UNRESOLVED_NARRATIVE -> blockers += blocker(ImportBlockerCode.UNRESOLVED_CONTENT, listOf(warningId))
+            ExtractionWarningCode.MISSING_IMAGE -> blockers += blocker(ImportBlockerCode.MISSING_IMAGE, listOf(warningId))
+            ExtractionWarningCode.IMAGE_REVIEW_REQUIRED -> blockers += blocker(ImportBlockerCode.PHOTO_REVIEW_REQUIRED, listOf(warningId))
+            ExtractionWarningCode.AMBIGUOUS_CAPTIONS -> blockers += blocker(ImportBlockerCode.AMBIGUOUS_CAPTION, listOf(warningId))
             else -> Unit
         }
     }
 
+    private fun paragraph(text: ExtractedText) = text.source.part to text.source.ordinal
     private fun normalize(value: String): String = ExtractedText(SourceLocation("", 0), value).normalized
     private fun source(category: ImportSourceCategory, index: Int) = ImportSourceId(category, index)
     private fun blocker(code: ImportBlockerCode, ids: List<ImportSourceId> = emptyList()) = ImportPlanningBlocker(code, ids)
@@ -204,9 +212,9 @@ class ImportPlanner {
         val warningReviews: MutableList<ImportWarningReview> = mutableListOf(),
         val candidate: ImportCandidate? = null,
     ) {
-        fun hasSource(source: SourceLocation?) = source != null && (items.any { it.name.source == source || it.status?.source == source || it.comment?.source == source } ||
-            fragments.any { it.text.source == source } || identity.any { it.text.source == source } || summaries.any { it.source == source } ||
-            captions.any { it.text.source == source } || images.any { SourceLocation(it.part, 0) == source } || placements.any { it.source == source })
+        fun sources() = items.flatMap { listOfNotNull(it.name.source, it.status?.source, it.comment?.source) } +
+            fragments.map { it.text.source } + identity.map { it.text.source } + summaries.map { it.source } +
+            captions.map { it.text.source } + images.map { SourceLocation(it.part, 0) } + placements.map { it.source }
         fun freeze() = ImportReviewRow(ids, items, fragments, identity, summaries, captions, images, placements, warnings, warningReviews, candidate)
     }
 }

@@ -1,5 +1,6 @@
 package nz.myinspection.core.report.importing.plan
 
+import nz.myinspection.core.report.importing.plan.ImportSourceCategory as Source
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,18 +23,8 @@ import nz.myinspection.core.template.Template
 import nz.myinspection.core.template.TemplateItem
 import nz.myinspection.core.template.TemplateRoom
 
-/* R4, 2026-09-08: 17 isolated source mutations each failed a named behavior assertion
- * in the 34-test plan suite (no compile-only failures); original bytes restored.
- * Faults: drop source row; duplicate caption owner; accept unsupported status;
- * invent target; ignore room label; confirm photo initially; rate suggestion;
- * drop second photo; misclassify provenance warning; alias unequal raw text;
- * duplicate image-part placement owner; targetless status fallback; five constructor-list
- * wrapper bypasses. No tests were pruned.
- * ImportPlanner.kt SHA-256: 5a84d2086629094179e9c51b97779ccdd0a5f72f19991554bbc59599837bd504
- * ImportPlan.kt SHA-256: af236cbeefe2e91700258c3de98b1246804a86b3712fdc21b0695dfebb04f777
- * Local recipes: main _local/projection-20260908/run_final_projection_mutations.py
- * and run_final_wrapper_mutations.py; per-fault reports: .review/final-*-mutations.
- */
+/* R4: 19 source faults caught; no tests pruned. Hashes/reports: .review/round3-repaired-mutations.
+ * Recipe: main _local/projection-20260908/run_round3_mutations.py. */
 class ImportPlannerTest {
     @Test
     fun `unique exact normalized bilingual name room and status become a nonterminal suggestion`() {
@@ -43,8 +34,8 @@ class ImportPlannerTest {
             status = text(11, "GOOD"),
             comment = text(12, "Keep original comment"),
         )
-        val plan = ImportPlanner().project(input(manifest = manifest(items = listOf(item))))
-        val row = plan.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 0) in it.sourceIds }
+        val plan = ImportPlanner().project(input(manifest(items = listOf(item))))
+        val row = plan.rows.single { id(Source.ITEM, 0) in it.sourceIds }
 
         assertEquals(ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN"), row.candidate?.target)
         assertEquals("GOOD", row.candidate?.suggestedStatus)
@@ -54,19 +45,19 @@ class ImportPlannerTest {
     }
 
     @Test
-    fun `ambiguous repeatable target and unsupported or blank status retain evidence and block`() {
+    fun `ambiguous target defers status validation while blank status blocks`() {
         val ambiguous = ExtractedItem(null, text(20, "Walls"), text(21, "Excellent"), text(22, "legacy wording"))
         val blank = ExtractedItem("KITCHEN", text(23, "Bench top"), text(24, "  \t"), null)
-        val plan = ImportPlanner().project(input(manifest = manifest(items = listOf(ambiguous, blank))))
-        val ambiguousRow = plan.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 0) in it.sourceIds }
-        val blankRow = plan.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 1) in it.sourceIds }
+        val plan = ImportPlanner().project(input(manifest(items = listOf(ambiguous, blank))))
+        val ambiguousRow = plan.rows.single { id(Source.ITEM, 0) in it.sourceIds }
+        val blankRow = plan.rows.single { id(Source.ITEM, 1) in it.sourceIds }
 
         assertNull(ambiguousRow.candidate?.target)
         assertEquals("Excellent", ambiguousRow.candidate?.sourceStatus?.raw)
         assertNull(ambiguousRow.candidate?.suggestedStatus)
         assertEquals("", blankRow.candidate?.sourceStatus?.normalized)
         assertEquals(
-            setOf(ImportBlockerCode.AMBIGUOUS_TARGET, ImportBlockerCode.UNSUPPORTED_STATUS, ImportBlockerCode.BLANK_STATUS),
+            setOf(ImportBlockerCode.AMBIGUOUS_TARGET, ImportBlockerCode.BLANK_STATUS),
             plan.blockers.map { it.code }.toSet().intersect(
                 setOf(ImportBlockerCode.AMBIGUOUS_TARGET, ImportBlockerCode.UNSUPPORTED_STATUS, ImportBlockerCode.BLANK_STATUS),
             ),
@@ -79,16 +70,16 @@ class ImportPlannerTest {
         val item = ExtractedItem("KITCHEN", shared, text(31, "GOOD"), text(32, "Do not lose me"))
         val sameEvidence = ExtractedFragment(FragmentRole.ITEM, shared)
         val repeatedElsewhere = ExtractedFragment(FragmentRole.ITEM, text(33, "Bench top"))
-        val plan = ImportPlanner().project(input(manifest = manifest(items = listOf(item), fragments = listOf(sameEvidence, repeatedElsewhere))))
+        val plan = ImportPlanner().project(input(manifest(items = listOf(item), fragments = listOf(sameEvidence, repeatedElsewhere))))
 
-        val owners = plan.rows.filter { it.sourceIds.any { source -> source.category in setOf(ImportSourceCategory.ITEM, ImportSourceCategory.FRAGMENT) } }
+        val owners = plan.rows.filter { it.sourceIds.any { source -> source.category in setOf(Source.ITEM, Source.FRAGMENT) } }
         assertEquals(2, owners.size)
         assertEquals(
-            setOf(ImportSourceId(ImportSourceCategory.ITEM, 0), ImportSourceId(ImportSourceCategory.FRAGMENT, 0)),
+            setOf(id(Source.ITEM, 0), id(Source.FRAGMENT, 0)),
             owners.single { it.items.isNotEmpty() }.sourceIds.toSet(),
         )
         assertEquals("Do not lose me", owners.single { it.items.isNotEmpty() }.items.single().comment?.raw)
-        assertEquals(listOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 1)), owners.single { it.fragments.singleOrNull()?.text?.source?.ordinal == 33 }.sourceIds)
+        assertEquals(listOf(id(Source.FRAGMENT, 1)), owners.single { it.fragments.singleOrNull()?.text?.source?.ordinal == 33 }.sourceIds)
     }
 
     @Test fun `item name status and comment fragments share their one item owner`() {
@@ -96,9 +87,9 @@ class ImportPlannerTest {
         val plan = ImportPlanner().project(input(manifest(items = listOf(item), fragments = listOf(
             ExtractedFragment(FragmentRole.UNKNOWN, item.name), ExtractedFragment(FragmentRole.UNKNOWN, item.status!!), ExtractedFragment(FragmentRole.UNKNOWN, item.comment!!),
         ))))
-        val rows = plan.rows.filter { it.sourceIds.any { id -> id.category in setOf(ImportSourceCategory.ITEM, ImportSourceCategory.FRAGMENT) } }
+        val rows = plan.rows.filter { it.sourceIds.any { id -> id.category in setOf(Source.ITEM, Source.FRAGMENT) } }
         assertEquals(1, rows.size)
-        assertEquals(setOf(ImportSourceId(ImportSourceCategory.ITEM, 0), ImportSourceId(ImportSourceCategory.FRAGMENT, 0), ImportSourceId(ImportSourceCategory.FRAGMENT, 1), ImportSourceId(ImportSourceCategory.FRAGMENT, 2)), rows.single().sourceIds.toSet())
+        assertEquals(setOf(id(Source.ITEM, 0), id(Source.FRAGMENT, 0), id(Source.FRAGMENT, 1), id(Source.FRAGMENT, 2)), rows.single().sourceIds.toSet())
     }
 
     @Test
@@ -106,14 +97,14 @@ class ImportPlannerTest {
         val parent = ExtractedFragment(FragmentRole.CAPTION, text(40, "Before text 123 - First caption 456 - Second caption"))
         val first = CaptionCandidate("1", ExtractedText(SourceLocation("word/document.xml", 40, 1), "First caption"))
         val second = CaptionCandidate("2", ExtractedText(SourceLocation("word/document.xml", 40, 2), "Second caption"))
-        val plan = ImportPlanner().project(input(manifest = manifest(fragments = listOf(parent), captions = listOf(first, second))))
-        val row = plan.rows.single { ImportSourceId(ImportSourceCategory.FRAGMENT, 0) in it.sourceIds }
+        val plan = ImportPlanner().project(input(manifest(fragments = listOf(parent), captions = listOf(first, second))))
+        val row = plan.rows.single { id(Source.FRAGMENT, 0) in it.sourceIds }
 
         assertEquals(
             setOf(
-                ImportSourceId(ImportSourceCategory.FRAGMENT, 0),
-                ImportSourceId(ImportSourceCategory.CAPTION, 0),
-                ImportSourceId(ImportSourceCategory.CAPTION, 1),
+                id(Source.FRAGMENT, 0),
+                id(Source.CAPTION, 0),
+                id(Source.CAPTION, 1),
             ),
             row.sourceIds.toSet(),
         )
@@ -129,15 +120,15 @@ class ImportPlannerTest {
         val first = ExtractedItem("KITCHEN", shared, text(46, "GOOD"), null)
         val second = ExtractedItem("KITCHEN", shared, text(47, "GOOD"), null)
         val fragment = ExtractedFragment(FragmentRole.ITEM, shared)
-        val plan = ImportPlanner().project(input(manifest = manifest(items = listOf(first, second), fragments = listOf(fragment))))
+        val plan = ImportPlanner().project(input(manifest(items = listOf(first, second), fragments = listOf(fragment))))
 
-        val owners = plan.rows.filter { it.sourceIds.any { source -> source.category in setOf(ImportSourceCategory.ITEM, ImportSourceCategory.FRAGMENT) } }
+        val owners = plan.rows.filter { it.sourceIds.any { source -> source.category in setOf(Source.ITEM, Source.FRAGMENT) } }
         assertEquals(3, owners.size)
-        assertEquals(listOf(ImportSourceId(ImportSourceCategory.ITEM, 0)), owners.single { it.items.singleOrNull() == first }.sourceIds)
-        assertEquals(listOf(ImportSourceId(ImportSourceCategory.ITEM, 1)), owners.single { it.items.singleOrNull() == second }.sourceIds)
-        assertEquals(listOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 0)), owners.single { it.fragments.singleOrNull() == fragment }.sourceIds)
+        assertEquals(listOf(id(Source.ITEM, 0)), owners.single { it.items.singleOrNull() == first }.sourceIds)
+        assertEquals(listOf(id(Source.ITEM, 1)), owners.single { it.items.singleOrNull() == second }.sourceIds)
+        assertEquals(listOf(id(Source.FRAGMENT, 0)), owners.single { it.fragments.singleOrNull() == fragment }.sourceIds)
         assertTrue(plan.blockers.any {
-            it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 0))
+            it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(id(Source.FRAGMENT, 0))
         })
     }
 
@@ -167,36 +158,36 @@ class ImportPlannerTest {
         )
 
         val owners = plan.rows.flatMap { it.sourceIds }
-        val expected = ImportSourceCategory.entries.flatMap { category ->
+        val expected = Source.entries.flatMap { category ->
             val count = when (category) {
-                ImportSourceCategory.ITEM, ImportSourceCategory.FRAGMENT, ImportSourceCategory.IDENTITY, ImportSourceCategory.SUMMARY,
-                ImportSourceCategory.CAPTION, ImportSourceCategory.IMAGE -> 1
-                ImportSourceCategory.PLACEMENT -> 2
-                ImportSourceCategory.WARNING -> 3
+                Source.ITEM, Source.FRAGMENT, Source.IDENTITY, Source.SUMMARY,
+                Source.CAPTION, Source.IMAGE -> 1
+                Source.PLACEMENT -> 2
+                Source.WARNING -> 3
             }
             (0 until count).map { ImportSourceId(category, it) }
         }
         assertEquals(expected.toSet(), owners.toSet())
         assertEquals(expected.size, owners.size)
         val photo = plan.photoReviews.single()
-        assertEquals(ImportSourceId(ImportSourceCategory.IMAGE, 0), photo.imageSource)
+        assertEquals(id(Source.IMAGE, 0), photo.imageSource)
         assertEquals(
-            listOf(ImportSourceId(ImportSourceCategory.PLACEMENT, 0), ImportSourceId(ImportSourceCategory.PLACEMENT, 1)),
+            listOf(id(Source.PLACEMENT, 0), id(Source.PLACEMENT, 1)),
             photo.placementSources,
         )
         assertEquals(ImportPhotoReviewState.UNREVIEWED_EXCLUDED, photo.state)
         assertEquals(ImportPhotoAction.ACTION_REQUIRED, photo.action)
         assertEquals(
             WarningDisposition.EXTRACTOR_PROVENANCE_EXCLUDED,
-            plan.rows.single { ImportSourceId(ImportSourceCategory.WARNING, 0) in it.sourceIds }.warningDisposition,
+            plan.rows.single { id(Source.WARNING, 0) in it.sourceIds }.warningDisposition,
         )
         assertEquals(
             WarningDisposition.GLOBAL_BLOCKER,
-            plan.rows.single { ImportSourceId(ImportSourceCategory.WARNING, 1) in it.sourceIds }.warningDisposition,
+            plan.rows.single { id(Source.WARNING, 1) in it.sourceIds }.warningDisposition,
         )
         assertEquals(
             WarningDisposition.PHOTO_PRIVACY_REVIEW,
-            plan.rows.single { ImportSourceId(ImportSourceCategory.WARNING, 2) in it.sourceIds }.warningDisposition,
+            plan.rows.single { id(Source.WARNING, 2) in it.sourceIds }.warningDisposition,
         )
         assertTrue(plan.blockers.any { it.code == ImportBlockerCode.MISSING_IMAGE })
         assertTrue(plan.blockers.any { it.code == ImportBlockerCode.PHOTO_REVIEW_REQUIRED })
@@ -222,24 +213,24 @@ class ImportPlannerTest {
             ),
         )
 
-        fun warning(index: Int) = plan.rows.single { ImportSourceId(ImportSourceCategory.WARNING, index) in it.sourceIds }
-        assertTrue(ImportSourceId(ImportSourceCategory.FRAGMENT, 0) in warning(0).sourceIds)
+        fun warning(index: Int) = plan.rows.single { id(Source.WARNING, index) in it.sourceIds }
+        assertTrue(id(Source.FRAGMENT, 0) in warning(0).sourceIds)
         assertEquals(WarningDisposition.SOURCE_OWNER_REQUIRED, warning(0).warningDisposition)
-        assertTrue(ImportSourceId(ImportSourceCategory.IMAGE, 0) in warning(1).sourceIds)
+        assertTrue(id(Source.IMAGE, 0) in warning(1).sourceIds)
         assertEquals(WarningDisposition.PHOTO_PRIVACY_REVIEW, warning(1).warningDisposition)
-        assertTrue(ImportSourceId(ImportSourceCategory.PLACEMENT, 0) in warning(2).sourceIds)
+        assertTrue(id(Source.PLACEMENT, 0) in warning(2).sourceIds)
         assertEquals(WarningDisposition.SOURCE_OWNER_REQUIRED, warning(2).warningDisposition)
         assertEquals(WarningDisposition.EXTRACTOR_PROVENANCE_EXCLUDED, warning(3).warningDisposition)
         assertEquals(WarningDisposition.CAPTION_ASSOCIATION_BLOCKER, warning(4).warningDisposition)
-        assertEquals(listOf(ImportSourceId(ImportSourceCategory.WARNING, 4)), warning(4).sourceIds)
+        assertEquals(listOf(id(Source.WARNING, 4)), warning(4).sourceIds)
     }
 
     @Test
     fun `room display label is case sensitive selects one repeatable instance and suppressed rooms create no targets`() {
         val kitchen = ExtractedItem("KITCHEN", text(70, "Bench top"), text(71, "GOOD"), null)
         val bedroomTwo = ExtractedItem("BEDROOM 2", text(72, "Walls"), text(73, "GOOD"), null)
-        val exactPlan = ImportPlanner().project(input(manifest = manifest(items = listOf(kitchen, bedroomTwo))))
-        val bedroomRow = exactPlan.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 1) in it.sourceIds }
+        val exactPlan = ImportPlanner().project(input(manifest(items = listOf(kitchen, bedroomTwo))))
+        val bedroomRow = exactPlan.rows.single { id(Source.ITEM, 1) in it.sourceIds }
         assertEquals(ImportTarget("BEDROOM", 2, "BED-WALL-01", "BEDROOM 2"), bedroomRow.candidate?.target)
         assertEquals(listOf(
             ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN"),
@@ -248,15 +239,15 @@ class ImportPlannerTest {
         ), exactPlan.unratedTargets)
 
         val suppressed = ImportPlanner().project(
-            input(manifest = manifest(items = listOf(kitchen))).copy(
+            input(manifest(items = listOf(kitchen))).copy(
                 roomInstances = listOf(ImportRoomInstance("KITCHEN", 1, "KITCHEN")),
                 suppressedStableIds = setOf("BED-WALL-01"),
             ),
         )
         assertEquals(listOf(ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN")), suppressed.targets)
 
-        val wrongCase = ImportPlanner().project(input(manifest = manifest(items = listOf(kitchen, bedroomTwo.copy(room = "Bedroom 2")))))
-        assertNull(wrongCase.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 1) in it.sourceIds }.candidate?.target)
+        val wrongCase = ImportPlanner().project(input(manifest(items = listOf(kitchen, bedroomTwo.copy(room = "Bedroom 2")))))
+        assertNull(wrongCase.rows.single { id(Source.ITEM, 1) in it.sourceIds }.candidate?.target)
         assertTrue(wrongCase.blockers.any { it.code == ImportBlockerCode.UNKNOWN_TARGET })
     }
 
@@ -275,7 +266,7 @@ class ImportPlannerTest {
         val plan = ImportPlanner().project(input(manifest(images = listOf(image))).copy(template = null))
 
         val photo = plan.photoReviews.single()
-        assertEquals(ImportSourceId(ImportSourceCategory.IMAGE, 0), photo.imageSource)
+        assertEquals(id(Source.IMAGE, 0), photo.imageSource)
         assertEquals(ImportPhotoReviewState.UNREVIEWED_EXCLUDED, photo.state)
         assertEquals(ImportPhotoAction.ACTION_REQUIRED, photo.action)
     }
@@ -298,15 +289,15 @@ class ImportPlannerTest {
         )
 
         assertEquals(
-            setOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 0), ImportSourceId(ImportSourceCategory.IDENTITY, 0)),
-            plan.rows.single { ImportSourceId(ImportSourceCategory.IDENTITY, 0) in it.sourceIds }.sourceIds.toSet(),
+            setOf(id(Source.FRAGMENT, 0), id(Source.IDENTITY, 0)),
+            plan.rows.single { id(Source.IDENTITY, 0) in it.sourceIds }.sourceIds.toSet(),
         )
         assertEquals(
-            setOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 1), ImportSourceId(ImportSourceCategory.SUMMARY, 0)),
-            plan.rows.single { ImportSourceId(ImportSourceCategory.SUMMARY, 0) in it.sourceIds }.sourceIds.toSet(),
+            setOf(id(Source.FRAGMENT, 1), id(Source.SUMMARY, 0)),
+            plan.rows.single { id(Source.SUMMARY, 0) in it.sourceIds }.sourceIds.toSet(),
         )
-        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.IDENTITY, 1)) })
-        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.SUMMARY, 1)) })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(id(Source.IDENTITY, 1)) })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(id(Source.SUMMARY, 1)) })
     }
 
     @Test
@@ -326,7 +317,7 @@ class ImportPlannerTest {
             ),
         )
 
-        val row = plan.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 0) in it.sourceIds }
+        val row = plan.rows.single { id(Source.ITEM, 0) in it.sourceIds }
         assertEquals(ImportTarget("KITCHEN", 1, "KIT-WALL-01", "KITCHEN"), row.candidate?.target)
         assertEquals("GOOD", row.candidate?.suggestedStatus)
     }
@@ -348,16 +339,16 @@ class ImportPlannerTest {
             ),
         )
 
-        val itemOwner = plan.rows.single { ImportSourceId(ImportSourceCategory.ITEM, 0) in it.sourceIds }
+        val itemOwner = plan.rows.single { id(Source.ITEM, 0) in it.sourceIds }
         assertEquals(
-            setOf(ImportSourceId(ImportSourceCategory.ITEM, 0), ImportSourceId(ImportSourceCategory.WARNING, 0), ImportSourceId(ImportSourceCategory.WARNING, 1)),
+            setOf(id(Source.ITEM, 0), id(Source.WARNING, 0), id(Source.WARNING, 1)),
             itemOwner.sourceIds.toSet(),
         )
         assertEquals(
             listOf(WarningDisposition.SOURCE_OWNER_REQUIRED, WarningDisposition.SOURCE_OWNER_REQUIRED),
             itemOwner.warningReviews.map { it.disposition },
         )
-        val summaryOwner = plan.rows.single { ImportSourceId(ImportSourceCategory.SUMMARY, 0) in it.sourceIds }
+        val summaryOwner = plan.rows.single { id(Source.SUMMARY, 0) in it.sourceIds }
         assertEquals(listOf(WarningDisposition.SOURCE_OWNER_REQUIRED), summaryOwner.warningReviews.map { it.disposition })
     }
 
@@ -369,9 +360,9 @@ class ImportPlannerTest {
         val caption = CaptionCandidate("1", text(110, "Caption"))
         val plan = ImportPlanner().project(input(manifest(fragments = parents, captions = listOf(caption))))
         assertEquals(listOf(
-            listOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 0)),
-            listOf(ImportSourceId(ImportSourceCategory.FRAGMENT, 1)),
-            listOf(ImportSourceId(ImportSourceCategory.CAPTION, 0)),
+            listOf(id(Source.FRAGMENT, 0)),
+            listOf(id(Source.FRAGMENT, 1)),
+            listOf(id(Source.CAPTION, 0)),
         ), plan.rows.map { it.sourceIds })
         assertEquals(parents, plan.rows.flatMap { it.fragments })
         assertEquals(listOf(caption), plan.rows.flatMap { it.captions })
@@ -413,8 +404,8 @@ class ImportPlannerTest {
         assertEquals(List(2) { ImportPhotoAction.ACTION_REQUIRED }, plan.photoReviews.map { it.action })
         assertEquals(warnings, plan.rows.flatMap { it.warnings })
         assertEquals(List(4) { WarningDisposition.EXTRACTOR_PROVENANCE_EXCLUDED }, plan.rows.flatMap { it.warningReviews }.map { it.disposition })
-        assertEquals(placements[3], plan.rows.single { ImportSourceId(ImportSourceCategory.PLACEMENT, 3) in it.sourceIds }.placements.single())
-        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.MISSING_IMAGE && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.PLACEMENT, 3)) })
+        assertEquals(placements[3], plan.rows.single { id(Source.PLACEMENT, 3) in it.sourceIds }.placements.single())
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.MISSING_IMAGE && it.sourceIds == listOf(id(Source.PLACEMENT, 3)) })
     }
 
     @Test fun `raw or occurrence differences prevent item fragment aliasing`() {
@@ -434,14 +425,14 @@ class ImportPlannerTest {
         val placement = DrawingPlacement(text(150, "").source, DrawingKind.INLINE, images[0].part)
         val plan = ImportPlanner().project(input(manifest(images = images, placements = listOf(placement))))
         assertEquals(listOf(
-            listOf(ImportSourceId(ImportSourceCategory.IMAGE, 0)),
-            listOf(ImportSourceId(ImportSourceCategory.IMAGE, 1)),
-            listOf(ImportSourceId(ImportSourceCategory.PLACEMENT, 0)),
+            listOf(id(Source.IMAGE, 0)),
+            listOf(id(Source.IMAGE, 1)),
+            listOf(id(Source.PLACEMENT, 0)),
         ), plan.rows.map { it.sourceIds })
         assertEquals(images, plan.rows.flatMap { it.images })
         assertEquals(listOf(placement), plan.rows.flatMap { it.placements })
         assertEquals(listOf(emptyList(), emptyList()), plan.photoReviews.map { it.placementSources })
-        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.PLACEMENT, 0)) })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNRESOLVED_CONTENT && it.sourceIds == listOf(id(Source.PLACEMENT, 0)) })
     }
 
     @Test fun `status suggestions require one target while a roomless unique name can still suggest`() {
@@ -455,8 +446,48 @@ class ImportPlannerTest {
         assertEquals(listOf(null, null, ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN")), plan.rows.map { it.candidate?.target })
         assertEquals(items, plan.rows.flatMap { it.items })
         assertEquals(listOf("GOOD", "GOOD", "GOOD"), plan.rows.map { it.candidate?.sourceStatus?.raw })
-        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.AMBIGUOUS_TARGET && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.ITEM, 0)) })
-        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNKNOWN_TARGET && it.sourceIds == listOf(ImportSourceId(ImportSourceCategory.ITEM, 1)) })
+        assertFalse(plan.blockers.any { it.code == ImportBlockerCode.UNSUPPORTED_STATUS })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.AMBIGUOUS_TARGET && it.sourceIds == listOf(id(Source.ITEM, 0)) })
+        assertTrue(plan.blockers.any { it.code == ImportBlockerCode.UNKNOWN_TARGET && it.sourceIds == listOf(id(Source.ITEM, 1)) })
+    }
+
+    @Test(timeOut = 15_000)
+    fun `large source inventory preserves exact owners within a bounded planning time`() {
+        val count = 10_000
+        val items = List(count) { ExtractedItem("KITCHEN", text(it, "Bench top"), text(count + it, "GOOD"), null) }
+        val fragments = items.map { ExtractedFragment(FragmentRole.ITEM, it.name) } +
+            List(count) { ExtractedFragment(FragmentRole.CAPTION, text(count * 2 + it, "1 - Caption")) }
+        val captions = List(count) { CaptionCandidate("1", text(count * 2 + it, "Caption")) }
+        val images = List(count) { ExtractedImage("word/media/$it.jpg", "c".repeat(64), 10, 10) }
+        val placements = images.mapIndexed { i, image -> DrawingPlacement(text(count * 3 + i, "").source, DrawingKind.INLINE, image.part) }
+        val report = manifest(items, fragments, items.map { IdentityCandidate("agent", it.name) }, items.map { it.name },
+            captions, images, placements, items.map { ExtractionWarning(ExtractionWarningCode.UNRESOLVED_TEXT, it.name.source) })
+        val started = System.nanoTime()
+        val plan = ImportPlanner().project(input(report))
+        assertTrue(System.nanoTime() - started < 10_000_000_000L, "Projection exceeded ten seconds")
+        assertEquals(count * 3, plan.rows.size)
+        val ids = plan.rows.flatMap { it.sourceIds }
+        assertEquals(count * 9, ids.size)
+        assertEquals(ids.size, ids.toSet().size)
+        for (i in 0 until count) {
+            assertEquals(listOf(items[i]), plan.rows[i].items)
+            assertEquals(listOf(fragments[i]), plan.rows[i].fragments)
+            assertEquals(items[i].name, plan.rows[i].identity.single().text)
+            assertEquals(listOf(items[i].name), plan.rows[i].summaries)
+            assertEquals(items[i].name.source, plan.rows[i].warnings.single().source)
+            assertEquals(listOf(captions[i]), plan.rows[count + i].captions)
+            assertEquals(listOf(placements[i]), plan.rows[count * 2 + i].placements)
+            assertEquals("GOOD", plan.rows[i].candidate?.suggestedStatus)
+        }
+        val ambiguous = ImportPlanner().project(input(manifest(items = List(count) { items[0] }, fragments = List(count) { fragments[0] })))
+        assertEquals(count * 2, ambiguous.rows.size)
+        assertTrue(ambiguous.rows.all { it.sourceIds.size == 1 })
+        val warnings = List(count) { ExtractionWarning(ExtractionWarningCode.UNRESOLVED_TEXT, items[0].name.source) }
+        val sharedOwner = ImportPlanner().project(input(manifest(items = listOf(items[0]), warnings = warnings)))
+        assertEquals(count + 1, sharedOwner.rows.single().sourceIds.size)
+        assertEquals(warnings, sharedOwner.rows.single().warnings)
+        assertEquals(count + 1, sharedOwner.blockers.size)
+        assertTrue(sharedOwner.blockers.all { it.sourceIds.size == 1 })
     }
 
     private fun ImportPlanningInput.copy(
@@ -484,6 +515,8 @@ class ImportPlannerTest {
         captions: List<CaptionCandidate> = emptyList(), images: List<ExtractedImage> = emptyList(),
         placements: List<DrawingPlacement> = emptyList(), warnings: List<ExtractionWarning> = emptyList(),
     ) = DocxExtractionManifest(items, fragments, warnings, identity, summary, captions, images, placements)
+
+    private fun id(category: Source, index: Int) = ImportSourceId(category, index)
 
     private fun text(ordinal: Int, raw: String) = ExtractedText(SourceLocation("word/document.xml", ordinal), raw)
 
