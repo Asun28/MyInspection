@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
+
 **2026-09-08 远端交付**：`T3-DOCX-EXTRACTION-MANIFEST` 经 [PR #262](https://github.com/Asun28/MyInspection/pull/262) 合并（`11cf5899`；正式 R3、候选 CI 通过）。八组证据集合不可变，DOCX-EXTRACT-1 三组独立向量一致；10 项测试、45 项新变异和完整 core 剪枝验证完成。提取器与导入规划仍由后续卡交付。
 
 **2026-09-08 远端交付**：`T3-DOCX-XML-TREE` 经 [PR #261](https://github.com/Asun28/MyInspection/pull/261) 合并（`94dfbe58`；正式 R3、候选 CI 通过）。6 项测试、13 项新变异及祖先测试剪枝验证完成；安全 XML 树无文件或网络访问，资源上界仍由 reader 提供。JDK 验证不代表 ART 或完整导入验收。

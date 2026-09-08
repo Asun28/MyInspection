@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 186 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 187 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -146,6 +146,7 @@
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
 | T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
 | T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
+| T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image validation with conservative review retention |
 | T3-DOCX-PACKAGE-READER | merged | Bounded no-write OOXML package reader for hostile legacy reports |
 | T3-DOCX-XML-TREE | merged | Secure in-memory XML tree for validated DOCX parts |
 | T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |
