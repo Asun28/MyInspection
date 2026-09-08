@@ -28,11 +28,11 @@ acceptance:
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
   - "A5 the amended status clause still forbids colour from being the sole carrier of state, states the non-colour visual cue and the announcement as two separate duties with the announcement never substituting for the cue, and no longer requires a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','has a visual cue that is not color',1),@('D','already registered with the contrast gate',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1),@('D','and a blocked room also announces that it is blocked',1),@('D','an archived record names its archived state',1),@('D','every record announces its relation, and selected evidence also announces its absolute date',1),@('D','status icon for every non-neutral state',1),@('D','Number, label and every non-neutral state merge into one phrase',1),@('D','icon for every non-neutral state, label/value or source/time',1),@('D','Merged sentence names the non-neutral state; a decorative icon is hidden, a state icon is not',1),@('D','optional prior-status summary, missing-evidence sentence',1),@('D','archived exposes Restore; failed names its error',1),@('D','a state mark for every complete and failed phase',1),@('D','every phase announces its state, and the current phase is announced once',1),@('D','an error names its cause',1),@('D','a failed generation names its cause and keeps the on-device suggestion',1),@('D','preparing and error each name their state',1),@('D','a saving row names that it is saving',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
+dod_command: $ErrorActionPreference='Stop'; $c=Get-Content -LiteralPath 'specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md' -Raw; $f=([string][char]96)*3; $m=[regex]::Matches($c,'(?ms)^'+$f+'powershell symbol-contract\r?\n(.*?)^'+$f+'[ \t]*\r?$'); if($m.Count -ne 1){throw 'SYMBOL-BLOCK: runner missing/ambiguous'}; & ([scriptblock]::Create($m[0].Groups[1].Value))
 dod_exit: 0
 dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; every status carries a non-color VISUAL cue and an announcement never substitutes for one, which is the WCAG 1.4.1 floor the card forbids weakening, and a mandatory state glyph is confined to a contrast pair the gate already registers so the cue is evidenced as perceptible; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
-hygiene: 每条断言由「删掉被改写的那一句即变红」的单点变异证明；每个 DoD 锚点在被查文件里只出现一次，否则单点删除杀不掉它；变异批钉生产文件 SHA-256，批中不并行跑第二批或独立复核（L196）。
+hygiene: 保留40项删除/禁句回填检查，并逐项验证正向义务移到错误章节仍会失败、表格义务移到错误单元格仍会失败；标题/条款/表格另验注释与代码块不可充数。对抗在内存中执行，不修改源文档；历史文件变异收据仍钉各自SHA。
 doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID；解锁 T4-SCHEDULE-UI-PRESENTATION。
 ---
 
@@ -40,7 +40,7 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 
 ## Remote publication checkpoint (2026-09-08)
 
-This registration imports the already approved OD-1/OD-2 decisions and the final local acceptance command. Status remains `todo`: the design change is only merged on the original local master (`53673571`), not on origin/master. Local R3 rounds and mutation receipts below are historical evidence, not a new remote PASS or a waiver. Publish only the two allowed design documents through a fresh remote task-loop with current DoD, review and CI evidence.
+This registration imports the approved OD-1/OD-2 decisions and strengthens their acceptance checks. Status remains `todo`: the design change is only merged on the original local master (`53673571`), not on origin/master. Local R3 rounds and mutation receipts below are historical evidence, not a new remote PASS or waiver. Publish only the two allowed design documents through a fresh remote task-loop with current DoD, review and CI evidence.
 
 The substitution tables below record the iterative local investigation. Later R3 repair sections and the final delta table here supersede their earlier wording. The final candidate must be checked against both visual and announcement duties. Mandatory state glyphs remain restricted to contrast-gate-registered foreground/container pairs. No design-token change or new pairing is approved here.
 
@@ -63,9 +63,229 @@ The unchanged chrome, stricter-contract and out-of-scope instances in the histor
 | report-action-sheet | Preparing and error each name their state | requires-restatement; satisfied by final row |
 | media-assignment-row | Saving names that it is saving; existing source-order and destination announcement retained | requires-restatement; satisfied by final row |
 
-PR #260 R3 round 1 correctly found that the historical 25 phrase-count checks did not enforce these row repairs. The DoD now adds 15 unique row-level anchors without removing an old assertion. In an isolated verification fixture, the current remote design at `28ec64ca` fails by named anchor assertions (not syntax/tool errors), while the exact two design blobs from local `5594330d` pass. Each of all 40 checks was challenged independently: delete its required unique phrase, or reinsert its forbidden phrase; every case exited 1 and named the challenged anchor. Both fixture files were restored by SHA-256 and the final command exited 0. No original checkout or production file was mutated. These checks prove the document obligations are enforced, not that a production UI or real-device accessibility test exists.
+PR #260 first added 15 repair anchors to the historical 25 checks. Its 40 deletion/reinsertion cases passed against the local `5594330d` design snapshots, but did not establish location fidelity. PR #263 at `da28f192` correctly found that all34 positive obligations could move into unrelated text without failing; duplicate tuples and marker strings also fooled the scope card. These older receipts remain historical evidence of phrase presence only.
 
-This is current contract-verification evidence; the 25-case R4 section below remains historical. The next implementation PR must run this expanded DoD against its own exact candidate and still pass formal R3 and CI.
+The location-bound runner below preserves all40 obligations and adds executable relocation, wrong-cell and hidden-text challenges. It validates document obligations, not a production UI or real-device accessibility result. The implementation PR must run it against its exact candidate and pass formal R3 and CI.
+
+
+### Executable location-bound acceptance
+
+The 40 ordered tuples retain the original 25 obligations and the 15 row repairs. Each tuple is `[document, section, selector, phrase, count]`; positive checks require one named heading/clause/table cell AND the original file-wide occurrence count. Forbidden phrases remain file-wide. Code fences and HTML comments cannot supply a required location. Table parsing respects inline-code pipes. The runner also challenges every positive obligation by relocation, every table-cell obligation by a wrong-cell move, and all 40 by deletion/reinsertion, in memory without changing source files.
+
+```json symbol-checks
+[
+  ["D","symbol","h","### Symbol-only chrome",1],
+  ["D","symbol","p:A chrome control may omit visible text","A chrome control may omit visible text only when all of the following hold",1],
+  ["D","symbol","p:2. The control carries","names the action it performs",1],
+  ["D","symbol","p:**Domain values","Domain values are never carried by a glyph alone",1],
+  ["D","contrast","p:Color is never","Color is never the sole state channel",1],
+  ["D","contrast","p:Color is never","has a visual cue that is not color",1],
+  ["D","contrast","p:Color is never","already registered with the contrast gate",1],
+  ["D","contrast","p:Color is never","never the sole state channel",1],
+  ["D","symbol","p:3. Where the component","Where the component anatomy declares a tooltip",1],
+  ["D","navigation","p:Bottom navigation is visible","and its accessible name states that a local-health issue needs attention",1],
+  ["D","language","p:- Counts use complete","carries its numeral and announces its full value",1],
+  ["D","language","p:- Counts use complete","plural-aware",1],
+  ["D","structure","r:state-badge:3","announce the full count",1],
+  ["D","buttons","p:Use Material Symbols Outlined","with one named exception, the camera shutter",1],
+  ["D","structure","r:state-badge:4","the owner also expresses the value the badge marks",1],
+  ["D","dos","p:- Do give every status","Do give every status a carrier besides color",1],
+  ["D","","","or icon-only badges",0],
+  ["D","","","Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text",0],
+  ["D","","","Every icon has a visible tooltip and an accessibility label using verb + object",0],
+  ["D","","","Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds",0],
+  ["D","","","Pair every status with a label and stable symbol",0],
+  ["D","","","Do pair every status color with a label and icon",0],
+  ["U","ui-form","p:同一决策区只允许一个","Symbol-only chrome",1],
+  ["U","ui-access","p:5. 主题：","symbol-only chrome",1],
+  ["U","ui-nav","p:`app-shell`","tooltip",1],
+  ["D","nav-matrix","r:room-progress-strip:4","and a blocked room also announces that it is blocked",1],
+  ["D","history","r:history-evidence-strip:3","an archived record names its archived state",1],
+  ["D","history","r:history-evidence-strip:4","every record announces its relation, and selected evidence also announces its absolute date",1],
+  ["D","history","r:summary-stat:1","status icon for every non-neutral state",1],
+  ["D","history","r:summary-stat:4","Number, label and every non-neutral state merge into one phrase",1],
+  ["D","structure","r:metadata-row:1","icon for every non-neutral state, label/value or source/time",1],
+  ["D","structure","r:metadata-row:4","Merged sentence names the non-neutral state; a decorative icon is hidden, a state icon is not",1],
+  ["D","density","r:UNRATED:1","optional prior-status summary, missing-evidence sentence",1],
+  ["D","evidence","r:photo-evidence-tile:3","archived exposes Restore; failed names its error",1],
+  ["D","backup","r:task-stepper:1","a state mark for every complete and failed phase",1],
+  ["D","backup","r:task-stepper:4","every phase announces its state, and the current phase is announced once",1],
+  ["D","history","r:media-preview:3","an error names its cause",1],
+  ["D","backup","r:remediation-suggestion-card:3","a failed generation names its cause and keeps the on-device suggestion",1],
+  ["D","backup","r:report-action-sheet:3","preparing and error each name their state",1],
+  ["D","history","r:media-assignment-row (V1.1):3","a saving row names that it is saving",1]
+]
+```
+
+```powershell symbol-contract
+param([string]$CardPath='specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md',
+      [string]$DesignPath='context/DESIGN.md', [string]$ElementsPath='docs/UI-UX-ELEMENTS.md',
+      [switch]$LoadOnly)
+$ErrorActionPreference = 'Stop'
+function Get-SymbolBlock([string]$Text,[string]$Label) {
+    $fence = ([string][char]96) * 3
+    $pattern = '(?ms)^' + [regex]::Escape($fence+$Label) + '\r?\n(.*?)^' + $fence + '[ \t]*\r?$'
+    $blocks = [regex]::Matches($Text,$pattern)
+    if ($blocks.Count -ne 1) { throw "SYMBOL-BLOCK: expected one $Label block" }
+    return $blocks[0].Groups[1].Value
+}
+$SymbolSections = @{
+    symbol='## Components/### Symbol-only chrome'
+    contrast='## Colors/### CI contrast gate metadata'
+    navigation='## Navigation bars and containers/### Bottom navigation and independent stacks'
+    language='## Components/### Product language contract'
+    structure='## Components/### Structure, list, and discovery component matrix'
+    buttons='## Components/### Buttons and selection controls'
+    dos="## Do's and Don'ts"
+    'ui-form'='## 2. Element 分层/### 2.3 表单与选择'
+    'ui-access'='## 6. 无障碍与响应式验收'
+    'ui-nav'='## 2. Element 分层/### 2.1 容器与导航'
+    'nav-matrix'='## Components/### Navigation and structure component matrix'
+    history='## Components/### History, evidence, and media component matrix'
+    density='## Components/### Inspection item card/#### Card density and interaction contract'
+    evidence='## Components/### Evidence and input component matrix'
+    backup='## Components/### Backup, report, health, and compliance component matrix'
+}
+function Read-SymbolChecks([string]$Text) {
+    $checks = ConvertFrom-Json -InputObject (Get-SymbolBlock $Text 'json symbol-checks') -NoEnumerate
+    if ($checks -isnot [array] -or $checks.Count -ne 40) { throw 'SYMBOL-MANIFEST: expected 40 tuples' }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($c in $checks) {
+        if ($c -isnot [array] -or $c.Count -ne 5) { throw 'SYMBOL-MANIFEST: tuple shape' }
+        foreach ($j in 0..3) { if ($c[$j] -isnot [string]) { throw 'SYMBOL-MANIFEST: string fields' } }
+        if ($c[0] -cnotin @('D','U') -or -not $c[3] -or $c[4] -isnot [long] -or $c[4] -notin @(0,1)) { throw 'SYMBOL-MANIFEST: field value' }
+        if (-not $seen.Add($c[0]+[char]0+$c[3])) { throw 'SYMBOL-MANIFEST: duplicate obligation' }
+        if ($c[4] -eq 1 -and (-not $SymbolSections.ContainsKey($c[1]) -or $c[2] -cnotmatch '^(h|p:.+|r:[^:]+:[1-4])$')) { throw 'SYMBOL-MANIFEST: location' }
+        if ($c[4] -eq 0 -and ($c[1] -or $c[2])) { throw 'SYMBOL-MANIFEST: forbidden phrases stay file-wide' }
+    }
+    return ,$checks
+}
+function Get-SymbolRecords([string]$Text) {
+    $visible = [regex]::Replace($Text,'(?s)<!--.*?-->','')
+    if ($visible.Contains('<!--')) { throw 'SYMBOL-MARKDOWN: unclosed comment' }
+    $stack = @{}; $path=''; $fenceChar = ''; $fenceLength = 0
+    $records = [Collections.Generic.List[object]]::new()
+    foreach ($line in ($visible -split '\r?\n')) {
+        if ($line -match '^\s{0,3}([~\x60]{3,})(.*)$') {
+            $run=$Matches[1]; $suffix=$Matches[2]
+            if ($run -cmatch '^(~+|\x60+)$') {
+                if (-not $fenceLength) { $fenceChar=$run.Substring(0,1); $fenceLength=$run.Length }
+                elseif ($run.StartsWith($fenceChar) -and $run.Length -ge $fenceLength -and -not $suffix.Trim()) { $fenceLength=0 }
+                continue
+            }
+        }
+        if ($fenceLength) { continue }
+        $kind='text'
+        if ($line -match '^(#{1,6}) (.+)$') {
+            $level=$Matches[1].Length
+            foreach ($old in @($stack.Keys)) { if ($old -ge $level) { $stack.Remove($old) } }
+            $stack[$level]=$line; $kind='heading'
+            $path=(@($stack.Keys | Where-Object { $_ -gt 1 } | Sort-Object | ForEach-Object { $stack[$_] })) -join '/'
+        }
+        $records.Add([pscustomobject]@{path=$path;kind=$kind;text=$line})
+    }
+    if ($fenceLength) { throw 'SYMBOL-MARKDOWN: unclosed fence' }
+    return $records.ToArray()
+}
+function Get-SymbolCells([string]$Line) {
+    $cells=[Collections.Generic.List[string]]::new(); $cell=[Text.StringBuilder]::new(); $code=0
+    for ($i=0; $i -lt $Line.Length; $i++) {
+        $ch=$Line[$i]
+        if ($ch -eq '\' -and $i+1 -lt $Line.Length) { [void]$cell.Append($ch).Append($Line[++$i]); continue }
+        if ($ch -eq [char]96) {
+            $n=1; while ($i+$n -lt $Line.Length -and $Line[$i+$n] -eq [char]96) { $n++ }
+            if (-not $code) { $code=$n } elseif ($code -eq $n) { $code=0 }
+            [void]$cell.Append($Line.Substring($i,$n)); $i+=$n-1; continue
+        }
+        if ($ch -eq '|' -and -not $code) { $cells.Add($cell.ToString().Trim()); [void]$cell.Clear() }
+        else { [void]$cell.Append($ch) }
+    }
+    $cells.Add($cell.ToString().Trim())
+    if ($code -or $cells.Count -lt 3 -or $cells[0] -or $cells[$cells.Count-1]) { throw 'SYMBOL-MARKDOWN: malformed table row' }
+    return ,@($cells.ToArray()[1..($cells.Count-2)])
+}
+function Get-SymbolFailures([hashtable]$Documents) {
+    $index=@{}
+    foreach ($key in @('D','U')) {
+        $index[$key]=@{}
+        foreach ($record in (Get-SymbolRecords $Documents[$key])) {
+            if (-not $index[$key].ContainsKey($record.path)) { $index[$key][$record.path]=[Collections.Generic.List[object]]::new() }
+            $index[$key][$record.path].Add($record)
+        }
+    }
+    $bad=[Collections.Generic.List[string]]::new()
+    for ($i=0; $i -lt $SymbolChecks.Count; $i++) {
+        $c=$SymbolChecks[$i]; $id='SYMBOL-CHECK-{0:d2}' -f ($i+1)
+        $global=[regex]::Matches($Documents[$c[0]],[regex]::Escape($c[3])).Count
+        if ($global -ne $c[4]) { $bad.Add("$id global occurrence expected $($c[4]), found $global") }
+        if ($c[4] -eq 0) { continue }
+        $records=@($index[$c[0]][$SymbolSections[$c[1]]])
+        $headings=@($records | Where-Object { $_.kind -ceq 'heading' })
+        $selected=[Collections.Generic.List[string]]::new()
+        foreach ($record in $records) {
+            if ($null -eq $record) { continue }
+            if ($c[2] -ceq 'h' -and $record.kind -ceq 'heading') { $selected.Add($record.text) }
+            elseif ($c[2].StartsWith('p:') -and $record.kind -ceq 'text' -and $record.text.StartsWith($c[2].Substring(2),[StringComparison]::Ordinal)) { $selected.Add($record.text) }
+            elseif ($c[2] -cmatch '^r:(.+):([1-4])$') {
+                $row=$Matches[1]; $column=[int]$Matches[2]
+                if (-not $record.text.StartsWith('| ')) { continue }
+                $first=($record.text -split '\|',3)[1].Trim().Replace([string][char]96,'')
+                if ($first -cne $row) { continue }
+                $cells=Get-SymbolCells $record.text
+                $width=if($c[1] -ceq 'density'){3}else{6}
+                if ($cells.Count -eq $width) { $selected.Add($cells[$column]) }
+            }
+        }
+        $local=if($selected.Count -eq 1){[regex]::Matches($selected[0],[regex]::Escape($c[3])).Count}else{0}
+        if ($headings.Count -ne 1 -or $selected.Count -ne 1 -or $local -ne 1) { $bad.Add("$id wrong/missing/ambiguous location: $($c[1]) $($c[2])") }
+    }
+    return $bad.ToArray()
+}
+function Test-SymbolChallenges([hashtable]$Documents) {
+    $total=0
+    for ($i=0; $i -lt $SymbolChecks.Count; $i++) {
+        $c=$SymbolChecks[$i]; $id='SYMBOL-CHECK-{0:d2}' -f ($i+1); $key=$c[0]
+        $mutants=[Collections.Generic.List[string]]::new()
+        if ($c[4] -eq 0) { $mutants.Add($Documents[$key]+[char]10+$c[3]) }
+        else {
+            $mutants.Add($Documents[$key].Replace($c[3],'[removed obligation]'))
+            $lines=$Documents[$key] -split '\r?\n'
+            $hits=@(0..($lines.Count-1) | Where-Object { $lines[$_].Contains($c[3]) })
+            if ($hits.Count -ne 1) { throw "$id invalid mutation target" }
+            $line=$lines[$hits[0]]; $lines[$hits[0]]=''
+            $mutants.Add(($lines -join [char]10)+[char]10+'## Wrong-location fixture'+[char]10+$line)
+            if($i -in @(0,1,12)){
+                $f=([string][char]96)*3
+                foreach($wrapper in @(@('<!--','-->'),@(($f+'text'),$f))){
+                    $lines[$hits[0]]=$wrapper[0]+[char]10+$line+[char]10+$wrapper[1]
+                    $mutants.Add($lines -join [char]10)
+                }
+            }
+            if ($c[2] -cmatch '^r:(.+):([1-4])$') {
+                $column=[int]$Matches[2]; $cells=Get-SymbolCells $line
+                $other=if($column -eq 1){$cells.Count-1}else{1}
+                $cells[$column],$cells[$other]=$cells[$other],$cells[$column]
+                $lines[$hits[0]]='| '+($cells -join ' | ')+' |'
+                $mutants.Add($lines -join [char]10)
+            }
+        }
+        foreach ($mutant in $mutants) {
+            $changed=$Documents.Clone(); $changed[$key]=$mutant
+            $errors=@(Get-SymbolFailures $changed)
+            if (-not @($errors | Where-Object { $_.StartsWith($id+' ') }).Count) { throw "$id mutation survived" }
+            $total++
+        }
+    }
+    return $total
+}
+$SymbolChecks=Read-SymbolChecks (Get-Content -LiteralPath $CardPath -Raw)
+if ($LoadOnly) { return }
+$documents=@{D=Get-Content -LiteralPath $DesignPath -Raw;U=Get-Content -LiteralPath $ElementsPath -Raw}
+$failures=@(Get-SymbolFailures $documents)
+if ($failures.Count) { throw ($failures -join [Environment]::NewLine) }
+$challenged=Test-SymbolChallenges $documents
+Write-Host "SYMBOL-CONTRACT PASS: 40 obligations; $challenged deletion/forbidden/relocation/wrong-cell challenges"
+```
 
 ## 起因：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（2026-09-06 用户裁定）
 
