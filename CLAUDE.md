@@ -68,6 +68,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > rule 只放**指针**（不复制命名表正文，免双源漂移）；只用项目级 `.claude/rules/`，别用用户级 `~/.claude/rules/`（其 paths 有 bug）。详见 `.claude/rules/README.md`。
 
 ## 当前阶段
+
+**2026-09-08 CI 修复**：`T0-CI-SELFTEST-REPAIR` 同步远端 17ai 说明清单及其缺失的本地闸门摘要；Windows seeded-git 的超时选择修正为实际矩阵组合（30 分钟，其他组合 20 分钟）。交付证据以该卡 R3、verify 与新 scaffold-selftest 运行结果为准，旧失败运行保留作诊断记录。
 **2026-09-08 远端交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已经 PR #257 合入 master（`4a1358e`，远端 R3 第二轮 pass，精确提交 CI 通过）；责任记录前置 PR #256 已合并。ADR-0008 确定单公钥离线签名、代次/根身份绑定、日期/反回退和初始化恢复矩阵；批准上下文与后续工程补强的区别已补证。交付为设计及导入卡 A1–A8 验收，真实密钥/制品、导入实现与 API 26/真机证据仍待后续卡，work-check 不启用。
 
 **2026-09-08 远端交付**：`T3-DOCX-PACKAGE-READER` 经 PR #242 squash 合并（`a4febb7f`；reviewed head `d56d4e39`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）。最新 DoD 28 项与项目 verify 通过；41 项同源变异仅沿用历史证据，未宣称重跑。完成无写入有界 ZIP/XML reader；图片资格验证、提取器、自定义属性兼容与完整导入仍待各卡交付。

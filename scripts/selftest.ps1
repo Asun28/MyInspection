@@ -993,8 +993,18 @@ function Test-SelftestCiMatrixContract([string]$WorkflowText) {
 
 function Test-SelftestCiWiringContract([string]$WorkflowText) {
   if (-not (Test-SelftestCiMatrixContract $WorkflowText)) { return $false }
-  # seeded alone needs the measured 30-minute budget; widening every shard would hide hangs in the cheaper lanes.
-  if ([regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*matrix\.shard == 'seeded' && 30 \|\| 20\s*\}\}\s*$").Count -ne 1) { return $false }
+  # Evaluate the supported timeout expression against every real matrix pair, so a nonexistent shard cannot pass.
+  $timeouts = [regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*(?:matrix\.os == '(?<os>[^']+)' && )?matrix\.shard == '(?<shard>[^']+)' && (?<yes>\d+) \|\| (?<no>\d+)\s*\}\}\s*$")
+  if ($timeouts.Count -ne 1) { return $false }
+  $selection = $timeouts[0].Groups
+  foreach ($os in @('windows-latest', 'ubuntu-latest')) {
+    foreach ($shard in @('core', 'workflow', 'seeded-git', 'seeded-remote', 'seeded-scanner')) {
+      $selected = (-not $selection['os'].Success -or $os -ceq $selection['os'].Value) -and $shard -ceq $selection['shard'].Value
+      $actual = if ($selected) { $selection['yes'].Value } else { $selection['no'].Value }
+      $expected = if ($os -ceq 'windows-latest' -and $shard -ceq 'seeded-git') { '30' } else { '20' }
+      if ($actual -cne $expected) { return $false }
+    }
+  }
   if ($WorkflowText -notmatch '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$') { return $false }
   if ($WorkflowText -notmatch "(?ms)- name: Provision PSScriptAnalyzer.*?\n\s*if:\s*matrix\.shard == 'core'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*Install-Module PSScriptAnalyzer") { return $false }
   return $true
@@ -4557,8 +4567,15 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $lintConditionMutation = $selftestWorkflow -replace "(?m)^\s*if:\s*matrix\.shard == 'core'\s*$", "        if: matrix.shard == 'workflow'"
   $seededTimeoutRevertMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 20'
   $allTimeoutWidenMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 30'
-  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation)) {
-    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/seeded 独享超时预算变异。'
+  $timeoutSelectionMutations = @(
+    $selftestWorkflow.Replace("matrix.shard == 'seeded-git'", "matrix.shard == 'seeded'")
+    $selftestWorkflow.Replace("matrix.os == 'windows-latest' && ", '')
+    $selftestWorkflow.Replace("matrix.os == 'windows-latest'", "matrix.os == 'ubuntu-latest'")
+    $selftestWorkflow.Replace("matrix.shard == 'seeded-git'", "matrix.shard == 'seeded-remote'")
+  )
+  $acceptedTimeoutMutations = @($timeoutSelectionMutations | Where-Object { Test-SelftestCiWiringContract $_ })
+  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation) -or $acceptedTimeoutMutations.Count -ne 0) {
+    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/Windows seeded-git 独享超时预算变异。'
   }
 
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
@@ -16179,7 +16196,7 @@ exit $realExit
     @{ File='docs'; Anchor='防泄露闸 `check-secrets.ps1` 已接入'; Class='note' }
     @{ File='docs'; Anchor='`/security-review-local` 是模型在环'; Class='note' }
     @{ File='task'; Anchor='ship    : DoD(必绿)'; Class='enum'; Site='task-help' }
-    @{ File='task'; Anchor='R3 与候选 CI 都作为 mandatory gate'; Class='note' }
+    @{ File='task'; Anchor='绑定已证明 head 直接 squash 合并。free+private'; Class='note' }
     @{ File='task'; Anchor='$sagaLegs = @('; Class='enum'; Site='task-saga-legs' }
     @{ File='task'; Anchor='# 收据在位 ='; Class='note' }
     @{ File='task'; Anchor='# PR head =='; Class='note' }
@@ -16191,7 +16208,6 @@ exit $realExit
     @{ File='task'; Anchor='# 铸造/RED 闸的收据 resume'; Class='note' }
     @{ File='task'; Anchor='$sagaSafeWhy ='; Class='note' }
     @{ File='task'; Anchor='-Local（提交未推送）'; Class='note' }
-    @{ File='task'; Anchor='[CI-GATE-BASE-MOVED]'; Class='note' }
     @{ File='task'; Anchor='# 必须先在 worktree **手动补跑全部确定性闸'; Class='enum'; Site='task-saga-rule-comment' }
     @{ File='task'; Anchor='【闸门保真总则】已推送恢复合并前'; Class='enum'; Site='task-saga-rule-output' }
     @{ File='task'; Anchor='R3 已 pass、合并腿未完成'; Class='enum'; Site='task-r3-pass' }

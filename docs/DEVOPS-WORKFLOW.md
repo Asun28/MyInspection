@@ -170,6 +170,8 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 `scaffold-selftest` 不进 PR 必需检查；仅默认分支脚手架权威面 push（`configs/compliance/**` 等产品规则不触发）或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。产品 PR/push 由相关产品测试、verify、R3 守门。
 
+Windows `seeded-git` 的 job 上限为 30 分钟，其余九个组合保持 20 分钟；8.2e 对实际 OS/分片组合验证预算选择。17ai 的说明清单随 `task.ps1` 同步，保留各段有序断言与逐段删除变异。
+
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
 对每个**候选冗余**测试，逐个验证：
