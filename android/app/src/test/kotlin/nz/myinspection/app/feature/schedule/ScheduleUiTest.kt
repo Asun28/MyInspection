@@ -1,6 +1,7 @@
 package nz.myinspection.app.feature.schedule
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -68,6 +69,8 @@ class ScheduleUiTest {
         assertIs<ScheduleScreenState.Content>(state.screen)
 
     private val nzZone = ZoneId.of("Pacific/Auckland")
+
+    private val utcZone = ZoneId.of("UTC")
 
     private val may19 = Instant.parse("2026-05-19T02:00:00Z")
 
@@ -785,74 +788,6 @@ class ScheduleUiTest {
     // ------------------------- T4-SCHEDULE-UI-PRESENTATION A1 token vocabulary and action arity
 
     @Test
-    fun `A1 the typography vocabulary is exactly the five DESIGN roles this view may use`() {
-        assertEquals(
-            listOf(
-                "typography.title-lg",
-                "typography.title-md",
-                "typography.body-md",
-                "typography.body-sm",
-                "typography.label-md",
-            ),
-            ScheduleTypographyToken.entries.map { it.tokenName },
-        )
-    }
-
-    @Test
-    fun `A1 every spacing token names a step of the DESIGN spacing scale`() {
-        assertEquals(
-            listOf(
-                "spacing.xs",
-                "spacing.sm",
-                "spacing.md",
-                "spacing.lg",
-                "spacing.xl",
-                "spacing.2xl",
-                "spacing.3xl",
-                "spacing.touch",
-                "spacing.action",
-                "spacing.screen-gutter",
-            ),
-            ScheduleSpacingToken.entries.map { it.tokenName },
-        )
-    }
-
-    @Test
-    fun `A1 every shape token names a step of the DESIGN rounded scale`() {
-        assertEquals(
-            listOf("rounded.sm", "rounded.md", "rounded.full"),
-            ScheduleShapeToken.entries.map { it.tokenName },
-        )
-    }
-
-    @Test
-    fun `A1 every colour role names a DESIGN colour role`() {
-        assertEquals(
-            listOf(
-                "colors.primary",
-                "colors.surface",
-                "colors.on-surface",
-                "colors.on-surface-variant",
-                "colors.tertiary",
-                "colors.error",
-            ),
-            ScheduleColorRole.entries.map { it.tokenName },
-        )
-    }
-
-    @Test
-    fun `A1 primary is the only interactive accent and only tertiary and error carry state`() {
-        assertEquals(
-            listOf(ScheduleColorRole.PRIMARY),
-            ScheduleColorRole.entries.filter { it.isInteractiveAccent },
-        )
-        assertEquals(
-            listOf(ScheduleColorRole.TERTIARY, ScheduleColorRole.ERROR),
-            ScheduleColorRole.entries.filter { it.isStatusRole },
-        )
-    }
-
-    @Test
     fun `A1 the top app bar declares at most two actions and names the one it has`() {
         assertTrue(SchedulePresentation.topAppBarActions.size <= 2)
         assertEquals(
@@ -897,17 +832,48 @@ class ScheduleUiTest {
     }
 
     @Test
-    fun `A1 a blocked permission declares one settings action and a granted one declares none`() {
+    fun `A1 a blocked permission offers one secondary recovery and a granted one offers none`() {
+        val banner = assertNotNull(
+            SchedulePresentation.feedbackBannerOf(permissionState(SchedulePermissionState.BLOCKED)),
+        )
+
         assertEquals(
-            ScheduleStateAction.One(ScheduleActionSlot.OPEN_SETTINGS, ScheduleActionName.OPEN_SETTINGS),
-            SchedulePresentation.permissionActionOf(permissionState(SchedulePermissionState.BLOCKED)),
+            ScheduleSecondaryAction(ScheduleActionSlot.OPEN_SETTINGS, ScheduleActionName.OPEN_SETTINGS),
+            banner.recovery,
         )
         assertNull(
-            SchedulePresentation.permissionActionOf(permissionState(SchedulePermissionState.GRANTED)),
+            SchedulePresentation.feedbackBannerOf(permissionState(SchedulePermissionState.GRANTED)),
         )
         assertNull(
-            SchedulePresentation.permissionActionOf(permissionState(SchedulePermissionState.UNKNOWN)),
+            SchedulePresentation.feedbackBannerOf(permissionState(SchedulePermissionState.UNKNOWN)),
         )
+    }
+
+    /**
+     * The round-2 block: a blocked permission and an acting screen used to render two primary
+     * actions, and no test combined them. Every screen state is now paired with a blocked
+     * permission, and the recovery is a secondary action by type, so the primary stays exactly one.
+     */
+    @Test
+    fun `A1 a blocked permission adds no second primary action to any screen state`() {
+        everyScreenState().forEach { screen ->
+            val blocked = ScheduleReducer.initial()
+                .copy(screen = screen, permission = SchedulePermissionState.BLOCKED)
+
+            assertEquals(
+                SchedulePresentation.actionOf(screen),
+                SchedulePresentation.actionOf(blocked.screen),
+                screen.toString(),
+            )
+            val banner = assertNotNull(SchedulePresentation.feedbackBannerOf(blocked), screen.toString())
+            assertEquals(ScheduleActionSlot.OPEN_SETTINGS, banner.recovery.slot)
+            assertTrue(banner.content.isNotEmpty(), screen.toString())
+        }
+    }
+
+    @Test
+    fun `A1 the view declares its visible-control count unbounded rather than capped`() {
+        assertEquals(ScheduleControlCountPolicy.Unbounded, SchedulePresentation.visibleControlPolicy)
     }
 
     // ------------------------- T4-SCHEDULE-UI-PRESENTATION A2 no declared state is blank
@@ -961,14 +927,14 @@ class ScheduleUiTest {
     }
 
     @Test
-    fun `A2 a blocked permission carries content above the state it leaves readable`() {
-        val blocked = permissionState(SchedulePermissionState.BLOCKED)
-        assertTrue(SchedulePresentation.permissionContentOf(blocked).isNotEmpty())
-        assertTrue(SchedulePresentation.permissionContentOf(blocked).all { it.text.isNotBlank() })
-        assertTrue(
-            SchedulePresentation.permissionContentOf(
-                permissionState(SchedulePermissionState.GRANTED),
-            ).isEmpty(),
+    fun `A2 a blocked permission carries banner copy above the state it leaves readable`() {
+        val banner = assertNotNull(
+            SchedulePresentation.feedbackBannerOf(permissionState(SchedulePermissionState.BLOCKED)),
+        )
+
+        assertEquals(
+            listOf("Reminders are turned off. The schedule below still works"),
+            banner.content.map { it.text },
         )
     }
 
@@ -1002,6 +968,36 @@ class ScheduleUiTest {
         assertEquals("19 May 2026", SchedulePresentation.absoluteDate(may19, nzZone))
     }
 
+    /**
+     * The round-2 block: the month table is twelve independently written strings and the tests
+     * touched two of them, so a typo in any of the other ten would have shipped. Driving all twelve
+     * is the only assertion shape that covers a hand-maintained table.
+     */
+    @Test
+    fun `A3 every month of the year spells its own name`() {
+        val dates = (1..12).map { month ->
+            LocalDate.of(2027, month, 1).atStartOfDay(utcZone).toInstant()
+        }
+
+        assertEquals(
+            listOf(
+                "1 January 2027",
+                "1 February 2027",
+                "1 March 2027",
+                "1 April 2027",
+                "1 May 2027",
+                "1 June 2027",
+                "1 July 2027",
+                "1 August 2027",
+                "1 September 2027",
+                "1 October 2027",
+                "1 November 2027",
+                "1 December 2027",
+            ),
+            dates.map { SchedulePresentation.absoluteDate(it, utcZone) },
+        )
+    }
+
     @Test
     fun `A3 the date form follows neither the default locale nor its numerals`() {
         val original = Locale.getDefault()
@@ -1018,7 +1014,7 @@ class ScheduleUiTest {
         assertEquals("19 May 2026", SchedulePresentation.absoluteDate(acrossTheDateLine, nzZone))
         assertEquals(
             "18 May 2026",
-            SchedulePresentation.absoluteDate(acrossTheDateLine, ZoneId.of("UTC")),
+            SchedulePresentation.absoluteDate(acrossTheDateLine, utcZone),
         )
     }
 
@@ -1289,49 +1285,32 @@ class ScheduleUiTest {
  * same bytes rather than rewritten. Production SHA-256 before the batch and after every restore,
  * identical, so no file was left mutated and the receipt describes exactly the code that ships
  * (L196, L270):
- *   ScheduleModels.kt 38e4de97033267d20ff3fc4865a412b1af83af3fd36a2a8e3841dbf2c9907491
- *   ScheduleScreen.kt b908b99c8e969ae0f088df1ccfe602fe41310ae9b1b6cbfa963fec25d4ede089
+ *   ScheduleModels.kt bb91120dc2ba13d81018a2095f19aeec01fb6a2c0878af73bdf7bbc5bee7c56a
+ *   ScheduleScreen.kt 5f7229f46b8b70113daa94a1262d7765724b553c89f63c786a9025cab81a93bb
  *
- * Third batch. A receipt pins bytes, so each of the two production changes since the first batch
- * voided it and the whole set was re-run rather than patched. Those changes were the R3 round-1
- * fix, which found that a due occurrence never reached the screen carrying its date because
- * contentOf mapped rows to their property name alone, and the size reduction that followed it.
+ * Fourth batch, run after the R3 round-2 fixes. M1-M7 retired with the token vocabularies, which
+ * moved to the successor card so that declaring and drawing a token live on one card. M12 and M16
+ * are re-aimed at the feedback banner that replaced the loose permission copy and action. M31, M32
+ * and M33 are new and aim at exactly what round 2 found unbacked: the banner's secondary recovery,
+ * the visible-control policy, and the ten month names no test touched.
+ *
+ * This batch was killed by host memory pressure with M29 planted, and a killed batch does not run
+ * its restore, so ScheduleModels.kt was left mutated with git showing only a bland M (L196). It was
+ * diagnosed from the log's last completed row rather than guessed, reversed, and proved byte-equal
+ * to the baseline above before the missing row was re-run on its own. The 23 rows completed before
+ * the kill stand because they were recorded against these same bytes.
  *
  * KILLED means the command exited nonzero AND the output named failing tests rather than a
  * compilation error, because a nonzero exit proves nothing until you know what produced it (L282).
- * That distinction earned its keep twice in the first batch. M2 was a compile kill: adding a sixth
- * typography role left the when in ScheduleScreen.textStyle non-exhaustive, so the compiler stopped
- * the mutant before an assertion saw it. That binding has since moved to the successor card, so M2
- * is a single-file edit here and dies on the vocabulary assertion instead. M13 survived, which was
- * a real coverage gap rather than a bad selector: contentOf's KDoc claimed a content state built
- * with no rows still says something true, but every fixture carried three rows. Two tests were
- * added for it and it now dies five times over.
- *
- * Three tests were pruned by mutation-survivor hygiene, none of which any mutation killed alone.
- * M7 fell from two killing tests to one and M23 kept two, which is the evidence that what went was
- * duplication rather than coverage. absoluteDateTime and twoDigits were deleted with the clock-time
- * test: this view renders no clock time, so they had no caller, and M19 went with them.
+ * That check earned its keep in the first batch, where M2 was a compile kill and M13 survived to
+ * expose a real coverage gap behind a KDoc claim no fixture drove.
  *
  * Every row is one single semantic edit to production code applied with the tests untouched, and no
  * row targets a comment or a test. Each row names one killing test of the count beside it. Selector
- * uniqueness is asserted for all 28 rows before the first mutation is applied.
+ * uniqueness is asserted for all 24 rows before the first mutation is applied.
  *
- * 28 mutations, 28 killed, 0 survived.
+ * 24 mutations, 24 killed, 0 survived.
  *
- * M1  A1  a typography token names a role this view may not use
- *     KILLED exit 1, 1 test, A1 the typography vocabulary is exactly the five DESIGN roles
- * M2  A1  a sixth typography role is admitted past the OD-6 cap
- *     KILLED exit 1, 1 test, A1 the typography vocabulary is exactly the five DESIGN roles
- * M3  A1  a spacing token is renamed off the DESIGN scale
- *     KILLED exit 1, 1 test, A1 every spacing token names a step of the DESIGN spacing scale
- * M4  A1  a shape token names a radius DESIGN does not declare
- *     KILLED exit 1, 1 test, A1 every shape token names a step of the DESIGN rounded scale
- * M5  A1  a colour role is renamed off the DESIGN palette
- *     KILLED exit 1, 1 test, A1 every colour role names a DESIGN colour role
- * M6  A1  a status role also becomes an interactive accent
- *     KILLED exit 1, 1 test, A1 primary is the only interactive accent and only tertiary and error
- * M7  A1  the interactive accent also becomes a status carrier
- *     KILLED exit 1, 1 test, A1 primary is the only interactive accent and only tertiary and error
  * M8  A1  the top app bar action is named after a different action
  *     KILLED exit 1, 1 test, A1 the top app bar declares at most two actions and names the one it has
  * M9  A1  the next slot is given the retry name
@@ -1340,18 +1319,24 @@ class ScheduleUiTest {
  *     KILLED exit 1, 1 test, A1 each acting state declares one named action and the rest declare why
  * M11 A1  a state declares an action the reducer says it does not offer
  *     KILLED exit 1, 2 tests, A1 each acting state declares one named action and the rest declare why
- * M12 A1  the permission recovery is offered even when nothing is blocked
- *     KILLED exit 1, 1 test, A1 a blocked permission declares one settings action and a granted none
+ * M12 A1  the feedback banner is raised even when nothing is blocked
+ *     KILLED exit 1, 1 test, A1 a blocked permission offers one secondary recovery and a granted none
+ * M31 A1  the banner recovery names an action other than the one it performs
+ *     KILLED exit 1, 2 tests, A1 a blocked permission adds no second primary action to any screen state
+ * M32 A1  the visible-control count becomes capped rather than unbounded
+ *     KILLED exit 1, 1 test, A1 the view declares its visible-control count unbounded rather than capped
  * M13 A2  the content screen drops its leading count phrase
  *     KILLED exit 1, 5 tests, A2 a content state built with no rows at all still says something true
  * M14 A2  the filtered-empty state stops naming the type that emptied it
  *     KILLED exit 1, 1 test, A2 the filtered-empty state names the type that emptied it
  * M15 A2  the loading state renders nothing
  *     KILLED exit 1, 2 tests, A2 no declared state renders empty content
- * M16 A2  the blocked-permission copy shows while nothing is blocked
- *     KILLED exit 1, 1 test, A2 a blocked permission carries content above the state it leaves readable
+ * M16 A2  the feedback banner carries a recovery but no copy
+ *     KILLED exit 1, 2 tests, A1 a blocked permission adds no second primary action to any screen state
  * M17 A3  the absolute date renders its month as a number
- *     KILLED exit 1, 8 tests, A3 a due date reached today renders today beside the same absolute date
+ *     KILLED exit 1, 9 tests, A3 a due date reached today renders today beside the same absolute date
+ * M33 A3  one month of the twelve is misspelled
+ *     KILLED exit 1, 1 test, A3 every month of the year spells its own name
  * M18 A3  the absolute date ignores the zone it was given
  *     KILLED exit 1, 1 test, A3 the zone decides the civil date rather than the host default
  * M20 A3  the due line lets the relative phrase replace the absolute date

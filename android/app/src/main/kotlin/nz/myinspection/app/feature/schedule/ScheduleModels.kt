@@ -535,79 +535,6 @@ class SchedulePresenter(
     }
 }
 
-/**
- * The typography roles this view may use. OD-6 capped the vocabulary at five, which is why the
- * enum is the cap: a sixth role is not a rule someone has to remember, it is an entry that is not
- * there. [tokenName] is the name context/DESIGN.md gives the role, so the tie back to the design
- * source is a value a test can read rather than a comment a reader has to trust.
- */
-enum class ScheduleTypographyToken(val tokenName: String) {
-    TITLE_LG("typography.title-lg"),
-    TITLE_MD("typography.title-md"),
-    BODY_MD("typography.body-md"),
-    BODY_SM("typography.body-sm"),
-    LABEL_MD("typography.label-md"),
-}
-
-/** The spacing steps this view may use, named as context/DESIGN.md's spacing scale names them. */
-enum class ScheduleSpacingToken(val tokenName: String) {
-    XS("spacing.xs"),
-    SM("spacing.sm"),
-    MD("spacing.md"),
-    LG("spacing.lg"),
-    XL("spacing.xl"),
-    XXL("spacing.2xl"),
-    XXXL("spacing.3xl"),
-    TOUCH("spacing.touch"),
-    ACTION("spacing.action"),
-    SCREEN_GUTTER("spacing.screen-gutter"),
-}
-
-/** The corner radii this view may use, named as context/DESIGN.md's rounded scale names them. */
-enum class ScheduleShapeToken(val tokenName: String) {
-    SM("rounded.sm"),
-    MD("rounded.md"),
-    FULL("rounded.full"),
-}
-
-/**
- * The colour roles this view may use. Whether a role is the interactive accent, or carries state,
- * is answered by a predicate rather than by a published set: a set handed out can be cast back and
- * added to, which is the defect this repo has already fixed twice (TemplateDomains, AdverseStatuses)
- * and once more in T3-REPORT-HTML-EVIDENCE-PORT. Underneath a predicate there is no collection, so
- * "some caller widened the status roles" is not a thing that can be written.
- */
-enum class ScheduleColorRole(val tokenName: String) {
-    PRIMARY("colors.primary"),
-    SURFACE("colors.surface"),
-    ON_SURFACE("colors.on-surface"),
-    ON_SURFACE_VARIANT("colors.on-surface-variant"),
-    TERTIARY("colors.tertiary"),
-    ERROR("colors.error"),
-}
-
-/** Whether this role is the one interactive accent. REQ-034 admits exactly one. */
-val ScheduleColorRole.isInteractiveAccent: Boolean
-    get() = when (this) {
-        ScheduleColorRole.PRIMARY -> true
-        ScheduleColorRole.SURFACE -> false
-        ScheduleColorRole.ON_SURFACE -> false
-        ScheduleColorRole.ON_SURFACE_VARIANT -> false
-        ScheduleColorRole.TERTIARY -> false
-        ScheduleColorRole.ERROR -> false
-    }
-
-/** Whether this role may carry inspection or registration state, and nothing else. REQ-034. */
-val ScheduleColorRole.isStatusRole: Boolean
-    get() = when (this) {
-        ScheduleColorRole.TERTIARY -> true
-        ScheduleColorRole.ERROR -> true
-        ScheduleColorRole.PRIMARY -> false
-        ScheduleColorRole.SURFACE -> false
-        ScheduleColorRole.ON_SURFACE -> false
-        ScheduleColorRole.ON_SURFACE_VARIANT -> false
-    }
-
 /** The actions the top app bar may carry. REQ-031 caps this at two, so the enum is the cap. */
 enum class ScheduleTopAppBarAction(val actionName: ScheduleActionName) {
     FILTER(ScheduleActionName.FILTER),
@@ -649,6 +576,38 @@ sealed interface ScheduleStateAction {
     ) : ScheduleStateAction
 
     data class None(val reason: ScheduleNoActionReason) : ScheduleStateAction
+}
+
+/**
+ * A recovery offered beside the screen rather than by it. Deliberately not a [ScheduleStateAction]:
+ * that type is the one primary action a state declares, and a feedback banner's recovery is a
+ * secondary action by REQ-030, so keeping them apart in the type system is what makes "two primary
+ * actions at once" unconstructable rather than merely discouraged.
+ */
+data class ScheduleSecondaryAction(
+    val slot: ScheduleActionSlot,
+    val actionName: ScheduleActionName,
+)
+
+/**
+ * Non-blocking feedback drawn beside the screen it leaves readable, which is what
+ * context/DESIGN.md's `feedback-banner` is for. A banner always carries both halves: copy that
+ * says what happened and exactly one secondary recovery, so a banner with nothing to do about it
+ * is not expressible.
+ */
+data class ScheduleFeedbackBanner(
+    val content: List<ScheduleContentValue>,
+    val recovery: ScheduleSecondaryAction,
+)
+
+/**
+ * How many tappable controls a state may show at once. Two shapes rather than a bare number, so
+ * that [Unbounded] is an answer chosen among alternatives instead of the only thing expressible.
+ */
+sealed interface ScheduleControlCountPolicy {
+    data object Unbounded : ScheduleControlCountPolicy
+
+    data class AtMost(val count: Int) : ScheduleControlCountPolicy
 }
 
 /**
@@ -731,13 +690,28 @@ object SchedulePresentation {
         }
 
     /**
-     * What the blocked-permission recovery declares, or none while nothing is blocked. The return
-     * type is the One shape rather than the sealed parent, because this recovery never declares a
-     * reason for offering nothing: it is beside the screen, and its absence is simply nothing to
-     * draw. A caller therefore cannot be handed a None it would have to interpret.
+     * The non-blocking feedback shown beside the screen, or none while there is nothing to say.
+     * Its recovery is a [ScheduleSecondaryAction] rather than a [ScheduleStateAction], which is
+     * what stops a blocked permission from putting a second primary action on a screen that
+     * already has one: the two are different types, so "this screen shows two primary actions" is
+     * not a state an implementation can express while still type-checking. REQ-030 and REQ-048 are
+     * therefore both structural here rather than rules a renderer has to keep.
      */
-    fun permissionActionOf(state: ScheduleUiState): ScheduleStateAction.One? =
-        state.permissionRecovery?.let { slot -> ScheduleStateAction.One(slot, nameOf(slot)) }
+    fun feedbackBannerOf(state: ScheduleUiState): ScheduleFeedbackBanner? =
+        state.permissionRecovery?.let { slot ->
+            ScheduleFeedbackBanner(
+                content = listOf(ScheduleContentValue.Message(PERMISSION_BLOCKED_MESSAGE)),
+                recovery = ScheduleSecondaryAction(slot, nameOf(slot)),
+            )
+        }
+
+    /**
+     * What bounds the number of tappable controls one state may show at once. Unbounded is a
+     * declared answer chosen from alternatives rather than a rule nobody wrote: the content screen
+     * is a scrolling list, so any fixed number is false once the list is long enough, and REQ-030
+     * and REQ-031 are the two constraints that actually hold.
+     */
+    val visibleControlPolicy: ScheduleControlCountPolicy = ScheduleControlCountPolicy.Unbounded
 
     /**
      * What a screen state puts on screen. Never empty, and not because a rule says so: the content
@@ -785,18 +759,6 @@ object SchedulePresentation {
         typeLabel(row.inspectionType),
         row.dueAt?.let { dueAt -> dueLine(dueAt, now, zone) },
     )
-
-    /**
-     * What a blocked permission puts on screen, above the state rather than in place of it. Read
-     * off the same [permissionRecovery] the action is read off, so the copy and the action cannot
-     * disagree about whether anything is blocked.
-     */
-    fun permissionContentOf(state: ScheduleUiState): List<ScheduleContentValue> =
-        if (state.permissionRecovery == null) {
-            emptyList()
-        } else {
-            listOf(ScheduleContentValue.Message(PERMISSION_BLOCKED_MESSAGE))
-        }
 
     /**
      * An absolute date in the fixed form OD-8 chose, for example `19 May 2026`. Every part is

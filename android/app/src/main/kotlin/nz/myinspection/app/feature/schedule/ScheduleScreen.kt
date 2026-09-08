@@ -27,7 +27,9 @@ import java.time.ZoneId
  * itself composes, and a test asserts the reconstruction equals it element for element, so the two
  * cannot drift into disagreeing about what a screen shows.
  *
- * Chrome still carries visible text here, and this file applies no token values. Both belong to
+ * Chrome still carries visible text here, and this file applies no token values. The token
+ * vocabularies themselves now live with their binding in the successor card, so neither card
+ * declares a token the other is supposed to draw. Both belong to
  * T4-SCHEDULE-UI-SYMBOL-CHROME: it replaces these labels with glyphs, turns the same
  * ScheduleActionName into an accessible name, and binds the token vocabularies this card declares
  * to real spacing, type, shape and colour. Declaring and drawing were split between the two cards
@@ -44,11 +46,8 @@ fun ScheduleScreen(
     onNext: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        SchedulePresentation.permissionContentOf(state).forEach { value ->
-            ContentText(value)
-        }
-        SchedulePresentation.permissionActionOf(state)?.let { action ->
-            ActionButton(action, onEvent, onRetry, onNext, onOpenSettings)
+        SchedulePresentation.feedbackBannerOf(state)?.let { banner ->
+            FeedbackBanner(banner, onEvent, onRetry, onNext, onOpenSettings)
         }
         when (val screen = state.screen) {
             is ScheduleScreenState.Content -> {
@@ -82,6 +81,44 @@ private fun ContentText(value: ScheduleContentValue) {
     }
 }
 
+/**
+ * The feedback banner: its copy and its one secondary recovery, drawn as one region so the recovery
+ * sits inside the banner rather than loose beside the screen's own primary action (REQ-048).
+ */
+@Composable
+private fun FeedbackBanner(
+    banner: ScheduleFeedbackBanner,
+    onEvent: (ScheduleEvent) -> Unit,
+    onRetry: () -> Unit,
+    onNext: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        banner.content.forEach { value -> ContentText(value) }
+        Button(
+            onClick = { perform(banner.recovery.slot, onEvent, onRetry, onNext, onOpenSettings) },
+        ) {
+            Text(text = banner.recovery.actionName.phrase)
+        }
+    }
+}
+
+/** Routes one action slot to the callback that performs it. Shared so the two call sites agree. */
+private fun perform(
+    slot: ScheduleActionSlot,
+    onEvent: (ScheduleEvent) -> Unit,
+    onRetry: () -> Unit,
+    onNext: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    when (slot) {
+        ScheduleActionSlot.NEXT -> onNext()
+        ScheduleActionSlot.CLEAR_FILTER -> onEvent(ScheduleEvent.FilterSelected(null))
+        ScheduleActionSlot.RETRY -> onRetry()
+        ScheduleActionSlot.OPEN_SETTINGS -> onOpenSettings()
+    }
+}
+
 @Composable
 private fun ActionButton(
     action: ScheduleStateAction.One,
@@ -90,16 +127,7 @@ private fun ActionButton(
     onNext: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    Button(
-        onClick = {
-            when (action.slot) {
-                ScheduleActionSlot.NEXT -> onNext()
-                ScheduleActionSlot.CLEAR_FILTER -> onEvent(ScheduleEvent.FilterSelected(null))
-                ScheduleActionSlot.RETRY -> onRetry()
-                ScheduleActionSlot.OPEN_SETTINGS -> onOpenSettings()
-            }
-        },
-    ) {
+    Button(onClick = { perform(action.slot, onEvent, onRetry, onNext, onOpenSettings) }) {
         Text(text = action.actionName.phrase)
     }
 }
