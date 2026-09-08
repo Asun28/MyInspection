@@ -1275,7 +1275,7 @@ Contrast uses WCAG relative luminance for sRGB. For each 8-bit channel, first se
 
 ### Dark token contrast map
 
-The following bindings are immutable. A foreground token is not used on a background token absent from this table.
+The following bindings are immutable. A foreground token is not used on a background token absent from this table and from the state glyph contrast map below.
 
 | Foreground token | Hex | Required background token | Hex | Ratio | Result |
 | --- | --- | --- | --- | ---: | --- |
@@ -1305,6 +1305,26 @@ The following bindings are immutable. A foreground token is not used on a backgr
 | `dark.primary` | `#94D7CA` | `dark.on-primary` | `#003730` | `8.07:1` | AA non-text icon |
 
 `dark.outline-variant` is restricted to decorative separators. Inputs, cards, evidence segments, selected states, and focus indicators use `dark.outline`, a semantic container, or the focus token.
+
+### State glyph contrast map
+
+The state colors are `primary`, `tertiary`, `error`, `outline` and `privacy`: the four roles `evidence-rail` names for its complete, missing-required, blocked and optional segments, plus the privacy role the palette assigns to tenant-property flags and report-exclusion controls. The content surfaces are `surface`, `surface-container-low`, `surface-container` and `surface-container-high`: the four neutral grounds the surface roles define, as distinct from every other ground this document names, a semantic container, a base or `on-` role, or the camera scrim, each of which carries its own paired role instead. Every pair those two sets form is registered with the contrast gate at the `3.00:1` essential-icon threshold in both themes, so a row that puts a state glyph on a neutral ground need not first establish which of the four it lands on. Seven pairs per theme are already bound above or in the CI metadata under another usage; the thirteen below are the pairs this map adds, each with its audited light and dark ratio.
+
+| State color | Content surface | Light ratio | Dark ratio |
+| --- | --- | ---: | ---: |
+| `primary` | `surface-container-low` | `7.77:1` | `10.50:1` |
+| `primary` | `surface-container-high` | `6.25:1` | `8.23:1` |
+| `tertiary` | `surface` | `5.47:1` | `10.75:1` |
+| `tertiary` | `surface-container-low` | `5.79:1` | `9.99:1` |
+| `tertiary` | `surface-container-high` | `4.66:1` | `7.83:1` |
+| `error` | `surface` | `6.18:1` | `10.88:1` |
+| `error` | `surface-container-low` | `6.54:1` | `10.12:1` |
+| `error` | `surface-container-high` | `5.26:1` | `7.93:1` |
+| `outline` | `surface-container-high` | `3.51:1` | `4.37:1` |
+| `privacy` | `surface` | `7.25:1` | `10.86:1` |
+| `privacy` | `surface-container-low` | `7.67:1` | `10.10:1` |
+| `privacy` | `surface-container` | `6.78:1` | `9.15:1` |
+| `privacy` | `surface-container-high` | `6.17:1` | `7.92:1` |
 
 ### Visual physics contract
 
@@ -1383,6 +1403,32 @@ Every rendered foreground/background pair for text, icons, focus indicators, ess
     {"foreground":"dark.error","value":"#FFB4AB","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-segment","minRatio":3.0,"essential":true},
     {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"evidence-boundary","minRatio":3.0,"essential":true},
     {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"card-boundary","minRatio":3.0,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.primary","value":"#0B5D52","background":"light.surface-container-high","backgroundValue":"#E2E8E4","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.tertiary","value":"#8B5C00","background":"light.surface","backgroundValue":"#F7F9F7","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.tertiary","value":"#8B5C00","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.tertiary","value":"#8B5C00","background":"light.surface-container-high","backgroundValue":"#E2E8E4","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.error","value":"#B3261E","background":"light.surface","backgroundValue":"#F7F9F7","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.error","value":"#B3261E","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.error","value":"#B3261E","background":"light.surface-container-high","backgroundValue":"#E2E8E4","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.outline","value":"#6F7C76","background":"light.surface-container-high","backgroundValue":"#E2E8E4","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.privacy","value":"#60458E","background":"light.surface","backgroundValue":"#F7F9F7","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.privacy","value":"#60458E","background":"light.surface-container-low","backgroundValue":"#FFFFFF","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.privacy","value":"#60458E","background":"light.surface-container","backgroundValue":"#EEF2EF","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"light.privacy","value":"#60458E","background":"light.surface-container-high","backgroundValue":"#E2E8E4","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.primary","value":"#94D7CA","background":"dark.surface-container-high","backgroundValue":"#26312D","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.tertiary","value":"#F1BD68","background":"dark.surface","backgroundValue":"#0F1513","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.tertiary","value":"#F1BD68","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.tertiary","value":"#F1BD68","background":"dark.surface-container-high","backgroundValue":"#26312D","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.error","value":"#FFB4AB","background":"dark.surface","backgroundValue":"#0F1513","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.error","value":"#FFB4AB","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.error","value":"#FFB4AB","background":"dark.surface-container-high","backgroundValue":"#26312D","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.outline","value":"#89968F","background":"dark.surface-container-high","backgroundValue":"#26312D","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.privacy","value":"#D1BCFF","background":"dark.surface","backgroundValue":"#0F1513","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.privacy","value":"#D1BCFF","background":"dark.surface-container-low","backgroundValue":"#151D1A","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.privacy","value":"#D1BCFF","background":"dark.surface-container","backgroundValue":"#1C2622","usage":"state-icon","minRatio":3.0,"essential":true},
+    {"foreground":"dark.privacy","value":"#D1BCFF","background":"dark.surface-container-high","backgroundValue":"#26312D","usage":"state-icon","minRatio":3.0,"essential":true},
     {"foreground":"camera.on-scrim","value":"#FFFFFF","background":"camera.scrim-over-white","backgroundValue":"#5C5C5C","usage":"text-icon","minRatio":4.5,"essential":true}
   ]
 }
@@ -1417,9 +1463,9 @@ The palette is light-first for daylight legibility. Large fields of pure white a
 - **Privacy — archive violet (`#60458E`):** tenant-property privacy flags and report-exclusion controls. Keeping privacy distinct from defects prevents semantic confusion.
 - **Surfaces:** use `surface` for the screen, `surface-container-low` for grouped regions, `surface-container` for active item cards, and `surface-container-high` for selected or raised states. Decorative separators use `outline-variant`; essential card boundaries and focus use `outline`.
 
-Color is never the sole state channel, and no status is carried by a glyph alone. Every status has a visual cue that is not color: its own visible text, a glyph, its position, or visible text given by its owner. Where a status carries no visible text of its own, its owner also announces it. A state glyph that a component row makes mandatory renders only on a container whose foreground and background pair is already registered with the contrast gate. Where a glyph also marks a status, its owner gives that value as text or announces it, exactly as the domain-value rule under symbol-only chrome requires. Where a glyph marks OK, attention, blocked, not applicable or privacy, it uses the declared symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy, except where a component row declares a different marker form, as `state-badge` does for its dot.
+Color is never the sole state channel, and no status is carried by a glyph alone. Every status has a visual cue that is not color: its own visible text, a glyph, its position, or visible text given by its owner. Where a status carries no visible text of its own, its owner also announces it. A state glyph that a component row makes mandatory renders on a foreground/background pair the contrast gate registers at or above the essential-icon minimum, and every state color is registered on every content surface, as the state glyph contrast map records, so requiring such a glyph never turns on which neutral ground it lands on. Where a glyph also marks a status, its owner gives that value as text or announces it, exactly as the domain-value rule under symbol-only chrome requires. Where a glyph marks OK, attention, blocked, not applicable or privacy, it uses the declared symbol: check for OK, exclamation for attention, cross/octagon for blocked, dash for not applicable, and shield for privacy, except where a component row declares a different marker form, as `state-badge` does for its dot.
 
-All light foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference. Camera controls use white over a `64%` black sRGB scrim; the worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
+All light text foreground/container pairs above are verified at WCAG AA; the lowest ratio is `on-tertiary` on `tertiary` at 5.79:1. Every state color/content surface pair clears the `3.00:1` essential icon minimum in both themes; the lowest is `outline` on `surface-container-high` at 3.51:1 light and 4.37:1 dark. The dark palette is a separately designed tonal mapping, not an inversion; its primary semantic pairs are all at least 6.15:1. Capture follows the system light/dark preference. Camera controls use white over a `64%` black sRGB scrim; the worst case is a white preview composited to `#5C5C5C`, which gives `6.69:1` contrast. Dynamic wallpaper color is disabled because it would change evidence semantics between devices.
 
 ## Typography
 
@@ -1587,7 +1633,7 @@ Admission never overrides a stricter component contract: where a component row o
 | `alert-dialog` | title, concrete consequence, cancel, confirm | `OPEN / CONFIRMING / ERROR / CLOSED` | Scrim never dismisses; Cancel owns initial focus; error retains the dialog and exact recovery | `paneTitle` equals title; completion or cancel restores the trigger | `AlertDialog` |
 | `navigation-bar` | 3 destinations, icon, label, active indicator | `PROPERTIES / SCHEDULE / SETTINGS`; `ACTIVE / INACTIVE / DISABLED` | Exactly three labelled destinations; hidden on setup, capture, review, and camera routes | `selectableGroup()` + `isTraversalGroup=true`; no Role; selected destination exposes `selected=true`; Pop restores its prior focus key | `NavigationBar` |
 | `navigation-destination` | icon, label, active indicator, 48dp target | `INACTIVE / ACTIVE / PRESSED / FOCUSED / DISABLED` | Activation switches to one existing root stack and never creates duplicate destinations | Role `tab`; label and selected state are exposed together | `NavigationBarItem` |
-| `top-app-bar` | Back, title, up to 2 actions, overflow | `DEFAULT / SCROLLED` | More than 2 actions move into overflow; destructive actions remain separated from routine actions | Title has heading semantics; Back label is `Back to {parent}` | `TopAppBar` |
+| `top-app-bar` | Back, title, up to 2 actions, overflow | `DEFAULT / SCROLLED` | More than 2 actions move into overflow; destructive actions remain separated from routine actions | Title has heading semantics; Back label is `Back to {parent}` except where the top app bar contract declares another name for that page type, which it does once, for `STREAM_CAPTURE` | `TopAppBar` |
 | `room-progress-strip` | Previous, labelled room segments, next | `READY / SCROLLING / FOCUSED` | Current room is centered; previous/next controls exist whenever another room exists | `selectableGroup()` + `isTraversalGroup=true`; no Role; each room announces `{label}, {complete}/{total}, current|not current`, and a blocked room also announces that it is blocked | `LazyRow` + buttons |
 | `room-progress-segment` | Room label, completion count, state mark | `INCOMPLETE / COMPLETE / CURRENT / BLOCKED` | Tap changes room after a save barrier; swipe is never the only control | Role `tab`; stable focus key uses `roomInstanceId` | `FilterChip` |
 | `missing-evidence-strip` | icon, exact count copy, jump action | `HIDDEN / VISIBLE / FOCUSED` | Hidden only when `missingTotal=0`; first gap resolves by room order → item sort → `STATUS, PHOTO, NOTE` | One button node; focus moves to the missing control | `Surface` |
@@ -1608,7 +1654,7 @@ Admission never overrides a stricter component contract: where a component row o
 | `status-choice` | icon, label, selected indicator | `OK / ATTENTION / CRITICAL / NOT_APPLICABLE`; interaction state axis; machine `UNSELECTED / SELECTED / PRESSED / FOCUSED / DISABLED` | Two equal-width primary choices show `OK` and `Needs attention`; detailed states open a visible sheet | Parent uses `selectableGroup`; each choice is a `radioButton` | `Surface` + `selectable` |
 | `input-field` | persistent label, value, helper/error, trailing action | `EMPTY / FOCUSED / FILLED / ERROR / DISABLED` | Validation runs on blur or submit; error remains below field until corrected | Error is polite live region; keyboard type comes from field metadata | `OutlinedTextField` |
 | `phrase-sheet` | pane title, category filter, phrase rows, close | `OPENING / OPEN / FILTERED / EMPTY / CLOSING` | Selecting a phrase inserts immediately and exposes Undo; swipe-dismiss and Close have identical output | `paneTitle="Suggested phrases"`; close returns to trigger | `ModalBottomSheet` |
-| `photo-evidence-tile` | 4:3 image/placeholder, requirement, source/time, privacy, action | `EMPTY_OPTIONAL / EMPTY_REQUIRED / TEMPORARY / PRESENT / PRIVACY / ARCHIVED / FAILED` | Required empty names reason; temporary never appears as persisted evidence; archived exposes Restore; failed names its error | One node announces item, state, source, time, privacy; action is separate | `Surface` |
+| `photo-evidence-tile` | 4:3 image/placeholder, requirement, source/time, privacy, action | `EMPTY_OPTIONAL / EMPTY_REQUIRED / TEMPORARY / PRESENT / PRIVACY / ARCHIVED / FAILED` | Required empty names reason; an empty optional tile names that the photo is optional; a temporary capture names that it is not saved yet and never appears as persisted evidence; archived exposes Restore; failed names its error | One node announces item, state, source, time, privacy; action is separate | `Surface` |
 | `privacy-chip` | shield, `Contains tenant belongings` label | `OFF / ON / PRESSED / FOCUSED / DISABLED` | This classifies the photo; `ON` uses privacy token and is excluded from both reports by default | Role `switch`; announces `Tenant belongings: marked, excluded from reports by default` or `not marked` | `FilterChip` |
 | `privacy-action` | shield, explicit privacy verb, current classification | `OFF / ON / PRESSED / FOCUSED / DISABLED` | Uses privacy tokens; toggles only the selected asset and never changes report inclusion silently | Role `button`; label names mark/unmark outcome and resulting report default | `FilledTonalButton` |
 
@@ -1673,7 +1719,7 @@ Controls never silently reset a valid hidden value. Disabled controls are except
 | `loading-indicator` | indicator, optional stable label/percentage | indeterminate/determinate/inline; machine `HIDDEN / DELAYED / VISIBLE / COMPLETE` | Delayed until 300ms; never replaces already-readable local content; determinate mode uses authoritative progress only | Announces start and completion once, plus meaningful phase changes | Progress indicator |
 | `task-progress-card` | task heading, current phase, progress, prior safe state, cancel/retry where legal | `BACKUP / RESTORE / EXPORT / REPORT_IMPORT / ERASE / MEDIA_RECOVERY`; lifecycle states; machine `PREPARING / RUNNING / VERIFYING / SUCCEEDED / FAILED / CANCELLED` | Phase names come from the operation contract; duplicate activation reuses the operation; irreversible phases remove Cancel | Polite phase announcements; focus stays on heading unless a failure action appears | `Surface` |
 | `recovery-panel` | cause, effect boundary, one primary recovery, optional safe fallback | `PERMISSION / PROVIDER / LOW_STORAGE / INTEGRITY / ARCHIVED_MEDIA / RESTORED_SESSION`; machine `VISIBLE / ACTION_BUSY / RESOLVED` | Names what still works; never implies local data loss when only a provider failed; one primary action owns recovery | Persistent live region; focus moves here only after the triggering action fails | `Surface` |
-| `verification-receipt` | verified/stale state, absolute time, scope/counts, destination or hash summary | `BACKUP / EXPORT / RESTORE / INTEGRITY`; verified/stale/failed/unavailable | A failed new attempt never overwrites the last verified receipt; technical IDs stay behind explicit details | Summary is one group; Details expands without moving primary action | `Surface` |
+| `verification-receipt` | receipt state named in visible text as verified, stale, failed or unavailable, absolute time, scope/counts, destination or hash summary | `BACKUP / EXPORT / RESTORE / INTEGRITY`; verified/stale/failed/unavailable | A failed new attempt never overwrites the last verified receipt; technical IDs stay behind explicit details | Summary is one group; Details expands without moving primary action | `Surface` |
 
 Use skeletons only when the shape of delayed external/provider content is known. Local database lists render content, a factual empty state, or a persistent read error—never a fake network skeleton. A full-screen blocking spinner without phase text is prohibited.
 
