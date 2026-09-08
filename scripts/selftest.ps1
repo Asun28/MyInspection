@@ -8567,13 +8567,14 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
           # G：首次 mint 因 receipt plane 被普通文件占用而 best-effort 失败，随后真实范围闸失败。
           # 此时同轮授权位仍为 false；T26 只能保留现场并委托 DEVOPS，不能生成第二套 review/CI/merge 配方。
           $sgWtG = New-ShipFixtureCard $sg 'T0-SAGA15RG' 'seed 15r first-mint failure then scope failure' 'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path marker-15rg.txt)) { exit 1 }"'
-          $gExit = -1; $gOut = ''; $gScopeHead = ''; $gHeadAfter = ''; $gBranchAfter = ''; $gEvidenceBefore = ''; $gEvidenceAfter = ''; $gReceiptBefore = ''; $gReceiptAfter = ''
+          $gExit = -1; $gOut = ''; $gHeadBefore = ''; $gScopeHead = ''; $gHeadAfter = ''; $gBranchAfter = ''; $gEvidenceBefore = ''; $gEvidenceAfter = ''; $gReceiptBefore = ''; $gReceiptAfter = ''
           $gReceiptPlane = Join-Path $sg '.git/scaffold-shipped'
           $gScopeHeadProof = Join-Path $sgWtG '.review/T0-SAGA15RG-head-at-scope'
           $gEvidence = Join-Path $sgWtG '.review/T0-SAGA15RG.red'
           if (-not (Test-Path $sgWtG)) { Fail '闸15r(e)G：fixture start 未产出 worktree G（前置失败）。' }
           else {
             & pwsh -NoProfile -File (Join-Path $sg 'scripts/task.ps1') -TaskId T0-SAGA15RG -Phase red *> $null
+            $gHeadBefore = "$(& git -C $sgWtG rev-parse HEAD 2>$null)".Trim()
             Set-Content (Join-Path $sgWtG 'marker-15rg.txt') 'green' -Encoding utf8
             $gEvidenceBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $gEvidence).Hash
             Set-Content -LiteralPath $gReceiptPlane -Value 'occupied' -Encoding utf8
@@ -8686,6 +8687,8 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($gExit -eq 0) { Fail '闸15r(e)G：首次 mint 失败后范围闸失败却退出 0——best-effort 后续失败被吞。'; $reFail = $true }
         if ($gOut -notmatch '水位线收据铸造失败.*best-effort') { Fail '闸15r(e)G：receipt plane 被占用却未证明首次 mint 走 best-effort 失败。'; $reFail = $true }
         if ($gOut -notmatch '失败点：范围闸') { Fail '闸15r(e)G：首次 mint 失败后的真实后续失败未落在范围闸。'; $reFail = $true }
+        if ($gHeadBefore -cnotmatch '^[0-9a-f]{40}$' -or $gScopeHead -cnotmatch '^[0-9a-f]{40}$' -or $gScopeHead -ceq $gHeadBefore) { Fail '闸15r(e)G：范围闸前未证明 HEAD 已从 ship 前提交前移。'; $reFail = $true }
+        if ($gOut -notmatch '已完成腿：[^\r\n]*提交') { Fail '闸15r(e)G：范围失败报告的已完成腿未包含提交。'; $reFail = $true }
         if ($gOut -notmatch 'T26-REPORTER-AUTHORITY') { Fail '闸15r(e)G：未授权 catch 未输出稳定 reporter 权限哨兵。'; $reFail = $true }
         if ($gOut -notmatch 'docs/DEVOPS-WORKFLOW\.md' -or $gOut -notmatch '停止自动操作并保留 worktree/branch/PR/evidence/receipt') { Fail '闸15r(e)G：未授权 catch 未保留现场并委托 DEVOPS 权威合同。'; $reFail = $true }
         foreach ($legacyG in @('【闸门保真总则】', 'R3 已 pass、合并腿未完成', 'PR #.*已开', 'commit 已落、PR 状态未知', 'review\.ps1', '-PostStatus', 'ci\.yml', 'gh pr merge', '-Phase\s+cleanup\b', 'reset --soft')) {
