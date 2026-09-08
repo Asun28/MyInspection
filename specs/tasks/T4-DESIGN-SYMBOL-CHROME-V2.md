@@ -26,11 +26,11 @@ acceptance:
   - "A2 the card body carries a completed instance-substitution table: every existing instance the rule governs is listed, each is evaluated against the final wording, and each row records compliant / requires-restatement / explicitly-exempt with its reason"
   - "A3 no instance in that table is left indeterminate: no instance satisfies two mutually exclusive branches of the rule, and no instance the document already permits is judged non-compliant by the rule"
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
-  - "A5 the amended status clause still forbids colour from being the sole carrier of state, and states its satisfying carriers rather than requiring a visible text label unconditionally"
+  - "A5 the amended status clause still forbids colour from being the sole carrier of state, states the non-colour visual cue and the announcement as two separate duties with the announcement never substituting for the cue, and no longer requires a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: TBD（措辞定稿后钉具名 ASCII 锚点；设计规矩见本卡「DoD 锚点设计规矩」，**每个锚点在被查文件里只许出现一次**）
+dod_command: $d=Get-Content -Raw -LiteralPath 'context/DESIGN.md'; $u=Get-Content -Raw -LiteralPath 'docs/UI-UX-ELEMENTS.md'; $checks=@(@('D','### Symbol-only chrome',1),@('D','A chrome control may omit visible text only when all of the following hold',1),@('D','names the action it performs',1),@('D','Domain values are never carried by a glyph alone',1),@('D','Color is never the sole state channel',1),@('D','has a visual cue that is not color',1),@('D','already registered with the contrast gate',1),@('D','never the sole state channel',1),@('D','Where the component anatomy declares a tooltip',1),@('D','and its accessible name states that a local-health issue needs attention',1),@('D','carries its numeral and announces its full value',1),@('D','plural-aware',1),@('D','announce the full count',1),@('D','with one named exception, the camera shutter',1),@('D','the owner also expresses the value the badge marks',1),@('D','Do give every status a carrier besides color',1),@('D','or icon-only badges',0),@('D','Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text',0),@('D','Every icon has a visible tooltip and an accessibility label using verb + object',0),@('D','Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds',0),@('D','Pair every status with a label and stable symbol',0),@('D','Do pair every status color with a label and icon',0),@('U','Symbol-only chrome',1),@('U','symbol-only chrome',1),@('U','tooltip',1)); $bad=@(); foreach($c in $checks){ $h=$(if($c[0] -eq 'D'){$d}else{$u}); $n=([regex]::Matches($h,[regex]::Escape($c[1]))).Count; if($n -ne $c[2]){ $bad += ('{0} anchor [{1}] expected {2} found {3}' -f $c[0],$c[1],$c[2],$n) } }; if($bad){ $bad | ForEach-Object { Write-Host $_ }; exit 1 }; exit 0
 dod_exit: 0
-dod_assert: TBD（同上，与 A1–A6 逐条对齐后填）
+dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; every status carries a non-color VISUAL cue and an announcement never substitutes for one, which is the WCAG 1.4.1 floor the card forbids weakening, and a mandatory state glyph is confined to a contrast pair the gate already registers so the cue is evidenced as perceptible; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
 hygiene: 每条断言由「删掉被改写的那一句即变红」的单点变异证明；每个 DoD 锚点在被查文件里只出现一次，否则单点删除杀不掉它；变异批钉生产文件 SHA-256，批中不并行跑第二批或独立复核（L196）。
 doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID；解锁 T4-SCHEDULE-UI-PRESENTATION。
@@ -38,12 +38,18 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 
 # T4-DESIGN-SYMBOL-CHROME-V2
 
+## Remote publication checkpoint (2026-09-08)
+
+This registration imports the already approved OD-1/OD-2 decisions and the final local acceptance command. Status remains `todo`: the design change is only merged on the original local master (`53673571`), not on origin/master. Local R3 rounds and mutation receipts below are historical evidence, not a new remote PASS or a waiver. Publish only the two allowed design documents through a fresh remote task-loop with current DoD, review and CI evidence.
+
+The substitution tables below record the iterative local investigation. Later R3 repair sections supersede their earlier wording: SOURCE/STATUS owners express the **value**, not just status; evidence-rail requires a non-colour visual cue as well as an announcement; metadata-row changes rather than remaining untouched. The final candidate must be checked against both visual and announcement duties. Mandatory state glyphs remain restricted to contrast-gate-registered foreground/container pairs. No design-token change or new pairing is approved here.
+
 ## 起因：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（2026-09-06 用户裁定）
 
 前卡跑了 **6 轮 R3、11 条 finding，全部属实**，两次经用户裁定 `-ResetRounds`，仍未收敛。
 **11 条里没有一条是实现缺陷**——全是同一类：**新写的中心规则与文档里既有实例不符**，
 每轮修完措辞、下一轮就在另一处冒出新缝。用户裁定关闭 PR #236、把整件事折进本卡重做。
-经验已入账 **L300**（成熟文档加中心规则须先做实例代入表）。
+经验已入账 **L309**（成熟文档加中心规则须先做实例代入表）。
 
 **前卡的产出不作废**：分支 `T4-DESIGN-SYMBOL-CHROME`（PR #236，已关闭但分支保留）里有一份
 经 6 轮打磨的草案，其**条件集骨架与各条款的解析式改写可直接复用**，只有「chrome / domain content
@@ -126,17 +132,394 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 - 正锚点断言「解析式措辞在」，负锚点断言「被替换的复述措辞不在」，两侧都要有。
 - 收紧 `dod_command` 只许加、不许减；每次加完实测「master 基线仍 RED、本卡工作树 GREEN」。
 
-## 未决决策
+## 未决决策（2026-09-07 用户裁定，均已收口）
 
-| ID | 问题 | 选项 | 影响 |
+| ID | 裁定 | 落地位置 |
+|---|---|---|
+| OD-1 | 选项 (b)：tooltip 要求按组件 anatomy 是否声明而绑定。相机行 anatomy 一字未改，按新措辞天然满足条件 3 | 条件 3 第二句 + `tooltip` 行改为引用 |
+| OD-2 | 选项 (a)：`Settings` 目的地在无障碍名中陈述可行动的本机健康状态 | `:926`（本地行号）Settings 徽标句 |
+
+OD-2 的事实由下面的实例代入表查实后才提交裁决：基线文档里 `navigation-destination` 只暴露
+label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the sole state channel」，
+而 owner 的可见标签只有 `Settings`——**该状态今天没有任何通道播报**，`state-badge` 行的自我承诺
+当场就不成立。故 (a) 不是为迁就新规则而加的一句，而是补上文档自己已经承诺、却没有兑现的那一环。
+
+## 实例代入表（`forbid` 第 7 条的必做前置 · 按最终措辞逐个代入）
+
+**grep 用的是不变量不是症状词**：`tooltip` / `accessible name` / `label`（全量）/ `count`+`announce` /
+`icon-only`+`symbol`+`glyph`+`dot` / `color alone`+`sole state` / `unlabelled`+`decorative`+`merged`。
+**前卡引用的行号已随本地 `context/DESIGN.md` 演进失效（该文件现 1841 行），本表行号全部本地重取。**
+
+最终措辞把受管辖对象分成互斥的两支：**chrome 控件**（意义即它执行的动作）走准入条件；
+**领域值**（记录自身持有的：计数、状态、日期、地址、房间/物业名）走载体规则。
+一个实例只会落进一支——控件自身的开关态（如 flash on）不是记录持有的值，故相机控件只在准入支；
+`evidence-rail` 不是控件（无目标、无动作），故只在载体支；`status-choice` 带可见标签，
+落在载体支且由文字满足，不触发准入条件。**这消掉了前卡第 6 轮那个「二元记录态两栖」的不可判定点。**
+
+### 甲 · 省略可见文字的 chrome 控件（准入条件支）
+
+| 实例 | 基线事实 | 代入最终措辞 | 判定 |
 |---|---|---|---|
-| OD-1 | 相机面控件是否携 tooltip？ | (a) 加 tooltip 并改 `camera-control` / `camera-shutter` anatomy (b) tooltip 要求按组件 anatomy 是否声明而绑定 | A6；(a) 改 `T2-CAPTURE-UI` 将实现的合同、且相机面长按与拍摄手势有冲突风险，(b) 不改任何 anatomy 且忠于基线 `:1622`（对相机动作原本只要求 accessibility text） |
-| OD-2 | 「载体」正解里，`Settings` 目的地是否须在无障碍名中陈述本机健康状态？ | (a) 是，本卡补这一句 (b) 否，改用别的措辞让 `:922` 天然合规 | 决定正解能否原样采用；须由实例代入表先给出事实 |
+| `icon-button` `:1589` | 24dp symbol、opaque 48dp target、anatomy **含** tooltip、accessible name 强制 | 1 字形声明于组件合同 ✓ 2 名强制 ✓ 3 anatomy 声明 tooltip ✓ 4 目标不缩到字形 ✓ | compliant；行内复述改为引用，并写明 `CAMERA` 变体不外扩准入 |
+| 顶栏尾部图标 `:894` 第 5 条 | 至多两枚；每枚有可见 tooltip 与 verb+object 无障碍名 | 同上；bar 图标 anatomy 声明 tooltip ✓ | compliant；该条复述了条件正文，改为引用 |
+| `camera-control` `:1614` | 24dp icon、opaque 48dp target、anatomy **无** tooltip；语义为「Label describes action and current state」 | 3 由 OD-1 明写「anatomy 未声明者按原文即满足」✓ 2 明许名字兼带当前状态 ✓ 5 OFF/ON 播报 ✓ | compliant，**anatomy 不改** |
+| `camera-shutter` `:1615` | 72dp 圆 + inner state mark、无障碍名 `Take photo`、anatomy **无** tooltip | 1 说「字形由组件合同声明」而非「取自图标集」，故自定义圆形合格 ✓ 2 verb-object ✓ 3 同上 ✓ 4 72dp ✓ 5 状态播报一次 ✓ | compliant；并在 `:1748` 具名豁免（见丙） |
+| `overflow-menu` 触发器 `:1643` | 纯图标；文档已声明其播报 `More options` | **首版规则判它不合规**——条件 2 曾要求 verb-object 短语，而 `More options` 不是 | 由 R3 第 1 轮修法消解：条件 2 改为「名字须命名该动作」，不设短语语法 |
+| `STREAM_CAPTURE` 的 Back `:880` | 纯图标；无障碍标签 `Save and exit` | 同上，`Save and exit` 无宾语 | 同上 |
+| `search-field` 的 Clear / `input-field` 尾部动作 / sheet 与 dialog 的 Close / `room-progress-strip` 的 previous-next | 均为 `icon-button` 实例 | 由 `icon-button` 一行统一承载 | compliant（不单独立规则） |
 
-> **OD-1 与 OD-2 必须在写 RED 之前由用户裁定**：二者共同决定规则的最终措辞，也决定 DoD 锚点选哪几句。
+### 乙 · 由字形承载领域值（载体规则支）
+
+| 实例 | 基线事实 | 代入最终措辞 | 判定 |
+|---|---|---|---|
+| `state-badge` `COUNT`（`Schedule` `1`–`99+`，`:926`） | 数值可见、视觉截断到 `99+`、播报全额 | 数值即文字，owner 亦播报全额 ✓ | compliant |
+| `state-badge` `DOT`（`Settings` 未标注错误点，`:926`） | 文档明写 `unlabelled`；owner 可见标签只有 `Settings` | **基线下不合规**：无任何通道给出该状态 | **由 OD-2 消解**：Settings 无障碍名陈述该状态后 compliant。未弱化规则去迁就它 |
+| `state-badge` `STATUS` / `SOURCE` | Merged into owner | owner 表达其所标记的状态 ✓ | compliant；该行语义格改为「the owner also expresses the state the badge marks」 |
+| `evidence-rail` `:1591`、`:1720` 段 | 三段字形承载 status/photo/note；子段对 TalkBack 隐藏；整条并作一句 `Status complete, photo missing, note complete` | owner 以播报给出该值 ✓ | compliant。**它正是载体规则成立的证据**——前卡的「基数」判据判不了它 |
+| `room-progress-segment` `:1576` | Room label + completion count + state mark | 文字在 ✓ | compliant；另受 `:1714` 更严合同约束（见丙） |
+| `missing-evidence-strip` `:1577` | icon + exact count copy | 计数在文案里 ✓ | compliant |
+| `summary-stat` `:1670` / `save-status` `:1603` / `notice-delivery-row` `:1688` / `compliance-check-row` / `health-issue-row` / `review-gap-row` / `task-stepper` 当前标记 | 均带可见标签或文字 | ✓ | compliant |
+| `metadata-row` `:1626` | 明写「never ... encodes state by color alone」 | 与载体规则同向 ✓ | compliant，不改 |
+| `status-choice` `:1592` / `privacy-chip` `:1596` / `privacy-action` `:1597` / `camera-overlay-control` `:1616` | 均有可见标签或状态文字 | 由文字满足载体规则；不省略可见文字故不触发准入条件 | compliant。**前卡第 4 轮「条件 3 与名字带状态抵触」在此不复存在** |
+| `inspection-item-card` `NOT_APPLICABLE` `:1734` | `Dash, explicit label, Change` | 字形 + 显式标签 ✓ | compliant |
+
+### 丙 · 更严合同：准入不覆盖，显式点名
+
+| 实例 | 基线事实 | 处置 |
+|---|---|---|
+| 底部导航目的地 `:926` | 「Every destination always displays icon and label」 | 不改；准入段点名其保留可见标签（`non_goals` 已排除改写这条本身） |
+| 房间进度段 `:1714` | 「do not reduce rooms to unlabeled dots」 | 不改；准入段点名 |
+| `docs/UI-UX-ELEMENTS.md:35` 选型句 | 原文「纯图标操作必须使用 `icon-button`」 | **与相机面抵触**：`camera-control` / `camera-shutter` 是各自独立的组件合同（后者 base 是 Custom `Button`），且本卡刚写明 `icon-button` 的 `CAMERA` 变体不外扩准入。按 R3 第 1 轮修法把选型收窄到普通界面，并把三者的准入统一路由到本节 |
+| `:1748` 图标不得替代标签的动作清单 | capture/compliance/privacy/delete/finalize/backup/restore | **基线自相矛盾**：`camera-shutter` 就是纯符号的 capture 控件。按陷阱 2 **不把该清单搬进中心规则**，只在原句加一处具名例外（camera shutter），准入段以「the actions named under Buttons and selection controls」引用之，例外随引用一起旅行 |
+
+### 丁 · 不受本规则管辖（判定确定，非「以后再说」）
+
+| 实例 | 理由 |
+|---|---|
+| `divider` `:1579` | 装饰性、对无障碍隐藏；`:1274` 明写「Carries no state, grouping, or focus meaning」 |
+| `focus-indicator` `:1607` | 纯视觉，平台焦点为权威；不承载动作也不承载记录值 |
+| `loading-indicator` `:1657` | 既非动作也非记录值；其播报义务由该行自己规定 |
+| 无障碍合同 `:1809` | 规定播报义务，未复述准入条件；与条件 5 同向，不改 |
+| 无障碍合同 `:1808` | 「Decorative rails and dividers have no separate content description」——rail 无**单独**描述是因为并入卡片，而卡片确实描述了它；不矛盾，不改 |
+
+### 全称词复核（`必做前置` 第 4 步）
+
+最终措辞里的全称共四处，逐处回核文档是否真成立：
+`Domain values are never carried by a glyph alone`（乙表全部实例已代入）·
+`A chrome control may omit visible text only when all of the following hold`（甲表全部实例已代入）·
+`Color is never the sole state channel`（乙表 + 丙表；`:1420` 与 `:1818` 两处状态条款已按 A5 改写）·
+`Admission never overrides a stricter component contract`（丙表三条即其全集，逐条点名）。
+
+## 落地形态（2026-09-07）
+
+`context/DESIGN.md` 新增 `### Symbol-only chrome`，置于 `Component contract schema` 之后、
+各组件矩阵之前。该节先划 chrome / 领域值的界并给出**载体规则**（领域值永不由字形单独承载；
+字形可额外标记，只要 owner 以文字给出或播报该值），再列 5 条准入条件，最后写明准入不覆盖更严合同
+并点名三处。四处治「符号化控件」的条款改为解析到该节：`:894` 第 5 条 · `icon-button` 行 ·
+`tooltip` 行 · `docs/UI-UX-ELEMENTS.md:35`；`UI-UX-ELEMENTS.md:123` 的主题清单第 5 条同并入。
+计数条款与两处状态条款按 A4/A5 重写，`:1748` 加一处具名例外，`:926` 按 OD-2 补播报。
+
+**四处判断记账**
+
+1. **`never the sole state channel` 归位到状态条款**。该串原在 `state-badge` 行、主语是徽标；
+   A5 要的是**状态条款**承载「颜色不得是状态唯一通道」。同一串给两个主语会让 A5 无可击杀变异，
+   故移至 `:1420` 并以 `Color is never the sole state channel` 作唯一锚点；`state-badge` 行改写为
+   `the owner also expresses the state the badge marks`（同义且更具体，非弱化），
+   其 `announce the full count` 与 `dots require an owning row label` 一字未动。
+   M4/M5/M12 分别证明这三件事各自在测。
+2. **条件 1 写「字形由组件合同声明」而非「取自既有 iconography」**。后者会判 `camera-shutter`
+   不合规——它的字形是自定义 72dp 圆而非 Material 符号。这正是「全称词先回核」抓到的一处。
+3. **准入段引用 `:1748` 而不复制其清单**（陷阱 2）。复制会让中心规则自称「capture 动作保留可见标签」，
+   与 `camera-shutter` 直接抵触；改为引用后，加在 `:1748` 上的具名例外随引用一起生效。
+
+4. **ship 前自审抓到三处「解析到错误的支」，全部当场改**（陷阱 5：收窄一句声称就回头查所有引用它的句子）。
+   状态条款尾句与 Do 条原本写作「其**控件**由 symbol-only chrome 准入」——但 `Settings` 的健康点
+   **不是控件**（它是徽标，其 owner 目的地带可见标签、并不省略文字），于是我自己的规则会判这个
+   文档明确允许的实例不合规（A3 第二半）。二者改为解析到**本节**（内含载体规则与准入条件两支），
+   两支各自接住 dot 与相机控件。第三处：准入段原称三类更严合同「keep their visible labels」，
+   而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
+   **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
+
+## R4 变异收据（2026-09-08 · R3 第 8 轮修复后重跑 · 25/25 KILLED）
+
+被测基线 SHA-256（收据钉这两个文件的确切字节，此后任何改动即作废本批）：
+`context/DESIGN.md` = `D637672CF820E1BFD407FA51940D62DE1E7D499975053D8B282C59DD45DCF82F` ·
+`docs/UI-UX-ELEMENTS.md` = `F1364E4823FA7E3ED41CCC8E7F5C4D51FE27E4822EC1EEF6E60AF4CDBF497BA8`。
+基线 `dod_command` 退出 **0**（GREEN）；25 枚跑完后两文件 SHA 逐一回到上列基线、退出仍 0。
+每枚植入前断言靶串在文件内**恰好出现 1 次**（不符即作废该枚，L190）、断言渲染后文本与 SHA 均已改变
+（防 no-op 冒充击杀，L297）、断言植入前文件仍等于基线（L196）。**无一枚 VOID。**
+
+RED 证据取自真实基线：`-Phase red` 首次运行读到的是主检出卡片里尚未定稿的 `TBD` 字面量，
+非零退出由 PowerShell 解析错误产生、**不构成 RED 证据**（L282）；卡片 `dod_command` 定稿后重跑，
+19 条锚点逐条点名失败、3 条「保留项」锚点在基线即为绿，才是真 RED。
+
+| # | 断言 | 文件 | 单点变异 | 判定 |
+|---|---|---|---|---|
+| M1 | A1 | DESIGN | 改掉声明具名条件集的标题行形态 | KILLED |
+| M2 | A1 | DESIGN | 准入开场句去掉 only-when 限定 | KILLED |
+| M3 | A2 | DESIGN | 载体规则 never → not | KILLED |
+| M4 | A5 | DESIGN | 状态条款 sole → only | KILLED |
+| M5 | A5 | DESIGN | 把该串再加回 `state-badge` 行（令其不再单点） | KILLED |
+| M6 | A6 | DESIGN | 条件 3 去掉 component-anatomy 限定 | KILLED |
+| M7 | OD-2 | DESIGN | 删掉 Settings 的健康状态播报 | KILLED |
+| M8 | A4 | DESIGN | 计数保证 its → the | KILLED |
+| M9 | A4 | DESIGN | 计数条款去掉 `plural-aware` | KILLED |
+| M10 | A4 | DESIGN | `state-badge` 去掉 `full` | KILLED |
+| M11 | A6 | DESIGN | 删掉 `:1748` 的具名相机例外 | KILLED |
+| M12 | A1 | DESIGN | `state-badge` 去掉 owner 表达义务 | KILLED |
+| M13 | A5 | DESIGN | Do 条 besides → beyond | KILLED |
+| M14 | A4 | DESIGN | 还原无条件禁令 `or icon-only badges` | KILLED |
+| M15 | A6 | DESIGN | 还原断言相机动作带 tooltip 的旧 `tooltip` 行 | KILLED |
+| M16 | A1 | DESIGN | 还原 `:894` 第 5 条的条件复述 | KILLED |
+| M17 | A1 | DESIGN | 还原 `icon-button` 行的条件复述 | KILLED |
+| M18 | A5 | DESIGN | 还原「Pair every status with a label」无条件要求 | KILLED |
+| M19 | A5 | DESIGN | 还原旧 Do 条 | KILLED |
+| M20 | A1 | ELEMENTS | `:35` 去掉跨文档具名锚点 | KILLED |
+| M21 | A1 | ELEMENTS | `:123` 去掉解析引用 | KILLED |
+| M22 | A1 | ELEMENTS | 还原 `:35` 未按相机合同收窄的旧选型句 | KILLED |
+| M23 | A3 | DESIGN | 还原「无障碍名须为 verb-object 短语」这条全称（`More options` / `Save and exit` 正违反它） | KILLED |
+| M24 | forbid#1 | DESIGN | 状态条款删掉 `visual` 一词（播报即可满足下限——正是 R3 第 5 轮拦下的那个洞） | KILLED |
+| M25 | forbid#1 | DESIGN | 删掉「必带状态字形只渲染在对比度闸已登记的配对上」这条约束 | KILLED |
+
+M1/M20/M21 证明具名锚点由定义处与两处跨文档引用各自独占承载；M14/M15/M16/M17/M18/M19/M22
+证明七处被替换的复述措辞两侧都在测；M5 与 M12 成对证明「唯一承载」而非「存在即可」。
+变异脚本不入库（跑在 scratchpad，不属 `allow_paths`）。
+
+
+## R3 第 1 轮（2026-09-07 · block · 3 条 finding 全部属实、全部当场修）
+
+三条同属一类，也正是退役卡的病根：**中心规则里的全称词，被文档既有实例证伪**。
+我的实例代入表按组件行代入过，却漏了两层——**具体已声明的标签取值**，以及**选型类条款**。
+
+| # | finding | 属实性 | 修法 |
+|---|---|---|---|
+| 1 | 条件 2 要求 verb-object 短语，而 `More options`（`:1643`）与 `Save and exit`（`:880`）都不是 | 属实。二者在**基线里就已违反** `:894` 原有的「verb + object」措辞，非本卡引入 | 条件 2 改为「名字须命名它执行的动作」并明写不设短语语法；`tooltip` 行同步去掉 verb-object 字样。新增 DoD 锚点 `names the action it performs` + M23 钉住 |
+| 2 | `UI-UX-ELEMENTS.md:35` 要求纯图标操作一律用 `icon-button`，而相机两个组件是独立合同、`camera-shutter` 的 base 是 Custom `Button`，且本卡刚写明 `CAMERA` 变体不外扩准入 | 属实，且是本卡自己制造的新缝：写下「变体不外扩」的同时没回头看选型句 | `:35` 把选型收窄到普通界面，点名相机两个合同不套用，三者准入统一路由到本节 |
+| 3 | 状态条款写「glyph、position 与 text 三者**together**」，与载体规则允许的「owner 以文字**或播报**给出」及 Do 条允许的「载体是字形而非文字」互相矛盾，令 `Settings` 点与 evidence rail 不可判定 | 属实。ship 前自审已改掉尾句与 Do 条两处，**却漏了主句里的合取** | 主句改为列举允许的载体：字形 + 位置，加上「自己的可见标签 **或** owner 给出的文字或播报」，并显式解析到载体规则 |
+
+**教训（比三条 finding 本身更值钱）**：实例代入表若只代入到**组件行**，会漏掉两类实例——
+① 文档在别处**已声明的具体取值**（一个无障碍名、一个标签字面量）；
+② **选型/归属类条款**（「必须用哪个组件」），它同样在管辖符号化控件。
+下次建表时这两层要单独扫一遍：grep 已声明的标签字面量，grep「必须使用 / 一律用 / 归 X 承载」这类选型措辞。
+
+## R3 第 2 轮 + 本地对抗复核（2026-09-07）
+
+### R3 第 2 轮（block · 1 条 finding · 属实）
+
+状态条款仍要求**每个状态都有字形**，而九个合同声明状态时没有强制字形
+（`metadata-row` 与 `summary-stat` 的图标原文就写着 optional，另有 `property-summary-card`、
+`result-list-row`、`verification-receipt`、`history-evidence-strip`、`destination-row`、
+`health-issue-row`、`compliance-check-row`）。**这条 finding 由第 1 轮的修法引入**。
+
+**该条款至此已被两种不同形态各证伪一次**（第 1 轮：合取里要求文字；第 2 轮：全称要求字形）——
+按 L309 自己的识别信号，**停手别补第三次措辞**，改为把 17 个承载状态的合同逐个列出、
+从实例反推出析取式，而不是再猜一句。
+
+### 本地对抗复核（fresh-context 子代理，L205；不烧 R3 轮次）
+
+第 2 轮修法落地后**先在本地跑一次对抗复核**再 ship。两轮复核共出 9 条，7 条属实：
+
+| 条 | 内容 | 处置 |
+|---|---|---|
+| 1 | `room-progress-segment` 的 `BLOCKED` 只由 state mark 字形承载，而 owner 的播报串只给 label/计数/current | 属实（与 Settings 点同类的基线缺口）。`room-progress-strip` 播报补 blocked |
+| 2 | 条件 2 指向「文档已声明的那些名字」，而 capture 的 Back 有 `Save and exit`(`:880`) 与 `Back to {parent}`(`:1590`) 两个声明 | 属实。删掉该指代句；**两名之争属基线既有矛盾、非本卡引入**，且被替换的旧 `icon-button` 行本就带同一依赖 → 记 `[FOLLOW-UP]`，不在本卡收口 |
+| 3 | 状态条款把「a declared glyph」列为独立充分通道，而同一 diff 的载体规则写着「领域值永不由字形单独承载」——**两条新句自相矛盾** | 属实且最重。改为「颜色不是唯一通道，且状态不由字形单独承载」，通道列表去掉裸字形 |
+| 4 | `camera-control` 等行仍在复述条件 2/5，而新句声称「一律解析、不复述」 | 属实。声称收窄为「就这些条件解析到本节，组件行仍陈述自己特有的事实」 |
+| 5 | 称 `camera-control` 的 `IMPORT` 变体使「唯一具名例外」少算 | **驳回**：`:1748` 的七个词是 capture/compliance/privacy/delete/finalize/backup/restore，import 不在其中，且文档通篇把 Camera 与 Imported 当两种来源（`:1133` `:1585` `:1688` `:1774`）。复核者查证后撤回该条 |
+| 6 | 更严合同的三例读起来像封闭全集，而另有四个合同独立强制可见文字 | 属实。改成「规则 + 举例」，并在第二轮复核指出**规则只护「组件行」而 `:1764` 是散文**后再放宽为「组件行或其他条款」 |
+| 7 | `:691` 原句只许 icon 或 label 作第二通道，而 rail 的实际规格是颜色 + owner 播报 | 属实。首轮改成指向本节，**第二轮复核指出这个指向落空**（rail 不是控件，三个段态也无字形，真正管它的是 `:1420`）→ 最终只保留「不由颜色单独承载」，删掉空指针 |
+| 8 | `history-evidence-strip` 的 previous/baseline 标记是记录持有的值，而「announces relation」只作用于**被选中**的那条 | 属实（两轮复核都未先发现，第二轮才抓到）。改为每条都播报其 relation |
+| 9 | `summary-stat` 图标 optional 且合并短语未声明含状态，图标缺席时只剩颜色 | 属实。合并短语改为含「任何已表达的状态」，与 Settings 点、blocked 房间同法收口 |
+
+**复核者最终覆盖**：五条准入条件 × 6 个控件族；载体规则 × 14 个合同；解析声称 × 9 处条款；
+更严合同 × 8 行；计数保证 × 5 处；唯一例外 × 9 个候选。末轮除两条已记 `[FOLLOW-UP]` 的
+基线残留（capture Back 双名、`summary-stat` 已修）外无剩余证伪者。
+
+### 方法论补记（本卡premise 的两处缺口，比 finding 本身更值钱）
+
+L309 说「给成熟文档加中心规则前先做实例代入表」。本卡照做了，仍连吃 10 条。病因有二，
+**都不是实例代入表能覆盖的**：
+
+1. **只把中心规则代入了实例，没把被改写的周边条款也代入**。状态条款、`:1748`、`:691`、
+   更严合同那句，每一句都自带全称词，它们同样在对整份文档做断言。
+2. **实例代入表比对的是「新句 vs 旧实例」，管不了「新句 vs 新句」**。第 3 条（裸字形通道
+   与载体规则互相矛盾）就是两条新句打架，表里任何一行都发现不了它。
+
+故本卡把方法补成三步：**建表 → 逐句代入（含被改写的周边条款）→ 新句之间交叉核对**，
+并在 ship 前跑一次 fresh-context 对抗复核（L205）——本卡两轮复核抓到 7 条真缺陷，
+**全部在本地免费循环里吃掉，没有烧掉任何一轮 R3**。
+
+### 遗留 `[FOLLOW-UP]`（不在本卡收口，理由见上表第 2 条）
+
+`STREAM_CAPTURE` 的 Back 同时被 `:880` 的 `Save and exit` 与 `:1590` 的 `Back to {parent}`
+声明，条件 3「tooltip 携同一短语」因此没有唯一指代。该矛盾在基线即存在，且被本卡替换的
+旧 `icon-button` 行本就带同一依赖；收口它属于 Back 标签合同，超出本卡范围。
+
+## R3 第 3 轮（2026-09-08 · block · 1 条 finding · 属实）
+
+`state-badge` 的语义格被我改写成「owner 也表达该徽标所标记的**状态**」，但同一行还声明了
+`SOURCE` 变体——**来源是记录持有的值、不是状态**，于是该变体落在保证之外，可以违反
+载体规则「领域值永不由字形单独承载」。
+
+**属实，且是本卡自己制造的窄口**：我为给 A5 腾出唯一锚点而改写这一行时，只想着 `DOT`
+标记状态这一种用法，没回头看该行自己声明的四个变体（`COUNT / DOT / STATUS / SOURCE`）。
+
+修法两处：语义格改为「owner 也表达该徽标所标记的**值**」（严格放宽，四个变体全覆盖）；
+载体规则的举例补上 `a source`，让覆盖面在定义处就看得见。DoD 锚点与 M5/M12 同步改到
+`the owner also expresses the value the badge marks`。
+
+**又一次同型**：这已是第四次「新写的句子比它要覆盖的实例窄」。前三次的对象是整份文档的实例，
+这次的对象是**被改写那一行自己声明的变体清单**——代入表连这一层也要扫：
+改写任何一行时，先把该行自己的 variants 逐个代入新措辞。
+
+## R3 第 4 轮 + 第三/四轮本地对抗复核（2026-09-08）
+
+### R3 第 4 轮（block · 2 条 · 均属实、均由我前两轮修法引入）
+
+| # | finding | 修法 |
+|---|---|---|
+| 1 | 状态条款把字形词汇写成**闭集**（check/exclamation/cross/dash/shield），而同一 diff 明确放行的 `Settings` `DOT` 徽标正是一个标记状态的字形、且不在集内 | 见下（最终改为「映射 + 按行例外」） |
+| 2 | `summary-stat` 的修法「any expressed state 并入短语」是**条件句**，纯颜色实现仍合规 | 改为「every non-neutral state 并入短语」，四个状态逐个可判 |
+
+### 本地对抗复核第三、四轮（不烧 R3 轮次，共出 5 条，全部属实）
+
+| # | finding | 修法 |
+|---|---|---|
+| 1 | 闭集比文档声明的状态图标窄：`status-choice` 的 `CRITICAL`、`feedback-banner` 的 `INFO`、`notice-delivery-row` 四态、`save-status` 五态都无成员 | **删掉全称**：该句由「闭集」改写为**只对五个具名状态的映射**，集外状态不再被断言 |
+| 2 | 我为救 `DOT` 而加的 `state-badge` 整行豁免**过宽**：它把最需要词汇约束的 `STATUS` 变体一起免掉，却指向一行根本不谈符号的合同 | 豁免改为**按行声明的标记形态**（`except where a component row declares a different marker form, as state-badge does for its dot`），只放行 dot 这一形态 |
+| 3 | 计数条款仍按「状态 vs 计数」二分，`SOURCE` 落在两支之外——**第 3 轮那条缺陷在同一 diff 的第二处条款里原样幸存** | 改为「a badge that marks a state or another value rather than a count」 |
+| 4 | 载体规则的领域值举例被当作闭集用（本轮刚为 source 扩过一次），而 `history-evidence-strip` 标记的 baseline/previous **relation** 无成员 | 举例补 `a relation` |
+| 5 | `these statuses` 是**前指**（先行词在冒号之后），可被读回第二句的 `Every status` 而复活全称 | 句首直接列出五个状态名 |
+
+复核者另独立核实：**没有任何条款依赖那个闭集**（唯一候选 `:1175` 的四个完成标签本就不在五个状态内），
+故删掉全称不丢任何保证。
+
+### 结论：字形词汇那一句是独立子问题，其余已收敛
+
+复核者按位置统计 17 条持续 finding：**8 条落在状态载体一族，其中 5 条落在 `:1420` 这一句，
+再其中 4 条落在它末尾的字形词汇分句**；7 条落在本节的载体规则与定义/范围段，**已收敛**
+（最近两轮零新发现）；**只有 1 条落在五条准入条件**，且是本卡继承而非制造的歧义。
+
+病根：文档同时持有两个事实，一句话调和不了——**五个状态之外的状态也带图标**，
+且**五个状态之内有一个组件用非词汇形态（dot）标记**。前五次改写都在「太窄」与「太宽」之间翻烙饼。
+最终解法不是第六次改措辞，而是**同时消掉两个方向的全称**：作用域缩到五个具名状态（治太宽），
+例外按「行声明的标记形态」给（治太窄），二者都不再对整份文档做断言。
+
+## R3 第 5 轮：WCAG 1.4.1 下限（2026-09-08 · block · 1 条 · 属实且最重）
+
+**这是全卡唯一一条命中卡片 `forbid` 的 finding，也是唯一一条本地五轮对抗复核都没抓到的。**
+
+评审指出：我的规则把 owner 的**播报**当作与颜色并列的充分载体。播报服务屏幕阅读器，
+**不是视觉线索**——色觉障碍的**明眼**用户仍然只剩颜色。`forbid` 第 1 条禁止弱化的正是
+WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：图标 optional，
+三个非中性状态只活在合并语义短语里。
+
+**病根是我把两件事合并成了一件**：WCAG 1.4.1 要的是**明眼可见的非颜色线索**；
+无障碍播报要的是**屏幕阅读器可达**。二者是两项义务，我却把播报写成了可见文字的**替代项**。
+
+修法：句 2 拆成两句——「每个状态都有一个非颜色的**视觉**线索：自身可见文字、字形、位置、
+或 owner 给出的可见文字」+「若该状态自身没有可见文字，owner **另外**播报它」。
+播报从此只补充、永不替代。新增 DoD 锚点 `has a visual cue that is not color` + M24 钉住。
+
+### 收紧后暴露的既有无障碍缺口（本卡因此关掉六处，全部是基线问题、非本卡引入）
+
+| 组件 | 缺口 | 修法 |
+|---|---|---|
+| `summary-stat` | 图标 optional，非中性状态只在语义短语 | 图标改为「每个非中性状态必带」 |
+| `metadata-row` | 同上形态；该行自己却承诺「never encodes state by color alone」却无载体 | 同上；语义格补「装饰图标隐藏、状态图标不隐藏」 |
+| `evidence-rail` × `UNRATED` | **签名组件**：complete / missing-required / blocked 三态仅靠颜色区分（dash 只给 optional），而 `UNRATED`（每个项的默认态）不声明任何可见文字 | `UNRATED` 可见内容补 `missing-evidence sentence`（照 `ATTENTION_COMPACT` 已有的写法）；`SAVE_FAILED` 按「current state」继承 |
+| `photo-evidence-tile` | `FAILED` 无声明载体（其余六态各有自己的条款救） | 确定性格补 `failed names its error` |
+| `task-stepper` | `complete` / `failed` 无载体：阶段标签只说是哪一步、唯一字形只标 `current`、位置与成败无关、语义只播报当前阶段。**它是 `RESTORE_TASK` / `BACKUP_SETTINGS` / `REPORT_IMPORT` / `LOCAL_DATA_ERASURE` 的必需元素——恢复或清除流程里失败的那一步，色觉障碍用户看不见** | 解剖补「每个 complete 与 failed 阶段带状态标记」；语义补「失败阶段也播报」 |
+| （另见 `:926` `Settings` 点、`room-progress` `BLOCKED`、`history-evidence-strip` relation，本卡前几轮已关） | | |
+
+复核者逐条核实这六处不与既有条款冲突：`metadata-row` 的状态图标属对比度表 `:1273` 的
+`Essential icon`（3.00:1）而非 `:1274` 的装饰豁免，与 `:1824`「装饰性 rail 与 divider 无单独描述」
+不重叠。**实现期遗留**：新增的必带图标会产出新的前景/背景对，`:1408` 的对比度闸要求逐对登记；
+`light.tertiary` / `light.error` 目前只登记了对 `surface-container`、缺对 `surface` 的绑定。
+
+### 遗留 `[FOLLOW-UP]`（同类但更弱，本卡不扩范围）
+
+`media-preview` 的 `error` 与 `remediation-suggestion-card` 的 `failed`：载体由邻近条款**隐含**
+而非声明（前者靠「archived media offers recovery」、后者靠 `:1188` 的离线表），比上表五处弱一档。
+另有 capture Back 的 `Save and exit` / `Back to {parent}` 双名（基线既有，见第 2 轮记录）。
+
+### 本卡真正的产出，比它原定范围更值钱
+
+原定范围是「给符号化 chrome 命名一组准入条件」。但要把这条规则**说成真的**，文档就必须为
+它声明的每一个状态回答「除颜色之外由什么承载」——于是查出**六处既有的 WCAG 1.4.1 缺口**，
+其中一处在签名组件 evidence rail 的默认态上。这些缺口在规则含糊（播报可替代视觉）时是看不见的。
+
+## R3 第 6 轮 + 双半扫描（2026-09-08）
+
+### R3 第 6 轮（block · 2 条 · 均属实 · 均由第 5 轮修法引入）
+
+两条都落在**播报半**，而非视觉半：`task-stepper` 声明四态却只播报 current 与 failed；
+`metadata-row` 把图标改成必带、只说「状态图标不隐藏」，却没要求任何**已授权的描述**命名该状态，
+于是 warning/error 对辅助技术仍是裸字形。
+
+**我自己的盲点**：规则有两半（视觉线索 + 播报），我把视觉半扫得很彻底，却默认播报半自动成立。
+第 5 轮我给若干行加了**必带字形**——字形恰恰没有文字，正是最需要播报的那一类。
+
+### 双半扫描（本地第六轮复核 · 按两半同时代入每个带状态轴的合同）
+
+改用「A 非颜色视觉线索 / B 无自身可见文字时 owner 另外播报」**两半同时判**，
+再查出 5 处「语义格播报的范围窄于该行自己的状态清单」——与第 6 轮同型：
+
+| 行 | 未覆盖状态 | 修法（统一句式：在确定性格追加一句声明载体） |
+|---|---|---|
+| `history-evidence-strip` | `archived` | `; an archived record names its archived state` |
+| `media-preview` | `error` | `; an error names its cause` |
+| `remediation-suggestion-card` | `failed` | `; a failed generation names its cause and keeps the on-device suggestion` |
+| `report-action-sheet` | `preparing` / `error` | `; preparing and error each name their state` |
+| `media-assignment-row` (V1.1) | `saving` | `; a saving row names that it is saving` |
+
+复核者同时给出**逐行通过清单**（自带可见文字者约 28 行；靠字形/位置但播报已显式声明者 10 行，
+逐条引用救它的那一句），并明确划线说明两处**不**判为失败的理由（`verification-receipt` 的
+`verified/stale state` 按通用状态字段读；`photo-evidence-tile` 的 `TEMPORARY` 由相机复核流的
+`Retake` / `Use photo` 作为 owner 可见文字）。
+
+**方法论第三处补记**：规则若有两半，代入表必须**两半同时判**。只判一半时，
+「为满足另一半而新增的载体」会系统性地制造出未覆盖项——第 5 轮加的每一个必带字形，
+都在播报半上开了一个新口子。
+
+## R3 第 7–8 轮：拆卡切口不可分割，以及「线索须可感知」（2026-09-08）
+
+### 第 7 轮（block · 2 条 · 均属实）——拆卡当轮即被证伪
+
+用户裁定把「非颜色载体分类学 + 组件行补齐」拆给承接卡后，我照办撤回了十一处补齐、
+只在本卡保留下限声明。**R3 当轮就拦下**：
+
+1. `:691`「rail never carries state by color alone」与 `:1736`（complete/missing/blocked
+   仅靠颜色区分、`UNRATED` 无可见文字）**自相矛盾**——撤回补齐后下限声明立刻变成假话。
+2. 我改了产线文件却**没更新卡内 R4 收据**：收据仍钉旧 SHA、仍列着已被删除措辞的 M24。
+   L270 纪律整场都在守，最后一改漏了。
+
+**结论：下限声明与行补齐不可分割**。A5 要求修订状态条款，`forbid` 第 1 条禁止弱化 WCAG 1.4.1，
+而下限只有在各行满足它时才是真的。补齐已全部还原进本卡（还原后 SHA 回到 `64E20D38`，
+与收据所钉一致，第 2 条自解）；承接卡收窄为三处真正独立的尾巴。
+
+> **可复用教训：拆卡的切口必须落在「声称」与「证据」之间不产生断裂的地方。**
+> 我这一刀切在了「规则」与「使规则为真的实例」之间，于是规则当场变成假话。
+
+### 第 8 轮（block · 1 条 · 属实）——线索须有可感知的证据
+
+前一轮把若干状态图标改为**必带**，却把「这些必带图标的对比度绑定」推给了承接卡。
+评审指出：**把线索定为必带、却没有证据它可被感知，并不能建立下限**——而本卡自己
+就记着 `light.tertiary` / `light.error` 只对 `surface-container` 验证过、缺对 `surface` 的绑定。
+
+修法取评审给的第二条出路（**约束到已验证配对**，不新造绑定、不改色值）：状态条款补一句
+「组件行定为必带的状态字形，只渲染在对比度闸已登记的前景/背景配对上」。
+承接卡的 A1 相应改为「补登记更多配对以放宽该约束」，而非「补齐后闸才能过」。
 
 ## 变更记录（Change log）
 
 | 日期 | 变更 |
 |---|---|
-| 2026-09-06 | 建卡：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（6 轮 R3 / 11 条 finding 全属实但未收敛，用户裁定关 PR #236 重做）。合并原 `T4-DESIGN-SYMBOL-COMPONENT-ROWS` 的相机面与逐行对齐范围（该卡同日撤销，未曾开工）。新增「必做前置：实例代入表」为本卡与前卡的唯一方法论差别（L300）。 |
+| 2026-09-06 | 建卡：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（6 轮 R3 / 11 条 finding 全属实但未收敛，用户裁定关 PR #236 重做）。合并原 `T4-DESIGN-SYMBOL-COMPONENT-ROWS` 的相机面与逐行对齐范围（该卡同日撤销，未曾开工）。新增「必做前置：实例代入表」为本卡与前卡的唯一方法论差别（L309）。 |
+| 2026-09-07 | 实现：新增 `Symbol-only chrome` 具名节（载体规则 + 5 条准入 + 三处更严合同点名）；四处条款改为解析到它，计数/两处状态条款按 A4/A5 重写，`:1748` 加具名相机例外，`:926` 按 OD-2 补播报。OD-1 取 (b)、OD-2 取 (a)（用户裁定）。先建实例代入表后写规则正文（`forbid` 第 7 条）；R4 22/22 击杀。 |
+| 2026-09-07 | R3 第 2 轮 1 条 finding 属实（状态条款仍全称要求字形，九个合同证伪）；按 L309 识别信号停手，从 17 个承载状态的合同反推析取式。随后本地跑两轮 fresh-context 对抗复核，9 条中 7 条属实全部当场修、1 条驳回、1 条记 FOLLOW-UP，未烧 R3 轮次。补记方法论两处缺口：周边被改写条款同样要代入，且实例代入表管不了新句与新句相互矛盾。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 3 轮 1 条 finding 属实：`state-badge` 语义格只保证「状态」，漏掉同行声明的 `SOURCE` 变体。改为保证「值」并在载体规则举例补 source；DoD 锚点与 M5/M12 同步。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 4 轮 2 条属实（闭集词汇与 `summary-stat` 条件句），本地对抗复核第三/四轮再出 5 条属实。字形词汇那一句累计五次改写失败，复核者按位置统计确认它是独立子问题、其余已收敛。最终不再改措辞，而是同时消掉「太宽」（作用域缩到五个具名状态）与「太窄」（例外按行声明的标记形态给）两个方向的全称。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 5 轮 1 条属实且命中 `forbid` 第 1 条：把播报当作与颜色并列的充分载体，弱化了 WCAG 1.4.1 下限（播报服务屏幕阅读器，不是明眼可见的视觉线索）。句 2 拆为「非颜色视觉线索」+「无自身可见文字时 owner 另外播报」，播报只补充不替代；新增锚点与 M24。收紧后暴露并关掉六处既有无障碍缺口，含签名组件 evidence rail 的默认态与 `task-stepper` 的失败阶段。R4 按最终字节重跑 24/24。 |
+| 2026-09-08 | R3 第 6 轮 2 条属实，均落播报半、均由第 5 轮修法引入（加了必带字形却未加播报）。改用两半同时代入的扫描法，再查出 5 处语义格播报窄于状态清单并统一修法。补记方法论第三处：规则有两半时代入表须两半同时判。R4 按最终字节重跑 24/24。 |
+| 2026-09-08 | R3 第 7 轮 2 条属实并当轮证伪拆卡切口：撤回行补齐后下限声明立即与 rail 规格矛盾，且我改产线未同步收据。补齐全部还原（SHA 回 64E20D38 与收据一致），承接卡收窄为三处遗留。第 8 轮 1 条属实：把状态字形定为必带却未证其可感知。取「约束到对比度闸已登记的配对」这条出路，不新造绑定不改色值；新增 M25 钉住。R4 按最终字节重跑 25/25。 |
