@@ -1,7 +1,7 @@
 ---
 id: T3-REPORT-IMPORT-PLANNER
 title: Explicit import review and deterministic mapping receipt
-depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR, T3-REPORT-IMPORT-PLAN-PROJECTION]
+depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR, T3-REPORT-IMPORT-PLAN-PROJECTION, T3-REPORT-IMPORT-REVIEW-DECISIONS]
 parallelizable_with: []
 status: todo
 branch: T3-REPORT-IMPORT-PLANNER
@@ -42,3 +42,11 @@ The projection predecessor owns initial inventory and suggestions. This card
 completes original A1-A5 with explicit decisions, preview, privacy and receipt,
 including integrated tests of the delivered projection. Commit independently
 rechecks live property/tenancy/template/room configuration and active-draft state.
+
+User-approved split (2026-09-08): T3-REPORT-IMPORT-REVIEW-DECISIONS delivers
+immutable individual decisions, constituent accounting, privacy and ordered
+summary aggregation first. This parent consumes that independently verified
+state and completes current preview, atomic bulk confirmation, READY and receipt.
+Original A1-A6 and integrated DoD remain unchanged; downstream COMMIT/UI still
+depend on this parent, not the predecessor. Both cards run sequentially through
+the existing review-size and delivery gates.

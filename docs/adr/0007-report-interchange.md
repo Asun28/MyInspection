@@ -41,6 +41,8 @@ Implementation record (2026-09-08): `T3-REPORT-IMPORT-PLAN-PROJECTION` is locall
 
 ### Hostile package boundary
 
+Split decision (2026-09-08, user-approved before RED): `T3-REPORT-IMPORT-REVIEW-DECISIONS` precedes the original `T3-REPORT-IMPORT-PLANNER`. The predecessor independently verifies immutable individual decisions, exhaustive constituent/alias accounting, photo privacy and ordered summary aggregation. It supplies no preview, bulk confirmation, READY or receipt. The parent retains every original acceptance requirement and completes those remaining gates with integrated projection-to-receipt tests. This preserves the original COMMIT/UI dependency and the unchanged 1,000-line/60,000-character review limits; neither delivery alone grants database write authority.
+
 The reader enforces entry/byte/ratio/XML/image bounds; rejects ambiguous or traversing paths, external relationships, macros, OLE, ActiveX and encryption; disables entities/network; and reads only allowlisted Word story/relationship/media parts. Strings and links remain inert. No business DB or final-media write occurs before reviewed commit.
 
 Implementation record (2026-09-06): `T3-DOCX-PACKAGE-READER` implements the bounded, no-write package boundary using standard ZIP/SAX APIs. It explicitly rejects XInclude and counts XML elements across all parts; errors retain only closed reasons and numeric counts. Supported image payloads are byte-bounded PNG/JPEG signatures, with pixel and decoding validation remaining downstream.
