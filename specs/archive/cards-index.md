@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 187 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 188 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
