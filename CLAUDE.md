@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T3-REPORT-INTERCHANGE-SCHEMA` 已合并（master `800593b4`，正式 R3 首轮 pass）；schema v6 提供不可变导入来源回执与 PDF/HTML 格式回执，历史 PDF 字段无损迁移，HTML 不获得媒体归档资格。50 项定向测试通过；合并后整体验证覆盖 1034 项 core（4 项既有 Windows 跳过）及 6 项 E2E，均无失败。32 项源码变异均被捕获，最终 LF 源码与提交字节一致。映射回执规范化/隐私由 PLANNER 负责，COMMIT 负责写入前复验；本卡仅交付持久化基础。
+
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-REVIEW-DECISIONS` 已合并（master `8f56d01f`，正式 R3 首轮 pass）；逐项显式状态/隐私、跨类别身份来源排除、caption 组成部分处置与按来源顺序汇总摘要已交付。同一目标的条目备注与显式来源备注确定性合并，未评级目标保留。52 项 plan、1029 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，15 项源码变异被捕获。预览、批确认与回执仍由原父卡承接，不具备数据库写入权限。
 
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
@@ -310,7 +312,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 **2026-09-06 本地交付**：`T3-REPORT-HTML-PRESENTATION` 已合并（master `2801e019`，R3 第 2 轮 pass）；`T3-DOCX-PACKAGE-READER` 已合并（master `0a511e96`，R3 第 1 轮 pass）。两卡 DoD、verify 与范围/许可/防泄露闸均通过。HTML 浏览器目检未执行；DOCX 仅完成包读取边界，后续语义提取与图片解码仍由承接卡负责。
 
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
-· `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
+· `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3

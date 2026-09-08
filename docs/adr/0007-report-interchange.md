@@ -83,6 +83,12 @@ PDF is default, keeps four quality levels and is the only archive-eligible repor
 
 Implementation record (2026-09-06): `T3-REPORT-HTML-PRESENTATION` supplies responsive, A4 print, dark and forced-colour CSS with renderer/class-enum parity and an independently checked literal CSP style digest. It uses system fonts; embedded fonts remain outside this card. Browser visual validation was unavailable, so the verified evidence covers CSS rules and renderer output bytes.
 
+### Persistence implementation
+
+Implementation record (2026-09-08): `T3-REPORT-INTERCHANGE-SCHEMA` is locally merged as `800593b4` with formal R3 first-round pass. Reviewed schema v6 preserves all historical export fields while assigning PDF; identity includes audience/format/quality, with HTML restricted to `NONE`. Legacy archive queries remain PDF-only. One immutable import receipt per inspection/source digest stores the nine provenance/mapping fields documented in `DATABASE-DESIGN.md`; insert conflicts, replacement, update and deletion abort. Real SQLite fresh/migrated databases, typed queries and archive eligibility pass 50 focused tests; 32 isolated source mutations are detected against the final committed SQL bytes.
+
+This delivery supplies persistence only. PLANNER owns canonical, closed-field, privacy-filtered mapping JSON and its independent hash; COMMIT revalidates it before atomic persistence. SQL enforces storage shape and immutability, not arbitrary JSON privacy, strict calendar validity or hash agreement. Native finalized `data_hash`, backup format v1 and existing evidence rows retain their meaning. Import commit, export completion and delivery remain separate tasks.
+
 ## Rejected alternatives
 
 Opaque/read-only attachment; DOCX layout as schema; separate PDF/HTML projections; CSS-only privacy hiding; raw DOCX/author retention; automatic status/privacy/finalize confirmation.

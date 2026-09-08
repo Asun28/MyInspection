@@ -1207,7 +1207,7 @@
 - refs: T55 变异 runner 恢复序列；L17/L165 同族
 
 ## L173
-- date: 2026-07-30 ｜ tags: git,stash,crlf,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 一次证据恢复排查（约 1h）
+- date: 2026-07-30 ｜ tags: git,stash,crlf,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次证据恢复排查（约 1h）
 - symptom: 为 merge master 而 stash/pop 被测文件，内容一字未改、git status 只见 modified，SHA256 却全变——29 枚变异证据的字节戳当场作废。
 - root_cause: stash/checkout/apply 走 git 内容规范化层（CRLF 到 LF），字节级证据绑定的是磁盘字节而非 git 语义内容；任何经过规范化层的往返都等于字节变更。
 - rule: 证据字节戳在场时不用 stash 搬运被测文件——用文件级备份/恢复（先按忽略行尾比对确认内容一致再覆盖，不重测）；凡「哈希/字节戳」类证据，把 stash/checkout/apply 一律当字节变更处理。
@@ -2318,3 +2318,11 @@
 - rule: 需要排除的来源证据应先建立跨全部可写类别的统一索引，在公共决策入口校验；回归同时覆盖各类别的同源别名，并保留同文字不同位置的合法对照。
 - enforced_by: 
 - refs: 
+
+## L315
+- date: 2026-09-08 ｜ tags: sqlite,schema,validation,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 导入回执哈希 CHECK 仅用 64 字节长度与 GLOB 字符集时，绑定的 63 个十六进制字符加 NUL 仍能入库；仅保留文本长度时，合法 64 字符前缀加 NUL 后缀又会漏过。
+- root_cause: SQLite 的文本长度和模式匹配遇嵌入 NUL 有截断语义；文本亲和性也不保证实际存储值是 TEXT，单靠字符数与 GLOB 无法证明完整字节串合法。
+- rule: 固定 ASCII 摘要同时约束 typeof=TEXT、文本长度、CAST AS BLOB 字节长度和完整允许字符集；使用真实绑定参数验证 NUL 补位、合法前缀加 NUL 后缀和同形 BLOB，并同时覆盖新建数据库与迁移后数据库。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/interchange/ReportInterchangeSchemaTest.kt
+- refs: specs/archive/tasks/T3-REPORT-INTERCHANGE-SCHEMA.md; ReportInterchangeSchemaTest.kt

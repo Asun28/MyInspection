@@ -3,7 +3,7 @@ id: T3-REPORT-INTERCHANGE-SCHEMA
 title: Schema v6 for immutable import provenance and format-aware export receipts
 depends_on: [T3-REPORT-CONTENT-CONTRACT, T5-MEDIA-ARCHIVE-SCHEMA]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-INTERCHANGE-SCHEMA
 worktree: C:\wt\T3-REPORT-INTERCHANGE-SCHEMA
 allow_paths:
@@ -62,3 +62,12 @@ historical migration rewrite, native data_hash change or user-data migration is 
 
 Implementation budget: approximately 650–800 changed lines including SQL, behavior
 tests and mutation receipts, below the unchanged 1000-line/60000-character R3 limits.
+
+## Delivery record (2026-09-08)
+
+- Candidate `b4e77289bc4a1169696ea7609b2f3c65a2974619`, locally merged as `800593b4`; formal R3 first-round `pass`, no reasons. No remote push or PR.
+- Real RED preceded implementation; final DoD passed 50 focused tests. Candidate verify passed 1017 core tests (four existing Windows skips) and six Golden Evidence E2E tests. SQLDelight migration verification, scope, license, secrets and size gates passed (480 changed lines / 39353 characters / one schema-only binary).
+- Post-merge integration verify passed 1034 core tests (four existing Windows skips), zero failures/errors, and all six E2E tests; this includes the separately merged import review decisions implementation.
+- Thirty-two isolated source mutations failed fresh TestNG reports; restored baseline passed. All were rerun against final LF SQL bytes, matching both Git index and merged source. Per-mutant descriptions, failing assertions and final SHA-256 values are recorded in `ReportInterchangeSchemaTest.kt`.
+- Local detailed evidence: `_local/T3-REPORT-INTERCHANGE-SCHEMA/` (formal verdict and final mutation logs/results). Fresh and migrated databases cover duplicate/replacement and immutable provenance guards, malformed storage shapes including NUL/BLOB values, typed lookups/order and actual PDF-only media eligibility.
+- DATABASE-DESIGN, ADR-0007, TASK-BOARD and CLAUDE current stage synchronized. This persistence delivery does not claim PLANNER/COMMIT completion or real-user migration.
