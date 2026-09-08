@@ -32,6 +32,15 @@ function Get-SymbolMarkdownDocument {
     for ($i=0; $i -lt $Text.Length;) {
         if ($codeEnds.ContainsKey($i)) { $i=$codeEnds[$i]+1; continue }
         if ($Text[$i] -eq '\') { $i+=2; continue }
+        # Use the bundled HTML lexer for tags/attributes, not a second HTML grammar.
+        # Skip only that token: real comments inside an unsupported HTML block still count.
+        if ($Text[$i] -eq '<' -and ($i+4 -gt $Text.Length -or $Text.Substring($i,4) -cne '<!--')) {
+            $tagSlice = [Markdig.Helpers.StringSlice]::new($Text,$i,$Text.Length-1)
+            [string]$tag = ''
+            if ([Markdig.Helpers.HtmlHelper]::TryParseHtmlTag([ref]$tagSlice,[ref]$tag)) {
+                $i=$tagSlice.Start; continue
+            }
+        }
         if ($i+4 -le $Text.Length -and $Text.Substring($i,4) -ceq '<!--') {
             $end = $Text.IndexOf('-->',$i+4,[StringComparison]::Ordinal)
             if ($end -lt 0) { throw 'SYMBOL-MARKDOWN-CLOSURE: unclosed comment' }
@@ -65,8 +74,9 @@ function Get-SymbolMarkdownBlock {
         throw "SYMBOL-MARKDOWN-BLOCK: expected one visible top-level $Label block, found $($matches.Count)"
     }
     $block = $matches[0]
-    $start = $Text.IndexOf("`n",$block.Span.Start)+1
-    $end = $Text.LastIndexOf("`n",$block.Span.End)+1
+    $start = $Text.IndexOfAny([char[]]"`r`n",$block.Span.Start)+1
+    if ($start -gt 0 -and $start -lt $Text.Length -and $Text[$start-1] -eq [char]13 -and $Text[$start] -eq [char]10) { $start++ }
+    $end = $Text.LastIndexOfAny([char[]]"`r`n",$block.Span.End)+1
     if ($start -le 0 -or $end -lt $start) { throw 'SYMBOL-MARKDOWN-API: invalid content span' }
     return [pscustomobject]@{ Value=$Text.Substring($start,$end-$start); Index=$start; Length=$end-$start }
 }
@@ -112,7 +122,7 @@ function Get-SymbolMarkdownVisible {
             if ($inline.Tag.StartsWith('<!--',[StringComparison]::Ordinal)) { continue }
             # Unsupported HTML excludes its containing block, including a list marker.
             $start=$block.Span.Start
-            if ($entry.Nested) { $start=$Text.LastIndexOf([char]10,[Math]::Max(0,$start-1))+1 }
+            if ($entry.Nested) { $start=$Text.LastIndexOfAny([char[]]"`r`n",[Math]::Max(0,$start-1))+1 }
             Set-SymbolMarkdownMask $visible $start $block.Span.End
             break
         }

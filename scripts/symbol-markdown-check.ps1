@@ -4,8 +4,8 @@ param()
 $ErrorActionPreference = 'Stop'
 $helperPath = Join-Path $PSScriptRoot '_symbol-markdown.ps1'
 $cases = [Collections.Generic.List[object]]::new()
-function Add-Case($Name, $Operation, $Text, $Want, $ErrorPrefix = '') {
-    $cases.Add([pscustomobject]@{ Name=$Name; Operation=$Operation; Text=$Text; Want=$Want; ErrorPrefix=$ErrorPrefix })
+function Add-Case($Name, $Operation, $Text, $Want, $ErrorPrefix = '', $ExactBody = $null) {
+    $cases.Add([pscustomobject]@{ Name=$Name; Operation=$Operation; Text=$Text; Want=$Want; ErrorPrefix=$ErrorPrefix; ExactBody=$ExactBody })
 }
 $f = ([string][char]96)*3
 $label = 'powershell symbol-contract'
@@ -17,6 +17,10 @@ foreach ($character in @([string][char]96, '~')) {
     }
 }
 Add-Case 'crlf-content-offsets' block ($block.Replace("`n","`r`n")) 'return 42'
+Add-Case 'cr-content-offsets' block ($block.Replace("`n","`r")) 'return 42' '' "return 42`r"
+Add-Case 'mixed-content-offsets' block ("前言`r`n`r"+$f+$label+"`rfirst`nsecond`r`n"+$f) '' '' "first`nsecond`r`n"
+Add-Case 'mixed-opening-crlf-closing-cr' block ($f+$label+"`r`nreturn 42`r"+$f) '' '' "return 42`r"
+Add-Case 'cr-empty-block' block ($f+$label+"`r"+$f) '' '' ''
 Add-Case 'longer-closing-fence' block ($block+([string][char]96)) 'return 42'
 Add-Case 'indented-fence-retains-original-body' block ("  "+$f+$label+"`n  return 42`n  "+$f) '  return 42'
 Add-Case 'code-comment-literal-not-markup' block ($f+$label+"`n# <!-- not markup`n"+$f) '# <!-- not markup'
@@ -78,6 +82,17 @@ Add-Case 'list-quote-not-admitted' visible-list "- item`n`n  > hidden`n`n  kept 
 Add-Case 'list-inline-comment-masked' visible-list '- Counts <!-- hidden --> stay' '- Counts                 stay'
 Add-Case 'list-inline-html-not-admitted' visible-list "- okay`n- before <span hidden>Fake</span> after" '- okay'
 Add-Case 'default-numbered-list-still-hidden' visible "1. First`n2. Second" ''
+Add-Case 'cr-list-html-keeps-prior-content' visible-list "## Real`r`r- okay`r- before <span hidden>Fake</span> after" '## Real|- okay'
+Add-Case 'mixed-list-html-keeps-prior-content' visible-list "## Real`n`n- okay`r- before <span hidden>Fake</span> after`r`n- last" '## Real|- okay|- last'
+Add-Case 'inline-html-attribute-comment-literal' visible 'before <span title="<!--">hidden</span> after' ''
+Add-Case 'block-html-attribute-comment-literal' visible "<div title='<!--'>hidden</div>`n`n## Real" '## Real'
+Add-Case 'html-attribute-before-contract' block ("<div title='<!--'>hidden</div>`n`n"+$block) 'return 42'
+Add-Case 'inline-html-attribute-before-contract' block ('before <span title="<!--">hidden</span> after'+"`n`n"+$block) 'return 42'
+Add-Case 'html-real-comment-still-closes' block ("<div title='<!--'>`n<!-- open`n</div>`n`n"+$block) '' 'SYMBOL-MARKDOWN-CLOSURE:'
+Add-Case 'html-real-comment-hides-contract' block ("<div title='<!--'>`n<!-- open`n</div>`n`n"+$block+"`n-->") '' 'SYMBOL-MARKDOWN-BLOCK:'
+Add-Case 'quoted-angle-then-comment-literal' visible 'before <span title="> <!--">hidden</span> after' ''
+Add-Case 'multiline-html-attribute-before-contract' block ("<div title='line`r<!--'>hidden</div>`r`r"+$block) 'return 42'
+Add-Case 'real-comment-after-inline-html' visible 'before <span title="<!--">hidden</span> <!-- open' '' 'SYMBOL-MARKDOWN-CLOSURE:'
 
 function Invoke-Suite([string]$Source) {
     $module = New-Module -ScriptBlock ([scriptblock]::Create($Source))
@@ -94,6 +109,7 @@ function Invoke-Suite([string]$Source) {
             if ($case.Operation -eq 'block') {
                 $ending = if ($case.Text.Contains("`r`n")) { "`r`n" } else { "`n" }
                 $body = if ($case.Want.Length) { $case.Want+$ending } else { '' }
+                if ($null -ne $case.ExactBody) { $body=$case.ExactBody }
                 if ($result.Value -cne $body) { $failures.Add($case.Name+': wrong content') }
                 if ($result.Index -lt 0 -or $result.Length -lt 0 -or $case.Text.Substring($result.Index,$result.Length) -cne $result.Value) {
                     $failures.Add($case.Name+': incorrect original content span')
@@ -105,7 +121,7 @@ function Invoke-Suite([string]$Source) {
                         $failures.Add($case.Name+': newline offset changed'); break
                     }
                 }
-                $actual = (@($result -split '\r?\n' | ForEach-Object {$_.Trim()} | Where-Object {$_}) -join '|')
+                $actual = (@($result -split '\r\n|\r|\n' | ForEach-Object {$_.Trim()} | Where-Object {$_}) -join '|')
                 if ($actual -cne $case.Want) { $failures.Add($case.Name+": expected '$($case.Want)', got '$actual'") }
             }
         } catch {
@@ -136,7 +152,11 @@ $mutations = @(
     @('case-sensitive-label', ').TrimEnd() -ceq $Label', ').TrimEnd() -ieq $Label', 'label-is-case-sensitive:'),
     @('exact-label', ').TrimEnd() -ceq $Label', ").TrimEnd() -clike (`$Label+'*')", 'label-not-substring:'),
     @('unique-block', '$matches.Count -ne 1', '$matches.Count -lt 1', 'duplicate-block:'),
-    @('content-start', '$block.Span.Start)+1', '$block.Span.Start)+2', 'crlf-content-offsets:'),
+    @('content-start', 'if ($start -gt 0 -and', 'if ($false -and', 'crlf-content-offsets:'),
+    @('cr-opening-boundary', '$Text.IndexOfAny([char[]]"`r`n",$block.Span.Start)', '$Text.IndexOf("`n",$block.Span.Start)', 'cr-content-offsets:'),
+    @('cr-closing-boundary', '$Text.LastIndexOfAny([char[]]"`r`n",$block.Span.End)', '$Text.LastIndexOf("`n",$block.Span.End)', 'mixed-opening-crlf-closing-cr:'),
+    @('cr-list-boundary', '$Text.LastIndexOfAny([char[]]"`r`n",[Math]::Max(0,$start-1))', '$Text.LastIndexOf([char]10,[Math]::Max(0,$start-1))', 'cr-list-html-keeps-prior-content:'),
+    @('html-token-attributes', '[Markdig.Helpers.HtmlHelper]::TryParseHtmlTag([ref]$tagSlice,[ref]$tag)', '$false', 'html-attribute-before-contract:'),
     @('supported-blocks-only', 'if (-not $supported)', 'if ($false)', 'quoted-heading-masked:'),
     @('comment-range-mask', 'Set-SymbolMarkdownMask $visible $comment.Start $comment.End', '$null = $comment', 'inline-comment-masked:'),
     @('comment-range-block-filter', 'if (-not @($context.Comments | Where-Object { $node.Span.Start -ge $_.Start -and $node.Span.Start -le $_.End }).Count) { $node }', '$node', 'closed-then-multiline-comment-hides-block:'),
