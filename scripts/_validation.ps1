@@ -328,33 +328,57 @@ function Invoke-ValidationSelfCheck {
   }
   function Route($Fixture) { Resolve-SelftestTaskRoute -RepoRoot $Fixture.Primary -TaskId T0-ROUTE -Base master }
   function Invoke-EntryFixture($Fixture, [int]$ChildExit, [string[]]$Arguments = @('-TaskId','T0-ROUTE','-Base','master')) {
-    $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'selftest.ps1'))
-    $entry = [regex]::Match($source, '(?s)# TASK-ROUTING-START\r?\n(.*?)# TASK-ROUTING-END')
-    Assert-ValidationSelfCheck $entry.Success 'entry source marker'
-    $prefix = @'
-param([string]$TaskId,[string]$Base='master',[string]$Shard='all',[string]$Fixture='',[string]$GateIdMutation='',[string]$NoGitFixtureCase='',[string]$NoGitFixtureNonce='',[string]$NoGitMutationNonce='',[switch]$StrictLint)
-$ErrorActionPreference='Stop'
-$RepoRoot='__PRIMARY__'
-. '__VALIDATION__'
-function Invoke-SelftestAll {
+    $scripts = Join-Path $Fixture.Primary 'scripts'
+    New-Item -ItemType Directory -Force $scripts | Out-Null
+    foreach ($file in @('selftest.ps1','_gitbase.ps1','_encoding.ps1')) {
+      Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $scripts $file) -Force
+    }
+    Assert-ValidationSelfCheck ((Get-FileHash (Join-Path $scripts 'selftest.ps1')).Hash -ceq (Get-FileHash (Join-Path $PSScriptRoot 'selftest.ps1')).Hash) 'actual entry source bytes'
+    Write-FixtureFile $Fixture.Primary '.github/workflows/scaffold-selftest.yml' ([IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) '.github/workflows/scaffold-selftest.yml')))
+    Write-FixtureFile $Fixture.Primary 'init-scaffold.ps1' '# bounded entry fixture'
+    New-Item -ItemType Directory -Force (Join-Path $Fixture.Primary '.claude/hooks') | Out-Null
+    # Dependency aliases bound only expensive execution and the post-hook filesystem boundary.
+    # The launched selftest file, parameters, initialization and statement order stay byte-identical.
+    $boundaries = @'
+function Invoke-RouteFixtureAll {
   param($SourceRoot,$ForwardStrictLint,$StrictLintValue)
   Write-Host "[DISPATCH] all=$SourceRoot strict=$StrictLintValue"
+  if (__DEFAULT__) {
+    Write-Host '[DEFAULT-BOUNDARY] launching actual core'
+    & pwsh -NoProfile -File (Join-Path $SourceRoot 'scripts/selftest.ps1') -Shard core | Out-Host
+    return $LASTEXITCODE
+  }
   return __EXIT__
 }
-function New-SelftestSnapshot {
+function New-RouteFixtureSnapshot {
   param($SourceRoot,$SnapshotRoot,$Name,$GitExe)
   Write-Host "[DISPATCH] core=$SourceRoot"
   New-Item -ItemType Directory -Force (Join-Path $SnapshotRoot 'scripts') | Out-Null
   Set-Content (Join-Path $SnapshotRoot 'scripts/selftest.ps1') 'param($Shard,[switch]$StrictLint); Write-Host "[CHILD] shard=$Shard strict=$StrictLint"; exit __EXIT__'
   return $SnapshotRoot
 }
+function Get-RouteFixtureChildItem {
+  [CmdletBinding()]param([string]$Path,[string]$Filter,[switch]$Recurse)
+  if ($Path -eq (Join-Path $RepoRoot '.claude/workflows')) {
+    Write-Host "[BOUNDED-CORE] fail=$script:fail"
+    if ($script:fail) { exit 37 }
+    exit 0
+  }
+  Microsoft.PowerShell.Management\Get-ChildItem @PSBoundParameters
+}
+Set-Alias Invoke-SelftestAll Invoke-RouteFixtureAll
+Set-Alias New-SelftestSnapshot New-RouteFixtureSnapshot
+Set-Alias Get-ChildItem Get-RouteFixtureChildItem
 '@
-    $prefix = $prefix.Replace('__PRIMARY__',$Fixture.Primary.Replace("'","''")).Replace('__VALIDATION__',(Join-Path $PSScriptRoot '_validation.ps1').Replace("'","''")).Replace('__EXIT__',[string]$ChildExit)
-    $path = Join-Path (Split-Path -Parent $Fixture.Primary) 'entry.ps1'
-    foreach ($helper in @('_validation.ps1','_cards.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $helper) -Destination (Join-Path (Split-Path -Parent $path) $helper) -Force }
-    [IO.File]::WriteAllText($path, $prefix + "`n" + $entry.Groups[1].Value + "`nWrite-Host ('[DEFAULT] shard=' + `$Shard)`nexit 0")
+    $boundaries = $boundaries.Replace('__EXIT__',[string]$ChildExit).Replace('__DEFAULT__',('$' + (-not ($Arguments -contains '-TaskId')).ToString().ToLowerInvariant()))
+    [IO.File]::AppendAllText((Join-Path $scripts '_gitbase.ps1'), "`n" + $boundaries)
+    $validation = "param([switch]`$SelfCheck)`nif (`$SelfCheck) { Write-Host '[ROUTE-SELFCHECK] requested=True'; exit $ChildExit }`n. '" + (Join-Path $PSScriptRoot '_validation.ps1').Replace("'","''") + "'`n"
+    Write-FixtureFile $Fixture.Primary 'scripts/_validation.ps1' $validation
+    $path = Join-Path $scripts 'selftest.ps1'
     $output = & pwsh -NoProfile -File $path @Arguments 2>&1 | Out-String
-    return @{ Exit=$LASTEXITCODE; Text=$output }
+    $code = $LASTEXITCODE
+    Write-Verbose ("[ACTUAL-ENTRY] args=$($Arguments -join ' ') exit=$code`n$output")
+    return @{ Exit=$code; Text=$output }
   }
   try {
     foreach ($state in @('committed','staged','dirty','untracked')) {
@@ -414,10 +438,18 @@ function New-SelftestSnapshot {
         }
       }
       $default = Invoke-EntryFixture $f 37 @()
-      Assert-ValidationSelfCheck ($default.Exit -eq 0 -and $default.Text -match '\[DEFAULT\] shard=all') 'default coverage unchanged'
+      Assert-ValidationSelfCheck ($default.Exit -eq 37 -and $default.Text.Contains("[DISPATCH] all=$($f.Primary)") -and
+        $default.Text -match '\[ROUTE-SELFCHECK\] requested=True' -and $default.Text -match '闸1\(validation\)' -and
+        $default.Text -match '\[BOUNDED-CORE\] fail=True') ("actual default dispatch reaches core selfcheck and consumes failure (exit=$($default.Exit)): $($default.Text)")
       $conflict = Invoke-EntryFixture $f 0 @('-TaskId','T0-ROUTE','-Base','master','-Shard','core')
       Assert-ValidationSelfCheck ($conflict.Exit -ne 0 -and $conflict.Text -match '\[SELFTEST-TASKID-CONFLICT\]') 'entry conflict'
     }
+    $coreGreen = Invoke-EntryFixture $f 0 @('-Shard','core')
+    Assert-ValidationSelfCheck ($coreGreen.Exit -eq 0 -and $coreGreen.Text -match '\[ROUTE-SELFCHECK\] requested=True' -and
+      $coreGreen.Text -match '\[BOUNDED-CORE\] fail=False' -and $coreGreen.Text -notmatch '闸1\(validation\)') 'actual core selfcheck success'
+    $badBase = Invoke-EntryFixture $f 0 @('-TaskId','T0-ROUTE','-Base','absent')
+    Assert-ValidationSelfCheck ($badBase.Exit -ne 0 -and $badBase.Text -match '\[SELFTEST-ROUTE-BASE-MISSING\]' -and
+      $badBase.Text -notmatch '\[DISPATCH\]') 'actual entry Base binding'
     foreach ($bad in @(@{Id='bad';Base='master';Code='SELFTEST-TASKID-BADID'},@{Id='T0-MISSING';Base='master';Code='SELFTEST-ROUTE-BASE-CARD'},@{Id='T0-ROUTE';Base='absent';Code='SELFTEST-ROUTE-BASE-MISSING'})) {
       $failure = ''
       try { [void](Resolve-SelftestTaskRoute -RepoRoot $f.Primary -TaskId $bad.Id -Base $bad.Base) } catch { $failure = $_.Exception.Message }
