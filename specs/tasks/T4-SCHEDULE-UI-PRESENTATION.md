@@ -23,8 +23,8 @@ non_goals:
   - 新增图标依赖（OD-2 已裁定不扩 res/，且一律不得引入 material-icons 依赖）
   - "符号化 chrome 与无障碍声明整半（chrome/content 类型分割、字形、RTL 镜像、目标尺寸、动效 token、reduced-motion）——归 T4-SCHEDULE-UI-SYMBOL-CHROME"
 acceptance:
-  - "A1 every schedule state exposes exactly one primary action, declares at most two top-app-bar actions, draws spacing, type, shape and colour only from context/DESIGN.md token names, and declares no gradient, drop shadow or illustration"
-  - "A2 no declared state is blank: empty, filtered-empty, loading, error and permission-blocked each carry non-empty content and exactly one named next or recovery action, and the no-content state's target is a host-supplied callback this card does not resolve"
+  - "A1 every schedule state declares at most one primary action and declares that count explicitly, so that a state offering none declares the absence rather than merely lacking one; the view declares at most two top-app-bar actions, draws spacing, type, shape and colour only from context/DESIGN.md token names, and declares no gradient, drop shadow or illustration"
+  - "A2 no declared state is blank: loading, no-content-empty, filtered-empty, error and permission-blocked each carry non-empty content; each state that can act carries exactly one named action, loading and content declare that they offer none, and the no-content target is a host-supplied callback this card does not resolve"
   - "A3 every rendered domain value keeps its text and numerals: absolute dates render as a spelled month-name form with times in 24-hour form and derive from neither system locale nor system 12/24-hour setting, and every count renders as a complete plural-aware phrase"
   - "A4 runtime acceptance tests assert typed declaration values through the compiled reducer entry points only; source, resources and inspected compiled artifacts are never an oracle, Compose wiring stays compile-only, and every automated requirement carries an executable semantic mutation receipt"
 dod_command: $kotlin = @('android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleModels.kt','android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleScreen.kt','android/app/src/test/kotlin/nz/myinspection/app/feature/schedule/ScheduleUiTest.kt'); if ($kotlin | Where-Object { -not (Test-Path $_) }) { exit 1 }; if (Select-String -Path $kotlin -Pattern '\btypealias\b|;' -Quiet) { exit 1 }; if ($kotlin | ForEach-Object { Get-Content $_ | Where-Object { $_.Length -gt 120 } }) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ScheduleUiTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
@@ -133,6 +133,24 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
   `context/DESIGN.md:1561` 的 `Symbol-only chrome` 把 status 与 relation 点名为 domain value，
   巡检类型正是其一，而 domain value 永不由字形单独承载。
 
+## 与已合并 reducer 的对齐（2026-09-08，写 RED 之前发现）
+
+把 A1/A2 复述成可测形式时撞上一处**卡片与已合并代码的真实抵触**，在写任何测试之前先改卡：
+
+原 A1 写「exactly one primary action」、原 A2 把 `loading` 列进「各带恰好一个具名动作」的状态里。
+但 `T4-SCHEDULE-UI` 已合并的 `actionSlot`（`ScheduleModels.kt`）明确给 `Loading` 与 `Content`
+**零个**动作，并在 KDoc 写下理由：loading 是本地磁盘读取上的 300ms 阈值态、**此刻无事可做**，
+而内容屏的动作属于它的行。本卡 `forbid` 又禁止改动该 reducer 已钉住的状态集。
+
+**两条路只有一条是诚实的**：改 reducer 被本卡明令禁止；把 loading 的动作断言悄悄放宽成
+「有就断言、没有就跳过」则是 vacuous pass（L19/L20/L47）。故取第三条——
+**把「恰好一个」改写成「至多一个，且每个状态都必须显式声明这个数目」**：
+提供动作的状态声明它的那一个，不提供的**声明这个缺席**，于是「某状态忘了声明动作」
+不是靠人记得检查，而是**类型上不成立**。这与同文件 `ScheduleBadge.NONE` 的既有做法同源
+（「[NONE] 是被声明出来的值而非缺失的值」），也与 `ScheduleScreenState` 把互斥层做成 sealed 的
+理由一致。REQ-030 与 A1/A2 已按此重写，标准是**收紧**（多了「必须显式声明缺席」这一条）
+而非放宽。
+
 ## 需求
 
 写法：EARS，同 `T4-SCHEDULE-UI`。`[待定：X]` 表示该数字/规则源不存在，已进 §未决决策。
@@ -141,7 +159,7 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
 
 | ID | Pattern | Requirement | 来源 |
 |---|---|---|---|
-| REQ-030 | Ubiquitous | The schedule view shall expose exactly one primary action per state, and shall place every secondary action outside the row, in the `feedback-banner` or the overflow menu. | [card:context/DESIGN.md:1618「never contains a second nested button」] |
+| REQ-030 | Ubiquitous | The schedule view shall expose at most one primary action per state and shall declare that count for every state, so that a state offering none declares the absence; it shall place every secondary action outside the row, in the `feedback-banner` or the overflow menu. | [card:context/DESIGN.md:1618「never contains a second nested button」]；「at most」而非「exactly」的理由见 §与已合并 reducer 的对齐 |
 | REQ-031 | Ubiquitous | The schedule view shall declare at most two top-app-bar actions. | [card:context/DESIGN.md:`components.top-app-bar.actionsMax: 2`] |
 | REQ-032 | Ubiquitous | The schedule view shall draw every spacing value from `spacing.{xs,sm,md,lg,xl,2xl,3xl,touch,action,screen-gutter}` and shall use no other spacing literal. | [card:context/DESIGN.md:`spacing`]，`4dp` 基础节奏 |
 | REQ-033 | Ubiquitous | The schedule view shall use at most `5` distinct typography tokens, drawn only from the declared `typography` set. | OD-6（已裁定：5）· [card:context/DESIGN.md:`typography`] |
@@ -171,7 +189,7 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
 | 验收集 | REQ | 验证方法 | oracle |
 |---|---|---|---|
 | A1 | REQ-030..035, 042, 048, 049 | **REQ-030/031/032/033/034/042 automated**（动作数、top-app-bar 动作上限、token 词汇与「不设控件上限」皆为 typed 值）；REQ-035/048/049 manual · 对照 `context/DESIGN.md` 的设计评审 | typed 值 / 人工评审 |
-| A2 | REQ-038, 039 | automated · 五个状态各断言非空内容与恰好一个具名动作；空状态的目标是宿主注入的回调，本卡不解析目的地 | 领域状态 |
+| A2 | REQ-038, 039 | automated · 五个状态各断言非空内容；能动作的四个各断言恰好一个具名动作，`Loading` 与 `Content` 各断言**声明出来的缺席**（见 §与已合并 reducer 的对齐）；空状态的目标是宿主注入的回调，本卡不解析目的地 | 领域状态 |
 | A3 | REQ-036, 037, 040, 041, 053 | **REQ-036/037/040/053 automated**（日期形态、复数感知计数短语与「领域值保留文字数字」皆为 typed 值）；REQ-041 的「今天/现在」相对短语 automated，「不呈现冲突」由本卡不存在该类型证明 | typed 值 |
 | A4 | 全部 automated 项 + REQ-043 | automated · 变异收据（selector / RED exit / 前后同 SHA-256）；REQ-043 是本卡对自身测试面的否定声明，不产生断言 | 收据本身 |
 | 移交后继卡 | REQ-044..047, 050..052, 054..060 | 见 `T4-SCHEDULE-UI-SYMBOL-CHROME`；本卡不对其作任何自动或人工验收声明 | — |
@@ -229,3 +247,4 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 拆出的呈现半（原 A6–A9 → 本卡 A1–A4，新增 A5 验证契约）、REQ-030..060、图形对照表与 11 条 OD。开卡前复核四处权威面，修正原「三处抵触」为「两处真抵触 + 一处本就允许 + 一处不在范围」。 |
 | 2026-09-08 | **开工前收口 OD-1/2/4..12**（用户逐条裁定，见 §未决决策「裁定」列与 §决策记录 7–11）。据此改写 REQ-033/039/040/041/042/043/054/055，重写图形对照表（11 枚 glyph → **6 枚，且无一属 `novel`**），A2 覆盖面由 REQ-050..053+055 扩为 REQ-050..055，删去已消解的「C 组风险」行。体量重估 **620–870 changed lines**（低于 900 止损点，不二次拆分）。前置依赖复核：`context/DESIGN.md:1561` `Symbol-only chrome` 具名节已随 `T4-DESIGN-SYMBOL-CHROME-V2`（master `53673571`）落地，OD-3 的执行方由退役卡 `T4-DESIGN-SYMBOL-CHROME` 更正为 V2。 |
 | 2026-09-08 | **二次拆卡（用户裁定，止损点触发）**：收口后重算落在 ≈990 changed lines，越过卡内 900 止损点且距 1000 硬闸仅十行，遂按 §止损点早已写下的那条线拆——本卡留 A1/A3（现重编号 A1–A4：token 词汇、动作数、无空状态、日期与计数形态，≈610 行），符号化 chrome 与无障碍声明整半移交新卡 `T4-SCHEDULE-UI-SYMBOL-CHROME`（≈750 行）。移交 REQ-044..047 与 REQ-050..052、054..060 及整张图形对照表；**REQ 编号不重排**（跨卡稳定标识）；REQ-053 留本卡作 A3 断言面。acceptance 由 A1–A5 重编为 A1–A4，验证表、`dod_assert`、`doc_sync` 与 `non_goals` 同步。**为何砍掉 5 枚字形后总量反升**：收口加回 `CLEAR_FILTER` 与方向性 `NEXT` 两枚，后者是 REQ-057 不落空的唯一实例。 |
+| 2026-09-08 | **写 RED 之前对齐验收契约，发现卡片与已合并 reducer 抵触**：原 A1「exactly one primary action」与原 A2 把 `loading` 列入「各带恰好一个具名动作」，同 `T4-SCHEDULE-UI` 已合并的 `actionSlot`（`Loading` 与 `Content` 各零个，KDoc 写明理由）直接冲突，而本卡 `forbid` 禁止改动该 reducer。既不改 reducer、也不把断言放宽成 vacuous pass，改取**收紧**写法：「至多一个，且每个状态必须显式声明这个数目，不提供者声明缺席」——同文件 `ScheduleBadge.NONE`「声明出来的值而非缺失的值」的既有做法。REQ-030、A1、A2 与验证表同步重写，新增 §与已合并 reducer 的对齐 记录理由。 |
