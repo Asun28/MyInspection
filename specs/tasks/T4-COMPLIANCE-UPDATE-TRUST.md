@@ -1,7 +1,7 @@
 ---
 id: T4-COMPLIANCE-UPDATE-TRUST
 title: 规则更新的可信来源与版本决策
-status: todo
+status: in-review
 depends_on: []
 allow_paths:
   - docs/adr/0008-compliance-update-trust.md
@@ -25,7 +25,7 @@ review_gate: codex {verdict:pass}
 
 # T4-COMPLIANCE-UPDATE-TRUST
 
-版本：V1 的规则导入前置设计。用户认可增加可信来源防护，尚未选定发布者、公钥或协议。
+版本：V1 的规则导入前置设计。2026-09-08 用户在完整 ADR 0008 与明确责任问题后回复“好的”，批准单公钥离线签名、本人批准规则、受控电脑分开保管规则与 APK 私钥、USB 首次可信安装/规则传递及配套版本/日期/恢复策略。真实公钥与制品安装证据由导入卡提供，设计批准不等于这些产物已经存在。
 
 交付是按 ADR 目录顺序新建的决定记录及导入卡收口，不覆盖 accepted ADR-0004。静态 DoD 只检查卡结构/diff，不能自动证明用户选择；R3 必须核查三项验收的决策证据，缺失不得合并本卡。保留法律 work-check 待办，禁止借规则更新改变当前用途限制。
 
