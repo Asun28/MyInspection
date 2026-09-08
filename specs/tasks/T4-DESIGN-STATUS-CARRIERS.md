@@ -4,7 +4,7 @@ title: 状态载体收口的三处遗留：对比度绑定、两处边界行、c
 depends_on: [T4-DESIGN-SYMBOL-CHROME-V2]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#colors
-status: in-progress
+status: merged
 branch: T4-DESIGN-STATUS-CARRIERS
 worktree: C:\wt\T4-DESIGN-STATUS-CARRIERS
 allow_paths:

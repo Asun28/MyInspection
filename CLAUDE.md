@@ -69,6 +69,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T4-DESIGN-STATUS-CARRIERS` 已合并（master `174c7ce6`，**R3 首轮 pass 零 finding**）——
+收口前卡 `T4-DESIGN-SYMBOL-CHROME-V2` 的三处遗留。**A1**：前卡为「必带状态字形须可感知」立的下限是
+「只渲染在闸已登记的配对上」，本卡补登记后放宽它。实测缺口比建卡段猜的大得多——状态色
+（`primary`/`tertiary`/`error`/`outline`/`privacy`）× 内容底（四个 surface 层）共 40 对里**缺 26 条绑定**
+（`privacy` 作前景在四个底上**一条都没有**），新增具名 `State glyph contrast map` 一节，13 行每行带
+**实测** light/dark 比值（最低 `outline` on `surface-container-high` = 3.51:1 / 4.37:1，仍过 3.00:1 档）；
+沿途复算文档既有 8 处比值声明皆吻合，**未动任何 token 色值**。**A2**：`verification-receipt` 与
+`photo-evidence-tile` 十一个状态逐条对「视觉半 + 播报半」判定（4 fixed / 7 carried / 0 exempt）。
+**A3**：capture Back 定名 `Save and exit`，通用 `Back to {parent}` 为其让位，两个短语全文各只剩一次声明，
+准入条件 3 的「同一短语」遂有唯一指代。27/27 变异全杀。**遗留 FOLLOW-UP**：`NOT_APPLICABLE` 全文无取色
+绑定（`evidence-rail` 只声明 `optionalColor`），属调色决定、在本卡「只补登记不调色」之外。
+> **本卡的 DoD 不止查锚点**：除 16 条 ASCII 锚点（含 3 条 `expected 0` 反向断言）外，它**从文档自身重算**
+> ——按 DESIGN.md 写明的 WCAG 公式、用 frontmatter 的 token 值复算每条绑定比值并核 `minRatio`、核绑定值
+> 未偏离 token、核无重复配对、核 40 个配对全部登记、核新表 13 行印刷值与重算值逐位相等。于是
+> 「每对带其实测比值」是**机检**的而非散文声称的——这是对 L317（验收表须是已交付证据的陈述）的直接回应。
+> **三处「写下的保证超出证据」都在本地被吃掉，没有花掉 R3 轮次**：① 我的初稿把状态条款写成全称句
+> 「必带状态字形用状态色落在内容底上」，而 `privacy-chip` 的盾牌落 `privacy-container`、相机控件落 scrim
+> ——**自查时抓到**，改为保留封闭要求 + 另陈覆盖事实；② ship 前的全新上下文复核抓到「把 40 对的登记功劳
+> 记在只装 13 对的新表名下」；③ 同一轮抓到「其它底」只列两类而文档实有四类（`camera-shutter` 的底是
+> **一个 `on-` role**）。**教训：全称句的成本在于它对整份文档做断言，而你只对手边那几处验证过**（L309）；
+> 把它降级成「封闭要求 + 单独陈述的覆盖事实」，既不弱化下限，也不再欠一份做不完的全称证明。
+
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLANNER` 已合并（master `d7510b02`，正式 R3 首轮 pass）；完整当前预览、原子批确认、READY 与格式 1 脱敏回执已交付。62 项 plan、实际合并树 1044 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，24 项源码变异被捕获。回执绑定原生上下文与不含原文的来源决策；数据库提交、媒体写入及 UI 仍由后续卡承接。
 
 **2026-09-08 本地交付**：`T3-REPORT-INTERCHANGE-SCHEMA` 已合并（master `800593b4`，正式 R3 首轮 pass）；schema v6 提供不可变导入来源回执与 PDF/HTML 格式回执，历史 PDF 字段无损迁移，HTML 不获得媒体归档资格。50 项定向测试通过；合并后整体验证覆盖 1034 项 core（4 项既有 Windows 跳过）及 6 项 E2E，均无失败。32 项源码变异均被捕获，最终 LF 源码与提交字节一致。映射回执规范化/隐私由 PLANNER 负责，COMMIT 负责写入前复验；本卡仅交付持久化基础。
