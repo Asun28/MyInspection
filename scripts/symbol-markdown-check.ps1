@@ -118,6 +118,20 @@ Add-Case 'literal-collapsed-label-is-not-comment' visible "[<!-- literal][]`n`n[
 Add-Case 'literal-inline-link-label-is-not-comment' visible '[<!-- literal](url)' ('[<!-- literal]('+(' '*3)+')')
 Add-Case 'reference-definition-does-not-mask-prior-heading' visible "## Real`n`n[ref]: /url" '## Real'
 
+# These literals are non-comment HTML tokens; bypassing their lexer path must
+# reject a valid later contract, while a real comment after the token still closes.
+$rawHtmlCases = @(
+    @('processing-instruction', '<?x <!-- ?>', '<?'),
+    @('declaration', '<!A <!-- >', '<!A'),
+    @('cdata', '<![CDATA[<!--]]>', '<![CDATA[')
+)
+foreach ($rawHtmlCase in $rawHtmlCases) {
+    $name = $rawHtmlCase[0]; $rawHtml = $rawHtmlCase[1]
+    Add-Case ("raw-html-$name-contract") block ($rawHtml+"`n`n"+$block) 'return 42'
+    Add-Case ("raw-html-$name-projection") visible ($rawHtml+"`n`n## Real") '## Real'
+    Add-Case ("raw-html-$name-real-comment") block ($rawHtml+"`n<!-- open`n`n"+$block) '' 'SYMBOL-MARKDOWN-CLOSURE:'
+}
+
 function Invoke-Suite([string]$Source) {
     $module = New-Module -ScriptBlock ([scriptblock]::Create($Source))
     $failures = [Collections.Generic.List[string]]::new()
@@ -200,6 +214,11 @@ $mutations = @(
     @('list-opt-in', '$IncludeListText -and $root -is [Markdig.Syntax.ListBlock]', '$root -is [Markdig.Syntax.ListBlock]', 'default-numbered-list-still-hidden:'),
     @('nested-heading-exclusion', '-not $entry.Nested -and $block -is [Markdig.Syntax.HeadingBlock]', '$block -is [Markdig.Syntax.HeadingBlock]', 'list-heading-not-admitted:')
 )
+foreach ($rawHtmlCase in $rawHtmlCases) {
+    $lexerCall = '[Markdig.Helpers.HtmlHelper]::TryParseHtmlTag([ref]$tagSlice,[ref]$tag)'
+    $onlyOtherTokens = '(-not $Text.Substring($i).StartsWith('''+$rawHtmlCase[2]+''',[StringComparison]::Ordinal) -and '+$lexerCall+')'
+    $mutations += ,@("raw-html-$($rawHtmlCase[0])-lexer", $lexerCall, $onlyOtherTokens, "raw-html-$($rawHtmlCase[0])-contract:")
+}
 foreach ($mutation in $mutations) {
     $needle = $mutation[1]
     if ([regex]::Matches($source,[regex]::Escape($needle)).Count -ne 1) {
