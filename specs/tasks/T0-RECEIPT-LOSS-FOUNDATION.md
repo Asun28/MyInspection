@@ -1,7 +1,7 @@
 ---
 id: T0-RECEIPT-LOSS-FOUNDATION
 title: 建立 receipt-loss 单一路径与旧恢复旁路退役基线
-depends_on: [T0-RECEIPT-NORMAL-SHIP-HARNESS]
+depends_on: [T0-SHIP-SAGA-REPORTER]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
 acceptance:
