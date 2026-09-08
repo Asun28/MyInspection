@@ -31,7 +31,7 @@
 `init-scaffold.ps1` 是把以上全部「就地变成下游项目」的一次性脚本：填 `_config` → 全仓替换 token → 重命名 `CLAUDE.template.md`→`CLAUDE.md`（删 TEMPLATE-NOTE 块）→ 可选 `-WithPython` / `-Cleanup` / `-Retrofit`（接入既有仓，token 替换只扫脚手架自有路径）。**改了 token、模板文件名、或 `_config` 字段，必须同步改它。**
 
 ## 候选 CI 闸（candidate CI · 身份 / deadline / 终局快照）
-远端 ship 在 R3 之后、合并之前跑 **candidate CI** 闸，四段收口、任一层不匹配即 fail-closed：① **逐层身份绑定**——本地 HEAD ≡ PR `headRefOid` ≡ run `head_sha`，run 的 `path`/`event`/`pull_requests[].number` 三处一律大小写敏感比较（PS 的 `-eq`/`-in`/`-contains` 与属性访问默认不敏感）；② 候选 `ci.yml` 声明的 job 名多重集合与该 run 返回集合须逐名、大小写敏感地完全相等，稳定态和终局发现缺少、多余、改名、大小写变化、重复或畸形状态均立即 `[CI-GATE-JOBS-DRIFT]`，不等待超时；③ 等待受既有 wall-clock deadline（`SCAFFOLD_CI_TIMEOUT_SEC`）约束、重试只花剩余预算（扩到 git 腿 + 进程树级清理见承接卡 `T0-CI-DEADLINE-CONTAINMENT`）；④ 决策前再取 **exact-head**/base 快照，base 前移 / retarget / head 前移 / run 身份漂移均不合并。`-NoAutoMerge` 只跳过合并腿、不放松任何一层。机检：`T37-CIGATE/WORKFLOW-BINDING`、`T37-CIGATE/JOBS-DRIFT`。
+远端 ship 在 R3 之后、合并之前跑 **candidate CI** 闸，任一层不匹配即 fail-closed：① 本地 HEAD、PR head、workflow run 及 exact job 集逐层绑定，决策前再取 exact-head/base 快照；② 从 deadline 建立到 `[CI-GATE-PASS]`，全部 `gh` 与 `git fetch/rev-parse` 共用 `SCAFFOLD_CI_TIMEOUT_SEC` 这一份 wall-clock 预算；③ Windows 子进程以 suspended 状态创建，先并入 `KILL_ON_JOB_CLOSE` Job Object 再恢复，任一容纳 stage 失败即 `[CI-GATE-CONTAINMENT]`，不降级；超时杀整组，杀组、等根与收流只共用 `deadline + 2000ms` 一个绝对清理期限；④ 非 Windows 显式拒绝并要求转 Windows host 重跑。`[CI-GATE-PASS]` 后的 merge/T24 不在此 deadline 内；`-NoAutoMerge` 只跳过合并腿。机检：`T37-CIGATE/DEADLINE`、`T37-CIGATE/WORKFLOW-BINDING`、`T37-CIGATE/JOBS-DRIFT`。
 
 ## selftest 17 闸明细
 本地 `selftest.ps1` 聚合 `core`、`workflow`、完整 `seeded`；CI 把后者等价拆成 git/remote/scanner，并在 Windows/Ubuntu 各跑五片（10 jobs），覆盖不减、wall time 取最慢子片。逐闸明细以脚本头注为准。
