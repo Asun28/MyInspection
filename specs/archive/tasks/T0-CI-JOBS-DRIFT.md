@@ -10,7 +10,7 @@ acceptance:
   - "A3 另有一条「首读合法、终局那读才漂」的负例走到读计数 2/2/2 —— 没有它，终局那次集合判定删掉也全绿"
   - "A4 判定器是全函数：条目形态/类型不符、status 无法归类一律判漂移而非默认放行（L228）"
   - "A5 绿路正例证明「集合相等」不是恒假谓词：ci.yml 多声明一个 audit、run 返回恰等于 {verify, audit} 即放行并合并，且 jobs 按本夹具自己的 run id/attempt 取"
-status: todo
+status: merged
 branch: T0-CI-JOBS-DRIFT
 worktree: C:\wt\T0-CI-JOBS-DRIFT
 allow_paths:
@@ -78,3 +78,7 @@ $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | O
 
 - 期望退出码：0
 - 断言：见 `dod_assert`。DoD **执行**闸门而非搜索字符串：两闸被任何 reason 跳过即判失败。
+
+## 交付记录（2026-09-08）
+
+PR #253 以 reviewed head `8815d99cdc435ed7df6fba568e048220f5329c99` 通过 Sol R3（`pass`、空 reasons）与候选 CI，随后 squash-merged 为 `297b5245faab4bca5376bb03fbfe34734572806e`。`seeded-remote` 与 `workflow` 均在冻结四文件哈希上输出 `selftest: PASS`；Luna 5.6 Max、Terra 5.6 Max 独立终审均 PASS。删除 `Compare-Object -CaseSensitive` 与绕过终局 drift 阻断两枚单点变异均被 `T37-CIGATE/JOBS-DRIFT` 精确杀死。
