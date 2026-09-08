@@ -14,6 +14,7 @@ allow_paths:
   - android/core/src/test/kotlin/nz/myinspection/core/report/interchange/
   - android/core/src/test/kotlin/nz/myinspection/core/media/archive/MediaArchiveSchemaTest.kt
   - android/core/src/test/kotlin/nz/myinspection/core/template/TemplateRoomSchemaTest.kt
+  - configs/secrets/tracked-sensitive-allowlist.json
 forbid:
   - In-place edits to migrations 1 through 4, databases 1 through 4, canonical JSON v1, or backup format v1
   - Persisting raw DOCX bytes, absolute source paths, vendor URLs, author metadata, or mutable provenance
@@ -48,6 +49,8 @@ schema test files because both pin version 5 and the archive test pins the old
 receipt columns. Keep their historical migration assertions intact. The legacy
 archive query/write API remains PDF-only; new format-aware queries belong to
 ReportInterchange.sq, so HTML cannot satisfy MediaArchiveLedger.cleanupEligible.
+Register only the new schema-only databases/5.db in the existing exact-path
+sensitive-file allowlist; all existing entries and leak checks remain intact.
 
 The import receipt is one immutable row per inspection with a unique source digest.
 SQL enforces field shapes, uniqueness and provenance immutability. The mapping JSON
