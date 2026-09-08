@@ -8494,8 +8494,8 @@ if (-not $r15Fail) { Write-Host '  15r ship saga ≥13 腿（远端 push+PR/R3/C
 #   隔离夹具真跑两条失败路径断言行为，离线、无 gh/codex，-Local + 均在评审腿之前失败）：
 #   A = commit 前失败（RED 证据缺失）：失败点点名 RED 证据闸（不得误报 DoD，r3 #9）、完整待办清单、重跑命令、原异常在场；
 #   B = 提交后可重入族（红→绿 marker 卡、无 -SkipRed：red 相铸真证据 → ship 真 commit（marker 卡外）→ 铸水位线收据 → 范围闸 block）：
-#     已完成腿含「提交」、失败点=范围闸；T35-RECEIPT 后收据在位 → saga **建议重跑**同一条 ship（经收据 resume 放行 RED 闸、
-#     全闸重过、无死锁无旁路），点名水位线收据在位（reset 归位降为收据缺失兜底、靶=evidence.redSha 非 HEAD~1）；
+#     收据在范围闸入口真实存在，夹具随后在 catch 前删除；已完成腿含「提交」、失败点=范围闸，saga 只消费本轮授权位并**建议重跑**
+#     同一条 ship（经授权位路由、全闸重过、无死锁无旁路），不得在 catch 重探 receipt 或误称文件仍在；
 #   D = no-op 提交重跑（r5 #9：B 之后同卡 -SkipRed 重跑——commit 腿 no-op、HEAD 未动）：范围闸再 block 时须给
 #     「带 -SkipRed 的完整重跑」而非假死锁警告（-SkipRed 重跑不经 RED 闸）；
 #   C = 本地合并冲突（master 与分支同改 README）：失败点=本地合并、待办=（无）、给 merge --continue 续跑命令；
