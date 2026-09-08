@@ -102,42 +102,239 @@ $Py = $ScaffoldConfig.PythonVersion
 
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
+function Initialize-CiContainment {
+  param([string]$Fault = '')
+  if (($Fault -ceq 'platform') -or (-not $IsWindows)) {
+    throw '[CI-GATE-CONTAINMENT] stage=platform：候选 CI 进程树容纳当前只支持 Windows；请在 Windows host 重跑 ship。'
+  }
+  try {
+    if ($Fault -ceq 'add-type') { Add-Type -TypeDefinition 'public class {' -ErrorAction Stop; return }
+    if ('ScaffoldContainedProcess' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+
+public sealed class ScaffoldProcessResult {
+  public bool TimedOut { get; set; }
+  public int ExitCode { get; set; }
+  public string Stdout { get; set; }
+  public string Stderr { get; set; }
+}
+
+public static class ScaffoldContainedProcess {
+  const uint CREATE_SUSPENDED = 0x00000004, CREATE_NO_WINDOW = 0x08000000, EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+  const uint STARTF_USESTDHANDLES = 0x00000100, HANDLE_FLAG_INHERIT = 0x00000001;
+  const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+  const uint WAIT_OBJECT_0 = 0;
+  const int PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002;
+  const uint GENERIC_READ = 0x80000000, FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2;
+  const uint OPEN_EXISTING = 3, FILE_ATTRIBUTE_NORMAL = 0x80;
+
+  [StructLayout(LayoutKind.Sequential)] struct SECURITY_ATTRIBUTES {
+    public int nLength; public IntPtr lpSecurityDescriptor;
+    [MarshalAs(UnmanagedType.Bool)] public bool bInheritHandle;
+  }
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct STARTUPINFO {
+    public int cb; public string lpReserved, lpDesktop, lpTitle;
+    public uint dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+    public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+  }
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct STARTUPINFOEX {
+    public STARTUPINFO StartupInfo; public IntPtr lpAttributeList;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct PROCESS_INFORMATION {
+    public IntPtr hProcess, hThread; public uint dwProcessId, dwThreadId;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct IO_COUNTERS {
+    public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+    public long PerProcessUserTimeLimit, PerJobUserTimeLimit; public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize; public uint ActiveProcessLimit;
+    public UIntPtr Affinity; public uint PriorityClass, SchedulingClass;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+    public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation; public IO_COUNTERS IoInfo;
+    public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+  }
+
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateJobObjectW(IntPtr a, string name);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job, int cls, IntPtr info, uint len);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job, uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SECURITY_ATTRIBUTES sa, uint size);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateFileW(string name, uint access, uint share, ref SECURITY_ATTRIBUTES sa, uint creation, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool CreateProcessW(string app, StringBuilder commandLine, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string cwd, ref STARTUPINFOEX si, out PROCESS_INFORMATION pi);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref IntPtr size);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returned);
+  [DllImport("kernel32.dll")] static extern void DeleteProcThreadAttributeList(IntPtr list);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint ResumeThread(IntPtr thread);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(IntPtr process, uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
+
+  static Exception Stage(string stage, string detail="fault injection") {
+    return new InvalidOperationException("[CI-GATE-CONTAINMENT] stage=" + stage + ": " + detail);
+  }
+  static bool IsFault(string fault, string stage) { return String.Equals(fault, stage, StringComparison.Ordinal); }
+  static int Left(DateTime deadline) {
+    double ms = (deadline - DateTime.UtcNow).TotalMilliseconds;
+    return ms <= 0 ? 0 : (ms >= Int32.MaxValue ? Int32.MaxValue : (int)Math.Floor(ms));
+  }
+  static bool WaitHandle(IntPtr handle, DateTime deadline) {
+    int ms = Left(deadline); return ms > 0 && WaitForSingleObject(handle, (uint)ms) == WAIT_OBJECT_0;
+  }
+  static bool WaitStreams(Task<string> stdout, Task<string> stderr, DateTime deadline) {
+    if (stdout.IsCompleted && stderr.IsCompleted) return true;
+    int ms = Left(deadline); if (ms <= 0) return false;
+    try { return Task.WaitAll(new Task[] { stdout, stderr }, ms); } catch { return false; }
+  }
+  static void Close(ref IntPtr h) { if (h != IntPtr.Zero && h != new IntPtr(-1)) CloseHandle(h); h = IntPtr.Zero; }
+
+  public static ScaffoldProcessResult Run(string application, string commandLine, string cwd, long deadlineTicks, int cleanupAllowanceMs, string fault) {
+    DateTime deadline = new DateTime(deadlineTicks, DateTimeKind.Utc);
+    DateTime cleanupDeadline = deadline.AddMilliseconds(cleanupAllowanceMs);
+    IntPtr job=IntPtr.Zero, outR=IntPtr.Zero, outW=IntPtr.Zero, errR=IntPtr.Zero, errW=IntPtr.Zero, nul=IntPtr.Zero;
+    IntPtr infoPtr=IntPtr.Zero, attrs=IntPtr.Zero, attrSize=IntPtr.Zero, handleList=IntPtr.Zero; bool attrsReady=false;
+    PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+    StreamReader outReader=null, errReader=null; Task<string> outTask=null, errTask=null;
+    bool created=false, resumed=false;
+    try {
+      job = CreateJobObjectW(IntPtr.Zero, null);
+      bool jobOk=job != IntPtr.Zero; if (IsFault(fault,"create-job")) jobOk=false;
+      if (!jobOk) throw Stage("create-job",IsFault(fault,"create-job")?"api-result":new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+      info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      int infoSize=Marshal.SizeOf(info); infoPtr=Marshal.AllocHGlobal(infoSize); Marshal.StructureToPtr(info,infoPtr,false);
+      bool configured=SetInformationJobObject(job,9,infoPtr,(uint)infoSize); if (IsFault(fault,"configure-job")) configured=false;
+      if (!configured) throw Stage("configure-job",IsFault(fault,"configure-job")?"api-result":new Win32Exception(Marshal.GetLastWin32Error()).Message);
+
+      SECURITY_ATTRIBUTES sa=new SECURITY_ATTRIBUTES { nLength=Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle=true };
+      if (!CreatePipe(out outR,out outW,ref sa,0) || !SetHandleInformation(outR,HANDLE_FLAG_INHERIT,0)) throw Stage("create-pipe",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      if (!CreatePipe(out errR,out errW,ref sa,0) || !SetHandleInformation(errR,HANDLE_FLAG_INHERIT,0)) throw Stage("create-pipe",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      nul=CreateFileW("NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,ref sa,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,IntPtr.Zero);
+      if (nul == new IntPtr(-1)) throw Stage("create-pipe",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      InitializeProcThreadAttributeList(IntPtr.Zero,1,0,ref attrSize);
+      if (attrSize == IntPtr.Zero) throw Stage("create-process",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      attrs=Marshal.AllocHGlobal(attrSize); if (!InitializeProcThreadAttributeList(attrs,1,0,ref attrSize)) throw Stage("create-process",new Win32Exception(Marshal.GetLastWin32Error()).Message); attrsReady=true;
+      handleList=Marshal.AllocHGlobal(IntPtr.Size*3); Marshal.WriteIntPtr(handleList,0,nul); Marshal.WriteIntPtr(handleList,IntPtr.Size,outW); Marshal.WriteIntPtr(handleList,IntPtr.Size*2,errW);
+      if (!UpdateProcThreadAttribute(attrs,0,new IntPtr(PROC_THREAD_ATTRIBUTE_HANDLE_LIST),handleList,new IntPtr(IntPtr.Size*3),IntPtr.Zero,IntPtr.Zero)) throw Stage("create-process",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      STARTUPINFOEX si=new STARTUPINFOEX(); si.StartupInfo=new STARTUPINFO { cb=Marshal.SizeOf(typeof(STARTUPINFOEX)), dwFlags=STARTF_USESTDHANDLES, hStdInput=nul, hStdOutput=outW, hStdError=errW }; si.lpAttributeList=attrs;
+      if (Left(deadline) <= 0) return new ScaffoldProcessResult { TimedOut=true, ExitCode=124, Stdout="", Stderr="" };
+      bool processOk=CreateProcessW(application,new StringBuilder(commandLine),IntPtr.Zero,IntPtr.Zero,true,CREATE_SUSPENDED|CREATE_NO_WINDOW|EXTENDED_STARTUPINFO_PRESENT,IntPtr.Zero,cwd,ref si,out pi);
+      created=processOk; if (IsFault(fault,"create-process")) processOk=false;
+      if (!processOk) throw Stage("create-process",IsFault(fault,"create-process")?"api-result pid="+pi.dwProcessId:new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      Close(ref outW); Close(ref errW); Close(ref nul);
+      bool assigned=!IsFault(fault,"assign") && AssignProcessToJobObject(job,pi.hProcess);
+      if (!assigned) throw Stage("assign",IsFault(fault,"assign")?"api-result pid="+pi.dwProcessId:new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      outReader=new StreamReader(new FileStream(new SafeFileHandle(outR,true),FileAccess.Read,4096,false),Encoding.UTF8,true); outR=IntPtr.Zero;
+      errReader=new StreamReader(new FileStream(new SafeFileHandle(errR,true),FileAccess.Read,4096,false),Encoding.UTF8,true); errR=IntPtr.Zero;
+      outTask=outReader.ReadToEndAsync(); errTask=errReader.ReadToEndAsync();
+      if (IsFault(fault,"expire-before-resume")) System.Threading.Thread.Sleep(Math.Max(1,Left(deadline)+20));
+      if (Left(deadline) <= 0) {
+        string e=""; if (!TerminateJobObject(job,124)) e=new Win32Exception(Marshal.GetLastWin32Error()).Message;
+        bool root=WaitHandle(pi.hProcess,cleanupDeadline), streams=WaitStreams(outTask,errTask,cleanupDeadline);
+        if (!String.IsNullOrEmpty(e)) throw Stage("terminate-job",e+" pid="+pi.dwProcessId);
+        if (!root || !streams) throw Stage("cleanup","pre-resume timeout cleanup pid="+pi.dwProcessId);
+        created=false;
+        return new ScaffoldProcessResult { TimedOut=true, ExitCode=124, Stdout="", Stderr="" };
+      }
+      uint resumedCount=IsFault(fault,"resume")?UInt32.MaxValue:ResumeThread(pi.hThread);
+      if (resumedCount == UInt32.MaxValue) throw Stage("resume",IsFault(fault,"resume")?"api-result pid="+pi.dwProcessId:new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      resumed=true; Close(ref pi.hThread);
+
+      bool rootExited=WaitHandle(pi.hProcess,deadline);
+      bool streamsDone=rootExited && WaitStreams(outTask,errTask,deadline);
+      bool timedOut=!rootExited || !streamsDone;
+      string terminateError="";
+      if (timedOut) {
+        if (IsFault(fault,"terminate-job")) terminateError="api-result pid="+pi.dwProcessId;
+        else if (!TerminateJobObject(job,124)) terminateError=new Win32Exception(Marshal.GetLastWin32Error()).Message;
+        WaitHandle(pi.hProcess,cleanupDeadline);
+        streamsDone=WaitStreams(outTask,errTask,cleanupDeadline);
+        if (!String.IsNullOrEmpty(terminateError)) throw Stage("terminate-job",terminateError);
+        if (!streamsDone) throw Stage("cleanup","stdout/stderr did not close before the shared cleanup deadline");
+      }
+      uint ec=124; if (!timedOut && !GetExitCodeProcess(pi.hProcess,out ec)) throw Stage("exit-code",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      return new ScaffoldProcessResult { TimedOut=timedOut, ExitCode=timedOut?124:(int)ec,
+        Stdout=outTask != null && outTask.Status==TaskStatus.RanToCompletion ? outTask.Result : "",
+        Stderr=errTask != null && errTask.Status==TaskStatus.RanToCompletion ? errTask.Result : "" };
+    } finally {
+      string cleanupError="";
+      if (created && !resumed) {
+        if (!TerminateProcess(pi.hProcess,125)) cleanupError=new Win32Exception(Marshal.GetLastWin32Error()).Message;
+        else if (!WaitHandle(pi.hProcess,cleanupDeadline)) cleanupError="suspended root did not exit before cleanup deadline";
+      }
+      if (outReader != null) outReader.Dispose(); if (errReader != null) errReader.Dispose();
+      Close(ref outR); Close(ref outW); Close(ref errR); Close(ref errW); Close(ref nul);
+      Close(ref pi.hThread); Close(ref pi.hProcess); Close(ref job);
+      if (infoPtr != IntPtr.Zero) Marshal.FreeHGlobal(infoPtr);
+      if (attrsReady) DeleteProcThreadAttributeList(attrs); if (attrs != IntPtr.Zero) Marshal.FreeHGlobal(attrs); if (handleList != IntPtr.Zero) Marshal.FreeHGlobal(handleList);
+      if (!String.IsNullOrEmpty(cleanupError)) throw Stage("cleanup",cleanupError+" pid="+pi.dwProcessId);
+    }
+  }
+}
+'@ -ErrorAction Stop
+  } catch {
+    $detail = $_.Exception.Message
+    throw "[CI-GATE-CONTAINMENT] stage=add-type：$detail"
+  }
+}
+
+function Invoke-ExternalBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$Command,
+    [Parameter(Mandatory)][string[]]$Arguments,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  $fault = "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"
+  Initialize-CiContainment -Fault $fault
+  $remainingMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
+  if ($remainingMs -le 0) { return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = ''; Stderr = '' } }
+  $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(([ordered]@{ Command=$Command; Arguments=@($Arguments) } | ConvertTo-Json -Compress)))
+  $child = @'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__PAYLOAD__'))
+$o=$p|ConvertFrom-Json; $a=@($o.Arguments); & "$($o.Command)" @a; exit $LASTEXITCODE
+'@.Replace('__PAYLOAD__',$payload)
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+  $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+  $line = '"' + $pwsh + '" -NoProfile -NonInteractive -EncodedCommand ' + $encoded
+  try {
+    return [ScaffoldContainedProcess]::Run($pwsh,$line,$WorkingDirectory,$Deadline.UtcDateTime.Ticks,2000,$fault)
+  } catch {
+    $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }
+    if ($e.Message -match '^\[CI-GATE-CONTAINMENT\]') { throw $e.Message }
+    throw "[CI-GATE-CONTAINMENT] stage=runner：$($e.Message)"
+  }
+}
 function Invoke-GhBeforeDeadline {
   param(
     [Parameter(Mandatory)][string[]]$Arguments,
     [Parameter(Mandatory)][DateTimeOffset]$Deadline,
     [Parameter(Mandatory)][string]$WorkingDirectory
   )
-  $remainingMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
-  if ($remainingMs -le 0) { return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = ''; Stderr = '' } }
-  $psi = [Diagnostics.ProcessStartInfo]::new()
-  $psi.FileName = (Get-Command pwsh -ErrorAction Stop).Source; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
-  $psi.WorkingDirectory = $WorkingDirectory
-  $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
-  [void]$psi.ArgumentList.Add('-NoProfile'); [void]$psi.ArgumentList.Add('-Command')
-  [void]$psi.ArgumentList.Add('$ghArgs = @($env:SCAFFOLD_GH_ARGS_JSON | ConvertFrom-Json); & gh @ghArgs; exit $LASTEXITCODE')
-  $psi.Environment['SCAFFOLD_GH_ARGS_JSON'] = ($Arguments | ConvertTo-Json -Compress)
-  $proc = [Diagnostics.Process]::new(); $proc.StartInfo = $psi
-  try {
-    if (-not $proc.Start()) { throw "无法启动 gh 子进程：$($Arguments -join ' ')" }
-    $stdoutTask = $proc.StandardOutput.ReadToEndAsync(); $stderrTask = $proc.StandardError.ReadToEndAsync()
-    if (-not $proc.WaitForExit($remainingMs)) {
-      try { $proc.Kill($true) } catch { }
-      try { [void]$proc.WaitForExit(1000) } catch { }
-      $timedOutStdout = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
-      $timedOutStderr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
-      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $timedOutStdout; Stderr = $timedOutStderr }
-    }
-    [void]$proc.WaitForExit()
-    $streamMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
-    $streamsOk = $false; if ($streamMs -gt 0) { try { $streamsOk = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask, $stderrTask), $streamMs) } catch { $streamsOk = $false } }
-    if (-not $streamsOk) {
-      try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch { }
-      $lateOut = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }; $lateErr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
-      return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = $lateOut; Stderr = $lateErr }
-    }
-    return [pscustomobject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Stdout = $stdoutTask.GetAwaiter().GetResult(); Stderr = $stderrTask.GetAwaiter().GetResult() }
-  } finally { $proc.Dispose() }
+  return (Invoke-ExternalBeforeDeadline -Command 'gh' -Arguments $Arguments -Deadline $Deadline -WorkingDirectory $WorkingDirectory)
+}
+function Get-GitOidBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$Ref,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  $r = Invoke-ExternalBeforeDeadline -Command 'git' -Arguments @('-C',$WorkingDirectory,'rev-parse',$Ref) -Deadline $Deadline -WorkingDirectory $WorkingDirectory
+  if ($r.TimedOut) { throw "[CI-GATE-TIMEOUT] git rev-parse $Ref。" }
+  if ($r.ExitCode -ne 0) { return '' }
+  return "$($r.Stdout)".Trim()
 }
 function Wait-CiRetryBeforeDeadline([DateTimeOffset]$Deadline) {
   $sleepMs = [int][Math]::Min(1000, [Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)))
@@ -807,6 +1004,7 @@ switch ($Phase) {
         if ((-not [int]::TryParse($env:SCAFFOLD_CI_TIMEOUT_SEC, [ref]$to)) -or ($to -le 0)) { throw "[CI-GATE-TIMEOUT-CONFIG] '$($env:SCAFFOLD_CI_TIMEOUT_SEC)'。" }
         $toSec = $to
       }
+      Initialize-CiContainment -Fault "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"
       $ddl = [DateTimeOffset]::UtcNow.AddSeconds($toSec)
       $hr = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'headRefOid', '-q', '.headRefOid') -Deadline $ddl -WorkingDirectory $Wt
       $head = "$($hr.Stdout)".Trim()
@@ -900,12 +1098,13 @@ switch ($Phase) {
         $last = @($jobState.Pending | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
         Wait-CiRetryBeforeDeadline $ddl
       }
-      & git -C $Wt fetch --quiet --no-tags origin "+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}" 2>$null
-      if ($LASTEXITCODE -ne 0) {
+      $baseFetch = Invoke-ExternalBeforeDeadline -Command 'git' -Arguments @('-C',$Wt,'fetch','--quiet','--no-tags','origin',"+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}") -Deadline $ddl -WorkingDirectory $Wt
+      if ($baseFetch.TimedOut) { throw "[CI-GATE-TIMEOUT] git fetch origin/$remoteBaseName。" }
+      if ($baseFetch.ExitCode -ne 0) {
         Add-CatchRecord 'ci' "base refresh:origin/$remoteBaseName"
         throw "[CI-GATE-BASE-REFRESH] origin/$remoteBaseName。"
       }
-      $baseNow = "$(& git -C $Wt rev-parse "refs/remotes/origin/$remoteBaseName" 2>$null)".Trim()
+      $baseNow = Get-GitOidBeforeDeadline -Ref "refs/remotes/origin/$remoteBaseName" -Deadline $ddl -WorkingDirectory $Wt
       if (($baseNow -cnotmatch '^[0-9a-f]{40}$') -or ($baseNow -cne $scopeBaseOid)) {
         Add-CatchRecord 'ci' "base:$scopeBaseOid->$baseNow"
         throw "[CI-GATE-BASE-MOVED] $scopeBaseOid -> '$baseNow'。"
