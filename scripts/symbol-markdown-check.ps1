@@ -54,6 +54,30 @@ Add-Case 'inline-code-comment-literal-retained' visible ('before '+[char]96+'<!-
 Add-Case 'inline-html-excludes-containing-block' visible "## Real`n`nbefore <span hidden>Fake</span> after" '## Real'
 Add-Case 'closed-inline-comment-then-unclosed' visible 'before <!-- closed --> after <!-- open' '' 'SYMBOL-MARKDOWN-CLOSURE:'
 Add-Case 'escaped-comment-opener-is-literal' visible 'before \<!-- literal' 'before \<!-- literal'
+Add-Case 'empty-input-projection' visible '' ''
+Add-Case 'empty-input-no-block' block '' '' 'SYMBOL-MARKDOWN-BLOCK:'
+Add-Case 'empty-block-content' block ($f+$label+[char]10+$f) ''
+Add-Case 'unicode-prefix-content-span' block ('前言'+[char]10+[char]10+$block) 'return 42'
+Add-Case 'inline-comment-in-heading' visible '## Visible <!-- hidden -->' '## Visible'
+Add-Case 'inline-html-in-heading' visible '## Visible <span hidden>hidden</span>' ''
+Add-Case 'inline-comment-in-table' visible ('| A | B |'+[char]10+'|---|---|'+[char]10+'| x <!-- y --> | z |') ('| A | B |||---|---||| x '+(' '*10)+' | z |')
+Add-Case 'inline-html-excludes-table' visible ('| A | B |'+[char]10+'|---|---|'+[char]10+'| x <span>y</span> | z |') ''
+Add-Case 'even-backslashes-do-not-escape-comment' visible 'before \\<!-- open' '' 'SYMBOL-MARKDOWN-CLOSURE:'
+Add-Case 'odd-backslashes-escape-comment' visible 'before \\\<!-- literal' 'before \\\<!-- literal'
+Add-Case 'closed-then-open-comment-before-block' block ("<!-- closed --> <!-- open`n"+$block) '' 'SYMBOL-MARKDOWN-CLOSURE:'
+Add-Case 'closed-then-open-comment-before-heading' visible "<!-- closed --> <!-- open`n## Fake" '' 'SYMBOL-MARKDOWN-CLOSURE:'
+Add-Case 'multiline-inline-comment' visible "before <!-- hidden`n## Fake`n--> after" 'before|after'
+Add-Case 'closed-then-multiline-comment-hides-block' block ("<!-- closed --> <!-- open`n"+$block+"`n-->") '' 'SYMBOL-MARKDOWN-BLOCK:'
+Add-Case 'closed-then-multiline-comment-hides-heading' visible "<!-- closed --> <!-- open`n## Fake`n-->" ''
+Add-Case 'comment-literal-code-closer' visible ('before '+[char]96+'<!--'+[char]96+' after') ('before '+[char]96+'<!--'+[char]96+' after')
+Add-Case 'bullet-clauses-opt-in' visible-list "- Counts use complete language`n- Do give every status a cue" '- Counts use complete language|- Do give every status a cue'
+Add-Case 'numbered-clauses-opt-in' visible-list "1. First`n2. The control carries a name" '1. First|2. The control carries a name'
+Add-Case 'list-heading-not-admitted' visible-list "- item`n`n  ## Fake`n`n  kept clause" '- item|kept clause'
+Add-Case 'list-code-not-admitted' visible-list ("- item`n`n  "+$f+"`n  ## Fake`n  "+$f+"`n`n  kept clause") '- item|kept clause'
+Add-Case 'list-quote-not-admitted' visible-list "- item`n`n  > hidden`n`n  kept clause" '- item|kept clause'
+Add-Case 'list-inline-comment-masked' visible-list '- Counts <!-- hidden --> stay' '- Counts                 stay'
+Add-Case 'list-inline-html-not-admitted' visible-list "- okay`n- before <span hidden>Fake</span> after" '- okay'
+Add-Case 'default-numbered-list-still-hidden' visible "1. First`n2. Second" ''
 
 function Invoke-Suite([string]$Source) {
     $module = New-Module -ScriptBlock ([scriptblock]::Create($Source))
@@ -63,11 +87,14 @@ function Invoke-Suite([string]$Source) {
             $result = & $module {
                 param($c,$blockLabel)
                 if ($c.Operation -eq 'block') { Get-SymbolMarkdownBlock -Text $c.Text -Label $blockLabel }
+                elseif ($c.Operation -eq 'visible-list') { Get-SymbolMarkdownVisible -Text $c.Text -IncludeListText }
                 else { Get-SymbolMarkdownVisible -Text $c.Text }
             } $case $label
             if ($case.ErrorPrefix) { $failures.Add($case.Name+': expected '+$case.ErrorPrefix); continue }
             if ($case.Operation -eq 'block') {
-                if ($result.Value.TrimEnd("`r","`n") -cne $case.Want) { $failures.Add($case.Name+': wrong content') }
+                $ending = if ($case.Text.Contains("`r`n")) { "`r`n" } else { "`n" }
+                $body = if ($case.Want.Length) { $case.Want+$ending } else { '' }
+                if ($result.Value -cne $body) { $failures.Add($case.Name+': wrong content') }
                 if ($result.Index -lt 0 -or $result.Length -lt 0 -or $case.Text.Substring($result.Index,$result.Length) -cne $result.Value) {
                     $failures.Add($case.Name+': incorrect original content span')
                 }
@@ -94,7 +121,42 @@ if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) {
     Write-Host 'SYMBOL-MARKDOWN-TEST FAIL: production helper unavailable; visible-contract behavior is not implemented'
     exit 1
 }
-$source = Get-Content -LiteralPath $helperPath -Raw
+$source = (Get-Content -LiteralPath $helperPath -Raw).Replace("`r`n","`n")
 $errors = @(Invoke-Suite $source)
 if ($errors.Count) { $errors | ForEach-Object { Write-Host "SYMBOL-MARKDOWN-TEST FAIL: $_" }; exit 1 }
-Write-Host "SYMBOL-MARKDOWN-TEST PASS: $($cases.Count) real behavior cases"
+# Each mutation names a specific real fixture. Parse errors and absent/ambiguous targets
+# invalidate the mutation setup; they are not counted as killed behavioral mutations.
+$mutations = @(
+    @('fence-closure', 'if (-not $hidden -and $node -is [Markdig.Syntax.FencedCodeBlock] -and', 'if ($false -and $node -is [Markdig.Syntax.FencedCodeBlock] -and', 'unclosed-'),
+    @('comment-closure', "throw 'SYMBOL-MARKDOWN-CLOSURE: unclosed comment'", 'return [pscustomobject]@{Document=$document;Comments=@()}', 'unclosed-comment-before-block:'),
+    @('comment-scan-resumes', '$i=$end+3', '$i=$Text.Length', 'closed-then-open-comment-before-block:'),
+    @('code-literal-exclusion', '$codeEnds.ContainsKey($i)', '$false', 'code-comment-literal-not-markup:'),
+    @('escaped-opener', "`$Text[`$i] -eq '\'", '$false', 'escaped-comment-opener-is-literal:'),
+    @('top-level-only', 'foreach ($node in $document)', 'foreach ($node in [Markdig.Syntax.MarkdownObjectExtensions]::Descendants($document))', 'quoted-block:'),
+    @('case-sensitive-label', ').TrimEnd() -ceq $Label', ').TrimEnd() -ieq $Label', 'label-is-case-sensitive:'),
+    @('exact-label', ').TrimEnd() -ceq $Label', ").TrimEnd() -clike (`$Label+'*')", 'label-not-substring:'),
+    @('unique-block', '$matches.Count -ne 1', '$matches.Count -lt 1', 'duplicate-block:'),
+    @('content-start', '$block.Span.Start)+1', '$block.Span.Start)+2', 'crlf-content-offsets:'),
+    @('supported-blocks-only', 'if (-not $supported)', 'if ($false)', 'quoted-heading-masked:'),
+    @('comment-range-mask', 'Set-SymbolMarkdownMask $visible $comment.Start $comment.End', '$null = $comment', 'inline-comment-masked:'),
+    @('comment-range-block-filter', 'if (-not @($context.Comments | Where-Object { $node.Span.Start -ge $_.Start -and $node.Span.Start -le $_.End }).Count) { $node }', '$node', 'closed-then-multiline-comment-hides-block:'),
+    @('inline-html-mask', 'Set-SymbolMarkdownMask $visible $start $block.Span.End', '$null = $inline', 'inline-html-excludes-containing-block:'),
+    @('newline-fidelity', '$Buffer[$i] -notin @([char]10,[char]13)', '$true', 'closed-comment-masked:'),
+    @('leaf-inline-traversal', '$scan = $block.Inline', '$scan = $block', 'inline-html-excludes-containing-block:'),
+    @('visible-projection', 'return -join $visible', 'return $Text', 'closed-comment-masked:'),
+    @('list-opt-in', '$IncludeListText -and $root -is [Markdig.Syntax.ListBlock]', '$root -is [Markdig.Syntax.ListBlock]', 'default-numbered-list-still-hidden:'),
+    @('nested-heading-exclusion', '-not $entry.Nested -and $block -is [Markdig.Syntax.HeadingBlock]', '$block -is [Markdig.Syntax.HeadingBlock]', 'list-heading-not-admitted:')
+)
+foreach ($mutation in $mutations) {
+    $needle = $mutation[1]
+    if ([regex]::Matches($source,[regex]::Escape($needle)).Count -ne 1) {
+        throw "SYMBOL-MARKDOWN-MUTATION: target missing/ambiguous: $($mutation[0])"
+    }
+    $changed = $source.Replace($needle,$mutation[2])
+    $null = [scriptblock]::Create($changed)
+    $bad = @(Invoke-Suite $changed)
+    $witness = @($bad | Where-Object { $_.StartsWith($mutation[3],[StringComparison]::Ordinal) })
+    if (-not $witness.Count) { throw "SYMBOL-MARKDOWN-MUTATION: survived named fixture: $($mutation[0])" }
+    Write-Host "SYMBOL-MARKDOWN-MUTATION KILLED: $($mutation[0]) -> $($witness[0])"
+}
+Write-Host "SYMBOL-MARKDOWN-TEST PASS: $($cases.Count) real behavior cases; $($mutations.Count) named guard mutations killed"

@@ -39,10 +39,18 @@ The user approved this bounded prerequisite PR on 2026-09-08 after PR263 reached
 
 PowerShell's bundled ConvertFrom-Markdown supplies the Markdown AST; no package is installed. Local discovery used PowerShell 7.6.5 / Markdig.Signed 0.44.0. The DoD exercises the actual API and fails if unavailable; it does not assume other runtime versions were tested.
 
-Get-SymbolMarkdownBlock takes Text and Label and returns Value, Index and Length for exactly one visible top-level fenced block. It never executes the content. Get-SymbolMarkdownVisible takes Text and returns a position-preserving text projection for subsequent heading/table checks. This is a constrained Markdown contract view, not a browser renderer: block quotes, lists, raw HTML and code blocks are not top-level contract evidence. Non-comment inline HTML excludes its containing visible block; inline comments are masked. Code literals do not open comments.
+Get-SymbolMarkdownBlock takes Text and Label and returns Value, Index and Length for exactly one visible top-level fenced block. It never executes the content. Get-SymbolMarkdownVisible takes Text and returns a position-preserving text projection for subsequent heading/table checks. Its explicit IncludeListText switch retains legitimate numbered/bullet clauses for source-document consumers; the default metadata view still excludes lists. Even with that switch, nested headings, quotes, HTML and code are excluded. This is a constrained Markdown contract view, not a browser renderer. Non-comment inline HTML excludes its containing visible block; inline comments are masked. Code literals do not open comments.
+
+The AST distinguishes code and hierarchy; source-aware comment ranges handle inline/multiline comments and multiple openers on one line. A closed comment followed by an unclosed comment must fail even when Markdig groups both into one HtmlBlock. No raw-regex fallback is used for fenced-block discovery.
 
 The subsequent PR263 must replace both embedded runner loaders, both manifest readers, and checkpoint/delta extraction, then exercise each actual consumer. This prerequisite alone does not fix or approve those callers.
 
 ## Budget
 
 Planned complete payload: approximately 300–500 changed lines / 15–30k characters including helper, tests and this card. Official complete-diff limits remain 1000 lines / 60000 characters.
+
+## Local verification evidence (2026-09-08)
+
+RED was recorded at eecb282dd788b9b35d634997215c4a74d3d6b375 before the helper existed. The first implementation passed 54 behavior cases and 14 guard mutations; independent preflight then found the same-line closed-comment/new-opener defect. The actual helper reproduced that defect before repair, alongside hidden checkpoint and multiline-comment cases. The repaired checker now passes 68 behavior cases and kills 19 named guard mutations in isolated in-memory modules. Every mutation requires a unique source target, valid syntax and a failure from its specific real fixture; setup failures are not accepted as behavioral kills. This is local prerequisite evidence, not formal R3 approval or PR263 integration acceptance.
+
+These results bind to helper SHA-256 563C51C98FBD04D41680FD83669B21B2A83D48501A1257EF5764CF96C88474F4 and checker SHA-256 1684C0369CC3513B74403E31682CBAB468074D6C49801AF212B41ACCB4F4E209. Tests never mutate tracked files. Full traces remain under the worktree's ignored .review directory.
