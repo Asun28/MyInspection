@@ -11,7 +11,8 @@ function Get-SymbolMarkdownDocument {
     } catch {
         throw "SYMBOL-MARKDOWN-API: bundled Markdown parser unavailable: $($_.Exception.Message)"
     }
-    $codeEnds = @{}
+    $literalEnds = @{}
+    $linkLiterals = [Collections.Generic.List[object]]::new()
     foreach ($node in $nodes) {
         if ($node -is [Markdig.Syntax.FencedCodeBlock] -and
             $null -eq $node.PSObject.Properties['ClosingFencedCharCount']) {
@@ -22,15 +23,35 @@ function Get-SymbolMarkdownDocument {
             if ($node -is [Markdig.Syntax.FencedCodeBlock] -and $node.ClosingFencedCharCount -lt $node.OpeningFencedCharCount) {
                 $end = $Text.Length-1
             }
-            $codeEnds[$node.Span.Start] = $end
+            $literalEnds[$node.Span.Start] = $end
+        }
+        if ($node -is [Markdig.Syntax.Inlines.LinkInline] -or $node -is [Markdig.Syntax.LinkReferenceDefinition]) {
+            if ($node.Span.End -lt $node.Span.Start) { continue } # Synthetic heading references have no source.
+            $isReferenceUse = $node -is [Markdig.Syntax.Inlines.LinkInline] -and $null -ne $node.Reference
+            $spans = @($node.UrlSpan,$node.TitleSpan)
+            if ($isReferenceUse) { $spans=@($node.LabelSpan) } # Title/URL live at the definition, not this use.
+            elseif ($node -is [Markdig.Syntax.LinkReferenceDefinition]) { $spans=@($node.LabelSpan,$node.UrlSpan,$node.TitleSpan) }
+            foreach ($span in $spans) {
+                if ($span.End -ge $span.Start) {
+                    if (-not $isReferenceUse -or $null -eq $node.LastChild -or $span.Start -gt $node.LastChild.Span.End) {
+                        $linkLiterals.Add($span) # Collapsed reference keys overlap their visible label.
+                    }
+                    $literalEnds[$span.Start] = $span.End
+                }
+            }
+        }
+        if ($node -is [Markdig.Syntax.Inlines.LiteralInline]) {
+            $owner=$node.Parent
+            while ($null -ne $owner -and $owner -isnot [Markdig.Syntax.Inlines.LinkInline]) { $owner=$owner.Parent }
+            if ($null -ne $owner) { $literalEnds[$node.Span.Start]=$node.Span.End }
         }
     }
     # Markdig may keep "closed comment + new opener" in one HtmlBlock. Scan actual
-    # comment boundaries, skipping AST code only while outside a comment; a fence
-    # encountered inside a comment cannot turn its contents back into visible code.
+    # comment boundaries, skipping AST literal spans only while outside a comment;
+    # literal-looking syntax inside an active comment cannot make its contents visible.
     $comments = [Collections.Generic.List[object]]::new()
     for ($i=0; $i -lt $Text.Length;) {
-        if ($codeEnds.ContainsKey($i)) { $i=$codeEnds[$i]+1; continue }
+        if ($literalEnds.ContainsKey($i)) { $i=$literalEnds[$i]+1; continue }
         if ($Text[$i] -eq '\') { $i+=2; continue }
         # Use the bundled HTML lexer for tags/attributes, not a second HTML grammar.
         # Skip only that token: real comments inside an unsupported HTML block still count.
@@ -55,7 +76,7 @@ function Get-SymbolMarkdownDocument {
             throw 'SYMBOL-MARKDOWN-CLOSURE: unclosed fence'
         }
     }
-    return [pscustomobject]@{Document=$document;Comments=$comments.ToArray()}
+    return [pscustomobject]@{Document=$document;Comments=$comments.ToArray();LinkLiterals=$linkLiterals.ToArray()}
 }
 
 function Get-SymbolMarkdownBlock {
@@ -98,7 +119,9 @@ function Get-SymbolMarkdownVisible {
     $visible = $Text.ToCharArray()
     $entries = [Collections.Generic.List[object]]::new()
     foreach ($root in $document) {
-        if ($IncludeListText -and $root -is [Markdig.Syntax.ListBlock]) {
+        if ($root -is [Markdig.Syntax.LinkReferenceDefinitionGroup]) {
+            foreach ($definition in $root) { $entries.Add([pscustomobject]@{Node=$definition;Nested=$false}) }
+        } elseif ($IncludeListText -and $root -is [Markdig.Syntax.ListBlock]) {
             foreach ($child in [Markdig.Syntax.MarkdownObjectExtensions]::Descendants($root)) {
                 if ($child -is [Markdig.Syntax.Block]) { $entries.Add([pscustomobject]@{Node=$child;Nested=$true}) }
             }
@@ -129,6 +152,9 @@ function Get-SymbolMarkdownVisible {
     }
     foreach ($comment in $context.Comments) {
         Set-SymbolMarkdownMask $visible $comment.Start $comment.End
+    }
+    foreach ($span in $context.LinkLiterals) {
+        Set-SymbolMarkdownMask $visible $span.Start $span.End
     }
     return -join $visible
 }

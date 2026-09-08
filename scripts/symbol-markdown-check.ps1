@@ -93,6 +93,30 @@ Add-Case 'html-real-comment-hides-contract' block ("<div title='<!--'>`n<!-- ope
 Add-Case 'quoted-angle-then-comment-literal' visible 'before <span title="> <!--">hidden</span> after' ''
 Add-Case 'multiline-html-attribute-before-contract' block ("<div title='line`r<!--'>hidden</div>`r`r"+$block) 'return 42'
 Add-Case 'real-comment-after-inline-html' visible 'before <span title="<!--">hidden</span> <!-- open' '' 'SYMBOL-MARKDOWN-CLOSURE:'
+foreach ($quotePair in @(@('"','"'),@("'","'"),@('(',')'))) {
+    $link='[label](url '+$quotePair[0]+'<!-- literal'+$quotePair[1]+')'
+    Add-Case ("link-title-"+$quotePair[0]) block ($link+"`n`n"+$block) 'return 42'
+    Add-Case ("link-title-projection-"+$quotePair[0]) visible $link ('[label]('+(' '*18)+')')
+}
+Add-Case 'image-title-before-contract' block ('![alt](image.png "<!-- literal")'+"`n`n"+$block) 'return 42'
+Add-Case 'image-title-projection' visible '![alt](image.png "<!-- literal")' ('![alt]('+(' '*24)+')')
+Add-Case 'reference-title-before-contract' block ('[ref]: /url "<!-- literal"'+"`n`n"+$block) 'return 42'
+Add-Case 'reference-title-projection' visible ('[ref]: /url "<!-- literal"'+"`n`n## Real") '## Real'
+Add-Case 'multiline-reference-title' block ("[ref]: /url`r`n  "+'"<!-- literal"'+"`r`n`r`n"+$block) 'return 42' '' "return 42`n"
+Add-Case 'link-destination-comment-literal' block ('[label](path<!--literal)'+"`n`n"+$block) 'return 42'
+Add-Case 'link-destination-projection' visible '[label](path<!--literal)' ('[label]('+(' '*15)+')')
+Add-Case 'real-comment-after-title' block ('[label](url "<!-- literal") <!-- open'+"`n`n"+$block) '' 'SYMBOL-MARKDOWN-CLOSURE:'
+Add-Case 'real-comment-in-link-label' visible '[a <!-- hidden --> b](url "title")' ('[a '+(' '*15)+' b]('+(' '*11)+')')
+Add-Case 'comment-hides-title-and-contract' block ("<!--`n"+'[label](url "<!-- literal")'+"`n`n"+$block+"`n-->") '' 'SYMBOL-MARKDOWN-BLOCK:'
+Add-Case 'used-reference-retains-visible-prefix' visible ("[x][ref]`n`n"+'[ref]: /url "title"') '[x][   ]'
+Add-Case 'collapsed-reference-keeps-label' visible ("[ref][]`n`n"+'[ref]: /url "title"') '[ref][]'
+Add-Case 'shortcut-reference-keeps-label' visible ("[ref]`n`n"+'[ref]: /url "title"') '[ref]'
+Add-Case 'literal-reference-key-before-contract' block ("[x][<!-- literal]`n`n[<!-- literal]: /url`n`n"+$block) 'return 42'
+Add-Case 'literal-reference-key-projection' visible "[x][<!-- literal]`n`n[<!-- literal]: /url" ('[x]['+(' '*12)+']')
+Add-Case 'literal-shortcut-label-is-not-comment' visible "[<!-- literal]`n`n[<!-- literal]: /url" '[<!-- literal]'
+Add-Case 'literal-collapsed-label-is-not-comment' visible "[<!-- literal][]`n`n[<!-- literal]: /url" '[<!-- literal][]'
+Add-Case 'literal-inline-link-label-is-not-comment' visible '[<!-- literal](url)' ('[<!-- literal]('+(' '*3)+')')
+Add-Case 'reference-definition-does-not-mask-prior-heading' visible "## Real`n`n[ref]: /url" '## Real'
 
 function Invoke-Suite([string]$Source) {
     $module = New-Module -ScriptBlock ([scriptblock]::Create($Source))
@@ -146,7 +170,16 @@ $mutations = @(
     @('fence-closure', 'if (-not $hidden -and $node -is [Markdig.Syntax.FencedCodeBlock] -and', 'if ($false -and $node -is [Markdig.Syntax.FencedCodeBlock] -and', 'unclosed-'),
     @('comment-closure', "throw 'SYMBOL-MARKDOWN-CLOSURE: unclosed comment'", 'return [pscustomobject]@{Document=$document;Comments=@()}', 'unclosed-comment-before-block:'),
     @('comment-scan-resumes', '$i=$end+3', '$i=$Text.Length', 'closed-then-open-comment-before-block:'),
-    @('code-literal-exclusion', '$codeEnds.ContainsKey($i)', '$false', 'code-comment-literal-not-markup:'),
+    @('code-literal-exclusion', '$literalEnds.ContainsKey($i)', '$false', 'code-comment-literal-not-markup:'),
+    @('link-title-literal', '@($node.UrlSpan,$node.TitleSpan)', '@($node.UrlSpan)', 'link-title-'),
+    @('link-url-literal', '@($node.UrlSpan,$node.TitleSpan)', '@($node.TitleSpan)', 'link-destination-comment-literal:'),
+    @('reference-title-literal', ' -or $node -is [Markdig.Syntax.LinkReferenceDefinition]', '', 'reference-title-before-contract:'),
+    @('synthetic-reference-span', 'if ($node.Span.End -lt $node.Span.Start) { continue }', '$null = $node', 'plain-headings-and-table:'),
+    @('link-literal-projection', 'Set-SymbolMarkdownMask $visible $span.Start $span.End', '$null = $span', 'link-title-projection-'),
+    @('reference-use-source-spans', 'if ($isReferenceUse) { $spans=@($node.LabelSpan) }', 'if ($false) { $spans=@($node.LabelSpan) }', 'used-reference-retains-visible-prefix:'),
+    @('collapsed-reference-label', '-not $isReferenceUse -or $null -eq $node.LastChild -or $span.Start -gt $node.LastChild.Span.End', '$true', 'collapsed-reference-keeps-label:'),
+    @('link-label-literal', 'if ($null -ne $owner) { $literalEnds[$node.Span.Start]=$node.Span.End }', '$null = $owner', 'literal-shortcut-label-is-not-comment:'),
+    @('reference-definition-source-spans', 'if ($root -is [Markdig.Syntax.LinkReferenceDefinitionGroup])', 'if ($false)', 'reference-definition-does-not-mask-prior-heading:'),
     @('escaped-opener', "`$Text[`$i] -eq '\'", '$false', 'escaped-comment-opener-is-literal:'),
     @('top-level-only', 'foreach ($node in $document)', 'foreach ($node in [Markdig.Syntax.MarkdownObjectExtensions]::Descendants($document))', 'quoted-block:'),
     @('case-sensitive-label', ').TrimEnd() -ceq $Label', ').TrimEnd() -ieq $Label', 'label-is-case-sensitive:'),
