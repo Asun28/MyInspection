@@ -25,7 +25,7 @@ acceptance:
   - "A1 抽取是确定性的纯函数：输出长度等于输入长度，同一输入两次调用逐元素相等，且一枚固定黄金夹具产出逐元素等于写死的期望向量"
   - "A2 覆盖率受控：纯色图产出零个描边像素；单一高对比阶跃图的描边像素全部落在阶跃两侧的邻域内；请求覆盖率越低，产出的描边像素数不增"
   - "A3 边框像素永不成为描边像素（1 px 边框无完整 3x3 邻域），且尺寸不足 3x3、像素数与宽高不符、覆盖率越界的入参一律拒绝而非静默产出"
-  - "A4 dash 变体是 solid 变体的**真子集**，且条纹周期可由入参改变并被断言看见"
+  - "A4 dash 变体始终是 solid 变体的**子集**；周期细到落在图内时**严格更小**，而周期粗过图中最大坐标和时**退化为等于 solid**（屏幕空间条纹切不到它构不到的集合）——两种情形各需一枚反例测试钉住；且条纹周期可由入参改变并被断言看见"
   - "A5 [人工设计评审] 探针同时提供五种 style（photo / solid edges / dashed edges / photo+solid / photo+dashed）并在真机上可循环对比；记录实际对比所得与由此做出的取舍决定（含「不现在选、全部保留交终用户测」这一结果）；本条明确不是自动验收"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.ghost.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }
 dod_exit: 0
@@ -71,6 +71,8 @@ doc_sync: 卡片 status -> merged；TASK-BOARD 备注；T3-HISTORY-COMPARE 行�
 **实际所得**：用户当场给出的判断是——单独的照片与单独的描边**都不如两者叠在一起**（描边给可对齐的硬线条，底下的半透明照片给纹理与上下文），并提出虚线版叠合可能更好（虚线不遮住笔画下方的照片）。两种叠合形态因此都已做进探针。
 
 **取舍决定（用户裁定，2026-09-09）**：**不在本卡选定唯一胜者**，五种全部保留为候选，留待上线后用真实用户测试再决定保留哪一种或哪几种。
+
+**颜色来源的事后改动**：R3 指出探针里的绿色字面量违反本卡 forbid 的「不硬编码颜色」，已改为从项目调色板取 `fieldLedgerLightColorScheme.primaryFixedDim`（深浅两套方案取值相同，不随主题变色）。**故上述真机判断是在一个更亮的绿色占位值下做出的**；那次判断的内容是「叠合优于单层」这个层次关系，不是具体色相，故结论仍成立；最终用哪个 token 归 `T3-HISTORY-COMPARE`。
 
 **诚实边界**：上述是使用者在真机上的主观印象，**未**做五者的完整排序，也未做多人、多场景或弱光下的对比；本节只声称「叠合优于单层」这一条当场判断，不声称已完成可用性评测。
 
