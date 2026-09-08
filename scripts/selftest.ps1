@@ -10,6 +10,8 @@
   ③④⑤⑧）在检测到已初始化（CLAUDE.template.md 不存在）时自动跳过，不误判为失败。
 
 .DESCRIPTION
+  显式 -TaskId <id> -Base <本地分支或 origin/分支> 按基线卡/配置选择任务工作树的既有覆盖；
+  普通产品改动不运行脚手架检查，仍须 product verify；省略 TaskId 保持完整默认覆盖。
   跑十七类检查（任一失败即非零退出）：
     1. 脚本语法：ParseFile 所有 scripts\*.ps1 与 .claude\hooks\*.ps1；并 node --check（剥 export+包 async）
        所有 .claude\workflows\*.mjs（workflow 脚本非独立模块，node 缺失则跳过）。
@@ -117,6 +119,8 @@
 #>
 [CmdletBinding()]
 param(
+  [string]$TaskId = '',
+  [string]$Base = 'master',
   [ValidateSet('all', 'core', 'workflow', 'seeded', 'seeded-git', 'seeded-remote', 'seeded-scanner')][string]$Shard = 'all',
   [ValidateSet('', 'canary-harness', 'gate-id-mutant', 'scaffold-trigger', 'skip-ledger', 'skip-mutation-budget', 'seeded-nogit-routing', 'td145-behavior-fixture', 'through-gate8')][string]$Fixture = '',
   [ValidateSet('', 'DUPLICATE', 'SCAN-EMPTY', 'ANCHOR', 'PARSE', 'MESSAGE-SET', 'ACTIVE-OWNER')][string]$GateIdMutation = '',
@@ -1823,6 +1827,16 @@ if ($Fixture -eq 'gate-id-mutant') {
 }
 
 # 每个显式分片都先判 CI 接线，避免 core 组合被删时守卫也随 core 一起消失。
+# TASK-ROUTING-START
+if ($TaskId) {
+  if ($PSBoundParameters.ContainsKey('Shard') -or $Fixture -or $GateIdMutation -or $NoGitFixtureCase -or $NoGitFixtureNonce -or $NoGitMutationNonce) {
+    throw '[SELFTEST-TASKID-CONFLICT] TaskId cannot be combined with explicit shards or fixture controls.'
+  }
+  . (Join-Path $PSScriptRoot '_validation.ps1')
+  $taskExit = Invoke-SelftestTaskSelection -RepoRoot $RepoRoot -TaskId $TaskId -Base $Base -ForwardStrictLint $PSBoundParameters.ContainsKey('StrictLint') -StrictLintValue $StrictLint.IsPresent
+  exit $taskExit
+}
+# TASK-ROUTING-END
 if ($Shard -ne 'all') {
   $preflightWorkflow = Get-Content (Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml') -Raw
   $withoutCoreMutation = [regex]::Replace($preflightWorkflow, '(?m)^\s{10}- os: (windows-latest|ubuntu-latest)\s*\r?\n\s{12}shard: core\s*\r?\n?', '')
@@ -1952,6 +1966,8 @@ foreach ($f in $ps1) {
   if ($errs -and $errs.Count) { Fail "语法错误 $($f.Name): $($errs[0].Message)" }
 }
 if (-not $fail) { Write-Host "  $($ps1.Count) 个 .ps1 语法 OK" }
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot '_validation.ps1') -SelfCheck
+if ($LASTEXITCODE -ne 0) { Fail '闸1(validation)：任务范围风险路由自检失败。' }
 # .mjs：workflow 脚本在 harness 包的 async 上下文里跑（顶层 return/await/export const meta 是 harness 特性、
 # 非独立模块），故用「剥 export + 包 async 函数」喂 node --check 验语法；node 缺失则跳过（保持离线，仿闸 ⑦）。
 $mjs = @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/workflows') -Filter *.mjs -Recurse -ErrorAction SilentlyContinue)
