@@ -277,6 +277,49 @@ function Remove-Td4MigrationFixtureWorktree {
   return [PSCustomObject]@{ Success = $false; Attempts = $MaxAttempts; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $lastRegistered; PathExists = $lastPathExists }
 }
 
+function Restore-Td4ContinueProbeFixture {
+  param(
+    [string]$ProbeFile,
+    [bool]$ProbeCreated,
+    [bool]$ProbeExistedBefore,
+    [AllowEmptyString()][string]$ProbeOriginal,
+    [string]$BuildFile,
+    [AllowEmptyString()][string]$BuildOriginal,
+    [string]$TenancyFile,
+    [AllowEmptyString()][string]$TenancyOriginal
+  )
+
+  $errors = [System.Collections.Generic.List[string]]::new()
+  try { if ($ProbeCreated -and $ProbeFile -and (Test-Path -LiteralPath $ProbeFile)) { Remove-Item -LiteralPath $ProbeFile -Force -ErrorAction Stop } } catch { [void]$errors.Add("probe: $($_.Exception.Message)") }
+  try {
+    if ($BuildFile -and $null -ne $BuildOriginal -and (Test-Path -LiteralPath $BuildFile)) {
+      [System.IO.File]::WriteAllText($BuildFile, $BuildOriginal, [System.Text.UTF8Encoding]::new($false))
+    }
+  } catch { [void]$errors.Add("build: $($_.Exception.Message)") }
+  try {
+    if ($TenancyFile -and $null -ne $TenancyOriginal -and (Test-Path -LiteralPath $TenancyFile)) {
+      [System.IO.File]::WriteAllText($TenancyFile, $TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+    }
+  } catch { [void]$errors.Add("tenancy: $($_.Exception.Message)") }
+
+  try {
+    $probeRestored = if (-not $ProbeFile) { $true } elseif ($ProbeExistedBefore) {
+      (Test-Path -LiteralPath $ProbeFile) -and ([System.IO.File]::ReadAllText($ProbeFile) -ceq $ProbeOriginal)
+    } else { -not (Test-Path -LiteralPath $ProbeFile) }
+  } catch { [void]$errors.Add("probe-state: $($_.Exception.Message)"); $probeRestored = $false }
+  try {
+    $buildRestored = if (-not $BuildFile -or $null -eq $BuildOriginal) { $true } else {
+      (Test-Path -LiteralPath $BuildFile) -and ([System.IO.File]::ReadAllText($BuildFile) -ceq $BuildOriginal)
+    }
+  } catch { [void]$errors.Add("build-state: $($_.Exception.Message)"); $buildRestored = $false }
+  try {
+    $tenancyRestored = if (-not $TenancyFile -or $null -eq $TenancyOriginal) { $true } else {
+      (Test-Path -LiteralPath $TenancyFile) -and ([System.IO.File]::ReadAllText($TenancyFile) -ceq $TenancyOriginal)
+    }
+  } catch { [void]$errors.Add("tenancy-state: $($_.Exception.Message)"); $tenancyRestored = $false }
+  return [PSCustomObject]@{ ProbeRestored = $probeRestored; BuildRestored = $buildRestored; TenancyRestored = $tenancyRestored; Errors = @($errors) }
+}
+
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
 # unchanged; only these ASCII records are machine-readable. A non-zero child without exactly one valid
 # record is still red and is reported as UNKNOWN rather than being reduced to a positional exit-code list.
@@ -10539,8 +10582,12 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
       Join-Path ([System.IO.Path]::GetTempPath()) "st4-$PID"
     }
     $td4MigrationWorktreeAdded = $false
-    $td4ComplianceOriginal = $null
-    $td4ComplianceFile = $null
+    $td4BuildFile = $null
+    $td4BuildText = $null
+    $td4ForcedTestFile = $null
+    $td4ForcedTestCreated = $false
+    $td4ForcedTestExistedBefore = $false
+    $td4ForcedTestOriginal = $null
     $td4TenancyOriginal = $null
     $td4TenancyFile = $null
     $td4WrongMigration = $null
@@ -10574,22 +10621,46 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
 
           $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
           $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
-          $td4ComplianceFile = Join-Path $td4MigrationRepo 'configs/compliance/nz-rules-v1.json'
-          $td4ComplianceOriginal = [System.IO.File]::ReadAllText($td4ComplianceFile)
-          $td4ComplianceMutant = $td4ComplianceOriginal | ConvertFrom-Json
-          $td4ExemptTypes = @($td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes | ForEach-Object { "$_" })
-          if ($td4ExemptTypes.Count -ne 2 -or $td4ExemptTypes[0] -cne 'INGOING' -or $td4ExemptTypes[1] -cne 'EXIT') {
-            Fail "闸17a3(migration-continue/setup)：runtime config 的 exemptTypes 基线漂移，无法构造稳定 :core:test 失败（actual=$($td4ExemptTypes -join ',')）。"
+          $td4ForcedTestFile = Join-Path $td4MigrationRepo 'android/core/src/test/kotlin/nz/myinspection/core/selftest/Td4ContinueProbeTest.kt'
+          $td4ForcedTestExistedBefore = Test-Path -LiteralPath $td4ForcedTestFile
+          if ($td4ForcedTestExistedBefore) {
+            $td4ForcedTestOriginal = [System.IO.File]::ReadAllText($td4ForcedTestFile)
+            Fail '闸17a3(migration-continue/setup)：临时失败测试路径已存在，拒绝覆盖产品测试。'
           } else {
-            $td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes = @($td4ExemptTypes + 'ANNUAL')
-            [System.IO.File]::WriteAllText($td4ComplianceFile, ($td4ComplianceMutant | ConvertTo-Json -Depth 20), [System.Text.UTF8Encoding]::new($false))
+            New-Item -ItemType Directory -Force (Split-Path -Parent $td4ForcedTestFile) | Out-Null
+            $td4ForcedTestSource = @(
+              'package nz.myinspection.core.selftest',
+              '',
+              'import kotlin.test.Test',
+              'import kotlin.test.fail',
+              '',
+              'class Td4ContinueProbeTest {',
+              '    @Test',
+              '    fun forcedFailureForContinueProbe() {',
+              '        fail("TD4_CONTINUE_TEST_FAILURE")',
+              '    }',
+              '}',
+              ''
+            ) -join [Environment]::NewLine
+            $td4ForcedTestCreated = $true
+            [System.IO.File]::WriteAllText($td4ForcedTestFile, $td4ForcedTestSource, [System.Text.UTF8Encoding]::new($false))
+            $td4ContinueOrdering = @(
+              '',
+              '// selftest fixture: make the no-continue blind spot deterministic without mutating product data.',
+              'tasks.configureEach {',
+              '    if (name == "verifyMainMyInspectionDatabaseMigration") {',
+              '        mustRunAfter("test")',
+              '    }',
+              '}',
+              ''
+            ) -join [Environment]::NewLine
+            [System.IO.File]::WriteAllText($td4BuildFile, $td4BuildText + [Environment]::NewLine + $td4ContinueOrdering, [System.Text.UTF8Encoding]::new($false))
 
             $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
             [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
             $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
             $td4MissingResult = & $invokeTd4CoreCheck
-            [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
-            [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+            [void](Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal)
 
             $td4TestFailureMarker = "Execution failed for task ':core:test'."
             $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
@@ -10616,11 +10687,9 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         }
       }
     } finally {
-      if ($td4ComplianceFile -and $null -ne $td4ComplianceOriginal -and (Test-Path -LiteralPath $td4ComplianceFile)) {
-        [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
-      }
-      if ($td4TenancyFile -and $null -ne $td4TenancyOriginal -and (Test-Path -LiteralPath $td4TenancyFile)) {
-        [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+      $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal
+      if (-not $td4ContinueCleanup.ProbeRestored -or -not $td4ContinueCleanup.BuildRestored -or -not $td4ContinueCleanup.TenancyRestored) {
+        Fail '闸17a3(migration-continue/cleanup)：临时失败测试、build 脚本或 Tenancy.sq 未恢复到其原始状态。'
       }
       if ($td4WrongMigration -and (Test-Path -LiteralPath $td4WrongMigration)) { Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue }
       if ($td4MigrationWorktreeAdded) {
