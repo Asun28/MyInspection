@@ -79,7 +79,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `photo-evidence-tile` 十一个状态逐条对「视觉半 + 播报半」判定（4 fixed / 7 carried / 0 exempt）。
 **A3**：capture Back 定名 `Save and exit`，通用 `Back to {parent}` 为其让位，两个短语全文各只剩一次声明，
 准入条件 3 的「同一短语」遂有唯一指代。27/27 变异全杀。**遗留 FOLLOW-UP**：`NOT_APPLICABLE` 全文无取色
-绑定（`evidence-rail` 只声明 `optionalColor`），属调色决定、在本卡「只补登记不调色」之外。
+绑定（`evidence-rail` 声明四个颜色却有五个 `segmentStates`），属调色决定、在本卡「只补登记不调色」
+之外，已开卡 `T4-DESIGN-NOT-APPLICABLE-COLOR` 承接。
 > **本卡的 DoD 不止查锚点**：除 16 条 ASCII 锚点（含 3 条 `expected 0` 反向断言）外，它**从文档自身重算**
 > ——按 DESIGN.md 写明的 WCAG 公式、用 frontmatter 的 token 值复算每条绑定比值并核 `minRatio`、核绑定值
 > 未偏离 token、核无重复配对、核 40 个配对全部登记、核新表 13 行印刷值与重算值逐位相等。于是

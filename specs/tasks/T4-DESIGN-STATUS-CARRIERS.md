@@ -233,8 +233,9 @@ neutral with a dash」，同样没替 `NOT_APPLICABLE` 发言。故本卡收口�
 「落在哪个底上」有答案了，「用哪个前景色」仍没有。
 
 **不在本卡修**：给一个态指派 role 颜色是**调色决定**，落在 A1「只补登记、不调色」之外，且贴着
-forbid#3。按 L113 记为 FOLLOW-UP，由后续卡认领（最小修法很可能是让 `evidence-rail` 明说
-`NOT_APPLICABLE` 与 `OPTIONAL` 共用 `optionalColor`，那样连新绑定都不需要）。
+forbid#3。按 L113 记为 FOLLOW-UP，**已开卡 `T4-DESIGN-NOT-APPLICABLE-COLOR` 承接**（其 OD-1 推荐
+最小修法：让 `evidence-rail` 明说 `NOT_APPLICABLE` 与 `OPTIONAL` 共用 `optionalColor`——`outline`
+已由本卡在两主题四个内容底全部登记，那样连新绑定都不需要）。
 
 ### 本卡 DoD 不只查锚点
 
