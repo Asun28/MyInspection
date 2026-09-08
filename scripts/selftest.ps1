@@ -15189,178 +15189,104 @@ public static class DeadlineInheritProbe {
         else { Write-Host '  T37-CIGATE/JOBS-DRIFT OK' -ForegroundColor Green }
       }
 
-      # 场景 4 = 闸15t（TD94）：**收据缺失 + 已 push** 这条「最后手段」恢复平面的端到端夹具。
-      # 为什么单列：T37 场景 1 覆盖的是**收据在位**经 resume 的主干；收据缺失走的是完全不同的人工路径——
-      # 不能 resume，只能手工补跑全部确定性闸后用 `review.ps1 -PostStatus` 直连合并。那条路径**权限最大**
-      # （可直接合并）**护栏最少**（不经 ship 管线），而 CI 又没有范围闸（TD89 根因）⇒ 序列里的范围步是该
-      # 平面上范围闸的唯一承载。15q/15r 只锁了它的**文案**，本闸锁它的**行为**。
-      # 判据（照 docs/DEVOPS-WORKFLOW.md 的恢复配方逐条建模，含 T53 落的 fail-closed 绑定）：
-      #   负例：卡外改动 ⇒ 范围步 [SCOPE-BLOCK] 非零 ⇒ 链在此中止 ⇒ **review/merge 哨兵一个都不许出现**
-      #         （证「不过范围闸就到不了合并」，而非只证「范围闸自己会红」——后者 15d/15d2 早已覆盖）。
-      #   正例：全在界 ⇒ 范围步 [SCOPE-PASS] ⇒ 链续跑 -PostStatus ⇒ mock 合并被消费（merge-reached 在场）。
-      #         正例给负例的红提供**鉴别力**：否则负例可能只是因为序列本身走不通而红（vacuous）。
-      #   前置：收据须**真的被构造成缺失**（先断言它在、删掉、再断言它不在）——否则「收据缺失」是碰巧成立。
+      # 场景 4：真实 normal ship 的 receipt 缺失拒绝与有效恢复。
       if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX/4')) {
-        $fx4 = & $rmMake 'recovery'
+        $fx4 = & $rmMake 'foundation'
         try {
-          if (-not $fx4.Ok) { Fail '闸15t / T37-REMOTEMX/4 setup：恢复夹具 start 未产出 worktree。' }
-          else {
-            & $rmReset $fx4.Root
-            $env:GH_MOCK_WT = $fx4.Wt
-            # 让**本地 master 落后于 origin/master 一个提交**（先推、再 reset 回退本地）。
-            # 为什么必须是「落后」而不是「领先」（codex R3 r3 #1）：三点 diff 由 merge-base 决定，本地领先时
-            # `master...branch` 与 `origin/master...branch` 得到**同一份** feature 侧 diff ⇒ 加不加 -LocalBase 都一样、
-            # 「远端基线」这条语义无从区分（原写法即如此，是 vacuous）。落后时 review.ps1 会打印
-            # 「本地 'master' 落后 refs/remotes/origin/master N 个提交」——该提示**仅在 behindN>0 时**出现，
-            # 故可作为「确实选了远端基线」的判据；一旦加 -LocalBase，baseRef 变成 refs/heads/master、behindN=0、提示消失。
-            & git -C $fx4.Repo checkout -q master *> $null
-            Set-Content (Join-Path $fx4.Repo 'origin-ahead.txt') 'T54：推到 origin/master 后本地回退，令本地 master 落后一个提交' -Encoding utf8
-            & git -C $fx4.Repo add -A *> $null
-            & git -C $fx4.Repo commit -q -m 'origin-ahead master commit' *> $null
-            & git -C $fx4.Repo push -q origin master *> $null
-            & git -C $fx4.Repo reset --hard HEAD~1 *> $null
-            # 走到「已 push + PR 已开 + 收据已铸」：真 RED → 绿 → ship -NoAutoMerge（停在 PR-open，不合并）。
-            & pwsh -NoProfile -File (Join-Path $fx4.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
-            Set-Content (Join-Path $fx4.Wt 'README.md') 'GREENMX recovery work' -Encoding utf8
-            & pwsh -NoProfile -File (Join-Path $fx4.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship -NoAutoMerge *> $null
-            # 收据路径按 task.ps1 同款解析（git-common-dir；linked worktree 下禁用 $RepoRoot 形态拼）。
-            $gcd4 = "$(& git -C $fx4.Wt rev-parse --git-common-dir 2>$null)".Trim()
-            if ($gcd4 -and -not [System.IO.Path]::IsPathRooted($gcd4)) { $gcd4 = Join-Path $fx4.Wt $gcd4 }
-            $rcpt4 = Join-Path (Join-Path $gcd4 'scaffold-shipped') 'T0-REMOTEMX'
-            $prCreated4 = Test-Path (Join-Path $fx4.Root 'pr-created')
-            if (-not $prCreated4) { Fail '闸15t setup：ship -NoAutoMerge 未开出 PR（pr-created 哨兵缺）——恢复场景的前提（已 push + PR 已开）没构造出来，后续断言失真。' }
-            elseif (-not (Test-Path $rcpt4)) { Fail '闸15t 前置：ship 后收据本应在场却缺失——「删收据造 receipt-missing」这一步遂无意义（前提碰巧成立即 vacuous）。' }
-            else {
-              Remove-Item $rcpt4 -Force                                  # ← 造出 receipt-missing 态
-              if (Test-Path $rcpt4) { Fail '闸15t 前置：收据删除失败，receipt-missing 态未构造出来。' }
-              else {
-                # 恢复配方的**可执行建模**：范围步非零即中止，绿才续跑 -PostStatus → 合并。
-                # 与 DEVOPS-WORKFLOW 那段一一对应；本闸测的正是这条控制流，不是各闸自身（各闸另有夹具）。
-                # 恢复配方的**完整**可执行建模——逐条对应 docs/DEVOPS-WORKFLOW.md「任何已 push 状态的手工恢复」：
-                # fetch(查码) → PR baseRefName 核 → 取 head/base OID → DoD → verify → **范围闸**（主检出那份 +
-                # -Path 指被审树 + -ExpectTip/-ExpectBase，远端模式）→ 许可 → 防泄露 → review -PostStatus -PrNumber
-                # → 合并前复核 baseRefName + 基线 OID 未前移 → gh pr merge --match-head-commit。
-                # **任一步非零即中止**（PowerShell 原生命令非零不自动中断，故每步都显式查）——这正是本闸要证的控制流。
-                $recover4 = {
-                  param($fx)
-                  # **有序腿轨迹**：每步跑之前把腿名追加进 $script:r4Trace。断言比对的是整条轨迹，
-                  # 故删掉/跳过任何一条腿都会让轨迹不等而变红——只断言最终结局的话，中间腿全无覆盖（codex R3 r2 #1）。
-                  # **逐腿分别留存输出**：只攒一份聚合输出的话，「范围步是否印了 [SCOPE-BLOCK]」这种断言会被
-                  # **别的腿**的输出满足（codex R3 r5：聚合搜索 ⇒ 断言面宽于契约，同 L165 那一族）。
-                  $step = { param($name, $sb) if ($script:r4Stop) { return }; $script:r4Trace += $name; $o = (& $sb 2>&1 | Out-String); $script:r4Out += $o; $script:r4LegOut[$name] = $o; if ($LASTEXITCODE -ne 0) { $script:r4Stop = $name } }
-                  # 这两个由腿内赋值、腿外读取：**必须预初始化**。否则某条腿被删/跳过时，外面那句读取会因
-                  # StrictMode「变量未定义」直接抛异常、整段中止——红是红了，却红在异常而非有序轨迹断言上
-                  # （变异实测：删 pr-base / pr-head 两腿即如此，判据分类器把它们标为「存疑」而非 OK）。
-                  $script:r4PrBase = ''; $script:r4Head = ''
-                  $script:r4Stop = $null; $script:r4Out = ''; $script:r4Trace = @(); $script:r4LegOut = @{}
-                  # ① fetch 两侧（退出码必查：失败即拿陈旧 origin/* 判，连 allow_paths 都取自旧卡）
-                  & $step 'fetch' { & git -C $fx.Wt fetch origin master T0-REMOTEMX }
-                  # ② PR 的 baseRefName 须 == 本次判定的 base（retarget 会「按 A 判往 B 合」）
-                  $prBase = ''
-                  & $step 'pr-base' { $s = (& gh pr view 777 --json baseRefName --jq .baseRefName); $script:r4PrBase = "$s".Trim(); if ($script:r4PrBase -ne 'master') { cmd /c exit 1 } }
-                  $prBase = $script:r4PrBase
-                  # ③ head **取自 PR 元数据**（不是 check-scope 会自己解析的那个 ref——同源自比即恒等式，r2 #1）；
-                  #    base 取远端跟踪引用（= 将被合并进的那个提交）。
-                  $headOid = ''
-                  & $step 'pr-head' { $s = (& gh pr view 777 --json headRefOid --jq .headRefOid); $script:r4Head = "$s".Trim(); if ($script:r4Head -notmatch '^[0-9a-f]{40}$') { cmd /c exit 1 } }
-                  $headOid = $script:r4Head
-                  $baseOid = "$(& git -C $fx.Wt rev-parse refs/remotes/origin/master 2>$null)".Trim()
-                  # ④ DoD（卡上原命令，在被审工作树里跑）
-                  & $step 'dod' { Push-Location $fx.Wt; try { & pwsh -NoProfile -Command 'if (-not (Select-String -Path README.md -Pattern GREENMX -Quiet)) { exit 1 }' } finally { Pop-Location } }
-                  # ⑤ verify 总闸
-                  & $step 'verify' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/verify.ps1') }
-                  # ⑥ **范围闸**——跑受信主检出那份、-Path 指被审树、两侧 OID 都钉进去（远端模式，不加 -Local）
-                  & $step 'scope' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-scope.ps1') -TaskId T0-REMOTEMX -Base master -Path $fx.Wt -ExpectTip $headOid -ExpectBase $baseOid }
-                  # ⑦ 许可闸 ⑧ 防泄露闸
-                  & $step 'license' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-licenses.ps1') }
-                  & $step 'secrets' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-secrets.ps1') }
-                  # ⑨ 第二模型评审 + 回贴状态（最后手段路径的评审腿）
-                  # 权威配方用的是**缺省远端基线**（不带 -LocalBase）——夹具跟着用，否则测的是另一套基线选择语义、
-                  # 远端基线解析的回归会被藏住（codex R3 r2 #3）。夹具已让本地 master 与 origin/master **有意不同**。
-                  & $step 'review' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/review.ps1') -WorktreePath $fx.Wt -Base master -PostStatus -PrNumber 777 }
-                  # ⑩ 合并前复核：baseRefName 未变 + 基线 OID 未前移
-                  & $step 'pr-base-2' { $s = (& gh pr view 777 --json baseRefName --jq .baseRefName); if ("$s".Trim() -ne 'master') { cmd /c exit 1 } }
-                  # fetch 与比对**拆成两步**：写在同一步里的话，后面那条成功的 rev-parse 会把 fetch 的 $LASTEXITCODE
-                  # 冲掉，于是 fetch 失败也照样拿陈旧 ref 过等值检查（codex R3 r2 #2）。
-                  & $step 'fetch-2' { & git -C $fx.Wt fetch origin master }
-                  & $step 'base-oid-2' { $b2 = "$(& git -C $fx.Wt rev-parse refs/remotes/origin/master 2>$null)".Trim(); if ($b2 -ne $baseOid) { cmd /c exit 1 } }
-                  # ⑪ 合并——绑 head，head 一变即拒
-                  & $step 'merge' { & gh pr merge 777 --squash --match-head-commit $headOid }
-                  return [pscustomobject]@{ Out = $script:r4Out; LegOut = $script:r4LegOut; StoppedAt = $script:r4Stop; Head = $headOid; Base = $baseOid; PrBase = $prBase; Trace = @($script:r4Trace) }
-                }
-                # 三枚「腿被消费」哨兵：评审 / 状态回贴 / 合并。负例须**三枚全缺**——只看 merge 不够，
-                # 评审若已在被拦的路径上跑过，就说明控制流没有真的在范围步止住（codex R3 r1 #3）。
-                # 配方的**完整有序腿清单**：负例须恰好走到 scope 为止，正例须一条不落地走完。
-                $legsAll4 = @('fetch', 'pr-base', 'pr-head', 'dod', 'verify', 'scope', 'license', 'secrets', 'review', 'pr-base-2', 'fetch-2', 'base-oid-2', 'merge')
-                $legsNeg4 = @('fetch', 'pr-base', 'pr-head', 'dod', 'verify', 'scope')
-                # `merge-attempted` 必须在列：stub 一被调用就写它，而 `merge-reached` 要等参数校验通过且成功才写。
-                # 负例说的是「合并腿**一次都没被调用**」，那就得断言 attempted 缺——只断言 reached 缺会放过
-                # 「调用了但因参数不符而失败」的情形（codex R3 r3 #3）。
-                $sent4 = @('review-invoked', 'status-posted', 'pr-commented', 'merge-attempted', 'merge-reached')
-                $clearSent4 = { foreach ($s in $sent4) { Remove-Item (Join-Path $fx4.Root $s) -ErrorAction SilentlyContinue } }
-                # 本场景自用的单次调用器（15s 的 $ssRun* 属另一闸的作用域，勿跨用）。
-                $run4 = { param($Exe, $A) $o = (& pwsh -NoProfile -File $Exe @A 2>&1 | Out-String); return [pscustomobject]@{ Out = $o; Exit = $LASTEXITCODE } }
-                $hitSent4 = { @($sent4 | Where-Object { Test-Path (Join-Path $fx4.Root $_) }) }
-                # ── 负例：种卡外文件（allow_paths = README.md/extra.txt ⇒ oob.md 越界）、提交并**推到 origin**。
-                #    必须真 push：本卡测的是「**已 push** 状态」的恢复平面，只在本地提交的话远端仍停在旧 sha，
-                #    远端模式的检查器根本看不到这个越界改动（codex R3 r1 #1 实测）。
-                Set-Content (Join-Path $fx4.Wt 'oob.md') 'T54 负例：卡外改动，恢复序列的范围步必须拦下' -Encoding utf8
-                & git -C $fx4.Wt add -A *> $null
-                & git -C $fx4.Wt commit -q -m 'oob change' *> $null
-                & git -C $fx4.Wt push -q origin T0-REMOTEMX *> $null
-                & $clearSent4
-                $neg4 = & $recover4 $fx4
-                # @() 包裹**调用点**：scriptblock 返回单元素时 `&` 会解包成标量，StrictMode 下取 .Count 即抛。
-                $negHit4 = @(& $hitSent4)
-                if (($neg4.Trace -join '>') -ne ($legsNeg4 -join '>')) { Fail "闸15t 负例：腿轨迹与配方不符——实际 [$($neg4.Trace -join '>')]，期望 [$($legsNeg4 -join '>')]。删掉/跳过任一前置腿（fetch/PR base/head/DoD/verify）都会命中这条：只断言最终结局的话那些腿零覆盖。" }
-                elseif ($neg4.StoppedAt -ne 'scope') { Fail "闸15t 负例：恢复序列没有停在**范围步**（实际停在 '$($neg4.StoppedAt)'；`$null=一路走到底）——最后手段平面上越界可直达合并，或红在了别的面上（断言失真）。`n输出=$($neg4.Out)" }
-                elseif ("$($neg4.LegOut['scope'])" -notmatch '\[SCOPE-BLOCK\]') { Fail "闸15t 负例：停在范围步但**范围步自己的输出**没印 [SCOPE-BLOCK] 哨兵——可能是不可判分支而非越界判定（只搜聚合输出会被别的腿满足，故此处只看该腿）。`n范围步输出=$($neg4.LegOut['scope'])" }
-                elseif ($negHit4.Count -gt 0) { Fail "闸15t 负例：范围闸 BLOCK 了，但下游腿仍被消费（哨兵在场：$($negHit4 -join ', ')）——「不过范围闸就到不了评审/回贴/合并」不成立。" }
-                else {
-                  # ── 正例：反向提交撤出卡外文件（禁改写历史——T36-DOCTRINE）并推上去，同一序列须**全程走通** ──
-                  Remove-Item (Join-Path $fx4.Wt 'oob.md') -Force
-                  & git -C $fx4.Wt add -A *> $null
-                  & git -C $fx4.Wt commit -q -m 'revert oob (反向提交撤出卡外改动)' *> $null
-                  & git -C $fx4.Wt push -q origin T0-REMOTEMX *> $null
-                  & $clearSent4
-                  $pos4 = & $recover4 $fx4
-                  $posMiss4 = @($sent4 | Where-Object { -not (Test-Path (Join-Path $fx4.Root $_)) })
-                  if ($pos4.StoppedAt) { Fail "闸15t 正例：全部改动都在 allow_paths 内时恢复序列仍在 '$($pos4.StoppedAt)' 步中止——该序列走不通，负例的红遂失去鉴别力（可能只是序列本身坏了）。`n输出=$($pos4.Out)" }
-                  elseif (($pos4.Trace -join '>') -ne ($legsAll4 -join '>')) { Fail "闸15t 正例：腿轨迹与配方不符——实际 [$($pos4.Trace -join '>')]，期望 [$($legsAll4 -join '>')]。删掉任一腿（fetch/PR base 两次/head/DoD/verify/范围/许可/密钥/评审/基线 OID 复核/合并）都会命中这条。" }
-                  elseif ((Get-Content (Join-Path $fx4.Root 'merge-head-arg') -Raw -ErrorAction SilentlyContinue).Trim() -ne $pos4.Head) { Fail "闸15t 正例：`gh pr merge` 的 --match-head-commit 实参与 PR head 不符（实参=$((Get-Content (Join-Path $fx4.Root 'merge-head-arg') -Raw -ErrorAction SilentlyContinue))，head=$($pos4.Head)）——「合并绑 head」只是文案、没真绑。" }
-                  # 评审腿确实走了**远端基线**：本地 master 已被造成落后 1 个提交，review.ps1 遂打印「落后 … refs/remotes/origin/master」
-                  # 提示（仅 behindN>0 时出现）。加 -LocalBase 会让 baseRef 变本地、behindN=0、提示消失 ⇒ 本断言即红（codex R3 r3 #1）。
-                  # 远端基线判据：只看**评审腿自己**的输出里有没有 `refs/remotes/origin/master` 这个**稳定 ASCII 串**。
-                  # 两点都要紧：① 必须**按腿**看——范围步也印这个串（`基线 = …`），搜聚合输出会恒真（变异 D 首轮即因此存活）；
-                  # ② 判据必须是 ASCII，不能拿中文提示当锚（本卡自己的纪律就是「机检认 ASCII、本地化文案只给人读」，
-                  # 上一版拿「落后」做判据是自相矛盾，codex R3 r5 指出）。
-                  # 加回 -LocalBase 时 baseRef 变 refs/heads/master、behindN=0、该提示不印 ⇒ 评审腿输出里就没有这个串。
-                  elseif ("$($pos4.LegOut['review'])" -notmatch [regex]::Escape('refs/remotes/origin/master')) { Fail "闸15t 正例：**评审腿自己的输出**里没有 refs/remotes/origin/master——说明评审没走远端基线（加了 -LocalBase 即如此），测的是另一套基线选择语义。`n评审腿输出=$($pos4.LegOut['review'])" }
-                  elseif ("$($pos4.LegOut['scope'])" -notmatch '\[SCOPE-PASS\]') { Fail "闸15t 正例：**范围步自己的输出**未印 [SCOPE-PASS]——判定结论未被打印（只看聚合输出会被别的腿满足）。`n范围步输出=$($pos4.LegOut['scope'])" }
-                  elseif ($posMiss4.Count -gt 0) { Fail "闸15t 正例：序列走通却有腿没被消费（哨兵缺：$($posMiss4 -join ', ')）——正例没真正覆盖到「范围过 → 评审+回贴 → 合并」全段。`n输出=$($pos4.Out)" }
-                  else {
-                    # 两枚**绑定承重性**用例（不属恢复链，单独跑；codex R3 r3 #2）：只记录 'scope' 标签证明不了
-                    # -ExpectTip/-ExpectBase 真在起作用——把它们摘掉或改走 -Local，正/负例照样得到 BLOCK/PASS。
-                    # 故直接喂**不符的 OID**，要求以 [SCOPE-TIPMISMATCH] 失败：该哨兵只有绑定生效时才可能出现。
-                    # 不符值必须是**本仓可解析、但不是目标**的真实 OID（tip 侧喂 base 的、base 侧喂 head 的），
-                    # 另一侧保持正确。喂 `000…001` 那种解析不出的串只会停在「OID 解析失败」那一支，**根本走不到**
-                    # `$full -ne $ActualSha` 身份比对——把身份比对整句删掉也照样绿（codex R3 r4；15s 的 n2/n8 早已按
-                    # 此法写，本卡新加的 pin 用例却没沿用）。故另断言文案含 `judged=`，证明拦它的确是身份比对那一支。
-                    $csExe4 = Join-Path $fx4.Repo 'scripts/check-scope.ps1'
-                    $pinTip4 = & $run4 $csExe4 @('-TaskId', 'T0-REMOTEMX', '-Base', 'master', '-Path', $fx4.Wt, '-ExpectTip', $pos4.Base, '-ExpectBase', $pos4.Base)
-                    $pinBase4 = & $run4 $csExe4 @('-TaskId', 'T0-REMOTEMX', '-Base', 'master', '-Path', $fx4.Wt, '-ExpectTip', $pos4.Head, '-ExpectBase', $pos4.Head)
-                    if ($pinTip4.Exit -eq 0 -or $pinTip4.Out -notmatch [regex]::Escape('[SCOPE-TIPMISMATCH]')) { Fail "闸15t(pin/tip)：喂入**可解析但不符**的 -ExpectTip（基线 OID）仍未以 [SCOPE-TIPMISMATCH] 失败（exit=$($pinTip4.Exit)）——该绑定参数不承重。`n输出=$($pinTip4.Out)" }
-                    elseif ($pinTip4.Out -notmatch [regex]::Escape('judged=')) { Fail "闸15t(pin/tip)：失败文案里没有 judged=/expect= 两个 OID——说明拦它的是「OID 解析失败」那一支，而非**提交身份比对**；删掉身份比对整句本用例仍会绿（vacuous）。`n输出=$($pinTip4.Out)" }
-                    elseif ($pinBase4.Exit -eq 0 -or $pinBase4.Out -notmatch [regex]::Escape('[SCOPE-TIPMISMATCH]')) { Fail "闸15t(pin/base)：喂入**可解析但不符**的 -ExpectBase（尖端 OID）仍未以 [SCOPE-TIPMISMATCH] 失败（exit=$($pinBase4.Exit)）——基线那一侧的绑定不承重。`n输出=$($pinBase4.Out)" }
-                    elseif ($pinBase4.Out -notmatch [regex]::Escape('judged=')) { Fail "闸15t(pin/base)：失败文案里没有 judged=/expect= 两个 OID——拦它的是解析失败那一支而非身份比对（vacuous）。`n输出=$($pinBase4.Out)" }
-                    else { Write-Host '  闸15t / T37-REMOTEMX/4 收据缺失+已 push 恢复平面 OK（完整配方逐步建模 + 有序腿轨迹比对；负例=已推的卡外改动令序列**停在范围步**且 review/status/pr-comment/merge-attempted/merge-reached 五枚哨兵全缺；正例=反向提交推上去后全程走通、五枚哨兵全在、--match-head-commit 实参 == PR head、评审腿走的是 refs/remotes/origin/master 远端基线；另两枚 pin 用例证 -ExpectTip/-ExpectBase 各自承重）' -ForegroundColor Green }
-                  }
-                }
-              }
-            }
+          if (-not $fx4.Ok) { throw 'fixture start 未成功建立 worktree' }
+          & $rmReset $fx4.Root; $env:GH_MOCK_WT = $fx4.Wt
+          # 只给本场景加 gh 调用观察；底座的真实随机 PR/run/attempt 和各 endpoint 行为不变。
+          $gh4 = Join-Path $fx4.Shim 'gh.ps1'
+          $spy4 = 'Add-Content (Join-Path $env:GH_MOCK_ROOT ''gh-all-calls'') ($args -join '' '')'
+          Set-Content $gh4 ($spy4 + "`n" + (Get-Content $gh4 -Raw)) -Encoding utf8
+          $clean4 = { param($s) ((($s -replace '\x1b\[[0-9;]*m', '') -split '\r?\n' | ForEach-Object { $_ -replace '^\s*\|\s?', '' }) -join ' ') -replace '\s+', ' ' }
+          $run4 = { param($Exe, $A) $o = (& pwsh -NoProfile -File $Exe @A 2>&1 | Out-String); $x = $LASTEXITCODE; [pscustomobject]@{ Out = (& $clean4 $o); Exit = $x } }
+          $git4 = { param($p, $a) $v = (& git -C $p @a 2>&1 | Out-String); if ($LASTEXITCODE -ne 0) { throw "git 前置失败：$a；$v" }; $v.TrimEnd() }
+          $task4 = Join-Path $fx4.Repo 'scripts/task.ps1'
+          # 观察真实驱动器的 cleanup 入口与两处 T24 铸造入口；不改变其分支或退出行为。
+          $taskText4 = Get-Content $task4 -Raw
+          $cleanupAnchor4 = 'Set-StrictMode -Version Latest'
+          $cleanupBody4 = "  'cleanup' {"
+          $tokenAnchor4 = '        $tokDir = "$(& git -C $RepoRoot rev-parse --git-common-dir 2>$null)".Trim()'
+          if ([regex]::Matches($taskText4, [regex]::Escape($cleanupAnchor4)).Count -ne 1 -or [regex]::Matches($taskText4, [regex]::Escape($cleanupBody4)).Count -ne 1 -or [regex]::Matches($taskText4, [regex]::Escape($tokenAnchor4)).Count -ne 2) { throw 'cleanup/T24 观察入口不唯一或缺失' }
+          $taskText4 = $taskText4.Replace($cleanupAnchor4, 'if ($Phase -eq ''cleanup'') { Add-Content (Join-Path $env:GH_MOCK_ROOT ''cleanup-invoked'') ''yes'' }' + "`n" + $cleanupAnchor4)
+          $taskText4 = $taskText4.Replace($cleanupBody4, $cleanupBody4 + "`n" + '    Add-Content (Join-Path $env:GH_MOCK_ROOT ''cleanup-invoked'') ''entered''')
+          $taskText4 = $taskText4.Replace($tokenAnchor4, '        Add-Content (Join-Path $env:GH_MOCK_ROOT ''t24-invoked'') ''yes''' + "`n" + $tokenAnchor4)
+          Set-Content $task4 $taskText4 -NoNewline -Encoding utf8
+          $redRun4 = & $run4 $task4 @('-TaskId','T0-REMOTEMX','-Phase','red')
+          if ($redRun4.Exit -ne 0) { throw "真实 RED 建立失败：$($redRun4.Out)" }
+          $redPath4 = Join-Path $fx4.Wt '.review/T0-REMOTEMX.red'
+          $redObj4 = Get-Content $redPath4 -Raw | ConvertFrom-Json
+          if ($redObj4.taskId -cne 'T0-REMOTEMX' -or $redObj4.dodExit -eq 0 -or $redObj4.sha -cne (& $git4 $fx4.Wt @('rev-parse','HEAD'))) { throw 'RED 收据未绑定本夹具真实非零 DoD/HEAD' }
+          Set-Content (Join-Path $fx4.Wt 'README.md') 'GREENMX foundation' -Encoding utf8
+          $shipArgs4 = @('-TaskId','T0-REMOTEMX','-Phase','ship','-NoAutoMerge')
+          $mint4 = & $run4 $task4 $shipArgs4
+          if ($mint4.Exit -ne 0 -or $mint4.Out -notmatch '已铸水位线收据' -or $mint4.Out -notmatch '\[CI-GATE-PASS\]') { throw "首次 normal ship 未真实铸据并完成 CI：$($mint4.Out)" }
+          $gcd4 = & $git4 $fx4.Wt @('rev-parse','--git-common-dir')
+          if (-not [IO.Path]::IsPathRooted($gcd4)) { $gcd4 = Join-Path $fx4.Wt $gcd4 }
+          $rcpt4 = Join-Path (Join-Path $gcd4 'scaffold-shipped') 'T0-REMOTEMX'
+          $mergeTok4 = Join-Path (Join-Path $gcd4 'scaffold-merged') 'T0-REMOTEMX'
+          $prFile4 = Join-Path $fx4.Root 'pr-created'; $countFile4 = Join-Path $fx4.Root 'create-count'
+          $wantPr4 = (Get-Content (Join-Path $fx4.Root 'fixture-pr-number') -Raw).Trim()
+          if (-not (Test-Path $rcpt4 -PathType Leaf) -or (Get-Content $prFile4 -Raw).Trim() -cne $wantPr4 -or (Test-Path $mergeTok4)) { throw '已发布/receipt 在场/PR 随机身份/未合并前置不成立' }
+          $validBytes4 = [IO.File]::ReadAllBytes($rcpt4); $validHash4 = (Get-FileHash $rcpt4).Hash
+          $validObj4 = [Text.Encoding]::UTF8.GetString($validBytes4) | ConvertFrom-Json
+          $head4 = & $git4 $fx4.Wt @('rev-parse','HEAD')
+          if ($validObj4.taskId -cne 'T0-REMOTEMX' -or $validObj4.redSha -cne $redObj4.sha -or $validObj4.commitSha -cne $head4 -or (& $git4 $fx4.Origin @('rev-parse','refs/heads/T0-REMOTEMX')) -cne $head4) { throw '真实 receipt/redSha/commitSha/远端 HEAD 绑定不成立' }
+          $forbidden4 = @('merge-attempted','merge-reached','cleanup-invoked','t24-invoked')
+          $down4 = @('review-invoked','status-posted','pr-commented','gh-all-calls','ci-event-trace','ci-checked','ci-workflow-checked','ci-jobs-consumed','ci-jobs-run-id','ci-jobs-names','ci-gh-cwds','ci-check-count','ci-workflow-count','ci-jobs-count') + $forbidden4
+          $assertCi4 = {
+            param($Result, [string]$Stage)
+            if ($Result.Exit -ne 0 -or -not $Result.Out.Contains("[CI-GATE-PASS] #$wantPr4/$head4")) { throw "$Stage 未完成随机 PR/head 最终 CI：$($Result.Out)" }
+            foreach ($s in ($down4 | Where-Object { $_ -notin $forbidden4 })) { if (-not (Test-Path (Join-Path $fx4.Root $s))) { throw "$Stage 正例哨兵未被真实消费：$s" } }
+            if (@($forbidden4 | Where-Object { Test-Path (Join-Path $fx4.Root $_) }).Count -or (Test-Path $mergeTok4)) { throw "$Stage NoAutoMerge 消费 merge/cleanup/T24" }
+            $cwds4 = @(Get-Content (Join-Path $fx4.Root 'ci-gh-cwds'))
+            $calls4 = @($cwds4 | ForEach-Object { ($_ -split '\|',3)[0] }) -join '>'
+            $wantRun4 = (Get-Content (Join-Path $fx4.Root 'fixture-run-id') -Raw).Trim()+'/'+(Get-Content (Join-Path $fx4.Root 'fixture-run-attempt') -Raw).Trim()
+            if ($calls4 -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr' -or @($cwds4 | Where-Object { ($_ -split '\|',3)[1] -ine $fx4.Wt }).Count -or (Get-Content (Join-Path $fx4.Root 'ci-jobs-run-id') -Raw).Trim() -cne $wantRun4 -or ((Get-Content (Join-Path $fx4.Root 'ci-event-trace')) -join '>') -notmatch '^r3>ci(?:>ci)*$') { throw "$Stage 随机 run/attempt/CWD/最终快照序列不完整" }
           }
-        }
-        finally { Remove-Item -Recurse -Force $fx4.Root -ErrorAction SilentlyContinue }
+          & $assertCi4 $mint4 '首次铸据'
+          $clear4 = { foreach ($s in $down4) { Remove-Item (Join-Path $fx4.Root $s) -ErrorAction SilentlyContinue } }
+          $snapshot4 = {
+            param([bool]$IncludeTree = $true)
+            [ordered]@{
+              WtHead=(& $git4 $fx4.Wt @('rev-parse','HEAD')); WtBranch=(& $git4 $fx4.Wt @('branch','--show-current')); WtStatus=(& $git4 $fx4.Wt @('status','--porcelain'))
+              MainHead=(& $git4 $fx4.Repo @('rev-parse','HEAD')); MainBranch=(& $git4 $fx4.Repo @('branch','--show-current')); MainStatus=(& $git4 $fx4.Repo @('status','--porcelain'))
+              Refs=(& $git4 $fx4.Repo @('show-ref')); RemoteRefs=(& $git4 $fx4.Origin @('show-ref'))
+              PrHash=(Get-FileHash $prFile4).Hash; CountHash=(Get-FileHash $countFile4).Hash; RedHash=(Get-FileHash $redPath4).Hash
+              Tree=@(if ($IncludeTree) { Get-ChildItem $fx4.Wt -Recurse -Force | Sort-Object FullName | ForEach-Object { $rel=[IO.Path]::GetRelativePath($fx4.Wt,$_.FullName); if ($_.PSIsContainer) { "D:$rel" } else { "F:${rel}:$((Get-FileHash $_.FullName).Hash)" } } })
+            } | ConvertTo-Json -Depth 4 -Compress
+          }
+          & $clear4
+          Remove-Item $rcpt4 -Force
+          if (Test-Path $rcpt4) { throw 'receipt 删除失败，missing 前置未成立' }
+          $before4 = & $snapshot4
+          $stable4 = & $snapshot4 $false
+          $missing4 = & $run4 $task4 $shipArgs4
+          if ($missing4.Exit -eq 0 -or $missing4.Out -notmatch '\[TD85-RESUME\]' -or $missing4.Out -notmatch 'RED 证据无效') { throw "missing 未在真实 receipt 边界停止：$($missing4.Out)" }
+          if (@($down4 | Where-Object { Test-Path (Join-Path $fx4.Root $_) }).Count -or (Test-Path $mergeTok4) -or (Test-Path $rcpt4) -or (& $snapshot4) -cne $before4) { throw 'missing 消费下游或改变 worktree/main/ref/PR/evidence/receipt' }
+          [IO.File]::WriteAllBytes($rcpt4,$validBytes4)
+          if ((Get-FileHash $rcpt4).Hash -cne $validHash4) { throw '原始有效 receipt 未逐字节恢复' }
+          & $clear4
+          $valid4 = & $run4 $task4 $shipArgs4
+          if ($valid4.Exit -ne 0 -or $valid4.Out -notmatch 'T35-RECEIPT resume 放行' -or -not $valid4.Out.Contains("[CI-GATE-PASS] #$wantPr4/$head4")) { throw "有效 receipt 未经 normal ship 完成随机 PR/head 最终 CI：$($valid4.Out)" }
+          & $assertCi4 $valid4 '恢复有效收据'
+          if ((Get-FileHash $rcpt4).Hash -cne $validHash4 -or (& $snapshot4 $false) -cne $stable4) { throw '有效 NoAutoMerge 改变 HEAD/ref/PR/evidence/receipt' }
+          # 保留原 /4 的两枚独立 scope 身份绑定负例；不重建测试内的手工配方。
+          $pos4 = @{ Head=$head4; Base=(& $git4 $fx4.Repo @('rev-parse','refs/remotes/origin/master')) }
+          $csExe4 = Join-Path $fx4.Repo 'scripts/check-scope.ps1'
+          $pinTip4 = & $run4 $csExe4 @('-TaskId','T0-REMOTEMX','-Base','master','-Path',$fx4.Wt,'-ExpectTip',$pos4.Base,'-ExpectBase',$pos4.Base)
+          $pinBase4 = & $run4 $csExe4 @('-TaskId','T0-REMOTEMX','-Base','master','-Path',$fx4.Wt,'-ExpectTip',$pos4.Head,'-ExpectBase',$pos4.Head)
+          foreach ($pin4 in @($pinTip4,$pinBase4)) { if ($pin4.Exit -eq 0 -or $pin4.Out -notmatch '\[SCOPE-TIPMISMATCH\]' -or $pin4.Out -notmatch 'judged=') { throw "可解析错误 OID 未命中真实 scope 身份比较：$($pin4.Out)" } }
+          # 零消费断言完成后，以同一隔离仓的真实合并/cleanup 正控证明观察点可达。
+          & $clear4
+          $mergeControl4 = & $run4 $task4 @('-TaskId','T0-REMOTEMX','-Phase','ship')
+          if ($mergeControl4.Exit -ne 0 -or -not (Test-Path (Join-Path $fx4.Root 't24-invoked')) -or -not (Test-Path $mergeTok4)) { throw "T24 观察正控未走到真实铸造：$($mergeControl4.Out)" }
+          $cleanupControl4 = & $run4 $task4 @('-TaskId','T0-REMOTEMX','-Phase','cleanup')
+          if ($cleanupControl4.Exit -ne 0 -or ((Get-Content (Join-Path $fx4.Root 'cleanup-invoked')) -join '>') -cne 'yes>entered' -or (Test-Path $fx4.Wt)) { throw "cleanup 观察正控未走到真实入口：$($cleanupControl4.Out)" }
+          Write-Host '  T37-REMOTEMX/4 receipt resume OK（真实已铸 receipt→missing 非零停止；零下游且 HEAD/ref/PR/evidence 保留；原始 receipt 恢复后 NoAutoMerge 经 normal ship 完成随机身份最终快照）' -ForegroundColor Green
+        } catch { Fail "T37-REMOTEMX/4 receipt resume：$($_.Exception.Message)" }
+        finally { if ($fx4 -and $fx4.Root) { Remove-Item -Recurse -Force $fx4.Root -ErrorAction SilentlyContinue } }
       }
     }
     finally {
