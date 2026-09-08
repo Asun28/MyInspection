@@ -320,6 +320,18 @@ function Restore-Td4ContinueProbeFixture {
   return [PSCustomObject]@{ ProbeRestored = $probeRestored; BuildRestored = $buildRestored; TenancyRestored = $tenancyRestored; Errors = @($errors) }
 }
 
+function Test-Td4ContinueProbeCleanupComplete {
+  param([Parameter(Mandatory)][object]$Cleanup)
+  return $Cleanup.ProbeRestored -and $Cleanup.BuildRestored -and $Cleanup.TenancyRestored -and @($Cleanup.Errors).Count -eq 0
+}
+
+function Get-Td4ContinueProbeCleanupDiagnostics {
+  param([Parameter(Mandatory)][object]$Cleanup)
+  $errors = @($Cleanup.Errors)
+  if ($errors.Count -eq 0) { return 'none' }
+  return ($errors -join ' | ')
+}
+
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
 # unchanged; only these ASCII records are machine-readable. A non-zero child without exactly one valid
 # record is still red and is reported as UNKNOWN rather than being reduced to a positional exit-code list.
@@ -10660,36 +10672,38 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
             [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
             $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
             $td4MissingResult = & $invokeTd4CoreCheck
-            [void](Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal)
+            $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal
+            if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
+              Fail "闸17a3(migration-continue/cleanup)：临时清理未完整恢复；跳过 migration-wrong，collectedErrors=$(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)。"
+            } else {
+              $td4TestFailureMarker = "Execution failed for task ':core:test'."
+              $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
+              if (-not $td4WithoutContinueExact) {
+                Fail "闸17a3(migration-continue/mutant)：无 --continue 的真实 :core:check 未精确复现 test 先红、migration verifier 未运行的 blind spot（exit=$($td4WithoutContinueResult.Exit)）。输出：$($td4WithoutContinueResult.Output)"
+              }
 
-            $td4TestFailureMarker = "Execution failed for task ':core:test'."
-            $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
-            if (-not $td4WithoutContinueExact) {
-              Fail "闸17a3(migration-continue/mutant)：无 --continue 的真实 :core:check 未精确复现 test 先红、migration verifier 未运行的 blind spot（exit=$($td4WithoutContinueResult.Exit)）。输出：$($td4WithoutContinueResult.Output)"
-            }
-
-            $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
-            $td4ContinuedExact = $td4MissingResult.Exit -ne 0 -and $td4MissingResult.Output.Contains($td4TestFailureMarker) -and $td4MissingExact
-            if (-not $td4ContinuedExact) {
-              Fail "种子缺陷 17a3(migration-continue)：:core:test 先红后未继续执行真实 migration verifier，或任一稳定诊断缺失（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+              $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
+              $td4ContinuedExact = $td4MissingResult.Exit -ne 0 -and $td4MissingResult.Output.Contains($td4TestFailureMarker) -and $td4MissingExact
+              if (-not $td4ContinuedExact) {
+                Fail "种子缺陷 17a3(migration-continue)：:core:test 先红后未继续执行真实 migration verifier，或任一稳定诊断缺失（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+              }
+              $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
+              $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+              [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
+              $td4WrongResult = & $invokeTd4CoreCheck
+              Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
+              $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
+              if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) {
+                Fail "种子缺陷 17a3(migration-wrong)：错误 1.sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4WrongResult.Exit)）。输出：$($td4WrongResult.Output)"
+              } else { Write-Host '  17a3(migration) :core:check 对缺迁移 ADDED + 错迁移 REMOVED 均由真实 verify task 精确翻红 OK' -ForegroundColor Green }
             }
           }
-
-          $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
-          $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
-          [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
-          $td4WrongResult = & $invokeTd4CoreCheck
-          Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
-          $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
-          if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) {
-            Fail "种子缺陷 17a3(migration-wrong)：错误 1.sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4WrongResult.Exit)）。输出：$($td4WrongResult.Output)"
-          } else { Write-Host '  17a3(migration) :core:check 对缺迁移 ADDED + 错迁移 REMOVED 均由真实 verify task 精确翻红 OK' -ForegroundColor Green }
         }
       }
     } finally {
       $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal
-      if (-not $td4ContinueCleanup.ProbeRestored -or -not $td4ContinueCleanup.BuildRestored -or -not $td4ContinueCleanup.TenancyRestored) {
-        Fail '闸17a3(migration-continue/cleanup)：临时失败测试、build 脚本或 Tenancy.sq 未恢复到其原始状态。'
+      if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
+        Fail "闸17a3(migration-continue/cleanup)：临时失败测试、build 脚本或 Tenancy.sq 未恢复到其原始状态；collectedErrors=$(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)。"
       }
       if ($td4WrongMigration -and (Test-Path -LiteralPath $td4WrongMigration)) { Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue }
       if ($td4MigrationWorktreeAdded) {
