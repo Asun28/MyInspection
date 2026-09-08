@@ -3,7 +3,7 @@ id: T1-SPIKE-PLATFORM
 title: 真机平台可行性 spike ×3（overlay / SAF / PDF 压力）+ 结论报告
 depends_on: [T0-TOOLCHAIN]
 parallelizable_with: [T1-SCHEMA-CORE]
-status: todo
+status: merged
 branch: T1-SPIKE-PLATFORM
 worktree: C:\wt\T1-SPIKE-PLATFORM
 allow_paths:

@@ -69,6 +69,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T1-SPIKE-PLATFORM` 已合并（master `e8c2359a`，正式 R3 第 **2** 轮 pass）——V1 三项平台风险
+在**真机**上全部判「成立」、无一降级：设备 = Galaxy A34 5G `SM-A346E`、Android 13 / API 33、fingerprint
+`samsung/…/A346EXXU4AWG8:user/release-keys`（**零售 user 版**，非模拟器的 `userdebug/dev-keys`，API 亦低于模拟器的 35）。
+① **ghost overlay 成立**（门框/把手/开关面板叠加后轮廓成对可见，据此可把机位移回原处）⇒ `T3-HISTORY-COMPARE`
+按实时叠图推进，**不**退到「拍完并排比对」；② **SAF 持久授权成立**（`bytes=60` 写入并逐字节读回，重启后授权仍在、
+不重写不重弹）；③ **PDF 成立**（81 页 / 80 图 / 7272ms / 采样峰值 225620 KiB）。
+> **三条给承接卡的实测参数**：㊀ **EXIF 方向真机与模拟器不同**——本机存 1440×1080 **横向**像素 + EXIF 标记、
+> 靠变换转正，模拟器则直接给 960×1280 竖图；这是「EXIF 旋转必须处理」这条不变量**第一次**在真机上被走通，归
+> `T2-PHOTO-PIPELINE`。㊁ **PDF 体积不可跨机外推**——同样 80 图同样代码，真机 2,366,495 bytes vs 模拟器 550,243，
+> 差 4.3 倍；且平台把一行混排文本拆给 **DroidSansFallback + Roboto 两个**内嵌子集，`T3-PDF-RENDERER` 估字体开销要按两份算。
+> ㊂ **该机 adb 全程不可用**（USB 调试已开，但手机只暴露 MTP class 06 与 CDC-ACM class 02/02/01，从不提供 ADB 的
+> class FF/42/01，故非 PC 侧驱动问题）——改走 **MTP 装机 + 机上截图取证**，全套真机验收照样闭合（L320）。
+> **R3 那条 block 是真的、且很值**：报告把受测 APK 钉在某个 master OID 上，而评审基线是另一个 OID——实测候选树
+> 当时构建出的是**另一个 APK**（`f366b5a1` / 17,213,270 bytes），因为分支停在 RED 取证基线上、落后 168 个提交而
+> 那个区间**确实**动过 `android/`。修法：吸收 base 后候选树构建即得受测的 `593ff461` / 17,401,647 bytes，并把
+> 「三处基线各构建一次、SHA 与字节全一致」与「`git log <base>..master -- android/ *.gradle …` 为空」两条证据一并写进报告，
+> 另**如实记下那处不等价**。**教训**：真机证据必须钉到**待合并的那棵树**，而不是「分支上任意一次构建」。
+> 另：取 RED 之后又把 master 快进进 worktree，令 RED 收据作废、白烧一整条 ship（**L310 复发第 2 次、L148 第 7 次**）。
+
 **2026-09-08 本地交付**：`T4-DESIGN-NOT-APPLICABLE-COLOR` 已合并（master `d6b369ee`，R3 第 2 轮 pass）——
 承接前卡的 `[FOLLOW-UP]`：`evidence-rail` 声明四个颜色却有五个 `segmentStates`，`NOT_APPLICABLE` 全文
 无取色。**OD-1 由用户裁定取 A**（与 `OPTIONAL` 共用 `outline`），零新 token / role / 绑定 / 配对。
@@ -379,7 +398,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 
 **2026-09-06 本地交付**：`T3-REPORT-HTML-PRESENTATION` 已合并（master `2801e019`，R3 第 2 轮 pass）；`T3-DOCX-PACKAGE-READER` 已合并（master `0a511e96`，R3 第 1 轮 pass）。两卡 DoD、verify 与范围/许可/防泄露闸均通过。HTML 浏览器目检未执行；DOCX 仅完成包读取边界，后续语义提取与图片解码仍由承接卡负责。
 
-**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
+**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（其 `T1-SPIKE-PLATFORM` 真机 spike 前置**已满足**，master `e8c2359a`）· `T3-REPORT-HTML-RENDERER`
 · `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 

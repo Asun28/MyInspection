@@ -1007,7 +1007,7 @@
 - refs: 
 
 ## L148
-- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: -Phase ship 在「RED 证据闸」失败：证据 sha 与当前 HEAD 不符（陈旧/伪造证据），saga 报告只完成「卡校验」腿。实现明明是对的、DoD 也绿。
 - root_cause: RED 证据把 -Phase red 当时的 HEAD 钉死；ship 要求证据 sha == 此刻 HEAD。而正常流程里实现应当**留在工作区不提交**，由 ship 自己的「提交」腿落盘——任何 post-RED 提交（含 git commit 实现、含按 L145 把 master merge 进分支）都会让 HEAD 前移、证据变陈旧。**L145 与本闸直接冲突**：L145 教你中途改卡就 merge master 进任务分支，照做即制造 post-RED 提交。
 - rule: 顺序反过来：**先** merge master / 改卡 / 对齐基线，**再**跑 -Phase red，然后实现但**不提交**，直接 -Phase ship。已经撞上了就按未推/已推分流恢复——未推分支（gh pr list 与 rev-parse origin/分支 均空）用**软**恢复、别用 reset --hard：git -C 该worktree reset --soft origin/master（HEAD 归位、改动全留在暂存区，此时 diff 恰好只剩本卡文件，merge 进来的 master 提交自动从 diff 里消失）→ git stash push → -Phase red 重铸证据（此刻 DoD 必须真红，故须先 stash 掉实现）→ git stash pop → -Phase ship。已推分支改走 TD85-RESUME 的 merge-safe 分流，勿 reset。**（复发 2，T48-TD88-W10 补）常见简化形态**：若实现一直**未提交**（正常流程本就如此），分支便没有自己的提交，`git merge origin/master` 是一次**快进**——此刻 HEAD 已等于 origin/master，`reset --soft origin/master` 是 no-op，恢复缩成 **stash → -Phase red → stash pop → ship** 三步。先 `git rev-parse HEAD` 与 `git rev-parse origin/master` 比一下再决定要不要 reset：相等就别 reset（省一步、也不会误伤）；不等才说明分支有自己的提交，照上面的软恢复走。**另注**：撞上这闸时别急着怀疑证据被伪造——最常见的成因就是照 L145 补了一次 master 合并，属流程顺序问题，不是证据问题。
@@ -2280,7 +2280,7 @@
 - addendum(2026-09-08, V2 交付后): 实例代入表按本条做了，仍连吃 8 轮 R3 / 13 条 finding，补三处覆盖缺口——① 只代入**中心规则**会漏掉**被改写的周边条款**，它们各自也带全称词、也在对整份文档做断言；② 表比对的是「新句 vs 旧实例」，**管不了「新句 vs 新句」自相矛盾**（本卡最重的一条即两条新句打架），新写的句子之间须交叉核对；③ 规则若有**两半**（如视觉线索 + 播报），**必须两半同时代入**——只判一半时，为满足另一半而新增的载体会系统性在另一半开新口子，本卡第 5 轮每加一个必带字形就在播报半漏一处，第 6 轮原样被拦。④ 改写任何一行前，先把**该行自己声明的 variants / states 清单**逐个代入新措辞（`state-badge` 的 SOURCE 变体即因此漏掉）。
 
 ## L310
-- date: 2026-09-08 ｜ tags: tdd,worktree,ship,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-08 ｜ tags: tdd,worktree,ship,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 卡片本身不在 allow_paths 内、须落 master，于是 ship 前把 master 快进进卡片 worktree——RED 收据当场作废：ship 的 RED 闸比对「证据里的 sha」与「worktree 当前 HEAD」，HEAD 一动即判陈旧/伪造并整条 ship 失败。
 - root_cause: RED 收据钉的是取证那一刻的 worktree HEAD，而不是被测文件内容。卡片元数据按 L18 走 master，两者的更新节奏天然不同步，我却把「同步 master」当成无害操作。
 - rule: 取 RED 之后不要再把 base 并进卡片 worktree。卡片元数据（dod_command / 记账）落 master 即可，ship 从主检出读卡、只在 worktree 跑 DoD，worktree 无须包含那些提交。若确实必须同步（如 DoD 依赖 base 的新脚本），同步后重取 RED：把实现改动 git stash push 掉、跑 -Phase red（此时基线真的红）、再 stash pop，并核对两侧文件 SHA 未变——这样重取的 RED 是真证据，不是为过闸而伪造。
@@ -2358,6 +2358,15 @@
 - rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
 - enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
 - refs: 
+
+## L320
+- date: 2026-09-08 ｜ tags: android,device,adb,mtp,spike ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Physical Android phone with USB debugging switched ON never appears in adb devices, while Windows plainly sees the phone. On a Galaxy A34 5G (SM-A346E, Android 13/API 33) the composite device exposed only MTP (USB class 06) plus a CDC-ACM serial port (class 02/02/01); the ADB interface (class FF, subclass 42, protocol 01) was never offered at all, so no driver work on the PC side could have helped.
+- root_cause: Two causes were proven and one was not. Proven: a phone left in USB tethering mode enumerates as RNDIS (Samsung PID 6863) and hides every other function, and Android withholds USB data entirely until the on-device Allow access to phone data prompt is accepted, which shows up as an MTP device reporting zero storage volumes. Not determined: why this Samsung still refused to publish the ADB interface after both were fixed and the toggle read ON. Time was spent guessing at Auto Blocker and driver binding before checking what the phone was actually exposing.
+- rule: On a device card, read the USB interface classes before touching drivers or settings: ADB is class FF/42/01, MTP is class 06, and an RNDIS interface means the phone is in tethering mode. That one check separates the phone is not offering ADB from the PC cannot bind ADB, and only the second is fixable from this side. When adb stays unavailable, do not block the card and do not demand a Wi-Fi change: MTP alone is a complete evidence path. Copy the APK into Download through the Shell.Application COM namespace and verify System.Size matches byte for byte, install it by tapping on the phone, let the probe UI carry its own results on screen, and pull the on-device screenshots back over MTP as the evidence.
+- enforced_by: 
+- refs: 
+
 ## L321
 - date: 2026-09-08 ｜ tags: docs,claims,design,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
 - symptom: R3 拦下一条：为把 light 调色板项与 dark 对应项对齐，我把它改成「essential card boundaries, evidence segments, and focus use outline」，而同一份 diff 里 evidence-rail 五个段态中的 complete/missing-required/blocked 分别用 primary/tertiary/error——diff 自己就推翻了这句。ship 前的全新上下文对抗复核判 PASS 也没抓到。
