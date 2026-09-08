@@ -1,7 +1,7 @@
 ---
 id: T0-SELFTEST-SCAFFOLD-ONLY
 title: Keep scaffold selftest off product-only changes
-depends_on: [T0-SELFTEST-PAGED-PERF]
+depends_on: []
 parallelizable_with: []
 status: todo
 branch: T0-SELFTEST-SCAFFOLD-ONLY

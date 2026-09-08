@@ -1,7 +1,7 @@
 ---
 id: T0-SELFTEST-PAGED-PERF
 title: Replace duplicate pagination ship fixtures with direct real-function coverage
-depends_on: [T0-CI-PAGED-CONTRACT]
+depends_on: [T0-CI-PAGED-CONTRACT, T0-SELFTEST-SCAFFOLD-ONLY]
 parallelizable_with: [T0-SCAFFOLD-SYNC-046]
 status: todo
 branch: T0-SELFTEST-PAGED-PERF
