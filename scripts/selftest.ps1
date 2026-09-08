@@ -443,7 +443,7 @@ function Get-SelftestSeededGitGateIds {
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
     'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
-    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING',
+    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT',
     '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
@@ -993,8 +993,18 @@ function Test-SelftestCiMatrixContract([string]$WorkflowText) {
 
 function Test-SelftestCiWiringContract([string]$WorkflowText) {
   if (-not (Test-SelftestCiMatrixContract $WorkflowText)) { return $false }
-  # seeded alone needs the measured 30-minute budget; widening every shard would hide hangs in the cheaper lanes.
-  if ([regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*matrix\.shard == 'seeded' && 30 \|\| 20\s*\}\}\s*$").Count -ne 1) { return $false }
+  # Evaluate the supported timeout expression against every real matrix pair, so a nonexistent shard cannot pass.
+  $timeouts = [regex]::Matches($WorkflowText, "(?m)^\s{4}timeout-minutes:\s*\`$\{\{\s*(?:matrix\.os == '(?<os>[^']+)' && )?matrix\.shard == '(?<shard>[^']+)' && (?<yes>\d+) \|\| (?<no>\d+)\s*\}\}\s*$")
+  if ($timeouts.Count -ne 1) { return $false }
+  $selection = $timeouts[0].Groups
+  foreach ($os in @('windows-latest', 'ubuntu-latest')) {
+    foreach ($shard in @('core', 'workflow', 'seeded-git', 'seeded-remote', 'seeded-scanner')) {
+      $selected = (-not $selection['os'].Success -or $os -ceq $selection['os'].Value) -and $shard -ceq $selection['shard'].Value
+      $actual = if ($selected) { $selection['yes'].Value } else { $selection['no'].Value }
+      $expected = if ($os -ceq 'windows-latest' -and $shard -ceq 'seeded-git') { '30' } else { '20' }
+      if ($actual -cne $expected) { return $false }
+    }
+  }
   if ($WorkflowText -notmatch '(?m)^\s*run:\s*pwsh\s+-NoProfile\s+-File\s+scripts/selftest\.ps1\s+-Shard\s+\$\{\{\s*matrix\.shard\s*\}\}\s*$') { return $false }
   if ($WorkflowText -notmatch "(?ms)- name: Provision PSScriptAnalyzer.*?\n\s*if:\s*matrix\.shard == 'core'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*Install-Module PSScriptAnalyzer") { return $false }
   return $true
@@ -4464,6 +4474,7 @@ $gateIdFamilies82 = [ordered]@{
   'T37-REMOTEMX/3' = 'T37-REMOTEMX/3'
   'T37-CIGATE/API-CONTRACT' = 'T37-CIGATE/API-CONTRACT'
   'T37-CIGATE/WORKFLOW-BINDING' = 'T37-CIGATE/WORKFLOW-BINDING'
+  'T37-CIGATE/JOBS-DRIFT' = 'T37-CIGATE/JOBS-DRIFT'
 }
 $badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
   $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
@@ -4556,8 +4567,15 @@ if (-not (Test-SelftestCiWiringContract $selftestWorkflow)) {
   $lintConditionMutation = $selftestWorkflow -replace "(?m)^\s*if:\s*matrix\.shard == 'core'\s*$", "        if: matrix.shard == 'workflow'"
   $seededTimeoutRevertMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 20'
   $allTimeoutWidenMutation = $selftestWorkflow -replace "(?m)^\s{4}timeout-minutes:.*$", '    timeout-minutes: 30'
-  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation)) {
-    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/seeded 独享超时预算变异。'
+  $timeoutSelectionMutations = @(
+    $selftestWorkflow.Replace("matrix.shard == 'seeded-git'", "matrix.shard == 'seeded'")
+    $selftestWorkflow.Replace("matrix.os == 'windows-latest' && ", '')
+    $selftestWorkflow.Replace("matrix.os == 'windows-latest'", "matrix.os == 'ubuntu-latest'")
+    $selftestWorkflow.Replace("matrix.shard == 'seeded-git'", "matrix.shard == 'seeded-remote'")
+  )
+  $acceptedTimeoutMutations = @($timeoutSelectionMutations | Where-Object { Test-SelftestCiWiringContract $_ })
+  if ((Test-SelftestCiWiringContract $missingPairMutation) -or (Test-SelftestCiWiringContract $excludeMutation) -or (Test-SelftestCiWiringContract $runnerMutation) -or (Test-SelftestCiWiringContract $allCoreMutation) -or (Test-SelftestCiWiringContract $runShardMutation) -or (Test-SelftestCiWiringContract $lintConditionMutation) -or (Test-SelftestCiWiringContract $seededTimeoutRevertMutation) -or (Test-SelftestCiWiringContract $allTimeoutWidenMutation) -or $acceptedTimeoutMutations.Count -ne 0) {
+    Fail '8.2e：CI 接线契约未能检出矩阵/runner/-Shard/lint 条件/Windows seeded-git 独享超时预算变异。'
   }
 
   $aggFixture = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-aggregate-fixture-$PID-$([guid]::NewGuid().ToString('N'))"
@@ -13922,7 +13940,7 @@ exit 0
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
 if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
   'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4', 'T37-CIGATE/API-CONTRACT',
-  'T37-CIGATE/WORKFLOW-BINDING')) {
+  'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
@@ -13934,6 +13952,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/4' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/4 跳过：远端态矩阵仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/API-CONTRACT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/API-CONTRACT 跳过：候选 CI 分页夹具复用远端态矩阵，仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/WORKFLOW-BINDING' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/WORKFLOW-BINDING 跳过：候选 CI 身份/时序夹具复用远端态矩阵，仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-CIGATE/JOBS-DRIFT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/JOBS-DRIFT 跳过：候选 CI jobs 集合夹具复用远端态矩阵，仅 Windows 执行。'
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
@@ -13944,7 +13963,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # 跨场景状态会残留（codex R3 r2 #4：集中复位清单未随新增哨兵更新）。
     $rmSentinels = @('pr-created', 'create-count', 'merge-reached', 'merge-attempted', 'create-fail-armed',
       'review-invoked', 'status-posted', 'pr-commented', 'merge-head-arg', 'merge-pr-arg', 'ci-checked',
-      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-event-trace', 'ci-gh-cwds',
+      'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-jobs-names', 'ci-event-trace', 'ci-gh-cwds',
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
       # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
       'r3-head-moved')   # base-count 属 17aa(8)，本卡 stub 不写
@@ -13987,6 +14006,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
         M = [bool](Test-Path (Join-Path $fx.Root 'merge-reached'))
         MH = (& $txt 'merge-head-arg')
         JobsRunId = (& $txt 'ci-jobs-run-id')
+        JobsNames = @((Get-Content (Join-Path $fx.Root 'ci-jobs-names') -ErrorAction SilentlyContinue) | Where-Object { $_ })
         PrN = (& $txt 'fixture-pr-number'); RunId = (& $txt 'fixture-run-id'); Try = (& $txt 'fixture-run-attempt')
         Led = @((Get-Content $ledger -ErrorAction SilentlyContinue) | Where-Object { $_ }) -join "`n"
         H = "$(& git -C $fx.Wt rev-parse HEAD 2>$null)".Trim()
@@ -14171,9 +14191,9 @@ if ($args -contains 'api') {
     Add-CiCwd 'jobs' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
-    [void](Next-CiCount 'ci-jobs-count')
+    $jobN = Next-CiCount 'ci-jobs-count'
     $page = Get-CiPage $joined
-    $jn = if ($env:GH_MOCK_CI_MODE -eq 'basic-candidate') { 'Verify display' } else { 'verify' }
+    $jn = if ($env:GH_MOCK_CI_MODE -ceq 'basic-candidate') { 'Verify display' } else { 'verify' }
     $jobItem = [ordered]@{ id = [long]21; name = $jn; status = 'completed'; conclusion = 'success' }
     # A4 的 base 前移负例：本腿是「稳定态已判绿、终局 base 快照尚未取」之间**唯一**的注入点——
     # 在这里让裸 origin 的 master 长出一个新提交，ship 随后的 base 刷新就会读到与 scopeBaseOid 不同的 OID。
@@ -14187,6 +14207,14 @@ if ($args -contains 'api') {
         if ($moved) { & git --git-dir=$bare update-ref refs/heads/master $moved *> $null }
       }
     }
+    $jobItems = @($jobItem)
+    if ($djm -ceq 'jobs-renamed') { $jobItem.name = 'renamed' }
+    elseif ($djm -ceq 'jobs-name-case') { $jobItem.name = 'Verify' }
+    elseif ($djm -ceq 'jobs-extra') { $jobItems += [ordered]@{ id = [long]22; name = 'audit'; status = 'completed'; conclusion = 'success' } }
+    elseif ($djm -ceq 'jobs-duplicate') { $jobItems += [ordered]@{ id = [long]22; name = 'verify'; status = 'completed'; conclusion = 'success' } }
+    elseif (($djm -ceq 'jobs-final-drift') -and ($jobN -ge 2)) { $jobItem.name = 'renamed' }
+    elseif ($djm -ceq 'jobs-audit-green') { $jobItems += [ordered]@{ id = [long]22; name = 'audit'; status = 'completed'; conclusion = 'success' } }
+    Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-names') (ConvertTo-Json -InputObject @($jobItems) -Depth 4 -Compress)
     Send-CiShapeCase 'jobs' 'jobs' $jobItem $page
     if ($env:GH_MOCK_CI_MODE -eq 'jobs-paged') {
       # 有效分页正例 + 消费证明：候选 ci.yml 声明 verify/audit 两个 job，夹具把 audit **只**放在第二页。
@@ -14194,7 +14222,7 @@ if ($args -contains 'api') {
       if ($page -gt 1) { $jobItem.id = [long]22; $jobItem.name = 'audit' }
       Send-CiJson ([ordered]@{ total_count = 2; jobs = @($jobItem) })
     }
-    Send-CiJson ([ordered]@{ total_count = 1; jobs = @($jobItem) })
+    Send-CiJson ([ordered]@{ total_count = $jobItems.Count; jobs = @($jobItems) })
   }
   exit 0
 }
@@ -14706,6 +14734,106 @@ if ($env:GH_MOCK_ROOT) {
         }
         if ($wbProblem) { Fail "T37-CIGATE/WORKFLOW-BINDING: $wbProblem" }
         else { Write-Host '  T37-CIGATE/WORKFLOW-BINDING OK' -ForegroundColor Green }
+      }
+
+      # --- T37-CIGATE/JOBS-DRIFT（T0-CI-JOBS-DRIFT）：声明集与候选 run jobs 的大小写敏感精确多重集合 ---
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/JOBS-DRIFT')) {
+        $jdProblem = $null
+        # A2：每个负例独占仓；即使谓词坏掉而误合并，也不能污染下一例。
+        foreach ($mode in @('jobs-renamed', 'jobs-name-case', 'jobs-extra', 'jobs-duplicate')) {
+          if ($jdProblem) { break }
+          $jd = & $rmMake ($mode -replace '-', '')
+          try {
+            if (-not $jd.Ok) { $jdProblem = "$mode setup：夹具 start 未产出 worktree"; break }
+            $env:GH_MOCK_WT = $jd.Wt
+            & pwsh -NoProfile -File (Join-Path $jd.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+            Set-Content (Join-Path $jd.Wt 'README.md') "GREENMX $mode" -Encoding utf8
+            $r = & $ciShip $jd $mode
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-JOBS-DRIFT\]' 1 1 1 ''
+            if ($why) { $jdProblem = "$mode：$why" }
+            elseif (($r.Calls -join '>') -cne 'head>checks>workflow>jobs') { $jdProblem = "$mode：调用序列=$($r.Calls -join '>')" }
+            elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $jdProblem = "$mode：jobs 未绑定动态 run/attempt" }
+            elseif ($r.JobsNames.Count -ne 1) { $jdProblem = "$mode：jobs payload 记录数=$($r.JobsNames.Count)，期望 1" }
+          }
+          finally { if ($jd -and $jd.Root) { Remove-Item -Recurse -Force $jd.Root -ErrorAction SilentlyContinue } }
+        }
+
+        # A3：稳定态合法，决策前最终 jobs 读才漂移；必须精确停在 2/2/2。
+        if (-not $jdProblem) {
+          $jd = & $rmMake 'jobsfinaldrift'
+          try {
+            if (-not $jd.Ok) { $jdProblem = 'jobs-final-drift setup：夹具 start 未产出 worktree' }
+            else {
+              $env:GH_MOCK_WT = $jd.Wt
+              & pwsh -NoProfile -File (Join-Path $jd.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+              Set-Content (Join-Path $jd.Wt 'README.md') 'GREENMX jobs final drift' -Encoding utf8
+              $r = & $ciShip $jd 'jobs-final-drift'
+              $why = & $ciExpectIdBlock $r '\[CI-GATE-JOBS-DRIFT\]' 2 2 2 ''
+              if ($why) { $jdProblem = "jobs-final-drift：$why" }
+              elseif (($r.Calls -join '>') -cne 'head>checks>workflow>jobs>checks>workflow>jobs') { $jdProblem = "jobs-final-drift：调用序列=$($r.Calls -join '>')" }
+              elseif ($r.JobsNames.Count -ne 2 -or $r.JobsNames[0] -cnotmatch '"verify"' -or $r.JobsNames[1] -cnotmatch '"renamed"') {
+                $jdProblem = "jobs-final-drift：首读/终局 payload 未形成 verify→renamed（$($r.JobsNames -join ';')）"
+              }
+            }
+          }
+          finally { if ($jd -and $jd.Root) { Remove-Item -Recurse -Force $jd.Root -ErrorAction SilentlyContinue } }
+        }
+
+        # A4：直接执行 task.ps1 中唯一真实分类器；API 前置形态闸不可达的 scalar/type 分支也必须是 drift。
+        if (-not $jdProblem) {
+          $src = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
+          $tok = $null; $pe = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$tok, [ref]$pe)
+          $fn = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-ExactCandidateJobState' }, $true))
+          if ($pe -or $fn.Count -ne 1) { $jdProblem = "分类器 parse/count 无效：$(@($pe).Count)/$($fn.Count)" }
+          else {
+            . ([scriptblock]::Create($fn[0].Extent.Text))
+            $badJobs = @(
+              @('scalar'), @([pscustomobject]@{ status = 'completed'; conclusion = 'success' }),
+              @([pscustomobject]@{ name = 1; status = 'completed'; conclusion = 'success' }),
+              @([pscustomobject]@{ name = 'verify'; status = 1; conclusion = 'success' }),
+              @([pscustomobject]@{ name = 'verify'; status = 'completed'; conclusion = 1 }),
+              @([pscustomobject]@{ name = ' '; status = 'completed'; conclusion = 'success' }),
+              @([pscustomobject]@{ name = 'verify'; status = 'unknown'; conclusion = 'success' }),
+              @([pscustomobject]@{ name = 'verify'; status = 'unknown'; conclusion = 'failure' }),
+              @([pscustomobject]@{ name = 'verify'; status = 'completed'; conclusion = $null })
+            )
+            foreach ($jobs in $badJobs) {
+              $s = Get-ExactCandidateJobState -Jobs @($jobs) -Wanted @('verify')
+              if (-not $s.Drift -or $s.Blocking.Count -ne 0 -or $s.Pending.Count -ne 0) { $jdProblem = "分类器畸形输入未归 drift：$($jobs | ConvertTo-Json -Compress)"; break }
+            }
+          }
+        }
+
+        # A5：声明与返回均为精确 {verify,audit}，稳定态/终局各读一次后才允许绑定 head 合并。
+        if (-not $jdProblem) {
+          $jd = & $rmMake 'jobsauditgreen'
+          try {
+            if (-not $jd.Ok) { $jdProblem = 'jobs-audit-green setup：夹具 start 未产出 worktree' }
+            else {
+              $env:GH_MOCK_WT = $jd.Wt
+              & pwsh -NoProfile -File (Join-Path $jd.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+              Set-Content (Join-Path $jd.Wt 'README.md') 'GREENMX jobs exact set' -Encoding utf8
+              Add-Content (Join-Path $jd.Wt '.github/workflows/ci.yml') "`n  audit:`n    runs-on: windows-latest`n    steps: []" -Encoding utf8
+              $r = & $ciShip $jd 'jobs-audit-green'
+              if ($r.X -ne 0 -or -not $r.MA -or -not $r.M) { $jdProblem = "jobs-audit-green：未合并（exit=$($r.X), attempted=$($r.MA), reached=$($r.M)）" }
+              elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $jdProblem = "jobs-audit-green：读计数=$($r.CR)/$($r.WR)/$($r.JR)" }
+              elseif (($r.Calls -join '>') -cne 'head>checks>workflow>jobs>checks>workflow>jobs>final-pr') { $jdProblem = "jobs-audit-green：调用序列=$($r.Calls -join '>')" }
+              elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)" -or $r.MH -cne $r.H -or $r.BadCwd.Count -gt 0) { $jdProblem = 'jobs-audit-green：run/attempt/head/CWD 绑定失败' }
+              elseif ($r.JobsNames.Count -ne 2) { $jdProblem = "jobs-audit-green：payload 记录数=$($r.JobsNames.Count)" }
+              else {
+                foreach ($line in $r.JobsNames) {
+                  $names = @($line | ConvertFrom-Json | ForEach-Object { $_.name } | Sort-Object -CaseSensitive)
+                  if (($names -join ',') -cne 'audit,verify') { $jdProblem = "jobs-audit-green：返回集合=$($names -join ',')"; break }
+                }
+              }
+            }
+          }
+          finally { if ($jd -and $jd.Root) { Remove-Item -Recurse -Force $jd.Root -ErrorAction SilentlyContinue } }
+        }
+
+        if ($jdProblem) { Fail "T37-CIGATE/JOBS-DRIFT: $jdProblem" }
+        else { Write-Host '  T37-CIGATE/JOBS-DRIFT OK' -ForegroundColor Green }
       }
 
       # 场景 4 = 闸15t（TD94）：**收据缺失 + 已 push** 这条「最后手段」恢复平面的端到端夹具。
@@ -16068,7 +16196,7 @@ exit $realExit
     @{ File='docs'; Anchor='防泄露闸 `check-secrets.ps1` 已接入'; Class='note' }
     @{ File='docs'; Anchor='`/security-review-local` 是模型在环'; Class='note' }
     @{ File='task'; Anchor='ship    : DoD(必绿)'; Class='enum'; Site='task-help' }
-    @{ File='task'; Anchor='R3 与候选 CI 都作为 mandatory gate'; Class='note' }
+    @{ File='task'; Anchor='绑定已证明 head 直接 squash 合并。free+private'; Class='note' }
     @{ File='task'; Anchor='$sagaLegs = @('; Class='enum'; Site='task-saga-legs' }
     @{ File='task'; Anchor='# 收据在位 ='; Class='note' }
     @{ File='task'; Anchor='# PR head =='; Class='note' }
@@ -16080,7 +16208,6 @@ exit $realExit
     @{ File='task'; Anchor='# 铸造/RED 闸的收据 resume'; Class='note' }
     @{ File='task'; Anchor='$sagaSafeWhy ='; Class='note' }
     @{ File='task'; Anchor='-Local（提交未推送）'; Class='note' }
-    @{ File='task'; Anchor='[CI-GATE-BASE-MOVED]'; Class='note' }
     @{ File='task'; Anchor='# 必须先在 worktree **手动补跑全部确定性闸'; Class='enum'; Site='task-saga-rule-comment' }
     @{ File='task'; Anchor='【闸门保真总则】已推送恢复合并前'; Class='enum'; Site='task-saga-rule-output' }
     @{ File='task'; Anchor='R3 已 pass、合并腿未完成'; Class='enum'; Site='task-r3-pass' }

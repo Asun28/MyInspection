@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 176 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 183 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -10,9 +10,11 @@
 | T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-CI-HARDENING-SPLIT-PLAN | merged | 将候选 CI 硬化卡拆为分页契约与身份/deadline 两张可读串行卡 |
 | T0-CI-IDENTITY-DEADLINE | merged | 候选 CI 的 run 身份绑定与最终 exact-head/base 快照 |
+| T0-CI-JOBS-DRIFT | merged | 候选 run 返回 job 集与 ci.yml 声明集的漂移判定（API 侧平面） |
 | T0-CI-LICENSE-GATE-HASH-SYNC | merged | 同步 docs-only License gate 的 8.2b2 规范块哈希 |
 | T0-CI-MERGE-GATE | merged | 在所有远端合并路径上等待候选分支 ci.yml 检查全绿 |
 | T0-CI-PAGED-CONTRACT | merged | 候选 CI 分页读取的形态、总数、稳定身份与跨页重放契约 |
+| T0-CI-SELFTEST-REPAIR | merged | Repair scanner inventory drift and Windows seeded-git CI timeout |
 | T0-CI-UNICODE-DEP-FIXTURE | merged | 补齐 license scanner 自检夹具的 Unicode helper 依赖并防假绿 |
 | T0-CODEX-ASTRA-GUIDANCE | merged | Add project-scoped Codex and GPT-6 Astra collaboration guidance |
 | T0-DEBT-ARCHIVE-CARDS-INDEX-GATE | merged | 让归档任务卡索引保持为可验证的真实投影（偿还 TD146） |
@@ -162,6 +164,8 @@
 | T3-REPORT-HTML-RENDERER | merged | Self-contained accessible HTML document from shared report content |
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
+| T4-COMPLIANCE-TRUST-REMOTE-RECORD | merged | 同步规则信任决策的远端任务记录 |
+| T4-COMPLIANCE-UPDATE-TRUST | merged | 规则更新的可信来源与版本决策 |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T4-REMINDER-CORRESPONDS-TRIM | merged | 删掉 corresponds 中两个被 store 不变量蕴含的比较 |
 | T4-SCHEDULE-CADENCE | merged | 巡检类型的本地民历提醒节奏 |
@@ -181,3 +185,6 @@
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
 | T5-MEDIA-ARCHIVE-SCHEMA | merged | 媒体归档 schema v5：四表形态、约束、索引与查询面 |
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |
+| T7-AUDIT-REMOTE-CARDS | merged | 远端补交既有卡片与平台验收修订 |
+| T7-AUDIT-REMOTE-DOCS | merged | 远端补交需求与页面版本合同 |
+| T7-AUDIT-REMOTE-FOUNDATION | merged | 远端补交审校新增卡与模块边界 |

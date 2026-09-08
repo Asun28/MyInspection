@@ -239,6 +239,49 @@ function Get-CandidateRunPrMatchCount {
   }).Count
 }
 
+function Get-ExactCandidateJobState {
+  param([AllowNull()][object[]]$Jobs, [AllowNull()][object[]]$Wanted)
+  $drift = { param([string]$Reason) [pscustomobject]@{ Drift = $true; Reason = $Reason; Blocking = @(); Pending = @() } }
+  $expected = @($Wanted)
+  if ($expected.Count -eq 0 -or @($expected | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+    return (& $drift 'invalid declared job set')
+  }
+  $items = @($Jobs); $names = @()
+  foreach ($job in $items) {
+    if ($job -isnot [pscustomobject]) { return (& $drift 'job item must be object') }
+    $props = @($job.PSObject.Properties.Name)
+    if (@(@('name', 'status', 'conclusion') | Where-Object { $props -cnotcontains $_ }).Count -gt 0 -or
+        $job.name -isnot [string] -or $job.status -isnot [string] -or
+        (($null -ne $job.conclusion) -and ($job.conclusion -isnot [string])) -or
+        [string]::IsNullOrWhiteSpace($job.name)) {
+      return (& $drift 'job item shape/name')
+    }
+    $names += $job.name
+  }
+  $actual = @($names | Sort-Object -CaseSensitive)
+  $expected = @($expected | Sort-Object -CaseSensitive)
+  if (($actual.Count -ne $expected.Count) -or (Compare-Object $actual $expected -CaseSensitive)) {
+    return (& $drift "expected=$($expected -join ','); actual=$($actual -join ',')")
+  }
+  $blocking = @(); $pending = @()
+  foreach ($job in $items) {
+    $status = $job.status; $conclusion = $job.conclusion
+    if (@('queued', 'in_progress', 'pending', 'requested', 'waiting', 'completed') -cnotcontains $status) {
+      return (& $drift "job '$($job.name)' status '$status'")
+    }
+    if ($status -ceq 'completed') {
+      if ($conclusion -ceq 'success') { continue }
+      if ([string]::IsNullOrWhiteSpace($conclusion)) { return (& $drift "job '$($job.name)' completed without conclusion") }
+      $blocking += $job
+    } elseif (-not [string]::IsNullOrWhiteSpace($conclusion) -and $conclusion -cne 'success') {
+      $blocking += $job
+    } else {
+      $pending += $job
+    }
+  }
+  return [pscustomobject]@{ Drift = $false; Reason = ''; Blocking = $blocking; Pending = $pending }
+}
+
 # TD45：卡片解析共享自 _cards.ps1（front-matter-only 提取 + 大小写敏感取值 + 注释剥离）。
 # 旧 Get-CardField 曾整文件 `Select-String`（大小写不敏感、正文/前置元数据不分），与 check-cards 的契约脱节：
 # (a) 卡片正文里一行形似 `dod_command: ...` 的文档示例会被当真；(b) `DOD_COMMAND:`（大小写错）仍被找到；
@@ -698,6 +741,7 @@ switch ($Phase) {
         return
       }
 
+      # 本地闸门（DoD + verify + 范围/许可 + 防泄露闸 + 真实 diff 预算）通过后，执行 Codex 评审和候选 CI；合并前复核 base/head。
       Step 'push + 开 PR（Codex 评审在 PR 开好后单次运行，兼作回贴状态）'
       # push 之前是最后一个还能无代价停下的点：一旦推上去，远端就有了一个可能从未过预算闸的提交。
       # 按提交 OID 发布（而非分支名）属 T0-R3-MEASURED-OID-BINDING，本卡不做。
@@ -843,22 +887,18 @@ switch ($Phase) {
           Add-CatchRecord 'ci' "jobs API: $($jobPg.Reason)"
           throw "[CI-GATE-API] jobs: $($jobPg.Reason)"
         }
-        $jobs = @($jobPg.Items)
-        $wait = @()
-        foreach ($j in $want) {
-          $jm = @($jobs | Where-Object { "$($_.name)" -ceq $j })
-          if ($jm.Count -ne 1) { $wait += "$j=match($($jm.Count))"; continue }
-          $job = $jm[0]
-          $st = "$($job.status)"; $co = "$($job.conclusion)"
-          if (($st -ieq 'completed') -and ($co -ine 'success')) {
-            Add-CatchRecord 'ci' "$j=$st/$co"
-            throw "[CI-GATE-RED] job '$j'=$st/$co。"
-          }
-          if (($st -ine 'completed') -or ($co -ine 'success')) { $wait += "$j=$st/$co" }
+        $jobState = Get-ExactCandidateJobState -Jobs @($jobPg.Items) -Wanted $want
+        if ($jobState.Drift) {
+          Add-CatchRecord 'ci' "jobs drift:$($jobState.Reason)"
+          throw "[CI-GATE-JOBS-DRIFT] $($jobState.Reason)"
         }
-        if (($jobs.Count -ne $want.Count) -and ($wait.Count -eq 0)) { $wait += "jobs=$($jobs.Count)/$($want.Count)" }
-        if ($wait.Count -eq 0) { break }
-        $last = $wait -join ', '
+        if ($jobState.Blocking.Count -gt 0) {
+          $bad = @($jobState.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
+          Add-CatchRecord 'ci' $bad
+          throw "[CI-GATE-RED] jobs: $bad。"
+        }
+        if ($jobState.Pending.Count -eq 0) { break }
+        $last = @($jobState.Pending | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
         Wait-CiRetryBeforeDeadline $ddl
       }
       & git -C $Wt fetch --quiet --no-tags origin "+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}" 2>$null
@@ -914,16 +954,19 @@ switch ($Phase) {
         -CollectionProperty 'jobs' -Deadline $ddl -WorkingDirectory $Wt
       if ($fjPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final jobs: $($fjPg.Reason)" }
       if (-not $fjPg.Readable) { throw "[CI-GATE-API] final jobs: $($fjPg.Reason)" }
-      $fJobs = @($fjPg.Items); $fjWait = @()
-      foreach ($j in $want) {
-        $fm = @($fJobs | Where-Object { "$($_.name)" -ceq $j })
-        if ($fm.Count -ne 1) { $fjWait += "$j=match($($fm.Count))"; continue }
-        $fs = "$($fm[0].status)"; $fc = "$($fm[0].conclusion)"
-        if (($fs -ieq 'completed') -and ($fc -ine 'success')) { throw "[CI-GATE-RED] $j=$fs/$fc" }
-        if (($fs -ine 'completed') -or ($fc -ine 'success')) { $fjWait += "$j=$fs/$fc" }
+      $fjState = Get-ExactCandidateJobState -Jobs @($fjPg.Items) -Wanted $want
+      if ($fjState.Drift) {
+        Add-CatchRecord 'ci' "final jobs drift:$($fjState.Reason)"
+        throw "[CI-GATE-JOBS-DRIFT] final $($fjState.Reason)"
       }
-      if (($fJobs.Count -ne $want.Count) -and ($fjWait.Count -eq 0)) { $fjWait += "jobs=$($fJobs.Count)/$($want.Count)" }
-      if ($fjWait.Count -gt 0) { $last = "final jobs: $($fjWait -join ', ')"; Wait-CiRetryBeforeDeadline $ddl; continue ciStable }
+      if ($fjState.Blocking.Count -gt 0) {
+        $bad = @($fjState.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
+        throw "[CI-GATE-RED] final jobs: $bad"
+      }
+      if ($fjState.Pending.Count -gt 0) {
+        $last = 'final jobs: ' + (@($fjState.Pending | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', ')
+        Wait-CiRetryBeforeDeadline $ddl; continue ciStable
+      }
       $prRead = Invoke-GhBeforeDeadline -Arguments @('pr', 'view', "$pr", '--json', 'baseRefName,headRefOid') -Deadline $ddl -WorkingDirectory $Wt
       if ($prRead.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr 最终 base/head 快照超过 ${toSec}s。" }
       $prRaw2 = "$($prRead.Stdout)"; $prExit = $prRead.ExitCode

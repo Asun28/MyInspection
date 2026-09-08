@@ -35,7 +35,7 @@
 | W0 | T0-CI-PAGED-CONTRACT | 分页读取的形态、总数、稳定身份与跨页重放契约（TD134 1b/6 之一） | T0-CI-HARDENING-SPLIT-PLAN | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `86bf1a42`，PR #218，R3 **第 1 轮 pass 零发现**；新闸 `T37-CIGATE/API-CONTRACT` 端到端 27 例：三 endpoint 各跑形态/严格 total/跨页重放，完整畸形+id 矩阵在 check-runs 跑一遍，另 3 条有效分页正例 + 1 条「第二页红 check」消费证明；6 枚函数级变异 + 2 枚 A4 端到端变异全杀（删 `$seen.Add` ⇒ 重放页凑满 total_count 并**合并成功**，正是本卡要封的洞）；DoD/verify/R3 PASS；R5 candidate `86bf1a42` released-master `selftest -Shard seeded-remote` exit 0，含 `T37-CIGATE/API-CONTRACT OK` 与 `selftest: PASS`。遗留：该分片墙钟由约 2.5 min 增至约 9.6 min，已记 TD163） |
 | W0 | T0-SELFTEST-PAGED-PERF | 分页全矩阵直测真实函数，每 endpoint 仅留两条完整 ship 边界证明 | T0-CI-PAGED-CONTRACT | S | GPT-5.6 Luna · high | GPT-5.6 Terra · high | 偿还 TD163；确定性预算把完整 ship 调用锁到最多 6 次，安静机器 seeded-remote 中位数目标 <5m |
 | W0 | T0-CI-IDENTITY-DEADLINE | run 身份绑定与最终 exact-head/base 快照（TD134 1b/6 之二） | T0-CI-PAGED-CONTRACT | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（master `424009ee`，PR #220，R3 于重置后第 2 轮 pass；累计 4 轮、3 轮出实质 finding）。落地 `T37-CIGATE/WORKFLOW-BINDING`：逐层身份绑定（本地 HEAD ≡ PR headRefOid ≡ run head_sha → run id/attempt → 终局快照 → merge --match-head-commit）、`path`/`event`/`pull_requests[].number` 三处**大小写敏感**比较、终局 exact-head/base 快照四态（LOCAL-HEAD-MOVED / BASE-MOVED / BASE-MISMATCH / HEAD-MOVED）、`-NoAutoMerge` 不放松任何一层；每条负例断言专属哨兵 + 精确读计数 + 未触达合并 + 效果账本点名被造坏那一处；5/5 单点变异 KILLED。**两次拆卡**（皆用户裁定）：diff 超 R3 字符预算 ⇒ `T0-CI-JOBS-DRIFT`；R3 连续三轮实质 finding 皆落 deadline/进程树 ⇒ `T0-CI-DEADLINE-CONTAINMENT` |
-| W0 | T0-CI-JOBS-DRIFT | 候选 run 返回 job 集与 ci.yml 声明集的漂移判定（API 侧平面） | T0-CI-IDENTITY-DEADLINE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 从 T0-CI-IDENTITY-DEADLINE 拆出（该卡 diff 61233 字符 > R3 60000 预算，按 DEVOPS-WORKFLOW §35 拆卡）。实现与 6 条夹具已在前卡分支跑绿，存档 scratchpad `pre-split-full.patch`；**按未经审阅的新代码逐行读**，绿相不构成证据 |
+| W0 | T0-CI-JOBS-DRIFT | 候选 run 返回 job 集与 ci.yml 声明集的漂移判定（API 侧平面） | T0-CI-IDENTITY-DEADLINE | S | GPT-5.6 Luna · max | GPT-5.6 Terra · max | **merged**（2026-09-08，PR #253，master `297b5245`，reviewed head `8815d99c`；Sol R3、候选 CI、DoD/verify、Luna/Terra Max 终审均 PASS）。稳定态/终局均以大小写敏感精确多重集合拦缺失、额外、改名、大小写、重复与畸形状态；两枚单点变异 KILLED |
 | W0 | T0-CI-DEADLINE-CONTAINMENT | 单一 wall-clock deadline 扩面（gh+git）与 fail-closed 进程树容纳 | T0-CI-IDENTITY-DEADLINE | M | Opus 5 · xhigh | GPT-5.6 Sol · max | 从 T0-CI-IDENTITY-DEADLINE 二次拆出：R3 连续三轮的实质 finding **全部**落在这段机器上（无界 WaitForExit / 单点挂起分辨不出共享预算 / 子进程早退致孙进程漏杀 / 清理余量串行花两遍 / 容纳非 fail-closed + 句柄泄漏 + assign 竞态）。起点 scratchpad `pre-a3-split.patch`，**带着 r3 点名的全部缺陷**；平台原语选型（Windows job object vs POSIX 进程组、挂起创建）是本卡正题 || W0 | T0-RECEIPT-LOSS-FAIL-CLOSED | receipt-loss 禁止第二套 review/CI/merge，恢复不到 T35 receipt 就保持未合并（TD134 1c/6） | T0-CI-IDENTITY-DEADLINE | M | GPT-5.6 Luna · max | GPT-5.6 Terra · max | 串行终点；下游 ASCII ship codes 依赖本卡 |
 | W0 | T0-GATE-ID-UNIQUENESS | 闸号唯一性机检 + 锚点唯一性与自身 parse 自检 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b1e5f0b5`，PR #186；闸头/Fail 文案双面 AST+token 扫描、重复 id 全位置诊断、唯一 raw 插入锚、ParseFile、6 类删除变异；core/workflow/verify 与 R3 全绿；TD146 paid） |
 | W0 | T0-GRADLE-RUNTIME-FILE-INPUTS | 测试运行期读的仓内文件声明为 Gradle 测试输入，消除「改了权威文件仍 UP-TO-DATE」的假绿 | — | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（2026-08-29，master `6fda9f88`，PR #188；精确声明配置、模板与源码输入，补全双语 tuple 哈希守卫，T3/T4 DoD 强制真实执行；变异、verify、R3 全绿） |
@@ -263,7 +263,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 | [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md) | V1.1 | 批量照片选择、逐张分配与安全提交 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md) | 产品 V2 | V2 原始录音证据、回放与归属 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-ONDEVICE-DICTATION](../specs/tasks/T2-ONDEVICE-DICTATION.md) | 产品 V2 | V2 可替换的离线听写适配 | T2-AUDIO-EVIDENCE |
-| [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | 规则更新的可信来源与版本决策 | 无；先收口真实决策 |
+| [T4-COMPLIANCE-UPDATE-TRUST](../specs/archive/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | [ADR-0008](adr/0008-compliance-update-trust.md)：单公钥离线签名、轮换/撤销/日期/恢复矩阵（2026-09-08 用户批准） | PR #257 已合入远端 master；R3 第二轮 pass，此项前置完成，导入其余依赖不变 |
 | [T4-COMPLIANCE-OVERRIDE-IMPORT](../specs/tasks/T4-COMPLIANCE-OVERRIDE-IMPORT.md) | V1 | 手动规则文件预检、可信激活与恢复 | T4-COMPLIANCE-UPDATE-TRUST, T4-COMPLIANCE-ENGINE-R3-CLOSURE, T1-LOCAL-DATA-SECURITY, T2-CAPTURE-UI |
 | [T5-BACKUP-FORMAT-V2](../specs/tasks/T5-BACKUP-FORMAT-V2.md) | V1 | 备份格式 v2 版本评审及兼容读写 | T5-BACKUP-FORMAT |
 | [T5-PROPERTY-SNAPSHOT-CLOSURE](../specs/tasks/T5-PROPERTY-SNAPSHOT-CLOSURE.md) | V1 | 按物业备份的逐表闭包与媒体双向核验 | T5-BACKUP-FORMAT-V2, T5-BACKUP-IO, T5-MEDIA-ARCHIVE-CONTRACT |
@@ -281,7 +281,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 ### 保留的待澄清
 
-规则信任根/凭证轮换/生效与回退政策，由信任决策卡先定；remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
+规则信任决策见 ADR-0008（2026-09-08 用户已批准）：APK 单公钥、本人批准规则、受控电脑分开保管两类私钥、USB 首次安装/传递。用户在完整方案和明确责任问题后回复“好的”，关闭用户待决策项；不代表密钥已生成或安装已完成。轮换、撤销、日期、确认绑定与恢复同步导入卡 A1–A8；本卡已通过远端 R3 并合并（PR #257），此项前置完成；实际制品与安装证据由后续验收提供。remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
 
 ## 用户已定（2026-08-15 签认，下列为**执行契约**，执行模型按此做，勿再问）
 1. ✅ **ADR-0002 已签认**：备份 = app 私有存储 + SAF 加密归档导出；需求 §11 那处[定]以 ADR-0002 为准。T5 线解锁。
