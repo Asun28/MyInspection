@@ -1,7 +1,7 @@
 ---
 id: T0-SELFTEST-NIGHTLY-META
 title: Run selftest aggregation stress checks nightly with explicit coverage receipts
-depends_on: []
+depends_on: [T0-SELFTEST-RISK-ROUTING]
 status: todo
 branch: T0-SELFTEST-NIGHTLY-META
 worktree: C:\wt\T0-SELFTEST-NIGHTLY-META
