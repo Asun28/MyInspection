@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 194 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 195 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -172,6 +172,7 @@
 | T3-REPORT-HTML-RENDERER | merged | Self-contained accessible HTML document from shared report content |
 | T3-REPORT-IMPORT-PLAN-PROJECTION | merged | Exhaustive source inventory and conservative Routine import candidates |
 | T3-REPORT-IMPORT-PLAN-SNAPSHOT | merged | Immutable import plan model and selected-context preflight snapshot |
+| T3-REPORT-IMPORT-PLANNER | merged | Explicit import review and deterministic mapping receipt |
 | T3-REPORT-IMPORT-REVIEW-DECISIONS | merged | Explicit immutable import decisions and exhaustive source accounting |
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
 | T3-REPORT-INTERCHANGE-SCHEMA | merged | Schema v6 for immutable import provenance and format-aware export receipts |
