@@ -785,7 +785,7 @@ class ScheduleUiTest {
         assertTrue(names.none { it.contains("property-") }, "a row name leaked a property id")
     }
 
-    // ------------------------- T4-SCHEDULE-UI-PRESENTATION A1 token vocabulary and action arity
+    // ------------------- T4-SCHEDULE-UI-PRESENTATION A1 action arity and feedback banner
 
     @Test
     fun `A1 the top app bar declares at most two actions and names the one it has`() {
@@ -1286,7 +1286,7 @@ class ScheduleUiTest {
  * identical, so no file was left mutated and the receipt describes exactly the code that ships
  * (L196, L270):
  *   ScheduleModels.kt bb91120dc2ba13d81018a2095f19aeec01fb6a2c0878af73bdf7bbc5bee7c56a
- *   ScheduleScreen.kt 5f7229f46b8b70113daa94a1262d7765724b553c89f63c786a9025cab81a93bb
+ *   ScheduleScreen.kt 41f7d3878abf3089e8dda99aa88ae9f084ce073acf41245fee2baca8d140f4ea
  *
  * Fourth batch, run after the R3 round-2 fixes. M1-M7 retired with the token vocabularies, which
  * moved to the successor card so that declaring and drawing a token live on one card. M12 and M16
@@ -1294,11 +1294,15 @@ class ScheduleUiTest {
  * and M33 are new and aim at exactly what round 2 found unbacked: the banner's secondary recovery,
  * the visible-control policy, and the ten month names no test touched.
  *
- * This batch was killed by host memory pressure with M29 planted, and a killed batch does not run
- * its restore, so ScheduleModels.kt was left mutated with git showing only a bland M (L196). It was
- * diagnosed from the log's last completed row rather than guessed, reversed, and proved byte-equal
- * to the baseline above before the missing row was re-run on its own. The 23 rows completed before
- * the kill stand because they were recorded against these same bytes.
+ * The first attempt at this batch was killed by host memory pressure with M29 planted, and a killed
+ * batch does not run its restore, so ScheduleModels.kt was left mutated with git showing only a
+ * bland M (L196). It was diagnosed from the log's last completed row rather than guessed, reversed,
+ * and proved byte-equal to its baseline. The whole set was then re-run end to end after R3 found
+ * stale token-ownership comments in ScheduleScreen.kt: that fix changed a production file, and a
+ * receipt that pins bytes cannot be repaired by editing a hash line, because the claim it makes is
+ * that a batch ran against exactly these bytes. It did. The 23 rows shared with the killed attempt
+ * returned byte-identical verdicts, which is the evidence that a comment-only edit to a file no row
+ * targets changed nothing.
  *
  * KILLED means the command exited nonzero AND the output named failing tests rather than a
  * compilation error, because a nonzero exit proves nothing until you know what produced it (L282).

@@ -27,13 +27,11 @@ import java.time.ZoneId
  * itself composes, and a test asserts the reconstruction equals it element for element, so the two
  * cannot drift into disagreeing about what a screen shows.
  *
- * Chrome still carries visible text here, and this file applies no token values. The token
- * vocabularies themselves now live with their binding in the successor card, so neither card
- * declares a token the other is supposed to draw. Both belong to
- * T4-SCHEDULE-UI-SYMBOL-CHROME: it replaces these labels with glyphs, turns the same
- * ScheduleActionName into an accessible name, and binds the token vocabularies this card declares
- * to real spacing, type, shape and colour. Declaring and drawing were split between the two cards
- * so that neither declares something it does not then apply.
+ * Chrome still carries visible text here, and this file applies no spacing, type, shape or colour
+ * values. Both are T4-SCHEDULE-UI-SYMBOL-CHROME's: it replaces these labels with glyphs and turns
+ * the same ScheduleActionName into an accessible name, and it owns the token vocabularies outright,
+ * declaring them and binding them together. This card declares no token of its own, so there is no
+ * seam where one card names a token another is supposed to draw.
  */
 @Composable
 fun ScheduleScreen(
