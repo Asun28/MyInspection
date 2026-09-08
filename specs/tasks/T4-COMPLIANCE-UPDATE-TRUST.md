@@ -1,7 +1,7 @@
 ---
 id: T4-COMPLIANCE-UPDATE-TRUST
 title: 规则更新的可信来源与版本决策
-status: in-review
+status: todo
 depends_on: []
 allow_paths:
   - docs/adr/0008-compliance-update-trust.md
@@ -30,3 +30,5 @@ review_gate: codex {verdict:pass}
 交付是按 ADR 目录顺序新建的决定记录及导入卡收口，不覆盖 accepted ADR-0004。静态 DoD 只检查卡结构/diff，不能自动证明用户选择；R3 必须核查三项验收的决策证据，缺失不得合并本卡。保留法律 work-check 待办，禁止借规则更新改变当前用途限制。
 
 ADR 0008 是本计划预留；开工如已占用，先修订卡到下一空号，不能覆盖 accepted ADR。
+
+决策证据（2026-09-08 会话）：向用户提供完整方案后，询问原话：“是否批准这套方案：由你最终批准规则，两类私钥分别保管在你控制的电脑，首个可信 APK 和规则文件通过该电脑经 USB 安装／传递？”用户答复原话：“好的”。用户后续请求 task-loop 合到 remote。本记录只同步批准事实；完整 ADR、恢复矩阵及验收投影须另经本卡正式远端 R3/CI 并合并，当前 todo 不解除任何依赖。
