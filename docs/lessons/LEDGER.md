@@ -2271,7 +2271,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2357,4 +2357,19 @@
 - root_cause: PowerShell 的逗号列表里，未加括号的字符串拼接会被折进列表本身：@(a, b, c, x + y + z) 解析成 6 个元素而非 4 个，于是 $m[3] 取到的是拼接的第一个操作数、不是拼接结果。批只校验了「选择器命中一次」与「DoD 变红」，两者在错误的变异下同样成立——变红的原因对不上条目声称造坏的东西。
 - rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
 - enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
+- refs: 
+## L321
+- date: 2026-09-08 ｜ tags: docs,claims,design,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 拦下一条：为把 light 调色板项与 dark 对应项对齐，我把它改成「essential card boundaries, evidence segments, and focus use outline」，而同一份 diff 里 evidence-rail 五个段态中的 complete/missing-required/blocked 分别用 primary/tertiary/error——diff 自己就推翻了这句。ship 前的全新上下文对抗复核判 PASS 也没抓到。
+- root_cause: 镜像 dark 侧那句时我只抄了名词（evidence segments），丢掉了它的限定尾巴「use dark.outline, a semantic container, or the focus token」——正是那条尾巴让 dark 句是有范围的；同样的名词没有它就成了全称句。两轮自查都漏，是因为两者都在问「这句相对整份文档是否为真」，而这句的假存在于它与**同一句里相邻分句**的关系。
+- rule: ① 镜像平行章节的句子时，限定语与名词一同旅行：要么整条谓语照抄，要么把范围显式重述；只抄名词等于把有范围的陈述改写成全称句。② 往一个枚举句里加/改一个分句时，要拿它与**同句的兄弟分句**对照，不只与文档其余部分对照——逐句真值检查看不见分句之间的矛盾。③ 便宜的机检：把**改动前的措辞**与**这句被驳回的过宽措辞**双双钉成 expected 0 反向断言，两个方向都回不去。
+- enforced_by: none（逐卡 DoD；本卡把两种措辞钉成 expected 0 锚点、由 M20/M21 各杀一个方向，仓内无通用闸可挂）
+- refs: 
+
+## L322
+- date: 2026-09-08 ｜ tags: git,concurrency,worktree,archive ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 为了让提交里只含我新增的那一行技术债，我对 specs/tech-debt-tracker.md 跑了 git checkout -- <file> 取干净基线——这条命令静默删掉了另一个并发会话在同一文件里未提交的 TD144 状态改动；只因几秒前刚复制过一份快照才救回来。同一轮里 scripts/archive.ps1 读的是**工作树**，于是把那条尚未提交的 paid 行当成已闭合项搬进了归档。
+- root_cause: 我把「把文件还原到 HEAD」当成塑造索引的手段，但它是**工作树**操作，而这棵工作树不只属于我。仓级维护脚本同理：它们作用于磁盘上的内容，不是已提交的内容。
+- rule: ① 当一个文件里有**不是你改的**未提交内容时，绝不用 git checkout -- <path>（或整文件覆写）来塑造提交。改用不碰工作树的暂存方式：把目标内容写进临时文件，再 git hash-object -w --path <path> <tmp> 取 sha、git update-index --cacheinfo 100644,<sha>,<path> 入索引。② 跑任何读工作树的仓级维护脚本（archive.ps1 之流）之前先 git status --porcelain，确认每一条脏路径都是你的；不是就先提交/寄存对方的改动，否则它的产物必然携带对方的在飞状态。③ 无论如何，动别人的脏文件之前先复制一份快照——本次能救回来靠的正是这个。
+- enforced_by: none（git 使用纪律；机械等价物是动手前的 git status --porcelain 与 hash-object/update-index 这条不碰工作树的暂存路径）
 - refs: 
