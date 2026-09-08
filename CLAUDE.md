@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
+
 **2026-09-08 本地交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已合并（master `cfb4609c`，正式 R3 第4轮 pass，用户授权一次计数重置）。ADR-0008 确定离线签名、公钥身份与代次绑定、日期/反回退、Keystore 初始化证据及恢复矩阵；用户批准本人发布责任、受控电脑持钥与 USB 首次信任安排。前三轮发现均修正，确定性闸门与 core 自检通过；交付为设计与导入卡 A1–A8 验收，实际公钥/制品、导入与真机证据尚待后续卡，不启用 work-check。
 
 **2026-09-08 本地交付**：`T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`，**人裁合并**——8 轮 R3 / 13 条 finding 全部属实且全部当场修，轮次上限达顶后由用户裁定，八道确定性闸全绿、R3 未被唤起）。`context/DESIGN.md` 新增 `Symbol-only chrome` 具名节：领域值永不由字形单独承载 + 五条准入条件 + 准入不覆盖更严组件合同；四处治符号化控件的条款解析到它，计数与状态条款重写。OD-1 裁定 tooltip 要求按组件 anatomy 绑定，故相机 anatomy 未动；OD-2 裁定 `Settings` 目的地播报可行动的本机健康状态。**沿途关掉十一处基线既有 WCAG 1.4.1 缺口**（非本卡引入）：签名组件 evidence rail 在每项默认态 `UNRATED` 下complete/missing/blocked 仅靠颜色区分，`task-stepper` 的失败阶段无非颜色载体而它是 RESTORE/BACKUP/IMPORT/ERASE 四条流程的必需元素，另有 `summary-stat`/`metadata-row` 状态图标 optional 等。R4 25/25 变异全杀。**最贵的一条**：R3 第 5 轮拦下「把无障碍播报当作可见视觉线索的替代项」——播报服务屏幕阅读器、不解决色觉障碍的明眼用户，六轮本地对抗复核全部漏掉，只有第二模型评审抓到。遗留三项开卡 `T4-DESIGN-STATUS-CARRIERS`；本卡解锁 `T4-SCHEDULE-UI-PRESENTATION`。
