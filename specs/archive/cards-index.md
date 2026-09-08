@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 195 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 198 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -178,6 +178,8 @@
 | T3-REPORT-INTERCHANGE-SCHEMA | merged | Schema v6 for immutable import provenance and format-aware export receipts |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
 | T4-COMPLIANCE-UPDATE-TRUST | merged | 规则更新的可信来源与版本决策 |
+| T4-DESIGN-NOT-APPLICABLE-COLOR | merged | NOT_APPLICABLE 的破折号没有声明前景色：evidence-rail 五个段态只有四个色 |
+| T4-DESIGN-STATUS-CARRIERS | merged | 状态载体收口的三处遗留：对比度绑定、两处边界行、capture Back 双名 |
 | T4-DESIGN-SYMBOL-CHROME-V2 | merged | 「符号化 chrome」准入条件收口（承接 T4-DESIGN-SYMBOL-CHROME，含相机面决策与逐行对齐） |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T4-REMINDER-CORRESPONDS-TRIM | merged | 删掉 corresponds 中两个被 store 不变量蕴含的比较 |
@@ -191,6 +193,7 @@
 | T4-SCHEDULE-REMINDER-SCHEDULER | merged | WorkRequest 构造、注册预留与保留工作恢复 |
 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | merged | 将超限提醒卡拆为 delivery 与 scheduler 两张可读串行卡 |
 | T4-SCHEDULE-SPLIT-PLAN | merged | 将 T4-SCHEDULE 拆成可读且可独立评审的三张串行卡 |
+| T4-SCHEDULE-UI-PRESENTATION | merged | 排程界面的最小呈现契约（动作数与反馈 banner · 无空状态 · 日期与计数形态） |
 | T4-SCHEDULE-UI-REMINDER-ACTIONS | merged | 排程 presenter：权限时序、授权恢复、注册结果分支与显式重试 |
 | T4-SCHEDULE-UI | merged | 排程 reducer：行种类、屏幕状态、筛选与路由效果 |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |

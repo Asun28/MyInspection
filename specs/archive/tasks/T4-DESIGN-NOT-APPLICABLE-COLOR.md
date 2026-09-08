@@ -4,7 +4,7 @@ title: NOT_APPLICABLE 的破折号没有声明前景色：evidence-rail 五个�
 depends_on: [T4-DESIGN-STATUS-CARRIERS]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#colors
-status: todo
+status: merged
 branch: T4-DESIGN-NOT-APPLICABLE-COLOR
 worktree: C:\wt\T4-DESIGN-NOT-APPLICABLE-COLOR
 allow_paths:

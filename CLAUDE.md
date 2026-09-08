@@ -69,6 +69,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 本地交付**：`T4-DESIGN-NOT-APPLICABLE-COLOR` 已合并（master `d6b369ee`，R3 第 2 轮 pass）——
+承接前卡的 `[FOLLOW-UP]`：`evidence-rail` 声明四个颜色却有五个 `segmentStates`，`NOT_APPLICABLE` 全文
+无取色。**OD-1 由用户裁定取 A**（与 `OPTIONAL` 共用 `outline`），零新 token / role / 绑定 / 配对。
+落地形态取「加 `notApplicableColor` 键」而非把 `optionalColor` 的服务范围写成散文——四个既有键本就是
+`<状态名转小驼峰>Color`，故「每个 `segmentStates` 解析到恰好一个已声明颜色」由**既有命名规则算得出**，
+不必为本卡发明第二套映射语法。五行改动：frontmatter 加键 · 对比度图引言的算术（四 role 服务五段、
+后两者共用）· 组件行声明共用 · rail 散文点名 role 并去掉 `irrelevant`（它不是任何已声明状态名）·
+light 调色板项补上那两个段色的职责。21/21 变异全杀。
+> **DoD 除 11 条 ASCII 锚点（含 4 条 `expected 0` 反向断言）外从 frontmatter 重算**：token 表 56、
+> 绑定集 75 无重复无漂移无欠比值、状态色×内容底 每主题 20 对全登记、13 行印刷比值逐位吻合。
+> 两条断言值得复用：① 散文里点名的 role **由 frontmatter 算出后再比对**，故散文与 frontmatter
+> 写不成两个权威（M19 只改散文即被杀）；② 遍历全部组件断言「按自身状态命名颜色的组件有且仅有
+> `evidence-rail`」，于是 `inspection-item-card` 为何不在本卡（它那四个颜色都是组件级、无一以状态命名）
+> **是算出来的，不是散文声称的**。
+> **R3 第 1 轮 block 一条、属实、当场修——又是 L309**：我为补 light 调色板项照抄 dark 侧名词，写成
+> 「essential card boundaries, **evidence segments**, and focus use `outline`」，那是对**整类** evidence
+> segment 的断言，而同一份 diff 里 complete/missing-required/blocked 分别用 `primary`/`tertiary`/`error`
+> ——**diff 自己就推翻了它**。（dark 原句带「or a semantic container, or the focus token」这个出口、
+> 故不是全称句；我抄名词时把出口丢了。）收窄为「optional and not-applicable evidence segments」，
+> 并把**基线措辞**与**这句被驳回的全称措辞**双双钉成 `expected 0`（M20/M21 各杀一个方向）。
+> **ship 前的全新上下文复核判 PASS 却提了 5 条**，其中这一条它也漏了——它只查了「diff 有没有说假话」，
+> 而这句的假在于**它与同句相邻分句的关系**。**遗留 `[FOLLOW-UP]` 记 TD175**：`outline` on
+> `surface-container` 的 CI 条目标 `evidence-boundary`，而同底另三个段色标 `evidence-segment`；该配对
+> 现服务两种职责，但规范要求每配对恰好一条条目，收口需 metadata schema 决定（多 usage）。
 **2026-09-08 本地交付**：`T4-DESIGN-STATUS-CARRIERS` 已合并（master `174c7ce6`，**R3 首轮 pass 零 finding**）——
 收口前卡 `T4-DESIGN-SYMBOL-CHROME-V2` 的三处遗留。**A1**：前卡为「必带状态字形须可感知」立的下限是
 「只渲染在闸已登记的配对上」，本卡补登记后放宽它。实测缺口比建卡段猜的大得多——状态色
