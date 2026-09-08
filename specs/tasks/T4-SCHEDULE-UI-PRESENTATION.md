@@ -1,6 +1,6 @@
 ---
 id: T4-SCHEDULE-UI-PRESENTATION
-title: 排程界面的最小呈现契约与符号化 chrome
+title: 排程界面的最小呈现契约（token 词汇 · 动作数 · 无空状态 · 日期与计数形态）
 depends_on: [T4-SCHEDULE-UI-REMINDER-ACTIONS, T4-DESIGN-SYMBOL-CHROME-V2]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#page-inventory
@@ -20,29 +20,34 @@ non_goals:
   - reducer 状态机与路由效果（T4-SCHEDULE-UI 已拥有并已验收）
   - 权限时序、授权恢复、pending/retry 行为（T4-SCHEDULE-UI-REMINDER-ACTIONS 已拥有并已验收）
   - 日历集成、自定义节奏、精确闹钟、T2-CAPTURE-UI 接线
-  - 新增图标依赖（OD-2 若裁定扩 res/，仍不得引入 material-icons 依赖）
+  - 新增图标依赖（OD-2 已裁定不扩 res/，且一律不得引入 material-icons 依赖）
+  - "符号化 chrome 与无障碍声明整半（chrome/content 类型分割、字形、RTL 镜像、目标尺寸、动效 token、reduced-motion）——归 T4-SCHEDULE-UI-SYMBOL-CHROME"
 acceptance:
   - "A1 every schedule state exposes exactly one primary action, declares at most two top-app-bar actions, draws spacing, type, shape and colour only from context/DESIGN.md token names, and declares no gradient, drop shadow or illustration"
-  - "A2 every chrome control value is a typed glyph carrying a non-null accessible-name key and no visible-text field, while every content value keeps its text and numerals"
-  - "A3 no declared state is blank: empty, filtered-empty, loading, error and permission-blocked each carry non-empty content and exactly one named next or recovery action"
-  - "A4 every interactive control declares at least 48dp target size with at least 8dp separation, status is carried by glyph and position as well as colour, directional glyphs declare RTL mirroring, and every animation duration is a declared motion token with a reduced-motion variant"
-  - "A5 runtime acceptance tests assert typed declaration values through the compiled reducer entry points only; source, resources and inspected compiled artifacts are never an oracle, Compose wiring stays compile-only, and every automated requirement carries an executable semantic mutation receipt"
+  - "A2 no declared state is blank: empty, filtered-empty, loading, error and permission-blocked each carry non-empty content and exactly one named next or recovery action, and the no-content state's target is a host-supplied callback this card does not resolve"
+  - "A3 every rendered domain value keeps its text and numerals: absolute dates render as a spelled month-name form with times in 24-hour form and derive from neither system locale nor system 12/24-hour setting, and every count renders as a complete plural-aware phrase"
+  - "A4 runtime acceptance tests assert typed declaration values through the compiled reducer entry points only; source, resources and inspected compiled artifacts are never an oracle, Compose wiring stays compile-only, and every automated requirement carries an executable semantic mutation receipt"
 dod_command: $kotlin = @('android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleModels.kt','android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleScreen.kt','android/app/src/test/kotlin/nz/myinspection/app/feature/schedule/ScheduleUiTest.kt'); if ($kotlin | Where-Object { -not (Test-Path $_) }) { exit 1 }; if (Select-String -Path $kotlin -Pattern '\btypealias\b|;' -Quiet) { exit 1 }; if ($kotlin | ForEach-Object { Get-Content $_ | Where-Object { $_.Length -gt 120 } }) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ScheduleUiTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
 dod_exit: 0
-dod_assert: reducer tests pin the typed chrome/content split, declared token names, action arity, declared target sizes, declared motion tokens and mirror flags, with A1-A5 semantic-mutation receipts and no source-derived oracle; render-time constraints named in the verification table are manual design review and make no automated claim.
+dod_assert: reducer tests pin the declared token vocabularies, per-state action arity, the non-blank content and single named action of every state, and the fixed date and plural-aware count forms, with A1-A4 semantic-mutation receipts and no source-derived oracle; render-time constraints named in the verification table are manual design review and make no automated claim.
 review_gate: codex {verdict:pass}
 hygiene: 每个 typed 声明值由单点变异击杀；人工评审项不冒充自动验收。
-doc_sync: TASK-BOARD 记录合并 OID 并把 T4-SCHEDULE 子链标记完成；本卡与 T4-SCHEDULE-UI 一并 R5 归档。
+doc_sync: TASK-BOARD 记录合并 OID 并登记后继卡 T4-SCHEDULE-UI-SYMBOL-CHROME；T4-SCHEDULE 子链待该后继卡合并后才标记完成，本卡与 T4-SCHEDULE-UI 一并 R5 归档。
 ---
 
 # T4-SCHEDULE-UI-PRESENTATION
 
 ## Deliverable
 
-在 `T4-SCHEDULE-UI` 已钉住的行为骨架上，加一层**可断言的呈现契约**：每个状态的动作数、
-token 取名来源、目标尺寸、动效 token、RTL 镜像、以及把「chrome 无可见文字」做进类型的
-chrome/content 分割。渲染期约束（间距、对比度、200% 字号、无渐变）在本卡的黑盒测试面内
-**无法机检**，一律走人工设计评审并在下方逐条标注——不冒充自动验收。
+在 `T4-SCHEDULE-UI` 已钉住的行为骨架上，加一层**可断言的最小界面契约**：每个状态的动作数、
+token 取名来源、「没有一个状态是空白的」、以及领域值的日期与计数形态。渲染期约束
+（间距、对比度、200% 字号、无渐变）在本卡的黑盒测试面内**无法机检**，一律走人工设计评审
+并在下方逐条标注——不冒充自动验收。
+
+**符号化 chrome 那一半不在本卡**：chrome/content 类型分割、in-file 字形、RTL 镜像、
+目标尺寸、动效 token 与 reduced-motion 归后继卡 `T4-SCHEDULE-UI-SYMBOL-CHROME`（见下）。
+本卡的动作仍按现状携带可见文字标签，由后继卡换成字形——这是一条诚实的演进：
+本卡先把「每个状态恰好一个具名动作」钉死，后继卡再把那个名字从可见文字换成 accessible-name key。
 
 ## 拆分依据（2026-09-03 用户裁定）
 
@@ -67,7 +72,24 @@ chrome/content 分割。渲染期约束（间距、对比度、200% 字号、无
 > **按 A1/A3（最小界面契约）与 A2/A4（符号化 chrome + 无障碍声明）二次拆卡**，
 > 不删注释、不打包字面量、不修剪变异收据。
 
-### 收口后的重新估算（2026-09-08，OD 全部裁定之后）
+### 二次拆卡（2026-09-08 用户裁定，止损点触发）
+
+OD 收口后按 §止损点重新自下而上计数，**落在 ≈990 changed lines**——已越 900 止损点、
+且距 R3 的 1000 行硬闸只剩十行余量，任何一条 R3 finding 的修复都将无处安放。
+用户裁定**按卡内早已写下的那条线拆**：
+
+| 卡 | 承接 | 估算 |
+|---|---|---|
+| `T4-SCHEDULE-UI-PRESENTATION`（本卡） | 原 A1/A3 → 现 A1–A4：token 词汇、动作数、无空状态、日期与计数形态 | ≈610 |
+| `T4-SCHEDULE-UI-SYMBOL-CHROME`（后继） | 原 A2/A4：chrome/content 类型分割、8 枚字形、RTL 镜像、目标尺寸、动效 token、reduced-motion | ≈750 |
+
+**为何 OD 收口砍掉 5 枚字形后总量反而回升**：收口本身**加回了两枚**——
+`CLEAR_FILTER` 动作槽需要自己的字形（原表漏列），空状态的 `NEXT` 动作需要一枚**方向性**字形
+（它同时是 REQ-057「方向性字形须声明 RTL 镜像」不落空的唯一实例；其余 7 枚皆非方向性）。
+故字形由 6 枚回到 8 枚，模型层的 token 与 content 值分类也比原估更宽。
+**这正是 L266 要的那次「写 RED 之前重算」**：估算在需求变化后必须重做，不能沿用建卡时的数字。
+
+### 收口后的重新估算（2026-09-08，OD 全部裁定之后 · 拆卡前的合卡口径）
 
 OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、OD-4 判 `novel` 类一律保留文字标签，
 于是图形对照表第 5–8、11 行**不再需要 glyph**，in-file `ImageVector` 由 11 枚降为 **6 枚**
@@ -100,9 +122,10 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
 ## 范围边界：chrome 与 content
 
 - **chrome（界面文字）**＝控件与容器自身的说明性文字：按钮/图标按钮标签、filter chip 标签、
-  `section-header` 文本、提示与占位符、默认可见 tooltip、状态消息标题。**A2 只作用于 chrome。**
+  `section-header` 文本、提示与占位符、默认可见 tooltip、状态消息标题。
+  **符号化只作用于 chrome，且整半归后继卡 `T4-SCHEDULE-UI-SYMBOL-CHROME`。**
 - **content（内容）**＝数据驱动或用户可读事实：物业名、巡检类型名、到期日期与相对时间、计数短语、
-  失败的自然语言说明。**content 一律保持文字与数字，A2 不适用。**
+  失败的自然语言说明。**content 一律保持文字与数字，符号化永不适用——这是本卡 A3 的断言面。**
 - 判据（供实现与测试共用）：一个值若在**没有领域数据**时仍要出现，它是 chrome；若它的存在与取值由
   `ScheduleAdvice` / `ReminderRegistrationCause` / 物业记录决定，它是 content。
 - 边界不清的具体串一律进 §未决决策，不由实现自行归类。**OD-1 已于 2026-09-08 裁定**：
@@ -114,7 +137,7 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
 
 写法：EARS，同 `T4-SCHEDULE-UI`。`[待定：X]` 表示该数字/规则源不存在，已进 §未决决策。
 
-### B 组 · 最小排程界面（承接 A1、A3）
+### B 组 · 最小排程界面（承接 A1–A3）
 
 | ID | Pattern | Requirement | 来源 |
 |---|---|---|---|
@@ -126,83 +149,36 @@ OD-1 判四个巡检类型标签与 `section-header` 分组名为 **content**、
 | REQ-035 | Ubiquitous | The schedule view shall declare no gradient, no drop shadow, no glass effect and no decorative illustration, and shall express layering through tonal surface levels only. | [card:context/DESIGN.md:1462-1469,1815,1779] |
 | REQ-036 | Ubiquitous | The schedule view shall render an absolute date for every due occurrence, and shall render relative time only in addition to that absolute date. | [card:context/DESIGN.md:1766]（例：`3 months ago · 19 May 2026`） |
 | REQ-037 | Ubiquitous | The schedule view shall render every count as a complete plural-aware phrase. | [card:context/DESIGN.md:1762] |
-| REQ-038 | State-Driven | While the schedule data is being read from local storage, the schedule view shall render the loading state only after `300ms` have elapsed, and shall render no network-style indeterminate spinner. | A3 · [card:context/DESIGN.md:1777,1783]，`docs/UI-UX-ELEMENTS.md:99` |
-| REQ-039 | State-Driven | While the schedule reducer renders the no-content empty state, the schedule view shall fill that state's single action slot with a named next action whose target is a host-supplied callback, and shall not itself resolve that target to a destination. | A3 · OD-11（已裁定：宿主注入回调）· 承接 `T4-SCHEDULE-UI` REQ-009 |
+| REQ-038 | State-Driven | While the schedule data is being read from local storage, the schedule view shall render the loading state only after `300ms` have elapsed, and shall render no network-style indeterminate spinner. | A2 · [card:context/DESIGN.md:1777,1783]，`docs/UI-UX-ELEMENTS.md:99` |
+| REQ-039 | State-Driven | While the schedule reducer renders the no-content empty state, the schedule view shall fill that state's single action slot with a named next action whose target is a host-supplied callback, and shall not itself resolve that target to a destination. | A2 · OD-11（已裁定：宿主注入回调）· 承接 `T4-SCHEDULE-UI` REQ-009 |
 | REQ-040 | Ubiquitous | The schedule view shall render every absolute date as a spelled month-name form (`19 May 2026`) and every clock time in 24-hour form, and shall derive neither from the system locale nor from the system 12/24-hour setting. | OD-8（已裁定：固定 NZ 形态 + 24h）· [card:context/DESIGN.md:1766] |
 | REQ-041 | Ubiquitous | The schedule view shall render today and now as the same absolute date form required by REQ-040 with the relative phrase added, and shall render no occurrence conflict at all. | OD-9（已裁定：不呈现冲突）· 4 周上限归 `T4-COMPLIANCE-ENGINE` |
 | REQ-042 | Ubiquitous | The schedule view shall declare no cap on simultaneously visible tappable controls, and REQ-030 and REQ-031 shall be its only control-count constraints. | OD-7（已裁定：不设上限——内容态是滚动列表，任何固定 N 一旦行数足够即为假） |
-| REQ-043 | Ubiquitous | This card shall declare no first-render budget and no scroll-frame budget, because A5 places the Compose runtime outside its test surface and such a budget would carry no oracle. | OD-10（已裁定：不设数值）· REQ-038 的 `300ms` 仍成立，它是 typed 声明而非渲染实测 |
-| REQ-044 | Ubiquitous | The schedule view shall resolve every colour through a semantic token name so that the light and dark schemes carry identical semantics. | A4 · `docs/UI-UX-ELEMENTS.md:119` |
-| REQ-045 | Ubiquitous | The schedule view shall wrap rather than truncate every due date, status, count and failure reason at `200%` system font scale. | A4 · [card:context/DESIGN.md:1802]，`docs/UI-UX-ELEMENTS.md:118` |
-| REQ-046 | Ubiquitous | The schedule view shall draw every animation duration from `motion.{pressFeedbackMs,stateChangeMs,expandMs,sheetEnterMs,exitMs}`. | A4 · [card:context/DESIGN.md:`motion`] |
-| REQ-047 | State-Driven | While the operating system reports reduce-motion, the schedule view shall emit no translation, scale, pulse or repeating animation, and shall limit any remaining transition to a `100ms` opacity change. | A4 · `docs/UI-UX-ELEMENTS.md:120`，[card:context/DESIGN.md:1794] |
+| REQ-043 | Ubiquitous | This card shall declare no first-render budget and no scroll-frame budget, because A4 places the Compose runtime outside its test surface and such a budget would carry no oracle. | OD-10（已裁定：不设数值）· REQ-038 的 `300ms` 仍成立，它是 typed 声明而非渲染实测 |
 | REQ-048 | Ubiquitous | The schedule view shall carry non-blocking feedback in a `feedback-banner` and shall use no modal dialog for it. | [card:context/DESIGN.md:1787] |
 | REQ-049 | Ubiquitous | The schedule view shall expose no destructive action, and therefore declares no undo or confirm path. | 本卡 `non_goals`；[card:context/DESIGN.md:1787] |
+| REQ-053 | Ubiquitous | Every content value shall keep its text and numerals unchanged, and shall not be replaced by a glyph. | A3 · §范围边界 · [card:context/DESIGN.md:1762] |
 
-### C 组 · 纯图形界面 chrome（承接 A2）
-
-| ID | Pattern | Requirement | 来源 |
-|---|---|---|---|
-| REQ-050 | Ubiquitous | The schedule models shall classify every rendered value as either chrome or content according to §范围边界, and shall carry the two in distinct types. | 用户指令 · §范围边界 |
-| REQ-051 | Ubiquitous | The chrome control type shall declare no visible-text field, so that a chrome control carrying a visible label cannot be constructed. | A2 · 仓内既有做法（`ReportContent` 私有构造器 · `LoadedTemplate.parse`） |
-| REQ-052 | Ubiquitous | Every chrome control value shall carry a non-null accessible-name key. | A2 · [SOURCE: WCAG 2.2, SC 4.1.2 Name, Role, Value (Level A), https://www.w3.org/WAI/WCAG22/Understanding/name-role-value.html]，[SOURCE: WCAG 2.2, SC 1.1.1 Non-text Content (Level A), https://www.w3.org/WAI/WCAG22/Understanding/non-text-content.html] |
-| REQ-053 | Ubiquitous | Every content value shall keep its text and numerals unchanged, and shall not be replaced by a glyph. | §范围边界 · [card:context/DESIGN.md:1762] |
-| REQ-054 | Ubiquitous | Every value whose glyph would be classified `novel` in §图形对照表 shall keep its visible text and shall not be constructed as a chrome control, so that no symbol-only control in this view rests on a novel glyph. | OD-4（已裁定：`novel` 类保留文字）· [SOURCE: NN/g, Icon Usability, https://www.nngroup.com/articles/icon-usability/]（该研究明确反对以 hover/长按揭示标签，触摸设备上不奏效） |
-| REQ-055 | Ubiquitous | Glyph artwork shall contain no letter, no word and no numeral. | OD-5（已裁定：一律禁止；计数是独立 content，见 REQ-037）· [card:context/DESIGN.md:1563「Domain values are never carried by a glyph alone」] |
-| REQ-056 | Ubiquitous | The schedule view shall carry every state through a glyph and a position in addition to colour, and shall carry no state through colour alone. | A4 · [card:context/DESIGN.md:1561 `Symbol-only chrome` 准入条件 5] · `docs/UI-UX-ELEMENTS.md:119` |
-| REQ-057 | Ubiquitous | Every chrome control value whose glyph is directional shall declare that it mirrors under a right-to-left layout direction. | A4 · [code:android/app/src/main/AndroidManifest.xml:13 `supportsRtl="true"`] |
-| REQ-058 | Ubiquitous | Every glyph shall be declared as one in-file Compose `ImageVector`, tinted from a theme colour role, and sized from `iconography.sizes.{sm,md,lg}` (`18` / `24` / `32`). | OD-2 · [code:android/gradle/libs.versions.toml:28-32]（无 icon 依赖，本卡 `forbid` 禁改依赖） |
-| REQ-059 | Ubiquitous | Every chrome control shall declare a target of at least `48dp` by `48dp` with at least `8dp` to the adjacent target. | A4 · [SOURCE: Android Developers, Compose accessibility API defaults, https://developer.android.com/develop/ui/compose/accessibility/api-defaults]（`48dp`）· [card:context/DESIGN.md:`interaction.minTouchTarget`,`adjacentTargetGap`] |
-| REQ-060 | Ubiquitous | Every chrome control shall meet at least `24` by `24` CSS px target size and `3:1` non-text contrast against the adjacent surface. | [SOURCE: WCAG 2.2, SC 2.5.8 Target Size (Minimum), Level AA, https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html]，[SOURCE: WCAG 2.2, SC 1.4.11 Non-text Contrast, Level AA, https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html] |
-
-> **REQ-051 的写法是本组的关键**：A5 禁止以源码字符串或编译产物作 oracle，且 Compose runtime 不在测试面内，
-> 所以「chrome 里没有可见文字」不能靠扫描断言，只能**做进类型**——chrome 控件类型不含可见文本字段，
-> 于是「带标签的 chrome 控件」不是被规则禁止，而是**写不出来**，reducer 测试断言的是该 typed 值本身。
-> 这与 `T3-REPORT-CONTENT-ADAPTER`（`compose(content)` 签名里没有 `Audience`）同一手法。
-
-## 图形对照表（Glyph legend）
-
-图标集：`context/DESIGN.md` 声明 `iconography.family: Material Symbols`（`outlined` 默认 / `filled` 选中）。
-**但本仓不存在任何图标依赖或图标资源**，故本表「glyph」列给的是**形态概念**，落地形态由 REQ-058 规定为
-in-file `ImageVector`；是否改为 `res/drawable/` 矢量资源见 OD-2。
-`accessible name` 列是 REQ-052 的 key，**不是可见文字**，因此不违反 A2。
-
-| # | 当前/应有 chrome 文字 | glyph（概念） | 可识别性类 | fallback 披露 | accessible name | 备注 |
-|---|---|---|---|---|---|---|
-| 1 | Retry | 循环箭头 refresh | universal | 无 | `Retry registering this reminder` | 承接 `T4-SCHEDULE-UI` REQ-021 |
-| 2 | Open settings | 齿轮 settings | universal | 无 | `Open notification settings` | 承接 REQ-015；离开 app 边界 |
-| 3 | Notifications blocked | 铃铛加斜杠 notifications-off | conventional | 长按 tooltip | `Notifications are turned off` | 承接 REQ-015/016 状态标 |
-| 4 | Filter | 漏斗 filter | universal | 无 | `Filter by inspection type` | filter-chip-group 入口 |
-| 5 | Routine | **无 glyph** | — | 不适用 | 不适用（可见文字自任其名） | **content**（OD-1）：filter chip 保留文字 |
-| 6 | Annual | **无 glyph** | — | 不适用 | 不适用 | 同上 |
-| 7 | Ingoing | **无 glyph** | — | 不适用 | 不适用 | 同上 |
-| 8 | Exit | **无 glyph** | — | 不适用 | 不适用 | 同上 |
-| 9 | Due（`state-badge`） | 时钟 schedule | conventional | 长按 tooltip | `Due` | 计数是**独立 content 文本**，不入字形（OD-5） |
-| 10 | Needs attention（`state-badge`） | 三角感叹号 warning | universal | 无 | `Needs attention` | REQ-056 双重编码 |
-| 11 | `section-header` 分组名 | **无 glyph** | — | 不适用 | 不适用 | **content**（OD-1）：分组名保留文字 |
-
-> **2026-09-08 收口后本表只剩 6 枚 glyph**（第 1/2/3/4/9/10 行），且**无一属 `novel` 类**。
-> NN/g 的结论是「多数图标没有通用含义，文字标签是必需的」，且明确反对用 hover 揭示标签
-> （「在触摸设备上无法奏效」）[SOURCE: NN/g, Icon Usability, https://www.nngroup.com/articles/icon-usability/]。
-> 该研究点名的高风险区原本正是第 5–8、11 行；**OD-1 判其为 content、OD-4 判 `novel` 类一律保留文字**，
-> 故这一风险不是被接受，而是被移除。留下的 6 枚全属 `universal` 或 `conventional`，
-> 其中第 3、9 行按 REQ-054 之外的自身理由仍配长按 tooltip（`icon-button` anatomy 声明了 tooltip，
-> 触发 `context/DESIGN.md:1561` 准入条件 3）。
+> **REQ-044..047 与 REQ-050..052、054..060 已随二次拆卡移交 `T4-SCHEDULE-UI-SYMBOL-CHROME`**
+> （语义颜色解析、200% 字号换行、动效 token 与 reduced-motion、chrome/content 类型分割、字形、
+> RTL 镜像、目标尺寸与非文本对比度）。**REQ 编号不重排**：编号是稳定标识，跨卡沿用同一号，
+> 避免两卡出现同号异义（同 CLAUDE.md「检查项 ID 稳定」的同一条理由）。
+> **REQ-053 留在本卡**：它是「领域值保留文字与数字」，正是本卡 A3 的核心断言；
+> 后继卡引用它作为 chrome/content 分割的 content 一侧，不重复拥有。
 
 ## 验收与验证方法
 
 | 验收集 | REQ | 验证方法 | oracle |
 |---|---|---|---|
-| A1 | REQ-030..034, 036, 037, 040..043, 048, 049 | **REQ-030/031/032/033/034/040/042/043 automated**（token 名、动作数、日期形态与两条否定声明皆为 typed 值）；REQ-035/036/037/041/048/049 manual · 对照 `context/DESIGN.md` 的设计评审 | typed 值 / 人工评审 |
-| A2 | REQ-050..055 | automated · 类型层断言（chrome 类型无可见文本字段、accessible-name key 非 null、`novel` 值不可构造为 chrome、字形无字母/文字/数字） | typed 值 |
-| A3 | REQ-038, 039 | automated · 五个状态各断言非空内容与恰好一个动作；空状态的目标是宿主注入的回调 | 领域状态 |
-| A4 | REQ-044..047, 056..060 | **REQ-046/047/056/057/058/059 automated**（皆为 typed 声明值）；REQ-044/045/060 manual · 对比度与字号走设计评审 | typed 值 / 人工评审 |
-| A5 | 全部 automated 项 | automated · 变异收据（selector / RED exit / 前后同 SHA-256） | 收据本身 |
-| ~~C 组风险~~ | ~~REQ-054~~ | **已消解**：OD-4 判 `novel` 类保留文字，OD-12 遂裁定不做五秒识别测试——本表无 `novel` glyph 可测 | — |
+| A1 | REQ-030..035, 042, 048, 049 | **REQ-030/031/032/033/034/042 automated**（动作数、top-app-bar 动作上限、token 词汇与「不设控件上限」皆为 typed 值）；REQ-035/048/049 manual · 对照 `context/DESIGN.md` 的设计评审 | typed 值 / 人工评审 |
+| A2 | REQ-038, 039 | automated · 五个状态各断言非空内容与恰好一个具名动作；空状态的目标是宿主注入的回调，本卡不解析目的地 | 领域状态 |
+| A3 | REQ-036, 037, 040, 041, 053 | **REQ-036/037/040/053 automated**（日期形态、复数感知计数短语与「领域值保留文字数字」皆为 typed 值）；REQ-041 的「今天/现在」相对短语 automated，「不呈现冲突」由本卡不存在该类型证明 | typed 值 |
+| A4 | 全部 automated 项 + REQ-043 | automated · 变异收据（selector / RED exit / 前后同 SHA-256）；REQ-043 是本卡对自身测试面的否定声明，不产生断言 | 收据本身 |
+| 移交后继卡 | REQ-044..047, 050..052, 054..060 | 见 `T4-SCHEDULE-UI-SYMBOL-CHROME`；本卡不对其作任何自动或人工验收声明 | — |
 
-> **诚实说明**：A5 把 Compose runtime 排除在测试面外，故「间距/对比度/无渐变/200% 字号」这类**渲染期**约束
+> **诚实说明**：A4 把 Compose runtime 排除在测试面外，故「间距/无渐变」这类**渲染期**约束
 > 在本卡内**无法机检**，只能人工评审。可机检的部分之所以可机检，是因为 REQ 把它们写成了
-> `ScheduleModels.kt` 里的 typed 声明值（token 名、动作数、目标尺寸、motion token、mirror 标志），
+> `ScheduleModels.kt` 里的 typed 声明值（token 名、动作数、日期形态、计数短语），
 > 而不是渲染结果。实现时若把某条从 typed 值退化成散落的字面量，该条即失去 oracle。
 
 ## 未决决策（Open decisions）
@@ -210,6 +186,10 @@ in-file `ImageVector`；是否改为 `res/drawable/` 矢量资源见 OD-2。
 **开工前须全部收口** —— **2026-09-08 已全部收口**：OD-3 于 2026-09-03 裁定并由
 `T4-DESIGN-SYMBOL-CHROME-V2` 执行完毕（master `53673571`），其余 11 条于 2026-09-08 由用户逐条裁定。
 下表「裁定」列即本卡开工依据；此后实现不得重开其中任一条，需变更走新一次用户裁定并记进 §变更记录。
+
+**裁定同时约束后继卡**：二次拆卡发生在收口之后，故 `T4-SCHEDULE-UI-SYMBOL-CHROME` 直接继承下表
+——OD-1/4/5（字形该不该出现、`novel` 类保留文字、字形内无数字）与 OD-2（不扩 `res/`）主要落在后继卡，
+本卡受 OD-6/7/8/9/10/11 约束。后继卡不得重新解释任一条。
 
 | # | 问题（闭合式） | 候选 | **裁定（2026-09-08）** | 阻塞 |
 |---|---|---|---|---|
@@ -248,3 +228,4 @@ in-file `ImageVector`；是否改为 `res/drawable/` 矢量资源见 OD-2。
 |---|---|
 | 2026-09-03 | 建卡：承接 `T4-SCHEDULE-UI` 拆出的呈现半（原 A6–A9 → 本卡 A1–A4，新增 A5 验证契约）、REQ-030..060、图形对照表与 11 条 OD。开卡前复核四处权威面，修正原「三处抵触」为「两处真抵触 + 一处本就允许 + 一处不在范围」。 |
 | 2026-09-08 | **开工前收口 OD-1/2/4..12**（用户逐条裁定，见 §未决决策「裁定」列与 §决策记录 7–11）。据此改写 REQ-033/039/040/041/042/043/054/055，重写图形对照表（11 枚 glyph → **6 枚，且无一属 `novel`**），A2 覆盖面由 REQ-050..053+055 扩为 REQ-050..055，删去已消解的「C 组风险」行。体量重估 **620–870 changed lines**（低于 900 止损点，不二次拆分）。前置依赖复核：`context/DESIGN.md:1561` `Symbol-only chrome` 具名节已随 `T4-DESIGN-SYMBOL-CHROME-V2`（master `53673571`）落地，OD-3 的执行方由退役卡 `T4-DESIGN-SYMBOL-CHROME` 更正为 V2。 |
+| 2026-09-08 | **二次拆卡（用户裁定，止损点触发）**：收口后重算落在 ≈990 changed lines，越过卡内 900 止损点且距 1000 硬闸仅十行，遂按 §止损点早已写下的那条线拆——本卡留 A1/A3（现重编号 A1–A4：token 词汇、动作数、无空状态、日期与计数形态，≈610 行），符号化 chrome 与无障碍声明整半移交新卡 `T4-SCHEDULE-UI-SYMBOL-CHROME`（≈750 行）。移交 REQ-044..047 与 REQ-050..052、054..060 及整张图形对照表；**REQ 编号不重排**（跨卡稳定标识）；REQ-053 留本卡作 A3 断言面。acceptance 由 A1–A5 重编为 A1–A4，验证表、`dod_assert`、`doc_sync` 与 `non_goals` 同步。**为何砍掉 5 枚字形后总量反升**：收口加回 `CLEAR_FILTER` 与方向性 `NEXT` 两枚，后者是 REQ-057 不落空的唯一实例。 |
