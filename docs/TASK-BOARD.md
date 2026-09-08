@@ -275,7 +275,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 | [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md) | V1.1 | 批量照片选择、逐张分配与安全提交 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md) | 产品 V2 | V2 原始录音证据、回放与归属 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-ONDEVICE-DICTATION](../specs/tasks/T2-ONDEVICE-DICTATION.md) | 产品 V2 | V2 可替换的离线听写适配 | T2-AUDIO-EVIDENCE |
-| [T4-COMPLIANCE-UPDATE-TRUST](../specs/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | [ADR-0008](adr/0008-compliance-update-trust.md)：单公钥离线签名、轮换/撤销/日期/恢复矩阵（2026-09-08 用户批准） | 无；技术与责任决策已关闭，本卡 R3 与合并后解除此项前置，导入其余依赖不变 |
+| [T4-COMPLIANCE-UPDATE-TRUST](../specs/archive/tasks/T4-COMPLIANCE-UPDATE-TRUST.md) | V1 | [ADR-0008](adr/0008-compliance-update-trust.md)：单公钥离线签名、轮换/撤销/日期/初始化恢复矩阵 | **merged**（2026-09-08 master `cfb4609c`，正式 R3 第4轮 pass，用户授权一次重置；前三轮发现均修正）。此项前置已解除，导入其余依赖不变 |
 | [T4-COMPLIANCE-OVERRIDE-IMPORT](../specs/tasks/T4-COMPLIANCE-OVERRIDE-IMPORT.md) | V1 | 手动规则文件预检、可信激活与恢复 | T4-COMPLIANCE-UPDATE-TRUST, T4-COMPLIANCE-ENGINE-R3-CLOSURE, T1-LOCAL-DATA-SECURITY, T2-CAPTURE-UI |
 | [T5-BACKUP-FORMAT-V2](../specs/tasks/T5-BACKUP-FORMAT-V2.md) | V1 | 备份格式 v2 版本评审及兼容读写 | T5-BACKUP-FORMAT |
 | [T5-PROPERTY-SNAPSHOT-CLOSURE](../specs/tasks/T5-PROPERTY-SNAPSHOT-CLOSURE.md) | V1 | 按物业备份的逐表闭包与媒体双向核验 | T5-BACKUP-FORMAT-V2, T5-BACKUP-IO, T5-MEDIA-ARCHIVE-CONTRACT |
