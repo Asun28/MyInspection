@@ -443,7 +443,7 @@ function Get-SelftestSeededGitGateIds {
     '17aa(8)', '17aa(8/F5)', '17aa(8/origin-form)', '17aa(8/retarget)', '17aa(8/T24-mint-open)', '17aa(8/T24-mint-merged)',
     'T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
     'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4',
-    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT',
+    'T37-CIGATE/API-CONTRACT', 'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT', 'T37-CIGATE/DEADLINE',
     '17cc', '17cc(reparse-functional)', '17dd', '17ee', '17ff', '17hh'
   )
 }
@@ -4475,6 +4475,7 @@ $gateIdFamilies82 = [ordered]@{
   'T37-CIGATE/API-CONTRACT' = 'T37-CIGATE/API-CONTRACT'
   'T37-CIGATE/WORKFLOW-BINDING' = 'T37-CIGATE/WORKFLOW-BINDING'
   'T37-CIGATE/JOBS-DRIFT' = 'T37-CIGATE/JOBS-DRIFT'
+  'T37-CIGATE/DEADLINE' = 'T37-CIGATE/DEADLINE'
 }
 $badGateIdFamilies82 = @($gateIdFamilies82.GetEnumerator() | Where-Object {
   $actual = Resolve-SelftestGateId -Message "闸$($_.Key)：fixture failure" -Fallback 'FALLBACK'
@@ -13940,7 +13941,7 @@ exit 0
 # 每场景各建一个全新隔离仓（own root/origin/worktree/shim）——完全隔离、独立 teardown，防跨场景状态残留假绿（L137）。
 if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-REMOTEMX/1-recover', 'T37-REMOTEMX/1-reuse',
   'T37-REMOTEMX/2', 'T37-REMOTEMX/2-rerun', 'T37-REMOTEMX/3', 'T37-REMOTEMX/4', 'T37-CIGATE/API-CONTRACT',
-  'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT')) {
+  'T37-CIGATE/WORKFLOW-BINDING', 'T37-CIGATE/JOBS-DRIFT', 'T37-CIGATE/DEADLINE')) {
   if (-not $IsWindows) {
     Skip-SelftestCheck -GateId 'T37-REMOTEMX' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX 远端态矩阵仅 Windows 执行（gh.ps1 经 PATHEXT 解析）；非 Windows 由 Windows CI 覆盖。'
     Skip-SelftestCheck -GateId 'T37-REMOTEMX/1' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-REMOTEMX/1 跳过：远端态矩阵仅 Windows 执行。'
@@ -13953,10 +13954,13 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     Skip-SelftestCheck -GateId 'T37-CIGATE/API-CONTRACT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/API-CONTRACT 跳过：候选 CI 分页夹具复用远端态矩阵，仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/WORKFLOW-BINDING' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/WORKFLOW-BINDING 跳过：候选 CI 身份/时序夹具复用远端态矩阵，仅 Windows 执行。'
     Skip-SelftestCheck -GateId 'T37-CIGATE/JOBS-DRIFT' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/JOBS-DRIFT 跳过：候选 CI jobs 集合夹具复用远端态矩阵，仅 Windows 执行。'
+    Skip-SelftestCheck -GateId 'T37-CIGATE/DEADLINE' -Reason 'OS-WINDOWS-ONLY' -Message '  T37-CIGATE/DEADLINE 跳过：Windows Job Object 容纳夹具仅 Windows 执行。'
   } else {
     $rmSavedPath = $env:PATH; $rmSavedRoot = $env:GH_MOCK_ROOT; $rmSavedWt = $env:GH_MOCK_WT; $rmSavedMergeFail = $env:GH_MOCK_MERGE_FAIL
     $rmSavedBaseMode = $env:GH_MOCK_BASE_MODE; $rmSavedMergeState = $env:GH_MOCK_MERGE_STATE   # Codex R3 r5：全部 GH_MOCK_* 均须 save/restore（含 17aa(8) 用的 BASE_MODE/MERGE_STATE）
     $rmSavedCiMode = $env:GH_MOCK_CI_MODE; $rmSavedCiTimeout = $env:SCAFFOLD_CI_TIMEOUT_SEC
+    $rmSavedContainFault = $env:SCAFFOLD_CI_CONTAINMENT_FAULT; $rmSavedSlowMs = $env:GH_MOCK_SLOW_MS
+    $rmSavedRealGit = $env:GH_MOCK_REAL_GIT
     $script:rmRoots = @()   # Codex 二审 major#2：root 一经创建即登记（script 域），setup 中途抛异常也不泄漏临时根。
     # 集中一处的哨兵/状态文件清单（卡 dod_assert：每场景进入前统一复位全部 GH_MOCK_* 每场景旋钮 + 全部哨兵/gh 状态文件）。
     # T37 stub 实际使用的**全部**哨兵/状态文件——闸15t 新增的四个也必须在列，否则 $rmReset 名不副实、
@@ -13966,13 +13970,15 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
       'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-jobs-names', 'ci-event-trace', 'ci-gh-cwds',
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
       # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
-      'r3-head-moved')   # base-count 属 17aa(8)，本卡 stub 不写
+      'r3-head-moved', 'deadline-legs', 'orphan-started', 'orphan-completed', 'git-hang-started',
+      'git-hang-completed', 'deadline-pre-git', 'arm-git-hang', 'ci-git-calls')   # base-count 属 17aa(8)，本卡 stub 不写
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
       # Codex R3 r5：进入场景前统一复位**全部** GH_MOCK_* 每场景旋钮（含 17aa(8) 的 BASE_MODE/MERGE_STATE，防跨闸继承）；PATH/GH_MOCK_ROOT 由 $rmMake 绑至本夹具。
       $env:GH_MOCK_WT = $null; $env:GH_MOCK_MERGE_FAIL = $null; $env:GH_MOCK_BASE_MODE = $null; $env:GH_MOCK_MERGE_STATE = $null
       $env:GH_MOCK_CI_MODE = $null; $env:SCAFFOLD_CI_TIMEOUT_SEC = $null
+      $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $null; $env:GH_MOCK_SLOW_MS = $null
     }
     # Finding B（Codex R3 r3 #2）：证远端投影真被更新——push 成功后裸 origin 的任务 ref 须 == worktree HEAD。
     $rmOriginRef = { param($origin) "$(& git --git-dir=$origin rev-parse refs/heads/T0-REMOTEMX 2>$null)".Trim() }
@@ -13981,7 +13987,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
     # （同一驱动器 ⇒ 三闸对「拦住了」的取证口径逐字一致）。$Extra 走 -NoAutoMerge 一类附加实参；$Sec 是本次
     # ship 墙钟（deadline 负例据它判预算）；PrN/RunId 取自本夹具自己的随机身份文件（⇒ 断言里不得硬编码）。
     $ciShip = {
-      param($fx, [string]$Mode, [string[]]$Extra = @(), [string]$TimeoutSec = '30')
+      param($fx, [string]$Mode, [string[]]$Extra = @(), [string]$TimeoutSec = '30', [string]$Fault = '', [string]$SlowMs = '')
       & $rmReset $fx.Root
       # 效果账本随每次 ship 复位：闸的**逐字段拒因**只落在这里（Add-CatchRecord，不打印到 stdout），
       # 身份负例要证明「命中的是被造坏的那一处」就得读它——跨轮残留会让上一例的拒因冒充本例的证据。
@@ -13989,6 +13995,7 @@ if (Test-SelftestPrerequisite -GateIds @('T37-REMOTEMX', 'T37-REMOTEMX/1', 'T37-
       Remove-Item $ledger -ErrorAction SilentlyContinue
       # 每场景旋钮一律在 $rmReset **之后**设置：$rmReset 会把它们全部清空（防跨场景继承），在外面先设再调本闭包等于白设。
       $env:GH_MOCK_WT = $fx.Wt; $env:GH_MOCK_CI_MODE = $Mode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $TimeoutSec
+      $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $Fault; $env:GH_MOCK_SLOW_MS = $SlowMs
       $sw = [Diagnostics.Stopwatch]::StartNew()
       $out = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship @Extra 2>&1 | Out-String)
       $exit = $LASTEXITCODE
@@ -14045,6 +14052,14 @@ function Next-CiCount([string]$Name) {
   return ($n + 1)
 }
 function Send-CiJson($o) { $o | ConvertTo-Json -Depth 6 -Compress; exit 0 }
+function Wait-CiDeadlineLeg([string]$Name) {
+  if ($env:GH_MOCK_CI_MODE -ceq 'deadline-slow') {
+    Add-Content (Join-Path $env:GH_MOCK_ROOT 'deadline-legs') "$Name|$([DateTimeOffset]::UtcNow.ToString('o'))"
+    Start-Sleep -Milliseconds ([int]$env:GH_MOCK_SLOW_MS)
+  } elseif ($Name -ceq 'head' -and "$env:GH_MOCK_CI_MODE" -like 'git-*-hang') {
+    $p=Join-Path $env:GH_MOCK_ROOT 'deadline-pre-git'; if (-not (Test-Path $p)) { Set-Content $p ([DateTimeOffset]::UtcNow.ToString('o')); Start-Sleep -Milliseconds ([int]$env:GH_MOCK_SLOW_MS) }
+  }
+}
 function Get-CiPage([string]$s) { if ($s -match '(?:\?|&)page=(\d+)') { [int]$Matches[1] } else { 1 } }
 # 分页契约夹具注入器（T0-CI-PAGED-CONTRACT）：GH_MOCK_CI_MODE = '<endpoint>-<case>'。
 # 三个分页 endpoint 共用生产侧同一个读取函数，故三者各自把自己的**合法条目原型** $Item 交给本注入器，
@@ -14129,6 +14144,7 @@ if ($args -contains 'api') {
   $joined = $args -join ' '
   if ($joined -match 'check-runs') {
     Add-CiCwd 'checks' $joined
+    Wait-CiDeadlineLeg 'checks'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
     [void](Next-CiCount 'ci-check-count')
@@ -14151,8 +14167,15 @@ if ($args -contains 'api') {
   }
   if ($joined -match 'actions/workflows/ci\.yml/runs') {
     Add-CiCwd 'workflow' $joined
+    Wait-CiDeadlineLeg 'workflow'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-workflow-checked') 'yes'
     $wfN = Next-CiCount 'ci-workflow-count'
+    if ($env:GH_MOCK_CI_MODE -ceq 'deadline-orphan') {
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'orphan-started') ([DateTimeOffset]::UtcNow.ToString('o'))
+      $done = Join-Path $env:GH_MOCK_ROOT 'orphan-completed'
+      Start-Process -FilePath (Get-Command pwsh).Source -NoNewWindow -ArgumentList '-NoProfile','-Command',"Start-Sleep -Seconds 9; Set-Content -LiteralPath '$done' yes"
+      exit 0
+    }
     $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
     $runId = "$(Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-id') -Raw)".Trim()
     $try = [int](Get-Content (Join-Path $env:GH_MOCK_ROOT 'fixture-run-attempt') -Raw)
@@ -14191,6 +14214,9 @@ if ($args -contains 'api') {
     Add-CiCwd 'jobs' $joined
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-consumed') 'yes'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-jobs-run-id') "$runId/$try"
+    if ("$env:GH_MOCK_CI_MODE" -cin @('git-fetch-hang','git-revparse-hang','git-trace')) {
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'arm-git-hang') "$env:GH_MOCK_CI_MODE"
+    }
     $jobN = Next-CiCount 'ci-jobs-count'
     $page = Get-CiPage $joined
     $jn = if ($env:GH_MOCK_CI_MODE -ceq 'basic-candidate') { 'Verify display' } else { 'verify' }
@@ -14235,6 +14261,7 @@ if (($args -join ' ') -match '^repo view') { 'remotemx-fixture'; exit 0 }
 # 没 push 则不等（变异 B 即靠此暴露）。
 if ($args -contains 'headRefOid') {
   Add-CiCwd 'head'
+  Wait-CiDeadlineLeg 'head'
   # A1 第一层绑定的负例：PR head 与刚被 R3 评审过的本地 HEAD 不是同一个提交（评审对象 ≠ 待合并对象）。
   if ($env:GH_MOCK_CI_MODE -ceq 'pr-head-mismatch') { ('c' * 40); exit 0 }
   "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
@@ -14263,6 +14290,30 @@ if ($args -contains 'merge') {
   exit 0
 }
 exit 0
+'@
+    $rmGitShim = @'
+$real = "$env:GH_MOCK_REAL_GIT"
+if (-not $real) { $real = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
+$joined = $args -join ' '
+$arm = if ($env:GH_MOCK_ROOT) { Join-Path $env:GH_MOCK_ROOT 'arm-git-hang' } else { '' }
+if ($arm -and (Test-Path $arm)) {
+  $mode = "$(Get-Content $arm -Raw)".Trim()
+  $leg = if ($joined -match '(?:^| )fetch(?: |$).*refs/remotes/origin/') { 'git-fetch' }
+    elseif ($joined -match '(?:^| )rev-parse(?: |$).*refs/remotes/origin/') { 'git-revparse' } else { '' }
+  if ($leg) {
+    Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-git-calls') "$leg|$((Get-Location).Path)|$joined"
+    if ((($mode -ceq 'git-fetch-hang') -and ($leg -ceq 'git-fetch')) -or
+        (($mode -ceq 'git-revparse-hang') -and ($leg -ceq 'git-revparse'))) {
+      Remove-Item $arm -Force
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'git-hang-started') "$mode|$PID|$([DateTimeOffset]::UtcNow.ToString('o'))|$joined"
+      Start-Sleep -Seconds 25
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'git-hang-completed') yes
+      exit 0
+    }
+  }
+}
+& $real @args
+exit $LASTEXITCODE
 '@
     # 建一个全新远端夹具仓（隔离仓 + 裸 origin + 状态化 gh stub），返回句柄哈希（Ok=start 是否产出 worktree）。
     $rmMake = {
@@ -14506,6 +14557,225 @@ if ($env:GH_MOCK_ROOT) {
           }
         }
         finally { Remove-Item -Recurse -Force $fx3.Root -ErrorAction SilentlyContinue }
+      }
+
+      # --- T37-CIGATE/DEADLINE（T0-CI-DEADLINE-CONTAINMENT）：单一 deadline + fail-closed Windows Job Object ---
+      if (Test-SelftestPrerequisite -GateIds @('T37-CIGATE/DEADLINE')) {
+        $dlProblem = $null; $taskPath = Join-Path $RepoRoot 'scripts/task.ps1'; $taskText = Get-Content $taskPath -Raw
+        $dlStart = $taskText.IndexOf('$ddl = [DateTimeOffset]::UtcNow.AddSeconds')
+        $dlEnd = $taskText.IndexOf('Write-Host "[CI-GATE-PASS]', [Math]::Max(0, $dlStart))
+        if ($dlStart -lt 0 -or $dlEnd -le $dlStart) { $dlProblem = 'candidate-CI deadline 边界不可定位' }
+        else {
+          $dlCi = $taskText.Substring($dlStart, $dlEnd - $dlStart)
+          if ($dlCi -match '(?m)^\s*&\s+(?:gh|git)\b') { $dlProblem = 'candidate-CI 仍有绕过统一 deadline 的裸 gh/git 调用' }
+          elseif ([regex]::Matches($dlCi, '(?m)^\s*\$ddl\s*=').Count -ne 1) { $dlProblem = 'candidate-CI 未且仅未创建一个绝对 deadline' }
+          $warm = $taskText.LastIndexOf('Initialize-CiContainment -Fault "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"', $dlStart)
+          if (-not $dlProblem -and ($warm -lt ($dlStart - 500) -or $warm -ge $dlStart)) { $dlProblem = '容纳原语未在 candidate-CI deadline 建立前预热' }
+          if (-not $dlProblem -and $taskText -cnotmatch 'STARTUPINFOEX|PROC_THREAD_ATTRIBUTE_HANDLE_LIST|UpdateProcThreadAttribute') { $dlProblem = 'CreateProcess 未白名单继承标准流 handles' }
+        }
+        if (-not $dlProblem -and $taskText -match '(?m)\.WaitForExit\(\)') { $dlProblem = '仍有无参 WaitForExit()，重定向句柄可令闸无界等待' }
+
+        # 直接执行生产函数：外层 ship 墙钟不能区分一份/两份 cleanup grace，也会把前段固定成本混进去。
+        if (-not $dlProblem) {
+          $tok = $null; $pe = $null
+          $ast = [Management.Automation.Language.Parser]::ParseFile($taskPath, [ref]$tok, [ref]$pe)
+          $defs = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -in @('Initialize-CiContainment','Invoke-ExternalBeforeDeadline') }, $true) | Sort-Object { $_.Extent.StartOffset })
+          if ($pe.Count -gt 0 -or $defs.Count -ne 2) { $dlProblem = '生产容纳函数缺失或不可解析' }
+          else {
+            $names = @('Invoke-GhBeforeDeadline','Get-ExactHeadChecksBeforeDeadline','Get-GhPagedCollectionBeforeDeadline','Invoke-ExternalBeforeDeadline','Get-GitOidBeforeDeadline','Wait-CiRetryBeforeDeadline')
+            $calls = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true) | Where-Object {
+              $_.Extent.StartOffset -ge $dlStart -and $_.Extent.EndOffset -le $dlEnd -and $_.GetCommandName() -in $names
+            })
+            if ($calls.Count -ne 15) { $dlProblem = "candidate-CI 外部/等待调用数漂移（$($calls.Count) != 15）" }
+            foreach ($call in $calls) {
+              if ($dlProblem) { break }
+              $els = @($call.CommandElements); $name = $call.GetCommandName()
+              if ($name -ceq 'Wait-CiRetryBeforeDeadline') { if ($els.Count -ne 2 -or $els[1].Extent.Text -cne '$ddl') { $dlProblem = "$name 未绑定唯一 `$ddl" } }
+              else {
+                $di = -1; for ($i=0; $i -lt $els.Count; $i++) { if ($els[$i] -is [Management.Automation.Language.CommandParameterAst] -and $els[$i].ParameterName -ceq 'Deadline') { $di=$i; break } }
+                if ($di -lt 0 -or $di + 1 -ge $els.Count -or $els[$di + 1].Extent.Text -cne '$ddl') { $dlProblem = "$name 未绑定唯一 `$ddl" }
+              }
+            }
+            $edges = @(
+              @('Invoke-GhBeforeDeadline','Invoke-ExternalBeforeDeadline'), @('Get-GitOidBeforeDeadline','Invoke-ExternalBeforeDeadline'),
+              @('Get-GhPagedCollectionBeforeDeadline','Invoke-GhBeforeDeadline'), @('Get-ExactHeadChecksBeforeDeadline','Get-GhPagedCollectionBeforeDeadline'))
+            foreach ($edge in $edges) {
+              if ($dlProblem) { break }
+              $fnName=$edge[0]; $callee=$edge[1]
+              $fn = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $fnName }, $true))
+              $inner = @(if ($fn.Count -eq 1) { $fn[0].FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq $callee }, $true) })
+              if ($inner.Count -ne 1) { $dlProblem = "$fnName 未唯一委派 $callee"; break }
+              $els=@($inner[0].CommandElements); $di=-1; for($i=0;$i -lt $els.Count;$i++){if($els[$i] -is [Management.Automation.Language.CommandParameterAst] -and $els[$i].ParameterName -ceq 'Deadline'){$di=$i;break}}
+              if ($di -lt 0 -or $di+1 -ge $els.Count -or $els[$di+1].Extent.Text -cne '$Deadline') { $dlProblem = "$fnName 在 helper 内重启/丢失共享 deadline" }
+            }
+            if (-not $dlProblem) { . ([scriptblock]::Create(($defs.Extent.Text -join "`n"))) }
+          }
+        }
+        $dlRoot = $null
+        if (-not $dlProblem) {
+          $dlRoot = Join-Path ([IO.Path]::GetTempPath()) ('stT37_deadline_' + [guid]::NewGuid().ToString('N').Substring(0,8))
+          New-Item -ItemType Directory -Force $dlRoot | Out-Null
+          $oldFault = $env:SCAFFOLD_CI_CONTAINMENT_FAULT
+          try {
+            $waitGone = { param([int]$Id) $until=[DateTimeOffset]::UtcNow.AddSeconds(1); do { $p=Get-Process -Id $Id -ErrorAction SilentlyContinue; if(-not $p){return $true}; Start-Sleep -Milliseconds 50 } while([DateTimeOffset]::UtcNow -lt $until); return (-not (Get-Process -Id $Id -ErrorAction SilentlyContinue)) }
+            # 必须触达真实 Add-Type catch；不能用预抛 fault 冒充编译失败。
+            $env:SCAFFOLD_CI_CONTAINMENT_FAULT = 'add-type'; $msg = ''
+            try { [void](Invoke-ExternalBeforeDeadline -Command 'cmd.exe' -Arguments @('/d','/c','exit','0') -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(8)) -WorkingDirectory $dlRoot) } catch { $msg = $_.Exception.ToString() }
+            if ($msg -cnotmatch '\[CI-GATE-CONTAINMENT\] stage=add-type\b' -or $msg -cnotmatch '\bCS\d{4}\b') { $dlProblem = 'Add-Type 负例未触达真实编译失败 catch' }
+
+            $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $null
+            $ok = Invoke-ExternalBeforeDeadline -Command 'cmd.exe' -Arguments @('/d','/c','echo','contained') -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(8)) -WorkingDirectory $dlRoot
+            if ($ok.TimedOut -or $ok.ExitCode -ne 0 -or $ok.Stdout -notmatch 'contained') { $dlProblem = '容纳执行器正例未保留 stdout/exit' }
+
+            # 每个 setup stage 都必须 fail-closed，且 assign/resume 前后的 suspended child 不得执行 body。
+            foreach ($stage in @('create-job','configure-job','create-process','assign','resume','platform')) {
+              if ($dlProblem) { break }
+              $mark = Join-Path $dlRoot "$stage-ran"; Remove-Item $mark -ErrorAction SilentlyContinue
+              $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $stage; $msg = ''
+              try { [void](Invoke-ExternalBeforeDeadline -Command 'pwsh' -Arguments @('-NoProfile','-Command',"Set-Content -LiteralPath '$mark' yes") -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(8)) -WorkingDirectory $dlRoot) }
+              catch { $msg = $_.Exception.ToString() }
+              if ($msg -cnotmatch "\[CI-GATE-CONTAINMENT\] stage=$stage\b") { $dlProblem = "$stage 未以稳定 containment 诊断 fail-closed" }
+              elseif ($stage -ne 'platform' -and $msg -cnotmatch 'api-result') { $dlProblem = "$stage 未经真实返回值 guard fail-closed" }
+              elseif (Test-Path $mark) { $dlProblem = "$stage 失败时 suspended child 仍执行了 body" }
+              elseif ($stage -in @('assign','resume')) {
+                $pm = [regex]::Match($msg,'\bpid=(\d+)\b'); $gone = $pm.Success -and (& $waitGone ([int]$pm.Groups[1].Value))
+                if (-not $gone) { if($pm.Success){Stop-Process -Id ([int]$pm.Groups[1].Value) -Force -ErrorAction SilentlyContinue}; $dlProblem = "$stage 失败留下 suspended root 或未记录 PID" }
+              }
+            }
+
+            # deadline 在 create/resume 前都要自守卫；测试缝在 assign 后耗尽预算，body 绝不可执行。
+            if (-not $dlProblem) {
+              $mark = Join-Path $dlRoot 'expired-before-resume'; Remove-Item $mark -ErrorAction SilentlyContinue
+              $env:SCAFFOLD_CI_CONTAINMENT_FAULT = 'expire-before-resume'
+              $r = Invoke-ExternalBeforeDeadline -Command 'pwsh' -Arguments @('-NoProfile','-Command',"Set-Content -LiteralPath '$mark' yes") -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(120)) -WorkingDirectory $dlRoot
+              if (-not $r.TimedOut -or (Test-Path $mark)) { $dlProblem = 'resume 前 deadline 复检缺失或仍执行 body' }
+            }
+
+            # 宿主任意 inheritable handle 不得泄给 wrapper/目标；只允许 stdin/stdout/stderr 三枚。
+            if (-not $dlProblem) {
+              if (-not ('DeadlineInheritProbe' -as [type])) { Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class DeadlineInheritProbe {
+  [StructLayout(LayoutKind.Sequential)] struct SA { public int n; public IntPtr p; [MarshalAs(UnmanagedType.Bool)] public bool inherit; }
+  [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr CreateFileW(string n,uint a,uint s,ref SA x,uint c,uint f,IntPtr t);
+  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+  public static IntPtr Open(string p) { SA x=new SA { n=Marshal.SizeOf(typeof(SA)),inherit=true }; return CreateFileW(p,0x40000000,3,ref x,2,0x80,IntPtr.Zero); }
+}
+'@ }
+              $leakFile = Join-Path $dlRoot 'leak-handle'; $leakMark = Join-Path $dlRoot 'leak-ran'; $lh = [DeadlineInheritProbe]::Open($leakFile)
+              try {
+                $probe = Join-Path $dlRoot 'handle-probe.ps1'
+                Set-Content $probe 'param($N,$M);try{$h=[Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::new([long]$N),$false);$f=[IO.FileStream]::new($h,[IO.FileAccess]::Write);$f.WriteByte(65);$f.Flush();Set-Content -LiteralPath $M yes}catch{}' -Encoding utf8
+                $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $null
+                [void](Invoke-ExternalBeforeDeadline -Command $probe -Arguments @("$lh",$leakMark) -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(8)) -WorkingDirectory $dlRoot)
+              } finally { [void][DeadlineInheritProbe]::CloseHandle($lh) }
+              if (Test-Path $leakMark) { $dlProblem = 'wrapper 继承了白名单外宿主 handle' }
+            }
+
+            # assign/resume 失败循环不经 GC；每轮都创建 native handles，缺任一 CloseHandle 会线性增长。
+            if (-not $dlProblem) {
+              $env:SCAFFOLD_CI_CONTAINMENT_FAULT = 'assign'
+              try { [void](Invoke-ExternalBeforeDeadline -Command 'cmd.exe' -Arguments @('/d','/c','exit','0') -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5)) -WorkingDirectory $dlRoot) } catch { }
+              $h0 = (Get-Process -Id $PID).HandleCount
+              foreach ($stage in @('assign','resume')) { 1..12 | ForEach-Object {
+                $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $stage
+                try { [void](Invoke-ExternalBeforeDeadline -Command 'cmd.exe' -Arguments @('/d','/c','exit','0') -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5)) -WorkingDirectory $dlRoot) } catch { }
+              } }
+              $hd = (Get-Process -Id $PID).HandleCount - $h0
+              if ($hd -gt 6) { $dlProblem = "失败路径 native handle 线性泄漏（delta=$hd）" }
+            }
+
+            # 根进程先退出、孙进程继续持有重定向句柄：到 deadline 后仍须结束整个 Job。
+            if (-not $dlProblem) {
+              $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $null
+              $grand = Join-Path $dlRoot 'grand.ps1'; $parent = Join-Path $dlRoot 'parent.ps1'; $done = Join-Path $dlRoot 'orphan-done'; $pidFile = Join-Path $dlRoot 'orphan-pid'
+              Set-Content $grand 'param($Done); Start-Sleep -Seconds 5; Set-Content -LiteralPath $Done yes' -Encoding utf8
+              Set-Content $parent 'param($Grand,$Done,$PidFile); $p=Start-Process (Get-Command pwsh).Source -NoNewWindow -PassThru -ArgumentList @(''-NoProfile'',''-File'',$Grand,$Done); Set-Content $PidFile $p.Id' -Encoding utf8
+              $r = Invoke-ExternalBeforeDeadline -Command 'pwsh' -Arguments @('-NoProfile','-File',$parent,$grand,$done,$pidFile) -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(1)) -WorkingDirectory $dlRoot
+              Start-Sleep -Seconds 5
+              $orphanAlive = $false; if (Test-Path $pidFile) { $op = 0; if ([int]::TryParse("$(Get-Content $pidFile -Raw)".Trim(), [ref]$op)) { $orphanAlive = [bool](Get-Process -Id $op -ErrorAction SilentlyContinue) } }
+              if (-not $r.TimedOut -or (Test-Path $done) -or $orphanAlive) { $dlProblem = '根先退/孙持管道夹具未被整组终止' }
+            }
+
+            # 故障注入令 TerminateJobObject 不生效：根 wait 与 stream wait 必须共用 deadline+一份 2s grace。
+            if (-not $dlProblem) {
+              $closeStd = Join-Path $dlRoot 'close-std.ps1'; $closed = Join-Path $dlRoot 'std-closed'
+              Set-Content $closeStd 'param($M);Add-Type ''using System;using System.Runtime.InteropServices;public static class CS{[DllImport("kernel32")]public static extern IntPtr GetStdHandle(int n);[DllImport("kernel32")]public static extern bool CloseHandle(IntPtr h);}'';[CS]::CloseHandle([CS]::GetStdHandle(-11))|Out-Null;[CS]::CloseHandle([CS]::GetStdHandle(-12))|Out-Null;Set-Content $M yes;Start-Sleep -Seconds 20' -Encoding utf8
+              $env:SCAFFOLD_CI_CONTAINMENT_FAULT = 'terminate-job'; $sw = [Diagnostics.Stopwatch]::StartNew(); $msg = ''
+              try { [void](Invoke-ExternalBeforeDeadline -Command $closeStd -Arguments @($closed) -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(3)) -WorkingDirectory $dlRoot) }
+              catch { $msg = $_.Exception.ToString() }; $sw.Stop()
+              if ($msg -cnotmatch '\[CI-GATE-CONTAINMENT\] stage=terminate-job\b') { $dlProblem = '清理失败未显式 fail-closed' }
+              elseif (-not (Test-Path $closed) -or $sw.Elapsed.TotalSeconds -lt 4.5 -or $sw.Elapsed.TotalSeconds -ge 6.3) { $dlProblem = "root wait 未与已关闭的 streams 共用 deadline+1×grace（$([Math]::Round($sw.Elapsed.TotalSeconds,2))s）" }
+              else {
+                $pm = [regex]::Match($msg,'\bpid=(\d+)\b'); $gone = $pm.Success -and (& $waitGone ([int]$pm.Groups[1].Value))
+                if (-not $gone) { if($pm.Success){Stop-Process -Id ([int]$pm.Groups[1].Value) -Force -ErrorAction SilentlyContinue}; $dlProblem = 'TerminateJobObject 失败后 Job-close 未杀净 root' }
+              }
+            }
+
+            # stdout/stderr 仍打开：root wait 花完 grace 后，收流不得重新再花一份 grace。
+            if (-not $dlProblem) {
+              $env:SCAFFOLD_CI_CONTAINMENT_FAULT = 'terminate-job'; $sw = [Diagnostics.Stopwatch]::StartNew(); $msg = ''
+              try { [void](Invoke-ExternalBeforeDeadline -Command 'pwsh' -Arguments @('-NoProfile','-Command','Start-Sleep -Seconds 20') -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(3)) -WorkingDirectory $dlRoot) }
+              catch { $msg = $_.Exception.ToString() }; $sw.Stop()
+              $pm=[regex]::Match($msg,'\bpid=(\d+)\b'); $gone=$pm.Success -and (& $waitGone ([int]$pm.Groups[1].Value))
+              if ($msg -cnotmatch '\[CI-GATE-CONTAINMENT\] stage=terminate-job\b' -or $sw.Elapsed.TotalSeconds -lt 4.5 -or $sw.Elapsed.TotalSeconds -ge 6.3 -or -not $gone) {
+                if($pm.Success -and -not $gone){Stop-Process -Id ([int]$pm.Groups[1].Value) -Force -ErrorAction SilentlyContinue}
+                $dlProblem = "open-stream cleanup 花了不止 deadline+1×grace（$([Math]::Round($sw.Elapsed.TotalSeconds,2))s）"
+              }
+            }
+          } finally { $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $oldFault }
+        }
+
+        # 真实 ship 接线：慢 gh 跨腿共享预算；git fetch/rev-parse 各自挂起也必须命中同一 timeout。
+        if (-not $dlProblem) {
+          $fxd = & $rmMake 'deadline'
+          try {
+            if (-not $fxd.Ok) { $dlProblem = 'deadline ship 夹具 start 失败' }
+            else {
+              $env:GH_MOCK_WT = $fxd.Wt
+              & pwsh -NoProfile -File (Join-Path $fxd.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+              Set-Content (Join-Path $fxd.Wt 'README.md') 'GREENMX deadline' -Encoding utf8
+              $r = & $ciShip $fxd 'deadline-slow' @('-NoAutoMerge') '20' '' '11000'
+              $legs = @((Get-Content (Join-Path $fxd.Root 'deadline-legs') -ErrorAction SilentlyContinue) | Where-Object { $_ })
+              $ciSec = if ($legs.Count) { ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse(($legs[0] -split '\|',2)[1])).TotalSeconds } else { 999 }
+              if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $legs.Count -lt 2 -or $r.MA -or $ciSec -ge 24) {
+                $dlProblem = "gh 多腿未共享同一 wall-clock deadline（exit=$($r.X), legs=$($legs -join ','), ciSec=$([Math]::Round($ciSec,1)), merge=$($r.MA)）"
+              }
+            }
+          } finally { if ($fxd -and $fxd.Root) { Remove-Item -Recurse -Force $fxd.Root -ErrorAction SilentlyContinue } }
+        }
+        if (-not $dlProblem) {
+          $fxg = & $rmMake 'deadlinegit'
+          try {
+            if (-not $fxg.Ok) { $dlProblem = 'git deadline 夹具 start 失败' }
+            else {
+              $env:GH_MOCK_WT = $fxg.Wt
+              & pwsh -NoProfile -File (Join-Path $fxg.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+              Set-Content (Join-Path $fxg.Wt 'README.md') 'GREENMX git deadline' -Encoding utf8
+              $env:GH_MOCK_REAL_GIT = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+              Set-Content (Join-Path $fxg.Shim 'git.ps1') $rmGitShim -Encoding utf8
+              foreach ($mode in @('git-fetch-hang','git-revparse-hang')) {
+                if ($dlProblem) { break }
+                $r = & $ciShip $fxg $mode @('-NoAutoMerge') '25' '' '12000'
+                $started = "$(Get-Content (Join-Path $fxg.Root 'git-hang-started') -Raw -ErrorAction SilentlyContinue)"
+                $completed = Test-Path (Join-Path $fxg.Root 'git-hang-completed')
+                $sp = $started.Trim() -split '\|',4; $gp = if ($sp.Count -ge 3 -and $sp[1] -match '^\d+$') { Get-Process -Id ([int]$sp[1]) -ErrorAction SilentlyContinue } else { $null }
+                $hangSec = if ($sp.Count -ge 3) { ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($sp[2])).TotalSeconds } else { 999 }
+                $pre = "$(Get-Content (Join-Path $fxg.Root 'deadline-pre-git') -Raw -ErrorAction SilentlyContinue)".Trim()
+                $allSec = if($pre){([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($pre)).TotalSeconds}else{999}
+                if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $sp[0] -cne $mode -or $completed -or $gp -or $hangSec -ge 14 -or $allSec -ge 27.5 -or $r.MA) {
+                  if ($gp) { Stop-Process -Id $gp.Id -Force -ErrorAction SilentlyContinue }
+                  $tag = [regex]::Match($r.O,'\[CI-GATE-[A-Z-]+\]').Value
+                  $dlProblem = "$mode 未被统一 deadline 收口（exit=$($r.X), tag=$tag, started=$started, completed=$completed, alive=$([bool]$gp), hangSec=$([Math]::Round($hangSec,1)), allSec=$([Math]::Round($allSec,1)), merge=$($r.MA)）"
+                }
+              }
+            }
+          } finally { $env:GH_MOCK_REAL_GIT = $null; if ($fxg -and $fxg.Root) { Remove-Item -Recurse -Force $fxg.Root -ErrorAction SilentlyContinue } }
+        }
+        if ($dlRoot) { Remove-Item -Recurse -Force $dlRoot -ErrorAction SilentlyContinue }
+        if ($dlProblem) { Fail "T37-CIGATE/DEADLINE: $dlProblem" }
+        else { Write-Host '  T37-CIGATE/DEADLINE OK' -ForegroundColor Green }
       }
 
       # --- T37-CIGATE/API-CONTRACT（T0-CI-PAGED-CONTRACT）：候选 CI 分页读取的形态 / 总数 / 稳定身份 / 跨页重放契约 ---
@@ -15014,6 +15284,8 @@ if ($env:GH_MOCK_ROOT) {
       $env:PATH = $rmSavedPath; $env:GH_MOCK_ROOT = $rmSavedRoot; $env:GH_MOCK_WT = $rmSavedWt; $env:GH_MOCK_MERGE_FAIL = $rmSavedMergeFail
       $env:GH_MOCK_BASE_MODE = $rmSavedBaseMode; $env:GH_MOCK_MERGE_STATE = $rmSavedMergeState
       $env:GH_MOCK_CI_MODE = $rmSavedCiMode; $env:SCAFFOLD_CI_TIMEOUT_SEC = $rmSavedCiTimeout
+      $env:SCAFFOLD_CI_CONTAINMENT_FAULT = $rmSavedContainFault; $env:GH_MOCK_SLOW_MS = $rmSavedSlowMs
+      $env:GH_MOCK_REAL_GIT = $rmSavedRealGit
       foreach ($rr in $script:rmRoots) { Remove-Item -Recurse -Force $rr -ErrorAction SilentlyContinue }
     }
   }
