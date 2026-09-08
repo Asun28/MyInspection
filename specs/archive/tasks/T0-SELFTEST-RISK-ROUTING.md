@@ -3,7 +3,7 @@ id: T0-SELFTEST-RISK-ROUTING
 title: Select existing scaffold selftest coverage from pinned task changes
 depends_on: []
 parallelizable_with: []
-status: in-progress
+status: merged
 branch: T0-SELFTEST-RISK-ROUTING
 worktree: C:\wt\T0-SELFTEST-RISK-ROUTING
 allow_paths:
@@ -31,6 +31,8 @@ doc_sync: Document explicit task-scoped selftest routing and the separate produc
 ---
 
 # T0-SELFTEST-RISK-ROUTING
+
+> Historical registration and implementation notes below retain their original time context. Final remote delivery is recorded in the appended receipt; earlier pending and first-round review statements are historical.
 
 Remote adoption is authorized by the user's 2026-09-08 instruction to complete all unfinished scaffold cards in independent worktrees and PRs. This card is pending remote implementation and acceptance; its local source history is provenance only, not a remote pass or merge.
 
@@ -64,3 +66,7 @@ Temporary dependency aliases control only the existing aggregate/snapshot bounda
 The strengthened SelfCheck passed on current helper SHA256 `46B69F190A47925EEBA1D146D08E1AB4C104DB566FB6B160E8B41D5428F79225`; `.review/r3-round1-entry-final-green.log` preserves actual child arguments, output and exits (terminal 22494, exit 0). Eleven current-source mutations were killed: four existing execution-source/failure targets whose fixture changed, plus TaskId binding, Base binding, Base forwarding, entry placement, entry exit, hook registration and hook failure consumption. `.review/risk-entry-mutations.json` records the exact selectors, mutated files, raw logs and SHA256 values. The initial batch stopped at a selector ambiguity after two kills; the remaining nine completed in terminal 6713 with exit 0 after scoping the mutation to its production function. This is fault-injection evidence, not a claim that the unmutated first-reviewed implementation failed these added tests.
 
 Fourteen other historical mutations are retained only as exact production-function/target and unchanged assertion-fragment evidence, verified in `.review/risk-entry-historical-function-audit.json`; they were not rerun against the new whole-helper hash. The earlier whole-source reuse claim above describes the prior frozen candidate and is superseded by this explicit split. `.review/risk-entry-final-evidence.json` binds the final source, GREEN, all 11 current mutation runs, historical evidence audit and complete diff budget. The existing genuine primary RED/ship receipt remain intact; round count stays 1, with formal second ship/R3/CI still pending.
+
+## Delivery receipt (2026-09-08)
+
+PR #273; reviewed head 9af2af3a4d4a4abc93549d82da2350b186954cd2; actual merge fcdb4d8ca5f4d76c2fe73fc6177bc828e239ce6c. Official final ship, DoD, verify, Sol high R3 and exact-head CI passed; official T24 CAS cleanup completed before archive. T24 SHA256 9D610ECBD02E2466A9B4E6460D7E40AD99F545632996ADD7589A71ECFF274C75; cleanup raw SHA256 734A40A8B4F1FA37ABBACE52FD52447EA6E24228BA9C6C09832073C40A9D2BF2; ship raw SHA256 228D3A4EC75121C2DAC8D40E853BA3159136BDBF378FDD0B7C1E9EDE40E2C24A. Current final focused SelfCheck covers the real complete selftest entry and bounded default all-to-core hook; 11 current targeted mutation kills plus 14 historical unchanged-function/target reuse records. No new whole-helper run of those 14 records and no all-shards full selftest is claimed. Validation SHA256 46B69F190A47925EEBA1D146D08E1AB4C104DB566FB6B160E8B41D5428F79225; selftest SHA256 49117616ECEF9D0A18D6521F3C32577C716E8D6419B8DB94BF09ABA99898CB28; focused manifest SHA256 914CC07FBE55F77419ED824100ED6BA9EF4026FCC2CDD0E77825104D99B8B866; current R4 SHA256 B61CDA161902165A53DBABA28B4D7157B6D69E7E4015A0B8B31C8E72CB9DCA30; historical R4 SHA256 F0CEE13B153CA98EE9E9E0B48B623D7A1C0E52A739CDCBF7818C17D4332A2679.
