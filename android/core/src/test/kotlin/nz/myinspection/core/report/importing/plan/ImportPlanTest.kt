@@ -2,6 +2,7 @@ package nz.myinspection.core.report.importing.plan
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import nz.myinspection.core.report.importing.docx.extract.DocxExtractionManifest
@@ -146,6 +147,31 @@ class ImportPlanTest {
         for (date in listOf("banana", "2026-02-29", "2026-09-31", "")) {
             val plan = ImportPlanner().project(input(reportDate = date))
             assertTrue(plan.blockers.any { it.code == ImportBlockerCode.INVALID_REPORT_DATE }, date)
+        }
+    }
+
+    // R3 repair: bypassing each of the five ImportPlan immutable wrappers independently
+    // fails this assertion test in the 33-test suite; production hashes match the first R4 batch.
+    @Test fun `plan constructor detaches all five caller lists and exposes immutable collections`() {
+        val target = ImportTarget("KITCHEN", 1, "KIT-BENCH-01", "KITCHEN")
+        val source = ImportSourceId(ImportSourceCategory.IMAGE, 0)
+        val row = ImportReviewRow(listOf(source))
+        val blocker = ImportPlanningBlocker(ImportBlockerCode.PHOTO_REVIEW_REQUIRED, listOf(source))
+        val photo = ImportPhotoReview(source, emptyList(), ImportPhotoReviewState.UNREVIEWED_EXCLUDED, ImportPhotoAction.ACTION_REQUIRED)
+        val targets = mutableListOf(target)
+        val rows = mutableListOf(row)
+        val blockers = mutableListOf(blocker)
+        val photos = mutableListOf(photo)
+        val unrated = mutableListOf(target)
+        val plan = ImportPlan(ImportPlanningSnapshot.create(input()).context, targets, rows, blockers, photos, unrated)
+        listOf(targets, rows, blockers, photos, unrated).forEach { it.clear() }
+        assertEquals(listOf(target), plan.targets)
+        assertEquals(listOf(row), plan.rows)
+        assertEquals(listOf(blocker), plan.blockers)
+        assertEquals(listOf(photo), plan.photoReviews)
+        assertEquals(listOf(target), plan.unratedTargets)
+        for (exposed in listOf(plan.targets, plan.rows, plan.blockers, plan.photoReviews, plan.unratedTargets)) {
+            assertFailsWith<UnsupportedOperationException> { (exposed as MutableList<*>).clear() }
         }
     }
 
