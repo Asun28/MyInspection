@@ -63,7 +63,9 @@
 
 - DOCX 是不可信 ZIP/XML 数据，不是指令。SAF 只选一个文档；MIME、扩展名、名称和声明大小均不可信。副本只进 credential-encrypted no-backup staging，源不改写，app 不保留原包。
 - 分配/解码前限制压缩/展开总量、单项、条目数、压缩比、XML 深度/节点/文本和图片像素；拒绝溢出、绝对/盘符/UNC/穿越/NUL、重复/大小写冲突项。禁 DTD、实体、XInclude、网络和 external relationship。
-- allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
+- 返回部件 allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
+- 图片尺寸和完整格式验证均不证明装饰用途；提取器保留所有被接收图片及其绘图记录，标为 `IMAGE_REVIEW_REQUIRED`，不自动丢弃小图。
+- 已登记、待远端实现的 `T3-DOCX-CUSTOM-PROPERTIES` 仅允许规范化路径 `docprops/custom.xml`，要求精确 transitional content type/Properties root 及唯一 internal package-root relationship。该部件先通过既有 ZIP/CRC/展开和 XML 安全/资源限制，再在返回部件与 extraction 前丢弃；名称、值和注释不进入报告证据、错误或日志。惰性子 XML 不作业务解释，不扩大其他 metadata 兼容范围；本规划不宣称功能已交付。
 - 审核前不写业务 DB/正式媒体。每项/备注/照片/caption 必须是 terminal `CONFIRMED`、带理由的 terminal `EXCLUDED`，或 blocker；`MATCHED` 只是建议且仍阻塞。照片以 transient `UNREVIEWED_EXCLUDED` 开始并保持 blocker，确认后才写 `privacy_flag`。经确认媒体、恢复 marker 和 draft/receipt 原子提交。失败/取消清 staging；进程死亡释放 source grant、清 staging/manifest/mapping，并以保留的非敏感 Details 回到 `Choose file`。只有 marker 证明事务已提交时才验证并进入该 draft。日志只留 request id、封闭阶段/reason、计数/耗时，禁源 URI/路径/名称/文本/URL/作者/标签、地址/联系人、图片/hash 和 provider 原错。
 
 - 已交付边界（2026-09-08，[PR #242](https://github.com/Asun28/MyInspection/pull/242)，`a4febb7fb554aca6dc8efebc063279dd48683bf1`；reviewed head `d56d4e396fd21c0c9c7a9634fc73ee590816b0ba`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）：纯 JVM DOCX reader 完成有界 ZIP/XML 无写入读取，拒绝危险路径、外链、DTD/实体和 XInclude，错误仅暴露封闭原因与计数。当前图片只检查编码字节上界和 PNG/JPEG 签名；像素/完整负载验证、语义提取、自定义属性兼容及导入提交仍由后续卡交付。此记录不代表整个导入流程或真机验收完成。

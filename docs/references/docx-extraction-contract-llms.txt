@@ -1,0 +1,127 @@
+# DOCX extraction API and evidence wire contract
+
+Contract for future cards, not remotely existing implementation. User approved conservative image retention on 2026-09-08; legacy enum names do not authorize automatic exclusion.
+
+## Kotlin API
+
+Package `nz.myinspection.core.report.importing.docx.extract`; unmarked members public, standard data-class methods. Only occurrence defaults; nullable arguments required. No sorting/deduplication/coercion.
+
+```kotlin
+data class SourceLocation(val part: String, val ordinal: Int, val occurrence: Int = 0)
+data class ExtractedText(val source: SourceLocation, val raw: String) { val normalized: String }
+data class ExtractedItem(val room: String?, val name: ExtractedText, val status: ExtractedText?, val comment: ExtractedText?)
+enum class FragmentRole { UNKNOWN, ROOM, ITEM, STATUS, COMMENT, LABEL, IDENTITY, CAPTION, NARRATIVE }
+data class ExtractedFragment(val role: FragmentRole, val text: ExtractedText)
+enum class ExtractionWarningCode {
+  UNRESOLVED_TEXT, PAGINATION_EXCLUDED, METADATA_EXCLUDED, URL_EXCLUDED,
+  AMBIGUOUS_COLUMNS, UNRESOLVED_NARRATIVE, AMBIGUOUS_CAPTIONS,
+  LAYOUT_IMAGE_EXCLUDED, MISSING_IMAGE, IMAGE_REVIEW_REQUIRED
+}
+data class ExtractionWarning(val code: ExtractionWarningCode, val source: SourceLocation?)
+data class IdentityCandidate(val field: String, val text: ExtractedText)
+data class CaptionCandidate(val number: String, val text: ExtractedText)
+data class ExtractedImage(val part: String, val sha256: String, val width: Int?, val height: Int?)
+enum class DrawingKind { INLINE, ANCHORED }
+data class DrawingPlacement(val source: SourceLocation, val kind: DrawingKind, val imagePart: String?)
+class DocxExtractionManifest internal constructor(
+  items: List<ExtractedItem>, fragments: List<ExtractedFragment>, warnings: List<ExtractionWarning>,
+  identity: List<IdentityCandidate>, summaryCandidates: List<ExtractedText>, captions: List<CaptionCandidate>,
+  images: List<ExtractedImage>, placements: List<DrawingPlacement>
+) {
+  val items: List<ExtractedItem>; val fragments: List<ExtractedFragment>
+  val warnings: List<ExtractionWarning>; val identity: List<IdentityCandidate>
+  val summaryCandidates: List<ExtractedText>; val captions: List<CaptionCandidate>
+  val images: List<ExtractedImage>; val placements: List<DrawingPlacement>
+  val extractorVersion: String // exactly "DOCX-EXTRACT-1"
+  val normalizedDigest: String // eagerly computed SHA-256, lowercase 64 hex digits
+}
+internal fun <T> immutable(values: List<T>): List<T>
+class DocxReportExtractor { fun extract(source: DocxPackage): DocxExtractionManifest }
+```
+
+`DocxPackage`/`DocxPart` belong to the reader's `nz.myinspection.core.report.importing.docx.package` (escape `package` in Kotlin). Extractor: public no-arg constructor, per-call state, bounded input, no writes/network/native mapping.
+Copy all eight lists into unmodifiable views; caller edits cannot alter values/digest. Published clear/add/set after mutable casts throw `UnsupportedOperationException`; elements contain no mutable collections.
+
+`normalized` = NFC(raw), Kotlin `String.trim()` using `Char.isWhitespace`, then collapse runs of only U+0020/0009/000A/000B/000C/000D to U+0020. Preserve raw/source; no case folding. Other interior whitespace survives except NFC mappings (U+2000→2002, U+2001→2003). The golden values below pin accents and whitespace.
+
+## DOCX-EXTRACT-1 bytes
+
+Define `F(s)` as signed 32-bit big-endian UTF-8 byte length then exactly those bytes, without BOM/terminator. `F(null)` is `ff ff ff ff` only; `F("")` is `00 00 00 00`. UTF-8 encoder reports malformed/unmappable input; any isolated/misordered UTF-16 surrogate in any emitted string raises `java.nio.charset.CharacterCodingException`, never replacement bytes. Decimal integers use ordinary signed base-10 `Int.toString()` without padding. Emit `F("DOCX-EXTRACT-1")`, then groups in the following order, irrespective of constructor argument order. Each group starts `F(groupName), F(decimalCount)`, followed by all entries in supplied list order. Do not sort or deduplicate. Hash the concatenated bytes once with SHA-256.
+
+`L(location)` emits `F(part), F(decimal ordinal), F(decimal occurrence)`; null location emits three null fields. `T(text)` emits `L(source), F(raw), F(normalized)`; null text emits five null fields.
+
+| Group | Each entry |
+|---|---|
+| fragments | F(role.name), T(text) |
+| items | F(room), T(name), T(status), T(comment) |
+| identity | F(field), T(text) |
+| summary | T(text) from summaryCandidates |
+| captions | F(number), T(text) |
+| images | F(part), F(sha256), F(width?.decimal), F(height?.decimal) |
+| placements | L(source), F(kind.name), F(imagePart) |
+| warnings | F(code.name), L(source) |
+
+Image SHA is text, not decoded bytes. This is not the native inspection hash.
+
+## Independent golden vectors
+
+Empty all eight lists: 17 fields, 151 bytes; SHA-256 `dade39f717f3be4181d418a24a67814806e63b7f73f37dc559aa06aaa886993a`. Reproduce without project code:
+
+```powershell
+python -c "import hashlib,struct;f=['DOCX-EXTRACT-1']+sum(([n,'0'] for n in 'fragments items identity summary captions images placements warnings'.split()),[]);b=b''.join(struct.pack('>i',len(s.encode()))+s.encode() for s in f);print(len(f),len(b),hashlib.sha256(b).hexdigest())"
+```
+
+Nonempty literal inputs:
+
+```kotlin
+val at = SourceLocation("word/document.xml", 7, 2)
+val n = ExtractedText(at, " \tCafe\u0301\r\n 東京 😀  ")
+val s = ExtractedText(SourceLocation("word/header1.xml", 8), " Fair\t")
+val c = ExtractedText(SourceLocation("word/footer1.xml", 9, 1), "  Check\n hinge ")
+val i = ExtractedImage("word/media/写真.png", "0123456789abcdef".repeat(4), 640, 480)
+val vector = DocxExtractionManifest(
+  listOf(ExtractedItem("Kitchen", n, s, c), ExtractedItem(null, n, null, null)),
+  listOf(ExtractedFragment(FragmentRole.ITEM, n), ExtractedFragment(FragmentRole.UNKNOWN, s)),
+  listOf(ExtractionWarning(ExtractionWarningCode.AMBIGUOUS_COLUMNS, at), ExtractionWarning(ExtractionWarningCode.MISSING_IMAGE, null)),
+  listOf(IdentityCandidate("address", n), IdentityCandidate("date", s)),
+  listOf(c, n), listOf(CaptionCandidate("01", c), CaptionCandidate("02", n)),
+  listOf(i, ExtractedImage("word/media/unknown", "f".repeat(64), null, null)),
+  listOf(DrawingPlacement(at, DrawingKind.ANCHORED, i.part), DrawingPlacement(SourceLocation("word/document.xml", 10, 0), DrawingKind.INLINE, null))
+)
+```
+
+Nonempty: 121 fields, 1472 bytes; SHA-256 `28708488ce97a58cccf00b6445f6f7a066b83d15e79da6d07d99a9448c63d886`. A separate normalization vector has all lists empty except `summaryCandidates = [ExtractedText(at, "left\u00A0middle\u2003right")]`: 22 fields, 230 bytes; SHA-256 `b9f8e3cc32268a7fef2de0c2d8f773dd7107986fc5642984860afd95757a5ba8`. Assert independent expected bytes/lengths/digests.
+
+## Internal XML-tree contract
+
+```kotlin
+internal const val W: String = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+internal class Element(val uri: String, val name: String, val attrs: Map<String, String>, val parent: Element?) {
+  val children: ArrayList<Element>; val value: StringBuilder
+  fun isWord(local: String): Boolean
+  fun descendants(): Sequence<Element>
+  fun ancestor(local: String): Element?
+  fun attr(local: String): String?
+}
+internal fun parse(part: DocxPart): Element
+```
+
+`children`/`value` start empty (mutable internal tree). Parsing is namespace-aware and nonvalidating. Attr keys are `namespaceURI|localName`; `attr(local)` prefers `W|local` over `|local`, ignoring other namespaces. `isWord` tests exact URI and local name. `descendants` yields self then depth-first descendants in encounter order; `ancestor` excludes self and chooses the nearest Word ancestor. Parent links are exact. Direct character events, CDATA and UTF-8 text append to the current node only, never flattening descendants. Prefix choice does not change expanded names.
+
+Parse `part.copyBytes()` entirely in memory. Malformed XML, any DOCTYPE (including inert/internal expansion), external general/parameter entities and external subsets reject before target-file/network access with `IllegalArgumentException("DOCX_XML")`, no nested cause or source leakage. Calibrate and restore a test-only file/URL I/O guard. Package byte/depth/node/text limits remain upstream; no independent sandbox. Test namespace collisions, attr precedence, ancestors and ordering positively.
+
+## Synthetic extractor acceptance
+
+- Kitchen rows: (`  Window latch  `,`  FaIr  `,`Slight resistance`), (`Sink`,``,`Water flows`). Preserve room/raw/order; normalize name to `Window latch`; empty status=null.
+- Visit body plus 12 headers and 12 footers, including unreferenced parts: all 25 observations remain with unresolved-text evidence.
+- Fragmented fixture: 64 logical items, 24 cell-associated rows, captions `001`..`089`. Approved 2026-09-08 retention: 67 larger + 15 small images = 82 images, 83 placements including one header repeat, 82 IMAGE_REVIEW_REQUIRED, zero LAYOUT_IMAGE_EXCLUDED; no invented 22 pairs.
+- Repeated `047-Room Gamma 2 2048-Room Gamma 2 3` yields `047,2048,047,2048`, four coordinates and both parent texts; `ABC-Area Alpha 11`/`4 5` stay fragments; AMBIGUOUS_CAPTIONS.
+- Scrub page/author/sensitivity/URL with warnings, retaining adjacent evidence. Unknown fields/columns/signoffs remain review evidence. Identity requires adjacent same-parent paragraphs or warnings.
+- Reject unsupported drawings; retain empty/repeated/missing-target placements and valid small content images for review. Reject unsupported run children, tracked/orphan text and bad field phases; retain U+2011/U+00AD and warn on legacy pagination.
+- Reordering ZIP/relationship declarations preserves digest; raw edits change it. Story-reference/nested paragraph order remains significant. Hostile XML rejects as DOCX_XML with zero I/O.
+
+## Custom properties
+
+Exact transitional bindings (not runtime lookups): normalized part `docprops/custom.xml`; MIME `application/vnd.openxmlformats-officedocument.custom-properties+xml`; root local name `Properties`, namespace `http://schemas.openxmlformats.org/officeDocument/2006/custom-properties`; relationship Type `http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties`. Exactly one relationship belongs to `_rels/.rels`, resolves to that part and has absent TargetMode or exact `Internal`. Canonical fixture Target is `docProps/custom.xml`. Other root namespaces/types are not aliases.
+
+Independent synthetic controls: valid STORED/DEFLATED packages with these literal values pass and discard property markers. Change only one binding per negative: MIME to the already-allowed main-document MIME -> UNSUPPORTED_CONTENT; root local-name case or namespace plus trailing slash -> INVALID_PACKAGE; relationship Type plus trailing slash, missing/duplicate binding, wrong owner/target or External/lowercase mode -> UNSAFE_RELATIONSHIP. A second differently named custom part -> UNSUPPORTED_PART; a case-alias duplicate -> DUPLICATE_PART. Assert the expected DocxPackageReason and marker-free message/null cause; establish valid control and each mutated binding independently of production constants. These controls do not introduce a strict-OOXML alias.
