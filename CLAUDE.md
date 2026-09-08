@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 远端交付**：`T0-SELFTEST-RISK-ROUTING` 经 PR #273 合并（`fcdb4d8ca5f4d76c2fe73fc6177bc828e239ce6c`；reviewed head `9af2af3a4d4a4abc93549d82da2350b186954cd2`），真实 focused DoD、verify、正式 Sol high R3 与精确候选 CI 通过。真实入口及默认 all→core hook 有界回归、11 枚当前定点变异和 14 枚历史同源函数复用核验完成；不声明 all-shards full selftest。显式任务路由与独立 product verify 约定见本文件工作流入口及 `docs/DEVOPS-WORKFLOW.md`；官方 cleanup 后归档。
+
 **2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
 
 **2026-09-08 远端交付**：`T3-DOCX-EXTRACTION-MANIFEST` 经 [PR #262](https://github.com/Asun28/MyInspection/pull/262) 合并（`11cf5899`；正式 R3、候选 CI 通过）。八组证据集合不可变，DOCX-EXTRACT-1 三组独立向量一致；10 项测试、45 项新变异和完整 core 剪枝验证完成。提取器与导入规划仍由后续卡交付。
