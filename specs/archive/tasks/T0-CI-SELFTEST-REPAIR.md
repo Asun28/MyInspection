@@ -2,7 +2,7 @@
 id: T0-CI-SELFTEST-REPAIR
 title: Repair scanner inventory drift and Windows seeded-git CI timeout
 depends_on: []
-status: todo
+status: merged
 branch: T0-CI-SELFTEST-REPAIR
 worktree: C:\wt\T0-CI-SELFTEST-REPAIR
 allow_paths:
@@ -39,3 +39,11 @@ job exceeded 20 minutes. Reuse only the previously delivered local 17ai repair;
 do not import the divergent local branch. Expected implementation budget is
 under 150 changed lines. Historical runs remain historical evidence; success
 must be established on a new run containing this repair.
+
+## Delivery evidence
+
+- [PR #259](https://github.com/Asun28/MyInspection/pull/259) merged as `a293b531916d97aa0b2be83ec5415286d7f333c8`; first formal R3 passed candidate `7b0d9320e2c22805e3ca6530935f2ebb2cd8db3d`.
+- Official RED reproduced the five 17ai inventory errors. Repaired scanner, isolated core, Windows seeded-git, verify, scope, license, secret and diff-budget gates passed. All 17 ordered-site deletion mutants remain intact; the timeout selection mutants and budget-guard deletion control passed.
+- [Candidate CI](https://github.com/Asun28/MyInspection/actions/runs/34181347064) passed verify. [Post-merge scaffold CI](https://github.com/Asun28/MyInspection/actions/runs/34182253041) passed all ten jobs on the exact merge commit, including both scanners and Windows seeded-git (19m49s).
+- The first local core attempt collided with a scanner temporary file; its replacement ran in an isolated snapshot and passed with matching candidate hashes. No failing attempt is presented as a pass.
+- Local logs, official RED, R3 verdict and final CI JSON are retained in the control checkout's `_local/ci-selftest-repair/`. No unrelated local master history was published.
