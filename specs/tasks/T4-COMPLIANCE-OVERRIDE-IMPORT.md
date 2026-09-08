@@ -23,9 +23,10 @@ acceptance:
   - "A5 [R1] 覆盖低/同/高 release、同版本异内容、minimumRelease、APK 同代次同根升级与旧代次拒绝、同 epoch 异 trustRootId 拒绝（含更高内置 release）、根身份缺失/损坏阻断、新 epoch 与新根原子恢复及旧钥伪造 Long.MAX_VALUE 后换钥；旧 digest-only 状态只按明确升级路径初始化。"
   - "A6 [R3] Auckland 当日/巡检日期的生效与独占过期边界、无期限、未来包、闰日/非法日期和时钟倒退均按 ADR 判定；数据恢复不覆盖本机信任状态，重装不宣称保留历史反回退保证。"
   - "A7 [R1] [R4] API 26 与目标真机通过独立生成的 JCA 签名向量、首个 release APK 可信安装、规则导入及换钥演练；证据绑定 APK 身份与公开钥指纹，不记录私钥或口令。"
+  - "A8 [R3] ADR 初始化矩阵逐行验证首次安装、旧版 digest-only 升级、清数据/重装后两者全无/单边残留/完整保留、备份恢复排除信任状态、marker 创建前后中断、文件缺失/损坏、key 查询异常/失效、同代次异根与高代次恢复；Keystore 查询失败不得当不存在，有 marker 无状态不得清空 H，API 26 与目标真机记录实际生命周期行为。"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:test --tests "nz.myinspection.core.compliance.update.*"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: ADR-0008 已批准且 A1–A7 真实签名/限额/日期/版本/中断恢复/生产调用者证据齐全；active 与 H 原子一致，无有效规则不放行且保留证据采集；API 26 与目标真机安装/换钥验证不由 JVM 绿代替，无阈值或关闭规则开关
+dod_assert: ADR-0008 已批准且 A1–A8 真实签名/限额/日期/版本/初始化矩阵/中断恢复/生产调用者证据齐全；active 与 H 原子一致，无有效规则不放行且保留证据采集；API 26 与目标真机安装/换钥/生命周期验证不由 JVM 绿代替，无阈值或关闭规则开关
 review_gate: codex {verdict:pass}
 ---
 
