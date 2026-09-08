@@ -647,7 +647,7 @@
 - refs: PR #94 (b2546d5 -> b3ecf70) 与 PR #95 (1703e23 -> febe0be) 现场；docs/HARNESS-REVIEW.md「评审者须在自改回路之外」；关联 L50（合并前独立评审）、L91（共享检出并发）
 
 ## L93
-- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
+- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
 - symptom: 在 pwsh 里把原生命令的输出管进 Select-Object -First N，之后再读 $LASTEXITCODE，读到的是上一条命令的退出码（陈旧值）：失败的命令被读成 exit 0，产生假绿。本会话现场——git apply --check 明明打印 patch does not apply，紧随其后的 $LASTEXITCODE 却是 0，那个 0 其实来自上一条 git worktree add。
 - root_cause: Select-Object -First N 取够 N 条就停掉上游管道（PipelineStopped），原生命令被提前终止，它的退出码从未写进 $LASTEXITCODE，于是变量仍保留上一条命令的旧值。-Last N 与 Select-String 会读完整个流，故退出码保真。实测：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 时 $LASTEXITCODE=0，换成 -Last 1 或 Select-String 时为 1。
 - rule: 作判据用的退出码，绝不读在 Select-Object -First N 之后。三选一：① 先把命令跑完（必要时管到 Out-Null），立刻把 $LASTEXITCODE 存进变量，再去筛输出；② 需要截断输出就用 -Last N 或 Select-String，二者读完整流、退出码保真；③ 完全不接管道，直接取退出码。凡是以 exit 0/1 为判据的场景（verify.ps1 / selftest.ps1 / review.ps1 / 卡片 dod_command / CI 步骤）尤其致命——它产生的是假绿，不是假红。一行自检：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 再管进 Out-Null，随后 $LASTEXITCODE 应为 1；若得 0 即中招。已核本仓 .ps1 脚本无此形态，坑主要出在 agent 临时敲的校验命令里。另：同一 cmdlet 还有第二个与退出码无关的坑——用 -First N 截断的诊断输出，不足以支撑「已穷尽」的结论。凡要据某段输出判断覆盖面（某工具改了哪些文件、装了哪些 agent、命中哪些路径），必须不截断地取全量：重定向到文件后整份读、Out-String 全量、或改用结构化查询。注意 -Last N 同样只发 N 条，它保真的是退出码、不是覆盖面——本条前半管退出码、后半管覆盖面，两者别互相借用（-Last 可解退出码，不可解「已穷尽」）。
@@ -1239,7 +1239,7 @@
 - refs: T60-JNPROBE-ITEMVERIFY（PR #147）；根因实测 = ubuntu run 30511675074 红 + WSL 复现脚本；L165 同族（面=产物）
 
 ## L177
-- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
 - symptom: 变异 campaign 报告「跑完」且每枚都 OK，实际只跑了 1 枚；同一脚本把 16 枚的表打印成「3 mutations」。
 - root_cause: PowerShell 变量名**大小写不敏感**：foreach ($m in $M) 里的循环变量 $m 就是集合 $M 本身，第一轮迭代即把 $M 覆盖成末元素（一个哈希表）。此后 $M.Count 返回哈希表键数（3），下一个 foreach ($m in $M) 只迭代那一枚。
 - rule: 循环变量绝不能与集合变量同名（含仅大小写不同）：集合用 $MUTS/$items 之类复数名，循环用 $mut/$item。凡「批量证据」脚本，跑完必须核对**记录条数 == 计划条数**，别只看「每条都 OK」。
@@ -2271,7 +2271,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2349,4 +2349,12 @@
 - root_cause: 判据循环：没有变异杀死它，是因为变异集里从未有过「把消息置空」这一枚；缺失的那枚变异恰恰是这条测试看起来冗余的原因。用不完备的变异集去度量测试的必要性，度量出来的只是变异集自己的盲区。
 - rule: mutation-survivor 剪枝的可靠性不超过它所对照的变异集。删任何一条测试前先反问：什么样的变异会让它红？答得出来就检查该变异在不在集里——不在就补变异、留测试；答不出来才是真冗余。尤其危险的是「存在性断言 vs 合法性断言」这一对（isNotEmpty/isNotBlank、非 null/值正确）：它们几乎总要成对存在，而弱的那条常常没有专属变异，于是在剪枝时最先被误杀。
 - enforced_by: none（无机械守卫：剪枝是人的判断，闸门只能验变异全杀、验不出「本该存在却没写的变异」。靠本条 + 卡内 hygiene 字段在 R4 时自查）
+- refs: 
+
+## L319
+- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 变异批报告「27/27 全杀」，但其中若干枚植入的根本不是条目所写的那个改动：三枚把整行替换成了一个裸换行（看起来仍像「删掉该行」故不易察觉），一枚退化成 no-op、只因 runner 里有一句「植入后文本必须与基线不同」才当场抛错暴露。
+- root_cause: PowerShell 的逗号列表里，未加括号的字符串拼接会被折进列表本身：@(a, b, c, x + y + z) 解析成 6 个元素而非 4 个，于是 $m[3] 取到的是拼接的第一个操作数、不是拼接结果。批只校验了「选择器命中一次」与「DoD 变红」，两者在错误的变异下同样成立——变红的原因对不上条目声称造坏的东西。
+- rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
+- enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
 - refs: 
