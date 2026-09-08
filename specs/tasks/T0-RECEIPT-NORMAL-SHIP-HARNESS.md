@@ -11,7 +11,7 @@ acceptance:
   - "A4 逐字节恢复同一 valid receipt 后，-NoAutoMerge 正例再次走完随机 PR/head/run/attempt/CWD 最终快照，且不触达 merge/cleanup/T24，证明 fixture 非惰性"
   - "A5 保留两枚使用可解析错误 OID 的 scope tip/base 身份负例；成功行逐字为卡片 DoD 指定的 H1 marker"
   - "A6 workflow 与 seeded-remote 均 PASS；card-inclusive diff 小于 1000 行/60000 字符"
-status: todo
+status: merged
 branch: T0-RECEIPT-NORMAL-SHIP-HARNESS
 worktree: C:\wt\T0-RECEIPT-NORMAL-SHIP-HARNESS
 allow_paths:
