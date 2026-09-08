@@ -1,12 +1,13 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 185 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 188 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
 |---|---|---|
 | T0-CARD-ACCEPTANCE-FIELD | merged | 把 acceptance 作者声明的验收清单登记为正式卡片字段，并给它一道形态机检 |
 | T0-CARD-ACCEPTANCE-SETS | merged | 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据 |
+| T0-CI-DEADLINE-CONTAINMENT | merged | 候选 CI 的单一 wall-clock deadline 扩面与 fail-closed 进程树容纳 |
 | T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-CI-HARDENING-SPLIT-PLAN | merged | 将候选 CI 硬化卡拆为分页契约与身份/deadline 两张可读串行卡 |
 | T0-CI-IDENTITY-DEADLINE | merged | 候选 CI 的 run 身份绑定与最终 exact-head/base 快照 |
@@ -118,6 +119,7 @@
 | T0-SCAFFOLD-CI-HOTFIX | merged | 修复合并后 scaffold-selftest 的跨分支与跨 PowerShell 回归 |
 | T0-SCAFFOLD-FLEET-LOOP | merged | fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
+| T0-SCAFFOLD-REMOTE-CARDS | merged | Register the bounded remote scaffold adoption sequence |
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SCAFFOLD-TRIGGER-REMOTE | merged | Publish scaffold-only selftest trigger on current upstream |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
@@ -145,6 +147,7 @@
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
 | T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
 | T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
+| T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image validation with conservative review retention |
 | T3-DOCX-PACKAGE-READER | merged | Bounded no-write OOXML package reader for hostile legacy reports |
 | T3-DOCX-XML-TREE | merged | Secure in-memory XML tree for validated DOCX parts |
 | T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |

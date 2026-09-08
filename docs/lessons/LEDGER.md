@@ -1815,7 +1815,7 @@
 - refs: PR #187; TD162; T0-DEBT-SELFTEST-MUTATION-BUDGET
 
 ## L252
-- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
+- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: R5 先把 merged 卡移入 cold storage 后，task.ps1 cleanup 因只读取 specs/tasks 中的 live 卡而在任何删除前报任务卡不存在。
 - root_cause: archive.ps1 的正常 R5 搬运与 task.ps1 cleanup 的 live-only 卡路径存在顺序耦合，但流程没有显式规定 cleanup 必须先于归档。
 - rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。

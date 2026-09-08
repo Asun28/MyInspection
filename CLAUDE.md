@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
+
 **2026-09-08 远端交付**：`T3-DOCX-EXTRACTION-MANIFEST` 经 [PR #262](https://github.com/Asun28/MyInspection/pull/262) 合并（`11cf5899`；正式 R3、候选 CI 通过）。八组证据集合不可变，DOCX-EXTRACT-1 三组独立向量一致；10 项测试、45 项新变异和完整 core 剪枝验证完成。提取器与导入规划仍由后续卡交付。
 
 **2026-09-08 远端交付**：`T3-DOCX-XML-TREE` 经 [PR #261](https://github.com/Asun28/MyInspection/pull/261) 合并（`94dfbe58`；正式 R3、候选 CI 通过）。6 项测试、13 项新变异及祖先测试剪枝验证完成；安全 XML 树无文件或网络访问，资源上界仍由 reader 提供。JDK 验证不代表 ART 或完整导入验收。
@@ -76,7 +78,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **2026-09-08 CI 修复**：`T0-CI-SELFTEST-REPAIR` 已经 [PR #259](https://github.com/Asun28/MyInspection/pull/259) 合并（`a293b531`，正式 R3 首轮 pass）。17ai 清单与摘要同步；Windows seeded-git 使用 30 分钟预算，其他九个组合保持 20 分钟。verify 与 [合并后 CI 10/10](https://github.com/Asun28/MyInspection/actions/runs/34182253041) 全绿，旧失败记录保留作诊断证据。
 **2026-09-08 远端交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已经 PR #257 合入 master（`4a1358e`，远端 R3 第二轮 pass，精确提交 CI 通过）；责任记录前置 PR #256 已合并。ADR-0008 确定单公钥离线签名、代次/根身份绑定、日期/反回退和初始化恢复矩阵；批准上下文与后续工程补强的区别已补证。交付为设计及导入卡 A1–A8 验收，真实密钥/制品、导入实现与 API 26/真机证据仍待后续卡，work-check 不启用。
 
-**2026-09-08 远端交付**：`T3-DOCX-PACKAGE-READER` 经 PR #242 squash 合并（`a4febb7f`；reviewed head `d56d4e39`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）。最新 DoD 28 项与项目 verify 通过；41 项同源变异仅沿用历史证据，未宣称重跑。完成无写入有界 ZIP/XML reader；图片资格验证、提取器、自定义属性兼容与完整导入仍待各卡交付。
+**2026-09-08 远端交付**：`T3-DOCX-PACKAGE-READER` 经 PR #242 squash 合并（`a4febb7f`；reviewed head `d56d4e39`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）。最新 DoD 28 项与项目 verify 通过；41 项同源变异仅沿用历史证据，未宣称重跑。完成无写入有界 ZIP/XML reader；在该 reader 合并时，图片资格验证、提取器、自定义属性兼容与完整导入仍待各卡交付。
 
 **2026-09-08 远端交付**：`T3-REPORT-HTML-PRESENTATION` 经 PR #250 合并（`e792ea75`）；46 项测试、正式 R3 与候选 CI 通过。响应式/A4 print/dark/forced-colors 规则、class parity 与 CSP 字节已验证；浏览器布局和字形未验收。
 
