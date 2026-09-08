@@ -10,7 +10,7 @@ acceptance:
   - "A3 删除 validation 赋值、删除 mint 赋值或恢复 catch presence probe 的任一变异都使具名测试失败"
   - "A4 p1/p2/p3/p4 各有独立反例：taskId 错、等式或 40hex 错、可解析非祖先 redSha、abbreviated 或 nonancestor commitSha"
   - "A5 workflow 终态 PASS，且 card-inclusive diff 低于 1000 行/60000 字符"
-status: todo
+status: merged
 branch: T0-RECEIPT-AUTHORIZATION-BIT
 worktree: C:\wt\T0-RECEIPT-AUTHORIZATION-BIT
 allow_paths:
@@ -47,3 +47,9 @@ doc_sync: 无；本卡只改变 ship 相内授权状态，运行时人工升级�
 ## 设计证据
 
 探索性 prototype `4495fae8` 的投影为 57+/18-（75 changed lines）/ 17,120 normalized chars（未含卡），只证明该切分有充足预算；正式实现必须从 fresh RED 开始。
+
+## 本轮证据
+
+- 正式 RED：基线 `0f4e65474502d9c9ebda7f54b40843c9daae769a`，`-Phase red` 外层 exit 0、内部 DoD exit 1，唯一失败 `15r(e)B`；raw SHA256 `31D3357E9CB8BCDE27428DF1375192C1A45240CD6BACC427A8D2454265D6C5B5`，源文件 PRE=POST。
+- 作者 GREEN：同一基线运行 workflow exit 0，`selftest(workflow): PASS`、`selftest: PASS`，仅预期 `15n/POST-INIT-NOT-APPLICABLE` skip；raw SHA256 `78D207D61AA303207FFEF357C288482E4EF8CFBC838CF31197B38536A9BA39F9`，task/selftest/card PRE=POST。
+- 本卡 `status: merged` 是随实现 PR 交付的合并后状态投影，不预填未来 squash SHA；实际 ship、R3、CI、merge 与 cleanup 仍须由 Task Loop 终态证明。

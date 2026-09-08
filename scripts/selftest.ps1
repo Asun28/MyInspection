@@ -8494,8 +8494,8 @@ if (-not $r15Fail) { Write-Host '  15r ship saga ≥13 腿（远端 push+PR/R3/C
 #   隔离夹具真跑两条失败路径断言行为，离线、无 gh/codex，-Local + 均在评审腿之前失败）：
 #   A = commit 前失败（RED 证据缺失）：失败点点名 RED 证据闸（不得误报 DoD，r3 #9）、完整待办清单、重跑命令、原异常在场；
 #   B = 提交后可重入族（红→绿 marker 卡、无 -SkipRed：red 相铸真证据 → ship 真 commit（marker 卡外）→ 铸水位线收据 → 范围闸 block）：
-#     已完成腿含「提交」、失败点=范围闸；T35-RECEIPT 后收据在位 → saga **建议重跑**同一条 ship（经收据 resume 放行 RED 闸、
-#     全闸重过、无死锁无旁路），点名水位线收据在位（reset 归位降为收据缺失兜底、靶=evidence.redSha 非 HEAD~1）；
+#     收据在范围闸入口真实存在，夹具随后在 catch 前删除；已完成腿含「提交」、失败点=范围闸，saga 只消费本轮授权位并**建议重跑**
+#     同一条 ship（经授权位路由、全闸重过、无死锁无旁路），不得在 catch 重探 receipt 或误称文件仍在；
 #   D = no-op 提交重跑（r5 #9：B 之后同卡 -SkipRed 重跑——commit 腿 no-op、HEAD 未动）：范围闸再 block 时须给
 #     「带 -SkipRed 的完整重跑」而非假死锁警告（-SkipRed 重跑不经 RED 闸）；
 #   C = 本地合并冲突（master 与分支同改 README）：失败点=本地合并、待办=（无）、给 merge --continue 续跑命令；
@@ -8533,6 +8533,15 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
     else {
       Set-Content $cfgSG $cSG -NoNewline -Encoding utf8
       Set-Content (Join-Path $sg 'scripts/verify.ps1') 'exit 0' -Encoding utf8   # 确定性 stub（同 15i 之理）
+      # A/TDD：在真实范围闸入口观察本轮刚铸 receipt 在场，再删除它；proof 与删除结果共同防止夹具未触达却假红。
+      $scopeSG = Join-Path $sg 'scripts/_scope.ps1'; $scopeTextSG = Get-Content $scopeSG -Raw
+      $scopeAnchorSG = '(?m)^  \)\r?\n  # TD60'; $scopeAnchorHitsSG = ([regex]::Matches($scopeTextSG, $scopeAnchorSG)).Count
+      if ($scopeAnchorHitsSG -ne 1) { Fail "闸15r(e)B 前置：_scope hook anchor 命中 $scopeAnchorHitsSG 次（须恰 1）。" }
+      else {
+        $scopeHookSG = "  )`n  if (`$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -and (Test-Path -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -PathType Leaf)) { Set-Content -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT_PROOF -Value 'receipt-existed' -Encoding utf8; Remove-Item -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -Force -ErrorAction Stop }`n  # TD60"
+        $scopeTextSG = ([regex]$scopeAnchorSG).Replace($scopeTextSG, $scopeHookSG, 1)
+        Set-Content $scopeSG $scopeTextSG -NoNewline -Encoding utf8
+      }
       # 场景 C 的 R3 腿要真跑 review.ps1（pass-stub 后端）：rubric 缺失会被其 fail-closed block（无判定标准），
       # 故夹具基线须带真 rubric（review 从 base ref 读取）。
       New-Item -ItemType Directory -Force (Join-Path $sg 'docs') | Out-Null
@@ -8566,13 +8575,19 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
           # B：真死锁族——红→绿 marker 卡（dod=Test-Path，L95 无裸 $ 变量）：red 铸真证据 → marker 转绿且是卡外
           # 文件 → ship 真 commit 后在范围闸 block（headMoved=true、非 -SkipRed）
           $sgWtB = New-ShipFixtureCard $sg 'T0-SAGA15RB' 'seed 15r post-commit deadlock' 'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path marker-15r.txt)) { exit 1 }"'
+          $bReceipt = Join-Path $sg '.git/scaffold-shipped/T0-SAGA15RB'
+          $bReceiptProof = Join-Path $sg '.review/T0-SAGA15RB-receipt-before-scope'
           $bExit = -1; $bOut = ''; $dExit = -1; $dOut = ''
           if (-not (Test-Path $sgWtB)) { Fail '闸15r(e)B：fixture start 未产出 worktree B（前置失败）。' }
           else {
             & pwsh -NoProfile -File (Join-Path $sg 'scripts/task.ps1') -TaskId T0-SAGA15RB -Phase red *> $null
             Set-Content (Join-Path $sgWtB 'marker-15r.txt') 'green' -Encoding utf8
-            $bOut = (& pwsh -NoProfile -File $encWrapR -Tid T0-SAGA15RB 2>&1 | Out-String)
-            $bExit = $LASTEXITCODE
+            New-Item -ItemType Directory -Force (Split-Path $bReceiptProof -Parent) | Out-Null
+            Remove-Item -LiteralPath $bReceiptProof -Force -ErrorAction SilentlyContinue
+            $env:SCAFFOLD_SELFTEST_DROP_RECEIPT = $bReceipt
+            $env:SCAFFOLD_SELFTEST_DROP_RECEIPT_PROOF = $bReceiptProof
+            try { $bOut = (& pwsh -NoProfile -File $encWrapR -Tid T0-SAGA15RB 2>&1 | Out-String); $bExit = $LASTEXITCODE }
+            finally { $env:SCAFFOLD_SELFTEST_DROP_RECEIPT = $null; $env:SCAFFOLD_SELFTEST_DROP_RECEIPT_PROOF = $null }
             # D：no-op 提交重跑（r5 #9）——B 已把 marker 提交；-SkipRed 重跑时 commit 腿 no-op、HEAD 未动
             $dOut = (& pwsh -NoProfile -File $encWrapR -Tid T0-SAGA15RB -SkipRed 2>&1 | Out-String)
             $dExit = $LASTEXITCODE
@@ -8652,11 +8667,11 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($bExit -eq 0) { Fail '闸15r(e)B：越界改动下 ship -Local 仍退出 0——范围闸失效或 saga catch 吞异常。'; $reFail = $true }
         if ($bOut -notmatch '已完成腿：.*提交') { Fail '闸15r(e)B：commit 已落却未见于已完成腿清单——post-commit 状态自述失真。'; $reFail = $true }
         if ($bOut -notmatch '失败点：范围闸') { Fail '闸15r(e)B：范围闸失败未被点名为失败点。'; $reFail = $true }
-        # T35-RECEIPT 重锁：真提交时铸水位线收据 → 提交后重跑同一条 ship 经收据 resume 放行 RED 闸（全闸重过、无死锁、无旁路），
-        # 故 saga 须**建议重跑**（而非旧「勿重跑」死锁文案）并据收据在位性（双 Test-Path）分流、点名收据在位。旧「必给 reset --soft
-        # HEAD~1」不再适用——收据在场即走重跑分支；reset 归位仅降为收据缺失/不自洽的兜底（且靶=evidence.redSha 非 HEAD~1）。
-        if ($bOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15RB -Phase ship -Local') { Fail '闸15r(e)B：真提交后水位线收据在位，saga 未建议重跑同一条 ship——TD89 根治后提交后重跑经收据 resume 放行 RED 闸、非死锁（旧「勿重跑」死锁文案未随 T35 机制更新，R3 r1 #9 反转）。'; $reFail = $true }
-        if ($bOut -notmatch '水位线收据') { Fail '闸15r(e)B：重跑建议未点名水位线收据在位——恢复路由未据收据在位性（双 Test-Path）分流，文案与 T35 机制漂移。'; $reFail = $true }
+        if (-not (Test-Path $bReceiptProof -PathType Leaf) -or "$(Get-Content $bReceiptProof -Raw -ErrorAction SilentlyContinue)".Trim() -cne 'receipt-existed') { Fail '闸15r(e)B 前置：范围闸入口未证明本轮刚铸 receipt 真实在场。'; $reFail = $true }
+        if (Test-Path $bReceipt -PathType Leaf) { Fail '闸15r(e)B 前置：范围闸未在 catch 前删除刚铸 receipt。'; $reFail = $true }
+        # receipt 在范围闸入口真实存在后被删；saga 仍须消费 mint 已建立的本轮内存授权并建议完整重跑，不能在 catch 重探文件。
+        if ($bOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15RB -Phase ship -Local') { Fail '闸15r(e)B：本轮成功铸据后 receipt 在 catch 前被删，saga 未凭已建立的内存授权建议重跑。'; $reFail = $true }
+        if ($bOut -notmatch '本轮水位线收据已授权') { Fail '闸15r(e)B：重跑建议未点名本轮水位线收据授权——catch 可能仍依赖文件在位性。'; $reFail = $true }
         if ($bOut -notmatch [regex]::Escape('待办腿：许可闸 → 防泄露闸 → 真实 diff 预算 → R3 评审 → 本地合并')) { Fail '闸15r(e)B：腿失败时待办腿=失败腿之后的精确有序清单——清单不符（R3 r4 #6）。'; $reFail = $true }
         if ($bOut -notmatch '越界改动') { Fail '闸15r(e)B：原始范围闸异常文案未原样在场——throw 被改写/吞没。'; $reFail = $true }
         if (-not $dOut) { Fail '闸15r(e)D：ship 输出为空——未产出任何 saga 报告。'; $reFail = $true }
@@ -8692,7 +8707,7 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($fOut -notmatch '本地合并已成功、仅 T24 合并凭据未铸') { Fail '闸15r(e)F：post-merge 凭据失败未走「合并已成功」态——合并已真成功却被误报（R3 r5 #9）。'; $reFail = $true }
         if ($fOut -notmatch '-Phase cleanup -Force') { Fail '闸15r(e)F：post-merge 态未给 cleanup -Force 出路。'; $reFail = $true }
         if ($fOut -match '守卫拦下') { Fail '闸15r(e)F：post-merge 凭据失败被误报成合并前守卫态（R3 r5 #9 的原始误报）。'; $reFail = $true }
-        if (-not $reFail) { Write-Host '  15r(e) hermetic 失败路径 OK（A：RED 闸失败点+完整待办；B：提交后收据在位→建议重跑同一条 ship（非死锁）；D：no-op 提交重跑给带 -SkipRed 完整重跑；C：冲突→merge --continue；E：守卫态→重发 merge；F：post-merge→凭据未铸出路；六例均非零退出、原异常在场）' -ForegroundColor Green }
+      if (-not $reFail) { Write-Host '  15r(e) hermetic 失败路径 OK（A：RED 闸失败点+完整待办；B：本轮授权后收据删除→建议重跑；D：no-op 提交重跑给带 -SkipRed 完整重跑；C：冲突→merge --continue；E：守卫态→重发 merge；F：post-merge→凭据未铸出路；六例均非零退出、原异常在场）' -ForegroundColor Green }
       }
     }
   } finally {
@@ -8716,6 +8731,41 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
 #   绝对路径、拆除 worktree 后仍有效，故须**拆除前**解析留存），**禁 `git -C $RepoRoot` 形态**（契约硬约束：cwd=worktree 时相对解析走错平面）。
 #   T24 合并凭据（$tokPath）用 $RepoRoot 是其自身契约、不在此列——本锁只针对收据专用变量 $rcGcdC，locale/无 git 皆可跑（纯静态）。
 $tpRC10 = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
+# A3：唯一授权位须由 validation/mint 两处赋值，catch 只消费该位；逐一删赋值或恢复文件 presence probe 的变异必须被同一 oracle 杀死。
+$receiptAuthFailures = {
+  param([string]$Source)
+  $issues = @(); $ship = [regex]::Match($Source, "(?s)'ship'\s*\{.*?\r?\n  'cleanup'").Value
+  $code = (($ship -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+  if (([regex]::Matches($code, '\$sagaReceiptAuthorized\s*=\s*\$false')).Count -ne 1) { $issues += 'init' }
+  if (([regex]::Matches($code, '\$sagaReceiptAuthorized\s*=\s*\$true')).Count -ne 2) { $issues += 'writers' }
+  if ($code -notmatch '(?s)if \(\$p1 -and \$p2 -and \$p3 -and \$p4\) \{.{0,500}?\$sagaReceiptAuthorized\s*=\s*\$true') { $issues += 'validation' }
+  if ($code -notmatch '(?s)Set-Content \(Join-Path \$rcDirM \$TaskId\).{0,250}?\$sagaReceiptAuthorized\s*=\s*\$true') { $issues += 'mint' }
+  $catch = [regex]::Match($code, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?T26-SHIPSAGA.*?\n\s*throw\s*\r?\n\s*\}').Value
+  if ($catch -notmatch '\$sagaRcptSafe\s*=\s*\$sagaReceiptAuthorized' -or $catch -match '(?s)Test-Path.{0,300}scaffold-shipped') { $issues += 'catch' }
+  $issues
+}
+$receiptAuthLive = @(& $receiptAuthFailures $tpRC10)
+if ($receiptAuthLive.Count) { Fail "闸15g(receipt/auth)：生产授权位接线不完整：$($receiptAuthLive -join ',')。" }
+else {
+  $authMutants = @(
+    [regex]::Replace($tpRC10, '(?m)^ {16}\$sagaReceiptAuthorized = \$true\r?\n', '', 1),
+    [regex]::Replace($tpRC10, '(?m)^ {12}\$sagaReceiptAuthorized = \$true\r?\n', '', 1),
+    $tpRC10.Replace('$sagaRcptSafe = $sagaReceiptAuthorized', '$sagaRcptSafe = Test-Path (Join-Path (Join-Path $sagaGcd ''scaffold-shipped'') $TaskId)')
+  )
+  $authMutationIds = @('validation-writer', 'mint-writer', 'catch-presence')
+  foreach ($i in 0..2) {
+    if ($authMutants[$i] -ceq $tpRC10) { Fail "闸15g(receipt/auth/$($authMutationIds[$i]))：变异未命中。" }
+    elseif (@(& $receiptAuthFailures $authMutants[$i]).Count -eq 0) { Fail "闸15g(receipt/auth/$($authMutationIds[$i]))：变异存活。" }
+  }
+  # 直接执行生产源码中的真实四谓词成功块，隔离观察 validation writer；不以重写的等价状态机代替被测代码。
+  $validationBlock = [regex]::Match($tpRC10, '(?s)if \(\$p1 -and \$p2 -and \$p3 -and \$p4\) \{.*?\r?\n\s{14}\}').Value
+  $runValidationBlock = { param($Block) & ([scriptblock]::Create('$p1=$true;$p2=$true;$p3=$true;$p4=$true;$redOk=$false;$redShaForMint="";$redSha="0123456789012345678901234567890123456789";$sagaReceiptAuthorized=$false;' + $Block + ';[pscustomobject]@{Authorized=$sagaReceiptAuthorized;RedOk=$redOk;Mint=$redShaForMint}')) 6>$null }
+  $validationLive = & $runValidationBlock $validationBlock
+  $validationMutant = & $runValidationBlock $validationBlock.Replace('$sagaReceiptAuthorized = $true', '')
+  if (-not $validationBlock -or -not $validationLive.Authorized -or -not $validationLive.RedOk -or $validationLive.Mint -cne '0123456789012345678901234567890123456789') { Fail '闸15g(receipt/auth/validation-runtime)：真实四谓词块未独立建立授权。' }
+  elseif ($validationMutant.Authorized -or -not $validationMutant.RedOk) { Fail '闸15g(receipt/auth/validation-runtime)：删除 validation writer 的真实源码变异未被独立状态观察杀死。' }
+  if (-not $fail) { Write-Host '  15g(receipt/auth) 单一内存授权位与 validation/mint/presence 三变异 OK' -ForegroundColor Green }
+}
 $cleanupRC10 = [regex]::Match($tpRC10, "(?s)'cleanup'\s*\{.*\z").Value
 if (-not $cleanupRC10) { Fail '闸15g(receipt)静态：task.ps1 找不到 cleanup 相位块（结构漂移？）——无法锁收据平面解析契约。' }
 else {
@@ -8825,16 +8875,26 @@ if (-not $gitRC) {
             # ① 对抗组合：伪造 evidence+receipt 使 sha 前移进入收据分支，但谓词不自洽 → 须落回 RED fail-closed（gate=red），绝不放行
             $genEvid = (@{ taskId = 'T0-RCPT'; sha = $rgHead0; dodExit = 1; phase = 'red' } | ConvertTo-Json)
             $genRcpt = (@{ taskId = 'T0-RCPT'; redSha = $rgHead0; commitSha = $rgHead1 } | ConvertTo-Json -Compress)
-            # ①-a redSha 非祖先 40-hex（evidence 与 receipt 同伪造为 deadbeef…；p2 匹配但 p3 祖先判定失败）
-            $forgeSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
-            (@{ taskId = 'T0-RCPT'; sha = $forgeSha; dodExit = 1; phase = 'red' } | ConvertTo-Json) | Set-Content $rcEvid -Encoding utf8
-            (@{ taskId = 'T0-RCPT'; redSha = $forgeSha; commitSha = $rgHead1 } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
+            # ①-a p3：真实可解析、但不在 HEAD 祖先链上的 root commit；p1/p2/p4 均真，仅 p3 为假。
+            $rgTree = "$(& git -C $rg rev-parse 'HEAD^{tree}' 2>$null)".Trim()
+            $orphanSha = "$('receipt p3 orphan' | & git -C $rg commit-tree $rgTree 2>$null)".Trim()
+            if ($orphanSha -cnotmatch '^[0-9a-f]{40}$') { Fail '闸15g(receipt)①-a 前置：未生成可解析 nonancestor commit。'; $rcFail = $true }
+            (@{ taskId = 'T0-RCPT'; sha = $orphanSha; dodExit = 1; phase = 'red' } | ConvertTo-Json) | Set-Content $rcEvid -Encoding utf8
+            (@{ taskId = 'T0-RCPT'; redSha = $orphanSha; commitSha = $rgHead1 } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
             $aRed = & $redCount $rgLedger
             & pwsh -NoProfile -File (Join-Path $rg 'scripts/task.ps1') -TaskId T0-RCPT -Phase ship -Local *> $null
             $aExit = $LASTEXITCODE
-            if ($aExit -eq 0) { Fail '闸15g(receipt)①-a：redSha 为非祖先 40-hex 的伪造收据竟放行 ship（exit 0）——收据祖先谓词(③)失守，伪造收据可 resume 绕过 RED 闸。'; $rcFail = $true }
+            if ($aExit -eq 0) { Fail '闸15g(receipt)①-a：redSha 为可解析 nonancestor commit 的收据竟放行 ship（exit 0）——p3 祖先谓词失守。'; $rcFail = $true }
             elseif ((& $redCount $rgLedger) -le $aRed) { Fail '闸15g(receipt)①-a：非祖先伪造收据被拒但账本无新增 gate=red——落回 RED fail-closed 未记账（Add-CatchRecord 丢失）。'; $rcFail = $true }
-            else { Write-Host '  15g(receipt)①-a 非祖先伪造收据拒绝 OK（redSha 40-hex 但非 HEAD 祖先 → 落回 RED fail-closed + 账本 gate=red）' -ForegroundColor Green }
+            else { Write-Host '  15g(receipt)①-a p3 可解析 nonancestor redSha 拒绝 OK' -ForegroundColor Green }
+            # ①-a2 p2：双侧均为 40-hex 但不相等；p1/p4 真，p2 必须独立拒绝。
+            (@{ taskId = 'T0-RCPT'; sha = $orphanSha; dodExit = 1; phase = 'red' } | ConvertTo-Json) | Set-Content $rcEvid -Encoding utf8
+            (@{ taskId = 'T0-RCPT'; redSha = $rgHead0; commitSha = $rgHead1 } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
+            $a2Red = & $redCount $rgLedger
+            & pwsh -NoProfile -File (Join-Path $rg 'scripts/task.ps1') -TaskId T0-RCPT -Phase ship -Local *> $null
+            if ($LASTEXITCODE -eq 0) { Fail '闸15g(receipt)①-a2：40-hex redSha/evidence.sha 不等竟放行——p2 等式失守。'; $rcFail = $true }
+            elseif ((& $redCount $rgLedger) -le $a2Red) { Fail '闸15g(receipt)①-a2：p2 不等被拒但无 gate=red。'; $rcFail = $true }
+            else { Write-Host '  15g(receipt)①-a2 p2 40-hex 等式错配拒绝 OK' -ForegroundColor Green }
             # ①-b evidence+receipt 双伪造占位组合（(no-commit-yet) 双侧禁入）
             (@{ taskId = 'T0-RCPT'; sha = '(no-commit-yet)'; dodExit = 1; phase = 'red' } | ConvertTo-Json) | Set-Content $rcEvid -Encoding utf8
             (@{ taskId = 'T0-RCPT'; redSha = '(no-commit-yet)'; commitSha = $rgHead1 } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
@@ -8857,14 +8917,21 @@ if (-not $gitRC) {
             if ($cExit -eq 0) { Fail '闸15g(receipt)①-c：taskId 张冠李戴的收据竟放行 ship（exit 0）——p1（taskId==本卡）谓词失守。'; $rcFail = $true }
             elseif ((& $redCount $rgLedger) -le $cRed) { Fail '闸15g(receipt)①-c：taskId 不符被拒但账本无新增 gate=red——落回 RED fail-closed 未记账。'; $rcFail = $true }
             else { Write-Host '  15g(receipt)①-c taskId 张冠李戴拒绝 OK（p1 失败 → 落回 RED fail-closed + 账本 gate=red）' -ForegroundColor Green }
-            # ①-d commitSha 非祖先/非对象（p4）：真 evidence+真 redSha（p1/p2/p3 全过），但 commitSha=非祖先 40-hex → p4 失败 → 落回 RED fail-closed
-            (@{ taskId = 'T0-RCPT'; redSha = $rgHead0; commitSha = $forgeSha } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
+            # ①-d p4：p1/p2/p3 全过，但 commitSha 仅 abbreviated OID → p4 失败。
+            (@{ taskId = 'T0-RCPT'; redSha = $rgHead0; commitSha = $rgHead1.Substring(0, 12) } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
             $dRed = & $redCount $rgLedger
             & pwsh -NoProfile -File (Join-Path $rg 'scripts/task.ps1') -TaskId T0-RCPT -Phase ship -Local *> $null
             $dExit = $LASTEXITCODE
-            if ($dExit -eq 0) { Fail '闸15g(receipt)①-d：commitSha 为非祖先 40-hex 的收据竟放行 ship（exit 0）——p4（commitSha 为 HEAD 或其祖先）谓词失守，仅校验 redSha 不足。'; $rcFail = $true }
+            if ($dExit -eq 0) { Fail '闸15g(receipt)①-d：abbreviated commitSha 竟放行 ship（exit 0）——p4 的完整 OID/祖先谓词失守。'; $rcFail = $true }
             elseif ((& $redCount $rgLedger) -le $dRed) { Fail '闸15g(receipt)①-d：非祖先 commitSha 被拒但账本无新增 gate=red——落回 RED fail-closed 未记账。'; $rcFail = $true }
-            else { Write-Host '  15g(receipt)①-d 非祖先 commitSha 拒绝 OK（p4 失败 → 落回 RED fail-closed + 账本 gate=red）' -ForegroundColor Green }
+            else { Write-Host '  15g(receipt)①-d p4 abbreviated commitSha 拒绝 OK' -ForegroundColor Green }
+            # ①-d2 p4：完整、可解析但不在 HEAD 祖先链上的 commitSha；防只保留 40-hex 形状而删除祖先判断。
+            (@{ taskId = 'T0-RCPT'; redSha = $rgHead0; commitSha = $orphanSha } | ConvertTo-Json -Compress) | Set-Content $rcptFile -Encoding utf8
+            $d2Red = & $redCount $rgLedger
+            & pwsh -NoProfile -File (Join-Path $rg 'scripts/task.ps1') -TaskId T0-RCPT -Phase ship -Local *> $null
+            if ($LASTEXITCODE -eq 0) { Fail '闸15g(receipt)①-d2：可解析 nonancestor commitSha 竟放行——p4 祖先判断失守。'; $rcFail = $true }
+            elseif ((& $redCount $rgLedger) -le $d2Red) { Fail '闸15g(receipt)①-d2：p4 nonancestor 被拒但无 gate=red。'; $rcFail = $true }
+            else { Write-Host '  15g(receipt)①-d2 p4 可解析 nonancestor commitSha 拒绝 OK' -ForegroundColor Green }
             # ①-e 收据损坏（R3 r8 #9 隔离验证）：真 evidence（sha 前移进收据分支），收据文件为非法 JSON → 收据读取 catch 不放行、
             # **不误诊**（RED throw 须报 sha 前移原因、非「证据 JSON 非法」；收据解析隔离于证据解析 try）→ 落回 RED fail-closed（gate=red）
             $genEvid | Set-Content $rcEvid -Encoding utf8
