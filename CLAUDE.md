@@ -79,6 +79,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **2026-09-08 本地交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已合并（master `cfb4609c`，正式 R3 第4轮 pass，用户授权一次计数重置）。ADR-0008 确定离线签名、公钥身份与代次绑定、日期/反回退、Keystore 初始化证据及恢复矩阵；用户批准本人发布责任、受控电脑持钥与 USB 首次信任安排。前三轮发现均修正，确定性闸门与 core 自检通过；交付为设计与导入卡 A1–A8 验收，实际公钥/制品、导入与真机证据尚待后续卡，不启用 work-check。
 
+**2026-09-08 本地交付**：`T4-SCHEDULE-UI-PRESENTATION` 已合并（master `d22f5d33`，**人裁合并**——
+八道确定性闸全绿、R4 27 枚变异全杀后，R3 轮次上限达顶抬起 `[R3-ROUND-CAP]` 未唤起评审者、按其设计
+转人裁，用户裁定合并）。交付排程界面的最小呈现契约：每状态**至多一个** primary 动作且**必须显式声明
+这个数目**（不提供者声明缺席，同 `ScheduleBadge.NONE` 的既有做法）、反馈做成 `ScheduleFeedbackBanner`
+且其 recovery 是 **`ScheduleSecondaryAction` 这个另一个类型**（于是「一屏两个 primary」写不出来）、
+五个状态皆非空且非空白、固定 NZ 月名日期（不跟随 locale 与数字系统，本视图不渲染任何时刻）、
+复数感知计数短语。**11 条未决决策开工前由用户逐条收口**（master `d0ec9e4a`）。
+> **R3 六轮、每轮 finding 全部属实且全部当场修**，其中第 3–6 轮是**同一类错误：写下的保证超出证据**——
+> 过期的 token 归属注释 · `countPhrase(0)` 把数字拼写成 `No` 而内容值只有 `text` 会到达屏幕 ·
+> 注释宣称模型与 Compose 渲染器「不会漂移」而那条等式只钉住两条模型层路径 · `isNotEmpty` 断言下
+> `Message("")` 仍能通过。**最贵的一条**：那条非空断言原本存在，压体量时按「无变异单独杀死它」剪掉，
+> 而没有变异杀死它**正是因为我从未写过置空消息的变异**——缺失的变异恰恰是它看起来冗余的原因。
+> M34 现在只被那条恢复的测试杀死。**结论：mutation-survivor 剪枝的可靠性不超过它所对照的变异集。**
+> **三次范围移交**（均用户裁定）：符号化 chrome 与无障碍声明整半 · token 取值绑定 · R3 第 2 轮后连同
+> REQ-032/033/034 整条移交的 token 词汇声明，全部归 `T4-SCHEDULE-UI-SYMBOL-CHROME`，使两卡都不留
+> 「声明了却由别人应用」的接缝。渲染期约束（间距/对比度/200% 字号/Compose 接线本身）在黑盒面内不可
+> 机检，卡内验收表逐条标注为人工设计评审，不冒充自动验收。解锁 `T4-SCHEDULE-UI-SYMBOL-CHROME`
+> （自估 850–1200 行，**开工前须先拆两张**）。
+
 **2026-09-08 本地交付**：`T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`，**人裁合并**——8 轮 R3 / 13 条 finding 全部属实且全部当场修，轮次上限达顶后由用户裁定，八道确定性闸全绿、R3 未被唤起）。`context/DESIGN.md` 新增 `Symbol-only chrome` 具名节：领域值永不由字形单独承载 + 五条准入条件 + 准入不覆盖更严组件合同；四处治符号化控件的条款解析到它，计数与状态条款重写。OD-1 裁定 tooltip 要求按组件 anatomy 绑定，故相机 anatomy 未动；OD-2 裁定 `Settings` 目的地播报可行动的本机健康状态。**沿途关掉十一处基线既有 WCAG 1.4.1 缺口**（非本卡引入）：签名组件 evidence rail 在每项默认态 `UNRATED` 下complete/missing/blocked 仅靠颜色区分，`task-stepper` 的失败阶段无非颜色载体而它是 RESTORE/BACKUP/IMPORT/ERASE 四条流程的必需元素，另有 `summary-stat`/`metadata-row` 状态图标 optional 等。R4 25/25 变异全杀。**最贵的一条**：R3 第 5 轮拦下「把无障碍播报当作可见视觉线索的替代项」——播报服务屏幕阅读器、不解决色觉障碍的明眼用户，六轮本地对抗复核全部漏掉，只有第二模型评审抓到。遗留三项开卡 `T4-DESIGN-STATUS-CARRIERS`；本卡解锁 `T4-SCHEDULE-UI-PRESENTATION`。
 
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-SNAPSHOT` 已合并（master `8fba92e3`，正式 R3 pass，用户批准一次计数重置）；不可变上下文、严格日期、Routine v2 绑定及未抑制目标初始未评级已交付，沿用原生房间标签与抑制规则。6 项本卡测试、983 core + 6 E2E 验证通过，4 项既有 Windows media 测试跳过；30 次有效行为变异覆盖 29 种故障。来源投影、确认与导入写入尚未交付。

@@ -4,7 +4,7 @@ title: 排程界面的最小呈现契约（动作数与反馈 banner · 无空�
 depends_on: [T4-SCHEDULE-UI-REMINDER-ACTIONS, T4-DESIGN-SYMBOL-CHROME-V2]
 parallelizable_with: []
 plan_ref: context/DESIGN.md#page-inventory
-status: todo
+status: merged
 branch: T4-SCHEDULE-UI-PRESENTATION
 worktree: C:\wt\T4-SCHEDULE-UI-PRESENTATION
 allow_paths:
