@@ -27,7 +27,7 @@ non_goals:
 acceptance:
   - "A1 every chrome control value is a typed glyph carrying a non-null accessible-name key and no visible-text field, no chrome control rests on a glyph classified novel, and glyph artwork carries no letter, word or numeral"
   - "A2 every chrome control declares at least 48dp target size with at least 8dp separation, every state is carried by a glyph and a position as well as colour, every directional glyph declares that it mirrors under a right-to-left layout, every colour resolves through a semantic token name, and every animation duration is a declared motion token with a reduced-motion variant"
-  - "A3 the spacing, typography, shape and colour vocabularies the predecessor declares are bound to real Compose values, so that every declared token name is drawn from and no declared token is left unapplied"
+  - "A3 the spacing, typography, shape and colour vocabularies are declared as typed values whose names are context/DESIGN.md token names, at most five typography roles, and each is bound to a real Compose value so no declared token is left unapplied"
   - "A4 runtime acceptance tests assert typed declaration values through the compiled reducer entry points only; source, resources and inspected compiled artifacts are never an oracle, Compose wiring stays compile-only, and every automated requirement carries an executable semantic mutation receipt"
 dod_command: $kotlin = @('android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleModels.kt','android/app/src/main/kotlin/nz/myinspection/app/feature/schedule/ScheduleScreen.kt','android/app/src/test/kotlin/nz/myinspection/app/feature/schedule/ScheduleUiTest.kt'); if ($kotlin | Where-Object { -not (Test-Path $_) }) { exit 1 }; if (Select-String -Path $kotlin -Pattern '\btypealias\b|;' -Quiet) { exit 1 }; if ($kotlin | ForEach-Object { Get-Content $_ | Where-Object { $_.Length -gt 120 } }) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:testDebugUnitTest --tests "nz.myinspection.app.feature.schedule.ScheduleUiTest"; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :app:assembleDebug
 dod_exit: 0
@@ -70,8 +70,8 @@ doc_sync: TASK-BOARD 记录合并 OID 并把 T4-SCHEDULE 子链标记完成；�
 | 徽标非颜色载体 + 目标尺寸 + 动效/reduced-motion | 100–140 | REQ-056、059、046、047 |
 | Compose 接线改写 | 80–120 | 七状态由文字标签换成字形 |
 | 测试 + 变异收据 | 280–360 | 可机检的 REQ 约 12 条 + 一条反射证明 |
-| token 取值绑定（spacing→dp / typography→TextStyle / shape / colour） | 60–90 | 2026-09-08 由前置卡移交，见其 §体量收口 |
-| **合计** | **760–1070** | **已越止损点上沿**：动手前先按 A1（类型分割 + 字形）/ A2+A3（无障碍声明 + token 绑定）拆两张卡，不要合起来写 |
+| token 词汇声明 + 取值绑定（4 枚枚举、2 个谓词、spacing→dp / typography→TextStyle / shape / colour） | 150–220 | 2026-09-08 分两次由前置卡移交：先是绑定，R3 第 2 轮后连同声明整条过来 |
+| **合计** | **850–1200** | **已越止损点上沿**：动手前先按 A1（类型分割 + 字形）/ A2+A3（无障碍声明 + token 绑定）拆两张卡，不要合起来写 |
 
 > **止损点**：实测越过 900 行，**按 A1（chrome/content 类型分割 + 字形）与 A2（无障碍声明：
 > 目标尺寸 / 非颜色载体 / RTL / 动效）二次拆卡**，不删注释、不打包字面量、不修剪变异收据。
@@ -95,9 +95,9 @@ doc_sync: TASK-BOARD 记录合并 OID 并把 T4-SCHEDULE 子链标记完成；�
 
 | ID | Pattern | Requirement | 来源 |
 |---|---|---|---|
-| REQ-032 | Ubiquitous | The schedule view shall draw every spacing value from the vocabulary the predecessor declares and shall use no other spacing literal. | A3 · 承接 `T4-SCHEDULE-UI-PRESENTATION` REQ-032 的 draw 子句 |
-| REQ-033 | Ubiquitous | The schedule view shall draw every text style from the at most five typography roles the predecessor declares. | A3 · 承接前置卡 REQ-033 的 draw 子句 |
-| REQ-034 | Ubiquitous | The schedule view shall draw its interactive accent and its status colours only through the roles the predecessor declares for each. | A3 · 承接前置卡 REQ-034 的 draw 子句 |
+| REQ-032 | Ubiquitous | The schedule view shall declare its spacing vocabulary as typed values naming `spacing.{xs,sm,md,lg,xl,2xl,3xl,touch,action,screen-gutter}`, shall draw every spacing value from it, and shall use no other spacing literal. | A3 · 2026-09-08 由前置卡**整条**移交 |
+| REQ-033 | Ubiquitous | The schedule view shall declare at most `5` typography roles naming the DESIGN `typography` set and shall draw every text style from them. | A3 · OD-6（已裁定：5）· 整条移交 |
+| REQ-034 | Ubiquitous | The schedule view shall declare `colors.primary` as its only interactive accent role and the status roles as the only roles carrying state, each answered by a predicate rather than a published set, and shall draw its colours only through them. | A3 · 整条移交 |
 | REQ-044 | Ubiquitous | The schedule view shall resolve every colour through a semantic token name so that the light and dark schemes carry identical semantics. | A2 · `docs/UI-UX-ELEMENTS.md:119` |
 | REQ-045 | Ubiquitous | The schedule view shall wrap rather than truncate every due date, status, count and failure reason at `200%` system font scale. | A2 · [card:context/DESIGN.md:1802]，`docs/UI-UX-ELEMENTS.md:118` |
 | REQ-046 | Ubiquitous | The schedule view shall draw every animation duration from `motion.{pressFeedbackMs,stateChangeMs,expandMs,sheetEnterMs,exitMs}`. | A2 · [card:context/DESIGN.md:`motion`] |
@@ -187,5 +187,6 @@ doc_sync: TASK-BOARD 记录合并 OID 并把 T4-SCHEDULE 子链标记完成；�
 
 | 日期 | 变更 |
 |---|---|
+| 2026-09-08 | **接收第四次范围移交**：前置卡 R3 第 2 轮后把 token 词汇声明本身（4 枚枚举 + 2 个谓词 + 5 项测试 + 7 枚变异）连同 REQ-032/033/034 **整条**移来，故本卡端到端拥有 token：声明与绑定同卡，两卡都不再有「声明了却由别人应用」的接缝。体量估算再上调至 850–1200，**开工前必须先拆**。 |
 | 2026-09-08 | **接收第三次范围移交**：前置卡修完 R3 第 1 轮 finding 后达 1040 行越闸，用户裁定把 token → Compose 取值绑定移来，连同 REQ-032/033/034 的 draw 子句（新 REQ 行 + 新验收 A3）。**这样前置卡只声明词汇、本卡负责应用，两卡都不留「声明了却没应用」的缺口**——那正是前置卡第 1 轮被拦下的形态。体量估算相应上调至 760–1070，已越 900 止损点，故本卡**开工前先拆两张**。 |
 | 2026-09-08 | 建卡：由 `T4-SCHEDULE-UI-PRESENTATION` 按其 §止损点二次拆卡而来（用户裁定），承接原 A2/A4 半。移入 REQ-044..047 与 REQ-050..052、054..060 及图形对照表；REQ 编号不重排。图形对照表补齐 `CLEAR_FILTER` 与方向性 `NEXT` 两枚（8 枚），并把原第 10 行 `Needs attention` 按 reducer 实有的 `ScheduleBadge.FIRST_INSPECTION` 更正。新增「本视图只用 `icon-button`」一节，解释符号化准入与「按钮须有可见文字」这条更严合同如何并存。REQ-054 明确不配运行期死守卫，改断言枚举属性。 |
