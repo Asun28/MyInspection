@@ -1,6 +1,9 @@
 package nz.myinspection.app.feature.schedule
 
 import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -63,6 +66,37 @@ class ScheduleUiTest {
 
     private fun contentOf(state: ScheduleUiState): ScheduleScreenState.Content =
         assertIs<ScheduleScreenState.Content>(state.screen)
+
+    private val nzZone = ZoneId.of("Pacific/Auckland")
+
+    private val may19 = Instant.parse("2026-05-19T02:00:00Z")
+
+    /**
+     * The same moment written so that the two zones disagree about which day it is: 14:00 UTC on
+     * the 18th is 02:00 on the 19th in Auckland. An instant where both zones agree would let a
+     * formatter that ignored its zone argument pass.
+     */
+    private val acrossTheDateLine = Instant.parse("2026-05-18T14:00:00Z")
+
+    private fun filteredEmpty(type: InspectionScheduleType) = ScheduleScreenState.FilteredEmpty(type)
+
+    private fun errorScreen() = ScheduleScreenState.Error(ScheduleRecovery.RETRY)
+
+    private fun permissionState(permission: SchedulePermissionState): ScheduleUiState =
+        ScheduleReducer.initial().copy(permission = permission)
+
+    /**
+     * Every screen state, for the tests that must hold for all of them. This list is not what stops
+     * a sixth state from going unnoticed: SchedulePresentation reduces over a sealed type with an
+     * exhaustive when, so a new state fails to compile there before any test can miss it.
+     */
+    private fun everyScreenState(): List<ScheduleScreenState> = listOf(
+        ScheduleScreenState.Loading,
+        ScheduleScreenState.Content(ScheduleReducer.rowsOf(listOf(due(), first(), oneOff()))),
+        ScheduleScreenState.NoContentEmpty,
+        filteredEmpty(InspectionScheduleType.ROUTINE),
+        errorScreen(),
+    )
 
     // ----------------------------- T4-SCHEDULE-UI A1 row kinds and badges
 
@@ -747,6 +781,310 @@ class ScheduleUiTest {
         assertEquals(listOf("12 Rimu Street", "8 Kauri Lane", "3 Totara Way"), names)
         assertTrue(names.none { it.contains("property-") }, "a row name leaked a property id")
     }
+
+    // ------------------------- T4-SCHEDULE-UI-PRESENTATION A1 token vocabulary and action arity
+
+    @Test
+    fun `A1 the typography vocabulary is exactly the five DESIGN roles this view may use`() {
+        assertEquals(
+            listOf(
+                "typography.title-lg",
+                "typography.title-md",
+                "typography.body-md",
+                "typography.body-sm",
+                "typography.label-md",
+            ),
+            ScheduleTypographyToken.entries.map { it.tokenName },
+        )
+    }
+
+    @Test
+    fun `A1 every spacing token names a step of the DESIGN spacing scale`() {
+        assertEquals(
+            listOf(
+                "spacing.xs",
+                "spacing.sm",
+                "spacing.md",
+                "spacing.lg",
+                "spacing.xl",
+                "spacing.2xl",
+                "spacing.3xl",
+                "spacing.touch",
+                "spacing.action",
+                "spacing.screen-gutter",
+            ),
+            ScheduleSpacingToken.entries.map { it.tokenName },
+        )
+    }
+
+    @Test
+    fun `A1 every shape token names a step of the DESIGN rounded scale`() {
+        assertEquals(
+            listOf("rounded.sm", "rounded.md", "rounded.full"),
+            ScheduleShapeToken.entries.map { it.tokenName },
+        )
+    }
+
+    @Test
+    fun `A1 every colour role names a DESIGN colour role`() {
+        assertEquals(
+            listOf(
+                "colors.primary",
+                "colors.surface",
+                "colors.on-surface",
+                "colors.on-surface-variant",
+                "colors.tertiary",
+                "colors.error",
+            ),
+            ScheduleColorRole.entries.map { it.tokenName },
+        )
+    }
+
+    @Test
+    fun `A1 primary is the only interactive accent and only tertiary and error carry state`() {
+        assertEquals(
+            listOf(ScheduleColorRole.PRIMARY),
+            ScheduleColorRole.entries.filter { it.isInteractiveAccent },
+        )
+        assertEquals(
+            listOf(ScheduleColorRole.TERTIARY, ScheduleColorRole.ERROR),
+            ScheduleColorRole.entries.filter { it.isStatusRole },
+        )
+    }
+
+    @Test
+    fun `A1 no colour role is both the interactive accent and a status carrier`() {
+        assertTrue(ScheduleColorRole.entries.none { it.isInteractiveAccent && it.isStatusRole })
+    }
+
+    @Test
+    fun `A1 the top app bar declares at most two actions and names the one it has`() {
+        assertTrue(SchedulePresentation.topAppBarActions.size <= 2)
+        assertEquals(
+            listOf(ScheduleActionName.FILTER),
+            SchedulePresentation.topAppBarActions.map { it.actionName },
+        )
+    }
+
+    @Test
+    fun `A1 each acting state declares one named action and the rest declare why they do not`() {
+        val content = ScheduleScreenState.Content(ScheduleReducer.rowsOf(listOf(due())))
+        assertEquals(
+            ScheduleStateAction.None(ScheduleNoActionReason.NOTHING_TO_ACT_ON_YET),
+            SchedulePresentation.actionOf(ScheduleScreenState.Loading),
+        )
+        assertEquals(
+            ScheduleStateAction.None(ScheduleNoActionReason.ACTIONS_BELONG_TO_ROWS),
+            SchedulePresentation.actionOf(content),
+        )
+        assertEquals(
+            ScheduleStateAction.One(ScheduleActionSlot.NEXT, ScheduleActionName.ADD_PROPERTY),
+            SchedulePresentation.actionOf(ScheduleScreenState.NoContentEmpty),
+        )
+        assertEquals(
+            ScheduleStateAction.One(ScheduleActionSlot.CLEAR_FILTER, ScheduleActionName.CLEAR_FILTER),
+            SchedulePresentation.actionOf(filteredEmpty(InspectionScheduleType.EXIT)),
+        )
+        assertEquals(
+            ScheduleStateAction.One(ScheduleActionSlot.RETRY, ScheduleActionName.RETRY),
+            SchedulePresentation.actionOf(errorScreen()),
+        )
+    }
+
+    @Test
+    fun `A1 the declared action of every state agrees with the reducer own action slot`() {
+        everyScreenState().forEach { screen ->
+            when (val declared = SchedulePresentation.actionOf(screen)) {
+                is ScheduleStateAction.One -> assertEquals(screen.actionSlot, declared.slot)
+                is ScheduleStateAction.None -> assertNull(screen.actionSlot)
+            }
+        }
+    }
+
+    @Test
+    fun `A1 a blocked permission declares one settings action and a granted one declares none`() {
+        assertEquals(
+            ScheduleStateAction.One(ScheduleActionSlot.OPEN_SETTINGS, ScheduleActionName.OPEN_SETTINGS),
+            SchedulePresentation.permissionActionOf(permissionState(SchedulePermissionState.BLOCKED)),
+        )
+        assertNull(
+            SchedulePresentation.permissionActionOf(permissionState(SchedulePermissionState.GRANTED)),
+        )
+        assertNull(
+            SchedulePresentation.permissionActionOf(permissionState(SchedulePermissionState.UNKNOWN)),
+        )
+    }
+
+    // ------------------------- T4-SCHEDULE-UI-PRESENTATION A2 no declared state is blank
+
+    @Test
+    fun `A2 no declared state renders empty content`() {
+        everyScreenState().forEach { screen ->
+            assertTrue(SchedulePresentation.contentOf(screen).isNotEmpty(), screen.toString())
+        }
+    }
+
+    @Test
+    fun `A2 no content value any state renders is blank`() {
+        everyScreenState().forEach { screen ->
+            SchedulePresentation.contentOf(screen).forEach { value ->
+                assertTrue(value.text.isNotBlank(), screen.toString())
+            }
+        }
+    }
+
+    @Test
+    fun `A2 the content screen opens with the count of the rows it carries`() {
+        val rows = ScheduleReducer.rowsOf(listOf(due(), first(), oneOff()))
+        assertEquals(
+            ScheduleContentValue.CountPhrase(count = 3, text = "3 inspections due"),
+            SchedulePresentation.contentOf(ScheduleScreenState.Content(rows)).first(),
+        )
+    }
+
+    /**
+     * The reducer never builds a content state with no rows, but the type allows one, so the claim
+     * that no state is blank has to hold for the state as it can be constructed rather than only
+     * for the states the reducer happens to produce.
+     */
+    @Test
+    fun `A2 a content state built with no rows at all still says something true`() {
+        assertEquals(
+            listOf("No inspections due"),
+            SchedulePresentation.contentOf(ScheduleScreenState.Content(emptyList())).map { it.text },
+        )
+    }
+
+    @Test
+    fun `A2 a blocked permission carries content above the state it leaves readable`() {
+        val blocked = permissionState(SchedulePermissionState.BLOCKED)
+        assertTrue(SchedulePresentation.permissionContentOf(blocked).isNotEmpty())
+        assertTrue(SchedulePresentation.permissionContentOf(blocked).all { it.text.isNotBlank() })
+        assertTrue(
+            SchedulePresentation.permissionContentOf(
+                permissionState(SchedulePermissionState.GRANTED),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `A2 the no-content next action names what it does rather than where it goes`() {
+        assertEquals("Add a property", ScheduleActionName.ADD_PROPERTY.phrase)
+    }
+
+    @Test
+    fun `A2 the filtered-empty state names the type that emptied it`() {
+        val content = SchedulePresentation.contentOf(filteredEmpty(InspectionScheduleType.ANNUAL))
+        assertTrue(content.any { it.text.contains("Annual home check") }, content.toString())
+    }
+
+    @Test
+    fun `A2 the loading state says what is being read rather than showing nothing`() {
+        assertEquals(
+            listOf("Reading the schedule from this device"),
+            SchedulePresentation.contentOf(ScheduleScreenState.Loading).map { it.text },
+        )
+    }
+
+    @Test
+    fun `A2 the error state says what failed and offers the retry as its only action`() {
+        assertEquals(
+            listOf("That reminder did not go through"),
+            SchedulePresentation.contentOf(errorScreen()).map { it.text },
+        )
+        assertIs<ScheduleStateAction.One>(SchedulePresentation.actionOf(errorScreen()))
+    }
+
+    // ------------------------- T4-SCHEDULE-UI-PRESENTATION A3 domain values keep text and numerals
+
+    @Test
+    fun `A3 an absolute date spells its month so no numeric order can be misread`() {
+        assertEquals("19 May 2026", SchedulePresentation.absoluteDate(may19, nzZone))
+    }
+
+    @Test
+    fun `A3 a clock time renders in 24-hour form`() {
+        assertEquals("19 May 2026, 14:00", SchedulePresentation.absoluteDateTime(may19, nzZone))
+    }
+
+    @Test
+    fun `A3 the date form follows neither the default locale nor its numerals`() {
+        val original = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("ar-EG-u-nu-arab"))
+            assertEquals("19 May 2026", SchedulePresentation.absoluteDate(may19, nzZone))
+            assertEquals("19 May 2026, 14:00", SchedulePresentation.absoluteDateTime(may19, nzZone))
+        } finally {
+            Locale.setDefault(original)
+        }
+    }
+
+    @Test
+    fun `A3 the zone decides the civil date rather than the host default`() {
+        assertEquals("19 May 2026", SchedulePresentation.absoluteDate(acrossTheDateLine, nzZone))
+        assertEquals(
+            "18 May 2026",
+            SchedulePresentation.absoluteDate(acrossTheDateLine, ZoneId.of("UTC")),
+        )
+    }
+
+    @Test
+    fun `A3 a due line carries the absolute date and adds a relative phrase to it`() {
+        val line = SchedulePresentation.dueLine(may19, may19.minus(7, ChronoUnit.DAYS), nzZone)
+        assertEquals("19 May 2026", line.text)
+        assertEquals("in 7 days", line.relative)
+    }
+
+    @Test
+    fun `A3 an overdue line still carries the absolute date`() {
+        val line = SchedulePresentation.dueLine(may19, may19.plus(7, ChronoUnit.DAYS), nzZone)
+        assertEquals("19 May 2026", line.text)
+        assertEquals("7 days ago", line.relative)
+    }
+
+    @Test
+    fun `A3 a due date reached today renders today beside the same absolute date`() {
+        val line = SchedulePresentation.dueLine(may19, may19, nzZone)
+        assertEquals("19 May 2026", line.text)
+        assertEquals("today", line.relative)
+    }
+
+    @Test
+    fun `A3 one day either side of today is singular rather than plural`() {
+        val ahead = SchedulePresentation.dueLine(may19, may19.minus(1, ChronoUnit.DAYS), nzZone)
+        val behind = SchedulePresentation.dueLine(may19, may19.plus(1, ChronoUnit.DAYS), nzZone)
+        assertEquals("in 1 day", ahead.relative)
+        assertEquals("1 day ago", behind.relative)
+    }
+
+    @Test
+    fun `A3 a count of one is singular and any other count is plural`() {
+        assertEquals("1 inspection due", SchedulePresentation.countPhrase(1).text)
+        assertEquals("3 inspections due", SchedulePresentation.countPhrase(3).text)
+    }
+
+    @Test
+    fun `A3 a zero count is a complete phrase rather than a bare numeral`() {
+        assertEquals("No inspections due", SchedulePresentation.countPhrase(0).text)
+    }
+
+    @Test
+    fun `A3 a count phrase keeps the whole count where a badge would clamp it`() {
+        assertEquals("120 inspections due", SchedulePresentation.countPhrase(120).text)
+        assertEquals(120, SchedulePresentation.countPhrase(120).count)
+    }
+
+    @Test
+    fun `A3 every inspection type carries an authored label and never its enum constant`() {
+        assertEquals(
+            listOf("Routine", "Annual home check", "Ingoing", "Exit"),
+            InspectionScheduleType.entries.map { SchedulePresentation.typeLabel(it).text },
+        )
+        InspectionScheduleType.entries.forEach { type ->
+            assertFalse(SchedulePresentation.typeLabel(type).text == type.name)
+        }
+    }
+
 }
 
 
@@ -908,4 +1246,87 @@ class ScheduleUiTest {
  *     KILLED exit 1, 1 test, A3 a retry that is admitted takes the error state down
  * M40 A3  a skipped settlement leaves its submission unsettled
  *     KILLED exit 1, 2 tests, A3 a skipped settlement leaves the retry it did not resolve available
+ */
+
+/*
+ * R4 mutation receipt for T4-SCHEDULE-UI-PRESENTATION, acceptance A4. The two blocks above are the
+ * merged reducer's and the reminder-actions card's, left where they are and re-run against these
+ * same bytes rather than rewritten. Production SHA-256 before the batch and after every restore,
+ * identical, so no file was left mutated and the receipt describes exactly the code that ships
+ * (L196, L270):
+ *   ScheduleModels.kt a038744232e9bd30292a4d55a28cfd1b8e8860aa58013d3763c86f832333519d
+ *   ScheduleScreen.kt e9090b9ae4c67be513b1ee16339c18df9da10391254f51d39f9ba14b4e168c75
+ *
+ * KILLED means the command exited nonzero AND the output named failing tests rather than a
+ * compilation error, because a nonzero exit proves nothing until you know what produced it (L282).
+ * The batch classifies every run on that distinction and it caught two rows on the first pass:
+ *
+ *   M2 first ran as COMPILE-ERROR. Adding a sixth typography role alone leaves the exhaustive when
+ *   in ScheduleScreen.textStyle non-exhaustive, so the compiler stopped the mutant before any
+ *   assertion saw it. Re-aimed to make the whole change an author would make, the entry plus its
+ *   branch, so the mutant compiles and an assertion has to catch it. It does.
+ *
+ *   M13 first ran as SURVIVED, and it was a real coverage gap rather than a bad selector.
+ *   contentOf's KDoc claims a content state built with no rows still says something true, but every
+ *   fixture carried three rows, so dropping the leading count phrase changed nothing any test could
+ *   see. Two tests were added, one driving Content(emptyList()) and one pinning the opening count
+ *   to the row count. Both now fail on that mutant.
+ *
+ * Every row is one single semantic edit to production code applied with the tests untouched, and no
+ * row targets a comment or a test. Each row names one killing test of the count beside it.
+ *
+ * 26 mutations, 26 killed, 0 survived.
+ *
+ * M1  A1  a typography token names a role this view may not use
+ *     KILLED exit 1, 1 test, A1 the typography vocabulary is exactly the five DESIGN roles
+ * M2  A1  a sixth typography role is admitted past the OD-6 cap, with its branch so it compiles
+ *     KILLED exit 1, 1 test, A1 the typography vocabulary is exactly the five DESIGN roles
+ * M3  A1  a spacing token is renamed off the DESIGN scale
+ *     KILLED exit 1, 1 test, A1 every spacing token names a step of the DESIGN spacing scale
+ * M4  A1  a shape token names a radius DESIGN does not declare
+ *     KILLED exit 1, 1 test, A1 every shape token names a step of the DESIGN rounded scale
+ * M5  A1  a colour role is renamed off the DESIGN palette
+ *     KILLED exit 1, 1 test, A1 every colour role names a DESIGN colour role
+ * M6  A1  a status role also becomes an interactive accent
+ *     KILLED exit 1, 1 test, A1 primary is the only interactive accent and only tertiary and error
+ * M7  A1  the interactive accent also becomes a status carrier
+ *     KILLED exit 1, 2 tests, A1 no colour role is both the interactive accent and a status carrier
+ * M8  A1  the top app bar action is named after a different action
+ *     KILLED exit 1, 1 test, A1 the top app bar declares at most two actions and names the one it has
+ * M9  A1  the next slot is given the retry name
+ *     KILLED exit 1, 1 test, A1 each acting state declares one named action and the rest declare why
+ * M10 A1  the two no-action reasons are swapped
+ *     KILLED exit 1, 1 test, A1 each acting state declares one named action and the rest declare why
+ * M11 A1  a state declares an action the reducer says it does not offer
+ *     KILLED exit 1, 2 tests, A1 each acting state declares one named action and the rest declare why
+ * M12 A1  the permission recovery is offered even when nothing is blocked
+ *     KILLED exit 1, 1 test, A1 a blocked permission declares one settings action and a granted none
+ * M13 A2  the content screen drops its leading count phrase
+ *     KILLED exit 1, 2 tests, A2 a content state built with no rows at all still says something true
+ * M14 A2  the filtered-empty state stops naming the type that emptied it
+ *     KILLED exit 1, 1 test, A2 the filtered-empty state names the type that emptied it
+ * M15 A2  the loading state renders nothing
+ *     KILLED exit 1, 2 tests, A2 no declared state renders empty content
+ * M16 A2  the blocked-permission copy shows while nothing is blocked
+ *     KILLED exit 1, 1 test, A2 a blocked permission carries content above the state it leaves readable
+ * M17 A3  the absolute date renders its month as a number
+ *     KILLED exit 1, 7 tests, A3 a clock time renders in 24-hour form
+ * M18 A3  the absolute date ignores the zone it was given
+ *     KILLED exit 1, 1 test, A3 the zone decides the civil date rather than the host default
+ * M19 A3  the clock time drops its leading zero
+ *     KILLED exit 1, 2 tests, A3 a clock time renders in 24-hour form
+ * M20 A3  the due line lets the relative phrase replace the absolute date
+ *     KILLED exit 1, 3 tests, A3 a due date reached today renders today beside the same absolute date
+ * M21 A3  the due line reads the interval backwards
+ *     KILLED exit 1, 3 tests, A3 a due line carries the absolute date and adds a relative phrase
+ * M22 A3  a one-day interval is pluralised
+ *     KILLED exit 1, 1 test, A3 one day either side of today is singular rather than plural
+ * M23 A3  a zero count renders as a bare numeral
+ *     KILLED exit 1, 1 test, A3 a zero count is a complete phrase rather than a bare numeral
+ * M24 A3  a count of one is pluralised
+ *     KILLED exit 1, 1 test, A3 a count of one is singular and any other count is plural
+ * M25 A3  an inspection type label falls back to its enum constant
+ *     KILLED exit 1, 2 tests, A2 the filtered-empty state names the type that emptied it
+ * M26 A3  the due line rounds today into the future
+ *     KILLED exit 1, 1 test, A3 a due date reached today renders today beside the same absolute date
  */
