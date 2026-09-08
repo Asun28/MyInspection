@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 177 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 198 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -118,10 +118,13 @@
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SCAFFOLD-SYNC-046 | merged | Evaluate upstream v0.46.0 and advance the scaffold high-water mark |
+| T0-SCAFFOLD-TRIGGER-ADOPTION | merged | Adopt product-only scaffold trigger exclusion with shared focused proof |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
+| T0-SELFTEST-META-EXPANSION | merged | Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-SELFTEST-NIGHTLY-META | merged | Run selftest aggregation stress checks nightly with explicit coverage receipts |
 | T0-SELFTEST-RISK-ROUTING | merged | Select existing scaffold selftest coverage from pinned task changes |
+| T0-SELFTEST-SKILL-ROUTING | merged | Route skill-only changes through existing core and workflow coverage without seeded product-indepen… |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
@@ -143,7 +146,13 @@
 | T2-REPEATABLE-ROOM-RUNTIME | merged | 偿还 TD26：重复房间实例化、完备性与历史基线统一到实例维度 |
 | T2-ROOM-REPEATABLE | merged | 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8） |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
+| T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
+| T3-DOCX-CUSTOM-PROPERTIES | merged | Bounded custom document properties validation and discard (TD174) |
+| T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
+| T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image qualification for safe layout-shim exclusion |
 | T3-DOCX-PACKAGE-READER | merged | Bounded no-write OOXML package reader for hostile legacy reports |
+| T3-DOCX-REPORT-EXTRACTOR | merged | Sample-shaped DOCX report extractor with explicit ambiguity |
+| T3-DOCX-XML-TREE | merged | Secure in-memory XML tree for validated DOCX parts |
 | T3-E2E-CORE | merged | 将已验收 Golden Evidence JVM E2E fail-closed 接入 verify Gate 2 |
 | T3-E2E-GATE-ISOLATION | merged | 将 Golden Evidence 拆入独立 e2eTest source set 并由 Gate 2 单独执行 |
 | T3-E2E-GATE-PORTABILITY | merged | 修复 verify Gradle wrapper 的 Windows/Linux 跨平台执行 |
@@ -161,8 +170,17 @@
 | T3-REPORT-HTML-EVIDENCE-PORT | merged | The evidence byte port, what it may hand over, and the limits it is handed |
 | T3-REPORT-HTML-PRESENTATION | merged | Responsive, printable, dark and forced-colour stylesheet for the self-contained report |
 | T3-REPORT-HTML-RENDERER | merged | Self-contained accessible HTML document from shared report content |
+| T3-REPORT-IMPORT-PLAN-PROJECTION | merged | Exhaustive source inventory and conservative Routine import candidates |
+| T3-REPORT-IMPORT-PLAN-SNAPSHOT | merged | Immutable import plan model and selected-context preflight snapshot |
+| T3-REPORT-IMPORT-PLANNER | merged | Explicit import review and deterministic mapping receipt |
+| T3-REPORT-IMPORT-REVIEW-DECISIONS | merged | Explicit immutable import decisions and exhaustive source accounting |
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
+| T3-REPORT-INTERCHANGE-SCHEMA | merged | Schema v6 for immutable import provenance and format-aware export receipts |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
+| T4-COMPLIANCE-UPDATE-TRUST | merged | 规则更新的可信来源与版本决策 |
+| T4-DESIGN-NOT-APPLICABLE-COLOR | merged | NOT_APPLICABLE 的破折号没有声明前景色：evidence-rail 五个段态只有四个色 |
+| T4-DESIGN-STATUS-CARRIERS | merged | 状态载体收口的三处遗留：对比度绑定、两处边界行、capture Back 双名 |
+| T4-DESIGN-SYMBOL-CHROME-V2 | merged | 「符号化 chrome」准入条件收口（承接 T4-DESIGN-SYMBOL-CHROME，含相机面决策与逐行对齐） |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T4-REMINDER-CORRESPONDS-TRIM | merged | 删掉 corresponds 中两个被 store 不变量蕴含的比较 |
 | T4-SCHEDULE-CADENCE | merged | 巡检类型的本地民历提醒节奏 |
@@ -175,6 +193,7 @@
 | T4-SCHEDULE-REMINDER-SCHEDULER | merged | WorkRequest 构造、注册预留与保留工作恢复 |
 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | merged | 将超限提醒卡拆为 delivery 与 scheduler 两张可读串行卡 |
 | T4-SCHEDULE-SPLIT-PLAN | merged | 将 T4-SCHEDULE 拆成可读且可独立评审的三张串行卡 |
+| T4-SCHEDULE-UI-PRESENTATION | merged | 排程界面的最小呈现契约（动作数与反馈 banner · 无空状态 · 日期与计数形态） |
 | T4-SCHEDULE-UI-REMINDER-ACTIONS | merged | 排程 presenter：权限时序、授权恢复、注册结果分支与显式重试 |
 | T4-SCHEDULE-UI | merged | 排程 reducer：行种类、屏幕状态、筛选与路由效果 |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |
@@ -182,3 +201,5 @@
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
 | T5-MEDIA-ARCHIVE-SCHEMA | merged | 媒体归档 schema v5：四表形态、约束、索引与查询面 |
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |
+| T7-AUDIT-CARDS-CLOSURE | merged | 需求审校交付一：卡片与安全模块接口 |
+| T7-AUDIT-DOCS-CLOSURE | merged | 需求审校交付二：需求与页面版本一致性 |

@@ -69,8 +69,100 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
-脚手架维护已合入精简任务卡、按任务改动选择自检范围，以及每日/手动运行聚合压力测试；状态和验证记录见对应归档卡。上游评审策略与产品 compliance 触发隔离仍按各自活卡推进。
+**2026-09-08 本地交付**：`T4-DESIGN-NOT-APPLICABLE-COLOR` 已合并（master `d6b369ee`，R3 第 2 轮 pass）——
+承接前卡的 `[FOLLOW-UP]`：`evidence-rail` 声明四个颜色却有五个 `segmentStates`，`NOT_APPLICABLE` 全文
+无取色。**OD-1 由用户裁定取 A**（与 `OPTIONAL` 共用 `outline`），零新 token / role / 绑定 / 配对。
+落地形态取「加 `notApplicableColor` 键」而非把 `optionalColor` 的服务范围写成散文——四个既有键本就是
+`<状态名转小驼峰>Color`，故「每个 `segmentStates` 解析到恰好一个已声明颜色」由**既有命名规则算得出**，
+不必为本卡发明第二套映射语法。五行改动：frontmatter 加键 · 对比度图引言的算术（四 role 服务五段、
+后两者共用）· 组件行声明共用 · rail 散文点名 role 并去掉 `irrelevant`（它不是任何已声明状态名）·
+light 调色板项补上那两个段色的职责。21/21 变异全杀。
+> **DoD 除 11 条 ASCII 锚点（含 4 条 `expected 0` 反向断言）外从 frontmatter 重算**：token 表 56、
+> 绑定集 75 无重复无漂移无欠比值、状态色×内容底 每主题 20 对全登记、13 行印刷比值逐位吻合。
+> 两条断言值得复用：① 散文里点名的 role **由 frontmatter 算出后再比对**，故散文与 frontmatter
+> 写不成两个权威（M19 只改散文即被杀）；② 遍历全部组件断言「按自身状态命名颜色的组件有且仅有
+> `evidence-rail`」，于是 `inspection-item-card` 为何不在本卡（它那四个颜色都是组件级、无一以状态命名）
+> **是算出来的，不是散文声称的**。
+> **R3 第 1 轮 block 一条、属实、当场修——又是 L309**：我为补 light 调色板项照抄 dark 侧名词，写成
+> 「essential card boundaries, **evidence segments**, and focus use `outline`」，那是对**整类** evidence
+> segment 的断言，而同一份 diff 里 complete/missing-required/blocked 分别用 `primary`/`tertiary`/`error`
+> ——**diff 自己就推翻了它**。（dark 原句带「or a semantic container, or the focus token」这个出口、
+> 故不是全称句；我抄名词时把出口丢了。）收窄为「optional and not-applicable evidence segments」，
+> 并把**基线措辞**与**这句被驳回的全称措辞**双双钉成 `expected 0`（M20/M21 各杀一个方向）。
+> **ship 前的全新上下文复核判 PASS 却提了 5 条**，其中这一条它也漏了——它只查了「diff 有没有说假话」，
+> 而这句的假在于**它与同句相邻分句的关系**。**遗留 `[FOLLOW-UP]` 记 TD175**：`outline` on
+> `surface-container` 的 CI 条目标 `evidence-boundary`，而同底另三个段色标 `evidence-segment`；该配对
+> 现服务两种职责，但规范要求每配对恰好一条条目，收口需 metadata schema 决定（多 usage）。
+**2026-09-08 本地交付**：`T4-DESIGN-STATUS-CARRIERS` 已合并（master `174c7ce6`，**R3 首轮 pass 零 finding**）——
+收口前卡 `T4-DESIGN-SYMBOL-CHROME-V2` 的三处遗留。**A1**：前卡为「必带状态字形须可感知」立的下限是
+「只渲染在闸已登记的配对上」，本卡补登记后放宽它。实测缺口比建卡段猜的大得多——状态色
+（`primary`/`tertiary`/`error`/`outline`/`privacy`）× 内容底（四个 surface 层）共 40 对里**缺 26 条绑定**
+（`privacy` 作前景在四个底上**一条都没有**），新增具名 `State glyph contrast map` 一节，13 行每行带
+**实测** light/dark 比值（最低 `outline` on `surface-container-high` = 3.51:1 / 4.37:1，仍过 3.00:1 档）；
+沿途复算文档既有 8 处比值声明皆吻合，**未动任何 token 色值**。**A2**：`verification-receipt` 与
+`photo-evidence-tile` 十一个状态逐条对「视觉半 + 播报半」判定（4 fixed / 7 carried / 0 exempt）。
+**A3**：capture Back 定名 `Save and exit`，通用 `Back to {parent}` 为其让位，两个短语全文各只剩一次声明，
+准入条件 3 的「同一短语」遂有唯一指代。27/27 变异全杀。**遗留 FOLLOW-UP**：`NOT_APPLICABLE` 全文无取色
+绑定（`evidence-rail` 声明四个颜色却有五个 `segmentStates`），属调色决定、在本卡「只补登记不调色」
+之外，已开卡 `T4-DESIGN-NOT-APPLICABLE-COLOR` 承接。
+> **本卡的 DoD 不止查锚点**：除 16 条 ASCII 锚点（含 3 条 `expected 0` 反向断言）外，它**从文档自身重算**
+> ——按 DESIGN.md 写明的 WCAG 公式、用 frontmatter 的 token 值复算每条绑定比值并核 `minRatio`、核绑定值
+> 未偏离 token、核无重复配对、核 40 个配对全部登记、核新表 13 行印刷值与重算值逐位相等。于是
+> 「每对带其实测比值」是**机检**的而非散文声称的——这是对 L317（验收表须是已交付证据的陈述）的直接回应。
+> **三处「写下的保证超出证据」都在本地被吃掉，没有花掉 R3 轮次**：① 我的初稿把状态条款写成全称句
+> 「必带状态字形用状态色落在内容底上」，而 `privacy-chip` 的盾牌落 `privacy-container`、相机控件落 scrim
+> ——**自查时抓到**，改为保留封闭要求 + 另陈覆盖事实；② ship 前的全新上下文复核抓到「把 40 对的登记功劳
+> 记在只装 13 对的新表名下」；③ 同一轮抓到「其它底」只列两类而文档实有四类（`camera-shutter` 的底是
+> **一个 `on-` role**）。**教训：全称句的成本在于它对整份文档做断言，而你只对手边那几处验证过**（L309）；
+> 把它降级成「封闭要求 + 单独陈述的覆盖事实」，既不弱化下限，也不再欠一份做不完的全称证明。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLANNER` 已合并（master `d7510b02`，正式 R3 首轮 pass）；完整当前预览、原子批确认、READY 与格式 1 脱敏回执已交付。62 项 plan、实际合并树 1044 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，24 项源码变异被捕获。回执绑定原生上下文与不含原文的来源决策；数据库提交、媒体写入及 UI 仍由后续卡承接。
+
+**2026-09-08 本地交付**：`T3-REPORT-INTERCHANGE-SCHEMA` 已合并（master `800593b4`，正式 R3 首轮 pass）；schema v6 提供不可变导入来源回执与 PDF/HTML 格式回执，历史 PDF 字段无损迁移，HTML 不获得媒体归档资格。50 项定向测试通过；合并后整体验证覆盖 1034 项 core（4 项既有 Windows 跳过）及 6 项 E2E，均无失败。32 项源码变异均被捕获，最终 LF 源码与提交字节一致。映射回执规范化/隐私由 PLANNER 负责，COMMIT 负责写入前复验；本卡仅交付持久化基础。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-REVIEW-DECISIONS` 已合并（master `8f56d01f`，正式 R3 首轮 pass）；逐项显式状态/隐私、跨类别身份来源排除、caption 组成部分处置与按来源顺序汇总摘要已交付。同一目标的条目备注与显式来源备注确定性合并，未评级目标保留。52 项 plan、1029 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，15 项源码变异被捕获。预览、批确认与回执仍由原父卡承接，不具备数据库写入权限。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
+
+**2026-09-08 本地交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已合并（master `cfb4609c`，正式 R3 第4轮 pass，用户授权一次计数重置）。ADR-0008 确定离线签名、公钥身份与代次绑定、日期/反回退、Keystore 初始化证据及恢复矩阵；用户批准本人发布责任、受控电脑持钥与 USB 首次信任安排。前三轮发现均修正，确定性闸门与 core 自检通过；交付为设计与导入卡 A1–A8 验收，实际公钥/制品、导入与真机证据尚待后续卡，不启用 work-check。
+
+**2026-09-08 本地交付**：`T4-SCHEDULE-UI-PRESENTATION` 已合并（master `d22f5d33`，**人裁合并**——
+八道确定性闸全绿、R4 27 枚变异全杀后，R3 轮次上限达顶抬起 `[R3-ROUND-CAP]` 未唤起评审者、按其设计
+转人裁，用户裁定合并）。交付排程界面的最小呈现契约：每状态**至多一个** primary 动作且**必须显式声明
+这个数目**（不提供者声明缺席，同 `ScheduleBadge.NONE` 的既有做法）、反馈做成 `ScheduleFeedbackBanner`
+且其 recovery 是 **`ScheduleSecondaryAction` 这个另一个类型**（于是「一屏两个 primary」写不出来）、
+五个状态皆非空且非空白、固定 NZ 月名日期（不跟随 locale 与数字系统，本视图不渲染任何时刻）、
+复数感知计数短语。**11 条未决决策开工前由用户逐条收口**（master `d0ec9e4a`）。
+> **R3 六轮、每轮 finding 全部属实且全部当场修**，其中第 3–6 轮是**同一类错误：写下的保证超出证据**——
+> 过期的 token 归属注释 · `countPhrase(0)` 把数字拼写成 `No` 而内容值只有 `text` 会到达屏幕 ·
+> 注释宣称模型与 Compose 渲染器「不会漂移」而那条等式只钉住两条模型层路径 · `isNotEmpty` 断言下
+> `Message("")` 仍能通过。**最贵的一条**：那条非空断言原本存在，压体量时按「无变异单独杀死它」剪掉，
+> 而没有变异杀死它**正是因为我从未写过置空消息的变异**——缺失的变异恰恰是它看起来冗余的原因。
+> M34 现在只被那条恢复的测试杀死。**结论：mutation-survivor 剪枝的可靠性不超过它所对照的变异集。**
+> **三次范围移交**（均用户裁定）：符号化 chrome 与无障碍声明整半 · token 取值绑定 · R3 第 2 轮后连同
+> REQ-032/033/034 整条移交的 token 词汇声明，全部归 `T4-SCHEDULE-UI-SYMBOL-CHROME`，使两卡都不留
+> 「声明了却由别人应用」的接缝。渲染期约束（间距/对比度/200% 字号/Compose 接线本身）在黑盒面内不可
+> 机检，卡内验收表逐条标注为人工设计评审，不冒充自动验收。解锁 `T4-SCHEDULE-UI-SYMBOL-CHROME`
+> （自估 850–1200 行，**开工前须先拆两张**）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`，**人裁合并**——8 轮 R3 / 13 条 finding 全部属实且全部当场修，轮次上限达顶后由用户裁定，八道确定性闸全绿、R3 未被唤起）。`context/DESIGN.md` 新增 `Symbol-only chrome` 具名节：领域值永不由字形单独承载 + 五条准入条件 + 准入不覆盖更严组件合同；四处治符号化控件的条款解析到它，计数与状态条款重写。OD-1 裁定 tooltip 要求按组件 anatomy 绑定，故相机 anatomy 未动；OD-2 裁定 `Settings` 目的地播报可行动的本机健康状态。**沿途关掉十一处基线既有 WCAG 1.4.1 缺口**（非本卡引入）：签名组件 evidence rail 在每项默认态 `UNRATED` 下complete/missing/blocked 仅靠颜色区分，`task-stepper` 的失败阶段无非颜色载体而它是 RESTORE/BACKUP/IMPORT/ERASE 四条流程的必需元素，另有 `summary-stat`/`metadata-row` 状态图标 optional 等。R4 25/25 变异全杀。**最贵的一条**：R3 第 5 轮拦下「把无障碍播报当作可见视觉线索的替代项」——播报服务屏幕阅读器、不解决色觉障碍的明眼用户，六轮本地对抗复核全部漏掉，只有第二模型评审抓到。遗留三项开卡 `T4-DESIGN-STATUS-CARRIERS`；本卡解锁 `T4-SCHEDULE-UI-PRESENTATION`。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-SNAPSHOT` 已合并（master `8fba92e3`，正式 R3 pass，用户批准一次计数重置）；不可变上下文、严格日期、Routine v2 绑定及未抑制目标初始未评级已交付，沿用原生房间标签与抑制规则。6 项本卡测试、983 core + 6 E2E 验证通过，4 项既有 Windows media 测试跳过；30 次有效行为变异覆盖 29 种故障。来源投影、确认与导入写入尚未交付。
+
+**2026-09-07 本地交付**：`T3-DOCX-CUSTOM-PROPERTIES` 已合并（master `b00bcbcd`，R3 pass）；94 项本卡测试、10 项最终源码变异通过。TD174 的固定自定义属性部件有界校验后丢弃已实现，源元数据不进入提取结果；未宣称完整私样导入或真机验收。
+
+**2026-09-07 需求审校**：两张收尾卡已本地合并，卡片/安全接口 `d6e22084`、五文档同步 `bdb428f0`，均正式 R3 第2轮 pass。11张新产品卡保持待实施；文档交付不代表功能完成。V1 预设/键盘、V1.1 批量照片、产品 V2 语音；物业备份 format v2 导出与恢复仍在 V1 发布范围。
+
+脚手架维护已合入精简任务卡、按任务改动选择自检范围，以及每日/手动运行聚合压力测试；状态和验证记录见对应归档卡。上游评审策略仍按其活卡推进；产品 compliance 触发隔离已完成。
+**2026-09-06 脚手架维护**：`T0-SELFTEST-META-EXPANSION` 已本地合并（`04b355d4`，R3 pass）。普通自检默认延后三处元测试，每日/手动完整执行；实时检查保留。最终 core/workflow 全绿；两处新增延后范围的单次局部测量净省约 29.5 秒，非整套自检提速结论。
+**2026-09-06 脚手架维护**：`T0-SELFTEST-SKILL-ROUTING` 已本地合并（`5f0000cf`，R3 pass）。仅 Skill 改动改跑 core + workflow，使用目标工作区的独立快照并省去 seeded 错峰等待；冻结、混合和未知改动仍全跑。DoD、聚合回归、完整两分片及 8 项关键变异验证通过。
+**2026-09-07 脚手架维护**：`T0-SCAFFOLD-TRIGGER-ADOPTION` 已本地合并（`9229141a`，R3 pass）。产品 compliance 单独 push 不触发脚手架自检，license/secret 配置及每日/手动完整矩阵保留；迁移 canary 使用隔离失败测试，17ai 分类与有序断言恢复。最终精确候选整套自检通过，耗时 1980.7 秒；不作为性能提速结论。
 <!-- 随 R5 文档同步更新。 -->
+**2026-09-07 本地交付**：`T2-ROUTINE-CONTEXT-V2` 已合并（master `0603b022`，R3 首轮 pass）；92 项 Routine v2 保留全部 83 项历史内容，新增 Hallway 八项与普通摘要项；仅选择已安装的 active Routine v2，缺失不回退，历史按 ID 读取不变。21 项验收测试、9 项最终源码变异及完整 selftest 通过；APK 初始化和应用接入由 `T1-APP-BOUNDARY-ASSEMBLY` 承接。
+**2026-09-07 本地交付**：`T3-DOCX-REPORT-EXTRACTOR` 已合并（master `71e2b8e5`，R3 pass）；42 项测试与 99 项最终源码变异通过，含 96 项父卡故障与 3 项前置边界集成敏感性验证；drawing/身份边界及字符数据通用守卫修复经真实 RED/GREEN、60 个公开入口探针验证；42 项集成测试完整保留。仅已验证小图可排除；原私样的上游包兼容缺口登记为 TD174，尚未实现原包完整导入。
+**2026-09-06 本地交付**：`T3-DOCX-EXTRACTION-MANIFEST` 已合并（master `2f03a166`，R3 pass）；11 项测试、42 项断言变异与 1 项实际删测验证完成。该前置的独立验收已完成，提取器由父卡继续交付。
+**2026-09-06 本地交付**：`T3-DOCX-XML-TREE` 已合并（master `0c801597`，R3 pass）；6 项测试、18 项断言变异与 6 项实际删测验证完成。该前置的独立验收已完成，提取器由父卡继续交付。
+**2026-09-06 本地交付**：`T3-DOCX-IMAGE-QUALIFICATION` 已合并（master `c571ab4f`，R3 pass）；21 项测试及 35 项变异验证通过。仅限定 PNG 子集可获小图排除资格，JPEG 与未验证负载保留待审；extractor 接入由后续卡完成。
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
@@ -288,7 +380,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 **2026-09-06 本地交付**：`T3-REPORT-HTML-PRESENTATION` 已合并（master `2801e019`，R3 第 2 轮 pass）；`T3-DOCX-PACKAGE-READER` 已合并（master `0a511e96`，R3 第 1 轮 pass）。两卡 DoD、verify 与范围/许可/防泄露闸均通过。HTML 浏览器目检未执行；DOCX 仅完成包读取边界，后续语义提取与图片解码仍由承接卡负责。
 
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
-· `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
+· `T2-ROUTINE-CONTEXT-V2` ·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
@@ -431,6 +523,8 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
+22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
+23. `docs/adr/0008-compliance-update-trust.md` — 已批准的规则更新信任根、签名包、代次/版本/日期、初始化及恢复决策；实际制品与真机证据由导入卡交付
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
@@ -440,7 +534,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 跑默认分支 push/每日/手动 canary，每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片（8.2d/8.2e 锁死）。push 只将聚合压力夹具延后至每日/手动；生产检查保留，详见 DEVOPS-WORKFLOW。合并前仍由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 的默认分支 push canary 只覆盖脚手架权威面，排除产品 `configs/compliance/**`，保留 license/secret 配置、每日与手动触发；每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，覆盖不减（8.2d/8.2e 锁死）。push 延后三处元层夹具至每日/手动；生产检查保留，详见 DEVOPS-WORKFLOW。合并前仍由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -479,20 +573,20 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流自检**：`pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片。任务卡可用 `pwsh -File scripts\selftest.ps1 -TaskId <id> -Base master` 选既有覆盖：基线卡与 FrozenPaths、分支身份、提交/暂存/脏/未跟踪改动任一不可判即以非零退出拒绝选择；普通产品改动只报 `NOT-APPLICABLE`（仍须做产品 DoD/verify），普通文档/卡片改动跑 core。
-  默认 `IncludeMeta=true` 保持完整本地覆盖；显式 `-IncludeMeta:$false` 延后聚合压力夹具，输出 DEFERRED 收据，不表示该夹具已通过。
+- **工作流自检**：脚手架/harness 改动运行 `pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片。任务卡可用 `pwsh -File scripts\selftest.ps1 -TaskId <id> -Base master` 选既有覆盖：基线卡与 FrozenPaths、分支身份、提交/暂存/脏/未跟踪改动任一不可判即以非零退出拒绝选择；普通产品改动只报 `NOT-APPLICABLE`（仍须做产品 DoD/verify），普通文档/卡片改动跑 core。脚手架卡可选聚焦 fixture 作迭代 DoD，最终验收按卡执行；产品卡使用相关产品测试 + `scripts/verify.ps1`，不把 scaffold selftest 当 DoD。
+  默认 `IncludeMeta=false` 延后 `1i/fixtures`、`8.2e/protocol`、`8.2e/harness`；每日/手动及本地 `-IncludeMeta` 补齐。DEFERRED 收据不表示测试通过；真实源码与生产行为检查保留。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
 ## 架构大图
-单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 系统听写 / 短语库备注 → 生成双版本 PDF 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
+单用户、单设备（Android）、**local-first** 的房产巡检 App：按模板逐项走查 → 拍照（ghost overlay 对位历史机位）/ 预设短语与键盘备注（语音产品 V2）→ 生成双受众 PDF/HTML 报告（房东版含 LLM 整改建议，房客版纯客观）→ NZ 合规校验 + 48h 通知生成与送达存档。无服务端、无账号；数据全在本地（app 私有存储：SQLite + 文件系统照片/音频），备份 = 加密归档经 SAF 导出（ADR-0002）。技术路线 = **原生 Kotlin + Compose，2 模块**（ADR-0001）。
 
 | 路径 | 职责 |
 |---|---|
 | `docs/inspection-app-requirements.md` | **需求真相源**（[定]=已决定 / [待]=需确认 / [验]=需 spike） |
 | `docs/adr/0001–0004`、`docs/adr/0006-offline-security-backup-hardening.md` + `docs/TASK-BOARD.md` | 设计决策 + 任务/模型路由总表（状态以卡为准） |
 | `android/core/` | **纯 JVM 领域**：model / db(SQLDelight ★) / template / compliance / report / backup / canon ★ |
-| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写 · PdfDocument 渲染 · WorkManager |
+| `android/app/` | Android 薄壳：Compose UI · CameraX · SAF · 听写（产品 V2）· PdfDocument 渲染 · WorkManager |
 | `configs/compliance/` | 可更新的 NZ 合规规则配置（不硬编码；schema 含 entryPurpose，ADR-0004） |
 | `prompts/remediation/` | LLM prompt + 「检查项 → 建议」种子对照表（需求 §9） |
 | `data/templates/` | 巡检模板内容真相源（四类、双语、带版本号；构建期拷入 assets） |
@@ -501,7 +595,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 ## 硬边界（不可违反）
 - **永不做**（需求 §1 写死，防范围蔓延）：租金/账务 · 房客筛选/背调 · 工单派发 · 房源广告 · 押金托管 · **任何账号体系** · **任何服务端功能** · 多用户/权限 · 模板编辑器 UI。
 - **local-first**：数据（SQLite + 照片/音频文件）永在本地；唯一联网点 = remediation 时调 LLM API（自己的 key，可完全跳过）；不做云账号、不做遥测。app **自己不发送**通知（只生成 + 一键复制，人工发送后回记存档）。
-- **合规校验为阻断闸、不可关闭、不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。
+- **合规校验为阻断闸、不可关闭，校验阈值/开关不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。设置只允许按可信来源策略手动导入规则文件，不能修改阈值或绕过校验。
 - **LLM 建议只进房东版**报告；定位 = 提示 + 分级（NZS 4306 思路）+ 建议找谁，**不做诊断/处方/成本估算**；报告必带免责声明。
 - 隐私（Privacy Act 2020）：备份包**必加密**（含租客照片/联系方式）；租客数据设明确保留期限 + 可一键清理；`.env` 与密钥永不入库。
 - 测试/verify/CI 走确定性/离线路径（LLM 调用全 mock，禁出站网络）。
@@ -512,8 +606,8 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 主键一律 **UUIDv7**（禁自增整数——同步时是死局）；每表带 `updated_at`（UTC）+ `deleted_at`（软删除）。
 - 照片/音频存**文件系统**，DB 只存相对路径 + 内容哈希，**禁 BLOB**。导入照片必存：EXIF 拍摄时间（与巡检时间分开）+ 来源标记（`camera`/`imported`）+ 内容哈希防重；**复制不移动**原文件，EXIF 旋转必须处理。
 - **finalize 后原始条目只读**，只允许追加带独立时间戳的「补充说明」；导出 PDF 页脚写入该次巡检数据哈希（自证未事后修改）。
-- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 的 Ingoing）；**Exit 默认对照 baseline**、不是上次 Routine。
-- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。
+- 基线引用双轨分开存：`previous_inspection`（时间上前一次）≠ `baseline_inspection`（该 tenancy 已指定的 Ingoing 或 Routine 基线）；**Exit 默认对照 baseline**、不是上次 Routine。
+- **原始音频永远保留**（识别会失败；换模型后可重跑历史音频），存照片同目录、报告里不出现。产品 V2 才启用录音/听写；V1 延后功能不删除已有音频或冻结结构。
 - schema/迁移与合规校验引擎落地后登记进 `scripts/_config.ps1` FrozenPaths（`guard-frozen` 钩子拒改），演进走版本评审。
 
 ## 经验铁律（必须加载 · Tier 1 · 封顶 10 个驻留 id）

@@ -723,6 +723,7 @@ switch ($Phase) {
       Assert-RemotePrBase -Pr $pr -ExpectedBase $shipBase
       $sagaDone += 'push+PR'
 
+      # 本地闸门（DoD + verify + 范围/许可 + 防泄露闸 + 真实 diff 预算）通过后，执行 Codex 评审和候选 CI；合并前复核 base/head。
       Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；block 即停、不合并）'
       $r3Head = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
       if ($r3Head -cnotmatch '^[0-9a-f]{40}$') {

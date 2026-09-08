@@ -1,6 +1,6 @@
 # MyInspection UI/UX Elements 覆盖索引
 
-> 状态：v1 设计覆盖索引
+> 状态：V1 设计覆盖索引，含明确标注的 V1.1/V2 预留组件
 >
 > Normative source: `context/DESIGN.md`
 >
@@ -32,7 +32,7 @@
 
 `button-primary`、`button-secondary`、`button-destructive`、`icon-button`、`input-field`、`search-field`、`filter-chip-group`、`switch-row`、`checkbox-row`、`radio-group`、`segmented-control`、`choice-field`、`date-time-field`、`secure-input-field`、`confirmation-input`、`slider-field`、`status-choice`、`privacy-chip`、`validation-summary`。
 
-同一决策区只允许一个 `button-primary`。可逆替代动作使用 `button-secondary`；不可逆动作只有在影响预览与确认条件满足后才使用 `button-destructive`；纯图标操作必须使用 `icon-button` 并同时提供 tooltip 和无障碍名称。
+同一决策区只允许一个 `button-primary`。可逆替代动作使用 `button-secondary`；不可逆动作只有在影响预览与确认条件满足后才使用 `button-destructive`；纯图标操作在普通界面必须使用 `icon-button`；相机面的 `camera-control` 与 `camera-shutter` 是各自独立的组件合同，不套用该选型。三者的准入条件一律以 `context/DESIGN.md` 的 `Symbol-only chrome` 为准。
 
 ### 2.4 巡检、证据与媒体
 
@@ -53,7 +53,7 @@
 | `SETTINGS_ROOT` | 管理本地数据、安全和偏好 | `app-shell`, `top-app-bar`, `navigation-bar`, `section-header`, `settings-row`, `state-badge` | `feedback-banner`; Danger zone 必须在末尾且使用 `DANGER` header/row | Shared settings shell |
 | `PROPERTY_HUB` | 围绕一个物业做下一项工作 | `app-shell`, `top-app-bar`, `property-summary-card`, `summary-stat`, `section-header`, `result-list-row`, `metadata-row` | `compliance-block`, `backup-health-card`, `notice-delivery-row`, `empty-state-panel`, `feedback-banner` | `T2-CAPTURE-UI` |
 | `INSPECTION_SETUP` | 以最少步骤建立有效巡检 | `task-scaffold`, `radio-group` 或 `segmented-control`, `date-time-field`, `choice-field`, `input-field`, `bottom-action-dock` | `validation-summary`, `compliance-block`, `recovery-panel` | `T2-CAPTURE-UI` |
-| `INSPECTION_CAPTURE` | 在当前房间完成证据 | `inspection-capture-scaffold`, `top-app-bar`, `missing-evidence-strip`, `room-progress-strip`, `room-progress-segment`, `inspection-item-card`, `evidence-rail`, `status-choice`, `photo-evidence-tile`, `save-status`, `bottom-action-dock` | `history-evidence-strip`, `phrase-sheet`, `audio-evidence-control`, `media-source-sheet`, `feedback-banner`, `recovery-panel`, `undo-snackbar` | `T2-CAPTURE-UI` |
+| `INSPECTION_CAPTURE` | 在当前房间完成证据 | `inspection-capture-scaffold`, `top-app-bar`, `missing-evidence-strip`, `room-progress-strip`, `room-progress-segment`, `inspection-item-card`, `evidence-rail`, `status-choice`, `photo-evidence-tile`, `save-status`, `bottom-action-dock` | `history-evidence-strip`, `phrase-sheet`, `media-source-sheet`, `feedback-banner`, `recovery-panel`, `undo-snackbar` | `T2-CAPTURE-UI` |
 | `INSPECTION_REVIEW` | 找齐缺失证据并安全 finalize | `task-scaffold`, `summary-stat`, `section-header`, `review-gap-row`, `bottom-action-dock` | 完整时显示证据摘要；缺失时显示 `review-gap-row`; finalize 使用 `confirmation-dialog`; 失败使用 `feedback-banner` | `T2-CAPTURE-UI` / `T3-FINALIZE` |
 | `REPORT_IMPORT` | 审核 Routine DOCX 并创建可编辑草稿 | `task-scaffold`, `task-stepper`, `choice-field`, `date-time-field`, `metadata-row`, `preflight-summary`, `disclosure-list`, `import-mapping-summary`, `import-mapping-row`, `bottom-action-dock` | `evidence-grid`, `media-preview`, `validation-summary`, `task-progress-card`, `recovery-panel`; 有 active draft 或任一 blocker 时不可提交 | `T3-REPORT-IMPORT-UI` |
 | `REPORT_EXPORT` | 选择受众/格式并生成一致报告 | `task-scaffold`, `radio-group`, `segmented-control`, `disclosure-list`, `share-boundary-callout`, `bottom-action-dock` | PDF 默认并显示质量选择；HTML 不显示质量；另有 `remediation-suggestion-card`（房东版）, `task-progress-card`, `verification-receipt`, `recovery-panel` | `T3-REPORT-EXPORT-UI` |
@@ -68,6 +68,7 @@
 | `DIAGNOSTIC_EXPORT` | 明示范围后离线导出脱敏诊断 | `detail-scaffold`, `segmented-control`, `disclosure-list`, `verification-receipt`, `share-boundary-callout` | `task-progress-card`, `recovery-panel`, `feedback-banner` | `T5-DIAGNOSTIC-EXPORT` |
 | `LOCAL_DATA_ERASURE` | 理解影响并物理清除 app 本地数据 | `task-scaffold`, `preflight-summary`, `disclosure-list`, `confirmation-input`, `bottom-action-dock` | `backup-health-card`, `task-progress-card`, `recovery-panel`; 执行中不显示旧业务内容 | `T5-LOCAL-DATA-ERASURE` |
 | `REMEDIATION_SETTINGS` | 配置可选 provider，不影响离线主流程 | `detail-scaffold`, `secure-input-field`, `settings-row`, `disclosure-list` | `task-progress-card`, `recovery-panel`, `verification-receipt` | `T7-REMEDIATION` |
+| `COMPLIANCE_RULES_SETTINGS` | 预检并激活可信规则文件，无关闭规则开关 | `detail-scaffold`, `settings-row`, `metadata-row`, `preflight-summary`, `disclosure-list` | `confirmation-dialog`, `task-progress-card`, `recovery-panel`, `feedback-banner`; 系统 RULE_FILE_PICKER | `T4-COMPLIANCE-OVERRIDE-IMPORT`（前置信任决策卡） |
 | `CAMERA_CAPTURE` | 高对比、单手取证 | `camera-capture-scaffold`, `camera-control`, `camera-shutter` | `camera-overlay-control`, `recovery-panel`; Import 始终是权限/相机失败的可用替代（平台允许时） | `T2-CAPTURE-UI` |
 | `CAMERA_REVIEW` | 审核临时照片再提交为证据 | `camera-capture-scaffold`, `media-preview`, `camera-review-bar`, `privacy-action`, `metadata-row` | `task-progress-card`, `recovery-panel`, `confirmation-dialog`（丢弃临时照片） | `T2-CAPTURE-UI` |
 
@@ -90,7 +91,7 @@
 | Report create picker | `SYSTEM_SURFACE` | Save 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动 | originating Save action |
 | Report viewer / Sharesheet | `SYSTEM_SURFACE` | PDF/HTML Open/Share 仅在 selected artifact 重开验证并确认 `share-boundary-callout` 后启动；Share 随后只授予该产物临时 scoped URI | originating action |
 | Android app settings | `SYSTEM_SURFACE` | `recovery-panel`; 仅由用户点 `Open settings` 启动；回前台重新检查权限 | permission recovery panel |
-| Speech recognizer | `SYSTEM_SURFACE` | `input-field`, `phrase-sheet`; 无离线包时隐藏/降级；不阻塞键盘和短语 | voice trigger or note field |
+| Speech recognizer（产品 V2） | `SYSTEM_SURFACE` | `input-field`, `phrase-sheet`; 原件保存与离线能力验证后接入；V1 无入口 | V2 voice trigger or note field |
 
 ## 5. 状态覆盖矩阵
 
@@ -119,7 +120,7 @@
 2. 焦点：进入页先到标题或阻断摘要；sheet/dialog/system surface 关闭后回到原触发点；修复缺失证据直达具体控件。
 3. 触控：目标至少 48×48dp，相邻目标至少 8dp；相机快门 72dp。
 4. 字体：200% 时完整换行，底部操作垂直增长；日期、状态、错误、缺失原因不可省略号截断。
-5. 主题：Light/Dark 使用同一语义 token；隐私、警告、错误、完成状态仍有文本和图标，不靠颜色。
+5. 主题：Light/Dark 使用同一语义 token；隐私、警告、错误、完成状态不以颜色单独承载；省略可见文字的控件按 `context/DESIGN.md` 的 symbol-only chrome 准入。
 6. 动效：Reduce Motion 下取消位移、缩放、脉冲和重复动画，只保留最多 100ms 淡入淡出及静态状态变化。
 7. 方向/尺寸（compact / medium / expanded）：Compact/Medium 保持单列；Expanded 内容最大 720dp；横屏时 Back、主要状态、快门和确认操作不可被遮挡。
 8. 系统区域：状态栏、手势导航、IME、安全绘制区域只由最外层容器消费一次；最后一项可滚到固定 dock 上方。
@@ -131,3 +132,9 @@ v1 explicitly excludes FAB, drawer, carousel, charts, global snackbar, and remot
 v1 不设计也不预留以下入口：账户/头像、登录注册、云同步状态、团队协作、聊天/评论、通知收件箱、远程 admin、SQL/数据库编辑器、遥测开关、Dashboard 图表、只读报告查看器、自动照片差异比较、成本估算、应用内发短信/邮件、导航抽屉、汉堡菜单、平板双栏或 navigation rail。
 
 如果未来范围变化，必须先更新产品边界与页面契约，再新增 Elements；不得通过“通用组件”偷偷引入未批准能力。
+
+## 版本可用性（2026-09-06）
+
+V1 采集使用预设短语与键盘，不显示 app-owned 录音/听写入口，不申请麦克风。`media-assignment-row` 和批量照片入口由 `T2-BULK-PHOTO-ASSIGNMENT` 在 V1.1 接入；`audio-evidence-control`/录音回放与听写由 V2 两张语音卡接入。目录保留未来组件定义，不能据目录存在就列为 V1 必做。DOCX 导入映射仍为 V1，不与批量照片共用审核状态机。
+
+规则更新路由、picker 焦点恢复及失败状态以 DESIGN “Version availability and rule update workflow” 为准。Provider 设置由决策卡先收口，provider/key 尚未选定；现有页面占位不意味着允许默认联网。

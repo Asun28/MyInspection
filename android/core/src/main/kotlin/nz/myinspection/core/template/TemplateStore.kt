@@ -22,6 +22,11 @@ class TemplateStore(
     private val clock: ClockMs = SystemClockMs,
 ) {
 
+    /** Installed active Routine v2 only; asset verification and bootstrap belong to application assembly. */
+    fun currentRoutineVersionId(): String? =
+        db.templateVersionQueries.selectActive().executeAsList()
+            .singleOrNull { it.type == "ROUTINE" && it.version == 2L }?.id
+
     /**
      * 单事务写入版本行与全部项定义，返回 `template_version.id`。
      *

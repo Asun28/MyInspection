@@ -16,7 +16,7 @@ kotlin {
 sourceSets {
     test {
         resources.srcDir("../../data/templates")
-        resources.include("routine-v1.json", "phrases-v1.json", "README.md")
+        resources.include("routine-v1.json", "routine-v2.json", "phrases-v1.json", "README.md")
     }
 }
 
