@@ -3,7 +3,7 @@ id: T3-DOCX-EXTRACTION-MANIFEST
 title: Immutable DOCX extraction manifest and deterministic evidence digest
 depends_on: []
 parallelizable_with: [T3-DOCX-XML-TREE]
-status: todo
+status: merged
 branch: T3-DOCX-EXTRACTION-MANIFEST
 worktree: C:\wt\T3-DOCX-EXTRACTION-MANIFEST
 allow_paths:
@@ -32,6 +32,14 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Approved predecessor (2026-09-06)
 
-Implement [the contract](../../docs/references/docx-extraction-contract-llms.txt). Constructor tests are independent of reader/extractor/image fixtures; parent integration stays as specified.
+Implement [the contract](../../../docs/references/docx-extraction-contract-llms.txt). Constructor tests are independent of reader/extractor/image fixtures; parent integration stays as specified.
 
 Pin NFC/trim/six-ASCII-whitespace normalization, raw preservation, interior nonbreaking whitespace and independent vectors. JVM tests do not prove ART behavior.
+
+## Remote delivery — 2026-09-08
+
+Squash-merged by [PR #262](https://github.com/Asun28/MyInspection/pull/262) as `11cf5899be81bb1511cde31bc34bfdceea5b31eb`; reviewed head `38c15858f31cdf9b72643414a7bbfe4f5d0d4f0a` received formal R3 pass with empty reasons and exact-candidate CI `verify` SUCCESS ([run](https://github.com/Asun28/MyInspection/actions/runs/34188053421)). Official non-local task-loop ship passed RED, DoD, project verify, scope, licence, secrets and complete-diff budget gates.
+
+Fresh RED had 11 behavioral failures; final DoD passed all 10 retained tests without skips. Forty-five fresh mutations failed named assertions with exact restoration. After physically deleting the redundant length-prefix test, the missing-prefix mutation was still caught by four assertions; the complete core run confirmed those same four failures among 900 tests, with 0 errors and 4 existing skips. Source SHA-256 `595ea4ab7fc2de15214eee7bced403c846cf7ba46268873de829d9ba71d4e243`; final test SHA-256 `c3625ad79c7be51070a844cc42e65fd339ffbf38cb9b7ae901ff052eed18f84d`. All raw XML, mutation/deletion recipes, classifier-attribution correction and restoration receipts are preserved locally under `_local/projection-20260908/remote-manifest-evidence/`; remote verdict and merge proof are in `remote-manifest-delivery/`.
+
+Official cleanup completed after merge and evidence preservation. R5 debt scan found no new concrete divergence. R5.5 skips a duplicate lesson: L310 already covers this remote-recovery workflow. This delivery establishes immutable evidence and deterministic bytes; it does not claim ART acceptance, extraction, planning or complete import.
