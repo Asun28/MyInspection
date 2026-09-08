@@ -119,6 +119,7 @@
 | T0-SCAFFOLD-CI-HOTFIX | merged | 修复合并后 scaffold-selftest 的跨分支与跨 PowerShell 回归 |
 | T0-SCAFFOLD-FLEET-LOOP | merged | fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
+| T0-SCAFFOLD-REMOTE-CARDS | merged | Register the bounded remote scaffold adoption sequence |
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SCAFFOLD-TRIGGER-REMOTE | merged | Publish scaffold-only selftest trigger on current upstream |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
