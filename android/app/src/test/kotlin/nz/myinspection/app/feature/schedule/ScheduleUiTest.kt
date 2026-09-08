@@ -902,7 +902,7 @@ class ScheduleUiTest {
     @Test
     fun `A2 a content state built with no rows at all still says something true`() {
         assertEquals(
-            listOf("No inspections due"),
+            listOf("0 inspections due"),
             SchedulePresentation.contentOf(
                 ScheduleScreenState.Content(emptyList()),
                 may19,
@@ -1053,9 +1053,14 @@ class ScheduleUiTest {
         assertEquals("3 inspections due", SchedulePresentation.countPhrase(3).text)
     }
 
+    /**
+      * The round-3 block: zero used to read "No inspections due", and since a rendered content value
+      * is only its text, the numeral never reached the screen at all.
+      */
     @Test
-    fun `A3 a zero count is a complete phrase rather than a bare numeral`() {
-        assertEquals("No inspections due", SchedulePresentation.countPhrase(0).text)
+    fun `A3 a zero count keeps its numeral inside a complete phrase`() {
+        assertEquals("0 inspections due", SchedulePresentation.countPhrase(0).text)
+        assertEquals(0, SchedulePresentation.countPhrase(0).count)
     }
 
     @Test
@@ -1285,7 +1290,7 @@ class ScheduleUiTest {
  * same bytes rather than rewritten. Production SHA-256 before the batch and after every restore,
  * identical, so no file was left mutated and the receipt describes exactly the code that ships
  * (L196, L270):
- *   ScheduleModels.kt bb91120dc2ba13d81018a2095f19aeec01fb6a2c0878af73bdf7bbc5bee7c56a
+ *   ScheduleModels.kt 2c5f6159a7e53c3221f3610e62aab1ca8f71d6d152fbf7f5e44812fba1e0c537
  *   ScheduleScreen.kt 41f7d3878abf3089e8dda99aa88ae9f084ce073acf41245fee2baca8d140f4ea
  *
  * Fourth batch, run after the R3 round-2 fixes. M1-M7 retired with the token vocabularies, which
@@ -1294,15 +1299,14 @@ class ScheduleUiTest {
  * and M33 are new and aim at exactly what round 2 found unbacked: the banner's secondary recovery,
  * the visible-control policy, and the ten month names no test touched.
  *
- * The first attempt at this batch was killed by host memory pressure with M29 planted, and a killed
- * batch does not run its restore, so ScheduleModels.kt was left mutated with git showing only a
- * bland M (L196). It was diagnosed from the log's last completed row rather than guessed, reversed,
- * and proved byte-equal to its baseline. The whole set was then re-run end to end after R3 found
- * stale token-ownership comments in ScheduleScreen.kt: that fix changed a production file, and a
- * receipt that pins bytes cannot be repaired by editing a hash line, because the claim it makes is
- * that a batch ran against exactly these bytes. It did. The 23 rows shared with the killed attempt
- * returned byte-identical verdicts, which is the evidence that a comment-only edit to a file no row
- * targets changed nothing.
+ * An earlier attempt at this batch was killed by host memory pressure with M29 planted, and a
+ * killed batch does not run its restore, so ScheduleModels.kt was left mutated with git showing
+ * only a bland M (L196). It was diagnosed from the log's last completed row rather than guessed,
+ * reversed, and proved byte-equal to its baseline. The set has since been re-run end to end twice
+ * more, once after R3 found stale token-ownership comments and once after it found countPhrase
+ * spelling zero away as "No inspections due". Each of those fixes touched a production file, and a
+ * receipt that pins bytes cannot be repaired by editing a hash line: the claim it makes is that a
+ * batch ran against exactly these bytes, so each time it did.
  *
  * KILLED means the command exited nonzero AND the output named failing tests rather than a
  * compilation error, because a nonzero exit proves nothing until you know what produced it (L282).
@@ -1349,7 +1353,7 @@ class ScheduleUiTest {
  *     KILLED exit 1, 4 tests, A3 a due line carries the absolute date and adds a relative phrase
  * M22 A3  a one-day interval is pluralised
  *     KILLED exit 1, 1 test, A3 one day either side of today is singular rather than plural
- * M23 A3  a zero count renders as a bare numeral
+ * M23 A3  zero is folded into the singular branch and loses its own numeral
  *     KILLED exit 1, 2 tests, A2 a content state built with no rows at all still says something true
  * M24 A3  a count of one is pluralised
  *     KILLED exit 1, 2 tests, A3 a count of one is singular and any other count is plural

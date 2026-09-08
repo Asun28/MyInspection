@@ -799,13 +799,14 @@ object SchedulePresentation {
         return ScheduleContentValue.TypeLabel(type = type, text = text)
     }
 
-    /** A count as a complete plural-aware phrase, never a bare numeral. REQ-037. */
+    /**
+     * A count as a complete plural-aware phrase that keeps its numeral, never a bare number and
+     * never a word standing in for one. Zero is written `0` rather than `No`, because the rendered
+     * text is the whole of what reaches the screen: a value that spells its number away has lost
+     * it, which is what REQ-037 and REQ-053 are both about.
+     */
     fun countPhrase(count: Int): ScheduleContentValue.CountPhrase {
-        val text = when (count) {
-            0 -> "No inspections due"
-            1 -> "1 inspection due"
-            else -> "$count inspections due"
-        }
+        val text = if (count == 1) "1 inspection due" else "$count inspections due"
         return ScheduleContentValue.CountPhrase(count = count, text = text)
     }
 
