@@ -179,7 +179,12 @@ function Test-StrictJsonObject([string]$Json) {
   $document = $null
   try {
     $document = [Text.Json.JsonDocument]::Parse($Json)
-    return $document.RootElement.ValueKind -eq [Text.Json.JsonValueKind]::Object
+    if ($document.RootElement.ValueKind -ne [Text.Json.JsonValueKind]::Object) { return $false }
+    $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($property in $document.RootElement.EnumerateObject()) {
+      if (-not $names.Add($property.Name)) { return $false }
+    }
+    return $names.Contains('verdict') -and $names.Contains('reasons')
   } catch { return $false } finally { if ($null -ne $document) { $document.Dispose() } }
 }
 

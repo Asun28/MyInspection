@@ -58,14 +58,14 @@ The user's 2026-09-08 instruction authorizes remote delivery through an independ
 
 Local candidate a9506225 repaired strict JSON and exact status-only findings after two blocked R3 rounds. The user authorized one counter reset on 2026-09-08, and it has already been consumed. Preserve the findings and current counter for remote delivery; a new worktree grants no additional reset.
 
-## Original 0220 candidate evidence (focused only)
+## Original 0220 evidence (historical)
 
-R1 starts from origin/master 0220c692. Fresh behavior RED preceded production: `.review/low-current-red.log` exits 1; primary `-Phase red -Base origin/master` records DoD exit 1 in this card's active `.red` receipt. `.review/low-red-test-only.ps1` preserves the tested RED source.
-
-The scoped port preserves both historical BLOCK repairs; historical receipts remain provenance only (`.review/historical-provenance.md`). Current helper SelfCheck passes in `.review/low-green-final.log`; `.review/low-green-manifest.json` binds its final source hashes. Isolated, one-guard mutations and baseline/mutant logs are recorded by `.review/run-low-mutations.ps1` in `.review/low-mutations.json`; these exercise real policy/reviewer fixtures without an official R3 backend.
-
-Full selftest, verify, official blocking R3 and remote delivery remain pending the coordinator's execution window. No additional counter reset is authorized.
+Origin 0220 R1/behavior RED: `.review/low-current-red.log` exit1; primary red recorded DoD1; `.review/low-red-test-only.ps1` preserves tested source. Both old BLOCK repairs remain; `.review/historical-provenance.md` distinguishes old receipts. Helper GREEN/source hashes: `.review/low-green-final.log`, `low-green-manifest.json`. Twenty isolated guard mutants: `.review/run-low-mutations.ps1`, `low-mutations.json`. No additional reset is authorized.
 
 ## Current base evidence
 
 On ceb2685e, the preserved tests-only fixture against the real base reviewer again failed the named advisory behavior (session66995 exit1). Primary red session35031 exited0 with DoD exit1 and a fresh ceb receipt; the original0220 receipt remains historical. Four frozen production sources were restored exactly; final SelfCheck session55870 exited0. Raw logs, source hashes and the 20-record/44-log same-source historical R4 audit are bound by `.review/current-base-ceb-red/evidence.json`; no new 20-mutant run or reset is claimed.
+
+## PR277 round1 repair
+
+Head1677 R3 BLOCK exposed duplicate JSON keys. `.review/r3-duplicate-keys/evidence.json` binds four actual reviewer RED cases, final helper GREEN, seven current guard mutants and 19 unchanged historical target/fixture checks. Original round1 receipts are preserved; rounds=1. No reset or second ship is claimed here.

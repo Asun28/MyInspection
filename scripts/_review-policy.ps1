@@ -109,7 +109,13 @@ try {
   @'
 [Console]::In.ReadToEnd() | Out-Null
 $payload = @{ verdict='block'; reasons=@('Fixture finding preserved') }
-switch ($env:REVIEW_POLICY_TEST_MODE) {
+switch -Wildcard ($env:REVIEW_POLICY_TEST_MODE) {
+  duplicate-* {
+    $key = $env:REVIEW_POLICY_TEST_MODE.Substring(10)
+    $payload = @{ verdict='pass'; reasons=@(); sha=(& git -C $env:REVIEW_WT rev-parse HEAD).Trim(); branch=(& git -C $env:REVIEW_WT branch --show-current).Trim() }
+    $json = $payload | ConvertTo-Json -Compress
+    Set-Content $env:REVIEW_OUT ('{"' + $key + '":null,' + $json.Substring(1)); exit 0
+  }
   pass { $payload = @{ verdict='pass'; reasons=@() } }
   Verdict { $payload = @{ Verdict='pass'; reasons=@() } }
   Reasons { $payload = @{ verdict='pass'; Reasons=@() } }
@@ -171,6 +177,7 @@ exit 0
   $identity = Invoke-ReviewPolicyCase 'identity' -Mode identity -ExistingRoot $advisory.Root
   Assert-ReviewPolicyCheck ($identity.Exit -eq 0 -and $identity.Verdict.verdict -ceq 'pass') 'exact lowercase optional identity fields accepted'
   foreach ($mode in @(
+    'duplicate-verdict', 'duplicate-reasons', 'duplicate-sha', 'duplicate-branch',
     'Verdict', 'Reasons', 'SHA', 'Branch', 'wrapped-pass', 'wrapped-block',
     'extra-field', 'blank-reason', 'scalar-reason', 'nonstring-reason', 'pass-with-reasons', 'block-without-reasons',
     'nonstring-sha', 'nonstring-branch', 'lowercase-branch',
