@@ -741,6 +741,7 @@ switch ($Phase) {
         return
       }
 
+      # 本地闸门（DoD + verify + 范围/许可 + 防泄露闸 + 真实 diff 预算）通过后，执行 Codex 评审和候选 CI；合并前复核 base/head。
       Step 'push + 开 PR（Codex 评审在 PR 开好后单次运行，兼作回贴状态）'
       # push 之前是最后一个还能无代价停下的点：一旦推上去，远端就有了一个可能从未过预算闸的提交。
       # 按提交 OID 发布（而非分支名）属 T0-R3-MEASURED-OID-BINDING，本卡不做。
