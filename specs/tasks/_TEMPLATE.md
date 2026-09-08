@@ -34,6 +34,8 @@ dod_command: uv run python -m pytest <tests> -q   # 改成你项目的 DoD 命�
 dod_exit: 0
 dod_assert: <命令产出的可机检断言>
 review_gate: codex {verdict:pass}
+# 可选 advisory：须在基线预先授权且只改普通 docs/specs Markdown；本卡可仅改 status。
+# 安全/流程/交付/关键/冻结/未知路径与运行故障仍阻断，详见 docs/QUALITY-RUBRIC.md §0.1。
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段 + README（R5）
 ---

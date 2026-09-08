@@ -56,7 +56,7 @@ selftest 闸 ⑩ 与 CI 也跑——卡写错在动手前即暴露，而非拖�
 | `non_goals` | 本卡**能力级**「不做」（从计划「本版砍掉/推迟」下沉；R3 评审 #14 判「能力级越界/顺手多做」）；无则 `none`。是 `forbid` 的能力级对偶 |
 | `dod_command` | **DoD = 命令**：`task.ps1 -Phase ship` 直接执行，必须退出码 0 |
 | `dod_assert` | 人/评审可读的断言（与命令配套） |
-| `review_gate` | `codex {verdict:pass}`（见 verdict.schema.json） |
+| `review_gate` | 默认 `codex {verdict:pass}`（blocking）；精确 `advisory` 只允许基线已授权且真实 diff 为普通 docs/specs Markdown 的卡，边界见 `docs/QUALITY-RUBRIC.md` §0.1。有效负面意见保留 JSON `block`，运行故障仍停止 |
 | `hygiene` | R4 测试卫生承诺（mutation-survivor 剪枝） |
 | `doc_sync` | R5 合并后要同步的文档清单 |
 

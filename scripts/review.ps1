@@ -9,7 +9,7 @@
   - 裁决落到 .review/<branch>.json（gitignored）。
   - -PostStatus：把裁决作为 commit status（context 随 _config.ps1 ReviewStatusContext 可换，默认
     codex-review）回贴 GitHub，供分支规则集当作「必需状态检查」→ 这就是「第二模型代替人工审批」的落地点。
-  - 退出码：pass→0，block/skip/无法评审→非零，便于 task.ps1 串联（**跳过≠通过**，绝不自动合并）。
+  - 退出码：pass→0；基线批准的普通文档 advisory 可保留有效 block 而返回 0；其余 block/skip/无法评审→非零。
   - 冻结物清单来自 scripts/_config.ps1 的 FrozenPaths（空则不强调冻结面）。
   - 模型无关（L26）：默认实现是 codex；设 _config.ps1 ReviewCommand 即可换任意后端
     （其须读 stdin 的 prompt、把裁决 JSON 写到 $env:REVIEW_OUT）。
@@ -66,19 +66,20 @@ Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
 
 . (Join-Path $PSScriptRoot '_config.ps1')
 . (Join-Path $PSScriptRoot '_gitbase.ps1')   # 共享基线名→引用解析（TD68 单一实现，与 task.ps1 共用防漂移）
+. (Join-Path $PSScriptRoot '_review-policy.ps1')
 $statusContext = Get-ScaffoldReviewStatusContext   # R3 状态检查名（单一来源；换后端可改名，治「工具名硬编码进永久契约」L26）
 $WorktreePath = (Resolve-Path $WorktreePath).Path
 $branch = (& git -C $WorktreePath rev-parse --abbrev-ref HEAD).Trim()
 $sha = (& git -C $WorktreePath rev-parse HEAD).Trim()
 # TD66-STD-BASELINE：评审**逻辑本体**（本 review.ps1 / _guard / _gitbase / _encoding，按 $PSScriptRoot 载）来源告警。
 # 标准远端 ship 由主检出的 review.ps1 跑（task.ps1 用 $RepoRoot）=> $PSScriptRoot=主检出、与被审 $WorktreePath 不同 => 静默；
-# 但 ship -Local / 手动在被审检出内跑 review.ps1 时 $PSScriptRoot 落在 $WorktreePath 之内——评审逻辑本体由**被审分支自己**提供。
-# rubric 与 FrozenPaths 已基线锁（见下方），但逻辑本体无法成比例地硬锁（对 minor/纵深防御债重执行不划算、且会破坏合法
-# -Local），故此处 loud warn（非阻断）：要完全完整性，从主检出跑评审。前缀比较加分隔符，避免兄弟目录（…\T32 vs …\T32-FOO）误命中。
+# 手动在被审检出内跑 review.ps1 时 $PSScriptRoot 落在 $WorktreePath 之内——评审逻辑本体由**被审分支自己**提供；ship 两路均取主检出。
+# rubric 与 FrozenPaths 已基线锁（见下方）；手动调用仍允许从被审树运行，但给出来源提示。
+# 前缀比较加分隔符，避免兄弟目录（…\T32 vs …\T32-FOO）误命中。
 $scriptRootResolved = (Resolve-Path $PSScriptRoot).Path
 $wtWithSep = $WorktreePath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if ($scriptRootResolved.StartsWith($wtWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
-  Write-Warning "TD66-STD-BASELINE: 评审逻辑本体（review.ps1/_guard/_gitbase/_encoding）由被审树 '$WorktreePath' 自身提供（-Local / 手动在被审检出内跑评审）。rubric 与 FrozenPaths 已从基线锁定，但**评审逻辑本体未从基线锁**——被审分支理论上能改动评审代码本身。要完全完整性，请从主检出跑评审（标准远端 ship 即如此）。此为纵深防御提示、非阻断。"
+  Write-Warning "TD66-STD-BASELINE: 评审逻辑本体（review.ps1/_guard/_gitbase/_encoding/_review-policy）由被审树 '$WorktreePath' 自身提供（手动在被审检出内跑评审）。rubric 与 FrozenPaths 已从基线锁定，但**评审逻辑本体未从基线锁**。请从主检出跑评审（ship 两路均如此）。此为纵深防御提示、非阻断。"
 }
 $reviewDir = Join-Path $WorktreePath '.review'
 # 分支名含 / 会让 <branch>.json 落到子目录 → 父目录不存在则写入失败、$raw 空、误判 block（L25）。
@@ -155,30 +156,71 @@ function Write-Verdict([string]$v, [string[]]$r) {
   }
 }
 
+# 卡的 status-only 例外必须比较 Git blob 的原始文本；原生命令管道会折叠末尾换行，不能据此授权。
+function Get-GitBlobText([string]$GitDir, [string]$ObjectName) {
+  $info = [Diagnostics.ProcessStartInfo]::new('git')
+  $info.UseShellExecute = $false; $info.CreateNoWindow = $true
+  $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true
+  foreach ($arg in @('-C', $GitDir, 'cat-file', 'blob', $ObjectName)) { [void]$info.ArgumentList.Add($arg) }
+  $process = [Diagnostics.Process]::new(); $process.StartInfo = $info
+  try {
+    if (-not $process.Start()) { return $null }
+    $bytes = [IO.MemoryStream]::new()
+    try {
+      $process.StandardOutput.BaseStream.CopyTo($bytes)
+      $null = $process.StandardError.ReadToEnd(); $process.WaitForExit()
+      if ($process.ExitCode -ne 0) { return $null }
+      return [Text.UTF8Encoding]::new($false, $true).GetString($bytes.ToArray())
+    } finally { $bytes.Dispose() }
+  } catch { return $null } finally { $process.Dispose() }
+}
+
+function Test-StrictJsonObject([string]$Json) {
+  $document = $null
+  try {
+    $document = [Text.Json.JsonDocument]::Parse($Json)
+    return $document.RootElement.ValueKind -eq [Text.Json.JsonValueKind]::Object
+  } catch { return $false } finally { if ($null -ne $document) { $document.Dispose() } }
+}
+
 # TD66-STD-BASELINE：从**基线**（合并目标）解析 FrozenPaths——判定标准的「冻结契约」这一半也须像 rubric 一样基线锁，
 # 使被审分支在 ship -Local / 手动路径（$PSScriptRoot=被审树）下改不动自己被判的冻结标准。**非执行 AST 提取**：
 # git show 基线 _config.ps1 原文 → Parser.ParseInput 抠 hashtable 键 FrozenPaths 的字符串常量元素；**不 dot-source /
-# 不执行**基线配置、不 clobber 运行中的 $ScaffoldConfig/函数。基线无该文件（空输出）或解析出错 => 返回 $null（信号回退）；
+# 不执行**基线配置、不 clobber 运行中的 $ScaffoldConfig/函数。基线缺失或不能静态求值 => 返回 $null（普通评审回退，advisory 禁用）；
 # 解析到（哪怕空）=> 返回数组（逗号防空数组塌成 $null），基线权威、不回退。
 function Get-BaselineFrozenPaths {
   param(
     [Parameter(Mandatory)][string]$GitDir,
     [Parameter(Mandatory)][string]$BaseRef
   )
+  $cfgObject = (& git -C $GitDir ls-tree $BaseRef -- scripts/_config.ps1 2>$null | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $cfgObject -cnotmatch '^100(?:644|755) blob [0-9a-f]{40}\tscripts/_config\.ps1$') { return $null }
   $cfgText = (& git -C $GitDir show "${BaseRef}:scripts/_config.ps1" 2>$null | Out-String)
-  if ([string]::IsNullOrWhiteSpace($cfgText)) { return $null }   # 基线无 _config.ps1（新项目首卡）=> 回退工作树值
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($cfgText)) { return $null }
   $ptoks = $null; $perrs = $null
   $ast = [System.Management.Automation.Language.Parser]::ParseInput($cfgText, [ref]$ptoks, [ref]$perrs)
   if ($perrs -and $perrs.Count -gt 0) { return $null }           # 基线配置语法异常 => 回退（不猜）
-  # bareword 键 FrozenPaths 解析为 StringConstantExpressionAst（Value='FrozenPaths'）；大小写敏感匹配。
-  $pair = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true) |
-    ForEach-Object { $_.KeyValuePairs } |
-    Where-Object { ($_.Item1 -is [System.Management.Automation.Language.StringConstantExpressionAst]) -and ($_.Item1.Value -ceq 'FrozenPaths') } |
-    Select-Object -First 1
-  if (-not $pair) { return , @() }   # 基线有 _config 但无 FrozenPaths 键 => 空冻结面（仍是基线权威）
-  # 收集值表达式里的字符串常量元素（@('a','b') / 'a'）；注释里的示例被解析器剥离、不计入。
-  $vals = @($pair.Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) | ForEach-Object { $_.Value })
-  return , $vals
+  # Freeze authority belongs to the unique top-level script configuration, never another table.
+  $owners = @($ast.FindAll({ param($n)
+    $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+    $n.Left.VariablePath.UserPath -match '^(?:(script|global|local|private):)?ScaffoldConfig$'
+  }, $true))
+  if ($owners.Count -ne 1) { return $null }
+  $owner = $owners[0]
+  if ($owner.Left.VariablePath.UserPath -cne 'script:ScaffoldConfig' -or
+      $owner.Operator -ne [System.Management.Automation.Language.TokenKind]::Equals -or
+      -not $ast.EndBlock.Statements.Contains($owner) -or
+      $owner.Right -isnot [System.Management.Automation.Language.CommandExpressionAst] -or
+      $owner.Right.Expression -isnot [System.Management.Automation.Language.HashtableAst]) { return $null }
+  $pairs = @($owner.Right.Expression.KeyValuePairs |
+    Where-Object { ($_.Item1 -is [System.Management.Automation.Language.StringConstantExpressionAst]) -and ($_.Item1.Value -ceq 'FrozenPaths') })
+  if ($pairs.Count -ne 1) { return $null }
+  try {
+    $vals = @($pairs[0].Item2.SafeGetValue())
+    foreach ($value in $vals) { if ($value -isnot [string]) { return $null }; [void][regex]::new($value) }
+    return , $vals
+  } catch { return $null }
 }
 
 # ── 基线分支：默认自动探测，绝不硬编码 main（治 review 在 master-默认仓 diff 空 → 空评审的隐患）──
@@ -444,6 +486,7 @@ if ($baseCardState -ne 'nonempty') {
   }
 }
 Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -ForegroundColor DarkGray
+$policyCard = if ($baseCardState -eq 'nonempty') { Get-GitBlobText $WorktreePath "${baseOid}:$cardRelPath" } else { $card } # Authorization is read before prompt-only redaction.
 # 提示注入硬化（TD35）：卡片是**待审数据**，其 review_gate 字段按本仓 card schema 携一个 verdict 样式的批准型字面量。
 # 历史上（**T12 之前**）下方「防提示注入（硬规则）」立场把「待审数据里出现预批准字面量」本身当 block 理由，会把这个
 # 本仓自己的合法 schema 字段误读为操纵企图而 non-deterministic false-block（每张卡都在 → 全卡队潜伏）。**T12 已改立场**
@@ -496,6 +539,14 @@ if (-not $rubric) {
   exit 1
 }
 Write-Host "评审 rubric 来源：$rubricSrc（reviewee 改不动评判自己的标准）" -ForegroundColor DarkGray
+
+# Include rename sources and file modes; unknown raw records retain the blocking policy.
+$policyDiff = @(& git -C $WorktreePath -c core.quotepath=false diff --raw --no-abbrev --no-renames $comparison -- 2>$null)
+$policyDiffReadable = $LASTEXITCODE -eq 0
+$policyHeadCard = Get-GitBlobText $WorktreePath "${sha}:$cardRelPath"
+$policyHeadCard = if ($null -eq $policyHeadCard) { '' } else { $policyHeadCard }
+$reviewPolicy = Get-ScaffoldReviewPolicy -CardText $policyCard -BaselineAuthorized ($baseCardState -eq 'nonempty' -and $rubricSrc -eq "base:$baseOid" -and $policyDiffReadable) -FrozenPaths $frozenFromBase -RawDiff $policyDiff -CardPath $cardRelPath -HeadCardText $policyHeadCard
+Write-Host "Review gate policy: $reviewPolicy" -ForegroundColor DarkGray
 
 # 评审者身份随后端参数化（L26 模型无关）：默认 codex 分支具名 Codex；换成 $cfg.ReviewCommand 自定义后端后，
 # 不得再向模型自称 Codex（身份应如实反映实际运行的评审者）。复用上面选后端时已算好的 $reviewCmd。
@@ -691,6 +742,7 @@ $reviewTimedOut = $rr.TimedOut    # 超时被杀 → 下方转可操作的 fail-
 # fail-closed reason（基线不可解析 / codex 缺失 / rubric 取不到）仍是中文，属既有面、不在本卡范围 = TD115。
 $verdict = 'block'; $reasons = @('The R3 reviewer produced no usable verdict and no more specific state matched — blocking (fail-closed).')
 $parsed = $null
+$advisoryVerdictValid = $false
 if ($reviewTimedOut) {
   # 超时被杀 → 没写出新鲜裁决；给条可操作的 reason 替换泛化措辞。
   $reasons = @("R3 reviewer exceeded the ${reviewTimeoutSec}s wall-clock timeout and was killed (TD11/L21: a hung or quota-exhausted reviewer would otherwise stall ship indefinitely). Blocking (fail-closed). Retry once the reviewer/model recovers; for a legitimately slow second-model backend raise -TimeoutSec; never bypass the gate with --no-verify.")
@@ -751,15 +803,18 @@ if ($reviewTimedOut) {
         "WARNING: the reviewer's raw response could NOT be written to disk, so it is unavailable for inspection - re-run ship to reproduce it, and fix whatever prevents writing under the .review directory.$stalePart"
       }
       $reasons = @("[R3-NO-VERDICT-JSON] The R3 reviewer exited $reviewerExit and did write output, but it contains no JSON verdict object. Blocking (fail-closed): no verdict means no approval. This shape MAY indicate a backend safety-classifier refusal or mid-stream pause (the reviewer answers in prose instead of emitting the verdict schema), but it may equally be an adverse review written as prose, or an unrelated backend error. $rawNote Routes: (1) refusal/pause -> re-run ship, these are often transient; (2) recurring on a security-shaped diff -> point ReviewCommand at a second independent backend (this gate is backend-agnostic by design) or escalate to human adjudication; (3) actually review feedback -> fix the diff, do not re-run until it passes; (4) never reword the card to dodge the classifier, and never bypass with --no-verify.")
+    } elseif ($reviewPolicy -eq 'advisory' -and -not (Test-StrictJsonObject $raw)) {
+      $reasons = @('[R3-BAD-VERDICT-JSON] Advisory verdict must be a strict top-level JSON object; blocking (fail-closed).')
     } else {
       try {
-        $parsed = $m.Value | ConvertFrom-Json
+        $jsonText = if ($reviewPolicy -eq 'advisory') { $raw } else { $m.Value }
+        $parsed = $jsonText | ConvertFrom-Json
         # S3：有 JSON 对象但取不出可用 verdict——四支共用状态码 [R3-BAD-VERDICT-JSON]（各态语义见 rubric §5）。
         # StrictMode 下须按属性名判在场：直接 $parsed.reasons 在合法的 {"verdict":"pass"} 上会抛，
         # 被 catch 误判成「parse failed」的假 block（30-lens C39）。
         # verdict 只接受**字符串**且**大小写敏感** ∈ {pass,block}，治两洞：PS `-eq` 大小写不敏感（'PASS' 会被误当 pass）、
         # {"verdict":["pass"]} 数组经 `-eq` 过滤返回真值（误放行）。任何不符 → 维持默认 block。
-        # **范围**：运行期强制的只有 verdict 一字段（唯一决定放行与否者）；schema 其余约束不在此校验 = TD114。
+        # blocking 模式保留既有 verdict 单字段强制；advisory 在下方额外校验完整裁决形态。
         if (-not ($parsed.PSObject.Properties.Name -contains 'verdict')) {
           $verdict = 'block'; $reasons = @('[R3-BAD-VERDICT-JSON] Verdict JSON missing required "verdict" property — blocking (fail-closed).')
         } else {
@@ -779,6 +834,19 @@ if ($reviewTimedOut) {
             if ($parsed.PSObject.Properties.Name -contains 'reasons') {
               $reasons = @($parsed.reasons)
             }
+            # Advisory must carry usable findings; legacy cards keep their existing parser tolerance.
+            if ($reviewPolicy -eq 'advisory') {
+              $fields = @($parsed.PSObject.Properties.Name)
+              $advisoryVerdictValid = ($fields -ccontains 'verdict') -and ($fields -ccontains 'reasons') -and $parsed.reasons -is [array] -and
+                @($parsed.reasons | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count -eq 0 -and
+                @($fields | Where-Object { $_ -cnotin @('verdict','reasons','sha','branch') }).Count -eq 0 -and
+                (($fields -cnotcontains 'sha') -or $parsed.sha -is [string]) -and
+                (($fields -cnotcontains 'branch') -or $parsed.branch -is [string]) -and
+                (($verdict -eq 'pass' -and $reasons.Count -eq 0) -or ($verdict -eq 'block' -and $reasons.Count -gt 0))
+              if (-not $advisoryVerdictValid) {
+                $verdict = 'block'; $reasons = @('[R3-BAD-VERDICT-JSON] Advisory review requires schema-valid verdict and reasons; blocking (fail-closed).')
+              }
+            }
           }
         }
       } catch {
@@ -791,17 +859,22 @@ if ($reviewTimedOut) {
     }
   }
 }
-# ── fail-closed 新鲜度守卫（治 stale-verdict fail-open）──：只有「评审者本轮干净退出」才允许 pass。
-#  (a) 子进程非零退出却解析出 pass → 不可信，强制 block；
+# ── fail-closed 新鲜度守卫：只有本轮干净退出才允许 pass 或有效 advisory。
+#  (a) 子进程非零退出 → 不可信，强制停止；
 #  (b) 裁决带 sha 但 ≠ 当前 HEAD → 陈旧/复用裁决，强制 block（评审者新鲜输出通常不含 sha，故仅在带 sha 时才校验，
 #      避免误杀正常 pass；陈旧文件多是上一轮规范化落盘的含 sha 版本，正好被这条抓住）。
-if ($verdict -eq 'pass') {
+if ($verdict -eq 'pass' -or $advisoryVerdictValid) {
   if ($reviewerExit -ne 0) {
     $verdict = 'block'
-    $reasons = @("Reviewer exited non-zero ($reviewerExit) yet produced 'pass' — untrustworthy; blocking (fail-closed).")
+    $advisoryVerdictValid = $false
+    $reasons = @("Reviewer exited non-zero ($reviewerExit) — untrustworthy; blocking (fail-closed).")
   } elseif ($parsed -and ($parsed.PSObject.Properties.Name -contains 'sha') -and ($parsed.sha -ne $sha)) {
     $verdict = 'block'
+    $advisoryVerdictValid = $false
     $reasons = @("Verdict sha '$($parsed.sha)' != HEAD '$sha' — stale/reused verdict; blocking (fail-closed).")
+  } elseif ($advisoryVerdictValid -and ($parsed.PSObject.Properties.Name -contains 'branch') -and ($parsed.branch -cne $branch)) {
+    $verdict = 'block'; $advisoryVerdictValid = $false
+    $reasons = @('Verdict branch does not match the reviewed branch — blocking (fail-closed).')
   }
 }
 # 规范化落盘（最终判定，sha=当前 HEAD）。
@@ -816,9 +889,10 @@ if ($script:VerdictWriteFailed) {
   $reasons = @($reasons) + @("[R3-VERDICT-WRITE-FAILED] The normalized verdict could not be written to '$verdictPath', so this run left no auditable record of its own decision. Blocking (fail-closed) regardless of what the reviewer said: a verdict that cannot be persisted cannot be trusted to gate a merge. Inspect that path and whatever occupies or locks it, then re-run ship. Never bypass the gate with --no-verify.")
 }
 
-$ok = $verdict -eq 'pass'
-# ── 轮次计数递增（只在 block 时；pass 即结束，无需计数）──
-# 计的是**本分支累计 block 次数**，含走到这里的基础设施类 block（超时 / 裁决坏 JSON / 落盘失败）——连续两次
+$advisoryAccepted = $reviewPolicy -eq 'advisory' -and $advisoryVerdictValid -and -not $script:VerdictWriteFailed
+$ok = $verdict -eq 'pass' -or $advisoryAccepted
+# ── 轮次计数递增（只在 gate 拒绝时；pass 与有效 advisory 无需计数）──
+# 计的是**本分支累计 gate 拒绝次数**，含走到这里的基础设施类 block（超时 / 裁决坏 JSON / 落盘失败）——连续两次
 # 任何原因过不去都值得人看一眼，而升级的代价只是人跑一次 -ResetRounds。
 # **更早的 exit 不计数**（基线不可解析、codex 缺失、路径判为链接等在此之前 exit）：那些是环境问题，不该消耗人裁额度，
 # 且计数器此时可能尚未定义。少计 = 多评一轮，安全方向正确。写失败只告警不改判：它是节流器、不是安全控制。
@@ -829,8 +903,9 @@ if ((-not $ok) -and (-not (Test-ScaffoldPathUnsafe -Path $roundsPath -StopAt $Wo
   try { Set-Content -LiteralPath $roundsPath -Value ([string]($roundsSoFar + 1)) -Encoding utf8 -ErrorAction Stop }
   catch { Write-Warning "R3 轮次计数写入失败（'$roundsPath'）：$($_.Exception.Message)。本轮 block 未计入，下轮仍会唤起评审者。" }
 }
-Write-Host ("裁决: {0}" -f $verdict) -ForegroundColor ($(if ($ok) { 'Green' } else { 'Red' }))
-if (-not $ok) { $reasons | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
+Write-Host ("裁决: {0}" -f $verdict) -ForegroundColor ($(if ($verdict -eq 'pass') { 'Green' } elseif ($advisoryAccepted) { 'Yellow' } else { 'Red' }))
+if ($advisoryAccepted -and $verdict -eq 'block') { Write-Host 'R3 advisory findings: gate accepted; the actual block verdict is preserved.' -ForegroundColor Yellow }
+if ($verdict -eq 'block') { $reasons | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow } }
 
 # --- 回贴 GitHub（仅当有 origin + 已登录）---
 if ($PostStatus) {
@@ -841,7 +916,7 @@ if ($PostStatus) {
   $repo = (& gh repo view --json name -q .name 2>$null)
   if ($owner -and $repo) {
     $state = if ($ok) { 'success' } else { 'failure' }
-    $desc = if ($ok) { 'Second-model review passed' } else { ($reasons -join '; ') }
+    $desc = if ($advisoryAccepted -and $verdict -eq 'block') { 'Advisory review completed with findings' } elseif ($ok) { 'Second-model review passed' } else { ($reasons -join '; ') }
     if ($desc.Length -gt 140) { $desc = $desc.Substring(0, 140) }
     & gh api --method POST "repos/$owner/$repo/statuses/$sha" `
         -f state=$state -f "context=$statusContext" -f "description=$desc" 2>&1 | Out-Null
@@ -851,7 +926,7 @@ if ($PostStatus) {
       Write-Host "Posted commit status $statusContext=$state"
     }
     if ($PrNumber -gt 0) {
-      $body = "**Second-model review verdict: ``$verdict``**`n`n" + ($(if ($ok) { '✅ Pass' } else { ($reasons | ForEach-Object { "- $_" }) -join "`n" }))
+      $body = "**Second-model review verdict: ``$verdict``**`n`n" + ($(if ($verdict -eq 'pass') { '✅ Pass' } else { $(if ($advisoryAccepted) { "Advisory findings (gate accepted):`n`n" }) + (($reasons | ForEach-Object { "- $_" }) -join "`n") }))
       & gh pr comment $PrNumber --body $body 1>$null 2>$null
     }
   } else { Write-Warning '无 origin / 未登录，跳过回贴。' }

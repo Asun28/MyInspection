@@ -12079,8 +12079,8 @@ exit $realExit
         Write-Host '  17ac(moving-ref) diff/card/rubric/frozen inputs remain pinned to one immutable OID after master advances OK' -ForegroundColor Green
       }
 
-      # 17ac(mut/worktree-first). Restore the old selection in a *fixture copy* of review.ps1, re-run the real
-      # harness, and require this test to observe stale scope. A mutation that still appears base-wins has survived.
+      # 17ac(mut/worktree-first). Preserve base-state/policy initialization in the fixture, then override the
+      # prompt card with worktree-first selection. The real harness must observe stale scope; base-wins survives.
       if ($acFallbackGreen) {
         $acReviewPath = Join-Path $sac 'scripts/review.ps1'
         $acReviewBytes = [System.IO.File]::ReadAllBytes($acReviewPath)
@@ -12098,7 +12098,7 @@ $card = if (Test-Path $cardPath) { (Get-Content $cardPath -Raw).Trim() } else { 
 $cardSrc = 'worktree-mutant-restored-first'
 Write-Host "Task-card source: $cardSrc (R3 and scope gate share authority)" -ForegroundColor DarkGray
 '@.Trim()
-          $acMutText = $acReviewText.Replace($acMutMatches[0].Value, $acWorktreeFirst)
+          $acMutText = $acReviewText.Replace($acMutMatches[0].Value, $acMutMatches[0].Value + "`n" + $acWorktreeFirst)
           try {
             [System.IO.File]::WriteAllText($acReviewPath, $acMutText, [System.Text.UTF8Encoding]::new($false))
             $acMutParseErrors = $null
@@ -13666,6 +13666,12 @@ if (Test-SelftestPrerequisite -GateIds @('17aa(6)', '17aa(6/local-behind)', '17a
   # F3（合并前 TOCTOU 再断言）：Assert-LocalMergeTarget 必须被调用**至少两次**（ship 入口 + 合并前），否则合并时 HEAD 若已变、review 对照的 $Base 与实际并入分支不一致。
   if (@([regex]::Matches($taskText, 'Assert-LocalMergeTarget\s+-Cur')).Count -lt 2) { Fail '17aa(6)：task.ps1 未在合并前**重新**断言 -Local 合并目标（Assert-LocalMergeTarget 调用点 < 2）——F3 merge-time TOCTOU 未闭合。' }
   if (-not $fail) { Write-Host '  17aa(6) 共享解析器：缺省优先 origin / -PreferLocal 优先本地 + 两处静态防漂移 + -Local 信号透传 OK（TD68 根因收敛）' -ForegroundColor Green }
+}
+
+# 17aa(6)：same production policy and reviewer fixtures as the focused card DoD.
+if (Test-SelftestPrerequisite -GateIds @('17aa(6)')) {
+  & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/_review-policy.ps1') -SelfCheck
+  if ($LASTEXITCODE -ne 0) { Fail '17aa(6)：低风险评审策略、故障拒绝或本地可信入口回归。' }
 }
 
 # ── 17aa(7). 行为测试（R3 PR#102 六轮）：-Local + 坏 -Base 真的 fail-closed（不是只在源码里搜标记）──

@@ -2,7 +2,7 @@
 id: T0-REVIEW-LOW-RISK
 title: 横切 R3 低风险文档建议模式与本地可信评审入口
 depends_on: []
-status: todo
+status: in-progress
 branch: T0-REVIEW-LOW-RISK
 worktree: C:\wt\T0-REVIEW-LOW-RISK
 allow_paths:
@@ -57,3 +57,15 @@ doc_sync: 同步 rubric/workflow/card template/task-loop/CLAUDE 的建议模式�
 The user's 2026-09-08 instruction authorizes remote delivery through an independent worktree and PR. The remaining acceptance, forbid and non-goals stay in force. This todo registration does not represent local historical results as remote implementation or acceptance. Use task-loop with GPT-6 Astra, high effort and the configured independent GPT-5.6 Sol high R3. Establish current-source behavior evidence and preserve existing remote product changes.
 
 Local candidate a9506225 repaired strict JSON and exact status-only findings after two blocked R3 rounds. The user authorized one counter reset on 2026-09-08, and it has already been consumed. Preserve the findings and current counter for remote delivery; a new worktree grants no additional reset.
+
+## Original 0220 candidate evidence (focused only)
+
+R1 starts from origin/master 0220c692. Fresh behavior RED preceded production: `.review/low-current-red.log` exits 1; primary `-Phase red -Base origin/master` records DoD exit 1 in this card's active `.red` receipt. `.review/low-red-test-only.ps1` preserves the tested RED source.
+
+The scoped port preserves both historical BLOCK repairs; historical receipts remain provenance only (`.review/historical-provenance.md`). Current helper SelfCheck passes in `.review/low-green-final.log`; `.review/low-green-manifest.json` binds its final source hashes. Isolated, one-guard mutations and baseline/mutant logs are recorded by `.review/run-low-mutations.ps1` in `.review/low-mutations.json`; these exercise real policy/reviewer fixtures without an official R3 backend.
+
+Full selftest, verify, official blocking R3 and remote delivery remain pending the coordinator's execution window. No additional counter reset is authorized.
+
+## Current base evidence
+
+On ceb2685e, the preserved tests-only fixture against the real base reviewer again failed the named advisory behavior (session66995 exit1). Primary red session35031 exited0 with DoD exit1 and a fresh ceb receipt; the original0220 receipt remains historical. Four frozen production sources were restored exactly; final SelfCheck session55870 exited0. Raw logs, source hashes and the 20-record/44-log same-source historical R4 audit are bound by `.review/current-base-ceb-red/evidence.json`; no new 20-mutant run or reset is claimed.

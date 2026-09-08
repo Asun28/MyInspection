@@ -6,6 +6,8 @@
 > 零新增运行时依赖的闭环上。核心理念：**计划/任务卡 own 规划/冻结/验收，脚手架只补 git+TDD+评审接线**，
 > 故用「已装原语的 DIY 接线」而非再叠一个规划框架。
 
+R3 默认使用 **blocking** 策略。普通 docs/specs Markdown 卡可在基线预先登记精确的 `review_gate: advisory`；实际 diff 必须通过保守分类，且本卡自身只能伴随一处 frontmatter status 变化。有效负面意见原样保留为 JSON `block`、显式显示为建议并满足评审腿，不消费阻断轮次；关键、安全、流程、交付、冻结、未知改动以及后端/落盘故障仍停止。完整边界见 [QUALITY-RUBRIC §0.1](QUALITY-RUBRIC.md#01-review-policy-and-preserved-verdicts--评审策略与真实裁决)。本地与远端 ship 均从主检出调用 `review.ps1`。
+
 ## 0. 选型结论（一句话）
 
 | 组件 | 裁决 | 用途 |

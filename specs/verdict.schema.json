@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.local/specs/verdict.schema.json",
   "title": "Codex Review Verdict",
-  "description": "R3 评审闸门机读裁决。scripts/review.ps1 产出，task.ps1 据此放行/阻断。",
+  "description": "R3 真实机读裁决。scripts/review.ps1 保留评审意见，按基线授权策略决定 gate outcome。",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "reasons"],
@@ -10,12 +10,12 @@
     "verdict": {
       "type": "string",
       "enum": ["pass", "block"],
-      "description": "pass=允许合并；block=阻断，必须给出 reasons"
+      "description": "评审者的真实 pass/block；block 必须给出 reasons。受限 advisory 可保留 block 而满足评审腿，见 QUALITY-RUBRIC §0.1。"
     },
     "reasons": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "block 时的阻断理由；pass 时为空数组"
+      "description": "block 时的真实理由（受限 advisory 下为建议）；pass 时为空数组"
     },
     "sha": { "type": "string", "description": "被审提交（task.ps1 规范化时写入）" },
     "branch": { "type": "string", "description": "被审分支" }

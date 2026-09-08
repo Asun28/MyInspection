@@ -905,7 +905,7 @@ switch ($Phase) {
         # $reviewAvail 已在 ship 入口求值（同一判定，远端路径拿它 fail-fast，此处复用；TD22-C23）
         if ($reviewAvail) {
           # -LocalBase：-Local 的合并目标是本地 <base>，评审基线也须对照本地（否则前次本地合并的文件被误判，TD68）。
-          & pwsh -NoProfile -File (Join-Path $Wt 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -LocalBase
+          & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/review.ps1') -WorktreePath $Wt -Base $Base -LocalBase
           if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' 'R3 block (-Local)'; throw '第二模型评审 block（-Local），已停止。修复后重 ship -Local。' }
         } else {
           Write-Warning '无 codex / ReviewCommand：-Local 跳过第二模型评审（仅本地检视，未做对抗评审）。装 codex 或在 _config 配 ReviewCommand 可启用。'
