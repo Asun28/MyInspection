@@ -7,6 +7,7 @@ branch: T0-SELFTEST-NIGHTLY-META
 worktree: C:\wt\T0-SELFTEST-NIGHTLY-META
 allow_paths:
   - scripts/selftest.ps1
+  - scripts/_validation.ps1
   - .github/workflows/scaffold-selftest.yml
   - docs/DEVOPS-WORKFLOW.md
   - CLAUDE.md
