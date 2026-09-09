@@ -34,6 +34,7 @@
 .PARAMETER OutFile  收件箱路径（默认 _local/triage-inbox.md）。
 .PARAMETER NoWrite  只报不写（selftest 干跑用：核验扫描在默认配置下不抛异常）。
 .PARAMETER Quiet    静默：仅退出码与一行计数，不打印 finding 明细。
+.PARAMETER CaseModeProfile portable 默认；require-dual-actual 要求双实际模式。
 .EXAMPLE
   pwsh -File scripts\triage.ps1                 # 扫描，写 _local/triage-inbox.md
 .EXAMPLE
@@ -46,7 +47,8 @@ param(
   [Parameter(Position = 0)][ValidateSet('scan', 'list', 'selfcheck')][string]$Verb = 'scan',
   [string]$OutFile,
   [switch]$NoWrite,
-  [switch]$Quiet
+  [switch]$Quiet,
+  [ValidateSet('portable', 'require-dual-actual')][string]$CaseModeProfile = 'portable'
 )
 
 Set-StrictMode -Version Latest
@@ -485,6 +487,11 @@ function Invoke-ProbeDeliveryBlocked {
         Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-PARSE] 卡 $id 的 evidence JSON 无法解析：$($vf.FullName)（$($_.Exception.Message)）" "修复或移除损坏 evidence 后重跑 triage。"
         continue
       }
+      if ($owner) {
+        if (-not [string]::Equals($owner, $id, [System.StringComparison]::Ordinal)) { continue }
+      } elseif (-not $evidence.PathComparer.Equals([IO.Path]::GetFileNameWithoutExtension($vf.Name), $id)) {
+        continue
+      }
       if (-not $headByRoot.ContainsKey($evidence.Root)) {
         $resolvedHead = Get-ScaffoldRepositoryHead -Path $evidence.Root
         if (-not $resolvedHead) {
@@ -497,10 +504,6 @@ function Invoke-ProbeDeliveryBlocked {
         continue
       }
       if (-not [string]::Equals($artifactSha, $headByRoot[$evidence.Root], [System.StringComparison]::Ordinal)) { continue }
-      # ② 归属：review.ps1 会把被审分支写进 branch，按它判；旧产物无该字段时退回文件名（<id>.json 即本卡命名）。
-      # 判不出归属就跳过——reporter 宁可漏报，也不该拿别人的 block 冤枉本卡（假阳性会把注意力引向错的地方）。
-      if ($owner) { if (-not [string]::Equals($owner, $id, [System.StringComparison]::Ordinal)) { continue } }
-      elseif (-not $evidence.PathComparer.Equals([IO.Path]::GetFileNameWithoutExtension($vf.Name), $id)) { continue }
       if (-not ([string]::Equals($verdict, 'pass', [System.StringComparison]::Ordinal) -or
                 [string]::Equals($verdict, 'block', [System.StringComparison]::Ordinal))) {
         Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-VERDICT] 卡 $id 的 current evidence verdict 未知：$($vf.FullName)（$verdict）" "检查该 evidence 的 verdict enum 后重跑 triage。"
@@ -1181,6 +1184,18 @@ if ($Verb -eq 'selfcheck') {
     }
 
     $caseCapabilityNotes = [System.Collections.Generic.List[string]]::new()
+    $caseModeProof = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $secondModeCapabilityIssue = ''
+    function Get-ScaffoldCaseModeProfileFailures {
+      param([string]$Profile, [string[]]$ModeProof, [string]$Issue)
+      if ($Profile -ceq 'require-dual-actual') { foreach ($mode in 'sensitive','insensitive') {
+        if ($ModeProof -cnotcontains $mode) { "用例9b-required-mode：profile=require-dual-actual，实际 $mode 缺失（$(if($Issue){$Issue}else{'未获得第二实际模式证明'})）；DoD 不得 SKIP。" }
+      } }
+    }
+    $profileRequiredMissing = @(Get-ScaffoldCaseModeProfileFailures require-dual-actual @('insensitive') 'fsutil 不可用')
+    if (@(Get-ScaffoldCaseModeProfileFailures portable @('insensitive') 'fsutil 不可用').Count -or $profileRequiredMissing.Count -ne 1 -or $profileRequiredMissing[0] -cnotmatch 'profile=require-dual-actual，实际 sensitive' -or @(Get-ScaffoldCaseModeProfileFailures require-dual-actual @('sensitive', 'insensitive') '').Count) {
+      $fails.Add('用例9b-profile：portable SKIP、require-dual-actual 缺失拒绝、双模式通过。')
+    }
     $fxDefaultCase = Join-Path $fxRoot 'case-default'; $fxDefaultCaseCard = Join-Path $fxDefaultCase 'T8-SC-A'
     New-Item -ItemType Directory -Force $fxDefaultCaseCard | Out-Null
     $defaultCase = New-ScaffoldActualCaseEvidenceFixture -CardRoot $fxDefaultCaseCard -Sha $fixtureHead
@@ -1192,6 +1207,9 @@ if ($Verb -eq 'selfcheck') {
     $expectedDefaultCaseFindings = if ($defaultCase.Mode -ceq 'sensitive') { 2 } else { 1 }
     if ($defaultCaseFindings.Count -ne $expectedDefaultCaseFindings -or ($defaultCaseFindings | Where-Object { $_.what -notmatch 'T8-SC-A' })) {
       $fails.Add("用例9b 默认实际根 mode=$($defaultCase.Mode) 期望 $expectedDefaultCaseFindings 条 delivery-blocked，实得 $($defaultCaseFindings.Count)。")
+    } else {
+      [void]$caseModeProof.Add($defaultCase.Mode)
+      Write-Host "  INFO 用例9b required actual mode verified: $($defaultCase.Mode)" -ForegroundColor DarkGray
     }
 
     # 用例9b-portable：普通单文件 evidence 不能依赖 Windows 专属目录 flag；模拟该 probe 不可用时仍须用真实目录的只读 lookup 保住 block。
@@ -1230,6 +1248,7 @@ if ($Verb -eq 'selfcheck') {
 
     $fsutil = Get-Command fsutil -ErrorAction SilentlyContinue
     if (-not $fsutil) {
+      $secondModeCapabilityIssue = 'fsutil 不可用'
       Write-Host '  SKIP 用例9b 第二目录模式：fsutil 不可用；已验证当前临时目录的实际模式。' -ForegroundColor DarkGray
     } else {
       $fxAlternateCase = Join-Path $fxRoot 'case-alternate'; $fxAlternateProbe = Join-Path $fxAlternateCase 'original-mode-probe'
@@ -1257,13 +1276,16 @@ if ($Verb -eq 'selfcheck') {
         $toggleExit = $LASTEXITCODE
         $caseCapabilityNotes.Add("$toggleAction exit=$toggleExit output=$toggleOutput")
         if ($toggleExit -ne 0) {
+          $secondModeCapabilityIssue = "fsutil $toggleAction 未成功（exit=$toggleExit）"
           Write-Host "  SKIP 用例9b 第二目录模式：fsutil $toggleAction 未成功；已验证当前临时目录的实际模式。" -ForegroundColor DarkGray
         } else {
           $toggleApplied = $true
           $alternateCase = New-ScaffoldActualCaseEvidenceFixture -CardRoot $fxAlternateCard -Sha $fixtureHead
           if (-not $alternateCase.Valid) {
-            $fails.Add("用例9b 第二模式夹具无效：mode=$($alternateCase.Mode)，files=$($alternateCase.FileCount)。")
+            $secondModeCapabilityIssue = "第二模式夹具无效（mode=$($alternateCase.Mode)，files=$($alternateCase.FileCount)）"
+            Write-Host "  SKIP 用例9b 第二目录模式：$secondModeCapabilityIssue；已验证当前临时目录的实际模式。" -ForegroundColor DarkGray
           } elseif ($alternateCase.Mode -ceq $alternateOriginal.Mode) {
+            $secondModeCapabilityIssue = 'fsutil 成功但实际 CreateNew 行为未切换'
             Write-Host "  SKIP 用例9b 第二目录模式：fsutil 成功但实际 CreateNew 行为未切换；已验证当前临时目录的实际模式。" -ForegroundColor DarkGray
           } else {
             $RepoRoot = if ($alternateCase.Mode -ceq 'insensitive') { $fxAlternateCard.ToUpperInvariant() } else { $fxAlternateCard }
@@ -1273,6 +1295,9 @@ if ($Verb -eq 'selfcheck') {
             $expectedAlternateFindings = if ($alternateCase.Mode -ceq 'sensitive') { 2 } else { 1 }
             if ($alternateFindings.Count -ne $expectedAlternateFindings -or ($alternateFindings | Where-Object { $_.what -notmatch 'T8-SC-A' })) {
               $fails.Add("用例9b 第二实际根 mode=$($alternateCase.Mode) 期望 $expectedAlternateFindings 条 delivery-blocked，实得 $($alternateFindings.Count)。")
+            } else {
+              [void]$caseModeProof.Add($alternateCase.Mode)
+              Write-Host "  INFO 用例9b required actual mode verified: $($alternateCase.Mode)" -ForegroundColor DarkGray
             }
           }
         }
@@ -1430,6 +1455,24 @@ if ($Verb -eq 'selfcheck') {
     $legacyCaseCount = @($findings | Where-Object probe -eq 'delivery-blocked').Count
     $expectedLegacyCaseCount = if ($legacyIgnoreCase) { 1 } else { 0 }
     if ($legacyCaseCount -ne $expectedLegacyCaseCount) { $fails.Add("用例10(f) branchless 大小写文件名未跟随实际 evidence comparer（caseInsensitive=$legacyIgnoreCase，期望 $expectedLegacyCaseCount，实得 $legacyCaseCount）") }
+    foreach ($profileFailure in @(Get-ScaffoldCaseModeProfileFailures $CaseModeProfile @($caseModeProof) $secondModeCapabilityIssue)) {
+      $fails.Add($profileFailure)
+    }
+
+    $foreignCases = @(
+      @('foreign-missing-sha','{"verdict":"block","reasons":["foreign-missing-sha"],"branch":"T9-SOMEONE-ELSE"}',$false,'用例10(g)：foreign 缺 sha 未先过滤归属。'),
+      @('foreign-unreadable-root',('{"verdict":"block","reasons":["foreign-unreadable-root"],"branch":"T9-SOMEONE-ELSE","sha":"' + $fixtureHead + '"}'),$true,'用例10(h)：foreign unreadable root 未先过滤归属。')
+    )
+    $savedForeignHead = ${function:Get-ScaffoldRepositoryHead}; try { foreach ($foreignCase in $foreignCases) {
+      $foreignRoot = Join-Path $fxRoot $foreignCase[0]; $foreignCard = Join-Path $foreignRoot 'T8-SC-A'
+      New-Item -ItemType Directory -Force (Join-Path $foreignCard '.review') | Out-Null
+      Set-Content -LiteralPath (Join-Path $foreignCard '.review/T8-SC-A.json') -Value $foreignCase[1] -Encoding utf8
+      function Get-ScaffoldRepositoryHead { param([string]$Path) if ($foreignCase[2] -and $Path -ceq $foreignCard) { return $null }; return $fixtureHead }
+      $RepoRoot = Join-Path $fxRoot 'no-such-repo'; function Get-ScaffoldWorktreeRoot { $foreignRoot }
+      $findings.Clear(); Invoke-ProbeDeliveryBlocked
+      if (@($findings | Where-Object { $_.probe -eq 'delivery-blocked' -and $_.what -cmatch '^\[TRIAGE-EVIDENCE-(?:HEAD|IDENTITY)\]' }).Count) { $fails.Add($foreignCase[3]) }
+    }} finally { Set-Item function:Get-ScaffoldRepositoryHead -Value $savedForeignHead }
+
     # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
     Remove-Item function:Get-ScaffoldWorktreeRoot
     $findings.Clear(); Push-Location $fxCwd

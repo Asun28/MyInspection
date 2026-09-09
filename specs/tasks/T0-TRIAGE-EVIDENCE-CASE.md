@@ -18,12 +18,12 @@ non_goals:
   - lessons parser、探针 roster、文档教学面或其它探针语义
   - 重写 PR #127 / #137 历史
 diagnosis: 大小写敏感性属于具体目录而非 OS；HEAD 夹具对所有 root 返回同一 SHA，无法杀死错绑 RepoRoot 的变异；发现/枚举/解析/HEAD 失败被 null/continue 静默吞掉会让当前 block 消失
-dod_command: $t=(& pwsh -NoProfile -File scripts/triage.ps1 selfcheck 2>&1 | Out-String); $x=$LASTEXITCODE; Write-Host $t; if ($x -ne 0 -or $t -cnotmatch '(?m)^triage selfcheck: PASS(?=（|[ \t\r]|$)' -or $t -cmatch '(?m)^[ \t]*(?:triage selfcheck: FAIL\b|FAIL\b)') { exit 1 }
+dod_command: $t=(& pwsh -NoProfile -File scripts/triage.ps1 selfcheck -CaseModeProfile require-dual-actual 2>&1 | Out-String); $x=$LASTEXITCODE; Write-Host $t; if ($x -ne 0 -or $t -cnotmatch '(?m)^triage selfcheck: PASS(?=（|[ \t\r]|$)' -or $t -cmatch '(?m)^[ \t]*(?:triage selfcheck: FAIL\b|FAIL\b)') { exit 1 }
 dod_exit: 0
-dod_assert: actual-root 敏感/不敏感夹具证明证据身份；同来源冲突必选 block；不同 root 使用不同 SHA 且 review→triage 精确绑定被测；相关证据 unreadable/unknown 时仍 exit 0 但产出明确 finding；删除任一守卫时自检必红
+dod_assert: portable selfcheck 证明当前 actual-root、两 comparer 纯语义与 portable 单文件证据身份；本卡 DoD 在已配置 runner 上以 require-dual-actual 证明 sensitive/insensitive 两种 actual-root，第二模式能力不可用时具名 FAIL；同来源冲突必选 block；不同 root 使用不同 SHA 且 review→triage 精确绑定被测；相关证据 unreadable/unknown 时仍 exit 0 但产出明确 finding；删除任一守卫时自检必红
 review_gate: codex {verdict:pass}
 hygiene: 从 PR #137 的 exact extraction 独立承接；复用既有 triage selfcheck，不建平行测试文件
-doc_sync: none（探针名称、数量与用户命令不变；仅修裁决证据身份、per-root HEAD 绑定与静默失败可观测性）
+doc_sync: none（探针名称、数量与默认用户命令不变；本卡 DoD 显式使用 CaseModeProfile=require-dual-actual，仅修裁决证据身份、per-root HEAD 绑定与静默失败可观测性）
 ---
 
 # T0-TRIAGE-EVIDENCE-CASE
@@ -66,3 +66,21 @@ D:\Projects\MyInspection\_local\scaffold-dispatch-20260908\triage-r3-block3-r4-c
 The preceding round-1 repair paragraph's claim that tests-first RED was “固化” is withdrawn. The author did not preserve that observation's raw output, native receipt, timestamp or tested source hash, so it is an unverified session observation and is not acceptance evidence. The earlier text remains as historical context; no output has been reconstructed from memory and no later run is relabelled as earlier RED. The original official RED at 53e7796b59460510fccc051fb069f619ef812551 and the original T35 receipt remain unchanged.
 
 The verifiable repair evidence is the subsequent current-source GREEN and the 17 semantic controls plus 8 actual command-removal controls. These ran on the uncommitted working-file bytes SHA-256 6D4588E1DD5105F146EE31B2351AAA2F138280D34CA4A2D82314AE55C768F387 while HEAD was ab7defe7df59fb39494d9199033b89131757d2c7; the committed triage blob in ab7defe7 is the older 7429C4A7BA262E5E286AC89B94E20A481293EB0A671827EFF988E556B88B4A16 source. Current raw outputs, complete source copies and manifests are also mirrored byte-for-byte under `.review/round1-repair-current-r4-20260909/`. These controls establish current regression detection, not the missing tests-first chronology. A later commit may carry those exact tested bytes; equality must be verified rather than inferred from HEAD alone.
+
+## 2026-09-09 R3 round-2 capability-profile repair evidence
+
+D3F3147E52C332A0E1AC61C0CBAF74343830549DA3D7D294F6AACA2BD2CCBC4F only-fsutil=null copy:
+behavior RED (native 0/no PASS/named 用例9b-required-mode), not setup:
+D:\Projects\MyInspection\_local\scaffold-dispatch-20260908\triage-round2-capability-profile-tdd-20260909\tests-first-portability-red.json.
+
+Historical A40932…563C: portable-unavailable PASS/no FAIL; require-dual-actual unavailable native 0/named
+FAIL/no PASS; direct/profile-guard receipts share it. 2F GREEN is historical. R4
+ec081725…54eb/A40932…563C kills 19 semantic + 8 AST Add-Finding + 1 AST profile guard:
+D:\Projects\MyInspection\_local\scaffold-dispatch-20260908\triage-round2-capability-profile-r4-current\.
+No R3/ship/phase/reset/full/verify/network.
+
+The ignored preview was untested; its subsequent current-source verification is recorded below.
+
+## 2026-09-09 simplification current receipt
+
+Exact preview source `543716AD996D954680171B5DD1FBF9E0D1D764C0BD4ED43CFC1C8CABA487BE0E` and pre-receipt card `9583C9885C645D709C87151C0AA4C0EC41E010AE0AE00297C6C0C408F8AAE790` were applied. `triage-round2-simplification-current-20260909/` records generic unavailable PASS/no FAIL; required unavailable native 0/named FAIL/no PASS; and R4 baseline PASS/no FAIL with 19 semantic + 8 AST Add-Finding + 1 profile guard killed (controls: native 0/named FAIL/no PASS). Its post-card DoD records native 0/dod 0/exact PASS/no FAIL, sensitive + insensitive + restore. HEAD, original RED and T35 remain pinned; no phase/reset/commit/merge/full/verify/network.
