@@ -58,14 +58,12 @@ The user's 2026-09-08 instruction authorizes remote delivery through an independ
 
 Local candidate a9506225 repaired strict JSON and exact status-only findings after two blocked R3 rounds. The user authorized one counter reset on 2026-09-08, and it has already been consumed. Preserve the findings and current counter for remote delivery; a new worktree grants no additional reset.
 
-## Original 0220 evidence (historical)
+## Historical evidence
 
-Origin 0220 R1/behavior RED: `.review/low-current-red.log` exit1; primary red recorded DoD1; `.review/low-red-test-only.ps1` preserves tested source. Both old BLOCK repairs remain; `.review/historical-provenance.md` distinguishes old receipts. Helper GREEN/source hashes: `.review/low-green-final.log`, `low-green-manifest.json`. Twenty isolated guard mutants: `.review/run-low-mutations.ps1`, `low-mutations.json`. No additional reset is authorized.
+0220 evidence: `.review/low-current-red.log`, `low-red-test-only.ps1`, `low-green-manifest.json`, `low-mutations.json`. Ceb RED66995/primary35031/GREEN55870 and the historical 20-record/44-log audit: `.review/current-base-ceb-red/evidence.json`.
 
-## Current base evidence
+Round1 head1677 duplicate-key BLOCK/repair: `.review/r3-duplicate-keys/evidence.json` (four RED cases, helper GREEN, seven mutants, nineteen then-unchanged historical targets). These are historical, not current whole-helper evidence.
 
-On ceb2685e, the preserved tests-only fixture against the real base reviewer again failed the named advisory behavior (session66995 exit1). Primary red session35031 exited0 with DoD exit1 and a fresh ceb receipt; the original0220 receipt remains historical. Four frozen production sources were restored exactly; final SelfCheck session55870 exited0. Raw logs, source hashes and the 20-record/44-log same-source historical R4 audit are bound by `.review/current-base-ceb-red/evidence.json`; no new 20-mutant run or reset is claimed.
+## Round2 repair
 
-## PR277 round1 repair
-
-Head1677 R3 BLOCK exposed duplicate JSON keys. `.review/r3-duplicate-keys/evidence.json` binds four actual reviewer RED cases, final helper GREEN, seven current guard mutants and 19 unchanged historical target/fixture checks. Original round1 receipts are preserved; rounds=1. No reset or second ship is claimed here.
+Head dcee3843 R3 BLOCK found incomplete path classification; only `docs/research/property-inspect.md` now qualifies. `.review/r3-closed-paths/evidence.json` binds seven actual reviewer RED cases, the closed-path repair and current verification. Both official rounds remain preserved; rounds=2. User authorized one extra reset on 2026-09-09; unused pending normal ship.

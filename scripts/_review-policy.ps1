@@ -36,10 +36,7 @@ function Get-ScaffoldReviewPolicy {
       if ($baseNormalized -cne $headNormalized) { return 'blocking' }
       continue
     }
-    if ($path -cnotmatch '^(docs|specs)/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9][A-Za-z0-9._-]*\.md$') { return 'blocking' }
-    if ($path -match '^(docs/(adr|references|lessons)/|specs/(tasks|archive)/)' -or
-        (Split-Path $path -Leaf) -cmatch '^[A-Z][A-Z0-9._-]*\.md$' -or
-        $path -match '(?i)(security|auth|privacy|license|workflow|rubric|delivery|release|schema|migration|contract|requirements|design|policy|compliance|backup|retention|erasure|trust|manifest|tech[-_]?debt)') { return 'blocking' }
+    if ($path -cne 'docs/research/property-inspect.md') { return 'blocking' }
   }
   return 'advisory'
 }
@@ -54,8 +51,8 @@ function Assert-ReviewPolicyCheck([bool]$Condition, [string]$Name) {
   if (-not $Condition) { $policyFailures.Add($Name); Write-Host "REVIEW-POLICY-FAIL: $Name" }
 }
 function Invoke-ReviewPolicyCase {
-  param([string]$Name, [string]$Gate = 'advisory', [string]$Path = 'docs/how-to.md',
-        [string]$Mode = 'block', [string]$CardChange = '', [string]$Frozen = "@('docs/frozen/')", [switch]$Rename, [string]$ExistingRoot, [string]$ConfigText)
+  param([string]$Name, [string]$Gate = 'advisory', [string]$Path = 'docs/research/property-inspect.md',
+        [string]$Mode = 'block', [string]$CardChange = '', [string]$Frozen = "@('docs/frozen/')", [switch]$Rename, [string]$ExistingRoot, [string]$ConfigText, [switch]$ExistingDocument, [switch]$Mixed)
   $caseRoot = if ($ExistingRoot) { $ExistingRoot } else { Join-Path $policyRoot $Name }
   $cardPath = 'specs/tasks/T9-REVIEW-POLICY.md'
   if (-not $ExistingRoot) {
@@ -66,6 +63,10 @@ function Invoke-ReviewPolicyCase {
   Set-Content -LiteralPath (Join-Path $caseRoot 'docs/QUALITY-RUBRIC.md') -Value '# fixture rubric'
   $baselineConfig = if ($ConfigText) { $ConfigText } else { '$script:ScaffoldConfig = @{ FrozenPaths = ' + $Frozen + ' }' }
   Set-Content -LiteralPath (Join-Path $caseRoot 'scripts/_config.ps1') -Value $baselineConfig
+  if ($ExistingDocument) {
+    New-Item -ItemType Directory -Force (Split-Path (Join-Path $caseRoot $Path) -Parent) | Out-Null
+    Set-Content -LiteralPath (Join-Path $caseRoot $Path) -Value 'baseline document'
+  }
   if ($Rename) { Set-Content -LiteralPath (Join-Path $caseRoot 'scripts/critical.ps1') -Value '# rename source' }
   & git -C $caseRoot -c core.autocrlf=false add -A
   & git -C $caseRoot -c user.email=policy@test.invalid -c user.name=policy-test commit -q -m baseline
@@ -73,6 +74,7 @@ function Invoke-ReviewPolicyCase {
   New-Item -ItemType Directory -Force (Split-Path (Join-Path $caseRoot $Path) -Parent) | Out-Null
   if ($Rename) { & git -C $caseRoot mv scripts/critical.ps1 $Path }
   else { Set-Content -LiteralPath (Join-Path $caseRoot $Path) -Value 'ordinary explanation' }
+  if ($Mixed) { Set-Content (Join-Path $caseRoot 'scripts/tool.ps1') '# source' }
   if ($CardChange) {
     $headCard = switch ($CardChange) {
       status { $card.Replace('status: todo', 'status: merged') }
@@ -174,6 +176,8 @@ exit 0
   }
   $pass = Invoke-ReviewPolicyCase 'pass' -Mode pass -ExistingRoot $advisory.Root
   Assert-ReviewPolicyCheck ($pass.Exit -eq 0 -and $pass.Verdict.verdict -ceq 'pass') 'ordinary advisory pass accepted'
+  $mixed = Invoke-ReviewPolicyCase 'mixed' -Mixed
+  Assert-ReviewPolicyCheck ($mixed.Exit -ne 0 -and $mixed.Output.Contains('Review gate policy: blocking')) 'allowlisted document plus source remains blocking'
   $identity = Invoke-ReviewPolicyCase 'identity' -Mode identity -ExistingRoot $advisory.Root
   Assert-ReviewPolicyCheck ($identity.Exit -eq 0 -and $identity.Verdict.verdict -ceq 'pass') 'exact lowercase optional identity fields accepted'
   foreach ($mode in @(
@@ -209,7 +213,11 @@ exit 0
   }
   $testCard = "---`nid: T9-REVIEW-POLICY`nstatus: todo`nreview_gate: advisory`n---`n# approved card"
   $rawPrefix = ':100644 100644 ' + ('a' * 40) + ' ' + ('b' * 40) + " M`t"
-  $policyInputs = @{CardText=$testCard; BaselineAuthorized=$true; FrozenPaths=@('docs/frozen/'); RawDiff=@($rawPrefix + 'docs/how-to.md'); CardPath='specs/tasks/T9-REVIEW-POLICY.md'; HeadCardText=$testCard}
+  $policyInputs = @{CardText=$testCard; BaselineAuthorized=$true; FrozenPaths=@('docs/frozen/'); RawDiff=@($rawPrefix + 'docs/research/property-inspect.md'); CardPath='specs/tasks/T9-REVIEW-POLICY.md'; HeadCardText=$testCard}
+  foreach ($path in @('specs/android-module-boundaries.md','docs/credentials.md','docs/encryption.md','docs/deployment.md','docs/ci-pipeline.md','docs/api.md','docs/disaster-recovery.md','docs/research/chapps.md','docs/research/opensource-indie.md','docs/research/synthesis.md','docs/unknown-note.md')) {
+    $result = Invoke-ReviewPolicyCase ([IO.Path]::GetFileNameWithoutExtension($path)) -Path $path -ExistingDocument
+    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: blocking') -and $result.Verdict.verdict -ceq 'block') "authority path remains blocking: $path"
+  }
   foreach ($name in @('securityGuide', 'authentication', 'privacyPolicyGuide', 'licenseGuide', 'workflowGuide', 'rubricGuide', 'deliveryGuide', 'releaseGuide', 'schemaGuide', 'migrationGuide', 'contractGuide', 'requirementsGuide', 'designNotes', 'policyGuide', 'complianceGuide', 'backupGuide', 'retentionRules', 'erasureGuide', 'trustGuide', 'manifestGuide', 'techDebtGuide', 'tech_debtGuide', 'tech-debtGuide')) {
     foreach ($path in @("docs/$name.md", "specs/$name/example.md")) {
       $inputs = $policyInputs.Clone(); $inputs.RawDiff = @($rawPrefix + $path)
@@ -217,7 +225,7 @@ exit 0
     }
   }
   foreach ($case in @(
-    @{Name='specs-note'; Path='specs/notes/example.md'; Want='advisory'},
+    @{Name='specs-note'; Path='specs/notes/example.md'},
     @{Name='security'; Path='docs/SECURITY.md'}, @{Name='workflow'; Path='docs/DEVOPS-WORKFLOW.md'},
     @{Name='delivery'; Path='docs/DELIVERY-OPS.md'}, @{Name='requirements'; Path='docs/inspection-app-requirements.md'},
     @{Name='rubric'; Path='docs/QUALITY-RUBRIC.md'}, @{Name='frozen'; Path='docs/frozen/note.md'},
@@ -233,8 +241,9 @@ exit 0
     @{Name='malformed-card'; CardText='review_gate: advisory'}, @{Name='no-baseline'; BaselineAuthorized=$false},
     @{Name='unknown-gate'; CardText=$testCard.Replace('advisory','optional')}, @{Name='missing-gate'; CardText=$testCard.Replace('review_gate: advisory','')},
     @{Name='missing-frozen'; FrozenPaths=$null}, @{Name='malformed-frozen'; FrozenPaths=@('[')},
-    @{Name='unreadable-diff'; RawDiff=@()}, @{Name='symlink'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 120000') + 'docs/how-to.md')},
-    @{Name='mixed'; RawDiff=@($rawPrefix+'docs/how-to.md', $rawPrefix+'scripts/tool.ps1')},
+    @{Name='allowlisted-frozen'; FrozenPaths=@('^docs/research/')},
+    @{Name='unreadable-diff'; RawDiff=@()}, @{Name='symlink'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 120000') + 'docs/research/property-inspect.md')},
+    @{Name='mixed'; RawDiff=@($rawPrefix+'docs/research/property-inspect.md', $rawPrefix+'scripts/tool.ps1')},
     @{Name='changed-card'; RawDiff=@($rawPrefix+'specs/tasks/T9-REVIEW-POLICY.md'); HeadCardText=$testCard.Replace('# approved card','# changed approval')},
     @{Name='body-status'; CardText=($testCard+"`nstatus: todo"); RawDiff=@($rawPrefix+'specs/tasks/T9-REVIEW-POLICY.md'); HeadCardText=($testCard+"`nstatus: todo").Replace('status: todo','status: merged')},
     @{Name='deleted-card'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 000000')+'specs/tasks/T9-REVIEW-POLICY.md')},
