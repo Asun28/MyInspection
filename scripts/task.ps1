@@ -9,7 +9,7 @@
 
     start   : 建 worktree(<WorktreeRoot>\<TaskId>) + 引导环境(uv sync / npm i)，打印 TDD 提醒。
     ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸 → 真实 diff 预算
-              → push → 开 PR → Codex 评审(必 pass) → 候选树 ci.yml 的 pinned-head jobs 全绿 → base/head 复核
+              → push → 开 PR → Codex 评审闸门通过 → 候选树 ci.yml 的 pinned-head jobs 全绿 → base/head 复核
               → 绑定已证明 head 直接 squash 合并。free+private 无服务端规则集/auto-merge，故客户端把本地确定性闸、
               R3 与候选 CI 都作为 mandatory gate；任一不可判/失败均拒绝自动合并与 -NoAutoMerge 人工就绪。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
@@ -913,7 +913,7 @@ switch ($Phase) {
         } else {
           Write-Warning '无 codex / ReviewCommand：-Local 跳过第二模型评审（仅本地检视，未做对抗评审）。装 codex 或在 _config 配 ReviewCommand 可启用。'
         }
-        $sagaDone += 'R3 评审'   # -Local 的 R3 是可选腿：pass 或显式跳过均算该腿完成
+        $sagaDone += 'R3 评审'   # -Local 的 R3 是可选腿：闸门通过或显式跳过均算该腿完成
         Step '本地合并（-Local：并入当前基线分支，无 push/PR/gh）'
         # F3（R3 PR#102 九轮 + 审计）：入口守卫读的是 ship 开始时的 HEAD；DoD/verify/R3 可跑 10+ 分钟，其间主检出可能被
         # 切分支 / detach（L88 记有 mid-flight HEAD 移动）。合并前**重新断言**同一不变量（throw 不 warn）——否则会对照 $Base
@@ -967,7 +967,7 @@ switch ($Phase) {
       Assert-RemotePrBase -Pr $pr -ExpectedBase $shipBase
       $sagaDone += 'push+PR'
 
-      Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；block 即停、不合并）'
+      Step 'R3 Codex 评审闸门（单次运行：评审 + 回贴 codex-review 状态；闸门失败即停、不合并）'
       $r3Head = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
       if ($r3Head -cnotmatch '^[0-9a-f]{40}$') {
         Add-CatchRecord 'review' "R3 前本地 HEAD 不可判：'$r3Head'"

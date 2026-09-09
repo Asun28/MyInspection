@@ -38,7 +38,7 @@
 
 - 私有仓库；有 Pro 则 main 规则集要求 **PR + 必需检查 `verify`+`codex-review`**；仅 squash、合并后删分支。
 - Codex 凭据**留在本地**，不进 CI；CI 只跑无网络的 `verify`。这是「Codex 代替人工」最安全的接法。
-- free+private 不支持服务端规则集（403 Upgrade to Pro）→ R3 由客户端 `review.ps1` + task-loop skill 强制（verdict≠pass 即不合并）。
+- free+private 不支持服务端规则集（403 Upgrade to Pro）→ R3 由客户端 `review.ps1` + task-loop skill 强制（review.ps1 非零即不合并；blocking 策略须有效 pass）。
 - 一次性建仓加固：`scripts\gh-bootstrap.ps1`（幂等，已探测 403 并优雅跳过）。
 - **账号守卫**：所有 gh 写操作仅限 `scripts\_config.ps1` 配置的个人账号（`_guard.ps1` 前置校验）。
 
@@ -61,7 +61,7 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase start
 # R2 RED 检查点（先写失败测试后跑）：断言 DoD 非零并落 .review\T0-SCAFFOLD.red 证据，ship 据此强制 RED-first
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase red
 
-# 远端基线定向 fetch → R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸(check-secrets) → 真实 diff 预算 → push → PR base确认 → R3 Codex pass → merge前再确认base → 合并
+# 远端基线定向 fetch → R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸(check-secrets) → 真实 diff 预算 → push → PR base确认 → R3 Codex 闸门通过 → merge前再确认base → 合并
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
 #   无远端 / 无 Codex 的本地 T0：加 -Local（DoD + 可选评审后**本地**合并，不 push/PR/gh）
 #   pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship -Local
