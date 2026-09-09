@@ -2382,3 +2382,10 @@
 - rule: ① 当一个文件里有**不是你改的**未提交内容时，绝不用 git checkout -- <path>（或整文件覆写）来塑造提交。改用不碰工作树的暂存方式：把目标内容写进临时文件，再 git hash-object -w --path <path> <tmp> 取 sha、git update-index --cacheinfo 100644,<sha>,<path> 入索引。② 跑任何读工作树的仓级维护脚本（archive.ps1 之流）之前先 git status --porcelain，确认每一条脏路径都是你的；不是就先提交/寄存对方的改动，否则它的产物必然携带对方的在飞状态。③ 无论如何，动别人的脏文件之前先复制一份快照——本次能救回来靠的正是这个。
 - enforced_by: none（git 使用纪律；机械等价物是动手前的 git status --porcelain 与 hash-object/update-index 这条不碰工作树的暂存路径）
 - refs: 
+## L325
+- date: 2026-09-09 ｜ tags: gates,diagnosis,worktree,secrets ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: check-secrets -Strict 在卡片 worktree 里报致命「git 历史含敏感文件：…5.db」。我据此断言「这道闸没有白名单机制、会一直误报」，还向用户提议开卡去修它。实际上白名单机制早就存在、项目也早就正确用着（configs/secrets/tracked-sensitive-allowlist.json 五条齐全、各带 purpose），同一条命令在主检出里跑是 PASS。
+- root_cause: 闸的历史扫描是 git log --all（跨**全部 ref**，含本地 master），而白名单是从**当前检出的那棵树**读的配置文件。我在基于 origin/master 的 worktree 里跑它，那棵树的白名单只有 1-4.db，第 5 条在本地 master 上尚未推送。于是「作用域全局的扫描 + 作用域局部的配置」给出了一个**对那棵树完全正确**的致命报告，而我把它读成了工具缺陷——下结论前没问「这次运行读的是哪一份配置」。
+- rule: 闸报红时先确定**它这次读的是哪棵树的配置与输入**，再谈它对不对。判据是换一棵树重跑：同一条闸命令在主检出与被审 worktree 各跑一次并比对退出码，两处结论不同即说明红的是**作用域**而非缺陷。扫描作用域（git log --all 跨 ref）与配置作用域（当前检出树）不一致时，在落后的基线树上跑必然产出「对该树正确、对仓库整体错误」的结论。做完这一步之前，不得据一次红去断言工具有缺陷，更不得据此开卡——把误诊写进卡片比不开卡贵得多。
+- enforced_by: none（判定纪律；机械等价物 = 同一条闸命令在主检出与被审 worktree 各跑一遍、比对退出码，不同即先查作用域）
+- refs: L282
