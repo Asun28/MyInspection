@@ -120,7 +120,7 @@
 | W0 | T0-DEBT-MIGRATION-FIXTURE-CLEANUP | PR #47 round-cap 后收敛 Windows migration fixture 清理（TD145） | T0-DEBT-MIGRATION-SNAPSHOT-ALLOWLIST | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `19e4646`，PR #93；短路径、有界重试、完整诊断与清理终态通过，解除 TD4 R5 阻塞） |
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | **merged**（本地合并 `19fd908e`；R5 `320f8dac`） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
-| W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | —（人工真机验收） |
+| W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | **merged**：PR #286 / `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`；R3 首轮 pass、CI 成功、cleanup 完成；真机与 APK 边界见平台报告 |
 | W1 | T1-LOCAL-DATA-SECURITY | 本地数据安全底座：内外存储分层 + Keystore secret box + 脱敏日志 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；不改 schema/backup format |
 | W1 | T1-SHARE-SCREEN-PRIVACY | Android 隐私出口：安全文件分享 + 敏感窗口分级 + cleartext/系统备份清单闸 | T1-LOCAL-DATA-SECURITY | S–M | GPT-5.6 Terra · high | Sonnet 5 max | 下游统一隐私出口 |
 | W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
