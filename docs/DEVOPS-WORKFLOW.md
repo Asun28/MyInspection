@@ -1,6 +1,6 @@
 # DevOps 工作流 · worktree + TDD + Codex-PR 闸门 + 测试卫生 + 文档同步
 
-> EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` enforces RED evidence → DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope/review gates, then runs scope `allow_paths` → license → secret-leak → real-diff budget → push/PR-base validation → deliberately non-deterministic codex R3 review → pre-merge base revalidation → squash merge.
+> EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3, advisory by default since T68), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` runs DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope gate, then scope `allow_paths` → license → secret-leak → push/PR-base validation → (R3 - advisory, except a Tier-S spec block; blocking under `ReviewGate='required'` - T242/T277) → CI check gate → pre-merge base revalidation → squash merge. Every merge gate is deterministic and idempotent, so re-running the same `ship` command is always a safe resume.
 
 > 本文件是工作流的唯一操作手册。它把 5 条要求（R1–R5）落到 Windows/PowerShell 原生、
 > 零新增运行时依赖的闭环上。核心理念：**计划/任务卡 own 规划/冻结/验收，脚手架只补 git+TDD+评审接线**，
@@ -25,20 +25,18 @@
 
 | 要求 | 落地 |
 |---|---|
-| **R1 worktree** | 每张卡一个 `<WorktreeRoot>\<TaskId>` worktree + 同名分支；`task.ps1 -Phase start/cleanup` 管理（WorktreeRoot 见 scripts/_config.ps1） |
-| **R2 TDD** | 红→绿→**重构（含 `/simplify` 质量清理，见 task-loop 步骤 3.5）**；契约/e2e 测试**先写**；CI `verify` + 卡片 `dod_command` 双重把关。**验收即开场契约**：`start` 时把验收标准复述对齐、以 RED-first 作「达成一致」签名；写不出 RED（不可测/模糊/错范围）即先修卡再开工，标准冻结后别为过闸放低（L47；vacuous-pass 见 L19/L20）。**RED 现为可强制检查点**：`task.ps1 -Phase red` 跑 DoD 断言**非零**并落 `.review/<id>.red` 证据；`ship` 缺该证据即拒（非 TDD 卡用 `-SkipRed` 显式跳过） |
-| **R3 PR + Codex 评审代替人工** | `review.ps1` 跑 Codex 只读评审→`{verdict}`→回贴 commit status（名取自 `_config.ps1` `ReviewStatusContext`，默认 `codex-review`，换后端可改名）；有规则集则列为**必需检查**；free+private 无服务端规则集时由 review.ps1 退出码本地强制。远端 `ship` 先刷新并强制使用 `origin/<base>`（fetch 失败即 block），PR 建好后确认 `baseRefName`；R3 后、merge 前再确认一次，防并发 retarget。**fail-closed 新鲜度守卫**：评审者非零退出或裁决 sha≠HEAD 即 block，且每轮先清旧裁决文件（治评审者静默 no-op 读到上轮 pass 的 stale-verdict fail-open）。**阻断态可诊断（TD96）**：「评审者跑完了但读不出可用裁决」不再是一条兜底文案，而是四个各带 ASCII 状态码 + 专属恢复路由的态（rubric §5 有表），分类器拒答落 `[R3-NO-VERDICT-JSON]` 且原文另存 `.review/(分支名).raw.txt` 供你先读再判；裁决写不下来 `[R3-VERDICT-WRITE-FAILED]` 亦 block（无可复核记录不算放行）；裁决产物叶子、`.review` 或其任一祖先是符号链接/重解析点时打 `[R3-REVIEW-DIR-UNSAFE]` 停手（启动时与唤起评审者之前各判一次；检出后不再有任何建/删/写、评审者不被唤起）。**首轮提交前建议先跑本地自检**（task-loop 步骤 4.6）——R3 每轮只报当轮最刺眼一处，完备性问题不先自查会逐轮外溢（L97），拖长 round-trip |
-| **R4 测试卫生** | 重构阶段用 **mutation-survivor 剪枝**（见 §4）；每卡 `hygiene` 字段（**建议性**——check-cards 不机检该字段，靠 task-loop 步骤 + R3 rubric §2 兜底） |
-| **R5 文档同步** | 合并后立刻更新 CLAUDE.md/README/卡片 status；每卡 `doc_sync` 字段 + cleanup 阶段提醒（**建议性**——非机检字段，靠流程 + 评审兜底）。**效率约定（见 L123）**：R5 doc-sync（卡 status→merged、TD→paid、指针填 PR#）+ R5.5 lessons **默认写进 ship PR 本体**（一 PR / 一评审 / 一 CI，免每特性双 PR）；只有真·合并后事实（如 squash SHA）或并发撞号被迫拆分，才另开 follow-up PR |
+| **R1 worktree** | 每张卡一个 `<WorktreeRoot>\<TaskId>` worktree + 同名分支；`task.ps1 -Phase start/cleanup` 管理（WorktreeRoot 见 scripts/_config.ps1）。**`-TaskId` 在参数绑定期即校验，判据取自 `_cards.ps1` 的 `card-id` 规则行（与 check-cards 同源、**大小写敏感**）**：`task.ps1` 与 `check-scope.ps1` 都不再各持一份正则副本，收窄规则行会在同一次改动里收窄这两个入口（T229/TD231；派生本身由 selftest 15v `[CARD-ID-DERIVED]` 机检）。四个相（start/red/ship/cleanup）一致，畸形/穿越 id 在拼进 worktree 与卡片路径**之前**即被拒（TD50）。注意这比旧行为**更严**：旧的 `ValidatePattern` 默认 `IgnoreCase`，`t1-foo`、`T0-scaffold` 这类 id 曾能通过入口、却会被 check-cards 拒——现在两处一致地拒。 |
+| **R2 TDD** | 红→绿→**重构（含 `/simplify` 质量清理，见 task-loop 步骤 3.5）**；契约/e2e 测试**先写**；CI `verify` + 卡片 `dod_command` 双重把关。**验收即开场契约**：`start` 时把验收标准复述对齐、以 RED-first 作「达成一致」签名；写不出 RED（不可测/模糊/错范围）即先修卡再开工，标准冻结后别为过闸放低（L47；vacuous-pass 见 L19/L20）。**RED 为可选辅助检查点（T68：RED 证据闸已从 ship 拆除，合并闸=确定性闸）**：`task.ps1 -Phase red` 跑 DoD 断言**非零**（GREEN 下必抛、危险 dod 先被 check-cards 前置拦）；ship 不再校验 RED 证据（`-SkipRed` 保留为兼容 no-op） |
+| **R3 第二模型评审（T68 起默认意见、非合并闸）** | **`ReviewGate` 留空（默认）= 意见模式**：ship **不因评审阻断**；跑不跑看**卡自己**——声明 `review_gate:` 即在合并前跑一遍（T242：只报告与入账、不回贴 status）；T301 起 `ReviewIntensityByTier` 再按卡算出的 tier 选档（只降不升）。要第二意见随时手动 `review.ps1`。**Two axes (T277)**: only a `spec` block on a **Tier-S** card stops a ship (`[R3-SPEC-BLOCK]`, pre-merge); `standards`, other tiers, and a verdict the base card arbitrates for the maker on that sha (`[R3-SPEC-ARBITRATED]`, T285) stay advisory. **The reviewer runs from the BASE commit (T288)**: both legs execute `scripts/review.ps1` as it exists on the sha the scope gate pinned (a temp copy, removed on every exit path) and print `[R3-REVIEWER-FROM-BASE] sha=<base>` — the rubric was already read from the baseline, and the script applying it now is too, so a card repairing `review.ps1` cannot review itself (`docs/HARNESS-REVIEW.md`). **R5**: a debt row only if `re-measured` on the merged tree as a code defect; card prose goes in that card's R5 commit, never a new card. **'required' = 旧强制闸，以下强制语义仅该态生效**。`review.ps1` 跑评审（workspace-write 沙箱、断网）→`{verdict}`→回贴 commit status（名取自 `ReviewStatusContext`）；有规则集则列为**必需检查**。远端 `ship` 强制用刷新后的 `origin/<base>`（fetch 失败即 block）；PR base 建好后与 merge 前各确认一次，防 retarget。**fail-closed 新鲜度守卫**：评审者非零退出或裁决 sha≠HEAD 即 block，每轮先清旧裁决（治 stale-verdict）。**阻断态可诊断（TD96）**：读不出可用裁决时分四态、各带 ASCII 状态码与恢复路由（表在 `rubric-detail.md`）；分类器拒答另存原文备读，裁决写不下来亦 block。**评审成本（T189/TD184）**：账本 block 报**质量轮**，`run_status`≠success 单列 attempts。 |
+| **R4 测试卫生** | 重构阶段用 **mutation-survivor 剪枝**（见 §4）；每卡 `hygiene` 字段（**基本建议性**——内容靠 task-loop 步骤 + R3 rubric §2 兜底；check-cards 只机检**一条自洽性**：when `hygiene` promises a **mutation-evidence batch** (L165), `allow_paths` must cover BOTH files the batch writes — the registry `.psd1` AND its `-results.tsv`. The bare `specs/mutations/` directory covers both; a single `.psd1` does not, and that any-half form let T191 run its batch and then have the TSV refused at ship. 哨兵 `[CARD-HYGIENE-MUT]`，T110/TD145 + T200/TD194。模板那句 `mutation-survivor 剪枝` 不算承诺、不受此限） |
+| **R5 文档同步** | 合并后立刻更新 CLAUDE.md/README/卡片 status；每卡 `doc_sync` 字段 + cleanup 阶段提醒（**建议性**——非机检字段，靠流程 + 评审兜底）。**冷存也归 R5**：卡一 merged 就该搬出热路径，故 cleanup 末尾跑 `archive.ps1 -Check`（只读：两张索引是否仍逐行等于生成器投影 + `[ARCHIVE-CHECK-PENDING]` 列出待搬项），有待搬项就跑 `archive.ps1` 清扫。`[ARCHIVE-HELD]` still holds a merged card whose worktree is on disk, so the sweep cannot get ahead of a full teardown. **What T293 fixed (issue #361) is the far side of that hold**: worktree gone, local branch still alive on its merge credential - the sweep moves the card, and cleanup used to refuse for want of it. It reads no card now, printing `[CLEANUP-CARD-COLD]`/`[CLEANUP-CARD-ABSENT]`.**同为建议性**（合并后才跑；合并闸恒为 ship 的确定性闸串，T68）。**效率约定（见 L123）**：R5 doc-sync（卡 status→merged、TD→paid、指针填 PR#）+ R5.5 lessons **默认写进 ship PR 本体**（一 PR / 一评审 / 一 CI，免每特性双 PR）；只有真·合并后事实（如 squash SHA）或并发撞号被迫拆分，才另开 follow-up PR |
 | **R5.5 复盘（经验回流）** | **闭环最后一拍**：doc-sync/cleanup 之后做一次极简复盘——本卡若踩过会复发的非平凡坑（工具链/判断），`lessons.ps1 add` 入账、`blocking` 当场 `promote`，没有就显式跳过。与开场的经验检索（recall）对称，闭合自净化经验回路；门槛/时机的真相源见 `docs/LESSONS.md`「接入 task-loop」（**建议性**——非机检，靠流程 + `lessons` skill 触发兜底） |
-
-**真实 diff 预算是 push / 开 PR / R3 之前的硬闸**：`ship` 用 `review.ps1 -SizeOnly` 对 pinned `base...HEAD` 计算 `additions+deletions <= 1000` 且未截断 unified diff `<= 60000` 字符，任一超限即 `[R3-DIFF-TOO-LARGE]`，不 push、不开 PR、不消费 reviewer round。`allow_paths` 的条目数只在建卡期提示共享面与所有权——目录前缀可覆盖大量文件、单个脚本也能产生巨大 diff，故它**不是**规模证明。超限卡必须拆成有依赖的 1→N 卡，不能扩 `allow_paths` 或提高 CLI 参数绕过；`MaxChangedLines`/`MaxDiffChars` 只允许收紧。
 
 ## 2. 仓库托管：真实 GitHub PR
 
 - 私有仓库；有 Pro 则 main 规则集要求 **PR + 必需检查 `verify`+`codex-review`**；仅 squash、合并后删分支。
 - Codex 凭据**留在本地**，不进 CI；CI 只跑无网络的 `verify`。这是「Codex 代替人工」最安全的接法。
-- free+private 不支持服务端规则集（403 Upgrade to Pro）→ R3 由客户端 `review.ps1` + task-loop skill 强制（review.ps1 非零即不合并；blocking 策略须有效 pass）。
+- free+private 不支持服务端规则集（403 Upgrade to Pro）→ R3 由客户端 `review.ps1` + task-loop skill 强制（verdict≠pass 即不合并）。
 - 一次性建仓加固：`scripts\gh-bootstrap.ps1`（幂等，已探测 403 并优雅跳过）。
 - **账号守卫**：所有 gh 写操作仅限 `scripts\_config.ps1` 配置的个人账号（`_guard.ps1` 前置校验）。
 
@@ -58,15 +56,25 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase start
 #   R2 重构：/simplify 质量清理（只清理不找 bug；改后重跑 dod_command 确认仍绿）
 #   R4   ： mutation-survivor 剪枝冗余测试
 
-# R2 RED 检查点（先写失败测试后跑）：断言 DoD 非零并落 .review\T0-SCAFFOLD.red 证据，ship 据此强制 RED-first
+# R2 RED checkpoint (optional TDD aid since T68 — ship does not read it): asserts the DoD exits non-zero
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase red
+# ONE REGIME, BOTH PHASES (T270/TD250 fix (b)): red and ship build what they run with the same call
+# (`Get-ScaffoldDodPayload`), so a dod means one thing in both. Red ran it unwrapped until then, and three
+# no-op shapes banked exit 0. Gate 10s measures it; why red never needed the raw form: specs/README.md.
 
-# 远端基线定向 fetch → R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 许可闸 → 防泄露闸(check-secrets) → 真实 diff 预算 → push → PR base确认 → R3 Codex 闸门通过 → merge前再确认base → 合并
+# R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 预算闸(budget，T233) → 许可闸 → 防泄露闸(check-secrets) → push → PR base确认 → (R3：required 为强制闸；卡声明 review_gate: 则意见模式下也跑、不拦合并 T242) → CI 检查闸(分支 check-runs 全绿，T64；本地免跑全量 selftest 的验收面由 CI 分片并集承担) → merge前再确认base → 合并
+#
+# 预算闸（T233/TD235）与上一道范围闸成对：范围闸判**改哪里**，它判**改多少**（`budget:`）。两者都取 **BASE 卡**——
+# 分支内抬高自己的上限无效。超出即 `[CARD-BUDGET-OVER]` 阻断，出路二选一：拆成后续卡，或把预算抬到 base 分支上、
+# 作为独立提交、理由写进那个提交，再重跑同一次 ship。没声明 `budget:` 的卡照旧 ship（缺省即关）。字段语义见 `specs/README.md`。
+# T241/TD247: both checked off ONE pinned base commit; a card not on base blocks `[SHIP-SCOPE-CARD-ABSENT]`.
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
 #   无远端 / 无 Codex 的本地 T0：加 -Local（DoD + 可选评审后**本地**合并，不 push/PR/gh）
 #   pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship -Local
 
-# 合并后：R1 拆 worktree + R5 文档同步提醒
+# 合并后：R1 拆 worktree + R5 文档同步提醒 + 两道只读自检（lessons check · archive -Check）
+#   archive -Check 只读重投影两张冷存索引并报待搬项——**建议性、非闸门**（它跑在合并之后，合并闸
+#   仍只有 ship 那串确定性闸，T68「越用越薄」）。有待搬项就顺手跑 pwsh -File scripts\archive.ps1
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase cleanup
 
 # R5.5 复盘（闭环最后一拍）：本卡若踩过会复发的非平凡坑 → 入账；blocking 当场 promote；没有则跳过
@@ -75,26 +83,25 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 ```
 
 > <!-- T36-DOCTRINE -->
-> **ship 非原子 → 重跑同一条 `-Phase ship` 即 resume（T36-DOCTRINE）**：远端 `ship` 依次执行 RED 证据 → DoD → verify → **提交（watershed）** → 刷新远端基线 → 范围 → 许可 → 防泄露 → 真实 diff 预算 → push/PR → base 确认 → R3 → merge 前 base 复查 → 合并；任一闸失败即 `throw`，并先打印 saga 报告（`T26-SHIPSAGA`：已完成腿、失败点、待办腿及按状态生成的恢复命令）——先读它再动手。commit 前中断可直接重跑；commit 腿铸造 T35 watershed receipt 后，receipt 会让合法重跑通过 RED 新鲜度闸，因此 commit 后至 merge 前的**主恢复同样是：修复后重跑原封不动的同一条 `ship`，让全部闸重新通过（含修复提交），没有豁免。**
+> **ship 非原子 → 重跑同一条 `-Phase ship` 即 resume（T36-DOCTRINE）**：远端 `ship` 依次执行 DoD → verify → **提交** → 刷新远端基线 → 范围 → 预算 → 许可 → 防泄露 → push/PR → base 确认 →（R3：`required` 为强制闸；卡声明 `review_gate:` 则意见模式下也跑、不拦合并，T242）→ CI 检查闸（T64/T86：轮询 PR head 的 check-runs 分页取齐，期望检查 = `ci.yml` 自陈的单枚 fan-in context `required`——**契约、语义与沿革的真相源是 §3.0，此处不复述**；取不齐/任一红/超时皆 fail-closed。**元层 17 闸不在 PR 上跑**，验收面见 §3.2）→ merge 前 base 复查 → 合并；任一闸失败即 `throw`，并先打印 saga 报告（`T26-SHIPSAGA`; ASCII state-code lines: `[SAGA-DONE]` completed legs / `[SAGA-FAIL]` failure point / `[SAGA-TODO]` pending legs / `[SAGA-RESUME]` recovery command; the leg names are ASCII tokens, now printed live per leg by `[SHIP-TIME]` rather than copied here (T143 - a static second copy of $sagaLegs can only drift); the three -Local merge-leg failure states are `[SAGA-MERGE-TOKEN]`/`[SAGA-MERGE-CONFLICT]`/`[SAGA-MERGE-GUARDED]`; gate fail-closed throws carry `[SHIP-*]`/`[CI-GATE-*]` state codes, and machine checks anchor on the codes, never the prose — T73/TD120）。**每腿完成即打 `[SHIP-TIME] <腿名> <秒>s`**（T143），失败路径另打 `(incomplete leg)`，故死在中途的 ship 也说得出时间花在哪。**只打印、从不判定**：无任何 ship 决策读它，也不入效果账本（ADR 0003）。**只量 task.ps1 掌控的腿**——ship 前的强制本地全量验收（385.3s，操作者发起）与 agent 撰写时间（占单卡 50–80%）都不在内，当成卡的成本会差一个数量级。——先读它再动手。恢复无豁免：闸门确定性且幂等（T69），修复提交也走同一条 `ship`。
 >
-> 这条 doctrine 只由 saga catch 的 receipt-present 分支与本节承载。**旧的「不要重跑 ship，直接对已开 PR 重跑评审并合并」路径已反转**：它绕过范围（scope）闸，而 CI **没有范围闸**，这正是 TD89 的根因。不得把 CI 通过当作完整闸门凭据，也不得用直接 review/merge 替代正常的 ship resume。
-> 该反转现由 `selftest.ps1` 闸 **15q** 的负断言机检锁死（TD93 item②）：`scripts/task.ps1` 内一旦复现旧路径的**三条既定措辞**（禁用词表见 15q）即 `FAIL`——旧教义最危险的载体正是印在 RED 证据闸抛错处的**运行期指引**注释，操作者撞闸时会照读照做。该锁是**字面量比对、非语义**：改写措辞可绕过，故它是最后一道栅栏、**不替代评审**。扫描面 = `scripts/task.ps1`（禁绝）+ `selftest.ps1` 自身（词表恰 1 次）；本文件**不在**扫描面内——本段引号内是「已反转」的历史描述，合法且必须保留。
+> **旧的「不要重跑 ship，直接对已开 PR 重跑评审并合并」路径已反转**：它绕过范围（scope）闸，而 CI **没有范围闸**，这正是 TD89 的根因。不得把 CI 通过当作完整闸门凭据，也不得用直接 review/merge 替代正常的 ship resume。
+> (History: gate 15q's negative lexical lock on this reversal (TD93 item②) retired with the RED-evidence gate in the 0.30/0.31 subtractions. Guarded now by this text + gate 15r (saga report / recovery routing) + gate 15t (manual-recovery fixture).)
 >
-> **watershed 后禁止改写历史（红线）**：从首个 baseline commit／receipt 铸造起，严禁 rebase、amend、filter 或其他 history rewrite——改写会令 receipt 不再自洽、破坏证据新鲜度、并使已 GREEN 的树无法重新合法执行 RED。远端出现 non-fast-forward 时只能 `fetch` 后 `merge`（merge 从不 rebase），绝不 rebase（这也是 `task.ps1` 范围闸/推送闸两处报错文案已去除 rebase 建议的原因）。
+> **已 push 后禁止改写历史（红线）**：分支一经 push，严禁 rebase、amend、filter 或其他 history rewrite——已发布的提交被改写后，手工闸审的树与远端要合并的树可以是两棵（S8）。远端出现 non-fast-forward 时只能 `fetch` 后 `merge`（merge 从不 rebase），绝不 rebase（这也是 `task.ps1` 范围闸/推送闸两处报错文案已去除 rebase 建议的原因）。
 >
-> **状态化恢复（S1–S9）**（机器可判特征 → 主路；真相源见 `specs` 计划 §5 状态表，本节为权威长文）：
+> **Stateful recovery (S1–S8)** (machine-checkable feature → main route; post-T69 every state's main route is simply "fix, then rerun the same ship"):
 >
-> - **S1 committed-unpushed**：范围/许可/防泄露/真实 diff 预算腿失败且尚未 push——直接重跑同一条 ship，receipt 放行 RED、所有闸重判。receipt 丢失或不自洽时先 `git reset --soft <evidence.redSha>`（靶取 RED 证据 sha 原值，**非 `HEAD~1`**）后重跑；evidence sha 为占位符则无可 reset 之靶（该分支从未有 baseline commit），须人工处置。
-> - **S2 pushed-no-PR**：push 后、PR 创建前失败——重跑同一条 ship，幂等 push 后续接 PR-create 腿。receipt 丢失时先手工重跑下述全部确定性闸；因本态**尚无 PR**，`-PostStatus`（需 PR 号）不可直用，须先 `gh pr view <TaskId>`（无则 `gh pr create --base <base> --head <TaskId>` 补建 PR）拿到 PR 号，再走 `-PostStatus` 最后手段。
-> - **S3 push 被拒 / origin 分叉（非 fast-forward）**：`git fetch origin`，再在 worktree 内 `git merge origin/<TaskId>`（merge 从不 rebase，故无需 `--no-rebase` 标志；亦可 `git pull --no-rebase`），处理后重跑同一条 ship。
-> - **S4 PR-open、R3 未过**：完成修复形成 fix commit，再重跑同一条 ship（全部闸重判，已开 PR 复用）。receipt 丢失按 S2。
-> - **S5 R3-passed-unmerged**：merge 腿失败（含 merge 前 base 复查 throw）时重跑同一条 ship；head 或 base 有变即在管线内重新 R3。receipt 丢失按 S2。
-> - **S6 `-Local` 合并冲突（磁盘存在 `MERGE_HEAD`）——主路径固定三步**：①在主检出执行 `git merge --abort`；②进入 worktree 执行 `git merge <base>`，解决冲突并提交 merge commit（**禁 rebase**；该 merge commit 被 receipt 的祖先语义接纳——T35 正例夹具已钉死）；③重跑同一条 ship，使消解树重新通过范围闸、R3 及其余闸，此时管线内合并必为 clean。`git merge --continue` 降为**最后手段**——它产生的树未过范围闸与 R3。
-> - **S7 merged-unminted**：合并已成、T24 cleanup 凭据未铸——先人工确认合并事实，再经在线复验或显式 `-Force` 走既有 cleanup；无可靠确认则 fail-safe 保留分支。
-> - **S8 history-rewritten post-watershed**：receipt 在场但已非当前 HEAD 的祖先，视为不自洽——未 push 按 S1 兜底；**已 push 时不得径直按 S2**：须先 `git fetch origin` 并以非-rebase 方式对齐本地与 `origin/<TaskId>`（`git merge origin/<TaskId>`，禁 rebase）后再 push，且合并前必须核验 PR head（`gh pr view <TaskId> --json headRefOid`）== 已过闸且已评审的本地 HEAD——否则手工闸审的是改写后的本地树、而 `gh pr merge` 合的却是另一远端 head。对齐并核验后方按 S2 兜底。历史改写红线本应阻止进入此态。
-> - **S9 evidence lost**（`.red` 丢失／worktree 重建／误跑 `-Phase start`）：由「receipt 在场 ∧ evidence 缺失」的双 `Test-Path` 检测——未 push 走本节 reset 兜底（靶不可读则保留锚点人工处置）；已 push 走下述全部确定性闸手工重跑路径 + 最后手段。**失败后不要重新执行 `-Phase start`。**
+> - **S1 committed-unpushed**: a scope/license/secrets leg failed before push — rerun the same ship; all gates re-judge. **Exception: if the scope leg names files you committed to the BASE locally, rerunning cannot help** — the gate judges `origin/<base>`, which lacks them. Fix: `git push origin <base>`, then rerun; ship names this state itself.
+> - **S2 pushed-no-PR**: failed after push, before PR creation — rerun the same ship; idempotent push, then the PR-create leg. For the manual last-resort path note this state has **no PR yet**: get a PR number first (`gh pr view <TaskId>`, else `gh pr create --base <base> --head <TaskId> --title "<per §3.1>"`), then follow the last-resort block below.
+> - **S3 push rejected / origin diverged (non fast-forward)**: `git fetch origin`, then inside the worktree `git merge origin/<TaskId>` (never rebase; `git pull --no-rebase` also works), resolve, rerun the same ship.
+> - **S4 PR-open, review not passed** (`ReviewGate='required'`): land the fix commit, rerun the same ship (all gates re-judge; the open PR is reused).
+> - **S5 approved-unmerged**: the merge leg failed (incl. the pre-merge base recheck throw) — rerun the same ship; if head or base moved, the pipeline re-reviews as needed.
+> - **S6 `-Local` merge conflict (`MERGE_HEAD` on disk) — fixed three steps**: (1) `git merge --abort` in the main checkout; (2) inside the worktree `git merge <base>`, resolve, commit the merge commit (**never rebase**); (3) rerun the same ship so the resolved tree re-passes scope and every other gate — the in-pipeline merge is then clean. `git merge --continue` is the **last resort** (its tree passed no scope gate or review).
+> - **S7 merged-unminted**: merge succeeded but the T24 cleanup token was not minted — confirm the merge fact, then cleanup via online re-verification or explicit `-Force`; without reliable confirmation the branch is kept fail-safe.
+> - **S8 history-rewritten post-push**: **do not go straight to S2** — first `git fetch origin` and align with `origin/<TaskId>` non-rebase (`git merge origin/<TaskId>`), push, and before merging verify PR head (`gh pr view <TaskId> --json headRefOid`) == the locally gated-and-reviewed HEAD — otherwise the manually gated tree and the tree `gh pr merge` merges are two different trees. Then proceed per S2. The no-rewrite red line above exists to keep you out of this state.
 >
-> **任何已 push 状态的手工恢复都必须保持闸门保真（gate fidelity）**：合并前必须按序重跑 DoD、verify、范围、许可、防泄露、真实 diff 预算——CI 没有范围闸，**不能**以 CI 复跑替代下列路径：
+> **任何已 push 状态的手工恢复都必须保持闸门保真（gate fidelity）**：合并前必须按序重跑 DoD、verify、范围、**预算**、许可、防泄露——CI 既没有范围闸也没有预算闸，**不能**以 CI 复跑替代下列路径：
 > ```powershell
 > # 1. 按任务卡 DoD 段逐字执行其中列出的原命令，并确认全部成功
 > <任务卡 DoD 中的原命令>
@@ -133,16 +140,19 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 > #    master、空 diff 假绿；脚本另有 HEAD 无从表达的三条绑定（远端/本地两侧对称取 ref、本地与远端分叉即 fail-closed、
 > #    allow_paths 只认基线那份卡），故手敲 git 命令**不能**替代它。
 > # git -c core.quotepath=false -c diff.renames=false diff --name-only origin/<base>...origin/<卡分支>
+> # 3.5 预算闸（T233/TD235）：判「改多少」。跑**主检出**那份量表、用 -Path 指被审树（同上一步的 L86 之理），
+> #     **-Base 显式给**（同上）。它与 ship 侧读同一枚核、同一份 BASE 卡，故分支内抬高预算在这里同样无效。
+> #     退出码：0=under 或无预算；1=**trip 或 over**；2=量不出来。**只在 over 时停**——trip 是提示不是阻断，
+> #     故必须读它打印的状态，不能只看退出码把 trip 当 block。
+> pwsh -NoProfile -File <主检出>\scripts\check-budget.ps1 -TaskId <id> -Base <base> -Path <被审工作树>
+> #     ↑ 打印 OVER 即停：拆成后续卡，或把 `budget:` 抬到 <base> 上（独立提交、理由写进它），再从头重跑本序列。
 > # 4. 商用许可闸
 > pwsh -NoProfile -File scripts\check-licenses.ps1
 > # 5. 防泄露闸
 > pwsh -NoProfile -File scripts\check-secrets.ps1
-> # 6. 真实 diff 预算（使用主检出检查器；超限或不可判即停止恢复）
-> pwsh -NoProfile -File <主检出>\scripts\review.ps1 -WorktreePath <被审工作树> -Base <base> -SizeOnly
-> if ($LASTEXITCODE -ne 0) { throw '真实 diff 预算 BLOCK：停止恢复，拆卡或修复 git 基线后重跑' }
 > ```
 >
-> **receipt 丢失且已 push 时的最后手段（TD85-RESUME）**：只有上述全部确定性闸已手工通过后，才可直接 `review.ps1 -PostStatus` 并合并。以下命令本身**不会**重跑 DoD/verify/范围/许可/防泄露/真实 diff 预算，**不得单独使用**：
+> **已 push 状态的手工最后手段（TD85-RESUME）**：只有上述全部确定性闸已手工通过后，才可直接 `review.ps1 -PostStatus` 并合并。以下命令本身**不会**重跑 DoD/verify/范围/预算/许可/防泄露，**不得单独使用**：
 > ```powershell
 > pwsh -NoProfile -File scripts\review.ps1 -WorktreePath <worktree> -Base <base> -PostStatus -PrNumber <PR号>
 > # 合并的必须是上面**范围闸判过的那个** sha（$head 同上一步；--match-head-commit 令 head 变动即拒绝合并）——
@@ -155,24 +165,74 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 > git fetch origin <base>; if ($LASTEXITCODE -ne 0) { throw '合并前复核：fetch 失败，拒绝合并' }
 > $baseOid2 = git -C <被审工作树> rev-parse refs/remotes/origin/<base>
 > if ($baseOid2 -ne $baseOid) { throw "合并前复核：基线已前移（$baseOid -> $baseOid2），判定依据的 allow_paths 可能已变——回到第 1 步重跑全部确定性闸后再合" }
+> # Pre-merge CI check (TD134): the CI acceptance surface must be green on the pinned $head before a
+> # manual merge - the ship pipeline's CI check gate enforces this on both its paths (auto and
+> # -NoAutoMerge), and this recipe must not be the one plane that skips it. T86: what has to be green is
+> # ci.yml's ONE fan-in context, `required` (see "CI fan-in contract" below) - it is the job that fails
+> # unless every other job succeeded, so a single literal SUCCESS on it is the whole acceptance surface.
+> # Adding a job to ci.yml does NOT change this line; wiring the new job into `required`'s needs: does.
+> # ADR 0007: scaffold-selftest no longer triggers on pull_request, so its 2 x 5 shards are NOT part of a
+> # PR's check set - do not wait for them. NOTE: the meta-layer 17 gates are NOT proven by this check; on
+> # a diff that touches scripts/hooks/workflows you must have a green local full selftest before merging
+> # by hand.
+> $ciOk = gh pr checks <PR号> --json name,state --jq '[.[] | select(.name == "required" and .state == "SUCCESS")] | length'
+> if ($LASTEXITCODE -ne 0 -or [int]$ciOk -lt 1) { throw "pre-merge CI check: ci.yml's required fan-in context is not green on this head - fix/rerun CI first, refuse manual merge" }
 > gh pr merge <PR号> --squash --match-head-commit $head
 > pwsh -File scripts\task.ps1 -TaskId <id> -Phase cleanup
 > ```
-> （恢复文案任何位置都**不以 `-SkipRed` 作恢复捷径**——`-SkipRed` 不经 RED 证据闸，且铸造条件明定其 ship 不铸 receipt。）
+> （`-SkipRed` is a compat no-op since T68 — it changes nothing and is never part of any recovery recipe.）
 >
 > **别用 `cleanup`「重来」**：它会拆 worktree、丢掉已实现改动，只在**已合并后**收尾。cleanup 删本地分支须 T24 凭据 / gh 在线复验（PR=MERGED 且 headRefOid==本地 tip）/ `-Force` 三信号之一；皆无或 tip 不匹配即 fail-safe 保留分支（机检 selftest 15p/15h4）。残留 merged worktree 由心跳 `worktree-orphan` 探针兜底发现。
 
-两闸门分工：`verify` 是确定性 e2e 验收——**本地 ship 亦跑 verify（free+private 下本地即权威）**，CI 在 PR 上信息性复跑；`codex-review` 是不变量/边界定性评审。**两者皆绿方可合并。**
+两闸门分工：`verify` 是确定性 e2e 验收——**本地 ship 亦跑 verify（free+private 下本地即权威）**，CI 在 PR 上信息性复跑；`codex-review` 是不变量/边界定性评审（T68 起默认意见、仅 `ReviewGate='required'` 时是合并闸）。**确定性闸全绿方可合并。**
 
-远端 ship 的 **candidate CI** 闸按「逐层身份绑定 → 决策前 exact-head/base 快照」收口，任一层不匹配即 fail-closed：① 本地 HEAD ≡ PR `headRefOid` ≡ run `head_sha`（R3 期间本地 HEAD 前移即 `[CI-GATE-LOCAL-HEAD-MOVED]`）；② run 的 `path`/`event`/`pull_requests[].number` 三处比较一律**大小写敏感**——PS 的 `-eq`/`-in`/`-contains` 与属性访问默认不敏感，`CI.yml@MASTER` 或只带 `Number` 的关联条目会被静默放行；③ 候选 `ci.yml` 声明的 job 名称多重集合必须与该 run 返回的 job 集合逐名、大小写敏感地完全相等，稳定态和终局任一读发现缺少、多余、改名、大小写变化、重复或畸形状态即立即 `[CI-GATE-JOBS-DRIFT]`，不等到 deadline；④ 从 deadline 建立到 `[CI-GATE-PASS]`，全部 `gh` 与 `git fetch/rev-parse` 子进程共用一个 wall-clock deadline（`SCAFFOLD_CI_TIMEOUT_SEC`，默认 1800s），重试只花剩余预算；Windows 以 `CREATE_SUSPENDED` 创建子进程，先并入带 `KILL_ON_JOB_CLOSE` 的 Job Object 再恢复，Add-Type / job 创建配置 / process 创建 / assign / resume 任一步不可用即 `[CI-GATE-CONTAINMENT]` 阻断，绝不降级为只杀仍存活父链；⑤ 超时后终止整个 Job，根进程等待与 stdout/stderr 收流共用 `deadline + 2000ms` 这一个绝对清理期限，不得把余量串行花两遍；根先退出而孙进程仍持有管道也照样整组结束；⑥ 决策前再取一次 exact-head/base 快照，base 前移 / retarget / head 前移 / 身份漂移均不合并。该原语目前只支持 Windows；非 Windows 进入 candidate CI 会显式失败，恢复路由是转到 Windows host 重跑 ship。`[CI-GATE-PASS]` 之后的 merge/T24 铸据不属于本 deadline 边界。`-NoAutoMerge` **只**跳过合并腿，每层照跑照拦。机检：`T37-CIGATE/DEADLINE`、`T37-CIGATE/WORKFLOW-BINDING`、`T37-CIGATE/JOBS-DRIFT`。
+### 3.0 CI fan-in contract (T86) — ci.yml states its own acceptance surface
 
-纯文档 PR 仍产生同名 `verify` 状态，避免 required check 因 `pull_request.paths-ignore` 永久停在 Expected。只有非空改动全部位于 `docs/**`、`specs/**` 或为 Markdown 时才走轻量通道；该通道仍 fail-closed 运行卡片校验、归档索引投影与普通密钥扫描，跳过 Python/Java/Android/Gradle、许可和产品 E2E。源码、脚本、workflow、混合或分类失败一律完整 CI。默认分支纯文档 push 继续由既有 `paths-ignore` 跳过；含代码 push 与手动触发完整执行。
+`ci.yml` no longer leaves clients to reconstruct which checks must pass. It carries one **fan-in job named
+`required`** at the bottom of the file: `if: ${{ always() }}`, `needs: [<every other job>]`, and one inline
+pwsh step that reads `${{ toJSON(needs) }}` and exits non-zero unless every dependency's `result` is the
+literal string `success`. **`skipped` and `cancelled` are failures** — a job that executed nothing proves
+nothing, and for a context a ruleset requires only an explicit success is safe to accept.
 
-`scaffold-selftest` 不进 PR 必需检查；仅默认分支脚手架权威面 push（`configs/compliance/**` 等产品规则不触发）或手动触发。Windows/Ubuntu 各跑 core、workflow 与三个 seeded 子片（共 10 jobs）；三子片并集仍是完整闸 17，wall time 取最慢片。产品 PR/push 由相关产品测试、verify、R3 守门。
+`always()` is the load-bearing half. Without it GitHub **skips** the fan-in job as soon as a dependency
+fails, and a skipped required check reports **success** to the ruleset: the merge sails through on a red
+build. That trap is the whole reason this shape exists, which is also why the step has to re-derive the
+verdict itself rather than trust its own having-run.
 
-Windows `seeded-git` 的 job 上限为 30 分钟，其余九个组合保持 20 分钟；8.2e 对实际 OS/分片组合验证预算选择。17ai 的说明清单随 `task.ps1` 同步，保留各段有序断言与逐段删除变异。
+What follows from that:
 
-显式 `pwsh -File scripts/selftest.ps1 -TaskId <id> -Base origin/master` 使用已存在的本地分支/远程跟踪引用（不 fetch），一次钉定基线卡与 FrozenPaths；执行源为该卡对应的注册工作树。已提交、暂存、未暂存、未跟踪变化及重命名两端共同分类：普通 `android/`、`configs/compliance/` 选 `[SELFTEST-NOT-APPLICABLE]`，仍须独立跑产品 verify；普通 Markdown 文档选 core，混合/关键/冻结/未知路径选 all。卡片仅改 status 才可免计，HEAD/index/工作副本任一层改契约均选 all；缺失或不可读权威拒绝便宜路由。core 使用独立快照，all 复用现有聚合，两者保留非零失败；不传 TaskId 仍跑默认全套，不能同时指定 TaskId 与 Shard/fixture。
+- **The `needs:` list is the version-controlled required-check list.** A ruleset requires exactly one
+  context, `required`. Adding a job to `ci.yml` and wiring it into `needs:` extends the merge bar with no
+  client change at all. (Pointing the branch ruleset at `required` instead of `verify` is a repo-settings
+  action the repo owner takes — it is deliberately not automated here.)
+- **`task.ps1`'s `[CI-GATE]` waits on that one context** (present, completed, and exactly `success`) and
+  asserts no other check is failing. It stays fail-closed: no `ci.yml` in the merge candidate tree
+  (`[CI-GATE-WF-MISSING]`), or a `jobs:` block with no `required` job — deleted, renamed, or unparseable —
+  (`[CI-GATE-JOBS-DRIFT]`) means the acceptance surface is unprovable, so no merge.
+- **One judgement, two consumers.** `scripts\_ci.ps1`'s `Test-ScaffoldCiFanIn` decides both the ship gate's
+  question and selftest **8.2g**'s, so the gate the merge trusts and the gate that guards the file cannot
+  drift. 8.2g machine-checks that the `needs:` list names **every** job in the file — "added a job, forgot
+  the list" goes red locally, before ship, rather than shipping a job that can never block a merge.
+- **`verify`'s last step is a clean-worktree assertion** (`if: ${{ always() }}`): `git status --porcelain`
+  non-empty fails the job even when every step above exited zero. That is what turns each "regenerate and
+  commit the result" rule in this repo from a doc convention into a check, and it is the CI-side half of
+  the projection discipline `archive.ps1 -Check` applies locally.
+
+### 3.1 PR title convention (generated by ship, never hand-typed)
+
+`ship` composes it as Conventional Commits + card id, derives `type`/`scope` from fields the card already
+carries, and GitHub appends the real PR number on squash merge. **No gate checks the title** — it is
+generated, so compliance follows from the construction. Full shape, the four-row derivation table and the
+mandatory-space rule: **`docs/PR-CONVENTIONS.md`** (moved there by T197/TD156; this heading stays because
+`CLAUDE.template.md`, `scripts/task.ps1` and the S2 note above all cite §3.1 by number).
+
+### 3.2 Inner-loop acceptance（内环节奏 · T117）
+
+- **Rounds**: run the GATE-MAP `-Only` row for what you touched (seconds); a scoped run is never acceptance.
+- **Proof**: by card tier (ADR 0016, `[CARD-TIER]`). **S** = one full run green over the frozen tree — `-Parallel` first (385.3s, TD158), no-arg serial equally valid but slower — one successful proof per immutable candidate; a failed run or any post-launch edit voids it. **1** = `selftest.ps1 -TaskId <id>` (routed set + floor, `[SELFTEST-TIER-PASS]`; an unrouted path escalates to full). **0** = `ci.yml`.
+- **Async**: run it in the background, keep working in another worktree; record `git rev-parse HEAD` + `git status --porcelain` at launch, else the PASS is not attributable.
+- **Lane**: one -Parallel at a time machine-wide; heavy scoped runs (gate 15 / 17 segments) share it. Timings are solo-run.
+- **Multi-session (2-3)**: one session per worktree (progress.md is per-cwd). Development parallel (fixtures per-PID/GUID; gate 15 owns a temp WorktreeRoot); finalization serial — refresh base, freeze, prove, ship; `-Local` ship never overlaps; no `gh auth` switch mid-run. ci.yml fan-in judges one PR head (per-ref), it does NOT serialize merges; racers are backstopped by the post-merge push matrix — its red = immediate fix.
 
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
@@ -235,7 +295,8 @@ vendoring 的**设计层**极简透镜，**on-demand**（不装其常驻 Node �
 |---|---|
 | `scripts\_config.ps1` | **唯一项目配置点**：账号 / 项目名 / 冻结路径 / Python 版本 / worktree 根 |
 | `scripts\_gitbase.ps1` | 基线名→引用解析的单一真相源（`review.ps1` / `task.ps1` 共用） |
-| `scripts\_cards.ps1` | 卡片 front-matter 解析的单一真相源（`check-cards.ps1` / `task.ps1` / `archive.ps1` / `triage.ps1` 共用） |
+| `scripts\_ci.ps1` | CI fan-in 契约判定的单一真相源（`Test-ScaffoldCiFanIn`；ship 的 `[CI-GATE]` / selftest 闸 8.2g 共用，见 §3.0） |
+| `scripts\_cards.ps1` | 卡片 front-matter 解析的单一真相源（`check-cards.ps1` / `task.ps1` / `archive.ps1` / `triage.ps1` 共用）；列表终止 = 任何非缩进行即止（TD112），check-cards 建卡期显式拒 front-matter 非缩进无冒号垃圾行（整行注释豁免，哨兵 `CARD-FM-GARBAGE`） |
 | `scripts\gh-bootstrap.ps1` | 一次性建私有仓 + 加固 + main 规则集（R3 必需检查） |
 | `scripts\task.ps1` | 单卡闭环编排（R1/R2/R3/R5） |
 | `scripts\review.ps1` | Codex 评审 → `{verdict}` → 回贴 status/评论（R3） |
@@ -246,7 +307,7 @@ vendoring 的**设计层**极简透镜，**on-demand**（不装其常驻 Node �
 | `.claude\skills\task-loop\SKILL.md` | 自动触发并驱动整条闭环（包装脚本） |
 | `.claude\skills\triage\SKILL.md` | 心跳回路：scan → 分诊 → 喂既有交付链（只发现不行动） |
 | `.claude\hooks\guard-frozen.ps1` + `.claude\settings.json` | PreToolUse 拒绝改冻结契约/schema |
-| `.github\workflows\ci.yml` | CI `verify` 必需检查（R2） |
+| `.github\workflows\ci.yml` | CI 确定性闸（R2）：`verify` 干活 + `required` fan-in，规则集只需要求 `required`（见 §3.0） |
 | `specs\verdict.schema.json` | 裁决机读契约 |
 | `specs\tasks\*.md` | 计划任务章节的可执行投影 |
 | `task_plan.md` / `findings.md` / `progress.md` | planning-with-files 交接三件套（gitignored） |

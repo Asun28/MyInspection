@@ -448,7 +448,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
-18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.46.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.47.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch；本次耦合采用与未覆盖项见 `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
@@ -598,4 +598,4 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 并行工具调用时把只读诊断与写操作分批（L1）；触碰冻结契约会被 `guard-frozen` 钩子拒绝（需演进走版本评审）。
 
 ---
-<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.46.0**（`ScaffoldVersion`）。</sub>
+<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.47.0**（`ScaffoldVersion`）。</sub>

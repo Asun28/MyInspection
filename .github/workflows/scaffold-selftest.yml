@@ -1,20 +1,51 @@
-name: scaffold-selftest
+﻿name: scaffold-selftest
 
-# selftest.ps1 的 CI（脚手架工作流自检，17 闸）。与 ci.yml（业务码 CI：pytest/verify）**分离**——
-# TD15：本工作流随下游保留（init -Cleanup/-Retrofit 不再删除），因 selftest.ps1 约 12/17 闸测的是
-# 会下发的生产脚本（task.ps1/review.ps1/check-cards.ps1/...），下游可继续拿它当自己的工作流自检；
-# 元仓专属子检查（模板哨兵/占位符/token 覆盖/init 干跑）在 selftest.ps1 内检测到「已初始化」会自动跳过。
-# 触发分支同覆盖 main 与 master（同 ci.yml 的理由：避开「主分支名漂移→CI 静默不跑」，见 ci.yml 头注）。
-# 注：windows runner 计 2× Actions 分钟；node/git 预装，故闸 ①(.mjs)/⑧/⑮ 都能真跑。每 OS 把
-# core / workflow / seeded-git / seeded-remote / seeded-scanner 五分片并行；三枚 seeded 子片并集等于完整闸 17。
-# 跨 OS：matrix 同时跑 windows + ubuntu（pwsh 在 ubuntu 上预装），两者都保留完整覆盖。
-# 默认分支 push 仅覆盖脚手架权威面；手动触发保留，作为合并后 harness canary，不进入 PR 合并关键路径。
-# configs/compliance/** 是产品规则：产品改动使用相关产品测试 + ci.yml verify + R3。
+# selftest.ps1 的 CI（17 闸自检）。与 ci.yml（业务码 CI）分离；随下游保留（TD15，已初始化仓的元层子闸自动跳过）。
+# 触发/分片/成本/跨 OS rationale 与逐闸明细见 docs/DELIVERY-CHAINS.md「确定性 CI 闸」+「selftest 17 闸明细」（真相源，此处不复述）。
+# 契约机检：Action 钉 SHA=8.2a · provision=8.2c · 触发形态=8.2d · 分片矩阵与并集=8.2e（结构锚定）
+# · shard timeout budget = 8.2h (present, and inside the named floor/ceiling; bad shapes regressed by 8.2h')
+# · dispatch filters = 8.2i (closed option sets equal to the matrix, push provably unnarrowable; 8.2i' regresses the bad shapes).
 on:
   push:
     branches: [main, master]
-    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!configs/compliance/**', '!**.md']
-  workflow_dispatch: {}
+    # Forward `paths` scans only the authoritative surfaces (a doc-only push does not trigger).
+    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!**.md']
+  # T275 (ADR 0016 item 3): NIGHTLY at 14:00 UTC (02:00 NZST / 03:00 NZDT). Tier-1 acceptance runs only the gates
+  # the [GATE-MAP] routes for a card's changed paths, so a regression in a gate no route named reaches
+  # master unseen and stays unseen until the next Tier-S card pays the full run. This bounds that window
+  # to a day. A scheduled run is NOT a dispatch, so the shard guard below selects every leg and the full
+  # 2 x 5 matrix expands - no input reaches this path. Required by selftest 8.2d in the same both-directions
+  # spirit as `push:`: losing the cron restores the unbounded window silently. Since T279 that gate reads the
+  # SHAPE, not just the presence - exactly one entry, in the daily `'<min> <hour> * * *'` form - and this is
+  # also the only leg that passes `-IncludeMeta`, so the sub-gates whose subject is the harness itself are
+  # proven here once a day instead of on every card's acceptance.
+  schedule:
+    - cron: '0 14 * * *'
+  # NO `pull_request:` trigger, by design (ADR 0007). The full 2 x 5 matrix is deliberately OFF the PR
+  # critical path: gating every merge on the meta-layer self-test made the harness the main blocker to
+  # product work - 8 shards in front of every card, inherited by every downstream repo via TD15.
+  # Coverage now rides the push side (post-hoc detection layer, same stance as ci.yml's header), the
+  # nightly schedule above and workflow_dispatch on demand; a card's merge-time CI acceptance is ci.yml's
+  # `verify` job, and the full 17-gate face stays mandatory LOCALLY (no-arg / -Parallel selftest) before ship.
+  # Selftest gate 8.2d locks this shape in BOTH directions - re-adding `pull_request:` here turns it red.
+  # T192 (upstream #275): optional, VALIDATED filters for manual diagnosis runs. Both default to `all`, so
+  # an unfiltered dispatch still expands the full matrix and the cost of "just run it" does not change.
+  # `type: choice` is load-bearing twice - it stops free text ever reaching an expression, and it gives
+  # selftest 8.2i a CLOSED list to compare against the matrix below, so the picker and the matrix cannot
+  # drift apart. Neither input can reach the push path - the os expression is gated on
+  # `github.event_name == 'workflow_dispatch'`, and the shard guard defaults to running on any other event.
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Runner OS to run. `all` keeps both, and narrowing removes the other legs entirely.
+        type: choice
+        default: all
+        options: [all, windows-latest, ubuntu-latest]
+      shard:
+        description: Shard to run. `all` keeps every shard; an unselected shard starts and exits having run no gate.
+        type: choice
+        default: all
+        options: [all, light, e2e, seed-pre, seed-post, seed-b]
 
 permissions:
   contents: read
@@ -28,45 +59,156 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            shard: core
-          - os: windows-latest
-            shard: workflow
-          - os: windows-latest
-            shard: seeded-git
-          - os: windows-latest
-            shard: seeded-remote
-          - os: windows-latest
-            shard: seeded-scanner
-          - os: ubuntu-latest
-            shard: core
-          - os: ubuntu-latest
-            shard: workflow
-          - os: ubuntu-latest
-            shard: seeded-git
-          - os: ubuntu-latest
-            shard: seeded-remote
-          - os: ubuntu-latest
-            shard: seeded-scanner
+        # T192: `all`, an empty value, and every non-dispatch event keep BOTH legs - the guard is the
+        # `github.event_name` test, so a push can never be narrowed by an input it does not carry. A single
+        # OS narrows the matrix for real (the other legs are never created). The literal fallback array is
+        # what 8.2i compares the input `options:` against, so widening one without the other reds gate 8.
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.os != '' && github.event.inputs.os != 'all') && format('["{0}"]', github.event.inputs.os) || '["windows-latest","ubuntu-latest"]') }}
+        # Shard union must equal all 17 gates (T118 seed three-way cut: 17pre / 17post = gate-17's two
+        # regions as their own shards, 17t,17ac = the other two segments; the umbrella token stays a valid
+        # -Only id but no longer appears in this matrix - the token algebra lives in selftest.ps1's union
+        # core). Both OS stay hard gates; wall ~= slowest shard, total minutes > one run (the explicit
+        # trade for parallelism). Changing shards must update the 8.2e/8.2f assertions (legal-forms table)
+        # in the same diff; orchestration rationale lives in docs/DELIVERY-CHAINS.md.
+        shard:
+          - { name: light, only: '1,2,3,4,5,6,7,8,9,10,11,12,13,14,16' }
+          - { name: e2e, only: '15' }
+          - { name: seed-pre, only: '17pre' }
+          - { name: seed-post, only: '17post' }
+          - { name: seed-b, only: '17t,17ac' }
     runs-on: ${{ matrix.os }}
-    # Windows seeded-git 已触及 20 分钟上限；仅该组合给 30 分钟，其余九个组合保持 20 分钟。
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.shard == 'seeded-git' && 30 || 20 }}
+    name: selftest (${{ matrix.os }}, ${{ matrix.shard.name }})
+    # The only thing between a hung shard and the platform's own job ceiling, charged on all ten legs at
+    # once. Read by selftest 8.2h, which requires it present at JOB level and inside a named floor/ceiling
+    # (a step-level bound caps one step, not the job, and does not satisfy it). Moving the VALUE is a
+    # measurement question with its own card; moving a BOUND edits the named constants in selftest.ps1.
+    timeout-minutes: 20
     steps:
-      # 三方 Action 钉 40-hex commit SHA（非可变 tag），同 ci.yml（TD56/TD-119；selftest 闸 8.2a 机检）。
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      # T192: the shard filter, and the reason it is a STEP guard rather than a job-level `if`. GitHub
+      # evaluates `jobs.<job_id>.if` BEFORE matrix expansion, so it cannot see `matrix` at all; and turning
+      # the shard list itself into an expression would delete the literal block 8.2e structurally parses,
+      # leaving that gate asserting a block that no longer drives the run - the [WIRING-SELF-SAT] shape
+      # T178 exists to catch. So an unselected leg is still CREATED, but it stops HERE, before checkout and
+      # before provisioning, and runs no gate. The cost of a skipped leg is a runner start, not a shard.
+      # Defaults OPEN in every direction that matters - not a dispatch, empty input, or `all` all run.
+      # Inputs reach the script through `env:` rather than `${{ }}` interpolation inside `run:`.
+      - name: Resolve shard selection (dispatch filter - push and unfiltered dispatch always run)
+        id: sel
+        shell: pwsh
+        env:
+          SELFTEST_EVENT: ${{ github.event_name }}
+          SELFTEST_WANT_SHARD: ${{ github.event.inputs.shard }}
+          SELFTEST_THIS_SHARD: ${{ matrix.shard.name }}
+        run: |
+          $selected = ($env:SELFTEST_EVENT -ne 'workflow_dispatch') -or
+                      [string]::IsNullOrEmpty($env:SELFTEST_WANT_SHARD) -or
+                      ($env:SELFTEST_WANT_SHARD -eq 'all') -or
+                      ($env:SELFTEST_WANT_SHARD -eq $env:SELFTEST_THIS_SHARD)
+          "run=$(if ($selected) { 'true' } else { 'false' })" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if (-not $selected) {
+            Write-Host "[DISPATCH-SKIP] shard '$($env:SELFTEST_THIS_SHARD)' was not selected (requested '$($env:SELFTEST_WANT_SHARD)') - this leg runs no gate."
+          }
 
-      # Provision PSScriptAnalyzer：只有 core 分片包含 selftest 闸⑦（lint），其余分片不重复安装。
-      # CI 是唯一能装它的环境。装上后闸⑦才真跑——否则模块缺失
-      # 即 skip-as-pass，Error 级 lint 回归静默合并（TD56/TD-119）。配合 selftest 闸⑦ 的 $env:CI 缺模块即 Fail
-      # 守卫：本步若被删/装失败，CI 下闸⑦ 会 fail-loud 而非静默跳过。本步不显式传 -StrictLint——TD77：
-      # selftest.ps1 已在元仓自身（$isPostInit 为假）默认把 Warning 也当失败，此步继承该默认值即可；
-      # 已初始化的下游项目仍保持 opt-in，不对下游自有脚本施加新的告警严格性。
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6（钉 40-hex SHA，8.2a）
+        if: steps.sel.outputs.run == 'true'
+
+      # lint 闸⑦在 CI 缺模块即 fail-loud（8.2c 配套；rationale 见 DELIVERY-CHAINS）。
       - name: Provision PSScriptAnalyzer (lint gate must not skip-as-pass in CI)
-        if: matrix.shard == 'core'
+        if: steps.sel.outputs.run == 'true'
         shell: pwsh
-        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+        # T155 [SUPPLY-PIN]: pinned version + named repository. Unpinned, all ten matrix jobs took
+        # whatever the public gallery served that minute - third-party code the lint gate executes,
+        # invisible to the action-SHA gate because that gate parses `uses:` lines only.
+        # T168: PSGallery is not guaranteed to be registered on a hosted runner, and one attempt is not
+        # guaranteed to reach it. Measured 2026-08-25 on run 32843627821 (windows-latest, light):
+        # `Get-PackageSource: Unable to find repository 'PSGallery'` killed the shard over code that was
+        # fine, and two later runs proved the tree green. The blast radius is why this is guarded rather
+        # than tolerated: gate 7 is deliberately fail-loud under $env:CI (TD56/TD-119), so a registry blip
+        # reddens the whole post-merge matrix. TD167's original claim - that such a red can NEVER be cleared
+        # in place - was measured wrong and withdrawn by T175: the rerun clears it whenever nothing is pushed
+        # to the same ref while it runs (CLAUDE.md [CI-RERUN-RACE]). Run 33577341519 was cleared exactly so.
+        # The pin stays ON the Install-Module line: T155 [SUPPLY-PIN] and selftest 8.2a' both require it.
+        run: |
+          $psaOk = $false
+          foreach ($psaTry in 1..3) {
+            try {
+              # T265: the registration lives INSIDE the loop and its failure is NOT swallowed. Establishing
+              # it once above the loop is what made run 33577341519 unrecoverable AND undiagnosable: the
+              # registration failed, `-ErrorAction SilentlyContinue` ate the reason, and the three install
+              # attempts that followed all reported the same downstream `Unable to find repository
+              # 'PSGallery'` - three tries at an operation that was not the one failing. `-ErrorAction Stop`
+              # hands the real error to the catch below, which already prints one.
+              if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+                Write-Host "[CI-PSGALLERY-RETRY] attempt $psaTry/3: PSGallery is not registered on this runner - registering the default source first."
+                Register-PSRepository -Default -ErrorAction Stop
+              }
+              Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Repository PSGallery -Scope CurrentUser -Force -ErrorAction Stop
+              $psaOk = $true
+              break
+            } catch {
+              Write-Host "[CI-PSGALLERY-RETRY] attempt $psaTry/3 failed: $($_.Exception.Message)"
+              if ($psaTry -lt 3) { Start-Sleep -Seconds (5 * $psaTry) }
+            }
+          }
+          # Fail LOUD on exhaustion. Falling through green would hand gate 7 a missing analyzer, and gate 7
+          # under $env:CI exists precisely to refuse that - a skipped lint gate must never read as a passing one.
+          if (-not $psaOk) { Write-Error '[CI-PSGALLERY-RETRY] PSScriptAnalyzer 1.24.0 could not be installed after 3 attempts.'; exit 1 }
 
-      - name: Scaffold self-test (${{ matrix.shard }})
+      # T176: tee stdout so the next step can lift selftest's own [GATE-RESULT-SUMMARY] line out of it.
+      # The log goes to $RUNNER_TEMP, NEVER into the workspace: gate 8's root-cleanliness check scans the
+      # live repo root (selftest.ps1 `$stray = Get-ChildItem $RepoRoot`), and this shard is the one that
+      # runs gate 8 - a log file teed beside the repo would be a stray top-level entry and redden the very
+      # run it exists to explain. Whitelisting it would be worse: the entry ships to every downstream repo.
+      # stderr is deliberately NOT merged in - Write-Warning already reaches the job log on its own, and
+      # merging it would put ErrorRecords in the pipeline under this shell's error preference. The exit
+      # code is re-raised from $LASTEXITCODE because a pipeline's success is the pipeline's, not the
+      # native command's: a red shard must still fail its job.
+      # T279 (ADR 0016 item 3, amended): `-IncludeMeta` is passed on the SCHEDULE event and on no other. The
+      # sub-gates whose subject is this harness - its shard matrix, its dispatch shapes, its fixtures' own
+      # contracts, its evidence corpus - are off by default on every face, so no card's acceptance pays for
+      # the self-test testing itself; the nightly proves them once a day on master. The event name reaches
+      # the script through `env:`, never `${{ }}` inside `run:`, the same rule the shard guard above follows,
+      # and the switch is splatted from an array so an unfiltered run's command line is byte-identical to
+      # what it was before this card.
+      - name: Scaffold self-test (sharded; union of shards == all 17 gates)
+        if: steps.sel.outputs.run == 'true'
         shell: pwsh
-        run: pwsh -NoProfile -File scripts/selftest.ps1 -Shard ${{ matrix.shard }}
+        env:
+          SELFTEST_EVENT: ${{ github.event_name }}
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'selftest-shard.log'
+          $meta = @()
+          if ($env:SELFTEST_EVENT -eq 'schedule') { $meta = @('-IncludeMeta') }
+          pwsh -NoProfile -File scripts/selftest.ps1 -Only '${{ matrix.shard.only }}' @meta | Tee-Object -FilePath $log
+          exit $LASTEXITCODE
+
+      # T176: name the failing GATE on the run page. Without this, a red shard says only which of the ten
+      # matrix jobs spoke, and finding out which part had the issue costs opening logs one at a time -
+      # which is also why `gh run rerun --failed` re-runs whole jobs: the job was the finest unit anyone
+      # could name. if: always() because the line is worth most exactly when the step above failed.
+      # A missing line is reported as missing, never as green: the shard can die before the conclusion.
+      - name: Publish gate results to the job summary
+        # always() so the line survives a red shard - AND'd with the selection guard, because a leg that
+        # deliberately ran no gate has no log to read, and reporting it as "unavailable" would make a
+        # skipped leg indistinguishable from a shard that died before reaching its conclusion.
+        if: always() && steps.sel.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'selftest-shard.log'
+          # T265: Test-Path FIRST. A shard that dies before the selftest step - a failed provisioning step,
+          # say - leaves no log at all, and `Select-String -Path <missing>` TERMINATES this script under the
+          # `$ErrorActionPreference = 'stop'` that GitHub's pwsh shell sets, the cmdlet's own
+          # `-ErrorAction SilentlyContinue` notwithstanding (reproduced on pwsh 7). Measured on run
+          # 33577341519: this step went red and the fallback written for exactly that case never printed,
+          # so the earlier a shard died, the more certainly its explanation was lost.
+          $hit = if (Test-Path -LiteralPath $log) { Select-String -Path $log -Pattern '\[GATE-RESULT-SUMMARY\]' | Select-Object -Last 1 } else { $null }
+          $body = if ($hit) { $hit.Line.Trim() } else { '[GATE-RESULT-SUMMARY] unavailable - this shard produced no summary line, so it died before reaching the conclusion. Open the log.' }
+          $md = @(
+            "### selftest shard ``${{ matrix.shard.name }}`` on ${{ matrix.os }}"
+            ''
+            '```'
+            $body
+            '```'
+            ''
+          )
+          $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

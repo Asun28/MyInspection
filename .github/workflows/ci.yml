@@ -222,3 +222,19 @@ jobs:
           if ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) {
             pwsh -NoProfile -File $f
           } else { Write-Host 'verify.ps1 still placeholder; skipping' }
+
+  # Scaffold ship reads this one fan-in context.  The project verification stays
+  # in `verify`; this job only exposes its result as the stable merge predicate.
+  required:
+    if: ${{ always() }}
+    needs: [verify]
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert project verification succeeded
+        shell: pwsh
+        run: |
+          if ('${{ needs.verify.result }}' -ne 'success') {
+            Write-Error "verify completed as ${{ needs.verify.result }}"
+            exit 1
+          }

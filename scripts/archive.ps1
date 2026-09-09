@@ -42,6 +42,7 @@
 param(
   [string]$RepoRoot,
   [switch]$DryRun,
+  [switch]$Check,
   [switch]$CheckCardsIndex,
   [switch]$Quiet,
   [switch]$LessonsOnly,
@@ -206,16 +207,52 @@ function Test-ExactBytes([byte[]]$left, [byte[]]$right) {
   return $true
 }
 
-if ($CheckCardsIndex) {
-  $expectedCardsIndexBytes = [Text.UTF8Encoding]::new($false).GetBytes((Get-CardsIndexText $ArchTasksDir))
-  [byte[]]$actualCardsIndexBytes = if (Test-Path -LiteralPath $CardsIndex -PathType Leaf) {
-    [IO.File]::ReadAllBytes($CardsIndex)
-  } else { $null }
-  if (-not (Test-ExactBytes $actualCardsIndexBytes $expectedCardsIndexBytes)) {
-    Write-Output '[ARCHIVE-CARDS-INDEX-DRIFT] specs/archive/cards-index.md 与 specs/archive/tasks/*.md 投影不一致；请用正常 archive 流程重建后提交。'
+function Get-TdIndexText([string]$ArchivePath) {
+  $rows = [System.Collections.Generic.List[string]]::new()
+  $statusIndex = 5
+  if (Test-Path -LiteralPath $ArchivePath -PathType Leaf) {
+    foreach ($line in (Get-Content -LiteralPath $ArchivePath)) {
+      if ($line -notmatch '^\s*\|') { continue }
+      $cells = Split-TdRow $line
+      if ($cells.Count -lt 1) { continue }
+      if ($cells[0] -eq 'id') { $found = [array]::IndexOf($cells, '状态'); if ($found -ge 0) { $statusIndex = $found }; continue }
+      if (Test-SeparatorRow $cells) { continue }
+      $id = Format-Cell $cells[0]
+      $location = if ($cells.Count -gt 2) { Format-Cell $cells[2] 60 } else { '' }
+      $debt = if ($cells.Count -gt 3) { Format-Cell $cells[3] 120 } else { '' }
+      $severity = if ($cells.Count -gt 4) { Format-Cell $cells[4] } else { '' }
+      $status = if ($cells.Count -gt $statusIndex) { Format-Cell $cells[$statusIndex] } else { '' }
+      $rows.Add("| $id | $severity | $status | $location | $debt |")
+    }
+  }
+  $header = @(
+    '# 技术债精简索引（cold-storage index · 可 grep）',
+    '',
+    ('> 一行一条已归档（paid/accepted）债项，共 {0} 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。' -f $rows.Count),
+    '> 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。',
+    '',
+    '| id | 严重度 | 状态 | 位置 | 一句话（债，截断） |',
+    '|---|---|---|---|---|'
+  )
+  return (($header + $rows) -join "`n") + "`n"
+}
+
+if ($CheckCardsIndex -or $Check) {
+  $checks = @([pscustomobject]@{ Path = $CardsIndex; Expected = (Get-CardsIndexText $ArchTasksDir); Label = 'specs/archive/cards-index.md' })
+  if ($Check) {
+    $checks += [pscustomobject]@{ Path = $TdIndex; Expected = (Get-TdIndexText $TdArchive); Label = 'specs/archive/tech-debt-index.md' }
+  }
+  $drift = @()
+  foreach ($checkItem in $checks) {
+    $expectedBytes = [Text.UTF8Encoding]::new($false).GetBytes($checkItem.Expected)
+    [byte[]]$actualBytes = if (Test-Path -LiteralPath $checkItem.Path -PathType Leaf) { [IO.File]::ReadAllBytes($checkItem.Path) } else { $null }
+    if (-not (Test-ExactBytes $actualBytes $expectedBytes)) { $drift += $checkItem.Label }
+  }
+  if ($drift.Count) {
+    foreach ($path in $drift) { Write-Output "[ARCHIVE-CHECK-DRIFT] $path 与当前生成器投影不一致；请运行正常 archive 流程重建后提交。" }
     exit 1
   }
-  if (-not $Quiet) { Write-Host 'archive cards-index check: PASS' }
+  if (-not $Quiet) { Write-Host $(if ($Check) { 'archive check: PASS' } else { 'archive cards-index check: PASS' }) }
   exit 0
 }
 
