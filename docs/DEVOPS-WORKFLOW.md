@@ -172,6 +172,8 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 
 Windows `seeded-git` 的 job 上限为 30 分钟，其余九个组合保持 20 分钟；8.2e 对实际 OS/分片组合验证预算选择。17ai 的说明清单随 `task.ps1` 同步，保留各段有序断言与逐段删除变异。
 
+显式 `pwsh -File scripts/selftest.ps1 -TaskId <id> -Base origin/master` 使用已存在的本地分支/远程跟踪引用（不 fetch），一次钉定基线卡与 FrozenPaths；执行源为该卡对应的注册工作树。已提交、暂存、未暂存、未跟踪变化及重命名两端共同分类：普通 `android/`、`configs/compliance/` 选 `[SELFTEST-NOT-APPLICABLE]`，仍须独立跑产品 verify；普通 Markdown 文档选 core，混合/关键/冻结/未知路径选 all。卡片仅改 status 才可免计，HEAD/index/工作副本任一层改契约均选 all；缺失或不可读权威拒绝便宜路由。core 使用独立快照，all 复用现有聚合，两者保留非零失败；不传 TaskId 仍跑默认全套，不能同时指定 TaskId 与 Shard/fixture。
+
 ## 4. R4：mutation-survivor 测试剪枝（让"删冗余测试"可机检，而非凭感觉）
 
 对每个**候选冗余**测试，逐个验证：

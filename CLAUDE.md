@@ -69,6 +69,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**SPIKE 远端交付**：PR #286 已合并 `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`，R3 首轮 pass、CI 成功、官方 cleanup 完成。历史与当前候选 APK／真机证据分列于 [平台报告](docs/spike/PLATFORM-SPIKE.md)；本轮 SAF 仅验证已有授权延续与重启读取，不声称重跑写入。
+
+**2026-09-09 远端交付**：`T4-SYMBOL-MARKDOWN-PARSER` 经 [PR274](https://github.com/Asun28/MyInspection/pull/274) 合并（`18741ac29a20da426ffe99c02c924f2d1b3b29f5`；reviewed head `3b7d51f1519f4b4817289edf2d14c2a68173474e`），正式 R3 PASS、精确候选 CI `34291612516` 成功，117 项行为测试 / 35 项定向变异及项目 verify 通过。原工作树已按正式流程清理，完整历史与最终凭据见 [归档卡](specs/archive/tasks/T4-SYMBOL-MARKDOWN-PARSER.md)。仅交付 Markdown 前置解析能力；PR263 的实际消费者接入、符号设计发布仍待各自交付。
+
+**2026-09-08 远端交付**：`T0-SELFTEST-RISK-ROUTING` 经 PR #273 合并（`fcdb4d8ca5f4d76c2fe73fc6177bc828e239ce6c`；reviewed head `9af2af3a4d4a4abc93549d82da2350b186954cd2`），真实 focused DoD、verify、正式 Sol high R3 与精确候选 CI 通过。真实入口及默认 all→core hook 有界回归、11 枚当前定点变异和 14 枚历史同源函数复用核验完成；不声明 all-shards full selftest。显式任务路由与独立 product verify 约定见本文件工作流入口及 `docs/DEVOPS-WORKFLOW.md`；官方 cleanup 后归档。
+
 **2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
 
 **2026-09-08 远端交付**：`T3-DOCX-EXTRACTION-MANIFEST` 经 [PR #262](https://github.com/Asun28/MyInspection/pull/262) 合并（`11cf5899`；正式 R3、候选 CI 通过）。八组证据集合不可变，DOCX-EXTRACT-1 三组独立向量一致；10 项测试、45 项新变异和完整 core 剪枝验证完成。提取器与导入规划仍由后续卡交付。
@@ -496,6 +502,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
 - **工作流自检**：`pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片；任务卡可选单片作 DoD。
+  显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 

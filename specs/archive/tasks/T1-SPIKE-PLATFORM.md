@@ -3,7 +3,7 @@ id: T1-SPIKE-PLATFORM
 title: 真机平台可行性 spike ×3（overlay / SAF / PDF 压力）+ 结论报告
 depends_on: [T0-TOOLCHAIN]
 parallelizable_with: [T1-SCHEMA-CORE]
-status: todo
+status: merged
 branch: T1-SPIKE-PLATFORM
 worktree: C:\wt\T1-SPIKE-PLATFORM
 allow_paths:
@@ -61,3 +61,9 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注 + 若降级须改 T3-HISTOR
 
 ## 执行建议（TASK-BOARD）
 首选 Opus 5 · max（新颖平台单点）；备选 Sonnet 5 max。难度 H。真机环节需用户配合（约 15 分钟点按）。
+
+## Remote feature delivery receipt
+
+PR #286 merged 6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb from reviewed head a8cdd4d691c7860db7a9330e2454478e426da35f; reviewed and merged tree fead018c159bdede58f8501e994e9ff6c775baf1 are identical. Formal R3 first round PASS had empty reasons, exact-head CI run 34298102514 succeeded, and native ship and official cleanup exited 0; the task worktree is absent.
+
+Historical APK and current candidate/device evidence remain distinct in docs/spike/PLATFORM-SPIKE.md. Formal JSON, RED and T35 were preserved; the attempted T24 backup was overwritten by T35 under the same filename, and cleanup consumed the original T24. Native ship/cleanup logs evidence minting and CAS deletion; no preserved original T24 is claimed. The ignored closeout manifest explicitly records missingOriginalT24 and SourceKind T35. This metadata closeout does not rerun device or runtime tests.
