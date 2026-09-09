@@ -10,6 +10,7 @@ allow_paths:
   - scripts/task.ps1
   - scripts/selftest.ps1
   - docs/QUALITY-RUBRIC.md
+  - docs/DEVOPS-WORKFLOW.md
 forbid:
   - 以分支名（而非提交 OID）作为「同一个产物」的证明
   - 在预算测量之后、发布之前留下任何不复核身份的对外副作用
@@ -36,9 +37,9 @@ acceptance:
   - "A10 合并按 OID 收口：远端 squash 合并把已测量 OID 传给 --match-head-commit；本地合并并入该 OID 而非分支名；各一条静态或行为断言"
   - "A11 四个对外副作用（push / 建 PR 前的复核 / R3 / 合并）各自在动作**之前**复核身份，任一处删掉复核，其专属夹具变红"
   - "A12 状态码文档：[R3-DIFF-TIP-MOVED] 与 [R3-HEAD-MISMATCH] 在 QUALITY-RUBRIC §5 状态表各有一行，闸 17t(doc) 的码↔行一一对应成立"
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/review.ps1 -SimpleMatch '[R3-HEAD-MISMATCH]') -and (Select-String -Path scripts/task.ps1 -SimpleMatch '[R3-DIFF-TIP-MOVED]') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'head-detach-not-ref'))) { exit 1 }"
+dod_command: $o=(& pwsh -NoProfile -File scripts/selftest.ps1 -Fixture head-detach-not-ref 2>&1 | Out-String); $x=$LASTEXITCODE; Write-Host $o; $p=[regex]::Matches($o,'(?m)^\[SELFTEST-OID-A4\] head-detach-not-ref PASS\r?$').Count; $f=[regex]::Matches($o,'(?m)^\[SELFTEST-OID-A4\] head-detach-not-ref FAIL\r?$').Count; if($o -cmatch '\[SELFTEST-OID-A4-SETUP\]' -or ($p+$f) -ne 1){throw '[SELFTEST-OID-A4-SETUP] Missing fixture or invalid result; not RED evidence.'}; if($x -ne 0 -and $f -eq 1){exit 1}; if($x -ne 0 -or $p -ne 1){throw '[SELFTEST-OID-A4-SETUP] Exit/result mismatch; not RED evidence.'}; foreach($shard in @('workflow','seeded')){$r=(& pwsh -NoProfile -File scripts/selftest.ps1 -Shard $shard 2>&1 | Out-String); $rx=$LASTEXITCODE; Write-Host $r; if($rx -ne 0 -or [regex]::Matches($r,('(?m)^selftest\('+[regex]::Escape($shard)+'\): PASS\r?$')).Count -ne 1){throw ('[OID-DOD-SUITE] '+$shard+' did not pass')}}; exit 0
 dod_exit: 0
-dod_assert: 验收集合 A1–A12 每条都有可证伪测试；A4 的夹具必须**只移动 HEAD、不移动分支引用**（否则它测的是 A3，A4 等于没覆盖），其机检锚点是夹具哨兵 head-detach-not-ref。强制点：CI 与 ship 跑 selftest.ps1 -Shard workflow 须 exit 0。
+dod_assert: focused head-detach-not-ref 与完整 workflow 必须调用同一真实 A4 行为夹具；实际候选 task.ps1 测量后，只 checkout --detach 到另一预建 OID，证明任务分支引用未动且 HEAD 已变，下一动作前须以 [R3-DIFF-TIP-MOVED] 阻断。夹具仅在 setup 成功且真实 A4 断言通过或失败时分别输出独占行 [SELFTEST-OID-A4] head-detach-not-ref PASS 或 FAIL；缺入口、无效输出、参数/语法/环境/setup 错误为 [SELFTEST-OID-A4-SETUP]。现行 task.ps1 red 只按非零退出铸收据，并不识别 SETUP；本卡不改通用 RED 协议。协调者必须在调用官方 -Phase red 前先原生预跑 focused，核对实际基线、唯一命名 A4 FAIL 与相符非零及无 SETUP；缺件或 SETUP 则停在准备阶段，不调用 phase，不能把已有任意非零收据当作真实 RED。验收集合 A1–A12 每条仍须有可证伪测试；功能 dod_command 在真实 A4 FAIL 时短路，在 focused PASS 后实际串行运行完整 selftest.ps1 -Shard workflow 与覆盖受影响 17ai/17t(doc) 的完整 -Shard seeded，都须 exit 0 且各有唯一 shard PASS，focused GREEN 不替代完整验收。
 review_gate: codex {verdict:pass}
 hygiene: 身份漂移的注入点用评审 stub（测量后、合并前的窗口），不改生产码即可施压；每条复核各配单句删除变异
 doc_sync: QUALITY-RUBRIC 补齐两个状态码行；DEVOPS-WORKFLOW 的 ship 流程说明标注「发布的是被测量的那个提交」
