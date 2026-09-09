@@ -7,6 +7,7 @@ allow_paths:
   - .claude/hooks/_throttle.ps1
   - .claude/hooks/handoff-reminder.ps1
   - .claude/skills/task-loop/SKILL.md
+  - .claude/skills/triage/SKILL.md
   - .claude/skills/spec-ears/
   - .claude/workflows/plan-forge.mjs
   - .claude/workflows/decompose-cards.mjs
@@ -15,6 +16,7 @@ allow_paths:
   - .github/workflows/scaffold-selftest.yml
   - docs/DEVOPS-WORKFLOW.md
   - docs/DELIVERY-CHAINS.md
+  - docs/LOOP-ENGINEERING.md
   - docs/IDEA-TO-PLAN.md
   - docs/idea-to-plan-diagram.html
   - docs/scaffold-architecture.html

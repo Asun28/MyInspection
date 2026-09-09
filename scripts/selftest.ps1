@@ -5087,7 +5087,7 @@ else {
   Set-Content (Join-Path $ccSeed10k 'specs/tasks/T9-NO-ACCEPT.md') $seedCard10kMalformed -Encoding utf8
   $ccOut10kMalformed = & pwsh -NoProfile -File (Join-Path $ccSeed10k 'scripts/check-cards.ps1') -TaskId T9-NO-ACCEPT 2>&1 | Out-String
   $ccExit10kMalformed = $LASTEXITCODE
-  $seedCard10kValid = $seedCard10k -replace '(?m)^dod_exit: 0$', "dod_exit: 0`nacceptance:`n  - ""A1: first closed item.""`n  - ""A2: second closed item.""`n  - ""A3: third closed item."""
+  $seedCard10kValid = $seedCard10k -replace '(?m)^dod_exit: 0$', "dod_exit: 0`nacceptance:`n  - ""A1 first closed item.""`n  - ""A2 second closed item.""`n  - ""A3 third closed item."""
   Set-Content (Join-Path $ccSeed10k 'specs/tasks/T9-NO-ACCEPT.md') $seedCard10kValid -Encoding utf8
   $ccOut10kValid = & pwsh -NoProfile -File (Join-Path $ccSeed10k 'scripts/check-cards.ps1') -TaskId T9-NO-ACCEPT 2>&1 | Out-String
   $ccExit10kValid = $LASTEXITCODE
@@ -5779,11 +5779,12 @@ Copy-Item (Join-Path $PSScriptRoot '_cards.ps1') (Join-Path $ccSeed10u 'scripts/
 # No debt row in the title - see the FIXTURE CONVENTION note at the head of gate 10.
 $mk10u = {
   param($cardId, $extra, $acceptanceItems)
+  $firstAcceptance10u = '  - "A1 ' + (($acceptanceItems | Select-Object -First 1) -replace '"', '') + '"'
   (@('---', "id: $cardId", "title: seeded requirement case ($cardId)", 'status: todo',
      'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path scripts/x.ps1)) { exit 1 }"', 'dod_exit: 0',
      'allow_paths:', '  - scripts/foo.ps1') +
     @($extra) + @('review_gate: codex {verdict:pass}', 'acceptance:') +
-    @('  - "A1: ' + (($acceptanceItems | Select-Object -First 1) -replace '"', '') + '"', '  - "A2: fixture acceptance two."', '  - "A3: fixture acceptance three."') +
+    @($firstAcceptance10u, '  - "A2 fixture acceptance two."', '  - "A3 fixture acceptance three."') +
    @('---', '', "# seeded card ($cardId)")) -join "`n"
 }
 $cases10u = @(
@@ -5818,7 +5819,7 @@ foreach ($c10u in $cases10u) {
   $out10u = & pwsh -NoProfile -File (Join-Path $ccSeed10u 'scripts/check-cards.ps1') -TaskId $c10u.Id 2>&1 | Out-String
   $exit10u = $LASTEXITCODE
   if ($c10u.Block) {
-    if ($localLegacyCardPolicy10 -and ($c10u.PSObject.Properties.Name -contains 'LaterPolicy') -and $c10u.LaterPolicy) {
+    if ($localLegacyCardPolicy10 -and $c10u.ContainsKey('LaterPolicy') -and $c10u.LaterPolicy) {
       if ($exit10u -ne 0 -or $out10u -match "\[$($c10u.Block)\]") { Fail "gate 10u($($c10u.Id)): the preserved local policy keeps this rule advisory, but the fixture became blocking (exit=$exit10u).`nActual output: $out10u" }
       elseif (-not $fail) { Write-Host "  local compatibility 10u($($c10u.Id)) OK: later upstream policy remains non-blocking" -ForegroundColor Green }
     }
@@ -10851,8 +10852,13 @@ if (-not $td4WrapperState.Ready) {
     $cX = Get-Content $cfgX -Raw
     $cX = [regex]::Replace($cX, "WorktreeRoot\s*=\s*'[^']*'", { "WorktreeRoot = '$sbx/wt'" })   # isolated; never the real wt root
     $cX = [regex]::Replace($cX, "GhAccount\s*=\s*'[^']*'", { "GhAccount = 'seed17bx'" })
-    # ReviewGate stays EMPTY: the advisory default is exactly the state under test - a spec block must stop a
-    # Tier-S ship without the legacy mandatory gate being armed, and 'required' would block both cards.
+    # This is the axis-only fixture: it deliberately disables the legacy required gate and its accumulating
+    # round cap.  A spec block must stop Tier-S while Tier-0 stays advisory; 15/security own the real gate/cap.
+    $cX = [regex]::Replace($cX, "(?m)^[ \t]*ReviewGate\s*=\s*'[^']*'\s*$", "ReviewGate = ''")
+    $cX = [regex]::Replace($cX, '(?m)^[ \t]*ReviewRoundCap\s*=\s*\d+\s*$', 'ReviewRoundCap = 0')
+    if (($cX -notmatch "(?m)^ReviewGate\s*=\s*''\s*$") -or ($cX -notmatch '(?m)^ReviewRoundCap\s*=\s*0\s*$')) {
+      Fail "17b' fixture _config injection missed ReviewGate='' or ReviewRoundCap=0 (did either assignment format change?) - this axis-only fixture would instead be blocked by the repository mandatory gate or accumulated prior reviewer rounds."
+    }
     # T301: the intensity dial is BLANKED here for the same reason 17z blanks ReviewEffortBySize - to isolate
     # the axis under test. This sub-gate drives a tier-0 card (T0-TIERZERO) whose whole point is that a
     # reviewer RUNS and its non-zero exit is reported as [R3-ADVISORY-NONZERO]; with the repo's own map in
@@ -10907,7 +10913,7 @@ if (-not $td4WrapperState.Ready) {
     @('---', 'id: T0-TIERS', "title: seed 17b' tier-S spec-axis block", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - "A1: a spec-axis block stops this ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+      'acceptance:', '  - "A1 a spec-axis block stops this ship."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
       '  - seed-s.txt', '  - scripts/task.ps1', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERS.md') -Encoding utf8
     # T285: the THIRD card, whose allow_paths are docs-only, so the tier COMPUTES 0 - the acceptance face for
@@ -10916,13 +10922,13 @@ if (-not $td4WrapperState.Ready) {
     @('---', 'id: T0-TIERZERO', "title: seed 17b' tier-0 advisory", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - "A1: a spec-axis block never stops a tier-0 ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+      'acceptance:', '  - "A1 a spec-axis block never stops a tier-0 ship."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
       '  - docs/seed-zero.txt', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERZERO.md') -Encoding utf8
     @('---', 'id: T1-TIERONE', "title: seed 17b' tier-1 advisory", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - "A1: the same spec-axis block stays advisory here."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+      'acceptance:', '  - "A1 the same spec-axis block stays advisory here."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
       '  - seed.txt', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T1-TIERONE.md') -Encoding utf8
     # T288: the FOURTH card, and the only one that declares `scripts/review.ps1` in allow_paths - which is
@@ -10931,7 +10937,7 @@ if (-not $td4WrapperState.Ready) {
     @('---', 'id: T0-BASEREV', "title: seed 17b' the reviewer comes from the base commit", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - "A1: a review.ps1 planted in the worktree never reviews its own ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+      'acceptance:', '  - "A1 a review.ps1 planted in the worktree never reviews its own ship."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
       '  - seed-b.txt', '  - scripts/review.ps1', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T0-BASEREV.md') -Encoding utf8
     & git -C $sbx add -A 2>$null
@@ -11205,7 +11211,7 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
           'dod_command: "pwsh -NoProfile -Command exit 0"',
           'arbitration:', "  - sha: $Sha", '    rounds: 2', "    ruling: $Ruling",
           '    by: fixture arc owner', '    reason: the standing asks are outside this card closed list',
-          'acceptance:', '  - "A1: a spec-axis block stops this ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+          'acceptance:', '  - "A1 a spec-axis block stops this ship."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
           '  - seed-s.txt', '  - scripts/task.ps1', '---') -join "`n" |
           Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERS.md') -Encoding utf8
         & git -C $sbx add specs/tasks/T0-TIERS.md 2>$null
@@ -11293,7 +11299,7 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
         'dod_command: "pwsh -NoProfile -Command exit 0"',
         'arbitration:', "  - sha: $bxShaZ", '    rounds: 2', '    ruling: maker',
         '    by: fixture arc owner', '    reason: a ruling that must not reach a tier-0 card',
-        'acceptance:', '  - "A1: a spec-axis block never stops a tier-0 ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+        'acceptance:', '  - "A1 a spec-axis block never stops a tier-0 ship."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
         '  - docs/seed-zero.txt', '---') -join "`n" |
         Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERZERO.md') -Encoding utf8
       & git -C $sbx add specs/tasks/T0-TIERZERO.md 2>$null
@@ -11329,7 +11335,7 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
       'dod_command: "pwsh -NoProfile -Command exit 0"',
       'arbitration:', "  - sha: $bxHistShaK", '    rounds: 2', '    ruling: maker',
       '    by: fixture arc owner', '    reason: every condition but the history holds',
-      'acceptance:', '  - "A1: the history decides."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+      'acceptance:', '  - "A1 the history decides."', '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
       '  - scripts/task.ps1', '---') -join "`n" | Set-Content $bxHistCardK -Encoding utf8
     $bxHistBlockK = '{"verdict":"block","reasons":["x"],"sha":"' + $bxHistShaK + '","branch":"T0-TIERS","run_status":"success","axes":{"spec":{"verdict":"block","reasons":["x"]},"standards":{"verdict":"pass","reasons":[]}}}'
     $bxHistNoBranchK = '{"verdict":"block","reasons":["x"],"sha":"' + $bxHistShaK + '","run_status":"success","axes":{"spec":{"verdict":"block","reasons":["x"]},"standards":{"verdict":"pass","reasons":[]}}}'
@@ -11480,15 +11486,23 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
       $bxOk = $false
     } else {
       Set-Content (Join-Path $bxWtL 'seed-b.txt') 'change under review for T0-BASEREV' -Encoding utf8
-      Set-Content (Join-Path $bxWtL 'scripts/review.ps1') @'
-param([string]$WorktreePath, [string]$Base, [int]$PrNumber, [switch]$PostStatus, [switch]$LocalBase, [int]$TimeoutSec)
+      # Keep the original body below an early exit: replacing the whole reviewer exceeds this
+      # project's retained diff-size gate and would test a tool_error rather than reviewer provenance.
+      $bxPlantPathL = Join-Path $bxWtL 'scripts/review.ps1'
+      $bxOriginalL = [IO.File]::ReadAllText($bxPlantPathL)
+      $bxPlantTokensL = $null; $bxPlantErrorsL = $null
+      $bxPlantAstL = [System.Management.Automation.Language.Parser]::ParseInput($bxOriginalL, [ref]$bxPlantTokensL, [ref]$bxPlantErrorsL)
+      if ($bxPlantErrorsL.Count -gt 0 -or $bxPlantAstL.EndBlock.Statements.Count -eq 0) { throw "17b'(L) fixture reviewer has no parseable executable body." }
+      $bxInsertL = $bxPlantAstL.EndBlock.Statements[0].Extent.StartOffset
+      $bxApproveL = @'
 # PLANTED-WORKTREE-REVIEWER: approves everything, asks no backend, exits 0. If any ship ever runs THIS copy,
 # the reviewer lives inside the tree it judges and a card repairing review.ps1 reviews itself.
 New-Item -ItemType Directory -Force (Join-Path $WorktreePath '.review') | Out-Null
 '{"verdict":"pass","reasons":[],"axes":{"spec":{"verdict":"pass","reasons":[]},"standards":{"verdict":"pass","reasons":[]}}}' |
   Set-Content (Join-Path $WorktreePath '.review/T0-BASEREV.json') -Encoding utf8
 exit 0
-'@ -Encoding utf8
+'@
+      [IO.File]::WriteAllText($bxPlantPathL, $bxOriginalL.Insert($bxInsertL, $bxApproveL + "`n"), [Text.UTF8Encoding]::new($false))
       $bxBaseShaL = "$(& git -C $sbx rev-parse --verify --quiet 'refs/heads/master^{commit}' 2>$null)".Trim()
       $bxMergesL = @(& git -C $sbx rev-list --merges HEAD 2>$null).Count
       # ACCEPTANCE ITEM 1 ALSO SAYS "removed on every exit path", and nothing here OBSERVED that directory
@@ -11555,7 +11569,7 @@ $t | Set-Content -Path ($env:REVIEW_OUT + '.prompt.txt') -Encoding utf8
         @('---', 'id: T0-TIERS', "title: seed 17b' tier-S spec-axis block", 'status: todo',
           'review_gate: codex {verdict:pass}',
           'dod_command: "pwsh -NoProfile -Command exit 0"',
-          'acceptance:', ('  - "A1: {0} - {1}"' -f $mark, $note), '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
+          'acceptance:', ('  - "A1 {0} - {1}"' -f $mark, $note), '  - "A2 the fixture reviewer writes a verdict."', '  - "A3 the ship reports the decision."', 'allow_paths:',
           '  - seed-s.txt', '  - scripts/task.ps1', '---') -join "`n"
       }
       (& $bxCardLinesM $bxBaseMarkM 'the amendment landed on the base after this branch was cut') |
@@ -14131,6 +14145,13 @@ if (-not $fail -and -not $gitPost) {
   Write-Host '  17ib skipped (git absent; the hermetic review repo cannot be built)' -ForegroundColor DarkGray
 }
 elseif (-not $fail) {
+  # The repository's deployed policy deliberately remains tier-0=advisory under an armed required gate.
+  # The hermetic cases below exercise a stricter synthetic map; assert the live policy separately so that
+  # fixture setup cannot silently redefine what this checkout actually ships.
+  $ibProductionIntensity = Get-ScaffoldReviewIntensityByTier
+  if (([string]$ibProductionIntensity['0'] -ne 'advisory') -or (([string]$ScaffoldConfig.ReviewGate).Trim() -ne 'required')) {
+    Fail "17ib production-policy drift: expected ReviewIntensityByTier['0']='advisory' with ReviewGate='required'; fixture-only skip routing must not mask a changed local policy."
+  }
   $ibRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17ib_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
   $ibSavedPath = $env:PATH
   try {
@@ -14158,6 +14179,12 @@ exit 0
     New-ReviewFixtureRepo $ibh 'ib-seed'
     $ibCfgPath = Join-Path $ibh 'scripts/_config.ps1'
     $ibCfgBase = Get-Content $ibCfgPath -Raw
+    # The acceptance rows are about the three intensity classes, not today's deployment decision.  Their
+    # exact semantic fixture is explicit: tier S stays adversarial, tier 1 is advisory, tier 0 is skip.
+    # Content routing is independently armed for the COMPOSE row; its never lists are also the data that
+    # the FLOOR / CASEPFX / EXACTPATH / RENAME rows prove the intensity path consumes.
+    $ibFixtureIntensity = "ReviewIntensityByTier = @{ 'S' = 'adversarial'; '1' = 'advisory'; '0' = 'skip' }"
+    $ibFixtureRoute = "ReviewSkipWhen = @{ AllPathsMatch = '\.md$'; NeverPrefixes = @('scripts/'); NeverPaths = @('docs/QUALITY-RUBRIC.md') }"
     # wantEffort is the arm that cannot be read off the printed line; composed is the arm that asserts this
     # dial does NOT get to decide, because the content router already did.
     # Every row after the first seven is a CONTROL that fails under one specific rejected implementation,
@@ -14195,10 +14222,22 @@ exit 0
       foreach ($ibK in @('gateLiteral', 'neverPrefixes', 'flatEffortValue', 'renameFrom')) { if (-not $ibC.ContainsKey($ibK)) { $ibC[$ibK] = '' } }
       if (-not $ibC.ContainsKey('reviewArgs')) { $ibC['reviewArgs'] = @() }
       & git -C $ibh -c user.email='s@l' -c user.name='s' checkout -q master
-      $ibCfgWant = $ibCfgBase
+      $ibCfgWant = [regex]::Replace($ibCfgBase, "ReviewIntensityByTier\s*=\s*@\{[^}]*\}", $ibFixtureIntensity)
+      if ($ibCfgWant -eq $ibCfgBase -or $ibCfgWant -notmatch [regex]::Escape($ibFixtureIntensity)) { Fail 'Gate 17ib fixture _config could not install the explicit S=adversarial / 1=advisory / 0=skip intensity map; expected class assertions would otherwise be testing this repository policy by accident.'; $ibAllOk = $false; break }
+      $ibCfgWant = $ibCfgWant.Replace('ReviewSkipWhen = @{}', $ibFixtureRoute)
+      if ($ibCfgWant -notmatch [regex]::Escape($ibFixtureRoute)) { Fail 'Gate 17ib fixture _config could not install the explicit markdown-only content route and its never lists; COMPOSE and the floor controls would no longer name the same routing policy.'; $ibAllOk = $false; break }
+      # The production required gate is asserted separately above.  It would floor every synthetic tier-0
+      # skip to advisory, so leave it empty here except for the GATE/PADGATE rows that explicitly install it.
+      $ibCfgWant = [regex]::Replace($ibCfgWant, "(?m)^[ \t]*ReviewGate\s*=\s*'[^']*'\s*$", "ReviewGate = ''")
+      if ($ibCfgWant -notmatch "(?m)^ReviewGate\s*=\s*''\s*$") { Fail 'Gate 17ib fixture _config could not clear ReviewGate before the class cases; every tier-0 skip would otherwise be floored to advisory and the skip arm would be vacuous.'; $ibAllOk = $false; break }
+      # FrozenPaths is deliberately production-wide: any directory claim is Tier S while frozen contracts
+      # exist.  These class cases need their declared docs/ allowance to compute Tier 0, so disable only
+      # that unrelated production policy inside this synthetic fixture.
+      $ibCfgWant = [regex]::Replace($ibCfgWant, "FrozenPaths\s*=\s*@\([^)]*\)", 'FrozenPaths = @()')
+      if ($ibCfgWant -notmatch 'FrozenPaths\s*=\s*@\(\s*\)') { Fail 'Gate 17ib fixture _config could not clear FrozenPaths; a production frozen contract would raise every directory allowance to Tier S and hide the Tier-0 intensity arm.'; $ibAllOk = $false; break }
       if ($ibC.off) {
-        $ibCfgWant = [regex]::Replace($ibCfgBase, "ReviewIntensityByTier\s*=\s*@\{[^}]*\}", 'ReviewIntensityByTier = @{}')
-        if ($ibCfgWant -eq $ibCfgBase) { Fail "Gate 17ib(off): the fixture _config could not blank ReviewIntensityByTier (did the literal format change?) - the 'empty means today behaviour' arm would then pass vacuously."; $ibAllOk = $false; break }
+        $ibCfgWant = [regex]::Replace($ibCfgWant, "ReviewIntensityByTier\s*=\s*@\{[^}]*\}", 'ReviewIntensityByTier = @{}')
+        if ($ibCfgWant -notmatch 'ReviewIntensityByTier\s*=\s*@\{\s*\}') { Fail "Gate 17ib(off): the fixture _config could not blank ReviewIntensityByTier (did the literal format change?) - the 'empty means today behaviour' arm would then pass vacuously."; $ibAllOk = $false; break }
       }
       if ($ibC.gateLiteral) {
         # The literal is per case on purpose: the PADGATE case injects a PADDED ' required ', which is what

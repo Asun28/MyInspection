@@ -70,6 +70,9 @@ snapshot named by this PR.
   The restored cold-reference subgate makes the subgate manifest count 151.
   Windows `seed-pre` retains its 30-minute timeout; the other nine CI matrix
   combinations retain 20 minutes.
+  Cross-project review fixtures declare their own advisory/skip maps and
+  limits explicitly; those fixture settings do not change MyInspection's
+  required review policy or its production diff-size and round limits.
 - ADR format checks recognize the project's existing dated status headers and
   alternatives headings without rewriting historical decisions. Card generation
   carries the required `sweep` field, and documentation-path examples own their
@@ -93,6 +96,10 @@ snapshot named by this PR.
 - Handoff reminder throttling keys on the progress file's content, so changed
   handoff content is reported immediately while repeated content is throttled.
   Handoff validation rejects literal tab characters in its fields.
+- New blocking lessons must declare their guard. Existing must-tier lessons
+  without a declaration receive an advisory; the historical ledger is not
+  migrated and existing blocking checks remain binding. The optional harness
+  ratio reporter includes `android/` in its product roots.
 
 ## Not completed by this adoption
 
