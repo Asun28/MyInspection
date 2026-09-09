@@ -1,8 +1,8 @@
 ---
 id: T0-REVIEW-LOW-RISK
 title: 横切 R3 低风险文档建议模式与本地可信评审入口
-depends_on: []
-status: in-progress
+depends_on: [T0-R3-GATE-OUTCOME-WORDING]
+status: merged
 branch: T0-REVIEW-LOW-RISK
 worktree: C:\wt\T0-REVIEW-LOW-RISK
 allow_paths:
@@ -66,4 +66,4 @@ Round1 head1677 duplicate-key BLOCK/repair: `.review/r3-duplicate-keys/evidence.
 
 ## Round2 repair
 
-Head dcee3843 R3 BLOCK found incomplete path classification; only `docs/research/property-inspect.md` now qualifies. `.review/r3-closed-paths/evidence.json` binds seven actual reviewer RED cases, the closed-path repair and current verification. Both official rounds remain preserved; rounds=2. User authorized one extra reset on 2026-09-09; unused pending normal ship.
+Head dcee3843 R3 BLOCK found incomplete path classification; only `docs/research/property-inspect.md` now qualifies. `.review/r3-closed-paths/evidence.json` binds seven actual reviewer RED cases, the closed-path repair and current verification. Those two rounds remain preserved. The extra reset was consumed; subsequent 78c8 R3 BLOCK (rounds=1) and repair: `.review/poststatus-repair-20260909/evidence.json`.

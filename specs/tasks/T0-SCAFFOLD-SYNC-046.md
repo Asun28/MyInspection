@@ -3,7 +3,7 @@ id: T0-SCAFFOLD-SYNC-046
 title: Evaluate upstream v0.46.0 and advance the scaffold high-water mark
 depends_on: [T0-SCAFFOLD-SYNC-045]
 parallelizable_with: [T0-SELFTEST-PAGED-PERF]
-status: todo
+status: merged
 branch: T0-SCAFFOLD-SYNC-046
 worktree: C:\wt\T0-SCAFFOLD-SYNC-046
 allow_paths:
@@ -36,3 +36,6 @@ doc_sync: docs/SCAFFOLD-SYNC.md decision ledger, CLAUDE.md current/high-water re
 
 Record the released upstream coupling group that this repository already implements, while preserving
 the immutable v0.29.0 origin and every deliberate local fork.
+
+The status is the normal post-merge projection in this delivery PR (DEVOPS-WORKFLOW §1).
+It does not claim that R3, CI, merge or cleanup has already completed.

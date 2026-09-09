@@ -47,14 +47,16 @@ $ErrorActionPreference = 'Stop'
 $policyRoot = Join-Path ([IO.Path]::GetTempPath()) "review-policy-$PID-$([guid]::NewGuid().ToString('N'))"
 $policyFailures = [Collections.Generic.List[string]]::new()
 $savedPath = $env:PATH; $savedExt = $env:PATHEXT; $savedMode = $env:REVIEW_POLICY_TEST_MODE
+$ordinary = 'docs/research/property-inspect.md'
+$testCardPath = 'specs/tasks/T9-REVIEW-POLICY.md'
 function Assert-ReviewPolicyCheck([bool]$Condition, [string]$Name) {
   if (-not $Condition) { $policyFailures.Add($Name); Write-Host "REVIEW-POLICY-FAIL: $Name" }
 }
 function Invoke-ReviewPolicyCase {
-  param([string]$Name, [string]$Gate = 'advisory', [string]$Path = 'docs/research/property-inspect.md',
-        [string]$Mode = 'block', [string]$CardChange = '', [string]$Frozen = "@('docs/frozen/')", [switch]$Rename, [string]$ExistingRoot, [string]$ConfigText, [switch]$ExistingDocument, [switch]$Mixed)
+  param([string]$Name, [string]$Gate = 'advisory', [string]$Path = $ordinary,
+        [string]$Mode = 'block', [string]$CardChange = '', [string]$Frozen = "@('docs/frozen/')", [switch]$Rename, [string]$ExistingRoot, [string]$ConfigText, [switch]$ExistingDocument, [switch]$Mixed, [switch]$Post)
   $caseRoot = if ($ExistingRoot) { $ExistingRoot } else { Join-Path $policyRoot $Name }
-  $cardPath = 'specs/tasks/T9-REVIEW-POLICY.md'
+  $cardPath = $testCardPath
   if (-not $ExistingRoot) {
   New-Item -ItemType Directory -Force $caseRoot, (Join-Path $caseRoot 'docs'), (Join-Path $caseRoot 'scripts'), (Join-Path $caseRoot 'specs/tasks') | Out-Null
   & git -C $caseRoot init -q -b master
@@ -97,12 +99,15 @@ function Invoke-ReviewPolicyCase {
   }
   $env:REVIEW_POLICY_TEST_MODE = $Mode
   $caseTimeout = if ($Mode -eq 'timeout') { 2 } else { 30 }
-  $reviewOutput = (& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'review.ps1') -WorktreePath $caseRoot -Base master -LocalBase -TimeoutSec $caseTimeout 2>&1 | Out-String)
+  $postArgs = @{}
+  if ($Post) { $postArgs = @{ PostStatus=$true; PrNumber=42 } }
+  $reviewOutput = (& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'review.ps1') -WorktreePath $caseRoot -Base master -LocalBase -TimeoutSec $caseTimeout @postArgs 2>&1 | Out-String)
   $reviewExit = $LASTEXITCODE
   $verdictFile = Join-Path $caseRoot '.review/T9-REVIEW-POLICY.json'
   $verdict = $null
   if (Test-Path -LiteralPath $verdictFile -PathType Leaf) { $verdict = Get-Content -LiteralPath $verdictFile -Raw | ConvertFrom-Json }
-  [pscustomobject]@{ Exit=$reviewExit; Output=$reviewOutput; Verdict=$verdict; Root=$caseRoot; Rounds=(Test-Path -LiteralPath (Join-Path $caseRoot '.review/T9-REVIEW-POLICY.rounds')) }
+  $log = Join-Path $caseRoot '.review/gh.jsonl'; $posts = if (Test-Path $log) { @(Get-Content $log | ForEach-Object { $_ | ConvertFrom-Json }) } else { @() }
+  [pscustomobject]@{ Exit=$reviewExit; Output=$reviewOutput; Verdict=$verdict; Root=$caseRoot; Posts=$posts; Rounds=(Test-Path -LiteralPath (Join-Path $caseRoot '.review/T9-REVIEW-POLICY.rounds')) }
 }
 try {
   $stubDir = Join-Path $policyRoot 'bin'
@@ -110,20 +115,22 @@ try {
   $stubFile = Join-Path $stubDir 'codex.ps1'
   @'
 [Console]::In.ReadToEnd() | Out-Null
+$fixtureSha = (& git -C $env:REVIEW_WT rev-parse HEAD).Trim()
+$fixtureBranch = (& git -C $env:REVIEW_WT branch --show-current).Trim()
 $payload = @{ verdict='block'; reasons=@('Fixture finding preserved') }
 switch -Wildcard ($env:REVIEW_POLICY_TEST_MODE) {
   duplicate-* {
     $key = $env:REVIEW_POLICY_TEST_MODE.Substring(10)
-    $payload = @{ verdict='pass'; reasons=@(); sha=(& git -C $env:REVIEW_WT rev-parse HEAD).Trim(); branch=(& git -C $env:REVIEW_WT branch --show-current).Trim() }
+    $payload = @{ verdict='pass'; reasons=@(); sha=$fixtureSha; branch=$fixtureBranch }
     $json = $payload | ConvertTo-Json -Compress
     Set-Content $env:REVIEW_OUT ('{"' + $key + '":null,' + $json.Substring(1)); exit 0
   }
   pass { $payload = @{ verdict='pass'; reasons=@() } }
   Verdict { $payload = @{ Verdict='pass'; reasons=@() } }
   Reasons { $payload = @{ verdict='pass'; Reasons=@() } }
-  SHA { $payload = @{ verdict='pass'; reasons=@(); SHA=(& git -C $env:REVIEW_WT rev-parse HEAD).Trim() } }
-  Branch { $payload = @{ verdict='pass'; reasons=@(); Branch=(& git -C $env:REVIEW_WT branch --show-current).Trim() } }
-  identity { $payload = @{ verdict='pass'; reasons=@(); sha=(& git -C $env:REVIEW_WT rev-parse HEAD).Trim(); branch=(& git -C $env:REVIEW_WT branch --show-current).Trim() } }
+  SHA { $payload = @{ verdict='pass'; reasons=@(); SHA=$fixtureSha } }
+  Branch { $payload = @{ verdict='pass'; reasons=@(); Branch=$fixtureBranch } }
+  identity { $payload = @{ verdict='pass'; reasons=@(); sha=$fixtureSha; branch=$fixtureBranch } }
   json-comment { Set-Content $env:REVIEW_OUT '{"verdict":"block",/* comment */"reasons":["Fixture finding preserved"]}'; exit 0 }
   json-single-quote { Set-Content $env:REVIEW_OUT "{'verdict':'block','reasons':['Fixture finding preserved']}"; exit 0 }
   json-unquoted-property { Set-Content $env:REVIEW_OUT '{verdict:"block",reasons:["Fixture finding preserved"]}'; exit 0 }
@@ -138,7 +145,7 @@ switch -Wildcard ($env:REVIEW_POLICY_TEST_MODE) {
   block-without-reasons { $payload = @{ verdict='block'; reasons=@() } }
   nonstring-sha { $payload.sha = 42 }
   nonstring-branch { $payload.branch = 42 }
-  lowercase-branch { $payload.branch = (& git -C $env:REVIEW_WT branch --show-current).Trim().ToLowerInvariant() }
+  lowercase-branch { $payload.branch = $fixtureBranch.ToLowerInvariant() }
   empty { exit 0 }
   malformed { Set-Content $env:REVIEW_OUT '{"verdict":'; exit 0 }
   badreasons { $payload.reasons = 42 }
@@ -150,11 +157,22 @@ if ($env:REVIEW_POLICY_TEST_MODE -eq 'writefail') { (Get-Item -LiteralPath $env:
 if ($env:REVIEW_POLICY_TEST_MODE -eq 'nonzero') { exit 9 }
 exit 0
 '@ | Set-Content -LiteralPath $stubFile -Encoding utf8
-  $stubShell = Join-Path $stubDir 'codex'
-  [IO.File]::WriteAllText($stubShell, "#!/bin/sh`nexec pwsh -NoProfile -File '$($stubFile.Replace('\','/'))' `"`$@`"`n")
-  if (-not $IsWindows) { & chmod +x $stubShell }
+  $ghStub = @'
+@{ Args=@($args) } | ConvertTo-Json -Compress | Add-Content (Join-Path (Split-Path $env:REVIEW_OUT) 'gh.jsonl')
+if (($args[0..1] -join ' ') -eq 'api user') { Get-ScaffoldGhAccount; exit 0 }
+if (($args[0..1] -join ' ') -eq 'repo view') { 'fixture-repo'; exit 0 }
+if (($args[0..2] -join ' ') -eq 'api --method POST' -or ($args[0..2] -join ' ') -eq 'pr comment 42') { exit 0 }
+throw 'Unexpected gh fixture call'
+'@
+  Set-Content (Join-Path $stubDir 'gh.ps1') (". '" + (Join-Path $PSScriptRoot '_config.ps1').Replace("'", "''") + "'`n" + $ghStub)
+  foreach ($tool in @('codex','gh')) {
+    $shell = Join-Path $stubDir $tool; $script = Join-Path $stubDir "$tool.ps1"
+    [IO.File]::WriteAllText($shell, "#!/bin/sh`nexec pwsh -NoProfile -File '$($script.Replace('\','/'))' `"`$@`"`n")
+    if (-not $IsWindows) { & chmod +x $shell }
+  }
   $env:PATH = "$stubDir$([IO.Path]::PathSeparator)$savedPath"
   if ($IsWindows) { $env:PATHEXT = ".PS1;$savedExt" }
+  if ((Split-Path (Get-Command gh).Source -Parent) -ne $stubDir) { throw 'gh fixture not selected' }
   foreach ($case in @(
     @{Name='wrong-frozen-owner'; ConfigText='$other = @{ FrozenPaths = @() }; $script:ScaffoldConfig = @{}'},
     @{Name='nested-frozen-decoy'; ConfigText='$script:ScaffoldConfig = @{ Other = @{ FrozenPaths = @() } }'}
@@ -166,20 +184,27 @@ exit 0
     if ($policyFailures.Count) { exit 1 }
     Write-Host 'REVIEW-POLICY-FROZEN-OWNER-PASS'; exit 0
   }
-  $advisory = Invoke-ReviewPolicyCase 'advisory' -CardChange status
-  Assert-ReviewPolicyCheck ($advisory.Exit -eq 0) 'baseline advisory plus status-only bookkeeping accepts valid block'
-  Assert-ReviewPolicyCheck ($null -ne $advisory.Verdict -and $advisory.Verdict.verdict -ceq 'block' -and $advisory.Verdict.reasons[0] -ceq 'Fixture finding preserved') 'actual negative verdict and finding persist'
-  Assert-ReviewPolicyCheck (-not $advisory.Rounds -and $advisory.Output.Contains('R3 advisory findings:')) 'advisory findings explicit without consuming block rounds'
+  $advisory = Invoke-ReviewPolicyCase 'advisory' -CardChange status -Post
+  Assert-ReviewPolicyCheck ($advisory.Exit -eq 0) 'advisory accepts block with status-only change'
+  Assert-ReviewPolicyCheck ($null -ne $advisory.Verdict -and $advisory.Verdict.verdict -ceq 'block' -and $advisory.Verdict.reasons[0] -ceq 'Fixture finding preserved') 'block verdict and finding persist'
+  Assert-ReviewPolicyCheck (-not $advisory.Rounds -and $advisory.Output.Contains('R3 advisory findings:')) 'advisory findings consume no rounds'
+  $statuses = @($advisory.Posts | Where-Object { ($_.Args[0..2] -join ' ') -eq 'api --method POST' })
+  $comments = @($advisory.Posts | Where-Object { ($_.Args[0..2] -join ' ') -eq 'pr comment 42' })
+  $context = & { . (Join-Path $PSScriptRoot '_config.ps1'); Get-ScaffoldReviewStatusContext }
+  Assert-ReviewPolicyCheck ($statuses.Count -eq 1 -and $statuses[0].Args -ccontains 'state=success' -and $statuses[0].Args -ccontains "context=$context" -and $statuses[0].Args[3].EndsWith("/statuses/$($advisory.Verdict.sha)")) 'advisory posted gate success'
+  Assert-ReviewPolicyCheck ($statuses.Count -eq 1 -and $statuses[0].Args -ccontains 'description=Advisory review completed with findings') 'advisory posted description'
+  $body = '**Second-model review verdict: `block`**' + "`n`nAdvisory findings (gate accepted):`n`n- Fixture finding preserved"
+  Assert-ReviewPolicyCheck ($comments.Count -eq 1 -and $comments[0].Args[-1] -ceq $body) 'advisory posted original verdict and findings'
   foreach ($cardChange in @('outer-whitespace', 'outer-whitespace-status', 'unchanged-status', 'status-inner-whitespace')) {
     $result = Invoke-ReviewPolicyCase "card-$cardChange" -CardChange $cardChange
-    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: blocking') -and -not $result.Output.Contains('R3 advisory findings:')) "advisory rejects non-status-only card edit: $cardChange"
+    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: blocking') -and -not $result.Output.Contains('R3 advisory findings:')) "non-status card edit blocks: $cardChange"
   }
   $pass = Invoke-ReviewPolicyCase 'pass' -Mode pass -ExistingRoot $advisory.Root
   Assert-ReviewPolicyCheck ($pass.Exit -eq 0 -and $pass.Verdict.verdict -ceq 'pass') 'ordinary advisory pass accepted'
   $mixed = Invoke-ReviewPolicyCase 'mixed' -Mixed
-  Assert-ReviewPolicyCheck ($mixed.Exit -ne 0 -and $mixed.Output.Contains('Review gate policy: blocking')) 'allowlisted document plus source remains blocking'
+  Assert-ReviewPolicyCheck ($mixed.Exit -ne 0 -and $mixed.Output.Contains('Review gate policy: blocking')) 'mixed document/source blocks'
   $identity = Invoke-ReviewPolicyCase 'identity' -Mode identity -ExistingRoot $advisory.Root
-  Assert-ReviewPolicyCheck ($identity.Exit -eq 0 -and $identity.Verdict.verdict -ceq 'pass') 'exact lowercase optional identity fields accepted'
+  Assert-ReviewPolicyCheck ($identity.Exit -eq 0 -and $identity.Verdict.verdict -ceq 'pass') 'lowercase identity fields accepted'
   foreach ($mode in @(
     'duplicate-verdict', 'duplicate-reasons', 'duplicate-sha', 'duplicate-branch',
     'Verdict', 'Reasons', 'SHA', 'Branch', 'wrapped-pass', 'wrapped-block',
@@ -202,39 +227,21 @@ exit 0
     if ($case.Name -eq 'legacy') {
       foreach ($mode in @('Verdict', 'wrapped-pass')) {
         $legacyCase = Invoke-ReviewPolicyCase "legacy-$mode" -Mode $mode -ExistingRoot $result.Root
-        Assert-ReviewPolicyCheck ($legacyCase.Exit -eq 0 -and $legacyCase.Verdict.verdict -ceq 'pass' -and $legacyCase.Output.Contains('Review gate policy: blocking')) "legacy JSON tolerance preserved: $mode"
+        Assert-ReviewPolicyCheck ($legacyCase.Exit -eq 0 -and $legacyCase.Verdict.verdict -ceq 'pass' -and $legacyCase.Output.Contains('Review gate policy: blocking')) "legacy JSON tolerance: $mode"
       }
     }
   }
   foreach ($mode in @('empty', 'malformed', 'badreasons', 'stale', 'nonzero', 'writefail', 'timeout')) {
     $result = Invoke-ReviewPolicyCase "backend-$mode" -Mode $mode -ExistingRoot $advisory.Root
-    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: advisory') -and -not $result.Output.Contains('R3 advisory findings:')) "$mode remains an operational failure under advisory"
-    if ($mode -eq 'writefail') { Assert-ReviewPolicyCheck ($result.Output.Contains('[R3-VERDICT-WRITE-FAILED]') -and -not $result.Output.Contains('[R3-OUTPUT-UNREADABLE]')) 'valid negative verdict can be read but failed normalization never accepts advisory' }
+    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: advisory') -and -not $result.Output.Contains('R3 advisory findings:')) "$mode blocks advisory"
+    if ($mode -eq 'writefail') { Assert-ReviewPolicyCheck ($result.Output.Contains('[R3-VERDICT-WRITE-FAILED]') -and -not $result.Output.Contains('[R3-OUTPUT-UNREADABLE]')) 'verdict write failure blocks advisory' }
   }
   $testCard = "---`nid: T9-REVIEW-POLICY`nstatus: todo`nreview_gate: advisory`n---`n# approved card"
   $rawPrefix = ':100644 100644 ' + ('a' * 40) + ' ' + ('b' * 40) + " M`t"
-  $policyInputs = @{CardText=$testCard; BaselineAuthorized=$true; FrozenPaths=@('docs/frozen/'); RawDiff=@($rawPrefix + 'docs/research/property-inspect.md'); CardPath='specs/tasks/T9-REVIEW-POLICY.md'; HeadCardText=$testCard}
+  $policyInputs = @{CardText=$testCard; BaselineAuthorized=$true; FrozenPaths=@('docs/frozen/'); RawDiff=@($rawPrefix + $ordinary); CardPath=$testCardPath; HeadCardText=$testCard}
   foreach ($path in @('specs/android-module-boundaries.md','docs/credentials.md','docs/encryption.md','docs/deployment.md','docs/ci-pipeline.md','docs/api.md','docs/disaster-recovery.md','docs/research/chapps.md','docs/research/opensource-indie.md','docs/research/synthesis.md','docs/unknown-note.md')) {
     $result = Invoke-ReviewPolicyCase ([IO.Path]::GetFileNameWithoutExtension($path)) -Path $path -ExistingDocument
-    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: blocking') -and $result.Verdict.verdict -ceq 'block') "authority path remains blocking: $path"
-  }
-  foreach ($name in @('securityGuide', 'authentication', 'privacyPolicyGuide', 'licenseGuide', 'workflowGuide', 'rubricGuide', 'deliveryGuide', 'releaseGuide', 'schemaGuide', 'migrationGuide', 'contractGuide', 'requirementsGuide', 'designNotes', 'policyGuide', 'complianceGuide', 'backupGuide', 'retentionRules', 'erasureGuide', 'trustGuide', 'manifestGuide', 'techDebtGuide', 'tech_debtGuide', 'tech-debtGuide')) {
-    foreach ($path in @("docs/$name.md", "specs/$name/example.md")) {
-      $inputs = $policyInputs.Clone(); $inputs.RawDiff = @($rawPrefix + $path)
-      Assert-ReviewPolicyCheck ((Get-ScaffoldReviewPolicy @inputs) -ceq 'blocking') "critical substring path: $path"
-    }
-  }
-  foreach ($case in @(
-    @{Name='specs-note'; Path='specs/notes/example.md'},
-    @{Name='security'; Path='docs/SECURITY.md'}, @{Name='workflow'; Path='docs/DEVOPS-WORKFLOW.md'},
-    @{Name='delivery'; Path='docs/DELIVERY-OPS.md'}, @{Name='requirements'; Path='docs/inspection-app-requirements.md'},
-    @{Name='rubric'; Path='docs/QUALITY-RUBRIC.md'}, @{Name='frozen'; Path='docs/frozen/note.md'},
-    @{Name='unknown'; Path='payload.txt'}, @{Name='other-card'; Path='specs/tasks/T9-OTHER.md'},
-    @{Name='unsafe-path'; Path='docs/../note.md'}, @{Name='archive'; Path='specs/archive/notes.md'}
-  )) {
-    $inputs = $policyInputs.Clone(); $inputs.RawDiff = @($rawPrefix + $case.Path)
-    $want = if ($case.ContainsKey('Want')) { $case.Want } else { 'blocking' }
-    Assert-ReviewPolicyCheck ((Get-ScaffoldReviewPolicy @inputs) -ceq $want) "$($case.Name) path classification"
+    Assert-ReviewPolicyCheck ($result.Exit -ne 0 -and $result.Output.Contains('Review gate policy: blocking') -and $result.Verdict.verdict -ceq 'block') "authority path blocks: $path"
   }
   foreach ($case in @(
     @{Name='duplicate'; CardText=$testCard.Replace('review_gate: advisory', "review_gate: advisory`nreview_gate: advisory")},
@@ -242,12 +249,11 @@ exit 0
     @{Name='unknown-gate'; CardText=$testCard.Replace('advisory','optional')}, @{Name='missing-gate'; CardText=$testCard.Replace('review_gate: advisory','')},
     @{Name='missing-frozen'; FrozenPaths=$null}, @{Name='malformed-frozen'; FrozenPaths=@('[')},
     @{Name='allowlisted-frozen'; FrozenPaths=@('^docs/research/')},
-    @{Name='unreadable-diff'; RawDiff=@()}, @{Name='symlink'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 120000') + 'docs/research/property-inspect.md')},
-    @{Name='mixed'; RawDiff=@($rawPrefix+'docs/research/property-inspect.md', $rawPrefix+'scripts/tool.ps1')},
-    @{Name='changed-card'; RawDiff=@($rawPrefix+'specs/tasks/T9-REVIEW-POLICY.md'); HeadCardText=$testCard.Replace('# approved card','# changed approval')},
-    @{Name='body-status'; CardText=($testCard+"`nstatus: todo"); RawDiff=@($rawPrefix+'specs/tasks/T9-REVIEW-POLICY.md'); HeadCardText=($testCard+"`nstatus: todo").Replace('status: todo','status: merged')},
-    @{Name='deleted-card'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 000000')+'specs/tasks/T9-REVIEW-POLICY.md')},
-    @{Name='added-card'; RawDiff=@($rawPrefix.Replace('100644 100644','000000 100644')+'specs/tasks/T9-REVIEW-POLICY.md')}
+    @{Name='unreadable-diff'; RawDiff=@()}, @{Name='symlink'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 120000') + $ordinary)},
+    @{Name='changed-card'; RawDiff=@($rawPrefix+$testCardPath); HeadCardText=$testCard.Replace('# approved card','# changed approval')},
+    @{Name='body-status'; CardText=($testCard+"`nstatus: todo"); RawDiff=@($rawPrefix+$testCardPath); HeadCardText=($testCard+"`nstatus: todo").Replace('status: todo','status: merged')},
+    @{Name='deleted-card'; RawDiff=@($rawPrefix.Replace('100644 100644','100644 000000')+$testCardPath)},
+    @{Name='added-card'; RawDiff=@($rawPrefix.Replace('100644 100644','000000 100644')+$testCardPath)}
   )) {
     $inputs = $policyInputs.Clone()
     foreach ($key in $case.Keys) { if ($key -ne 'Name') { $inputs[$key] = $case[$key] } }

@@ -281,6 +281,69 @@ function Remove-Td4MigrationFixtureWorktree {
   return [PSCustomObject]@{ Success = $false; Attempts = $MaxAttempts; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $lastRegistered; PathExists = $lastPathExists }
 }
 
+function Restore-Td4ContinueProbeFixture {
+  param(
+    [string]$ProbeFile,
+    [bool]$ProbeCreated,
+    [bool]$ProbeExistedBefore,
+    [AllowEmptyString()][string]$ProbeOriginal,
+    [bool]$ProbeOriginalCaptured,
+    [string]$BuildFile,
+    [AllowEmptyString()][string]$BuildOriginal,
+    [bool]$BuildOriginalCaptured,
+    [string]$TenancyFile,
+    [AllowEmptyString()][string]$TenancyOriginal,
+    [bool]$TenancyOriginalCaptured
+  )
+
+  $errors = [System.Collections.Generic.List[string]]::new()
+  try { if ($ProbeCreated -and $ProbeFile -and (Test-Path -LiteralPath $ProbeFile)) { Remove-Item -LiteralPath $ProbeFile -Force -ErrorAction Stop } } catch { [void]$errors.Add("probe: $($_.Exception.Message)") }
+  try {
+    if ($BuildFile -and $BuildOriginalCaptured -and (Test-Path -LiteralPath $BuildFile)) {
+      [System.IO.File]::WriteAllText($BuildFile, $BuildOriginal, [System.Text.UTF8Encoding]::new($false))
+    }
+  } catch { [void]$errors.Add("build: $($_.Exception.Message)") }
+  try {
+    if ($TenancyFile -and $TenancyOriginalCaptured -and (Test-Path -LiteralPath $TenancyFile)) {
+      [System.IO.File]::WriteAllText($TenancyFile, $TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+    }
+  } catch { [void]$errors.Add("tenancy: $($_.Exception.Message)") }
+
+  try {
+    $probeRestored = if (-not $ProbeFile) { $true } elseif ($ProbeExistedBefore) {
+      if (-not $ProbeOriginalCaptured) { $false } else { (Test-Path -LiteralPath $ProbeFile) -and ([System.IO.File]::ReadAllText($ProbeFile) -ceq $ProbeOriginal) }
+    } else { -not (Test-Path -LiteralPath $ProbeFile) }
+  } catch { [void]$errors.Add("probe-state: $($_.Exception.Message)"); $probeRestored = $false }
+  try {
+    $buildRestored = if (-not $BuildFile) { $true } elseif (-not $BuildOriginalCaptured) { $false } else {
+      (Test-Path -LiteralPath $BuildFile) -and ([System.IO.File]::ReadAllText($BuildFile) -ceq $BuildOriginal)
+    }
+  } catch { [void]$errors.Add("build-state: $($_.Exception.Message)"); $buildRestored = $false }
+  try {
+    $tenancyRestored = if (-not $TenancyFile) { $true } elseif (-not $TenancyOriginalCaptured) { $false } else {
+      (Test-Path -LiteralPath $TenancyFile) -and ([System.IO.File]::ReadAllText($TenancyFile) -ceq $TenancyOriginal)
+    }
+  } catch { [void]$errors.Add("tenancy-state: $($_.Exception.Message)"); $tenancyRestored = $false }
+  return [PSCustomObject]@{ ProbeRestored = $probeRestored; BuildRestored = $buildRestored; TenancyRestored = $tenancyRestored; ProbeFile = $ProbeFile; BuildFile = $BuildFile; TenancyFile = $TenancyFile; Errors = @($errors) }
+}
+
+function Test-Td4ContinueProbeCleanupComplete {
+  param([Parameter(Mandatory)][object]$Cleanup)
+  return $Cleanup.ProbeRestored -and $Cleanup.BuildRestored -and $Cleanup.TenancyRestored -and @($Cleanup.Errors).Count -eq 0
+}
+
+function Get-Td4ContinueProbeCleanupDiagnostics {
+  param([Parameter(Mandatory)][object]$Cleanup)
+  $errors = @($Cleanup.Errors)
+  $state = @(
+    "ProbeRestored=$($Cleanup.ProbeRestored) path=$($Cleanup.ProbeFile)",
+    "BuildRestored=$($Cleanup.BuildRestored) path=$($Cleanup.BuildFile)",
+    "TenancyRestored=$($Cleanup.TenancyRestored) path=$($Cleanup.TenancyFile)"
+  ) -join '; '
+  $errorDetail = if ($errors.Count -eq 0) { 'none' } else { $errors -join ' | ' }
+  return "$state; collectedErrors=$errorDetail"
+}
+
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
 # unchanged; only these ASCII records are machine-readable. A non-zero child without exactly one valid
 # record is still red and is reported as UNKNOWN rather than being reduced to a positional exit-code list.
@@ -1321,7 +1384,7 @@ function Get-SelftestCanarySourceContractFailures {
     $scopeProperty = $contract.PSObject.Properties['Scope']
     if ($scopeProperty -and $scopeProperty.Value -ceq 'MIGRATION-CORE-CHECK') {
       $migrationBlockStart = $Source.IndexOf(('          $invokeTd4Core' + 'Check = {'), [StringComparison]::Ordinal)
-      $migrationBlockEnd = if ($migrationBlockStart -ge 0) { $Source.IndexOf(('          $td4Tenancy' + 'File = '), $migrationBlockStart, [StringComparison]::Ordinal) } else { -1 }
+      $migrationBlockEnd = if ($migrationBlockStart -ge 0) { $Source.IndexOf(('          $td4Forced' + 'TestFile = '), $migrationBlockStart, [StringComparison]::Ordinal) } else { -1 }
       $contractSource = if ($migrationBlockStart -ge 0 -and $migrationBlockEnd -gt $migrationBlockStart) { $Source.Substring($migrationBlockStart, $migrationBlockEnd - $migrationBlockStart) } else { '' }
     }
     if ([regex]::Matches($contractSource, [regex]::Escape($contract.Text)).Count -ne 1) {
@@ -4480,7 +4543,7 @@ $gateIdFamilies82 = [ordered]@{
   '15g(receipt)①-f(hint)' = '15g(receipt)-u2460-f(hint)'
   '15d2' = '15d2'; '15d3' = '15d3'
   '15r(e)A' = '15r(e)A'; '15r(e)B' = '15r(e)B'; '15r(e)C' = '15r(e)C'
-  '15r(e)D' = '15r(e)D'; '15r(e)E' = '15r(e)E'; '15r(e)F' = '15r(e)F'
+  '15r(e)D' = '15r(e)D'; '15r(e)E' = '15r(e)E'; '15r(e)F' = '15r(e)F'; '15r(e)G' = '15r(e)G'
   '17aa(6/Codex#1)' = '17aa(6/Codex-1)'
   'T37-REMOTEMX/1' = 'T37-REMOTEMX/1'
   'T37-REMOTEMX/1-recover' = 'T37-REMOTEMX/1-recover'
@@ -8433,12 +8496,12 @@ if (-not $qFail) { Write-Host "  15q ship resume/RED 新鲜度死锁窗口有成
 
 # 15r. ship saga 报告闸（T26-SHIPSAGA）：ship 是多腿 saga（卡校验→DoD→verify→提交→范围闸→许可闸→防泄露闸→push+PR→
 #   R3 评审→合并；-Local 变体含可选 R3 与本地合并），任一腿 throw 须在失败时刻自述进度——已完成腿/失败腿(=首个未完成腿)/
-#   待办腿 + 精确恢复命令（分水岭=「提交」腿：commit 前失败=重跑 -Phase ship；commit 后按 死锁重跑/无PR/已开PR/已合并
-#   分流并指 TD85-RESUME 锚点，见 15q，不复制其正文）——随后**原样裸 throw**（退出码/失败面/上游捕获行为均不变，只加
-#   报告层）。源码级词法断言（同 15p/17p2 手法，剥整行注释防「删代码留哨兵注释」蒙混）：(a) ship 相体存在腿完成跟踪
-#   成功路径 ≥13 追加点（含远端四腿）；(b) T26-SHIPSAGA catch
-#   报告块；(c) 该块词法上以原样裸 throw 结尾；(d) 恢复路由词法锁——完整重跑命令仅现于 commit 前分支且带齐已绑定
-#   选项，commit 后 PR 状态以已解析 PR 号为准而非腿成员推断、合并腿建议按 head 新鲜度条件化（R3 r1/r2/r3 #9/#6/#2）。
+#   待办腿；HEAD 前移后未获本轮收据授权时只保留现场并委托 DEVOPS，不内嵌远端恢复配方。保留 TD85 early-hint、
+#   已授权 normal ship 重跑、完整选项透传与 Local 阶段指引，随后**原样裸 throw**（退出码/失败面/上游捕获行为不变）。
+#   源码级词法断言（同 15p/17p2 手法，剥整行注释防「删代码留哨兵注释」蒙混）：(a) ship 相体存在腿完成跟踪，
+#   成功路径 ≥13 追加点（含远端四腿）；(b) catch 报告块代码含 T26-SHIPSAGA 哨兵；(c) 该块以原样裸 throw 结尾；
+#   (d) reporter 权限边界——唯一 normal ship 重跑命令位于 HEAD 前移守卫之后且带齐已绑定选项，未授权 fallback
+#   只报告与委托文档；Local 阶段指引保持原有语义。
 #   实现前各断言均 RED（防 vacuous）。(a)-(d) 静态、locale 无关、不需 git/gh（同 15n/15q 手法）；(e) hermetic
 #   失败路径夹具见下独立块（r3 #6，需 git，同 15i 手法）。
 $r15Fail = $false
@@ -8453,39 +8516,32 @@ else {
   if ($appendCount15r -lt 13) { Fail "闸15r(a)：腿仅 $appendCount15r（须 ≥13，含远端四腿）。"; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaHeadMoved\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无真实 HEAD 前移追踪（$sagaHeadMoved 须在真提交后置真）——「提交」腿完成≠HEAD 前移，no-op 提交会被误当死锁态（R3 r5 #9）。'; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaLocalMerged\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无本地合并成功追踪（$sagaLocalMerged 须在 merge 成功后置真）——post-merge 凭据失败会被误报成合并前守卫态（R3 r5 #9）。'; $r15Fail = $true }
-  # (b)+(c) catch 报告块：含哨兵且以原样裸 throw 结尾（throw 后除闭合括号外无其他语句——异常语义不变的词法锁）；
-  # tempered 前缀禁止「起点与哨兵之间还有另一个 catch」——防匹配到 ship 内其他 catch（RED 证据解析 / mint 状态解析）。
-  $catch15r = [regex]::Match($shipCode15r, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?T26-SHIPSAGA.*?\n\s*throw\s*\r?\n\s*\}').Value
-  if (-not $catch15r) { Fail '闸15r(b/c)：ship 相体无「含哨兵 T26-SHIPSAGA 且以原样裸 throw 结尾」的 catch 报告块（代码级，注释不算）——任一腿失败时不自述进度，或异常被吞/改写（退出码语义漂移）。'; $r15Fail = $true }
+  # (b)+(c) 以 $sagaTodo 赋值和裸 throw 提取 catch 报告块，再显式检查代码中的哨兵；
+  # tempered 前缀禁止「起点与 $sagaTodo 之间还有另一个 catch」——防匹配到 ship 内其他 catch（RED 证据解析 / mint 状态解析）。
+  $catch15r = [regex]::Match($shipCode15r, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?\$sagaTodo\s*=.*?\n\s*throw\s*\r?\n\s*\}').Value
+  if (-not $catch15r) { Fail '闸15r(b/c)：ship 相体无「含 $sagaTodo 赋值且以原样裸 throw 结尾」的 catch 报告块（代码级，注释不算）——任一腿失败时不自述进度，或异常被吞/改写（退出码语义漂移）。'; $r15Fail = $true }
+  if ($catch15r -and ($catch15r -notmatch 'T26-SHIPSAGA')) { Fail '闸15r(b)：catch 报告块缺少 T26-SHIPSAGA 哨兵（代码级，整行注释不算）。'; $r15Fail = $true }
   # (c) 尾锚强化（preflight nit）：单靠「throw 后跟某个 }」可被「嵌套块内 throw + 其后吞异常语句」满足——再钉死
   # ship 相体词法尾形状：裸 throw → catch 闭合 → 相位闭合 → 'cleanup' 标签，令 throw 后不存在任何代码路径。
   if ($shipCode15r -notmatch "(?s)\n\s*throw\s*\r?\n\s*\}\s*\}\s*'cleanup'") { Fail "闸15r(c)：ship 相体末尾不是「裸 throw → catch 闭合 → 相位闭合」的词法形状——saga catch 的 throw 须是 ship 相体最后一个语句（throw 之后不得再有可吞异常/改语义的代码）。"; $r15Fail = $true }
   if ($catch15r) {
-    # (d) 恢复路由词法锁（R3 r1 #9/#6 + r2 #9/#6）：分水岭 =「提交」腿——commit 一落 HEAD 即前移，RED 证据新鲜度闸
-    # 从此对整条 ship 重跑 fail-closed（TD85），故「完整重跑 ship」只允许出现在 commit 前分支，且须带齐所有影响行为
-    # 的已绑定选项（丢 -Base 错基线 / 丢 -SkipRed 立刻卡 RED 证据闸 / 丢 -NoAutoMerge 违背调用方意图自动合并，r2 #9）；
-    # PR 真实状态不得以腿成员判定推断（push+PR 是复合腿——pr create 已成功而后续 PR 号解析/base 断言 throw 时，腿未标
-    # 完成但 PR 已存在，r2 #9）——须以已解析 PR 号分流、解析不到时给 gh pr view 实查命令而非断言「尚无 PR」。
+    # (d) 恢复路由词法锁：安全 normal ship 重跑须位于 HEAD 前移守卫之后并带齐所有影响行为的已绑定选项；
+    # post-watershed 未授权 fallback 只报告和委托 DEVOPS，不再从腿成员推导 PR 状态或内嵌第二套远端恢复管线。
     $iMarker15r = $catch15r.IndexOf("-match 'TD85-RESUME'")
     # r5 #9：重跑安全守卫改判「真 HEAD 前移 + -SkipRed 豁免」——「提交」腿成员判定会把 no-op 提交误当死锁态。
     $iHM15r = $catch15r.IndexOf('$sagaHeadMoved')
     $rerunHits15r = [regex]::Matches($catch15r, [regex]::Escape('-TaskId $TaskId -Phase ship"'))
-    $iR315r = $catch15r.IndexOf("-contains 'R3 评审'")
     $optsOk15r = ($catch15r.IndexOf('$SkipRed') -ge 0) -and ($catch15r.IndexOf('$NoAutoMerge') -ge 0) -and ($catch15r.IndexOf("ContainsKey('Base')") -ge 0)
-    # r3 #2/#9：R3 已 pass 的合并腿失败不得无条件建议直接 gh pr merge——修复若改了 PR head，已录 pass 即失效；
-    # 建议文案须含「head 未变才可直合、变了先重跑 review.ps1 -PostStatus 至 pass」的条件路径（词法锚 = -PostStatus 在 R3 分支之后）。
-    $prStateOk15r = ($catch15r.IndexOf('Test-Path Variable:pr') -ge 0) -and ($catch15r.LastIndexOf('gh pr view') -gt $iR315r) -and ($iR315r -ge 0) -and ($catch15r.IndexOf('-PostStatus') -gt $iR315r)
-    foreach ($ra15 in @('R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知')) {
-      $rl15 = @($catch15r -split "`n" | Where-Object { $_.Contains($ra15) })
-      $rp15 = if ($ra15 -like 'commit*') { '<PR号>' } else { '42' }
-      $rr15 = if ($rl15.Count -eq 1) { & ([scriptblock]::Create('$Wt=''W X'';$shipBase=''B'';$sagaPrNum=42;$TaskId=''T'';$sagaRemoteReset=''R'';' + $rl15[0].Trim())) 6>&1 | Out-String } else { '' }
-      if ($rl15.Count -ne 1 -or $rr15 -notmatch 'DoD.*verify.*范围闸.*许可闸.*防泄露闸.*真实 diff 预算.*review\.ps1' -or -not $rr15.Contains("-WorktreePath `"W X`" -Base `"B`" -PrNumber $rp15 -PostStatus") -or $rr15 -notmatch '同一 reviewed SHA.*ci\.yml.*jobs completed\+success.*base/head.*--match-head-commit <同一 reviewed SHA>') { Fail "闸15r(d/CI)：$ra15 配方缺失/不可运行。"; $r15Fail = $true }
-    }
-    # r4/r5 #9：-Local 合并腿失败态按**阶段状态**分流（$sagaLocalMerged=post-merge 凭据态 / MERGE_HEAD 在盘=合并中
-    # merge --continue 续跑 / 皆无=守卫态重发 merge --no-ff --no-edit）——不嗅探异常文案（每个合并失败消息都含「冲突？」）。
-    # r6 #9 闸门保真最小提示：未推送态给 reset --soft 归位全闸重跑；直合条件含 base（baseRefName）双新鲜度（根治=TD89）。
-    $localOk15r = ($catch15r.IndexOf('merge --continue') -ge 0) -and ($catch15r.IndexOf('--no-ff --no-edit') -ge 0) -and ($catch15r.IndexOf('$sagaLocalMerged') -ge 0) -and ($catch15r.IndexOf('MERGE_HEAD') -ge 0) -and ($catch15r.IndexOf('reset --soft') -ge 0) -and ($catch15r.IndexOf('base/head') -ge 0)
-    if (($iMarker15r -lt 0) -or ($iHM15r -lt 0) -or ($iMarker15r -gt $iHM15r) -or ($rerunHits15r.Count -ne 1) -or ($rerunHits15r[0].Index -lt $iHM15r) -or (-not $optsOk15r) -or ($iR315r -lt $rerunHits15r[0].Index) -or (-not $prStateOk15r) -or (-not $localOk15r)) { Fail '闸15r(d)：恢复路由词法形状不符（R3 r1-r5 #9/#6/#2）——要求：TD85-RESUME 哨兵路由最先判（死锁重跑勿按本轮腿清单推断进度）；重跑安全守卫按 $sagaHeadMoved（真 HEAD 前移）+ -SkipRed 豁免判定而非「提交」腿成员（no-op 提交不动 HEAD）；完整重跑命令在 catch 内仅 1 次、位于该守卫之后、且由 $SkipRed/$NoAutoMerge/ContainsKey(Base) 补齐已绑定选项；commit 后分支不得以腿成员推断 PR 状态——须经已解析 PR 号（Test-Path Variable:pr）分流并在未知态给 gh pr view 实查命令；-Local 合并腿失败态按阶段状态（$sagaLocalMerged/MERGE_HEAD）分流出 merge --continue 续跑或 merge --no-ff --no-edit 重发；未推送态须给 reset --soft 归位全闸重跑、直合条件须含 baseRefName 双新鲜度（r6 #9 最小保真，根治 TD89）。'; $r15Fail = $true }
+    # T0-SHIP-SAGA-REPORTER：T26 catch 是 reporter，不再维护远端 review/CI/merge 第二套配方。
+    # 保留 TD85 early-hint 委托、有效内存授权 normal ship、完整选项透传及 Local 阶段分流。
+    $legacyCatchRecipes15r = @('【闸门保真总则】', 'R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知', 'review.ps1', '-PostStatus', 'ci.yml jobs', 'gh pr merge', 'reset --soft')
+    $reporterOk15r = ($catch15r.IndexOf('T26-REPORTER-AUTHORITY') -ge 0) -and
+      ($catch15r.IndexOf('docs/DEVOPS-WORKFLOW.md') -ge 0) -and
+      ($catch15r.IndexOf('reporter 不授予 review、CI、merge、cleanup 或历史改写权限') -ge 0) -and
+      (-not @($legacyCatchRecipes15r | Where-Object { $catch15r.Contains($_) }).Count)
+    # Local 三态仍由 reporter 给出原有阶段化操作；不得以删除全部 catch 指引冒充收敛。
+    $localOk15r = ($catch15r.IndexOf('merge --continue') -ge 0) -and ($catch15r.IndexOf('--no-ff --no-edit') -ge 0) -and ($catch15r.IndexOf('$sagaLocalMerged') -ge 0) -and ($catch15r.IndexOf('MERGE_HEAD') -ge 0)
+    if (($iMarker15r -lt 0) -or ($iHM15r -lt 0) -or ($iMarker15r -gt $iHM15r) -or ($rerunHits15r.Count -ne 1) -or ($rerunHits15r[0].Index -lt $iHM15r) -or (-not $optsOk15r) -or (-not $reporterOk15r) -or (-not $localOk15r)) { Fail '闸15r(d)：T26 reporter 权限边界不符——须保留 TD85/HEAD 前移守卫、唯一 normal-ship 重跑命令、选项透传与 Local 三态；未授权 catch 只能保留现场并委托 DEVOPS，不得内嵌 review/PostStatus/CI/merge 第二套配方。'; $r15Fail = $true }
   }
 }
 if (-not $r15Fail) { Write-Host '  15r ship saga ≥13 腿（远端 push+PR/R3/CI gate/合并）与恢复路由 OK' -ForegroundColor Green }
@@ -8505,7 +8561,7 @@ if (-not $r15Fail) { Write-Host '  15r ship saga ≥13 腿（远端 push+PR/R3/C
 #     须报「合并已成功、仅凭据未铸」而非守卫态误报；
 #   B/D/C/E/F 的 R3 腿走 pass-stub（离线）；断言一律无 $out -and 前置豁免——空输出即 FAIL（r5 #6 防 vacuous pass）。
 #   远端各态（pre-PR / PR-open / retarget-base / 远端 merge-conflict）行为夹具超出本卡报告层（需假 gh 矩阵）——
-#   已登记 specs/tech-debt-tracker.md TD89（r6 #6）；远端分支恢复文案由 15r(d) 词法锁（-PostStatus/baseRefName）覆盖。
+#   已登记 specs/tech-debt-tracker.md TD89（r6 #6）；15r(d) 只锁 reporter 权限边界，完整人工恢复合同由 DEVOPS 承载。
 $gitR15 = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitR15) {
   Skip-SelftestCheck -GateId '15r(e)' -Reason 'TOOL-GIT-MISSING' -Message '  15r(e) git 未安装，跳过（离线 / 无 git 环境正常）。'
@@ -8538,7 +8594,7 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
       $scopeAnchorSG = '(?m)^  \)\r?\n  # TD60'; $scopeAnchorHitsSG = ([regex]::Matches($scopeTextSG, $scopeAnchorSG)).Count
       if ($scopeAnchorHitsSG -ne 1) { Fail "闸15r(e)B 前置：_scope hook anchor 命中 $scopeAnchorHitsSG 次（须恰 1）。" }
       else {
-        $scopeHookSG = "  )`n  if (`$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -and (Test-Path -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -PathType Leaf)) { Set-Content -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT_PROOF -Value 'receipt-existed' -Encoding utf8; Remove-Item -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -Force -ErrorAction Stop }`n  # TD60"
+        $scopeHookSG = "  )`n  if (`$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -and (Test-Path -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -PathType Leaf)) { Set-Content -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT_PROOF -Value 'receipt-existed' -Encoding utf8; Remove-Item -LiteralPath `$env:SCAFFOLD_SELFTEST_DROP_RECEIPT -Force -ErrorAction Stop }`n  if (`$env:SCAFFOLD_SELFTEST_SCOPE_HEAD_PROOF) { (& git -C `$env:SCAFFOLD_SELFTEST_SCOPE_WT rev-parse HEAD 2>`$null) | Set-Content -LiteralPath `$env:SCAFFOLD_SELFTEST_SCOPE_HEAD_PROOF -Encoding utf8 }`n  # TD60"
         $scopeTextSG = ([regex]$scopeAnchorSG).Replace($scopeTextSG, $scopeHookSG, 1)
         Set-Content $scopeSG $scopeTextSG -NoNewline -Encoding utf8
       }
@@ -8572,6 +8628,34 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
           # A：RED 证据缺失（commit 前，无 -SkipRed）
           $aOut = (& pwsh -NoProfile -File $encWrapR -Tid T0-SAGA15R 2>&1 | Out-String)
           $aExit = $LASTEXITCODE
+          # G：首次 mint 因 receipt plane 被普通文件占用而 best-effort 失败，随后真实范围闸失败。
+          # 此时同轮授权位仍为 false；T26 只能保留现场并委托 DEVOPS，不能生成第二套 review/CI/merge 配方。
+          $sgWtG = New-ShipFixtureCard $sg 'T0-SAGA15RG' 'seed 15r first-mint failure then scope failure' 'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path marker-15rg.txt)) { exit 1 }"'
+          $gExit = -1; $gOut = ''; $gHeadBefore = ''; $gScopeHead = ''; $gHeadAfter = ''; $gBranchAfter = ''; $gEvidenceBefore = ''; $gEvidenceAfter = ''; $gReceiptBefore = ''; $gReceiptAfter = ''
+          $gReceiptPlane = Join-Path $sg '.git/scaffold-shipped'
+          $gScopeHeadProof = Join-Path $sgWtG '.review/T0-SAGA15RG-head-at-scope'
+          $gEvidence = Join-Path $sgWtG '.review/T0-SAGA15RG.red'
+          if (-not (Test-Path $sgWtG)) { Fail '闸15r(e)G：fixture start 未产出 worktree G（前置失败）。' }
+          else {
+            & pwsh -NoProfile -File (Join-Path $sg 'scripts/task.ps1') -TaskId T0-SAGA15RG -Phase red *> $null
+            $gHeadBefore = "$(& git -C $sgWtG rev-parse HEAD 2>$null)".Trim()
+            Set-Content (Join-Path $sgWtG 'marker-15rg.txt') 'green' -Encoding utf8
+            $gEvidenceBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $gEvidence).Hash
+            Set-Content -LiteralPath $gReceiptPlane -Value 'occupied' -Encoding utf8
+            $gReceiptBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $gReceiptPlane).Hash
+            $env:SCAFFOLD_SELFTEST_SCOPE_HEAD_PROOF = $gScopeHeadProof
+            $env:SCAFFOLD_SELFTEST_SCOPE_WT = $sgWtG
+            try { $gOut = (& pwsh -NoProfile -File $encWrapR -Tid T0-SAGA15RG 2>&1 | Out-String); $gExit = $LASTEXITCODE }
+            finally {
+              $env:SCAFFOLD_SELFTEST_SCOPE_HEAD_PROOF = $null; $env:SCAFFOLD_SELFTEST_SCOPE_WT = $null
+              try { $gReceiptAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $gReceiptPlane -ErrorAction Stop).Hash } catch { $gReceiptAfter = '' }
+              Remove-Item -LiteralPath $gReceiptPlane -Force -ErrorAction SilentlyContinue
+            }
+            $gScopeHead = "$(Get-Content -LiteralPath $gScopeHeadProof -Raw -ErrorAction SilentlyContinue)".Trim()
+            $gHeadAfter = "$(& git -C $sgWtG rev-parse HEAD 2>$null)".Trim()
+            $gBranchAfter = "$(& git -C $sgWtG symbolic-ref --short HEAD 2>$null)".Trim()
+            $gEvidenceAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $gEvidence).Hash
+          }
           # B：真死锁族——红→绿 marker 卡（dod=Test-Path，L95 无裸 $ 变量）：red 铸真证据 → marker 转绿且是卡外
           # 文件 → ship 真 commit 后在范围闸 block（headMoved=true、非 -SkipRed）
           $sgWtB = New-ShipFixtureCard $sg 'T0-SAGA15RB' 'seed 15r post-commit deadlock' 'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path marker-15r.txt)) { exit 1 }"'
@@ -8663,6 +8747,22 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($aOut -notmatch '恢复：pwsh -File scripts\\task\.ps1 -TaskId T0-SAGA15R -Phase ship -Local') { Fail '闸15r(e)A：commit 前失败未给出带齐已绑定选项的完整重跑命令（-Local 未回填或命令缺失）。'; $reFail = $true }
         if ($aOut -notmatch [regex]::Escape('待办腿：DoD → verify → 提交 → 范围闸 → 许可闸 → 防泄露闸 → 真实 diff 预算 → R3 评审 → 本地合并')) { Fail '闸15r(e)A：腿间闸失败时待办腿必须完整保留（DoD 并未失败、不得被吞出待办，R3 r4 #9）——精确有序清单不符。'; $reFail = $true }
         if ($aOut -notmatch '缺少 RED 证据') { Fail '闸15r(e)A：原始异常文案未原样在场——throw 被改写/吞没（异常语义漂移）。'; $reFail = $true }
+        if (-not $gOut) { Fail '闸15r(e)G：ship 输出为空——未产出首次 mint 失败后的 saga 报告。'; $reFail = $true }
+        if ($gExit -eq 0) { Fail '闸15r(e)G：首次 mint 失败后范围闸失败却退出 0——best-effort 后续失败被吞。'; $reFail = $true }
+        if ($gOut -notmatch '水位线收据铸造失败.*best-effort') { Fail '闸15r(e)G：receipt plane 被占用却未证明首次 mint 走 best-effort 失败。'; $reFail = $true }
+        if ($gOut -notmatch '失败点：范围闸') { Fail '闸15r(e)G：首次 mint 失败后的真实后续失败未落在范围闸。'; $reFail = $true }
+        if ($gHeadBefore -cnotmatch '^[0-9a-f]{40}$' -or $gScopeHead -cnotmatch '^[0-9a-f]{40}$' -or $gScopeHead -ceq $gHeadBefore) { Fail '闸15r(e)G：范围闸前未证明 HEAD 已从 ship 前提交前移。'; $reFail = $true }
+        if ($gOut -notmatch '已完成腿：[^\r\n]*提交') { Fail '闸15r(e)G：范围失败报告的已完成腿未包含提交。'; $reFail = $true }
+        if ($gOut -notmatch 'T26-REPORTER-AUTHORITY') { Fail '闸15r(e)G：未授权 catch 未输出稳定 reporter 权限哨兵。'; $reFail = $true }
+        if ($gOut -notmatch 'docs/DEVOPS-WORKFLOW\.md' -or $gOut -notmatch '停止自动操作并保留 worktree/branch/PR/evidence/receipt') { Fail '闸15r(e)G：未授权 catch 未保留现场并委托 DEVOPS 权威合同。'; $reFail = $true }
+        foreach ($legacyG in @('【闸门保真总则】', 'R3 已 pass、合并腿未完成', 'PR #.*已开', 'commit 已落、PR 状态未知', 'review\.ps1', '-PostStatus', 'ci\.yml', 'gh pr merge', '-Phase\s+cleanup\b', 'reset --soft')) {
+          if ($gOut -match $legacyG) { Fail "闸15r(e)G：未授权 catch 仍输出旧恢复配方 '$legacyG'。"; $reFail = $true }
+        }
+        if ($gOut -notmatch '越界改动') { Fail '闸15r(e)G：原始范围闸异常未随裸 throw 保留。'; $reFail = $true }
+        if (-not $gScopeHead -or $gScopeHead -cne $gHeadAfter) { Fail '闸15r(e)G：catch 前范围闸 HEAD 与退出后 HEAD 不同——reporter 改写了提交现场。'; $reFail = $true }
+        if (-not (Test-Path $sgWtG -PathType Container) -or $gBranchAfter -cne 'T0-SAGA15RG') { Fail '闸15r(e)G：未授权 reporter 未保留 worktree/branch 现场。'; $reFail = $true }
+        if (-not $gEvidenceBefore -or $gEvidenceBefore -cne $gEvidenceAfter) { Fail '闸15r(e)G：RED evidence 在 catch 前后发生字节变化。'; $reFail = $true }
+        if (-not $gReceiptBefore -or $gReceiptBefore -cne $gReceiptAfter) { Fail '闸15r(e)G：receipt plane 占位文件在 ship 后缺失、不可读或字节变化——reporter 未保留首次 mint 失败现场。'; $reFail = $true }
         if (-not $bOut) { Fail '闸15r(e)B：ship 输出为空——未产出任何 saga 报告。'; $reFail = $true }
         if ($bExit -eq 0) { Fail '闸15r(e)B：越界改动下 ship -Local 仍退出 0——范围闸失效或 saga catch 吞异常。'; $reFail = $true }
         if ($bOut -notmatch '已完成腿：.*提交') { Fail '闸15r(e)B：commit 已落却未见于已完成腿清单——post-commit 状态自述失真。'; $reFail = $true }
@@ -8707,7 +8807,10 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
         if ($fOut -notmatch '本地合并已成功、仅 T24 合并凭据未铸') { Fail '闸15r(e)F：post-merge 凭据失败未走「合并已成功」态——合并已真成功却被误报（R3 r5 #9）。'; $reFail = $true }
         if ($fOut -notmatch '-Phase cleanup -Force') { Fail '闸15r(e)F：post-merge 态未给 cleanup -Force 出路。'; $reFail = $true }
         if ($fOut -match '守卫拦下') { Fail '闸15r(e)F：post-merge 凭据失败被误报成合并前守卫态（R3 r5 #9 的原始误报）。'; $reFail = $true }
-      if (-not $reFail) { Write-Host '  15r(e) hermetic 失败路径 OK（A：RED 闸失败点+完整待办；B：本轮授权后收据删除→建议重跑；D：no-op 提交重跑给带 -SkipRed 完整重跑；C：冲突→merge --continue；E：守卫态→重发 merge；F：post-merge→凭据未铸出路；六例均非零退出、原异常在场）' -ForegroundColor Green }
+        if (-not $reFail) {
+          Write-Host '  15r(e) hermetic 失败路径 OK（A：RED 闸失败点+完整待办；B：本轮授权后收据删除→建议重跑；D：no-op 提交重跑给带 -SkipRed 完整重跑；C：冲突→merge --continue；E：守卫态→重发 merge；F：post-merge→凭据未铸出路；六例均非零退出、原异常在场）' -ForegroundColor Green
+          Write-Host '  15r(e) T26 reporter authority OK（首次 mint best-effort 失败→范围闸失败；未授权 catch 只保留现场并委托 DEVOPS；旧 review/PostStatus/CI/merge 配方零输出；原异常裸抛）' -ForegroundColor Green
+        }
       }
     }
   } finally {
@@ -8740,7 +8843,7 @@ $receiptAuthFailures = {
   if (([regex]::Matches($code, '\$sagaReceiptAuthorized\s*=\s*\$true')).Count -ne 2) { $issues += 'writers' }
   if ($code -notmatch '(?s)if \(\$p1 -and \$p2 -and \$p3 -and \$p4\) \{.{0,500}?\$sagaReceiptAuthorized\s*=\s*\$true') { $issues += 'validation' }
   if ($code -notmatch '(?s)Set-Content \(Join-Path \$rcDirM \$TaskId\).{0,250}?\$sagaReceiptAuthorized\s*=\s*\$true') { $issues += 'mint' }
-  $catch = [regex]::Match($code, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?T26-SHIPSAGA.*?\n\s*throw\s*\r?\n\s*\}').Value
+  $catch = [regex]::Match($code, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?\$sagaTodo\s*=.*?\n\s*throw\s*\r?\n\s*\}').Value
   if ($catch -notmatch '\$sagaRcptSafe\s*=\s*\$sagaReceiptAuthorized' -or $catch -match '(?s)Test-Path.{0,300}scaffold-shipped') { $issues += 'catch' }
   $issues
 }
@@ -8773,16 +8876,18 @@ else {
   if ($cleanupRC10 -match [regex]::Escape('$rcGcdC = "$(& git -C $RepoRoot rev-parse --git-common-dir')) { Fail '闸15g(receipt)静态：cleanup 收据平面用了被**禁**的 `git -C $RepoRoot rev-parse --git-common-dir` 形态（契约明禁——cwd=worktree 时走错平面；R3 r10 #7 回归）。' }
   if (-not $fail) { Write-Host '  15g(receipt)静态 收据平面解析契约 OK（cleanup 用 git -C $Wt、禁 $RepoRoot 形态）' -ForegroundColor Green }
 }
-# 静态契约锁 2（R3 r14 #17）：saga catch 的**收据缺失/已推送 PR 恢复分支**须要求「手动补跑全部确定性闸（含**范围闸**）」——CI 无范围闸兜底，
-#   仅靠 CI 复跑会漏卡外越界（TD89 根因）。锁 catch 内 PR 恢复文案含「手动补跑」+「范围闸」，防退回「只靠 CI/只重跑 R3」的闸门旁路。
+# 静态契约锁 2（T0-SHIP-SAGA-REPORTER）：post-watershed 未授权 fallback 只报告并委托 DEVOPS，不再内嵌第二套
+#   review/PostStatus/CI/merge/reset 配方。有效授权 normal ship、Local 三态和 early TD85 hint 由 15r(d) 分别锁定。
 $shipStat14 = [regex]::Match($tpRC10, "(?s)'ship'\s*\{.*?\r?\n  'cleanup'").Value
-if (-not $shipStat14) { Fail '闸15g(receipt)静态2：task.ps1 找不到 ship 相位块——无法锁 saga PR 恢复的闸门保真契约。' }
+if (-not $shipStat14) { Fail '闸15g(receipt)静态2：task.ps1 找不到 ship 相位块——无法锁 reporter 权限边界。' }
 else {
-  # R3 r16 #6：不搜整块（安全措辞会遮蔽不安全分支），改三重锁——① 总则在场 ②全闸列表在场（DoD/verify/范围/许可/防泄露）③**无** CI-covers-gates 措辞「CI 复跑确定性闸」。
-  if ($shipStat14 -notmatch '【闸门保真总则】') { Fail '闸15g(receipt)静态2：saga 已推送恢复缺「【闸门保真总则】」umbrella——各已推送分支无统一「合并前手动补跑全部确定性闸」总则约束（R3 r16 #17）。' }
-  elseif ($shipStat14 -notmatch '手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸') { Fail '闸15g(receipt)静态2：闸门保真总则未列全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸）——范围闸缺位则 CI 无兜底、TD89 根因可达。' }
-  elseif ($shipStat14 -match 'CI 复跑确定性闸') { Fail '闸15g(receipt)静态2：saga 已推送恢复仍有「CI 复跑确定性闸」措辞——把范围闸交给 CI（CI 无范围闸），是 TD89 闸门旁路（R3 r16 #17）。须删，改「手动补跑全部确定性闸」。' }
-  elseif (-not $fail) { Write-Host '  15g(receipt)静态2 saga PR 恢复闸门保真 OK（总则+全闸列表在场、无 CI-covers-gates 措辞——每分支合并前手动补跑全部确定性闸含范围闸）' -ForegroundColor Green }
+  $shipCodeStat14 = (($shipStat14 -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+  $catchStat14 = [regex]::Match($shipCodeStat14, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?\$sagaTodo\s*=.*?\n\s*throw\s*\r?\n\s*\}').Value
+  $legacyStat14 = @('【闸门保真总则】', 'R3 已 pass、合并腿未完成', 'PR #$sagaPrNum 已开', 'commit 已落、PR 状态未知', 'review.ps1', '-PostStatus', 'ci.yml jobs', 'gh pr merge', 'reset --soft')
+  if (-not $catchStat14) { Fail '闸15g(receipt)静态2：找不到以裸 throw 结尾的 saga catch。' }
+  elseif ($catchStat14 -notmatch 'T26-REPORTER-AUTHORITY' -or $catchStat14 -notmatch 'docs/DEVOPS-WORKFLOW\.md' -or $catchStat14 -notmatch 'reporter 不授予 review、CI、merge、cleanup 或历史改写权限') { Fail '闸15g(receipt)静态2：未授权 fallback 未收敛为 reporter marker + DEVOPS 权威指针。' }
+  elseif (@($legacyStat14 | Where-Object { $catchStat14.Contains($_) }).Count) { Fail '闸15g(receipt)静态2：未授权 catch 仍内嵌旧 review/PostStatus/CI/merge/reset 配方。' }
+  elseif (-not $fail) { Write-Host '  15g(receipt)静态2 T26 未授权 reporter 权限边界 OK（只保留现场并委托 DEVOPS；旧恢复配方零命中）' -ForegroundColor Green }
 }
 $gitRC = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitRC) {
@@ -10622,9 +10727,16 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
       Join-Path ([System.IO.Path]::GetTempPath()) "st4-$PID"
     }
     $td4MigrationWorktreeAdded = $false
-    $td4ComplianceOriginal = $null
-    $td4ComplianceFile = $null
+    $td4BuildFile = $null
+    $td4BuildText = $null
+    $td4BuildTextCaptured = $false
+    $td4ForcedTestFile = $null
+    $td4ForcedTestCreated = $false
+    $td4ForcedTestExistedBefore = $false
+    $td4ForcedTestOriginal = $null
+    $td4ForcedTestOriginalCaptured = $false
     $td4TenancyOriginal = $null
+    $td4TenancyOriginalCaptured = $false
     $td4TenancyFile = $null
     $td4WrongMigration = $null
     try {
@@ -10634,8 +10746,20 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         $td4MigrationWorktreeAdded = $true
         $td4BuildFile = Join-Path $td4MigrationRepo 'android/core/build.gradle.kts'
         $td4BaselineFile = Join-Path $td4MigrationRepo $td4BaselinePath
-        $td4BuildText = if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) { Get-Content -LiteralPath $td4BuildFile -Raw } else { '' }
-        if ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
+        try {
+          if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) {
+            $td4BuildText = [System.IO.File]::ReadAllText($td4BuildFile)
+            $td4BuildTextCaptured = $true
+          } else { Fail '闸17a3(migration/setup)：无法读取 build.gradle.kts 原始快照。' }
+        } catch { Fail "闸17a3(migration/setup)：无法读取 build.gradle.kts 原始快照：$($_.Exception.Message)" }
+        $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
+        try {
+          $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
+          $td4TenancyOriginalCaptured = $true
+        } catch { Fail "闸17a3(migration/setup)：无法读取 Tenancy.sq 原始快照：$($_.Exception.Message)" }
+        if (-not $td4BuildTextCaptured -or -not $td4TenancyOriginalCaptured) {
+          Fail '闸17a3(migration/setup)：原始快照未完整捕获，拒绝修改 fixture。'
+        } elseif ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
           Fail '闸17a3(migration/setup)：fixture HEAD 未含 verifyMigrations=true + tracked 1.db，迁移负例会 vacuous。'
         } else {
           $invokeTd4CoreCheckWithoutContinue = {
@@ -10655,55 +10779,80 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
             } finally { Pop-Location }
           }
 
-          $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
-          $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
-          $td4ComplianceFile = Join-Path $td4MigrationRepo 'configs/compliance/nz-rules-v1.json'
-          $td4ComplianceOriginal = [System.IO.File]::ReadAllText($td4ComplianceFile)
-          $td4ComplianceMutant = $td4ComplianceOriginal | ConvertFrom-Json
-          $td4ExemptTypes = @($td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes | ForEach-Object { "$_" })
-          if ($td4ExemptTypes.Count -ne 2 -or $td4ExemptTypes[0] -cne 'INGOING' -or $td4ExemptTypes[1] -cne 'EXIT') {
-            Fail "闸17a3(migration-continue/setup)：runtime config 的 exemptTypes 基线漂移，无法构造稳定 :core:test 失败（actual=$($td4ExemptTypes -join ',')）。"
+          $td4ForcedTestFile = Join-Path $td4MigrationRepo 'android/core/src/test/kotlin/nz/myinspection/core/selftest/Td4ContinueProbeTest.kt'
+          $td4ForcedTestExistedBefore = Test-Path -LiteralPath $td4ForcedTestFile
+          if ($td4ForcedTestExistedBefore) {
+            try {
+              $td4ForcedTestOriginal = [System.IO.File]::ReadAllText($td4ForcedTestFile)
+              $td4ForcedTestOriginalCaptured = $true
+            } catch { Fail "闸17a3(migration-continue/setup)：无法读取已有临时失败测试原始快照：$($_.Exception.Message)" }
+            if ($td4ForcedTestOriginalCaptured) { Fail '闸17a3(migration-continue/setup)：临时失败测试路径已存在，拒绝覆盖产品测试。' }
           } else {
-            $td4ComplianceMutant.rules.inspection.frequencyLimit.exemptTypes = @($td4ExemptTypes + 'ANNUAL')
-            [System.IO.File]::WriteAllText($td4ComplianceFile, ($td4ComplianceMutant | ConvertTo-Json -Depth 20), [System.Text.UTF8Encoding]::new($false))
+            New-Item -ItemType Directory -Force (Split-Path -Parent $td4ForcedTestFile) | Out-Null
+            $td4ForcedTestSource = @(
+              'package nz.myinspection.core.selftest',
+              '',
+              'import kotlin.test.Test',
+              'import kotlin.test.fail',
+              '',
+              'class Td4ContinueProbeTest {',
+              '    @Test',
+              '    fun forcedFailureForContinueProbe() {',
+              '        fail("TD4_CONTINUE_TEST_FAILURE")',
+              '    }',
+              '}',
+              ''
+            ) -join [Environment]::NewLine
+            $td4ForcedTestCreated = $true
+            [System.IO.File]::WriteAllText($td4ForcedTestFile, $td4ForcedTestSource, [System.Text.UTF8Encoding]::new($false))
+            $td4ContinueOrdering = @(
+              '',
+              '// selftest fixture: make the no-continue blind spot deterministic without mutating product data.',
+              'tasks.configureEach {',
+              '    if (name == "verifyMainMyInspectionDatabaseMigration") {',
+              '        mustRunAfter("test")',
+              '    }',
+              '}',
+              ''
+            ) -join [Environment]::NewLine
+            [System.IO.File]::WriteAllText($td4BuildFile, $td4BuildText + [Environment]::NewLine + $td4ContinueOrdering, [System.Text.UTF8Encoding]::new($false))
 
             $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
             [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
             $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
             $td4MissingResult = & $invokeTd4CoreCheck
-            [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
-            [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+            $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -ProbeOriginalCaptured $td4ForcedTestOriginalCaptured -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -BuildOriginalCaptured $td4BuildTextCaptured -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal -TenancyOriginalCaptured $td4TenancyOriginalCaptured
+            if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
+              Fail "闸17a3(migration-continue/cleanup)：临时清理未完整恢复；跳过 migration-wrong，collectedErrors=$(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)。"
+            } else {
+              $td4TestFailureMarker = "Execution failed for task ':core:test'."
+              $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
+              if (-not $td4WithoutContinueExact) {
+                Fail "闸17a3(migration-continue/mutant)：无 --continue 的真实 :core:check 未精确复现 test 先红、migration verifier 未运行的 blind spot（exit=$($td4WithoutContinueResult.Exit)）。输出：$($td4WithoutContinueResult.Output)"
+              }
 
-            $td4TestFailureMarker = "Execution failed for task ':core:test'."
-            $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
-            if (-not $td4WithoutContinueExact) {
-              Fail "闸17a3(migration-continue/mutant)：无 --continue 的真实 :core:check 未精确复现 test 先红、migration verifier 未运行的 blind spot（exit=$($td4WithoutContinueResult.Exit)）。输出：$($td4WithoutContinueResult.Output)"
-            }
-
-            $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
-            $td4ContinuedExact = $td4MissingResult.Exit -ne 0 -and $td4MissingResult.Output.Contains($td4TestFailureMarker) -and $td4MissingExact
-            if (-not $td4ContinuedExact) {
-              Fail "种子缺陷 17a3(migration-continue)：:core:test 先红后未继续执行真实 migration verifier，或任一稳定诊断缺失（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+              $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
+              $td4ContinuedExact = $td4MissingResult.Exit -ne 0 -and $td4MissingResult.Output.Contains($td4TestFailureMarker) -and $td4MissingExact
+              if (-not $td4ContinuedExact) {
+                Fail "种子缺陷 17a3(migration-continue)：:core:test 先红后未继续执行真实 migration verifier，或任一稳定诊断缺失（exit=$($td4MissingResult.Exit)）。输出：$($td4MissingResult.Output)"
+              }
+              $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
+              $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+              [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
+              $td4WrongResult = & $invokeTd4CoreCheck
+              Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
+              $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
+              if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) {
+                Fail "种子缺陷 17a3(migration-wrong)：错误 1.sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4WrongResult.Exit)）。输出：$($td4WrongResult.Output)"
+              } else { Write-Host '  17a3(migration) :core:check 对缺迁移 ADDED + 错迁移 REMOVED 均由真实 verify task 精确翻红 OK' -ForegroundColor Green }
             }
           }
-
-          $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
-          $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
-          [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
-          $td4WrongResult = & $invokeTd4CoreCheck
-          Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
-          $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
-          if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) {
-            Fail "种子缺陷 17a3(migration-wrong)：错误 1.sqm 未由 :core:check 的真实 migration task 精确拒绝（exit=$($td4WrongResult.Exit)）。输出：$($td4WrongResult.Output)"
-          } else { Write-Host '  17a3(migration) :core:check 对缺迁移 ADDED + 错迁移 REMOVED 均由真实 verify task 精确翻红 OK' -ForegroundColor Green }
         }
       }
     } finally {
-      if ($td4ComplianceFile -and $null -ne $td4ComplianceOriginal -and (Test-Path -LiteralPath $td4ComplianceFile)) {
-        [System.IO.File]::WriteAllText($td4ComplianceFile, $td4ComplianceOriginal, [System.Text.UTF8Encoding]::new($false))
-      }
-      if ($td4TenancyFile -and $null -ne $td4TenancyOriginal -and (Test-Path -LiteralPath $td4TenancyFile)) {
-        [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
+      $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -ProbeOriginalCaptured $td4ForcedTestOriginalCaptured -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -BuildOriginalCaptured $td4BuildTextCaptured -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal -TenancyOriginalCaptured $td4TenancyOriginalCaptured
+      if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
+        Fail "闸17a3(migration-continue/cleanup)：临时失败测试、build 脚本或 Tenancy.sq 未恢复到其原始状态；collectedErrors=$(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)。"
       }
       if ($td4WrongMigration -and (Test-Path -LiteralPath $td4WrongMigration)) { Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue }
       if ($td4MigrationWorktreeAdded) {
@@ -16424,11 +16573,6 @@ exit $realExit
     @{ Id='task-resume-hint'; File='task'; Start='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; End='[TD85-RESUME] 水位线收据未能放行本次 resume（缺失/损坏/不自洽）'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1', 'gh pr merge') }
     @{ Id='task-phase-label'; File='task'; Start="Step '真实 diff 预算闸"; End="Step '真实 diff 预算闸"; Needles=@("Step '真实 diff 预算闸") }
     @{ Id='task-local-gates'; File='task'; Start='# 本地闸门（DoD + verify'; End='# 本地闸门（DoD + verify'; Needles=@('防泄露闸', '真实 diff 预算', 'Codex 评审') }
-    @{ Id='task-saga-rule-comment'; File='task'; Start='# 必须先在 worktree **手动补跑全部确定性闸'; End='# 必须先在 worktree **手动补跑全部确定性闸'; Needles=@('防泄露闸', '真实 diff 预算') }
-    @{ Id='task-saga-rule-output'; File='task'; Start='【闸门保真总则】已推送恢复合并前'; End='【闸门保真总则】已推送恢复合并前'; Needles=@('防泄露闸', '真实 diff 预算') }
-    @{ Id='task-r3-pass'; File='task'; Start='R3 已 pass、合并腿未完成'; End='R3 已 pass、合并腿未完成'; Needles=@('防泄露闸', '真实 diff 预算', 'gh pr merge') }
-    @{ Id='task-pr-open'; File='task'; Start='PR #$sagaPrNum 已开'; End='PR #$sagaPrNum 已开'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1') }
-    @{ Id='task-pr-unknown'; File='task'; Start='commit 已落、PR 状态未知'; End='commit 已落、PR 状态未知'; Needles=@('防泄露闸', '真实 diff 预算', 'review.ps1') }
     @{ Id='docs-english-overview'; File='docs'; Start='> EN: The authoritative operating manual'; End='> EN: The authoritative operating manual'; Budget='real-diff budget'; Needles=@('secret-leak', 'real-diff budget', 'push/PR-base validation', 'codex R3 review') }
     @{ Id='docs-ship'; File='docs'; Start='# 远端基线定向 fetch'; End='# 远端基线定向 fetch'; Needles=@('防泄露闸', '真实 diff 预算', 'push', 'PR', 'R3') }
     @{ Id='docs-resume'; File='docs'; Start='ship 非原子 → 重跑同一条'; End='ship 非原子 → 重跑同一条'; Needles=@('防泄露', '真实 diff 预算', 'push/PR', 'R3') }
@@ -16492,14 +16636,7 @@ exit $realExit
     @{ File='task'; Anchor="Step '防泄露闸"; Class='note' }
     @{ File='task'; Anchor='$sagaDone += ''防泄露闸'''; Class='note' }
     @{ File='task'; Anchor='# 本地闸门（DoD + verify'; Class='enum'; Site='task-local-gates' }
-    @{ File='task'; Anchor='# 铸造/RED 闸的收据 resume'; Class='note' }
     @{ File='task'; Anchor='$sagaSafeWhy ='; Class='note' }
-    @{ File='task'; Anchor='-Local（提交未推送）'; Class='note' }
-    @{ File='task'; Anchor='# 必须先在 worktree **手动补跑全部确定性闸'; Class='enum'; Site='task-saga-rule-comment' }
-    @{ File='task'; Anchor='【闸门保真总则】已推送恢复合并前'; Class='enum'; Site='task-saga-rule-output' }
-    @{ File='task'; Anchor='R3 已 pass、合并腿未完成'; Class='enum'; Site='task-r3-pass' }
-    @{ File='task'; Anchor='PR #$sagaPrNum 已开'; Class='enum'; Site='task-pr-open' }
-    @{ File='task'; Anchor='commit 已落、PR 状态未知'; Class='enum'; Site='task-pr-unknown' }
   )
 
   foreach ($sourceSpec in @(@{ Id='task'; Text=$taskSizeText }, @{ Id='docs'; Text=$a14Devops })) {
