@@ -395,6 +395,8 @@ body with no downstream block at all
   if ($newer.Count -ne 2) { $fails.Add("Get-NewerVersion returned $($newer.Count) versions, expected 2") }
   elseif ($newer[0].Tag -ne 'v0.42.0' -or $newer[1].Tag -ne 'v0.43.0') { $fails.Add('Get-NewerVersion did not sort ascending') }
   if (@(Get-NewerVersion @('v0.41.0') '0.41.0').Count -ne 0) { $fails.Add('Get-NewerVersion reported the already-synced version as newer') }
+  $newer047 = @(Get-NewerVersion @('v0.46.0', 'v0.47.0') '0.46.0')
+  if ($newer047.Count -ne 1 -or $newer047[0].Tag -ne 'v0.47.0') { $fails.Add('Get-NewerVersion did not identify v0.47.0 above the v0.46.0 base') }
 
   $b43 = Get-DownstreamBlock $sampleChangelog '0.43.0'
   if ($b43 -notmatch 'coupling group') { $fails.Add('Get-DownstreamBlock lost the 0.43.0 block') }
@@ -494,10 +496,10 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
   } catch { $fails.Add("real public report scanner fixture failed: $($_.Exception.Message)") }
 
   $realLedger = Get-Content $LedgerDoc -Raw
-  $realV45 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.45\.0 \| partial \|' })
+  $realV46 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.46\.0 \| applied \|' })
   $hasOriginVersion = $resolvedConfig.PSObject.Properties.Name -contains 'OriginVersion'
   $resolvedOriginVersion = if ($hasOriginVersion) { [string]$resolvedConfig.OriginVersion } else { '' }
-  if ((Get-SyncedVersion $realLedger '0.29.0') -ne '0.45.0' -or $resolvedConfig.Version -cne '0.45.0' -or $resolvedOriginVersion -cne '0.29.0' -or $realV45.Count -ne 1 -or $realV45[0] -notmatch 'db835867e6f1bab740f13b48e4bae009a34521ef' -or $realV45[0] -notmatch 'seeded shard') { $fails.Add('real v0.45 partial ledger row or origin/current version split is absent') }
+  if ((Get-SyncedVersion $realLedger '0.29.0') -ne '0.46.0' -or $resolvedConfig.Version -cne '0.46.0' -or $resolvedOriginVersion -cne '0.29.0' -or $realV46.Count -ne 1 -or $realV46[0] -notmatch 'd0c9145970e69626318a26ce922650f1a631c2f0' -or $realV46[0] -notmatch 'dual-version') { $fails.Add('real v0.46 applied ledger row or origin/current version split is absent') }
   if ((Get-SyncedVersion '' '0.29.0' @('v0.29.0','v0.45.0')) -ne '0.29.0') { $fails.Add('missing ledger did not fail closed to ScaffoldOriginVersion') }
   $syncRaw = Get-Content $PSCommandPath -Raw
   $routes = Get-ScaffoldOriginCurrentContract $syncRaw
