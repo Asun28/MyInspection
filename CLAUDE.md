@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-09 远端交付**：`T0-SELFTEST-SCAFFOLD-ONLY` 经 PR #272 合并（`7500992541d15cc7a53b06efe4560dc62123dcff`；reviewed head `d3a206a979468888b208569a2701a9dd3b67fcf6`，merged tree `a1ef3cd8f724583fff2e0b75a46464c6403e2350`），正式 R3 `pass`，exact-head CI `34314990805` success；full selftest 已运行于 parent HEAD `5bff8a` 的未提交 canary 修复源码；该完整源码与 reviewed/merged Git blob `5b05aac083d260978a4c5987902d6bb9ebc4dd0d` 字节一致（归档卡 Delivery receipt 详列来源），source SHA-256 `BFACF8485F7255DDF0C7E39B6671AB50C8071E933B6AF4F00DBB48D06DD29376` native exit 0/2629.0102968s，17a3 real17a3PASS，explicit skips 21；normal ship/official cleanup exits 0/0。官方 cleanup 后归档。
+
 **SPIKE 远端交付**：PR #286 已合并 `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`，R3 首轮 pass、CI 成功、官方 cleanup 完成。历史与当前候选 APK／真机证据分列于 [平台报告](docs/spike/PLATFORM-SPIKE.md)；本轮 SAF 仅验证已有授权延续与重启读取，不声称重跑写入。
 
 **2026-09-09 远端交付**：`T4-SYMBOL-MARKDOWN-PARSER` 经 [PR274](https://github.com/Asun28/MyInspection/pull/274) 合并（`18741ac29a20da426ffe99c02c924f2d1b3b29f5`；reviewed head `3b7d51f1519f4b4817289edf2d14c2a68173474e`），正式 R3 PASS、精确候选 CI `34291612516` 成功，117 项行为测试 / 35 项定向变异及项目 verify 通过。原工作树已按正式流程清理，完整历史与最终凭据见 [归档卡](specs/archive/tasks/T4-SYMBOL-MARKDOWN-PARSER.md)。仅交付 Markdown 前置解析能力；PR263 的实际消费者接入、符号设计发布仍待各自交付。
