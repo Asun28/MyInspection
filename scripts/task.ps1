@@ -1241,16 +1241,8 @@ switch ($Phase) {
       # -Local 合并腿失败按**阶段状态**分流（$sagaLocalMerged / MERGE_HEAD 在盘），不嗅探异常文案（每个合并失败
       # 消息都含「冲突？」字样，文案匹配必误报）。出路只引 TD85-RESUME 锚点原则、不复制其正文（真相源 =
       # docs/DEVOPS-WORKFLOW.md，免双源漂移）。
-      # T35-RECEIPT saga 最小路由（**只消费本轮内存授权位、不复算四谓词或重探 receipt**——四谓词唯一校验点在 RED 闸）：post-watershed 死锁态改按
-      # 「本轮水位线收据已授权」分流——授权=重跑同一条 ship 即经收据令 RED 闸 resume 放行（并入下方安全重跑分支，**-Local 与远端同理**：
-      # 铸造/RED 闸的收据 resume 均不区分 -Local，远端重跑同样经收据放行整条管线、全部确定性闸重过）；否则走兜底（未推送 reset --soft
-      # <evidence.redSha>，**非 HEAD~1**——多提交分支上 HEAD~1 制造二次死锁 / 已推送 -PostStatus 最后手段）。读取一律 best-effort、**绝不在
-      # catch 内 throw**（护 15r(e)「原始异常原样在场」）。（远端态 hermetic 夹具矩阵 = T37；本卡实现远端同款路由、-Local 夹具覆盖共享的安全重跑分支。）
-      # RED 证据仅供兜底 reset 靶/诊断；best-effort 探针不得替换原始异常。
-      $sagaEvdSha = ''; $sagaEvdIn = $false
-      $sagaEvdP = Join-Path $Wt ".review/$TaskId.red"
-      try { $sagaEvdIn = Test-Path $sagaEvdP } catch { $sagaEvdIn = $false }
-      if ($sagaEvdIn) { try { $sagaEvdSha = "$((Get-Content $sagaEvdP -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).sha)" } catch { $sagaEvdSha = '' } }
+      # T35-RECEIPT reporter 权限边界：catch 只消费本轮内存授权位，不复算四谓词、不重探 receipt，也不维护第二套
+      # review/CI/merge 恢复管线。有效授权继续走 normal ship；未授权只报告、保留现场并委托 DEVOPS 权威合同。
       $sagaRcptSafe = $sagaReceiptAuthorized
       if ($sagaMsg -match 'TD85-RESUME') {
         # 本次失败自身就是死锁重跑（RED 新鲜度闸 throw 在 sha 前移时自带 TD85-RESUME 哨兵）：本轮腿跟踪只走到 RED 闸
@@ -1284,35 +1276,8 @@ switch ($Phase) {
         $sagaSafeWhy = if ($sagaHeadMoved -and (-not $SkipRed)) { '本轮水位线收据已授权——收据令 RED 闸 resume 放行、全部确定性闸+R3 重审' } else { '本次未产生新 commit 或 -SkipRed 不经 RED 闸——RED 证据语义无恙' }
         Write-Host "  恢复：$sagaCmd  （重跑即 resume：$sagaSafeWhy，已过闸的腿幂等重过、无死锁无旁路）" -ForegroundColor Yellow
       } else {
-        # post-watershed（HEAD 前移、非 -SkipRed）且本轮**未建立水位线收据授权**（S9/残窗/不自洽）——非安全重跑态。
-        Write-Host '  恢复：本轮未建立水位线收据授权（收据未通过四谓词且本轮未成功铸据）——「提交」腿已落、HEAD 已前移，勿直接重跑 -Phase ship（会落 RED 兜底路由器）。按当前状态走（原则同 docs/DEVOPS-WORKFLOW.md「ship 非原子→重跑即 resume」的 TD85-RESUME 段）：' -ForegroundColor Yellow
-        if ($Local) {
-          # -Local 的提交必然未推送（无远端腿）→ 闸门保真归位路径（R3 r6 #9）：reset 靶 = evidence.redSha 原值（best-effort 读，
-          # 非固定 HEAD~1——resume 二次失败的多提交分支上 HEAD~1 会制造二次死锁）；证据缺失/占位 → 无靶，引锚点人工核对。
-          if ($sagaEvdSha -cmatch '^[0-9a-f]{40}$') {
-            Write-Host "    -Local（提交未推送）：在 worktree 内 git reset --soft $sagaEvdSha 撤销本次 ship 的提交（HEAD 归位 RED 证据 sha、改动保留在暂存区；非 HEAD~1），修复后重跑 -Phase ship -Local——全部确定性闸与 R3 评审重过，无死锁、无闸门旁路。" -ForegroundColor Yellow
-          } else {
-            Write-Host "    -Local（提交未推送）：RED 证据缺失/不可读（S9：worktree 重建或误跑 -Phase start 后），无自动 reset 靶——人工核对工作树后处置（勿重跑 -Phase start；原则见 docs/DEVOPS-WORKFLOW.md TD85-RESUME 段）。" -ForegroundColor Yellow
-          }
-        } else {
-          # PR 真实状态不以腿成员判定推断（R3 r2 #9）：push+PR 是复合腿——pr create 已成功而后续 PR 号解析/base
-          # 断言 throw 时，腿未标完成但 PR 已存在。以「PR 号是否已解析到手」为准；解析不到只指示实查，不断言「尚无 PR」。
-          # 【已推送恢复闸门保真总则（R3 r14/r16 #17）】：CI 无范围闸兜底（TD89 根因）——下列**每个**已推送分支走 -PostStatus/合并前，
-          # 必须先在 worktree **手动补跑全部确定性闸（DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算）**，绝不以 CI 复跑替代（CI 漏卡外越界）。
-          Write-Host "    【闸门保真总则】已推送恢复合并前**必先手动补跑全部确定性闸：DoD、verify、范围闸、许可闸、防泄露闸、真实 diff 预算**——CI 无范围闸兜底、不可仅靠 CI 复跑（TD89 根因/R3 r16 #17）。下列各分支均在此总则下。" -ForegroundColor Yellow
-          $sagaPrNum = if ((Test-Path Variable:pr) -and $pr) { $pr } else { 0 }
-          if ($sagaDone -contains 'R3 评审') {
-            # R3 r3 #2 + r6 #9：修复若改动了 PR head（如解决冲突的新提交），已录的 R3 pass 即对旧 diff 而言；base 被
-            # retarget（Assert-RemotePrBase 拦下的正是它）同样令已录 pass 失效——head 与 base **双新鲜度**都满足才可直合。
-            Write-Host "R3 已 pass、合并腿未完成：MERGED→cleanup；否则 DoD→verify→范围闸→许可闸→防泄露闸→真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber $sagaPrNum -PostStatus；同一 reviewed SHA：ci.yml jobs completed+success→base/head→gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>。"
-          } elseif ($sagaPrNum -gt 0) {
-            Write-Host "PR #$sagaPrNum 已开：DoD→verify→范围闸→许可闸→防泄露闸→真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber $sagaPrNum -PostStatus；同一 reviewed SHA：ci.yml jobs completed+success→base/head→gh pr merge $sagaPrNum --squash --match-head-commit <同一 reviewed SHA>。"
-          } else {
-            # R3 r7 #17：未推送兜底靶 = evidence.redSha 原值（非 HEAD~1——resume 二次失败的多提交分支上 HEAD~1 制造二次死锁）；证据缺失/占位 → 人工核对。
-            $sagaRemoteReset = if ($sagaEvdSha -cmatch '^[0-9a-f]{40}$') { "git reset --soft $sagaEvdSha 撤销本次提交（HEAD 归位 RED 证据 sha，非 HEAD~1）" } else { "人工核对工作树后处置（RED 证据缺失/占位，无自动 reset 靶）" }
-            Write-Host "commit 已落、PR 状态未知：gh pr view $TaskId；未推送：$sagaRemoteReset→ship；已推送：DoD→verify→范围闸→许可闸→防泄露闸→真实 diff 预算；pwsh -NoProfile -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base `"$shipBase`" -PrNumber <PR号> -PostStatus；同一 reviewed SHA：ci.yml jobs completed+success→base/head→gh pr merge <PR号> --squash --match-head-commit <同一 reviewed SHA>。"
-          }
-        }
+        # post-watershed（HEAD 前移、非 -SkipRed）且本轮未建立授权：reporter 不推导或执行恢复管线。
+        Write-Host '  恢复：[T26-REPORTER-AUTHORITY] 本轮未建立水位线收据授权；停止自动操作并保留 worktree/branch/PR/evidence/receipt 与当前 HEAD。由人工按 docs/DEVOPS-WORKFLOW.md「ship 非原子 → 重跑同一条 -Phase ship 即 resume」的 TD85-RESUME/S1–S9 段核对实际状态；reporter 不授予 review、CI、merge、cleanup 或历史改写权限。' -ForegroundColor Yellow
       }
       throw
     }
