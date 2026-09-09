@@ -2056,7 +2056,9 @@ if (-not $pssa) {
   else { Write-Host '  无 Error/Warning（已豁免本仓有意风格）。' -ForegroundColor Green }
 }
 
-# 7p. [XPLAT-SHELL]: no .ps1 in this repo may invoke the Windows-only `cmd` shell.
+# 7p. [XPLAT-SHELL]: no .ps1 may invoke the Windows-only `cmd` shell unless the invocation is
+# structurally contained by a direct `if ($IsWindows)` branch. The latter is the platform adapter for
+# Gradle's .bat wrapper and junction fixtures; the Ubuntu branch is required to invoke `sh` instead.
 # WHY THIS EXISTS: the suite ran `cmd /c "pwsh -File <hook> < <in>"` to redirect stdin, and `cmd /c exit 1`
 # to set an exit code. Both are Windows-only. The post-merge matrix runs ubuntu too, and it was RED for six
 # consecutive cards before anyone read it - every PR stayed green because ADR 0007 keeps that matrix off the
@@ -2064,14 +2066,46 @@ if (-not $pssa) {
 # The `cmd /c exit 1` form was the worse half: a missing `cmd` raises CommandNotFound WITHOUT setting
 # $LASTEXITCODE, so a failing assertion scores as a passing one - a green that means nothing.
 # Parsed via the AST, NOT a text grep, so the word `cmd` stays free in comments and prose (this block names
-# it four times) and only a real command invocation is reported.
+# it four times) and only a real command invocation is reported. A textual nearby `$IsWindows` exception
+# would be forgeable; the command must be inside that exact IfStatementAst clause.
+function Test-XplatWindowsGuardedCmd([System.Management.Automation.Language.CommandAst]$Command) {
+  for ($ancestor = $Command.Parent; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
+    if ($ancestor -is [System.Management.Automation.Language.IfStatementAst]) {
+      foreach ($clause in $ancestor.Clauses) {
+        $condition = $clause.Item1.Extent.Text.Trim()
+        $body = $clause.Item2.Extent
+        if ($condition -match '(?i)^\$IsWindows$' -and
+            $body.StartOffset -le $Command.Extent.StartOffset -and
+            $body.EndOffset -ge $Command.Extent.EndOffset) {
+          return $true
+        }
+      }
+    }
+  }
+  return $false
+}
+
+# Guard semantics are intentionally narrow: a direct Windows branch is safe; an unguarded command and an
+# else-branch command remain blockers. These AST fixtures make a later scanner simplification observable.
+$xpGuardAst = [System.Management.Automation.Language.Parser]::ParseInput('if ($IsWindows) { & cmd /c echo guarded }', [ref]$null, [ref]$null)
+$xpGuardCmd = @($xpGuardAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))[0]
+$xpBareAst = [System.Management.Automation.Language.Parser]::ParseInput('& cmd /c echo unguarded', [ref]$null, [ref]$null)
+$xpBareCmd = @($xpBareAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))[0]
+$xpElseAst = [System.Management.Automation.Language.Parser]::ParseInput('if ($IsWindows) { Write-Output guarded } else { & cmd /c echo unguarded }', [ref]$null, [ref]$null)
+$xpElseCmd = @($xpElseAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -match '^cmd(\.exe)?$' }, $true))[0]
+if (-not $xpGuardCmd -or -not (Test-XplatWindowsGuardedCmd $xpGuardCmd) -or
+    -not $xpBareCmd -or (Test-XplatWindowsGuardedCmd $xpBareCmd) -or
+    -not $xpElseCmd -or (Test-XplatWindowsGuardedCmd $xpElseCmd)) {
+  Fail '7p [XPLAT-SHELL] Windows-guard recognition regression: only cmd structurally inside a direct if ($IsWindows) branch may be exempt.'
+}
+
 $xpHits = @()
 foreach ($xpFile in (Get-SelftestPs1List)) {
   $xpAst = [System.Management.Automation.Language.Parser]::ParseFile($xpFile.FullName, [ref]$null, [ref]$null)
   if (-not $xpAst) { continue }
   foreach ($xpCmd in $xpAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
     $xpName = $xpCmd.GetCommandName()
-    if ($xpName -and $xpName -match '^cmd(\.exe)?$') {
+    if ($xpName -and $xpName -match '^cmd(\.exe)?$' -and -not (Test-XplatWindowsGuardedCmd $xpCmd)) {
       $xpHits += ("{0}:{1}" -f (Split-Path $xpFile.FullName -Leaf), $xpCmd.Extent.StartLineNumber)
     }
   }
@@ -2081,7 +2115,7 @@ if ($xpHits.Count) {
     'The ubuntu half of the post-merge matrix cannot run this. For stdin redirection use the ' +
     '[XPLAT-STDIN] helper (gate 9); to force a non-zero exit code use `& pwsh -NoProfile -Command ''exit 1''`.')
 }
-else { Write-Host "  7p [XPLAT-SHELL] OK (no .ps1 invokes the Windows-only cmd shell; $((Get-SelftestPs1List).Count) files parsed)" -ForegroundColor Green }
+else { Write-Host "  7p [XPLAT-SHELL] OK (every cmd is structurally guarded by direct if (`$IsWindows); $((Get-SelftestPs1List).Count) files parsed)" -ForegroundColor Green }
 
 # TD77-STRICTLINT-DEFAULT 回归（R3 dimension #6 catch：DoD 原只搜标记文本，清零告警后无法证明三条分支
 #   各自仍对——纯函数三态直接断言，不派子进程模拟三种运行环境）：
@@ -3993,6 +4027,46 @@ foreach ($sd in $skillDirs) {
 if ($noticeChecked -eq 0) { Write-Host '  无 .claude/skills/*/NOTICE.md（无 vendored skill），9c 跳过。' -ForegroundColor DarkGray }
 elseif (-not $fail) { Write-Host "  vendored skill NOTICE 溯源 OK（$noticeChecked 份：同目录 LICENSE + 来源 URL/许可证/vendored 日期/上游版本或 SHA 四要素齐）" }
 
+# 9f/9k optional hook registration: a behavioral fixture belongs to a hook only when settings.json actually
+# routes that hook.  Match one exact script token under one exact event: a mention under another event, or a
+# longer filename sharing the prefix, must not silently arm the fixture.
+function Get-ScaffoldConfiguredHookEntry {
+  param(
+    [AllowNull()][object]$SettingsJson,
+    [Parameter(Mandatory)][string]$EventName,
+    [Parameter(Mandatory)][string]$HookRelPath
+  )
+  if (-not $SettingsJson -or -not $SettingsJson.hooks) { return }
+  $eventProperty = $SettingsJson.hooks.PSObject.Properties[$EventName]
+  if (-not $eventProperty) { return }
+  $target = $HookRelPath.Replace('\', '/').TrimStart('/')
+  $pattern = '(?i)(?:^|["''\s/])' + [regex]::Escape($target) + '(?=["''\s]|$)'
+  foreach ($entry in @($eventProperty.Value)) {
+    foreach ($hook in @($entry.hooks)) {
+      if ("$($hook.type)" -ne 'command') { continue }
+      if (([string]$hook.command).Replace('\', '/') -match $pattern) { $entry }
+    }
+  }
+}
+
+$hookRegistryPositive = '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"pwsh -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/card-budget-meter.ps1\""}]}]}}' | ConvertFrom-Json
+$hookRegistryPostTool = '{"hooks":{"PostToolUse":[{"matcher":"Skill","hooks":[{"type":"command","command":"pwsh -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-usage-log.ps1\""}]}]}}' | ConvertFrom-Json
+$hookRegistryWrongEvent = '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"pwsh -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/card-budget-meter.ps1\""}]}]}}' | ConvertFrom-Json
+$hookRegistryCollision = '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"pwsh -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/card-budget-meter.ps1.bak\""}]}]}}' | ConvertFrom-Json
+if (@(Get-ScaffoldConfiguredHookEntry -SettingsJson $hookRegistryPositive -EventName Stop -HookRelPath '.claude/hooks/card-budget-meter.ps1').Count -ne 1) {
+  Fail '9f/9k hook-registry probe: an exact Stop registration was not selected; configured optional hooks could skip their behavioral contract.'
+}
+elseif (@(Get-ScaffoldConfiguredHookEntry -SettingsJson $hookRegistryPostTool -EventName PostToolUse -HookRelPath '.claude/hooks/skill-usage-log.ps1').Count -ne 1) {
+  Fail '9f/9k hook-registry probe: an exact PostToolUse registration was not selected; configured optional telemetry could skip its behavioral contract.'
+}
+elseif (@(Get-ScaffoldConfiguredHookEntry -SettingsJson $hookRegistryWrongEvent -EventName Stop -HookRelPath '.claude/hooks/card-budget-meter.ps1').Count -ne 0) {
+  Fail '9f/9k hook-registry probe: a hook under the wrong event was selected; an unconfigured optional Stop hook would become mandatory.'
+}
+elseif (@(Get-ScaffoldConfiguredHookEntry -SettingsJson $hookRegistryCollision -EventName Stop -HookRelPath '.claude/hooks/card-budget-meter.ps1').Count -ne 0) {
+  Fail '9f/9k hook-registry probe: a longer filename sharing the hook prefix was selected; registration matching is not exact.'
+}
+elseif (-not $fail) { Write-Host '  9f/9k hook-registry examples OK (exact event+path selected; wrong event and suffix collision rejected)' -ForegroundColor Green }
+
 # 9f. Stop 钩子 JSON 输出契约（TD61/L82）：官方 hooks 文档把 UserPromptSubmit/UserPromptExpansion/SessionStart
 #   列为「裸 stdout 即注入模型上下文」的**仅有例外**，Stop 不在其列——两个 Stop 提醒钩子若仍裸打印文本，
 #   提醒只进 CLI transcript/调试日志，模型看不到（Stop 须走 hookSpecificOutput.additionalContext）。
@@ -4028,25 +4102,31 @@ try {
   New-Item -ItemType Directory -Force $hoCwd | Out-Null
   Set-Content (Join-Path $hoCwd 'progress.md') '# fixture'
   Test-StopHookJson '.claude/hooks/handoff-reminder.ps1' $hoCwd
-  # T232: the card budget meter reports on the card in the CURRENT WORKTREE and is silent anywhere else,
-  #   so - unlike its two siblings - it needs a cwd shaped like a card worktree, or 9f's "no output" arm
-  #   fires on a hook that is behaving exactly as specified. The fixture is a throwaway git repo whose
-  #   directory LEAF names a card (task.ps1 -Phase start names every worktree after its card id), holding
-  #   that card with a small declared budget and one UNTRACKED file large enough to blow past it. Untracked
-  #   lines count - see check-budget.ps1's note on why leaving them out was a real defect - so the fixture
-  #   needs no branch commit, only a base commit for the card text to be read from. HEAD is pinned to
-  #   master before that commit because the meter resolves its base there and git's default branch name is
-  #   not ours to assume; without the pin the budget would silently come from the default instead of the
-  #   card, and this gate would pass on a path it did not mean to exercise.
-  $mtCwd = Join-Path $hookTmpRoot 'T9-METERFIXTURE'
-  New-Item -ItemType Directory -Force (Join-Path $mtCwd 'specs/tasks') | Out-Null
-  Set-Content (Join-Path $mtCwd 'specs/tasks/T9-METERFIXTURE.md') "---`nid: T9-METERFIXTURE`nstatus: todo`nbudget: 10`n---`n# meter fixture"
-  & git -C $mtCwd init -q
-  & git -C $mtCwd symbolic-ref HEAD refs/heads/master *> $null
-  & git -C $mtCwd -c user.email='s@l' -c user.name='s' add specs/tasks/T9-METERFIXTURE.md 2>$null
-  & git -C $mtCwd -c user.email='s@l' -c user.name='s' commit -q -m 'meter fixture' *> $null
-  Set-Content (Join-Path $mtCwd 'over-budget.txt') ((1..50 | ForEach-Object { "line $_" }) -join "`n")
-  Test-StopHookJson '.claude/hooks/card-budget-meter.ps1' $mtCwd
+  $meterRel = '.claude/hooks/card-budget-meter.ps1'
+  $meterEntries = @(Get-ScaffoldConfiguredHookEntry -SettingsJson $sjson -EventName Stop -HookRelPath $meterRel)
+  if ($meterEntries.Count -eq 0) {
+    Write-Host "  9f $meterRel skipped (optional Stop meter is not registered in .claude/settings.json)." -ForegroundColor DarkGray
+  }
+  elseif ($meterEntries.Count -ne 1) {
+    Fail "闸9f：$meterRel 在 settings.json Stop 下注册 $($meterEntries.Count) 次，期望恰好一次；重复 meter 会在每次 Stop 重复注入。"
+  }
+  elseif (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $meterRel))) {
+    Fail "闸9f：settings.json 已注册 $meterRel，但脚本不存在。"
+  }
+  else {
+    # T232: the card budget meter reports on the card in the CURRENT WORKTREE and is silent anywhere else,
+    # so its registered behavior needs a cwd shaped like a card worktree. The fixture is a throwaway repo
+    # with a small base-card budget and one untracked file large enough to cross it.
+    $mtCwd = Join-Path $hookTmpRoot 'T9-METERFIXTURE'
+    New-Item -ItemType Directory -Force (Join-Path $mtCwd 'specs/tasks') | Out-Null
+    Set-Content (Join-Path $mtCwd 'specs/tasks/T9-METERFIXTURE.md') "---`nid: T9-METERFIXTURE`nstatus: todo`nbudget: 10`n---`n# meter fixture"
+    & git -C $mtCwd init -q
+    & git -C $mtCwd symbolic-ref HEAD refs/heads/master *> $null
+    & git -C $mtCwd -c user.email='s@l' -c user.name='s' add specs/tasks/T9-METERFIXTURE.md 2>$null
+    & git -C $mtCwd -c user.email='s@l' -c user.name='s' commit -q -m 'meter fixture' *> $null
+    Set-Content (Join-Path $mtCwd 'over-budget.txt') ((1..50 | ForEach-Object { "line $_" }) -join "`n")
+    Test-StopHookJson $meterRel $mtCwd
+  }
 } finally {
   Remove-Item $hookTmpRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -4263,39 +4343,49 @@ else {
 # fail-open one: a hook that can break a turn is a strictly worse trade than no telemetry at all.
 # Hermetic: the hook writes to <repo>/_local relative to its own location, so the fixture gives it a temp
 # repo shape and asserts against that, never against this checkout's real log.
-$suRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st9k-skillusage-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-try {
-  $suHooks = Join-Path $suRoot '.claude/hooks'
-  New-Item -ItemType Directory -Force $suHooks | Out-Null
-  $suHook = Join-Path $suHooks 'skill-usage-log.ps1'
-  Copy-Item -LiteralPath (Join-Path $RepoRoot '.claude/hooks/skill-usage-log.ps1') -Destination $suHook -Force
-  $suLog = Join-Path (Join-Path $suRoot '_local') 'skill-usage.jsonl'
-  $suIn = Join-Path $suRoot 'evt.json'
-
-  # Arm 1: a well-formed event appends exactly one line naming the skill.
-  Set-Content -LiteralPath $suIn -Encoding utf8 -NoNewline -Value '{"tool_name":"Skill","tool_input":{"skill":"task-loop"}}'
-  $suExit = (Invoke-ScaffoldHookWithStdin -HookPath $suHook -StdinPath $suIn).ExitCode
-  if ($suExit -ne 0) { Fail "[SKILL-USAGE] the hook exited $suExit on a well-formed event. Telemetry must never fail a turn." }
-  $suLines = @(if (Test-Path $suLog) { Get-Content -LiteralPath $suLog } else { @() })
-  if ($suLines.Count -ne 1) { Fail "[SKILL-USAGE] a well-formed skill event appended $($suLines.Count) line(s), expected exactly 1 - without this the never-fired review has nothing behind it and keeps being run from memory." }
-  elseif ($suLines[0] -notmatch 'task-loop') { Fail "[SKILL-USAGE] the appended line does not name the skill that fired. Got: $($suLines[0])" }
-  elseif ($suLines[0] -match 'tool_name|prompt|argument') { Fail "[SKILL-USAGE] the appended line carries more than the skill name and a timestamp. This log must never record user content." }
-
-  # Arm 2: a malformed event exits 0 and writes NOTHING. This is the load-bearing arm.
-  Set-Content -LiteralPath $suIn -Encoding utf8 -NoNewline -Value '{not json at all'
-  $suExit2 = (Invoke-ScaffoldHookWithStdin -HookPath $suHook -StdinPath $suIn).ExitCode
-  $suLines2 = @(if (Test-Path $suLog) { Get-Content -LiteralPath $suLog } else { @() })
-  if ($suExit2 -ne 0) { Fail "[SKILL-USAGE] a malformed event made the hook exit $suExit2. Fail-open is the contract: a telemetry hook that can break a session is worse than no telemetry." }
-  elseif ($suLines2.Count -ne 1) { Fail "[SKILL-USAGE] a malformed event changed the log (now $($suLines2.Count) line(s), expected the 1 from arm 1) - unparseable input must write nothing." }
-
-  # Arm 3: registration stays NARROW. A broad matcher would repeat the frozen guard's ~329ms-per-call tax.
-  $suSettings = Get-Content -Raw (Join-Path $RepoRoot '.claude/settings.json') | ConvertFrom-Json
-  $suEntry = @($suSettings.hooks.PostToolUse | Where-Object { "$($_.hooks.command)" -match 'skill-usage-log' })
-  if ($suEntry.Count -ne 1) { Fail '[SKILL-USAGE] skill-usage-log.ps1 is not registered exactly once under PostToolUse in .claude/settings.json.' }
-  elseif ("$($suEntry[0].matcher)" -ne 'Skill') { Fail "[SKILL-USAGE] the hook is registered on matcher '$($suEntry[0].matcher)' rather than 'Skill'. A broad matcher makes this telemetry run on every tool call - the exact tax the frozen guard already pays." }
-  elseif (-not $fail) { Write-Host '  9k [SKILL-USAGE] OK (well-formed event appends one line naming only the skill; malformed event exits 0 and writes nothing; matcher is narrow)' -ForegroundColor Green }
+$suRel = '.claude/hooks/skill-usage-log.ps1'
+$suEntry = @(Get-ScaffoldConfiguredHookEntry -SettingsJson $sjson -EventName PostToolUse -HookRelPath $suRel)
+if ($suEntry.Count -eq 0) {
+  Write-Host "  9k [SKILL-USAGE] skipped ($suRel is optional and not registered under PostToolUse)." -ForegroundColor DarkGray
 }
-finally { Remove-Item -LiteralPath $suRoot -Recurse -Force -ErrorAction SilentlyContinue }
+elseif ($suEntry.Count -ne 1) {
+  Fail "[SKILL-USAGE] $suRel is registered $($suEntry.Count) times under PostToolUse, expected exactly once."
+}
+elseif ("$($suEntry[0].matcher)" -ne 'Skill') {
+  Fail "[SKILL-USAGE] the hook is registered on matcher '$($suEntry[0].matcher)' rather than 'Skill'. A broad matcher makes this telemetry run on every tool call - the exact tax the frozen guard already pays."
+}
+elseif (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $suRel))) {
+  Fail "[SKILL-USAGE] settings.json registers $suRel but the script is missing."
+}
+else {
+  $suRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st9k-skillusage-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  try {
+    $suHooks = Join-Path $suRoot '.claude/hooks'
+    New-Item -ItemType Directory -Force $suHooks | Out-Null
+    $suHook = Join-Path $suHooks 'skill-usage-log.ps1'
+    Copy-Item -LiteralPath (Join-Path $RepoRoot $suRel) -Destination $suHook -Force
+    $suLog = Join-Path (Join-Path $suRoot '_local') 'skill-usage.jsonl'
+    $suIn = Join-Path $suRoot 'evt.json'
+
+    # Arm 1: a well-formed event appends exactly one line naming the skill.
+    Set-Content -LiteralPath $suIn -Encoding utf8 -NoNewline -Value '{"tool_name":"Skill","tool_input":{"skill":"task-loop"}}'
+    $suExit = (Invoke-ScaffoldHookWithStdin -HookPath $suHook -StdinPath $suIn).ExitCode
+    if ($suExit -ne 0) { Fail "[SKILL-USAGE] the hook exited $suExit on a well-formed event. Telemetry must never fail a turn." }
+    $suLines = @(if (Test-Path $suLog) { Get-Content -LiteralPath $suLog } else { @() })
+    if ($suLines.Count -ne 1) { Fail "[SKILL-USAGE] a well-formed skill event appended $($suLines.Count) line(s), expected exactly 1 - without this the never-fired review has nothing behind it and keeps being run from memory." }
+    elseif ($suLines[0] -notmatch 'task-loop') { Fail "[SKILL-USAGE] the appended line does not name the skill that fired. Got: $($suLines[0])" }
+    elseif ($suLines[0] -match 'tool_name|prompt|argument') { Fail "[SKILL-USAGE] the appended line carries more than the skill name and a timestamp. This log must never record user content." }
+
+    # Arm 2: a malformed event exits 0 and writes NOTHING. This is the load-bearing arm.
+    Set-Content -LiteralPath $suIn -Encoding utf8 -NoNewline -Value '{not json at all'
+    $suExit2 = (Invoke-ScaffoldHookWithStdin -HookPath $suHook -StdinPath $suIn).ExitCode
+    $suLines2 = @(if (Test-Path $suLog) { Get-Content -LiteralPath $suLog } else { @() })
+    if ($suExit2 -ne 0) { Fail "[SKILL-USAGE] a malformed event made the hook exit $suExit2. Fail-open is the contract: a telemetry hook that can break a session is worse than no telemetry." }
+    elseif ($suLines2.Count -ne 1) { Fail "[SKILL-USAGE] a malformed event changed the log (now $($suLines2.Count) line(s), expected the 1 from arm 1) - unparseable input must write nothing." }
+    elseif (-not $fail) { Write-Host '  9k [SKILL-USAGE] OK (well-formed event appends one line naming only the skill; malformed event exits 0 and writes nothing; matcher is narrow)' -ForegroundColor Green }
+  }
+  finally { Remove-Item -LiteralPath $suRoot -Recurse -Force -ErrorAction SilentlyContinue }
+}
 
 Exit-Gate
 }
@@ -8881,8 +8971,12 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
     # markdown、不碰任何闸的 diff，正好**挣到**内容路由的免评审（ReviewSkipWhen），R3 腿于是整条不执行：
     # 本该停在评审腿的场景一路合并、铸出 .git/scaffold-merged（目录），把腿 F「预置该路径为文件」的前提砸掉。
     # 故夹具显式关掉路由——这里测的是评审跑起来之后的报告，路由本身另有 17z(T104) 的正臂与两条负控。
-    $cSG = [regex]::Replace($cSG, '(?ms)^\s*ReviewSkipWhen\s*=\s*@\{.*?^\s*\}', '  ReviewSkipWhen = @{}')
-    if (($cSG -notmatch [regex]::Escape("$sg/wt")) -or ($cSG -notmatch 'review-stub') -or ($cSG -notmatch 'ReviewSkipWhen = @\{\}')) { Fail '闸15r(e)：fixture _config 注入失败（WorktreeRoot/ReviewCommand/ReviewSkipWhen 行格式变了？Replace 没命中）——夹具可能触碰真实 wt 根、撞真 codex，或让内容路由跳过本块要测的 R3 腿，中止本块。' }
+    # ReviewSkipWhen is currently the single-line @{ } form, while older/downstream configs may use a
+    # multi-line hashtable. The former must not fall through the multi-line matcher and consume the next map.
+    $cSG = [regex]::Replace($cSG, '(?ms)^\s*ReviewSkipWhen\s*=\s*@\{(?:(?:[ \t]*\r?\n)*[ \t]*\}|.*?^\s*\})', '  ReviewSkipWhen = @{}')
+    $sgConfigParse = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput($cSG, [ref]$null, [ref]$sgConfigParse)
+    if (($cSG -notmatch [regex]::Escape("$sg/wt")) -or ($cSG -notmatch 'review-stub') -or ($cSG -notmatch 'ReviewSkipWhen = @\{\}') -or @($sgConfigParse).Count -gt 0) { Fail '闸15r(e)：fixture _config 注入失败或语法损坏（WorktreeRoot/ReviewCommand/ReviewSkipWhen 行格式变了？）——夹具可能触碰真实 wt 根、撞真 codex，或让内容路由跳过本块要测的 R3 腿，中止本块。' }
     else {
       Set-Content $cfgSG $cSG -NoNewline -Encoding utf8
       Set-Content (Join-Path $sg 'scripts/verify.ps1') 'exit 0' -Encoding utf8   # 确定性 stub（同 15i 之理）
@@ -8902,9 +8996,10 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
       Set-Content (Join-Path $sg '.gitignore') ".review/`n" -Encoding utf8   # 镜像真仓 .gitignore（.review/ 不入库）——否则 red 落的 .review 证据被 git add -A 提交、卡外触范围闸（C 非 -SkipRed 走 red 后必踩，与真仓行为一致）
       & git -C $sg add -A 2>$null
       & git -C $sg commit -q -m 'sg base' *> $null
-      & pwsh -NoProfile -File (Join-Path $sg 'scripts/task.ps1') -TaskId T0-SAGA15R -Phase start *> $null
+      $sgStartOut = (& pwsh -NoProfile -File (Join-Path $sg 'scripts/task.ps1') -TaskId T0-SAGA15R -Phase start 2>&1 | Out-String)
+      $sgStartExit = $LASTEXITCODE
       $sgWt = Join-Path $sg 'wt/T0-SAGA15R'
-      if (-not (Test-Path $sgWt)) { Fail '闸15r(e)：fixture start 未产出 worktree——无法验证失败路径报告（前置失败）。' }
+      if (-not (Test-Path $sgWt)) { Fail "闸15r(e)：fixture start 未产出 worktree（exit=$sgStartExit）——无法验证失败路径报告（前置失败）。输出：$sgStartOut" }
       else {
         # UTF-8 钉法（TD31/TD34）：子端 enc-wrap 钉 OutputEncoding、父端捕获前后就地钉+还原，防中文 token 误码假 FAIL。
         # 注意用具名参数透传而非数组 splat——PS 对脚本的数组 splat 按**位置**绑定，'-TaskId' 会被当值塞进 TaskId 撞 TD50 校验。
@@ -12515,12 +12610,12 @@ UPDATED: probe step 1
       if ($tc.tag -eq 't4-legit-pass') {
         $tRecPath = Join-Path (Join-Path (Join-Path $ts '.review') 'records') 'feat-t.jsonl'
         if (-not (Test-Path $tRecPath)) {
-          Fail '闸17t(t4) run_status: the tracked review record .review/records/feat-t.jsonl was not written, so whether run_status reaches the audit trail cannot be judged.'
+          Fail '闸17t(t4) run_status: the local review record .review/records/feat-t.jsonl was not written, so whether run_status reaches the diagnostic log cannot be judged.'
           $tAllOk = $false
         } else {
           $tRecTxt = Get-Content $tRecPath -Raw
           if ($tRecTxt -notmatch '"run_status"\s*:\s*"success"') {
-            Fail "闸17t(t4) run_status: the tracked record carries no run_status=success - the class did not survive the redaction walk (was a status-shaped key added to `$recRedactKeys?). That record is the only run-classification face that enters version control. Content: $tRecTxt"
+            Fail "闸17t(t4) run_status: the local record carries no run_status=success - the class did not survive the redaction walk (was a status-shaped key added to `$recRedactKeys?). This record is ignored local diagnostics; published PR evidence is the shared record. Content: $tRecTxt"
             $tAllOk = $false
           }
         }
@@ -12854,7 +12949,7 @@ UPDATED: probe step 1
         $tAllOk = $false
       }
     }
-    if ($tAllOk) { Write-Host '  17t R3 block-state diagnosability OK (S0 unreadable-output / S1 empty-or-whitespace / S2 no-JSON-verdict with raw response preserved verbatim under the exact filename and named in the reason / S3 five bad-verdict emit sites, four of them driven here, status code on both stdout and verdict JSON where the verdict file is writable (t14/t15 stdout-only); read failures not misdiagnosed as S1; legit pass not blocked; omitted reasons reset to empty; raw-save failure reported honestly (t13); stale raw invalidated across rounds (t23); deny-traverse probe still lands S0 (t17/t21); run_status classes every state in the pointer file AND the round-indexed sibling and survives redaction into the tracked record, with verdict held at {pass,block} throughout - including an injected reviewer timeout (t24) that records timeout while still blocking)' -ForegroundColor Green }
+    if ($tAllOk) { Write-Host '  17t R3 block-state diagnosability OK (S0 unreadable-output / S1 empty-or-whitespace / S2 no-JSON-verdict with raw response preserved verbatim under the exact filename and named in the reason / S3 five bad-verdict emit sites, four of them driven here, status code on both stdout and verdict JSON where the verdict file is writable (t14/t15 stdout-only); read failures not misdiagnosed as S1; legit pass not blocked; omitted reasons reset to empty; raw-save failure reported honestly (t13); stale raw invalidated across rounds (t23); deny-traverse probe still lands S0 (t17/t21); run_status classes every state in the pointer file AND the round-indexed sibling and survives redaction into the ignored local record, with verdict held at {pass,block} throughout - including an injected reviewer timeout (t24) that records timeout while still blocking)' -ForegroundColor Green }
 
     }
     if (Test-SeedRegionSelected 'post') {

@@ -73,6 +73,12 @@ snapshot named by this PR.
   Cross-project review fixtures declare their own advisory/skip maps and
   limits explicitly; those fixture settings do not change MyInspection's
   required review policy or its production diff-size and round limits.
+  Optional hook tests follow the exact event registration in the downstream
+  settings: an unregistered budget meter or usage logger is explicitly skipped,
+  while a registered but missing hook remains a failure. The existing budget
+  and ship gates remain active; this port does not enable optional telemetry.
+  The cross-platform shell scan permits `cmd` only inside a direct Windows
+  branch and retains negative controls for unguarded and else-branch calls.
 - ADR format checks recognize the project's existing dated status headers and
   alternatives headings without rewriting historical decisions. Card generation
   carries the required `sweep` field, and documentation-path examples own their

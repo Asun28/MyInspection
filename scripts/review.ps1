@@ -196,7 +196,8 @@ function Write-Verdict([string]$v, [string[]]$r, [hashtable]$routedSkip, [string
   # END?". Those are INDEPENDENT facts and collapsing them is exactly what this key undoes - a reviewer
   # timeout, a missing codex CLI, an unresolvable baseline and a hostile verdict body all surfaced with
   # precisely the shape of a genuine quality block, so the operator could not tell "retry the reviewer" from
-  # "fix the diff", and every one of them was counted as a quality round by $roundIndex above.
+  # "fix the diff". History classified every one like a genuine quality finding; independently, the legacy
+  # $roundIndex unsuccessful-attempt throttle deliberately counts every invoked not-ok result.
   # PRODUCER-SIDE ONLY, on the routed_skip precedent: no consumer reads it, and the {pass, block} enum that
   # task.ps1 enforces does not move. Blocking on all of these stays correct and is NOT what this changes.
   # An unrecognised value is neither silently accepted nor thrown on: throwing here would kill the script
