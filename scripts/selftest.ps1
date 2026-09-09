@@ -1384,7 +1384,7 @@ function Get-SelftestCanarySourceContractFailures {
     $scopeProperty = $contract.PSObject.Properties['Scope']
     if ($scopeProperty -and $scopeProperty.Value -ceq 'MIGRATION-CORE-CHECK') {
       $migrationBlockStart = $Source.IndexOf(('          $invokeTd4Core' + 'Check = {'), [StringComparison]::Ordinal)
-      $migrationBlockEnd = if ($migrationBlockStart -ge 0) { $Source.IndexOf(('          $td4Tenancy' + 'File = '), $migrationBlockStart, [StringComparison]::Ordinal) } else { -1 }
+      $migrationBlockEnd = if ($migrationBlockStart -ge 0) { $Source.IndexOf(('          $td4Forced' + 'TestFile = '), $migrationBlockStart, [StringComparison]::Ordinal) } else { -1 }
       $contractSource = if ($migrationBlockStart -ge 0 -and $migrationBlockEnd -gt $migrationBlockStart) { $Source.Substring($migrationBlockStart, $migrationBlockEnd - $migrationBlockStart) } else { '' }
     }
     if ([regex]::Matches($contractSource, [regex]::Escape($contract.Text)).Count -ne 1) {
