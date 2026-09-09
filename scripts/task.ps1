@@ -642,6 +642,7 @@ switch ($Phase) {
     $sagaHeadMoved = $false    # 本次 ship 是否真产生了新 commit——「提交」腿完成≠HEAD 前移（no-op 提交不动 HEAD），
                                # TD85 死锁只在 HEAD 真前移且未 -SkipRed 时存在（R3 r5 #9）
     $sagaLocalMerged = $false  # -Local 合并是否已成功——合并腿失败按阶段状态分流（post-merge 凭据 / 合并中 / 守卫拦下）
+    $sagaReceiptAuthorized = $false # 本轮四谓词自洽或成功铸据后置真；catch 只消费此事实，不重探可变 receipt 文件
     try {   # saga 报告层（体内缩进保持原样：外科式最小 diff，不重排任何既有闸门）
 
     Step '卡片校验（check-cards：ship 与 start 用同一份确定性契约重跑，TD45——防 start 后卡片漂移 / -Phase ship 未 fresh start 时跳过校验）'
@@ -710,7 +711,7 @@ switch ($Phase) {
         # T35-RECEIPT（水位线收据 · TD89 根治）：evidence sha 前移（结构合法但≠HEAD，即 $redShaMoved）时，检查 ship 自身提交腿铸的收据是否**四谓词自洽**——
         # 自洽=合法 resume、放行进 DoD（既有闸不放宽、仅此一条分支）；不自洽/缺失/损坏则维持 $redShaMoved 的 $redWhy 落既有 fail-closed throw。
         # **隔离于上方证据解析 try**（R3 r8 #9 纠偏）：git-common-dir 解析失败 fail-closed 抛的 [T35-RECEIPT] 哨兵错须原样直传 saga——置于证据解析 try
-        # 内会被其 catch 误诊成「证据 JSON 非法」并吞掉哨兵。四谓词**唯一校验点**在此（saga 只测在位性、不复算）：①taskId==本卡 ②receipt.redSha==
+        # 内会被其 catch 误诊成「证据 JSON 非法」并吞掉哨兵。四谓词**唯一校验点**在此（saga 只消费本轮授权位、不复算/重探）：①taskId==本卡 ②receipt.redSha==
         # evidence.sha 且**双侧 40-hex**（占位值双侧禁入）③redSha 为当前 HEAD 祖先 ④commitSha 为当前 HEAD 或其祖先。
         if ($redShaMoved -and (-not $redOk)) {
           $rcGcdR = "$(& git -C $Wt rev-parse --git-common-dir 2>$null)".Trim()
@@ -728,6 +729,7 @@ switch ($Phase) {
               $p4 = $false; if ($rcCommit -cmatch '^[0-9a-f]{40}$') { & git -C $Wt merge-base --is-ancestor $rcCommit HEAD 2>$null; $p4 = ($LASTEXITCODE -eq 0) }
               if ($p1 -and $p2 -and $p3 -and $p4) {
                 $redOk = $true; $redShaForMint = $redSha   # 视同「RED 闸校验通过」：resume 真提交时按同规则重铸（redSha 沿用原值不变、commitSha 取新 HEAD）
+                $sagaReceiptAuthorized = $true
                 Write-Host "水位线收据自洽（T35-RECEIPT resume 放行）：evidence.sha=$redSha 为当前 HEAD 祖先、收据 commitSha 为 HEAD 或其祖先——提交后重跑经收据放行 RED 闸，DoD/范围/许可/密钥/R3 全部重过 ✓" -ForegroundColor DarkGray
               }
             } catch { }   # 收据损坏/不可读 → 不放行、**不改 $redWhy**（保留 sha 前移诊断、不误诊），落既有 fail-closed throw（不放宽）
@@ -810,6 +812,7 @@ switch ($Phase) {
             $rcHeadM = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
             if ($rcHeadM -cnotmatch '^[0-9a-f]{40}$') { throw "提交后 git rev-parse HEAD 未返回合法 40-hex commitSha（'$rcHeadM'）——不写无效收据（R3 r11 #9：原生命令非零不抛，须显式校验）" }
             @{ taskId = $TaskId; redSha = $redShaForMint; commitSha = $rcHeadM } | ConvertTo-Json -Compress | Set-Content (Join-Path $rcDirM $TaskId) -Encoding utf8 -ErrorAction Stop
+            $sagaReceiptAuthorized = $true
             Write-Host "T35-RECEIPT：已铸水位线收据（redSha=$redShaForMint commitSha=$rcHeadM）——提交后重跑同一条 -Phase ship 即经收据 resume 放行 RED 闸、全部确定性闸重过。" -ForegroundColor DarkGray
           } catch { Write-Warning "T35-RECEIPT：水位线收据铸造失败（best-effort，落收据缺失兜底、不 throw）：$($_.Exception.Message)" }
         }
@@ -1238,23 +1241,17 @@ switch ($Phase) {
       # -Local 合并腿失败按**阶段状态**分流（$sagaLocalMerged / MERGE_HEAD 在盘），不嗅探异常文案（每个合并失败
       # 消息都含「冲突？」字样，文案匹配必误报）。出路只引 TD85-RESUME 锚点原则、不复制其正文（真相源 =
       # docs/DEVOPS-WORKFLOW.md，免双源漂移）。
-      # T35-RECEIPT saga 最小路由（双 Test-Path 机器态·**只测在位性、不复算四谓词**——四谓词唯一校验点在 RED 闸）：post-watershed 死锁态改按
-      # 「水位线收据在位 ∧ RED 证据在位」分流——在位=重跑同一条 ship 即经收据令 RED 闸 resume 放行（并入下方安全重跑分支，**-Local 与远端同理**：
+      # T35-RECEIPT saga 最小路由（**只消费本轮内存授权位、不复算四谓词或重探 receipt**——四谓词唯一校验点在 RED 闸）：post-watershed 死锁态改按
+      # 「本轮水位线收据已授权」分流——授权=重跑同一条 ship 即经收据令 RED 闸 resume 放行（并入下方安全重跑分支，**-Local 与远端同理**：
       # 铸造/RED 闸的收据 resume 均不区分 -Local，远端重跑同样经收据放行整条管线、全部确定性闸重过）；否则走兜底（未推送 reset --soft
       # <evidence.redSha>，**非 HEAD~1**——多提交分支上 HEAD~1 制造二次死锁 / 已推送 -PostStatus 最后手段）。读取一律 best-effort、**绝不在
       # catch 内 throw**（护 15r(e)「原始异常原样在场」）。（远端态 hermetic 夹具矩阵 = T37；本卡实现远端同款路由、-Local 夹具覆盖共享的安全重跑分支。）
-      # R3 r13 #9：全局 EAP=Stop 下 Test-Path 遇 provider/权限/路径错会**抛**——在 saga catch 内抛会替换原始异常（毁 15r(e)「原异常在场」）。
-      # 故每个探针独立 try/catch 兜住、绝不外抛（读不出即视作缺失/无 sha，落兜底）。
-      $sagaRcptIn = $false; $sagaEvdSha = ''; $sagaEvdIn = $false
-      try {
-        $sagaGcd = "$(& git -C $Wt rev-parse --git-common-dir 2>$null)".Trim()
-        if ($sagaGcd -and -not [System.IO.Path]::IsPathRooted($sagaGcd)) { $sagaGcd = Join-Path $Wt $sagaGcd }
-        if ($sagaGcd) { $sagaRcptIn = Test-Path (Join-Path (Join-Path $sagaGcd 'scaffold-shipped') $TaskId) }
-      } catch { $sagaRcptIn = $false }
+      # RED 证据仅供兜底 reset 靶/诊断；best-effort 探针不得替换原始异常。
+      $sagaEvdSha = ''; $sagaEvdIn = $false
       $sagaEvdP = Join-Path $Wt ".review/$TaskId.red"
       try { $sagaEvdIn = Test-Path $sagaEvdP } catch { $sagaEvdIn = $false }
       if ($sagaEvdIn) { try { $sagaEvdSha = "$((Get-Content $sagaEvdP -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).sha)" } catch { $sagaEvdSha = '' } }
-      $sagaRcptSafe = ($sagaRcptIn -and $sagaEvdIn)   # -Local 与远端同款：收据在位即安全重跑（RED 闸经收据 resume 放行整条管线，非 -Local 独有）
+      $sagaRcptSafe = $sagaReceiptAuthorized
       if ($sagaMsg -match 'TD85-RESUME') {
         # 本次失败自身就是死锁重跑（RED 新鲜度闸 throw 在 sha 前移时自带 TD85-RESUME 哨兵）：本轮腿跟踪只走到 RED 闸
         # （首个未完成腿显示为 DoD，但真因不是 DoD——TD85 事件正是这样被误判的），真实进度（PR 开没开/合没合）不在
@@ -1276,7 +1273,7 @@ switch ($Phase) {
           }
         }
       } elseif ((-not $sagaHeadMoved) -or $SkipRed -or $sagaRcptSafe) {
-        # 整条重跑安全：本次未产生新 commit（RED 证据仍新鲜）/ -SkipRed（不经 RED 证据闸）/ **水位线收据在位**（收据令 RED 闸 resume
+        # 整条重跑安全：本次未产生新 commit（RED 证据仍新鲜）/ -SkipRed（不经 RED 证据闸）/ **本轮水位线收据已授权**（收据令 RED 闸 resume
         # 放行，T35-RECEIPT——「提交」腿完成后重跑不再死锁）。完整重跑命令带齐所有影响行为的已绑定选项（R3 r2 #9）：丢 -Base 会错基线、
         # 丢 -SkipRed 会立刻卡在 RED 证据闸（非 TDD 卡本无证据）、丢 -NoAutoMerge 会违背调用方意图自动合并。-Base 只在显式传入时回填。
         $sagaCmd = "pwsh -File scripts\task.ps1 -TaskId $TaskId -Phase ship"
@@ -1284,11 +1281,11 @@ switch ($Phase) {
         if ($Local) { $sagaCmd += ' -Local' }
         if ($SkipRed) { $sagaCmd += ' -SkipRed' }
         if ($NoAutoMerge) { $sagaCmd += ' -NoAutoMerge' }
-        $sagaSafeWhy = if ($sagaHeadMoved -and (-not $SkipRed)) { '水位线收据在位——收据令 RED 闸 resume 放行、全部确定性闸+R3 重审' } else { '本次未产生新 commit 或 -SkipRed 不经 RED 闸——RED 证据语义无恙' }
+        $sagaSafeWhy = if ($sagaHeadMoved -and (-not $SkipRed)) { '本轮水位线收据已授权——收据令 RED 闸 resume 放行、全部确定性闸+R3 重审' } else { '本次未产生新 commit 或 -SkipRed 不经 RED 闸——RED 证据语义无恙' }
         Write-Host "  恢复：$sagaCmd  （重跑即 resume：$sagaSafeWhy，已过闸的腿幂等重过、无死锁无旁路）" -ForegroundColor Yellow
       } else {
-        # post-watershed（HEAD 前移、非 -SkipRed）且**水位线收据缺失/证据缺失**（S9/残窗/不自洽）——非安全重跑态。
-        Write-Host '  恢复：水位线收据缺失/不自洽（收据或 RED 证据不在位）——「提交」腿已落、HEAD 已前移，勿直接重跑 -Phase ship（会落 RED 兜底路由器）。按当前状态走（原则同 docs/DEVOPS-WORKFLOW.md「ship 非原子→重跑即 resume」的 TD85-RESUME 段）：' -ForegroundColor Yellow
+        # post-watershed（HEAD 前移、非 -SkipRed）且本轮**未建立水位线收据授权**（S9/残窗/不自洽）——非安全重跑态。
+        Write-Host '  恢复：本轮未建立水位线收据授权（收据未通过四谓词且本轮未成功铸据）——「提交」腿已落、HEAD 已前移，勿直接重跑 -Phase ship（会落 RED 兜底路由器）。按当前状态走（原则同 docs/DEVOPS-WORKFLOW.md「ship 非原子→重跑即 resume」的 TD85-RESUME 段）：' -ForegroundColor Yellow
         if ($Local) {
           # -Local 的提交必然未推送（无远端腿）→ 闸门保真归位路径（R3 r6 #9）：reset 靶 = evidence.redSha 原值（best-effort 读，
           # 非固定 HEAD~1——resume 二次失败的多提交分支上 HEAD~1 会制造二次死锁）；证据缺失/占位 → 无靶，引锚点人工核对。
