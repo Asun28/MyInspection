@@ -283,41 +283,44 @@ function Restore-Td4ContinueProbeFixture {
     [bool]$ProbeCreated,
     [bool]$ProbeExistedBefore,
     [AllowEmptyString()][string]$ProbeOriginal,
+    [bool]$ProbeOriginalCaptured,
     [string]$BuildFile,
     [AllowEmptyString()][string]$BuildOriginal,
+    [bool]$BuildOriginalCaptured,
     [string]$TenancyFile,
-    [AllowEmptyString()][string]$TenancyOriginal
+    [AllowEmptyString()][string]$TenancyOriginal,
+    [bool]$TenancyOriginalCaptured
   )
 
   $errors = [System.Collections.Generic.List[string]]::new()
   try { if ($ProbeCreated -and $ProbeFile -and (Test-Path -LiteralPath $ProbeFile)) { Remove-Item -LiteralPath $ProbeFile -Force -ErrorAction Stop } } catch { [void]$errors.Add("probe: $($_.Exception.Message)") }
   try {
-    if ($BuildFile -and $null -ne $BuildOriginal -and (Test-Path -LiteralPath $BuildFile)) {
+    if ($BuildFile -and $BuildOriginalCaptured -and (Test-Path -LiteralPath $BuildFile)) {
       [System.IO.File]::WriteAllText($BuildFile, $BuildOriginal, [System.Text.UTF8Encoding]::new($false))
     }
   } catch { [void]$errors.Add("build: $($_.Exception.Message)") }
   try {
-    if ($TenancyFile -and $null -ne $TenancyOriginal -and (Test-Path -LiteralPath $TenancyFile)) {
+    if ($TenancyFile -and $TenancyOriginalCaptured -and (Test-Path -LiteralPath $TenancyFile)) {
       [System.IO.File]::WriteAllText($TenancyFile, $TenancyOriginal, [System.Text.UTF8Encoding]::new($false))
     }
   } catch { [void]$errors.Add("tenancy: $($_.Exception.Message)") }
 
   try {
     $probeRestored = if (-not $ProbeFile) { $true } elseif ($ProbeExistedBefore) {
-      (Test-Path -LiteralPath $ProbeFile) -and ([System.IO.File]::ReadAllText($ProbeFile) -ceq $ProbeOriginal)
+      if (-not $ProbeOriginalCaptured) { $false } else { (Test-Path -LiteralPath $ProbeFile) -and ([System.IO.File]::ReadAllText($ProbeFile) -ceq $ProbeOriginal) }
     } else { -not (Test-Path -LiteralPath $ProbeFile) }
   } catch { [void]$errors.Add("probe-state: $($_.Exception.Message)"); $probeRestored = $false }
   try {
-    $buildRestored = if (-not $BuildFile -or $null -eq $BuildOriginal) { $true } else {
+    $buildRestored = if (-not $BuildFile) { $true } elseif (-not $BuildOriginalCaptured) { $false } else {
       (Test-Path -LiteralPath $BuildFile) -and ([System.IO.File]::ReadAllText($BuildFile) -ceq $BuildOriginal)
     }
   } catch { [void]$errors.Add("build-state: $($_.Exception.Message)"); $buildRestored = $false }
   try {
-    $tenancyRestored = if (-not $TenancyFile -or $null -eq $TenancyOriginal) { $true } else {
+    $tenancyRestored = if (-not $TenancyFile) { $true } elseif (-not $TenancyOriginalCaptured) { $false } else {
       (Test-Path -LiteralPath $TenancyFile) -and ([System.IO.File]::ReadAllText($TenancyFile) -ceq $TenancyOriginal)
     }
   } catch { [void]$errors.Add("tenancy-state: $($_.Exception.Message)"); $tenancyRestored = $false }
-  return [PSCustomObject]@{ ProbeRestored = $probeRestored; BuildRestored = $buildRestored; TenancyRestored = $tenancyRestored; Errors = @($errors) }
+  return [PSCustomObject]@{ ProbeRestored = $probeRestored; BuildRestored = $buildRestored; TenancyRestored = $tenancyRestored; ProbeFile = $ProbeFile; BuildFile = $BuildFile; TenancyFile = $TenancyFile; Errors = @($errors) }
 }
 
 function Test-Td4ContinueProbeCleanupComplete {
@@ -328,8 +331,13 @@ function Test-Td4ContinueProbeCleanupComplete {
 function Get-Td4ContinueProbeCleanupDiagnostics {
   param([Parameter(Mandatory)][object]$Cleanup)
   $errors = @($Cleanup.Errors)
-  if ($errors.Count -eq 0) { return 'none' }
-  return ($errors -join ' | ')
+  $state = @(
+    "ProbeRestored=$($Cleanup.ProbeRestored) path=$($Cleanup.ProbeFile)",
+    "BuildRestored=$($Cleanup.BuildRestored) path=$($Cleanup.BuildFile)",
+    "TenancyRestored=$($Cleanup.TenancyRestored) path=$($Cleanup.TenancyFile)"
+  ) -join '; '
+  $errorDetail = if ($errors.Count -eq 0) { 'none' } else { $errors -join ' | ' }
+  return "$state; collectedErrors=$errorDetail"
 }
 
 # Stable failure protocol shared by a shard and the local all aggregator. Human Warning prose remains
@@ -10596,11 +10604,14 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
     $td4MigrationWorktreeAdded = $false
     $td4BuildFile = $null
     $td4BuildText = $null
+    $td4BuildTextCaptured = $false
     $td4ForcedTestFile = $null
     $td4ForcedTestCreated = $false
     $td4ForcedTestExistedBefore = $false
     $td4ForcedTestOriginal = $null
+    $td4ForcedTestOriginalCaptured = $false
     $td4TenancyOriginal = $null
+    $td4TenancyOriginalCaptured = $false
     $td4TenancyFile = $null
     $td4WrongMigration = $null
     try {
@@ -10610,8 +10621,20 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         $td4MigrationWorktreeAdded = $true
         $td4BuildFile = Join-Path $td4MigrationRepo 'android/core/build.gradle.kts'
         $td4BaselineFile = Join-Path $td4MigrationRepo $td4BaselinePath
-        $td4BuildText = if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) { Get-Content -LiteralPath $td4BuildFile -Raw } else { '' }
-        if ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
+        try {
+          if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) {
+            $td4BuildText = [System.IO.File]::ReadAllText($td4BuildFile)
+            $td4BuildTextCaptured = $true
+          } else { Fail '闸17a3(migration/setup)：无法读取 build.gradle.kts 原始快照。' }
+        } catch { Fail "闸17a3(migration/setup)：无法读取 build.gradle.kts 原始快照：$($_.Exception.Message)" }
+        $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
+        try {
+          $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
+          $td4TenancyOriginalCaptured = $true
+        } catch { Fail "闸17a3(migration/setup)：无法读取 Tenancy.sq 原始快照：$($_.Exception.Message)" }
+        if (-not $td4BuildTextCaptured -or -not $td4TenancyOriginalCaptured) {
+          Fail '闸17a3(migration/setup)：原始快照未完整捕获，拒绝修改 fixture。'
+        } elseif ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
           Fail '闸17a3(migration/setup)：fixture HEAD 未含 verifyMigrations=true + tracked 1.db，迁移负例会 vacuous。'
         } else {
           $invokeTd4CoreCheckWithoutContinue = {
@@ -10631,13 +10654,14 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
             } finally { Pop-Location }
           }
 
-          $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
-          $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile)
           $td4ForcedTestFile = Join-Path $td4MigrationRepo 'android/core/src/test/kotlin/nz/myinspection/core/selftest/Td4ContinueProbeTest.kt'
           $td4ForcedTestExistedBefore = Test-Path -LiteralPath $td4ForcedTestFile
           if ($td4ForcedTestExistedBefore) {
-            $td4ForcedTestOriginal = [System.IO.File]::ReadAllText($td4ForcedTestFile)
-            Fail '闸17a3(migration-continue/setup)：临时失败测试路径已存在，拒绝覆盖产品测试。'
+            try {
+              $td4ForcedTestOriginal = [System.IO.File]::ReadAllText($td4ForcedTestFile)
+              $td4ForcedTestOriginalCaptured = $true
+            } catch { Fail "闸17a3(migration-continue/setup)：无法读取已有临时失败测试原始快照：$($_.Exception.Message)" }
+            if ($td4ForcedTestOriginalCaptured) { Fail '闸17a3(migration-continue/setup)：临时失败测试路径已存在，拒绝覆盖产品测试。' }
           } else {
             New-Item -ItemType Directory -Force (Split-Path -Parent $td4ForcedTestFile) | Out-Null
             $td4ForcedTestSource = @(
@@ -10672,7 +10696,7 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
             [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
             $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
             $td4MissingResult = & $invokeTd4CoreCheck
-            $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal
+            $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -ProbeOriginalCaptured $td4ForcedTestOriginalCaptured -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -BuildOriginalCaptured $td4BuildTextCaptured -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal -TenancyOriginalCaptured $td4TenancyOriginalCaptured
             if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
               Fail "闸17a3(migration-continue/cleanup)：临时清理未完整恢复；跳过 migration-wrong，collectedErrors=$(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)。"
             } else {
@@ -10701,7 +10725,7 @@ if ($runSeededGitRegion -and -not $runSeededGitGates) {
         }
       }
     } finally {
-      $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal
+      $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -ProbeOriginalCaptured $td4ForcedTestOriginalCaptured -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -BuildOriginalCaptured $td4BuildTextCaptured -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal -TenancyOriginalCaptured $td4TenancyOriginalCaptured
       if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
         Fail "闸17a3(migration-continue/cleanup)：临时失败测试、build 脚本或 Tenancy.sq 未恢复到其原始状态；collectedErrors=$(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)。"
       }
