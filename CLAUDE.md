@@ -69,6 +69,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**SPIKE 远端交付**：PR #286 已合并 `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`，R3 首轮 pass、CI 成功、官方 cleanup 完成。历史与当前候选 APK／真机证据分列于 [平台报告](docs/spike/PLATFORM-SPIKE.md)；本轮 SAF 仅验证已有授权延续与重启读取，不声称重跑写入。
+
+**2026-09-09 远端交付**：`T4-SYMBOL-MARKDOWN-PARSER` 经 [PR274](https://github.com/Asun28/MyInspection/pull/274) 合并（`18741ac29a20da426ffe99c02c924f2d1b3b29f5`；reviewed head `3b7d51f1519f4b4817289edf2d14c2a68173474e`），正式 R3 PASS、精确候选 CI `34291612516` 成功，117 项行为测试 / 35 项定向变异及项目 verify 通过。原工作树已按正式流程清理，完整历史与最终凭据见 [归档卡](specs/archive/tasks/T4-SYMBOL-MARKDOWN-PARSER.md)。仅交付 Markdown 前置解析能力；PR263 的实际消费者接入、符号设计发布仍待各自交付。
+
 **2026-09-08 远端交付**：`T0-SELFTEST-RISK-ROUTING` 经 PR #273 合并（`fcdb4d8ca5f4d76c2fe73fc6177bc828e239ce6c`；reviewed head `9af2af3a4d4a4abc93549d82da2350b186954cd2`），真实 focused DoD、verify、正式 Sol high R3 与精确候选 CI 通过。真实入口及默认 all→core hook 有界回归、11 枚当前定点变异和 14 枚历史同源函数复用核验完成；不声明 all-shards full selftest。显式任务路由与独立 product verify 约定见本文件工作流入口及 `docs/DEVOPS-WORKFLOW.md`；官方 cleanup 后归档。
 
 **2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
