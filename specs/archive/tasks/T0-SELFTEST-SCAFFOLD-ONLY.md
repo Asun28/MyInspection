@@ -3,7 +3,7 @@ id: T0-SELFTEST-SCAFFOLD-ONLY
 title: Keep scaffold selftest off product-only changes
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-SELFTEST-SCAFFOLD-ONLY
 worktree: C:\wt\T0-SELFTEST-SCAFFOLD-ONLY
 allow_paths:
@@ -81,3 +81,11 @@ At HEAD `5bff8a15047f5690369047c6254c2aa7b3115cb6`, the default full selftest ex
 The preceding current-base attempt at source `7C80AA8F...` exposed a stale canary extraction boundary: the tenancy snapshot assignment had moved before the core-check closure. Using the next forced-test assignment as the extraction end restores the existing Windows/POSIX invocation checks without changing either invocation or weakening their assertions. That attempt was stopped after its known seeded failure and is not a full success.
 
 The original snapshot.actual and callsite.actual runners also parsed this exact BFAC source and each exited natively 0: 11 named temporary-file/control-flow cases passed and 10 named helper, predicate or diagnostic mutations were rejected. Both actual restore assignments and guards ran with local file fixtures and a Gradle counter stub; those bounded runs do not themselves prove real Gradle execution. Exact runner copies, raw logs, native exits, semantic oracles and source-binding manifest are in `.review/current-source-r4/`. Historical receipts above remain historical; normal ship DoD, verify, independent R3 and candidate CI are separate gates.
+
+## Delivery receipt (2026-09-09)
+
+Feature PR #272; reviewed head d3a206a979468888b208569a2701a9dd3b67fcf6; actual squash merge 7500992541d15cc7a53b06efe4560dc62123dcff; merged tree a1ef3cd8f724583fff2e0b75a46464c6403e2350. Formal R3 pass; exact-head CI run 34314990805 on d3a206a979468888b208569a2701a9dd3b67fcf6 concluded success. Current-source full selftest source SHA-256 BFACF8485F7255DDF0C7E39B6671AB50C8071E933B6AF4F00DBB48D06DD29376, native exit 0, elapsed 2629.0102968s, 17a3 real17a3PASS, explicit skips 21. Normal ship exit 0; official cleanup exit 0. Evidence: scaffold-only-authorized-ship/ship.log; formal configured Sol high R3 codex-review=success with reasons[]; scaffold-only-authorized-ship/ci-final.json; scaffold-only-authorized-ship/receipts-272-final/nested-review/current-source-full/end.json; root-audit.json; full.log SHA256 4322FAC56559D6E7D92E75ACF57003709479D4A098796ACAA146BC0F08B71B3D.
+
+This receipt records actual feature delivery facts only; it does not claim a future result for this R5 management card.
+
+The full run and bounded R4 used the working source on parent HEAD `5bff8a15047f5690369047c6254c2aa7b3115cb6`, not that parent commit's blob. Their preserved start/end records explicitly show ` M scripts/selftest.ps1`: the one-line canary end-anchor repair (`$td4Tenancy` + `File` to `$td4Forced` + `TestFile`) was already present before either run. The full run's pre/post and tracked-source manifest SHA-256 is `BFACF8485F7255DDF0C7E39B6671AB50C8071E933B6AF4F00DBB48D06DD29376`; raw `git cat-file blob` bytes at both reviewed `d3a206a979468888b208569a2701a9dd3b67fcf6:scripts/selftest.ps1` and merged `7500992541d15cc7a53b06efe4560dc62123dcff:scripts/selftest.ps1` have that same SHA-256 (1,450,796 bytes, LF; Git blob `5b05aac083d260978a4c5987902d6bb9ebc4dd0d`). The later commit recorded the already-tested edit; it did not introduce a post-test source change. Evidence: `scaffold-only-authorized-ship/receipts-272-final/nested-review/current-source-full/{start.json,end.json,tracked-source-manifest.json,root-audit.json}` and `current-source-r4/source-binding-manifest.json`; independent byte/hash and 35 top-level + 15 nested preserved-receipt audit: `scaffold-only-r5-provenance-repair/source-provenance.json`. This binds the completed full run to final source without claiming the run executed at the later commit HEAD; the original historical card text above remains unchanged.
