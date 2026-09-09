@@ -29,7 +29,7 @@ acceptance:
   - "A3 Released v0.46.0 behavior is accounted for without importing unrelated pre-tag history or the released v0.47 tier/meta groups, and the existing scaffold-sync selfcheck remains green"
 review_gate: codex {verdict:pass}
 hygiene: Metadata-only alignment uses the existing selfcheck and deterministic local high-water checks; no duplicate test framework or copied upstream implementation.
-doc_sync: docs/SCAFFOLD-SYNC.md decision ledger and this card status
+doc_sync: docs/SCAFFOLD-SYNC.md decision ledger, CLAUDE.md current/high-water references, and this card status
 ---
 
 # T0-SCAFFOLD-SYNC-046

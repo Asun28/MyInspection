@@ -23,7 +23,7 @@
 | W0 | T0-GATE-HARDENING | 许可闸递归发现+verify 确定性+两枚闸门自测（拆自 T0-TOOLCHAIN） | T0-TOOLCHAIN | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（本地合并 `5ba3319e`；事后 R3 finding 由 T0-GATE-FIXFORWARD PR #4 `6f255d35` 结清） |
 | W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `fc1e763f`，PR #1） |
 | W0 | T0-SCAFFOLD-LEAN-CI | 普通产品 PR 不启动 scaffold-only 六分片；脚手架权威面变化仍全跑 | T0-HARNESS-PERF | S | GPT-5.6 Terra · high | DeepSeek V4 Pro | **merged**（master `f976d0f`，PR #22；R3 零发现；基线产品 PR #5–#11 = 60 runs / 360 shard jobs；本次 `.github/**` PR 实测 1 run / 6 jobs 全保留；无新增脚本/job/依赖） |
-| W0 | T0-SCAFFOLD-SYNC-046 | 核对 upstream v0.46.0，并推进 origin/current 高水位账 | T0-SCAFFOLD-SYNC-045 | S | GPT-5.6 Luna · high | GPT-5.6 Terra · high | 本地已具备 v0.46 双版本行为；只登记发布版等价采用与精确 tag，不纳未发布 tier/meta 工作 |
+| W0 | T0-SCAFFOLD-SYNC-046 | 核对 upstream v0.46.0，并推进 origin/current 高水位账 | T0-SCAFFOLD-SYNC-045 | S | GPT-5.6 Luna · high | GPT-5.6 Terra · high | 本地已具备 v0.46 双版本行为；只登记发布版等价采用与精确 tag，不纳入已发布 v0.47.0 tiered-acceptance/nightly-meta coupling 组 |
 | W0 | T0-R3-DIFF-BUDGET | pre-push/R3 按真实 changed lines + diff chars fail-closed，超大卡必须拆 | T0-DEBT-R3-CARD-BASELINE,T0-DEBT-SELFTEST-CRITICAL-PATH | M | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `b82054bc`，PR #128；度量/边界/ship 接线已落地，输入可信与 OID 绑定仍由后两张专卡承接） |
 | W0 | T0-R3-DIFF-INPUT-TRUST | diff 预算的输入只信 git 自己：ext-diff/textconv/属性二进制均不可缩小体量 | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | A5 是**已复现**的真绕过：一行 .gitattributes `-diff` 让 1001 行量成 1 行 |
 | W0 | T0-R3-MEASURED-OID-BINDING | 被测量的提交＝被 push/评审/合并的那一个（分支引用与 HEAD 双钉） | T0-R3-DIFF-BUDGET | S | GPT-5.6 Terra · high | Sonnet 5 max | 第 3 轮 finding：只钉分支引用时 detached HEAD 可「审 A 合 B」 |
