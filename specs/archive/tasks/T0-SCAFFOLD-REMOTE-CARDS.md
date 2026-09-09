@@ -1,7 +1,7 @@
 ---
 id: T0-SCAFFOLD-REMOTE-CARDS
 title: Register the bounded remote scaffold adoption sequence
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - specs/tasks/T0-SCAFFOLD-REMOTE-CARDS.md
@@ -43,3 +43,7 @@ The user authorized completion of all unfinished scaffold cards through independ
 Use task-loop with Astra high for coordination and the configured independent Sol high R3. The existing review/reset history stays attached to BASE-BUNDLE and LOW-RISK. This is non-TDD card registration: use the documented SkipRed path while retaining every other ship gate. The eight implementation cards must each establish fresh behavior-based RED and current-source evidence.
 
 The current remote gate 17a3 can execute the migration verifier before its intended failing test. SCAFFOLD-ONLY A5 supplies an isolated temporary test and deterministic fixture-only ordering; this repair is independent of pagination. Register it before PAGED-PERF, retaining every acceptance assertion and the five-minute performance target. TASK-BOARD changes are limited to these two dependency rows.
+
+## Delivery receipt (2026-09-08)
+
+Registration PR #268 passed DoD, project verify, scope, license, secret and exact diff-budget gates, then the configured independent Sol high R3 and exact-head candidate CI. Reviewed head: f08cd3b35125b99e96c3346dfd27a45e3058d4b4. Merge: ae40d6b761ed02809eea7b3c5a81ebac559dee92. The official task-loop cleanup succeeded before this archive operation. All eight capability cards remain pending their own implementation and verification PRs.
