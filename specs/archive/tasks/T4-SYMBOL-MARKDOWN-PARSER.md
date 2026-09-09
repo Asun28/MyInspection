@@ -1,7 +1,7 @@
 ---
 id: T4-SYMBOL-MARKDOWN-PARSER
 title: Provide a visible top-level Markdown contract parser for symbol acceptance
-status: in-progress
+status: merged
 depends_on: []
 parallelizable_with: []
 branch: T4-SYMBOL-MARKDOWN-PARSER
@@ -32,6 +32,8 @@ doc_sync: record helper API and runtime assumptions here; PR263 integration is e
 ---
 
 # T4-SYMBOL-MARKDOWN-PARSER
+
+Historical-context note: the dated sections below retain their original checkpoint wording. Their pending states and earlier counters are historical; the final remote receipt at the end records the completed prerequisite delivery. PR263 integration and design publication remain separate and pending.
 
 The user approved this bounded prerequisite PR on 2026-09-08 after PR263 reached 795 changed lines / 58,699 characters. It does not reset or supersede PR263's BLOCK history. The separately authorized PR263 review remains a later action.
 
@@ -88,3 +90,13 @@ Read-only actual calls on that exact helper contradicted the alleged rejection: 
 The user subsequently authorized tests/card-only coverage work and ONE further normal-gated formal R3, without another reset or helper change. Nine added cases exercise extraction, visible projection and a genuine unclosed comment after each raw token. Three additional class-specific in-memory mutations bypass only that token class's existing lexer path; each is killed by its named real extraction fixture. The expanded suite passes117 behavior cases/35 mutations, with all prior fixtures retained. This is characterization/coverage of existing correct behavior, not a newly reproduced production defect or a new production RED claim.
 
 The helper remains SHA-256 C7C1C71209A5B588FF3976B65779524E6FF4B1CC85F19B0C15AD79455AC128AA; the expanded checker is SHA-256 4DF09C64D29E352BE4E2E9E5E47EA0962EFD79CD67557EC6D5F148633612DE23. Focused trace: .review/parser-raw-html-coverage-20260909.log. Full ship/review/CI for this expanded checker are pending; prior CI covers only762dcba5. PR263 integration remains separate and pending.
+
+## Final remote delivery receipt (2026-09-09)
+
+[PR274](https://github.com/Asun28/MyInspection/pull/274) merged at2026-09-08T23:46:40Z as18741ac29a20da426ffe99c02c924f2d1b3b29f5. Reviewed head3b7d51f1519f4b4817289edf2d14c2a68173474e against base7c5b38613e9b7a56f4e0264ae1ba4d8937d0d6ed received independent Sol high R3 PASS with empty reasons; [exact-head CI34291612516](https://github.com/Asun28/MyInspection/actions/runs/34291612516) completed SUCCESS. Reviewed and merged trees both equal0aecf5fe5e76bc5d9f9e9494e20d3c1bd25cebad.
+
+Normal ship36066 exited0 after117 behavior cases/35 named guard mutations, project verify934 tests (zero failures/errors, four existing skips, including Golden Evidence E2E), scope/licenses/secrets and official484changedlines/42859chars passed. Official cleanup then exited0 with lessonscheckPASS; the exact original worktree and local branch were verified absent. All24 review files were copied and hash-compared before cleanup, with T24/T35 receipts retained separately; the three preceding BLOCK outcomes and original RED remain preserved. No additional counter reset was used for the final successful iteration.
+
+Preserved evidence SHA-256: final verdict243E45FCCA0161D8D0C8D30F163167B4CD2A52F4D46326AAAE742C654A2FD416; T24 receipt6FC6AE24B528C745278C969225C5792EB9DAF78A6B86D9FF686281001C12D9F0; T35 receipt2CAC1A33A955C88E26D836E48FA70FEA84E2DB34DBCAE0E348D605A8D3C1B07A; cleanup log11DC63E05DDC07B67C78E3EFBFA3C9851DE8179991FA47C55F0B72DFBD1768D8; final ship log624167D292AD2A51BB6218E08F79C0F724BCADF0F19C685DE45592CFD6B0F1B3. These logs remain in the delivery owner's ignored evidence directory, not a new runtime dependency or an assertion that a later environment reran them. The helper/checker hashes above are unchanged.
+
+This closes only the Markdown prerequisite. PR263's actual-consumer repair and the symbol design publication are not delivered by this receipt. R5.5 reuses the existing L26 pinned-runtime API verification rule; no duplicate lesson is added.
