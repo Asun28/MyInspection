@@ -51,7 +51,7 @@ non_goals:
   - Reimplementing the unresolved INPUT, TRIAGE or receipt-loss cards
   - Reopening old worktrees, historical R3 counters, RED evidence, mutation batches or performance runs
 hygiene: Reuse the committed upstream implementation as a coupled port and validate the local configuration and CI adapter; do not create duplicate script implementations.
-doc_sync: Update the scaffold decision ledger, authority index and adoption manifest with the exact source and exclusions.
+doc_sync: Update the scaffold decision ledger, authority index and adoption manifest with the exact source, exclusions and tracked-sensitive allowlist adapter.
 ---
 
 # T0-SCAFFOLD-UPSTREAM-ADOPTION
@@ -61,3 +61,8 @@ authoritative source, included groups, local adaptations and exclusions are
 recorded in `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`.  The delivery path
 is one new worktree, one new PR and one independent Codex review.  A blocking
 review leaves the PR unmerged; it does not start a second review loop.
+
+The CI compatibility repair restores the existing fail-closed, exact-path
+SQLDelight tracked-sensitive allowlist adapter in `scripts/check-secrets.ps1`.
+It does not modify schema databases, the allowlist JSON, `.gitignore` or the
+source review record.

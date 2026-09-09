@@ -66,6 +66,10 @@ snapshot named by this PR.
   read-only projection check is added for the adopted cleanup caller.  The
   already-initialized project does not add the upstream template-only root
   documentation.
+- `check-secrets.ps1` retains MyInspection's fail-closed, exact-path tracked
+  sensitive allowlist for committed SQLDelight schema baselines.  The adapter
+  validates the tracked JSON and every listed path; it is not a broad `.db`
+  exemption.  The adopted `PublicOutput` secret scan behavior remains intact.
 
 ## Not completed by this adoption
 
