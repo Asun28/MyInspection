@@ -8433,12 +8433,12 @@ if (-not $qFail) { Write-Host "  15q ship resume/RED 新鲜度死锁窗口有成
 
 # 15r. ship saga 报告闸（T26-SHIPSAGA）：ship 是多腿 saga（卡校验→DoD→verify→提交→范围闸→许可闸→防泄露闸→push+PR→
 #   R3 评审→合并；-Local 变体含可选 R3 与本地合并），任一腿 throw 须在失败时刻自述进度——已完成腿/失败腿(=首个未完成腿)/
-#   待办腿 + 精确恢复命令（分水岭=「提交」腿：commit 前失败=重跑 -Phase ship；commit 后按 死锁重跑/无PR/已开PR/已合并
-#   分流并指 TD85-RESUME 锚点，见 15q，不复制其正文）——随后**原样裸 throw**（退出码/失败面/上游捕获行为均不变，只加
-#   报告层）。源码级词法断言（同 15p/17p2 手法，剥整行注释防「删代码留哨兵注释」蒙混）：(a) ship 相体存在腿完成跟踪
-#   成功路径 ≥13 追加点（含远端四腿）；(b) T26-SHIPSAGA catch
-#   报告块；(c) 该块词法上以原样裸 throw 结尾；(d) 恢复路由词法锁——完整重跑命令仅现于 commit 前分支且带齐已绑定
-#   选项，commit 后 PR 状态以已解析 PR 号为准而非腿成员推断、合并腿建议按 head 新鲜度条件化（R3 r1/r2/r3 #9/#6/#2）。
+#   待办腿；HEAD 前移后未获本轮收据授权时只保留现场并委托 DEVOPS，不内嵌远端恢复配方。保留 TD85 early-hint、
+#   已授权 normal ship 重跑、完整选项透传与 Local 阶段指引，随后**原样裸 throw**（退出码/失败面/上游捕获行为不变）。
+#   源码级词法断言（同 15p/17p2 手法，剥整行注释防「删代码留哨兵注释」蒙混）：(a) ship 相体存在腿完成跟踪，
+#   成功路径 ≥13 追加点（含远端四腿）；(b) catch 报告块代码含 T26-SHIPSAGA 哨兵；(c) 该块以原样裸 throw 结尾；
+#   (d) reporter 权限边界——唯一 normal ship 重跑命令位于 HEAD 前移守卫之后且带齐已绑定选项，未授权 fallback
+#   只报告与委托文档；Local 阶段指引保持原有语义。
 #   实现前各断言均 RED（防 vacuous）。(a)-(d) 静态、locale 无关、不需 git/gh（同 15n/15q 手法）；(e) hermetic
 #   失败路径夹具见下独立块（r3 #6，需 git，同 15i 手法）。
 $r15Fail = $false
@@ -8453,10 +8453,11 @@ else {
   if ($appendCount15r -lt 13) { Fail "闸15r(a)：腿仅 $appendCount15r（须 ≥13，含远端四腿）。"; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaHeadMoved\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无真实 HEAD 前移追踪（$sagaHeadMoved 须在真提交后置真）——「提交」腿完成≠HEAD 前移，no-op 提交会被误当死锁态（R3 r5 #9）。'; $r15Fail = $true }
   if ($shipCode15r -notmatch '\$sagaLocalMerged\s*=\s*\$true') { Fail '闸15r(a)：ship 相体无本地合并成功追踪（$sagaLocalMerged 须在 merge 成功后置真）——post-merge 凭据失败会被误报成合并前守卫态（R3 r5 #9）。'; $r15Fail = $true }
-  # (b)+(c) catch 报告块：含哨兵且以原样裸 throw 结尾（throw 后除闭合括号外无其他语句——异常语义不变的词法锁）；
-  # tempered 前缀禁止「起点与哨兵之间还有另一个 catch」——防匹配到 ship 内其他 catch（RED 证据解析 / mint 状态解析）。
+  # (b)+(c) 以 $sagaTodo 赋值和裸 throw 提取 catch 报告块，再显式检查代码中的哨兵；
+  # tempered 前缀禁止「起点与 $sagaTodo 之间还有另一个 catch」——防匹配到 ship 内其他 catch（RED 证据解析 / mint 状态解析）。
   $catch15r = [regex]::Match($shipCode15r, '(?s)\}\s*catch\s*\{(?:(?!\}\s*catch\s*\{).)*?\$sagaTodo\s*=.*?\n\s*throw\s*\r?\n\s*\}').Value
-  if (-not $catch15r) { Fail '闸15r(b/c)：ship 相体无「含哨兵 T26-SHIPSAGA 且以原样裸 throw 结尾」的 catch 报告块（代码级，注释不算）——任一腿失败时不自述进度，或异常被吞/改写（退出码语义漂移）。'; $r15Fail = $true }
+  if (-not $catch15r) { Fail '闸15r(b/c)：ship 相体无「含 $sagaTodo 赋值且以原样裸 throw 结尾」的 catch 报告块（代码级，注释不算）——任一腿失败时不自述进度，或异常被吞/改写（退出码语义漂移）。'; $r15Fail = $true }
+  if ($catch15r -and ($catch15r -notmatch 'T26-SHIPSAGA')) { Fail '闸15r(b)：catch 报告块缺少 T26-SHIPSAGA 哨兵（代码级，整行注释不算）。'; $r15Fail = $true }
   # (c) 尾锚强化（preflight nit）：单靠「throw 后跟某个 }」可被「嵌套块内 throw + 其后吞异常语句」满足——再钉死
   # ship 相体词法尾形状：裸 throw → catch 闭合 → 相位闭合 → 'cleanup' 标签，令 throw 后不存在任何代码路径。
   if ($shipCode15r -notmatch "(?s)\n\s*throw\s*\r?\n\s*\}\s*\}\s*'cleanup'") { Fail "闸15r(c)：ship 相体末尾不是「裸 throw → catch 闭合 → 相位闭合」的词法形状——saga catch 的 throw 须是 ship 相体最后一个语句（throw 之后不得再有可吞异常/改语义的代码）。"; $r15Fail = $true }
