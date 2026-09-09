@@ -1,6 +1,6 @@
 # DevOps 工作流 · worktree + TDD + Codex-PR 闸门 + 测试卫生 + 文档同步
 
-> EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3, advisory by default since T68), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` runs DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope gate, then scope `allow_paths` → license → secret-leak → push/PR-base validation → (R3 - advisory, except a Tier-S spec block; blocking under `ReviewGate='required'` - T242/T277) → CI check gate → pre-merge base revalidation → squash merge. Every merge gate is deterministic and idempotent, so re-running the same `ship` command is always a safe resume.
+> EN: The authoritative operating manual for the R1–R5 single-card loop — per-card git worktree (R1), RED-first TDD (R2), second-model PR review (R3), test pruning (R4), doc sync (R5), then a closing lessons-capture retrospective (R5.5) — driven by `scripts/task.ps1` and the task-loop skill. Remote `ship` runs DoD → verify → commit, refreshes the tracked base before the baseline-dependent scope gate, then scope `allow_paths` → license → secret-leak → push/PR-base validation → R3 → CI check gate → pre-merge base revalidation → squash merge. MyInspection sets `ReviewGate='required'`: R3 must pass and the required CI context must succeed on the candidate head. R3 is a deliberately non-deterministic second-model judgement; a retry is a new review, subject to the round cap and user authorization.
 
 > 本文件是工作流的唯一操作手册。它把 5 条要求（R1–R5）落到 Windows/PowerShell 原生、
 > 零新增运行时依赖的闭环上。核心理念：**计划/任务卡 own 规划/冻结/验收，脚手架只补 git+TDD+评审接线**，
@@ -184,7 +184,7 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 >
 > **别用 `cleanup`「重来」**：它会拆 worktree、丢掉已实现改动，只在**已合并后**收尾。cleanup 删本地分支须 T24 凭据 / gh 在线复验（PR=MERGED 且 headRefOid==本地 tip）/ `-Force` 三信号之一；皆无或 tip 不匹配即 fail-safe 保留分支（机检 selftest 15p/15h4）。残留 merged worktree 由心跳 `worktree-orphan` 探针兜底发现。
 
-两闸门分工：`verify` 是确定性 e2e 验收——**本地 ship 亦跑 verify（free+private 下本地即权威）**，CI 在 PR 上信息性复跑；`codex-review` 是不变量/边界定性评审（T68 起默认意见、仅 `ReviewGate='required'` 时是合并闸）。**确定性闸全绿方可合并。**
+两闸门分工：`verify` 是确定性 e2e 验收，本地 ship 与 PR CI 都执行；`required` 汇总 CI，任一依赖失败、跳过或取消都不放行。`codex-review` 是不变量/边界定性评审，本仓配置 `ReviewGate='required'`，因此也必须通过。**两者均通过且对应待合并 HEAD，才可合并。**
 
 ### 3.0 CI fan-in contract (T86) — ci.yml states its own acceptance surface
 

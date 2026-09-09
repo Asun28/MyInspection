@@ -33,6 +33,7 @@ const CARDS_SCHEMA = {
           depends_on: { type: 'array', items: { type: 'string' } },
           parallelizable_with: { type: 'array', items: { type: 'string' } },
           allow_paths: { type: 'array', items: { type: 'string' } },
+          sweep: { type: 'string' },
           forbid: { type: 'array', items: { type: 'string' } },
           non_goals: { type: 'array', items: { type: 'string' } },
           dod_command: { type: 'string' },
@@ -102,6 +103,7 @@ const CONSTRAINTS =
   '- depends_on 无环; 冻结点(契约/schema 那张卡)在所有依赖它的卡之前且其它卡依赖它; 标出真实可并行窗口。\n' +
   '- 每卡 dod_command 在目标 shell(本模板默认 Windows/PowerShell)下【真能跑且二值可判】; import 路径/包根与目录结构一致。\n' +
   '- 每卡 allow_paths 必须覆盖其 DoD 真正要改/要建的文件(例: DoD 跑测试 → allow_paths 含测试目录; DoD import 某依赖 → 该依赖在依赖清单且 allow_paths 含清单文件)。\n' +
+  '- allow_paths 超过 5 项时，sweep 必须记录跨文件调查范围与结论；该宽度应有实际耦合依据。\n' +
   '- 路径只经项目约定的 storage/派生层(若有该不变量); DoD 禁硬编码运行时临时路径。\n' +
   '- 构建期 vs 运行期网络要分清: 卡内显式声明的构建期联网装依赖(如 npm install / 下载权重)属显式批准, 不与"运行期禁网"边界冲突; 把仅用于人工演示、不入确定性门禁的卡(如前端)显式标注、其 DoD 不放进禁网门禁。\n' +
   '- 并行窗口里的卡 allow_paths 互不重叠(各自 worktree 合并不撞)。\n' +
@@ -111,7 +113,7 @@ log('decompose-cards: 投影计划任务章节为任务卡 + 4 角度对抗卡�
 
 const decomp = await agent(
   '把(修正后的)计划任务章节投影为【完整的带依赖关系任务卡集】(specs/tasks 的薄投影，非第二份计划)。\n' + CONSTRAINTS + '\n\n' +
-    '为计划任务章节列出的每张卡产出每卡全字段(id/title/depends_on/parallelizable_with/allow_paths/forbid/non_goals/dod_command/dod_exit/dod_assert/plan_ref/hygiene/doc_sync/notes)。\n' +
+    '为计划任务章节列出的每张卡产出每卡全字段(id/title/depends_on/parallelizable_with/allow_paths/sweep/forbid/non_goals/dod_command/dod_exit/dod_assert/plan_ref/hygiene/doc_sync/notes)。\n' +
     '把计划「本版砍掉/推迟」「右尺寸·刻意不做」里的能力级非目标按影响域分发进对应卡的 non_goals(只放与该卡功能相关的;无则 []);non_goals 是 forbid(横切硬边界)的能力级对偶,供 R3 评审 #14 判「顺手多做」的越界。\n' +
     '标 freeze_point(契约/schema 卡)与 topo_valid 与真实 parallel_window。',
   { phase: 'Decompose', schema: CARDS_SCHEMA }

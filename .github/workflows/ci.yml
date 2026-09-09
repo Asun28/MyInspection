@@ -183,6 +183,7 @@ jobs:
         # This is the only online phase for license-scanner tooling. Exact versions are warmed before the gate;
         # the gate itself forces uv and npm offline, so a cold/missing cache fails closed without a registry request.
         run: |
+          Write-Host '[LICENSE-PIN] provision pinned scanners online before the offline license gate.'
           if (Test-Path pyproject.toml) {
             uv run --with pip-licenses==5.5.5 pip-licenses --version
             if ($LASTEXITCODE -ne 0) { Write-Error "pip-licenses provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
@@ -223,6 +224,17 @@ jobs:
             pwsh -NoProfile -File $f
           } else { Write-Host 'verify.ps1 still placeholder; skipping' }
 
+      - name: Assert clean worktree
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $dirty = @(git status --porcelain)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the verified worktree' }
+          if ($dirty.Count -gt 0) {
+            $dirty | Write-Host
+            throw 'Verification changed the checkout; generated changes must be committed and verified again'
+          }
+
   # Scaffold ship reads this one fan-in context.  The project verification stays
   # in `verify`; this job only exposes its result as the stable merge predicate.
   required:
@@ -234,7 +246,12 @@ jobs:
       - name: Assert project verification succeeded
         shell: pwsh
         run: |
-          if ('${{ needs.verify.result }}' -ne 'success') {
-            Write-Error "verify completed as ${{ needs.verify.result }}"
-            exit 1
+          $results = @'
+          ${{ toJSON(needs) }}
+          '@ | ConvertFrom-Json -AsHashtable
+          if ($results.Count -eq 0) { throw 'No required jobs were reported' }
+          foreach ($job in $results.Keys) {
+            if ($results[$job].result -cne 'success') {
+              throw "Required job $job completed as $($results[$job].result)"
+            }
           }

@@ -69,6 +69,7 @@ if ($RepoRoot) { $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path }
 else { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 . (Join-Path $PSScriptRoot '_config.ps1')
 . (Join-Path $PSScriptRoot '_lessons.ps1')   # 必须层驻留规则的共享判定核（上游 v0.43.0 #188/#189）
+. (Join-Path $PSScriptRoot '_guard.ps1')     # [LESSON-TIER-GUARD] add/check 共用的守卫判定；避免 resident tier 与 blocking 两套口径漂移
 $Ledger = Join-Path $RepoRoot 'docs/lessons/LEDGER.md'
 $LessonsArchive = Join-Path $RepoRoot 'specs/archive/lessons-archive.md'
 $OnDemandDir = Join-Path $RepoRoot 'docs/lessons'
@@ -442,7 +443,12 @@ function Test-AllTermsMatch([string]$Text, [string[]]$Terms) {
 # 判定复用 check-secrets.ps1 的 Find-LineSecret（单一真相源，免双源漂移；TD18）——尽力 early filter，
 # 权威闸仍是 check-secrets（ship / pre-push / CI 强制）。命中返回模式名（调用方应拒绝入账），否则 $null。
 # -AsLibrary 只定义函数/模式集即返回，不执行其主扫描（坑：直接 dot-source 会跑整套闸且 exit 会杀掉本脚本）。
+# check-secrets is a script library, not a module: dot-sourcing it declares its own `$RepoRoot` in this
+# script scope. Preserve the caller-selected repository so archive/bump never silently fall back to the
+# scripts directory after the secret helper loads.
+$LessonsCommandRepoRoot = $RepoRoot
 . (Join-Path $PSScriptRoot 'check-secrets.ps1') -AsLibrary
+$RepoRoot = $LessonsCommandRepoRoot
 function Find-EntryBlobSecret([string]$Blob) {
   foreach ($line in ($Blob -split '\r?\n')) {
     $hit = Find-LineSecret $line
@@ -455,10 +461,13 @@ switch ($Command) {
 
   'add' {
     if (-not $Symptom -or -not $Rule) { throw '至少需要 -Symptom 与 -Rule。' }
-    # blocking 经验必须声明机械守卫（OpenAI「让同一错误不可复发」——把软提醒升级为确定性守卫，或显式记 none+理由）。
-    if ($Severity -eq 'blocking' -and -not $EnforcedBy) {
-      throw "blocking 经验须 -EnforcedBy（机械守卫的脚本/闸门路径，如 'scripts/review.ps1'；确无守卫则写 'none（理由）'）。"
-    }
+    # A must-tier entry needs a paired iron-law registration which this command cannot create.
+    # Refuse before writing an entry that the next check must reject.
+    if ($Tier -eq 'must') { throw '[LSN-ADD-TIER] add 不能直接写 tier:must；先用 ledger 记录，再按 promote 的指引同步驻留规则与账本。' }
+    # [LESSON-TIER-GUARD] 与 check 共用同一纯判定：blocking 仍须守卫，且占位符不能冒充声明。
+    # must 已在上方拒绝直接写入；其既存条目由 check 同一谓词校验驻留成本。
+    $tierErr = Get-ScaffoldLessonTierGuardError -Id '(new entry)' -Tier $Tier -Severity $Severity -EnforcedBy $EnforcedBy
+    if ($tierErr) { throw $tierErr }
     # 密钥过滤 = 尽力 early filter，走顶部定义的入账过滤边界 Find-EntryBlobSecret（check 自检直测同一函数）。
     $blob = "$Symptom $RootCause $Rule $Refs $Tags $EnforcedBy"
     $hit = Find-EntryBlobSecret $blob
@@ -507,7 +516,7 @@ switch ($Command) {
     if ($hit) { $hit | ForEach-Object { if (-not $_.metaOk) { "{0} [LSN-META-INVALID] {1}" -f $_.id, $_.rule; return }; $costTag = if ($_.cost) { " 〔成本:$($_.cost)〕" } else { '' }; "{0} [{1}]{2} {3}" -f $_.id, $_.tier, $costTag, $_.rule } } else { '  （总账无匹配）' }
     Step "冷归档检索：$Query"
     $coldHit = Get-ArchivedLessons | Where-Object { Test-AllTermsMatch $_.body $terms }
-    if ($coldHit) { $coldHit | ForEach-Object { $tierTag = if ($_.metaOk) { $_.tier } else { 'LSN-META-INVALID' }; "[archived] {0} [{1}] {2}" -f $_.id, $tierTag, $_.rule } } else { '  （冷归档无匹配）' }
+    if ($coldHit) { $coldHit | ForEach-Object { $tierTag = if ($_.metaOk) { $_.tier } else { 'LSN-META-INVALID' }; "{0} [archived] [{1}] {2}" -f $_.id, $tierTag, $_.rule } } else { '  （冷归档无匹配）' }
     Step "按需层检索：$Query"
     $files = Get-ChildItem $OnDemandDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne 'LEDGER.md'
     $any = $false
@@ -541,7 +550,7 @@ switch ($Command) {
     # 上下文已是上限的近两倍，这正是「封顶通过了但成本还在涨」的静默失效面。
     # 「小节」只有一个定义 = 判定核返回的 Ids：封顶、id 存在性、层级漂移三处同读一份集合。此前封顶数
     # bullet、后两者正则扫整段文本，于是只写在小节引言 blockquote 里的 must 经验「登记了却不计费」。
-    $mustSec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
+    $mustSec = Get-ScaffoldMustLayerSection -Path $ClaudeMd -Bullets @(Get-ScaffoldMustLayerBullet -Path $ClaudeMd)
     if (-not $mustSec.Found -and $mustSec.Reason -ne 'FILE-MISSING') {
       # fail-closed：标题漂移或重复驻留都会让 cap 计量失真；「测不准」绝不能读成「没超」。
       $detail = if ($mustSec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($mustSec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（标题漂移？）' }
@@ -580,7 +589,7 @@ switch ($Command) {
     #   堵「元仓晋升 must 只改 CLAUDE.md 忘改模板 → 下游 init 首跑 check 即挂」。下游无此文件 => 优雅跳过（空配置规则）。
     if (Test-Path $TemplateMd) {
       # 同一枚判定核，同一份「小节」定义（本卡 forbid：不得有第二处「驻留 id 怎么数」的实现）。
-      $tplSec = Get-ScaffoldMustLayerSection -Path $TemplateMd
+      $tplSec = Get-ScaffoldMustLayerSection -Path $TemplateMd -Bullets @(Get-ScaffoldMustLayerBullet -Path $TemplateMd)
       if (-not $tplSec.Found) {
         $templateDetail = if ($tplSec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($tplSec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（模板标题漂移）' }
         Write-Warning "$($tplSec.Sentinel) CLAUDE.template.md $templateDetail——模板同步无从校验，拒绝放行。"; $fail = $true
@@ -600,10 +609,20 @@ switch ($Command) {
     # 字段完整
     $bad = @($validation | Where-Object { $_.Errors -contains 'missing-rule' } | ForEach-Object Lesson)
     if ($bad.Count) { Write-Warning "[LSN-ENTRY-INVALID] 缺 rule 字段：$($bad.id -join ', ')"; $fail = $true } else { Write-Host '字段完整 ✓' }
-    # enforced_by：blocking 经验必须声明机械守卫（脚本/闸门路径）或显式 'none（理由）'——
-    #   OpenAI《Harness Engineering》「让同一错误不可复发」：把会卡死/返工的坑从「上下文提醒」升级为「确定性守卫」，或至少显式承认无守卫。
+    # blocking 的旧硬契约保持不变：缺声明仍是 check 失败，不能因 tier 扩展而降低现有保护。
     $blkNoEnf = @($validation | Where-Object { $_.Errors -contains 'blocking-missing-enforced-by' } | ForEach-Object Lesson)
     if ($blkNoEnf.Count) { Write-Warning "[LSN-ENTRY-INVALID] blocking 经验缺 enforced_by（须填机械守卫路径，或 'none（理由）'）：$($blkNoEnf.id -join ', ')"; $fail = $true } else { Write-Host 'enforced_by 完整（blocking 均已声明守卫）✓' }
+    # [LESSON-TIER-GUARD] 复用新增入口的真实谓词审视历史驻留条目，但不回填/猜测其机械守卫：
+    # 历史 must 语料早于本声明契约，且 add 不能直接铸造 must；因此这里只给出可检索 advisory，
+    # 保持既有 check 的阻断范围。blocking 行仍由上方旧硬契约与下方形态校验阻断。
+    $mustGuardAdvisories = @()
+    foreach ($lesson in $ls | Where-Object { $_.tier -eq 'must' -and $_.severity -ne 'blocking' }) {
+      $err = Get-ScaffoldLessonTierGuardError -Id $lesson.id -Tier $lesson.tier -Severity $lesson.severity -EnforcedBy $lesson.enforced_by
+      if ($err) { $mustGuardAdvisories += $err }
+    }
+    if ($mustGuardAdvisories.Count) {
+      $mustGuardAdvisories | ForEach-Object { Write-Warning "[LESSON-TIER-GUARD-ADVISORY] $_" }
+    } else { Write-Host 'tier:must 既有条目均已声明守卫或显式 none ✓' }
     # enforced_by **形态**可认（fail-closed）：非空、又既不是 'none（理由）' 也不是认得出的守卫引用的取值
     #   （TODO / N/A / 待补 / 见 PR 讨论，以及中文的 无闸门（只能靠人）/ 人工/评审 / 未定/待议）
     #   是**冒充了一次声明**——它让上面那道「blocking 必填」闸满意，
@@ -827,7 +846,15 @@ switch ($Command) {
       (Get-LessonNumber $_.id) -ne $maxNumber -and -not $referenced.ContainsKey($_.id)
     })
     $candidateText = if ($candidates.Count) { ($candidates.id -join ',') } else { 'none' }
-    Write-Host "$(if ($DryRun) { '[LSN-ARCHIVE-DRYRUN]' } else { '[LSN-ARCHIVE]' }) candidates=$candidateText"
+    $residentKept = @($hot | Where-Object {
+      @($invariantById[$_.id]).Count -eq 0 -and $_.tier -eq 'ledger' -and $_.recurrence -eq 1 -and
+      (Get-LessonNumber $_.id) -ne $maxNumber -and $referenced.ContainsKey($_.id)
+    }).Count
+    if ($DryRun) {
+      Write-Host "[LSN-ARCHIVE-DRYRUN] candidates=$($candidates.Count) (resident-referenced kept hot: $residentKept): $candidateText"
+    } else {
+      Write-Host "[LSN-ARCHIVE] requested=$($candidates.Count) candidates=$candidateText"
+    }
     $moverExit = 0
     if ($candidates.Count) {
       # 预览与实跑走**同一个**搬运器，只差 -DryRun。否则预览只演到「选出了谁」，而搬运器自己的拒绝全在这之后：
@@ -840,6 +867,7 @@ switch ($Command) {
       & pwsh @moverArgs
       $moverExit = $LASTEXITCODE
     }
+    if (-not $DryRun -and $candidates.Count -eq 0) { Write-Host '[LSN-ARCHIVE] moved=0' }
     # 顺序即语义：搬运已在上面发生过了。此处的 exit 1 报告「账本里有读不出的条目」，**不表示零搬运**——
     # 合法候选此刻已经进了冷库（A15 只要求非零退出；预览路径因 -DryRun 天然零写入，两者退出码仍同口径）。
     if ($unparsable.Count -or $invalidEntries.Count) { exit 1 }

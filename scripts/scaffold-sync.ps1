@@ -497,9 +497,10 @@ This prose names SCAFFOLD-SYNC-LEDGER before the real marker.
 
   $realLedger = Get-Content $LedgerDoc -Raw
   $realV46 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.46\.0 \| applied \|' })
+  $realV47 = @($realLedger -split "`r?`n" | Where-Object { $_ -match '^\| v0\.47\.0 \| partial \|' })
   $hasOriginVersion = $resolvedConfig.PSObject.Properties.Name -contains 'OriginVersion'
   $resolvedOriginVersion = if ($hasOriginVersion) { [string]$resolvedConfig.OriginVersion } else { '' }
-  if ((Get-SyncedVersion $realLedger '0.29.0') -ne '0.46.0' -or $resolvedConfig.Version -cne '0.46.0' -or $resolvedOriginVersion -cne '0.29.0' -or $realV46.Count -ne 1 -or $realV46[0] -notmatch 'd0c9145970e69626318a26ce922650f1a631c2f0' -or $realV46[0] -notmatch 'dual-version') { $fails.Add('real v0.46 applied ledger row or origin/current version split is absent') }
+  if ((Get-SyncedVersion $realLedger '0.29.0') -ne '0.47.0' -or $resolvedConfig.Version -cne '0.47.0' -or $resolvedOriginVersion -cne '0.29.0' -or $realV46.Count -ne 1 -or $realV46[0] -notmatch 'd0c9145970e69626318a26ce922650f1a631c2f0' -or $realV46[0] -notmatch 'dual-version' -or $realV47.Count -ne 1 -or $realV47[0] -notmatch '96ebfcec2a1ff89ac77e665123978d7ae138c857') { $fails.Add('v0.47 partial adoption, retained v0.46 decision, or immutable origin/current version split is absent') }
   if ((Get-SyncedVersion '' '0.29.0' @('v0.29.0','v0.45.0')) -ne '0.29.0') { $fails.Add('missing ledger did not fail closed to ScaffoldOriginVersion') }
   $syncRaw = Get-Content $PSCommandPath -Raw
   $routes = Get-ScaffoldOriginCurrentContract $syncRaw

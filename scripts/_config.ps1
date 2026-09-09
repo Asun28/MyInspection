@@ -433,6 +433,12 @@ $script:ScaffoldConfig = @{
   # times. Under ADR 0016 a Tier-S spec-axis block is binding (T277), so a timeout must not stand in for a verdict.
   ReviewTimeoutSec = 2400
 
+  # Unsuccessful reviewer attempts allowed on one branch before human adjudication. Every post-invocation
+  # block spends the legacy counter, including timeout/no-output/malformed/tool failures; early setup failures
+  # and routed skips do not. 0 disables the cap. `review.ps1 -ResetRounds` clears only the local throttle
+  # counter and retains round/history artifacts, then returns without invoking the reviewer.
+  ReviewRoundCap = 2
+
   # ── R3 评审的角色（T68：用户 2026-08-15 减法裁定「合并闸=确定性闸；越用越薄」）──
   # 留空 ''（默认）= **意见模式**：ship 不调评审、不因评审阻断；要第二意见随时手动跑 scripts/review.ps1
   # （完整裁决 JSON + 可选 -PostStatus 回贴，只输出意见）。'required' = 旧强制闸行为（opt-in：ship 内

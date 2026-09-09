@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   个人账号守卫：本项目的所有 GitHub 操作**仅限配置的个人账号**，禁止其它/组织账号。
@@ -99,7 +99,7 @@ function Test-ScaffoldAdrFormat {
   .DESCRIPTION
     Two rules, both chosen because they pay for themselves and neither needs a lifecycle folder tree:
 
-      1. A parseable status. Exactly one syntax is accepted, a `- Status: <value>` line in the header list.
+      1. A parseable status. New records use `- Status: <value>` in the header list.
          Before this gate the nine records carried four different syntaxes (a blockquote `> 状态：accepted`,
          `- 状态：已接受（Accepted）`, `- Status: accepted` and `- **Status**: accepted`), so nothing could
          read the status of a record without a human looking at it.
@@ -108,8 +108,9 @@ function Test-ScaffoldAdrFormat {
 
     The alternatives heading is accepted in BOTH the English and the Chinese form. That is not tidiness:
     four records use `## 备选方案` and the English-first rule explicitly forbids retroactively converting
-    untouched lines, so the checker meets those records where they are. The status line is different - the
-    retrofit touches that line in every record anyway, so it is normalised to one form rather than aliased.
+    untouched lines, so the checker meets those records where they are. MyInspection's existing dated
+    status headers and two alternatives headings are also recognized below. Those append-only decisions
+    predate this template contract; importing it must not rewrite their approved status or invent rationale.
 
     The waiver exists because the alternative is worse. An agent told to satisfy this gate on a record whose
     rationale was never written down will otherwise invent plausible alternatives, and a fabricated rationale
@@ -129,9 +130,12 @@ function Test-ScaffoldAdrFormat {
   # (?m) with a trailing [ \t\r]* so a CRLF checkout does not leave a stray carriage return outside the
   # match - the defect class TD143/L231 records, where an over-wide \s* hid the problem until it was narrowed.
   $statusPattern = '(?m)^-[ \t]+Status:[ \t]*\S'
+  $datedStatusPattern = '(?m)^(?:日期：|Date:)[ \t]*\d{4}-\d{2}-\d{2}[ \t]+·[ \t]+(?:状态：|Status:)[ \t]*(?:\*\*)?(?:accepted|proposed|superseded|rejected)\b'
   $altPatterns = @(
     '(?m)^##[ \t]+Alternatives considered[ \t\r]*$'
     '(?m)^##[ \t]+备选方案[ \t\r]*$'
+    '(?m)^##[ \t]+Rejected alternatives[ \t\r]*$'
+    '(?m)^##[ \t]+批准决定与备选[ \t\r]*$'
   )
   $waiverMarker = 'adr-format: alternatives-not-recorded'
 
@@ -149,8 +153,9 @@ function Test-ScaffoldAdrFormat {
     $recName = [string]$rec.Name
     $recText = [string]$rec.Text
 
-    if ($recText -notmatch $statusPattern) {
-      $findings.Add("$recName has no parseable status. Add a '- Status: Accepted' line (or Proposed, Superseded, Rejected) to the header list directly under the title. One syntax only - a blockquote status or a bolded label reads to a human but not to this gate.")
+    $recHeader = ($recText -split '(?m)^##[ \t]', 2)[0]
+    if ($recText -notmatch $statusPattern -and $recHeader -notmatch $datedStatusPattern) {
+      $findings.Add("$recName has no parseable status. New records use a '- Status: Accepted' line (or Proposed, Superseded, Rejected) directly under the title. Existing dated MyInspection headers are preserved; body prose or a blockquote does not establish header status.")
     }
 
     # Kept as three separate statements so each rule is its own single-line-deletion mutation target (L165):
@@ -590,10 +595,14 @@ function Test-ScaffoldDocReadTagExamples {
   [CmdletBinding()]
   param()
   $bad = [System.Collections.Generic.List[string]]::new()
-  $root = Split-Path -Parent $PSScriptRoot
+  # The examples own their path population; initialized projects need neither a README nor a CHANGELOG.
+  $root = Join-Path ([IO.Path]::GetTempPath()) ('scaffold-doc-read-ex-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $root | Out-Null
+  [IO.File]::WriteAllText((Join-Path $root 'README.md'), '# fixture')
+  try {
   $t = '[DOC-GATE-READS 9z]'
 
-  $illegal = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads CHANGELOG.md; re-check with: selftest.ps1 -Only no-such-gate")
+  $illegal = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads README.md; re-check with: selftest.ps1 -Only no-such-gate")
   if ($illegal.Count -ne 1) { $bad.Add("illegal-only-id: expected 1 finding, got $($illegal.Count)") }
 
   $ghost = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads docs/NO-SUCH-FILE.md; re-check with: selftest.ps1 -Only 14")
@@ -602,16 +611,16 @@ function Test-ScaffoldDocReadTagExamples {
   $dynamic = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads the .md named above; re-check with: selftest.ps1 -Only 14")
   if ($dynamic.Count -ne 0) { $bad.Add("dynamic-form-must-pass: expected 0 findings, got $($dynamic.Count) ($($dynamic -join ' ~ '))") }
 
-  $noOnly = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads CHANGELOG.md and nothing re-checks it")
+  $noOnly = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads README.md and nothing re-checks it")
   if ($noOnly.Count -ne 1) { $bad.Add("no-only-id: expected 1 finding, got $($noOnly.Count)") }
 
   $both = @(Test-ScaffoldDocReadTag -RepoRoot $root -Text "$t this gate reads docs/NO-SUCH-FILE.md; re-check with: selftest.ps1 -Only no-such-gate")
   if ($both.Count -ne 2) { $bad.Add("both-halves-independent: expected 2 findings, got $($both.Count)") }
 
-  $seen = @(Get-ScaffoldDocReadTagSite -Text "$t this gate reads CHANGELOG.md; re-check with: selftest.ps1 -Only 14")
+  $seen = @(Get-ScaffoldDocReadTagSite -Text "$t this gate reads README.md; re-check with: selftest.ps1 -Only 14")
   if ($seen.Count -ne 1) { $bad.Add("projection-count: expected 1 site, got $($seen.Count)") }
-  elseif ($seen[0].SubGate -ne '9z' -or $seen[0].OnlyToken -ne '14' -or @($seen[0].Paths).Count -ne 1 -or @($seen[0].Paths)[0] -ne 'CHANGELOG.md') {
-    $bad.Add("projection-fields: expected sub-gate 9z, -Only 14, one path CHANGELOG.md; got sub-gate $($seen[0].SubGate), -Only $($seen[0].OnlyToken), path(s) $(@($seen[0].Paths) -join ',')")
+  elseif ($seen[0].SubGate -ne '9z' -or $seen[0].OnlyToken -ne '14' -or @($seen[0].Paths).Count -ne 1 -or @($seen[0].Paths)[0] -ne 'README.md') {
+    $bad.Add("projection-fields: expected sub-gate 9z, -Only 14, one path README.md; got sub-gate $($seen[0].SubGate), -Only $($seen[0].OnlyToken), path(s) $(@($seen[0].Paths) -join ',')")
   }
 
   $hint = @(Get-ScaffoldDocReadTagSite -Text "$t this gate reads the ADR named above under docs/adr; after editing it, re-check with: selftest.ps1 -Only 14 (or the faster scripts\check-adr.ps1)")
@@ -620,6 +629,12 @@ function Test-ScaffoldDocReadTagExamples {
   }
 
   return @($bad)
+  } finally {
+    $fixtureFull = [IO.Path]::GetFullPath($root)
+    $tempPrefix = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $fixtureFull.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $fixtureFull) -notlike 'scaffold-doc-read-ex-*') { throw 'Unsafe doc-read fixture cleanup path.' }
+    Remove-Item -LiteralPath $fixtureFull -Recurse -Force
+  }
 }
 
 # -- T141-SELFTEST-REGION-LITERAL: a gate-17 region literal that names no declared region --

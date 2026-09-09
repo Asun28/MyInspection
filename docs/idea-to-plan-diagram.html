@@ -390,9 +390,9 @@
             <p>沿设计决策树<b style="color:var(--fog-bright)">一次一问 · 每问给推荐 · 消解依赖</b>，把数据模型 / 契约 / 状态机 / 模块边界 / 错误路径敲定，再落 PLAN <span class="arrow">→</span> 减少 plan-forge 的 fix-first 往返。</p>
           </div>
           <div class="step">
-            <span class="step-tag mul" aria-hidden="true">× 做乘法 · 8 lenses</span>
-            <h3>plan-forge.mjs 8 透镜审计</h3>
-            <p>PLAN-TEMPLATE 扩写 <span class="arrow">→</span> 8 个 lens 审计（含 ③ module-design：模块化 / 扁平化 / 去中心化做乘法 + 反过度工程右尺寸）<span class="arrow">→</span> 多裁判对抗核验 <span class="arrow">→</span> 裁决。</p>
+            <span class="step-tag mul" aria-hidden="true">× 做乘法 · tier 路由 · T2 = 8 lenses</span>
+            <h3>plan-forge.mjs 透镜审计（深度按 tier）</h3>
+            <p>PLAN-TEMPLATE 扩写 <span class="arrow">→</span> 审计深度由调用方传的 <code>tier</code> 决定：<b>T2</b> 走全 8 个 lens（含 ③ module-design：模块化 / 扁平化 / 去中心化做乘法 + 反过度工程右尺寸）<span class="arrow">→</span> 多裁判对抗核验；<b>T1</b> 走 3 个 lens、无对抗轮（4 个 agent）；<b>T0</b> 跳过整个漏斗 <span class="arrow">→</span> 裁决。</p>
           </div>
           <div class="step">
             <span class="step-tag mul" aria-hidden="true">× project → audit</span>

@@ -42,21 +42,38 @@ snapshot named by this PR.
 ## Project adaptations
 
 - `scripts/verify.ps1`, its GoldenEvidence/Android checks, and the existing
-  `verify` CI job remain project-owned.  CI adds only a `required` fan-in job
-  which succeeds solely when `verify` succeeds.
+  `verify` CI job remain project-owned. CI adds a checkout-cleanliness check
+  and a `required` fan-in job which succeeds solely when all dependencies
+  report success; failure, cancellation and skipped dependencies block it.
 - The MyInspection identity, portable worktree root, product frozen paths,
   origin `0.29.0`, and project DocSync mappings remain in `_config.ps1`.
   The adopted high-water is `0.47.0`; upstream-only budget and mutation
   exemptions stay disabled.
 - `ReviewGate` remains `required`; content-based review skipping is disabled.
-  This PR is merged only after its one independent Codex review reports no
-  block.  Upstream's advisory default is not adopted as this project's merge
-  policy.
+  This PR requires a passing independent Codex review of its current head.
+  The first review blocked; the user subsequently authorized repairing its
+  remaining four integration findings and one further review. Upstream's
+  advisory default is not adopted as this project's merge policy.
 - MyInspection retains its production `review.ps1` hard ceiling of 1,000
   changed lines and 60,000 diff characters.  The source's current task loop
   no longer carries the legacy RED/waterline-receipt ship gate; that current
   upstream workflow is adopted, but no historical receipt is imported or
   represented as fresh evidence.
+- The local two-failure review cap and explicit reset remain available.
+  Artifact reads, writes and deletion reject reparse points and unsafe
+  ancestors. `.review/records` contains ignored local diagnostic logs;
+  published PR evidence and commit statuses bind review results to their SHA.
+- Selftest keeps the Android, GoldenEvidence, compliance-exclusion,
+  tracked-sensitive allowlist and read-only archive-index regressions.
+  The shared lesson and handoff parsers and tier-aware plan-forge consumers
+  are ported together; test fixtures execute against their temporary roots.
+  The restored cold-reference subgate makes the subgate manifest count 151.
+  Windows `seed-pre` retains its 30-minute timeout; the other nine CI matrix
+  combinations retain 20 minutes.
+- ADR format checks recognize the project's existing dated status headers and
+  alternatives headings without rewriting historical decisions. Card generation
+  carries the required `sweep` field, and documentation-path examples own their
+  temporary fixture instead of depending on template files removed at initialization.
 - `check-cards.ps1` retains the existing local enforcement set for its legacy
   corpus.  Tier computation and ASCII result surfaces are active; later
   upstream budget, sweep, mutation, requirement-citation, near-miss,
@@ -70,6 +87,12 @@ snapshot named by this PR.
   sensitive allowlist for committed SQLDelight schema baselines.  The adapter
   validates the tracked JSON and every listed path; it is not a broad `.db`
   exemption.  The adopted `PublicOutput` secret scan behavior remains intact.
+- License scanner calls use the project's existing pinned versions and
+  prewarmed offline cache. Missing tools or metadata still fail coverage;
+  the `-AsLibrary` path does not change the caller's offline environment.
+- Handoff reminder throttling keys on the progress file's content, so changed
+  handoff content is reported immediately while repeated content is throttled.
+  Handoff validation rejects literal tab characters in its fields.
 
 ## Not completed by this adoption
 
@@ -80,9 +103,12 @@ cards remain separate work; this document does not recast them as accepted.
 
 ## Evidence boundary
 
-The source PRs were confirmed merged with their published upstream CI.  The
+The source PRs were confirmed merged with their published upstream CI. The
 fixed source includes their complete module history, so this port does not
-claim every changed line was introduced by those 18 PRs alone.  Local evidence
-is limited to parsing and targeted static contract checks recorded in the
-adoption PR.  No upstream run is presented as a fresh MyInspection acceptance
-run.
+claim every changed line was introduced by those 18 PRs alone. The initial
+static checks did not prove the coupled selftest workflow: the first review
+found missing interfaces and lost downstream checks. Follow-up validation
+therefore exercises those interfaces and verifies that temporary fixtures do
+not modify the checkout. Commands, native results and candidate SHAs are
+recorded in the PR. No upstream run is presented as a fresh MyInspection run,
+and an earlier-head review does not approve a later repair commit.

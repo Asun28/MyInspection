@@ -4,6 +4,8 @@
 > 从 `CLAUDE.md` 的「交付链速览」按需跳来；改任一脚本前先读对应链的**权威文档**那一列。
 > CLAUDE.md 只保留 3 列速览（链路 · 入口 · 权威文档）以省每轮上下文预算；详解（配套件那一列）在此。
 
+MyInspection 的 R3 配置保持 `ReviewGate = 'required'`、`ReviewSkipWhen = @{}`：内容路由关闭，Markdown 改动也要评审。上游提供的 `ReviewSkipWhen` 谓词只有在项目显式配置后才可能跳过符合条件的 diff；本仓没有启用该豁免。合并须同时取得当前提交的可用 `pass` 与成功 CI。评审产物的路径检查覆盖每次读写、枚举、删除与计数器重置；`.review` 是忽略的本地诊断，远端 commit status 和 PR 评论才是共享记录。
+
 | 链路 | 入口脚本 | 配套 | 权威文档 |
 |---|---|---|---|
 | 单卡闭环 R1–R5 | `scripts/task.ps1 -Phase start\|ship\|cleanup` | `_guard.ps1`（账号守卫）· `_config.ps1` · `check-cards.ps1`（start 前置校验卡）· `_scope.ps1`（范围闸判定核，与独立入口 `check-scope.ps1` 共用；后者是「已推送恢复」序列第 3 步的可执行投影，越界/不可判即非零退出、不做定向 fetch）· 远端 ship：DoD → **verify 总闸** → 提交 → 定向刷新 `origin/<base>` → **范围闸** → 许可 → 防泄露 → **真实 diff 预算闸** → push/PR → PR base 确认 → R3 → merge 前 base 复查 → 合并；fetch/base 查询失败或错配均 fail-closed，不回退陈旧本地基线 | `docs/DEVOPS-WORKFLOW.md` |

@@ -9,7 +9,9 @@ on:
   push:
     branches: [main, master]
     # Forward `paths` scans only the authoritative surfaces (a doc-only push does not trigger).
-    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!**.md']
+    # Product compliance policy has its own verify/R3 acceptance; a policy-only edit must not fan out to
+    # the 2 x 5 scaffold matrix.
+    paths: ['scripts/**', '.claude/**', '.github/**', 'configs/**', '!configs/compliance/**', '!**.md']
   # T275 (ADR 0016 item 3): NIGHTLY at 14:00 UTC (02:00 NZST / 03:00 NZDT). Tier-1 acceptance runs only the gates
   # the [GATE-MAP] routes for a card's changed paths, so a regression in a gate no route named reaches
   # master unseen and stays unseen until the next Tier-S card pays the full run. This bounds that window
@@ -82,7 +84,9 @@ jobs:
     # once. Read by selftest 8.2h, which requires it present at JOB level and inside a named floor/ceiling
     # (a step-level bound caps one step, not the job, and does not satisfy it). Moving the VALUE is a
     # measurement question with its own card; moving a BOUND edits the named constants in selftest.ps1.
-    timeout-minutes: 20
+    # TD4's real Gradle migration fixture runs only in Windows seed-pre.  Preserve that 30-minute budget;
+    # the other nine matrix legs remain at the measured 20-minute bound. Gate 8.2h recognizes this closed form.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.shard.name == 'seed-pre' && 30 || 20 }}
     steps:
       # T192: the shard filter, and the reason it is a STEP guard rather than a job-level `if`. GitHub
       # evaluates `jobs.<job_id>.if` BEFORE matrix expansion, so it cannot see `matrix` at all; and turning

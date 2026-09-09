@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -347,7 +347,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>plan-forge <span class="file">plan-forge.mjs</span></h3>
-              <p>8 透镜审计计划 + 多裁判对抗核验，裁决通过才投影任务卡。计划是唯一真相源。</p>
+              <p>透镜审计计划，深度按 tier 路由（T2 = 8 透镜 + 多裁判对抗核验，T1 = 3 透镜无对抗，T0 跳过）。裁决即止——投影任务卡归 decompose-cards 单一所有。计划是唯一真相源。</p>
               <span class="rel-tag">投影 → 任务卡</span>
             </div>
           </article>
@@ -372,7 +372,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>task-loop <span class="file">task.ps1 R1-R5</span></h3>
-              <p>每张卡一个 agent、一棵 git worktree，并行跑：worktree → TDD（red 证据）→ 剪枝 → 许可 / 防泄露闸 → 第二模型评审 → PR → 合并 → 文档同步。无远端 / 无 Codex 时 <code>-Local</code> 本地完成。</p>
+              <p>每张卡一个 agent、一棵 git worktree，并行跑：worktree → TDD → 剪枝 → 范围 / 预算 / 许可 / 防泄露闸 → PR →（可选第二意见评审，T68 默认非闸）→ CI check gate（TD134：auto 与手动路径皆过）→ 合并 → 文档同步。无远端 / 无 Codex 时 <code>-Local</code> 本地完成。</p>
               <span class="rel-tag">消费任务卡</span>
             </div>
           </article>
@@ -397,7 +397,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>check-cards <span class="file">check-cards.ps1</span></h3>
-              <p>校验任务卡：id=文件名、status 枚举、branch/worktree 不漂移、dod_command / allow_paths 完整、拒卡文占位符 token 字面量（L61/TD111）。</p>
+              <p>校验任务卡：id=文件名、status 枚举、branch/worktree 不漂移、dod_command / allow_paths 完整、已声明的 budget: 值形态（非整数/0/负数即拒，哨兵 [CARD-BUDGET]，T233；缺失静默放行）、allow_paths &gt;5 条的横切卡须带非空 sweep（哨兵 [CARD-SWEEP]，T94；闸10h 回归）、拒卡文占位符 token 字面量（L61/TD111）、拒 front-matter 非缩进无冒号垃圾行（注释行豁免；TD112）、全卡模式拒「两张在飞卡声称偿还同一条债而债行未声明该拆分」（claim 只取卡 id 与 title；债行偿还指针点名全部卡 id 或一张带 superseded_by 即合法，哨兵 [CARD-TD-DUP]，TD147/T102；闸10j 回归）；另有只告警不阻断的两条：某字段值整体仍是未填占位符（哨兵 [CARD-PLACEHOLDER]，L226/T98）、卡编号已被语料库里另一张卡占用（哨兵 [CARD-ID-REUSE]，TD147）。</p>
             </div>
           </article>
           <article class="node c-sub" tabindex="0" data-rel="quality cards" data-self="checkscope">
@@ -419,8 +419,8 @@
           <article class="node c-sub" tabindex="0" data-rel="quality" data-self="verify">
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
-              <h3>CI verify <span class="file">verify.ps1 · ci.yml</span></h3>
-              <p>确定性 CI 闸：<strong>windows-latest</strong>（T0-TOOLCHAIN 起：Android/Gradle 闸与开发机同源、以确定性换 2× 计费分钟）、无密钥；网络仅限引导步（setup-java / setup-android / 一次在线 <code>gradlew build</code> 预热缓存），此后各闸恒 <code>--offline</code>。job 名 verify，含占位「闸门 2」接 e2e。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
+              <h3>CI verify <span class="file">verify.ps1 · ci.yml · _ci.ps1</span></h3>
+              <p>确定性 CI 闸：ubuntu-latest（pwsh 预装 · 省 2× 分钟 · 可改 windows/matrix）、无网络、无密钥。<strong>两个 job</strong>：verify 干活（含占位「闸门 2」接 e2e；末步 clean-worktree 断言，改脏了树即红）+ required <strong>fan-in</strong>（if: always()，needs 点名其余每个 job，只认字面 success，skipped/cancelled 算失败）。规则集该要求的<strong>唯一 context 是 required</strong>，ship 的 [CI-GATE] 也只等它；判定核 _ci.ps1 与 selftest 闸 8.2g 共用，8.2g 机检 needs 已点名每个 job（T86）。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
             </div>
           </article>
           <article class="node c-sub" tabindex="0" data-rel="quality" data-self="licenses">
@@ -441,7 +441,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>元仓总自检 <span class="file">selftest.ps1</span></h3>
-              <p>本地聚合 core（1–14+16）、workflow（15）、完整 seeded（17）。CI 将 seeded 等价拆为 git/remote/scanner，在 Windows/Ubuntu 各跑五片（10 jobs），压低 wall time 而不减覆盖；仅默认分支权威面 push 或手动 canary。PR 仍由卡 DoD、verify、R3 守门。逐闸细目以 selftest 头注为准。</p>
+              <p>17 闸一把跑全：语法 / 经验 / 模板哨兵 / token 覆盖 / 裁决漂移 / 交叉链接 / 计数一致 / doc-drift（DocSyncMap 源↔文档联动） / 动态 E2E / 种子缺陷（拿已知坏输入验证每道闸真会拦）等，本仓的「verify」。约 12 闸测的是随下游保留的生产脚本（task.ps1/review.ps1/...），init 不再删它，元仓专属子闸检测到已初始化会自跳过（TD15）。T62：-Only 闸选择器（单闸滤过跑给 dev-loop/变异证据/评审者沙箱，非验收——结论走 SELFTEST-ONLY 独立哨兵；验收面 = 本地无参全量，或 CI 分片并集全绿）+ 逐闸计时行 GATE-TIME。T63：mutate.ps1 变异证据 runner（登记表驱动 · 目标闸滤过跑非验收 · 被守文件 SHA 未变即沿用；登记表/结果 tracked 于 specs/mutations/），子闸 17ac 种子缺陷锁 runner 自身。T64/T65/T118：CI 分片并集恒等全 17 闸并行（清单以 scaffold-selftest.yml 矩阵为真相源，现五片 1-14+16 / 15 / 17pre / 17post / 17t,17ac；17base = umbrella ≡ 17pre+17post 仍为合法 -Only id；wall≈最慢片）。</p>
             </div>
           </article>
         </div>
@@ -458,14 +458,14 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>经验系统 <span class="file">lessons.ps1</span></h3>
-              <p>三层：铁律（按<strong>驻留经验 id</strong> 封顶，非条目数）→ 主题文件 → LEDGER（append-only 真相源）。blocking 经验须填 enforced_by（占位符会被 check 拒收）；judgment 喂 HARNESS-REVIEW。</p>
+              <p>三层：铁律（封顶）→ 主题文件 → LEDGER（append-only 真相源）。blocking 经验须填 enforced_by；judgment 喂 HARNESS-REVIEW。</p>
             </div>
           </article>
           <article class="node c-mul" tabindex="0" data-rel="heal" data-self="triage">
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>心跳 triage <span class="file">triage.ps1</span></h3>
-              <p>只读扫各子系统的 11 探针（lessons-promote 经验晋升 / tech-debt-open 技术债 / cards-active 活跃卡 / handoff-open 交接 / lessons-cap 封顶 / harness-refresh / effectiveness / worktree-orphan / lessons-demote 该降层 / delivery-blocked 交付停摆 / scaffold-stale 上游版本待议）→ 收件箱。只发现不行动，恒退出 0。</p>
+              <p>只读扫各子系统（经验晋升 / 技术债 / 活跃卡 / 交接 / 封顶 / harness / effectiveness / worktree / 脚手架陈旧）→ 收件箱。只发现不行动，恒退出 0；全部离线、不 fetch。</p>
               <span class="rel-tag">只读扫各子系统</span>
             </div>
           </article>
@@ -505,7 +505,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>frontend-flow <span class="file">串联驱动卡</span></h3>
-              <p>T2 前端生成闭环：流程卡 → 喂 plan-forge 投卡、意图卡 → grill-design 拷问。不重造引擎。</p>
+              <p>T2 前端生成闭环：流程卡 → 喂 decompose-cards 投卡、意图卡 → grill-design 拷问。不重造引擎。</p>
             </div>
           </article>
           <article class="node c-add" tabindex="0" data-rel="design" data-self="tokens">
@@ -612,11 +612,11 @@
       <p>架构的真相在接线，不在盒子。悬停或键盘聚焦任一子系统会点亮它的关系组：</p>
       <ul class="rel-list">
         <li><span class="wire" aria-hidden="true"></span><span><b>_config 喂所有脚本</b>：唯一配置点向上贯穿每一层，留空即各守卫优雅降级。</span></li>
-        <li><span class="wire add" aria-hidden="true"></span><span><b>plan-forge → 任务卡 → task-loop</b>：计划投影成卡，卡被执行闭环消费。</span></li>
+        <li><span class="wire add" aria-hidden="true"></span><span><b>plan-forge → decompose-cards → 任务卡 → task-loop</b>：plan-forge 审计到裁决即止，decompose-cards 把计划投影成卡，卡被执行闭环消费。</span></li>
         <li><span class="wire mul" aria-hidden="true"></span><span><b>lessons ↔ HARNESS-REVIEW</b>：judgment 经验喂减法评审，评审结果再回流经验库。</span></li>
         <li><span class="wire mul" aria-hidden="true"></span><span><b>triage 只读扫各子系统</b>：心跳横切所有层，只发现、不行动、恒退出 0。</span></li>
         <li><span class="wire sub" aria-hidden="true"></span><span><b>codex = 第二独立模型</b>：写码与评审分离，review.ps1 的裁决独立于实现模型。</span></li>
-        <li><span class="wire add" aria-hidden="true"></span><span><b>frontend-flow → plan-forge / grill-design</b>：前端不另造引擎，复用漏斗的拷问与投影。</span></li>
+        <li><span class="wire add" aria-hidden="true"></span><span><b>frontend-flow → decompose-cards / grill-design</b>：前端不另造引擎，复用漏斗的拷问与投影。</span></li>
       </ul>
       <p class="hint">提示：移开指针 / 移走焦点即恢复全局视图；偏好减少动态时不做明暗切换，盒子始终全可读。</p>
     </div>
@@ -643,7 +643,7 @@
         <section class="fstage">
           <div class="fnode add" aria-hidden="true">＋</div>
           <div class="fhead"><span class="fname">漏斗 3 步 · 想法 → 计划</span><span class="fen">shape → scout → grill → plan-forge</span><span class="ftier t1">T1+</span></div>
-          <p class="fbody">发散找痛点 → 收敛定 MVP → 选地基 → 拷问设计 → 8 透镜审计投影任务卡。机器搜集打分投影，不替你拍板。</p>
+          <p class="fbody">发散找痛点 → 收敛定 MVP → 选地基 → 拷问设计 → 透镜审计（T2 = 8 透镜，深度按 tier）→ decompose-cards 投影任务卡。机器搜集打分投影，不替你拍板。</p>
           <div class="gate"><span class="flag" aria-hidden="true">⛳</span>
             <div><span class="lbl">人批方向 / brief / ADR / 计划</span> <span class="sub">每步闸口由人定方向</span></div></div>
         </section>
@@ -659,12 +659,12 @@
         <section class="fstage">
           <div class="fnode run" aria-hidden="true">▶</div>
           <div class="fhead"><span class="fname">task-loop · 开工执行</span><span class="fen">R1-R5 · 每卡一个 agent</span></div>
-          <p class="fbody">并行窗口：每卡一棵 worktree 跑完整闭环（整链 fail-closed：非零即停、不确定即 block）。绕过 ship 主路的手工恢复用 <code>check-scope</code> 补回范围闸那一步。</p>
+          <p class="fbody">并行窗口：每卡一棵 worktree 跑完整闭环（整链 fail-closed：非零即停、不确定即 block）。绕过 ship 主路的手工恢复用 <code>check-scope</code> 补回范围闸那一步。改到 <code>DocSyncMap</code> 登记的源脚本时，配对权威文档须同 diff 更新（selftest 子闸 14f 机检、逃生门 <code>[doc-sync:none]</code>）。</p>
           <div class="fchain" aria-label="单卡闭环 R1 到 R5">
             <span class="lnk"><b>R1</b> worktree</span><span class="sep">›</span>
             <span class="lnk"><b>R2</b> TDD · red 证据</span><span class="sep">›</span>
             <span class="lnk">剪枝</span><span class="sep">›</span>
-            <span class="lnk">许可 / 防泄露闸</span><span class="sep">›</span>
+            <span class="lnk">范围 / 预算 / 许可 / 防泄露闸</span><span class="sep">›</span>
             <span class="lnk"><b>R3</b> 第二模型评审</span><span class="sep">›</span>
             <span class="lnk">PR / 合并 · 或 -Local</span><span class="sep">›</span>
             <span class="lnk"><b>R5</b> 文档同步</span>

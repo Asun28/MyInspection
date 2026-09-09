@@ -31,6 +31,8 @@
 .PARAMETER SkipReview 仅本地只读检视用：跳过评审，**exit 1（跳过≠通过，ship 在此停止、不合并）**
 .PARAMETER TimeoutSec 评审者子进程 wall-clock 超时秒数（默认 0=用内置 600s）。超时即杀整棵进程树、转 fail-closed block
                       （TD11/L21：挂起或配额耗尽的评审者否则会永久卡 ship）；慢的自定义第二模型后端可调大。
+.PARAMETER ResetRounds 安全清除本分支 `.review/<branch>.rounds` 节流计数后立即返回；不调用 reviewer，
+                       不删除逐轮历史或本地记录。用于人裁或后端故障处置完成后重新开始最多两轮。
 .PARAMETER Model      本次评审用的模型；留空取 _config.ps1 的 ReviewModel，再空则用后端自身默认。
 .PARAMETER Effort     本次评审的推理档位；留空则先看 _config.ps1 的 ReviewEffortBySize（按改动行数分档，T104），
                       其为空再取扁平的 ReviewEffort，都空则用后端自身默认。显式传本参数即覆盖两者。
@@ -49,6 +51,7 @@ param(
   [string]$Effort = '',
   [switch]$LocalBase,   # -Local 工作流：合并目标是**本地** <base>（非 origin/<base>）——优先本地解析基线（TD68 / R3 PR#102 三轮）
   [int]$TimeoutSec = 0,
+  [switch]$ResetRounds, # 独立操作：安全清零本分支失败评审尝试计数后直接返回；不调用 reviewer
   # MyInspection's existing complete-review budget.  Callers may tighten it,
   # never raise it, so a production ship cannot turn a split requirement into
   # a prompt truncation.
@@ -73,7 +76,41 @@ $reviewDir = Join-Path $WorktreePath '.review'
 # 根治：文件名 sanitize（/ 与 \ → -）。建议分支名本就用连字符（T-id / feat-xxx）。
 $branchSafe = ($branch -replace '[\\/]', '-')
 $verdictPath = Join-Path $reviewDir "$branchSafe.json"
+
+# Every review artifact is repository-adjacent but untrusted: a reviewed branch can place a junction,
+# symlink, or other reparse point at the leaf or at any ancestor below the worktree. Test from the leaf
+# (not merely .review) because REVIEW_OUT is handed to a subprocess which would otherwise follow it.
+function Test-ScaffoldPathUnsafe([string]$Path, [string]$StopAt) {
+  $probe = $Path
+  while ($probe) {
+    $item = Get-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    if ($item -and ((($item.Attributes) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) { return $true }
+    if ($probe -eq $StopAt) { break }
+    $parent = Split-Path $probe -Parent
+    if ((-not $parent) -or ($parent -eq $probe)) { break }
+    $probe = $parent
+  }
+  return $false
+}
+
+function Assert-VerdictPathSafe([string]$Path, [string]$When, [string]$Consequence) {
+  if (-not (Test-ScaffoldPathUnsafe -Path $Path -StopAt $WorktreePath)) { return }
+  Write-Host "  [R3-REVIEW-DIR-UNSAFE] The review artifact path '$Path' (or an ancestor below the worktree) is a symbolic link or reparse point ($When). Refusing an operation that could escape the worktree: blocking (fail-closed). $Consequence" -ForegroundColor Red
+  Write-Host '裁决: block' -ForegroundColor Red
+  exit 1
+}
+
+# Startup check precedes every artifact create/read/write/delete and reviewer invocation. Individual
+# boundaries re-check below because a custom ReviewCommand can replace paths while it runs.
+Assert-VerdictPathSafe -Path $verdictPath -When 'at startup' -Consequence 'Nothing was created, read, written, or deleted, and the reviewer was not invoked.'
 New-Item -ItemType Directory -Force $reviewDir | Out-Null
+$roundsPath = Join-Path $reviewDir "$branchSafe.rounds"
+if ($ResetRounds) {
+  Assert-VerdictPathSafe -Path $roundsPath -When 'before resetting the round counter' -Consequence 'The counter was not deleted and no review was run.'
+  Remove-Item -LiteralPath $roundsPath -Force -ErrorAction SilentlyContinue
+  Write-Host "R3 轮次计数已清零（$branch）。未做评审；下一次 review/ship 将重新计轮。" -ForegroundColor Yellow
+  exit 0
+}
 # T145 [R3-ROUND-KEEP]: the per-ROUND corpus. review.ps1 deletes the previous verdict before invoking the
 # reviewer, so what survives on disk is a last-round-only, survivorship-biased sample - 41 files against at
 # least 216 recorded blocked rounds. The ledger proves the cost is real and concentrated (mean 3.32 blocked
@@ -84,6 +121,7 @@ New-Item -ItemType Directory -Force $reviewDir | Out-Null
 # unchanged, and no consumer reads the verdict path by glob. The index is computed ONCE here, not inside
 # Write-Verdict, because a single run may write a verdict more than once on fail-closed paths and those
 # are the same round, not new ones.
+Assert-VerdictPathSafe -Path $reviewDir -When 'before enumerating prior round artifacts' -Consequence 'No round artifact was read and the reviewer was not invoked.'
 $roundIndex = 1 + @(Get-ChildItem -LiteralPath $reviewDir -Filter "$branchSafe.r*.json" -ErrorAction SilentlyContinue).Count
 
 # T277 (ADR 0016 item 4): one axis of a verdict, built by INDEX ASSIGNMENT rather than as a hashtable
@@ -183,24 +221,30 @@ function Write-Verdict([string]$v, [string[]]$r, [hashtable]$routedSkip, [string
   #      而最可能写不进去的正是 S0（路径被目录占位/加锁），那个专为「说清故障」而设的状态反倒最看不见；
   #  (b) 但**更不能就此放行**——只 catch 不记账的话，「裁决是 pass、落盘失败」会照旧回贴 success 并 exit 0，
   #      把基线的 fail-closed 变成 fail-open。故这里只**记账**，由下方守卫升级成 block；本函数不决定放行与否。
-  try { Set-Content $verdictPath -Value $json -Encoding utf8 }
+  if (Test-ScaffoldPathUnsafe -Path $verdictPath -StopAt $WorktreePath) {
+    $script:VerdictWriteFailed = $true
+    Write-Host "  [R3-VERDICT-WRITE-FAILED] Refusing to write the normalized verdict because '$verdictPath' or an ancestor is a symbolic link or reparse point. Nothing was written." -ForegroundColor DarkYellow
+    return
+  }
+  try { Set-Content -LiteralPath $verdictPath -Value $json -Encoding utf8 }
   catch {
     $script:VerdictWriteFailed = $true
     Write-Host "  [R3-VERDICT-WRITE-FAILED] Could not write the normalized verdict to '$verdictPath'." -ForegroundColor DarkYellow
   }
-  # ── T153 [R3-RECORD]：**受追踪**的脱敏评审记录 ───────────────────────────────────────────────
-  # ADR 0013 拒绝 trajectory 视图，理由之一是「评审链下已留存那一步不可从 diff 重建的推理」——它们**没有**
-  # 留存：.gitignore 盖住 .review/，`git ls-files .review` 什么都不返回。于是版本库里没有任何东西证明
-  # 评审发生过、在哪个 sha、由哪个模型的哪一档做的；唯一外部信号是提交者自己 token 发的 commit status，
-  # 而 docs/SECURITY.md §4 已记录它对任何有写权限的人可伪造。审计链的洞恰好开在 ADR 断言没有洞的地方。
-  # **redaction 是本记录存在的前提**：只写 卡id / sha / 裁决 / 模型 / 档位，**绝不写 reason 正文**——
-  # reason 会逐字复述 diff 片段，而这份文件是**受追踪**的。变异批专门盯这条过滤线。
+  # ── T153 [R3-RECORD]：gitignored 的本地脱敏评审日志 ─────────────────────────────────────────
+  # `.review/` 整体被 gitignore；这里的 jsonl 只帮助当前 worktree 内诊断/对比轮次，不声称是随提交
+  # 交付的审计证据。需要可在 PR 上核对的持久证据时，用 -PostStatus 写精确 sha 的 commit status/PR comment。
+  # 本地日志也不保存 reason 正文，避免把逐字 diff 片段扩散到另一个持久文件。
   try {
     $recDir = Join-Path $reviewDir 'records'
-    if (-not (Test-Path -LiteralPath $recDir)) { New-Item -ItemType Directory -Force $recDir -ErrorAction SilentlyContinue | Out-Null }
+    $recordPath = Join-Path $recDir "$branchSafe.jsonl"
+    if (Test-ScaffoldPathUnsafe -Path $recordPath -StopAt $WorktreePath) {
+      Write-Host "  [R3-REVIEW-DIR-UNSAFE] local record path '$recordPath' is a symbolic link or reparse point; no record was read or written." -ForegroundColor DarkYellow
+    } else {
+      if (-not (Test-Path -LiteralPath $recDir)) { New-Item -ItemType Directory -Force $recDir -ErrorAction Stop | Out-Null }
     # DERIVED FROM the untracked verdict payload, never assembled from a hand-picked list of safe keys.
     # That direction is the whole point: $payload carries `reasons`, whose text quotes the diff verbatim,
-    # so deleting the filter below leaks diff content into a TRACKED file and gate 17z(0') goes red.
+    # so deleting the filter below needlessly duplicates diff content into another local file.
     # Built the other way round the filter would be DEAD CODE - it could never match a key, would pass
     # every mutation, and would prove nothing while looking like a safety control. It was written that
     # way first; the mutation batch this card owes is what exposed it.
@@ -212,7 +256,7 @@ function Write-Verdict([string]$v, [string[]]$r, [hashtable]$routedSkip, [string
     $recPayload['at'] = (Get-Date).ToUniversalTime().ToString('o')
     if ($routedSkip) { $recPayload['skipped'] = 'routed skip - no review was run; absence of review is recorded rather than silent' }
     # [R3-DIFF-VERDICT-REDACT]: the last filter before an outbound write - no reason/body field may reach
-    # the tracked record, AT ANY DEPTH. The depth matters and is not hypothetical: the routed-skip path
+    # the local record, AT ANY DEPTH. The depth matters and is not hypothetical: the routed-skip path
     # calls Write-Verdict with @{ predicate; reason; changed_paths }, so `routed_skip.reason` sits one
     # level down and a top-level-only filter would walk straight past it. Breadth-first over dictionaries,
     # snapshotting each key set with @() so a removal never mutates the walk, and reported ONCE naming the
@@ -231,17 +275,26 @@ function Write-Verdict([string]$v, [string[]]$r, [hashtable]$routedSkip, [string
         if ($recNode[$recK] -is [System.Collections.IDictionary]) { $recQueue.Enqueue([pscustomobject]@{ Node = $recNode[$recK]; Path = $recPath }) }
       }
     }
-    if ($recDropped.Count) { Write-Host "  [R3-DIFF-VERDICT-REDACT] dropped $($recDropped -join ', ') before writing the TRACKED record - reason text quotes the diff verbatim and must never enter version control." -ForegroundColor DarkYellow }
-    Add-Content -LiteralPath (Join-Path $recDir "$branchSafe.jsonl") -Value ($recPayload | ConvertTo-Json -Compress) -Encoding utf8
-    Write-Host "  [R3-RECORD] tracked, redacted review record appended for $branchSafe @ $sha (verdict=$v, model=$reviewModel, effort=$reviewEffort). No reason text is written - that stays in the gitignored verdict body." -ForegroundColor DarkGray
+      if ($recDropped.Count) { Write-Host "  [R3-DIFF-VERDICT-REDACT] dropped $($recDropped -join ', ') before writing the local record - reason text remains only in the verdict body." -ForegroundColor DarkYellow }
+      if (Test-ScaffoldPathUnsafe -Path $recordPath -StopAt $WorktreePath) {
+        Write-Host "  [R3-REVIEW-DIR-UNSAFE] local record path changed to a symbolic link or reparse point; no record was written." -ForegroundColor DarkYellow
+      } else {
+        Add-Content -LiteralPath $recordPath -Value ($recPayload | ConvertTo-Json -Compress) -Encoding utf8
+        Write-Host "  [R3-RECORD] local gitignored review record appended for $branchSafe @ $sha (verdict=$v, model=$reviewModel, effort=$reviewEffort). Durable PR evidence is the exact-sha status/comment written by -PostStatus." -ForegroundColor DarkGray
+      }
+    }
   } catch { }   # 记账绝不改变裁决或退出码
 
   # T145: the round-indexed sibling. Best-effort by design - it is a MEASUREMENT artifact, so a failure to
   # write it must never change a verdict or an exit code the way the pointer write does above.
   try {
     $roundPath = Join-Path $reviewDir "$branchSafe.r$roundIndex.json"
-    Set-Content $roundPath -Value $json -Encoding utf8
-    Write-Host "  [R3-ROUND-KEEP] round $roundIndex preserved at '$roundPath' - the pointer file is overwritten each round, this sibling is not." -ForegroundColor DarkGray
+    if (Test-ScaffoldPathUnsafe -Path $roundPath -StopAt $WorktreePath) {
+      Write-Host "  [R3-REVIEW-DIR-UNSAFE] round artifact path '$roundPath' is a symbolic link or reparse point; nothing was written." -ForegroundColor DarkYellow
+    } else {
+      Set-Content -LiteralPath $roundPath -Value $json -Encoding utf8
+      Write-Host "  [R3-ROUND-KEEP] round $roundIndex preserved at '$roundPath' - the pointer file is overwritten each round, this sibling is not." -ForegroundColor DarkGray
+    }
   } catch { }
 }
 
@@ -735,6 +788,7 @@ $followupCount = 0
 $followupPriorSha = ''
 if (Get-Command Get-ScaffoldReviewFollowupDecision -ErrorAction SilentlyContinue) {
   $priorVerdictText = ''
+  Assert-VerdictPathSafe -Path $verdictPath -When 'before reading the prior verdict for follow-up context' -Consequence 'No prior verdict was read and the reviewer was not invoked.'
   if (Test-Path -LiteralPath $verdictPath -PathType Leaf) {
     try { $priorVerdictText = [System.IO.File]::ReadAllText($verdictPath) } catch { $priorVerdictText = '' }
   }
@@ -851,14 +905,33 @@ function Invoke-ReviewerWithTimeout {
   }
 }
 
+# The legacy cap counts every unsuccessful attempt after a reviewer was actually invoked, including timeout,
+# no-output, malformed output, and post-run tool failures. Early setup failures and routed skips exit before
+# this point and do not spend a round. History remains separate so an operator can tell failure modes apart.
+$reviewRoundCap = if ($ScaffoldConfig.ContainsKey('ReviewRoundCap')) { [int]$ScaffoldConfig.ReviewRoundCap } else { 2 }
+$roundsSoFar = 0
+Assert-VerdictPathSafe -Path $roundsPath -When 'before reading the unsuccessful-attempt counter' -Consequence 'The counter was not read and the reviewer was not invoked.'
+if (Test-Path -LiteralPath $roundsPath -PathType Leaf) {
+  $rawRounds = Get-Content -LiteralPath $roundsPath -Raw -ErrorAction SilentlyContinue
+  if ("$rawRounds" -match '^\s*(\d+)\s*$') { $roundsSoFar = [int]$Matches[1] }
+}
+if (($reviewRoundCap -gt 0) -and ($roundsSoFar -ge $reviewRoundCap)) {
+  Write-Host "  [R3-ROUND-CAP] 本分支已累计 $roundsSoFar 次 R3 block 尝试，达上限 $reviewRoundCap；本轮不再唤起 reviewer，转人裁。" -ForegroundColor Yellow
+  Write-Host '  人裁后若继续同卡：先修已确认问题，再显式运行 review.ps1 -ResetRounds；该操作只清计数，不删除轮次历史。' -ForegroundColor Yellow
+  Write-Verdict 'block' @("[R3-ROUND-CAP] This branch has accumulated $roundsSoFar unsuccessful reviewer attempts, reaching ReviewRoundCap=$reviewRoundCap. The reviewer was not invoked this run. Human adjudication is required; after resolving the cause, run review.ps1 -ResetRounds to clear only the throttle counter while retaining review history.") -runStatus 'no_output'
+  exit 1
+}
+
 # ── fail-open 治理（stale-verdict）──：先删可能存在的**陈旧**裁决文件，使「评审者静默 no-op
 # （崩溃 / 超时被杀 / 自定义后端没写 $env:REVIEW_OUT）」不会让本次读到上一轮的 pass 而误合并——评审者须**本轮重新写出**裁决；
 # 文件不存在 = 没裁决 = 维持默认 block。
-Remove-Item $verdictPath -ErrorAction SilentlyContinue
+Assert-VerdictPathSafe -Path $verdictPath -When 'before deleting the stale verdict' -Consequence 'No verdict was deleted and the reviewer was not invoked.'
+Remove-Item -LiteralPath $verdictPath -ErrorAction SilentlyContinue
 # ── stale-raw 治理──：`<branch>.raw.txt` 是稳定路径，上一轮的残留会在本轮没产出原文时
 # （S1 无输出 / S2 保存失败）被误当本轮产物读走。故唤起评审者之前先作废旧件。
 $rawPath = Join-Path $reviewDir "$branchSafe.raw.txt"
 $rawInvalidated = $false
+Assert-VerdictPathSafe -Path $rawPath -When 'before deleting the stale raw artifact' -Consequence 'No raw artifact was deleted and the reviewer was not invoked.'
 try {
   if (Test-Path -LiteralPath $rawPath) { Remove-Item -LiteralPath $rawPath -Force -ErrorAction Stop }
   $rawInvalidated = $true
@@ -866,6 +939,10 @@ try {
 # 下游 native 调用（gh / git 回贴）非零退出**不抛**（只置 $LASTEXITCODE），以便按退出码判流程而非崩出栈
 # （PS7.4+ 默认 $PSNativeCommandUseErrorActionPreference=$true 会把非零当错误抛）。评审者已改由 Start-Process 承载、不受此影响。
 $PSNativeCommandUseErrorActionPreference = $false
+
+# A custom backend can replace `.review` after startup. Re-check the exact leaf immediately before exposing
+# it as REVIEW_OUT; refusing here prevents the reviewer subprocess from following a newly planted link.
+Assert-VerdictPathSafe -Path $verdictPath -When 'immediately before invoking the reviewer' -Consequence 'The reviewer was not invoked.'
 
 if ($reviewCmd) {
   # 模型无关后端（L26）：自定义命令从 stdin 读 prompt，把裁决 JSON 写到 $env:REVIEW_OUT（子进程继承父进程环境变量）。
@@ -944,7 +1021,9 @@ if ($reviewTimedOut) {
   # `$ErrorActionPreference='Stop'` 下抛 UnauthorizedAccessException，把脚本打死在打印任何诊断**之前**
   # ——正是本节要治的「阻断了却说不清」。故探测与读取同在一个 try 内，任何一步失败都落 S0。
   try {
-    if (Test-Path -LiteralPath $verdictPath -PathType Leaf) {
+    if (Test-ScaffoldPathUnsafe -Path $verdictPath -StopAt $WorktreePath) {
+      $readFailed = $true
+    } elseif (Test-Path -LiteralPath $verdictPath -PathType Leaf) {
       $raw = [System.IO.File]::ReadAllText($verdictPath)
     } elseif (Test-Path -LiteralPath $verdictPath) {
       $readFailed = $true   # 存在但不是文件（目录等）
@@ -980,16 +1059,21 @@ if ($reviewTimedOut) {
       # 也一样。故只说「可能」并要操作者读原文再判，不替他断言与 diff 无关。
       # 原文**另存**独立产物：`$verdictPath` 稍后会被 Write-Verdict 整个覆盖，指向它等于承诺拿不到的东西（R3 r6）。
       $rawSaved = $false
-      try { Set-Content -Path $rawPath -Value $raw -Encoding utf8 -NoNewline; $rawSaved = $true }
-      catch {
-        $rawSaved = $false
-        # 与 JSON 解析那处同规矩：**本地化细节只打控制台、不进回贴 GitHub 的 reason**。
-        Write-Host "  [R3-RAW-SAVE-FAILED] raw-artifact write detail (locale-dependent, not posted): $($_.Exception.Message)" -ForegroundColor DarkGray
+      $rawIsUnsafe = Test-ScaffoldPathUnsafe -Path $rawPath -StopAt $WorktreePath
+      if (-not $rawIsUnsafe) {
+        try { Set-Content -LiteralPath $rawPath -Value $raw -Encoding utf8 -NoNewline; $rawSaved = $true }
+        catch {
+          $rawSaved = $false
+          # 与 JSON 解析那处同规矩：**本地化细节只打控制台、不进回贴 GitHub 的 reason**。
+          Write-Host "  [R3-RAW-SAVE-FAILED] raw-artifact write detail (locale-dependent, not posted): $($_.Exception.Message)" -ForegroundColor DarkGray
+        }
       }
       # 落盘成败要分支：失败仍说「已保全、去读」会把人指向不存在的文件（R3 r7）。
       # 失败文案**不内插异常消息**——它随 OS 语言本地化，会把非英文塞进回贴 GitHub 的 reason（R3 r8）。
       $rawNote = if ($rawSaved) {
         "The reviewer's raw response has been preserved verbatim at '$rawPath' - read it before acting, it decides which case you are in."
+      } elseif ($rawIsUnsafe) {
+        "WARNING: the reviewer's raw response was NOT written because '$rawPath' or an ancestor is a symbolic link or reparse point. Writing reviewer-controlled text through it could escape the worktree; treat this as a tampering signal."
       } else {
         # 残留明标（R3 r17）：本轮写失败 + 启动时没能作废旧件 ⇒ 路径上可能躺着**上一轮**的原文；
         # 只说「本轮不可得」的话，操作者按文档路径一看有文件，会把旧件误当本轮产物读走。
@@ -1112,10 +1196,21 @@ Write-Verdict $verdict $reasons -runStatus $runStatus -axes $axes
 # 而「无可复核记录」与「无裁决」在信任上是同一件事。
 if ($script:VerdictWriteFailed) {
   $verdict = 'block'
-  $reasons = @($reasons) + @("[R3-VERDICT-WRITE-FAILED] The normalized verdict could not be written to '$verdictPath', so this run left no auditable record of its own decision. Blocking (fail-closed) regardless of what the reviewer said: a verdict that cannot be persisted cannot be trusted to gate a merge. Inspect that path and whatever occupies or locks it, then re-run ship. Never bypass the gate with --no-verify.")
+  $reasons = @($reasons) + @("[R3-VERDICT-WRITE-FAILED] The normalized verdict could not be written to '$verdictPath', so this run left no readable record for the ship consumer. Blocking (fail-closed) regardless of what the reviewer said: a verdict that cannot be persisted cannot gate a merge. Inspect that path and whatever occupies or locks it, then re-run ship. Never bypass the gate with --no-verify.")
 }
 
 $ok = $verdict -eq 'pass'
+# Every unsuccessful post-invocation attempt spends the legacy cap. `run_status` remains in the history so
+# a human can distinguish a quality block from a backend failure; it does not silently change throttling.
+# Re-check at this write boundary because the reviewer could have replaced the path.
+if (-not $ok) {
+  if (Test-ScaffoldPathUnsafe -Path $roundsPath -StopAt $WorktreePath) {
+    Write-Warning "R3 轮次计数路径不安全（'$roundsPath'）；拒绝写入。"
+  } else {
+    try { Set-Content -LiteralPath $roundsPath -Value ([string]($roundsSoFar + 1)) -Encoding utf8 -ErrorAction Stop }
+    catch { Write-Warning "R3 轮次计数写入失败（'$roundsPath'）：$($_.Exception.Message)。本轮 block 未计入；裁决仍保持 block。" }
+  }
+}
 Write-Host ("裁决: {0}" -f $verdict) -ForegroundColor ($(if ($ok) { 'Green' } else { 'Red' }))
 if (-not $ok) { $reasons | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
 

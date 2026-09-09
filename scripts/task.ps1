@@ -8,12 +8,12 @@
   PR + 合并 → 收尾 → 文档同步 闭环。分阶段执行（编码本身由 Claude/人在 worktree 内做）：
 
     start   : 建 worktree(<WorktreeRoot>\<TaskId>) + 引导环境(uv sync / npm i)，打印 TDD 提醒。
-    ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 预算闸(base 卡的 budget:，T233) → 许可闸 → 防泄露闸 → Codex 评审(必 pass)
-              → push → 开 PR → 直接 squash 合并。free+private 无服务端规则集/auto-merge，
-              故本地闸门(DoD/verify/范围/许可/密钥/Codex)即权威；CI(verify) 在 PR 上信息性复跑。
+    ship    : DoD(必绿) → verify 总闸 → 提交 → 范围闸(allow_paths) → 预算闸(base 卡的 budget:，T233) → 许可闸 → 防泄露闸
+              → push → 开 PR → 基线版本的 Codex 评审 → required CI 检查 → 基线/HEAD 复验 → squash 合并。
+              MyInspection 配置 ReviewGate=required：Codex 必须 pass，且 CI 必须明确 success；无服务端规则集也不省略这些检查。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
 
-  设计取舍见 docs\DEVOPS-WORKFLOW.md。Codex 评审通过即可自动合并（用户选择 hands-off）。
+  设计取舍见 docs\DEVOPS-WORKFLOW.md。全部合并闸通过后自动合并；-NoAutoMerge 同样验证 CI 后才报告可人工合并。
   项目级常量（账号 / worktree 根 / Python 版本）来自 scripts\_config.ps1。
 
 .PARAMETER TaskId  形如 T1-FOO。start / red / ship 须存在 specs\tasks\<TaskId>.md（它们读卡字段）；
@@ -152,15 +152,30 @@ function Get-CardField($name) {
 # NO RATE, RATIO OR DENOMINATOR is derived here or anywhere downstream: ADR 0003 settled that this ledger
 # carries honest counts only, and a denominator would re-open a decision the user closed. Best-effort: an
 # unreadable verdict yields a plain string rather than taking ship down over an accounting line.
+function Test-ShipReviewPathUnsafe([string]$Path, [string]$WorktreePath) {
+  $probe = $Path
+  while ($probe) {
+    $item = Get-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    if ($item -and (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { return $true }
+    if ($probe -eq $WorktreePath) { break }
+    $parent = Split-Path $probe -Parent
+    if (-not $parent -or $parent -eq $probe) { break }
+    $probe = $parent
+  }
+  return $false
+}
+
 function Get-ReviewBlockDetail($WorktreePath, $BranchName) {
   try {
     $rbDir = Join-Path $WorktreePath '.review'
+    if (Test-ShipReviewPathUnsafe $rbDir $WorktreePath) { throw 'Unsafe review directory.' }
     $rbSafe = ($BranchName -replace '[\/]', '-')
     $rbText = @(@(Get-ChildItem -LiteralPath $rbDir -Filter "$rbSafe.r*.json" -ErrorAction SilentlyContinue) |
-      ForEach-Object { try { [string](Get-Content -Raw -LiteralPath $_.FullName) } catch { '' } })
+      ForEach-Object { try { if (Test-ShipReviewPathUnsafe $_.FullName $WorktreePath) { throw 'Unsafe round artifact.' }; [string](Get-Content -Raw -LiteralPath $_.FullName) } catch { '' } })
     $rbCost = Get-ScaffoldQualityRoundCount -RoundText $rbText
     $rbDims = @()
     $rbPointer = Join-Path $rbDir "$rbSafe.json"
+    if (Test-ShipReviewPathUnsafe $rbPointer $WorktreePath) { throw 'Unsafe review pointer.' }
     if (Test-Path -LiteralPath $rbPointer) {
       $rbObj = Get-Content -Raw -LiteralPath $rbPointer | ConvertFrom-Json
       if ($rbObj -and ($rbObj.PSObject.Properties.Name -contains 'reasons')) {
@@ -272,6 +287,7 @@ function Get-ShipSpecAxisDecision($WorktreePath, $BranchName, $BaseCardText) {
     # PRODUCER rather than re-derived, so a branch name carrying a slash cannot make this look at a path
     # nothing writes and report "no spec block" for a verdict that is sitting right there (L23/TD63 item2).
     $specPath = Join-Path (Join-Path $WorktreePath '.review') (($BranchName -replace '[\\/]', '-') + '.json')
+    if (Test-ShipReviewPathUnsafe $specPath $WorktreePath) { throw 'Unsafe review pointer.' }
     if (Test-Path -LiteralPath $specPath -PathType Leaf) {
       $specVerdict = Get-Content -Raw -LiteralPath $specPath | ConvertFrom-Json
       # T285: the sha the reviewer actually judged, read from the artifact the PRODUCER wrote rather than
@@ -346,6 +362,7 @@ function Get-ShipSpecAxisDecision($WorktreePath, $BranchName, $BaseCardText) {
 function Get-ShipReviewRoundHistory($WorktreePath, $BranchName) {
   $arbRounds = 0
   try {
+    if (Test-ShipReviewPathUnsafe (Join-Path $WorktreePath '.review') $WorktreePath) { return 0 }
     $sbcSafe = ($BranchName -replace '[\\/]', '-')
     $sbcRounds = @(@(Get-ChildItem -LiteralPath (Join-Path $WorktreePath '.review') -Filter "$sbcSafe.r*.json" -ErrorAction SilentlyContinue) |
       ForEach-Object { if ($_.Name -match '\.r(\d+)\.json$') { [pscustomobject]@{ Index = [int]$Matches[1]; Path = $_.FullName } } } |
@@ -363,6 +380,7 @@ function Get-ShipReviewRoundHistory($WorktreePath, $BranchName) {
       if (@($sbcGroup.Group).Count -ne 1) { break }                   # one index, two files: which round is this?
       $sbcExpect = $sbcIndex - 1
       $sbcRound = @($sbcGroup.Group)[0]
+      if (Test-ShipReviewPathUnsafe $sbcRound.Path $WorktreePath) { break }
       $sbcSpec = ''
       try {
         $sbcObj = Get-Content -Raw -LiteralPath $sbcRound.Path | ConvertFrom-Json
@@ -443,7 +461,28 @@ function Test-ShipReviewRoundHistoryExamples {
       $exGot = Get-ShipReviewRoundHistory $exWt 'T0-EX'
       if ($exGot -ne $ex.Want) { $findings += "[SHIP-HISTORY-EXAMPLE] '$($ex.Name)' counted $exGot consecutive spec-block round(s), expected $($ex.Want) - $($ex.Why). This count is what decides whether a recorded ruling applies, so a shape counted high hands out a waiver nobody wrote. [FIX] fix the reader, never the example." }
     }
-  } finally { if (Test-Path -LiteralPath $exRoot) { Remove-Item -Recurse -Force $exRoot -ErrorAction SilentlyContinue } }
+    $exOutside = Join-Path $exRoot 'external-history'
+    $exLinkedWt = Join-Path $exRoot 'linked-worktree'
+    New-Item -ItemType Directory -Path $exOutside, $exLinkedWt | Out-Null
+    foreach ($exIndex in 1, 2) { Set-Content -LiteralPath (Join-Path $exOutside "T0-EX.r$exIndex.json") -Value $exBlock -Encoding utf8 }
+    $exLink = Join-Path $exLinkedWt '.review'
+    try {
+      $exLinkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+      New-Item -ItemType $exLinkType -Path $exLink -Target $exOutside -ErrorAction Stop | Out-Null
+      if ((Get-ShipReviewRoundHistory $exLinkedWt 'T0-EX') -ne 0) {
+        $findings += '[SHIP-HISTORY-EXAMPLE] linked .review directory was accepted as local arbitration history.'
+      }
+    } catch { $findings += "[SHIP-HISTORY-EXAMPLE] unsafe-ancestor example could not execute: $($_.Exception.Message)" }
+    finally {
+      # Remove only the link before cleaning the owned fixture directory, never traverse its target.
+      if (Get-Item -LiteralPath $exLink -Force -ErrorAction SilentlyContinue) { Remove-Item -LiteralPath $exLink -Force }
+    }
+  } finally {
+    $exFull = [IO.Path]::GetFullPath($exRoot)
+    $exTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $exFull.StartsWith($exTemp, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $exFull) -notlike 'scaffold-hist-ex-*') { throw 'Unsafe history example cleanup path.' }
+    if (Test-Path -LiteralPath $exFull) { Remove-Item -LiteralPath $exFull -Recurse -Force }
+  }
   return @($findings)
 }
 
@@ -1111,7 +1150,7 @@ switch ($Phase) {
         # T242/TD248：卡自身声明了 review_gate → 跑在 merge 之前，但**不拦合并**（T68 的合并闸不变）。
         # **刻意不传 -PostStatus**：block 时它会回贴一枚 failing commit status，而下面的 CI 检查闸会
         # 「任一其它检查失败即不合并」——那等于从后门把意见变回合并闸，正是本卡 forbid 的那条。裁决仍
-        # 落 .review/<branch>.json，并入效果账本，够复核用。
+        # .review 与效果账本是本地诊断；-PostStatus 的 exact-sha 状态及 PR 评论承载持久 PR 证据。
         if ($reviewAvail -and $rvRemote) {
           & pwsh -NoProfile -File $rvRemote -WorktreePath $Wt -Base $shipBase
           if ($LASTEXITCODE -ne 0) {

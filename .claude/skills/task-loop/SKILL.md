@@ -16,6 +16,7 @@ description: >-
 并守住四件容易忘的纪律：**先测、剪枝、文档同步、复盘（经验回流）**。一律用 `pwsh`（非 bash）。
 
 ## 前置
+- **MyInspection 项目配置**：`ReviewGate='required'`。下文的上游默认意见模式仅说明可配置行为；本项目任一 `block`、超时或不可用裁决都阻断合并，只有当前候选的 Codex `pass` 与 `required` CI 成功才可合并。评审次数遵循本地 `ReviewRoundCap` 与明确的用户授权。
 - 若用户给的是 TaskId（如 `T1-FOO`），先 `Read specs/tasks/<id>.md`，再读它引用的计划章节。
 - 遵守卡片 `allow_paths` / `forbid`；不发明字段。**所有编辑都在 `<WorktreeRoot>\<id>` 工作树内**，不动主检出。
   （WorktreeRoot 见 scripts/_config.ps1；留空则按 OS 自动取默认：Windows `<系统盘>\wt`（如 `C:\wt`）/ macOS·Linux `~/.wt`。）

@@ -1,4 +1,4 @@
-﻿#requires -Version 7
+#requires -Version 7
 <#
 .SYNOPSIS
   脚手架自检（本元仓的「verify」）：本仓交付物就是这些脚本/钩子/模板本身，故需要一个
@@ -254,6 +254,10 @@ etracts: <card-id> has landed its marker.
 #>
 [CmdletBinding()]
 param([switch]$StrictLint, [string[]]$Only = @(), [switch]$Parallel, [string]$TaskId = '', [switch]$IncludeMeta)
+
+# This script itself prints localized diagnostics before it can dot-source any other entrypoint.  Pin its
+# output at process entry so 8.2j's hostile-codepage child runs retain the node/git degradation notices.
+. (Join-Path $PSScriptRoot '_encoding.ps1')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -1181,8 +1185,8 @@ try {
   } finally { Pop-Location }
 } finally { Remove-Item -Recurse -Force $cjkTmp -ErrorAction SilentlyContinue }
 # 1g：OutputEncoding 覆盖对称（TD54/TD-117 breadth）——所有写中文 stdout 的入口脚本 dot-source _encoding.ps1（前奏统一设 UTF-8 输出）；
-#     所有写 stdout 的钩子就地设 [Console]::OutputEncoding（钩子保持自包含 fail-open、不跨目录 dot-source 前奏，与其既有 InputEncoding pin 同风格）。selftest.ps1 自身刻意不入列（已在各子进程捕获点就地钉编码，全局前奏对其无净收益且动验收闸风险高）。
-$encScripts = @('task.ps1', 'review.ps1', 'check-secrets.ps1', 'verify.ps1', 'gh-bootstrap.ps1', 'handoff.ps1', 'lessons.ps1', 'triage.ps1', 'check-cards.ps1', 'check-scope.ps1', 'check-licenses.ps1', 'scaffold-sync.ps1', 'init-scaffold.ps1')
+#     所有写 stdout 的钩子就地设 [Console]::OutputEncoding（钩子保持自包含 fail-open、不跨目录 dot-source 前奏，与其既有 InputEncoding pin 同风格）。selftest.ps1 也在入口立即 pin：8.2j 会在 node/git 被隐藏时捕获它最早的中文诊断，等到后来才加载别的入口已来不及。
+$encScripts = @('selftest.ps1', 'task.ps1', 'review.ps1', 'check-secrets.ps1', 'verify.ps1', 'gh-bootstrap.ps1', 'handoff.ps1', 'lessons.ps1', 'triage.ps1', 'check-cards.ps1', 'check-scope.ps1', 'check-licenses.ps1', 'scaffold-sync.ps1', 'init-scaffold.ps1')
 $g1ok = $true
 foreach ($s in $encScripts) {
   # init-scaffold.ps1 在仓库根（非 scripts/，见 $RootAllow / 闸①的 $RepoRoot 解析），其余在 scripts/。
@@ -1224,6 +1228,15 @@ foreach ($coreFile in $coreFiles) {
   $coreFindings += @(Test-ScaffoldCoreSelfCheck -CoreText (Get-Content -LiteralPath $coreFile.FullName -Raw) -CoreName $coreFile.Name -ConsumerText $coreConsumerText -Pending $CoreSelfCheckPending)
 }
 $coreExampleFindings = @(Test-ScaffoldCoreSelfCheckExamples)
+# These local cores predate the imported reachability contract.  Run their own
+# positive/negative examples here so the new rule exposes actual regression
+# coverage rather than treating the modules as a permanent pending exception.
+. (Join-Path $PSScriptRoot '_symbol-markdown.ps1')
+. (Join-Path $PSScriptRoot '_unicode.ps1')
+. (Join-Path $PSScriptRoot '_validation.ps1')
+$coreExampleFindings += @(Test-ScaffoldSymbolMarkdownExamples)
+$coreExampleFindings += @(Test-ScaffoldUnicodeExamples)
+$coreExampleFindings += @(Test-ScaffoldValidationExamples)
 if ($coreFiles.Count -lt 1) { Fail '1h: no scripts/_*.ps1 found at all - the gate would pass vacuously, so the discovery itself is the first assertion.' }
 elseif ($coreExampleFindings.Count) { $coreExampleFindings | ForEach-Object { Fail "1h: $_" } }
 elseif (@(Test-ScaffoldCoreSelfCheckExamples -Variant 'name-only').Count -lt 1) {
@@ -1238,6 +1251,48 @@ elseif (-not $fail) {
   $pendingNote = if ($stillPending.Count) { "$($stillPending.Count) still on the ratchet: $($stillPending -join ', ')" } else { 'ratchet empty - every core carries a reached self-check' }
   Write-Host "  1h shared-core self-checks OK ($($coreFiles.Count) cores judged; $pendingNote)" -ForegroundColor Green
 }
+
+# The compact local examples above prove the decision edges.  This product-specific
+# oracle additionally walks every valid Unicode scalar in bounded batches: .NET
+# regexes classify UTF-16 code units, so only a complete scalar walk catches a
+# supplementary-plane Cf regression without sampling luck.
+$unicodeFullOk = $true
+function Test-ScaffoldUnicodeFullScalarOracle([Parameter(Mandatory)][string]$CommandName) {
+  $visited = 0; $targets = 0
+  $input = [Text.StringBuilder]::new(16384); $expected = [Text.StringBuilder]::new(16384)
+  $points = [Collections.Generic.List[int]]::new(4096)
+  for ($point = 0; $point -le 0x10FFFF; $point++) {
+    if ($point -ge 0xD800 -and $point -le 0xDFFF) { continue }
+    $visited++; $rune = [Text.Rune]::new($point); $text = $rune.ToString()
+    $target = [Text.Rune]::GetUnicodeCategory($rune) -in @([Globalization.UnicodeCategory]::Control,[Globalization.UnicodeCategory]::Format)
+    if ($target) { $targets++ }; [void]$input.Append($text); [void]$expected.Append($(if ($target) { ' ' } else { $text })); [void]$points.Add($point)
+    if ($points.Count -lt 4096 -and $point -lt 0x10FFFF) { continue }
+    try { [string]$actual = & $CommandName $input.ToString() } catch { return [pscustomobject]@{Ok=$false;Code='THREW';Point=$points[0];Visited=$visited;Targets=$targets} }
+    if ($actual -cne $expected.ToString()) {
+      foreach ($replay in $points) {
+        $single = [Text.Rune]::new($replay); $singleTarget = [Text.Rune]::GetUnicodeCategory($single) -in @([Globalization.UnicodeCategory]::Control,[Globalization.UnicodeCategory]::Format)
+        if ((& $CommandName $single.ToString()) -cne $(if ($singleTarget) { ' ' } else { $single.ToString() })) { return [pscustomobject]@{Ok=$false;Code=$(if($singleTarget){'TARGET'}else{'PRESERVE'});Point=$replay;Visited=$visited;Targets=$targets} }
+      }
+      return [pscustomobject]@{Ok=$false;Code='BATCH';Point=$points[0];Visited=$visited;Targets=$targets}
+    }
+    [void]$input.Clear(); [void]$expected.Clear(); $points.Clear()
+  }
+  return [pscustomobject]@{Ok=$true;Code='';Point=-1;Visited=$visited;Targets=$targets}
+}
+$unicodeSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '_unicode.ps1') -Raw
+if ($unicodeSource -notmatch '\$offset \+= \$rune\.Utf16SequenceLength' -or $unicodeSource -notmatch 'UNICODE-SCALAR-MALFORMED') { Fail '[UNICODE-SCALAR-SHAPE] decoded-rune advance or malformed UTF-16 guard is absent.'; $unicodeFullOk=$false }
+if ($unicodeFullOk) {
+  $unicodeOracle = Test-ScaffoldUnicodeFullScalarOracle 'ConvertTo-ScaffoldControlFormatSpaces'
+  if (-not $unicodeOracle.Ok -or $unicodeOracle.Visited -ne (0x110000 - 0x800) -or $unicodeOracle.Targets -le 0) { Fail "[UNICODE-SCALAR-ORACLE] code=$($unicodeOracle.Code) point=U+$($unicodeOracle.Point.ToString('X')) visited=$($unicodeOracle.Visited) targets=$($unicodeOracle.Targets)"; $unicodeFullOk=$false }
+  $unicodeMutantName = 'ConvertTo-ScaffoldControlFormatSpacesOverReplacementMutant'
+  $unicodeMutant = $unicodeSource.Replace('function ConvertTo-ScaffoldControlFormatSpaces {', "function $unicodeMutantName {").Replace('$category -eq [System.Globalization.UnicodeCategory]::Format) {', '$category -eq [System.Globalization.UnicodeCategory]::Format -or' + "`n" + '        $category -eq [System.Globalization.UnicodeCategory]::DecimalDigitNumber) {')
+  try {
+    . ([scriptblock]::Create($unicodeMutant)); $mutantOracle = Test-ScaffoldUnicodeFullScalarOracle $unicodeMutantName
+    if ($mutantOracle.Ok -or $mutantOracle.Code -ne 'PRESERVE' -or $mutantOracle.Point -ne 0x30) { Fail "[UNICODE-SCALAR-MUTATION] DecimalDigitNumber over-replacement mutant survived (code=$($mutantOracle.Code) point=$($mutantOracle.Point))."; $unicodeFullOk=$false }
+  } finally { Remove-Item -LiteralPath "Function:\$unicodeMutantName" -ErrorAction SilentlyContinue }
+  foreach ($malformed in @([string][char]0xD800,[string][char]0xDC00)) { try { [void](ConvertTo-ScaffoldControlFormatSpaces $malformed); Fail '[UNICODE-SCALAR-MALFORMED] lone surrogate was accepted.'; $unicodeFullOk=$false } catch { if ($_.Exception.Message -notmatch 'UNICODE-SCALAR-MALFORMED') { Fail '[UNICODE-SCALAR-MALFORMED] lone surrogate took the wrong failure path.'; $unicodeFullOk=$false } } }
+}
+if ($unicodeFullOk) { Write-Host '  1h Unicode scalar full-space oracle + over-replacement mutation OK' -ForegroundColor Green }
 
 # The declared examples of the error-view fold Get-ScaffoldUnwrappedErrorText (T259/TD258). Deliberately
 # NOT given a sub-gate label of its
@@ -2072,7 +2127,7 @@ if ($isPostInit) { Write-Host '  8.0c 跳过（已初始化，CHANGELOG.md 属�
 else {
   # TD98: the failure text is the fix instruction — name the .md this gate read and the -Only id that re-checks it,
   # so the CLAUDE.md exemption rule needs no hand-maintained list of gate-read docs (TD137).
-  $reads80c = ' [DOC-GATE-READS 8.0c] this gate reads CHANGELOG.md; after editing it, re-check with: selftest.ps1 -Only 8'
+  $reads80c = ' [DOC-GATE-READS 8.0c] this gate reads the release document named above; after editing it, re-check with: selftest.ps1 -Only 8'
   $clPath = Join-Path $RepoRoot 'CHANGELOG.md'
   if (-not (Test-Path $clPath)) { Fail ('CHANGELOG.md 不存在（TD12：脚手架发布须有版本化变更日志，供下游 fleet 回填对照）。' + $reads80c) }
   elseif ($svMeta) {
@@ -2124,6 +2179,7 @@ else {
 $RootAllow  = @(
   '.claude', '.github', 'docs', 'scripts', 'specs', '_local',        # 工作流交付目录 + 本地工作区
   'backend', 'frontend', 'prompts', 'context', 'data',              # 标准软件 + AI 应用骨架（下游填充内容）
+  'android',                                                        # 本项目：Android Gradle 工程（ADR-0001）
   'configs', 'tests',
   '.env.example', '.gitattributes', '.gitignore', 'LICENSE', '.mcp.json',
   'AGENTS.md', 'CLAUDE.md', 'CLAUDE.template.md', 'TEMPLATE-README.md', 'CHANGELOG.md',
@@ -2492,6 +2548,13 @@ $wfTrigReq82 = @{
 # The workflows that must run on a nightly cron. Empty for ci.yml: it is the PR-side merge gate and runs on
 # every push and pull_request, so a schedule would buy nothing there.
 $wfCronReq82 = @('.github/workflows/scaffold-selftest.yml')
+function Test-ScaffoldSelftestPushPathsContract([string]$WorkflowText) {
+  # This workflow validates scaffold changes. Product compliance policy is covered by ci.yml verify and R3;
+  # sending it through this 2 x 5 matrix makes an unrelated product rule consume meta-harness capacity.
+  $push = [regex]::Match($WorkflowText, '(?ms)^  push:\r?\n(?<body>(?:    .*\r?\n?)*)')
+  if (-not $push.Success) { return $false }
+  return $push.Groups['body'].Value -match "(?m)^    paths:\s*\['scripts/\*\*', '\.claude/\*\*', '\.github/\*\*', 'configs/\*\*', '!configs/compliance/\*\*', '!\*\*\.md'\]\s*$"
+}
 foreach ($wf in $wfFiles) {
   $wfPath = Join-Path $RepoRoot $wf
   if (-not (Test-Path $wfPath)) { continue }   # 缺失已由 8.2a 报错
@@ -2524,6 +2587,23 @@ foreach ($wf in $wfFiles) {
       $trigMissing82 = $true
       Fail $ncF
     }
+  }
+}
+$scaffoldWorkflowPath82 = Join-Path $RepoRoot '.github/workflows/scaffold-selftest.yml'
+if (-not (Test-Path -LiteralPath $scaffoldWorkflowPath82)) {
+  $trigMissing82 = $true
+  Fail '8.2d: scaffold-selftest.yml is missing, so its product-compliance exclusion cannot be verified.'
+}
+else {
+  $scaffoldWorkflowText82 = Get-Content -LiteralPath $scaffoldWorkflowPath82 -Raw
+  if (-not (Test-ScaffoldSelftestPushPathsContract $scaffoldWorkflowText82)) {
+    $trigMissing82 = $true
+    Fail '8.2d: scaffold-selftest.yml push paths must retain the exact configs/compliance/** exclusion; product policy changes are accepted by ci.yml verify and R3, not this scaffold matrix.'
+  }
+  $withoutComplianceExclusion82 = $scaffoldWorkflowText82 -replace ", '!configs/compliance/\*\*'", ''
+  if (Test-ScaffoldSelftestPushPathsContract $withoutComplianceExclusion82) {
+    $trigMissing82 = $true
+    Fail '8.2d: the scaffold workflow path-contract probe accepted a missing configs/compliance/** exclusion, so the real-file green result is vacuous.'
   }
 }
 # Declared cases for both judgements. Each rejected shape must be reported and each legal shape must not,
@@ -2830,22 +2910,30 @@ function Get-ScaffoldShardTimeoutIssue {
     if ($ln -match '^\s*(#|$)') { continue }
     if (-not $inJobs) { if ($ln -match '^jobs:\s*$') { $inJobs = $true }; continue }
     if ($ln -match '^\S') { break }
-    if ($ln -match '^  ([A-Za-z0-9_.-]+):\s*$') { $cur = @{ Name = $Matches[1]; Timeout = $null }; $jobs += $cur; continue }
-    if ($null -ne $cur -and $ln -match '^    timeout-minutes:\s*(\d+)\s*$') { $cur.Timeout = [int]$Matches[1] }
+    if ($ln -match '^  ([A-Za-z0-9_.-]+):\s*$') { $cur = @{ Name = $Matches[1]; Timeouts = $null }; $jobs += $cur; continue }
+    if ($null -ne $cur -and $ln -match '^    timeout-minutes:\s*(\d+)\s*$') { $cur.Timeouts = @([int]$Matches[1]); continue }
+    # TD4 migration lives only in Windows seed-pre.  Its real Gradle path keeps the historical 30-minute
+    # allowance while the other NINE matrix legs retain 20 minutes.  Accept only this closed expression:
+    # a broad expression parser would let a later arbitrary/under-budget branch read as guarded.
+    if ($null -ne $cur -and $ln -match '^    timeout-minutes:\s*\$\{\{ matrix\.os == ''windows-latest'' && matrix\.shard\.name == ''seed-pre'' && 30 \|\| 20 \}\}\s*$') { $cur.Timeouts = @(30, 20); continue }
   }
   if ($jobs.Count -eq 0) {
     $findings += "[SHARD-TIMEOUT] no job was projected out of the jobs: block, so the verdict below would judge nothing - the file's shape has drifted away from what this check reads (expected 'jobs:' at column 0, each job key indented two spaces and its own keys four)."
     return $findings
   }
   foreach ($j in $jobs) {
-    if ($null -eq $j.Timeout) {
+    if ($null -eq $j.Timeouts) {
       $findings += "[SHARD-TIMEOUT] job '$($j.Name)' declares no job-level timeout-minutes, so if it hangs it runs to the platform's own job ceiling - and where the job is matrix-expanded, that cost is charged once per leg. Add 'timeout-minutes: <N>' with $FloorMin <= N <= $CeilingMin at the job's own indentation - a step-level bound does not count, it caps one step rather than the job."
     }
-    elseif ($j.Timeout -lt $FloorMin) {
-      $findings += "[SHARD-TIMEOUT] job '$($j.Name)' declares timeout-minutes: $($j.Timeout), below the floor of $FloorMin. A bound under the real shard budget kills healthy runs. Re-tune the value on fresh measurement in a card of its own, never downward to buy a green here."
-    }
-    elseif ($j.Timeout -gt $CeilingMin) {
-      $findings += "[SHARD-TIMEOUT] job '$($j.Name)' declares timeout-minutes: $($j.Timeout), above the ceiling of $CeilingMin. A bound that wide never fires before the cost is already paid, so 'guarded' would be satisfied by a number that is not a bound."
+    else {
+      foreach ($timeout in $j.Timeouts) {
+        if ($timeout -lt $FloorMin) {
+          $findings += "[SHARD-TIMEOUT] job '$($j.Name)' declares a timeout branch of $timeout, below the floor of $FloorMin. A bound under the real shard budget kills healthy runs. Re-tune the value on fresh measurement in a card of its own, never downward to buy a green here."
+        }
+        elseif ($timeout -gt $CeilingMin) {
+          $findings += "[SHARD-TIMEOUT] job '$($j.Name)' declares a timeout branch of $timeout, above the ceiling of $CeilingMin. A bound that wide never fires before the cost is already paid, so 'guarded' would be satisfied by a number that is not a bound."
+        }
+      }
     }
   }
   return $findings
@@ -2867,6 +2955,8 @@ function Test-ScaffoldShardTimeoutExamples {
     @{ n = 'second-job-unbound'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', "    timeout-minutes: $FloorMin", '    steps:', '      - run: echo hi', '  publish:', '    runs-on: ubuntu-latest', '    steps:', '      - run: echo hi') }
     @{ n = 'no-jobs-block';      want = 'no job was projected';                  yml = @('name: nothing', 'on: {}') }
     @{ n = 'on-both-bounds';     want = '';                                      yml = @('jobs:', '  selftest:', "    timeout-minutes: $FloorMin", '    steps:', '      - run: echo hi', '  publish:', "    timeout-minutes: $CeilingMin", '    steps:', '      - run: echo hi') }
+    @{ n = 'windows-seed-pre-split'; want = '';                                  yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
+    @{ n = 'wrong-os-seed-pre-split'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
   )
   $findings = @()
   foreach ($c in $cases) {
@@ -4234,6 +4324,10 @@ function Remove-TierPrintLine {
   param([AllowEmptyString()][AllowNull()][string]$Text)
   return ((("$Text" -split "`r?`n") | Where-Object { $_ -notmatch '^\[CARD-TIER\] ' }) -join "`n")
 }
+# PR297 keeps the corpus's explicit compatibility boundary until its cards migrate. Fixtures still execute
+# every retained decision; later upstream entry policies are asserted advisory rather than silently skipped.
+$checkCardsText10 = Get-Content (Join-Path $PSScriptRoot 'check-cards.ps1') -Raw
+$localLegacyCardPolicy10 = $checkCardsText10.Contains('本次上游采纳的本地兼容边界（优先于上面描述的上游后续政策）')
 Step '10/17 任务卡校验（check-cards.ps1）'
 & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'check-cards.ps1')
 if ($LASTEXITCODE -ne 0) { Fail '任务卡校验未过（见上）。' }
@@ -4415,14 +4509,16 @@ else { Write-Host '  种子缺陷 10d(接线/_scope+task) OK：判定核接的�
 if ($wireTask -notmatch '(?m)^\s*try\s*\{\s*\$changed\s*=\s*@\(Get-ScaffoldChangedPath\s+-GitDir\s+\$Wt\s+-BaseRef\s+\$scopeBaseSha\)') { Fail '10d [SCOPE-WIRE-DIFF]: the ship scope gate no longer takes its change list from the PINNED base sha. The card it judges against stays pinned while the paths it judges float, so the allow_paths standard and the diff it is applied to can come from two different commits - the split the pin exists to remove.' }
 elseif ($wireTask -notmatch '(?m)^\s*\$budgetNumstat\s*=\s*\(&\s*git\s+-C\s+\$Wt\s+diff\s+"\$scopeBaseSha\.\.\.HEAD"\s+--numstat') { Fail '10d [SCOPE-WIRE-NUMSTAT]: the card budget gate no longer measures its numstat against the PINNED base sha. The budget is read from the base card at one commit while the lines are counted against another, so the same diff passes or trips depending on what moved the ref between the two calls.' }
 else { Write-Host '  seeded defect 10d [SCOPE-WIRE-CONSUMERS] OK: both consumers of the pinned base sha - the scope gate change list and the budget numstat - dereference $scopeBaseSha, not the mutable ref' -ForegroundColor Green }
-$wireTriage = @(Select-String -Path (Join-Path $RepoRoot 'scripts/triage.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
+$wireTriageSites = @('cards-active', 'handoff-open', 'worktree-orphan', 'delivery-blocked')
+$wireTriageText = Get-Content (Join-Path $RepoRoot 'scripts/triage.ps1') -Raw
+$wireTriage = @([regex]::Matches($wireTriageText, 'Get-FrontMatter')).Count
 $wireArchive = @(Select-String -Path (Join-Path $RepoRoot 'scripts/archive.ps1') -Pattern 'Get-FrontMatter' -AllMatches).Count
-if ($wireTriage -ne 5) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 5（五个读卡 front-matter 的探针：cards-active / handoff-open / worktree-orphan / archive-pending / delivery-blocked）——有探针退回手写正则或被删。" }
+if ($wireTriage -ne $wireTriageSites.Count -or @($wireTriageSites | Where-Object { -not $wireTriageText.Contains($_) }).Count) { Fail "闸10d(接线/triage)：triage.ps1 调用共享 Get-FrontMatter 的处数为 $wireTriage、期望 $($wireTriageSites.Count)，且须保留本采纳范围的探针：$($wireTriageSites -join ' / ')。archive-pending 仍是 manifest 明确未采用的 TRIAGE 面，不能伪报为已接线。" }
 elseif ($wireArchive -lt 1) { Fail "闸10d(接线/archive)：archive.ps1 未调用共享 Get-FrontMatter——Get-CardField 退回手写正则。" }
 # R5 收尾接线：cleanup 必须真的调 archive.ps1 -Check。12e(7) 只证 -Check **有效**，不证它**被调用**——
 # 少了这条断言，删掉那一行调用就是一个存活变异（全绿照旧）。锚在调用形态而非提示文案上，措辞可自由改写。
 elseif ("$(Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw)" -notmatch '(?m)^\s*&\s*pwsh\s+-NoProfile\s+-File\s+\$archiveScript\s+-Check\s*$') { Fail '闸10d(接线/task-cleanup)：task.ps1 的 R5 收尾未调用 archive.ps1 -Check——冷存索引投影自检掉线（建议性步骤也须在场，否则漂移只能等心跳才被发现）。' }
-else { Write-Host '  种子缺陷 10d(接线/triage+archive+cleanup) OK：五个读卡 triage 探针与 archive 取值器均走共享锚定解析器，且 cleanup R5 收尾接了 archive -Check' -ForegroundColor Green }
+else { Write-Host '  种子缺陷 10d(接线/triage+archive+cleanup) OK：四个已采纳读卡 triage 探针与 archive 取值器均走共享锚定解析器，且 cleanup R5 收尾接了 archive -Check' -ForegroundColor Green }
 # 10d(wiring/lessons-cap, upstream issue #184): the Tier-1 cap has two consumers - lessons.ps1 check and
 # triage.ps1's lessons-cap probe - and each used to hold its own copy of the bullet regex, so any fix had to
 # be applied twice or the check and the probe would report different compliance. Both must go through the
@@ -4791,16 +4887,21 @@ $seed10fCases = @(
   [pscustomobject]@{ Id = 'T9-DODEXIT-REPAIRED'; Dod = 'dod_command: pwsh -NoProfile -Command "& pwsh -NoProfile -File a.ps1; if (-not (Test-Path README.md)) { exit 1 }; exit 0"'; Kind = 'safe'; Trace = $false; FailA = { "gate 10f(f30): the REPAIRED form - the same payload ending on an explicit exit 0 - was rejected by check-cards (exit=$($r.exit)). The TD153 rule then rejects the very shape its failure text tells the author to write, so the printed repair does not work.`n actual output: $($r.out)" }; FailB = $null; Ok = '  seeded defect 10f(f30) OK: a payload ending on an explicit exit 0 is not rejected (the printed repair really works)' },
   [pscustomobject]@{ Id = 'T9-DODEXIT-BRANCHONLY'; Sentinel = 'CARD-DOD-EXIT'; Dod = 'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path README.md)) { exit 1 }; & pwsh -NoProfile -File a.ps1"'; Kind = 'danger'; Trace = $false; FailA = { "gate 10f(f31): an exit sitting only inside a branch, with the payload ending on the nested pwsh call, was ACCEPTED by check-cards (exit 0) - that branch is exactly what does not run when every assertion passes, so the exit code still comes from the subprocess (TD153/L245).`n actual output: $($r.out)" }; FailB = $null; Ok = '  seeded defect 10f(f31) OK: an exit inside a branch does not count as ending the payload (the LAST statement must be the exit)' },
   [pscustomobject]@{ Id = 'T9-DODEXIT-STRINGONLY'; Dod = 'dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path README.md -Pattern ''pwsh'' -Quiet)) { exit 1 }"'; Kind = 'safe'; Trace = $false; FailA = { "gate 10f(f32): a payload that merely NAMES pwsh inside a string literal (-Pattern 'pwsh', not a host invocation) was rejected by check-cards (exit=$($r.exit)) - the TD153 rule is matching text rather than AST command invocations and takes a legitimate assertion red.`n actual output: $($r.out)" }; FailB = $null; Ok = '  seeded defect 10f(f32) OK: pwsh appearing as a string literal in the payload is not read as a nested invocation (judged by AST, not by text)' },
-  [pscustomobject]@{ Id = 'T9-DODFN-BARE'; Sentinel = 'CARD-DOD-FN-EXISTS'; Names = @('Get-ScaffoldFoo'); Dod = 'dod_command: pwsh -NoProfile -Command ". scripts/_cards.ps1; if (-not (Get-ScaffoldFoo).Bar) { exit 1 }"'; Kind = 'danger'; Trace = $true; FailA = { "gate 10f(f33) seeded defect: a dod_command calling the repo function Get-ScaffoldFoo without asserting anywhere that it exists was ACCEPTED by check-cards (exit 0). -Phase red runs the dod RAW, where CommandNotFoundException is terminating for the STATEMENT only: the enclosing if is abandoned, control falls through to the trailing exit 0, and the dod exits 0 with every arm silently no-op'd. That vacuous GREEN is banked as a passing DoD gate and -Phase red reports the card is already GREEN (TD250/L308 not closed)." }; FailB = { "gate 10f(f33): check-cards rejected the missing-existence-arm card (exit<>0) but the error does not name the card id - not traceable.`n actual output: $($r.out)" }; Ok = '  seeded defect 10f(f33) OK: a dod calling a repo function with no existence assertion is rejected by name (TD250/L308)' },
+  [pscustomobject]@{ Id = 'T9-DODFN-BARE'; LaterPolicy = $true; Sentinel = 'CARD-DOD-FN-EXISTS'; Names = @('Get-ScaffoldFoo'); Dod = 'dod_command: pwsh -NoProfile -Command ". scripts/_cards.ps1; if (-not (Get-ScaffoldFoo).Bar) { exit 1 }"'; Kind = 'danger'; Trace = $true; FailA = { "gate 10f(f33) seeded defect: a dod_command calling the repo function Get-ScaffoldFoo without asserting anywhere that it exists was ACCEPTED by check-cards (exit 0). -Phase red runs the dod RAW, where CommandNotFoundException is terminating for the STATEMENT only: the enclosing if is abandoned, control falls through to the trailing exit 0, and the dod exits 0 with every arm silently no-op'd. That vacuous GREEN is banked as a passing DoD gate and -Phase red reports the card is already GREEN (TD250/L308 not closed)." }; FailB = { "gate 10f(f33): check-cards rejected the missing-existence-arm card (exit<>0) but the error does not name the card id - not traceable.`n actual output: $($r.out)" }; Ok = '  seeded defect 10f(f33) OK: a dod calling a repo function with no existence assertion is rejected by name (TD250/L308)' },
   [pscustomobject]@{ Id = 'T9-DODFN-ARMED'; Dod = 'dod_command: pwsh -NoProfile -Command ". scripts/_cards.ps1; if (-not (Get-Command Get-ScaffoldFoo -ErrorAction SilentlyContinue)) { exit 1 }; if (-not (Get-ScaffoldFoo).Bar) { exit 1 }"'; Kind = 'safe'; Trace = $false; FailA = { "gate 10f(f34): the REPAIRED form - the same dod carrying the existence arm the failure text tells the author to write - was rejected by check-cards (exit=$($r.exit)). The TD250 rule then rejects the very shape it prints as the fix, so the printed repair does not work.`n actual output: $($r.out)" }; FailB = $null; Ok = '  seeded defect 10f(f34) OK: the existence arm the failure text prints really clears the rule (the repair works)' },
   [pscustomobject]@{ Id = 'T9-DODFN-STRINGONLY'; Dod = 'dod_command: pwsh -NoProfile -Command "if (-not (Select-String -Path README.md -Pattern ''Get-ScaffoldFoo'' -Quiet)) { exit 1 }"'; Kind = 'safe'; Trace = $false; FailA = { "gate 10f(f35): a payload that merely NAMES a repo function inside a string literal (-Pattern 'Get-ScaffoldFoo', not an invocation) was rejected by check-cards (exit=$($r.exit)) - the TD250 rule is matching text rather than AST command names, which reds T234's live dod, where Get-ScaffoldHandoffStatusRules appears twice inside .Replace() literals.`n actual output: $($r.out)" }; FailB = $null; Ok = '  seeded defect 10f(f35) OK: a repo function named only inside a string literal is not read as a call (judged by AST, not by text)' },
-  [pscustomobject]@{ Id = 'T9-DODFN-PARTIAL'; Sentinel = 'CARD-DOD-FN-EXISTS'; Names = @('Get-ScaffoldBar'); Dod = 'dod_command: pwsh -NoProfile -Command ". scripts/_cards.ps1; if (-not (Get-Command Get-ScaffoldFoo -ErrorAction SilentlyContinue)) { exit 1 }; if (-not (Get-ScaffoldFoo).Bar) { exit 1 }; if (-not (Get-ScaffoldBar).Baz) { exit 1 }"'; Kind = 'danger'; Trace = $false; FailA = { "gate 10f(f36) seeded defect: a dod asserting ONE of the two repo functions it calls was ACCEPTED by check-cards (exit 0) - the unasserted Get-ScaffoldBar arm still no-ops silently, so partial coverage buys a partial vacuous GREEN and the rule is judging the dod rather than each name it calls (TD250/L308)." }; FailB = $null; Ok = '  seeded defect 10f(f36) OK: asserting one of two called functions is not enough - the rule is per name, not per card' }
+  [pscustomobject]@{ Id = 'T9-DODFN-PARTIAL'; LaterPolicy = $true; Sentinel = 'CARD-DOD-FN-EXISTS'; Names = @('Get-ScaffoldBar'); Dod = 'dod_command: pwsh -NoProfile -Command ". scripts/_cards.ps1; if (-not (Get-Command Get-ScaffoldFoo -ErrorAction SilentlyContinue)) { exit 1 }; if (-not (Get-ScaffoldFoo).Bar) { exit 1 }; if (-not (Get-ScaffoldBar).Baz) { exit 1 }"'; Kind = 'danger'; Trace = $false; FailA = { "gate 10f(f36) seeded defect: a dod asserting ONE of the two repo functions it calls was ACCEPTED by check-cards (exit 0) - the unasserted Get-ScaffoldBar arm still no-ops silently, so partial coverage buys a partial vacuous GREEN and the rule is judging the dod rather than each name it calls (TD250/L308)." }; FailB = $null; Ok = '  seeded defect 10f(f36) OK: asserting one of two called functions is not enough - the rule is per name, not per card' }
 )
 foreach ($case in $seed10fCases) {
   New-Seed10fCard $case.Id $case.Dod
   $r = Invoke-Seed10fCheck $case.Id
   if ($case.Kind -eq 'danger') {
-    if ($r.exit -eq 0) { Fail (& $case.FailA) }
+    if ($localLegacyCardPolicy10 -and ($case.PSObject.Properties.Name -contains 'LaterPolicy') -and $case.LaterPolicy) {
+      if ($r.exit -ne 0) { Fail "gate 10f($($case.Id)): local compatibility policy keeps this later upstream rule advisory, but the fixture exited $($r.exit).`nActual output: $($r.out)" }
+      elseif ($r.out -match '\[CARD-DOD-FN-EXISTS\]') { Fail "gate 10f($($case.Id)): local compatibility policy keeps this later upstream rule advisory, but its blocking sentinel was emitted.`nActual output: $($r.out)" }
+      elseif (-not $fail) { Write-Host "  local compatibility 10f($($case.Id)) OK: later upstream existence policy remains non-blocking" -ForegroundColor Green }
+    }
+    elseif ($r.exit -eq 0) { Fail (& $case.FailA) }
     elseif ($case.Trace -and ($r.out -notmatch $case.Id)) { Fail (& $case.FailB) }
     # Optional per-case sentinel (T109): a non-zero exit only proves SOME guard fired. Where two guards
     # could plausibly reject the same fixture, the case names the sentinel its own rule must report, so a
@@ -4880,7 +4981,11 @@ Set-Content (Join-Path $ccSeed10h 'specs/tasks/T9-NO-SWEEP.md') $seedCard10h -En
 $ccOut10h = & pwsh -NoProfile -File (Join-Path $ccSeed10h 'scripts/check-cards.ps1') -TaskId T9-NO-SWEEP 2>&1 | Out-String
 $ccExit10h = $LASTEXITCODE
 Remove-Item -Recurse -Force $ccSeed10h -ErrorAction SilentlyContinue
-if ($ccExit10h -eq 0) { Fail "gate 10h seeded defect (T94): a card with six allow_paths and no 'sweep:' field was ACCEPTED by check-cards.ps1 (exit 0) - the cross-cutting sweep requirement is not wired into the entry script, so the L97 teaching-face grep is optional again and comes back as a late allow_paths widening.`nActual output: $ccOut10h" }
+if ($localLegacyCardPolicy10) {
+  if ($ccExit10h -ne 0 -or $ccOut10h -match '\[CARD-SWEEP\]') { Fail "gate 10h: the preserved local policy keeps sweep advisory, but the fixture became blocking (exit=$ccExit10h).`nActual output: $ccOut10h" }
+  elseif (-not $fail) { Write-Host '  local compatibility 10h OK: sweep remains advisory while the corpus is unmigrated' -ForegroundColor Green }
+}
+elseif ($ccExit10h -eq 0) { Fail "gate 10h seeded defect (T94): a card with six allow_paths and no 'sweep:' field was ACCEPTED by check-cards.ps1 (exit 0) - the cross-cutting sweep requirement is not wired into the entry script, so the L97 teaching-face grep is optional again and comes back as a late allow_paths widening.`nActual output: $ccOut10h" }
 elseif ((Remove-TierPrintLine $ccOut10h) -notmatch 'T9-NO-SWEEP') { Fail "gate 10h seeded defect (T94): check-cards rejected the card (exit=$ccExit10h) but the message does not name the card id - the failure is not traceable to a card.`nActual output: $ccOut10h" }
 elseif ($ccOut10h -notmatch '\[CARD-SWEEP\]') { Fail "gate 10h seeded defect (T94): check-cards rejected the card (exit=$ccExit10h) but the message does not carry the ASCII sentinel [CARD-SWEEP] - another rule may have caught it by coincidence, so the sweep requirement is not proven covered (L165: a bare non-zero is not evidence).`nActual output: $ccOut10h" }
 else { Write-Host '  seeded defect 10h OK: a card with six allow_paths and no sweep declaration is rejected at authoring time, names the card and carries the [CARD-SWEEP] sentinel (T94 wiring present)' -ForegroundColor Green }
@@ -4936,9 +5041,12 @@ else {
     Remove-Item -Recurse -Force $ccSeed10j -ErrorAction SilentlyContinue
     if ($ccExit10j -eq 0) { Fail "gate 10j seeded defect (T102): two live cards claiming TD501, whose repayment pointer names only one of them, were ACCEPTED by check-cards.ps1 (exit 0) - the cross-card claim rule is not wired into the entry script, so a parallel session can card a debt that is already carded and the duplicate only surfaces after the work is done (TD144 cost a full card).`nActual output: $ccOut10j" }
     elseif ($ccOut10j -notmatch '\[CARD-TD-DUP\]') { Fail "gate 10j seeded defect (T102): check-cards rejected the tree (exit=$ccExit10j) but the message does not carry the ASCII sentinel [CARD-TD-DUP] - another rule may have caught it by coincidence, so the claim rule is not proven covered (L165: a bare non-zero is not evidence).`nActual output: $ccOut10j" }
-    elseif ((Remove-TierPrintLine $ccOut10j) -notmatch 'T92-TD501-GAMMA' -or (Remove-TierPrintLine $ccOut10j) -notmatch 'T94-TD501-DELTA') { Fail "gate 10j seeded defect (T102): the rejection does not name BOTH claiming cards, so the reader cannot tell which pair has to be reconciled.`nActual output: $ccOut10j" }
-    elseif ((Remove-TierPrintLine $ccOut10j) -match 'TD500') { Fail "gate 10j seeded defect (T102): the DECLARED split on TD500 was reported as well. A debt legitimately maps to several cards - the tracker's shape is 1 TD -> 1..N cards and TD88 became nine of them - so a pair whose repayment pointer names both cards must pass. Reporting it makes every legitimate split a false positive and the rule gets switched off.`nActual output: $ccOut10j" }
-    else { Write-Host '  seeded defect 10j OK: an undeclared duplicate claim is rejected at validation time, names both cards and carries the [CARD-TD-DUP] sentinel, while the declared split passes untouched (T102/TD147 wiring present)' -ForegroundColor Green }
+    else {
+      $dupLines10j = (($ccOut10j -split '\r?\n') | Where-Object { $_ -match '\[CARD-TD-DUP\]' }) -join "`n"
+      if ($dupLines10j -notmatch 'T92-TD501-GAMMA' -or $dupLines10j -notmatch 'T94-TD501-DELTA') { Fail "gate 10j seeded defect (T102): the target rule does not name BOTH TD501 claimants.`nActual output: $ccOut10j" }
+      elseif ($dupLines10j -match 'TD500') { Fail "gate 10j seeded defect (T102): the target rule reported the declared TD500 split as well.`nActual output: $ccOut10j" }
+      else { Write-Host '  seeded defect 10j OK: an undeclared duplicate claim is rejected at validation time, names both cards and carries the [CARD-TD-DUP] sentinel, while the declared split passes untouched (T102/TD147 wiring present)' -ForegroundColor Green }
+    }
   }
 }
 # 10k. T103-CARD-ACCEPTANCE-SET: a card declaring review_gate should close its own acceptance set, so
@@ -4975,11 +5083,21 @@ else {
   Set-Content (Join-Path $ccSeed10k 'specs/tasks/T9-NO-ACCEPT.md') $seedCard10k -Encoding utf8
   $ccOut10k = & pwsh -NoProfile -File (Join-Path $ccSeed10k 'scripts/check-cards.ps1') -TaskId T9-NO-ACCEPT 2>&1 | Out-String
   $ccExit10k = $LASTEXITCODE
+  $seedCard10kMalformed = $seedCard10k -replace '(?m)^dod_exit: 0$', "dod_exit: 0`nacceptance:`n  - 1. legacy item"
+  Set-Content (Join-Path $ccSeed10k 'specs/tasks/T9-NO-ACCEPT.md') $seedCard10kMalformed -Encoding utf8
+  $ccOut10kMalformed = & pwsh -NoProfile -File (Join-Path $ccSeed10k 'scripts/check-cards.ps1') -TaskId T9-NO-ACCEPT 2>&1 | Out-String
+  $ccExit10kMalformed = $LASTEXITCODE
+  $seedCard10kValid = $seedCard10k -replace '(?m)^dod_exit: 0$', "dod_exit: 0`nacceptance:`n  - ""A1: first closed item.""`n  - ""A2: second closed item.""`n  - ""A3: third closed item."""
+  Set-Content (Join-Path $ccSeed10k 'specs/tasks/T9-NO-ACCEPT.md') $seedCard10kValid -Encoding utf8
+  $ccOut10kValid = & pwsh -NoProfile -File (Join-Path $ccSeed10k 'scripts/check-cards.ps1') -TaskId T9-NO-ACCEPT 2>&1 | Out-String
+  $ccExit10kValid = $LASTEXITCODE
   Remove-Item -Recurse -Force $ccSeed10k -ErrorAction SilentlyContinue
-  if ($ccOut10k -notmatch '\[CARD-ACCEPTANCE\]') { Fail "gate 10k seeded defect (T103): a card declaring review_gate with no 'acceptance:' field drew NO [CARD-ACCEPTANCE] warning from check-cards.ps1 - the rule is not wired into the entry script, so rubric #6 keeps being judged against an open set and the review keeps having no fixed point.`nActual output: $ccOut10k" }
-  elseif ($ccExit10k -eq 0) { Fail "gate 10k seeded defect (T161): check-cards EXITED 0 on a card that declares review_gate and closes no acceptance set. Since T161 this BLOCKS - as a nudge it reached 13% adoption while rubric #6 stayed 20 of 34 findings across 39 verdicts, decided against an open set. [FIX] accumulate the finding into `$cardErrors, never `$cardWarns.`nActual output: $ccOut10k" }
+  if ($ccOut10k -notmatch '\[CARD-ACCEPTANCE-ADVISORY\]') { Fail "gate 10k: a review-gated card with no acceptance set did not emit the preserved advisory marker.`nActual output: $ccOut10k" }
+  elseif ($ccExit10k -ne 0) { Fail "gate 10k: the preserved local acceptance policy is advisory, but the missing-set fixture exited $ccExit10k.`nActual output: $ccOut10k" }
+  elseif ($ccExit10kMalformed -eq 0 -or $ccOut10kMalformed -notmatch '\[CARD-ACCEPTANCE-INVALID\]') { Fail "gate 10k: a malformed declared acceptance set was not rejected with [CARD-ACCEPTANCE-INVALID].`nActual output: $ccOut10kMalformed" }
+  elseif ($ccExit10kValid -ne 0 -or $ccOut10kValid -match '\[CARD-ACCEPTANCE-(?:ADVISORY|INVALID)\]') { Fail "gate 10k: a legal three-item quoted acceptance set did not pass silently.`nActual output: $ccOut10kValid" }
   elseif ((Remove-TierPrintLine $ccOut10k) -notmatch 'T9-NO-ACCEPT') { Fail "gate 10k seeded defect (T103): the warning does not name the card id, so it is not traceable to a card.`nActual output: $ccOut10k" }
-  else { Write-Host '  seeded defect 10k OK: a review-gated card with no closed acceptance set draws [CARD-ACCEPTANCE], names the card, and check-cards exits NON-ZERO - the set is required, not suggested (T103 wiring + T161 severity)' -ForegroundColor Green }
+  else { Write-Host '  local compatibility 10k OK: missing acceptance remains an explicit advisory' -ForegroundColor Green }
 }
 # 10l. T110-MUT-EVIDENCE-PATHS (TD145 item 1), tightened by T200-CARD-MUT-BOTH-PATHS (TD194): a card whose
 # `hygiene` promises a mutation-evidence batch must have room in allow_paths for BOTH files the batch
@@ -5032,7 +5150,11 @@ foreach ($c10l in $cases10l) {
   $out10l = & pwsh -NoProfile -File (Join-Path $ccSeed10l 'scripts/check-cards.ps1') -TaskId $c10l.Id 2>&1 | Out-String
   $exit10l = $LASTEXITCODE
   if ($c10l.Reject) {
-    if ($exit10l -eq 0) { Fail "gate 10l seeded defect (T110/TD145 + T200/TD194): a card whose hygiene promises a mutation-evidence batch $($c10l.Why) was ACCEPTED by check-cards.ps1 (exit 0) - the rule is not wired into the entry script, or it no longer requires BOTH artifacts, so at least one of the two files mutate.ps1 writes can only run from a scratchpad and is never committed, which is exactly what specs/mutations/README.md exists to stop.`nActual output: $out10l" }
+    if ($localLegacyCardPolicy10) {
+      if ($exit10l -ne 0 -or $out10l -match '\[CARD-HYGIENE-MUT\]') { Fail "gate 10l($($c10l.Id)): the preserved local policy keeps mutation-path validation advisory, but the fixture became blocking (exit=$exit10l).`nActual output: $out10l" }
+      elseif (-not $fail) { Write-Host "  local compatibility 10l($($c10l.Id)) OK: mutation-path policy remains non-blocking" -ForegroundColor Green }
+    }
+    elseif ($exit10l -eq 0) { Fail "gate 10l seeded defect (T110/TD145 + T200/TD194): a card whose hygiene promises a mutation-evidence batch $($c10l.Why) was ACCEPTED by check-cards.ps1 (exit 0) - the rule is not wired into the entry script, or it no longer requires BOTH artifacts, so at least one of the two files mutate.ps1 writes can only run from a scratchpad and is never committed, which is exactly what specs/mutations/README.md exists to stop.`nActual output: $out10l" }
     elseif ((Remove-TierPrintLine $out10l) -notmatch $c10l.Id) { Fail "gate 10l ($($c10l.Id)): check-cards rejected the card (exit=$exit10l) but the message does not name the card id - the failure is not traceable to a card.`nActual output: $out10l" }
     elseif ($out10l -notmatch '\[CARD-HYGIENE-MUT\]') { Fail "gate 10l ($($c10l.Id)): check-cards rejected the card (exit=$exit10l) but the message carries no [CARD-HYGIENE-MUT] sentinel - another rule may have caught it by coincidence, so this rule is not proven covered (L165: a bare non-zero is not evidence).`nActual output: $out10l" }
     elseif (-not $fail) { Write-Host "  seeded defect 10l($($c10l.Id)) OK: a promised batch that $($c10l.Why) is rejected, names the card and carries the [CARD-HYGIENE-MUT] sentinel (T110/T200 wiring present)" -ForegroundColor Green }
@@ -5111,7 +5233,11 @@ foreach ($c10m in $cases10m) {
   $out10m = & pwsh -NoProfile -File (Join-Path $ccSeed10m 'scripts/check-cards.ps1') -TaskId $c10m.Id 2>&1 | Out-String
   $exit10m = $LASTEXITCODE
   if ($c10m.Reject) {
-    if ($exit10m -eq 0) { Fail "gate 10m seeded defect (T174/TD166): a card whose allow_paths entry '$($c10m.Entry)' names nothing - while '$($c10m.Near)' does exist - was ACCEPTED by check-cards.ps1 (exit 0). Either the rule is not wired into the entry script, or the tree it resolves against came back empty (check-cards builds it from git ls-files, so a fixture that is not a git repo makes this rule inert and this gate vacuous).`nActual output: $out10m" }
+    if ($localLegacyCardPolicy10) {
+      if ($exit10m -ne 0 -or $out10m -match '\[CARD-PATH-NEARMISS\]') { Fail "gate 10m($($c10m.Id)): the preserved local policy keeps path-nearmiss validation advisory, but the fixture became blocking (exit=$exit10m).`nActual output: $out10m" }
+      elseif (-not $fail) { Write-Host "  local compatibility 10m($($c10m.Id)) OK: path-nearmiss policy remains non-blocking" -ForegroundColor Green }
+    }
+    elseif ($exit10m -eq 0) { Fail "gate 10m seeded defect (T174/TD166): a card whose allow_paths entry '$($c10m.Entry)' names nothing - while '$($c10m.Near)' does exist - was ACCEPTED by check-cards.ps1 (exit 0). Either the rule is not wired into the entry script, or the tree it resolves against came back empty (check-cards builds it from git ls-files, so a fixture that is not a git repo makes this rule inert and this gate vacuous).`nActual output: $out10m" }
     elseif ($out10m -notmatch $c10m.Id) { Fail "gate 10m ($($c10m.Id)): check-cards rejected the card (exit=$exit10m) but the message does not name the card id - the failure is not traceable to a card.`nActual output: $out10m" }
     elseif ($out10m -notmatch '\[CARD-PATH-NEARMISS\]') { Fail "gate 10m ($($c10m.Id)): check-cards rejected the card (exit=$exit10m) but the message carries no [CARD-PATH-NEARMISS] sentinel - another rule may have caught it by coincidence, so this rule is not proven covered (L165: a bare non-zero is not evidence).`nActual output: $out10m" }
     elseif ($out10m -notmatch [regex]::Escape($c10m.Near)) { Fail "gate 10m ($($c10m.Id)): the finding fired but does not name the neighbour '$($c10m.Near)' it claims to have found. Naming the near path IS the actionable half of this rule - without it the author is told only that something is wrong.`nActual output: $out10m" }
@@ -5201,7 +5327,11 @@ foreach ($c10n in $cases10n) {
   $out10n = & pwsh -NoProfile -File $cc10n -TaskId $c10n.Id 2>&1 | Out-String
   $exit10n = $LASTEXITCODE
   if ($c10n.Reject) {
-    if ($exit10n -eq 0) { Fail "gate 10n ($($c10n.Id), T177/TD173): a run narrowed to this card ACCEPTED $($c10n.Rule) (exit 0). The cross-card rules are not reachable under -TaskId, which is the mode every task.ps1 phase uses, so ship enforces a weaker contract than the CI merge gate. $($c10n.Why)`nActual output: $out10n" }
+    if ($localLegacyCardPolicy10 -and $c10n.Id -eq 'T9-SCOPE-DANGLE') {
+      if ($exit10n -ne 0 -or $out10n -match '(?m)^\s*-\s+\[CARD-REF-DANGLING\]\s+\[T9-SCOPE-DANGLE\]') { Fail "gate 10n($($c10n.Id)): the preserved local policy keeps dangling-reference validation advisory, but the fixture became blocking (exit=$exit10n).`nActual output: $out10n" }
+      elseif (-not $fail) { Write-Host '  local compatibility 10n(T9-SCOPE-DANGLE) OK: dangling reference remains non-blocking' -ForegroundColor Green }
+    }
+    elseif ($exit10n -eq 0) { Fail "gate 10n ($($c10n.Id), T177/TD173): a run narrowed to this card ACCEPTED $($c10n.Rule) (exit 0). The cross-card rules are not reachable under -TaskId, which is the mode every task.ps1 phase uses, so ship enforces a weaker contract than the CI merge gate. $($c10n.Why)`nActual output: $out10n" }
     elseif ($out10n -notmatch $c10n.Sentinel) { Fail "gate 10n ($($c10n.Id)): the narrowed run rejected the card (exit=$exit10n) but the output carries no '$($c10n.Sentinel)' marker - another rule may have caught it by coincidence, so this rule is not proven reachable (L165: a bare non-zero is not evidence).`nActual output: $out10n" }
     elseif ($out10n -notmatch $c10n.Id) { Fail "gate 10n ($($c10n.Id)): the narrowed run rejected the card but the message does not name it, so the failure is not traceable to a card.`nActual output: $out10n" }
     elseif (-not $fail) { Write-Host "  seeded defect 10n($($c10n.Id)) OK: a narrowed run rejects $($c10n.Rule) (T177 wiring present)" -ForegroundColor Green }
@@ -5279,7 +5409,12 @@ New-SeedCard10o ''
 $ccOut10oNone = & pwsh -NoProfile -File (Join-Path $ccSeed10o 'scripts/check-cards.ps1') -TaskId T9-BAD-BUDGET 2>&1 | Out-String
 $ccExit10oNone = $LASTEXITCODE
 Remove-Item -Recurse -Force $ccSeed10o -ErrorAction SilentlyContinue
-if ($ccExit10o -eq 0) { Fail "gate 10o seeded defect (T233): a card declaring 'budget: soon' was ACCEPTED by check-cards.ps1 (exit 0) - the value-shape rule is not wired into the entry script, so a budget that reads as a number to a human and as ABSENT to Get-ScaffoldCardBudgetValue ships as a governed card that no gate is governing.`nActual output: $ccOut10o" }
+if ($localLegacyCardPolicy10) {
+  if ($ccExit10o -ne 0 -or $ccOut10o -match '\[CARD-BUDGET\]') { Fail "gate 10o: the preserved local policy keeps budget-shape validation advisory, but the malformed fixture became blocking (exit=$ccExit10o).`nActual output: $ccOut10o" }
+  elseif ($ccExit10oNone -ne 0 -or $ccOut10oNone -match '\[CARD-BUDGET\]') { Fail "gate 10o: the budget-absent control is no longer silent (exit=$ccExit10oNone).`nActual output: $ccOut10oNone" }
+  elseif (-not $fail) { Write-Host '  local compatibility 10o OK: budget-shape policy remains non-blocking' -ForegroundColor Green }
+}
+elseif ($ccExit10o -eq 0) { Fail "gate 10o seeded defect (T233): a card declaring 'budget: soon' was ACCEPTED by check-cards.ps1 (exit 0) - the value-shape rule is not wired into the entry script, so a budget that reads as a number to a human and as ABSENT to Get-ScaffoldCardBudgetValue ships as a governed card that no gate is governing.`nActual output: $ccOut10o" }
 elseif ($ccOut10o -notmatch '\[CARD-BUDGET\]') { Fail "gate 10o seeded defect (T233): check-cards rejected the card (exit=$ccExit10o) but the message carries no [CARD-BUDGET] sentinel - another rule may have caught it by coincidence, so this rule is not proven covered (L165: a bare non-zero is not evidence).`nActual output: $ccOut10o" }
 elseif ($ccExit10oNone -ne 0) { Fail "gate 10o (absence must stay legal, T233): the SAME fixture with the budget line removed was REJECTED (exit=$ccExit10oNone). The budget key is deliberately optional - making it required reds every in-flight card that predates the field, mid-acceptance, which is exactly what the card's forbid clause rules out.`nActual output: $ccOut10oNone" }
 elseif ($ccOut10oNone -match '\[CARD-BUDGET\]') { Fail "gate 10o (absence must stay SILENT, T233): the budget-less fixture passed (exit 0) but the output still carries a [CARD-BUDGET] line - absence is not a finding, and reporting it trains readers to ignore the sentinel.`nActual output: $ccOut10oNone" }
@@ -5647,14 +5782,14 @@ $mk10u = {
   (@('---', "id: $cardId", "title: seeded requirement case ($cardId)", 'status: todo',
      'dod_command: pwsh -NoProfile -Command "if (-not (Test-Path scripts/x.ps1)) { exit 1 }"', 'dod_exit: 0',
      'allow_paths:', '  - scripts/foo.ps1') +
-   @($extra) + @('review_gate: codex {verdict:pass}', 'acceptance:') +
-   @($acceptanceItems | ForEach-Object { "  - $_" }) +
+    @($extra) + @('review_gate: codex {verdict:pass}', 'acceptance:') +
+    @('  - "A1: ' + (($acceptanceItems | Select-Object -First 1) -replace '"', '') + '"', '  - "A2: fixture acceptance two."', '  - "A3: fixture acceptance three."') +
    @('---', '', "# seeded card ($cardId)")) -join "`n"
 }
 $cases10u = @(
   @{ Id = 'T9-REQ-OK'; Extra = @('requirements:', '  - R1. the guard refuses a dangling citation'); Acc = @('1. the guard refuses it. [R1]'); Block = ''
      Why = 'cites a requirement the card declares, which is the shape the field exists for' }
-  @{ Id = 'T9-REQ-DANGLING'; Extra = @('requirements:', '  - R1. the guard refuses a dangling citation'); Acc = @('1. done. [R7]'); Block = 'CARD-REQ-DANGLING'
+  @{ Id = 'T9-REQ-DANGLING'; Extra = @('requirements:', '  - R1. the guard refuses a dangling citation'); Acc = @('1. done. [R7]'); Block = 'CARD-REQ-DANGLING'; LaterPolicy = $true
      Why = 'cites [R7] while declaring only R1 - a closed-looking link that resolves to nothing' }
   @{ Id = 'T9-REQ-ABSENT'; Extra = @(); Acc = @('1. done. [dod arm 1]'); Block = ''
      Why = 'declares no requirements and cites none, which is the normal card and must stay silent' }
@@ -5667,13 +5802,13 @@ $cases10u = @(
   # the ship would be back to "reword the card or keep paying rounds".
   @{ Id = 'T9-ARB-OK'; Extra = @('arbitration:', '  - sha: 0123456789abcdef0123456789abcdef01234567', '    rounds: 2', '    ruling: maker', '    by: arc-owner', '    reason: the remaining asks are outside this card closed list'); Acc = @('1. done. [dod arm 1]'); Block = ''
      Why = 'records a well-formed ruling - a full lowercase sha, two rounds, a named ruler and a stated reason - which is the shape the field exists for' }
-  @{ Id = 'T9-ARB-EARLY'; Extra = @('arbitration:', '  - sha: 0123456789abcdef0123456789abcdef01234567', '    rounds: 1', '    ruling: maker', '    by: arc-owner', '    reason: too early'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'
+  @{ Id = 'T9-ARB-EARLY'; Extra = @('arbitration:', '  - sha: 0123456789abcdef0123456789abcdef01234567', '    rounds: 1', '    ruling: maker', '    by: arc-owner', '    reason: too early'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'; LaterPolicy = $true
      Why = 'rules after ONE round - the first block is the reviewer turn, so this is a pre-emptive waiver rather than the end of an impasse' }
-  @{ Id = 'T9-ARB-UNBOUND'; Extra = @('arbitration:', '  - sha: HEAD', '    rounds: 2', '    ruling: maker', '    by: arc-owner', '    reason: bound to nothing'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'
+  @{ Id = 'T9-ARB-UNBOUND'; Extra = @('arbitration:', '  - sha: HEAD', '    rounds: 2', '    ruling: maker', '    by: arc-owner', '    reason: bound to nothing'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'; LaterPolicy = $true
      Why = "binds its ruling to 'HEAD' instead of a reviewed sha - a blanket waiver wearing the shape of an arbitration, which is the one thing this field must never be" }
-  @{ Id = 'T9-ARB-NOBODY'; Extra = @('arbitration:', '  - sha: 0123456789abcdef0123456789abcdef01234567', '    rounds: 2', '    ruling: maker', '    by: # nobody', '    reason: # omitted'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'
+  @{ Id = 'T9-ARB-NOBODY'; Extra = @('arbitration:', '  - sha: 0123456789abcdef0123456789abcdef01234567', '    rounds: 2', '    ruling: maker', '    by: # nobody', '    reason: # omitted'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'; LaterPolicy = $true
      Why = 'fills by and reason with nothing but YAML comments - filled to a reader, empty to YAML, so the waiver is unattributed and unexplained while looking complete' }
-  @{ Id = 'T9-ARB-EMPTY'; Extra = @('arbitration: maker'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'
+  @{ Id = 'T9-ARB-EMPTY'; Extra = @('arbitration: maker'); Acc = @('1. done. [dod arm 1]'); Block = 'CARD-ARBITRATION'; LaterPolicy = $true
      Why = 'writes a scalar where the block list belongs, which declares a ruling to a reader and nothing at all to the ship - the in-between state a declared budget that cannot be a line count is already refused for' }
   @{ Id = 'T9-ARB-QUOTEDHASH'; Extra = @('arbitration:', '  - sha: 0123456789abcdef0123456789abcdef01234567', '    rounds: 2', '    ruling: maker', '    by: "#team"', '    reason: "#6 was rejected as out of scope"'); Acc = @('1. done. [dod arm 1]'); Block = ''
      Why = 'quotes a by and a reason that OPEN on a hash - legal YAML scalars, and a rule that unquoted before looking for a comment would call both empty and refuse a card for saying something ordinary' }
@@ -5683,7 +5818,11 @@ foreach ($c10u in $cases10u) {
   $out10u = & pwsh -NoProfile -File (Join-Path $ccSeed10u 'scripts/check-cards.ps1') -TaskId $c10u.Id 2>&1 | Out-String
   $exit10u = $LASTEXITCODE
   if ($c10u.Block) {
-    if ($exit10u -eq 0) { Fail "gate 10u ($($c10u.Id)) seeded block: a card that $($c10u.Why) was ACCEPTED by check-cards.ps1 (exit 0). The rule is declared, its table is green above, and the validator never calls it - which is a function, not a guard.`nActual output: $out10u" }
+    if ($localLegacyCardPolicy10 -and ($c10u.PSObject.Properties.Name -contains 'LaterPolicy') -and $c10u.LaterPolicy) {
+      if ($exit10u -ne 0 -or $out10u -match "\[$($c10u.Block)\]") { Fail "gate 10u($($c10u.Id)): the preserved local policy keeps this rule advisory, but the fixture became blocking (exit=$exit10u).`nActual output: $out10u" }
+      elseif (-not $fail) { Write-Host "  local compatibility 10u($($c10u.Id)) OK: later upstream policy remains non-blocking" -ForegroundColor Green }
+    }
+    elseif ($exit10u -eq 0) { Fail "gate 10u ($($c10u.Id)) seeded block: a card that $($c10u.Why) was ACCEPTED by check-cards.ps1 (exit 0). The rule is declared, its table is green above, and the validator never calls it - which is a function, not a guard.`nActual output: $out10u" }
     elseif ($out10u -notmatch "\[$($c10u.Block)\]") { Fail "gate 10u ($($c10u.Id)): check-cards rejected the card (exit=$exit10u) but the message carries no [$($c10u.Block)] sentinel - another rule may have caught it by coincidence, so this rule is not proven covered (L165: a bare non-zero is not evidence).`nActual output: $out10u" }
     elseif (-not $fail) { Write-Host "  seeded defect 10u($($c10u.Id)) OK: a card that $($c10u.Why) is rejected and carries the [$($c10u.Block)] sentinel" -ForegroundColor Green }
   }
@@ -5757,7 +5896,25 @@ Exit-Gate
 
 if (Enter-Gate '12') {
 Step '12/17 心跳冒烟（triage.ps1 scan -NoWrite + selfcheck + scaffold-sync selfcheck）'
-$triagePath = Join-Path $PSScriptRoot 'triage.ps1'
+# Gate 12 executes production reporters and archive/lessons commands whose script-location fallback is the
+# repository root.  A `-RepoRoot` argument on only the apparent write calls is not sufficient: an omitted
+# path in a nested subprocess previously selected this worktree and archived L1 during an R3 diagnostic run.
+# Give every Gate-12 production invocation one disposable, complete-enough repository root instead.  The
+# source bytes are copied from this candidate; only its state is disposable.  Android is intentionally not
+# copied: no Gate-12 probe reads it, and Android-specific regression coverage remains in its own gate.
+$g12ProtectedRel = @('docs/lessons/LEDGER.md', 'specs/archive/lessons-archive.md')
+$g12Before = @{}
+foreach ($g12Rel in $g12ProtectedRel) {
+  $g12Path = Join-Path $RepoRoot $g12Rel
+  $g12Before[$g12Rel] = if (Test-Path -LiteralPath $g12Path -PathType Leaf) { (Get-FileHash -LiteralPath $g12Path -Algorithm SHA256).Hash } else { '<missing>' }
+}
+$fixtureRepoRoot = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-g12-repo-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Force $fixtureRepoRoot | Out-Null
+foreach ($g12Item in @('scripts', '.claude', 'docs', 'specs', 'configs', 'CLAUDE.md', 'CLAUDE.template.md', 'README.md', 'CHANGELOG.md', '.gitignore')) {
+  $g12Source = Join-Path $RepoRoot $g12Item
+  if (Test-Path -LiteralPath $g12Source) { Copy-Item -LiteralPath $g12Source -Destination $fixtureRepoRoot -Recurse -Force }
+}
+$triagePath = Join-Path $fixtureRepoRoot 'scripts/triage.ps1'
 if (-not (Test-Path $triagePath)) { Fail 'scripts\triage.ps1 不存在（loop-engineering 心跳缺失）。' }
 else {
   & pwsh -NoProfile -File $triagePath scan -NoWrite -Quiet *> $null
@@ -5802,7 +5959,7 @@ else { Write-Host '  triage selfcheck OK（探针 4 hermetic 自检：末行 PAS
 #   behind. Wrong there fails **silently and reassuringly** - a project is told it is up to date when it is not -
 #   so the hermetic selfcheck is wired here rather than left runnable-but-never-run (same reasoning as 12c).
 #   Pinned to the **last** line for the same reason as 12c: an early PASS followed by a later error must not read green.
-$syncPath = Join-Path $PSScriptRoot 'scaffold-sync.ps1'
+$syncPath = Join-Path $fixtureRepoRoot 'scripts/scaffold-sync.ps1'
 if (-not (Test-Path $syncPath)) { Fail 'scripts\scaffold-sync.ps1 不存在（fleet 双向回路的入口缺失）。' }
 else {
   $syncOut = & pwsh -NoProfile -File $syncPath selfcheck 2>&1 | Out-String
@@ -5832,10 +5989,10 @@ Copy-Item $triagePath (Join-Path $td12 'scripts/triage.ps1') -Force
 # Two fixes, both kept - triage.ps1 now SOFT-loads _guard.ps1 (reporter contract: never die on load), and
 # it still travels here, because a library that is merely soft-loaded would otherwise leave its probe
 # permanently no-op inside the fixture and any future regression in it would read green.
-Copy-Item (Join-Path $PSScriptRoot '_cards.ps1') (Join-Path $td12 'scripts/_cards.ps1') -Force
-Copy-Item (Join-Path $PSScriptRoot '_lessons.ps1') (Join-Path $td12 'scripts/_lessons.ps1') -Force
-Copy-Item (Join-Path $PSScriptRoot '_guard.ps1') (Join-Path $td12 'scripts/_guard.ps1') -Force
-Copy-Item (Join-Path $PSScriptRoot '_config.ps1') (Join-Path $td12 'scripts/_config.ps1') -Force
+Copy-Item (Join-Path $fixtureRepoRoot 'scripts/_cards.ps1') (Join-Path $td12 'scripts/_cards.ps1') -Force
+Copy-Item (Join-Path $fixtureRepoRoot 'scripts/_lessons.ps1') (Join-Path $td12 'scripts/_lessons.ps1') -Force
+Copy-Item (Join-Path $fixtureRepoRoot 'scripts/_guard.ps1') (Join-Path $td12 'scripts/_guard.ps1') -Force
+Copy-Item (Join-Path $fixtureRepoRoot 'scripts/_config.ps1') (Join-Path $td12 'scripts/_config.ps1') -Force
 $tdFixture = @(
   '# Fixture 技术债追踪器（选顶 12d · TD57/TD-120 种子缺陷）', '',
   '| id | 发现日 | 位置 | 偏离了什么（债） | 严重度 | 状态 | 偿还指针 |',
@@ -5909,7 +6066,7 @@ $lsL4 = @('## L4', '- date: 2026-07-04', '- symptom: 示例症状四（当前最
 $lsHeaderLine = '# Fixture LEDGER（12e lessons 子夹具 · T40-LEDGERARCH）'
 $lsFixtureText = ((@($lsHeaderLine, '') + $lsL1 + @('') + $lsL2 + @('') + $lsL3 + @('') + $lsL4)) -join "`n"
 Set-Content (Join-Path $ar 'docs/lessons/LEDGER.md') $lsFixtureText -Encoding utf8
-$arScript = Join-Path $PSScriptRoot 'archive.ps1'
+$arScript = Join-Path $fixtureRepoRoot 'scripts/archive.ps1'
 if (-not (Test-Path $arScript)) { Fail '12e：scripts\archive.ps1 不存在（冷存压缩引擎缺失，TD86/T28 未落地）。' }
 else {
   $arOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -Quiet 2>&1 | Out-String   # T107: 输出要断言 [ARCHIVE-HELD]
@@ -6197,14 +6354,14 @@ else {
   $t74Ledger = @(
     '# Fixture LEDGER (12e-12 T74 selector)', '',
     '## L1', '- date: 2026-07-01 ｜ tags: t ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1', '- symptom: one-off T74COLDPROBE token lives only here', '- rule: qualifies for the cold store', '',
-    '## L2', '- date: 2026-07-02 ｜ tags: t ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3', '- symptom: must-tier entry', '- rule: never selected (tier)', '',
+    '## L2', '- date: 2026-07-02 ｜ tags: t ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3', '- symptom: must-tier entry', '- rule: never selected (tier)', '- enforced_by: tests/probe.ps1', '',
     '## L3', '- date: 2026-07-03 ｜ tags: t ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2', '- symptom: recurring entry', '- rule: never selected (recurrence)', '',
     '## L4', '- date: 2026-07-04 ｜ tags: t ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1', '- symptom: one-off but resident-referenced', '- rule: kept hot (CLAUDE.md cites it)', '',
     '## L5', '- date: 2026-07-05 ｜ tags: t ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1', '- symptom: one-off but current max id', '- rule: kept hot (Next-Id guard)'
   ) -join "`n"
   Set-Content (Join-Path $t74fx 'docs/lessons/LEDGER.md') $t74Ledger -Encoding utf8
   Set-Content (Join-Path $t74fx 'CLAUDE.md') 'Fixture resident core: doctrine cites L4 here.' -Encoding utf8
-  $lsnScript = Join-Path $PSScriptRoot 'lessons.ps1'
+  $lsnScript = Join-Path $fixtureRepoRoot 'scripts/lessons.ps1'
   $t74LedgerBefore = Get-Content (Join-Path $t74fx 'docs/lessons/LEDGER.md') -Raw
   $t74Dry = & pwsh -NoProfile -File $lsnScript archive -DryRun -RepoRoot $t74fx 2>&1 | Out-String
   $t74DryCode = $LASTEXITCODE
@@ -6339,13 +6496,69 @@ else {
 
   # (7d) the meta repo itself. (a)-(c) only prove the checker works; THIS is the assertion that catches an
   #      index hand-edited in this repo. -Check is read-only, so running it against $RepoRoot writes nothing.
-  $chkSelf = & pwsh -NoProfile -File $arScript -RepoRoot $RepoRoot -Check 2>&1 | Out-String
+  $chkSelf = & pwsh -NoProfile -File $arScript -RepoRoot $fixtureRepoRoot -Check 2>&1 | Out-String
   if ($LASTEXITCODE -ne 0) { $arFail += "12e(7d): this repo's own archive indices are not what the generator projects - re-run scripts\archive.ps1 rather than editing them. Out=[$($chkSelf.Trim())]" }
+
+  # (7e) Keep the base repository's cards-only check contract as a distinct regression.
+  # `-Check` is intentionally broader, but it cannot prove that the verifier's
+  # historical `-CheckCardsIndex` entry remains byte-exact, read-only, and usable
+  # on its own.  The three mutations exercise BOM drift, same-content-tree
+  # immutability, and a projected row disappearing from the index.
+  $cardsIndexPath = Join-Path $ar 'specs/archive/cards-index.md'
+  $getArchiveTreeState = {
+    @(Get-ChildItem -LiteralPath $ar -Recurse -File | Sort-Object FullName | ForEach-Object {
+      $rel = [IO.Path]::GetRelativePath($ar, $_.FullName).Replace('\', '/')
+      "$rel|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+    })
+  }
+  $cardsTreeBefore = @(& $getArchiveTreeState)
+  $cardsGoodOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+  $cardsGoodCode = $LASTEXITCODE
+  $cardsTreeAfter = @(& $getArchiveTreeState)
+  if ($cardsGoodCode -ne 0) { $arFail += "12e(7e): correct cards index failed its dedicated read-only check (exit=$cardsGoodCode): $cardsGoodOut" }
+  if (@(Compare-Object $cardsTreeBefore $cardsTreeAfter).Count) { $arFail += '12e(7e): dedicated cards-index check modified the fixture tree.' }
+  if (-not (Test-Path -LiteralPath $cardsIndexPath -PathType Leaf)) { $arFail += '12e(7e): cards-index.md is absent from the swept fixture.' }
+  else {
+    $cardsCorrectBytes = [IO.File]::ReadAllBytes($cardsIndexPath)
+    $utf8Bom = [Text.UTF8Encoding]::new($true).GetPreamble()
+    [IO.File]::WriteAllBytes($cardsIndexPath, [byte[]]($utf8Bom + $cardsCorrectBytes))
+    $cardsBomHash = (Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash
+    $cardsBomOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+    $cardsBomCode = $LASTEXITCODE
+    if ($cardsBomCode -eq 0 -or $cardsBomOut -notmatch '\[ARCHIVE-CHECK-DRIFT\]') { $arFail += "12e(7e): BOM-only cards-index byte drift was not rejected by -CheckCardsIndex: $cardsBomOut" }
+    if ((Get-FileHash -LiteralPath $cardsIndexPath -Algorithm SHA256).Hash -ne $cardsBomHash) { $arFail += '12e(7e): BOM drift check rewrote or repaired the fixture.' }
+    [IO.File]::WriteAllBytes($cardsIndexPath, $cardsCorrectBytes)
+
+    $missingTa3 = @(Get-Content -LiteralPath $cardsIndexPath | Where-Object { $_ -notmatch '^\| TA3 \|' })
+    Set-Content -LiteralPath $cardsIndexPath -Value ($missingTa3 -join "`n") -Encoding utf8
+    $cardsDriftTreeBefore = @(& $getArchiveTreeState)
+    $cardsRowOut = & pwsh -NoProfile -File $arScript -RepoRoot $ar -CheckCardsIndex -Quiet 2>&1 | Out-String
+    $cardsRowCode = $LASTEXITCODE
+    $cardsDriftTreeAfter = @(& $getArchiveTreeState)
+    if ($cardsRowCode -eq 0 -or $cardsRowOut -notmatch '\[ARCHIVE-CHECK-DRIFT\]') { $arFail += "12e(7e): deleting the TA3 projection row was not rejected by -CheckCardsIndex: $cardsRowOut" }
+    if (@(Compare-Object $cardsDriftTreeBefore $cardsDriftTreeAfter).Count) { $arFail += '12e(7e): cards-index drift check modified or self-repaired the fixture tree.' }
+    [IO.File]::WriteAllBytes($cardsIndexPath, $cardsCorrectBytes)
+  }
 
   Remove-Item -Recurse -Force $ar -ErrorAction SilentlyContinue
   if ($arFail.Count) { Fail ("12e archive.ps1 冷存压缩闸失败：`n    - " + ($arFail -join "`n    - ")) }
   else { Write-Host '  12e archive.ps1 冷存压缩 OK（热/冷分区正确 · 同 id 相异行不丢 · 索引条数==归档（期望值从夹具派生）+ 头注指针完好 · 模板豁免 · 幂等 · index-is-a-projection: -Check green when swept, red on a hand-edited title and on a hand-patched count, and this repo''s own indices still project clean · lessons 子夹具：逗号形式精确文本搬运/幂等/拒最高id+告警/拒未知id+告警/拒前导零别名/DryRun fail-closed/空token fail-closed/双侧暂存原子替换·任一侧写失败零丢失/两侧并存一致自愈·不一致拒改 均 OK · T74 selector: picks only tier=ledger+rec=1, keeps max-id and resident-referenced ids hot, dry-run read-only, idempotent, archived entries searchable [archived]）' -ForegroundColor Green }
 }
+$g12Drift = @()
+foreach ($g12Rel in $g12ProtectedRel) {
+  $g12Path = Join-Path $RepoRoot $g12Rel
+  $g12After = if (Test-Path -LiteralPath $g12Path -PathType Leaf) { (Get-FileHash -LiteralPath $g12Path -Algorithm SHA256).Hash } else { '<missing>' }
+  if ($g12After -ne $g12Before[$g12Rel]) { $g12Drift += "$g12Rel before=$($g12Before[$g12Rel]) after=$g12After" }
+}
+$fixtureResolved = [IO.Path]::GetFullPath($fixtureRepoRoot)
+$fixtureTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if (-not $fixtureResolved.StartsWith($fixtureTempRoot, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $fixtureResolved) -notlike 'selftest-g12-repo-*') {
+  Fail "[SELFTEST-FIXTURE-CLEANUP-UNSAFE] refusing recursive cleanup outside the Gate-12 Temp fixture namespace: $fixtureResolved"
+} else {
+  Remove-Item -LiteralPath $fixtureResolved -Recurse -Force -ErrorAction SilentlyContinue
+}
+if ($g12Drift.Count) { Fail "[SELFTEST-FIXTURE-SIDE-EFFECT] Gate 12 altered the live worktree: $($g12Drift -join '; ')" }
+else { Write-Host '  Gate 12 fixture isolation OK（live lessons ledger/archive bytes unchanged）' -ForegroundColor Green }
 
 # --- 13. 防泄露闸冒烟：check-secrets.ps1 对当前（已入 git 的）元仓真跑扫描 ---
 # TD63 item12：本节注释曾称「本元仓非 git 仓」，但本仓自身现已纳入 git（见 CLAUDE.md）——下方这一跑
@@ -6579,7 +6792,7 @@ if (-not $fail) { Write-Host "  lens 计数一致：lens $lensCount（plan-forge
 if ($isPostInit) { Write-Host '  14e 已初始化（无 CLAUDE.template.md），跳过执行边界同步比对。' -ForegroundColor DarkGray }
 else {
   # TD98/TD137: every 14e failure carries the .md pair this gate read plus the -Only id that re-checks it.
-  $reads14e = ' [DOC-GATE-READS 14e] this gate reads CLAUDE.md and CLAUDE.template.md; after editing either, re-check with: selftest.ps1 -Only 14'
+  $reads14e = ' [DOC-GATE-READS 14e] this gate reads the two execution-boundary documents named above; after editing either, re-check with: selftest.ps1 -Only 14'
   $ebPat = '(?s)## 执行边界.*?(?=\r?\n## )'
   $ebCm = [regex]::Match((Get-Content (Join-Path $RepoRoot 'CLAUDE.md') -Raw), $ebPat).Value
   $ebCt = [regex]::Match((Get-Content (Join-Path $RepoRoot 'CLAUDE.template.md') -Raw), $ebPat).Value
@@ -7013,6 +7226,18 @@ $adrCase = @(
   @{ Why = 'Chinese heading alias accepted (four records use it; English-first forbids converting untouched lines)'
      Text = @('# ADR 9999: probe', '- Status: Accepted', '## 背景', 'x', '## 备选方案', 'x') -join $adrNl
      Want = 0 }
+  @{ Why = 'dated Chinese MyInspection header plus approved-decision alternatives heading accepted'
+     Text = @('# ADR 9999: probe', '日期：2026-09-10 · 状态：accepted', '## 背景', 'x', '## 批准决定与备选', 'x') -join $adrNl
+     Want = 0 }
+  @{ Why = 'dated English MyInspection header plus rejected-alternatives heading accepted'
+     Text = @('# ADR 9999: probe', 'Date: 2026-09-10 · Status: proposed', '## Context', 'x', '## Rejected alternatives', 'x') -join $adrNl
+     Want = 0 }
+  @{ Why = 'dated header with an unknown status is rejected'
+     Text = @('# ADR 9999: probe', '日期：2026-09-10 · 状态：pending-review', '## 背景', 'x', '## 批准决定与备选', 'x') -join $adrNl
+     Want = 1 }
+  @{ Why = 'a dated status-shaped line in the body does not establish header status'
+     Text = @('# ADR 9999: probe', '## Context', 'Date: 2026-09-10 · Status: accepted', '## Rejected alternatives', 'x') -join $adrNl
+     Want = 1 }
   @{ Why = 'both rules can fire on one record'
      Text = @('# ADR 9999: probe', '## Context', 'x') -join $adrNl
      Want = 2 }
@@ -7024,7 +7249,7 @@ foreach ($c in $adrCase) {
     $adrFixtureOk = $false
   }
 }
-if ($adrFixtureOk) { Write-Host '  14h hermetic fixtures OK (missing status / missing alternatives / waiver / Chinese alias / both rules)' -ForegroundColor Green }
+if ($adrFixtureOk) { Write-Host '  14h hermetic fixtures OK (missing status / missing alternatives / waiver / Chinese alias / dated Chinese+English headers / both local alternatives headings / unknown-or-body-only dated status / both rules)' -ForegroundColor Green }
 
 # T96-SCOUT-ADR-STATUS: the recipe that DRAFTS an ADR must teach the line this contract requires, or every
 # draft it produces is born failing 14h. That is the sibling of stale-text drift and the reason the L97 sweep
@@ -7269,9 +7494,10 @@ $subGateSeedDupes = @(Get-SeedCrossSetDuplicate -Column0 $subGateDecls -Seed $su
 # with a space or a full-width paren instead of a dot, and four carried a trailing digit the grammar in
 # _guard.ps1 rejected (8l2, one gate over, came in with them). Re-measured on the tree this card ships
 # from, and both ends of the bracket read the same number.
-# T296: 149 -> 150, one sub-gate, for 15x. MEASURED on this card's tree (the gate printed declared=150
-# against a 149 ceiling), never incremented by hand - this comment block's own standing instruction.
-$subGateDeclFloor = 150
+# PR297 upstream adoption: 150 -> 151.  The restored 16a hot+cold lesson-reference witness is a distinct
+# local regression judgement (cold-only references must remain valid), so it cannot be folded into 16's
+# existing live-tree scan without losing the fixture-specific diagnosis.  MEASURED on this candidate.
+$subGateDeclFloor = 151
 # [SUBGATE-CEILING] (T275 / ADR 0016 item 3): the OTHER end of the same measurement, and the reason it is a
 # ceiling rather than more prose. `[HR-GATE-CENSUS]` found twelve of the seventeen gates with no measurable
 # catch history, so no cut is justified by the numbers; what the numbers do show is growth - 115 commits to
@@ -7295,13 +7521,10 @@ $subGateDeclFloor = 150
 # a human would call a sub-gate: `# 15d2(` writes its label then a full-width paren, one gate over, and
 # stays outside both projections and outside this count - normalising a non-canonical header outside gate
 # 17 is this card's declared non-goal, so the number is honest about its own edge rather than silent on it.
-# T296: 149 -> 150, one sub-gate, for 15x [VERIFY-THREE-STATES]. This ceiling asks whether the judgement
-# could fold into an existing sub-gate instead, and here it could not: 15e brackets the graceful-degradation
-# exit code, 15f(a)/(b) bracket whether gate 1's tools were really invoked, and 15f(c) brackets the TD43
-# fail-closed branch. All four judge gate 1 or an exit code; none of them reads the VERDICT LINE, which is
-# the thing TD224 showed can lie while every one of those four stays green. Folding a verdict-text rule into
-# any of them would make a red there stop saying which decision broke - the exact cost T276 rejected.
-$subGateDeclCeil = 150
+# PR297 upstream adoption: 150 -> 151 for the restored 16a hot+cold witness.  The ceiling stays paired with
+# the measured declaration floor above: a new sub-gate still requires this explicit decision rather than
+# silently becoming part of the count.
+$subGateDeclCeil = 151
 $subGateLabelCount = @(@($subGateDecls) + @($subGateSeeds) | Select-Object -ExpandProperty Label -Unique).Count
 if ($subGateDeclTotal -lt $subGateDeclFloor) {
   Fail "[SUBGATE-LABEL] only $subGateDeclTotal sub-gate declaration(s) were projected out of scripts/selftest.ps1 (expected at least $subGateDeclFloor) - the declaration form has drifted, so the uniqueness verdict below judges nothing. Re-check with: selftest.ps1 -Only 14"
@@ -7736,6 +7959,99 @@ function Add-ScaffoldE2eBaseline {
   foreach ($p in @($ForcePath)) { & git -C $RepoDir add -f -- $p 2>$null }
   return @(Get-ScaffoldE2eBaselineGap -RepoDir $RepoDir -Expected $ForcePath)
 }
+
+# Insert after Add-ScaffoldE2eBaseline. Source: base 2221a418, adapted only for current file placement.
+function Remove-Td4MigrationFixtureWorktree {
+  param(
+    [Parameter(Mandatory)][string]$RepoRoot,
+    [Parameter(Mandatory)][string]$WorktreePath,
+    [int]$MaxAttempts = 3,
+    [int]$RetryDelayMs = 250,
+    [scriptblock]$AttemptInvoker,
+    [scriptblock]$RegistrationProbe,
+    [scriptblock]$SleepInvoker
+  )
+
+  $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+  $targetPath = [System.IO.Path]::GetFullPath($WorktreePath)
+  $diagnostics = [System.Collections.Generic.List[string]]::new()
+  $lastRegistered = $true
+  $lastPathExists = Test-Path -LiteralPath $targetPath
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      if ($AttemptInvoker) {
+        $attemptResult = & $AttemptInvoker $attempt $targetPath
+      } else {
+        $removeOutput = (& git -C $RepoRoot worktree remove --force $targetPath 2>&1 | Out-String)
+        $attemptResult = [PSCustomObject]@{ Exit = $LASTEXITCODE; Output = $removeOutput }
+      }
+    } catch { $attemptResult = [PSCustomObject]@{ Exit = 99; Output = $_.Exception.ToString() } }
+    $removeExit = if ($null -ne $attemptResult.Exit) { [int]$attemptResult.Exit } else { 99 }
+    $removeOutput = [string]$attemptResult.Output
+    $listOutput = if ($RegistrationProbe) { '' } else { (& git -C $RepoRoot worktree list --porcelain 2>&1 | Out-String) }
+    $listExit = if ($RegistrationProbe) { 0 } else { $LASTEXITCODE }
+    $lastRegistered = if ($RegistrationProbe) { [bool](& $RegistrationProbe $targetPath) } elseif ($listExit -ne 0) { $true } else {
+      @($listOutput -split '\r?\n' | Where-Object { $_.StartsWith('worktree ', [System.StringComparison]::Ordinal) } | Where-Object {
+        try { [System.IO.Path]::GetFullPath($_.Substring(9)).Equals($targetPath, $comparison) } catch { $false }
+      }).Count -gt 0
+    }
+    $fallbackExit = $null; $fallbackOutput = ''
+    if (-not $AttemptInvoker -and -not $lastRegistered -and (Test-Path -LiteralPath $targetPath)) {
+      try { Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction Stop; $fallbackExit = 0 }
+      catch { $fallbackExit = 99; $fallbackOutput = $_.Exception.ToString() }
+    }
+    $lastPathExists = Test-Path -LiteralPath $targetPath
+    $detail = [System.Collections.Generic.List[string]]::new()
+    [void]$detail.Add("attempt=$attempt registered=$lastRegistered pathExists=$lastPathExists")
+    [void]$detail.Add("remove-exit=$removeExit")
+    if ($removeOutput) { [void]$detail.Add("remove-detail=$removeOutput") }
+    [void]$detail.Add("list-exit=$listExit")
+    if ($listExit -ne 0 -and $listOutput) { [void]$detail.Add("list-detail=$listOutput") }
+    if ($null -ne $fallbackExit) {
+      [void]$detail.Add("fallback-exit=$fallbackExit")
+      if ($fallbackOutput) { [void]$detail.Add("fallback-detail=$fallbackOutput") }
+    }
+    [void]$diagnostics.Add($detail -join "`n")
+    if (-not $lastRegistered -and -not $lastPathExists) {
+      return [PSCustomObject]@{ Success = $true; Attempts = $attempt; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $false; PathExists = $false }
+    }
+    if ($attempt -lt $MaxAttempts) {
+      if ($SleepInvoker) { & $SleepInvoker $RetryDelayMs } else { Start-Sleep -Milliseconds $RetryDelayMs }
+      continue
+    }
+  }
+  return [PSCustomObject]@{ Success = $false; Attempts = $MaxAttempts; Diagnostics = ($diagnostics -join "`n---`n"); Registered = $lastRegistered; PathExists = $lastPathExists }
+}
+
+function Restore-Td4ContinueProbeFixture {
+  param(
+    [string]$ProbeFile, [bool]$ProbeCreated, [bool]$ProbeExistedBefore,
+    [AllowEmptyString()][string]$ProbeOriginal, [bool]$ProbeOriginalCaptured,
+    [string]$BuildFile, [AllowEmptyString()][string]$BuildOriginal, [bool]$BuildOriginalCaptured,
+    [string]$TenancyFile, [AllowEmptyString()][string]$TenancyOriginal, [bool]$TenancyOriginalCaptured
+  )
+  $errors = [System.Collections.Generic.List[string]]::new()
+  try { if ($ProbeCreated -and $ProbeFile -and (Test-Path -LiteralPath $ProbeFile)) { Remove-Item -LiteralPath $ProbeFile -Force -ErrorAction Stop } } catch { [void]$errors.Add("probe: $($_.Exception.Message)") }
+  try { if ($BuildFile -and $BuildOriginalCaptured -and (Test-Path -LiteralPath $BuildFile)) { [System.IO.File]::WriteAllText($BuildFile, $BuildOriginal, [System.Text.UTF8Encoding]::new($false)) } } catch { [void]$errors.Add("build: $($_.Exception.Message)") }
+  try { if ($TenancyFile -and $TenancyOriginalCaptured -and (Test-Path -LiteralPath $TenancyFile)) { [System.IO.File]::WriteAllText($TenancyFile, $TenancyOriginal, [System.Text.UTF8Encoding]::new($false)) } } catch { [void]$errors.Add("tenancy: $($_.Exception.Message)") }
+  try { $probeRestored = if (-not $ProbeFile) { $true } elseif ($ProbeExistedBefore) { $ProbeOriginalCaptured -and (Test-Path -LiteralPath $ProbeFile) -and ([System.IO.File]::ReadAllText($ProbeFile) -ceq $ProbeOriginal) } else { -not (Test-Path -LiteralPath $ProbeFile) } } catch { [void]$errors.Add("probe-state: $($_.Exception.Message)"); $probeRestored = $false }
+  try { $buildRestored = if (-not $BuildFile) { $true } elseif (-not $BuildOriginalCaptured) { $false } else { (Test-Path -LiteralPath $BuildFile) -and ([System.IO.File]::ReadAllText($BuildFile) -ceq $BuildOriginal) } } catch { [void]$errors.Add("build-state: $($_.Exception.Message)"); $buildRestored = $false }
+  try { $tenancyRestored = if (-not $TenancyFile) { $true } elseif (-not $TenancyOriginalCaptured) { $false } else { (Test-Path -LiteralPath $TenancyFile) -and ([System.IO.File]::ReadAllText($TenancyFile) -ceq $TenancyOriginal) } } catch { [void]$errors.Add("tenancy-state: $($_.Exception.Message)"); $tenancyRestored = $false }
+  return [PSCustomObject]@{ ProbeRestored = $probeRestored; BuildRestored = $buildRestored; TenancyRestored = $tenancyRestored; ProbeFile = $ProbeFile; BuildFile = $BuildFile; TenancyFile = $TenancyFile; Errors = @($errors) }
+}
+
+function Test-Td4ContinueProbeCleanupComplete {
+  param([Parameter(Mandatory)][object]$Cleanup)
+  return $Cleanup.ProbeRestored -and $Cleanup.BuildRestored -and $Cleanup.TenancyRestored -and @($Cleanup.Errors).Count -eq 0
+}
+
+function Get-Td4ContinueProbeCleanupDiagnostics {
+  param([Parameter(Mandatory)][object]$Cleanup)
+  $state = @("ProbeRestored=$($Cleanup.ProbeRestored) path=$($Cleanup.ProbeFile)", "BuildRestored=$($Cleanup.BuildRestored) path=$($Cleanup.BuildFile)", "TenancyRestored=$($Cleanup.TenancyRestored) path=$($Cleanup.TenancyFile)") -join '; '
+  $errorDetail = if (@($Cleanup.Errors).Count -eq 0) { 'none' } else { @($Cleanup.Errors) -join ' | ' }
+  return "$state; collectedErrors=$errorDetail"
+}
+
 if (Enter-Gate '15') {
 Step '15/17 动态 E2E 冒烟（task.ps1 start + ship -Local 真跑工作流：master 默认分支下建 worktree → 全链 ship 到合并提交）'
 $git = Get-Command git -ErrorAction SilentlyContinue
@@ -8818,12 +9134,34 @@ Write-Host '  15v [CARD-ID-DERIVED] 卡 id 文法派生 OK（收窄规则行即�
 #   (a) pyproject + uv 在 → ruff 经 `uv run --no-sync` 被真调（--no-sync 同时是「verify 不在闸内装依赖」的常设离线证据）；
 #   (b) frontend/package.json + node_modules 在 → npm run check / run test 被真调，stub 非零退出须把 verify 置红（防假绿）。
 #   stub 按 OS 生成（Windows .cmd / 类 Unix sh），全离线确定；临时目录即弃，PATH 用毕还原，绝不动元仓。
+$verifySource15 = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/verify.ps1'))
+$projectGoldenVerify15 =
+  $verifySource15.Contains(':core:e2eTest') -and
+  $verifySource15.Contains('[GATE2-MISSING]') -and
+  $verifySource15.Contains('[GATE2-NOT-RUN]')
+
+# 本仓 verify 的 Gate 2 是已交付的 Android/Golden Evidence 闭环，而不是上游脚手架的
+# Get-ScaffoldE2ECommand。15f 只判 Gate 1，因此在这些微型夹具中提供真实 Gradle 调用面，
+# 让 Gate 1 的绿/红结论可达；15x 则另行覆盖该产品接口的缺失、绿、红三态。
+function Set-ProjectGate2Stub15([string]$Root, [int]$ExitCode = 0) {
+  if (-not $projectGoldenVerify15) { return }
+  New-Item -ItemType Directory -Force (Join-Path $Root 'android') | Out-Null
+  if ($IsWindows) {
+    Set-Content (Join-Path $Root 'android/gradlew.bat') "@echo off`r`nexit /b $ExitCode" -Encoding ascii
+  } else {
+    $stub = Join-Path $Root 'android/gradlew'
+    Set-Content $stub "#!/bin/sh`nexit $ExitCode" -Encoding utf8
+    [System.IO.File]::SetUnixFileMode($stub, 'UserRead,UserWrite,UserExecute,GroupRead,GroupExecute,OtherRead,OtherExecute')
+  }
+}
 $vfx = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfx-$PID"
 $vfxOldPath = $env:PATH
 try {
   $vfxBin = Join-Path $vfx 'bin'
   $uvLog = Join-Path $vfx 'uv.log'; $npmLog = Join-Path $vfx 'npm.log'
   New-Item -ItemType Directory -Force $vfxBin, (Join-Path $vfx 'a/scripts'), (Join-Path $vfx 'b/scripts'), (Join-Path $vfx 'b/frontend/node_modules') | Out-Null
+  Set-ProjectGate2Stub15 (Join-Path $vfx 'a') 0
+  Set-ProjectGate2Stub15 (Join-Path $vfx 'b') 0
   if ($IsWindows) {
     Set-Content (Join-Path $vfxBin 'uv.cmd')  "@echo off`r`necho uv %* >> `"$uvLog`"`r`nexit /b 0" -Encoding utf8
     Set-Content (Join-Path $vfxBin 'npm.cmd') "@echo off`r`necho npm %* >> `"$npmLog`"`r`nexit /b 1" -Encoding utf8
@@ -8874,6 +9212,8 @@ $vfxC = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfxc-$PID
 if (Test-Path $vfxC) { Remove-Item -Recurse -Force $vfxC }
 try {
   New-Item -ItemType Directory -Force (Join-Path $vfxC 'py/scripts'), (Join-Path $vfxC 'bare/scripts') | Out-Null
+  Set-ProjectGate2Stub15 (Join-Path $vfxC 'py') 0
+  Set-ProjectGate2Stub15 (Join-Path $vfxC 'bare') 0
   Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $vfxC 'py/scripts/verify.ps1')
   Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $vfxC 'bare/scripts/verify.ps1')
   Set-Content (Join-Path $vfxC 'py/pyproject.toml') '[project]' -Encoding utf8   # 'bare' 夹具故意不放 pyproject.toml
@@ -8933,6 +9273,37 @@ exit $LASTEXITCODE
 #       so the accessor is missing and Get-Command would decline to call it regardless.
 #   (j) ABSENT config          -> exit 0 and prints NOT CONFIGURED. 15f(a) covers absence's EXIT CODE; this
 #       covers its VERDICT TEXT, which the `none` fixture (present config, empty command) does not.
+if ($projectGoldenVerify15) {
+  # This product's Gate 2 is deliberately fixed to Android :core:e2eTest.  Do not pretend the upstream
+  # config-accessor matrix exercises it: use the executable project contract and keep every state live.
+  $vfgProduct = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfg-product-$PID"
+  if (Test-Path $vfgProduct) { Remove-Item -Recurse -Force $vfgProduct }
+  try {
+    foreach ($vfgProductCase in @('missing', 'green', 'red')) {
+      $caseScripts = Join-Path $vfgProduct "$vfgProductCase/scripts"
+      New-Item -ItemType Directory -Force $caseScripts | Out-Null
+      Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $caseScripts 'verify.ps1')
+    }
+    Set-ProjectGate2Stub15 (Join-Path $vfgProduct 'green') 0
+    Set-ProjectGate2Stub15 (Join-Path $vfgProduct 'red') 1
+    $vfgProductLog = Join-Path $vfgProduct 'run.log'
+    & pwsh -NoProfile -File (Join-Path $vfgProduct 'missing/scripts/verify.ps1') *> $vfgProductLog
+    $vfgMissingExit = $LASTEXITCODE; $vfgMissingOut = Get-Content $vfgProductLog -Raw
+    & pwsh -NoProfile -File (Join-Path $vfgProduct 'green/scripts/verify.ps1') *> $vfgProductLog
+    $vfgGreenExit = $LASTEXITCODE; $vfgGreenOut = Get-Content $vfgProductLog -Raw
+    & pwsh -NoProfile -File (Join-Path $vfgProduct 'red/scripts/verify.ps1') *> $vfgProductLog
+    $vfgRedExit = $LASTEXITCODE; $vfgRedOut = Get-Content $vfgProductLog -Raw
+    if ($vfgMissingExit -eq 0) { Fail '15x(a) [GATE2-MISSING-GREEN] a missing product Android wrapper made verify exit 0. Golden Evidence was not run, so this must fail closed.' }
+    elseif (($vfgMissingOut -notmatch '\[GATE2-MISSING\]') -or ($vfgMissingOut -notmatch '\[GATE2-NOT-RUN\]') -or ($vfgMissingOut -notmatch 'verify: FAIL')) { Fail '15x(a) [GATE2-MISSING-SILENT] a missing product Android wrapper did not print GATE2-MISSING, GATE2-NOT-RUN, and verify: FAIL.' }
+    elseif ($vfgGreenExit -ne 0) { Fail "15x(b) [GATE2-GREEN-FALSE-RED] the product Golden Evidence pass stub made verify exit $vfgGreenExit." }
+    elseif ($vfgGreenOut -notmatch 'verify: PASS') { Fail '15x(b) [GATE2-GREEN-NOVERDICT] the product Golden Evidence pass stub did not reach verify: PASS.' }
+    elseif ($vfgRedExit -eq 0) { Fail '15x(c) [GATE2-RED-NOT-PROPAGATED] the product Golden Evidence failure stub made verify exit 0.' }
+    elseif (($vfgRedOut -notmatch '\[GATE2-FAILED\]') -or ($vfgRedOut -notmatch 'verify: FAIL')) { Fail '15x(c) [GATE2-RED-NOVERDICT] the product Golden Evidence failure stub did not print GATE2-FAILED and verify: FAIL.' }
+    else { Write-Host '  15x product Golden Evidence three-state verdict OK (missing -> GATE2-MISSING/NOT-RUN + FAIL; green -> PASS; red -> GATE2-FAILED + FAIL)' -ForegroundColor Green }
+  } finally {
+    Remove-Item -Recurse -Force $vfgProduct -ErrorAction SilentlyContinue
+  }
+} else {
 $vfg = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfg-$PID"
 if (Test-Path $vfg) { Remove-Item -Recurse -Force $vfg }
 $vfgOldPath = $env:PATH
@@ -9056,6 +9427,57 @@ try {
 } finally {
   $env:PATH = $vfgOldPath
   Remove-Item -Recurse -Force $vfg -ErrorAction SilentlyContinue
+}
+}
+
+# 15e2. Golden Evidence is a product contract: it must stay in the dedicated JVM
+# e2e source-set and never leak into the ordinary unit-test layout.  This is
+# deliberately source-level and mutation-backed; it never starts Gradle or an
+# emulator during a harness diagnosis.
+function Test-GoldenEvidenceIsolationContract {
+  param([Parameter(Mandatory)][string]$BuildSource, [Parameter(Mandatory)][string[]]$ObservedPaths)
+  $requiredPaths = @(
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceCoreE2ETest.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceCoreHarness.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceFixture.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceFixtureTest.kt',
+    'android/core/src/e2eTest/kotlin/nz/myinspection/core/e2e/GoldenEvidenceTenantRedactionE2ETest.kt',
+    'android/core/src/e2eTest/resources/e2e/golden-inspection-v1.json'
+  )
+  foreach ($path in $requiredPaths) { if ($ObservedPaths -cnotcontains $path) { return $false } }
+  if (@($ObservedPaths | Where-Object {
+        $_.StartsWith('android/core/src/test/kotlin/nz/myinspection/core/e2e/', [StringComparison]::Ordinal) -or
+        $_.StartsWith('android/core/src/test/resources/e2e/', [StringComparison]::Ordinal)
+      }).Count) { return $false }
+  $requiredPatterns = @(
+    '(?ms)^val e2eTest = sourceSets\.create\("e2eTest"\)\s*\{.*?^\s+resources\.srcDir\("\.\./\.\./data/templates"\)\s*$',
+    '(?m)^\s+compileClasspath \+= sourceSets\.main\.get\(\)\.output\s*$',
+    '(?m)^\s+runtimeClasspath \+= output \+ compileClasspath\s*$',
+    '(?m)^configurations\[e2eTest\.implementationConfigurationName\]\.extendsFrom\(configurations\.testImplementation\.get\(\)\)\s*$',
+    '(?m)^configurations\[e2eTest\.runtimeOnlyConfigurationName\]\.extendsFrom\(configurations\.testRuntimeOnly\.get\(\)\)\s*$',
+    '(?ms)^tasks\.register<Test>\("e2eTest"\)\s*\{.*?^\s+useTestNG\(\)\s*$.*?^\}\s*$',
+    '(?m)^\s+testClassesDirs = e2eTest\.output\.classesDirs\s*$',
+    '(?m)^\s+classpath = e2eTest\.runtimeClasspath\s*$'
+  )
+  foreach ($pattern in $requiredPatterns) { if ([regex]::Matches($BuildSource, $pattern).Count -ne 1) { return $false } }
+  return -not ($BuildSource -match '(?ms)(?:tasks\.)?check\s*\{[^}]*e2eTest' -or $BuildSource -match '(?ms)tasks\.named(?:<[^>]+>)?\("check"\)\s*\{[^}]*e2eTest')
+}
+$coreBuildPath = Join-Path $RepoRoot 'android/core/build.gradle.kts'
+if (-not (Test-Path -LiteralPath $coreBuildPath -PathType Leaf)) { Fail '15e2: android/core/build.gradle.kts is absent; Golden Evidence isolation cannot be judged.' }
+else {
+  $coreBuildSource = Get-Content -LiteralPath $coreBuildPath -Raw
+  $goldenEvidencePaths = @('android/core/src/e2eTest', 'android/core/src/test/kotlin/nz/myinspection/core/e2e', 'android/core/src/test/resources/e2e') | ForEach-Object {
+    Get-ChildItem -LiteralPath (Join-Path $RepoRoot $_) -File -Recurse -ErrorAction SilentlyContinue
+  } | ForEach-Object { [IO.Path]::GetRelativePath($RepoRoot, $_.FullName) -replace '\\', '/' }
+  $sourceSetNameMutation = $coreBuildSource.Replace('sourceSets.create("e2eTest")', 'sourceSets.create("e2eMutant")')
+  $sourceSetTaskMutation = $coreBuildSource.Replace('testClassesDirs = e2eTest.output.classesDirs', 'testClassesDirs = sourceSets.test.get().output.classesDirs')
+  $defaultLayoutMutation = @($goldenEvidencePaths) + 'android/core/src/test/kotlin/nz/myinspection/core/e2e/GoldenEvidenceMutantTest.kt'
+  if (-not (Test-GoldenEvidenceIsolationContract -BuildSource $coreBuildSource -ObservedPaths $goldenEvidencePaths) -or
+      (Test-GoldenEvidenceIsolationContract -BuildSource $sourceSetNameMutation -ObservedPaths $goldenEvidencePaths) -or
+      (Test-GoldenEvidenceIsolationContract -BuildSource $sourceSetTaskMutation -ObservedPaths $goldenEvidencePaths) -or
+      (Test-GoldenEvidenceIsolationContract -BuildSource $coreBuildSource -ObservedPaths $defaultLayoutMutation)) {
+    Fail '15e2: Golden Evidence isolated source-set/task or file-layout contract is missing, or a source-set/task/default-layout mutation survived.'
+  } else { Write-Host '  15e2 Golden Evidence JVM Core E2E isolation/layout mutations OK' -ForegroundColor Green }
 }
 
 # 15i. TD44：远端 ship 的 git push 静默失败 → 必在 push 步 fail-fast abort（不得续跑到 gh pr view/create/merge）。
@@ -9938,6 +10360,34 @@ else {
   if (Test-Path $lsnColdPath) {
     foreach ($d in [regex]::Matches((Get-Content $lsnColdPath -Raw), '(?m)^##\s*L(\d+)\b')) { if (-not $defined.ContainsKey("L$($d.Groups[1].Value)")) { $lsnColdDefs++ }; $defined["L$($d.Groups[1].Value)"] = $true }
   }
+  # Keep the recognition grammar in one place.  lessons.ps1 uses this exact pattern when archive protects
+  # resident references; copying it here previously let the two decisions drift independently.
+  $lessonsSourcePath = Join-Path $PSScriptRoot 'lessons.ps1'
+  $lessonsSource = if (Test-Path -LiteralPath $lessonsSourcePath) { Get-Content -LiteralPath $lessonsSourcePath -Raw } else { '' }
+  $lessonRefDeclaration = [regex]::Match($lessonsSource, '(?m)^\$LessonRefRegex\s*=\s*''(?<pattern>[^'']+)''\s*$')
+  if (-not $lessonRefDeclaration.Success) {
+    Fail '[LSN-REF-REGEX-SOURCE-MISSING] scripts/lessons.ps1 must declare the single-quoted, single-line $LessonRefRegex used by gate 16 and archive resident-reference protection.'
+  }
+  else {
+    $refRe = $lessonRefDeclaration.Groups['pattern'].Value
+
+    # 16a. A hermetic witness prevents the hot∪cold definition domain from becoming vacuous in a repository
+    # without a real cold store.  L901 is hot-only, L903 cold-only, and only L904 must be rejected; the
+    # path/line-range lookalikes prove this uses the production grammar rather than a broad L<n> grep.
+    $g16ProbeDefined = @{}
+    foreach ($g16Text in @("# hot`n## L901`n", "# cold`n## L903`n")) {
+      foreach ($g16Def in [regex]::Matches($g16Text, '(?m)^##\s*L(\d+)\b')) { $g16ProbeDefined["L$($g16Def.Groups[1].Value)"] = $true }
+    }
+    $g16ProbeDangling = @()
+    foreach ($g16Ref in [regex]::Matches('hot L901; cold L903; dangling L904; path:L905; range L906-907', $refRe)) {
+      $g16Id = "L$($g16Ref.Groups[1].Value)"
+      if (-not $g16ProbeDefined.ContainsKey($g16Id)) { $g16ProbeDangling += $g16Id }
+    }
+    if (($g16ProbeDangling.Count -ne 1) -or $g16ProbeDangling[0] -ne 'L904') {
+      Fail "[LSN-COLD-REFERENCE-CONTRACT] gate 16's hot+cold hermetic witness expected only L904 dangling under lessons.ps1 `$LessonRefRegex; got [$($g16ProbeDangling -join ', ')]."
+    }
+    else { Write-Host '  16a hot+cold lesson-reference witness OK (cold-only L903 resolves; L904 alone is dangling)' }
+
   # 扫描范围：根入口文档 CLAUDE.md + CLAUDE.template.md（下游 CLAUDE.md 的来源，其 L 引用也须不悬空）+ TEMPLATE-README.md + .claude/skills/**/*.md + docs/**/*.md，排除 LEDGER 自身（id 的定义处）。
   $scanFiles = @(
     @(Get-Item -Path (Join-Path $RepoRoot 'CLAUDE.md') -ErrorAction SilentlyContinue) +
@@ -9946,8 +10396,7 @@ else {
     @(Get-ChildItem -Path (Join-Path $RepoRoot '.claude/skills') -Filter *.md -Recurse -ErrorAction SilentlyContinue) +
     @(Get-ChildItem -Path (Join-Path $RepoRoot 'docs') -Filter *.md -Recurse -ErrorAction SilentlyContinue)
   ) | Where-Object { $_.FullName -ne $ledgerPath }
-  # 真经验引用：L<n> 前不接 ASCII 字母/数字/冒号（排除 HTML5 内的 L5、path:L88 行号），后不接 -<digit>（排除 L52-71 行段）。
-  $refRe = '(?<![A-Za-z0-9:])L(\d+)\b(?!-\d)'
+  # 真经验引用：$refRe 从 lessons.ps1 的单一真相源抽取；其排除 HTML5/path:L88/L52-71 等 lookalikes。
   $dangling = @()
   foreach ($sf in $scanFiles) {
     foreach ($mm in [regex]::Matches((Get-Content $sf.FullName -Raw), $refRe)) {
@@ -9957,6 +10406,7 @@ else {
   }
   if ($dangling) { $dangling | Sort-Object -Unique | ForEach-Object { Fail "Dangling lesson reference: $_ (the L<n> id is defined in neither docs/lessons/LEDGER.md nor specs/archive/lessons-archive.md; after renaming/renumbering/archiving a lesson, sync its references - existence is machine-checked here, content match remains a human check)" } }
   else { Write-Host "  L-id 引用完整（扫 $($scanFiles.Count) 个 skills/docs 文件，$($defined.Count) 个已定义 id（defs: LEDGER + lessons-archive，冷存贡献 $lsnColdDefs），引用均存在）" }
+  }
 
 # 16b. (T212/TD198) Archived-card retraction annotations, bound in BOTH directions. Declared at column 0
 #      deliberately, though the block it heads is indented inside gate 16's ledger-present branch: outside
@@ -10070,6 +10520,241 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     $a = & $mkSeed (Join-Path $sd 'a') @{ 'config.py' = 'db_password = "s3cr3tValue123"' }   # allowlist secret （本行写出密钥字面量做种子；标记令本仓 check-secrets 跳过 selftest.ps1 自身这行，不自报）
     if ($a -eq 0) { Fail '种子缺陷 17a：check-secrets 未拦截 snake_case 硬编码密钥（db_password=...）——#6 检出回归。' }
     else { Write-Host '  17a check-secrets 拦截 snake_case 密钥 OK' -ForegroundColor Green }
+
+    # 17a3 (TD4): reviewed SQLDelight schema snapshots are an exact-path exception
+    # to the tracked-sensitive filename rule.  Exercise the real entry point in
+    # throwaway repositories: the reviewed file alone passes; siblings, malformed
+    # and case-aliased authorities fail; and a reparse ancestor never becomes a
+    # back door.  Copying the whole scripts directory is deliberate: check-secrets
+    # must load its real `_unicode.ps1` scalar validator in every fixture.
+    $td4Path = 'android/core/src/main/sqldelight/databases/1.db'
+    $td4ConfigPath = 'configs/secrets/tracked-sensitive-allowlist.json'
+    $td4Json = '[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"SQLDelight migration schema baseline"}]'
+    $invokeTd4Fixture = {
+      param([string]$Name, [AllowNull()][string]$Json, [string[]]$Tracked = @(), [string]$ReparseParent = '')
+      $root = Join-Path $sd "a3-$Name"
+      New-Item -ItemType Directory -Force $root | Out-Null
+      Copy-Item (Join-Path $RepoRoot 'scripts') $root -Recurse -Force
+      if (-not (Test-Path -LiteralPath (Join-Path $root 'scripts/_unicode.ps1') -PathType Leaf)) { throw '[SECRET-ALLOWLIST-FIXTURE] _unicode.ps1 was not carried into the real consumer fixture.' }
+      if ($null -ne $Json) {
+        $config = Join-Path $root $td4ConfigPath
+        New-Item -ItemType Directory -Force (Split-Path -Parent $config) | Out-Null
+        [IO.File]::WriteAllText($config, $Json, [Text.UTF8Encoding]::new($false))
+      }
+      foreach ($path in $Tracked) {
+        $file = Join-Path $root $path
+        New-Item -ItemType Directory -Force (Split-Path -Parent $file) | Out-Null
+        [IO.File]::WriteAllBytes($file, [byte[]](0x53,0x51,0x4c,0x69,0x00))
+      }
+      & git -C $root init -q
+      & git -C $root -c user.email='s@l' -c user.name='s' add -f -A 2>$null
+      & git -C $root -c user.email='s@l' -c user.name='s' commit -q -m seed *> $null
+      if ($ReparseParent) {
+        $parent = Join-Path $root $ReparseParent; $outside = Join-Path $sd "a3-$Name-outside"
+        Move-Item -LiteralPath $parent -Destination $outside -Force
+        if ($IsWindows) { & cmd /c mklink /J $parent $outside *> $null } else { New-Item -ItemType SymbolicLink -Path $parent -Target $outside -ErrorAction Stop | Out-Null }
+        $item = Get-Item -LiteralPath $parent -Force -ErrorAction SilentlyContinue
+        if (-not $item -or (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) { throw "[SECRET-ALLOWLIST-FIXTURE] failed to create reparse ancestor $ReparseParent" }
+      }
+      $out = & pwsh -NoProfile -File (Join-Path $root 'scripts/check-secrets.ps1') 2>&1 | Out-String
+      return [pscustomobject]@{ Exit=$LASTEXITCODE; Output=$out }
+    }
+    $td4Exact = & $invokeTd4Fixture 'exact' $td4Json @($td4Path)
+    if ($td4Exact.Exit -ne 0) { Fail "17a3: exact reviewed schema baseline was rejected (exit=$($td4Exact.Exit)): $($td4Exact.Output)" }
+    foreach ($case in @(
+      @{ Name='adjacent'; Json=$td4Json; Paths=@($td4Path,'android/core/src/main/sqldelight/databases/runtime.db') },
+      @{ Name='malformed'; Json='[{'; Paths=@($td4Path) },
+      @{ Name='unknown-field'; Json='[{"path":"android/core/src/main/sqldelight/databases/1.db","purpose":"schema","scope":"broad"}]'; Paths=@($td4Path) },
+      @{ Name='config-case'; Json=$null; Paths=@($td4Path); CaseConfig=$true }
+    )) {
+      if ($case.ContainsKey('CaseConfig')) {
+        $resultRoot = Join-Path $sd 'a3-config-case'; New-Item -ItemType Directory -Force $resultRoot | Out-Null
+        Copy-Item (Join-Path $RepoRoot 'scripts') $resultRoot -Recurse -Force
+        $wrongConfig = Join-Path $resultRoot 'configs/secrets/Tracked-sensitive-allowlist.json'; New-Item -ItemType Directory -Force (Split-Path -Parent $wrongConfig) | Out-Null
+        [IO.File]::WriteAllText($wrongConfig, '[]', [Text.UTF8Encoding]::new($false))
+        $db = Join-Path $resultRoot $td4Path
+        New-Item -ItemType Directory -Force (Split-Path -Parent $db) | Out-Null
+        [IO.File]::WriteAllBytes($db,[byte[]](0x53,0x51,0x4c,0x69,0x00))
+        & git -C $resultRoot init -q
+        & git -C $resultRoot -c user.email='s@l' -c user.name='s' add -f -A
+        & git -C $resultRoot -c user.email='s@l' -c user.name='s' commit -q -m seed
+        $caseOut = & pwsh -NoProfile -File (Join-Path $resultRoot 'scripts/check-secrets.ps1') 2>&1 | Out-String
+        $result = [pscustomobject]@{ Exit=$LASTEXITCODE; Output=$caseOut }
+      } else { $result = & $invokeTd4Fixture $case.Name $case.Json $case.Paths }
+      if ($result.Exit -eq 0) { Fail "17a3($($case.Name)): invalid or unreviewed tracked-sensitive state passed check-secrets." }
+    }
+    foreach ($reparse in @('configs/secrets','android/core/src/main/sqldelight/databases')) {
+      $td4Reparse = & $invokeTd4Fixture ('reparse-' + ($reparse -replace '/','-')) $td4Json @($td4Path) $reparse
+      if ($td4Reparse.Exit -eq 0 -or $td4Reparse.Output -notmatch '\[SECRET-ALLOWLIST\]') { Fail "17a3(reparse): reparse ancestor $reparse was not fail-closed: $($td4Reparse.Output)" }
+    }
+    if (-not $fail) { Write-Host '  17a3 tracked-sensitive allowlist exact/adjacent/schema/case/reparse regressions OK' -ForegroundColor Green }
+
+# Insert in 17pre before gate17a3-migration.ps1.snippet. Requires helpers.ps1.snippet and existing $sd/$RepoRoot.
+$td145Probe = Join-Path $sd 'a3-cleanup-probe'
+$td145Counter = [PSCustomObject]@{ Count = 0 }
+New-Item -ItemType Directory -Force $td145Probe | Out-Null
+$td145Retry = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td145Probe -MaxAttempts 2 -RetryDelayMs 1 `
+  -AttemptInvoker { param($attempt, $path) $td145Counter.Count++; if ($attempt -eq 2) { Remove-Item -LiteralPath $path -Recurse -Force; [PSCustomObject]@{ Exit = 0; Output = 'retry-detail-2' } } else { [PSCustomObject]@{ Exit = 41; Output = 'retry-detail-1' } } } `
+  -RegistrationProbe { $false } -SleepInvoker { param($ms) }
+$td145RetryOk = $td145Retry.Success -and $td145Retry.Attempts -eq 2 -and $td145Counter.Count -eq 2
+if (-not $td145RetryOk) { Fail "17a3(cleanup/retry): first failed removal did not make its bounded second attempt. Diagnostics: $($td145Retry.Diagnostics)" }
+New-Item -ItemType Directory -Force $td145Probe | Out-Null
+$td145Diagnostic = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td145Probe -MaxAttempts 2 -RetryDelayMs 1 `
+  -AttemptInvoker { param($attempt, $path) [PSCustomObject]@{ Exit = 42; Output = "diagnostic-detail-$attempt" } } `
+  -RegistrationProbe { $false } -SleepInvoker { param($ms) }
+$td145DiagnosticOk = -not $td145Diagnostic.Success -and $td145Diagnostic.PathExists -and (Test-Path -LiteralPath $td145Probe) -and $td145Diagnostic.Diagnostics.Contains('attempt=1') -and $td145Diagnostic.Diagnostics.Contains('remove-exit=42') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-1') -and $td145Diagnostic.Diagnostics.Contains('attempt=2') -and $td145Diagnostic.Diagnostics.Contains('diagnostic-detail-2')
+if (-not $td145DiagnosticOk) { Fail "17a3(cleanup/diagnostic): terminal failure did not retain fixture plus each exit/detail. Diagnostics: $($td145Diagnostic.Diagnostics)" }
+elseif ($td145RetryOk) { Write-Host '  17a3(cleanup-probe) bounded retry and retained per-attempt diagnostics OK' -ForegroundColor Green }
+Remove-Item -LiteralPath $td145Probe -Recurse -Force -ErrorAction SilentlyContinue
+
+$td145GitRepo = Join-Path $sd 'a3-cleanup-git'
+$td145GitWorktree = Join-Path $sd 'a3-cleanup-git-wt'
+$td145FallbackPath = Join-Path $sd 'a3-cleanup-fallback'
+$td145InvalidRepo = Join-Path $sd 'a3-cleanup-invalid-repo'
+$td145InvalidTarget = Join-Path $sd 'a3-cleanup-invalid-target'
+$td145LockedStream = $null
+try {
+  New-Item -ItemType Directory -Force $td145GitRepo | Out-Null
+  & git -C $td145GitRepo init -q
+  Set-Content -LiteralPath (Join-Path $td145GitRepo 'seed.txt') -Value 'td145' -Encoding utf8
+  & git -C $td145GitRepo -c user.email='s@l' -c user.name='s' add seed.txt
+  & git -C $td145GitRepo -c user.email='s@l' -c user.name='s' commit -q -m seed
+  & git -C $td145GitRepo worktree add --detach $td145GitWorktree HEAD *> $null
+  $td145RealCleanup = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145GitWorktree -MaxAttempts 2 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+  if (-not $td145RealCleanup.Success -or -not $td145RealCleanup.Diagnostics.Contains('remove-exit=0') -or -not $td145RealCleanup.Diagnostics.Contains('list-exit=0')) { Fail "17a3(cleanup/real-git): real remove/list did not retain distinct successful exits. Diagnostics: $($td145RealCleanup.Diagnostics)" }
+
+  & git -C $td145GitRepo worktree add --detach $td145GitWorktree HEAD *> $null
+  & git -C $td145GitRepo worktree lock $td145GitWorktree
+  Remove-Item -LiteralPath $td145GitWorktree -Recurse -Force
+  $td145MissingPath = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145GitWorktree -MaxAttempts 2 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+  if ($td145MissingPath.Success -or -not $td145MissingPath.Registered -or $td145MissingPath.PathExists -or -not $td145MissingPath.Diagnostics.Contains('remove-exit=') -or -not $td145MissingPath.Diagnostics.Contains('list-exit=0')) { Fail "17a3(cleanup/registered-missing): locked registration with missing path did not fail closed. Diagnostics: $($td145MissingPath.Diagnostics)" }
+
+  New-Item -ItemType Directory -Force $td145FallbackPath | Out-Null
+  Set-Content -LiteralPath (Join-Path $td145FallbackPath 'plain.txt') -Value 'fallback' -Encoding utf8
+  $td145Fallback = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145FallbackPath -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+  if (-not $td145Fallback.Success -or $td145Fallback.Registered -or $td145Fallback.PathExists -or $td145Fallback.Diagnostics -notmatch 'remove-exit=[1-9]\d*' -or -not $td145Fallback.Diagnostics.Contains('remove-detail=') -or -not $td145Fallback.Diagnostics.Contains('list-exit=0') -or -not $td145Fallback.Diagnostics.Contains('fallback-exit=0')) { Fail "17a3(cleanup/fallback-success): failed Git remove did not retain stderr then remove unregistered directory. Diagnostics: $($td145Fallback.Diagnostics)" }
+
+  if ($IsWindows) {
+    New-Item -ItemType Directory -Force $td145FallbackPath | Out-Null
+    $td145LockedFile = Join-Path $td145FallbackPath 'locked.txt'
+    Set-Content -LiteralPath $td145LockedFile -Value 'locked' -Encoding utf8
+    $td145LockedStream = [System.IO.File]::Open($td145LockedFile, 'Open', 'ReadWrite', 'None')
+    $td145FallbackFailure = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145GitRepo -WorktreePath $td145FallbackPath -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+    if ($td145FallbackFailure.Success -or $td145FallbackFailure.Registered -or -not $td145FallbackFailure.PathExists -or -not $td145FallbackFailure.Diagnostics.Contains('fallback-exit=99') -or -not $td145FallbackFailure.Diagnostics.Contains('fallback-detail=')) { Fail "17a3(cleanup/fallback-failure): failed filesystem fallback did not retain scene and diagnosis. Diagnostics: $($td145FallbackFailure.Diagnostics)" }
+    $td145LockedStream.Dispose(); $td145LockedStream = $null
+  }
+
+  New-Item -ItemType Directory -Force $td145InvalidRepo, $td145InvalidTarget | Out-Null
+  $td145GitFailure = Remove-Td4MigrationFixtureWorktree -RepoRoot $td145InvalidRepo -WorktreePath $td145InvalidTarget -MaxAttempts 1 -RetryDelayMs 1 -SleepInvoker { param($ms) }
+  if ($td145GitFailure.Success -or -not $td145GitFailure.Registered -or -not $td145GitFailure.PathExists -or $td145GitFailure.Diagnostics -notmatch 'remove-exit=[1-9]\d*' -or -not $td145GitFailure.Diagnostics.Contains('remove-detail=') -or $td145GitFailure.Diagnostics -notmatch 'list-exit=[1-9]\d*' -or -not $td145GitFailure.Diagnostics.Contains('list-detail=')) { Fail "17a3(cleanup/git-failure): nonzero Git remove/list did not retain independent exit/stderr and fail closed. Diagnostics: $($td145GitFailure.Diagnostics)" }
+}
+finally {
+  if ($td145LockedStream) { $td145LockedStream.Dispose() }
+  & git -C $td145GitRepo worktree unlock $td145GitWorktree 2>$null
+  & git -C $td145GitRepo worktree prune --expire now 2>$null
+  Remove-Item -LiteralPath $td145GitWorktree, $td145GitRepo, $td145FallbackPath, $td145InvalidRepo, $td145InvalidTarget -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Insert after current 17a3 allowlist success line and after cleanup-probes.ps1.snippet, inside 17pre.
+. (Join-Path $PSScriptRoot 'check-licenses.ps1') -AsLibrary
+$td4GradleUserHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle' }
+$td4WrapperState = Get-GradleWrapperDistributionState -AndroidRoot (Join-Path $RepoRoot 'android') -GradleUserHome $td4GradleUserHome
+if (-not $td4WrapperState.Ready) {
+  Write-Host "  17a3(migration) skipped [GRADLE-WRAPPER-OFFLINE]: $($td4WrapperState.Detail)" -ForegroundColor DarkGray
+} else {
+  $td4MigrationRepo = if ($IsWindows) { Join-Path ([System.IO.Path]::GetPathRoot($RepoRoot)) "st4-$PID" } else { Join-Path ([System.IO.Path]::GetTempPath()) "st4-$PID" }
+  $td4MigrationWorktreeAdded = $false
+  $td4BuildFile = $null; $td4BuildText = $null; $td4BuildTextCaptured = $false
+  $td4ForcedTestFile = $null; $td4ForcedTestCreated = $false; $td4ForcedTestExistedBefore = $false
+  $td4ForcedTestOriginal = $null; $td4ForcedTestOriginalCaptured = $false
+  $td4TenancyFile = $null; $td4TenancyOriginal = $null; $td4TenancyOriginalCaptured = $false
+  $td4WrongMigration = $null
+  try {
+    & git -C $RepoRoot worktree add --detach $td4MigrationRepo HEAD *> $null
+    if ($LASTEXITCODE -ne 0) { Fail '17a3(migration/setup): cannot create detached migration fixture worktree.' }
+    else {
+      $td4MigrationWorktreeAdded = $true
+      $td4BuildFile = Join-Path $td4MigrationRepo 'android/core/build.gradle.kts'
+      $td4BaselineFile = Join-Path $td4MigrationRepo $td4Path
+      try {
+        if (Test-Path -LiteralPath $td4BuildFile -PathType Leaf) { $td4BuildText = [System.IO.File]::ReadAllText($td4BuildFile); $td4BuildTextCaptured = $true }
+        else { Fail '17a3(migration/setup): build.gradle.kts snapshot is absent.' }
+      } catch { Fail "17a3(migration/setup): cannot read build.gradle.kts snapshot: $($_.Exception.Message)" }
+      $td4TenancyFile = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/Tenancy.sq'
+      try { $td4TenancyOriginal = [System.IO.File]::ReadAllText($td4TenancyFile); $td4TenancyOriginalCaptured = $true }
+      catch { Fail "17a3(migration/setup): cannot read Tenancy.sq snapshot: $($_.Exception.Message)" }
+      if (-not $td4BuildTextCaptured -or -not $td4TenancyOriginalCaptured) {
+        Fail '17a3(migration/setup): original snapshots incomplete; fixture is not modified.'
+      } elseif ($td4BuildText -notmatch 'verifyMigrations\.set\(true\)' -or -not (Test-Path -LiteralPath $td4BaselineFile -PathType Leaf)) {
+        Fail '17a3(migration/setup): HEAD lacks verifyMigrations=true or tracked 1.db; migration negative examples would be vacuous.'
+      } else {
+        $invokeTd4CoreCheckWithoutContinue = {
+          Push-Location $td4MigrationRepo
+          try {
+            if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+            else { $output = & sh android/gradlew -p android --offline --no-daemon -q :core:check 2>&1 | Out-String }
+            [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+          } finally { Pop-Location }
+        }
+        $invokeTd4CoreCheck = {
+          Push-Location $td4MigrationRepo
+          try {
+            if ($IsWindows) { $output = & cmd /c android\gradlew.bat -p android --offline --no-daemon --continue -q :core:check 2>&1 | Out-String }
+            else { $output = & sh android/gradlew -p android --offline --no-daemon --continue -q :core:check 2>&1 | Out-String }
+            [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output }
+          } finally { Pop-Location }
+        }
+        $td4ForcedTestFile = Join-Path $td4MigrationRepo 'android/core/src/test/kotlin/nz/myinspection/core/selftest/Td4ContinueProbeTest.kt'
+        $td4ForcedTestExistedBefore = Test-Path -LiteralPath $td4ForcedTestFile
+        if ($td4ForcedTestExistedBefore) {
+          try { $td4ForcedTestOriginal = [System.IO.File]::ReadAllText($td4ForcedTestFile); $td4ForcedTestOriginalCaptured = $true }
+          catch { Fail "17a3(migration-continue/setup): cannot snapshot existing probe test: $($_.Exception.Message)" }
+          if ($td4ForcedTestOriginalCaptured) { Fail '17a3(migration-continue/setup): probe test path exists; refusing to overwrite product test.' }
+        } else {
+          New-Item -ItemType Directory -Force (Split-Path -Parent $td4ForcedTestFile) | Out-Null
+          $td4ForcedTestSource = @('package nz.myinspection.core.selftest','','import kotlin.test.Test','import kotlin.test.fail','','class Td4ContinueProbeTest {','    @Test','    fun forcedFailureForContinueProbe() {','        fail("TD4_CONTINUE_TEST_FAILURE")','    }','}','') -join [Environment]::NewLine
+          $td4ForcedTestCreated = $true
+          [System.IO.File]::WriteAllText($td4ForcedTestFile, $td4ForcedTestSource, [System.Text.UTF8Encoding]::new($false))
+          $td4ContinueOrdering = @('','// selftest fixture: makes the no-continue blind spot deterministic.','tasks.configureEach {','    if (name == "verifyMainMyInspectionDatabaseMigration") {','        mustRunAfter("test")','    }','}','') -join [Environment]::NewLine
+          [System.IO.File]::WriteAllText($td4BuildFile, $td4BuildText + [Environment]::NewLine + $td4ContinueOrdering, [System.Text.UTF8Encoding]::new($false))
+
+          $td4MissingProbe = "`nCREATE TABLE td4_missing_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+          [System.IO.File]::WriteAllText($td4TenancyFile, $td4TenancyOriginal + $td4MissingProbe, [System.Text.UTF8Encoding]::new($false))
+          $td4WithoutContinueResult = & $invokeTd4CoreCheckWithoutContinue
+          $td4MissingResult = & $invokeTd4CoreCheck
+          $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -ProbeOriginalCaptured $td4ForcedTestOriginalCaptured -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -BuildOriginalCaptured $td4BuildTextCaptured -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal -TenancyOriginalCaptured $td4TenancyOriginalCaptured
+          if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) {
+            Fail "17a3(migration-continue/cleanup): fixture restore failed; skip wrong-migration probe. $(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)"
+          } else {
+            $td4TestFailureMarker = "Execution failed for task ':core:test'."
+            $td4WithoutContinueExact = $td4WithoutContinueResult.Exit -ne 0 -and $td4WithoutContinueResult.Output.Contains($td4TestFailureMarker) -and $td4WithoutContinueResult.Output -notmatch 'verifyMainMyInspectionDatabaseMigration' -and $td4WithoutContinueResult.Output -notmatch 'td4_missing_migration_probe'
+            if (-not $td4WithoutContinueExact) { Fail "17a3(migration-continue/mutant): no --continue did not reproduce test-first failure without migration verifier (exit=$($td4WithoutContinueResult.Exit)). Output: $($td4WithoutContinueResult.Output)" }
+            $td4MissingExact = $td4MissingResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4MissingResult.Output -match 'td4_missing_migration_probe' -and $td4MissingResult.Output -match 'ADDED'
+            $td4ContinuedExact = $td4MissingResult.Exit -ne 0 -and $td4MissingResult.Output.Contains($td4TestFailureMarker) -and $td4MissingExact
+            if (-not $td4ContinuedExact) { Fail "17a3(migration-continue): --continue did not execute the real migration verifier after :core:test failure (exit=$($td4MissingResult.Exit)). Output: $($td4MissingResult.Output)" }
+            $td4WrongMigration = Join-Path $td4MigrationRepo 'android/core/src/main/sqldelight/nz/myinspection/core/db/1.sqm'
+            $td4WrongSql = "CREATE TABLE td4_wrong_migration_probe (`n  id INTEGER NOT NULL PRIMARY KEY`n);`n"
+            [System.IO.File]::WriteAllText($td4WrongMigration, $td4WrongSql, [System.Text.UTF8Encoding]::new($false))
+            $td4WrongResult = & $invokeTd4CoreCheck
+            Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue
+            $td4WrongExact = $td4WrongResult.Output -match 'verifyMainMyInspectionDatabaseMigration' -and $td4WrongResult.Output -match 'td4_wrong_migration_probe' -and $td4WrongResult.Output -match 'REMOVED'
+            if ($td4WrongResult.Exit -eq 0 -or -not $td4WrongExact) { Fail "17a3(migration-wrong): injected 1.sqm was not rejected by real :core:check migration task (exit=$($td4WrongResult.Exit)). Output: $($td4WrongResult.Output)" }
+            else { Write-Host '  17a3(migration) real :core:check rejects missing migration ADDED and wrong migration REMOVED OK' -ForegroundColor Green }
+          }
+        }
+      }
+    }
+  } finally {
+    $td4ContinueCleanup = Restore-Td4ContinueProbeFixture -ProbeFile $td4ForcedTestFile -ProbeCreated $td4ForcedTestCreated -ProbeExistedBefore $td4ForcedTestExistedBefore -ProbeOriginal $td4ForcedTestOriginal -ProbeOriginalCaptured $td4ForcedTestOriginalCaptured -BuildFile $td4BuildFile -BuildOriginal $td4BuildText -BuildOriginalCaptured $td4BuildTextCaptured -TenancyFile $td4TenancyFile -TenancyOriginal $td4TenancyOriginal -TenancyOriginalCaptured $td4TenancyOriginalCaptured
+    if (-not (Test-Td4ContinueProbeCleanupComplete -Cleanup $td4ContinueCleanup)) { Fail "17a3(migration-continue/cleanup): temporary test, build script, or Tenancy.sq was not restored. $(Get-Td4ContinueProbeCleanupDiagnostics -Cleanup $td4ContinueCleanup)" }
+    if ($td4WrongMigration -and (Test-Path -LiteralPath $td4WrongMigration)) { Remove-Item -LiteralPath $td4WrongMigration -Force -ErrorAction SilentlyContinue }
+    if ($td4MigrationWorktreeAdded) {
+      $td4Cleanup = Remove-Td4MigrationFixtureWorktree -RepoRoot $RepoRoot -WorktreePath $td4MigrationRepo -MaxAttempts 3 -RetryDelayMs 250
+      if (-not $td4Cleanup.Success) { Fail "17a3(migration/cleanup): detached fixture remains after $($td4Cleanup.Attempts) bounded attempts at $td4MigrationRepo. Diagnostics:`n$($td4Cleanup.Diagnostics)" }
+      else { Write-Host "  17a3(migration/cleanup) short-path fixture removed (attempts=$($td4Cleanup.Attempts); path and registration absent) OK" -ForegroundColor Green }
+    }
+  }
+}
 
     # 17a2. (TD-201) check-secrets 必须**存活** git 子模块 gitlink：`git ls-files` 把子模块作为**单条 gitlink** 输出，
     #   其工作树路径是**目录**。1b 循环旧码 `Test-Path $full` 对目录为真、放行后 :151 对 DirectoryInfo 求 `.Length`
@@ -10222,7 +10907,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     @('---', 'id: T0-TIERS', "title: seed 17b' tier-S spec-axis block", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - 1. a spec-axis block stops this ship.', 'allow_paths:',
+      'acceptance:', '  - "A1: a spec-axis block stops this ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
       '  - seed-s.txt', '  - scripts/task.ps1', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERS.md') -Encoding utf8
     # T285: the THIRD card, whose allow_paths are docs-only, so the tier COMPUTES 0 - the acceptance face for
@@ -10231,13 +10916,13 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     @('---', 'id: T0-TIERZERO', "title: seed 17b' tier-0 advisory", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - 1. a spec-axis block never stops a tier-0 ship.', 'allow_paths:',
+      'acceptance:', '  - "A1: a spec-axis block never stops a tier-0 ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
       '  - docs/seed-zero.txt', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERZERO.md') -Encoding utf8
     @('---', 'id: T1-TIERONE', "title: seed 17b' tier-1 advisory", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - 1. the same spec-axis block stays advisory here.', 'allow_paths:',
+      'acceptance:', '  - "A1: the same spec-axis block stays advisory here."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
       '  - seed.txt', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T1-TIERONE.md') -Encoding utf8
     # T288: the FOURTH card, and the only one that declares `scripts/review.ps1` in allow_paths - which is
@@ -10246,7 +10931,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     @('---', 'id: T0-BASEREV', "title: seed 17b' the reviewer comes from the base commit", 'status: todo',
       'review_gate: codex {verdict:pass}',
       'dod_command: "pwsh -NoProfile -Command exit 0"',
-      'acceptance:', '  - 1. a review.ps1 planted in the worktree never reviews its own ship.', 'allow_paths:',
+      'acceptance:', '  - "A1: a review.ps1 planted in the worktree never reviews its own ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
       '  - seed-b.txt', '  - scripts/review.ps1', '---') -join "`n" |
       Set-Content (Join-Path $sbx 'specs/tasks/T0-BASEREV.md') -Encoding utf8
     & git -C $sbx add -A 2>$null
@@ -10418,7 +11103,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Scr
 # example tables ride the same lift. Loading every name by hand here is what makes that split legal - a
 # helper this probe could not see would leave the production decision measured on a copy of itself, which
 # is the exact reason T285 could not extract them.
-foreach ($pn in @('Get-ShipReviewRoundHistory', 'Get-ShipArbitrationDecision', 'Get-ShipSpecAxisDecision',
+foreach ($pn in @('Test-ShipReviewPathUnsafe', 'Get-ShipReviewRoundHistory', 'Get-ShipArbitrationDecision', 'Get-ShipSpecAxisDecision',
                   'Test-ShipReviewRoundHistoryExamples', 'Test-ShipArbitrationDecisionExamples')) {
   $fn = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | Where-Object { $_.Name -eq $pn })
   if ($fn.Count -ne 1) { "PROBE-FUNCTION-COUNT=$pn=$($fn.Count)"; exit 3 }
@@ -10520,7 +11205,7 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
           'dod_command: "pwsh -NoProfile -Command exit 0"',
           'arbitration:', "  - sha: $Sha", '    rounds: 2', "    ruling: $Ruling",
           '    by: fixture arc owner', '    reason: the standing asks are outside this card closed list',
-          'acceptance:', '  - 1. a spec-axis block stops this ship.', 'allow_paths:',
+          'acceptance:', '  - "A1: a spec-axis block stops this ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
           '  - seed-s.txt', '  - scripts/task.ps1', '---') -join "`n" |
           Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERS.md') -Encoding utf8
         & git -C $sbx add specs/tasks/T0-TIERS.md 2>$null
@@ -10608,7 +11293,7 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
         'dod_command: "pwsh -NoProfile -Command exit 0"',
         'arbitration:', "  - sha: $bxShaZ", '    rounds: 2', '    ruling: maker',
         '    by: fixture arc owner', '    reason: a ruling that must not reach a tier-0 card',
-        'acceptance:', '  - 1. a spec-axis block never stops a tier-0 ship.', 'allow_paths:',
+        'acceptance:', '  - "A1: a spec-axis block never stops a tier-0 ship."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
         '  - docs/seed-zero.txt', '---') -join "`n" |
         Set-Content (Join-Path $sbx 'specs/tasks/T0-TIERZERO.md') -Encoding utf8
       & git -C $sbx add specs/tasks/T0-TIERZERO.md 2>$null
@@ -10644,7 +11329,7 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
       'dod_command: "pwsh -NoProfile -Command exit 0"',
       'arbitration:', "  - sha: $bxHistShaK", '    rounds: 2', '    ruling: maker',
       '    by: fixture arc owner', '    reason: every condition but the history holds',
-      'acceptance:', '  - 1. the history decides.', 'allow_paths:',
+      'acceptance:', '  - "A1: the history decides."', '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
       '  - scripts/task.ps1', '---') -join "`n" | Set-Content $bxHistCardK -Encoding utf8
     $bxHistBlockK = '{"verdict":"block","reasons":["x"],"sha":"' + $bxHistShaK + '","branch":"T0-TIERS","run_status":"success","axes":{"spec":{"verdict":"block","reasons":["x"]},"standards":{"verdict":"pass","reasons":[]}}}'
     $bxHistNoBranchK = '{"verdict":"block","reasons":["x"],"sha":"' + $bxHistShaK + '","run_status":"success","axes":{"spec":{"verdict":"block","reasons":["x"]},"standards":{"verdict":"pass","reasons":[]}}}'
@@ -10870,7 +11555,7 @@ $t | Set-Content -Path ($env:REVIEW_OUT + '.prompt.txt') -Encoding utf8
         @('---', 'id: T0-TIERS', "title: seed 17b' tier-S spec-axis block", 'status: todo',
           'review_gate: codex {verdict:pass}',
           'dod_command: "pwsh -NoProfile -Command exit 0"',
-          'acceptance:', "  - 1. $mark - $note", 'allow_paths:',
+          'acceptance:', ('  - "A1: {0} - {1}"' -f $mark, $note), '  - "A2: the fixture reviewer writes a verdict."', '  - "A3: the ship reports the decision."', 'allow_paths:',
           '  - seed-s.txt', '  - scripts/task.ps1', '---') -join "`n"
       }
       (& $bxCardLinesM $bxBaseMarkM 'the amendment landed on the base after this branch was cut') |
