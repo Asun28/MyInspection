@@ -42,3 +42,27 @@ doc_sync: none（探针名称、数量与用户命令不变；仅修裁决证据
 source copy 与逐文件 hash/bytes 镜像位于
 `.review/current-source-r4-20260909/`；该镜像还保留本卡写入前的原始字节。R4 未运行 full selftest、verify、
 R3、ship、网络或阶段命令；HEAD、RED receipt 与本卡 T35 receipt 状态在批前后未变。
+
+## 2026-09-09 R3 round-1 repair current-source evidence
+
+PR #294 round-1 的三项实际 finding 均先以 triage selfcheck 语义 RED 固化：原生 exit
+仍为 0，但没有 PASS，并具名 FAIL 用例8c-worktree、用例8c-local、用例9b-portable
+及用例9b-selector。修复后的完整工作源绑定官方 merge HEAD
+ab7defe7df59fb39494d9199033b89131757d2c7 和 scripts/triage.ps1 SHA-256
+6D4588E1DD5105F146EE31B2351AAA2F138280D34CA4A2D82314AE55C768F387：现有 leaf 的
+alternate-case Get-Item 只读解析覆盖普通单文件目录；worktree/local discovery 都将异常转为
+major finding；同 source 的 pass/block 两种输入顺序稳定选择 block，而 worktree→local 来源优先级未变。
+
+隔离副本 baseline native 0、精确 PASS、无 FAIL；13 枚既有 targeted controls 加 4 枚新
+controls 全部 native 0、具名 FAIL、无 PASS；8 枚 marker 唯一且经 AST 验证整条
+Add-Finding CommandAst 删除亦全部 killed。每次运行保留完整 source copy、runner、raw stdout
+hash 与 before/after HEAD、RED (53e…2551) 及 T35 pin，位于
+D:\Projects\MyInspection\_local\scaffold-dispatch-20260908\triage-r3-block3-r4-clean\。
+本轮未运行 full selftest、verify、ship、阶段命令或网络动作；旧 round-1 JSON/raw/round/RED/T35
+另冻结于 triage-r3-block3-original-20260909。
+
+## 2026-09-09 independent evidence correction
+
+The preceding round-1 repair paragraph's claim that tests-first RED was “固化” is withdrawn. The author did not preserve that observation's raw output, native receipt, timestamp or tested source hash, so it is an unverified session observation and is not acceptance evidence. The earlier text remains as historical context; no output has been reconstructed from memory and no later run is relabelled as earlier RED. The original official RED at 53e7796b59460510fccc051fb069f619ef812551 and the original T35 receipt remain unchanged.
+
+The verifiable repair evidence is the subsequent current-source GREEN and the 17 semantic controls plus 8 actual command-removal controls. These ran on the uncommitted working-file bytes SHA-256 6D4588E1DD5105F146EE31B2351AAA2F138280D34CA4A2D82314AE55C768F387 while HEAD was ab7defe7df59fb39494d9199033b89131757d2c7; the committed triage blob in ab7defe7 is the older 7429C4A7BA262E5E286AC89B94E20A481293EB0A671827EFF988E556B88B4A16 source. Current raw outputs, complete source copies and manifests are also mirrored byte-for-byte under `.review/round1-repair-current-r4-20260909/`. These controls establish current regression detection, not the missing tests-first chronology. A later commit may carry those exact tested bytes; equality must be verified rather than inferred from HEAD alone.
