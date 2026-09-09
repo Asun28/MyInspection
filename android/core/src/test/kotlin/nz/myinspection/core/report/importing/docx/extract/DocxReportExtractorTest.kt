@@ -30,6 +30,8 @@ class DocxReportExtractorTest {
         val result = extractBody("<w:p><w:r><w:t>A</w:t><w:noBreakHyphen/><w:softHyphen/><w:pgNum/><w:t>B</w:t></w:r></w:p>")
         assertEquals("A\u2011\u00adB", result.fragments.first().text.raw)
         assertWarning(result, PAGINATION_EXCLUDED)
+        for (child in listOf("<w:r><w:t>X</w:t></w:r>", "<w:drawing/>", "X"))
+            assertUnsupportedText("<w:p><w:r><w:pgNum>$child</w:pgNum></w:r></w:p>")
     }
     @Test fun unsupportedRunContentRejectsClosed() {
         for (element in listOf("sym w:font='Wingdings' w:char='F0FC'", "dayShort", "monthLong", "yearLong", "tab xmlns:w='urn:x'",
@@ -444,7 +446,6 @@ class DocxReportExtractorTest {
             assertTrue(result.fragments.any { it.text.raw == "Unrelated observation" })
             unresolvedIdentity(result)
         }
-        // The candidate is the first child of a different parent, not an adjacent sibling.
         val result = extractBody(p("PROPERTY ADDRESS") + "<w:sdt><w:sdtContent>" +
             p("Unrelated observation") + "</w:sdtContent></w:sdt>")
         assertTrue(result.identity.isEmpty())
@@ -504,8 +505,7 @@ class DocxReportExtractorTest {
     }
 }
 
-/* R4: 90 assertion-killed mutations; control 42/42.
- * Source SHA256 c05f2579f0dec6ca8ee07e7fd0b67747b650a47372b075e8c99e0cfe5d22ccd0.
- * Full core 969 tests/4 existing skips: identity-parent test+guard removed; unique test restored.
- * Raw XML/hashes: .review/extractor-r4/ and .review/extractor-full-core-pruning/.
+/* R4 at c05f2579: 90 kills; control42. Full core969/4 old skips:
+ * identity-parent test/guard removed, unique test restored.
+ * XML/hashes: .review/extractor-r4/, .review/extractor-full-core-pruning/.
  */

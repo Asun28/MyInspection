@@ -97,6 +97,7 @@ class DocxReportExtractor {
                 // ECMA-376-4 CT_Drawing permits repeated inline/anchor frames.
                 if (node.isWord("drawing")) require(node.children.isNotEmpty() && node.children.all { it.uri == WP && it.name in setOf("inline", "anchor") }) { "DOCX_DRAWING_STRUCTURE" }
                 if (node.isWord("pgNum")) {
+                    require(node.children.isEmpty()) { "DOCX_UNSUPPORTED_TEXT" }
                     warn(ExtractionWarningCode.PAGINATION_EXCLUDED, position)
                     return
                 }
