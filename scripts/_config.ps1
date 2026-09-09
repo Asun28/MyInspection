@@ -155,7 +155,7 @@ $script:ScaffoldConfig = @{
   # Origin 保存本项目首次生成来源，之后不可随 fleet 回填改写；Version 表示已逐版裁决到的当前上游版本。
   # init-scaffold 生成一个新项目时把 child 的 origin 设为源树 current，因此新项目从当前版本起步。
   ScaffoldOriginVersion = '0.29.0'
-  ScaffoldVersion = '0.45.0'
+  ScaffoldVersion = '0.46.0'
 
   # ── 上游脚手架仓库（fleet 双向回路）──：scaffold-sync.ps1 据此取 release tag 与 CHANGELOG、
   # 并在 report 时把元层缺陷反哺回该仓。留空 '' => 各调用方回退到自带默认地址。

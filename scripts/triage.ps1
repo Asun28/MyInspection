@@ -352,13 +352,56 @@ function Get-ScaffoldRepositoryHead {
   return $null
 }
 
+function Get-ScaffoldWindowsDirectoryCaseSensitive {
+  param([Parameter(Mandatory)][string]$Directory)
+  if (-not $IsWindows) { return $null }
+  try {
+    if (-not ('ScaffoldDirectoryCaseInfo' -as [type])) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ScaffoldDirectoryCaseInfo {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern IntPtr CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool GetFileInformationByHandleEx(IntPtr handle, int infoClass, IntPtr info, uint size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool CloseHandle(IntPtr handle);
+}
+'@ -ErrorAction Stop
+    }
+    $handle = [ScaffoldDirectoryCaseInfo]::CreateFile($Directory, 0x80, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
+    if ($handle -eq [IntPtr](-1)) { return $null }
+    try {
+      $buffer = [Runtime.InteropServices.Marshal]::AllocHGlobal(4)
+      try {
+        if (-not [ScaffoldDirectoryCaseInfo]::GetFileInformationByHandleEx($handle, 23, $buffer, 4)) { return $null }
+        return (([Runtime.InteropServices.Marshal]::ReadInt32($buffer) -band 1) -ne 0)
+      } finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($buffer) }
+    } finally { [ScaffoldDirectoryCaseInfo]::CloseHandle($handle) | Out-Null }
+  } catch { return $null }
+}
+
+function Get-ScaffoldEvidencePathComparer {
+  param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][object[]]$Files)
+  # An existing pair whose leaf names differ only by case proves this directory is sensitive.
+  $folded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+  foreach ($file in $Files) {
+    if (-not $folded.Add([string]$file.Name)) { return [System.StringComparer]::Ordinal }
+  }
+  # A Windows directory exposes its actual flag without parsing localized fsutil prose or creating a sentry file.
+  $windowsSensitive = Get-ScaffoldWindowsDirectoryCaseSensitive -Directory $Directory
+  if ($null -ne $windowsSensitive) {
+    if ($windowsSensitive) { return [System.StringComparer]::Ordinal }
+    return [System.StringComparer]::OrdinalIgnoreCase
+  }
+  return $null
+}
+
 function Invoke-ProbeDeliveryBlocked {
   if (-not (Test-Path $TasksDir)) { return }
   $wtRoot = $null
   try { $wtRoot = Get-ScaffoldWorktreeRoot } catch { $wtRoot = $null }
-  # The card contract fixes path casing to the running OS: Windows/macOS insensitive, Linux sensitive.
-  # Do not let mutable repository configuration change which physical evidence files the reporter collapses.
-  $pathComparer = if ($IsWindows -or $IsMacOS) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
   $hits = @()
   foreach ($c in (Get-ChildItem $TasksDir -Filter *.md -ErrorAction SilentlyContinue | Where-Object Name -ne '_TEMPLATE.md')) {
     $fm = Get-FrontMatter (Get-Content $c.FullName -Raw)
@@ -373,14 +416,36 @@ function Invoke-ProbeDeliveryBlocked {
       $cardWorktree = Join-Path $wtRoot $id
       $wtReview = Join-Path $cardWorktree '.review'
       if (Test-Path $wtReview) {
-        $evidenceFiles += @(Get-ChildItem $wtReview -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
-          [pscustomobject]@{ File = $_; Root = $cardWorktree; SourceRank = 0 }
-        })
+        try { $wtFiles = @(Get-ChildItem $wtReview -Filter *.json -ErrorAction Stop) }
+        catch {
+          Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-ENUM] 卡 $id 的 worktree evidence 目录无法枚举：$($_.Exception.Message)" "检查 $wtReview 的目录/权限后重跑 triage；裁决状态当前未知。"
+          $wtFiles = @()
+        }
+        if ($wtFiles.Count) {
+          $wtComparer = Get-ScaffoldEvidencePathComparer -Directory $wtReview -Files $wtFiles
+          if ($null -eq $wtComparer) {
+            Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-CASE] 卡 $id 的 worktree evidence 目录 caseMode 无法只读判定。" "检查 $wtReview 的实际目录 caseMode；triage 不会在真实 evidence 目录创建探针文件。"
+          } else {
+            $evidenceFiles += @($wtFiles | ForEach-Object { [pscustomobject]@{ File = $_; Root = $cardWorktree; SourceRank = 0; PathComparer = $wtComparer } })
+          }
+        }
       }
     }
     $localReview = Join-Path (Join-Path $RepoRoot '.review') "$id.json"
     if (Test-Path $localReview) {
-      $evidenceFiles += [pscustomobject]@{ File = (Get-Item $localReview); Root = $RepoRoot; SourceRank = 1 }
+      try { $localFile = Get-Item $localReview -ErrorAction Stop }
+      catch {
+        Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-READ] 卡 $id 的 local evidence 无法读取：$($_.Exception.Message)" "检查 $localReview 的文件/权限后重跑 triage。"
+        $localFile = $null
+      }
+      if ($localFile) {
+        $localComparer = Get-ScaffoldEvidencePathComparer -Directory (Split-Path -Parent $localReview) -Files @($localFile)
+        if ($null -eq $localComparer) {
+          Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-CASE] 卡 $id 的 local evidence 目录 caseMode 无法只读判定。" "检查 $(Split-Path -Parent $localReview) 的实际目录 caseMode；triage 不会在真实 evidence 目录创建探针文件。"
+        } else {
+          $evidenceFiles += [pscustomobject]@{ File = $localFile; Root = $RepoRoot; SourceRank = 1; PathComparer = $localComparer }
+        }
+      }
     }
     # 两条取证路径会互相干扰，各有一种坏法：
     #   ① **同一份裁决被数两次**——卡的 worktree 恰是主检出时，通配与按 id 拼出的路径指向同一个文件；
@@ -389,37 +454,59 @@ function Invoke-ProbeDeliveryBlocked {
     # 去重键 = `$vf.FullName`：FileInfo 的 FullName 本就是完全限定并已折叠 `.` / `..` 段的路径（实测
     # `Get-Item <dir>\a\..\a\.review\X.json` 交出的 FullName 已无 `..`），故再套一层 [IO.Path]::GetFullPath
     # 是恒等变换、摘掉它没有任何用例会红——那样的守卫只会让人误以为这里已经防住了什么。
-    # **唯一真会变的是大小写**。去重与 branchless 旧产物的文件名归属都走运行 OS 的路径语义；
+    # **唯一真会变的是大小写**。去重与 branchless 旧产物的文件名归属都走各自 evidence 目录实测的路径语义；
     # branch/verdict 则是 JSON schema 字段，始终逐字精确，不能借文件系统语义放宽。
-    $seenPath = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
-    $headByRoot = [System.Collections.Generic.Dictionary[string,string]]::new($pathComparer)
+    $seenPath = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $headByRoot = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
     $verdictCandidates = @()
     foreach ($evidence in $evidenceFiles) {
       $vf = $evidence.File
-      if (-not $seenPath.Add($vf.FullName)) { continue }   # ① 同一文件只算一次
+      # caseMode 属于 evidence 目录：只折叠它管理的 leaf，保留敏感祖先目录中的真实 root 身份。
+      $identityPath = if ($evidence.PathComparer.Equals([System.StringComparer]::OrdinalIgnoreCase)) {
+        Join-Path (Split-Path -Parent $vf.FullName) $vf.Name.ToUpperInvariant()
+      } else { $vf.FullName }
+      if (-not $seenPath.Add($identityPath)) { continue }   # ① 同一文件只算一次
       $verdict = ''; $reasons = 0; $owner = ''; $artifactSha = ''
+      try { $rawEvidence = Get-Content $vf.FullName -Raw -ErrorAction Stop }
+      catch {
+        Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-READ] 卡 $id 的 evidence 无法读取：$($vf.FullName)（$($_.Exception.Message)）" "检查该 evidence 文件/权限后重跑 triage。"
+        continue
+      }
       try {
-        $o = Get-Content $vf.FullName -Raw | ConvertFrom-Json
+        $o = $rawEvidence | ConvertFrom-Json -ErrorAction Stop
         if ($o -and ($o.PSObject.Properties.Name -contains 'verdict')) { $verdict = [string]$o.verdict }
         if ($o -and ($o.PSObject.Properties.Name -contains 'reasons')) { $reasons = @($o.reasons).Count }
         if ($o -and ($o.PSObject.Properties.Name -contains 'branch'))  { $owner   = [string]$o.branch }
         if ($o -and ($o.PSObject.Properties.Name -contains 'sha'))     { $artifactSha = [string]$o.sha }
-      } catch { continue }   # 一份读不出的裁决绝不能把心跳带崩（同探针 8 的 fail-safe 契约）
+      } catch {
+        Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-PARSE] 卡 $id 的 evidence JSON 无法解析：$($vf.FullName)（$($_.Exception.Message)）" "修复或移除损坏 evidence 后重跑 triage。"
+        continue
+      }
       if (-not $headByRoot.ContainsKey($evidence.Root)) {
         $resolvedHead = Get-ScaffoldRepositoryHead -Path $evidence.Root
-        $headByRoot[$evidence.Root] = if ($resolvedHead) { $resolvedHead } else { '' }
+        if (-not $resolvedHead) {
+          Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-HEAD] 卡 $id 的 evidence root HEAD 无法读取：$($evidence.Root)" "检查该 evidence root 的 Git 状态后重跑 triage。"
+          $headByRoot[$evidence.Root] = ''
+        } else { $headByRoot[$evidence.Root] = $resolvedHead }
       }
-      if (-not $artifactSha -or -not [string]::Equals($artifactSha, $headByRoot[$evidence.Root], [System.StringComparison]::Ordinal)) { continue }
+      if (-not $artifactSha) {
+        Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-IDENTITY] 卡 $id 的 evidence 缺少 sha：$($vf.FullName)" "补齐可判定的 evidence identity 后重跑 triage。"
+        continue
+      }
+      if (-not [string]::Equals($artifactSha, $headByRoot[$evidence.Root], [System.StringComparison]::Ordinal)) { continue }
       # ② 归属：review.ps1 会把被审分支写进 branch，按它判；旧产物无该字段时退回文件名（<id>.json 即本卡命名）。
       # 判不出归属就跳过——reporter 宁可漏报，也不该拿别人的 block 冤枉本卡（假阳性会把注意力引向错的地方）。
       if ($owner) { if (-not [string]::Equals($owner, $id, [System.StringComparison]::Ordinal)) { continue } }
-      elseif (-not $pathComparer.Equals([IO.Path]::GetFileNameWithoutExtension($vf.Name), $id)) { continue }
+      elseif (-not $evidence.PathComparer.Equals([IO.Path]::GetFileNameWithoutExtension($vf.Name), $id)) { continue }
       if (-not ([string]::Equals($verdict, 'pass', [System.StringComparison]::Ordinal) -or
-                [string]::Equals($verdict, 'block', [System.StringComparison]::Ordinal))) { continue }
+                [string]::Equals($verdict, 'block', [System.StringComparison]::Ordinal))) {
+        Add-Finding 'delivery-blocked' 'major' "[TRIAGE-EVIDENCE-VERDICT] 卡 $id 的 current evidence verdict 未知：$($vf.FullName)（$verdict）" "检查该 evidence 的 verdict enum 后重跑 triage。"
+        continue
+      }
       # mtime is display/sort metadata only after SHA + deterministic source selection; it never decides currency.
       $verdictCandidates += [pscustomobject]@{ id = $id; path = $vf.FullName; name = $vf.Name; verdict = $verdict; reasons = $reasons; when = $vf.LastWriteTimeUtc; sourceRank = $evidence.SourceRank }
     }
-    $current = @(Select-ScaffoldCurrentVerdicts -Candidates $verdictCandidates -PathComparer $pathComparer)
+    $current = @(Select-ScaffoldCurrentVerdicts -Candidates $verdictCandidates -PathComparer ([System.StringComparer]::Ordinal))
     foreach ($candidate in $current) {
       if ($candidate.verdict -ceq 'block') { $hits += $candidate }
     }
@@ -554,7 +641,8 @@ if ($Verb -eq 'selfcheck') {
     $RepoRoot = Join-Path $fxRoot 'no-such-repo'          # 注入：探针读脚本作用域 $RepoRoot
     $findings.Clear()
     try { Invoke-ProbeDeliveryBlocked } catch { $fails.Add("用例4 探针抛异常（心跳须 fail-safe）：$($_.Exception.Message)") }
-    $db = @($findings | Where-Object probe -eq 'delivery-blocked')
+    # Evidence diagnostics are additional major findings; this pre-existing assertion owns only A's normal block verdict.
+    $db = @($findings | Where-Object { $_.probe -eq 'delivery-blocked' -and $_.what -notmatch '\[TRIAGE-EVIDENCE-' })
     if ($db.Count -ne 1) { $fails.Add("用例4 期望恰 1 条 delivery-blocked（仅 A），实得 $($db.Count)") }
     elseif ($db[0].what -notmatch 'T8-SC-A') { $fails.Add('用例4 报出的不是 block 那张卡（A）') }
     elseif ($db[0].severity -ne 'blocking') { $fails.Add("用例4 severity 应为 blocking（交付停摆须排在自我维护之上），实得 $($db[0].severity)") }
@@ -996,6 +1084,24 @@ if ($Verb -eq 'selfcheck') {
     $lb = @($findings | Where-Object probe -eq 'delivery-blocked')
     if ($lb.Count -ne 1) { $fails.Add("用例8 期望恰 1 条来自主检出 .review 的 delivery-blocked，实得 $($lb.Count)") }
     elseif ($lb[0].what -notmatch 'T8-SC-A') { $fails.Add('用例8 报出的不是本地 .review 里那张卡') }
+    # 用例 8b：本地路径先经 Test-Path，随后 Get-Item 仍可能因竞态/ACL 失败；两者不能把未知证据伪装成无发现。
+    $fxLocalGetItem = Join-Path $fxRoot 'local-getitem'
+    $fxLocalGetItemReview = Join-Path $fxLocalGetItem '.review'
+    $forcedLocalGetItem = Join-Path $fxLocalGetItemReview 'T8-SC-A.json'
+    New-Item -ItemType Directory -Force $fxLocalGetItemReview | Out-Null
+    Set-Content -Path $forcedLocalGetItem -Value "{`"verdict`":`"block`",`"reasons`":[`"local-getitem`"],`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    $RepoRoot = $fxLocalGetItem
+    function Get-ScaffoldWorktreeRoot { Join-Path $fxRoot 'no-such-wt' }
+    function Get-Item {
+      [CmdletBinding()]
+      param([string]$Path)
+      if ($Path -ceq $forcedLocalGetItem) { throw 'fixture local Get-Item read failure' }
+      Microsoft.PowerShell.Management\Get-Item -LiteralPath $Path
+    }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $localGetItemFinding = @($findings | Where-Object { $_.probe -eq 'delivery-blocked' -and $_.what -cmatch '^\[TRIAGE-EVIDENCE-READ\]' })
+    if ($localGetItemFinding.Count -ne 1 -or $localGetItemFinding[0].severity -cne 'major') { $fails.Add('用例8b：local Get-Item 读取失败必须以 major [TRIAGE-EVIDENCE-READ] finding 可见，不能只覆盖 Get-Content 失败。') }
+    Remove-Item function:Get-Item
     # ── 用例 9：两条取证路径**真重合**时，同一份裁决只报一条 ──
     # 重合条件是 <RepoRoot> == <wtRoot>/<id>：此时通配取到的 .review/<id>.json 与按 id 拼出的
     # <RepoRoot>/.review/<id>.json 是**同一个文件**。用例 4 与 8 各自只喂一条路径，都盖不住这里。
@@ -1125,6 +1231,74 @@ if ($Verb -eq 'selfcheck') {
     }
     foreach ($caseCapabilityNote in $caseCapabilityNotes) { Write-Host "  INFO 用例9b fsutil $caseCapabilityNote" -ForegroundColor DarkGray }
 
+    # 用例 9d：只有实际 comparer 不可得才报告 caseMode unknown；它不得静默清空一个仍在场的裁决。
+    $fxUnknownCase = Join-Path $fxRoot 'case-unknown'
+    New-Item -ItemType Directory -Force (Join-Path $fxUnknownCase 'T8-SC-A/.review') | Out-Null
+    Set-Content -Path (Join-Path $fxUnknownCase 'T8-SC-A/.review/T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"case-unknown`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    $savedEvidencePathComparer = ${function:Get-ScaffoldEvidencePathComparer}
+    function Get-ScaffoldEvidencePathComparer { param([string]$Directory, [object[]]$Files) $null = $Directory; $null = $Files; return $null }
+    $RepoRoot = Join-Path $fxRoot 'no-such-repo'; function Get-ScaffoldWorktreeRoot { $fxUnknownCase }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $unknownCaseFinding = @($findings | Where-Object { $_.probe -eq 'delivery-blocked' -and $_.what -cmatch '^\[TRIAGE-EVIDENCE-CASE\]' })
+    if ($unknownCaseFinding.Count -ne 1 -or $unknownCaseFinding[0].severity -cne 'major') { $fails.Add('用例9d：actual comparer 不可得时必须以 major [TRIAGE-EVIDENCE-CASE] finding 可见，不能静默遗漏。') }
+
+    # 用例9d-local：local source 的 comparer 也必须独立可证伪；不得只因 worktree fixture 已覆盖而让 local CASE finding 变成死代码。
+    $fxLocalUnknownCase = Join-Path $fxRoot 'case-unknown-local'
+    $fxLocalUnknownReview = Join-Path $fxLocalUnknownCase '.review'
+    New-Item -ItemType Directory -Force $fxLocalUnknownReview | Out-Null
+    Set-Content -Path (Join-Path $fxLocalUnknownReview 'T8-SC-A.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"case-unknown-local`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
+    $RepoRoot = $fxLocalUnknownCase; function Get-ScaffoldWorktreeRoot { Join-Path $fxRoot 'no-such-worktree' }
+    $findings.Clear(); Invoke-ProbeDeliveryBlocked
+    $localUnknownCaseFinding = @($findings | Where-Object { $_.probe -eq 'delivery-blocked' -and $_.what -cmatch '^\[TRIAGE-EVIDENCE-CASE\].*local evidence' })
+    if ($localUnknownCaseFinding.Count -ne 1 -or $localUnknownCaseFinding[0].severity -cne 'major') { $fails.Add('用例9d-local：local evidence 的 comparer 不可得时必须恰报一条 major [TRIAGE-EVIDENCE-CASE] finding，不能静默遗漏。') }
+    Set-Item function:Get-ScaffoldEvidencePathComparer -Value $savedEvidencePathComparer
+
+    # 用例 9e：父目录可敏感、两个 Git root 仅大小写不同，而各自 .review 不敏感时，去重只能折叠 leaf，不能折叠完整路径。
+    if (-not $fsutil) {
+      Write-Host '  SKIP 用例9e：fsutil 不可用；当前平台无法构造敏感父目录与不敏感 .review 的实际双 Git root。' -ForegroundColor DarkGray
+    } else {
+      $fxAncestor = Join-Path $fxRoot 'case-ancestor'
+      $fxSensitiveParent = Join-Path $fxAncestor 'roots'
+      New-Item -ItemType Directory -Force $fxSensitiveParent | Out-Null
+      $enableAncestor = (& $fsutil.Source file setCaseSensitiveInfo $fxSensitiveParent enable 2>&1 | Out-String).Trim()
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "  SKIP 用例9e：fsutil 无法启用 owned temp 父目录 caseMode：$enableAncestor" -ForegroundColor DarkGray
+      } else {
+        $fixtureGetScaffoldRepositoryHead = ${function:Get-ScaffoldRepositoryHead}
+        $fxCaseWt = Join-Path $fxSensitiveParent 'T8-SC-A'; $fxCaseLocal = Join-Path $fxSensitiveParent 't8-sc-a'
+        New-Item -ItemType Directory -Force $fxCaseWt, $fxCaseLocal | Out-Null
+        $rootPair = @(Get-ChildItem -LiteralPath $fxSensitiveParent -Directory | Where-Object { $_.Name -cin @('T8-SC-A', 't8-sc-a') })
+        if ($rootPair.Count -ne 2) {
+          $fails.Add("用例9e 实际敏感父目录未保留两个仅大小写不同的 Git root（实得 $($rootPair.Count)）。")
+        } else {
+          foreach ($root in @($fxCaseWt, $fxCaseLocal)) {
+            & git -c 'init.templateDir=' -C $root init -q
+            & git -C $root -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false -c "core.hooksPath=$fixtureHooks" commit --allow-empty -m ([IO.Path]::GetFileName($root)) -q
+            New-Item -ItemType Directory -Force (Join-Path $root '.review') | Out-Null
+            $disableReview = (& $fsutil.Source file setCaseSensitiveInfo (Join-Path $root '.review') disable 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw "用例9e 无法将 owned temp .review 设为 insensitive：$disableReview" }
+          }
+          $wtReviewCase = New-ScaffoldActualCaseEvidenceFixture -CardRoot $fxCaseWt -Sha '0000000000000000000000000000000000000000'
+          $localHeadCase = (& git -C $fxCaseLocal rev-parse HEAD | Out-String).Trim()
+          $localReviewCase = New-ScaffoldActualCaseEvidenceFixture -CardRoot $fxCaseLocal -Sha $localHeadCase
+          if ($wtReviewCase.Mode -cne 'insensitive' -or $localReviewCase.Mode -cne 'insensitive') {
+            $fails.Add("用例9e 实际 .review 目录未同时为 insensitive（worktree=$($wtReviewCase.Mode)，local=$($localReviewCase.Mode)）。")
+          } else {
+            $caseWtVerdict = Join-Path $wtReviewCase.ReviewRoot 'T8-SC-A.json'
+            $caseLocalVerdict = Join-Path $localReviewCase.ReviewRoot 'T8-SC-A.json'
+            Set-Content -Path $caseWtVerdict -Value '{"verdict":"pass","reasons":[],"branch":"T8-SC-A","sha":"0000000000000000000000000000000000000000"}' -Encoding utf8
+            Set-Content -Path $caseLocalVerdict -Value "{`"verdict`":`"block`",`"reasons`":[`"current-local`"],`"branch`":`"T8-SC-A`",`"sha`":`"$localHeadCase`"}" -Encoding utf8
+            Set-Item function:Get-ScaffoldRepositoryHead -Value $realGetScaffoldRepositoryHead
+            $RepoRoot = $fxCaseLocal; function Get-ScaffoldWorktreeRoot { $fxSensitiveParent }
+            $findings.Clear(); Invoke-ProbeDeliveryBlocked
+            $ancestorCaseFindings = @($findings | Where-Object probe -eq 'delivery-blocked')
+            if ($ancestorCaseFindings.Count -ne 1 -or $ancestorCaseFindings[0].next -notmatch [regex]::Escape($caseLocalVerdict)) { $fails.Add('用例9e 敏感父目录下的 stale worktree pass 折叠了 current local block；路径去重错误地折叠了完整路径。') }
+            Set-Item function:Get-ScaffoldRepositoryHead -Value $fixtureGetScaffoldRepositoryHead
+          }
+        }
+      }
+    }
+
     # 用例 9c：裁决必须匹配所属检出的当前 HEAD；两份都当前时固定优先 worktree，不读取可伪造的 mtime。
     $fxCurrentWt = Join-Path $fxRoot 'current-wt'; $fxCurrentRepo = Join-Path $fxRoot 'current-repo'
     $wtCurrentReview = Join-Path $fxCurrentWt 'T8-SC-A/.review'; $localCurrentReview = Join-Path $fxCurrentRepo '.review'
@@ -1186,16 +1360,20 @@ if ($Verb -eq 'selfcheck') {
     if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例10(d) branch 只有大小写不同仍被当成本卡所有——schema 归属必须 Ordinal') }
     Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/T8-SC-A.json') -Value "{`"verdict`":`"BLOCK`",`"reasons`":[`"case-verdict`"],`"branch`":`"T8-SC-A`",`"sha`":`"$fixtureHead`"}" -Encoding utf8
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
-    if (@($findings | Where-Object probe -eq 'delivery-blocked').Count -ne 0) { $fails.Add('用例10(e) 大写 BLOCK 被当成合法 block——verdict enum 必须区分大小写') }
-    # (f) 仅旧产物的文件名归属跟随运行 OS 的路径大小写语义。
+    $unknownVerdict = @($findings | Where-Object { $_.probe -eq 'delivery-blocked' -and $_.what -cmatch '^\[TRIAGE-EVIDENCE-VERDICT\]' })
+    if ($unknownVerdict.Count -ne 1 -or $unknownVerdict[0].severity -cne 'major') { $fails.Add('用例10(e) 精确匹配本卡 branch/SHA 的大写 BLOCK 必须以 major [TRIAGE-EVIDENCE-VERDICT] finding 可见；未知 enum 不能静默跳过。') }
+    # (f) 仅旧产物的文件名归属跟随实际 evidence 目录测得的 comparer，而非运行 OS 名称。
     Get-ChildItem -LiteralPath (Join-Path $fxFor 'T8-SC-A/.review') -Filter '*.json' | Remove-Item -Force
     Set-Content -Path (Join-Path $fxFor 'T8-SC-A/.review/t8-sc-a.json') -Value "{`"verdict`":`"block`",`"reasons`":[`"legacy-case`"],`"sha`":`"$fixtureHead`"}" -Encoding utf8
-    $legacyIgnoreCase = ($IsWindows -or $IsMacOS)
+    $legacyFiles = @(Get-ChildItem -LiteralPath (Join-Path $fxFor 'T8-SC-A/.review') -Filter '*.json')
+    $legacyComparer = Get-ScaffoldEvidencePathComparer -Directory (Join-Path $fxFor 'T8-SC-A/.review') -Files $legacyFiles
+    if ($null -eq $legacyComparer) { throw '用例10(f) 实际 evidence 目录 comparer 不可得，不能用 OS 名称猜测。' }
+    $legacyIgnoreCase = $legacyComparer.Equals([System.StringComparer]::OrdinalIgnoreCase)
     $RepoRoot = $fxFor
     $findings.Clear(); Invoke-ProbeDeliveryBlocked
     $legacyCaseCount = @($findings | Where-Object probe -eq 'delivery-blocked').Count
     $expectedLegacyCaseCount = if ($legacyIgnoreCase) { 1 } else { 0 }
-    if ($legacyCaseCount -ne $expectedLegacyCaseCount) { $fails.Add("用例10(f) branchless 大小写文件名未跟随运行 OS 语义（caseInsensitive=$legacyIgnoreCase，期望 $expectedLegacyCaseCount，实得 $legacyCaseCount）") }
+    if ($legacyCaseCount -ne $expectedLegacyCaseCount) { $fails.Add("用例10(f) branchless 大小写文件名未跟随实际 evidence comparer（caseInsensitive=$legacyIgnoreCase，期望 $expectedLegacyCaseCount，实得 $legacyCaseCount）") }
     # 用例 3：WorktreeRoot 取值函数缺失（等价 _config 缺失/加载失败）→ 优雅跳过：不抛异常、无任何发现
     Remove-Item function:Get-ScaffoldWorktreeRoot
     $findings.Clear(); Push-Location $fxCwd

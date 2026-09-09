@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-09 远端交付**：`T0-SELFTEST-SCAFFOLD-ONLY` 经 PR #272 合并（`7500992541d15cc7a53b06efe4560dc62123dcff`；reviewed head `d3a206a979468888b208569a2701a9dd3b67fcf6`，merged tree `a1ef3cd8f724583fff2e0b75a46464c6403e2350`），正式 R3 `pass`，exact-head CI `34314990805` success；full selftest 已运行于 parent HEAD `5bff8a` 的未提交 canary 修复源码；该完整源码与 reviewed/merged Git blob `5b05aac083d260978a4c5987902d6bb9ebc4dd0d` 字节一致（归档卡 Delivery receipt 详列来源），source SHA-256 `BFACF8485F7255DDF0C7E39B6671AB50C8071E933B6AF4F00DBB48D06DD29376` native exit 0/2629.0102968s，17a3 real17a3PASS，explicit skips 21；normal ship/official cleanup exits 0/0。官方 cleanup 后归档。
+
 **SPIKE 远端交付**：PR #286 已合并 `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`，R3 首轮 pass、CI 成功、官方 cleanup 完成。历史与当前候选 APK／真机证据分列于 [平台报告](docs/spike/PLATFORM-SPIKE.md)；本轮 SAF 仅验证已有授权延续与重启读取，不声称重跑写入。
 
 **2026-09-09 远端交付**：`T4-SYMBOL-MARKDOWN-PARSER` 经 [PR274](https://github.com/Asun28/MyInspection/pull/274) 合并（`18741ac29a20da426ffe99c02c924f2d1b3b29f5`；reviewed head `3b7d51f1519f4b4817289edf2d14c2a68173474e`），正式 R3 PASS、精确候选 CI `34291612516` 成功，117 项行为测试 / 35 项定向变异及项目 verify 通过。原工作树已按正式流程清理，完整历史与最终凭据见 [归档卡](specs/archive/tasks/T4-SYMBOL-MARKDOWN-PARSER.md)。仅交付 Markdown 前置解析能力；PR263 的实际消费者接入、符号设计发布仍待各自交付。
@@ -446,7 +448,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
-18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.45.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.46.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
@@ -596,4 +598,4 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 并行工具调用时把只读诊断与写操作分批（L1）；触碰冻结契约会被 `guard-frozen` 钩子拒绝（需演进走版本评审）。
 
 ---
-<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.45.0**（`ScaffoldVersion`）。</sub>
+<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.46.0**（`ScaffoldVersion`）。</sub>
