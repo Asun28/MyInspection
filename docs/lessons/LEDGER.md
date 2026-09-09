@@ -2213,3 +2213,11 @@
 - rule: When the requested delivery includes a PR, use normal remote ship and verify the PR URL, exact reviewed head, successful candidate CI and remote merge before reporting completion. Report local-only completion explicitly; restore isolated card diffs from the current remote base when local master diverges, never push unrelated local history.
 - enforced_by: none（delivery-mode selection and completion wording still require operator verification; existing remote ship enforces R3 and candidate CI once selected）
 - refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md
+
+## L327
+- date: 2026-09-09 ｜ tags: task-loop,evidence,receipts ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: After PR286, flattening scaffold-merged and scaffold-shipped receipts into one directory let T35 overwrite the archived T24; official cleanup then consumed the original T24.
+- root_cause: Destination identity used basename instead of source namespace plus basename, and a destination-only manifest was produced after the overwrite.
+- rule: Preserve scaffold-merged/<id>, scaffold-shipped/<id> and worktree-review/<file> namespaces. Before cleanup enumerate required source paths, copy to unique destinations, then verify source/destination counts and exact bytes or SHA for every pair. A destination-only manifest does not prove completeness. Label missing originals missing; never reconstruct them as original evidence.
+- enforced_by: none（receipt backup completeness is an operator check; no automated archive guard is claimed）
+- refs: PR286; PR287; _local/routine-remote-recovery/spike-feature-closeout/manifest.json
