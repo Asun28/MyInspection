@@ -4,7 +4,7 @@ title: 将 T26 未授权恢复报告收敛到既有操作文档
 depends_on: [T0-RECEIPT-NORMAL-SHIP-HARNESS]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-SHIP-SAGA-REPORTER
 worktree: C:\wt\T0-SHIP-SAGA-REPORTER
 allow_paths:
