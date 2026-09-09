@@ -33,8 +33,8 @@ doc_sync: Keep the initializer comments accurate; synchronize the v0.47 partial-
 Adapt the root cause of upstream PR #377 across the local field set. The audit reproduced
 ReviewEffort rewriting a comment and LegacyReviewEffort. The current application is already initialized.
 
-Version-closeout coupling (confirmed before R1/RED): scaffold-sync's existing real-ledger SelfCheck
-pins current v0.46.0. Include its expected v0.47 partial row and the matching config/authority metadata
+Version-closeout coupling: registration baseline ceb2685e9e3ada76a503377584d512c0c6d2af4d pins v0.45.0; recheck its config,
+authority references and real-ledger SelfCheck against the actual remote tree before R1/RED. Include its expected v0.47 partial row and the matching config/authority metadata
 in this final adoption card so the last selected repair and its adoption record land together.
 The focused fixture also invokes the existing scaffold-sync SelfCheck. Historical ledger rows and
 immutable origin remain unchanged; unselected advisory/budget policies remain declined.
