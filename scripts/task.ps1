@@ -54,7 +54,7 @@ param(
   [ValidateSet('start', 'red', 'ship', 'cleanup')][string]$Phase = 'start',
   [string]$Base = '',
   [switch]$NoAutoMerge,
-  [switch]$Local,      # 本地完成：DoD(+可选评审) 后本地合并，不 push/PR/gh（治「T0 无远端/无 Codex 也能闭环」）
+  [switch]$Local,      # 本地完成：按 ReviewGate/card policy 完成 R3 后本地合并，不 push/PR/gh；本仓 required 配置仍强制评审
   [switch]$SkipRed,    # compat no-op since T68 (the RED-evidence gate is gone); kept so documented commands and fixtures still bind
   [switch]$Force       # cleanup：确认丢弃 worktree 内未提交改动后再拆除（TD47 脏树守卫的显式覆盖；缺省=有脏改动即拒）
 )
@@ -1477,8 +1477,15 @@ switch ($Phase) {
       $sagaDone += (Complete-ShipLeg 'leak-gate')
 
       if ($Local) {
-        # ── -Local：无 push/PR/gh 的本地完成路径（治「T0 throwaway 无远端/无 Codex 也能闭环」）──
+        # ── -Local：无 push/PR/gh 的本地完成路径；是否运行/阻断 R3 服从配置与卡策略，本仓 required 不降级。──
         Step 'R3 第二模型评审（-Local：ReviewGate=required 才是强制闸；卡自带 review_gate 则意见模式下也跑，不拦合并）'
+        # Bind the exact candidate before reviewer code runs. The task branch name remains mutable and must
+        # never be dereferenced again as the merge payload after this point.
+        $r3Head = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
+        if ($r3Head -cnotmatch '^[0-9a-f]{40}$') {
+          Add-CatchRecord 'review' "R3 前本地 HEAD 不可判：'$r3Head' (-Local)"
+          throw '[CI-GATE-LOCAL-HEAD] local candidate HEAD is invalid.'
+        }
         # T288: ONE reviewer script for both sub-branches below, taken from the base commit the scope gate
         # pinned rather than from this worktree - which is the tree under review, and until this card was
         # exactly what the -Local leg ran. Resolved only when a review is actually going to run, so a ship
@@ -1518,6 +1525,11 @@ switch ($Phase) {
         } else {
           Write-Host 'R3 意见模式（ReviewGate 留空，且本卡未声明 review_gate）：合并闸=确定性闸。需要第二意见随时：pwsh -File scripts/review.ps1 -WorktreePath <wt> -Base <base>' -ForegroundColor DarkGray
         }
+        $r3HeadAfter = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
+        if (($r3HeadAfter -cnotmatch '^[0-9a-f]{40}$') -or ($r3HeadAfter -cne $r3Head)) {
+          Add-CatchRecord 'review' "R3 期间本地 HEAD 变化（$r3Head -> '$r3HeadAfter'; -Local）"
+          throw "[CI-GATE-LOCAL-HEAD-MOVED] $r3Head -> '$r3HeadAfter'"
+        }
         $sagaDone += (Complete-ShipLeg 'R3-review')   # -Local 的 R3 是可选腿：pass 或显式跳过均算该腿完成
         Step '本地合并（-Local：并入当前基线分支，无 push/PR/gh）'
         # F3（R3 PR#102 九轮 + 审计）：入口守卫读的是 ship 开始时的 HEAD；DoD/verify/R3 可跑 10+ 分钟，其间主检出可能被
@@ -1526,7 +1538,12 @@ switch ($Phase) {
         $curBranch = (& git -C $RepoRoot symbolic-ref --quiet --short HEAD 2>$null)
         if ($curBranch) { $curBranch = $curBranch.Trim() }
         Assert-LocalMergeTarget -Cur $curBranch -Base $Base -TaskId $TaskId
-        & git -C $RepoRoot merge --no-ff --no-edit $TaskId
+        $localBaseNow = "$(& git -C $RepoRoot rev-parse HEAD 2>$null)".Trim()
+        if (($localBaseNow -cnotmatch '^[0-9a-f]{40}$') -or ($localBaseNow -cne $scopeBaseSha)) {
+          Add-CatchRecord 'base' "local base:$scopeBaseSha->$localBaseNow"
+          throw "[SHIP-LOCAL-BASE-MOVED] reviewed scope base $scopeBaseSha -> '$localBaseNow'; rerun ship against the current local base."
+        }
+        & git -C $RepoRoot merge --no-ff --no-edit $r3Head
         if ($LASTEXITCODE -ne 0) { throw "[SHIP-LOCAL-MERGE-FAIL] local merge of $TaskId failed (conflict?). Resolve in the main worktree, then retry." }
         $sagaLocalMerged = $true   # 合并已成功——此后失败（凭据铸造）不得误报为合并前守卫态（R3 r5 #9）
         # T24-MERGETOKEN 铸造（-Local 合并成功事件）：cleanup 的 branch -D 只认这枚单次凭据（或 -Force / gh 在线补验）。
@@ -1577,6 +1594,13 @@ switch ($Phase) {
       $sagaDone += (Complete-ShipLeg 'push+PR')
 
       Step 'R3 第二模型评审（ReviewGate=required 才是强制闸；卡自带 review_gate 则意见模式下也跑，不拦合并——合并闸=确定性闸）'
+      # This OID is the candidate the reviewer is about to judge. Every later PR/CI/merge binding is
+      # compared with this value; a branch name is never accepted as proof of reviewed identity.
+      $r3Head = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
+      if ($r3Head -cnotmatch '^[0-9a-f]{40}$') {
+        Add-CatchRecord 'review' "R3 前本地 HEAD 不可判：'$r3Head'"
+        throw '[CI-GATE-LOCAL-HEAD] candidate HEAD is invalid.'
+      }
       # T288: the same base-commit reviewer the -Local leg above resolves. This leg already ran a copy the
       # branch could not edit (the main checkout's), so what changes here is WHICH untouched copy: the one
       # the scope gate pinned, so the reviewer, the allow_paths, the tier and the budget all come from one
@@ -1617,92 +1641,206 @@ switch ($Phase) {
       } else {
         Write-Host "R3 意见模式（ReviewGate 留空，且本卡未声明 review_gate）：跳过评审。需要第二意见随时：pwsh -File scripts/review.ps1 -WorktreePath `"$Wt`" -Base $shipBase -PostStatus -PrNumber $pr（只输出意见与回贴，不拦合并）" -ForegroundColor DarkGray
       }
+      $r3HeadAfter = "$(& git -C $Wt rev-parse HEAD 2>$null)".Trim()
+      if (($r3HeadAfter -cnotmatch '^[0-9a-f]{40}$') -or ($r3HeadAfter -cne $r3Head)) {
+        Add-CatchRecord 'review' "R3 期间本地 HEAD 变化（$r3Head -> '$r3HeadAfter'）"
+        throw "[CI-GATE-LOCAL-HEAD-MOVED] $r3Head -> '$r3HeadAfter'"
+      }
       $sagaDone += (Complete-ShipLeg 'R3-review')
 
-      # TD134: the CI check gate is its own saga leg and runs on EVERY merge path — auto AND -NoAutoMerge.
-      # A manual-mode PR must not be declared ready for a hand merge while a red/missing/skipped shard
-      # exists: on free/private repos no server-side required check catches it after this point.
-      # R3 可能很慢；评审期间 PR 可被并发 retarget。紧贴 merge 再确认一次，关闭「审 A、并 B」TOCTOU。
-      Assert-RemotePrBase -Pr $pr -ExpectedBase $shipBase
-      # T64 CI 检查闸：本地滤过跑非验收、全 17 闸覆盖由 CI 分片并集承担（free private 无服务端必需
-      # 检查，服务端不会替我们拦）——故合并前在**客户端 fail-closed 等齐** PR head 的全部 check runs：
-      # 任一失败/超时/取不到检查即不合并。r2 加固：head 钉到**被评审 sha**、分页取齐、期望检查逐一点名。
-      Step '[CI-GATE] CI check gate (T86: the ci.yml fan-in context completed+success and no other failing check before merge; fail-closed; since TD134 hoisted above the auto/-NoAutoMerge split)'
-      $ciHead = "$(& gh pr view $pr --json headRefOid -q .headRefOid 2>$null)".Trim()
-      if ($ciHead -notmatch '^[0-9a-f]{40}$') { throw "[CI-GATE-NOHEAD] CI check gate: no valid PR headRefOid (got '$ciHead') - fail-closed, no merge." }
-      # T86: the expected check set is no longer reconstructed here. ci.yml STATES its own acceptance
-      # contract - one fan-in job named `required` (if: always(), needs: <every other job>) whose step
-      # fails unless every dependency's result is literally `success`. So this gate waits for that ONE
-      # context, exactly-success, and asserts no other check is failing; non-expected checks (unrelated
-      # workflows) only need to be completed and not failing. A job added to ci.yml and wired into
-      # `needs:` is covered with no client change here; a job added and NOT wired in is caught by
-      # selftest gate 8 (same judgement, scripts/_ci.ps1) before it can ship, which is why this gate
-      # does not have to re-derive anything.
-      # Still fail-closed, deliberately (T86 forbid list): no ci.yml in the merge candidate tree, or a
-      # ci.yml whose jobs: block yields no `required` job (deleted, renamed, or unparseable), means the
-      # acceptance surface is unprovable - no merge. The point is to shrink the derivation, not to trust
-      # the server blindly.
-      # ADR 0007: this used to derive scaffold-selftest.yml's 2 x 4 shard matrix. That workflow no longer
-      # triggers on pull_request (deliberately off the PR critical path), so expecting its shards here
-      # would dead-wait the full timeout for names that can never appear - the gate would deadlock every
-      # merge. The meta-layer 17-gate face is instead proven LOCALLY before ship (mandatory full run) and
-      # post-merge on the push side; what a PR must prove here is the product gate.
-      # TD134/T65 item 4: read the MERGE CANDIDATE tree ($Wt), not the base checkout ($RepoRoot) -
-      # GitHub creates check runs from the HEAD side's yml, so a PR that renames or adds a job would
-      # otherwise be judged against a workflow that never ran.
+      # One immutable CI chain serves both auto-merge and manual-ready: reviewed local OID -> PR OID ->
+      # exact ci.yml run/attempt -> its jobs -> final server snapshots -> the still-identical scoped base.
+      Step '[CI-GATE] exact reviewed head + ci.yml workflow/run-attempt + required fan-in + final base/head snapshots'
       $ciWf = Join-Path $Wt '.github/workflows/ci.yml'
-      if (-not (Test-Path $ciWf)) { throw "[CI-GATE-WF-MISSING] CI check gate: no .github/workflows/ci.yml in the merge candidate tree ($Wt) - the fan-in contract cannot be read and the CI acceptance surface is unprovable; fail-closed, no merge. Restore the workflow (the template payload ships it), or run the full no-arg selftest locally and use the -Local flow." }
-      # One judgement, shared with selftest gate 8 (scripts/_ci.ps1) so the gate the merge trusts and the
-      # gate that guards the file cannot drift. Every contract finding blocks: a present but fail-open
-      # fan-in job cannot establish that all product jobs succeeded.
-      $ciFanIn = @(Test-ScaffoldCiFanIn -WorkflowText (Get-Content $ciWf -Raw))
-      if ($ciFanIn.Count -gt 0) { throw "[CI-GATE-JOBS-DRIFT] CI check gate: $ciWf does not satisfy the fan-in contract - $($ciFanIn -join ' | ') Re-check with: pwsh -File scripts\selftest.ps1 -Only 8. Fail-closed, no merge." }
-      $ciExpected = @($ScaffoldCiFanInJob)
-      # SCAFFOLD_CI_TIMEOUT_SEC (TD134): test knob for the wait deadline — hermetic fixtures set it to a
-      # few seconds so timeout paths are testable; unset/invalid falls back to 1800s (production default).
-      # The poll interval scales down with the deadline so a seconds-scale timeout polls sub-20s.
-      $ciTimeoutSec = 1800
-      if ($env:SCAFFOLD_CI_TIMEOUT_SEC -match '^\d+$' -and [int]$env:SCAFFOLD_CI_TIMEOUT_SEC -gt 0) { $ciTimeoutSec = [int]$env:SCAFFOLD_CI_TIMEOUT_SEC }
-      $ciPollSec = [Math]::Min(20, [Math]::Max(1, [int][Math]::Ceiling($ciTimeoutSec / 10)))
-      $ciDeadline = [DateTime]::UtcNow.AddSeconds($ciTimeoutSec)
-      while ($true) {
-        # 分页取齐（per_page=100 循环；取不满 total_count / 解析失败 = 视作未取齐，不据残页放行——r2 #9）。
-        $ciTotal = -1; $ciPending = @(); $ciBad = @(); $ciNames = @(); $ciFetchOk = $true; $ciPage = 1
-        while ($true) {
-          $ciRaw = "$(& gh api "repos/{owner}/{repo}/commits/$ciHead/check-runs?per_page=100&page=$ciPage" 2>$null)"
-          if (-not $ciRaw) { $ciFetchOk = $false; break }
-          $ciO = $null; try { $ciO = $ciRaw | ConvertFrom-Json } catch { $ciFetchOk = $false; break }
-          if ($ciTotal -lt 0) { $ciTotal = [int]$ciO.total_count }
-          $ciBatch = @($ciO.check_runs)
-          foreach ($cr in $ciBatch) {
-            $crName = "$($cr.name)"; $ciNames += $crName
-            if ("$($cr.status)" -ne 'completed') { $ciPending += $crName }
-            elseif ($ciExpected -contains $crName) {
-              # r3 #7 (T86: the expected set is now the single fan-in context): only `success` counts -
-              # skipped/neutral means that context executed nothing, and a skipped required check is the
-              # exact failure mode the fan-in job's always() guard exists to close.
-              if ("$($cr.conclusion)" -ne 'success') { $ciBad += "$crName=$($cr.conclusion)(the fan-in context requires success)" }
-            }
-            elseif ("$($cr.conclusion)" -notin @('success', 'neutral', 'skipped')) { $ciBad += "$crName=$($cr.conclusion)" }
-          }
-          if ($ciNames.Count -ge $ciTotal -or $ciBatch.Count -eq 0) { break }
-          $ciPage++
-          if ($ciPage -gt 50) { $ciFetchOk = $false; break }
-        }
-        if ($ciBad.Count -gt 0) { throw "[CI-GATE-RED] CI check gate: head $($ciHead.Substring(0,8)) has failing checks ($($ciBad -join ', ')) - no merge. Fix the red shards and re-ship (details: gh run list)." }
-        $ciMissing = @($ciExpected | Where-Object { $_ -notin $ciNames })
-        if ($ciFetchOk -and $ciTotal -gt 0 -and $ciNames.Count -eq $ciTotal -and $ciPending.Count -eq 0 -and $ciMissing.Count -eq 0) {
-          Write-Host "  [CI-GATE-PASS] $ciTotal check runs all green (fan-in context '$($ciExpected -join ', ')' present and success)" -ForegroundColor Green; break
-        }
-        if ([DateTime]::UtcNow -gt $ciDeadline) { throw "[CI-GATE-TIMEOUT] CI check gate: wait timed out (${ciTimeoutSec}s; total=$ciTotal fetched=$($ciNames.Count) pending=$($ciPending.Count) missing-expected=$($ciMissing -join ', ')) - fail-closed, no merge. Check gh run list, then re-ship." }
-        Write-Host "  [CI-GATE-WAIT] waiting (total=$ciTotal fetched=$($ciNames.Count) pending=$($ciPending.Count) missing-expected=$($ciMissing.Count)) - re-poll in ${ciPollSec}s" -ForegroundColor DarkGray
-        Start-Sleep -Seconds $ciPollSec
+      if (-not (Test-Path -LiteralPath $ciWf -PathType Leaf)) {
+        throw "[CI-GATE-WF-MISSING] no .github/workflows/ci.yml in the merge candidate tree ($Wt); fail-closed."
       }
-      # r2 #10：CI 等待可长达 30min——期间 base 可被 retarget、head 可前移。合并前**再**确认两者，
-      # 且 merge 用 --match-head-commit 绑死到过闸的那个 head（服务端原子校验，关最后一扇 TOCTOU 窗）。
-      Assert-RemotePrBase -Pr $pr -ExpectedBase $shipBase
-      $ciHeadNow = "$(& gh pr view $pr --json headRefOid -q .headRefOid 2>$null)".Trim()
-      if ($ciHeadNow -ne $ciHead) { throw "[CI-GATE-HEAD-MOVED] CI check gate: PR head moved during the CI wait ($($ciHead.Substring(0,8)) -> '$ciHeadNow') - the new head has no review/CI verdict; fail-closed. Re-run ship." }
+      $ciWfText = Get-Content -LiteralPath $ciWf -Raw
+      $ciFanIn = @(Test-ScaffoldCiFanIn -WorkflowText $ciWfText)
+      if ($ciFanIn.Count -gt 0) {
+        throw "[CI-GATE-JOBS-DRIFT] candidate ci.yml does not satisfy the required fan-in contract: $($ciFanIn -join ' | ')"
+      }
+      $ciExpected = @($ScaffoldCiFanInJob)
+
+      # Check-runs trusts only the single `required` fan-in context. The exact selected workflow attempt's
+      # jobs additionally prove that the candidate ci.yml job set ran, without reviving the removed
+      # scaffold-selftest matrix derivation.
+      $ciDeclared = @(); $ciDeclErrors = @(); $ciInJobs = $false
+      foreach ($ln in @($ciWfText -split '\r?\n')) {
+        if (-not $ciInJobs) {
+          if ($ln -cmatch '^jobs:\s*(?:#.*)?$') { $ciInJobs = $true }
+          continue
+        }
+        if ($ln -cmatch '^\S') { break }
+        if ($ln -cmatch '^  \S') {
+          if ($ln -cmatch '^  (?<job>[A-Za-z0-9_-]+):\s*(?:#.*)?$') { $ciDeclared += $Matches['job'] }
+          elseif ($ln -cnotmatch '^  #') { $ciDeclErrors += $ln.Trim() }
+        }
+        elseif ($ln -cmatch '^    name:\s*(?<job>[\w ./()_-]+?)\s*(?:#.*)?$') {
+          if ($ciDeclared.Count -eq 0) { $ciDeclErrors += $ln.Trim() } else { $ciDeclared[-1] = $Matches['job'] }
+        }
+        elseif ($ln -cmatch '^    (?:name|strategy|uses):|^      matrix:') { $ciDeclErrors += $ln.Trim() }
+      }
+      $ciJobExpected = @($ciDeclared | Sort-Object -Unique -CaseSensitive)
+      if ((-not $ciInJobs) -or $ciDeclared.Count -eq 0 -or $ciJobExpected.Count -ne $ciDeclared.Count -or $ciDeclErrors.Count -gt 0) {
+        Add-CatchRecord 'ci' "jobs declaration drift:$($ciDeclared.Count)/$($ciJobExpected.Count):$($ciDeclErrors -join ',')"
+        throw '[CI-GATE-JOBS-DRIFT] candidate ci.yml jobs cannot be bound to an exact run-attempt collection.'
+      }
+
+      $ciTimeoutSec = 1800
+      if ($env:SCAFFOLD_CI_TIMEOUT_SEC) {
+        $ciTimeoutParsed = 0
+        if ((-not [int]::TryParse($env:SCAFFOLD_CI_TIMEOUT_SEC, [ref]$ciTimeoutParsed)) -or $ciTimeoutParsed -le 0) {
+          throw "[CI-GATE-TIMEOUT-CONFIG] '$($env:SCAFFOLD_CI_TIMEOUT_SEC)' is not a positive integer."
+        }
+        $ciTimeoutSec = $ciTimeoutParsed
+      }
+      Initialize-CiContainment -Fault "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"
+      $ciDeadline = [DateTimeOffset]::UtcNow.AddSeconds($ciTimeoutSec)
+
+      # This is the first PR head read after R3. It must already equal the reviewed local OID; checking only
+      # later would let an unreviewed replacement tip establish the entire CI chain.
+      $firstPr = Invoke-GhBeforeDeadline -Arguments @('pr','view',"$pr",'--json','baseRefName,headRefOid') -Deadline $ciDeadline -WorkingDirectory $Wt
+      if ($firstPr.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr initial base/head snapshot exceeded ${ciTimeoutSec}s." }
+      $firstBase = ''; $ciHead = ''
+      if ($firstPr.ExitCode -eq 0 -and $firstPr.Stdout) {
+        try {
+          $firstPrObject = $firstPr.Stdout | ConvertFrom-Json -ErrorAction Stop
+          $firstBase = "$($firstPrObject.baseRefName)".Trim()
+          $ciHead = "$($firstPrObject.headRefOid)".Trim()
+        } catch { }
+      }
+      if ($firstBase -cne $shipBase) {
+        Add-CatchRecord 'base' "$shipBase!=$firstBase/$($firstPr.ExitCode)"
+        throw "[CI-GATE-BASE-MISMATCH] '$firstBase' != '$shipBase' (exit $($firstPr.ExitCode))."
+      }
+      if ($ciHead -cnotmatch '^[0-9a-f]{40}$') { throw "[CI-GATE-NOHEAD] invalid PR headRefOid '$ciHead'." }
+      if ($ciHead -cne $r3Head) {
+        Add-CatchRecord 'ci' "$r3Head!=$ciHead"
+        throw "[CI-GATE-HEAD-MISMATCH] PR head $ciHead != reviewed head $r3Head."
+      }
+
+      $readCheckState = {
+        param($checks)
+        $runs = @($checks.Runs); $badShape = @(); $pending = @(); $blocking = @($checks.Blocking)
+        foreach ($cr in $runs) {
+          if ($cr -isnot [pscustomobject]) { $badShape += 'item-not-object'; continue }
+          $props = @($cr.PSObject.Properties.Name)
+          if (@(@('name','status','conclusion') | Where-Object { $props -cnotcontains $_ }).Count -gt 0 -or
+              $cr.name -isnot [string] -or $cr.status -isnot [string] -or
+              (($null -ne $cr.conclusion) -and $cr.conclusion -isnot [string]) -or [string]::IsNullOrWhiteSpace($cr.name)) {
+            $badShape += 'item-shape'; continue
+          }
+          if ($cr.status -cne 'completed') { $pending += $cr }
+        }
+        $required = @($runs | Where-Object { $_ -is [pscustomobject] -and $_.name -is [string] -and $_.name -ceq $ScaffoldCiFanInJob })
+        if ($required.Count -ne 1) { $badShape += "required-count=$($required.Count)" }
+        elseif ($required[0].status -cne 'completed' -or $required[0].conclusion -cne 'success') { $blocking += $required[0] }
+        [pscustomobject]@{ Drift=($badShape.Count -gt 0); Reason=($badShape -join ','); Pending=@($pending); Blocking=@($blocking) }
+      }
+      $last = 'CI has not returned a stable candidate snapshot'
+      :ciStable while ($true) {
+        if ([DateTimeOffset]::UtcNow -ge $ciDeadline) { throw "[CI-GATE-TIMEOUT] ${ciTimeoutSec}s: $last" }
+        $checks = Get-ExactHeadChecksBeforeDeadline -Head $ciHead -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($checks.TimedOut) { throw "[CI-GATE-TIMEOUT] checks: $($checks.Reason)" }
+        if (-not $checks.Readable) { throw "[CI-GATE-API] checks: $($checks.Reason)" }
+        $checkState = & $readCheckState $checks
+        if ($checkState.Drift) { throw "[CI-GATE-API] check-runs shape: $($checkState.Reason)" }
+        if ($checkState.Blocking.Count -gt 0) {
+          $bad = @($checkState.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', '
+          throw "[CI-GATE-RED] checks: $bad"
+        }
+        if ($checkState.Pending.Count -gt 0) { $last = 'check-runs pending'; Wait-CiRetryBeforeDeadline $ciDeadline; continue }
+
+        $wfPg = Get-GhPagedCollectionBeforeDeadline -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$ciHead&per_page=100&page={page}" -CollectionProperty 'workflow_runs' -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($wfPg.TimedOut) { throw "[CI-GATE-TIMEOUT] workflow: $($wfPg.Reason)" }
+        if (-not $wfPg.Readable) { throw "[CI-GATE-API] workflow: $($wfPg.Reason)" }
+        $wfRuns = @($wfPg.Items)
+        if ($wfRuns.Count -eq 0) { $last = 'no pull_request ci.yml run for the reviewed head'; Wait-CiRetryBeforeDeadline $ciDeadline; continue }
+        if ($wfRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] runs=$($wfRuns.Count)." }
+        $run = $wfRuns[0]; $runProps = @($run.PSObject.Properties.Name)
+        $missing = @(@('id','head_sha','event','status','conclusion','run_attempt','path','pull_requests') | Where-Object { $runProps -cnotcontains $_ })
+        if ($missing.Count -gt 0) { throw "[CI-GATE-WORKFLOW-IDENTITY] missing: $($missing -join ',')." }
+        $runId = 0L; $attempt = 0; $runPath = "$($run.path)"; $prMatch = Get-CandidateRunPrMatchCount -PullRequests $run.pull_requests -Pr $pr
+        if ((-not [long]::TryParse("$($run.id)",[ref]$runId)) -or $runId -le 0 -or
+            (-not [int]::TryParse("$($run.run_attempt)",[ref]$attempt)) -or $attempt -le 0 -or
+            "$($run.head_sha)" -cne $ciHead -or "$($run.event)" -cne 'pull_request' -or
+            $runPath -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$' -or $prMatch -ne 1) {
+          Add-CatchRecord 'ci' "wf=$($run.id)/$($run.run_attempt)/$($run.head_sha)/$($run.event)/$runPath/prs=$prMatch"
+          throw "[CI-GATE-WORKFLOW-IDENTITY] PR #$pr workflow identity mismatch."
+        }
+        if ("$($run.status)" -ieq 'completed' -and "$($run.conclusion)" -ine 'success') { throw "[CI-GATE-RED] workflow $runId=$($run.status)/$($run.conclusion)." }
+        if ("$($run.status)" -ine 'completed' -or "$($run.conclusion)" -ine 'success') { $last = "workflow $runId pending"; Wait-CiRetryBeforeDeadline $ciDeadline; continue }
+
+        $jobPg = Get-GhPagedCollectionBeforeDeadline -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/attempts/$attempt/jobs?per_page=100&page={page}" -CollectionProperty 'jobs' -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($jobPg.TimedOut) { throw "[CI-GATE-TIMEOUT] jobs: $($jobPg.Reason)" }
+        if (-not $jobPg.Readable) { throw "[CI-GATE-API] jobs: $($jobPg.Reason)" }
+        $jobState = Get-ExactCandidateJobState -Jobs @($jobPg.Items) -Wanted $ciJobExpected
+        if ($jobState.Drift) { throw "[CI-GATE-JOBS-DRIFT] $($jobState.Reason)" }
+        if ($jobState.Blocking.Count -gt 0) { throw "[CI-GATE-RED] jobs: $(@($jobState.Blocking | ForEach-Object { "$($_.name)=$($_.status)/$($_.conclusion)" }) -join ', ')" }
+        if ($jobState.Pending.Count -gt 0) { $last = 'workflow jobs pending'; Wait-CiRetryBeforeDeadline $ciDeadline; continue }
+
+        # Re-enumerate every decision-bearing collection so a rerun/replacement attempt cannot inherit an
+        # earlier run's result merely because the check context name is unchanged.
+        $finalChecks = Get-ExactHeadChecksBeforeDeadline -Head $ciHead -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($finalChecks.TimedOut) { throw "[CI-GATE-TIMEOUT] final checks: $($finalChecks.Reason)" }
+        if (-not $finalChecks.Readable) { throw "[CI-GATE-API] final checks: $($finalChecks.Reason)" }
+        $finalCheckState = & $readCheckState $finalChecks
+        if ($finalCheckState.Drift) { throw "[CI-GATE-API] final check-runs shape: $($finalCheckState.Reason)" }
+        if ($finalCheckState.Blocking.Count -gt 0) { throw '[CI-GATE-RED] final checks changed to a blocking state.' }
+        if ($finalCheckState.Pending.Count -gt 0) { $last = 'final checks pending'; Wait-CiRetryBeforeDeadline $ciDeadline; continue ciStable }
+
+        $fwPg = Get-GhPagedCollectionBeforeDeadline -EndpointTemplate "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$ciHead&per_page=100&page={page}" -CollectionProperty 'workflow_runs' -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($fwPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final workflow: $($fwPg.Reason)" }
+        if (-not $fwPg.Readable) { throw "[CI-GATE-API] final workflow: $($fwPg.Reason)" }
+        $fwRuns = @($fwPg.Items)
+        if ($fwRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] final runs=$($fwRuns.Count)." }
+        $fwRun = $fwRuns[0]; $fwProps = @($fwRun.PSObject.Properties.Name); $fwId = 0L; $fwTry = 0
+        $fwPrMatch = Get-CandidateRunPrMatchCount -PullRequests $fwRun.pull_requests -Pr $pr
+        if (@(@('id','head_sha','event','status','conclusion','run_attempt','path','pull_requests') | Where-Object { $fwProps -cnotcontains $_ }).Count -gt 0 -or
+            (-not [long]::TryParse("$($fwRun.id)",[ref]$fwId)) -or $fwId -ne $runId -or
+            (-not [int]::TryParse("$($fwRun.run_attempt)",[ref]$fwTry)) -or $fwTry -ne $attempt -or
+            "$($fwRun.head_sha)" -cne $ciHead -or "$($fwRun.event)" -cne 'pull_request' -or
+            "$($fwRun.path)" -cnotmatch '^\.github/workflows/ci\.yml(?:@.*)?$' -or $fwPrMatch -ne 1) {
+          throw "[CI-GATE-WORKFLOW-IDENTITY] final workflow identity drifted (id=$($fwRun.id), expected=$runId)."
+        }
+        if ("$($fwRun.status)" -ieq 'completed' -and "$($fwRun.conclusion)" -ine 'success') { throw "[CI-GATE-RED] final workflow $runId=$($fwRun.status)/$($fwRun.conclusion)." }
+        if ("$($fwRun.status)" -ine 'completed' -or "$($fwRun.conclusion)" -ine 'success') { $last = 'final workflow pending'; Wait-CiRetryBeforeDeadline $ciDeadline; continue ciStable }
+
+        $fjPg = Get-GhPagedCollectionBeforeDeadline -EndpointTemplate "repos/{owner}/{repo}/actions/runs/$runId/attempts/$attempt/jobs?per_page=100&page={page}" -CollectionProperty 'jobs' -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($fjPg.TimedOut) { throw "[CI-GATE-TIMEOUT] final jobs: $($fjPg.Reason)" }
+        if (-not $fjPg.Readable) { throw "[CI-GATE-API] final jobs: $($fjPg.Reason)" }
+        $fjState = Get-ExactCandidateJobState -Jobs @($fjPg.Items) -Wanted $ciJobExpected
+        if ($fjState.Drift) { throw "[CI-GATE-JOBS-DRIFT] final $($fjState.Reason)" }
+        if ($fjState.Blocking.Count -gt 0) { throw '[CI-GATE-RED] final jobs changed to a blocking state.' }
+        if ($fjState.Pending.Count -gt 0) { $last = 'final jobs pending'; Wait-CiRetryBeforeDeadline $ciDeadline; continue ciStable }
+
+        $finalPr = Invoke-GhBeforeDeadline -Arguments @('pr','view',"$pr",'--json','baseRefName,headRefOid') -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($finalPr.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr final base/head snapshot exceeded ${ciTimeoutSec}s." }
+        $finalBase = ''; $finalHead = ''
+        if ($finalPr.ExitCode -eq 0 -and $finalPr.Stdout) {
+          try {
+            $finalPrObject = $finalPr.Stdout | ConvertFrom-Json -ErrorAction Stop
+            $finalBase = "$($finalPrObject.baseRefName)".Trim()
+            $finalHead = "$($finalPrObject.headRefOid)".Trim()
+          } catch { }
+        }
+        if ($finalBase -cne $shipBase) { throw "[CI-GATE-BASE-MISMATCH] '$finalBase' != '$shipBase' (exit $($finalPr.ExitCode))." }
+        if ($finalHead -cnotmatch '^[0-9a-f]{40}$' -or $finalHead -cne $ciHead) { throw "[CI-GATE-HEAD-MOVED] $ciHead -> '$finalHead'." }
+
+        # Refresh the remote base immediately before readiness/merge, under the same absolute deadline, and
+        # compare its commit identity with the scope/reviewer base pinned before all gates.
+        $baseFetch = Invoke-ExternalBeforeDeadline -Command 'git' -Arguments @('-C',$Wt,'fetch','--quiet','--no-tags','origin',"+refs/heads/${remoteBaseName}:refs/remotes/origin/${remoteBaseName}") -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($baseFetch.TimedOut) { throw "[CI-GATE-TIMEOUT] git fetch origin/$remoteBaseName." }
+        if ($baseFetch.ExitCode -ne 0) { throw "[CI-GATE-BASE-REFRESH] origin/$remoteBaseName." }
+        $baseNow = Get-GitOidBeforeDeadline -Ref "refs/remotes/origin/$remoteBaseName" -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($baseNow -cnotmatch '^[0-9a-f]{40}$' -or $baseNow -cne $scopeBaseSha) {
+          Add-CatchRecord 'ci' "base:$scopeBaseSha->$baseNow"
+          throw "[CI-GATE-BASE-MOVED] $scopeBaseSha -> '$baseNow'."
+        }
+        break ciStable
+      }
+      Write-Host "  [CI-GATE-PASS] PR #$pr head=$ciHead workflow=$runId/$attempt required='$ScaffoldCiFanInJob' base=$scopeBaseSha" -ForegroundColor Green
       $sagaDone += (Complete-ShipLeg 'CI-gate')
 
       if (-not $NoAutoMerge) {
@@ -1711,8 +1849,9 @@ switch ($Phase) {
         # 不加 --delete-branch：在 worktree 内它会尝试 checkout base(main) 以删本地分支，
         # 而 main 被主工作树占用 → fatal "'main' is already used by worktree"（合并其实已成功）。
         # 远端分支由仓库 delete_branch_on_merge=true 自动删；本地分支由 cleanup 阶段删。
-        & gh pr merge $pr --squash --match-head-commit $ciHead
-        if ($LASTEXITCODE -ne 0) { throw "[SHIP-MERGE-FAIL] PR #$pr squash merge failed (exit $LASTEXITCODE). Check gh permissions/merge conflicts and retry (--match-head-commit mismatch = head moved again; rerun ship)." }
+        $mergeRun = Invoke-GhBeforeDeadline -Arguments @('pr','merge',"$pr",'--squash','--match-head-commit',$ciHead) -Deadline $ciDeadline -WorkingDirectory $Wt
+        if ($mergeRun.TimedOut) { throw "[CI-GATE-TIMEOUT] PR #$pr merge exceeded the shared ${ciTimeoutSec}s CI deadline." }
+        if ($mergeRun.ExitCode -ne 0) { throw "[SHIP-MERGE-FAIL] PR #$pr squash merge failed (exit $($mergeRun.ExitCode)). Check gh permissions/merge conflicts and retry (--match-head-commit mismatch = head moved again; rerun ship)." }
         # T24-MERGETOKEN 铸造（PR squash 合并成功事件）：内容记 PR 号 + 分支 tip（仅溯源），在位即凭据。
         $tokDir = "$(& git -C $RepoRoot rev-parse --git-common-dir 2>$null)".Trim()
         if (-not $tokDir) { throw "T24-MERGETOKEN：PR #$pr 已合并但无法解析 git-common-dir，合并凭据未铸造——cleanup 将走 gh 在线补验（或 -Force）。排查 git 环境。" }
