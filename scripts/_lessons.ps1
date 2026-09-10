@@ -166,6 +166,7 @@ function Get-ScaffoldEnforcedByShape {
     # the upstream decision forms used by imported ledgers: parenthesized, prose after a dash,
     # or a measured sentence. A bare none is never a decision.
     if (-not ($v -match '^none(?:[ \t]*（[^\r\n]+）|[ \t]*\([^\r\n]+\)|[ \t]+(?!TODO\b).+|[.-].+)$')) { return [pscustomobject]@{ Kind = 'malformed'; WellFormed = $false; Guarded = $false; Reason = "none has no usable reason" } }
+    if ($v -match '^none\s+(?:N/?A|TODO|TBD|FIXME|待补|未定|待议)(?:\s|$|[（(，,:])') { return [pscustomobject]@{ Kind = 'malformed'; WellFormed = $false; Guarded = $false; Reason = "none uses a placeholder instead of a reason" } }
     return [pscustomobject]@{ Kind = 'none'; WellFormed = $true; Guarded = $false; Reason = '' }
   }
   # A path: optional directory segments, then a filename carrying a known extension. Must be followed by
@@ -683,12 +684,7 @@ $ScaffoldDuplicateResidentId = '[LESSONS-DUPLICATE-RESIDENT-ID]'
 function Test-ScaffoldLessonEnforcedByWellFormed {
   [CmdletBinding()]
   param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)
-  $shape = Get-ScaffoldEnforcedByShape $EnforcedBy
-  if (-not $shape.WellFormed) { return $false }
-  # A blocking lesson may record `none（reason）`, but placeholders are not a reason: accepting them
-  # would make the check pass while its claimed future/manual enforcement remains absent.
-  if ($shape.Kind -eq 'none' -and ([string]$EnforcedBy).Trim() -match '^none\s+(?:N/?A|待补|未定)(?:\s|$)') { return $false }
-  return $true
+  return (Get-ScaffoldEnforcedByShape $EnforcedBy).WellFormed
 }
 
 function Get-ScaffoldMustLayerSection {

@@ -673,6 +673,12 @@ switch ($Command) {
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '没有闸1') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'none') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'none TODO') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none N/A') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none 待补') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none 未定') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none TBD') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none FIXME') -and
+                     -not (Test-ScaffoldLessonEnforcedByWellFormed 'none 待议') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'TODO（scripts/future.ps1）') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed 'N/A（scripts/future.ps1）') -and
                      -not (Test-ScaffoldLessonEnforcedByWellFormed '待补（scripts/future.ps1）') -and
