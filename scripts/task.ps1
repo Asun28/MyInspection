@@ -118,6 +118,383 @@ $Py = $ScaffoldConfig.PythonVersion
 
 function Step($m) { Write-Host "`n=== [$TaskId] $m ===" -ForegroundColor Cyan }
 
+function Initialize-CiContainment {
+  param([string]$Fault = '')
+  if (($Fault -ceq 'platform') -or (-not $IsWindows)) {
+    throw '[CI-GATE-CONTAINMENT] stage=platform：候选 CI 进程树容纳当前只支持 Windows；请在 Windows host 重跑 ship。'
+  }
+  try {
+    if ($Fault -ceq 'add-type') { Add-Type -TypeDefinition 'public class {' -ErrorAction Stop; return }
+    if ('ScaffoldContainedProcess' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+
+public sealed class ScaffoldProcessResult {
+  public bool TimedOut { get; set; }
+  public int ExitCode { get; set; }
+  public string Stdout { get; set; }
+  public string Stderr { get; set; }
+}
+
+public static class ScaffoldContainedProcess {
+  const uint CREATE_SUSPENDED = 0x00000004, CREATE_NO_WINDOW = 0x08000000, EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+  const uint STARTF_USESTDHANDLES = 0x00000100, HANDLE_FLAG_INHERIT = 0x00000001;
+  const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+  const uint WAIT_OBJECT_0 = 0;
+  const int PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002;
+  const uint GENERIC_READ = 0x80000000, FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2;
+  const uint OPEN_EXISTING = 3, FILE_ATTRIBUTE_NORMAL = 0x80;
+
+  [StructLayout(LayoutKind.Sequential)] struct SECURITY_ATTRIBUTES {
+    public int nLength; public IntPtr lpSecurityDescriptor;
+    [MarshalAs(UnmanagedType.Bool)] public bool bInheritHandle;
+  }
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct STARTUPINFO {
+    public int cb; public string lpReserved, lpDesktop, lpTitle;
+    public uint dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+    public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+  }
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct STARTUPINFOEX {
+    public STARTUPINFO StartupInfo; public IntPtr lpAttributeList;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct PROCESS_INFORMATION {
+    public IntPtr hProcess, hThread; public uint dwProcessId, dwThreadId;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct IO_COUNTERS {
+    public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+    public long PerProcessUserTimeLimit, PerJobUserTimeLimit; public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize; public uint ActiveProcessLimit;
+    public UIntPtr Affinity; public uint PriorityClass, SchedulingClass;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+    public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation; public IO_COUNTERS IoInfo;
+    public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+  }
+
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateJobObjectW(IntPtr a, string name);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job, int cls, IntPtr info, uint len);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job, uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SECURITY_ATTRIBUTES sa, uint size);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateFileW(string name, uint access, uint share, ref SECURITY_ATTRIBUTES sa, uint creation, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool CreateProcessW(string app, StringBuilder commandLine, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string cwd, ref STARTUPINFOEX si, out PROCESS_INFORMATION pi);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref IntPtr size);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returned);
+  [DllImport("kernel32.dll")] static extern void DeleteProcThreadAttributeList(IntPtr list);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint ResumeThread(IntPtr thread);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(IntPtr process, uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
+
+  static Exception Stage(string stage, string detail="fault injection") {
+    return new InvalidOperationException("[CI-GATE-CONTAINMENT] stage=" + stage + ": " + detail);
+  }
+  static bool IsFault(string fault, string stage) { return String.Equals(fault, stage, StringComparison.Ordinal); }
+  static int Left(DateTime deadline) {
+    double ms = (deadline - DateTime.UtcNow).TotalMilliseconds;
+    return ms <= 0 ? 0 : (ms >= Int32.MaxValue ? Int32.MaxValue : (int)Math.Floor(ms));
+  }
+  static bool WaitHandle(IntPtr handle, DateTime deadline) {
+    int ms = Left(deadline); return ms > 0 && WaitForSingleObject(handle, (uint)ms) == WAIT_OBJECT_0;
+  }
+  static bool WaitStreams(Task<string> stdout, Task<string> stderr, DateTime deadline) {
+    if (stdout.IsCompleted && stderr.IsCompleted) return true;
+    int ms = Left(deadline); if (ms <= 0) return false;
+    try { return Task.WaitAll(new Task[] { stdout, stderr }, ms); } catch { return false; }
+  }
+  static void Close(ref IntPtr h) { if (h != IntPtr.Zero && h != new IntPtr(-1)) CloseHandle(h); h = IntPtr.Zero; }
+
+  public static ScaffoldProcessResult Run(string application, string commandLine, string cwd, long deadlineTicks, int cleanupAllowanceMs, string fault) {
+    DateTime deadline = new DateTime(deadlineTicks, DateTimeKind.Utc);
+    DateTime cleanupDeadline = deadline.AddMilliseconds(cleanupAllowanceMs);
+    IntPtr job=IntPtr.Zero, outR=IntPtr.Zero, outW=IntPtr.Zero, errR=IntPtr.Zero, errW=IntPtr.Zero, nul=IntPtr.Zero;
+    IntPtr infoPtr=IntPtr.Zero, attrs=IntPtr.Zero, attrSize=IntPtr.Zero, handleList=IntPtr.Zero; bool attrsReady=false;
+    PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+    StreamReader outReader=null, errReader=null; Task<string> outTask=null, errTask=null;
+    bool created=false, resumed=false;
+    try {
+      job = CreateJobObjectW(IntPtr.Zero, null);
+      bool jobOk=job != IntPtr.Zero; if (IsFault(fault,"create-job")) jobOk=false;
+      if (!jobOk) throw Stage("create-job",IsFault(fault,"create-job")?"api-result":new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+      info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      int infoSize=Marshal.SizeOf(info); infoPtr=Marshal.AllocHGlobal(infoSize); Marshal.StructureToPtr(info,infoPtr,false);
+      bool configured=SetInformationJobObject(job,9,infoPtr,(uint)infoSize); if (IsFault(fault,"configure-job")) configured=false;
+      if (!configured) throw Stage("configure-job",IsFault(fault,"configure-job")?"api-result":new Win32Exception(Marshal.GetLastWin32Error()).Message);
+
+      SECURITY_ATTRIBUTES sa=new SECURITY_ATTRIBUTES { nLength=Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle=true };
+      if (!CreatePipe(out outR,out outW,ref sa,0) || !SetHandleInformation(outR,HANDLE_FLAG_INHERIT,0)) throw Stage("create-pipe",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      if (!CreatePipe(out errR,out errW,ref sa,0) || !SetHandleInformation(errR,HANDLE_FLAG_INHERIT,0)) throw Stage("create-pipe",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      nul=CreateFileW("NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,ref sa,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,IntPtr.Zero);
+      if (nul == new IntPtr(-1)) throw Stage("create-pipe",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      InitializeProcThreadAttributeList(IntPtr.Zero,1,0,ref attrSize);
+      if (attrSize == IntPtr.Zero) throw Stage("create-process",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      attrs=Marshal.AllocHGlobal(attrSize); if (!InitializeProcThreadAttributeList(attrs,1,0,ref attrSize)) throw Stage("create-process",new Win32Exception(Marshal.GetLastWin32Error()).Message); attrsReady=true;
+      handleList=Marshal.AllocHGlobal(IntPtr.Size*3); Marshal.WriteIntPtr(handleList,0,nul); Marshal.WriteIntPtr(handleList,IntPtr.Size,outW); Marshal.WriteIntPtr(handleList,IntPtr.Size*2,errW);
+      if (!UpdateProcThreadAttribute(attrs,0,new IntPtr(PROC_THREAD_ATTRIBUTE_HANDLE_LIST),handleList,new IntPtr(IntPtr.Size*3),IntPtr.Zero,IntPtr.Zero)) throw Stage("create-process",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      STARTUPINFOEX si=new STARTUPINFOEX(); si.StartupInfo=new STARTUPINFO { cb=Marshal.SizeOf(typeof(STARTUPINFOEX)), dwFlags=STARTF_USESTDHANDLES, hStdInput=nul, hStdOutput=outW, hStdError=errW }; si.lpAttributeList=attrs;
+      if (Left(deadline) <= 0) return new ScaffoldProcessResult { TimedOut=true, ExitCode=124, Stdout="", Stderr="" };
+      bool processOk=CreateProcessW(application,new StringBuilder(commandLine),IntPtr.Zero,IntPtr.Zero,true,CREATE_SUSPENDED|CREATE_NO_WINDOW|EXTENDED_STARTUPINFO_PRESENT,IntPtr.Zero,cwd,ref si,out pi);
+      created=processOk; if (IsFault(fault,"create-process")) processOk=false;
+      if (!processOk) throw Stage("create-process",IsFault(fault,"create-process")?"api-result pid="+pi.dwProcessId:new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      Close(ref outW); Close(ref errW); Close(ref nul);
+      bool assigned=!IsFault(fault,"assign") && AssignProcessToJobObject(job,pi.hProcess);
+      if (!assigned) throw Stage("assign",IsFault(fault,"assign")?"api-result pid="+pi.dwProcessId:new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      outReader=new StreamReader(new FileStream(new SafeFileHandle(outR,true),FileAccess.Read,4096,false),Encoding.UTF8,true); outR=IntPtr.Zero;
+      errReader=new StreamReader(new FileStream(new SafeFileHandle(errR,true),FileAccess.Read,4096,false),Encoding.UTF8,true); errR=IntPtr.Zero;
+      outTask=outReader.ReadToEndAsync(); errTask=errReader.ReadToEndAsync();
+      if (IsFault(fault,"expire-before-resume")) System.Threading.Thread.Sleep(Math.Max(1,Left(deadline)+20));
+      if (Left(deadline) <= 0) {
+        string e=""; if (!TerminateJobObject(job,124)) e=new Win32Exception(Marshal.GetLastWin32Error()).Message;
+        bool root=WaitHandle(pi.hProcess,cleanupDeadline), streams=WaitStreams(outTask,errTask,cleanupDeadline);
+        if (!String.IsNullOrEmpty(e)) throw Stage("terminate-job",e+" pid="+pi.dwProcessId);
+        if (!root || !streams) throw Stage("cleanup","pre-resume timeout cleanup pid="+pi.dwProcessId);
+        created=false;
+        return new ScaffoldProcessResult { TimedOut=true, ExitCode=124, Stdout="", Stderr="" };
+      }
+      uint resumedCount=IsFault(fault,"resume")?UInt32.MaxValue:ResumeThread(pi.hThread);
+      if (resumedCount == UInt32.MaxValue) throw Stage("resume",IsFault(fault,"resume")?"api-result pid="+pi.dwProcessId:new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      resumed=true; Close(ref pi.hThread);
+
+      bool rootExited=WaitHandle(pi.hProcess,deadline);
+      bool streamsDone=rootExited && WaitStreams(outTask,errTask,deadline);
+      bool timedOut=!rootExited || !streamsDone;
+      string terminateError="";
+      if (timedOut) {
+        if (IsFault(fault,"terminate-job")) terminateError="api-result pid="+pi.dwProcessId;
+        else if (!TerminateJobObject(job,124)) terminateError=new Win32Exception(Marshal.GetLastWin32Error()).Message;
+        WaitHandle(pi.hProcess,cleanupDeadline);
+        streamsDone=WaitStreams(outTask,errTask,cleanupDeadline);
+        if (!String.IsNullOrEmpty(terminateError)) throw Stage("terminate-job",terminateError);
+        if (!streamsDone) throw Stage("cleanup","stdout/stderr did not close before the shared cleanup deadline");
+      }
+      uint ec=124; if (!timedOut && !GetExitCodeProcess(pi.hProcess,out ec)) throw Stage("exit-code",new Win32Exception(Marshal.GetLastWin32Error()).Message);
+      return new ScaffoldProcessResult { TimedOut=timedOut, ExitCode=timedOut?124:(int)ec,
+        Stdout=outTask != null && outTask.Status==TaskStatus.RanToCompletion ? outTask.Result : "",
+        Stderr=errTask != null && errTask.Status==TaskStatus.RanToCompletion ? errTask.Result : "" };
+    } finally {
+      string cleanupError="";
+      if (created && !resumed) {
+        if (!TerminateProcess(pi.hProcess,125)) cleanupError=new Win32Exception(Marshal.GetLastWin32Error()).Message;
+        else if (!WaitHandle(pi.hProcess,cleanupDeadline)) cleanupError="suspended root did not exit before cleanup deadline";
+      }
+      if (outReader != null) outReader.Dispose(); if (errReader != null) errReader.Dispose();
+      Close(ref outR); Close(ref outW); Close(ref errR); Close(ref errW); Close(ref nul);
+      Close(ref pi.hThread); Close(ref pi.hProcess); Close(ref job);
+      if (infoPtr != IntPtr.Zero) Marshal.FreeHGlobal(infoPtr);
+      if (attrsReady) DeleteProcThreadAttributeList(attrs); if (attrs != IntPtr.Zero) Marshal.FreeHGlobal(attrs); if (handleList != IntPtr.Zero) Marshal.FreeHGlobal(handleList);
+      if (!String.IsNullOrEmpty(cleanupError)) throw Stage("cleanup",cleanupError+" pid="+pi.dwProcessId);
+    }
+  }
+}
+'@ -ErrorAction Stop
+  } catch {
+    $detail = $_.Exception.Message
+    throw "[CI-GATE-CONTAINMENT] stage=add-type：$detail"
+  }
+}
+
+function Invoke-ExternalBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$Command,
+    [Parameter(Mandatory)][string[]]$Arguments,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  $fault = "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"
+  Initialize-CiContainment -Fault $fault
+  $remainingMs = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
+  if ($remainingMs -le 0) { return [pscustomobject]@{ TimedOut = $true; ExitCode = 124; Stdout = ''; Stderr = '' } }
+  $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(([ordered]@{ Command=$Command; Arguments=@($Arguments) } | ConvertTo-Json -Compress)))
+  $child = @'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__PAYLOAD__'))
+$o=$p|ConvertFrom-Json; $a=@($o.Arguments); & "$($o.Command)" @a; exit $LASTEXITCODE
+'@.Replace('__PAYLOAD__',$payload)
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+  $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+  $line = '"' + $pwsh + '" -NoProfile -NonInteractive -EncodedCommand ' + $encoded
+  try {
+    return [ScaffoldContainedProcess]::Run($pwsh,$line,$WorkingDirectory,$Deadline.UtcDateTime.Ticks,2000,$fault)
+  } catch {
+    $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }
+    if ($e.Message -match '^\[CI-GATE-CONTAINMENT\]') { throw $e.Message }
+    throw "[CI-GATE-CONTAINMENT] stage=runner：$($e.Message)"
+  }
+}
+function Invoke-GhBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string[]]$Arguments,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  return (Invoke-ExternalBeforeDeadline -Command 'gh' -Arguments $Arguments -Deadline $Deadline -WorkingDirectory $WorkingDirectory)
+}
+function Get-GitOidBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$Ref,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  $r = Invoke-ExternalBeforeDeadline -Command 'git' -Arguments @('-C',$WorkingDirectory,'rev-parse',$Ref) -Deadline $Deadline -WorkingDirectory $WorkingDirectory
+  if ($r.TimedOut) { throw "[CI-GATE-TIMEOUT] git rev-parse $Ref。" }
+  if ($r.ExitCode -ne 0) { return '' }
+  return "$($r.Stdout)".Trim()
+}
+function Wait-CiRetryBeforeDeadline([DateTimeOffset]$Deadline) {
+  $sleepMs = [int][Math]::Min(1000, [Math]::Max(0, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)))
+  if ($sleepMs -gt 0) { Start-Sleep -Milliseconds $sleepMs }
+}
+# 「这是不是一个 JSON 整数」只能按 **CLR 类型** 判，不能按「能不能转成 long」判：
+# ConvertFrom-Json 把 JSON 整数字面量映射成 Int64、小数映射成 Double、超出 Int64 的整数映射成 BigInteger、
+# 带引号的映射成 String（本仓 PS 7.6 实测）。而 [long]'11' 与 [long]11.0 都会成功——那两种形态正是要拒的，
+# 用 TryParse/强转做判据等于放行它们。列表只收能**无损**落进 Int64 的整数类型；UInt64 刻意不在列
+# （它超出 Int64 时无法无损承载，而 total_count 与 id 去重集都以 Int64 承载，放它进来会把一次拒绝
+# 变成一次强转溢出异常）。
+function Test-JsonInteger($Value) {
+  return ($Value -is [byte]) -or ($Value -is [sbyte]) -or ($Value -is [int16]) -or ($Value -is [uint16]) -or
+    ($Value -is [int32]) -or ($Value -is [uint32]) -or ($Value -is [int64])
+}
+# 分页读取的身份契约（T0-CI-PAGED-CONTRACT）：check-runs / workflow-runs / jobs 三个 endpoint 共用本函数，
+# 故契约在此一次收口、三处同时生效。
+# 为什么 id 是必需的而非可选的：条目没有稳定身份时，一页被重放（或与下一页重叠）会把同一个绿 run 计成两条、
+# 凑满 total_count 提前满足终止条件，从而**掩盖一个从未被读到的红 run 并走到 merge**。
+# `$items.Count -eq $total` 只证明数量对得上，不证明读到的是 N 个**不同**的 run。真实 GitHub API 的这三个
+# endpoint 都返回正整数 id，故「要求 id」是向真实形态收紧、不是新增假设。
+function Get-GhPagedCollectionBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$EndpointTemplate,
+    [Parameter(Mandatory)][string]$CollectionProperty,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  # $seen 跨页存活（声明在页循环之外）——跨页重放正是它要拦的形态，每页新建一个集合等于没有去重。
+  $items = @(); $total = -1L; $seen = [Collections.Generic.HashSet[long]]::new()
+  for ($page = 1; $page -le 100; $page++) {
+    $endpoint = $EndpointTemplate.Replace('{page}', "$page")
+    $api = Invoke-GhBeforeDeadline -Arguments @('api', $endpoint) -Deadline $Deadline -WorkingDirectory $WorkingDirectory
+    if ($api.TimedOut) { return [pscustomobject]@{ Readable = $false; TimedOut = $true; Items = @(); Reason = "$CollectionProperty timeout/$page" } }
+    try {
+      if (($api.ExitCode -ne 0) -or [string]::IsNullOrWhiteSpace($api.Stdout)) { throw "gh api exit $($api.ExitCode) 或空输出" }
+      $response = $api.Stdout | ConvertFrom-Json -ErrorAction Stop; $propertyNames = @($response.PSObject.Properties.Name)
+      if (($propertyNames -cnotcontains 'total_count') -or ($null -eq $response.total_count)) { throw 'total_count 缺失/null' }
+      if (($propertyNames -cnotcontains $CollectionProperty) -or ($null -eq $response.$CollectionProperty)) { throw "$CollectionProperty 缺失/null" }
+      $totalRaw = $response.total_count
+      if (-not (Test-JsonInteger $totalRaw)) { throw 'total_count 非 JSON integer' }
+      $pageTotal = [long]$totalRaw
+      if ($pageTotal -lt 0) { throw 'total_count 非负整数契约失败' }
+      $collectionRaw = $response.$CollectionProperty
+      if ($collectionRaw -isnot [System.Array]) { throw "$CollectionProperty 必须是 JSON array，不能是 scalar/object" }
+      $pageItems = @($collectionRaw)
+    } catch { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page/$($api.ExitCode):$($_.Exception.Message)" } }
+    if ($total -lt 0) { $total = $pageTotal }
+    elseif ($total -ne $pageTotal) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty total $total->$pageTotal" } }
+    # 身份校验必须在 `$items +=` **之前**：不合格/重复的条目一律不得进入累积，否则它已经把 total 凑近一格，
+    # 后面无论怎么判都晚了。三个出口的 Reason 各自可辨（非对象 / id 非正整数 / id 重复），夹具才能证明
+    # 命中的是去重出口，而不是更早的 total 漂移或 count>total（hygiene 要求）。
+    foreach ($item in $pageItems) {
+      if ($item -isnot [pscustomobject]) {
+        return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page item-not-object" }
+      }
+      if ((@($item.PSObject.Properties.Name) -cnotcontains 'id') -or (-not (Test-JsonInteger $item.id)) -or ([long]$item.id -le 0)) {
+        return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page id-not-positive-integer" }
+      }
+      if (-not $seen.Add([long]$item.id)) {
+        return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty p$page id-duplicate:$($item.id)" }
+      }
+    }
+    $items += $pageItems
+    if ($items.Count -gt $total) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty count $($items.Count)>$total" } }
+    if ($items.Count -eq $total) { return [pscustomobject]@{ Readable = $true; TimedOut = $false; Items = @($items); Reason = '' } }
+    if ($pageItems.Count -eq 0) { return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty empty:$($items.Count)/$total" } }
+  }
+  return [pscustomobject]@{ Readable = $false; TimedOut = $false; Items = @(); Reason = "$CollectionProperty >100" }
+}
+function Get-ExactHeadChecksBeforeDeadline {
+  param(
+    [Parameter(Mandatory)][string]$Head,
+    [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+    [Parameter(Mandatory)][string]$WorkingDirectory
+  )
+  $pages = Get-GhPagedCollectionBeforeDeadline `
+    -EndpointTemplate "repos/{owner}/{repo}/commits/$Head/check-runs?per_page=100&page={page}" `
+    -CollectionProperty 'check_runs' -Deadline $Deadline -WorkingDirectory $WorkingDirectory
+  if (-not $pages.Readable) { return [pscustomobject]@{ Readable = $false; TimedOut = $pages.TimedOut; Runs = @(); Blocking = @(); Reason = $pages.Reason } }
+  $runs = @($pages.Items)
+  $blocking = @($runs | Where-Object {
+    ("$($_.status)" -ieq 'completed') -and
+    ("$($_.conclusion)" -in @('failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale'))
+  })
+  return [pscustomobject]@{ Readable = $true; TimedOut = $false; Runs = $runs; Blocking = $blocking; Reason = '' }
+}
+
+# 候选 run 与本 PR 的关联判定（T0-CI-IDENTITY-DEADLINE）。返回恰好匹配的条目数，调用方要求 == 1。
+# 不能写成 `$prs | ? { "$($_.number)" -ceq "$pr" }`：PS 的**属性访问本身**大小写不敏感，只带 `Number` 的条目
+# 照样被读成 `number` 而过闸——载荷形状与校验过的那份并不相同，「该 run 属于该 PR」这条证据遂失效（原卡实测
+# 踩中）。故属性名走 `-ccontains`，值走 `Test-JsonInteger`（"218" 与 218.0 都不是 JSON 整数，不得靠强转洗白）。
+function Get-CandidateRunPrMatchCount {
+  param([AllowNull()]$PullRequests, [Parameter(Mandatory)][int]$Pr)
+  if ($PullRequests -isnot [System.Array]) { return 0 }
+  return @($PullRequests | Where-Object {
+    ($_ -is [pscustomobject]) -and (@($_.PSObject.Properties.Name) -ccontains 'number') -and
+    (Test-JsonInteger $_.number) -and ([long]$_.number -ceq [long]$Pr)
+  }).Count
+}
+
+function Get-ExactCandidateJobState {
+  param([AllowNull()][object[]]$Jobs, [AllowNull()][object[]]$Wanted)
+  $drift = { param([string]$Reason) [pscustomobject]@{ Drift = $true; Reason = $Reason; Blocking = @(); Pending = @() } }
+  $expected = @($Wanted)
+  if ($expected.Count -eq 0 -or @($expected | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+    return (& $drift 'invalid declared job set')
+  }
+  $items = @($Jobs); $names = @()
+  foreach ($job in $items) {
+    if ($job -isnot [pscustomobject]) { return (& $drift 'job item must be object') }
+    $props = @($job.PSObject.Properties.Name)
+    if (@(@('name', 'status', 'conclusion') | Where-Object { $props -cnotcontains $_ }).Count -gt 0 -or
+        $job.name -isnot [string] -or $job.status -isnot [string] -or
+        (($null -ne $job.conclusion) -and ($job.conclusion -isnot [string])) -or
+        [string]::IsNullOrWhiteSpace($job.name)) {
+      return (& $drift 'job item shape/name')
+    }
+    $names += $job.name
+  }
+  $actual = @($names | Sort-Object -CaseSensitive)
+  $expected = @($expected | Sort-Object -CaseSensitive)
+  if (($actual.Count -ne $expected.Count) -or (Compare-Object $actual $expected -CaseSensitive)) {
+    return (& $drift "expected=$($expected -join ','); actual=$($actual -join ',')")
+  }
+  $blocking = @(); $pending = @()
+  foreach ($job in $items) {
+    $status = $job.status; $conclusion = $job.conclusion
+    if (@('queued', 'in_progress', 'pending', 'requested', 'waiting', 'completed') -cnotcontains $status) {
+      return (& $drift "job '$($job.name)' status '$status'")
+    }
+    if ($status -ceq 'completed') {
+      if ($conclusion -ceq 'success') { continue }
+      if ([string]::IsNullOrWhiteSpace($conclusion)) { return (& $drift "job '$($job.name)' completed without conclusion") }
+      $blocking += $job
+    } elseif (-not [string]::IsNullOrWhiteSpace($conclusion) -and $conclusion -cne 'success') {
+      $blocking += $job
+    } else {
+      $pending += $job
+    }
+  }
+  return [pscustomobject]@{ Drift = $false; Reason = ''; Blocking = $blocking; Pending = $pending }
+}
+
 # TD45：卡片解析共享自 _cards.ps1（front-matter-only 提取 + 大小写敏感取值 + 注释剥离）。
 # 旧 Get-CardField 曾整文件 `Select-String`（大小写不敏感、正文/前置元数据不分），与 check-cards 的契约脱节：
 # (a) 卡片正文里一行形似 `dod_command: ...` 的文档示例会被当真；(b) `DOD_COMMAND:`（大小写错）仍被找到；
