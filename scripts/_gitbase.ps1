@@ -37,3 +37,76 @@ function Resolve-ScaffoldBaseRef {
   }
   return ''
 }
+
+# -- T112-CORE-SELFCHECK-SCOPE (TD140 / ADR 0011): the declared self-check for base-ref resolution --
+# Resolve-ScaffoldBaseRef decides which ref the diff is taken against, which decides what the scope gate
+# and the second-model review even SEE. TD68 is what happens when it is wrong in the quiet direction: a
+# local branch behind the remote makes base commits look like this card's changes; ahead, and this card's
+# changes are hidden. F2/TD84 is what happens in the adversarial direction: a short `origin/<name>` is
+# resolved by gitrevisions through `refs/heads/origin/<name>` first, so one `git update-ref` inside a
+# reviewed branch shadow-hijacks the baseline. Both are why the candidates are fully qualified and why
+# each is VERIFIED before it is returned.
+# The rejected shape:
+#   first-candidate-wins - return the first candidate without asking git whether it resolves. It looks
+#                          right on a repo that has every ref and is wrong on every repo that does not:
+#                          a T0 project with no remote gets handed refs/remotes/origin/master, and a
+#                          misspelled base silently resolves instead of returning '' for the caller to
+#                          fail closed on.
+# NOT hermetic, and deliberately not pretending to be: the function asks git, so the examples build a
+# throwaway repo and create refs in it - the same thing selftest 14f already does for its own fixtures.
+function Test-ScaffoldBaseRefVia($GitDir, $BaseName, $PreferLocal, $Variant) {
+  if ($Variant -eq 'first-candidate-wins') {
+    $cands =
+      if ($BaseName -match '^origin/') { @("refs/remotes/origin/$($BaseName -replace '^origin/', '')") }
+      elseif ($PreferLocal) { @("refs/heads/$BaseName", "refs/remotes/origin/$BaseName") }
+      else { @("refs/remotes/origin/$BaseName", "refs/heads/$BaseName") }
+    return $cands[0]
+  }
+  if ($PreferLocal) { return (Resolve-ScaffoldBaseRef -GitDir $GitDir -BaseName $BaseName -PreferLocal) }
+  return (Resolve-ScaffoldBaseRef -GitDir $GitDir -BaseName $BaseName)
+}
+
+# Declared examples for base-ref resolution. Returns findings as strings and never throws; the temp repo is
+# removed in a finally, and a git that cannot init leaves a finding rather than an exception.
+function Test-ScaffoldBaseRefExamples {
+  [CmdletBinding()]
+  param([ValidateSet('first-candidate-wins')][string]$Variant)
+  $useVariant = $PSBoundParameters.ContainsKey('Variant')
+  $v = if ($useVariant) { $Variant } else { $null }
+  $findings = @()
+  $repo = Join-Path ([System.IO.Path]::GetTempPath()) ("scaffold-baseref-" + [System.Diagnostics.Process]::GetCurrentProcess().Id + "-" + $PSCmdlet.MyInvocation.PipelineLength)
+  if (Test-Path $repo) { Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue }
+  New-Item -ItemType Directory -Force $repo | Out-Null
+  try {
+    & git -C $repo init -q --initial-branch=master 1>$null 2>$null
+    & git -C $repo -c user.email='t@t.t' -c user.name='t' commit -q --allow-empty -m base 1>$null 2>$null
+    & git -C $repo rev-parse --verify --quiet 'refs/heads/master^{commit}' 1>$null 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      return @('[BASEREF-EXAMPLE] the throwaway repo could not be built (git init/commit failed), so nothing was measured - a fixture defect wearing a probe defect''s failure text. [FIX] check that git is on PATH.')
+    }
+    # Phase 1: LOCAL ONLY. No remote-tracking ref exists yet.
+    $localOnly = @(
+      @{ what = 'local only, default preference - falls back to the local ref rather than returning nothing'; base = 'master'; local = $false; expect = 'refs/heads/master' }
+      @{ what = 'local only, -PreferLocal - takes the local ref'; base = 'master'; local = $true; expect = 'refs/heads/master' }
+      @{ what = 'local only, an explicit origin/ base has ONE candidate and it does not exist - returns empty so the caller fail-closes'; base = 'origin/master'; local = $false; expect = '' }
+      @{ what = 'a base name that exists nowhere returns empty'; base = 'no-such-base'; local = $false; expect = '' }
+    )
+    foreach ($c in $localOnly) {
+      $got = Test-ScaffoldBaseRefVia $repo $c.base $c.local $v
+      if ($got -ne $c.expect) { $findings += "[BASEREF-EXAMPLE] case '$($c.what)' resolved to '$got', expected '$($c.expect)'. The base ref decides what the scope gate and the review even see (TD68/TD84). [FIX] fix Resolve-ScaffoldBaseRef, never the example." }
+    }
+    # Phase 2: add the remote-tracking ref, so both candidates exist and PREFERENCE is what decides.
+    & git -C $repo update-ref refs/remotes/origin/master HEAD 1>$null 2>$null
+    $bothRefs = @(
+      @{ what = 'both refs exist, default preference - the remote-tracking ref wins, because a remote ship merges into origin/<name> (TD68)'; base = 'master'; local = $false; expect = 'refs/remotes/origin/master' }
+      @{ what = 'both refs exist, -PreferLocal - the local ref wins, because a -Local ship merges into the local branch'; base = 'master'; local = $true; expect = 'refs/heads/master' }
+      @{ what = 'an explicit origin/ base resolves to the fully qualified remote ref, never a same-named local head (F2/TD84)'; base = 'origin/master'; local = $false; expect = 'refs/remotes/origin/master' }
+    )
+    foreach ($c in $bothRefs) {
+      $got = Test-ScaffoldBaseRefVia $repo $c.base $c.local $v
+      if ($got -ne $c.expect) { $findings += "[BASEREF-EXAMPLE] case '$($c.what)' resolved to '$got', expected '$($c.expect)'. [FIX] fix Resolve-ScaffoldBaseRef, never the example." }
+    }
+  }
+  finally { Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue }
+  return $findings
+}

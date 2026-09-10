@@ -11,6 +11,10 @@ export const meta = {
 
 // ── 路径全部经 args 参数化；换项目只改 args（或编辑下方相对默认值）──
 const A = args || {}
+// T152：漏斗产物目录的真相源是 scripts/_config.ps1 的 PlanDir（accessor: Get-ScaffoldPlanDir，留空 => '_local'）。
+// 工作流脚本**没有文件系统访问**（Workflow 运行时契约），读不了 _config，故耦合走 args：调用方传
+//   planPath = "$(Get-ScaffoldPlanDir)/PLAN.md"。下面的字面量只是 PlanDir 留空时的**同值默认**，
+//   不是第二真相源——改了 PlanDir 而不传 args，拿到的就还是旧位置。
 const BRIEF = A.briefPath || (A.idea ? '' : '_local/1-brief.md')  // TD53：给了 idea 无 briefPath 时留空、交给下方 SOURCE 走 idea 分支；两者都没给才退常规默认路径
 const IDEA = A.idea || ''                                     // 无 brief 时的一句话兜底
 const CLAUDEMD = A.claudeMdPath || 'CLAUDE.md'               // 硬边界/不变量/许可硬规则
@@ -91,7 +95,7 @@ const SYNTH_SCHEMA = {
       },
     },
     decision_log: { type: 'array', items: { type: 'string' } }, // 为什么选 X 不选 Y, 逐条
-    adr_markdown: { type: 'string' },                        // 可直接落 docs/adr/NNNN-*.md (背景/决策/备选方案/后果)
+    adr_markdown: { type: 'string' },                        // 可直接落 docs/adr/NNNN-*.md (标题 + 状态行 `- Status: Accepted` + 背景/决策/备选方案/后果)
   },
   required: ['recommendation', 'rationale', 'matrix', 'adr_markdown'],
 }
@@ -180,7 +184,7 @@ const synth = await agent(
     '通过核验的候选:\n' + JSON.stringify(kept, null, 1) + '\n\n被淘汰的(附理由, 供决策日志引用):\n' + JSON.stringify(dropped, null, 1) + '\n\n' +
     '产出: recommendation(选哪个做 base, 或判定 build-from-scratch) + rationale + runner_up + ' +
     'matrix(每候选 name/license/fit/effort/risk/decision) + decision_log(为什么选 X 不选 Y, 逐条) + ' +
-    'adr_markdown(可直接落 docs/adr/NNNN-kebab.md 的 ADR: 标题 + 背景 / 决策 / 备选方案 / 后果 四节, 中文)。\n' +
+    'adr_markdown(可直接落 docs/adr/NNNN-kebab.md 的 ADR: 标题 + 紧接标题的状态行 `- Status: Accepted`(逐字此格式, 值取 Accepted/Proposed/Superseded/Rejected; selftest 闸 14h 机检, 缺了这行草案落库即红) + 背景 / 决策 / 备选方案 / 后果 四节, 中文)。\n' +
     '红线: 推荐项的许可必须过本仓硬规则; 若所有候选都不过或都不贴合, 就明确推荐 build-from-scratch 并说清原因。',
   { phase: 'Synthesize', schema: SYNTH_SCHEMA }
 )

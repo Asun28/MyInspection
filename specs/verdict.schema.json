@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.local/specs/verdict.schema.json",
   "title": "Codex Review Verdict",
-  "description": "R3 评审闸门机读裁决。scripts/review.ps1 产出，task.ps1 据此放行/阻断。",
+  "description": "R3 review verdict, machine-readable. PRODUCER-SIDE CONTRACT ONLY (TD114): it describes what scripts/review.ps1 writes and what task.ps1 normalises. The consumer deliberately enforces just one field of it - `verdict` must be a case-sensitive string in {pass, block} - because that is the single field deciding pass or block, and it is pinned against six hostile shapes by selftest gate 17s. The remaining constraints here (reasons as a string array, both required fields present, additionalProperties false, sha/branch as strings, run_status within its enum) are NOT enforced at parse time: a violator can at worst garble the reason display, never widen what is approved. Do not read this file as a two-way contract.",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "reasons"],
@@ -17,7 +17,43 @@
       "items": { "type": "string" },
       "description": "block 时的阻断理由；pass 时为空数组"
     },
+    "axes": {
+      "type": "object",
+      "description": "T277 (ADR 0016 item 4). The two questions a review answers, held apart and NEVER merged or reranked: `spec` - does the diff do what the card closed - and `standards` - is the code sound. Which rubric dimension belongs to which axis is stated once, on the dimension itself in docs/QUALITY-RUBRIC.md (`axis: spec` / `axis: standards`); this file holds no second copy of that mapping. Why they are split: across 39 stored verdicts dimension 6 alone was 20 of 34 findings and 17 of those hit code that already had a passing test, so one axis was masking the other in a single reranked list. OPTIONAL, and PRODUCER-SIDE like everything else here. The top-level `verdict` is the worst of THREE readings - the two axes and whatever the reviewer wrote at the top level - so this additive field can never make a verdict more permissive than the one it annotates; `reasons` is both axis lists behind an `[spec]` / `[standards]` prefix, falling back to the reviewer's top-level list when the axes carry none, so every existing consumer reads exactly what it read before and the enforced enum does not move (TD114, gate 17s). A verdict written before this field existed - or by a ReviewCommand backend that never learned it - is normalised by review.ps1 into both axes carrying the top-level verdict, the conservative direction: an unsplit block is a block on both questions, never a free pass on the one that can stop a ship. ABSENT on every harness-authored fail-closed block (reviewer timeout, unreadable or malformed output): those are not judgements about the diff, their class is `run_status`, and scripts/task.ps1 reads the absence as 'no spec block' so an outage can never be read as a statement about the change.",
+      "properties": {
+        "spec": {
+          "type": "object",
+          "description": "Does the diff do what the card closed? A `block` here, and only on a Tier-S card (ADR 0016 item 1), stops the ship - scripts/task.ps1 refuses with `[R3-SPEC-BLOCK]`.",
+          "properties": {
+            "verdict": { "type": "string", "enum": ["pass", "block"], "description": "same case-sensitive enum as the top-level field; the enum is not widened" },
+            "reasons": { "type": "array", "items": { "type": "string" }, "description": "this axis's findings, unprefixed; the prefix is added when they are folded into the top-level list" }
+          }
+        },
+        "standards": {
+          "type": "object",
+          "description": "Is the code sound? ADVISORY at every tier, by decision and not by omission: a standards finding is a second opinion, never a merge bar (T68).",
+          "properties": {
+            "verdict": { "type": "string", "enum": ["pass", "block"], "description": "same case-sensitive enum as the top-level field; the enum is not widened" },
+            "reasons": { "type": "array", "items": { "type": "string" }, "description": "this axis's findings, unprefixed; the prefix is added when they are folded into the top-level list" }
+          }
+        }
+      }
+    },
     "sha": { "type": "string", "description": "被审提交（task.ps1 规范化时写入）" },
-    "branch": { "type": "string", "description": "被审分支" }
+    "branch": { "type": "string", "description": "被审分支" },
+    "run_status": {
+      "type": "string",
+      "enum": ["success", "timeout", "no_output", "malformed", "tool_error"],
+      "description": "T188 [R3-RUN-STATUS] (TD181). HOW THE RUN ENDED - a different question from what it decided. `verdict` answers 'may this merge?'; this answers 'did a review actually happen, and if not, why not?'. Before it existed, a reviewer timeout, a missing codex CLI, an unresolvable baseline, a failed diff, a missing rubric and a hostile verdict body all surfaced with exactly the shape of a genuine quality block - fail-closed on all of them is CORRECT and is unchanged, but the CLASS was lost, and the class is what decides the next move: fix the diff, or retry the reviewer. It also let an infrastructure failure be counted as a quality round by the round-indexed corpus. PRODUCER-SIDE like everything else in this file, on the routed_skip precedent directly above: no consumer reads it, and `verdict` deliberately stays inside {pass, block} rather than gaining a sixth-way split, because that enum is the single field the consumer enforces and selftest gate 17s pins it against six hostile shapes. Values: success = a verdict was read cleanly (for a block just as for a pass, and for a routed skip); timeout = the reviewer exceeded its wall-clock budget and its process tree was killed (a quota-exhausted reviewer also lands here - nothing in review.ps1 can tell the two apart, which is why there is no separate quota value); no_output = no fresh verdict for this run (nothing written, empty, whitespace-only, or a well-formed verdict carrying an earlier sha); malformed = output that violates the verdict contract (prose instead of JSON, unparseable, missing/non-string/out-of-enum verdict); tool_error = the harness or environment could not run or complete a review (baseline unresolvable, no merge base, diff failed, codex absent, rubric missing, verdict path unreadable, or a reviewer process that exited non-zero)."
+    },
+    "routed_skip": {
+      "type": "object",
+      "description": "T104 [REVIEW-ROUTE-SKIP]. Present ONLY when scripts/review.ps1 routed around the review instead of running one, because the diff earned a content-derived skip under ReviewSkipWhen. Its PRESENCE is what distinguishes a routed skip from a review that ran and passed: `verdict` deliberately stays inside {pass, block} rather than gaining a third value, because that enum is the single field the consumer enforces and selftest gate 17s pins it against six hostile shapes - widening it would put every consumer at risk to describe a case none of them decide on. Producer-side like everything else in this file: the consumer does not read this object, and a skip is never caller-requestable (-SkipReview stays exit 1, non-approving).",
+      "properties": {
+        "predicate": { "type": "string", "description": "the _config.ps1 field that decided the skip" },
+        "reason": { "type": "string", "description": "why this diff matched, in the predicate's own words" },
+        "changed_paths": { "type": "array", "items": { "type": "string" }, "description": "the paths the decision was taken over" }
+      }
+    }
   }
 }

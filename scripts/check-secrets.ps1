@@ -235,11 +235,12 @@ $ContentSecretPatterns = [ordered]@{
 $PlaceholderRe = '(?i)(\{\{|\$\{|<[^>]+>|x{3,}|your[-_ ]|example|changeme|placeholder|dummy|sample|todo|fixme|redacted|\*{3,}|\.\.\.)'
 
 # 单行密钥判定（工作树扫描与历史扫描共用）：命中返回模式名，否则 $null。
-function Find-LineSecret([string]$line) {
-  if ($line -match '(?i)allowlist secret') { return $null }      # 逐行逃生舱
+function Find-LineSecret([string]$line, [switch]$PublicOutput) {
+  # Public issue text is untrusted: it must not carry source-fixture escapes.
+  if (-not $PublicOutput -and $line -match '(?i)allowlist secret') { return $null }
   foreach ($name in $ContentSecretPatterns.Keys) {
     if ($line -match $ContentSecretPatterns[$name]) {
-      if ($name -eq 'Generic Secret Assignment' -and $line -match $PlaceholderRe) { continue }
+      if (-not $PublicOutput -and $name -eq 'Generic Secret Assignment' -and $line -match $PlaceholderRe) { continue }
       return $name
     }
   }
@@ -248,13 +249,13 @@ function Find-LineSecret([string]$line) {
 
 # ── 库模式：函数/模式集已定义，就此返回——不执行扫描、不触达 git、不 exit（TD18）──
 if ($AsLibrary) { return }
-. (Join-Path $PSScriptRoot '_unicode.ps1')
+. (Join-Path $PSScriptRoot '_unicode.ps1') # Required by the fail-closed tracked-sensitive allowlist scalar validator.
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出（git 路径解码）+ 原生非零按码判（非 git 优雅 exit 0）；库模式早返回后才 dot-source，缺失即 fail-open（TD54/TD-117）
 
 # ── 非 git 仓 => 优雅跳过（元仓 / 尚未建仓）──
 & git -C $RepoRoot rev-parse --is-inside-work-tree 2>$null 1>$null
 if ($LASTEXITCODE -ne 0) {
-  Write-Host '非 git 仓，跳过防泄露闸（无 .git；元仓或尚未建仓时正常）。' -ForegroundColor DarkGray
+  Write-Host '[SECRETS-SKIP-NONGIT] not a git repository - skipping the leak gate (no .git; normal in the meta repo or before the repo is created).' -ForegroundColor DarkGray
   exit 0
 }
 
