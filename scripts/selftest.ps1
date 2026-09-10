@@ -15401,7 +15401,7 @@ if ($args -contains 'api') {
     Wait-CiDeadlineLeg 'checks'
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
-    [void](Next-CiCount 'ci-check-count')
+    $checkN = Next-CiCount 'ci-check-count'
     # Apply the remote-base race as soon as the CI phase consumes its first server response. The baseline
     # is already pinned and R3 has completed; both the legacy check-only consumer and the restored
     # workflow-bound consumer must therefore face the same moving-origin counterexample.
@@ -15420,10 +15420,15 @@ if ($args -contains 'api') {
     }
     $page = Get-CiPage $joined
     if ($env:GH_MOCK_CI_MODE -eq 'apifail') { 'this is not json'; exit 0 }
-    $conclusion = if ($env:GH_MOCK_CI_MODE -in @('basic-red', 'red')) { 'failure' } elseif ($env:GH_MOCK_CI_MODE -eq 'skipped') { 'skipped' } else { 'success' }
+    if (($env:GH_MOCK_CI_MODE -ceq 'check-missing-once') -and ($checkN -eq 1)) {
+      Send-CiJson ([ordered]@{ total_count = 0; check_runs = @() })
+    }
+    $pendingCheck = ($env:GH_MOCK_CI_MODE -ceq 'check-pending') -or
+      (($env:GH_MOCK_CI_MODE -ceq 'check-queued-once') -and ($checkN -eq 1))
+    $conclusion = if ($env:GH_MOCK_CI_MODE -in @('basic-red', 'red')) { 'failure' } elseif ($env:GH_MOCK_CI_MODE -eq 'skipped') { 'skipped' } elseif ($pendingCheck) { $null } else { 'success' }
     # The adopted CI contract exposes one stable fan-in context. Workflow provenance below still binds
     # that context to the exact ci.yml run/attempt; the check surface must therefore name `required`.
-    $checkItem = [ordered]@{ id = [long]11; name = 'required'; status = 'completed'; conclusion = $conclusion }
+    $checkItem = [ordered]@{ id = [long]11; name = 'required'; status = $(if ($pendingCheck) { 'queued' } else { 'completed' }); conclusion = $conclusion }
     Send-CiShapeCase 'check' 'check_runs' $checkItem $page
     if ($env:GH_MOCK_CI_MODE -eq 'check-paged') {
       # 有效分页正例：total_count=2，两页各一条**不同 id** 的绿 check，读取器须跨页累积满 2 条才算读完。
@@ -15472,6 +15477,7 @@ if ($args -contains 'api') {
     # 没有这类「首读合法、次读才漂」的用例，终局那几条判据删掉也全绿——首读就非法的负例永远走不到它们（R3 r1 #6）。
     elseif (($idm -ceq 'wfid-final-drift') -and ($wfN -ge 2)) { $run.id = [long]$runId + 7 }
     elseif (($idm -ceq 'wfid-final-pr-key-case') -and ($wfN -ge 2)) { $run.pull_requests = @([ordered]@{ Number = [int]$pn }) }
+    elseif (($idm -ceq 'wfid-final-pr-missing') -and ($wfN -ge 2)) { [void]$run.Remove('pull_requests') }
     Send-CiShapeCase 'workflow' 'workflow_runs' $run $page
     if ($env:GH_MOCK_CI_MODE -eq 'workflow-paged') {
       # workflow-runs 的有效分页正例只能以「下游拿到 2 条」显形：生产侧要求该 head 恰有 1 个 run，
@@ -16117,6 +16123,11 @@ public static class DeadlineInheritProbe {
             $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
             if ($why) { $wbProblem = "wfid-final-pr-key-case：$why（终局那次 PR 关联判定若不是大小写敏感的，本例会一路走到合并）" }
           }
+          if (-not $wbProblem) {
+            $r = & $ciShip $wbNeg 'wfid-final-pr-missing'
+            $why = & $ciExpectIdBlock $r '\[CI-GATE-WORKFLOW-IDENTITY\]' 2 2 1 ''
+            if ($why) { $wbProblem = "wfid-final-pr-missing：$why（终局 workflow 缺 pull_requests 必须稳定 fail-closed，不能先触发 StrictMode 属性异常）" }
+          }
           # A5：-NoAutoMerge 只跳过合并腿，不放松任何一层——同一条身份负例带上它仍须被同一个哨兵拦下。
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg 'wfid-path-case' @('-NoAutoMerge')
@@ -16132,6 +16143,22 @@ public static class DeadlineInheritProbe {
             elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $wbProblem = "nomerge-green：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 2/2/2——放松了某一层" }
             elseif ($r.MA -or $r.M) { $wbProblem = '-NoAutoMerge 却触达了合并腿' }
             elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $wbProblem = "nomerge-green：jobs 未按本夹具 run 身份取（$($r.JobsRunId)）" }
+          }
+          # GitHub may expose the workflow run before the required check is created or completed. Both are
+          # pending states under the one shared deadline, not CI-red/drift. The transient controls must
+          # progress to success; the persistent queued control must time out without reaching merge.
+          foreach ($pm in @('check-queued-once','check-missing-once')) {
+            if ($wbProblem) { break }
+            $r = & $ciShip $wbNeg $pm @('-NoAutoMerge') '8'
+            if ($r.X -ne 0) { $wbProblem = "$pm：暂态 pending 未等到 success（exit=$($r.X)）；尾段=$($r.O.Substring([Math]::Max(0,$r.O.Length-400)))" }
+            elseif ($r.O -cnotmatch '\[CI-GATE-PASS\]' -or $r.CR -lt 2) { $wbProblem = "$pm：未真实消费 pending→success（checks=$($r.CR)）" }
+            elseif ($r.MA -or $r.M) { $wbProblem = "$pm：-NoAutoMerge 却触达 merge" }
+          }
+          if (-not $wbProblem) {
+            $r = & $ciShip $wbNeg 'check-pending' @('-NoAutoMerge') '2'
+            if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $r.CR -lt 2) { $wbProblem = "check-pending：持续 queued 未由共享 deadline 收口（exit=$($r.X), checks=$($r.CR)）" }
+            elseif (-not (Test-Path (Join-Path $wbNeg.Root 'ci-checked'))) { $wbProblem = 'check-pending：未真实消费 check-runs endpoint' }
+            elseif ($r.MA -or $r.M) { $wbProblem = 'check-pending：timeout 后仍触达 merge' }
           }
         }
         finally { if ($wbNeg -and $wbNeg.Root) { Remove-Item -Recurse -Force $wbNeg.Root -ErrorAction SilentlyContinue } }
@@ -16184,7 +16211,7 @@ public static class DeadlineInheritProbe {
               elseif ($taskMerged) { $wbProblem = "local/$($lc.M)：被拒后任务 tip 仍进入 master" }
             }
             elseif ($r.X -ne 0) { $wbProblem = "local/green：固定 reviewed OID 正例失败（exit=$($r.X)）；尾段=$($r.O.Substring([Math]::Max(0,$r.O.Length-400)))" }
-            elseif ($baseTip -cne $taskTip) { $wbProblem = "local/green：merge 后 master=$baseTip != reviewed task tip=$taskTip" }
+            elseif (-not $taskMerged) { $wbProblem = "local/green：merge 后 master=$baseTip 不包含 reviewed task tip=$taskTip" }
             elseif ($taskTip -ceq $reviewedParent) { $wbProblem = 'local/green：ship 未提交 GREENMX 改动，正例未触达 merge' }
           }
           finally { if ($fxl -and $fxl.Root) { Remove-Item -Recurse -Force $fxl.Root -ErrorAction SilentlyContinue } }
