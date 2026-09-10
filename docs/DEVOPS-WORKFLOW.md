@@ -62,7 +62,7 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase red
 # (`Get-ScaffoldDodPayload`), so a dod means one thing in both. Red ran it unwrapped until then, and three
 # no-op shapes banked exit 0. Gate 10s measures it; why red never needed the raw form: specs/README.md.
 
-# R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 预算闸(budget，T233) → 许可闸 → 防泄露闸(check-secrets) → push → PR base确认 → (R3：required 为强制闸；卡声明 review_gate: 则意见模式下也跑、不拦合并 T242) → CI 检查闸(分支 check-runs 全绿，T64；本地免跑全量 selftest 的验收面由 CI 分片并集承担) → merge前再确认base → 合并
+# R2 DoD绿 → verify 总闸 → 提交 → 范围闸(allow_paths) → 预算闸(budget，T233) → 许可闸 → 防泄露闸(check-secrets) → push → PR base确认 → (R3：required 为强制闸；卡声明 review_gate: 则意见模式下也跑、不拦合并 T242) → CI 检查闸(分支 check-runs 全绿；元层全量 selftest 须在本地完成，PR CI 不提供分片验收) → merge前再确认base → 合并
 #
 # 预算闸（T233/TD235）与上一道范围闸成对：范围闸判**改哪里**，它判**改多少**（`budget:`）。两者都取 **BASE 卡**——
 # 分支内抬高自己的上限无效。超出即 `[CARD-BUDGET-OVER]` 阻断，出路二选一：拆成后续卡，或把预算抬到 base 分支上、

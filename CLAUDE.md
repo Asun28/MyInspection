@@ -461,10 +461,10 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **R1 worktree**：每卡建 `<WorktreeRoot>\<ID>` 隔离分支（.venv/node_modules 每树独立、gitignored）
 - **R2 TDD**：先写失败测试→实现到绿→重构；契约测试 mock 必 100% 过
 - **R3 pre-push + PR/Codex 评审代替人工**：ship 在 push 前依次强制 DoD、verify、范围、许可、防泄露与**真实 diff 预算闸**；随后 `review.ps1` 按 `docs/QUALITY-RUBRIC.md` 判（注入 rubric + 反自我开脱立场），出 `{verdict:pass|block}`→回贴 `codex-review` 状态；
-  有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
+  规则集要求 `required`（CI fan-in）+`codex-review` 双绿；本项目 `ReviewGate='required'` 同时由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 仅默认分支 push/手动 canary，每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，拆掉超 20 分钟单片而不减覆盖（8.2d/8.2e 锁死）。合并前仍由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；必需检查 `required` 汇总 `verify` 等所有 CI 作业，`codex-review` 是独立 R3 状态。`scaffold-selftest.yml` 仅默认分支 push/手动 canary，每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，拆掉超 20 分钟单片而不减覆盖（8.2d/8.2e 锁死）。元层改动合并前仍须本地全量 selftest，另由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）

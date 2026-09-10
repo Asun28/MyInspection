@@ -55,6 +55,10 @@ snapshot named by this PR.
   Local and remote shipping reject a missing required review backend before
   merge. The reviewer and its helper modules are materialized and verified
   from the same immutable base commit, including the backend configuration.
+  Shipping binds the reviewed local head to the PR and final merge head,
+  refreshes the scoped base OID before delivery, and retains MyInspection's
+  CI command deadline/containment and workflow/PR/run-attempt identity checks.
+  These local guarantees complement the upstream `required` fan-in contract.
   This PR requires a passing authorized Codex review of its current head.
   Upstream's advisory default is not adopted as this project's merge policy.
 - MyInspection retains its production `review.ps1` hard ceiling of 1,000

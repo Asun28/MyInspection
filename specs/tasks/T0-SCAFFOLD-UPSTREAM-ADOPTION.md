@@ -63,7 +63,7 @@ acceptance:
   - "A1 The adopted script modules come from the fixed merged upstream source and retain their coupled interfaces."
   - "A2 MyInspection preserves GoldenEvidence/Android verification, archive index checks, project identity, frozen paths and origin provenance."
   - "A3 CI verify remains the product job and required is a strict fan-in over that job."
-  - "A4 Required review blocks local and remote shipping without a backend; reviewer code and dependencies come from one immutable base, and only an authorized pass on the current candidate permits merge."
+  - "A4 Required review blocks local and remote shipping without a backend; reviewer code and dependencies come from one immutable base. Reviewed local head, PR head and final merge head must match; CI must bind that head to the expected workflow, PR and current run attempt. A changed scope baseline or expired CI command deadline blocks delivery. Only an authorized pass on the current candidate permits merge."
   - "A5 The adoption record names the 18 direct source PRs plus the fixed complete-module prerequisites, and explicitly leaves INPUT, TRIAGE and RECEIPT unresolved."
   - "A6 Selftest retains project-specific regression coverage and complete dependencies; diagnostic fixtures leave the candidate checkout unchanged."
   - "A7 Review artifact operations reject unsafe paths, round-cap/reset behavior is retained, and ignored local logs are not described as tracked evidence."
@@ -108,6 +108,18 @@ immutable base. Existing selftest fixtures exercise both defects and controls.
 The user then explicitly authorized direct Codex review after repair and
 validation, without another DeepSeek cycle. Only a current passing verdict,
 full selftest and successful CI permit merge; all prior blocks remain recorded.
+
+The fourth Codex review returned block on `b62991d7`: the ship path had lost
+its reviewed-head comparison and final baseline OID refresh, and two workflow
+documents still described optional local review and Ubuntu-only/offline CI.
+The user authorized fixing all findings together, then three DeepSeek V4 Pro
+pre-reviews before the next Codex review. The related baseline comparison also
+identified removed local CI deadline/containment and workflow/run-attempt
+identity checks; their established guarantees are part of this repair while
+the adopted strict `required` fan-in remains in place. Review packets must
+include the complete ship consumer, including its merge tail, and all repair
+diffs. Model opinions and diagnostic runs do not replace final-candidate
+validation, CI, or the required Codex verdict.
 
 The CI compatibility repair restores the existing fail-closed, exact-path
 SQLDelight tracked-sensitive allowlist adapter in `scripts/check-secrets.ps1`.
