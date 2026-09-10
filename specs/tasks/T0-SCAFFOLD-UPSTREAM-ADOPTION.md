@@ -89,6 +89,12 @@ The user then explicitly authorized repairing its four remaining integration
 findings and running Codex review again. This authorization covers one further
 review of the repaired candidate; a block leaves the PR unmerged.
 
+That additional review returned block on `6c9c1473`: it required a stronger
+shared CI contract, committed behavioral coverage of the review cap and unsafe
+artifact paths, and evidence readable inside the review workspace. Subsequent
+repairs remain part of these integration findings. A further review requires
+separate authorization; neither a successful selftest nor CI substitutes for it.
+
 The CI compatibility repair restores the existing fail-closed, exact-path
 SQLDelight tracked-sensitive allowlist adapter in `scripts/check-secrets.ps1`.
 It does not modify schema databases, the allowlist JSON, `.gitignore` or the

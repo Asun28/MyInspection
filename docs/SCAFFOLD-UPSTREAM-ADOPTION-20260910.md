@@ -45,6 +45,8 @@ snapshot named by this PR.
   `verify` CI job remain project-owned. CI adds a checkout-cleanliness check
   and a `required` fan-in job which succeeds solely when all dependencies
   report success; failure, cancellation and skipped dependencies block it.
+  The shared workflow validator checks the declared strict fan-in form, and
+  ship rejects every contract finding before trusting the remote check result.
 - The MyInspection identity, portable worktree root, product frozen paths,
   origin `0.29.0`, and project DocSync mappings remain in `_config.ps1`.
   The adopted high-water is `0.47.0`; upstream-only budget and mutation
@@ -125,3 +127,11 @@ therefore exercises those interfaces and verifies that temporary fixtures do
 not modify the checkout. Commands, native results and candidate SHAs are
 recorded in the PR. No upstream run is presented as a fresh MyInspection run,
 and an earlier-head review does not approve a later repair commit.
+
+Material validation receipts and logs are also copied, with a SHA-256 manifest,
+into the reviewed worktree at `.review/adoption-evidence/<candidate>/`. This
+keeps them readable within a read-only review workspace instead of requiring
+access to another checkout's private directory. These copies remain ignored
+local evidence; the exact-commit result and review verdict are published on the
+PR. The second review's inability to read the original external evidence is
+preserved in its BLOCK record, not retroactively reclassified as approval.

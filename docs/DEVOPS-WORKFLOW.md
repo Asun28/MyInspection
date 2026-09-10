@@ -207,12 +207,17 @@ What follows from that:
   action the repo owner takes — it is deliberately not automated here.)
 - **`task.ps1`'s `[CI-GATE]` waits on that one context** (present, completed, and exactly `success`) and
   asserts no other check is failing. It stays fail-closed: no `ci.yml` in the merge candidate tree
-  (`[CI-GATE-WF-MISSING]`), or a `jobs:` block with no `required` job — deleted, renamed, or unparseable —
-  (`[CI-GATE-JOBS-DRIFT]`) means the acceptance surface is unprovable, so no merge.
+  (`[CI-GATE-WF-MISSING]`), or any invalid fan-in contract (`[CI-GATE-JOBS-DRIFT]`) means the acceptance
+  surface is unprovable, so no merge. This includes a missing job, unwired dependencies, missing
+  `always()`, or a step that cannot prove strict success for every dependency.
 - **One judgement, two consumers.** `scripts\_ci.ps1`'s `Test-ScaffoldCiFanIn` decides both the ship gate's
   question and selftest **8.2g**'s, so the gate the merge trusts and the gate that guards the file cannot
-  drift. 8.2g machine-checks that the `needs:` list names **every** job in the file — "added a job, forgot
-  the list" goes red locally, before ship, rather than shipping a job that can never block a merge.
+  drift. 8.2g checks the complete `needs:` list, unconditional job execution and the supported strict
+  success step. A missing dependency or fail-open fan-in goes red locally and blocks ship.
+  The supported form is deliberately narrow: one named `pwsh` step whose body matches
+  `Get-ScaffoldCiSuccessBody` in `_ci.ps1`, with no conditional step or failure-tolerance property.
+  Arbitrary shell bodies are not executed to decide whether they are safe. Extending this form requires
+  updating the shared validator and its behavioral examples together.
 - **`verify`'s last step is a clean-worktree assertion** (`if: ${{ always() }}`): `git status --porcelain`
   non-empty fails the job even when every step above exited zero. That is what turns each "regenerate and
   commit the result" rule in this repo from a doc convention into a check, and it is the CI-side half of

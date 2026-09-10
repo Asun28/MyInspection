@@ -2902,6 +2902,46 @@ elseif (@(Test-ScaffoldCiFanInExamples -Variant 'accept-any-workflow').Count -lt
 }
 elseif (-not $fail) { Write-Host '  8.2g'' fan-in parser examples OK (rejects no-fan-in / unwired job / empty workflow; the always-empty control disagrees)' -ForegroundColor Green }
 
+# Exercise the actual ship consumer, not a textual promise that it uses this validator. Its assignment
+# and immediately following guard run against isolated good/bad workflow files, without any gh operation.
+$taskCiAst82 = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'task.ps1'), [ref]$null, [ref]$null)
+$taskCiAssign82 = @($taskCiAst82.FindAll({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$ciFanIn' }, $true))
+if ($taskCiAssign82.Count -ne 1 -or $taskCiAssign82[0].Parent -isnot [Management.Automation.Language.StatementBlockAst]) {
+  Fail '8.2g ship consumer: cannot locate its unique fan-in assignment and enclosing statement block.'
+}
+else {
+  $taskCiStatements82 = [object[]]$taskCiAssign82[0].Parent.Statements
+  $taskCiIndex82 = [Array]::IndexOf($taskCiStatements82, $taskCiAssign82[0])
+  $taskCiGuard82 = $taskCiStatements82[$taskCiIndex82 + 1]
+  if ($taskCiGuard82 -isnot [Management.Automation.Language.IfStatementAst]) {
+    Fail '8.2g ship consumer: no conditional refusal immediately follows the shared findings.'
+  }
+  else {
+    $taskCiRun82 = [scriptblock]::Create('param([string]$ciWf)' + "`n" + $taskCiAssign82[0].Extent.Text + "`n" + $taskCiGuard82.Extent.Text)
+    $taskCiGood82 = Get-Content -LiteralPath $fanInWf82 -Raw
+    $taskCiCases82 = @(
+      @{ Name='current workflow'; Text=$taskCiGood82; Reject=$false }
+      @{ Name='missing always'; Text=$taskCiGood82.Replace('if: ${{ always() }}', 'if: success()'); Reject=$true }
+      @{ Name='fail-open body'; Text=$taskCiGood82.Replace("-cne 'success'", "-ceq 'success'"); Reject=$true }
+    )
+    $taskCiTemp82 = Join-Path ([IO.Path]::GetTempPath()) ('st8-ci-consumer-' + [guid]::NewGuid().ToString('N') + '.yml')
+    try {
+      foreach ($case82 in $taskCiCases82) {
+        Set-Content -LiteralPath $taskCiTemp82 -Value $case82.Text -Encoding utf8
+        $taskCiRejected82 = $false
+        try { & $taskCiRun82 $taskCiTemp82 }
+        catch {
+          if ($_.Exception.Message -notmatch '^\[CI-GATE-JOBS-DRIFT\]') { throw }
+          $taskCiRejected82 = $true
+        }
+        if ($taskCiRejected82 -ne $case82.Reject) { Fail "8.2g actual ship consumer misclassified '$($case82.Name)' (rejected=$taskCiRejected82)." }
+      }
+    }
+    finally { Remove-Item -LiteralPath $taskCiTemp82 -Force -ErrorAction SilentlyContinue }
+    if (-not $fail) { Write-Host '  8.2g actual ship consumer OK (current workflow accepted; missing always and fail-open body refused)' -ForegroundColor Green }
+  }
+}
+
 # 8.2h. (T191 / upstream #274): the shard timeout budget must be self-verifying. Every other declared
 #   property of scaffold-selftest.yml is consumed by a sub-check above - pinned actions (8.2a), provisioning
 #   (8.2c), triggers (8.2d), the shard matrix and its union (8.2e/8.2f) - but `timeout-minutes` had no
@@ -12903,6 +12943,247 @@ UPDATED: probe step 1
       if ($v25 -cne 'pass' -or $x25 -ne 0) {
         Fail "闸17t(t25)：the unset-class guard changed the DECISION - verdict '$v25', exit $x25, expected 'pass' and 0. It is a diagnostic about run_status and must never touch what was approved."
         $tAllOk = $false
+      }
+    }
+    # t26: the local ReviewRoundCap is an invocation budget, not a quality classification. Exercise every
+    # unsuccessful post-invocation class the implementation claims to count, then prove the cap is a real
+    # stop (the backend is not called), ResetRounds clears only the counter, and a successful run after reset
+    # neither recreates the counter nor loses the append-only local history. An unresolvable base is the
+    # negative control: setup failed before invocation, so it must spend no attempt.
+    $ts26 = Join-Path $sd 't26'
+    Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts26 -Recurse -Force
+    $stub26 = @'
+$ErrorActionPreference = 'Stop'
+$calls = Join-Path $env:REVIEW_WT '.reviewer-calls'
+Add-Content -LiteralPath $calls -Value 'called' -Encoding utf8
+$mode = (Get-Content -LiteralPath (Join-Path $env:REVIEW_WT 'review-mode.txt') -Raw).Trim()
+switch ($mode) {
+  'block'        { '{"verdict":"block","reasons":["fixture block"]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; exit 0 }
+  'no-output'    { exit 0 }
+  'malformed'    { '{"verdict":' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; exit 0 }
+  'native-error' { '{"verdict":"pass","reasons":[]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; exit 23 }
+  'timeout'      { Start-Sleep -Seconds 30; exit 0 }
+  'pass'         { '{"verdict":"pass","reasons":[]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; exit 0 }
+  default        { throw "unknown fixture mode: $mode" }
+}
+'@
+    Set-Content (Join-Path $ts26 'review-stub.ps1') $stub26 -Encoding utf8
+    Set-Content (Join-Path $ts26 'review-mode.txt') 'block' -Encoding utf8
+    $cfg26 = Join-Path $ts26 'scripts/_config.ps1'
+    # The configured backend command owns its native exit contract. Propagate the fixture script's explicit
+    # exit so the native-error arm exercises review.ps1 rather than accidentally testing a wrapper that hid it.
+    $cmd26 = "& (Join-Path `$env:REVIEW_WT 'review-stub.ps1'); exit `$LASTEXITCODE"
+    $esc26 = $cmd26 -replace "'", "''"
+    $c26 = (Get-Content $cfg26 -Raw).Replace("ReviewCommand = ''", "ReviewCommand = '$esc26'").Replace('ReviewRoundCap = 2', 'ReviewRoundCap = 5')
+    if ((-not $c26.Contains($esc26)) -or ($c26 -notmatch '(?m)^\s*ReviewRoundCap\s*=\s*5\s*$')) {
+      Fail '闸17t(t26)：ReviewCommand/ReviewRoundCap fixture injection missed; cap assertions would be vacuous.'
+      $tAllOk = $false
+    } else {
+      Set-Content $cfg26 $c26 -NoNewline -Encoding utf8
+      New-ReviewFixtureRepo $ts26 'feat-t'
+      Set-Content (Join-Path $ts26 'CHANGED.txt') 'a change under review' -Encoding utf8
+      & git -C $ts26 -c user.email='t@l' -c user.name='t' add -A 2>$null
+      & git -C $ts26 -c user.email='t@l' -c user.name='t' commit -q -m change *> $null
+      $calls26 = Join-Path $ts26 '.reviewer-calls'
+      $rounds26 = Join-Path (Join-Path $ts26 '.review') 'feat-t.rounds'
+      function Get-T26CallCount { if (Test-Path -LiteralPath $calls26) { return @(Get-Content -LiteralPath $calls26).Count }; return 0 }
+      function Invoke-T26([string]$Mode, [int]$Budget = 0, [string]$BaseRef = 'master', [switch]$Reset) {
+        Set-Content (Join-Path $ts26 'review-mode.txt') $Mode -Encoding utf8
+        $a26 = @('-NoProfile', '-File', (Join-Path $ts26 'scripts/review.ps1'), '-WorktreePath', $ts26, '-Base', $BaseRef)
+        if ($Budget -gt 0) { $a26 += @('-TimeoutSec', [string]$Budget) }
+        if ($Reset) { $a26 += '-ResetRounds' }
+        $out26 = (& pwsh @a26 2>&1 | Out-String)
+        return [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $out26 }
+      }
+      $setup26 = Invoke-T26 -Mode 'block' -BaseRef 'refs/heads/r3-definitely-missing'
+      if ((Get-T26CallCount) -ne 0 -or (Test-Path -LiteralPath $rounds26)) {
+        Fail '闸17t(t26)：baseline setup failure occurred before reviewer invocation but spent a cap attempt or called the backend.'
+        $tAllOk = $false
+      }
+      $modes26 = @(
+        @{ Mode = 'block';        Code = '';                       Budget = 0 },
+        @{ Mode = 'no-output';    Code = '[R3-NO-OUTPUT]';         Budget = 0 },
+        @{ Mode = 'malformed';    Code = '[R3-BAD-VERDICT-JSON]';  Budget = 0 },
+        @{ Mode = 'native-error'; Code = '[R3-NONZERO-EXIT-PASS]'; Budget = 0 },
+        @{ Mode = 'timeout';      Code = '[R3-REVIEWER-TIMEOUT]';  Budget = 2 }
+      )
+      for ($mi26 = 0; $mi26 -lt $modes26.Count; $mi26++) {
+        $mc26 = $modes26[$mi26]
+        $r26 = Invoke-T26 -Mode $mc26.Mode -Budget $mc26.Budget
+        $want26 = $mi26 + 1
+        $got26 = if (Test-Path -LiteralPath $rounds26) { [int]((Get-Content -LiteralPath $rounds26 -Raw).Trim()) } else { -1 }
+        if ($r26.Exit -eq 0 -or (Get-T26CallCount) -ne $want26 -or $got26 -ne $want26) {
+          Fail "闸17t(t26)：invoked unsuccessful mode '$($mc26.Mode)' did not consume exactly one attempt (exit=$($r26.Exit), calls=$(Get-T26CallCount), counter=$got26, expected=$want26)."
+          $tAllOk = $false
+        }
+        if ($mc26.Code -and $r26.Output -notmatch [regex]::Escape($mc26.Code)) {
+          Fail "闸17t(t26)：mode '$($mc26.Mode)' missed its real failure class $($mc26.Code); the counter check may be exercising another path."
+          $tAllOk = $false
+        }
+      }
+      $cap26 = Invoke-T26 -Mode 'pass'
+      if ($cap26.Exit -eq 0 -or $cap26.Output -notmatch [regex]::Escape('[R3-ROUND-CAP]') -or (Get-T26CallCount) -ne 5 -or [int]((Get-Content $rounds26 -Raw).Trim()) -ne 5) {
+        Fail '闸17t(t26)：ReviewRoundCap=5 did not block the sixth run without invoking the reviewer or incrementing the counter.'
+        $tAllOk = $false
+      }
+      $reviewDir26 = Join-Path $ts26 '.review'
+      $historyBefore26 = @(Get-ChildItem -LiteralPath $reviewDir26 -File -Recurse -Force | Where-Object { $_.FullName -ne $rounds26 } | ForEach-Object { $rel26 = $_.FullName.Substring($reviewDir26.Length); "$rel26|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" } | Sort-Object)
+      $reset26 = Invoke-T26 -Mode 'pass' -Reset
+      $historyAfter26 = @(Get-ChildItem -LiteralPath $reviewDir26 -File -Recurse -Force | Where-Object { $_.FullName -ne $rounds26 } | ForEach-Object { $rel26 = $_.FullName.Substring($reviewDir26.Length); "$rel26|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" } | Sort-Object)
+      if ($reset26.Exit -ne 0 -or (Get-T26CallCount) -ne 5 -or (Test-Path -LiteralPath $rounds26) -or (Compare-Object $historyBefore26 $historyAfter26)) {
+        Fail '闸17t(t26)：-ResetRounds invoked the reviewer, left the counter, or changed/deleted verdict, round, raw, or record history instead of clearing only the counter.'
+        $tAllOk = $false
+      }
+      $pass26 = Invoke-T26 -Mode 'pass'
+      if ($pass26.Exit -ne 0 -or (Get-T26CallCount) -ne 6 -or (Test-Path -LiteralPath $rounds26)) {
+        Fail '闸17t(t26)：a clean pass after reset did not run once and leave the unsuccessful-attempt counter absent.'
+        $tAllOk = $false
+      }
+    }
+
+    # t27: every review artifact boundary is attacker-controlled state. The same repository is reset between
+    # cases so the assertions are about the exact leaf/ancestor guard, while an external fingerprint proves
+    # refusal did not merely print a warning after reading, writing, or deleting through the link.
+    $ts27 = Join-Path $sd 't27'
+    Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts27 -Recurse -Force
+    $stub27 = @'
+$ErrorActionPreference = 'Stop'
+$calls = Join-Path $env:REVIEW_WT '.reviewer-calls'
+Add-Content -LiteralPath $calls -Value 'called' -Encoding utf8
+$mode = (Get-Content -LiteralPath (Join-Path $env:REVIEW_WT 'review-mode.txt') -Raw).Trim()
+$target = (Get-Content -LiteralPath (Join-Path $env:REVIEW_WT 'review-link-target.txt') -Raw).Trim()
+$style = (Get-Content -LiteralPath (Join-Path $env:REVIEW_WT 'review-link-style.txt') -Raw).Trim()
+function New-FixtureLink([string]$Path) {
+  if ($style -eq 'directory') {
+    if ($IsWindows) { New-Item -ItemType Junction -Path $Path -Target $target -ErrorAction Stop | Out-Null }
+    else { New-Item -ItemType SymbolicLink -Path $Path -Target $target -ErrorAction Stop | Out-Null }
+  } else { New-Item -ItemType SymbolicLink -Path $Path -Target $target -ErrorAction Stop | Out-Null }
+}
+$rd = Split-Path $env:REVIEW_OUT -Parent
+switch ($mode) {
+  'pass' { '{"verdict":"pass","reasons":[]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8 }
+  'verdict-link' { New-FixtureLink $env:REVIEW_OUT }
+  'raw-link' { 'reviewer prose' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; New-FixtureLink (Join-Path $rd 'feat-t.raw.txt') }
+  'counter-link' { '{"verdict":"block","reasons":["fixture"]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; New-FixtureLink (Join-Path $rd 'feat-t.rounds') }
+  'records-dir-link' { '{"verdict":"pass","reasons":[]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; New-FixtureLink (Join-Path $rd 'records') }
+  'record-leaf-link' { '{"verdict":"pass","reasons":[]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; New-Item -ItemType Directory -Force (Join-Path $rd 'records') | Out-Null; New-FixtureLink (Join-Path (Join-Path $rd 'records') 'feat-t.jsonl') }
+  'round-link' { '{"verdict":"pass","reasons":[]}' | Set-Content -LiteralPath $env:REVIEW_OUT -Encoding utf8; New-FixtureLink (Join-Path $rd 'feat-t.r1.json') }
+  'review-swap' { Remove-Item -LiteralPath $rd -Recurse -Force; New-FixtureLink $rd }
+  default { throw "unknown fixture mode: $mode" }
+}
+exit 0
+'@
+    Set-Content (Join-Path $ts27 'review-stub.ps1') $stub27 -Encoding utf8
+    Set-Content (Join-Path $ts27 'review-mode.txt') 'pass' -Encoding utf8
+    Set-Content (Join-Path $ts27 'review-link-target.txt') 'unset' -Encoding utf8
+    Set-Content (Join-Path $ts27 'review-link-style.txt') 'directory' -Encoding utf8
+    $cfg27 = Join-Path $ts27 'scripts/_config.ps1'
+    $cmd27 = "& (Join-Path `$env:REVIEW_WT 'review-stub.ps1'); exit `$LASTEXITCODE"
+    $esc27 = $cmd27 -replace "'", "''"
+    $c27 = (Get-Content $cfg27 -Raw).Replace("ReviewCommand = ''", "ReviewCommand = '$esc27'").Replace('ReviewRoundCap = 2', 'ReviewRoundCap = 0')
+    if ((-not $c27.Contains($esc27)) -or ($c27 -notmatch '(?m)^\s*ReviewRoundCap\s*=\s*0\s*$')) {
+      Fail '闸17t(t27)：ReviewCommand/ReviewRoundCap fixture injection missed; reparse assertions would be cap-contaminated or vacuous.'
+      $tAllOk = $false
+    } else {
+      Set-Content $cfg27 $c27 -NoNewline -Encoding utf8
+      New-ReviewFixtureRepo $ts27 'feat-t'
+      Set-Content (Join-Path $ts27 'CHANGED.txt') 'a change under review' -Encoding utf8
+      & git -C $ts27 -c user.email='t@l' -c user.name='t' add -A 2>$null
+      & git -C $ts27 -c user.email='t@l' -c user.name='t' commit -q -m change *> $null
+      $rd27 = Join-Path $ts27 '.review'
+      $calls27 = Join-Path $ts27 '.reviewer-calls'
+      $external27 = Join-Path $sd 't27-external'
+      New-Item -ItemType Directory -Force $external27 | Out-Null
+      function Get-T27CallCount { if (Test-Path -LiteralPath $calls27) { return @(Get-Content -LiteralPath $calls27).Count }; return 0 }
+      function Get-T27Fingerprint([string]$Path) {
+        return @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Sort-Object FullName | ForEach-Object {
+          $rel27 = $_.FullName.Substring($Path.Length)
+          if ($_.PSIsContainer) { "D|$rel27" } else { "F|$rel27|$($_.Length)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" }
+        }) -join "`n"
+      }
+      function Remove-T27Link([string]$Path) {
+        $item27 = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        if ($item27 -and ((($item27.Attributes) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) { Remove-Item -LiteralPath $Path -Force -ErrorAction Stop }
+      }
+      $fileLinks27 = $true
+      $fileLinkWhy27 = ''
+      $probeTarget27 = Join-Path $external27 'file-probe-target.txt'
+      $probeLink27 = Join-Path $external27 'file-probe-link.txt'
+      Set-Content $probeTarget27 'probe' -NoNewline -Encoding utf8
+      try { New-Item -ItemType SymbolicLink -Path $probeLink27 -Target $probeTarget27 -ErrorAction Stop | Out-Null; Remove-T27Link $probeLink27 }
+      catch { $fileLinks27 = $false; $fileLinkWhy27 = $_.Exception.Message }
+      if (-not $fileLinks27) {
+        if ($IsWindows -and $fileLinkWhy27 -match 'privilege|privileg|权限|特权') {
+          Write-Host "  17t(t27) file-link arm unsupported by this Windows host ($fileLinkWhy27); every exact leaf remains exercised as a junction, and directory/ancestor reparse arms remain active." -ForegroundColor DarkGray
+        } else {
+          Fail "闸17t(t27)：this host could not create a file symlink for the file-link arms: $fileLinkWhy27"
+          $tAllOk = $false
+        }
+      }
+      $cases27 = @(
+        @{ Tag='review-start';     Mode='pass';             Path='review';     Pre=$true;  Reset=$false; Dir=$true;  Calls=0; Exit=1; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='verdict-start';    Mode='pass';             Path='verdict';    Pre=$true;  Reset=$false; Dir=$false; Calls=0; Exit=1; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='raw-delete';       Mode='pass';             Path='raw';        Pre=$true;  Reset=$false; Dir=$false; Calls=0; Exit=1; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='counter-read';     Mode='pass';             Path='counter';    Pre=$true;  Reset=$false; Dir=$false; Calls=0; Exit=1; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='counter-reset';    Mode='pass';             Path='counter';    Pre=$true;  Reset=$true;  Dir=$false; Calls=0; Exit=1; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='verdict-read';     Mode='verdict-link';     Path='verdict';    Pre=$false; Reset=$false; Dir=$false; Calls=1; Exit=1; Code='[R3-OUTPUT-UNREADABLE]' },
+        @{ Tag='raw-write';        Mode='raw-link';         Path='raw';        Pre=$false; Reset=$false; Dir=$false; Calls=1; Exit=1; Code='was NOT written because' },
+        @{ Tag='counter-write';    Mode='counter-link';     Path='counter';    Pre=$false; Reset=$false; Dir=$false; Calls=1; Exit=1; Code='轮次计数路径不安全' },
+        @{ Tag='records-dir';      Mode='records-dir-link'; Path='records';    Pre=$false; Reset=$false; Dir=$true;  Calls=1; Exit=0; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='record-leaf';      Mode='record-leaf-link'; Path='record';     Pre=$false; Reset=$false; Dir=$false; Calls=1; Exit=0; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='round-artifact';   Mode='round-link';       Path='round';      Pre=$false; Reset=$false; Dir=$false; Calls=1; Exit=0; Code='[R3-REVIEW-DIR-UNSAFE]' },
+        @{ Tag='review-swap';      Mode='review-swap';      Path='review';     Pre=$false; Reset=$false; Dir=$true;  Calls=1; Exit=1; Code='[R3-OUTPUT-UNREADABLE]' }
+      )
+      foreach ($case27 in $cases27) {
+        Remove-T27Link $rd27
+        if (Test-Path -LiteralPath $rd27) { Remove-Item -LiteralPath $rd27 -Recurse -Force }
+        New-Item -ItemType Directory -Force $rd27 | Out-Null
+        $targetDir27 = Join-Path $external27 $case27.Tag
+        New-Item -ItemType Directory -Force $targetDir27 | Out-Null
+        $targetFile27 = Join-Path $targetDir27 'sentinel.txt'
+        Set-Content $targetFile27 '{"verdict":"pass","reasons":[],"external":"must-not-be-read-or-changed"}' -NoNewline -Encoding utf8
+        Set-Content (Join-Path $targetDir27 'feat-t.json') '{"verdict":"pass","reasons":[],"external":"must-not-be-read-or-changed"}' -NoNewline -Encoding utf8
+        $leaf27 = switch ($case27.Path) {
+          'review'  { $rd27 }
+          'verdict' { Join-Path $rd27 'feat-t.json' }
+          'raw'     { Join-Path $rd27 'feat-t.raw.txt' }
+          'counter' { Join-Path $rd27 'feat-t.rounds' }
+          'records' { Join-Path $rd27 'records' }
+          'record'  { Join-Path (Join-Path $rd27 'records') 'feat-t.jsonl' }
+          'round'   { Join-Path $rd27 'feat-t.r1.json' }
+        }
+        $style27 = if ($case27.Dir -or (-not $fileLinks27)) { 'directory' } else { 'file' }
+        $target27 = if ($style27 -eq 'directory') { $targetDir27 } else { $targetFile27 }
+        Set-Content (Join-Path $ts27 'review-mode.txt') $case27.Mode -Encoding utf8
+        Set-Content (Join-Path $ts27 'review-link-target.txt') $target27 -Encoding utf8
+        Set-Content (Join-Path $ts27 'review-link-style.txt') $style27 -Encoding utf8
+        if ($case27.Pre) {
+          if ($case27.Path -eq 'review') { Remove-Item -LiteralPath $rd27 -Recurse -Force }
+          elseif ($case27.Path -eq 'record') { New-Item -ItemType Directory -Force (Split-Path $leaf27 -Parent) | Out-Null }
+          if ($style27 -eq 'directory') {
+            if ($IsWindows) { New-Item -ItemType Junction -Path $leaf27 -Target $target27 -ErrorAction Stop | Out-Null }
+            else { New-Item -ItemType SymbolicLink -Path $leaf27 -Target $target27 -ErrorAction Stop | Out-Null }
+          } else { New-Item -ItemType SymbolicLink -Path $leaf27 -Target $target27 -ErrorAction Stop | Out-Null }
+        }
+        $before27 = Get-T27Fingerprint $targetDir27
+        $callsBefore27 = Get-T27CallCount
+        $args27 = @('-NoProfile', '-File', (Join-Path $ts27 'scripts/review.ps1'), '-WorktreePath', $ts27, '-Base', 'master')
+        if ($case27.Reset) { $args27 += '-ResetRounds' }
+        $out27 = (& pwsh @args27 2>&1 | Out-String)
+        $exit27 = $LASTEXITCODE
+        $after27 = Get-T27Fingerprint $targetDir27
+        $callsDelta27 = (Get-T27CallCount) - $callsBefore27
+        if ($exit27 -ne $case27.Exit -or $callsDelta27 -ne $case27.Calls -or $out27 -notmatch [regex]::Escape($case27.Code)) {
+          Fail "闸17t(t27:$($case27.Tag))：reparse boundary did not take the declared path (exit=$exit27/$($case27.Exit), reviewer calls=$callsDelta27/$($case27.Calls), missing code=$($case27.Code))."
+          $tAllOk = $false
+        }
+        if ($before27 -cne $after27) {
+          Fail "闸17t(t27:$($case27.Tag))：external target changed through the reparse point; read/write/delete refusal was not effective."
+          $tAllOk = $false
+        }
+        Remove-T27Link $leaf27
+        Remove-T27Link $rd27
+        if (Test-Path -LiteralPath $rd27) { Remove-Item -LiteralPath $rd27 -Recurse -Force }
       }
     }
     # 17t(doc)：**文档契约**——rubric §5 的状态表须与 review.ps1 实际发出的阻断态状态码一一对应。

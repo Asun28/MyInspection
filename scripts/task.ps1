@@ -1211,9 +1211,9 @@ switch ($Phase) {
       $ciWf = Join-Path $Wt '.github/workflows/ci.yml'
       if (-not (Test-Path $ciWf)) { throw "[CI-GATE-WF-MISSING] CI check gate: no .github/workflows/ci.yml in the merge candidate tree ($Wt) - the fan-in contract cannot be read and the CI acceptance surface is unprovable; fail-closed, no merge. Restore the workflow (the template payload ships it), or run the full no-arg selftest locally and use the -Local flow." }
       # One judgement, shared with selftest gate 8 (scripts/_ci.ps1) so the gate the merge trusts and the
-      # gate that guards the file cannot drift. Only the NO-REQUIRED class blocks here: an unwired job is
-      # gate 8's business (it is a workflow-shape defect, caught before ship, not a reason to strand a PR).
-      $ciFanIn = @(Test-ScaffoldCiFanIn -WorkflowText (Get-Content $ciWf -Raw) | Where-Object { $_ -match '^\[CI-FANIN-NO-REQUIRED\]' })
+      # gate that guards the file cannot drift. Every contract finding blocks: a present but fail-open
+      # fan-in job cannot establish that all product jobs succeeded.
+      $ciFanIn = @(Test-ScaffoldCiFanIn -WorkflowText (Get-Content $ciWf -Raw))
       if ($ciFanIn.Count -gt 0) { throw "[CI-GATE-JOBS-DRIFT] CI check gate: $ciWf does not satisfy the fan-in contract - $($ciFanIn -join ' | ') Re-check with: pwsh -File scripts\selftest.ps1 -Only 8. Fail-closed, no merge." }
       $ciExpected = @($ScaffoldCiFanInJob)
       # SCAFFOLD_CI_TIMEOUT_SEC (TD134): test knob for the wait deadline — hermetic fixtures set it to a
