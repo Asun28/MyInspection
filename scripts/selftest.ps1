@@ -12554,7 +12554,10 @@ UPDATED: probe step 1
       # 于是「读得出 pass」但「写不回去」。r8 为让 S0 诊断可见而 catch 了写异常，却没把失败记进判定 ⇒
       # 这一路会回贴 success 并 exit 0，把基线的 fail-closed 变成 fail-open。本例正是那条回归的锁。
       # jsonReason = $false：裁决文件里留着的是 stub 写的那份 pass 原文（新裁决写不进去），读它只会误导。
-      @{ tag = 't15-pass-but-write-fails'; body = "'{""verdict"":""pass"",""reasons"":[]}' | Set-Content -Path `$env:REVIEW_OUT -Encoding utf8; Set-ItemProperty -LiteralPath `$env:REVIEW_OUT -Name IsReadOnly -Value `$true"; code = '[R3-VERDICT-WRITE-FAILED]'; block = $true; jsonReason = $false }
+      @{ tag = 't15-pass-but-write-fails'; body = "'{""verdict"":""pass"",""reasons"":[]}' | Set-Content -Path `$env:REVIEW_OUT -Encoding utf8; Set-ItemProperty -LiteralPath `$env:REVIEW_OUT -Name IsReadOnly -Value `$true"; code = '[R3-VERDICT-WRITE-FAILED]'; block = $true; jsonReason = $false },
+      # `axes` is optional for legacy backends, but once present its carried half cannot be discarded. This
+      # schema-valid partial shape used to fall back wholesale to the top-level pass and erase spec:block.
+      @{ tag = 't16-partial-axis-block'; body = "'{""verdict"":""pass"",""reasons"":[],""axes"":{""spec"":{""verdict"":""block"",""reasons"":[""partial spec finding""]}}}' | Set-Content -Path `$env:REVIEW_OUT -Encoding utf8"; code = ''; block = $true }
     )
     $tAllOk = $true
     foreach ($tc in $tCases) {
@@ -12658,6 +12661,16 @@ UPDATED: probe step 1
             Fail "闸17t(t4) run_status: the local record carries no run_status=success - the class did not survive the redaction walk (was a status-shaped key added to `$recRedactKeys?). This record is ignored local diagnostics; published PR evidence is the shared record. Content: $tRecTxt"
             $tAllOk = $false
           }
+        }
+      }
+      if ($tc.tag -eq 't16-partial-axis-block') {
+        $partial16 = $null
+        try { $partial16 = Get-Content (Join-Path $ts '.review/feat-t.json') -Raw | ConvertFrom-Json } catch { }
+        $partialSpec16 = if ($partial16 -and $partial16.axes -and $partial16.axes.spec) { [string]$partial16.axes.spec.verdict } else { '' }
+        $partialStandards16 = if ($partial16 -and $partial16.axes -and $partial16.axes.standards) { [string]$partial16.axes.standards.verdict } else { '' }
+        if (-not $partial16 -or [string]$partial16.verdict -cne 'block' -or $partialSpec16 -cne 'block' -or $partialStandards16 -cne 'pass' -or (@($partial16.reasons) -join ' ') -notmatch 'partial spec finding') {
+          Fail "闸17t(t16)：partial axes lost or softened its present spec:block (top=$([string]$partial16.verdict), spec=$partialSpec16, standards=$partialStandards16). A missing axis may inherit the top-level decision; a present blocking axis may never be discarded."
+          $tAllOk = $false
         }
       }
       # t2 专项：S2 承诺「原文另存在某处、你自己去读」，那么那个地方就必须**真的读得到原文**——
@@ -13184,6 +13197,74 @@ exit 0
         Remove-T27Link $leaf27
         Remove-T27Link $rd27
         if (Test-Path -LiteralPath $rd27) { Remove-Item -LiteralPath $rd27 -Recurse -Force }
+      }
+    }
+
+    # t29: the selected baseline is one authority and must be pinned once. The fixture moves `master`
+    # deterministically between --stat and the later reads by injecting one line into its private review.ps1.
+    # A mutable implementation produces a split prompt (one.txt in the stat, absent from the body) and also
+    # lets the reviewed HEAD's empty FrozenPaths erase the baseline contract. A pinned implementation keeps
+    # both the comparison and the non-executed baseline-config extraction bound to the original commit.
+    $ts29 = Join-Path $sd 't29'
+    Get-ChildItem $RepoRoot -Force | Where-Object { $_.Name -notin $seedSkip } | Copy-Item -Destination $ts29 -Recurse -Force
+    $cfg29 = Join-Path $ts29 'scripts/_config.ps1'
+    $cmd29 = "[Console]::In.ReadToEnd() | Set-Content (Join-Path `$env:REVIEW_WT 'prompt-capture.txt') -Encoding utf8; '{""verdict"":""pass"",""reasons"":[]}' | Set-Content `$env:REVIEW_OUT -Encoding utf8"
+    $esc29 = $cmd29 -replace "'", "''"
+    $cfgText29 = (Get-Content $cfg29 -Raw).Replace("ReviewCommand = ''", "ReviewCommand = '$esc29'")
+    if (-not $cfgText29.Contains($esc29)) { Fail '闸17t(t29)：capture backend injection missed; baseline prompt assertions would be vacuous.'; $tAllOk = $false }
+    else {
+      Set-Content $cfg29 $cfgText29 -NoNewline -Encoding utf8
+      New-ReviewFixtureRepo $ts29 'feat-t'
+      $baseOid29 = (& git -C $ts29 rev-parse master).Trim()
+      $headCfg29 = Get-Content $cfg29 -Raw
+      $emptyCfg29 = [regex]::Replace($headCfg29, '(?ms)^  FrozenPaths\s*=\s*@\(.*?^  \)\s*$', '  FrozenPaths = @()')
+      if ($emptyCfg29 -eq $headCfg29 -or $emptyCfg29 -notmatch '(?m)^  FrozenPaths\s*=\s*@\(\)\s*$') {
+        Fail '闸17t(t29)：could not clear FrozenPaths only in the reviewed branch; the baseline-vs-worktree control was not created.'
+        $tAllOk = $false
+      } else {
+        Set-Content $cfg29 $emptyCfg29 -NoNewline -Encoding utf8
+        Set-Content (Join-Path $ts29 'one.txt') 'first feature commit' -Encoding utf8
+        & git -C $ts29 -c user.email='t@l' -c user.name='t' add -A 2>$null
+        & git -C $ts29 -c user.email='t@l' -c user.name='t' commit -q -m first *> $null
+        $midOid29 = (& git -C $ts29 rev-parse HEAD).Trim()
+        Set-Content (Join-Path $ts29 'two.txt') 'second feature commit' -Encoding utf8
+        & git -C $ts29 -c user.email='t@l' -c user.name='t' add -A 2>$null
+        & git -C $ts29 -c user.email='t@l' -c user.name='t' commit -q -m second *> $null
+        $rv29 = Join-Path $ts29 'scripts/review.ps1'
+        $reviewText29 = [System.IO.File]::ReadAllText($rv29)
+        $moveAnchor29 = '$diffStatExit = $LASTEXITCODE'
+        $moveLine29 = "& git -C `$WorktreePath branch -f master '$midOid29' 2>`$null"
+        if (($reviewText29.Split($moveAnchor29).Count - 1) -ne 1) {
+          Fail '闸17t(t29)：the --stat boundary anchor is absent or duplicated; the deterministic moving-ref pressure was not installed.'
+          $tAllOk = $false
+        } else {
+          [System.IO.File]::WriteAllText($rv29, $reviewText29.Replace($moveAnchor29, "$moveAnchor29`r`n$moveLine29"), [System.Text.UTF8Encoding]::new($true))
+          $o29 = (& pwsh -NoProfile -File $rv29 -WorktreePath $ts29 -Base master -LocalBase 2>&1 | Out-String)
+          $x29 = $LASTEXITCODE
+          $prompt29Path = Join-Path $ts29 'prompt-capture.txt'
+          $prompt29 = if (Test-Path -LiteralPath $prompt29Path) { Get-Content $prompt29Path -Raw } else { '' }
+          $moved29 = (& git -C $ts29 rev-parse master 2>$null | Out-String).Trim()
+          $bodyStart29 = $prompt29.IndexOf('【本次改动 diff 正文')
+          $body29 = if ($bodyStart29 -ge 0) { $prompt29.Substring($bodyStart29) } else { '' }
+          $frozenMatch29 = [regex]::Match($prompt29, '(?s)【本卡补充的冻结面[^】]*】(?<clause>.*?)【本卡声明')
+          $frozenClause29 = if ($frozenMatch29.Success) { $frozenMatch29.Groups['clause'].Value } else { '' }
+          if ($x29 -ne 0 -or -not $prompt29) {
+            Fail "闸17t(t29)：capture review did not complete cleanly (exit=$x29); no real prompt exists to judge. Output=$o29"
+            $tAllOk = $false
+          }
+          if ($moved29 -ne $midOid29 -or $baseOid29 -eq $midOid29) {
+            Fail "闸17t(t29)：the base ref did not move from $baseOid29 to $midOid29 at the injected boundary; the pin test is vacuous (master=$moved29)."
+            $tAllOk = $false
+          }
+          if ($body29 -notmatch [regex]::Escape('one.txt') -or $body29 -notmatch [regex]::Escape('two.txt')) {
+            Fail '闸17t(t29)：a base ref move between --stat and later reads split one review across commits; the diff body lost one.txt even though the initial comparison included it. Resolve the base ref once and use that OID for every authority read.'
+            $tAllOk = $false
+          }
+          if (-not $frozenMatch29.Success -or $frozenClause29 -notmatch [regex]::Escape('android/core/src/main/kotlin/nz/myinspection/core/backup/format/')) {
+            Fail '闸17t(t29)：the reviewed branch cleared FrozenPaths and removed the baseline frozen contract from its own prompt. Parse FrozenPaths non-executingly from the pinned baseline config; do not use the running worktree config.'
+            $tAllOk = $false
+          }
+        }
       }
     }
     # 17t(doc)：**文档契约**——rubric §5 的状态表须与 review.ps1 实际发出的阻断态状态码一一对应。

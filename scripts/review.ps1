@@ -16,7 +16,7 @@
     `AllPathsMatch`、不落 `NeverPrefixes`、不命中 `NeverPaths`（含 rubric 自身）。它与上一条不矛盾：`-SkipReview`
     是**调用方点名**要跳过，故必须非零；本条纯由 **diff 内容**导出、调用方请求不到。跳过写进裁决的 `routed_skip`
     字段（不扩 verdict 枚举）、控制台哨兵 `[REVIEW-ROUTE-SKIP]`，且只跳过第二模型这一读——确定性闸照跑。
-  - 冻结物清单来自 scripts/_config.ps1 的 FrozenPaths（空则不强调冻结面）。
+  - 冻结物清单从已钉死的基线 scripts/_config.ps1 非执行解析 FrozenPaths（基线无配置时才回退当前配置）。
   - 模型无关（L26）：默认实现是 codex；设 _config.ps1 ReviewCommand 即可换任意后端
     （其须读 stdin 的 prompt、把裁决 JSON 写到 $env:REVIEW_OUT）。
 
@@ -145,15 +145,16 @@ function New-VerdictAxis([string]$axisVerdict, [string[]]$axisReasons) {
 #     verdict becomes the WORSE of the two, and the top-level reasons become both lists behind an axis
 #     prefix. Nothing is reranked and no finding is dropped: the whole point of the split is that one axis
 #     cannot mask the other, which a single merged list is exactly what does.
-#   - ANYTHING ELSE - no `axes`, or only one of the two, which is what a ReviewCommand backend that never
-#     learned the field emits - => both axes carry the TOP-LEVEL verdict and the top-level fields are left
-#     untouched. An unsplit block is a block on both questions; reading it as a spec pass would be the one
-#     direction that buys a cheaper answer from an older backend.
+#   - NO `axes` => both axes carry the TOP-LEVEL verdict and the top-level fields are left untouched. That
+#     preserves every ReviewCommand backend written before the split.
+#   - PARTIAL `axes` => a present half is read, a missing half inherits the top-level decision, and the fold
+#     still takes the worst of all three. A partially upgraded backend cannot erase the blocking half it did
+#     emit, while absence of the whole optional field remains byte-compatible.
 function Get-VerdictAxes($parsedVerdict, [string]$topVerdict, [string[]]$topReasons) {
   $node = $null
-  if ($parsedVerdict -and ($parsedVerdict.PSObject.Properties.Name -contains 'axes')) { $node = $parsedVerdict.axes }
-  $hasBoth = $node -and ($node.PSObject.Properties.Name -contains 'spec') -and ($node.PSObject.Properties.Name -contains 'standards') -and $node.spec -and $node.standards
-  if (-not $hasBoth) {
+  $hasAxes = $parsedVerdict -and ($parsedVerdict.PSObject.Properties.Name -contains 'axes') -and $null -ne $parsedVerdict.axes
+  if ($hasAxes) { $node = $parsedVerdict.axes }
+  if (-not $hasAxes) {
     $fallback = [ordered]@{}
     $fallback['spec'] = New-VerdictAxis $topVerdict $topReasons
     $fallback['standards'] = New-VerdictAxis $topVerdict $topReasons
@@ -168,8 +169,11 @@ function Get-VerdictAxes($parsedVerdict, [string]$topVerdict, [string[]]$topReas
     New-VerdictAxis $av $ar
   }
   $axes = [ordered]@{}
-  $axes['spec'] = & $read $node.spec
-  $axes['standards'] = & $read $node.standards
+  $nodeProperties = @($node.PSObject.Properties.Name)
+  $hasSpec = ($nodeProperties -contains 'spec') -and $null -ne $node.spec
+  $hasStandards = ($nodeProperties -contains 'standards') -and $null -ne $node.standards
+  $axes['spec'] = if ($hasSpec) { & $read $node.spec } else { New-VerdictAxis $topVerdict $topReasons }
+  $axes['standards'] = if ($hasStandards) { & $read $node.standards } else { New-VerdictAxis $topVerdict $topReasons }
   # THE TOP-LEVEL VERDICT IS AN INPUT TO THE FOLD, NOT ONLY ITS OUTPUT. Folding the two axes ALONE would
   # let an additive, producer-side field decide approval in the one direction nothing else in this file
   # allows: a backend emitting {"verdict":"block", axes:{spec:pass, standards:pass}} and exiting 0 would
@@ -337,6 +341,29 @@ function Publish-ReviewOutcome {
   }
 }
 
+# FrozenPaths is part of the standard applied to the reviewee, so read it from the same immutable baseline
+# as the rubric and diff. Parse the baseline source as data: never dot-source or evaluate reviewed config.
+# A baseline that predates _config.ps1 (or whose config cannot be parsed) preserves the established worktree
+# fallback; a present config with no FrozenPaths key is an authoritative empty list.
+function Get-BaselineFrozenPaths {
+  param(
+    [Parameter(Mandatory)][string]$GitDir,
+    [Parameter(Mandatory)][string]$BaseOid
+  )
+  $cfgText = (& git -C $GitDir show "${BaseOid}:scripts/_config.ps1" 2>$null | Out-String)
+  if ([string]::IsNullOrWhiteSpace($cfgText)) { return $null }
+  $ptoks = $null; $perrs = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($cfgText, [ref]$ptoks, [ref]$perrs)
+  if ($perrs -and $perrs.Count -gt 0) { return $null }
+  $pair = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true) |
+    ForEach-Object { $_.KeyValuePairs } |
+    Where-Object { ($_.Item1 -is [System.Management.Automation.Language.StringConstantExpressionAst]) -and ($_.Item1.Value -ceq 'FrozenPaths') } |
+    Select-Object -First 1
+  if (-not $pair) { return , @() }
+  $vals = @($pair.Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) | ForEach-Object { $_.Value })
+  return , $vals
+}
+
 # ── 基线分支：默认自动探测，绝不硬编码 main（治 review 在 master-默认仓 diff 空 → 空评审的隐患）──
 if (-not $Base) {
   $head = (& git -C $WorktreePath symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
@@ -364,6 +391,16 @@ if (-not $baseRef) {
   Write-Host "裁决: block（基线 '$Base' 无法解析）" -ForegroundColor Red
   exit 1
 }
+# Resolve the selected ref exactly once. Every authority-bearing read below uses this commit OID, so a
+# concurrent fetch or branch update cannot split one review across different baselines.
+$baseOid = (& git -C $WorktreePath rev-parse --verify "${baseRef}^{commit}" 2>$null | Out-String).Trim()
+$baseOidExit = $LASTEXITCODE
+if ($baseOidExit -ne 0 -or $baseOid -notmatch '^[0-9a-fA-F]{40}$') {
+  Write-Verdict 'block' @("Resolved review baseline '$baseRef' could not be pinned to a commit OID; refusing a mutable or unreadable baseline.") -runStatus 'tool_error'
+  Write-Host "裁决: block（基线 $baseRef 无法钉到不可变提交）" -ForegroundColor Red
+  exit 1
+}
+$baseOid = $baseOid.ToLowerInvariant()
 # 本地同名分支落后于远端时显式提示（不阻断——基线已改用 origin/<base>，范围本就正确；提示只为让人察觉本地 ref 该 ff 了）。
 if ($baseRef -ne $Base) {
   & git -C $WorktreePath rev-parse --verify --quiet "$Base" 1>$null 2>$null
@@ -426,22 +463,23 @@ if (-not $reviewCmd -and -not (Get-Command codex -ErrorAction SilentlyContinue))
 # `fatal: ... no merge base`，stdout 为空。_encoding.ps1 刻意把 $PSNativeCommandUseErrorActionPreference 设为 $false
 # （顶层原生命令按退出码判、不抛），所以这里**不会**抛异常——不显式检查的话，评审者会收到一份**空 diff**，
 # 在「什么都没看到」的情况下给出 pass（fail-open）。故先验共同祖先，再逐个 diff 调用查退出码。
-$mergeBase = (& git -C $WorktreePath merge-base "$baseRef" HEAD 2>$null | Out-String).Trim()
+$mergeBase = (& git -C $WorktreePath merge-base $baseOid $sha 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $mergeBase) {
-  Write-Verdict 'block' @("Review baseline '$baseRef' and HEAD share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.") -runStatus 'tool_error'
-  Write-Host "裁决: block（基线 $baseRef 与 HEAD 无共同祖先，无法算 diff）" -ForegroundColor Red
+  Write-Verdict 'block' @("Pinned review baseline '$baseOid' (resolved from '$baseRef') and captured HEAD '$sha' share no merge base (unrelated histories): the comparison diff cannot be computed. Blocking (fail-closed) — an empty diff would let the reviewer pass without seeing any change. Pass an explicit -Base, or fetch/repair the baseline.") -runStatus 'tool_error'
+  Write-Host "裁决: block（已钉死基线 $baseOid〔源引用 $baseRef〕与已捕获 HEAD $sha 无共同祖先，无法算 diff）" -ForegroundColor Red
   exit 1
 }
-$diff = (& git -C $WorktreePath -c core.quotepath=false diff "$baseRef...HEAD" --stat | Out-String).Trim()
+$comparison = "$baseOid...$sha"
+$diff = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --stat | Out-String).Trim()
 $diffStatExit = $LASTEXITCODE
-$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff "$baseRef...HEAD" --unified=3 | Out-String) -replace "`r`n", "`n"
+$diffBody = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --unified=3 | Out-String) -replace "`r`n", "`n"
 $diffBodyExit = $LASTEXITCODE
 if ($diffStatExit -ne 0 -or $diffBodyExit -ne 0) {
-  Write-Verdict 'block' @("git diff against baseline '$baseRef' failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.") -runStatus 'tool_error'
+  Write-Verdict 'block' @("git diff against pinned baseline '$baseOid' (resolved from '$baseRef') failed (exit --stat=$diffStatExit, --unified=$diffBodyExit): the reviewer would receive an empty or truncated diff. Blocking (fail-closed) rather than reviewing nothing.") -runStatus 'tool_error'
   Write-Host "裁决: block（git diff 失败：--stat=$diffStatExit / --unified=$diffBodyExit）" -ForegroundColor Red
   exit 1
 }
-$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff "$baseRef...HEAD" --numstat | Out-String)
+$diffNumstat = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --numstat | Out-String)
 if ($LASTEXITCODE -ne 0) {
   Write-Verdict 'block' @("git diff --numstat against baseline '$baseRef' failed: review size is unknown, so this run blocks fail-closed.") -runStatus 'tool_error'
   exit 1
@@ -482,7 +520,7 @@ $changedPaths = @()
 # so renaming docs/QUALITY-RUBRIC.md hides the never-path this list exists to catch. Off, the same rename
 # appears as a delete of the old path plus an add of the new, and both are seen. The set only ever grows,
 # which is the safe direction for every consumer here: more paths can only make a skip LESS likely.
-$namesRaw = (& git -C $WorktreePath -c core.quotepath=false diff "$baseRef...HEAD" --name-only --no-renames | Out-String)
+$namesRaw = (& git -C $WorktreePath -c core.quotepath=false diff $comparison --name-only --no-renames | Out-String)
 if ($LASTEXITCODE -eq 0) { $changedPaths = @($namesRaw -split '\r?\n' | Where-Object { $_.Trim() }) }
 # Availability guard, the same reasoning gate 17z applies to the _config accessors: a half-upgraded
 # checkout carrying an older _guard.ps1 would CommandNotFound here. Failing that way must never SKIP a
@@ -521,7 +559,7 @@ if (-not $Effort -and (Get-Command Resolve-ScaffoldReviewEffort -ErrorAction Sil
   $bySize = if ($ScaffoldConfig.ContainsKey('ReviewEffortBySize') -and $ScaffoldConfig.ReviewEffortBySize) { $ScaffoldConfig.ReviewEffortBySize } else { @{} }
   if ($bySize.Count -gt 0) {
     $changedLines = 0
-    foreach ($ln in ((& git -C $WorktreePath diff "$baseRef...HEAD" --numstat | Out-String) -split '\r?\n')) {
+    foreach ($ln in ((& git -C $WorktreePath diff $comparison --numstat | Out-String) -split '\r?\n')) {
       if ($ln -match '^(\d+)\s+(\d+)\s') { $changedLines += [int]$Matches[1] + [int]$Matches[2] }
     }
     $sized = Resolve-ScaffoldReviewEffort -ChangedLines $changedLines -Config $bySize
@@ -543,16 +581,15 @@ if (-not $Effort -and (Get-Command Resolve-ScaffoldReviewEffort -ErrorAction Sil
 # card - the ship's scope gate, the computed tier, the arbitration ruling - reads the base copy, so a reviewer
 # reading the branch copy judges a DIFFERENT text: a ruling or an amendment landed on the base stayed
 # invisible until the branch merged it, and the round in between repeated the previous verdict verbatim
-# (measured on T279/T284/T285/T287, one frozen-tree acceptance each). Read from $baseRef, the same pinned
-# base the rubric below comes from, and peeled to a commit sha so the announcement below can name the exact
-# commit the reviewer's copy came from - a ref name alone would not tell a later reader which commit that was.
+# (measured on T279/T284/T285/T287, one frozen-tree acceptance each). Read from $baseOid, the same immutable
+# commit the diff and rubric use, so a ref move during this process cannot split the authority surfaces.
 # NOT the ship's own `$scopeBaseSha`, deliberately: this script is invoked standalone as often as from a ship,
 # so it must resolve its own baseline, and the card must come from the SAME baseline as the rubric and the
 # diff it is judged beside - a card read at one commit and a diff computed at another would be a third split,
 # not a repair of this one. Threading the ship's pinned sha in would change what review.ps1 is asked for and
 # who may ask it, which this card's `forbid` rules out; it is a separate change to task.ps1's call, not this one.
 $cardRel = "specs/tasks/$branchSafe.md"
-$cardBaseSha = (& git -C $WorktreePath rev-parse --verify --quiet "${baseRef}^{commit}" 2>$null | Out-String).Trim()
+$cardBaseSha = $baseOid
 $card = ''
 # Provenance, not just content (T301): the tier dial below may only read a card the BASELINE has, so which
 # copy won has to survive past this block as a fact rather than be re-derived from $card being non-empty.
@@ -736,20 +773,30 @@ if ($intensityClass -eq 'advisory') {
   Write-Host "  [R3-FOLLOWUP] class 'advisory' (T301): this is ONE pass, $effortNote. A further round is VOLUNTARY - findings you do not fix belong in a [FOLLOW-UP] card, not in an unbounded review loop." -ForegroundColor DarkGray
 }
 
-# Frozen-contract list: taken from the running _config.ps1 (worktree value). Empty => no frozen clause.
-$frozen = @($ScaffoldConfig.FrozenPaths)
+# The frozen-contract list is a review standard, so parse it from the already pinned baseline without
+# executing that config. Only a baseline that predates or cannot parse _config.ps1 falls back to the running
+# config; an explicitly empty baseline list stays authoritative.
+$frozenFromBase = Get-BaselineFrozenPaths -GitDir $WorktreePath -BaseOid $baseOid
+if ($null -ne $frozenFromBase) {
+  $frozen = @($frozenFromBase)
+  $frozenSrc = "base:$baseOid"
+} else {
+  $frozen = @($ScaffoldConfig.FrozenPaths)
+  $frozenSrc = 'worktree (baseline config unavailable; fallback)'
+}
+Write-Host "冻结面来源：$frozenSrc" -ForegroundColor DarkGray
 $frozenClause = if ($frozen.Count -gt 0) {
   "- 触碰冻结契约/ schema（" + ($frozen -join ' / ') + "）的签名/字段而未走版本评审。`n"
 } else { '' }
 
 # 评审 rubric（权威来源 docs/QUALITY-RUBRIC.md）。注入判定标准，避免「自由心证」与「自我开脱」（见该文件 §0）。
-# 评审者完整性：rubric 是「判 reviewee 的标准」，故**从基线读**（git show $baseRef:…，优先 origin/<base>），不读工作树副本——
+# 评审者完整性：rubric 是「判 reviewee 的标准」，故**从已钉死基线读**，不读工作树副本——
 # 否则 reviewee 能在被审分支就地改 docs/QUALITY-RUBRIC.md 削弱评判自己的标准（提示注入硬化只挡正文文本，挡不住「标准本身被换掉」）。
 # 回退：基线无该文件时（新项目首卡 / rubric 尚未并入基线）才退回工作树副本——此时尚无「既有标准」可被削弱。
 # fail-closed：两处都取不到 => 评审退化为无标准的「自由心证」=> 直接 block（不静默放行）。
 $rubric = ''
-try { $rubric = (& git -C $WorktreePath show "${baseRef}:docs/QUALITY-RUBRIC.md" 2>$null | Out-String).Trim() } catch { $rubric = '' }
-$rubricSrc = "base:$baseRef"
+try { $rubric = (& git -C $WorktreePath show "${baseOid}:docs/QUALITY-RUBRIC.md" 2>$null | Out-String).Trim() } catch { $rubric = '' }
+$rubricSrc = "base:$baseOid"
 if (-not $rubric) {
   $rubricPath = Join-Path $WorktreePath 'docs/QUALITY-RUBRIC.md'
   if (Test-Path $rubricPath) { $rubric = (Get-Content $rubricPath -Raw).Trim(); $rubricSrc = 'worktree (基线无此文件，回退)' }
