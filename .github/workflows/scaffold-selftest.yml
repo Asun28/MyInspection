@@ -28,7 +28,8 @@ on:
   # product work - 8 shards in front of every card, inherited by every downstream repo via TD15.
   # Coverage now rides the push side (post-hoc detection layer, same stance as ci.yml's header), the
   # nightly schedule above and workflow_dispatch on demand; a card's merge-time CI acceptance is ci.yml's
-  # `verify` job, and the full 17-gate face stays mandatory LOCALLY (no-arg / -Parallel selftest) before ship.
+  # `required` fan-in over verify and the other jobs; the full 17-gate face stays mandatory LOCALLY
+  # (no-arg / -Parallel selftest) before Tier-S ship.
   # Selftest gate 8.2d locks this shape in BOTH directions - re-adding `pull_request:` here turns it red.
   # T192 (upstream #275): optional, VALIDATED filters for manual diagnosis runs. Both default to `all`, so
   # an unfiltered dispatch still expands the full matrix and the cost of "just run it" does not change.

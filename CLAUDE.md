@@ -464,7 +464,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   规则集要求 `required`（CI fan-in）+`codex-review` 双绿；本项目 `ReviewGate='required'` 同时由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；必需检查 `required` 汇总 `verify` 等所有 CI 作业，`codex-review` 是独立 R3 状态。`scaffold-selftest.yml` 仅默认分支 push/手动 canary，每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，拆掉超 20 分钟单片而不减覆盖（8.2d/8.2e 锁死）。元层改动合并前仍须本地全量 selftest，另由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；必需检查 `required` 汇总 `verify` 等所有 CI 作业，`codex-review` 是独立 R3 状态。`scaffold-selftest.yml` 跑默认分支 push、每日定时和手动 canary，不在 PR 上运行；两种 OS 的分片及超时以该文件矩阵为准，并集覆盖完整 17 闸（8.2d/8.2e/8.2h 校验）。元层改动合并前仍须本地全量 selftest，另由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -503,7 +503,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流自检**：`pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片；任务卡可选单片作 DoD。
+- **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
   显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
