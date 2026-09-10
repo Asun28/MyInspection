@@ -8978,12 +8978,69 @@ if (-not $nFail) { Write-Host "  [SELFTEST-L86-DOC-SUMMARY] checked=$l86Checked 
 #   源码级词法断言（同 17p2 手法：断言位于对应块内、不能被文件任意位置的哨兵满足）；实现前三条断言均 RED（防 vacuous）。
 $p15Fail = $false
 $tp15p = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
-# 代码级断言（R3 #6：铸造 site 的注释本身含哨兵，凑「距离内出现哨兵」的正则会被「删代码留注释」满足）——
-# 剥整行注释后，要求两处合并成功调用点之后各出现一次**具体的 token 写盘操作**（Set-Content 到 <tokDir>/<TaskId>）。
-$tpCode15p = (($tp15p -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
-if ($tpCode15p -notmatch '(?s)merge --no-ff --no-edit \$TaskId.{0,1500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：-Local 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）——cleanup 删除点失去「已合并」机检信号。'; $p15Fail = $true }
-if ($tpCode15p -notmatch '(?s)gh pr merge \$pr --squash.{0,2500}?"tip=.{0,400}?Set-Content \(Join-Path \$tokDir \$TaskId\)') { Fail '闸15p：PR squash 合并成功路径之后无含 tip 载荷的 token 写盘操作（代码级，注释不算；R3 #17 tip 绑定）。'; $p15Fail = $true }
-if ($tpCode15p -notmatch "(?s)gh pr merge \`$pr --squash.{0,2500}?-ine 'MERGED'") { Fail '闸15p：远端铸造前未按 state 门禁（gh pr merge exit 0 ≠ 已合并——auto-merge/队列仅入队时不得铸凭据，R3 r5 #17）。'; $p15Fail = $true }
+# Locate the actual merge statement and token pipeline in the SAME statement block. Comments, code in
+# another branch, and a token written before a successful merge/state guard cannot satisfy this oracle.
+function Test-15pTokenFlow([string]$Source, [string]$Kind) {
+  $parseErrors = $null; $ast = [System.Management.Automation.Language.Parser]::ParseInput($Source, [ref]$null, [ref]$parseErrors)
+  if ($parseErrors.Count) { return $false }
+  $mergeName = if ($Kind -ceq 'local') { 'git' } else { 'Invoke-GhBeforeDeadline' }
+  $mergePattern = if ($Kind -ceq 'local') { '^& git -C \$RepoRoot merge --no-ff --no-edit \$r3Head$' } else { '^Invoke-GhBeforeDeadline -Arguments @\(''pr'',''merge'',"\$pr",''--squash'',''--match-head-commit'',\$ciHead\)' }
+  $merges = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq $mergeName -and $n.Extent.Text -cmatch $mergePattern }, $true))
+  if ($merges.Count -ne 1) { return $false }
+  $mergeStatement = $merges[0]
+  while ($mergeStatement.Parent -and $mergeStatement.Parent -isnot [System.Management.Automation.Language.StatementBlockAst]) { $mergeStatement = $mergeStatement.Parent }
+  if ($mergeStatement.Parent -isnot [System.Management.Automation.Language.StatementBlockAst]) { return $false }
+  $statements = @($mergeStatement.Parent.Statements)
+  $mergeIndex = [array]::IndexOf($statements, $mergeStatement)
+  $writeIndex = -1; $exitIndex = -1; $stateIndex = -1; $mergedIndex = -1; $tipIndex = -1
+  $exitCondition = if ($Kind -ceq 'local') { '$LASTEXITCODE -ne 0' } else { '$mergeRun.ExitCode -ne 0' }
+  for ($i = $mergeIndex + 1; $i -lt $statements.Count; $i++) {
+    $statement = $statements[$i]
+    if ($statement -is [System.Management.Automation.Language.IfStatementAst] -and $statement.Clauses.Count -eq 1) {
+      $condition = $statement.Clauses[0].Item1.Extent.Text
+      $body = @($statement.Clauses[0].Item2.Statements)
+      if ($body.Count -eq 1 -and $body[0] -is [System.Management.Automation.Language.ThrowStatementAst]) {
+        if ($condition -ceq $exitCondition) { $exitIndex = $i }
+        if ($condition -ceq '($mintState -ine ''MERGED'') -or (-not $mintTip)') { $stateIndex = $i }
+      }
+    }
+    if ($statement -is [System.Management.Automation.Language.AssignmentStatementAst]) {
+      if ($statement.Left.Extent.Text -ceq '$sagaLocalMerged' -and $statement.Right.Extent.Text -ceq '$true') { $mergedIndex = $i }
+      if ($statement.Left.Extent.Text -ceq '$mintTip' -and @($statement.Right.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'git' -and $n.Extent.Text -cmatch '^& git -C \$RepoRoot rev-parse HEAD\^2(?:\s|$)' }, $true)).Count -eq 1) { $tipIndex = $i }
+    }
+    if ($statement -is [System.Management.Automation.Language.PipelineAst] -and $statement.PipelineElements.Count -eq 2) {
+      $payload = $statement.PipelineElements[0]; $writer = $statement.PipelineElements[1]
+      if ($payload -is [System.Management.Automation.Language.CommandExpressionAst] -and $payload.Expression -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and $payload.Expression.Extent.Text -cmatch '^"tip=\$mintTip`n' -and $writer -is [System.Management.Automation.Language.CommandAst] -and $writer.GetCommandName() -ceq 'Set-Content' -and $writer.Extent.Text -cmatch '^Set-Content \(Join-Path \$tokDir \$TaskId\)(?:\s|$)') { $writeIndex = $i; break }
+    }
+  }
+  if ($writeIndex -lt 0 -or $exitIndex -le $mergeIndex -or $exitIndex -ge $writeIndex) { return $false }
+  if ($Kind -ceq 'local') { return $mergedIndex -gt $exitIndex -and $tipIndex -gt $mergedIndex -and $tipIndex -lt $writeIndex }
+  return $stateIndex -gt $exitIndex -and $stateIndex -lt $writeIndex
+}
+if (-not (Test-15pTokenFlow $tp15p 'local')) { Fail '15p: local token must follow successful reviewed-SHA merge and carry HEAD^2 tip in its actual write pipeline.'; $p15Fail = $true }
+if (-not (Test-15pTokenFlow $tp15p 'remote')) { Fail '15p: remote token must follow successful deadline merge and an actual MERGED/nonempty-tip refusal guard in the same block.'; $p15Fail = $true }
+# These source variants remain syntactically valid: a parse failure or an unchanged seed is a setup error,
+# never evidence that the token invariant rejected it. Exercise the exact same oracle as the live source.
+$stateLine15p = [regex]::Match($tp15p, '(?m)^[ \t]*if \(\(\$mintState -ine ''MERGED''\).*$').Value
+$writeLine15p = [regex]::Match($tp15p, '(?m)^[ \t]*"tip=\$mintTip`nmerged_pr=.*$').Value
+if (-not $stateLine15p -or -not $writeLine15p) { Fail '15p mutation setup: remote state/write statements missing.'; $p15Fail = $true }
+else {
+  $variants15p = @(
+    @{ Name='local-tip'; Kind='local'; Text=$tp15p.Replace('rev-parse HEAD^2', 'rev-parse HEAD') },
+    @{ Name='local-merge-comment'; Kind='local'; Text=$tp15p.Replace('& git -C $RepoRoot merge --no-ff --no-edit $r3Head', '# & git -C $RepoRoot merge --no-ff --no-edit $r3Head') },
+    @{ Name='remote-payload'; Kind='remote'; Text=$tp15p.Replace('tip=$mintTip`nmerged_pr', 'tip=missing`nmerged_pr') },
+    @{ Name='remote-write-comment'; Kind='remote'; Text=$tp15p.Replace($writeLine15p, ('# ' + $writeLine15p)) },
+    @{ Name='remote-guard-comment'; Kind='remote'; Text=$tp15p.Replace($stateLine15p, ('# ' + $stateLine15p)) },
+    @{ Name='remote-wrong-state'; Kind='remote'; Text=$tp15p.Replace('$mintState -ine', '$otherState -ine') },
+    @{ Name='remote-state-after-write'; Kind='remote'; Text=$tp15p.Replace($stateLine15p, '').Replace($writeLine15p, ($writeLine15p + "`n" + $stateLine15p)) }
+  )
+  foreach ($variant15p in $variants15p) {
+    $errors15p = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($variant15p.Text, [ref]$null, [ref]$errors15p)
+    if ($variant15p.Text -ceq $tp15p -or $errors15p.Count) { Fail "15p mutation setup failed: $($variant15p.Name)."; $p15Fail = $true }
+    elseif (Test-15pTokenFlow $variant15p.Text $variant15p.Kind) { Fail "15p token oracle accepted seeded defect $($variant15p.Name)."; $p15Fail = $true }
+  }
+}
+
 $cl15p = [regex]::Match($tp15p, "(?s)'cleanup'\s*\{.*").Value
 if (-not $cl15p) { Fail '闸15p：task.ps1 找不到 cleanup 相位块（结构漂移？）。'; $p15Fail = $true }
 else {
