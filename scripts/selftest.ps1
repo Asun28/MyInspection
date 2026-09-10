@@ -15520,7 +15520,16 @@ exit 0
             # source from the scaffold-selftest shard matrix to ci.yml's jobs; the property under test is
             # unchanged - derive from the merge candidate tree, never from the base checkout.
             $xYml = Join-Path $fxX.Wt '.github/workflows/ci.yml'
-            (Get-Content $xYml -Raw) -replace '(?m)^  verify:', '  verify-renamed:' | Set-Content $xYml -Encoding utf8 -NoNewline
+            # A valid rename also rewires the fan-in dependency; leaving needs:[verify] is a separate
+            # negative contract case, not a successful candidate-tree rename.
+            $xText = (Get-Content $xYml -Raw) -replace '(?m)^  verify:', '  verify-renamed:'
+            $xText = $xText -replace '(?m)^    needs:\s*\[verify\][ \t]*\r?$', '    needs: [verify-renamed]'
+            if ([regex]::Matches($xText, '(?m)^  verify-renamed:').Count -ne 1 -or
+                [regex]::Matches($xText, '(?m)^    needs:\s*\[verify-renamed\][ \t]*\r?$').Count -ne 1 -or
+                $xText -match '(?m)^  verify:|^    needs:\s*\[verify\]') {
+              throw 'TD134-CIMATRIX setup: job/dependency rename did not produce the expected fixture.'
+            }
+            Set-Content $xYml $xText -Encoding utf8 -NoNewline
             $jobXExe = Join-Path $fxX.Repo 'scripts/task.ps1'
             $jobX = Start-Job -ScriptBlock { $o = (& pwsh -NoProfile -File $using:jobXExe -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String); [pscustomobject]@{ Out = $o; Exit = $LASTEXITCODE } }
             $jobXDone = Wait-Job $jobX -Timeout 150

@@ -92,8 +92,12 @@ review of the repaired candidate; a block leaves the PR unmerged.
 That additional review returned block on `6c9c1473`: it required a stronger
 shared CI contract, committed behavioral coverage of the review cap and unsafe
 artifact paths, and evidence readable inside the review workspace. Subsequent
-repairs remain part of these integration findings. A further review requires
-separate authorization; neither a successful selftest nor CI substitutes for it.
+repairs remain part of these integration findings. The user then authorized
+parallel DeepSeek V4 Pro PR pre-reviews for cost control, followed by another
+Codex review only when none of those pre-reviews blocks. Full current-candidate
+validation and CI remain required; neither substitutes for the Codex verdict.
+The `e4ea807e` full run exposed a CI rename fixture that left `needs` stale;
+the fixture now renames both job and dependency with explicit setup assertions.
 
 The CI compatibility repair restores the existing fail-closed, exact-path
 SQLDelight tracked-sensitive allowlist adapter in `scripts/check-secrets.ps1`.
