@@ -48,11 +48,7 @@ $script:ScaffoldConfig = @{
   # 留空 '' => 按 OS 自动取默认（Windows: <系统盘>\wt，如 C:\wt；macOS/Linux: ~/.wt）——见 Get-ScaffoldWorktreeRoot。
   # 默认走 $env:SystemDrive（不硬编码 D:），修「单盘机器无 D: → 首次 start 崩」(C02) 与「mac/Linux 吃 D: 盘符」两个可移植性坑。
   # 显式填路径即覆盖自动值。selftest 闸⑮ 按该字段的单引号字面量注入临时根，留空仍可被注入。
-  # T217: set explicitly for THIS machine. `C:\wt` is shared with other repos here (a MyInspection
-  # worktree appeared in it mid-session while ~130 directories were swept away, twice deleting a live
-  # worktree out from under a running card), and C: sits at ~10 GB free. The DEFAULT above is unchanged
-  # and still right for downstream: leave this empty and you get <SystemDrive>\wt / ~/.wt.
-  WorktreeRoot = 'D:\wt'
+  WorktreeRoot = ''
 
   # ── 冻结物（一等资产）：契约 / schema 一旦冻结，演进须走版本评审 ──
   # guard-frozen 钩子(PreToolUse)与 review.ps1 据此拒绝就地编辑这些文件。
