@@ -12065,7 +12065,8 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
 
     # 17k. remote-ship no-review-backend fail-fast (TD22-C23): strip codex from PATH + force an empty
     #   ReviewCommand, run -Phase ship (non-Local) — it must throw SHIP-NO-REVIEWER with the three
-    #   remedies (install codex / set ReviewCommand / -Phase ship -Local) BEFORE commit/push/PR;
+    #   remedies (install codex / set ReviewCommand / explicitly choose advisory policy) BEFORE commit/push/PR;
+    #   -Local must not be offered as a bypass of required review (the real local no-merge control is 15b').
     #   otherwise it dies at the review gate only after push + open PR, leaving a half-merged remote
     #   branch. Assertions: non-zero exit, SHIP-NO-REVIEWER + remedies present, and NEITHER the
     #   "commit changes" nor the "push + open PR" step banner appeared (proves the fail-fast precedes
@@ -12115,7 +12116,8 @@ ReviewCommand = '$t = [Console]::In.ReadToEnd(); $t | Set-Content -Path ($env:RE
         $kTail = ($kOut -replace '\s+', ' ').Trim(); if ($kTail.Length -gt 260) { $kTail = $kTail.Substring($kTail.Length - 260) }
         if ($kExit -eq 0) { Fail '种子缺陷 17k：PATH 无 codex + 空 ReviewCommand 下远端 ship 仍退出 0——「无评审后端」fail-fast 回归（TD22-C23）。' }
         elseif ($kOut -notmatch 'SHIP-NO-REVIEWER') { Fail "Seed defect 17k: a remote ship without a review backend did not throw the SHIP-NO-REVIEWER fail-fast (failed at some other gate instead? output tail=$kTail)." }
-        elseif (($kOut -notmatch 'codex') -or ($kOut -notmatch 'ReviewCommand') -or ($kOut -notmatch 'ship -Local')) { Fail 'Seed defect 17k: the SHIP-NO-REVIEWER message is missing one of the three remedies (install codex / set ReviewCommand in _config / use -Phase ship -Local).' }
+        elseif (($kOut -notmatch 'codex') -or ($kOut -notmatch 'ReviewCommand') -or ($kOut -notmatch 'ReviewGate') -or ($kOut -notmatch 'advisory')) { Fail 'Seed defect 17k: SHIP-NO-REVIEWER must name the backend remedies and the explicit ReviewGate advisory policy choice.' }
+        elseif ($kOut -match 'ship -Local') { Fail 'Seed defect 17k: SHIP-NO-REVIEWER must not suggest bypassing required review with -Local.' }
         elseif (($kOut -match '\] commit changes ===') -or ($kOut -match 'push \+ open PR')) { Fail 'Seed defect 17k: SHIP-NO-REVIEWER was thrown only after the commit/push steps - the fail-fast is not front-loaded, half-merged-state regression (TD22-C23).' }
         else { Write-Host '  17k 远端 ship 无评审后端 → 提交/push 前 fail-fast（含三条补救）OK' -ForegroundColor Green }
       }
