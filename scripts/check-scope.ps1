@@ -7,8 +7,8 @@
   ship 的范围闸（task.ps1）与本脚本共用同一枚判定核 scripts\_scope.ps1——本脚本不是「第二实现」，
   它只是那枚核的第二个入口（TD93 item①；双实现漂移的教训见 _scope.ps1 / _gitbase.ps1 头注）。
 
-  存在的理由：`docs\DEVOPS-WORKFLOW.md`「任何已 push 状态的手工恢复」是**绕过 ship 主路**的最后手段平面，
-  而 CI 没有范围闸（TD89 根因）——那条序列里的范围核对此前是散文（人眼比对 git diff 输出，没有退出码）。
+  存在的理由：`docs\DEVOPS-WORKFLOW.md`「任何已 push 状态的手工恢复」需要独立的诊断/人工自查平面，
+  而 CI 没有范围闸（TD89 根因）——那条序列里的范围核对此前是散文（人眼比对 git diff 输出，没有退出码）。本命令不构成交付旁路：最终交付仍须重入 `task.ps1 -Phase ship`，共用 R3、候选 CI 的精确身份/终局快照和 merge 路径。
 
   退出码（fail-closed）：
     0 = 全部改动 ∈ 卡 allow_paths。

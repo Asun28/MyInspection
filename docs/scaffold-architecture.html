@@ -404,7 +404,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>范围闸 <span class="file">_scope.ps1 · check-scope.ps1</span></h3>
-              <p>改动是否全在卡 allow_paths 内：段级前缀匹配（非字符前缀）、含通配符的 allow 条目字面保真、禁改名折叠、CJK 路径不 C-quote；越界与不可判（allow 取不到 / 基线不可解析 / diff 失败）皆 fail-closed。判定核由 ship 内联闸与独立入口 <code>check-scope.ps1</code> 共用——后者给「已推送状态的手工恢复」序列一条有退出码的命令（CI 没有范围闸，那条序列此前只是散文）。</p>
+              <p>改动是否全在卡 allow_paths 内：段级前缀匹配（非字符前缀）、含通配符的 allow 条目字面保真、禁改名折叠、CJK 路径不 C-quote；越界与不可判（allow 取不到 / 基线不可解析 / diff 失败）皆 fail-closed。判定核由 ship 内联闸与独立入口 <code>check-scope.ps1</code> 共用——后者给「已推送状态的手工恢复」一条有退出码的诊断/人工自查命令（CI 没有范围闸，那条序列此前只是散文），不替代交付；最终交付仍重入 <code>task.ps1 -Phase ship</code>，共用 R3、候选 CI 的精确身份/终局快照和 merge 路径。</p>
               <span class="rel-tag">一枚核 · 两个入口</span>
             </div>
           </article>
@@ -659,7 +659,7 @@
         <section class="fstage">
           <div class="fnode run" aria-hidden="true">▶</div>
           <div class="fhead"><span class="fname">task-loop · 开工执行</span><span class="fen">R1-R5 · 每卡一个 agent</span></div>
-          <p class="fbody">并行窗口：每卡一棵 worktree 跑完整闭环（整链 fail-closed：非零即停、不确定即 block）。绕过 ship 主路的手工恢复用 <code>check-scope</code> 补回范围闸那一步。改到 <code>DocSyncMap</code> 登记的源脚本时，配对权威文档须同 diff 更新（selftest 子闸 14f 机检、逃生门 <code>[doc-sync:none]</code>）。</p>
+          <p class="fbody">并行窗口：每卡一棵 worktree 跑完整闭环（整链 fail-closed：非零即停、不确定即 block）。手工恢复中的 <code>check-scope</code> 只作范围诊断/人工自查；最终交付仍重入 ship，共用 R3、候选 CI 的精确身份/终局快照和 merge 路径。改到 <code>DocSyncMap</code> 登记的源脚本时，配对权威文档须同 diff 更新（selftest 子闸 14f 机检、逃生门 <code>[doc-sync:none]</code>）。</p>
           <div class="fchain" aria-label="单卡闭环 R1 到 R5">
             <span class="lnk"><b>R1</b> worktree</span><span class="sep">›</span>
             <span class="lnk"><b>R2</b> TDD · red 证据</span><span class="sep">›</span>
