@@ -121,7 +121,7 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 > #    **fetch / gh 的退出码必须查**：PowerShell 在原生命令失败后会继续往下跑，于是 fetch 失败＝仍拿陈旧
 > #    `origin/<base>` 判（连 allow_paths 都取自陈旧那份卡），gh 失败＝把空串喂给 -ExpectTip 把绑定静默关掉。
 > #    **PR 的 baseRefName 也要核**：只钉 base 的 sha 不够——PR 若被 retarget 到别的基线分支，就会「按 A 判、
-> #    往 B 合」；`--match-head-commit` 只绑 head，绑不到基线。故合并前须再核一次（下方最后手段块）。
+> #    往 B 合」。此处先诊断一次；最终 protected ship 会重新读取并在合并决策前再核 base 名与 OID。
 > git fetch origin <base> <id>; if ($LASTEXITCODE -ne 0) { throw 'fetch 失败：拒绝在陈旧引用上判范围' }
 > $prBase = gh pr view <PR号> --json baseRefName --jq .baseRefName
 > if ($LASTEXITCODE -ne 0 -or $prBase -ne '<base>') { throw "PR 的基线是 '$prBase'、与本次判定的 <base> 不符：拒绝按 A 判往 B 合" }
@@ -152,35 +152,13 @@ pwsh -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Sy
 > pwsh -NoProfile -File scripts\check-secrets.ps1
 > ```
 >
-> **已 push 状态的手工最后手段（TD85-RESUME）**：只有上述全部确定性闸已手工通过后，才可直接 `review.ps1 -PostStatus` 并合并。以下命令本身**不会**重跑 DoD/verify/范围/预算/许可/防泄露，**不得单独使用**：
+> **已 push 状态的手工最后手段（TD85-RESUME）**：上述 DoD/verify/范围/预算/许可/防泄露步骤只用于诊断和修复后自查，不能授权一次裸评审或裸合并。最终交付必须重新进入 `task.ps1 -Phase ship`；这是一次新的受保护流程，会重跑 R3、候选 head 的唯一 `ci.yml` workflow/run-attempt/PR association/exact job set、终局 base/head/OID 快照，并由同一合并腿执行 `--match-head-commit`。`-NoAutoMerge` 只暂停当前调用；晚些时候要交付时执行它打印的 `[SHIP-MANUAL-RESUME]` 命令（刻意不再带 `-NoAutoMerge`）：
 > ```powershell
-> pwsh -NoProfile -File scripts\review.ps1 -WorktreePath <worktree> -Base <base> -PostStatus -PrNumber <PR号>
-> # 合并的必须是上面**范围闸判过的那个** sha（$head 同上一步；--match-head-commit 令 head 变动即拒绝合并）——
-> # 否则「检查过的树」与「被合并的树」可以是两棵。**基线也要在合并前再核一次**：head 没变但 PR 被 retarget
-> # 到别的基线分支时，--match-head-commit 照样放行，结果是「按 A 判、往 B 合」。
-> $prBase2 = gh pr view <PR号> --json baseRefName --jq .baseRefName
-> if ($LASTEXITCODE -ne 0 -or $prBase2 -ne '<base>') { throw "合并前复核：PR 基线已变成 '$prBase2'，拒绝合并" }
-> # 基线**名**没变还不够：同一条 base 分支若在判定之后前移，name 与 head 都仍合法，但合并落到的是**新基线**，
-> # 而 allow_paths 取自基线那份卡——判定所依据的标准可能已经变了。故合并前必须复核基线 **OID** 未前移。
-> git fetch origin <base>; if ($LASTEXITCODE -ne 0) { throw '合并前复核：fetch 失败，拒绝合并' }
-> $baseOid2 = git -C <被审工作树> rev-parse refs/remotes/origin/<base>
-> if ($baseOid2 -ne $baseOid) { throw "合并前复核：基线已前移（$baseOid -> $baseOid2），判定依据的 allow_paths 可能已变——回到第 1 步重跑全部确定性闸后再合" }
-> # Pre-merge CI check (TD134): the CI acceptance surface must be green on the pinned $head before a
-> # manual merge - the ship pipeline's CI check gate enforces this on both its paths (auto and
-> # -NoAutoMerge), and this recipe must not be the one plane that skips it. T86: what has to be green is
-> # ci.yml's ONE fan-in context, `required` (see "CI fan-in contract" below) - it is the job that fails
-> # unless every other job succeeded, so a single literal SUCCESS on it is the whole acceptance surface.
-> # Adding a job to ci.yml does NOT change this line; wiring the new job into `required`'s needs: does.
-> # ADR 0007: scaffold-selftest no longer triggers on pull_request, so its 2 x 5 shards are NOT part of a
-> # PR's check set - do not wait for them. NOTE: the meta-layer 17 gates are NOT proven by this check; on
-> # a diff that touches scripts/hooks/workflows you must have a green local full selftest before merging
-> # by hand.
-> $ciOk = gh pr checks <PR号> --json name,state --jq '[.[] | select(.name == "required" and .state == "SUCCESS")] | length'
-> if ($LASTEXITCODE -ne 0 -or [int]$ciOk -lt 1) { throw "pre-merge CI check: ci.yml's required fan-in context is not green on this head - fix/rerun CI first, refuse manual merge" }
-> gh pr merge <PR号> --squash --match-head-commit $head
+> pwsh -NoProfile -File scripts\task.ps1 -TaskId <id> -Phase ship -Base <base>
+> if ($LASTEXITCODE -ne 0) { throw 'protected ship resume failed; preserve the worktree/PR and do not cleanup' }
 > pwsh -File scripts\task.ps1 -TaskId <id> -Phase cleanup
 > ```
-> （`-SkipRed` is a compat no-op since T68 — it changes nothing and is never part of any recovery recipe.）
+> （`-SkipRed` is a compat no-op since T68：恢复无需新增它；接续命令若保留调用者原本绑定的 `-SkipRed`，也不获得任何绕过或额外语义。）
 >
 > **别用 `cleanup`「重来」**：它会拆 worktree、丢掉已实现改动，只在**已合并后**收尾。cleanup 删本地分支须 T24 凭据 / gh 在线复验（PR=MERGED 且 headRefOid==本地 tip）/ `-Force` 三信号之一；皆无或 tip 不匹配即 fail-safe 保留分支（机检 selftest 15p/15h4）。残留 merged worktree 由心跳 `worktree-orphan` 探针兜底发现。
 

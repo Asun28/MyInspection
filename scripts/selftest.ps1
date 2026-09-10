@@ -10321,19 +10321,27 @@ if (-not $gitS) {
     $rcvDoc = Get-Content (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
     $rcvGuards = @(
       @{ Name = '判定前核 baseRefName'; Pat = '(?m)^>\s*if \(\$LASTEXITCODE -ne 0 -or \$prBase -ne .+\{ throw' },
-      @{ Name = '合并前复核 baseRefName'; Pat = '(?m)^>\s*if \(\$LASTEXITCODE -ne 0 -or \$prBase2 -ne .+\{ throw' },
-      @{ Name = '合并前复核基线 OID 未前移'; Pat = '(?m)^>\s*if \(\$baseOid2 -ne \$baseOid\) \{ throw' },
-      # TD134: the manual last-resort plane must verify CI on the pinned head before gh pr merge —
-      # same executable-command discipline as the rest (a prose mention of CI does not count).
-      @{ Name = 'pre-merge CI check (TD134)'; Pat = '(?m)^>\s*if \(\$LASTEXITCODE -ne 0 -or \[int\]\$ciOk -lt .+\{ throw' },
-      @{ Name = '合并绑 head'; Pat = '(?m)^>\s*gh pr merge .*--match-head-commit' },
+      # Codex r5: deterministic diagnostics may stay manual, but final delivery must re-enter task ship so
+      # workflow/run-attempt/PR/jobs identity and the final base/head snapshots remain one shared contract.
+      @{ Name = '受保护的最终交付接续'; Pat = '(?m)^>\s*pwsh -NoProfile -File scripts\\task\.ps1 -TaskId <id> -Phase ship -Base <base>\s*$' },
+      @{ Name = '接续非零阻断 cleanup'; Pat = '(?m)^>\s*if \(\$LASTEXITCODE -ne 0\) \{ throw ''protected ship resume failed; preserve the worktree/PR and do not cleanup'' \}\s*$' },
       # check-scope 之后必须**立刻**查退出码：PowerShell 原生命令非零不中断，而紧随其后的说明用 git 命令
       # 一执行就会把 $LASTEXITCODE 覆盖掉，BLOCK 遂被后续 review/merge 当成没发生（codex R3 r10 #2）。
       @{ Name = '范围闸非零即中止'; Pat = '(?m)^>\s*if \(\$LASTEXITCODE -ne 0\) \{ throw .*范围闸' }
     )
     foreach ($g in $rcvGuards) {
-      if ($rcvDoc -notmatch $g.Pat) { Fail "闸15s(r)：DEVOPS-WORKFLOW 的已推送恢复配方缺可执行的「$($g.Name)」命令行（只在散文里提到不算）——该步一旦缺失，PR retarget / 基线前移 / head 变动 / 范围闸 BLOCK 被覆盖，都能让「判过的」与「合并的」不是同一棵树。" }
+      if ($rcvDoc -notmatch $g.Pat) { Fail "闸15s(r)：DEVOPS-WORKFLOW 的已推送恢复配方缺可执行的「$($g.Name)」命令行（只在散文里提到不算）。" }
     }
+    $rcvLastResort = [regex]::Match($rcvDoc, '(?s)\*\*已 push 状态的手工最后手段.*?> ```powershell(?<body>.*?)> ```').Groups['body'].Value
+    if (-not $rcvLastResort) { Fail '闸15s(r)：无法定位手工最后手段的可执行块。' }
+    elseif ($rcvLastResort -match '(?m)^>\s*(?:pwsh .*review\.ps1|gh pr checks|gh pr merge)\b') { Fail '闸15s(r)：手工最后手段仍暴露 review/checks/merge 裸命令，绕过 task ship 的完整精确 CI 身份与终局快照。' }
+    elseif ($rcvLastResort -match '(?m)^>\s*pwsh -NoProfile -File scripts\\task\.ps1 .* -NoAutoMerge\b') { Fail '闸15s(r)：最终交付接续仍带 -NoAutoMerge，只会再次暂停而不会进入共享合并腿。' }
+    $rcvClaude = Get-Content (Join-Path $RepoRoot 'CLAUDE.md') -Raw
+    $rcvLoop = Get-Content (Join-Path $RepoRoot '.claude/skills/task-loop/SKILL.md') -Raw
+    if ($rcvClaude -notmatch '\[SHIP-MANUAL-RESUME\].*fresh R3.*workflow/run-attempt/PR/jobs') { Fail '闸15s(r)：CLAUDE 范围恢复入口未声明最终交付须按 [SHIP-MANUAL-RESUME] 进入 fresh 精确身份 ship。' }
+    elseif ($rcvClaude -match '合并配 `gh pr merge') { Fail '闸15s(r)：CLAUDE 仍把裸 gh pr merge 当手工恢复的最终交付。' }
+    if ($rcvLoop -notmatch '\[SHIP-MANUAL-RESUME\].*fresh 重跑同一 ship.*workflow/run-attempt/PR/jobs') { Fail '闸15s(r)：task-loop 未把 -NoAutoMerge 后续定义为 fresh protected ship。' }
+    elseif ($rcvLoop -notmatch '同一次连续 ship 内只跑一次.*fresh 受保护 ship，须重新评审') { Fail '闸15s(r)：task-loop 的 L15 指针仍会被读成禁止暂停后 fresh ship 重评审。' }
     # 那条「说明判据」的 git diff 必须是**注释掉的**：它一旦可执行就会覆盖掉范围闸的 $LASTEXITCODE（同上）。
     if ($rcvDoc -match '(?m)^>\s*git -c core\.quotepath=false') { Fail '闸15s(r)：恢复配方里那条说明用的 git diff 未被注释掉——它会执行并覆盖范围闸的 $LASTEXITCODE，令 BLOCK 被后续步骤忽略。' }
     # 收回夹具态：把分支尖端还原到进本段前存下的 sha、删掉临造的远端跟踪引用，后续 f/c 仍按原样跑
@@ -15571,6 +15579,7 @@ if ($args -contains 'api') {
     #   wfid-final-pr-key-case  → PR 关联属性名换成 `Number`（终局那次 Get-CandidateRunPrMatchCount）
     # 没有这类「首读合法、次读才漂」的用例，终局那几条判据删掉也全绿——首读就非法的负例永远走不到它们（R3 r1 #6）。
     elseif (($idm -ceq 'wfid-final-drift') -and ($wfN -ge 2)) { $run.id = [long]$runId + 7 }
+    elseif (($idm -ceq 'wfid-final-attempt') -and ($wfN -ge 2)) { $run.run_attempt = $try + 1 }
     elseif (($idm -ceq 'wfid-final-pr-key-case') -and ($wfN -ge 2)) { $run.pull_requests = @([ordered]@{ Number = [int]$pn }) }
     elseif (($idm -ceq 'wfid-final-pr-missing') -and ($wfN -ge 2)) { [void]$run.Remove('pull_requests') }
     Send-CiShapeCase 'workflow' 'workflow_runs' $run $page
@@ -15622,8 +15631,8 @@ if ($args -contains 'comment') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'pr-co
 # review.ps1 -PostStatus 的回贴前置是 owner **且** repo 都取到（否则告警「无 origin / 未登录，跳过回贴」）；
 # 夹具 origin 是本地裸仓、`gh repo view` 本会落空 ⇒ 状态腿永不执行、闸15t 正例的 status-posted 恒缺。
 if (($args -join ' ') -match '^repo view') { 'remotemx-fixture'; exit 0 }
-# The manual-recovery fixture models its documented `gh pr checks` leg separately from the API-bound
-# normal ship path. Keep the existing positive control reachable.
+# Legacy recipe probes may still call `gh pr checks`; the protected handoff below must instead execute the
+# shared task ship path and consume its API-bound exact identity verifier before any merge.
 if ($args -contains 'checks') { Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-recipe-checked') 'yes'; '1'; exit 0 }
 # PR 元数据里的 head：闸15t 的 -ExpectTip 必须**取自 PR 元数据**、而非 check-scope 自己会解析的那个 ref，
 # 否则是拿同一来源自比、恒等式（codex R3 r2 #1）。这里回 worktree HEAD：push 过则与 origin ref 相等（正例），
@@ -16274,6 +16283,7 @@ exit $LASTEXITCODE
             $r = & $ciShip $wbNeg '' @('-NoAutoMerge')
             if ($r.X -ne 0) { $wbProblem = "nomerge-green：绿路未走通（exit $($r.X)）；尾段=$($r.O.Substring([Math]::Max(0, $r.O.Length - 500)))" }
             elseif ($r.O -cnotmatch '\[CI-GATE-PASS\]') { $wbProblem = 'nomerge-green：缺 [CI-GATE-PASS]' }
+            elseif ($r.O -cnotmatch "(?m)^\[SHIP-MANUAL-RESUME\] pwsh -NoProfile -File scripts\\task\.ps1 -TaskId 'T0-REMOTEMX' -Phase ship -Base 'master'\s*$") { $wbProblem = 'nomerge-green：接续命令未安全引用 TaskId/已解析的 master 基线，或仍携带 NoAutoMerge。' }
             elseif (($r.CR -ne 2) -or ($r.WR -ne 2) -or ($r.JR -ne 2)) { $wbProblem = "nomerge-green：读计数 $($r.CR)/$($r.WR)/$($r.JR) != 2/2/2——放松了某一层" }
             elseif ($r.MA -or $r.M) { $wbProblem = '-NoAutoMerge 却触达了合并腿' }
             elseif ($r.JobsRunId -cne "$($r.RunId)/$($r.Try)") { $wbProblem = "nomerge-green：jobs 未按本夹具 run 身份取（$($r.JobsRunId)）" }
@@ -16535,6 +16545,63 @@ exit $LASTEXITCODE
       #   positive: all in scope => [SCOPE-PASS] => chain continues to -PostStatus => mock merge
       #             consumed (merge-reached present) — gives the negative case its discriminating power.
       if (-not $fail) {
+        # The handoff text is executable API. Exercise the exact production AST statements that build it
+        # with a Git-legal ref containing PowerShell metacharacters, then execute the emitted command with
+        # a pwsh argument-capture stub. This isolates quoting from check-scope's intentionally narrower Base
+        # grammar while proving one invocation, byte-faithful Base transport and no injected extra command.
+        $taskSource4 = Join-Path $RepoRoot 'scripts/task.ps1'
+        $taskText4 = [IO.File]::ReadAllText($taskSource4)
+        $taskTokens4 = $null; $taskErrors4 = $null
+        $taskAst4 = [Management.Automation.Language.Parser]::ParseInput($taskText4, [ref]$taskTokens4, [ref]$taskErrors4)
+        $manualAssignAsts4 = @($taskAst4.FindAll({ param($n)
+              $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$manualTaskArg'
+            }, $true))
+        $quoteProblem4 = ''
+        if ($taskErrors4.Count -gt 0 -or $manualAssignAsts4.Count -ne 1 -or $manualAssignAsts4[0].Parent -isnot [Management.Automation.Language.StatementBlockAst]) {
+          $quoteProblem4 = "生产接续命令 AST 不唯一/不可解析（parse=$($taskErrors4.Count), assignment=$($manualAssignAsts4.Count)）。"
+        } else {
+          $manualBlock4 = $manualAssignAsts4[0].Parent
+          $resumeWrites4 = @($manualBlock4.Statements | Where-Object { $_.Extent.Text -match '\[SHIP-MANUAL-RESUME\]' })
+          if ($resumeWrites4.Count -ne 1) { $quoteProblem4 = "生产接续输出语句不唯一（count=$($resumeWrites4.Count)）。" }
+          else {
+            $manualStatements4 = @($manualBlock4.Statements | Where-Object {
+                $_.Extent.StartOffset -ge $manualAssignAsts4[0].Extent.StartOffset -and
+                $_.Extent.EndOffset -le $resumeWrites4[0].Extent.EndOffset
+              })
+            $manualBuild4 = ($manualStatements4 | ForEach-Object { $_.Extent.Text }) -join "`n"
+            if ($manualStatements4.Count -ne 6 -or $manualBuild4 -notmatch 'manualBaseArg' -or $manualBuild4 -notmatch 'if \(\$SkipRed\)' -or $manualBuild4 -match 'gh\s+pr\s+merge') {
+              $quoteProblem4 = "生产接续命令 AST 片段形状不符（statements=$($manualStatements4.Count)）。"
+            } else {
+              $probeBase4 = 'resume'';pwd;#'
+              $quoteOutput4 = (& {
+                  param([string]$Fragment, [string]$ProbeBase)
+                  $TaskId = 'T0-REMOTEMX'; $shipBase = $ProbeBase; $SkipRed = $true; $pr = 777; $ciHead = ('a' * 40)
+                  & ([scriptblock]::Create($Fragment)) 6>&1
+                } $manualBuild4 $probeBase4 | Out-String)
+              $quotedProbeBase4 = "'" + $probeBase4.Replace("'", "''") + "'"
+              $expectedProbeCmd4 = "pwsh -NoProfile -File scripts\task.ps1 -TaskId 'T0-REMOTEMX' -Phase ship -Base $quotedProbeBase4 -SkipRed"
+              $probeMatches4 = [regex]::Matches($quoteOutput4, '(?m)^\s*\[SHIP-MANUAL-RESUME\]\s+(?<cmd>' + [regex]::Escape($expectedProbeCmd4) + ')\s*$')
+              if ($probeMatches4.Count -ne 1) { $quoteProblem4 = "特殊 Base 输出未产生唯一、完整、安全引用的接续命令（count=$($probeMatches4.Count)）。" }
+              else {
+                $probeExec4 = & {
+                  param([string]$Command)
+                  $state = [pscustomobject]@{ Calls = 0; Args = @() }
+                  function pwsh { $state.Calls = $state.Calls + 1; $state.Args = @($args) }
+                  $unexpected = @(& ([scriptblock]::Create($Command)) 2>&1)
+                  [pscustomobject]@{ Calls = $state.Calls; Args = @($state.Args); Unexpected = @($unexpected) }
+                } $probeMatches4[0].Groups['cmd'].Value
+                $expectedProbeArgs4 = @('-NoProfile','-File','scripts\task.ps1','-TaskId','T0-REMOTEMX','-Phase','ship','-Base',$probeBase4,'-SkipRed')
+                $argDiff4 = @(Compare-Object -ReferenceObject $expectedProbeArgs4 -DifferenceObject @($probeExec4.Args) -SyncWindow 0 -CaseSensitive)
+                if ($probeExec4.Calls -ne 1 -or $argDiff4.Count -gt 0 -or $probeExec4.Unexpected.Count -gt 0) {
+                  $quoteProblem4 = "执行输出命令未保持单次 pwsh/完整 Base，或执行了额外命令（calls=$($probeExec4.Calls), args='$($probeExec4.Args -join '|')', unexpected=$($probeExec4.Unexpected.Count)）。"
+                }
+              }
+            }
+          }
+        }
+        if ($quoteProblem4) { Fail "闸15t protected-resume 参数引用：$quoteProblem4" }
+        else { Write-Host '  闸15t protected-resume 特殊 Base 单次调用 + 参数保真 + 无额外命令 OK' -ForegroundColor Green }
+
         $fx4 = & $rmMake 'recovery'
         try {
           if (-not $fx4.Ok) { Fail '闸15t / T37-REMOTEMX/4 setup：恢复夹具 start 未产出 worktree。' }
@@ -16553,23 +16620,31 @@ exit $LASTEXITCODE
             & git -C $fx4.Repo commit -q -m 'origin-ahead master commit' *> $null
             & git -C $fx4.Repo push -q origin master *> $null
             & git -C $fx4.Repo reset --hard HEAD~1 *> $null
-            # Build the "already pushed + PR open" state: red phase -> green -> ship -NoAutoMerge (stops at PR-open).
+            $manualBase4 = 'master'
+            # Build the "already pushed + PR open" state: red phase -> green -> ship -NoAutoMerge. Its
+            # machine-readable handoff is the only final-delivery command this recovery plane may execute.
             & pwsh -NoProfile -File (Join-Path $fx4.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
             Set-Content (Join-Path $fx4.Wt 'README.md') 'GREENMX recovery work' -Encoding utf8
-            & pwsh -NoProfile -File (Join-Path $fx4.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship -NoAutoMerge *> $null
+            $ready4 = (& pwsh -NoProfile -File (Join-Path $fx4.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase ship -Base $manualBase4 -SkipRed -NoAutoMerge 2>&1 | Out-String)
+            $ready4Exit = $LASTEXITCODE
             $prCreated4 = Test-Path (Join-Path $fx4.Root 'pr-created')
-            if (-not $prCreated4) { Fail '闸15t setup：ship -NoAutoMerge 未开出 PR（pr-created 哨兵缺）——恢复场景的前提（已 push + PR 已开）没构造出来，后续断言失真。' }
+            $quotedBase4 = "'" + $manualBase4.Replace("'", "''") + "'"
+            $wantResume4 = "pwsh -NoProfile -File scripts\task.ps1 -TaskId 'T0-REMOTEMX' -Phase ship -Base $quotedBase4 -SkipRed"
+            $resumeMatches4 = [regex]::Matches($ready4, '(?m)^\s*\[SHIP-MANUAL-RESUME\]\s+(?<cmd>' + [regex]::Escape($wantResume4) + ')\s*$')
+            $manualResume4 = if ($resumeMatches4.Count -eq 1) { $resumeMatches4[0].Groups['cmd'].Value } else { '' }
+            if ($ready4Exit -ne 0) { Fail "闸15t setup：ship -NoAutoMerge 未形成可接续状态（exit=$ready4Exit）。尾段=$($ready4.Substring([Math]::Max(0,$ready4.Length-700)))" }
+            elseif (-not $prCreated4) { Fail '闸15t setup：ship -NoAutoMerge 未开出 PR（pr-created 哨兵缺）——恢复场景的前提（已 push + PR 已开）没构造出来，后续断言失真。' }
+            elseif (-not $manualResume4) { Fail "闸15t setup：-NoAutoMerge 没有且仅有一条安全引用的 [SHIP-MANUAL-RESUME] 接续命令，或未保留 -Base/-SkipRed、未移除 -NoAutoMerge。匹配数=$($resumeMatches4.Count)；输出尾段=$($ready4.Substring([Math]::Max(0,$ready4.Length-700)))" }
             else {
                 # 恢复配方的**可执行建模**：范围步非零即中止，绿才续跑 -PostStatus → 合并。
                 # 与 DEVOPS-WORKFLOW 那段一一对应；本闸测的正是这条控制流，不是各闸自身（各闸另有夹具）。
                 # 恢复配方的**完整**可执行建模——逐条对应 docs/DEVOPS-WORKFLOW.md「任何已 push 状态的手工恢复」：
                 # fetch(查码) → PR baseRefName 核 → 取 head/base OID → DoD → verify → **范围闸**（主检出那份 +
                 # -Path 指被审树 + -ExpectTip/-ExpectBase，远端模式）→ 许可 → 防泄露 → review -PostStatus -PrNumber
-                # → 合并前复核 baseRefName + 基线 OID 未前移 → pre-merge CI check（TD134：gh pr checks 计数
-                # success ≥ 期望 os×shard 积）→ gh pr merge --match-head-commit。
+                # → 最终执行 -NoAutoMerge 实际打印的 protected ship 接续命令；精确 CI 身份与合并均由共享路径完成。
                 # **任一步非零即中止**（PowerShell 原生命令非零不自动中断，故每步都显式查）——这正是本闸要证的控制流。
                 $recover4 = {
-                  param($fx)
+                  param($fx, [string]$CiMode = '')
                   # **有序腿轨迹**：每步跑之前把腿名追加进 $script:r4Trace。断言比对的是整条轨迹，
                   # 故删掉/跳过任何一条腿都会让轨迹不等而变红——只断言最终结局的话，中间腿全无覆盖（codex R3 r2 #1）。
                   # **逐腿分别留存输出**：只攒一份聚合输出的话，「范围步是否印了 [SCOPE-BLOCK]」这种断言会被
@@ -16586,60 +16661,51 @@ exit $LASTEXITCODE
                   # platforms stay green and the defect only surfaces when a real regression needs catching.
                   $script:r4PrBase = ''; $script:r4Head = ''
                   $script:r4Stop = $null; $script:r4Out = ''; $script:r4Trace = @(); $script:r4LegOut = @{}
+                  $env:GH_MOCK_CI_MODE = $CiMode
                   # ① fetch 两侧（退出码必查：失败即拿陈旧 origin/* 判，连 allow_paths 都取自旧卡）
-                  & $step 'fetch' { & git -C $fx.Wt fetch origin master T0-REMOTEMX }
+                  & $step 'fetch' { & git -C $fx.Wt fetch origin $manualBase4 T0-REMOTEMX }
                   # ② PR 的 baseRefName 须 == 本次判定的 base（retarget 会「按 A 判往 B 合」）
                   $prBase = ''
-                  & $step 'pr-base' { $s = (& gh pr view 777 --json baseRefName --jq .baseRefName); $script:r4PrBase = "$s".Trim(); if ($script:r4PrBase -ne 'master') { & pwsh -NoProfile -Command 'exit 1' } }
+                  & $step 'pr-base' { $s = (& gh pr view 777 --json baseRefName --jq .baseRefName); $script:r4PrBase = "$s".Trim(); if ($script:r4PrBase -cne $manualBase4) { & pwsh -NoProfile -Command 'exit 1' } }
                   $prBase = $script:r4PrBase
                   # ③ head **取自 PR 元数据**（不是 check-scope 会自己解析的那个 ref——同源自比即恒等式，r2 #1）；
                   #    base 取远端跟踪引用（= 将被合并进的那个提交）。
                   $headOid = ''
                   & $step 'pr-head' { $s = (& gh pr view 777 --json headRefOid --jq .headRefOid); $script:r4Head = "$s".Trim(); if ($script:r4Head -notmatch '^[0-9a-f]{40}$') { & pwsh -NoProfile -Command 'exit 1' } }
                   $headOid = $script:r4Head
-                  $baseOid = "$(& git -C $fx.Wt rev-parse refs/remotes/origin/master 2>$null)".Trim()
+                  $manualBaseRef4 = "refs/remotes/origin/$manualBase4"
+                  $baseOid = "$(& git -C $fx.Wt rev-parse $manualBaseRef4 2>$null)".Trim()
                   # ④ DoD（卡上原命令，在被审工作树里跑）
                   & $step 'dod' { Push-Location $fx.Wt; try { & pwsh -NoProfile -Command 'if (-not (Select-String -Path README.md -Pattern GREENMX -Quiet)) { exit 1 }' } finally { Pop-Location } }
                   # ⑤ verify 总闸
                   & $step 'verify' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/verify.ps1') }
                   # ⑥ **范围闸**——跑受信主检出那份、-Path 指被审树、两侧 OID 都钉进去（远端模式，不加 -Local）
-                  & $step 'scope' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-scope.ps1') -TaskId T0-REMOTEMX -Base master -Path $fx.Wt -ExpectTip $headOid -ExpectBase $baseOid }
+                  & $step 'scope' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-scope.ps1') -TaskId T0-REMOTEMX -Base $manualBase4 -Path $fx.Wt -ExpectTip $headOid -ExpectBase $baseOid }
                   # ⑦ 许可闸 ⑧ 防泄露闸
                   # ⑧b 预算闸（T233/TD235）：配方的第 3.5 步。**按打印的状态判，不按退出码**——check-budget 的
                   #    exit 1 同时表示 trip 与 over，而配方只在 OVER 时停（trip 是「趁拆还便宜时记个决定」的提示）。
                   #    照抄退出码就会把 trip 当 block，那正是文档里点名的读法错误。故显式收尾 exit 0/1：不这样做的话
                   #    check-budget 留下的 1 会被 $step 读成本腿失败。夹具卡不声明 budget:，故正例走 no-budget 分支。
-                  & $step 'budget' { $b4 = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-budget.ps1') -TaskId T0-REMOTEMX -Base master -Path $fx.Wt 2>&1 | Out-String); $b4; if ($b4 -match 'OVER') { & pwsh -NoProfile -Command 'exit 1' } else { & pwsh -NoProfile -Command 'exit 0' } }
+                  & $step 'budget' { $b4 = (& pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-budget.ps1') -TaskId T0-REMOTEMX -Base $manualBase4 -Path $fx.Wt 2>&1 | Out-String); $b4; if ($b4 -match 'OVER') { & pwsh -NoProfile -Command 'exit 1' } else { & pwsh -NoProfile -Command 'exit 0' } }
                   & $step 'license' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-licenses.ps1') }
                   & $step 'secrets' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/check-secrets.ps1') }
-                  # ⑨ 第二模型评审 + 回贴状态（最后手段路径的评审腿）
-                  # 权威配方用的是**缺省远端基线**（不带 -LocalBase）——夹具跟着用，否则测的是另一套基线选择语义、
-                  # 远端基线解析的回归会被藏住（codex R3 r2 #3）。夹具已让本地 master 与 origin/master **有意不同**。
-                  & $step 'review' { & pwsh -NoProfile -File (Join-Path $fx.Repo 'scripts/review.ps1') -WorktreePath $fx.Wt -Base master -PostStatus -PrNumber 777 }
-                  # ⑩ 合并前复核：baseRefName 未变 + 基线 OID 未前移
-                  & $step 'pr-base-2' { $s = (& gh pr view 777 --json baseRefName --jq .baseRefName); if ("$s".Trim() -ne 'master') { & pwsh -NoProfile -Command 'exit 1' } }
-                  # fetch 与比对**拆成两步**：写在同一步里的话，后面那条成功的 rev-parse 会把 fetch 的 $LASTEXITCODE
-                  # 冲掉，于是 fetch 失败也照样拿陈旧 ref 过等值检查（codex R3 r2 #2）。
-                  & $step 'fetch-2' { & git -C $fx.Wt fetch origin master }
-                  & $step 'base-oid-2' { $b2 = "$(& git -C $fx.Wt rev-parse refs/remotes/origin/master 2>$null)".Trim(); if ($b2 -ne $baseOid) { & pwsh -NoProfile -Command 'exit 1' } }
-                  # ⑩b pre-merge CI check (TD134): the recipe's `gh pr checks` success count must reach the
-                  # expected job count before any manual merge. ADR 0007: a PR's check set is ci.yml's jobs
-                  # (fixture = 1, `verify`), not the scaffold-selftest 2 x 5 matrix - that workflow no longer
-                  # triggers on pull_request, so its shards can never appear on a PR head.
-                  & $step 'ci-gate' { $ciOk4 = "$(& gh pr checks 777 --json state --jq '[.[] | select(.state == "SUCCESS")] | length')".Trim(); if ($ciOk4 -notmatch '^\d+$' -or [int]$ciOk4 -lt 1) { & pwsh -NoProfile -Command 'exit 1' } }
-                  # ⑪ 合并——绑 head，head 一变即拒
-                  & $step 'merge' { & gh pr merge 777 --squash --match-head-commit $headOid }
-                  return [pscustomobject]@{ Out = $script:r4Out; LegOut = $script:r4LegOut; StoppedAt = $script:r4Stop; Head = $headOid; Base = $baseOid; PrBase = $prBase; Trace = @($script:r4Trace) }
+                  # Final delivery re-enters the production ship path by executing the exact command printed
+                  # by -NoAutoMerge. It reruns R3, exact CI identity, final base/head/OID snapshots and merge.
+                  & $step 'ship-resume' { Push-Location $fx.Repo; try { & ([scriptblock]::Create($manualResume4)) } finally { Pop-Location } }
+                  $readCount = { param($Name) $p = Join-Path $fx.Root $Name; if (Test-Path $p) { [int]((Get-Content $p -Raw).Trim()) } else { 0 } }
+                  return [pscustomobject]@{ Out = $script:r4Out; LegOut = $script:r4LegOut; StoppedAt = $script:r4Stop; Head = $headOid; Base = $baseOid; PrBase = $prBase; Trace = @($script:r4Trace)
+                    Checks = (& $readCount 'ci-check-count'); Workflows = (& $readCount 'ci-workflow-count'); Jobs = (& $readCount 'ci-jobs-count') }
                 }
                 # 三枚「腿被消费」哨兵：评审 / 状态回贴 / 合并。负例须**三枚全缺**——只看 merge 不够，
                 # 评审若已在被拦的路径上跑过，就说明控制流没有真的在范围步止住（codex R3 r1 #3）。
                 # 配方的**完整有序腿清单**：负例须恰好走到 scope 为止，正例须一条不落地走完。
-                $legsAll4 = @('fetch', 'pr-base', 'pr-head', 'dod', 'verify', 'scope', 'budget', 'license', 'secrets', 'review', 'pr-base-2', 'fetch-2', 'base-oid-2', 'ci-gate', 'merge')
+                $legsAll4 = @('fetch', 'pr-base', 'pr-head', 'dod', 'verify', 'scope', 'budget', 'license', 'secrets', 'ship-resume')
                 $legsNeg4 = @('fetch', 'pr-base', 'pr-head', 'dod', 'verify', 'scope')
                 # `merge-attempted` 必须在列：stub 一被调用就写它，而 `merge-reached` 要等参数校验通过且成功才写。
                 # 负例说的是「合并腿**一次都没被调用**」，那就得断言 attempted 缺——只断言 reached 缺会放过
                 # 「调用了但因参数不符而失败」的情形（codex R3 r3 #3）。
-                $sent4 = @('review-invoked', 'status-posted', 'pr-commented', 'ci-recipe-checked', 'merge-attempted', 'merge-reached')
+                $sent4 = @('review-invoked', 'status-posted', 'pr-commented', 'ci-checked', 'ci-workflow-checked', 'ci-jobs-consumed',
+                  'ci-check-count', 'ci-workflow-count', 'ci-jobs-count', 'merge-attempted', 'merge-reached')
                 $clearSent4 = { foreach ($s in $sent4) { Remove-Item (Join-Path $fx4.Root $s) -ErrorAction SilentlyContinue } }
                 # 本场景自用的单次调用器（15s 的 $ssRun* 属另一闸的作用域，勿跨用）。
                 $run4 = { param($Exe, $A) $o = (& pwsh -NoProfile -File $Exe @A 2>&1 | Out-String); return [pscustomobject]@{ Out = $o; Exit = $LASTEXITCODE } }
@@ -16673,11 +16739,37 @@ exit $LASTEXITCODE
                   & git -C $fx4.Wt add -A *> $null
                   & git -C $fx4.Wt commit -q -m 'revert oob (反向提交撤出卡外改动)' *> $null
                   & git -C $fx4.Wt push -q origin T0-REMOTEMX *> $null
-                  & $clearSent4
-                  $pos4 = & $recover4 $fx4
-                  $posMiss4 = @($sent4 | Where-Object { -not (Test-Path (Join-Path $fx4.Root $_)) })
-                  if ($pos4.StoppedAt) { Fail "闸15t 正例：全部改动都在 allow_paths 内时恢复序列仍在 '$($pos4.StoppedAt)' 步中止——该序列走不通，负例的红遂失去鉴别力（可能只是序列本身坏了）。`n输出=$($pos4.Out)" }
+                  # The exact command printed by -NoAutoMerge must remain safe when the remote state changes
+                  # before the later invocation. Each control executes THAT captured command, not a parallel
+                  # hand-written merge recipe: duplicate run, wrong PR association, replaced run attempt,
+                  # and duplicate job context all stop inside the shared ship CI verifier before merge.
+                  $handoffProblem4 = $null
+                  foreach ($hc in @(
+                      @{ M = 'workflow-paged'; S = '\[CI-GATE-WORKFLOW-AMBIGUOUS\]'; C = 1; W = 2; J = 0 }
+                      @{ M = 'wfid-pr-other'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 1; W = 1; J = 0 }
+                      @{ M = 'wfid-final-attempt'; S = '\[CI-GATE-WORKFLOW-IDENTITY\]'; C = 2; W = 2; J = 1 }
+                      @{ M = 'jobs-duplicate'; S = '\[CI-GATE-JOBS-DRIFT\]'; C = 1; W = 1; J = 1 })) {
+                    & $clearSent4
+                    $blocked4 = & $recover4 $fx4 $hc.M
+                    if ($blocked4.StoppedAt -ne 'ship-resume' -or "$($blocked4.LegOut['ship-resume'])" -notmatch $hc.S) {
+                      $handoffProblem4 = "$($hc.M)：接续未在共享 CI 身份闸以 $($hc.S) 拒绝（stopped=$($blocked4.StoppedAt)）。尾段=$($blocked4.Out.Substring([Math]::Max(0,$blocked4.Out.Length-700)))"; break
+                    }
+                    if (($blocked4.Checks -ne $hc.C) -or ($blocked4.Workflows -ne $hc.W) -or ($blocked4.Jobs -ne $hc.J)) {
+                      $handoffProblem4 = "$($hc.M)：端点读取计数 $($blocked4.Checks)/$($blocked4.Workflows)/$($blocked4.Jobs) != $($hc.C)/$($hc.W)/$($hc.J)，拒绝点不可信。"; break
+                    }
+                    if (-not (Test-Path (Join-Path $fx4.Root 'review-invoked')) -or -not (Test-Path (Join-Path $fx4.Root 'status-posted'))) {
+                      $handoffProblem4 = "$($hc.M)：接续未真实重跑 R3/状态回贴，可能没有进入共享 ship 路径。"; break
+                    }
+                    if (Test-Path (Join-Path $fx4.Root 'merge-attempted')) { $handoffProblem4 = "$($hc.M)：身份不符后仍触达 merge。"; break }
+                  }
+                  if ($handoffProblem4) { Fail "闸15t protected-resume 负例：$handoffProblem4" }
+                  else {
+                    & $clearSent4
+                    $pos4 = & $recover4 $fx4
+                    $posMiss4 = @($sent4 | Where-Object { -not (Test-Path (Join-Path $fx4.Root $_)) })
+                    if ($pos4.StoppedAt) { Fail "闸15t 正例：全部改动都在 allow_paths 内时恢复序列仍在 '$($pos4.StoppedAt)' 步中止——该序列走不通，负例的红遂失去鉴别力（可能只是序列本身坏了）。`n输出=$($pos4.Out)" }
                   elseif (($pos4.Trace -join '>') -ne ($legsAll4 -join '>')) { Fail "闸15t 正例：腿轨迹与配方不符——实际 [$($pos4.Trace -join '>')]，期望 [$($legsAll4 -join '>')]。删掉任一腿（fetch/PR base 两次/head/DoD/verify/范围/预算/许可/密钥/评审/基线 OID 复核/合并前 CI 检查/合并）都会命中这条。" }
+                  elseif (($pos4.Checks -ne 2) -or ($pos4.Workflows -ne 2) -or ($pos4.Jobs -ne 2)) { Fail "闸15t 正例：protected resume 未完成共享 CI 初读+终读 2/2/2（实际 $($pos4.Checks)/$($pos4.Workflows)/$($pos4.Jobs)）。" }
                   elseif ((Get-Content (Join-Path $fx4.Root 'merge-head-arg') -Raw -ErrorAction SilentlyContinue).Trim() -ne $pos4.Head) { Fail "闸15t 正例：`gh pr merge` 的 --match-head-commit 实参与 PR head 不符（实参=$((Get-Content (Join-Path $fx4.Root 'merge-head-arg') -Raw -ErrorAction SilentlyContinue))，head=$($pos4.Head)）——「合并绑 head」只是文案、没真绑。" }
                   # 评审腿确实走了**远端基线**：本地 master 已被造成落后 1 个提交，review.ps1 遂打印「落后 … refs/remotes/origin/master」
                   # 提示（仅 behindN>0 时出现）。加 -LocalBase 会让 baseRef 变本地、behindN=0、提示消失 ⇒ 本断言即红（codex R3 r3 #1）。
@@ -16686,7 +16778,7 @@ exit $LASTEXITCODE
                   # ② 判据必须是 ASCII，不能拿中文提示当锚（本卡自己的纪律就是「机检认 ASCII、本地化文案只给人读」，
                   # 上一版拿「落后」做判据是自相矛盾，codex R3 r5 指出）。
                   # 加回 -LocalBase 时 baseRef 变 refs/heads/master、behindN=0、该提示不印 ⇒ 评审腿输出里就没有这个串。
-                  elseif ("$($pos4.LegOut['review'])" -notmatch [regex]::Escape('refs/remotes/origin/master')) { Fail "闸15t 正例：**评审腿自己的输出**里没有 refs/remotes/origin/master——说明评审没走远端基线（加了 -LocalBase 即如此），测的是另一套基线选择语义。`n评审腿输出=$($pos4.LegOut['review'])" }
+                  elseif ("$($pos4.LegOut['ship-resume'])" -notmatch [regex]::Escape("refs/remotes/origin/$manualBase4")) { Fail "闸15t 正例：protected resume 输出里没有特殊远端基线 ref——说明共享 ship 的评审没走被绑定的远端基线。`n接续输出=$($pos4.LegOut['ship-resume'])" }
                   elseif ("$($pos4.LegOut['scope'])" -notmatch '\[SCOPE-PASS\]') { Fail "闸15t 正例：**范围步自己的输出**未印 [SCOPE-PASS]——判定结论未被打印（只看聚合输出会被别的腿满足）。`n范围步输出=$($pos4.LegOut['scope'])" }
                   elseif ($posMiss4.Count -gt 0) { Fail "闸15t 正例：序列走通却有腿没被消费（哨兵缺：$($posMiss4 -join ', ')）——正例没真正覆盖到「范围过 → 评审+回贴 → 合并」全段。`n输出=$($pos4.Out)" }
                   else {
@@ -16698,13 +16790,14 @@ exit $LASTEXITCODE
                     # `$full -ne $ActualSha` 身份比对——把身份比对整句删掉也照样绿（codex R3 r4；15s 的 n2/n8 早已按
                     # 此法写，本卡新加的 pin 用例却没沿用）。故另断言文案含 `judged=`，证明拦它的确是身份比对那一支。
                     $csExe4 = Join-Path $fx4.Repo 'scripts/check-scope.ps1'
-                    $pinTip4 = & $run4 $csExe4 @('-TaskId', 'T0-REMOTEMX', '-Base', 'master', '-Path', $fx4.Wt, '-ExpectTip', $pos4.Base, '-ExpectBase', $pos4.Base)
-                    $pinBase4 = & $run4 $csExe4 @('-TaskId', 'T0-REMOTEMX', '-Base', 'master', '-Path', $fx4.Wt, '-ExpectTip', $pos4.Head, '-ExpectBase', $pos4.Head)
+                    $pinTip4 = & $run4 $csExe4 @('-TaskId', 'T0-REMOTEMX', '-Base', $manualBase4, '-Path', $fx4.Wt, '-ExpectTip', $pos4.Base, '-ExpectBase', $pos4.Base)
+                    $pinBase4 = & $run4 $csExe4 @('-TaskId', 'T0-REMOTEMX', '-Base', $manualBase4, '-Path', $fx4.Wt, '-ExpectTip', $pos4.Head, '-ExpectBase', $pos4.Head)
                     if ($pinTip4.Exit -eq 0 -or $pinTip4.Out -notmatch [regex]::Escape('[SCOPE-TIPMISMATCH]')) { Fail "闸15t(pin/tip)：喂入**可解析但不符**的 -ExpectTip（基线 OID）仍未以 [SCOPE-TIPMISMATCH] 失败（exit=$($pinTip4.Exit)）——该绑定参数不承重。`n输出=$($pinTip4.Out)" }
                     elseif ($pinTip4.Out -notmatch [regex]::Escape('judged=')) { Fail "闸15t(pin/tip)：失败文案里没有 judged=/expect= 两个 OID——说明拦它的是「OID 解析失败」那一支，而非**提交身份比对**；删掉身份比对整句本用例仍会绿（vacuous）。`n输出=$($pinTip4.Out)" }
                     elseif ($pinBase4.Exit -eq 0 -or $pinBase4.Out -notmatch [regex]::Escape('[SCOPE-TIPMISMATCH]')) { Fail "闸15t(pin/base)：喂入**可解析但不符**的 -ExpectBase（尖端 OID）仍未以 [SCOPE-TIPMISMATCH] 失败（exit=$($pinBase4.Exit)）——基线那一侧的绑定不承重。`n输出=$($pinBase4.Out)" }
                     elseif ($pinBase4.Out -notmatch [regex]::Escape('judged=')) { Fail "闸15t(pin/base)：失败文案里没有 judged=/expect= 两个 OID——拦它的是解析失败那一支而非身份比对（vacuous）。`n输出=$($pinBase4.Out)" }
-                    else { Write-Host '  闸15t / T37-REMOTEMX/4 manual recovery plane OK（完整配方逐步建模 + 有序腿轨迹比对；负例=已推的卡外改动令序列**停在范围步**且 review/status/pr-comment/ci-recipe-checked/merge-attempted/merge-reached 六枚哨兵全缺；正例=反向提交推上去后全程走通、六枚哨兵全在（含 TD134 的 pre-merge CI check 腿）、--match-head-commit 实参 == PR head、评审腿走的是 refs/remotes/origin/master 远端基线；另两枚 pin 用例证 -ExpectTip/-ExpectBase 各自承重）' -ForegroundColor Green }
+                    else { Write-Host '  闸15t / T37-REMOTEMX/4 manual diagnostics + protected ship resume OK（输出命令保留 Base/SkipRed、移除 NoAutoMerge；4 类身份漂移均不到 merge；正例共享 CI 2/2/2 + exact-head merge；既有 scope/pin 约束保留）' -ForegroundColor Green }
+                  }
                   }
                 }
             }

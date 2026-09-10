@@ -13,14 +13,14 @@
               MyInspection 配置 ReviewGate=required：Codex 必须 pass，且 CI 必须明确 success；无服务端规则集也不省略这些检查。
     cleanup : 合并后 Windows 安全拆除 worktree + 剪枝 + 删分支。脏树守卫：worktree 有未提交改动时默认拒绝拆除（防不可逆丢失），加 -Force 显式覆盖。
 
-  设计取舍见 docs\DEVOPS-WORKFLOW.md。全部合并闸通过后自动合并；-NoAutoMerge 同样验证 CI 后才报告可人工合并。
+  设计取舍见 docs\DEVOPS-WORKFLOW.md。全部合并闸通过后自动合并；-NoAutoMerge 同样验证 CI 后暂停，并打印重新进入完整 ship 的接续命令。
   项目级常量（账号 / worktree 根 / Python 版本）来自 scripts\_config.ps1。
 
 .PARAMETER TaskId  形如 T1-FOO。start / red / ship 须存在 specs\tasks\<TaskId>.md（它们读卡字段）；
                    cleanup 不读卡，卡已被冷存清扫搬走或根本不存在时照样拆除（T293 / issue #361）。
 .PARAMETER Phase   start | ship | cleanup（默认 start）
 .PARAMETER Base    基线分支（默认=仓库当前分支,自动探测 main/master,可显式覆盖）
-.PARAMETER NoAutoMerge  ship 时不开启自动合并（改为人工点合并）
+.PARAMETER NoAutoMerge  ship 时在合并前暂停；晚些时候按输出的 [SHIP-MANUAL-RESUME] 命令重新进入完整 ship
 .PARAMETER Force  cleanup 阶段：worktree 有未提交改动时仍强制拆除（确认丢弃；缺省有脏改动即拒，防不可逆数据丢失）
 .EXAMPLE
   # 所有相位命令都从**主检出**根目录跑（L86）。cd 进 worktree 只为编辑文件，别在里面跑这份脚本——
@@ -1885,10 +1885,15 @@ switch ($Phase) {
         $sagaDone += (Complete-ShipLeg 'merge')
         Write-Host "PR #$pr 已 squash 合并（远端分支由仓库设置自动删；已铸 T24-MERGETOKEN 合并凭据）。合并后跑：scripts\task.ps1 -TaskId $TaskId -Phase cleanup，并执行 R5 文档同步。" -ForegroundColor Green
       } else {
-        # TD134: this line is reachable only after the CI check gate above passed for $ciHead — a PR is
-        # never declared ready for a hand merge on an unverified head. If you merge LATER, re-verify CI
-        # (and base/head) first: the last-resort block in docs/DEVOPS-WORKFLOW.md is the authoritative sequence.
-        Write-Host "PR #$pr ready for manual merge - CI verified for head $($ciHead.Substring(0,8)) (fan-in context '$($ciExpected -join ', ')' success). Merge per docs/DEVOPS-WORKFLOW.md's last-resort block (re-verify CI + base + head, then gh pr merge --squash --match-head-commit)." -ForegroundColor Green
+        # -NoAutoMerge is a pause, not a weaker manual verifier. A later delivery must enter this same ship
+        # path again so R3, exact workflow/run-attempt/PR/jobs identity, final base/head/OID snapshots and the
+        # merge all belong to one fresh invocation. Preserve every caller-bound ship option except the pause.
+        $manualTaskArg = "'" + $TaskId.Replace("'", "''") + "'"
+        $manualBaseArg = "'" + $shipBase.Replace("'", "''") + "'"
+        $manualResumeCmd = "pwsh -NoProfile -File scripts\task.ps1 -TaskId $manualTaskArg -Phase ship -Base $manualBaseArg"
+        if ($SkipRed) { $manualResumeCmd += ' -SkipRed' }
+        Write-Host "PR #$pr paused before merge after CI verification of head $($ciHead.Substring(0,8)). Later delivery must rerun the protected ship path; its fresh checks replace this snapshot." -ForegroundColor Green
+        Write-Host "[SHIP-MANUAL-RESUME] $manualResumeCmd" -ForegroundColor Yellow
       }
     } finally {
       # T288: the base reviewer copy is this RUN's, and it goes on every exit path - a clean ship, a thrown

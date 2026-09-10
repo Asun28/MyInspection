@@ -505,7 +505,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
 - **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
   显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
-- **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
+- **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；已推送状态的手工恢复可按 `docs/DEVOPS-WORKFLOW.md` 完整式做诊断和修复后自查，但最终交付不得裸跑 review/checks/merge，必须执行 `-NoAutoMerge` 打印的 `[SHIP-MANUAL-RESUME]` 命令，重新进入同一 `task.ps1 -Phase ship`，由 fresh R3、精确 CI workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照和受保护合并腿共同裁决。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
 ## 架构大图
