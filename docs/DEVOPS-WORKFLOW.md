@@ -34,8 +34,8 @@
 
 ## 2. 仓库托管：真实 GitHub PR
 
-- 私有仓库；有 Pro 则 main 规则集要求 **PR + 必需检查 `verify`+`codex-review`**；仅 squash、合并后删分支。
-- Codex 凭据**留在本地**，不进 CI；CI 只跑无网络的 `verify`。这是「Codex 代替人工」最安全的接法。
+- 私有仓库；有 Pro 则 main 规则集要求 **PR + 必需检查 `required` + `codex-review`**；`required` 是 CI fan-in，`codex-review` 是独立 R3 状态；仅 squash、合并后删分支。
+- Codex 凭据**留在本地**，不进 CI；CI 在 Windows runner 上先在线引导 Java、Android、Gradle 与许可扫描器，再执行 `verify` 的 offline 验证。这样保留「Codex 代替人工」的凭据边界，同时如实说明 CI 的工具链供给。
 - free+private 不支持服务端规则集（403 Upgrade to Pro）→ R3 由客户端 `review.ps1` + task-loop skill 强制（verdict≠pass 即不合并）。
 - 一次性建仓加固：`scripts\gh-bootstrap.ps1`（幂等，已探测 403 并优雅跳过）。
 - **账号守卫**：所有 gh 写操作仅限 `scripts\_config.ps1` 配置的个人账号（`_guard.ps1` 前置校验）。
@@ -69,7 +69,7 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase red
 # 作为独立提交、理由写进那个提交，再重跑同一次 ship。没声明 `budget:` 的卡照旧 ship（缺省即关）。字段语义见 `specs/README.md`。
 # T241/TD247: both checked off ONE pinned base commit; a card not on base blocks `[SHIP-SCOPE-CARD-ABSENT]`.
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
-#   无远端 / 无 Codex 的本地 T0：加 -Local（DoD + 可选评审后**本地**合并，不 push/PR/gh）
+#   无远端的本地 T0：加 -Local（DoD + ReviewGate='required' 的 R3；无可用评审后端即 fail-closed，随后**本地**合并，不 push/PR/gh）
 #   pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship -Local
 
 # 合并后：R1 拆 worktree + R5 文档同步提醒 + 两道只读自检（lessons check · archive -Check）
@@ -201,10 +201,7 @@ verdict itself rather than trust its own having-run.
 
 What follows from that:
 
-- **The `needs:` list is the version-controlled required-check list.** A ruleset requires exactly one
-  context, `required`. Adding a job to `ci.yml` and wiring it into `needs:` extends the merge bar with no
-  client change at all. (Pointing the branch ruleset at `required` instead of `verify` is a repo-settings
-  action the repo owner takes — it is deliberately not automated here.)
+- **The `needs:` list is the version-controlled CI required-check list.** The CI portion has exactly one fan-in context, `required`; `codex-review` remains the separately required R3 status. Adding a job to `ci.yml` and wiring it into `needs:` extends the CI merge bar with no client change at all. (Pointing the branch ruleset at `required` instead of `verify` is a repo-settings action the repo owner takes — it is deliberately not automated here.)
 - **`task.ps1`'s `[CI-GATE]` waits on that one context** (present, completed, and exactly `success`) and
   asserts no other check is failing. It stays fail-closed: no `ci.yml` in the merge candidate tree
   (`[CI-GATE-WF-MISSING]`), or any invalid fan-in contract (`[CI-GATE-JOBS-DRIFT]`) means the acceptance
@@ -312,7 +309,7 @@ vendoring 的**设计层**极简透镜，**on-demand**（不装其常驻 Node �
 | `.claude\skills\task-loop\SKILL.md` | 自动触发并驱动整条闭环（包装脚本） |
 | `.claude\skills\triage\SKILL.md` | 心跳回路：scan → 分诊 → 喂既有交付链（只发现不行动） |
 | `.claude\hooks\guard-frozen.ps1` + `.claude\settings.json` | PreToolUse 拒绝改冻结契约/schema |
-| `.github\workflows\ci.yml` | CI 确定性闸（R2）：`verify` 干活 + `required` fan-in，规则集只需要求 `required`（见 §3.0） |
+| `.github\workflows\ci.yml` | CI 确定性闸（R2）：`verify` 干活 + `required` fan-in；规则集的 CI context 是 `required`，另有独立必需 R3 状态 `codex-review`（见 §3.0） |
 | `specs\verdict.schema.json` | 裁决机读契约 |
 | `specs\tasks\*.md` | 计划任务章节的可执行投影 |
 | `task_plan.md` / `findings.md` / `progress.md` | planning-with-files 交接三件套（gitignored） |

@@ -372,7 +372,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>task-loop <span class="file">task.ps1 R1-R5</span></h3>
-              <p>每张卡一个 agent、一棵 git worktree，并行跑：worktree → TDD → 剪枝 → 范围 / 预算 / 许可 / 防泄露闸 → PR →（可选第二意见评审，T68 默认非闸）→ CI check gate（TD134：auto 与手动路径皆过）→ 合并 → 文档同步。无远端 / 无 Codex 时 <code>-Local</code> 本地完成。</p>
+              <p>每张卡一个 agent、一棵 git worktree，并行跑：worktree → TDD → 剪枝 → 范围 / 预算 / 许可 / 防泄露闸 → PR →（本仓 <code>ReviewGate='required'</code>：R3 必须通过；无可用评审后端即 fail-closed）→ CI check gate（TD134：auto 与手动路径皆过）→ 合并 → 文档同步。无远端时 <code>-Local</code> 保留同一 required R3 后本地合并（不 push/PR/gh）。</p>
               <span class="rel-tag">消费任务卡</span>
             </div>
           </article>
@@ -420,7 +420,7 @@
             <span class="n-dot" aria-hidden="true"></span>
             <div class="n-body">
               <h3>CI verify <span class="file">verify.ps1 · ci.yml · _ci.ps1</span></h3>
-              <p>确定性 CI 闸：ubuntu-latest（pwsh 预装 · 省 2× 分钟 · 可改 windows/matrix）、无网络、无密钥。<strong>两个 job</strong>：verify 干活（含占位「闸门 2」接 e2e；末步 clean-worktree 断言，改脏了树即红）+ required <strong>fan-in</strong>（if: always()，needs 点名其余每个 job，只认字面 success，skipped/cancelled 算失败）。规则集该要求的<strong>唯一 context 是 required</strong>，ship 的 [CI-GATE] 也只等它；判定核 _ci.ps1 与 selftest 闸 8.2g 共用，8.2g 机检 needs 已点名每个 job（T86）。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
+              <p>确定性 CI 闸：<code>windows-latest</code> runner；Java、Android SDK 与 Gradle 的 <strong>online bootstrap</strong> 先供给工具链和依赖缓存，随后 <code>verify.ps1</code> 的 <strong>offline verify</strong> 跑 Android 闸、必需的 Golden Evidence JVM <code>:core:e2eTest</code> 与 clean-worktree 断言；wrapper、任务或命令未执行即 fail-closed。<strong>两个 job</strong>：verify 干活（末步 clean-worktree 断言，改脏了树即红）+ required <strong>fan-in</strong>（if: always()，needs 点名其余每个 job，只认字面 success，skipped/cancelled 算失败）。规则集的<strong>唯一 CI fan-in context 是 required</strong>，ship 的 [CI-GATE] 也只等它；独立 R3 状态 <code>codex-review</code> 在本仓同样必须通过。判定核 _ci.ps1 与 selftest 闸 8.2g 共用，8.2g 机检 needs 已点名每个 job（T86）。触发 push + pull_request（[main, master]，selftest 8.2d 锁形态）；push 侧为<strong>事后检测</strong>——提交落地后才跑，非 push 前强制（后者归 pre-push 钩子 / Pro-public 规则集）。</p>
             </div>
           </article>
           <article class="node c-sub" tabindex="0" data-rel="quality" data-self="licenses">

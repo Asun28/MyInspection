@@ -6946,6 +6946,38 @@ else {
     if (-not $fail) { Write-Host '  14e 执行边界节同步 + 模板硬边界敏感面基线 OK（逐字一致 + 红线/基线锚点在场）' -ForegroundColor Green }
   }
 }
+# 14e continuation.  The initialized project has no CLAUDE.template.md, but its operational authority still
+# has to follow the executable review policy and CI workflow.  Read the policy and workflow as the sources of
+# truth, then inspect only the bounded local-ship instruction and the two architecture nodes: this verifies
+# the operator contract without making a brittle second copy of either manifest.
+$cfg14eOps = Get-Content (Join-Path $RepoRoot 'scripts/_config.ps1') -Raw
+$ci14eOps = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
+$verify14eOps = Get-Content (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
+$devops14eOps = Get-Content (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
+$architecture14eOps = Get-Content (Join-Path $RepoRoot 'docs/scaffold-architecture.html') -Raw
+$localShip14eOps = [regex]::Match($devops14eOps, '(?m)^#\s+无远端.*-Local.*$').Value
+$taskNode14eOps = [regex]::Match($architecture14eOps, '(?s)<article\b[^>]*data-self="task"[^>]*>.*?</article>').Value
+$verifyNode14eOps = [regex]::Match($architecture14eOps, '(?s)<article\b[^>]*data-self="verify"[^>]*>.*?</article>').Value
+$configRequires14eOps = $cfg14eOps -match "(?m)^\s*ReviewGate\s*=\s*'required'\s*$"
+$ciWindows14eOps = $ci14eOps -match '(?m)^\s*runs-on:\s*windows-latest\s*$'
+$ciBootstrap14eOps = ($ci14eOps -match '(?m)^\s*uses:\s*actions/setup-java@') -and ($ci14eOps -match '(?m)^\s*uses:\s*android-actions/setup-android@') -and ($ci14eOps -match '(?ms)^\s*working-directory:\s*android\s*$.*?^\s*cmd /c gradlew\.bat --no-daemon build\s*$')
+$ciOffline14eOps = $ci14eOps -match '(?m)gradlew\.bat\s+--offline\b'
+$verifyGoldenE2e14eOps = ($verify14eOps -match ':core:e2eTest') -and ($verify14eOps -match '\[GATE2-MISSING\]') -and ($verify14eOps -match '\[GATE2-NOT-RUN\]')
+$localReviewContract14eOps = {
+  param([string]$Line)
+  ($Line -match '-Local') -and ($Line -match "ReviewGate='required'") -and ($Line -match 'fail-closed') -and ($Line -notmatch '无 Codex|可选评审')
+}
+$staleLocalShip14eOps = '#   无远端 / 无 Codex 的本地 T0：加 -Local（DoD + 可选评审后**本地**合并，不 push/PR/gh）'
+if (-not $configRequires14eOps) { Fail '14e setup: _config.ps1 no longer sets ReviewGate=''required''; revise this documentation contract with the executable policy instead of judging a stale regime.' }
+elseif (& $localReviewContract14eOps $staleLocalShip14eOps) { Fail '14e setup: the local-review matcher accepted the preserved stale -Local guidance; it would not independently catch optional/no-Codex drift.' }
+elseif (-not (& $localReviewContract14eOps $localShip14eOps)) { Fail '14e [DOC-REVIEW-REQUIRED] DEVOPS-WORKFLOW local ship guidance does not bind -Local to ReviewGate=''required'' and fail-closed R3; it can falsely teach a no-Codex local merge.' }
+elseif (($taskNode14eOps -notmatch "ReviewGate='required'") -or ($taskNode14eOps -notmatch '-Local') -or ($taskNode14eOps -notmatch 'fail-closed')) { Fail '14e [DOC-REVIEW-REQUIRED] scaffold architecture task-loop node does not bind -Local to the configured required R3/fail-closed contract.' }
+elseif ($taskNode14eOps -match '可选第二意见|无远端 / 无 Codex') { Fail '14e [DOC-REVIEW-OPTIONAL-DRIFT] scaffold architecture task-loop node still calls the review optional or says no Codex can locally complete the loop while ReviewGate is required.' }
+elseif (-not $ciWindows14eOps -or -not $ciBootstrap14eOps -or -not $ciOffline14eOps) { Fail '14e setup: ci.yml no longer has the Windows runner, Java/Android setup, online Gradle bootstrap, and offline Gradle verification contract this sync check reads.' }
+elseif (-not $verifyGoldenE2e14eOps) { Fail '14e setup: verify.ps1 no longer declares the Golden Evidence :core:e2eTest as mandatory for missing or unexecuted Gate 2; revise the document contract with the executable verification policy.' }
+elseif (($verifyNode14eOps -notmatch 'windows-latest') -or ($verifyNode14eOps -notmatch 'online bootstrap') -or ($verifyNode14eOps -notmatch 'offline verify') -or ($verifyNode14eOps -notmatch 'Golden Evidence JVM') -or ($verifyNode14eOps -notmatch ':core:e2eTest') -or ($verifyNode14eOps -notmatch 'fail-closed')) { Fail '14e [DOC-CI-PLATFORM] scaffold architecture CI verify node does not describe the actual Windows runner, online bootstrap/offline verify, and mandatory Golden Evidence :core:e2eTest contract.' }
+elseif ($verifyNode14eOps -match 'ubuntu-latest|无网络') { Fail '14e [DOC-CI-PLATFORM-DRIFT] scaffold architecture CI verify node still describes an Ubuntu or wholly no-network CI job despite the Windows/bootstrap workflow.' }
+elseif (-not $fail) { Write-Host '  14e [DOC-R3-CI-SYNC] required local R3 and Windows bootstrap/offline verify documentation agree with _config.ps1 and ci.yml' -ForegroundColor Green }
 
 # 14j. T97-GENERATOR-SWEEP: every card generator must know the card fields check-cards can REJECT a card
 #   for. T94 added [CARD-SWEEP] to check-cards and nothing that projects a card learned it, so a projected
