@@ -52,7 +52,7 @@ $script:ScaffoldConfig = @{
   # worktree appeared in it mid-session while ~130 directories were swept away, twice deleting a live
   # worktree out from under a running card), and C: sits at ~10 GB free. The DEFAULT above is unchanged
   # and still right for downstream: leave this empty and you get <SystemDrive>\wt / ~/.wt.
-  WorktreeRoot = ''
+  WorktreeRoot = 'D:\wt'
 
   # ── 冻结物（一等资产）：契约 / schema 一旦冻结，演进须走版本评审 ──
   # guard-frozen 钩子(PreToolUse)与 review.ps1 据此拒绝就地编辑这些文件。

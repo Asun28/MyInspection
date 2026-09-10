@@ -683,7 +683,12 @@ $ScaffoldDuplicateResidentId = '[LESSONS-DUPLICATE-RESIDENT-ID]'
 function Test-ScaffoldLessonEnforcedByWellFormed {
   [CmdletBinding()]
   param([Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$EnforcedBy)
-  return (Get-ScaffoldEnforcedByShape $EnforcedBy).WellFormed
+  $shape = Get-ScaffoldEnforcedByShape $EnforcedBy
+  if (-not $shape.WellFormed) { return $false }
+  # A blocking lesson may record `none（reason）`, but placeholders are not a reason: accepting them
+  # would make the check pass while its claimed future/manual enforcement remains absent.
+  if ($shape.Kind -eq 'none' -and ([string]$EnforcedBy).Trim() -match '^none\s+(?:N/?A|待补|未定)(?:\s|$)') { return $false }
+  return $true
 }
 
 function Get-ScaffoldMustLayerSection {
