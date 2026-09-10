@@ -2986,10 +2986,11 @@ function Get-ScaffoldShardTimeoutIssue {
     if ($ln -match '^\S') { break }
     if ($ln -match '^  ([A-Za-z0-9_.-]+):\s*$') { $cur = @{ Name = $Matches[1]; Timeouts = $null }; $jobs += $cur; continue }
     if ($null -ne $cur -and $ln -match '^    timeout-minutes:\s*(\d+)\s*$') { $cur.Timeouts = @([int]$Matches[1]); continue }
-    # TD4 migration lives only in Windows seed-pre.  Its real Gradle path keeps the historical 30-minute
-    # allowance while the other NINE matrix legs retain 20 minutes.  Accept only this closed expression:
-    # a broad expression parser would let a later arbitrary/under-budget branch read as guarded.
-    if ($null -ne $cur -and $ln -match '^    timeout-minutes:\s*\$\{\{ matrix\.os == ''windows-latest'' && matrix\.shard\.name == ''seed-pre'' && 30 \|\| 20 \}\}\s*$') { $cur.Timeouts = @(30, 20); continue }
+    # Windows seed-post carries the restored integration controls, while seed-pre owns TD4's Gradle
+    # migration. The 45-minute post allowance reserves headroom from local coverage cost rather than
+    # claiming hosted-CI timing; every other leg stays at 20. Accept only this closed expression: a broad
+    # expression parser would let an arbitrary branch read as guarded.
+    if ($null -ne $cur -and $ln -match '^    timeout-minutes:\s*\$\{\{ matrix\.os == ''windows-latest'' && matrix\.shard\.name == ''seed-post'' && 45 \|\| matrix\.os == ''windows-latest'' && matrix\.shard\.name == ''seed-pre'' && 30 \|\| 20 \}\}\s*$') { $cur.Timeouts = @(45, 30, 20); continue }
   }
   if ($jobs.Count -eq 0) {
     $findings += "[SHARD-TIMEOUT] no job was projected out of the jobs: block, so the verdict below would judge nothing - the file's shape has drifted away from what this check reads (expected 'jobs:' at column 0, each job key indented two spaces and its own keys four)."
@@ -3029,8 +3030,10 @@ function Test-ScaffoldShardTimeoutExamples {
     @{ n = 'second-job-unbound'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', "    timeout-minutes: $FloorMin", '    steps:', '      - run: echo hi', '  publish:', '    runs-on: ubuntu-latest', '    steps:', '      - run: echo hi') }
     @{ n = 'no-jobs-block';      want = 'no job was projected';                  yml = @('name: nothing', 'on: {}') }
     @{ n = 'on-both-bounds';     want = '';                                      yml = @('jobs:', '  selftest:', "    timeout-minutes: $FloorMin", '    steps:', '      - run: echo hi', '  publish:', "    timeout-minutes: $CeilingMin", '    steps:', '      - run: echo hi') }
-    @{ n = 'windows-seed-pre-split'; want = '';                                  yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
-    @{ n = 'wrong-os-seed-pre-split'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
+    @{ n = 'windows-seed-budgets'; want = '';                                    yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-post'' && 45 || matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
+    @{ n = 'missing-seed-post-budget'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
+    @{ n = 'wrong-os-seed-post-budget'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.shard.name == ''seed-post'' && 45 || matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-pre'' && 30 || 20 }}', '    steps:', '      - run: echo hi') }
+    @{ n = 'swapped-windows-seed-budgets'; want = 'declares no job-level timeout-minutes'; yml = @('jobs:', '  selftest:', '    timeout-minutes: ${{ matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-post'' && 30 || matrix.os == ''windows-latest'' && matrix.shard.name == ''seed-pre'' && 45 || 20 }}', '    steps:', '      - run: echo hi') }
   )
   $findings = @()
   foreach ($c in $cases) {
@@ -3078,7 +3081,7 @@ if ($shardTimeoutExamples.Count) { $shardTimeoutExamples | ForEach-Object { Fail
 elseif (@(Test-ScaffoldShardTimeoutExamples -FloorMin $ScaffoldShardTimeoutFloorMin -CeilingMin $ScaffoldShardTimeoutCeilingMin -Variant 'accept-any-workflow').Count -lt 1) {
   Fail "8.2h' T191 (anti-vacuous): feeding the SAME shapes through the 'accept-any-workflow' core - one that finds nothing, ever - produced zero disagreements, so the examples assert nothing about the timeout contract and 8.2h, which only ever reads a file that is correct by construction, would remain the only assertion (TD140/ADR 0011)."
 }
-elseif (-not $fail) { Write-Host '  8.2h'' [SHARD-TIMEOUT-EXAMPLE] bad-shape regression OK (missing / below floor / above ceiling / step-level-only / second unbounded job / unparseable jobs block all reported, a workflow sitting on both bounds is not, and the find-nothing control disagrees)' -ForegroundColor Green }
+elseif (-not $fail) { Write-Host '  8.2h'' [SHARD-TIMEOUT-EXAMPLE] bad-shape regression OK (missing / below floor / above ceiling / step-level-only / second unbounded job / unparseable jobs block / incomplete, unscoped or swapped Windows shard budgets all reported; legal fixed and closed-form bounds accepted; find-nothing control disagrees)' -ForegroundColor Green }
 }
 
 # 8.2i. (T192 / upstream #275): the workflow_dispatch filters must be able to narrow a DIAGNOSIS run without

@@ -85,9 +85,11 @@ jobs:
     # once. Read by selftest 8.2h, which requires it present at JOB level and inside a named floor/ceiling
     # (a step-level bound caps one step, not the job, and does not satisfy it). Moving the VALUE is a
     # measurement question with its own card; moving a BOUND edits the named constants in selftest.ps1.
-    # TD4's real Gradle migration fixture runs only in Windows seed-pre.  Preserve that 30-minute budget;
-    # the other nine matrix legs remain at the measured 20-minute bound. Gate 8.2h recognizes this closed form.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.shard.name == 'seed-pre' && 30 || 20 }}
+    # Windows seed-post now carries the restored workflow/deadline integration controls; its 45-minute
+    # allowance is headroom derived from local coverage cost, not a hosted-CI timing claim. TD4's Gradle
+    # fixture keeps 30 minutes on Windows seed-pre; the other eight legs remain at 20. Gate 8.2h accepts
+    # only this closed form, with every branch still inside the named 15..60 bounds.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.shard.name == 'seed-post' && 45 || matrix.os == 'windows-latest' && matrix.shard.name == 'seed-pre' && 30 || 20 }}
     steps:
       # T192: the shard filter, and the reason it is a STEP guard rather than a job-level `if`. GitHub
       # evaluates `jobs.<job_id>.if` BEFORE matrix expansion, so it cannot see `matrix` at all; and turning
