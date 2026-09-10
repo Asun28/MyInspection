@@ -1,7 +1,7 @@
 ---
 id: T0-SCAFFOLD-UPSTREAM-ADOPTION
 title: Adopt merged upstream scaffold coupling groups into MyInspection
-status: in-review
+status: merged
 allow_paths:
   - .claude/hooks/handoff-resume.ps1
   - .claude/hooks/_throttle.ps1
@@ -125,3 +125,9 @@ The CI compatibility repair restores the existing fail-closed, exact-path
 SQLDelight tracked-sensitive allowlist adapter in `scripts/check-secrets.ps1`.
 It does not modify schema databases, the allowlist JSON, `.gitignore` or the
 source review record.
+
+## R5 delivery — 2026-09-11
+
+[PR #297](https://github.com/Asun28/MyInspection/pull/297) merged as `d991cc928c4dd36607cc19eace40ec3cc8c01dd1`. The merge tree exactly matches reviewed candidate `31d2b8c4b836900fa10472283407687f97d555cf` on base `2221a41895f86d2fcb2c8d79dbeb920ac7532e43`. The explicitly authorized sixth Codex review passed, following three real DeepSeek V4 Pro/high source PASS verdicts, full parallel selftest (all five native exits 0; 1431.572 seconds), and current CI verify/required success. Model-stated release prerequisites were resolved by actual source/full/CI verification, with original limitations preserved. All previous BLOCK records remain history. See the [final verification](https://github.com/Asun28/MyInspection/pull/297#issuecomment-5620371507) and [Codex verdict](https://github.com/Asun28/MyInspection/pull/297#issuecomment-5624491893).
+
+Eleven predecessor cards close as superseded replacements, not independently accepted original implementations. INPUT, TRIAGE and the removed RECEIPT mechanism remain outside this adoption. Evidence clones and original worktrees are retained. No new lessons rule is added: existing source-binding, whole-module integration and evidence-verification rules cover the issues encountered.

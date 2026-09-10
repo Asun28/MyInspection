@@ -2,7 +2,8 @@
 id: T0-R3-MEASURED-OID-BINDING
 title: 让被测量的提交就是被 push、被评审、被合并的那一个
 depends_on: [T0-R3-DIFF-BUDGET]
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-R3-MEASURED-OID-BINDING
 worktree: C:\wt\T0-R3-MEASURED-OID-BINDING
 allow_paths:
@@ -65,3 +66,7 @@ R3 第 3 轮复现了其中一条：`Assert-MeasuredTip` 只校验任务分支�
 ## 为什么两个指针都要钉
 
 它们是两个独立可动的指针，且**下游读的不是同一个**：范围闸按卡 id 取分支引用，评审与构建读工作树 HEAD。只钉一个，另一个就是敞口——这正是第 3 轮 finding 的形状（另见经验 L238）。
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

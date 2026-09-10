@@ -1,7 +1,8 @@
 ---
 id: T0-INIT-ASSIGNMENT-ANCHORS
 title: Restrict initializer configuration rewrites to their actual assignment fields
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 depends_on: [T0-SHIP-REVIEW-BASE-BUNDLE]
 allow_paths:
   - init-scaffold.ps1
@@ -43,3 +44,7 @@ immutable origin remain unchanged; unselected advisory/budget policies remain de
 ## Remote delivery authorization and provenance
 
 The user's 2026-09-08 instruction authorizes remote delivery through an independent worktree and PR. The remaining acceptance, forbid and non-goals stay in force. This todo registration does not represent local historical results as remote implementation or acceptance. Use task-loop with GPT-6 Astra, high effort and the configured independent GPT-5.6 Sol high R3. Establish current-source behavior evidence and preserve existing remote product changes.
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

@@ -2,7 +2,8 @@
 id: T0-SELFTEST-NIGHTLY-META
 title: Run selftest aggregation stress checks nightly with explicit coverage receipts
 depends_on: [T0-SELFTEST-RISK-ROUTING]
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-SELFTEST-NIGHTLY-META
 worktree: C:\wt\T0-SELFTEST-NIGHTLY-META
 allow_paths:
@@ -35,3 +36,7 @@ doc_sync: Document full local default, explicit deferred coverage and daily/manu
 Remote adoption is authorized by the user's 2026-09-08 instruction to complete all unfinished scaffold cards in independent worktrees and PRs. This card is pending remote implementation and acceptance; its local source history is provenance only, not a remote pass or merge.
 
 Use task-loop with GPT-6 Astra, high effort; R3 remains the configured GPT-5.6 Sol, high effort. Preserve current remote product changes, scaffold-trigger isolation, CI identity/jobs checks and timeout budgets. Apply only this card's scoped changes, with fresh RED/GREEN, current-source evidence and its own PR. Do not merge the divergent local master or copy historical pass receipts.
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

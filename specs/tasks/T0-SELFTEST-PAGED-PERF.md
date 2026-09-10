@@ -3,7 +3,8 @@ id: T0-SELFTEST-PAGED-PERF
 title: Replace duplicate pagination ship fixtures with direct real-function coverage
 depends_on: [T0-CI-PAGED-CONTRACT, T0-SELFTEST-SCAFFOLD-ONLY]
 parallelizable_with: [T0-SCAFFOLD-SYNC-046]
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-SELFTEST-PAGED-PERF
 worktree: C:\wt\T0-SELFTEST-PAGED-PERF
 allow_paths:
@@ -38,3 +39,7 @@ real production definitions, while six full ship cases prove the three endpoint 
 
 The card DoD intentionally runs only the new direct fixture so RED and R3 can replay it cheaply. The six
 full-ship boundary cases and aggregate suites remain mandatory final acceptance evidence.
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

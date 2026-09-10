@@ -142,3 +142,23 @@ access to another checkout's private directory. These copies remain ignored
 local evidence; the exact-commit result and review verdict are published on the
 PR. The second review's inability to read the original external evidence is
 preserved in its BLOCK record, not retroactively reclassified as approval.
+
+## Delivered and predecessor closure — 2026-09-11
+
+PR #297 merged as `d991cc928c4dd36607cc19eace40ec3cc8c01dd1`; its tree exactly equals reviewed candidate `31d2b8c4b836900fa10472283407687f97d555cf`. Three actual DeepSeek V4 Pro/high source reviews had no blocking findings. The authorized sixth Codex review passed; full parallel selftest completed with all five native exits 0, and CI 34486847188 verify/required passed. The original model limitations and all earlier failures remain in the PR evidence; actual coordinator checks satisfied the stated full/CI/source prerequisites. Final premerge checks revalidated the original base, PR head, unique workflow run/attempt and exact jobs.
+
+These predecessor cards are marked `superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION` and closed through this merged replacement:
+
+- `T0-SELFTEST-PAGED-PERF`
+- `T0-REVIEW-LOW-RISK`
+- `T0-R3-MEASURED-OID-BINDING`
+- `T0-SELFTEST-NIGHTLY-META`
+- `T0-SELFTEST-META-EXPANSION`
+- `T0-SELFTEST-SKILL-ROUTING`
+- `T0-SHIP-REVIEW-BASE-BUNDLE`
+- `T0-INIT-ASSIGNMENT-ANCHORS`
+- `T0-ASCII-SHIP-CODES`
+- `T0-ASCII-CARD-SECRET-CODES`
+- `T0-ASCII-REVIEW-ARCHIVE-CODES`
+
+Their original individual DoD/RED/mutation/performance queues were not completed by this adoption and must not be resumed from historical dispatch state. Their original worktrees and evidence remain available. INPUT, TRIAGE and RECEIPT stay separate and are not closed.
