@@ -15855,39 +15855,55 @@ if ($env:GH_MOCK_ROOT) {
       # Restored merged downstream contracts; kept inside the existing T37 remote fixture (no new sub-gate).
       if (-not $fail) {
         $dlProblem = $null; $taskPath = Join-Path $RepoRoot 'scripts/task.ps1'; $taskText = Get-Content $taskPath -Raw
-        $dlStart = $taskText.IndexOf('$ddl = [DateTimeOffset]::UtcNow.AddSeconds')
-        $dlEnd = $taskText.IndexOf('Write-Host "[CI-GATE-PASS]', [Math]::Max(0, $dlStart))
-        if ($dlStart -lt 0 -or $dlEnd -le $dlStart) { $dlProblem = 'candidate-CI deadline 边界不可定位' }
+        $tok = $null; $pe = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile($taskPath, [ref]$tok, [ref]$pe)
+        $deadlineAssignments = @($ast.FindAll({ param($n)
+          $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+          $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+          $n.Left.VariablePath.UserPath -ceq 'ciDeadline'
+        }, $true))
+        $passCalls = @($ast.FindAll({ param($n)
+          $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Write-Host' -and
+          $n.Extent.Text -cmatch '\[CI-GATE-PASS\]'
+        }, $true))
+        if ($pe.Count -gt 0 -or $deadlineAssignments.Count -ne 1 -or $passCalls.Count -ne 1 -or
+            $deadlineAssignments[0].Right.Extent.Text -cne '[DateTimeOffset]::UtcNow.AddSeconds($ciTimeoutSec)') {
+          $dlProblem = 'candidate-CI deadline AST 边界不可唯一定位'
+        }
         else {
+          $dlStart = $deadlineAssignments[0].Extent.StartOffset
+          $dlEnd = $passCalls[0].Extent.StartOffset
+          if ($dlEnd -le $dlStart) { $dlProblem = 'candidate-CI deadline AST 边界次序错误' }
+        }
+        if (-not $dlProblem) {
           $dlCi = $taskText.Substring($dlStart, $dlEnd - $dlStart)
           if ($dlCi -match '(?m)^\s*&\s+(?:gh|git)\b') { $dlProblem = 'candidate-CI 仍有绕过统一 deadline 的裸 gh/git 调用' }
-          elseif ([regex]::Matches($dlCi, '(?m)^\s*\$ddl\s*=').Count -ne 1) { $dlProblem = 'candidate-CI 未且仅未创建一个绝对 deadline' }
-          $warm = $taskText.LastIndexOf('Initialize-CiContainment -Fault "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"', $dlStart)
-          if (-not $dlProblem -and ($warm -lt ($dlStart - 500) -or $warm -ge $dlStart)) { $dlProblem = '容纳原语未在 candidate-CI deadline 建立前预热' }
+          $deadlineBlock = $deadlineAssignments[0].Parent
+          $deadlineStatements = if ($deadlineBlock -is [Management.Automation.Language.StatementBlockAst]) { @($deadlineBlock.Statements) } else { @() }
+          $deadlineIndex = [array]::IndexOf([object[]]$deadlineStatements, $deadlineAssignments[0])
+          $warmText = if ($deadlineIndex -gt 0) { $deadlineStatements[$deadlineIndex - 1].Extent.Text } else { '' }
+          if (-not $dlProblem -and $warmText -cne 'Initialize-CiContainment -Fault "$env:SCAFFOLD_CI_CONTAINMENT_FAULT"') { $dlProblem = '容纳原语未在 candidate-CI deadline 建立前紧邻预热' }
           if (-not $dlProblem -and $taskText -cnotmatch 'STARTUPINFOEX|PROC_THREAD_ATTRIBUTE_HANDLE_LIST|UpdateProcThreadAttribute') { $dlProblem = 'CreateProcess 未白名单继承标准流 handles' }
         }
-        if (-not $dlProblem -and $taskText -match '(?m)\.WaitForExit\(\)') { $dlProblem = '仍有无参 WaitForExit()，重定向句柄可令闸无界等待' }
-
         # 直接执行生产函数：外层 ship 墙钟不能区分一份/两份 cleanup grace，也会把前段固定成本混进去。
         if (-not $dlProblem) {
-          $tok = $null; $pe = $null
-          $ast = [Management.Automation.Language.Parser]::ParseFile($taskPath, [ref]$tok, [ref]$pe)
           $defs = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
             $n.Name -in @('Initialize-CiContainment','Invoke-ExternalBeforeDeadline') }, $true) | Sort-Object { $_.Extent.StartOffset })
           if ($pe.Count -gt 0 -or $defs.Count -ne 2) { $dlProblem = '生产容纳函数缺失或不可解析' }
+          elseif (($defs.Extent.Text -join "`n") -match '(?m)\.WaitForExit\(\)') { $dlProblem = '生产容纳函数仍有无参 WaitForExit()，重定向句柄可令闸无界等待' }
           else {
             $names = @('Invoke-GhBeforeDeadline','Get-ExactHeadChecksBeforeDeadline','Get-GhPagedCollectionBeforeDeadline','Invoke-ExternalBeforeDeadline','Get-GitOidBeforeDeadline','Wait-CiRetryBeforeDeadline')
             $calls = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true) | Where-Object {
               $_.Extent.StartOffset -ge $dlStart -and $_.Extent.EndOffset -le $dlEnd -and $_.GetCommandName() -in $names
             })
-            if ($calls.Count -ne 15) { $dlProblem = "candidate-CI 外部/等待调用数漂移（$($calls.Count) != 15）" }
+            if ($calls.Count -ne 17) { $dlProblem = "candidate-CI 外部/等待调用数漂移（$($calls.Count) != 17）" }
             foreach ($call in $calls) {
               if ($dlProblem) { break }
               $els = @($call.CommandElements); $name = $call.GetCommandName()
-              if ($name -ceq 'Wait-CiRetryBeforeDeadline') { if ($els.Count -ne 2 -or $els[1].Extent.Text -cne '$ddl') { $dlProblem = "$name 未绑定唯一 `$ddl" } }
+              if ($name -ceq 'Wait-CiRetryBeforeDeadline') { if ($els.Count -ne 2 -or $els[1].Extent.Text -cne '$ciDeadline') { $dlProblem = "$name 未绑定唯一 `$ciDeadline" } }
               else {
                 $di = -1; for ($i=0; $i -lt $els.Count; $i++) { if ($els[$i] -is [Management.Automation.Language.CommandParameterAst] -and $els[$i].ParameterName -ceq 'Deadline') { $di=$i; break } }
-                if ($di -lt 0 -or $di + 1 -ge $els.Count -or $els[$di + 1].Extent.Text -cne '$ddl') { $dlProblem = "$name 未绑定唯一 `$ddl" }
+                if ($di -lt 0 -or $di + 1 -ge $els.Count -or $els[$di + 1].Extent.Text -cne '$ciDeadline') { $dlProblem = "$name 未绑定唯一 `$ciDeadline" }
               }
             }
             $edges = @(
@@ -16021,6 +16037,30 @@ public static class DeadlineInheritProbe {
         }
 
         # 真实 ship 接线：慢 gh 跨腿共享预算；git fetch/rev-parse 各自挂起也必须命中同一 timeout。
+        $rmGitShim = @'
+$real = "$env:GH_MOCK_REAL_GIT"
+if (-not $real) { $real = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
+$joined = $args -join ' '
+$arm = if ($env:GH_MOCK_ROOT) { Join-Path $env:GH_MOCK_ROOT 'arm-git-hang' } else { '' }
+if ($arm -and (Test-Path $arm)) {
+  $mode = "$(Get-Content $arm -Raw)".Trim()
+  $leg = if ($joined -match '(?:^| )fetch(?: |$).*refs/remotes/origin/') { 'git-fetch' }
+    elseif ($joined -match '(?:^| )rev-parse(?: |$).*refs/remotes/origin/') { 'git-revparse' } else { '' }
+  if ($leg) {
+    Add-Content (Join-Path $env:GH_MOCK_ROOT 'ci-git-calls') "$leg|$((Get-Location).Path)|$joined"
+    if ((($mode -ceq 'git-fetch-hang') -and ($leg -ceq 'git-fetch')) -or
+        (($mode -ceq 'git-revparse-hang') -and ($leg -ceq 'git-revparse'))) {
+      Remove-Item $arm -Force
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'git-hang-started') "$mode|$PID|$([DateTimeOffset]::UtcNow.ToString('o'))|$joined"
+      Start-Sleep -Seconds 25
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'git-hang-completed') yes
+      exit 0
+    }
+  }
+}
+& $real @args
+exit $LASTEXITCODE
+'@
         if (-not $dlProblem) {
           $fxd = & $rmMake 'deadline'
           try {
@@ -16043,6 +16083,15 @@ public static class DeadlineInheritProbe {
           try {
             if (-not $fxg.Ok) { $dlProblem = 'git deadline 夹具 start 失败' }
             else {
+              # 当前 PR 首读把两个字段合并在同一个 --json 参数；只为本 DEADLINE 夹具扩展旧 head 分派，
+              # 让 deadline-pre-git 仍从 CI 首次受控外部调用起计时。
+              $ghShimPath = Join-Path $fxg.Shim 'gh.ps1'; $ghShimText = Get-Content $ghShimPath -Raw
+              $prSnapshotDispatch = "if ((`$args -join ' ') -match 'baseRefName,headRefOid') {"
+              $deadlinePrSnapshotDispatch = $prSnapshotDispatch + "`n  Wait-CiDeadlineLeg 'head'"
+              if ([regex]::Matches($ghShimText, [regex]::Escape($prSnapshotDispatch)).Count -ne 1) { $dlProblem = 'git deadline gh 夹具 PR snapshot 分派形状漂移' }
+              else { Set-Content $ghShimPath ($ghShimText.Replace($prSnapshotDispatch, $deadlinePrSnapshotDispatch)) -Encoding utf8 }
+            }
+            if (-not $dlProblem) {
               $env:GH_MOCK_WT = $fxg.Wt
               & pwsh -NoProfile -File (Join-Path $fxg.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
               Set-Content (Join-Path $fxg.Wt 'README.md') 'GREENMX git deadline' -Encoding utf8
