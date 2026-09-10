@@ -15385,7 +15385,8 @@ if (($args -join ' ') -match 'baseRefName,headRefOid') {
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   # A4 终局快照负例：这一读是「决策前最后一眼」。retarget = base 分支被改；head-moved = PR head 已前移。
   $bn = if ($env:GH_MOCK_CI_MODE -ceq 'snap-retarget') { 'release' } else { 'master' }
-  if ($env:GH_MOCK_CI_MODE -ceq 'snap-head-moved') { $oid = ('b' * 40) }
+  if ($env:GH_MOCK_CI_MODE -ceq 'pr-head-mismatch') { $oid = ('c' * 40) }
+  elseif ($env:GH_MOCK_CI_MODE -ceq 'snap-head-moved') { $oid = ('b' * 40) }
   @{ baseRefName = $bn; headRefOid = $oid } | ConvertTo-Json -Compress
   exit 0
 }
