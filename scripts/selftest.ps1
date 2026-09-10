@@ -8276,6 +8276,47 @@ if (-not $git) {
       if ($shipExit -ne 0) { Fail "task.ps1 -Phase ship -Local 非零退出（$shipExit）——ship 编排链断（DoD/verify/范围/预算/许可/密钥/评审/合并之一）。" }
       elseif ($mergeCount -lt 1) { Fail 'ship -Local 退出 0 但 master 上无合并提交（--no-ff 未生效 / worktree 改动未提交？）。' }
       else { Write-Host '  动态 E2E OK（ship -Local）：DoD→verify(stub)→范围→预算→许可→密钥→R3(stub)→-Local 合并全过，exit 0 且产出合并提交' -ForegroundColor Green }
+
+      # 15b'. Required means required on the local merge path too. Reuse this real repository/card/worktree
+      # fixture, hide only codex in the child process (all other commands delegate to the built-in cmdlet),
+      # empty ReviewCommand, and prove the refusal occurs before any `git merge` reaches the fixture trace.
+      if (-not $fail) {
+        $lrId = 'T0-LOCALREVIEW'; $lrCard = Join-Path $e2e "specs/tasks/$lrId.md"; $lrCfg = Join-Path $e2e 'scripts/_config.ps1'
+        $lrCfgBefore = Get-Content $lrCfg -Raw
+        try {
+          @('---', "id: $lrId", 'title: required local reviewer seed', 'status: todo', 'dod_command: "pwsh -NoProfile -Command exit 0"', 'allow_paths:', '  - README.md', '---') -join "`n" | Set-Content $lrCard -Encoding utf8
+          & git -C $e2e add -- $lrCard *> $null; & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'register required local review seed' *> $null
+          $lrCfgText = [regex]::Replace($lrCfgBefore, "ReviewGate\s*=\s*'[^']*'", "ReviewGate = 'required'")
+          $lrCfgText = [regex]::Replace($lrCfgText, "ReviewCommand\s*=\s*'[^']*'", "ReviewCommand = ''")
+          Set-Content $lrCfg $lrCfgText -NoNewline -Encoding utf8
+          & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $lrId -Phase start *> $null
+          $lrWt = Join-Path $e2e "wt/$lrId"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $lrWt)) { Fail "15b' setup: required-review worktree was not created (exit $LASTEXITCODE)." }
+          else {
+            Set-Content (Join-Path $lrWt 'README.md') 'required local reviewer must block before merge' -Encoding utf8
+            $lrHeadBefore = "$(& git -C $e2e rev-parse master 2>$null)".Trim(); $lrTrace = Join-Path $e2e 'local-required-review.gittrace'; Remove-Item $lrTrace -ErrorAction SilentlyContinue
+            $lrWrap = Join-Path $e2e 'local-required-review.ps1'
+            Set-Content $lrWrap @'
+function global:Get-Command {
+  [CmdletBinding()] param([Parameter(Position=0)][string]$Name,[Parameter(ValueFromRemainingArguments=$true)][object[]]$Rest)
+  if ($Name -eq 'codex') { return }
+  Microsoft.PowerShell.Core\Get-Command $Name @Rest
+}
+& (Join-Path $PSScriptRoot 'scripts/task.ps1') -TaskId T0-LOCALREVIEW -Phase ship -Local -SkipRed
+exit $LASTEXITCODE
+'@ -Encoding utf8
+            $oldTrace = $env:GIT_TRACE; $env:GIT_TRACE = $lrTrace
+            try { $lrOut = (& pwsh -NoProfile -File $lrWrap 2>&1 | Out-String); $lrExit = $LASTEXITCODE } finally { $env:GIT_TRACE = $oldTrace }
+            $lrHeadAfter = "$(& git -C $e2e rev-parse master 2>$null)".Trim(); $lrTraceText = if (Test-Path $lrTrace) { Get-Content $lrTrace -Raw } else { '' }
+            if ($lrExit -eq 0) { Fail "15b': -Local with ReviewGate=required and no backend exited 0." }
+            elseif ($lrOut -notmatch 'SHIP-NO-REVIEWER') { Fail "15b': local required reviewer failure was not SHIP-NO-REVIEWER. Output=$lrOut" }
+            elseif ($lrHeadBefore -ne $lrHeadAfter) { Fail "15b': local required reviewer failure advanced master before refusal." }
+            elseif ($lrTraceText -notmatch '(?m)built-in: git (?:rev-parse|status)(?:\s|$)') { Fail "15b': GIT_TRACE did not record a fixture git call; the no-merge assertion would be vacuous." }
+            elseif ($lrTraceText -match '(?m)built-in: git merge(?:\s|$)') { Fail "15b': local required reviewer failure reached git merge before refusal." }
+            else { Write-Host "  15b' local required review backend absent -> SHIP-NO-REVIEWER before merge OK" -ForegroundColor Green }
+          }
+        } finally { Set-Content $lrCfg $lrCfgBefore -NoNewline -Encoding utf8 }
+      }
     }
 
     # 15c/15d. ship 两道确定性闸的种子缺陷覆盖（17 系模式：enforcer 喂已知坏输入须 BLOCK 且写效果账本——
