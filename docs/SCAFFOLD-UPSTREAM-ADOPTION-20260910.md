@@ -52,10 +52,11 @@ snapshot named by this PR.
   The adopted high-water is `0.47.0`; upstream-only budget and mutation
   exemptions stay disabled.
 - `ReviewGate` remains `required`; content-based review skipping is disabled.
-  This PR requires a passing independent Codex review of its current head.
-  The first review blocked; the user subsequently authorized repairing its
-  remaining four integration findings and one further review. Upstream's
-  advisory default is not adopted as this project's merge policy.
+  Local and remote shipping reject a missing required review backend before
+  merge. The reviewer and its helper modules are materialized and verified
+  from the same immutable base commit, including the backend configuration.
+  This PR requires a passing authorized Codex review of its current head.
+  Upstream's advisory default is not adopted as this project's merge policy.
 - MyInspection retains its production `review.ps1` hard ceiling of 1,000
   changed lines and 60,000 diff characters.  The source's current task loop
   no longer carries the legacy RED/waterline-receipt ship gate; that current

@@ -63,7 +63,7 @@ acceptance:
   - "A1 The adopted script modules come from the fixed merged upstream source and retain their coupled interfaces."
   - "A2 MyInspection preserves GoldenEvidence/Android verification, archive index checks, project identity, frozen paths and origin provenance."
   - "A3 CI verify remains the product job and required is a strict fan-in over that job."
-  - "A4 Required review remains blocking; the user authorized one further review after the first block, and only a pass on the repaired candidate permits merge."
+  - "A4 Required review blocks local and remote shipping without a backend; reviewer code and dependencies come from one immutable base, and only an authorized pass on the current candidate permits merge."
   - "A5 The adoption record names the 18 direct source PRs plus the fixed complete-module prerequisites, and explicitly leaves INPUT, TRIAGE and RECEIPT unresolved."
   - "A6 Selftest retains project-specific regression coverage and complete dependencies; diagnostic fixtures leave the candidate checkout unchanged."
   - "A7 Review artifact operations reject unsafe paths, round-cap/reset behavior is retained, and ignored local logs are not described as tracked evidence."
@@ -98,6 +98,16 @@ Codex review only when none of those pre-reviews blocks. Full current-candidate
 validation and CI remain required; neither substitutes for the Codex verdict.
 The `e4ea807e` full run exposed a CI rename fixture that left `needs` stale;
 the fixture now renames both job and dependency with explicit setup assertions.
+
+The third Codex review returned block on `dbc1ee43`, despite the three actual
+DeepSeek domain passes and successful full selftest/CI. It identified a local
+required-review bypass when no backend exists and reviewer dependencies loaded
+from the mutable main checkout. The repairs reject the missing-backend case
+before merge and materialize the reviewer dependency bundle from the same
+immutable base. Existing selftest fixtures exercise both defects and controls.
+The user then explicitly authorized direct Codex review after repair and
+validation, without another DeepSeek cycle. Only a current passing verdict,
+full selftest and successful CI permit merge; all prior blocks remain recorded.
 
 The CI compatibility repair restores the existing fail-closed, exact-path
 SQLDelight tracked-sensitive allowlist adapter in `scripts/check-secrets.ps1`.
