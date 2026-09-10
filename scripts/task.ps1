@@ -1834,8 +1834,14 @@ switch ($Phase) {
             $finalHead = "$($finalPrObject.headRefOid)".Trim()
           } catch { }
         }
-        if ($finalBase -cne $shipBase) { throw "[CI-GATE-BASE-MISMATCH] '$finalBase' != '$shipBase' (exit $($finalPr.ExitCode))." }
-        if ($finalHead -cnotmatch '^[0-9a-f]{40}$' -or $finalHead -cne $ciHead) { throw "[CI-GATE-HEAD-MOVED] $ciHead -> '$finalHead'." }
+        if ($finalBase -cne $shipBase) {
+          Add-CatchRecord 'base' "$shipBase!=$finalBase/$($finalPr.ExitCode)"
+          throw "[CI-GATE-BASE-MISMATCH] '$finalBase' != '$shipBase' (exit $($finalPr.ExitCode))."
+        }
+        if ($finalHead -cnotmatch '^[0-9a-f]{40}$' -or $finalHead -cne $ciHead) {
+          Add-CatchRecord 'ci' "head:$ciHead->$finalHead/$($finalPr.ExitCode)"
+          throw "[CI-GATE-HEAD-MOVED] $ciHead -> '$finalHead'."
+        }
 
         # Refresh the remote base immediately before readiness/merge, under the same absolute deadline, and
         # compare its commit identity with the scope/reviewer base pinned before all gates.
