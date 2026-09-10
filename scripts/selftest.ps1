@@ -15230,7 +15230,7 @@ elseif (-not $fail) {
       'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-jobs-names', 'ci-event-trace', 'ci-gh-cwds',
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
       # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
-      'r3-head-moved', 'local-base-moved', 'base-moved-applied', 'headmove-count', 'ci-recipe-checked', 'deadline-legs', 'orphan-started', 'orphan-completed', 'git-hang-started',
+      'r3-head-moved', 'local-base-moved', 'base-moved-applied', 'headmove-count', 'ci-final-pr-count', 'ci-recipe-checked', 'deadline-legs', 'orphan-started', 'orphan-completed', 'git-hang-started',
       'git-hang-completed', 'deadline-pre-git', 'arm-git-hang', 'ci-git-calls')   # base-count 属 17aa(8)，本卡 stub 不写；last three: TD134
     $rmReset = {
       param($root)
@@ -15382,11 +15382,12 @@ if ($args -contains 'number') {
 }
 if (($args -join ' ') -match 'baseRefName,headRefOid') {
   Add-CiCwd 'final-pr'
+  $prReadN = Next-CiCount 'ci-final-pr-count'
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   # A4 终局快照负例：这一读是「决策前最后一眼」。retarget = base 分支被改；head-moved = PR head 已前移。
-  $bn = if ($env:GH_MOCK_CI_MODE -ceq 'snap-retarget') { 'release' } else { 'master' }
+  $bn = if (($env:GH_MOCK_CI_MODE -ceq 'snap-retarget') -and ($prReadN -ge 2)) { 'release' } else { 'master' }
   if ($env:GH_MOCK_CI_MODE -ceq 'pr-head-mismatch') { $oid = ('c' * 40) }
-  elseif ($env:GH_MOCK_CI_MODE -ceq 'snap-head-moved') { $oid = ('b' * 40) }
+  elseif (($env:GH_MOCK_CI_MODE -ceq 'snap-head-moved') -and ($prReadN -ge 2)) { $oid = ('b' * 40) }
   @{ baseRefName = $bn; headRefOid = $oid } | ConvertTo-Json -Compress
   exit 0
 }
@@ -15504,18 +15505,7 @@ if ($args -contains 'api') {
     # mistake that for proof that it selected the right workflow run/attempt.
     $jobItem = [ordered]@{ id = [long]21; name = 'verify'; status = 'completed'; conclusion = 'success' }
     $jobItems = @($jobItem, [ordered]@{ id = [long]22; name = 'required'; status = 'completed'; conclusion = 'success' })
-    # A4 的 base 前移负例：本腿是「稳定态已判绿、终局 base 快照尚未取」之间**唯一**的注入点——
-    # 在这里让裸 origin 的 master 长出一个新提交，ship 随后的 base 刷新就会读到与 scopeBaseOid 不同的 OID。
     $djm = "$env:GH_MOCK_CI_MODE"
-    if ($djm -ceq 'base-moved' -and -not (Test-Path (Join-Path $env:GH_MOCK_ROOT 'base-moved-applied'))) {
-      $bare = Join-Path $env:GH_MOCK_ROOT 'origin.git'
-      $parent = "$(& git --git-dir=$bare rev-parse refs/heads/master 2>$null)".Trim()
-      $tree = "$(& git --git-dir=$bare rev-parse 'refs/heads/master^{tree}' 2>$null)".Trim()
-      if ($parent -and $tree) {
-        $moved = "$(& git --git-dir=$bare -c user.email=selftest@local -c user.name=selftest commit-tree $tree -p $parent -m basemove 2>$null)".Trim()
-        if ($moved) { & git --git-dir=$bare update-ref refs/heads/master $moved *> $null }
-      }
-    }
     if ($djm -ceq 'jobs-renamed') { $jobItem.name = 'renamed' }
     elseif ($djm -ceq 'jobs-name-case') { $jobItem.name = 'Verify' }
     elseif ($djm -ceq 'jobs-extra') { $jobItems += [ordered]@{ id = [long]23; name = 'audit'; status = 'completed'; conclusion = 'success' } }
@@ -16167,7 +16157,7 @@ public static class DeadlineInheritProbe {
         # 故各用一棵全新夹具——与阻断类共用会把「下一条负例的基线」也一并改掉。
         foreach ($mv in @(
             @{ M = 'r3-head-move'; S = '\[CI-GATE-LOCAL-HEAD-MOVED\]'; C = 0; W = 0; J = 0 }
-            @{ M = 'base-moved'; S = '\[CI-GATE-BASE-MOVED\]'; C = 1; W = 1; J = 1 })) {
+            @{ M = 'base-moved'; S = '\[CI-GATE-BASE-MOVED\]'; C = 2; W = 2; J = 2 })) {
           if ($wbProblem) { break }
           $fxm = & $rmMake ($mv.M -replace '-', '')
           try {
