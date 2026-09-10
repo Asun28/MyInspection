@@ -15296,7 +15296,8 @@ elseif (-not $fail) {
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
       # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
       'r3-head-moved', 'local-base-moved', 'base-moved-applied', 'headmove-count', 'ci-final-pr-count', 'ci-recipe-checked', 'deadline-legs', 'orphan-started', 'orphan-completed', 'git-hang-started',
-      'git-hang-completed', 'deadline-pre-git', 'arm-git-hang', 'ci-git-calls')   # base-count 属 17aa(8)，本卡 stub 不写；last three: TD134
+      'git-hang-completed', 'deadline-pre-git', 'arm-git-hang', 'ci-git-calls', 'ci-api-hang-started',
+      'ci-api-hang-completed')   # base-count 属 17aa(8)，本卡 stub 不写；last five: TD134
     $rmReset = {
       param($root)
       foreach ($s in $rmSentinels) { Remove-Item (Join-Path $root $s) -ErrorAction SilentlyContinue }
@@ -15448,10 +15449,12 @@ if ($args -contains 'number') {
 if (($args -join ' ') -match 'baseRefName,headRefOid') {
   Add-CiCwd 'final-pr'
   $prReadN = Next-CiCount 'ci-final-pr-count'
+  if ($env:GH_MOCK_CI_MODE -ceq 'headmove') { [void](Next-CiCount 'headmove-count') }
   $oid = "$(& git -C $env:GH_MOCK_WT rev-parse HEAD 2>$null)".Trim()
   # A4 终局快照负例：这一读是「决策前最后一眼」。retarget = base 分支被改；head-moved = PR head 已前移。
   $bn = if (($env:GH_MOCK_CI_MODE -ceq 'snap-retarget') -and ($prReadN -ge 2)) { 'release' } else { 'master' }
   if ($env:GH_MOCK_CI_MODE -ceq 'pr-head-mismatch') { $oid = ('c' * 40) }
+  elseif (($env:GH_MOCK_CI_MODE -ceq 'headmove') -and ($prReadN -ge 2)) { $oid = ('a' * 40) }
   elseif (($env:GH_MOCK_CI_MODE -ceq 'snap-head-moved') -and ($prReadN -ge 2)) { $oid = ('b' * 40) }
   @{ baseRefName = $bn; headRefOid = $oid } | ConvertTo-Json -Compress
   exit 0
@@ -15469,6 +15472,11 @@ if ($args -contains 'api') {
     Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-checked') 'yes'
     Add-CiTrace 'ci'
     $checkN = Next-CiCount 'ci-check-count'
+    if ($env:GH_MOCK_CI_MODE -ceq 'apihang') {
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-api-hang-started') ([DateTimeOffset]::UtcNow.ToString('o'))
+      Start-Sleep -Seconds 30
+      Set-Content (Join-Path $env:GH_MOCK_ROOT 'ci-api-hang-completed') 'yes'
+    }
     # Apply the remote-base race as soon as the CI phase consumes its first server response. The baseline
     # is already pinned and R3 has completed; both the legacy check-only consumer and the restored
     # workflow-bound consumer must therefore face the same moving-origin counterexample.
@@ -15571,7 +15579,8 @@ if ($args -contains 'api') {
     $jobItem = [ordered]@{ id = [long]21; name = 'verify'; status = 'completed'; conclusion = 'success' }
     $jobItems = @($jobItem, [ordered]@{ id = [long]22; name = 'required'; status = 'completed'; conclusion = 'success' })
     $djm = "$env:GH_MOCK_CI_MODE"
-    if ($djm -ceq 'jobs-renamed') { $jobItem.name = 'renamed' }
+    if ($djm -ceq 'candidate-matrix') { $jobItem.name = 'verify-renamed' }
+    elseif ($djm -ceq 'jobs-renamed') { $jobItem.name = 'renamed' }
     elseif ($djm -ceq 'jobs-name-case') { $jobItem.name = 'Verify' }
     elseif ($djm -ceq 'jobs-extra') { $jobItems += [ordered]@{ id = [long]23; name = 'audit'; status = 'completed'; conclusion = 'success' } }
     elseif ($djm -ceq 'jobs-duplicate') { $jobItems += [ordered]@{ id = [long]23; name = 'verify'; status = 'completed'; conclusion = 'success' } }
@@ -16330,7 +16339,7 @@ exit $LASTEXITCODE
       #    CANDIDATE tree, and its wait paths are testable in seconds via SCAFFOLD_CI_TIMEOUT_SEC.
       #      TD134-CIMANUAL   -NoAutoMerge + red shard -> non-zero, never "ready for manual merge"
       #      TD134-CIWFMISS   workflow absent from the candidate tree -> immediate fail-closed (no wait)
-      #      TD134-CIAPIFAIL  unparseable check-runs pages -> knob-bounded timeout, never merge
+      #      TD134-CIAPIFAIL  malformed check-runs fail API-closed; a hanging call obeys the shared deadline
       #      TD134-CIHEADMOVE head moves during the CI wait -> non-zero, never merge
       #      TD134-CIMATRIX   PR edits the shard matrix -> expected set follows the HEAD yml (T65 item 4)
       if (-not $fail) {
@@ -16379,31 +16388,48 @@ exit $LASTEXITCODE
       }
 
       if (-not $fail) {
-        $fxA = & $rmMake 'ciapifail'
-        try {
-          if (-not $fxA.Ok) { Fail 'TD134-CIAPIFAIL setup: fixture start produced no worktree.' }
-          else {
-            & $rmReset $fxA.Root
-            $env:GH_MOCK_WT = $fxA.Wt; $env:GH_MOCK_CI_MODE = 'apifail'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '3'
-            & pwsh -NoProfile -File (Join-Path $fxA.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
-            Set-Content (Join-Path $fxA.Wt 'README.md') 'GREENMX api-fail work' -Encoding utf8
-            # Ship runs inside a job with a hard 150s guard: if the knob is NOT honored the gate would
-            # wait the 30-min default — the guard turns that hang into a fast red instead (mutation-safe).
-            $jobAExe = Join-Path $fxA.Repo 'scripts/task.ps1'
-            $jobA = Start-Job -ScriptBlock { $o = (& pwsh -NoProfile -File $using:jobAExe -TaskId T0-REMOTEMX -Phase ship 2>&1 | Out-String); [pscustomobject]@{ Out = $o; Exit = $LASTEXITCODE } }
-            $jobADone = Wait-Job $jobA -Timeout 150
-            if (-not $jobADone) { Stop-Job $jobA; Remove-Job $jobA -Force; Fail 'TD134-CIAPIFAIL: ship still running after 150s — SCAFFOLD_CI_TIMEOUT_SEC=3 not honored, the 30-min default deadline is in force (untestable wait path).' }
+        foreach ($aCase in @(
+            @{ Tag = 'malformed'; Mode = 'apifail'; Timeout = '30'; Max = 60 }
+            @{ Tag = 'hang'; Mode = 'apihang'; Timeout = '3'; Max = 60 })) {
+          $fxA = & $rmMake ("ciapi" + $aCase.Tag)
+          try {
+            if (-not $fxA.Ok) { Fail "TD134-CIAPIFAIL/$($aCase.Tag) setup: fixture start produced no worktree." }
             else {
-              $rA = Receive-Job $jobA; Remove-Job $jobA -Force
-              if ($rA.Exit -eq 0) { Fail 'TD134-CIAPIFAIL: check-runs pages unparseable for the whole wait yet ship exits 0 — an unverifiable head must never merge.' }
-              elseif (-not (Test-Path (Join-Path $fxA.Root 'ci-checked'))) { Fail 'TD134-CIAPIFAIL: ship never consumed the check-runs query (ci-checked missing) — the non-zero exit did not come from the CI check gate, assertion unfaithful.' }
-              elseif ("$($rA.Out)" -notmatch 'wait timed out \(3s;') { $sAd = if ($rA.Out.Length -gt 900) { $rA.Out.Substring($rA.Out.Length - 900) } else { $rA.Out }; Fail "TD134-CIAPIFAIL: blocked but not by the knob-bounded timeout ('wait timed out (3s;' missing — either another guard fired or the knob is not plumbed into the deadline/message). tail=$sAd" }
-              elseif (Test-Path (Join-Path $fxA.Root 'merge-attempted')) { Fail 'TD134-CIAPIFAIL: unverifiable CI yet the merge leg was still reached.' }
-              else { Write-Host '  TD134-CIAPIFAIL API failure -> knob-bounded timeout fail-closed (3s deadline honored, no merge) OK' -ForegroundColor Green }
+              & $rmReset $fxA.Root
+              $env:GH_MOCK_WT = $fxA.Wt
+              & pwsh -NoProfile -File (Join-Path $fxA.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+              Set-Content (Join-Path $fxA.Wt 'README.md') "GREENMX api-$($aCase.Tag) work" -Encoding utf8
+              # Run the real ship consumer behind an outer mutation guard. A production change that drops
+              # SCAFFOLD_CI_TIMEOUT_SEC would otherwise leave this test waiting on the 30-minute default.
+              $jobAExe = Join-Path $fxA.Repo 'scripts/task.ps1'; $jobPath = $env:PATH
+              $jobA = Start-Job -ArgumentList @($jobAExe,$fxA.Root,$fxA.Wt,$aCase.Mode,$aCase.Timeout,$jobPath) -ScriptBlock {
+                param($Exe,$Root,$Wt,$Mode,$Timeout,$PathValue)
+                $env:PATH=$PathValue; $env:GH_MOCK_ROOT=$Root; $env:GH_MOCK_WT=$Wt; $env:GH_MOCK_CI_MODE=$Mode; $env:SCAFFOLD_CI_TIMEOUT_SEC=$Timeout
+                $sw=[Diagnostics.Stopwatch]::StartNew(); $o=(& pwsh -NoProfile -File $Exe -TaskId T0-REMOTEMX -Phase ship 2>&1|Out-String);$x=$LASTEXITCODE;$sw.Stop()
+                [pscustomobject]@{Out=$o;Exit=$x;Seconds=$sw.Elapsed.TotalSeconds}
+              }
+              $jobADone = Wait-Job $jobA -Timeout 90
+              if (-not $jobADone) { Stop-Job $jobA; Remove-Job $jobA -Force; Fail "TD134-CIAPIFAIL/$($aCase.Tag): ship still running after 90s — the configured deadline is not containing the API call." }
+              else {
+                $rA = @(Receive-Job $jobA) | Select-Object -Last 1; Remove-Job $jobA -Force
+                $apiCount = if (Test-Path (Join-Path $fxA.Root 'ci-check-count')) { [int]((Get-Content (Join-Path $fxA.Root 'ci-check-count') -Raw).Trim()) } else { 0 }
+                if ($rA.Exit -eq 0) { Fail "TD134-CIAPIFAIL/$($aCase.Tag): unverifiable check-runs exited 0." }
+                elseif (-not (Test-Path (Join-Path $fxA.Root 'ci-checked')) -or $apiCount -lt 1) { Fail "TD134-CIAPIFAIL/$($aCase.Tag): check-runs endpoint was not actually consumed (count=$apiCount)." }
+                elseif ($rA.Seconds -gt $aCase.Max) { Fail "TD134-CIAPIFAIL/$($aCase.Tag): bounded failure took $([Math]::Round($rA.Seconds,2))s (> $($aCase.Max)s)." }
+                elseif (Test-Path (Join-Path $fxA.Root 'merge-attempted')) { Fail "TD134-CIAPIFAIL/$($aCase.Tag): unverifiable CI reached merge." }
+                elseif ($aCase.Mode -ceq 'apifail' -and "$($rA.Out)" -cnotmatch '\[CI-GATE-API\] checks: check_runs p1/0:') { Fail "TD134-CIAPIFAIL/malformed: rejection lost its endpoint/page API reason. tail=$($rA.Out.Substring([Math]::Max(0,$rA.Out.Length-700)))" }
+                elseif ($aCase.Mode -ceq 'apihang') {
+                  $hangStart = Join-Path $fxA.Root 'ci-api-hang-started'; $hangDone = Join-Path $fxA.Root 'ci-api-hang-completed'
+                  $hangSec = if (Test-Path $hangStart) { ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse("$(Get-Content $hangStart -Raw)".Trim())).TotalSeconds } else { 999 }
+                  if ("$($rA.Out)" -cnotmatch '\[CI-GATE-TIMEOUT\] checks:') { Fail "TD134-CIAPIFAIL/hang: rejection was not the shared check deadline. tail=$($rA.Out.Substring([Math]::Max(0,$rA.Out.Length-700)))" }
+                  elseif (-not (Test-Path $hangStart) -or (Test-Path $hangDone) -or $hangSec -gt 12) { Fail "TD134-CIAPIFAIL/hang: 3s deadline did not stop the real hanging endpoint (started=$(Test-Path $hangStart), completed=$(Test-Path $hangDone), elapsed=$([Math]::Round($hangSec,2))s)." }
+                }
+              }
             }
           }
+          finally { $env:GH_MOCK_CI_MODE = ''; $env:SCAFFOLD_CI_TIMEOUT_SEC = ''; if ($fxA -and $fxA.Root) { Remove-Item -Recurse -Force $fxA.Root -ErrorAction SilentlyContinue } }
         }
-        finally { $env:GH_MOCK_CI_MODE = ''; $env:SCAFFOLD_CI_TIMEOUT_SEC = ''; Remove-Item -Recurse -Force $fxA.Root -ErrorAction SilentlyContinue }
+        if (-not $fail) { Write-Host '  TD134-CIAPIFAIL malformed API fails immediately with endpoint/page reason; real hanging API obeys 3s shared deadline; both consumed and never merge OK' -ForegroundColor Green }
       }
 
       if (-not $fail) {
@@ -16434,9 +16460,9 @@ exit $LASTEXITCODE
           if (-not $fxX.Ok) { Fail 'TD134-CIMATRIX setup: fixture start produced no worktree.' }
           else {
             & $rmReset $fxX.Root
-            # Knob bounds the DEFECT direction: with base-side derivation the gate dead-waits for job
-            # names that can never appear (T65 ship take-6 live failure) - 5s turns that into a fast red.
-            $env:GH_MOCK_WT = $fxX.Wt; $env:SCAFFOLD_CI_TIMEOUT_SEC = '5'
+            # This is a positive end-to-end case, so leave enough budget for the contained multi-call chain.
+            # Dedicated short-deadline cases above prove timeout behavior independently.
+            $env:GH_MOCK_WT = $fxX.Wt; $env:GH_MOCK_CI_MODE = 'candidate-matrix'; $env:SCAFFOLD_CI_TIMEOUT_SEC = '120'
             & pwsh -NoProfile -File (Join-Path $fxX.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
             Set-Content (Join-Path $fxX.Wt 'README.md') 'GREENMX matrix-edit work' -Encoding utf8
             # The PR itself renames a CI job on the HEAD side: verify -> verify-renamed in the worktree
@@ -16461,14 +16487,19 @@ exit $LASTEXITCODE
             if (-not $jobXDone) { Stop-Job $jobX; Remove-Job $jobX -Force; Fail 'TD134-CIMATRIX: ship still running after 150s - the gate is dead-waiting (expected set not derived from the merge candidate tree, and the knob not honored either).' }
             else {
               $rX = Receive-Job $jobX; Remove-Job $jobX -Force
+              $xCounts = @('ci-check-count','ci-workflow-count','ci-jobs-count') | ForEach-Object {
+                $p = Join-Path $fxX.Root $_
+                if (Test-Path $p) { [int]((Get-Content $p -Raw).Trim()) } else { 0 }
+              }
               if ($rX.Exit -ne 0) { $sXd = if ($rX.Out.Length -gt 900) { $rX.Out.Substring($rX.Out.Length - 900) } else { $rX.Out }; Fail "TD134-CIMATRIX: PR that renames a ci.yml job fails to ship (exit $($rX.Exit)) - the fan-in contract is not read from the merge candidate tree (base-side names can never appear; T65 item 4 regression). tail=$sXd" }
               elseif (-not (Test-Path (Join-Path $fxX.Root 'ci-checked'))) { Fail 'TD134-CIMATRIX: ship succeeded without ever consuming the check-runs query — the CI gate was skipped, green is vacuous.' }
+              elseif (@($xCounts | Where-Object { $_ -ne 2 }).Count -gt 0) { Fail "TD134-CIMATRIX: successful ship did not perform the initial and final checks/workflow/jobs reads (counts=$($xCounts -join '/'))." }
               elseif (-not (Test-Path (Join-Path $fxX.Root 'merge-reached'))) { Fail 'TD134-CIMATRIX: exit 0 but the mock merge was never reached — success is vacuous.' }
               else { Write-Host '  TD134-CIMATRIX job-renaming PR ships green (expected checks derived from the candidate tree) OK' -ForegroundColor Green }
             }
           }
         }
-        finally { $env:SCAFFOLD_CI_TIMEOUT_SEC = ''; Remove-Item -Recurse -Force $fxX.Root -ErrorAction SilentlyContinue }
+        finally { $env:GH_MOCK_CI_MODE = ''; $env:SCAFFOLD_CI_TIMEOUT_SEC = ''; Remove-Item -Recurse -Force $fxX.Root -ErrorAction SilentlyContinue }
       }
 
       # Scenario 4 = gate 15t: end-to-end fixture for the MANUAL recovery plane — completing an
