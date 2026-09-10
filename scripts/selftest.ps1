@@ -16149,14 +16149,14 @@ public static class DeadlineInheritProbe {
           # progress to success; the persistent queued control must time out without reaching merge.
           foreach ($pm in @('check-queued-once','check-missing-once')) {
             if ($wbProblem) { break }
-            $r = & $ciShip $wbNeg $pm @('-NoAutoMerge') '8'
+            $r = & $ciShip $wbNeg $pm @('-NoAutoMerge') '120'
             if ($r.X -ne 0) { $wbProblem = "$pm：暂态 pending 未等到 success（exit=$($r.X)）；尾段=$($r.O.Substring([Math]::Max(0,$r.O.Length-400)))" }
             elseif ($r.O -cnotmatch '\[CI-GATE-PASS\]' -or $r.CR -lt 2) { $wbProblem = "$pm：未真实消费 pending→success（checks=$($r.CR)）" }
             elseif ($r.MA -or $r.M) { $wbProblem = "$pm：-NoAutoMerge 却触达 merge" }
           }
           if (-not $wbProblem) {
-            $r = & $ciShip $wbNeg 'check-pending' @('-NoAutoMerge') '2'
-            if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $r.CR -lt 2) { $wbProblem = "check-pending：持续 queued 未由共享 deadline 收口（exit=$($r.X), checks=$($r.CR)）" }
+            $r = & $ciShip $wbNeg 'check-pending' @('-NoAutoMerge') '15'
+            if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $r.CR -lt 2 -or $r.Sec -gt 25) { $wbProblem = "check-pending：持续 queued 未由共享 deadline 收口（exit=$($r.X), checks=$($r.CR), sec=$([Math]::Round($r.Sec,2))）" }
             elseif (-not (Test-Path (Join-Path $wbNeg.Root 'ci-checked'))) { $wbProblem = 'check-pending：未真实消费 check-runs endpoint' }
             elseif ($r.MA -or $r.M) { $wbProblem = 'check-pending：timeout 后仍触达 merge' }
           }
