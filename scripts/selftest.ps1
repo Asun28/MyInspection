@@ -2912,12 +2912,14 @@ if ($taskCiAssign82.Count -ne 1 -or $taskCiAssign82[0].Parent -isnot [Management
 else {
   $taskCiStatements82 = [object[]]$taskCiAssign82[0].Parent.Statements
   $taskCiIndex82 = [Array]::IndexOf($taskCiStatements82, $taskCiAssign82[0])
+  $taskCiInput82 = if ($taskCiIndex82 -gt 0) { $taskCiStatements82[$taskCiIndex82 - 1] } else { $null }
   $taskCiGuard82 = $taskCiStatements82[$taskCiIndex82 + 1]
-  if ($taskCiGuard82 -isnot [Management.Automation.Language.IfStatementAst]) {
-    Fail '8.2g ship consumer: no conditional refusal immediately follows the shared findings.'
+  if ($taskCiInput82 -isnot [Management.Automation.Language.AssignmentStatementAst] -or
+      $taskCiInput82.Left.Extent.Text -cne '$ciWfText' -or $taskCiGuard82 -isnot [Management.Automation.Language.IfStatementAst]) {
+    Fail '8.2g ship consumer: workflow input loading or conditional refusal does not enclose the shared findings.'
   }
   else {
-    $taskCiRun82 = [scriptblock]::Create('param([string]$ciWf)' + "`n" + $taskCiAssign82[0].Extent.Text + "`n" + $taskCiGuard82.Extent.Text)
+    $taskCiRun82 = [scriptblock]::Create('param([string]$ciWf)' + "`n" + $taskCiInput82.Extent.Text + "`n" + $taskCiAssign82[0].Extent.Text + "`n" + $taskCiGuard82.Extent.Text)
     $taskCiGood82 = Get-Content -LiteralPath $fanInWf82 -Raw
     $taskCiCases82 = @(
       @{ Name='current workflow'; Text=$taskCiGood82; Reject=$false }
