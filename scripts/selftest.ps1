@@ -6959,6 +6959,8 @@ $cfg14eOps = Get-Content (Join-Path $RepoRoot 'scripts/_config.ps1') -Raw
 $ci14eOps = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
 $verify14eOps = Get-Content (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
 $devops14eOps = Get-Content (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
+$deliveryChains14eOps = Get-Content (Join-Path $RepoRoot 'docs/DELIVERY-CHAINS.md') -Raw
+$task14eOps = Get-Content (Join-Path $RepoRoot 'scripts/task.ps1') -Raw
 $taskLoop14eOps = Get-Content (Join-Path $RepoRoot '.claude/skills/task-loop/SKILL.md') -Raw
 $architecture14eOps = Get-Content (Join-Path $RepoRoot 'docs/scaffold-architecture.html') -Raw
 $localShip14eOps = [regex]::Match($devops14eOps, '(?m)^#\s+无远端.*-Local.*$').Value
@@ -6974,6 +6976,23 @@ $localReviewContract14eOps = {
   param([string]$Line)
   ($Line -match '-Local') -and ($Line -match "ReviewGate='required'") -and ($Line -match 'fail-closed') -and ($Line -notmatch '无 Codex|可选评审')
 }
+$candidateDeadlineDocContract14eOps = {
+  param([string]$Document, [string]$TaskSource)
+  $findings = @()
+  if ($TaskSource -notmatch '(?s)\$mergeRun\s*=\s*Invoke-GhBeforeDeadline\s+-Arguments\s+@\(\x27pr\x27,\x27merge\x27.*?\)\s+-Deadline\s+\$ciDeadline') { $findings += 'task.ps1 no longer runs the PR merge through Invoke-GhBeforeDeadline with ciDeadline; review the documented deadline boundary against the executable flow.' }
+  if ($TaskSource -notmatch '(?s)# T24-MERGETOKEN.*?\& git -C \$RepoRoot rev-parse --git-common-dir') { $findings += 'task.ps1 no longer has the documented post-merge bare T24 git rev-parse read; review the documented T24 boundary against the executable flow.' }
+  if ($TaskSource -notmatch '(?s)# T24-MERGETOKEN.*?\& gh pr view \$pr --json \x27state,headRefOid\x27') { $findings += 'task.ps1 no longer has the documented post-merge bare T24 gh read; review the documented T24 boundary against the executable flow.' }
+  if ($Document -match '\[CI-GATE-PASS\] 后的 merge/T24 不在此 deadline 内') { $findings += 'DELIVERY-CHAINS still says merge/T24 are outside the deadline although merge consumes the shared ciDeadline.' }
+  if ($Document -notmatch '自动 merge 使用 `ciDeadline` 的剩余预算') { $findings += 'DELIVERY-CHAINS does not state that automatic merge consumes the shared ciDeadline remaining budget.' }
+  if ($Document -notmatch 'T24 凭据铸造.*裸 `gh pr view` / `git rev-parse`.*不声明 deadline 或 containment 保障') { $findings += 'DELIVERY-CHAINS does not accurately limit its T24 claim to the current bare reads without a declared deadline/containment guarantee.' }
+  return @($findings)
+}
+$candidateDeadlineFindings14eOps = @(& $candidateDeadlineDocContract14eOps $deliveryChains14eOps $task14eOps)
+if ($deliveryChains14eOps -match '自动 merge 使用 `ciDeadline` 的剩余预算；成功后的 T24 凭据铸造仍是裸 `gh pr view` / `git rev-parse` 读取，当前不声明 deadline 或 containment 保障。') {
+  $staleCandidateDeadline14eOps = $deliveryChains14eOps -replace '自动 merge 使用 `ciDeadline` 的剩余预算；成功后的 T24 凭据铸造仍是裸 `gh pr view` / `git rev-parse` 读取，当前不声明 deadline 或 containment 保障。', '[CI-GATE-PASS] 后的 merge/T24 不在此 deadline 内'
+  if ($staleCandidateDeadline14eOps -ceq $deliveryChains14eOps) { Fail '14e setup: candidate deadline stale-document replacement did not change the current documentation; the negative control is not exercising its intended input.' }
+  elseif ((@(& $candidateDeadlineDocContract14eOps $staleCandidateDeadline14eOps $task14eOps)).Count -eq 0) { Fail '14e setup: candidate deadline documentation matcher accepts the preserved stale merge/T24-outside-deadline claim; its negative control is vacuous.' }
+}
 $staleLocalShip14eOps = '#   无远端 / 无 Codex 的本地 T0：加 -Local（DoD + 可选评审后**本地**合并，不 push/PR/gh）'
 if (-not $configRequires14eOps) { Fail '14e setup: _config.ps1 no longer sets ReviewGate=''required''; revise this documentation contract with the executable policy instead of judging a stale regime.' }
 elseif (& $localReviewContract14eOps $staleLocalShip14eOps) { Fail '14e setup: the local-review matcher accepted the preserved stale -Local guidance; it would not independently catch optional/no-Codex drift.' }
@@ -6985,6 +7004,7 @@ elseif (-not $ciWindows14eOps -or -not $ciBootstrap14eOps -or -not $ciOffline14e
 elseif (-not $verifyGoldenE2e14eOps) { Fail '14e setup: verify.ps1 no longer declares the Golden Evidence :core:e2eTest as mandatory for missing or unexecuted Gate 2; revise the document contract with the executable verification policy.' }
 elseif (($verifyNode14eOps -notmatch 'windows-latest') -or ($verifyNode14eOps -notmatch 'online bootstrap') -or ($verifyNode14eOps -notmatch 'offline verify') -or ($verifyNode14eOps -notmatch 'Golden Evidence JVM') -or ($verifyNode14eOps -notmatch ':core:e2eTest') -or ($verifyNode14eOps -notmatch 'fail-closed')) { Fail '14e [DOC-CI-PLATFORM] scaffold architecture CI verify node does not describe the actual Windows runner, online bootstrap/offline verify, and mandatory Golden Evidence :core:e2eTest contract.' }
 elseif ($verifyNode14eOps -match 'ubuntu-latest|无网络') { Fail '14e [DOC-CI-PLATFORM-DRIFT] scaffold architecture CI verify node still describes an Ubuntu or wholly no-network CI job despite the Windows/bootstrap workflow.' }
+elseif ($candidateDeadlineFindings14eOps.Count -gt 0) { Fail ('14e [DOC-CI-DEADLINE-SYNC] ' + ($candidateDeadlineFindings14eOps -join ' | ')) }
 elseif (-not $fail) { Write-Host '  14e [DOC-R3-CI-SYNC] required local R3 and Windows bootstrap/offline verify documentation agree with _config.ps1 and ci.yml' -ForegroundColor Green }
 
 # 14j. T97-GENERATOR-SWEEP: every card generator must know the card fields check-cards can REJECT a card
