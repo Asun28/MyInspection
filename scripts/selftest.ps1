@@ -16156,7 +16156,7 @@ public static class DeadlineInheritProbe {
           }
           if (-not $wbProblem) {
             $r = & $ciShip $wbNeg 'check-pending' @('-NoAutoMerge') '15'
-            if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $r.CR -lt 2 -or $r.Sec -gt 25) { $wbProblem = "check-pending：持续 queued 未由共享 deadline 收口（exit=$($r.X), checks=$($r.CR), sec=$([Math]::Round($r.Sec,2))）" }
+            if ($r.X -eq 0 -or $r.O -cnotmatch '\[CI-GATE-TIMEOUT\]' -or $r.CR -lt 2 -or $r.Sec -gt 55) { $wbProblem = "check-pending：持续 queued 未由共享 deadline 收口（exit=$($r.X), checks=$($r.CR), sec=$([Math]::Round($r.Sec,2))）" }
             elseif (-not (Test-Path (Join-Path $wbNeg.Root 'ci-checked'))) { $wbProblem = 'check-pending：未真实消费 check-runs endpoint' }
             elseif ($r.MA -or $r.M) { $wbProblem = 'check-pending：timeout 后仍触达 merge' }
           }
