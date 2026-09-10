@@ -75,8 +75,10 @@ snapshot named by this PR.
   The shared lesson and handoff parsers and tier-aware plan-forge consumers
   are ported together; test fixtures execute against their temporary roots.
   The restored cold-reference subgate makes the subgate manifest count 151.
-  Windows `seed-pre` retains its 30-minute timeout; the other nine CI matrix
-  combinations retain 20 minutes.
+  Windows `seed-post` reserves 45 minutes and `seed-pre` retains 30 minutes;
+  the other eight CI matrix combinations retain 20 minutes. The post allowance
+  reserves headroom for restored coverage based on local runs, not a measured
+  hosted-CI duration.
   Cross-project review fixtures declare their own advisory/skip maps and
   limits explicitly; those fixture settings do not change MyInspection's
   required review policy or its production diff-size and round limits.

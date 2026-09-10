@@ -6959,8 +6959,10 @@ $cfg14eOps = Get-Content (Join-Path $RepoRoot 'scripts/_config.ps1') -Raw
 $ci14eOps = Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
 $verify14eOps = Get-Content (Join-Path $RepoRoot 'scripts/verify.ps1') -Raw
 $devops14eOps = Get-Content (Join-Path $RepoRoot 'docs/DEVOPS-WORKFLOW.md') -Raw
+$taskLoop14eOps = Get-Content (Join-Path $RepoRoot '.claude/skills/task-loop/SKILL.md') -Raw
 $architecture14eOps = Get-Content (Join-Path $RepoRoot 'docs/scaffold-architecture.html') -Raw
 $localShip14eOps = [regex]::Match($devops14eOps, '(?m)^#\s+无远端.*-Local.*$').Value
+$localSkill14eOps = [regex]::Match($taskLoop14eOps, '\*\*无远端的本地 T0\*\*：[^\r\n]*?。').Value
 $taskNode14eOps = [regex]::Match($architecture14eOps, '(?s)<article\b[^>]*data-self="task"[^>]*>.*?</article>').Value
 $verifyNode14eOps = [regex]::Match($architecture14eOps, '(?s)<article\b[^>]*data-self="verify"[^>]*>.*?</article>').Value
 $configRequires14eOps = $cfg14eOps -match "(?m)^\s*ReviewGate\s*=\s*'required'\s*$"
@@ -6976,6 +6978,7 @@ $staleLocalShip14eOps = '#   无远端 / 无 Codex 的本地 T0：加 -Local（D
 if (-not $configRequires14eOps) { Fail '14e setup: _config.ps1 no longer sets ReviewGate=''required''; revise this documentation contract with the executable policy instead of judging a stale regime.' }
 elseif (& $localReviewContract14eOps $staleLocalShip14eOps) { Fail '14e setup: the local-review matcher accepted the preserved stale -Local guidance; it would not independently catch optional/no-Codex drift.' }
 elseif (-not (& $localReviewContract14eOps $localShip14eOps)) { Fail '14e [DOC-REVIEW-REQUIRED] DEVOPS-WORKFLOW local ship guidance does not bind -Local to ReviewGate=''required'' and fail-closed R3; it can falsely teach a no-Codex local merge.' }
+elseif (-not (& $localReviewContract14eOps $localSkill14eOps)) { Fail '14e [DOC-REVIEW-REQUIRED] task-loop skill local ship guidance does not bind -Local to ReviewGate=''required'' and fail-closed R3.' }
 elseif (($taskNode14eOps -notmatch "ReviewGate='required'") -or ($taskNode14eOps -notmatch '-Local') -or ($taskNode14eOps -notmatch 'fail-closed')) { Fail '14e [DOC-REVIEW-REQUIRED] scaffold architecture task-loop node does not bind -Local to the configured required R3/fail-closed contract.' }
 elseif ($taskNode14eOps -match '可选第二意见|无远端 / 无 Codex') { Fail '14e [DOC-REVIEW-OPTIONAL-DRIFT] scaffold architecture task-loop node still calls the review optional or says no Codex can locally complete the loop while ReviewGate is required.' }
 elseif (-not $ciWindows14eOps -or -not $ciBootstrap14eOps -or -not $ciOffline14eOps) { Fail '14e setup: ci.yml no longer has the Windows runner, Java/Android setup, online Gradle bootstrap, and offline Gradle verification contract this sync check reads.' }
