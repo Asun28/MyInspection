@@ -15230,7 +15230,7 @@ elseif (-not $fail) {
       'ci-workflow-checked', 'ci-jobs-consumed', 'ci-jobs-run-id', 'ci-jobs-names', 'ci-event-trace', 'ci-gh-cwds',
       'ci-check-count', 'ci-workflow-count', 'ci-jobs-count',
       # T0-CI-IDENTITY-DEADLINE 新增：R3 窗口移 HEAD 的一次性闸（不在列 ⇒ 残留会让下一场景假红，同 codex R3 r2 #4）。
-      'r3-head-moved', 'base-moved-applied', 'headmove-count', 'ci-recipe-checked', 'deadline-legs', 'orphan-started', 'orphan-completed', 'git-hang-started',
+      'r3-head-moved', 'local-base-moved', 'base-moved-applied', 'headmove-count', 'ci-recipe-checked', 'deadline-legs', 'orphan-started', 'orphan-completed', 'git-hang-started',
       'git-hang-completed', 'deadline-pre-git', 'arm-git-hang', 'ci-git-calls')   # base-count 属 17aa(8)，本卡 stub 不写；last three: TD134
     $rmReset = {
       param($root)
@@ -15619,6 +15619,16 @@ if ($env:GH_MOCK_ROOT) {
     Add-Content (Join-Path $env:GH_MOCK_WT 'extra.txt') 'r3 window head move'
     & git -C $env:GH_MOCK_WT add extra.txt *> $null
     & git -C $env:GH_MOCK_WT commit -q -m 'r3 window head move' *> $null
+  }
+  # Local merge-target race: advance the checked-out base while R3 is running. The reviewed task head is
+  # unchanged, so only a merge-time base-OID check can distinguish this from the green control.
+  $bm = Join-Path $env:GH_MOCK_ROOT 'local-base-moved'
+  if (($env:GH_MOCK_CI_MODE -ceq 'local-base-move') -and -not (Test-Path $bm)) {
+    Set-Content $bm 'yes'
+    $repo = Join-Path $env:GH_MOCK_ROOT 'repo'
+    Set-Content (Join-Path $repo 'base-race.txt') 'base moved during R3' -Encoding utf8
+    & git -C $repo add base-race.txt *> $null
+    & git -C $repo commit -q -m 'base moved during R3' *> $null
   }
 }
 '{"verdict":"pass","reasons":[]}' | Set-Content $env:REVIEW_OUT -Encoding utf8
@@ -16145,6 +16155,39 @@ public static class DeadlineInheritProbe {
             }
           }
           finally { if ($fxm -and $fxm.Root) { Remove-Item -Recurse -Force $fxm.Root -ErrorAction SilentlyContinue } }
+        }
+        # The local path has no PR/CI identity to catch these races later. Bind both the reviewed task OID
+        # and the checked-out base OID across R3, then merge the immutable reviewed OID. Each negative uses
+        # a fresh repo because it deliberately advances one branch; the final case is the positive control.
+        foreach ($lc in @(
+            @{ M = 'r3-head-move'; S = '\[CI-GATE-LOCAL-HEAD-MOVED\]'; MoveBase = $false }
+            @{ M = 'local-base-move'; S = '\[SHIP-LOCAL-BASE-MOVED\]'; MoveBase = $true }
+            @{ M = ''; S = ''; MoveBase = $false })) {
+          if ($wbProblem) { break }
+          $fxl = & $rmMake ('local' + ($lc.M -replace '-', ''))
+          try {
+            if (-not $fxl.Ok) { $wbProblem = "local/$($lc.M) setup：夹具 start 未产出 worktree"; break }
+            $env:GH_MOCK_WT = $fxl.Wt
+            & pwsh -NoProfile -File (Join-Path $fxl.Repo 'scripts/task.ps1') -TaskId T0-REMOTEMX -Phase red *> $null
+            Set-Content (Join-Path $fxl.Wt 'README.md') "GREENMX local $($lc.M)" -Encoding utf8
+            $reviewedParent = "$(git -C $fxl.Wt rev-parse HEAD)".Trim()
+            $r = & $ciShip $fxl $lc.M @('-Local')
+            $baseTip = "$(git -C $fxl.Repo rev-parse master 2>$null)".Trim()
+            $taskTip = "$(git -C $fxl.Wt rev-parse HEAD 2>$null)".Trim()
+            & git -C $fxl.Repo merge-base --is-ancestor $taskTip master 2>$null
+            $taskMerged = ($LASTEXITCODE -eq 0)
+            if ($lc.S) {
+              if ($r.X -eq 0) { $wbProblem = "local/$($lc.M)：竞态后仍 exit 0" }
+              elseif ($r.O -cnotmatch $lc.S) { $wbProblem = "local/$($lc.M)：缺哨兵 $($lc.S)；尾段=$($r.O.Substring([Math]::Max(0,$r.O.Length-400)))" }
+              elseif (($lc.M -ceq 'r3-head-move') -and -not (Test-Path (Join-Path $fxl.Root 'r3-head-moved'))) { $wbProblem = 'local/r3-head-move：R3 stub 未实际移动任务 HEAD' }
+              elseif ($lc.MoveBase -and -not (Test-Path (Join-Path $fxl.Root 'local-base-moved'))) { $wbProblem = 'local/local-base-move：R3 stub 未实际移动 base HEAD' }
+              elseif ($taskMerged) { $wbProblem = "local/$($lc.M)：被拒后任务 tip 仍进入 master" }
+            }
+            elseif ($r.X -ne 0) { $wbProblem = "local/green：固定 reviewed OID 正例失败（exit=$($r.X)）；尾段=$($r.O.Substring([Math]::Max(0,$r.O.Length-400)))" }
+            elseif ($baseTip -cne $taskTip) { $wbProblem = "local/green：merge 后 master=$baseTip != reviewed task tip=$taskTip" }
+            elseif ($taskTip -ceq $reviewedParent) { $wbProblem = 'local/green：ship 未提交 GREENMX 改动，正例未触达 merge' }
+          }
+          finally { if ($fxl -and $fxl.Root) { Remove-Item -Recurse -Force $fxl.Root -ErrorAction SilentlyContinue } }
         }
         if ($wbProblem) { Fail "T37-CIGATE/WORKFLOW-BINDING: $wbProblem" }
         else { Write-Host '  T37-CIGATE/WORKFLOW-BINDING OK' -ForegroundColor Green }
