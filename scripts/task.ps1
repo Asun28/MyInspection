@@ -767,9 +767,9 @@ switch ($Phase) {
     # Asks the DECISION, not the config string a second time: leaving `$reviewGate -eq 'required'` here
     # would keep two ways of asking "is the reviewer a gate?" in one file, which is the drift this card
     # exists to remove. Only the blocking state fail-fasts - an advisory run with no backend is a no-op.
-    if (-not $Local -and $reviewRun.Blocking -and -not $reviewAvail) {
-      Add-CatchRecord 'review' '无评审后端（ReviewGate=required 且远端 ship，push 前 fail-fast）'
-      throw "[SHIP-NO-REVIEWER] no review backend: a remote ship with ReviewGate='required' must pass the second-model review (R3), but codex was not detected and _config.ps1 ReviewCommand is empty - stopped BEFORE push/PR. Pick any fix: 1) install the codex CLI; 2) set ReviewCommand to another backend; 3) leave ReviewGate empty for advisory mode; 4) -Phase ship -Local for the local loop."
+    if ($reviewRun.Blocking -and -not $reviewAvail) {
+      Add-CatchRecord 'review' '无评审后端（ReviewGate=required，ship 前 fail-fast）'
+      throw "[SHIP-NO-REVIEWER] no review backend: ReviewGate='required' must pass the second-model review (R3), but codex was not detected and _config.ps1 ReviewCommand is empty - stopped BEFORE ship can merge. Install codex, set ReviewCommand to another backend, or leave ReviewGate empty for advisory mode."
     }
     # 个人账号守卫：push/PR/合并前确认仅配置的个人账号（禁组织）。-Local 无远端 → 跳过。
     if (-not $Local) {
@@ -1050,9 +1050,7 @@ switch ($Phase) {
             # -LocalBase：-Local 的合并目标是本地 <base>，评审基线也须对照本地（否则前次本地合并的文件被误判，TD68）。
             & pwsh -NoProfile -File $rvLocal -WorktreePath $Wt -Base $Base -LocalBase
             if ($LASTEXITCODE -ne 0) { Add-CatchRecord 'review' ((Get-ReviewBlockDetail $Wt $TaskId) + ' (-Local)'); throw '第二模型评审 block（-Local），已停止。修复后重 ship -Local。' }
-          } else {
-            Write-Warning '无 codex / ReviewCommand：-Local 跳过第二模型评审（仅本地检视，未做对抗评审）。装 codex 或在 _config 配 ReviewCommand 可启用。'
-          }
+          } else { throw '[SHIP-NO-REVIEWER] required review backend disappeared before the local merge.' }
         } elseif ($reviewRun.Run) {
           # T242/TD248：卡自身声明了 review_gate → 跑，但**不拦合并**（T68 的合并闸不变）。block 只报告 + 入账。
           if ($reviewAvail -and $rvLocal) {
