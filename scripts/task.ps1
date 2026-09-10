@@ -1530,7 +1530,7 @@ switch ($Phase) {
           Add-CatchRecord 'review' "R3 期间本地 HEAD 变化（$r3Head -> '$r3HeadAfter'; -Local）"
           throw "[CI-GATE-LOCAL-HEAD-MOVED] $r3Head -> '$r3HeadAfter'"
         }
-        $sagaDone += (Complete-ShipLeg 'R3-review')   # -Local 的 R3 是可选腿：pass 或显式跳过均算该腿完成
+        $sagaDone += (Complete-ShipLeg 'R3-review')   # 按 ReviewGate/card policy 完成：required 必须 pass，意见模式可显式跳过
         Step '本地合并（-Local：并入当前基线分支，无 push/PR/gh）'
         # F3（R3 PR#102 九轮 + 审计）：入口守卫读的是 ship 开始时的 HEAD；DoD/verify/R3 可跑 10+ 分钟，其间主检出可能被
         # 切分支 / detach（L88 记有 mid-flight HEAD 移动）。合并前**重新断言**同一不变量（throw 不 warn）——否则会对照 $Base
@@ -1734,8 +1734,13 @@ switch ($Phase) {
           if ($cr.status -cne 'completed') { $pending += $cr }
         }
         $required = @($runs | Where-Object { $_ -is [pscustomobject] -and $_.name -is [string] -and $_.name -ceq $ScaffoldCiFanInJob })
-        if ($required.Count -ne 1) { $badShape += "required-count=$($required.Count)" }
-        elseif ($required[0].status -cne 'completed' -or $required[0].conclusion -cne 'success') { $blocking += $required[0] }
+        if ($required.Count -eq 0) {
+          # A check run may not exist yet while GitHub is creating it. Treat absence as pending until the
+          # shared deadline; duplicate required contexts remain an ambiguous acceptance surface.
+          $pending += [pscustomobject]@{ name=$ScaffoldCiFanInJob; status='missing'; conclusion=$null }
+        }
+        elseif ($required.Count -gt 1) { $badShape += "required-count=$($required.Count)" }
+        elseif ($required[0].status -ceq 'completed' -and $required[0].conclusion -cne 'success') { $blocking += $required[0] }
         [pscustomobject]@{ Drift=($badShape.Count -gt 0); Reason=($badShape -join ','); Pending=@($pending); Blocking=@($blocking) }
       }
       $last = 'CI has not returned a stable candidate snapshot'
@@ -1796,8 +1801,12 @@ switch ($Phase) {
         $fwRuns = @($fwPg.Items)
         if ($fwRuns.Count -ne 1) { throw "[CI-GATE-WORKFLOW-AMBIGUOUS] final runs=$($fwRuns.Count)." }
         $fwRun = $fwRuns[0]; $fwProps = @($fwRun.PSObject.Properties.Name); $fwId = 0L; $fwTry = 0
+        $fwMissing = @(@('id','head_sha','event','status','conclusion','run_attempt','path','pull_requests') | Where-Object { $fwProps -cnotcontains $_ })
+        if ($fwMissing.Count -gt 0) {
+          throw "[CI-GATE-WORKFLOW-IDENTITY] final workflow missing: $($fwMissing -join ',')."
+        }
         $fwPrMatch = Get-CandidateRunPrMatchCount -PullRequests $fwRun.pull_requests -Pr $pr
-        if (@(@('id','head_sha','event','status','conclusion','run_attempt','path','pull_requests') | Where-Object { $fwProps -cnotcontains $_ }).Count -gt 0 -or
+        if (
             (-not [long]::TryParse("$($fwRun.id)",[ref]$fwId)) -or $fwId -ne $runId -or
             (-not [int]::TryParse("$($fwRun.run_attempt)",[ref]$fwTry)) -or $fwTry -ne $attempt -or
             "$($fwRun.head_sha)" -cne $ciHead -or "$($fwRun.event)" -cne 'pull_request' -or
