@@ -198,11 +198,10 @@ function Get-ReviewBlockDetail($WorktreePath, $BranchName) {
 # THE SHA IS THE ONE THE SCOPE GATE PINNED, not a ref: the reviewer, the card's allow_paths, the tier and
 # the budget then all come from one commit, which is the "one tree" invariant T241 established.
 #
-# WHY THE SIBLING LIBRARIES ARE COPIED FROM THE MAIN CHECKOUT rather than extracted with it: review.ps1
-# dot-sources _config / _guard / _gitbase / _encoding off its own $PSScriptRoot, so a lone base copy cannot
-# run at all. They come from $RepoRoot (the trusted checkout, the L86 rule) and never from the worktree -
-# and deliberately not from the base either, because _config.ps1 is where the R3 backend is pinned and
-# moving THAT read to a second source is a different decision than this card makes.
+# THE REVIEWER IS A BUNDLE, not one file. review.ps1 dot-sources _config / _gitbase / _encoding and, when it
+# publishes status, _guard; _guard in turn dot-sources _lessons. Every member comes from the SAME $BaseSha.
+# Pulling siblings from $RepoRoot would mix a pinned evaluator with mutable policy and path guards, so a dirty
+# main checkout could decide a review whose script claims to come wholly from the baseline.
 #
 # The temp directory is this run's own and the ship removes it on every exit path including a throw, so a
 # failed ship leaves no reviewer copy behind for the next one to pick up.
@@ -210,28 +209,96 @@ $script:ShipReviewerDir = ''
 function Resolve-ShipReviewerScript {
   [CmdletBinding()]
   param([Parameter(Mandatory)][string]$BaseSha)
-  # Cast, not trusted to be a string: `Out-String` on an EMPTY pipeline emits nothing at all, so a read
-  # that produced no bytes would leave $rvText null and the length check below would throw instead of
-  # reporting a base with no reviewer.
-  $rvText = [string](& git -C $Wt show "${BaseSha}:scripts/review.ps1" 2>$null | Out-String)
-  if ($LASTEXITCODE -ne 0 -or -not $rvText.Trim()) {
-    # A base with no reviewer is the same state as no backend, and it routes through the paths that state
-    # already has - blocking refuses, advisory skips - rather than inventing a third.
-    Write-Warning "[SHIP-NO-REVIEWER] the base commit $BaseSha carries no scripts/review.ps1, so this ship has no reviewer to run. The reviewer is taken from the BASE commit by design (a diff must not review itself), which is why the copy in this worktree does not count. Fix: restore scripts/review.ps1 on the base branch and rerun the same ship."
+  if ($BaseSha -notmatch '^[0-9a-fA-F]{40}$') {
+    Write-Warning "[SHIP-NO-REVIEWER] '$BaseSha' is not a pinned commit OID, so no reviewer bundle can be trusted. Rerun after the base gate has resolved one immutable commit."
     return ''
   }
+  # Enumerate from the fixed tree, preserving the old bundle surface (review.ps1 + every sibling _*.ps1)
+  # without freezing today's dependency graph into this newer harness. review.ps1 already conditionally loads
+  # _cards/_scope and future baseline reviewers may grow another underscore sibling; the BASE decides its own
+  # coherent bundle. Replacement refs are disabled so a local refs/replace entry cannot silently substitute a
+  # different evaluator for the pinned OID. Requiring a regular-file mode also refuses symlink script blobs.
+  $expectedBlobs = @{}
+  $treeRows = @(& git --no-replace-objects -C $Wt ls-tree -r --full-tree $BaseSha -- scripts 2>$null)
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "[SHIP-NO-REVIEWER] could not enumerate the reviewer dependency bundle at base commit $BaseSha; refusing to read mutable checkout siblings."
+    return ''
+  }
+  foreach ($treeRow in $treeRows) {
+    if ([string]$treeRow -notmatch '^100(?:644|755) blob ([0-9a-fA-F]{40})\t(.+)$') { continue }
+    $blobOid = $Matches[1].ToLowerInvariant()
+    $rel = $Matches[2]
+    if ($rel -cne 'scripts/review.ps1' -and $rel -notmatch '^scripts/_[^/]+\.ps1$') { continue }
+    if ($expectedBlobs.ContainsKey($rel)) {
+      Write-Warning "[SHIP-NO-REVIEWER] base commit $BaseSha enumerated reviewer dependency $rel more than once; refusing an ambiguous bundle."
+      return ''
+    }
+    $expectedBlobs[$rel] = $blobOid
+  }
+  if (-not $expectedBlobs.ContainsKey('scripts/review.ps1')) {
+    # A base with no reviewer is the same state as no backend, and it routes through the paths that state
+    # already has - blocking refuses, advisory skips - rather than inventing a third.
+    Write-Warning "[SHIP-NO-REVIEWER] the base commit $BaseSha carries no regular scripts/review.ps1, so this ship has no reviewer to run. Restore it on the base branch and rerun the same ship."
+    return ''
+  }
+  $reviewerFiles = @($expectedBlobs.Keys | Sort-Object)
   if (-not $script:ShipReviewerDir) {
     $script:ShipReviewerDir = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-r3-base-$PID-$((New-Guid).ToString('N').Substring(0, 8))"
     New-Item -ItemType Directory -Force $script:ShipReviewerDir -ErrorAction Stop | Out-Null
-    Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'scripts') -Filter '_*.ps1' -File | Copy-Item -Destination $script:ShipReviewerDir -Force
   }
-  $rvPath = Join-Path $script:ShipReviewerDir 'review.ps1'
-  # git hands the file's UTF-8 BOM back as a leading U+FEFF CHARACTER; written out it would land after the
-  # encoder's own BOM and the first line would no longer be `#requires`. Measured, not assumed: with it
-  # stripped the round trip is character-identical to the working copy.
-  Set-Content -LiteralPath $rvPath -Value ($rvText.TrimStart([char]0xFEFF)) -NoNewline -Encoding utf8
+  # Stream every blob from git's native stdout straight to a file. Capturing stdout in PowerShell or using a
+  # working-tree/archive representation may decode text or apply EOL attributes, changing BOM/newlines. The
+  # direct byte stream followed by hash-object proves the file to be executed is the exact baseline blob.
+  $gitExe = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
+  foreach ($rel in $reviewerFiles) {
+    $materialized = Join-Path $script:ShipReviewerDir $rel
+    New-Item -ItemType Directory -Force (Split-Path -Parent $materialized) -ErrorAction Stop | Out-Null
+    $exportExit = -1
+    $exportStderr = ''
+    $exportFault = ''
+    $blobProcess = $null
+    $blobStream = $null
+    try {
+      $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+      $startInfo.FileName = $gitExe
+      $startInfo.UseShellExecute = $false
+      $startInfo.CreateNoWindow = $true
+      $startInfo.RedirectStandardOutput = $true
+      $startInfo.RedirectStandardError = $true
+      [void]$startInfo.ArgumentList.Add('--no-replace-objects')
+      [void]$startInfo.ArgumentList.Add('-C')
+      [void]$startInfo.ArgumentList.Add($Wt)
+      [void]$startInfo.ArgumentList.Add('cat-file')
+      [void]$startInfo.ArgumentList.Add('blob')
+      [void]$startInfo.ArgumentList.Add($expectedBlobs[$rel])
+      $blobProcess = [System.Diagnostics.Process]::Start($startInfo)
+      $blobStream = [System.IO.File]::Open($materialized, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+      $copyTask = $blobProcess.StandardOutput.BaseStream.CopyToAsync($blobStream)
+      $stderrTask = $blobProcess.StandardError.ReadToEndAsync()
+      $blobProcess.WaitForExit()
+      $null = $copyTask.GetAwaiter().GetResult()
+      $exportStderr = $stderrTask.GetAwaiter().GetResult()
+      $exportExit = $blobProcess.ExitCode
+    } catch { $exportFault = $_.Exception.Message }
+    finally {
+      if ($blobStream) { $blobStream.Dispose() }
+      if ($blobProcess) { $blobProcess.Dispose() }
+    }
+    if ($exportFault -or $exportExit -ne 0) {
+      $why = if ($exportFault) { $exportFault } else { "git exit $exportExit $($exportStderr.Trim())" }
+      Write-Warning "[SHIP-NO-REVIEWER] failed to export reviewer dependency $rel from base commit $BaseSha; refusing a partial evaluator: $why"
+      return ''
+    }
+    $actualBlob = [string](& git --no-replace-objects -C $Wt hash-object --no-filters -- $materialized 2>$null | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $actualBlob.Trim().ToLowerInvariant() -cne $expectedBlobs[$rel]) {
+      Write-Warning "[SHIP-NO-REVIEWER] materialized reviewer dependency $rel does not match its blob at base commit $BaseSha; refusing to run it."
+      return ''
+    }
+  }
+  $rvPath = Join-Path $script:ShipReviewerDir 'scripts/review.ps1'
   Write-Host "[R3-REVIEWER-FROM-BASE] sha=$BaseSha" -ForegroundColor DarkGray
-  Write-Host '  The reviewer is scripts/review.ps1 as it exists on that commit, not the copy in the tree under review (HARNESS-REVIEW: the evaluator sits outside the loop it judges). A repair to review.ps1 in THIS branch serves the next card, never this ship''s own review.' -ForegroundColor DarkGray
+  Write-Host "[R3-REVIEWER-BUNDLE-VERIFIED] sha=$BaseSha files=$($reviewerFiles.Count)" -ForegroundColor DarkGray
+  Write-Host '  The reviewer and every required sibling are verified blobs from that commit, not copies from either mutable checkout (HARNESS-REVIEW: the evaluator sits outside the loop it judges). A repair to this bundle in THIS branch serves the next card, never this ship''s own review.' -ForegroundColor DarkGray
   return $rvPath
 }
 

@@ -11549,8 +11549,8 @@ $d = Get-ShipSpecAxisDecision $Wt 'T0-TIERS' ([System.IO.File]::ReadAllText($Car
     #   was replacing (measured on T283). Here a review.ps1 that approves everything and exits 0 is planted
     #   in the worktree of a card that declares scripts/review.ps1 in allow_paths, so the plant is in scope
     #   and really reaches the R3 leg. If that copy ran, the ship would exit 0 and merge; the BASE copy runs
-    #   the same stub backend case A uses, so the ship must announce [R3-REVIEWER-FROM-BASE] naming the base
-    #   sha and then refuse with [R3-SPEC-BLOCK]. The plant is asserted to be on disk FIRST: without that
+    #   the same COMMITTED stub backend case A uses, so the ship must announce [R3-REVIEWER-FROM-BASE] naming
+    #   the base sha and then refuse with [R3-SPEC-BLOCK]. The plant is asserted to be on disk FIRST: without that
     #   control, a green here would also be produced by a plant that never landed (L167).
     #   BOTH LEGS, and only one of them is reachable here. The REMOTE leg needs a pushed branch, a PR and
     #   gh, exactly as 17b'(H) records for the decision, so its half is judged from the syntax tree: the
@@ -11680,6 +11680,39 @@ exit 0
 '@
       [IO.File]::WriteAllText($bxPlantPathL, $bxOriginalL.Insert($bxInsertL, $bxApproveL + "`n"), [Text.UTF8Encoding]::new($false))
       $bxBaseShaL = "$(& git -C $sbx rev-parse --verify --quiet 'refs/heads/master^{commit}' 2>$null)".Trim()
+      # The reviewer is a bundle, not one file: review.ps1 dot-sources _config/_gitbase/_encoding and, on
+      # status publication, _guard (which itself needs _lessons). Reproduce a mutable-main split without a
+      # race by letting the private task process load its normal config, then dirtying RepoRoot/_config.ps1
+      # immediately before Resolve-ShipReviewerScript. The dirty dependency selects an approve backend; the
+      # committed BASE config selects the already-committed blocking backend above. Therefore only a resolver
+      # that materialises ALL required siblings from $bxBaseShaL can keep reaching `fixture spec finding`.
+      $bxBaseStubL = "$(& git -C $sbx show "${bxBaseShaL}:review-stub.ps1" 2>$null | Out-String)"
+      $bxBaseBundleRowsL = @(& git --no-replace-objects -C $sbx ls-tree -r --full-tree $bxBaseShaL -- scripts 2>$null)
+      $bxBaseBundleFilesL = @($bxBaseBundleRowsL | ForEach-Object {
+        if ([string]$_ -match '^100(?:644|755) blob [0-9a-fA-F]{40}\t(?<path>.+)$') {
+          $bxBundlePathL = $Matches.path
+          if ($bxBundlePathL -ceq 'scripts/review.ps1' -or $bxBundlePathL -match '^scripts/_[^/]+\.ps1$') { $bxBundlePathL }
+        }
+      } | Sort-Object -Unique)
+      $bxBaseBundleCountL = $bxBaseBundleFilesL.Count
+      $bxDirtyStubL = Join-Path $sbx 'review-dirty-stub-17bL.ps1'
+      Set-Content $bxDirtyStubL @'
+[Console]::In.ReadToEnd() | Out-Null
+'{"verdict":"pass","reasons":[],"axes":{"spec":{"verdict":"pass","reasons":[]},"standards":{"verdict":"pass","reasons":[]}}}' | Set-Content $env:REVIEW_OUT -Encoding utf8
+'@ -Encoding utf8
+      $bxConfigOriginalL = [IO.File]::ReadAllText($cfgX)
+      $bxTaskPathL = Join-Path $sbx 'scripts/task.ps1'
+      $bxTaskOriginalL = [IO.File]::ReadAllText($bxTaskPathL)
+      $bxBaseCommandL = "ReviewCommand = 'pwsh -NoProfile -File $($stubX -replace '\\','/')'"
+      $bxDirtyCommandL = "ReviewCommand = 'pwsh -NoProfile -File $($bxDirtyStubL -replace '\\','/')'"
+      $bxConfigDirtyL = $bxConfigOriginalL.Replace($bxBaseCommandL, $bxDirtyCommandL)
+      $bxResolveAnchorL = '        $rvLocal = if ($reviewAvail -and ($reviewRun.Blocking -or $reviewRun.Run)) { Resolve-ShipReviewerScript -BaseSha $scopeBaseSha } else { '''' }'
+      $bxDirtyBytesL = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bxConfigDirtyL))
+      $bxDirtyWriteL = "        [IO.File]::WriteAllBytes((Join-Path `$RepoRoot 'scripts/_config.ps1'), [Convert]::FromBase64String('$bxDirtyBytesL')) # SELFTEST-17bL-DIRTY-DEPENDENCY`n"
+      $bxTaskDirtyL = $bxTaskOriginalL.Replace($bxResolveAnchorL, $bxDirtyWriteL + $bxResolveAnchorL)
+      $bxBundleSetupL = ($bxBaseStubL -match 'fixture spec finding') -and ($bxBaseBundleFilesL -contains 'scripts/_cards.ps1') -and ($bxBaseBundleFilesL -contains 'scripts/_scope.ps1') -and ($bxConfigDirtyL -cne $bxConfigOriginalL) -and ($bxTaskDirtyL -cne $bxTaskOriginalL) -and (($bxTaskOriginalL.Split($bxResolveAnchorL).Count - 1) -eq 1)
+      if (-not $bxBundleSetupL) { Fail "17b'(L/dependencies) setup could not prove the blocking backend is committed at $bxBaseShaL or install the one-shot dirty-dependency boundary; the bundle test would be vacuous."; $bxOk = $false }
+      else { [IO.File]::WriteAllText($bxTaskPathL, $bxTaskDirtyL, [Text.UTF8Encoding]::new($false)) }
       $bxMergesL = @(& git -C $sbx rev-list --merges HEAD 2>$null).Count
       # ACCEPTANCE ITEM 1 ALSO SAYS "removed on every exit path", and nothing here OBSERVED that directory
       # (R3 round 1, finding 2). Both ships below run with TEMP and TMP pointed at a directory of this
@@ -11694,10 +11727,17 @@ exit 0
       $bxTmpSaveL = $env:TEMP; $bxTmpSave2L = $env:TMP
       try {
         $env:TEMP = $bxTmpL; $env:TMP = $bxTmpL
-        $bxOutL = (& pwsh -NoProfile -File $encWrapX -Tid 'T0-BASEREV' 2>&1 | Out-String)
-        $bxExitL = $LASTEXITCODE
-        $bxMergedL = (@(& git -C $sbx rev-list --merges HEAD 2>$null).Count) -gt $bxMergesL
-        $bxLeftThrowL = @(Get-ChildItem -LiteralPath $bxTmpL -Directory -Filter 'scaffold-r3-base-*' -ErrorAction SilentlyContinue)
+        try {
+          $bxOutL = (& pwsh -NoProfile -File $encWrapX -Tid 'T0-BASEREV' 2>&1 | Out-String)
+          $bxExitL = $LASTEXITCODE
+          $bxDirtyAppliedL = ([IO.File]::ReadAllText($cfgX) -ceq $bxConfigDirtyL)
+          $bxMergedL = (@(& git -C $sbx rev-list --merges HEAD 2>$null).Count) -gt $bxMergesL
+          $bxLeftThrowL = @(Get-ChildItem -LiteralPath $bxTmpL -Directory -Filter 'scaffold-r3-base-*' -ErrorAction SilentlyContinue)
+        }
+        finally {
+          [IO.File]::WriteAllText($cfgX, $bxConfigOriginalL, [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText($bxTaskPathL, $bxTaskOriginalL, [Text.UTF8Encoding]::new($false))
+        }
         Set-Content (Join-Path (Join-Path $sbx 'wt/T1-TIERONE') 'seed.txt') 'a second change for the tier-1 card' -Encoding utf8
         $bxOutPassL = (& pwsh -NoProfile -File $encWrapX -Tid 'T1-TIERONE' 2>&1 | Out-String)
         $bxExitPassL = $LASTEXITCODE
@@ -11708,9 +11748,11 @@ exit 0
       $bxPlantL = Join-Path $bxWtL 'scripts/review.ps1'
       $bxPlantedL = (Test-Path -LiteralPath $bxPlantL) -and ((Get-Content -Raw -LiteralPath $bxPlantL) -match 'PLANTED-WORKTREE-REVIEWER')
       $bxTailL = ($bxOutL -replace '\s+', ' ').Trim(); if ($bxTailL.Length -gt 400) { $bxTailL = $bxTailL.Substring($bxTailL.Length - 400) }
-      if (-not $bxPlantedL) { Fail "17b'(L) control: the approve-everything review.ps1 is not in the worktree after the ship, so 'the base copy ran' would be satisfied by there being no other copy to run. Setup failure, not a verdict."; $bxOk = $false }
+      if (-not $bxBundleSetupL -or -not $bxDirtyAppliedL) { Fail "17b'(L/dependencies) control: the committed blocking backend or the deterministic dirty _config boundary was not observed, so this run did not distinguish a pinned dependency bundle from mutable RepoRoot siblings."; $bxOk = $false }
+      elseif (-not $bxPlantedL) { Fail "17b'(L) control: the approve-everything review.ps1 is not in the worktree after the ship, so 'the base copy ran' would be satisfied by there being no other copy to run. Setup failure, not a verdict."; $bxOk = $false }
       elseif ($bxBaseShaL -notmatch '^[0-9a-f]{40}$') { Fail "17b'(L) could not read the fixture base sha (got '$bxBaseShaL'), so the sentinel cannot be checked against the commit the reviewer must come from. Setup failure, not a verdict."; $bxOk = $false }
       elseif ($bxOutL -notmatch [regex]::Escape("[R3-REVIEWER-FROM-BASE] sha=$bxBaseShaL")) { Fail "17b'(L) seeded defect: the ship did not announce [R3-REVIEWER-FROM-BASE] sha=$bxBaseShaL - the reviewer was not taken from the base commit the scope gate pinned, or the sentinel an operator routes on is gone. Output tail=$bxTailL"; $bxOk = $false }
+      elseif ($bxOutL -notmatch [regex]::Escape("[R3-REVIEWER-BUNDLE-VERIFIED] sha=$bxBaseShaL files=$bxBaseBundleCountL")) { Fail "17b'(L/dependencies) the ship did not verify all $bxBaseBundleCountL baseline reviewer files (review.ps1 + every scripts/_*.ps1, including _cards/_scope). A hand-picked dependency list can silently run a mixed evaluator when review.ps1 grows another sibling. Output tail=$bxTailL"; $bxOk = $false }
       elseif ($bxExitL -eq 0) { Fail "17b'(L) seeded defect: a tier-S ship whose worktree carries a review.ps1 that approves everything exited 0 - the reviewer under the tree being judged decided this ship, which is the self-review docs/HARNESS-REVIEW.md forbids. Output tail=$bxTailL"; $bxOk = $false }
       elseif ($bxOutL -notmatch 'R3-SPEC-BLOCK') { Fail "17b'(L) the ship refused but printed no [R3-SPEC-BLOCK], so it stopped at some other gate and this case is no longer measuring which reviewer ran. Output tail=$bxTailL"; $bxOk = $false }
       elseif ($bxOutL -notmatch 'fixture spec finding') { Fail "17b'(L) the refusal carries none of the base reviewer's reasons - the verdict that stopped this ship was written by something other than the stub backend the base copy drives. Output tail=$bxTailL"; $bxOk = $false }
