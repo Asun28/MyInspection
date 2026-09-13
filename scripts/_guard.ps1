@@ -1071,6 +1071,7 @@ function Get-ScaffoldContinuedSubGateLabel {
   return @{
     '9g'  = 1
     '10d' = 11
+    '14e' = 1
     '15f' = 1
     '15r' = 1
   }

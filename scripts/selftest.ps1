@@ -6951,7 +6951,7 @@ else {
     if (-not $fail) { Write-Host '  14e 执行边界节同步 + 模板硬边界敏感面基线 OK（逐字一致 + 红线/基线锚点在场）' -ForegroundColor Green }
   }
 }
-# 14e continuation.  The initialized project has no CLAUDE.template.md, but its operational authority still
+# 14e(post-init continuation). The initialized project has no CLAUDE.template.md, but its operational authority still
 # has to follow the executable review policy and CI workflow.  Read the policy and workflow as the sources of
 # truth, then inspect only the bounded local-ship instruction and the two architecture nodes: this verifies
 # the operator contract without making a brittle second copy of either manifest.
@@ -8283,6 +8283,11 @@ if (-not $git) {
     # 会让本闸随机器环境漂移；「verify 红必拦」由 15c 种子缺陷专测，元仓真 verify 的降级路径由 15e 干跑断言）。
     # 注入在 e2e base 提交**之前** → stub 进基线、worktree 继承之，不进 ship diff、不扰 15b/15d 的范围闸。
     Set-Content (Join-Path $e2e 'scripts/verify.ps1') 'exit 0' -Encoding utf8
+    # 许可闸亦走确定性 stub：本产品的 android/ 随夹具一起拷入，ship 的许可闸会对这份拷贝真跑 Gradle 图解析——
+    # 它需要宿主 JDK/SDK/离线缓存，在无 SDK 的 scaffold-selftest runner 上必红（实测 run 34522511015 / 34771405641，
+    # 两 OS 的 e2e 分片都断在 license-gate 腿），在有缓存的机器上也随缓存态漂移（拷贝没有仓内 POM 缓存即报
+    # [GRADLE-METADATA]）。真实 Gradle 许可扫描由 15o 的工作树许可闸和 17cc 的完整 scanner fixture 覆盖。
+    Set-Content (Join-Path $e2e 'scripts/check-licenses.ps1') 'exit 0' -Encoding utf8
     # 建临时 git 仓，并**刻意**把默认分支设成 master（≠ main）：若 task.ps1 再硬编码 'main'，此闸必红。
     & git -C $e2e init -q
     & git -C $e2e symbolic-ref HEAD refs/heads/master                 # 版本无关地强制默认分支 = master
@@ -8300,6 +8305,10 @@ if (-not $git) {
     $e2eGap = @(Add-ScaffoldE2eBaseline -RepoDir $e2e -ForcePath $e2eForce)
     if ($e2eGap.Count) { Fail "15 (T210): the e2e fixture baseline does not reproduce the source repository's tracked set, $($e2eGap.Count) finding(s) - $($e2eGap -join ' | ')" }
     & git -C $e2e -c user.email='selftest@local' -c user.name='selftest' commit -q -m 'e2e base' *> $null
+    $baseLicenseStub = (& git -C $e2e show 'HEAD:scripts/check-licenses.ps1' 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $baseLicenseStub -cne 'exit 0') {
+      Fail '闸15b：check-licenses.ps1 的确定性 stub 未进入 E2E 基线提交——ship 会误跑宿主 Gradle/JDK/缓存态，跨平台编排覆盖失真。'
+    }
     # 写一张最小合法卡（满足 check-cards：id=文件名 / status 枚举 / dod_command / allow_paths）。
     $cardDir = Join-Path $e2e 'specs/tasks'
     New-Item -ItemType Directory -Force $cardDir | Out-Null
@@ -9350,9 +9359,38 @@ if (Test-Path (Join-Path $PSScriptRoot 'switch-flag')) { & git -C $PSScriptRoot 
 # 15e. 元仓真 verify.ps1 干跑断言（T2-VERIFY-LINT 常设自证）：本仓无 pyproject.toml、frontend/ 仅 *.example，
 #   verify 各步以「项目清单文件存在」为门，须全部优雅跳过并 exit 0——锁「uv 在 PATH 而无 pyproject 时误跑 pytest 误红」类降级回归。
 #   与机器无关（uv/npm 在不在场都走跳过分支），亦不需 git，故置于闸 15 的 git 条件之外。
+#   产品形态（$projectGoldenVerify15 为真）：本仓 verify.ps1 的 Gate 2 是已交付的 Android :core:e2eTest 闭环，在
+#   $RepoRoot 干跑不是「降级路径」——它会真的解析 Gradle 构建，只在有 Android SDK 与离线 Gradle 缓存的机器上绿，在
+#   scaffold-selftest 的 runner 上必红（该矩阵两样都不预置；实测 run 34522511015 / 34771405641 两 OS 的 e2e 分片）。
+#   这份 verify 的诚实降级用例是裸项目：把脚本单独拷进一个刚建的隔离目录，Python/前端/Android 均确定未引导，须
+#   fail-closed（Gate 1 优雅跳过，Gate 2 缺失 → [GATE2-MISSING] + [GATE2-NOT-RUN] + 非零）。不得在 $RepoRoot 跑：项目
+#   日后新增的任一清单都会收紧 verify，使本用例随 runner 工具链漂移。三态（缺失/绿/红）的完整判决由 15x 覆盖；本处只钉
+#   「降级路径诚实」这一条。
+$verifySource15 = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/verify.ps1'))
+$projectGoldenVerify15 =
+  $verifySource15.Contains(':core:e2eTest') -and
+  $verifySource15.Contains('[GATE2-MISSING]') -and
+  $verifySource15.Contains('[GATE2-NOT-RUN]')
+if ($projectGoldenVerify15) {
+  $verifyBareRoot = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-verify-bare-$PID"
+  if (Test-Path -LiteralPath $verifyBareRoot) { Remove-Item -LiteralPath $verifyBareRoot -Recurse -Force }
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $verifyBareRoot 'scripts') | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $verifyBareRoot 'scripts/verify.ps1') -Force
+    $verifyBareOut = & pwsh -NoProfile -File (Join-Path $verifyBareRoot 'scripts/verify.ps1') 2>&1 | Out-String
+    $verifyBareExit = $LASTEXITCODE
+    if ($verifyBareExit -eq 0 -or $verifyBareOut -notmatch '\[GATE2-MISSING\]' -or $verifyBareOut -notmatch '\[GATE2-NOT-RUN\]') {
+      Fail "闸15e：真实 verify.ps1 在裸项目未因 Gate 2 缺失 fail-closed，或缺少执行哨兵（exit=$verifyBareExit）：$verifyBareOut"
+    }
+    else { Write-Host '  15e 真实 verify 裸项目 OK（Gate 1 优雅跳过；Gate 2 缺失 → MISSING + NOT-RUN + 非零）' -ForegroundColor Green }
+  } finally {
+    Remove-Item -LiteralPath $verifyBareRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+} else {
 & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/verify.ps1') *> $null
 if ($LASTEXITCODE -ne 0) { Fail "闸15e：元仓 verify.ps1 干跑非零退出（$LASTEXITCODE）——降级路径回归（无 pyproject/前端未引导时须优雅跳过、exit 0）。" }
 else { Write-Host '  15e 元仓 verify 干跑 OK（无 pyproject/前端未引导 → 优雅降级 exit 0）' -ForegroundColor Green }
+}
 
 # 15l. TaskId 绑定期校验（TD50/TD-113）：start 外的相（red/ship/cleanup）此前拿未净化 -TaskId 拼 $Wt/$Card 路径，
 #   cleanup 更 `Remove-Item -Recurse -Force $Wt`——路径穿越面。修法=参数上绑定期即校验，全相统一。
@@ -9428,11 +9466,7 @@ Write-Host '  15v [CARD-ID-DERIVED] 卡 id 文法派生 OK（收窄规则行即�
 #   (a) pyproject + uv 在 → ruff 经 `uv run --no-sync` 被真调（--no-sync 同时是「verify 不在闸内装依赖」的常设离线证据）；
 #   (b) frontend/package.json + node_modules 在 → npm run check / run test 被真调，stub 非零退出须把 verify 置红（防假绿）。
 #   stub 按 OS 生成（Windows .cmd / 类 Unix sh），全离线确定；临时目录即弃，PATH 用毕还原，绝不动元仓。
-$verifySource15 = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/verify.ps1'))
-$projectGoldenVerify15 =
-  $verifySource15.Contains(':core:e2eTest') -and
-  $verifySource15.Contains('[GATE2-MISSING]') -and
-  $verifySource15.Contains('[GATE2-NOT-RUN]')
+#   $projectGoldenVerify15（本仓 verify 是否带已交付的 Android Gate 2）在 15e 处定义——15e 先读它，15f/15x 共用同一个值。
 
 # 本仓 verify 的 Gate 2 是已交付的 Android/Golden Evidence 闭环，而不是上游脚手架的
 # Get-ScaffoldE2ECommand。15f 只判 Gate 1，因此在这些微型夹具中提供真实 Gradle 调用面，
@@ -17142,7 +17176,16 @@ Write-Output 'STUB-ALWAYS-RED'; exit 1
   #     （缺失即红——Test-Path 假不许滑进成功分支）；②喂旧版头须触发 [MUT-RESULTS-RESET] 重建、旧 OK 行绝不被沿用。
   $acHeaderWant = "id`tverdict`texit`tseconds`tevidence`tcacheKey`tat"
   $acTrackedTsv = Join-Path $RepoRoot 'specs/mutations/T63-TD119-MUTATION-RUNNER-results.tsv'
-  if (-not (Test-Path $acTrackedTsv)) { Fail '17ac(o)①：仓内 tracked 结果 TSV 缺失——自托管证据的交付物没了（R3 r3 #6：缺失不得滑进「头一致」成功分支）。' }
+  # 已初始化的下游没有这份 TSV：它是元仓自托管的证据交付物，init-scaffold.ps1 只给下游留 specs/mutations/README.md
+  # （上游 init 行为），故「缺失即红」在下游每个 nightly（-IncludeMeta）都会红（实测 run 34771405641 两 OS 的 seed-b 分片）。
+  # 下游按 $isPostInit 跳过①并出声；②（旧版列头触发 RESET 重建）是 hermetic 夹具，照跑。上游缺陷，账记 docs/SCAFFOLD-SYNC.md。
+  # 跳过条件独占一行：删掉它即回到「缺失即红」，下游立刻在①上红——这是本行的单行删除变异（L165）。
+  $acTsvMetaOnly = $false
+  if ($isPostInit -and -not (Test-Path $acTrackedTsv)) { $acTsvMetaOnly = $true }
+  if ($acTsvMetaOnly) {
+    Write-Host '  [SELFTEST-POSTINIT-MUT-TSV-SKIP] 17ac(o)①: specs/mutations/T63-TD119-MUTATION-RUNNER-results.tsv is meta-repository evidence and is absent after initialization; skipping the tracked-TSV presence arm (② still runs).' -ForegroundColor DarkGray
+  }
+  elseif (-not (Test-Path $acTrackedTsv)) { Fail '17ac(o)①：仓内 tracked 结果 TSV 缺失——自托管证据的交付物没了（R3 r3 #6：缺失不得滑进「头一致」成功分支）。' }
   elseif ((Get-Content $acTrackedTsv -TotalCount 1) -ne $acHeaderWant) { Fail "17ac(o)①：仓内 tracked 结果 TSV 列头 != runner 现行 schema——交付物自带 schema 漂移（R3 r2 #4）。实得：$(Get-Content $acTrackedTsv -TotalCount 1)" }
   else { Write-Host '  17ac(o)① tracked TSV 在场且列头一致 OK' -ForegroundColor Green }
   $dO = & $mkAcCase 'o' $acDetectStub
