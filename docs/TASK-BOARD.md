@@ -307,6 +307,45 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 规则信任决策见 ADR-0008（2026-09-08 用户已批准）：APK 单公钥、本人批准规则、受控电脑分开保管两类私钥、USB 首次安装/传递。用户在完整方案和明确责任问题后回复“好的”，关闭用户待决策项；不代表密钥已生成或安装已完成。轮换、撤销、日期、确认绑定与恢复同步导入卡 A1–A8；本卡通过 R3 并合并后解除此项前置，实际制品与安装证据由后续验收提供。remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
 
+## PR review v2
+
+计划真相源 `_local/PLAN-PR-REVIEW-V2.md`（v7，不入库）；卡正文自足，实施者不需要读计划。基线（143 张归档卡）：R3 首轮 pass 32.9%，平均每卡 3.9 次 block；非正式 pre-review 抓到的 20 张里仍有 17 张被 block。目标：在 ship 之前跑一份**建议性**发现包（Claude 发现者读整棵快照树 + 一枚 DeepSeek 透镜，两者并行、不投票），把可在本卡内修的缺陷在 R3 之前吃掉。codex R3 仍是唯一合并闸；包不进 codex 提示词，包里没有 `verdict` 字段，发现者与评审者的提示词只差 nonce。
+
+**阶段与检查点**
+
+- **1a（本节 17 张）**：只出包、不闸。`PrereviewEnabled=false` 即 `[PRE-RUN-DISABLED]` 总开关，任何时候可关。
+- **recall 检查点**：至少 5 张产品卡在首次 ship 前跑包、每次 R3 block 后跑 `link-r3`；合并 recall（same / related）≥ 50% 才开 1b；不足则包保持建议性或退役（kill criterion），不追加投入。
+- **1b（11 张，检查点后按真实数据重投影再落卡）**：处置、`review_status` 与闸谓词、批次语义（≤2 批）、ship 闸腿、账本行（`task.ps1` 仍是唯一写者）、指标（§6.9）。
+
+**调度约束（外部碰撞规则，卡内 Notes 同文）**
+
+- 四条写资源链，同链串行、宽度 1：`review.ps1`（RUNNER → FACTS-EXTRACT → FACTS）· `prereview-facts.ps1`（FACTPACK → FACTPACK-SLICES）· `prereview-workers.ps1`（WORKERS → WORKERS-CLAUDE → WORKERS-DEEPSEEK）· `prereview.ps1`（RUN → LINK-RECALL）。无共享文件的卡可并行（每卡 `parallelizable_with` 按 allow_paths 不相交 + 无依赖关系算出）。
+- 任何 worktree 分支或 todo 卡的改动 / allow_paths 触及链文件（`review.ps1`、`task.ps1`、`selftest.ps1`、`_config.ps1`、`CLAUDE.md`、task-loop skill、`QUALITY-RUBRIC.md`、`DEVOPS-WORKFLOW.md`、`TRUST-MANIFEST.md`、`TASK-BOARD.md`）时，须在持有该文件的链卡开工前合并或退役。在飞分支：T0-SHIP-REVIEW-BASE-BUNDLE、T0-REVIEW-LOW-RISK、T0-SELFTEST-SCAFFOLD-ONLY、codex/task-loop-fast-patch-20260910、codex/local-master-reconcile-source-66c10ee、codex/T4-COMPLIANCE-ENGINE-R5-DOCSYNC、T0-CI-HARDENING-MATRIX、T0-SELFTEST-PAGED-PERF、T0-R3-DIFF-INPUT-TRUST 残留；todo 卡：T0-CI-DEADLINE-CONTAINMENT、T0-INIT-ASSIGNMENT-ANCHORS、T0-ASCII-*-CODES、T0-CI-JOBS-DRIFT、T0-R3-DIFF-BUDGET-R3-CLOSURE、T0-R3-MEASURED-OID-BINDING。
+- `origin/master` 比本地 master 多 67 个提交（37 个改链文件，含 #265 已在上游交付 T0-CI-DEADLINE-CONTAINMENT）：任一 1a 链卡在飞期间不做 reconcile；先按 #265 关闭本地 T0-CI-DEADLINE-CONTAINMENT 卡，再在 RUNNER 开工前或 LINK-RECALL 合并后 reconcile，时点由用户裁定。
+- 网络与机密：fixture 与 selftest 永不设 `PRE_LIVE`（唯一例外是 WORKERS-CLAUDE 登记的两个适配器用例，且先断言 fake claude 已解析、CI=1、HTTPS_PROXY 指向本机 record-and-refuse sink）；worker 环境为清空后的白名单，`ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `GH_TOKEN` 不进子进程；包、状态、日志全部落 temp root 与 git common dir，不进被评审树。
+
+| 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
+|---|---|---|---|---|---|---|---|
+| 1a·0 | [T0-PREREVIEW-SCHEMA](../specs/tasks/T0-PREREVIEW-SCHEMA.md) | 记录 schema（envelope + $defs、20 个状态码枚举、worker-envelope.min.json 投影）+ `check-prereview-schema.ps1` + `_config.ps1` 旋钮 | — | M | Opus 5 · high | Sonnet 5 · max | todo |
+| 1a·0 | [T0-PREREVIEW-RUNNER](../specs/tasks/T0-PREREVIEW-RUNNER.md) | `_subprocess.ps1` 有界两阶段进程 runner；`review.ps1` 换用它（继承环境、零行为变化） | — | H | Opus 5 · high | GPT-5.6 Terra | todo；开工前先按 #265 关闭本地 T0-CI-DEADLINE-CONTAINMENT，并裁定 reconcile 时点 |
+| 1a·1 | [T0-PREREVIEW-FACTS-EXTRACT](../specs/tasks/T0-PREREVIEW-FACTS-EXTRACT.md) | 评审提示词装配与 fence 助手纯搬到 `_reviewprompt.ps1`（同一提示词、只差 nonce） | RUNNER | M | Sonnet 5 · max | DeepSeek V4 Pro | todo；review.ps1 链第 2 张，宽度 1 |
+| 1a·2 | [T0-PREREVIEW-FACTS](../specs/tasks/T0-PREREVIEW-FACTS.md) | `review.ps1 -FactsOut` / `-SizeOnly -Tree` 只读事实导出（不建 `.review`、不计轮次） | FACTS-EXTRACT | M | Sonnet 5 · max | DeepSeek V4 Pro | todo；review.ps1 链第 3 张，宽度 1 |
+| 1a·1 | [T0-PREREVIEW-PROTOCOL-DOC](../specs/tasks/T0-PREREVIEW-PROTOCOL-DOC.md) | `docs/PREREVIEW-PROTOCOL.md`（状态码表）+ TRUST-MANIFEST 两行 + CLAUDE.md 索引行 + task-loop 4.6 一句 | SCHEMA | M | Sonnet 5 · max | GPT-5.6 Luna | todo |
+| 1a·1 | [T0-PREREVIEW-CHECKLISTS](../specs/tasks/T0-PREREVIEW-CHECKLISTS.md) | `docs/PREREVIEW-CHECKLISTS.md` 四个 `## Lens:` 节（进包、进 policy hash） | SCHEMA | M | Opus 5 · high | Sonnet 5 · max | todo |
+| 1a·1 | [T0-PREREVIEW-RECORDS](../specs/tasks/T0-PREREVIEW-RECORDS.md) | `_prereview-records.ps1` 记录校验、unit 归属、C-n 铸造、指纹、missing 覆盖合成 | SCHEMA | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·2 | [T0-PREREVIEW-PROMPT](../specs/tasks/T0-PREREVIEW-PROMPT.md) | `_prereview-prompt.ps1` Build-PrereviewPrompt + 按路径类选 Lens 节 | FACTS-EXTRACT, CHECKLISTS | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·1 | [T0-PREREVIEW-FACTS-LIB](../specs/tasks/T0-PREREVIEW-FACTS-LIB.md) | `_prereview-facts.ps1` 纯函数库：worktree / base / 快照树 / policy hash / units / live_allowed / 模型路由 / temp root | SCHEMA | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·3 | [T0-PREREVIEW-FACTPACK](../specs/tasks/T0-PREREVIEW-FACTPACK.md) | `prereview-facts.ps1` 包骨架：temp root、`-FactsOut -Tree`、快照树导出、units.json、facts.json | FACTS, FACTS-LIB, CHECKLISTS | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·4 | [T0-PREREVIEW-FACTPACK-SLICES](../specs/tasks/T0-PREREVIEW-FACTPACK-SLICES.md) | 改动文件切片、acceptance.json、包级 secret 扫描（内容 + 路径）、包大小上限 | FACTPACK | L | DeepSeek V4 Pro | Sonnet 5 · max | todo |
+| 1a·2 | [T0-PREREVIEW-WORKERS](../specs/tasks/T0-PREREVIEW-WORKERS.md) | `prereview-workers.ps1` worker 命令契约、清空后白名单环境、自定义命令传输、envelope 解包 + provenance | SCHEMA, RUNNER, PROTOCOL-DOC | H | Opus 5 · high | Sonnet 5 · max | todo |
+| 1a·3 | [T0-PREREVIEW-WORKERS-CLAUDE](../specs/tasks/T0-PREREVIEW-WORKERS-CLAUDE.md) | 内置 claude 适配器：绝对路径解析、inline settings / schema、PRE_LIVE 守卫、离线 argv 探针 | WORKERS | H | Opus 5 · high | Sonnet 5 · max | todo；argv 探针证据（CLI 版本、退出信息）写进卡正文 |
+| 1a·4 | [T0-PREREVIEW-WORKERS-DEEPSEEK](../specs/tasks/T0-PREREVIEW-WORKERS-DEEPSEEK.md) | 内置 deepseek 透镜适配器：子进程、显式 `-Proxy`、端点先记日志、离线 HttpListener 回放 | WORKERS-CLAUDE | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·2 | [T0-PREREVIEW-STATE-1A](../specs/tasks/T0-PREREVIEW-STATE-1A.md) | `_prereview-state.ps1` 1a 状态文档 + 原子写 + 包渲染（落 git common dir，不进被评审树） | RECORDS, FACTS-LIB | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·5 | [T0-PREREVIEW-RUN](../specs/tasks/T0-PREREVIEW-RUN.md) | `prereview.ps1 run` 控制器：建包 → 提示词 → 并行两 worker → 归一 → 状态 / 包；`[PRE-RUN-DISABLED]` 总开关 | RECORDS, PROMPT, FACTPACK-SLICES, WORKERS-CLAUDE, WORKERS-DEEPSEEK, STATE-1A | H | Opus 5 · high | Sonnet 5 · max | todo；首次真跑证据（OAuth、包外读被拒、无 key 时透镜跳过、token / 墙钟）合并后记回卡 |
+| 1a·6 | [T0-PREREVIEW-LINK-RECALL](../specs/tasks/T0-PREREVIEW-LINK-RECALL.md) | `prereview.ps1 link-r3` + `recall`：每次 R3 block 后关联、合并 recall 度量（检查点） | RUN | L | DeepSeek V4 Pro | Sonnet 5 · max | todo；合并后开始检查点计数（≥5 张产品卡） |
+
+`1a·n` = 依赖图拓扑层，同层可并行（受上面的链约束）。R3 评审席不变：GPT-5.6 Sol（`_config.ps1`），不作同卡作者。
+
 ## 用户已定（2026-08-15 签认，下列为**执行契约**，执行模型按此做，勿再问）
 1. ✅ **ADR-0002 已签认**：备份 = app 私有存储 + SAF 加密归档导出；需求 §11 那处[定]以 ADR-0002 为准。T5 线解锁。
 2. ✅ **房产现状 = 2 套以上，部分在租**。两条硬后果：

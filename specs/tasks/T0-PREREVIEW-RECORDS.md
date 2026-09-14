@@ -1,0 +1,50 @@
+---
+id: T0-PREREVIEW-RECORDS
+title: _prereview-records.ps1 record core - boolean validation, unit membership, C-{n} id minting, exact-duplicate rule, fingerprint hint and missing-coverage synthesis
+status: todo
+depends_on: [T0-PREREVIEW-SCHEMA]
+allow_paths:
+  - scripts/_prereview-records.ps1
+  - scripts/fixtures/prereview/records/
+  - specs/tasks/T0-PREREVIEW-RECORDS.md
+dod_command: $t = (& pwsh -NoProfile -File scripts/_prereview-records.ps1 -SelfCheck *>&1 | Out-String); if ($LASTEXITCODE -ne 0 -or -not $t.Contains('[PREREVIEW-RECORDS-SELFCHECK-PASS]')) { exit 1 }
+dod_exit: 0
+dod_assert: -SelfCheck exits 0 and prints [PREREVIEW-RECORDS-SELFCHECK-PASS] after every violation class returns [PRE-BAD-RECORD] without a thrown error, unknown unit_id and unknown local_id references return [PRE-BAD-RECORD], local_id maps to C-{n} monotonically across two normalisations, exact duplicates merge while near duplicates keep one root_group, and a missing row is synthesised for a unit whose coverage lacks C2.
+review_gate: codex {verdict:pass}
+plan_ref: docs/TASK-BOARD.md#pr-review-v2
+parallelizable_with: [T0-PREREVIEW-RUNNER, T0-PREREVIEW-FACTS-EXTRACT, T0-PREREVIEW-FACTS, T0-PREREVIEW-PROTOCOL-DOC, T0-PREREVIEW-CHECKLISTS, T0-PREREVIEW-PROMPT, T0-PREREVIEW-FACTS-LIB, T0-PREREVIEW-FACTPACK, T0-PREREVIEW-FACTPACK-SLICES, T0-PREREVIEW-WORKERS, T0-PREREVIEW-WORKERS-CLAUDE, T0-PREREVIEW-WORKERS-DEEPSEEK]
+acceptance:
+  - "A1 Test-PrereviewRecord validates a candidate, coverage, facts or units document against specs/prereview-record.schema.json by wrapping the $defs sub-shape in memory ({$ref: /$defs/{name}, $defs: ...}) and returns a boolean; every violation class in the fixture yields [PRE-BAD-RECORD] without a thrown error."
+  - "A2 Unit membership: a candidate unit_ids[] entry or a coverage unit_id absent from units.json, and a coverage candidate_local_ids[] entry naming no record of the same batch, each yield [PRE-BAD-RECORD]."
+  - "A3 Id minting maps local_id to C-{n} monotonically within one state's life across two normalisation calls, never reuses a number, and stamps fingerprint (file|category|symbol|contract_ref) as a grouping hint that is never used as identity."
+  - "A4 Exact duplicates (same batch and same file|symbol|category|contract_ref|expected|actual after NFC and whitespace normalisation) merge into one record keeping both workers in provenance; near duplicates are kept and share one root_group."
+  - "A5 Missing-coverage synthesis adds a state-only missing row for every unit whose discoverer coverage lacks C1, C2 or C3, while a worker-emitted missing status or a worker-emitted id is rejected as [PRE-BAD-RECORD]."
+  - "A6 -SelfCheck reads only its fixture folder and temp, clears PRE_LIVE and PRE_LENS_ENDPOINT inherited from the parent, spawns no process, and prints [PREREVIEW-RECORDS-SELFCHECK-PASS]."
+forbid:
+  - Any state shape, disposition or transition logic (STATE-1A and 1b STATE)
+  - A prompt builder or fence helper here (PROMPT)
+  - Throwing on invalid input instead of returning [PRE-BAD-RECORD]
+non_goals:
+  - Replacing the codex R3 gate with a ReviewCommand pipeline backend, or feeding the packet into the codex prompt (Phase 2)
+  - Codex candidate verification, DeepSeek re-check of fixes, codex bounded independent check (Phase 2, schema_version 2)
+  - Incremental changed-units-only re-discovery, snapshot refs, coverage carry-forward, automatic re-open of fixed candidates
+  - Vote counting, a lock file, a refs plane, run -Live overrides, a new top-level selftest gate number, an infra round cap
+  - Fully qualified -Base refs, cross-file JSON schema references, changes to specs/verdict.schema.json or scripts/_gitbase.ps1
+  - Any Phase-1b behaviour: dispositions, review_status and gate predicates, batch semantics, the ship gate leg, ledger rows, metrics
+hygiene: One single-line-deletion mutant per violation class and per rule (unit membership, monotonic ids, duplicate merge, missing synthesis); each must turn -SelfCheck red.
+---
+
+# T0-PREREVIEW-RECORDS
+
+## Context
+
+Records core: the only place that validates worker records, checks unit membership, mints canonical ids, applies the exact-duplicate rule and synthesises missing coverage.
+
+## Interfaces carried by this card
+
+- Test-PrereviewRecord -Kind candidate|coverage|facts|units -Json string -> boolean (in-memory wrapper around the $defs sub-shape; Test-Json -ErrorAction SilentlyContinue).
+- ConvertTo-PrereviewCandidates / ConvertTo-PrereviewCoverage: local_id to C-n minting (monotonic within one state's life), fingerprint = file|category|symbol|contract_ref (grouping hint only), exact duplicate = same batch and same file|symbol|category|contract_ref|expected|actual after NFC and whitespace normalisation, root_group for near duplicates, missing rows for units lacking C1, C2 or C3.
+
+## Notes
+
+Split line: ~350 lines. Collision rule (authority: docs/TASK-BOARD.md section PR review v2): no worktree branch and no todo card whose changes or allow_paths touch a chain file (review.ps1, task.ps1, selftest.ps1, _config.ps1, CLAUDE.md, the task-loop skill, QUALITY-RUBRIC.md, DEVOPS-WORKFLOW.md, TRUST-MANIFEST.md, TASK-BOARD.md) may start while the chain card owning that file is open; merge or retire first. origin/master (67 ahead, 37 chain-file commits incl. #265 which delivered T0-CI-DEADLINE-CONTAINMENT upstream) is not reconciled into master while any 1a chain card is in flight; reconcile before T0-PREREVIEW-RUNNER starts or after T0-PREREVIEW-LINK-RECALL merges, by user decision, after closing the local T0-CI-DEADLINE-CONTAINMENT card against #265.
