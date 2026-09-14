@@ -1,7 +1,7 @@
 ---
 id: T0-CI-SELFTEST-ADOPTION-REPAIR
 title: Repair the four scaffold-selftest regressions the upstream adoption (#297) left on the CI matrix
-status: todo
+status: merged
 branch: T0-CI-SELFTEST-ADOPTION-REPAIR
 worktree: C:\wt\T0-CI-SELFTEST-ADOPTION-REPAIR
 allow_paths:
@@ -64,3 +64,25 @@ pwsh -NoProfile -File scripts/selftest.ps1 -Only '8,14,15,17t,17ac' -IncludeMeta
 - Runner proof: `gh workflow run scaffold-selftest.yml --ref T0-CI-SELFTEST-ADOPTION-REPAIR -f shard=e2e`
   green on both OS for the PR head (the dispatch face carries no `-IncludeMeta`, so it proves the two
   environment-dependent 15 arms, not the meta arms; those are proven locally and by the first nightly after merge).
+
+## Delivery evidence
+
+- [PR #299](https://github.com/Asun28/MyInspection/pull/299) merged as `8d673edb` (squash of `77a639e8`; base `30db78c0`).
+  R3 round 1 at `e3b09f75`: `spec=pass`, `standards=block` (one finding: the `Get-ScaffoldContinuedSubGateLabel`
+  description named only 9g/15f/15r) - fixed in `77a639e8`, docstring only. R3 round 2 at `77a639e8`: `pass` on
+  both axes (gpt-5.6-sol). `[CI-GATE-PASS]` bound PR head `77a639e8` to ci.yml run `34796936991/1` and base `30db78c0`.
+- RED (official, unpatched worktree): `failed=8,14,17t+17ac`. GREEN: the dod_command exit 0 with `8 PASS 176.3s`,
+  `14 PASS 192.3s`, `15 PASS 640.2s`, `17t+17ac PASS 375.6s`, `[META-SUMMARY] declared=22 ran=22 skipped=0`.
+- R4: five single-line deletion mutants, 5/5 killed (M1 15b stub -> guard reds; M2 `'14e' = 1` -> unprojected header;
+  M3 continuation header -> count mismatch; M4 post-init condition -> 17ac(o)1 reds; M5 15e Copy-Item -> sentinel
+  assertion reds). M4's first row was BAD-EVIDENCE from a wrong regex, corrected and re-run; M2 re-run after the
+  round-1 docstring commit. Both targets hash back to the commit after every mutant. Rows in the PR body.
+- Tier S: `selftest.ps1 -Parallel -IncludeMeta` green over `e3b09f75` (1033 s wall) and again over `77a639e8`
+  (979 s wall), HEAD and porcelain identical at launch and end each time.
+- Runner: dispatch runs 34792758080 (`e3b09f75`) and 34796934215 (`77a639e8`), e2e shard `15 PASS` on ubuntu and
+  windows. The push-face matrix on the merge commit is run 34799076882; the meta arms are re-proven by the first
+  nightly after merge.
+- Not evidence: gate 15 reported PASS inside the combined RED run because `$fail` is a monotonic latch and 15b's
+  body is `-not $fail`-guarded; the first ship attempt stopped at the license gate because Gradle's 30-day cache
+  cleanup had removed the POM files the scanner reads (restored by an online prewarm, one `--configuration` per
+  invocation; no repository change). Both recorded as TD176/TD177.

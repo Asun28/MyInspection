@@ -40,6 +40,14 @@ The R5 ordering defect — `task.ps1 -Phase cleanup` resolves the card only unde
 [#361](https://github.com/Asun28/claude-devops-scaffold/issues/361), filed after L252 recurred a third time
 (`T4-SCHEDULE-REMINDER-DIAGNOSTICS`). Until a release fixes it the constraint stays memory-enforced:
 **cleanup before archive**.
+Two more defects surfaced on 2026-09-14 by `T0-CI-SELFTEST-ADOPTION-REPAIR` (PR #299), both in the adopted
+`scripts/selftest.ps1` and both wrong for every initialized downstream: gate 17ac(o)① asserts the presence of
+`specs/mutations/T63-TD119-MUTATION-RUNNER-results.tsv`, a meta-repository evidence file `init-scaffold.ps1`
+keeps out of downstreams, so the nightly (`-IncludeMeta`) reds on seed-b; and gate 15e dry-runs the real
+`scripts/verify.ps1` in `$RepoRoot` expecting exit 0, which a verify that runs the product build (Gradle here)
+cannot satisfy on the scaffold-selftest runner. Repaired locally with a post-init skip (`[SELFTEST-POSTINIT-MUT-TSV-SKIP]`)
+and a bare-copy degraded-path fixture; reported upstream with `scripts/scaffold-sync.ps1 report`
+(issue links are recorded in the decision ledger row once filed).
 
 ## Direction 2 — deciding whether to take an upstream release
 
