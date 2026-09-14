@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Prereview record schema v1 (worker_output envelope + candidate / coverage / facts / units $defs)",
-  "$comment": "Frozen contract of PR review v2: contract text and projection rule in specs/tasks/T0-PREREVIEW-SCHEMA.md, machine check scripts/check-prereview-schema.ps1. records[] carries model-authored content only (provenance and core fields are stamped later and rejected here); no field is named verdict, no status is pass or block, every $ref is same-document; in-window patches bump schema_revision.",
+  "$comment": "Frozen contract of PR review v2; contract text and projection rule in specs/tasks/T0-PREREVIEW-SCHEMA.md, machine check scripts/check-prereview-schema.ps1. In-window patches bump schema_revision.",
   "description": "worker_output: what one prereview worker returns.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "schema_revision", "records"],
   "properties": {
     "schema_version": { "const": 1 },
-    "schema_revision": { "type": "integer", "minimum": 0, "description": "Bumped by any in-window patch of this schema so stale fixtures fail explicitly." },
+    "schema_revision": { "const": 0, "description": "Current revision; any in-window patch bumps it here and in every fixture, so stale fixtures fail explicitly." },
     "records": {
       "type": "array",
       "description": "Candidate and coverage records only; one coverage record per changed unit.",
@@ -72,8 +72,8 @@
         "base_oid": { "$ref": "#/$defs/git_oid" },
         "base_mode": { "type": "string", "enum": ["local", "remote"], "description": "local = refs/heads/{base} (-Local), remote = refs/remotes/origin/{base}." },
         "merge_base": { "$ref": "#/$defs/git_oid" },
-        "policy_hash": { "$ref": "#/$defs/sha256_hex", "description": "SHA-256 over docs/PREREVIEW-CHECKLISTS.md plus specs/prereview-record.schema.json at the merge-base commit." },
-        "rubric_sha": { "$ref": "#/$defs/sha256_hex", "description": "Informational: SHA-256 of docs/QUALITY-RUBRIC.md at the merge-base." },
+        "policy_hash": { "$ref": "#/$defs/sha256_hex", "description": "SHA-256 over docs/PREREVIEW-CHECKLISTS.md plus this file at the merge-base commit." },
+        "rubric_sha": { "$ref": "#/$defs/sha256_hex", "description": "Informational: docs/QUALITY-RUBRIC.md at the merge-base." },
         "models": {
           "type": "object",
           "additionalProperties": false,
@@ -111,7 +111,7 @@
     "units": { "type": "array", "items": { "$ref": "#/$defs/unit" }, "description": "units.json: one entry per changed unit." },
     "status_code": {
       "type": "string",
-      "description": "The 20 ASCII status codes; the protocol doc table is anchor-tested against this enum. Matched by code, never by prose.",
+      "description": "The 20 ASCII status codes; the protocol doc table is anchor-tested against this enum.",
       "enum": [
         "[PRE-NO-MERGE-BASE]", "[PRE-SECRETS]", "[PRE-NO-NETWORK-IN-CI]", "[PRE-LIVE-REFUSED]", "[PRE-WORKER-MISSING]",
         "[PRE-NO-OUTPUT]", "[PRE-TIMEOUT]", "[PRE-BAD-RECORD]", "[PRE-LENS-SKIPPED]", "[PRE-PACKET-READY]",

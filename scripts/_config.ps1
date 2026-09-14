@@ -138,25 +138,25 @@ $script:ScaffoldConfig = @{
   # 绝不改成让评审者少验。
   ReviewTimeoutSec = 3600
 
-  # ── PR review v2（1a）：ship 前的**建议性**发现包（docs/TASK-BOARD.md「PR review v2」；契约 specs/prereview-record.schema.json）──
+  # ── PR review v2（1a）：ship 前的**建议性**发现包（docs/TASK-BOARD.md；契约 specs/prereview-record.schema.json）──
   # 只放默认值，语义归承接卡（路由 FACTS-LIB / 进程与环境 WORKERS / 总开关 RUN）；codex R3 仍是唯一合并闸。
-  PrereviewEnabled = $true                 # $false = 总开关：run 直接 [PRE-RUN-DISABLED]、不 spawn 任何 worker
+  PrereviewEnabled = $true                 # $false = 总开关：run 直接 [PRE-RUN-DISABLED]、不 spawn worker
   PrereviewGateEnforced = $false           # 1b LOOP-DOCS 翻 $true 前，ship 闸只记账不拦（[PRE-DISABLED]）
-  PrereviewDiscoverCommand = ''            # '' = 内置 claude 适配器；自定义命令 stdin 收 prompt、envelope 写到 $env:PRE_OUT
+  PrereviewDiscoverCommand = ''            # '' = 内置 claude 适配器；自定义命令：stdin 收 prompt，envelope 写到 $env:PRE_OUT
   PrereviewLensCommand = ''                # '' = 内置 deepseek 透镜适配器
   PrereviewModel = 'claude-sonnet-5'
-  PrereviewRiskyModel = 'claude-opus-5'    # 改动命中 FrozenPaths ∪ PrereviewRiskyExtraPaths 时的发现者模型
-  PrereviewRiskyExtraPaths = @('scripts/', '.claude/', '.github/', 'configs/compliance/')   # FACTS-LIB 路由时与 FrozenPaths 取并集；此处不复制冻结表
+  PrereviewRiskyModel = 'claude-opus-5'    # 改动命中 FrozenPaths ∪ PrereviewRiskyExtraPaths 时
+  PrereviewRiskyExtraPaths = @('scripts/', '.claude/', '.github/', 'configs/compliance/')   # FACTS-LIB 路由时与 FrozenPaths 取并集，此处不复制冻结表
   PrereviewEffort = 'high'
   PrereviewLensEnabled = $true             # $false = 透镜 skipped（[PRE-LENS-SKIPPED]），发现者照跑
   PrereviewLensModel = 'deepseek-v4-flash'
-  PrereviewLensDocModel = 'deepseek-v4-pro' # 超 PrereviewMaxFileBytes 的文档走这档
+  PrereviewLensDocModel = 'deepseek-v4-pro'
   PrereviewLensEffort = 'high'
   PrereviewBatchCap = 2                    # 自上次合并起第 (cap+1) 次 run 即 [PRE-BATCH-CAP]（1b）
   PrereviewTimeoutSec = 900                # 单个 worker 进程树上限；到点杀树、exit 124（[PRE-TIMEOUT]）
-  PrereviewMaxFileBytes = 200000           # files/** 单文件上限
-  PrereviewMaxDocBytes = 1000000           # docs/** 与 context/** 的单文件上限
-  PrereviewMaxPackBytes = 20971520         # 整包上限 20 MiB，超出即停
+  PrereviewMaxFileBytes = 200000
+  PrereviewMaxDocBytes = 1000000           # docs/** 与 context/**
+  PrereviewMaxPackBytes = 20971520         # 20 MiB
 
   # 经验系统「必须层」（CLAUDE.md 经验铁律）封顶的**驻留经验 id 数**——不是该小节的 markdown 条目数：
   # 一条写着 [L190][L193] 的 Markdown bullet 包含 2 个驻留 id、占 2 个封顶单位，封顶要管的是驻留 id，否则

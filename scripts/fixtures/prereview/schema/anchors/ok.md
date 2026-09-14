@@ -1,37 +1,31 @@
 # Anchors fixture
 
-## Not the status table
-
-| decoy | note |
-|---|---|
-| `[PRE-DECOY-BEFORE]` | ignored |
-
 Prose may mention `[PRE-PACKET-READY]` without being a row.
 
 ## Status codes
 
 | code | owner | phase | meaning | counts as |
 |---|---|---|---|---|
-| `[PRE-NO-MERGE-BASE]` | FACTPACK | 1a | m | stop |
-| `[PRE-SECRETS]` | FACTPACK | 1a | m | stop |
-| `[PRE-NO-NETWORK-IN-CI]` | RUN | 1a | m | not spawned |
-| `[PRE-LIVE-REFUSED]` | runner | 1a | m | incomplete |
-| `[PRE-WORKER-MISSING]` | runner | 1a | m | incomplete |
-| `[PRE-NO-OUTPUT]` | runner | 1a | m | incomplete |
-| `[PRE-TIMEOUT]` | runner | 1a | m | incomplete |
-| `[PRE-BAD-RECORD]` | RECORDS | 1a | m | incomplete |
-| `[PRE-LENS-SKIPPED]` | WORKERS | 1a | m | skipped |
-| `[PRE-PACKET-READY]` | RUN | 1a | m | info |
-| `[PRE-RUN-DISABLED]` | RUN | 1a | m | stop |
-| `[PRE-BUDGET-AFTER-FIX]` | RUN | 1b | m | stop |
-| `[PRE-BATCH-CAP]` | RUN | 1b | m | stop |
-| `[PRE-MISSING]` | ship gate | 1b | m | refused |
-| `[PRE-STALE]` | ship gate | 1b | m | refused |
-| `[PRE-OPEN]` | ship gate | 1b | m | refused |
-| `[PRE-INCOMPLETE]` | ship gate | 1b | m | refused |
-| `[PRE-SKIPPED]` | ship gate | 1b | m | continues |
-| `[PRE-DISABLED]` | ship gate | 1b | m | continues |
-| `[PRE-GATE-PASS]` | ship gate | 1b | m | continues |
+| `[PRE-NO-MERGE-BASE]` | | | | stop |
+| `[PRE-SECRETS]` | | | | stop |
+| `[PRE-NO-NETWORK-IN-CI]` | | | | not spawned |
+| `[PRE-LIVE-REFUSED]` | | | | incomplete |
+| `[PRE-WORKER-MISSING]` | | | | incomplete |
+| `[PRE-NO-OUTPUT]` | | | | incomplete |
+| `[PRE-TIMEOUT]` | | | | incomplete |
+| `[PRE-BAD-RECORD]` | | | | incomplete |
+| `[PRE-LENS-SKIPPED]` | | | | skipped |
+| `[PRE-PACKET-READY]` | | | | info |
+| `[PRE-RUN-DISABLED]` | | | | stop |
+| `[PRE-BUDGET-AFTER-FIX]` | | | | stop |
+| `[PRE-BATCH-CAP]` | | | | stop |
+| `[PRE-MISSING]` | | | | refused |
+| `[PRE-STALE]` | | | | refused |
+| `[PRE-OPEN]` | | | | refused |
+| `[PRE-INCOMPLETE]` | | | | refused |
+| `[PRE-SKIPPED]` | | | | continues |
+| `[PRE-DISABLED]` | | | | continues |
+| `[PRE-GATE-PASS]` | | | | continues |
 
 Only the first table counts:
 

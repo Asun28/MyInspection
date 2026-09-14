@@ -6,12 +6,12 @@
   三种模式，全按 ASCII 哨兵 + 退出码判（L165）：
     默认（无参）  在 scripts/fixtures/prereview/schema/{records,anchors,mini} 上自演练下面两种模式 + 记录 schema 的契约走查；
                   末行 [PREREVIEW-SCHEMA-OK]（exit 0）/ [PREREVIEW-SCHEMA-FAIL]（exit 1）。这是本卡的 DoD。
-    -Schema f [-Samples d]  schema 卫生（可解析 / $ref 只许同文档 #/$defs/<name> 且目标在 / object 形状皆 additionalProperties:false，if/then/else 片段除外）
+    -Schema f [-Samples d]  schema 卫生（可解析 / 每个 $ref 恰好是同文档 #/$defs/<name> 且目标在 / object 形状皆封闭，if/then/else 除外）
                   + 样本：d/valid/*.json 必须通过、d/reject/*.json 必须失败，唯一判据 = Test-Json -ErrorAction SilentlyContinue 的布尔值；
                   <def>.<name>.json 对 $defs/<def> 校验（内存里包一层 {$ref,$defs}），其余对整份 schema；*.schema.json 不算样本。
     -Anchors doc  标题「Status codes」下第一张表，每个数据行第 1 列的第一个 [PRE-…] token 是码，与 $defs/status_code 枚举双向核：
                   缺行 / 外码 / 重复行任一即 [PREREVIEW-SCHEMA-FAIL]，全合即 [PREREVIEW-ANCHORS-OK]。
-  投影 worker-envelope.min.json 的四项检查归 WORKERS-CLAUDE 的 -SelfCheck；本脚本只把它当一份 schema 对 mini/ 跑样本。
+  投影 worker-envelope.min.json 的四项检查归 WORKERS-CLAUDE；本脚本只把它当一份 schema 对 mini/ 跑样本。
 #>
 [CmdletBinding()]
 param(
@@ -29,6 +29,7 @@ $OkSentinel = '[PREREVIEW-SCHEMA-OK]'
 $FailSentinel = '[PREREVIEW-SCHEMA-FAIL]'
 $AnchorsOkSentinel = '[PREREVIEW-ANCHORS-OK]'
 $LocalRefPrefix = '#/$defs/'
+$LocalRefPattern = '^#/\$defs/([^/#]+)$'   # 恰好同文档、直指一个 $defs 名；多一个 # 或 / 都不算
 $StatusCodePattern = '\[PRE-[A-Z0-9-]+\]'
 # 枚举值一律 lower_snake，例外只有两个标识符枚举：category 的 C 码、status_code 的 [PRE-…] 码。比较一律区分大小写（-c 系）。
 $EnumValuePattern = '^([a-z][a-z0-9_]*|C[0-9]+|\[PRE-[A-Z0-9-]+\])$'
@@ -36,19 +37,21 @@ $EnumValuePattern = '^([a-z][a-z0-9_]*|C[0-9]+|\[PRE-[A-Z0-9-]+\])$'
 $RecordForbiddenFields = @('id', 'fingerprint', 'root_group', 'related_to', 'snapshot_tree', 'worker_id', 'model_id', 'lens', 'schema_version', 'schema_revision', 'verdict')
 # 默认模式钉死的 reject 夹具清单（文件 → 违规类）：目录须与之恰好相等，少一类或多一个未登记文件都红。
 $RejectClasses = [ordered]@{
-  'candidate-verdict.json'               = 'a field named verdict'
-  'coverage-status-pass.json'            = 'a status value pass'
-  'coverage-unknown-field.json'          = 'an unknown field'
+  'candidate-verdict.json'               = 'field named verdict'
+  'coverage-status-pass.json'            = 'status pass'
+  'coverage-unknown-field.json'          = 'unknown field'
   'envelope-missing-schema-version.json' = 'schema_version absent'
-  'coverage-id.json'                     = 'a worker-emitted id'
-  'coverage-status-missing.json'         = 'a worker-emitted missing status'
-  'coverage-provenance.json'             = 'a provenance field inside records[]'
+  'envelope-wrong-revision.json'         = 'schema_revision not the pinned const'
+  'coverage-id.json'                     = 'worker-emitted id'
+  'coverage-status-missing.json'         = 'worker-emitted missing'
+  'coverage-provenance.json'             = 'provenance inside records[]'
   'coverage-blocked-no-context.json'     = 'blocked without missing_context'
   'candidate-symbol-null-no-line.json'   = 'symbol null without line_start'
   'facts.bad-base-mode.json'             = 'facts base_mode outside the enum'
-  'cross-file-ref.schema.json'           = 'a cross-file $ref (schema, -Schema rejects)'
+  'cross-file-ref.schema.json'           = 'schema: cross-file $ref'
+  'hidden-ref.schema.json'               = 'schema: cross-file $ref under patternProperties'
+  'malformed-ref.schema.json'            = 'schema: $ref not exactly #/$defs/<name>'
 }
-
 function Read-SchemaFile([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "schema file not found: $Path" }
   $text = [IO.File]::ReadAllText($Path)
@@ -57,7 +60,7 @@ function Read-SchemaFile([string]$Path) {
   return @{ Path = $Path; Text = $text; Obj = $obj }
 }
 
-# 扁平列出每个子 schema（路径, 节点）：只沿 schema 位置下钻，enum/required/description 的值不当 schema。
+# 扁平列出每个子 schema（路径, 节点）：只沿 draft 2020-12 的 schema 位置下钻，enum/required/description 的值不当 schema。
 function Get-SchemaNodes($Node, [string]$Path = '#') {
   $acc = [System.Collections.Generic.List[object]]::new()
   $stack = [System.Collections.Generic.Stack[object]]::new()
@@ -66,10 +69,10 @@ function Get-SchemaNodes($Node, [string]$Path = '#') {
     $pair = $stack.Pop(); $p = $pair[0]; $n = $pair[1]
     if (-not ($n -is [System.Collections.IDictionary])) { continue }
     $acc.Add([pscustomobject]@{ Path = $p; Node = $n })
-    foreach ($k in @('properties', '$defs')) {
+    foreach ($k in @('properties', 'patternProperties', 'dependentSchemas', '$defs')) {
       if ($n.Contains($k) -and $n[$k] -is [System.Collections.IDictionary]) { foreach ($c in $n[$k].Keys) { $stack.Push(@("$p/$k/$c", $n[$k][$c])) } }
     }
-    foreach ($k in @('items', 'additionalProperties', 'if', 'then', 'else', 'not', 'contains')) { if ($n.Contains($k)) { $stack.Push(@("$p/$k", $n[$k])) } }
+    foreach ($k in @('items', 'additionalProperties', 'propertyNames', 'unevaluatedProperties', 'unevaluatedItems', 'contentSchema', 'if', 'then', 'else', 'not', 'contains')) { if ($n.Contains($k)) { $stack.Push(@("$p/$k", $n[$k])) } }
     foreach ($k in @('anyOf', 'oneOf', 'allOf', 'prefixItems')) {
       if ($n.Contains($k)) { $i = 0; foreach ($c in @($n[$k])) { $stack.Push(@("$p/$k/$i", $c)); $i++ } }
     }
@@ -77,7 +80,24 @@ function Get-SchemaNodes($Node, [string]$Path = '#') {
   return $acc
 }
 
-# 从一个起点出发、跟着 $ref 传递闭包可达的全部节点（records[] 可达形状的判定用）。
+# 列出 JSON 里**每一个**对象节点（含数组里的），不问它是不是 schema 位置：$ref 扫描用它，藏在任何关键字下的 $ref 都逃不掉。
+function Get-JsonNodes($Node, [string]$Path = '#') {
+  $acc = [System.Collections.Generic.List[object]]::new()
+  $stack = [System.Collections.Generic.Stack[object]]::new()
+  $stack.Push(@($Path, $Node))
+  while ($stack.Count) {
+    $pair = $stack.Pop(); $p = $pair[0]; $n = $pair[1]
+    if ($n -is [System.Collections.IDictionary]) {
+      $acc.Add([pscustomobject]@{ Path = $p; Node = $n })
+      foreach ($k in $n.Keys) { $stack.Push(@("$p/$k", $n[$k])) }
+    } elseif ($n -is [System.Collections.IList] -and -not ($n -is [string])) {
+      $i = 0; foreach ($c in $n) { $stack.Push(@("$p/$i", $c)); $i++ }
+    }
+  }
+  return $acc
+}
+
+# 从一个起点出发、跟着（恰好同文档形态的）$ref 传递闭包可达的全部节点（records[] 可达形状的判定用）。
 function Get-ReachableNodes($Root, $Start, [string]$StartPath) {
   $seen = [System.Collections.Generic.HashSet[string]]::new()
   $nodes = [System.Collections.Generic.List[object]]::new()
@@ -88,25 +108,28 @@ function Get-ReachableNodes($Root, $Start, [string]$StartPath) {
     foreach ($e in (Get-SchemaNodes $pair[1] $pair[0])) {
       $nodes.Add($e)
       if ($e.Node.Contains('$ref')) {
-        $name = ([string]$e.Node['$ref']) -replace '^.*#/\$defs/', ''
-        if ($seen.Add($name) -and $Root['$defs'].Contains($name)) { $queue.Enqueue(@("$LocalRefPrefix$name", $Root['$defs'][$name])) }
+        $m = [regex]::Match([string]$e.Node['$ref'], $LocalRefPattern)
+        if ($m.Success -and $seen.Add($m.Groups[1].Value) -and $Root['$defs'].Contains($m.Groups[1].Value)) { $queue.Enqueue(@("$LocalRefPrefix$($m.Groups[1].Value)", $Root['$defs'][$m.Groups[1].Value])) }
       }
     }
   }
   return $nodes
 }
 
-# schema 卫生（-Schema 模式对任何 prereview schema 都适用）：自足引用 + 每个 object 形状封闭。
+# schema 卫生（-Schema 模式对任何 prereview schema 都适用）：每个 $ref（无论藏在哪个关键字下）都恰好是 #/$defs/<name> 且目标在；
+# 每个 object 形状封闭（if/then/else 片段除外）。
 function Test-SchemaHygiene($Obj) {
   $reasons = @()
   $defs = if ($Obj.Contains('$defs') -and $Obj['$defs'] -is [System.Collections.IDictionary]) { $Obj['$defs'] } else { @{} }
+  foreach ($e in (Get-JsonNodes $Obj)) {
+    if (-not $e.Node.Contains('$ref')) { continue }
+    $ref = [string]$e.Node['$ref']
+    $m = [regex]::Match($ref, $LocalRefPattern)
+    if (-not $m.Success) { $reasons += "$($e.Path): `$ref '$ref' is not exactly $LocalRefPrefix<name>"; continue }
+    if (-not $defs.Contains($m.Groups[1].Value)) { $reasons += "$($e.Path): `$ref '$ref' has no target in `$defs" }
+  }
   foreach ($e in (Get-SchemaNodes $Obj)) {
     $n = $e.Node
-    if ($n.Contains('$ref')) {
-      $ref = [string]$n['$ref']
-      if (-not $ref.StartsWith($LocalRefPrefix, [StringComparison]::Ordinal)) { $reasons += "$($e.Path): `$ref '$ref' is not same-document ($LocalRefPrefix<name>)" }
-      if (-not $defs.Contains(($ref -replace '^.*#/\$defs/', ''))) { $reasons += "$($e.Path): `$ref '$ref' has no target in `$defs" }
-    }
     # if/then/else 片段是叠加在同一对象上的约束，不能带 additionalProperties:false（会拒掉其它属性），故豁免。
     $isObject = ($n.Contains('type') -and $n['type'] -ceq 'object') -or ($n.Contains('properties') -and $e.Path -notmatch '/(if|then|else)$')
     if ($isObject -and -not ($n.Contains('additionalProperties') -and $n['additionalProperties'] -is [bool] -and -not $n['additionalProperties'])) {
@@ -252,8 +275,8 @@ $present = @(if (Test-Path -LiteralPath $rejectDir) { Get-ChildItem -LiteralPath
 $drift = @(Compare-Object $present @($RejectClasses.Keys) | ForEach-Object { "reject inventory drift: $($_.InputObject) $(if ($_.SideIndicator -eq '<=') { '(on disk, not declared)' } else { '(declared, not on disk)' })" })
 $all += $drift
 Write-Host "  reject inventory: $($present.Count) on disk vs $($RejectClasses.Count) declared classes$(if ($drift.Count) { ' (DRIFT)' })" -ForegroundColor $(if ($drift.Count) { 'Red' } else { 'DarkGray' })
-Write-Host '[3/5] a schema with a cross-file $ref must fail -Schema' -ForegroundColor Cyan
-Expect 'reject/cross-file-ref.schema.json' (Invoke-SchemaMode (Join-Path $rejectDir 'cross-file-ref.schema.json') '') $false
+Write-Host '[3/5] every reject/*.schema.json must fail -Schema' -ForegroundColor Cyan
+foreach ($bad in @(Get-ChildItem -LiteralPath $rejectDir -Filter *.schema.json -File | Sort-Object Name)) { Expect "reject/$($bad.Name)" (Invoke-SchemaMode $bad.FullName '') $false }
 Write-Host '[4/5] anchors: ok.md passes; missing-row / extra-code / duplicate-row fail' -ForegroundColor Cyan
 Expect 'anchors/ok.md' (Invoke-AnchorsMode (Join-Path $FixtureRoot 'anchors/ok.md')) $true
 foreach ($neg in @('missing-row', 'extra-code', 'duplicate-row')) { Expect "anchors/$neg.md" (Invoke-AnchorsMode (Join-Path $FixtureRoot "anchors/$neg.md")) $false }

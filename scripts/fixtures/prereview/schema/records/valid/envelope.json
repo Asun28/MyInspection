@@ -13,10 +13,10 @@
       "line_start": null,
       "line_end": null,
       "unit_ids": ["scripts/check-scope.ps1#0123456789ab"],
-      "trigger": "early return skips the segment loop",
-      "expected": "every segment passes isSafeSegment",
-      "actual": "a .. segment reaches the prefix match",
-      "impact": "a path outside allow_paths is admitted",
+      "trigger": "early return skips the loop",
+      "expected": "every segment is checked",
+      "actual": "a .. segment gets through",
+      "impact": "scope gate fail-open",
       "contract_ref": "lesson:L228",
       "evidence_refs": ["scripts/check-scope.ps1:41"],
       "evidence_needed": [],
@@ -34,29 +34,17 @@
       "line_start": 120,
       "line_end": 124,
       "unit_ids": [],
-      "trigger": "says the gate runs on every ship path",
-      "expected": "-Local is named or excluded",
-      "actual": "only the remote path is described",
-      "impact": "a reader assumes -Local is gated",
+      "trigger": "claims every ship path is gated",
+      "expected": "-Local named or excluded",
+      "actual": "only remote described",
+      "impact": "reader assumes -Local is gated",
       "contract_ref": "none",
       "evidence_refs": ["docs/DEVOPS-WORKFLOW.md:120"],
       "evidence_needed": ["scripts/task.ps1 -Local branch"],
       "introduced_or_worsened": "pre_existing",
       "suggested_fix_direction": ""
     },
-    {
-      "unit_id": "scripts/check-scope.ps1#0123456789ab",
-      "categories_checked": ["C1", "C2", "C3"],
-      "status": "finding",
-      "candidate_local_ids": ["d1"],
-      "missing_context": []
-    },
-    {
-      "unit_id": "android/app/build.gradle.kts#file",
-      "categories_checked": ["C1"],
-      "status": "blocked",
-      "candidate_local_ids": [],
-      "missing_context": ["android/gradle/libs.versions.toml"]
-    }
+    { "unit_id": "scripts/check-scope.ps1#0123456789ab", "categories_checked": ["C1", "C2", "C3"], "status": "finding", "candidate_local_ids": ["d1"], "missing_context": [] },
+    { "unit_id": "android/app/build.gradle.kts#file", "categories_checked": ["C1"], "status": "blocked", "candidate_local_ids": [], "missing_context": ["android/gradle/libs.versions.toml"] }
   ]
 }

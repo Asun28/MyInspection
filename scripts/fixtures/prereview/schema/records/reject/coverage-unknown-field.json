@@ -1,14 +1,1 @@
-{
-  "schema_version": 1,
-  "schema_revision": 0,
-  "records": [
-    {
-      "unit_id": "scripts/check-scope.ps1#0123456789ab",
-      "categories_checked": ["C1", "C2", "C3"],
-      "status": "checked_no_finding",
-      "candidate_local_ids": [],
-      "missing_context": [],
-      "note": "unknown field"
-    }
-  ]
-}
+{ "schema_version": 1, "schema_revision": 0, "records": [{ "unit_id": "scripts/check-scope.ps1#0123456789ab", "categories_checked": ["C1", "C2", "C3"], "status": "checked_no_finding", "candidate_local_ids": [], "missing_context": [], "note": "unknown field" }] }
