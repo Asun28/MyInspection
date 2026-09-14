@@ -326,7 +326,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
 |---|---|---|---|---|---|---|---|
-| 1a·0 | [T0-PREREVIEW-SCHEMA](../specs/tasks/T0-PREREVIEW-SCHEMA.md) | 记录 schema（envelope + $defs、20 个状态码枚举、worker-envelope.min.json 投影）+ `check-prereview-schema.ps1` + `_config.ps1` 旋钮 | — | M | Opus 5 · high | Sonnet 5 · max | todo |
+| 1a·0 | [T0-PREREVIEW-SCHEMA](../specs/archive/tasks/T0-PREREVIEW-SCHEMA.md) | 记录 schema（envelope + $defs、20 个状态码枚举、worker-envelope.min.json 投影）+ `check-prereview-schema.ps1` + `_config.ps1` 旋钮 | — | M | Opus 5 · high | Sonnet 5 · max | **merged**（master `9c3d3bdf`，2026-09-15） |
 | 1a·0 | [T0-PREREVIEW-RUNNER](../specs/tasks/T0-PREREVIEW-RUNNER.md) | `_subprocess.ps1` 有界两阶段进程 runner；`review.ps1` 换用它（继承环境、零行为变化） | — | H | Opus 5 · high | GPT-5.6 Terra | todo；开工前先按 #265 关闭本地 T0-CI-DEADLINE-CONTAINMENT，并裁定 reconcile 时点 |
 | 1a·1 | [T0-PREREVIEW-FACTS-EXTRACT](../specs/tasks/T0-PREREVIEW-FACTS-EXTRACT.md) | 评审提示词装配与 fence 助手纯搬到 `_reviewprompt.ps1`（同一提示词、只差 nonce） | RUNNER | M | Sonnet 5 · max | DeepSeek V4 Pro | todo；review.ps1 链第 2 张，宽度 1 |
 | 1a·2 | [T0-PREREVIEW-FACTS](../specs/tasks/T0-PREREVIEW-FACTS.md) | `review.ps1 -FactsOut` / `-SizeOnly -Tree` 只读事实导出（不建 `.review`、不计轮次） | FACTS-EXTRACT | M | Sonnet 5 · max | DeepSeek V4 Pro | todo；review.ps1 链第 3 张，宽度 1 |

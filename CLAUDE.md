@@ -69,6 +69,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-15 本地交付**：`T0-PREREVIEW-SCHEMA` 已合并（master `9c3d3bdf`，R3 第 3 轮 pass 零 finding；PR review v2 1a 首卡）——
+`specs/prereview-record.schema.json`（worker_output 信封 + candidate/coverage/facts/units/status_code 等 10 个 `$defs`、
+20 个 `[PRE-…]` 状态码、`schema_revision` 钉 `const 0`）· `scripts/check-prereview-schema.ps1`（默认自演练 / `-Schema -Samples` /
+`-Anchors`，哨兵 `[PREREVIEW-SCHEMA-OK|FAIL]`、`[PREREVIEW-ANCHORS-OK]`）· 夹具 `scripts/fixtures/prereview/schema/`（含 3791 字节的
+`worker-envelope.min.json` 投影）· `_config.ps1` 17 个 `Prereview*` 旋钮（值 only）。37/37 变异全杀。**冻结点**：schema 从本合并起即契约，
+窗口内补丁 bump `schema_revision`、走后续卡；FrozenPaths 登记归 1b LOOP-DOCS。
+> **两轮 block 各一课**：① 首轮 4 条全部属实——夹具里为了让「跨文件 `$ref`」检查可被变异观测而复制了一份 `$defs`，正是卡片 forbid
+> 的「copying $defs」；`$ref` 走查只沿 schema 位置下钻，藏在 `patternProperties` 下的跨文件引用漏掉（改为遍历每个 JSON 节点 + 恰好
+> `#/$defs/<name>` 正则）；`schema_revision` 允许任意整数，与「陈旧夹具显式失败」的描述不符（钉 const）；② **评审读的是 base 上的卡**
+> （`Task-card source: base:<oid>`）：把用户裁定的「撤回拆分规则」修正写进分支副本对评审者不可见，白烧一轮（L145 复发第 2 次）——
+> 中途改卡一律先提交 master。字符预算是比行数更紧的约束：每个夹具文件的 diff 头约 300 字符、JSON 逐行缩进约 30 字符/行，
+> 26 个小文件把 60000 上限吃到 63.9K，靠压缩夹具与散文才回到 59.2K（L266 复发：体量该在 RED 前按 review.ps1 的尺量）。
+> **遗留**：`T0-PREREVIEW-FACTS-LIB` A2 的 `base_mode origin` 已按冻结枚举改为 `remote`（本次 R5 顺手一词）；八条在飞分支改动
+> `_config.ps1`（碰撞规则），本卡只追加一段、保留 BOM，退役由用户裁。
 **2026-09-08 本地交付**：`T1-SPIKE-PLATFORM` 已合并（master `e8c2359a`，正式 R3 第 **2** 轮 pass）——V1 三项平台风险
 在**真机**上全部判「成立」、无一降级：设备 = Galaxy A34 5G `SM-A346E`、Android 13 / API 33、fingerprint
 `samsung/…/A346EXXU4AWG8:user/release-keys`（**零售 user 版**，非模拟器的 `userdebug/dev-keys`，API 亦低于模拟器的 35）。

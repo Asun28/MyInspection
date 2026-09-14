@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-SCHEMA
 title: Frozen record schema, worker-envelope projection, check-prereview-schema.ps1 and the Prereview* config knobs
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - specs/prereview-record.schema.json
