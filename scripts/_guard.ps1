@@ -1055,7 +1055,9 @@ function Get-ScaffoldContinuedSubGateLabel {
   .DESCRIPTION
     A continuation is not a declaration. 10d is ONE sub-gate whose implementation runs eleven blocks long, so
     normalising its eleven parenthetical headers into the canonical form would report eleven false duplicates
-    rather than close a blind spot; 9g, 15f and 15r carry one continuation each. That shape - one canonical
+    rather than close a blind spot; 9g, 15f and 15r carry one continuation each, and so does 14e, whose second
+    block is the post-init half of the same sub-gate (an initialized project has no CLAUDE.template.md, so it
+    reads the executable policy and workflow instead). That shape - one canonical
     header plus N declared continuations - is what TD177 held open, and it replaces the pending list T182
     introduced and T185 drained. The list excused a header by NAME alone, which says nothing about WHY the
     header is legal and would tolerate the same label written in any invisible form at all.
