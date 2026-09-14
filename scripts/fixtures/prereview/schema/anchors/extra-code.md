@@ -1,0 +1,27 @@
+# Anchors fixture
+
+## Status codes
+
+| code |
+|---|
+| [PRE-NO-MERGE-BASE] |
+| [PRE-SECRETS] |
+| [PRE-NO-NETWORK-IN-CI] |
+| [PRE-LIVE-REFUSED] |
+| [PRE-WORKER-MISSING] |
+| [PRE-NO-OUTPUT] |
+| [PRE-TIMEOUT] |
+| [PRE-BAD-RECORD] |
+| [PRE-LENS-SKIPPED] |
+| [PRE-PACKET-READY] |
+| [PRE-RUN-DISABLED] |
+| [PRE-BUDGET-AFTER-FIX] |
+| [PRE-BATCH-CAP] |
+| [PRE-MISSING] |
+| [PRE-STALE] |
+| [PRE-OPEN] |
+| [PRE-INCOMPLETE] |
+| [PRE-SKIPPED] |
+| [PRE-DISABLED] |
+| [PRE-GATE-PASS] |
+| [PRE-NOT-IN-ENUM] |
