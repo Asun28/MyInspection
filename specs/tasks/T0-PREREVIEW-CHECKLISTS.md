@@ -7,9 +7,9 @@ allow_paths:
   - docs/PREREVIEW-CHECKLISTS.md
   - scripts/fixtures/prereview/checklists/
   - specs/tasks/T0-PREREVIEW-CHECKLISTS.md
-dod_command: $f = 'docs/PREREVIEW-CHECKLISTS.md'; if (-not (Test-Path $f) -or (Get-Item $f).Length -gt 12288) { exit 1 }; $l = @(Get-Content $f); foreach ($s in @('code', 'tests', 'prose', 'scripts')) { if (@($l | Where-Object { $_ -eq ('## Lens: ' + $s) }).Count -ne 1) { exit 1 } }; $c = @($l | Where-Object { $_ -match '^- C[1-7] ' }); if ($c.Count -lt 8 -or @($c | Where-Object { $_ -notmatch 'L[0-9]+|rubric:[0-9]+' }).Count -ne 0) { exit 1 }
+dod_command: $f = 'docs/PREREVIEW-CHECKLISTS.md'; if (-not (Test-Path $f) -or (Get-Item $f).Length -gt 12288) { exit 1 }; $l = @(Get-Content $f); foreach ($s in @('code', 'tests', 'prose', 'scripts')) { if (@($l | Where-Object { $_ -ceq ('## Lens: ' + $s) }).Count -ne 1) { exit 1 } }; $c = @($l | Where-Object { $_ -cmatch '^- C[1-7] ' }); if ($c.Count -lt 8 -or @($c | Where-Object { $_ -cnotmatch 'L[0-9]+|rubric:[0-9]+' }).Count -ne 0) { exit 1 }
 dod_exit: 0
-dod_assert: docs/PREREVIEW-CHECKLISTS.md exists, is at most 12288 bytes, has exactly one line each equal to # Lens: code, # Lens: tests, # Lens: prose and # Lens: scripts, and every check line starting with - C{n} (at least eight of them) names a lesson id L{digits} or a rubric dimension rubric:{digits}.
+dod_assert: docs/PREREVIEW-CHECKLISTS.md exists, is at most 12288 bytes, has exactly one line each case-sensitively equal to ## Lens: code, ## Lens: tests, ## Lens: prose and ## Lens: scripts, and every check line starting with - C{n} (at least eight of them) names a lesson id L{digits} or a rubric dimension rubric:{digits}, all matched case-sensitively.
 review_gate: codex {verdict:pass}
 plan_ref: docs/TASK-BOARD.md#pr-review-v2
 parallelizable_with: [T0-PREREVIEW-RUNNER, T0-PREREVIEW-FACTS-EXTRACT, T0-PREREVIEW-FACTS, T0-PREREVIEW-PROTOCOL-DOC, T0-PREREVIEW-RECORDS, T0-PREREVIEW-FACTS-LIB, T0-PREREVIEW-WORKERS, T0-PREREVIEW-WORKERS-CLAUDE, T0-PREREVIEW-WORKERS-DEEPSEEK, T0-PREREVIEW-STATE-1A]
