@@ -69,6 +69,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-15 本地交付**：`T0-PREREVIEW-PROTOCOL-DOC` 已合并（master `a66af219`，**人裁合并**——八道确定性闸全绿后 R3 四轮共 9 条 finding 全部属实、全部当场修，
+第 4 轮那条要求的改动落在兄弟卡（FACTS-LIB A5 的 `unit_id` 对同文件两个字节相同的 hunk 撞码、RECORDS A4 的重复键不带行号），
+按 rubric 路线 ① 登记 `[FOLLOW-UP]`、用户裁定合并）——`docs/PREREVIEW-PROTOCOL.md`（28969 字节：两 worker 不投票 · 1a 规范顺序 ·
+进包内容与两个 worker 各自可见面 · worker 命令契约（白名单环境、`PRE_*`、`PRE_LIVE` 唯一写者 + 三处登记的自检例外）· 记录/覆盖形状 ·
+C1–C7 · 读包 · `link-r3`/`recall` · 1a 检查点 · 首次真跑清单 · 20 个 `[PRE-…]` 状态码表（`-Anchors` 双向锚定）· 1b 只留指针段）·
+TRUST-MANIFEST 两行（发现者 Anthropic `claude` CLI = 整包含 `tree/` 出站；透镜 DeepSeek = 仅 prompt.txt，`PrereviewDiscoverCommand`/
+`PrereviewLensCommand` 钉在指针格）· CLAUDE.md 索引行 24 + AI 工具句改写 · task-loop 4.6 一句。4/4 锚点变异全杀；路由自检
+（mode=all，从 worktree 自己那份 `selftest.ps1` 跑）PASS 1422 s。
+> **四轮 R3 全是同一类错误——写下的保证超出所引卡片的验收行（L309）**：`PRE_LIVE` 唯一写者的全称句被自己的括号推翻 ·
+> `DEEPSEEK_API_KEY` 既「所有 worker 都没有」又「透镜子进程读取」· 「gitignored 由构造排除」只对**未跟踪**文件成立（`read-tree HEAD`
+> + `add -A` 不会丢掉已跟踪路径，靠 `check-secrets` 保证机密形状路径不被追踪）· 「包对 R3 不可见」只能说成「不在被审树、不在提示词」
+> （沙箱不证明拒读 common dir）· `[PRE-NO-OUTPUT]`/`[PRE-BAD-RECORD]` 两处定义不互斥。本地 fresh-context 预审吃掉 20 条（7 条 block 级），
+> 每轮修复再过一次对抗复核又各抓到 1–2 条**修复自身引入**的新矛盾（L205）。**两个脚手架事实**：① `selftest.ps1 -TaskId` 的 mode=all/core
+> 测的是被调用脚本自己的 `$RepoRoot`（只有 skills 模式指向任务 worktree），从主检出跑等于测主检出；② 主检出根下另一会话的未跟踪
+> `.aidlc/` 让主检出上的任何整套自检在闸 8 变红。**兄弟卡遗留（已记 `[FOLLOW-UP]`）**：SLICES A1 的截断清单放不进封闭的 `$defs/facts` ·
+> STATE-1A A4 的「不含 pass/block 二词」不可证 · FACTPACK A3「只含已跟踪」· FACTS-LIB A3「gitignored 排除」只对未跟踪成立、A5 `unit_id`
+> 撞码 · RECORDS A4 重复键无行号 · CHECKLISTS A3 引用的 L324 只在主检出未提交的账本里（闸 16 会红）。
+
 **2026-09-15 本地交付**：`T0-PREREVIEW-SCHEMA` 已合并（master `9c3d3bdf`，R3 第 3 轮 pass 零 finding；PR review v2 1a 首卡）——
 `specs/prereview-record.schema.json`（worker_output 信封 + candidate/coverage/facts/units/status_code 等 10 个 `$defs`、
 20 个 `[PRE-…]` 状态码、`schema_revision` 钉 `const 0`）· `scripts/check-prereview-schema.ps1`（默认自演练 / `-Schema -Samples` /

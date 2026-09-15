@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-PROTOCOL-DOC
 title: docs/PREREVIEW-PROTOCOL.md (1a protocol and status-code table), TRUST-MANIFEST rows for both providers, CLAUDE.md index row and task-loop 4.6 advisory sentence
-status: todo
+status: merged
 depends_on: [T0-PREREVIEW-SCHEMA]
 allow_paths:
   - docs/PREREVIEW-PROTOCOL.md
