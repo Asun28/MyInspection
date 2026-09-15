@@ -19,7 +19,7 @@ acceptance:
   - "A3 Id minting maps local_id to C-{n} monotonically within one state's life across two normalisation calls, never reuses a number, and stamps fingerprint (file|category|symbol|contract_ref) as a grouping hint that is never used as identity."
   - "A4 Exact duplicates (same batch and same file|symbol|category|contract_ref|expected|actual after NFC and whitespace normalisation; the key carries no line or anchor, so the same statement about the same symbol at different lines merges) merge into one record that keeps every contributing worker_id and local_id in provenance and the sorted union of unit_ids, evidence_refs and evidence_needed, so no location is lost; near duplicates (same fingerprint, different key) are kept and share one root_group."
   - "A5 Missing-coverage synthesis adds a state-only missing row for every unit whose discoverer coverage lacks C1, C2 or C3, while a worker-emitted missing status or a worker-emitted id is rejected as [PRE-BAD-RECORD]."
-  - "A6 -SelfCheck reads only its fixture folder and temp, clears PRE_LIVE and PRE_LENS_ENDPOINT inherited from the parent, spawns no process, and prints [PREREVIEW-RECORDS-SELFCHECK-PASS]."
+  - "A6 -SelfCheck reads only the frozen schema (the A1 contract), its fixture folder and temp, clears PRE_LIVE and PRE_LENS_ENDPOINT inherited from the parent, spawns no process, and prints [PREREVIEW-RECORDS-SELFCHECK-PASS]."
 forbid:
   - Any state shape, disposition or transition logic (STATE-1A and 1b STATE)
   - A prompt builder or fence helper here (PROMPT)
