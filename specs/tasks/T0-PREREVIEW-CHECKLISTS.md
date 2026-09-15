@@ -16,7 +16,7 @@ parallelizable_with: [T0-PREREVIEW-RUNNER, T0-PREREVIEW-FACTS-EXTRACT, T0-PREREV
 acceptance:
   - "A1 docs/PREREVIEW-CHECKLISTS.md is at most 12288 bytes and has exactly one heading line each for Lens code, tests, prose and scripts in the form Lens: {class}, which Select-PrereviewLensSections (PROMPT) selects by path class."
   - "A2 Every check line has the form - C{n} ... with n in 1..7 and names at least one source token L{digits} or rubric:{digits}, so each check is traceable to a lesson or rubric dimension and is machine-checkable."
-  - "A3 The code section covers guards on every entry point, empty/null/overflow, fail-open branches, ordering assumptions and API level versus minSdk; tests covers L165, L225, L282 and L324; prose covers L309, L317, L321 and L224 plus the sibling-clause and universal-claim checks; scripts covers every error branch open or closed, every exit code reachable and every ASCII code unique."
+  - "A3 The code section covers guards on every entry point, empty/null/overflow, fail-open branches, ordering assumptions and API level versus minSdk; tests covers L165, L225 and L282; prose covers L309, L317, L321 and L224 plus the sibling-clause and universal-claim checks; scripts covers every error branch open or closed, every exit code reachable and every ASCII code unique."
   - "A4 A coverage-rules paragraph states that the discoverer returns one coverage record per unit in units.json with categories_checked covering C1, C2 and C3 (RECORDS synthesises missing otherwise), that candidates use only C1, C2, C3, C4, C5, C7, and that C6 is derived from dispute records only."
   - "A5 The document is written as data: it enters the pack as checklists.md and the policy hash with the record schema (FACTS-LIB), so any later wording change is a policy change by construction; the card adds nothing outside this document."
 forbid:
@@ -40,7 +40,7 @@ Worker-facing checklists, written as data: the file enters the pack as checklist
 ## Sections
 
 - Lens code (android/** production): guards on every entry point, empty/null/zero/negative/overflow inputs, fail-open branches, ordering assumptions on collections feeding hashes or receipts, API level of every JDK/Android call against minSdk (rubric 15).
-- Lens tests (*Test* files, selftest fixtures, receipts): L165, L225, L282, L324.
+- Lens tests (*Test* files, selftest fixtures, receipts): L165, L225, L282.
 - Lens prose (comments, KDoc, docs/**, context/**, specs/**): L309, L317, L321, L224, sibling-clause and universal-claim checks.
 - Lens scripts (scripts/**, .github/**, .claude/hooks/**): every error branch open or closed, every exit code reachable, every ASCII code unique.
 - Coverage rules: one coverage record per unit with categories_checked covering C1, C2 and C3; candidates use C1, C2, C3, C4, C5, C7; C6 is derived from dispute records only.
