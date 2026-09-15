@@ -1,0 +1,1 @@
+{"unit_id": "scripts/a.ps1#0123456789ab", "categories_checked": ["C1", "C2", "C3"], "status": "checked_no_finding", "candidate_local_ids": [], "missing_context": [], "snapshot_tree": "3a7f0c9d2b1e4f6a8c0d2e4f6a8b0c2d4e6f8a0b", "worker_id": "discoverer", "model_id": "claude-opus-5", "lens": false, "schema_version": 1, "schema_revision": 0, "verdict": "block"}
