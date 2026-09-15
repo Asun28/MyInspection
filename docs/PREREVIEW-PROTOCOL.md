@@ -55,8 +55,9 @@ Where things land, and why:
   carrying `snapshot_tree`), `packet.md` and `workers/<worker>-<batch>.*`. Deleting the worktree keeps the state;
   nothing in 1a removes the plane.
 - **Nothing is written into the reviewed worktree or its `.review/`**. The codex reviewer runs read-only inside that
-  worktree and may open any file there (`docs/TRUST-MANIFEST.md`, R3 row), so the packet and the worker outputs must
-  stay out of its reach.
+  worktree and may open any file there (`docs/TRUST-MANIFEST.md`, R3 row), so the packet and the worker outputs are
+  kept out of the tree it is pointed at and out of the prompt it is given. That is the whole guarantee: the scaffold
+  never hands the packet to the reviewer; it does not claim the sandbox denies a read of the git common directory.
 
 ## 3. What enters the pack and what each worker sees
 
@@ -228,7 +229,7 @@ renderer's guard, not a guarantee over what a model writes). Read it as findings
 over a snapshot of your tree; confirm it against the tree (or against a red test) before fixing, and let the R3 block
 reasons, linked in section 8, be the measure of what the packet was worth. Fixes stay in the worktree; a second `run`
 after a fix batch is a full run over the new snapshot and mints new candidates (no carry-forward in 1a). Evidence that
-must reach the codex reviewer still goes into the diff (L227): the packet is invisible to R3.
+must reach the codex reviewer still goes into the diff (L227): the packet is never part of what the scaffold gives R3.
 
 ## 8. `link-r3` and `recall`
 
