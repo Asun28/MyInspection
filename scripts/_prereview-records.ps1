@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.4
 <#
 .SYNOPSIS
   PR review v2 记录核心（RECORDS）：校验 worker 记录 · unit 归属 · C-<n> 铸造 · 精确重复合并 · fingerprint 提示 · missing 覆盖合成。
@@ -27,6 +27,8 @@
   产出：candidate = id / fingerprint / root_group / related_to / 内容字段（schema 顺序，local_id 进 provenance）/ provenance[]；
   coverage = unit_id / worker_id / categories_checked / status / candidate_ids / missing_context。落盘归 STATE-1A。
 #>
+# 7.4 下限：Test-Json 的 draft 2020-12 校验（JsonSchema.Net，7.4 起）；ConvertFrom-Json -AsHashtable 自 7.3 起才是保序、区分大小写的
+# OrderedHashtable（candidate 字段顺序与 Expected/expected 并存都靠它）；-NoEnumerate。
 [CmdletBinding()]
 param([switch]$AsLibrary, [switch]$SelfCheck)
 Set-StrictMode -Version Latest
@@ -205,7 +207,8 @@ function ConvertTo-PrereviewCoverage {
     $p = @{}; foreach ($n in @('StartId', 'Candidates', 'LocalIdMap', 'NextId')) { $p[$n] = $Candidates.PSObject.Properties[$n].Value }
     $re = ConvertTo-PrereviewCandidates -Records $Records -Units $Units -NextId ([long]$p['StartId'])
     $canon = { param($v) ConvertTo-Json -InputObject @($v) -Depth 16 -Compress }
-    $canonMap = { param($m) $d = New-OrdinalMap; foreach ($k in @($m.Keys)) { $d[[string]$k] = [string]$m[$k] }; & $canon @(@($d.Keys) | Sort-Object { $_ } | ForEach-Object { @($_, $d[$_]) }) }
+    # 键按序数排序（Sort-Object 走 culture、不分大小写：'l1' 与 'L1' 会并列，同一份 map 换个枚举顺序就序列化成两样）。
+    $canonMap = { param($m) $d = New-OrdinalMap; foreach ($k in @($m.Keys)) { $d[[string]$k] = [string]$m[$k] }; $ks = [string[]]@($d.Keys); [Array]::Sort($ks, [StringComparer]::Ordinal); & $canon @($ks | ForEach-Object { @($_, $d[$_]) }) }
     $bad = -not ($re.Ok -and ((& $canon $re.Candidates) -ceq (& $canon $p['Candidates'])) -and ((& $canonMap $re.LocalIdMap) -ceq (& $canonMap $p['LocalIdMap'])) -and ([long]$p['NextId'] -eq $re.NextId))
   } catch { $bad = $true }
   if ($bad) { return New-PrereviewResult @('candidates result is not the one minted from this batch (failed, another batch, or altered)') ([ordered]@{ Coverage = @() }) }
@@ -399,6 +402,11 @@ $threw = $false; $vF = @(); $vGen = $null
 try { $vF = @(foreach ($f in $forged) { ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $f }); $vGen = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates (Forge $gen $c1.Candidates) } catch { $threw = $true; Write-Host "    threw: $($_.Exception.Message)" -ForegroundColor Red }
 Check 'no map / no StartId / non-dictionary / out-of-set / short / in-set remap / id-only pad / provenance-free pad / coordinated rewrite / NextId altered: all 10 refused, no throw' (-not $threw -and @($vF | Where-Object { $_.Code -ceq $script:BadRecordCode -and @($_.Coverage).Count -eq 0 }).Count -eq 10)
 Check 'a generic Dictionary[string,string] holding the true map is accepted (same 9 rows)' (-not $threw -and $vGen.Ok -and @($vGen.Coverage).Count -eq 9)
+$qU = [ordered]@{}; foreach ($k in $batch.Records[0].Keys) { $qU[$k] = $batch.Records[0][$k] }; $qU['local_id'] = 'D1'; $qU['expected'] = 'upper twin'
+$cCase = ConvertTo-PrereviewCandidates -Records @($batch.Records[0], $qU) -Units $units -NextId 1
+$rev = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal); foreach ($k in @(@($cCase.LocalIdMap.Keys)[-1..0])) { $rev[$k] = $cCase.LocalIdMap[$k] }
+$vCase = ConvertTo-PrereviewCoverage -Records @($batch.Records[0], $qU) -Units $units -Candidates ([pscustomobject]@{ Ok = $true; Code = ''; Reasons = @(); Candidates = $cCase.Candidates; NextId = $cCase.NextId; LocalIdMap = $rev; StartId = 1 })
+Check 'case-variant local ids (d1, D1) in reverse insertion order still bind (ordinal key sort, not culture)' ($cCase.Ok -and @($cCase.Candidates).Count -eq 2 -and $vCase.Ok)
 $vUnits = ConvertTo-PrereviewCoverage -Records $batch.Records -Units @() -Candidates $c1
 Check 'coverage re-validates its batch: empty units, matching result -> [PRE-BAD-RECORD], no row' ($vUnits.Code -ceq $script:BadRecordCode -and @($vUnits.Coverage).Count -eq 0 -and @($vUnits.Reasons) -match 'not in units.json')
 
