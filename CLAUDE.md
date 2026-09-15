@@ -69,6 +69,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-15 本地交付**：`T0-PREREVIEW-CHECKLISTS` 已合并（master `2782b55b`，R3 第 **5** 轮 pass 零 finding；两次用户裁定 `-ResetRounds`（第 2、4 轮后），
+四轮 block 共 6 条 reason / 13 处具体 finding 全部属实、全部当场修）——`docs/PREREVIEW-CHECKLISTS.md`（12238 字节：四个 `## Lens:` 节共 33 条 `- C{n}` 检查行，每行以 schema 的
+`contract_ref` 形态收尾（25 个 lesson id + 10 个 rubric 维度全部在 master 可解析）+ 覆盖规则段；进包 `checklists.md`、进 policy hash）。
+DoD 在 ship 前于 master 收紧为大小写敏感（`6881a970`：`-eq`→`-ceq`，原 `-eq` 放过小写标题、变异 M6 存活）；7/7 DoD 变异全杀。
+> **13 处 finding 里 12 处是同一类错误、且是这份文档的固有形态——检查行写成全称句、比它所引经验的失败条件更宽，于是会系统性产出假候选**：
+> 边界值不分类型一律要 · `default` 分支一律判 fail-open（`default -> throw` 是 fail-closed）· 整份 stdout 断言一律判弱（精确整体相等能测出丢行）·
+> 哨兵按「分支」而非「含义」唯一 · 「每条断言一枚变异」（L225 只管收据声称覆盖的断言）· null/empty 守卫要「可解析但错」的输入 ·
+> DoD 证据须在 diff 内（包里本就带 base 卡）· 一句话既否定子串匹配又推荐哨兵匹配 · 状态映射把契约的 `not_applicable` 写成不可达 ·
+> C7「任何第二份列表」会打到本文档自己的 A4 覆盖段。第 3 轮后按 L309 停手做**实例代入表**（两个模型各扫全部 33 行、每行点名一个会被误伤的仓内真实实例：
+> `SDK_INT` 守卫下的 API 33 调用、`ComplianceConfig` 返回拒绝值的 catch、喂快照哈希的 `ORDER BY`、`NoticeService` 进程内中文等值断言、
+> `#!/bin/sh` pre-push 钩子以正斜杠路径跑 `check-secrets.ps1`、只由 `verify.ps1` 跑的 `e2eTest`），一次吃掉 26 条；第 4 轮仍出 2 条（其一是**实现记录放进了分支 diff**
+> 而卡片 forbid 写死「文档之外任何内容」——记录改落 master 卡片，L18），第 5 轮零 finding。**两个可复用判断**：① 给评审模型写规则时，每个全称词都要先问
+> 「仓里哪个合法实例会被它误伤」，L309 的实例代入表对「规则型文档」比对「叙述型文档」更必要；② 字节上限（12288）在第 4 轮只剩 9 字节余量——
+> 收紧措辞几乎总是加字，预算要在首轮就留出约 5%。**遗留**：路由自检从 worktree 副本跑 mode=all 1489 s，seeded/workflow 绿、core 只红闸 2/16，
+> 根因是 master `CLAUDE.md` 那行悬空经验引用（本次 R5 已改措辞）；`PREREVIEW-PROTOCOL.md` 第 3 节仍写 `Select-PrereviewLensSections` 按类选节，本文档只说「PROMPT 卡的选择器」。
+
 **2026-09-15 本地交付**：`T0-PREREVIEW-PROTOCOL-DOC` 已合并（master `a66af219`，**人裁合并**——八道确定性闸全绿后 R3 四轮共 9 条 finding 全部属实、全部当场修，
 第 4 轮那条要求的改动落在兄弟卡（FACTS-LIB A5 的 `unit_id` 对同文件两个字节相同的 hunk 撞码、RECORDS A4 的重复键不带行号），
 按 rubric 路线 ① 登记 `[FOLLOW-UP]`、用户裁定合并）——`docs/PREREVIEW-PROTOCOL.md`（28969 字节：两 worker 不投票 · 1a 规范顺序 ·
@@ -85,7 +101,7 @@ TRUST-MANIFEST 两行（发现者 Anthropic `claude` CLI = 整包含 `tree/` 出
 > 测的是被调用脚本自己的 `$RepoRoot`（只有 skills 模式指向任务 worktree），从主检出跑等于测主检出；② 主检出根下另一会话的未跟踪
 > `.aidlc/` 让主检出上的任何整套自检在闸 8 变红。**兄弟卡遗留（已记 `[FOLLOW-UP]`）**：SLICES A1 的截断清单放不进封闭的 `$defs/facts` ·
 > STATE-1A A4 的「不含 pass/block 二词」不可证 · FACTPACK A3「只含已跟踪」· FACTS-LIB A3「gitignored 排除」只对未跟踪成立、A5 `unit_id`
-> 撞码 · RECORDS A4 重复键无行号 · CHECKLISTS A3 引用的 L324 只在主检出未提交的账本里（闸 16 会红）。
+> 撞码 · RECORDS A4 重复键无行号 · CHECKLISTS A3 曾引用一条只在主检出未提交账本里的经验 id（闸 16 会红；`4134c73d` 已去掉该引用）。
 
 **2026-09-15 本地交付**：`T0-PREREVIEW-SCHEMA` 已合并（master `9c3d3bdf`，R3 第 3 轮 pass 零 finding；PR review v2 1a 首卡）——
 `specs/prereview-record.schema.json`（worker_output 信封 + candidate/coverage/facts/units/status_code 等 10 个 `$defs`、
