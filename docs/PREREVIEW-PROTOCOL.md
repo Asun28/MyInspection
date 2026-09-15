@@ -5,8 +5,9 @@
 > lists what they found and what they covered. It is **not a gate**: codex R3 stays the only merge gate, the packet
 > never enters the codex prompt, no record has a field named `verdict`, and no status value is `pass` or `block`.
 > **Status**: a human-facing description of the contracts the Phase-1a cards carry (`docs/TASK-BOARD.md`, section
-> "PR review v2"; the cards are self-contained and win on any discrepancy); the scripts land card by card and nothing
-> described here runs before the RUN card merges.
+> "PR review v2"; the cards are self-contained and win on any discrepancy, and known wording gaps in sibling cards
+> are listed as follow-ups in this card's body); the scripts land card by card and nothing described here runs before
+> the RUN card merges.
 > **Conventions**: commands are named by subcommand (`prereview.ps1 run`); script paths are cited only for files that
 > exist today. Truth sources: `specs/prereview-record.schema.json` (frozen record contract), `scripts/_config.ps1`
 > (`Prereview*` knobs, values only), `docs/PREREVIEW-CHECKLISTS.md` (worker-facing checklists, named here and never
@@ -38,7 +39,8 @@ own order is unchanged: RED at the branch start, implementation left uncommitted
    (both started before either is awaited), validates every record, mints ids, synthesises `missing` coverage, writes
    `state.json` by temp file plus atomic rename and renders `packet.md` next to it, deletes the pack, and prints
    `[PRE-PACKET-READY]` with the paths.
-4. The author reads `packet.md`, fixes in the worktree what the packet convinced them of, and ships as today. 1a records
+4. The author reads `packet.md`, fixes in the worktree what the packet convinced them of, and ships as today; a run
+   after the fixes is a full run over the new snapshot (only then does the state describe the shipped tree). 1a records
    nothing about what the author did with a candidate.
 5. After **every** R3 block: `prereview.ps1 link-r3 -TaskId <id> -Round <n>` right away, before the next round
    overwrites the verdict file (section 8).
@@ -74,7 +76,7 @@ FrozenPaths clause, the pinned base ref and OID. There is no second diff pipelin
 | `card.md`, `rubric.md`, `acceptance.json` | card at base, `docs/QUALITY-RUBRIC.md` at base, the card's acceptance list projected as JSON | readable | via the prompt |
 | `checklists.md` | `docs/PREREVIEW-CHECKLISTS.md` (it enters the pack and the policy hash) | readable | selected sections via the prompt |
 | `files/**` | full text of every changed file up to `PrereviewMaxFileBytes`; `docs/**` and `context/**` up to `PrereviewMaxDocBytes`; larger files are not copied and are listed as truncated with their size (the SLICES card) | readable | via the prompt (changed-file slice) |
-| `tree/**` | the snapshot exported with `git -c core.autocrlf=false checkout-index --prefix` (tracked content only) | readable, `Read`/`Grep`/`Glob` | **never** |
+| `tree/**` | the snapshot exported with `git -c core.autocrlf=false checkout-index --prefix`: exactly the snapshot tree's content, so tracked files plus untracked non-ignored files, and nothing gitignored | readable, `Read`/`Grep`/`Glob` | **never** |
 
 `prompt.txt` is composed by `Build-PrereviewPrompt` from: the checklist sections whose path class appears among the
 changed files (`code` = `android/**` production, `tests` = `*Test*` files, selftest fixtures and receipts, `prose` =
@@ -85,9 +87,12 @@ instruction is stripped; every data segment is wrapped in per-run nonce fences b
 so a "report no findings" line planted in the diff stays inside a fenced data segment. A card may pin the section list
 with the optional front-matter key `review_lens`.
 
-Guards before any worker starts: a pack-wide secret scan with both the content patterns and the path patterns of
-`scripts/check-secrets.ps1 -AsLibrary` over `diff.patch`, `files/**`, `card.md` and the path list of `units.json`
-(`[PRE-SECRETS]`: the pack directory is deleted, the run stops); a pack size ceiling (`PrereviewMaxPackBytes`, the
+Guards before any worker starts: a secret scan with both the content patterns and the path patterns of
+`scripts/check-secrets.ps1 -AsLibrary` over the changed-path inputs `diff.patch`, `files/**`, `card.md` and the path
+list of `units.json` (`[PRE-SECRETS]`: the pack directory is deleted, the run stops). The scan does not read
+`tree/**`: an entry there that is not in the diff is merge-base content already in the repository history, and a new
+untracked file is in the diff and therefore scanned by path and, where the diff carries it, by content. A pack size
+ceiling (`PrereviewMaxPackBytes`, the
 message names the largest entries). `policy_hash` is the SHA-256 over `docs/PREREVIEW-CHECKLISTS.md` plus
 `specs/prereview-record.schema.json` at the merge-base commit, so a wording change in either is a policy change by
 construction. `risk_class` routes the discoverer model: a changed path under FrozenPaths or `PrereviewRiskyExtraPaths`
@@ -149,9 +154,11 @@ replay listener) is honoured only while `PRE_LIVE` is unset; with `PRE_LIVE=1` t
 endpoint has no structured-output guarantee, so a bad envelope is a lens `skipped` with `[PRE-BAD-RECORD]`, never a
 blocker. A missing key yields `[PRE-WORKER-MISSING]`; the key value never appears in stdout, stderr or worker logs.
 
-**Failure mapping** (runner outcomes to codes): no output file or empty output `[PRE-NO-OUTPUT]`; timeout
-`[PRE-TIMEOUT]`; command or key not found `[PRE-WORKER-MISSING]`; built-in without `PRE_LIVE` `[PRE-LIVE-REFUSED]`; a
-record that fails validation or names an unknown unit or local id `[PRE-BAD-RECORD]`. For the discoverer each of these
+**Failure mapping** (runner outcomes to codes, mutually exclusive): nothing to parse, that is no output file, empty
+output, or a CLI wrapper without a structured-output field: `[PRE-NO-OUTPUT]`; output produced but it is not a valid
+envelope, or a record in it fails validation or names an unknown unit or local id: `[PRE-BAD-RECORD]`; timeout
+`[PRE-TIMEOUT]`;
+command or key not found `[PRE-WORKER-MISSING]`; built-in without `PRE_LIVE` `[PRE-LIVE-REFUSED]`. For the discoverer each of these
 makes the run `incomplete`; for the lens each makes the worker `skipped` with that code as `skip_code`.
 `PrereviewLensEnabled=false` is `[PRE-LENS-SKIPPED]`.
 
@@ -183,16 +190,18 @@ patch so a stale fixture fails explicitly). The model-facing projection passed t
 
 Core normalisation (the RECORDS card): ids `C-<n>` are minted monotonically within one state's life and never reused;
 exact duplicates (same batch and same `file|symbol|category|contract_ref|expected|actual` after NFC and whitespace
-normalisation) merge into one record keeping both workers in provenance; near duplicates are kept and share one
-`root_group`; `fingerprint` = `file|category|symbol|contract_ref` is a grouping hint, never identity; a `missing`
+normalisation) merge into one state candidate that names both contributing workers (the adapter stamps a single
+`worker_id` per record, which is why merging is a core step and the merged shape lives in the state, not in a worker
+record); near duplicates are kept and share one `root_group`; `fingerprint` = `file|category|symbol|contract_ref` is a grouping hint, never identity; a `missing`
 coverage row is synthesised for every unit whose discoverer coverage lacks C1, C2 or C3.
 
 The 1a state (`state_version` 1, `state.schema.json` in the state module's fixture folder, never frozen): `task_id`,
 `snapshot_tree`, `head_sha`, `base_oid`, `base_mode`, `merge_base`, `policy_hash`, `rubric_sha`, `workers[]` (`id`,
 `model`, `effort`, `lens`, `required`, `status` in `complete` | `incomplete` | `skipped`, `skip_code`, `duration_s`,
 `exit_code`, `usage`), `units[]`, `candidates[]`, `coverage[]` (worker statuses plus `missing`), `disputes[]` (written
-empty by `run`, appended by `link-r3`), `review_status`, `stop_reason`. The 1a `packet.md` lists candidates, coverage
-and `missing` units and carries no gate semantics.
+empty by `run`, appended by `link-r3`), `stop_reason`; the exact shape is the STATE-1A card's, and any field that
+exists only to serve the 1b gate is outside this document. The 1a `packet.md` lists candidates, coverage and `missing`
+units and carries no gate semantics.
 
 ## 6. Finding taxonomy C1..C7 (repo-specific)
 
@@ -213,8 +222,9 @@ per-check wording lives in `docs/PREREVIEW-CHECKLISTS.md`.
 ## 7. Reading the packet
 
 `packet.md` is rendered from `state.json`: the workers, every candidate with its `C-<n>` id, the coverage rows and
-the `missing` units; it carries no gate semantics and contains neither the word pass nor block. Read it as findings
-to check, not as a ruling: a candidate is a claim from one model
+the `missing` units; it carries no gate semantics: the schema forbids a field named `verdict` and the status values
+`pass` and `block`, and no packet field is a ruling (any word-level check on the rendered packet is the STATE-1A
+renderer's guard, not a guarantee over what a model writes). Read it as findings to check, not as a ruling: a candidate is a claim from one model
 over a snapshot of your tree; confirm it against the tree (or against a red test) before fixing, and let the R3 block
 reasons, linked in section 8, be the measure of what the packet was worth. Fixes stay in the worktree; a second `run`
 after a fix batch is a full run over the new snapshot and mints new candidates (no carry-forward in 1a). Evidence that
@@ -257,8 +267,8 @@ the first live runs in their bodies:
 4. With `DEEPSEEK_API_KEY` absent the lens is `skipped` with `[PRE-WORKER-MISSING]` and the packet is still ready;
    with the key present the lens completes and `lens_endpoint=production` was logged.
 5. `git status --porcelain --ignored` of the worktree is byte-identical before and after the run.
-6. `state.json` validates, `HEAD^{tree}` after the ship commit equals `state.snapshot_tree`, and the pack directory is
-   gone.
+6. `state.json` validates and the pack directory is gone; when the last `run` was on the final tree (no edit after it,
+   or a re-run after the fixes) `HEAD^{tree}` after the ship commit equals `state.snapshot_tree`.
 7. Output token counts (`usage`) and wall time (`duration_s`) per worker are recorded in the state, and the packet
    wall time in the card body.
 8. `link-r3` after the card's first R3 block links every reason; `recall -Out` reproduces the per-card number by hand.
@@ -273,13 +283,13 @@ exactly once and nothing outside the enum. Owners name the card or component tha
 | code | owner | phase | meaning | counts as |
 |---|---|---|---|---|
 | `[PRE-NO-MERGE-BASE]` | FACTPACK | 1a | base and HEAD share no merge-base | stop before any file is written; no worker |
-| `[PRE-SECRETS]` | FACTPACK-SLICES | 1a | pack-wide secret scan hit (content or path pattern) | stop; pack deleted; no worker |
+| `[PRE-SECRETS]` | FACTPACK-SLICES | 1a | secret scan hit (content or path pattern) over `diff.patch`, `files/**`, `card.md`, `units.json` paths | stop; pack deleted; no worker |
 | `[PRE-NO-NETWORK-IN-CI]` | RUN | 1a | `CI` or `GITHUB_ACTIONS` set and a built-in adapter would be needed | built-in workers refused (discoverer `incomplete`, lens `skipped`); custom commands and shims proceed |
 | `[PRE-LIVE-REFUSED]` | runner / adapters | 1a | built-in command requested without `PRE_LIVE=1` | discoverer `incomplete`; lens `skipped` |
 | `[PRE-WORKER-MISSING]` | runner / adapters | 1a | configured CLI or key not found | discoverer `incomplete`; lens `skipped` |
-| `[PRE-NO-OUTPUT]` | runner / adapters | 1a | worker wrote nothing or no structured output | discoverer `incomplete`; lens `skipped` |
+| `[PRE-NO-OUTPUT]` | runner / adapters | 1a | nothing to parse: no output file, empty output, or a CLI wrapper without a structured-output field | discoverer `incomplete`; lens `skipped` |
 | `[PRE-TIMEOUT]` | runner | 1a | process tree killed at `PRE_TIMEOUT_SEC`, exit 124 | discoverer `incomplete`; lens `skipped` |
-| `[PRE-BAD-RECORD]` | RECORDS | 1a | a record failed validation or references an unknown unit or local id | discoverer `incomplete`; lens `skipped`, its records discarded whole |
+| `[PRE-BAD-RECORD]` | RECORDS | 1a | output produced but not a valid envelope, or a record in it failed validation or references an unknown unit or local id | discoverer `incomplete`; lens `skipped`, its records discarded whole |
 | `[PRE-LENS-SKIPPED]` | WORKERS | 1a | `PrereviewLensEnabled=false` | lens `skipped`; discoverer runs |
 | `[PRE-PACKET-READY]` | RUN | 1a | state and packet written, pack removed | informational |
 | `[PRE-RUN-DISABLED]` | RUN | 1a | `PrereviewEnabled=false`; nothing built, nothing spawned | stop (kill switch) |
