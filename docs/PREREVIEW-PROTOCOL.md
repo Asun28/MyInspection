@@ -62,8 +62,12 @@ Where things land, and why:
 ## 3. What enters the pack and what each worker sees
 
 The snapshot is `snapshot_tree` = `git write-tree` on a temporary index built from `read-tree HEAD` plus `add -A`:
-dirty and untracked non-ignored files are included, gitignored files (`.env`, `_local/`, `.secrets/`) are excluded by
-construction. The reviewer-identical facts come from `review.ps1 -FactsOut <dir> -Tree <snapshot_tree>` (the FACTS
+dirty and untracked non-ignored files are included; an untracked file that matches an ignore rule (`.env`, `_local/`,
+`.secrets/`, `.review/`) cannot enter. Everything HEAD tracks stays in the snapshot whether or not it matches an
+ignore rule (`add -A` never drops a tracked path), so the guarantee for tracked content rests on the repository's own
+leak gate: `scripts/check-secrets.ps1` (`task.ps1 ship` and the pre-push hook; `-Strict` before going public) fails
+when a secret-shaped path is tracked, so for tracked paths the pack copies nothing the repository does not already
+carry; untracked additions are in the diff and scanned (below). The reviewer-identical facts come from `review.ps1 -FactsOut <dir> -Tree <snapshot_tree>` (the FACTS
 card): the fence-hardened diff of `merge-base..<tree>`, `--stat`, `--numstat`, the card and the rubric at base, the
 FrozenPaths clause, the pinned base ref and OID. There is no second diff pipeline.
 
@@ -77,7 +81,7 @@ FrozenPaths clause, the pinned base ref and OID. There is no second diff pipelin
 | `card.md`, `rubric.md`, `acceptance.json` | card at base, `docs/QUALITY-RUBRIC.md` at base, the card's acceptance list projected as JSON | readable | via the prompt |
 | `checklists.md` | `docs/PREREVIEW-CHECKLISTS.md` (it enters the pack and the policy hash) | readable | selected sections via the prompt |
 | `files/**` | full text of every changed file up to `PrereviewMaxFileBytes`; `docs/**` and `context/**` up to `PrereviewMaxDocBytes`; larger files are not copied and are listed as truncated with their size (the SLICES card) | readable | via the prompt (changed-file slice) |
-| `tree/**` | the snapshot exported with `git -c core.autocrlf=false checkout-index --prefix`: exactly the snapshot tree's content, so tracked files plus untracked non-ignored files, and nothing gitignored | readable, `Read`/`Grep`/`Glob` | **never** |
+| `tree/**` | the snapshot exported with `git -c core.autocrlf=false checkout-index --prefix`: exactly the snapshot tree's content, so every tracked file plus untracked non-ignored files; an ignored untracked file cannot enter | readable, `Read`/`Grep`/`Glob` | **never** |
 
 `prompt.txt` is composed by `Build-PrereviewPrompt` from: the checklist sections whose path class appears among the
 changed files (`code` = `android/**` production, `tests` = `*Test*` files, selftest fixtures and receipts, `prose` =
