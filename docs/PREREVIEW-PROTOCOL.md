@@ -75,7 +75,7 @@ FrozenPaths clause, the pinned base ref and OID. There is no second diff pipelin
 |---|---|---|---|
 | `prompt.txt` | the composed prompt (below) | stdin | stdin, and the only thing posted |
 | `facts.json` | `snapshot_tree`, `head_sha`, `base_oid`, `base_mode`, `merge_base`, `policy_hash`, `rubric_sha`, `models`, `risk_class`, `pack_layout_version` | readable | no |
-| `units.json` | one unit per hunk: `unit_id` = `<path>#<sha256(normalised hunk body)[:12]>`, `file`, `hunk_header`, `body_sha256`; binary or over-`PrereviewMaxFileBytes` files degrade to `<path>#file` | readable | no |
+| `units.json` | one unit per hunk: `unit_id` = `<path>#<sha256(normalised hunk body)[:12]>`, `file`, `hunk_header`, `body_sha256`; binary or over-`PrereviewMaxFileBytes` files degrade to `<path>#file` (identity as defined by FACTS-LIB A5; two byte-identical hunks in one file share an id, a collision that card owns, see this card's follow-ups) | readable | no |
 | `diff.patch` | the same fence-hardened diff bytes the codex reviewer gets | readable | via the prompt |
 | `stat.txt`, `numstat.txt` | the reviewer's `--stat` and `--numstat` | readable | no |
 | `card.md`, `rubric.md`, `acceptance.json` | card at base, `docs/QUALITY-RUBRIC.md` at base, the card's acceptance list projected as JSON | readable | via the prompt |
@@ -195,7 +195,9 @@ patch so a stale fixture fails explicitly). The model-facing projection passed t
 
 Core normalisation (the RECORDS card): ids `C-<n>` are minted monotonically within one state's life and never reused;
 exact duplicates (same batch and same `file|symbol|category|contract_ref|expected|actual` after NFC and whitespace
-normalisation) merge into one state candidate that names both contributing workers (the adapter stamps a single
+normalisation, the key RECORDS A4 defines; it carries no line or anchor, so two findings that state the same
+`expected`/`actual` about the same symbol merge, a locality decision that card owns) merge into one state candidate
+that names both contributing workers (the adapter stamps a single
 `worker_id` per record, which is why merging is a core step and the merged shape lives in the state, not in a worker
 record); near duplicates are kept and share one `root_group`; `fingerprint` = `file|category|symbol|contract_ref` is a grouping hint, never identity; a `missing`
 coverage row is synthesised for every unit whose discoverer coverage lacks C1, C2 or C3.
