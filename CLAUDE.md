@@ -561,6 +561,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
 22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
 23. `docs/adr/0008-compliance-update-trust.md` — 已批准的规则更新信任根、签名包、代次/版本/日期、初始化及恢复决策；实际制品与真机证据由导入卡交付
+24. `docs/PREREVIEW-PROTOCOL.md` — PR review v2 阶段 1a **建议性发现包**的人读协议：规范顺序、进包内容与两个 worker 各自可见面、worker 命令契约、记录/覆盖形状（契约本体 = `specs/prereview-record.schema.json`）、发现分类 C1–C7、20 个 `[PRE-…]` 状态码表（与 schema 枚举双向锚定）、首次真跑清单、link-r3/recall 与 1a 检查点；1b 只留状态码行 + 指针段。codex R3 仍是唯一合并闸、包不进其提示词
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
@@ -680,7 +681,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 遇到反复出现/曾卡死的问题，先 `pwsh scripts\lessons.ps1 search <关键词>` 查经验；解决后 `add` 回总账。
 - **提交不加任何 `Co-Authored-By` / AI 署名**；commit message 只写改动本身（含敏感字样或多行走 `git commit -F`，见 L2）。
 - 不在仓库根/各处留生成物或临时文件：`.venv/`/`.pytest_cache/` 等已 gitignore；临时核验文件放 `.secrets/`（gitignored）用完即清。
-- 本项目唯一 AI 工具是 Claude Code（+ codex 评审）；`/init` 与 CLAUDE.md 审查时**跳过** Cursor/Copilot 规则检查（见 L12）。
+- 本项目的 AI 工具：Claude Code（开发助手）+ codex（R3 评审席，唯一合并闸）+ 自 PR review v2 阶段 1a 起两个**建议性发现包 worker**——Anthropic `claude` CLI 发现者（订阅 OAuth，读整个包含快照树）与 DeepSeek 透镜（`DEEPSEEK_API_KEY` 调用时读取，只收 prompt）；协议见 `docs/PREREVIEW-PROTOCOL.md`，出站信任面见 `docs/TRUST-MANIFEST.md`；`/init` 与 CLAUDE.md 审查时**跳过** Cursor/Copilot 规则检查（见 L12）。
 
 ## 模型分工与交接（Opus 想 / Sonnet 做）
 > 两个模型共用下面「工作准则 / 约定 / 经验铁律」，只是侧重不同——LLM 反复犯同样的错，靠这些规则拦住。
