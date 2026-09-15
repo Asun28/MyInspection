@@ -12,13 +12,13 @@ is filed as a candidate record anchored to a file and a symbol or line, with `un
 touches. A check that is run and finds nothing still counts toward the unit's `categories_checked`. Each `## Lens:`
 section applies to the path class named under its heading; the prompt carries the sections whose class appears
 among the changed files (the card's own `specs/tasks` file, `_local/**` and `.review/**` excluded), or the list the
-card pins with `review_lens` (`Select-PrereviewLensSections`, the PROMPT card).
+card pins with `review_lens` (the PROMPT card's selector).
 
 ## Lens: code
 
 Applies to `android/**` production sources (`*Test*` files are the tests class).
 
-- C2 Guards on every entry point: for each guard the unit adds or relies on, list every public entry that reaches the same state and confirm each one carries it; a rule installed on one entry point and absent on another is a defect a red test can show (lesson:L228).
+- C2 Guards on every entry point: for each guard the unit adds or relies on, list every public entry that reaches the same state and confirm each one carries it; a rule installed on one entry point and absent on another is a defect (lesson:L228).
 - C2 Empty, null, zero, negative and overflow inputs: walk each parameter with the boundary values its type admits (empty, null where nullable, 0, negative, MAX) and each arithmetic step an input can drive to MAX; a bound or containment check computed without saturation or a wider sum can wrap and pass (lesson:L228).
 - C2 Fail-open branches: a classification, completeness or validation gate derives its universe from the contract source, enumerates exhaustively and treats an unclassified value as a defect; a default or else branch that returns a permissive value instead of throwing, an exception swallowed without a rejecting result, or a universe derived from the data under check is fail-open (lesson:L228, rubric:9).
 - C2 Ordering assumptions: a collection that feeds a hash, a receipt, a canonical serialisation or a persisted order has a total order enforced in code (a sort call, a sorted collection type, an `ORDER BY` or a sorting consumer counts); iterating an unordered set or map into one of those is hidden non-determinism (rubric:10).
@@ -32,14 +32,14 @@ Applies to `android/**` production sources (`*Test*` files are the tests class).
 
 Applies to `*Test*` files, selftest fixtures and receipts (mutation, DoD and selftest receipts).
 
-- C3 Assertion face equals the contract: a match over the whole output that a line other than the decision line can satisfy (a file listing printed before the verdict), a match on localised text across a process boundary, a keyword count, or "any non-zero exit" stays green while the contract is absent; cut the decision line out by its stable identifier and match its ASCII sentinel (or compare the exact whole output), and make the negative case reach the guarded statement (lesson:L165).
+- C3 Assertion face equals the contract: a match over the whole output that a line other than the decision line can satisfy, a match on localised text across a process boundary, a keyword count, or "any non-zero exit" stays green while the contract is absent; cut the decision line out by its stable identifier and match its ASCII sentinel (or compare the exact whole output), and make the negative case reach the guarded statement (lesson:L165).
 - C3 One mutant per claimed assertion: where a receipt, card row or DoD claims that an assertion is mutation-covered, that assertion names a single-point mutation that only it catches; an earlier assertion in short-circuit order shields a later one, and a mutant's expected failure (code or killing test name) is anchored, not a bare substring (lesson:L225).
 - C3 Compile-kill is not a kill: a mutant that fails to compile proves nothing about the assertion; a receipt claiming zero compile-kills needs a compile-only probe per mutant with exit 0 recorded (lesson:L282).
 - C3 Expected values come from the contract: an expected value computed by calling the production code under test (a round trip compared with the original input is not this) follows the mutation and stays green; one transcribed from the implementation's current output with no independent derivation encodes its defects as expected (lesson:L165, rubric:6).
 - C3 Vacuous pass: a transformation test whose fixture lacks the input being transformed, an empty test body, or a test that neither the DoD command nor `verify.ps1` executes (wrong source set, no task runs it) is not evidence (rubric:6, lesson:L19, lesson:L280).
 - C3 Negative case in the sibling file: for each new guard, the unit's test file (not a parallel new file) holds a case that reaches the guard with an input tailored to it (parseable but wrong for a comparison, null or empty for a null or empty guard, MAX for an overflow guard) rather than one that stops at an earlier check (lesson:L165, rubric:11).
 - C3 Receipt matches what it describes: a mutation receipt pins the SHA-256 of the production files as they are in this tree, lists each mutant's selector, expected failure and the killing test by name, and every named test exists in the file it names (lesson:L270, lesson:L281).
-- C1 Test names and receipt prose: a test name or receipt sentence that claims more than the assertion checks (CR and CRLF while only CRLF is built, "exact bytes" while only strings are compared) is a written guarantee exceeding evidence (lesson:L317).
+- C1 Test names and receipt prose: a test name or receipt sentence that claims more than the assertion checks ("exact bytes" while only strings are compared) is a written guarantee exceeding evidence (lesson:L317).
 
 ## Lens: prose
 
@@ -52,7 +52,7 @@ Applies to comments, KDoc, `docs/**`, `context/**` and `specs/**` (cards, schema
 - C1 Guarantee wider than its mechanism: a sentence promising a property (excluded, cannot, unique, only writer) is checked against the mechanism that provides it; where the mechanism covers a subset (untracked files only, one entry point only) the sentence names the subset (lesson:L309, lesson:L321).
 - C4 Evidence outside the diff: a claim whose evidence lives in a PR body, a chat transcript or another tree is not evidence for this tree; a receipt pinned to a commit this branch does not contain is drift (lesson:L227, lesson:L310).
 - C5 Scope and placement: a file outside the card's `allow_paths`, a capability the card's `non_goals` exclude, a new file in the repository root, a name that departs from the form the `CLAUDE.md` naming table sets for its kind, or card front-matter that drifts from the card id (rubric:1, rubric:14).
-- C7 Two authorities for one rule: a second copy of a table, list or threshold that already has a truth source; name the existing source (lesson:L97, rubric:8).
+- C7 Two authorities for one rule: a second copy of a table, list or threshold that is maintained apart from its truth source or presented as authoritative (a restatement that names its source is not one); name the source (lesson:L97, rubric:8).
 
 ## Lens: scripts
 
@@ -69,8 +69,9 @@ Applies to `scripts/**`, `.github/**` and `.claude/hooks/**` (PowerShell, workfl
 
 ## Coverage rules
 
-The discoverer returns one coverage record per unit in `units.json`, with `categories_checked` covering C1, C2 and C3
-for every unit; RECORDS synthesises a `missing` coverage row for any unit whose discoverer coverage lacks one of
-them. Candidates use only C1, C2, C3, C4, C5 and C7. C6 (repeated dispute) is derived from dispute records only and
-is never emitted by a worker. `status` is reported per unit, not per check, with one of the four worker values of
-the record contract; a `blocked` record names the location it needed in `missing_context`.
+Restated from `docs/PREREVIEW-PROTOCOL.md` section 6 (the source). The discoverer returns one coverage record per
+unit in `units.json`, with `categories_checked` covering C1, C2 and C3 for every unit; RECORDS synthesises a
+`missing` coverage row for any unit whose discoverer coverage lacks one of them. Candidates use only C1, C2, C3, C4,
+C5 and C7. C6 (repeated dispute) is derived from dispute records only and is never emitted by a worker. `status` is
+reported per unit, not per check, with one of the four worker values of the record contract; a `blocked` record
+names the location it needed in `missing_context`.
