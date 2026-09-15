@@ -1,0 +1,20 @@
+[
+ {
+  "unit_id": "scripts/a.ps1#0123456789ab",
+  "file": "scripts/a.ps1",
+  "hunk_header": "@@ -38,6 +38,9 @@ function Test-Foo {",
+  "body_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+ },
+ {
+  "unit_id": "scripts/a.ps1#89abcdef0123",
+  "file": "scripts/a.ps1",
+  "hunk_header": "@@ -70,3 +73,5 @@ function Test-Bar {",
+  "body_sha256": "89abcdef0123cdef0123456789abcdef0123456789abcdef0123456789abcdef"
+ },
+ {
+  "unit_id": "docs/x.md#file",
+  "file": "docs/x.md",
+  "hunk_header": null,
+  "body_sha256": "fedcba987654cdef0123456789abcdef0123456789abcdef0123456789abcdef"
+ }
+]
