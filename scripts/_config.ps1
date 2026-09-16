@@ -439,6 +439,25 @@ $script:ScaffoldConfig = @{
   # 留空 ''（默认）= **意见模式**：ship 不调评审、不因评审阻断；要第二意见随时手动跑 scripts/review.ps1
   # （完整裁决 JSON + 可选 -PostStatus 回贴，只输出意见）。'required' = 旧强制闸行为（opt-in：ship 内
   # 评审 block 即停、CI 检查闸绑定被评审 sha、远端 ship 无后端 fail-fast）。
+  # PR review v2 defaults; the runner and Phase-1b integration are not shipped by this adoption.
+  PrereviewEnabled = $true                 # $false = 总开关：run 直接 [PRE-RUN-DISABLED]、不 spawn worker
+  PrereviewGateEnforced = $false           # 1b LOOP-DOCS 翻 $true 前，ship 闸只记账不拦（[PRE-DISABLED]）
+  PrereviewDiscoverCommand = ''            # '' = 内置 claude 适配器；自定义命令：stdin 收 prompt，envelope 写到 $env:PRE_OUT
+  PrereviewLensCommand = ''                # '' = 内置 deepseek 透镜适配器
+  PrereviewModel = 'claude-sonnet-5'
+  PrereviewRiskyModel = 'claude-opus-5'    # 改动命中 FrozenPaths ∪ PrereviewRiskyExtraPaths 时
+  PrereviewRiskyExtraPaths = @('scripts/', '.claude/', '.github/', 'configs/compliance/')   # FACTS-LIB 路由时与 FrozenPaths 取并集，此处不复制冻结表
+  PrereviewEffort = 'high'
+  PrereviewLensEnabled = $true             # $false = 透镜 skipped（[PRE-LENS-SKIPPED]），发现者照跑
+  PrereviewLensModel = 'deepseek-v4-flash'
+  PrereviewLensDocModel = 'deepseek-v4-pro'
+  PrereviewLensEffort = 'high'
+  PrereviewBatchCap = 2                    # 自上次合并起第 (cap+1) 次 run 即 [PRE-BATCH-CAP]（1b）
+  PrereviewTimeoutSec = 900                # 单个 worker 进程树上限；到点杀树、exit 124（[PRE-TIMEOUT]）
+  PrereviewMaxFileBytes = 200000
+  PrereviewMaxDocBytes = 1000000           # docs/** 与 context/**
+  PrereviewMaxPackBytes = 20971520         # 20 MiB
+
   ReviewGate = 'required'
 
   # ── T104: content-derived review routing (upstream issue #205) ──
