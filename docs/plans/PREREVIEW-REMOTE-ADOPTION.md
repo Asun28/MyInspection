@@ -8,7 +8,7 @@ The user requested push, PR creation and remote merge on 2026-09-17 after locall
 2. T0-PREREVIEW-REMOTE-POLICY: protocol and checklists from that same tree (original deliveries `37881cf6` and `69bd4e20`, ordinal wording revised in `269d5268`). Protocol capability descriptions remain design contracts; this adoption does not activate workers or the runner.
 3. T0-PREREVIEW-REMOTE-FACTS: the two FACTS-LIB files from reviewed local tip `91bf3cbe`, retaining the corrected ignored-file and hunk-ordinal acceptance. Production SHA-256 `23A38171AAAF97303EDA973586041A07F8500EE7BF38275AA01CCFE156F7ACC2`.
 
-The source commits above identify local provenance, not remotely merged PRs or current-candidate acceptance. Each remote candidate is reviewed again with the current baseline harness, required CI and its computed selftest tier. Keep source byte identity for implementation/fixtures, and distinguish reused mutation evidence from newly run checks.
+The source commits above identify local provenance, not remotely merged PRs or current-candidate acceptance. Each remote candidate is reviewed again with the current baseline harness, required CI and its computed selftest tier. Keep source byte identity for implementation/fixtures except for review corrections recorded in the adoption card, and distinguish reused mutation evidence from newly run checks. PR 302 requires a checker conditional-fragment fix and correction of the schema comment locator; neither changes revision 1 validation fields or unit identity shape.
 
 ## Dependency boundary
 
