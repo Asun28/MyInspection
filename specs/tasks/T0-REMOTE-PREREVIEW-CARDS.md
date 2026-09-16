@@ -19,7 +19,7 @@ acceptance:
   - "A5 The registration itself is reviewed and merged through a remote PR using the original main checkout task-loop controller. Its documentation-only SkipRed does not waive any product card's testing or merge gates. No direct push to master, history rewriting, receipt reuse or product implementation is part of this card."
 dod_command: $raw = Get-Content specs/tasks/T0-REMOTE-PREREVIEW-CARDS.md -Raw; $blocks = [regex]::Matches($raw, '(?s)```powershell\r?\n(.*?)\r?\n```'); if ($blocks.Count -ne 1) { throw 'expected one registration assertion block' }; & ([scriptblock]::Create($blocks[0].Groups[1].Value)); pwsh -NoProfile -File scripts/check-cards.ps1; if ($LASTEXITCODE -ne 0) { exit 1 }; pwsh -NoProfile -File scripts/archive.ps1 -CheckCardsIndex -Quiet; if ($LASTEXITCODE -ne 0) { exit 1 }; foreach ($p in @('specs/tasks/T0-REMOTE-PREREVIEW-CARDS.md','specs/tasks/T0-PREREVIEW-RECORDS.md','specs/tasks/T0-PREREVIEW-STATE-1A.md','specs/tasks/T0-PREREVIEW-REMOTE-SCHEMA.md','docs/plans/PREREVIEW-REMOTE-ADOPTION.md')) { if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }; if (@(Select-String -LiteralPath $p -Pattern '[ \t]+$').Count -gt 0) { exit 1 } }; git diff --check; if ($LASTEXITCODE -ne 0) { exit 1 }; git diff --cached --check; if ($LASTEXITCODE -ne 0) { exit 1 }
 dod_exit: 0
-dod_assert: Fixed owner-approved RECORDS and STATE-1A contracts plus the reviewed schema evidence/plan corrections, exact selected feature identities and todo status pass; task-card validation and the unchanged archive-index projection pass; all five declared metadata files exist and are free of trailing horizontal whitespace; working and staged diffs pass whitespace checks.
+dod_assert: Fixed owner-approved RECORDS and STATE-1A contracts plus the reviewed schema evidence/plan corrections, exact selected feature identities and todo status pass; task-card validation and the unchanged archive-index projection pass; the complete candidate diff against pinned base stays below 500 changed lines and 40000 characters; all five declared metadata files exist and are free of trailing horizontal whitespace; working and staged diffs pass whitespace checks.
 review_gate: codex {verdict:pass}
 forbid:
   - Product code, schema artifacts, scripts, configuration, CI, hook, skill or archive changes
@@ -42,7 +42,7 @@ The shared schema publishes revision 1 and the STATE-1A scope excludes review_st
 
 Run start and ship with D:/Projects/MyInspection/scripts/task.ps1 from the original main checkout. Start this isolated worktree from origin/master and ship against master with explicit SkipRed for this documentation-only card. The original controller reads its registered main-checkout scope; its formal reviewer supports a worktree card when the pinned remote baseline does not yet contain it. Include this registration card in the reviewed candidate. No alternate or weaker controller is introduced.
 
-Measure the full five-file staged or committed diff before the first ship. The registration ceiling is 499 changed lines and 39999 diff characters; if the final owner-approved payload exceeds either value, stop and revise the scope before publication. The normal ship still runs its mandatory deterministic gates, formal review and exact-head remote CI checks. Do not run either feature card's future implementation DoD as this registration card's acceptance.
+The DoD measures the complete tracked working-tree diff against pinned base 1ce3f5aef130ddd3fac19632a46e04c6671f91a6, including committed, staged and unstaged changes, context and headers. Nonignored untracked files must be staged before this check so none are silently omitted. The registration ceiling is 499 changed lines and 39999 diff characters; if the final owner-approved payload exceeds either value, stop and revise the scope before publication. The normal ship still runs its mandatory deterministic gates, formal review and exact-head remote CI checks. Do not run either feature card's future implementation DoD as this registration card's acceptance.
 
 ## Registration assertions
 
@@ -74,4 +74,21 @@ foreach ($path in $expected.Keys) {
     }
 }
 Write-Host '[REMOTE-PREREVIEW-REGISTRATION-OK] A1-A3 exact approved payloads and selected todo identities'
+$base = '1ce3f5aef130ddd3fac19632a46e04c6671f91a6'
+& git merge-base --is-ancestor $base HEAD
+if ($LASTEXITCODE -ne 0) { throw 'registration budget base is missing or not an ancestor' }
+$untracked = @(& git ls-files --others --exclude-standard)
+if ($LASTEXITCODE -ne 0 -or $untracked.Count -ne 0) { throw 'registration budget requires all candidate files tracked' }
+$numstat = @(& git -c core.quotepath=false diff --no-ext-diff --no-textconv --numstat $base)
+if ($LASTEXITCODE -ne 0) { throw 'registration budget numstat failed' }
+$diff = (& git -c core.quotepath=false diff --no-ext-diff --no-textconv --no-color --unified=3 $base | Out-String).Replace("`r`n", "`n")
+if ($LASTEXITCODE -ne 0) { throw 'registration budget full diff failed' }
+[decimal]$changedLines = 0
+foreach ($row in $numstat) {
+    if ($row -notmatch '^(\d+)\t(\d+)\t[^\t\r\n]+$') { throw 'registration budget requires valid text numstat rows' }
+    $changedLines += [decimal]$Matches[1] + [decimal]$Matches[2]
+}
+if ($changedLines -ge 500) { throw "registration changed-line budget exceeded: $changedLines >= 500" }
+if ($diff.Length -ge 40000) { throw "registration diff-character budget exceeded: $($diff.Length) >= 40000" }
+Write-Host "[REMOTE-PREREVIEW-BUDGET-OK] A4 base=$base changedLines=$changedLines diffChars=$($diff.Length)"
 ```
