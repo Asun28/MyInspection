@@ -13,6 +13,7 @@ allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/media/PhotoOrphanCleanupWorker.kt
   - android/app/src/test/kotlin/nz/myinspection/app/platform/SafeLogTest.kt
   - android/core/src/test/kotlin/nz/myinspection/core/media/PhotoOrphanCleanupWiringTest.kt
+sweep: On the remote-based candidate, rg -n 'SafeLog|Log\.|Timber|println' over the four named media callers and PhotoOrphanCleanupWiringTest found Log.w in MediaFileStore, PhotoImportPipeline and PhotoIngestPendingLease, and Log.e in PhotoOrphanCleanupWorker. SafeLog and SafeLogTest are the new boundary and its direct tests; these seven paths cover this extracted logging change.
 forbid:
   - 运行期出站网络；修改冻结 schema/backup format；原始路径、业务数据、secret、Throwable/message/stack 写日志
   - 修改现有媒体根、数据库落位、调度/删除/发布/回滚语义；新增运行时依赖
