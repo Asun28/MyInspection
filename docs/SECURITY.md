@@ -80,6 +80,8 @@
 
 ### 2.4 日志、通知与界面泄露
 
+- `T1-SAFE-MEDIA-LOGGING` 已交付 `SafeLog` 并接入复制临时文件、导入清理、pending lease 和 orphan worker 的失败日志：封闭 operation/reason、规范小写 UUID、非负计数/耗时及固定 Android tag，不输出路径、业务原文或 Throwable。sink 的 Exception/Error 不改变媒体返回、主异常或清理结果；真实故障测试与 24 项定向变异已验证，现有媒体和数据库落位不变。
+
 - 生产日志只写操作名、非敏感 reason code、耗时/计数和随机 request/asset id。禁地址、姓名、联系方式、备注/转写、文件绝对路径、SAF URI、备份对象名、照片内容/hash、口令、key、Authorization header 和 provider 原始错误体。
 - 持久诊断事件只进独立的 credential-encrypted/no-backup 诊断库，不进主证据库、canonical hash、PDF、通知、Android backup 或 `.mibk`；最多保留 90 天/20,000 行，先到即小批物理裁剪。日志写入失败不得改变巡检、finalize、备份或恢复结果。
 - “Admin/support” 无远程入口或写权限。只有设备所有者可在设置页明确查看包含/排除项后，离线导出最近 7/30/90 天的脱敏诊断包；支持人员不能借诊断功能修改 finalized evidence。字段与验收合同见 `docs/DATABASE-DESIGN.md`。

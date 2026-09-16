@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 206 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 207 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -137,6 +137,7 @@
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
 | T1-DATABASE-LIFECYCLE-AUTHORITY | merged | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 |
+| T1-SAFE-MEDIA-LOGGING | merged | 安全日志底座与四处媒体接线（跨层日志断言同步） |
 | T1-SCHEMA-CORE | merged | SQLDelight 全量 schema + UUIDv7 + 基线迁移 + JVM 测试（★冻结点） |
 | T1-SKELETON-E2E | merged | 一次性走通骨架：建巡检 → 加一项 → 拍一张 → 导出一份 PDF（真机可见，用完即弃） |
 | T1-SPIKE-PLATFORM | merged | 真机平台可行性 spike ×3（overlay / SAF / PDF 压力）+ 结论报告 |

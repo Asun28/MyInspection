@@ -2,7 +2,7 @@
 id: T1-SAFE-MEDIA-LOGGING
 title: 安全日志底座与四处媒体接线（跨层日志断言同步）
 depends_on: [T1-SPIKE-PLATFORM]
-status: todo
+status: merged
 branch: T1-SAFE-MEDIA-LOGGING
 worktree: C:\wt\T1-SAFE-MEDIA-LOGGING
 allow_paths:
@@ -59,3 +59,7 @@ R4 点名删除日志/绕过字段边界/输出 Throwable 或路径后相应测�
 - PhotoOrphanCleanupWorker：将现有 issues/execution.failure 的遍历与日志输出收为本类内部 reportFailures，由 doWork 调用。JVM 用真实 PhotoOrphanCleanupExecution.run 的结果及公开 PhotoOrphanCleanupIssue 夹具集合驱动所有四种 bucket/result 与 execution failure；生产集合仍取自 cleanupReport.issues()；断言 retry/failure 决策、资源关闭状态、最终日志及 sink 异常下不变。
 
 接线的静态检查只证明生产调用关系，不替代上述真实控制流输出断言。R4 分别摘掉这些生产边界里的日志调用、改变封闭 reason、引入路径/异常泄露、取消值域守卫或 sink 异常隔离时，具名测试必须失败。有效边界负例不得因预算缩减。
+
+## 交付记录
+
+2026-09-17 本地合并：master b58eeb4add351991cba4077009d9478e7a1d81a4，feature a5d4dd83dc6d663243df8996f49f0ada6cb9bd90。正式 Sol/high R3 第二次评审 pass、零 finding；首轮缺少不可重试 FAILURE 的测试，已补同一真实边界的 RETRY/FAILURE、抛错 sink 成功及资源关闭断言。DoD、完整 verify/E2E、范围、许可、防泄露闸通过；24 项语义变异均独立编译成功并由具名断言检出，原 M19 注入 Error 逃逸另存、M19b 已显式断言重验。最终差异 647 行、38419 字符；现有存储/调度/删除语义不变。
