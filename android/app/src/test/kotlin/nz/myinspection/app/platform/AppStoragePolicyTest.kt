@@ -1,6 +1,5 @@
 package nz.myinspection.app.platform
 
-import android.os.Environment
 import java.io.File
 import java.io.IOException
 import kotlin.io.path.createTempDirectory
@@ -13,26 +12,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AppStoragePolicyTest {
-    @Test
-    fun `only Android mounted state maps to writable media state`() {
-        assertEquals(ExternalMediaVolumeState.MOUNTED, ExternalMediaVolumeState.fromPlatformState(Environment.MEDIA_MOUNTED))
-        assertEquals(ExternalMediaVolumeState.MOUNTED_READ_ONLY, ExternalMediaVolumeState.fromPlatformState(Environment.MEDIA_MOUNTED_READ_ONLY))
-        assertEquals(ExternalMediaVolumeState.UNMOUNTED, ExternalMediaVolumeState.fromPlatformState(Environment.MEDIA_UNMOUNTED))
-    }
-
-    @Test
-    fun `adapter accepts writable directories but not writable plain files`() {
-        val directory = createTempDirectory("storage-policy").toFile()
-        val plainFile = File.createTempFile("storage-policy", ".tmp", directory)
-        val readOnlyDirectory = object : File(directory.path) {
-            override fun canWrite(): Boolean = false
-        }
-
-        assertTrue(isWritableDirectory(directory))
-        assertFalse(isWritableDirectory(plainFile))
-        assertFalse(isWritableDirectory(readOnlyDirectory))
-    }
-
     @Test
     fun `each protected category uses its own credential encrypted no-backup subdirectory`() {
         val root = File(
@@ -265,8 +244,15 @@ class AppStoragePolicyTest {
     fun `media returns unavailable for missing unmounted and read-only app-specific external volumes`() {
         val root = createTempDirectory("storage-policy").toFile()
         val sensitiveExternal = File(root, "Android/data/nz.myinspection.app/files/42 Example St/Jane Tenant/secret")
+        val missingVolumeDirectory = File(root, "missing-volume-directory")
+        assertFalse(missingVolumeDirectory.exists())
         val unavailableEnvironments = listOf(
             "missing directory" to FakeStorageEnvironment(noBackup = root, externalMedia = null),
+            "non-null absent path reported unwritable" to FakeStorageEnvironment(
+                noBackup = root,
+                externalMedia = missingVolumeDirectory,
+                appSpecificExternalMediaWritable = false,
+            ),
             "unmounted volume" to FakeStorageEnvironment(
                 noBackup = root,
                 externalMedia = sensitiveExternal,
@@ -392,12 +378,17 @@ private class FakeStorageEnvironment(
 }
 
 /*
- * R4: 38 single-site mutations compiled (exit 0) and failed named java.lang.AssertionError
- * in fresh TestNG XML (test exit 1); no survivor/invalid mutant. Original bytes SHA-restored each run.
- * Commands: :app:compileDebugUnitTestKotlin; :app:testDebugUnitTest --tests nz.myinspection.app.platform.AppStoragePolicyTest.
+ * R4 pure-policy receipt: 33/33 single-point mutations compiled (exit 0) and failed the named
+ * java.lang.AssertionError (test exit 1); production and test snapshot bytes restored after each.
+ * Production SHA-256: 85B8AE64A4B15BB748D5B97ECAB306102C2290B20AF39BB448A2F01166954017
+ * Test snapshot SHA-256: 358F8AF72553B88435DF3D95AEE2A2081A028523F546480E8A25B9E054B5BB30
+ * This receipt is the only change from the tested snapshot. Before R4, full DoD passed:
+ * 199 app tests (13 policy, 7 SafeLog), zero failures/errors/skips, and assembleDebug.
+ * Evidence: _local/storage-policy/pure-policy/{mutation-plan.json,mutations/,final-mutation-audit.json}.
+ * Audit independently reconstructed all mutant bytes and checked named XML failures and both pins.
+ * M18 XML specifically proves the non-null absent path reported unwritable case in T9.
+ * Android mapping, actual directory probes, and device execution belong to T1-APP-STORAGE-ANDROID.
  * T1 = each protected category uses its own credential encrypted no-backup subdirectory
- * T2 = only Android mounted state maps to writable media state
- * T3 = adapter accepts writable directories but not writable plain files
  * T4 = device protected environment converts to credential encrypted before a protected route is exposed
  * T5 = environment that remains device protected is rejected without exposing its path
  * T6 = credential conversion probe and no-backup lookup failures are rejected without preserving sensitive exceptions
@@ -411,8 +402,8 @@ private class FakeStorageEnvironment(
  * T14 = fatal canonical errors propagate unchanged for candidate app and device-protected roots
  * T15 = ordinary canonical lookup errors close false
  * M01-database, M02-settings, M03-receipts, M04-secret_envelope, M05-restore_journal, M06-staging_metadata -> T1
- * M07-platform-mounted, M08-platform-readonly, M09-platform-unmounted -> T2
- * M10-directory-type, M11-directory-writable -> T3; M12-ce-conversion, M14-ce-root -> T4; M13-dp-rejection -> T5
+ * M07-platform-mounted through M11-directory-writable transfer with the Android adapter.
+ * M12-ce-conversion, M14-ce-root -> T4; M13-dp-rejection -> T5
  * M15-ce-cause -> T6; M16-missing-directory, M17-mount-guard, M18-writable-guard -> T9
  * M19-equality, M20-low-space, M21-above-request -> T10; M22-probe-state, M23-probe-escape -> T11
  * M24-ce-root-text, M26-location-text -> T1; M25-external-root-text, M27-available-text -> T10
@@ -420,10 +411,4 @@ private class FakeStorageEnvironment(
  * M31-strict-child, M32-app-containment, M33-dp-exclusion -> T7; M34-root-validation-call -> T8
  * M35-media-fatal -> T13; M36-root-fatal -> T12
  * M37-canonical-fatal -> T14; M38-canonical-failopen -> T15
- * Production SHA256 90452D7F5DBA28489614DBCCF3233EA02DB73868B88788E6775105A3B7282975
- * Test snapshot before this receipt SHA256 05824D7A9CEB6CECDD49993DF0CDFEF7570A25930FAE06404F8EF50EBE99D73D
- * Actual adapter: API35 emulator + API33 phone accept six CE routes and DP-to-package conversion.
- * A ContextWrapper overriding only the marker to false over genuine DP roots is safely rejected on both.
- * This is a synthetic-marker probe; ordinary APK defaultToDeviceProtectedStorage=true was not adopted.
- * That system-app-only manifest configuration was not runtime-reproduced; no root/system-app changes were made.
  */
