@@ -69,6 +69,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-16 本地交付**：`T0-PREREVIEW-RECORDS` 已合并（master `dec30514`，R3 第 **7** 轮 pass 零 finding；三次用户裁定 `-ResetRounds`，
+六轮 block 共 13 条 finding 全部属实、全部当场修）——`scripts/_prereview-records.ps1`（`-AsLibrary` / `-SelfCheck`，67 条断言）+
+`scripts/fixtures/prereview/records/`（4 个 unit、两 worker 11 条盖章记录、7 个 reject 文件 + 5 个内存派生 reject 类）：worker 记录校验、
+unit 归属、C-<n> 单调铸造、精确重复合并（键不含行号，位置靠 unit_ids / evidence_refs 并集保留，TD176 的决定写在卡片 A4）、
+fingerprint / root_group、missing 覆盖合成。58/58 变异全杀。**coverage 与 candidates 的绑定最终形态 = 重铸而非核对**：coverage 从
+结果自带的 `StartId` 重铸一遍，要求整个结果对象（七个属性的规范 JSON）逐字节相等——前四轮每轮都被找到「核对没盖到的一种改写形状」
+（缺字段 / 换 id / 协同改写 / 补条目 / 只改状态），重铸把这一整类关掉。
+> **两条可复用判断**：① **PowerShell 的字符串比较运算符全是 culture 比较**（`-eq`/`-ceq`/`-contains`/`-in`/`Sort-Object`/
+> `Select-Object -Unique`/`Compare-Object`）：软连字符、零宽字符等可忽略码位与 NFC/NFD 变体会被判**相等**，`-ceq` 只是区分大小写、
+> 不是序数；身份比较一律 `[string]::Equals(…, Ordinal)` / 序数 HashSet / `[Array]::Sort(…, Ordinal)`；`@{}` 与 `[ordered]@{}`
+> 不分大小写，`ConvertFrom-Json -AsHashtable` 自 7.3 起分大小写（把 worker 写的 `Expected` 与 `expected` 都留下）；断言 harness
+> 自己也要用序数比较，否则「C-1」与「C-<软连字符>1」在测试里相等。② **修复轮会把 diff 吃到预算顶**：首轮 42K 字符，七轮后 59K
+> （上限 60000），每轮为通过 R3 加的回归用例与 record 都占字符；写卡时就该给修复轮留约 25% 预算，或把 self-check 的证据面设计成
+> 便宜的内存派生用例而非夹具文件（本卡后期把 5 个 reject 类从文件改为内存派生，省下约 4K 字符）。
+> **R3 六轮 block 无一重复争点**：绑定解引用 / int 计数器 / A6 越界 dot-source / 并集未测 / 缺 missing 用例 → 协同改写 / 用尽按原始条数 →
+> culture `Sort-Object` / `#requires` 下限 → 绑定忽略 Ok/Code/Reasons → 坏 NextId 抛错违反 forbid、harness 用 culture 运算符 → A5 未按类
+> 分别验证。每轮之间派一次 fresh-context 探针都各抓到 5–9 条 R3 尚未提出的同类缺口（其中 `-ceq` 本身是 culture 比较这条最贵），
+> 说明对「防御型绑定」这类代码，**探针的价值在于穷举改写形状**，比读 diff 更有效。**遗留**：origin 定时 `scaffold-selftest`
+> 自 `f6fdaf6a` 起在 8.2j（T202 `[ENV-SKIP-DEGRADED]`：隐藏 `git` 后 `-Only 15` 退出 1）连红两晚，属 origin 线脚手架缺陷，
+> 按碰撞规则待 1a 链收口后随 reconcile 开卡处理。
+
 **2026-09-15 本地交付**：`T0-PREREVIEW-CHECKLISTS` 已合并（master `2782b55b`，R3 第 **5** 轮 pass 零 finding；两次用户裁定 `-ResetRounds`（第 2、4 轮后），
 四轮 block 共 6 条 reason / 13 处具体 finding 全部属实、全部当场修）——`docs/PREREVIEW-CHECKLISTS.md`（12238 字节：四个 `## Lens:` 节共 33 条 `- C{n}` 检查行，每行以 schema 的
 `contract_ref` 形态收尾（25 个 lesson id + 10 个 rubric 维度全部在 master 可解析）+ 覆盖规则段；进包 `checklists.md`、进 policy hash）。

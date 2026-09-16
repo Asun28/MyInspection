@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 202 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 203 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -77,6 +77,7 @@
 | T0-LOCAL-RECONCILE-REGISTER | merged | 注册落后本地 master 的十二张可评审文档调和卡 |
 | T0-PREREVIEW-CHECKLISTS | merged | docs/PREREVIEW-CHECKLISTS.md - worker-facing checklists in four Lens sections that enter the pack a… |
 | T0-PREREVIEW-PROTOCOL-DOC | merged | docs/PREREVIEW-PROTOCOL.md (1a protocol and status-code table), TRUST-MANIFEST rows for both provid… |
+| T0-PREREVIEW-RECORDS | merged | _prereview-records.ps1 record core - boolean validation, unit membership, C-{n} id minting, exact-d… |
 | T0-PREREVIEW-SCHEMA | merged | Frozen record schema, worker-envelope projection, check-prereview-schema.ps1 and the Prereview* con… |
 | T0-R3-DIFF-BUDGET | merged | 在 push/R3 前按真实 diff 预算硬阻断超大任务卡 |
 | T0-R3-FLOW-ENUM-SYNC | merged | 把真实 diff 预算闸补进每一处确定性闸枚举，并各配锚定断言（承接 T0-R3-DIFF-BUDGET 的 A13） |

@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-RECORDS
 title: _prereview-records.ps1 record core - boolean validation, unit membership, C-{n} id minting, exact-duplicate rule, fingerprint hint and missing-coverage synthesis
-status: todo
+status: merged
 depends_on: [T0-PREREVIEW-SCHEMA]
 allow_paths:
   - scripts/_prereview-records.ps1
