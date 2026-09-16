@@ -84,3 +84,10 @@ Opaque/read-only attachment; DOCX layout as schema; separate PDF/HTML projection
 Imports follow ordinary draft, autosave, completeness, finalize and immutable-history rules. Hostile-input and crash-recovery tests are mandatory. Renderer and operational UI remain separate cards; this ADR fixes their shared boundary.
 
 Implementation record (2026-09-08): `T3-REPORT-HTML-PRESENTATION` is remotely merged through PR #250 (`e792ea75`). Responsive, A4 print, dark and forced-colour CSS rules, class parity and the fixed CSP digest pass tests. System fonts remain in use; browser layout and glyph rendering were not verified because local URL access was denied. No alternate route was used, and this delivery does not change the bilingual report requirement.
+
+### Typography profile remote publication
+
+T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE publishes the locally verified immutable typography profile, role mapping, inert signed metric snapshot and explicit line-box guard. Existing renderer APIs stay unchanged. Local feature 9edb9b26 and merge 8779d05d are provenance only; fresh remote RED, DoD, 12 compiling assertion mutations, R3 and candidate CI remain required. Composition, snapshot binding, platform glyphs and clipping are not verified by this pure-data predecessor.
+### Fixed-height pagination fixtures remote publication
+
+`T3-PDF-PAGINATION-FIXTURES-REMOTE` republishes the locally completed `T3-PDF-PAGINATION-FIXTURES` after `T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE`. Only the two existing pagination fixtures change: fixed 4mm lines preserve reduced opening-page budgets, full continuation budgets, title grouping, complete ordered text and no overflow with the current measurement API. Local feature `8e828486` and merge `7e4e35d3` remain historical evidence; remote acceptance requires fresh DoD, two named compiling budget mutations, exact byte restoration, formal R3 and candidate CI. This alias adds no feature, production/API change or device-rendering claim, and is not another card toward the five-round target.
