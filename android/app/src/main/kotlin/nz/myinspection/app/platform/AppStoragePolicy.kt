@@ -80,6 +80,7 @@ class AppStoragePolicy(private val environment: AppStorageEnvironment) {
     fun mediaLocation(requestedBytes: Long): MediaStorageLocation {
         return try {
             val directory = environment.appSpecificExternalMediaDir ?: return MediaStorageLocation.Unavailable
+            if (directory.path.isBlank()) return MediaStorageLocation.Unavailable
             if (
                 environment.appSpecificExternalMediaState(directory) != ExternalMediaVolumeState.MOUNTED ||
                 !environment.isAppSpecificExternalMediaWritable(directory)
@@ -122,6 +123,9 @@ internal fun isCredentialEncryptedNoBackupDirectory(
     appDataDir: File,
     deviceProtectedDataDir: File,
 ): Boolean = try {
+    check(candidate.path.isNotBlank())
+    check(appDataDir.path.isNotBlank())
+    check(deviceProtectedDataDir.path.isNotBlank())
     val candidatePath = candidate.canonicalFile.toPath()
     val appDataPath = appDataDir.canonicalFile.toPath()
     val deviceProtectedPath = deviceProtectedDataDir.canonicalFile.toPath()

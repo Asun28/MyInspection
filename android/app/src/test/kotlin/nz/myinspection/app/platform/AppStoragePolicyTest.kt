@@ -136,6 +136,49 @@ class AppStoragePolicyTest {
     }
 
     @Test
+    fun `blank named roots are rejected before canonicalization even when legacy boundaries accept them`() {
+        val workingDirectory = File("").canonicalFile
+        val sibling = File(workingDirectory.parentFile, "${workingDirectory.name}-credential")
+        val roots = linkedMapOf(
+            "candidate" to Triple(File(""), workingDirectory.parentFile, File(workingDirectory, "dp")),
+            "app root" to Triple(File(workingDirectory, "metadata"), File(""), File(workingDirectory, "dp")),
+            "device-protected root" to Triple(File(sibling, "metadata"), sibling, File("")),
+        )
+        roots.forEach { (label, inputs) ->
+            val (candidate, app, deviceProtected) = inputs
+            val candidatePath = candidate.canonicalFile.toPath()
+            val appPath = app.canonicalFile.toPath()
+            val deviceProtectedPath = deviceProtected.canonicalFile.toPath()
+            assertTrue(candidatePath != appPath && candidatePath.startsWith(appPath), "$label legacy containment")
+            assertFalse(candidatePath.startsWith(deviceProtectedPath), "$label legacy DP exclusion")
+        }
+        assertEquals(
+            roots.mapValues { false },
+            roots.mapValues { (_, inputs) ->
+                isCredentialEncryptedNoBackupDirectory(inputs.first, inputs.second, inputs.third)
+            },
+            "every blank input must independently invalidate an otherwise accepted boundary",
+        )
+        roots.forEach { (label, inputs) ->
+            val thrown = assertFailsWith<IllegalStateException>(label) {
+                AppStoragePolicy(FakeStorageEnvironment(
+                    noBackup = inputs.first, appDataDir = inputs.second, deviceProtectedDataDir = inputs.third,
+                ))
+            }
+            assertEquals("credential-encrypted storage unavailable", thrown.message, label)
+            assertEquals(null, thrown.cause, label)
+            val beforeCanonical = listOf(inputs.first, inputs.second, inputs.third).map { file ->
+                if (file.path.isEmpty()) object : File(" ") {
+                    override fun getCanonicalFile(): File = throw AssertionError("$label canonicalized blank path")
+                } else file
+            }
+            assertFalse(isCredentialEncryptedNoBackupDirectory(
+                beforeCanonical[0], beforeCanonical[1], beforeCanonical[2],
+            ), "$label whitespace before canonicalization")
+        }
+    }
+
+    @Test
     fun `false device-protected marker with a device-protected actual root is rejected without exposing its path`() {
         val base = createTempDirectory("storage-policy").toFile()
         val sensitiveDeviceProtectedRoot = File(base, "42 Example St/Jane Tenant/secret")
@@ -276,6 +319,26 @@ class AppStoragePolicyTest {
             assertEquals(MediaStorageLocation.Unavailable, result, label)
             assertNoSensitiveText(result)
         }
+        listOf("", " ").forEach { blankPath ->
+            val delegate = FakeStorageEnvironment(noBackup = root, externalMedia = File(blankPath))
+            val probes = mutableListOf<String>()
+            val environment = object : AppStorageEnvironment by delegate {
+                override fun appSpecificExternalMediaState(directory: File): ExternalMediaVolumeState {
+                    probes += "state"
+                    return delegate.appSpecificExternalMediaState(directory)
+                }
+                override fun isAppSpecificExternalMediaWritable(directory: File): Boolean {
+                    probes += "writable"
+                    return delegate.isAppSpecificExternalMediaWritable(directory)
+                }
+                override fun usableBytes(directory: File): Long {
+                    probes += "space"
+                    return delegate.usableBytes(directory)
+                }
+            }
+            assertEquals(MediaStorageLocation.Unavailable, AppStoragePolicy(environment).mediaLocation(1L), "blank external path")
+            assertTrue(probes.isEmpty(), "blank external path must be rejected before probes: $probes")
+        }
     }
 
     @Test
@@ -378,13 +441,13 @@ private class FakeStorageEnvironment(
 }
 
 /*
- * R4 pure-policy receipt: 33/33 single-point mutations compiled (exit 0) and failed the named
+ * R4 blank-path repair receipt: 37/37 mutations compiled (exit 0) and failed the named
  * java.lang.AssertionError (test exit 1); production and test snapshot bytes restored after each.
- * Production SHA-256: 85B8AE64A4B15BB748D5B97ECAB306102C2290B20AF39BB448A2F01166954017
- * Test snapshot SHA-256: 358F8AF72553B88435DF3D95AEE2A2081A028523F546480E8A25B9E054B5BB30
+ * Production SHA-256: 751D453980527A55075EF3592950401C0CE98087EEFDC92AAF24BAE2496C0691
+ * Test snapshot SHA-256: E33FECC6030C485125DF8F26C72C5AF65BCD02C5E9D2FFD080EDCCCC2CA376D1
  * This receipt is the only change from the tested snapshot. Before R4, full DoD passed:
- * 199 app tests (13 policy, 7 SafeLog), zero failures/errors/skips, and assembleDebug.
- * Evidence: _local/storage-policy/pure-policy/{mutation-plan.json,mutations/,final-mutation-audit.json}.
+ * 200 app tests (14 policy, 7 SafeLog), zero failures/errors/skips, and assembleDebug.
+ * Evidence: _local/storage-policy/blank-path-repair/{mutation-plan.json,mutations/,final-mutation-audit.json}.
  * Audit independently reconstructed all mutant bytes and checked named XML failures and both pins.
  * M18 XML specifically proves the non-null absent path reported unwritable case in T9.
  * Android mapping, actual directory probes, and device execution belong to T1-APP-STORAGE-ANDROID.
@@ -411,4 +474,8 @@ private class FakeStorageEnvironment(
  * M31-strict-child, M32-app-containment, M33-dp-exclusion -> T7; M34-root-validation-call -> T8
  * M35-media-fatal -> T13; M36-root-fatal -> T12
  * M37-canonical-fatal -> T14; M38-canonical-failopen -> T15
+ * T16 = blank named roots are rejected before canonicalization even when legacy boundaries accept them
+ * M39-media-blank -> T9; M40-candidate-blank, M41-app-blank, M42-dp-blank -> T16
+ * Each root mutant admitted only its own empty-root vector; blank-vector-audit.json checks the exact XML maps.
+ * Regression RED had two named AssertionErrors: all three blank roots accepted, and blank media Available.
  */
