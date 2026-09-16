@@ -1,53 +1,47 @@
 ---
 id: T1-LOCAL-DATA-SECURITY
-title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
-depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING]
+title: Keystore-backed LocalSecretBox（消费已交付存储策略）
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING, T1-APP-STORAGE-POLICY]
 status: todo
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
 allow_paths:
-  - android/app/build.gradle.kts
   - android/app/src/main/kotlin/nz/myinspection/app/platform/
-  - android/app/src/main/kotlin/nz/myinspection/app/media/
   - android/app/src/test/kotlin/nz/myinspection/app/platform/
 forbid:
   - 运行期出站网络；修改冻结 SQLDelight schema/backup format；明文 secret/tenant data 写日志或系统备份
   - device-protected storage 存租客数据；hard-coded 绝对路径；卷不可用时静默写共享相册
-  - 禁止未经授权的运行期出站网络、账号/RBAC、遥测；未经本卡 version review 不得改冻结 schema/backup format
+  - 重写 AppStoragePolicy、StorageRoot/State、媒体日志接线或生产装配
 non_goals:
   - SAF 备份写入/恢复状态机/口令 UX（T5-BACKUP-IO）；FileProvider/secure-window/network manifest（T1-SHARE-SCREEN-PRIVACY）
-  - SQLCipher、账号、同步、遥测、业务 UI
+  - SQLCipher、账号、同步、遥测、业务 UI；迁移既有 PhotoRuntimeStorage 的媒体或数据库位置
+  - AppStoragePolicy（T1-APP-STORAGE-POLICY）及 SafeLog/四处媒体调用改造（T1-SAFE-MEDIA-LOGGING）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: app JVM 测试与 assemble 绿：AppStoragePolicy 把 DB/设置/回执/secret envelope/journal/staging 路由到 credential-encrypted internal/no-backup，把大媒体路由到 app-specific external 并显式返回卷不可用/低空间；Keystore-backed LocalSecretBox 只持久化 version/96-bit nonce/ciphertext+tag、key 不可导出且明文 buffer 尽力清零；同 key/purpose/plaintext 连续加密产生不同 nonce 与 ciphertext，修改 version、nonce、ciphertext 或 tag 均认证失败且不得返回明文，删除随机 nonce 或任一认证检查即 RED；alias/version/purpose 三维隔离夹具证明不同 purpose 或 version 的 envelope 交叉解密必拒绝，删除任一隔离维度即 RED；设备未解锁精确映射可重试 NEEDS_UNLOCK，缺失/失效 key、损坏 envelope、版本不支持或认证失败精确映射需用户重新输入的 NEEDS_PASSPHRASE，均保留旧回执、不降级明文且映射删除变异即 RED；SafeLog API/测试与现有 media 调用不接受/输出绝对路径、SAF URI、地址、姓名、备注、secret、Authorization 或 raw provider body
+dod_assert: app JVM 测试与 assemble 绿：Keystore-backed LocalSecretBox 只持久化 version/96-bit nonce/ciphertext+tag、key 不可导出且明文 buffer 尽力清零；同 key/purpose/plaintext 连续加密产生不同 nonce 与 ciphertext，修改 version、nonce、ciphertext 或 tag 均认证失败且不得返回明文，删除随机 nonce 或任一认证检查即 RED；alias/version/purpose 三维隔离夹具证明不同 purpose 或 version 的 envelope 交叉解密必拒绝，删除任一隔离维度即 RED；设备未解锁精确映射可重试 NEEDS_UNLOCK，缺失/失效 key、损坏 envelope、版本不支持或认证失败精确映射需用户重新输入的 NEEDS_PASSPHRASE，均保留旧回执、不降级明文且映射删除变异即 RED。前置 StoragePolicy 与 SafeLog 测试继续随基线绿，但不作为本卡实现。
 requirements:
-  - "R1 当现有媒体操作记录失败时，系统应仅输出已批准 operation/reason 与 opaque id/count/duration，不得输出完整路径、URI 或原始 Throwable。"
+  - "R1 LocalSecretBox 每次 AES-GCM 加密必须生成新的 96-bit nonce；持久化 envelope 仅含 version、nonce、ciphertext+tag，key 与明文不可导出。"
+  - "R2 alias/version/purpose 三维必须隔离；version、nonce、ciphertext 或 tag 任一改变均认证失败且不得返回明文。"
+  - "R3 NEEDS_UNLOCK 仅表示可重试的未解锁设备；缺失/失效 key、损坏 envelope、版本不支持或认证失败必须闭合映射 NEEDS_PASSPHRASE，保留旧回执且不得明文降级。"
 acceptance:
-  - "A1 [R1] MediaFileStore、PhotoImportPipeline、PhotoIngestPendingLease 和 PhotoOrphanCleanupWorker 的失败夹具均不产生路径、原始异常 message/stack 或业务原文。"
+  - "A1 同 key/purpose/plaintext 连续加密产生不同 nonce/ciphertext；删除随机 nonce 或任一认证检查即 RED。"
+  - "A2 不同 purpose 或 version 的 envelope 交叉解密必拒绝；删除任一隔离维度即 RED。"
+  - "A3 锁定、缺失/失效、损坏、版本不支持与篡改夹具分别断言闭合状态和旧回执保留；删除任一状态映射即 RED。"
 review_gate: codex {verdict:pass}
-hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
+hygiene: 冗余测试经 mutation-survivor 剪枝（R4）；随机 nonce、任一认证检查、任一隔离维度及错误状态映射各保留一枚具名单点变异
 doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 ---
 
 # T1-LOCAL-DATA-SECURITY
 
-## 产出
+## 产出与边界
 
-本卡提供 `AppStoragePolicy` 与 Keystore-backed `LocalSecretBox` 两个 app 平台 primitive，供 capture、backup、restore 和 remediation 复用；不实现业务功能。`SafeLog` 与四处媒体脱敏接线由已完成的前置卡 `T1-SAFE-MEDIA-LOGGING` 提供，本卡保留其完整安全回归，不重复实现。
+本卡保留原 ID，只交付 Keystore-backed `LocalSecretBox`。它消费 `T1-APP-STORAGE-POLICY` 已固定的内部/no-backup 路由来放置信封；绝不重新定义 `AppStoragePolicy`、目录、卷状态或媒体存储。SafeLog 与四处媒体失败脱敏由 `T1-SAFE-MEDIA-LOGGING` 保有，本卡只要求其基线回归继续绿。
 
-## 契约
+alias/version/purpose 必须三维隔离。每次 AES-GCM 加密使用新的 96-bit nonce；持久化 envelope 仅含 version、nonce、ciphertext+tag，key/明文不可导出。设备尚未解锁返回可重试 `NEEDS_UNLOCK`；key 缺失/失效、版本不支持、envelope 损坏或认证失败返回 `NEEDS_PASSPHRASE`，保留旧回执且绝不明文降级。JVM 验证 codec、状态和篡改；锁屏、凭据清除、key invalidation 与损坏 envelope 的真 Keystore 证据仍由 `T7-SMOKE-POLISH` 清单承担，缺任一结果不得发布。
 
-- 保留 ADR-0002 的 app-private/SAF 范围；具体落位按 ADR-0006 收紧：DB 等在 internal/no-backup，仅大媒体可在 app-specific external。
-- 数据库、settings、receipts、secret envelopes、restore journal 和 staging metadata 只使用 credential-encrypted internal/no-backup；大照片/音频可用 app-specific external，卷缺失/低空间返回结构化状态。
-- Keystore alias/version/purpose 分离；每次 AES-GCM 加密使用新的 96-bit nonce，持久化 envelope 仅含 version、nonce、ciphertext+tag，key/明文不可导出。设备尚未解锁返回可重试 `NEEDS_UNLOCK`；key 缺失/失效、版本不支持、envelope 损坏或认证失败返回需重新输入口令的 `NEEDS_PASSPHRASE`，保留旧回执且绝不尝试明文降级。JVM 测状态/codec/篡改；锁屏、凭据清除、key invalidation 与损坏 envelope 的真 Keystore 证据明确交给 `T7-SMOKE-POLISH` 清单，缺任一结果不得发布。
-- 前置安全日志能力持续回归：调用方只传 operation/reason + opaque id/count/duration；MediaFileStore、PhotoImportPipeline、PhotoIngestPendingLease、PhotoOrphanCleanupWorker 不输出绝对路径与 raw Throwable（含 message/stack）。实现归前置卡，本卡不重做这些接线。
+## RED、DoD 与预算
 
-## 验收
+先以可替换的 `KeyMaterialPort` fake 固定 nonce、认证、三维隔离及错误映射，再接 Android Keystore thin adapter；不新增 Gradle/runtime 依赖。R4 的具名变异与 DoD 见 front-matter。
 
-见 front-matter。首选 GPT-5.6 Terra · high；备选 Sonnet 5 · max。难度 M。
-
-## 施工拆分（2026-09-17）
-
-RED 前完整首轮体量估计 905–1092 changed lines，按 800 行预警拆分：T1-SAFE-MEDIA-LOGGING 先独立交付 SafeLog、四处媒体接线与过时 core 日志断言修订；本卡随后交付 AppStoragePolicy 与 LocalSecretBox。原 dod_command/dod_assert 保留全部安全验收，前置日志测试随基线继续运行。两卡分别具备 RED、R4、独立 R3 与 R5，不共享过闸凭据。
-
-本卡不迁移既有 PhotoRuntimeStorage 的媒体或数据库位置；新存储 primitive 的生产装配由 T1-APP-BOUNDARY-ASSEMBLY 承接。目标本卡实现/测试/R4 约 635–800 行，写生产前按实际预算复核；若仍超限则继续在实现前拆分，不削弱验收。
+完整 diff 目标 520–640 changed lines / 35k–48k characters：生产 220–300、直接测试约 197、R4 与修复余量 100–145。NOTICE 不属本卡。RED 前按完整 diff 重算；预估达到 650 行或 50k 字符即再拆 codec/port 与 Android adapter，但不删任何安全验收。首选 GPT-5.6 Terra · high；Keystore 分层、错误闭合和证伪测试均需要高推理。
