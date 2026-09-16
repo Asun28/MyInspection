@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-STATE-1A
 title: _prereview-state.ps1 v1 - state schema, atomic state write, dispute append, 1a packet renderer and view writer under the git common-dir plane
-status: todo
+status: merged
 depends_on: [T0-PREREVIEW-RECORDS, T0-PREREVIEW-FACTS-LIB]
 allow_paths:
   - scripts/_prereview-state.ps1
@@ -51,3 +51,13 @@ Split line: ~200 lines; the 1b STATE card extends this file in place. Collision 
 ## Acceptance revision (2026-09-17)
 
 User approved repairing the card before execution: TD176 is resolved here by structural no-verdict/status assertions and preservation of legal finding prose; review_status remains 1b-only, as in the merged protocol. Common-dir placement is not a sandbox guarantee. A6 permits the Git processes required to exercise the real repository boundary while still forbidding workers and network access. The DoD command and all delivery gates are unchanged.
+
+## Implementation evidence
+
+Local merge `62ec5f3b`, reviewed tip `9346969d`: first formal R3 passed with zero findings. DoD, project verify, scope, license, secrets and hard diff budget passed. Reviewed diff: 547 added lines / 43649 characters, below 1000 / 60000. No new dependency, worker execution, frozen schema change or Phase-1b predicate was added.
+
+RED at `01c7cc25` failed the valid-state assertion before implementation. Final GREEN has 86 checks: frozen RECORDS replay, worker/candidate/coverage consistency, malformed metadata, prose round-trip, real temporary Git common-dir resolution, interrupted atomic replacement, append preservation, path traversal and reparse rejection, and persistence after worktree removal. Windows junction cases ran; Unix symbolic-link behavior was not exercised on this host.
+
+R4: 25/25 behavioral mutants failed at their named checks; parse failures and unrelated exceptions were not counted. The runner uses disposable copies and checks source hashes after completion. A redundant root-verdict assertion was removed only after closed-root and nested-verdict mutants remained detected. The task-id newline mutant first survived because a generic rejection assertion accepted a downstream exception; the assertion now requires parameter-binding rejection. Additional RED cases exposed permissive hash end anchors, now covered by hash-boundary mutants.
+
+Final SHA-256: library `88E64050EF9322454304A5771D8199ED756D38A5A4A258E67AF7F97FAB14E67B`; schema `5FBA3B71A265D2E0F8A90267392267DE81A7C8B11D0FDD535B4B91CD2ABBFAD2`; selfcheck `099250665DF5E7053D482D05830EFB2B756C029239E96671008726582B38EDA2`. Local evidence is retained under `_local/task-loop-state-1a-20260917/`.
