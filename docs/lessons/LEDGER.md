@@ -2397,3 +2397,11 @@
 - rule: Give native-command test wrappers distinct names such as Invoke-FixtureGit. Before integrating the wrapper, run one small real command and require its exit code and output so self-recursion is detected immediately.
 - enforced_by:
 - refs: specs/archive/tasks/T0-PREREVIEW-FACTS-LIB.md
+
+## L332
+- date: 2026-09-17 ｜ tags: powershell,dot-source,entrypoint,selfcheck ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: The state script entered library mode during SelfCheck after importing another script with the same parameter names; no state assertions ran.
+- root_cause: PowerShell dot-sourcing executes the imported param block in the caller scope, overwriting AsLibrary and SelfCheck values.
+- rule: Capture entry mode before dot-sourcing scripts with overlapping parameter names, or isolate imports in a module. Test the actual process entrypoint and require both exit 0 and its assertion-completion sentinel.
+- enforced_by: specs/archive/tasks/T0-PREREVIEW-STATE-1A.md
+- refs: scripts/_prereview-state.ps1; specs/archive/tasks/T0-PREREVIEW-STATE-1A.md
