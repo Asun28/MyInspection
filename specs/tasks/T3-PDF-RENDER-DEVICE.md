@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-RENDER-DEVICE
 title: Android PdfDocument executor for the render program and tested lifecycle
-depends_on: [T3-PDF-RENDERER, T1-SPIKE-PLATFORM, T3-PDF-TYPOGRAPHY-CONTRACT, T3-PDF-ANDROID-TEXT-MEASURER]
+depends_on: [T3-PDF-RENDERER, T1-SPIKE-PLATFORM, T3-PDF-TEXT-METRICS-OPS, T3-PDF-ANDROID-TEXT-MEASURER]
 parallelizable_with: []
 status: todo
 branch: T3-PDF-RENDER-DEVICE

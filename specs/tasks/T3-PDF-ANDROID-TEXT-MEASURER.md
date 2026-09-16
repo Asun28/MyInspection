@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-ANDROID-TEXT-MEASURER
 title: Android Paint/Typeface text measurement adapter and packaged CJK fallback
-depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT, T1-SPIKE-PLATFORM]
+depends_on: [T3-PDF-TEXT-METRICS-OPS, T1-SPIKE-PLATFORM]
 parallelizable_with: [T1-APP-STORAGE-POLICY]
 status: todo
 branch: T3-PDF-ANDROID-TEXT-MEASURER
@@ -39,7 +39,7 @@ doc_sync: ADR-0007 + TASK-BOARD dependency note after merge（R5）
 
 字体资产必须以一次 git move 将现有 `android/app/src/debug/assets/fonts/DroidSansFallback.ttf` 与完整 `NOTICE` 移到同名 `src/main/assets/fonts/`。Android debug 变体包含 main assets，因此既有 `PdfStressProbe` 仍从完全相同 `fonts/DroidSansFallback.ttf` 加载；保留 debug 副本会制造两个可覆盖来源，禁止复制；迁移的目的是单一来源而非假定某一构建工具报错。`docs/LICENSE-POLICY.md` 只增加这一个精确 Apache-2.0 资产行：来源 AOSP `android-15.0.0_r3`、Git blob `1099b177c881c96bf298989dcdca5fda7841133d`、字体 SHA-256 `21b96a0377f067833a93af3082eb28d4ffab7a8cd46bfd513286f1d64b7b0949`、打包 NOTICE SHA-256 `92d336191c9ec51cc39f0b2fc44e5153f685c661c3d1e44e088fad4e68358ab2`，并声明没有 Gradle/runtime 依赖。
 
-真实 `Typeface`、CJK glyph、baseline clipping 与 80 照的视觉证据由后继 `T3-PDF-DEVICE-ACCEPTANCE` 在真机取证；本卡不得把 JVM fake 当作该证据。测量器返回既有 TextMeasurer 的 snapshot；后继 `ReportComposer`/builder 才把此前置 measurement 携带到 `PdfTextOp`，执行器只消费它，不再测量、wrap 或 tail-ellipsis。
+真实 `Typeface`、CJK glyph、baseline clipping 与 80 照的视觉证据由后继 `T3-PDF-DEVICE-ACCEPTANCE` 在真机取证；本卡不得把 JVM fake 当作该证据。测量器返回既有 TextMeasurer 的 snapshot；已交付的 `ReportComposer` 与前置 `T3-PDF-TEXT-METRICS-OPS` builder 将 measurement 携带到 `PdfTextOp`，执行器只消费它，不再测量、wrap 或 tail-ellipsis。
 
 ## RED、DoD 与预算
 
