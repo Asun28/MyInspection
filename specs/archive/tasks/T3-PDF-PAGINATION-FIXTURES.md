@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-PAGINATION-FIXTURES
 title: Fixed-height pagination fixtures before immutable measurement binding
-status: todo
+status: merged
 depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT]
 parallelizable_with: [T1-APP-STORAGE-POLICY]
 allow_paths:
@@ -36,3 +36,5 @@ Change exactly these two existing test bodies: `room opening uses its reduced bu
 R4 temporarily changes only the two existing production budget selections: M1 in splitItemRow makes continuation chunks reuse firstMaxHeightMm; M2 in splitBlock makes flowing continuation chunks reuse firstMaxHeightMm. Run the corresponding named test on each mutant. Both positive fixtures explicitly assert that compose succeeds using runCatching plus assertTrue before inspecting its result. Each mutant must compile and yield a fresh named java.lang.AssertionError attributable to the changed budget: M1 fails this positive-success assertion and M2 fails the exact chunk-height assertion. Never call a compiler failure, uncaught injected exception or any nonzero exit a kill. Preserve the source bytes before each mutation, restore and verify SHA-256 after each, and finish with the full DoD on restored production. The final diff contains only the allowed test file; concise real evidence may be recorded there after execution, never as a PENDING success claim.
 
 The isolated two-hunk candidate is 39 additions+deletions / 3822 LF-normalized diff-hunk characters before file headers and real R4 evidence. Budget approximately 60-90 changed lines / 5-7k characters including receipt; recompute the complete actual diff before ship. The unchanged hard gate is 1000 changed lines / 60000 characters. This predecessor does not claim the original room and section fixtures measured production typography: it preserves their pagination behavior with lawful fixed-height fixtures for the subsequent immutable-binding card.
+
+Implementation record (2026-09-17): feature 8e828486a06341059fbe7e21f922540673904982 merged locally at 7e4e35d3398869b0cd173d40d269c006399af87a after first formal Sol/high R3 pass with no findings. Baseline, migrated and restored DoD each passed 328 report tests and six core e2e tests. M1 and M2 each produced the required fresh named AssertionError; production bytes were restored to SHA-256 5297B78BF90124BD67DE88FCA8FA20853A9139BD4D404BFE8DE24D2D40662293. The final test-only diff is 58 changed lines / 5408 characters. Ship recorded the authorized non-TDD SkipRed exception and passed verify, scope, license, secret and size gates. No new technical debt or recurring lesson was identified; lesson capture is explicitly skipped.
