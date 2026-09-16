@@ -31,7 +31,7 @@ non_goals:
   - device visual acceptance; T3-PDF-DEVICE-ACCEPTANCE Agent supplies the full device evidence
 plan_ref: context/DESIGN.md#backup-report-health-and-compliance-component-matrix
 acceptance:
-  - "A1 ReportTypography is the only pure-data profile and fixes TITLE=16pt/8mm, BODY=11pt/6mm and CAPTION=9pt/5mm; EN resolves to LATIN_SANS and ZH/ORIGINAL/NEUTRAL resolve to CJK_FALLBACK without character inspection"
+  - "A1 ReportTypography is the only pure-data profile and fixes TITLE=12pt/5mm, BODY=11pt/6mm and CAPTION=9pt/4mm; EN resolves to LATIN_SANS and ZH/ORIGINAL/NEUTRAL resolve to CJK_FALLBACK without character inspection; its worst-case three-line captions preserve two 108mm appendix photographs within the existing 257mm body"
   - "A2 TextMeasurer receives TextLanguage and its MeasuredText returns a metric snapshot bound to requested style, language, resolved role and font size; ReportComposer refuses mismatched or non-finite snapshots, nonpositive font sizes, negative baseline offsets, invalid signed glyph bounds, or line-box-incompatible snapshots before emitting TextRun"
   - "A3 TextRun carries the accepted snapshot; PdfRenderProgramBuilder forwards it to PdfTextOp, adding the measured baseline offset to only the existing converted line-box origin and neither looking up a second profile nor deriving font metrics"
   - "A4 core tests pin the three profile rows, language forwarding, snapshot validation and exact forwarding; existing golden layouts retain explicit safe small-text snapshots and core e2e adapts its deterministic fake without weakening evidence"
@@ -52,9 +52,9 @@ doc_sync: ADR-0007 + TASK-BOARD dependency note after merge
 
 | Style | Font size | Line height |
 |---|---:|---:|
-| TITLE | 16pt | 8mm |
+| TITLE | 12pt | 5mm |
 | BODY | 11pt | 6mm |
-| CAPTION | 9pt | 5mm |
+| CAPTION | 9pt | 4mm |
 
 Language selects the role without character inspection: EN is `LATIN_SANS`; ZH, ORIGINAL and NEUTRAL are `CJK_FALLBACK`, because ORIGINAL and NEUTRAL may contain Chinese.
 
@@ -67,6 +67,8 @@ The baseline is not a pure-data guess about a system font. Later, `T3-PDF-RENDER
 ## Test plan and budget
 
 RED tests pin default rows, language forwarding, mismatch/non-finite/nonpositive-font-size/negative-baseline/invalid-signed-bounds/out-of-box rejection, and exact snapshot propagation through composer and builder. Existing golden fakes return explicit safe small-text snapshots, preserving their pagination assertions. The core e2e fake accepts language and returns the same explicit snapshot; its evidence is not weakened.
+
+A default-profile regression must compose an appendix with two photographs carrying the maximum three caption lines. Existing geometry is unchanged: the bilingual title and two image slots require (2*5+2)+2*(108+3*4+2)=256mm, within the 257mm body. The earlier 8mm/5mm title/caption proposal required 268mm and was rejected before RED. This regression must use the production default profile, not the small profile injected by legacy layout tests. Actual Android font bounds remain a later device measurement obligation.
 
 The signature migration has fifteen planned files including the known call surfaces: `ReportModel`, `DocumentPlan`, `ReportComposer`, `PdfRenderProgram`, `PdfRenderProgramBuilder`, `ReportTestFixtures`, three composer tests, ReportContentAdapterTest, `PdfRenderProgramTest`, `PdfRenderProgramBuilderTest`, the new typography test, and `GoldenEvidenceCoreHarness`. Actual adaptation should be limited to those files; a newly discovered caller is a design check, not permission to widen the card.
 
