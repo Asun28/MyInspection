@@ -36,6 +36,8 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 
 ### 2. 活数据分层
 
+2026-09-17 路径前置远端登记：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 是同名本地产品能力的远端交付别名，不增加产品卡计数；完整承担真实逐段路径解析、验证根快照、逐次子目录检查及全部 20 项直接测试/35 枚变异验收。根与子目录仍支持尚未创建的路径，仅入口属性探测的 `NoSuchFileException` 表示缺失；异常拒绝与 Error 身份传播、真实链接夹具和原 Policy 五次 BLOCK 历史保留。仅保证检查时路径归属，不声明消除 TOCTOU 或后续 I/O 安全。后继存储策略复用此能力，Android getter/平台适配、媒体状态、Keystore 与生产装配仍须独立验收。本地 feature `c201c793`/merge `115138a4` 及本地测试是历史证据；远端分支重新跑 RED/DoD/35R4/正式 R3/CI 后才合并。
+
 - SQLite、设置、回执、Keystore 密文信封、恢复 journal 和 staging 元数据放 credential-encrypted **internal storage**；device-protected storage 不放租客数据。
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
 - 临时明文只放 internal cache/staging，使用不可预测名称；成功、失败、崩溃恢复后都清理。文件名、日志和通知不含地址、姓名、备注或租客信息。
@@ -111,3 +113,7 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 - 产品范围继续保留全量与按物业两种选择；当前冻结 v1 只具备安全的全量恢复语义，按物业隔离在完成格式版本评审前不得冒充已实现。
 - live DB 仍未应用级加密，必须诚实依赖设备锁、Android 文件加密和 app sandbox；敏感设备应设置强锁屏。
 - 本 ADR 是设计/任务契约。实现仍需独立任务卡、测试、真机离线/断电/低空间/授权收回演练和 frozen-path 版本评审。
+
+### 安全日志远端前置登记
+
+T1-SAFE-MEDIA-LOGGING-REMOTE 单独交付 SafeLog 与四处媒体失败日志接线，保留封闭 operation/reason、opaque id/count/duration 值域及 sink 失败隔离；业务原文、路径和 Throwable 不进入最终日志。原本地 feature a5d4dd83 与 merge b58eeb4a 是历史记录，远端仍须独立 RED、完整 DoD、24 枚有效断言变异、R3 和 CI。后继安全卡复用前置，并保留原完整安全验收；本登记不声明存储策略、Keystore 或设备验收完成。
