@@ -4,6 +4,10 @@
 > 计划真相源 `_local/PLAN.md`；设计决策 `docs/adr/0001–0004`；需求 `docs/inspection-app-requirements.md`。
 > 执行形态：每卡走 R1–R5（`scripts/task.ps1` start→ship），R3 评审恒 = **GPT-5.6 Sol**（`scripts/_config.ps1` 已钉；Sol 原则上不作同卡作者）。
 
+## PR review v2
+
+远端采纳按 [交付计划](plans/PREREVIEW-REMOTE-ADOPTION.md) 顺序执行：T0-PREREVIEW-REMOTE-SCHEMA → T0-PREREVIEW-REMOTE-POLICY → T0-PREREVIEW-REMOTE-FACTS。只采纳最终 revision 1 契约、策略与 FACTS-LIB；原始本地卡图及其它实现不计为远端完成。作者沿用当前 Astra，正式 R3 为 Sol。
+
 ## 模型席位（性价比路由原则）
 | 席位 | 模型 | 用在 | 理由 |
 |---|---|---|---|

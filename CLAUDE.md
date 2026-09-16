@@ -464,6 +464,8 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
 23. `docs/adr/0008-compliance-update-trust.md` — 规则离线签名与信任根、版本/日期/恢复矩阵及用户决策证据；导入实现按 A1–A8 后续交付
 
+24. `docs/plans/PREREVIEW-REMOTE-ADOPTION.md` — prereview 最终契约、策略和 FACTS-LIB 的远端采纳边界与验证。
+
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
 - **R1 worktree**：每卡建 `<WorktreeRoot>\<ID>` 隔离分支（.venv/node_modules 每树独立、gitignored）
