@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-17 本地交付**：`T3-PDF-TYPOGRAPHY-CONTRACT`（master `8779d05d`，feature `9edb9b26`，正式 Sol/high R3 首轮 pass、零 finding）交付不可变字号/行高与语言字体角色、纯数据测量快照和有符号字形边界校验。5 项直接测试、328 项报告测试、6 项核心 e2e 与 12/12 具名变异通过；verify、范围、许可和防泄露闸通过。显式测试源清单只增加新文件名。此卡不交付 Composer 绑定、PDF 绘制或真机字形证据；完整验收由已登记后继卡继续承担。
+
 **2026-09-17 本地合并**：`T1-SAFE-MEDIA-LOGGING`（master `b58eeb4a`，正式 Sol/high R3 第二次评审 pass）交付封闭安全日志与四处媒体接线，删除路径和原始异常输出；sink 的 Exception/Error 不改变媒体结果。7 项故障测试（含 RETRY/FAILURE）、2 项原有接线检查、24 项定向变异及完整 verify/E2E、范围、许可、防泄露闸通过。首轮 R3 指出的不可重试失败覆盖已补；原 M19 是注入 Error 逃逸证据，M19b 已用显式成功断言重验。存储策略和 Keystore 由后续卡负责。
 
 **2026-09-17 本地交付**：`T0-PREREVIEW-STATE-1A`（master `62ec5f3b`，首轮 R3 pass、零 finding）交付 state v1 校验、原子写入、dispute 追加与 packet/view 输出。复用 RECORDS 重建候选和覆盖记录；输出留在 git common dir，合法 finding 文案保留。86 项自检、25/25 定向变异及 verify/范围/许可/防泄露闸通过；常规完整 selftest 三分片通过，卡片已归档，工作树和分支已按合并凭据清理。执行前已按用户授权修订验收：禁 verdict 字段与 pass/block 状态值；review_status 仍留给 1b。

@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-TYPOGRAPHY-CONTRACT
 title: Pure-data typography profile and signed metric guard
-status: in-progress
+status: merged
 depends_on: [T3-PDF-RENDERER]
 parallelizable_with: []
 allow_paths:
@@ -41,3 +41,5 @@ The DEFAULT rows remain 12pt/5mm, 11pt/6mm and 9pt/4mm. Their assembled two-phot
 Isolated source candidate: 126 additions+deletions / 6,062 LF-normalized unified-diff characters. It has not run current-scope GREEN or R4. Include subsequent tests, evidence and repairs in the final budget; pause at 800 lines or 50,000 characters, and retain the hard 1,000-line / 60,000-character gate. Never compress code or discard acceptance to fit.
 
 Current-scope GREEN first attempt ran 328 report tests: all five new profile tests passed; the existing source-inventory assertion failed because the new file was absent from its explicit expected list. Register exactly that filename in ReportSourcePurityTest; do not remove, dynamically derive, filter or relax the inventory/scan assertion. This mechanical third-file change preserves the existing purity contract.
+
+Implementation record (2026-09-17): feature 9edb9b2698db7ee9314cd371b7cebeff1922e5a5, local merge 8779d05dfde5e4e57fef4c3fafaf16d27c8a7e46, first formal Sol/high R3 pass with no reasons. Three files,137 additions,7469 diff characters. Five direct profile tests,328 report tests and6 core e2e tests passed;12 named compiling R4 mutations were detected and restored source hashes verified. Scope/verify/license/secrets gates passed. Source-inventory registration adds one explicit filename. No new product debt was identified. Composition, TextRun binding and real-device glyph evidence remain with their successor cards.
