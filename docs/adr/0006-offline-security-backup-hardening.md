@@ -38,6 +38,8 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 
 2026-09-17 交付拆分：`T1-APP-STORAGE-POLICY` 只交付类型化环境端口上的策略及真实 canonical 根边界；整个 Android getter/转换、原始卷状态和目录可写实现与直接设备测试归 `T1-APP-STORAGE-ANDROID`。后者须在 API33 真机与 API35 模拟器自验证，并检出对应适配器变异；完成前不将纯策略测试或旧诊断回执称为实际 Android 存储能力。LocalSecretBox 与生产装配均增加后者为前置。
 
+2026-09-17 路径边界后续裁定：第五次正式 R3 发现返回类别子目录未经实际边界检查；JDK17/Windows11 对真实 Junction 的独立检查进一步证实 `canonicalFile` 保留别名，不能证明解析后的目录归属。因此以 `T1-STORAGE-PATH-BOUNDARY` 完整承担逐段真实解析、CE/DP 根验证、保存验证时的同一根路径、逐次子目录检查和全部直接验收。仅属性探测的 `NoSuchFileException` 表示缺失段；保留尚未创建根/子目录，重新遇到已有别名时继续解析。普通异常拒绝、致命 Error 按身份传播；不声明消除 TOCTOU 或保证后续 I/O。策略后继只消费该能力并保留两处黑盒接线测试，平台适配仍由 Android 卡独立验收。前置560–610行/31k–35k，初始615/36k、提前820/48k至少留25%容量；策略468–482行，原650/45k闸不变。五次失败裁决和未合并代码保留，先交付完整前置，禁止只移测试或带已知缺陷合并。
+
 - SQLite、设置、回执、Keystore 密文信封、恢复 journal 和 staging 元数据放 credential-encrypted **internal storage**；device-protected storage 不放租客数据。
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
 - 临时明文只放 internal cache/staging，使用不可预测名称；成功、失败、崩溃恢复后都清理。文件名、日志和通知不含地址、姓名、备注或租客信息。
