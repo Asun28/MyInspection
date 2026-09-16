@@ -3,7 +3,7 @@ id: T3-DOCX-REPORT-EXTRACTOR
 title: Sample-shaped DOCX report extractor with explicit ambiguity
 depends_on: [T3-DOCX-PACKAGE-READER, T3-DOCX-IMAGE-QUALIFICATION, T3-DOCX-EXTRACTION-MANIFEST, T3-DOCX-XML-TREE]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-DOCX-REPORT-EXTRACTOR
 worktree: C:\wt\T3-DOCX-REPORT-EXTRACTOR
 allow_paths:
@@ -39,3 +39,15 @@ Transform bounded OOXML parts into a no-write extraction manifest. The [extracti
 ## Approved split scope
 
 Consume the image validation, immutable manifest and internal XML-tree predecessors. Test malicious XML, drawing loss and adjacent same-parent identity labels against the reference contract. Unsupported drawings reject; empty inline/anchor frames remain unresolved evidence; expired identity labels produce warnings. The user-approved conservative image rule supersedes local exclusion assertions: the synthetic 67 larger and 15 small images all remain (82 review warnings, 83 placements, zero layout exclusions), while 64 items and 89 captions stay unchanged. These registrations grant no gate exception.
+
+## Remote delivery receipt (2026-09-17 NZ)
+
+Delivered by [PR #288](https://github.com/Asun28/MyInspection/pull/288), squash `34d88e26b0cf97bbf7261299b4352f6ae5904514` (merged `2026-09-16T12:35:24Z`). Reviewed head `69ba6c1d894201cb51faaab22f34d6938e4c8c00` received a formal R3 pass with empty reasons on both axes; exact-head CI run `35095926100`, attempt `1`, passed the `required` context. Normal ship exited 0.
+
+The extractor retains all 82 synthetic images and 83 placements, with 82 `IMAGE_REVIEW_REQUIRED` warnings and zero `LAYOUT_IMAGE_EXCLUDED` emissions. The fixture keeps 64 item names and 89 captions; unresolved fragments do not become invented item/photo pairs. STATUS fragments preserve ordered raw and normalized text, including unknown spellings, while warning provenance remains attached to the original source.
+
+Repair-stage evidence: DoD 59/59; R4 control 43/43 and four targeted mutations killed by assertion failures; project verify 971 tests with zero failures/errors and four existing Windows symlink skips, plus 6/6 independent E2E tests. Those repair runs were recorded on the pre-commit working tree; its production, fixture and test SHA-256 hashes exactly match the reviewed and merged source. Normal ship reran DoD and verify before the formal R3 and CI gates. The 90 earlier mutation results and pgNum repair remain preserved historical evidence, not fresh runs against the final STATUS repair.
+
+This card changes only ordinary Android product files. The project-specific rule in `CLAUDE.md` (commands / workflow self-check) makes scaffold selftest not applicable to that surface while retaining product DoD and verify. No full scaffold selftest is claimed for this delivery; R3 and required CI remain mandatory and passed.
+
+Official cleanup completed after all 2071 review files and the three task-state files were copied outside the worktree and hash-checked. The matching merge credential authorized deletion of the delivered worktree and local branch. R5.5 adds no new lesson: existing L266 and L270 cover this recovery.
