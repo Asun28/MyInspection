@@ -2237,3 +2237,11 @@
 - rule: When check-licenses reports mass [GRADLE-METADATA] on GAVs that resolved fine offline, prewarm before touching policy: gradlew --refresh-dependencies --no-daemon -q :app:dependencies --configuration debugRuntimeClasspath (then releaseRuntimeClasspath, then :core:dependencies --configuration runtimeClasspath, then testRuntimeClasspath) - ONE --configuration per invocation, Gradle keeps only the last one per project. Inject JAVA_HOME/ANDROID_HOME first (L208). Re-run check-licenses.ps1 alone before resuming ship. Tracked as TD176.
 - enforced_by: 
 - refs: 
+
+## L330
+- date: 2026-09-16 ｜ tags: selftest,powershell,linux,path,fixtures ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: Nightly #217 and #218 Ubuntu light failures
+- symptom: When 8.2j hid git by removing its PATH directories on Ubuntu, -Only 15 falsely failed the 15f(a) and 15x(b) green controls.
+- root_cause: The directory filter also hid sh. The product verify fixture supplied gradlew but not the bare shell that verify invokes.
+- rule: For hidden-tool PATH tests, check sibling executables removed with the target tool; provide fixture-local dependencies and assert unrelated controls still execute on both operating systems.
+- enforced_by: scripts/selftest.ps1 gates 8.2j, 15f and 15x
+- refs: PR #300; T0-SELFTEST-HIDDEN-GIT
