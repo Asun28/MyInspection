@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 193 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 196 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -116,6 +116,8 @@
 | T0-RECONCILE-UI-COVERAGE | merged | 建立 UI Elements 覆盖索引 |
 | T0-RECONCILE-UI-NOTICE-SCHEDULE | merged | 对齐通知与日程实现卡的设计系统指针 |
 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | merged | 对齐备份、媒体、remediation 与收官 smoke 的离线体验指针 |
+| T0-REMOTE-PREREVIEW-CARDS | merged | Register RECORDS and STATE publication contracts and record the schema review correction |
+| T0-REMOTE-PRODUCT-CARDS | merged | Register four isolated remote delivery aliases for locally verified product cards |
 | T0-SCAFFOLD-CI-HOTFIX | merged | 修复合并后 scaffold-selftest 的跨分支与跨 PowerShell 回归 |
 | T0-SCAFFOLD-FLEET-LOOP | merged | fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
@@ -131,6 +133,7 @@
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
 | T1-DATABASE-LIFECYCLE-AUTHORITY | merged | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 |
+| T1-SAFE-MEDIA-LOGGING-REMOTE | merged | 安全日志底座与四处媒体接线的远端交付（原 T1-SAFE-MEDIA-LOGGING） |
 | T1-SCHEMA-CORE | merged | SQLDelight 全量 schema + UUIDv7 + 基线迁移 + JVM 测试（★冻结点） |
 | T1-SKELETON-E2E | merged | 一次性走通骨架：建巡检 → 加一项 → 拍一张 → 导出一份 PDF（真机可见，用完即弃） |
 | T1-SPIKE-PLATFORM | merged | 真机平台可行性 spike ×3（overlay / SAF / PDF 压力）+ 结论报告 |

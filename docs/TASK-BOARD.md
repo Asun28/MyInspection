@@ -125,7 +125,7 @@
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | **merged**（本地合并 `19fd908e`；R5 `320f8dac`） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
 | W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | **merged**：PR #286 / `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`；R3 首轮 pass、CI 成功、cleanup 完成；真机与 APK 边界见平台报告 |
-| W1 | T1-SAFE-MEDIA-LOGGING-REMOTE | 封闭安全日志与四处媒体失败接线 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **todo**；本地已验证，远端先登记范围后单独提交；不改存储、调度或删除语义 |
+| W1 | [T1-SAFE-MEDIA-LOGGING-REMOTE](../specs/archive/tasks/T1-SAFE-MEDIA-LOGGING-REMOTE.md) | 封闭安全日志与四处媒体失败接线 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **merged**；[PR #304](https://github.com/Asun28/MyInspection/pull/304)，reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`，CI `35158547855`，merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；正式 R3 pass；不改存储、调度或删除语义 |
 | W1 | T1-LOCAL-DATA-SECURITY | 内外存储分层与 Keystore secret box（依赖安全日志） | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING-REMOTE,T1-STORAGE-PATH-BOUNDARY-REMOTE | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；保留完整安全验收及前置日志回归；不改 schema/backup format |
 | W1 | T1-SHARE-SCREEN-PRIVACY | Android 隐私出口：安全文件分享 + 敏感窗口分级 + cleartext/系统备份清单闸 | T1-LOCAL-DATA-SECURITY | S–M | GPT-5.6 Terra · high | Sonnet 5 max | 下游统一隐私出口 |
 | W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
@@ -328,10 +328,10 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 ## 已验证本地卡的远端交付登记（2026-09-17）
 
-以下别名与 W1 的 T1-SAFE-MEDIA-LOGGING-REMOTE 分别交付原四张产品卡，不额外增加五轮的产品卡数。现有本地提交只作来源；远端状态均为 todo，必须重新执行各卡测试、正式 R3、CI 与 PR 合并。后继 PDF 测量绑定、Android 渲染和完整设备验收未在本次登记中交付。
+以下别名与 W1 的 T1-SAFE-MEDIA-LOGGING-REMOTE 分别交付原四张产品卡，不额外增加五轮的产品卡数。现有本地提交只作来源；Logging 与 Typography 两张功能 PR 已远端验收并合并，其中 Logging 完成 R5 文档同步与归档，闭环进度 1/10。Typography 功能已合并但 R5 待下一批，卡仍为 todo。Boundary 与 Pagination 仍为 todo，须各自重新执行远端测试、正式 R3、CI 与 PR 合并。后继 PDF 测量绑定、Android 渲染和完整设备验收未在本次登记中交付。
 
 | 远端交付卡 | 原产品卡 | 依赖 | 作者 | 状态 |
 |---|---|---|---|---|
 | [T1-STORAGE-PATH-BOUNDARY-REMOTE](../specs/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md) | T1-STORAGE-PATH-BOUNDARY | T1-SPIKE-PLATFORM | GPT-6 Astra · high | todo |
-| [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE](../specs/tasks/T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE.md) | T3-PDF-TYPOGRAPHY-CONTRACT | T3-PDF-RENDERER | GPT-5.6 Terra · high | todo |
+| [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE](../specs/tasks/T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE.md) | T3-PDF-TYPOGRAPHY-CONTRACT | T3-PDF-RENDERER | GPT-5.6 Terra · high | todo（功能已远端合并，R5 待下一批）；[PR #305](https://github.com/Asun28/MyInspection/pull/305)，reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`，CI `35159732680`，merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`，正式 R3 pass |
 | [T3-PDF-PAGINATION-FIXTURES-REMOTE](../specs/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md) | T3-PDF-PAGINATION-FIXTURES | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | GPT-5.6 Terra · medium | todo |
