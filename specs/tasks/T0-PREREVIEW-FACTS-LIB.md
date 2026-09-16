@@ -2,7 +2,7 @@
 id: T0-PREREVIEW-FACTS-LIB
 title: _prereview-facts.ps1 -AsLibrary - worktree, base (via _gitbase.ps1), snapshot tree, policy hash, units, live_allowed, model route and temp root as pure functions
 status: todo
-depends_on: [T0-PREREVIEW-SCHEMA]
+depends_on: [T0-PREREVIEW-SCHEMA, T0-PREREVIEW-UNIT-ID-REVISION]
 allow_paths:
   - scripts/_prereview-facts.ps1
   - scripts/fixtures/prereview/facts-lib/
@@ -17,14 +17,14 @@ acceptance:
   - "A1 Dot-sourcing with -AsLibrary returns before any side effect (the check-secrets.ps1 pattern), defines Resolve-PrereviewWorktree, Resolve-PrereviewBase, Get-PrereviewSnapshotTree, Get-PrereviewPolicyHash, Get-PrereviewUnits, Get-PrereviewLiveAllowed, Get-PrereviewModelRoute and Get-PrereviewTempRoot, and never sets PRE_LIVE."
   - "A2 Resolve-PrereviewBase -Local resolves the base name through Resolve-ScaffoldBaseRef -PreferLocal from scripts/_gitbase.ps1 (dot-sourced, not mirrored) and returns base_mode local with the pinned OID; without -Local it returns the origin ref and base_mode remote (the frozen enum of specs/prereview-record.schema.json); no merge-base with HEAD yields [PRE-NO-MERGE-BASE]."
   - "A3 Get-PrereviewSnapshotTree equals git write-tree of a temporary index built from read-tree HEAD plus add -A, so dirty tracked and untracked non-ignored files are included, untracked ignored files are excluded, and tracked files remain even when matched by an ignore rule; the fixture proves these cases with a planted untracked .env, an untracked non-ignored file and a tracked file subsequently matched by an ignore rule, and the same tree twice yields the same oid."
-  - "A4 Get-PrereviewPolicyHash is the SHA-256 over docs/PREREVIEW-CHECKLISTS.md plus specs/prereview-record.schema.json at the merge-base commit (git show, not the working tree) and matches a golden value in the fixture."
-  - "A5 Get-PrereviewUnits mints deterministic unit_id values {path}#(sha256(normalised hunk body)[:12]) with body_sha256, and binary or over-PrereviewMaxFileBytes files degrade to {path}#file."
+  - "A4 Get-PrereviewPolicyHash is the SHA-256 over the concatenated raw bytes of docs/PREREVIEW-CHECKLISTS.md then specs/prereview-record.schema.json at the merge-base commit (git show, not the working tree, with no inserted separator or text conversion) and matches a golden value in the fixture."
+  - "A5 Get-PrereviewUnits -DiffPath -RepoRoot -SnapshotTree -MergeBase mints deterministic unit_id values {path}#{sha256(normalised hunk body)[:12]}-{ordinal}, where ordinal is the positive 1-based hunk order within that file in the supplied diff. Hunk normalization converts CRLF to LF, preserves all other body bytes and excludes the @@ header. Identical bodies at different headers have equal body_sha256 but distinct IDs, and repeated input yields identical units. Binary, metadata-only or over-PrereviewMaxFileBytes files degrade to {path}#file with the SHA-256 of the full raw blob; blob bytes and size come from SnapshotTree (MergeBase for a deleted file), never from patch length."
   - "A6 Get-PrereviewLiveAllowed returns false when CI or GITHUB_ACTIONS is set and true after the self-check clears both in-process; it only reports and never writes PRE_LIVE."
   - "A7 Get-PrereviewModelRoute returns PrereviewRiskyModel for a FrozenPaths hit and for a PrereviewRiskyExtraPaths hit (the fixture uses scripts/ or .claude/, never configs/compliance/), reading FrozenPaths at runtime instead of copying it, and PrereviewModel otherwise; Get-PrereviewTempRoot derives from [IO.Path]::GetTempPath()."
   - "A8 -SelfCheck runs against a temp repository only, clears inherited PRE_LIVE and PRE_LENS_ENDPOINT, spawns no worker, and prints [PREREVIEW-FACTS-LIB-SELFCHECK-PASS]."
 forbid:
   - Editing scripts/_gitbase.ps1 or reimplementing base resolution
-  - Building the pack here (FACTPACK) or any write outside temp
+  - Building the pack here (FACTPACK); writing outside temp except Git content-addressed objects needed for the snapshot in the selected repository object database; modifying its real index, worktree files, refs or configuration
   - Setting PRE_LIVE anywhere in this file
 non_goals:
   - Replacing the codex R3 gate with a ReviewCommand pipeline backend, or feeding the packet into the codex prompt (Phase 2)
@@ -44,9 +44,11 @@ Pure-function library consumed by FACTPACK, STATE-1A, RUN and the 1b gate; the f
 
 ## Functions carried by this card
 
-- Resolve-PrereviewWorktree -TaskId; Resolve-PrereviewBase -Base -Local (through Resolve-ScaffoldBaseRef -PreferLocal, returning base_mode and the pinned OID); Get-PrereviewSnapshotTree -WorktreePath (git write-tree on a temporary index after read-tree HEAD and add -A); Get-PrereviewPolicyHash -RepoRoot -MergeBase; Get-PrereviewUnits -DiffPath; Get-PrereviewLiveAllowed (false under CI or GITHUB_ACTIONS; never sets PRE_LIVE); Get-PrereviewModelRoute -AllowPaths (FrozenPaths union PrereviewRiskyExtraPaths at runtime); Get-PrereviewTempRoot ([IO.Path]::GetTempPath()).
+- Resolve-PrereviewWorktree -TaskId [-RepoRoot]; Resolve-PrereviewBase -RepoRoot -Base -Local (through Resolve-ScaffoldBaseRef -PreferLocal, returning base_ref, base_mode, base_oid and merge_base); Get-PrereviewSnapshotTree -WorktreePath (git write-tree on a temporary index after read-tree HEAD and add -A); Get-PrereviewPolicyHash -RepoRoot -MergeBase; Get-PrereviewUnits -DiffPath -RepoRoot -SnapshotTree -MergeBase; Get-PrereviewLiveAllowed (false under CI or GITHUB_ACTIONS; never sets PRE_LIVE); Get-PrereviewModelRoute -AllowPaths (FrozenPaths union PrereviewRiskyExtraPaths at runtime); Get-PrereviewTempRoot ([IO.Path]::GetTempPath()).
 - Dot-source with -AsLibrary (early return like check-secrets.ps1).
 
 ## Notes
+
+2026-09-16 user-approved TD176 correction: A3 applies ignore exclusion only to untracked files; A5 depends on the explicit schema revision card above. Snapshot creation may write Git content-addressed objects, while the temporary index stays under temp and the real index/worktree/refs/config are unchanged. Unit generation requires pinned blob context so over-size and binary units hash actual content. These corrections were registered on master before R1/RED.
 
 Split line: ~350 lines. Collision rule (authority: docs/TASK-BOARD.md section PR review v2): no worktree branch and no todo card whose changes or allow_paths touch a chain file (review.ps1, task.ps1, selftest.ps1, _config.ps1, CLAUDE.md, the task-loop skill, QUALITY-RUBRIC.md, DEVOPS-WORKFLOW.md, TRUST-MANIFEST.md, TASK-BOARD.md) may start while the chain card owning that file is open; merge or retire first. origin/master (67 ahead, 37 chain-file commits incl. #265 which delivered T0-CI-DEADLINE-CONTAINMENT upstream) is not reconciled into master while any 1a chain card is in flight; reconcile before T0-PREREVIEW-RUNNER starts or after T0-PREREVIEW-LINK-RECALL merges, by user decision, after closing the local T0-CI-DEADLINE-CONTAINMENT card against #265.

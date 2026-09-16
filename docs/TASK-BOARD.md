@@ -313,7 +313,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 **阶段与检查点**
 
-- **1a（本节 17 张）**：只出包、不闸。`PrereviewEnabled=false` 即 `[PRE-RUN-DISABLED]` 总开关，任何时候可关。
+- **1a（原 17 张 + 1 张用户批准的 schema 修订前置卡）**：只出包、不闸。`PrereviewEnabled=false` 即 `[PRE-RUN-DISABLED]` 总开关，任何时候可关。
 - **recall 检查点**：至少 5 张产品卡在首次 ship 前跑包、每次 R3 block 后跑 `link-r3`；合并 recall（same / related）≥ 50% 才开 1b；不足则包保持建议性或退役（kill criterion），不追加投入。
 - **1b（11 张，检查点后按真实数据重投影再落卡）**：处置、`review_status` 与闸谓词、批次语义（≤2 批）、ship 闸腿、账本行（`task.ps1` 仍是唯一写者）、指标（§6.9）。
 
@@ -334,7 +334,8 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 | 1a·1 | [T0-PREREVIEW-CHECKLISTS](../specs/archive/tasks/T0-PREREVIEW-CHECKLISTS.md) | `docs/PREREVIEW-CHECKLISTS.md` 四个 `## Lens:` 节（进包、进 policy hash） | SCHEMA | M | Opus 5 · high | Sonnet 5 · max | **merged**（master `2782b55b`，2026-09-15，R3 第 5 轮 pass；两次用户裁定 ResetRounds） |
 | 1a·1 | [T0-PREREVIEW-RECORDS](../specs/archive/tasks/T0-PREREVIEW-RECORDS.md) | `_prereview-records.ps1` 记录校验、unit 归属、C-n 铸造、指纹、missing 覆盖合成 | SCHEMA | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `dec30514`，2026-09-16，R3 第 7 轮 pass 零 finding；三次用户裁定 ResetRounds，六轮 block 共 13 条 finding 全部属实、全部当场修） |
 | 1a·2 | [T0-PREREVIEW-PROMPT](../specs/tasks/T0-PREREVIEW-PROMPT.md) | `_prereview-prompt.ps1` Build-PrereviewPrompt + 按路径类选 Lens 节 | FACTS-EXTRACT, CHECKLISTS | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
-| 1a·1 | [T0-PREREVIEW-FACTS-LIB](../specs/tasks/T0-PREREVIEW-FACTS-LIB.md) | `_prereview-facts.ps1` 纯函数库：worktree / base / 快照树 / policy hash / units / live_allowed / 模型路由 / temp root | SCHEMA | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·1 | [T0-PREREVIEW-UNIT-ID-REVISION](../specs/tasks/T0-PREREVIEW-UNIT-ID-REVISION.md) | 冻结 schema revision 1：hunk ID 序号消歧 + 夹具/投影/协议同步（2026-09-16 用户批准） | SCHEMA, RECORDS, PROTOCOL-DOC | M | Opus 5 · high | Sonnet 5 · max | todo |
+| 1a·1 | [T0-PREREVIEW-FACTS-LIB](../specs/tasks/T0-PREREVIEW-FACTS-LIB.md) | `_prereview-facts.ps1` 纯函数库：worktree / base / 快照树 / policy hash / units / live_allowed / 模型路由 / temp root | SCHEMA, UNIT-ID-REVISION | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
 | 1a·3 | [T0-PREREVIEW-FACTPACK](../specs/tasks/T0-PREREVIEW-FACTPACK.md) | `prereview-facts.ps1` 包骨架：temp root、`-FactsOut -Tree`、快照树导出、units.json、facts.json | FACTS, FACTS-LIB, CHECKLISTS | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
 | 1a·4 | [T0-PREREVIEW-FACTPACK-SLICES](../specs/tasks/T0-PREREVIEW-FACTPACK-SLICES.md) | 改动文件切片、acceptance.json、包级 secret 扫描（内容 + 路径）、包大小上限 | FACTPACK | L | DeepSeek V4 Pro | Sonnet 5 · max | todo |
 | 1a·2 | [T0-PREREVIEW-WORKERS](../specs/tasks/T0-PREREVIEW-WORKERS.md) | `prereview-workers.ps1` worker 命令契约、清空后白名单环境、自定义命令传输、envelope 解包 + provenance | SCHEMA, RUNNER, PROTOCOL-DOC | H | Opus 5 · high | Sonnet 5 · max | todo |
