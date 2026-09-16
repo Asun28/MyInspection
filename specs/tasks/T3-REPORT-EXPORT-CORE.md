@@ -1,7 +1,7 @@
 ---
 id: T3-REPORT-EXPORT-CORE
 title: Verified dual-format export workflow with semantic parity receipts
-depends_on: [T3-REPORT-INTERCHANGE-SCHEMA, T3-REPORT-HTML-RENDERER, T3-REPORT-HTML-PRESENTATION, T3-PDF-RENDER-DEVICE, T5-MEDIA-ARCHIVE-CONTRACT]
+depends_on: [T3-REPORT-INTERCHANGE-SCHEMA, T3-REPORT-HTML-RENDERER, T3-REPORT-HTML-PRESENTATION, T3-PDF-DEVICE-ACCEPTANCE, T5-MEDIA-ARCHIVE-CONTRACT]
 parallelizable_with: []
 status: todo
 branch: T3-REPORT-EXPORT-CORE
@@ -45,3 +45,6 @@ Coordinate both renderers behind one verified artifact protocol. Completion mean
 ## 2026-09-06 接口补充
 
 复用现有 ReportOptions/ReportContent，在 exporting 边界创建不可由 UI 任意构造的确认值；不就地改变已归档投影合同。签名草案与安全边界见 `specs/android-module-boundaries.md`。
+
+## 2026-09-17 PDF 验收依赖修订
+用户批准将完整真实80照四档验收移至 T3-PDF-DEVICE-ACCEPTANCE；本卡须在该卡通过后开始。重开核验与回执中的 semanticFingerprint 对应程序身份/同一filtered ReportContent；PDF页脚 native data_hash 对应原巡检数据哈希，不将两者比较为相等。此处保留原A1/A2/A7全部真实文件及回执验证，不把DEVICE或真机卡通过视为本卡验收。

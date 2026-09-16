@@ -1,7 +1,7 @@
 ---
 id: T1-LOCAL-DATA-SECURITY
-title: 本地数据安全底座：内外存储分层 + Keystore secret box + 脱敏日志
-depends_on: [T1-SPIKE-PLATFORM]
+title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING]
 status: todo
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
@@ -33,15 +33,21 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 ## 产出
 
-提供 `AppStoragePolicy`、Keystore-backed `LocalSecretBox` 和 `SafeLog` 三个 app 平台 primitive，供 capture、backup、restore 和 remediation 复用；不实现业务功能。
+本卡提供 `AppStoragePolicy` 与 Keystore-backed `LocalSecretBox` 两个 app 平台 primitive，供 capture、backup、restore 和 remediation 复用；不实现业务功能。`SafeLog` 与四处媒体脱敏接线由已完成的前置卡 `T1-SAFE-MEDIA-LOGGING` 提供，本卡保留其完整安全回归，不重复实现。
 
 ## 契约
 
 - 保留 ADR-0002 的 app-private/SAF 范围；具体落位按 ADR-0006 收紧：DB 等在 internal/no-backup，仅大媒体可在 app-specific external。
 - 数据库、settings、receipts、secret envelopes、restore journal 和 staging metadata 只使用 credential-encrypted internal/no-backup；大照片/音频可用 app-specific external，卷缺失/低空间返回结构化状态。
 - Keystore alias/version/purpose 分离；每次 AES-GCM 加密使用新的 96-bit nonce，持久化 envelope 仅含 version、nonce、ciphertext+tag，key/明文不可导出。设备尚未解锁返回可重试 `NEEDS_UNLOCK`；key 缺失/失效、版本不支持、envelope 损坏或认证失败返回需重新输入口令的 `NEEDS_PASSPHRASE`，保留旧回执且绝不尝试明文降级。JVM 测状态/codec/篡改；锁屏、凭据清除、key invalidation 与损坏 envelope 的真 Keystore 证据明确交给 `T7-SMOKE-POLISH` 清单，缺任一结果不得发布。
-- 日志调用方只传 operation/reason + opaque id/count/duration；现有 media 失败日志移除绝对路径与 raw Throwable（含 message/stack）；覆盖 MediaFileStore、PhotoImportPipeline、PhotoIngestPendingLease、PhotoOrphanCleanupWorker。
+- 前置安全日志能力持续回归：调用方只传 operation/reason + opaque id/count/duration；MediaFileStore、PhotoImportPipeline、PhotoIngestPendingLease、PhotoOrphanCleanupWorker 不输出绝对路径与 raw Throwable（含 message/stack）。实现归前置卡，本卡不重做这些接线。
 
 ## 验收
 
 见 front-matter。首选 GPT-5.6 Terra · high；备选 Sonnet 5 · max。难度 M。
+
+## 施工拆分（2026-09-17）
+
+RED 前完整首轮体量估计 905–1092 changed lines，按 800 行预警拆分：T1-SAFE-MEDIA-LOGGING 先独立交付 SafeLog、四处媒体接线与过时 core 日志断言修订；本卡随后交付 AppStoragePolicy 与 LocalSecretBox。原 dod_command/dod_assert 保留全部安全验收，前置日志测试随基线继续运行。两卡分别具备 RED、R4、独立 R3 与 R5，不共享过闸凭据。
+
+本卡不迁移既有 PhotoRuntimeStorage 的媒体或数据库位置；新存储 primitive 的生产装配由 T1-APP-BOUNDARY-ASSEMBLY 承接。目标本卡实现/测试/R4 约 635–800 行，写生产前按实际预算复核；若仍超限则继续在实现前拆分，不削弱验收。
