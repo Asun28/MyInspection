@@ -41,6 +41,8 @@ doc_sync: ADR-0007 + TASK-BOARD 备注（R5）
 
 ## RED、DoD 与预算
 
+执行器接收调用方拥有的输出流或等价窄 write 端口：所有已开始页结束后 writeTo，随后关闭文档，再返回成功；不能先关闭 PdfDocument 才尝试写出。路径选择与输出流的打开/关闭归调用方，原子发布和 receipt 仍归 EXPORT-CORE。字体按 PdfTextOp 的 font role 复用前置测量器交付的同一解析者，不另行选择、加载字体或测量。
+
 先以 fake port 写页配对、关闭顺序、失败路径、采样转交和位图计数 RED，再接平台 thin adapter。DoD/R4 见 front-matter；真实 80 照、CJK、High 铭牌、内存、大小行为和附录证据完整保留给 `T3-PDF-DEVICE-ACCEPTANCE`。
 
 完整 diff 目标 430–580 changed lines / 30k–44k characters：生产 180–250、直接测试 170–230、R4 与修复余量 80–100。NOTICE、字体与许可证已归前置，不能借此卡压缩或更改。RED 前按完整 diff 重算；预估达到 650 行或 45k 字符即按生命周期与 image bridge 再拆，不削弱 A1–A3。首选 GPT-5.6 Terra · medium；平台端口或异常关闭边界复杂时升为 high。

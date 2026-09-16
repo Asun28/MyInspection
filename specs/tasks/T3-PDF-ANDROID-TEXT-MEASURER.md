@@ -43,6 +43,8 @@ doc_sync: ADR-0007 + TASK-BOARD dependency note after merge（R5）
 
 ## RED、DoD 与预算
 
+字体加载同时提供供后继执行器复用的最小 font-role → Typeface 解析边界；测量与绘制必须使用同一角色解析和同一字体来源。此处只约定职责，不预造尚未交付的方法签名。执行器不得另行加载或选择竞争字体；解析边界不进行 Canvas 绘制或重新测量。
+
 先写 fake-port RED，覆盖 profile/language/role 的精确转交、最大宽度边界与 snapshot/linebox，随后新增薄 Android adapter；不得新引依赖。R4 与 DoD 见 front-matter。
 
 实现目标 310–440 changed lines / 28k–40k characters：生产 140–185、直接测试 115–160、许可登记 10–16、R4 与修复余量 45–80。默认 `git diff` 若识别同字节 asset 的 rename，字体与 189 行 NOTICE 记为 0 文本改行；3,451,900-byte 字体仍算资产审阅负担。保守回退（rename 未识别）把 NOTICE 删除+新增共 378 行/约21.4k 字符计入，完整预测为 688–818 行 / 49.4k–61.4k characters；超过约650行或50k字符时必须在 RED 前拆 asset/许可迁移，不能等到 ship。RED 前以 `review.ps1 -SizeOnly` 的实际完整 diff 重算；达到 650 行或 50k 字符先拆 adapter 与 asset/许可迁移，不删验收。首选 GPT-5.6 Terra · high；真实 Paint 度量、CJK fallback 与 wrap 边界需要该 effort；预算不因 effort 提高而扩大。若 core contract 实际形状需跨层改动则停止并回卡，不扩大 allow_paths。

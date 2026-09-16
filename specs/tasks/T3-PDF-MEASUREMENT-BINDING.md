@@ -3,7 +3,7 @@ id: T3-PDF-MEASUREMENT-BINDING
 title: Language-aware measurement binding and exact TextRun snapshots
 status: todo
 depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT, T3-PDF-PAGINATION-FIXTURES]
-parallelizable_with: [T1-LOCAL-DATA-SECURITY]
+parallelizable_with: [T3-PDF-DEVICE-FIXTURE]
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/ReportModel.kt
   - android/core/src/main/kotlin/nz/myinspection/core/report/DocumentPlan.kt
