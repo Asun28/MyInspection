@@ -282,6 +282,37 @@ Expect 'anchors/ok.md' (Invoke-AnchorsMode (Join-Path $FixtureRoot 'anchors/ok.m
 foreach ($neg in @('missing-row', 'extra-code', 'duplicate-row')) { Expect "anchors/$neg.md" (Invoke-AnchorsMode (Join-Path $FixtureRoot "anchors/$neg.md")) $false }
 Write-Host '[5/5] mini/ samples against the worker-envelope projection' -ForegroundColor Cyan
 Expect 'mini/' (Invoke-SchemaMode (Join-Path $FixtureRoot 'worker-envelope.min.json') (Join-Path $FixtureRoot 'mini')) $true
+Write-Host '[revision 1] hunk identities and envelope freshness' -ForegroundColor Cyan
+$revisionBefore = $all.Count
+$unitSchema = @{ '$ref' = '#/$defs/units'; '$defs' = $rs.Obj['$defs'] } | ConvertTo-Json -Depth 64
+$bodyHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+$unitCases = [ordered]@{
+  'file.txt#0123456789ab-1' = $true; 'file.txt#0123456789ab-2' = $true
+  'file.txt#0123456789ab-12' = $true; 'file.txt#file' = $true
+  'file.txt#0123456789ab' = $false; 'file.txt#0123456789ab-0' = $false
+  'file.txt#0123456789ab--1' = $false; 'file.txt#0123456789ab-1.5' = $false
+  'file.txt#0123456789ab-01' = $false
+}
+foreach ($id in $unitCases.Keys) {
+  $unit = @{ unit_id = $id; file = 'file.txt'; hunk_header = '@@ -1 +1 @@'; body_sha256 = $bodyHash }
+  if ($id.EndsWith('#file', [StringComparison]::Ordinal)) { $unit.hunk_header = $null }
+  $valid = ConvertTo-Json -InputObject @($unit) -Depth 8 | Test-Json -Schema $unitSchema -ErrorAction SilentlyContinue
+  Expect "unit $id" @{ Ok = $valid; Reasons = @('unexpected unit shape result'); Lines = @() } $unitCases[$id]
+}
+$twins = @(
+  @{ unit_id = 'file.txt#0123456789ab-1'; file = 'file.txt'; hunk_header = '@@ -1 +1 @@'; body_sha256 = $bodyHash },
+  @{ unit_id = 'file.txt#0123456789ab-2'; file = 'file.txt'; hunk_header = '@@ -20 +20 @@'; body_sha256 = $bodyHash }
+)
+$valid = ConvertTo-Json -InputObject $twins -Depth 8 | Test-Json -Schema $unitSchema -ErrorAction SilentlyContinue
+Expect 'same body, distinct hunk IDs' @{ Ok = $valid; Reasons = @('twins rejected'); Lines = @() } $true
+foreach ($schemaPath in @($RecordSchemaPath, (Join-Path $FixtureRoot 'worker-envelope.min.json'))) {
+  $schemaText = [IO.File]::ReadAllText($schemaPath)
+  foreach ($revision in @(0, 1)) {
+    $valid = "{`"schema_version`":1,`"schema_revision`":$revision,`"records`":[]}" | Test-Json -Schema $schemaText -ErrorAction SilentlyContinue
+    Expect "$(Split-Path -Leaf $schemaPath) revision $revision" @{ Ok = $valid; Reasons = @('envelope freshness mismatch'); Lines = @() } ($revision -eq 1)
+  }
+}
+if ($all.Count -eq $revisionBefore) { Write-Host '[PREREVIEW-UNIT-ID-REVISION-PASS]' -ForegroundColor Green }
 if ($all.Count) { $all | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }; Write-Host $FailSentinel -ForegroundColor Red; exit 1 }
 Write-Host $OkSentinel -ForegroundColor Green
 exit 0

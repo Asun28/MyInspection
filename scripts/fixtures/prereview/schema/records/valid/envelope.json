@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "schema_revision": 0,
+  "schema_revision": 1,
   "records": [
     {
       "local_id": "d1",
@@ -12,7 +12,7 @@
       "symbol": "Test-ScopePath",
       "line_start": null,
       "line_end": null,
-      "unit_ids": ["scripts/check-scope.ps1#0123456789ab"],
+      "unit_ids": ["scripts/check-scope.ps1#0123456789ab-1"],
       "trigger": "early return skips the loop",
       "expected": "every segment is checked",
       "actual": "a .. segment gets through",
@@ -44,7 +44,7 @@
       "introduced_or_worsened": "pre_existing",
       "suggested_fix_direction": ""
     },
-    { "unit_id": "scripts/check-scope.ps1#0123456789ab", "categories_checked": ["C1", "C2", "C3"], "status": "finding", "candidate_local_ids": ["d1"], "missing_context": [] },
+    { "unit_id": "scripts/check-scope.ps1#0123456789ab-1", "categories_checked": ["C1", "C2", "C3"], "status": "finding", "candidate_local_ids": ["d1"], "missing_context": [] },
     { "unit_id": "android/app/build.gradle.kts#file", "categories_checked": ["C1"], "status": "blocked", "candidate_local_ids": [], "missing_context": ["android/gradle/libs.versions.toml"] }
   ]
 }

@@ -270,7 +270,7 @@ $RejectClasses = [ordered]@{
   'coverage-case-variant-key.jsonl'   = 'Status beside status (ordinal, closed)'
   'malformed.jsonl'                   = 'lines that are not JSON objects'
 }
-$U1 = 'scripts/a.ps1#0123456789ab'; $U2 = 'scripts/a.ps1#89abcdef0123'; $U3 = 'docs/x.md#file'; $U4 = 'docs/y.md#file'
+$U1 = 'scripts/a.ps1#0123456789ab-1'; $U2 = 'scripts/a.ps1#89abcdef0123-2'; $U3 = 'docs/x.md#file'; $U4 = 'docs/y.md#file'
 
 Check 'harness: Eq / Same / OrdinalSet are ordinal (soft hyphen, ZWSP, case variants stay different)' (-not (Eq 'C-1' ('C-' + [char]0xAD + '1')) -and -not (Same @('a' + [char]0x200B) @('a')) -and -not (Eq 'd1' 'D1') -and -not (OrdinalSet @('l1')).Contains('L1'))
 Write-Host '[1/5] Test-PrereviewRecord: booleans, never a throw' -ForegroundColor Cyan
@@ -320,7 +320,7 @@ foreach ($name in $RejectClasses.Keys) {
 }
 function Edit([int]$i, [hashtable]$Set, [string]$Drop = '') { $x = [ordered]@{}; foreach ($k in $batch.Records[$i].Keys) { if (-not (Eq $k $Drop)) { $x[$k] = $batch.Records[$i][$k] } }; foreach ($k in $Set.Keys) { $x[$k] = $Set[$k] }; return $x }
 $mem = [ordered]@{
-  'candidate unit_ids entry not in units.json'               = @((Edit 0 @{ unit_ids = @('scripts/zz.ps1#0123456789ab') }))
+  'candidate unit_ids entry not in units.json'               = @((Edit 0 @{ unit_ids = @('scripts/zz.ps1#0123456789ab-1') }))
   'coverage candidate_local_ids names another worker local_id' = @($batch.Records[0], (Edit 8 @{ candidate_local_ids = @('d1') }))
   'one worker reuses a local_id'                              = @($batch.Records[0], (Edit 0 @{ expected = 'twice' }))
   'coverage unit_id not in units.json'                        = @((Edit 4 @{ unit_id = 'scripts/zz.ps1#file' }))
@@ -330,6 +330,9 @@ foreach ($name in $mem.Keys) {
   $threw = $false; $c = $null; $v = $null
   try { $c = ConvertTo-PrereviewCandidates -Records $mem[$name] -Units $units -NextId 7; $v = ConvertTo-PrereviewCoverage -Records $mem[$name] -Units $units -Candidates $c } catch { $threw = $true }
   Check "in-memory reject: $name -> both normalisers [PRE-BAD-RECORD], nothing minted, no throw" (-not $threw -and (Eq $c.Code $script:BadRecordCode) -and (Eq $v.Code $script:BadRecordCode) -and $c.NextId -eq 7 -and @($c.Candidates).Count -eq 0 -and @($v.Coverage).Count -eq 0)
+  if ($name.StartsWith('candidate unit_ids entry', [StringComparison]::Ordinal) -or $name.StartsWith('coverage unit_id not', [StringComparison]::Ordinal)) {
+    Check "in-memory reject: $name fails membership, not schema shape" ($c.Reasons.Count -eq 1 -and $c.Reasons[0].EndsWith(' is not in units.json', [StringComparison]::Ordinal))
+  }
 }
 
 Write-Host '[3/5] minting, exact merge, near-duplicate groups' -ForegroundColor Cyan
