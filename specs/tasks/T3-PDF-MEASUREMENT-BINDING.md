@@ -2,8 +2,8 @@
 id: T3-PDF-MEASUREMENT-BINDING
 title: Language-aware measurement binding and exact TextRun snapshots
 status: todo
-depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT]
-parallelizable_with: [T1-APP-STORAGE-POLICY]
+depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT, T3-PDF-PAGINATION-FIXTURES]
+parallelizable_with: [T1-LOCAL-DATA-SECURITY]
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/ReportModel.kt
   - android/core/src/main/kotlin/nz/myinspection/core/report/DocumentPlan.kt
@@ -47,8 +47,8 @@ Caption shortening already remeasures candidates. Preserve the snapshot from the
 
 Keep the DEFAULT assembly regression using two photographs, each with three caption runs, on the same appendix page. The existing title and slots use (2*5+2)+2*(108+3*4+2)=256mm of the unchanged 257mm body. A pure-data profile test cannot replace this composed-plan assertion.
 
-Legacy fakes that changed a single style's line height according to text violate the new immutable binding. Two 258mm single-line cases now assert the explicit profile mismatch. The old 93mm room-heading and 250mm section-opening fixtures are rebuilt with multiple fixed-height lines; preserve reduced first-chunk budget, full continuation budget, title grouping, full text reconstruction and no overflow. Exact fixture heights may change with discrete line counts. Do not add a production test bypass.
+Legacy fakes that changed a single style's line height according to text violate the new immutable binding. Two 258mm single-line cases now assert the explicit profile mismatch. The old 93mm room-heading and 250mm section-opening fixture migration is delivered first by T3-PDF-PAGINATION-FIXTURES. Consume those fixed-height fixtures without redoing their refactor; preserve reduced first-chunk budget, full continuation budget, title grouping, full text reconstruction and no overflow. Do not add a production test bypass.
 
 The PDF builder test file is allowed only to adapt three existing direct TextRun constructors and matching Composer profiles. PdfTextOp fields and direct-run placed-box validation belong to the successor OPS card. Actual Android glyph/Typeface/CJK/clipping evidence remains in DEVICE-ACCEPTANCE.
 
-Isolated migration/test candidate: 488 additions+deletions / 46,612 LF-normalized unified-diff characters. This is not GREEN: the caption-elision production repair and all current-scope R4/evidence remain outstanding. Recompute after those changes; pause at 800 lines or 50,000 characters before heavy execution and split if necessary. Preserve the hard 1,000-line / 60,000-character gate without compressing code or dropping acceptance.
+The round-2 test-only draft has not run RED or GREEN. Per-entry invalid-evidence regressions and exact candidate-text preservation bring the projected complete change, including planned R4, to 553 changed lines / 50,986 LF-normalized diff characters. Moving the two independently verifiable fixture hunks to T3-PDF-PAGINATION-FIXTURES projects this card at 514 lines / 47,164 characters, leaving 2836 characters below the early line for repairs. These are pre-execution projections, not test or mutation evidence. After the predecessor merges, start from its actual baseline, preserve all remaining tests, and obtain a new current-card official RED before production. Recompute the actual diff after every increment; pause at 800 lines or 50,000 characters before heavy execution and split if necessary. Preserve the hard 1,000-line / 60,000-character gate without compressing code or dropping acceptance.
