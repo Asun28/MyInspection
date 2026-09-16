@@ -228,7 +228,7 @@ class DocxReportExtractor {
                 return FragmentRole.CAPTION
             }
             warn(ExtractionWarningCode.UNRESOLVED_TEXT, text.source)
-            return if (column == FragmentRole.COMMENT) FragmentRole.COMMENT else FragmentRole.UNKNOWN
+            return if (column in setOf(FragmentRole.COMMENT, FragmentRole.STATUS)) column else FragmentRole.UNKNOWN
         }
         fun identityBoundary(value: String): Boolean = value.uppercase(Locale.ROOT) in
             setOf("PROPERTY ADDRESS", "INSPECTION DATE", "IMAGES", "FEATURE", "STATUS") ||

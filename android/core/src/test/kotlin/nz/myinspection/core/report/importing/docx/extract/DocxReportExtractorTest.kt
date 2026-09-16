@@ -19,8 +19,8 @@ class DocxReportExtractorTest {
     private fun DocxExtractionManifest.warnings(code: ExtractionWarningCode) = warnings.filter { it.code == code }
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    private fun assertWarning(result: DocxExtractionManifest, code: ExtractionWarningCode) =
-        assertTrue(result.warnings.any { it.code == code }, code.name)
+    private fun assertWarning(result: DocxExtractionManifest, code: ExtractionWarningCode, source: SourceLocation? = null) =
+        assertTrue(result.warnings.any { it.code == code && (source == null || it.source == source) }, code.name)
 
     private fun assertRejected(body: String, message: String) =
         assertEquals(message, assertFailsWith<IllegalArgumentException> { extractBody(body) }.message)
@@ -51,6 +51,14 @@ class DocxReportExtractorTest {
         assertNull(result.items[1].status)
         assertEquals("Water flows", result.items[1].comment?.raw)
         assertEquals(listOf("Kitchen", "Kitchen"), result.items.map { it.room })
+    }
+
+    @Test fun statusFragmentsPreserveRawOrderWithoutPairingItems() {
+        val result = extractBody(p("Status") + p("  FaIr  ") + p(" Unknown ") + p("Comments") + p("Note"))
+        assertEquals(listOf("  FaIr  " to "FaIr", " Unknown " to "Unknown"), result.bodyFragments()
+            .filter { it.role == FragmentRole.STATUS }.map { it.text.raw to it.text.normalized })
+        assertEquals(FragmentRole.COMMENT, result.bodyFragments().last().role)
+        assertTrue(result.items.isEmpty())
     }
 
     @Test fun everyStoryIsVisitedIncludingUnreferencedHeadersAndFooters() {
@@ -96,7 +104,7 @@ class DocxReportExtractorTest {
         assertEquals(listOf("Outer observation", "Nested observation", "One-cell note"),
             result.bodyFragments().map { it.text.raw })
         val note = result.fragments.single { it.text.raw == "One-cell note" }.text
-        assertTrue(result.warnings.any { it.code == UNRESOLVED_TEXT && it.source == note.source })
+        assertWarning(result, UNRESOLVED_TEXT, note.source)
     }
 
     @Test fun multipleNamesInOneTableCellRemainFragmentsWithTheirOwnBlocker() {
@@ -107,7 +115,7 @@ class DocxReportExtractorTest {
         assertEquals(listOf("First candidate", "Second candidate", "Fair", "Unassigned note"),
             result.bodyFragments().map { it.text.raw })
         val first = result.fragments.first().text.source
-        assertTrue(result.warnings.any { it.code == UNRESOLVED_TEXT && it.source == first })
+        assertWarning(result, UNRESOLVED_TEXT, first)
     }
 
     @Test fun trailingRoomHeadingAffectsFollowingItemOnly() {
@@ -122,9 +130,9 @@ class DocxReportExtractorTest {
         for (instruction in listOf("QUOTE", "HYPERLINK ../source", "QUOTE mailto:synthetic.invalid")) for (simple in listOf(true, false)) {
             val result = extractBody(p("Kitchen") + "<w:p>" +
                 field(instruction, run("Cached observation"), simple) + "</w:p>")
-            assertTrue(result.fragments.any { it.text.raw == "Cached observation" })
+            assertTrue("Cached observation" in result.rawFragments())
             val cached = result.items.single().name.source
-            assertTrue(result.warnings.any { it.code == UNRESOLVED_TEXT && it.source == cached })
+            assertWarning(result, UNRESOLVED_TEXT, cached)
             assertEquals(instruction != "QUOTE", result.warnings.any { it.code == URL_EXCLUDED })
         }
     }
@@ -151,7 +159,9 @@ class DocxReportExtractorTest {
         assertEquals(22, result.items.count { it.status != null })
         assertEquals("Overall impression", result.items.last().name.raw)
         assertEquals(40, result.fragments.count { it.text.raw.startsWith("Unassigned ") })
-        assertTrue(result.fragments.any { it.text.raw == "Undecided spelling" })
+        assertTrue("Undecided spelling" in result.rawFragments())
+        assertEquals(List(32) { "Good" } + "Undecided spelling" + List(24) { "Unassigned inner observation $it" },
+            result.bodyFragments().filter { it.role == FragmentRole.STATUS }.map { it.text.raw })
         assertWarning(result, AMBIGUOUS_COLUMNS)
         assertEquals(listOf("42 Synthetic Lane", "3 September 2026", "Inspection (03/09/2026)"), result.identity.map { it.text.raw })
         assertEquals("Original synthetic summary.", result.summaryCandidates.single().raw)
@@ -169,7 +179,7 @@ class DocxReportExtractorTest {
         val imageWarnings = result.warnings(IMAGE_REVIEW_REQUIRED)
         assertEquals(82, imageWarnings.size)
         assertEquals(result.images.map { it.part }.toSet(), imageWarnings.mapNotNull { it.source?.part }.toSet())
-        assertFalse(result.warnings.any { it.code == LAYOUT_IMAGE_EXCLUDED })
+        assertTrue(result.warnings(LAYOUT_IMAGE_EXCLUDED).isEmpty())
     }
 
     @Test fun damagedAndRepeatedCaptionTextIsNeverCorrectedOrPaired() {
@@ -180,8 +190,8 @@ class DocxReportExtractorTest {
         assertEquals(listOf("047", "2048", "047", "2048"), result.captions.map { it.number })
         assertEquals(4, result.captions.map { it.text.source }.distinct().size)
         assertEquals(2, result.fragments.count { it.text.raw == raw })
-        assertTrue(result.fragments.any { it.text.raw == "ABC-Area Alpha 11" })
-        assertTrue(result.fragments.any { it.text.raw == "4 5" })
+        assertTrue("ABC-Area Alpha 11" in result.rawFragments())
+        assertTrue("4 5" in result.rawFragments())
         assertWarning(result, AMBIGUOUS_CAPTIONS)
     }
 
@@ -293,14 +303,14 @@ class DocxReportExtractorTest {
                 "<w:r><w:t>Adjacent evidence</w:t></w:r></w:p>"
         }
         val result = extractBody(body)
-        assertEquals(listOf("Adjacent evidence", "Adjacent evidence", "Adjacent evidence"),
+        assertEquals(List(3) { "Adjacent evidence" },
             result.bodyFragments().map { it.text.raw })
     }
     @Test fun tableColumnLabelsArePreservedAsLabelsWithoutInventingAnItem() {
         val result = extractBody("<w:tbl>" + row("Feature", "Status", "Comments") +
             row("Original item", "Fair", "Original note") + "</w:tbl>")
         assertEquals(listOf("Original item"), result.items.map { it.name.raw })
-        assertEquals(listOf(FragmentRole.LABEL, FragmentRole.LABEL, FragmentRole.LABEL), result.fragments.take(3).map { it.role })
+        assertEquals(List(3) { FragmentRole.LABEL }, result.fragments.take(3).map { it.role })
     }
     @Test fun establishedItemContextWinsOverNumericCaptionPattern() {
         val result = extractBody(p("Kitchen") + p("Gap 100-mm wide"))
@@ -313,9 +323,8 @@ class DocxReportExtractorTest {
         assertTrue(result.captions.isEmpty())
     }
     @Test fun trackedDeletionCannotBecomeACurrentItem() {
-        val error = assertFailsWith<IllegalArgumentException> { extractBody(p("Kitchen") +
-            "<w:del><w:p><w:r><w:delText>Deleted observation</w:delText></w:r></w:p></w:del>") }
-        assertEquals("DOCX_TRACKED_CONTENT", error.message)
+        assertRejected(p("Kitchen") +
+            "<w:del><w:p><w:r><w:delText>Deleted observation</w:delText></w:r></w:p></w:del>", "DOCX_TRACKED_CONTENT")
     }
     @Test fun orphanWordTextCannotDisappearFromASuccessfulManifest() {
         assertUnsupportedText(run("Orphan observation"))
@@ -357,7 +366,7 @@ class DocxReportExtractorTest {
         assertEquals(width, result.images.single().width)
         assertEquals(width, result.images.single().height)
         assertWarning(result, IMAGE_REVIEW_REQUIRED)
-        assertFalse(result.warnings.any { it.code == LAYOUT_IMAGE_EXCLUDED })
+        assertTrue(result.warnings(LAYOUT_IMAGE_EXCLUDED).isEmpty())
         return result
     }
     @Test fun forgedSignaturesAreRejectedByReaderAndRetainedByExtractor() {
@@ -413,15 +422,13 @@ class DocxReportExtractorTest {
         assertEquals(24, result.images.single().width)
         assertEquals(24, result.images.single().height)
         assertRetainedPlacements(result, imagePart, bytes)
-        assertFalse(result.warnings.any { it.code == LAYOUT_IMAGE_EXCLUDED })
+        assertTrue(result.warnings(LAYOUT_IMAGE_EXCLUDED).isEmpty())
     }
     @Test fun unsupportedDrawingsRejectInsteadOfDisappearing() {
         val extra = "<a:graphic><a:graphicData><a:blip r:embed='absent'/></a:graphicData></a:graphic>"
         for (content in listOf("", "<a:graphic><a:graphicData/></a:graphic>") +
                 listOf("inline", "anchor").flatMap { listOf("<wp:$it/>$extra", "$extra<wp:$it/>") }) {
-            assertEquals("DOCX_DRAWING_STRUCTURE", assertFailsWith<IllegalArgumentException> {
-                extractBody("<w:p><w:r><w:drawing>$content</w:drawing></w:r></w:p>")
-            }.message)
+            assertRejected("<w:p><w:r><w:drawing>$content</w:drawing></w:r></w:p>", "DOCX_DRAWING_STRUCTURE")
         }
     }
     @Test fun emptyDrawingFramesRemainUnresolvedPlacements() {
@@ -435,7 +442,7 @@ class DocxReportExtractorTest {
         }
     }
     private fun unresolvedIdentity(result: DocxExtractionManifest) {
-        assertTrue(result.warnings.any { it.code == UNRESOLVED_TEXT && it.source == SourceLocation(DOCUMENT_PART, 0) })
+        assertWarning(result, UNRESOLVED_TEXT, SourceLocation(DOCUMENT_PART, 0))
     }
     @Test fun identityCannotCrossStructuralOrExcludedValueBoundaries() {
         for (between in listOf("<w:tbl/>", "<w:tbl>${row("Latch", "fair", "Note")}</w:tbl>",
@@ -443,13 +450,13 @@ class DocxReportExtractorTest {
                 field("AUTHOR", p("Excluded author"), true))) {
             val result = extractBody(p("PROPERTY ADDRESS") + between + p("Unrelated observation"))
             assertTrue(result.identity.isEmpty())
-            assertTrue(result.fragments.any { it.text.raw == "Unrelated observation" })
+            assertTrue("Unrelated observation" in result.rawFragments())
             unresolvedIdentity(result)
         }
         val result = extractBody(p("PROPERTY ADDRESS") + "<w:sdt><w:sdtContent>" +
             p("Unrelated observation") + "</w:sdtContent></w:sdt>")
         assertTrue(result.identity.isEmpty())
-        assertTrue(result.fragments.any { it.text.raw == "Unrelated observation" })
+        assertTrue("Unrelated observation" in result.rawFragments())
         unresolvedIdentity(result)
     }
     @Test fun repeatedIdentityLabelsExpireBeforeAnAdjacentValue() {
@@ -504,8 +511,3 @@ class DocxReportExtractorTest {
         } finally { System.setSecurityManager(previous) }
     }
 }
-
-/* R4 at c05f2579: 90 kills; control42. Full core969/4 old skips:
- * identity-parent test/guard removed, unique test restored.
- * XML/hashes: .review/extractor-r4/, .review/extractor-full-core-pruning/.
- */
