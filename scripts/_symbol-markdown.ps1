@@ -158,3 +158,41 @@ function Get-SymbolMarkdownVisible {
     }
     return -join $visible
 }
+
+# Kept beside the parser-facing helpers: callers need one positive extraction and two
+# negative controls (hidden literals and duplicate blocks) without depending on a
+# product document's incidental wording.
+function Test-ScaffoldSymbolMarkdownExamples {
+    [CmdletBinding()]
+    param()
+
+    $findings = @()
+    $oneBlock = @'
+intro
+```proof
+answer
+```
+'@
+    try {
+        $actual = Get-SymbolMarkdownBlock -Text $oneBlock -Label 'proof'
+        if ($actual.Value.Trim() -cne 'answer') { $findings += '[SYMBOL-MARKDOWN-EXAMPLE] visible top-level fenced block was not extracted exactly.' }
+    } catch { $findings += "[SYMBOL-MARKDOWN-EXAMPLE] valid fenced block threw: $($_.Exception.Message)" }
+
+    $visibleInput = @'
+shown
+<!-- hidden-comment -->
+`code-hidden`
+'@
+    $visible = Get-SymbolMarkdownVisible -Text $visibleInput
+    if ($visible -notmatch 'shown' -or $visible -notmatch 'code-hidden' -or $visible -match 'hidden-comment') {
+        $findings += '[SYMBOL-MARKDOWN-EXAMPLE] visible projection did not preserve readable text while masking comments.'
+    }
+
+    try {
+        [void](Get-SymbolMarkdownBlock -Text ($oneBlock + "`n" + $oneBlock) -Label 'proof')
+        $findings += '[SYMBOL-MARKDOWN-EXAMPLE] duplicate visible blocks were accepted.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'SYMBOL-MARKDOWN-BLOCK') { $findings += "[SYMBOL-MARKDOWN-EXAMPLE] duplicate blocks failed through the wrong guard: $($_.Exception.Message)" }
+    }
+    return $findings
+}

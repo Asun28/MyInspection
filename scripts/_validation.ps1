@@ -482,4 +482,21 @@ Set-Alias Get-ChildItem Get-RouteFixtureChildItem
   }
   Write-Host 'selftest-risk-routing: PASS'
 }
+
+function Test-ScaffoldValidationExamples {
+  [CmdletBinding()]
+  param()
+  $findings = @()
+  $product = Resolve-SelftestRiskRoute -ChangedPath @('android/app/Main.kt', 'configs/compliance/policy.json') -FrozenPath @('android/frozen/')
+  if ($product.Mode -cne 'not-applicable') { $findings += '[VALIDATION-EXAMPLE] product/compliance-only paths did not route to the explicit not-applicable result.' }
+  try {
+    [void](Convert-ValidationFrozenPaths '$script:ScaffoldConfig = @{ FrozenPaths = @(''['') }')
+    $findings += '[VALIDATION-EXAMPLE] malformed FrozenPaths authority was accepted.'
+  } catch {
+    # The error text is deliberately not asserted: the fail-closed boundary is the contract, and
+    # parse/runtime wording differs across supported PowerShell versions.
+  }
+  return $findings
+}
+
 if ($SelfCheck) { Invoke-ValidationSelfCheck }

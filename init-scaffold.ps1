@@ -9,9 +9,11 @@
   做的事：
     1. 填 scripts\_config.ps1：GhAccount / ProjectName / PythonVersion / FrozenPaths；
      并**清空** ReviewModel / ReviewEffort（元仓的实测组合不随模板下发；下游自测后再回填）。
-    2. 全仓替换 {{TOKENS}}：PROJECT_NAME / PROJECT_SLUG / PROJECT_TAGLINE / PYTHON_VERSION / LESSONS_MUST_CAP / GH_ACCOUNT / SCAFFOLD_VERSION（后者是源树 current，非 CLI）。
+    2. 全仓替换 {{TOKENS}}：PROJECT_NAME / PROJECT_SLUG / PROJECT_TAGLINE / PYTHON_VERSION / LESSONS_MUST_CAP / GH_ACCOUNT / SCAFFOLD_VERSION（后者源自 _config，非 CLI）。
     3. 重命名 CLAUDE.template.md -> CLAUDE.md；可选 pyproject.toml.example -> pyproject.toml（-WithPython）。
-    4. 可选清理元仓专属物（-Cleanup）：删模板自述 + 元仓 CHANGELOG；init-scaffold.ps1 本身**保留**、待你确认后手动删。
+    4. 可选清理元仓专属物（-Cleanup）：删模板自述 + 元仓 CHANGELOG；并修剪元仓自身的工作态（TD129）——归档树 specs/archive、
+       specs/tasks 只留 _TEMPLATE.md、specs/mutations 与 docs/adr 各只留 README.md、技术债追踪器只留登记层契约文本（删债项行）；
+       docs/lessons/LEDGER.md 刻意保留。init-scaffold.ps1 本身**保留**、待你确认后手动删。
        scripts\selftest.ps1 + 其 CI（scaffold-selftest.yml）**不删**（TD15）：约 12/17 闸测的是随下游保留的
        生产脚本（task.ps1/review.ps1/check-cards.ps1/...），继续当你项目自己的工作流自检。
 
@@ -30,7 +32,9 @@
                         （`pwsh -File` 不解析数组语法，故用单串内部切分），如
                         'backend/app/providers/contract\.py,backend/app/schemas/manifest'。默认空（项目还没冻结点）。
 .PARAMETER WithPython   重命名 pyproject.toml.example -> pyproject.toml。
-.PARAMETER Cleanup      删元仓专属物（初始化后）：TEMPLATE-README.md、CHANGELOG.md。scripts\selftest.ps1 与
+.PARAMETER Cleanup      删元仓专属物（初始化后）：TEMPLATE-README.md、CHANGELOG.md，并修剪元仓工作态（TD129：
+                        specs/archive 整树 · specs/tasks 只留 _TEMPLATE.md · specs/mutations 与 docs/adr 各只留 README.md ·
+                        技术债追踪器只留契约文本；docs/lessons/LEDGER.md 保留）。scripts\selftest.ps1 与
                         .github\workflows\scaffold-selftest.yml **保留**（TD15，随下游继续当工作流自检）；
                         init-scaffold.ps1 本身也不自动删，保留待你确认后手动删。
 .PARAMETER Retrofit     改造既有仓模式：token 替换只扫脚手架自有路径，不递归扫用户既有源码（非破坏式）。
@@ -109,7 +113,7 @@ Step '填 scripts\_config.ps1'
 $cfgPath = Join-Path $Root 'scripts/_config.ps1'
 if (-not (Test-Path $cfgPath)) { throw "找不到 scripts\_config.ps1（确认在模板根目录跑本脚本）。" }
 $cfg = Get-Content $cfgPath -Raw
-# 取源树当前已裁决版本；child 从这一版生成，因此 origin/current 都从该值起步。
+# 取脚手架版本（溯源戳，源自 _config 的 ScaffoldVersion，非 CLI 参数）；缺失回退 unknown。
 $scaffoldVersion = ([regex]::Match($cfg, "ScaffoldVersion\s*=\s*'([^']*)'")).Groups[1].Value
 if (-not $scaffoldVersion) { $scaffoldVersion = 'unknown' }
 # 写进 _config.ps1 的值是**单引号 PS 字面量**：值里的单引号必须翻倍转义，否则一个撇号（如 "O'Brien Studio"）
@@ -120,21 +124,46 @@ $ghEsc = $GhAccount -replace "'", "''"
 $pyEsc = $PythonVersion -replace "'", "''"
 # GhAccount 用值无关替换（非 .Replace 空串锚定）：元仓常态是本地已填 GhAccount 以启用账号守卫，
 # selftest 闸 8 从这样的工作树拷出冒烟时也须能重填为 'smoke'；参数留空则不动既有值（不拿空串抹掉已配账号）。
-if ($GhAccount) { $cfg = [regex]::Replace($cfg, "GhAccount\s*=\s*'[^']*'", "GhAccount = '$ghEsc'") }
+# T292: every field rewrite here is anchored to its whole assignment LINE, the shape T289 landed for PlanDir.
+# Unanchored, `GhAccount\s*=\s*'[^']*'` also reaches a COMMENTED look-alike (`# GhAccount = '...'`, which this
+# repo's own _config.ps1 carries in its prose) and the tail of a LONGER-NAMED one (`LegacyGhAccount = '...'`),
+# so a downstream config that merely mentions a field came back rewritten. Only the quoted value is replaced,
+# so indentation is untouched and a line already holding the target value comes out byte-identical.
+if ($GhAccount) { $cfg = [regex]::Replace($cfg, "(?m)(?<=^[ \t]*GhAccount[ \t]*=[ \t]*)'[^']*'(?=[ \t\r]*$)", "'$ghEsc'") }
+# T190（上游 issue #266）：新下游的「生成溯源」= 它此刻被生成自的这一版，故 origin 初始 == current。
+# 二者从此各走各的：`ScaffoldVersion` 随回填前进，本字段永不动，fleet 账本的 fail-closed 下限绑在它上。
+# 值无关替换（同上 GhAccount 的理由）：模板里出厂是空串，但元仓本地可能已填，锚定空串会静默 no-op。
+# 注意 "ScaffoldVersion" 不是 "ScaffoldOriginVersion" 的子串（Scaffold-Origin-Version），故两条正则互不误伤。
+$cfg = [regex]::Replace($cfg, "ScaffoldOriginVersion\s*=\s*'[^']*'", "ScaffoldOriginVersion = '$scaffoldVersion'")
 $cfg = $cfg.Replace("ProjectName = ''", "ProjectName = '$pnEsc'")
 # PythonVersion/LessonsMustCap 同 GhAccount 用值无关替换（TD41/TD-104）：字面 .Replace 锚定的是「当前默认值」
 # 的精确文本，若维护者日后 bump 了 _config.ps1 里的默认值，锚点即与实际内容不再相等 → 静默 no-op、下游拿到
 # 陈旧值而 init 仍报成功。正则只认字段名与形状（'...'/数字），值本身随便改都不受影响。
-$cfg = [regex]::Replace($cfg, "PythonVersion\s*=\s*'[^']*'", "PythonVersion = '$pyEsc'")
-$cfg = [regex]::Replace($cfg, "LessonsMustCap\s*=\s*\d+", "LessonsMustCap = $LessonsMustCap")
-# 新项目的 origin 是生成它的源树 current；不得继承源项目更早的历史 origin。
-$cfg = [regex]::Replace($cfg, "ScaffoldOriginVersion\s*=\s*'[^']*'", "ScaffoldOriginVersion = '$scaffoldVersion'")
+# T292: line-anchored as above. Value-agnostic and line-anchored are independent properties - the match still
+# ignores the value, it just refuses to start anywhere but at the head of the assignment line.
+$cfg = [regex]::Replace($cfg, "(?m)(?<=^[ \t]*PythonVersion[ \t]*=[ \t]*)'[^']*'(?=[ \t\r]*$)", "'$pyEsc'")
+$cfg = [regex]::Replace($cfg, "(?m)(?<=^[ \t]*LessonsMustCap[ \t]*=[ \t]*)\d+(?=[ \t\r]*$)", "$LessonsMustCap")
 # R3 评审模型/推理档位：元仓把它们钉成自己**实测过**的组合（免疫用户级 codex 配置漂移），但那是
 # 「某个模型名 + 某个 codex CLI 版本」的一次性证据——**不该随模板下发**给下游（L26：别把易变当恒久；
 # 模型会改名、档位支持随模型而异、CLI 版本各异）。故 init 一律清空：下游先跑通后端默认，
 # 待自己实测出可用的 <模型, 档位> 组合再回填 _config，即获同样的漂移免疫。
-$cfg = [regex]::Replace($cfg, "ReviewModel\s*=\s*'[^']*'", "ReviewModel = ''")
-$cfg = [regex]::Replace($cfg, "ReviewEffort\s*=\s*'[^']*'", "ReviewEffort = ''")
+# T292: line-anchored as above. This pair carried the defect in the live tree - `_config.ps1` explains the
+# size-tier table with a prose `ReviewEffort = 'high'`, and the unanchored match blanked that sentence too.
+$cfg = [regex]::Replace($cfg, "(?m)(?<=^[ \t]*ReviewModel[ \t]*=[ \t]*)'[^']*'(?=[ \t\r]*$)", "''")
+$cfg = [regex]::Replace($cfg, "(?m)(?<=^[ \t]*ReviewEffort[ \t]*=[ \t]*)'[^']*'(?=[ \t\r]*$)", "''")
+# T162：ReviewEffortBySize 同理清空下发——一组 <模型, 档位> 只验证于上游当时的 codex CLI 版本，
+# 下游先跑通后端默认、自己实测出可用组合再回填，才获得同样的漂移免疫（与上面两键同一理由，闸 17z 同锁）。
+$cfg = [regex]::Replace($cfg, "ReviewEffortBySize\s*=\s*@\{[^}]*\}", "ReviewEffortBySize = @{}")
+# T158：SelftestSkipScans 同理**一律清空下发**——它声明的是「本项目认为哪条冒烟扫描冗余」，那是**上游这个仓**
+# 的判断，不是下游的。一个**预先解除武装**到货的脚手架是最糟的默认值：下游必须先全部跑起来，确认自己也有
+# 对应的执行臂覆盖之后，再自己回填。变异批专门盯这一行——它若存活，下游就会继承上游的解除武装态。
+$cfg = [regex]::Replace($cfg, "SelftestSkipScans\s*=\s*@\([^)]*\)", "SelftestSkipScans = @()")
+# T289: PlanDir is cleared for the same reason as the keys above - what the upstream pinned for itself must
+# not arrive as a product's default, and a product plan may carry commercially sensitive text. Empty is not
+# off-and-broken: it resolves to today's gitignored `_local` (Get-ScaffoldPlanDir). Anchored to the whole
+# assignment LINE - the shape T292 then gave every key above - so it cannot reach a commented or longer-named
+# look-alike; only the quoted value is replaced, so an already-empty line comes out byte-identical.
+$cfg = [regex]::Replace($cfg, "(?m)(?<=^[ \t]*PlanDir[ \t]*=[ \t]*)'[^']*'(?=[ \t\r]*$)", "''")
 # 逗号/分号分隔 → 列表（pwsh -File 把参数当字面字符串，故在脚本内切分）
 $frozenList = @($FrozenPaths -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($frozenList.Count -gt 0) {
@@ -165,7 +194,7 @@ $tokens = @{
   # 不经这张 token map；{{GH_ACCOUNT}} 目前只出现在文档正文（CLAUDE.md/TEMPLATE-README.md）里被提及自身，
   # 无 .example/.yml/.toml payload 真正消费它。保留（非删除）以防未来模板文件需要内嵌账号名。
   '{{GH_ACCOUNT}}'       = $(if ($GhAccount) { $GhAccount } else { '<your-github-account>' })
-  '{{SCAFFOLD_VERSION}}' = $scaffoldVersion   # current 版本戳：源自 _config ScaffoldVersion（非 CLI 参数）
+  '{{SCAFFOLD_VERSION}}' = $scaffoldVersion   # 溯源戳：源自 _config ScaffoldVersion（非 CLI 参数）
 }
 $exts = '*.md', '*.json', '*.yml', '*.yaml', '*.toml', '*.example'
 # -Force：Linux 把 .github/.claude 等点目录标记 Hidden，Get-ChildItem -Recurse 默认跳过隐藏目录，
@@ -247,12 +276,12 @@ elseif ((Test-Path $claudeMd) -and ((Get-Content $claudeMd -Raw) -match '<!-- TE
   # 剥离：不依赖模板是否还在，只要现存 CLAUDE.md 携带哨兵就修——配合 -Force 即可修复该残局。
   if ($DryRun) {
     $plannedChanges.Add("改写: $claudeMd（剥离残留模板头注）")
-    Write-Host '  [DryRun] CLAUDE.md 携带残留模板头注——将就地剥离（TD65/TD-122 #3）'
+    Write-Host '  [DryRun] [INIT-STALE-HEADER] CLAUDE.md still carries the template header note - it will be stripped in place (TD65/TD-122 #3)'
   } else {
     $cm = Get-Content $claudeMd -Raw
     $cm = [regex]::Replace($cm, '(?s)<!-- TEMPLATE-NOTE:START.*?TEMPLATE-NOTE:END -->\r?\n?', '')
     Set-Content -Path $claudeMd -Value $cm -Encoding utf8 -NoNewline
-    Write-Host '  CLAUDE.md 携带残留模板头注（疑似此前中断于改名与剥离之间）——已就地剥离（TD65/TD-122 #3）。'
+    Write-Host '  [INIT-STALE-HEADER] CLAUDE.md carried the template header note (a previous run likely stopped between the rename and the strip) - stripped in place (TD65/TD-122 #3).'
   }
 }
 if ($WithPython) {
@@ -332,17 +361,73 @@ if ($Cleanup) {
   # 汇总消息须分别如实反映两者的真实去留——不能无条件宣称「已删」（第一轮只补了 CHANGELOG 一侧，漏了
   # TEMPLATE-README 侧同款 bug：其提炼失败保留路径早在 TD65/8l 就存在，消息却始终写死「已删 TEMPLATE-README.md」）。
   $deletedParts = @()
-  $retainedParts = @()
-  if ($readmeDeleted) { $deletedParts += 'TEMPLATE-README.md' } else { $retainedParts += 'TEMPLATE-README.md（英文 on-ramp 提炼失败，见上方告警）' }
-  if ($changelogDeleted) { $deletedParts += 'CHANGELOG.md' } else { $retainedParts += 'CHANGELOG.md（未含自证标记，见上方告警）' }
-  $summaryMsg = ''
-  if ($deletedParts.Count -gt 0) {
-    $qualifier = if ($deletedParts.Count -gt 1) { '均元仓专用' } else { '元仓专用' }
-    $deleteVerb = if ($DryRun) { '将删除' } else { '已删' }
-    $summaryMsg += "$deleteVerb $($deletedParts -join '、')（$qualifier）。"
+  $retainedNames = @()
+  if ($readmeDeleted) { $deletedParts += 'TEMPLATE-README.md' } else { $retainedNames += 'TEMPLATE-README.md' }
+  if ($changelogDeleted) { $deletedParts += 'CHANGELOG.md' } else { $retainedNames += 'CHANGELOG.md' }
+  # [INIT-CLEANUP] 是本消息里**唯一**的去留陈述（TD120/L165）：deleted= / kept= 是逗号连接的裸文件名、内部
+  # 无空白，故闸门断言的是**列表成员**而非散文相邻性（旧锁不得不手工收窄正则来避开**正确**消息——它把两个
+  # 文件名一删一留写在同一行——那种窄正则本身就是易碎面）。**刻意不再另附一句散文重述去留**：TD64/TD-127
+  # item8 的缺陷本体正是「消息宣称已删某个其实被保留的文件」，同一事实说两遍就等于留一份不受闸门保护的
+  # 副本，缺陷可以从散文那半原样复活而两道锁全绿。每个被保留文件的**原因**已由上方各自的 Write-Warning
+  # 打印，此处不重复。mode= 区分预览与实施。
+  $mode = if ($DryRun) { 'dryrun' } else { 'apply' }
+  $deletedField = if ($deletedParts.Count -gt 0) { $deletedParts -join ',' } else { 'none' }
+  $keptField = if ($retainedNames.Count -gt 0) { $retainedNames -join ',' } else { 'none' }
+  Write-Host "  [INIT-CLEANUP] mode=$mode deleted=$deletedField kept=$keptField (deleted files are meta-repo only; each kept file's reason is in its own warning above). scripts\selftest.ps1 and its CI workflow are kept - go on using them as your own project's workflow self-test (TD15). This script is kept after the run - delete init-scaffold.ps1 by hand once you have confirmed the result."
+
+  # ── TD129: prune the meta-repo's own working state ────────────────────────
+  # Why here: -Cleanup was written to remove the two files that are obviously meta-repo-only (TEMPLATE-README.md,
+  # CHANGELOG.md) and was never revisited when the scaffold grew stateful subsystems - an archive tree, a debt ledger,
+  # an ADR series, a mutation-evidence store. Those are all working state of this scaffold's own development, but they
+  # live in ordinary tracked paths, so every copy-and-init path carries them verbatim into the new project. Measured
+  # downstream (MyInspection, 2026-08-14): 85 cold-stored cards, the debt and lesson archives, every in-flight debt row
+  # and 5 meta-repo ADRs all landed there, leaving the user to identify and delete them by hand - risky in both
+  # directions (delete too much and template payload goes with it; too little and the project carries permanent
+  # confusion about which debts and decisions are its own).
+  # docs/lessons/LEDGER.md is kept on purpose: toolchain pitfalls generalise, and the template CLAUDE.md cites its L-ids.
+  # -Cleanup only. -Retrofit joins a repo that is already the user's, where same-named files are their own (L55).
+  $prunedNames = @(); $prunedKept = @('docs/lessons/LEDGER.md')
+  $archiveDir = Join-Path $Root 'specs/archive'
+  if (Test-Path $archiveDir) {
+    if ($DryRun) { $plannedChanges.Add("prune: $archiveDir (meta-repo cold store: closed cards + debt/lesson archives)") }
+    else { Remove-Item -Recurse -Force $archiveDir -ErrorAction SilentlyContinue }
+    $prunedNames += 'specs/archive'
   }
-  if ($retainedParts.Count -gt 0) { $summaryMsg += "已保留 $($retainedParts -join '；')。" }
-  Write-Host "  $summaryMsg scripts\selftest.ps1 与其 CI 工作流保留——继续当你项目自己的工作流自检（TD15）。本脚本将在结束后保留——确认无误后可手动删 init-scaffold.ps1。"
+  # Directory-level "keep exactly one file": every other entry is this repo's in-flight or historical artifact.
+  foreach ($keepPair in @(@('specs/tasks', '_TEMPLATE.md'), @('specs/mutations', 'README.md'), @('docs/adr', 'README.md'))) {
+    $dirRel = $keepPair[0]; $keepName = $keepPair[1]
+    $dirFull = Join-Path $Root $dirRel
+    if (-not (Test-Path $dirFull)) { continue }
+    $victims = @(Get-ChildItem $dirFull -Force | Where-Object { $_.Name -ne $keepName })
+    if ($victims.Count -eq 0) { continue }
+    foreach ($v in $victims) {
+      if ($DryRun) { $plannedChanges.Add("prune: $($v.FullName) (meta-repo working state; $dirRel keeps only $keepName)") }
+      else { Remove-Item -Recurse -Force $v.FullName -ErrorAction SilentlyContinue }
+    }
+    $prunedNames += ('{0}(-{1})' -f $dirRel, $victims.Count); $prunedKept += ('{0}/{1}' -f $dirRel, $keepName)
+  }
+  # Tech-debt tracker: drop the DEBT ROWS only, keep the registration-layer contract text. The header prose, the status
+  # enum, the "how to write a row" section, the table header/separator and the _示例_ teaching rows are all template
+  # payload - a downstream registers its own debt against them. Criterion = a line beginning `| TD<digits> |`, so the
+  # teaching rows and every paragraph survive untouched.
+  $trackerFull = Join-Path $Root 'specs/tech-debt-tracker.md'
+  if (Test-Path $trackerFull) {
+    $trackerLines = @(Get-Content $trackerFull)
+    $trackerKeep = @($trackerLines | Where-Object { $_ -notmatch '^\|\s*TD\d+\s*\|' })
+    $trackerDropped = $trackerLines.Count - $trackerKeep.Count
+    if ($trackerDropped -gt 0) {
+      if ($DryRun) { $plannedChanges.Add("rewrite: $trackerFull (drop $trackerDropped meta-repo debt rows, keep the contract text)") }
+      else { Set-Content -Path $trackerFull -Value (($trackerKeep -join "`n") + "`n") -Encoding utf8 -NoNewline }
+      $prunedNames += ('specs/tech-debt-tracker.md(-{0} rows)' -f $trackerDropped)
+    }
+    $prunedKept += 'specs/tech-debt-tracker.md(contract text)'
+  }
+  # [INIT-PRUNE] gets its own line: gate 8 pins [INIT-CLEANUP]'s field group by list membership, and crowding a second
+  # statement onto that line is exactly the fragile prose-adjacency shape TD120 wave 2 removed.
+  $pruneMode = if ($DryRun) { 'dryrun' } else { 'apply' }
+  $prunedField = if ($prunedNames.Count -gt 0) { $prunedNames -join ',' } else { 'none' }
+  Write-Host "  [INIT-PRUNE] mode=$pruneMode pruned=$prunedField kept=$($prunedKept -join ',') (meta-repo working state: this scaffold's own development history, meaningless in your project. LEDGER.md is kept on purpose - toolchain pitfalls generalise and the template CLAUDE.md cites its L-ids.)"
+
 }
 
 if ($DryRun) {

@@ -12,6 +12,19 @@
 ```
                           一句话想法
                               │
+> **产物落在哪里、闸门看不看得见（T152）**：下图三步的产物都落在 `<PlanDir>/`——`PlanDir` 见 `scripts/_config.ps1`，**留空即 `_local/`**，也就是今天的行为。
+>
+> | 产物 | 落点 | 闸/CI/评审者可达？ |
+> |---|---|---|
+> | `1-brief.md` | `<PlanDir>/1-brief.md` | PlanDir 留空时**否**（gitignored） |
+> | `2-options.md` | `<PlanDir>/2-options.md` | 同上；但选定结论会落 `docs/adr/NNNN-*.md`，**那份可达** |
+> | `PLAN.md` | `<PlanDir>/PLAN.md` | 同上——而 CLAUDE.md 与 specs/README.md 都称它**唯一真相源** |
+> | 任务卡 | `specs/tasks/*.md` | **是**（受追踪、check-cards 机检） |
+>
+> 想让计划对评审 #7 的追溯可达，就把 `PlanDir` 设成受追踪目录；默认**不搬任何东西**（内部计划可能含敏感内容）。
+> 可达 ≠ 有用：没人更新的已提交计划是**陈旧**的真相源。真正的耦合（实现与计划同 diff，DocSyncMap 那套）
+> 本卡**不建**——产物不可达之前建不了。
+
   ┌───────────────────────── 第1步 Shape (1-brief) ─────────────────────────┐
   │  ① 发散 DIVERGE (做加法/探索)        ② 收敛 CONVERGE (做减法/定义)        │
   │  AI 并行调研:痛点·JTBD·竞品·         AI: KANO/MoSCoW 排序 → 砍伪需求 →    │
@@ -27,9 +40,10 @@
                           ▼  _local/2-options.md + docs/adr/NNNN-*.md
   ┌───────────────────── 第3步 Plan (3-plan) ───────────────────────────────┐
   │  (设计先拷问) grill-design 沿决策树一次一问·给推荐·消解依赖 → 敲定设计    │
-  │  PLAN-TEMPLATE 扩写 → plan-forge.mjs 8 lens 审计(含 ③ module-design:      │
-  │  模块化/扁平化/去中心化「做乘法」+ 反过度工程右尺寸) + 多裁判对抗核验     │
-  │  → 裁决 → 投影任务卡 → decompose-cards 卡审                               │
+  │  PLAN-TEMPLATE 扩写 → plan-forge.mjs 审计(深度按 tier: T2 走 8 lens 含   │
+  │  ③ module-design 做乘法+反过度工程右尺寸、每条发现派 3 裁判对抗核验;      │
+  │  T1 走 3 lens 无对抗轮; T0 跳过) → 裁决【即止，不投卡】                    │
+  │  → decompose-cards 投影任务卡 + 卡审(投影的唯一所有者)                     │
   │                          ⛳人批计划/卡                                     │
   └────────────────────────────────┬────────────────────────────────────────┘
                                     ▼  specs/tasks/*.md (带 MoSCoW 优先级)
@@ -39,7 +53,7 @@
   │  安全闸 → R3 Codex 评审 → PR → 合并 → R5 文档同步   (冻结点卡先合)        │
   │                                                                           │
   │  ┄┄ 前端分支(T2·复杂多页前端) ┄ frontend-flow 串现有件:                  │
-  │     流程卡(页面地图)→plan-forge 投卡 │ 意图卡(单页)→grill-design 拷问     │
+  │     流程卡(页面地图)→decompose-cards 投卡 │ 意图卡→grill-design 拷问     │
   │     生成→pencil MCP/Claude Design 高保真 │ 验证过区块→回流 context/       │
   └─────────────────────────────────────────────────────────────────────────┘
                                     ▼
@@ -79,7 +93,12 @@
 | **T2 完整** | 大 / 长周期 / 团队 / 合规 | + 前端闭环（frontend-flow 串 frontend-design / taste-skill / pencil）+ post-merge（DELIVERY-OPS：集成/e2e·可观测·灰度·CD）+ 心跳（triage）+ 全套对抗。 | 全链 + 前端分支 + 合并之后交付/运维层 |
 
 > 档位是「**建议跳过哪些链**」，AI/人按项目规模裁；`_config.ProjectTier` 只是软提示，不做强制机制、不做物理裁剪。
-> **注**：T2 的「团队 / 合规」指**项目复杂度**（更重的流程 / 审计需求），**不**代表脚手架提供多人组织治理——git 层账号守卫仍锁**单个人账号**、R3 状态可被任何写权限者伪造（见 `docs/SECURITY.md` §4）。org/team 治理是范围外、须 ADR 扩展。
+> **一处例外，且它不是自动的（TD180）**：`plan-forge.mjs` 的审计**深度**按调用方传进去的 `tier` 参数路由
+> （T0 跳过 / T1 三个 lens / T2 全套对抗）。传的是**字面量**，`_config.ProjectTier` 仍然只是**起点建议**、
+> 不被任何工作流自动读取——本表的档位回答「跳过哪些交付链」（T1 行恰恰**要跑**这个漏斗），而审计深度是
+> **逐计划**的判断，两者不是同一个问题。用法见 `docs/PLAN-FORGE.md`。
+> **注**：T2 的「团队 / 合规」指**项目复杂度**（更重的流程 / 审计需求），**不**代表脚手架提供多人组织治理——git 层账号守卫仍锁**单个人账号**、R3 状态可被任何写权限者伪造（见 `docs/SECURITY.md` §4 与 `specs/tech-debt-tracker.md` TD14）。org/team 治理是范围外、须 ADR 扩展。
+> **别把这张表的 T0/T1/T2 和卡片的验收 tier S/1/0 弄混——两个轴，两个问题。** 本表是**项目**规模档位（走哪些交付链），是给人/AI 的软建议、由 `_config.ProjectTier` 起头；**验收 tier** 是**每张卡**的爆炸半径（ADR 0016），由 `check-cards` 从卡的 `allow_paths` **算出来**、打印 `[CARD-TIER] id=<id> tier=<S|1|0>`，卡只能声明 `tier:` 往上抬、抬不下去，决定的是那张卡的**验收该跑什么**：S = 全 17 闸本地全量跑；1 = `selftest.ps1 -TaskId <id>`（按 `[GATE-MAP]` 路由的闸 + 底座，结论 `[SELFTEST-TIER-PASS]`）；0 = `ci.yml`，`-TaskId` 建议不强制。一个 T0 极简项目里照样会出现 Tier-S 的卡（它动了 enforcer），反之亦然。
 
 ## 一眼看懂
 
@@ -116,8 +135,8 @@
 **怎么开始**：
 0. （可选但推荐）填 PLAN 前先说「**grill / 拷问我的设计**」触发 `grill-design`：AI 沿设计决策树**一次一问、每问给推荐、消解依赖**，把数据模型/契约/状态机/模块边界/错误路径敲定——设计先 grill 清楚，下一步 plan-forge 少返工。
 1. `Copy-Item docs\PLAN-TEMPLATE.md _local\PLAN.md`（或叫 `_local/3-plan.md`），按第 1 步简报 + 第 2 步 ADR（+ grill 敲定的设计决策）填各节。
-2. `Workflow({ scriptPath: ".claude/workflows/plan-forge.mjs", args: { planPath: "_local/PLAN.md" } })` —— 8 个 lens 审计（含 `module-design`：模块化/扁平化/去中心化「做乘法」+ 反过度工程右尺寸）+ 多裁判对抗核验 → 裁决 → 投影任务卡 + 卡审。
-3. 裁决 `fix-first` 就按修正项改计划到 `ready`；然后 `decompose-cards.mjs` 投影成 `specs/tasks/*.md`。
+2. `Workflow({ scriptPath: ".claude/workflows/plan-forge.mjs", args: { planPath: "_local/PLAN.md", tier: "T2" } })` —— **`tier` 传字面量**（`"T0"`/`"T1"`/`"T2"`，缺省即最深的 T2）：`T2` 走全 **8 个 lens**（含 `module-design`：模块化/扁平化/去中心化「做乘法」+ 反过度工程右尺寸）+ 多裁判对抗核验，约 60–85 agent；`T1` 走 3 个 lens（`future-self`/`decomposition`/`dod`）、无对抗轮，**4 agent**；`T0` 按下面的档位表跳过整个漏斗，0 agent。**别内插 `Get-ScaffoldProjectTier`**——它在键缺失和值为空时都回退 `T1`，会把每份计划静默降到最浅档（细节见 `docs/PLAN-FORGE.md`）。
+3. **裁决就是终点**：plan-forge 不投影任务卡。`fix-first` 就按修正项改计划到 `ready`；然后 `decompose-cards.mjs` 投影成 `specs/tasks/*.md`（它是投影的唯一所有者，TD180）。
 **会发生什么**：计划是**唯一真相源**（你拥有/你批准），任务卡是它的薄投影。写计划的纪律（不留占位、任务右尺寸、文件结构即拆解）借自 Superpowers `writing-plans`；审计/拆卡引擎是本仓自有、更强。
 **细节**：`docs/PLAN-FORGE.md`（引擎）·`specs/README.md`（任务卡投影约定）。
 
