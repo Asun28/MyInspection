@@ -216,56 +216,62 @@ class SafeLogTest {
     }
 
     @Test
-    fun `pending lease and orphan worker retain outcome distinctions without leaking core failures`() = inSensitiveTempDir { root ->
-        val sink = CapturingSink()
-        val log = SafeLog(sink)
-        val lease = PhotoIngestPendingLease(photoId, { false }, log)
-        lease.finish(PhotoIngestOutcome.Recorded(photoId, "photos/private.jpg", false, null))
-        lease.close()
-        val throwingLogLease = PhotoIngestPendingLease(
-            photoId,
-            { false },
-            SafeLog(SafeLogSink { throw IllegalStateException("sink unavailable") }),
-        )
-        throwingLogLease.finish(PhotoIngestOutcome.Recorded(photoId, "photos/private.jpg", false, null))
-        throwingLogLease.close()
+    fun `pending lease and orphan worker retain outcome distinctions without leaking core failures`() {
+        for (retryable in listOf(true, false)) {
+            val expectedDecision = if (retryable) PhotoOrphanCleanupDecision.RETRY else PhotoOrphanCleanupDecision.FAILURE
+            val sink = CapturingSink()
+            val log = SafeLog(sink)
+            val lease = PhotoIngestPendingLease(photoId, { false }, log)
+            lease.finish(PhotoIngestOutcome.Recorded(photoId, "photos/private.jpg", false, null))
+            lease.close()
+            val throwingLogLease = PhotoIngestPendingLease(
+                photoId,
+                { false },
+                SafeLog(SafeLogSink { throw IllegalStateException("sink unavailable") }),
+            )
+            throwingLogLease.finish(PhotoIngestOutcome.Recorded(photoId, "photos/private.jpg", false, null))
+            throwingLogLease.close()
 
-        val nested = IOException("42 Example St Jane Tenant secret", IllegalStateException("nested raw provider body")).also {
-            it.addSuppressed(IllegalArgumentException("suppressed Authorization Bearer"))
+            val nested = IOException("42 Example St Jane Tenant secret", IllegalStateException("nested raw provider body")).also {
+                it.addSuppressed(IllegalArgumentException("suppressed Authorization Bearer"))
+            }
+            val resource = RecordingResource()
+            val execution = PhotoOrphanCleanupExecution.run(
+                open = { resource },
+                cleanup = { throw nested },
+                retryable = { retryable },
+            )
+            val issues = listOf(
+                PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.REJECTED, PhotoOrphanCleanupBucket.PENDING, "content://provider/pending", nested),
+                PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.FAILED, PhotoOrphanCleanupBucket.PENDING, "C:/42 Example St/pending", nested),
+                PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.REJECTED, PhotoOrphanCleanupBucket.SOFT_DELETE, "C:/42 Example St/soft", nested),
+                PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.FAILED, PhotoOrphanCleanupBucket.SOFT_DELETE, "content://provider/soft", nested),
+            )
+
+            PhotoOrphanCleanupWorker.reportFailures(issues, execution, workId, 3, log)
+
+            assertEquals(expectedDecision, execution.decision)
+            assertEquals(
+                listOf(
+                    "operation=pending-marker-delete reason=delete-failed opaque_id=$photoId",
+                    "operation=orphan-cleanup reason=pending-rejected opaque_id=$workId count=3",
+                    "operation=orphan-cleanup reason=pending-failed opaque_id=$workId count=3",
+                    "operation=orphan-cleanup reason=soft-delete-rejected opaque_id=$workId count=3",
+                    "operation=orphan-cleanup reason=soft-delete-failed opaque_id=$workId count=3",
+                    "operation=orphan-cleanup reason=execution-failed opaque_id=$workId count=3",
+                ),
+                sink.messages,
+            )
+            assertNoLeak(sink.messages)
+
+            val throwingLog = SafeLog(SafeLogSink { throw IllegalStateException("sink unavailable") })
+            val logged = runCatching {
+                PhotoOrphanCleanupWorker.reportFailures(issues, execution, workId, 3, throwingLog)
+            }
+            assertTrue(logged.isSuccess, "sink failure must preserve retryable and non-retryable worker outcomes")
+            assertEquals(1, resource.closeCalls)
+            assertEquals(expectedDecision, execution.decision)
         }
-        val resource = RecordingResource()
-        val execution = PhotoOrphanCleanupExecution.run(
-            open = { resource },
-            cleanup = { throw nested },
-            retryable = { it is IOException },
-        )
-        val issues = listOf(
-            PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.REJECTED, PhotoOrphanCleanupBucket.PENDING, "content://provider/pending", nested),
-            PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.FAILED, PhotoOrphanCleanupBucket.PENDING, "C:/42 Example St/pending", nested),
-            PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.REJECTED, PhotoOrphanCleanupBucket.SOFT_DELETE, "C:/42 Example St/soft", nested),
-            PhotoOrphanCleanupIssue(PhotoOrphanCleanupIssueResult.FAILED, PhotoOrphanCleanupBucket.SOFT_DELETE, "content://provider/soft", nested),
-        )
-
-        PhotoOrphanCleanupWorker.reportFailures(issues, execution, workId, 3, log)
-
-        assertEquals(PhotoOrphanCleanupDecision.RETRY, execution.decision)
-        assertEquals(1, resource.closeCalls)
-        assertEquals(
-            listOf(
-                "operation=pending-marker-delete reason=delete-failed opaque_id=$photoId",
-                "operation=orphan-cleanup reason=pending-rejected opaque_id=$workId count=3",
-                "operation=orphan-cleanup reason=pending-failed opaque_id=$workId count=3",
-                "operation=orphan-cleanup reason=soft-delete-rejected opaque_id=$workId count=3",
-                "operation=orphan-cleanup reason=soft-delete-failed opaque_id=$workId count=3",
-                "operation=orphan-cleanup reason=execution-failed opaque_id=$workId count=3",
-            ),
-            sink.messages,
-        )
-        assertNoLeak(sink.messages)
-
-        val throwingLog = SafeLog(SafeLogSink { throw IllegalStateException("sink unavailable") })
-        PhotoOrphanCleanupWorker.reportFailures(issues, execution, workId, 3, throwingLog)
-        assertEquals(PhotoOrphanCleanupDecision.RETRY, execution.decision)
     }
 
     @Test
@@ -350,21 +356,13 @@ private class CapturingSink : SafeLogSink {
  * T5 = pending lease and orphan worker retain outcome distinctions without leaking core failures
  * T6 = safe log and companion expose no free text or throwable recording entry point
  * T7 = safe log renders only typed fields and omits malformed optional values
- * M01-media-temp-log-omission -> T4 (compile 0 / test 1)
- * M02-import-false-log-omission -> T4 (compile 0 / test 1)
- * M03-import-throw-log-omission -> T2 (compile 0 / test 1)
+ * M01-media-temp-log-omission -> T4; M02-import-false-log-omission -> T4 (each compile 0 / test 1)
+ * M03-import-throw-log-omission -> T2; M05-pending-release-log-omission -> T2 (each compile 0 / test 1)
  * M04-pending-marker-log-omission -> T5 (compile 0 / test 1)
- * M05-pending-release-log-omission -> T2 (compile 0 / test 1)
- * M06-worker-pending-rejected-reason -> T5 (compile 0 / test 1)
- * M07-worker-pending-failed-reason -> T5 (compile 0 / test 1)
- * M08-worker-soft-delete-rejected-reason -> T5 (compile 0 / test 1)
- * M09-worker-soft-delete-failed-reason -> T5 (compile 0 / test 1)
+ * M06-worker-pending-rejected-reason -> T5; M07-worker-pending-failed-reason -> T5; M08-worker-soft-delete-rejected-reason -> T5; M09-worker-soft-delete-failed-reason -> T5 (each compile 0 / test 1)
  * M10-worker-execution-log-omission -> T5 (compile 0 / test 1)
- * M11-media-caller-path-reflection-escape -> T4 (compile 0 / test 1)
- * M12-import-caller-throwable-reflection-escape -> T2 (compile 0 / test 1)
- * M13-lease-caller-throwable-reflection-escape -> T2 (compile 0 / test 1)
- * M14-worker-issue-caller-reflection-escape -> T5 (compile 0 / test 1)
- * M15-worker-execution-caller-reflection-escape -> T5 (compile 0 / test 1)
+ * M11-media-caller-path-reflection-escape -> T4; M12-import-caller-throwable-reflection-escape -> T2; M13-lease-caller-throwable-reflection-escape -> T2 (each compile 0 / test 1)
+ * M14-worker-issue-caller-reflection-escape -> T5; M15-worker-execution-caller-reflection-escape -> T5 (each compile 0 / test 1)
  * M16-uuid-shape-guard-bypass -> T3 (compile 0 / test 1)
  * M17-negative-count-guard-bypass -> T3 (compile 0 / test 1)
  * M18-negative-duration-guard-bypass -> T7 (compile 0 / test 1)
