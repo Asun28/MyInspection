@@ -38,3 +38,31 @@ No new dependency or production verification behavior is introduced. Expected di
 
 RED: pristine Windows hidden-git run exits 0; pristine Ubuntu hidden-git run exits 1 at 15f(a) and
 15x(b). Both use the existing Get-ScaffoldPathWithoutDirs isolation and -Only 15 -IncludeMeta.
+
+## Verification and integration handoff (2026-09-16)
+
+Candidate: 2c8739c7d7d54224fa8645347e7b5dab73906308. Source SHA256:
+3E8D8B9908F2EB15C0A472CF6C24069E9B61981C37C3B3847017D39DA1F4099F.
+
+- RED was repeated after adding the 8.2j regression assertions and before the fixture repair.
+- Ubuntu hidden-git control: exit 0; git and sh absent before launch, 15f/15x still execute.
+- Windows full Tier S proof: `-Parallel -IncludeMeta`, exit 0, all five shards/all 17 gates pass,
+  26 meta sites run and zero skipped, wall 1186.6s.
+- Ubuntu present-git DoD: `-Only '8,15' -IncludeMeta`, exit 0, 12/12 meta sites run,
+  gate 8 PASS 253.0s and gate 15 PASS 599.1s. 8.2j exercises five hidden-tool branches on both OSes.
+- Two isolated Linux mutants are killed: removing the 15f(a) ShellBin hookup fails 15f(a);
+  removing the 15x PATH addition fails 15x(b). Each restores PATH and original source hash.
+- Product verify (Android core + Golden Evidence E2E), licenses, secrets, card, syntax and exact-tip
+  scope checks pass. Diff budget is 23/100; the advisory meter trips at zero under existing config,
+  not an over-budget finding. No split is warranted for these two adjacent fixture consumers.
+- Base-pinned R3 round 1: gpt-5.6-sol, candidate above, run_status success, spec pass and standards
+  pass, no findings. Its additional sandbox rerun passes 8.2j/15f/15x but gate 15i is red because
+  Git sh.exe cannot create its signal pipe (Win32 error 5), aborting local-remote refresh before
+  the intended push failure. This unchanged 15i passes in the full Windows and Ubuntu runs above;
+  the reviewer rerun is not claimed as a green DoD.
+
+Logs and the machine verdict remain in the candidate's `_local/` and `.review/`; a portable patch,
+this card and the verification/evidence bundle are delivered in the requesting task's outputs.
+No push, PR or merge was performed. Keep status in-progress pending origin reconciliation and
+post-merge nightly observation. The original dirty/divergent checkout and its handoff remain intact.
+The separate #217 Windows PSGallery provisioning failure is outside this code repair.
