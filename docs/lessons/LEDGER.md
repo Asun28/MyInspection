@@ -1783,7 +1783,7 @@
 - refs: scripts/archive.ps1; specs/archive/cards-index.md
 
 ## L248
-- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 任务卡 dod_command 直接运行一个预期非零的 native 命令，再准备读取 LASTEXITCODE 判断；手工终端可处理，但 task.ps1 ship 在判定语句前就抛 NativeCommandExitException，DoD 被误判失败。
 - root_cause: ship 为防多个 native 命令中途假绿，会在子 PowerShell 中设置 PSNativeCommandUseErrorActionPreference=true；因此预期非零的探测不能依赖同一脚本块后续的 LASTEXITCODE 分支。RED 相刻意设为 false，不代表 GREEN/ship DoD 也如此。
 - rule: 卡片 DoD 中每个 native 进程都必须在期望路径返回 0。若要证明不存在/应失败，先用成功返回的 dry-run 或导出结果，再用 PowerShell 内建断言检查；或用专用 helper 把预期失败归一成最终 0。不要直接调用预期非零的 native 命令后再读 LASTEXITCODE。
