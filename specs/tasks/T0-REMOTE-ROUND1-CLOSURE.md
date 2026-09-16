@@ -32,9 +32,9 @@ non_goals:
   - Reconciling divergent local master history
 dod_command: $raw = Get-Content -LiteralPath 'specs/tasks/T0-REMOTE-ROUND1-CLOSURE.md' -Raw; $blocks = [regex]::Matches($raw, '(?ms)^```powershell\r?\n(.*?)^```[ \t]*$'); if ($blocks.Count -ne 1) { throw 'Expected one approved assertion block' }; & ([scriptblock]::Create($blocks[0].Groups[1].Value)); if ($LASTEXITCODE -ne 0) { exit 1 }
 dod_exit: 0
-dod_assert: Three actual prerequisite deliveries have independently verified external receipts; this DoD checks seven approved LF-normalized payloads, portable PR/R3/CI/cleanup candidate bindings, merged SafeLog source blobs, test and mutation audits, exact archive moves, merged statuses, pending successors, card validation, generated index and complete pinned-base whitespace. It does not perform live external attestation.
+dod_assert: Three actual prerequisite deliveries have independently verified external receipts; this DoD checks seven approved LF-normalized payloads, portable PR/R3/CI/cleanup candidate bindings, merged SafeLog source blobs, test and mutation audits, exact archive moves, merged statuses, pending successors, card validation, generated index and complete pinned-base whitespace. It also requires 332 copied original evidence files, validates their actual SHA/length, resolves six child manifests and binds all portable lifecycle records to the original JSON. It does not perform live external attestation.
 review_gate: codex {verdict:pass}
-hygiene: Genuine metadata closure; explicit SkipRed. Preserve reviewed source, validation and mutation receipts before cleanup; exercise real missing-record, wrong-status and changed-payload negative cases for the final assertions.
+hygiene: Genuine metadata closure; explicit SkipRed. Preserve reviewed source, validation and mutation receipts before cleanup; exercise missing-record, wrong-status, changed-payload and original-evidence missing/byte-corruption/manifest negative cases, then restore exact bytes and rerun DoD.
 doc_sync: This PR contains the R5 documentation and archive updates for the two registration cards and SafeLog. Typography's functional merge is recorded as R5 pending for a separate card. This card's own merged status is effective only when this PR actually merges; preserve that merge receipt in the controller ledger and run original-main cleanup. The closure card can remain active as merged until ordinary later archival maintenance.
 ---
 
@@ -45,6 +45,8 @@ This metadata PR completes R5 for PRs 301, 303 and 304. Only Logging counts towa
 The status of this closure card is the reviewed target state, effective only when this PR actually merges. Until that event, the controller ledger records this work as pending. This card remains in the active directory for later ordinary archival maintenance, avoiding a recursive metadata-only closure PR.
 
 The archive projection starts from the complete remote archive at 3351c06c99ba8d85e3e008b7a89cdac43bb2470d (193 cards), retains every existing byte, and adds exactly three cards (196 total). Payload digests below were approved only after the external lifecycle receipts had been checked. The portable observed receipts are asserted against fixed approved candidates and source blobs; full copied artifacts are also available to the reviewer in the worktree. These historical snapshots do not query live GitHub or rerun historical tests. The first formal R3 BLOCK and its three findings remain preserved in the controller ledger; this split addresses all three without altering prior functional evidence. No new lesson is added: the observed repairs are covered by existing exact-proof, byte-fidelity and self-verifying-contract rules.
+
+Local ship additionally requires the preserved originals at their candidate-relative ignored paths. The DoD reads every one of the 332 inventoried files, verifies its bytes and SHA-256, checks all six child manifests against those files, and compares portable PR/R3/CI/cleanup/audit fields with their original captured JSON. Missing originals fail closed; CI verify does not rerun this local archival DoD. The second formal BLOCK is preserved separately from the policy-denied reviewer read attempts. No historical product test is described as rerun by these archival checks.
 
 ## Approved payload assertions
 
@@ -87,6 +89,76 @@ foreach ($entry in $deliveries) {
     if (@($r.sourcePins).Count -ne 7 -or $r.evidenceAudit.status -cne 'PASS' -or $r.evidenceAudit.reconstructedMutants -ne 24 -or $r.evidenceAudit.allNamedAssertionErrors -cne $true -or $r.evidenceAudit.appTests -ne 157 -or $r.cleanupAudit.xml.tests -ne 1134 -or $r.cleanupAudit.xml.failures -ne 0 -or $r.cleanupAudit.xml.errors -ne 0 -or $r.cleanupAudit.xml.skipped -ne 4) { throw '[R5-BINDING] Logging test or mutation audit differs' }
   }
 }
+
+# Local ship requires the copied originals; these checks never query the network.
+$proofRoot = '_local/rotating-card-orchestrator/'
+$receiptDir = 'remote-delivery/T0-REMOTE-ROUND1-CLOSURE/actual-receipts'
+$manifestPath = "$proofRoot$receiptDir/evidence-manifest.json"
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or (Get-FileHash -LiteralPath $manifestPath).Hash -cne 'A6D3185C85E05ECAD3B92DBF8F455484F7812E9B66F691E0F6AB17FA62BAD24C') { throw '[R5-EVIDENCE] Approved original-file manifest missing or changed' }
+$originals = @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)
+if ($originals.Count -ne 332) { throw '[R5-EVIDENCE] Original-file count differs' }
+$files = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+foreach ($item in $originals) {
+  $path = $item.path.Replace('\','/')
+  if (-not $path.StartsWith($proofRoot,[StringComparison]::Ordinal) -or $path -match '(^|/)(\.|\.\.|)(/|$)|:' -or $files.ContainsKey($path)) { throw '[R5-EVIDENCE] Unsafe or duplicate evidence path' }
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "[R5-EVIDENCE] Missing original: $path" }
+  $file = Get-Item -LiteralPath $path
+  if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -ne $item.bytes -or (Get-FileHash -LiteralPath $path).Hash -cne $item.sha256) { throw "[R5-EVIDENCE] Original bytes differ: $path" }
+  $files.Add($path,$item)
+}
+function Read-Original([string]$relative) {
+  if (-not $files.ContainsKey("$proofRoot$relative")) { throw '[R5-EVIDENCE] Source outside verified inventory' }
+  Get-Content -LiteralPath "$proofRoot$relative" -Raw | ConvertFrom-Json
+}
+function Assert-Original($actual,$expected) {
+  # Captured objects retain their original key order; require their full JSON values.
+  if (-not [string]::Equals(($actual | ConvertTo-Json -Depth 30 -Compress),($expected | ConvertTo-Json -Depth 30 -Compress),[StringComparison]::Ordinal)) { throw '[R5-EVIDENCE] Portable record differs from original JSON' }
+}
+function Assert-ChildManifest([string]$manifest,[string]$directory,[int]$count,[string]$sha) {
+  if ($files["$proofRoot$manifest"].sha256 -cne $sha) { throw '[R5-EVIDENCE] Child-manifest digest differs' }
+  $entries = @(Read-Original $manifest)
+  if ($entries.Count -ne $count) { throw '[R5-EVIDENCE] Child-manifest count differs' }
+  $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($entry in $entries) {
+    $key = "$proofRoot$directory/$($entry.path.Replace('\','/'))"
+    if (-not $seen.Add($key) -or -not $files.ContainsKey($key) -or $files[$key].bytes -ne $entry.bytes -or $files[$key].sha256 -cne $entry.sha256) { throw '[R5-EVIDENCE] Child entry differs from verified actual file' }
+  }
+}
+foreach ($entry in $deliveries) {
+  $raw = Get-Content -LiteralPath "specs/archive/tasks/$($entry[0]).md" -Raw
+  $r = [regex]::Match($raw,'(?ms)^<!-- remote-lifecycle-receipt -->\r?\n```json\r?\n(.*?)^```[ \t]*$').Groups[1].Value | ConvertFrom-Json
+  $dir = "remote-delivery/$($entry[0])"
+  if ($entry[1] -eq 304) { $dir = 'evidence-T1-SAFE-MEDIA-LOGGING/remote' }
+  $prFile = if ($entry[1] -eq 304) { "$dir/ship-attempt-02/pr304-merged.json" } else { "$dir/pre-cleanup-pr.json" }
+  $r3File = if ($entry[1] -eq 304) { "$dir/ship-attempt-02/review/$($entry[0]).json" } else { "$dir/final-review.json" }
+  $cleanupFile = if ($entry[1] -eq 304) { "$dir/root-cleanup-audit/cleanup-result.json" } else { "$dir/cleanup-result.json" }
+  $pr = Read-Original $prFile
+  foreach ($field in @('url','state','headRefOid','mergeCommit','mergedAt')) { Assert-Original $r.pr.$field $pr.$field }
+  $number = if ($entry[1] -eq 304) { (Read-Original "$dir/root-cleanup-audit/audit.json").pr } else { $pr.number }
+  Assert-Original $r.pr.number $number
+  Assert-Original $r.formalR3 (Read-Original $r3File)
+  Assert-Original $r.cleanup (Read-Original $cleanupFile)
+  $ci = Read-Original "$receiptDir/ci-$($entry[1]).json"
+  foreach ($field in @('databaseId','headSha','conclusion','status','event')) { Assert-Original $r.candidateCI.$field $ci.$field }
+  if (@($ci.jobs).Count -ne @($r.candidateCI.jobs).Count) { throw '[R5-EVIDENCE] CI job count differs' }
+  foreach ($job in $r.candidateCI.jobs) {
+    $original = @($ci.jobs | Where-Object { [string]::Equals($_.name,$job.name,[StringComparison]::Ordinal) })
+    if ($original.Count -ne 1) { throw '[R5-EVIDENCE] CI job identity differs' }
+    foreach ($field in @('name','status','conclusion')) { Assert-Original $job.$field $original[0].$field }
+  }
+  if ($entry[1] -ne 304) {
+    Assert-ChildManifest "$dir/pre-cleanup-evidence-manifest.json" $dir $r.evidenceAudit.verifiedEntries $r.evidenceAudit.manifestSha256
+  } else {
+    Assert-Original $r.evidenceAudit (Read-Original "$dir/root-evidence-audit.json")
+    Assert-Original $r.cleanupAudit (Read-Original "$dir/root-cleanup-audit/audit.json")
+    Assert-ChildManifest "$dir/evidence-manifest.json" "$dir/validation" 119 '8AC9B7CBAD51E0F1DA120D7F1E1F4BB34E4E15F70959EC76D94D072A4A4B6FCB'
+    foreach ($m in $r.cleanupAudit.manifests) {
+      $subdir = $m.file.Replace('-manifest.json','')
+      Assert-ChildManifest "$dir/$($m.file)" "$dir/$subdir" $m.count $m.sha256
+    }
+  }
+}
+Write-Output '[R5-EVIDENCE-PASS] 332 original files, six child manifests and three complete lifecycle source bindings verified.'
 
 $expected = @{
   'specs/archive/tasks/T0-REMOTE-PRODUCT-CARDS.md' = '2301C039BFABE1A561E3EDE3B0EF507BDE8A718A52EAD39AA24EB207B447F590'
