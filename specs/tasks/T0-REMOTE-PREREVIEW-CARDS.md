@@ -25,7 +25,7 @@ forbid:
   - Claiming registration is implementation delivery, or transferring historical acceptance to an untested remote candidate
   - Direct push to master, bypassing R3 or CI, or weakening the remote harness
 non_goals:
-  - Implementing or testing the four registered features during this documentation card
+  - Implementing or testing the two registered features during this documentation card
   - Publishing runtime checklists, workers, a prereview command, or Phase-1b integration
   - Reconciling unrelated local history, task boards, lessons or debt registries
 doc_sync: After the remote PR is actually merged, record its PR number, reviewed head, CI evidence and merge OID in the controller delivery ledger; mark this registration card merged through normal reviewed R5 metadata work. Keep both feature cards todo until their own deliveries close. Any archive move is separate R5 work outside this three-file implementation diff.
