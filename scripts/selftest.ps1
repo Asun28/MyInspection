@@ -555,6 +555,9 @@ $EnvSkipSites = @(
     )
   }
   @{ Tool = 'git'; Gate = '15'; Token = '15'; Exclude = @(); Expect = @(
+      # The non-git controls must still execute, not disappear behind a broader skip.
+      '15f(a) ruff 真调 OK'
+      '15f(b) 前端红传导 OK'
       '15r(e) git 未安装'
       '15i git 未安装'
       '15d2 git 未安装'
@@ -3829,7 +3832,7 @@ else {
     # printing its success line - the assertion surface silently stops equalling the contract (L165). A floor
     # MEASURED from the tree, exactly as 14m's declaration floor is, turns that into a RED. Measure it; never
     # increment the literal (14m's floor was six behind its own tree when this card re-measured it).
-    $esExpectFloor = 20
+    $esExpectFloor = 22
     $esExercised = @($EnvSkipSites | Where-Object { $_.Token })
     $esExpectNow = @($esExercised | ForEach-Object { $_.Expect }).Count
     if ($esExpectNow -lt $esExpectFloor) {
@@ -9471,7 +9474,7 @@ Write-Host '  15v [CARD-ID-DERIVED] 卡 id 文法派生 OK（收窄规则行即�
 # 本仓 verify 的 Gate 2 是已交付的 Android/Golden Evidence 闭环，而不是上游脚手架的
 # Get-ScaffoldE2ECommand。15f 只判 Gate 1，因此在这些微型夹具中提供真实 Gradle 调用面，
 # 让 Gate 1 的绿/红结论可达；15x 则另行覆盖该产品接口的缺失、绿、红三态。
-function Set-ProjectGate2Stub15([string]$Root, [int]$ExitCode = 0) {
+function Set-ProjectGate2Stub15([string]$Root, [int]$ExitCode = 0, [string]$ShellBin = '') {
   if (-not $projectGoldenVerify15) { return }
   New-Item -ItemType Directory -Force (Join-Path $Root 'android') | Out-Null
   if ($IsWindows) {
@@ -9480,6 +9483,14 @@ function Set-ProjectGate2Stub15([string]$Root, [int]$ExitCode = 0) {
     $stub = Join-Path $Root 'android/gradlew'
     Set-Content $stub "#!/bin/sh`nexit $ExitCode" -Encoding utf8
     [System.IO.File]::SetUnixFileMode($stub, 'UserRead,UserWrite,UserExecute,GroupRead,GroupExecute,OtherRead,OtherExecute')
+    if ($ShellBin) {
+      # 8.2j hides git's directories, also hiding sh on Ubuntu. The real product verify calls bare sh;
+      # supply that interpreter only, never put /bin or /usr/bin (and git) back on the fixture PATH.
+      New-Item -ItemType Directory -Force $ShellBin | Out-Null
+      $shellStub = Join-Path $ShellBin 'sh'
+      Set-Content $shellStub "#!/bin/sh`nexec /bin/sh `"`$@`"" -Encoding utf8
+      [System.IO.File]::SetUnixFileMode($shellStub, 'UserRead,UserWrite,UserExecute,GroupRead,GroupExecute,OtherRead,OtherExecute')
+    }
   }
 }
 $vfx = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfx-$PID"
@@ -9488,7 +9499,7 @@ try {
   $vfxBin = Join-Path $vfx 'bin'
   $uvLog = Join-Path $vfx 'uv.log'; $npmLog = Join-Path $vfx 'npm.log'
   New-Item -ItemType Directory -Force $vfxBin, (Join-Path $vfx 'a/scripts'), (Join-Path $vfx 'b/scripts'), (Join-Path $vfx 'b/frontend/node_modules') | Out-Null
-  Set-ProjectGate2Stub15 (Join-Path $vfx 'a') 0
+  Set-ProjectGate2Stub15 (Join-Path $vfx 'a') 0 -ShellBin $vfxBin
   Set-ProjectGate2Stub15 (Join-Path $vfx 'b') 0
   if ($IsWindows) {
     Set-Content (Join-Path $vfxBin 'uv.cmd')  "@echo off`r`necho uv %* >> `"$uvLog`"`r`nexit /b 0" -Encoding utf8
@@ -9606,14 +9617,17 @@ if ($projectGoldenVerify15) {
   # config-accessor matrix exercises it: use the executable project contract and keep every state live.
   $vfgProduct = Join-Path ([System.IO.Path]::GetTempPath()) "scaffold-selftest-vfg-product-$PID"
   if (Test-Path $vfgProduct) { Remove-Item -Recurse -Force $vfgProduct }
+  $vfgProductOldPath = $env:PATH
   try {
     foreach ($vfgProductCase in @('missing', 'green', 'red')) {
       $caseScripts = Join-Path $vfgProduct "$vfgProductCase/scripts"
       New-Item -ItemType Directory -Force $caseScripts | Out-Null
       Copy-Item (Join-Path $RepoRoot 'scripts/verify.ps1') (Join-Path $caseScripts 'verify.ps1')
     }
-    Set-ProjectGate2Stub15 (Join-Path $vfgProduct 'green') 0
+    $vfgProductBin = Join-Path $vfgProduct 'bin'
+    Set-ProjectGate2Stub15 (Join-Path $vfgProduct 'green') 0 -ShellBin $vfgProductBin
     Set-ProjectGate2Stub15 (Join-Path $vfgProduct 'red') 1
+    if (-not $IsWindows) { $env:PATH = $vfgProductBin + [System.IO.Path]::PathSeparator + $env:PATH }
     $vfgProductLog = Join-Path $vfgProduct 'run.log'
     & pwsh -NoProfile -File (Join-Path $vfgProduct 'missing/scripts/verify.ps1') *> $vfgProductLog
     $vfgMissingExit = $LASTEXITCODE; $vfgMissingOut = Get-Content $vfgProductLog -Raw
@@ -9629,6 +9643,7 @@ if ($projectGoldenVerify15) {
     elseif (($vfgRedOut -notmatch '\[GATE2-FAILED\]') -or ($vfgRedOut -notmatch 'verify: FAIL')) { Fail '15x(c) [GATE2-RED-NOVERDICT] the product Golden Evidence failure stub did not print GATE2-FAILED and verify: FAIL.' }
     else { Write-Host '  15x product Golden Evidence three-state verdict OK (missing -> GATE2-MISSING/NOT-RUN + FAIL; green -> PASS; red -> GATE2-FAILED + FAIL)' -ForegroundColor Green }
   } finally {
+    $env:PATH = $vfgProductOldPath
     Remove-Item -Recurse -Force $vfgProduct -ErrorAction SilentlyContinue
   }
 } else {
