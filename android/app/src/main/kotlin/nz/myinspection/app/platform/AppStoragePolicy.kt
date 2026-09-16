@@ -140,7 +140,7 @@ class AppStoragePolicy(private val environment: AppStorageEnvironment) {
             } else {
                 MediaStorageLocation.Available(StorageRoot.AppSpecificExternalMedia(directory))
             }
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             MediaStorageLocation.Unavailable
         }
     }
@@ -159,7 +159,7 @@ class AppStoragePolicy(private val environment: AppStorageEnvironment) {
                 ),
             )
             candidate
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)
         }
         return StorageRoot.CredentialEncryptedNoBackup(directory)
@@ -177,7 +177,7 @@ internal fun isCredentialEncryptedNoBackupDirectory(
     val appDataPath = appDataDir.canonicalFile.toPath()
     val deviceProtectedPath = deviceProtectedDataDir.canonicalFile.toPath()
     candidatePath != appDataPath && candidatePath.startsWith(appDataPath) && !candidatePath.startsWith(deviceProtectedPath)
-} catch (_: Throwable) {
+} catch (_: Exception) {
     false
 }
 

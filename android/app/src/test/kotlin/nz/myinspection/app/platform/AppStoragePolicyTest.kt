@@ -2,12 +2,14 @@ package nz.myinspection.app.platform
 
 import android.os.Environment
 import java.io.File
+import java.io.IOException
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AppStoragePolicyTest {
@@ -103,6 +105,7 @@ class AppStoragePolicyTest {
         failures.forEach { environment ->
             val thrown = assertFailsWith<IllegalStateException> { AppStoragePolicy(environment) }
             assertNoSensitiveText(thrown, thrown.message ?: "", thrown.cause?.toString() ?: "")
+            assertEquals(null, thrown.cause)
         }
     }
 
@@ -166,6 +169,96 @@ class AppStoragePolicyTest {
         val thrown = assertFailsWith<IllegalStateException> { AppStoragePolicy(environment) }
 
         assertNoSensitiveText(thrown, thrown.message ?: "", thrown.cause?.toString() ?: "")
+    }
+
+    @Test
+    fun `fatal no-backup lookup error propagates with its identity`() {
+        val root = createTempDirectory("storage-policy").toFile()
+        val fatal = OutOfMemoryError("sentinel")
+        val environment = FakeStorageEnvironment(noBackup = root, noBackupFailure = fatal)
+
+        assertSame(fatal, assertFailsWith<OutOfMemoryError> { AppStoragePolicy(environment) })
+    }
+
+    @Test
+    fun `fatal media probe error propagates with its identity`() {
+        val root = createTempDirectory("storage-policy").toFile()
+        val fatal = ThreadDeath()
+        val environment = FakeStorageEnvironment(
+            noBackup = root,
+            externalMedia = File(root, "external"),
+            usableBytesFailure = fatal,
+        )
+
+        assertSame(fatal, assertFailsWith<ThreadDeath> { AppStoragePolicy(environment).mediaLocation(1L) })
+    }
+
+    @Test
+    fun `fatal canonical errors propagate unchanged for candidate app and device-protected roots`() {
+        val base = createTempDirectory("storage-policy").toFile()
+        val candidate = File(base, "candidate")
+        val deviceProtected = File(base.parentFile, "device-protected")
+        val candidateFatal = OutOfMemoryError("candidate")
+        val appRootFatal = ThreadDeath()
+        val deviceProtectedFatal = OutOfMemoryError("device-protected")
+        val failingCandidate = object : File(candidate.path) {
+            override fun getCanonicalFile(): File = throw candidateFatal
+        }
+        val failingAppRoot = object : File(base.path) {
+            override fun getCanonicalFile(): File = throw appRootFatal
+        }
+        val failingDeviceProtectedRoot = object : File(deviceProtected.path) {
+            override fun getCanonicalFile(): File = throw deviceProtectedFatal
+        }
+
+        assertSame(
+            candidateFatal,
+            assertFailsWith<OutOfMemoryError> {
+                isCredentialEncryptedNoBackupDirectory(failingCandidate, base, deviceProtected)
+            },
+        )
+        assertSame(
+            appRootFatal,
+            assertFailsWith<ThreadDeath> {
+                isCredentialEncryptedNoBackupDirectory(candidate, failingAppRoot, deviceProtected)
+            },
+        )
+        assertSame(
+            deviceProtectedFatal,
+            assertFailsWith<OutOfMemoryError> {
+                isCredentialEncryptedNoBackupDirectory(candidate, base, failingDeviceProtectedRoot)
+            },
+        )
+    }
+
+    @Test
+    fun `ordinary canonical lookup errors close false`() {
+        val base = createTempDirectory("storage-policy").toFile()
+        val candidate = File(base, "candidate")
+        val deviceProtected = File(base.parentFile, "device-protected")
+        val ioFailure = object : File(candidate.path) {
+            override fun getCanonicalFile(): File = throw IOException("42 Example St Jane Tenant Authorization Bearer secret")
+        }
+        val securityFailure = object : File(deviceProtected.path) {
+            override fun getCanonicalFile(): File = throw SecurityException("42 Example St Jane Tenant Authorization Bearer secret")
+        }
+
+        assertFalse(isCredentialEncryptedNoBackupDirectory(ioFailure, base, deviceProtected))
+        assertFalse(isCredentialEncryptedNoBackupDirectory(candidate, base, securityFailure))
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            AppStoragePolicy(
+                FakeStorageEnvironment(
+                    noBackup = ioFailure,
+                    appDataDir = base,
+                    deviceProtectedDataDir = deviceProtected,
+                ),
+            )
+        }
+
+        assertEquals("credential-encrypted storage unavailable", thrown.message)
+        assertEquals(null, thrown.cause)
+        assertNoSensitiveText(thrown, thrown.message ?: "")
     }
 
     @Test
@@ -299,7 +392,7 @@ private class FakeStorageEnvironment(
 }
 
 /*
- * R4: 34 single-site mutations compiled (exit 0) and failed named java.lang.AssertionError
+ * R4: 38 single-site mutations compiled (exit 0) and failed named java.lang.AssertionError
  * in fresh TestNG XML (test exit 1); no survivor/invalid mutant. Original bytes SHA-restored each run.
  * Commands: :app:compileDebugUnitTestKotlin; :app:testDebugUnitTest --tests nz.myinspection.app.platform.AppStoragePolicyTest.
  * T1 = each protected category uses its own credential encrypted no-backup subdirectory
@@ -313,6 +406,10 @@ private class FakeStorageEnvironment(
  * T9 = media returns unavailable for missing unmounted and read-only app-specific external volumes
  * T10 = media reports insufficient space below request and permits equal or greater usable bytes without a shared fallback
  * T11 = media state probe failure closes unavailable without preserving its path-bearing exception
+ * T12 = fatal no-backup lookup error propagates with its identity
+ * T13 = fatal media probe error propagates with its identity
+ * T14 = fatal canonical errors propagate unchanged for candidate app and device-protected roots
+ * T15 = ordinary canonical lookup errors close false
  * M01-database, M02-settings, M03-receipts, M04-secret_envelope, M05-restore_journal, M06-staging_metadata -> T1
  * M07-platform-mounted, M08-platform-readonly, M09-platform-unmounted -> T2
  * M10-directory-type, M11-directory-writable -> T3; M12-ce-conversion, M14-ce-root -> T4; M13-dp-rejection -> T5
@@ -321,8 +418,10 @@ private class FakeStorageEnvironment(
  * M24-ce-root-text, M26-location-text -> T1; M25-external-root-text, M27-available-text -> T10
  * M28-candidate-canonical, M29-app-canonical, M30-dp-canonical -> T7
  * M31-strict-child, M32-app-containment, M33-dp-exclusion -> T7; M34-root-validation-call -> T8
- * Production SHA256 E269BE8E4DC91F70446A9C46DAC0AACAF731C70B960DE219A9BFD04B411BBAA3
- * Test snapshot before this receipt SHA256 5CD0AE41EE62EC36F30CB7A554BD46A2E718CEDAA2E99556786AA5875CBF9E20
+ * M35-media-fatal -> T13; M36-root-fatal -> T12
+ * M37-canonical-fatal -> T14; M38-canonical-failopen -> T15
+ * Production SHA256 90452D7F5DBA28489614DBCCF3233EA02DB73868B88788E6775105A3B7282975
+ * Test snapshot before this receipt SHA256 05824D7A9CEB6CECDD49993DF0CDFEF7570A25930FAE06404F8EF50EBE99D73D
  * Actual adapter: API35 emulator + API33 phone accept six CE routes and DP-to-package conversion.
  * A ContextWrapper overriding only the marker to false over genuine DP roots is safely rejected on both.
  * This is a synthetic-marker probe; ordinary APK defaultToDeviceProtectedStorage=true was not adopted.
