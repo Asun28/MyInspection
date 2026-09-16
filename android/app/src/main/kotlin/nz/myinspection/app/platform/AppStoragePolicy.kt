@@ -8,6 +8,8 @@ import java.io.File
 /** The only Android-facing seam used to discover app-private storage roots and volume state. */
 interface AppStorageEnvironment {
     val isDeviceProtectedStorage: Boolean
+    val appDataDir: File
+    val deviceProtectedDataDir: File
     val noBackupFilesDir: File
     val appSpecificExternalMediaDir: File?
 
@@ -42,6 +44,12 @@ class AndroidAppStorageEnvironment private constructor(
 ) : AppStorageEnvironment {
     override val isDeviceProtectedStorage: Boolean
         get() = context.isDeviceProtectedStorage
+
+    override val appDataDir: File
+        get() = context.dataDir
+
+    override val deviceProtectedDataDir: File
+        get() = context.createDeviceProtectedStorageContext().dataDir
 
     override val noBackupFilesDir: File
         get() = context.noBackupFilesDir
@@ -142,7 +150,15 @@ class AppStoragePolicy(private val environment: AppStorageEnvironment) {
             val credentialEnvironment =
                 if (environment.isDeviceProtectedStorage) environment.credentialEncryptedContext() else environment
             check(!credentialEnvironment.isDeviceProtectedStorage)
-            credentialEnvironment.noBackupFilesDir
+            val candidate = credentialEnvironment.noBackupFilesDir
+            check(
+                isCredentialEncryptedNoBackupDirectory(
+                    candidate,
+                    credentialEnvironment.appDataDir,
+                    credentialEnvironment.deviceProtectedDataDir,
+                ),
+            )
+            candidate
         } catch (_: Throwable) {
             throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)
         }
@@ -151,5 +167,18 @@ class AppStoragePolicy(private val environment: AppStorageEnvironment) {
 }
 
 internal fun isWritableDirectory(directory: File): Boolean = directory.isDirectory && directory.canWrite()
+
+internal fun isCredentialEncryptedNoBackupDirectory(
+    candidate: File,
+    appDataDir: File,
+    deviceProtectedDataDir: File,
+): Boolean = try {
+    val candidatePath = candidate.canonicalFile.toPath()
+    val appDataPath = appDataDir.canonicalFile.toPath()
+    val deviceProtectedPath = deviceProtectedDataDir.canonicalFile.toPath()
+    candidatePath != appDataPath && candidatePath.startsWith(appDataPath) && !candidatePath.startsWith(deviceProtectedPath)
+} catch (_: Throwable) {
+    false
+}
 
 private const val CREDENTIAL_STORAGE_UNAVAILABLE = "credential-encrypted storage unavailable"

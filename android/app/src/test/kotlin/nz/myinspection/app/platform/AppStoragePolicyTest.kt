@@ -107,6 +107,68 @@ class AppStoragePolicyTest {
     }
 
     @Test
+    fun `credential no-backup candidate must be a normalized child of a non-device-protected app root`() {
+        val base = createTempDirectory("storage-policy").toFile()
+        val credentialRoot = File(base, "credential-encrypted").apply { mkdir() }
+        val deviceProtectedRoot = File(base, "device-protected").apply { mkdir() }
+        val candidates = listOf(
+            "normalized credential child" to (File(credentialRoot, "nested/../metadata") to true),
+            "app root itself" to (credentialRoot to false),
+            "same-prefix sibling" to (File(base, "credential-encrypted-shadow/metadata") to false),
+            "outside app root" to (File(base, "outside/metadata") to false),
+            "device-protected child" to (File(deviceProtectedRoot, "metadata") to false),
+        )
+
+        candidates.forEach { (label, candidate) ->
+            assertEquals(
+                candidate.second,
+                isCredentialEncryptedNoBackupDirectory(candidate.first, credentialRoot, deviceProtectedRoot),
+                label,
+            )
+        }
+
+        assertFalse(
+            isCredentialEncryptedNoBackupDirectory(
+                File(base, "credential-encrypted/../device-protected/metadata"),
+                credentialRoot,
+                deviceProtectedRoot,
+            ),
+            "candidate canonicalization must not hide a device-protected route",
+        )
+        assertTrue(
+            isCredentialEncryptedNoBackupDirectory(
+                File(credentialRoot, "metadata"),
+                File(base, "credential-encrypted/nested/.."),
+                deviceProtectedRoot,
+            ),
+            "app root canonicalization must preserve a credential-encrypted route",
+        )
+        assertFalse(
+            isCredentialEncryptedNoBackupDirectory(
+                File(deviceProtectedRoot, "metadata"),
+                deviceProtectedRoot,
+                File(base, "device-protected/nested/.."),
+            ),
+            "device-protected root canonicalization must reject its route",
+        )
+    }
+
+    @Test
+    fun `false device-protected marker with a device-protected actual root is rejected without exposing its path`() {
+        val base = createTempDirectory("storage-policy").toFile()
+        val sensitiveDeviceProtectedRoot = File(base, "42 Example St/Jane Tenant/secret")
+        val environment = FakeStorageEnvironment(
+            noBackup = File(sensitiveDeviceProtectedRoot, "metadata"),
+            appDataDir = sensitiveDeviceProtectedRoot,
+            deviceProtectedDataDir = sensitiveDeviceProtectedRoot,
+        )
+
+        val thrown = assertFailsWith<IllegalStateException> { AppStoragePolicy(environment) }
+
+        assertNoSensitiveText(thrown, thrown.message ?: "", thrown.cause?.toString() ?: "")
+    }
+
+    @Test
     fun `media returns unavailable for missing unmounted and read-only app-specific external volumes`() {
         val root = createTempDirectory("storage-policy").toFile()
         val sensitiveExternal = File(root, "Android/data/nz.myinspection.app/files/42 Example St/Jane Tenant/secret")
@@ -196,6 +258,8 @@ private class FakeStorageEnvironment(
     private val appSpecificExternalMediaWritable: Boolean = true,
     private val noBackupFailure: Throwable? = null,
     private val usableBytesFailure: Throwable? = null,
+    override val appDataDir: File = noBackup.parentFile ?: noBackup,
+    override val deviceProtectedDataDir: File = File(appDataDir.parentFile ?: appDataDir, "device-protected"),
 ) : AppStorageEnvironment {
     var credentialEnvironmentRequests = 0
         private set
@@ -235,31 +299,32 @@ private class FakeStorageEnvironment(
 }
 
 /*
- * R4: 27 single-site mutations; each compiled (exit 0), then failed its named
- * java.lang.AssertionError in fresh TestNG XML (test exit 1). No survivor or invalid mutant.
+ * R4: 34 single-site mutations compiled (exit 0) and failed named java.lang.AssertionError
+ * in fresh TestNG XML (test exit 1); no survivor/invalid mutant. Original bytes SHA-restored each run.
  * Commands: :app:compileDebugUnitTestKotlin; :app:testDebugUnitTest --tests nz.myinspection.app.platform.AppStoragePolicyTest.
- * Original source bytes and test snapshot were restored and SHA-checked after every mutation.
- * Each test protects a distinct behavior below; no redundant test was removed.
  * T1 = each protected category uses its own credential encrypted no-backup subdirectory
  * T2 = only Android mounted state maps to writable media state
  * T3 = adapter accepts writable directories but not writable plain files
  * T4 = device protected environment converts to credential encrypted before a protected route is exposed
  * T5 = environment that remains device protected is rejected without exposing its path
  * T6 = credential conversion probe and no-backup lookup failures are rejected without preserving sensitive exceptions
- * T7 = media returns unavailable for missing unmounted and read-only app-specific external volumes
- * T8 = media reports insufficient space below request and permits equal or greater usable bytes without a shared fallback
- * T9 = media state probe failure closes unavailable without preserving its path-bearing exception
- * M01-database, M02-settings, M03-receipts -> T1 (explicit wrong namespace for each route)
- * M04-secret_envelope, M05-restore_journal, M06-staging_metadata -> T1 (same independent route checks)
+ * T7 = credential no-backup candidate must be a normalized child of a non-device-protected app root
+ * T8 = false device-protected marker with a device-protected actual root is rejected without exposing its path
+ * T9 = media returns unavailable for missing unmounted and read-only app-specific external volumes
+ * T10 = media reports insufficient space below request and permits equal or greater usable bytes without a shared fallback
+ * T11 = media state probe failure closes unavailable without preserving its path-bearing exception
+ * M01-database, M02-settings, M03-receipts, M04-secret_envelope, M05-restore_journal, M06-staging_metadata -> T1
  * M07-platform-mounted, M08-platform-readonly, M09-platform-unmounted -> T2
- * M10-directory-type, M11-directory-writable -> T3
- * M12-ce-conversion -> T4; M13-dp-rejection -> T5; M14-ce-root -> T4
- * M15-ce-cause -> T6
- * M16-missing-directory, M17-mount-guard, M18-writable-guard -> T7
- * M19-equality, M20-low-space, M21-above-request -> T8
- * M22-probe-state, M23-probe-escape -> T9
- * M24-ce-root-text -> T1; M25-external-root-text -> T8
- * M26-location-text -> T1; M27-available-text -> T8
- * AppStoragePolicy.kt SHA256 93a0609b25cc79cea25ff9f0f71d00586d4518cd0295aa339c5ced9461337ab4
- * Test snapshot before this receipt SHA256 0db9f8448f720c50205747b7726af317e1e8f0485eaf584dbb801efa1f811ccb
+ * M10-directory-type, M11-directory-writable -> T3; M12-ce-conversion, M14-ce-root -> T4; M13-dp-rejection -> T5
+ * M15-ce-cause -> T6; M16-missing-directory, M17-mount-guard, M18-writable-guard -> T9
+ * M19-equality, M20-low-space, M21-above-request -> T10; M22-probe-state, M23-probe-escape -> T11
+ * M24-ce-root-text, M26-location-text -> T1; M25-external-root-text, M27-available-text -> T10
+ * M28-candidate-canonical, M29-app-canonical, M30-dp-canonical -> T7
+ * M31-strict-child, M32-app-containment, M33-dp-exclusion -> T7; M34-root-validation-call -> T8
+ * Production SHA256 E269BE8E4DC91F70446A9C46DAC0AACAF731C70B960DE219A9BFD04B411BBAA3
+ * Test snapshot before this receipt SHA256 5CD0AE41EE62EC36F30CB7A554BD46A2E718CEDAA2E99556786AA5875CBF9E20
+ * Actual adapter: API35 emulator + API33 phone accept six CE routes and DP-to-package conversion.
+ * A ContextWrapper overriding only the marker to false over genuine DP roots is safely rejected on both.
+ * This is a synthetic-marker probe; ordinary APK defaultToDeviceProtectedStorage=true was not adopted.
+ * That system-app-only manifest configuration was not runtime-reproduced; no root/system-app changes were made.
  */
