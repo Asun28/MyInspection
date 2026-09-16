@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-UNIT-ID-REVISION
 title: Frozen schema revision 1 - hunk ordinal identities and coordinated fixture migration (cross-surface contract change)
-status: todo
+status: merged
 depends_on: [T0-PREREVIEW-SCHEMA, T0-PREREVIEW-RECORDS, T0-PREREVIEW-PROTOCOL-DOC]
 allow_paths:
   - specs/prereview-record.schema.json
@@ -38,6 +38,8 @@ FACTS-LIB owns deterministic ordinal minting, not this card. The schema checks I
 Planned diff budget: under 700 changed lines / 50000 characters including fixtures and receipt; measure with review.ps1 before invoking R3. Local ship targets master; no remote reconciliation.
 
 ## Implementation evidence
+
+Local ship merged `71895645` (reviewed tip `269d5268`): first formal R3 round passed with zero findings; DoD, verify, scope, license, secrets and hard diff budget passed. Routed selftest was launched independently from this worktree and is tracked in the session handoff until completion.
 
 RED recorded at `1220f108`: new hunk IDs and revision 1 envelopes failed against revision 0; missing ordinals and revision 0 envelopes incorrectly passed. GREEN: schema checker (including projection samples and revision cases) and RECORDS self-check pass. Fixture migration preserves the eleven original JSON rejection classes; unknown-unit checks now require their specific membership reason. Actual diff before this receipt: 128 changed lines / 53035 characters, above the planning estimate but below the 1000 / 60000 hard limit.
 
