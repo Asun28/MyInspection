@@ -84,3 +84,152 @@ Original-main task-loop cleanup exited 0 at 2026-09-16T22:55:37.1616265+00:00; c
 - `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/root-cleanup-audit/audit.json` — SHA-256 `852A00D2A5E45DFA344BE0ABA64F59DEC0289B490E43648612E0801A6E449B95`.
 - `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/root-cleanup-audit/cleanup-result.json` — SHA-256 `BA24FE7CD838D44EEA7662ED1F4A727B7A1A9543EE2F1A53479F070E09120100`.
 - `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/ship-attempt-02-manifest.json` — SHA-256 `060925D2F40F8E795B9D01EECBBDA0C3AE80240D63EAEC7D9DE5C77892CC5CBC`.
+
+### Portable lifecycle evidence
+
+The JSON below contains selected observed PR/CI fields, the actual formal verdict and cleanup receipt, and the recorded evidence audit. Registration manifest counts were independently rechecked against the copied files; product audits retain their source and test context. It is a historical snapshot, not a live service assertion. Full original logs, XML and manifests remain at the referenced ignored paths and are available in the review worktree; this PR publishes the portable snapshot.
+
+<!-- remote-lifecycle-receipt -->
+```json
+{
+  "id": "T1-SAFE-MEDIA-LOGGING-REMOTE",
+  "pr": {
+    "number": 304,
+    "url": "https://github.com/Asun28/MyInspection/pull/304",
+    "state": "MERGED",
+    "headRefOid": "6216e9d16f93cac6b4a62a1edb93de09c9746330",
+    "mergeCommit": {
+      "oid": "cd7e20160a093817c9a4245cfafe9e393e9a6e49"
+    },
+    "mergedAt": "2026-09-16T22:45:02Z"
+  },
+  "formalR3": {
+    "reasons": [],
+    "sha": "6216e9d16f93cac6b4a62a1edb93de09c9746330",
+    "verdict": "pass",
+    "branch": "T1-SAFE-MEDIA-LOGGING-REMOTE"
+  },
+  "candidateCI": {
+    "databaseId": 35158547855,
+    "headSha": "6216e9d16f93cac6b4a62a1edb93de09c9746330",
+    "conclusion": "success",
+    "status": "completed",
+    "event": "pull_request",
+    "jobs": [
+      {
+        "name": "verify",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "required",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "cleanup": {
+    "head": "6216e9d16f93cac6b4a62a1edb93de09c9746330",
+    "worktreeAbsent": true,
+    "branchAbsent": true,
+    "merge": "cd7e20160a093817c9a4245cfafe9e393e9a6e49",
+    "exit": 0,
+    "endedUtc": "2026-09-16T22:55:37.1616265Z"
+  },
+  "evidenceAudit": {
+    "status": "PASS",
+    "copiedEvidenceFiles": 119,
+    "candidatePins": 7,
+    "reconstructedMutants": 24,
+    "allNamedAssertionErrors": true,
+    "appSuites": 8,
+    "appTests": 157.0,
+    "appSkipped": 0.0,
+    "red": "fresh missing API, not assertion kill",
+    "restoredAndFinalDoD": "exit0",
+    "coreWiring": "two passing current GREEN cases reused up-to-date, not a later fresh rerun",
+    "changedLines": 650,
+    "diffChars": 38741,
+    "diffSha": "F566DD384440BFB5B7FFD0D65DB60C9411C3D95D830E6D07D6A077B075965701"
+  },
+  "cleanupAudit": {
+    "head": "6216e9d16f93cac6b4a62a1edb93de09c9746330",
+    "apk": {
+      "path": "C:\\wt\\T1-SAFE-MEDIA-LOGGING-REMOTE\\android\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
+      "bytes": 17089087,
+      "sha256": "014C79B76C26E4AEFB82AAF9B3AE69AE4CB60E800237F2D7341570792B982B69",
+      "lastWriteUtc": "2026-09-16T21:24:15.6990282Z",
+      "buildEvidence": "../ship-attempt-02/ship-attempt-02.log",
+      "claim": "actual APK exists after full ship DoD; no device execution claimed"
+    },
+    "xml": {
+      "skipped": 4,
+      "tests": 1134,
+      "errors": 0,
+      "files": 99,
+      "failures": 0
+    },
+    "mergeTokenVerified": true,
+    "worktreeClean": true,
+    "checkedUtc": "2026-09-16T22:55:33.4843418Z",
+    "sourcePins": 7,
+    "merge": "cd7e20160a093817c9a4245cfafe9e393e9a6e49",
+    "manifests": [
+      {
+        "sha256": "C3345F0E40132A49CF4609ACCEC0814FA8252DE6092525E73486518BE9F0BE7B",
+        "file": "ship-attempt-01-manifest.json",
+        "count": 11
+      },
+      {
+        "sha256": "060925D2F40F8E795B9D01EECBBDA0C3AE80240D63EAEC7D9DE5C77892CC5CBC",
+        "file": "ship-attempt-02-manifest.json",
+        "count": 12
+      },
+      {
+        "sha256": "16C493F9A42368CF5DF291D8A45602AB4E76EF406F2CFAAB4493FFCCEE0D4EDF",
+        "file": "final-artifacts-manifest.json",
+        "count": 102
+      }
+    ],
+    "pr": 304,
+    "actualDeviceExecution": false
+  },
+  "sourcePins": [
+    {
+      "path": "android/app/src/main/kotlin/nz/myinspection/app/platform/SafeLog.kt",
+      "blob": "ce93bcc788d84bfc6b1f9d51d14376fc43ca862f",
+      "sha256": "40DCBC8D1F2EA370F57BC9234919A9D73F26A6DA0034F39C2F1A4D4DE643B173"
+    },
+    {
+      "path": "android/app/src/main/kotlin/nz/myinspection/app/media/MediaFileStore.kt",
+      "blob": "a86ad8806e9d6fe32bc470ceff8356844e18617f",
+      "sha256": "C03158914ED4570DC669AC29AD518A446A500CE747E778B2562160BBD58B0A13"
+    },
+    {
+      "path": "android/app/src/main/kotlin/nz/myinspection/app/media/PhotoImportPipeline.kt",
+      "blob": "783826994f3fffb49f3bca6315d0ef830e7af005",
+      "sha256": "4992556A40AA75CED84BFF0EA2C54DE90C4347E16FB1E5B8A977AF9601485F26"
+    },
+    {
+      "path": "android/app/src/main/kotlin/nz/myinspection/app/media/PhotoIngestPendingLease.kt",
+      "blob": "487c1f6e09f306b6ba1a970a04767e44bfc0c5cc",
+      "sha256": "505CD9D6BED4613BDC0CB2528501747FE12756DE4217CE9B6E70909ACB907DA9"
+    },
+    {
+      "path": "android/app/src/main/kotlin/nz/myinspection/app/media/PhotoOrphanCleanupWorker.kt",
+      "blob": "7045251816169829b9c109d63dc814eaceedf94b",
+      "sha256": "0A8E3EC03DD1A417DA57FF3F6DF07C9C14F9281706432CFBA3B2940427D94F9A"
+    },
+    {
+      "path": "android/app/src/test/kotlin/nz/myinspection/app/platform/SafeLogTest.kt",
+      "blob": "a11c7d09c5ed2cff5f8523c0d54e4538c380c45b",
+      "sha256": "531B3222096D5B9B8B24B396AA06C3ECC00A23597E7A533ECDC675F12DAC8864"
+    },
+    {
+      "path": "android/core/src/test/kotlin/nz/myinspection/core/media/PhotoOrphanCleanupWiringTest.kt",
+      "blob": "cb9ba1494d484edde5b169f96d609e5081e6fc35",
+      "sha256": "8D2618B1647D9B741B8866A85BA348569576A81135666AD868575B46D9BCFF7D"
+    }
+  ]
+}
+```

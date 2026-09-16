@@ -88,3 +88,65 @@ Original-main task-loop cleanup exited 0 at 2026-09-16T22:03:18.7002769+00:00; c
 
 - `_local/rotating-card-orchestrator/remote-delivery/T0-REMOTE-PRODUCT-CARDS/pre-cleanup-evidence-manifest.json` — SHA-256 `5F2EE7554060D23F359F557F7DF29B088F51354986E833EBE91099066CCAF01B`.
 - `_local/rotating-card-orchestrator/remote-delivery/T0-REMOTE-PRODUCT-CARDS/cleanup-result.json` — SHA-256 `38BC40ABB6034460FCDB08CBBB2C4BF1C8C9B5D5CFA48FEB6DA684BA50C34D52`.
+
+### Portable lifecycle evidence
+
+The JSON below contains selected observed PR/CI fields, the actual formal verdict and cleanup receipt, and the recorded evidence audit. Registration manifest counts were independently rechecked against the copied files; product audits retain their source and test context. It is a historical snapshot, not a live service assertion. Full original logs, XML and manifests remain at the referenced ignored paths and are available in the review worktree; this PR publishes the portable snapshot.
+
+<!-- remote-lifecycle-receipt -->
+```json
+{
+  "id": "T0-REMOTE-PRODUCT-CARDS",
+  "pr": {
+    "number": 301,
+    "url": "https://github.com/Asun28/MyInspection/pull/301",
+    "state": "MERGED",
+    "headRefOid": "01454f18ad04a1e254f3df748b4082d11aca1447",
+    "mergeCommit": {
+      "oid": "1ce3f5aef130ddd3fac19632a46e04c6671f91a6"
+    },
+    "mergedAt": "2026-09-16T21:19:49Z"
+  },
+  "formalR3": {
+    "reasons": [],
+    "verdict": "pass",
+    "sha": "01454f18ad04a1e254f3df748b4082d11aca1447",
+    "branch": "T0-REMOTE-PRODUCT-CARDS"
+  },
+  "candidateCI": {
+    "databaseId": 35151534312,
+    "headSha": "01454f18ad04a1e254f3df748b4082d11aca1447",
+    "conclusion": "success",
+    "status": "completed",
+    "event": "pull_request",
+    "jobs": [
+      {
+        "name": "verify",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "required",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "cleanup": {
+    "exit": 0,
+    "worktreeAbsent": true,
+    "branchAbsent": true,
+    "head": "01454f18ad04a1e254f3df748b4082d11aca1447",
+    "merge": "1ce3f5aef130ddd3fac19632a46e04c6671f91a6",
+    "copiedEvidenceFiles": 18,
+    "endedUtc": "2026-09-16T22:03:18.7002769Z"
+  },
+  "evidenceAudit": {
+    "kind": "verifiedManifestProjection",
+    "manifestSha256": "5F2EE7554060D23F359F557F7DF29B088F51354986E833EBE91099066CCAF01B",
+    "manifestEntries": 18,
+    "verifiedEntries": 18,
+    "copiedEvidenceFiles": 18
+  }
+}
+```
