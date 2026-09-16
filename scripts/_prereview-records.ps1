@@ -5,11 +5,10 @@
 .DESCRIPTION
   两种模式（协议：docs/PREREVIEW-PROTOCOL.md 第 5 节；契约本体 specs/prereview-record.schema.json）：
     -AsLibrary   只定义函数后立即 return（check-secrets.ps1 的库模式形态）：不读夹具、不触达 git、不 exit。
-    -SelfCheck   只读冻结 schema 与 scripts/fixtures/prereview/records/，末行 [PREREVIEW-RECORDS-SELFCHECK-PASS|FAIL]（exit 0|1）；
-                 先清掉继承的 PRE_LIVE / PRE_LENS_ENDPOINT，不 spawn 任何进程，不 dot-source 别的脚本。
-  输入 = 一个批次（一次 run 两个 worker）的记录列表，即 WORKERS A3 盖章后的 JSONL 行：内容字段 + 六个 provenance 键。本核心只用
-  worker_id（local_id 的命名空间 + provenance 列表），其余五个键原样带进 provenance 条目；校验前把六个键与内容分开，内容对封闭的 $defs
-  子形状校验，故 worker 写进记录的 id / verdict / missing 都被拒（worker 自写的 provenance 由 WORKERS A3 解包时拒绝）。
+    -SelfCheck   只读冻结 schema 与 scripts/fixtures/prereview/records/，末行 [PREREVIEW-RECORDS-SELFCHECK-PASS|FAIL]（exit 0|1）；先清掉
+                 继承的 PRE_LIVE / PRE_LENS_ENDPOINT，不 spawn 进程，不 dot-source 别的脚本。
+  输入 = 一个批次的记录列表，即 WORKERS A3 盖章后的 JSONL 行：内容字段 + 六个 provenance 键。本核心只用 worker_id（local_id 的命名空间 +
+  provenance 列表），其余五个键原样进 provenance 条目；校验前把六个键与内容分开，内容对封闭的 $defs 子形状校验（id / verdict / missing 被拒）。
   规则（卡 T0-PREREVIEW-RECORDS A1–A5）：
     · 任何违规都返回 Ok=$false + Code=[PRE-BAD-RECORD] + Reasons[]，不抛错；批内任一违规即整批不铸 id、不出行（fail-closed）。
     · 精确重复键 = file|symbol|category|contract_ref|expected|actual（NFC + 去首尾空白 + 空白串折叠），不含行号与 anchor：同一符号上
@@ -22,8 +21,8 @@
       coverage 从 StartId 重铸并要求整个结果对象逐字节相等；每个 worker 对每个 unit 只许一行 coverage；units 文档不许重复 unit_id。
     · missing 行只由本核心合成：每个 unit 若发现者（-DiscovererWorkerId）的 coverage 行 categories_checked 未同时含 C1、C2、C3
       即补一行 status=missing（只看 categories_checked，不看 status；透镜的行是附加的，不参与判定）。
-  产出：candidate = id / fingerprint / root_group / related_to / 内容字段（schema 顺序，local_id 进 provenance）/ provenance[]；
-  coverage = unit_id / worker_id / categories_checked / status / candidate_ids / missing_context。落盘归 STATE-1A。
+  产出：candidate = id / fingerprint / root_group / related_to / 内容字段 / provenance[]；coverage = unit_id / worker_id / categories_checked /
+  status / candidate_ids / missing_context。落盘归 STATE-1A。
 #>
 # 7.4 下限：Test-Json 的 draft 2020-12 校验（JsonSchema.Net，7.4 起）；ConvertFrom-Json -AsHashtable 自 7.3 起才是保序、区分大小写的
 # OrderedHashtable（candidate 字段顺序与 Expected/expected 并存都靠它）；-NoEnumerate。
@@ -43,7 +42,7 @@ $script:UnionFields = @('unit_ids', 'evidence_refs', 'evidence_needed')
 $script:ContributorFields = @('kind', 'severity_guess', 'anchor', 'line_start', 'line_end')   # 每个贡献者自己的定位与分级，记进其 provenance 条目
 $script:SchemaDefs = $null
 
-# ── 库导出区（-AsLibrary 可安全取用：无副作用、不 exit、不 spawn）──
+# ── 库导出区（-AsLibrary：不读文件、不 spawn、不 exit；StrictMode 与 ErrorActionPreference=Stop 同 check-secrets.ps1 留在调用方作用域）──
 # 键与字典一律序数：unit_id 是路径、local_id 是字符串，'l1' 与 'L1' 是两个 id；身份比较用 [string]::Equals(…, Ordinal) 与序数 HashSet，
 # 不用 -eq / -ceq / -contains / Select-Object -Unique（它们走 culture 比较：软连字符、零宽字符等可忽略码位与 NFC/NFD 变体会被判相等）。
 function New-OrdinalMap { return [System.Collections.Hashtable]::new([StringComparer]::Ordinal) }
@@ -61,7 +60,8 @@ function Get-PrereviewSchemaDefs {
 function Test-PrereviewRecord {
   # A1：把 $defs 子形状包成 {$ref, $defs} 在内存里校验；唯一判据 = Test-Json 布尔值；坏 JSON 或读不到 schema 都只返回 $false。
   [OutputType([bool])]
-  param([Parameter(Mandatory)][ValidateSet('candidate', 'coverage', 'facts', 'units')][string]$Kind, [AllowEmptyString()][string]$Json)
+  param([AllowNull()][AllowEmptyString()][string]$Kind, [AllowNull()][AllowEmptyString()][string]$Json)
+  if (@(@('candidate', 'coverage', 'facts', 'units') | Where-Object { Test-Ordinal $_ $Kind }).Count -ne 1) { return $false }
   try {
     $schema = @{ '$ref' = "#/`$defs/$Kind"; '$defs' = (Get-PrereviewSchemaDefs) } | ConvertTo-Json -Depth 64 -Compress
     return [bool](Test-Json -Json $Json -Schema $schema -ErrorAction SilentlyContinue)
@@ -83,7 +83,7 @@ function New-PrereviewResult([string[]]$Reasons, [System.Collections.IDictionary
 
 function Read-PrereviewRecords {
   # 一行一条 JSON 对象（WORKERS 解包后的 JSONL）；空行跳过；任一行不是 JSON 对象即 [PRE-BAD-RECORD]（点名行号），不抛。
-  param([Parameter(Mandatory)][string]$Path)
+  param([AllowNull()][AllowEmptyString()][string]$Path)
   $reasons = @(); $records = [System.Collections.Generic.List[object]]::new()
   try { $lines = [IO.File]::ReadAllLines($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)) } catch { return New-PrereviewResult @("cannot read $Path") ([ordered]@{ Records = @() }) }
   for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -120,8 +120,8 @@ function Split-PrereviewProvenance([System.Collections.IDictionary]$Record) {
 }
 
 function Test-PrereviewBatch([object[]]$Records, [object[]]$Units) {
-  # 整批校验（两个 ConvertTo-* 都先过这一步）：schema 可读 → units 文档 → 每条记录（provenance / 形状 / schema）→ 归属（A2）。
-  # Reasons 里的「record N」= 记录在传入批次里的 1 基序号（JSONL 空行已跳过）；Read-PrereviewRecords 的「line N」才是文件行号。
+  # 整批校验（两个 ConvertTo-* 都先过）：schema 可读 → units 文档 → 每条记录（provenance / 形状 / schema）→ 归属（A2）。
+  # Reasons 的「record N」= 记录在传入批次里的 1 基序号；Read-PrereviewRecords 的「line N」才是文件行号。
   $reasons = @()
   try { [void](Get-PrereviewSchemaDefs) } catch { return @{ Ok = $false; Reasons = @("record schema unreadable: $($_.Exception.Message)"); Candidates = @(); Coverage = @() } }
   $unitIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -140,7 +140,7 @@ function Test-PrereviewBatch([object[]]$Records, [object[]]$Units) {
     if (-not $kind) { $reasons += "record $no`: neither candidate (local_id) nor coverage (unit_id)"; continue }
     if (-not (Test-PrereviewRecord -Kind $kind -Json ($parts.Content | ConvertTo-Json -Depth 32 -Compress))) { $reasons += "record $no`: $kind fails `$defs/$kind"; continue }
     $entry = [ordered]@{ Index = $no; Worker = $worker; Content = $parts.Content; Provenance = $parts.Provenance }
-    if ($kind -eq 'candidate') {
+    if (Test-Ordinal $kind 'candidate') {
       $entry['Key'] = Get-PrereviewLocalKey $worker $parts.Content['local_id']
       if (-not $localKeys.Add($entry['Key'])) { $reasons += "record $no`: worker $worker reuses local_id $($parts.Content['local_id'])" }
       $cands.Add($entry)
@@ -160,22 +160,25 @@ function Test-PrereviewBatch([object[]]$Records, [object[]]$Units) {
 
 function ConvertTo-PrereviewCandidates {
   # A3/A4：local_id → C-<n>（从 -NextId 起单调、返回下一个号）；精确重复合并；fingerprint / root_group / related_to。
-  # [PRE-BAD-RECORD] 只描述 worker 记录；调用方参数错误（NextId < 1、计数器用尽：NextId > [long]::MaxValue - 本批候选数）按参数校验 /
-  # ArgumentOutOfRangeException 抛出，那是编程错误或状态损坏、不是记录违规。计数器是 [long]：int 过 2147483647 会被提升成 double。
-  param([AllowEmptyCollection()][object[]]$Records, [object[]]$Units, [ValidateRange(1, [long]::MaxValue)][long]$NextId = 1)
+  # 卡片 forbid：坏输入一律返回 [PRE-BAD-RECORD]、不抛——NextId 不是整数、< 1、或计数器用尽（NextId > [long]::MaxValue - 本批新号数）
+  # 也走同一出口（NextId 原样返回、不铸）。计数器是 [long]：int 过 2147483647 会被提升成 double。
+  param([AllowEmptyCollection()][object[]]$Records, [object[]]$Units, $NextId = 1)
+  $fail = { param([string[]]$Why) New-PrereviewResult $Why ([ordered]@{ Candidates = @(); NextId = $NextId; LocalIdMap = (New-OrdinalMap); StartId = $NextId }) }
+  if (@([byte], [sbyte], [int16], [uint16], [int32], [uint32], [int64] | Where-Object { $NextId -is $_ }).Count -ne 1 -or [long]$NextId -lt 1) { return & $fail @('NextId must be an integer type up to Int64 and >= 1') }
+  [long]$NextId = $NextId
   $b = Test-PrereviewBatch $Records $Units
-  if (-not $b.Ok) { return New-PrereviewResult $b.Reasons ([ordered]@{ Candidates = @(); NextId = $NextId; LocalIdMap = (New-OrdinalMap); StartId = $NextId }) }
+  if (-not $b.Ok) { return & $fail $b.Reasons }
   # 精确重复键 = 六个归一后字段的元组（JSON 数组编码：值里含 '|' 也不撞）；fingerprint 照卡片形态用 '|' 连接，只作分组提示。
   $keys = @(foreach ($c in $b.Candidates) { ConvertTo-Json -InputObject @($script:ExactKeyFields | ForEach-Object { ConvertTo-NormalisedText $c.Content[$_] }) -Compress })
   $fresh = [long][System.Collections.Generic.HashSet[string]]::new([string[]]$keys, [StringComparer]::Ordinal).Count   # 合并后真正要铸的号数（序数去重）
-  if ($NextId -gt ([long]::MaxValue - $fresh)) { throw [ArgumentOutOfRangeException]::new('NextId', 'C-n counter exhausted for this batch') }
-  $fieldOrder = @((Get-PrereviewSchemaDefs)['candidate']['properties'].Keys)
+  if ($NextId -gt ([long]::MaxValue - $fresh)) { return & $fail @("C-n counter exhausted: NextId $NextId leaves no room for $fresh new ids") }
+  $fieldOrder = @((Get-PrereviewSchemaDefs)['candidate']['properties'].Keys); $unionSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$script:UnionFields, [StringComparer]::Ordinal)
   $byKey = [System.Collections.Specialized.OrderedDictionary]::new([StringComparer]::Ordinal); $map = New-OrdinalMap; [long]$n = $NextId
   for ($i = 0; $i -lt $b.Candidates.Count; $i++) {
     $c = $b.Candidates[$i]; $key = $keys[$i]
     # 合并后的标量字段取批内首个贡献者（RUN 先传发现者）；每个贡献者自己的定位与分级记在它的 provenance 条目里，合并不丢信息。
     $prov = [ordered]@{ worker_id = $c.Worker; local_id = $c.Content['local_id'] }
-    foreach ($k in $script:ProvenanceKeys) { if ($k -ne 'worker_id') { $prov[$k] = $c.Provenance[$k] } }
+    foreach ($k in $script:ProvenanceKeys) { if (-not (Test-Ordinal $k 'worker_id')) { $prov[$k] = $c.Provenance[$k] } }
     foreach ($k in $script:ContributorFields) { $prov[$k] = $c.Content[$k] }
     if ($byKey.Contains($key)) {
       $x = $byKey[$key]
@@ -184,7 +187,7 @@ function ConvertTo-PrereviewCandidates {
       $map[$c.Key] = $x['id']; continue
     }
     $x = [ordered]@{ id = "C-$n"; fingerprint = ($script:FingerprintFields | ForEach-Object { ConvertTo-NormalisedText $c.Content[$_] }) -join '|'; root_group = $null; related_to = @() }
-    foreach ($f in $fieldOrder) { if ($f -ne 'local_id') { $x[$f] = $(if ($script:UnionFields -ccontains $f) { Get-OrdinalUnion @($c.Content[$f]) } else { $c.Content[$f] }) } }
+    foreach ($f in $fieldOrder) { if (-not (Test-Ordinal $f 'local_id')) { $x[$f] = $(if ($unionSet.Contains($f)) { Get-OrdinalUnion @($c.Content[$f]) } else { $c.Content[$f] }) } }
     $x['provenance'] = @($prov)
     $byKey[$key] = $x; $map[$c.Key] = $x['id']; $n++
   }
@@ -199,20 +202,19 @@ function ConvertTo-PrereviewCandidates {
 
 function ConvertTo-PrereviewCoverage {
   # A2/A5：coverage 行 → state 形状（candidate_local_ids 经 LocalIdMap 换成 C-<n>）；发现者覆盖缺 C1/C2/C3 的 unit 合成 missing 行。
-  param([AllowEmptyCollection()][object[]]$Records, [object[]]$Units, [Parameter(Mandatory)]$Candidates, [string]$DiscovererWorkerId = 'discoverer')
+  param([AllowEmptyCollection()][object[]]$Records, [object[]]$Units, [AllowNull()]$Candidates, [string]$DiscovererWorkerId = 'discoverer')
   $b = Test-PrereviewBatch $Records $Units
   if (-not $b.Ok) { return New-PrereviewResult $b.Reasons ([ordered]@{ Coverage = @() }) }
-  # 绑定：-Candidates 必须恰好等于本核心对同一批记录、从其 StartId 重铸出的**整个**结果（Ok / Code / Reasons / Candidates / NextId /
-  # LocalIdMap / StartId 七个属性的规范 JSON 逐字节相等）。重铸而非核对：改 id、改 map、协同改写、补条目、缺字段、只改状态、失败结果、
-  # 别批结果，全部走同一个 [PRE-BAD-RECORD] 出口，不抛、不解引用。
+  # 绑定：-Candidates 必须恰好等于本核心对同一批记录、从其 StartId 重铸出的整个结果（$script:ResultFields 七个属性的规范 JSON 逐字节相等）。
+  # 重铸而非核对：改 id / map / 状态、协同改写、补条目、缺字段、失败或别批结果，全走同一个 [PRE-BAD-RECORD] 出口，不抛、不解引用。
   $bad = $true; $re = $null
   try {
     $re = ConvertTo-PrereviewCandidates -Records $Records -Units $Units -NextId ([long]$Candidates.PSObject.Properties['StartId'].Value)
     $canon = { param($v) ConvertTo-Json -InputObject @($v) -Depth 16 -Compress }
     # 键按序数排序（Sort-Object 走 culture、不分大小写：'l1' 与 'L1' 会并列，同一份 map 换个枚举顺序就序列化成两样）。
-    $canonMap = { param($m) $d = New-OrdinalMap; foreach ($k in @($m.Keys)) { if (-not ($m[$k] -is [string])) { throw 'map value is not a string' }; $d[[string]$k] = $m[$k] }; $ks = [string[]]@($m.Keys | ForEach-Object { [string]$_ }); [Array]::Sort($ks, [StringComparer]::Ordinal); & $canon @($ks | ForEach-Object { @($_, $d[$_]) }) }
+    $canonMap = { param($m) $d = New-OrdinalMap; foreach ($k in @($m.Keys)) { $d[[string]$k] = $m[$k] }; $ks = [string[]]@($m.Keys | ForEach-Object { [string]$_ }); [Array]::Sort($ks, [StringComparer]::Ordinal); & $canon @($ks | ForEach-Object { @($_, $d[$_]) }) }
     # 属性名集合须序数地恰好等于七个（PSObject.Properties 的索引器不分大小写、多余属性也不报）；赋值不经 $()，免得集合被展开。
-    $canonResult = { param($r) $names = [System.Collections.Generic.HashSet[string]]::new([string[]]@($r.PSObject.Properties | ForEach-Object Name), [StringComparer]::Ordinal); if (-not $names.SetEquals([string[]]$script:ResultFields)) { throw 'not a candidates result' }; $o = [ordered]@{}; foreach ($n in $script:ResultFields) { $v = $r.PSObject.Properties[$n].Value; if ($n -eq 'LocalIdMap') { $o[$n] = & $canonMap $v } else { $o[$n] = $v } }; & $canon $o }
+    $canonResult = { param($r) $names = [System.Collections.Generic.HashSet[string]]::new([string[]]@($r.PSObject.Properties | ForEach-Object Name), [StringComparer]::Ordinal); if (-not $names.SetEquals([string[]]$script:ResultFields)) { throw 'not a candidates result' }; $o = [ordered]@{}; foreach ($n in $script:ResultFields) { $v = $r.PSObject.Properties[$n].Value; if (Test-Ordinal $n 'LocalIdMap') { $o[$n] = & $canonMap $v } else { $o[$n] = $v } }; & $canon $o }
     $bad = -not ($re.Ok -and (Test-Ordinal (& $canonResult $re) (& $canonResult $Candidates)))
   } catch { $bad = $true }
   if ($bad) { return New-PrereviewResult @('candidates result is not the one minted from this batch (not a result object, failed, another batch, or altered)') ([ordered]@{ Coverage = @() }) }
@@ -251,18 +253,18 @@ function Check([string]$Label, [bool]$Cond) {
   if ($Cond) { Write-Host "  ok   $Label" -ForegroundColor DarkGray; return }
   Write-Host "  FAIL $Label" -ForegroundColor Red; $script:fails.Add($Label)
 }
-function Same([object[]]$Actual, [string[]]$Expected) {   # 逐位、区分大小写的序列相等（L165：断言面 = 契约）
+function Eq($A, $B) { return [string]::Equals([string]$A, [string]$B, [StringComparison]::Ordinal) }   # 断言一律序数相等（PowerShell 的比较运算符走 culture：软连字符 / 零宽字符 / NFD 会被判等）
+function Same([object[]]$Actual, [string[]]$Expected) {   # 逐位序数序列相等（L165：断言面 = 契约）
   $a = @($Actual); if ($a.Count -ne $Expected.Count) { return $false }
-  for ($i = 0; $i -lt $a.Count; $i++) { if (-not ([string]$a[$i] -ceq $Expected[$i])) { return $false } }
+  for ($i = 0; $i -lt $a.Count; $i++) { if (-not (Eq $a[$i] $Expected[$i])) { return $false } }
   return $true
 }
+function OrdinalSet([object[]]$Items) { return , [System.Collections.Generic.HashSet[string]]::new([string[]]@($Items | ForEach-Object { [string]$_ }), [StringComparer]::Ordinal) }   # 逗号：函数返回会把集合展开
 # reject 夹具清单钉死（文件 → 违规类）：目录须与之恰好相等；少一类或多一个未登记文件都红。
 $RejectClasses = [ordered]@{
-  'coverage-unknown-unit.jsonl'       = 'coverage unit_id not in units.json (A2)'
   'coverage-worker-id.jsonl'          = 'worker-emitted id (A5)'
   'coverage-status-missing.jsonl'     = 'worker-emitted missing (A5)'
   'coverage-verdict.jsonl'            = 'field named verdict'
-  'record-no-worker-id.jsonl'         = 'no worker_id provenance'
   'record-unknown-shape.jsonl'        = 'neither candidate nor coverage'
   'coverage-duplicate-unit.jsonl'     = 'two coverage rows for one (worker, unit)'
   'coverage-case-variant-key.jsonl'   = 'Status beside status (ordinal, closed)'
@@ -270,6 +272,7 @@ $RejectClasses = [ordered]@{
 }
 $U1 = 'scripts/a.ps1#0123456789ab'; $U2 = 'scripts/a.ps1#89abcdef0123'; $U3 = 'docs/x.md#file'; $U4 = 'docs/y.md#file'
 
+Check 'harness: Eq / Same / OrdinalSet are ordinal (soft hyphen, ZWSP, case variants stay different)' (-not (Eq 'C-1' ('C-' + [char]0xAD + '1')) -and -not (Same @('a' + [char]0x200B) @('a')) -and -not (Eq 'd1' 'D1') -and -not (OrdinalSet @('l1')).Contains('L1'))
 Write-Host '[1/5] Test-PrereviewRecord: booleans, never a throw' -ForegroundColor Cyan
 $unitsText = [IO.File]::ReadAllText((Join-Path $FixtureRoot 'units.json'))
 $units = @($unitsText | ConvertFrom-Json -AsHashtable -Depth 8)
@@ -281,22 +284,24 @@ Check 'valid/batch.jsonl reads as 11 records' ($batch.Ok -and @($batch.Records).
 $threw = $false; $r = $true
 try { $r = Test-PrereviewRecord -Kind candidate -Json '{"local_id": "d1"' } catch { $threw = $true }
 Check 'malformed JSON -> false without a throw' (-not $threw -and -not $r)
+$threw = $false; $rk = $true; $rp = $null
+try { $rk = Test-PrereviewRecord -Kind 'bogus' -Json '{}'; $rp = Read-PrereviewRecords -Path '' } catch { $threw = $true }
+Check 'unknown -Kind -> false; empty -Path -> [PRE-BAD-RECORD] cannot read; neither throws' (-not $threw -and -not $rk -and (Eq $rp.Code $script:BadRecordCode) -and @($rp.Records).Count -eq 0)
 Check 'candidate with provenance attached -> false (closed shape)' (-not (Test-PrereviewRecord -Kind candidate -Json ($batch.Records[0] | ConvertTo-Json -Depth 8 -Compress)))
 Check 'units document given as coverage -> false' (-not (Test-PrereviewRecord -Kind coverage -Json $unitsText))
 $threw = $false; $cObj = $null
 try { $cObj = ConvertTo-PrereviewCandidates -Records $batch.Records -Units @($unitsText | ConvertFrom-Json) -NextId 1 } catch { $threw = $true }
-Check 'units given as PSCustomObject (plain ConvertFrom-Json) -> [PRE-BAD-RECORD], no throw' (-not $threw -and $cObj.Code -ceq $script:BadRecordCode)
+Check 'units given as PSCustomObject (plain ConvertFrom-Json) -> [PRE-BAD-RECORD], no throw' (-not $threw -and (Eq $cObj.Code $script:BadRecordCode))
 $cDupUnit = ConvertTo-PrereviewCandidates -Records $batch.Records -Units @($units + @($units[3])) -NextId 1
-Check 'units document repeating a unit_id -> [PRE-BAD-RECORD]' ($cDupUnit.Code -ceq $script:BadRecordCode -and @($cDupUnit.Reasons) -match 'repeats unit_id')
+Check 'units document repeating a unit_id -> [PRE-BAD-RECORD]' ((Eq $cDupUnit.Code $script:BadRecordCode) -and @($cDupUnit.Reasons | Where-Object { $_.Contains('repeats unit_id') }).Count -eq 1)
 
 Write-Host '[2/5] reject classes -> [PRE-BAD-RECORD], no throw, nothing minted' -ForegroundColor Cyan
 $rejectDir = Join-Path $FixtureRoot 'reject'
-$present = @(Get-ChildItem -LiteralPath $rejectDir -Filter *.jsonl -File | ForEach-Object Name)
-$drift = @(Compare-Object $present @($RejectClasses.Keys) | ForEach-Object { $_.InputObject })
-Check "reject inventory: $($present.Count) on disk == $($RejectClasses.Count) declared" ($drift.Count -eq 0)
+$present = @(Get-ChildItem -LiteralPath $rejectDir -File | ForEach-Object Name)
+Check "reject inventory: $($present.Count) on disk == $($RejectClasses.Count) declared (ordinal names)" ((OrdinalSet $present).SetEquals((OrdinalSet @($RejectClasses.Keys))))
 foreach ($name in $RejectClasses.Keys) {
   $path = Join-Path $rejectDir $name
-  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+  if (-not (@(Get-ChildItem -LiteralPath $rejectDir -File | Where-Object { Eq $_.Name $name }).Count -eq 1)) { Check "$name is present under exactly that name" $false; continue }
   $threw = $false; $rd = $null; $c = $null; $v = $null
   try {
     $rd = Read-PrereviewRecords -Path $path
@@ -308,45 +313,44 @@ foreach ($name in $RejectClasses.Keys) {
   Check "$name ($($RejectClasses[$name])): no throw" (-not $threw)
   if ($threw) { continue }
   if ($rd.Ok) {
-    Check "$name -> both normalisers return [PRE-BAD-RECORD] with reasons" ($c.Code -ceq $script:BadRecordCode -and $v.Code -ceq $script:BadRecordCode -and @($c.Reasons).Count -gt 0 -and @($v.Reasons).Count -gt 0)
-    Check "$name -> NextId untouched, no candidate, no coverage row" ($c.NextId -eq 7 -and @($c.Candidates).Count -eq 0 -and @($v.Coverage).Count -eq 0)
+    Check "$name -> [PRE-BAD-RECORD] with reasons from both normalisers, NextId untouched, nothing minted" ((Eq $c.Code $script:BadRecordCode) -and (Eq $v.Code $script:BadRecordCode) -and @($c.Reasons).Count -gt 0 -and @($v.Reasons).Count -gt 0 -and $c.NextId -eq 7 -and @($c.Candidates).Count -eq 0 -and @($v.Coverage).Count -eq 0)
   } else {
-    Check "$name -> Read returns [PRE-BAD-RECORD] naming line 2 (unclosed) and line 3 (array)" ($rd.Code -ceq $script:BadRecordCode -and (Same $rd.Reasons @('line 2: not a JSON object', 'line 3: not a JSON object')) -and @($rd.Records).Count -eq 1)
+    Check "$name -> Read returns [PRE-BAD-RECORD] naming line 2 (unclosed) and line 3 (array)" ((Eq $rd.Code $script:BadRecordCode) -and (Same $rd.Reasons @('line 2: not a JSON object', 'line 3: not a JSON object')) -and @($rd.Records).Count -eq 1)
   }
 }
-function Edit([int]$i, [hashtable]$Set) { $x = [ordered]@{}; foreach ($k in $batch.Records[$i].Keys) { $x[$k] = $batch.Records[$i][$k] }; foreach ($k in $Set.Keys) { $x[$k] = $Set[$k] }; return $x }
+function Edit([int]$i, [hashtable]$Set, [string]$Drop = '') { $x = [ordered]@{}; foreach ($k in $batch.Records[$i].Keys) { if (-not (Eq $k $Drop)) { $x[$k] = $batch.Records[$i][$k] } }; foreach ($k in $Set.Keys) { $x[$k] = $Set[$k] }; return $x }
 $mem = [ordered]@{
-  'candidate unit_ids entry not in units.json (A2)'               = @((Edit 0 @{ unit_ids = @('scripts/zz.ps1#0123456789ab') }))
-  'coverage candidate_local_ids names another worker local_id (A2)' = @($batch.Records[0], (Edit 8 @{ candidate_local_ids = @('d1') }))
-  'one worker reuses a local_id (A2)'                              = @($batch.Records[0], (Edit 0 @{ expected = 'twice' }))
+  'candidate unit_ids entry not in units.json'               = @((Edit 0 @{ unit_ids = @('scripts/zz.ps1#0123456789ab') }))
+  'coverage candidate_local_ids names another worker local_id' = @($batch.Records[0], (Edit 8 @{ candidate_local_ids = @('d1') }))
+  'one worker reuses a local_id'                              = @($batch.Records[0], (Edit 0 @{ expected = 'twice' }))
+  'coverage unit_id not in units.json'                        = @((Edit 4 @{ unit_id = 'scripts/zz.ps1#file' }))
+  'no worker_id provenance'                                   = @((Edit 4 @{} 'worker_id'))
 }
 foreach ($name in $mem.Keys) {
   $threw = $false; $c = $null; $v = $null
   try { $c = ConvertTo-PrereviewCandidates -Records $mem[$name] -Units $units -NextId 7; $v = ConvertTo-PrereviewCoverage -Records $mem[$name] -Units $units -Candidates $c } catch { $threw = $true }
-  Check "in-memory reject: $name -> both normalisers [PRE-BAD-RECORD], nothing minted, no throw" (-not $threw -and $c.Code -ceq $script:BadRecordCode -and $v.Code -ceq $script:BadRecordCode -and $c.NextId -eq 7 -and @($c.Candidates).Count -eq 0 -and @($v.Coverage).Count -eq 0)
+  Check "in-memory reject: $name -> both normalisers [PRE-BAD-RECORD], nothing minted, no throw" (-not $threw -and (Eq $c.Code $script:BadRecordCode) -and (Eq $v.Code $script:BadRecordCode) -and $c.NextId -eq 7 -and @($c.Candidates).Count -eq 0 -and @($v.Coverage).Count -eq 0)
 }
 
 Write-Host '[3/5] minting, exact merge, near-duplicate groups' -ForegroundColor Cyan
 $c1 = ConvertTo-PrereviewCandidates -Records $batch.Records -Units $units -NextId 1
-Check 'valid batch normalises' ($c1.Ok -and $c1.Code -ceq '' -and @($c1.Reasons).Count -eq 0)
+Check 'valid batch normalises' ($c1.Ok -and (Eq $c1.Code '') -and @($c1.Reasons).Count -eq 0)
 $ids = @($c1.Candidates | ForEach-Object { $_['id'] })
 Check 'ids C-1..C-4 in input order, NextId 5' ((Same $ids @('C-1', 'C-2', 'C-3', 'C-4')) -and $c1.NextId -eq 5)
 $k1 = @($c1.Candidates)[0]; $k2 = @($c1.Candidates)[1]; $k3 = @($c1.Candidates)[2]; $k4 = @($c1.Candidates)[3]
 $pv = @($k1['provenance'])
 Check 'C-1 = d1 + l1 (NFD, whitespace, other line): two provenance entries' ((Same @($pv | ForEach-Object { "$($_['worker_id'])|$($_['local_id'])" }) @('discoverer|d1', 'lens|l1')) -and (Same @($pv | ForEach-Object { $_['model_id'] }) @('claude-opus-5', 'deepseek-v4-flash')))
-Check 'C-1 defect/high from d1; provenance keeps each contributor line/kind/severity (l1: 43, question, medium)' ($k1['kind'] -ceq 'defect' -and $k1['severity_guess'] -ceq 'high' -and $pv[0]['line_start'] -eq 41 -and $pv[1]['line_start'] -eq 43 -and $pv[1]['kind'] -ceq 'question' -and $pv[1]['severity_guess'] -ceq 'medium')
-Check 'C-1 keeps the first contributor content (line 41, NFC text)' ($k1['line_start'] -eq 41 -and $k1['expected'] -ceq "every segment is checked (caf$([char]0xE9))")
+Check 'C-1 defect/high from d1; provenance keeps each contributor line/kind/severity (l1: 43, question, medium)' ((Eq $k1['kind'] 'defect') -and (Eq $k1['severity_guess'] 'high') -and $pv[0]['line_start'] -eq 41 -and $pv[1]['line_start'] -eq 43 -and (Eq $pv[1]['kind'] 'question') -and (Eq $pv[1]['severity_guess'] 'medium'))
+Check 'state candidate keys: id, fingerprint, root_group, related_to, the 18 schema fields minus local_id, provenance' (Same @($k1.Keys) @('id', 'fingerprint', 'root_group', 'related_to', 'kind', 'severity_guess', 'category', 'anchor', 'file', 'symbol', 'line_start', 'line_end', 'unit_ids', 'trigger', 'expected', 'actual', 'impact', 'contract_ref', 'evidence_refs', 'evidence_needed', 'introduced_or_worsened', 'suggested_fix_direction', 'provenance'))
+Check 'provenance entry keys: worker_id, local_id, the five stamped keys, kind, severity_guess, anchor, line_start, line_end' (Same @($pv[1].Keys) @('worker_id', 'local_id', 'snapshot_tree', 'model_id', 'lens', 'schema_version', 'schema_revision', 'kind', 'severity_guess', 'anchor', 'line_start', 'line_end'))
 Check 'C-1 unions: unit_ids dedup, evidence_refs sorted (41,43,40 in), evidence_needed disjoint sorted' ((Same $k1['unit_ids'] @($U1, $U2)) -and (Same $k1['evidence_refs'] @('scripts/a.ps1:40', 'scripts/a.ps1:41', 'scripts/a.ps1:43')) -and (Same $k1['evidence_needed'] @('docs/x.md', 'scripts/task.ps1 -Local branch')))
-Check 'fingerprint = file|category|symbol|contract_ref' ($k1['fingerprint'] -ceq 'scripts/a.ps1|C2|Test-Foo|lesson:L228')
-Check 'C-2 shares C-1 fingerprint yet keeps its own id (hint, not identity)' ($k2['fingerprint'] -ceq $k1['fingerprint'] -and $k2['id'] -ceq 'C-2')
-Check 'near duplicates: root_group C-1 on both, related_to cross-listed' ($k1['root_group'] -ceq 'C-1' -and $k2['root_group'] -ceq 'C-1' -and (Same $k1['related_to'] @('C-2')) -and (Same $k2['related_to'] @('C-1')))
-Check 'C-3 and C-4 are their own roots with empty related_to' ($k3['root_group'] -ceq 'C-3' -and $k4['root_group'] -ceq 'C-4' -and @($k3['related_to']).Count -eq 0 -and @($k4['related_to']).Count -eq 0)
-Check 'C-3 keeps symbol null with line_start 3 (question on docs/x.md)' ($null -eq $k3['symbol'] -and $k3['line_start'] -eq 3 -and $k3['kind'] -ceq 'question')
+Check 'fingerprint = file|category|symbol|contract_ref' ((Eq $k1['fingerprint'] 'scripts/a.ps1|C2|Test-Foo|lesson:L228'))
+Check 'near duplicates: root_group C-1 on both, related_to cross-listed' ((Eq $k1['root_group'] 'C-1') -and (Eq $k2['root_group'] 'C-1') -and (Same $k1['related_to'] @('C-2')) -and (Same $k2['related_to'] @('C-1')))
 $m = $c1.LocalIdMap
-Check 'LocalIdMap: (lens,l1) C-1, (discoverer,d2) C-2, (lens,l2) C-4; (lens,L1) nobody (ordinal)' ($m[(Get-PrereviewLocalKey 'lens' 'l1')] -ceq 'C-1' -and $m[(Get-PrereviewLocalKey 'discoverer' 'd2')] -ceq 'C-2' -and $m[(Get-PrereviewLocalKey 'lens' 'l2')] -ceq 'C-4' -and -not $m.ContainsKey((Get-PrereviewLocalKey 'lens' 'L1')))
+Check 'LocalIdMap: (lens,l1) C-1, (discoverer,d2) C-2, (lens,l2) C-4; (lens,L1) nobody (ordinal)' ((Eq $m[(Get-PrereviewLocalKey 'lens' 'l1')] 'C-1') -and (Eq $m[(Get-PrereviewLocalKey 'discoverer' 'd2')] 'C-2') -and (Eq $m[(Get-PrereviewLocalKey 'lens' 'l2')] 'C-4') -and -not $m.ContainsKey((Get-PrereviewLocalKey 'lens' 'L1')))
 $c2 = ConvertTo-PrereviewCandidates -Records $batch.Records -Units $units -NextId $c1.NextId
 $ids2 = @($c2.Candidates | ForEach-Object { $_['id'] })
-Check 'second call continues at C-5..C-8, NextId 9, no number reused' ((Same $ids2 @('C-5', 'C-6', 'C-7', 'C-8')) -and $c2.NextId -eq 9 -and @($ids | Where-Object { $ids2 -ccontains $_ }).Count -eq 0)
+Check 'second call continues at C-5..C-8, NextId 9, no number reused' ((Same $ids2 @('C-5', 'C-6', 'C-7', 'C-8')) -and $c2.NextId -eq 9 -and -not (OrdinalSet $ids).Overlaps((OrdinalSet $ids2)))
 $axis = @{ file = 'scripts/b.ps1'; symbol = 'Test-Bar'; category = 'C3'; contract_ref = 'lesson:L229'; expected = 'other expectation'; actual = 'other actual' }
 $axisOk = $true
 foreach ($f in $axis.Keys) {
@@ -358,47 +362,50 @@ Check 'one-axis near duplicates (each of the six key fields) never merge' $axisO
 $p1 = [ordered]@{}; $p2 = [ordered]@{}; foreach ($k in $batch.Records[0].Keys) { $p1[$k] = $batch.Records[0][$k]; $p2[$k] = $batch.Records[0][$k] }
 $p1['expected'] = 'x|y'; $p1['actual'] = 'z'; $p2['local_id'] = 'd9'; $p2['expected'] = 'x'; $p2['actual'] = 'y|z'
 $cPipe = ConvertTo-PrereviewCandidates -Records @($p1, $p2) -Units $units -NextId 1
-Check 'tuple keys: (x|y,z) and (x,y|z) stay apart; local key likewise' ($cPipe.Ok -and @($cPipe.Candidates).Count -eq 2 -and (Get-PrereviewLocalKey 'a|b' 'c') -cne (Get-PrereviewLocalKey 'a' 'b|c'))
+Check 'tuple keys: (x|y,z) and (x,y|z) stay apart; local key likewise' ($cPipe.Ok -and @($cPipe.Candidates).Count -eq 2 -and -not (Eq (Get-PrereviewLocalKey 'a|b' 'c') (Get-PrereviewLocalKey 'a' 'b|c')))
 $threw = $false; $cBig = $null; $cBig2 = $null
 try { $cBig = ConvertTo-PrereviewCandidates -Records @($p1) -Units $units -NextId ([int]::MaxValue); $cBig2 = ConvertTo-PrereviewCandidates -Records @($p1) -Units $units -NextId $cBig.NextId } catch { $threw = $true }
-Check 'NextId past Int32.MaxValue: C-2147483647, then 2147483648 feeds the next call' (-not $threw -and @($cBig.Candidates)[0]['id'] -ceq 'C-2147483647' -and $cBig.NextId -eq 2147483648 -and @($cBig2.Candidates)[0]['id'] -ceq 'C-2147483648')
-$exhausted = $false; try { [void](ConvertTo-PrereviewCandidates -Records @($p1) -Units $units -NextId ([long]::MaxValue)) } catch { $exhausted = ($_.Exception -is [ArgumentOutOfRangeException]) }
-Check 'NextId at Int64.MaxValue with one candidate: ArgumentOutOfRangeException before minting (caller error, not a record)' $exhausted
+Check 'NextId past Int32.MaxValue: C-2147483647, then 2147483648 feeds the next call' (-not $threw -and (Eq @($cBig.Candidates)[0]['id'] 'C-2147483647') -and $cBig.NextId -eq 2147483648 -and (Eq @($cBig2.Candidates)[0]['id'] 'C-2147483648'))
+$threw = $false; $cEx = $null; $cZero = $null; $cStr = $null
+try { $cEx = ConvertTo-PrereviewCandidates -Records @($p1) -Units $units -NextId ([long]::MaxValue); $cZero = ConvertTo-PrereviewCandidates -Records @($p1) -Units $units -NextId 0; $cStr = ConvertTo-PrereviewCandidates -Records @($p1) -Units $units -NextId 'abc' } catch { $threw = $true }
+Check 'NextId exhausted (Int64.MaxValue, one new id) / 0 / a string: failed result, NextId untouched, nothing minted, no throw' (-not $threw -and (Eq $cEx.Code $script:BadRecordCode) -and $cEx.NextId -eq [long]::MaxValue -and @($cEx.Candidates).Count -eq 0 -and (Eq $cZero.Code $script:BadRecordCode) -and $cZero.NextId -eq 0 -and (Eq $cStr.Code $script:BadRecordCode) -and (Eq $cStr.NextId 'abc'))
 $threw = $false; $dupTop = $null
 try { $dupTop = ConvertTo-PrereviewCandidates -Records @($batch.Records[0], $batch.Records[6]) -Units $units -NextId ([long]::MaxValue - 1) } catch { $threw = $true }
 Check 'two exact duplicates at Int64.MaxValue-1 need one id: minted, NextId = Int64.MaxValue (exhaustion counts unique keys)' (-not $threw -and $dupTop.Ok -and @($dupTop.Candidates).Count -eq 1 -and $dupTop.NextId -eq [long]::MaxValue)
 
 Write-Host '[4/5] coverage rows, binding, missing synthesis' -ForegroundColor Cyan
 $v1 = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $c1
-Check 'coverage normalises' ($v1.Ok -and $v1.Code -ceq '')
+Check 'coverage normalises' ($v1.Ok -and (Eq $v1.Code ''))
 $rows = @($v1.Coverage)
-function Row([string]$Unit, $Worker) { return , @($rows | Where-Object { $_['unit_id'] -ceq $Unit -and $_['worker_id'] -ceq $Worker }) }
+function Row([string]$Unit, $Worker) { return , @($rows | Where-Object { (Eq $_['unit_id'] $Unit) -and (Eq $_['worker_id'] $Worker) }) }
 Check '6 worker rows + 3 missing rows' ($rows.Count -eq 9)
-$d1 = Row $U1 'discoverer'; $l1 = Row $U1 'lens'; $d3 = Row $U3 'discoverer'; $l3 = Row $U3 'lens'
-Check 'U1/discoverer: finding, candidate_ids C-1,C-2' ($d1.Count -eq 1 -and $d1[0]['status'] -ceq 'finding' -and (Same $d1[0]['candidate_ids'] @('C-1', 'C-2')))
+$d1 = Row $U1 'discoverer'; $l1 = Row $U1 'lens'; $d3 = Row $U3 'discoverer'
+$u2d = Row $U2 'discoverer'
+Check 'coverage row keys and values: U2/discoverer checked_no_finding with C1, C3, no candidate_ids' ($u2d.Count -eq 1 -and (Same @($u2d[0].Keys) @('unit_id', 'worker_id', 'categories_checked', 'status', 'candidate_ids', 'missing_context')) -and (Eq $u2d[0]['status'] 'checked_no_finding') -and (Same $u2d[0]['categories_checked'] @('C1', 'C3')) -and @($u2d[0]['candidate_ids']).Count -eq 0)
+$vLens = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $c1 -DiscovererWorkerId 'lens'
+Check '-DiscovererWorkerId lens: the lens rows drive synthesis, so U1..U4 are all missing (lens checks no C1/C3)' ($vLens.Ok -and (Same @($vLens.Coverage | Where-Object { Eq $_['status'] 'missing' } | ForEach-Object { $_['unit_id'] }) @($U1, $U2, $U3, $U4)))
+Check 'U1/discoverer: finding, candidate_ids C-1,C-2' ($d1.Count -eq 1 -and (Eq $d1[0]['status'] 'finding') -and (Same $d1[0]['candidate_ids'] @('C-1', 'C-2')))
 Check 'U1/lens: finding, candidate_ids C-1 (merged id)' ($l1.Count -eq 1 -and (Same $l1[0]['candidate_ids'] @('C-1')))
-Check 'U3/discoverer: blocked with missing_context, candidate_ids C-3' ($d3.Count -eq 1 -and $d3[0]['status'] -ceq 'blocked' -and (Same $d3[0]['missing_context'] @('docs/y.md')) -and (Same $d3[0]['candidate_ids'] @('C-3')))
-Check 'U3/lens: finding, candidate_ids C-4' ($l3.Count -eq 1 -and (Same $l3[0]['candidate_ids'] @('C-4')))
-$missing = @($rows | Where-Object { $_['status'] -ceq 'missing' })
+Check 'U3/discoverer: blocked with missing_context, candidate_ids C-3' ($d3.Count -eq 1 -and (Eq $d3[0]['status'] 'blocked') -and (Same $d3[0]['missing_context'] @('docs/y.md')) -and (Same $d3[0]['candidate_ids'] @('C-3')))
+$missing = @($rows | Where-Object { (Eq $_['status'] 'missing') })
 Check 'missing rows for exactly U2 (lacks C2), U3 (lacks C2, C3) and U4 (no row from anyone), in units order' ((Same @($missing | ForEach-Object { $_['unit_id'] }) @($U2, $U3, $U4)))
 Check 'missing rows: worker_id null, empty categories / candidate_ids / missing_context' (@($missing | Where-Object { $null -eq $_['worker_id'] -and @($_['categories_checked']).Count -eq 0 -and @($_['candidate_ids']).Count -eq 0 -and @($_['missing_context']).Count -eq 0 }).Count -eq 3)
-Check 'U4 (no row from any worker) gets exactly one missing row' (@($rows | Where-Object { $_['unit_id'] -ceq $U4 }).Count -eq 1)
-Check 'no missing row for U1; the lens C2 row on U2 does not rescue it' (@($missing | Where-Object { $_['unit_id'] -ceq $U1 }).Count -eq 0 -and @(Row $U2 'lens').Count -eq 1)
+Check 'U4 (no row from any worker) gets exactly one missing row' (@($rows | Where-Object { (Eq $_['unit_id'] $U4) }).Count -eq 1)
+Check 'no missing row for U1; the lens C2 row on U2 does not rescue it' (@($missing | Where-Object { (Eq $_['unit_id'] $U1) }).Count -eq 0 -and @(Row $U2 'lens').Count -eq 1)
 $zw = [ordered]@{}; foreach ($k in $batch.Records[9].Keys) { $zw[$k] = $batch.Records[9][$k] }; $zw['worker_id'] = 'discoverer' + [char]0x200B
 $cZw = ConvertTo-PrereviewCandidates -Records @($batch.Records + @($zw)) -Units $units -NextId 1
 $vZw = ConvertTo-PrereviewCoverage -Records @($batch.Records + @($zw)) -Units $units -Candidates $cZw
-Check 'a worker named discoverer+ZWSP is not the discoverer (ordinal): its C2 row on U2 leaves U2 missing' ($vZw.Ok -and @($vZw.Coverage | Where-Object { $_['unit_id'] -ceq $U2 -and $_['status'] -ceq 'missing' }).Count -eq 1)
+Check 'a worker named discoverer+ZWSP is not the discoverer (ordinal): its C2 row on U2 leaves U2 missing' ($vZw.Ok -and @($vZw.Coverage | Where-Object { (Eq $_['unit_id'] $U2) -and (Eq $_['status'] 'missing') }).Count -eq 1)
 $cDup = ConvertTo-PrereviewCandidates -Records @($batch.Records + @($batch.Records[0])) -Units $units -NextId 1
 $threw = $false; $vBad = $null
 try { $vBad = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $cDup } catch { $threw = $true }
-Check 'failed candidates result (d1 twice: Ok false) refused, no throw' (-not $threw -and -not $cDup.Ok -and $null -ne $vBad -and $vBad.Code -ceq $script:BadRecordCode -and @($vBad.Coverage).Count -eq 0)
+Check 'failed candidates result (d1 twice: Ok false) refused, no throw' (-not $threw -and -not $cDup.Ok -and $null -ne $vBad -and (Eq $vBad.Code $script:BadRecordCode) -and @($vBad.Coverage).Count -eq 0)
 $alt = @($batch.Records | ForEach-Object { $_ }); $alt[1] = $p2; $alt[1]['local_id'] = 'd2'
 $cAlt = ConvertTo-PrereviewCandidates -Records $alt -Units $units -NextId 1
-Check 'alt batch (d2 reworded) mints on its own, map resolves d2' ($cAlt.Ok -and $cAlt.LocalIdMap.ContainsKey((Get-PrereviewLocalKey 'discoverer' 'd2')))
 $vOther = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $cAlt
-Check 'another batch result refused (recompute differs) though every local_id resolves' ($vOther.Code -ceq $script:BadRecordCode -and @($vOther.Coverage).Count -eq 0)
+Check 'another batch result refused (recompute differs) though every local_id resolves' ((Eq $vOther.Code $script:BadRecordCode) -and @($vOther.Coverage).Count -eq 0)
 function Forge($Map, $Cands, $Next = $c1.NextId) { [pscustomobject]@{ Ok = $true; Code = ''; Reasons = @(); Candidates = $Cands; NextId = $Next; LocalIdMap = $Map; StartId = 1 } }
-function MapWith([string]$Key, $Value, [string]$Drop = '') { $m = New-OrdinalMap; foreach ($k in $c1.LocalIdMap.Keys) { if ($k -cne $Drop) { $m[$k] = $c1.LocalIdMap[$k] } }; if ($Key) { $m[$Key] = $Value }; return $m }
+function MapWith([string]$Key, $Value, [string]$Drop = '') { $m = New-OrdinalMap; foreach ($k in $c1.LocalIdMap.Keys) { if (-not (Eq $k $Drop)) { $m[$k] = $c1.LocalIdMap[$k] } }; if ($Key) { $m[$Key] = $Value }; return $m }
 function CopyCands { return @($c1.Candidates | ForEach-Object { $x = [ordered]@{}; foreach ($k in $_.Keys) { $x[$k] = $_[$k] }; $x }) }
 $d1k = Get-PrereviewLocalKey 'discoverer' 'd1'; $d3k = Get-PrereviewLocalKey 'discoverer' 'd3'
 $rewritten = CopyCands; $rewritten[0]['id'] = 'C-9'; $coMap = MapWith $d1k 'C-9'; $coMap[(Get-PrereviewLocalKey 'lens' 'l1')] = 'C-9'
@@ -418,15 +425,18 @@ $forged = @(
 $gen = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal); foreach ($k in $c1.LocalIdMap.Keys) { $gen[$k] = $c1.LocalIdMap[$k] }
 $threw = $false; $vF = @(); $vGen = $null
 try { $vF = @(foreach ($f in $forged) { ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $f }); $vGen = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates (Forge $gen $c1.Candidates) } catch { $threw = $true; Write-Host "    threw: $($_.Exception.Message)" -ForegroundColor Red }
-Check 'the 16 forged results above are all refused, no throw' (-not $threw -and @($vF | Where-Object { $_.Code -ceq $script:BadRecordCode -and @($_.Coverage).Count -eq 0 }).Count -eq 16)
+Check 'the 16 forged results above are all refused, no throw' (-not $threw -and @($vF | Where-Object { (Eq $_.Code $script:BadRecordCode) -and @($_.Coverage).Count -eq 0 }).Count -eq 16)
 Check 'a generic Dictionary[string,string] holding the true map is accepted (same 9 rows)' (-not $threw -and $vGen.Ok -and @($vGen.Coverage).Count -eq 9)
 $qU = [ordered]@{}; foreach ($k in $batch.Records[0].Keys) { $qU[$k] = $batch.Records[0][$k] }; $qU['local_id'] = 'D1'; $qU['expected'] = 'upper twin'
 $cCase = ConvertTo-PrereviewCandidates -Records @($batch.Records[0], $qU) -Units $units -NextId 1
 $rev = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal); foreach ($k in @(@($cCase.LocalIdMap.Keys)[-1..0])) { $rev[$k] = $cCase.LocalIdMap[$k] }
 $vCase = ConvertTo-PrereviewCoverage -Records @($batch.Records[0], $qU) -Units $units -Candidates ([pscustomobject]@{ Ok = $true; Code = ''; Reasons = @(); Candidates = $cCase.Candidates; NextId = $cCase.NextId; LocalIdMap = $rev; StartId = 1 })
 Check 'case-variant local ids (d1, D1) in reverse insertion order still bind (ordinal key sort, not culture)' ($cCase.Ok -and @($cCase.Candidates).Count -eq 2 -and $vCase.Ok)
+$threw = $false; $vNull = $null
+try { $vNull = ConvertTo-PrereviewCoverage -Records $batch.Records -Units $units -Candidates $null } catch { $threw = $true }
+Check '-Candidates null -> [PRE-BAD-RECORD], no throw' (-not $threw -and (Eq $vNull.Code $script:BadRecordCode))
 $vUnits = ConvertTo-PrereviewCoverage -Records $batch.Records -Units @() -Candidates $c1
-Check 'coverage re-validates its batch: empty units, matching result -> [PRE-BAD-RECORD], no row' ($vUnits.Code -ceq $script:BadRecordCode -and @($vUnits.Coverage).Count -eq 0 -and @($vUnits.Reasons) -match 'not in units.json')
+Check 'coverage re-validates its batch: empty units, matching result -> [PRE-BAD-RECORD], no row' ((Eq $vUnits.Code $script:BadRecordCode) -and @($vUnits.Coverage).Count -eq 0 -and @($vUnits.Reasons | Where-Object { $_.Contains('not in units.json') }).Count -gt 0)
 
 Write-Host '[5/5] environment: PRE_LIVE and PRE_LENS_ENDPOINT absent at the end' -ForegroundColor Cyan
 Check 'PRE_LIVE / PRE_LENS_ENDPOINT are not set' (-not (Test-Path Env:PRE_LIVE) -and -not (Test-Path Env:PRE_LENS_ENDPOINT))
