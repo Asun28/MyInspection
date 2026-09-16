@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-16 隐藏 git 自检修复**：`T0-SELFTEST-HIDDEN-GIT` 经 [PR #300](https://github.com/Asun28/MyInspection/pull/300) squash 合并为 `ef6290ee`（精确被审提交 `2c8739c7`）。Ubuntu 上 8.2j 隐藏 git 时也移除了 `sh`，使闸 15f(a)/15x(b) 误红；现由夹具临时提供 `sh`，并要求非 git 控制仍实际执行。Windows 全量 17 闸、Ubuntu 隐藏与正常 git 的 8/15、两项回退测试通过；正式 ship 的 DoD、verify、范围、许可、密钥、R3 双轴及 [精确候选 CI `35068704320/1`](https://github.com/Asun28/MyInspection/actions/runs/35068704320) 均通过。合并后 nightly 尚待观察；#217 Windows PSGallery 安装故障是独立问题。
+
 **2026-09-14 远端交付**：`T0-CI-SELFTEST-ADOPTION-REPAIR` 经 [PR #299](https://github.com/Asun28/MyInspection/pull/299) 合并（`8d673edb`；reviewed head `77a639e8`，R3 第 2 轮双轴 pass、`[CI-GATE-PASS]` 钉 run `34796936991/1`）。修掉 #297 采纳留在 `scaffold-selftest.yml` 上的四处回归：push 面 e2e 分片（15b 夹具 ship 真跑产品 Gradle 许可扫描；15e 在 `$RepoRoot` 干跑真 verify），nightly 面（`-IncludeMeta`）另红 light（post-init `14e` 块的头形式逃出 14m 投影，8.2j 子跑随之红）与 seed-b（17ac(o)① 断言只有元仓才有的 T63 结果 TSV）。修法均是恢复/补齐下游形态：许可闸 stub 进 e2e 基线并加守卫、产品 verify 的降级用例改在裸拷贝上 fail-closed、`# 14e(post-init continuation)` + 连续声明、`[SELFTEST-POSTINIT-MUT-TSV-SKIP]`。证据：官方 RED `failed=8,14,17t+17ac`；GREEN 四闸全 PASS；R4 5/5 变异全杀；Tier S 两次 `-Parallel -IncludeMeta` 全绿（1033 s / 979 s）；两次 dispatch 在真 runner 上 e2e 分片双 OS 绿。两处上游缺陷（17ac(o)① 的 post-init、15e 的 `$RepoRoot` 假设）按 `docs/SCAFFOLD-SYNC.md` 回报；TD176（许可扫描器读的 POM 会被 Gradle 30 天缓存清理删掉）、TD177（`$fail` 单调闩让多闸合跑里首红之后的 `-not $fail` 夹具静默跳过）登记。
 
 **2026-09-11 脚手架采纳交付**：[PR #297](https://github.com/Asun28/MyInspection/pull/297) 已合并 `d991cc92`，落地树与被审 `31d2b8c4` 一致。3 位 DeepSeek 预审无阻塞、获授权的 Codex 第 6 轮 PASS、完整自检 5/5 与当前 CI 通过。11 张旧卡由此次已合并采纳替代，原卡独立验收不作完成声明；INPUT、TRIAGE、RECEIPT 保持排除。来源与验收见 [采纳记录](docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md)。

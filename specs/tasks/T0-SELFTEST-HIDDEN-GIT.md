@@ -1,7 +1,7 @@
 ---
 id: T0-SELFTEST-HIDDEN-GIT
 title: Keep gate 15 product verify fixtures runnable when git and its PATH directories are hidden
-status: in-progress
+status: merged
 branch: T0-SELFTEST-HIDDEN-GIT
 worktree: C:\wt\T0-SELFTEST-HIDDEN-GIT
 allow_paths:
@@ -63,6 +63,22 @@ Candidate: 2c8739c7d7d54224fa8645347e7b5dab73906308. Source SHA256:
 
 Logs and the machine verdict remain in the candidate's `_local/` and `.review/`; a portable patch,
 this card and the verification/evidence bundle are delivered in the requesting task's outputs.
-No push, PR or merge was performed. Keep status in-progress pending origin reconciliation and
-post-merge nightly observation. The original dirty/divergent checkout and its handoff remain intact.
+The original dirty/divergent checkout and its handoff remain intact.
 The separate #217 Windows PSGallery provisioning failure is outside this code repair.
+
+## R5 delivery receipt
+
+- Card registration and verification record landed on origin/master as `abbaf8f3d193b980e8ee236a21057600e55c25ec`.
+- [PR #300](https://github.com/Asun28/MyInspection/pull/300) squash-merged the exact reviewed
+  candidate `2c8739c7d7d54224fa8645347e7b5dab73906308` as
+  `ef6290eeba94dc717d32b98edbdbccbf45798b18`.
+- Official ship DoD gates 8 and 15 PASS with all 12 meta sites run; `verify`, scope (one allowed
+  file, 23/100 lines), licenses and secrets PASS. Formal R3 round 2 returned both axes pass and
+  posted `codex-review=success` for the exact candidate.
+- The CI gate pinned workflow run `35068704320/1`, required fan-in success, and base
+  `abbaf8f3d193b980e8ee236a21057600e55c25ec` before merge. PR CI verify also succeeded.
+- Local Windows Tier S full and Ubuntu hidden/present-git evidence above remains tied to the same
+  candidate bytes. The previous isolated reviewer-sandbox 15i permission error did not recur in
+  formal ship DoD. No product code, `verify.ps1`, CI workflow or configuration changed.
+- Origin-line fix is merged. The push-triggered nightly scaffold-selftest and the unrelated
+  Windows PSGallery provisioning leg are tracked as post-merge observations, not claimed green here.
