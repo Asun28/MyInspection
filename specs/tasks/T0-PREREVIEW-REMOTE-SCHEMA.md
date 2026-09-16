@@ -29,3 +29,9 @@ hygiene: Reuse the exact approved schema/checker bytes and original mutation evi
 Remote adoption of the already approved final local artifact; no original local card is relabelled as remotely merged. Source and excluded consumers: docs/plans/PREREVIEW-REMOTE-ADOPTION.md.
 
 The original tests and mutation receipts are historical evidence only. Run the DoD and the current remote delivery gates on this candidate. R5 records the new PR/review/CI identity and archives this adoption card.
+
+## Current remote-candidate evidence
+
+Candidate `13f2cbfb516f54523bec42f90a00b5e86dbb9da1` is clean and unchanged after its checks. The default schema checker passed both `[PREREVIEW-SCHEMA-OK]` and `[PREREVIEW-UNIT-ID-REVISION-PASS]`; the config DoD arm passed. An independent byte comparison matched all 26 imported schema/checker/fixture files to local source tree `4c9735ef`. All 17 Prereview config literal lines match that source exactly; deleting only the added block restores the entire pre-adoption config byte content (after text newline normalization).
+
+`pwsh -NoProfile -File scripts/selftest.ps1 -Parallel` passed on that frozen candidate: light, e2e, seed-pre, seed-post and seed-b each exited 0, aggregate exit 0, 1216 seconds parallel wall time. This is ordinary full acceptance, without nightly `-IncludeMeta`. The candidate's ignored `.review/remote-adoption/` contains `proof.json`, `schema-selftest.log`, `schema-dod.log`, `schema-source-identity.json` and `config-identity.json`; the full log SHA-256 is `5038E845167E3C5964368B006F17DEF171B199114861CC48C77BE74D0FC49476`. Formal R3 and required CI are still pending and must run on this candidate; the prior local verdict is not reused.
