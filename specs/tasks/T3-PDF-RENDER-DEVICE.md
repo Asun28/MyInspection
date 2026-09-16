@@ -21,7 +21,7 @@ non_goals:
 plan_ref: context/DESIGN.md#backup-report-health-and-compliance-component-matrix
 acceptance:
   - "A1 the executor consumes a PdfRenderProgram and issues one page start, its ops, and one page finish per page, deriving no geometry, dpi, path or text measurement of its own"
-  - "A2 a started page is always finished and the document is always closed before any success is returned, and a failure anywhere leaves no completed-artifact claim"
+  - "A2 every successfully started page receives a finish attempt and every created document receives a close attempt, including when drawing or finishing fails; success requires page finalization, write and document close to complete, and any failure leaves no completed-artifact claim"
   - "A3 每槽先读取 source bounds，再仅调用既有 PdfImageSampling.inSampleSize(source,target) 取得采样值后 decode；不复制采样算术，draw 后立刻 recycle，同一时刻至多一张已解码位图存活"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest
 dod_exit: 0
@@ -37,7 +37,7 @@ doc_sync: ADR-0007 + TASK-BOARD 备注（R5）
 
 `app/export/pdf` 的薄执行器把 `T3-PDF-RENDERER` 产出的 `PdfRenderProgram` 用 `android.graphics.pdf.PdfDocument`、`Canvas`、`BitmapFactory` 按序执行。它不判断几何、dpi、路径、文本度量或 wrap：`PdfTextOp` 由 `ReportComposer`/builder 携带前置 measurement 后准备，执行器直接 draw。它只守住平台调用顺序、页/文档关闭和单张位图生命周期。
 
-`:app` 单测为纯 JVM，直接 Android graphics API 会 `Stub!`；故页开闭、失败与位图存活状态机必须针对可替换窄端口测试，真正 PdfDocument adapter 保持直调薄层。一次只 start 一页；每个 ImageOp 读取 bounds，仅调用 `PdfImageSampling.inSampleSize`，decode → draw → 立即 recycle；已开始页面总会 finish，document 在任何成功前 close，失败不宣称产物完成。无资产、字体、许可文件、落盘/发布或真机视觉义务。
+`:app` 单测为纯 JVM，直接 Android graphics API 会 `Stub!`；故页开闭、失败与位图存活状态机必须针对可替换窄端口测试，真正 PdfDocument adapter 保持直调薄层。一次只 start 一页；每个 ImageOp 读取 bounds，仅调用 `PdfImageSampling.inSampleSize`，decode → draw → 立即 recycle。成功开始的页必须尝试 finish，创建的 document 必须尝试 close；即使 finish 自身抛错也必须尝试 close，但不把抛错的关闭调用声称为已成功释放。只有页结束、write 和 close 均成功才返回成功。无资产、字体、许可文件、落盘/发布或真机视觉义务。
 
 ## RED、DoD 与预算
 
