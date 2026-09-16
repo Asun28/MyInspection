@@ -112,6 +112,6 @@ TD124（把「以为已被别的卡偿还」核实成否 + 修法到行）。与
 ```
 task.ps1 -TaskId X -Phase start     # R1 worktree + 环境
   ...在 worktree 内：红→绿→重构→R4 剪枝...
-task.ps1 -TaskId X -Phase ship      # R2 DoD绿 → 许可闸 → R3 Codex pass → PR → 合并
+task.ps1 -TaskId X -Phase ship      # DoD/verify → 范围/许可/密钥/预算 → PR → R3 闸门通过 → CI/base/head → 合并
 task.ps1 -TaskId X -Phase cleanup   # R1 拆 worktree → R5 文档同步
 ```

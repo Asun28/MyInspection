@@ -2,7 +2,8 @@
 id: T0-REVIEW-LOW-RISK
 title: 横切 R3 低风险文档建议模式与本地可信评审入口
 depends_on: []
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-REVIEW-LOW-RISK
 worktree: C:\wt\T0-REVIEW-LOW-RISK
 allow_paths:
@@ -57,3 +58,7 @@ doc_sync: 同步 rubric/workflow/card template/task-loop/CLAUDE 的建议模式�
 The user's 2026-09-08 instruction authorizes remote delivery through an independent worktree and PR. The remaining acceptance, forbid and non-goals stay in force. This todo registration does not represent local historical results as remote implementation or acceptance. Use task-loop with GPT-6 Astra, high effort and the configured independent GPT-5.6 Sol high R3. Establish current-source behavior evidence and preserve existing remote product changes.
 
 Local candidate a9506225 repaired strict JSON and exact status-only findings after two blocked R3 rounds. The user authorized one counter reset on 2026-09-08, and it has already been consumed. Preserve the findings and current counter for remote delivery; a new worktree grants no additional reset.
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

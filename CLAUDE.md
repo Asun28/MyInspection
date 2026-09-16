@@ -69,6 +69,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-16 隐藏 git 自检修复**：`T0-SELFTEST-HIDDEN-GIT` 经 [PR #300](https://github.com/Asun28/MyInspection/pull/300) squash 合并为 `ef6290ee`（精确被审提交 `2c8739c7`）。Ubuntu 上 8.2j 隐藏 git 时也移除了 `sh`，使闸 15f(a)/15x(b) 误红；现由夹具临时提供 `sh`，并要求非 git 控制仍实际执行。Windows 全量 17 闸、Ubuntu 隐藏与正常 git 的 8/15、两项回退测试通过；正式 ship 的 DoD、verify、范围、许可、密钥、R3 双轴及 [精确候选 CI `35068704320/1`](https://github.com/Asun28/MyInspection/actions/runs/35068704320) 均通过。合并后 nightly 尚待观察；#217 Windows PSGallery 安装故障是独立问题。
+
+**2026-09-14 远端交付**：`T0-CI-SELFTEST-ADOPTION-REPAIR` 经 [PR #299](https://github.com/Asun28/MyInspection/pull/299) 合并（`8d673edb`；reviewed head `77a639e8`，R3 第 2 轮双轴 pass、`[CI-GATE-PASS]` 钉 run `34796936991/1`）。修掉 #297 采纳留在 `scaffold-selftest.yml` 上的四处回归：push 面 e2e 分片（15b 夹具 ship 真跑产品 Gradle 许可扫描；15e 在 `$RepoRoot` 干跑真 verify），nightly 面（`-IncludeMeta`）另红 light（post-init `14e` 块的头形式逃出 14m 投影，8.2j 子跑随之红）与 seed-b（17ac(o)① 断言只有元仓才有的 T63 结果 TSV）。修法均是恢复/补齐下游形态：许可闸 stub 进 e2e 基线并加守卫、产品 verify 的降级用例改在裸拷贝上 fail-closed、`# 14e(post-init continuation)` + 连续声明、`[SELFTEST-POSTINIT-MUT-TSV-SKIP]`。证据：官方 RED `failed=8,14,17t+17ac`；GREEN 四闸全 PASS；R4 5/5 变异全杀；Tier S 两次 `-Parallel -IncludeMeta` 全绿（1033 s / 979 s）；两次 dispatch 在真 runner 上 e2e 分片双 OS 绿。两处上游缺陷（17ac(o)① 的 post-init、15e 的 `$RepoRoot` 假设）按 `docs/SCAFFOLD-SYNC.md` 回报；TD176（许可扫描器读的 POM 会被 Gradle 30 天缓存清理删掉）、TD177（`$fail` 单调闩让多闸合跑里首红之后的 `-not $fail` 夹具静默跳过）登记。
+
+**2026-09-11 脚手架采纳交付**：[PR #297](https://github.com/Asun28/MyInspection/pull/297) 已合并 `d991cc92`，落地树与被审 `31d2b8c4` 一致。3 位 DeepSeek 预审无阻塞、获授权的 Codex 第 6 轮 PASS、完整自检 5/5 与当前 CI 通过。11 张旧卡由此次已合并采纳替代，原卡独立验收不作完成声明；INPUT、TRIAGE、RECEIPT 保持排除。来源与验收见 [采纳记录](docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md)。
+
+**2026-09-09 远端交付**：`T0-SELFTEST-SCAFFOLD-ONLY` 经 PR #272 合并（`7500992541d15cc7a53b06efe4560dc62123dcff`；reviewed head `d3a206a979468888b208569a2701a9dd3b67fcf6`，merged tree `a1ef3cd8f724583fff2e0b75a46464c6403e2350`），正式 R3 `pass`，exact-head CI `34314990805` success；full selftest 已运行于 parent HEAD `5bff8a` 的未提交 canary 修复源码；该完整源码与 reviewed/merged Git blob `5b05aac083d260978a4c5987902d6bb9ebc4dd0d` 字节一致（归档卡 Delivery receipt 详列来源），source SHA-256 `BFACF8485F7255DDF0C7E39B6671AB50C8071E933B6AF4F00DBB48D06DD29376` native exit 0/2629.0102968s，17a3 real17a3PASS，explicit skips 21；normal ship/official cleanup exits 0/0。官方 cleanup 后归档。
+
+**SPIKE 远端交付**：PR #286 已合并 `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`，R3 首轮 pass、CI 成功、官方 cleanup 完成。历史与当前候选 APK／真机证据分列于 [平台报告](docs/spike/PLATFORM-SPIKE.md)；本轮 SAF 仅验证已有授权延续与重启读取，不声称重跑写入。
+
+**2026-09-09 远端交付**：`T4-SYMBOL-MARKDOWN-PARSER` 经 [PR274](https://github.com/Asun28/MyInspection/pull/274) 合并（`18741ac29a20da426ffe99c02c924f2d1b3b29f5`；reviewed head `3b7d51f1519f4b4817289edf2d14c2a68173474e`），正式 R3 PASS、精确候选 CI `34291612516` 成功，117 项行为测试 / 35 项定向变异及项目 verify 通过。原工作树已按正式流程清理，完整历史与最终凭据见 [归档卡](specs/archive/tasks/T4-SYMBOL-MARKDOWN-PARSER.md)。仅交付 Markdown 前置解析能力；PR263 的实际消费者接入、符号设计发布仍待各自交付。
+
+**2026-09-08 远端交付**：`T0-SELFTEST-RISK-ROUTING` 经 PR #273 合并（`fcdb4d8ca5f4d76c2fe73fc6177bc828e239ce6c`；reviewed head `9af2af3a4d4a4abc93549d82da2350b186954cd2`），真实 focused DoD、verify、正式 Sol high R3 与精确候选 CI 通过。真实入口及默认 all→core hook 有界回归、11 枚当前定点变异和 14 枚历史同源函数复用核验完成；不声明 all-shards full selftest。显式任务路由与独立 product verify 约定见本文件工作流入口及 `docs/DEVOPS-WORKFLOW.md`；官方 cleanup 后归档。
+
 **2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
 
 **2026-09-08 远端交付**：`T3-DOCX-EXTRACTION-MANIFEST` 经 [PR #262](https://github.com/Asun28/MyInspection/pull/262) 合并（`11cf5899`；正式 R3、候选 CI 通过）。八组证据集合不可变，DOCX-EXTRACT-1 三组独立向量一致；10 项测试、45 项新变异和完整 core 剪枝验证完成。提取器与导入规划仍由后续卡交付。
@@ -440,7 +454,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
-18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.45.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.47.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch；本次耦合采用与未覆盖项见 `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
@@ -453,10 +467,10 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **R1 worktree**：每卡建 `<WorktreeRoot>\<ID>` 隔离分支（.venv/node_modules 每树独立、gitignored）
 - **R2 TDD**：先写失败测试→实现到绿→重构；契约测试 mock 必 100% 过
 - **R3 pre-push + PR/Codex 评审代替人工**：ship 在 push 前依次强制 DoD、verify、范围、许可、防泄露与**真实 diff 预算闸**；随后 `review.ps1` 按 `docs/QUALITY-RUBRIC.md` 判（注入 rubric + 反自我开脱立场），出 `{verdict:pass|block}`→回贴 `codex-review` 状态；
-  有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
+  规则集要求 `required`（CI fan-in）+`codex-review` 双绿；本项目 `ReviewGate='required'` 同时由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 仅默认分支 push/手动 canary，每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，拆掉超 20 分钟单片而不减覆盖（8.2d/8.2e 锁死）。合并前仍由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；必需检查 `required` 汇总 `verify` 等所有 CI 作业，`codex-review` 是独立 R3 状态。`scaffold-selftest.yml` 跑默认分支 push、每日定时和手动 canary，不在 PR 上运行；两种 OS 的分片及超时以该文件矩阵为准，并集覆盖完整 17 闸（8.2d/8.2e/8.2h 校验）。元层改动合并前仍须本地全量 selftest，另由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -495,8 +509,9 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流自检**：`pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片；任务卡可选单片作 DoD。
-- **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
+- **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
+  显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
+- **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；已推送状态的手工恢复可按 `docs/DEVOPS-WORKFLOW.md` 完整式做诊断和修复后自查，但最终交付不得裸跑 review/checks/merge，必须执行 `-NoAutoMerge` 打印的 `[SHIP-MANUAL-RESUME]` 命令，重新进入同一 `task.ps1 -Phase ship`，由 fresh R3、精确 CI workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照和受保护合并腿共同裁决。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
 ## 架构大图
@@ -589,4 +604,4 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 并行工具调用时把只读诊断与写操作分批（L1）；触碰冻结契约会被 `guard-frozen` 钩子拒绝（需演进走版本评审）。
 
 ---
-<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.45.0**（`ScaffoldVersion`）。</sub>
+<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.47.0**（`ScaffoldVersion`）。</sub>

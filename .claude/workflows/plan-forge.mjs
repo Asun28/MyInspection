@@ -1,22 +1,45 @@
 export const meta = {
   name: 'plan-forge',
-  description: '差异化审计一份计划(若有前次评审则只打其遗漏 + 冻结点风险) -> 多裁判对抗核验 -> 裁决 -> 拆解为带依赖关系的可执行任务卡 -> 卡片审计',
+  description: '按 tier 路由深度审计一份计划(若有前次评审则只打其遗漏 + 冻结点风险) -> T2 多裁判对抗核验 -> 裁决即止；投影任务卡归 decompose-cards.mjs 单一所有',
   phases: [
-    { title: 'Lens-Audit', detail: '8 个 lens 并行审计；若有前次评审先读它、禁止重报已知项' },
-    { title: 'Adversarial-Verify', detail: '每条 FATAL/HIGH 发现派 3 个裁判从不同角度尝试反驳，>=2 反驳即枪毙' },
-    { title: 'Synthesize', detail: '汇总存活发现 + 裁决 plan 是否可拆解' },
-    { title: 'Decompose', detail: '把计划的任务章节投影为带 depends_on 的完整任务卡集' },
-    { title: 'Card-Audit', detail: '审计卡片图: 无环拓扑 / DoD可机检 / 硬边界 / 并行撞文件' },
+    { title: 'Lens-Audit', detail: 'lens 并行审计：T2 走全 8 个 lens、T1 走 3 个(tier 路由)；若有前次评审先读它、禁止重报已知项' },
+    { title: 'Adversarial-Verify', detail: '仅 T2：每条 FATAL/HIGH 发现派 3 个裁判从不同角度尝试反驳，>=2 反驳即枪毙' },
+    { title: 'Synthesize', detail: '汇总发现 + 裁决 plan 是否可拆解。裁决就是终点——不投影任务卡' },
   ],
 }
 
 // ── 路径全部经 args 参数化；换项目只改 args（或编辑下方相对默认值）──
 const A = args || {}
-const PLAN = A.planPath || '_local/PLAN.md'                  // 计划真相源（落 _local/，gitignored）
+// T152：漏斗产物目录的真相源是 scripts/_config.ps1 的 PlanDir（accessor: Get-ScaffoldPlanDir，留空 => '_local'）。
+// 工作流脚本**没有文件系统访问**（Workflow 运行时契约），读不了 _config，故耦合走 args：调用方传
+//   planPath = "$(Get-ScaffoldPlanDir)/PLAN.md"。下面的字面量只是 PlanDir 留空时的**同值默认**，
+//   不是第二真相源——改了 PlanDir 而不传 args，拿到的就还是旧位置。
+const PLAN = A.planPath || '_local/PLAN.md'                  // 计划真相源（PlanDir 留空时的同值默认）
 const PRIOR = A.priorReviewPath || ''                        // 前次评审（可选；有则避免重报）
 const CLAUDEMD = A.claudeMdPath || 'CLAUDE.md'              // 硬边界/不变量/许可硬规则
 const SPECS = A.specsReadmePath || 'specs/README.md'        // 任务卡投影约定（薄投影，非第二真相源）
-const TEMPLATE = A.templatePath || 'specs/tasks/_TEMPLATE.md'
+
+// TD180：审计**深度**由调用方声明的 tier 路由——此前每份计划都按最深档收费，把一份改文案的计划
+// 收得和一次 schema 迁移一样贵（最坏约 83 次模型调用）。三个刻意选择，都是量出来的：
+//   * tier 走 `args`，和 planPath 一样：工作流脚本没有文件系统访问权，读不了 _config.ps1。
+//   * 调用方传**字面量**，绝不写 `"$(Get-ScaffoldProjectTier)"`。该 accessor 在键缺失**和值为空**时
+//     都回退 'T1'，而本仓 _config 就是 `ProjectTier = 'T1'`——内插它等于给这里每份计划**静默**选了
+//     最浅档。且 `ProjectTier` 回答的是另一个问题（「跳过哪些交付链」，它的 T1 行恰恰**要跑**本漏斗），
+//     深度是**逐计划**的判断，故它只是本参数的**起点建议**，不做自动输入。
+//   * **缺省 = 未声明，不等于 T1**：回退到最深档，这样升级脚手架永远不会让没改调用点的人
+//     悄悄拿到一份更浅的审计。
+const TIER = (A.tier === 'T0' || A.tier === 'T1' || A.tier === 'T2') ? A.tier : 'T2'
+const VERIFY = TIER === 'T2'
+// 返回里带 verify_mode，是因为 `confirmed` 这个键在两档下含义不同：T2 = 熬过了 >=2/3 反驳，
+// T1 = 根本没人投过票。同一个键两种意思正是本仓的闸门存在的理由，所以把它说出来而不是让读者猜。
+const VERIFY_MODE = VERIFY ? 'adversarial' : 'synthesis-only'
+// T1 保留三个专打「现在错、后面全白干」那一类的 lens：冻结点爆炸半径 / 切法对不对 / 验收可否机检。
+// 另外五个是 T2 专属；其中 `boundary` 的失效**另有确定性兜底**（check-licenses / check-secrets /
+// guard-frozen / 范围闸，每张卡都跑、与 tier 无关），故概率性 lens 不是它唯一防线。
+const T1_LENS_KEYS = ['future-self', 'decomposition', 'dod']
+
+// TD180：`templatePath` 随 Decompose 一起删了——卡片模板只有投影时才用得上，而这里不再投影。
+// 它现在是 `decompose-cards.mjs` 的参数（那边一直就有），不再是本工作流的参数。
 
 const hasPrior = !!PRIOR
 
@@ -80,57 +103,13 @@ const SYNTH_SCHEMA = {
   required: ['verdict', 'corrections', 'rationale'],
 }
 
-const CARDS_SCHEMA = {
-  type: 'object',
-  properties: {
-    cards: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'string' },
-          title: { type: 'string' },
-          depends_on: { type: 'array', items: { type: 'string' } },
-          parallelizable_with: { type: 'array', items: { type: 'string' } },
-          allow_paths: { type: 'array', items: { type: 'string' } },
-          forbid: { type: 'array', items: { type: 'string' } },
-          dod_command: { type: 'string' },
-          dod_exit: { type: 'number' },
-          dod_assert: { type: 'string' },
-          plan_ref: { type: 'string' },
-        },
-        required: ['id', 'title', 'depends_on', 'dod_command', 'dod_assert'],
-      },
-    },
-    freeze_point: { type: 'string' },
-    topo_valid: { type: 'boolean' },
-    parallel_window: { type: 'string' },
-  },
-  required: ['cards', 'freeze_point'],
-}
-
-const CARD_AUDIT_SCHEMA = {
-  type: 'object',
-  properties: {
-    graph_ok: { type: 'boolean' },
-    cycles: { type: 'array', items: { type: 'string' } },
-    issues: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          card: { type: 'string' },
-          problem: { type: 'string' },
-          severity: { type: 'string' },
-        },
-        required: ['card', 'problem'],
-      },
-    },
-    dod_not_machine_checkable: { type: 'array', items: { type: 'string' } },
-    boundary_violations: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['graph_ok', 'issues'],
-}
+// TD180：这里**没有** CARDS_SCHEMA / CARD_AUDIT_SCHEMA，也没有 Decompose / Card-Audit 两个 agent——
+// 这是刻意的删除，不是遗漏。投影任务卡归 `decompose-cards.mjs` 单一所有：漏斗在人**批准修正后的计划**
+// 之后才跑它，而此处一旦也投影，那套卡在任何一条 correction 落地的瞬间就**按构造过期**了——两个生成器、
+// 两套卡、其中一套生来就是错的，且返回结构里没有任何字段说得出这件事。别把它们加回来。
+// （`decompose-cards.mjs` 本就是更强的那个投影器：它还带 non_goals / acceptance / hygiene / doc_sync /
+//   freeze_point / topo_valid / parallel_window 与 4 角度对抗卡审，这里的 Decompose 从来没有。）
+// selftest 子闸 1i **驱动**本文件在每个 tier 上跑，断言没有任何一条路径请求这两个 phase。
 
 const COMMON =
   '你在审计一份项目【计划/计划书】(真相源)。动手前先 Read 这些文件:\n' +
@@ -175,7 +154,8 @@ const LENSES = [
       '- 隐藏依赖: 各卡 depends_on 是否齐全(常漏: 编排卡漏依赖 core/storage/db; 实跑卡漏依赖样例资产)?\n' +
       '- 冻结点位置对不对? 声称可并行的卡是否共享同一批文件、会不会并行写冲突(各自 worktree 也要合并)?\n' +
       '- 缺卡/多卡: 卡集是否覆盖验收闸门跑通所需的一切? 关键资产(样例/schema 校验器/合规占位/护栏)由哪张卡产出?\n' +
-      '- 右尺寸(一个可评审/可验证单元,尺寸标准工具/模型无关): 每卡是否为单一连贯产出、一条 dod_command 判一件事、可一次评审判完(默认档量化缺省:净改动约≤200-400行、touched≈1-3最多5)? 【过大】卡(含"且/和"多产出、要多条 dod、allow_paths 远超5)——**仅当超默认档且未声明长自主执行(多文件弧+间隔 fresh-context 校验)时才判 HIGH 并建议拆法**;已声明长自主执行的卡超默认档不判过大。【过碎】卡(一函数/一行一张、测试与实现分卡 → 建议合并)也要点出。',
+      '- 右尺寸(一个可评审/可验证单元,尺寸标准工具/模型无关): 每卡是否为单一连贯产出、一条 dod_command 判一件事、可一次评审判完(默认档量化缺省:净改动约≤200-400行、touched≈1-3最多5)? 【过大】卡(含"且/和"多产出、要多条 dod、allow_paths 远超5)——**仅当超默认档且未声明长自主执行(多文件弧+间隔 fresh-context 校验)时才判 HIGH 并建议拆法**;已声明长自主执行的卡超默认档不判过大。【过碎】卡(一函数/一行一张、测试与实现分卡 → 建议合并)也要点出。\n' +
+      '- 【预算已声明】(T233/TD235) 每张卡是否写了一行 `budget:` <净改动行数>? 这是上面那两档的**机检形式**:写作期 check-budget.ps1 拿它量 diff、0.6 跳表提示决策,合并期 ship 超出即 [CARD-BUDGET-OVER] 阻断,预算取自 base 卡故分支内抬高无效。缺了这一行,机制就永远是"靠遗漏来选择退出"——计划里每张卡都该带上它,声明长自主档 = 写一个更大的整数并在提交里写明理由。**缺失判 MEDIUM 并给出建议值**(按该卡的产出规模,默认档写 200-400);已声明但与卡的实际范围明显不符的,点出该值与拆法。',
   },
   {
     key: 'boundary',
@@ -232,10 +212,37 @@ const LENSES = [
   },
 ]
 
-log('plan-forge 启动: 8 个 lens 审计计划' + (hasPrior ? '(有前次评审，只打遗漏与冻结点风险)' : ''))
+if (A.tier && A.tier !== TIER) {
+  log('tier "' + A.tier + '" 不是 T0/T1/T2，已回退到最深档 ' + TIER + '（未声明 != T1：宁可多审，不可静默变浅）。')
+}
+
+// T0：档位表（docs/IDEA-TO-PLAN.md）自己的规则就是「跳过整个想法→计划漏斗，直接写卡开干」。
+// 把那条规则做成机器可读的一条分支，代价为零；真要审就显式传 tier: "T1" / "T2"。
+if (TIER === 'T0') {
+  log('tier T0: 按档位表跳过整个漏斗，本次不做任何审计（0 个 agent）。要审就显式传 tier: "T1" 或 "T2"。')
+  return {
+    verdict: 'tier-skipped',
+    tier: TIER,
+    verify_mode: 'none',
+    confirmed_count: 0,
+    refuted_count: 0,
+    medium_count: 0,
+    synth: null,
+    confirmed: [],
+    refuted: [],
+    medium: [],
+    decomp: null,
+    cardAudit: null,
+  }
+}
+
+const ACTIVE_LENSES = TIER === 'T1' ? LENSES.filter((d) => T1_LENS_KEYS.indexOf(d.key) >= 0) : LENSES
+log('plan-forge 启动 (tier ' + TIER + '): ' + ACTIVE_LENSES.length + ' 个 lens 审计计划、' +
+  (VERIFY ? '多裁判对抗核验' : '无对抗轮，汇总裁判即唯一裁判') +
+  (hasPrior ? '(有前次评审，只打遗漏与冻结点风险)' : ''))
 
 const lensResults = await pipeline(
-  LENSES,
+  ACTIVE_LENSES,
   (d) =>
     agent(
       COMMON +
@@ -244,11 +251,23 @@ const lensResults = await pipeline(
         d.key + '-1, ' + d.key + '-2 ...',
       { label: 'lens:' + d.key, phase: 'Lens-Audit', schema: FINDINGS_SCHEMA }
     ),
-  (review, d) =>
-    parallel(
-      // TD63 item8：prompt 第 147 行只在文案里声明"最多返回 3 条最重要的 FATAL/HIGH 发现"，但 judge 是否
-      // 遵守全凭自觉——扇出到下方 3-裁判对抗核验的量从未被机械限住。.slice(0, 3) 把这条上限落成硬约束。
-      (((review && review.findings) || []).filter((f) => f.severity === 'FATAL' || f.severity === 'HIGH')).slice(0, 3).map(
+  (review, d) => {
+    // TD63 item8：prompt 只在文案里声明"最多返回 3 条最重要的 FATAL/HIGH 发现"，但 judge 是否遵守全凭
+    // 自觉——扇出到对抗核验的量从未被机械限住。.slice(0, 3) 把这条上限落成硬约束，两档共用。
+    const top = (((review && review.findings) || []).filter((f) => f.severity === 'FATAL' || f.severity === 'HIGH')).slice(0, 3)
+    // T1（TD180）没有对抗轮：3 lens + 1 汇总 = 4 个 agent。哪怕每条发现只派 1 个裁判也是 3 + 3x3 + 1 = 13，
+    // 越过 TD180 定的 10 上限。发现照样带下去，只是 votes 为空——空 votes 意思是「没人投过票」而不是
+    // 「没人反对」，靠返回里的 verify_mode 把这两件事分开。下游 confirmed/refuted/medium 与汇总调用两档同路。
+    if (!VERIFY) {
+      return Promise.resolve({
+        lens: d.key,
+        title: d.title,
+        verified: top.map((f) => Object.assign({}, f, { lens: d.key, refuted: false, votes: [] })),
+        allFindings: (review && review.findings) || [],
+      })
+    }
+    return parallel(
+      top.map(
         (f) => () =>
           parallel(
             ['契约/工程正确性', '可复现性: 这问题在本项目里真的会发生吗', (hasPrior ? '是否与前次评审重复(若重复则应废弃此发现)' : '证据是否充分、定位是否精确')].map(
@@ -273,24 +292,29 @@ const lensResults = await pipeline(
       verified: verified.filter(Boolean),
       allFindings: (review && review.findings) || [],
     }))
+  }
 )
 
 const confirmed = lensResults.flatMap((r) => r.verified.filter((f) => !f.refuted))
 const refutedList = lensResults.flatMap((r) => r.verified.filter((f) => f.refuted))
 const medium = lensResults.flatMap((r) => (r.allFindings || []).filter((f) => f.severity === 'MEDIUM'))
-log('对抗核验完成: 确认 ' + confirmed.length + ' 条(FATAL/HIGH 存活), 枪毙 ' + refutedList.length + ' 条, 另有 ' + medium.length + ' 条 MEDIUM 待人评')
+log((VERIFY ? '对抗核验完成: 确认 ' : 'lens 审计完成(T1 无对抗轮): 带出 ') + confirmed.length + ' 条 FATAL/HIGH, 枪毙 ' + refutedList.length + ' 条, 另有 ' + medium.length + ' 条 MEDIUM 待人评')
 
 const synth = await agent(
-  '你是汇总裁判。下面是经过多裁判对抗核验后【存活】的 FATAL/HIGH 发现，以及未核验的 MEDIUM 项。\n' +
-    '存活发现:\n' + JSON.stringify(confirmed, null, 1) + '\n\nMEDIUM:\n' + JSON.stringify(medium, null, 1) + '\n\n' +
+  (VERIFY
+    ? '你是汇总裁判。下面是经过多裁判对抗核验后【存活】的 FATAL/HIGH 发现（每条已被 3 个裁判从不同角度尝试反驳、未达 2 票即保留），以及未核验的 MEDIUM 项。\n'
+    : '你是汇总裁判，**也是本轮唯一的裁判**（tier ' + TIER + ' 不跑对抗轮）。下面的 FATAL/HIGH 发现【没有经过任何反驳核验】，votes 为空表示没人投过票，不表示没人反对——你必须逐条自己对着计划核实，核不实的直接丢弃。另附未核验的 MEDIUM 项。\n') +
+    (VERIFY ? '存活发现:\n' : '未核验发现:\n') + JSON.stringify(confirmed, null, 1) + '\n\nMEDIUM:\n' + JSON.stringify(medium, null, 1) + '\n\n' +
     '动手前先 Read 计划 ' + PLAN + ' 核对每条。然后: 去重合并, 按"前期错后面白干"的杀伤力排序, 给出每条 correction(where/problem/fix/severity)。\n' +
     '裁决 verdict: 仅当【无 FATAL 且所有 HIGH 都能在开拆前修掉】才给 ready-to-decompose; 否则 fix-first。给出 fatal_count/high_count 与 rationale。',
   { phase: 'Synthesize', schema: SYNTH_SCHEMA }
 )
 if (!synth) {
-  log('裁决被跳过(汇总 agent 返回 null)——保留已核验发现，不拆解，不虚构裁决')
+  log('裁决被跳过(汇总 agent 返回 null)——保留已核验发现，不虚构裁决')
   return {
     verdict: 'synthesis-skipped',
+    tier: TIER,
+    verify_mode: VERIFY_MODE,
     confirmed_count: confirmed.length,
     refuted_count: refutedList.length,
     medium_count: medium.length,
@@ -304,41 +328,22 @@ if (!synth) {
 }
 log('裁决: ' + synth.verdict + ' | FATAL ' + (synth.fatal_count || 0) + ' / HIGH ' + (synth.high_count || 0))
 
-const decomp = await agent(
-  '把计划的任务章节投影为【完整的带依赖关系任务卡集】(这是 specs/tasks 的薄投影，不是第二份计划)。\n' +
-    '动手前先 Read: 计划 ' + PLAN + '(尤其任务拆分与验收两节)、卡片模板 ' + TEMPLATE + '、投影约定 ' + SPECS + '。\n' +
-    '已确认的 plan 问题(拆解时要规避或吸收其修法):\n' + JSON.stringify((synth.corrections || []), null, 1) + '\n\n' +
-    '为计划任务章节列出的每张卡产出字段: id/title/depends_on/parallelizable_with/allow_paths/forbid/dod_command/dod_exit/dod_assert/plan_ref。\n' +
-    '硬要求: depends_on 必须构成无环拓扑; 冻结点(契约/schema 那张卡)必须在所有依赖它的卡之前; 标出真正可并行的窗口(parallel_window)。dod_command 必须是目标 shell 下可跑且二值可判的真实命令, import 路径要和目录结构一致。topo_valid 自评。',
-  { phase: 'Decompose', schema: CARDS_SCHEMA }
-)
-if (!decomp) {
-  log('拆解被跳过(拆解 agent 返回 null)——裁决结论已保留，不再审计卡片图')
-  return {
-    verdict: synth.verdict,
-    confirmed_count: confirmed.length,
-    refuted_count: refutedList.length,
-    medium_count: medium.length,
-    synth: synth,
-    confirmed: confirmed,
-    refuted: refutedList.map((f) => ({ id: f.id, lens: f.lens, title: f.title, severity: f.severity })),
-    medium: medium,
-    decomp: null,
-    cardAudit: null,
-  }
-}
-log('拆出 ' + ((decomp.cards && decomp.cards.length) || 0) + ' 张卡, 冻结点 ' + decomp.freeze_point)
-
-const cardAudit = await agent(
-  '审计下面这套任务卡依赖图(它应是计划任务章节的薄投影)。\n' + JSON.stringify(decomp, null, 1) + '\n\n' +
-    '动手前先 Read ' + CLAUDEMD + ' 的硬边界/关键不变量 与 ' + SPECS + ' 的投影约定。\n' +
-    '逐项检查: (1) depends_on 是否无环、拓扑成立(列出任何 cycle); (2) 每张卡 dod_command 是否真的机器可判而非"应该能"(列出不达标的 card id 到 dod_not_machine_checkable); ' +
-    '(3) 是否有卡违反硬边界(列到 boundary_violations); (4) 并行窗口里的卡是否会写同一文件而冲突(列到 issues)。给出 graph_ok 总评。',
-  { phase: 'Card-Audit', schema: CARD_AUDIT_SCHEMA }
+// TD179 起：裁决是一个【分支】，不只是一个报告字段——fix-first 的计划要先拿回去修，然后才谈投影。
+// TD180 把它推到底：**任何 tier、任何裁决都在这里停**。投影归 `decompose-cards.mjs` 单一所有，漏斗在
+// 人批准修正后的计划之后才跑它；此处若也投影，那套卡在任何一条 correction 落地的瞬间就按构造过期。
+// 两条路径交回的是**同一个 shape**（上面两个 null 守卫返回也是它），所以调用方不会学到第二种形状。
+// 由 selftest 子闸 1i 机检：它**驱动**本文件在 T0/T1/T2 与两种裁决下跑，断言无一路径请求 Decompose /
+// Card-Audit——「顺序」和「计数」都是文本匹配看不见的东西，只有真跑才判得了。
+log(
+  synth.verdict === 'fix-first'
+    ? 'fix-first: 停在裁决。按 corrections 修计划后重跑；修到 ready 再由 decompose-cards.mjs 投影任务卡。'
+    : 'ready-to-decompose: 停在裁决。人批准计划后跑 decompose-cards.mjs 投影任务卡（它是投影的唯一所有者）。'
 )
 
 return {
   verdict: synth.verdict,
+  tier: TIER,
+  verify_mode: VERIFY_MODE,
   confirmed_count: confirmed.length,
   refuted_count: refutedList.length,
   medium_count: medium.length,
@@ -346,6 +351,6 @@ return {
   confirmed: confirmed,
   refuted: refutedList.map((f) => ({ id: f.id, lens: f.lens, title: f.title, severity: f.severity })),
   medium: medium,
-  decomp: decomp,
-  cardAudit: cardAudit,
+  decomp: null,
+  cardAudit: null,
 }

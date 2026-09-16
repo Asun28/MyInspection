@@ -40,6 +40,14 @@ The R5 ordering defect — `task.ps1 -Phase cleanup` resolves the card only unde
 [#361](https://github.com/Asun28/claude-devops-scaffold/issues/361), filed after L252 recurred a third time
 (`T4-SCHEDULE-REMINDER-DIAGNOSTICS`). Until a release fixes it the constraint stays memory-enforced:
 **cleanup before archive**.
+Two more defects surfaced on 2026-09-14 by `T0-CI-SELFTEST-ADOPTION-REPAIR` (PR #299), both in the adopted
+`scripts/selftest.ps1` and both wrong for every initialized downstream: gate 17ac(o)① asserts the presence of
+`specs/mutations/T63-TD119-MUTATION-RUNNER-results.tsv`, a meta-repository evidence file `init-scaffold.ps1`
+keeps out of downstreams, so the nightly (`-IncludeMeta`) reds on seed-b; and gate 15e dry-runs the real
+`scripts/verify.ps1` in `$RepoRoot` expecting exit 0, which a verify that runs the product build (Gradle here)
+cannot satisfy on the scaffold-selftest runner. Repaired locally with a post-init skip (`[SELFTEST-POSTINIT-MUT-TSV-SKIP]`)
+and a bare-copy degraded-path fixture; reported upstream with `scripts/scaffold-sync.ps1 report`
+(issue links are recorded in the decision ledger row once filed).
 
 ## Direction 2 — deciding whether to take an upstream release
 
@@ -89,6 +97,8 @@ R3 blocking—with round cap, diff budget, and head binding—so advisory-only f
 
 | version | decision | date | reason / what was taken | issue |
 |---|---|---|---|---|
+| v0.47.0 | partial | 2026-09-10 | Adopted 18 directly corresponding merged PRs plus the fixed source's complete-module prerequisites for tiered acceptance/nightly-meta, skill routing, review intensity, immutable review base, initializer anchors and ASCII codes from `96ebfcec2a1ff89ac77e665123978d7ae138c857`. Kept MyInspection product verify/CI/archive contracts, strict review-size gate and mandatory review policy; INPUT, TRIAGE and historical receipt work remain excluded. Full mapping: `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`. | upstream #343/#345/#357/#358/#360/#362/#365/#371/#373/#374/#375/#376/#377/#380/#381/#387/#160/#162 |
+| v0.46.0 | applied | 2026-09-09 | Took the released v0.46.0 dual-version coupling group already present locally (T190): origin remains v0.29.0 while current advances to v0.46.0; the deliberate local fork is retained. Tag `d0c9145970e69626318a26ce922650f1a631c2f0`. The released v0.47.0 tier/meta groups are intentionally not adopted in this row. | upstream #266 / T190 |
 | v0.45.0 | partial | 2026-08-26 | Took seeded shard split (2 OS × 5) and local group-2 equivalent (`f9070ff`); groups 1/3 partial, 4 deferred. Origin v0.29.0; current v0.45.0. Tag `db835867e6f1bab740f13b48e4bae009a34521ef`. | upstream #259/#260/#261 / our #266 |
 | v0.44.0 | partial | 2026-08-24 | Took #201's bounded sync-ledger reader. Deferred card validation (31 live-card migration), seven shared-core selfchecks (overlaps PR #127), and handoff throttling (outside scope). Upstream `DocSyncMap` is N/A to this custom four-pair map. Tag `af4f5724cc5403bfa0521a68c552362bb96f4dd5`. | upstream #201 / v0.44.0 |
 | v0.43.0 | partial | 2026-08-23 | Took our #188 ID cap, #189 guarded promote/demote, and #190 delivery-blocked fixes with hermetic triage tests. Deferred #180/#181/#182/#186/#187/#191–#195; #197 and required-CI fan-in are N/A. | our #183/#184/#185 |
