@@ -81,6 +81,7 @@
 ### 2.4 日志、通知与界面泄露
 
 - 生产日志只写操作名、非敏感 reason code、耗时/计数和随机 request/asset id。禁地址、姓名、联系方式、备注/转写、文件绝对路径、SAF URI、备份对象名、照片内容/hash、口令、key、Authorization header 和 provider 原始错误体。
+- 远端 SafeLog 交付见 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 和 [归档卡](../specs/archive/tasks/T1-SAFE-MEDIA-LOGGING-REMOTE.md)：封闭 operation/reason、受限 opaque id/count/duration 已接入四处媒体失败路径；原始路径、URI、业务原文和 Throwable 不进日志。注入 sink 的 Exception/Error 不改变媒体操作结果、主异常或清理。此交付不代表持久诊断库、存储分层或 Keystore 完成。
 - 持久诊断事件只进独立的 credential-encrypted/no-backup 诊断库，不进主证据库、canonical hash、PDF、通知、Android backup 或 `.mibk`；最多保留 90 天/20,000 行，先到即小批物理裁剪。日志写入失败不得改变巡检、finalize、备份或恢复结果。
 - “Admin/support” 无远程入口或写权限。只有设备所有者可在设置页明确查看包含/排除项后，离线导出最近 7/30/90 天的脱敏诊断包；支持人员不能借诊断功能修改 finalized evidence。字段与验收合同见 `docs/DATABASE-DESIGN.md`。
 - 用户可见通知只写 `Backup needs attention` 等通用文案；锁屏通知不显示物业地址、租客名、照片缩略图或恢复范围。

@@ -2,7 +2,7 @@
 id: T1-SAFE-MEDIA-LOGGING-REMOTE
 title: 安全日志底座与四处媒体接线的远端交付（原 T1-SAFE-MEDIA-LOGGING）
 depends_on: [T1-SPIKE-PLATFORM]
-status: todo
+status: merged
 branch: T1-SAFE-MEDIA-LOGGING-REMOTE
 worktree: C:\wt\T1-SAFE-MEDIA-LOGGING-REMOTE
 allow_paths:
@@ -70,3 +70,17 @@ R4 点名删除日志/绕过字段边界/输出 Throwable 或路径后相应测�
 远端 R4 重验全部 24 项有效语义变异，各项独立编译成功、具名断言失败、恢复源文件哈希一致；原 M19 是注入 Error 逃逸，不能作为断言检出，采用已修订的 M19b 显式成功断言负例。正常 RETRY/FAILURE 决策、资源关闭和 sink Exception/Error 不改变原结果的断言全部保留。源文件在新检出中的字节哈希另行采集，历史哈希不冒充新值。
 
 R5 在功能 PR 合并后用独立事实文档 PR 同步 SECURITY、TASK-BOARD、CLAUDE 当前阶段、卡状态及规范归档索引；不把这些路径加入本功能卡 allow_paths，也不把完成声明混入功能 diff。清理依赖真实远端合并凭据；不删除或改写原本地证据。
+
+## Remote delivery receipt (2026-09-17 NZ)
+
+PR [#304](https://github.com/Asun28/MyInspection/pull/304); reviewed head 6216e9d16f93cac6b4a62a1edb93de09c9746330; squash merge cd7e20160a093817c9a4245cfafe9e393e9a6e49. Formal Sol/high attempt 2 PASS, empty reasons; exact-candidate CI [35158547855](https://github.com/Asun28/MyInspection/actions/runs/35158547855) passed verify and required.
+
+Fresh remote RED preceded the restored implementation. Remote DoD passed 157 app tests including seven direct SafeLog tests, and two core wiring tests. All 24 retained mutations compiled and failed named assertions; original M19 is excluded and the explicit-success M19b is counted. Full ship ran DoD, verify, scope, licenses, secrets and budget gates: seven files, 650 changed lines and 38,741 diff characters.
+The second attempt merged the intervening metadata baseline without rewriting history. All seven product blobs stayed unchanged; both original attempts, RED and watershed receipts are retained. Final copied XML covers 1,134 tests with zero failures/errors and four pre-existing full-suite skips; direct SafeLog and wiring tests have no skips. APK existence and hash were verified; no device execution is claimed by this card. Historical local feature a5d4dd83 / merge b58eeb4a and its 186 app tests are separate provenance, not this remote acceptance.
+
+Original-main task-loop cleanup exited 0 at 2026-09-16T22:55:37.1616265+00:00; canonical worktree and local branch are absent. The controller independently checked the copied evidence before cleanup. Evidence below is retained in the ignored local delivery ledger; these hashes identify the checked receipts and are not a claim that the files are published by this metadata PR.
+
+- `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/root-evidence-audit.json` — SHA-256 `8D9A97561B6E947F2B210B7C8D02AFFCF6CC39A6498B3832FDDE7E733AC2FAFD`.
+- `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/root-cleanup-audit/audit.json` — SHA-256 `852A00D2A5E45DFA344BE0ABA64F59DEC0289B490E43648612E0801A6E449B95`.
+- `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/root-cleanup-audit/cleanup-result.json` — SHA-256 `BA24FE7CD838D44EEA7662ED1F4A727B7A1A9543EE2F1A53479F070E09120100`.
+- `_local/rotating-card-orchestrator/evidence-T1-SAFE-MEDIA-LOGGING/remote/ship-attempt-02-manifest.json` — SHA-256 `060925D2F40F8E795B9D01EECBBDA0C3AE80240D63EAEC7D9DE5C77892CC5CBC`.
