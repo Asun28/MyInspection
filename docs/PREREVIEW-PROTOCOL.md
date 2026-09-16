@@ -75,7 +75,7 @@ FrozenPaths clause, the pinned base ref and OID. There is no second diff pipelin
 |---|---|---|---|
 | `prompt.txt` | the composed prompt (below) | stdin | stdin, and the only thing posted |
 | `facts.json` | `snapshot_tree`, `head_sha`, `base_oid`, `base_mode`, `merge_base`, `policy_hash`, `rubric_sha`, `models`, `risk_class`, `pack_layout_version` | readable | no |
-| `units.json` | one unit per hunk: `unit_id` = `<path>#<sha256(normalised hunk body)[:12]>`, `file`, `hunk_header`, `body_sha256`; binary or over-`PrereviewMaxFileBytes` files degrade to `<path>#file` (identity as defined by FACTS-LIB A5; two byte-identical hunks in one file share an id, a collision that card owns, see this card's follow-ups) | readable | no |
+| `units.json` | one unit per hunk: `unit_id` = `<path>#<sha256(normalised hunk body)[:12]>-<ordinal>`, `file`, `hunk_header`, `body_sha256`; binary, metadata-only or over-`PrereviewMaxFileBytes` files degrade to `<path>#file` (schema revision 1; ordinal is the positive 1-based hunk order within that file, so identical bodies at different hunks have distinct IDs; FACTS-LIB A5 owns minting) | readable | no |
 | `diff.patch` | the same fence-hardened diff bytes the codex reviewer gets | readable | via the prompt |
 | `stat.txt`, `numstat.txt` | the reviewer's `--stat` and `--numstat` | readable | no |
 | `card.md`, `rubric.md`, `acceptance.json` | card at base, `docs/QUALITY-RUBRIC.md` at base, the card's acceptance list projected as JSON | readable | via the prompt |

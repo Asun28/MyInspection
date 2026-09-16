@@ -36,3 +36,18 @@ User approved the preflight recommendation on 2026-09-16. TD176 identified that 
 FACTS-LIB owns deterministic ordinal minting, not this card. The schema checks ID shape; RECORDS checks unit uniqueness and membership. The projection remains a schema projection with its existing keyword restrictions; WORKERS owns its projection-fidelity checks.
 
 Planned diff budget: under 700 changed lines / 50000 characters including fixtures and receipt; measure with review.ps1 before invoking R3. Local ship targets master; no remote reconciliation.
+
+## Implementation evidence
+
+RED recorded at `1220f108`: new hunk IDs and revision 1 envelopes failed against revision 0; missing ordinals and revision 0 envelopes incorrectly passed. GREEN: schema checker (including projection samples and revision cases) and RECORDS self-check pass. Fixture migration preserves the eleven original JSON rejection classes; unknown-unit checks now require their specific membership reason. Actual diff before this receipt: 128 changed lines / 53035 characters, above the planning estimate but below the 1000 / 60000 hard limit.
+
+R4: 10/10 mutants killed by their named behavior assertion, with byte-identical restoration: legacy ID pattern; zero, negative and fractional ordinal acceptance; removal of file IDs; source revision 0; projection revision 0; removed duplicate-unit detection; removed candidate membership; removed coverage membership. No compile/parse failures count as kills. Schema-pattern/revision mutants fail the specific unit or envelope case; RECORDS mutants fail duplicate-unit or the exact membership-reason check.
+
+SHA-256 at mutation time (uppercase hex):
+
+| File | SHA-256 |
+|---|---|
+| `specs/prereview-record.schema.json` | `2F662F50303C5372FE85E3664FAA38F870FAF335F7C1AA1B414F77BBC511308A` |
+| `scripts/fixtures/prereview/schema/worker-envelope.min.json` | `C9242D7C4CD0616E19498C38C2AF5EEB6C8B97FD1FA0197C6E228F909248C414` |
+| `scripts/check-prereview-schema.ps1` | `2F45125C8AB5765CF766CACD579ABA73F3CAA0EEA057CAC53111B6DB1A6D25E6` |
+| `scripts/_prereview-records.ps1` | `1DDCECAE82CAF9B56F1E1A7FB3EBD23D4B774FA291FD27B4B5B26EC3E5CE5339` |

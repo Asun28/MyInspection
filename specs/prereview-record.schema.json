@@ -8,7 +8,7 @@
   "required": ["schema_version", "schema_revision", "records"],
   "properties": {
     "schema_version": { "const": 1 },
-    "schema_revision": { "const": 0, "description": "Current revision; any in-window patch bumps it here and in every fixture, so stale fixtures fail explicitly." },
+    "schema_revision": { "const": 1, "description": "Current revision; any in-window patch bumps it here and in every fixture, so stale fixtures fail explicitly." },
     "records": {
       "type": "array",
       "description": "Candidate and coverage records only; one coverage record per changed unit.",
@@ -17,7 +17,7 @@
   },
   "$defs": {
     "category": { "type": "string", "enum": ["C1", "C2", "C3", "C4", "C5", "C7"], "description": "C1 written guarantee exceeds evidence, C2 real production defect, C3 weak evidence, C4 base or process drift, C5 scope or placement, C7 other." },
-    "unit_id": { "type": "string", "pattern": "^.+#([0-9a-f]{12}|file)$", "description": "A unit_id from units.json: path, hash sign, first 12 hex of the sha256 of the normalised hunk body, or path#file for binary or over-size files." },
+    "unit_id": { "type": "string", "pattern": "^.+#([0-9a-f]{12}-[1-9][0-9]*|file)$", "description": "A unit_id from units.json: path#bodyHash12-ordinal, with a positive 1-based hunk ordinal within the file in diff order; path#file for binary, metadata-only or over-size files." },
     "git_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "sha256_hex": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "candidate": {
@@ -105,7 +105,7 @@
         "unit_id": { "$ref": "#/$defs/unit_id" },
         "file": { "type": "string", "minLength": 1 },
         "hunk_header": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }], "description": "The @@ header of the hunk; null for a path#file unit." },
-        "body_sha256": { "$ref": "#/$defs/sha256_hex", "description": "SHA-256 of the normalised hunk body (whole file for a path#file unit); unit_id carries its first 12 hex." }
+        "body_sha256": { "$ref": "#/$defs/sha256_hex", "description": "SHA-256 of the normalised hunk body (raw whole blob for a path#file unit); a hunk unit_id carries its first 12 hex followed by the per-file hunk ordinal." }
       }
     },
     "units": { "type": "array", "items": { "$ref": "#/$defs/unit" }, "description": "units.json: one entry per changed unit." },
