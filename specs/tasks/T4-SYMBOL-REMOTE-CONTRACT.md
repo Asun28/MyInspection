@@ -187,7 +187,15 @@ function Test-SymbolVisibilityConsumers([string]$ScopeText,[string]$TargetText) 
             foreach($case in (@(,@('visible',$probe,$true))+(Variants $probe $true))){
                 [IO.File]::WriteAllText("$fixture/$($entry[2])",$text.Replace($block.Value,$case[1]))
                 Push-Location $fixture
-                try {$output=(& pwsh -NoProfile -Command $dod 2>&1 | Out-String); $exit=$LASTEXITCODE}
+                try {
+                    $child=& {
+                        # Expected child failures are judged below; keep ship's outer fail-fast policy.
+                        $PSNativeCommandUseErrorActionPreference=$false
+                        $captured=(& pwsh -NoProfile -Command $dod 2>&1 | Out-String)
+                        [pscustomobject]@{Output=$captured;Exit=$LASTEXITCODE}
+                    }
+                    $output=$child.Output; $exit=$child.Exit
+                }
                 finally {Pop-Location}
                 $ran=@($output -split '\r?\n' | Where-Object {$_ -ceq 'SYMBOL-RUNNER-EXECUTED'}).Count -eq 1
                 $valid=if($case[2]){$exit -eq 0 -and $ran}else{$exit -ne 0 -and -not $ran -and $output -cmatch 'SYMBOL-(MARKDOWN-|BLOCK:)'}
