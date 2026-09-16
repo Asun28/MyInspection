@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-FACTS-LIB
 title: _prereview-facts.ps1 -AsLibrary - worktree, base (via _gitbase.ps1), snapshot tree, policy hash, units, live_allowed, model route and temp root as pure functions
-status: todo
+status: merged
 depends_on: [T0-PREREVIEW-SCHEMA, T0-PREREVIEW-UNIT-ID-REVISION]
 allow_paths:
   - scripts/_prereview-facts.ps1
@@ -52,3 +52,13 @@ Pure-function library consumed by FACTPACK, STATE-1A, RUN and the 1b gate; the f
 2026-09-16 user-approved TD176 correction: A3 applies ignore exclusion only to untracked files; A5 depends on the explicit schema revision card above. Snapshot creation may write Git content-addressed objects, while the temporary index stays under temp and the real index/worktree/refs/config are unchanged. Unit generation requires pinned blob context so over-size and binary units hash actual content. These corrections were registered on master before R1/RED.
 
 Split line: ~350 lines. Collision rule (authority: docs/TASK-BOARD.md section PR review v2): no worktree branch and no todo card whose changes or allow_paths touch a chain file (review.ps1, task.ps1, selftest.ps1, _config.ps1, CLAUDE.md, the task-loop skill, QUALITY-RUBRIC.md, DEVOPS-WORKFLOW.md, TRUST-MANIFEST.md, TASK-BOARD.md) may start while the chain card owning that file is open; merge or retire first. origin/master (67 ahead, 37 chain-file commits incl. #265 which delivered T0-CI-DEADLINE-CONTAINMENT upstream) is not reconciled into master while any 1a chain card is in flight; reconcile before T0-PREREVIEW-RUNNER starts or after T0-PREREVIEW-LINK-RECALL merges, by user decision, after closing the local T0-CI-DEADLINE-CONTAINMENT card against #265.
+
+## Implementation evidence
+
+Local merge `b675d6a6` reviewed tip `91bf3cbe`: first formal R3 passed with zero findings. DoD, project verify, scope, license, secrets and hard diff budget passed. Actual reviewed diff: 517 added lines / 31867 characters, above the sizing estimate but below 1000 / 60000. The eight public functions reuse the existing base resolver and Git; no new dependency or worker execution was added.
+
+RED at `580d078a` rejected the missing eight exports. Final GREEN: 31 checks cover A1-A8 with real temporary Git repositories, raw BOM/CRLF/Unicode policy bytes, dirty/untracked/ignored paths and unchanged real index, local/remote merge bases, raw non-UTF-8 hunk bytes, repeated hunk ordinals, no-newline markers, full-blob fallback and runtime routing. The Unix-only literal-quote filename case was not exercised on Windows; the C-quoted Unicode/space path case passed. Full routed selftest is running from this task worktree; its result will be recorded before cleanup.
+
+R4: 18/18 behavioral mutants were killed by named checks, without counting parser failures; each restored the exact production bytes. Covered faults: skipped add/read-tree; working-copy policy hash; missing/stale FrozenPaths; ignored GITHUB_ACTIONS; ordinal collision; header included in body; UTF-8 recoding; ignored size; wrong blob hash/file ID/metadata hash; real-index writes; missing PreferLocal; inherited live environment; missing CRLF normalization; dropped no-newline marker. One duplicate frozen-route assertion was removed only after the frozen-union mutant remained caught by the runtime-config assertion; GREEN then passed again.
+
+Mutation source SHA-256: `23A38171AAAF97303EDA973586041A07F8500EE7BF38275AA01CCFE156F7ACC2`. Independent fresh-context pre-review found no issues and reran all 31 checks. Formal R3 remains the acceptance verdict above.
