@@ -131,8 +131,9 @@
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0-TOOLCHAIN | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
 | W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | **merged**（master `e8c2359a`，R3 第 2 轮 pass）；真机 = Galaxy A34 5G `SM-A346E` / Android 13 / API 33 / 零售 `user/release-keys`；**三项全判成立、无一降级**：overlay 采纳实时叠图 · SAF 持久授权成立 · PDF 81 页 7272ms / 采样峰值 225620 KiB。验收期间 adb 不可用（无 ADB 接口），全程走 MTP 装机取证；**事后拔插后 adb 已恢复**，故不是设备固有限制（L320 已更正） |
 | W1 | T1-SAFE-MEDIA-LOGGING | 封闭日志字段与四处媒体失败接线，保留真实控制流和回归 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **merged**（master `b58eeb4a`，R3 第二次评审 pass）；7 项故障测试含 RETRY/FAILURE、2 项原有接线检查、24 项语义变异和完整 verify/E2E 通过；647 changed lines / 38419 chars |
-| W1 | T1-APP-STORAGE-POLICY | app-private 内外存储路由与结构化卷状态 | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **todo**；R2 候选；只交付 policy，不做 KeyStore/装配；400–520 行预估；RED前覆盖挂载/只读/空间等值与路径脱敏 |
-| W1 | T1-LOCAL-DATA-SECURITY | Keystore LocalSecretBox，消费已交付存储策略并回归前置安全日志 | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING,T1-APP-STORAGE-POLICY | M | GPT-5.6 Terra · high | Sonnet 5 max | **todo**；ADR-0006；保留完整 secret-box 验收，不重做 policy；520–640 行预估 |
+| W1 | T1-APP-STORAGE-POLICY | typed 环境端口上的纯存储策略、canonical 根边界与封闭状态 | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；三次 R3 失败证据保留；613 行原差异完整拆出平台实现及验收，拆后约545–553行；需重跑剩余最终源pin R4/DoD/R3，不冒充实际 Android 能力 |
+| W1 | T1-APP-STORAGE-ANDROID | Android 存储适配器与双设备自验证探针 | T1-APP-STORAGE-POLICY,T1-SPIKE-PLATFORM | M | GPT-6 Astra · high | GPT-5.6 Sol R3 · high | **todo**；完整承接 no-backup/external/转换/卷状态/目录可写/空间及直接变异；既有 debug Activity 方式，300–450行含修复空间；650/45k提前拆 |
+| W1 | T1-LOCAL-DATA-SECURITY | Keystore LocalSecretBox，消费已交付存储策略并回归前置安全日志 | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING,T1-APP-STORAGE-POLICY,T1-APP-STORAGE-ANDROID | M | GPT-5.6 Terra · high | Sonnet 5 max | **todo**；ADR-0006；保留完整 secret-box 验收，不重做 policy；520–640 行预估 |
 | W1 | T1-PRIVACY-MANIFEST-POLICY-GATE | merged-manifest 隐私闸与窄 policy primitives | T1-LOCAL-DATA-SECURITY | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；独立执行；450–620 行，守 backup/D2D、cleartext、全相册权限及三份闭集 policy |
 | W1 | T1-SHARE-SCREEN-PRIVACY | verified report staging、窄 FileProvider 与临时 grant | T1-LOCAL-DATA-SECURITY,T1-PRIVACY-MANIFEST-POLICY-GATE,T3-REPORT-EXPORT-CORE | H | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；仅消费 Export Core typed VerifiedReportArtifact；完整范围预估 960–1,330 行 / 62k–88k，不能直接实施，须再按 staging 与 provider/grant 拆分 |
 | W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
@@ -293,7 +294,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 | 卡 | 里程碑 | 产出 | 前置 |
 |---|---|---|---|
-| [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md) | V1 | 生产装配入口与巡检用例边界 | T1-LOCAL-DATA-SECURITY, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB |
+| [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md) | V1 | 生产装配入口与巡检用例边界 | T1-LOCAL-DATA-SECURITY, T1-APP-STORAGE-ANDROID, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB |
 | [T2-MEDIA-ACCESS-BOUNDARY](../specs/tasks/T2-MEDIA-ACCESS-BOUNDARY.md) | V1 | 媒体能力收窄与路径校验复用 | T1-LOCAL-DATA-SECURITY, T2-PHOTO-PIPELINE, T2-PHOTO-PROPERTY-DEDUPE |
 | [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md) | V1.1 | 批量照片选择、逐张分配与安全提交 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md) | 产品 V2 | V2 原始录音证据、回放与归属 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |

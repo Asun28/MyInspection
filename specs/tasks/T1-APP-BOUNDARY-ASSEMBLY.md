@@ -2,7 +2,7 @@
 id: T1-APP-BOUNDARY-ASSEMBLY
 title: 生产装配入口与巡检用例边界
 status: todo
-depends_on: [T1-LOCAL-DATA-SECURITY, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB]
+depends_on: [T1-LOCAL-DATA-SECURITY, T1-APP-STORAGE-ANDROID, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB]
 allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/application/
   - android/core/src/test/kotlin/nz/myinspection/core/application/
