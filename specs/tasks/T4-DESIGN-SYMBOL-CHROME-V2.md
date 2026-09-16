@@ -26,24 +26,259 @@ acceptance:
   - "A2 the card body carries a completed instance-substitution table: every existing instance the rule governs is listed, each is evaluated against the final wording, and each row records compliant / requires-restatement / explicitly-exempt with its reason"
   - "A3 no instance in that table is left indeterminate: no instance satisfies two mutually exclusive branches of the rule, and no instance the document already permits is judged non-compliant by the rule"
   - "A4 the amended count clause still requires every count to carry its numeral and to announce its full value, and no longer forbids a symbol-only badge in terms that contradict the state-badge DOT variant"
-  - "A5 the amended status clause still forbids colour from being the sole carrier of state, and states its satisfying carriers rather than requiring a visible text label unconditionally"
+  - "A5 the amended status clause still forbids colour from being the sole carrier of state, states the non-colour visual cue and the announcement as two separate duties with the announcement never substituting for the cue, and no longer requires a visible text label unconditionally"
   - "A6 the camera surface is decided one way and stated once: either the camera rows carry a tooltip and their anatomy says so, or the tooltip requirement is scoped so those rows satisfy it as written; no camera row is left contradicting the rule"
-dod_command: TBD（措辞定稿后钉具名 ASCII 锚点；设计规矩见本卡「DoD 锚点设计规矩」，**每个锚点在被查文件里只许出现一次**）
+dod_command: $ErrorActionPreference='Stop'; . ./scripts/_symbol-markdown.ps1; $c=Get-Content -LiteralPath 'specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md' -Raw; & ([scriptblock]::Create((Get-SymbolMarkdownBlock $c 'powershell symbol-contract').Value))
 dod_exit: 0
-dod_assert: TBD（同上，与 A1–A6 逐条对齐后填）
+dod_assert: DESIGN.md declares one named Symbol-only chrome section holding the domain-value carrier rule and the admission conditions, whose accessible-name condition imposes no phrase grammar; every status carries a non-color VISUAL cue and an announcement never substitutes for one, which is the WCAG 1.4.1 floor the card forbids weakening, and a mandatory state glyph is confined to a contrast pair the gate already registers so the cue is evidenced as perceptible; the count clause keeps plural-aware phrasing, keeps the numeral and full-value announcement, and drops the unconditional icon-only-badge ban; the status clause carries the color rule as the single occurrence of never the sole state channel and no longer demands a visible label unconditionally; the tooltip requirement is scoped to components whose anatomy declares one and the camera shutter is the one named exception to the icon-never-replaces-label list; the Settings destination announces its actionable local-health state; UI-UX-ELEMENTS.md resolves both its icon-only rule and its theme checklist to that same section and no longer restates the tooltip condition.
 review_gate: codex {verdict:pass}
-hygiene: 每条断言由「删掉被改写的那一句即变红」的单点变异证明；每个 DoD 锚点在被查文件里只出现一次，否则单点删除杀不掉它；变异批钉生产文件 SHA-256，批中不并行跑第二批或独立复核（L196）。
+hygiene: 保留40项删除/禁句回填检查，并逐项验证正向义务移到错误章节仍会失败、表格义务移到错误单元格仍会失败；标题/条款/表格另验注释与代码块不可充数。对抗在内存中执行，不修改源文档；历史文件变异收据仍钉各自SHA。
 doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID；解锁 T4-SCHEDULE-UI-PRESENTATION。
 ---
 
 # T4-DESIGN-SYMBOL-CHROME-V2
+
+## Remote publication checkpoint (2026-09-08)
+
+This registration imports the approved OD-1/OD-2 decisions and strengthens their acceptance checks. Status remains `todo`: the design change is only merged on the original local master (`53673571`), not on origin/master. Local R3 rounds and mutation receipts below are historical evidence, not a new remote PASS or waiver. Publish only the two allowed design documents through a fresh remote task-loop with current DoD, review and CI evidence.
+
+The substitution tables below record the iterative local investigation. Later R3 repair sections and the final delta table here supersede their earlier wording. The final candidate must be checked against both visual and announcement duties. Mandatory state glyphs remain restricted to contrast-gate-registered foreground/container pairs. No design-token change or new pairing is approved here.
+
+### Final substitution deltas and remote-contract repair
+
+The unchanged chrome, stricter-contract and out-of-scope instances in the historical tables retain their classification. The following rows replace the earlier state-carrier assessments; each is compliant only with the named final repair, not through an announcement substituting for a visible cue.
+
+| Instance | Final non-colour visual / announcement requirements | Classification |
+|---|---|---|
+| room-progress-strip / segment | Label, count and state mark retained; BLOCKED additionally announced | requires-restatement; satisfied by final row |
+| state-badge STATUS / SOURCE | Owner expresses the marked **value**, including source; color clause separately requires a visible non-colour cue | requires-restatement; satisfied by final row |
+| evidence-rail / UNRATED item | Existing positional STATUS/PHOTO/NOTE segments plus visible missing-evidence sentence; merged rail description retained | requires-restatement; satisfied by final UNRATED row |
+| history-evidence-strip | Existing date/status/relation markers retained; archived state named and every record announces its relation | requires-restatement; satisfied by final row |
+| summary-stat | Every non-neutral state has an icon on a registered contrast pair and is named in the merged number/label phrase | requires-restatement; satisfied by final row |
+| metadata-row | Every non-neutral state has an icon on a registered contrast pair and is named in the merged sentence; only decorative icons are hidden | requires-restatement; satisfied by final row |
+| photo-evidence-tile FAILED | Failure names its error; existing state/source/time/privacy announcement retained | requires-restatement; satisfied by final row |
+| task-stepper | Complete and failed phases have state marks on registered contrast pairs; all phases announce their states | requires-restatement; satisfied by final row |
+| media-preview | Error names its cause; labelled controls and focus restoration retained | requires-restatement; satisfied by final row |
+| remediation-suggestion-card | Failed generation names its cause and keeps the on-device suggestion | requires-restatement; satisfied by final row |
+| report-action-sheet | Preparing and error each name their state | requires-restatement; satisfied by final row |
+| media-assignment-row | Saving names that it is saving; existing source-order and destination announcement retained | requires-restatement; satisfied by final row |
+
+PR #260 first added 15 repair anchors to the historical 25 checks. Its 40 deletion/reinsertion cases passed against the local `5594330d` design snapshots, but did not establish location fidelity. PR #263 at `da28f192` correctly found that all34 positive obligations could move into unrelated text without failing; duplicate tuples and marker strings also fooled the scope card. These older receipts remain historical evidence of phrase presence only.
+
+The location-bound runner below preserves all40 obligations and adds executable relocation, wrong-cell and hidden-text challenges. It validates document obligations, not a production UI or real-device accessibility result. The implementation PR must run it against its exact candidate and pass formal R3 and CI.
+
+
+### Executable location-bound acceptance
+
+The 40 ordered tuples retain the original 25 obligations and the 15 row repairs. Each tuple is `[document, section, selector, phrase, count]`; positive checks require one named heading/clause/table cell AND the original file-wide occurrence count. Forbidden phrases remain file-wide. Code fences and HTML comments cannot supply a required location. Table parsing respects inline-code pipes. The runner also challenges every positive obligation by relocation, every table-cell obligation by a wrong-cell move, and all 40 by deletion/reinsertion, in memory without changing source files.
+
+```json symbol-checks
+[
+  ["D","symbol","h","### Symbol-only chrome",1],
+  ["D","symbol","p:A chrome control may omit visible text","A chrome control may omit visible text only when all of the following hold",1],
+  ["D","symbol","p:2. The control carries","names the action it performs",1],
+  ["D","symbol","p:**Domain values","Domain values are never carried by a glyph alone",1],
+  ["D","contrast","p:Color is never","Color is never the sole state channel",1],
+  ["D","contrast","p:Color is never","has a visual cue that is not color",1],
+  ["D","contrast","p:Color is never","already registered with the contrast gate",1],
+  ["D","contrast","p:Color is never","never the sole state channel",1],
+  ["D","symbol","p:3. Where the component","Where the component anatomy declares a tooltip",1],
+  ["D","navigation","p:Bottom navigation is visible","and its accessible name states that a local-health issue needs attention",1],
+  ["D","language","p:- Counts use complete","carries its numeral and announces its full value",1],
+  ["D","language","p:- Counts use complete","plural-aware",1],
+  ["D","structure","r:state-badge:3","announce the full count",1],
+  ["D","buttons","p:Use Material Symbols Outlined","with one named exception, the camera shutter",1],
+  ["D","structure","r:state-badge:4","the owner also expresses the value the badge marks",1],
+  ["D","dos","p:- Do give every status","Do give every status a carrier besides color",1],
+  ["D","","","or icon-only badges",0],
+  ["D","","","Every icon-only toolbar/camera action exposes the same verb-object label as accessibility text",0],
+  ["D","","","Every icon has a visible tooltip and an accessibility label using verb + object",0],
+  ["D","","","Icon and tooltip use the same declared action; target never shrinks to visible glyph bounds",0],
+  ["D","","","Pair every status with a label and stable symbol",0],
+  ["D","","","Do pair every status color with a label and icon",0],
+  ["U","ui-form","p:同一决策区只允许一个","Symbol-only chrome",1],
+  ["U","ui-access","p:5. 主题：","symbol-only chrome",1],
+  ["U","ui-nav","p:`app-shell`","tooltip",1],
+  ["D","nav-matrix","r:room-progress-strip:4","and a blocked room also announces that it is blocked",1],
+  ["D","history","r:history-evidence-strip:3","an archived record names its archived state",1],
+  ["D","history","r:history-evidence-strip:4","every record announces its relation, and selected evidence also announces its absolute date",1],
+  ["D","history","r:summary-stat:1","status icon for every non-neutral state",1],
+  ["D","history","r:summary-stat:4","Number, label and every non-neutral state merge into one phrase",1],
+  ["D","structure","r:metadata-row:1","icon for every non-neutral state, label/value or source/time",1],
+  ["D","structure","r:metadata-row:4","Merged sentence names the non-neutral state; a decorative icon is hidden, a state icon is not",1],
+  ["D","density","r:UNRATED:1","optional prior-status summary, missing-evidence sentence",1],
+  ["D","evidence","r:photo-evidence-tile:3","archived exposes Restore; failed names its error",1],
+  ["D","backup","r:task-stepper:1","a state mark for every complete and failed phase",1],
+  ["D","backup","r:task-stepper:4","every phase announces its state, and the current phase is announced once",1],
+  ["D","history","r:media-preview:3","an error names its cause",1],
+  ["D","backup","r:remediation-suggestion-card:3","a failed generation names its cause and keeps the on-device suggestion",1],
+  ["D","backup","r:report-action-sheet:3","preparing and error each name their state",1],
+  ["D","history","r:media-assignment-row (V1.1):3","a saving row names that it is saving",1]
+]
+```
+
+```powershell symbol-contract
+param([string]$CardPath='specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md',
+      [string]$DesignPath='context/DESIGN.md', [string]$ElementsPath='docs/UI-UX-ELEMENTS.md',
+      [switch]$LoadOnly)
+$ErrorActionPreference = 'Stop'
+. ./scripts/_symbol-markdown.ps1
+function Get-SymbolBlock([string]$Text,[string]$Label) {
+    return (Get-SymbolMarkdownBlock $Text $Label).Value
+}
+$SymbolSections = @{
+    symbol='## Components/### Symbol-only chrome'
+    contrast='## Colors/### CI contrast gate metadata'
+    navigation='## Navigation bars and containers/### Bottom navigation and independent stacks'
+    language='## Components/### Product language contract'
+    structure='## Components/### Structure, list, and discovery component matrix'
+    buttons='## Components/### Buttons and selection controls'
+    dos="## Do's and Don'ts"
+    'ui-form'='## 2. Element 分层/### 2.3 表单与选择'
+    'ui-access'='## 6. 无障碍与响应式验收'
+    'ui-nav'='## 2. Element 分层/### 2.1 容器与导航'
+    'nav-matrix'='## Components/### Navigation and structure component matrix'
+    history='## Components/### History, evidence, and media component matrix'
+    density='## Components/### Inspection item card/#### Card density and interaction contract'
+    evidence='## Components/### Evidence and input component matrix'
+    backup='## Components/### Backup, report, health, and compliance component matrix'
+}
+function Read-SymbolChecks([string]$Text) {
+    $checks = ConvertFrom-Json -InputObject (Get-SymbolBlock $Text 'json symbol-checks') -NoEnumerate
+    if ($checks -isnot [array] -or $checks.Count -ne 40) { throw 'SYMBOL-MANIFEST: expected 40 tuples' }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($c in $checks) {
+        if ($c -isnot [array] -or $c.Count -ne 5) { throw 'SYMBOL-MANIFEST: tuple shape' }
+        foreach ($j in 0..3) { if ($c[$j] -isnot [string]) { throw 'SYMBOL-MANIFEST: string fields' } }
+        if ($c[0] -cnotin @('D','U') -or -not $c[3] -or $c[4] -isnot [long] -or $c[4] -notin @(0,1)) { throw 'SYMBOL-MANIFEST: field value' }
+        if (-not $seen.Add($c[0]+[char]0+$c[3])) { throw 'SYMBOL-MANIFEST: duplicate obligation' }
+        if ($c[4] -eq 1 -and (-not $SymbolSections.ContainsKey($c[1]) -or $c[2] -cnotmatch '^(h|p:.+|r:[^:]+:[1-4])$')) { throw 'SYMBOL-MANIFEST: location' }
+        if ($c[4] -eq 0 -and ($c[1] -or $c[2])) { throw 'SYMBOL-MANIFEST: forbidden phrases stay file-wide' }
+    }
+    return ,$checks
+}
+function Get-SymbolRecords([string]$Text) {
+    $visible = Get-SymbolMarkdownVisible $Text -IncludeListText
+    $stack = @{}; $path=''
+    $records = [Collections.Generic.List[object]]::new()
+    foreach ($line in ($visible -split '\r?\n')) {
+        $kind='text'
+        if ($line -match '^(#{1,6}) (.+)$') {
+            $level=$Matches[1].Length
+            foreach ($old in @($stack.Keys)) { if ($old -ge $level) { $stack.Remove($old) } }
+            $stack[$level]=$line; $kind='heading'
+            $path=(@($stack.Keys | Where-Object { $_ -gt 1 } | Sort-Object | ForEach-Object { $stack[$_] })) -join '/'
+        }
+        $records.Add([pscustomobject]@{path=$path;kind=$kind;text=$line})
+    }
+    return $records.ToArray()
+}
+function Get-SymbolCells([string]$Line) {
+    $cells=[Collections.Generic.List[string]]::new(); $cell=[Text.StringBuilder]::new(); $code=0
+    for ($i=0; $i -lt $Line.Length; $i++) {
+        $ch=$Line[$i]
+        if ($ch -eq '\' -and $i+1 -lt $Line.Length) { [void]$cell.Append($ch).Append($Line[++$i]); continue }
+        if ($ch -eq [char]96) {
+            $n=1; while ($i+$n -lt $Line.Length -and $Line[$i+$n] -eq [char]96) { $n++ }
+            if (-not $code) { $code=$n } elseif ($code -eq $n) { $code=0 }
+            [void]$cell.Append($Line.Substring($i,$n)); $i+=$n-1; continue
+        }
+        if ($ch -eq '|' -and -not $code) { $cells.Add($cell.ToString().Trim()); [void]$cell.Clear() }
+        else { [void]$cell.Append($ch) }
+    }
+    $cells.Add($cell.ToString().Trim())
+    if ($code -or $cells.Count -lt 3 -or $cells[0] -or $cells[$cells.Count-1]) { throw 'SYMBOL-MARKDOWN: malformed table row' }
+    return ,@($cells.ToArray()[1..($cells.Count-2)])
+}
+function Get-SymbolFailures([hashtable]$Documents) {
+    $index=@{}
+    foreach ($key in @('D','U')) {
+        $index[$key]=@{}
+        foreach ($record in (Get-SymbolRecords $Documents[$key])) {
+            if (-not $index[$key].ContainsKey($record.path)) { $index[$key][$record.path]=[Collections.Generic.List[object]]::new() }
+            $index[$key][$record.path].Add($record)
+        }
+    }
+    $bad=[Collections.Generic.List[string]]::new()
+    for ($i=0; $i -lt $SymbolChecks.Count; $i++) {
+        $c=$SymbolChecks[$i]; $id='SYMBOL-CHECK-{0:d2}' -f ($i+1)
+        $global=[regex]::Matches($Documents[$c[0]],[regex]::Escape($c[3])).Count
+        if ($global -ne $c[4]) { $bad.Add("$id global occurrence expected $($c[4]), found $global") }
+        if ($c[4] -eq 0) { continue }
+        $records=@($index[$c[0]][$SymbolSections[$c[1]]])
+        $headings=@($records | Where-Object { $_.kind -ceq 'heading' })
+        $selected=[Collections.Generic.List[string]]::new()
+        foreach ($record in $records) {
+            if ($null -eq $record) { continue }
+            if ($c[2] -ceq 'h' -and $record.kind -ceq 'heading') { $selected.Add($record.text) }
+            elseif ($c[2].StartsWith('p:') -and $record.kind -ceq 'text' -and $record.text.StartsWith($c[2].Substring(2),[StringComparison]::Ordinal)) { $selected.Add($record.text) }
+            elseif ($c[2] -cmatch '^r:(.+):([1-4])$') {
+                $row=$Matches[1]; $column=[int]$Matches[2]
+                if (-not $record.text.StartsWith('| ')) { continue }
+                $first=($record.text -split '\|',3)[1].Trim().Replace([string][char]96,'')
+                if ($first -cne $row) { continue }
+                $cells=Get-SymbolCells $record.text
+                $width=if($c[1] -ceq 'density'){3}else{6}
+                if ($cells.Count -eq $width) { $selected.Add($cells[$column]) }
+            }
+        }
+        $local=if($selected.Count -eq 1){[regex]::Matches($selected[0],[regex]::Escape($c[3])).Count}else{0}
+        if ($headings.Count -ne 1 -or $selected.Count -ne 1 -or $local -ne 1) { $bad.Add("$id wrong/missing/ambiguous location: $($c[1]) $($c[2])") }
+    }
+    return $bad.ToArray()
+}
+function Test-SymbolChallenges([hashtable]$Documents) {
+    $total=0
+    for ($i=0; $i -lt $SymbolChecks.Count; $i++) {
+        $c=$SymbolChecks[$i]; $id='SYMBOL-CHECK-{0:d2}' -f ($i+1); $key=$c[0]
+        $mutants=[Collections.Generic.List[string]]::new()
+        if ($c[4] -eq 0) { $mutants.Add($Documents[$key]+[char]10+$c[3]) }
+        else {
+            $mutants.Add($Documents[$key].Replace($c[3],'[removed obligation]'))
+            $lines=$Documents[$key] -split '\r?\n'
+            $hits=@(0..($lines.Count-1) | Where-Object { $lines[$_].Contains($c[3]) })
+            if ($hits.Count -ne 1) { throw "$id invalid mutation target" }
+            $line=$lines[$hits[0]]; $lines[$hits[0]]=''
+            $mutants.Add(($lines -join [char]10)+[char]10+'## Wrong-location fixture'+[char]10+$line)
+            if($i -in @(0,1,12)){
+                $f=([string][char]96)*3
+                foreach($wrapper in @(@('<!--','-->'),@(($f+'text'),$f))){
+                    $lines[$hits[0]]=$wrapper[0]+[char]10+$line+[char]10+$wrapper[1]
+                    $mutants.Add($lines -join [char]10)
+                }
+            }
+            if ($c[2] -cmatch '^r:(.+):([1-4])$') {
+                $column=[int]$Matches[2]; $cells=Get-SymbolCells $line
+                $other=if($column -eq 1){$cells.Count-1}else{1}
+                $cells[$column],$cells[$other]=$cells[$other],$cells[$column]
+                $lines[$hits[0]]='| '+($cells -join ' | ')+' |'
+                $mutants.Add($lines -join [char]10)
+            }
+        }
+        foreach ($mutant in $mutants) {
+            $changed=$Documents.Clone(); $changed[$key]=$mutant
+            $errors=@(Get-SymbolFailures $changed)
+            if (-not @($errors | Where-Object { $_.StartsWith($id+' ') }).Count) { throw "$id mutation survived" }
+            $total++
+        }
+    }
+    return $total
+}
+$SymbolChecks=Read-SymbolChecks (Get-Content -LiteralPath $CardPath -Raw)
+if ($LoadOnly) { return }
+$documents=@{D=Get-Content -LiteralPath $DesignPath -Raw;U=Get-Content -LiteralPath $ElementsPath -Raw}
+$failures=@(Get-SymbolFailures $documents)
+if ($failures.Count) { throw ($failures -join [Environment]::NewLine) }
+$challenged=Test-SymbolChallenges $documents
+Write-Host "SYMBOL-CONTRACT PASS: 40 obligations; $challenged deletion/forbidden/relocation/wrong-cell challenges"
+```
 
 ## 起因：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（2026-09-06 用户裁定）
 
 前卡跑了 **6 轮 R3、11 条 finding，全部属实**，两次经用户裁定 `-ResetRounds`，仍未收敛。
 **11 条里没有一条是实现缺陷**——全是同一类：**新写的中心规则与文档里既有实例不符**，
 每轮修完措辞、下一轮就在另一处冒出新缝。用户裁定关闭 PR #236、把整件事折进本卡重做。
-经验已入账 **L300**（成熟文档加中心规则须先做实例代入表）。
+经验已入账 **L309**（成熟文档加中心规则须先做实例代入表）。
 
 **前卡的产出不作废**：分支 `T4-DESIGN-SYMBOL-CHROME`（PR #236，已关闭但分支保留）里有一份
 经 6 轮打磨的草案，其**条件集骨架与各条款的解析式改写可直接复用**，只有「chrome / domain content
@@ -126,14 +361,113 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 - 正锚点断言「解析式措辞在」，负锚点断言「被替换的复述措辞不在」，两侧都要有。
 - 收紧 `dod_command` 只许加、不许减；每次加完实测「master 基线仍 RED、本卡工作树 GREEN」。
 
-## 未决决策
+## 未决决策（2026-09-07 用户裁定，均已收口）
 
-| ID | 问题 | 选项 | 影响 |
+| ID | 裁定 | 落地位置 |
+|---|---|---|
+| OD-1 | 选项 (b)：tooltip 要求按组件 anatomy 是否声明而绑定。相机行 anatomy 一字未改，按新措辞天然满足条件 3 | 条件 3 第二句 + `tooltip` 行改为引用 |
+| OD-2 | 选项 (a)：`Settings` 目的地在无障碍名中陈述可行动的本机健康状态 | `:926`（本地行号）Settings 徽标句 |
+
+OD-2 的事实由下面的实例代入表查实后才提交裁决：基线文档里 `navigation-destination` 只暴露
+label 与 selected，`state-badge` 说 dot「Merged into owner」且「never the sole state channel」，
+而 owner 的可见标签只有 `Settings`——**该状态今天没有任何通道播报**，`state-badge` 行的自我承诺
+当场就不成立。故 (a) 不是为迁就新规则而加的一句，而是补上文档自己已经承诺、却没有兑现的那一环。
+
+## 实例代入表（`forbid` 第 7 条的必做前置 · 按最终措辞逐个代入）
+
+**grep 用的是不变量不是症状词**：`tooltip` / `accessible name` / `label`（全量）/ `count`+`announce` /
+`icon-only`+`symbol`+`glyph`+`dot` / `color alone`+`sole state` / `unlabelled`+`decorative`+`merged`。
+**前卡引用的行号已随本地 `context/DESIGN.md` 演进失效（该文件现 1841 行），本表行号全部本地重取。**
+
+最终措辞把受管辖对象分成互斥的两支：**chrome 控件**（意义即它执行的动作）走准入条件；
+**领域值**（记录自身持有的：计数、状态、日期、地址、房间/物业名）走载体规则。
+一个实例只会落进一支——控件自身的开关态（如 flash on）不是记录持有的值，故相机控件只在准入支；
+`evidence-rail` 不是控件（无目标、无动作），故只在载体支；`status-choice` 带可见标签，
+落在载体支且由文字满足，不触发准入条件。**这消掉了前卡第 6 轮那个「二元记录态两栖」的不可判定点。**
+
+### 甲 · 省略可见文字的 chrome 控件（准入条件支）
+
+| 实例 | 基线事实 | 代入最终措辞 | 判定 |
 |---|---|---|---|
-| OD-1 | 相机面控件是否携 tooltip？ | (a) 加 tooltip 并改 `camera-control` / `camera-shutter` anatomy (b) tooltip 要求按组件 anatomy 是否声明而绑定 | A6；(a) 改 `T2-CAPTURE-UI` 将实现的合同、且相机面长按与拍摄手势有冲突风险，(b) 不改任何 anatomy 且忠于基线 `:1622`（对相机动作原本只要求 accessibility text） |
-| OD-2 | 「载体」正解里，`Settings` 目的地是否须在无障碍名中陈述本机健康状态？ | (a) 是，本卡补这一句 (b) 否，改用别的措辞让 `:922` 天然合规 | 决定正解能否原样采用；须由实例代入表先给出事实 |
+| `icon-button` `:1589` | 24dp symbol、opaque 48dp target、anatomy **含** tooltip、accessible name 强制 | 1 字形声明于组件合同 ✓ 2 名强制 ✓ 3 anatomy 声明 tooltip ✓ 4 目标不缩到字形 ✓ | compliant；行内复述改为引用，并写明 `CAMERA` 变体不外扩准入 |
+| 顶栏尾部图标 `:894` 第 5 条 | 至多两枚；每枚有可见 tooltip 与 verb+object 无障碍名 | 同上；bar 图标 anatomy 声明 tooltip ✓ | compliant；该条复述了条件正文，改为引用 |
+| `camera-control` `:1614` | 24dp icon、opaque 48dp target、anatomy **无** tooltip；语义为「Label describes action and current state」 | 3 由 OD-1 明写「anatomy 未声明者按原文即满足」✓ 2 明许名字兼带当前状态 ✓ 5 OFF/ON 播报 ✓ | compliant，**anatomy 不改** |
+| `camera-shutter` `:1615` | 72dp 圆 + inner state mark、无障碍名 `Take photo`、anatomy **无** tooltip | 1 说「字形由组件合同声明」而非「取自图标集」，故自定义圆形合格 ✓ 2 verb-object ✓ 3 同上 ✓ 4 72dp ✓ 5 状态播报一次 ✓ | compliant；并在 `:1748` 具名豁免（见丙） |
+| `overflow-menu` 触发器 `:1643` | 纯图标；文档已声明其播报 `More options` | **首版规则判它不合规**——条件 2 曾要求 verb-object 短语，而 `More options` 不是 | 由 R3 第 1 轮修法消解：条件 2 改为「名字须命名该动作」，不设短语语法 |
+| `STREAM_CAPTURE` 的 Back `:880` | 纯图标；无障碍标签 `Save and exit` | 同上，`Save and exit` 无宾语 | 同上 |
+| `search-field` 的 Clear / `input-field` 尾部动作 / sheet 与 dialog 的 Close / `room-progress-strip` 的 previous-next | 均为 `icon-button` 实例 | 由 `icon-button` 一行统一承载 | compliant（不单独立规则） |
 
-> **OD-1 与 OD-2 必须在写 RED 之前由用户裁定**：二者共同决定规则的最终措辞，也决定 DoD 锚点选哪几句。
+### 乙 · 由字形承载领域值（载体规则支）
+
+| 实例 | 基线事实 | 代入最终措辞 | 判定 |
+|---|---|---|---|
+| `state-badge` `COUNT`（`Schedule` `1`–`99+`，`:926`） | 数值可见、视觉截断到 `99+`、播报全额 | 数值即文字，owner 亦播报全额 ✓ | compliant |
+| `state-badge` `DOT`（`Settings` 未标注错误点，`:926`） | 文档明写 `unlabelled`；owner 可见标签只有 `Settings` | **基线下不合规**：无任何通道给出该状态 | **由 OD-2 消解**：Settings 无障碍名陈述该状态后 compliant。未弱化规则去迁就它 |
+| `state-badge` `STATUS` / `SOURCE` | Merged into owner | owner 表达其所标记的状态 ✓ | compliant；该行语义格改为「the owner also expresses the state the badge marks」 |
+| `evidence-rail` `:1591`、`:1720` 段 | 三段字形承载 status/photo/note；子段对 TalkBack 隐藏；整条并作一句 `Status complete, photo missing, note complete` | owner 以播报给出该值 ✓ | compliant。**它正是载体规则成立的证据**——前卡的「基数」判据判不了它 |
+| `room-progress-segment` `:1576` | Room label + completion count + state mark | 文字在 ✓ | compliant；另受 `:1714` 更严合同约束（见丙） |
+| `missing-evidence-strip` `:1577` | icon + exact count copy | 计数在文案里 ✓ | compliant |
+| `summary-stat` `:1670` / `save-status` `:1603` / `notice-delivery-row` `:1688` / `compliance-check-row` / `health-issue-row` / `review-gap-row` / `task-stepper` 当前标记 | 均带可见标签或文字 | ✓ | compliant |
+| `metadata-row` `:1626` | 明写「never ... encodes state by color alone」 | 与载体规则同向 ✓ | compliant，不改 |
+| `status-choice` `:1592` / `privacy-chip` `:1596` / `privacy-action` `:1597` / `camera-overlay-control` `:1616` | 均有可见标签或状态文字 | 由文字满足载体规则；不省略可见文字故不触发准入条件 | compliant。**前卡第 4 轮「条件 3 与名字带状态抵触」在此不复存在** |
+| `inspection-item-card` `NOT_APPLICABLE` `:1734` | `Dash, explicit label, Change` | 字形 + 显式标签 ✓ | compliant |
+
+### 丙 · 更严合同：准入不覆盖，显式点名
+
+| 实例 | 基线事实 | 处置 |
+|---|---|---|
+| 底部导航目的地 `:926` | 「Every destination always displays icon and label」 | 不改；准入段点名其保留可见标签（`non_goals` 已排除改写这条本身） |
+| 房间进度段 `:1714` | 「do not reduce rooms to unlabeled dots」 | 不改；准入段点名 |
+| `docs/UI-UX-ELEMENTS.md:35` 选型句 | 原文「纯图标操作必须使用 `icon-button`」 | **与相机面抵触**：`camera-control` / `camera-shutter` 是各自独立的组件合同（后者 base 是 Custom `Button`），且本卡刚写明 `icon-button` 的 `CAMERA` 变体不外扩准入。按 R3 第 1 轮修法把选型收窄到普通界面，并把三者的准入统一路由到本节 |
+| `:1748` 图标不得替代标签的动作清单 | capture/compliance/privacy/delete/finalize/backup/restore | **基线自相矛盾**：`camera-shutter` 就是纯符号的 capture 控件。按陷阱 2 **不把该清单搬进中心规则**，只在原句加一处具名例外（camera shutter），准入段以「the actions named under Buttons and selection controls」引用之，例外随引用一起旅行 |
+
+### 丁 · 不受本规则管辖（判定确定，非「以后再说」）
+
+| 实例 | 理由 |
+|---|---|
+| `divider` `:1579` | 装饰性、对无障碍隐藏；`:1274` 明写「Carries no state, grouping, or focus meaning」 |
+| `focus-indicator` `:1607` | 纯视觉，平台焦点为权威；不承载动作也不承载记录值 |
+| `loading-indicator` `:1657` | 既非动作也非记录值；其播报义务由该行自己规定 |
+| 无障碍合同 `:1809` | 规定播报义务，未复述准入条件；与条件 5 同向，不改 |
+| 无障碍合同 `:1808` | 「Decorative rails and dividers have no separate content description」——rail 无**单独**描述是因为并入卡片，而卡片确实描述了它；不矛盾，不改 |
+
+### 全称词复核（`必做前置` 第 4 步）
+
+最终措辞里的全称共四处，逐处回核文档是否真成立：
+`Domain values are never carried by a glyph alone`（乙表全部实例已代入）·
+`A chrome control may omit visible text only when all of the following hold`（甲表全部实例已代入）·
+`Color is never the sole state channel`（乙表 + 丙表；`:1420` 与 `:1818` 两处状态条款已按 A5 改写）·
+`Admission never overrides a stricter component contract`（丙表三条即其全集，逐条点名）。
+
+## 落地形态（2026-09-07）
+
+`context/DESIGN.md` 新增 `### Symbol-only chrome`，置于 `Component contract schema` 之后、
+各组件矩阵之前。该节先划 chrome / 领域值的界并给出**载体规则**（领域值永不由字形单独承载；
+字形可额外标记，只要 owner 以文字给出或播报该值），再列 5 条准入条件，最后写明准入不覆盖更严合同
+并点名三处。四处治「符号化控件」的条款改为解析到该节：`:894` 第 5 条 · `icon-button` 行 ·
+`tooltip` 行 · `docs/UI-UX-ELEMENTS.md:35`；`UI-UX-ELEMENTS.md:123` 的主题清单第 5 条同并入。
+计数条款与两处状态条款按 A4/A5 重写，`:1748` 加一处具名例外，`:926` 按 OD-2 补播报。
+
+**四处判断记账**
+
+1. **`never the sole state channel` 归位到状态条款**。该串原在 `state-badge` 行、主语是徽标；
+   A5 要的是**状态条款**承载「颜色不得是状态唯一通道」。同一串给两个主语会让 A5 无可击杀变异，
+   故移至 `:1420` 并以 `Color is never the sole state channel` 作唯一锚点；`state-badge` 行改写为
+   `the owner also expresses the state the badge marks`（同义且更具体，非弱化），
+   其 `announce the full count` 与 `dots require an owning row label` 一字未动。
+   M4/M5/M12 分别证明这三件事各自在测。
+2. **条件 1 写「字形由组件合同声明」而非「取自既有 iconography」**。后者会判 `camera-shutter`
+   不合规——它的字形是自定义 72dp 圆而非 Material 符号。这正是「全称词先回核」抓到的一处。
+3. **准入段引用 `:1748` 而不复制其清单**（陷阱 2）。复制会让中心规则自称「capture 动作保留可见标签」，
+   与 `camera-shutter` 直接抵触；改为引用后，加在 `:1748` 上的具名例外随引用一起生效。
+
+4. **ship 前自审抓到三处「解析到错误的支」，全部当场改**（陷阱 5：收窄一句声称就回头查所有引用它的句子）。
+   状态条款尾句与 Do 条原本写作「其**控件**由 symbol-only chrome 准入」——但 `Settings` 的健康点
+   **不是控件**（它是徽标，其 owner 目的地带可见标签、并不省略文字），于是我自己的规则会判这个
+   文档明确允许的实例不合规（A3 第二半）。二者改为解析到**本节**（内含载体规则与准入条件两支），
+   两支各自接住 dot 与相机控件。第三处：准入段原称三类更严合同「keep their visible labels」，
+   而 `:1748` 自己带着相机例外——补「apart from the one exception that clause itself names」。
+   **这三处改动作废了首批 22 枚变异收据（收据钉生产文件 SHA-256，L270），已按新字节整批重跑，仍 22/22。**
 
 > 以下为原工作树的本地设计验证与评审历史，原文保留；不是当前远端验收结论，也不代表设计已发布。当前有效状态仍由本卡 frontmatter 与后续远端交付决定。
 
@@ -412,4 +746,11 @@ WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：
 
 | 日期 | 变更 |
 |---|---|
-| 2026-09-06 | 建卡：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（6 轮 R3 / 11 条 finding 全属实但未收敛，用户裁定关 PR #236 重做）。合并原 `T4-DESIGN-SYMBOL-COMPONENT-ROWS` 的相机面与逐行对齐范围（该卡同日撤销，未曾开工）。新增「必做前置：实例代入表」为本卡与前卡的唯一方法论差别（L300）。 |
+| 2026-09-06 | 建卡：承接被退役的 `T4-DESIGN-SYMBOL-CHROME`（6 轮 R3 / 11 条 finding 全属实但未收敛，用户裁定关 PR #236 重做）。合并原 `T4-DESIGN-SYMBOL-COMPONENT-ROWS` 的相机面与逐行对齐范围（该卡同日撤销，未曾开工）。新增「必做前置：实例代入表」为本卡与前卡的唯一方法论差别（L309）。 |
+| 2026-09-07 | 实现：新增 `Symbol-only chrome` 具名节（载体规则 + 5 条准入 + 三处更严合同点名）；四处条款改为解析到它，计数/两处状态条款按 A4/A5 重写，`:1748` 加具名相机例外，`:926` 按 OD-2 补播报。OD-1 取 (b)、OD-2 取 (a)（用户裁定）。先建实例代入表后写规则正文（`forbid` 第 7 条）；R4 22/22 击杀。 |
+| 2026-09-07 | R3 第 2 轮 1 条 finding 属实（状态条款仍全称要求字形，九个合同证伪）；按 L309 识别信号停手，从 17 个承载状态的合同反推析取式。随后本地跑两轮 fresh-context 对抗复核，9 条中 7 条属实全部当场修、1 条驳回、1 条记 FOLLOW-UP，未烧 R3 轮次。补记方法论两处缺口：周边被改写条款同样要代入，且实例代入表管不了新句与新句相互矛盾。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 3 轮 1 条 finding 属实：`state-badge` 语义格只保证「状态」，漏掉同行声明的 `SOURCE` 变体。改为保证「值」并在载体规则举例补 source；DoD 锚点与 M5/M12 同步。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 4 轮 2 条属实（闭集词汇与 `summary-stat` 条件句），本地对抗复核第三/四轮再出 5 条属实。字形词汇那一句累计五次改写失败，复核者按位置统计确认它是独立子问题、其余已收敛。最终不再改措辞，而是同时消掉「太宽」（作用域缩到五个具名状态）与「太窄」（例外按行声明的标记形态给）两个方向的全称。R4 按最终字节重跑 23/23。 |
+| 2026-09-08 | R3 第 5 轮 1 条属实且命中 `forbid` 第 1 条：把播报当作与颜色并列的充分载体，弱化了 WCAG 1.4.1 下限（播报服务屏幕阅读器，不是明眼可见的视觉线索）。句 2 拆为「非颜色视觉线索」+「无自身可见文字时 owner 另外播报」，播报只补充不替代；新增锚点与 M24。收紧后暴露并关掉六处既有无障碍缺口，含签名组件 evidence rail 的默认态与 `task-stepper` 的失败阶段。R4 按最终字节重跑 24/24。 |
+| 2026-09-08 | R3 第 6 轮 2 条属实，均落播报半、均由第 5 轮修法引入（加了必带字形却未加播报）。改用两半同时代入的扫描法，再查出 5 处语义格播报窄于状态清单并统一修法。补记方法论第三处：规则有两半时代入表须两半同时判。R4 按最终字节重跑 24/24。 |
+| 2026-09-08 | R3 第 7 轮 2 条属实并当轮证伪拆卡切口：撤回行补齐后下限声明立即与 rail 规格矛盾，且我改产线未同步收据。补齐全部还原（SHA 回 64E20D38 与收据一致），承接卡收窄为三处遗留。第 8 轮 1 条属实：把状态字形定为必带却未证其可感知。取「约束到对比度闸已登记的配对」这条出路，不新造绑定不改色值；新增 M25 钉住。R4 按最终字节重跑 25/25。 |
