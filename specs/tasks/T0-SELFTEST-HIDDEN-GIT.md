@@ -80,5 +80,10 @@ The separate #217 Windows PSGallery provisioning failure is outside this code re
 - Local Windows Tier S full and Ubuntu hidden/present-git evidence above remains tied to the same
   candidate bytes. The previous isolated reviewer-sandbox 15i permission error did not recur in
   formal ship DoD. No product code, `verify.ps1`, CI workflow or configuration changed.
-- Origin-line fix is merged. The push-triggered nightly scaffold-selftest and the unrelated
-  Windows PSGallery provisioning leg are tracked as post-merge observations, not claimed green here.
+- Origin-line fix is merged. The earlier #217 Windows PSGallery provisioning failure was an
+  independent runner issue and did not recur in this push run's Windows light leg.
+- Post-merge [push run 35069386462](https://github.com/Asun28/MyInspection/actions/runs/35069386462)
+  completed 10/10 shards successfully on the merged `ef6290e` tree, including both light legs.
+  The workflow deliberately passes `-IncludeMeta` only for its daily `schedule` event; the push
+  light logs explicitly report `[META-SKIP] 8.2j`. Local Windows and Ubuntu `-IncludeMeta` runs
+  above exercise 8.2j; the next hosted scheduled meta run remains to be observed.
