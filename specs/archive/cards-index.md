@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 204 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 205 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -76,6 +76,7 @@
 | T0-LICENSE-SELFTEST-DRIFT | merged | 恢复 Gradle diagnostics 的 selftest 回归覆盖并消除权威套件漂移 |
 | T0-LOCAL-RECONCILE-REGISTER | merged | 注册落后本地 master 的十二张可评审文档调和卡 |
 | T0-PREREVIEW-CHECKLISTS | merged | docs/PREREVIEW-CHECKLISTS.md - worker-facing checklists in four Lens sections that enter the pack a… |
+| T0-PREREVIEW-FACTS-LIB | merged | _prereview-facts.ps1 -AsLibrary - worktree, base (via _gitbase.ps1), snapshot tree, policy hash, un… |
 | T0-PREREVIEW-PROTOCOL-DOC | merged | docs/PREREVIEW-PROTOCOL.md (1a protocol and status-code table), TRUST-MANIFEST rows for both provid… |
 | T0-PREREVIEW-RECORDS | merged | _prereview-records.ps1 record core - boolean validation, unit membership, C-{n} id minting, exact-d… |
 | T0-PREREVIEW-SCHEMA | merged | Frozen record schema, worker-envelope projection, check-prereview-schema.ps1 and the Prereview* con… |

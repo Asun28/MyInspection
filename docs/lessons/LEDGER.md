@@ -2389,3 +2389,11 @@
 - rule: 闸报红时先确定**它这次读的是哪棵树的配置与输入**，再谈它对不对。判据是换一棵树重跑：同一条闸命令在主检出与被审 worktree 各跑一次并比对退出码，两处结论不同即说明红的是**作用域**而非缺陷。扫描作用域（git log --all 跨 ref）与配置作用域（当前检出树）不一致时，在落后的基线树上跑必然产出「对该树正确、对仓库整体错误」的结论。做完这一步之前，不得据一次红去断言工具有缺陷，更不得据此开卡——把误诊写进卡片比不开卡贵得多。
 - enforced_by: none（判定纪律；机械等价物 = 同一条闸命令在主检出与被审 worktree 各跑一遍、比对退出码，不同即先查作用域）
 - refs: L282
+
+## L331
+- date: 2026-09-16 ｜ tags: powershell,git,fixtures,native-command ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A fixture helper named Git recursively called itself when its body invoked git, stalling the self-check before any production assertion.
+- root_cause: PowerShell command lookup is case-insensitive and functions take precedence over external executables; Git and git resolve to the same function.
+- rule: Give native-command test wrappers distinct names such as Invoke-FixtureGit. Before integrating the wrapper, run one small real command and require its exit code and output so self-recursion is detected immediately.
+- enforced_by:
+- refs: specs/archive/tasks/T0-PREREVIEW-FACTS-LIB.md
