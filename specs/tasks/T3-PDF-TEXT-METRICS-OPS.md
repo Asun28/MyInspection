@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-TEXT-METRICS-OPS
 title: PdfTextOp measured metric and baseline forwarding
-depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT]
+depends_on: [T3-PDF-MEASUREMENT-BINDING]
 parallelizable_with: []
 status: todo
 allow_paths:
@@ -13,7 +13,7 @@ forbid:
   - ReportTypography/default/profile recomputation, Android imports, font measurement, wrapping, pagination, geometry policy changes, or asset work
   - accepting direct TextRun metrics without validating style/language binding and the actual rounded placed line box
 non_goals:
-  - changing A's profile, TextMeasurer, MeasuredText, TextRun, Composer or legacy migration tests
+  - changing predecessor profiles, TextMeasurer, MeasuredText, TextRun, Composer or legacy migration tests
   - Android adapter/executor/device acceptance
 acceptance:
   - "A1 PdfTextOp carries the supplied metric snapshot and baselineYPt; builder preserves the approved snapshot and adds only supplied baselineOffsetPt to the existing converted y origin"
@@ -29,7 +29,7 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 # T3-PDF-TEXT-METRICS-OPS
 
-This is split B. It receives A's validated `TextRun` snapshot but owns every `PdfTextOp` change and all behavior that makes it executable: direct-constructor rejection, actual placed-box rounding guard and exact baseline forwarding. It must not reconsult `ReportTypography`; a second lookup could silently replace the measured snapshot.
+This successor receives the validated TextRun snapshot from T3-PDF-MEASUREMENT-BINDING but owns every `PdfTextOp` change and all behavior that makes it executable: direct-constructor rejection, actual placed-box rounding guard and exact baseline forwarding. It must not reconsult `ReportTypography`; a second lookup could silently replace the measured snapshot.
 
 The nested-thumbnail expected-op migration and the existing no-picture `PdfTextOp` constructor migration are part of B. The frozen candidate extraction is **144 changed lines / 11,443 LF unified-diff characters** (`b-source.patch` / `b-budget.json` in the ignored evidence mirror). It is not GREEN evidence: R4 receipt, repair iterations and final exact extraction remain outstanding.
 
