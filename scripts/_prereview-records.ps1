@@ -390,6 +390,9 @@ Check 'U3/discoverer: blocked with missing_context, candidate_ids C-3' ($d3.Coun
 $missing = @($rows | Where-Object { (Eq $_['status'] 'missing') })
 Check 'missing rows for exactly U2 (lacks C2), U3 (lacks C2, C3) and U4 (no row from anyone), in units order' ((Same @($missing | ForEach-Object { $_['unit_id'] }) @($U2, $U3, $U4)))
 Check 'missing rows: worker_id null, empty categories / candidate_ids / missing_context' (@($missing | Where-Object { $null -eq $_['worker_id'] -and @($_['categories_checked']).Count -eq 0 -and @($_['candidate_ids']).Count -eq 0 -and @($_['missing_context']).Count -eq 0 }).Count -eq 3)
+$only = @((Edit 4 @{ unit_id = $U1; categories_checked = @('C1', 'C2', 'C3') }), (Edit 4 @{ categories_checked = @('C2', 'C3') }), (Edit 4 @{ unit_id = $U3; categories_checked = @('C1', 'C2') }), (Edit 4 @{ unit_id = $U4; categories_checked = @('C1', 'C2', 'C3') }))
+$vOnly = ConvertTo-PrereviewCoverage -Records $only -Units $units -Candidates (ConvertTo-PrereviewCandidates -Records $only -Units $units -NextId 1)
+Check 'A5 per category: a discoverer row lacking only C1 (U2) and one lacking only C3 (U3) each get a missing row; full rows (U1, U4) do not' ($vOnly.Ok -and (Same @($vOnly.Coverage | Where-Object { Eq $_['status'] 'missing' } | ForEach-Object { $_['unit_id'] }) @($U2, $U3)))
 Check 'U4 (no row from any worker) gets exactly one missing row' (@($rows | Where-Object { (Eq $_['unit_id'] $U4) }).Count -eq 1)
 Check 'no missing row for U1; the lens C2 row on U2 does not rescue it' (@($missing | Where-Object { (Eq $_['unit_id'] $U1) }).Count -eq 0 -and @(Row $U2 'lens').Count -eq 1)
 $zw = [ordered]@{}; foreach ($k in $batch.Records[9].Keys) { $zw[$k] = $batch.Records[9][$k] }; $zw['worker_id'] = 'discoverer' + [char]0x200B
