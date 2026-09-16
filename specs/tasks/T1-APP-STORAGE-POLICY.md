@@ -21,10 +21,10 @@ dod_exit: 0
 dod_assert: app JVM 测试与 assemble 绿：AppStoragePolicy 把 DB/设置/回执/secret envelope/journal/staging 路由到 credential-encrypted internal/no-backup，把大媒体路由到 app-specific external；卷不可用/低空间返回结构化状态而非路径或共享相册回退。前置 SafeLog API/测试与现有 media 调用继续证明不接受/输出绝对路径、SAF URI、地址、姓名、备注、secret、Authorization 或 raw provider body。删除或错误替换任一生产路由或状态映射后，对应行为测试必须失败；测试不声称已装配到业务入口或证明 Keystore 行为。
 requirements:
   - "R1 DB、settings、receipts、secret envelope、restore journal 与 staging metadata 必须路由至 credential-encrypted internal/no-backup；仅大媒体可路由至 app-specific external。"
-  - "R2 external 卷不可用或空间不足必须返回结构化状态；不得暴露绝对路径、转写共享相册或静默成功。"
+  - "R2 external 卷必须为已挂载且可写的 app-specific external（Android MEDIA_MOUNTED）；目录缺失、未挂载或只读返回结构化 Unavailable，usableBytes < requestedBytes 返回 InsufficientSpace，等于边界可用；不得暴露绝对路径、转写共享相册或静默成功。"
 acceptance:
-  - "A1 各数据类别的路由夹具证明 protected 类别绝不落 device-protected/external，媒体绝不落 shared/public；删除或错误替换任一生产路由后，对应行为测试必须失败。"
-  - "A2 卷缺失、低空间与正常可用三种夹具返回闭合状态；删除或错误替换任一生产失败映射后，对应行为测试必须失败。"
+  - "A1 各数据类别以显式类别到不同内部子目录的映射夹具证明 protected 类别绝不落 device-protected/external；device-protected context 先转 CE，转换后仍受 device-protected 标记则拒绝；媒体绝不落 shared/public。删除、交换或错误替换任一生产路由后，对应行为测试必须失败。"
+  - "A2 目录缺失、未挂载、只读、低空间与正常可用夹具返回闭合状态，明确验证 usableBytes 等于 requestedBytes 的边界；注入敏感绝对路径后，policy 结果的文本表示、失败状态和抛出信息不得包含它。删除或错误替换任一生产失败映射后，对应行为测试必须失败。"
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）；路由与卷状态各保留一枚具名单点变异
 doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
