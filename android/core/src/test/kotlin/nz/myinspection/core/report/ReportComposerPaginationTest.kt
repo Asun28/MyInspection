@@ -954,27 +954,26 @@ class ReportComposerPaginationTest {
         assertTrue(runs.any { it.language == TextLanguage.EN } && runs.any { it.language == TextLanguage.ZH })
     }
 
+    /* R4 remote: M1 produced the named successful-compose AssertionError; M2 produced [246, 246, 38].
+     * Each compiling mutation restored Composer source SHA-256 5297B78BF90124BD67DE88FCA8FA20853A9139BD4D404BFE8DE24D2D40662293.
+     */
     @Test
     fun `room opening uses its reduced budget only for the first item chunk`() {
         val base = ReportTestFixtures.report()
         val room = base.rooms.single()
         val poor = room.items.single { it.id == "item-poor" }
-        val hugeLabel = BilingualText("oversized room heading", "超高房间标题")
-        val measurer = TextMeasurer { text, _, widthMm ->
-            MeasuredText(
-                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
-                if (text == hugeLabel.en || text == hugeLabel.zh) 93 else 4,
-            )
-        }
+        val hugeLabel = BilingualText("e".repeat(23 * 60), "房".repeat(23 * 60))
         val report = base.copy(
             canonical = base.canonical.copy(items = listOf(poor.snapshot)),
             rooms = listOf(room.copy(label = hugeLabel, items = listOf(poor))),
         )
 
-        val plan = ReportComposer(measurer).compose(report, Audience.LANDLORD)
+        val result = runCatching { composer.compose(report, Audience.LANDLORD) }
+        assertTrue(result.isSuccess, "room opening fixture must compose successfully")
+        val plan = result.getOrThrow()
         val chunks = plan.itemChunks("item-poor")
 
-        assertEquals(2, chunks.size, "the 19mm opening budget must split text from the 54mm thumbnail")
+        assertEquals(2, chunks.size, "the 21mm opening budget must split text from the 54mm thumbnail")
         assertTrue(chunks.first().thumbnails.isEmpty())
         assertEquals(listOf("photo-item"), chunks.last().thumbnails.map { it.photoId })
         plan.assertNothingOverflows()
@@ -1021,23 +1020,39 @@ class ReportComposerPaginationTest {
 
     @Test
     fun `section opening uses its reduced budget only for the first flowing chunk`() {
-        val boundaryText = "fresh-page-boundary"
-        val measurer = TextMeasurer { text, _, widthMm ->
-            MeasuredText(
-                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
-                if (text == boundaryText) 250 else 4,
-            )
+        val boundaryText = "BOUNDARY"
+        val bodyLines = (0 until 130).map { index ->
+            "line-${index.toString().padStart(3, '0')}-" + "x".repeat(51)
         }
         val report = ReportTestFixtures.report().copy(
             remediations = emptyList(),
-            supplements = listOf(ReportSupplement("BOUNDARY", boundaryText)),
+            supplements = listOf(ReportSupplement(boundaryText, bodyLines.joinToString(""))),
         )
 
-        val plan = ReportComposer(measurer).compose(report, Audience.LANDLORD)
+        val result = runCatching { composer.compose(report, Audience.LANDLORD) }
+        assertTrue(result.isSuccess, "section opening fixture must compose successfully")
+        val plan = result.getOrThrow()
+        val titlePage = plan.pages.single { page ->
+            page.blocks.any { (it.content as? SectionTitleBlock)?.key == "closing" }
+        }
+        val title = titlePage.blocks.single { (it.content as? SectionTitleBlock)?.key == "closing" }
         val chunks = plan.pages.flatMap { it.blocks }.filter { it.content is SupplementBlock }
 
-        assertEquals(listOf(14, 252), chunks.map { it.heightMm })
-        assertEquals(boundaryText, (chunks.last().content as SupplementBlock).textRuns.single().text)
+        assertEquals(listOf(246, 254, 30), chunks.map { it.heightMm })
+        assertEquals(
+            listOf(chunks.first()),
+            titlePage.blocks.filter { it.content is SupplementBlock },
+            "the section title was left alone on page ${titlePage.number}",
+        )
+        assertEquals(title.yMm + title.heightMm, chunks.first().yMm, "the first chunk must follow its title")
+        assertTrue(
+            chunks.drop(1).any { it.heightMm > 247 },
+            "a continuation never exceeded the 247mm first-page remainder",
+        )
+        assertEquals(
+            listOf(boundaryText) + bodyLines,
+            chunks.flatMap { (it.content as SupplementBlock).textRuns }.map { it.text },
+        )
         plan.assertNothingOverflows()
     }
 
