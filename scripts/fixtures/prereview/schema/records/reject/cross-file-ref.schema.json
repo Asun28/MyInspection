@@ -1,0 +1,5 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": { "records": { "type": "array", "items": { "$ref": "specs/prereview-record.schema.json#/$defs/candidate" } } }
+}
