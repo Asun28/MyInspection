@@ -75,3 +75,12 @@ unit in `units.json`, with `categories_checked` covering C1, C2 and C3 for every
 C5 and C7. C6 (repeated dispute) is derived from dispute records only and is never emitted by a worker. `status` is
 reported per unit, not per check, with one of the four worker values of the record contract; a `blocked` record
 names the location it needed in `missing_context`.
+
+<!-- remote-adoption-source-receipt -->
+
+## Remote source comparison
+
+Approved local source: `4c9735ef113e2a778d628de490bfc0554d9defa9:docs/PREREVIEW-CHECKLISTS.md`; Git blob `836a99e8a4b756fb1f78e92159e86eb4e48a06c3`; raw SHA-256 `c0c8adacc6f77ef8d067f2987e69398e1abdef40e10c46b1ad32bf511b6181f1`.
+The adopted body preceding this receipt has SHA-256 `1a46b3031d6781769280838decf1640100f8b5f7254eb719b89742a9a7e7e84c`. It differs from the approved source by lesson citations only: remove unavailable L309/L321 and colliding L310 references; map local L317 to rubric 6. All four lenses and candidate/coverage wording are otherwise unchanged.
+The complete source bytes, exact ordered replacements and unified difference are retained for review under `.review/remote-adoption/policy-source/` (ignored local evidence, not published runtime files).
+Reproduce from the review worktree: `python .review/remote-adoption/policy-source/verify.py`. The check verifies original Git blob/SHA/length, replays each counted replacement, and requires byte equality with this entire pre-receipt body. The recorded comparison passes for both documents; it does not claim the original and adopted files are byte-identical.

@@ -317,3 +317,12 @@ states and evidence, batch semantics and caps, gate precedence, dispute escalati
 metrics rule) is written by the 1b LOOP-DOCS card after the checkpoint of section 9 opens 1b; until then the table
 rows are the only 1b content of this document, `PrereviewGateEnforced` stays `false`, and `ship` behaves exactly as
 today.
+
+<!-- remote-adoption-source-receipt -->
+
+## Remote source comparison
+
+Approved local source: `4c9735ef113e2a778d628de490bfc0554d9defa9:docs/PREREVIEW-PROTOCOL.md`; Git blob `0bbfb4e51b08624c23f38a8e388aad485e05b1b8`; raw SHA-256 `1cbf12a29e6ccc67bcfaeeeae93c0ce65e00d151ccdcc67f885421be5f744457`.
+The adopted body preceding this receipt has SHA-256 `5948ca1be9474a3fdedb4c2b5aea1380aae86de19a3799ecec98f31df0d0e2e8`. It differs from the approved source by remote availability and historical-baseline labels, remote delivery mode, current reviewer sandbox/archives, tracked-deletion wording, and lesson citations.
+The complete source bytes, exact ordered replacements and unified difference are retained for review under `.review/remote-adoption/policy-source/` (ignored local evidence, not published runtime files).
+Reproduce from the review worktree: `python .review/remote-adoption/policy-source/verify.py`. The check verifies original Git blob/SHA/length, replays each counted replacement, and requires byte equality with this entire pre-receipt body. The recorded comparison passes for both documents; it does not claim the original and adopted files are byte-identical.
