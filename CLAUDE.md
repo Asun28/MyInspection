@@ -69,9 +69,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
-**2026-09-17 第一批远端 R5 收口**：Logging 一张产品卡完成远端文档同步与归档，五轮十张产品卡的 R5 闭环进度 1/10；PR #301/#303 只登记任务与契约，不计产品数。`T1-SAFE-MEDIA-LOGGING-REMOTE` 经 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 合并（reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`；merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；CI `35158547855`，正式 R3 pass）。封闭字段 SafeLog 及四处媒体失败日志接线已交付；不包含存储分层、Keystore、调度或删除语义。
+**2026-09-17 第一轮远端交付**：两张产品卡已完成远端 R5 收口，五轮十张产品卡进度 2/10；PR #301/#303 只登记任务与契约，不计产品数。`T1-SAFE-MEDIA-LOGGING-REMOTE` 经 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 合并（reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`；merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；CI `35158547855`，正式 R3 pass）。封闭字段 SafeLog 及四处媒体失败日志接线已交付；不包含存储分层、Keystore、调度或删除语义。
 
-`T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE` 的功能 [PR #305](https://github.com/Asun28/MyInspection/pull/305) 已合并（reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`；merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`；CI `35159732680`，正式 R3 pass），但其 R5 文档同步与归档留待下一批，任务卡仍在活目录且为 todo。纯数据字体配置、角色映射、有符号测量快照与 line-box guard 的功能已交付；报告组合、测量绑定、平台字形、裁剪与设备验收仍属后继工作。Logging 的远端验收与原本地历史见归档卡。
+`T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE` 经 [PR #305](https://github.com/Asun28/MyInspection/pull/305) 合并（reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`；merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`；CI `35159732680`，正式 R3 pass）。远端纯数据字体配置、角色映射、只承载数据的有符号测量快照与 line-box guard 已交付；报告组合、测量绑定、平台字形、裁剪与设备验收仍属后继工作。两张产品卡的远端验收和原本地历史分别见归档卡。
 
 **2026-09-17 远端交付**：`T3-DOCX-REPORT-EXTRACTOR` 经 [PR #288](https://github.com/Asun28/MyInspection/pull/288) 合并（`34d88e26`；reviewed head `69ba6c1d`）。多 story 提取保留 STATUS 原文、规范化文本与顺序；合成夹具 82 图/83 placements 全部待审、0布局排除。DoD 59项通过，4项当前定向变异全杀，verify 971项（4项既有 Windows symlink skip）及6项 E2E 通过；正式 R3 双轴 pass 空 reasons，CI `35095926100/1` required PASS。90项旧变异仅保留历史证据；映射、确认、持久化与渲染仍属后续卡。
 

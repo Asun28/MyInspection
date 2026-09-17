@@ -328,10 +328,10 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 ## 已验证本地卡的远端交付登记（2026-09-17）
 
-以下别名与 W1 的 T1-SAFE-MEDIA-LOGGING-REMOTE 分别交付原四张产品卡，不额外增加五轮的产品卡数。现有本地提交只作来源；Logging 与 Typography 两张功能 PR 已远端验收并合并，其中 Logging 完成 R5 文档同步与归档，闭环进度 1/10。Typography 功能已合并但 R5 待下一批，卡仍为 todo。Boundary 与 Pagination 仍为 todo，须各自重新执行远端测试、正式 R3、CI 与 PR 合并。后继 PDF 测量绑定、Android 渲染和完整设备验收未在本次登记中交付。
+以下别名与 W1 的 T1-SAFE-MEDIA-LOGGING-REMOTE 分别交付原四张产品卡，不额外增加五轮的产品卡数。现有本地提交只作来源；本轮 Logging 与 Typography 两张产品卡已完成远端验收、合并及 R5 收口，五轮十张产品卡进度 2/10。Boundary 与 Pagination 仍为 todo，须各自重新执行远端测试、正式 R3、CI 与 PR 合并。后继 PDF 测量绑定、Android 渲染和完整设备验收未在本次登记中交付。
 
 | 远端交付卡 | 原产品卡 | 依赖 | 作者 | 状态 |
 |---|---|---|---|---|
 | [T1-STORAGE-PATH-BOUNDARY-REMOTE](../specs/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md) | T1-STORAGE-PATH-BOUNDARY | T1-SPIKE-PLATFORM | GPT-6 Astra · high | todo |
-| [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE](../specs/tasks/T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE.md) | T3-PDF-TYPOGRAPHY-CONTRACT | T3-PDF-RENDERER | GPT-5.6 Terra · high | todo（功能已远端合并，R5 待下一批）；[PR #305](https://github.com/Asun28/MyInspection/pull/305)，reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`，CI `35159732680`，merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`，正式 R3 pass |
+| [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE](../specs/archive/tasks/T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE.md) | T3-PDF-TYPOGRAPHY-CONTRACT | T3-PDF-RENDERER | GPT-5.6 Terra · high | merged；[PR #305](https://github.com/Asun28/MyInspection/pull/305)，reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`，CI `35159732680`，merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`，正式 R3 pass |
 | [T3-PDF-PAGINATION-FIXTURES-REMOTE](../specs/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md) | T3-PDF-PAGINATION-FIXTURES | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | GPT-5.6 Terra · medium | todo |
