@@ -1,7 +1,7 @@
 ---
 id: T1-LOCAL-DATA-SECURITY
-title: 本地数据安全底座：内外存储分层 + Keystore secret box + 脱敏日志
-depends_on: [T1-SPIKE-PLATFORM]
+title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE]
 status: todo
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
@@ -35,7 +35,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 ## 产出
 
-提供 `AppStoragePolicy`、Keystore-backed `LocalSecretBox` 和 `SafeLog` 三个 app 平台 primitive，供 capture、backup、restore 和 remediation 复用；不实现业务功能。
+本卡提供 `AppStoragePolicy` 与 Keystore-backed `LocalSecretBox`；`SafeLog` 和四处媒体日志接线由前置卡 `T1-SAFE-MEDIA-LOGGING-REMOTE` 交付。原有安全验收与日志回归完整保留，不重复实现前置能力。
 
 ## 契约
 
@@ -47,3 +47,11 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 ## 验收
 
 见 front-matter。首选 GPT-5.6 Terra · high；备选 Sonnet 5 · max。难度 M。
+
+## 安全日志前置拆分
+
+完整首轮实现、测试和变异收据预估 905–1092 changed lines，先拆出单独的安全日志卡。前置卡明确允许修订 PhotoOrphanCleanupWiringTest 的过时原始路径日志断言，保留其余存储、调度和生命周期检查；不改变本卡的完整 DoD、schema、备份格式或既有媒体存储位置。
+
+## 路径前置复用
+
+真实逐段路径解析、验证根快照、checked-child 及直接路径测试由 T1-STORAGE-PATH-BOUNDARY-REMOTE 完整交付。AppStoragePolicy 仍须用黑盒接线测试证明 create 与 resolveChild 都被调用，任一调用旁路由具名断言检出。前置卡不交付 Android getter、媒体状态或 Keystore；本卡原有验收与 DoD 不变。两个远端前置均尚待各自 PR、R3 和 CI 通过后合并。
