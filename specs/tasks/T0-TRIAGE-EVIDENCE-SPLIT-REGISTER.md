@@ -8,7 +8,7 @@ allow_paths:
   - specs/tasks/T0-TRIAGE-EVIDENCE-INPUTS.md
   - specs/tasks/T0-TRIAGE-EVIDENCE-CASE.md
 acceptance:
-  - "A1 Register exactly one todo behavior predecessor for existing discovery/read/raw-field/HEAD failure observability; preserve its complete acceptance, executable DoD and deferred directory-case boundary."
+  - "A1 Register exactly one todo behavior predecessor for existing discovery/read/raw-field/HEAD failure observability; preserve its executable DoD and deferred directory-case boundary while correcting A2 to accept exact normalized and historical evidence shapes."
   - "A2 Preserve every existing CASE DoD argument and check; explicitly add only -CaseModeProfile require-dual-actual to enforce the already approved final dual-actual obligation. Preserve original history and register the approved predecessor, acceptance restatements, paired-document scope and doc_sync correction. Neither behavior is delivered by registration."
   - "A3 Fixed approved payload, unchanged source and original historical-byte assertions pass with check-cards, archive index and whitespace checks; genuine corruption negatives reject altered inputs."
 forbid:
@@ -53,6 +53,8 @@ if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($historyByte
     throw '[TRIAGE-REGISTER-HISTORY] original history bytes changed'
 }
 $sourcePins = @{
+    'scripts/review.ps1' = '124BE2DD5DC4448E6B2E27D445E72C0DE9CBD3E84BD324246ED1D4AC11EA7329'
+    'specs/verdict.schema.json' = '7FD70EBAA6E65F231CB78ED6E26D42BDDFBF92612CC371CCCB8705D090A04672'
     'scripts/triage.ps1' = '1DA2BA39797DDD8E00ACA7D4DA3088A74977BA78498B54A2347311D342CC9580'
     'scripts/selftest.ps1' = '3E8D8B9908F2EB15C0A472CF6C24069E9B61981C37C3B3847017D39DA1F4099F'
     'scripts/check-cards.ps1' = '02B2436F5C00CC047BD96D205B19BC67FB0329ED620DCECDB3D1007C50494C5C'
@@ -66,7 +68,7 @@ foreach ($path in $sourcePins.Keys) {
     if ($hash -cne $sourcePins[$path]) { throw "[TRIAGE-REGISTER-SOURCE] registration changed pinned source: $path" }
 }
 $payloadPins = @{
-    'specs/tasks/T0-TRIAGE-EVIDENCE-INPUTS.md' = 'A9BFE2EB9833BED3AAFAAC52E9914C22731DCB01FD90486B951981FA145953CD'
+    'specs/tasks/T0-TRIAGE-EVIDENCE-INPUTS.md' = '10FDA06A5F3D84193FB2ABF08453A2991AAE91AB2BA36C247BF3A05497099B16'
     'specs/tasks/T0-TRIAGE-EVIDENCE-CASE.md' = '21533BB7E7C2C9FECF379EBE5AEA4E17202738F1F6D38EEE62C3D3670A71C0EA'
 }
 foreach ($path in $payloadPins.Keys) {
@@ -89,6 +91,24 @@ if ($LASTEXITCODE -ne 0) { throw 'archive index failed' }
 git diff --check
 if ($LASTEXITCODE -ne 0) { throw 'working whitespace failed' }
 Write-Host '[TRIAGE-REGISTER-CHECKS-OK] raw metadata checks'
+}
+function Test-RegistrationEvidenceSamples {
+    $raw = [IO.File]::ReadAllText((Join-Path $PWD 'specs/tasks/T0-TRIAGE-EVIDENCE-INPUTS.md'))
+    $blocks = [regex]::Matches($raw, '(?s)```json\r?\n(.*?)\r?\n```')
+    if ($blocks.Count -ne 1) { throw '[TRIAGE-REGISTER-SCHEMA] expected one INPUTS fixture block' }
+    $data = $blocks[0].Groups[1].Value | ConvertFrom-Json
+    $schema = $data.profile | ConvertTo-Json -Depth 20 -Compress
+    $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $positive = 0; $negative = 0
+    foreach ($sample in $data.samples) {
+        if ($sample.valid -isnot [bool] -or -not $names.Add($sample.name)) { throw '[TRIAGE-REGISTER-SCHEMA] invalid expectation or duplicate name' }
+        $accepted = Test-Json -Json ($sample.record | ConvertTo-Json -Depth 20 -Compress) -Schema $schema -ErrorAction SilentlyContinue
+        if ($accepted -ne $sample.valid) { throw "[TRIAGE-REGISTER-SCHEMA] unexpected fixture outcome: $($sample.name)" }
+        if ($sample.valid) { $positive++ } else { $negative++ }
+        Write-Host "[TRIAGE-REGISTER-SCHEMA-SAMPLE] $($sample.name) accepted=$accepted expected=$($sample.valid)"
+    }
+    if ($positive -ne 6 -or $negative -ne 24) { throw '[TRIAGE-REGISTER-SCHEMA] incomplete exact fixture inventory' }
+    Write-Host '[TRIAGE-REGISTER-SCHEMA-OK] 6 historical/normalized positives and 24 schema negatives; metadata only'
 }
 function Test-RegistrationControls {
     $origin = (Get-Location).Path
@@ -227,6 +247,7 @@ function Test-RegistrationControls {
     }
 }
 Assert-Registration
+Test-RegistrationEvidenceSamples
 Test-RegistrationControls
 Write-Host '[TRIAGE-REGISTER-DOD-OK] raw bytes and actual self-verifying metadata controls'
 ```
@@ -234,10 +255,14 @@ Write-Host '[TRIAGE-REGISTER-DOD-OK] raw bytes and actual self-verifying metadat
 
 ## Executable registration controls
 
-The single delivered block is the complete DoD. It hashes raw INPUTS/CASE/source file bytes and copies exactly 5273 original historical bytes directly from CASE's byte array; it does not normalize line endings. A2's sole CASE command addition remains `-CaseModeProfile require-dual-actual`; A/B and original history are unchanged.
+The single delivered block is the complete DoD. It hashes raw INPUTS/CASE/source file bytes and copies exactly 5273 original historical bytes directly from CASE's byte array; it does not normalize line endings. A2's sole CASE command addition remains `-CaseModeProfile require-dual-actual`; CASE and original history are unchanged. INPUTS A2 is corrected only to the pinned producer/consumer evidence formats; its behavior remains deferred.
 
 Each run archives current Git HEAD into a new ignored fixture and overlays the exact current three card files. Private HEAD/index/objects use existing objects only as read-only alternates. The child probe is extracted from this block's actual `Assert-Registration` function; it executes the delivered checks without recursive controls. Normal DoD always runs checks and controls, with no skip argument. No real branch, index or file is mutated. Child scripts, native UTC/exit receipts and full logs remain under the printed `_local/triage-registration-controls/<unique-id>` path.
 
 Each control mutates one input and restores exact bytes. `payload-a` changes INPUTS status; `payload-b` changes CASE's allowed document; `history` corrupts its original paragraph; `source` appends a source comment. `acceptance-shape` removes INPUTS A3 and invokes check-cards directly; `archive-index` appends invalid projection text and invokes archive validation directly, preventing payload failure from masking either gate. `whitespace` adds trailing spaces in D's working tree. Staged/committed controls create genuine private index/HEAD corruption and prove earlier surfaces clean; they require the matching INDEX/HEAD diagnostic plus trailing-whitespace output. `newline-a`, `newline-b` and `newline-history` insert one CR before an existing LF and require raw payload/history rejection.
 
 All twelve negatives require exactly native 1 and their named diagnostic. Positive/restored checks require native 0 and the checks success marker. The final controls marker requires all fourteen actual child outcomes. Launch errors retain null native exits and fail DoD. Each receipt binds the full D source hash and is written before log hashing. Failure prevents the final DoD success marker. Earlier review failures and local evidence stay historical; this executable suite supplies its own new evidence on every normal DoD run.
+
+## Normalized evidence metadata correction
+
+Normal DoD checks INPUTS's 6 valid and 24 invalid schema samples before the unchanged corruption controls. This registers future behavior only. CASE remains byte-identical.
