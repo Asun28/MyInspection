@@ -335,3 +335,14 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 | [T1-STORAGE-PATH-BOUNDARY-REMOTE](../specs/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md) | T1-STORAGE-PATH-BOUNDARY | T1-SPIKE-PLATFORM | GPT-6 Astra · high | todo |
 | [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE](../specs/archive/tasks/T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE.md) | T3-PDF-TYPOGRAPHY-CONTRACT | T3-PDF-RENDERER | GPT-5.6 Terra · high | merged；[PR #305](https://github.com/Asun28/MyInspection/pull/305)，reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`，CI `35159732680`，merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`，正式 R3 pass |
 | [T3-PDF-PAGINATION-FIXTURES-REMOTE](../specs/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md) | T3-PDF-PAGINATION-FIXTURES | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | GPT-5.6 Terra · medium | todo |
+
+## Remote round-three pair registration
+
+These rows remain todo until actual functional PR merges. Original local evidence is provenance; registration adds no product count.
+
+| Round | Card | Required remote predecessors | Author | State |
+|---|---|---|---|---|
+| 3 | T1-APP-STORAGE-POLICY-REMOTE | T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE | GPT-6 Astra high | todo |
+| 3 | T3-PDF-MEASUREMENT-REQUESTS | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE, T3-PDF-PAGINATION-FIXTURES-REMOTE | GPT-6 Astra xhigh | todo |
+
+Requests owns all five binding mismatches, eight selective entries, local line-box, candidate String/Unicode and unchanged direct Typography tests with 26 own R4 variants. Both complete Composer numeric integration methods (12 non-finite, six sign/edge invalid, one valid control) belong to Binding. Complete forecast 388–400 lines/39,282–39,722 diff units (+25%: 485–500/49,103–49,653); measure the first actual complete candidate at or below 40,000 before RED.
