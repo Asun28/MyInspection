@@ -1,6 +1,7 @@
 package nz.myinspection.core.report
 
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -16,7 +17,7 @@ import kotlin.test.assertTrue
  * A4 210x297 mm at a 15 mm margin leaves a 180 mm body; the picture column is the rightmost 40 mm of it.
  */
 class ReportComposerLayoutContractTest {
-    private val composer = ReportComposer(ReportTestFixtures.measurer)
+    private val composer = ReportComposer(ReportTestFixtures.measurer, ReportTestFixtures.typography)
 
     @Test
     fun `item photos are 40mm thumbnails positioned inside the item row, not blocks that follow it`() {
@@ -162,7 +163,7 @@ class ReportComposerLayoutContractTest {
     @Test
     fun `caption elision remeasures a wide marker until the final line fits`() {
         val proportional = weightedMeasurer()
-        val plan = ReportComposer(proportional).compose(
+        val plan = ReportComposer(proportional, ReportTestFixtures.typography).compose(
             reportWithItemReference("i".repeat(200)),
             Audience.LANDLORD,
         )
@@ -172,7 +173,7 @@ class ReportComposerLayoutContractTest {
             assertTrue(finalRun.text.endsWith("…"), "the over-long caption has no elision marker")
             assertEquals(
                 listOf(finalRun.text),
-                proportional.measure(finalRun.text, finalRun.style, finalRun.widthMm).lines,
+                proportional.measure(finalRun.text, finalRun.language, finalRun.style, finalRun.widthMm).lines,
                 "the elided final line still wraps under the measurer that produced the plan",
             )
         }
@@ -180,15 +181,16 @@ class ReportComposerLayoutContractTest {
 
     @Test
     fun `caption elision never leaves half of a supplementary code point`() {
-        val supplementary = TextMeasurer { text, _, _ ->
+        val supplementary = TextMeasurer { text, language, style, _ ->
             when {
                 text.contains("supplementary-reference") ->
-                    MeasuredText(listOf("first", "second", "third😀", "overflow"), 4)
-                text == "third😀…" -> MeasuredText(listOf("third😀", "…"), 4)
-                else -> MeasuredText(listOf(text), 4)
+                    ReportTestFixtures.measuredLines(listOf("first", "second", "third😀", "overflow"), language, style)
+                text == "third😀…" -> ReportTestFixtures.measuredLines(listOf("third😀", "…"), language, style)
+                text == "third…" -> ReportTestFixtures.measuredLines(listOf("THIRD…"), language, style)
+                else -> ReportTestFixtures.measuredLines(listOf(text), language, style)
             }
         }
-        val plan = ReportComposer(supplementary).compose(
+        val plan = ReportComposer(supplementary, ReportTestFixtures.typography).compose(
             reportWithItemReference("supplementary-reference"),
             Audience.LANDLORD,
         )
@@ -230,7 +232,7 @@ class ReportComposerLayoutContractTest {
         )
     }
 
-    private fun weightedMeasurer(): TextMeasurer = TextMeasurer { text, _, widthMm ->
+    private fun weightedMeasurer(): TextMeasurer = TextMeasurer { text, language, style, widthMm ->
         val capacity = (widthMm / 5).coerceAtLeast(8)
         val lines = mutableListOf<String>()
         val current = StringBuilder()
@@ -246,6 +248,191 @@ class ReportComposerLayoutContractTest {
             used += weight
         }
         if (current.isNotEmpty()) lines += current.toString()
-        MeasuredText(lines.ifEmpty { listOf(" ") }, 4)
+        ReportTestFixtures.measuredLines(lines.ifEmpty { listOf(" ") }, language, style)
+    }
+
+    /* R4 verified 2026-09-18: all 26 compiling mutations killed and sources restored.
+     * All 26 compiled (exit 0), then failed (exit 1): 29 named java.lang.AssertionError results in fresh XML.
+     * Base: d53cec8c994189f98893f8ac25889bc00b281801.
+     * Composer SHA256: C20D2D773EEFD25A2CD149134B45DF059EAB3518F07393CBB935B2C44E625527.
+     * Model SHA256: CC121DBBC7AE9AB96CA4DCB0ECF122BFAB3AAAD0ECFEB8FA0BBE51EF28FDC086.
+     * Evidence manifest SHA256: 2EF068A821BF48D0932124ECABEC710D32F61BD02DB05A27588EDB0BA666C8F1.
+     * Manifest retains mutant bytes, native UTC/logs/XML, unchanged test pins and exact source restoration.
+     * E01 raw runs failed these three methods separately with java.lang.AssertionError:
+     *   initial disclaimer validates ZH after valid EN;
+     *   initial appendix title validates after valid disclaimer and EN title;
+     *   ordinary request validates its own metric.
+     * E02 raw reserve: height reserve validates its own metric.
+     * E03 raw original caption: appendix original caption validates after valid thumbnail and candidates.
+     * E04 raw elision failed both methods separately:
+     *   rejected elision candidate validates after valid original caption;
+     *   successful elision candidate validates after valid rejected candidate.
+     * E05 raw footer: footer validates after all body requests.
+     * E06 no signed guard / E07 absolute-coordinate delta box: ordinary request validates its own metric.
+     * E08 footer strip as line box: footer validates after all body requests.
+     * E09 measured line replaces candidate: caption elision never leaves half of a supplementary code point.
+     * B01 style / B02 language / B03 font role / B04 font size / B05 line height guard deletion:
+     *   composer refuses every profile binding mismatch before emitting runs; each distinct case label was verified.
+     * B06 explicit profile ignored: known fixture requests keep their independent language at every entry.
+     * B07 wrong omitted default: omitted profile accepts default measurements.
+     * L01 EN / L02 ZH / L03 address / L04 original note / L05 tenancy / L06 reserve /
+     * L07 photo / L08 elision / L09 footer / L10 API forwarding language corruption:
+     *   known fixture requests keep their independent language at every entry; all ten mutations individually verified.
+     * E01/E04 include all five named entry results; all 26 before/mutant/restored SHA256 triples were verified.
+     * Initial and restored full DoD: report266/e2e6, zero failures/errors/skips; restored fresh XML: 0/24 suites.
+     * No compiler error, missed target, invalid control fixture or unobserved entry counts as a successful mutation kill.
+     */
+
+    private data class MeasureRequest(val text: String, val language: TextLanguage, val style: TextStyle, val widthMm: Int)
+
+    private val longCaption = "R".repeat(300) + " · camera · 2025-08-16T00:10:00Z"
+    private val roomCaption = "1.R.1 · imported · 2025-08-16T00:13:20Z"
+    private val requestReport get() = reportWithItemReference("R".repeat(300))
+
+    private val entryCases get() = mapOf(
+        "initial disclaimer ZH" to MeasureRequest(REPORT_DISCLAIMER.zh, TextLanguage.ZH, TextStyle.CAPTION, 180),
+        "initial appendix ZH" to MeasureRequest("照片附录", TextLanguage.ZH, TextStyle.TITLE, 180),
+        "ordinary" to MeasureRequest("12 Aroha Ave, Auckland", TextLanguage.ORIGINAL, TextStyle.TITLE, 180),
+        "reserve" to MeasureRequest("… 2 more rows / 另有 2 行见摘要", TextLanguage.NEUTRAL, TextStyle.BODY, 180),
+        "thumbnail rejected candidate" to MeasureRequest("R".repeat(13) + "…", TextLanguage.NEUTRAL, TextStyle.CAPTION, 40),
+        "thumbnail successful candidate" to MeasureRequest("R".repeat(12) + "…", TextLanguage.NEUTRAL, TextStyle.CAPTION, 40),
+        "appendix item original" to MeasureRequest(longCaption, TextLanguage.NEUTRAL, TextStyle.CAPTION, 180),
+        "footer" to MeasureRequest("ea9cd02e76bf · 1/6", TextLanguage.NEUTRAL, TextStyle.CAPTION, 180),
+    )
+
+    private fun requestComposer(
+        trace: MutableList<MeasureRequest>,
+        target: MeasureRequest? = null,
+        change: (MeasuredText) -> MeasuredText = { it },
+    ): ReportComposer = ReportComposer(
+        TextMeasurer { text, language, style, width ->
+            val request = MeasureRequest(text, language, style, width)
+            trace += request
+            val measured = ReportTestFixtures.measured(text, language, style, width)
+            if (request == target && trace.count { it == request } == 1) {
+                change(measured)
+            } else measured
+        },
+        ReportTestFixtures.typography,
+    )
+
+    private fun successfulRequestTrace(): List<MeasureRequest> {
+        val trace = mutableListOf<MeasureRequest>()
+        val result = runCatching { requestComposer(trace).compose(requestReport, Audience.LANDLORD) }
+        assertTrue(result.isSuccess, "legal control failed: ${result.exceptionOrNull()}")
+        assertEquals(6, result.getOrThrow().pages.size, "the fixed request fixture must retain six pages")
+        return trace
+    }
+
+    private fun assertRejectedAt(
+        name: String,
+        diagnostic: String? = "text metric glyph bottom escapes its line box",
+        label: String = name,
+        change: (MeasuredText) -> MeasuredText = {
+            it.copy(metricSnapshot = it.metricSnapshot.copy(glyphBottomPt = 3.25))
+        },
+    ) {
+        val target = entryCases.getValue(name)
+        val control = successfulRequestTrace()
+        val stop = control.indexOf(target)
+        assertTrue(stop >= 0, "$label: fixed request is absent")
+        val trace = mutableListOf<MeasureRequest>()
+        var injections = 0
+        val failure = assertFailsWith<IllegalArgumentException>(label) {
+            requestComposer(trace, target) {
+                injections++
+                change(it)
+            }.compose(requestReport, Audience.LANDLORD)
+        }
+        assertEquals(1, injections, "$label: poison must be returned exactly once")
+        assertEquals(control.take(stop + 1), trace, "$label: rejection occurred at a different entry")
+        if (diagnostic != null) {
+            assertTrue(failure.message.orEmpty().contains(diagnostic), "$label: ${failure.message}")
+        }
+    }
+
+    @Test
+    fun `initial disclaimer validates ZH after valid EN`() = assertRejectedAt("initial disclaimer ZH")
+
+    @Test
+    fun `initial appendix title validates after valid disclaimer and EN title`() = assertRejectedAt("initial appendix ZH")
+
+    @Test
+    fun `ordinary request validates its own metric`() = assertRejectedAt("ordinary")
+
+    @Test
+    fun `height reserve validates its own metric`() = assertRejectedAt("reserve")
+
+    @Test
+    fun `appendix original caption validates after valid thumbnail and candidates`() = assertRejectedAt("appendix item original")
+
+    @Test
+    fun `rejected elision candidate validates after valid original caption`() = assertRejectedAt("thumbnail rejected candidate")
+
+    @Test
+    fun `successful elision candidate validates after valid rejected candidate`() = assertRejectedAt("thumbnail successful candidate")
+
+    @Test
+    fun `footer validates after all body requests`() = assertRejectedAt("footer")
+
+
+    @Test
+    fun `known fixture requests keep their independent language at every entry`() {
+        val trace = successfulRequestTrace()
+        val expected = entryCases.values + listOf(
+            MeasureRequest(REPORT_DISCLAIMER.en, TextLanguage.EN, TextStyle.CAPTION, 180),
+            MeasureRequest("Photo appendix", TextLanguage.EN, TextStyle.TITLE, 180),
+            MeasureRequest("Wall paint", TextLanguage.EN, TextStyle.BODY, 180),
+            MeasureRequest("墙面油漆", TextLanguage.ZH, TextStyle.BODY, 180),
+            MeasureRequest("墙面有刮痕，需重新粉刷", TextLanguage.ORIGINAL, TextStyle.BODY, 135),
+            MeasureRequest("TENANCY-42", TextLanguage.NEUTRAL, TextStyle.BODY, 180),
+            MeasureRequest(roomCaption, TextLanguage.NEUTRAL, TextStyle.CAPTION, 180),
+            MeasureRequest(longCaption, TextLanguage.NEUTRAL, TextStyle.CAPTION, 40),
+        )
+        expected.distinct().forEach { want ->
+            val actual = trace.filter { it.text == want.text && it.style == want.style && it.widthMm == want.widthMm }
+            assertTrue(actual.isNotEmpty(), "missing fixed request: $want")
+            actual.forEach { assertEquals(want, it, "wrong request route for ${want.text}") }
+        }
+    }
+
+    @Test
+    fun `omitted profile accepts default measurements`() {
+        val result = runCatching {
+            ReportComposer(ReportTestFixtures.measurerOf(ReportTypography.DEFAULT))
+                .compose(ReportTestFixtures.report(), Audience.LANDLORD)
+        }
+        assertTrue(result.isSuccess, "omitted profile rejected DEFAULT requests: ${result.exceptionOrNull()}")
+    }
+
+    @Test
+    fun `composer refuses every profile binding mismatch before emitting runs`() {
+        val cases = listOf(
+            "style" to { metric: TextMetricSnapshot ->
+                metric.copy(style = if (metric.style == TextStyle.CAPTION) TextStyle.BODY else TextStyle.CAPTION)
+            },
+            "language" to { metric: TextMetricSnapshot ->
+                metric.copy(language = if (metric.language == TextLanguage.EN) TextLanguage.ZH else TextLanguage.EN)
+            },
+            "font role" to { metric: TextMetricSnapshot ->
+                metric.copy(
+                    fontRole = if (metric.fontRole == TextFontRole.LATIN_SANS) {
+                        TextFontRole.CJK_FALLBACK
+                    } else {
+                        TextFontRole.LATIN_SANS
+                    },
+                )
+            },
+            "font size" to { metric: TextMetricSnapshot -> metric.copy(fontSizePt = 3.0) },
+        )
+
+        cases.forEach { (name, change) ->
+            assertRejectedAt("ordinary", diagnostic = null, label = "$name mismatch was accepted") {
+                it.copy(metricSnapshot = change(it.metricSnapshot))
+            }
+        }
+        assertRejectedAt("ordinary", diagnostic = "line height", label = "line-height mismatch was accepted") {
+            it.copy(lineHeightMm = 5)
+        }
     }
 }
