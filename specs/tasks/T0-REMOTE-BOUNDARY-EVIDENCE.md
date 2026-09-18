@@ -173,7 +173,8 @@ function SetEq($actual,$expected,[string]$why) {
     $a=@($actual); $b=@($expected); Need ($a.Count -eq $b.Count) "$why count"
     $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($x in $a) { Need ($seen.Add([string]$x)) "$why duplicate" }
-    foreach($x in $b) { Need ($seen.Contains([string]$x)) "$why missing $x" }
+    $expectedSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($x in $b) { Need ($expectedSeen.Add([string]$x)) "$why expected duplicate"; Need ($seen.Contains([string]$x)) "$why missing $x" }
 }
 function Manifest([string]$folder,[string]$file,[string]$pin) {
     Eq (Sha $file) $pin 'manifest pin'; $m=J $file
@@ -291,6 +292,7 @@ $redExit=J "$rt/red/exit.json"; Eq $redExit.head $executionHead 'RED command hea
 Eq (Sha "$rt/red/test.bytes") $bodyPin 'RED test body'; Need ((Get-Content "$rt/red/task-red.log" -Raw) -match 'BUILD FAILED' ) 'raw RED failure log'
 $observed=[ordered]@{executionHead=$executionHead;executionIdentity=$executionId;planSha256=$planPin;productionSha256=$prodPin;preTailTestSha256=$bodyPin;finalTestSha256=$testPin;stages=$stages;mutations=35;distinctMutants=35;primaryAssertionKills=35;assertionFailures=73;secondaryNonAssertionFailures=4;secondaryErrors=0;windowsJunctions='EXECUTED_NO_SKIPS';posix='NOT_EXECUTED'}
 
+Need (@((J "$proof/copy-manifest.json").entries).Count -eq 1015) 'original proof leaf count'
 Manifest $proof "$proof/copy-manifest.json" $manifestPin
 $evidenceReceipts=[regex]::Matches($evidenceCardRaw,'(?ms)^<!-- boundary-remote-lifecycle-receipt -->\r?\n```json\r?\n(.*?)\r?\n```[ \t]*$')
 Need ($evidenceReceipts.Count -eq 1) 'one published portable lifecycle receipt'
