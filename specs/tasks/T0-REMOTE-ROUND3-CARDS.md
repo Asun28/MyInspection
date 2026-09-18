@@ -34,7 +34,7 @@ doc_sync: Record actual registration PR, reviewed head, checks and remote merge,
 
 # T0-REMOTE-ROUND3-CARDS
 
-This exact candidate was projected from observed remote base `6ae82ab632da851985ce6c68402d02a6ace4bb09`, which already contains the functional Pagination PR #309 and Boundary PR #310 merges. It registers the existing Round 3 Policy and Requests contracts as todo; it does not mark either product complete or claim Round 2 R5 closure. Those R5 metadata deliveries may proceed separately. Policy and Requests may enter their own R1 only after this registration actually merges and each card’s true functional predecessors are merged. The two previously registered local contracts are included byte-for-byte under `docs/evidence/round3-contracts/`; Policy's A2 is divided without deleting text, while Requests' documented A2/A3, `dod_assert`, `hygiene` and budget/body rescope assigns the 19 Composer numerical integration cases to approved Binding successor SHA `116E319659B3E43DED00D7246A9AE9D54D3EE2836A216AB8B76EDD126EE8D52E`. Prior formal R3 attempts at `b14cc2f3` and `aab6c818` returned BLOCK; this candidate retains their repair history and adds source and committed-whitespace proofs. Preserve the complete remaining acceptance and local history; use original-main task-loop with origin/master start, full metadata DoD, scope, official diff budget, independent R3, exact-head CI and remote PR merge. If the remote base advances, reproject and reapprove all six payload bytes before ship. The fixed hashes below are for this pinned candidate only; normal limits remain authoritative.
+This exact candidate was projected from observed remote base `6ae82ab632da851985ce6c68402d02a6ace4bb09`, which already contains the functional Pagination PR #309 and Boundary PR #310 merges. It registers the existing Round 3 Policy and Requests contracts as todo; it does not mark either product complete or claim Round 2 R5 closure. Those R5 metadata deliveries may proceed separately. Policy and Requests may enter their own R1 only after this registration actually merges and each card’s true functional predecessors are merged. The two previously registered local contracts are included byte-for-byte under `docs/evidence/round3-contracts/`; Policy's A2 is divided without deleting text, while Requests' documented A2/A3, `dod_assert`, `hygiene` and budget/body rescope assigns the 19 Composer numerical integration cases to approved Binding successor SHA `116E319659B3E43DED00D7246A9AE9D54D3EE2836A216AB8B76EDD126EE8D52E`. Prior formal R3 attempts at `b14cc2f3` and `aab6c818` returned BLOCK; this candidate retains their repair history and adds source and committed-whitespace proofs. The third attempt at `a8dea0ad` identified the missing W1 security-parent dependency; its Board row now matches the parent depends_on list under an explicit cross-check. Preserve the complete remaining acceptance and local history; use original-main task-loop with origin/master start, full metadata DoD, scope, official diff budget, independent R3, exact-head CI and remote PR merge. If the remote base advances, reproject and reapprove all six payload bytes before ship. The fixed hashes below are for this pinned candidate only; normal limits remain authoritative.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -43,7 +43,7 @@ $expected = @{
     'specs/tasks/T3-PDF-MEASUREMENT-REQUESTS.md' = '3B3D4506D11779E975548E5374CD140E936A638D8823119BCA8762394912C2E7'
     'docs/adr/0006-offline-security-backup-hardening.md' = '73CBF21AE71A3F8BD8B88CB6871873A9469C8E8810F0FC76B19FF0CFAED9C188'
     'docs/adr/0007-report-interchange.md' = '9F551AFC8F93ED08E5AA2AE01E563F7456E87FA74098B0224757078CD072F16D'
-    'docs/TASK-BOARD.md' = '0331FE0DFF901C3EC6A22B6F9E425B68A476AF8B6BE44C0CA1C5038A655C6863'
+    'docs/TASK-BOARD.md' = 'E64C6A36E170DB3721DA5D0BC4C1C8581ED784F51F4B07AF9EB7E717A2370ED8'
     'specs/tasks/T1-LOCAL-DATA-SECURITY.md' = 'E1C388F07F02227B6B7A9E49FD4ABFEC90678F763430785E7FD05D759DA08568'
 }
 foreach ($path in $expected.Keys) {
@@ -122,6 +122,17 @@ foreach ($name in @('Policy','Requests')) {
     }
 }
 Write-Host '[REMOTE-REGISTRATION-SOURCE-OK] registered originals, preserved fields, approved split and history'
+$parentContract = Read-Contract 'specs/tasks/T1-LOCAL-DATA-SECURITY.md'
+$parentDependency = [regex]::Match($parentContract.Fields['depends_on'].Trim(),'^depends_on: \[(?<ids>[^\]]+)\]$')
+if (-not $parentDependency.Success) { throw '[REMOTE-SECURITY-BOARD-DEPENDENCIES] parent dependency syntax' }
+$parentIds = @($parentDependency.Groups['ids'].Value.Split(',') | ForEach-Object { $_.Trim() })
+$boardRows = [regex]::Matches([IO.File]::ReadAllText((Join-Path $PWD 'docs/TASK-BOARD.md')),'(?m)^\| W1 \| T1-LOCAL-DATA-SECURITY \|[^\r\n]*$')
+if ($boardRows.Count -ne 1) { throw '[REMOTE-SECURITY-BOARD-DEPENDENCIES] expected one W1 parent row' }
+$boardCells = $boardRows[0].Value.Split('|')
+if ($boardCells.Count -ne 10) { throw '[REMOTE-SECURITY-BOARD-DEPENDENCIES] W1 column count' }
+$boardIds = @($boardCells[4].Trim().Split(',') | ForEach-Object { $_.Trim() })
+if (-not [string]::Equals(($parentIds -join ','),($boardIds -join ','),[StringComparison]::Ordinal)) { throw '[REMOTE-SECURITY-BOARD-DEPENDENCIES] Board differs from parent depends_on' }
+Write-Host '[REMOTE-SECURITY-BOARD-DEPENDENCIES-OK] W1 row equals parent depends_on'
 $registrationBase = '6ae82ab632da851985ce6c68402d02a6ace4bb09'
 $registrationPaths = @(
     'specs/tasks/T0-REMOTE-ROUND3-CARDS.md',
