@@ -103,9 +103,12 @@ def raw_review(log, saved, head, verdict):
     need(saved['sha'] == head and saved['verdict'].lower() == verdict, 'saved verdict/head')
     need(actual['verdict'].lower() == verdict and actual['reasons'] == saved['reasons'], 'raw reasons/verdict')
     need(bool(saved['reasons']) == (verdict == 'block'), 'BLOCK reasons / empty PASS reasons')
-    need('model: gpt-5.6-sol' in log and 'reasoning effort: high' in log, 'actual model/effort')
-    need(re.search(r'Codex .* @ ' + re.escape(head[:8]) + r' \.\.\.', log), 'actual review wrapper head')
-    need(len(re.findall(r'(?m)^session id: [0-9a-f-]+\s*$', log)) == 1, 'one actual reviewer session')
+    parts=re.split(r'(?m)^user\r?$',log,maxsplit=1);need(len(parts)==2,'actual prompt boundary')
+    prefix=parts[0];starts=list(re.finditer(r'(?m)^OpenAI Codex v[^\r\n]+\r?$',prefix))
+    need(len(starts)==1,'one actual pre-prompt reviewer header');header=prefix[starts[0].start():]
+    need(re.findall(r'(?m)^model: ([^\r\n]+)\r?$',header)==['gpt-5.6-sol'] and re.findall(r'(?m)^reasoning effort: ([^\r\n]+)\r?$',header)==['high'], 'actual model/effort')
+    need(re.findall(r'(?m)^Codex [^\r\n]* @ ([0-9a-f]{8}) \.\.\.\r?$',prefix)==[head[:8]], 'actual review wrapper head')
+    need(len(re.findall(r'(?m)^session id: [0-9a-f-]+\s*$',header))==1, 'one actual reviewer session')
     return actual
 
 def source(repo, path, head, merge, raw, pin, blob):
@@ -355,7 +358,7 @@ def closeout(saved,repo):
     vd = load(CLOSE / 'verify-01/verification-evidence.json')
     verify_raw = bytes_at(CLOSE / 'verify-01/verify.raw.log', sha=v['rawLogSha256'])
     check(v == vd['native'] and v['nativeExit'] == 0, 'verify native receipt/exit')
-    check(v['command'][-1].replace('\\', '/').endswith('/scripts/verify.ps1'), 'verify worktree script')
+    check(v['command']==['pwsh','-NoProfile','-File',r'C:\wt\T3-PDF-MEASUREMENT-REQUESTS\scripts\verify.ps1'] and v['cwd']==r'C:\wt\T3-PDF-MEASUREMENT-REQUESTS', 'verify worktree script')
     check(v['base'] == evidence['base'] and time(v['startedUtc']) < time(v['endedUtc']), 'verify identity/time')
     verify_xml = load(CLOSE / 'verify-01/xml-manifest.json')
     check(len(verify_xml) == 92, 'verify XML 92 suites')
@@ -376,7 +379,7 @@ def closeout(saved,repo):
             if case.find('skipped') is not None:
                 skipped = case.find('skipped')
                 observed_skips.append((x['name'], case.attrib['name'], skipped.attrib.get('message', ''), ET.tostring(skipped, encoding='unicode')))
-    check(vtotal == vd['counts'], 'verify 89/987 and e2e 3/6 totals')
+    check(vtotal==vd['counts']=={'core':{'suites':89,'tests':987,'failures':0,'errors':0,'skipped':4,'freshXmlSuites':89},'e2e':{'suites':3,'tests':6,'failures':0,'errors':0,'skipped':0,'freshXmlSuites':0}}, 'verify 89/987 and e2e 3/6 totals')
     expected_skips = load(CLOSE / 'verify-skipped-tests.json')
     check(len(expected_skips) == len(observed_skips) == 4, 'four skip records')
     for x in expected_skips:
@@ -414,7 +417,10 @@ def retained_history(saved,repo):
     audit=doc(saved/'contemporaneous-first-green/audit.json');gap=doc(saved/'retention/audit.json')
     need(audit['manifestSha256']==gap['firstGreenManifestSha256Known']=='117C852D4579320AC192BE8662D45F6F06BA017B048317315569B5A4515C681F','original missing manifest known identity')
     need(gap['firstGreenManifestPhysicalPresent'] is False and gap['firstGreen51ExactLeafLedgerReconstructible'] is False,'do not invent original51 restoration')
-    need(audit['manifestEntries']==51 and audit['leafSetHashOrSizeMismatches']==0 and audit['nativeDoD']['exit']==0,'contemporaneous audit observation retained')
+    need(audit['manifestEntries']==51 and audit['leafSetHashOrSizeMismatches']==0 and audit['nativeDoD']['exit']==0
+         and type(audit.get('physicalLeavesIncludingManifest')) is int and audit['physicalLeavesIncludingManifest']==52
+         and audit.get('previousCheckpointManifestSha256')==sha((before/'checkpoint-before-first-green-manifest.json').read_bytes())=='AA9D127BBC91320DE632D0DEBE0132E98A03384622A449724B472A61C3046BBA'
+         and audit.get('previousCheckpointLinkMatches') is True,'contemporaneous audit observation retained')
     decision=doc(saved/'retention/root-decision.json')
     need(decision['historical51ManifestRestored'] is False and decision['historical227RawCopied'] is False and decision['newRuntimeGranted'] is False,'root retention limits')
     need(decision['productA1toA5RawSupport'] is True and decision['basisSha256']==sha((saved/'retention/coverage-decision.json').read_bytes()),'root coverage decision exact basis')
@@ -442,12 +448,12 @@ def ship_and_cleanup(saved,repo,final_pins):
     need(s['head']==HEAD and s['native']==native and native['nativeExit']==0,'actual ship exact head/native receipt')
     need(sha(log)==s['postguard']['rawLogSha256']=='50F5FF1CAF1862A45EA396B5E928AC2C393E6DD7B6CD0CC20848FE9BC76D6FD7','ship raw log exact pin')
     raw_review(log.decode('utf-8-sig'),s['formalReview'],HEAD,'pass')
-    need(s['reviewToolRejectionLogOccurrences']==6,'retain peripheral reviewer read rejection limitation')
+    need(s['reviewToolRejectionLogOccurrences']==len(re.findall(r'(?m)^\d{4}-[^\r\n]+ERROR codex_core::tools::router: error=exec_command failed: [^\r\n]+ rejected: blocked by policy[^\r\n]*\r?$',log.decode('utf-8-sig')))==6,'retain peripheral reviewer read rejection limitation')
     pr=doc(ship/'pr-final.json');ci=doc(ship/'ci-run-final.json');jobs=doc(ship/'ci-jobs-final.json')['jobs']
     need(pr['number']==317 and pr['state']=='MERGED' and pr['headRefOid']==HEAD and pr['mergeCommit']['oid']==PRODUCT_MERGE,'actual Requests PR317 merge')
     need(ci['id']==35327016532 and ci['head_sha']==HEAD and ci['status']=='completed' and ci['conclusion']=='success','Requests exact CI run')
     need({(j['name'],j['id']) for j in jobs}=={('verify',105542315114),('required',105544463945)},'Requests exact CI jobs')
-    need(all(j['status']=='completed' and j['conclusion']=='success' and utc(j['completed_at'])<=utc(pr['mergedAt']) for j in jobs),'all required CI complete before merge')
+    need(len(jobs)==2 and all(j['run_id']==ci['id'] and j['head_sha']==ci['head_sha']==HEAD and j['status']=='completed' and j['conclusion']=='success' and utc(j['completed_at'])<=utc(pr['mergedAt']) for j in jobs),'all required CI complete before merge')
     need('tip='+HEAD in text(ship/'merge-token.txt') and 'merged_pr=#317' in text(ship/'merge-token.txt'),'actual merge token')
     sources=doc(ship/'merged-source-proof.json');need(len(sources)==13,'nine writable plus four readonly actual blobs')
     for entry in sources:
@@ -471,7 +477,7 @@ def ship_and_cleanup(saved,repo,final_pins):
     native=doc(clean/'native-exit.json');post=doc(clean/'postcheck.json')
     need(native['exit']==0 and native['argv'][native['argv'].index('-TaskId')+1]=='T3-PDF-MEASUREMENT-REQUESTS','actual cleanup target/native exit')
     need(utc(pr['mergedAt'])<utc(native['startedUtc'])<=utc(native['endedUtc'])<=utc(post['utc']),'cleanup after merge then immediate postcheck')
-    need(post['status']=='PASS' and not post['errors'] and all(post['checks'].values()),'cleanup postabsence including filesystem/T24/T35')
+    need(post['status']=='PASS' and not post['errors'] and set(post['checks'])=={'filesystemAbsent','T24Absent','T35Absent','worktreeReadExitZero','branchReadExitZero','registrationAbsent','branchAbsent','mainProtected'} and all(v is True for v in post['checks'].values()),'cleanup postabsence including filesystem/T24/T35')
     for kind in ['post-branch','post-worktrees']:
         need(doc(clean/(kind+'.exit.json'))['exit']==0,'native post-Git exit')
         need(not text(clean/(kind+'.stderr.raw')).strip(),'native post-Git stderr')
@@ -501,3 +507,11 @@ def main():
 
 if __name__=='__main__':main()
 ```
+
+## R3 first-round repair preparation
+
+The actual first publication review blocked five proof guards at `c6a22b07284fdceffec979330a6d8605be126f8a`; no publication merge or new review is claimed here. Repairs restrict model/effort/session and wrapper head to the pre-prompt record, pin full verify argv/cwd and XML totals, bind the independent audit's52-leaf observation to the retained prior checkpoint, count six raw rejected reads and bind both CI jobs to their run/head, and require all eight exact cleanup checks with boolean true values. The original51/227 retention gap is unchanged.
+
+Local guard controls:78/78 passed (10 positive,68 negative); the original code falsely accepted60 negatives and rejected one valid prompt-decoy case. Groups: header9, verify21, prior-audit10, raw-rejection/CI11, cleanup27. Controls execute the actual `raw_review` function and uniquely labelled guard expressions; the complete saved778 replay separately passed. These are metadata preparation checks, not new product tests, committed authority approval, or formal R3. The local harness and native evidence remain in `_local/requests-publication-repair-r3-01`; the earlier harness-scope and raw-CRLF failures are preserved, excluded from passing evidence.
+
+Replay code SHA `FA40F78C50CACC0588F5E2859BB4275B94149CA664881271028BD68D9C7FF412`; local control harness SHA `B51871DCDEFBF86BB3A4358EA81A927D30B710EE32CC5CB400DCC29103E3D7CF`; final green-control report SHA `FDBF1FEB66E6D6D767F7043A4105805E4D4A930F68860C25CBCEA237273CBAF9`; saved replay stdout SHA `31EDFBD00C2236B6CD294508E9DD6505AC3D5336D374D57E54F247D0F608D37E`. This paragraph is included in the complete candidate diff budget; the ignored harness is not a proposed tracked file.
