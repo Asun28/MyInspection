@@ -10,11 +10,12 @@ allow_paths:
   - docs/evidence/round45-contracts/T3-PDF-MEASUREMENT-BINDING.registered.txt
   - docs/evidence/round45-contracts/T3-PDF-DEVICE-FIXTURE.registered.txt
   - docs/evidence/round45-contracts/T3-PDF-TEXT-METRICS-OPS.registered.txt
+  - docs/evidence/round45-approval-and-dod-receipt.md
 sweep: Publish only four complete original local task contracts and their exact provenance. Their registration, current acceptance, dependencies, review histories and execution remain assigned to the existing Round 4 and Round 5 pair registrations and product cards.
 acceptance:
-  - "A1 Preserve all four previously registered local contracts byte-for-byte, with their original Git commit:path, blob, raw SHA-256 and length independently checkable. Reject missing, extra, linked or changed source files."
-  - "A2 Keep this metadata publication to its six exact paths. Do not register or mark a product complete, change Board/ADR/parent status, or claim current successor bytes equal to originals where an approved rescope occurred."
-  - "A3 Reject the candidate unless a separate root approval record and approved-card copy match the latest original-D master path commit, its sole changed path, committed blob, whole raw card bytes and exact six-path scope. Full metadata DoD, official diff budget, formal R3, exact-head CI and remote merge remain required."
+  - "A1 Preserve all four previously registered local contracts byte-for-byte, and resolve each original Git commit:path from the fixed original-D repository to the stated blob; also check raw SHA-256 and length. Reject missing, extra, linked or changed source files."
+  - "A2 Keep this metadata publication to its seven exact paths: the original six plus one review-readable approval/DoD receipt outside the exact-five contracts directory. Do not register or mark a product complete, change Board/ADR/parent status, or claim current successor bytes equal to originals where an approved rescope occurred."
+  - "A3 Reject the candidate unless a separate root approval record and approved-card copy match the latest original-D master path commit, its sole changed path, committed blob, whole raw card bytes and exact seven-path scope. Publish a readable receipt of an actual successful full metadata DoD, identifying its candidate state; rerun full DoD on the final seven-path tree. Official diff budget, formal R3, exact-head CI and remote merge remain required."
 forbid:
   - Product implementation, production configuration, task status changes or rewritten original text
   - Treating a co-edited payload and manifest hash as proof without the independently fixed historical Git blob
@@ -22,21 +23,21 @@ non_goals:
   - Registering the Round 4/5 product pairs or running their runtime tests
 dod_command: $raw = Get-Content specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md -Raw; $b = [regex]::Matches($raw, '(?s)```powershell\r?\n(.*?)\r?\n```'); if ($b.Count -ne 1) { throw 'one assertion block required' }; & ([scriptblock]::Create($b[0].Groups[1].Value)); pwsh -NoProfile -File scripts/check-cards.ps1; if ($LASTEXITCODE -ne 0) { exit 1 }; pwsh -NoProfile -File scripts/archive.ps1 -CheckCardsIndex -Quiet; if ($LASTEXITCODE -ne 0) { exit 1 }
 dod_exit: 0
-dod_assert: Independent original-D whole-card authority and four raw source files match approved historical Git blob identities, SHA-256 and manifest metadata; exact directory contents and complete six-path Git scope pass staged, committed and working whitespace checks. Product DoD is not claimed.
+dod_assert: Independent original-D whole-card authority and four historical commit:path Git identities match the copied raw source blobs, SHA-256 and manifest metadata; exact source directory contents and complete seven-path Git scope pass staged, committed and working whitespace checks. Product DoD is not claimed.
 review_gate: codex {verdict:pass}
-hygiene: Synthetic authority controls must reject co-edited candidate and pins plus wrong record repository/ref/path/commit/blob/whole SHA/scope; source and scope corruption controls must fail named guards. The revised whole card requires a newly bound independent root approval record and a fresh full DoD; the earlier approved card and passing DoD do not authorize revised bytes.
+hygiene: Synthetic authority controls must reject co-edited candidate and pins plus wrong record repository/ref/path/commit/blob/whole SHA/scope; source and scope corruption controls must fail named guards. Every subsequent whole-card revision requires a newly bound independent root approval and fresh full DoD. The tracked receipt reports its recorded run honestly; it does not claim to include its own final-tree rerun.
 doc_sync: Record the actual evidence publication merge and immutable source pins for later Round 4 and Round 5 registration comparisons; neither pair is registered here.
 ---
 
 # Four registered source contracts
 
-The earlier six-path candidate was committed as `cc7faa1c7a605f9447950ebe51b8f5b775d0b11e` with parent `15f3931b77924f5d1ae3e55cb0c866bc36e85946`. Its full metadata DoD exited 0 at 07:58 UTC, but the subsequent formal R3 blocked it: the reviewer's two-dot comparison (`47b78af825c699608821eb75bfa77104ac4bb86b..cc7faa1c7a605f9447950ebe51b8f5b775d0b11e`) listed 22 paths, while the actual PR three-dot comparison (`47b78af825c699608821eb75bfa77104ac4bb86b...cc7faa1c7a605f9447950ebe51b8f5b775d0b11e`) contained only the same six approved paths. This revision targets that actual review base. Root must make a non-rewriting merge of the remote base into the canonical branch, preserving the prior commit and its evidence, before the revised candidate can receive fresh DoD, budget, and formal review. It copies the four existing **local registered** contracts under `docs/evidence/round45-contracts/`. Each raw file is compared to the independently approved SHA-256 and Git blob identity, and the manifest repeats the original commit:path provenance for readers. The four source commits are not ancestors of this remote base, so source commit:path is verified against the original local Git history before approval; a remote delivery clone can still check the raw byte SHA and computed Git blob. No local product history or current remote successor is silently substituted. The Round 4 and Round 5 registrations must later compare each original with its own current card, preserve unchanged fields and ordered history, and state Binding's approved nineteen-case transfer explicitly. This publication adds no product card or product runtime and does not change Board or ADR status.
+The earlier six-path candidate was committed as `cc7faa1c7a605f9447950ebe51b8f5b775d0b11e` with parent `15f3931b77924f5d1ae3e55cb0c866bc36e85946`. Its full metadata DoD exited 0 at 07:58 UTC, but the subsequent formal R3 blocked it: the reviewer's two-dot comparison (`47b78af825c699608821eb75bfa77104ac4bb86b..cc7faa1c7a605f9447950ebe51b8f5b775d0b11e`) listed 22 paths, while the actual PR three-dot comparison (`47b78af825c699608821eb75bfa77104ac4bb86b...cc7faa1c7a605f9447950ebe51b8f5b775d0b11e`) contained only the same six approved paths. That earlier revision targeted 47b78af. This projection targets actual remote base c0afac77175786b55c61c6ebb0292a64a33431a8 after PR320 merged; its upstream Board, CLAUDE and metadata changes remain upstream. Root must make a non-rewriting merge of that remote base into the canonical branch, preserving the prior commit and its evidence, before the revised candidate can receive fresh DoD, budget, and formal review. It copies the four existing **local registered** contracts under `docs/evidence/round45-contracts/`. Each raw file is compared to the independently approved SHA-256 and Git blob identity, and the manifest repeats the original commit:path provenance for readers. The four source commits are not ancestors of this remote base, so source commit:path is verified against the original local Git history before approval; a remote delivery clone can still check the raw byte SHA and computed Git blob. No local product history or current remote successor is silently substituted. The Round 4 and Round 5 registrations must later compare each original with its own current card, preserve unchanged fields and ordered history, and state Binding's approved nineteen-case transfer explicitly. This publication adds no product card or product runtime and does not change Board or ADR status.
 
-The fixed commit:path, Git blob and raw SHA below require independent owner approval with the whole-card bytes. This DoD reads a separately created root approval record and the committed master blob for the entire card; changing the source, manifest and these embedded pins together cannot satisfy that independent whole-card check. The independent root approval record and approved-card copy do exist for the earlier whole card: original-D master sole-path commit `42597418e9bba4099a7eb95214e75bfb86e90d12`, blob `82f9ffae04e9100485c6170119443e59f3af9b94`, whole SHA-256 `34B2989CB6250C5876AF7979F0F95A4BF554386AABF8E2F84388C14232144EF0`. That record cannot authorize this revised whole card. Root must approve the revised bytes, commit only this manager path on original-D master, retain the old approval evidence, and bind an updated independent record and approved-card copy to the latest sole-path commit and the six approved paths. After a non-rewriting canonical merge with the actual remote base, run the revised full metadata DoD and official size check. The earlier passing DoD is historical evidence only, not a result for this revision.
+Independent original-D approval and a sole-path committed master blob must match the whole card; local pins alone cannot authorize it. First approval `42597418e9bba4099a7eb95214e75bfb86e90d12` was superseded for candidate `1db41104516c767be69ce9ae7ac023093cac5598` by sole-card commit `643fe9763526e7f5b83a36b813af8fbe6287b61f`. That candidate passed post-commit full DoD at 09:56:34–09:56:41 UTC on 2026-09-18. Both are historical, not approval of later bytes. Each revision needs new root approval, a sole-path original-D commit, approved-card copy, retained history, and seven-path scope. The seventh path makes approval, native DoD receipt and retained raw log hashes, and historical Git identities reviewer-readable. Its DoD run precedes receipt materialization; rerun full DoD and official size on the final tree. R3, CI and merge remain separate.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$base = '47b78af825c699608821eb75bfa77104ac4bb86b'
+$base = 'c0afac77175786b55c61c6ebb0292a64a33431a8'
 $dir = 'docs/evidence/round45-contracts'
 $manager = 'specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md'
 $manifestPath = "$dir/manifest.json"
@@ -54,7 +55,8 @@ $approvalScope=@($manager,$manifestPath,
     "$dir/T1-APP-STORAGE-ANDROID.registered.txt",
     "$dir/T3-PDF-MEASUREMENT-BINDING.registered.txt",
     "$dir/T3-PDF-DEVICE-FIXTURE.registered.txt",
-    "$dir/T3-PDF-TEXT-METRICS-OPS.registered.txt")
+    "$dir/T3-PDF-TEXT-METRICS-OPS.registered.txt",
+    "docs/evidence/round45-approval-and-dod-receipt.md")
 foreach($file in @("$approvalRoot/approval.json","$approvalRoot/approved-card.md")) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw '[OWN-AUTHORITY-MISSING]' }
     if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '[OWN-AUTHORITY-LINK]' }
@@ -108,7 +110,7 @@ $fixed = @(
     @('T3-PDF-DEVICE-FIXTURE','6ff56fc2bf829f496f197b74171e989b2941e40e','specs/tasks/T3-PDF-DEVICE-FIXTURE.md','1decac7622657aeb228de6c06addcc66e1feefe0','B6BCCDE1A17EEDF15BE1164FB450B79A68DACE67280330926B9620BA4D83C96A',9862),
     @('T3-PDF-TEXT-METRICS-OPS','e5cf6339223031519b6c41a734d1a6b67d0cd815','specs/tasks/T3-PDF-TEXT-METRICS-OPS.md','38c45eed3271051d5322b18650b89259c728ba7b','6F673C8EB46477BDDAD76AEDFF7643700F9F28F8B37FECB5BD3B407A41734CD1',4118)
 )
-$expectedPaths = @($manager,$manifestPath)
+$expectedPaths = @($manager,$manifestPath,"docs/evidence/round45-approval-and-dod-receipt.md")
 $expectedNames = @('manifest.json')
 $dirItem = Get-Item -LiteralPath $dir -Force
 $manifestItem = Get-Item -LiteralPath $manifestPath -Force
@@ -128,6 +130,9 @@ foreach ($entry in $fixed) {
     $wantedKeys = @('copyPath','id','rawBytes','rawSha256','sourceBlob','sourceCommit','sourcePath')
     if (([string]::Join('|',$keys)) -cne ([string]::Join('|',$wantedKeys))) { throw "[SOURCE-MANIFEST-FIELDS] $id" }
     if ($record.sourceCommit -cne $commit -or $record.sourcePath -cne $oldPath -or $record.sourceBlob -cne $blob -or $record.rawSha256 -cne $sha -or $record.rawBytes -ne $length -or $record.copyPath -cne $copy) { throw "[SOURCE-MANIFEST-PIN] $id" }
+    $historicalBlob=ApprovalGit @('rev-parse','--verify',("{0}:{1}" -f $commit,$oldPath))
+    Eq $historicalBlob $blob "[SOURCE-HISTORICAL-BLOB] $id"
+    Eq (ApprovalGit @('cat-file','-t',$historicalBlob)) 'blob' "[SOURCE-HISTORICAL-TYPE] $id"
     if (-not (Test-Path -LiteralPath $copy -PathType Leaf)) { throw "[SOURCE-MISSING] $id" }
     $item = Get-Item -LiteralPath $copy -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "[SOURCE-LINK] $id" }
@@ -137,6 +142,8 @@ foreach ($entry in $fixed) {
     $actualBlob = [Convert]::ToHexString([Security.Cryptography.SHA1]::HashData([byte[]]($header + $bytes)))
     if ($actualBlob -cne $blob.ToUpperInvariant()) { throw "[SOURCE-RAW-BLOB] $id" }
 }
+$receiptItem = Get-Item -LiteralPath "docs/evidence/round45-approval-and-dod-receipt.md" -Force
+if ($receiptItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '[RECEIPT-LINK]' }
 $actualNames = @(Get-ChildItem -LiteralPath $dir -Force | ForEach-Object Name | Sort-Object)
 if (([string]::Join('|',$actualNames)) -cne ([string]::Join('|',@($expectedNames | Sort-Object)))) { throw '[SOURCE-DIRECTORY-SET]' }
 $allPaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -157,5 +164,5 @@ git diff --check $base HEAD -- @expectedPaths
 if ($LASTEXITCODE -ne 0) { throw '[SOURCE-WHITESPACE-COMMITTED]' }
 git diff --check -- @expectedPaths
 if ($LASTEXITCODE -ne 0) { throw '[SOURCE-WHITESPACE-WORKING]' }
-Write-Host '[ROUND45-SOURCE-PUBLICATION-OK] four historical contracts, exact scope and whitespace'
+Write-Host '[ROUND45-SOURCE-PUBLICATION-OK] four historical commit:path contracts, seven-path scope and whitespace'
 ```
