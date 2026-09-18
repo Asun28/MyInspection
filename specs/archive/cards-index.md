@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 198 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 199 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -166,6 +166,7 @@
 | T3-E2E-TENANT-REDACTION | merged | Golden Evidence tenant report landlord/private sentinel 防泄露 |
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
 | T3-PDF-ARTIFACT-PATHS | merged | Report artifact path derivation and anchored shape predicate |
+| T3-PDF-PAGINATION-FIXTURES-REMOTE | merged | Publish the locally verified fixed-height pagination fixtures |
 | T3-PDF-RENDERER | merged | Pure JVM PDF render program, four export qualities, geometry and per-page sampling bounds |
 | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | merged | Remote delivery of pure-data typography profile and signed metric guard |
 | T3-REPORT-COMPOSER-R3-CLOSURE | merged | 报告布局 R3 收口：40mm 内联缩略图、不可拆图槽、可读时间与引用完整性 |

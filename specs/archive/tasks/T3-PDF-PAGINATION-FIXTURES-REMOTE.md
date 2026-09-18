@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-PAGINATION-FIXTURES-REMOTE
 title: Publish the locally verified fixed-height pagination fixtures
-status: todo
+status: merged
 depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE]
 parallelizable_with: []
 allow_paths:
@@ -42,3 +42,33 @@ Implementation record (2026-09-17): feature 8e828486a06341059fbe7e21f92254067390
 Remote publication: the preceding implementation record describes local-only evidence, not current remote acceptance. The remote candidate must rerun baseline and migrated DoD, both named R4 mutations with exact source restoration, restored DoD, verify, scope, license, secret and complete-diff budget gates, formal independent Sol/high R3, and exact-candidate CI before merging. At origin/master 0a4d1fe41a1232ace1fc18bec65d6d135eb20e6a, the Composer, pagination test and shared test fixtures have the same Git blobs as the original feature parent; this is compatibility evidence, not a test-run substitute. The declared T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE predecessor remains a delivery-order dependency.
 
 This remote alias republishes the completed local T3-PDF-PAGINATION-FIXTURES card; it is not an additional feature or an additional delivered card toward the five-round target. Keep the original archived card and its evidence unchanged. Run all phase commands through D:/Projects/MyInspection/scripts/task.ps1: start with -Base origin/master; ship with -Base master -SkipRed, without -Local. The origin-based canonical branch/worktree name is T3-PDF-PAGINATION-FIXTURES-REMOTE. R5 records the actual remote PR, reviewed HEAD, merge and current test evidence, then archives this alias only.
+
+## Remote delivery receipt
+
+```json
+{
+  "schema": "pagination-remote-r5-observed-v1",
+  "id": "T3-PDF-PAGINATION-FIXTURES-REMOTE",
+  "productPr": {"number": 309, "url": "https://github.com/Asun28/MyInspection/pull/309", "state": "MERGED", "reviewedHead": "09dfa20cf8e75d095b8535a1473b17acdf581628", "mergeOid": "553d53382f3b663dac19ed1c607ffa35ee499d0c"},
+  "formalR3": {"verdict": "pass", "reasons": [], "rounds": 1, "model": "Sol/high"},
+  "candidateCI": {"run": 35171143884, "head": "09dfa20cf8e75d095b8535a1473b17acdf581628", "event": "pull_request", "conclusion": "success", "jobs": ["verify", "required"]},
+  "ship": {"exit": 0, "skipRed": true, "t35Present": false, "roundsFilePresent": false},
+  "cleanup": {"exit": 0, "worktreeAbsent": true, "branchAbsent": true, "mergeTokenVerified": true},
+  "sources": [
+    {"path": "android/core/src/main/kotlin/nz/myinspection/core/report/ReportComposer.kt", "blob": "e65afa093ba51283db62945f9dea7945a2081b67", "sha256": "5297B78BF90124BD67DE88FCA8FA20853A9139BD4D404BFE8DE24D2D40662293"},
+    {"path": "android/core/src/test/kotlin/nz/myinspection/core/report/ReportComposerPaginationTest.kt", "blob": "34ab81feb27f651ca516fceaa7ac1ada8f539b8e", "sha256": "C3893835AF756DEC0DD5AEE352AE536A591553C52526C0F94E9F6B28AC4A2CD4"}
+  ],
+  "stages": [
+    {"name": "baseline", "reportSuites": 21, "reportTests": 255, "e2eSuites": 3, "e2eTests": 6, "failures": 0, "errors": 0, "skips": 0},
+    {"name": "migrated", "reportSuites": 21, "reportTests": 255, "e2eSuites": 3, "e2eTests": 6, "failures": 0, "errors": 0, "skips": 0},
+    {"name": "restored", "reportSuites": 21, "reportTests": 255, "e2eSuites": 3, "e2eTests": 6, "failures": 0, "errors": 0, "skips": 0},
+    {"name": "post-tail", "reportSuites": 21, "reportTests": 255, "e2eSuites": 3, "e2eTests": 6, "failures": 0, "errors": 0, "skips": 0}
+  ],
+  "mutations": [
+    {"id": "M1", "test": "room opening uses its reduced budget only for the first item chunk", "failure": "java.lang.AssertionError: room opening fixture must compose successfully", "mutantSha256": "C5EBD8C0937A0130F8DC1D3CB5E3C48C9DE5181412FB2C2B5445E041D5B66371"},
+    {"id": "M2", "test": "section opening uses its reduced budget only for the first flowing chunk", "failure": "java.lang.AssertionError: expected [[246, 254, 30]] but found [[246, 246, 38]]", "mutantSha256": "5308E79FE3D3EF1B77A98284F76F3B1F29737B3E20292D2F75710A8DF4071941"}
+  ],
+  "finalXml": {"report": {"suites": 21, "tests": 255, "failures": 0, "errors": 0, "skips": 0}, "e2e": {"suites": 3, "tests": 6, "failures": 0, "errors": 0, "skips": 0}, "fullCore": {"suites": 89, "tests": 976, "failures": 0, "errors": 0, "skips": 4}},
+  "proofPins": {"finalShipManifestSha256": "5A96ECE0F1C39EF0B29930C087368C6E2279610640E4713B2E149772BB5D7C37", "finalEvidenceSha256": "BF2474CA192E0B80EA9722AFC5E53D38511C346724110227AA07D249355BD411", "finalXmlManifestSha256": "CE458E0FFC0917CD216B2D178EAC28D566965981607BB5C22D6304DC382E88BA"}
+}
+```
