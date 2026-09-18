@@ -328,13 +328,13 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 ## 已验证本地卡的远端交付登记（2026-09-17）
 
-以下别名与 W1 的 T1-SAFE-MEDIA-LOGGING-REMOTE 分别交付原四张产品卡，不额外增加五轮的产品卡数。Logging、Typography 与 Boundary 已完成远端验收、合并及 R5 收口，五轮十张产品卡进度 3/10，已完成 1/5 轮。Pagination 功能 PR #309 已合并，仍待独立 R5 收尾。第 3 轮 Policy 与 Requests 已在原窗口进行忽略目录准备，尚未完成验收；不新增任务窗口或另选产品卡。后继存储策略、Android 适配、PDF 测量绑定与完整设备验收由后续卡承担。
+以下别名与 W1 的 T1-SAFE-MEDIA-LOGGING-REMOTE 分别交付原四张产品卡，不额外增加五轮的产品卡数。Logging、Typography、Boundary 与 Pagination 均已完成远端验收、合并及 R5 收口，五轮十张产品卡进度 4/10，已完成 2/5 轮。后继存储策略、Android 适配、PDF 测量绑定与完整设备验收由后续卡承担。
 
 | 远端交付卡 | 原产品卡 | 依赖 | 作者 | 状态 |
 |---|---|---|---|---|
 | [T1-STORAGE-PATH-BOUNDARY-REMOTE](../specs/archive/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md) | T1-STORAGE-PATH-BOUNDARY | T1-SPIKE-PLATFORM | GPT-6 Astra · high | merged；[PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass；R5 收口 |
 | [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE](../specs/archive/tasks/T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE.md) | T3-PDF-TYPOGRAPHY-CONTRACT | T3-PDF-RENDERER | GPT-5.6 Terra · high | merged；[PR #305](https://github.com/Asun28/MyInspection/pull/305)，reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`，CI `35159732680`，merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`，正式 R3 pass |
-| [T3-PDF-PAGINATION-FIXTURES-REMOTE](../specs/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md) | T3-PDF-PAGINATION-FIXTURES | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | GPT-5.6 Terra · medium | todo |
+| [T3-PDF-PAGINATION-FIXTURES-REMOTE](../specs/archive/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md) | T3-PDF-PAGINATION-FIXTURES | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | GPT-5.6 Terra · medium | merged；[PR #309](https://github.com/Asun28/MyInspection/pull/309)，reviewed head `09dfa20cf8e75d095b8535a1473b17acdf581628`，CI `35171143884`，merge `553d53382f3b663dac19ed1c607ffa35ee499d0c`；正式 R3 pass；R5 收口 |
 
 ## Remote round-three pair registration
 
