@@ -25,7 +25,7 @@ acceptance:
   - "A1 Preserve the full active remote Pagination alias as the archive copy, changing only status to merged and appending one portable observed lifecycle receipt. Its PR309, reviewed head, Sol/high first-pass R3, exact-head CI, merge, source blobs, four forced DoD stages, two named AssertionError mutants, restored production bytes and guarded cleanup must match copied original records."
   - "A2 Seed from the complete actual Boundary R5 merged remote base. Preserve every prior archive card byte-for-byte, add exactly this one alias, remove only its active copy, regenerate the archive index, and leave the closure card active."
   - "A3 Update CLAUDE current stage, the Pagination Task Board row and 4/10 products/2 of 5 rounds, and ADR-0007 remote fixture publication. Later binding and device claims stay pending."
-  - "A4 Candidate DoD independently rehashes both copied proof sets, checks child manifests and raw XML, binds portable assertions to actual PR/R3/CI/cleanup and reviewed plus merged Git source blobs, verifies independently approved whole-card bytes, five fixed payloads, complete pinned-base diff whitespace, card syntax and generated index. Normal verify, size, formal R3, exact-candidate CI, PR merge and guarded cleanup remain required."
+  - "A4 Candidate DoD independently rehashes both copied proof sets, checks child manifests and raw XML, binds portable assertions to actual PR/R3/CI/cleanup and reviewed plus merged Git source blobs, verifies independently approved whole-card bytes, five fixed payloads, complete review-base diff whitespace (the contract binds actual R3 base `47b78af825c699608821eb75bfa77104ac4bb86b` while retaining the initial archive ancestor), card syntax and generated index. Normal verify, size, formal R3, exact-candidate CI, PR merge and guarded cleanup remain required."
 dod_command: $raw = Get-Content -LiteralPath 'specs/tasks/T0-REMOTE-ROUND2-PAGINATION-CLOSURE.md' -Raw; $blocks = [regex]::Matches($raw, '(?ms)^```powershell\r?\n(.*?)^```[ \t]*$'); if ($blocks.Count -ne 1) { throw 'Expected one approved assertion block' }; & ([scriptblock]::Create($blocks[0].Groups[1].Value)); if ($LASTEXITCODE -ne 0) { exit 1 }
 dod_exit: 0
 dod_assert: Verify independently approved whole-card bytes, saved Pagination lifecycle and copied proof, five fixed payloads, one-card archive delta and complete pinned-base diff. This does not query live GitHub or rerun historical tests.
@@ -34,7 +34,7 @@ hygiene: Genuine metadata closure uses -SkipRed. Exercise negative changes to CI
 doc_sync: This closure itself becomes effective only on PR merge; retain its own R3/CI/merge and original-main cleanup receipt in the controller ledger. Keep the closure card active until ordinary archival maintenance.
 ---
 
-# Pagination remote R5 closure — unregistered preparation draft
+# Pagination remote R5 closure
 
 PR #309 merged at `553d53382f3b663dac19ed1c607ffa35ee499d0c` after the reviewed head `09dfa20cf8e75d095b8535a1473b17acdf581628`, first formal Sol/high PASS and exact-head CI run `35171143884` (`verify` and `required` success). The original-main cleanup recorded exit 0 and absent worktree/branch; its raw log also has deletion warnings. A separate 2026-09-18 UTC observation confirms present absence, without asserting when those warnings resolved. Product R5 remains pending until this metadata PR itself passes and merges. No T35 exists because the original ship used authorized `-SkipRed`; no rounds file exists because the first formal R3 passed and the controller writes that file only on BLOCK. The full ship log and normalized review JSON carry that R3 result.
 
@@ -46,17 +46,18 @@ The archive appendix must embed **exactly one** `pagination-remote-r5-observed-v
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$base = '2c2160562f0949f4eb66744d1571620046133c2a'
+$archiveBase = '2c2160562f0949f4eb66744d1571620046133c2a'
+$reviewBase = '47b78af825c699608821eb75bfa77104ac4bb86b'
 $archiveBeforeText = '198'
 $proofManifestHash = '0288803F8C605F7E6EB8D6DD1126679B49ACEE0E78FD7DCD5BE387992D727B9E'
 $payload = @{
   'specs/archive/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md' = '99600BB07901B82EB8539C1527D2955334DC541862AFD2C97033FBE5E577BBCE'
   'specs/archive/cards-index.md' = 'AD0329E6ED9E7D4A7D5946EA3887C7A871300FCB0DE60AAA18A3052E52D5037A'
-  'CLAUDE.md' = '945392482A26E721DC887C1DF0B8C36717B1A98DFDC2004A5A232A1212AF7A33'
+  'CLAUDE.md' = '9896CCD518B49A9ED1640BD6593A2A0FC9CEBB662673ED7FAFCAF1ECB5A68D14'
   'docs/TASK-BOARD.md' = 'AD2C5652DDBCAB880D3A505DF13C539C28001F80186091D50BD68615A322C222'
-  'docs/adr/0007-report-interchange.md' = '305417DC874BA1F10B36B4A967EC60EF40A903E140EA6986772FD819517A245B'
+  'docs/adr/0007-report-interchange.md' = 'F55769E5191F77DEB56B68DB368888E3348858678DE2C2F09D1174D744C2A8D0'
 }
-if ($base -notmatch '^[0-9a-f]{40}$' -or $archiveBeforeText -notmatch '^[1-9][0-9]*$' -or $proofManifestHash -notmatch '^[0-9A-F]{64}$' -or @($payload.Values | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -ne 0) { throw '[R5-PREP] Resolve actual base, count and approved hashes' }
+if ($archiveBase -notmatch '^[0-9a-f]{40}$' -or $archiveBeforeText -notmatch '^[1-9][0-9]*$' -or $proofManifestHash -notmatch '^[0-9A-F]{64}$' -or @($payload.Values | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count -ne 0) { throw '[R5-PREP] Resolve actual base, count and approved hashes' }
 $archiveBefore = [int]$archiveBeforeText
 function Eq($a,$b,$label) { if (-not [string]::Equals([string]$a,[string]$b,[StringComparison]::Ordinal)) { throw "[R5-BINDING] $label" } }
 function Sha($path) { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "[R5-PROOF] Missing $path" }; (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
@@ -198,7 +199,7 @@ Eq ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $PWD $own)))) (
 # END independent own-card approval guard
 if (Test-Path -LiteralPath "specs/tasks/$alias.md") { throw '[R5-ARCHIVE] Active alias remains' }
 if ($raw -cnotmatch '(?m)^status: merged\r?$') { throw '[R5-ARCHIVE] Alias status' }
-$oldAliasBytes = GitBytes $base "specs/tasks/$alias.md"
+$oldAliasBytes = GitBytes $archiveBase "specs/tasks/$alias.md"
 $strictUtf8 = [Text.UTF8Encoding]::new($false,$true)
 $oldAlias = $strictUtf8.GetString($oldAliasBytes)
 if ([regex]::Matches($oldAlias,'(?m)^status: todo\r?$').Count -ne 1) { throw '[R5-ARCHIVE] Base alias status' }
@@ -209,23 +210,29 @@ if (-not $appendix.StartsWith("`n## Remote delivery receipt`n`n",[StringComparis
 $appendixBytes = $strictUtf8.GetBytes($appendix.Substring(1))
 Eq ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($appendixBytes))) '26F2F9E7E2EF0E95230BDFA0A29767FFAA25265C6D5B47CD5FDB59ADA2B20F66' 'exact approved appendix'
 if (-not [Linq.Enumerable]::SequenceEqual([byte[]]([IO.File]::ReadAllBytes((Join-Path $PWD $archive))),[byte[]]($strictUtf8.GetBytes($preserved + $appendix)))) { throw '[R5-ARCHIVE] Original alias byte relation changed' }
-$old = @(git ls-tree -r --name-only $base -- specs/archive/tasks/); if ($LASTEXITCODE -ne 0 -or $old.Count -ne $archiveBefore) { throw '[R5-ARCHIVE] Actual base archive count' }
+$old = @(git ls-tree -r --name-only $archiveBase -- specs/archive/tasks/); if ($LASTEXITCODE -ne 0 -or $old.Count -ne $archiveBefore) { throw '[R5-ARCHIVE] Actual base archive count' }
 $now = @(Get-ChildItem -LiteralPath 'specs/archive/tasks' -Filter '*.md' -File -Force); if ($now.Count -ne $archiveBefore + 1) { throw '[R5-ARCHIVE] Expected exactly one new card' }
-foreach ($path in $old) { $orig = git rev-parse ('{0}:{1}' -f $base,$path); $current = git rev-parse ('HEAD:{0}' -f $path); if ($LASTEXITCODE -ne 0) { throw '[R5-ARCHIVE] Git blob lookup failed' }; Eq $current $orig "pre-existing archive $path"; git diff --quiet HEAD -- $path; if ($LASTEXITCODE -ne 0) { throw "[R5-ARCHIVE] Working archive changed: $path" } }
+foreach ($path in $old) { $orig = git rev-parse ('{0}:{1}' -f $archiveBase,$path); $current = git rev-parse ('HEAD:{0}' -f $path); if ($LASTEXITCODE -ne 0) { throw '[R5-ARCHIVE] Git blob lookup failed' }; Eq $current $orig "pre-existing archive $path"; git diff --quiet HEAD -- $path; if ($LASTEXITCODE -ne 0) { throw "[R5-ARCHIVE] Working archive changed: $path" } }
 $owned = @('specs/tasks/T0-REMOTE-ROUND2-PAGINATION-CLOSURE.md','specs/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md','specs/archive/tasks/T3-PDF-PAGINATION-FIXTURES-REMOTE.md','specs/archive/cards-index.md','CLAUDE.md','docs/TASK-BOARD.md','docs/adr/0007-report-interchange.md')
-$committed = @(git diff --no-renames --name-only "$base...HEAD" | Where-Object { $_ }); if ($LASTEXITCODE -ne 0) { throw '[R5-SCOPE] Committed diff lookup' }
+$committed = @(git diff --no-renames --name-only "$reviewBase...HEAD" | Where-Object { $_ }); if ($LASTEXITCODE -ne 0) { throw '[R5-SCOPE] Committed diff lookup' }
 $working = @(git diff --no-renames --name-only | Where-Object { $_ }); if ($LASTEXITCODE -ne 0) { throw '[R5-SCOPE] Working diff lookup' }
 $staged = @(git diff --cached --no-renames --name-only | Where-Object { $_ }); if ($LASTEXITCODE -ne 0) { throw '[R5-SCOPE] Staged diff lookup' }
+$untracked = @(git ls-files --others --exclude-standard | Where-Object { $_ }); if ($LASTEXITCODE -ne 0) { throw '[R5-SCOPE] Untracked diff lookup' }
 $changed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-foreach ($path in @($committed + $working + $staged)) { [void]$changed.Add([string]$path) }
+foreach ($path in @($committed + $working + $staged + $untracked)) { [void]$changed.Add([string]$path) }
 if ($changed.Count -ne $owned.Count) { throw '[R5-SCOPE] Expected seven owned paths' }
 foreach ($path in $owned) { if (-not $changed.Contains($path)) { throw "[R5-SCOPE] Missing $path" } }
 if ((Get-Content -LiteralPath 'docs/TASK-BOARD.md' -Raw) -cnotmatch '4/10' -or (Get-Content -LiteralPath 'docs/TASK-BOARD.md' -Raw) -cnotmatch '2/5') { throw '[R5-STATUS] Round totals' }
 pwsh -NoProfile -File scripts/check-cards.ps1; if ($LASTEXITCODE -ne 0) { throw '[R5-STATUS] Card validation' }
 pwsh -NoProfile -File scripts/archive.ps1 -CheckCardsIndex -Quiet; if ($LASTEXITCODE -ne 0) { throw '[R5-ARCHIVE] Generated index' }
-git merge-base --is-ancestor $base HEAD; if ($LASTEXITCODE -ne 0) { throw '[R5-DIFF] Base not ancestor' }
-git diff --check "$base...HEAD"; if ($LASTEXITCODE -ne 0) { throw '[R5-DIFF] Complete committed diff whitespace' }
+git merge-base --is-ancestor $reviewBase HEAD; if ($LASTEXITCODE -ne 0) { throw '[R5-REVIEWBASE] Actual R3 base not ancestor' }
+git diff --check "$reviewBase...HEAD"; if ($LASTEXITCODE -ne 0) { throw '[R5-REVIEWBASE] Complete actual R3 diff whitespace' }
 git diff --check; if ($LASTEXITCODE -ne 0) { throw '[R5-DIFF] Working diff whitespace' }
 git diff --cached --check; if ($LASTEXITCODE -ne 0) { throw '[R5-DIFF] Staged diff whitespace' }
+$resolvedReviewBase = git rev-parse $reviewBase; if ($LASTEXITCODE -ne 0) { throw '[R5-REVIEWBASE] Actual R3 base unavailable' }; Eq $resolvedReviewBase $reviewBase 'actual R3 base identity'
+$reviewMergeBase = git merge-base $reviewBase HEAD; if ($LASTEXITCODE -ne 0 -or $reviewMergeBase -notmatch '^[0-9a-f]{40}$') { throw '[R5-REVIEWBASE] Merge base unavailable' }
+git merge-base --is-ancestor $reviewBase HEAD; if ($LASTEXITCODE -ne 0) { throw '[R5-REVIEWBASE] Candidate must non-rewriting align to actual R3 base before review' }
+Eq $reviewMergeBase $reviewBase 'actual R3 base is the non-rewriting candidate ancestor'
+git diff --check "$reviewBase...HEAD"; if ($LASTEXITCODE -ne 0) { throw '[R5-REVIEWBASE] Complete actual R3 diff whitespace' }
 Write-Output '[R5-PAGINATION-CLOSURE-PASS] Saved lifecycle, copied proof, archive projection and pinned candidate verified.'
 ```
