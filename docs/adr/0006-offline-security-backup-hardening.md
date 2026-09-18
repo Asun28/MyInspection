@@ -36,7 +36,7 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 
 ### 2. 活数据分层
 
-2026-09-17 路径前置远端登记：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 是同名本地产品能力的远端交付别名，不增加产品卡计数；完整承担真实逐段路径解析、验证根快照、逐次子目录检查及全部 20 项直接测试/35 枚变异验收。根与子目录仍支持尚未创建的路径，仅入口属性探测的 `NoSuchFileException` 表示缺失；异常拒绝与 Error 身份传播、真实链接夹具和原 Policy 五次 BLOCK 历史保留。仅保证检查时路径归属，不声明消除 TOCTOU 或后续 I/O 安全。后继存储策略复用此能力，Android getter/平台适配、媒体状态、Keystore 与生产装配仍须独立验收。本地 feature `c201c793`/merge `115138a4` 及本地测试是历史证据；远端分支重新跑 RED/DoD/35R4/正式 R3/CI 后才合并。
+2026-09-18 路径前置远端交付：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 是同名本地产品能力的远端交付别名，不增加产品卡计数；完整承担真实逐段路径解析、验证根快照、逐次子目录检查及全部 20 项直接测试/35 枚变异验收。根与子目录仍支持尚未创建的路径，仅入口属性探测的 `NoSuchFileException` 表示缺失；异常拒绝与 Error 身份传播、真实链接夹具和原 Policy 五次 BLOCK 历史保留。仅保证检查时路径归属，不声明消除 TOCTOU 或后续 I/O 安全。后继存储策略复用此能力，Android getter/平台适配、媒体状态、Keystore 与生产装配仍须独立验收。本地 feature `c201c793`/merge `115138a4` 及本地测试是历史证据；远端现已通过新 RED、三次各 177 项应用回归、35 枚具名可编译变异、正式 R3 与精确候选 CI，并由 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。原始证据已复核，历史清理错误日志保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支均不存在，不证明原删除命令如何完成。完整合同和实际收据已归档。
 
 - SQLite、设置、回执、Keystore 密文信封、恢复 journal 和 staging 元数据放 credential-encrypted **internal storage**；device-protected storage 不放租客数据。
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
