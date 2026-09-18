@@ -35,7 +35,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 ## 产出
 
-本卡提供 `AppStoragePolicy` 与 Keystore-backed `LocalSecretBox`；`SafeLog` 和四处媒体日志接线由前置卡 `T1-SAFE-MEDIA-LOGGING-REMOTE` 交付。原有安全验收与日志回归完整保留，不重复实现前置能力。
+本卡提供 Keystore-backed `LocalSecretBox`，并消费前置卡 `T1-APP-STORAGE-POLICY-REMOTE` 交付的 `AppStoragePolicy`；`SafeLog` 和四处媒体日志接线已由前置卡 `T1-SAFE-MEDIA-LOGGING-REMOTE` 交付。原有安全验收与日志回归完整保留，不重复实现前置能力。
 
 ## 契约
 
@@ -54,6 +54,8 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 ## 路径前置复用
 
-真实逐段路径解析、验证根快照、checked-child 及直接路径测试由 T1-STORAGE-PATH-BOUNDARY-REMOTE 完整交付。AppStoragePolicy 仍须用黑盒接线测试证明 create 与 resolveChild 都被调用，任一调用旁路由具名断言检出。前置卡不交付 Android getter、媒体状态或 Keystore；本卡原有验收与 DoD 不变。两个远端前置均尚待各自 PR、R3 和 CI 通过后合并。
+真实逐段路径解析、验证根快照、checked-child 及直接路径测试由 T1-STORAGE-PATH-BOUNDARY-REMOTE 完整交付。AppStoragePolicy 仍须用黑盒接线测试证明 create 与 resolveChild 都被调用，任一调用旁路由具名断言检出。前置卡不交付 Android getter、媒体状态或 Keystore；本卡原有验收与 DoD 不变。安全日志 PR #304 与路径边界 PR #310 均已通过正式 R3 和 CI 并远端合并；安全日志已归档，路径边界的 R5 归档仍待独立收尾。
+
+历史拆分时的状态记录：“两个远端前置均尚待各自 PR、R3 和 CI 通过后合并。”该记录保留拆分时的判断；当前依赖状态以上述实际远端交付为准。
 
 The storage policy is an additional remote prerequisite after SafeLog and PathBoundary. Consume it only after its functional PR merges. The complete original security acceptance and executable DoD remain unchanged.
