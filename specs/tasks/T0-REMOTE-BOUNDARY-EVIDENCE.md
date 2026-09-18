@@ -33,6 +33,8 @@ The unique `powershell` fence is the complete reusable evidence core. It reads t
 
 The publication base is the observed remote merge `6a8cce2f022c58812aff47c2e4c1f2f890c910de`. The independent whole-card SHA-256 is supplied at `approved-evidence-card.sha256` beside the copied proof in each review checkout; the executable guard compares it with this exact LF card. The candidate runs the complete proof core and the one-path publication guard. Formal R3, exact-head CI, this management PR merge and original-main guarded cleanup still require their own observed records. The later closure will bind those records without changing this card.
 
+The original cleanup log contains `Filename too long` and `not a working tree`; its saved absence flags have no contemporaneous raw post-list. They do not establish how removal finished. A separately pinned supplement at `_local/rotating-card-orchestrator/round2-r5-proof/product-cleanup-current-20260918T0118/` captures filesystem, Git registration and branch absence at 2026-09-18T01:16:43Z. Its script, commands, stdout/stderr, exits and UTC intervals are checked below. This later observation does not rewrite the original 1,015 leaves or claim the failed removal commands succeeded. Consumers must copy the root's complete 14-leaf supplement and its `copy-manifest.json` unchanged; only the Boundary record is used for this product's cleanup assertion.
+
 <!-- boundary-remote-lifecycle-receipt -->
 ```json
 {
@@ -183,7 +185,7 @@ function Manifest([string]$folder,[string]$file,[string]$pin) {
         $f=Join-Path $folder $p; Need ((Get-Item -LiteralPath $f).Length -eq $e.bytes) "manifest length $p"
         Eq (Sha $f) $e.sha256 "manifest member $p"; $names+=$p
     }
-    $leaves=@(Get-ChildItem -LiteralPath $folder -File -Recurse | Where-Object { $_.FullName -cne [IO.Path]::GetFullPath($file) } | ForEach-Object { [IO.Path]::GetRelativePath([IO.Path]::GetFullPath($folder),$_.FullName).Replace('\','/') })
+    $leaves=@(Get-ChildItem -LiteralPath $folder -Force -File -Recurse | Where-Object { $_.FullName -cne [IO.Path]::GetFullPath($file) } | ForEach-Object { [IO.Path]::GetRelativePath([IO.Path]::GetFullPath($folder),$_.FullName).Replace('\','/') })
     SetEq $names $leaves 'manifest complete leaves'
 }
 $rt=Join-Path $proof 'runtime'
@@ -232,7 +234,7 @@ foreach($stage in @('green','restored-dod','post-tail-dod')) {
     Eq (Sha "$dir/test.bytes") $pin 'DoD test bytes'; Eq $s.testSHA256 $pin 'DoD test receipt'
     Eq (Sha "$dir/app-debug.apk") $s.apkSHA256 'assembled APK'; Need ((Get-Item "$dir/app-debug.apk").Length -eq $s.apkBytes -and $s.apkBytes -gt 0) 'APK length'
     $pre=J "$dir/source-suite-preflight.json"; Eq $pre.head $executionHead 'suite preflight HEAD'; Eq $pre.status 'SOURCE_DISCOVERY_ONLY' 'suite preflight kind'; SetEq $pre.suites $expectedSuites 'suite preflight'
-    $files=@(Get-ChildItem "$dir/xml" -File -Filter '*.xml'); SetEq @($files.BaseName|ForEach-Object {$_.Substring(5)}) $expectedSuites 'actual suite set'
+    $files=@(Get-ChildItem "$dir/xml" -Force -File -Filter '*.xml'); SetEq @($files.BaseName|ForEach-Object {$_.Substring(5)}) $expectedSuites 'actual suite set'
     $keys=@(); $total=0; $records=@($s.inventory.suites); Need ($records.Count -eq 9) 'inventory suite count'
     foreach($file in $files) {
         $x=Xml $file.FullName $true; Eq $x.suite.name $file.BaseName.Substring(5) 'suite filename'
@@ -360,7 +362,7 @@ foreach($child in @($r.evidence.childManifests)) {
         $rel=([string]$member.path).Replace('\','/'); $file=P "$root/$rel"; $length=if($isBundle){$member.length}else{$member.bytes}
         Need ((Get-Item -LiteralPath $file).Length -eq $length) 'child member length'; Eq (Sha $file) $member.sha256 'child member SHA'; $listed+=$rel
     }
-    $childRoot=P $root; $actual=@(Get-ChildItem -LiteralPath $childRoot -File -Recurse|ForEach-Object {[IO.Path]::GetRelativePath([IO.Path]::GetFullPath($childRoot),$_.FullName).Replace('\','/')}|Where-Object {$_ -cne 'manifest.json'})
+    $childRoot=P $root; $actual=@(Get-ChildItem -LiteralPath $childRoot -Force -File -Recurse|ForEach-Object {[IO.Path]::GetRelativePath([IO.Path]::GetFullPath($childRoot),$_.FullName).Replace('\','/')}|Where-Object {$_ -cne 'manifest.json'})
     SetEq $listed $actual 'complete original child manifest'
 }
 SetEq @($r.sources.path) @($sourceRel,$testRel) 'exact distinct source paths'
@@ -380,6 +382,31 @@ Eq $r.cleanup.endedUtc $cleanup.endedUtc 'portable cleanup time'
 Need ($r.cleanup.mergeTokenVerified -ceq $audit.mergeTokenVerified -and $r.cleanup.mergeTokenVerified -ceq $true) 'portable actual merge-token audit'
 Need ($audit.wrapperAttempts -eq 2 -and $audit.actualReviewerVerdicts -eq 1 -and $audit.rounds -eq 1 -and $audit.ResetRounds -ceq $false -and $audit.rawTxtPresent -ceq $false -and $audit.T35Present -ceq $true -and $audit.SkipRed -ceq $false) 'independent review/RED audit'
 $cleanupLog=Get-Content -LiteralPath (P $r.evidence.cleanupLog) -Raw; Need ($cleanupLog -match 'T24-MERGETOKEN' -and $cleanupLog -notmatch 'T24-MERGETOKEN[^\r\n]*-Force') 'guarded cleanup raw log'
+Need ($cleanupLog.Contains('Filename too long',[StringComparison]::Ordinal) -and $cleanupLog.Contains('not a working tree',[StringComparison]::Ordinal)) 'original cleanup errors retained'
+# Saved flags above are historical observations, not proof that the failed commands succeeded.
+function PostCleanup([string]$folder,$record) {
+    Eq $record.id 'T1-STORAGE-PATH-BOUNDARY-REMOTE' 'supplement fixed product'; Eq $record.repository 'D:/Projects/MyInspection' 'supplement repository'
+    Eq $record.startedUtc '2026-09-18T01:16:43.1291638Z' 'supplement started UTC'; Eq $record.endedUtc '2026-09-18T01:16:43.3258613Z' 'supplement ended UTC'; Timing $record
+    Need ([DateTimeOffset]::Parse($record.startedUtc) -gt [DateTimeOffset]::Parse($cleanup.endedUtc)) 'supplement later observation'
+    Eq $record.historicalCleanup 'Original logs include Filename too long and not a working tree warnings. Original exit0/absence JSON is retained but raw post-list was not captured then. This later observation proves current absence only; it does not prove how or when earlier deletion errors were resolved.' 'historical cleanup limitation'
+    Eq (Sha "$folder/capture.ps1") '901C7506EFB7BB37E2D513723989F86BC235C52C6537896BC1D1B5E636CA3530' 'root capture script'
+    Eq $record.worktreeCommand 'git -C D:/Projects/MyInspection worktree list --porcelain' 'worktree command'
+    Eq $record.branchCommand 'git -C D:/Projects/MyInspection for-each-ref --format=%(refname) refs/heads/T1-STORAGE-PATH-BOUNDARY-REMOTE' 'branch command'
+    Need ($record.worktreeExit -eq 0 -and $record.branchExit -eq 0) 'supplement Git exits'
+    $dir=Join-Path $folder $record.id; $fs=J "$dir/filesystem.json"; Eq $fs.path 'C:/wt/T1-STORAGE-PATH-BOUNDARY-REMOTE' 'supplement fixed path'
+    Eq $fs.command 'Get-Item -LiteralPath <path> -Force; Test-Path -LiteralPath <path>; [IO.Directory]::Exists(<path>); [IO.File]::Exists(<path>)' 'filesystem command'
+    Need ([DateTimeOffset]::Parse($fs.observedUtc) -ge [DateTimeOffset]::Parse($record.startedUtc) -and [DateTimeOffset]::Parse($fs.observedUtc) -le [DateTimeOffset]::Parse($record.endedUtc)) 'filesystem observation time'
+    Need ($fs.testPath -ceq $false -and $fs.directoryExists -ceq $false -and $fs.fileExists -ceq $false -and $null -eq $fs.item) 'current filesystem absent'
+    foreach($kind in @('worktrees','branch')) { Eq ([IO.File]::ReadAllText("$dir/$kind.stderr.txt")) '' 'supplement empty stderr' }
+    $lines=@(Get-Content -LiteralPath "$dir/worktrees.stdout.txt"); Need (@($lines|Where-Object {$_ -ceq 'worktree D:/Projects/MyInspection'}).Count -eq 1) 'raw worktree list present'
+    foreach($line in $lines) { Need (![string]::Equals($line.Replace('\','/'),"worktree $($fs.path)",[StringComparison]::OrdinalIgnoreCase) -and ![string]::Equals($line,"branch refs/heads/$($record.id)",[StringComparison]::OrdinalIgnoreCase)) 'current registration absent' }
+    Eq ([IO.File]::ReadAllText("$dir/branch.stdout.txt")) '' 'current branch absent'
+    Need ($record.pathRegistered -ceq $false -and $record.branchPresent -ceq $false -and $record.currentAbsenceVerified -ceq $true) 'supplement receipt agrees'
+}
+$supplement='_local/rotating-card-orchestrator/round2-r5-proof/product-cleanup-current-20260918T0118'
+Manifest $supplement "$supplement/copy-manifest.json" '225B747F54AD0C180BD35A387C14682D7A33A611BB87CC9EFFF365C6C61E8C6D'
+Need (@((J "$supplement/copy-manifest.json").entries).Count -eq 14) 'supplement complete 14 leaves'
+PostCleanup $supplement (J "$supplement/T1-STORAGE-PATH-BOUNDARY-REMOTE/receipt.json")
 git merge-base --is-ancestor $pr.mergeCommit.oid $productProofBase; Need ($LASTEXITCODE -eq 0) 'product merged before closure base'
 
 # Final saved outputs are checked separately; this does not claim an additional forced run.
@@ -388,7 +415,7 @@ SetEq @($xmlInventory.kind) @('app','core','core-e2e') 'final saved XML groups'
 $finalXmlCount=0
 foreach($group in @('app','core','core-e2e')) {
     $expected=if($group -ceq 'app'){@(9,177,0)}elseif($group -ceq 'core'){@(89,976,4)}else{@(3,6,0)}
-    $files=@(Get-ChildItem -LiteralPath (P "$finalDir/$group-final-xml") -File -Filter '*.xml')
+    $files=@(Get-ChildItem -LiteralPath (P "$finalDir/$group-final-xml") -Force -File -Filter '*.xml')
     Need ($files.Count -eq $expected[0]) 'final XML suite count'; $total=0; $skipKeys=@(); $caseKeys=@()
     foreach($file in $files) {
         [xml]$doc=Get-Content -LiteralPath $file.FullName -Raw; $suite=$doc.DocumentElement
