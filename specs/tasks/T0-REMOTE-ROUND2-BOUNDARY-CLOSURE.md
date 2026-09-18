@@ -50,7 +50,7 @@ The separate reviewer-visible `prerequisite/` saved-record copy must include the
 
 ```powershell
 $ErrorActionPreference='Stop'
-$base='d53cec8c994189f98893f8ac25889bc00b281801'
+$base='15f3931b77924f5d1ae3e55cb0c866bc36e85946'
 $archiveBefore='197'
 $evidenceMerge='00842ba9134bc592adc1c6a4569740d1fbe0bf36'
 $evidenceBlob='b748fd9e250d29a440fb282d5e0156c49b54d14e'
@@ -82,6 +82,57 @@ Eq $publicationReview.branch 'T0-REMOTE-BOUNDARY-EVIDENCE' 'evidence formal revi
 Eq $publicationCi.headSha $publicationPr.headRefOid 'evidence CI head'; Eq $publicationCi.event 'pull_request' 'evidence CI event'; Eq $publicationCi.status 'completed' 'evidence CI status'; Eq $publicationCi.conclusion 'success' 'evidence CI result'
 foreach($name in @('verify','required')){$js=@($publicationCi.jobs|Where-Object {$_.name -ceq $name}); Need ($js.Count -eq 1 -and $js[0].status -ceq 'completed' -and $js[0].conclusion -ceq 'success') 'evidence CI required jobs'}
 Need ($publicationCleanup.exit -eq 0 -and $publicationCleanup.worktreeAbsent -ceq $true -and $publicationCleanup.branchAbsent -ceq $true) 'evidence guarded cleanup'; Eq $publicationCleanup.head $publicationPr.headRefOid 'evidence cleanup head'; Eq $publicationCleanup.merge $evidenceMerge 'evidence cleanup merge'
+# BEGIN publication lifecycle semantics
+function PublicationLifecycle([string]$root) {
+    $task='T0-REMOTE-BOUNDARY-EVIDENCE'; $pubBase='6a8cce2f022c58812aff47c2e4c1f2f890c910de'
+    $ids=@('ship-571f30339b5749f7aa07960939a8de26','ship-65d8df40ce614962b7b8a0463b95b494','ship-efe10f7a56b54dc7aacc61fc4ba3e146')
+    $heads=@('c9a324c81699b79c121e4a016c81117566de9a0b','b90a0d4b18c9ed0516834e49b599dc5593c113cc','6047b36698b47bc3d070b6f4a370fbdae0aa7ed5')
+    $cards=@('approved-card-before-repair.md','approved-card-before-second-block.md','../../published-card.md'); $exits=@(); $grants=@()
+    SetEq @(Get-ChildItem "$root/ship-attempts" -Directory -Force -Filter 'ship-*'|ForEach-Object Name) $ids 'exact three publication attempts'
+    function PubArgs($record,$expected) { Eq ((@($record.arguments)|ForEach-Object {([string]$_).Replace('\','/')}) -join "`n") ($expected -join "`n") 'publication exact original-D command' }
+    for($i=0;$i -lt 3;$i++) {
+        $dir="$root/ship-attempts/$($ids[$i])"; $exit=J "$dir/exit.json"; $grant=J "$dir/root-grant.json"; $before=J "$dir/before.json"; $after=J "$dir/main-after.json"; $review=J "$dir/review-after/$task.json"
+        foreach($r in @($exit,$grant,$before)){Eq $r.task $task 'publication attempt task'; Eq $r.phase 'ship' 'publication attempt phase'}
+        Timing $exit; Eq $exit.exit (@(1,1,0)[$i]) 'publication native exit'; Eq $grant.originHead $pubBase 'publication actual base'; Eq $before.originHead $pubBase 'publication captured base'
+        Eq $grant.candidateHead (@($pubBase,$heads[0],$heads[1])[$i]) 'publication input head chain'; Need ($grant.metadataSkipRed -ceq $true -and ![string]::IsNullOrWhiteSpace($grant.rootGrantReference)) 'publication authorization'
+        Eq $before.mainHead $grant.mainHead 'publication main before'; Eq $after.head $grant.mainHead 'publication main after'; Eq $after.status 'UNCHANGED' 'publication main unchanged'
+        Need ([DateTimeOffset]::Parse($before.utc) -le [DateTimeOffset]::Parse($exit.startedUtc) -and [DateTimeOffset]::Parse($after.utc) -ge [DateTimeOffset]::Parse($exit.endedUtc)) 'publication capture times'
+        PubArgs $exit @('-NoProfile','-File','D:/Projects/MyInspection/scripts/task.ps1','-TaskId',$task,'-Phase','ship','-Base','master','-SkipRed')
+        Eq (Sha "$dir/$($cards[$i])") $grant.cardSHA256 'publication approved card bytes'; Eq $review.sha $heads[$i] 'publication reviewed head'; Eq $review.branch $task 'publication reviewed branch'
+        $verdict=@('block','block','pass')[$i]; Eq $review.verdict $verdict 'publication actual verdict'; Need (@($review.reasons).Count -eq (@(2,2,0)[$i])) 'publication reason count'
+        $log=Get-Content "$dir/phase.log" -Raw; Eq (Sha "$dir/phase.log") $exit.logSHA256 'publication raw log hash'
+        $header='Codex 评审（超时 3600s）'+$task+' @ '+$heads[$i].Substring(0,8)+' ...'
+        Need ([regex]::Matches($log,'(?m)^'+[regex]::Escape($header)+'\r?$').Count -eq 1) 'publication raw review head'
+        Need ($log -cmatch '(?m)^model: gpt-5\.6-sol\r?$' -and $log -cmatch '(?m)^reasoning effort: high\r?$') 'publication actual Sol/high'
+        $raw=[regex]::Matches($log,'(?m)^codex\r?\n(\{[^\r\n]+\})\r?\ntokens used\r?$'); Need ($raw.Count -eq 1) 'one actual publication CLI verdict'; $v=$raw[0].Groups[1].Value|ConvertFrom-Json -DateKind String
+        Eq $v.verdict $verdict 'publication raw verdict'; SetEq @($v.reasons) @($review.reasons) 'publication raw and saved reasons'
+        foreach($reason in @($review.reasons)){Need ($reason -is [string] -and ![string]::IsNullOrWhiteSpace($reason)) 'publication nonempty BLOCK reason'}
+        $status=@('failure','failure','success')[$i]; Need ($log -cmatch ('(?m)^Posted commit status codex-review='+$status+'\r?$')) 'publication posted verdict'
+        $expectedFiles=@("$task.json"); if($i -lt 2){$expectedFiles+="$task.rounds"; Eq (Get-Content "$dir/review-after/$task.rounds" -Raw).Trim() ([string]($i+1)) 'publication round progression'}
+        SetEq @(Get-ChildItem "$dir/review-after" -File -Force|ForEach-Object Name) $expectedFiles 'publication review-after inventory'
+        if($i -eq 1){Eq (Sha "$dir/review-before/$task.json") (Sha "$root/ship-attempts/$($ids[0])/review-after/$task.json") 'second attempt retains first BLOCK'; Eq (Get-Content "$dir/review-before/$task.rounds" -Raw).Trim() '1' 'second attempt starts at round1'}
+        $exits+=,$exit; $grants+=,$grant
+    }
+    $reset="$root/authorized-reset"; $r=J "$reset/reset-exit.json"; $auth=J "$reset/root-adjudication.json"; $main=J "$reset/main-after.json"; $sync=J "$reset/canonical-sync.json"; $release=J "$reset/release.json"
+    Timing $r; Eq $r.exit 0 'publication reset native exit'; Eq $r.beforeRounds 2 'publication reset starts at cap2'
+    Need ($r.afterCounterPresent -ceq $false -and $null -eq $r.afterCounterValue -and $r.reviewerInvoked -ceq $false -and $r.historicalReviewsRetained -ceq $true) 'publication reset is counter-only'
+    PubArgs $r @('-NoProfile','-File','D:/Projects/MyInspection/scripts/review.ps1','-WorktreePath','C:/wt/T0-REMOTE-BOUNDARY-EVIDENCE','-Base','master','-ResetRounds')
+    Eq (Sha "$reset/reset.log") $r.logSHA256 'publication reset raw log hash'; Eq (Get-Content "$reset/reset.log" -Raw).Trim() "R3 轮次计数已清零（$task）——人裁已完成，本卡重新计轮。未做评审，请另跑一次 review/ship。" 'publication raw counter-only reset'
+    Eq $auth.status 'granted' 'publication reset authorized'; Eq $auth.card $task 'publication reset authorized task'; Eq $auth.canonicalBefore $heads[1] 'publication reset authorized head'
+    Eq $auth.resource 'main-own-card+standalone-review-counter-reset' 'publication reset authorized operation'; Eq $auth.approvedCardSHA256 $evidenceSha 'publication reset approved card'; Eq $auth.approvedCardBlob $evidenceBlob 'publication reset approved blob'
+    Eq $main.parent $auth.mainBefore 'publication reset main parent'; Eq (J "$reset/main-before.json").head $auth.mainBefore 'publication reset captured main'; SetEq @($main.paths) @($evidencePath) 'publication reset sole main path'
+    Eq $main.cardSHA256 $evidenceSha 'publication reset registered card'; Eq $main.cardBlob $evidenceBlob 'publication reset registered blob'; Eq $main.head $grants[2].mainHead 'third attempt uses approved registration'
+    Eq $sync.head $heads[1] 'publication reset canonical head'; Eq $sync.cardSHA256 $evidenceSha 'publication reset canonical card'; Eq $sync.externalPin $evidenceSha 'publication reset old external pin'; Eq $sync.roundBefore '2' 'publication reset canonical round'
+    Eq (Get-Content "$reset/review-before-reset/$task.rounds" -Raw).Trim() '2' 'publication preserved pre-reset counter'
+    $second="$root/ship-attempts/$($ids[1])/review-after/$task.json"; foreach($p in @("$reset/review-before-reset/$task.json","$reset/review-after-reset/$task.json","$root/ship-attempts/$($ids[2])/review-before/$task.json")){Eq (Sha $p) (Sha $second) 'publication reset retains exact second BLOCK'}
+    Need (!(Test-Path "$reset/review-after-reset/$task.rounds") -and !(Test-Path "$root/ship-attempts/$($ids[2])/review-before/$task.rounds")) 'publication reset counter absent before third review'
+    Eq $release.resetExit 0 'publication reset release'; Eq $release.canonicalHead $heads[1] 'publication release old head'; Eq $release.canonicalCardSHA256 $evidenceSha 'publication release approved card'; Need ($release.afterCounterPresent -ceq $false -and $release.thirdReview -ceq $false -and $release.ship -ceq $false -and $release.remoteWrite -ceq $false) 'publication reset release does not claim review or ship'
+    $times=@($exits[0].startedUtc,$exits[0].endedUtc,$exits[1].startedUtc,$exits[1].endedUtc,$auth.utc,$r.startedUtc,$r.endedUtc,$exits[2].startedUtc,$exits[2].endedUtc); for($i=1;$i -lt $times.Count;$i++){Need ([DateTimeOffset]::Parse($times[$i]) -ge [DateTimeOffset]::Parse($times[$i-1])) 'publication attempts and reset chronological'}
+    Eq $grants[2].cardSHA256 $evidenceSha 'publication final approved card'; Eq $heads[2] $publicationPr.headRefOid 'publication final PR head'; Eq $heads[2] $publicationCi.headSha 'publication final CI head'
+    Eq (Sha "$root/ship-attempts/$($ids[2])/review-after/$task.json") (Sha "$root/review.json") 'publication final summary equals actual saved PASS'
+}
+# END publication lifecycle semantics
+PublicationLifecycle $publicationProof
 function PublicationCleanup([string]$folder,$record) {
     Eq (Sha "$folder/capture.ps1") '9B351B4D8B36F85B54C1CA902948F9BAAD3254C8C9DB7A8B78741704F5BD510A' 'publication cleanup command script'
     Timing $record; Eq $record.startedUtc '2026-09-18T02:10:26.6174911Z' 'publication cleanup start'; Eq $record.endedUtc '2026-09-18T02:10:29.7704858Z' 'publication cleanup end'
