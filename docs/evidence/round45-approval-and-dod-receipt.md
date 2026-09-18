@@ -1,6 +1,6 @@
 # Round45 source approval and DoD review receipt
 
-This is the actual root approval and first full DoD run for this whole-card candidate. The run precedes this receipt; final-tree DoD is separately required and is not claimed here.
+This records the actual root approval, the first full DoD before receipt materialization, and the later completed postcommit DoD on the exact a898 seven-path tree below. A subsequent evidence-only edit changes the tree and needs its own final DoD.
 
 ## Original independent root approval (complete JSON)
 
@@ -75,4 +75,20 @@ check-cards: PASS（校验 97 张卡）
 [ROUND45-SOURCE-ACTUAL-DOD-PASS]
 ```
 
-Run final full DoD after this receipt is staged and committed; its raw receipt remains external to this nonrecursive review-data document.
+The first run above preceded receipt materialization. The separately completed postcommit run below tested the exact a898 seven-path tree. After this evidence-only revision, rerun full DoD on the new tree and retain its raw receipt externally; that future result is not claimed here.
+
+## Completed postcommit DoD on exact seven-path tree
+
+Tested commit `a898ccacad4c9ff2f1367cf72d45268d70e18900`, tree `f2573a959611e6b0283ae0d199e7a7e937d9ce47`. Its seven paths and Git blobs:
+
+- `docs/evidence/round45-approval-and-dod-receipt.md` → `666be11672db4c9a26316dbe6238995182ceb322`
+- `docs/evidence/round45-contracts/T1-APP-STORAGE-ANDROID.registered.txt` → `684adfb406263a55c7ac4d6ad2a268053487f500`
+- `docs/evidence/round45-contracts/T3-PDF-DEVICE-FIXTURE.registered.txt` → `1decac7622657aeb228de6c06addcc66e1feefe0`
+- `docs/evidence/round45-contracts/T3-PDF-MEASUREMENT-BINDING.registered.txt` → `ac802da62d7a007fe5c26cadbde29ab665cfeb91`
+- `docs/evidence/round45-contracts/T3-PDF-TEXT-METRICS-OPS.registered.txt` → `38c45eed3271051d5322b18650b89259c728ba7b`
+- `docs/evidence/round45-contracts/manifest.json` → `abf1175ae55223cba4ea603cd04affb983c23847`
+- `specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md` → `500b8ca838fceff26996c42ce8591346ea50286f`
+
+Full metadata DoD command: `pwsh -NoProfile -File D:/Projects/MyInspection/_local/rotating-card-orchestrator/round45-source-publication-execution/run-canonical-metadata-dod.ps1`; cwd `C:/wt/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE`. UTC 2026-09-18T10:59:34.525694+00:00–2026-09-18T10:59:41.865438+00:00; **native exit 0**. Complete raw stdout `D:/Projects/MyInspection/_local/rotating-card-orchestrator/round45-source-block2-repair-execution/native/049-postcommit-full-metadata-dod.stdout.raw`: 413576 bytes, SHA-256 `AE6DD0E250375054021D959D45170E3E3E10A94DAC6C19AF7057C2CE76EFE3A8`. Complete raw stderr `D:/Projects/MyInspection/_local/rotating-card-orchestrator/round45-source-block2-repair-execution/native/049-postcommit-full-metadata-dod.stderr.raw`: 0 bytes, SHA-256 `E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855`. These are full-stream pins, not excerpts presented as full output.
+
+Independent actual-repair `audit.json` SHA-256 `B63D76E2DF31DC64AB175D3EAFD672C87FB87FB7FC7EEE949286BC992409908D` passed the postcommit DoD/canonical seven-path checks against 558 frozen leaves; copy-manifest SHA-256 `B648A2DB34B209D5567D0F67BD3F55D245A827AC467870BDAA731FB773F7B6EB`. This is light evidence audit, not formal R3. The postcommit result binds **a898**, not the different tree created by this added text.
