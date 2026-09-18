@@ -37,6 +37,8 @@ Policy cleanup wrapper returned0, but its raw log includes Filename too long and
 
 Registration313 has three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons, not just the final summary or bundle hashes. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. Original contract text and the approved Requests19-case transfer to Binding remain preserved.
 
+The additional `original-policy-delivery.json` is a separately pinned read-only observation: original fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time. It does not alter the original638 index or claim all-time remote absence. Four separately pinned raw `ci-jobs/*.json` responses additionally bind each selected job to its actual run and reviewed head.
+
 The fixed authority is the latest own-card-only commit on original D `refs/heads/master`, bound to a root-approved complete card and exact scope at `_local/rotating-card-orchestrator/round3-policy-evidence-own-card-approval/`. This candidate cannot create that approval by writing a companion hash. Both the approval and root decision must have strict integer schemaVersion1; portable regular files must have exactly one hard link. A base change requires full reprojection and independent approval of changed bytes.
 
 Consumers must pin this whole card at its actual reviewed and merged Git blobs and raw SHA, parse this publication's complete review/reset/CI/merge/cleanup lifecycle, and invoke only `replay(evidence, repo)` from the unique verified Python fence. They must not reuse the one-path publication guard as their own closure scope guard.
@@ -125,18 +127,36 @@ def raw_review(log, saved, head, verdict):
     need(saved['sha'] == head and saved['verdict'].lower() == verdict, 'saved verdict/head')
     need(actual['verdict'].lower() == verdict and actual['reasons'] == saved['reasons'], 'raw reasons/verdict')
     need(bool(saved['reasons']) == (verdict == 'block'), 'BLOCK reasons / empty PASS reasons')
-    need('model: gpt-5.6-sol' in log and 'reasoning effort: high' in log, 'actual model/effort')
-    need(re.search(r'Codex .* @ ' + re.escape(head[:8]) + r' \.\.\.', log), 'actual review wrapper head')
-    need(len(re.findall(r'(?m)^session id: [0-9a-f-]+\s*$', log)) == 1, 'one actual reviewer session')
+    prefix, separator, _ = log.replace('\r\n','\n').partition('\nuser\n')
+    need(separator, 'actual prompt boundary')
+    headers = re.findall(r'(?ms)^OpenAI Codex v[^\n]+\n--------\n(.*?)\n--------$', prefix)
+    need(len(headers) == 1, 'one actual header before echoed prompt')
+    header = headers[0]
+    need(re.findall(r'(?m)^model: (.+)$',header) == ['gpt-5.6-sol'] and re.findall(r'(?m)^reasoning effort: (.+)$',header) == ['high'], 'actual header model/effort')
+    need(len(re.findall(r'(?m)^Codex [^\n]* @ '+re.escape(head[:8])+r' \.\.\.$',prefix)) == 1, 'actual pre-prompt wrapper head')
+    need(len(re.findall(r'(?m)^session id: [0-9a-f-]+$',header)) == 1, 'one actual header session')
     return actual
 
-def ci_pr(pr, ci, number, head, merge, run, jobs):
+CI_JOB_PINS = {'105515996019': '035683DD52CEB020EC1A2B90D408169186D603B9B61C59686EB819B5918DC8FF', '105517883022': 'E097F2561ECB333950D6545AB32B43EED7B8E00BBA3766140FE64971BF623240', '105471507340': '87841E19D0F7EF0247D7C06D7F418AA4A7812169A87804A22B76167A69C59988', '105471609283': 'A5BAF2E8B250F4A29841FCEBCCCC846195D728742F1E15EDEC83F80036CA1116'}
+
+def check_ci_job(job, summary, run, head):
+    need((job['id'],job['run_id'],job['head_sha'],job['name'],job['status'],job['conclusion']) == (summary['databaseId'],run,head,summary['name'],'completed','success'), 'individual CI job exact run/head/identity/status')
+    need(utc(job['completed_at']) == utc(summary['completedAt']), 'raw job and selected run completion agree')
+
+def saved_command(receipt, command):
+    need(receipt['exit'] == 0 and receipt['command'] == command, 'exact complete saved command and successful exit')
+
+def ci_pr(pr, ci, number, head, merge, run, jobs, job_root):
     need(pr['number'] == number and pr['state'] == 'MERGED', 'actual merged PR')
     need(pr['headRefOid'] == head and pr['mergeCommit']['oid'] == merge, 'PR head/merge')
     need(ci['headSha'] == head and ci['databaseId'] == run, 'CI exact head/run')
     need(ci['status'] == 'completed' and ci['conclusion'] == 'success', 'CI completion')
     actual = {(job['name'], job['databaseId']) for job in ci['jobs']}
-    need(actual == set(jobs), 'exact required CI jobs')
+    need(len(ci['jobs']) == len(jobs) and actual == set(jobs), 'exact required CI jobs without duplicates')
+    for job in ci['jobs']:
+        data = safe_leaf(job_root,str(job['databaseId'])+'.json').read_bytes()
+        need(sha(data) == CI_JOB_PINS[str(job['databaseId'])], 'independent raw CI job pin')
+        check_ci_job(json.loads(data,object_pairs_hook=pairs),job,run,head)
     need(all(job['conclusion'] == 'success' and job['status'] == 'completed' for job in ci['jobs']), 'all CI jobs success')
     need(all(utc(job['completedAt']) <= utc(pr['mergedAt']) for job in ci['jobs']), 'CI before merge')
 
@@ -168,6 +188,101 @@ def xml_inventory(folder, expected_count, clean=True):
     need(len(cases) == expected_count, 'complete test inventory size')
     return suites, cases
 
+# Exact literals independently checked against saved sources, root audit and reviewed Git blobs.
+RECEIPT_SUFFIX_SHA = '0EA3083C636F0DB02D60C5A625147AD3126DCB8B2A603BEE82818C07CC29527D'
+ORIGINAL_DELIVERY_SHA = '7CD115BC8A21BB3528E7212D159BB7FC189590A8370CE990CC962F5CDFF67508'
+ORIGINAL_HEADS = ['2e2900cd295641d2e87da22deb09a92726118228', 'e7f00bb9d888a87b45d0a888a9458bc297bc2e4c', '822e1eaa703a998ed78d032b38aac99c8531214b', '0a50328150bae8471d45479b9880721f76556915', 'fd1dd18c3a530f748a7184cf32af5090c8b9c7b9']
+REQUIRED_TRANSFORMS = {
+    "PRM23": [
+        "deviceProtectedDataDir = credentialEnvironment.deviceProtectedDataDir,",
+        "deviceProtectedDataDir = File(credentialEnvironment.appDataDir, \"unused-device-protected\"),",
+        "AppStoragePolicyTest#policy rejects an actual device protected root with a fixed failure"
+    ],
+    "PRM27": [
+        "val directory = boundary.resolveChild(File(boundary.directory, namespace.subdirectory))\n            ?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)",
+        "val directory = File(boundary.directory, namespace.subdirectory)",
+        "AppStoragePolicyTest#policy rejects escaped children and saved root replacements with a fixed failure"
+    ],
+    "PRM28": [
+        "return StorageLocation(protectedRoot, directory)",
+        "return StorageLocation(protectedRoot, File(boundary.directory, namespace.subdirectory))",
+        "AppStoragePolicyTest#policy returns checked root and child after source alias retarget"
+    ],
+    "PRM29": [
+        "private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(boundary.directory)",
+        "private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(environment.noBackupFilesDir)",
+        "AppStoragePolicyTest#policy returns checked root and child after source alias retarget"
+    ],
+    "PRM30": [
+        "?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)",
+        "?: throw IllegalStateException(\"unvalidated child\")",
+        "AppStoragePolicyTest#policy rejects escaped children and saved root replacements with a fixed failure"
+    ]
+}
+
+
+def check_comment_suffix(suffix, receipt):
+    need(sha(suffix) == RECEIPT_SUFFIX_SHA == receipt['receiptSuffixSha256'], 'independent exact approved comment suffix')
+    need(len(suffix.splitlines()) == 24, '24-line receipt-only appendix')
+    stripped = suffix.strip()
+    need(stripped.startswith(b'/*') and stripped.endswith(b'*/') and stripped.count(b'/*') == stripped.count(b'*/') == 1, 'one entire block comment only')
+
+
+def check_required_transform(mutation, prod):
+    mid = mutation['id']
+    if mid not in REQUIRED_TRANSFORMS: return
+    need([mutation[k] for k in ['before','after','expected_failure']] == REQUIRED_TRANSFORMS[mid], 'required semantic transformation and primary: '+mid)
+    need(mutation['path'] == 'android/app/src/main/kotlin/nz/myinspection/app/platform/AppStoragePolicy.kt', 'semantic mutation source path')
+    need(prod.count(mutation['before'].encode()) == 1, 'semantic transformation anchored once in real production')
+
+
+def check_cleanup_errors(raw, task):
+    lines = raw.decode('utf-8-sig').splitlines()
+    errors = [line for line in lines if 'Filename too long' in line or 'not a working tree' in line]
+    if task == 'T1-APP-STORAGE-POLICY-REMOTE':
+        expected = ["error: failed to delete 'C:/wt/T1-APP-STORAGE-POLICY-REMOTE': Filename too long",
+                    "fatal: 'C:\\wt\\T1-APP-STORAGE-POLICY-REMOTE' is not a working tree"]
+        need(all(line in lines for line in expected), 'both exact Policy internal cleanup errors retained')
+    return errors
+
+
+def check_original_delivery(bundle, record):
+    v = bundle/'policy/validation'
+    old = doc(v/'historical-five-blocks/manifest.json')['rows']
+    need([(r['round'],r['reviewedSha']) for r in old] == list(enumerate(ORIGINAL_HEADS,1)), 'five exact ordered original BLOCK heads including fd1')
+    for row in old:
+        path = v/'historical-five-blocks'/('round'+str(row['round'])+'.json')
+        saved = doc(path)
+        need(sha(path.read_bytes()) == row['sha256'] and saved['sha'] == row['reviewedSha'], 'old BLOCK binding')
+        need(saved['branch'] == 'T1-APP-STORAGE-POLICY' and saved['verdict'].lower() == 'block' and saved['reasons'], 'old BLOCK branch/reasons preserved')
+    task = 'T1-APP-STORAGE-POLICY'; fd1 = ORIGINAL_HEADS[-1]
+    need(type(record['schemaVersion']) is int and record['schemaVersion'] == 1 and record['task'] == task and record['historicalHead'] == fd1, 'original delivery observation identity')
+    need(utc(record['startedUtc']) <= utc(record['endedUtc']), 'original delivery observation interval')
+    reads = record['reads']
+    for read in reads.values():
+        need(read['nativeExit'] == 0 and not read['stderr'] and utc(record['startedUtc']) <= utc(read['startedUtc']) <= utc(read['endedUtc']) <= utc(record['endedUtc']), 'original delivery raw read interval/exit')
+    need(reads['headBefore']['stdout'].strip() == reads['headAfter']['stdout'].strip() == fd1 and reads['branch']['stdout'].strip() == 'refs/heads/'+task, 'original fd1 branch stable')
+    need(reads['status']['stdout'] == reads['index']['stdout'] == '', 'original fd1 clean tree and empty index')
+    need(re.search(r'^id: '+task+r'$', reads['mainCard']['stdout'], re.M) and re.search(r'^status: todo$', reads['mainCard']['stdout'], re.M), 'original card still undelivered todo at saved main commit')
+    t24, t35 = [record['tokens'][key] for key in ['scaffold-merged','scaffold-shipped']]
+    for key, token in [('scaffold-merged',t24),('scaffold-shipped',t35)]:
+        need(token['path'] == 'D:/Projects/MyInspection/.git/'+key+'/'+task and utc(record['startedUtc']) <= utc(token['observedUtc']) <= utc(record['endedUtc']), 'original exact token path/time')
+    need(t24['exists'] is False and t24['raw'] is None and t24['sha256'] is None, 'original T24 merge receipt absent at observation')
+    need(t35['exists'] is True and sha(t35['raw'].encode()) == t35['sha256'], 'original T35 raw commit receipt preserved')
+    need(json.loads(t35['raw'], object_pairs_hook=pairs) == {'taskId':task,'redSha':'3e67ba716fe9b5c16ff37df8c7e0af6f3d80d845','commitSha':fd1}, 'original T35 is fd1 commit waterline, not a merge')
+    review = record['review']; latest = json.loads(review['raw'], object_pairs_hook=pairs)
+    need(sha(review['raw'].encode()) == review['sha256'] and latest == doc(bundle/'policy/validation/historical-five-blocks/round5.json'), 'observed original verdict exactly preserved BLOCK5')
+    need(latest['branch'] == task and latest['sha'] == fd1 and latest['verdict'] == 'block' and latest['reasons'], 'original fd1 remains BLOCK at observation')
+    release = doc(bundle/'policy/validation/release-receipt.json')
+    need(release['historicalHead'] == fd1 and release['historicalClean'] is True, 'saved original fd1 preservation release')
+    for name,key in [('AppStoragePolicy.kt','historicalSourceSha256'),('AppStoragePolicyTest.kt','historicalTestSha256')]:
+        path = 'android/app/src/'+('test' if 'Test' in name else 'main')+'/kotlin/nz/myinspection/app/platform/'+name
+        need(record['sourcePins'][path] == release[key], 'original source/test remain at saved historical pins')
+    blocks = text(bundle/'policy/cleanup/worktrees.stdout').replace('\r\n','\n').split('\n\n')
+    need(('worktree C:/wt/'+task+'\nHEAD '+fd1+'\nbranch refs/heads/'+task) in blocks, 'actual product cleanup retained distinct original fd1 worktree')
+    return {'head':fd1,'asOfUtc':record['endedUtc'],'lastVerdict':'block','T35CommitOnly':True,'T24MergeAbsent':True,'delivered':False}
+
+
 def cleanup(folder, head, merge, task):
     receipt = doc(folder / 'cleanup-result.json')
     need(receipt['head'] == head and receipt['merge'] == merge and receipt['exit'] == 0, 'cleanup wrapper identity/exit')
@@ -182,10 +297,10 @@ def cleanup(folder, head, merge, task):
     need(task not in text(folder/'worktrees.stdout') and not text(folder/'branch.stdout').strip(), 'raw Git absence')
     need(not text(folder/'worktrees.stderr').strip() and not text(folder/'branch.stderr').strip(), 'post-Git stderr empty')
     # Native wrapper success never changes the meaning of internal failed deletion commands.
-    errors = [line for line in raw.decode('utf-8-sig').splitlines() if 'Filename too long' in line or 'not a working tree' in line]
+    errors = check_cleanup_errors(raw, task)
     return {'wrapperExit':0, 'rawInternalErrors':errors, 'postFilesystemAndGitAbsent':True}
 
-def check_policy(bundle, repo):
+def check_policy(bundle, repo, original_delivery):
     v, d = bundle/'policy/validation', bundle/'policy/delivery'
     check_manifest(v, 'evidence-index.json', 'BCA8060FBF2BB55E923A3A88EA04550AFF3B7BC670B3FA02EF3DA53A98EC142B', 172)
     check_manifest(d, 'delivery-manifest.json', '4E22F4FF9C6E4565A6C56D71D77430099D11F047E57A8D97612F9AA939015355', 39)
@@ -197,8 +312,7 @@ def check_policy(bundle, repo):
     need(sha(executable) == plan['testSha'] == receipt['executableTestSha256'], 'executable test pin')
     need(final.startswith(executable), 'final test unchanged executable prefix')
     suffix = final[len(executable):]
-    need(sha(suffix) == receipt['receiptSuffixSha256'] and len(suffix.splitlines()) == 24, '24-line receipt-only appendix')
-    need(suffix.decode().strip().startswith('/*') and suffix.decode().strip().endswith('*/'), 'comment-only appendix')
+    check_comment_suffix(suffix, receipt)
     for entry in doc(d/'merged-source-proof.json'):
         raw = (v/'final-source'/Path(entry['path']).name).read_bytes()
         source(repo, entry['path'], PH, PM, raw, entry['sha256'], entry['blob'])
@@ -215,8 +329,9 @@ def check_policy(bundle, repo):
         need(file.read_bytes() != (d/'app-xml-after-ship'/file.name).read_bytes(), 'ship app XML differs from old GREEN')
     for _, timestamp in ship_suites.values():
         need(utc('2026-09-18T07:14:43Z') <= utc(timestamp) < utc('2026-09-18T07:14:46Z'), 'actual ship app XML time')
-    _, e2e = xml_inventory(v/'verify-e2e-tests', 6)
-    _, ship_e2e = xml_inventory(d/'e2e-xml-after-ship', 6)
+    e2e_suites, e2e = xml_inventory(v/'verify-e2e-tests', 6)
+    ship_e2e_suites, ship_e2e = xml_inventory(d/'e2e-xml-after-ship', 6)
+    need(len(e2e_suites) == len(ship_e2e_suites) == 3, 'three complete E2E suites')
     need(e2e.keys() == ship_e2e.keys(), 'E2E case inventory')
     for file in (v/'verify-e2e-tests').glob('*.xml'):
         need(file.read_bytes() == (d/'e2e-xml-after-ship'/file.name).read_bytes(), 'E2E remains cached')
@@ -225,6 +340,7 @@ def check_policy(bundle, repo):
     need([m['id'] for m in mutations] == [f'PRM{i:02d}' for i in range(1,31)], 'all thirty mutants')
     primaries, failures = set(), []
     for mutation in mutations:
+        check_required_transform(mutation, prod)
         mid = mutation['id']; folder = v/'mutations'/mid
         result = doc(folder/'result.json')
         before, after = mutation['before'].encode(), mutation['after'].encode()
@@ -254,28 +370,23 @@ def check_policy(bundle, repo):
     red = doc(v/'official-red.receipt.json')
     need(red['sha'] == RM and red['dodExit'] == 1 and red['taskId'] == 'T1-APP-STORAGE-POLICY-REMOTE', 'official product RED')
     need('Unresolved reference' in text(v/'official-red.log'), 'actual missing API RED log')
-    for filename in ['green-summary.json','restored-dod-exit.json','verify-exit.json']:
-        need(doc(v/filename)['exit'] == 0, 'saved successful command: '+filename)
+    dod = 'cmd /c android\\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug'
+    for filename,command in [('green-summary.json',dod),('restored-dod-exit.json',dod),('verify-exit.json','pwsh -NoProfile -File scripts/verify.ps1')]:
+        saved_command(doc(v/filename),command)
     need(all(x['exit'] == 0 for x in doc(v/'checks.json')), 'licenses/secrets receipt')
     need(sha((v/'built-app-debug.apk').read_bytes()) == receipt['apkSha256'], 'saved APK pin')
     raw_review(text(d/'normal-ship.log'), doc(d/'r3-verdict.json'), PH, 'pass')
     need(doc(d/'ship-exit.json')['exit'] == 0, 'normal ship native exit')
     need('-ResetRounds' not in doc(d/'ship-exit.json')['command'], 'product no reset command')
-    ci_pr(doc(d/'pr-final.json'),doc(d/'ci-run-final.json'),316,PH,PM,35318686041,[('verify',105515996019),('required',105517883022)])
+    ci_pr(doc(d/'pr-final.json'),doc(d/'ci-run-final.json'),316,PH,PM,35318686041,[('verify',105515996019),('required',105517883022)],bundle.parent/'ci-jobs')
     water = doc(d/'ship-waterline.txt')
     need(water == {'commitSha':PH,'taskId':'T1-APP-STORAGE-POLICY-REMOTE','redSha':RM}, 'T35 exact product waterline')
     need('tip='+PH in text(d/'merge-token.txt') and 'merged_pr=#316' in text(d/'merge-token.txt'), 'T24 merge token')
     need(sha((d/'actual-committed.diff').read_bytes()) == receipt['fullDiffSha256'], 'actual full committed diff')
-    old = doc(v/'historical-five-blocks/manifest.json')['rows']
-    need(len(old) == 5 and len({r['reviewedSha'] for r in old}) == 5, 'five distinct original BLOCKs')
-    for row in old:
-        path = v/'historical-five-blocks'/('round'+str(row['round'])+'.json')
-        saved = doc(path)
-        need(sha(path.read_bytes()) == row['sha256'] and saved['sha'] == row['reviewedSha'], 'old BLOCK binding')
-        need(saved['verdict'].lower() == 'block' and saved['reasons'], 'old BLOCK reasons preserved')
-    return {'mutants':30,'appCases':189,'policyCases':12,'secondaryFailures':10,
+    historical = check_original_delivery(bundle, original_delivery)
+    return {'mutants':30,'appCases':189,'policyCases':12,'secondaryFailures':10,'historicalOriginal':historical,
             'cleanup':cleanup(bundle/'policy/cleanup',PH,PM,'T1-APP-STORAGE-POLICY-REMOTE'),
-            'limits':['Restored app and ship E2E XML cached.','Reviewer peripheral reads blocked.','Quiet compile exits are saved native receipts, not reconstructable from empty logs.','Original fd1 remains undelivered.']}
+            'limits':['Restored app and ship E2E XML cached.','Reviewer peripheral reads blocked.','Quiet compile exits are saved native receipts, not reconstructable from empty logs.','Original fd1 undelivered state is bound to the saved observation, not a live remote absence claim.']}
 
 def card_parts(value):
     front, body = value.replace('\r\n','\n')[4:].split('\n---\n',1)
@@ -288,7 +399,7 @@ def card_parts(value):
 def check_registration(bundle, repo):
     r = bundle/'registration/round3-registration-delivery'
     summary = doc(r/'summary.json')
-    ci_pr(doc(r/'remote-live/pr313.json'),doc(r/'remote-live/ci35303721378.json'),313,RH,RM,35303721378,[('verify',105471507340),('required',105471609283)])
+    ci_pr(doc(r/'remote-live/pr313.json'),doc(r/'remote-live/ci35303721378.json'),313,RH,RM,35303721378,[('verify',105471507340),('required',105471609283)],bundle.parent/'ci-jobs')
     attempts = [('execution/attempt1-blocked-b14cc2f3','ship.log','ship-result.json'),
                 ('execution/attempt2-blocked-aab6c818','ship-attempt2.log','ship-attempt2-result.json'),
                 ('execution/attempt3-blocked-a8dea0ad','ship-attempt3.log','ship-attempt3-result.json'),
@@ -399,7 +510,9 @@ def replay(evidence, repo):
         rel=Path(entry['path']);need(not rel.is_absolute() and '..' not in rel.parts,'portable path stays inside bundle')
         data=safe_leaf(bundle,entry['path']).read_bytes();need(len(data)==entry['bytes'] and sha(data)==entry['sha256'],'portable bytes: '+entry['path'])
     for merge in [PM,RM]:git(repo,'merge-base','--is-ancestor',merge,BASE)
-    result={'policy316':check_policy(bundle,repo),'registration313':check_registration(bundle,repo),
+    delivery = safe_leaf(evidence,'original-policy-delivery.json').read_bytes()
+    need(sha(delivery) == ORIGINAL_DELIVERY_SHA, 'fixed raw original delivery observation')
+    result={'policy316':check_policy(bundle,repo,json.loads(delivery,object_pairs_hook=pairs)),'registration313':check_registration(bundle,repo),
             'scope':'saved-proof replay only; no live remote attestation or historical test rerun; no Requests completion'}
     return result
 
