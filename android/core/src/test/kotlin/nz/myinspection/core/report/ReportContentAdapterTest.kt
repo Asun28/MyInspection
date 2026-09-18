@@ -16,7 +16,7 @@ import nz.myinspection.core.report.content.ReportContentProjector
  * that no audience or privacy argument can reach the paginator.
  */
 class ReportContentAdapterTest {
-    private val composer = ReportComposer(ReportTestFixtures.measurer)
+    private val composer = ReportComposer(ReportTestFixtures.measurer, ReportTestFixtures.typography)
     private val adapter = ReportContentAdapter()
 
     private fun content(

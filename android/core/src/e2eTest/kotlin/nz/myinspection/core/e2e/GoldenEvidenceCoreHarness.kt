@@ -41,6 +41,9 @@ import nz.myinspection.core.report.ReportRoom
 import nz.myinspection.core.report.ReportSnapshot
 import nz.myinspection.core.report.StatusDefinition
 import nz.myinspection.core.report.TextMeasurer
+import nz.myinspection.core.report.TextMetricSnapshot
+import nz.myinspection.core.report.TextStyleProfile
+import nz.myinspection.core.report.ReportTypography
 import nz.myinspection.core.report.Urgency
 import nz.myinspection.core.template.LoadedTemplate
 import nz.myinspection.core.template.TemplateItem
@@ -147,7 +150,7 @@ internal class GoldenEvidenceCoreHarness private constructor(
                 val dbDataHash = checkNotNull(inspectionRow.data_hash)
                 val canonical = InspectionSnapshotAssembler.assemble(database, created.inspectionId, inspectionRow.finalized_at)
                 val reportSnapshot = buildReportSnapshot(database, fixture, loadedTemplate, canonical)
-                val composer = ReportComposer(DETERMINISTIC_MEASURER)
+                val composer = ReportComposer(DETERMINISTIC_MEASURER, DETERMINISTIC_TYPOGRAPHY)
                 val landlordPlan = composer.compose(
                     reportSnapshot,
                     nz.myinspection.core.report.Audience.LANDLORD,
@@ -452,8 +455,18 @@ internal class GoldenEvidenceCoreHarness private constructor(
             }
         }
 
-        private val DETERMINISTIC_MEASURER = TextMeasurer { text, _, widthMm ->
-            MeasuredText(text.chunked((widthMm / 3).coerceAtLeast(1)).ifEmpty { listOf(" ") }, 4)
+        private val DETERMINISTIC_TYPOGRAPHY = ReportTypography(
+            TextStyleProfile(2.0, 4), TextStyleProfile(2.0, 4), TextStyleProfile(2.0, 4),
+        )
+        private val DETERMINISTIC_MEASURER = TextMeasurer { text, language, style, widthMm ->
+            MeasuredText(
+                text.chunked((widthMm / 3).coerceAtLeast(1)).ifEmpty { listOf(" ") },
+                DETERMINISTIC_TYPOGRAPHY.profileFor(style).lineHeightMm,
+                TextMetricSnapshot(
+                    style, language, DETERMINISTIC_TYPOGRAPHY.roleFor(language),
+                    DETERMINISTIC_TYPOGRAPHY.profileFor(style).fontSizePt, 8.0, -8.0, 3.0,
+                ),
+            )
         }
     }
 }
