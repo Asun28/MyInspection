@@ -91,3 +91,9 @@ T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE publishes the immutable typography profile, ro
 ### Fixed-height pagination fixtures remote publication
 
 `T3-PDF-PAGINATION-FIXTURES-REMOTE` republishes the locally completed `T3-PDF-PAGINATION-FIXTURES` after `T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE`. Only the two existing pagination fixtures change: fixed 4mm lines preserve reduced opening-page budgets, full continuation budgets, title grouping, complete ordered text and no overflow with the current measurement API. Local feature `8e828486` and merge `7e4e35d3` remain historical evidence; remote acceptance requires fresh DoD, two named compiling budget mutations, exact byte restoration, formal R3 and candidate CI. This alias adds no feature, production/API change or device-rendering claim, and is not another card toward the five-round target.
+
+### Measurement request remote contract
+
+After the remote Typography and Pagination predecessors, T3-PDF-MEASUREMENT-REQUESTS supplies the actual language-aware request API, required immutable MeasuredText snapshot, selected profile and validation at every entry, including late caption candidates and footer. Its legacy migrations preserve existing layouts and fixed pagination budgets. Emitted TextRun binding, PdfTextOp forwarding, platform glyph measurement, rendering and full device acceptance remain separate undelivered capabilities.
+
+Requests owns all five binding mismatches, eight selective entries, local line-box, candidate String/Unicode and unchanged direct Typography tests with 26 own R4 variants. Both complete Composer numeric integration methods (12 non-finite, six sign/edge invalid, one valid control) belong to Binding. Complete forecast 388–400 lines/39,282–39,722 diff units (+25%: 485–500/49,103–49,653); measure the first actual complete candidate at or below 40,000 before RED.
