@@ -40,7 +40,9 @@ Evidence publication PR312 separately had three actual reviews (BLOCK, BLOCK, PA
 
 The archive appendix must preserve the entire original alias with only status changed and append `portable-lifecycle.json` under one `<!-- boundary-remote-lifecycle-receipt -->` marker and JSON fence. Copy all cited original evidence into the reviewer-visible proof root below; an outer manifest covers every relative leaf, byte length and SHA-256, excluding itself. Child manifests and saved raw evidence are rechecked. Preserve every wrapper attempt and the separate actual-review count. Final source byte pins bind both reviewed and merged Git blobs; the earlier 390-line test body and final receipt-only appendix remain explicit.
 
-The six LF-normalized payloads below are bound to this actual post-publication base. The complete archive changes from the measured N to N+1; every pre-existing archive byte remains unchanged. The independently approved whole-card SHA is in the ignored sibling `approved-own-card.sha256`; it is external to avoid a recursive hash. Target status becomes effective only upon this closure PR merge. The complete candidate must remain within 750 changed lines / 45,000 characters before first ship, with the official hard limit of 1,000 / 60,000 unchanged.
+The six LF-normalized payloads below are bound to this actual post-publication base. The complete archive changes from the measured N to N+1; every pre-existing archive byte remains unchanged. The independent whole-card authority is the latest own-card path commit on `refs/heads/master` in fixed `D:/Projects/MyInspection`. That commit must change only this card. Root publishes `approval.json` and the complete `approved-card.md` under fixed `D:/Projects/MyInspection/_local/rotating-card-orchestrator/boundary-own-card-approval/` after separately approving and committing the final bytes. The record must match the derived commit, committed blob, raw SHA and exact eight-path scope; the candidate and saved approved card must equal that blob byte-for-byte. The record cannot select another repository, ref or path, and an ignored SHA file is not an authority. Target status becomes effective only upon this closure PR merge. The complete candidate must remain within 750 changed lines / 45,000 characters before first ship, with the official hard limit of 1,000 / 60,000 unchanged.
+
+The reviewer must independently inspect that original D path commit and the root authorization record, with its commit/blob/SHA values and complete approved raw card. The external root execution guard also compares these bytes. Candidate DoD code cannot establish its own authority if its checks are removed; original D master and root approval remain outside candidate write authority. No final self-hash or final approval-commit literal is embedded in this card. Unrelated master commits are allowed; a changed latest own-card commit requires renewed root approval.
 
 This successor does not duplicate or abbreviate the evidence verifier. It first pins the complete predecessor card to its actual remote merge and invokes only that card's unique evidence core. It then compares the archived portable record exactly with the publication and performs every original archival, fixed-payload, eight-path scope, card/index and whitespace check below. The predecessor remains active and unchanged. The publication's own scope guard is deliberately not rerun against the successor's eight-file change.
 
@@ -48,7 +50,7 @@ The separate reviewer-visible `prerequisite/` saved-record copy must include the
 
 ```powershell
 $ErrorActionPreference='Stop'
-$base='6ae82ab632da851985ce6c68402d02a6ace4bb09'
+$base='d53cec8c994189f98893f8ac25889bc00b281801'
 $archiveBefore='197'
 $evidenceMerge='00842ba9134bc592adc1c6a4569740d1fbe0bf36'
 $evidenceBlob='b748fd9e250d29a440fb282d5e0156c49b54d14e'
@@ -101,19 +103,40 @@ $archivedReceipt=[regex]::Matches($archiveText,'(?ms)^<!-- boundary-remote-lifec
 Need ($archivedReceipt.Count -eq 1) 'one archive portable receipt'
 Eq $archivedReceipt[0].Groups[1].Value.Replace("`r`n","`n") $evidenceReceiptJson.Replace("`r`n","`n") 'archived portable exactly equals published observed receipt'
 
-# Six fixed payloads; own card approved externally to avoid recursive self-hashing.
+# Six fixed payloads; independent master authorizes the complete own card.
 $payload=@{
  'specs/archive/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md'='F3B19F37E2D4B1F25E739D3B297002F0B9EA10B4395EAD1F81DEBD6E89419D84'
  'specs/archive/cards-index.md'='9E20EDD4D0EAF8C68232FF77BC92ACBC3CB1524A10FEE1F921894864216E0342'
  'CLAUDE.md'='9F897BCECC826D02390FC4DF00BD38834F32CD220383F33DE34799C7C4FACBC6'
- 'docs/TASK-BOARD.md'='5166740C7BD9F5C1A1C20CE5845CB5292FB938FA9B519C63849B251B15D9B4E2'
+ 'docs/TASK-BOARD.md'='431A87AE7E62CD5A5DD3E2054EBCCCB132CCF16D565933941F27855F753DA8F0'
  'docs/SECURITY.md'='02BFB37E499B25CE9CFFECF025A605148DD48582B18087AF061859DB76EE0363'
- 'docs/adr/0006-offline-security-backup-hardening.md'='5A9F044895709493D6D340891E0352EAB75F96749C18D4AFDB6C564AD689A1B4'
+ 'docs/adr/0006-offline-security-backup-hardening.md'='94DCF995F2333B5F0640F687FFE3E9E5BEB9781C8E652A783ABAB49C2FD9EC5B'
 }
 foreach($p in $payload.Keys) { Eq (HText ([IO.File]::ReadAllText((Join-Path $PWD $p)).Replace("`r`n","`n"))) $payload[$p] "approved LF payload $p" }
+# BEGIN independent own-card approval guard
+$authority='D:/Projects/MyInspection'
+$approvalRoot='D:/Projects/MyInspection/_local/rotating-card-orchestrator/boundary-own-card-approval'
 $own='specs/tasks/T0-REMOTE-ROUND2-BOUNDARY-CLOSURE.md'
-$approvedOwn=(Get-Content '_local/rotating-card-orchestrator/round2-r5-proof/boundary/approved-own-card.sha256' -Raw).Trim()
-Need ($approvedOwn -match '^[0-9A-F]{64}$') 'external approved own-card pin'; Eq (HText ([IO.File]::ReadAllText((Join-Path $PWD $own)).Replace("`r`n","`n"))) $approvedOwn 'externally approved own card'
+$approvalScope=@($own,'specs/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md','specs/archive/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md','specs/archive/cards-index.md','CLAUDE.md','docs/TASK-BOARD.md','docs/SECURITY.md','docs/adr/0006-offline-security-backup-hardening.md')
+$approval=Get-Content -LiteralPath "$approvalRoot/approval.json" -Raw | ConvertFrom-Json -AsHashtable
+Eq $approval.schemaVersion 1 'approval schema'; Eq $approval.task 'T0-REMOTE-ROUND2-BOUNDARY-CLOSURE' 'approval task'
+Eq $approval.repository $authority 'fixed approval repository'; Eq $approval.ref 'refs/heads/master' 'fixed approval ref'; Eq $approval.path $own 'fixed approval path'
+SetEq @($approval.allow_paths) $approvalScope 'approved eight-path scope'; Need ($approval.rootAuthorization -is [string] -and ![string]::IsNullOrWhiteSpace($approval.rootAuthorization)) 'root authorization evidence'
+function ApprovalGit([string[]]$arguments) { $value=@(& git.exe -C $authority @arguments); Need ($LASTEXITCODE -eq 0) 'independent approval Git read'; return ($value -join "`n") }
+$approvalCommit=ApprovalGit @('log','-1','--format=%H','refs/heads/master','--',$own)
+Need ($approvalCommit -cmatch '^[0-9a-f]{40}$') 'latest master path commit'; Eq $approval.commit $approvalCommit 'approval record equals latest independent path commit'
+& git.exe -C $authority merge-base --is-ancestor $approvalCommit refs/heads/master; Need ($LASTEXITCODE -eq 0) 'approval commit on independent master'
+Need ((ApprovalGit @('rev-list','--parents','-n','1',$approvalCommit)).Split(' ').Count -eq 2) 'single-parent approval commit'
+SetEq @((ApprovalGit @('diff-tree','--no-commit-id','--name-only','-r',$approvalCommit)).Split("`n")) @($own) 'approval commit changes only own card'
+$approvalBlob=ApprovalGit @('rev-parse',('{0}:{1}' -f $approvalCommit,$own)); Need ($approvalBlob -cmatch '^[0-9a-f]{40}$') 'approval blob object'; Eq $approval.blob $approvalBlob 'record approval blob'
+$start=[Diagnostics.ProcessStartInfo]::new(); $start.FileName='git.exe'; $start.UseShellExecute=$false; $start.CreateNoWindow=$true; $start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
+foreach($arg in @('-C',$authority,'cat-file','blob',$approvalBlob)){[void]$start.ArgumentList.Add($arg)}
+$process=[Diagnostics.Process]::new(); $process.StartInfo=$start; $buffer=[IO.MemoryStream]::new()
+try { Need ($process.Start()) 'read approved raw blob'; $stderr=$process.StandardError.ReadToEndAsync(); $process.StandardOutput.BaseStream.CopyTo($buffer); $process.WaitForExit(); Need ($process.ExitCode -eq 0) 'approved blob read exit'; Eq $stderr.GetAwaiter().GetResult() '' 'approved blob read stderr'; $approvedBytes=$buffer.ToArray() } finally { $buffer.Dispose(); $process.Dispose() }
+$approvalSha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($approvedBytes)); Eq $approval.sha256 $approvalSha 'record approved raw SHA'
+Eq ([Convert]::ToBase64String([IO.File]::ReadAllBytes("$approvalRoot/approved-card.md"))) ([Convert]::ToBase64String($approvedBytes)) 'root approved raw card equals committed blob'
+Eq ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $PWD $own)))) ([Convert]::ToBase64String($approvedBytes)) 'whole candidate equals independently committed approved card'
+# END independent own-card approval guard
 Need (!(Test-Path "specs/tasks/$alias.md")) 'active alias removed'; Need ($archiveText -cmatch '(?m)^status: merged\r?$') 'archived alias merged'
 $oldLines=@(git show ('{0}:specs/tasks/{1}.md' -f $base,$alias)); Need ($LASTEXITCODE -eq 0) 'base alias present'; $old=($oldLines -join "`n")+"`n"
 Need ([regex]::Matches($old,'(?m)^status: todo$').Count -eq 1) 'base alias status'; $prefix=[regex]::Replace($old,'(?m)^status: todo$','status: merged')
