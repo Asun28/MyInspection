@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-18 第二轮存储路径交付**：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 经 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。20 项直接测试、35 枚具名可编译变异及 GREEN、恢复后、尾注后三次各 177 项应用回归通过；Windows 真实 Junction 已执行，POSIX 未执行。逐段解析保存已验证根，逐次检查子目录；只保证检查时路径归属。原始证据与清理错误日志均已保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支当时均不存在，不倒推原删除命令成功。完整合同及收据见归档卡。本卡完成 R5 后，五轮十张产品卡进度 3/10；第 2 轮的分页卡仍待 R5 收尾。第 3 轮 Policy 与 Requests 仅在原窗口准备，尚未完成验收；不新增任务窗口或另选产品卡。
+
 **2026-09-17 第一轮远端交付**：两张产品卡已完成远端 R5 收口，五轮十张产品卡进度 2/10；PR #301/#303 只登记任务与契约，不计产品数。`T1-SAFE-MEDIA-LOGGING-REMOTE` 经 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 合并（reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`；merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；CI `35158547855`，正式 R3 pass）。封闭字段 SafeLog 及四处媒体失败日志接线已交付；不包含存储分层、Keystore、调度或删除语义。
 
 `T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE` 经 [PR #305](https://github.com/Asun28/MyInspection/pull/305) 合并（reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`；merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`；CI `35159732680`，正式 R3 pass）。远端纯数据字体配置、角色映射、只承载数据的有符号测量快照与 line-box guard 已交付；报告组合、测量绑定、平台字形、裁剪与设备验收仍属后继工作。两张产品卡的远端验收和原本地历史分别见归档卡。
