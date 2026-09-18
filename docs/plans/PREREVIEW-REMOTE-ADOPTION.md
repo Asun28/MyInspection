@@ -6,7 +6,7 @@ The user requested push, PR creation and remote merge on 2026-09-17 after locall
 
 1. T0-PREREVIEW-REMOTE-SCHEMA: final record schema, checker, schema fixtures including the worker-envelope projection, and the existing Prereview configuration defaults. Source local tree `4c9735ef`, schema origin `3f055aa7`, approved revision `269d5268`.
 2. T0-PREREVIEW-POLICY-SOURCE: publish only the two exact historical source files in a dedicated raw fixture directory, independently pinned by inventory, length, Git blob and SHA-256. Original wording and references remain unchanged.
-3. T0-PREREVIEW-POLICY-SOURCE-CHECK: publish the complete audited replacement recipe, offline source-identity/replay verifier and four negative probes. These two pending prerequisites address POLICY PR #308's durable-source evidence gap.
+3. T0-PREREVIEW-POLICY-SOURCE-CHECK: publish the complete audited replacement recipe, offline source-identity/replay verifier and negative probes across four semantic classes. These two pending prerequisites address POLICY PR #308's durable-source evidence gap.
 4. T0-PREREVIEW-REMOTE-POLICY: protocol and checklists from that same tree (original deliveries `37881cf6` and `69bd4e20`, ordinal wording revised in `269d5268`). Protocol capability descriptions remain design contracts; this adoption does not activate workers or the runner.
 5. T0-PREREVIEW-REMOTE-FACTS: the two FACTS-LIB files from reviewed local tip `91bf3cbe`, retaining the corrected ignored-file and hunk-ordinal acceptance. Production SHA-256 `23A38171AAAF97303EDA973586041A07F8500EE7BF38275AA01CCFE156F7ACC2`.
 
@@ -28,7 +28,7 @@ POLICY source comparison must be reproducible from committed files. Ignored loca
 
 The original local policy documents are preserved byte-for-byte as historical data under `scripts/fixtures/prereview/policy-source/raw/`: `PREREVIEW-PROTOCOL.txt` and `PREREVIEW-CHECKLISTS.txt`. Their original paths, source commit/blob identities, raw SHA-256 values and lengths are recorded in the sibling `scripts/fixtures/prereview/policy-source/manifest.json`. The old wording and citations are provenance, not active instructions; the source bytes are never corrected to match current rules.
 
-The same manifest declares every counted replacement from those originals to the approved remote-adoption bodies. `pwsh -NoProfile -File scripts/fixtures/prereview/policy-source/verify.ps1` verifies source identity and the complete reconstructed body digests using only committed files. Once POLICY is present, add `-CandidateRoot .` to compare both actual document bodies before their receipt markers. `selfcheck.ps1` checks positive reconstruction and four named negative probes on temporary copies, without mutating the committed inputs.
+The same manifest declares every counted replacement from those originals to the approved remote-adoption bodies. `pwsh -NoProfile -File scripts/fixtures/prereview/policy-source/verify.ps1` verifies source identity and the complete reconstructed body digests using only committed files. Once POLICY is present, add `-CandidateRoot .` to compare both actual document bodies before their receipt markers. `selfcheck.ps1` checks positive reconstruction and eight named negative probes across four semantic classes on temporary copies, without mutating the committed inputs.
 
 This evidence delivery introduces no worker, runner, active policy document or network call. The POLICY repair points to these committed artifacts after this prerequisite is remotely merged; its two earlier R3 blocks remain in the delivery history and further review requires separate authorization.
 ## CHECK acceptance receipt — 2026-09-18
@@ -76,3 +76,34 @@ Complete stdout follows in table order; the hash line is labelled by the capture
 
 All three stderr streams were empty (SHA-256 `E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855`). The unchanged selfcheck exercised default replay and exact candidate comparison, plus five named probes across four semantic classes; it required each negative child to return nonzero with the intended guard reason. The exported native exit above is the selfcheck process exit, not fabricated per-probe exit values.
 Retained raw proof: `check-r1-fresh-evidence-v1`, 25-file manifest SHA-256 `07015CBCC89ECED3279E86F73A216E5323E11C6506941D030FC16632744F2B67`, containing the invoked capture scripts, original streams, native UTC/exit receipts and complete input copies. The visible results above do not require the reviewer to execute commands or access that local archive.
+
+## CHECK digest-repair acceptance — 2026-09-18
+
+The preceding receipt is historical evidence for selfcheck SHA `28A70D83...`. The old 54-file full archive `check-isolated-runtime-evidence-v1` (manifest `C06A9891B8FE96F7F385A9FBFBF05B74977510E4A6F6584E5331014B8C920268`, tree `566bfeab6e1e20fc9523ba9193996c76c3122037`) does not validate this digest-test repair.
+The tested selfcheck is 5450 bytes, blob `02663a380d143cf04e90535ec8268d3382e88074`, SHA-256 `1ED3BCAE463B8D035245592D5285C0F2B1540B041CCA97C1D890B445E8EE9339`; the manifest, verifier and two raw sources retain the other four identities in the table above. Both positive faces and all five old probes remain, with three additional equal-length SHA-256 probes.
+Tests used canonical HEAD `ca02dd090173b76152cb6139a57f26abf5619232` plus that sole unstaged selfcheck, exact 759-file tree `f9a1c7c4057269ace0764ba30a5632ee6c06f613`. The full run used private validation commit `5f74f3f8b8d6c752b23847faf9f7fc6ddf106ba8`, parent `d53cec8c994189f98893f8ac25889bc00b281801`. Its plan SHA was `7C25DF16D4FF9E0EFDA2948E7DDA5C0E19D0E89D0846517C95AE2F6CF7B3D933`; this later receipt and probe-count wording were not in that tested tree. No future delivery commit is claimed as tested here.
+The frozen base-card DoD enforced manifest SHA `79EA6AB2F52FCE4BA000A78F13391EC50F26F91739153007B742C2CB02A5022F` before invoking selfcheck: UTC 10:47:25.8536728–10:47:34.6998844, native exit 0, empty stderr. Raw stdout SHA-256 `B9352190A8843E4A9C932960AB2336E4877B47E5A22E30C82D313B5D920787F7`; complete stdout follows with only line endings normalized:
+```text
+[POLICY-SOURCE-FILE-PASS] docs/PREREVIEW-PROTOCOL.md source=1cbf12a29e6ccc67bcfaeeeae93c0ce65e00d151ccdcc67f885421be5f744457 adopted-body=5948ca1be9474a3fdedb4c2b5aea1380aae86de19a3799ecec98f31df0d0e2e8
+[POLICY-SOURCE-FILE-PASS] docs/PREREVIEW-CHECKLISTS.md source=c0c8adacc6f77ef8d067f2987e69398e1abdef40e10c46b1ad32bf511b6181f1 adopted-body=1a46b3031d6781769280838decf1640100f8b5f7254eb719b89742a9a7e7e84c
+[POLICY-SOURCE-EVIDENCE-PASS] two approved sources and complete replay verified
+[POLICY-SOURCE-NEGATIVE-PASS] source-byte
+[POLICY-SOURCE-NEGATIVE-PASS] source-byte-checklists
+[POLICY-SOURCE-NEGATIVE-PASS] replacement-count
+[POLICY-SOURCE-NEGATIVE-PASS] replayed-digest
+[POLICY-SOURCE-SHA-PROBE] source-sha256 bytes=29016 expectedBytes=29016 sha=31e0d694e2dca20b469f0b8cbfcde78467f9850fd1fc638b540d30ba5ab376ea expectedSha=1cbf12a29e6ccc67bcfaeeeae93c0ce65e00d151ccdcc67f885421be5f744457
+[POLICY-SOURCE-NEGATIVE-PASS] source-sha256
+[POLICY-SOURCE-SHA-PROBE] source-sha256-checklists bytes=12238 expectedBytes=12238 sha=767b762bcd6b311519ef8b5f252936bdd19f24ace0b7b269ad54312661e9e5eb expectedSha=c0c8adacc6f77ef8d067f2987e69398e1abdef40e10c46b1ad32bf511b6181f1
+[POLICY-SOURCE-NEGATIVE-PASS] source-sha256-checklists
+[POLICY-SOURCE-SHA-PROBE] replayed-sha256 bytes=29739 expectedBytes=29739 sha=c9fd8dfce384a6d21986a334f134fcde62c8fe114290882ef6c828d505c97988 expectedSha=5948ca1be9474a3fdedb4c2b5aea1380aae86de19a3799ecec98f31df0d0e2e8
+[POLICY-SOURCE-NEGATIVE-PASS] replayed-sha256
+[POLICY-SOURCE-FILE-PASS] docs/PREREVIEW-PROTOCOL.md source=1cbf12a29e6ccc67bcfaeeeae93c0ce65e00d151ccdcc67f885421be5f744457 adopted-body=5948ca1be9474a3fdedb4c2b5aea1380aae86de19a3799ecec98f31df0d0e2e8
+[POLICY-SOURCE-FILE-PASS] docs/PREREVIEW-CHECKLISTS.md source=c0c8adacc6f77ef8d067f2987e69398e1abdef40e10c46b1ad32bf511b6181f1 adopted-body=1a46b3031d6781769280838decf1640100f8b5f7254eb719b89742a9a7e7e84c
+[POLICY-SOURCE-EVIDENCE-PASS] two approved sources and complete replay verified
+[POLICY-SOURCE-NEGATIVE-PASS] candidate-body
+[POLICY-SOURCE-SELFCHECK-PASS] original replay, candidate comparison and eight negative probes including three equal-length SHA-256 cases
+```
+A separate test-first witness removed each SHA predicate while retaining length checks. Ordered child exits `[intact, without-protocol-source-sha, without-checklists-source-sha, without-replayed-body-sha]` were `[0,0,0,0]` on the old selfcheck (UTC 10:44:55.6445402–10:45:22.6851164, witness exit 1), then `[0,1,1,1]` on the repair (10:46:25.0334001–10:46:56.0321876, witness exit 0). Each repaired failure named its intended new probe; parser failures were not accepted. The same witness SHA is `CF1414F9E184F8DB2475D8F53F078D5803C98059B12FD66DCCAD964E4B0C7749`.
+Retained RED/GREEN/DoD proof: `check-r2-light-v1`, 126-file manifest `036AB524EB93DF210D5595E01A748FC395EB1D2876D4F9159CC3BBD87719FE55`, including all old/new inputs, mutant copies and native streams. The original RED receipt and both real R3 BLOCKs remain preserved.
+New ordinary full: `pwsh -NoProfile -File scripts/selftest.ps1 -TaskId T0-PREREVIEW-POLICY-SOURCE-CHECK`, without Only/Parallel/IncludeMeta; UTC 11:40:02.5587540–12:22:39.0577436, native exit 0, 2556.4083213 seconds. All 17 groups ran exactly once and passed, `failed=none ran=17`, tier 1/full, actual 14f passed, before/after 759-file identity matched, postguard/audit/wrapper exits 0. META declared 22, ran 0, skipped 22; absent sh/T11 meta fixture and unsupported Windows file-link cases remain explicit limits, not executed passes.
+Retained full proof: `check-r2-full-complete-evidence-v1`, 2106-file manifest `D9CFB6190A1F173F4CC22003F822EE476EA3146FDD6F1760C5888545E01E6783`, containing all native/raw evidence, 759 input files, the actual 857-file preparation and complete prior 189/37/126-file archives. This is current input evidence, not formal R3, CI or remote-merge approval; normal ship must still run its frozen DoD and delivery gates on the final candidate.

@@ -4,12 +4,17 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $utf8 = [Text.UTF8Encoding]::new($false, $true)
+function Assert-SHAProbe([byte[]]$Bytes, [long]$ExpectedLength, [string]$ExpectedSHA, [string]$Case) {
+    $actualSHA = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()
+    if ($Bytes.Length -ne $ExpectedLength -or $actualSHA -ceq $ExpectedSHA) { throw "Equal-length digest probe precondition failed: $Case" }
+    Write-Output "[POLICY-SOURCE-SHA-PROBE] $Case bytes=$($Bytes.Length) expectedBytes=$ExpectedLength sha=$actualSHA expectedSha=$ExpectedSHA"
+}
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('policy-source-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 try {
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'verify.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'Original committed source replay failed.' }
-    foreach ($case in @('source-byte', 'source-byte-checklists', 'replacement-count', 'replayed-digest', 'candidate-body')) {
+    foreach ($case in @('source-byte', 'source-byte-checklists', 'replacement-count', 'replayed-digest', 'source-sha256', 'source-sha256-checklists', 'replayed-sha256', 'candidate-body')) {
         $caseRoot = Join-Path $tempRoot $case
         New-Item -ItemType Directory -Path $caseRoot | Out-Null
         Get-ChildItem -LiteralPath $PSScriptRoot -File | Copy-Item -Destination $caseRoot
@@ -23,6 +28,21 @@ try {
             'source-byte-checklists' { [IO.File]::AppendAllText((Join-Path $rawRoot $manifest.files[1].sourceFile), 'x', $utf8); $reason = "Source digest mismatch: $($manifest.files[1].path)" }
             'replacement-count' { $manifest.files[0].replacements[0].occurrences++; $reason = 'Replacement count mismatch' }
             'replayed-digest' { $manifest.files[0].replacements[0].new += 'x'; $reason = 'Adopted body digest mismatch' }
+            { $_ -in @('source-sha256', 'source-sha256-checklists') } {
+                $item = $manifest.files[[int]($case -eq 'source-sha256-checklists')]
+                $path = Join-Path $rawRoot $item.sourceFile
+                $bytes = [IO.File]::ReadAllBytes($path); $bytes[0] = $bytes[0] -bxor 1
+                Assert-SHAProbe $bytes $item.sourceBytes $item.sourceSha256 $case
+                [IO.File]::WriteAllBytes($path, $bytes); $reason = "Source digest mismatch: $($item.path)"
+            }
+            'replayed-sha256' {
+                $item = $manifest.files[0]
+                $item.replacements[0].new = '!' + $item.replacements[0].new.Substring(1)
+                $body = $utf8.GetString([IO.File]::ReadAllBytes((Join-Path $rawRoot $item.sourceFile)))
+                foreach ($replacement in $item.replacements) { $body = $body.Replace([string]$replacement.old, [string]$replacement.new) }
+                Assert-SHAProbe $utf8.GetBytes($body) $item.adoptedBodyBytes $item.adoptedBodySha256 $case
+                $reason = "Adopted body digest mismatch: $($item.path)"
+            }
             'candidate-body' {
                 foreach ($item in $manifest.files) {
                     $body = $utf8.GetString([IO.File]::ReadAllBytes((Join-Path $rawRoot $item.sourceFile)))
@@ -49,4 +69,4 @@ try {
     if ((Split-Path $resolved) -ine $parent -or (Split-Path $resolved -Leaf) -notmatch '^policy-source-[a-f0-9]{32}$') { throw 'Unexpected temporary cleanup target.' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
-Write-Output '[POLICY-SOURCE-SELFCHECK-PASS] original replay, candidate comparison and five negative probes across four semantic classes'
+Write-Output '[POLICY-SOURCE-SELFCHECK-PASS] original replay, candidate comparison and eight negative probes including three equal-length SHA-256 cases'
