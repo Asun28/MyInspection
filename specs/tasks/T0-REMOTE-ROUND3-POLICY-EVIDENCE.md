@@ -35,7 +35,7 @@ Policy actual Sol/high reviewer returned one PASS for `afffd383`; peripheral fil
 
 Policy cleanup wrapper returned0, but its raw log includes Filename too long and not-a-working-tree errors. The saved immediate filesystem/Git postchecks establish final absence, without turning failed internal commands into success. Registration cleanup has its own distinct actual receipt. The original Policy fd1 and all five BLOCKs remain undelivered history.
 
-Registration313 has three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons, not just the final summary or bundle hashes. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. Original contract text and the approved Requests19-case transfer to Binding remain preserved.
+Registration313 has exactly four summarized reviews, three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons and binds every summary entry to its raw record, not just the final summary or bundle hashes. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. The current Policy/Requests contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; the approved changed fields are pinned exactly and every other field equals its frozen snapshot. The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; the same 12+6+1 case transfer must appear in that snapshot and in the merged Requests text, and the two merged Policy source paths are asserted exactly.
 
 The additional `original-policy-delivery.json` is a separately pinned read-only observation: original fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time. It does not alter the original638 index or claim all-time remote absence. Four separately pinned raw `ci-jobs/*.json` responses additionally bind each selected job to its actual run and reviewed head.
 
@@ -208,6 +208,20 @@ def xml_inventory(folder, expected_count, clean=True):
 RECEIPT_SUFFIX_SHA = '0EA3083C636F0DB02D60C5A625147AD3126DCB8B2A603BEE82818C07CC29527D'
 ORIGINAL_DELIVERY_SHA = '7CD115BC8A21BB3528E7212D159BB7FC189590A8370CE990CC962F5CDFF67508'
 ORIGINAL_HEADS = ['2e2900cd295641d2e87da22deb09a92726118228', 'e7f00bb9d888a87b45d0a888a9458bc297bc2e4c', '822e1eaa703a998ed78d032b38aac99c8531214b', '0a50328150bae8471d45479b9880721f76556915', 'fd1dd18c3a530f748a7184cf32af5090c8b9c7b9']
+POLICY_SOURCES = ['android/app/src/main/kotlin/nz/myinspection/app/platform/AppStoragePolicy.kt', 'android/app/src/test/kotlin/nz/myinspection/app/platform/AppStoragePolicyTest.kt']
+FINAL_TEST_SHA = '659ECCD74F90864270B3F83F7E4FAE379FD0DC51D47BC2224E711420DC7684E2'
+# Snapshot name -> reviewed/merged payload path it must equal byte for byte (payloads are bound to RH/RM by source()).
+SNAPSHOT_PAYLOADS = {'Policy.PR313-current.md': 'specs/tasks/T1-APP-STORAGE-POLICY-REMOTE.md', 'Requests.PR313-approved.md': 'specs/tasks/T3-PDF-MEASUREMENT-REQUESTS.md',
+    'Policy.registered-original.md': 'docs/evidence/round3-contracts/T1-APP-STORAGE-POLICY.registered.txt', 'Requests.registered-original.md': 'docs/evidence/round3-contracts/T3-PDF-MEASUREMENT-REQUESTS.registered.txt'}
+# Exact approved field text of the merged contracts (SHA-256 of each front-matter field as card_parts() returns it); every other field must equal its frozen snapshot.
+POLICY_APPROVED_FIELDS = {'acceptance': 'A945C5FC66EC442CFC23D3577D9812713D2A813CF3033771B2F77659F47D286B'}
+REQUESTS_APPROVED_FIELDS = {'acceptance': 'CD60D9D0CDF7E573F1DE40CFE7D2E22F366BC1F4F74CFDCCF2C9FAA737EB9D0B', 'dod_assert': '02CBA6E95BF7296366F24F6496E6B77D5B33FF045D2767A7A5C4A435C33D835D', 'hygiene': '19F4A654C5A56FC01D753F72AD9EC1BE478D80B01640BB7A572882DD8BD1D2B5'}
+BINDING_SUCCESSOR_SHA = '116E319659B3E43DED00D7246A9AE9D54D3EE2836A216AB8B76EDD126EE8D52E'
+TRANSFER_19 = {'requests_a2': '(12 non-finite cases, six sign/edge negatives and one positive control) belong to the Binding successor',
+    'requests_dod_assert': 'the 19 Composer numerical integration cases are assigned to Binding',
+    'binding_a1': 'Add both complete Composer numerical integration methods here: 12 non-finite field/value cases, six sign/edge rejection cases and one valid signed-edge positive control.',
+    'binding_a5': 'four fields times NaN/+Infinity/-Infinity (12), six sign/edge invalid values, and the accepted baseline8/top-8/bottom3 control',
+    'binding_dod_assert': 'both full Composer numerical integration methods with all 19 cases'}
 REQUIRED_TRANSFORMS = {
     "PRM23": [
         "deviceProtectedDataDir = credentialEnvironment.deviceProtectedDataDir,",
@@ -248,7 +262,7 @@ def check_required_transform(mutation, prod):
     mid = mutation['id']
     if mid not in REQUIRED_TRANSFORMS: return
     need([mutation[k] for k in ['before','after','expected_failure']] == REQUIRED_TRANSFORMS[mid], 'required semantic transformation and primary: '+mid)
-    need(mutation['path'] == 'android/app/src/main/kotlin/nz/myinspection/app/platform/AppStoragePolicy.kt', 'semantic mutation source path')
+    need(mutation['path'] == POLICY_SOURCES[0], 'semantic mutation source path')
     need(prod.count(mutation['before'].encode()) == 1, 'semantic transformation anchored once in real production')
 
 
@@ -329,7 +343,12 @@ def check_policy(bundle, repo, original_delivery):
     need(final.startswith(executable), 'final test unchanged executable prefix')
     suffix = final[len(executable):]
     check_comment_suffix(suffix, receipt)
-    for entry in doc(d/'merged-source-proof.json'):
+    need(sha(final) == FINAL_TEST_SHA == receipt['finalTestSha256'], 'independent final test pin')
+    proof = doc(d/'merged-source-proof.json')
+    need([entry['path'] for entry in proof] == POLICY_SOURCES, 'exact two merged Policy source paths, nothing fewer or more')
+    need([entry['sha256'] for entry in proof] == [sha(prod), sha(final)], 'merged proof pins are the saved production and final test bytes')
+    need(all(entry['merge'] == PM and entry['matchesApproved'] is True for entry in proof), 'merged proof bound to the actual merge')
+    for entry in proof:
         raw = (v/'final-source'/Path(entry['path']).name).read_bytes()
         source(repo, entry['path'], PH, PM, raw, entry['sha256'], entry['blob'])
     green_suites, green_cases = xml_inventory(v/'green-tests', 189)
@@ -433,6 +452,8 @@ def check_registration(bundle, repo):
                 ('execution/attempt3-blocked-a8dea0ad','ship-attempt3.log','ship-attempt3-result.json'),
                 ('execution','ship-attempt4.log','ship-attempt4-result.json')]
     expected_heads = ['b14cc2f308098d537c6edd177c986f88c666d9be','aab6c81833cbef907a8a74af80f8eb2f3a46ae9c','a8dea0adacefc6821eb4cce3b4eeb525e75637d3',RH]
+    reviews = summary['reviews']
+    need(len(reviews) == len(attempts) == 4 and summary['actualShipAttempts'] == 4, 'exactly four summarized reviews, one per raw record')
     times = []
     for i,(folder,log_name,result_name) in enumerate(attempts):
         directory=r/folder; result=doc(directory/result_name); raw=(directory/log_name).read_bytes()
@@ -441,7 +462,7 @@ def check_registration(bundle, repo):
         raw_review(raw.decode('utf-8-sig'),saved,head,verdict)
         need(result['canonicalHead'] == head and result['exit'] == (1 if i<3 else 0), 'each wrapper head/exit')
         need(sha(raw) == result['logSHA256'], 'each wrapper raw log SHA')
-        need(summary['reviews'][i]['sha'] == head and summary['reviews'][i]['reasons'] == saved['reasons'], 'all historical reasons')
+        need((reviews[i]['attempt'], reviews[i]['verdict'].lower(), reviews[i]['sha'], reviews[i]['reasons']) == (i+1, verdict, head, saved['reasons']), 'each summarized review bound to its raw record')
         need(utc(result['startedUtc']) < utc(result['endedUtc']), 'ship interval')
         times.append((utc(result['startedUtc']),utc(result['endedUtc'])))
     need(all(times[i][1] < times[i+1][0] for i in range(3)), 'four ordered actual reviews')
@@ -460,6 +481,8 @@ def check_registration(bundle, repo):
         raw=(r/'reviewed-payload'/entry['path']).read_bytes()
         source(repo,entry['path'],RH,RM,raw,entry['sha256'],entry['gitBlob'])
     originals=r/'source-proof/originals'
+    for name,path in SNAPSHOT_PAYLOADS.items():
+        need(safe_leaf(originals,name).read_bytes() == safe_leaf(r/'reviewed-payload',path).read_bytes(), 'snapshot equals the reviewed and merged payload: '+name)
     all_fields=('allow_paths','forbid','non_goals','dod_command','dod_exit','acceptance','dod_assert','hygiene')
     for label in ['Policy','Requests']:
         old,_=card_parts(text(originals/(label+'.registered-original.md')))
@@ -467,7 +490,8 @@ def check_registration(bundle, repo):
         need(all(old[k] == frozen[k] for k in all_fields),'eight original contract fields preserved')
     frozen,old_body=card_parts(text(originals/'Policy.frozen-remote-before-shape.md'))
     current,new_body=card_parts(text(originals/'Policy.PR313-current.md'))
-    need(all(frozen[k] == current[k] for k in frozen if k!='acceptance'), 'Policy non-acceptance fields unchanged')
+    need(frozen.keys() == current.keys() and all(frozen[k] == current[k] for k in frozen if k not in POLICY_APPROVED_FIELDS), 'Policy non-acceptance fields unchanged')
+    need({k: sha(current[k].encode()) for k in POLICY_APPROVED_FIELDS} == POLICY_APPROVED_FIELDS, 'exact approved Policy acceptance text')
     old_a=frozen['acceptance'].splitlines()[1:]; new_a=current['acceptance'].splitlines()[1:]
     strip=lambda line: re.sub(r'^  - "A\d+ |"$','',line)
     need(len(old_a)==2 and len(new_a)==3 and old_a[0]==new_a[0] and strip(old_a[1])==strip(new_a[1])+strip(new_a[2]),'complete Policy A2 split')
@@ -478,10 +502,18 @@ def check_registration(bundle, repo):
         need(paragraph in target[offset:],'Policy history intact and ordered');offset=target.index(paragraph,offset)+1
     frozen,_=card_parts(text(originals/'Requests.frozen-remote-before-rescope.md'))
     current,_=card_parts(text(originals/'Requests.PR313-approved.md'))
-    need(all(frozen[k]==current[k] for k in frozen if k not in ['acceptance','dod_assert','hygiene']), 'Requests unapproved fields unchanged')
+    need(frozen.keys() == current.keys() and all(frozen[k]==current[k] for k in frozen if k not in REQUESTS_APPROVED_FIELDS), 'Requests unapproved fields unchanged')
+    need({k: sha(current[k].encode()) for k in REQUESTS_APPROVED_FIELDS} == REQUESTS_APPROVED_FIELDS, 'exact approved Requests acceptance/dod_assert/hygiene text')
     oa=frozen['acceptance'].splitlines()[1:];na=current['acceptance'].splitlines()[1:]
     need(len(oa)==len(na)==5 and all(oa[i]==na[i] for i in [0,3,4]), 'Requests retained A1/A4/A5')
-    need('19 cases' in card_parts(text(originals/'Binding.approved-successor.md'))[0]['dod_assert'], 'Binding transfer preserved')
+    need(TRANSFER_19['requests_a2'] in na[1] and TRANSFER_19['requests_dod_assert'] in current['dod_assert'], 'merged Requests assigns the 19 cases to Binding')
+    # The Binding successor is a root-saved snapshot pinned here, not a reviewed payload: no registration PR carries it yet.
+    successor_raw=safe_leaf(originals,'Binding.approved-successor.md').read_bytes()
+    need(sha(successor_raw) == BINDING_SUCCESSOR_SHA, 'fixed approved Binding successor snapshot')
+    successor,_=card_parts(successor_raw.decode('utf-8-sig')); ba=successor['acceptance'].splitlines()[1:]
+    need(successor['id'] == 'id: T3-PDF-MEASUREMENT-BINDING-REMOTE' and successor['depends_on'] == 'depends_on: [T3-PDF-MEASUREMENT-REQUESTS]', 'Binding successor identity and Requests dependency')
+    need(len(ba) == 5 and TRANSFER_19['binding_a1'] in ba[0] and TRANSFER_19['binding_a5'] in ba[4] and TRANSFER_19['binding_dod_assert'] in successor['dod_assert'], 'Binding successor carries the same 12+6+1 case transfer')
+    need('numerical integration' not in text(originals/'Binding.original-3e67ba71.md'), 'transfer absent from the original Binding contract')
     old_request_body=card_parts(text(originals/'Requests.registered-original.md'))[1]
     new_request_body=card_parts(text(originals/'Requests.PR313-approved.md'))[1]
     position=0; target=paragraphs(new_request_body)
