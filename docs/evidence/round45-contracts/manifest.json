@@ -1,0 +1,41 @@
+{
+  "purpose": "Byte-exact previously registered local contracts; no product acceptance or status change",
+  "sources": [
+    {
+      "id": "T1-APP-STORAGE-ANDROID",
+      "sourceCommit": "a718507f31ededba510d1be9335f3c9683e0650b",
+      "sourcePath": "specs/tasks/T1-APP-STORAGE-ANDROID.md",
+      "sourceBlob": "684adfb406263a55c7ac4d6ad2a268053487f500",
+      "rawSha256": "66DA765394F287AA8A08B060CB45A7982FAF826E0B9A743689873C2B23EF52D1",
+      "rawBytes": 5129,
+      "copyPath": "docs/evidence/round45-contracts/T1-APP-STORAGE-ANDROID.registered.txt"
+    },
+    {
+      "id": "T3-PDF-MEASUREMENT-BINDING",
+      "sourceCommit": "9635a6503c3a25efa017a40e6da628f5f0dfa57e",
+      "sourcePath": "specs/tasks/T3-PDF-MEASUREMENT-BINDING.md",
+      "sourceBlob": "ac802da62d7a007fe5c26cadbde29ab665cfeb91",
+      "rawSha256": "CE312FAE39B424112A7C57C1B9B1410FD7A371F7FCEF8A291028CD8C733F2FC1",
+      "rawBytes": 6524,
+      "copyPath": "docs/evidence/round45-contracts/T3-PDF-MEASUREMENT-BINDING.registered.txt"
+    },
+    {
+      "id": "T3-PDF-DEVICE-FIXTURE",
+      "sourceCommit": "6ff56fc2bf829f496f197b74171e989b2941e40e",
+      "sourcePath": "specs/tasks/T3-PDF-DEVICE-FIXTURE.md",
+      "sourceBlob": "1decac7622657aeb228de6c06addcc66e1feefe0",
+      "rawSha256": "B6BCCDE1A17EEDF15BE1164FB450B79A68DACE67280330926B9620BA4D83C96A",
+      "rawBytes": 9862,
+      "copyPath": "docs/evidence/round45-contracts/T3-PDF-DEVICE-FIXTURE.registered.txt"
+    },
+    {
+      "id": "T3-PDF-TEXT-METRICS-OPS",
+      "sourceCommit": "e5cf6339223031519b6c41a734d1a6b67d0cd815",
+      "sourcePath": "specs/tasks/T3-PDF-TEXT-METRICS-OPS.md",
+      "sourceBlob": "38c45eed3271051d5322b18650b89259c728ba7b",
+      "rawSha256": "6F673C8EB46477BDDAD76AEDFF7643700F9F28F8B37FECB5BD3B407A41734CD1",
+      "rawBytes": 4118,
+      "copyPath": "docs/evidence/round45-contracts/T3-PDF-TEXT-METRICS-OPS.registered.txt"
+    }
+  ]
+}
