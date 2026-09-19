@@ -25,24 +25,23 @@ doc_sync: This evidence card remains active and immutable for the future metadat
 
 # Complete Policy316 and registration313 evidence publication
 
-Projection base is actual merge `c0afac77175786b55c61c6ebb0292a64a33431a8`. Approval is established only by the independent external root decision/record and actual full DoD; publication is effective only after its remote merge. The complete executable proof below is published in this one metadata path; no script or runtime file is added to the repository.
+Projection base is actual merge `c0afac77175786b55c61c6ebb0292a64a33431a8`. Approval is established only by the independent external root decision/record and actual full DoD; publication is effective only after its remote merge. The complete executable proof below is the one metadata path; no script or runtime file is added to the repository.
 
-Before actual execution, copy the unchanged `portable-index.json` and all638 relative bundle leaves to `_local/round3-policy-evidence/`. The index SHA is independently fixed in the complete reviewed core. It includes the original172 validation leaves, original39 ship leaves and separately labelled root supplements/cleanup/registration originals. Absolute original paths inside manifests are provenance only; reads use relative copied paths.
+Before execution, copy the unchanged `portable-index.json` and all638 relative bundle leaves to `_local/round3-policy-evidence/`; the index SHA is fixed in the reviewed core and covers the original172 validation leaves, original39 ship leaves and the labelled root supplements/cleanup/registration originals. Absolute paths inside manifests are provenance only.
 
-Policy source `C031E652…13B7`, executable test `D06827F9…90D6`, final test `659ECCD7…68E2`; only24receipt-comment lines follow the unchanged executable prefix. All30 mutants use the actual final production source; PRM13 non-null absent/unwritable, PRM23 real create/DP input miswiring and PRM27–30 boundary integration are each pinned as an exact path/before/after/primary tuple anchored once in production. Complete primary/secondary XML failures remain available. Exit values from quiet compile runs are native result receipts; empty logs do not independently establish exits.
+Policy source `C031E652…13B7`, executable test `D06827F9…90D6`, final test `659ECCD7…68E2`; only24receipt-comment lines follow the unchanged executable prefix. All30 mutants use the final production source; PRM13, PRM23 and PRM27–30 are each pinned as an exact path/before/after/primary tuple anchored once in production. Complete primary/secondary XML failures remain available. Quiet compile exits are native receipts; empty logs do not establish exits.
 
-Policy actual Sol/high reviewer returned one PASS for `afffd383`; peripheral filesystem reads were blocked and are not claimed successful. Actual CI35318686041 and PR316 merge15f are pinned. Restored app XML reused GREEN cache; ship app XML is later, while ship E2E XML remains cached. No forced reexecution is invented.
+The Sol/high reviewer returned one PASS for `afffd383`; its blocked peripheral reads are not claimed successful. CI35318686041 and PR316 merge15f are pinned. The ship receipt is tied to its manifest-pinned wrapper (one exact execution line into normal-ship.log, no SkipRed or reset), its exact command, native exit and manifest exit time; fresh-state, log, merge, token, receipt and release timestamps must be in order. Restored app XML reused GREEN cache; ship app XML is later, ship E2E XML cached. No forced reexecution is invented.
 
-Policy cleanup wrapper returned0, but its raw log includes Filename too long and not-a-working-tree errors. The saved immediate filesystem/Git postchecks establish final absence, without turning failed internal commands into success. Registration cleanup has its own distinct actual receipt. The original Policy fd1 and all five BLOCKs remain undelivered history.
+Policy cleanup wrapper returned0 while its raw log includes Filename too long and not-a-working-tree errors; the saved filesystem/Git postchecks establish final absence without turning failed internal commands into success. Original Policy fd1 and all five BLOCKs remain undelivered history.
 
-Registration313 has exactly four summarized reviews, three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons, binds every summary entry and wrapper banner to its branch, head and raw record, checks the complete command structure of every ship wrapper (one execution line; every other script or subprocess mention is a controller pin or the start record), and takes a semantic reset inventory over the whole leaf set: all 13 JSON command receipts classified as 2 reset (one event plus its copy), 8 ship and 3 checks, the reset sentinel in no log but the reset log and its copy, and no script but the pinned controller copies and the standalone reset wrapper mentioning a reset. Registration's T24 token is bound to RH/#313 and minted inside the fourth wrapper after the actual merge; being a metadata SkipRed ship it claims no T35, and the summary says so explicitly. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. The current Policy/Requests contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; the approved changed fields are pinned exactly and every other field equals its frozen snapshot. The Requests body is classified completely: the frozen snapshot is the four original paragraphs plus the remote-order section, and the approved body keeps the first two verbatim and in place, carries two SHA-pinned rewrites of the pre-RED and forecast paragraphs, and keeps the section unchanged. The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; the same 12+6+1 case transfer must appear in that snapshot and in the merged Requests text, and the two merged Policy source paths are asserted exactly.
+Registration313: four summarized reviews (three BLOCKs then PASS), one authorized standalone reset between review2 and review3, and the third wrapper's output label inherited by the fourth wrapper script. The core parses each raw verdict and its reasons, binds every summary entry and wrapper banner to branch, head and raw record, checks each ship wrapper's complete command structure against exact allowlists plus the inherited label and each start record's reset note, and inventories resets over the whole leaf set (13 exact command receipts with multiplicities; the reset sentinel only in the reset log and its copy; reset flags only in pinned controller copies and the standalone reset wrapper). The T24 token is bound to RH/#313 inside the fourth wrapper after the merge; a metadata SkipRed ship claims no T35. Preview candidateHead does not replace the nine payload bindings. Contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; approved changed fields are pinned exactly, every other field equals its frozen snapshot; the Requests body is classified completely (two paragraphs kept verbatim in place, two SHA-pinned rewrites, remote-order section unchanged). The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; its 12+6+1 case transfer must also appear in the merged Requests text; the two merged Policy source paths are asserted exactly.
 
-The additional `original-policy-delivery.json` is a separately pinned read-only observation: original fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time. It does not alter the original638 index or claim all-time remote absence. Four separately pinned raw `ci-jobs/*.json` responses additionally bind each selected job to its actual run and reviewed head.
+`original-policy-delivery.json` is a separately pinned observation: fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time; it claims no all-time remote absence. Four pinned raw `ci-jobs/*.json` responses bind each job to its run and reviewed head.
 
-The fixed authority is the latest own-card-only, single-parent commit on original D `refs/heads/master`. Its message trailers carry the approved card SHA-256, the root decision file SHA-256 and the base, so the decision and the card are bound by the commit rather than by their own mutable bytes; `approval.json` and `approved-card.md` at `_local/rotating-card-orchestrator/round3-policy-evidence-own-card-approval/` are validated field by field against that commit, the decision's `expectedMain` must be the commit's parent, and every authority file must be an ordinary single-link regular file. This candidate cannot create that approval by writing a companion hash. Both the approval and root decision must have strict integer schemaVersion1; portable regular files must have exactly one hard link. A base change requires full reprojection and independent approval of changed bytes.
+The fixed authority is the latest own-card-only, single-parent commit on original D `refs/heads/master`. Its message trailers carry the approved card SHA-256, the root decision file SHA-256 and the base, so decision and card are bound by the commit, not by their own mutable bytes; `approval.json` and `approved-card.md` under `_local/rotating-card-orchestrator/round3-policy-evidence-own-card-approval/` are validated field by field against that commit, the decision's `expectedMain` must be the commit's parent, and every authority file must be an ordinary single-link regular file with strict integer schemaVersion1. This candidate cannot create that approval by writing a companion hash. A base change requires full reprojection and independent approval.
 
-Consumers must pin this whole card at its actual reviewed and merged Git blobs and raw SHA, parse this publication's complete review/reset/CI/merge/cleanup lifecycle, and invoke only `replay(evidence, repo)` from the unique verified Python fence. They must not reuse the one-path publication guard as their own closure scope guard.
-
+Consumers pin this whole card at its reviewed and merged blobs and raw SHA and invoke only `replay(evidence, repo)` from the unique fence, never the one-path publication guard.
 ```python
 """Read-only replay of saved Policy316/registration313 evidence. No historical tests run."""
 from pathlib import Path
@@ -149,7 +148,7 @@ def raw_review(log, saved, branch, head, verdict):
     need(len(headers) == 1, 'one actual header before echoed prompt')
     header = headers[0]
     need(re.findall(r'(?m)^model: (.+)$',header) == ['gpt-5.6-sol'] and re.findall(r'(?m)^reasoning effort: (.+)$',header) == ['high'], 'actual header model/effort')
-    need(len(re.findall(r'(?m)^Codex 评审（超时 3600s）'+re.escape(branch)+' @ '+re.escape(head[:8])+r' \.\.\.$',prefix)) == 1, 'exact pre-prompt wrapper identity: branch, head and pinned timeout')
+    need(len(re.findall(r'(?m)^Codex 评审（超时 3600s）'+re.escape(branch)+' @ '+re.escape(head[:8])+r' \.\.\.$',prefix)) == 1, 'exact wrapper banner: branch, head and pinned timeout')
     need(len(re.findall(r'(?m)^session id: [0-9a-f-]+$',header)) == 1, 'one actual header session')
     return actual
 
@@ -216,10 +215,8 @@ ORIGINAL_DELIVERY_SHA = '7CD115BC8A21BB3528E7212D159BB7FC189590A8370CE990CC962F5
 ORIGINAL_HEADS = ['2e2900cd295641d2e87da22deb09a92726118228', 'e7f00bb9d888a87b45d0a888a9458bc297bc2e4c', '822e1eaa703a998ed78d032b38aac99c8531214b', '0a50328150bae8471d45479b9880721f76556915', 'fd1dd18c3a530f748a7184cf32af5090c8b9c7b9']
 POLICY_SOURCES = ['android/app/src/main/kotlin/nz/myinspection/app/platform/AppStoragePolicy.kt', 'android/app/src/test/kotlin/nz/myinspection/app/platform/AppStoragePolicyTest.kt']
 FINAL_TEST_SHA = '659ECCD74F90864270B3F83F7E4FAE379FD0DC51D47BC2224E711420DC7684E2'
-# Snapshot name -> reviewed/merged payload path it must equal byte for byte (payloads are bound to RH/RM by source()).
 SNAPSHOT_PAYLOADS = {'Policy.PR313-current.md': 'specs/tasks/T1-APP-STORAGE-POLICY-REMOTE.md', 'Requests.PR313-approved.md': 'specs/tasks/T3-PDF-MEASUREMENT-REQUESTS.md',
     'Policy.registered-original.md': 'docs/evidence/round3-contracts/T1-APP-STORAGE-POLICY.registered.txt', 'Requests.registered-original.md': 'docs/evidence/round3-contracts/T3-PDF-MEASUREMENT-REQUESTS.registered.txt'}
-# Exact approved field text of the merged contracts (SHA-256 of each front-matter field as card_parts() returns it); every other field must equal its frozen snapshot.
 POLICY_APPROVED_FIELDS = {'acceptance': 'A945C5FC66EC442CFC23D3577D9812713D2A813CF3033771B2F77659F47D286B'}
 REQUESTS_APPROVED_FIELDS = {'acceptance': 'CD60D9D0CDF7E573F1DE40CFE7D2E22F366BC1F4F74CFDCCF2C9FAA737EB9D0B', 'dod_assert': '02CBA6E95BF7296366F24F6496E6B77D5B33FF045D2767A7A5C4A435C33D835D', 'hygiene': '19F4A654C5A56FC01D753F72AD9EC1BE478D80B01640BB7A572882DD8BD1D2B5'}
 BINDING_SUCCESSOR_SHA = '116E319659B3E43DED00D7246A9AE9D54D3EE2836A216AB8B76EDD126EE8D52E'
@@ -230,37 +227,20 @@ TRANSFER_19 = {'requests_a2': '(12 non-finite cases, six sign/edge negatives and
     'binding_dod_assert': 'both full Composer numerical integration methods with all 19 cases'}
 REQUESTS_REWRITES = ['95CA171F3610128A5BB41F1EEEDC210050F38DCB1AAAC90BE35E35C87825B7C7', '001F962F4BE1AFA73F12866978051FAEF0CDCFD35E47AE81D2F2F7929ED11FBF']
 RESET_SENTINEL = '轮次计数已清零'
+REGISTRATION_SHIP = 'original D task.ps1 -TaskId T0-REMOTE-ROUND3-CARDS -Phase ship -Base master -SkipRed'
+POLICY_SHIP_COMMAND = 'pwsh -NoProfile -File D:/Projects/MyInspection/scripts/task.ps1 -TaskId T1-APP-STORAGE-POLICY-REMOTE -Phase ship -Base master'
+DOD_COMMAND = 'cmd /c android\\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug'
+RECEIPT_COMMANDS = {REGISTRATION_SHIP: 7, POLICY_SHIP_COMMAND: 1, 'originalD review.ps1 -WorktreePath C:/wt/T0-REMOTE-ROUND3-CARDS -Base master -ResetRounds': 2, DOD_COMMAND: 2, 'pwsh -NoProfile -File scripts/verify.ps1': 1}
+WRAPPER_CALLS = {'git -C $root rev-parse HEAD', 'git -C $root diff --cached --name-only', 'git -C $wt rev-parse HEAD', 'git -C $wt status --porcelain=v1', 'gh api repos/Asun28/MyInspection/commits/master --jq .sha'}
+INHERITED_LABEL = 'Write-Output "Round3 registration third ordinary ship exit=$code; raw log preserved."'
+T = 'AppStoragePolicyTest#'
 REQUIRED_TRANSFORMS = {
-    "PRM13": [
-        "!environment.isAppSpecificExternalMediaWritable(directory)",
-        "false",
-        "AppStoragePolicyTest#media returns unavailable for missing unmounted and read-only app-specific external volumes"
-    ],
-    "PRM23": [
-        "deviceProtectedDataDir = credentialEnvironment.deviceProtectedDataDir,",
-        "deviceProtectedDataDir = File(credentialEnvironment.appDataDir, \"unused-device-protected\"),",
-        "AppStoragePolicyTest#policy rejects an actual device protected root with a fixed failure"
-    ],
-    "PRM27": [
-        "val directory = boundary.resolveChild(File(boundary.directory, namespace.subdirectory))\n            ?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)",
-        "val directory = File(boundary.directory, namespace.subdirectory)",
-        "AppStoragePolicyTest#policy rejects escaped children and saved root replacements with a fixed failure"
-    ],
-    "PRM28": [
-        "return StorageLocation(protectedRoot, directory)",
-        "return StorageLocation(protectedRoot, File(boundary.directory, namespace.subdirectory))",
-        "AppStoragePolicyTest#policy returns checked root and child after source alias retarget"
-    ],
-    "PRM29": [
-        "private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(boundary.directory)",
-        "private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(environment.noBackupFilesDir)",
-        "AppStoragePolicyTest#policy returns checked root and child after source alias retarget"
-    ],
-    "PRM30": [
-        "?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)",
-        "?: throw IllegalStateException(\"unvalidated child\")",
-        "AppStoragePolicyTest#policy rejects escaped children and saved root replacements with a fixed failure"
-    ]
+    "PRM13": ["!environment.isAppSpecificExternalMediaWritable(directory)", "false", T+"media returns unavailable for missing unmounted and read-only app-specific external volumes"],
+    "PRM23": ["deviceProtectedDataDir = credentialEnvironment.deviceProtectedDataDir,", "deviceProtectedDataDir = File(credentialEnvironment.appDataDir, \"unused-device-protected\"),", T+"policy rejects an actual device protected root with a fixed failure"],
+    "PRM27": ["val directory = boundary.resolveChild(File(boundary.directory, namespace.subdirectory))\n            ?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)", "val directory = File(boundary.directory, namespace.subdirectory)", T+"policy rejects escaped children and saved root replacements with a fixed failure"],
+    "PRM28": ["return StorageLocation(protectedRoot, directory)", "return StorageLocation(protectedRoot, File(boundary.directory, namespace.subdirectory))", T+"policy returns checked root and child after source alias retarget"],
+    "PRM29": ["private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(boundary.directory)", "private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(environment.noBackupFilesDir)", T+"policy returns checked root and child after source alias retarget"],
+    "PRM30": ["?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)", "?: throw IllegalStateException(\"unvalidated child\")", T+"policy rejects escaped children and saved root replacements with a fixed failure"]
 }
 
 
@@ -358,8 +338,8 @@ def check_policy(bundle, repo, original_delivery):
     check_comment_suffix(suffix, receipt)
     need(sha(final) == FINAL_TEST_SHA == receipt['finalTestSha256'], 'independent final test pin')
     proof = doc(d/'merged-source-proof.json')
-    need([entry['path'] for entry in proof] == POLICY_SOURCES, 'exact two merged Policy source paths, nothing fewer or more')
-    need([entry['sha256'] for entry in proof] == [sha(prod), sha(final)], 'merged proof pins are the saved production and final test bytes')
+    need([entry['path'] for entry in proof] == POLICY_SOURCES, 'exact two merged Policy source paths')
+    need([entry['sha256'] for entry in proof] == [sha(prod), sha(final)], 'merged proof pins equal saved production and final test bytes')
     need(all(entry['merge'] == PM and entry['matchesApproved'] is True for entry in proof), 'merged proof bound to the actual merge')
     for entry in proof:
         raw = (v/'final-source'/Path(entry['path']).name).read_bytes()
@@ -418,24 +398,33 @@ def check_policy(bundle, repo, original_delivery):
     red = doc(v/'official-red.receipt.json')
     need(red['sha'] == RM and red['dodExit'] == 1 and red['taskId'] == 'T1-APP-STORAGE-POLICY-REMOTE', 'official product RED')
     need('Unresolved reference' in text(v/'official-red.log'), 'actual missing API RED log')
-    dod = 'cmd /c android\\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug'
-    for filename,command in [('green-summary.json',dod),('restored-dod-exit.json',dod),('verify-exit.json','pwsh -NoProfile -File scripts/verify.ps1')]:
+    for filename,command in [('green-summary.json',DOD_COMMAND),('restored-dod-exit.json',DOD_COMMAND),('verify-exit.json','pwsh -NoProfile -File scripts/verify.ps1')]:
         saved_command(doc(v/filename),command)
     need(all(x['exit'] == 0 for x in doc(v/'checks.json')), 'licenses/secrets receipt')
     need(sha((v/'built-app-debug.apk').read_bytes()) == receipt['apkSha256'], 'saved APK pin')
-    raw_review(text(d/'normal-ship.log'), doc(d/'r3-verdict.json'), 'T1-APP-STORAGE-POLICY-REMOTE', PH, 'pass')
-    need(doc(d/'ship-exit.json')['exit'] == 0, 'normal ship native exit')
-    need('-ResetRounds' not in doc(d/'ship-exit.json')['command'], 'product no reset command')
+    log = text(d/'normal-ship.log'); task = 'T1-APP-STORAGE-POLICY-REMOTE'
+    raw_review(log, doc(d/'r3-verdict.json'), task, PH, 'pass')
     pr = doc(d/'pr-final.json')
     ci_pr(pr,doc(d/'ci-run-final.json'),316,PH,PM,35318686041,[('verify',105515996019),('required',105517883022)],bundle.parent/'ci-jobs')
     water = doc(d/'ship-waterline.txt')
-    need(water == {'commitSha':PH,'taskId':'T1-APP-STORAGE-POLICY-REMOTE','redSha':RM}, 'T35 exact product waterline')
-    merge_token(text(d/'merge-token.txt'), PH, 316, utc(pr['mergedAt']))
+    need(water == {'commitSha':PH,'taskId':task,'redSha':RM}, 'T35 exact product waterline')
+    stamped = merge_token(text(d/'merge-token.txt'), PH, 316, utc(pr['mergedAt']))
+    manifest = doc(d/'delivery-manifest.json'); exit_receipt = doc(d/'ship-exit.json'); fresh = doc(d/'fresh-state.json'); release = doc(d/'final-ship-release.json')
+    wrapper = (d/'executed-wrapper.ps1').read_bytes(); need(sha(wrapper) == manifest['actualWrapperSha256'], 'executed Policy wrapper pinned by the delivery manifest')
+    wrapper_lines = [line.strip() for line in wrapper.decode('utf-8-sig').replace('\r\n','\n').split('\n')]
+    need(wrapper_lines.count('& pwsh -NoProfile -File "$main/scripts/task.ps1" -TaskId $taskId -Phase ship -Base master *> "$evidence/normal-ship.log"') == 1 and "$main = 'D:/Projects/MyInspection'" in wrapper_lines and "$taskId = '"+task+"'" in wrapper_lines, 'one exact product ship execution into normal-ship.log')
+    need(not any(word in wrapper.decode('utf-8-sig').lower() for word in ['skipred','resetrounds']), 'product wrapper neither skips RED nor resets')
+    need((exit_receipt['taskId'], exit_receipt['exit'], exit_receipt['command']) == (task, 0, POLICY_SHIP_COMMAND) and manifest['nativeShipExit'] == 0 and utc(manifest['nativeExitUtc']) == utc(exit_receipt['utc']), 'exact receipt command, native exit and manifest exit time')
+    need(fresh['shipStarted'] is True and fresh['head'] == RM and fresh['rootGrant'] == exit_receipt['rootGrant'], 'fresh state before the ship: RED base head and the same root grant')
+    logged = [utc(stamp) for stamp in re.findall(r'(?m)^(20\d\d-\d\d-\d\dT[0-9:.]+Z)', log)]
+    need(logged and utc(fresh['utc']) < min(logged) and max(logged) < utc(pr['mergedAt']) <= stamped <= utc(exit_receipt['utc']) <= utc(release['utc']), 'log, merge, token, receipt and release timestamps in order')
+    need(log.count('[CI-GATE-PASS] #316/'+PH+' [required,verify]') == 1 and log.count('PR #316 已 squash 合并') == 1, 'log records the exact-head CI gate and the squash merge once')
+    need((release['verdict'], release['reviewedHead'], release['merge'], release['phaseExit'], release['ciRun']) == ('pass', PH, PM, 0, 35318686041), 'final release receipt agrees with log and PR')
     need(sha((d/'actual-committed.diff').read_bytes()) == receipt['fullDiffSha256'], 'actual full committed diff')
     historical = check_original_delivery(bundle, original_delivery)
     return {'mutants':30,'appCases':189,'policyCases':12,'secondaryFailures':10,'historicalOriginal':historical,
             'cleanup':cleanup(bundle/'policy/cleanup',PH,PM,'T1-APP-STORAGE-POLICY-REMOTE'),
-            'limits':['Restored app and ship E2E XML cached.','Reviewer peripheral reads blocked.','Quiet compile exits are saved native receipts, not reconstructable from empty logs.','Original fd1 undelivered state is bound to the saved observation, not a live remote absence claim.']}
+            'limits':['Restored app and ship E2E XML cached.','Reviewer peripheral reads blocked.','fd1 state is a saved observation, not a live claim.']}
 
 def card_parts(value):
     front, body = value.replace('\r\n','\n')[4:].split('\n---\n',1)
@@ -457,37 +446,33 @@ def registration_payloads(entries):
     need(len(entries)==9 and {e['path'] for e in entries}==paths,'exact nine distinct registration payloads')
     return entries
 
-def wrapper_structure(script, ship_command, log_name):
-    # Complete wrapper command structure: one execution line, and every other mention of a script or a subprocess is a pin or the start record.
-    execution = "& pwsh -NoProfile -File (Join-Path $root 'scripts/task.ps1') "+ship_command.split('task.ps1 ')[1]+" *> (Join-Path $out '"+log_name+"')"
+def wrapper_structure(script, log_name):
+    execution = "& pwsh -NoProfile -File (Join-Path $root 'scripts/task.ps1') "+REGISTRATION_SHIP.split('task.ps1 ')[1]+" *> (Join-Path $out '"+log_name+"')"
     pin = re.compile(r"'scripts/(task|review|_config)\.ps1'\s*=\s*'[0-9A-F]{64}'")
     lines = script.replace('\r\n','\n').split('\n')
     need(lines.count(execution) == 1, 'exactly one task.ps1 execution line')
     for line in lines:
-        stripped = pin.sub('', line).replace("command='"+ship_command+"'", '').lower()
-        if 'pwsh' in line.lower() or 'resetrounds' in line.lower() or 'task.ps1' in stripped:
-            need(line == execution, 'no other pwsh call, task.ps1 mention or reset in the wrapper: '+line)
-        need('review.ps1' not in stripped, 'review.ps1 appears only as a controller pin: '+line)
+        if line == execution: continue
+        need(all(call.strip() in WRAPPER_CALLS for call in re.findall(r'&\s+([^()\n]+)', line)), 'unlisted subprocess in the wrapper: '+line)
+        stripped = pin.sub('', line).replace("command='"+REGISTRATION_SHIP+"'", '').lower()
+        need(not re.search(r'pwsh|\bcmd\b|python|codex|start-process|invoke-expression|\biex\b|resetrounds|\.ps1', stripped), 'unlisted executable, script or reset in the wrapper: '+line)
 
-def reset_inventory(bundle, leaves, ship_command):
-    # Semantic inventory over the whole leaf set: every JSON command receipt is classified, reset sentinels are counted in every log, resets in every script.
+def reset_inventory(bundle, leaves):
     commands = {}
     for name in leaves:
         if name.endswith('.json'):
             record = doc(bundle/name)
             if isinstance(record, dict) and isinstance(record.get('command'), str): commands[name] = record['command']
-    classes = {name: ('reset' if 'resetrounds' in c.lower() else 'ship' if 'phase ship' in c.lower() else 'check') for name, c in commands.items()}
-    resets = sorted(name for name, kind in classes.items() if kind == 'reset')
+    need({c: list(commands.values()).count(c) for c in set(commands.values())} == RECEIPT_COMMANDS and len(commands) == 13, 'command-receipt inventory equals the exact allowlist and multiplicities')
+    resets = sorted(name for name, c in commands.items() if 'resetrounds' in c.lower())
     delivery = 'registration/round3-registration-delivery/execution/'
-    need(resets == [delivery+'attempt3-blocked-a8dea0ad/preparation/official-standalone-reset-result.json', delivery+'attempt3-preparation/official-standalone-reset-result.json'], 'exactly one reset receipt (plus preserved copy) among all command receipts')
+    need(resets == [delivery+'attempt3-blocked-a8dea0ad/preparation/official-standalone-reset-result.json', delivery+'attempt3-preparation/official-standalone-reset-result.json'], 'exactly one reset receipt plus its preserved copy among all command receipts')
     need((bundle/resets[0]).read_bytes() == (bundle/resets[1]).read_bytes(), 'preserved reset copy identical')
-    ships = {name: commands[name] for name, kind in classes.items() if kind == 'ship'}
-    need(len(commands) == 13 and len(ships) == 8 and sum(c == ship_command for c in ships.values()) == 7 and all('resetrounds' not in c.lower() for c in ships.values()), 'complete command inventory: 2 reset, 8 ship (7 registration SkipRed + Policy), 3 checks')
     logs = sorted(name for name in leaves if name.endswith('.log') and RESET_SENTINEL.encode() in (bundle/name).read_bytes())
-    need(logs == [delivery+'attempt3-blocked-a8dea0ad/preparation/official-standalone-reset.log', delivery+'attempt3-preparation/official-standalone-reset.log'] and (bundle/logs[0]).read_bytes() == (bundle/logs[1]).read_bytes(), 'the reset sentinel appears only in the one standalone reset log and its copy')
+    need(logs == [delivery+'attempt3-blocked-a8dea0ad/preparation/official-standalone-reset.log', delivery+'attempt3-preparation/official-standalone-reset.log'] and (bundle/logs[0]).read_bytes() == (bundle/logs[1]).read_bytes(), 'reset sentinel only in the standalone reset log and its copy')
     scripts = sorted(name for name in leaves if name.endswith('.ps1') and 'resetrounds' in text(bundle/name).lower())
     controller = delivery.replace('execution/','controller-originalD/scripts/')
-    need(scripts == [controller+'_config.ps1', controller+'review.ps1', delivery+'reset-after-repair-attempt3.ps1'], 'only the pinned controller copies and the standalone reset wrapper mention a reset')
+    need(scripts == [controller+'_config.ps1', controller+'review.ps1', delivery+'reset-after-repair-attempt3.ps1'], 'only pinned controller copies and the standalone reset wrapper mention a reset')
     return resets
 
 def check_registration(bundle, repo, leaves):
@@ -495,14 +480,13 @@ def check_registration(bundle, repo, leaves):
     task = 'T0-REMOTE-ROUND3-CARDS'
     summary = doc(r/'summary.json'); pr = doc(r/'remote-live/pr313.json')
     ci_pr(pr,doc(r/'remote-live/ci35303721378.json'),313,RH,RM,35303721378,[('verify',105471507340),('required',105471609283)],bundle.parent/'ci-jobs')
-    attempts = [('execution/attempt1-blocked-b14cc2f3','ship.log','ship-result.json','ship-once.ps1','ship-start.json'),
-                ('execution/attempt2-blocked-aab6c818','ship-attempt2.log','ship-attempt2-result.json','ship-attempt2.ps1','ship-attempt2-start.json'),
-                ('execution/attempt3-blocked-a8dea0ad','ship-attempt3.log','ship-attempt3-result.json','ship-attempt3.ps1','ship-attempt3-start.json'),
-                ('execution','ship-attempt4.log','ship-attempt4-result.json','ship-attempt4.ps1','ship-attempt4-start.json')]
     expected_heads = ['b14cc2f308098d537c6edd177c986f88c666d9be','aab6c81833cbef907a8a74af80f8eb2f3a46ae9c','a8dea0adacefc6821eb4cce3b4eeb525e75637d3',RH]
+    stem = lambda n: 'ship' if n == 1 else 'ship-attempt'+str(n)
+    attempts = [('execution' if n == 4 else 'execution/attempt'+str(n)+'-blocked-'+expected_heads[n-1][:8], stem(n)+'.log', stem(n)+'-result.json', 'ship-once.ps1' if n == 1 else stem(n)+'.ps1', stem(n)+'-start.json') for n in range(1,5)]
     reviews = summary['reviews']
     need(len(reviews) == len(attempts) == 4 and summary['actualShipAttempts'] == 4, 'exactly four summarized reviews, one per raw record')
-    ship_command = 'original D task.ps1 -TaskId '+task+' -Phase ship -Base master -SkipRed'
+    need(summary['wrapperLabelCaveat'] == "An inherited error line in the fourth wrapper log says 'third'; the preserved start/result timestamps, command, HEAD and this four-attempt sequence identify the actual fourth run. Raw wording is unchanged.", 'exact preserved label caveat')
+    reset_notes = [None, None, 'one separately completed officialReset after explicitroot adjudication', 'none; earlier standalone reset before third review preserved']
     times = []
     for i,(folder,log_name,result_name,wrapper,start_name) in enumerate(attempts):
         directory=r/folder; result=doc(directory/result_name); raw=(directory/log_name).read_bytes()
@@ -514,13 +498,15 @@ def check_registration(bundle, repo, leaves):
         need((reviews[i]['attempt'], reviews[i]['verdict'].lower(), reviews[i]['sha'], reviews[i]['reasons']) == (i+1, verdict, head, saved['reasons']), 'each summarized review bound to its raw record')
         need(utc(result['startedUtc']) < utc(result['endedUtc']), 'ship interval')
         times.append((utc(result['startedUtc']),utc(result['endedUtc'])))
-        need(doc(r/'execution'/start_name)['command'] == ship_command, 'each start record names the exact SkipRed ship')
-        wrapper_structure(text(r/'execution'/wrapper), ship_command, log_name)
+        start = doc(r/'execution'/start_name)
+        need(start['command'] == REGISTRATION_SHIP and start.get('reset') == reset_notes[i], 'each start record names the exact SkipRed ship and its reset note')
+        script = text(r/'execution'/wrapper); wrapper_structure(script, log_name)
+        need((INHERITED_LABEL in script) == (i >= 2) and (INHERITED_LABEL.replace('third ', '') in script) == (i < 2), 'inherited third label exactly in wrappers three and four')
     need(all(times[i][1] < times[i+1][0] for i in range(3)), 'four ordered actual reviews')
     need(summary['commonT24MergeToken'] == 'repo-common/merged-token.txt' and summary['t35Red'] == 'metadata SkipRed; no T35 RED receipt is claimed', 'registration T24 path and explicit no-T35 claim')
     stamped = merge_token(text(r/'repo-common/merged-token.txt'), RH, 313, utc(pr['mergedAt']))
-    need(times[3][0] < stamped <= times[3][1], 'registration T24 token minted inside the fourth ship wrapper')
-    resets = reset_inventory(bundle, leaves, ship_command)
+    need(times[3][0] < stamped <= times[3][1], 'registration T24 token minted inside the fourth wrapper')
+    reset_inventory(bundle, leaves)
     folder = r/'execution/attempt3-preparation'
     reset, decision = doc(folder/'official-standalone-reset-result.json'),doc(folder/'root-counter-adjudication.json')
     need(reset['exit'] == 0 and reset['roundsBefore'] == 2 and reset['roundsFileExistsAfter'] is False, 'actual reset counter transition')
@@ -562,20 +548,17 @@ def check_registration(bundle, repo, leaves):
     oa=frozen['acceptance'].splitlines()[1:];na=current['acceptance'].splitlines()[1:]
     need(len(oa)==len(na)==5 and all(oa[i]==na[i] for i in [0,3,4]), 'Requests retained A1/A4/A5')
     need(TRANSFER_19['requests_a2'] in na[1] and TRANSFER_19['requests_dod_assert'] in current['dod_assert'], 'merged Requests assigns the 19 cases to Binding')
-    # The Binding successor is a root-saved snapshot pinned here, not a reviewed payload: no registration PR carries it yet.
     successor_raw=safe_leaf(originals,'Binding.approved-successor.md').read_bytes()
     need(sha(successor_raw) == BINDING_SUCCESSOR_SHA, 'fixed approved Binding successor snapshot')
     successor,_=card_parts(successor_raw.decode('utf-8-sig')); ba=successor['acceptance'].splitlines()[1:]
     need(successor['id'] == 'id: T3-PDF-MEASUREMENT-BINDING-REMOTE' and successor['depends_on'] == 'depends_on: [T3-PDF-MEASUREMENT-REQUESTS]', 'Binding successor identity and Requests dependency')
-    need(len(ba) == 5 and TRANSFER_19['binding_a1'] in ba[0] and TRANSFER_19['binding_a5'] in ba[4] and TRANSFER_19['binding_dod_assert'] in successor['dod_assert'], 'Binding successor carries the same 12+6+1 case transfer')
+    need(len(ba) == 5 and TRANSFER_19['binding_a1'] in ba[0] and TRANSFER_19['binding_a5'] in ba[4] and TRANSFER_19['binding_dod_assert'] in successor['dod_assert'], 'Binding successor carries the 12+6+1 case transfer')
     need('numerical integration' not in text(originals/'Binding.original-3e67ba71.md'), 'transfer absent from the original Binding contract')
     history=paragraphs(card_parts(text(originals/'Requests.registered-original.md'))[1])
     target=paragraphs(card_parts(text(originals/'Requests.PR313-approved.md'))[1])
     frozen_body=paragraphs(card_parts(text(originals/'Requests.frozen-remote-before-rescope.md'))[1])
-    # Complete classification of the Requests body: the frozen snapshot is the four original paragraphs plus the remote-order section;
-    # the approved body keeps the first two verbatim and in place, replaces the pre-RED and forecast paragraphs with two pinned rewrites, and keeps the section.
-    need(len(history) == 4 and frozen_body[:4] == history and len(frozen_body) == 6, 'frozen snapshot is the complete original history plus the remote-order section')
-    need(len(target) == 6 and target[:2] == history[:2] and target[4:] == frozen_body[4:], 'approved body keeps the two surviving paragraphs first and the remote-order section unchanged')
+    need(len(history) == 4 and frozen_body[:4] == history and len(frozen_body) == 6, 'frozen snapshot is the whole original history plus the remote-order section')
+    need(len(target) == 6 and target[:2] == history[:2] and target[4:] == frozen_body[4:], 'approved body: two surviving paragraphs first, remote-order section unchanged')
     need([sha(target[i].encode()) for i in (2,3)] == REQUESTS_REWRITES and not any(paragraph in target for paragraph in history[2:]), 'both replacement paragraphs pinned in order and the originals gone')
     need(history[2].startswith('Before RED, identify each negative') and history[3].startswith('Full candidate forecast'), 'the two rewritten paragraphs are the pre-RED and forecast paragraphs')
     parent=card_parts(text(r/'reviewed-payload/specs/tasks/T1-LOCAL-DATA-SECURITY.md'))[0]
@@ -584,7 +567,7 @@ def check_registration(bundle, repo, leaves):
     need(len(rows)==1 and [x.strip() for x in rows[0].split('|')[4].split(',')]==dependencies,'W1 Board exactly matches security parent dependencies')
     return {'actualReviews':['block','block','block','pass'],'resetCount':1,'payloads':9,
             'cleanup':cleanup(bundle/'registration/round3-registration-root-cleanup',RH,RM,'T0-REMOTE-ROUND3-CARDS'),
-            'limits':['Fourth wrapper inherited third wording retained.','Metadata cached XML is not a fresh all-tests rerun.','Saved preview head is not actual reviewed head.']}
+            'limits':['Fourth wrapper label inherited.','Metadata XML cached, not a fresh rerun.','Preview head is not the reviewed head.']}
 
 def approval_identity(approval, decision, card_raw, trailers, parent):
     need(type(decision.get('schemaVersion')) is int and decision['schemaVersion']==1,'root decision schemaVersion exactly 1')
@@ -597,7 +580,6 @@ def approval_identity(approval, decision, card_raw, trailers, parent):
     need(isinstance(decision.get('decision'),str) and bool(decision['decision'].strip()),'explicit root decision text')
     need(isinstance(decision.get('authorizedBy'),str) and bool(decision['authorizedBy'].strip()),'explicit root authorizedBy')
     need(utc(decision['utc'])<=utc(approval['approvedUtc']),'root decision precedes approval')
-    # The committed authority record carries the digests: the decision file and the card are bound by the commit, not by their own mutable bytes.
     need(trailers == {'Approved-Card-SHA256': sha(card_raw), 'Root-Decision-SHA256': sha(ROOT_DECISION.read_bytes()), 'Approval-Base': BASE}, 'authority commit trailers bind card, root decision and base')
 
 def publication_guard(repo, card_raw):
