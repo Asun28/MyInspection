@@ -25,28 +25,27 @@ doc_sync: This evidence card remains active and immutable for the future metadat
 
 # Complete Policy316 and registration313 evidence publication
 
-Projection base is actual merge `c0afac77175786b55c61c6ebb0292a64a33431a8`. Approval is established only by the independent external root decision/record and actual full DoD; publication is effective only after its remote merge. The complete executable proof below is the one metadata path; no script or runtime file is added to the repository.
+Projection base is actual merge `c0afac77175786b55c61c6ebb0292a64a33431a8`; approval is established only by the independent root decision and actual full DoD, and publication is effective only after its remote merge. No script or runtime file is added.
 
-Before execution, copy the unchanged `portable-index.json` and all638 relative bundle leaves to `_local/round3-policy-evidence/`; the index SHA is fixed in the reviewed core and covers the original172 validation leaves, original39 ship leaves and the labelled root supplements/cleanup/registration originals. Absolute paths inside manifests are provenance only.
+Before execution, copy the unchanged `portable-index.json` and all638 relative bundle leaves to `_local/round3-policy-evidence/`; the index SHA is fixed in the reviewed core. Absolute manifest paths are provenance only.
 
-Policy source `C031E652…13B7`, executable test `D06827F9…90D6`, final test `659ECCD7…68E2`; only24receipt-comment lines follow the unchanged executable prefix. All30 mutants use the final production source; PRM13, PRM23 and PRM27–30 are each pinned as an exact path/before/after/primary tuple anchored once in production. Complete primary/secondary XML failures remain available. Quiet compile exits are native receipts; empty logs do not establish exits.
+Policy source `C031E652…13B7`, executable test `D06827F9…90D6`, final test `659ECCD7…68E2`; only24receipt-comment lines follow the executable prefix. All30 mutants use the final production source; PRM13, PRM23 and PRM27–30 are pinned as exact path/before/after/primary tuples anchored once. Quiet compile exits are native receipts, not reconstructable from empty logs.
 
-The Sol/high reviewer returned one PASS for `afffd383`; its blocked peripheral reads are not claimed successful. CI35318686041 and PR316 merge15f are pinned. The ship receipt is tied to its manifest-pinned wrapper (one exact execution line into normal-ship.log, no SkipRed or reset), its exact command, native exit and manifest exit time; fresh-state, log, merge, token, receipt and release timestamps must be in order. Restored app XML reused GREEN cache; ship app XML is later, ship E2E XML cached. No forced reexecution is invented.
+The Sol/high reviewer returned one PASS for `afffd383` (its blocked peripheral reads are not claimed successful); CI35318686041 and PR316 merge15f are pinned. The ship receipt is tied to its manifest-pinned wrapper (PowerShell AST: one execution command, every other command an in-process cmdlet by name or an exact external tuple, so no SkipRed, reset or foreign executable), exact command, native exit and manifest exit time; fresh-state, log, merge, token, receipt and release timestamps must be in order. Restored app XML reused GREEN cache; ship app XML is later, ship E2E XML cached.
 
-Policy cleanup wrapper returned0 while its raw log includes Filename too long and not-a-working-tree errors; the saved filesystem/Git postchecks establish final absence without turning failed internal commands into success. Original Policy fd1 and all five BLOCKs remain undelivered history.
+Policy cleanup wrapper returned0 while its raw log includes Filename too long and not-a-working-tree errors; saved filesystem/Git postchecks establish final absence without turning failed commands into success. Original fd1 and all five BLOCKs remain undelivered history.
 
-Registration313: four summarized reviews (three BLOCKs then PASS), one authorized standalone reset between review2 and review3, and the third wrapper's output label inherited by the fourth wrapper script. The core parses each raw verdict and its reasons, binds every summary entry and wrapper banner to branch, head and raw record, checks each ship wrapper's complete command structure against exact allowlists plus the inherited label and each start record's reset note, and inventories resets over the whole leaf set (13 exact command receipts with multiplicities; the reset sentinel only in the reset log and its copy; reset flags only in pinned controller copies and the standalone reset wrapper). The T24 token is bound to RH/#313 inside the fourth wrapper after the merge; a metadata SkipRed ship claims no T35. Preview candidateHead does not replace the nine payload bindings. Contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; approved changed fields are pinned exactly, every other field equals its frozen snapshot; the Requests body is classified completely (two paragraphs kept verbatim in place, two SHA-pinned rewrites, remote-order section unchanged). The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; its 12+6+1 case transfer must also appear in the merged Requests text; the two merged Policy source paths are asserted exactly.
+Registration313: four summarized reviews (three BLOCKs then PASS), one authorized standalone reset between review2 and review3, the third wrapper's output label inherited by the fourth wrapper script. The core parses each raw verdict and its reasons, binds every summary entry and wrapper banner to branch, head and raw record, checks each ship wrapper's commands by PowerShell AST under the same allowlist rule, the inherited label and each start record's reset note, and inventories resets over the whole leaf set (13 exact command receipts with multiplicities; reset sentinel only in the reset log and its copy; reset flags only in pinned controller copies and the standalone reset wrapper). The T24 token is bound to RH/#313 inside the fourth wrapper after the merge; a metadata SkipRed ship claims no T35. Contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; approved changed fields are pinned exactly, every other field equals its frozen snapshot; the Requests body is classified completely (two paragraphs kept verbatim in place, two SHA-pinned rewrites, remote-order section unchanged). The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; its 12+6+1 case transfer must also appear in the merged Requests text; the two merged Policy source paths are asserted exactly.
 
-`original-policy-delivery.json` is a separately pinned observation: fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time; it claims no all-time remote absence. Four pinned raw `ci-jobs/*.json` responses bind each job to its run and reviewed head.
+`original-policy-delivery.json` is a separately pinned observation: fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time. Four pinned raw `ci-jobs/*.json` responses bind each job to its run and reviewed head.
 
-The fixed authority is the latest own-card-only, single-parent commit on original D `refs/heads/master`. Its message trailers carry the approved card SHA-256, the root decision file SHA-256 and the base, so decision and card are bound by the commit, not by their own mutable bytes; `approval.json` and `approved-card.md` under `_local/rotating-card-orchestrator/round3-policy-evidence-own-card-approval/` are validated field by field against that commit, the decision's `expectedMain` must be the commit's parent, and every authority file must be an ordinary single-link regular file with strict integer schemaVersion1. This candidate cannot create that approval by writing a companion hash. A base change requires full reprojection and independent approval.
+The fixed authority is the latest own-card-only, single-parent commit on original D `refs/heads/master`; its message trailers carry the approved card SHA-256, the root decision SHA-256 and the base, so decision and card are bound by the commit, not by their own mutable bytes. `approval.json` and `approved-card.md` under the `AUTH` folder are validated field by field against that commit, the decision's `expectedMain` must be the commit's parent, and every authority file must be an ordinary single-link regular file with strict integer schemaVersion1. A base change requires full reprojection and independent approval.
 
 Consumers pin this whole card at its reviewed and merged blobs and raw SHA and invoke only `replay(evidence, repo)` from the unique fence, never the one-path publication guard.
 ```python
-"""Read-only replay of saved Policy316/registration313 evidence. No historical tests run."""
 from pathlib import Path
 from datetime import datetime
-import argparse, hashlib, json, re, stat, subprocess, xml.etree.ElementTree as ET
+import argparse, hashlib, json, os, re, stat, subprocess, xml.etree.ElementTree as ET
 
 BASE = 'c0afac77175786b55c61c6ebb0292a64a33431a8'
 INDEX = '0DE9831911EC82EC0766A4425CD596A4CA192BC61151DF0594986CF8C4820E42'
@@ -164,7 +163,7 @@ def saved_command(receipt, command):
 def merge_token(token, head, number, merged_at):
     lines = token.replace('\r\n','\n').rstrip('\n').split('\n')
     need(len(lines) == 3 and lines[:2] == ['tip='+head, 'merged_pr=#'+str(number)] and lines[2].startswith('utc='), 'exact T24 merge token tip/PR/utc')
-    stamped = utc(lines[2][4:]); need(merged_at <= stamped, 'T24 token stamped at or after the actual merge')
+    stamped = utc(lines[2][4:]); need(merged_at <= stamped, 'T24 token stamped at or after the merge')
     return stamped
 
 def ci_pr(pr, ci, number, head, merge, run, jobs, job_root):
@@ -209,7 +208,6 @@ def xml_inventory(folder, expected_count, clean=True):
     need(len(cases) == expected_count, 'complete test inventory size')
     return suites, cases
 
-# Exact literals independently checked against saved sources, root audit and reviewed Git blobs.
 RECEIPT_SUFFIX_SHA = '0EA3083C636F0DB02D60C5A625147AD3126DCB8B2A603BEE82818C07CC29527D'
 ORIGINAL_DELIVERY_SHA = '7CD115BC8A21BB3528E7212D159BB7FC189590A8370CE990CC962F5CDFF67508'
 ORIGINAL_HEADS = ['2e2900cd295641d2e87da22deb09a92726118228', 'e7f00bb9d888a87b45d0a888a9458bc297bc2e4c', '822e1eaa703a998ed78d032b38aac99c8531214b', '0a50328150bae8471d45479b9880721f76556915', 'fd1dd18c3a530f748a7184cf32af5090c8b9c7b9']
@@ -231,8 +229,13 @@ REGISTRATION_SHIP = 'original D task.ps1 -TaskId T0-REMOTE-ROUND3-CARDS -Phase s
 POLICY_SHIP_COMMAND = 'pwsh -NoProfile -File D:/Projects/MyInspection/scripts/task.ps1 -TaskId T1-APP-STORAGE-POLICY-REMOTE -Phase ship -Base master'
 DOD_COMMAND = 'cmd /c android\\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug'
 RECEIPT_COMMANDS = {REGISTRATION_SHIP: 7, POLICY_SHIP_COMMAND: 1, 'originalD review.ps1 -WorktreePath C:/wt/T0-REMOTE-ROUND3-CARDS -Base master -ResetRounds': 2, DOD_COMMAND: 2, 'pwsh -NoProfile -File scripts/verify.ps1': 1}
-WRAPPER_CALLS = {'git -C $root rev-parse HEAD', 'git -C $root diff --cached --name-only', 'git -C $wt rev-parse HEAD', 'git -C $wt status --porcelain=v1', 'gh api repos/Asun28/MyInspection/commits/master --jq .sha'}
 INHERITED_LABEL = 'Write-Output "Round3 registration third ordinary ship exit=$code; raw log preserved."'
+PS_COMMANDS = "$t=$null;$e=$null;$a=[System.Management.Automation.Language.Parser]::ParseFile($env:WRAPPER,[ref]$t,[ref]$e);if($e.Count){throw 'parse'};$a.FindAll({param($n)$n -is [System.Management.Automation.Language.CommandAst]},$true)|ForEach-Object{[pscustomobject]@{name=$_.GetCommandName();args=(@($_.CommandElements|Select-Object -Skip 1|ForEach-Object{$_.Extent.Text}) -join ' ')}}|ConvertTo-Json -Compress -AsArray"
+CMDLETS = {'ConvertFrom-Json','ConvertTo-Json','ForEach-Object','Get-CimInstance','Get-Content','Get-FileHash','Get-Process','Join-Path','New-Item','Out-Null','Pop-Location','Push-Location','Remove-Item','Set-Content','Set-Location','Set-StrictMode','Test-Path','Where-Object','Write-Output'}
+REGISTRATION_CALLS = {('git','-C $root rev-parse HEAD'),('git','-C $root diff --cached --name-only'),('git','-C $wt rev-parse HEAD'),('git','-C $wt status --porcelain=v1'),('gh','api repos/Asun28/MyInspection/commits/master --jq .sha')}
+REGISTRATION_EXECUTION = ('pwsh', "-NoProfile -File (Join-Path $root 'scripts/task.ps1') "+REGISTRATION_SHIP.split('task.ps1 ')[1])
+POLICY_CALLS = {('git','-C $Repo @Arguments')} | {('Read-Git', a) for a in ["$main @('diff', '--cached', '--name-only')", "$wt @('diff', '--cached', '--name-only')", "$wt @('ls-remote', '--exit-code', 'origin', 'refs/heads/master')", "$wt @('rev-parse', 'HEAD')", "$wt @('rev-parse', 'refs/remotes/origin/master')", "$wt @('status', '--porcelain=v1', '--untracked-files=all')"]}
+POLICY_EXECUTION = ('pwsh', '-NoProfile -File "$main/scripts/task.ps1" -TaskId $taskId -Phase ship -Base master')
 T = 'AppStoragePolicyTest#'
 REQUIRED_TRANSFORMS = {
     "PRM13": ["!environment.isAppSpecificExternalMediaWritable(directory)", "false", T+"media returns unavailable for missing unmounted and read-only app-specific external volumes"],
@@ -303,7 +306,7 @@ def check_original_delivery(bundle, record):
         need(record['sourcePins'][path] == release[key], 'original source/test remain at saved historical pins')
     blocks = text(bundle/'policy/cleanup/worktrees.stdout').replace('\r\n','\n').split('\n\n')
     need(('worktree C:/wt/'+task+'\nHEAD '+fd1+'\nbranch refs/heads/'+task) in blocks, 'actual product cleanup retained distinct original fd1 worktree')
-    return {'head':fd1,'asOfUtc':record['endedUtc'],'lastVerdict':'block','T35CommitOnly':True,'T24MergeAbsent':True,'delivered':False}
+    return {'head':fd1,'asOfUtc':record['endedUtc'],'delivered':False}
 
 
 def cleanup(folder, head, merge, task):
@@ -319,7 +322,6 @@ def cleanup(folder, head, merge, task):
     need(utc(receipt['postcheckStartedUtc']) <= utc(filesystem['utc']) <= utc(receipt['endedUtc']), 'filesystem contemporaneous')
     need(task not in text(folder/'worktrees.stdout') and not text(folder/'branch.stdout').strip(), 'raw Git absence')
     need(not text(folder/'worktrees.stderr').strip() and not text(folder/'branch.stderr').strip(), 'post-Git stderr empty')
-    # Native wrapper success never changes the meaning of internal failed deletion commands.
     errors = check_cleanup_errors(raw, task)
     return {'wrapperExit':0, 'rawInternalErrors':errors, 'postFilesystemAndGitAbsent':True}
 
@@ -412,8 +414,8 @@ def check_policy(bundle, repo, original_delivery):
     manifest = doc(d/'delivery-manifest.json'); exit_receipt = doc(d/'ship-exit.json'); fresh = doc(d/'fresh-state.json'); release = doc(d/'final-ship-release.json')
     wrapper = (d/'executed-wrapper.ps1').read_bytes(); need(sha(wrapper) == manifest['actualWrapperSha256'], 'executed Policy wrapper pinned by the delivery manifest')
     wrapper_lines = [line.strip() for line in wrapper.decode('utf-8-sig').replace('\r\n','\n').split('\n')]
-    need(wrapper_lines.count('& pwsh -NoProfile -File "$main/scripts/task.ps1" -TaskId $taskId -Phase ship -Base master *> "$evidence/normal-ship.log"') == 1 and "$main = 'D:/Projects/MyInspection'" in wrapper_lines and "$taskId = '"+task+"'" in wrapper_lines, 'one exact product ship execution into normal-ship.log')
-    need(not any(word in wrapper.decode('utf-8-sig').lower() for word in ['skipred','resetrounds']), 'product wrapper neither skips RED nor resets')
+    need("$main = 'D:/Projects/MyInspection'" in wrapper_lines and "$taskId = '"+task+"'" in wrapper_lines, 'product wrapper binds the main checkout and task id')
+    wrapper_structure(d/'executed-wrapper.ps1', '& pwsh -NoProfile -File "$main/scripts/task.ps1" -TaskId $taskId -Phase ship -Base master *> "$evidence/normal-ship.log"', POLICY_EXECUTION, POLICY_CALLS)
     need((exit_receipt['taskId'], exit_receipt['exit'], exit_receipt['command']) == (task, 0, POLICY_SHIP_COMMAND) and manifest['nativeShipExit'] == 0 and utc(manifest['nativeExitUtc']) == utc(exit_receipt['utc']), 'exact receipt command, native exit and manifest exit time')
     need(fresh['shipStarted'] is True and fresh['head'] == RM and fresh['rootGrant'] == exit_receipt['rootGrant'], 'fresh state before the ship: RED base head and the same root grant')
     logged = [utc(stamp) for stamp in re.findall(r'(?m)^(20\d\d-\d\d-\d\dT[0-9:.]+Z)', log)]
@@ -423,8 +425,7 @@ def check_policy(bundle, repo, original_delivery):
     need(sha((d/'actual-committed.diff').read_bytes()) == receipt['fullDiffSha256'], 'actual full committed diff')
     historical = check_original_delivery(bundle, original_delivery)
     return {'mutants':30,'appCases':189,'policyCases':12,'secondaryFailures':10,'historicalOriginal':historical,
-            'cleanup':cleanup(bundle/'policy/cleanup',PH,PM,'T1-APP-STORAGE-POLICY-REMOTE'),
-            'limits':['Restored app and ship E2E XML cached.','Reviewer peripheral reads blocked.','fd1 state is a saved observation, not a live claim.']}
+            'cleanup':cleanup(bundle/'policy/cleanup',PH,PM,'T1-APP-STORAGE-POLICY-REMOTE')}
 
 def card_parts(value):
     front, body = value.replace('\r\n','\n')[4:].split('\n---\n',1)
@@ -446,16 +447,18 @@ def registration_payloads(entries):
     need(len(entries)==9 and {e['path'] for e in entries}==paths,'exact nine distinct registration payloads')
     return entries
 
-def wrapper_structure(script, log_name):
-    execution = "& pwsh -NoProfile -File (Join-Path $root 'scripts/task.ps1') "+REGISTRATION_SHIP.split('task.ps1 ')[1]+" *> (Join-Path $out '"+log_name+"')"
-    pin = re.compile(r"'scripts/(task|review|_config)\.ps1'\s*=\s*'[0-9A-F]{64}'")
-    lines = script.replace('\r\n','\n').split('\n')
-    need(lines.count(execution) == 1, 'exactly one task.ps1 execution line')
-    for line in lines:
-        if line == execution: continue
-        need(all(call.strip() in WRAPPER_CALLS for call in re.findall(r'&\s+([^()\n]+)', line)), 'unlisted subprocess in the wrapper: '+line)
-        stripped = pin.sub('', line).replace("command='"+REGISTRATION_SHIP+"'", '').lower()
-        need(not re.search(r'pwsh|\bcmd\b|python|codex|start-process|invoke-expression|\biex\b|resetrounds|\.ps1', stripped), 'unlisted executable, script or reset in the wrapper: '+line)
+def command_tuples(path):
+    result = subprocess.run(['pwsh','-NoProfile','-Command',PS_COMMANDS], capture_output=True, env={**os.environ, 'WRAPPER': str(path)})
+    need(result.returncode == 0, 'wrapper parsed by the PowerShell AST: '+path.name)
+    return [(c['name'], c['args']) for c in json.loads(result.stdout.decode('utf-8-sig'), object_pairs_hook=pairs)]
+
+def wrapper_structure(path, execution_line, execution_call, external):
+    lines = [line.strip() for line in text(path).replace('\r\n','\n').split('\n')]
+    need(lines.count(execution_line) == 1, 'exactly one ship execution line with its log redirection: '+path.name)
+    calls = command_tuples(path)
+    need(calls.count(execution_call) == 1, 'exactly one ship execution command in the AST: '+path.name)
+    for call in calls:
+        need(call == execution_call or call in external or call[0] in CMDLETS, 'unlisted command in '+path.name+': '+str(call[0])+' '+call[1])
 
 def reset_inventory(bundle, leaves):
     commands = {}
@@ -500,7 +503,8 @@ def check_registration(bundle, repo, leaves):
         times.append((utc(result['startedUtc']),utc(result['endedUtc'])))
         start = doc(r/'execution'/start_name)
         need(start['command'] == REGISTRATION_SHIP and start.get('reset') == reset_notes[i], 'each start record names the exact SkipRed ship and its reset note')
-        script = text(r/'execution'/wrapper); wrapper_structure(script, log_name)
+        script = text(r/'execution'/wrapper)
+        wrapper_structure(r/'execution'/wrapper, '& '+REGISTRATION_EXECUTION[0]+' '+REGISTRATION_EXECUTION[1]+" *> (Join-Path $out '"+log_name+"')", REGISTRATION_EXECUTION, REGISTRATION_CALLS)
         need((INHERITED_LABEL in script) == (i >= 2) and (INHERITED_LABEL.replace('third ', '') in script) == (i < 2), 'inherited third label exactly in wrappers three and four')
     need(all(times[i][1] < times[i+1][0] for i in range(3)), 'four ordered actual reviews')
     need(summary['commonT24MergeToken'] == 'repo-common/merged-token.txt' and summary['t35Red'] == 'metadata SkipRed; no T35 RED receipt is claimed', 'registration T24 path and explicit no-T35 claim')
@@ -566,8 +570,7 @@ def check_registration(bundle, repo, leaves):
     rows=[line for line in text(r/'reviewed-payload/docs/TASK-BOARD.md').splitlines() if line.startswith('| W1 | T1-LOCAL-DATA-SECURITY |')]
     need(len(rows)==1 and [x.strip() for x in rows[0].split('|')[4].split(',')]==dependencies,'W1 Board exactly matches security parent dependencies')
     return {'actualReviews':['block','block','block','pass'],'resetCount':1,'payloads':9,
-            'cleanup':cleanup(bundle/'registration/round3-registration-root-cleanup',RH,RM,'T0-REMOTE-ROUND3-CARDS'),
-            'limits':['Fourth wrapper label inherited.','Metadata XML cached, not a fresh rerun.','Preview head is not the reviewed head.']}
+            'cleanup':cleanup(bundle/'registration/round3-registration-root-cleanup',RH,RM,'T0-REMOTE-ROUND3-CARDS')}
 
 def approval_identity(approval, decision, card_raw, trailers, parent):
     need(type(decision.get('schemaVersion')) is int and decision['schemaVersion']==1,'root decision schemaVersion exactly 1')
@@ -583,7 +586,6 @@ def approval_identity(approval, decision, card_raw, trailers, parent):
     need(trailers == {'Approved-Card-SHA256': sha(card_raw), 'Root-Decision-SHA256': sha(ROOT_DECISION.read_bytes()), 'Approval-Base': BASE}, 'authority commit trailers bind card, root decision and base')
 
 def publication_guard(repo, card_raw):
-    # Authority identifiers are fixed by reviewed code, never selected by ignored candidate input.
     origin=Path('D:/Projects/MyInspection')
     commit=git(origin,'log','-1','--format=%H','refs/heads/master','--',OWN).decode().strip()
     need(bool(commit), 'own card has no independent authority commit yet')
@@ -620,7 +622,7 @@ def replay(evidence, repo):
     delivery = safe_leaf(evidence,'original-policy-delivery.json').read_bytes()
     need(sha(delivery) == ORIGINAL_DELIVERY_SHA, 'fixed raw original delivery observation')
     result={'policy316':check_policy(bundle,repo,json.loads(delivery,object_pairs_hook=pairs)),'registration313':check_registration(bundle,repo,names),
-            'scope':'saved-proof replay only; no live remote attestation or historical test rerun; no Requests completion'}
+            'scope':'saved-proof replay only'}
     return result
 
 def main():
