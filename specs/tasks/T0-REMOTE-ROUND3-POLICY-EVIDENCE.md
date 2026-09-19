@@ -29,13 +29,13 @@ Projection base is actual merge `c0afac77175786b55c61c6ebb0292a64a33431a8`. Appr
 
 Before actual execution, copy the unchanged `portable-index.json` and all638 relative bundle leaves to `_local/round3-policy-evidence/`. The index SHA is independently fixed in the complete reviewed core. It includes the original172 validation leaves, original39 ship leaves and separately labelled root supplements/cleanup/registration originals. Absolute original paths inside manifests are provenance only; reads use relative copied paths.
 
-Policy source `C031E652…13B7`, executable test `D06827F9…90D6`, final test `659ECCD7…68E2`; only24receipt-comment lines follow the unchanged executable prefix. All30 mutants use the actual final production source, including PRM13 non-null absent/unwritable, PRM23 real create/DP input miswiring and PRM27–30 boundary integration. Complete primary/secondary XML failures remain available. Exit values from quiet compile runs are native result receipts; empty logs do not independently establish exits.
+Policy source `C031E652…13B7`, executable test `D06827F9…90D6`, final test `659ECCD7…68E2`; only24receipt-comment lines follow the unchanged executable prefix. All30 mutants use the actual final production source; PRM13 non-null absent/unwritable, PRM23 real create/DP input miswiring and PRM27–30 boundary integration are each pinned as an exact path/before/after/primary tuple anchored once in production. Complete primary/secondary XML failures remain available. Exit values from quiet compile runs are native result receipts; empty logs do not independently establish exits.
 
 Policy actual Sol/high reviewer returned one PASS for `afffd383`; peripheral filesystem reads were blocked and are not claimed successful. Actual CI35318686041 and PR316 merge15f are pinned. Restored app XML reused GREEN cache; ship app XML is later, while ship E2E XML remains cached. No forced reexecution is invented.
 
 Policy cleanup wrapper returned0, but its raw log includes Filename too long and not-a-working-tree errors. The saved immediate filesystem/Git postchecks establish final absence, without turning failed internal commands into success. Registration cleanup has its own distinct actual receipt. The original Policy fd1 and all five BLOCKs remain undelivered history.
 
-Registration313 has exactly four summarized reviews, three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons, binds every summary entry and wrapper banner to its branch, head and raw record, requires every ship wrapper to be the exact SkipRed ship without a reset, and finds exactly one reset receipt (plus its preserved copy) in the whole leaf set. Registration's T24 token is bound to RH/#313 and minted inside the fourth wrapper after the actual merge; being a metadata SkipRed ship it claims no T35, and the summary says so explicitly. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. The current Policy/Requests contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; the approved changed fields are pinned exactly and every other field equals its frozen snapshot. The original Requests body is classified completely: two paragraphs survive the approved rescope verbatim and in order, the pre-RED and forecast paragraphs are the two rewritten ones. The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; the same 12+6+1 case transfer must appear in that snapshot and in the merged Requests text, and the two merged Policy source paths are asserted exactly.
+Registration313 has exactly four summarized reviews, three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons, binds every summary entry and wrapper banner to its branch, head and raw record, checks the complete command structure of every ship wrapper (one execution line; every other script or subprocess mention is a controller pin or the start record), and takes a semantic reset inventory over the whole leaf set: all 13 JSON command receipts classified as 2 reset (one event plus its copy), 8 ship and 3 checks, the reset sentinel in no log but the reset log and its copy, and no script but the pinned controller copies and the standalone reset wrapper mentioning a reset. Registration's T24 token is bound to RH/#313 and minted inside the fourth wrapper after the actual merge; being a metadata SkipRed ship it claims no T35, and the summary says so explicitly. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. The current Policy/Requests contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; the approved changed fields are pinned exactly and every other field equals its frozen snapshot. The Requests body is classified completely: the frozen snapshot is the four original paragraphs plus the remote-order section, and the approved body keeps the first two verbatim and in place, carries two SHA-pinned rewrites of the pre-RED and forecast paragraphs, and keeps the section unchanged. The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; the same 12+6+1 case transfer must appear in that snapshot and in the merged Requests text, and the two merged Policy source paths are asserted exactly.
 
 The additional `original-policy-delivery.json` is a separately pinned read-only observation: original fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time. It does not alter the original638 index or claim all-time remote absence. Four separately pinned raw `ci-jobs/*.json` responses additionally bind each selected job to its actual run and reviewed head.
 
@@ -228,7 +228,14 @@ TRANSFER_19 = {'requests_a2': '(12 non-finite cases, six sign/edge negatives and
     'binding_a1': 'Add both complete Composer numerical integration methods here: 12 non-finite field/value cases, six sign/edge rejection cases and one valid signed-edge positive control.',
     'binding_a5': 'four fields times NaN/+Infinity/-Infinity (12), six sign/edge invalid values, and the accepted baseline8/top-8/bottom3 control',
     'binding_dod_assert': 'both full Composer numerical integration methods with all 19 cases'}
+REQUESTS_REWRITES = ['95CA171F3610128A5BB41F1EEEDC210050F38DCB1AAAC90BE35E35C87825B7C7', '001F962F4BE1AFA73F12866978051FAEF0CDCFD35E47AE81D2F2F7929ED11FBF']
+RESET_SENTINEL = '轮次计数已清零'
 REQUIRED_TRANSFORMS = {
+    "PRM13": [
+        "!environment.isAppSpecificExternalMediaWritable(directory)",
+        "false",
+        "AppStoragePolicyTest#media returns unavailable for missing unmounted and read-only app-specific external volumes"
+    ],
     "PRM23": [
         "deviceProtectedDataDir = credentialEnvironment.deviceProtectedDataDir,",
         "deviceProtectedDataDir = File(credentialEnvironment.appDataDir, \"unused-device-protected\"),",
@@ -450,6 +457,39 @@ def registration_payloads(entries):
     need(len(entries)==9 and {e['path'] for e in entries}==paths,'exact nine distinct registration payloads')
     return entries
 
+def wrapper_structure(script, ship_command, log_name):
+    # Complete wrapper command structure: one execution line, and every other mention of a script or a subprocess is a pin or the start record.
+    execution = "& pwsh -NoProfile -File (Join-Path $root 'scripts/task.ps1') "+ship_command.split('task.ps1 ')[1]+" *> (Join-Path $out '"+log_name+"')"
+    pin = re.compile(r"'scripts/(task|review|_config)\.ps1'\s*=\s*'[0-9A-F]{64}'")
+    lines = script.replace('\r\n','\n').split('\n')
+    need(lines.count(execution) == 1, 'exactly one task.ps1 execution line')
+    for line in lines:
+        stripped = pin.sub('', line).replace("command='"+ship_command+"'", '').lower()
+        if 'pwsh' in line.lower() or 'resetrounds' in line.lower() or 'task.ps1' in stripped:
+            need(line == execution, 'no other pwsh call, task.ps1 mention or reset in the wrapper: '+line)
+        need('review.ps1' not in stripped, 'review.ps1 appears only as a controller pin: '+line)
+
+def reset_inventory(bundle, leaves, ship_command):
+    # Semantic inventory over the whole leaf set: every JSON command receipt is classified, reset sentinels are counted in every log, resets in every script.
+    commands = {}
+    for name in leaves:
+        if name.endswith('.json'):
+            record = doc(bundle/name)
+            if isinstance(record, dict) and isinstance(record.get('command'), str): commands[name] = record['command']
+    classes = {name: ('reset' if 'resetrounds' in c.lower() else 'ship' if 'phase ship' in c.lower() else 'check') for name, c in commands.items()}
+    resets = sorted(name for name, kind in classes.items() if kind == 'reset')
+    delivery = 'registration/round3-registration-delivery/execution/'
+    need(resets == [delivery+'attempt3-blocked-a8dea0ad/preparation/official-standalone-reset-result.json', delivery+'attempt3-preparation/official-standalone-reset-result.json'], 'exactly one reset receipt (plus preserved copy) among all command receipts')
+    need((bundle/resets[0]).read_bytes() == (bundle/resets[1]).read_bytes(), 'preserved reset copy identical')
+    ships = {name: commands[name] for name, kind in classes.items() if kind == 'ship'}
+    need(len(commands) == 13 and len(ships) == 8 and sum(c == ship_command for c in ships.values()) == 7 and all('resetrounds' not in c.lower() for c in ships.values()), 'complete command inventory: 2 reset, 8 ship (7 registration SkipRed + Policy), 3 checks')
+    logs = sorted(name for name in leaves if name.endswith('.log') and RESET_SENTINEL.encode() in (bundle/name).read_bytes())
+    need(logs == [delivery+'attempt3-blocked-a8dea0ad/preparation/official-standalone-reset.log', delivery+'attempt3-preparation/official-standalone-reset.log'] and (bundle/logs[0]).read_bytes() == (bundle/logs[1]).read_bytes(), 'the reset sentinel appears only in the one standalone reset log and its copy')
+    scripts = sorted(name for name in leaves if name.endswith('.ps1') and 'resetrounds' in text(bundle/name).lower())
+    controller = delivery.replace('execution/','controller-originalD/scripts/')
+    need(scripts == [controller+'_config.ps1', controller+'review.ps1', delivery+'reset-after-repair-attempt3.ps1'], 'only the pinned controller copies and the standalone reset wrapper mention a reset')
+    return resets
+
 def check_registration(bundle, repo, leaves):
     r = bundle/'registration/round3-registration-delivery'
     task = 'T0-REMOTE-ROUND3-CARDS'
@@ -474,20 +514,13 @@ def check_registration(bundle, repo, leaves):
         need((reviews[i]['attempt'], reviews[i]['verdict'].lower(), reviews[i]['sha'], reviews[i]['reasons']) == (i+1, verdict, head, saved['reasons']), 'each summarized review bound to its raw record')
         need(utc(result['startedUtc']) < utc(result['endedUtc']), 'ship interval')
         times.append((utc(result['startedUtc']),utc(result['endedUtc'])))
-        # Every ship wrapper executes exactly the metadata SkipRed ship and none of them resets: the one reset is a separate receipt below.
-        script = text(r/'execution'/wrapper); start = doc(r/'execution'/start_name)
-        invocations = re.findall(r'(?m)^& pwsh -NoProfile -File \(Join-Path \$root \'scripts/task\.ps1\'\) (.*)$', script)
-        need(start['command'] == ship_command and invocations == [ship_command.split('task.ps1 ')[1]+" *> (Join-Path $out '"+log_name+"')"] and '-ResetRounds' not in script, 'each ship wrapper executes the exact SkipRed ship once without reset')
+        need(doc(r/'execution'/start_name)['command'] == ship_command, 'each start record names the exact SkipRed ship')
+        wrapper_structure(text(r/'execution'/wrapper), ship_command, log_name)
     need(all(times[i][1] < times[i+1][0] for i in range(3)), 'four ordered actual reviews')
     need(summary['commonT24MergeToken'] == 'repo-common/merged-token.txt' and summary['t35Red'] == 'metadata SkipRed; no T35 RED receipt is claimed', 'registration T24 path and explicit no-T35 claim')
     stamped = merge_token(text(r/'repo-common/merged-token.txt'), RH, 313, utc(pr['mergedAt']))
     need(times[3][0] < stamped <= times[3][1], 'registration T24 token minted inside the fourth ship wrapper')
-    delivery = 'registration/round3-registration-delivery/'
-    resets = sorted(name for name in leaves if 'reset' in Path(name).name.lower() and name.endswith('.json'))
-    need(resets == [delivery+'execution/attempt3-blocked-a8dea0ad/preparation/official-standalone-reset-result.json', delivery+'execution/attempt3-preparation/official-standalone-reset-result.json'], 'exactly one standalone reset receipt in the whole evidence set, plus its preserved copy')
-    need((bundle/resets[0]).read_bytes() == (bundle/resets[1]).read_bytes(), 'preserved reset copy identical')
-    resetting = sorted(name for name in leaves if name.endswith('.ps1') and '-ResetRounds' in text(bundle/name))
-    need(resetting == [delivery+'controller-originalD/scripts/_config.ps1', delivery+'controller-originalD/scripts/review.ps1', delivery+'execution/reset-after-repair-attempt3.ps1'], 'only the pinned controller copies and the standalone reset wrapper mention a reset; no ship or preparation script does')
+    resets = reset_inventory(bundle, leaves, ship_command)
     folder = r/'execution/attempt3-preparation'
     reset, decision = doc(folder/'official-standalone-reset-result.json'),doc(folder/'root-counter-adjudication.json')
     need(reset['exit'] == 0 and reset['roundsBefore'] == 2 and reset['roundsFileExistsAfter'] is False, 'actual reset counter transition')
@@ -539,11 +572,11 @@ def check_registration(bundle, repo, leaves):
     history=paragraphs(card_parts(text(originals/'Requests.registered-original.md'))[1])
     target=paragraphs(card_parts(text(originals/'Requests.PR313-approved.md'))[1])
     frozen_body=paragraphs(card_parts(text(originals/'Requests.frozen-remote-before-rescope.md'))[1])
-    # Complete classification of the original Requests body: four paragraphs, all still in the frozen snapshot;
-    # the first two survive the approved rescope verbatim and in order, the pre-RED and forecast paragraphs are the two rewritten ones.
-    need(len(history) == 4 and all(paragraph in frozen_body for paragraph in history), 'complete original Requests history carried by the frozen snapshot')
-    need([paragraph in target for paragraph in history] == [True, True, False, False], 'exactly the first two original paragraphs survive the approved rescope')
-    need(target.index(history[0]) < target.index(history[1]), 'surviving Requests history stays ordered')
+    # Complete classification of the Requests body: the frozen snapshot is the four original paragraphs plus the remote-order section;
+    # the approved body keeps the first two verbatim and in place, replaces the pre-RED and forecast paragraphs with two pinned rewrites, and keeps the section.
+    need(len(history) == 4 and frozen_body[:4] == history and len(frozen_body) == 6, 'frozen snapshot is the complete original history plus the remote-order section')
+    need(len(target) == 6 and target[:2] == history[:2] and target[4:] == frozen_body[4:], 'approved body keeps the two surviving paragraphs first and the remote-order section unchanged')
+    need([sha(target[i].encode()) for i in (2,3)] == REQUESTS_REWRITES and not any(paragraph in target for paragraph in history[2:]), 'both replacement paragraphs pinned in order and the originals gone')
     need(history[2].startswith('Before RED, identify each negative') and history[3].startswith('Full candidate forecast'), 'the two rewritten paragraphs are the pre-RED and forecast paragraphs')
     parent=card_parts(text(r/'reviewed-payload/specs/tasks/T1-LOCAL-DATA-SECURITY.md'))[0]
     dependencies=[x.strip() for x in parent['depends_on'].split('[',1)[1].rstrip(']').split(',')]
