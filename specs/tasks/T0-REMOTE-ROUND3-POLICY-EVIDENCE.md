@@ -35,11 +35,11 @@ Policy actual Sol/high reviewer returned one PASS for `afffd383`; peripheral fil
 
 Policy cleanup wrapper returned0, but its raw log includes Filename too long and not-a-working-tree errors. The saved immediate filesystem/Git postchecks establish final absence, without turning failed internal commands into success. Registration cleanup has its own distinct actual receipt. The original Policy fd1 and all five BLOCKs remain undelivered history.
 
-Registration313 has exactly four summarized reviews, three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons and binds every summary entry to its raw record, not just the final summary or bundle hashes. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. The current Policy/Requests contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; the approved changed fields are pinned exactly and every other field equals its frozen snapshot. The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; the same 12+6+1 case transfer must appear in that snapshot and in the merged Requests text, and the two merged Policy source paths are asserted exactly.
+Registration313 has exactly four summarized reviews, three actual BLOCKs then PASS, one authorized standalone reset between review2 and review3, and a preserved fourth-wrapper inherited third label. The core parses each raw verdict and all reasons, binds every summary entry and wrapper banner to its branch, head and raw record, requires every ship wrapper to be the exact SkipRed ship without a reset, and finds exactly one reset receipt (plus its preserved copy) in the whole leaf set. Registration's T24 token is bound to RH/#313 and minted inside the fourth wrapper after the actual merge; being a metadata SkipRed ship it claims no T35, and the summary says so explicitly. Preview candidateHead does not replace the actual nine reviewed/merged payload bindings. The current Policy/Requests contract snapshots and both registered originals are byte-equal to reviewed/merged payloads; the approved changed fields are pinned exactly and every other field equals its frozen snapshot. The original Requests body is classified completely: two paragraphs survive the approved rescope verbatim and in order, the pre-RED and forecast paragraphs are the two rewritten ones. The Binding successor is a root-saved snapshot pinned by SHA, not a reviewed payload; the same 12+6+1 case transfer must appear in that snapshot and in the merged Requests text, and the two merged Policy source paths are asserted exactly.
 
 The additional `original-policy-delivery.json` is a separately pinned read-only observation: original fd1 remains BLOCK with its T35 commit waterline and no T24 merge receipt at that time. It does not alter the original638 index or claim all-time remote absence. Four separately pinned raw `ci-jobs/*.json` responses additionally bind each selected job to its actual run and reviewed head.
 
-The fixed authority is the latest own-card-only commit on original D `refs/heads/master`, bound to a root-approved complete card and exact scope at `_local/rotating-card-orchestrator/round3-policy-evidence-own-card-approval/`. This candidate cannot create that approval by writing a companion hash. Both the approval and root decision must have strict integer schemaVersion1; portable regular files must have exactly one hard link. A base change requires full reprojection and independent approval of changed bytes.
+The fixed authority is the latest own-card-only, single-parent commit on original D `refs/heads/master`. Its message trailers carry the approved card SHA-256, the root decision file SHA-256 and the base, so the decision and the card are bound by the commit rather than by their own mutable bytes; `approval.json` and `approved-card.md` at `_local/rotating-card-orchestrator/round3-policy-evidence-own-card-approval/` are validated field by field against that commit, the decision's `expectedMain` must be the commit's parent, and every authority file must be an ordinary single-link regular file. This candidate cannot create that approval by writing a companion hash. Both the approval and root decision must have strict integer schemaVersion1; portable regular files must have exactly one hard link. A base change requires full reprojection and independent approval of changed bytes.
 
 Consumers must pin this whole card at its actual reviewed and merged Git blobs and raw SHA, parse this publication's complete review/reset/CI/merge/cleanup lifecycle, and invoke only `replay(evidence, repo)` from the unique verified Python fence. They must not reuse the one-path publication guard as their own closure scope guard.
 
@@ -136,11 +136,11 @@ def review_response(log):
     need(tail.startswith(footer),'complete trusted prompt footer')
     return tail[len(footer):]
 
-def raw_review(log, saved, head, verdict):
+def raw_review(log, saved, branch, head, verdict):
     matches = re.findall(r'(?m)^codex\s*\r?\n(\{[^\r\n]*\})\s*\r?\ntokens used', review_response(log))
     need(len(matches) == 1, 'one actual raw review, excluding prompt examples')
     actual = json.loads(matches[0], object_pairs_hook=pairs)
-    need(saved['sha'] == head and saved['verdict'].lower() == verdict, 'saved verdict/head')
+    need(saved['branch'] == branch and saved['sha'] == head and saved['verdict'].lower() == verdict, 'saved branch/verdict/head')
     need(actual['verdict'].lower() == verdict and actual['reasons'] == saved['reasons'], 'raw reasons/verdict')
     need(bool(saved['reasons']) == (verdict == 'block'), 'BLOCK reasons / empty PASS reasons')
     prefix, separator, _ = log.replace('\r\n','\n').partition('\nuser\n')
@@ -149,7 +149,7 @@ def raw_review(log, saved, head, verdict):
     need(len(headers) == 1, 'one actual header before echoed prompt')
     header = headers[0]
     need(re.findall(r'(?m)^model: (.+)$',header) == ['gpt-5.6-sol'] and re.findall(r'(?m)^reasoning effort: (.+)$',header) == ['high'], 'actual header model/effort')
-    need(len(re.findall(r'(?m)^Codex [^\n]* @ '+re.escape(head[:8])+r' \.\.\.$',prefix)) == 1, 'actual pre-prompt wrapper head')
+    need(len(re.findall(r'(?m)^Codex 评审（超时 3600s）'+re.escape(branch)+' @ '+re.escape(head[:8])+r' \.\.\.$',prefix)) == 1, 'exact pre-prompt wrapper identity: branch, head and pinned timeout')
     need(len(re.findall(r'(?m)^session id: [0-9a-f-]+$',header)) == 1, 'one actual header session')
     return actual
 
@@ -161,6 +161,12 @@ def check_ci_job(job, summary, run, head):
 
 def saved_command(receipt, command):
     need(receipt['exit'] == 0 and receipt['command'] == command, 'exact complete saved command and successful exit')
+
+def merge_token(token, head, number, merged_at):
+    lines = token.replace('\r\n','\n').rstrip('\n').split('\n')
+    need(len(lines) == 3 and lines[:2] == ['tip='+head, 'merged_pr=#'+str(number)] and lines[2].startswith('utc='), 'exact T24 merge token tip/PR/utc')
+    stamped = utc(lines[2][4:]); need(merged_at <= stamped, 'T24 token stamped at or after the actual merge')
+    return stamped
 
 def ci_pr(pr, ci, number, head, merge, run, jobs, job_root):
     need(pr['number'] == number and pr['state'] == 'MERGED', 'actual merged PR')
@@ -410,13 +416,14 @@ def check_policy(bundle, repo, original_delivery):
         saved_command(doc(v/filename),command)
     need(all(x['exit'] == 0 for x in doc(v/'checks.json')), 'licenses/secrets receipt')
     need(sha((v/'built-app-debug.apk').read_bytes()) == receipt['apkSha256'], 'saved APK pin')
-    raw_review(text(d/'normal-ship.log'), doc(d/'r3-verdict.json'), PH, 'pass')
+    raw_review(text(d/'normal-ship.log'), doc(d/'r3-verdict.json'), 'T1-APP-STORAGE-POLICY-REMOTE', PH, 'pass')
     need(doc(d/'ship-exit.json')['exit'] == 0, 'normal ship native exit')
     need('-ResetRounds' not in doc(d/'ship-exit.json')['command'], 'product no reset command')
-    ci_pr(doc(d/'pr-final.json'),doc(d/'ci-run-final.json'),316,PH,PM,35318686041,[('verify',105515996019),('required',105517883022)],bundle.parent/'ci-jobs')
+    pr = doc(d/'pr-final.json')
+    ci_pr(pr,doc(d/'ci-run-final.json'),316,PH,PM,35318686041,[('verify',105515996019),('required',105517883022)],bundle.parent/'ci-jobs')
     water = doc(d/'ship-waterline.txt')
     need(water == {'commitSha':PH,'taskId':'T1-APP-STORAGE-POLICY-REMOTE','redSha':RM}, 'T35 exact product waterline')
-    need('tip='+PH in text(d/'merge-token.txt') and 'merged_pr=#316' in text(d/'merge-token.txt'), 'T24 merge token')
+    merge_token(text(d/'merge-token.txt'), PH, 316, utc(pr['mergedAt']))
     need(sha((d/'actual-committed.diff').read_bytes()) == receipt['fullDiffSha256'], 'actual full committed diff')
     historical = check_original_delivery(bundle, original_delivery)
     return {'mutants':30,'appCases':189,'policyCases':12,'secondaryFailures':10,'historicalOriginal':historical,
@@ -443,29 +450,44 @@ def registration_payloads(entries):
     need(len(entries)==9 and {e['path'] for e in entries}==paths,'exact nine distinct registration payloads')
     return entries
 
-def check_registration(bundle, repo):
+def check_registration(bundle, repo, leaves):
     r = bundle/'registration/round3-registration-delivery'
-    summary = doc(r/'summary.json')
-    ci_pr(doc(r/'remote-live/pr313.json'),doc(r/'remote-live/ci35303721378.json'),313,RH,RM,35303721378,[('verify',105471507340),('required',105471609283)],bundle.parent/'ci-jobs')
-    attempts = [('execution/attempt1-blocked-b14cc2f3','ship.log','ship-result.json'),
-                ('execution/attempt2-blocked-aab6c818','ship-attempt2.log','ship-attempt2-result.json'),
-                ('execution/attempt3-blocked-a8dea0ad','ship-attempt3.log','ship-attempt3-result.json'),
-                ('execution','ship-attempt4.log','ship-attempt4-result.json')]
+    task = 'T0-REMOTE-ROUND3-CARDS'
+    summary = doc(r/'summary.json'); pr = doc(r/'remote-live/pr313.json')
+    ci_pr(pr,doc(r/'remote-live/ci35303721378.json'),313,RH,RM,35303721378,[('verify',105471507340),('required',105471609283)],bundle.parent/'ci-jobs')
+    attempts = [('execution/attempt1-blocked-b14cc2f3','ship.log','ship-result.json','ship-once.ps1','ship-start.json'),
+                ('execution/attempt2-blocked-aab6c818','ship-attempt2.log','ship-attempt2-result.json','ship-attempt2.ps1','ship-attempt2-start.json'),
+                ('execution/attempt3-blocked-a8dea0ad','ship-attempt3.log','ship-attempt3-result.json','ship-attempt3.ps1','ship-attempt3-start.json'),
+                ('execution','ship-attempt4.log','ship-attempt4-result.json','ship-attempt4.ps1','ship-attempt4-start.json')]
     expected_heads = ['b14cc2f308098d537c6edd177c986f88c666d9be','aab6c81833cbef907a8a74af80f8eb2f3a46ae9c','a8dea0adacefc6821eb4cce3b4eeb525e75637d3',RH]
     reviews = summary['reviews']
     need(len(reviews) == len(attempts) == 4 and summary['actualShipAttempts'] == 4, 'exactly four summarized reviews, one per raw record')
+    ship_command = 'original D task.ps1 -TaskId '+task+' -Phase ship -Base master -SkipRed'
     times = []
-    for i,(folder,log_name,result_name) in enumerate(attempts):
+    for i,(folder,log_name,result_name,wrapper,start_name) in enumerate(attempts):
         directory=r/folder; result=doc(directory/result_name); raw=(directory/log_name).read_bytes()
-        saved = doc((directory/'review' if i<3 else r/'canonical-review')/'T0-REMOTE-ROUND3-CARDS.json')
+        saved = doc((directory/'review' if i<3 else r/'canonical-review')/(task+'.json'))
         verdict = 'block' if i<3 else 'pass'; head=expected_heads[i]
-        raw_review(raw.decode('utf-8-sig'),saved,head,verdict)
+        raw_review(raw.decode('utf-8-sig'),saved,task,head,verdict)
         need(result['canonicalHead'] == head and result['exit'] == (1 if i<3 else 0), 'each wrapper head/exit')
         need(sha(raw) == result['logSHA256'], 'each wrapper raw log SHA')
         need((reviews[i]['attempt'], reviews[i]['verdict'].lower(), reviews[i]['sha'], reviews[i]['reasons']) == (i+1, verdict, head, saved['reasons']), 'each summarized review bound to its raw record')
         need(utc(result['startedUtc']) < utc(result['endedUtc']), 'ship interval')
         times.append((utc(result['startedUtc']),utc(result['endedUtc'])))
+        # Every ship wrapper executes exactly the metadata SkipRed ship and none of them resets: the one reset is a separate receipt below.
+        script = text(r/'execution'/wrapper); start = doc(r/'execution'/start_name)
+        invocations = re.findall(r'(?m)^& pwsh -NoProfile -File \(Join-Path \$root \'scripts/task\.ps1\'\) (.*)$', script)
+        need(start['command'] == ship_command and invocations == [ship_command.split('task.ps1 ')[1]+" *> (Join-Path $out '"+log_name+"')"] and '-ResetRounds' not in script, 'each ship wrapper executes the exact SkipRed ship once without reset')
     need(all(times[i][1] < times[i+1][0] for i in range(3)), 'four ordered actual reviews')
+    need(summary['commonT24MergeToken'] == 'repo-common/merged-token.txt' and summary['t35Red'] == 'metadata SkipRed; no T35 RED receipt is claimed', 'registration T24 path and explicit no-T35 claim')
+    stamped = merge_token(text(r/'repo-common/merged-token.txt'), RH, 313, utc(pr['mergedAt']))
+    need(times[3][0] < stamped <= times[3][1], 'registration T24 token minted inside the fourth ship wrapper')
+    delivery = 'registration/round3-registration-delivery/'
+    resets = sorted(name for name in leaves if 'reset' in Path(name).name.lower() and name.endswith('.json'))
+    need(resets == [delivery+'execution/attempt3-blocked-a8dea0ad/preparation/official-standalone-reset-result.json', delivery+'execution/attempt3-preparation/official-standalone-reset-result.json'], 'exactly one standalone reset receipt in the whole evidence set, plus its preserved copy')
+    need((bundle/resets[0]).read_bytes() == (bundle/resets[1]).read_bytes(), 'preserved reset copy identical')
+    resetting = sorted(name for name in leaves if name.endswith('.ps1') and '-ResetRounds' in text(bundle/name))
+    need(resetting == [delivery+'controller-originalD/scripts/_config.ps1', delivery+'controller-originalD/scripts/review.ps1', delivery+'execution/reset-after-repair-attempt3.ps1'], 'only the pinned controller copies and the standalone reset wrapper mention a reset; no ship or preparation script does')
     folder = r/'execution/attempt3-preparation'
     reset, decision = doc(folder/'official-standalone-reset-result.json'),doc(folder/'root-counter-adjudication.json')
     need(reset['exit'] == 0 and reset['roundsBefore'] == 2 and reset['roundsFileExistsAfter'] is False, 'actual reset counter transition')
@@ -514,11 +536,15 @@ def check_registration(bundle, repo):
     need(successor['id'] == 'id: T3-PDF-MEASUREMENT-BINDING-REMOTE' and successor['depends_on'] == 'depends_on: [T3-PDF-MEASUREMENT-REQUESTS]', 'Binding successor identity and Requests dependency')
     need(len(ba) == 5 and TRANSFER_19['binding_a1'] in ba[0] and TRANSFER_19['binding_a5'] in ba[4] and TRANSFER_19['binding_dod_assert'] in successor['dod_assert'], 'Binding successor carries the same 12+6+1 case transfer')
     need('numerical integration' not in text(originals/'Binding.original-3e67ba71.md'), 'transfer absent from the original Binding contract')
-    old_request_body=card_parts(text(originals/'Requests.registered-original.md'))[1]
-    new_request_body=card_parts(text(originals/'Requests.PR313-approved.md'))[1]
-    position=0; target=paragraphs(new_request_body)
-    for paragraph in paragraphs(old_request_body)[:2]:
-        need(paragraph in target[position:],'Requests unchanged history preserved');position=target.index(paragraph,position)+1
+    history=paragraphs(card_parts(text(originals/'Requests.registered-original.md'))[1])
+    target=paragraphs(card_parts(text(originals/'Requests.PR313-approved.md'))[1])
+    frozen_body=paragraphs(card_parts(text(originals/'Requests.frozen-remote-before-rescope.md'))[1])
+    # Complete classification of the original Requests body: four paragraphs, all still in the frozen snapshot;
+    # the first two survive the approved rescope verbatim and in order, the pre-RED and forecast paragraphs are the two rewritten ones.
+    need(len(history) == 4 and all(paragraph in frozen_body for paragraph in history), 'complete original Requests history carried by the frozen snapshot')
+    need([paragraph in target for paragraph in history] == [True, True, False, False], 'exactly the first two original paragraphs survive the approved rescope')
+    need(target.index(history[0]) < target.index(history[1]), 'surviving Requests history stays ordered')
+    need(history[2].startswith('Before RED, identify each negative') and history[3].startswith('Full candidate forecast'), 'the two rewritten paragraphs are the pre-RED and forecast paragraphs')
     parent=card_parts(text(r/'reviewed-payload/specs/tasks/T1-LOCAL-DATA-SECURITY.md'))[0]
     dependencies=[x.strip() for x in parent['depends_on'].split('[',1)[1].rstrip(']').split(',')]
     rows=[line for line in text(r/'reviewed-payload/docs/TASK-BOARD.md').splitlines() if line.startswith('| W1 | T1-LOCAL-DATA-SECURITY |')]
@@ -527,17 +553,19 @@ def check_registration(bundle, repo):
             'cleanup':cleanup(bundle/'registration/round3-registration-root-cleanup',RH,RM,'T0-REMOTE-ROUND3-CARDS'),
             'limits':['Fourth wrapper inherited third wording retained.','Metadata cached XML is not a fresh all-tests rerun.','Saved preview head is not actual reviewed head.']}
 
-def approval_identity(approval, decision, card_raw):
+def approval_identity(approval, decision, card_raw, trailers, parent):
     need(type(decision.get('schemaVersion')) is int and decision['schemaVersion']==1,'root decision schemaVersion exactly 1')
     need(type(approval.get('schemaVersion')) is int and approval['schemaVersion']==1,'approval schemaVersion exactly 1')
     need(approval.get('task')==Path(OWN).stem,'approval exact task')
     need(approval.get('rootAuthorization')==ROOT_DECISION.as_posix(),'approval fixed rootAuthorization')
     need(decision.get('status')=='ROOT_APPROVED_FOR_SCOPED_BOOTSTRAP_R1_LIGHT_ONLY','explicit root decision status')
-    for key,value in {'task':Path(OWN).stem,'repository':'D:/Projects/MyInspection','ref':'refs/heads/master','path':OWN,'base':BASE,'sha256':sha(card_raw),'allow_paths':[OWN]}.items():
+    for key,value in {'task':Path(OWN).stem,'repository':'D:/Projects/MyInspection','ref':'refs/heads/master','path':OWN,'base':BASE,'sha256':sha(card_raw),'allow_paths':[OWN],'expectedMain':parent}.items():
         need(decision.get(key)==value,'root decision exact '+key)
     need(isinstance(decision.get('decision'),str) and bool(decision['decision'].strip()),'explicit root decision text')
     need(isinstance(decision.get('authorizedBy'),str) and bool(decision['authorizedBy'].strip()),'explicit root authorizedBy')
     need(utc(decision['utc'])<=utc(approval['approvedUtc']),'root decision precedes approval')
+    # The committed authority record carries the digests: the decision file and the card are bound by the commit, not by their own mutable bytes.
+    need(trailers == {'Approved-Card-SHA256': sha(card_raw), 'Root-Decision-SHA256': sha(ROOT_DECISION.read_bytes()), 'Approval-Base': BASE}, 'authority commit trailers bind card, root decision and base')
 
 def publication_guard(repo, card_raw):
     # Authority identifiers are fixed by reviewed code, never selected by ignored candidate input.
@@ -546,8 +574,13 @@ def publication_guard(repo, card_raw):
     need(bool(commit), 'own card has no independent authority commit yet')
     changed=git(origin,'diff-tree','--no-commit-id','--name-only','-r',commit).decode().splitlines()
     need(changed==[OWN], 'authority commit changes only complete own card')
+    parents=git(origin,'log','-1','--format=%P',commit).decode().split()
+    need(len(parents)==1, 'authority commit is an ordinary single-parent commit')
+    found=re.findall(r'(?m)^(Approved-Card-SHA256|Root-Decision-SHA256|Approval-Base): (\S+)$', git(origin,'log','-1','--format=%B',commit).decode())
+    need(len(found)==3, 'exactly three authority trailers'); trailers=dict(found)
+    for path in [AUTH, AUTH/'approval.json', AUTH/'approved-card.md', ROOT_DECISION]: ordinary(path)
     approval=doc(AUTH/'approval.json'); approved=(AUTH/'approved-card.md').read_bytes()
-    approval_identity(approval,doc(ROOT_DECISION),card_raw)
+    approval_identity(approval,doc(ROOT_DECISION),card_raw,trailers,parents[0])
     need(approval['repository']=='D:/Projects/MyInspection' and approval['ref']=='refs/heads/master' and approval['path']==OWN, 'fixed approval authority')
     need(approval['commit']==commit and approval['base']==BASE and approval['allow_paths']==[OWN], 'approval commit/base/exact scope')
     blob=git(origin,'rev-parse',commit+':'+OWN).decode().strip()
@@ -571,7 +604,7 @@ def replay(evidence, repo):
     for merge in [PM,RM]:git(repo,'merge-base','--is-ancestor',merge,BASE)
     delivery = safe_leaf(evidence,'original-policy-delivery.json').read_bytes()
     need(sha(delivery) == ORIGINAL_DELIVERY_SHA, 'fixed raw original delivery observation')
-    result={'policy316':check_policy(bundle,repo,json.loads(delivery,object_pairs_hook=pairs)),'registration313':check_registration(bundle,repo),
+    result={'policy316':check_policy(bundle,repo,json.loads(delivery,object_pairs_hook=pairs)),'registration313':check_registration(bundle,repo,names),
             'scope':'saved-proof replay only; no live remote attestation or historical test rerun; no Requests completion'}
     return result
 
