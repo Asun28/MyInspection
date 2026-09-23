@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-IMAGE-OWNERSHIP
 title: Image bridge orchestration with delegated sampling and stream/bitmap ownership through a narrow port
-status: todo
+status: merged
 depends_on: [T3-PDF-IMAGE-FIT, T3-PDF-RENDERER]
 parallelizable_with: []
 allow_paths:
@@ -66,3 +66,5 @@ lines / 24k–30k characters including repair reserve.
 Implemented, reviewed and merged locally on 2026-09-23 (local merge `1558594d`, reviewed tree `b85231ae`); the card is
 registered on origin first, then its product PR publishes the same two source files. The R3 for this PR is a fresh Opus 5.5 instance
 run by `review.ps1` through `ReviewCommand`, by user ruling while the Codex quota is exhausted.
+
+Origin delivery record: merged through [PR #326](https://github.com/Asun28/MyInspection/pull/326) (reviewed head `8cd62822eb068e88158b056eee0395a6ed07db28`, ci.yml run `35912623512`, squash merge `fa24575c7d8f936ba7bd5a783a1cb4d03c1729a2`). Fresh remote RED, DoD, verify, scope, licence, secret and diff-budget gates passed in `task.ps1 ship`; its built-in R3 failed closed on the Codex usage limit, the round was reset after that diagnosis, and a fresh Opus 5.5 R3 through `review.ps1` passed and posted the status (user ruling while the Codex quota is exhausted).

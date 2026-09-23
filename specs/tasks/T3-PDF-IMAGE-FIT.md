@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-IMAGE-FIT
 title: Fixed FIT_CENTER drawing rectangle from the unchanged placement frame and actual decoded dimensions
-status: todo
+status: merged
 depends_on: [T3-PDF-RENDERER]
 parallelizable_with: []
 allow_paths:
@@ -66,3 +66,5 @@ Forecast: `PdfImageFit.kt` 35–45 lines, `PdfImageFitTest.kt` 80–100, R4 summ
 Implemented, reviewed and merged locally on 2026-09-23 (local merge `f367ca86`, reviewed tree `0092e994`); the card is
 registered on origin first, then its product PR publishes the same two source files. The R3 for this PR is a fresh Opus 5.5 instance
 run by `review.ps1` through `ReviewCommand`, by user ruling while the Codex quota is exhausted.
+
+Origin delivery record: merged through [PR #325](https://github.com/Asun28/MyInspection/pull/325) (reviewed head `987f25265694adf829143efe449f73a1caafff77`, ci.yml run `35910310742`, squash merge `39f06b066d124cfbb1e5dc24083d74c60eb69a19`). Fresh remote RED, DoD, verify, scope, licence, secret and diff-budget gates passed in `task.ps1 ship`; its built-in R3 failed closed on the Codex usage limit, the round was reset after that diagnosis, and a fresh Opus 5.5 R3 through `review.ps1` passed and posted the status (user ruling while the Codex quota is exhausted).
