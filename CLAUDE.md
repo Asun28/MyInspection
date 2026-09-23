@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-OWNERSHIP`（master `1558594d`，feature `17060f81`）是图片 bridge 拆分的第二张：窄端口上的 bounds → 已交付采样 → decode → FIT 绘制 → recycle，每条打开的流都有 close 尝试、每张解码图都有 recycle 尝试，清理失败挂为 suppressed 不顶替原失败，单次 draw 至多持有一张解码图。20 项测试、23/23 变异。DeepSeek V4 Flash 两轮预审 + 全新 Opus 5.5 R3 首轮 pass，合并树与评审树 `b85231ae` 一致。
+
 **2026-09-23 本地交付**：`T3-PDF-IMAGE-FIT`（master `f367ca86`，feature `daa4f720`）是 `T3-PDF-IMAGE-BRIDGE` 按用户裁定拆成三张小卡（FIT → OWNERSHIP → 窄化后的 BRIDGE 适配器）的第一张：固定 FIT_CENTER 几何，拒非正解码尺寸与非有限/无面积框，Double 计算并把每条边钳进框内。11 项测试、26/26 变异。Codex 配额耗尽期间按用户裁定改用 DeepSeek V4 Flash 多轮预审 + 全新 Opus 5.5 子代理作 R3（第 5 轮 pass，第 3–5 轮逐轮经用户授权）；ship -Local 其余确定性闸全过，其可选 R3 腿因 codex 不在 PATH 而显式跳过，合并树与评审树 `0092e994` 逐字节一致。前两轮 R3 抓到真实浮点缺陷，后两轮是注释措辞超出证据（L309）。
 
 **2026-09-17 本地交付**：`T3-PDF-PAGINATION-FIXTURES`（master `7e4e35d3`，feature `8e828486`，正式 Sol/high R3 首轮 pass、零 finding）仅迁移两处固定 4mm 行高分页测试，保留首块/续页预算、标题同页、全文重建和不溢出保证。基线、迁移、恢复各 328 项报告测试与 6 项核心 e2e 通过，2/2 具名预算变异检出并恢复生产原字节；58 行/5,408 字符，生产零改动。非 TDD 的 SkipRed 已由 ship 记账，verify、范围、许可、防泄露和预算闸通过。Composer 测量绑定、API 与真机 PDF 证据仍由后继卡交付。

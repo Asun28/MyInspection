@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-IMAGE-OWNERSHIP
 title: Image bridge orchestration with delegated sampling and stream/bitmap ownership through a narrow port
-status: todo
+status: merged
 depends_on: [T3-PDF-IMAGE-FIT, T3-PDF-RENDERER]
 parallelizable_with: []
 allow_paths:
@@ -58,3 +58,10 @@ draw/recycle failure; source-close failure after bounds and after decode; cleanu
 
 Forecast: `PdfImageBridge.kt` 95–110 lines, `PdfImageBridgeTest.kt` 250–290 including the R4 summary; 345–400
 lines / 24k–30k characters including repair reserve.
+
+## Delivery record (2026-09-23)
+
+Merged locally: master `1558594d`, feature `17060f81`, 2 files / 443 lines. 20 bridge tests; R4 23/23 compiling
+mutants killed against PdfImageBridge.kt SHA-256 `2033B709...8149`. DeepSeek V4 Flash pre-review rounds 1-2 passed;
+a fresh Opus 5.5 R3 passed in round 1 on tree `b85231ae`, which equals the merged tree. `ship -Local` ran every
+deterministic gate; its optional R3 leg was skipped because codex was removed from PATH for that process.
