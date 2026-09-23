@@ -45,7 +45,7 @@ doc_sync: 同步 rubric/workflow/card template/task-loop/CLAUDE 的建议模式�
 
 用户已授权采纳有益的上游降摩擦与提速改进。本卡是受限策略接入，本身触及评审基础设施，故仍走 blocking R3。
 
-已提交基线卡显式选择 advisory，且实际改动只能证明为普通 docs/specs Markdown 时，允许真实负面评审作为建议落盘。任何关键、冻结、安全、工作流、交付或未知路径均保持 blocking。超时与无效评审不构成建议意见。
+已提交基线卡显式选择 advisory，且实际改动全部是 docs/research/ 下的 Markdown（白名单）时，允许真实负面评审作为建议落盘。白名单外任何路径（无论名称）与冻结路径均保持 blocking。超时与无效评审不构成建议意见。
 
 实现先写真实策略 SelfCheck 并由主 Agent 固化 RED，再接生产分类与helper 内真实 reviewer fixture。本卡实施预算小于 900 changed lines，并满足 R3 1000 changed lines / 60000 chars 硬上限；预估 550–780 行。
 
