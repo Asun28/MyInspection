@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-IMAGE-BRIDGE
 title: Android BitmapFactory/Canvas port that completes the delivered image bridge
-status: todo
+status: merged
 depends_on: [T3-PDF-IMAGE-OWNERSHIP, T1-SPIKE-PLATFORM]
 parallelizable_with: []
 allow_paths:
@@ -68,3 +68,5 @@ registered on origin first, then its product PR publishes the same two source fi
 the exact reviewed source (user ruling after the local R3 cap). The R3 for this PR is a fresh Opus 5.5 instance run by
 `review.ps1` through `ReviewCommand`, by user ruling while the Codex quota is exhausted. Known follow-up, outside this
 card: `:app:testDebugUnitTest` does not declare the source files that source-reading tests read as inputs.
+
+Origin delivery record: merged through [PR #327](https://github.com/Asun28/MyInspection/pull/327) (reviewed head `acc28f8205d860b9581b170ee1dd066bed96bd40`, ci.yml run `35914321209`, squash merge `e1d47a5f3209f0dc58ff2e42404746a39fce8f5a`). Fresh remote RED, DoD, verify, scope, licence, secret and diff-budget gates passed in `task.ps1 ship`; its built-in R3 failed closed on the Codex usage limit, the round was reset after that diagnosis, and a fresh Opus 5.5 R3 through `review.ps1` passed and posted the status (user ruling while the Codex quota is exhausted).
