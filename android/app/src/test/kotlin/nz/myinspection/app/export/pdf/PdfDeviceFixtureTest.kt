@@ -12,27 +12,24 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import nz.myinspection.core.canon.canonicalJson
+import nz.myinspection.core.media.ContentHash
+import nz.myinspection.core.model.PropertySnapshot
 import nz.myinspection.core.report.Audience
+import nz.myinspection.core.report.BilingualText
+import nz.myinspection.core.report.StatusDefinition
 import nz.myinspection.core.report.content.PrivatePhotoScope
 import nz.myinspection.core.report.content.ReportOrigin
 import org.testng.SkipException
 
 /**
- * Portable cases feed synthetic rows through the real preflight and builder and prove guards and shape; the real80
- * digests are compared only by the env-gated run at the end, against literals typed here, not production constants.
+ * Portable cases feed synthetic rows through the real preflight and builder and prove guards and shape. The real80
+ * digests are compared only by the env-gated run at the end: build() checks them against the production constants,
+ * then the test checks them against literals typed here.
  */
 class PdfDeviceFixtureTest {
     private val expectedNative = "f8573b3252196b7ac36201755a2e6dbb9fcd91b2485899679aa5230c32751023"
     private val expectedSemantic = "af17258a955afaa0dc73bab853db8ed9fa2424b043274f31bafa01c974a7287c"
     private val approvedManifest = "8721160680e73a2ce3570666ac416e31515bbd16fefb2a106e180790884ccad5"
-
-    @Test
-    fun `sha256Hex matches the published digest of abc`() {
-        assertEquals(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-            PdfFixtureManifest.sha256Hex("abc".toByteArray()),
-        )
-    }
 
     @Test
     fun `preflight binds eighty verified files under the fixture root`() = withRoot { root ->
@@ -89,6 +86,14 @@ class PdfDeviceFixtureTest {
         assertTrue(changed.message!!.startsWith("[FIXTURE-FILE-BYTES]"), changed.message)
     }
 
+    /** The public route hashes the bytes it read and refuses them before org.json (an Android stub here) is called. */
+    @Test
+    fun `reader refuses manifest bytes that are not the approved ones`() = withRoot { root ->
+        File(root, PdfFixtureManifest.APPROVED_MANIFEST_FILENAME).writeText("{}")
+        val refusal = assertFailsWith<FixtureRefusal> { AndroidFixtureManifestReader.preflight(root) }
+        assertTrue(refusal.message!!.startsWith("[FIXTURE-MANIFEST-DIGEST]"), refusal.message)
+    }
+
     /** The entry itself must be a regular file: a directory, a link or a junction under that name is refused, not followed. */
     @Test
     fun `preflight refuses an entry that is not a regular file under the root`() = withRoot { root ->
@@ -122,7 +127,13 @@ class PdfDeviceFixtureTest {
         assertEquals(PrivatePhotoScope.EXCLUDED, content.privatePhotoScope)
         assertEquals(ReportOrigin.NATIVE, content.origin)
         assertNull(content.importProvenance)
-        assertEquals(listOf("Panoramas", "Low light", "Fine textures", "Nameplates"), content.rooms.map { it.label.en })
+        assertEquals(
+            listOf(
+                BilingualText("Panoramas", "房间全景"), BilingualText("Low light", "低光场景"),
+                BilingualText("Fine textures", "精细纹理"), BilingualText("Nameplates", "设备铭牌"),
+            ),
+            content.rooms.map { it.label },
+        )
         assertEquals(listOf(20, 0, 0, 0), content.rooms.map { it.photos.size })
         assertEquals(listOf(0, 20, 21, 19), content.rooms.map { room -> room.items.sumOf { it.photos.size } })
         val placed = content.rooms.flatMap { room -> room.photos + room.items.flatMap { it.photos } }
@@ -140,7 +151,17 @@ class PdfDeviceFixtureTest {
         assertTrue(input.report.canonical.photos.all { it.source == "imported" && it.exifTimeMs == null })
         assertTrue(placed.none { it.privacy })
         assertEquals(fixture.photos.map { it.file }, input.descriptors.map { it.file })
-        assertEquals(placed.map { it.id }.toSet(), input.descriptors.map { it.photoId }.toSet())
+        assertEquals((1..80).toList(), input.descriptors.map { it.manifestOrdinal })
+        assertEquals(fixture.photos.map { it.row.sha256 }, input.descriptors.map { it.contentHash })
+        val holders = content.rooms.flatMap { room ->
+            room.photos.map { listOf(it.id, it.reference, it.contentHash, room.id, null) } +
+                room.items.flatMap { item -> item.photos.map { listOf(it.id, it.reference, it.contentHash, room.id, item.id) } }
+        }
+        assertEquals(
+            holders.sortedBy { it[0] as String },
+            input.descriptors.map { listOf(it.photoId, it.reference, it.contentHash, it.roomId, it.itemId) }.sortedBy { it[0] as String },
+            "each descriptor binds exactly the content photo, reference, hash and slot it describes",
+        )
     }
 
     @Test
@@ -175,26 +196,70 @@ class PdfDeviceFixtureTest {
             listOf("BED-LIGHT-01", "HAL-WALL-01", "GEN-METER-01"),
             input.content.rooms.flatMap { room -> room.items.map { it.stableId } },
         )
+        assertEquals(
+            listOf(
+                BilingualText("Lighting samples", "灯光样本") to "Test fixture only / 仅供测试",
+                BilingualText("Texture samples", "纹理样本") to "Test texture detail / 测试纹理细节",
+                BilingualText("Nameplate samples", "铭牌样本") to "Test small print / 测试铭牌小字",
+            ),
+            input.content.rooms.flatMap { room -> room.items.map { it.label to it.note } },
+        )
         assertEquals(listOf("FAIR", "POOR"), input.content.summary.adverseItems.map { it.status })
-        assertEquals(listOf("GOOD", "FAIR", "POOR", "NOT_APPLICABLE"), input.content.statusDefinitions.map { it.status })
+        assertEquals(
+            listOf(
+                StatusDefinition("GOOD", BilingualText("Good", "良好"), BilingualText("No issue observed", "未观察到问题")),
+                StatusDefinition("FAIR", BilingualText("Fair", "一般"), BilingualText("Wear is visible", "可见正常损耗")),
+                StatusDefinition("POOR", BilingualText("Poor", "较差"), BilingualText("Attention is needed", "需要处理")),
+                StatusDefinition(
+                    "NOT_APPLICABLE", BilingualText("Not applicable", "不适用"), BilingualText("This item does not apply", "本检查项不适用"),
+                ),
+            ),
+            input.content.statusDefinitions,
+        )
+    }
+
+    /** Internal members compile to mangled JVM names; a private constructor leaves at most a synthetic accessor. */
+    @Test
+    fun `verified types expose no public factory and their collections are read-only`() = withRoot { root ->
+        listOf(
+            PdfFixtureManifest::class.java to "preflight",
+            AuthorizedFixture.Companion::class.java to "preflight",
+            AuthorizedPhoto.Companion::class.java to "verify",
+        ).forEach { (type, name) -> assertTrue(type.methods.none { it.name == name }, "${type.name}.$name must stay internal") }
+        listOf(AuthorizedFixture::class.java, AuthorizedPhoto::class.java).forEach { type ->
+            assertTrue(type.constructors.all { it.isSynthetic }, "${type.name} must have no public constructor")
+        }
+        val fixture = PdfFixtureManifest.preflight(approvedManifest, synthetic(root), root)
+        val input = PdfDeviceFixture.buildUnverified(fixture)
+        assertFailsWith<UnsupportedOperationException> { (fixture.photos as MutableList<AuthorizedPhoto>).removeAt(0) }
+        assertFailsWith<UnsupportedOperationException> { (input.descriptors as MutableList<FixturePhotoDescriptor>).removeAt(0) }
+        assertFailsWith<UnsupportedOperationException> {
+            (PdfFixtureManifest.REQUIRED_CATEGORY_COUNTS as MutableMap<String, Int>)["nameplate"] = 20
+        }
+        assertEquals(80, fixture.photos.size)
+        assertEquals(80, input.descriptors.size)
     }
 
     @Test
     fun `fixed identity literals match the frozen mapping and the real template bytes`() = withRoot { root ->
-        val canonical = PdfDeviceFixture.buildUnverified(PdfFixtureManifest.preflight(approvedManifest, synthetic(root), root))
-            .report.canonical
+        val report = PdfDeviceFixture.buildUnverified(PdfFixtureManifest.preflight(approvedManifest, synthetic(root), root)).report
+        val canonical = report.canonical
         assertEquals("01a0aca9-bc00-7000-8000-000000000001", canonical.id)
-        assertEquals("01a0aca9-bc00-7000-8000-000000000002", canonical.property.id)
         assertEquals("01a0aca9-bc00-7000-8000-000000000003", canonical.template.id)
         assertEquals("ROUTINE" to 2L, canonical.type to canonical.template.version)
         assertEquals(1789603200000L to 1789603260000L, canonical.scheduledAt to canonical.finalizedAt)
-        assertEquals("PDF fixture only / 仅用于 PDF 测试", canonical.property.address)
+        assertEquals(
+            PropertySnapshot("01a0aca9-bc00-7000-8000-000000000002", "PDF fixture only / 仅用于 PDF 测试", "RENTAL", false),
+            canonical.property,
+        )
+        assertEquals((1..4).map { "01a0aca9-bc00-7000-8000-00000000010$it" }, report.rooms.map { it.id })
+        assertEquals((2..4).map { "01a0aca9-bc00-7000-8000-00000000020$it" }, report.rooms.flatMap { room -> room.items.map { it.id } })
         assertNull(canonical.tenancy)
         val template = generateSequence(File("").absoluteFile) { it.parentFile }
             .map { File(it, "data/templates/routine-v2.json") }.firstOrNull { it.isFile }
             ?: fail("routine-v2.json not found above ${File("").absolutePath}")
         assertEquals("fd06639f0b7117b1b3cbbf74a71b19cf0f0cc2ee4e374256ad967ad2bdcfe078", PdfDeviceFixture.TEMPLATE_CONTENT_HASH)
-        assertEquals(PdfDeviceFixture.TEMPLATE_CONTENT_HASH, PdfFixtureManifest.sha256Hex(template.readBytes()))
+        assertEquals(PdfDeviceFixture.TEMPLATE_CONTENT_HASH, ContentHash.sha256Hex(template.readBytes()))
         assertEquals(PdfDeviceFixture.TEMPLATE_CONTENT_HASH, canonical.template.contentHash)
     }
 
@@ -229,7 +294,7 @@ class PdfDeviceFixtureTest {
         val dir = System.getenv("MYINSPECTION_REAL80_DIR")
             ?: throw SkipException("set MYINSPECTION_REAL80_DIR to run the explicit real80 comparison")
         val bytes = File(dir, PdfFixtureManifest.APPROVED_MANIFEST_FILENAME).readBytes()
-        assertEquals(approvedManifest, PdfFixtureManifest.sha256Hex(bytes), "manifest bytes are not the approved ones")
+        assertEquals(approvedManifest, ContentHash.sha256Hex(bytes), "manifest bytes are not the approved ones")
         val fixture = PdfFixtureManifest.preflight(approvedManifest, parseManifest(bytes), File(dir, "photos"))
         val input = PdfDeviceFixture.build(fixture)
         assertEquals(expectedNative, input.content.nativeIntegrity.dataHash)
@@ -255,7 +320,7 @@ class PdfDeviceFixtureTest {
             File(root, name).writeBytes(body)
             FixtureManifestRow(
                 photoId = "syn-%03d".format(id), category = category, filename = name, bytes = body.size.toLong(),
-                sha256 = PdfFixtureManifest.sha256Hex(body), width = 100 + index, height = 50,
+                sha256 = ContentHash.sha256Hex(body), width = 100 + index, height = 50,
                 licenseName = listOf("CC BY 4.0", "CC0", "Public domain", "CC BY 2.0 de")[index % 4],
                 contentCheck = "agent_visual_review_pass",
             )
@@ -281,7 +346,10 @@ class PdfDeviceFixtureTest {
     }
 }
 
-/** Test-only strict JSON reader for the explicit run; the device path reads the manifest with org.json. */
+/**
+ * Test-only minimal JSON reader for the explicit run, not a validating parser: it only ever reads manifest bytes
+ * whose SHA-256 was checked first. The device path reads the manifest with org.json.
+ */
 private class MiniJson(private val s: String) {
     private var i = 0
     fun parse(): Any? = value().also { ws(); require(i == s.length) { "trailing input at $i" } }

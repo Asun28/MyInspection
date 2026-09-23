@@ -1,18 +1,20 @@
 package nz.myinspection.app.export.pdf
 
 import java.io.File
+import nz.myinspection.core.media.ContentHash
 import org.json.JSONObject
 
 /**
- * Narrow Android reader for the approved manifest: it maps the JSON to typed rows and hands them, with the raw
- * byte digest, to the pure-JVM preflight. The fixture directory holds the manifest beside a `photos/` folder,
- * mirroring the controlled local collection; nothing outside those two names is ever opened.
+ * Narrow Android reader for the approved manifest and the public route to an AuthorizedFixture: it maps the JSON to
+ * typed rows and hands them, with the digest of those same bytes, to the pure-JVM preflight. The fixture directory
+ * holds the manifest beside a `photos/` folder, mirroring the controlled local collection; nothing outside those
+ * two names is ever opened.
  */
 object AndroidFixtureManifestReader {
-    /** The digest is refused before parsing, so org.json only ever sees the approved bytes. */
+    /** The digest of the bytes read here is refused before parsing, so org.json only ever sees the approved bytes. */
     fun preflight(fixtureDir: File): AuthorizedFixture {
         val bytes = File(fixtureDir, PdfFixtureManifest.APPROVED_MANIFEST_FILENAME).readBytes()
-        val digest = PdfFixtureManifest.sha256Hex(bytes)
+        val digest = ContentHash.sha256Hex(bytes)
         PdfFixtureManifest.requireApprovedDigest(digest)
         return PdfFixtureManifest.preflight(digest, read(bytes), File(fixtureDir, "photos"))
     }

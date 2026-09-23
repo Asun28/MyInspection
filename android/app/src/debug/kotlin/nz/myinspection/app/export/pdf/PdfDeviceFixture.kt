@@ -1,6 +1,7 @@
 package nz.myinspection.app.export.pdf
 
 import java.io.File
+import java.util.Collections
 import java.util.UUID
 import nz.myinspection.core.model.InspectionItemSnapshot
 import nz.myinspection.core.model.InspectionSnapshot
@@ -36,8 +37,11 @@ data class FixturePhotoDescriptor(
 class FixedReportInput internal constructor(
     val report: ReportSnapshot,
     val content: ReportContent,
-    val descriptors: List<FixturePhotoDescriptor>,
-)
+    descriptors: List<FixturePhotoDescriptor>,
+) {
+    /** A read-only copy, so a consumer cannot swap a binding inside the returned input. */
+    val descriptors: List<FixturePhotoDescriptor> = Collections.unmodifiableList(ArrayList(descriptors))
+}
 
 /**
  * Deterministic real80 report input. Every identity is a fixture-local UUIDv7 minted from one anchor timestamp
