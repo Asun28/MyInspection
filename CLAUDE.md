@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-24 本地交付**：`T1-APP-STORAGE-POLICY`（master `f68d7006`，feature `834206a6`）在前置交付后以非重写 merge 吸收主线，删除内嵌 `canonicalFile` 判定，改为消费 `StoragePathBoundary`：保存验证过的 CE/no-backup 根，每次 `location` 检查并返回类别目录；两处拒绝固定消息无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 保身份。12 项策略测试（3 项真实 Junction 接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间由全新 Opus 5.5 子代理作 R3：前两轮 block 的 4 条均是测试断言面缺口（假环境忽略参数、夹具根过宽使守卫互相遮蔽、只注入一种异常类型），第 3 轮 pass，合并树=评审树 `448da9cd`。实际 Android 适配归 `T1-APP-STORAGE-ANDROID`；TD178 记测试临时目录不清理。
+
 **2026-09-24 R5 补记**：`T1-STORAGE-PATH-BOUNDARY` 已于 2026-09-17 本地合并（master `115138a4`，feature `c201c793`，正式 Sol R3 首轮 pass），当时未做 R5。`StoragePathBoundary` 交付检查时的真实路径归属（Junction/符号链接按真实目标比较，不靠 `canonicalFile`）、保存的根快照与逐次子目录检查；20 项真实文件系统测试、35/35 变异。不含后续 I/O 权限或消除 TOCTOU；`T1-APP-STORAGE-POLICY` 由此解锁。
 
 **2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 可接。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。

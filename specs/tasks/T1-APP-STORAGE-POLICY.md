@@ -2,7 +2,7 @@
 id: T1-APP-STORAGE-POLICY
 title: App-private storage routing over a verified path boundary
 depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING, T1-STORAGE-PATH-BOUNDARY]
-status: todo
+status: merged
 branch: T1-APP-STORAGE-POLICY
 worktree: C:\wt\T1-APP-STORAGE-POLICY
 allow_paths:
@@ -47,3 +47,5 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 2026-09-17：第三次 R3 指出实际 Android 映射缺直接测试；原差异 613 行 / 29,691 字符，补齐平台执行预计达 813–923 行，因此将整个 Android 适配实现、原始状态映射、可写 helper 及专属测试移至 `T1-APP-STORAGE-ANDROID`。保留三次失败裁决和原提交；不得仅推迟测试而保留未验证适配器。当前卡拆后预计 528–558 行 / 25k–27k，另有约 90 行修复空间；650 行或 45k 提前闸不变。纯策略重新跑完整 DoD、所有剩余最终源 pin 的 R4 和正式 R3。作者修复提升 GPT-5.6 Terra · high；独立 GPT-5.6 Sol · high 正式评审。
 
 2026-09-17 后续裁定覆盖上述当前预算：第五次 R3 在 fd1dd18c 发现返回类别目录未检查真实边界；JDK17 实测 canonicalFile 不解析 Windows Junction。完整路径能力与直接测试拆至 T1-STORAGE-PATH-BOUNDARY，原卡在此前停驻，不新增修复 RED。15 行 helper 与 173 行直接测试整体迁出，必要接线测试保留；后继完整预计468–482行/23.5k–25.5k，650/45k提前闸不变，首候选不超过487行以保留25%容量。作者升级 GPT-6 Astra/high。保留全部五次 BLOCK、原提交和证据；前置实际交付后非重写 merge 吸收主线，再替换实现并重跑全部闸门，不 restart/rebase/reset 或将旧通过结果用于新源码。
+
+2026-09-24 交付：前置 T1-STORAGE-PATH-BOUNDARY 于 115138a4 合并后，本分支以非重写 merge（ea55e95f）吸收主线，RED 于 ea55e95f 取证（3 项新黑盒接线测试在旧 canonicalFile 实现上以具名 AssertionError 失败），随后删除内嵌判定、改为消费 StoragePathBoundary.create/resolveChild；五个直接路径测试块随前置迁出。本地合并 master f68d7006（feature 834206a6），500 行 / 27.3k。Codex 配额耗尽期间按用户裁定由全新 Opus 5.5 子代理作 R3（本卡 review_gate 的 codex 席位在此次由其替代）：第 1 轮 block（假环境 usableBytes 忽略目录参数、转换夹具根过宽、探针失败测试只覆盖 space），第 2 轮 block（两处 catch 宽度未测、收据误计旧回执数），均属测试侧、当场修复并补具名变异 M36–M45；第 3 轮 pass，合并树与评审树 448da9cd 一致。R4 45/45（_local/storage-policy/successor-r4-5）。第 3 轮附注（临时目录不清理等）登记 TD178。
