@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-IMAGE-FIT
 title: Fixed FIT_CENTER drawing rectangle from the unchanged placement frame and actual decoded dimensions
-status: todo
+status: merged
 depends_on: [T3-PDF-RENDERER]
 parallelizable_with: []
 allow_paths:
@@ -58,3 +58,16 @@ frame (10, 20, 110, 70) gives (10, 25, 110, 65), and a 1000x2000 image in the sa
 
 Forecast: `PdfImageFit.kt` 35–45 lines, `PdfImageFitTest.kt` 80–100, R4 summary 12–15; 130–160 lines /
 8k–11k characters including repair reserve.
+
+## Delivery record (2026-09-23)
+
+Merged locally: master `f367ca86`, feature `daa4f720`, 2 files / 196 lines. `PdfImageFit.kt` refuses non-positive
+decoded sizes and frames without finite edges and positive extents, computes the fit in Double and clamps every edge
+into the frame. 11 tests; R4 26/26 compiling mutants killed against SHA-256 `56FCE5A3...ACD33`.
+
+Review: DeepSeek V4 Flash pre-review rounds 1-8 (blocks on an infinite frame edge and on stale receipts, all fixed),
+then fresh Opus 5.5 R3 rounds 1-5. Rounds 1 and 2 found real float defects (a near-MAX frame gave an infinite or NaN
+rectangle; the fix still rounded the frame width in Float). Rounds 3 and 4 found comments that claimed more than the
+code guarantees. Round 5 passed on tree `0092e994`. The user authorized rounds 3, 4 and 5 one at a time beyond the
+cap of 2. `ship -Local` ran every deterministic gate; its optional R3 leg was skipped because codex was removed from
+PATH for that process, and the merged tree equals the reviewed tree.
