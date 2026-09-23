@@ -63,6 +63,6 @@ Forecast: `PdfImageFit.kt` 35–45 lines, `PdfImageFitTest.kt` 80–100, R4 summ
 
 ## Remote delivery (2026-09-24)
 
-Implemented, reviewed and merged locally on 2026-09-23 (local merge `f367ca86`, reviewed tree `0092e994`); this PR
-publishes the same two source files to origin together with this card. The R3 for this PR is a fresh Opus 5.5 instance
+Implemented, reviewed and merged locally on 2026-09-23 (local merge `f367ca86`, reviewed tree `0092e994`); the card is
+registered on origin first, then its product PR publishes the same two source files. The R3 for this PR is a fresh Opus 5.5 instance
 run by `review.ps1` through `ReviewCommand`, by user ruling while the Codex quota is exhausted.
