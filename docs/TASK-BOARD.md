@@ -126,6 +126,7 @@
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
 | W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | **merged**：PR #286 / `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`；R3 首轮 pass、CI 成功、cleanup 完成；真机与 APK 边界见平台报告 |
 | W1 | [T1-SAFE-MEDIA-LOGGING-REMOTE](../specs/archive/tasks/T1-SAFE-MEDIA-LOGGING-REMOTE.md) | 封闭安全日志与四处媒体失败接线 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **merged**；[PR #304](https://github.com/Asun28/MyInspection/pull/304)，reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`，CI `35158547855`，merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；正式 R3 pass；不改存储、调度或删除语义 |
+| W1 | T1-APP-STORAGE-POLICY-TESTS | AppStoragePolicyTest 钉住端口参数、环境转换读值与两处 catch 宽度（纯测试） | T1-APP-STORAGE-POLICY-REMOTE | S | Opus 5.5 · high | Opus 5.5 R3（Codex配额恢复前） | todo；孪生实现的 Opus R3 发现的四类测试缺口；生产代码不变 |
 | W1 | T1-LOCAL-DATA-SECURITY | 内外存储分层与 Keystore secret box（依赖安全日志） | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING-REMOTE,T1-STORAGE-PATH-BOUNDARY-REMOTE,T1-APP-STORAGE-POLICY-REMOTE | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；保留完整安全验收及前置日志回归；不改 schema/backup format |
 | W1 | T1-SHARE-SCREEN-PRIVACY | Android 隐私出口：安全文件分享 + 敏感窗口分级 + cleartext/系统备份清单闸 | T1-LOCAL-DATA-SECURITY | S–M | GPT-5.6 Terra · high | Sonnet 5 max | 下游统一隐私出口 |
 | W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
@@ -345,7 +346,7 @@ These rows remain todo until actual functional PR merges. Original local evidenc
 
 | Round | Card | Required remote predecessors | Author | State |
 |---|---|---|---|---|
-| 3 | T1-APP-STORAGE-POLICY-REMOTE | T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE | GPT-6 Astra high | todo |
+| 3 | T1-APP-STORAGE-POLICY-REMOTE | T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE | GPT-6 Astra high | merged；[PR #316](https://github.com/Asun28/MyInspection/pull/316)，reviewed head `afffd3836a2d47521bbec338d2a1a435983e9a47`，CI `35318686041`，merge `15f3931b77924f5d1ae3e55cb0c866bc36e85946`；正式 R3 pass；R5 于 2026-09-24 补记 |
 | 3 | T3-PDF-MEASUREMENT-REQUESTS | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE, T3-PDF-PAGINATION-FIXTURES-REMOTE | GPT-6 Astra xhigh | todo |
 
 Requests owns all five binding mismatches, eight selective entries, local line-box, candidate String/Unicode and unchanged direct Typography tests with 26 own R4 variants. Both complete Composer numeric integration methods (12 non-finite, six sign/edge invalid, one valid control) belong to Binding. Complete forecast 388–400 lines/39,282–39,722 diff units (+25%: 485–500/49,103–49,653); measure the first actual complete candidate at or below 40,000 before RED.

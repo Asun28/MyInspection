@@ -121,3 +121,5 @@ T1-SAFE-MEDIA-LOGGING-REMOTE 单独交付 SafeLog 与四处媒体失败日志接
 ### Registered storage policy contract
 
 T1-APP-STORAGE-POLICY-REMOTE consumes the separately verified SafeLog and StoragePathBoundary remote predecessors. Six protected categories use the saved credential-encrypted no-backup root and the actual checked child returned for that request. Both create and resolveChild remain covered by black-box bypass negatives; ordinary failures are redacted and fatal Error identity is preserved. Mounted/writable app-specific media, missing or blank paths, insufficient and exactly-equal space retain their complete policy tests. The original five blocked reviews remain history; no unchecked canonicalFile fallback is accepted. Platform adaptation and LocalSecretBox remain separate undelivered capabilities.
+
+Delivered by PR #316 (merge `15f3931b`, Codex R3 pass); R5 recorded 2026-09-24. `T1-APP-STORAGE-POLICY-TESTS` adds tests for port arguments, environment conversion reads and the breadth of both catch sites without changing production code.
