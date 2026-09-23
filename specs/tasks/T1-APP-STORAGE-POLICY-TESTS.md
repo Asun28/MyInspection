@@ -19,12 +19,13 @@ acceptance:
   - "A2 in the conversion test the device-protected environment's own no-backup directory, app root and DP root each make StoragePathBoundary refuse the credential root, so reading any one of them instead of the converted environment's value fails a named test"
   - "A3 the credential failure test also injects an IOException from the no-backup getter and a SecurityException from the conversion; each still yields the fixed message with no cause and no sensitive text"
   - "A4 the media probe failure test fails each of the four media reads (directory getter, state, writable, space) with IllegalStateException, IOException and SecurityException; each closes to Unavailable without sensitive text, and the test name says it covers every probe"
-  - "A5 named compiling mutants (space, state and writable probed on another directory; candidate, app root and DP root read from the unconverted environment; each catch narrowed to RuntimeException and to IllegalStateException) survive the current test file and fail a named test with AssertionError after this change"
+  - "A5 a new test refuses, with the fixed message and no cause, a no-backup root that lies outside the app root but inside its parent (an external sibling) and a no-backup root equal to the app root, so widening the app root passed to StoragePathBoundary.create fails a named test"
+  - "A6 the eight named compiling mutants that survive the current test file (app root widened to its parent; space measured on another directory; app root or DP root read from the unconverted environment; the constructor catch and the media catch each narrowed to RuntimeException and to IllegalStateException) each fail a named test with AssertionError after this change"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
 dod_assert: app JVM tests and debug assembly pass with the hardened AppStoragePolicyTest; production bytes are unchanged
 review_gate: codex {verdict:pass}
-hygiene: a fresh named mutant set over the unchanged production file (routes, conversion, DP rejection, create/resolveChild wiring, media guards, space boundary, texts, both catches and the A5 classes) is run on the final test bytes; the receipt maps each mutant to the test that kills it and pins both files
+hygiene: a fresh named 44-mutant set over the unchanged production file (routes, conversion, DP rejection, create/resolveChild wiring, media guards, space boundary, texts, both catches and the A6 classes) is run on the final test bytes; the receipt maps each mutant to the test that kills it and pins both files
 doc_sync: TASK-BOARD
 ---
 
@@ -42,20 +43,23 @@ gaps that apply to the origin test file as well:
 - every ordinary failure reaching the policy's own two catch sites is an `IllegalStateException` (the boundary swallows
   its own path exceptions), so narrowing either `catch (_: Exception)` is not detected, and a port `IOException` or
   `SecurityException` carrying a tenant path would then escape;
-- the test named for the media state probe injects a failure only into the space probe.
+- the test named for the media state probe injects a failure only into the space probe;
+- found by the RED batch below rather than by those rounds: no test uses a no-backup root outside the app root but
+  inside its parent, so widening the app root handed to `StoragePathBoundary.create` goes unnoticed.
 
 Production behaviour is already correct for all of these; this card only makes the tests able to see a regression.
 
 ## RED
 
-No production defect exists, so the DoD cannot go red before the change. The RED evidence is the A5 mutant set run
-against the current test file: those mutants compile and survive before this change, and each fails a named test with
-`AssertionError` after it. The ship records the non-TDD route with `-SkipRed`.
+No production defect exists, so the DoD cannot go red before the change. The RED evidence is a mutation batch on the
+current test file (origin `1583b4d7`, test SHA-256 `659ECCD7...`, production `C031E652...`): 36 of 44 named mutants die
+and the eight A6 mutants survive. After this change each of the eight fails a named test with `AssertionError`. The ship
+records the non-TDD route with `-SkipRed`.
 
 ## Budget
 
-Test-only: about 40–60 changed test lines plus a replaced R4 receipt of about 35 lines and this card, 120–170 lines /
-8k–12k characters.
+Test-only: about 55–75 changed test lines plus a replaced R4 receipt of about 35 lines and this card, 140–190 lines /
+9k–13k characters.
 
 ## Review
 
