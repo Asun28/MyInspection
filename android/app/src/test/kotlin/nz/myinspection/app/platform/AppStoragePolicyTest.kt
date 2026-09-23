@@ -46,10 +46,13 @@ class AppStoragePolicyTest {
             appDataDir = f.ce.toFile(),
             deviceProtectedDataDir = f.dp.toFile(),
         )
+        // Using any one unconverted value (no-backup directory, app root or DP root) makes the boundary refuse.
         val deviceProtected = FakeStorageEnvironment(
             noBackup = f.dp.toFile(),
             deviceProtected = true,
             credentialEnvironment = credential,
+            appDataDir = f.dp.toFile(),
+            deviceProtectedDataDir = f.ce.toFile(),
         )
         val converted = runCatching {
             AppStoragePolicy(deviceProtected).location(SecureStorageNamespace.SECRET_ENVELOPE)
@@ -88,6 +91,8 @@ class AppStoragePolicyTest {
             ),
             FakeStorageEnvironment(noBackup = root, noBackupFailure = sensitiveFailure),
             FakeStorageEnvironment(noBackup = failedPath),
+            FakeStorageEnvironment(noBackup = root, noBackupFailure = IOException(sensitiveFailure.message)),
+            FakeStorageEnvironment(noBackup = root, deviceProtected = true, credentialEnvironmentFailure = SecurityException(sensitiveFailure.message)),
         )
         failures.forEach { environment -> assertFixedFailure { AppStoragePolicy(environment) } }
     }
@@ -101,6 +106,17 @@ class AppStoragePolicyTest {
         )
 
         assertFixedFailure { AppStoragePolicy(environment) }
+    }
+
+    @Test
+    fun `policy rejects roots outside the app root or equal to it with a fixed failure`() = withStoragePaths { f ->
+        listOf(f.external.resolve("no-backup"), f.ce).forEach { noBackup ->
+            val environment = FakeStorageEnvironment(
+                noBackup = noBackup.toFile(), appDataDir = f.ce.toFile(), deviceProtectedDataDir = f.dp.toFile(),
+            )
+
+            assertFixedFailure(noBackup.fileName.toString()) { AppStoragePolicy(environment) }
+        }
     }
 
     @Test
@@ -249,21 +265,33 @@ class AppStoragePolicyTest {
     }
 
     @Test
-    fun `media state probe failure closes unavailable without preserving its path-bearing exception`() = withStoragePaths { f ->
+    fun `each media probe failure closes unavailable without preserving its path-bearing exception`() = withStoragePaths { f ->
         val root = f.dir("ce/no-backup").toFile()
         val sensitiveExternal = File(f.external.toFile(), "Android/data/nz.myinspection.app/files/42 Example St/Jane Tenant/secret")
-        val environment = FakeStorageEnvironment(
-            noBackup = root,
-            externalMedia = sensitiveExternal,
-            usableBytesFailure = IllegalStateException("cannot inspect $sensitiveExternal Authorization Bearer secret"),
-        )
+        val message = "cannot inspect $sensitiveExternal Authorization Bearer secret"
+        val delegate = FakeStorageEnvironment(noBackup = root, externalMedia = sensitiveExternal)
+        listOf(IllegalStateException(message), IOException(message), SecurityException(message)).forEach { failure ->
+            val environments = mapOf(
+                "directory" to object : AppStorageEnvironment by delegate {
+                    override val appSpecificExternalMediaDir: File? get() = throw failure
+                },
+                "state" to object : AppStorageEnvironment by delegate {
+                    override fun appSpecificExternalMediaState(directory: File): ExternalMediaVolumeState = throw failure
+                },
+                "writable" to object : AppStorageEnvironment by delegate {
+                    override fun isAppSpecificExternalMediaWritable(directory: File): Boolean = throw failure
+                },
+                "space" to FakeStorageEnvironment(noBackup = root, externalMedia = sensitiveExternal, usableBytesFailure = failure),
+            )
+            environments.forEach { (label, environment) ->
+                val probed = runCatching { AppStoragePolicy(environment).mediaLocation(requestedBytes = 1L) }
+                val case = "$label ${failure.javaClass.simpleName}"
 
-        val probed = runCatching { AppStoragePolicy(environment).mediaLocation(requestedBytes = 1L) }
-        assertTrue(probed.isSuccess, "media probe failure must close to an unavailable result")
-        val result = probed.getOrThrow()
-
-        assertEquals(MediaStorageLocation.Unavailable, result)
-        assertNoSensitiveText(result)
+                assertTrue(probed.isSuccess, "$case must close to an unavailable result")
+                assertEquals(MediaStorageLocation.Unavailable, probed.getOrThrow(), case)
+                assertNoSensitiveText(probed.getOrThrow())
+            }
+        }
     }
 
     private fun assertFixedFailure(label: String = "credential failure", action: () -> Unit) {
@@ -328,31 +356,44 @@ private class FakeStorageEnvironment(
     }
 
     override fun usableBytes(directory: File): Long {
+        check(directory == externalMedia)
         usableBytesFailure?.let { throw it }
         return usableBytes
     }
 }
 
 /*
- * R4: 30/30 final-pin mutants killed; compile 0/test 1; named java.lang.AssertionError; 12 primaries.
- * Production SHA-256: C031E65298966162B726D77EE7034509B72CB96BE3519590D8756E57EDBB13B7
- * Executable test snapshot SHA-256: D06827F962CB7858B36F3A052DB138FDF64C09A71F551B8EF794C4274A8290D6; final test differs only by this receipt.
- * DoD: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
- * Compile each: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:compileDebugUnitTestKotlin
- * Test each: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest --tests nz.myinspection.app.platform.AppStoragePolicyTest
- * Evidence: _local/storage-policy-remote/{mutation-plan.json,mutations/,final-mutation-audit.json,final-receipt.json}; IDs map old obligations in manifest.
- * Verified: compile 0, test 1, primary AssertionError, exact byte restore; PRM13 must hit the non-null absent-path label.
- * Restored full DoD and executable-prefix equality are recorded in final-receipt.json; no old snapshot is reused.
- * PRM10 -> AppStoragePolicyTest#credential environment and boundary lookup failures use a fixed error without a cause
- * PRM07, PRM09 -> AppStoragePolicyTest#device protected environment converts to credential encrypted before a protected route is exposed
- * PRM01, PRM02, PRM03, PRM04, PRM05, PRM06, PRM19, PRM21 -> AppStoragePolicyTest#each protected category uses its own credential encrypted no-backup subdirectory
- * PRM08 -> AppStoragePolicyTest#environment that remains device protected is rejected without exposing its path
- * PRM24 -> AppStoragePolicyTest#fatal media probe error propagates with its identity
- * PRM25 -> AppStoragePolicyTest#fatal no-backup lookup and boundary root errors propagate with their identity
- * PRM14, PRM15, PRM16, PRM20, PRM22 -> AppStoragePolicyTest#media reports insufficient space below request and permits equal or greater usable bytes without a shared fallback
- * PRM11, PRM12, PRM13, PRM26 -> AppStoragePolicyTest#media returns unavailable for missing unmounted and read-only app-specific external volumes
- * PRM17, PRM18 -> AppStoragePolicyTest#media state probe failure closes unavailable without preserving its path-bearing exception
- * PRM23 -> AppStoragePolicyTest#policy rejects an actual device protected root with a fixed failure
- * PRM27, PRM30 -> AppStoragePolicyTest#policy rejects escaped children and saved root replacements with a fixed failure
- * PRM28, PRM29 -> AppStoragePolicyTest#policy returns checked root and child after source alias retarget
+ * R4 receipt (T1-APP-STORAGE-POLICY-TESTS): a fresh named set of 44 single-point mutants over the unchanged production
+ * file. Before this change the previous test file (SHA-256 659ECCD74F90864270B3F83F7E4FAE379FD0DC51D47BC2224E711420DC7684E2)
+ * killed 36/44; O09, O36, O40, O41 and O42-O45 survived. On this file all 44/44 are killed: each compiled, its named
+ * test below failed, the failures included java.lang.AssertionError, and the production file was restored and its
+ * SHA-256 re-checked before the next mutant.
+ * Production SHA-256: C031E65298966162B726D77EE7034509B72CB96BE3519590D8756E57EDBB13B7 (unchanged by this card)
+ * Pre-receipt test SHA-256: 8AADCB138B0652B7D021E0C7D0D6E7EA873B374E35F044144262CDB0907322B1; this file is those bytes plus this appended comment.
+ * Per mutant: cmd /c android\gradlew.bat -p android --offline --no-daemon --no-build-cache -q
+ *   :app:testDebugUnitTest --tests nz.myinspection.app.platform.AppStoragePolicyTest
+ * Evidence (local, not committed): _local/storage-policy-tests/{before,after}/{results.jsonl,Oxx.log}. The previous
+ * 30-mutant receipt (PRM01-PRM30) pinned the previous test bytes; its definitions are not in this repository.
+ * each protected category uses its own credential encrypted no-backup subdirectory:
+ *   O01-O06 one route each, O31 root text, O32 location text, O35 root returned as the location
+ * device protected environment converts to credential encrypted...: O07 no conversion,
+ *   O39-O41 candidate, app root or DP root read from the unconverted environment
+ * environment that remains device protected...: O08 DP environment accepted after conversion
+ * credential environment and boundary lookup failures...: O18 original exception kept as cause,
+ *   O42/O43 constructor catch narrowed to RuntimeException / IllegalStateException
+ * policy rejects an actual device protected root...: O10 DP exclusion moved to a missing child
+ * policy rejects roots outside the app root or equal to it...: O09 app root widened to its parent
+ * policy returns checked root and child after source alias retarget: O11 raw root kept, O12 child anchored on raw root,
+ *   O13 unchecked path returned
+ * policy rejects escaped children and saved root replacements...: O14 refused child falls back, O15 message varies,
+ *   O16 cause attached
+ * fatal no-backup lookup and boundary root errors...: O19 constructor catch widened to Throwable
+ * fatal media probe error propagates with its identity: O29 media catch widened to Throwable
+ * media returns unavailable...: O20 missing directory, O21 whitespace path, O22 read-only, O23 writable guard
+ * media reports insufficient space...: O24 equal refused, O25 low accepted, O26 ample refused, O30 root directory,
+ *   O33 root text, O34 available text, O36-O38 space, state or writability probed on another directory
+ * each media probe failure closes unavailable...: O27 reported as low space, O28 failure escapes,
+ *   O44/O45 media catch narrowed to RuntimeException / IllegalStateException
+ * (O17 is not used: create is wrapped in checkNotNull inside the catch, so replacing it with !! is an equivalent
+ *   mutant; the NullPointerException is caught and refused exactly like the IllegalStateException.)
  */
