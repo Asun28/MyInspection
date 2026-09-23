@@ -28,7 +28,7 @@ non_goals:
   - 远端写入、发布和自动跳过第二模型评审
 acceptance:
   - "A1 仅基线已提交卡的精确 review_gate: advisory 可选择建议模式；缺省、重复、未知或仅工作树自声明均 blocking"
-  - "A2 以 pinned base...head 的真实路径决定适用范围；普通 docs/specs Markdown 与本卡仅 status 变化可建议，安全/流程/交付/关键合同/冻结/源码/未知混合路径及关键源路径 rename 继续 blocking"
+  - "A2 以 pinned base...head 的真实路径决定适用范围；可建议的路径是白名单：仅 docs/research/ 下的 Markdown 与本卡仅 status 变化，其余一切路径（无论名称，含安全/流程/交付/关键合同/冻结/源码/未知/混合及关键源路径 rename）继续 blocking"
   - "A3 有效 advisory block 保留真实 JSON verdict/reasons 和明确 findings，gate 返回零，不消费阻断 round"
   - "A4 超时、空输出、畸形 JSON/字段、非零 reviewer、stale SHA 与裁决落盘失败均不得被 advisory 放行"
   - "A5 旧卡语义保持 blocking，本地 ship 运行主检出 review.ps1，与远端来源一致"
