@@ -1,10 +1,11 @@
 ---
-id: T1-APP-STORAGE-POLICY
+id: T1-APP-STORAGE-POLICY-REMOTE
 title: App-private storage routing over a verified path boundary
-depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING, T1-STORAGE-PATH-BOUNDARY]
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE]
 status: todo
-branch: T1-APP-STORAGE-POLICY
-worktree: C:\wt\T1-APP-STORAGE-POLICY
+parallelizable_with: [T3-PDF-MEASUREMENT-REQUESTS]
+branch: T1-APP-STORAGE-POLICY-REMOTE
+worktree: C:\wt\T1-APP-STORAGE-POLICY-REMOTE
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/platform/AppStoragePolicy.kt
   - android/app/src/test/kotlin/nz/myinspection/app/platform/AppStoragePolicyTest.kt
@@ -26,13 +27,14 @@ requirements:
   - "R2 端口提供的 external 卷必须为 MOUNTED 且可写；空目录或端口判定不可写（包括非空不存在路径）、未挂载、只读返回 Unavailable，usableBytes < requestedBytes 返回 InsufficientSpace，等于边界可用；不得暴露绝对路径或选择共享回退。Android MEDIA_MOUNTED 和实际文件状态的映射由 T1-APP-STORAGE-ANDROID 提供。"
 acceptance:
   - "A1 各数据类别以显式类别到不同内部子目录的映射夹具证明 protected 类别绝不落 device-protected/external；标记为 DP 的环境先请求 CE 环境，转换后仍标记 DP 则拒绝；媒体仅消费具名 app-specific 端口根，不自行选择 shared/public。删除、交换或错误替换任一策略路由后，对应行为测试必须失败。实际 Android getter 来源和转换由后继直接验收。"
-  - "A2 空目录、非空不存在路径且端口报告不可写、未挂载、只读、低空间与正常可用夹具返回闭合状态，明确验证 usableBytes 等于 requestedBytes；敏感路径与原始异常不得出现在结果文本、失败信息或 cause。实际根/子目录解析和全部直接边界测试归前置；本卡以真实错误根及越界 child 黑盒用例证明 create 与 resolveChild 没被绕过。保存 boundary.directory，返回 resolveChild 的已检查结果，不重新读取 raw root；两处 null 均转为固定无 cause 异常，致命 Error 按身份传播。"
+  - "A2 空目录、非空不存在路径且端口报告不可写、未挂载、只读、低空间与正常可用夹具返回闭合状态，明确验证 usableBytes 等于 requestedBytes；敏感路径与原始异常不得出现在结果文本、失败信息或 cause。"
+  - "A3 实际根/子目录解析和全部直接边界测试归前置；本卡以真实错误根及越界 child 黑盒用例证明 create 与 resolveChild 没被绕过。保存 boundary.directory，返回 resolveChild 的已检查结果，不重新读取 raw root；两处 null 均转为固定无 cause 异常，致命 Error 按身份传播。"
 review_gate: codex {verdict:pass}
 hygiene: 路由、卷状态、环境转换、create/resolveChild 接线及脱敏各有具名变异；路径直接义务整体迁前置，旧证据不可冒充新 pin
 doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 ---
 
-# T1-APP-STORAGE-POLICY
+# T1-APP-STORAGE-POLICY-REMOTE
 
 ## 产出与边界
 
@@ -47,3 +49,8 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 2026-09-17：第三次 R3 指出实际 Android 映射缺直接测试；原差异 613 行 / 29,691 字符，补齐平台执行预计达 813–923 行，因此将整个 Android 适配实现、原始状态映射、可写 helper 及专属测试移至 `T1-APP-STORAGE-ANDROID`。保留三次失败裁决和原提交；不得仅推迟测试而保留未验证适配器。当前卡拆后预计 528–558 行 / 25k–27k，另有约 90 行修复空间；650 行或 45k 提前闸不变。纯策略重新跑完整 DoD、所有剩余最终源 pin 的 R4 和正式 R3。作者修复提升 GPT-5.6 Terra · high；独立 GPT-5.6 Sol · high 正式评审。
 
 2026-09-17 后续裁定覆盖上述当前预算：第五次 R3 在 fd1dd18c 发现返回类别目录未检查真实边界；JDK17 实测 canonicalFile 不解析 Windows Junction。完整路径能力与直接测试拆至 T1-STORAGE-PATH-BOUNDARY，原卡在此前停驻，不新增修复 RED。15 行 helper 与 173 行直接测试整体迁出，必要接线测试保留；后继完整预计468–482行/23.5k–25.5k，650/45k提前闸不变，首候选不超过487行以保留25%容量。作者升级 GPT-6 Astra/high。保留全部五次 BLOCK、原提交和证据；前置实际交付后非重写 merge 吸收主线，再替换实现并重跑全部闸门，不 restart/rebase/reset 或将旧通过结果用于新源码。
+
+## Remote execution order (2026-09-17)
+
+This is product round 3, paired with T3-PDF-MEASUREMENT-REQUESTS, retaining the complete T1-APP-STORAGE-POLICY behavioral contract above. Dependency names in the front matter bind the remote deliveries. Start only after those functional PRs actually merge; registered metadata alone does not satisfy a dependency. Use the original D:/Projects/MyInspection/scripts/task.ps1 from the main checkout: start with -Base origin/master, then fresh RED and ship with -Base master, without -Local. Run the same candidate's full DoD, R4, verify, scope, licenses, secrets, complete-diff budget, independent R3 and exact-head CI before remote PR merge. Record PR/head/checks/merge and complete R5. This execution paragraph supersedes earlier local-only routing text, without reducing any acceptance or adding another card to the five-round count.
+Preserve the original fd1dd18c branch/worktree and all five BLOCK verdicts. This isolated alias must consume the remotely delivered StoragePathBoundary create/resolveChild API and repair the named integration defects; it does not restart or erase the original review history. The old inline canonicalFile boundary is not an implementation source for this alias.
