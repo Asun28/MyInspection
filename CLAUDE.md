@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 可接。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。
+
 **2026-09-23 本地交付**：`T3-PDF-IMAGE-OWNERSHIP`（master `1558594d`，feature `17060f81`）是图片 bridge 拆分的第二张：窄端口上的 bounds → 已交付采样 → decode → FIT 绘制 → recycle，每条打开的流都有 close 尝试、每张解码图都有 recycle 尝试，清理失败挂为 suppressed 不顶替原失败，单次 draw 至多持有一张解码图。20 项测试、23/23 变异。DeepSeek V4 Flash 两轮预审 + 全新 Opus 5.5 R3 首轮 pass，合并树与评审树 `b85231ae` 一致。
 
 **2026-09-23 本地交付**：`T3-PDF-IMAGE-FIT`（master `f367ca86`，feature `daa4f720`）是 `T3-PDF-IMAGE-BRIDGE` 按用户裁定拆成三张小卡（FIT → OWNERSHIP → 窄化后的 BRIDGE 适配器）的第一张：固定 FIT_CENTER 几何，拒非正解码尺寸与非有限/无面积框，Double 计算并把每条边钳进框内。11 项测试、26/26 变异。Codex 配额耗尽期间按用户裁定改用 DeepSeek V4 Flash 多轮预审 + 全新 Opus 5.5 子代理作 R3（第 5 轮 pass，第 3–5 轮逐轮经用户授权）；ship -Local 其余确定性闸全过，其可选 R3 腿因 codex 不在 PATH 而显式跳过，合并树与评审树 `0092e994` 逐字节一致。前两轮 R3 抓到真实浮点缺陷，后两轮是注释措辞超出证据（L309）。

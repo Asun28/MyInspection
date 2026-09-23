@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-IMAGE-BRIDGE
 title: Android BitmapFactory/Canvas port that completes the delivered image bridge
-status: todo
+status: merged
 depends_on: [T3-PDF-IMAGE-OWNERSHIP, T1-SPIKE-PLATFORM]
 parallelizable_with: []
 allow_paths:
@@ -59,3 +59,21 @@ after bitmap.recycle.
 
 Forecast: `AndroidPdfImagePort.kt` 50–60 lines, `AndroidPdfImagePortTest.kt` 30–45 including the R4 summary;
 80–105 lines / 5k–7k characters.
+
+## Delivery record (2026-09-23)
+
+Merged locally: master `fee6451f`, feature `4993e073`, 2 files / 174 lines. With this card the image bridge chain is
+complete (FIT `f367ca86`, OWNERSHIP `1558594d`, adapter `fee6451f`), so `T3-PDF-RENDER-DEVICE` can consume it.
+
+Review: DeepSeek V4 Flash pre-review rounds 1-5 (round 2's block was a tooling artefact: the review input had diffed
+master's tip, which another session had moved, instead of the merge-base). Fresh Opus 5.5 R3 rounds 1 and 2 blocked
+the source-scan test: first a denylist that rotation, density, baker and content-resolver edits slipped past, then
+comment stripping that code hidden in string literals slipped past, plus presence checks that added statements
+passed. After the round cap the user chose to pin the exact source: the one JVM test now asserts the adapter file
+equals the reviewed text (CRLF normalised), and R4 killed 22/22 compiling mutants including every demonstrated
+escape. Opus R3 round 3 (user-authorized) passed on tree `3a61ec1e`, which equals the merged tree. `ship -Local` ran
+every deterministic gate; its optional R3 leg was skipped because codex was removed from PATH for that process.
+
+Follow-up (outside this card): `:app:testDebugUnitTest` does not declare the source files that source-reading tests
+read, so an edit that leaves bytecode identical (for example a comment) can leave this pin UP-TO-DATE and unreviewed.
+`android/core` declares such inputs (PR #188); `:app` needs the same, or DoD runs with `--rerun-tasks --no-build-cache`.
