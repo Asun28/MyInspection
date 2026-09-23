@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-24 本地交付**：`T3-PDF-DEVICE-FIXTURE`（master `08ab4d8a`，feature `89285d67`）交付 debug-only real80 清单预检与固定 LANDLORD 报告输入：公开入口 `AndroidFixtureManifestReader.preflight` 对自己读到的清单字节算摘要、非批准字节在 org.json 解析前即拒；取摘要的 preflight 与 `AuthorizedFixture`/`AuthorizedPhoto` 构造均为 internal/private，已验证集合为只读副本。11 项 JVM 测试、63/63 可移植变异；真实 Kotlin builder 在批准 real80 集上复现冻结的 native/semantic 双哈希，改一字节即被 `FIXTURE-FILE-BYTES` 拒绝。825 行超卡片 650/45k 早停，经用户裁定在 1000/60k 闸内继续。Codex 配额耗尽期间按用户裁定：DeepSeek V4 Flash 7 轮预审 + 全新 Opus 5.5 R3 五轮（第 3–5 轮逐轮授权），第 5 轮 pass，合并树与评审树 `f22b89c4` 一致。五轮 finding 全部属实、逐轮变窄（未强制的构造期保证 → 未测的可见性/描述符字段 → 对下游卡的越界声称 → 公开入口摘要拒绝无测试）；第 3 轮后用户给 DEVICE-ACCEPTANCE 加 A7（绘制前按 contentHash 重算）。不宣称设备或四档验收。
+
 **2026-09-24 本地交付**：`T1-APP-STORAGE-POLICY`（master `f68d7006`，feature `834206a6`）在前置交付后以非重写 merge 吸收主线，删除内嵌 `canonicalFile` 判定，改为消费 `StoragePathBoundary`：保存验证过的 CE/no-backup 根，每次 `location` 检查并返回类别目录；两处拒绝固定消息无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 保身份。12 项策略测试（3 项真实 Junction 接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间由全新 Opus 5.5 子代理作 R3：前两轮 block 的 4 条均是测试断言面缺口（假环境忽略参数、夹具根过宽使守卫互相遮蔽、只注入一种异常类型），第 3 轮 pass，合并树=评审树 `448da9cd`。实际 Android 适配归 `T1-APP-STORAGE-ANDROID`；TD178 记测试临时目录不清理。
 
 **2026-09-24 R5 补记**：`T1-STORAGE-PATH-BOUNDARY` 已于 2026-09-17 本地合并（master `115138a4`，feature `c201c793`，正式 Sol R3 首轮 pass），当时未做 R5。`StoragePathBoundary` 交付检查时的真实路径归属（Junction/符号链接按真实目标比较，不靠 `canonicalFile`）、保存的根快照与逐次子目录检查；20 项真实文件系统测试、35/35 变异。不含后续 I/O 权限或消除 TOCTOU；`T1-APP-STORAGE-POLICY` 由此解锁。
