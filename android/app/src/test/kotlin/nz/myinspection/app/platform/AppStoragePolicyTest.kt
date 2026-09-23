@@ -2,12 +2,14 @@ package nz.myinspection.app.platform
 
 import java.io.File
 import java.io.IOException
+import java.nio.file.Path
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -45,10 +47,13 @@ class AppStoragePolicyTest {
             "42 Example St/Jane Tenant/secret",
         )
         val credential = FakeStorageEnvironment(noBackup = credentialRoot)
+        // Using any one unconverted value (no-backup directory, app root or DP root) makes the boundary refuse.
         val deviceProtected = FakeStorageEnvironment(
             noBackup = deviceRoot,
             deviceProtected = true,
             credentialEnvironment = credential,
+            appDataDir = deviceRoot,
+            deviceProtectedDataDir = credential.appDataDir,
         )
         val converted = runCatching {
             AppStoragePolicy(deviceProtected).location(SecureStorageNamespace.SECRET_ENVELOPE)
@@ -80,117 +85,14 @@ class AppStoragePolicyTest {
             FakeStorageEnvironment(noBackup = root, deviceProtected = true, credentialEnvironmentFailure = sensitiveFailure),
             FakeStorageEnvironment(noBackup = root, deviceProtected = true, credentialEnvironment = FakeStorageEnvironment(noBackup = root, deviceProtectedFailure = sensitiveFailure)),
             FakeStorageEnvironment(noBackup = root, noBackupFailure = sensitiveFailure),
+            FakeStorageEnvironment(noBackup = root, noBackupFailure = IOException(sensitiveFailure.message)),
+            FakeStorageEnvironment(noBackup = root, deviceProtected = true, credentialEnvironmentFailure = SecurityException(sensitiveFailure.message)),
         )
         failures.forEach { environment ->
             val thrown = assertFailsWith<IllegalStateException> { AppStoragePolicy(environment) }
             assertNoSensitiveText(thrown, thrown.message ?: "", thrown.cause?.toString() ?: "")
             assertEquals(null, thrown.cause)
         }
-    }
-
-    @Test
-    fun `credential no-backup candidate must be a normalized child of a non-device-protected app root`() {
-        val base = createTempDirectory("storage-policy").toFile()
-        val credentialRoot = File(base, "credential-encrypted").apply { mkdir() }
-        val deviceProtectedRoot = File(base, "device-protected").apply { mkdir() }
-        val candidates = listOf(
-            "normalized credential child" to (File(credentialRoot, "nested/../metadata") to true),
-            "app root itself" to (credentialRoot to false),
-            "same-prefix sibling" to (File(base, "credential-encrypted-shadow/metadata") to false),
-            "outside app root" to (File(base, "outside/metadata") to false),
-            "device-protected child" to (File(deviceProtectedRoot, "metadata") to false),
-        )
-
-        candidates.forEach { (label, candidate) ->
-            assertEquals(
-                candidate.second,
-                isCredentialEncryptedNoBackupDirectory(candidate.first, credentialRoot, deviceProtectedRoot),
-                label,
-            )
-        }
-
-        assertFalse(
-            isCredentialEncryptedNoBackupDirectory(
-                File(base, "credential-encrypted/../device-protected/metadata"),
-                credentialRoot,
-                deviceProtectedRoot,
-            ),
-            "candidate canonicalization must not hide a device-protected route",
-        )
-        assertTrue(
-            isCredentialEncryptedNoBackupDirectory(
-                File(credentialRoot, "metadata"),
-                File(base, "credential-encrypted/nested/.."),
-                deviceProtectedRoot,
-            ),
-            "app root canonicalization must preserve a credential-encrypted route",
-        )
-        assertFalse(
-            isCredentialEncryptedNoBackupDirectory(
-                File(deviceProtectedRoot, "metadata"),
-                deviceProtectedRoot,
-                File(base, "device-protected/nested/.."),
-            ),
-            "device-protected root canonicalization must reject its route",
-        )
-    }
-
-    @Test
-    fun `blank named roots are rejected before canonicalization even when legacy boundaries accept them`() {
-        val workingDirectory = File("").canonicalFile
-        val sibling = File(workingDirectory.parentFile, "${workingDirectory.name}-credential")
-        val roots = linkedMapOf(
-            "candidate" to Triple(File(""), workingDirectory.parentFile, File(workingDirectory, "dp")),
-            "app root" to Triple(File(workingDirectory, "metadata"), File(""), File(workingDirectory, "dp")),
-            "device-protected root" to Triple(File(sibling, "metadata"), sibling, File("")),
-        )
-        roots.forEach { (label, inputs) ->
-            val (candidate, app, deviceProtected) = inputs
-            val candidatePath = candidate.canonicalFile.toPath()
-            val appPath = app.canonicalFile.toPath()
-            val deviceProtectedPath = deviceProtected.canonicalFile.toPath()
-            assertTrue(candidatePath != appPath && candidatePath.startsWith(appPath), "$label legacy containment")
-            assertFalse(candidatePath.startsWith(deviceProtectedPath), "$label legacy DP exclusion")
-        }
-        assertEquals(
-            roots.mapValues { false },
-            roots.mapValues { (_, inputs) ->
-                isCredentialEncryptedNoBackupDirectory(inputs.first, inputs.second, inputs.third)
-            },
-            "every blank input must independently invalidate an otherwise accepted boundary",
-        )
-        roots.forEach { (label, inputs) ->
-            val thrown = assertFailsWith<IllegalStateException>(label) {
-                AppStoragePolicy(FakeStorageEnvironment(
-                    noBackup = inputs.first, appDataDir = inputs.second, deviceProtectedDataDir = inputs.third,
-                ))
-            }
-            assertEquals("credential-encrypted storage unavailable", thrown.message, label)
-            assertEquals(null, thrown.cause, label)
-            val beforeCanonical = listOf(inputs.first, inputs.second, inputs.third).map { file ->
-                if (file.path.isEmpty()) object : File(" ") {
-                    override fun getCanonicalFile(): File = throw AssertionError("$label canonicalized blank path")
-                } else file
-            }
-            assertFalse(isCredentialEncryptedNoBackupDirectory(
-                beforeCanonical[0], beforeCanonical[1], beforeCanonical[2],
-            ), "$label whitespace before canonicalization")
-        }
-    }
-
-    @Test
-    fun `false device-protected marker with a device-protected actual root is rejected without exposing its path`() {
-        val base = createTempDirectory("storage-policy").toFile()
-        val sensitiveDeviceProtectedRoot = File(base, "42 Example St/Jane Tenant/secret")
-        val environment = FakeStorageEnvironment(
-            noBackup = File(sensitiveDeviceProtectedRoot, "metadata"),
-            appDataDir = sensitiveDeviceProtectedRoot,
-            deviceProtectedDataDir = sensitiveDeviceProtectedRoot,
-        )
-
-        val thrown = assertFailsWith<IllegalStateException> { AppStoragePolicy(environment) }
-
-        assertNoSensitiveText(thrown, thrown.message ?: "", thrown.cause?.toString() ?: "")
     }
 
     @Test
@@ -213,74 +115,6 @@ class AppStoragePolicyTest {
         )
 
         assertSame(fatal, assertFailsWith<ThreadDeath> { AppStoragePolicy(environment).mediaLocation(1L) })
-    }
-
-    @Test
-    fun `fatal canonical errors propagate unchanged for candidate app and device-protected roots`() {
-        val base = createTempDirectory("storage-policy").toFile()
-        val candidate = File(base, "candidate")
-        val deviceProtected = File(base.parentFile, "device-protected")
-        val candidateFatal = OutOfMemoryError("candidate")
-        val appRootFatal = ThreadDeath()
-        val deviceProtectedFatal = OutOfMemoryError("device-protected")
-        val failingCandidate = object : File(candidate.path) {
-            override fun getCanonicalFile(): File = throw candidateFatal
-        }
-        val failingAppRoot = object : File(base.path) {
-            override fun getCanonicalFile(): File = throw appRootFatal
-        }
-        val failingDeviceProtectedRoot = object : File(deviceProtected.path) {
-            override fun getCanonicalFile(): File = throw deviceProtectedFatal
-        }
-
-        assertSame(
-            candidateFatal,
-            assertFailsWith<OutOfMemoryError> {
-                isCredentialEncryptedNoBackupDirectory(failingCandidate, base, deviceProtected)
-            },
-        )
-        assertSame(
-            appRootFatal,
-            assertFailsWith<ThreadDeath> {
-                isCredentialEncryptedNoBackupDirectory(candidate, failingAppRoot, deviceProtected)
-            },
-        )
-        assertSame(
-            deviceProtectedFatal,
-            assertFailsWith<OutOfMemoryError> {
-                isCredentialEncryptedNoBackupDirectory(candidate, base, failingDeviceProtectedRoot)
-            },
-        )
-    }
-
-    @Test
-    fun `ordinary canonical lookup errors close false`() {
-        val base = createTempDirectory("storage-policy").toFile()
-        val candidate = File(base, "candidate")
-        val deviceProtected = File(base.parentFile, "device-protected")
-        val ioFailure = object : File(candidate.path) {
-            override fun getCanonicalFile(): File = throw IOException("42 Example St Jane Tenant Authorization Bearer secret")
-        }
-        val securityFailure = object : File(deviceProtected.path) {
-            override fun getCanonicalFile(): File = throw SecurityException("42 Example St Jane Tenant Authorization Bearer secret")
-        }
-
-        assertFalse(isCredentialEncryptedNoBackupDirectory(ioFailure, base, deviceProtected))
-        assertFalse(isCredentialEncryptedNoBackupDirectory(candidate, base, securityFailure))
-
-        val thrown = assertFailsWith<IllegalStateException> {
-            AppStoragePolicy(
-                FakeStorageEnvironment(
-                    noBackup = ioFailure,
-                    appDataDir = base,
-                    deviceProtectedDataDir = deviceProtected,
-                ),
-            )
-        }
-
-        assertEquals("credential-encrypted storage unavailable", thrown.message)
-        assertEquals(null, thrown.cause)
-        assertNoSensitiveText(thrown, thrown.message ?: "")
     }
 
     @Test
@@ -362,23 +196,86 @@ class AppStoragePolicyTest {
     }
 
     @Test
-    fun `media state probe failure closes unavailable without preserving its path-bearing exception`() {
+    fun `each media probe failure closes unavailable without preserving its path-bearing exception`() {
         val root = createTempDirectory("storage-policy").toFile()
         val sensitiveExternal = File(root, "Android/data/nz.myinspection.app/files/42 Example St/Jane Tenant/secret")
-        val environment = FakeStorageEnvironment(
-            noBackup = root,
-            externalMedia = sensitiveExternal,
-            usableBytesFailure = IllegalStateException("cannot inspect $sensitiveExternal Authorization Bearer secret"),
-        )
+        val message = "cannot inspect $sensitiveExternal Authorization Bearer secret"
+        val delegate = FakeStorageEnvironment(noBackup = root, externalMedia = sensitiveExternal)
+        listOf(IllegalStateException(message), IOException(message), SecurityException(message)).forEach { failure ->
+            val environments = mapOf(
+                "directory" to object : AppStorageEnvironment by delegate {
+                    override val appSpecificExternalMediaDir: File? get() = throw failure
+                },
+                "state" to object : AppStorageEnvironment by delegate {
+                    override fun appSpecificExternalMediaState(directory: File): ExternalMediaVolumeState = throw failure
+                },
+                "writable" to object : AppStorageEnvironment by delegate {
+                    override fun isAppSpecificExternalMediaWritable(directory: File): Boolean = throw failure
+                },
+                "space" to FakeStorageEnvironment(noBackup = root, externalMedia = sensitiveExternal, usableBytesFailure = failure),
+            )
+            environments.forEach { (label, environment) ->
+                val probed = runCatching { AppStoragePolicy(environment).mediaLocation(requestedBytes = 1L) }
+                val case = "$label ${failure.javaClass.simpleName}"
 
-        val probed = runCatching { AppStoragePolicy(environment).mediaLocation(requestedBytes = 1L) }
-
-        assertTrue(probed.isSuccess, "media probe failure must close to an unavailable result")
-        val result = probed.getOrThrow()
-
-        assertEquals(MediaStorageLocation.Unavailable, result)
-        assertNoSensitiveText(result)
+                assertTrue(probed.isSuccess, "$case must close to an unavailable result")
+                assertEquals(MediaStorageLocation.Unavailable, probed.getOrThrow(), case)
+                assertNoSensitiveText(probed.getOrThrow())
+            }
+        }
     }
+
+    @Test
+    fun `roots the boundary refuses close with a fixed message and no cause`() = withStoragePaths { f ->
+        // Rows 0 and 1 lie inside their app root, so only the DP exclusion refuses them; row 0 only after real resolution.
+        val environments = listOf(
+            f.environment(f.alias("ce/no_backup", f.dir("dp/tenant-secret")), appDataDir = f.root),
+            f.environment(f.dp.resolve("42 Example St/Jane Tenant/secret"), appDataDir = f.dp),
+            f.environment(f.external.resolve("no_backup")),
+            f.environment(f.ce),
+        )
+        environments.forEachIndexed { index, environment ->
+            val thrown = assertFailsWith<IllegalStateException>("root $index") { AppStoragePolicy(environment) }
+            assertEquals("credential-encrypted storage unavailable", thrown.message, "root $index")
+            assertNull(thrown.cause, "root $index")
+            assertNoSensitiveText(thrown)
+        }
+    }
+
+    @Test
+    fun `the protected root is the real directory the boundary saved`() = withStoragePaths { f ->
+        val real = f.dir("ce/real_no_backup")
+        val alias = f.alias("ce/no_backup", real)
+        val policy = AppStoragePolicy(f.environment(alias))
+        f.retarget(alias, f.dp)
+
+        val location = runCatching { policy.location(SecureStorageNamespace.DATABASE) }.getOrNull()
+
+        assertEquals(real.toFile(), location?.root?.directory)
+        assertEquals(real.resolve("database").toFile(), location?.directory)
+    }
+
+    @Test
+    fun `each location call returns the directory the boundary checked`() = withStoragePaths { f ->
+        val noBackup = f.dir("ce/no_backup")
+        val policy = AppStoragePolicy(f.environment(noBackup))
+        assertEquals(noBackup.resolve("database").toFile(), policy.location(SecureStorageNamespace.DATABASE).directory)
+        val settingsTarget = f.dir("ce/no_backup/elsewhere")
+        f.alias("ce/no_backup/settings", settingsTarget)
+        f.alias("ce/no_backup/database", f.dir("dp/tenant-secret"))
+        f.alias("ce/no_backup/receipts", f.external)
+
+        assertEquals(settingsTarget.toFile(), policy.location(SecureStorageNamespace.SETTINGS).directory)
+        assertEquals(noBackup.resolve("staging").toFile(), policy.location(SecureStorageNamespace.STAGING_METADATA).directory)
+        listOf(SecureStorageNamespace.DATABASE, SecureStorageNamespace.RECEIPTS).forEach { namespace ->
+            val thrown = assertFailsWith<IllegalStateException>(namespace.name) { policy.location(namespace) }
+            assertEquals("credential-encrypted storage unavailable", thrown.message, namespace.name)
+            assertNull(thrown.cause, namespace.name)
+        }
+    }
+
+    private fun StoragePathFixture.environment(noBackup: Path, appDataDir: Path = ce): AppStorageEnvironment =
+        FakeStorageEnvironment(noBackup = noBackup.toFile(), appDataDir = appDataDir.toFile(), deviceProtectedDataDir = dp.toFile())
 
     private fun assertNoSensitiveText(vararg values: Any) {
         val prohibited = listOf("42 Example St", "Jane Tenant", "Authorization", "Bearer secret")
@@ -435,47 +332,43 @@ private class FakeStorageEnvironment(
     }
 
     override fun usableBytes(directory: File): Long {
+        check(directory == externalMedia)
         usableBytesFailure?.let { throw it }
         return usableBytes
     }
 }
 
 /*
- * R4 blank-path repair receipt: 37/37 mutations compiled (exit 0) and failed the named
- * java.lang.AssertionError (test exit 1); production and test snapshot bytes restored after each.
- * Production SHA-256: 751D453980527A55075EF3592950401C0CE98087EEFDC92AAF24BAE2496C0691
- * Test snapshot SHA-256: E33FECC6030C485125DF8F26C72C5AF65BCD02C5E9D2FFD080EDCCCC2CA376D1
- * This receipt is the only change from the tested snapshot. Before R4, full DoD passed:
- * 200 app tests (14 policy, 7 SafeLog), zero failures/errors/skips, and assembleDebug.
- * Evidence: _local/storage-policy/blank-path-repair/{mutation-plan.json,mutations/,final-mutation-audit.json}.
- * Audit independently reconstructed all mutant bytes and checked named XML failures and both pins.
- * M18 XML specifically proves the non-null absent path reported unwritable case in T9.
- * Android mapping, actual directory probes, and device execution belong to T1-APP-STORAGE-ANDROID.
- * T1 = each protected category uses its own credential encrypted no-backup subdirectory
- * T4 = device protected environment converts to credential encrypted before a protected route is exposed
- * T5 = environment that remains device protected is rejected without exposing its path
- * T6 = credential conversion probe and no-backup lookup failures are rejected without preserving sensitive exceptions
- * T7 = credential no-backup candidate must be a normalized child of a non-device-protected app root
- * T8 = false device-protected marker with a device-protected actual root is rejected without exposing its path
- * T9 = media returns unavailable for missing unmounted and read-only app-specific external volumes
- * T10 = media reports insufficient space below request and permits equal or greater usable bytes without a shared fallback
- * T11 = media state probe failure closes unavailable without preserving its path-bearing exception
- * T12 = fatal no-backup lookup error propagates with its identity
- * T13 = fatal media probe error propagates with its identity
- * T14 = fatal canonical errors propagate unchanged for candidate app and device-protected roots
- * T15 = ordinary canonical lookup errors close false
- * M01-database, M02-settings, M03-receipts, M04-secret_envelope, M05-restore_journal, M06-staging_metadata -> T1
- * M07-platform-mounted through M11-directory-writable transfer with the Android adapter.
- * M12-ce-conversion, M14-ce-root -> T4; M13-dp-rejection -> T5
- * M15-ce-cause -> T6; M16-missing-directory, M17-mount-guard, M18-writable-guard -> T9
- * M19-equality, M20-low-space, M21-above-request -> T10; M22-probe-state, M23-probe-escape -> T11
- * M24-ce-root-text, M26-location-text -> T1; M25-external-root-text, M27-available-text -> T10
- * M28-candidate-canonical, M29-app-canonical, M30-dp-canonical -> T7
- * M31-strict-child, M32-app-containment, M33-dp-exclusion -> T7; M34-root-validation-call -> T8
- * M35-media-fatal -> T13; M36-root-fatal -> T12
- * M37-canonical-fatal -> T14; M38-canonical-failopen -> T15
- * T16 = blank named roots are rejected before canonicalization even when legacy boundaries accept them
- * M39-media-blank -> T9; M40-candidate-blank, M41-app-blank, M42-dp-blank -> T16
- * Each root mutant admitted only its own empty-root vector; blank-vector-audit.json checks the exact XML maps.
- * Regression RED had two named AssertionErrors: all three blank roots accepted, and blank media Available.
+ * R4 receipt (policy over StoragePathBoundary): 45/45 single-point mutants killed. For each, the test report was
+ * produced (it compiled), its named test below failed, the failures included java.lang.AssertionError, and the
+ * production file was restored and its SHA-256 re-checked before the next mutant.
+ * Production SHA-256: D302EB195A4184F7352F62E8509913B8CF55173E0DD6FCEC47CACCDD43682BB5
+ * Pre-receipt test SHA-256: 4CAD2C2422064CDFCE3EBBC705573701A02F236120171C65468DA72D0333050C; this file is those bytes plus this appended comment.
+ * Per mutant: cmd /c android\gradlew.bat -p android --offline --no-daemon --no-build-cache -q
+ *   :app:testDebugUnitTest --tests nz.myinspection.app.platform.AppStoragePolicyTest
+ * Evidence: _local/storage-policy/successor-r4-5/{results.jsonl,Mxx.log}. Earlier batches ran on prior revisions and
+ * verify nothing here: successor-r4 left M10 alive (every DP row there also lay outside its app root, so containment
+ * alone refused it); R3 rounds 1 and 2 then found M36-M45 absent; successor-r4-4 was stopped during its first mutant.
+ * Direct path obligations (blank roots, normalization, real aliases, DP exclusion, error classes) moved with their
+ * tests to StoragePathBoundaryTest. The superseded fd1dd18c receipt (37/37, IDs M01-M42 with M07-M11 transferred to
+ * the Android card) pinned the removed canonicalFile code.
+ * each protected category uses its own credential encrypted no-backup subdirectory:
+ *   M01-M06 one route each, M31 root text, M32 location text, M35 root returned as the location
+ * device protected environment converts to credential encrypted...: M07 no conversion,
+ *   M39-M41 candidate, app root or DP root read from the unconverted environment
+ * environment that remains device protected...: M08 DP environment accepted after conversion
+ * credential conversion probe and no-backup lookup failures...: M18 original exception kept as cause,
+ *   M42/M43 root catch narrowed to RuntimeException / IllegalStateException
+ * fatal no-backup lookup error propagates with its identity: M19 root catch widened to Throwable
+ * roots the boundary refuses close with a fixed message and no cause:
+ *   M09 app root widened to its parent, M10 DP exclusion moved to a missing child, M17 refused root throws NPE
+ * the protected root is the real directory the boundary saved: M11 raw root kept, M12 child anchored on raw root
+ * each location call returns the directory the boundary checked:
+ *   M13 unchecked path returned, M14 refused child falls back, M15 message varies, M16 cause attached
+ * media returns unavailable...: M20 missing directory, M21 whitespace path, M22 read-only, M23 writable guard
+ * media reports insufficient space...: M24 equal refused, M25 low accepted, M26 ample refused, M30 root directory,
+ *   M33 root text, M34 available text, M36-M38 space, state or writability probed on another directory
+ * each media probe failure closes unavailable...: M27 reported as low space, M28 failure escapes,
+ *   M44/M45 media catch narrowed to RuntimeException / IllegalStateException
+ * fatal media probe error propagates with its identity: M29 media catch widened to Throwable
  */

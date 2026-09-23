@@ -70,12 +70,21 @@ sealed interface MediaStorageLocation {
     data object InsufficientSpace : MediaStorageLocation
 }
 
-/** Pure policy that routes protected data and consumes app-specific external media facts from its environment. */
+/**
+ * Policy that routes protected data and consumes app-specific external media facts from its environment.
+ * Protected routes sit under the no-backup root that [StoragePathBoundary] resolved and saved at construction; each
+ * [location] call has the boundary check its category directory and returns the directory it checked. The check
+ * holds when it is made: it grants no authority over later filesystem I/O.
+ */
 class AppStoragePolicy(private val environment: AppStorageEnvironment) {
-    private val protectedRoot = credentialEncryptedNoBackupRoot(environment)
+    private val protectedBoundary = credentialEncryptedNoBackupBoundary(environment)
+    private val protectedRoot = StorageRoot.CredentialEncryptedNoBackup(protectedBoundary.directory)
 
-    fun location(namespace: SecureStorageNamespace): StorageLocation =
-        StorageLocation(protectedRoot, File(protectedRoot.directory, namespace.subdirectory))
+    fun location(namespace: SecureStorageNamespace): StorageLocation {
+        val directory = protectedBoundary.resolveChild(File(protectedRoot.directory, namespace.subdirectory))
+            ?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)
+        return StorageLocation(protectedRoot, directory)
+    }
 
     fun mediaLocation(requestedBytes: Long): MediaStorageLocation {
         return try {
@@ -97,41 +106,21 @@ class AppStoragePolicy(private val environment: AppStorageEnvironment) {
         }
     }
 
-    private fun credentialEncryptedNoBackupRoot(environment: AppStorageEnvironment): StorageRoot.CredentialEncryptedNoBackup {
-        val directory = try {
+    private fun credentialEncryptedNoBackupBoundary(environment: AppStorageEnvironment): StoragePathBoundary {
+        val boundary = try {
             val credentialEnvironment =
                 if (environment.isDeviceProtectedStorage) environment.credentialEncryptedContext() else environment
             check(!credentialEnvironment.isDeviceProtectedStorage)
-            val candidate = credentialEnvironment.noBackupFilesDir
-            check(
-                isCredentialEncryptedNoBackupDirectory(
-                    candidate,
-                    credentialEnvironment.appDataDir,
-                    credentialEnvironment.deviceProtectedDataDir,
-                ),
+            StoragePathBoundary.create(
+                credentialEnvironment.noBackupFilesDir,
+                credentialEnvironment.appDataDir,
+                credentialEnvironment.deviceProtectedDataDir,
             )
-            candidate
         } catch (_: Exception) {
-            throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)
+            null
         }
-        return StorageRoot.CredentialEncryptedNoBackup(directory)
+        return boundary ?: throw IllegalStateException(CREDENTIAL_STORAGE_UNAVAILABLE)
     }
-}
-
-internal fun isCredentialEncryptedNoBackupDirectory(
-    candidate: File,
-    appDataDir: File,
-    deviceProtectedDataDir: File,
-): Boolean = try {
-    check(candidate.path.isNotBlank())
-    check(appDataDir.path.isNotBlank())
-    check(deviceProtectedDataDir.path.isNotBlank())
-    val candidatePath = candidate.canonicalFile.toPath()
-    val appDataPath = appDataDir.canonicalFile.toPath()
-    val deviceProtectedPath = deviceProtectedDataDir.canonicalFile.toPath()
-    candidatePath != appDataPath && candidatePath.startsWith(appDataPath) && !candidatePath.startsWith(deviceProtectedPath)
-} catch (_: Exception) {
-    false
 }
 
 private const val CREDENTIAL_STORAGE_UNAVAILABLE = "credential-encrypted storage unavailable"
