@@ -1,7 +1,7 @@
 ---
 id: T1-STORAGE-PATH-BOUNDARY
 title: Verified storage path snapshots and checked child directories
-status: todo
+status: merged
 depends_on: [T1-SPIKE-PLATFORM]
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/platform/StoragePathBoundary.kt

@@ -45,6 +45,7 @@
 ### 2.2 本机数据与密钥
 
 - SQLite、设置、回执、恢复 journal、Keystore 密文信封和 staging 元数据放 credential-encrypted internal/no-backup storage；device-protected storage 不存租客数据。大照片/音频可放 app-specific external storage，但卷缺失不得破坏 DB 一致性。
+- `T1-STORAGE-PATH-BOUNDARY` 已交付检查时的路径归属原语 `StoragePathBoundary`：根须严格位于 app 数据目录之下且不在 device-protected 目录内，按真实路径（解析 Junction/符号链接）比较而非 `canonicalFile`；子目录逐次对保存的根检查并返回所检查的目录。它不授予后续文件 I/O 权限、不消除 TOCTOU；存储路由由 `T1-APP-STORAGE-POLICY` 消费接入。
 - Android 系统备份/云恢复/设备迁移全部关闭：manifest `allowBackup=false`，Android 11 及以下和 Android 12+ 规则逐域排除。唯一支持的完整数据出口是用户选择目的地的加密 `.mibk`。
 - 备份口令是用户掌握的跨设备恢复秘密。后台自动备份只读取 Android Keystore 加密的本机口令信封；信封不导出，Keystore key 不可导出。口令/派生 key 只以可清零缓冲短暂存在，不进数据库、日志、通知、崩溃信息或剪贴板历史。
 - remediation API key 使用 Keystore 支持的本机加密存储，不入仓库、备份、日志或报告。产品不承诺在 root、恶意 OS、已解锁设备或恶意无障碍/键盘下保密。
