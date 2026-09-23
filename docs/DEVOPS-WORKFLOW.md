@@ -71,6 +71,8 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase red
 pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
 #   无远端的本地 T0：加 -Local（DoD + ReviewGate='required' 的 R3；无可用评审后端即 fail-closed，随后**本地**合并，不 push/PR/gh）
 #   pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship -Local
+#   有 origin 的仓库默认走上面的远端 ship。本地 base 领先 origin/<base> 时停下请用户对齐，不改走 -Local；
+#   评审后端暂不可用也不是改走 -Local 的理由。判定步骤见 task-loop skill 的「ship 路由」。
 
 # 合并后：R1 拆 worktree + R5 文档同步提醒 + 两道只读自检（lessons check · archive -Check）
 #   archive -Check 只读重投影两张冷存索引并报待搬项——**建议性、非闸门**（它跑在合并之后，合并闸
