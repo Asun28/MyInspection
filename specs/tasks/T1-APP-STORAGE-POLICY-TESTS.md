@@ -1,7 +1,7 @@
 ---
 id: T1-APP-STORAGE-POLICY-TESTS
 title: Pin AppStoragePolicy port arguments, environment conversion and catch breadth with tests
-status: todo
+status: merged
 depends_on: [T1-APP-STORAGE-POLICY-REMOTE]
 parallelizable_with: []
 allow_paths:
@@ -65,3 +65,7 @@ Test-only: about 55–75 changed test lines plus a replaced R4 receipt of about 
 
 While the Codex quota is exhausted, R3 is a fresh Opus 5.5 instance run by `review.ps1` through `ReviewCommand` (user
 ruling 2026-09-23/24). If R3 blocks more than three times, the card is split instead of repaired further.
+
+## Delivery (R5, 2026-09-24)
+
+Merged by [PR #332](https://github.com/Asun28/MyInspection/pull/332): reviewed head `a2d788e030b54704500f4139e37d0b224cc3426d`, CI run `35932836390` (verify and required succeeded), merge `d2e98e9c29ed2d14a0dab1482e304b0c80be954b`. R3 was a fresh Opus 5.5 instance through `ReviewCommand` while the Codex quota is exhausted: pass on the first round, after the ship's own Codex leg failed closed on the usage limit (probe-confirmed, round reset). R4: the previous test file killed 36 of 44 named mutants; this one kills 44 of 44, including the eight A6 survivors. Production bytes unchanged.
