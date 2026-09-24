@@ -43,4 +43,4 @@ After this independently reviewed history-only change merges, PR263 normally mer
 
 ## Reconcile note (2026-09-24)
 
-A2's "including todo status" and doc_sync's "keep target status todo" describe origin before the 2026-09 local/origin reconcile, which lands the local design merged as `53673571` and sets `T4-DESIGN-SYMBOL-CHROME-V2` to merged. This card's DoD already failed with SYMBOL-HISTORY content drift on origin before the reconcile, so no gate result changes.
+A2's "including todo status", doc_sync's "keep target status todo" and the body's "The target card remains todo" describe origin before the 2026-09 local/origin reconcile, which lands the local design merged as `53673571` and sets `T4-DESIGN-SYMBOL-CHROME-V2` to merged. This card's DoD already failed with SYMBOL-HISTORY content drift on origin before the reconcile, so no gate result changes.

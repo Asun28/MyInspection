@@ -428,8 +428,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（其 `T1-SPIKE-PLATFORM` 真机 spike 前置**已满足**，master `e8c2359a`）· `T3-REPORT-HTML-RENDERER`
-· `T2-ROUTINE-CONTEXT-V2` ·
+**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（其 `T1-SPIKE-PLATFORM` 真机 spike 前置**已满足**，master `e8c2359a`）·
 `T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
