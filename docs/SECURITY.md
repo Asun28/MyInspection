@@ -45,6 +45,8 @@
 ### 2.2 本机数据与密钥
 
 - SQLite、设置、回执、恢复 journal、Keystore 密文信封和 staging 元数据放 credential-encrypted internal/no-backup storage；device-protected storage 不存租客数据。大照片/音频可放 app-specific external storage，但卷缺失不得破坏 DB 一致性。
+- `T1-STORAGE-PATH-BOUNDARY` 已交付检查时的路径归属原语 `StoragePathBoundary`：根须严格位于 app 数据目录之下且不在 device-protected 目录内，按真实路径（解析 Junction/符号链接）比较而非 `canonicalFile`；子目录逐次对保存的根检查并返回所检查的目录。它不授予后续文件 I/O 权限、不消除 TOCTOU；存储路由由 `T1-APP-STORAGE-POLICY` 消费接入。
+- `T1-APP-STORAGE-POLICY` 已交付纯 JVM 层的存储路由：六类受保护数据只落在经该原语验证并保存的 CE/no-backup 根下、每次检查后的类别目录；DP 环境先转换为 CE，转换失败或仍为 DP 即拒绝。拒绝消息固定、不带 cause，端口的普通异常不外泄路径。大媒体只用 app-specific external 端口，卷缺失/未挂载/只读/不可写/探针失败均为 Unavailable，不回退共享存储。真实 Android 端口实现与设备验收归 `T1-APP-STORAGE-ANDROID`。
 - Android 系统备份/云恢复/设备迁移全部关闭：manifest `allowBackup=false`，Android 11 及以下和 Android 12+ 规则逐域排除。唯一支持的完整数据出口是用户选择目的地的加密 `.mibk`。
 - 备份口令是用户掌握的跨设备恢复秘密。后台自动备份只读取 Android Keystore 加密的本机口令信封；信封不导出，Keystore key 不可导出。口令/派生 key 只以可清零缓冲短暂存在，不进数据库、日志、通知、崩溃信息或剪贴板历史。
 - remediation API key 使用 Keystore 支持的本机加密存储，不入仓库、备份、日志或报告。产品不承诺在 root、恶意 OS、已解锁设备或恶意无障碍/键盘下保密。
@@ -70,6 +72,8 @@
 
 - 已交付边界（2026-09-08，[PR #242](https://github.com/Asun28/MyInspection/pull/242)，`a4febb7fb554aca6dc8efebc063279dd48683bf1`；reviewed head `d56d4e396fd21c0c9c7a9634fc73ee590816b0ba`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）：纯 JVM DOCX reader 完成有界 ZIP/XML 无写入读取，拒绝危险路径、外链、DTD/实体和 XInclude，错误仅暴露封闭原因与计数。当前图片只检查编码字节上界和 PNG/JPEG 签名；像素/完整负载验证、语义提取、自定义属性兼容及导入提交仍由后续卡交付。此记录不代表整个导入流程或真机验收完成。
 
+`T3-DOCX-CUSTOM-PROPERTIES` 已本地交付（`b00bcbcd`，R3 pass）：仅新增固定 `docProps/custom.xml` 的有界校验后丢弃兼容。精确内容类型、Properties 根命名空间与唯一内部包级关系均验证；属性名、值和注释不进入返回部件或提取证据，原有根关系部件仍可保留固定目标引用。所有 ZIP/XML 资源与主动内容限制继续生效；不解释属性语义，也不实现完整 VT schema。
+
 #### 自包含 HTML 报告
 
 实施记录（2026-09-08，PR #250）：样式表仅使用系统字体，禁止任何 `url()` 与 `@import`；隐私过滤仍在样式生成前完成。固定 CSP 样式摘要与规则/渲染字节测试通过，未宣称实际浏览器视觉验收。
@@ -80,9 +84,12 @@
 
 ### 2.4 日志、通知与界面泄露
 
+- `T1-SAFE-MEDIA-LOGGING` 已交付 `SafeLog` 并接入复制临时文件、导入清理、pending lease 和 orphan worker 的失败日志：封闭 operation/reason、规范小写 UUID、非负计数/耗时及固定 Android tag，不输出路径、业务原文或 Throwable。sink 的 Exception/Error 不改变媒体返回、主异常或清理结果；真实故障测试与 24 项定向变异已验证，现有媒体和数据库落位不变。
+
 - 生产日志只写操作名、非敏感 reason code、耗时/计数和随机 request/asset id。禁地址、姓名、联系方式、备注/转写、文件绝对路径、SAF URI、备份对象名、照片内容/hash、口令、key、Authorization header 和 provider 原始错误体。
 - 远端 SafeLog 交付见 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 和 [归档卡](../specs/archive/tasks/T1-SAFE-MEDIA-LOGGING-REMOTE.md)：封闭 operation/reason、受限 opaque id/count/duration 已接入四处媒体失败路径；原始路径、URI、业务原文和 Throwable 不进日志。注入 sink 的 Exception/Error 不改变媒体操作结果、主异常或清理。此交付不代表持久诊断库、存储分层或 Keystore 完成。
 - 远端 StoragePathBoundary 见 [PR #310](https://github.com/Asun28/MyInspection/pull/310) 和 [归档卡](../specs/archive/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md)：逐段解析真实路径，保存经验证的候选根与 DP 排除根，在每次派生子目录时复核归属；普通异常拒绝，Error 保持身份传播。20 项直接测试与 35 枚具名变异通过，Windows 真实 Junction 已验证。仅证明检查时归属，不消除 TOCTOU；存储策略、Android getter/适配、Keystore 和后续 I/O 仍待独立验收。
+- 远端存储策略见 [PR #316](https://github.com/Asun28/MyInspection/pull/316)：六类受保护数据只落在经 StoragePathBoundary 验证并保存的 CE/no-backup 根下、每次检查后的类别目录；DP 环境先转换，两处拒绝为固定消息且无 cause，致命 Error 保持身份；媒体只用 app-specific external 端口、不回退共享存储。Android getter/适配、Keystore 与设备验收仍待独立交付。
 - 持久诊断事件只进独立的 credential-encrypted/no-backup 诊断库，不进主证据库、canonical hash、PDF、通知、Android backup 或 `.mibk`；最多保留 90 天/20,000 行，先到即小批物理裁剪。日志写入失败不得改变巡检、finalize、备份或恢复结果。
 - “Admin/support” 无远程入口或写权限。只有设备所有者可在设置页明确查看包含/排除项后，离线导出最近 7/30/90 天的脱敏诊断包；支持人员不能借诊断功能修改 finalized evidence。字段与验收合同见 `docs/DATABASE-DESIGN.md`。
 - 用户可见通知只写 `Backup needs attention` 等通用文案；锁屏通知不显示物业地址、租客名、照片缩略图或恢复范围。

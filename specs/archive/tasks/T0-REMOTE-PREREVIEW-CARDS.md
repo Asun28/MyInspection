@@ -165,3 +165,7 @@ The JSON below contains selected observed PR/CI fields, the actual formal verdic
   }
 }
 ```
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile replaced the two feature cards this card registered and hashes (`specs/tasks/T0-PREREVIEW-RECORDS.md`, `specs/tasks/T0-PREREVIEW-STATE-1A.md`) with local master's archived delivered cards of the same IDs; see the reconcile notes on those archived cards. This card's DoD therefore no longer runs as written.

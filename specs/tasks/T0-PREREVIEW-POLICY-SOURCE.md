@@ -26,3 +26,7 @@ hygiene: Data publication only. Verify the original Git bytes and pinned hashes 
 The source evidence is currently unavailable from committed remote history, which caused both real POLICY R3 blocks. Publish only these two reviewed raw files; do not publish the divergent local history. The subsequent SOURCE-CHECK card supplies the complete recipe, executable replay and negative probes before POLICY resumes. The two POLICY verdicts and its round counter remain preserved.
 
 Compute the actual base, full diff size and selftest tier/routing before this card's authorized R1. The fixture txt paths currently have no route and are expected to escalate computed Tier 1 to full acceptance; this expectation is not acceptance evidence.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. The source documents that `scripts/fixtures/prereview/policy-source/raw/` copies are now on master, and each raw copy is byte-identical to its document (`git hash-object` equal on 2026-09-24). Whether this card is closed, narrowed or kept is a user decision.

@@ -69,6 +69,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-24 本地交付**：`T3-PDF-DEVICE-FIXTURE`（master `08ab4d8a`，feature `89285d67`）交付 debug-only real80 清单预检与固定 LANDLORD 报告输入：公开入口 `AndroidFixtureManifestReader.preflight` 对自己读到的清单字节算摘要、非批准字节在 org.json 解析前即拒；取摘要的 preflight 与 `AuthorizedFixture`/`AuthorizedPhoto` 构造均为 internal/private，已验证集合为只读副本。11 项 JVM 测试、63/63 可移植变异；真实 Kotlin builder 在批准 real80 集上复现冻结的 native/semantic 双哈希，改一字节即被 `FIXTURE-FILE-BYTES` 拒绝。825 行超卡片 650/45k 早停，经用户裁定在 1000/60k 闸内继续。Codex 配额耗尽期间按用户裁定：DeepSeek V4 Flash 7 轮预审 + 全新 Opus 5.5 R3 五轮（第 3–5 轮逐轮授权），第 5 轮 pass，合并树与评审树 `f22b89c4` 一致。五轮 finding 全部属实、逐轮变窄（未强制的构造期保证 → 未测的可见性/描述符字段 → 对下游卡的越界声称 → 公开入口摘要拒绝无测试）；第 3 轮后用户给 DEVICE-ACCEPTANCE 加 A7（绘制前按 contentHash 重算）。不宣称设备或四档验收。
+
+**2026-09-24 本地交付**：`T1-APP-STORAGE-POLICY`（master `f68d7006`，feature `834206a6`）在前置交付后以非重写 merge 吸收主线，删除内嵌 `canonicalFile` 判定，改为消费 `StoragePathBoundary`：保存验证过的 CE/no-backup 根，每次 `location` 检查并返回类别目录；两处拒绝固定消息无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 保身份。12 项策略测试（3 项真实 Junction 接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间由全新 Opus 5.5 子代理作 R3：前两轮 block 的 4 条均是测试断言面缺口（假环境忽略参数、夹具根过宽使守卫互相遮蔽、只注入一种异常类型），第 3 轮 pass，合并树=评审树 `448da9cd`。实际 Android 适配归 `T1-APP-STORAGE-ANDROID`；TD178 记测试临时目录不清理。
+
+**2026-09-24 R5 补记**：`T1-STORAGE-PATH-BOUNDARY` 已于 2026-09-17 本地合并（master `115138a4`，feature `c201c793`，正式 Sol R3 首轮 pass），当时未做 R5。`StoragePathBoundary` 交付检查时的真实路径归属（Junction/符号链接按真实目标比较，不靠 `canonicalFile`）、保存的根快照与逐次子目录检查；20 项真实文件系统测试、35/35 变异。不含后续 I/O 权限或消除 TOCTOU；`T1-APP-STORAGE-POLICY` 由此解锁。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 的图片 bridge 前置已满足，但它仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-OWNERSHIP`（master `1558594d`，feature `17060f81`）是图片 bridge 拆分的第二张：窄端口上的 bounds → 已交付采样 → decode → FIT 绘制 → recycle，每条打开的流都有 close 尝试、每张解码图都有 recycle 尝试，清理失败挂为 suppressed 不顶替原失败，单次 draw 至多持有一张解码图。20 项测试、23/23 变异。DeepSeek V4 Flash 两轮预审 + 全新 Opus 5.5 R3 首轮 pass，合并树与评审树 `b85231ae` 一致。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-FIT`（master `f367ca86`，feature `daa4f720`）是 `T3-PDF-IMAGE-BRIDGE` 按用户裁定拆成三张小卡（FIT → OWNERSHIP → 窄化后的 BRIDGE 适配器）的第一张：固定 FIT_CENTER 几何，拒非正解码尺寸与非有限/无面积框，Double 计算并把每条边钳进框内。11 项测试、26/26 变异。Codex 配额耗尽期间按用户裁定改用 DeepSeek V4 Flash 多轮预审 + 全新 Opus 5.5 子代理作 R3（第 5 轮 pass，第 3–5 轮逐轮经用户授权）；ship -Local 其余确定性闸全过，其可选 R3 腿因 codex 不在 PATH 而显式跳过，合并树与评审树 `0092e994` 逐字节一致。前两轮 R3 抓到真实浮点缺陷，后两轮是注释措辞超出证据（L309）。
+
 **2026-09-18 第二轮远端收口**：`T3-PDF-PAGINATION-FIXTURES-REMOTE` 经 [PR #309](https://github.com/Asun28/MyInspection/pull/309)，reviewed head `09dfa20cf8e75d095b8535a1473b17acdf581628`，CI `35171143884`，merge `553d53382f3b663dac19ed1c607ffa35ee499d0c`；正式 R3 pass。只迁移两处固定 4mm 行高分页夹具；生产源码字节不变。基线、迁移、恢复、尾注后各 255 项报告测试与 6 项 E2E 通过，两枚具名预算变异被断言检出。完整证据及守卫清理已复核，合同和收据已归档。Boundary 已完成 R5；Pagination 的产品证据已归档，但本 metadata closure 仍待本 PR 通过并合并。该 PR 合并后，五轮十张产品卡进度为 4/10，已完成 2/5 轮。测量绑定、平台字形和设备渲染仍由后继卡验收。
 
 **2026-09-18 第二轮存储路径交付（Pagination metadata closure 前的历史状态）**：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 经 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。20 项直接测试、35 枚具名可编译变异及 GREEN、恢复后、尾注后三次各 177 项应用回归通过；Windows 真实 Junction 已执行，POSIX 未执行。逐段解析保存已验证根，逐次检查子目录；只保证检查时路径归属。原始证据与清理错误日志均已保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支当时均不存在，不倒推原删除命令成功。完整合同及收据见归档卡。本卡完成 R5 后，五轮十张产品卡进度 3/10；第 2 轮的分页卡仍待 R5 收尾。第 3 轮 Policy 与 Requests 仅在原窗口准备，尚未完成验收；不新增任务窗口或另选产品卡。
@@ -110,6 +122,187 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 <!-- 随 R5 文档同步更新。 -->
 **2026-09-08 远端交付**：`T2-ROUTINE-CONTEXT-V2` 经功能 PR #241 合并（`35cb59f3`）；功能 PR #241 的 21 项验收测试、正式 R3 与 GitHub 候选 CI 通过。92 项 Routine v2 保留全部 83 项历史内容，新增 Hallway 八项与普通摘要项；缺少已安装 active v2 时不回退，历史按 ID 读取保持不变。先前本地合并不代表远端 PR 完成；APK 初始化和应用接入仍属后续工作。
+
+
+**2026-09-17 本地交付**：`T0-PREREVIEW-STATE-1A`（master `62ec5f3b`，首轮 R3 pass、零 finding）交付 state v1 校验、原子写入、dispute 追加与 packet/view 输出。复用 RECORDS 重建候选和覆盖记录；输出留在 git common dir，合法 finding 文案保留。86 项自检、25/25 定向变异及 verify/范围/许可/防泄露闸通过；常规完整 selftest 三分片通过，卡片已归档，工作树和分支已按合并凭据清理。执行前已按用户授权修订验收：禁 verdict 字段与 pass/block 状态值；review_status 仍留给 1b。
+
+**2026-09-16 本地交付**：`T0-PREREVIEW-FACTS-LIB`（master `b675d6a6`，首轮 R3 pass、零 finding）交付八个事实函数：worktree/base、临时 index 快照、基线原始字节 policy hash、带 hunk 序号的 units、live_allowed、运行时模型路由及 temp root。31 项自检通过，18/18 定向变异检出，verify/范围/许可/防泄露闸及常规完整 selftest 三分片通过；工作树及分支已按合并凭据清理。TD183 登记后续删除文件 candidate 锚点文案契约，须在 worker/prompt 接线前单独修订。
+
+**2026-09-16 本地合并**：`T0-PREREVIEW-UNIT-ID-REVISION`（master `71895645`，首轮 R3 pass、零 finding）落实用户批准的本地 TD176（从未提交进本地 master 的 tracker 行，只在主检出的未提交改动里；不是 tech-debt-tracker 中的 TD176；仍开放两项见 TD187）前置修订：schema_revision 1，hunk ID 为 `path#bodyHash12-ordinal`（同文件 diff 顺序从 1 起），`path#file` 保留；投影、schema/RECORDS 夹具与协议同步，10/10 定向变异检出。FACTS-LIB A3/A5、快照 Git 对象写入例外及固定快照的 Units 输入已先在 master 登记（`704fbd69` / `1220f108`）。前置卡完整 selftest 三分片 PASS，工作树及分支已按合并凭据清理。
+
+**2026-09-16 本地交付**：`T0-PREREVIEW-RECORDS` 已合并（master `dec30514`，R3 第 **7** 轮 pass 零 finding；三次用户裁定 `-ResetRounds`，
+六轮 block 共 13 条 finding 全部属实、全部当场修）——`scripts/_prereview-records.ps1`（`-AsLibrary` / `-SelfCheck`，67 条断言）+
+`scripts/fixtures/prereview/records/`（4 个 unit、两 worker 11 条盖章记录、7 个 reject 文件 + 5 个内存派生 reject 类）：worker 记录校验、
+unit 归属、C-<n> 单调铸造、精确重复合并（键不含行号，位置靠 unit_ids / evidence_refs 并集保留，本地 TD176 的决定写在卡片 A4）、
+fingerprint / root_group、missing 覆盖合成。58/58 变异全杀。**coverage 与 candidates 的绑定最终形态 = 重铸而非核对**：coverage 从
+结果自带的 `StartId` 重铸一遍，要求整个结果对象（七个属性的规范 JSON）逐字节相等——前四轮每轮都被找到「核对没盖到的一种改写形状」
+（缺字段 / 换 id / 协同改写 / 补条目 / 只改状态），重铸把这一整类关掉。
+> **两条可复用判断**：① **PowerShell 的字符串比较运算符全是 culture 比较**（`-eq`/`-ceq`/`-contains`/`-in`/`Sort-Object`/
+> `Select-Object -Unique`/`Compare-Object`）：软连字符、零宽字符等可忽略码位与 NFC/NFD 变体会被判**相等**，`-ceq` 只是区分大小写、
+> 不是序数；身份比较一律 `[string]::Equals(…, Ordinal)` / 序数 HashSet / `[Array]::Sort(…, Ordinal)`；`@{}` 与 `[ordered]@{}`
+> 不分大小写，`ConvertFrom-Json -AsHashtable` 自 7.3 起分大小写（把 worker 写的 `Expected` 与 `expected` 都留下）；断言 harness
+> 自己也要用序数比较，否则「C-1」与「C-<软连字符>1」在测试里相等。② **修复轮会把 diff 吃到预算顶**：首轮 42K 字符，七轮后 59K
+> （上限 60000），每轮为通过 R3 加的回归用例与 record 都占字符；写卡时就该给修复轮留约 25% 预算，或把 self-check 的证据面设计成
+> 便宜的内存派生用例而非夹具文件（本卡后期把 5 个 reject 类从文件改为内存派生，省下约 4K 字符）。
+> **R3 六轮 block 无一重复争点**：绑定解引用 / int 计数器 / A6 越界 dot-source / 并集未测 / 缺 missing 用例 → 协同改写 / 用尽按原始条数 →
+> culture `Sort-Object` / `#requires` 下限 → 绑定忽略 Ok/Code/Reasons → 坏 NextId 抛错违反 forbid、harness 用 culture 运算符 → A5 未按类
+> 分别验证。每轮之间派一次 fresh-context 探针都各抓到 5–9 条 R3 尚未提出的同类缺口（其中 `-ceq` 本身是 culture 比较这条最贵），
+> 说明对「防御型绑定」这类代码，**探针的价值在于穷举改写形状**，比读 diff 更有效。**遗留**：origin 定时 `scaffold-selftest`
+> 自 `f6fdaf6a` 起在 8.2j（T202 `[ENV-SKIP-DEGRADED]`：隐藏 `git` 后 `-Only 15` 退出 1）连红两晚，属 origin 线脚手架缺陷，
+> 按碰撞规则待 1a 链收口后随 reconcile 开卡处理。
+
+**2026-09-15 本地交付**：`T0-PREREVIEW-CHECKLISTS` 已合并（master `2782b55b`，R3 第 **5** 轮 pass 零 finding；两次用户裁定 `-ResetRounds`（第 2、4 轮后），
+四轮 block 共 6 条 reason / 13 处具体 finding 全部属实、全部当场修）——`docs/PREREVIEW-CHECKLISTS.md`（12238 字节：四个 `## Lens:` 节共 33 条 `- C{n}` 检查行，每行以 schema 的
+`contract_ref` 形态收尾（25 个 lesson id + 10 个 rubric 维度全部在 master 可解析）+ 覆盖规则段；进包 `checklists.md`、进 policy hash）。
+DoD 在 ship 前于 master 收紧为大小写敏感（`6881a970`：`-eq`→`-ceq`，原 `-eq` 放过小写标题、变异 M6 存活）；7/7 DoD 变异全杀。
+> **13 处 finding 里 12 处是同一类错误、且是这份文档的固有形态——检查行写成全称句、比它所引经验的失败条件更宽，于是会系统性产出假候选**：
+> 边界值不分类型一律要 · `default` 分支一律判 fail-open（`default -> throw` 是 fail-closed）· 整份 stdout 断言一律判弱（精确整体相等能测出丢行）·
+> 哨兵按「分支」而非「含义」唯一 · 「每条断言一枚变异」（L225 只管收据声称覆盖的断言）· null/empty 守卫要「可解析但错」的输入 ·
+> DoD 证据须在 diff 内（包里本就带 base 卡）· 一句话既否定子串匹配又推荐哨兵匹配 · 状态映射把契约的 `not_applicable` 写成不可达 ·
+> C7「任何第二份列表」会打到本文档自己的 A4 覆盖段。第 3 轮后按 L309 停手做**实例代入表**（两个模型各扫全部 33 行、每行点名一个会被误伤的仓内真实实例：
+> `SDK_INT` 守卫下的 API 33 调用、`ComplianceConfig` 返回拒绝值的 catch、喂快照哈希的 `ORDER BY`、`NoticeService` 进程内中文等值断言、
+> `#!/bin/sh` pre-push 钩子以正斜杠路径跑 `check-secrets.ps1`、只由 `verify.ps1` 跑的 `e2eTest`），一次吃掉 26 条；第 4 轮仍出 2 条（其一是**实现记录放进了分支 diff**
+> 而卡片 forbid 写死「文档之外任何内容」——记录改落 master 卡片，L18），第 5 轮零 finding。**两个可复用判断**：① 给评审模型写规则时，每个全称词都要先问
+> 「仓里哪个合法实例会被它误伤」，L309 的实例代入表对「规则型文档」比对「叙述型文档」更必要；② 字节上限（12288）在第 4 轮只剩 9 字节余量——
+> 收紧措辞几乎总是加字，预算要在首轮就留出约 5%。**遗留**：路由自检从 worktree 副本跑 mode=all 1489 s，seeded/workflow 绿、core 只红闸 2/16，
+> 根因是 master `CLAUDE.md` 那行悬空经验引用（本次 R5 已改措辞）；`PREREVIEW-PROTOCOL.md` 第 3 节仍写 `Select-PrereviewLensSections` 按类选节，本文档只说「PROMPT 卡的选择器」。
+
+**2026-09-15 本地交付**：`T0-PREREVIEW-PROTOCOL-DOC` 已合并（master `a66af219`，**人裁合并**——八道确定性闸全绿后 R3 四轮共 9 条 finding 全部属实、全部当场修，
+第 4 轮那条要求的改动落在兄弟卡（FACTS-LIB A5 的 `unit_id` 对同文件两个字节相同的 hunk 撞码、RECORDS A4 的重复键不带行号），
+按 rubric 路线 ① 登记 `[FOLLOW-UP]`、用户裁定合并）——`docs/PREREVIEW-PROTOCOL.md`（28969 字节：两 worker 不投票 · 1a 规范顺序 ·
+进包内容与两个 worker 各自可见面 · worker 命令契约（白名单环境、`PRE_*`、`PRE_LIVE` 唯一写者 + 三处登记的自检例外）· 记录/覆盖形状 ·
+C1–C7 · 读包 · `link-r3`/`recall` · 1a 检查点 · 首次真跑清单 · 20 个 `[PRE-…]` 状态码表（`-Anchors` 双向锚定）· 1b 只留指针段）·
+TRUST-MANIFEST 两行（发现者 Anthropic `claude` CLI = 整包含 `tree/` 出站；透镜 DeepSeek = 仅 prompt.txt，`PrereviewDiscoverCommand`/
+`PrereviewLensCommand` 钉在指针格）· CLAUDE.md 索引行（现为第 25 条） + AI 工具句改写 · task-loop 4.6 一句。4/4 锚点变异全杀；路由自检
+（mode=all，从 worktree 自己那份 `selftest.ps1` 跑）PASS 1422 s。
+> **四轮 R3 全是同一类错误——写下的保证超出所引卡片的验收行（L309）**：`PRE_LIVE` 唯一写者的全称句被自己的括号推翻 ·
+> `DEEPSEEK_API_KEY` 既「所有 worker 都没有」又「透镜子进程读取」· 「gitignored 由构造排除」只对**未跟踪**文件成立（`read-tree HEAD`
+> + `add -A` 不会丢掉已跟踪路径，靠 `check-secrets` 保证机密形状路径不被追踪）· 「包对 R3 不可见」只能说成「不在被审树、不在提示词」
+> （沙箱不证明拒读 common dir）· `[PRE-NO-OUTPUT]`/`[PRE-BAD-RECORD]` 两处定义不互斥。本地 fresh-context 预审吃掉 20 条（7 条 block 级），
+> 每轮修复再过一次对抗复核又各抓到 1–2 条**修复自身引入**的新矛盾（L205）。**两个脚手架事实**：① `selftest.ps1 -TaskId` 的 mode=all/core
+> 测的是被调用脚本自己的 `$RepoRoot`（只有 skills 模式指向任务 worktree），从主检出跑等于测主检出；② 主检出根下另一会话的未跟踪
+> `.aidlc/` 让主检出上的任何整套自检在闸 8 变红。**兄弟卡遗留（已记 `[FOLLOW-UP]`）**：SLICES A1 的截断清单放不进封闭的 `$defs/facts` ·
+> STATE-1A A4 的「不含 pass/block 二词」不可证 · FACTPACK A3「只含已跟踪」· FACTS-LIB A3「gitignored 排除」只对未跟踪成立、A5 `unit_id`
+> 撞码 · RECORDS A4 重复键无行号 · CHECKLISTS A3 曾引用一条只在主检出未提交账本里的经验 id（闸 16 会红；`4134c73d` 已去掉该引用）。
+
+**2026-09-15 本地交付**：`T0-PREREVIEW-SCHEMA` 已合并（master `9c3d3bdf`，R3 第 3 轮 pass 零 finding；PR review v2 1a 首卡）——
+`specs/prereview-record.schema.json`（worker_output 信封 + candidate/coverage/facts/units/status_code 等 10 个 `$defs`、
+20 个 `[PRE-…]` 状态码、`schema_revision` 钉 `const 0`）· `scripts/check-prereview-schema.ps1`（默认自演练 / `-Schema -Samples` /
+`-Anchors`，哨兵 `[PREREVIEW-SCHEMA-OK|FAIL]`、`[PREREVIEW-ANCHORS-OK]`）· 夹具 `scripts/fixtures/prereview/schema/`（含 3791 字节的
+`worker-envelope.min.json` 投影）· `_config.ps1` 17 个 `Prereview*` 旋钮（值 only）。37/37 变异全杀。**冻结点**：schema 从本合并起即契约，
+窗口内补丁 bump `schema_revision`、走后续卡；FrozenPaths 登记归 1b LOOP-DOCS。
+> **两轮 block 各一课**：① 首轮 4 条全部属实——夹具里为了让「跨文件 `$ref`」检查可被变异观测而复制了一份 `$defs`，正是卡片 forbid
+> 的「copying $defs」；`$ref` 走查只沿 schema 位置下钻，藏在 `patternProperties` 下的跨文件引用漏掉（改为遍历每个 JSON 节点 + 恰好
+> `#/$defs/<name>` 正则）；`schema_revision` 允许任意整数，与「陈旧夹具显式失败」的描述不符（钉 const）；② **评审读的是 base 上的卡**
+> （`Task-card source: base:<oid>`）：把用户裁定的「撤回拆分规则」修正写进分支副本对评审者不可见，白烧一轮（L145 复发第 2 次）——
+> 中途改卡一律先提交 master。字符预算是比行数更紧的约束：每个夹具文件的 diff 头约 300 字符、JSON 逐行缩进约 30 字符/行，
+> 26 个小文件把 60000 上限吃到 63.9K，靠压缩夹具与散文才回到 59.2K（L266 复发：体量该在 RED 前按 review.ps1 的尺量）。
+> **遗留**：`T0-PREREVIEW-FACTS-LIB` A2 的 `base_mode origin` 已按冻结枚举改为 `remote`（本次 R5 顺手一词）；八条在飞分支改动
+> `_config.ps1`（碰撞规则），本卡只追加一段、保留 BOM，退役由用户裁。
+
+**2026-09-08 本地交付**：`T1-SPIKE-PLATFORM` 已合并（master `e8c2359a`，正式 R3 第 **2** 轮 pass）——V1 三项平台风险
+在**真机**上全部判「成立」、无一降级：设备 = Galaxy A34 5G `SM-A346E`、Android 13 / API 33、fingerprint
+`samsung/…/A346EXXU4AWG8:user/release-keys`（**零售 user 版**，非模拟器的 `userdebug/dev-keys`，API 亦低于模拟器的 35）。
+① **ghost overlay 成立**（门框/把手/开关面板叠加后轮廓成对可见，据此可把机位移回原处）⇒ `T3-HISTORY-COMPARE`
+按实时叠图推进，**不**退到「拍完并排比对」；② **SAF 持久授权成立**（`bytes=60` 写入并逐字节读回，重启后授权仍在、
+不重写不重弹）；③ **PDF 成立**（81 页 / 80 图 / 7272ms / 采样峰值 225620 KiB）。
+> **三条给承接卡的实测参数**：㊀ **EXIF 方向真机与模拟器不同**——本机存 1440×1080 **横向**像素 + EXIF 标记、
+> 靠变换转正，模拟器则直接给 960×1280 竖图；这是「EXIF 旋转必须处理」这条不变量**第一次**在真机上被走通，归
+> `T2-PHOTO-PIPELINE`。㊁ **PDF 体积不可跨机外推**——同样 80 图同样代码，真机 2,366,495 bytes vs 模拟器 550,243，
+> 差 4.3 倍；且平台把一行混排文本拆给 **DroidSansFallback + Roboto 两个**内嵌子集，`T3-PDF-RENDERER` 估字体开销要按两份算。
+> ㊂ **验收期间 adb 不可用**（USB 调试已开，但手机只暴露 MTP class 06 与 CDC-ACM class 02/02/01、无 ADB 的
+> class FF/42/01，且修网络共享/切 USB 模式/重启 adb server 均无效）——改走 **MTP 装机 + 机上截图取证**，全套真机验收照样闭合。
+> **事后更正**：同晚一次为刷新 MTP 缓存而做的拔插后，ADB 接口以 MI_03 出现、adb 立刻看到已授权设备；故那是**可被拔插消除的瞬态**，
+> 不是设备固有限制，原先写下的「该机 adb 不可用」是错的（L320 已按此更正，规则改为「下结论前先拔插再复查一次」）。
+> 三项真机结论仍成立：它们在 MTP 通道下已取得且可复核，不因通道恢复而重做。
+> **R3 那条 block 是真的、且很值**：报告把受测 APK 钉在某个 master OID 上，而评审基线是另一个 OID——实测候选树
+> 当时构建出的是**另一个 APK**（`f366b5a1` / 17,213,270 bytes），因为分支停在 RED 取证基线上、落后 168 个提交而
+> 那个区间**确实**动过 `android/`。修法：吸收 base 后候选树构建即得受测的 `593ff461` / 17,401,647 bytes，并把
+> 「三处基线各构建一次、SHA 与字节全一致」与「`git log <base>..master -- android/ *.gradle …` 为空」两条证据一并写进报告，
+> 另**如实记下那处不等价**。**教训**：真机证据必须钉到**待合并的那棵树**，而不是「分支上任意一次构建」。
+> 另：取 RED 之后又把 master 快进进 worktree，令 RED 收据作废、白烧一整条 ship（**L310 复发第 2 次、L148 第 7 次**）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-NOT-APPLICABLE-COLOR` 已合并（master `d6b369ee`，R3 第 2 轮 pass）——
+承接前卡的 `[FOLLOW-UP]`：`evidence-rail` 声明四个颜色却有五个 `segmentStates`，`NOT_APPLICABLE` 全文
+无取色。**OD-1 由用户裁定取 A**（与 `OPTIONAL` 共用 `outline`），零新 token / role / 绑定 / 配对。
+落地形态取「加 `notApplicableColor` 键」而非把 `optionalColor` 的服务范围写成散文——四个既有键本就是
+`<状态名转小驼峰>Color`，故「每个 `segmentStates` 解析到恰好一个已声明颜色」由**既有命名规则算得出**，
+不必为本卡发明第二套映射语法。五行改动：frontmatter 加键 · 对比度图引言的算术（四 role 服务五段、
+后两者共用）· 组件行声明共用 · rail 散文点名 role 并去掉 `irrelevant`（它不是任何已声明状态名）·
+light 调色板项补上那两个段色的职责。21/21 变异全杀。
+> **DoD 除 11 条 ASCII 锚点（含 4 条 `expected 0` 反向断言）外从 frontmatter 重算**：token 表 56、
+> 绑定集 75 无重复无漂移无欠比值、状态色×内容底 每主题 20 对全登记、13 行印刷比值逐位吻合。
+> 两条断言值得复用：① 散文里点名的 role **由 frontmatter 算出后再比对**，故散文与 frontmatter
+> 写不成两个权威（M19 只改散文即被杀）；② 遍历全部组件断言「按自身状态命名颜色的组件有且仅有
+> `evidence-rail`」，于是 `inspection-item-card` 为何不在本卡（它那四个颜色都是组件级、无一以状态命名）
+> **是算出来的，不是散文声称的**。
+> **R3 第 1 轮 block 一条、属实、当场修——又是 L309**：我为补 light 调色板项照抄 dark 侧名词，写成
+> 「essential card boundaries, **evidence segments**, and focus use `outline`」，那是对**整类** evidence
+> segment 的断言，而同一份 diff 里 complete/missing-required/blocked 分别用 `primary`/`tertiary`/`error`
+> ——**diff 自己就推翻了它**。（dark 原句带「or a semantic container, or the focus token」这个出口、
+> 故不是全称句；我抄名词时把出口丢了。）收窄为「optional and not-applicable evidence segments」，
+> 并把**基线措辞**与**这句被驳回的全称措辞**双双钉成 `expected 0`（M20/M21 各杀一个方向）。
+> **ship 前的全新上下文复核判 PASS 却提了 5 条**，其中这一条它也漏了——它只查了「diff 有没有说假话」，
+> 而这句的假在于**它与同句相邻分句的关系**。**遗留 `[FOLLOW-UP]` 记 TD175**：`outline` on
+> `surface-container` 的 CI 条目标 `evidence-boundary`，而同底另三个段色标 `evidence-segment`；该配对
+> 现服务两种职责，但规范要求每配对恰好一条条目，收口需 metadata schema 决定（多 usage）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-STATUS-CARRIERS` 已合并（master `174c7ce6`，**R3 首轮 pass 零 finding**）——
+收口前卡 `T4-DESIGN-SYMBOL-CHROME-V2` 的三处遗留。**A1**：前卡为「必带状态字形须可感知」立的下限是
+「只渲染在闸已登记的配对上」，本卡补登记后放宽它。实测缺口比建卡段猜的大得多——状态色
+（`primary`/`tertiary`/`error`/`outline`/`privacy`）× 内容底（四个 surface 层）共 40 对里**缺 26 条绑定**
+（`privacy` 作前景在四个底上**一条都没有**），新增具名 `State glyph contrast map` 一节，13 行每行带
+**实测** light/dark 比值（最低 `outline` on `surface-container-high` = 3.51:1 / 4.37:1，仍过 3.00:1 档）；
+沿途复算文档既有 8 处比值声明皆吻合，**未动任何 token 色值**。**A2**：`verification-receipt` 与
+`photo-evidence-tile` 十一个状态逐条对「视觉半 + 播报半」判定（4 fixed / 7 carried / 0 exempt）。
+**A3**：capture Back 定名 `Save and exit`，通用 `Back to {parent}` 为其让位，两个短语全文各只剩一次声明，
+准入条件 3 的「同一短语」遂有唯一指代。27/27 变异全杀。**遗留 FOLLOW-UP**：`NOT_APPLICABLE` 全文无取色
+绑定（`evidence-rail` 声明四个颜色却有五个 `segmentStates`），属调色决定、在本卡「只补登记不调色」
+之外，已开卡 `T4-DESIGN-NOT-APPLICABLE-COLOR` 承接。
+> **本卡的 DoD 不止查锚点**：除 16 条 ASCII 锚点（含 3 条 `expected 0` 反向断言）外，它**从文档自身重算**
+> ——按 DESIGN.md 写明的 WCAG 公式、用 frontmatter 的 token 值复算每条绑定比值并核 `minRatio`、核绑定值
+> 未偏离 token、核无重复配对、核 40 个配对全部登记、核新表 13 行印刷值与重算值逐位相等。于是
+> 「每对带其实测比值」是**机检**的而非散文声称的——这是对 L317（验收表须是已交付证据的陈述）的直接回应。
+> **三处「写下的保证超出证据」都在本地被吃掉，没有花掉 R3 轮次**：① 我的初稿把状态条款写成全称句
+> 「必带状态字形用状态色落在内容底上」，而 `privacy-chip` 的盾牌落 `privacy-container`、相机控件落 scrim
+> ——**自查时抓到**，改为保留封闭要求 + 另陈覆盖事实；② ship 前的全新上下文复核抓到「把 40 对的登记功劳
+> 记在只装 13 对的新表名下」；③ 同一轮抓到「其它底」只列两类而文档实有四类（`camera-shutter` 的底是
+> **一个 `on-` role**）。**教训：全称句的成本在于它对整份文档做断言，而你只对手边那几处验证过**（L309）；
+> 把它降级成「封闭要求 + 单独陈述的覆盖事实」，既不弱化下限，也不再欠一份做不完的全称证明。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLANNER` 已合并（master `d7510b02`，正式 R3 首轮 pass）；完整当前预览、原子批确认、READY 与格式 1 脱敏回执已交付。62 项 plan、实际合并树 1044 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，24 项源码变异被捕获。回执绑定原生上下文与不含原文的来源决策；数据库提交、媒体写入及 UI 仍由后续卡承接。
+
+**2026-09-08 本地交付**：`T3-REPORT-INTERCHANGE-SCHEMA` 已合并（master `800593b4`，正式 R3 首轮 pass）；schema v6 提供不可变导入来源回执与 PDF/HTML 格式回执，历史 PDF 字段无损迁移，HTML 不获得媒体归档资格。50 项定向测试通过；合并后整体验证覆盖 1034 项 core（4 项既有 Windows 跳过）及 6 项 E2E，均无失败。32 项源码变异均被捕获，最终 LF 源码与提交字节一致。映射回执规范化/隐私由 PLANNER 负责，COMMIT 负责写入前复验；本卡仅交付持久化基础。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-REVIEW-DECISIONS` 已合并（master `8f56d01f`，正式 R3 首轮 pass）；逐项显式状态/隐私、跨类别身份来源排除、caption 组成部分处置与按来源顺序汇总摘要已交付。同一目标的条目备注与显式来源备注确定性合并，未评级目标保留。52 项 plan、1029 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，15 项源码变异被捕获。预览、批确认与回执仍由原父卡承接，不具备数据库写入权限。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
+
+**2026-09-08 本地交付**：`T4-SCHEDULE-UI-PRESENTATION` 已合并（master `d22f5d33`，**人裁合并**——
+八道确定性闸全绿、R4 27 枚变异全杀后，R3 轮次上限达顶抬起 `[R3-ROUND-CAP]` 未唤起评审者、按其设计
+转人裁，用户裁定合并）。交付排程界面的最小呈现契约：每状态**至多一个** primary 动作且**必须显式声明
+这个数目**（不提供者声明缺席，同 `ScheduleBadge.NONE` 的既有做法）、反馈做成 `ScheduleFeedbackBanner`
+且其 recovery 是 **`ScheduleSecondaryAction` 这个另一个类型**（于是「一屏两个 primary」写不出来）、
+五个状态皆非空且非空白、固定 NZ 月名日期（不跟随 locale 与数字系统，本视图不渲染任何时刻）、
+复数感知计数短语。**11 条未决决策开工前由用户逐条收口**（master `d0ec9e4a`）。
+> **R3 六轮、每轮 finding 全部属实且全部当场修**，其中第 3–6 轮是**同一类错误：写下的保证超出证据**——
+> 过期的 token 归属注释 · `countPhrase(0)` 把数字拼写成 `No` 而内容值只有 `text` 会到达屏幕 ·
+> 注释宣称模型与 Compose 渲染器「不会漂移」而那条等式只钉住两条模型层路径 · `isNotEmpty` 断言下
+> `Message("")` 仍能通过。**最贵的一条**：那条非空断言原本存在，压体量时按「无变异单独杀死它」剪掉，
+> 而没有变异杀死它**正是因为我从未写过置空消息的变异**——缺失的变异恰恰是它看起来冗余的原因。
+> M34 现在只被那条恢复的测试杀死。**结论：mutation-survivor 剪枝的可靠性不超过它所对照的变异集。**
+> **三次范围移交**（均用户裁定）：符号化 chrome 与无障碍声明整半 · token 取值绑定 · R3 第 2 轮后连同
+> REQ-032/033/034 整条移交的 token 词汇声明，全部归 `T4-SCHEDULE-UI-SYMBOL-CHROME`，使两卡都不留
+> 「声明了却由别人应用」的接缝。渲染期约束（间距/对比度/200% 字号/Compose 接线本身）在黑盒面内不可
+> 机检，卡内验收表逐条标注为人工设计评审，不冒充自动验收。解锁 `T4-SCHEDULE-UI-SYMBOL-CHROME`
+> （自估 850–1200 行，**开工前须先拆两张**）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`，**人裁合并**——8 轮 R3 / 13 条 finding 全部属实且全部当场修，轮次上限达顶后由用户裁定，八道确定性闸全绿、R3 未被唤起）。`context/DESIGN.md` 新增 `Symbol-only chrome` 具名节：领域值永不由字形单独承载 + 五条准入条件 + 准入不覆盖更严组件合同；四处治符号化控件的条款解析到它，计数与状态条款重写。OD-1 裁定 tooltip 要求按组件 anatomy 绑定，故相机 anatomy 未动；OD-2 裁定 `Settings` 目的地播报可行动的本机健康状态。**沿途关掉十一处基线既有 WCAG 1.4.1 缺口**（非本卡引入）：签名组件 evidence rail 在每项默认态 `UNRATED` 下complete/missing/blocked 仅靠颜色区分，`task-stepper` 的失败阶段无非颜色载体而它是 RESTORE/BACKUP/IMPORT/ERASE 四条流程的必需元素，另有 `summary-stat`/`metadata-row` 状态图标 optional 等。R4 25/25 变异全杀。**最贵的一条**：R3 第 5 轮拦下「把无障碍播报当作可见视觉线索的替代项」——播报服务屏幕阅读器、不解决色觉障碍的明眼用户，六轮本地对抗复核全部漏掉，只有第二模型评审抓到。遗留三项开卡 `T4-DESIGN-STATUS-CARRIERS`；本卡解锁 `T4-SCHEDULE-UI-PRESENTATION`。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-SNAPSHOT` 已合并（master `8fba92e3`，正式 R3 pass，用户批准一次计数重置）；不可变上下文、严格日期、Routine v2 绑定及未抑制目标初始未评级已交付，沿用原生房间标签与抑制规则。6 项本卡测试、983 core + 6 E2E 验证通过，4 项既有 Windows media 测试跳过；30 次有效行为变异覆盖 29 种故障。来源投影、确认与导入写入尚未交付。
+
+**2026-09-07 本地交付**：`T3-DOCX-CUSTOM-PROPERTIES` 已合并（master `b00bcbcd`，R3 pass）；94 项本卡测试、10 项最终源码变异通过。TD174 的固定自定义属性部件有界校验后丢弃已实现，源元数据不进入提取结果；未宣称完整私样导入或真机验收。
+
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
@@ -324,9 +517,8 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
-· `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
-`T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
+**当前已解锁待做**（按 depends_on 核对，2026-09-24）：前置均已合并的产品卡包括 `T1-APP-STORAGE-ANDROID`、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T1-LOCAL-DATA-SECURITY` 仍待 `T1-APP-STORAGE-ANDROID`（ADR-0006 的 2026-09-17 拆分）。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+`T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY`、`T1-LOCAL-DATA-SECURITY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
 block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**
@@ -468,11 +660,12 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
-
 22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
+
 23. `docs/adr/0008-compliance-update-trust.md` — 规则离线签名与信任根、版本/日期/恢复矩阵及用户决策证据；导入实现按 A1–A8 后续交付
 
 24. `docs/plans/PREREVIEW-REMOTE-ADOPTION.md` — prereview 最终契约、策略和 FACTS-LIB 的远端采纳边界与验证。
+25. `docs/PREREVIEW-PROTOCOL.md` — PR review v2 阶段 1a **建议性发现包**的人读协议：规范顺序、进包内容与两个 worker 各自可见面、worker 命令契约、记录/覆盖形状（契约本体 = `specs/prereview-record.schema.json`）、发现分类 C1–C7、20 个 `[PRE-…]` 状态码表（与 schema 枚举双向锚定）、首次真跑清单、link-r3/recall 与 1a 检查点；1b 只留状态码行 + 指针段。codex R3 仍是唯一合并闸、包不进其提示词
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
@@ -564,7 +757,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 > `scripts/lessons.ps1` 完整命令集：`add|archive|bump|check|list|promote|search`；本节超上限须淘汰最不活跃项回按需层。
 > **封顶的计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 Markdown bullet 包含 2 个驻留 id、
 > 占 2 个封顶单位；封顶要管的是驻留 id。判定核 `scripts/_lessons.ps1`，`lessons.ps1 check` 与心跳探针 5 共用。
-- **[L1] 并行工具批次**：只读诊断与写操作**分批**；首个命令非零退出会**连带取消整批**、丢失已写文件。
+- **[L309] 全称声称先逐例代入、再送评审**：往文档、注释、测试名或验收里写全称保证（every / never / 一律 / 不会越界 / 精确）时，先把受它管辖的既有实例和输入域边界值逐个代入核一遍，冲突的当场消解或显式豁免；数值类保证优先靠构造（守卫 + 钳位）并对编译产物实测。同一条声称连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞。
 - **[L165] 断言面必须恰好等于被测契约，并用「只删那一句」的变异证明它在测**：宽于契约的断言（整份 stdout ⊃ 判定行 · 本地化文案 ⊃ ASCII 哨兵 · 关键词出现次数 ⊃ 可执行命令行 · 任一非零 ⊃ 该守卫拦下）在契约还在时照样绿，契约被摘掉后又常因别的原因满足 ⇒ 静默失效。故：只比判定行 · 机检认 ASCII 哨兵（本地化文案只给人读，编码链一变即假红/假绿）· 文档契约锚到可执行命令行形态 · 「不符」用例要让被测那句**真被执行到**。**每道守卫配一枚单句删除变异，它红了才算数**。
 - **[L17] `.ps1` 一律用 PowerShell 工具，不用 Bash；经 Bash 传给任何解释器的字符串也别含字面反斜杠**：Bash 工具吞的是**任何**字符串里的反斜杠层级（引号 heredoc 也不例外——`scripts\review.ps1` 到达 Python 时 `\r` 已成回车，锚点静默失配），且控制台编码与 pwsh 不同源——后者会让 `selftest.ps1` 等中文断言脚本产出**假 FAIL**，连事后核验也会被误导；异常失败先用 PowerShell 工具重跑再下结论。
 - **[L97] 横切纪律行为化前先 grep 出全部权威面、一次性纳入 allow_paths**：改的是「所有面都在教的那条规则」时，教它的面（CLAUDE.md · README/操作手册 · skill · 脚本头注 · 架构图 · 各校验清单枚举）**一次扫齐再开卡**，并连同**改动文件自身的注释与卡 front-matter** 一起对齐——评审每轮只报当轮最刺眼的一处，漏一处就多打一轮。**扫描清单显式含本次 diff 改到的每个文件自身**（注释 + 失败/日志文案 + 总结行）；**失败文案不写死具体病因**（那是必然过时的正面陈述），能从现场数据动态报就动态报。这类卡 allow_paths 天然大，是横切的固有形态、非 scoping 失误；check-cards「>5 告警」对它是误报但不放宽阈值，在卡标题声明式扩尺寸即可。
@@ -592,7 +785,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 遇到反复出现/曾卡死的问题，先 `pwsh scripts\lessons.ps1 search <关键词>` 查经验；解决后 `add` 回总账。
 - **提交不加任何 `Co-Authored-By` / AI 署名**；commit message 只写改动本身（含敏感字样或多行走 `git commit -F`，见 L2）。
 - 不在仓库根/各处留生成物或临时文件：`.venv/`/`.pytest_cache/` 等已 gitignore；临时核验文件放 `.secrets/`（gitignored）用完即清。
-- 本项目唯一 AI 工具是 Claude Code（+ codex 评审）；`/init` 与 CLAUDE.md 审查时**跳过** Cursor/Copilot 规则检查（见 L12）。
+- 本项目的 AI 工具：Claude Code（开发助手）+ codex（R3 评审席，唯一合并闸）+ 自 PR review v2 阶段 1a 起两个**建议性发现包 worker**——Anthropic `claude` CLI 发现者（订阅 OAuth，读整个包含快照树）与 DeepSeek 透镜（`DEEPSEEK_API_KEY` 调用时读取，只收 prompt）；协议见 `docs/PREREVIEW-PROTOCOL.md`，出站信任面见 `docs/TRUST-MANIFEST.md`；`/init` 与 CLAUDE.md 审查时**跳过** Cursor/Copilot 规则检查（见 L12）。
 
 ## 模型分工与交接（Opus 想 / Sonnet 做）
 > 两个模型共用下面「工作准则 / 约定 / 经验铁律」，只是侧重不同——LLM 反复犯同样的错，靠这些规则拦住。
