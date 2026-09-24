@@ -1,7 +1,7 @@
 ---
 id: T1-LOCAL-DATA-SECURITY
 title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
-depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE, T1-APP-STORAGE-POLICY, T1-APP-STORAGE-ANDROID, T1-LOCAL-SECRET-BOX]
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE, T1-APP-STORAGE-POLICY, T1-APP-STORAGE-ANDROID, T1-LOCAL-SECRET-BOX, T1-LOCAL-SECRET-STORE]
 status: todo
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
@@ -15,7 +15,7 @@ forbid:
   - 运行期出站网络；修改冻结 SQLDelight schema/backup format；明文 secret/tenant data 写日志或系统备份
   - device-protected storage 存租客数据；hard-coded 绝对路径；卷不可用时静默写共享相册
   - 禁止未经授权的运行期出站网络、账号/RBAC、遥测；未经本卡 version review 不得改冻结 schema/backup format
-  - 修改前置 T1-LOCAL-SECRET-BOX 的信封格式、alias/AAD 隔离、状态映射或信封存储；新增 Gradle/runtime 依赖、Robolectric 或仪器测试框架；源码文本断言冒充平台行为
+  - 修改前置 T1-LOCAL-SECRET-BOX 的信封格式、alias/AAD 隔离与状态映射，或 T1-LOCAL-SECRET-STORE 的信封存储；新增 Gradle/runtime 依赖、Robolectric 或仪器测试框架；源码文本断言冒充平台行为
   - 探针触碰生产 alias 或生产信封文件、输出租客数据/路径/原始异常、卸载或清除既有应用数据、绕过设备锁
 non_goals:
   - SAF 备份写入/恢复状态机/口令 UX（T5-BACKUP-IO）；FileProvider/secure-window/network manifest（T1-SHARE-SCREEN-PRIVACY）
@@ -23,7 +23,7 @@ non_goals:
   - 生产装配（T1-APP-BOUNDARY-ASSEMBLY）；锁屏、凭据清除、key invalidation 的真机证据（T7-SMOKE-POLISH A7 清单）
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: app JVM 测试与 assemble 绿：AppStoragePolicy 把 DB/设置/回执/secret envelope/journal/staging 路由到 credential-encrypted internal/no-backup，把大媒体路由到 app-specific external 并显式返回卷不可用/低空间；Keystore-backed LocalSecretBox 只持久化 version/96-bit nonce/ciphertext+tag、key 不可导出且明文 buffer 尽力清零；同 key/purpose/plaintext 连续加密产生不同 nonce 与 ciphertext，修改 version、nonce、ciphertext 或 tag 均认证失败且不得返回明文，删除随机 nonce 或任一认证检查即 RED；alias/version/purpose 三维隔离夹具证明不同 purpose 或 version 的 envelope 交叉解密必拒绝，删除任一隔离维度即 RED；设备未解锁精确映射可重试 NEEDS_UNLOCK，缺失/失效 key、损坏 envelope、版本不支持或认证失败精确映射需用户重新输入的 NEEDS_PASSPHRASE，均保留旧回执、不降级明文且映射删除变异即 RED；SafeLog API/测试与现有 media 调用不接受/输出绝对路径、SAF URI、地址、姓名、备注、secret、Authorization 或 raw provider body。2026-09-25 三 PR 拆分后：上述 LocalSecretBox 的 JVM 可证部分由前置 T1-LOCAL-SECRET-BOX 交付，其测试在本卡 DoD 中继续运行；「Keystore-backed」与「key 不可导出」另须按 docs/local-secret-box-probe.md 在 API33 真机与 API35 模拟器实际执行候选 APK 的自验证探针，保存 APK/源码 pin、每条断言、退出码与对应变异证据。编译成功不代替平台验收。
+dod_assert: app JVM 测试与 assemble 绿：AppStoragePolicy 把 DB/设置/回执/secret envelope/journal/staging 路由到 credential-encrypted internal/no-backup，把大媒体路由到 app-specific external 并显式返回卷不可用/低空间；Keystore-backed LocalSecretBox 只持久化 version/96-bit nonce/ciphertext+tag、key 不可导出且明文 buffer 尽力清零；同 key/purpose/plaintext 连续加密产生不同 nonce 与 ciphertext，修改 version、nonce、ciphertext 或 tag 均认证失败且不得返回明文，删除随机 nonce 或任一认证检查即 RED；alias/version/purpose 三维隔离夹具证明不同 purpose 或 version 的 envelope 交叉解密必拒绝，删除任一隔离维度即 RED；设备未解锁精确映射可重试 NEEDS_UNLOCK，缺失/失效 key、损坏 envelope、版本不支持或认证失败精确映射需用户重新输入的 NEEDS_PASSPHRASE，均保留旧回执、不降级明文且映射删除变异即 RED；SafeLog API/测试与现有 media 调用不接受/输出绝对路径、SAF URI、地址、姓名、备注、secret、Authorization 或 raw provider body。2026-09-25 三 PR 拆分后：上述 LocalSecretBox 的 JVM 可证部分由前置 T1-LOCAL-SECRET-BOX 与 T1-LOCAL-SECRET-STORE 交付，其测试在本卡 DoD 中继续运行；「Keystore-backed」与「key 不可导出」另须按 docs/local-secret-box-probe.md 在 API33 真机与 API35 模拟器实际执行候选 APK 的自验证探针，保存 APK/源码 pin、每条断言、退出码与对应变异证据。编译成功不代替平台验收。
 requirements:
   - "R1 当现有媒体操作记录失败时，系统应仅输出已批准 operation/reason 与 opaque id/count/duration，不得输出完整路径、URI 或原始 Throwable。"
   - "R2 AndroidSecretKeys 实现前置的 SecretKeyPort 与 DeviceUnlockPort：在 AndroidKeyStore 中按前置给出的 alias 生成 AES-256、仅 ENCRYPT|DECRYPT、GCM/NoPadding、要求随机化加密的 key；alias 已存在时只读取、绝不重建（重建会让保留下来的旧 envelope 无法解封）；不要求用户认证、不设 unlocked-device-required，因为 ADR-0006 §3 要求 finalize 后和每周后台备份能解封，可用性与 CE 存储同为首次解锁之后；解锁状态取 UserManager.isUserUnlocked()；普通失败转固定消息且无 cause，致命 Error 按身份传播。"
@@ -83,3 +83,9 @@ SafeLog、存储策略与 Android 存储适配已由前置交付，生产装配�
 allow_paths 随之收窄为适配器、其 JVM 测试、debug 探针、debug 清单与探针复现说明；原 `platform/` 与 `media/` 目录级路径及 `build.gradle.kts` 不再需要（SafeLog 与媒体日志接线已由前置交付，本卡不新增依赖）。探针沿用 `T1-APP-STORAGE-ANDROID` 的方式：DUMP 权限限制的 debug Activity、run ID、候选 APK 与源文件 SHA 回执、host 逐条核验。预计 400–550 changed lines；`budget: 700`，超 800 先拆。
 
 不设 unlocked-device-required 是本次拆分写下的设计取舍：设置后，屏幕锁定时 key 不可用，每周后台备份多半在夜间锁屏时运行，会反复落入 NEEDS_UNLOCK，达不到 ADR-0006 §3 的周期保护目的；而首次解锁之后的攻击者若能以本 app 身份执行代码，本就能读取同在 CE 存储中的主库。NEEDS_UNLOCK 因此对应本次开机后用户尚未解锁（`UserManager.isUserUnlocked()` 为 false）；屏幕锁定本身不影响该 key。
+
+## 2026-09-25 预算拆分与待决问题
+
+用户裁定：`T1-LOCAL-SECRET-BOX` 经全新上下文预审补上七处测试缺口后约 836 行，超过其 `budget: 800`，原子信封存储连同其测试与原 R6/A6 移至新卡 `T1-LOCAL-SECRET-STORE`。交付顺序改为：卡片登记 → `T1-LOCAL-SECRET-BOX` → `T1-LOCAL-SECRET-STORE` → 本卡。
+
+待本卡开工时与用户裁定：同一预审指出，alias 下的 key 仍在但已不可用（如 Keystore blob 损坏）时，open 返回 `NeedsPassphrase(KEY_UNUSABLE)`，而用户重新输入口令后，seal 仍拿到同一把坏 key，永远 UNAVAILABLE，达不到 ADR-0006 §3 的重新验证。这与本卡 R2 的「alias 已存在时只读取、绝不重建」冲突；可选做法包括 seal 前对已存在 key 做一次自检、失败才重建，或提升 key 版本换新 alias。须先定取舍再写 RED。
